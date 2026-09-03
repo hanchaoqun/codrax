@@ -390,8 +390,11 @@ func decideVerificationTrackedDrift(parent context.Context, report *types.Change
 			if decision.class == types.VerificationWorktreeDriftDependencyLockfileRefresh {
 				owner := verificationDriftRosterEntry{runner: decision.ownerRunner, framework: decision.framework, suite: decision.suite, dirRel: decision.workingDir}
 				// The owner seat's launched-outcome facts (suite infra
-				// downgrade) come from the roster, never from the path.
-				owner.suiteInfraOutcome = rosterByKey[owner.key()].suiteInfraOutcome
+				// downgrade, non-zero exit) come from the roster, never
+				// from the path.
+				seat := rosterByKey[owner.key()]
+				owner.suiteInfraOutcome = seat.suiteInfraOutcome
+				owner.suiteExitFailed = seat.suiteExitFailed
 				lockfileOwners[owner.key()] = owner
 			}
 			continue
@@ -402,20 +405,30 @@ func decideVerificationTrackedDrift(parent context.Context, report *types.Change
 	}
 	sort.Strings(refusedPaths)
 	if len(refusedPaths) > 0 {
+		// The run is refused for the unclassified rows; no locked re-run
+		// is attempted, so every disclosed lockfile row carries the typed
+		// unproven_run_refused state (finding A) — never the zero value,
+		// which would render byte-identical to a proven row.
+		for i := range audit.Effects {
+			if audit.Effects[i].DriftClass == types.VerificationWorktreeDriftDependencyLockfileRefresh {
+				audit.Effects[i].LockfileFixedPoint = types.VerificationLockfileFixedPointUnprovenRunRefused
+			}
+		}
 		audit.Status = types.VerificationWorktreeAuditTrackedDrift
 		audit.ReasonCode = verificationWorktreeTrackedDriftReason
 		report.WorktreeAudit = audit
 		markVerificationTrackedWorktreeDrift(report, audit) // detail lists refused rows only (helper filters Disposition)
 		return
 	}
-	// Every row is disclosed-class: prove lockfile fixed points. The gate is
-	// "report.Passed and the owner's suite was not infra-downgraded" (not
-	// "status == passed"): a failing suite would fail its locked re-run for
-	// its own reasons and keeps its own kind/summary; a suite the supervisor
-	// killed would only die again under the same caps, so its fixed point is
-	// left UNPROVEN and disclosed; a Passed zero-test report runs the cheap
-	// lockfile-only witness. verificationLockedReverifyRecordForOwner owns
-	// the decision and the typed fixed-point state each row carries.
+	// Every row is disclosed-class: prove lockfile fixed points. The gate
+	// reads the OWNER SEAT's typed facts (infra outcome first, then its own
+	// non-zero exit), never the report-level verdict: a seat the supervisor
+	// killed would only die again under the same caps (fixed point left
+	// UNPROVEN, disclosed); a seat whose suite failed keeps its own kind and
+	// summary; a seat that exited 0 runs the cheap locked witness even when
+	// the report is not Passed for coverage reasons or has zero tests.
+	// verificationLockedReverifyRecordForOwner owns the decision and the
+	// typed fixed-point state each row carries.
 	keys := make([]string, 0, len(lockfileOwners))
 	for key := range lockfileOwners {
 		keys = append(keys, key)
@@ -424,7 +437,7 @@ func decideVerificationTrackedDrift(parent context.Context, report *types.Change
 	failedOwners := map[string]bool{}
 	fixedPoints := map[string]types.VerificationLockfileFixedPoint{}
 	for _, key := range keys {
-		record, fixedPoint := verificationLockedReverifyRecordForOwner(report, in, baseline.root, lockfileOwners[key])
+		record, fixedPoint := verificationLockedReverifyRecordForOwner(in, baseline.root, lockfileOwners[key])
 		audit.LockedReverify = append(audit.LockedReverify, record)
 		fixedPoints[key] = fixedPoint
 		if fixedPoint == types.VerificationLockfileFixedPointDisproven {

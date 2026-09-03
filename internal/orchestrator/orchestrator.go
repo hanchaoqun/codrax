@@ -352,6 +352,10 @@ type Orchestrator struct {
 	// without changing the typical-case behaviour.
 	finalizeRepairHardCap int
 
+	// clusterClosureExitAdvisoryLogged (§40.43 R1) latches the once-per-
+	// Orchestrator reachability advisory (finalize_repair_hard_cap.go).
+	clusterClosureExitAdvisoryLogged bool
+
 	// exhaustiveDeterministicReviewThreshold (2026-05-16) is the
 	// principal-member-count above which the deterministic
 	// exhaustive member-set reviewer replaces self-consistency +
@@ -1296,33 +1300,6 @@ func (o *Orchestrator) strictAnswerReviewEnabledValue() bool {
 		return true
 	}
 	return !o.strictAnswerReviewDisabled
-}
-
-// FinalizeRepairHardCapDefault is the conservative default cap on
-// finalize-stage repair-loop iterations. P6 (2026-05-10): 2 means
-// "after two repair attempts the answer ships with a residual-
-// concerns caveat instead of a third LLM round".
-const FinalizeRepairHardCapDefault = 2
-
-// SetFinalizeRepairHardCap installs the operator-tunable hard cap.
-// 0 (or out-of-range) → FinalizeRepairHardCapDefault.
-func (o *Orchestrator) SetFinalizeRepairHardCap(n int) {
-	if o == nil {
-		return
-	}
-	if n <= 0 {
-		n = FinalizeRepairHardCapDefault
-	}
-	o.finalizeRepairHardCap = n
-}
-
-// finalizeRepairHardCapValue returns the effective cap, falling
-// back to FinalizeRepairHardCapDefault when the field is unset.
-func (o *Orchestrator) finalizeRepairHardCapValue() int {
-	if o == nil || o.finalizeRepairHardCap <= 0 {
-		return FinalizeRepairHardCapDefault
-	}
-	return o.finalizeRepairHardCap
 }
 
 // SetExhaustiveDeterministicReviewThreshold installs the operator-
@@ -3949,172 +3926,6 @@ func writeWorkflowArtifactFileStem(id string) string {
 	return strings.Trim(b.String(), ".")
 }
 
-// renderVerifyFailure builds the Mutable.Result message for a
-// verify-stage failure. Three blocks, each at most a few lines:
-//
-//  1. Header — plain language ("测试未通过" / "Tests did not pass"),
-//     no internal "Verify" jargon.
-//  2. Reason — exactly ONE source: report.FailureSummary if non-
-//     empty, else the agent-side message with the "verify failed: "
-//     prefix stripped, else a count-only fallback. Capped at
-//     verifyFailureSummaryMaxChars so a multi-megabyte stderr dump
-//     cannot drown the rest of the prompt.
-//  3. Failing test list — only when failing test names add
-//     information beyond the summary. Skipped entirely when every
-//     failing test name already appears verbatim in the summary
-//     (otherwise the user reads the same names twice). Capped at
-//     verifyFailureMaxNamesShown.
-//  4. Next step — one short sentence pointing at the retry path.
-//
-// Pre-2026-04-30 this rendered as: "Verify FAILED" header + the full
-// summary + the literal "agentError" (which started with the same
-// summary again as a "verify failed: ..." prefix, so users saw the
-// reason printed twice) + a 10-name list (which usually duplicated
-// names already in the summary) + a tip. Three sources of the same
-// reason in one block.
-func renderVerifyFailure(report *types.ChangeReport, agentError, lang string) string {
-	zh := isLangZh(lang)
-	var b strings.Builder
-
-	// Header — uses the same "did not pass" wording as the stage
-	// row's failed phrase so the inline message and the dock label
-	// agree.
-	if zh {
-		b.WriteString("## 测试未通过\n\n")
-	} else {
-		b.WriteString("## Tests did not pass\n\n")
-	}
-
-	// Reason — single source, capped.
-	reason := strings.TrimSpace(verifyFailureReason(report, agentError))
-	if reason != "" {
-		if len([]rune(reason)) > verifyFailureSummaryMaxChars {
-			rs := []rune(reason)
-			reason = string(rs[:verifyFailureSummaryMaxChars]) + "…"
-		}
-		b.WriteString(reason)
-		b.WriteString("\n\n")
-	}
-
-	// Failing test list — skipped when redundant with the reason.
-	if report != nil {
-		failedNames := failingAssertionNames(report.TestResults)
-		if len(failedNames) > 0 && !reasonNamesEveryFailure(reason, failedNames) {
-			shown := failedNames
-			if len(shown) > verifyFailureMaxNamesShown {
-				shown = shown[:verifyFailureMaxNamesShown]
-			}
-			if zh {
-				fmt.Fprintf(&b, "失败测试: %s", strings.Join(shown, ", "))
-				if len(failedNames) > len(shown) {
-					fmt.Fprintf(&b, " (还有 %d 个)", len(failedNames)-len(shown))
-				}
-				b.WriteString("\n\n")
-			} else {
-				fmt.Fprintf(&b, "Failing tests: %s", strings.Join(shown, ", "))
-				if len(failedNames) > len(shown) {
-					fmt.Fprintf(&b, " (+%d more)", len(failedNames)-len(shown))
-				}
-				b.WriteString("\n\n")
-			}
-		}
-	}
-
-	// Next step — one short line.
-	if zh {
-		b.WriteString("下一步:`/mode write` 后再发请求,失败上下文会自动带进去。")
-	} else {
-		b.WriteString("Next: `/mode write` and re-send the request; failure context is carried in automatically.")
-	}
-	return b.String()
-}
-
-// verifyFailureSummaryMaxChars caps the runner stderr / failure
-// summary the user sees inline. Anything past this is truncated with
-// "…" — the full content stays in .codrax/plans/<id>.report.json.
-// 800 runes is roughly 12-15 visual lines at typical widths, enough
-// for a panic + 5 stack frames or 3 assertion explanations.
-const verifyFailureSummaryMaxChars = 800
-
-// verifyFailureMaxNamesShown caps the "Failing tests: a, b, c" list.
-// 5 is enough to disambiguate without overwhelming when the runner
-// emitted dozens of test names.
-const verifyFailureMaxNamesShown = 5
-
-// verifyFailureReason picks ONE source for the inline failure
-// reason. Priority:
-//
-//  1. report.FailureSummary — already curated by the runner parser.
-//  2. agentError minus the "verify failed: " prefix (which is the
-//     verifier's structural wrapper around (1); when (1) is empty
-//     this fallback at least carries the count line).
-//  3. Count fallback — N test(s) failed.
-//  4. Empty.
-//
-// Splitting these three sources into a helper makes the dedup
-// rule above ("don't append a redundant test list") readable and
-// individually unit-testable.
-func verifyFailureReason(report *types.ChangeReport, agentError string) string {
-	if report != nil && strings.TrimSpace(report.FailureSummary) != "" {
-		return report.FailureSummary
-	}
-	clean := strings.TrimSpace(agentError)
-	clean = strings.TrimPrefix(clean, "verify failed: ")
-	if clean != "" {
-		return clean
-	}
-	if report != nil {
-		failed := 0
-		for _, r := range report.TestResults {
-			if !r.Passed {
-				failed++
-			}
-		}
-		if failed > 0 {
-			return fmt.Sprintf("%d test(s) failed", failed)
-		}
-	}
-	return ""
-}
-
-// failingAssertionNames returns the AssertionIDs of failing tests
-// in the order they appear in the report. Empty slice when nothing
-// failed. Helper so the dedup check below operates on a clean list
-// without re-walking TestResults at every comparison.
-func failingAssertionNames(results []types.TestResult) []string {
-	var names []string
-	for _, r := range results {
-		if r.Passed {
-			continue
-		}
-		if r.AssertionID != "" {
-			names = append(names, r.AssertionID)
-		}
-	}
-	return names
-}
-
-// reasonNamesEveryFailure reports whether every failing assertion
-// name already appears verbatim in the reason text. When true, the
-// caller should skip the explicit "Failing tests: ..." list because
-// it would repeat names the user just read in the summary.
-//
-// Conservative: requires every name to be present (any one missing
-// → the list adds information and should be shown). Substring
-// match because some runner summaries embed names in larger
-// context like "FAIL: TestX (0.02s)".
-func reasonNamesEveryFailure(reason string, names []string) bool {
-	if reason == "" || len(names) == 0 {
-		return false
-	}
-	for _, n := range names {
-		if !strings.Contains(reason, n) {
-			return false
-		}
-	}
-	return true
-}
-
 // renderChangePlanSummary formats a ChangePlan as a human-readable
 // multi-line string suitable for the REPL or single-shot stdout.
 // Day 5 ships a deliberately simple format (markdown-adjacent) —
@@ -4535,6 +4346,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	// across the task boundary.
 	o.busCtx.Signals = types.ExecutionSignals{}
 	o.busCtx.TaskState.Missing = types.MissingFacts
+	// §40.43 R1 advisory (once): are the finalize-loop caps ordered so the
+	// cluster-closure fail-loud exit can ever fire? Log line only.
+	o.logClusterClosureExitReachabilityOnce()
 
 	// Single-shot guard for the completion-obligation lane (one
 	// bounded emit-only dispatch per Run; see
@@ -6317,17 +6131,15 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// next dispatch's prompt clean.
 		// R2.2: pass the per-Run downgrade counter so the picker
 		// can prefer FinalizerOnly until the budget is exhausted.
-		// G1 (post_v2_runtime_gap_remediation, 2026-05-04): route
-		// through AdvanceRepairExecutionPlan which persists the
-		// dispatch-ready owner queue across retries — when the prev
-		// owner closes its cluster, the next-shallower owner
-		// activates without re-running BuildRepairPlan from scratch.
-		// Behaviour is byte-equivalent to FallbackTargetForViolationsWithBudget
-		// on the FIRST failed dispatch (initial Build); subsequent
-		// retries advance through the queue when fresh violations
-		// are a strict subset of the previous set. The legacy
-		// pickers (FallbackTargetForViolations / WithBudget) remain
-		// for back-compat callers + tests.
+		// G1 (post_v2_runtime_gap_remediation, 2026-05-04) routed
+		// through AdvanceRepairExecutionPlan; §40.43 R1 (fold-in round
+		// three) narrowed the persisted plan to cluster-stability
+		// accounting plus the stuck-cluster fail-loud backstop. The
+		// dispatch target is rebuilt every round from the fresh
+		// actionable violations and equals
+		// FallbackTargetForViolationsWithBudget by construction
+		// (pinned by TestAdvanceRepairExecutionPlan_DispatchAgreesWithBudgetPicker);
+		// StableAttempts carry over across rebuilds by cluster key.
 		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "repair_plan")
 		execPlan, fallback, preDowngrade := AdvanceRepairExecutionPlan(o.busCtx.Mutable, retryRes.Violations, finalizerLocalRetriesUsed)
 		if o.finishSchedulerLocalWork(stopLocal, "repair_plan", stepsUsed) {
@@ -6372,6 +6184,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			})
 		}
 		_ = capReached
+		// One retry-attempt ordinal for every arm below (R14-c3): each arm
+		// populates the retry state from it BEFORE its Mutable reset
+		// (per-arm order pinned by TestRunReadSchedulerLoop_FallbackArmsPopulateBeforeReset).
+		retryPrevAttempt := retryStateAttempt(o.busCtx.Mutable)
 		switch fallback {
 		case FallbackFailLoud:
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
@@ -6386,13 +6202,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// so the next dispatch's BuildInitialInstruction sees the
 			// prev emit + active violations. Reset clears AnswerDocV2,
 			// so this MUST happen first.
-			if o.busCtx != nil && o.busCtx.Mutable != nil {
-				prevAttempt := 0
-				if rs := o.busCtx.Mutable.RetryState(); rs != nil {
-					prevAttempt = rs.Attempt
-				}
-				populateRetryState(o.busCtx.Mutable, retryRes, prevAttempt)
-			}
+			populateRetryState(o.busCtx.Mutable, retryRes, retryPrevAttempt)
 			// S3' ④: arm ONCE against the retained first draft (baselines
 			// snapshot before ResetForFallback clears the live doc).
 			// Upstream fallbacks never arm: fresh evidence reshapes answers.
@@ -6410,13 +6220,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			lastFallbackFinalizerOnly = true
 		case FallbackBackToExtract:
 			// R14-c3: populate retry-state BEFORE Mutable reset.
-			if o.busCtx != nil && o.busCtx.Mutable != nil {
-				prevAttempt := 0
-				if rs := o.busCtx.Mutable.RetryState(); rs != nil {
-					prevAttempt = rs.Attempt
-				}
-				populateRetryState(o.busCtx.Mutable, retryRes, prevAttempt)
-			}
+			populateRetryState(o.busCtx.Mutable, retryRes, retryPrevAttempt)
 			requeued := state.requeueToStage(types.StageExtract, false)
 			state.requeue(fin.ID)
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
@@ -6430,13 +6234,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			lastFallbackFinalizerOnly = false
 		case FallbackBackToExplore:
 			// R14-c3: populate retry-state BEFORE Mutable reset.
-			if o.busCtx != nil && o.busCtx.Mutable != nil {
-				prevAttempt := 0
-				if rs := o.busCtx.Mutable.RetryState(); rs != nil {
-					prevAttempt = rs.Attempt
-				}
-				populateRetryState(o.busCtx.Mutable, retryRes, prevAttempt)
-			}
+			populateRetryState(o.busCtx.Mutable, retryRes, retryPrevAttempt)
 			requeued := state.requeueToStage(types.StageExplore, false)
 			requeuedExtract := state.requeueToStage(types.StageExtract, false)
 			state.requeue(fin.ID)
@@ -6445,6 +6243,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				logging.Info("[orchestrator] selective fallback explore: requeued=%v requeued_extract=%v cleared=%v backtrack_epoch=%d completion_generation=%d",
 					requeued, requeuedExtract, cleared, o.busCtx.Mutable.ExploreBacktrackEpoch(), o.busCtx.Mutable.InvestigationCompleteGeneration())
 			}
+			// §40.43 R2: the accepted-closure signal is a per-generation
+			// carrier — every accepted-closure exit raises it and nothing
+			// cleared it on this backtrack, so the requeued reconcile node's
+			// signal door stayed open on the pre-backtrack state while the
+			// veto was in force. The explorer re-earns it on its fresh
+			// completion through the existing writers (census reset site:
+			// hard_arm_mutable_carrier_census_test.go, kind "signal").
+			o.busCtx.Signals.HasEnoughFacts = false
 			// Contract backtrack: the answer slate was cleared, fresh
 			// evidence will reshape the closure — allow completion reset.
 			pendingCompletionReset = true
@@ -6453,7 +6259,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			lastFallbackFinalizerOnly = false
 		default:
 			// Unrecognised target — degrade to FinalizerOnly so
-			// retries always make progress.
+			// retries always make progress (R14-c3 order holds here too).
+			populateRetryState(o.busCtx.Mutable, retryRes, retryPrevAttempt)
 			state.requeue(fin.ID)
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)

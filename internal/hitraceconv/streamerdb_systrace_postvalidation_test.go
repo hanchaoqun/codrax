@@ -71,26 +71,52 @@ func TestOwnedTraceDBTextRecordSequenceV2PinsBlocksAndRejectsMixedCarrier(t *tes
 		}
 	}
 	var sequence ownedTraceDBTextRecordSequence
-	if !sequence.observe(blockEvent(1, schema, row)) ||
-		!sequence.observe(blockEvent(2, receipt)) ||
+	if sequence.observe(blockEvent(1, schema, row)) != ownedTraceDBRecordSequenceAccepted ||
+		sequence.observe(blockEvent(2, receipt)) != ownedTraceDBRecordSequenceAccepted ||
 		!sequence.complete(2) {
 		t.Fatalf("valid v2 block sequence rejected: %+v", sequence)
 	}
 
 	var skippedBlock ownedTraceDBTextRecordSequence
-	if skippedBlock.observe(blockEvent(2, schema)) {
+	if skippedBlock.observe(blockEvent(2, schema)) != ownedTraceDBRecordSequenceContractBreak {
 		t.Fatal("v2 sequence admitted a noncontiguous first block")
 	}
 
 	var mixed ownedTraceDBTextRecordSequence
-	if !mixed.observe(blockEvent(1, schema)) ||
+	if mixed.observe(blockEvent(1, schema)) != ownedTraceDBRecordSequenceAccepted ||
 		mixed.observe(tracequery.Event{
 			Type: tracequery.EventTraceDBRecord,
 			PluginFields: &tracequery.PluginFields{
 				TraceDBRecord: &row,
 			},
-		}) {
+		}) != ownedTraceDBRecordSequenceContractBreak {
 		t.Fatal("v2 sequence admitted a physical v1 carrier after v2 began")
+	}
+
+	// §40.43 F-carrier-2 G: the verdict is a closed set with precise arms — an
+	// ordinary row before the suffix is accepted, the same row after the
+	// suffix began is a foreign row (not a record contract break), and the
+	// unset zero value never admits.
+	ordinary := tracequery.Event{Type: tracequery.EventSchedWakeup, Name: "sched_wakeup"}
+	var ordered ownedTraceDBTextRecordSequence
+	if ordered.observe(ordinary) != ownedTraceDBRecordSequenceAccepted ||
+		ordered.observe(blockEvent(1, schema, row, receipt)) != ownedTraceDBRecordSequenceAccepted ||
+		ordered.observe(ordinary) != ownedTraceDBRecordSequenceForeignRow {
+		t.Fatalf("ordinary-row verdicts drifted: %+v", ordered)
+	}
+	for _, tc := range []struct {
+		verdict  ownedTraceDBRecordSequenceVerdict
+		wantKind TraceEventInvalidKind
+		refused  bool
+	}{
+		{verdict: ownedTraceDBRecordSequenceAccepted, wantKind: "", refused: false},
+		{verdict: ownedTraceDBRecordSequenceForeignRow, wantKind: TraceEventInvalidTraceDBRecordSequenceForeignRow, refused: true},
+		{verdict: ownedTraceDBRecordSequenceContractBreak, wantKind: TraceEventInvalidTraceDBRecordSequence, refused: true},
+		{verdict: ownedTraceDBRecordSequenceUnset, wantKind: TraceEventInvalidTraceDBRecordSequence, refused: true},
+	} {
+		if kind, refused := tc.verdict.refusalKind(); kind != tc.wantKind || refused != tc.refused {
+			t.Fatalf("verdict %d → kind=%q refused=%t, want kind=%q refused=%t", tc.verdict, kind, refused, tc.wantKind, tc.refused)
+		}
 	}
 }
 

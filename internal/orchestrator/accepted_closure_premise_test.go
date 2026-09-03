@@ -28,6 +28,11 @@ func TestAcceptedClosurePremise_SharedByExploreWindowAndReconcileConsumers(t *te
 			m.ResetInvestigationComplete()
 		}, want: false},
 		{name: "fresh completion consumes the veto", arm: func(m *types.MutableState) { m.SetInvestigationComplete("fresh") }, want: true},
+		// §40.43 R3 F: live flag false, retained reason present, NO veto —
+		// the premise holds on the retained mark. A consumer gating on
+		// IsInvestigationComplete() alone reads false here; a consumer that
+		// ignores the premise result reads true at the bound-backtrack step.
+		{name: "retained reason without veto", arm: func(m *types.MutableState) { m.ResetInvestigationComplete() }, want: true},
 		{name: "unbound finalizer retry state never vetoes", arm: func(m *types.MutableState) {
 			m.SetRetryState(&types.RetryState{Attempt: 2, LastPrimaryOwner: string(LocusFinalizer),
 				ActiveViolations: exploreOwnedRetryState().ActiveViolations})
@@ -41,6 +46,9 @@ func TestAcceptedClosurePremise_SharedByExploreWindowAndReconcileConsumers(t *te
 	}}
 	for _, s := range steps {
 		s.arm(mut)
+		if s.name == "retained reason without veto" && (mut.IsInvestigationComplete() || mut.StableInvestigationCompleteReason() == "" || acceptedClosureHasActiveExploreContractBacktrack(mut)) {
+			t.Fatal("fixture: the step must present flag=false, retained reason, no veto")
+		}
 		_, premise := o.acceptedClosurePremise()
 		window := o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "")
 		reconcile := o.acceptedClosureCanSatisfyReconcileEnoughFacts()

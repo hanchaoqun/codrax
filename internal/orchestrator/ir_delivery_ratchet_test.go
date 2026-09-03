@@ -30,7 +30,20 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// reconcile-node auto-complete arm into accepted_closure_reconcile.go
 		// and the shared accepted-closure premise into
 		// accepted_closure_premise.go (own budgets below).
-		{path: "orchestrator.go", maxLines: 9018},
+		// Tightened 9018→8993 after §40.43 R1/R2 (fold-in round three) moved
+		// the P6 finalize repair hard cap trio into
+		// finalize_repair_hard_cap.go (own budget below) and folded the
+		// three duplicated populateRetryState prologues of the fallback
+		// arms into one retryStateAttempt read.
+		// Tightened 8993→8827 after the F-run-tests round-three fold-in
+		// (§40.36 finding F) moved renderVerifyFailure and its helpers into
+		// write_verify_failure_render.go (own budget below) so the failure
+		// outcome renders the shared worktree-audit note.
+		{path: "orchestrator.go", maxLines: 8827},
+		// §40.43 R1: the P6 hard cap and the cluster-closure exit
+		// reachability advisory.
+		{path: "finalize_repair_hard_cap.go", maxLines: 110},
+		{path: "write_verify_failure_render.go", maxLines: 190},
 		// F14: the reconcile auto-complete arm and the single accepted-closure
 		// premise shared by both auto-complete consumers.
 		{path: "accepted_closure_reconcile.go", maxLines: 130},

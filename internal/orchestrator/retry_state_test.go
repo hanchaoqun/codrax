@@ -333,7 +333,7 @@ func TestContractViolationSeverityCountsUsesSoftPolicy(t *testing.T) {
 func TestPopulateRetryState_PrimaryOwnerTracking(t *testing.T) {
 	mut := &types.MutableState{}
 
-	// Attempt 1: SubjectAnchorMissing → owner=extract, stability=1.
+	// Attempt 1: SubjectAnchorMissing → owner=extract (no stability counter here — see EVOLUTION RECORD).
 	res1 := contract.Result{
 		Passed: false,
 		Violations: []contract.Violation{

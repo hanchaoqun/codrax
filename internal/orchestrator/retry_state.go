@@ -82,6 +82,19 @@ func populateRetryState(mut *types.MutableState, res contract.Result, prevAttemp
 	mut.SetRetryState(rs)
 }
 
+// retryStateAttempt returns the attempt ordinal of the live RetryState
+// (0 when none) — the prevAttempt every fallback arm hands to
+// populateRetryState.
+func retryStateAttempt(mut *types.MutableState) int {
+	if mut == nil {
+		return 0
+	}
+	if rs := mut.RetryState(); rs != nil {
+		return rs.Attempt
+	}
+	return 0
+}
+
 // deepestPrimaryKind returns the Primary.Kind of the deepest cluster
 // in plan.Clusters (the cluster that drives PrimaryOwner). Empty
 // when the plan has no clusters. Helper for populateRetryState.

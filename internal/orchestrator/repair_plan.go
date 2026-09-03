@@ -93,16 +93,16 @@ type RepairPlan struct {
 //
 // Algorithm (deterministic):
 //
-//   1. groupByDispatch(vs) → map[DispatchID][]Violation.
-//   2. For each group:
-//      a. matchRule(group) → (rule, ok). On match, the violation
-//         whose Kind == rule.Primary is the cluster Primary; every
-//         violation whose Kind ∈ rule.Derived joins as Derived.
-//      b. Violations not covered by any rule become singleton
-//         clusters (their own Primary, empty Derived).
-//   3. PrimaryOwner = deepest of the per-cluster Owners. FailLoud
-//      (LocusTerminal) wins outright if present (failure-of-last-
-//      resort red line, mirrors FallbackTargetForViolations).
+//  1. groupByDispatch(vs) → map[DispatchID][]Violation.
+//  2. For each group:
+//     a. matchRule(group) → (rule, ok). On match, the violation
+//     whose Kind == rule.Primary is the cluster Primary; every
+//     violation whose Kind ∈ rule.Derived joins as Derived.
+//     b. Violations not covered by any rule become singleton
+//     clusters (their own Primary, empty Derived).
+//  3. PrimaryOwner = deepest of the per-cluster Owners. FailLoud
+//     (LocusTerminal) wins outright if present (failure-of-last-
+//     resort red line, mirrors FallbackTargetForViolations).
 //
 // Returned plan is safe for telemetry serialization (no internal
 // pointers).
@@ -171,10 +171,10 @@ func BuildRepairPlan(vs []types.Violation) RepairPlan {
 //
 // Process:
 //
-//   Repeatedly try matchRule on the remaining (unassigned) group.
-//   On match, peel off Primary + every present Derived into a
-//   cluster, mark them assigned. When no rule matches, every
-//   remaining violation becomes a singleton cluster.
+//	Repeatedly try matchRule on the remaining (unassigned) group.
+//	On match, peel off Primary + every present Derived into a
+//	cluster, mark them assigned. When no rule matches, every
+//	remaining violation becomes a singleton cluster.
 //
 // This handles multi-rule scenarios within one dispatch (e.g. a
 // SubjectAnchorMissing cluster + an independent ChainDemoted

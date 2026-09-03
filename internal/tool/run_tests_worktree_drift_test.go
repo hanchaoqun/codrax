@@ -321,6 +321,10 @@ func TestRunnerSideEffectManifestCensus(t *testing.T) {
 
 // A failing primary report never triggers the locked re-run and never has its
 // own failure kind overwritten by the lockfile lane.
+// EVOLUTION RECORD (§40.36 三轮收编, finding B): the locked re-verify
+// decision keys on the OWNER SEAT's typed facts, not on report.Passed — the
+// failing suite is represented by its real non-zero exit (cargo exits 101 on
+// a failed test), which is what marks the seat failed.
 func TestVerificationWorktreeAuditFailedReportSkipsLockedReverify(t *testing.T) {
 	root := driftRepoWithFiles(t, map[string]string{"Cargo.lock": "v1\n"})
 	baseline := captureVerificationWorktreeSnapshot(context.Background(), root)
@@ -329,7 +333,8 @@ func TestVerificationWorktreeAuditFailedReportSkipsLockedReverify(t *testing.T) 
 	stubLockedReverify(t, verificationLockedReverifyResult{ExitCode: 101}, &calls)
 	report := &types.ChangeReport{Passed: false, FailureKind: types.FailureKindTestsFailed, FailureReasonCode: "tests_failed", FailureSummary: "2 tests failed",
 		TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "t", Suite: "project", Passed: false}}}
-	attachVerificationWorktreeAudit(context.Background(), report, baseline, root, driftInput(root, nil, executedRunner("rust", ".")))
+	failedSeat := types.ExecutedCommand{Runner: "rust", WorkingDir: ".", Outcome: types.ExecutedCommandOutcomeExecuted, ExitCode: 101}
+	attachVerificationWorktreeAudit(context.Background(), report, baseline, root, driftInput(root, nil, failedSeat))
 	audit := report.WorktreeAudit
 	if len(calls) != 0 || report.FailureKind != types.FailureKindTestsFailed || report.FailureReasonCode != "tests_failed" || report.FailureSummary != "2 tests failed" {
 		t.Fatalf("a failing suite must keep its own failure and never re-run locked: calls=%d report=%+v", len(calls), report)

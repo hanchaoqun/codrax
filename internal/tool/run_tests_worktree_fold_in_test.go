@@ -123,8 +123,8 @@ func TestVerificationWorktreeAuditInfraDowngradedSuiteLeavesLockfileFixedPointUn
 
 // F4: a Passed report with zero executed tests (NoTestsRunners) is still a
 // passing report — the locked re-run is a cheap lockfile-only witness and
-// executes; the gate is report.Passed, not status==passed. A failed report
-// keeps the accurate skipped_report_failed label with its typed fixed point.
+// executes (the seat exited 0). A seat whose own suite failed keeps the
+// accurate skipped_report_failed label with its typed fixed point.
 func TestVerificationWorktreeAuditPassedZeroTestReportRunsLockedReverify(t *testing.T) {
 	root := driftRepoWithFiles(t, map[string]string{"Cargo.lock": "v1\n"})
 	baseline := captureVerificationWorktreeSnapshot(context.Background(), root)
@@ -144,14 +144,17 @@ func TestVerificationWorktreeAuditPassedZeroTestReportRunsLockedReverify(t *test
 		t.Fatalf("proven fixed point expected: report=%+v audit=%+v", report, audit)
 	}
 
-	// Accurate label: only a report that actually failed is skipped_report_failed.
+	// Accurate label: only a seat whose own suite failed (non-zero exit) is
+	// skipped_report_failed (EVOLUTION RECORD §40.36 三轮收编 finding B: the
+	// decision keys on the seat, so the failing suite carries cargo's exit 101).
 	root = driftRepoWithFiles(t, map[string]string{"Cargo.lock": "v1\n"})
 	baseline = captureVerificationWorktreeSnapshot(context.Background(), root)
 	writeVerificationWorktreeFile(t, root, "Cargo.lock", "v2\n")
 	calls = nil
 	failed := &types.ChangeReport{Passed: false, FailureKind: types.FailureKindTestsFailed, FailureReasonCode: "tests_failed",
 		TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "t", Suite: "project", Passed: false}}}
-	attachVerificationWorktreeAudit(context.Background(), failed, baseline, root, driftInput(root, nil, executedRunner("rust", ".")))
+	failedSeat := types.ExecutedCommand{Runner: "rust", WorkingDir: ".", Outcome: types.ExecutedCommandOutcomeExecuted, ExitCode: 101}
+	attachVerificationWorktreeAudit(context.Background(), failed, baseline, root, driftInput(root, nil, failedSeat))
 	if len(calls) != 0 || failed.WorktreeAudit.LockedReverify[0].Outcome != types.VerificationLockedReverifySkippedReportFailed ||
 		failed.WorktreeAudit.Effects[0].LockfileFixedPoint != types.VerificationLockfileFixedPointUnprovenReportFailed {
 		t.Fatalf("a failed report keeps skipped_report_failed with the typed unproven state: calls=%d audit=%+v", len(calls), failed.WorktreeAudit)

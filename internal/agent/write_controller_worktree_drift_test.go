@@ -10,6 +10,10 @@ import (
 // write_controller_worktree_drift_test.go — V5-2 (§40.36): the controller's
 // effect lines carry the typed drift class and disposition so the planner
 // is never asked to "fix" a disclosed lockfile.
+//
+// EVOLUTION RECORD (§40.36 三轮收编, finding E): the line is now the shared
+// types.WriteContextWorktreeEffectText — typed tokens first, `path=` LAST —
+// so the pinned substring moved the path to the end.
 func TestWriteControllerPromptCarriesDriftClassAndDisposition(t *testing.T) {
 	mut := types.NewMutableState("verify with disclosed drift")
 	mut.SetChangePlan(&types.ChangePlan{ID: "plan-drift", Status: types.PlanStatusApplied})
@@ -28,7 +32,7 @@ func TestWriteControllerPromptCarriesDriftClassAndDisposition(t *testing.T) {
 	got := (&writeControllerEvaluator{}).BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
 	for _, want := range []string{
 		"verification_worktree_audit: status=tracked_drift_disclosed",
-		"verification_worktree_effect: path=Cargo.lock kind=tracked_changed ownership=git_tracked action=disclosed_not_committed_not_auto_reverted drift_class=dependency_lockfile_refresh disposition=disclosed",
+		"verification_worktree_effect: kind=tracked_changed ownership=git_tracked action=disclosed_not_committed_not_auto_reverted drift_class=dependency_lockfile_refresh disposition=disclosed owner_runner=rust path=Cargo.lock\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("controller prompt lost %q:\n%s", want, got)

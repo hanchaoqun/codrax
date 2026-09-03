@@ -400,7 +400,7 @@ func verificationProbeLanguageTargetMismatchResult(
 		Framework:  lang,
 		WorkingDir: workingDir,
 		Source:     source,
-		Outcome:    "probe_config_error",
+		Outcome:    types.ExecutedCommandOutcomeProbeConfigError,
 		ReasonCode: verificationProbeLanguageTargetMismatchReasonCode,
 	}
 	diagnostic := types.VerificationDiagnostic{
@@ -469,7 +469,7 @@ func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 				Framework:  lang,
 				WorkingDir: rel,
 				Source:     source,
-				Outcome:    "probe_config_error",
+				Outcome:    types.ExecutedCommandOutcomeProbeConfigError,
 			}},
 		}
 	}
@@ -505,7 +505,7 @@ func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 				Framework:  lang,
 				WorkingDir: rel,
 				Source:     source,
-				Outcome:    "probe_config_error",
+				Outcome:    types.ExecutedCommandOutcomeProbeConfigError,
 			}},
 		}
 	}
@@ -573,25 +573,25 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 	compileOutput, compileExit, compileDuration, compileExitKind, compileErr := runVerificationProbeCommand(compileCtx, compileCmd, compileTimeout)
 	compileCancel()
 	if compileErr != nil {
-		outcome := "parser_error"
+		outcome := types.ExecutedCommandOutcomeParserError
 		failureKind := types.FailureKindParserError
 		reasonCode := "verification_probe_java_compile_error"
 		if verificationProbeRunnerMissing("javac", compileErr, compileOutput) || javaRuntimeMissingOutput(compileOutput) {
-			outcome = "runner_missing"
+			outcome = types.ExecutedCommandOutcomeRunnerMissing
 			failureKind = types.FailureKindRunnerMissing
 			reasonCode = "verification_probe_runner_missing"
 		}
 		switch compileExitKind {
 		case SupervisedExitTimeout:
-			outcome = "timeout"
+			outcome = types.ExecutedCommandOutcomeTimeout
 			failureKind = types.FailureKindTimeout
 			reasonCode = ""
 		case SupervisedExitOOM:
-			outcome = "oom"
+			outcome = types.ExecutedCommandOutcomeOOM
 			failureKind = types.FailureKindOOM
 			reasonCode = ""
 		case SupervisedExitCPULimit:
-			outcome = "cpu_limit"
+			outcome = types.ExecutedCommandOutcomeCPULimit
 			failureKind = types.FailureKindCPULimit
 			reasonCode = ""
 		}
@@ -652,7 +652,7 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 		ExitCode:   compileExit,
 		DurationMS: compileDuration.Milliseconds(),
 		Source:     source,
-		Outcome:    "executed",
+		Outcome:    types.ExecutedCommandOutcomeExecuted,
 	}}, res.Commands...)
 	return res
 }
@@ -864,21 +864,21 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	}
 	exitCode := extractExitCode(supRes.Err)
 	probeStatus := readPythonVerificationProbeStatus(statusPath)
-	outcome := "executed"
+	outcome := types.ExecutedCommandOutcomeExecuted
 	failureKind := types.FailureKindTestsFailed
 	switch supRes.ExitKind {
 	case SupervisedExitTimeout:
-		outcome = "timeout"
+		outcome = types.ExecutedCommandOutcomeTimeout
 		failureKind = types.FailureKindTimeout
 	case SupervisedExitOOM:
-		outcome = "oom"
+		outcome = types.ExecutedCommandOutcomeOOM
 		failureKind = types.FailureKindOOM
 	case SupervisedExitCPULimit:
-		outcome = "cpu_limit"
+		outcome = types.ExecutedCommandOutcomeCPULimit
 		failureKind = types.FailureKindCPULimit
 	default:
 		if missing, _, _ := detectRunnerMissing("python", supRes.Err, output); missing {
-			outcome = "runner_missing"
+			outcome = types.ExecutedCommandOutcomeRunnerMissing
 			failureKind = types.FailureKindRunnerMissing
 		}
 	}
@@ -891,7 +891,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		case "assertion_failed":
 			passed = false
 			if assertionImportReason := pythonVerificationProbeAssertionImportReason(ctx, output); assertionImportReason != "" {
-				outcome = "parser_error"
+				outcome = types.ExecutedCommandOutcomeParserError
 				failureKind = types.FailureKindParserError
 				reasonCode = assertionImportReason
 			} else {
@@ -900,7 +900,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		case "system_exit":
 			passed = false
 			if systemExitImportReason := pythonVerificationProbeSystemExitImportReason(output); systemExitImportReason != "" {
-				outcome = "parser_error"
+				outcome = types.ExecutedCommandOutcomeParserError
 				failureKind = types.FailureKindParserError
 				reasonCode = systemExitImportReason
 			} else {
@@ -908,22 +908,22 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			}
 		case "import_error", "syntax_error":
 			passed = false
-			outcome = "parser_error"
+			outcome = types.ExecutedCommandOutcomeParserError
 			failureKind = types.FailureKindParserError
 			reasonCode = pythonVerificationProbeReasonCode(probeStatus)
 		case "dependency_unavailable":
 			passed = false
-			outcome = "runner_missing"
+			outcome = types.ExecutedCommandOutcomeRunnerMissing
 			failureKind = types.FailureKindRunnerMissing
 			reasonCode = "verification_probe_dependency_missing"
 		case "exception":
 			passed = false
 			reasonCode = pythonVerificationProbeReasonCode(probeStatus)
 			if pythonVerificationProbeExceptionIsInfrastructure(probeStatus) {
-				outcome = "parser_error"
+				outcome = types.ExecutedCommandOutcomeParserError
 				failureKind = types.FailureKindParserError
 			} else if pythonVerificationProbeExceptionOutsideChangedLines(ctx, output) {
-				outcome = "parser_error"
+				outcome = types.ExecutedCommandOutcomeParserError
 				failureKind = types.FailureKindParserError
 				reasonCode = verificationProbeExceptionOutsideChangedLinesReasonCode
 			} else {
@@ -931,7 +931,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			}
 		default:
 			passed = false
-			outcome = "parser_error"
+			outcome = types.ExecutedCommandOutcomeParserError
 			failureKind = types.FailureKindParserError
 			reasonCode = pythonVerificationProbeReasonCode(probeStatus)
 		}
@@ -945,7 +945,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		}
 		if len(missingExpected) > 0 {
 			passed = false
-			outcome = "expected_stdout_missing"
+			outcome = types.ExecutedCommandOutcomeExpectedStdoutMissing
 		}
 	}
 	if passed {
@@ -1097,22 +1097,22 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 	}
 	exitCode := extractExitCode(supRes.Err)
 	status := readInlineVerificationProbeStatus(in.StatusPath)
-	outcome := "executed"
+	outcome := types.ExecutedCommandOutcomeExecuted
 	failureKind := types.FailureKindTestsFailed
 	reasonCode := ""
 	switch supRes.ExitKind {
 	case SupervisedExitTimeout:
-		outcome = "timeout"
+		outcome = types.ExecutedCommandOutcomeTimeout
 		failureKind = types.FailureKindTimeout
 	case SupervisedExitOOM:
-		outcome = "oom"
+		outcome = types.ExecutedCommandOutcomeOOM
 		failureKind = types.FailureKindOOM
 	case SupervisedExitCPULimit:
-		outcome = "cpu_limit"
+		outcome = types.ExecutedCommandOutcomeCPULimit
 		failureKind = types.FailureKindCPULimit
 	default:
 		if verificationProbeRunnerMissing(in.Command.Path, supRes.Err, output) {
-			outcome = "runner_missing"
+			outcome = types.ExecutedCommandOutcomeRunnerMissing
 			failureKind = types.FailureKindRunnerMissing
 			reasonCode = "verification_probe_runner_missing"
 		}
@@ -1127,14 +1127,14 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 			failureKind = types.FailureKindTestsFailed
 		case "import_error", "syntax_error", "reference_error":
 			passed = false
-			outcome = "parser_error"
+			outcome = types.ExecutedCommandOutcomeParserError
 			failureKind = types.FailureKindParserError
 			reasonCode = inlineVerificationProbeReasonCode(in.Language, status)
 		case "exception":
 			passed = false
 			reasonCode = inlineVerificationProbeReasonCode(in.Language, status)
 			if inlineVerificationProbeExceptionOutsideChangedLines(ctx, in.Language, output) {
-				outcome = "parser_error"
+				outcome = types.ExecutedCommandOutcomeParserError
 				failureKind = types.FailureKindParserError
 				reasonCode = verificationProbeExceptionOutsideChangedLinesReasonCode
 			} else {
@@ -1142,13 +1142,13 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 			}
 		default:
 			passed = false
-			outcome = "parser_error"
+			outcome = types.ExecutedCommandOutcomeParserError
 			failureKind = types.FailureKindParserError
 			reasonCode = inlineVerificationProbeReasonCode(in.Language, status)
 		}
 	}
 	if in.Language == "go" && outcome == "executed" && supRes.Err != nil && looksLikeGoProbeCompileError(output) {
-		outcome = "parser_error"
+		outcome = types.ExecutedCommandOutcomeParserError
 		failureKind = types.FailureKindParserError
 		reasonCode = "verification_probe_go_compile_error"
 	}
@@ -1161,7 +1161,7 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 		}
 		if len(missingExpected) > 0 {
 			passed = false
-			outcome = "expected_stdout_missing"
+			outcome = types.ExecutedCommandOutcomeExpectedStdoutMissing
 			failureKind = types.FailureKindTestsFailed
 		}
 	}
@@ -1254,7 +1254,7 @@ func verificationProbeConfigError(id, language, rel, source, detail string) veri
 			Framework:  language,
 			WorkingDir: rel,
 			Source:     source,
-			Outcome:    "probe_config_error",
+			Outcome:    types.ExecutedCommandOutcomeProbeConfigError,
 		}},
 	}
 }
@@ -1666,11 +1666,11 @@ func pythonVerificationProbeAssertionImportReason(ctx *types.BusContext, output 
 
 func pythonVerificationProbeImportDiagnostics(status pythonVerificationProbeStatus, output, source, rel, command string, exitCode int) []types.VerificationDiagnostic {
 	reasonCode := pythonVerificationProbeReasonCode(status)
-	outcome := "parser_error"
+	outcome := types.ExecutedCommandOutcomeParserError
 	switch strings.TrimSpace(status.Outcome) {
 	case "import_error":
 	case "dependency_unavailable":
-		outcome = "runner_missing"
+		outcome = types.ExecutedCommandOutcomeRunnerMissing
 	case "assertion_failed":
 		reasonCode = pythonVerificationProbeSystemExitImportReason(output)
 	default:

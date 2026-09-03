@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 )
@@ -330,76 +331,130 @@ func TestTraceConvertDiagnosticFailureRetainsTypedInputCode(t *testing.T) {
 	}
 }
 
-// TestTraceConvertDiagnosticRetainsEventInvalidWitness (§40.38 fold-in F8):
-// a tracequery_postvalidation_event_invalid refusal reaches the customer
-// report with the offending row named — line, event name and body prefix.
-func TestTraceConvertDiagnosticRetainsEventInvalidWitness(t *testing.T) {
-	witness := &hitraceconv.TraceEventInvalidWitnessError{
-		Kind:       hitraceconv.TraceEventInvalidCarrierSignatureUnderForeignHeader,
-		Line:       13,
-		EventName:  "hmfs_writepage",
-		EventType:  "filesystem",
-		BodyPrefix: "codrax_agent/v2 started",
-	}
-	conversionErr := &hitraceconv.TraceProviderFailureError{
-		Stage: "trace_db_normalize",
-		Code:  "trace_db_normalize_failed",
-		Cause: witness,
-	}
-	body := string(traceConvertDiagnosticReportBody(
-		hitraceconv.Options{InputPath: "capture.sys"},
-		hitraceconv.Result{},
-		traceConvertDiagnosticProgressLog{},
-		conversionErr,
-	))
-	for _, want := range []string{
-		"typed_error_event_invalid=",
-		`"kind":"carrier_signature_under_foreign_header"`,
-		`"line":13`,
-		`"event_name":"hmfs_writepage"`,
-		`"event_type":"filesystem"`,
-		`"body_prefix":"codrax_agent/v2 started"`,
+// traceConvertEventInvalidFixture is the profiler container checked in by
+// internal/hitraceconv (TestOwnedValidationEventInvalidFixtureIsBuiltByTheReal
+// ContainerBuilder binds its bytes to the real container builder): a text row
+// squatting the reserved carrier grammar under a known header, the only
+// input in the tree whose REAL conversion refuses with
+// tracequery_postvalidation_event_invalid.
+const traceConvertEventInvalidFixture = "../internal/hitraceconv/testdata/owned_validation/event_invalid_squatter.htrace"
+
+// TestTraceConvertDiagnosticRetainsRowWitnesses (§40.38 fold-in F8; §40.43
+// F-carrier-2 I): the per-row typed witnesses reach the customer report with
+// the offending row named. EVOLUTION RECORD (§40.43 F-carrier-2 I): the
+// event_invalid arm used to feed a hand-built TraceProviderFailureError{Cause:
+// witness} — every pin stayed green while no test walked the real validator →
+// provider → ConvertFile → errors.As chain. It now drives the REAL conversion
+// (hitraceconv.ConvertFile on the checked-in fixture) so a future wrapper
+// without Unwrap anywhere on that chain turns this red. The clock-regression
+// arm cannot be reached by any conversion input (every publication lane sorts
+// rows before the validator sees them), so it is pinned at the deepest seam
+// the real trace_streamer lane returns — the exported provider error type —
+// while the lane's real wrappers are pinned with the real functions in
+// hitraceconv (TestTraceStreamerLaneErrorGraphCarriesRowWitnesses).
+func TestTraceConvertDiagnosticRetainsRowWitnesses(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		conversion func(t *testing.T) (hitraceconv.Options, hitraceconv.Result, error)
+		want       []string
+	}{
+		{
+			name: "event_invalid_through_the_real_conversion_error_graph",
+			conversion: func(t *testing.T) (hitraceconv.Options, hitraceconv.Result, error) {
+				fixture, err := os.ReadFile(traceConvertEventInvalidFixture)
+				if err != nil {
+					t.Fatal(err)
+				}
+				dir := t.TempDir()
+				opts := hitraceconv.Options{
+					InputPath:   filepath.Join(dir, "capture.htrace"),
+					OutputPath:  filepath.Join(dir, "capture.systrace"),
+					TraceEngine: "builtin",
+				}
+				if err := os.WriteFile(opts.InputPath, fixture, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				result, err := hitraceconv.ConvertFile(context.Background(), opts)
+				if err == nil {
+					t.Fatal("real conversion of the squatter fixture succeeded; the owned-output census did not fire")
+				}
+				return opts, result, err
+			},
+			want: []string{
+				"outcome=failure",
+				"typed_error_event_invalid=",
+				`"kind":"carrier_signature_under_foreign_header"`,
+				`"line":13`,
+				`"event_name":"hmfs_writepage"`,
+				`"event_type":"filesystem"`,
+				`"body_prefix":"codrax_agent/v2 started"`,
+			},
+		},
+		{
+			name: "clock_regression_through_the_exported_provider_error",
+			conversion: func(t *testing.T) (hitraceconv.Options, hitraceconv.Result, error) {
+				witness := &hitraceconv.TraceClockRegressionWitnessError{
+					PreviousLine:         101,
+					CurrentLine:          102,
+					PreviousTimestampSec: 8.0000012,
+					CurrentTimestampSec:  8.000001,
+					PreviousEventType:    "frame_map",
+					CurrentEventType:     "trace_mark",
+				}
+				return hitraceconv.Options{InputPath: "capture.sys"}, hitraceconv.Result{}, &hitraceconv.TraceProviderFailureError{
+					Stage: "trace_db_normalize",
+					Code:  "trace_db_normalize_failed",
+					Cause: witness,
+				}
+			},
+			want: []string{
+				"typed_error_clock_regression=",
+				`"previous_line":101`,
+				`"current_line":102`,
+				`"previous_timestamp_sec":8.0000012`,
+				`"current_timestamp_sec":8.000001`,
+				`"previous_event_type":"frame_map"`,
+				`"current_event_type":"trace_mark"`,
+			},
+		},
 	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("event_invalid diagnostic missing %q:\n%s", want, body)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			opts, result, conversionErr := tc.conversion(t)
+			body := string(traceConvertDiagnosticReportBody(opts, result, traceConvertDiagnosticProgressLog{}, conversionErr))
+			for _, want := range tc.want {
+				if !strings.Contains(body, want) {
+					t.Fatalf("row witness diagnostic missing %q:\n%s", want, body)
+				}
+			}
+			if strings.Contains(body, ".codrax-") {
+				t.Fatalf("private staging path leaked into the diagnostic report:\n%s", body)
+			}
+			if got := bytes.Count([]byte(body), []byte("\n")); got > traceConvertDiagnosticReportMaxLines {
+				t.Fatalf("row witness exceeded diagnostic budget: got=%d", got)
+			}
+		})
 	}
 }
 
-func TestTraceConvertDiagnosticRetainsClockRegressionWitness(t *testing.T) {
-	witness := &hitraceconv.TraceClockRegressionWitnessError{
-		PreviousLine:         101,
-		CurrentLine:          102,
-		PreviousTimestampSec: 8.0000012,
-		CurrentTimestampSec:  8.000001,
-		PreviousEventType:    "frame_map",
-		CurrentEventType:     "trace_mark",
+// TestTraceConvertDiagnosticBoundedLineCutsOnRuneBoundaryWithoutCollapsing
+// (§40.43 F-carrier-2 H): the report's physical-line bound cuts through the
+// shared rune-safe single source, so an invalid byte early in an over-limit
+// line keeps the whole budget (the old hand-rolled shrink loop collapsed the
+// kept prefix to the bytes before that byte) and a multi-byte rune straddling
+// the bound is never split.
+func TestTraceConvertDiagnosticBoundedLineCutsOnRuneBoundaryWithoutCollapsing(t *testing.T) {
+	over := strings.Repeat("a", 12) + "\xff" + strings.Repeat("b", traceConvertDiagnosticLineMaxBytes)
+	suffix := fmt.Sprintf("...<truncated original_bytes=%d>", len(over))
+	got := traceConvertDiagnosticBoundedLine(over)
+	if !strings.HasSuffix(got, suffix) || len(got) != traceConvertDiagnosticLineMaxBytes ||
+		!strings.HasPrefix(got, strings.Repeat("a", 12)+"\xff"+"bbbb") {
+		t.Fatalf("invalid byte collapsed the bounded line: len=%d prefix=%q", len(got), got[:min(len(got), 24)])
 	}
-	conversionErr := &hitraceconv.TraceProviderFailureError{
-		Stage: "trace_db_normalize",
-		Code:  "trace_db_normalize_failed",
-		Cause: witness,
-	}
-	body := string(traceConvertDiagnosticReportBody(
-		hitraceconv.Options{InputPath: "capture.sys"},
-		hitraceconv.Result{},
-		traceConvertDiagnosticProgressLog{},
-		conversionErr,
-	))
-	for _, want := range []string{
-		"typed_error_clock_regression=",
-		`"previous_line":101`,
-		`"current_line":102`,
-		`"previous_timestamp_sec":8.0000012`,
-		`"current_timestamp_sec":8.000001`,
-		`"previous_event_type":"frame_map"`,
-		`"current_event_type":"trace_mark"`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("clock regression diagnostic missing %q:\n%s", want, body)
-		}
-	}
-	if got := bytes.Count([]byte(body), []byte("\n")); got > traceConvertDiagnosticReportMaxLines {
-		t.Fatalf("clock regression witness exceeded diagnostic budget: got=%d", got)
+	cjk := strings.Repeat("中", traceConvertDiagnosticLineMaxBytes)
+	got = traceConvertDiagnosticBoundedLine(cjk)
+	kept := strings.TrimSuffix(got, fmt.Sprintf("...<truncated original_bytes=%d>", len(cjk)))
+	if kept == got || !utf8.ValidString(kept) || len(got) > traceConvertDiagnosticLineMaxBytes ||
+		len(kept) < traceConvertDiagnosticLineMaxBytes-len(suffix)-3 {
+		t.Fatalf("multi-byte rune split or budget lost at the bound: len=%d valid=%t", len(got), utf8.ValidString(kept))
 	}
 }

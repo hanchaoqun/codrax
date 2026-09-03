@@ -31,8 +31,8 @@ func TestVerificationLockfileFixedPointClosedSetAndDisclosure(t *testing.T) {
 			t.Fatalf("fixed point %q is not unproven and must render no disclosure: zh=%q en=%q", fp, zh, en)
 		}
 	}
-	if VerificationLockfileFixedPointDisclosure("", false) != "" || VerificationLockfileFixedPointUnproven("") {
-		t.Fatalf("rows of other classes (empty state) are neither unproven nor disclosed")
+	if VerificationLockfileFixedPointDisclosure("", false) != "" || VerificationLockfileFixedPointUnproven("") || VerificationLockfileFixedPointDeclared("") {
+		t.Fatalf("the empty state belongs to rows of OTHER classes only: neither unproven, nor disclosed, nor a declared member (a lockfile row never carries it)")
 	}
 }
 

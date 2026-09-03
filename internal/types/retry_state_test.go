@@ -237,12 +237,13 @@ func TestMutableState_RetryState_SetGet(t *testing.T) {
 // EVOLUTION RECORD (§40.43 F12 fold-in): ResetRepairExecutionPlan was
 // deleted — after ResetForFallback stopped clearing the plan it had no
 // production caller; the paired reset is ResetRetryState and
-// SetRepairExecutionPlan(nil) clears the slot in isolation.
+// SetRepairExecutionPlan(nil) clears the slot in isolation. Renamed from
+// _SetGetReset to _SetGetClearViaNil (§40.43 R3 I) to match what it pins.
 //
 // Plan is carried as `any` so internal/types stays decoupled from
 // internal/orchestrator (mirrors the searchGraph pattern). The test
 // uses an opaque struct as the stand-in for orchestrator.RepairExecutionPlan.
-func TestMutableState_RepairExecutionPlan_SetGetReset(t *testing.T) {
+func TestMutableState_RepairExecutionPlan_SetGetClearViaNil(t *testing.T) {
 	type opaquePlan struct {
 		current   string
 		remaining []string

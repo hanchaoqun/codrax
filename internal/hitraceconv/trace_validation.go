@@ -19,6 +19,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/tracewire"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 const traceDBPostvalidationCoverageTable = tracebundle.SystraceReceiptTableSQL
@@ -252,38 +253,79 @@ type ownedTraceDBTextRecordSequence struct {
 	digestScratch  [sha256.Size]byte
 }
 
-func (sequence *ownedTraceDBTextRecordSequence) observe(event tracequery.Event) bool {
+// ownedTraceDBRecordSequenceVerdict is the closed outcome of observing one
+// parsed row against the typed trace_db record sequence. The zero value is
+// deliberately not a member: a verdict that was never minted fails closed as a
+// contract break (refusalKind).
+type ownedTraceDBRecordSequenceVerdict uint8
+
+const (
+	ownedTraceDBRecordSequenceUnset ownedTraceDBRecordSequenceVerdict = iota
+	// ownedTraceDBRecordSequenceAccepted: the row is consistent with the
+	// sequence — an ordinary row before the typed suffix began, or a typed
+	// record/block row that continues the chunk/ordinal/digest contract.
+	ownedTraceDBRecordSequenceAccepted
+	// ownedTraceDBRecordSequenceForeignRow: an ordinary (non trace_db record)
+	// row was published after the typed suffix began. The suffix is the
+	// artifact's tail by producer contract; the named row is the foreign one.
+	ownedTraceDBRecordSequenceForeignRow
+	// ownedTraceDBRecordSequenceContractBreak: a typed trace_db record/block
+	// row itself breaks the chunk/ordinal/digest/topology contract.
+	ownedTraceDBRecordSequenceContractBreak
+)
+
+// refusalKind maps a verdict to the typed witness kind it mints; accepted
+// rows mint nothing. An unset verdict cannot be reasoned about and is refused
+// as a contract break rather than admitted.
+func (verdict ownedTraceDBRecordSequenceVerdict) refusalKind() (TraceEventInvalidKind, bool) {
+	switch verdict {
+	case ownedTraceDBRecordSequenceAccepted:
+		return "", false
+	case ownedTraceDBRecordSequenceForeignRow:
+		return TraceEventInvalidTraceDBRecordSequenceForeignRow, true
+	default:
+		return TraceEventInvalidTraceDBRecordSequence, true
+	}
+}
+
+func (sequence *ownedTraceDBTextRecordSequence) observe(event tracequery.Event) ownedTraceDBRecordSequenceVerdict {
 	if sequence == nil {
-		return false
+		return ownedTraceDBRecordSequenceContractBreak
 	}
 	if event.Type != tracequery.EventTraceDBRecord {
-		return !sequence.begun
+		if sequence.begun {
+			return ownedTraceDBRecordSequenceForeignRow
+		}
+		return ownedTraceDBRecordSequenceAccepted
 	}
 	if event.PluginFields == nil {
-		return false
+		return ownedTraceDBRecordSequenceContractBreak
 	}
 	if record := event.PluginFields.TraceDBRecord; record != nil {
 		if event.PluginFields.TraceDBBlock != nil ||
 			sequence.carrierVersion != 0 && sequence.carrierVersion != 1 {
-			return false
+			return ownedTraceDBRecordSequenceContractBreak
 		}
 		sequence.carrierVersion = 1
-		return sequence.observeRecord(record)
+		if !sequence.observeRecord(record) {
+			return ownedTraceDBRecordSequenceContractBreak
+		}
+		return ownedTraceDBRecordSequenceAccepted
 	}
 	block := event.PluginFields.TraceDBBlock
 	if block == nil || sequence.carrierVersion != 0 && sequence.carrierVersion != 2 ||
 		block.Block != sequence.lastBlock+1 ||
 		block.RecordCount <= 0 || len(block.Records) != block.RecordCount {
-		return false
+		return ownedTraceDBRecordSequenceContractBreak
 	}
 	sequence.carrierVersion = 2
 	for index := range block.Records {
 		if !sequence.observeRecord(&block.Records[index]) {
-			return false
+			return ownedTraceDBRecordSequenceContractBreak
 		}
 	}
 	sequence.lastBlock = block.Block
-	return true
+	return ownedTraceDBRecordSequenceAccepted
 }
 
 func (sequence *ownedTraceDBTextRecordSequence) observeRecord(record *tracequery.TraceDBRecordFields) bool {
@@ -572,8 +614,17 @@ const (
 	// same row first because a carrier body always starts with the wire).
 	TraceEventInvalidSourceRawVisibilityForeignHeader TraceEventInvalidKind = "source_raw_visibility_foreign_header"
 	// TraceEventInvalidTraceDBRecordSequence: a typed trace_db record/block
-	// row breaks the chunk/ordinal/digest sequence contract.
+	// row (a `# codrax_trace_db_record/v1` / `# codrax_trace_db_block/v2`
+	// comment carrier) itself breaks the chunk/ordinal/digest/topology
+	// sequence contract. The named row is that carrier; BodyPrefix shows the
+	// bytes after its `# <wire> ` prefix.
 	TraceEventInvalidTraceDBRecordSequence TraceEventInvalidKind = "trace_db_record_sequence"
+	// TraceEventInvalidTraceDBRecordSequenceForeignRow: an ordinary ftrace row
+	// was published after the typed trace_db record suffix began. The typed
+	// suffix is the artifact's tail by producer contract, so the foreign row —
+	// not the record sequence — is at fault; it is the row named (§40.43
+	// F-carrier-2 G).
+	TraceEventInvalidTraceDBRecordSequenceForeignRow TraceEventInvalidKind = "trace_db_record_sequence_foreign_row"
 	// TraceEventInvalidTraceDBRecordSequenceIncomplete: the typed record
 	// sequence ended before the expected count; no single row is at fault
 	// (Line is 0).
@@ -875,8 +926,8 @@ func validateOwnedTraceOutput(
 						refuseParsedEvent(TraceEventInvalidSourceRawVisibilityForeignHeader, event)
 					}
 				}
-				if !typedSequence.observe(event) {
-					refuseParsedEvent(TraceEventInvalidTraceDBRecordSequence, event)
+				if kind, refused := typedSequence.observe(event).refusalKind(); refused {
+					refuseParsedEvent(kind, event)
 				}
 				if profile.RequiredEventType != "" && event.Type != tracequery.EventUnknown && event.Type != profile.RequiredEventType {
 					eventTypeMismatch = true
@@ -1308,24 +1359,67 @@ func traceDBRowBodyCarriesCarrierSignature(text, eventName string) bool {
 	return ok
 }
 
+// traceEventInvalidWitnessRowBody returns the producer-written body of a
+// refused row for the customer witness: an ftrace row yields the text after
+// "<eventName>: "; a comment carrier (`# codrax_<family>/v<N> …`, the form the
+// typed trace_db record/block rows take, whose parser name never appears as
+// an ftrace marker) yields the bytes after its `# <wire> ` prefix. Every
+// witness kind therefore shows producer bytes (§40.43 F-carrier-2 G).
+func traceEventInvalidWitnessRowBody(text, eventName string) (string, bool) {
+	if strings.HasPrefix(text, tracequery.CarrierCommentLinePrefix) {
+		rest := text[len(tracequery.CarrierCommentLinePrefix):]
+		if wire, ok := tracequery.CarrierWireToken(rest); ok {
+			return strings.TrimPrefix(rest[len(wire):], " "), true
+		}
+		return rest, true
+	}
+	return traceDBRowBody(text, eventName)
+}
+
 // maxTraceEventInvalidWitnessBodyBytes bounds the row-body excerpt carried by
 // TraceEventInvalidWitnessError: enough to show which producer wrote the
 // refused row, never a whole payload.
 const maxTraceEventInvalidWitnessBodyBytes = 64
 
-// traceEventInvalidWitnessBodyPrefix returns the first bounded bytes of an
-// ftrace row body, cut on a UTF-8 boundary.
+// traceEventInvalidWitnessBodyPrefix returns the bounded, valid-UTF-8 excerpt
+// of a refused row's body (traceEventInvalidWitnessExcerpt), or "" when the
+// row has no recoverable body.
 func traceEventInvalidWitnessBodyPrefix(text, eventName string) string {
-	body, ok := traceDBRowBody(text, eventName)
+	body, ok := traceEventInvalidWitnessRowBody(text, eventName)
 	if !ok {
 		return ""
 	}
-	if len(body) <= maxTraceEventInvalidWitnessBodyBytes {
-		return body
+	return traceEventInvalidWitnessExcerpt(body)
+}
+
+// traceEventInvalidWitnessExcerpt bounds a row body to the witness budget on
+// a rune boundary through the shared single source (types.CutPrefixRuneSafe,
+// the same cut tracequery uses) and carries bytes that are not valid UTF-8
+// escaped strconv.Quote-style (`\xNN`). A non-empty body therefore always
+// yields a non-empty, valid-UTF-8 excerpt that still shows the producer's
+// bytes — an invalid first byte or a stray byte inside the budget no longer
+// collapses the witness (§40.43 F-carrier-2 H).
+func traceEventInvalidWitnessExcerpt(body string) string {
+	cut := types.CutPrefixRuneSafe(body, maxTraceEventInvalidWitnessBodyBytes)
+	if cut == "" && body != "" {
+		// The shared cut backs off over continuation bytes; only a run of
+		// them longer than the budget reaches the start. None of those bytes
+		// begins a rune, so the raw budget escapes without splitting one.
+		cut = body[:min(len(body), maxTraceEventInvalidWitnessBodyBytes)]
 	}
-	limit := maxTraceEventInvalidWitnessBodyBytes
-	for limit > 0 && !utf8.ValidString(body[:limit]) {
-		limit--
+	if utf8.ValidString(cut) {
+		return cut
 	}
-	return body[:limit]
+	var excerpt strings.Builder
+	excerpt.Grow(len(cut) + 3*maxTraceEventInvalidWitnessBodyBytes)
+	for index := 0; index < len(cut); {
+		r, size := utf8.DecodeRuneInString(cut[index:])
+		if r == utf8.RuneError && size == 1 {
+			fmt.Fprintf(&excerpt, `\x%02x`, cut[index])
+		} else {
+			excerpt.WriteString(cut[index : index+size])
+		}
+		index += size
+	}
+	return excerpt.String()
 }

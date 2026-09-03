@@ -7,9 +7,25 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// renderVerifyReportWorktreeAuditNote is the nil-safe report-level form of
+// renderVerificationWorktreeAuditNote — the ONE predicate all three verify
+// outcomes (success / failure / unverified) render, so a refused run and an
+// unavailable verdict disclose the same audit facts a passing run does.
+func renderVerifyReportWorktreeAuditNote(report *types.ChangeReport, zh bool) string {
+	if report == nil {
+		return ""
+	}
+	return renderVerificationWorktreeAuditNote(report.WorktreeAudit, zh)
+}
+
 // renderVerificationWorktreeAuditNote keeps test success and retained-tree
 // cleanliness as separate user-visible facts. It renders only typed audit rows;
-// runner output and model prose never participate.
+// runner output and model prose never participate. Three lanes, each read
+// from typed rows independently of the audit status: the disclosed tracked
+// rows (lockfile refresh / formatter fixed point / declared output, with an
+// UNPROVEN lockfile fixed point named in plain words), the retained
+// untracked outputs, and the unavailable audit. Refused rows never render
+// here — the failure surface owns them.
 func renderVerificationWorktreeAuditNote(audit *types.VerificationWorktreeAudit, zh bool) string {
 	if audit == nil || audit.Status == types.VerificationWorktreeAuditClean {
 		return ""
@@ -37,9 +53,6 @@ func renderVerificationWorktreeAuditNote(audit *types.VerificationWorktreeAudit,
 			untrackedNote = "\n\n⚠ Verification created untracked file(s) in the preserved worktree: " + strings.Join(paths, ", ") + suffix +
 				". They are not part of the delivery commit and were not auto-deleted; delivery-ref integrity and preserved-worktree cleanliness are separate facts."
 		}
-		if audit.Status == types.VerificationWorktreeAuditUntrackedSideEffects {
-			return untrackedNote
-		}
 	}
 	if audit.Status == types.VerificationWorktreeAuditUnavailable {
 		if zh {
@@ -47,47 +60,50 @@ func renderVerificationWorktreeAuditNote(audit *types.VerificationWorktreeAudit,
 		}
 		return "\n\n⚠ The before/after worktree integrity audit was unavailable, so preserved-worktree cleanliness is not proven."
 	}
-	if audit.Status == types.VerificationWorktreeAuditTrackedDrift {
-		// Refused drift is owned by the failure surface; only the untracked
-		// lane (if any) is rendered here.
+	// V5-2: disclosed side effects (lockfile refresh / formatter fixed point
+	// / plan-declared generated output) are named: not part of the delivery
+	// commit, not auto-reverted. A lockfile row whose fixed point is
+	// UNPROVEN says so in plain words (single-sourced phrase). The rows are
+	// read from their typed disposition, so a REFUSED run (tracked_drift for
+	// other paths) still names its disclosed rows — with the refused
+	// wording, never "the verdict stands".
+	rows := make([]string, 0, len(audit.Effects))
+	for _, effect := range audit.Effects {
+		if effect.Disposition != types.VerificationWorktreeEffectDisclosed || strings.TrimSpace(effect.Path) == "" {
+			continue
+		}
+		row := "`" + effect.Path + "` (" + string(effect.DriftClass) + ")"
+		if zh {
+			row = "`" + effect.Path + "`（" + string(effect.DriftClass) + "）"
+		}
+		if phrase := types.VerificationLockfileFixedPointDisclosure(effect.LockfileFixedPoint, zh); phrase != "" {
+			if zh {
+				row += "，" + phrase
+			} else {
+				row += " — " + phrase
+			}
+		}
+		rows = append(rows, row)
+		if len(rows) >= 8 {
+			break
+		}
+	}
+	if len(rows) == 0 {
 		return untrackedNote
 	}
-	if audit.Status == types.VerificationWorktreeAuditTrackedDriftDisclosed {
-		// V5-2: disclosed side effects (lockfile refresh / formatter fixed
-		// point / plan-declared generated output) keep the verdict but are
-		// named: not part of the delivery commit, not auto-reverted. A
-		// lockfile row whose fixed point is UNPROVEN says so in plain words
-		// (single-sourced phrase).
-		rows := make([]string, 0, len(audit.Effects))
-		for _, effect := range audit.Effects {
-			if effect.Disposition != types.VerificationWorktreeEffectDisclosed || strings.TrimSpace(effect.Path) == "" {
-				continue
-			}
-			row := "`" + effect.Path + "` (" + string(effect.DriftClass) + ")"
-			if zh {
-				row = "`" + effect.Path + "`（" + string(effect.DriftClass) + "）"
-			}
-			if phrase := types.VerificationLockfileFixedPointDisclosure(effect.LockfileFixedPoint, zh); phrase != "" {
-				if zh {
-					row += "，" + phrase
-				} else {
-					row += " — " + phrase
-				}
-			}
-			rows = append(rows, row)
-			if len(rows) >= 8 {
-				break
-			}
+	refused := audit.Status == types.VerificationWorktreeAuditTrackedDrift
+	if zh {
+		verdict := "验证结论保持有效；"
+		if refused {
+			verdict = "验证结论已因其他路径的改动被拒绝；"
 		}
-		if len(rows) == 0 {
-			return untrackedNote
-		}
-		if zh {
-			return "\n\n⚠ 本次验证在保留 worktree 中改动了受跟踪文件，属已披露的副作用类别：" + strings.Join(rows, "、") +
-				"。验证结论保持有效；这些改动未纳入交付提交，也未被自动回退。" + untrackedNote
-		}
-		return "\n\n⚠ Verification changed tracked file(s) in the preserved worktree under a disclosed side-effect class: " + strings.Join(rows, ", ") +
-			". The verdict stands; these changes are not part of the delivery commit and were not auto-reverted." + untrackedNote
+		return "\n\n⚠ 本次验证在保留 worktree 中改动了受跟踪文件，属已披露的副作用类别：" + strings.Join(rows, "、") +
+			"。" + verdict + "这些改动未纳入交付提交，也未被自动回退。" + untrackedNote
 	}
-	return ""
+	verdict := "The verdict stands; "
+	if refused {
+		verdict = "The verdict was refused for other paths; "
+	}
+	return "\n\n⚠ Verification changed tracked file(s) in the preserved worktree under a disclosed side-effect class: " + strings.Join(rows, ", ") +
+		". " + verdict + "these changes are not part of the delivery commit and were not auto-reverted." + untrackedNote
 }

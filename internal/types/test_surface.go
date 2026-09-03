@@ -125,11 +125,13 @@ type ExecutedCommand struct {
 	// the typed verify-failure handoff — never attribute it to the LLM.
 	Source string `json:"source,omitempty"`
 
-	// Outcome is the typed coarse result of this entry:
-	// executed | synthetic_no_tests | syntax_check_fallback | suite_skipped |
+	// Outcome is the typed coarse result of this entry — one of the
+	// ExecutedCommandOutcome* labels below (executed | synthetic_no_tests |
+	// syntax_check_fallback | syntax_preflight | suite_skipped |
 	// suite_continued | runner_missing | timeout | oom | cpu_limit |
-	// parser_error | not_configured | probe_config_error |
-	// expected_stdout_missing.
+	// parser_error | zero_tests | not_configured | probe_config_error |
+	// expected_stdout_missing). Producers write the constants, never a
+	// literal (census: internal/tool run_tests_outcome_census_test.go).
 	Outcome string `json:"outcome,omitempty"`
 
 	// ReasonCode is a bounded typed subreason for the outcome, when the
@@ -137,6 +139,30 @@ type ExecutedCommand struct {
 	// from runner/parser structured signals, never from model prose.
 	ReasonCode string `json:"reason_code,omitempty"`
 }
+
+// ExecutedCommand.Outcome labels — the single source for every producer in
+// the run_tests tool (Execute's command rows, the supervisor overrides, the
+// verification probes) and for the consumers that key on them (the
+// worktree-drift launched/infra rosters, makeResourceExhaustionReport).
+// Untyped string constants so the field and its cross-package comparisons
+// keep their shape; the census binds the tool's writers to these names.
+const (
+	ExecutedCommandOutcomeExecuted              = "executed"
+	ExecutedCommandOutcomeSyntheticNoTests      = "synthetic_no_tests"
+	ExecutedCommandOutcomeSyntaxCheckFallback   = "syntax_check_fallback"
+	ExecutedCommandOutcomeSyntaxPreflight       = "syntax_preflight"
+	ExecutedCommandOutcomeSuiteSkipped          = "suite_skipped"
+	ExecutedCommandOutcomeSuiteContinued        = "suite_continued"
+	ExecutedCommandOutcomeRunnerMissing         = "runner_missing"
+	ExecutedCommandOutcomeTimeout               = "timeout"
+	ExecutedCommandOutcomeOOM                   = "oom"
+	ExecutedCommandOutcomeCPULimit              = "cpu_limit"
+	ExecutedCommandOutcomeParserError           = "parser_error"
+	ExecutedCommandOutcomeZeroTests             = "zero_tests"
+	ExecutedCommandOutcomeNotConfigured         = "not_configured"
+	ExecutedCommandOutcomeProbeConfigError      = "probe_config_error"
+	ExecutedCommandOutcomeExpectedStdoutMissing = "expected_stdout_missing"
+)
 
 // SortTestSurfaceCandidates orders candidates in place by the typed selection
 // rule: HasTestSignal desc, manifest priority asc, path depth asc, working

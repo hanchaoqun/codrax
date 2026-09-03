@@ -345,6 +345,10 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 		envStepEN = "- /verify again (it runs the typed test-surface candidate), or\n"
 	}
 	passedChecks, failedChecks := reportVerificationResultCounts(report)
+	// The worktree-audit note (untracked outputs, disclosed rows, lockfile
+	// fixed-point phrases) renders on the unverified outcome too — same
+	// shared predicate as the success and failure surfaces (finding F).
+	auditNote := renderVerifyReportWorktreeAuditNote(report, zh)
 	if zh {
 		if passedChecks > 0 {
 			return fmt.Sprintf("\n## 未完全验证 (unverified)\n\n"+
@@ -353,8 +357,8 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 				"%s"+
 				"- /merge 接受当前局部证据与未验证风险,或\n"+
 				"- /reject 退回到 plan。\n\n"+
-				"报告已存到 .codrax/plans/%s.report.json。\n",
-				passedChecks, failedChecks, reasonZH, envStepZH, planID)
+				"报告已存到 .codrax/plans/%s.report.json。%s\n",
+				passedChecks, failedChecks, reasonZH, envStepZH, planID, auditNote)
 		}
 		return fmt.Sprintf("\n## 未验证 (unverified)\n\n"+
 			"代码改动已落到 worktree,但%s,所以没有断言验证过这次改动。\n\n"+
@@ -363,8 +367,8 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 			"%s"+
 			"- 直接 /merge 接受这次未验证改动,或\n"+
 			"- /reject 退回到 plan。\n\n"+
-			"报告已存到 .codrax/plans/%s.report.json。\n",
-			reasonZH, envStepZH, planID)
+			"报告已存到 .codrax/plans/%s.report.json。%s\n",
+			reasonZH, envStepZH, planID, auditNote)
 	}
 	if passedChecks > 0 {
 		return fmt.Sprintf("\n## Partially verified (unverified)\n\n"+
@@ -373,8 +377,8 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 			"%s"+
 			"- /merge while accepting the partial evidence and unverified risk, or\n"+
 			"- /reject to roll back.\n\n"+
-			"Report saved to .codrax/plans/%s.report.json.\n",
-			passedChecks, failedChecks, reasonEN, envStepEN, planID)
+			"Report saved to .codrax/plans/%s.report.json.%s\n",
+			passedChecks, failedChecks, reasonEN, envStepEN, planID, auditNote)
 	}
 	return fmt.Sprintf("\n## Unverified\n\n"+
 		"The change applied to the worktree, but %s, so no assertion verified the change.\n\n"+
@@ -383,8 +387,8 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
 		"%s"+
 		"- /merge to accept the unverified change as-is, or\n"+
 		"- /reject to roll back.\n\n"+
-		"Report saved to .codrax/plans/%s.report.json.\n",
-		reasonEN, envStepEN, planID)
+		"Report saved to .codrax/plans/%s.report.json.%s\n",
+		reasonEN, envStepEN, planID, auditNote)
 }
 
 func reportVerificationResultCounts(report *types.ChangeReport) (passed, failed int) {

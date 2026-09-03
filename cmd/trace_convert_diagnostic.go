@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 const (
@@ -521,10 +522,11 @@ func traceConvertDiagnosticBoundedLine(line string) string {
 	if limit < 0 {
 		return suffix
 	}
-	for limit > 0 && !utf8.ValidString(line[:limit]) {
-		limit--
-	}
-	return line[:limit] + suffix
+	// Rune-boundary cut through the shared single source (§40.43 F-carrier-2
+	// H): a stray invalid byte inside the budget no longer collapses the kept
+	// prefix to the bytes before it — the report keeps as much of the physical
+	// line as the budget allows, exactly as it does for lines under the cap.
+	return types.CutPrefixRuneSafe(line, limit) + suffix
 }
 
 func traceConvertDiagnosticReportWrittenLine(lang, path string) string {

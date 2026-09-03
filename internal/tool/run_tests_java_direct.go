@@ -259,7 +259,7 @@ func runManifestlessJavaMainTests(ctx *types.BusContext, plan runnerPlan, source
 		ExitCode:   compileExit,
 		DurationMS: compileDuration.Milliseconds(),
 		Source:     source,
-		Outcome:    "syntax_preflight",
+		Outcome:    types.ExecutedCommandOutcomeSyntaxPreflight,
 	}}
 	if compileErr != nil {
 		commands[0].Outcome = compileOutcome
@@ -331,23 +331,23 @@ func runManifestlessJavaCommand(ctx *types.BusContext, wd, binary string, args [
 
 func manifestlessJavaCommandFailure(binary string, err error, output string, exitKind SupervisedExitKind) (string, types.FailureKind) {
 	if err == nil {
-		return "executed", ""
+		return types.ExecutedCommandOutcomeExecuted, ""
 	}
 	if verificationProbeRunnerMissing(binary, err, output) || javaRuntimeMissingOutput(output) {
-		return "runner_missing", types.FailureKindRunnerMissing
+		return types.ExecutedCommandOutcomeRunnerMissing, types.FailureKindRunnerMissing
 	}
 	switch exitKind {
 	case SupervisedExitTimeout:
-		return "timeout", types.FailureKindTimeout
+		return types.ExecutedCommandOutcomeTimeout, types.FailureKindTimeout
 	case SupervisedExitOOM:
-		return "oom", types.FailureKindOOM
+		return types.ExecutedCommandOutcomeOOM, types.FailureKindOOM
 	case SupervisedExitCPULimit:
-		return "cpu_limit", types.FailureKindCPULimit
+		return types.ExecutedCommandOutcomeCPULimit, types.FailureKindCPULimit
 	}
 	if binary == "javac" {
-		return "executed", types.FailureKindBuildFailure
+		return types.ExecutedCommandOutcomeExecuted, types.FailureKindBuildFailure
 	}
-	return "executed", types.FailureKindTestsFailed
+	return types.ExecutedCommandOutcomeExecuted, types.FailureKindTestsFailed
 }
 
 func manifestlessJavaFailureDetail(output string, err error, command string) string {

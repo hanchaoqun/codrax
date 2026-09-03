@@ -328,6 +328,13 @@ RetryEligible=true → enter retry. Retry storm bounded by existing
 OwnerStableAttempts budget; a current-owner cluster that fires the same
 kind N times without progress is promoted/escalated by B1 closure logic.
 
+> 2026-09-03 (colleague_merge_audit §40.43): `RetryState.OwnerStableAttempts`
+> was removed (reader-less). The bound is now
+> `RepairExecutionPlan.ClusterStates[].StableAttempts` (carried across
+> rebuilds per cluster key, stuck deepest owner → fail-loud) plus the P6
+> finalize repair hard cap and the W2.6 per-root cap, which precede that
+> exit in the loop; promote/stay never dispatch (§40.43 R1).
+
 ### Tests
 - `TestValidateRichnessGlaringGap_FiresOnGlaringWithEnoughEvidence`
 - `TestValidateRichnessGlaringGap_BelowThresholdSuppressed`

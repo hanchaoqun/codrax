@@ -4,6 +4,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
@@ -11,19 +14,25 @@ import (
 )
 
 // repair_execution_plan_persistence_test.go — §40.39 rationale correction
-// (F12). The RepairExecutionPlan is designed to persist across finalize
-// attempts (AdvanceRepairExecutionPlan: "keep prev verbatim but persist
-// updated ClusterStates"), and the cluster-closure v3 B1 exit for a stuck
-// deepest owner is planActionFailLoud → FallbackFailLoud. Before this
-// fold-in ResetForFallback(Finalizer/Extract/Explore) cleared the plan
-// right after every Advance, so prevPlan was nil on every failure, the
-// stay/promote/fail-loud classification was unreachable, and a stuck owner
+// (F12). The RepairExecutionPlan persists across finalize attempts so the
+// next failure's cluster closure counts StableAttempts against it, and a
+// stuck deepest owner exits through FallbackFailLoud. Before F12
+// ResetForFallback(Finalizer/Extract/Explore) cleared the plan right after
+// every Advance, so prevPlan was nil on every failure and a stuck owner
 // cycled until maxUpstreamFallbacksPerRun instead.
+//
+// EVOLUTION RECORD (§40.43 R1, fold-in round three): the persisted plan
+// now feeds ONLY stability accounting and the stuck exit — the dispatch
+// target is a fresh rebuild every round (repair_execution_plan_dispatch_test.go).
+// The semantics pinned here (StableAttempts 0..budget-1 across resets,
+// budget+1 → FailLoud with the stuck owner and an empty queue, a new
+// cluster key restarts at zero) are unchanged; they now hold through the
+// carry-over of StableAttempts across rebuilds instead of a stay arm.
 //
 // The replay below performs the scheduler's per-failure production sequence
 // (AdvanceRepairExecutionPlan → populateRetryState → ResetForFallback(target
-// of the chosen fallback)) on a real MutableState; the go/ast pin at the
-// bottom keeps the replay faithful to runReadSchedulerLoop's order.
+// of the chosen fallback)) on a real MutableState; the go/ast pins at the
+// bottom keep the replay faithful to runReadSchedulerLoop's per-arm order.
 
 // replayFinalizeContractFailure mirrors the FallbackFinalizerOnly /
 // BackToExtract / BackToExplore arms of runReadSchedulerLoop for one failed
@@ -168,11 +177,15 @@ func TestRepairExecutionPlan_DifferentClusterRebuildsPersistedPlan(t *testing.T)
 	}
 }
 
-// Replay fidelity: runReadSchedulerLoop calls AdvanceRepairExecutionPlan
-// before populateRetryState before ResetForFallback, and those three are the
-// only production sites in the package (the replay helper above is the only
-// other sequence and it copies this order).
-func TestRunReadSchedulerLoop_FinalizeFailureSequenceOrder(t *testing.T) {
+// Replay fidelity (§40.43 R3 E ii, PER ARM): AdvanceRepairExecutionPlan is
+// called exactly once in runReadSchedulerLoop and precedes the `switch
+// fallback` dispatch; inside that switch, EVERY CaseClause that calls
+// ResetForFallback calls populateRetryState earlier in the SAME arm (the
+// retry state must be captured before the reset clears the answer slate).
+// A first-occurrence comparison across the whole loop is not enough — a
+// single reordered arm stays green under it (proved red by reordering the
+// BackToExtract arm in a scratch copy).
+func TestRunReadSchedulerLoop_FallbackArmsPopulateBeforeReset(t *testing.T) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "orchestrator.go", nil, 0)
 	if err != nil {
@@ -187,34 +200,115 @@ func TestRunReadSchedulerLoop_FinalizeFailureSequenceOrder(t *testing.T) {
 	if loop == nil || loop.Body == nil {
 		t.Fatal("runReadSchedulerLoop not found — the replay lost its subject")
 	}
-	first := map[string]token.Pos{}
-	count := map[string]int{}
-	ast.Inspect(loop.Body, func(n ast.Node) bool {
+	callName := func(n ast.Node) string {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
-			return true
+			return ""
 		}
-		name := ""
 		switch fun := call.Fun.(type) {
 		case *ast.Ident:
-			name = fun.Name
+			return fun.Name
 		case *ast.SelectorExpr:
-			name = fun.Sel.Name
+			return fun.Sel.Name
 		}
-		switch name {
-		case "AdvanceRepairExecutionPlan", "populateRetryState", "ResetForFallback":
-			count[name]++
-			if _, seen := first[name]; !seen {
-				first[name] = call.Pos()
-			}
+		return ""
+	}
+	var advancePos []token.Pos
+	ast.Inspect(loop.Body, func(n ast.Node) bool {
+		if callName(n) == "AdvanceRepairExecutionPlan" {
+			advancePos = append(advancePos, n.Pos())
 		}
 		return true
 	})
-	if count["AdvanceRepairExecutionPlan"] != 1 || count["populateRetryState"] < 3 || count["ResetForFallback"] < 3 {
-		t.Fatalf("finalize failure sequence sites drifted: %v", count)
+	sw := fallbackSwitchOf(t, f)
+	if len(advancePos) != 1 || advancePos[0] > sw.Pos() {
+		t.Fatalf("AdvanceRepairExecutionPlan must be called exactly once, before the fallback switch (calls=%d)", len(advancePos))
 	}
-	if !(first["AdvanceRepairExecutionPlan"] < first["populateRetryState"] && first["populateRetryState"] < first["ResetForFallback"]) {
-		t.Fatalf("scheduler order must be Advance → populate → ResetForFallback; got positions %v %v %v",
-			fset.Position(first["AdvanceRepairExecutionPlan"]), fset.Position(first["populateRetryState"]), fset.Position(first["ResetForFallback"]))
+	armsWithReset := 0
+	for _, stmt := range sw.Body.List {
+		cc, ok := stmt.(*ast.CaseClause)
+		if !ok {
+			continue
+		}
+		var firstPopulate, firstReset token.Pos
+		for _, bodyStmt := range cc.Body {
+			ast.Inspect(bodyStmt, func(n ast.Node) bool {
+				switch callName(n) {
+				case "populateRetryState":
+					if firstPopulate == 0 {
+						firstPopulate = n.Pos()
+					}
+				case "ResetForFallback":
+					if firstReset == 0 {
+						firstReset = n.Pos()
+					}
+				}
+				return true
+			})
+		}
+		if firstReset == 0 {
+			continue
+		}
+		armsWithReset++
+		if firstPopulate == 0 || firstPopulate > firstReset {
+			t.Fatalf("fallback arm at %v calls ResetForFallback (%v) without an earlier populateRetryState in the same arm (populate at %v) — the retry state must be captured before the reset clears the answer slate",
+				fset.Position(cc.Pos()), fset.Position(firstReset), fset.Position(firstPopulate))
+		}
+	}
+	if armsWithReset < 3 {
+		t.Fatalf("expected the finalizer-only / extract / explore arms to reset the Mutable, found %d arms calling ResetForFallback", armsWithReset)
+	}
+}
+
+// Writer census (§40.43 R3 E i): the persisted plan has exactly two
+// production writers — AdvanceRepairExecutionPlan (stash) and
+// closeFinalizeRetryChain (clear, via ResetRetryState). A plan clear
+// re-added in a scheduler arm (or anywhere else) is red: the plan must
+// persist across ResetForFallback so stability keeps counting.
+func TestRepairExecutionPlan_ProductionWritersAreAdvanceAndChainClose(t *testing.T) {
+	allowed := map[string]bool{"AdvanceRepairExecutionPlan": true, "closeFinalizeRetryChain": true}
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("glob: %v", err)
+	}
+	fset := token.NewFileSet()
+	var stray []string
+	writers := 0
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", file, err)
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || (sel.Sel.Name != "SetRepairExecutionPlan" && sel.Sel.Name != "ResetRepairExecutionPlan") {
+					return true
+				}
+				writers++
+				if !allowed[fd.Name.Name] {
+					stray = append(stray, fset.Position(call.Pos()).String()+" "+fd.Name.Name+"."+sel.Sel.Name)
+				}
+				return true
+			})
+		}
+	}
+	if writers == 0 {
+		t.Fatal("no RepairExecutionPlan writer found — the census lost its subject")
+	}
+	if len(stray) > 0 {
+		sort.Strings(stray)
+		t.Fatalf("RepairExecutionPlan may be written only by AdvanceRepairExecutionPlan / closeFinalizeRetryChain, found:\n  %s", strings.Join(stray, "\n  "))
 	}
 }

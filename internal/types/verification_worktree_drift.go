@@ -132,9 +132,18 @@ const (
 	// owning runner's suite was cut short by an infrastructure cap, so the
 	// locked re-run was not attempted; the row stays disclosed.
 	VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded VerificationLockfileFixedPoint = "unproven_suite_infra_downgraded"
-	// VerificationLockfileFixedPointUnprovenReportFailed: the report failed
-	// for the suite's own reasons, so the locked re-run was not attempted.
+	// VerificationLockfileFixedPointUnprovenReportFailed: the owning
+	// runner's own suite failed (non-zero exit), so the locked re-run was
+	// not attempted.
 	VerificationLockfileFixedPointUnprovenReportFailed VerificationLockfileFixedPoint = "unproven_report_failed"
+	// VerificationLockfileFixedPointUnprovenRunRefused (F-run-tests round
+	// three, finding A): the verification run was refused because OTHER
+	// tracked paths drifted (unclassified rows), so no locked re-run was
+	// attempted for this lockfile row; the row stays disclosed and its
+	// fixed point is left UNPROVEN. Every dependency_lockfile_refresh row
+	// carries one member of this closed set — the zero value is never a
+	// state (it would render byte-identical to proven).
+	VerificationLockfileFixedPointUnprovenRunRefused VerificationLockfileFixedPoint = "unproven_run_refused"
 )
 
 // AllVerificationLockfileFixedPoints is the closed set in stable order.
@@ -144,7 +153,21 @@ func AllVerificationLockfileFixedPoints() []VerificationLockfileFixedPoint {
 		VerificationLockfileFixedPointDisproven,
 		VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded,
 		VerificationLockfileFixedPointUnprovenReportFailed,
+		VerificationLockfileFixedPointUnprovenRunRefused,
 	}
+}
+
+// VerificationLockfileFixedPointDeclared reports whether fp is a member of
+// the closed set. A dependency_lockfile_refresh row whose fixed point is not
+// declared is a producer bug (the census in the tool package goes red): ""
+// belongs to rows of other classes only.
+func VerificationLockfileFixedPointDeclared(fp VerificationLockfileFixedPoint) bool {
+	for _, member := range AllVerificationLockfileFixedPoints() {
+		if member == fp {
+			return true
+		}
+	}
+	return false
 }
 
 // VerificationLockfileFixedPointUnproven reports whether a DISCLOSED lockfile
@@ -152,7 +175,8 @@ func AllVerificationLockfileFixedPoints() []VerificationLockfileFixedPoint {
 // every disclosure surface must say so in plain words.
 func VerificationLockfileFixedPointUnproven(fp VerificationLockfileFixedPoint) bool {
 	switch fp {
-	case VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded, VerificationLockfileFixedPointUnprovenReportFailed:
+	case VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded, VerificationLockfileFixedPointUnprovenReportFailed,
+		VerificationLockfileFixedPointUnprovenRunRefused:
 		return true
 	default:
 		return false
@@ -175,6 +199,11 @@ func VerificationLockfileFixedPointDisclosure(fp VerificationLockfileFixedPoint,
 			return "锁文件定点未证明：测试套件失败，未执行锁定复验"
 		}
 		return "lockfile fixed point UNPROVEN: the test suite failed so no locked re-run was attempted"
+	case VerificationLockfileFixedPointUnprovenRunRefused:
+		if zh {
+			return "锁文件定点未证明：本次验证运行因其他路径的改动被拒绝，未执行锁定复验"
+		}
+		return "lockfile fixed point UNPROVEN: no locked re-run was attempted because the verification run was refused for other paths"
 	default:
 		return ""
 	}

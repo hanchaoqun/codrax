@@ -8,7 +8,13 @@ import (
 )
 
 // G1 step 1 unit tests for RepairExecutionPlan / BuildRepairExecutionPlan
-// / PromoteNextOwner / shouldRebuildExecutionPlan / Summarize.
+// / AdvanceRepairExecutionPlan / Summarize.
+//
+// EVOLUTION RECORD (§40.43 R1, fold-in round three): the PromoteNextOwner
+// / shouldRebuildExecutionPlan pins were deleted with those helpers — the
+// persisted plan no longer routes a dispatch (promote / stay arms gone);
+// the dispatch target is always a fresh rebuild and the persisted plan
+// carries only cluster stability (repair_execution_plan_dispatch_test.go).
 //
 // All fixtures use the existing `vio(kind, dispatch)` helper from
 // repair_plan_test.go (same package).
@@ -132,157 +138,6 @@ func TestBuildExecutionPlan_HasFailLoudShortCircuit(t *testing.T) {
 	if plan.HasFailLoud {
 		t.Errorf("ViolSelfContradiction should not produce HasFailLoud; got %+v", plan)
 	}
-	// Verify the helper itself: a synthetic plan with HasFailLoud=true
-	// short-circuits CurrentOwner via the explicit branch. Construct
-	// via PromoteNextOwner with no fresh + a HasFailLoud prev.
-	failLoud := RepairExecutionPlan{
-		Clusters:          []RepairCluster{{Owner: LocusTerminal}},
-		CurrentOwner:      LocusTerminal,
-		HasFailLoud:       true,
-		EscalationAllowed: true,
-	}
-	got := PromoteNextOwner(failLoud, nil, 0)
-	if got.CurrentOwner != LocusTerminal {
-		t.Errorf("HasFailLoud preservation: got CurrentOwner=%v, want LocusTerminal", got.CurrentOwner)
-	}
-	if !got.HasFailLoud {
-		t.Errorf("HasFailLoud preservation: HasFailLoud cleared on promote")
-	}
-}
-
-func TestPromoteNextOwner_FreshViolations_RebuildsFully(t *testing.T) {
-	prev := BuildRepairExecutionPlan([]types.Violation{
-		vio(types.ViolSubjectAnchorMissing, "d1"),
-	}, 1<<30)
-
-	// Fresh kind set differs (FacetUncovered new) → expect rebuild.
-	next := PromoteNextOwner(prev, []types.Violation{
-		vio(types.ViolFacetUncovered, "d2"),
-	}, 1<<30)
-
-	if next.CurrentOwner != LocusExplore {
-		t.Errorf("rebuild branch: CurrentOwner = %v, want LocusExplore (FacetUncovered)", next.CurrentOwner)
-	}
-	if len(next.Clusters) != 1 {
-		t.Errorf("rebuild branch: Clusters len = %d, want 1", len(next.Clusters))
-	}
-	if next.Clusters[0].Primary.Kind != types.ViolFacetUncovered {
-		t.Errorf("rebuild branch: cluster Primary = %v, want ViolFacetUncovered", next.Clusters[0].Primary.Kind)
-	}
-}
-
-func TestPromoteNextOwner_StableSubset_PopsQueue(t *testing.T) {
-	prev := RepairExecutionPlan{
-		Clusters: []RepairCluster{
-			{Primary: types.Violation{Kind: types.ViolSubjectAnchorMissing}, Owner: LocusExtract},
-			{Primary: types.Violation{Kind: types.ViolSelfContradiction}, Owner: LocusFinalizer},
-		},
-		OrderedOwners:     []RepairLocus{LocusExtract, LocusFinalizer},
-		CurrentOwner:      LocusExtract,
-		RemainingOwners:   []RepairLocus{LocusFinalizer},
-		EscalationAllowed: true,
-	}
-	next := PromoteNextOwner(prev, nil, 0)
-	if next.CurrentOwner != LocusFinalizer {
-		t.Errorf("subset branch: CurrentOwner = %v, want LocusFinalizer", next.CurrentOwner)
-	}
-	if len(next.RemainingOwners) != 0 {
-		t.Errorf("subset branch: RemainingOwners len = %d, want 0", len(next.RemainingOwners))
-	}
-	if len(next.OrderedOwners) != 2 {
-		t.Errorf("subset branch: OrderedOwners truncated unexpectedly: %v", next.OrderedOwners)
-	}
-}
-
-func TestPromoteNextOwner_Exhausted_PreservesCurrentOwner(t *testing.T) {
-	prev := RepairExecutionPlan{
-		Clusters:          []RepairCluster{{Primary: types.Violation{Kind: types.ViolSelfContradiction}, Owner: LocusFinalizer}},
-		OrderedOwners:     []RepairLocus{LocusFinalizer},
-		CurrentOwner:      LocusFinalizer,
-		RemainingOwners:   nil,
-		EscalationAllowed: true,
-	}
-	next := PromoteNextOwner(prev, nil, 0)
-	if next.CurrentOwner != LocusFinalizer {
-		t.Errorf("exhausted: CurrentOwner = %v, want LocusFinalizer (unchanged)", next.CurrentOwner)
-	}
-	if len(next.RemainingOwners) != 0 {
-		t.Errorf("exhausted: RemainingOwners len = %d, want 0", len(next.RemainingOwners))
-	}
-	if !next.EscalationAllowed {
-		t.Errorf("exhausted: EscalationAllowed flipped — must remain true so caller can escalate")
-	}
-}
-
-func TestShouldRebuildExecutionPlan_NilPrev(t *testing.T) {
-	if !shouldRebuildExecutionPlan(nil, []types.Violation{vio(types.ViolFacetUncovered, "d1")}) {
-		t.Errorf("nil prev: should rebuild")
-	}
-}
-
-func TestShouldRebuildExecutionPlan_QueueExhausted(t *testing.T) {
-	prev := &RepairExecutionPlan{
-		Clusters:        []RepairCluster{{Primary: types.Violation{Kind: types.ViolSubjectAnchorMissing}, Owner: LocusExtract}},
-		OrderedOwners:   []RepairLocus{LocusExtract},
-		CurrentOwner:    LocusExtract,
-		RemainingOwners: nil,
-	}
-	if !shouldRebuildExecutionPlan(prev, []types.Violation{vio(types.ViolSubjectAnchorMissing, "d1")}) {
-		t.Errorf("queue empty: should rebuild")
-	}
-}
-
-func TestShouldRebuildExecutionPlan_NewKindAppears(t *testing.T) {
-	prev := &RepairExecutionPlan{
-		Clusters: []RepairCluster{
-			{Primary: types.Violation{Kind: types.ViolSubjectAnchorMissing}, Owner: LocusExtract},
-		},
-		OrderedOwners:   []RepairLocus{LocusExtract, LocusFinalizer},
-		CurrentOwner:    LocusExtract,
-		RemainingOwners: []RepairLocus{LocusFinalizer},
-	}
-	// Fresh kind FacetUncovered is NOT in prev — must rebuild.
-	if !shouldRebuildExecutionPlan(prev, []types.Violation{
-		vio(types.ViolSubjectAnchorMissing, "d1"),
-		vio(types.ViolFacetUncovered, "d1"),
-	}) {
-		t.Errorf("new kind appeared: should rebuild")
-	}
-}
-
-func TestShouldRebuildExecutionPlan_StrictSubsetPromotes(t *testing.T) {
-	prev := &RepairExecutionPlan{
-		Clusters: []RepairCluster{
-			{Primary: types.Violation{Kind: types.ViolSubjectAnchorMissing}, Owner: LocusExtract,
-				Derived: []types.Violation{{Kind: types.ViolStepIdentifierUnverified}}},
-		},
-		OrderedOwners:   []RepairLocus{LocusExtract, LocusFinalizer},
-		CurrentOwner:    LocusExtract,
-		RemainingOwners: []RepairLocus{LocusFinalizer},
-	}
-	// Fresh = strict subset (only the Derived remains; Primary cleared).
-	if shouldRebuildExecutionPlan(prev, []types.Violation{
-		vio(types.ViolStepIdentifierUnverified, "d1"),
-	}) {
-		t.Errorf("strict subset: should NOT rebuild (promote next instead)")
-	}
-}
-
-func TestShouldRebuildExecutionPlan_EqualKindSetRebuilds(t *testing.T) {
-	prev := &RepairExecutionPlan{
-		Clusters: []RepairCluster{
-			{Primary: types.Violation{Kind: types.ViolSubjectAnchorMissing}, Owner: LocusExtract},
-		},
-		OrderedOwners:   []RepairLocus{LocusExtract, LocusFinalizer},
-		CurrentOwner:    LocusExtract,
-		RemainingOwners: []RepairLocus{LocusFinalizer},
-	}
-	// Same kind set → no progress → rebuild.
-	if !shouldRebuildExecutionPlan(prev, []types.Violation{
-		vio(types.ViolSubjectAnchorMissing, "d1"),
-	}) {
-		t.Errorf("equal kind set: should rebuild (no progress)")
-	}
 }
 
 func TestSummarizeRepairExecutionPlan_Empty(t *testing.T) {
@@ -352,10 +207,14 @@ func TestAdvanceRepairExecutionPlan_RebuildBranch(t *testing.T) {
 	}
 }
 
-func TestAdvanceRepairExecutionPlan_PromoteBranch(t *testing.T) {
+// EVOLUTION RECORD (§40.43 R1): formerly TestAdvanceRepairExecutionPlan_PromoteBranch
+// — "fresh is a strict subset of prev → PROMOTE next owner from the
+// persisted queue, inheriting prev's downgrade flag". The promote arm was
+// never live before F12 and dispatched the wrong owner once it was; the
+// persisted plan now contributes only its cluster stability and the
+// target is the fresh rebuild with the CURRENT budget counter.
+func TestAdvanceRepairExecutionPlan_PersistedPlanNeverRoutesTheDispatch(t *testing.T) {
 	mut := &types.MutableState{}
-	// Stash a prev plan: 2 owners, currently at Finalizer (downgrade
-	// applied), Extract is RemainingOwners[0].
 	prev := RepairExecutionPlan{
 		Clusters: []RepairCluster{
 			{Primary: types.Violation{Kind: types.ViolSubjectAnchorMissing}, Owner: LocusExtract},
@@ -366,28 +225,29 @@ func TestAdvanceRepairExecutionPlan_PromoteBranch(t *testing.T) {
 		RemainingOwners:                []RepairLocus{LocusExtract},
 		FinalizerLocalDowngradeApplied: true,
 		EscalationAllowed:              true,
+		ClusterStates: []RepairClusterExecutionState{
+			{Owner: LocusExtract, PrimaryKind: types.ViolSubjectAnchorMissing, PrimaryFingerprint: "h:extract"},
+			{Owner: LocusFinalizer, PrimaryKind: types.ViolSelfContradiction, PrimaryFingerprint: "h:finalizer"},
+		},
 	}
 	mut.SetRepairExecutionPlan(prev)
 
-	// Fresh = strict subset of prev (Finalizer-owned cluster fixed,
-	// only Extract-owned remains). Should PROMOTE next, not rebuild.
-	plan, target, preDown := AdvanceRepairExecutionPlan(mut, []types.Violation{
-		vio(types.ViolSubjectAnchorMissing, "d1"),
-	}, 1) // budget used 1 — would no longer downgrade on rebuild
+	// Fresh = only the extract-owned cluster remains; budget used 1 of 2
+	// but Finalizer is no longer in the fresh queue, so no downgrade.
+	fresh := []types.Violation{vio(types.ViolSubjectAnchorMissing, "d1")}
+	plan, target, preDown := AdvanceRepairExecutionPlan(mut, fresh, 1)
 
-	if plan.CurrentOwner != LocusExtract {
-		t.Errorf("promote: CurrentOwner = %v, want LocusExtract", plan.CurrentOwner)
+	if plan.CurrentOwner != LocusExtract || target != FallbackBackToExtract || preDown != FallbackBackToExtract {
+		t.Fatalf("fresh rebuild: owner=%v target=%v preDown=%v, want extract / back_to_extract / back_to_extract", plan.CurrentOwner, target, preDown)
 	}
-	if target != FallbackBackToExtract {
-		t.Errorf("promote: target = %v, want FallbackBackToExtract", target)
+	if plan.FinalizerLocalDowngradeApplied {
+		t.Fatal("the rebuilt plan must recompute the downgrade flag from the current budget, not inherit prev's")
 	}
-	// promote inherits prev's downgrade flag — preDowngrade should
-	// recover from OrderedOwners[1] = LocusExtract.
-	if preDown != FallbackBackToExtract {
-		t.Errorf("promote: preDown = %v, want FallbackBackToExtract", preDown)
+	if len(plan.RemainingOwners) != 0 || len(plan.OrderedOwners) != 1 {
+		t.Fatalf("the rebuilt plan reflects the fresh set only: %+v", plan)
 	}
-	if len(plan.RemainingOwners) != 0 {
-		t.Errorf("promote: RemainingOwners = %v, want []", plan.RemainingOwners)
+	if want := FallbackTargetForViolationsWithBudget(fresh, 1); target != want {
+		t.Fatalf("target=%v disagrees with the budget picker %v", target, want)
 	}
 }
 

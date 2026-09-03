@@ -1487,15 +1487,10 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 	}
 	if audit := report.WorktreeAudit; audit != nil {
 		for _, effect := range audit.Effects {
-			text := fmt.Sprintf("path=%s kind=%s ownership=%s action=%s",
-				effect.Path, effect.Kind, effect.Ownership, effect.Action)
-			if effect.DriftClass != "" {
-				text += fmt.Sprintf(" drift_class=%s disposition=%s", effect.DriftClass, effect.Disposition)
-				if effect.OwnerRunner != "" {
-					text += " owner_runner=" + effect.OwnerRunner
-				}
-				text += WriteContextLockfileFixedPointSuffix(effect.LockfileFixedPoint)
-			}
+			// Typed tokens first, the path last and fitted to the item
+			// bound, so trimming never lands on a token (F-run-tests round
+			// three, finding E).
+			text := WriteContextWorktreeEffectText(effect)
 			pack.Items = append(pack.Items, writeContextItem("verification_worktree_effect", WriteContextP1, text, "verify",
 				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 			pack.Items[len(pack.Items)-1].ID = writeContextStableID("verification_worktree_effect", report.PlanID, effect.Path, string(effect.Kind))
@@ -2752,15 +2747,57 @@ func WriteContextLockfileFixedPointSuffix(fp VerificationLockfileFixedPoint) str
 	return " lockfile_fixed_point=" + string(fp)
 }
 
+// WriteContextWorktreeEffectText renders one worktree-audit effect row for
+// the write handoff (context pack item and controller prompt line share
+// it): every typed token first — kind, ownership, action, drift_class,
+// disposition, owner_runner, lockfile_fixed_point — and the path as the
+// LAST element, fitted so the whole row stays within the per-item text
+// bound. A long lockfile path is shortened from the left (its basename is
+// the informative end); a typed token is never cut.
+func WriteContextWorktreeEffectText(effect VerificationWorktreeEffect) string {
+	tokens := fmt.Sprintf("kind=%s ownership=%s action=%s", effect.Kind, effect.Ownership, effect.Action)
+	if effect.DriftClass != "" {
+		tokens += fmt.Sprintf(" drift_class=%s disposition=%s", effect.DriftClass, effect.Disposition)
+		if effect.OwnerRunner != "" {
+			tokens += " owner_runner=" + effect.OwnerRunner
+		}
+		tokens += WriteContextLockfileFixedPointSuffix(effect.LockfileFixedPoint)
+	}
+	return writeContextTokensThenPath(tokens, effect.Path)
+}
+
 // WriteContextLockfileFixedPointDisclosureText is the write-handoff form of
 // the plain-words disclosure for an UNPROVEN lockfile fixed point
-// ("path=<p> lockfile_fixed_point=<state> (<phrase>)"); "" when the fixed
-// point is proven, disproven or not applicable. Context pack and controller
-// prompt both render it, so the wording is single-sourced here.
+// ("lockfile_fixed_point=<state> (<phrase>) path=<p>"): typed token, then
+// the single-sourced phrase, then the path last (fitted to the item bound);
+// "" when the fixed point is proven, disproven or not applicable. Context
+// pack and controller prompt both render it, so the wording is
+// single-sourced here.
 func WriteContextLockfileFixedPointDisclosureText(path string, fp VerificationLockfileFixedPoint) string {
 	phrase := VerificationLockfileFixedPointDisclosure(fp, false)
 	if phrase == "" {
 		return ""
 	}
-	return "path=" + strings.TrimSpace(path) + " lockfile_fixed_point=" + string(fp) + " (" + phrase + ")"
+	return writeContextTokensThenPath("lockfile_fixed_point="+string(fp)+" ("+phrase+")", path)
+}
+
+// writeContextTokensThenPath appends " path=<p>" to a token prefix and fits
+// the result within writeContextPackTextLen runes by shortening the PATH
+// from the left (prefixing "…"), never the tokens. The result therefore
+// passes trimWriteContextText unchanged.
+func writeContextTokensThenPath(tokens, path string) string {
+	path = strings.TrimSpace(path)
+	head := strings.TrimSpace(tokens) + " path="
+	budget := writeContextPackTextLen - len([]rune(head))
+	runes := []rune(path)
+	if budget < 0 {
+		return strings.TrimSpace(tokens)
+	}
+	if len(runes) > budget {
+		if budget <= 1 {
+			return head + string(runes[len(runes)-max(budget, 0):])
+		}
+		runes = append([]rune{'…'}, runes[len(runes)-(budget-1):]...)
+	}
+	return head + string(runes)
 }

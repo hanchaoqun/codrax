@@ -71,6 +71,13 @@ type verificationDriftRosterEntry struct {
 	// not attempted for such an owner (it would die under the same caps) and
 	// its lockfile rows are disclosed with the fixed point marked UNPROVEN.
 	suiteInfraOutcome string
+	// suiteExitFailed is the seat's own typed failure fact: a launched,
+	// non-infra command row of this (runner, workdir) exited non-zero. The
+	// locked re-verify decision keys on the OWNER SEAT (infra outcome first,
+	// then this flag), never on the report-level verdict — a report that is
+	// not Passed for coverage reasons (verification_incomplete) still gets
+	// its cheap locked witness when the seat itself exited 0.
+	suiteExitFailed bool
 }
 
 // key identifies the (runner, workdir) owner seat.
@@ -220,16 +227,24 @@ func verificationDriftRoster(in verificationWorktreeDriftInput, auditRoot string
 		}
 		key := runner + "\x00" + dirRel
 		infra := verificationDriftCommandSuiteInfraOutcome(cmd)
+		exitFailed := infra == "" && cmd.ExitCode != 0
 		if idx, ok := seen[key]; ok {
 			// Same owner seat launched more than once (syntax preflight +
-			// suite, escalations): an infra-downgraded launch marks the seat.
+			// suite, escalations, the pre-suite continuation preview row):
+			// an infra-downgraded launch marks the seat, and any non-zero
+			// launched exit marks it failed — the seat's facts aggregate over
+			// its rows in precedence order, so a preview row (exit 0) never
+			// hides the real suite's failure.
 			if infra != "" && out[idx].suiteInfraOutcome == "" {
 				out[idx].suiteInfraOutcome = infra
+			}
+			if exitFailed {
+				out[idx].suiteExitFailed = true
 			}
 			continue
 		}
 		seen[key] = len(out)
-		out = append(out, verificationDriftRosterEntry{runner: runner, framework: strings.TrimSpace(cmd.Framework), suite: strings.TrimSpace(cmd.Suite), dirRel: dirRel, suiteInfraOutcome: infra})
+		out = append(out, verificationDriftRosterEntry{runner: runner, framework: strings.TrimSpace(cmd.Framework), suite: strings.TrimSpace(cmd.Suite), dirRel: dirRel, suiteInfraOutcome: infra, suiteExitFailed: exitFailed})
 	}
 	return out
 }
@@ -237,12 +252,20 @@ func verificationDriftRoster(in verificationWorktreeDriftInput, auditRoot string
 // verificationDriftLaunchedOutcomes is the closed "process was started"
 // roster; verificationDriftSuiteInfraOutcomes is its infrastructure-downgrade
 // subset (the supervisor killed the suite: wall timeout / memory cap / CPU
-// cap — the same three kinds makeResourceExhaustionReport types). Both are
-// census-pinned (run_tests_worktree_drift_test.go) so a new launched or
-// infra outcome cannot be added to one table without the other.
+// cap — the same three kinds makeResourceExhaustionReport types). Both
+// tables are built from the typed types.ExecutedCommandOutcome* labels the
+// producers write — never from parallel literals — and are census-pinned
+// (run_tests_outcome_census_test.go reads the writers through go/ast;
+// run_tests_worktree_fold_in_test.go pins the infra subset against
+// makeResourceExhaustionReport) so a renamed label or an outcome added to
+// one table without the other goes red.
 var (
-	verificationDriftLaunchedOutcomes   = []string{"executed", "suite_continued", "parser_error", "expected_stdout_missing", "zero_tests", "timeout", "oom", "cpu_limit"}
-	verificationDriftSuiteInfraOutcomes = []string{"timeout", "oom", "cpu_limit"}
+	verificationDriftLaunchedOutcomes = []string{
+		types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSuiteContinued, types.ExecutedCommandOutcomeParserError,
+		types.ExecutedCommandOutcomeExpectedStdoutMissing, types.ExecutedCommandOutcomeZeroTests,
+		types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM, types.ExecutedCommandOutcomeCPULimit,
+	}
+	verificationDriftSuiteInfraOutcomes = []string{types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM, types.ExecutedCommandOutcomeCPULimit}
 )
 
 // verificationDriftCommandLaunched reports whether the runner process was
@@ -373,25 +396,37 @@ func runVerificationLockedReverify(in verificationWorktreeDriftInput, auditRoot 
 	return record
 }
 
-// verificationLockedReverifyRecordForOwner decides, from typed facts only,
-// whether the locked re-run is executed for one lockfile owner and returns
-// its record plus the typed fixed-point state its rows carry:
-//   - report not Passed            ⇒ skipped_report_failed / unproven_report_failed
-//   - owner suite infra-downgraded ⇒ skipped_suite_infra_downgraded /
-//     unproven_suite_infra_downgraded (never refused, never re-run under
-//     the caps that just killed it)
-//   - otherwise the locked re-run executes (a Passed zero-test report
-//     included — the locked run is then a cheap lockfile-only witness).
-func verificationLockedReverifyRecordForOwner(report *types.ChangeReport, in verificationWorktreeDriftInput, auditRoot string, owner verificationDriftRosterEntry) (types.VerificationLockedReverify, types.VerificationLockfileFixedPoint) {
+// verificationLockedReverifyRecordForOwner decides, from the OWNER SEAT's
+// typed facts only (F-run-tests round three, finding B), whether the locked
+// re-run is executed for one lockfile owner and returns its record plus the
+// typed fixed-point state its rows carry, in this precedence:
+//   - owner suite infra-downgraded (timeout | oom | cpu_limit)
+//     ⇒ skipped_suite_infra_downgraded / unproven_suite_infra_downgraded
+//     (never refused, never re-run under the caps that just killed it;
+//     evaluated BEFORE any other check so a cut-short suite is never
+//     called "failed")
+//   - owner seat exited non-zero ⇒ skipped_report_failed /
+//     unproven_report_failed ("the test suite failed")
+//   - owner seat exited 0 ⇒ the locked re-run executes — also when the
+//     report-level verdict is not Passed for reasons that are not the
+//     seat's (changed-path coverage → verification_incomplete, another
+//     seat's failure) and for a Passed zero-test report (cheap
+//     lockfile-only witness).
+//
+// The report-level verdict never participates: keying on report.Passed told
+// a passing suite whose changed path was merely uncovered that "the test
+// suite failed", and evaluated before the infra outcome it mislabelled a
+// timed-out suite the same way.
+func verificationLockedReverifyRecordForOwner(in verificationWorktreeDriftInput, auditRoot string, owner verificationDriftRosterEntry) (types.VerificationLockedReverify, types.VerificationLockfileFixedPoint) {
 	record := types.VerificationLockedReverify{Runner: owner.runner, Framework: owner.framework, WorkingDir: owner.dirRel}
 	switch {
-	case report == nil || !report.Passed:
-		record.Outcome = types.VerificationLockedReverifySkippedReportFailed
-		return record, types.VerificationLockfileFixedPointUnprovenReportFailed
 	case owner.suiteInfraOutcome != "":
 		record.Outcome = types.VerificationLockedReverifySkippedSuiteInfraDowngraded
 		record.SuiteOutcome = owner.suiteInfraOutcome
 		return record, types.VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded
+	case owner.suiteExitFailed:
+		record.Outcome = types.VerificationLockedReverifySkippedReportFailed
+		return record, types.VerificationLockfileFixedPointUnprovenReportFailed
 	}
 	record = runVerificationLockedReverify(in, auditRoot, owner)
 	if record.Outcome == types.VerificationLockedReverifyPassed {

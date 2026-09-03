@@ -9,8 +9,10 @@ import (
 
 // write_verify_worktree_render_witness_test.go — V5-2 (§40.11): the verify
 // note names disclosed side effects (path + class) in both languages and
-// says the verdict stands while the change is not delivered; refused drift
-// keeps rendering nothing here (the failure surface owns it).
+// says the verdict stands while the change is not delivered; a run whose
+// ONLY rows are refused keeps rendering nothing here (the failure surface
+// owns refused rows — §40.36 三轮收编 finding F: a refused run's disclosed
+// rows and untracked outputs do render, see the fold_in3 pins).
 func TestRenderVerificationWorktreeAuditNoteDisclosedLane(t *testing.T) {
 	audit := &types.VerificationWorktreeAudit{
 		Status: types.VerificationWorktreeAuditTrackedDriftDisclosed, ReasonCode: types.VerificationTrackedSideEffectDisclosedReason,
@@ -31,7 +33,7 @@ func TestRenderVerificationWorktreeAuditNoteDisclosedLane(t *testing.T) {
 			t.Fatalf("en note missing %q:\n%s", want, en)
 		}
 	}
-	// Refused drift renders nothing in the note (existing behaviour, pinned).
+	// Refused-only drift renders nothing in the note (pinned).
 	refused := &types.VerificationWorktreeAudit{Status: types.VerificationWorktreeAuditTrackedDrift,
 		Effects: []types.VerificationWorktreeEffect{{Path: "src/x.rs", Kind: types.VerificationWorktreeEffectTrackedChanged, Disposition: types.VerificationWorktreeEffectRefused}}}
 	if got := renderVerificationWorktreeAuditNote(refused, true); got != "" {

@@ -348,13 +348,9 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 					fmt.Fprintf(&b, "- verification_worktree_effect: ... +%d more\n", len(audit.Effects)-i)
 					break
 				}
-				fmt.Fprintf(&b, "- verification_worktree_effect: path=%s kind=%s ownership=%s action=%s",
-					effect.Path, effect.Kind, effect.Ownership, effect.Action)
-				if effect.DriftClass != "" {
-					fmt.Fprintf(&b, " drift_class=%s disposition=%s", effect.DriftClass, effect.Disposition)
-					b.WriteString(types.WriteContextLockfileFixedPointSuffix(effect.LockfileFixedPoint))
-				}
-				b.WriteString("\n")
+				// Same text as the context pack effect item (typed tokens
+				// first, path last, never cut at a token).
+				fmt.Fprintf(&b, "- verification_worktree_effect: %s\n", types.WriteContextWorktreeEffectText(effect))
 				if disclosure := types.WriteContextLockfileFixedPointDisclosureText(effect.Path, effect.LockfileFixedPoint); disclosure != "" {
 					fmt.Fprintf(&b, "- verification_lockfile_fixed_point: %s\n", disclosure)
 				}
