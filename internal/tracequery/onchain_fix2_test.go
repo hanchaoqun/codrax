@@ -355,7 +355,15 @@ func TestONCHAINFIX2DioSegmentCarrier(t *testing.T) {
 	q := Query{PID: 100, TimeStart: 1.0, TimeEnd: 1.3, MaxDepth: 4, MaxBranches: 8, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 32}
 	rank := BuildRootCauseRank(idx, q)
 	pool := append(append([]RootCauseRankItem{}, rank.Items...), rank.AbsorbedItems...)
-	var worker, env *RootCauseRankItem
+	// EVOLUTION RECORD (STATERES-1, §40.30 V-STATE-1 plan A, 2026-09-02): the
+	// worker (a chain member whose D segments 1.002..1.012 / 1.032..1.045 lie
+	// outside its chain windows) now takes the R3 credential of its DIRECT
+	// edge toward the target at 1.030: the pre-edge segment rides the ⛓ seat
+	// (10ms, via=direct) and the post-edge segment rides the ◇ clone (13ms).
+	// The carrier promise is unchanged — the two rows of one account together
+	// carry exactly the 2 true close-site segments, each Σ reproducing its own
+	// published account.
+	var worker, remainder, env *RootCauseRankItem
 	for i := range pool {
 		item := &pool[i]
 		if item.Type != "d_state_or_io_wait" && item.Type != "io_wait" {
@@ -366,28 +374,37 @@ func TestONCHAINFIX2DioSegmentCarrier(t *testing.T) {
 		}
 		switch item.Thread.PID {
 		case 200:
-			worker = item
+			if item.ChainAnchorRemainderSeat {
+				remainder = item
+			} else {
+				worker = item
+			}
 		case 500:
 			env = item
 		}
 	}
-	if worker == nil {
-		t.Fatalf("worker D/IO window seat missing")
+	if worker == nil || remainder == nil {
+		t.Fatalf("worker D/IO ⛓ seat and ◇ clone must both be present (worker=%v remainder=%v)", worker != nil, remainder != nil)
 	}
-	if len(worker.dioSegmentIntervals) != 2 {
-		t.Fatalf("worker seat must carry its 2 true close-site segments, got %d: %+v",
-			len(worker.dioSegmentIntervals), worker.dioSegmentIntervals)
+	if worker.OnChainBasis != RootCauseOnChainBasisHostWakeupEdgeState || worker.HostWakeupEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
+		t.Fatalf("worker ⛓ seat must wear the direct-edge state credential: %+v", worker)
 	}
-	segMs := 0.0
-	for _, seg := range worker.dioSegmentIntervals {
-		segMs += (seg.end - seg.start) * 1000
+	if len(worker.dioSegmentIntervals) != 1 || len(remainder.dioSegmentIntervals) != 1 {
+		t.Fatalf("the two rows must carry the 2 true close-site segments (1 pre-edge + 1 post-edge), got %d/%d: %+v %+v",
+			len(worker.dioSegmentIntervals), len(remainder.dioSegmentIntervals), worker.dioSegmentIntervals, remainder.dioSegmentIntervals)
 	}
-	if math.Abs(segMs-(worker.DStateMs+worker.IOWaitMs)) > rspaAnchorIdentityTolMs {
-		t.Fatalf("worker segment Σ must reproduce the seat account: %.6f vs %.6f", segMs, worker.DStateMs+worker.IOWaitMs)
+	for _, row := range []*RootCauseRankItem{worker, remainder} {
+		segMs := 0.0
+		for _, seg := range row.dioSegmentIntervals {
+			segMs += (seg.end - seg.start) * 1000
+		}
+		if math.Abs(segMs-(row.DStateMs+row.IOWaitMs)) > rspaAnchorIdentityTolMs {
+			t.Fatalf("segment Σ must reproduce the row account: %.6f vs %.6f", segMs, row.DStateMs+row.IOWaitMs)
+		}
 	}
 	intervals, basis := rootCauseItemDirectionSupport(worker)
-	if basis != RootCauseDirectionBasisDioSegments || len(intervals) != 2 {
-		t.Fatalf("direction support must resolve the dio segment basis: %q %d", basis, len(intervals))
+	if basis != RootCauseDirectionBasisDioSegments || len(intervals) != 1 {
+		t.Fatalf("direction support must resolve the dio segment basis on the priced share: %q %d", basis, len(intervals))
 	}
 	if env != nil && len(env.dioSegmentIntervals) != 0 {
 		t.Fatalf("the overflowed env group must carry NO seat inventory (fail-open): %+v", env.dioSegmentIntervals)

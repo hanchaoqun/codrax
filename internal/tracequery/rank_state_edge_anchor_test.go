@@ -332,7 +332,10 @@ func TestBareCensusEdgeStateSeatFailClosedForms(t *testing.T) {
 			item.Thread = ThreadRef{Comm: "bystander", PID: 400}
 			return chain, item
 		},
-		"chain-member pid (RSPA vocabulary ownership)": func() (ChainResult, RootCauseRankItem) {
+		// STATERES-1 (§40.30): a chain member is refused only while RSPA owns
+		// its segments — here the inventory overlaps the relay's chain window
+		// 6.000..6.004 and carries no census-time ledger stamp.
+		"chain member whose inventory overlaps its chain window (RSPA-owned)": func() (ChainResult, RootCauseRankItem) {
 			item := o3cRunnableSeat()
 			item.Thread = ThreadRef{Comm: "relay", PID: 200}
 			return chain, item

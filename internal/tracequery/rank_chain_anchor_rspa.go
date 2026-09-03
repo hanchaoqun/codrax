@@ -826,6 +826,17 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 		if rspaRowIsSelfExempt(*item, chain.Target) {
 			continue
 		}
+		// STATERES-1 (§40.30 V-STATE-1 plan A, 2026-09-02) lane-decided-once:
+		// a seat that already wears a typed on-chain basis (the R3 host-edge
+		// state/span bases, the self bases) was adjudicated by its own lane —
+		// the ENRICH pass runs this re-anchoring BEFORE the state-edge pass,
+		// and a whole-account residual seat (on_chain, ChainAnchorFullMs==0,
+		// RSPA decision anchored=0) would otherwise be rewritten into a
+		// zero-credential ◇ remainder, silently reverting the ruling on the
+		// second pass. Mirrors the query.go keep arm for the same bases.
+		if strings.TrimSpace(item.OnChainBasis) != "" {
+			continue
+		}
 		switch strings.TrimSpace(item.Type) {
 		case "priority_inversion_candidate":
 			// B1260: a sleep/D/IO-dominant dependency may publish a separate

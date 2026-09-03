@@ -95,18 +95,18 @@ func assertCrownsemSpanSeatPriced(t *testing.T, spanSeat *RootCauseRankItem) {
 	}
 }
 
-// TestCrownsemNarrowWindowChainMemberHostStateSeatKnownGap — KNOWLEDGE PIN
-// (batch-one adversarial review finding, colleague_merge_audit §40.29.1
-// V-STATE-1, 2026-09-02, 待用户裁定). In the narrow window the host 61839
-// becomes a CHAIN MEMBER (depth≥2 expansion at MinDurationMs 0.05): its
-// VerifyClass span is priced by the R3 host-edge credential, while its own
-// pre-edge runnable segment (34579.496347..496442) is NOT — the state lane's
-// ONCHAIN-3c door admits only NON-chain-member hosts (RSPA owns chain
-// members' state-credential vocabulary, and the segment lies outside the
-// host's chain window). One host, one edge, one window, two admissions.
-// This pin records the CURRENT shape so the ruling lands as a conscious
-// re-pin (先红后绿), not as silent drift; it is not an endorsement.
-func TestCrownsemNarrowWindowChainMemberHostStateSeatKnownGap(t *testing.T) {
+// TestStateresNarrowWindowChainMemberHostResidualRunnableSeatPriced — the
+// V-STATE-1 knowledge pin flipped into its positive form (STATERES-1, user
+// ruling §40.30 plan A "RSPA 优先、R3 补残", 2026-09-02). In the narrow window
+// the host 61839 is a CHAIN MEMBER (depth-1 node on branch 2, chain window
+// 34579.496753..34579.496810 — the ledger's earlier "depth≥2" wording was a
+// misread of the topology); its runnable segment 34579.496347..496442
+// (0.095ms) lies outside that window and before the host's direct census
+// edge toward the target at 34579.496810, so RSPA had nothing to price and
+// the segment used to sit on ◇ 「邻近·无直接唤醒边」 while the VerifyClass
+// span two rows up wore the credential of the very same edge. Now both seats
+// of one host / one edge / one window follow ONE credential rule.
+func TestStateresNarrowWindowChainMemberHostResidualRunnableSeatPriced(t *testing.T) {
 	narrow := crownsemSentinelRanks(t)[1]
 	var spanSeat, runnableSeat *RootCauseRankItem
 	for i := range narrow.Items {
@@ -127,14 +127,20 @@ func TestCrownsemNarrowWindowChainMemberHostStateSeatKnownGap(t *testing.T) {
 		t.Fatalf("narrow sentinel window must expose the host span seat and its runnable seat (span=%v runnable=%v)", spanSeat != nil, runnableSeat != nil)
 	}
 	assertCrownsemSpanSeatPriced(t, spanSeat)
-	// CURRENT shape: the segment sits on the ◇ adjacent lane with NO credential
-	// basis (「邻近支撑(无直接唤醒边)」) while the span two rows up wears the
-	// host-edge credential of the very same edge.
-	if rootCauseItemIsOnChain(*runnableSeat) || strings.TrimSpace(runnableSeat.OnChainBasis) != "" {
-		t.Fatalf("V-STATE-1 ruling landed? the chain-member host's pre-edge runnable seat is now credentialed (%+v) — re-pin this knowledge pin against §40.29.1 and retire the gap entry", runnableSeat)
+	if !rootCauseItemIsOnChain(*runnableSeat) || runnableSeat.OnChainBasis != RootCauseOnChainBasisHostWakeupEdgeState {
+		t.Fatalf("STATERES-1: the chain-member host's residual pre-edge runnable seat must take the host-edge state credential: %+v", runnableSeat)
 	}
-	if runnableSeat.ChainRelevance != "adjacent" {
-		t.Fatalf("knowledge pin drift: the pre-edge runnable seat changed lane without a ruling: %+v", runnableSeat)
+	if math.Abs(runnableSeat.EffectiveImpactMs-0.095) > 0.002 || runnableSeat.HostWakeupEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect ||
+		math.Abs(runnableSeat.HostWakeupEdgeAnchorTs-34579.496810) > 1e-5 {
+		t.Fatalf("residual seat must price its whole pre-edge share by the DIRECT census edge (via=direct, edge 34579.496810): eff=%.3f via=%q ts=%.6f",
+			runnableSeat.EffectiveImpactMs, runnableSeat.HostWakeupEdgeAnchorVia, runnableSeat.HostWakeupEdgeAnchorTs)
+	}
+	if !strings.Contains(runnableSeat.Summary, "fully pre-edge") || !strings.Contains(runnableSeat.Summary, "via=direct") {
+		t.Fatalf("residual seat must wear the R4 family disclosure with via=direct: %s", runnableSeat.Summary)
+	}
+	// The two seats of one host / one edge / one window now agree on the edge.
+	if math.Abs(runnableSeat.HostWakeupEdgeAnchorTs-spanSeat.HostWakeupEdgeAnchorTs) > 1e-6 {
+		t.Fatalf("state seat and span seat must cite the same credential edge: %.6f vs %.6f", runnableSeat.HostWakeupEdgeAnchorTs, spanSeat.HostWakeupEdgeAnchorTs)
 	}
 }
 

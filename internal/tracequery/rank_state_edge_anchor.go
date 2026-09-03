@@ -6,8 +6,9 @@ package tracequery
 // 反向缺口5; evaluation docs/design/edge3be_eval_20260719.md §3c; R3 precedent
 // §29.88.1/§29.88.2, ledger docs/design/real_trace_campaign_20260705.md).
 //
-// Shape: a NON-chain-member host thread holds a REAL typed wakeup edge toward
-// the analysis target (the raw census pair host→target — the SCAN-3 61839
+// Shape: a NON-chain-member host thread (or, since STATERES-1, a chain-member
+// host's RESIDUAL segments — see the ownership boundary below) holds a REAL
+// typed wakeup edge toward the analysis target (the raw census pair host→target — the SCAN-3 61839
 // sentinel: a bare edge that woke an already-runnable target, invisible to
 // every chain-window intersection lane), yet only its deterministic semantic
 // spans could ride the chain tier (R3 span basis). Its runnable / D-IO state
@@ -36,11 +37,25 @@ package tracequery
 //     spans=self_workload — different directions, same thread, both support
 //     inventories present ⇒ the existing pass fires with zero new code).
 //
-// Ownership boundary (one lane, one vocabulary owner): chain-member pids are
-// structurally excluded — RSPA owns chain members' state-credential
-// vocabulary (§29.61.10 处置矩阵, RNB-1 §29.88 R2/R4); re-anchoring a chain
-// member's ◇ remainder through the R3 boundary would re-litigate the RNB-1
-// customer escapes. The analysis target is excluded (self-causality, R8).
+// Ownership boundary (one lane, one vocabulary owner): RSPA owns chain
+// members' state-credential vocabulary (§29.61.10 处置矩阵, RNB-1 §29.88
+// R2/R4) — an RSPA ⛓ clipped seat or ◇ remainder is NEVER re-judged here
+// (re-anchoring one through the R3 boundary would re-litigate the RNB-1
+// customer escapes). STATERES-1 (user ruling §40.30 V-STATE-1 plan A,
+// 2026-09-02, "RSPA 优先、R3 补残"): a chain-member host's runnable / D-IO
+// seat whose TYPED segment inventory lies outside EVERY RSPA chain window of
+// that host (zero overlap, belt-checked against the census-time ledger
+// stamp) had no door at all — RSPA had nothing to price and this lane refused
+// the pid wholesale, so the very same host wore the R3 credential on its
+// semantic span and none on its pre-edge runnable (tieba narrow-window
+// sentinel: VerifyClass 0.285 priced, runnable 0.095 「邻近·无直接唤醒边」).
+// Such a residual seat now takes the SAME credential, restricted to the
+// host's DIRECT census edge toward the target (never its chain-hop edge —
+// that is what the chain windows price), bisected by the same helpers and
+// disclosed by the same R4 family sentence (via=direct). The
+// priority_inversion_runnable_wait R4-mirror arm stays bare-host only
+// (ruling scope = runnable / D-IO state segments; knowledge-pinned). The
+// analysis target is excluded (self-causality, R8).
 //
 // Fail-closed forms (宁漏勿假指): no credential / degenerate window (R3
 // gate), all segments post-edge (边后=解除 grants nothing, SCAN-3 negative
@@ -208,26 +223,92 @@ func bareCensusEdgeHostRunnableMintSet(chain ChainResult, chainThreads map[int]b
 	return out
 }
 
+// stateEdgeCredentialLane is the typed admission verdict of the state-seat
+// credential pass: refused, the ONCHAIN-3c bare-census-host lane (full
+// credential: direct census edge or the host's own chain-hop edge), or the
+// STATERES-1 chain-member residual lane (direct census edge only).
+type stateEdgeCredentialLane int
+
+const (
+	stateEdgeLaneRefused stateEdgeCredentialLane = iota
+	stateEdgeLaneBareCensusHost
+	stateEdgeLaneChainMemberResidual
+)
+
 // bareCensusEdgeStateSeatEligible is the typed admission gate (see the file
-// header's fail-closed roster). PRECISE signals only.
-func bareCensusEdgeStateSeatEligible(item *RootCauseRankItem, chainThreads map[int]bool, target ThreadRef) bool {
+// header's fail-closed roster). PRECISE signals only. chainWindows is the
+// per-pid merged depth>0 chain-node window set (chainAnchorWindowsByPID —
+// the exact RSPA anchor set).
+func bareCensusEdgeStateSeatEligible(item *RootCauseRankItem, chainThreads map[int]bool, target ThreadRef, chainWindows map[int][]TimeWindow) stateEdgeCredentialLane {
 	if item.Thread.PID <= 0 || sameThreadRef(item.Thread, target) || item.SubjectIsAnalysisTarget {
-		return false
-	}
-	if threadInSet(chainThreads, item.Thread) {
-		return false // RSPA owns chain members' state-credential vocabulary
+		return stateEdgeLaneRefused
 	}
 	if rootCauseItemIsOnChain(*item) {
-		return false // already on the chain tier — nothing to extend
+		return stateEdgeLaneRefused // already on the chain tier — nothing to extend
 	}
-	if strings.TrimSpace(item.OnChainBasis) != "" || item.ChainAnchorRemainderSeat ||
-		item.ChainAnchorFullMs > 0 || item.AbsorbedByRankFamily ||
+	// STATERES-1 复核收编 (2026-09-02): RSPA's ZERO-anchored whole-account
+	// rewrite (case B, anchored==0 — "no anchored share exists — no seat holds
+	// it") is not a partition: the ◇ row IS the complete account RSPA found
+	// nothing to price (a D/IO seat whose StartTs..EndTs hull crossed a chain
+	// window while every true segment lay outside it). That form is exactly
+	// the residual population and passes to the residual lane; a genuine
+	// partition (anchored share > 0, a ⛓ twin exists) is never re-judged.
+	rspaZeroWholeRemainder := item.ChainAnchorRemainderSeat && item.HostWakeupEdgeAnchorTs == 0 &&
+		item.ChainAnchoredMs <= rspaAnchorIdentityTolMs && item.ChainAnchorFullMs > 0 &&
+		threadInSet(chainThreads, item.Thread)
+	if strings.TrimSpace(item.OnChainBasis) != "" || item.AbsorbedByRankFamily ||
 		item.ChainCredentialLaneDemoted || item.ChainAnchorRepresentedByChainSeat ||
-		item.GatedShareConstituentSeat || item.ChainIdentityInheritance {
-		return false // already adjudicated / processed forms
+		item.GatedShareConstituentSeat || item.ChainIdentityInheritance ||
+		((item.ChainAnchorRemainderSeat || item.ChainAnchorFullMs > 0) && !rspaZeroWholeRemainder) {
+		return stateEdgeLaneRefused // already adjudicated / processed forms (RSPA ⛓ and partition ◇ included)
 	}
 	if item.PeriodicSource {
-		return false // cadence-discounted account — indivisible here
+		return stateEdgeLaneRefused // cadence-discounted account — indivisible here
+	}
+	if !threadInSet(chainThreads, item.Thread) {
+		return stateEdgeLaneBareCensusHost
+	}
+	if chainMemberResidualStateSeatEligible(item, chainWindows[item.Thread.PID]) {
+		return stateEdgeLaneChainMemberResidual
+	}
+	return stateEdgeLaneRefused // RSPA owns chain members' chain-window state vocabulary
+}
+
+// chainMemberResidualStateSeatEligible (STATERES-1, §40.30 V-STATE-1 plan A)
+// admits a chain-member host's state seat to the residual lane on PRECISE
+// typed signals only:
+//   - the ruling's literal scope: runnable / D-IO state seats (the
+//     priority_inversion_runnable_wait R4-mirror arm is NOT opened);
+//   - a non-empty typed segment inventory (the TRUE close-site segments,
+//     never the StartTs..EndTs hull — HULL-CRED discipline);
+//   - ZERO overlap between that inventory and every RSPA chain window of the
+//     host (vacuously true for an edge-only / transit member with no depth>0
+//     window: RSPA cannot price such a member either);
+//   - the census-time ledger stamp as a belt: the stamp must be present and
+//     record zero anchored ms for the family — a missing stamp (legacy
+//     fixtures, MAX-fallback folds) or any disagreement between the overlay
+//     and the ledger fails closed (宁漏勿猜).
+func chainMemberResidualStateSeatEligible(item *RootCauseRankItem, windows []TimeWindow) bool {
+	var inventory []foldInterval
+	var ledgerAnchoredMs float64
+	switch strings.TrimSpace(item.Type) {
+	case "runnable_wait":
+		inventory = item.runnableIntervals
+		ledgerAnchoredMs = item.ledgerAnchoredRunnableMs
+	case "d_state_or_io_wait", "io_wait":
+		inventory = item.dioSegmentIntervals
+		ledgerAnchoredMs = item.ledgerAnchoredDMs + item.ledgerAnchoredIOMs
+	default:
+		return false
+	}
+	if len(inventory) == 0 || !item.ledgerAnchorStamped {
+		return false
+	}
+	if ledgerAnchoredMs > rspaAnchorIdentityTolMs {
+		return false // RSPA priced (part of) this family — RSPA-owned
+	}
+	if rspaIntervalsOverlapMs(windows, inventory) > rspaAnchorIdentityTolMs {
+		return false // overlay disagrees with the ledger stamp — fail closed
 	}
 	return true
 }
@@ -246,30 +327,51 @@ func anchorBareCensusEdgeStateSeats(chain ChainResult, items []RootCauseRankItem
 		return items
 	}
 	chainThreads := wakeupChainThreadSet(chain)
-	anchorByPID := map[int]*semanticHostEdgeAnchor{}
-	anchorFor := func(host ThreadRef) (semanticHostEdgeAnchor, bool) {
-		if cached, ok := anchorByPID[host.PID]; ok {
-			if cached == nil {
+	chainWindows := chainAnchorWindowsByPID(chain)
+	cachedAnchor := func(cache map[int]*semanticHostEdgeAnchor, resolve func(*ChainResult, ThreadRef) (semanticHostEdgeAnchor, bool)) func(ThreadRef) (semanticHostEdgeAnchor, bool) {
+		return func(host ThreadRef) (semanticHostEdgeAnchor, bool) {
+			if cached, ok := cache[host.PID]; ok {
+				if cached == nil {
+					return semanticHostEdgeAnchor{}, false
+				}
+				return *cached, true
+			}
+			anchor, ok := resolve(&chain, host)
+			if !ok {
+				cache[host.PID] = nil
 				return semanticHostEdgeAnchor{}, false
 			}
-			return *cached, true
+			cache[host.PID] = &anchor
+			return anchor, true
 		}
-		anchor, ok := hostSemanticSpanEdgeAnchor(&chain, host)
-		if !ok {
-			anchorByPID[host.PID] = nil
-			return semanticHostEdgeAnchor{}, false
-		}
-		anchorByPID[host.PID] = &anchor
-		return anchor, true
 	}
+	// Bare-census hosts take the full credential (direct or chain-hop);
+	// chain-member residual seats take the DIRECT census edge only.
+	fullAnchorFor := cachedAnchor(map[int]*semanticHostEdgeAnchor{}, hostSemanticSpanEdgeAnchor)
+	directAnchorFor := cachedAnchor(map[int]*semanticHostEdgeAnchor{}, hostDirectCensusEdgeAnchor)
 	var appended []RootCauseRankItem
 	for i := range items {
 		item := &items[i]
-		if !bareCensusEdgeStateSeatEligible(item, chainThreads, chain.Target) {
+		lane := bareCensusEdgeStateSeatEligible(item, chainThreads, chain.Target, chainWindows)
+		if lane == stateEdgeLaneRefused {
 			continue
+		}
+		anchorFor := fullAnchorFor
+		appendedBefore := len(appended)
+		if lane == stateEdgeLaneChainMemberResidual {
+			anchorFor = directAnchorFor
+			if item.ChainAnchorRemainderSeat {
+				// RSPA's zero-anchored whole-account ◇ form: the remainder IS the
+				// full account — start the residual bisection from a clean seat.
+				item.ChainAnchorRemainderSeat = false
+				item.ChainAnchoredMs, item.ChainAnchorFullMs = 0, 0
+			}
 		}
 		switch strings.TrimSpace(item.Type) {
 		case "priority_inversion_runnable_wait":
+			if lane != stateEdgeLaneBareCensusHost {
+				continue // STATERES-1 scope: the R4-mirror arm stays bare-host only
+			}
 			// RSPA R4 mirror arm (§29.88 R4; §29.83 件③ narrowing): the
 			// inversion-rewritten seat's gated eff is an INDIVISIBLE composite
 			// that cannot be split along the credential boundary without
@@ -412,8 +514,30 @@ func anchorBareCensusEdgeStateSeats(chain ChainResult, items []RootCauseRankItem
 				postMs, splitD.postMs, splitIO.postMs, nil, splitD.post, splitIO.post, splitAll,
 				stateEdgeRemainderSummary(item.Thread, family, postMs, full, preMs, anchor.boundaryTs, anchor.via())))
 		}
+		if lane == stateEdgeLaneChainMemberResidual {
+			// The residual lane prices by the DIRECT census edge only: its
+			// disclosure must not call that edge the host's "latest typed
+			// wakeup edge" when a later chain-hop edge exists (§40.30 scope —
+			// chain-hop edges are what the chain windows price).
+			item.Summary = stateEdgeResidualDirectWording(item.Summary)
+			for j := appendedBefore; j < len(appended); j++ {
+				appended[j].Summary = stateEdgeResidualDirectWording(appended[j].Summary)
+			}
+		}
 	}
 	return append(items, appended...)
+}
+
+// stateEdgeResidualDirectWording rewrites the shared R4 family sentence for
+// the chain-member residual lane (STATERES-1): the credential is the host's
+// latest in-window DIRECT census edge, not its latest typed edge of any kind.
+func stateEdgeResidualDirectWording(summary string) string {
+	summary = strings.ReplaceAll(summary,
+		"the host's latest in-window typed wakeup edge toward the analysis target",
+		"the host's latest in-window DIRECT wakeup edge toward the analysis target (chain-hop edges are priced by the chain windows)")
+	return strings.ReplaceAll(summary,
+		"the host's own in-window typed wakeup edge toward the analysis target",
+		"the host's own in-window DIRECT wakeup edge toward the analysis target (chain-hop edges are priced by the chain windows)")
 }
 
 // convertStateSeatToEdgeAnchored rewrites one bare-census state seat into the

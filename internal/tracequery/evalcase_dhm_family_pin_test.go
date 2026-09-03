@@ -78,11 +78,17 @@ func TestEvalcaseDHMA1aTwoRulerRunnableConservation(t *testing.T) {
 	}
 	// Measured pins (probe board_tb_full_59843.json): wall seats rank4=8.307 +
 	// rank12=0.399, subtotal 8.706; edge seat rank7=4.067, subtotal 4.067.
+	// EVOLUTION RECORD (STATERES-1, §40.30 V-STATE-1 plan A, 2026-09-02): the
+	// chain member com.baidu.tieba-59566's io_wait segment 34579.451701..
+	// 34579.471722 (0.635ms) lies outside its chain windows and before its
+	// direct census edge toward 59843 at 34579.576675, so it now takes the
+	// host-edge state credential and ranks #12 — the 0.399 wall seat moves
+	// to #13; subjects, values and both subtotals are unchanged.
 	if len(tr.WallSeats) != 2 || len(tr.EdgeSeats) != 1 {
 		t.Fatalf("DHM-A1a: ruler membership drifted: wall=%d edge=%d", len(tr.WallSeats), len(tr.EdgeSeats))
 	}
 	if tr.WallSeats[0].Rank != 4 || !near(tr.WallSeats[0].EffMs, 8.307, 0.001) ||
-		tr.WallSeats[1].Rank != 12 || !near(tr.WallSeats[1].EffMs, 0.399, 0.001) {
+		tr.WallSeats[1].Rank != 13 || !near(tr.WallSeats[1].EffMs, 0.399, 0.001) {
 		t.Fatalf("DHM-A1a: wall seats drifted: %+v", tr.WallSeats)
 	}
 	if tr.EdgeSeats[0].Rank != 7 || !near(tr.EdgeSeats[0].EffMs, 4.067, 0.001) {

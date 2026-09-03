@@ -16467,8 +16467,13 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	items = reanchorOnChainStateSeats(chain, stats, items)
 	// ONCHAIN-3c (2026-07-19): bare-census-edge hosts' runnable / D-IO state
 	// seats take the R3 host-edge credential arm — pre-edge share ⛓, post-edge
-	// share ◇ remainder twin (chain-member pids stay RSPA property; every
-	// no-credential / no-inventory form keeps its lane byte-identically).
+	// share ◇ remainder twin (every no-credential / no-inventory form keeps
+	// its lane byte-identically). STATERES-1 (§40.30 V-STATE-1 plan A,
+	// 2026-09-02): RSPA first, R3 residual — a CHAIN-MEMBER host's runnable /
+	// D-IO seat whose typed inventory lies outside every RSPA chain window of
+	// that host takes the same credential from the host's DIRECT census edge
+	// toward the target (RSPA's ◇ remainders and clipped seats are never
+	// re-judged).
 	items = anchorBareCensusEdgeStateSeats(chain, items)
 	// LEVELMERGE-1 件2 (方案 P 区间分账, user ruling 2026-07-18): the
 	// (pid,runnable) chain aggregate seat splits its account against the same

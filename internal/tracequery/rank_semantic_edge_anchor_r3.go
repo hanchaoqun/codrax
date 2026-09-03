@@ -78,23 +78,51 @@ func (a semanticHostEdgeAnchor) via() string {
 // its legacy lane byte-identically — 宁漏勿猜). All-typed gates; never a
 // label/prose heuristic.
 func hostSemanticSpanEdgeAnchor(chain *ChainResult, host ThreadRef) (semanticHostEdgeAnchor, bool) {
-	var anchor semanticHostEdgeAnchor
+	inWindow, ok := hostEdgeAnchorPreamble(chain, host)
+	if !ok {
+		return semanticHostEdgeAnchor{}, false
+	}
+	anchor := hostDirectCensusEdgeCredential(chain, host, inWindow)
+	hostChainHopEdgeCredential(chain, host, inWindow, &anchor)
+	return anchor, anchor.boundaryTs > 0
+}
+
+// hostDirectCensusEdgeAnchor is the DIRECT-ONLY credential (STATERES-1,
+// §40.30 V-STATE-1 plan A, 2026-09-02): the host's raw census pair toward the
+// analysis target, never its chain-hop edge. The chain-member residual state
+// lane consumes this one — a chain member's chain-hop edge is what RSPA's
+// chain windows already price, so the residual segment before the host's own
+// DIRECT wakeup of the target is the only share the R3 credential may take
+// (via word = direct by construction). Same preamble, same census inventory
+// as hostSemanticSpanEdgeAnchor (禁自造第二套边判定).
+func hostDirectCensusEdgeAnchor(chain *ChainResult, host ThreadRef) (semanticHostEdgeAnchor, bool) {
+	inWindow, ok := hostEdgeAnchorPreamble(chain, host)
+	if !ok {
+		return semanticHostEdgeAnchor{}, false
+	}
+	anchor := hostDirectCensusEdgeCredential(chain, host, inWindow)
+	return anchor, anchor.boundaryTs > 0
+}
+
+// hostEdgeAnchorPreamble holds the shared fail-closed gates of every host-edge
+// credential form and returns the typed in-window predicate.
+func hostEdgeAnchorPreamble(chain *ChainResult, host ThreadRef) (func(float64) bool, bool) {
 	if chain == nil {
-		return anchor, false
+		return nil, false
 	}
 	if len(chain.Nodes) == 0 && len(chain.Edges) == 0 && len(chain.CausalImpacts) == 0 {
-		return anchor, false
+		return nil, false
 	}
 	if chain.Target.PID <= 0 && strings.TrimSpace(chain.Target.Comm) == "" {
-		return anchor, false
+		return nil, false
 	}
 	if host.PID <= 0 && strings.TrimSpace(host.Comm) == "" {
-		return anchor, false
+		return nil, false
 	}
 	// R4 carve (§29.88.2): the target's own rows have no 「影响目标的边」
 	// concept — SELF-SEM/SELF-ALL own them; this lane is host-only.
 	if sameThreadRef(host, chain.Target) {
-		return anchor, false
+		return nil, false
 	}
 	inWindow := func(ts float64) bool {
 		if chain.Window.EndTs > chain.Window.StartTs {
@@ -106,9 +134,15 @@ func hostSemanticSpanEdgeAnchor(chain *ChainResult, host ThreadRef) (semanticHos
 		// not have).
 		return false
 	}
-	// Direct credential: raw census pair host→target. The census rows are
-	// window-total by construction; the LastTs window check stays as an
-	// honest belt (a clamped/degenerate window never over-grants).
+	return inWindow, true
+}
+
+// hostDirectCensusEdgeCredential — the direct credential: raw census pair
+// host→target. The census rows are window-total by construction; the LastTs
+// window check stays as an honest belt (a clamped/degenerate window never
+// over-grants).
+func hostDirectCensusEdgeCredential(chain *ChainResult, host ThreadRef, inWindow func(float64) bool) semanticHostEdgeAnchor {
+	var anchor semanticHostEdgeAnchor
 	for _, pair := range chain.WakeupEdgeCensus {
 		if pair.Count <= 0 || !sameThreadRef(pair.Waker, host) || !sameThreadRef(pair.Wakee, chain.Target) {
 			continue
@@ -121,8 +155,13 @@ func hostSemanticSpanEdgeAnchor(chain *ChainResult, host ThreadRef) (semanticHos
 			anchor.boundaryTs = pair.LastTs
 		}
 	}
-	// Multi-hop credential: the host's OWN chain edge (its wakee sits on the
-	// causal path to the target by chain construction — 凭证沿链传递).
+	return anchor
+}
+
+// hostChainHopEdgeCredential — the multi-hop credential: the host's OWN chain
+// edge (its wakee sits on the causal path to the target by chain construction
+// — 凭证沿链传递). Folds into the anchor in place.
+func hostChainHopEdgeCredential(chain *ChainResult, host ThreadRef, inWindow func(float64) bool, anchor *semanticHostEdgeAnchor) {
 	for _, edge := range chain.Edges {
 		if !sameThreadRef(edge.Waker, host) {
 			continue
@@ -135,7 +174,6 @@ func hostSemanticSpanEdgeAnchor(chain *ChainResult, host ThreadRef) (semanticHos
 			anchor.boundaryTs = edge.WakeupTs
 		}
 	}
-	return anchor, anchor.boundaryTs > 0
 }
 
 // semanticEdgeAnchorSplit bisects one (already window-clipped) interval at
