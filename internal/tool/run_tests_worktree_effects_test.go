@@ -20,7 +20,7 @@ func TestVerificationWorktreeAuditDisclosesOnlyNewUntrackedOutput(t *testing.T) 
 	writeVerificationWorktreeFile(t, root, "generated.bin", "artifact\n")
 
 	report := passingVerificationWorktreeReport()
-	attachVerificationWorktreeAudit(context.Background(), report, baseline, root)
+	attachVerificationWorktreeAudit(context.Background(), report, baseline, root, verificationWorktreeDriftInput{})
 	if report.WorktreeAudit == nil || report.WorktreeAudit.Status != types.VerificationWorktreeAuditUntrackedSideEffects {
 		t.Fatalf("untracked audit = %+v", report.WorktreeAudit)
 	}
@@ -42,7 +42,7 @@ func TestVerificationWorktreeAuditFailsTrackedDrift(t *testing.T) {
 	writeVerificationWorktreeFile(t, root, "tracked.txt", "mutated by tests\n")
 
 	report := passingVerificationWorktreeReport()
-	attachVerificationWorktreeAudit(context.Background(), report, baseline, root)
+	attachVerificationWorktreeAudit(context.Background(), report, baseline, root, verificationWorktreeDriftInput{})
 	if report.WorktreeAudit == nil || report.WorktreeAudit.Status != types.VerificationWorktreeAuditTrackedDrift ||
 		report.WorktreeAudit.TrackedEffectCount != 1 {
 		t.Fatalf("tracked audit = %+v", report.WorktreeAudit)
@@ -61,7 +61,7 @@ func TestVerificationWorktreeAuditCleanAndNonGitBoundaries(t *testing.T) {
 	root := newVerificationWorktreeRepo(t)
 	baseline := captureVerificationWorktreeSnapshot(context.Background(), root)
 	report := passingVerificationWorktreeReport()
-	attachVerificationWorktreeAudit(context.Background(), report, baseline, root)
+	attachVerificationWorktreeAudit(context.Background(), report, baseline, root, verificationWorktreeDriftInput{})
 	if report.WorktreeAudit == nil || report.WorktreeAudit.Status != types.VerificationWorktreeAuditClean || !report.Passed {
 		t.Fatalf("clean audit = report=%+v audit=%+v", report, report.WorktreeAudit)
 	}
@@ -69,7 +69,7 @@ func TestVerificationWorktreeAuditCleanAndNonGitBoundaries(t *testing.T) {
 	nonGit := t.TempDir()
 	nonGitBaseline := captureVerificationWorktreeSnapshot(context.Background(), nonGit)
 	nonGitReport := passingVerificationWorktreeReport()
-	attachVerificationWorktreeAudit(context.Background(), nonGitReport, nonGitBaseline, nonGit)
+	attachVerificationWorktreeAudit(context.Background(), nonGitReport, nonGitBaseline, nonGit, verificationWorktreeDriftInput{})
 	if nonGitReport.WorktreeAudit != nil || !nonGitReport.Passed {
 		t.Fatalf("non-git test fixture should keep prior behavior: %+v", nonGitReport)
 	}

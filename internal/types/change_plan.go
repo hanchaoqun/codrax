@@ -1192,7 +1192,12 @@ const (
 	VerificationWorktreeAuditClean                VerificationWorktreeAuditStatus = "clean"
 	VerificationWorktreeAuditUntrackedSideEffects VerificationWorktreeAuditStatus = "untracked_side_effects"
 	VerificationWorktreeAuditTrackedDrift         VerificationWorktreeAuditStatus = "tracked_drift"
-	VerificationWorktreeAuditUnavailable          VerificationWorktreeAuditStatus = "unavailable"
+	// VerificationWorktreeAuditTrackedDriftDisclosed (V5-2): every tracked
+	// drift row was owned by a disclosed side-effect class and every lockfile
+	// owner's locked re-verify passed; the verdict stands and the rows are
+	// disclosed, not committed, not auto-reverted.
+	VerificationWorktreeAuditTrackedDriftDisclosed VerificationWorktreeAuditStatus = "tracked_drift_disclosed"
+	VerificationWorktreeAuditUnavailable           VerificationWorktreeAuditStatus = "unavailable"
 )
 
 // VerificationWorktreeEffectKind is a structure-owned filesystem delta.
@@ -1213,6 +1218,12 @@ type VerificationWorktreeEffect struct {
 	AfterStatus  string                         `json:"after_status,omitempty"`
 	Ownership    string                         `json:"ownership,omitempty"`
 	Action       string                         `json:"action,omitempty"`
+	// V5-2 (append-only): typed owner class, the executed runner that owns
+	// it (lockfile / formatter lanes) and what the gate did with the row.
+	DriftClass      VerificationWorktreeDriftClass        `json:"drift_class,omitempty"`
+	OwnerRunner     string                                `json:"owner_runner,omitempty"`
+	OwnerWorkingDir string                                `json:"owner_working_dir,omitempty"`
+	Disposition     VerificationWorktreeEffectDisposition `json:"disposition,omitempty"`
 }
 
 // VerificationWorktreeAudit is the bounded, typed integrity result attached
@@ -1226,6 +1237,11 @@ type VerificationWorktreeAudit struct {
 	TrackedEffectCount   int                             `json:"tracked_effect_count,omitempty"`
 	UntrackedEffectCount int                             `json:"untracked_effect_count,omitempty"`
 	Effects              []VerificationWorktreeEffect    `json:"effects,omitempty"`
+	// V5-2 (append-only): disclosed vs refused tracked rows and the locked
+	// re-verify records that proved (or failed to prove) a lockfile refresh.
+	DisclosedTrackedEffectCount int                          `json:"disclosed_tracked_effect_count,omitempty"`
+	RefusedTrackedEffectCount   int                          `json:"refused_tracked_effect_count,omitempty"`
+	LockedReverify              []VerificationLockedReverify `json:"locked_reverify,omitempty"`
 }
 
 // VerificationDiagnostic is one typed verification diagnostic projected from

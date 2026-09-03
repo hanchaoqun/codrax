@@ -574,11 +574,41 @@ func renderRunTestsWorktreeAuditSummary(report *types.ChangeReport) string {
 		}
 		return " [worktree_audit: untracked verification output retained, not committed, not auto-deleted: " + strings.Join(paths, ", ") + "]"
 	case types.VerificationWorktreeAuditTrackedDrift:
-		paths := verificationWorktreeEffectPaths(audit.Effects, types.VerificationWorktreeEffectTrackedChanged, 8)
-		return " [worktree_audit: tracked drift; verification failed: " + strings.Join(paths, ", ") + "]"
+		paths := verificationWorktreeRefusedEffectPaths(audit.Effects, 8)
+		note := ""
+		if audit.DisclosedTrackedEffectCount > 0 {
+			note = "; " + verificationWorktreeDisclosedRowsSummary(audit)
+		}
+		return " [worktree_audit: tracked drift; verification failed: " + strings.Join(paths, ", ") + note + "]"
+	case types.VerificationWorktreeAuditTrackedDriftDisclosed:
+		note := ""
+		if paths := verificationWorktreeEffectPaths(audit.Effects, types.VerificationWorktreeEffectUntrackedCreated, 8); len(paths) > 0 {
+			note = "; untracked verification output retained, not committed, not auto-deleted: " + strings.Join(paths, ", ")
+		}
+		return " [worktree_audit: tracked side effects disclosed, verdict kept, not committed, not auto-reverted: " + verificationWorktreeDisclosedRowsSummary(audit) + note + "]"
 	case types.VerificationWorktreeAuditUnavailable:
 		return " [worktree_audit: unavailable]"
 	default:
 		return ""
 	}
+}
+
+// verificationWorktreeDisclosedRowsSummary renders "path=class(owner)" for the
+// disclosed rows (V5-2), so refused and disclosed drift stay distinguishable.
+func verificationWorktreeDisclosedRowsSummary(audit *types.VerificationWorktreeAudit) string {
+	var parts []string
+	for _, effect := range audit.Effects {
+		if effect.Disposition != types.VerificationWorktreeEffectDisclosed {
+			continue
+		}
+		part := effect.Path + "=" + string(effect.DriftClass)
+		if effect.OwnerRunner != "" {
+			part += "(" + effect.OwnerRunner + ")"
+		}
+		parts = append(parts, part)
+		if len(parts) >= 8 {
+			break
+		}
+	}
+	return strings.Join(parts, ", ")
 }

@@ -421,7 +421,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		applyChangedPathVerificationCoverageForPlan(ctx, authorityPlan, report, enforceCompleteCoverage)
 		if !dryRunProbe {
-			attachVerificationWorktreeAudit(context.Background(), report, worktreeAuditBaseline, ctx.RepoRoot)
+			attachVerificationWorktreeAudit(context.Background(), report, worktreeAuditBaseline, ctx.RepoRoot, verificationWorktreeDriftInput{
+				plan: authorityPlan, executed: report.ExecutedCommands, repoRoot: ctx.RepoRoot, mainRoot: ctx.MainRepoRoot,
+				caps: verifyResourceCaps(), timeout: runTestsDefaultTimeout(),
+			})
 		}
 		if report.GeneratedAt.IsZero() {
 			report.GeneratedAt = time.Now()

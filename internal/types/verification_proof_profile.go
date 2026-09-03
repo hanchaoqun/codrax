@@ -908,8 +908,8 @@ func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(plan
 				item.ContractRef = ref
 				add(item)
 			}
-		case "source_text_presence", "contract_witness_rejected":
-			// V5-1: disclosures, not obligations — they neither resolve nor
+		case "source_text_presence", "contract_witness_rejected", "worktree_side_effect":
+			// V5-1/V5-2: disclosures, not obligations — they neither resolve nor
 			// count toward obligation/covered/capability totals; the ledger
 			// still names them per contract_ref on their own list.
 			refs := dedupTrimWriteWorkflowRunStrings(rec.ContractRefs)
@@ -1509,9 +1509,9 @@ func verificationProofLedgerKindFromConfidence(category string) string {
 		return "behavior_contract"
 	case "probe_placement_refs":
 		return "rendered_text_placement_contract"
-	case "source_text_presence", "contract_witness_rejected":
-		// V5-1: deliberately NOT "behavior_contract" so the advisory lane can
-		// never resolve a required_behavior_contract obligation.
+	case "source_text_presence", "contract_witness_rejected", "worktree_side_effect":
+		// V5-1/V5-2: deliberately NOT "behavior_contract" so the advisory lane
+		// can never resolve a required_behavior_contract obligation.
 		return strings.TrimSpace(category)
 	case "probe_changed_symbol":
 		return "changed_symbol"

@@ -1,0 +1,403 @@
+package tool
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// run_tests_worktree_drift.go — V5-2 (colleague_merge_audit §40.11): the
+// tracked-drift gate's typed owner classification and its escape lanes.
+//
+// Inputs are typed facts only: the executed-runner roster (ExecutedCommand
+// rows with Outcome=executed), the closed per-runner side-effect manifest,
+// the plan's output_path behavior contracts, and byte-exact witnesses (git
+// blob of the pre-run content, formatter output, locked re-run snapshots).
+// No path prose, runner output text or model rationale participates.
+
+// verificationWorktreeDriftInput is what the classifier may read.
+type verificationWorktreeDriftInput struct {
+	plan     *types.ChangePlan
+	executed []types.ExecutedCommand
+	repoRoot string
+	mainRoot string
+	caps     SupervisedRunOptions
+	timeout  time.Duration
+}
+
+type verificationLockedReverifyRequest struct {
+	Runner, Framework, WorkingDir, Command string
+	Env                                    []string
+	Timeout                                time.Duration
+	Caps                                   SupervisedRunOptions
+	AuditRoot                              string
+}
+
+type verificationLockedReverifyResult struct {
+	ExitCode     int
+	DriftedPaths []string
+	Unavailable  bool
+}
+
+// Test seams: nil ⇒ real runner / real formatter.
+var (
+	verificationLockedReverifyHook func(req verificationLockedReverifyRequest) verificationLockedReverifyResult
+	verificationFormatterHook      func(argv []string, input []byte) ([]byte, bool)
+)
+
+type verificationWorktreeDriftDecision struct {
+	class       types.VerificationWorktreeDriftClass
+	ownerRunner string
+	workingDir  string
+	framework   string
+	suite       string
+}
+
+type verificationDriftRosterEntry struct {
+	runner, framework, suite string
+	dirRel                   string // relative to the audit root, "." for root
+}
+
+// classifyVerificationWorktreeDrift decides the class of one tracked effect.
+func classifyVerificationWorktreeDrift(effect types.VerificationWorktreeEffect, in verificationWorktreeDriftInput, baseline verificationWorktreeSnapshot, roster []verificationDriftRosterEntry, declared map[string]bool) verificationWorktreeDriftDecision {
+	unclassified := verificationWorktreeDriftDecision{class: types.VerificationWorktreeDriftUnclassified}
+	rel := normalizeVerificationWorktreePath(effect.Path)
+	if rel == "" || effect.Kind != types.VerificationWorktreeEffectTrackedChanged {
+		return unclassified
+	}
+	manifests := runnerSideEffectManifests()
+	base := path.Base(rel)
+	dir := path.Dir(rel)
+	// (a) dependency lockfile owned by an executed runner: the toolchain reads
+	// the NEAREST lockfile of that basename at or above its working dir, so
+	// only that directory's file is owned — a same-named lockfile further up
+	// belongs to another project and stays unclassified.
+	for _, entry := range roster {
+		manifest := manifests[entry.runner]
+		if !manifest.hasLockedLane() || !verificationDriftListContains(manifest.LockfileBasenames, base) {
+			continue
+		}
+		if owner, ok := verificationDriftNearestLockfileDir(baseline.root, base, entry.dirRel); ok && owner == strings.Trim(path.Clean("/"+dir), "/") {
+			return verificationWorktreeDriftDecision{class: types.VerificationWorktreeDriftDependencyLockfileRefresh,
+				ownerRunner: entry.runner, workingDir: entry.dirRel, framework: entry.framework, suite: entry.suite}
+		}
+	}
+	// (b) formatter fixed point: the path was clean at baseline, an executed
+	// runner's language formatter owns its extension, and formatting the
+	// pre-run blob reproduces the post-run bytes exactly.
+	if _, dirtyAtBaseline := baseline.tracked[rel]; !dirtyAtBaseline {
+		ext := strings.ToLower(path.Ext(rel))
+		for _, entry := range roster {
+			manifest := manifests[entry.runner]
+			if len(manifest.Formatter) == 0 || !verificationDriftListContains(manifest.FormatterExts, ext) || !verificationDriftDirOwns(entry.dirRel, dir) {
+				continue
+			}
+			if verificationDriftFormatterFixedPoint(in, baseline.root, rel, entry, manifest.Formatter) {
+				return verificationWorktreeDriftDecision{class: types.VerificationWorktreeDriftFormatterNoSemanticDiff, ownerRunner: entry.runner, workingDir: entry.dirRel}
+			}
+		}
+	}
+	// (c) plan-declared generated output (typed output_path contract).
+	if declared[verificationDriftRepoRelative(baseline.root, in.repoRoot, rel)] {
+		return verificationWorktreeDriftDecision{class: types.VerificationWorktreeDriftDeclaredGeneratedOutput}
+	}
+	return unclassified
+}
+
+// verificationDriftNearestLockfileDir walks from the executed working dir
+// (audit-root relative) upward and returns the first directory holding a
+// file named `base` — the one the toolchain actually reads. Directories are
+// returned trimmed ("" = audit root).
+func verificationDriftNearestLockfileDir(auditRoot, base, execDir string) (string, bool) {
+	dir := strings.Trim(path.Clean("/"+execDir), "/")
+	for {
+		if _, err := os.Stat(filepath.Join(auditRoot, filepath.FromSlash(dir), base)); err == nil {
+			return dir, true
+		}
+		if dir == "" {
+			return "", false
+		}
+		parent := path.Dir(dir)
+		if parent == "." || parent == "/" {
+			parent = ""
+		}
+		dir = parent
+	}
+}
+
+// verificationDriftDirOwns reports whether `ancestor` (audit-root relative,
+// "." = root) is `dir` itself or one of its ancestors.
+func verificationDriftDirOwns(ancestor, dir string) bool {
+	ancestor = strings.Trim(path.Clean("/"+ancestor), "/")
+	dir = strings.Trim(path.Clean("/"+dir), "/")
+	if ancestor == "" {
+		return true
+	}
+	return dir == ancestor || strings.HasPrefix(dir, ancestor+"/")
+}
+
+func verificationDriftRepoRelative(auditRoot, repoRoot, rel string) string {
+	abs := filepath.Join(auditRoot, filepath.FromSlash(rel))
+	repoAbs, err := filepath.Abs(strings.TrimSpace(repoRoot))
+	if err != nil {
+		return rel
+	}
+	out, err := filepath.Rel(repoAbs, abs)
+	if err != nil {
+		return rel
+	}
+	return filepath.ToSlash(out)
+}
+
+// verificationDriftDeclaredOutputs collects the plan's typed output_path
+// contract paths (Subject / Expected that parse as repo-relative paths).
+func verificationDriftDeclaredOutputs(plan *types.ChangePlan) map[string]bool {
+	out := map[string]bool{}
+	if plan == nil {
+		return out
+	}
+	for _, contract := range types.ChangePlanVerificationBehaviorContracts(plan) {
+		// Only a contract the verifier itself treats as an authoritative,
+		// expected-polarity declaration that the path exists declares a
+		// generated output; forbidden/observed/planning-only contracts and
+		// content operands never grant ownership.
+		if contract.Kind != types.WriteBehaviorOutputPath || !types.IsHardRequiredWriteBehaviorContract(contract) ||
+			contract.Polarity == types.WriteBehaviorPolarityObserved {
+			continue
+		}
+		switch contract.Operator {
+		case types.WriteBehaviorOpExists, types.WriteBehaviorOpEquals, types.WriteBehaviorOpContains:
+		default:
+			continue
+		}
+		if rel, ok := postApplySourceContractRepoPath(contract.Subject); ok {
+			out[rel] = true
+		}
+	}
+	return out
+}
+
+// verificationDriftRoster derives the executed-runner roster from typed
+// ExecutedCommand rows (Outcome=executed), with working dirs expressed
+// relative to the audit root.
+func verificationDriftRoster(in verificationWorktreeDriftInput, auditRoot string) []verificationDriftRosterEntry {
+	var out []verificationDriftRosterEntry
+	seen := map[string]bool{}
+	for _, cmd := range in.executed {
+		if !verificationDriftCommandLaunched(cmd) {
+			continue
+		}
+		runner := strings.TrimSpace(cmd.Runner)
+		if runner == "" {
+			continue
+		}
+		abs := filepath.Join(strings.TrimSpace(in.repoRoot), filepath.FromSlash(normalizeRunTestsWorkingDir(cmd.WorkingDir)))
+		rel, err := filepath.Rel(auditRoot, abs)
+		if err != nil {
+			continue
+		}
+		dirRel := filepath.ToSlash(rel)
+		if dirRel == "" || dirRel == ".." || strings.HasPrefix(dirRel, "../") {
+			continue
+		}
+		key := runner + "\x00" + dirRel
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, verificationDriftRosterEntry{runner: runner, framework: strings.TrimSpace(cmd.Framework), suite: strings.TrimSpace(cmd.Suite), dirRel: dirRel})
+	}
+	return out
+}
+
+// verificationDriftCommandLaunched reports whether the runner process was
+// actually started in its working dir — the typed fact the roster needs. The
+// post-hoc verdict label (parser_error, zero_tests, timeout, …) does not
+// undo the launch: a process that ran may have refreshed its lockfile.
+func verificationDriftCommandLaunched(cmd types.ExecutedCommand) bool {
+	switch strings.TrimSpace(cmd.Outcome) {
+	case "executed", "suite_continued", "parser_error", "expected_stdout_missing", "zero_tests", "timeout", "oom", "cpu_limit":
+		return true
+	default:
+		return false
+	}
+}
+
+// verificationDriftFormatterFixedPoint proves formatter_no_semantic_diff:
+// format(git HEAD blob) == current bytes. Any unavailability ⇒ false. The
+// formatter runs in the file's own directory with the runner's execution
+// environment, so project formatter configuration and venv-local binaries
+// apply exactly as they do for the runner.
+func verificationDriftFormatterFixedPoint(in verificationWorktreeDriftInput, auditRoot, rel string, entry verificationDriftRosterEntry, formatter []string) bool {
+	if len(formatter) == 0 {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	show := exec.CommandContext(ctx, "git", "show", "HEAD:"+rel)
+	show.Dir = auditRoot
+	pre, err := show.Output()
+	if err != nil {
+		return false
+	}
+	current, err := os.ReadFile(filepath.Join(auditRoot, filepath.FromSlash(rel)))
+	if err != nil {
+		return false
+	}
+	format := verificationFormatterHook
+	if format == nil {
+		workDir := filepath.Join(auditRoot, filepath.FromSlash(entry.dirRel))
+		fileDir := filepath.Join(auditRoot, filepath.FromSlash(path.Dir(rel)))
+		env := runnerExecutionEnv(entry.runner, in.repoRoot, workDir, in.mainRoot)
+		format = func(argv []string, input []byte) ([]byte, bool) {
+			return verificationDriftRunFormatter(argv, input, fileDir, env)
+		}
+	}
+	formatted, ok := format(formatter, pre)
+	return ok && bytes.Equal(formatted, current)
+}
+
+func verificationDriftRunFormatter(argv []string, input []byte, dir string, env []string) ([]byte, bool) {
+	if len(argv) == 0 {
+		return nil, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = dir
+	if len(env) > 0 {
+		cmd.Env = env
+		if resolved, err := lookPathInEnv(argv[0], env); err == nil {
+			cmd.Path = resolved
+		} else {
+			return nil, false
+		}
+	} else if _, err := exec.LookPath(argv[0]); err != nil {
+		return nil, false
+	}
+	cmd.Stdin = bytes.NewReader(input)
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return nil, false
+	}
+	return out.Bytes(), true
+}
+
+// runVerificationLockedReverify re-runs one executed runner in locked mode
+// after a lockfile refresh and reports whether the refreshed lockfile is a
+// fixed point (exit 0 and no tracked drift).
+func runVerificationLockedReverify(in verificationWorktreeDriftInput, auditRoot string, entry verificationDriftRosterEntry) types.VerificationLockedReverify {
+	record := types.VerificationLockedReverify{Runner: entry.runner, Framework: entry.framework, WorkingDir: entry.dirRel}
+	cmd, env, ok := buildLockedRunCommand(entry.runner, entry.framework, entry.suite, in.repoRoot, in.mainRoot)
+	if !ok {
+		record.Outcome = "unavailable"
+		record.ReasonCode = types.VerificationLockedReverifyFailedReason
+		return record
+	}
+	record.Command = cmd
+	req := verificationLockedReverifyRequest{Runner: entry.runner, Framework: entry.framework, WorkingDir: entry.dirRel,
+		Command: cmd, Env: env, Timeout: in.timeout, Caps: in.caps, AuditRoot: auditRoot}
+	run := verificationLockedReverifyHook
+	if run == nil {
+		run = verificationDriftExecuteLocked(in)
+	}
+	result := run(req)
+	record.ExitCode = result.ExitCode
+	record.DriftedPaths = result.DriftedPaths
+	switch {
+	case result.Unavailable:
+		record.Outcome = "unavailable"
+		record.ReasonCode = types.VerificationLockedReverifyFailedReason
+	case result.ExitCode != 0:
+		record.Outcome = "failed"
+		record.ReasonCode = types.VerificationLockedReverifyFailedReason
+	case len(result.DriftedPaths) > 0:
+		record.Outcome = "drift_recurred"
+		record.ReasonCode = types.VerificationLockedReverifyFailedReason
+	default:
+		record.Outcome = "passed"
+	}
+	return record
+}
+
+func verificationDriftExecuteLocked(in verificationWorktreeDriftInput) func(req verificationLockedReverifyRequest) verificationLockedReverifyResult {
+	return func(req verificationLockedReverifyRequest) verificationLockedReverifyResult {
+		workDir := filepath.Join(req.AuditRoot, filepath.FromSlash(req.WorkingDir))
+		before := captureVerificationWorktreeSnapshot(context.Background(), req.AuditRoot)
+		if !before.applicable || before.unavailable {
+			return verificationLockedReverifyResult{Unavailable: true}
+		}
+		timeout := req.Timeout
+		if timeout <= 0 {
+			timeout = runTestsDefaultTimeout()
+		}
+		execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		cmd := NewShellCommandContext(execCtx, wrapShellCommandWithCaps(req.Command, req.Caps))
+		cmd.Dir = workDir
+		cmd.Env = append(runnerExecutionEnv(req.Runner, in.repoRoot, workDir, in.mainRoot), req.Env...)
+		var buf bytes.Buffer
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		logging.Info("[run_tests] worktree_audit locked re-verify exec: %s (cwd=%s timeout=%v)", req.Command, workDir, timeout)
+		supRes := SupervisedRun(execCtx, cmd, req.Caps)
+		exitCode := extractExitCode(supRes.Err)
+		logging.Info("[run_tests] worktree_audit locked re-verify exit=%d output_bytes=%d excerpt=%q", exitCode, buf.Len(), truncateForLog(buf.String(), 300))
+		after := captureVerificationWorktreeSnapshot(context.Background(), req.AuditRoot)
+		if !after.applicable || after.unavailable {
+			return verificationLockedReverifyResult{ExitCode: exitCode, Unavailable: true}
+		}
+		var drifted []string
+		for _, effect := range verificationWorktreeEffects(before, after) {
+			if effect.Kind == types.VerificationWorktreeEffectTrackedChanged {
+				drifted = append(drifted, effect.Path)
+			}
+		}
+		sort.Strings(drifted)
+		return verificationLockedReverifyResult{ExitCode: exitCode, DriftedPaths: drifted}
+	}
+}
+
+func verificationDriftListContains(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+// lookPathInEnv resolves a formatter binary against the PATH of the runner
+// environment rather than the codrax process environment.
+func lookPathInEnv(name string, env []string) (string, error) {
+	if strings.ContainsRune(name, os.PathSeparator) {
+		return name, nil
+	}
+	pathValue := ""
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") {
+			pathValue = strings.TrimPrefix(kv, "PATH=")
+		}
+	}
+	if pathValue == "" {
+		return exec.LookPath(name)
+	}
+	for _, dir := range filepath.SplitList(pathValue) {
+		candidate := filepath.Join(dir, name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", exec.ErrNotFound
+}

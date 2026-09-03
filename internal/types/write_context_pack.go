@@ -1489,6 +1489,12 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 		for _, effect := range audit.Effects {
 			text := fmt.Sprintf("path=%s kind=%s ownership=%s action=%s",
 				effect.Path, effect.Kind, effect.Ownership, effect.Action)
+			if effect.DriftClass != "" {
+				text += fmt.Sprintf(" drift_class=%s disposition=%s", effect.DriftClass, effect.Disposition)
+				if effect.OwnerRunner != "" {
+					text += " owner_runner=" + effect.OwnerRunner
+				}
+			}
 			pack.Items = append(pack.Items, writeContextItem("verification_worktree_effect", WriteContextP1, text, "verify",
 				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 			pack.Items[len(pack.Items)-1].ID = writeContextStableID("verification_worktree_effect", report.PlanID, effect.Path, string(effect.Kind))

@@ -184,3 +184,18 @@ func TestVerificationProofLedgerDisclosuresSurviveTheCapabilityCap(t *testing.T)
 		t.Fatalf("counts = disclosures %d capabilities %d", ledger.DisclosureCount, ledger.CapabilityCount)
 	}
 }
+
+// V5-2: the worktree side-effect advisory is a disclosure, never an obligation.
+func TestVerificationProofLedgerWorktreeSideEffectAdvisoryIsADisclosure(t *testing.T) {
+	report := witnessTestReport("plan-x", VerificationConfidenceRecord{Source: "git_worktree_audit", Category: "worktree_side_effect", Status: "advisory", Severity: "warning",
+		ReasonCode: VerificationTrackedSideEffectDisclosedReason, Detail: "Cargo.lock=dependency_lockfile_refresh"})
+	ledger := BuildVerificationProofLedger(nil, report, nil)
+	if !verificationProofLedgerHasDisclosure(ledger, "worktree_side_effect", VerificationProofLedgerItemAdvisory, VerificationTrackedSideEffectDisclosedReason) {
+		t.Fatalf("worktree disclosure missing from the disclosure list: %+v", ledger)
+	}
+	for _, item := range ledger.Obligations {
+		if item.Kind == "worktree_side_effect" {
+			t.Fatalf("worktree disclosure must not be an obligation: %+v", item)
+		}
+	}
+}

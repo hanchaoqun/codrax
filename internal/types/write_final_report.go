@@ -828,7 +828,16 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 			strings.Join(writeFinalWorktreeEffectPaths(report.Verification.WorktreeEffects, VerificationWorktreeEffectUntrackedCreated), ","))
 	case VerificationWorktreeAuditTrackedDrift:
 		add("verification_worktree_tracked_drift", "worktree_audit", "error",
-			strings.Join(writeFinalWorktreeEffectPaths(report.Verification.WorktreeEffects, VerificationWorktreeEffectTrackedChanged), ","))
+			strings.Join(writeFinalWorktreeRefusedEffectPaths(report.Verification.WorktreeEffects), ","))
+		if disclosed := writeFinalWorktreeDisclosedEffects(report.Verification.WorktreeEffects); len(disclosed) > 0 {
+			add(VerificationTrackedSideEffectDisclosedReason, "worktree_audit", "warning", strings.Join(disclosed, ","))
+		}
+	case VerificationWorktreeAuditTrackedDriftDisclosed:
+		add(VerificationTrackedSideEffectDisclosedReason, "worktree_audit", "warning",
+			strings.Join(writeFinalWorktreeDisclosedEffects(report.Verification.WorktreeEffects), ","))
+		if untracked := writeFinalWorktreeEffectPaths(report.Verification.WorktreeEffects, VerificationWorktreeEffectUntrackedCreated); len(untracked) > 0 {
+			add("verification_worktree_untracked_side_effects", "worktree_audit", "warning", strings.Join(untracked, ","))
+		}
 	case VerificationWorktreeAuditUnavailable:
 		add("verification_worktree_audit_unavailable", "worktree_audit", "warning", "post-run worktree cleanliness not proven")
 	}
@@ -1071,4 +1080,33 @@ func writeFinalLooksLikeTestPath(path string) bool {
 		strings.Contains(base, "_test.") ||
 		strings.Contains(base, ".test.") ||
 		strings.Contains(base, ".spec.")
+}
+
+// writeFinalWorktreeDisclosedEffects renders "path=class" for disclosed
+// tracked rows (V5-2); the paths are not part of the delivery commit.
+func writeFinalWorktreeDisclosedEffects(effects []VerificationWorktreeEffect) []string {
+	var out []string
+	for _, effect := range effects {
+		if effect.Disposition != VerificationWorktreeEffectDisclosed {
+			continue
+		}
+		out = append(out, effect.Path+"="+string(effect.DriftClass))
+	}
+	return out
+}
+
+// writeFinalWorktreeRefusedEffectPaths lists the tracked rows the gate
+// refused (rows without a disposition are legacy refused rows); disclosed
+// rows never appear in the error risk.
+func writeFinalWorktreeRefusedEffectPaths(effects []VerificationWorktreeEffect) []string {
+	var out []string
+	for _, effect := range effects {
+		if effect.Kind != VerificationWorktreeEffectTrackedChanged || effect.Disposition == VerificationWorktreeEffectDisclosed {
+			continue
+		}
+		if path := strings.TrimSpace(effect.Path); path != "" {
+			out = append(out, path)
+		}
+	}
+	return out
 }

@@ -1825,3 +1825,27 @@ func writeContextViewContains(view WriteContextView, kind, substring string) boo
 	}
 	return false
 }
+
+// V5-2 (§40.36): disclosed drift rows carry their typed class, disposition
+// and owner into the write handoff.
+func TestWriteContextPackFromChangeReportCarriesDriftClassAndDisposition(t *testing.T) {
+	pack := WriteContextPackFromChangeReport(&ChangeReport{
+		PlanID: "plan-drift", Passed: true,
+		WorktreeAudit: &VerificationWorktreeAudit{
+			Status: VerificationWorktreeAuditTrackedDriftDisclosed,
+			Effects: []VerificationWorktreeEffect{{
+				Path: "Cargo.lock", Kind: VerificationWorktreeEffectTrackedChanged, Ownership: "git_tracked",
+				Action: "disclosed_not_committed_not_auto_reverted", DriftClass: VerificationWorktreeDriftDependencyLockfileRefresh,
+				OwnerRunner: "rust", Disposition: VerificationWorktreeEffectDisclosed,
+			}},
+		},
+	})
+	for _, item := range pack.Items {
+		if item.Kind == "verification_worktree_effect" && strings.Contains(item.Text, "path=Cargo.lock") &&
+			strings.Contains(item.Text, "drift_class=dependency_lockfile_refresh") && strings.Contains(item.Text, "disposition=disclosed") &&
+			strings.Contains(item.Text, "owner_runner=rust") {
+			return
+		}
+	}
+	t.Fatalf("drift class/disposition missing from the write handoff: %+v", pack.Items)
+}

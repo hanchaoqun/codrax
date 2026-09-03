@@ -348,8 +348,12 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 					fmt.Fprintf(&b, "- verification_worktree_effect: ... +%d more\n", len(audit.Effects)-i)
 					break
 				}
-				fmt.Fprintf(&b, "- verification_worktree_effect: path=%s kind=%s ownership=%s action=%s\n",
+				fmt.Fprintf(&b, "- verification_worktree_effect: path=%s kind=%s ownership=%s action=%s",
 					effect.Path, effect.Kind, effect.Ownership, effect.Action)
+				if effect.DriftClass != "" {
+					fmt.Fprintf(&b, " drift_class=%s disposition=%s", effect.DriftClass, effect.Disposition)
+				}
+				b.WriteString("\n")
 			}
 		}
 		if writeControllerHasProductionSourceStaticOnlyCoverage(report.ChangedPathCoverage) {
