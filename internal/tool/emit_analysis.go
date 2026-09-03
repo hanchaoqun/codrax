@@ -2668,7 +2668,7 @@ func reconcileDiagramParticipantsWithClosedRelationScope(
 	for _, raw := range mentionedEntities {
 		entity := strings.TrimSpace(raw)
 		key := diagramParticipantIdentityAliasKey(entity)
-		if entity == "" || key == "" || !sourceQuoteAnchoredInCurrentRequest(relationScope, entity) {
+		if entity == "" || key == "" || !entityNamedInQuote(relationScope, entity) {
 			continue
 		}
 		scopeKeys[key] = true
@@ -2680,7 +2680,7 @@ func reconcileDiagramParticipantsWithClosedRelationScope(
 	dropped := make([]string, 0)
 	for _, participant := range hint.Participants {
 		identity := strings.TrimSpace(participant.Identity)
-		if sourceQuoteAnchoredInCurrentRequest(relationScope, identity) {
+		if entityNamedInQuote(relationScope, identity) {
 			kept = append(kept, participant)
 			continue
 		}
@@ -2811,7 +2811,7 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 			aliasKey := diagramParticipantIdentityAliasKey(entity)
 			if entity == "" || key == "" || omittedScopeSeen[key] ||
 				!types.IsCodeIdentitySurface(entity) ||
-				!sourceQuoteAnchoredInCurrentRequest(rm.DiagramHint.RelationScopeQuote, entity) ||
+				!entityNamedInQuote(rm.DiagramHint.RelationScopeQuote, entity) ||
 				participantKeys[key] || participantAliasKeys[aliasKey] {
 				continue
 			}
@@ -2868,7 +2868,7 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 			key := diagramParticipantProvenanceKey(entity)
 			aliasKey := diagramParticipantIdentityAliasKey(entity)
 			if entity == "" || key == "" || participantKeys[key] || participantAliasKeys[aliasKey] ||
-				seenCoListed[key] || !sourceQuoteExplicitlyMentionsTypedEntity(participant.SourceQuote, entity) {
+				seenCoListed[key] || !entityNamedInQuote(participant.SourceQuote, entity) {
 				continue
 			}
 			seenCoListed[key] = true
@@ -2965,13 +2965,18 @@ func diagramParticipantIdentityAliasKey(raw string) string {
 	return "flat:" + normalizeForSourceQuoteMatch(raw)
 }
 
-// sourceQuoteExplicitlyMentionsTypedEntity checks complete lexical surfaces,
-// including the common snake_case/CamelCase spelling pair. The previous
-// punctuation-stripped substring check made `emit_answer_document` match the
-// longer `emit_answer_document_patch`, which turned a valid participant slate
-// into an impossible retry loop. Exact raw identity matching remains first so
-// file paths and qualified names retain their established boundary rules.
-func sourceQuoteExplicitlyMentionsTypedEntity(sourceQuote, entity string) bool {
+// entityNamedInQuote is THE identity-membership authority (V4-1, §40.9 →
+// §40.34): is this typed entity / participant identity named, as a WHOLE
+// lexical surface, inside the quote. Lane a = the byte-boundary exact lane
+// shared with the analyzer's mention pass (types.RawRequestExplicitlyMentionsEntity);
+// lane b = the snake_case/CamelCase alias key over the quote's identity
+// surfaces. The previous punctuation-stripped substring check made
+// `emit_answer_document` match the longer `emit_answer_document_patch` (an
+// impossible retry loop) and `Reader` match `FileReader` (a false "missing
+// participant" hard reject). Every emit-side hard or normalizing arm that
+// compares an entity/identity/endpoint against a quote MUST call this — never
+// quoteVerbatimInRequest — enforced by TestDiagramIdentityAuthorityCensus.
+func entityNamedInQuote(sourceQuote, entity string) bool {
 	if types.RawRequestExplicitlyMentionsEntity(sourceQuote, entity) {
 		return true
 	}
@@ -2989,6 +2994,12 @@ func sourceQuoteExplicitlyMentionsTypedEntity(sourceQuote, entity string) bool {
 
 func diagramParticipantIdentitySurfaces(raw string) []string {
 	return strings.FieldsFunc(raw, func(r rune) bool {
+		// V4-1: CJK (any non-ASCII) letters are identity BOUNDARIES, matching
+		// lane a's byte-boundary rule and the ASCII-only code-identity surface
+		// (「EmitAnswerDocument与Parser」 names both identities).
+		if r > unicode.MaxASCII {
+			return true
+		}
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			return false
 		}
@@ -5804,7 +5815,7 @@ func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfilePara
 	}
 	anchoredQuotes := make([]string, 0, len(sourceQuotes))
 	for _, quote := range sourceQuotes {
-		if sourceQuoteAnchoredInCurrentRequest(raw, quote) {
+		if quoteVerbatimInRequest(raw, quote) {
 			anchoredQuotes = append(anchoredQuotes, quote)
 			continue
 		}
@@ -6065,7 +6076,7 @@ func parseExternalObservationPolicy(raw string, p *emitExternalObservationPolicy
 	exclusionQuote := strings.TrimSpace(p.CurrentSourceExclusionQuote)
 	exclusionQuoteAnchored := false
 	if exclusionQuote != "" {
-		if sourceQuoteAnchoredInCurrentRequest(raw, exclusionQuote) {
+		if quoteVerbatimInRequest(raw, exclusionQuote) {
 			quotes = append(quotes, exclusionQuote)
 			exclusionQuoteAnchored = true
 		} else {
@@ -6091,7 +6102,7 @@ func parseExternalObservationPolicy(raw string, p *emitExternalObservationPolicy
 		if trimmed == "" {
 			continue
 		}
-		if sourceQuoteAnchoredInCurrentRequest(raw, trimmed) {
+		if quoteVerbatimInRequest(raw, trimmed) {
 			quotes = append(quotes, trimmed)
 			continue
 		}
@@ -6102,7 +6113,7 @@ func parseExternalObservationPolicy(raw string, p *emitExternalObservationPolicy
 		if trimmed == "" {
 			continue
 		}
-		if sourceQuoteAnchoredInCurrentRequest(raw, trimmed) {
+		if quoteVerbatimInRequest(raw, trimmed) {
 			quotes = append(quotes, trimmed)
 			continue
 		}
@@ -6166,7 +6177,13 @@ func dedupeTrimmedStrings(values []string) []string {
 	return out
 }
 
-func sourceQuoteAnchoredInCurrentRequest(raw, quote string) bool {
+// quoteVerbatimInRequest — QUOTE ANCHORING only: is `quote` a verbatim /
+// punctuation-tolerant substring of `raw`. FORBIDDEN for entity / identity /
+// endpoint membership (a name is a lexical surface, not a substring — the
+// T3-2 class: `Reader` ⊂ `FileReader`, `emit_answer_document` ⊂
+// `emit_answer_document_patch`); use entityNamedInQuote for that, enforced by
+// TestDiagramIdentityAuthorityCensus (V4-1, colleague_merge_audit §40.9/§40.34).
+func quoteVerbatimInRequest(raw, quote string) bool {
 	if sourceQuotePresentInCurrentRequest(raw, quote) {
 		return true
 	}
@@ -7028,7 +7045,7 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 	if required && relationScopeQuote == "" {
 		return nil, "diagram_hint.relation_scope_quote is empty — copy the shortest contiguous verbatim CURRENT-request phrase that states the requested diagram/sequence relation surface and actor scope", nil
 	}
-	if relationScopeQuote != "" && !sourceQuoteAnchoredInCurrentRequest(rawRequest, relationScopeQuote) {
+	if relationScopeQuote != "" && !quoteVerbatimInRequest(rawRequest, relationScopeQuote) {
 		if required {
 			return nil, "diagram_hint.relation_scope_quote must be copied verbatim from the CURRENT request", nil
 		}
@@ -7051,7 +7068,7 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 	relationScopeNamedParticipants := 0
 	for _, raw := range rawParticipants {
 		identity := strings.TrimSpace(raw.Identity)
-		if identity != "" && sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, identity) {
+		if identity != "" && entityNamedInQuote(relationScopeQuote, identity) {
 			relationScopeNamedParticipants++
 		}
 	}
@@ -7067,7 +7084,7 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 		}
 		sourceQuote := strings.TrimSpace(raw.SourceQuote)
 		if sourceQuote == "" {
-			if !sourceQuoteAnchoredInCurrentRequest(rawRequest, identity) {
+			if !entityNamedInQuote(rawRequest, identity) {
 				warnings = append(warnings, fmt.Sprintf(
 					"dropped inferred diagram participant %q because neither its identity nor source_quote is anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t and kept repository discovery outside participant authority",
 					identity, kind, required,
@@ -7083,8 +7100,8 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 			}
 			return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote is empty — copy the shortest verbatim CURRENT-request phrase containing %q", i, identity), warnings
 		}
-		if !sourceQuoteAnchoredInCurrentRequest(rawRequest, sourceQuote) {
-			if sourceQuoteAnchoredInCurrentRequest(rawRequest, identity) {
+		if !quoteVerbatimInRequest(rawRequest, sourceQuote) {
+			if entityNamedInQuote(rawRequest, identity) {
 				if !required {
 					warnings = append(warnings, fmt.Sprintf(
 						"dropped optional diagram participant %q because source_quote is not anchored in the CURRENT request; optional presentation guidance cannot create a retry",
@@ -7123,7 +7140,7 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 			))
 			continue
 		}
-		if !sourceQuoteAnchoredInCurrentRequest(sourceQuote, identity) {
+		if !entityNamedInQuote(sourceQuote, identity) {
 			if !required {
 				warnings = append(warnings, fmt.Sprintf(
 					"dropped optional diagram participant %q because source_quote does not contain the identity; optional presentation guidance cannot create a retry",
@@ -7148,8 +7165,8 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 		// nodes stay stricter so a name from a sibling table/example cannot
 		// leak into the requested diagram.
 		participantInsideRelationScope :=
-			sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, identity) ||
-				sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote)
+			entityNamedInQuote(relationScopeQuote, identity) ||
+				quoteVerbatimInRequest(relationScopeQuote, sourceQuote)
 		if required && !participantInsideRelationScope &&
 			(role == types.DiagramParticipantContextOnly || relationScopeClosesParticipantSurface) {
 			relationScopeExcluded++

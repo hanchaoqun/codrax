@@ -5922,7 +5922,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 
 **SIDECAR-EVID-1**(客户反馈 2026-09-02:`root-causes.json` 的 `evidence` 引用 `.codrax/blob/…attached_trace.txt:2892-13060,trace_query:…json#root_cause_rank:1`——客户无法访问的临时/内部引用,且只陈述影响时长,没有分析逻辑链/唤醒链):候选决定新增系统拥有的 typed 事实包 `TraceCauseDecision.EvidenceFacts`(编译时自投影节点/头部快照:分析窗、席位区间、附件行号、目标名、链相关性/因果/凭证 basis、链深度/分支、直接唤醒边时刻与 via、所在唤醒链、状态、阻塞记录调用者、registry 车道与修向、语义类/span 名;校验器视为系统拥有字段);binder 据此渲染最多四句客户可读证据:①量化(原句,口径不变);②链路关系与凭证(层级/分支、凭证类型与直接唤醒时刻、唤醒链 A → B → C);③机理与边界(状态、语义工作、阻塞记录、修向词、机理未证/帧因果未证披露);④trace 定位(附件行号范围+发生时间+分析窗)。**内部路径与 trace_query 结果 id 永不发布**;每句 ≤240 rune,语义边界收缩;无事实包的遗留候选只保留量化句。指南 §3 示例与字段表同步。
 
-**验证**:全仓套件绿(证据打包/口径/回执渲染四处 pin 按新契约重钉:内部引用永不发布、主体与口径词必在);eval 复跑帧问题两例 `.root-causes.json` 逐席四句(量化/链路关系与凭证/机理与边界/trace 定位)、内部引用泄漏 0(例:「链路关系：位于目标 com.baidu.tieba-59566 唤醒依赖链第 1 级…；凭证=唤醒链成员…；唤醒链：ThreadPoolForeg-60555 → NetworkService-60595 → CookieMonsterCl-59843 → …」「trace 定位：donghu_tieba_frame.systrace 第 2891–13059 行，发生 34579.472865–34579.572194 s…」);短 runnable 例本轮 analyzer 把问题画像判为 bounded_effect_verdict(非 causal_diagnosis)→无完整报告形→合同未激活、答案缺优先级反转词而 FAIL——与本批无关的 analyzer 画像变异,单独复跑核对并记档。
+**验证**:全仓套件绿(证据打包/口径/回执渲染四处 pin 按新契约重钉:内部引用永不发布、主体与口径词必在);eval 复跑帧问题两例 `.root-causes.json` 逐席四句(量化/链路关系与凭证/机理与边界/trace 定位)、内部引用泄漏 0(例:「链路关系：位于目标 com.baidu.tieba-59566 唤醒依赖链第 1 级…；凭证=唤醒链成员…；唤醒链：ThreadPoolForeg-60555 → NetworkService-60595 → CookieMonsterCl-59843 → …」「trace 定位：donghu_tieba_frame.systrace 第 2891–13059 行，发生 34579.472865–34579.572194 s…」);短 runnable 例本轮 analyzer 把问题画像判为 bounded_effect_verdict(非 causal_diagnosis)→无完整报告形→合同未激活、答案缺优先级反转词而 FAIL——与本批无关的 analyzer 画像变异,单独复跑核对并记档。**复跑记档**(2026-09-02,同 case 单次复跑):PASS,analyzer 画像 `causal_diagnosis`/`frame_causality_requested=false`,sidecar available 两席(`CookieMonsterCl-59843线程优先级反转 | not_applicable`),证据四句齐全(「链路关系：位于目标 com.baidu.tieba-59566 唤醒依赖链第 1 级（分支 1）；凭证=唤醒链成员…；唤醒链：CookieMonsterCl-59843 → com.baidu.tieba-59566」「机理与边界：状态=runnable；修向=锁与优先级」「trace 定位：donghu_tieba_frame.systrace 第 2892–3227 行…」)、内部引用泄漏 0——前一轮 `bounded_effect_verdict` 为 analyzer 画像单次变异(1/2),非本批系统性回归;画像稳定性归 V-ANALYZER 观察项,不在本批修。
 
 ### §40.33 LEDGER-MERGE-1 施工收账(2026-09-02)
 
@@ -5936,3 +5936,17 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 
 **验证**:全仓套件绿(PTV6D specimen1 徽章有意识重钉);eval 两帧例 Markdown 的 E#(+N) 徽章按预期增多(同席位第二生产者记录并入 roster),sidecar `evidence_refs`/候选 id 不变。
 
+
+### §40.34 V4-1 施工收账(2026-09-02,§40.9 → 施工)
+
+**定位**:必需流程图"遗漏参与者"硬臂 `validateRequiredFlowDiagramParticipantProvenance`(emit_analysis.go,c8354ec0a 引入)以 `sourceQuoteAnchoredInCurrentRequest`(原样/去标点子串)判 `entities[]` 是否被 `relation_scope_quote` 命名——`Reader` ⊂ `FileReader` 即误判"遗漏参与者"并硬拒(零 LLM 探针复现:entities [Reader FileReader Parser]、scope「FileReader 到 Parser 的数据流」、参与者 FileReader+Parser → REJECT);同一函数的兄弟臂两周前(11ceec1d9)已迁到整词面 `sourceQuoteExplicitlyMentionsTypedEntity`(`emit_answer_document` ⊂ `emit_answer_document_patch` 的重试死循环)。同一子串语义还散布在闭合作用域裁剪归一化器 `reconcileDiagramParticipantsWithClosedRelationScope`(两处;子串膨胀作用域计数会误删分句命名的合法参与者)与 `parseDiagramHint` 内五处身份成员判定(喂硬拒/闭合面丢弃)。T3-2 类第五例。
+
+**泛化解**(单一解析权威 + 结构 census):
+1. 助手按语义命名并单源化:`quoteVerbatimInRequest`(仅引文锚定:quote 是否 raw 的原样/去标点子串,**禁用于身份**)/`entityNamedInQuote`(身份成员唯一权威:lane a = 与 analyzer 提及扫描共用的字节边界精确车道 `types.RawRequestExplicitlyMentionsEntity`;lane b = snake/Camel 别名键 over 引文身份面;身份面拆分对非 ASCII(CJK)字符作边界,与 lane a 及 ASCII-only 代码身份面规则一致——「EmitAnswerDocument与Parser」同时命名两身份);
+2. 八处②类站点(身份 vs 引文)全部迁到 `entityNamedInQuote`:硬臂 1 处、闭合作用域归一化器 2 处、`parseDiagramHint` 5 处;①类(引文 vs 请求文本)站点保留 `quoteVerbatimInRequest`;
+3. census tripwire `TestDiagramIdentityAuthorityCensus`(go/ast,函数级):R1 引文锚定助手的调用方白名单(陈旧即红);R2 登记的三个图硬臂内任何以身份类标识符/`.Identity`/`.Entities` 为参数的子串调用(`quoteVerbatimInRequest`/`strings.Contains|Index|HasPrefix|HasSuffix`)即红;R3 每个硬臂必含 `entityNamedInQuote`;自红子测试:内存中把硬臂改回子串助手,census 必报 `validateRequiredFlowDiagramParticipantProvenance`;文件数下限自检;
+4. typed escape 不新增:参与者行(任意角色,含 context_only)或收窄 `relation_scope_quote` 本就是模型拥有的 typed 出口(§1.6);拒绝文案/教学/schema 描述不变 → 无 R2' 同步、无 description golden ritual。
+
+**pin**:`TestEntityNamedInQuote` 正反表(含 `pkg.Reader` 限定名、CJK 相邻、`emit_answer_document_patch`);归一化器整词 pin(FileReader/Parser 两参与者保留、无 warning);e2e 正向(`Reader` 仅为 `FileReader` 子串 ⇒ 接受并发布 RequestModel)与 e2e 保真(独立作用域实体 `Reader` 无行 ⇒ 仍硬拒);既有兄弟臂 pin 保持绿。
+
+**验证**:全仓套件 `go test ./internal/... ./cmd/` 绿 + `make` 通过;V4-1 五 pin 绿(census 首跑红检出 13 处①类引文锚定调用方——`parse*Profile` 九处、`sourceInventoryProfileRepairSourceQuotes`、call-chain wire 两处、prescan 一处——逐一核实均为引文-vs-请求文本锚定后进白名单至 18 项,陈旧即红;自红子测试确认硬臂回退到子串助手必被 census 报出);既有兄弟臂 pin 与图表 e2e 全绿;零 LLM 复现探针(entities [Reader FileReader Parser] + scope「FileReader 到 Parser 的数据流」)由 REJECT 转为接受并发布 RequestModel,独立作用域实体 `Reader` 无行仍硬拒。
