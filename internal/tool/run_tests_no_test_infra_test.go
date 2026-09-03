@@ -229,7 +229,7 @@ func TestRunTestsEmptyParamsUsesPlanTouchedSyntaxFallback(t *testing.T) {
 	foundDefaultFallback := false
 	foundCompileConfidence := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "python" && cmd.Outcome == "syntax_check_fallback" && cmd.Source == "test_surface_default" {
+		if cmd.Runner == "python" && cmd.Outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback && cmd.Source == "test_surface_default" {
 			foundDefaultFallback = true
 		}
 	}
@@ -295,7 +295,7 @@ func TestRunTestsJavaNoTestWorkUsesCompileFallback(t *testing.T) {
 	}
 	foundFallback := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "java" && cmd.Outcome == "syntax_check_fallback" {
+		if cmd.Runner == "java" && cmd.Outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback {
 			foundFallback = true
 		}
 	}
@@ -594,10 +594,10 @@ func TestRunTestsPythonSyntaxPreflightFailsBeforeProjectRunner(t *testing.T) {
 	}
 	foundPreflight := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Outcome == "syntax_preflight" {
+		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Outcome == types.ExecutedCommandOutcomeSyntaxPreflight {
 			foundPreflight = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Outcome == "executed" {
+		if cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			t.Fatalf("project pytest should not execute after syntax preflight failure: %+v", report.ExecutedCommands)
 		}
 	}
@@ -1080,13 +1080,13 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenProbeComplete(t *test
 	foundProbeCommand := false
 	foundSkippedSuite := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Source == "pre_suite_verification_probe" && cmd.Outcome == "executed" {
+		if cmd.Runner == "verification_probe" && cmd.Source == "pre_suite_verification_probe" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			foundProbeCommand = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_skipped" && cmd.Outcome == "suite_skipped" {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_skipped" && cmd.Outcome == types.ExecutedCommandOutcomeSuiteSkipped {
 			foundSkippedSuite = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == "executed" {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			t.Fatalf("project unittest suite should not execute after passing bounded probe: %+v", report.ExecutedCommands)
 		}
 	}
@@ -1185,7 +1185,7 @@ func TestRunTestsVerificationProbeExpectedBaselineFailureUsesImmutableMainSnapsh
 		if cmd.Source == verificationProbeBaselineSource && cmd.Outcome == types.ExecutedCommandOutcomeExpectedFailureObserved {
 			foundBaseline = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "executed" {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			foundSuiteExecution = true
 		}
 	}
@@ -1294,11 +1294,11 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanContractRefMi
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
 			cmd.Source == verificationProbeContinuationSourceProbeSuiteContinued &&
-			cmd.Outcome == "suite_continued" &&
+			cmd.Outcome == types.ExecutedCommandOutcomeSuiteContinued &&
 			cmd.ReasonCode == verificationProbeContinuationMissingPlanContractRef {
 			foundContinuedSuite = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == "executed" {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			foundExecutedSuite = true
 		}
 		if cmd.Source == "probe_primary_suite_skipped" {
@@ -1379,11 +1379,11 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenGroundedContractM
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
 			cmd.Source == verificationProbeContinuationSourceProbeSuiteContinued &&
-			cmd.Outcome == "suite_continued" &&
+			cmd.Outcome == types.ExecutedCommandOutcomeSuiteContinued &&
 			cmd.ReasonCode == verificationProbeContinuationMissingPlanContractRef {
 			foundContinuedSuite = true
 		}
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "executed" {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			foundExecutedSuite = true
 		}
 		if cmd.Source == "probe_primary_suite_skipped" {
@@ -1491,11 +1491,11 @@ func TestRunTestsVerificationProbePassContinuesMatchingSuiteWhenChangedPathUncov
 	foundMake := false
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Source == verificationProbeContinuationSourceProbeSuiteContinued &&
-			cmd.Outcome == "suite_continued" &&
+			cmd.Outcome == types.ExecutedCommandOutcomeSuiteContinued &&
 			cmd.ReasonCode == verificationProbeContinuationChangedPathUncovered {
 			foundContinuation = true
 		}
-		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 {
 			foundMake = true
 		}
 		if cmd.Source == "probe_primary_suite_skipped" {
@@ -1579,12 +1579,12 @@ func TestRunTestsVerificationProbePassContinuesImpactRelatedTestSurface(t *testi
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
 			cmd.Source == "probe_primary_suite_continued" &&
-			cmd.Outcome == "suite_continued" &&
+			cmd.Outcome == types.ExecutedCommandOutcomeSuiteContinued &&
 			cmd.ReasonCode == "impact_related_test_surface" {
 			foundContinued = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
-			cmd.Source == "impact_test_surface" && cmd.Outcome == "executed" {
+			cmd.Source == "impact_test_surface" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			foundImpactExecution = true
 		}
 		if cmd.Source == "probe_primary_suite_skipped" {
@@ -1663,7 +1663,7 @@ func TestRunTestsVerificationProbePassUsesDeclaredCrossLanguageMakeCoverageBefor
 	}
 	foundMake := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 &&
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 &&
 			cmd.Source == verificationProbeContinuationSourceDeclaredCoverage {
 			foundMake = true
 		}
@@ -1726,7 +1726,7 @@ func TestRunTestsDeclaredPythonMakeTargetClosesChangedPathWithoutProbe(t *testin
 		t.Fatalf("Python Make changed-path coverage missing: %+v", report.ChangedPathCoverage)
 	}
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "make" && cmd.Outcome == "executed" {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			if len(cmd.CoveredPaths) != 1 || cmd.CoveredPaths[0] != "pkg/widget.py" {
 				t.Fatalf("executed Make exact covered_paths = %+v", cmd.CoveredPaths)
 			}
@@ -1803,12 +1803,12 @@ func TestRunTestsVerificationProbePassDowngradesImpactRelatedTestTimeout(t *test
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
 			cmd.Source == "probe_primary_suite_continued" &&
-			cmd.Outcome == "suite_continued" &&
+			cmd.Outcome == types.ExecutedCommandOutcomeSuiteContinued &&
 			cmd.ReasonCode == "impact_related_test_surface" {
 			foundContinued = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
-			cmd.Source == "impact_test_surface" && cmd.Outcome == "timeout" {
+			cmd.Source == "impact_test_surface" && cmd.Outcome == types.ExecutedCommandOutcomeTimeout {
 			foundTimeout = true
 		}
 	}
@@ -1891,16 +1891,16 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanTouchesTests(
 	foundContinuedSuite := false
 	foundExecutedSuite := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Source == "pre_suite_verification_probe" && cmd.Outcome == "executed" {
+		if cmd.Runner == "verification_probe" && cmd.Source == "pre_suite_verification_probe" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			foundProbeCommand = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_continued" &&
-			cmd.Outcome == "suite_continued" && cmd.ReasonCode == verificationProbeContinuationChangedPathUncovered {
+			cmd.Outcome == types.ExecutedCommandOutcomeSuiteContinued && cmd.ReasonCode == verificationProbeContinuationChangedPathUncovered {
 			foundContinuedSuite = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
 			(cmd.Source == "llm_choice" || cmd.Source == "impact_scoped_llm_choice") &&
-			cmd.Outcome == "executed" {
+			cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			foundExecutedSuite = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_skipped" {
@@ -1977,11 +1977,11 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteForCumulativeReplan(t
 	foundMake := false
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Source == verificationProbeContinuationSourceProbeSuiteContinued &&
-			cmd.Outcome == "suite_continued" &&
+			cmd.Outcome == types.ExecutedCommandOutcomeSuiteContinued &&
 			cmd.ReasonCode == verificationProbeContinuationCumulativeScope {
 			foundContinuation = true
 		}
-		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 {
 			foundMake = true
 		}
 		if cmd.Source == "probe_primary_suite_skipped" {
@@ -2081,12 +2081,12 @@ func TestRunTestsVerificationProbePassLeavesTimeoutNonPassWhenChangedPathsUncove
 	foundTimeout := false
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_continued" &&
-			cmd.Outcome == "suite_continued" && cmd.ReasonCode == verificationProbeContinuationChangedPathUncovered {
+			cmd.Outcome == types.ExecutedCommandOutcomeSuiteContinued && cmd.ReasonCode == verificationProbeContinuationChangedPathUncovered {
 			foundContinuedSuite = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" &&
 			(cmd.Source == "llm_choice" || cmd.Source == "impact_scoped_llm_choice") &&
-			cmd.Outcome == "timeout" {
+			cmd.Outcome == types.ExecutedCommandOutcomeTimeout {
 			foundTimeout = true
 		}
 	}
@@ -2461,7 +2461,7 @@ func TestRunTestsMakeReVerifyRunsRealTargetNotRunnerName(t *testing.T) {
 	}
 	var makeCmds []types.ExecutedCommand
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "make" && cmd.Outcome == "executed" {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			makeCmds = append(makeCmds, cmd)
 		}
 	}
@@ -2590,7 +2590,7 @@ func TestRunTestsVerificationProbeImportErrorIsParserError(t *testing.T) {
 	}
 	foundParserErrorCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_module_not_found" {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == types.ExecutedCommandOutcomeParserError && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_module_not_found" {
 			foundParserErrorCommand = true
 		}
 	}
@@ -2675,7 +2675,7 @@ func TestRunTestsVerificationProbeSystemExitImportBoundaryIsParserError(t *testi
 	}
 	foundParserErrorCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.ReasonCode == "verification_probe_module_not_found" {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == types.ExecutedCommandOutcomeParserError && cmd.ReasonCode == "verification_probe_module_not_found" {
 			foundParserErrorCommand = true
 		}
 	}
@@ -2972,7 +2972,7 @@ func TestRunTestsVerificationProbeRuntimeExceptionIsTestFailure(t *testing.T) {
 	}
 	foundFailedCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Outcome == "executed" && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_exception" {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_exception" {
 			foundFailedCommand = true
 		}
 	}
@@ -3024,11 +3024,11 @@ func TestRunTestsVerificationProbeMissingChildExecutableFallsThroughToTypedSurfa
 	var sawUnavailableProbe, sawMakePass bool
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "verification_probe" &&
-			cmd.Outcome == "runner_missing" &&
+			cmd.Outcome == types.ExecutedCommandOutcomeRunnerMissing &&
 			cmd.ReasonCode == "verification_probe_dependency_missing" {
 			sawUnavailableProbe = true
 		}
-		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 {
 			sawMakePass = true
 		}
 	}
@@ -3116,13 +3116,13 @@ func TestRunTestsUnavailablePreferredProbeEscalatesToIndependentTypedSurface(t *
 	}
 	var sawUnavailableProbe, sawPreferredFallback, sawMakePass bool
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Outcome == "runner_missing" {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == types.ExecutedCommandOutcomeRunnerMissing {
 			sawUnavailableProbe = true
 		}
-		if cmd.Runner == "node" && (cmd.Outcome == "synthetic_no_tests" || cmd.Outcome == "syntax_check_fallback") {
+		if cmd.Runner == "node" && (cmd.Outcome == types.ExecutedCommandOutcomeSyntheticNoTests || cmd.Outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback) {
 			sawPreferredFallback = true
 		}
-		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 {
 			sawMakePass = true
 		}
 	}
@@ -3193,7 +3193,7 @@ func TestRunTestsTypedPolyglotMakeSurfaceCarriesExactCheckWithoutPretendingRustE
 	var makeCommand *types.ExecutedCommand
 	for i := range report.ExecutedCommands {
 		if report.ExecutedCommands[i].Runner == "make" &&
-			report.ExecutedCommands[i].Outcome == "executed" {
+			report.ExecutedCommands[i].Outcome == types.ExecutedCommandOutcomeExecuted {
 			makeCommand = &report.ExecutedCommands[i]
 			break
 		}
@@ -3259,10 +3259,10 @@ func TestRunTestsStaticMakePassEscalatesToSameRootNodeBehaviorSurface(t *testing
 	}
 	var sawMake, sawNode bool
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "make" && cmd.Outcome == "executed" {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			sawMake = true
 		}
-		if cmd.Runner == "node" && cmd.Outcome == "executed" {
+		if cmd.Runner == "node" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			sawNode = true
 			if cmd.Source != "execution_capability_escalation" {
 				t.Fatalf("node escalation provenance=%q", cmd.Source)
@@ -3342,10 +3342,10 @@ public class WidgetTest {
 		if cmd.Runner != "java" || cmd.Framework != javaFrameworkDirectMain {
 			continue
 		}
-		if cmd.Outcome == "syntax_preflight" && strings.HasPrefix(cmd.Command, "javac ") {
+		if cmd.Outcome == types.ExecutedCommandOutcomeSyntaxPreflight && strings.HasPrefix(cmd.Command, "javac ") {
 			sawCompile = true
 		}
-		if cmd.Outcome == "executed" && strings.HasPrefix(cmd.Command, "java -ea example.WidgetTest") {
+		if cmd.Outcome == types.ExecutedCommandOutcomeExecuted && strings.HasPrefix(cmd.Command, "java -ea example.WidgetTest") {
 			sawMain = true
 		}
 	}
@@ -3396,7 +3396,7 @@ func TestRunTestsManifestlessJavaRunnerMissingIsNotPass(t *testing.T) {
 	}
 	var sawMissing bool
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "java" && cmd.Framework == javaFrameworkDirectMain && cmd.Outcome == "runner_missing" {
+		if cmd.Runner == "java" && cmd.Framework == javaFrameworkDirectMain && cmd.Outcome == types.ExecutedCommandOutcomeRunnerMissing {
 			sawMissing = true
 		}
 	}
@@ -3471,9 +3471,9 @@ public class WidgetTest {
 	var makeCount, javaMissingCount int
 	for _, cmd := range report.ExecutedCommands {
 		switch {
-		case cmd.Runner == "make" && cmd.Outcome == "executed":
+		case cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted:
 			makeCount++
-		case cmd.Runner == "java" && cmd.Framework == javaFrameworkDirectMain && cmd.Outcome == "runner_missing":
+		case cmd.Runner == "java" && cmd.Framework == javaFrameworkDirectMain && cmd.Outcome == types.ExecutedCommandOutcomeRunnerMissing:
 			javaMissingCount++
 		}
 	}
@@ -3541,9 +3541,9 @@ func TestRunTestsCrossLanguageExactPathProbeDoesNotPreemptTypedProjectSurface(t 
 	var sawSkippedProbe, sawMake bool
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "verification_probe" && cmd.ReasonCode == verificationProbeLanguageTargetMismatchReasonCode {
-			sawSkippedProbe = cmd.Command == "" && cmd.Outcome == "probe_config_error"
+			sawSkippedProbe = cmd.Command == "" && cmd.Outcome == types.ExecutedCommandOutcomeProbeConfigError
 		}
-		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 {
 			sawMake = true
 		}
 	}
@@ -3851,7 +3851,7 @@ func TestRunTestsVerificationProbeTopLevelExceptionIsParserError(t *testing.T) {
 	}
 	foundParserCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "verification_probe" && cmd.Outcome == "parser_error" && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_top_level_exception" {
+		if cmd.Runner == "verification_probe" && cmd.Outcome == types.ExecutedCommandOutcomeParserError && cmd.Source == "pre_suite_verification_probe" && cmd.ReasonCode == "verification_probe_top_level_exception" {
 			foundParserCommand = true
 		}
 	}
@@ -3913,7 +3913,7 @@ func TestRunTestsVerificationProbeTopLevelExceptionDoesNotSuppressProjectSuite(t
 	}
 	foundSuite := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "python" && cmd.Framework == pythonFrameworkUnittest && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+		if cmd.Runner == "python" && cmd.Framework == pythonFrameworkUnittest && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 {
 			foundSuite = true
 		}
 	}
@@ -4678,7 +4678,7 @@ class WidgetTests(unittest.TestCase):
 	}
 	found := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner != "python" || cmd.Framework != pythonFrameworkUnittest || cmd.Outcome != "executed" {
+		if cmd.Runner != "python" || cmd.Framework != pythonFrameworkUnittest || cmd.Outcome != types.ExecutedCommandOutcomeExecuted {
 			continue
 		}
 		found = true
@@ -4936,10 +4936,10 @@ exit 1
 	}
 	foundFallback := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "node" && cmd.Outcome == "syntax_check_fallback" {
+		if cmd.Runner == "node" && cmd.Outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback {
 			foundFallback = true
 		}
-		if cmd.Runner == "node" && cmd.Outcome == "executed" {
+		if cmd.Runner == "node" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			t.Fatalf("node project runner should not execute when no tests exist, got %+v", report.ExecutedCommands)
 		}
 	}
@@ -5010,10 +5010,10 @@ func TestRunTestsPreSuiteProbeAuthoringFailureContinuesGoSuite(t *testing.T) {
 		if cmd.Runner == "verification_probe" && cmd.Framework == "go" && cmd.Source == "pre_suite_verification_probe" {
 			foundProbe = true
 		}
-		if cmd.Runner == "go" && cmd.Source == "probe_primary_suite_continued" && cmd.Outcome == "suite_continued" && cmd.ReasonCode == "probe_non_authoritative" {
+		if cmd.Runner == "go" && cmd.Source == "probe_primary_suite_continued" && cmd.Outcome == types.ExecutedCommandOutcomeSuiteContinued && cmd.ReasonCode == "probe_non_authoritative" {
 			foundContinuation = true
 		}
-		if cmd.Runner == "go" && cmd.Outcome == "executed" {
+		if cmd.Runner == "go" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			foundSuite = true
 		}
 	}
@@ -5172,10 +5172,10 @@ func TestRunTestsEmptyParamsGoNoTestsCompileFailure(t *testing.T) {
 	}
 	foundFallback := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "go" && cmd.Outcome == "syntax_check_fallback" {
+		if cmd.Runner == "go" && cmd.Outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback {
 			foundFallback = true
 		}
-		if cmd.Runner == "go" && cmd.Outcome == "syntax_preflight" {
+		if cmd.Runner == "go" && cmd.Outcome == types.ExecutedCommandOutcomeSyntaxPreflight {
 			t.Fatalf("Go should not run duplicate before-runner preflight, got %+v", report.ExecutedCommands)
 		}
 	}

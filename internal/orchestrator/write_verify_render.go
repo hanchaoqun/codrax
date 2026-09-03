@@ -241,11 +241,11 @@ func reportUntriedRunnableCandidate(report *types.ChangeReport) *types.TestSurfa
 			types.ExecutedCommandOutcomeSuiteSkipped, types.ExecutedCommandOutcomeSuiteContinued,
 			types.ExecutedCommandOutcomeProbeConfigError, types.ExecutedCommandOutcomeExpectedStdoutMissing,
 			types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
-			types.ExecutedCommandOutcomeBaselineUnavailable:
+			types.ExecutedCommandOutcomeBaselineUnavailable, types.ExecutedCommandOutcomeFailed:
 			// Other typed outcomes (skips, preflight-only rows, probe
-			// contract rows, main-snapshot baseline evidence): conservative
-			// — not a try, and not a licence to claim the environment is
-			// intact either.
+			// contract rows, main-snapshot baseline evidence, the
+			// patch-review row): conservative — not a try, and not a
+			// licence to claim the environment is intact either.
 			disqualifiedByKey[key] = true
 		default:
 			// Unknown label (not a member; the census pins every member

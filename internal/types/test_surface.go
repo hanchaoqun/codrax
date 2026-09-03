@@ -131,7 +131,7 @@ type ExecutedCommand struct {
 	// suite_continued | runner_missing | timeout | oom | cpu_limit |
 	// parser_error | zero_tests | not_configured | probe_config_error |
 	// expected_stdout_missing | expected_failure_observed |
-	// expected_failure_not_observed | baseline_unavailable). The set is
+	// expected_failure_not_observed | baseline_unavailable | failed). The set is
 	// closed and total: producers write the constants through local data
 	// flow only (census: internal/tool run_tests_outcome_census_test.go)
 	// and every consumer switch enumerates every member explicitly
@@ -140,8 +140,24 @@ type ExecutedCommand struct {
 
 	// ReasonCode is a bounded typed subreason for the outcome, when the
 	// coarse outcome needs more precise handoff evidence. It is populated
-	// from runner/parser structured signals, never from model prose.
+	// from runner/parser structured signals, never from model prose. A
+	// main-snapshot baseline row (the three baseline Outcome members)
+	// carries ONLY its baseline family code here
+	// (verification_probe_baseline_expected_failure_observed |
+	// verification_probe_baseline_expected_failure_not_observed |
+	// verification_probe_baseline_unavailable); the inner probe's reason
+	// lives in BaselineProbeReasonCode (fold-in round five, finding BB).
 	ReasonCode string `json:"reason_code,omitempty"`
+
+	// BaselineProbeReasonCode (fold-in round five, finding BB; append-only)
+	// is the typed reason the inner probe reported when it ran against the
+	// immutable main snapshot (verification_probe_module_not_found,
+	// verification_probe_dependency_missing, verification_probe_exception,
+	// …). It is a detail for the probe_baseline confidence lane only: it is
+	// never read by the unavailable-reason, failed-command, failure-kind or
+	// diagnostic classifiers, which read Outcome first. Empty on every
+	// non-baseline row.
+	BaselineProbeReasonCode string `json:"baseline_probe_reason_code,omitempty"`
 }
 
 // ExecutedCommand.Outcome labels — the single source for every producer in
@@ -186,6 +202,16 @@ const (
 	ExecutedCommandOutcomeExpectedFailureObserved    = "expected_failure_observed"
 	ExecutedCommandOutcomeExpectedFailureNotObserved = "expected_failure_not_observed"
 	ExecutedCommandOutcomeBaselineUnavailable        = "baseline_unavailable"
+	// Failed (fold-in round five, finding CC): the patch-review lane. The
+	// post-apply semantic patch review (orchestrator
+	// patchReviewStructuralFailureReport) publishes one ExecutedCommand row
+	// per structural hard block with this label — no process was launched,
+	// the review itself is the failed verification step. It is always a
+	// failed command, never an unavailable reason, never names a report
+	// failure kind of its own (the report carries tests_failed), and its
+	// diagnostic class is the patch-review category. Published wire bytes:
+	// the label predates the closed set.
+	ExecutedCommandOutcomeFailed = "failed"
 )
 
 // AllExecutedCommandOutcomes is the closed member list in declaration order.
@@ -212,6 +238,7 @@ func AllExecutedCommandOutcomes() []string {
 		ExecutedCommandOutcomeExpectedFailureObserved,
 		ExecutedCommandOutcomeExpectedFailureNotObserved,
 		ExecutedCommandOutcomeBaselineUnavailable,
+		ExecutedCommandOutcomeFailed,
 	}
 }
 

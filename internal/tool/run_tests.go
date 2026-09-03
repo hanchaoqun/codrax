@@ -73,6 +73,15 @@ const (
 	verificationProbeContinuationSourceDeclaredCoverage    = "declared_coverage_test_surface"
 	verificationProbeContinuationSourceProbeSuiteContinued = "probe_primary_suite_continued"
 	verificationProbeBaselineSource                        = "verification_probe_main_snapshot_baseline"
+	// The baseline row's OWN reason lane (fold-in round five, finding BB):
+	// one family code per baseline Outcome member, shared with the
+	// probe_baseline confidence lane. The inner probe's reason is the typed
+	// ExecutedCommand.BaselineProbeReasonCode detail, never ReasonCode.
+	verificationProbeBaselineObservedReasonCode            = "verification_probe_baseline_expected_failure_observed"
+	verificationProbeBaselineNotObservedReasonCode         = "verification_probe_baseline_expected_failure_not_observed"
+	verificationProbeBaselineUnavailableReasonCode         = "verification_probe_baseline_unavailable"
+	verificationProbeBaselineSnapshotUnavailableReasonCode = "verification_probe_baseline_snapshot_unavailable"
+	verificationProbeBaselineNotRunReasonCode              = "verification_probe_baseline_not_run"
 )
 
 type pytestTextFallbackResult struct {
@@ -1715,7 +1724,7 @@ func runExpectedFailureVerificationProbeBaselines(ctx *types.BusContext, source 
 				Command:    "verification_probe_baseline:" + id,
 				Source:     verificationProbeBaselineSource,
 				Outcome:    types.ExecutedCommandOutcomeBaselineUnavailable,
-				ReasonCode: "verification_probe_baseline_snapshot_unavailable",
+				ReasonCode: verificationProbeBaselineSnapshotUnavailableReasonCode,
 			})
 			continue
 		}
@@ -1723,39 +1732,55 @@ func runExpectedFailureVerificationProbeBaselines(ctx *types.BusContext, source 
 		baselineCtx := ctx.ShallowClone()
 		baselineCtx.RepoRoot = mainAbs
 		baselineCtx.MainRepoRoot = mainAbs
-		result := runSingleVerificationProbe(baselineCtx, probe, verificationProbeBaselineSource)
-		command := types.ExecutedCommand{
-			Runner:     "verification_probe",
-			Framework:  strings.TrimSpace(probe.Language),
-			WorkingDir: strings.TrimSpace(probe.WorkingDir),
-			Command:    "verification_probe_baseline:" + id,
-			Source:     verificationProbeBaselineSource,
-			Outcome:    types.ExecutedCommandOutcomeBaselineUnavailable,
-			ReasonCode: "verification_probe_baseline_unavailable",
+		command := verificationProbeBaselineCommand(id, runSingleVerificationProbe(baselineCtx, probe, verificationProbeBaselineSource))
+		if command.Framework == "" {
+			command.Framework = strings.TrimSpace(probe.Language)
 		}
-		if len(result.Commands) > 0 {
-			command = result.Commands[0]
-			command.Source = verificationProbeBaselineSource
-			command.Command = "verification_probe_baseline:" + id
+		if command.WorkingDir == "" {
+			command.WorkingDir = strings.TrimSpace(probe.WorkingDir)
 		}
-		switch {
-		case result.Report != nil && result.Report.NormalizeVerificationStatus() == types.VerificationStatusFailed && result.Report.FailureKind == types.FailureKindTestsFailed:
-			command.Outcome = types.ExecutedCommandOutcomeExpectedFailureObserved
-			command.ReasonCode = "verification_probe_baseline_expected_failure_observed"
-		case result.Report != nil && result.Report.NormalizeVerificationStatus() == types.VerificationStatusPassed:
-			command.Outcome = types.ExecutedCommandOutcomeExpectedFailureNotObserved
-			command.ReasonCode = "verification_probe_baseline_expected_failure_not_observed"
-		default:
-			command.Outcome = types.ExecutedCommandOutcomeBaselineUnavailable
-			if command.ReasonCode == "" {
-				command.ReasonCode = "verification_probe_baseline_unavailable"
-			}
-		}
-		logging.Info("[run_tests] verification_probe baseline id=%s root=%s outcome=%s reason=%s",
-			id, mainAbs, command.Outcome, command.ReasonCode)
+		logging.Info("[run_tests] verification_probe baseline id=%s root=%s outcome=%s reason=%s probe_reason=%s",
+			id, mainAbs, command.Outcome, command.ReasonCode, command.BaselineProbeReasonCode)
 		commands = append(commands, command)
 	}
 	return commands
+}
+
+// verificationProbeBaselineCommand projects the inner probe run against the
+// immutable main snapshot into the baseline evidence row (fold-in round
+// five, finding BB): the row keeps the inner probe's identity fields (exit
+// code, duration, framework, working dir), but its Outcome is one of the
+// three baseline members and its ReasonCode is that member's baseline
+// family code — never the inner probe's reason, which is kept as the typed
+// BaselineProbeReasonCode detail for the probe_baseline confidence lane. A
+// baseline row therefore never enters the unavailable-reason lane through
+// its ReasonCode (the round-four producer copied the inner row and only
+// overwrote an EMPTY ReasonCode, so verification_probe_module_not_found
+// stayed on the reason lane of a baseline_unavailable row).
+func verificationProbeBaselineCommand(id string, result verificationProbeRunResult) types.ExecutedCommand {
+	command := types.ExecutedCommand{
+		Runner:  "verification_probe",
+		Outcome: types.ExecutedCommandOutcomeBaselineUnavailable,
+	}
+	if len(result.Commands) > 0 {
+		command = result.Commands[0]
+	}
+	command.Runner = "verification_probe"
+	command.Source = verificationProbeBaselineSource
+	command.Command = "verification_probe_baseline:" + id
+	command.BaselineProbeReasonCode = strings.TrimSpace(command.ReasonCode)
+	switch {
+	case result.Report != nil && result.Report.NormalizeVerificationStatus() == types.VerificationStatusFailed && result.Report.FailureKind == types.FailureKindTestsFailed:
+		command.Outcome = types.ExecutedCommandOutcomeExpectedFailureObserved
+		command.ReasonCode = verificationProbeBaselineObservedReasonCode
+	case result.Report != nil && result.Report.NormalizeVerificationStatus() == types.VerificationStatusPassed:
+		command.Outcome = types.ExecutedCommandOutcomeExpectedFailureNotObserved
+		command.ReasonCode = verificationProbeBaselineNotObservedReasonCode
+	default:
+		command.Outcome = types.ExecutedCommandOutcomeBaselineUnavailable
+		command.ReasonCode = verificationProbeBaselineUnavailableReasonCode
+	}
+	return command
 }
 
 func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, probeReport *types.ChangeReport, surface types.TestSurface, plans []runnerPlan, planSources map[string]string) string {
@@ -3075,6 +3100,10 @@ func failureKindFromExecutedCommand(cmd types.ExecutedCommand) types.FailureKind
 	case types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
 		types.ExecutedCommandOutcomeBaselineUnavailable:
 		return ""
+	case types.ExecutedCommandOutcomeFailed:
+		// Patch-review lane (fold-in round five, finding CC): the report
+		// carries its own failure kind; the row names none.
+		return ""
 	case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSyntaxCheckFallback,
 		types.ExecutedCommandOutcomeSyntaxPreflight, types.ExecutedCommandOutcomeSuiteContinued:
 		// Launched rows: the kind comes from the probe reason code below.
@@ -3253,6 +3282,10 @@ func verificationDiagnosticClass(runner, outcome, reasonCode string) (category, 
 	case types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
 		types.ExecutedCommandOutcomeBaselineUnavailable:
 		return "", ""
+	case types.ExecutedCommandOutcomeFailed:
+		// Patch-review lane (fold-in round five, finding CC): the review's
+		// own category, error severity.
+		return string(types.PatchReviewCategoryStructural), "error"
 	case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSyntaxCheckFallback,
 		types.ExecutedCommandOutcomeSyntaxPreflight, types.ExecutedCommandOutcomeSuiteSkipped,
 		types.ExecutedCommandOutcomeSuiteContinued:
@@ -3524,7 +3557,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Category:   "probe_baseline",
 					Status:     "satisfied",
 					Severity:   "info",
-					ReasonCode: "verification_probe_baseline_expected_failure_observed",
+					ReasonCode: verificationProbeBaselineObservedReasonCode,
 					Detail:     fmt.Sprintf("the same bounded probe failed on the immutable main snapshot and passed after the change (%d/%d)", observed, expected),
 				})
 			case unexpectedPass > 0:
@@ -3533,7 +3566,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Category:   "probe_baseline",
 					Status:     "missing",
 					Severity:   "warning",
-					ReasonCode: "verification_probe_baseline_expected_failure_not_observed",
+					ReasonCode: verificationProbeBaselineNotObservedReasonCode,
 					Detail:     "a probe declared expects_baseline_failure but also passed on the immutable main snapshot; regression authority was not minted",
 				})
 			case unavailable > 0:
@@ -3542,8 +3575,8 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Category:   "probe_baseline",
 					Status:     "unavailable",
 					Severity:   "warning",
-					ReasonCode: "verification_probe_baseline_unavailable",
-					Detail:     "the immutable main snapshot could not produce a typed baseline verdict for every probe that required one",
+					ReasonCode: verificationProbeBaselineUnavailableReasonCode,
+					Detail:     verificationProbeBaselineUnavailableDetail(report),
 				})
 			default:
 				out = append(out, types.VerificationConfidenceRecord{
@@ -3551,7 +3584,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Category:   "probe_baseline",
 					Status:     "missing",
 					Severity:   "warning",
-					ReasonCode: "verification_probe_baseline_not_run",
+					ReasonCode: verificationProbeBaselineNotRunReasonCode,
 					Detail:     "probe expected a baseline failure but no baseline probe result is attached",
 				})
 			}
@@ -3754,6 +3787,33 @@ func declaredCoveragePathContains(paths []string, wantLower string) bool {
 	return false
 }
 
+// verificationProbeBaselineUnavailableDetail is the probe_baseline lane's
+// detail for an unavailable baseline: the fixed sentence plus the typed
+// inner probe reasons of the unavailable baseline rows
+// (ExecutedCommand.BaselineProbeReasonCode — fold-in round five, finding
+// BB: the confidence lane is where the inner reason is read, the report's
+// unavailable-reason lane never sees it).
+func verificationProbeBaselineUnavailableDetail(report *types.ChangeReport) string {
+	detail := "the immutable main snapshot could not produce a typed baseline verdict for every probe that required one"
+	if report == nil {
+		return detail
+	}
+	var reasons []string
+	for _, cmd := range report.ExecutedCommands {
+		if strings.TrimSpace(cmd.Source) != verificationProbeBaselineSource ||
+			strings.TrimSpace(cmd.Outcome) != types.ExecutedCommandOutcomeBaselineUnavailable {
+			continue
+		}
+		if reason := strings.TrimSpace(cmd.BaselineProbeReasonCode); reason != "" {
+			reasons = append(reasons, reason)
+		}
+	}
+	if len(reasons) == 0 {
+		return detail
+	}
+	return detail + "; main-snapshot probe reasons: " + strings.Join(dedupStrings(reasons), ",")
+}
+
 func verificationProbeBaselineCommandCounts(plan *types.ChangePlan, report *types.ChangeReport) (expected, observed, unexpectedPass, unavailable int) {
 	for _, probe := range types.ChangePlanVerificationProbes(plan) {
 		if probe.ExpectsBaselineFailure {
@@ -3784,7 +3844,7 @@ func verificationProbeBaselineCommandCounts(plan *types.ChangePlan, report *type
 			types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM,
 			types.ExecutedCommandOutcomeCPULimit, types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeZeroTests,
 			types.ExecutedCommandOutcomeNotConfigured, types.ExecutedCommandOutcomeProbeConfigError,
-			types.ExecutedCommandOutcomeExpectedStdoutMissing:
+			types.ExecutedCommandOutcomeExpectedStdoutMissing, types.ExecutedCommandOutcomeFailed:
 			unavailable++
 		default:
 			// Unknown label (not a member; the census pins every member above).
@@ -3850,9 +3910,10 @@ func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.V
 			types.ExecutedCommandOutcomeSuiteSkipped, types.ExecutedCommandOutcomeSuiteContinued,
 			types.ExecutedCommandOutcomeZeroTests, types.ExecutedCommandOutcomeNotConfigured,
 			types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
-			types.ExecutedCommandOutcomeBaselineUnavailable:
+			types.ExecutedCommandOutcomeBaselineUnavailable, types.ExecutedCommandOutcomeFailed:
 			// No per-command confidence record: the baseline rows are read by
-			// the probe_baseline lane, the launched rows by the verdict.
+			// the probe_baseline lane, the launched rows by the verdict, the
+			// patch-review row by the report.
 		default:
 			// Unknown label (not a member; the census pins every member above).
 		}
@@ -4050,7 +4111,8 @@ func makeResourceExhaustionReport(kind, detail string) *types.ChangeReport {
 		types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeZeroTests,
 		types.ExecutedCommandOutcomeNotConfigured, types.ExecutedCommandOutcomeProbeConfigError,
 		types.ExecutedCommandOutcomeExpectedStdoutMissing, types.ExecutedCommandOutcomeExpectedFailureObserved,
-		types.ExecutedCommandOutcomeExpectedFailureNotObserved, types.ExecutedCommandOutcomeBaselineUnavailable:
+		types.ExecutedCommandOutcomeExpectedFailureNotObserved, types.ExecutedCommandOutcomeBaselineUnavailable,
+		types.ExecutedCommandOutcomeFailed:
 		fk = types.FailureKindCrash
 	default:
 		fk = types.FailureKindCrash

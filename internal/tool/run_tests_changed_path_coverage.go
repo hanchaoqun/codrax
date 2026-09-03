@@ -218,14 +218,35 @@ func changedPathCoverageFromCommands(
 		outcome := strings.TrimSpace(cmd.Outcome)
 		var caliber types.ChangedPathVerificationCaliber
 		var capability types.VerificationCapability
-		switch {
-		case outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 && strings.TrimSpace(cmd.Runner) != "verification_probe":
+		// Total over the closed ExecutedCommandOutcome set (consumer
+		// census; fold-in round five, finding FF — this used to be a
+		// tagless switch the census could not see): only a clean project
+		// execution or a clean syntax check is positive coverage evidence;
+		// every other member is enumerated so a new label cannot silently
+		// fall through.
+		switch outcome {
+		case types.ExecutedCommandOutcomeExecuted:
+			if cmd.ExitCode != 0 || strings.TrimSpace(cmd.Runner) == "verification_probe" {
+				continue
+			}
 			caliber = types.ChangedPathVerificationProjectRunner
 			capability = types.VerificationCapabilityTargetBehavior
-		case (outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback || outcome == types.ExecutedCommandOutcomeSyntaxPreflight) && cmd.ExitCode == 0:
+		case types.ExecutedCommandOutcomeSyntaxCheckFallback, types.ExecutedCommandOutcomeSyntaxPreflight:
+			if cmd.ExitCode != 0 {
+				continue
+			}
 			caliber = types.ChangedPathVerificationSourceCheck
 			capability = types.VerificationCapabilitySyntaxOnly
+		case "", types.ExecutedCommandOutcomeSyntheticNoTests, types.ExecutedCommandOutcomeSuiteSkipped, types.ExecutedCommandOutcomeSuiteContinued,
+			types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM,
+			types.ExecutedCommandOutcomeCPULimit, types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeZeroTests,
+			types.ExecutedCommandOutcomeNotConfigured, types.ExecutedCommandOutcomeProbeConfigError, types.ExecutedCommandOutcomeExpectedStdoutMissing,
+			types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
+			types.ExecutedCommandOutcomeBaselineUnavailable, types.ExecutedCommandOutcomeFailed:
+			// Not positive coverage evidence.
+			continue
 		default:
+			// Unknown label (not a member; the census pins every member above).
 			continue
 		}
 		runnerFamilies, declaredPaths := executedCommandCoverageAuthority(cmd, surface)

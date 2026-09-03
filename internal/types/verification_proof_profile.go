@@ -874,6 +874,10 @@ func verificationProofCommandUnavailableReasonCode(cmd ExecutedCommand, class Ve
 		ExecutedCommandOutcomeExpectedStdoutMissing, ExecutedCommandOutcomeExpectedFailureObserved,
 		ExecutedCommandOutcomeExpectedFailureNotObserved, ExecutedCommandOutcomeBaselineUnavailable:
 		return ""
+	case ExecutedCommandOutcomeFailed:
+		// Patch-review lane (fold-in round five, finding CC): failed, never
+		// unavailable.
+		return ""
 	default:
 		// Unknown label (not a member; the census pins every member above).
 		return ""
@@ -1862,6 +1866,10 @@ func verificationProofCommandClass(cmd ExecutedCommand) VerificationProofRunnerE
 		ExecutedCommandOutcomeProbeConfigError, ExecutedCommandOutcomeExpectedStdoutMissing,
 		ExecutedCommandOutcomeExpectedFailureObserved, ExecutedCommandOutcomeExpectedFailureNotObserved,
 		ExecutedCommandOutcomeBaselineUnavailable:
+	case ExecutedCommandOutcomeFailed:
+		// Patch-review lane (fold-in round five, finding CC): a project-level
+		// verification step (runner patch_review), classified by presence
+		// like the launched members.
 	default:
 		// Unknown label (not a member; the census pins every member above):
 		// classified by runner/command presence like a member.

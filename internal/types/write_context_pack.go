@@ -1954,6 +1954,14 @@ func writeContextItemKindKeepsWholeText(kind string) bool {
 	}
 }
 
+// writeContextItemKindIsMustCarryDisclosure names the item kinds that are
+// typed customer disclosures a cap must never drop (fold-in round five,
+// finding II): the lockfile fixed-point item is the only carrier of its
+// plain-words disclosure once the effect list is capped.
+func writeContextItemKindIsMustCarryDisclosure(kind string) bool {
+	return kind == "verification_lockfile_fixed_point"
+}
+
 func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
 	in.ID = trimWriteContextText(in.ID)
 	in.BatchID = trimWriteContextText(in.BatchID)
@@ -1961,7 +1969,12 @@ func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
 	in.Priority = normalizeWriteContextPriority(in.Priority)
 	in.Kind = trimWriteContextText(in.Kind)
 	if writeContextItemKindKeepsWholeText(in.Kind) {
-		in.Text = strings.Join(strings.Fields(strings.TrimSpace(in.Text)), " ")
+		// Byte-for-byte (fold-in round five, finding JJ): the typed row is
+		// rendered by the shared helpers, and the controller line prints the
+		// same helper output verbatim — a Fields join here collapsed
+		// whitespace INSIDE the path ("my  dir/Cargo.lock" → "my
+		// dir/Cargo.lock"), so pack row ≠ controller line. Exempt rows keep
+		// their text untouched.
 	} else {
 		in.Text = trimWriteContextText(in.Text)
 	}
@@ -2318,6 +2331,13 @@ func writeContextBudgetedViewItems(items []WriteContextItem, consumer WriteConte
 }
 
 func writeContextMustCarryInLimitedView(item WriteContextItem, consumer WriteContextConsumer) bool {
+	// Typed customer disclosure (fold-in round five, finding II): the
+	// lockfile fixed-point item is the only carrier of the
+	// lockfile_fixed_point plain-words disclosure in a capped view — it is
+	// must-carry for every consumer, never dropped by a limit or budget.
+	if writeContextItemKindIsMustCarryDisclosure(item.Kind) {
+		return true
+	}
 	return consumer == WriteConsumerPlanner &&
 		((item.SourceStage == "verify" &&
 			item.Priority == WriteContextP2 &&
@@ -2355,6 +2375,11 @@ func writeContextBoundedPackItems(items []WriteContextItem, limit int) []WriteCo
 
 func writeContextMustCarryInPack(item WriteContextItem) bool {
 	if item.Priority == WriteContextP0 {
+		return true
+	}
+	// Typed customer disclosure (fold-in round five, finding II): survives
+	// the pack bound unconditionally.
+	if writeContextItemKindIsMustCarryDisclosure(item.Kind) {
 		return true
 	}
 	if writeContextItemHasStrongLocalizationAnchor(item) {

@@ -3359,7 +3359,7 @@ func patchReviewFailureReport(plan *types.ChangePlan, review types.PatchReviewRe
 			Framework:  "semantic_patch_review",
 			Command:    "post-apply patch review",
 			Source:     "post_apply_patch_review",
-			Outcome:    "failed",
+			Outcome:    types.ExecutedCommandOutcomeFailed,
 			ReasonCode: reasonCode,
 		}},
 		VerificationDiagnostics: []types.VerificationDiagnostic{{
@@ -3369,7 +3369,7 @@ func patchReviewFailureReport(plan *types.ChangePlan, review types.PatchReviewRe
 			ReasonCode: reasonCode,
 			Runner:     "patch_review",
 			Framework:  "semantic_patch_review",
-			Outcome:    "failed",
+			Outcome:    types.ExecutedCommandOutcomeFailed,
 			Detail:     detail,
 		}},
 		GeneratedAt: time.Now(),
@@ -3834,7 +3834,8 @@ func verifyCoverageCommandCoversPath(cmd types.ExecutedCommand) bool {
 		types.ExecutedCommandOutcomeCPULimit, types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeZeroTests,
 		types.ExecutedCommandOutcomeNotConfigured, types.ExecutedCommandOutcomeProbeConfigError,
 		types.ExecutedCommandOutcomeExpectedStdoutMissing, types.ExecutedCommandOutcomeExpectedFailureObserved,
-		types.ExecutedCommandOutcomeExpectedFailureNotObserved, types.ExecutedCommandOutcomeBaselineUnavailable:
+		types.ExecutedCommandOutcomeExpectedFailureNotObserved, types.ExecutedCommandOutcomeBaselineUnavailable,
+		types.ExecutedCommandOutcomeFailed:
 		return false
 	default:
 		// Unknown label (not a member; the census pins every member above).

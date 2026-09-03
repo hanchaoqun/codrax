@@ -382,10 +382,10 @@ func TestRunTests_ZeroTestChoiceEscalatesToSurfaceCandidate(t *testing.T) {
 	}
 	var sawMakeExec, sawPythonSynthetic bool
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.Source == "no_tests_escalation" {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.Source == "no_tests_escalation" {
 			sawMakeExec = true
 		}
-		if cmd.Runner == "python" && cmd.Outcome == "synthetic_no_tests" && cmd.Source == "llm_choice" {
+		if cmd.Runner == "python" && cmd.Outcome == types.ExecutedCommandOutcomeSyntheticNoTests && cmd.Source == "llm_choice" {
 			sawPythonSynthetic = true
 		}
 	}
@@ -440,10 +440,10 @@ func TestRunTests_SyntaxFallbackEscalatesToSurfaceCandidate(t *testing.T) {
 	}
 	var sawPythonSyntax, sawMakeExec bool
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "python" && cmd.Outcome == "syntax_check_fallback" && cmd.Source == "llm_choice" {
+		if cmd.Runner == "python" && cmd.Outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback && cmd.Source == "llm_choice" {
 			sawPythonSyntax = true
 		}
-		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.Source == "syntax_check_fallback_escalation" && cmd.Command == "make check" {
+		if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.Source == "syntax_check_fallback_escalation" && cmd.Command == "make check" {
 			sawMakeExec = true
 		}
 	}
@@ -504,7 +504,7 @@ func TestRunTests_RunnerMissingEscalationDoesNotLeakSuiteToSurfaceCandidate(t *t
 	}
 	var sawJavaMissing, sawMakeCheck bool
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "java" && cmd.Outcome == "runner_missing" && cmd.Source == "llm_choice" {
+		if cmd.Runner == "java" && cmd.Outcome == types.ExecutedCommandOutcomeRunnerMissing && cmd.Source == "llm_choice" {
 			sawJavaMissing = true
 		}
 		if cmd.Runner == "make" && cmd.Source == "runner_missing_escalation" {
@@ -548,11 +548,11 @@ func TestRunTests_ParserZeroTestsEscalatesAgainToMake(t *testing.T) {
 	var sawPytestMissing, sawUnittestZero, sawMakeCheck bool
 	for _, cmd := range report.ExecutedCommands {
 		switch {
-		case cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Outcome == "runner_missing" && cmd.Source == "llm_choice":
+		case cmd.Runner == "python" && cmd.Framework == "pytest" && cmd.Outcome == types.ExecutedCommandOutcomeRunnerMissing && cmd.Source == "llm_choice":
 			sawPytestMissing = true
-		case cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "zero_tests" && cmd.Source == "runner_missing_escalation":
+		case cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == types.ExecutedCommandOutcomeZeroTests && cmd.Source == "runner_missing_escalation":
 			sawUnittestZero = true
-		case cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.Source == "zero_tests_escalation" && cmd.Command == "make check":
+		case cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.Source == "zero_tests_escalation" && cmd.Command == "make check":
 			sawMakeCheck = true
 		}
 	}
@@ -603,7 +603,7 @@ func TestRunTests_ParserZeroTestsWithoutEscalationFinishesUnverified(t *testing.
 	}
 	var sawUnittestZero bool
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "zero_tests" {
+		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == types.ExecutedCommandOutcomeZeroTests {
 			sawUnittestZero = true
 		}
 	}

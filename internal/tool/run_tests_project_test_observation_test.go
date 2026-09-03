@@ -60,7 +60,7 @@ func TestRunTestsExecutesDeclaredProjectTestObservationPath(t *testing.T) {
 	foundExact := false
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "python" && cmd.Framework == pythonFrameworkUnittest &&
-			cmd.Outcome == "executed" && cmd.ExitCode == 0 && cmd.Suite == "tests/test_value.py" {
+			cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 && cmd.Suite == "tests/test_value.py" {
 			foundExact = true
 			if strings.Contains(cmd.Command, "discover -s") {
 				t.Fatalf("observation file was widened to directory discovery: %q", cmd.Command)
@@ -123,10 +123,10 @@ func TestRunTestsPreservesExactObservationPathAcrossPytestToUnittestEscalation(t
 	}
 	var sawPytestMissing, sawExactUnittest bool
 	for _, command := range report.ExecutedCommands {
-		if command.Runner == "python" && command.Framework == pythonFrameworkPytest && command.Outcome == "runner_missing" {
+		if command.Runner == "python" && command.Framework == pythonFrameworkPytest && command.Outcome == types.ExecutedCommandOutcomeRunnerMissing {
 			sawPytestMissing = true
 		}
-		if command.Runner == "python" && command.Framework == pythonFrameworkUnittest && command.Outcome == "executed" {
+		if command.Runner == "python" && command.Framework == pythonFrameworkUnittest && command.Outcome == types.ExecutedCommandOutcomeExecuted {
 			sawExactUnittest = command.Suite == "tests/test_value.py" && strings.Contains(command.Command, `-m unittest "tests/test_value.py" -v`) && !strings.Contains(command.Command, "discover -s")
 		}
 	}

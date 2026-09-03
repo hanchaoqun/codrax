@@ -362,14 +362,24 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		if audit := report.WorktreeAudit; audit != nil {
 			fmt.Fprintf(&b, "- verification_worktree_audit: status=%s tracked_effects=%d untracked_effects=%d reason_code=%s\n",
 				audit.Status, audit.TrackedEffectCount, audit.UntrackedEffectCount, audit.ReasonCode)
-			for i, effect := range audit.Effects {
+			// Lockfile-class rows first (disclosed before refused), so the
+			// 8-row cap never trims the row that carries the
+			// lockfile_fixed_point token (fold-in round five, finding II).
+			ordered := writeControllerOrderedWorktreeEffects(audit.Effects)
+			for i, effect := range ordered {
 				if i >= 8 {
-					fmt.Fprintf(&b, "- verification_worktree_effect: ... +%d more\n", len(audit.Effects)-i)
+					fmt.Fprintf(&b, "- verification_worktree_effect: ... +%d more\n", len(ordered)-i)
 					break
 				}
 				// Same text as the context pack effect item (typed tokens
 				// first, path last, never cut at a token).
 				fmt.Fprintf(&b, "- verification_worktree_effect: %s\n", types.WriteContextWorktreeEffectText(effect))
+			}
+			// Typed must-carry disclosure (fold-in round five, finding II):
+			// the fixed-point disclosure line is emitted OUTSIDE the cap —
+			// always, once per lockfile row — so 8 refused rows ahead of the
+			// lockfile row can never silence it.
+			for _, effect := range audit.Effects {
 				if disclosure := types.WriteContextLockfileFixedPointDisclosureText(effect.Path, effect.LockfileFixedPoint); disclosure != "" {
 					fmt.Fprintf(&b, "- verification_lockfile_fixed_point: %s\n", disclosure)
 				}
@@ -421,6 +431,35 @@ func writeControllerBehaviorContractCoverage(plan *types.ChangePlan, report *typ
 		}
 	}
 	return hard, covered, planningOnly
+}
+
+// writeControllerOrderedWorktreeEffects orders the audit's effect rows for
+// the capped controller list (fold-in round five, finding II): lockfile-class
+// rows first (disclosed lockfile rows before refused ones), everything else
+// after, each group in its original order — so the 8-row cap trims the
+// crowding rows, never the typed lockfile disclosure carrier.
+func writeControllerOrderedWorktreeEffects(effects []types.VerificationWorktreeEffect) []types.VerificationWorktreeEffect {
+	rank := func(effect types.VerificationWorktreeEffect) int {
+		lockfileClass := effect.DriftClass == types.VerificationWorktreeDriftDependencyLockfileRefresh ||
+			effect.LockfileFixedPoint != ""
+		switch {
+		case lockfileClass && effect.Disposition != types.VerificationWorktreeEffectRefused:
+			return 0
+		case lockfileClass:
+			return 1
+		default:
+			return 2
+		}
+	}
+	out := make([]types.VerificationWorktreeEffect, 0, len(effects))
+	for want := 0; want <= 2; want++ {
+		for _, effect := range effects {
+			if rank(effect) == want {
+				out = append(out, effect)
+			}
+		}
+	}
+	return out
 }
 
 func writeControllerChangedPathCoverageRows(rows []types.ChangedPathVerificationCoverage, limit int) []types.ChangedPathVerificationCoverage {

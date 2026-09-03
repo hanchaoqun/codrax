@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,9 +19,13 @@ import (
 // roster, so a report without the line can be told apart from an older
 // build. The census binds by data flow, not by a hand-copied list:
 //   - every `traceConvertDiagnosticJSONLine("typed_error_<name>", …)`
-//     producer in trace_convert_diagnostic.go — and every other string
+//     producer in EVERY non-test file of the cmd package (fold-in round
+//     five, finding HH — the round-four census parsed only
+//     trace_convert_diagnostic.go, so a typed_error_ literal or constant
+//     routed from another cmd file escaped it) — and every other string
 //     literal starting with "typed_error_" outside the advertisement map
-//     itself (a label built for fmt.Sprintf is a line too) — is a key of
+//     itself (a label built for fmt.Sprintf is a line too, and a constant
+//     declared elsewhere is caught at its declaring literal) — is a key of
 //     traceConvertDiagnosticTypedLineAdvertisements;
 //   - every key of that map is produced (stale advertisement red);
 //   - every advertised entry is a member of traceConvertDiagnosticCapabilities;
@@ -94,13 +99,48 @@ func typedLineAdvertisementProblems(produced map[string]string, advertisements m
 	return problems
 }
 
-func TestTraceConvertDiagnosticTypedLinesAreAdvertisedCapabilities(t *testing.T) {
+// typedErrorLineLabelsInFiles unions the producer labels of several files
+// (fold-in round five, finding HH: the census scans every non-test cmd
+// file, not just trace_convert_diagnostic.go).
+func typedErrorLineLabelsInFiles(fset *token.FileSet, files []*ast.File) map[string]string {
+	labels := map[string]string{}
+	for _, file := range files {
+		for label, pos := range typedErrorLineLabelsIn(fset, file) {
+			if _, seen := labels[label]; !seen {
+				labels[label] = pos
+			}
+		}
+	}
+	return labels
+}
+
+func parseCmdPackageNonTestFiles(t *testing.T) (*token.FileSet, []*ast.File) {
+	t.Helper()
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "trace_convert_diagnostic.go", nil, 0)
+	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	produced := typedErrorLineLabelsIn(fset, file)
+	var files []*ast.File
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, e.Name(), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+	}
+	if len(files) < 5 {
+		t.Fatalf("expected the cmd package's non-test files, parsed %d", len(files))
+	}
+	return fset, files
+}
+
+func TestTraceConvertDiagnosticTypedLinesAreAdvertisedCapabilities(t *testing.T) {
+	fset, files := parseCmdPackageNonTestFiles(t)
+	produced := typedErrorLineLabelsInFiles(fset, files)
 	if len(produced) < 7 {
 		t.Fatalf("expected the seven typed_error lines in the source, got %v", produced)
 	}
@@ -168,9 +208,41 @@ func probe(lines *traceConvertDiagnosticLineSet) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	produced := typedErrorLineLabelsIn(fset, file)
+	// Fold-in round five, finding HH: a typed_error_ literal or a constant
+	// declared in ANOTHER cmd file is a producer too — the census unions
+	// every non-test file.
+	otherFile, err := parser.ParseFile(fset, "probe_other.go", `package cmd
+
+const typedErrorRoutedFromElsewhere = "typed_error_routed_from_elsewhere"
+
+func probeOther(lines *traceConvertDiagnosticLineSet) {
+	lines.Add(traceConvertDiagnosticJSONLine("typed_error_second_file_witness", nil))
+	lines.Add(traceConvertDiagnosticJSONLine(typedErrorRoutedFromElsewhere, nil))
+}
+`, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	produced := typedErrorLineLabelsInFiles(fset, []*ast.File{file, otherFile})
 	if _, leaked := produced["typed_error_only_in_map"]; leaked {
 		t.Fatalf("map keys are not producers: %v", produced)
+	}
+	for _, label := range []string{"typed_error_second_file_witness", "typed_error_routed_from_elsewhere"} {
+		if _, ok := produced[label]; !ok {
+			t.Fatalf("self-red: the multi-file census missed the second-file producer %q: %v", label, produced)
+		}
+	}
+	secondFileProblems := typedLineAdvertisementProblems(produced,
+		map[string]string{"typed_error_known": "entry_v1", "typed_error_future_witness": "entry_v1", "typed_error_future_scalar": "entry_v1"},
+		[]string{"entry_v1"})
+	joinedSecond := strings.Join(secondFileProblems, "\n")
+	for _, want := range []string{
+		"typed line typed_error_second_file_witness is emitted without a capability advertisement",
+		"typed line typed_error_routed_from_elsewhere is emitted without a capability advertisement",
+	} {
+		if !strings.Contains(joinedSecond, want) {
+			t.Fatalf("self-red missed %q: %v", want, secondFileProblems)
+		}
 	}
 	problems := typedLineAdvertisementProblems(produced,
 		map[string]string{"typed_error_known": "not_in_roster_v1", "typed_error_only_in_map": "entry_v1"},

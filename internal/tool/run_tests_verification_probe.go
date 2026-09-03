@@ -271,7 +271,7 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 				types.ExecutedCommandOutcomeZeroTests, types.ExecutedCommandOutcomeNotConfigured,
 				types.ExecutedCommandOutcomeProbeConfigError, types.ExecutedCommandOutcomeExpectedStdoutMissing,
 				types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
-				types.ExecutedCommandOutcomeBaselineUnavailable:
+				types.ExecutedCommandOutcomeBaselineUnavailable, types.ExecutedCommandOutcomeFailed:
 				// The kind stays tests_failed (or the reason code decides).
 			default:
 				// Unknown label (not a member; the census pins every member above).
@@ -1159,7 +1159,7 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 			reasonCode = inlineVerificationProbeReasonCode(in.Language, status)
 		}
 	}
-	if in.Language == "go" && outcome == "executed" && supRes.Err != nil && looksLikeGoProbeCompileError(output) {
+	if in.Language == "go" && outcome == types.ExecutedCommandOutcomeExecuted && supRes.Err != nil && looksLikeGoProbeCompileError(output) {
 		outcome = types.ExecutedCommandOutcomeParserError
 		failureKind = types.FailureKindParserError
 		reasonCode = "verification_probe_go_compile_error"

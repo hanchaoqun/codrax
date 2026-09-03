@@ -200,7 +200,7 @@ func verifyFailureDiagnosticLooksFailed(diag types.VerificationDiagnostic) bool 
 		return false
 	}
 	return strings.TrimSpace(diag.Severity) == "error" ||
-		strings.TrimSpace(diag.Outcome) == "failed"
+		strings.TrimSpace(diag.Outcome) == types.ExecutedCommandOutcomeFailed
 }
 
 func VerifyFailureRequiresReplacementPatch(handoff *types.VerifyFailureHandoff) string {
@@ -214,7 +214,7 @@ func VerifyFailureRequiresReplacementPatch(handoff *types.VerifyFailureHandoff) 
 		if strings.TrimSpace(diag.Severity) != "error" {
 			continue
 		}
-		if outcome := strings.TrimSpace(diag.Outcome); outcome != "" && outcome != "failed" {
+		if outcome := strings.TrimSpace(diag.Outcome); outcome != "" && outcome != types.ExecutedCommandOutcomeFailed {
 			continue
 		}
 		return "patch_review_hard_failure_requires_replacement_patch"

@@ -21,13 +21,23 @@ import (
 //   - every call of installRunTestsReport in the package's non-test files
 //     is lexically inside the FuncLit bound to `installFinishedReport`, and
 //     that FuncLit returns `base + renderRunTestsWorktreeAuditSummary(report)`
-//     (the bound identifiers, not a text match);
+//     (the bound identifiers, not a text match); every OTHER reference to
+//     the identifier — an alias binding, a function value passed around, a
+//     parenthesised callee outside the choke point — is red (fold-in round
+//     five, finding EE(i));
 //   - in every function or closure that calls installFinishedReport, every
 //     types.ToolResult composite literal carries a Summary whose expression
 //     is that call itself or an identifier defined from that call — later
 //     `+=` appends are fine, any other assignment to the identifier, a bare
 //     call statement whose result is discarded, or a Summary fed from
-//     anything else is red.
+//     anything else is red. Fold-in round five, finding EE(ii): a `_`
+//     binding is a discard (red); the choke-point result must reach a
+//     Summary sink (a ToolResult literal Summary, a compliant `.Summary =`
+//     field write, or a helper builder argument) — a bound result that
+//     reaches none is red; a `.Summary =` field write in a choke-calling
+//     body must be fed by the choke point; and a returned helper call that
+//     receives the bound summary is followed by data flow — the helper's
+//     returned ToolResult Summary must be the parameter that received it.
 
 type installChokePointFinding struct {
 	pos  string
@@ -50,11 +60,27 @@ func isCallTo(expr ast.Expr, name string) (*ast.CallExpr, bool) {
 	if !ok {
 		return nil, false
 	}
-	ident, ok := call.Fun.(*ast.Ident)
-	if !ok || ident.Name != name {
+	ident := calleeIdent(call)
+	if ident == nil || ident.Name != name {
 		return nil, false
 	}
 	return call, true
+}
+
+// calleeIdent unwraps a call's callee through parentheses to its identifier
+// (nil for selector / literal callees) — a parenthesised callee is the same
+// call (fold-in round five, finding EE(i)).
+func calleeIdent(call *ast.CallExpr) *ast.Ident {
+	fun := call.Fun
+	for {
+		if paren, ok := fun.(*ast.ParenExpr); ok {
+			fun = paren.X
+			continue
+		}
+		break
+	}
+	ident, _ := fun.(*ast.Ident)
+	return ident
 }
 
 func isToolResultType(expr ast.Expr) bool {
@@ -134,8 +160,13 @@ func installChokePointCensus(fset *token.FileSet, files []*ast.File, result *ins
 			return true
 		})
 	}
-	// Pass 2: every installRunTestsReport call site is inside a choke point.
+	// Pass 2: every installRunTestsReport call site is inside a choke
+	// point, and every OTHER reference to the identifier — an alias
+	// binding, a function value, an argument — is red (fold-in round five,
+	// finding EE(i)): a reference that is not a direct call cannot be
+	// audited, so it is never allowed.
 	for _, file := range files {
+		consumed := map[*ast.Ident]bool{}
 		var stack []*ast.FuncLit
 		var visit func(n ast.Node) bool
 		visit = func(n ast.Node) bool {
@@ -148,52 +179,129 @@ func installChokePointCensus(fset *token.FileSet, files []*ast.File, result *ins
 				stack = stack[:len(stack)-1]
 				return false
 			}
-			expr, isExpr := n.(ast.Expr)
-			if !isExpr {
-				return true
-			}
-			if call, ok := isCallTo(expr, "installRunTestsReport"); ok {
-				result.installCalls++
-				inside := false
-				for _, lit := range stack {
-					if chokeRanges[lit] {
-						inside = true
+			if call, ok := n.(*ast.CallExpr); ok {
+				if ident := calleeIdent(call); ident != nil && ident.Name == "installRunTestsReport" {
+					consumed[ident] = true
+					result.installCalls++
+					inside := false
+					for _, lit := range stack {
+						if chokeRanges[lit] {
+							inside = true
+						}
+					}
+					if !inside {
+						result.violate(fset, call, "installRunTestsReport is called outside the installFinishedReport choke point")
 					}
 				}
-				if !inside {
-					result.violate(fset, call, "installRunTestsReport is called outside the installFinishedReport choke point")
-				}
+			}
+			if ident, ok := n.(*ast.Ident); ok && ident.Name == "installRunTestsReport" && !consumed[ident] {
+				result.violate(fset, ident, "installRunTestsReport is referenced as a value (alias / function value / argument) — only the direct call inside the installFinishedReport choke point is allowed")
 			}
 			return true
 		}
 		for _, decl := range file.Decls {
-			fd, ok := decl.(*ast.FuncDecl)
-			if !ok || fd.Body == nil || fd.Name.Name == "installRunTestsReport" {
+			if fd, ok := decl.(*ast.FuncDecl); ok {
+				if fd.Name.Name == "installRunTestsReport" {
+					continue // the declaration itself
+				}
+				if fd.Body == nil {
+					continue
+				}
+				ast.Inspect(fd.Body, visit)
 				continue
 			}
-			ast.Inspect(fd.Body, visit)
+			// Package-level declarations can alias too (var f = installRunTestsReport).
+			ast.Inspect(decl, visit)
 		}
 	}
-	// Pass 3: in every body that calls installFinishedReport, bind each
-	// ToolResult literal's Summary to that call by data flow.
+	// Pass 3: in every body that calls installFinishedReport, bind the
+	// choke-point result to every returned ToolResult's Summary by data
+	// flow.
+	helpers := map[string]*ast.FuncDecl{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			if fd, ok := decl.(*ast.FuncDecl); ok && fd.Body != nil && fd.Recv == nil {
+				helpers[fd.Name.Name] = fd
+			}
+		}
+	}
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			fd, ok := decl.(*ast.FuncDecl)
 			if !ok || fd.Body == nil {
 				continue
 			}
-			installChokePointBodies(fset, fd.Body, result)
+			installChokePointBodies(fset, fd.Body, helpers, result)
 		}
 	}
 }
 
+// helperSummaryParamIndex resolves a package helper by data flow (fold-in
+// round five, finding EE(ii)): it returns the index of the parameter that
+// feeds the Summary of every ToolResult composite literal the helper
+// returns, or -1 when the helper's returned Summary cannot be proven to be
+// a parameter pass-through.
+func helperSummaryParamIndex(fd *ast.FuncDecl) int {
+	var params []string
+	if fd.Type.Params != nil {
+		for _, field := range fd.Type.Params.List {
+			for _, name := range field.Names {
+				params = append(params, name.Name)
+			}
+		}
+	}
+	index := -1
+	ok := true
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		ret, isRet := n.(*ast.ReturnStmt)
+		if !isRet {
+			return true
+		}
+		for _, res := range ret.Results {
+			lit, isLit := res.(*ast.CompositeLit)
+			if !isLit || !isToolResultType(lit.Type) {
+				continue
+			}
+			var summary ast.Expr
+			for _, elt := range lit.Elts {
+				if kv, isKV := elt.(*ast.KeyValueExpr); isKV {
+					if key, isIdent := kv.Key.(*ast.Ident); isIdent && key.Name == "Summary" {
+						summary = kv.Value
+					}
+				}
+			}
+			ident, isIdent := summary.(*ast.Ident)
+			if !isIdent {
+				ok = false
+				continue
+			}
+			found := -1
+			for i, name := range params {
+				if name == ident.Name {
+					found = i
+				}
+			}
+			if found < 0 || (index >= 0 && index != found) {
+				ok = false
+				continue
+			}
+			index = found
+		}
+		return true
+	})
+	if !ok || index < 0 {
+		return -1
+	}
+	return index
+}
+
 // installChokePointBodies analyses one body (recursing into closures, each
 // as its own body) for the Summary data-flow rule.
-func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, result *installChokePointResult) {
+func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, helpers map[string]*ast.FuncDecl, result *installChokePointResult) {
 	// Closures are separate bodies.
 	ast.Inspect(body, func(n ast.Node) bool {
 		if lit, ok := n.(*ast.FuncLit); ok {
-			installChokePointBodies(fset, lit.Body, result)
+			installChokePointBodies(fset, lit.Body, helpers, result)
 			return false
 		}
 		return true
@@ -201,9 +309,15 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, result *i
 	// Statements of this body only (closures excluded).
 	callsChoke := false
 	bound := map[string]bool{}      // identifiers defined from the choke point call
+	sinks := map[string]int{}       // Summary sinks reached per bound identifier
 	poisoned := map[string]string{} // identifiers reassigned from something else
+	toolResultLocals := map[string]bool{}
+	summaryFieldWritten := map[string]bool{} // locals with a compliant .Summary = write
 	var literals []*ast.CompositeLit
 	var bareCalls []*ast.CallExpr
+	var discarded []*ast.CallExpr // `_ =` bindings (fold-in round five, EE(ii))
+	var summaryWrites []*ast.AssignStmt
+	var returns []*ast.ReturnStmt
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch v := n.(type) {
 		case *ast.FuncLit:
@@ -213,7 +327,26 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, result *i
 				callsChoke = true
 				bareCalls = append(bareCalls, call)
 			}
+		case *ast.DeclStmt:
+			if gen, ok := v.Decl.(*ast.GenDecl); ok && gen.Tok == token.VAR {
+				for _, spec := range gen.Specs {
+					if vs, ok := spec.(*ast.ValueSpec); ok && isToolResultType(vs.Type) {
+						for _, name := range vs.Names {
+							toolResultLocals[name.Name] = true
+						}
+					}
+				}
+			}
+		case *ast.ReturnStmt:
+			returns = append(returns, v)
 		case *ast.AssignStmt:
+			// `.Summary =` field writes are Summary sinks and must be
+			// compliant (fold-in round five, EE(ii)).
+			for _, lhs := range v.Lhs {
+				if sel, ok := lhs.(*ast.SelectorExpr); ok && sel.Sel.Name == "Summary" {
+					summaryWrites = append(summaryWrites, v)
+				}
+			}
 			for i, lhs := range v.Lhs {
 				ident, ok := lhs.(*ast.Ident)
 				if !ok {
@@ -224,11 +357,27 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, result *i
 					rhs = v.Rhs[i]
 				}
 				if rhs != nil {
-					if _, ok := isCallTo(rhs, "installFinishedReport"); ok && (v.Tok == token.DEFINE || v.Tok == token.ASSIGN) {
+					if call, ok := isCallTo(rhs, "installFinishedReport"); ok && (v.Tok == token.DEFINE || v.Tok == token.ASSIGN) {
 						callsChoke = true
+						if ident.Name == "_" {
+							discarded = append(discarded, call)
+							continue
+						}
 						bound[ident.Name] = true
 						delete(poisoned, ident.Name)
 						continue
+					}
+					if lit, ok := rhs.(*ast.CompositeLit); ok && isToolResultType(lit.Type) && v.Tok == token.DEFINE {
+						toolResultLocals[ident.Name] = true
+						for _, elt := range lit.Elts {
+							if kv, isKV := elt.(*ast.KeyValueExpr); isKV {
+								if key, isIdent := kv.Key.(*ast.Ident); isIdent && key.Name == "Summary" {
+									// The literal rule validates the value;
+									// the local needs no field write.
+									summaryFieldWritten[ident.Name] = true
+								}
+							}
+						}
 					}
 				}
 				if bound[ident.Name] {
@@ -255,6 +404,25 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, result *i
 	for _, call := range bareCalls {
 		result.violate(fset, call, "installFinishedReport result discarded: the exit summary must be the choke point's result")
 	}
+	for _, call := range discarded {
+		result.violate(fset, call, "installFinishedReport result discarded (`_ =` binding): the exit summary must be the choke point's result")
+	}
+	// summaryValueCompliant checks one Summary-position expression against
+	// the choke-point binding; it also counts the sink for the identifier.
+	summaryValueCompliant := func(expr ast.Expr) (compliant bool, reason string) {
+		if _, ok := isCallTo(expr, "installFinishedReport"); ok {
+			return true, ""
+		}
+		ident, ok := expr.(*ast.Ident)
+		if !ok || !bound[ident.Name] {
+			return false, "types.ToolResult.Summary is not the installFinishedReport result (bind it: summary := installFinishedReport(report, base))"
+		}
+		if pos, bad := poisoned[ident.Name]; bad {
+			return false, "types.ToolResult.Summary identifier " + ident.Name + " was reassigned from something other than the choke point at " + pos
+		}
+		sinks[ident.Name]++
+		return true, ""
+	}
 	for _, lit := range literals {
 		var summary ast.Expr
 		for _, elt := range lit.Elts {
@@ -270,20 +438,83 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, result *i
 			result.violate(fset, lit, "types.ToolResult literal without a Summary in a body that installs a finished report")
 			continue
 		}
-		if _, ok := isCallTo(summary, "installFinishedReport"); ok {
-			result.guarded++
-			continue
-		}
-		ident, ok := summary.(*ast.Ident)
-		if !ok || !bound[ident.Name] {
-			result.violate(fset, summary, "types.ToolResult.Summary is not the installFinishedReport result (bind it: summary := installFinishedReport(report, base))")
-			continue
-		}
-		if pos, bad := poisoned[ident.Name]; bad {
-			result.violate(fset, summary, "types.ToolResult.Summary identifier "+ident.Name+" was reassigned from something other than the choke point at "+pos)
+		if ok, reason := summaryValueCompliant(summary); !ok {
+			result.violate(fset, summary, reason)
 			continue
 		}
 		result.guarded++
+	}
+	// `.Summary =` field writes (fold-in round five, EE(ii)): the var +
+	// field-assignment construction obeys the same rule as a literal.
+	for _, assign := range summaryWrites {
+		for i, lhs := range assign.Lhs {
+			sel, ok := lhs.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Summary" || len(assign.Rhs) != len(assign.Lhs) {
+				continue
+			}
+			if assign.Tok == token.ADD_ASSIGN {
+				continue // appending after a compliant write is fine
+			}
+			if ok, reason := summaryValueCompliant(assign.Rhs[i]); !ok {
+				result.violate(fset, assign.Rhs[i], reason)
+				continue
+			}
+			if recv, isIdent := sel.X.(*ast.Ident); isIdent {
+				summaryFieldWritten[recv.Name] = true
+			}
+			result.guarded++
+		}
+	}
+	// Returns (fold-in round five, EE(ii)): a returned ToolResult local
+	// must carry the choke-point summary (a literal Summary is checked by
+	// the literal rule; a var-declared local needs a compliant field
+	// write), and a returned helper call that RECEIVES the bound summary is
+	// followed by data flow — the helper's returned ToolResult Summary must
+	// be the parameter the summary arrived in. A helper call that receives
+	// no bound summary is a non-installing exit (pass 2 pins that no other
+	// path can install) and is exempt.
+	for _, ret := range returns {
+		for _, res := range ret.Results {
+			switch v := res.(type) {
+			case *ast.Ident:
+				if toolResultLocals[v.Name] && !summaryFieldWritten[v.Name] {
+					result.violate(fset, v, "types.ToolResult local "+v.Name+" flows to a return without a compliant Summary (write out.Summary = installFinishedReport(report, base) or build the literal with it)")
+				}
+			case *ast.CallExpr:
+				callee := calleeIdent(v)
+				if callee == nil || callee.Name == "installFinishedReport" {
+					continue
+				}
+				boundArg := -1
+				for i, arg := range v.Args {
+					if ident, ok := arg.(*ast.Ident); ok && bound[ident.Name] {
+						boundArg = i
+					}
+				}
+				if boundArg < 0 {
+					continue
+				}
+				fd, ok := helpers[callee.Name]
+				if !ok {
+					result.violate(fset, v, "helper "+callee.Name+" receives the choke-point summary but cannot be resolved in this package")
+					continue
+				}
+				if helperSummaryParamIndex(fd) != boundArg {
+					result.violate(fset, v, "helper "+callee.Name+" receives the choke-point summary but its returned types.ToolResult.Summary is not that parameter (the audit sentence is dropped)")
+					continue
+				}
+				if ident, ok := v.Args[boundArg].(*ast.Ident); ok {
+					sinks[ident.Name]++
+				}
+				result.guarded++
+			}
+		}
+	}
+	// Every bound choke-point result must reach at least one Summary sink.
+	for name := range bound {
+		if sinks[name] == 0 {
+			result.violate(fset, body, "the installFinishedReport result "+name+" never reaches a returned types.ToolResult.Summary (the audit sentence is dropped)")
+		}
 	}
 }
 
@@ -396,6 +627,113 @@ func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *type
 	return types.ToolResult{Success: true}
 }
 `, "without a Summary")
+	// Fold-in round five, finding EE(i): references that are not direct
+	// calls — aliases, function values, parenthesised callees — are red.
+	expect("alias_binding_of_install", chokePointPrelude+`
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	f := installRunTestsReport
+	f(ctx, report, dryRunProbe)
+	return types.ToolResult{Summary: installFinishedReport(report, base)}
+}
+`, "referenced as a value")
+	expect("package_level_alias_of_install", chokePointPrelude+`
+var installAlias = installRunTestsReport
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	return types.ToolResult{Summary: installFinishedReport(report, base)}
+}
+`, "referenced as a value")
+	expect("install_passed_as_argument", chokePointPrelude+`
+func runWith(fn func(*types.BusContext, *types.ChangeReport, bool)) {}
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	runWith(installRunTestsReport)
+	return types.ToolResult{Summary: installFinishedReport(report, base)}
+}
+`, "referenced as a value")
+	expect("parenthesised_callee_outside_choke_point", chokePointPrelude+`
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	(installRunTestsReport)(ctx, report, dryRunProbe)
+	return types.ToolResult{Summary: installFinishedReport(report, base)}
+}
+`, "called outside the installFinishedReport choke point")
+	// Fold-in round five, finding EE(ii): a `_` binding is a discard, a
+	// bound result must reach a returned Summary, the var + field-write
+	// construction obeys the rule, and a returned helper builder is
+	// followed by data flow.
+	expect("underscore_binding_is_a_discard", chokePointPrelude+`
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	_ = installFinishedReport(report, base)
+	return types.ToolResult{Summary: base}
+}
+`, "installFinishedReport result discarded (`_ =` binding)")
+	expect("bound_result_never_reaches_a_summary", chokePointPrelude+`
+func log(s string) {}
+func refusal() types.ToolResult { return types.ToolResult{} }
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	summary := installFinishedReport(report, base)
+	log(summary)
+	return refusal()
+}
+`, "never reaches a returned types.ToolResult.Summary")
+	expect("var_plus_field_write_from_elsewhere", chokePointPrelude+`
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	summary := installFinishedReport(report, base)
+	_ = summary
+	var out types.ToolResult
+	out.Summary = base
+	return out
+}
+`, "Summary is not the installFinishedReport result")
+	expect("var_without_any_summary_flows_to_return", chokePointPrelude+`
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	summary := installFinishedReport(report, base)
+	_ = summary
+	var out types.ToolResult
+	out.Success = true
+	return out
+}
+`, "flows to a return without a compliant Summary")
+	expect("helper_builder_drops_the_summary", chokePointPrelude+`
+func buildResult(summary string) types.ToolResult { return types.ToolResult{Summary: "rebuilt elsewhere"} }
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	summary := installFinishedReport(report, base)
+	return buildResult(summary)
+}
+`, "its returned types.ToolResult.Summary is not that parameter")
+	expect("helper_builder_unresolvable", chokePointPrelude+`
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	summary := installFinishedReport(report, base)
+	return otherPackageBuild(summary)
+}
+`, "cannot be resolved in this package")
+	t.Run("round_five_accepted_shapes_stay_green", func(t *testing.T) {
+		texts := chokePointSelfRed(t, chokePointPrelude+`
+func buildResult(prefix, summary string) types.ToolResult { return types.ToolResult{Summary: summary, Success: true} }
+func errResult(name, msg string) types.ToolResult { return types.ToolResult{Summary: msg} }
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
+	if base == "refused" {
+		// A refusal exit installs nothing and receives no bound summary:
+		// following errResult by data flow is not required.
+		return errResult("run_tests", "rejected")
+	}
+	if base == "helper" {
+		summary := installFinishedReport(report, base)
+		return buildResult("[run_tests]", summary)
+	}
+	if base == "field" {
+		summary := installFinishedReport(report, base)
+		var out types.ToolResult
+		out.Summary = summary
+		out.Summary += "\nprobe output"
+		return out
+	}
+	summary := installFinishedReport(report, base)
+	return types.ToolResult{Summary: summary}
+}
+`)
+		if len(texts) != 0 {
+			t.Fatalf("round-five accepted shapes must be green: %v", texts)
+		}
+	})
 	t.Run("bound_shapes_stay_green", func(t *testing.T) {
 		texts := chokePointSelfRed(t, chokePointPrelude+`
 func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`

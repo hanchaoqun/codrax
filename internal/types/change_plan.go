@@ -1634,29 +1634,48 @@ func firstVerificationUnavailableReasonCode(raw string) string {
 	return ""
 }
 
+// executedCommandUnavailableReasonCode is total over the closed
+// ExecutedCommandOutcome set (consumer census) and reads the OUTCOME FIRST
+// (fold-in round five, finding BB): the member decides whether the row's
+// ReasonCode lane is an unavailable-reason lane at all. Launched, refusal
+// and no-tests rows consult their ReasonCode (a typed runner / probe reason
+// such as pytest_import_startup_error or verification_probe_module_not_found
+// makes the row an unavailable reason) and then fall back to the member's
+// own classification; the main-snapshot baseline evidence rows carry their
+// own reason lane (the baseline family codes; the inner probe reason is the
+// typed BaselineProbeReasonCode detail) and are NEVER an unavailable reason,
+// whatever their ReasonCode says; the patch-review row is a failed
+// verification step, not an unavailable one. Only a label outside the set
+// is classified by its ReasonCode alone.
 func executedCommandUnavailableReasonCode(cmd ExecutedCommand) string {
-	if code := firstVerificationUnavailableReasonCode(cmd.ReasonCode); code != "" {
-		return code
-	}
-	// Total over the closed ExecutedCommandOutcome set (consumer census):
-	// only the environment-refusal and no-tests labels are unavailable
-	// reasons; every other member is enumerated so a new label cannot
-	// silently fall through.
 	switch strings.TrimSpace(cmd.Outcome) {
 	case ExecutedCommandOutcomeRunnerMissing, ExecutedCommandOutcomeNotConfigured:
+		if code := firstVerificationUnavailableReasonCode(cmd.ReasonCode); code != "" {
+			return code
+		}
 		return string(FailureKindRunnerMissing)
 	case ExecutedCommandOutcomeSyntheticNoTests, ExecutedCommandOutcomeZeroTests:
+		if code := firstVerificationUnavailableReasonCode(cmd.ReasonCode); code != "" {
+			return code
+		}
 		return string(FailureKindNoTests)
 	case "", ExecutedCommandOutcomeExecuted, ExecutedCommandOutcomeSyntaxCheckFallback, ExecutedCommandOutcomeSyntaxPreflight,
 		ExecutedCommandOutcomeSuiteSkipped, ExecutedCommandOutcomeSuiteContinued, ExecutedCommandOutcomeTimeout,
 		ExecutedCommandOutcomeOOM, ExecutedCommandOutcomeCPULimit, ExecutedCommandOutcomeParserError,
-		ExecutedCommandOutcomeProbeConfigError, ExecutedCommandOutcomeExpectedStdoutMissing,
-		ExecutedCommandOutcomeExpectedFailureObserved, ExecutedCommandOutcomeExpectedFailureNotObserved,
+		ExecutedCommandOutcomeProbeConfigError, ExecutedCommandOutcomeExpectedStdoutMissing:
+		// Launched rows: the typed reason lane decides.
+		return firstVerificationUnavailableReasonCode(cmd.ReasonCode)
+	case ExecutedCommandOutcomeExpectedFailureObserved, ExecutedCommandOutcomeExpectedFailureNotObserved,
 		ExecutedCommandOutcomeBaselineUnavailable:
+		// Baseline evidence rows: own reason lane, never unavailable.
+		return ""
+	case ExecutedCommandOutcomeFailed:
+		// Patch-review lane: a failed step, never unavailable.
 		return ""
 	default:
-		// Unknown label (not a member; the census pins every member above).
-		return ""
+		// Unknown label (not a member; the census pins every member above):
+		// only the ReasonCode lane can classify it.
+		return firstVerificationUnavailableReasonCode(cmd.ReasonCode)
 	}
 }
 
@@ -1673,8 +1692,9 @@ func ExecutedCommandUnavailableReasonCode(cmd ExecutedCommand) string {
 // four, finding K — expected_failure_observed is the probe's desired
 // baseline result; expected_failure_not_observed and baseline_unavailable
 // weaken proof through the probe_baseline confidence lane, they are not a
-// failed command), every verdict-override label is a failure, and an
-// unknown label stays conservatively failed.
+// failed command), every verdict-override label is a failure, the
+// patch-review row (fold-in round five, finding CC) is always a failure, and
+// an unknown label stays conservatively failed.
 func executedCommandFailed(cmd ExecutedCommand) bool {
 	switch strings.TrimSpace(cmd.Outcome) {
 	case "", ExecutedCommandOutcomeExecuted, ExecutedCommandOutcomeSyntaxPreflight, ExecutedCommandOutcomeSyntaxCheckFallback,
@@ -1688,6 +1708,8 @@ func executedCommandFailed(cmd ExecutedCommand) bool {
 	case ExecutedCommandOutcomeRunnerMissing, ExecutedCommandOutcomeTimeout, ExecutedCommandOutcomeOOM,
 		ExecutedCommandOutcomeCPULimit, ExecutedCommandOutcomeParserError, ExecutedCommandOutcomeNotConfigured,
 		ExecutedCommandOutcomeProbeConfigError, ExecutedCommandOutcomeExpectedStdoutMissing:
+		return true
+	case ExecutedCommandOutcomeFailed:
 		return true
 	default:
 		// Unknown label (not a member; the census pins every member above).

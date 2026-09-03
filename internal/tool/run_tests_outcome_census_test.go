@@ -16,42 +16,57 @@ import (
 
 // run_tests_outcome_census_test.go — the ExecutedCommand.Outcome labels are
 // single-sourced as types.ExecutedCommandOutcome* constants (F-run-tests
-// round three, finding C) and every producer in this package is bound to
+// round three, finding C) and every producer in the module is bound to
 // them BY LOCAL DATA FLOW (fold-in round four, finding K — the previous
 // census accepted identifier aliases, package-level constants,
 // other-package selectors and selector/index-LHS writes, so three real
-// producers wrote labels outside the declared set).
+// producers wrote labels outside the declared set; fold-in round five,
+// findings CC/DD — the scan root is now EVERY non-test file under the repo
+// root, internal/ and cmd/ (the patch-review lane in the orchestrator wrote
+// a label outside the set), assignments inside closures are followed, an
+// unassigned or unresolvable local is a violation, and package-level
+// composite literals / tables are producer positions).
 //
-// Producer positions (go/ast, non-test files of this package):
+// Producer positions (go/ast, non-test files, every package analysed on its
+// own so name resolution never crosses a package boundary):
 //   - every `Outcome:` value of an ExecutedCommand composite literal —
 //     `types.ExecutedCommand{…}`, `&types.ExecutedCommand{…}`, the elided
-//     element literals of `[]types.ExecutedCommand{{…}}` and of locals /
-//     fields typed as that slice;
+//     element literals of `[]types.ExecutedCommand{{…}}` / map values and of
+//     locals / fields typed as that slice — in function bodies AND in
+//     package-level var declarations (tables);
 //   - every assignment whose LHS is `<x>.Outcome` or `<x>[i].Outcome` where
 //     <x> resolves, by the function's own declarations (params, var, :=,
 //     range over an ExecutedCommand slice, `.ExecutedCommands` / `.Commands`
-//     fields), to an ExecutedCommand or a slice of them. A `.Outcome` LHS
-//     whose receiver type cannot be resolved is itself a violation, so a
-//     new producer shape can never be silently skipped.
+//     fields, the result type of a same-package function), to an
+//     ExecutedCommand or a slice of them. A `.Outcome` LHS whose receiver
+//     type cannot be resolved is itself a violation, so a new producer
+//     shape can never be silently skipped.
 //
 // The value at a producer position must resolve to a
 // types.ExecutedCommandOutcome* selector through local data flow only:
-//   - the selector itself;
-//   - a local identifier whose every assignment in the function resolves,
-//     or a parameter whose every call-site argument resolves (package
-//     functions by name; closures by the local name they are bound to);
+//   - the selector itself (the bare constant inside package types);
+//   - a local identifier whose EVERY assignment — in the declaring function
+//     and in every closure nested in it that does not shadow the name —
+//     resolves; a local declared without any visible assignment, or fed by a
+//     range clause, is a violation;
+//   - a parameter whose every call-site argument resolves (package
+//     functions by name; closures by the local name they are bound to;
+//     a parameter captured by a nested closure resolves at the declaring
+//     function's call sites);
 //   - a package function's return value (every `return` at that result
 //     index resolves — the function-return feeder);
 //   - `strings.TrimSpace(v)` of a resolvable v, or a copy of another
 //     ExecutedCommand's Outcome field.
 // A string literal, a package-level constant or variable (an alias), an
-// other-package selector, or any other expression is a violation.
+// other-package selector, a package-level table value that is not the
+// constant, or any other expression is a violation.
 //
-// Roster tables: verificationDriftLaunchedOutcomes ∪
+// Roster tables (tool package): verificationDriftLaunchedOutcomes ∪
 // verificationDriftNotLaunchedOutcomes == AllExecutedCommandOutcomes and
 // disjoint; the infra table ⊆ launched; each entry a constant selector with
-// a real producer; every declared constant has a producer (dead label red);
-// makeResourceExhaustionReport switches on the constants only.
+// a real producer somewhere in the scan root; every declared constant has a
+// producer (dead label red); makeResourceExhaustionReport switches on the
+// constants only.
 
 const executedCommandOutcomeConstPrefix = "ExecutedCommandOutcome"
 
@@ -63,15 +78,22 @@ type outcomeCensusFinding struct {
 type outcomeCensusResult struct {
 	violations []outcomeCensusFinding
 	writers    map[string]bool // constant names written at producer positions
+	producers  int             // producer positions found
 }
 
 func (r *outcomeCensusResult) violate(fset *token.FileSet, node ast.Node, text string) {
-	r.violations = append(r.violations, outcomeCensusFinding{pos: fset.Position(node.Pos()).String(), text: text})
+	pos := fset.Position(node.Pos()).String()
+	for _, v := range r.violations {
+		if v.pos == pos && v.text == text {
+			return
+		}
+	}
+	r.violations = append(r.violations, outcomeCensusFinding{pos: pos, text: text})
 }
 
-// outcomeConstSelector accepts `types.ExecutedCommandOutcome*` (this package)
-// and bare `ExecutedCommandOutcome*` (the types package itself).
-func outcomeConstSelector(expr ast.Expr) (string, bool) {
+// outcomeConstSelector accepts `types.ExecutedCommandOutcome*` and, inside
+// package types itself, the bare `ExecutedCommandOutcome*`.
+func outcomeConstSelector(expr ast.Expr, pkgName string) (string, bool) {
 	switch v := expr.(type) {
 	case *ast.SelectorExpr:
 		pkg, ok := v.X.(*ast.Ident)
@@ -80,29 +102,33 @@ func outcomeConstSelector(expr ast.Expr) (string, bool) {
 		}
 		return v.Sel.Name, true
 	case *ast.Ident:
-		if strings.HasPrefix(v.Name, executedCommandOutcomeConstPrefix) {
+		if pkgName == "types" && strings.HasPrefix(v.Name, executedCommandOutcomeConstPrefix) {
 			return v.Name, true
 		}
+	case *ast.ParenExpr:
+		return outcomeConstSelector(v.X, pkgName)
 	}
 	return "", false
 }
 
-func isExecutedCommandType(expr ast.Expr) bool {
+func isExecutedCommandType(expr ast.Expr, pkgName string) bool {
 	switch v := expr.(type) {
 	case *ast.SelectorExpr:
 		pkg, ok := v.X.(*ast.Ident)
 		return ok && pkg.Name == "types" && v.Sel.Name == "ExecutedCommand"
+	case *ast.Ident:
+		return pkgName == "types" && v.Name == "ExecutedCommand"
 	case *ast.StarExpr:
-		return isExecutedCommandType(v.X)
+		return isExecutedCommandType(v.X, pkgName)
 	case *ast.ParenExpr:
-		return isExecutedCommandType(v.X)
+		return isExecutedCommandType(v.X, pkgName)
 	}
 	return false
 }
 
-func isExecutedCommandSliceType(expr ast.Expr) bool {
+func isExecutedCommandSliceType(expr ast.Expr, pkgName string) bool {
 	arr, ok := expr.(*ast.ArrayType)
-	return ok && isExecutedCommandType(arr.Elt)
+	return ok && isExecutedCommandType(arr.Elt, pkgName)
 }
 
 // outcomeLocalKind is the census' view of a local identifier's type.
@@ -131,30 +157,42 @@ func (s *outcomeCensusScope) child(fnName string) *outcomeCensusScope {
 	return out
 }
 
-func outcomeKindOfTypeExpr(expr ast.Expr) outcomeLocalKind {
+// outcomeCensusFile is one analysed package.
+type outcomeCensusFile struct {
+	fset    *token.FileSet
+	pkgName string
+	funcs   []*outcomeCensusFunc
+	byName  map[string][]*outcomeCensusFunc
+	// resultKinds is the census type of the first result of every package
+	// function / method by simple name (pre-pass), so `x := build()` can
+	// be classified as a declared receiver.
+	resultKinds map[string]outcomeLocalKind
+}
+
+func (file *outcomeCensusFile) kindOfTypeExpr(expr ast.Expr) outcomeLocalKind {
 	switch {
 	case expr == nil:
 		return outcomeLocalUnknown
-	case isExecutedCommandType(expr):
+	case isExecutedCommandType(expr, file.pkgName):
 		return outcomeLocalCommand
-	case isExecutedCommandSliceType(expr):
+	case isExecutedCommandSliceType(expr, file.pkgName):
 		return outcomeLocalCommandSlice
 	default:
 		return outcomeLocalOther
 	}
 }
 
-// outcomeKindOfValue infers the census type of an expression from its shape.
-func outcomeKindOfValue(expr ast.Expr, scope *outcomeCensusScope) outcomeLocalKind {
+// kindOfValue infers the census type of an expression from its shape.
+func (file *outcomeCensusFile) kindOfValue(expr ast.Expr, scope *outcomeCensusScope) outcomeLocalKind {
 	switch v := expr.(type) {
 	case *ast.CompositeLit:
-		return outcomeKindOfTypeExpr(v.Type)
+		return file.kindOfTypeExpr(v.Type)
 	case *ast.UnaryExpr:
 		if v.Op == token.AND {
-			return outcomeKindOfValue(v.X, scope)
+			return file.kindOfValue(v.X, scope)
 		}
 	case *ast.ParenExpr:
-		return outcomeKindOfValue(v.X, scope)
+		return file.kindOfValue(v.X, scope)
 	case *ast.Ident:
 		if kind, ok := scope.locals[v.Name]; ok {
 			return kind
@@ -164,17 +202,24 @@ func outcomeKindOfValue(expr ast.Expr, scope *outcomeCensusScope) outcomeLocalKi
 			return outcomeLocalCommandSlice
 		}
 	case *ast.IndexExpr:
-		if outcomeKindOfValue(v.X, scope) == outcomeLocalCommandSlice {
+		if file.kindOfValue(v.X, scope) == outcomeLocalCommandSlice {
 			return outcomeLocalCommand
 		}
 	case *ast.CallExpr:
 		switch fn := v.Fun.(type) {
 		case *ast.Ident:
 			if (fn.Name == "append" || fn.Name == "make") && len(v.Args) > 0 {
-				return outcomeKindOfValue(v.Args[0], scope)
+				return file.kindOfValue(v.Args[0], scope)
+			}
+			if kind, ok := file.resultKinds[fn.Name]; ok {
+				return kind
+			}
+		case *ast.SelectorExpr:
+			if kind, ok := file.resultKinds[fn.Sel.Name]; ok {
+				return kind
 			}
 		case *ast.ArrayType:
-			return outcomeKindOfTypeExpr(fn) // []types.ExecutedCommand(nil)
+			return file.kindOfTypeExpr(fn) // []types.ExecutedCommand(nil)
 		}
 	}
 	return outcomeLocalUnknown
@@ -193,9 +238,9 @@ func outcomeRecordDecl(scope *outcomeCensusScope, name string, kind outcomeLocal
 	scope.locals[name] = kind
 }
 
-// outcomeCollectScope walks one function body (not entering nested
-// closures) and records every declaration shape it understands.
-func outcomeCollectScope(body *ast.BlockStmt, scope *outcomeCensusScope) {
+// collectScope walks one function body (not entering nested closures) and
+// records every declaration shape it understands.
+func (file *outcomeCensusFile) collectScope(body *ast.BlockStmt, scope *outcomeCensusScope) {
 	var visit func(n ast.Node) bool
 	visit = func(n ast.Node) bool {
 		switch v := n.(type) {
@@ -208,10 +253,10 @@ func outcomeCollectScope(body *ast.BlockStmt, scope *outcomeCensusScope) {
 					if !ok {
 						continue
 					}
-					kind := outcomeKindOfTypeExpr(vs.Type)
+					kind := file.kindOfTypeExpr(vs.Type)
 					for i, name := range vs.Names {
 						if vs.Type == nil && i < len(vs.Values) {
-							kind = outcomeKindOfValue(vs.Values[i], scope)
+							kind = file.kindOfValue(vs.Values[i], scope)
 						}
 						outcomeRecordDecl(scope, name.Name, kind)
 					}
@@ -221,7 +266,7 @@ func outcomeCollectScope(body *ast.BlockStmt, scope *outcomeCensusScope) {
 			if len(v.Lhs) == len(v.Rhs) {
 				for i, lhs := range v.Lhs {
 					if ident, ok := lhs.(*ast.Ident); ok {
-						if kind := outcomeKindOfValue(v.Rhs[i], scope); kind != outcomeLocalUnknown || v.Tok == token.DEFINE {
+						if kind := file.kindOfValue(v.Rhs[i], scope); kind != outcomeLocalUnknown || v.Tok == token.DEFINE {
 							outcomeRecordDecl(scope, ident.Name, kind)
 						}
 					}
@@ -237,7 +282,7 @@ func outcomeCollectScope(body *ast.BlockStmt, scope *outcomeCensusScope) {
 			if v.Value != nil {
 				if ident, ok := v.Value.(*ast.Ident); ok {
 					kind := outcomeLocalUnknown
-					if outcomeKindOfValue(v.X, scope) == outcomeLocalCommandSlice {
+					if file.kindOfValue(v.X, scope) == outcomeLocalCommandSlice {
 						kind = outcomeLocalCommand
 					} else if v.Tok == token.DEFINE {
 						kind = outcomeLocalOther
@@ -251,11 +296,12 @@ func outcomeCollectScope(body *ast.BlockStmt, scope *outcomeCensusScope) {
 	ast.Inspect(body, visit)
 }
 
-// outcomeCensusFunc is one analysed function or closure.
+// outcomeCensusFunc is one analysed function, closure, or the package-level
+// declaration pseudo-body.
 type outcomeCensusFunc struct {
 	name   string // package function name, or the local closure name ("" for anonymous)
-	params []*ast.Field
 	body   *ast.BlockStmt
+	lit    *ast.FuncLit // the closure literal (nil for declarations)
 	scope  *outcomeCensusScope
 	parent *outcomeCensusFunc
 	// producers are the (position, value) pairs found in this body.
@@ -266,19 +312,13 @@ type outcomeCensusFunc struct {
 	returns []*ast.ReturnStmt
 }
 
-type outcomeCensusFile struct {
-	fset   *token.FileSet
-	funcs  []*outcomeCensusFunc
-	byName map[string][]*outcomeCensusFunc
-}
-
-func outcomeParamsInto(scope *outcomeCensusScope, params *ast.FieldList) {
+func outcomeParamsInto(file *outcomeCensusFile, scope *outcomeCensusScope, params *ast.FieldList) {
 	if params == nil {
 		return
 	}
 	idx := 0
 	for _, field := range params.List {
-		kind := outcomeKindOfTypeExpr(field.Type)
+		kind := file.kindOfTypeExpr(field.Type)
 		if len(field.Names) == 0 {
 			idx++
 			continue
@@ -291,11 +331,10 @@ func outcomeParamsInto(scope *outcomeCensusScope, params *ast.FieldList) {
 	}
 }
 
-// outcomeAnalyseBody collects producer positions, calls and returns of one
-// body, recursing into closures with an inherited scope.
-func outcomeAnalyseBody(fset *token.FileSet, fn *outcomeCensusFunc, result *outcomeCensusResult, out *outcomeCensusFile) {
-	outcomeCollectScope(fn.body, fn.scope)
-	fn.calls = map[string][]*ast.CallExpr{}
+// walkProducers collects producer positions (composite literals and .Outcome
+// writes) in node, not entering closures.
+func (file *outcomeCensusFile) walkProducers(fn *outcomeCensusFunc, node ast.Node, elemTyped bool, result *outcomeCensusResult) {
+	fset := file.fset
 	var walk func(node ast.Node, elemTyped bool)
 	walk = func(node ast.Node, elemTyped bool) {
 		ast.Inspect(node, func(n ast.Node) bool {
@@ -313,7 +352,7 @@ func outcomeAnalyseBody(fset *token.FileSet, fn *outcomeCensusFunc, result *outc
 				if v.Tok == token.DEFINE && len(v.Lhs) == 1 && len(v.Rhs) == 1 {
 					if lit, ok := v.Rhs[0].(*ast.FuncLit); ok {
 						if ident, ok := v.Lhs[0].(*ast.Ident); ok {
-							outcomeAnalyseClosure(fset, fn, ident.Name, lit, result, out)
+							file.analyseClosure(fn, ident.Name, lit, result)
 							return false
 						}
 					}
@@ -323,12 +362,13 @@ func outcomeAnalyseBody(fset *token.FileSet, fn *outcomeCensusFunc, result *outc
 					if !ok || sel.Sel.Name != "Outcome" {
 						continue
 					}
-					switch outcomeKindOfValue(sel.X, fn.scope) {
+					switch file.kindOfValue(sel.X, fn.scope) {
 					case outcomeLocalCommand:
 						if len(v.Rhs) == len(v.Lhs) {
 							for i, l := range v.Lhs {
 								if l == lhs {
 									fn.producers = append(fn.producers, v.Rhs[i])
+									result.producers++
 								}
 							}
 						} else {
@@ -344,15 +384,16 @@ func outcomeAnalyseBody(fset *token.FileSet, fn *outcomeCensusFunc, result *outc
 			case *ast.CompositeLit:
 				// A literal is a command when its type says so or when it is
 				// an elided element of a command slice / array / map value.
-				typed := isExecutedCommandType(v.Type) || (v.Type == nil && elemTyped)
-				elemIsCommand := isExecutedCommandSliceType(v.Type)
-				if m, ok := v.Type.(*ast.MapType); ok && isExecutedCommandType(m.Value) {
+				typed := isExecutedCommandType(v.Type, file.pkgName) || (v.Type == nil && elemTyped)
+				elemIsCommand := isExecutedCommandSliceType(v.Type, file.pkgName)
+				if m, ok := v.Type.(*ast.MapType); ok && isExecutedCommandType(m.Value, file.pkgName) {
 					elemIsCommand = true
 				}
 				for _, elt := range v.Elts {
 					if kv, ok := elt.(*ast.KeyValueExpr); ok {
 						if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Outcome" && typed {
 							fn.producers = append(fn.producers, kv.Value)
+							result.producers++
 						}
 						if inner, ok := kv.Value.(*ast.CompositeLit); ok && inner.Type == nil {
 							walk(inner, elemIsCommand) // map value with elided type
@@ -372,7 +413,15 @@ func outcomeAnalyseBody(fset *token.FileSet, fn *outcomeCensusFunc, result *outc
 			return true
 		})
 	}
-	walk(fn.body, false)
+	walk(node, elemTyped)
+}
+
+// analyseBody collects producer positions, calls and returns of one body,
+// recursing into closures with an inherited scope.
+func (file *outcomeCensusFile) analyseBody(fn *outcomeCensusFunc, result *outcomeCensusResult) {
+	file.collectScope(fn.body, fn.scope)
+	fn.calls = map[string][]*ast.CallExpr{}
+	file.walkProducers(fn, fn.body, false, result)
 	// Anonymous closures (not bound to a name) are analysed too: their
 	// producers resolve in their own inherited scope.
 	ast.Inspect(fn.body, func(n ast.Node) bool {
@@ -381,7 +430,7 @@ func outcomeAnalyseBody(fset *token.FileSet, fn *outcomeCensusFunc, result *outc
 			if outcomeClosureIsNamed(fn.body, v) {
 				return false
 			}
-			outcomeAnalyseClosure(fset, fn, "", v, result, out)
+			file.analyseClosure(fn, "", v, result)
 			return false
 		}
 		return true
@@ -403,43 +452,91 @@ func outcomeClosureIsNamed(body *ast.BlockStmt, lit *ast.FuncLit) bool {
 	return named
 }
 
-func outcomeAnalyseClosure(fset *token.FileSet, parent *outcomeCensusFunc, name string, lit *ast.FuncLit, result *outcomeCensusResult, out *outcomeCensusFile) {
-	child := &outcomeCensusFunc{name: name, body: lit.Body, scope: parent.scope.child(name), parent: parent}
+func (file *outcomeCensusFile) analyseClosure(parent *outcomeCensusFunc, name string, lit *ast.FuncLit, result *outcomeCensusResult) {
+	child := &outcomeCensusFunc{name: name, body: lit.Body, lit: lit, scope: parent.scope.child(name), parent: parent}
 	if lit.Type != nil {
-		child.params = nil
-		outcomeParamsInto(child.scope, lit.Type.Params)
+		outcomeParamsInto(file, child.scope, lit.Type.Params)
 	}
-	out.funcs = append(out.funcs, child)
+	file.funcs = append(file.funcs, child)
 	if name != "" {
-		out.byName[name] = append(out.byName[name], child)
+		file.byName[name] = append(file.byName[name], child)
 	}
-	outcomeAnalyseBody(fset, child, result, out)
+	file.analyseBody(child, result)
 }
 
-// outcomeAnalyseFile analyses every function declaration of a file.
-func outcomeAnalyseFile(fset *token.FileSet, file *ast.File, result *outcomeCensusResult, out *outcomeCensusFile) {
-	for _, decl := range file.Decls {
-		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || fd.Body == nil {
-			continue
+// analyseFile analyses every function declaration and every package-level
+// var declaration (tables) of a file.
+func (file *outcomeCensusFile) analyseFile(f *ast.File, result *outcomeCensusResult) {
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Body == nil {
+				continue
+			}
+			fn := &outcomeCensusFunc{name: d.Name.Name, body: d.Body, scope: &outcomeCensusScope{locals: map[string]outcomeLocalKind{}, params: map[string]int{}, fnName: d.Name.Name}}
+			if d.Recv != nil {
+				outcomeParamsInto(file, fn.scope, d.Recv)
+				fn.scope.params = map[string]int{} // receiver is never a feeder position
+			}
+			outcomeParamsInto(file, fn.scope, d.Type.Params)
+			file.funcs = append(file.funcs, fn)
+			if d.Recv == nil {
+				file.byName[d.Name.Name] = append(file.byName[d.Name.Name], fn)
+			}
+			file.analyseBody(fn, result)
+		case *ast.GenDecl:
+			if d.Tok != token.VAR {
+				continue
+			}
+			// Package-level tables (fold-in round five, finding DD): the
+			// values are producer positions resolved in an empty scope, so
+			// only the constant selector itself is accepted.
+			fn := &outcomeCensusFunc{name: "<package-level " + file.pkgName + ">", body: &ast.BlockStmt{},
+				scope: &outcomeCensusScope{locals: map[string]outcomeLocalKind{}, params: map[string]int{}, fnName: "<package-level>"}}
+			fn.calls = map[string][]*ast.CallExpr{}
+			for _, spec := range d.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				elemTyped := isExecutedCommandType(vs.Type, file.pkgName)
+				for _, value := range vs.Values {
+					if lit, ok := value.(*ast.CompositeLit); ok && lit.Type == nil {
+						file.walkProducers(fn, lit, elemTyped, result)
+						continue
+					}
+					file.walkProducers(fn, value, false, result)
+				}
+			}
+			if len(fn.producers) > 0 {
+				file.funcs = append(file.funcs, fn)
+			}
 		}
-		fn := &outcomeCensusFunc{name: fd.Name.Name, body: fd.Body, scope: &outcomeCensusScope{locals: map[string]outcomeLocalKind{}, params: map[string]int{}, fnName: fd.Name.Name}}
-		if fd.Recv != nil {
-			outcomeParamsInto(fn.scope, fd.Recv)
-			fn.scope.params = map[string]int{} // receiver is never a feeder position
-		}
-		outcomeParamsInto(fn.scope, fd.Type.Params)
-		out.funcs = append(out.funcs, fn)
-		if fd.Recv == nil {
-			out.byName[fd.Name.Name] = append(out.byName[fd.Name.Name], fn)
-		}
-		outcomeAnalyseBody(fset, fn, result, out)
 	}
 }
 
-// outcomeResolve decides whether value resolves to a typed constant through
-// local data flow; it records the constant name(s) reached.
-func outcomeResolve(value ast.Expr, fn *outcomeCensusFunc, file *outcomeCensusFile, result *outcomeCensusResult, seen map[string]bool, depth int) {
+// resultKindsPrePass records the first-result census type of every function
+// and method of the package by simple name.
+func (file *outcomeCensusFile) resultKindsPrePass(files []*ast.File) {
+	file.resultKinds = map[string]outcomeLocalKind{}
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Type.Results == nil || len(fd.Type.Results.List) == 0 {
+				continue
+			}
+			kind := file.kindOfTypeExpr(fd.Type.Results.List[0].Type)
+			if prev, ok := file.resultKinds[fd.Name.Name]; ok && prev != kind {
+				kind = outcomeLocalUnknown // ambiguous simple name: stay conservative
+			}
+			file.resultKinds[fd.Name.Name] = kind
+		}
+	}
+}
+
+// resolve decides whether value resolves to a typed constant through local
+// data flow; it records the constant name(s) reached.
+func (file *outcomeCensusFile) resolve(value ast.Expr, fn *outcomeCensusFunc, result *outcomeCensusResult, seen map[string]bool, depth int) {
 	fset := file.fset
 	if depth > 24 {
 		result.violate(fset, value, "ExecutedCommand.Outcome producer resolution exceeded the data-flow depth bound")
@@ -450,14 +547,14 @@ func outcomeResolve(value ast.Expr, fn *outcomeCensusFunc, file *outcomeCensusFi
 		result.violate(fset, v, "ExecutedCommand.Outcome producer writes the literal "+v.Value+" instead of a types.ExecutedCommandOutcome* constant")
 		return
 	case *ast.ParenExpr:
-		outcomeResolve(v.X, fn, file, result, seen, depth+1)
+		file.resolve(v.X, fn, result, seen, depth+1)
 		return
 	case *ast.SelectorExpr:
-		if name, ok := outcomeConstSelector(v); ok {
+		if name, ok := outcomeConstSelector(v, file.pkgName); ok {
 			result.writers[name] = true
 			return
 		}
-		if v.Sel.Name == "Outcome" && outcomeKindOfValue(v.X, fn.scope) == outcomeLocalCommand {
+		if v.Sel.Name == "Outcome" && file.kindOfValue(v.X, fn.scope) == outcomeLocalCommand {
 			return // copy of another ExecutedCommand's already-declared label
 		}
 		result.violate(fset, v, "ExecutedCommand.Outcome producer writes the other-package / non-constant selector "+outcomeExprText(v)+" instead of a types.ExecutedCommandOutcome* constant")
@@ -465,125 +562,215 @@ func outcomeResolve(value ast.Expr, fn *outcomeCensusFunc, file *outcomeCensusFi
 	case *ast.CallExpr:
 		if sel, ok := v.Fun.(*ast.SelectorExpr); ok {
 			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "strings" && sel.Sel.Name == "TrimSpace" && len(v.Args) == 1 {
-				outcomeResolve(v.Args[0], fn, file, result, seen, depth+1)
+				file.resolve(v.Args[0], fn, result, seen, depth+1)
 				return
 			}
 		}
 		if ident, ok := v.Fun.(*ast.Ident); ok {
-			outcomeResolveReturn(ident.Name, 0, v, fn, file, result, seen, depth)
+			file.resolveReturn(ident.Name, 0, v, result, seen, depth)
 			return
 		}
 		result.violate(fset, v, "ExecutedCommand.Outcome producer is an unresolvable call "+outcomeExprText(v))
 		return
 	case *ast.Ident:
+		if name, ok := outcomeConstSelector(v, file.pkgName); ok {
+			result.writers[name] = true
+			return
+		}
 		key := fn.scope.fnName + "\x00" + v.Name + "\x00" + fset.Position(fn.body.Pos()).String()
 		if seen[key] {
 			return
 		}
 		seen[key] = true
-		if outcomeResolveLocal(v, fn, file, result, seen, depth) {
+		decl, isParam, idx := outcomeDeclaringFunc(v.Name, fn)
+		if decl == nil {
+			// Not declared in this function or its enclosing functions: a
+			// package-level constant / variable alias (or an unknown name).
+			result.violate(fset, v, "ExecutedCommand.Outcome producer writes the identifier "+v.Name+" that is not fed by local data flow (package-level alias / constant) — write the types.ExecutedCommandOutcome* constant")
 			return
 		}
-		if idx, isParam := fn.scope.params[v.Name]; isParam {
-			outcomeResolveParam(v, idx, fn, file, result, seen, depth)
+		if isParam {
+			file.resolveParam(v, idx, decl, result, seen, depth)
 			return
 		}
-		// Not declared in this function or its enclosing functions: a
-		// package-level constant / variable alias (or an unknown name).
-		result.violate(fset, v, "ExecutedCommand.Outcome producer writes the identifier "+v.Name+" that is not fed by local data flow (package-level alias / constant) — write the types.ExecutedCommandOutcome* constant")
+		file.resolveLocal(v, decl, result, seen, depth)
 		return
 	}
 	result.violate(fset, value, "ExecutedCommand.Outcome producer is an unresolvable expression "+outcomeExprText(value))
 }
 
-// outcomeResolveLocal follows every assignment to ident inside fn (and its
-// enclosing functions for captured variables). Returns false when no
-// assignment feeds it.
-func outcomeResolveLocal(ident *ast.Ident, fn *outcomeCensusFunc, file *outcomeCensusFile, result *outcomeCensusResult, seen map[string]bool, depth int) bool {
-	found := false
+// outcomeDeclaringFunc finds the innermost function (walking outward through
+// enclosing closures) that declares name — as a parameter (isParam, index)
+// or as a local (:=, var, range) — nil when no enclosing function declares
+// it (a package-level name).
+func outcomeDeclaringFunc(name string, fn *outcomeCensusFunc) (decl *outcomeCensusFunc, isParam bool, idx int) {
 	for f := fn; f != nil; f = f.parent {
-		ast.Inspect(f.body, func(n ast.Node) bool {
-			switch v := n.(type) {
-			case *ast.FuncLit:
-				return false
-			case *ast.AssignStmt:
-				for i, lhs := range v.Lhs {
-					l, ok := lhs.(*ast.Ident)
-					if !ok || l.Name != ident.Name {
-						continue
-					}
-					found = true
-					if len(v.Rhs) == len(v.Lhs) {
-						outcomeResolve(v.Rhs[i], f, file, result, seen, depth+1)
-					} else if call, ok := v.Rhs[0].(*ast.CallExpr); ok && len(v.Rhs) == 1 {
-						if callee, ok := call.Fun.(*ast.Ident); ok {
-							outcomeResolveReturn(callee.Name, i, call, f, file, result, seen, depth)
-						} else {
-							result.violate(file.fset, call, "ExecutedCommand.Outcome feeder "+ident.Name+" comes from an unresolvable tuple call")
-						}
-					} else {
-						result.violate(file.fset, v, "ExecutedCommand.Outcome feeder "+ident.Name+" comes from an unresolvable tuple assignment")
+		if i, ok := f.scope.params[name]; ok {
+			return f, true, i
+		}
+		if outcomeBodyDeclares(f.body, name) {
+			return f, false, 0
+		}
+	}
+	return nil, false, 0
+}
+
+// outcomeBodyDeclares reports whether body (not its nested closures)
+// declares name with :=, var/const, or a range clause.
+func outcomeBodyDeclares(body *ast.BlockStmt, name string) bool {
+	declared := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if declared {
+			return false
+		}
+		switch v := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.AssignStmt:
+			if v.Tok == token.DEFINE {
+				for _, lhs := range v.Lhs {
+					if ident, ok := lhs.(*ast.Ident); ok && ident.Name == name {
+						declared = true
 					}
 				}
-			case *ast.DeclStmt:
-				if gen, ok := v.Decl.(*ast.GenDecl); ok {
-					for _, spec := range gen.Specs {
-						vs, ok := spec.(*ast.ValueSpec)
-						if !ok {
-							continue
-						}
-						for i, name := range vs.Names {
-							if name.Name != ident.Name {
-								continue
+			}
+		case *ast.DeclStmt:
+			if gen, ok := v.Decl.(*ast.GenDecl); ok {
+				for _, spec := range gen.Specs {
+					if vs, ok := spec.(*ast.ValueSpec); ok {
+						for _, n := range vs.Names {
+							if n.Name == name {
+								declared = true
 							}
-							found = true
-							if i < len(vs.Values) {
-								outcomeResolve(vs.Values[i], f, file, result, seen, depth+1)
-							} else if gen.Tok == token.CONST {
-								result.violate(file.fset, vs, "ExecutedCommand.Outcome feeder "+ident.Name+" is a local constant without a value")
-							}
-							// `var x string` with later assignments: those
-							// assignments are visited by the AssignStmt arm.
 						}
 					}
 				}
 			}
-			return true
-		})
-		if found {
-			return true
+		case *ast.RangeStmt:
+			if v.Tok == token.DEFINE {
+				for _, e := range []ast.Expr{v.Key, v.Value} {
+					if ident, ok := e.(*ast.Ident); ok && ident.Name == name {
+						declared = true
+					}
+				}
+			}
 		}
-		if _, isParam := f.scope.params[ident.Name]; isParam {
-			return false
-		}
-	}
-	return false
+		return true
+	})
+	return declared
 }
 
-// outcomeResolveParam follows a parameter to every call-site argument.
-func outcomeResolveParam(ident *ast.Ident, idx int, fn *outcomeCensusFunc, file *outcomeCensusFile, result *outcomeCensusResult, seen map[string]bool, depth int) {
-	if fn.name == "" {
+// outcomeClosureShadows reports whether a closure literal redeclares name
+// (as a parameter or with := / var inside it, not in deeper closures).
+func outcomeClosureShadows(lit *ast.FuncLit, name string) bool {
+	if lit.Type != nil && lit.Type.Params != nil {
+		for _, field := range lit.Type.Params.List {
+			for _, n := range field.Names {
+				if n.Name == name {
+					return true
+				}
+			}
+		}
+	}
+	return outcomeBodyDeclares(lit.Body, name)
+}
+
+// resolveLocal follows EVERY assignment to ident inside its declaring
+// function decl — including assignments made by closures nested in it that
+// do not shadow the name (fold-in round five, finding DD). A local declared
+// without any visible assignment, or fed by a range clause, is a violation.
+func (file *outcomeCensusFile) resolveLocal(ident *ast.Ident, decl *outcomeCensusFunc, result *outcomeCensusResult, seen map[string]bool, depth int) {
+	feeders := 0
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.FuncLit:
+			if outcomeClosureShadows(v, ident.Name) {
+				return false
+			}
+			return true
+		case *ast.AssignStmt:
+			for i, lhs := range v.Lhs {
+				l, ok := lhs.(*ast.Ident)
+				if !ok || l.Name != ident.Name {
+					continue
+				}
+				feeders++
+				if len(v.Rhs) == len(v.Lhs) {
+					file.resolve(v.Rhs[i], decl, result, seen, depth+1)
+				} else if call, ok := v.Rhs[0].(*ast.CallExpr); ok && len(v.Rhs) == 1 {
+					if callee, ok := call.Fun.(*ast.Ident); ok {
+						file.resolveReturn(callee.Name, i, call, result, seen, depth)
+					} else {
+						result.violate(file.fset, call, "ExecutedCommand.Outcome feeder "+ident.Name+" comes from an unresolvable tuple call")
+					}
+				} else {
+					result.violate(file.fset, v, "ExecutedCommand.Outcome feeder "+ident.Name+" comes from an unresolvable tuple assignment")
+				}
+			}
+		case *ast.DeclStmt:
+			if gen, ok := v.Decl.(*ast.GenDecl); ok {
+				for _, spec := range gen.Specs {
+					vs, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					for i, name := range vs.Names {
+						if name.Name != ident.Name {
+							continue
+						}
+						if i < len(vs.Values) {
+							feeders++
+							file.resolve(vs.Values[i], decl, result, seen, depth+1)
+						} else if gen.Tok == token.CONST {
+							feeders++
+							result.violate(file.fset, vs, "ExecutedCommand.Outcome feeder "+ident.Name+" is a local constant without a value")
+						}
+						// `var x string` with later assignments: those
+						// assignments are visited by the AssignStmt arm.
+					}
+				}
+			}
+		case *ast.RangeStmt:
+			for _, e := range []ast.Expr{v.Key, v.Value} {
+				if id, ok := e.(*ast.Ident); ok && id.Name == ident.Name {
+					feeders++
+					result.violate(file.fset, id, "ExecutedCommand.Outcome feeder "+ident.Name+" is bound by a range clause (unresolvable by the census)")
+				}
+			}
+		}
+		return true
+	}
+	ast.Inspect(decl.body, visit)
+	if feeders == 0 {
+		result.violate(file.fset, ident, "ExecutedCommand.Outcome producer reads the local "+ident.Name+" which is declared without any visible assignment (unassigned or written through an unresolvable path)")
+	}
+}
+
+// resolveParam follows a parameter of decl to every call-site argument.
+func (file *outcomeCensusFile) resolveParam(ident *ast.Ident, idx int, decl *outcomeCensusFunc, result *outcomeCensusResult, seen map[string]bool, depth int) {
+	if decl.name == "" {
 		result.violate(file.fset, ident, "ExecutedCommand.Outcome producer is the parameter "+ident.Name+" of an anonymous closure (unresolvable call sites)")
 		return
 	}
 	calls := 0
 	for _, caller := range file.funcs {
-		for _, call := range caller.calls[fn.name] {
+		for _, call := range caller.calls[decl.name] {
 			if idx >= len(call.Args) {
 				continue
 			}
 			calls++
-			outcomeResolve(call.Args[idx], caller, file, result, seen, depth+1)
+			file.resolve(call.Args[idx], caller, result, seen, depth+1)
 		}
 	}
 	if calls == 0 {
-		result.violate(file.fset, ident, "ExecutedCommand.Outcome producer is the parameter "+ident.Name+" of "+fn.name+", which has no call site in this package")
+		result.violate(file.fset, ident, "ExecutedCommand.Outcome producer is the parameter "+ident.Name+" of "+decl.name+", which has no call site in this package")
 	}
 }
 
-// outcomeResolveReturn follows a call to a package function to that
-// function's return expressions at result index idx (function-return feeder).
-func outcomeResolveReturn(callee string, idx int, call *ast.CallExpr, caller *outcomeCensusFunc, file *outcomeCensusFile, result *outcomeCensusResult, seen map[string]bool, depth int) {
+// resolveReturn follows a call to a package function to that function's
+// return expressions at result index idx (function-return feeder).
+func (file *outcomeCensusFile) resolveReturn(callee string, idx int, call *ast.CallExpr, result *outcomeCensusResult, seen map[string]bool, depth int) {
 	targets := file.byName[callee]
 	if len(targets) == 0 {
 		result.violate(file.fset, call, "ExecutedCommand.Outcome producer is fed by "+callee+"(…), which is not a function of this package")
@@ -603,7 +790,7 @@ func outcomeResolveReturn(callee string, idx int, call *ast.CallExpr, caller *ou
 				result.violate(file.fset, ret, "ExecutedCommand.Outcome feeder "+callee+" returns fewer results than the census expects")
 				continue
 			}
-			outcomeResolve(ret.Results[idx], target, file, result, seen, depth+1)
+			file.resolve(ret.Results[idx], target, result, seen, depth+1)
 		}
 	}
 }
@@ -624,13 +811,17 @@ func outcomeExprText(expr ast.Expr) string {
 
 // executedCommandOutcomeCensus analyses the given files as one package.
 func executedCommandOutcomeCensus(fset *token.FileSet, files []*ast.File, result *outcomeCensusResult) {
-	file := &outcomeCensusFile{fset: fset, byName: map[string][]*outcomeCensusFunc{}}
+	if len(files) == 0 {
+		return
+	}
+	file := &outcomeCensusFile{fset: fset, pkgName: files[0].Name.Name, byName: map[string][]*outcomeCensusFunc{}}
+	file.resultKindsPrePass(files)
 	for _, f := range files {
-		outcomeAnalyseFile(fset, f, result, file)
+		file.analyseFile(f, result)
 	}
 	for _, fn := range file.funcs {
 		for _, producer := range fn.producers {
-			outcomeResolve(producer, fn, file, result, map[string]bool{}, 0)
+			file.resolve(producer, fn, result, map[string]bool{}, 0)
 		}
 	}
 }
@@ -638,20 +829,67 @@ func executedCommandOutcomeCensus(fset *token.FileSet, files []*ast.File, result
 func parseToolPackageNonTestFiles(t *testing.T, dir string) (*token.FileSet, []*ast.File) {
 	t.Helper()
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var files []*ast.File
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			files = append(files, file)
-		}
-	}
+	files := parseNonTestFilesOfDir(t, fset, dir)
 	if len(files) == 0 {
 		t.Fatalf("no non-test files parsed in %s", dir)
 	}
 	return fset, files
+}
+
+// parseNonTestFilesOfDir parses the non-test .go files of one directory
+// (every package found there) into fset; nil when the directory holds none.
+func parseNonTestFilesOfDir(t *testing.T, fset *token.FileSet, dir string) []*ast.File {
+	t.Helper()
+	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for name := range pkgs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var files []*ast.File
+	for _, name := range names {
+		var paths []string
+		for path := range pkgs[name].Files {
+			paths = append(paths, path)
+		}
+		sort.Strings(paths)
+		for _, path := range paths {
+			files = append(files, pkgs[name].Files[path])
+		}
+	}
+	return files
+}
+
+// executedCommandProducerScanDirs returns every directory of the producer
+// scan root (fold-in round five, finding CC): the repository root (its own
+// files only), internal/ and cmd/ recursively. eval/ holds fixture repos
+// with deliberately broken Go and is never scanned.
+func executedCommandProducerScanDirs(t *testing.T) []string {
+	t.Helper()
+	root := filepath.Join("..", "..")
+	dirs := []string{root}
+	for _, sub := range []string{"internal", "cmd"} {
+		err := filepath.WalkDir(filepath.Join(root, sub), func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() {
+				return nil
+			}
+			if name := d.Name(); name == "testdata" || strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			dirs = append(dirs, path)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dirs
 }
 
 // declaredExecutedCommandOutcomeConstants reads the closed label set from the
@@ -718,7 +956,7 @@ func rosterTableSelectors(t *testing.T, fset *token.FileSet, files []*ast.File, 
 				}
 				var names []string
 				for _, elt := range lit.Elts {
-					name, ok := outcomeConstSelector(elt)
+					name, ok := outcomeConstSelector(elt, "tool")
 					if !ok {
 						t.Fatalf("%s: element %s is not a types.%s* constant", fset.Position(elt.Pos()), outcomeExprText(elt), executedCommandOutcomeConstPrefix)
 					}
@@ -734,17 +972,36 @@ func rosterTableSelectors(t *testing.T, fset *token.FileSet, files []*ast.File, 
 
 func TestExecutedCommandOutcomeProducersAndRostersShareTypedConstants(t *testing.T) {
 	declared := declaredExecutedCommandOutcomeConstants(t)
-	fset, files := parseToolPackageNonTestFiles(t, ".")
+	// Producer census over the whole scan root, one package at a time.
 	result := &outcomeCensusResult{writers: map[string]bool{}}
-	executedCommandOutcomeCensus(fset, files, result)
+	scanned := 0
+	for _, dir := range executedCommandProducerScanDirs(t) {
+		fset := token.NewFileSet()
+		files := parseNonTestFilesOfDir(t, fset, dir)
+		if len(files) == 0 {
+			continue
+		}
+		scanned++
+		executedCommandOutcomeCensus(fset, files, result)
+	}
+	if scanned < 20 {
+		t.Fatalf("producer census scanned only %d package directories; the scan root must cover internal/ and cmd/", scanned)
+	}
 	for _, v := range result.violations {
 		t.Errorf("%s: %s", v.pos, v.text)
+	}
+	// Sanity floor: the scan root holds 29 real producer positions today
+	// (run_tests* / java / probe files plus the two orchestrator
+	// patch-review rows); a collapse below 25 means the walker went blind,
+	// not that producers vanished.
+	if result.producers < 25 {
+		t.Errorf("producer census found only %d producer positions", result.producers)
 	}
 	// Totality: every declared constant is written by a real producer, and
 	// every written constant is declared.
 	for name := range declared {
 		if !result.writers[name] {
-			t.Errorf("types.%s is declared but no producer in this package writes it (dead label)", name)
+			t.Errorf("types.%s is declared but no producer in the scan root writes it (dead label)", name)
 		}
 	}
 	for name := range result.writers {
@@ -764,6 +1021,7 @@ func TestExecutedCommandOutcomeProducersAndRostersShareTypedConstants(t *testing
 	}
 	// Roster tables: constants only, each written by a producer; launched
 	// and not-launched partition the closed set; infra ⊆ launched.
+	fset, files := parseToolPackageNonTestFiles(t, ".")
 	launched := rosterTableSelectors(t, fset, files, "verificationDriftLaunchedOutcomes")
 	notLaunched := rosterTableSelectors(t, fset, files, "verificationDriftNotLaunchedOutcomes")
 	infra := rosterTableSelectors(t, fset, files, "verificationDriftSuiteInfraOutcomes")
@@ -771,7 +1029,7 @@ func TestExecutedCommandOutcomeProducersAndRostersShareTypedConstants(t *testing
 	for _, name := range launched {
 		classified[name] = "launched"
 		if !result.writers[name] {
-			t.Errorf("launched roster entry types.%s has no producer in this package", name)
+			t.Errorf("launched roster entry types.%s has no producer in the scan root", name)
 		}
 	}
 	for _, name := range notLaunched {
@@ -780,7 +1038,7 @@ func TestExecutedCommandOutcomeProducersAndRostersShareTypedConstants(t *testing
 		}
 		classified[name] = "not_launched"
 		if !result.writers[name] {
-			t.Errorf("not-launched roster entry types.%s has no producer in this package", name)
+			t.Errorf("not-launched roster entry types.%s has no producer in the scan root", name)
 		}
 	}
 	for name := range declared {
@@ -883,10 +1141,13 @@ type probeStatus struct{ Outcome string }
 
 // Self-red: every evasion shape the round-three census accepted is a
 // violation now — alias, package const, selector-LHS literal, index-LHS
-// literal, other-package selector, function-return feeder — and the
+// literal, other-package selector, function-return feeder — and so are the
+// round-five shapes (closure-captured writes, unassigned locals, a constant
+// recorded before a closure rewrites the value, package-level tables); the
 // accepted shapes stay green (constant selector, local feeder, parameter
 // fed by constants, closure parameter, function return of constants,
-// TrimSpace pass-through, ExecutedCommand copy).
+// TrimSpace pass-through, ExecutedCommand copy, closure writes of
+// constants, package-level tables of constants).
 func TestExecutedCommandOutcomeCensusSelfRed(t *testing.T) {
 	selfRedExpectViolation(t, "composite_literal_string", selfRedPrelude+`
 func producer() { _ = types.ExecutedCommand{Outcome: "executed"} }
@@ -982,8 +1243,90 @@ func producer(row interface{ Row() *types.ExecutedCommand }) {
 func producer() { _ = &types.ExecutedCommand{Outcome: "probe_config_error"} }
 `, `literal "probe_config_error"`)
 
+	// Fold-in round five, finding DD (i): writes made inside closures.
+	selfRedExpectViolation(t, "closure_captured_local_written_with_literal", selfRedPrelude+`
+func producer() {
+	outcome := types.ExecutedCommandOutcomeExecuted
+	func() {
+		outcome = "timeout"
+	}()
+	_ = types.ExecutedCommand{Outcome: outcome}
+}
+`, `literal "timeout"`)
+	selfRedExpectViolation(t, "closure_bound_to_name_writes_captured_local_with_literal", selfRedPrelude+`
+func producer() {
+	outcome := types.ExecutedCommandOutcomeExecuted
+	classify := func(err error) {
+		if err != nil {
+			outcome = "oom"
+		}
+	}
+	classify(nil)
+	_ = types.ExecutedCommand{Outcome: outcome}
+}
+`, `literal "oom"`)
+	selfRedExpectViolation(t, "nested_closure_writes_captured_local_with_package_const", selfRedPrelude+`
+func producer() {
+	outcome := types.ExecutedCommandOutcomeExecuted
+	go func() {
+		defer func() { outcome = packageLevelLabel }()
+	}()
+	_ = types.ExecutedCommand{Outcome: outcome}
+}
+`, "identifier packageLevelLabel that is not fed by local data flow")
+	selfRedExpectViolation(t, "var_declared_without_any_assignment", selfRedPrelude+`
+func producer() {
+	var outcome string
+	_ = types.ExecutedCommand{Outcome: outcome}
+}
+`, "declared without any visible assignment")
+	selfRedExpectViolation(t, "var_assigned_only_through_pointer_is_unresolvable", selfRedPrelude+`
+func producer() {
+	var outcome string
+	p := &outcome
+	*p = types.ExecutedCommandOutcomeExecuted
+	_ = types.ExecutedCommand{Outcome: outcome}
+}
+`, "declared without any visible assignment")
+	selfRedExpectViolation(t, "range_bound_local", selfRedPrelude+`
+func producer(labels []string) {
+	for _, outcome := range labels {
+		_ = types.ExecutedCommand{Outcome: outcome}
+	}
+}
+`, "bound by a range clause")
+	selfRedExpectViolation(t, "captured_parent_parameter_fed_by_literal", selfRedPrelude+`
+func producer(outcome string) {
+	emit := func() { _ = types.ExecutedCommand{Outcome: outcome} }
+	emit()
+}
+func caller() { producer("oom") }
+`, `literal "oom"`)
+	// Fold-in round five, finding DD (ii): package-level tables.
+	selfRedExpectViolation(t, "package_level_command_literal", selfRedPrelude+`
+var refusedRow = types.ExecutedCommand{Runner: "x", Outcome: "runner_missing"}
+`, `literal "runner_missing"`)
+	selfRedExpectViolation(t, "package_level_typed_var_elided_literal", selfRedPrelude+`
+var refusedRow types.ExecutedCommand = types.ExecutedCommand{Outcome: "not_configured"}
+`, `literal "not_configured"`)
+	selfRedExpectViolation(t, "package_level_slice_table", selfRedPrelude+`
+var rows = []types.ExecutedCommand{{Outcome: types.ExecutedCommandOutcomeExecuted}, {Outcome: "zero_tests"}}
+`, `literal "zero_tests"`)
+	selfRedExpectViolation(t, "package_level_map_table", selfRedPrelude+`
+var rowsByRunner = map[string]types.ExecutedCommand{"go": {Outcome: "syntax_preflight"}}
+`, `literal "syntax_preflight"`)
+	selfRedExpectViolation(t, "package_level_table_alias", selfRedPrelude+`
+var rows = []types.ExecutedCommand{{Outcome: packageLevelAlias}}
+`, "identifier packageLevelAlias that is not fed by local data flow")
+	selfRedExpectViolation(t, "package_level_nested_struct_table", selfRedPrelude+`
+type fixture struct{ Commands []types.ExecutedCommand }
+var fixtures = []fixture{{Commands: []types.ExecutedCommand{{Outcome: "cpu_limit"}}}}
+`, `literal "cpu_limit"`)
+
 	t.Run("accepted_shapes_stay_green", func(t *testing.T) {
 		texts, writers := selfRedCensus(t, selfRedPrelude+`
+var packageTable = []types.ExecutedCommand{{Outcome: types.ExecutedCommandOutcomeNotConfigured}}
+var packageRow = types.ExecutedCommand{Outcome: types.ExecutedCommandOutcomeSuiteSkipped}
 func classify(err error) (string, types.FailureKind) {
 	if err == nil {
 		return types.ExecutedCommandOutcomeExecuted, ""
@@ -994,7 +1337,8 @@ func makeReport(kind string) *types.ChangeReport {
 	_ = types.ExecutedCommand{Outcome: kind}
 	return nil
 }
-func producer(err error, result probeResult, status probeStatus) {
+func buildRow() types.ExecutedCommand { return types.ExecutedCommand{Outcome: types.ExecutedCommandOutcomeSyntaxCheckFallback} }
+func producer(err error, result probeResult, status probeStatus, captured string) {
 	var executedCmds []types.ExecutedCommand
 	executedCmds = append(executedCmds, types.ExecutedCommand{Outcome: types.ExecutedCommandOutcomeExecuted})
 	setLastExecOutcome := func(outcome string) {
@@ -1019,7 +1363,20 @@ func producer(err error, result probeResult, status probeStatus) {
 	for _, cmd := range result.Commands {
 		cmd.Outcome = types.ExecutedCommandOutcomeParserError
 	}
+	outcome := types.ExecutedCommandOutcomeExecuted
+	func() {
+		outcome = types.ExecutedCommandOutcomeCPULimit
+	}()
+	_ = types.ExecutedCommand{Outcome: outcome}
+	shadow := types.ExecutedCommandOutcomeExecuted
+	func(shadow string) { shadow = "not the outer variable"; _ = shadow }("x")
+	_ = types.ExecutedCommand{Outcome: shadow}
+	built := buildRow()
+	built.Outcome = types.ExecutedCommandOutcomeExpectedStdoutMissing
+	emit := func() { _ = types.ExecutedCommand{Outcome: captured} }
+	emit()
 }
+func caller() { producer(nil, probeResult{}, probeStatus{}, types.ExecutedCommandOutcomeProbeConfigError) }
 `)
 		if len(texts) != 0 {
 			t.Fatalf("accepted shapes must be green: %v", texts)
@@ -1029,11 +1386,23 @@ func producer(err error, result probeResult, status probeStatus) {
 			names = append(names, name)
 		}
 		sort.Strings(names)
-		want := []string{"ExecutedCommandOutcomeBaselineUnavailable", "ExecutedCommandOutcomeExecuted", "ExecutedCommandOutcomeExpectedFailureObserved",
-			"ExecutedCommandOutcomeOOM", "ExecutedCommandOutcomeParserError", "ExecutedCommandOutcomeRunnerMissing",
+		want := []string{"ExecutedCommandOutcomeBaselineUnavailable", "ExecutedCommandOutcomeCPULimit", "ExecutedCommandOutcomeExecuted",
+			"ExecutedCommandOutcomeExpectedFailureObserved", "ExecutedCommandOutcomeExpectedStdoutMissing", "ExecutedCommandOutcomeNotConfigured",
+			"ExecutedCommandOutcomeOOM", "ExecutedCommandOutcomeParserError", "ExecutedCommandOutcomeProbeConfigError",
+			"ExecutedCommandOutcomeRunnerMissing", "ExecutedCommandOutcomeSuiteSkipped", "ExecutedCommandOutcomeSyntaxCheckFallback",
 			"ExecutedCommandOutcomeSyntaxPreflight", "ExecutedCommandOutcomeTimeout", "ExecutedCommandOutcomeZeroTests"}
 		if strings.Join(names, ",") != strings.Join(want, ",") {
 			t.Fatalf("recorded writers = %v, want %v", names, want)
+		}
+	})
+	t.Run("types_package_bare_constant_is_the_constant", func(t *testing.T) {
+		texts, writers := selfRedCensus(t, `package types
+
+func producer() ExecutedCommand { return ExecutedCommand{Outcome: ExecutedCommandOutcomeFailed} }
+func literal() ExecutedCommand { return ExecutedCommand{Outcome: "failed"} }
+`)
+		if !writers["ExecutedCommandOutcomeFailed"] || len(texts) != 1 || !strings.Contains(texts[0], `literal "failed"`) {
+			t.Fatalf("writers=%v violations=%v", writers, texts)
 		}
 	})
 }

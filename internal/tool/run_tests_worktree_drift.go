@@ -252,9 +252,10 @@ func verificationDriftRoster(in verificationWorktreeDriftInput, auditRoot string
 // verificationDriftLaunchedOutcomes is the closed "process was started in
 // the audited worktree" roster; verificationDriftNotLaunchedOutcomes is its
 // exact complement (nothing ran in the audit root: synthetic / skipped /
-// refused / preflight-only rows, and the main-snapshot baseline evidence
+// refused / preflight-only rows, the main-snapshot baseline evidence
 // rows, which execute against the immutable MAIN snapshot outside the
-// audited worktree); verificationDriftSuiteInfraOutcomes is the launched
+// audited worktree, and the patch-review row, which launches no process);
+// verificationDriftSuiteInfraOutcomes is the launched
 // roster's infrastructure-downgrade subset (the supervisor killed the suite:
 // wall timeout / memory cap / CPU cap — the same three kinds
 // makeResourceExhaustionReport types). All tables are built from the typed
@@ -276,6 +277,7 @@ var (
 		types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeNotConfigured,
 		types.ExecutedCommandOutcomeProbeConfigError, types.ExecutedCommandOutcomeExpectedFailureObserved,
 		types.ExecutedCommandOutcomeExpectedFailureNotObserved, types.ExecutedCommandOutcomeBaselineUnavailable,
+		types.ExecutedCommandOutcomeFailed,
 	}
 	verificationDriftSuiteInfraOutcomes = []string{types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM, types.ExecutedCommandOutcomeCPULimit}
 )
