@@ -88,7 +88,7 @@ func TestTRUNCAttachFirstDraftReferencePreservesLastMileSupplements(t *testing.T
 		},
 	}
 	out := &agent.StageOutput{FinalAnswer: "最终稿主体。\n\n---\n\n> **系统补充：Trace 关键观测核对**\n>\n> (seeded)"}
-	o.attachFirstDraftReference(out, truncOrchDraftBody(40000), []types.Violation{{Kind: types.ViolMustInclude}}, true, nil)
+	o.attachFirstDraftReference(out, firstFinalizeDraftRecord{Text: truncOrchDraftBody(40000)}, []types.Violation{{Kind: types.ViolMustInclude}}, true)
 
 	// P3-1 加固:Contains 对补充块/面板双重追加形不敏感——升级为恰一次
 	// 计数断言(0=蒸发即 witness 损失②;>1=文本追加叠加形)。
@@ -166,7 +166,7 @@ func TestTRUNCFourRoundOverwriteSupplementStable(t *testing.T) {
 	out := &agent.StageOutput{FinalAnswer: "最终稿主体。"}
 
 	// Round 1: first-draft attachment (the huadong_792 witness path).
-	o.attachFirstDraftReference(out, truncOrchDraftBody(20000), []types.Violation{{Kind: types.ViolMustInclude}}, true, nil)
+	o.attachFirstDraftReference(out, firstFinalizeDraftRecord{Text: truncOrchDraftBody(20000)}, []types.Violation{{Kind: types.ViolMustInclude}}, true)
 	seg1 := truncSupplementSegment(t, out.FinalAnswer)
 	if got := strings.Count(out.FinalAnswer, truncDraftPanelTitle); got != 0 {
 		t.Fatalf("round 1: rejected draft panel title count = %d, want 0", got)

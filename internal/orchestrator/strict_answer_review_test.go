@@ -37,7 +37,7 @@ func TestAttachFirstDraftReference_AcceptedStructuredAnswerDropsRejectedDraftTel
 		},
 	}
 	out := &agent.StageOutput{FinalAnswer: "最终稿"}
-	o.attachFirstDraftReference(out, "第一稿", []types.Violation{{Kind: types.ViolMustInclude}}, true, nil)
+	o.attachFirstDraftReference(out, firstFinalizeDraftRecord{Text: "第一稿"}, []types.Violation{{Kind: types.ViolMustInclude}}, true)
 	if strings.TrimSpace(out.FinalAnswer) != "最终稿" {
 		t.Fatalf("accepted structured answer must remain the sole model answer carrier:\n%s", out.FinalAnswer)
 	}
@@ -51,7 +51,7 @@ func TestAttachFirstDraftReference_UnstructuredFallbackStillPreservesModelDraft(
 	o := &Orchestrator{busCtx: &types.BusContext{Language: "zh", Mutable: mut}}
 	out := &agent.StageOutput{FinalAnswer: "当前降级答案"}
 
-	o.attachFirstDraftReference(out, "第一稿唯一内容", []types.Violation{{Kind: types.ViolMustInclude}}, true, nil)
+	o.attachFirstDraftReference(out, firstFinalizeDraftRecord{Text: "第一稿唯一内容"}, []types.Violation{{Kind: types.ViolMustInclude}}, true)
 
 	if !strings.Contains(out.FinalAnswer, "第一稿答案（校验前参考）") ||
 		!strings.Contains(out.FinalAnswer, "第一稿唯一内容") {
@@ -85,7 +85,7 @@ func TestAttachFirstDraftReference_AcceptedAnswerDoesNotReviveRequestedDimension
 	out := &agent.StageOutput{FinalAnswer: "已接受结构化答案。"}
 	firstDraft := "被拒第一稿\n\n---\n\n> **系统补充：输出维度核对**\n>\n> 旧稿补充"
 
-	o.attachFirstDraftReference(out, firstDraft, []types.Violation{{Kind: types.ViolMustInclude}}, true, nil)
+	o.attachFirstDraftReference(out, firstFinalizeDraftRecord{Text: firstDraft}, []types.Violation{{Kind: types.ViolMustInclude}}, true)
 
 	if got := strings.Count(out.FinalAnswer, "系统补充：输出维度核对"); got != 0 {
 		t.Fatalf("accepted answer must not revive the retired source-quote supplement, got %d:\n%s", got, out.FinalAnswer)
@@ -139,7 +139,7 @@ func TestAttachFirstDraftReference_NoopsWithoutRewriteRejection(t *testing.T) {
 		},
 	}
 	out := &agent.StageOutput{FinalAnswer: "一次通过的最终稿"}
-	o.attachFirstDraftReference(out, "第一稿内容", []types.Violation{{Kind: types.ViolCitation}}, false, nil)
+	o.attachFirstDraftReference(out, firstFinalizeDraftRecord{Text: "第一稿内容"}, []types.Violation{{Kind: types.ViolCitation}}, false)
 	if strings.Contains(out.FinalAnswer, "第一稿答案") || strings.Contains(out.FinalAnswer, "第一稿内容") {
 		t.Fatalf("accepted first draft must not be attached without a real rewrite rejection:\n%s", out.FinalAnswer)
 	}
@@ -158,7 +158,7 @@ func TestAttachFirstDraftReference_SameStructuredCarrierDoesNotDuplicateAfterSys
 	snapshot := finalizeRepairVisibleCarrierSnapshot(mut)
 	out := &agent.StageOutput{FinalAnswer: "首稿主体\n\n**补充说明：** 仍有一项 typed 校验边界。"}
 
-	o.attachFirstDraftReference(out, "首稿主体", []types.Violation{{Kind: types.ViolMustInclude}}, true, snapshot)
+	o.attachFirstDraftReference(out, firstFinalizeDraftRecord{Text: "首稿主体", Carrier: snapshot}, []types.Violation{{Kind: types.ViolMustInclude}}, true)
 	if got := mut.AnswerDisplayAttachments(); len(got) != 0 {
 		t.Fatalf("same restored carrier must not be attached below itself: %+v", got)
 	}
@@ -174,7 +174,7 @@ func TestAttachFirstDraftReference_SameStructuredCarrierDoesNotDuplicateAfterSys
 	}}}
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, changed)
 	out = &agent.StageOutput{FinalAnswer: "真正不同的修复稿"}
-	o.attachFirstDraftReference(out, "首稿主体", []types.Violation{{Kind: types.ViolMustInclude}}, true, snapshot)
+	o.attachFirstDraftReference(out, firstFinalizeDraftRecord{Text: "首稿主体", Carrier: snapshot}, []types.Violation{{Kind: types.ViolMustInclude}}, true)
 	if got := mut.AnswerDisplayAttachments(); len(got) != 0 {
 		t.Fatalf("changed accepted carrier must still suppress rejected first-draft telemetry: %+v", got)
 	}

@@ -47,7 +47,11 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// required-file lanes into copyDegradedRequiredFileLanes (net -1 line;
 		// the group's own 9126→9125 record was written against the pre-round
 		// base and is superseded by this chain).
-		{path: "orchestrator.go", maxLines: 8813},
+		// Tightened 8813→8809 after the F-orch round-four fold-in (§40.43
+		// finding V) moved the first-draft capture into the typed
+		// firstFinalizeDraftRecord in first_draft_reference.go (own budget).
+		{path: "orchestrator.go", maxLines: 8809},
+		{path: "first_draft_reference.go", maxLines: 120},
 		// §40.43 R1: the P6 hard cap (tightened 110→45 after finding S moved
 		// the advisory into finalize_loop_gate_advisory.go, own budget below).
 		{path: "finalize_repair_hard_cap.go", maxLines: 45},

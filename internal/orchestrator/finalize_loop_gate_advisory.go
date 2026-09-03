@@ -36,7 +36,9 @@ import (
 // fact retries, structurally-empty requeues, floor requeues): retryUsed at
 // failure n is n-1+r, so a `retryUsed >= cap` gate fires on failure
 // cap+1-r; the per-kind / per-class counters count finalize retries only
-// and fire on failure cap+1.
+// and fire on failure cap+1. A template RetryBudget of 0 or less is total
+// pre-emption on failure 1, exactly as the loop reads it (§40.43 F-orch 四轮
+// 复核 finding X: `retryUsed >= 0` already holds; P6 defaults when unset).
 
 // finalizeLoopCaps is the resolved set of bounds the advisory reads.
 type finalizeLoopCaps struct {
@@ -116,7 +118,13 @@ func clusterClosureExitReachability(caps finalizeLoopCaps) clusterExitReachabili
 		add(finalizeLoopGate{Name: "W2.6 per-root attempt cap " + fmt.Sprint(caps.PerRootCap), LoopOrder: 2, FiresOnFailure: caps.PerRootCap,
 			Qualifier: "only while the actionable root set is unchanged since the chain began (a new root keeps the run open)"})
 	}
-	retryUsedGate("template retry budget "+fmt.Sprint(caps.TemplateRetryBudget), 3, caps.TemplateRetryBudget)
+	if caps.TemplateRetryBudget <= 0 {
+		// Finding X: a non-positive template budget is exhausted on the first failure (retryUsed 0 >= 0) — never "no gate".
+		add(finalizeLoopGate{Name: "template retry budget " + fmt.Sprint(caps.TemplateRetryBudget), LoopOrder: 3, FiresOnFailure: 1, Total: true,
+			Qualifier: "a template retry budget of 0 or less is exhausted before the first retry; the first contract failure ships"})
+	} else {
+		retryUsedGate("template retry budget "+fmt.Sprint(caps.TemplateRetryBudget), 3, caps.TemplateRetryBudget)
+	}
 	kindNames := make([]string, 0, len(caps.KindCaps))
 	for name := range caps.KindCaps {
 		kindNames = append(kindNames, name)

@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -42,11 +43,21 @@ const exploreBacktrackBareDraft = "answer body without the sentinel"
 // dispatch context). It returns the bus plus the call counts.
 func exploreBacktrackE2E(t *testing.T, retryBudget, maxSteps int, explore func(call int, ctx *types.AgentContext) *agent.StageOutput) (*types.BusContext, int, int) {
 	t.Helper()
+	return exploreBacktrackE2EWithTarget(t, FallbackBackToExplore, retryBudget, maxSteps, explore, nil)
+}
+
+// exploreBacktrackE2EWithTarget is exploreBacktrackE2E with the fallback
+// target must_include is routed to (finding Y pins the FinalizerOnly and
+// BackToExtract arms as well) and an optional finalizer override (finding
+// V's transient exit): finalize(call) returns (output, err) for the given
+// 1-based finalize call; nil falls back to the bare rejected draft.
+func exploreBacktrackE2EWithTarget(t *testing.T, target FallbackTarget, retryBudget, maxSteps int, explore func(call int, ctx *types.AgentContext) *agent.StageOutput, finalize func(call int) (*agent.StageOutput, error)) (*types.BusContext, int, int) {
+	t.Helper()
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolMustInclude)})
 	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
 	SetFallbackPolicyOverrides(map[string]string{
-		string(types.ViolMustInclude): string(FallbackBackToExplore),
+		string(types.ViolMustInclude): string(target),
 	})
 
 	reconcile := templateReconcileNode(t, types.ScenarioArchitectureExplain)
@@ -81,6 +92,9 @@ func exploreBacktrackE2E(t *testing.T, retryBudget, maxSteps int, explore func(c
 		},
 		types.AgentFinalizer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 			finalizeCalls++
+			if finalize != nil {
+				return finalize(finalizeCalls)
+			}
 			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: exploreBacktrackBareDraft}, nil
 		},
 	}
@@ -134,6 +148,26 @@ func requireCaveatedDraft(t *testing.T, bus *types.BusContext) string {
 		t.Fatalf("the shipped answer must carry the contract caveat for the unresolved must_include violation, got:\n%s", result)
 	}
 	return result
+}
+
+// requireShippedOnce (§40.43 F-orch 四轮复核 finding V) asserts a backstop
+// exit ships the retained first draft's body EXACTLY once: the caveated
+// draft is the first finalize draft itself, so no "First Draft Answer
+// (Pre-review Reference)" attachment may repeat it. On 64ceb5b06 every
+// backstop exit shipped the draft, the caveats, the reference title and the
+// identical draft again (ResetForFallback had cleared the carrier the guard
+// compares and the caveats made the text guard miss).
+func requireShippedOnce(t *testing.T, bus *types.BusContext) {
+	t.Helper()
+	result := bus.Mutable.Result()
+	if n := strings.Count(result, exploreBacktrackBareDraft); n != 1 {
+		t.Fatalf("the shipped answer must carry the draft body exactly once, got %d occurrences:\n%s", n, result)
+	}
+	for _, title := range []string{draftReferenceTitle("en"), draftReferenceTitle("zh")} {
+		if strings.Contains(result, title) {
+			t.Fatalf("the shipping output IS the first draft — no first-draft reference may be attached (%q):\n%s", title, result)
+		}
+	}
 }
 
 // PIN (red on 0139bca6b: finalizer once, profile blocked_dag, bare rejected
@@ -225,6 +259,7 @@ func TestE2E_BlockedDAGExitWithRetainedRejectedDraft_CarriesContractCaveats(t *t
 		t.Fatalf("fixture: this lane must exit through the blocked-DAG break, got %+v", profile)
 	}
 	requireCaveatedDraft(t, bus)
+	requireShippedOnce(t, bus)
 }
 
 // PIN (red on 0139bca6b): the step-drain exit. The budget runs out right
@@ -241,4 +276,54 @@ func TestE2E_StepDrainExitWithRetainedRejectedDraft_CarriesContractCaveats(t *te
 		t.Fatalf("finalize calls = %d, want 1 (the step budget drains before the re-run)", finalizeCalls)
 	}
 	requireCaveatedDraft(t, bus)
+	requireShippedOnce(t, bus)
+}
+
+// PIN (finding V, red on 64ceb5b06): the transient exit. The re-run finalize
+// dispatch fails with a non-retryable error after the explorer re-earned the
+// closure; the scheduler delivers the retained rejected draft with the
+// transient-failure caveat. It is the first draft: contract caveats applied
+// by the backstop, body once, no reference attachment.
+func TestE2E_TransientExitWithRetainedRejectedDraft_ShipsFirstDraftOnce(t *testing.T) {
+	bus, _, finalizeCalls := exploreBacktrackE2EWithTarget(t, FallbackBackToExplore, 3, 20, func(call int, ctx *types.AgentContext) *agent.StageOutput {
+		ctx.Mutable.SetInvestigationComplete("model completed investigation")
+		return exploreEvidence(call)
+	}, func(call int) (*agent.StageOutput, error) {
+		if call == 1 {
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: exploreBacktrackBareDraft}, nil
+		}
+		return nil, errors.New("finalizer dispatch failed")
+	})
+	if finalizeCalls != 2 {
+		t.Fatalf("finalize calls = %d, want 2 (the re-run fails and the retained draft is delivered)", finalizeCalls)
+	}
+	result := requireCaveatedDraft(t, bus)
+	if !strings.Contains(result, "preserved the previous draft for reference") && !strings.Contains(result, "系统保留上一版草稿") {
+		t.Fatalf("the transient exit must disclose the failed re-run, got:\n%s", result)
+	}
+	requireShippedOnce(t, bus)
+}
+
+// PIN (finding Y): the retained-rejected-draft record is written by EVERY
+// requeue arm, not only the back_to_explore one — a requeue through the
+// FinalizerOnly or BackToExtract arm followed by a step-drain exit ships
+// the caveated draft once.
+func TestE2E_StepDrainAfterFinalizerOnlyOrExtractRequeue_ShipsCaveatedDraftOnce(t *testing.T) {
+	for _, target := range []FallbackTarget{FallbackFinalizerOnly, FallbackBackToExtract} {
+		t.Run(string(target), func(t *testing.T) {
+			// The step budget is spent by the first in-loop finalize (same
+			// budget as the back_to_explore step-drain pin above): the requeue
+			// arm records the rejected draft and the loop drains before the
+			// re-run — never through the forced finalize.
+			bus, _, finalizeCalls := exploreBacktrackE2EWithTarget(t, target, 3, 3, func(call int, ctx *types.AgentContext) *agent.StageOutput {
+				ctx.Mutable.SetInvestigationComplete("model completed investigation")
+				return exploreEvidence(call)
+			}, nil)
+			if finalizeCalls != 1 {
+				t.Fatalf("finalize calls = %d, want 1 (the step budget drains right after the requeue)", finalizeCalls)
+			}
+			requireCaveatedDraft(t, bus)
+			requireShippedOnce(t, bus)
+		})
+	}
 }

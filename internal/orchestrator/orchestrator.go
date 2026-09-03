@@ -4456,8 +4456,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 
 	stepsUsed := 0
 	var lastFinalize *agent.StageOutput
-	var firstFinalizeDraft string
-	var firstFinalizeCarrierSnapshot []byte
+	var firstFinalize firstFinalizeDraftRecord
 	var firstFinalizeConcerns []types.Violation
 	firstFinalizeRejectedForRewrite := false
 	preFinalizeExtractCompleted := false
@@ -5513,10 +5512,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 		stepsUsed++
 		lastFinalize = out
-		if strings.TrimSpace(firstFinalizeDraft) == "" {
-			firstFinalizeDraft = strings.TrimSpace(out.FinalAnswer)
-			firstFinalizeCarrierSnapshot = finalizeRepairVisibleCarrierSnapshot(o.busCtx.Mutable)
-		}
+		firstFinalize.record(out, o.busCtx.Mutable)
 		if out.SkipAnswerChecks {
 			logging.Warning("[orchestrator] finalizer returned degraded answer; skipping structured answer checks reason=%s",
 				out.DegradeReason)
@@ -6574,7 +6570,7 @@ contractFailureBreak:
 		// reference region never duplicates it — the appendix's one-line
 		// note replaces it.
 		if repairArbitrationNote == "" {
-			o.attachFirstDraftReference(lastFinalize, firstFinalizeDraft, firstFinalizeConcerns, firstFinalizeRejectedForRewrite, firstFinalizeCarrierSnapshot)
+			o.attachFirstDraftReference(lastFinalize, firstFinalize, firstFinalizeConcerns, firstFinalizeRejectedForRewrite)
 		}
 	}
 	// S3' ② (§29.47.1): mechanical cross-check findings on the SHIPPED

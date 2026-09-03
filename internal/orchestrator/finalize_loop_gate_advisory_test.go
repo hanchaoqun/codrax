@@ -130,8 +130,34 @@ func TestClusterClosureExitReachability_EveryPrecedingGate(t *testing.T) {
 			wantMentions: []string{"at least 8 retries were recorded outside"},
 		},
 		{
-			name: "no gate at all: reachable with nothing listed",
-			caps: finalizeLoopCaps{StableBudget: 2}, wantVerdict: clusterExitReachable,
+			// Finding X (red on 64ceb5b06: the zero budget was dropped from the
+			// advisory and the verdict said reachable while the run ships on
+			// failure 1): a template budget of 0 is exhausted before the first
+			// retry — total pre-emption on failure 1.
+			name: "template retry budget 0: total pre-emption on failure 1",
+			caps: finalizeLoopCaps{StableBudget: 2}, wantVerdict: clusterExitUnreachable,
+			wantFirst: "template retry budget 0", wantFirstOn: 1, wantFirstTotal: true,
+			wantMentions: []string{"template retry budget 0 ships on failure 1 (total: a template retry budget of 0 or less is exhausted before the first retry"},
+		},
+		{
+			name: "template retry budget below zero is modelled like zero",
+			caps: with(func(c *finalizeLoopCaps) {
+				c.HardCap = 10
+				c.PerRootCap = 10
+				c.ClassCap = 0
+				c.TemplateRetryBudget = -1
+			}), wantVerdict: clusterExitUnreachable,
+			wantFirst: "template retry budget -1", wantFirstOn: 1, wantFirstTotal: true,
+		},
+		{
+			// EVOLUTION RECORD (finding X): this row was "no gate at all:
+			// reachable with nothing listed" over finalizeLoopCaps{StableBudget:
+			// 2} — a caps value whose zero template budget the loop treats as a
+			// gate that ships on failure 1. Only the retryUsed-counting gates
+			// raised above the cluster budget are "nothing but notes".
+			name: "only outside-chain notes: reachable, every listed gate is a note",
+			caps: finalizeLoopCaps{StableBudget: 2, TemplateRetryBudget: 3}, wantVerdict: clusterExitReachable,
+			wantFirst: "template retry budget 3", wantFirstOn: 3,
 		},
 	}
 	for _, tc := range cases {
@@ -174,13 +200,17 @@ func TestClusterClosureExitReachability_EveryPrecedingGate(t *testing.T) {
 	}
 }
 
-// E2E table (the reviewers' five configurations, real Orchestrator.Run: a
-// two-node graph, a finalizer that fails a hard must_include term on every
-// round, must_include routed finalizer_only — its default): which gate
-// ships the run and on which failure, against what the advisory predicts
-// for the same live caps. Gate witnesses are typed: P6 emits
-// NoticeFinalizeRepairCap; the cluster exit persists the plan with
-// HasFailLoud; the class governor does neither.
+// E2E table (the reviewers' five configurations plus the finding-X template
+// rows, real Orchestrator.Run: a two-node graph, a finalizer that fails a
+// hard must_include term on every round, must_include routed finalizer_only
+// — its default): which gate ships the run and on which failure, against
+// what the advisory predicts for the same live caps. Every row states the
+// template RetryBudget it runs under (the reviewers' rows use 5 so that the
+// template gate never precedes the gate under test). Gate witnesses are
+// typed: P6 emits NoticeFinalizeRepairCap; the cluster exit persists the
+// plan with HasFailLoud; the class governor and the template budget do
+// neither — the two are told apart by the failure number (the class
+// governor needs at least one retry; the template rows run with class cap 0).
 func TestFinalizeLoopGates_E2E_TableAgreesWithAdvisory(t *testing.T) {
 	restoreStable := ClusterStableBudget()
 	restorePerRoot := maxRepairAttemptsPerRootValue
@@ -195,16 +225,20 @@ func TestFinalizeLoopGates_E2E_TableAgreesWithAdvisory(t *testing.T) {
 	SetClusterStableBudget(2)
 
 	cases := []struct {
-		name                       string
-		hardCap, perRoot, classCap int
-		wantFinalize               int
-		wantGate                   string // "class" | "P6" | "cluster_exit"
+		name                                    string
+		hardCap, perRoot, classCap, retryBudget int
+		wantFinalize                            int
+		wantGate                                string // "class" | "P6" | "cluster_exit" | "template"
 	}{
-		{name: "defaults → class governor on failure 2", hardCap: 2, perRoot: 3, classCap: 1, wantFinalize: 2, wantGate: "class"},
-		{name: "hard 3 / perRoot 4 / class 1 → still class governor on failure 2", hardCap: 3, perRoot: 4, classCap: 1, wantFinalize: 2, wantGate: "class"},
-		{name: "hard 3 / perRoot 4 / class 0 → cluster exit fires on failure 3", hardCap: 3, perRoot: 4, classCap: 0, wantFinalize: 3, wantGate: "cluster_exit"},
-		{name: "hard 3 / perRoot 4 / class 2 → class governor on failure 3", hardCap: 3, perRoot: 4, classCap: 2, wantFinalize: 3, wantGate: "class"},
-		{name: "defaults with class 0 → P6 on failure 3", hardCap: 2, perRoot: 3, classCap: 0, wantFinalize: 3, wantGate: "P6"},
+		{name: "defaults → class governor on failure 2", hardCap: 2, perRoot: 3, classCap: 1, retryBudget: 5, wantFinalize: 2, wantGate: "class"},
+		{name: "hard 3 / perRoot 4 / class 1 → still class governor on failure 2", hardCap: 3, perRoot: 4, classCap: 1, retryBudget: 5, wantFinalize: 2, wantGate: "class"},
+		{name: "hard 3 / perRoot 4 / class 0 → cluster exit fires on failure 3", hardCap: 3, perRoot: 4, classCap: 0, retryBudget: 5, wantFinalize: 3, wantGate: "cluster_exit"},
+		{name: "hard 3 / perRoot 4 / class 2 → class governor on failure 3", hardCap: 3, perRoot: 4, classCap: 2, retryBudget: 5, wantFinalize: 3, wantGate: "class"},
+		{name: "defaults with class 0 → P6 on failure 3", hardCap: 2, perRoot: 3, classCap: 0, retryBudget: 5, wantFinalize: 3, wantGate: "P6"},
+		// Finding X: a template budget of 0 ships on failure 1 (red on
+		// 64ceb5b06: the advisory said reachable).
+		{name: "hard 3 / perRoot 4 / class 0 / template 0 → template budget on failure 1", hardCap: 3, perRoot: 4, classCap: 0, retryBudget: 0, wantFinalize: 1, wantGate: "template"},
+		{name: "hard 3 / perRoot 4 / class 0 / template 1 → template budget on failure 2", hardCap: 3, perRoot: 4, classCap: 0, retryBudget: 1, wantFinalize: 2, wantGate: "template"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -219,7 +253,7 @@ func TestFinalizeLoopGates_E2E_TableAgreesWithAdvisory(t *testing.T) {
 						{ID: "n1", Type: types.NodeFinalize, Objective: "render"},
 					},
 					Edges:           []types.TaskEdge{{From: "n0", To: "n1", EdgeType: types.EdgeHardDependency}},
-					ExecutionPolicy: types.ExecutionPolicy{MaxParallelism: 1, RetryBudget: 5, CriticalPath: []string{"n0", "n1"}},
+					ExecutionPolicy: types.ExecutionPolicy{MaxParallelism: 1, RetryBudget: tc.retryBudget, CriticalPath: []string{"n0", "n1"}},
 				},
 				AnswerContract: types.AnswerContract{Language: "en", MustInclude: []string{"FORCE_RETRY"}},
 			}
@@ -277,6 +311,10 @@ func TestFinalizeLoopGates_E2E_TableAgreesWithAdvisory(t *testing.T) {
 				gate = "cluster_exit"
 			case p6Notice:
 				gate = "P6"
+			case tc.classCap == 0:
+				// Neither typed witness and no class governor configured: the
+				// template budget is the only remaining gate on the row.
+				gate = "template"
 			}
 			if finalizeCalls != tc.wantFinalize || gate != tc.wantGate {
 				t.Fatalf("observed gate=%s on finalize call %d, want %s on %d (p6Notice=%t clusterExit=%t)", gate, finalizeCalls, tc.wantGate, tc.wantFinalize, p6Notice, clusterExit)
@@ -309,6 +347,11 @@ func TestFinalizeLoopGates_E2E_TableAgreesWithAdvisory(t *testing.T) {
 			case "cluster_exit":
 				if r.Verdict == clusterExitUnreachable || r.ExitFailure != tc.wantFinalize {
 					t.Fatalf("the exit fired on failure %d; the advisory must not call it unreachable (%s)", tc.wantFinalize, r.Reason)
+				}
+			case "template":
+				g := gateFor(r, "template retry budget")
+				if g == nil || g.FiresOnFailure != tc.wantFinalize || !g.Total || r.Verdict != clusterExitUnreachable {
+					t.Fatalf("advisory must list the template budget as total on failure %d with verdict unreachable, got %+v (%s)", tc.wantFinalize, g, r.Reason)
 				}
 			}
 		})

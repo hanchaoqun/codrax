@@ -14,8 +14,10 @@
 //
 //   3. §40.43 R1 (fold-in round three): the closure feeds ONLY the
 //      stability accounting of AdvanceRepairExecutionPlan — the
-//      per-cluster StableAttempts count (carried over the fresh rebuild
-//      for every persisting cluster key, W2.7 sibling rotation included)
+//      per-cluster StableAttempts count (owner-attributed, §40.43 finding
+//      U: advanced only for clusters owned by the owner the previous
+//      round dispatched; carried over the fresh rebuild for every
+//      persisting cluster key, W2.7 sibling rotation included)
 //      and the stuck-owner fail-loud exit
 //        - any current-owner cluster StableAttempts >= budget AND
 //          !PrimaryResolved, no remaining owners, escalation allowed
@@ -66,10 +68,16 @@ type RepairClusterExecutionState struct {
 	// violation matches any DerivedKinds value.
 	DerivedResolved bool
 
-	// StableAttempts counts consecutive attempts where the same
-	// owner ran without resolving Primary. Resets to 0 when Primary
-	// resolves OR the owner advances. Drives the stuck-owner
-	// promote / FailLoud path.
+	// StableAttempts counts the finalize attempts in which THIS
+	// cluster's owner was the dispatched owner and the Primary stayed
+	// unresolved. It is owner-attributed (§40.43 F-orch 四轮复核 finding
+	// U): computeClusterClosure advances it only in a round whose
+	// dispatched owner (prev.CurrentOwner — the target actually
+	// dispatched last round, after the R2.2 downgrade) equals this
+	// cluster's Owner; a cluster whose owner did not run keeps its
+	// count, so a never-dispatched root stays at 0 and is always
+	// dispatched (anyClusterNeverAttempted). Resets to 0 when Primary
+	// resolves. Drives the stuck-cluster FailLoud exit.
 	StableAttempts int
 }
 
@@ -221,7 +229,15 @@ func extractRelationKindFromDetail(detail string) string {
 // based on whether its (kind, fingerprint) and DerivedKinds appear in
 // fresh. Returns a new []RepairClusterExecutionState with
 // PrimaryResolved / DerivedResolved updated and StableAttempts
-// incremented when Primary remains unresolved.
+// advanced — owner-attributed (§40.43 F-orch 四轮复核 finding U): only
+// for a cluster whose Owner equals prev.CurrentOwner, the owner the
+// previous round actually dispatched (after the R2.2 finalizer-local
+// downgrade). A cluster whose owner did not run this round keeps its
+// count: with fresh {must_include (finalizer), facet_uncovered
+// (explore)} and two downgraded finalizer_only rounds, the explore
+// cluster stays at 0 and is dispatched when the finalizer clears its
+// own cluster — the earlier unattributed count reached the stable
+// budget for an owner that never ran and fail-louded instead.
 //
 // Pre-condition: prev.ClusterStates is 1:1 with prev.Clusters
 // (BuildRepairExecutionPlan guarantees this).
@@ -229,6 +245,7 @@ func computeClusterClosure(prev RepairExecutionPlan, fresh []types.Violation) []
 	if len(prev.ClusterStates) == 0 {
 		return nil
 	}
+	dispatched := prev.CurrentOwner
 	freshIdent := make(map[clusterIdent]bool, len(fresh))
 	freshKinds := make(map[types.ViolationKind]bool, len(fresh))
 	// W2.7 (2026-05-05): build a fp -> set of fresh kinds map so
@@ -270,9 +287,11 @@ func computeClusterClosure(prev RepairExecutionPlan, fresh []types.Violation) []
 		}
 		st.PrimaryResolved = !(exactMatch || impliedSiblingOnSameFp)
 		st.DerivedResolved = derivedAllResolved(st.DerivedKinds, freshKinds)
-		if st.PrimaryResolved {
+		switch {
+		case st.PrimaryResolved:
 			st.StableAttempts = 0
-		} else {
+		case st.Owner == dispatched:
+			// Only the owner that ran can have failed to resolve it.
 			st.StableAttempts++
 		}
 		out[i] = st

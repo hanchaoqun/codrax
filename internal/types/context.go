@@ -725,7 +725,12 @@ type MutableState struct {
 	// need the accepted absence / resolved disposition and the closure
 	// rationale from the last successful emit_investigation_complete
 	// call. These retained fields survive window resets until the task
-	// itself ends.
+	// itself ends. Invariant (§40.43 F-orch 四轮复核 finding W): the
+	// retained lane is the most recently ACCEPTED terminal state — its
+	// writers are the accepted-completion setters and MergeExploreFork
+	// folding back a fork that recorded its own accepted completion; a
+	// non-completing fork (which merely carries the parent's fork-time
+	// copy) never writes it back.
 	retainedAbsenceJustification        string
 	retainedInvestigationResultKind     string
 	retainedInvestigationCompleteReason string
@@ -1503,6 +1508,17 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		traceQueryCallWindowDelta = append([]TraceQueryCallWindow(nil), fork.traceQueryCallWindows[fork.exploreForkTraceQueryCallWindowBase:]...)
 	}
 	closure := fork.evidenceClosure
+	// forkDecidedCompletion: the fork recorded an ACCEPTED completion of its
+	// own (its generation advanced past the parent's at fork time). Only
+	// such a fork may write the retained lane back (§40.43 F-orch 四轮复核
+	// finding W): a non-completing sibling carries the parent's fork-time
+	// copy of the retained closure, and writing it back after a completing
+	// sibling merged reverted the retained lane to that stale copy — after
+	// the next backtrack's ResetInvestigationComplete every Stable* consumer
+	// and the exhaustion release proceeded from it. The retained lane is the
+	// most recently accepted terminal state; a fork that decided nothing
+	// never overwrites it.
+	forkDecidedCompletion := fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase
 	fork.mu.RUnlock()
 
 	m.mu.Lock()
@@ -1530,7 +1546,13 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 			m.preReadSourceRevision++
 		}
 	}
-	if investigationComplete {
+	// Completion write-back (live + retained lanes) only from a fork that
+	// recorded its OWN accepted completion (finding W): a fork that merely
+	// inherited the parent's completed flag carries the parent's fork-time
+	// copy — writing it back would revert a sibling's later-accepted closure
+	// (or resurrect a completion the parent has since reset). An inherited
+	// flag is not a decision (§40.14 V7-2 复核) and not a state to fold back.
+	if investigationComplete && forkDecidedCompletion {
 		// XGAP-FIX ① (§29.104.8): the fork carries the LATER-accepted
 		// emit_investigation_complete, so its ordinal-seated ranking facts
 		// supersede the parent's same-label versions before the union merge.
@@ -1546,11 +1568,9 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		// Only the fork's OWN completion decisions are decisions of the
 		// parent's epoch: fold exactly those into the parent's generation so
 		// a parallel-dispatch completion lifts the explore-backtrack veto
-		// like a direct SetInvestigationComplete, while a fork that merely
-		// inherited a completed flag advances nothing (§40.14 V7-2 复核).
-		if fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase {
-			m.investigationCompleteGeneration += fork.investigationCompleteGeneration - fork.exploreForkCompletionGenerationBase
-		}
+		// like a direct SetInvestigationComplete (§40.14 V7-2 复核; the
+		// branch guard above already excludes an inherited flag).
+		m.investigationCompleteGeneration += fork.investigationCompleteGeneration - fork.exploreForkCompletionGenerationBase
 		m.investigationAggregateFacts = mergedAggregateFacts
 		m.investigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
 		m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
@@ -1567,24 +1587,30 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 			m.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(mergedAggregateFacts)
 		}
 	}
-	if retainedInvestigationCompleteReason != "" {
-		m.retainedInvestigationCompleteReason = retainedInvestigationCompleteReason
-	}
-	if retainedInvestigationResultKind != "" {
-		m.retainedInvestigationResultKind = retainedInvestigationResultKind
-	}
-	if retainedAbsenceJustification != "" {
-		m.retainedAbsenceJustification = retainedAbsenceJustification
-	}
-	if len(retainedInvestigationAggregateFacts) > 0 {
-		// XGAP-FIX ① mirror for the retained lane (same supersede rationale
-		// as the investigationComplete branch above).
-		m.retainedInvestigationAggregateFacts = MergeAnswerAggregateFacts(
-			SupersedeOrdinalMemberSetFactsByLabel(m.retainedInvestigationAggregateFacts, retainedInvestigationAggregateFacts),
-			retainedInvestigationAggregateFacts)
-	}
-	if len(retainedInvestigationRelationClaims) > 0 && !investigationComplete {
-		m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(retainedInvestigationRelationClaims)
+	// Retained lane write-back from the fork's retained copy (a decided fork
+	// whose window was reset before the merge still carries its accepted
+	// state here). Finding W: gated on the fork's own accepted completion —
+	// a non-completing fork's retained copy is the parent's at fork time.
+	if forkDecidedCompletion {
+		if retainedInvestigationCompleteReason != "" {
+			m.retainedInvestigationCompleteReason = retainedInvestigationCompleteReason
+		}
+		if retainedInvestigationResultKind != "" {
+			m.retainedInvestigationResultKind = retainedInvestigationResultKind
+		}
+		if retainedAbsenceJustification != "" {
+			m.retainedAbsenceJustification = retainedAbsenceJustification
+		}
+		if len(retainedInvestigationAggregateFacts) > 0 {
+			// XGAP-FIX ① mirror for the retained lane (same supersede rationale
+			// as the investigationComplete branch above).
+			m.retainedInvestigationAggregateFacts = MergeAnswerAggregateFacts(
+				SupersedeOrdinalMemberSetFactsByLabel(m.retainedInvestigationAggregateFacts, retainedInvestigationAggregateFacts),
+				retainedInvestigationAggregateFacts)
+		}
+		if len(retainedInvestigationRelationClaims) > 0 && !investigationComplete {
+			m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(retainedInvestigationRelationClaims)
+		}
 	}
 	if sourceInventoryAdvisory.IsActive() {
 		m.sourceInventoryAdvisory = MergeSourceInventoryAdvisory(m.sourceInventoryAdvisory, sourceInventoryAdvisory)

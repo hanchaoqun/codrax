@@ -26,7 +26,9 @@
 //   - STABILITY: the persisted plan (MutableState.RepairExecutionPlan)
 //     carries per-cluster closure state across attempts. The next
 //     failure's closure (repair_cluster_closure.go) increments
-//     StableAttempts for every cluster whose Primary is still open, the
+//     StableAttempts for every still-open cluster OWNED BY THE OWNER THE
+//     PREVIOUS ROUND DISPATCHED (prev.CurrentOwner; §40.43 F-orch 四轮
+//     finding U — a cluster whose owner did not run keeps its count), the
 //     counts carry over the rebuild for every cluster whose
 //     (PrimaryKind, PrimaryFingerprint) persists, and a stuck deepest
 //     owner OF THE FRESH REBUILD (no shallower owner queued, escalation
@@ -268,7 +270,10 @@ func promoteFinalizerLocal(ordered []RepairLocus) []RepairLocus {
 //     plan; no MutableState write.
 //   - Rebuild from fresh with the current finalizerLocalUsed; carry the
 //     closure-updated StableAttempts / DerivedResolved of every previous
-//     cluster whose key persists (carryClusterStability).
+//     cluster whose key persists (carryClusterStability). The closure
+//     advances StableAttempts only for clusters owned by the previous
+//     round's dispatched owner (finding U), so a root whose owner never
+//     ran stays at 0 across any number of downgraded rounds.
 //   - The fresh plan is stuck (stuckClusterExit: a cluster owned by the
 //     FRESH CurrentOwner reached ClusterStableBudget(), the fresh plan
 //     names no remaining owner, escalation allowed, and no fresh cluster
@@ -366,7 +371,9 @@ func stuckClusterExit(plan RepairExecutionPlan, stableBudget int) bool {
 }
 
 // anyClusterNeverAttempted reports whether the plan carries a cluster at
-// StableAttempts 0 — a root cause the chain has not dispatched for yet.
+// StableAttempts 0 — a root cause whose owner the chain has not dispatched
+// yet (the count is owner-attributed, so downgraded finalizer_only rounds
+// never mark an explore- or extract-owned root as attempted).
 func anyClusterNeverAttempted(plan RepairExecutionPlan) bool {
 	for _, st := range plan.ClusterStates {
 		if st.StableAttempts == 0 {

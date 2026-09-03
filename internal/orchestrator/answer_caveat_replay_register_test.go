@@ -91,9 +91,9 @@ func TestCAVSTRDisclosureSurvivesFirstDraftAttachment(t *testing.T) {
 	// Flagship overwrite: the rejected first draft is filtered behind an
 	// accepted structured doc, while FinalAnswer is still re-rendered from
 	// that doc and must replay registered disclosures.
-	o.attachFirstDraftReference(out, "第一稿正文（内容不同）。", []types.Violation{{
+	o.attachFirstDraftReference(out, firstFinalizeDraftRecord{Text: "第一稿正文（内容不同）。"}, []types.Violation{{
 		Kind: types.ViolBlockCoverageMissing, Detail: "x",
-	}}, true, nil)
+	}}, true)
 
 	if strings.Contains(out.FinalAnswer, "第一稿答案") || strings.Contains(out.FinalAnswer, "第一稿正文") {
 		t.Fatalf("accepted structured doc must suppress rejected first-draft telemetry:\n%s", out.FinalAnswer)

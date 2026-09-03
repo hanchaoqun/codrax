@@ -60,7 +60,9 @@ func vFinalizerContradiction(block string) types.Violation {
 // round whose result is not FailLoud. Red on 0d9a142e4: the promote arm
 // dispatched back_to_explore for an already-covered facet, the stay arm
 // kept finalizer_only past the R2.2 budget, and the W3.5 fixable-by rule
-// was applied by the picker but not by the rebuild.
+// was applied by the picker but not by the rebuild. The downgraded-rounds
+// shape (finding U) is censused exhaustively in
+// repair_execution_plan_owner_attributed_test.go.
 func TestAdvanceRepairExecutionPlan_DispatchAgreesWithBudgetPicker(t *testing.T) {
 	threeOwners := []types.Violation{vFinalizerContradiction("summary"), vExtractAnchor("summary"), vFacet("diagram_spine")}
 	finAndExtract := []types.Violation{vFinalizerContradiction("summary"), vExtractAnchor("summary")}
@@ -200,11 +202,17 @@ func TestAdvanceRepairExecutionPlan_DispatchAgreesWithBudgetPicker(t *testing.T)
 }
 
 // (2) stability pin: StableAttempts carry over across fresh rebuilds for a
-// cluster whose (kind, fingerprint) persists, and a stuck single-owner
-// cluster reaches FailLoud at the budget. The finalizer-owned cluster keeps
-// counting while the dispatched owner changes with the budget (round 1
-// finalizer_only, rounds 2+ back_to_extract): the count follows the cluster
-// key, not the dispatched locus.
+// cluster whose (kind, fingerprint) persists — the count follows the cluster
+// key across the rebuild, and it advances only in rounds whose dispatched
+// owner is that cluster's owner.
+//
+// EVOLUTION RECORD (§40.43 F-orch 四轮复核 finding U): the original pin
+// asserted BOTH clusters at round-1 on every round ("the finalizer-owned
+// cluster keeps counting while the dispatched owner changes") — that was the
+// unattributed count which let a root whose owner never ran reach the stuck
+// exit. Owner-attributed: round 1 dispatches finalizer (finalizer 0 → 1 on
+// round 2, extract stays 0), rounds 2+ dispatch extract (extract 0 → 1 on
+// round 3, finalizer stays 1).
 func TestAdvanceRepairExecutionPlan_StableAttemptsCarryOverAcrossRebuilds(t *testing.T) {
 	restoreFin := FinalizerLocalRetryBudget()
 	restoreCluster := ClusterStableBudget()
@@ -239,11 +247,18 @@ func TestAdvanceRepairExecutionPlan_StableAttemptsCarryOverAcrossRebuilds(t *tes
 		if target != wantTarget {
 			t.Fatalf("round %d: target=%v, want %v", round, target, wantTarget)
 		}
-		if got := stableOf(plan, LocusFinalizer); got != round-1 {
-			t.Fatalf("round %d: finalizer cluster StableAttempts=%d, want %d — stability must carry over the rebuild by cluster key", round, got, round-1)
+		// Owner-attributed: the finalizer ran in round 1 only; extract ran
+		// in rounds 2+.
+		wantFinalizer, wantExtract := 0, 0
+		if round >= 2 {
+			wantFinalizer = 1
+			wantExtract = round - 2
 		}
-		if got := stableOf(plan, LocusExtract); got != round-1 {
-			t.Fatalf("round %d: extract cluster StableAttempts=%d, want %d", round, got, round-1)
+		if got := stableOf(plan, LocusFinalizer); got != wantFinalizer {
+			t.Fatalf("round %d: finalizer cluster StableAttempts=%d, want %d — the count carries over the rebuild by cluster key and advances only when its owner ran", round, got, wantFinalizer)
+		}
+		if got := stableOf(plan, LocusExtract); got != wantExtract {
+			t.Fatalf("round %d: extract cluster StableAttempts=%d, want %d", round, got, wantExtract)
 		}
 		populateRetryState(mut, contractResultOf(fresh), round-1)
 		if target == FallbackFinalizerOnly {

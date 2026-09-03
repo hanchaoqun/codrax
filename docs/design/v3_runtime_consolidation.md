@@ -201,6 +201,15 @@ or `PromoteNextOwner` accordingly. `PromoteNextOwner` carries forward
 > governor, low-yield kill) is stated per arm — total / conditional /
 > outside-chain-retries-only — by `finalize_loop_gate_advisory.go`; at the
 > defaults the same-error-class governor ships on failure 2.
+>
+> 2026-09-03 (§40.43 F-orch 四轮复核 U/X): `StableAttempts` is
+> owner-attributed — `computeClusterClosure` advances it only for clusters
+> owned by the owner the previous round actually dispatched
+> (`prev.CurrentOwner`, after the R2.2 downgrade); a cluster whose owner did
+> not run keeps its count, so a never-dispatched root stays at 0 and is
+> always dispatched before any fail-loud. The advisory models a template
+> `RetryBudget` of 0 or less exactly as the loop reads it (`retryUsed >=
+> RetryBudget` on failure 1 — total pre-emption).
 
 ### Telemetry
 `SummarizeRepairExecutionPlan` adds:
