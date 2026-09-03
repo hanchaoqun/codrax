@@ -186,6 +186,9 @@ func validateCandidateSnapshot(got, want types.TraceCauseDecision) error {
 	if !reflect.DeepEqual(got.Magnitude, want.Magnitude) {
 		return fmt.Errorf("candidate_id %q rewrites system-owned magnitude", got.CandidateID)
 	}
+	if !reflect.DeepEqual(got.EvidenceFacts, want.EvidenceFacts) {
+		return fmt.Errorf("candidate_id %q rewrites system-owned evidence facts", got.CandidateID)
+	}
 	if !sameStringSet(got.EvidenceRefs, want.EvidenceRefs) {
 		return fmt.Errorf("candidate_id %q evidence_refs do not match the deterministic candidate", got.CandidateID)
 	}

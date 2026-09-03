@@ -208,6 +208,7 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 	decision := types.TraceCauseDecision{
 		Status:          status,
 		CausalQualifier: qualifier,
+		EvidenceFacts:   candidateEvidenceFacts(projection, node, spec.Lane, tracequery.CausalTokenFixDirectionFor(token)),
 		Token: types.TraceCausalTokenSnapshot{
 			Token: token, Lane: string(spec.Lane), Additivity: string(spec.Additivity),
 			SubjectKind: string(spec.Subject), FixDirection: string(tracequery.CausalTokenFixDirectionFor(token)), RegistryHash: registryHash,
@@ -254,6 +255,49 @@ func applyProjectionMetadata(contract *types.TraceFindingContract, projection ty
 			contract.Symptom = types.TraceSymptomSummary{Kind: "target_window_duration", Value: account.TotalMS, Unit: "ms"}
 		}
 	}
+}
+
+// candidateEvidenceFacts (SIDECAR-EVID-1, §40.32) snapshots the typed facts
+// the public evidence sentences are rendered from — all from the compiled
+// projection node / projection header, none from prose or artifact paths.
+func candidateEvidenceFacts(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode, lane tracequery.CausalTokenLane, direction tracequery.CausalTokenFixDirection) *types.TraceCauseEvidenceFacts {
+	facts := &types.TraceCauseEvidenceFacts{
+		ArtifactLabel:          strings.TrimSpace(projection.ArtifactLabel),
+		WindowStartTs:          projection.WindowStartTs,
+		WindowEndTs:            projection.WindowEndTs,
+		SeatStartTs:            node.StartTs,
+		SeatEndTs:              node.EndTs,
+		LineStart:              node.LineStart,
+		LineEnd:                node.LineEnd,
+		ChainRelevance:         strings.TrimSpace(node.ChainRelevance),
+		Causality:              strings.TrimSpace(node.Causality),
+		OnChainBasis:           strings.TrimSpace(node.OnChainBasis),
+		ChainDepth:             node.ChainDepth,
+		ChainBranch:            node.ChainBranch,
+		HostWakeupEdgeAnchorTs: node.HostWakeupEdgeAnchorTS,
+		HostWakeupEdgeVia:      strings.TrimSpace(node.HostWakeupEdgeAnchorVia),
+		StateKind:              strings.TrimSpace(node.StateKind),
+		BlockedReasonCaller:    strings.TrimSpace(node.BlockedReasonCaller),
+		Lane:                   string(lane),
+		FixDirection:           string(direction),
+		SemanticClass:          strings.TrimSpace(node.SemanticClass),
+		SpanName:               strings.TrimSpace(node.SpanName),
+	}
+	if projection.TargetStateAccount != nil {
+		facts.TargetSubject = strings.TrimSpace(projection.TargetStateAccount.Subject)
+	}
+	if facts.WindowEndTs <= facts.WindowStartTs && node.QueryWindowEndTs > node.QueryWindowStartTs {
+		facts.WindowStartTs, facts.WindowEndTs = node.QueryWindowStartTs, node.QueryWindowEndTs
+	}
+	// The elected wakeup path is quoted only when this seat's subject sits on it.
+	subject := strings.TrimSpace(node.Subject)
+	for _, hop := range projection.WakeupPath {
+		if strings.EqualFold(strings.TrimSpace(hop), subject) {
+			facts.WakeupPath = append([]string(nil), projection.WakeupPath...)
+			break
+		}
+	}
+	return facts
 }
 
 func candidateRoles(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode) (string, string) {

@@ -392,8 +392,13 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// EVOLUTION RECORD (R9 §29.93.2, 2026-07-15): +1 line = the fold
 			// row's 成员 sink line (line 1 slimmed to the bare counted label;
 			// the roster head + counted 见明细 trailer moved to line 2).
+			// EVOLUTION RECORD (LEDGER-MERGE-1 §40.33, 2026-09-02): this
+			// specimen's empty-SupportRefs distinct-value critical_blocking rows
+			// (cb-03/08/11/12/14) collided on the exact-identity dedupe key and
+			// were silently deleted before; they now ride their survivors'
+			// rosters as (+N) 同类观测 — ordinals, lines and inventory unchanged.
 			lines: 30, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
-			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]", "[E6]", "[E7]", "[E8(+4)]", "[E9]", "[E10]"},
+			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5(+1)]", "[E6]", "[E7(+2)]", "[E8(+4)]", "[E9(+1)]", "[E10(+1)]"},
 			inventory: []string{
 				"runnable", "链上L1", "2次同值", "有效归因 1.661ms(全额)",
 				// SYM-2 §24.17 R2 (2026-07-08): 就绪排队候选 → 调度压力候选.

@@ -94,6 +94,7 @@ compatibility posture as the `next_info` tail-append ruling):
 model selection was persisted), never a causal-proof assertion.
 
 - 2026-09-02 QUALGATE-1(colleague_merge_audit §40.30 V-QUAL-1 方案 A):`causal_qualifier` 闭集追加第三值 `not_applicable`——analyzer typed 判定 `runtime_question_profile.frame_causality_requested=false`(非帧/卡帧类问题)时,席位级提供者关门,两面均不作帧因果声明(头行无限定注,sidecar 显式 `not_applicable`,summary 无后缀,合同顶棚 `not_applicable` 不封顶 status);append-only,`schema_version` 仍为 2。
+- 2026-09-02 SIDECAR-EVID-1(客户反馈 → colleague_merge_audit §40.32):`evidence` 改由候选的系统拥有 typed 事实包渲染为最多四句客户可读证据(量化 / 链路关系与凭证 / 机理与边界 / trace 定位),**不再发布** `.codrax/blob/…` 临时路径与 `trace_query:…json#…` 内部结果 id;wire 形状不变(`evidence: []string`,1–4 条,每条 ≤240 rune)。
 
 ## 5. Verification obligations
 

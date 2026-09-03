@@ -5915,3 +5915,24 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 | ★17 | analyzer typed 帧决定不稳定:同一两道帧问题上一轮 true/true、本轮 false/false(非结构重试翻转,两次尝试皆 false) | 中 | 教学精化为**判定程序+双语正反例**(schema 描述与 skill 同步,pin 三处);系统侧不做关键词覆盖(红线:分类错=prompt 歧义,噪声信号只软引导);残留=LLM 判定质量,按 PASS≠绿逐轮核对 emit_analysis 决定 |
 
 **验证**(★1–★17 全部落地后):全仓套件 `go test ./internal/... ./cmd/` 绿;eval 五轮(两道帧问题各两次+短 runnable 一次)5/5 PASS 且逐份核对:教学精化后 analyzer typed 决定稳定——帧问题两例四次尝试全部 `frame_causality_requested=true`(两面 `frame_unproven`、头行「（帧因果未证）」、帧评估器由 typed 决定触发),短 runnable 例两次尝试皆 `false`(头行无限定注、正文零帧级句、覆盖块无「当前没有可用的链上因果观测」假句);短 runnable 本轮模型两次 emit 均未携带可选 `trace_root_causes`(非系统丢失,PR23 设计为可选块),sidecar 如实 `unavailable`,记为模型选择变异。
+
+### §40.32 批三前置:RECEIPT-1 + SIDECAR-EVID-1(2026-09-02)
+
+**RECEIPT-1**(§40.31.1 ○14 转施工):`runtime_work_relation` 回执结论词面固定含「造成丢帧/该帧超时」,非帧问题也出现。修法:`RuntimeWorkRelationRow.FrameCausalityApplicable`(合同编译时由同一谓词 `FrameCausalityQualifierApplicable(input.RequestModel)` 盖章,系统拥有,模型只写 observation_id+conclusion)→渲染器按其分叉:帧问题保留原词面;非帧问题改通用机理词(「目标等待其完成或它构成因果贡献」/"causal contribution"),凭证事实两叉完全相同。pin:渲染六臂 zh/en 帧/非帧;合同行盖章(真实 trace_query 记录,非手写 notes——一版手写 notes 的 types pin 因不铸行而永久 skip,已删)。
+
+**SIDECAR-EVID-1**(客户反馈 2026-09-02:`root-causes.json` 的 `evidence` 引用 `.codrax/blob/…attached_trace.txt:2892-13060,trace_query:…json#root_cause_rank:1`——客户无法访问的临时/内部引用,且只陈述影响时长,没有分析逻辑链/唤醒链):候选决定新增系统拥有的 typed 事实包 `TraceCauseDecision.EvidenceFacts`(编译时自投影节点/头部快照:分析窗、席位区间、附件行号、目标名、链相关性/因果/凭证 basis、链深度/分支、直接唤醒边时刻与 via、所在唤醒链、状态、阻塞记录调用者、registry 车道与修向、语义类/span 名;校验器视为系统拥有字段);binder 据此渲染最多四句客户可读证据:①量化(原句,口径不变);②链路关系与凭证(层级/分支、凭证类型与直接唤醒时刻、唤醒链 A → B → C);③机理与边界(状态、语义工作、阻塞记录、修向词、机理未证/帧因果未证披露);④trace 定位(附件行号范围+发生时间+分析窗)。**内部路径与 trace_query 结果 id 永不发布**;每句 ≤240 rune,语义边界收缩;无事实包的遗留候选只保留量化句。指南 §3 示例与字段表同步。
+
+**验证**:全仓套件绿(证据打包/口径/回执渲染四处 pin 按新契约重钉:内部引用永不发布、主体与口径词必在);eval 复跑帧问题两例 `.root-causes.json` 逐席四句(量化/链路关系与凭证/机理与边界/trace 定位)、内部引用泄漏 0(例:「链路关系：位于目标 com.baidu.tieba-59566 唤醒依赖链第 1 级…；凭证=唤醒链成员…；唤醒链：ThreadPoolForeg-60555 → NetworkService-60595 → CookieMonsterCl-59843 → …」「trace 定位：donghu_tieba_frame.systrace 第 2891–13059 行，发生 34579.472865–34579.572194 s…」);短 runnable 例本轮 analyzer 把问题画像判为 bounded_effect_verdict(非 causal_diagnosis)→无完整报告形→合同未激活、答案缺优先级反转词而 FAIL——与本批无关的 analyzer 画像变异,单独复跑核对并记档。
+
+### §40.33 LEDGER-MERGE-1 施工收账(2026-09-02)
+
+**定谳修正**(§40.29.1 残留曾写"账本去重丢弃 ID"):账本编译**保留**跨结果同席位的两条记录(merge key 含 SourceRef,跨结果不碰撞);真正丢弃点是投影编译的精确身份去重 `traceCausalProjectionDedupeNodes`(`if seen[key] { continue }`)——其余各类折叠(别名/收敛/重复发布/R1/单席/溢出)都把被折叠者的 ID 并入 `MergedEvidenceIDs`,唯独此处直接丢弃,于是席位的证据 ID 集取决于哪个结果赢得幸存者槽(RankedSeats 先去重后排序,非冠席的幸存者/候选 id 随结果顺序翻转)。
+
+**修法**:去重命中时把孪生行的 EvidenceID ∪ MergedEvidenceIDs 并入幸存者(canonical 键控,排除幸存者自身 id;SupportRefs 按键定义相同不动,E# 序号/引证/证据索引条目数不变);零账镜像分支保持原样丢弃(ISPGAP-1 F-A 字节不变);不递增 DuplicatePublications(「N次同值」是"同一测量重复发布"承诺,不同口径——否则每个帧问题运行的冠席都会被盖「2次同值」);不新增第二种别名载体(所有 id 集消费者——席位限定索引、冠面原始 id、树折叠吸收、聚合身份——只读一个集合)。**显示决定**:孪生 id 计入 E#(+N)(图例「E#(+N) 表示另合并 N 条同类观测」字面为真;语义别名折叠对同一 fixture 的语义孪生在 HEAD 已渲染 (+1),跨车道一致)。
+
+**pin**:types 单元(双序幸存者携带孪生 id 与其 merged 子集);tool 两面 pin 追加(rank→bundle / bundle→rank 两序,worker-200 席位 id 集 ⊇ 两个生产者的 rank 行 id);PTV6D specimen1 徽章有意识重钉(E5/E7/E9/E10 得 (+1)/(+2)/(+1)/(+1):其空 SupportRefs 的同值 critical_blocking 行此前被静默删除;行数/序号/清单字节不变,带 EVOLUTION RECORD)。
+
+**残留(记档)**:①冠面查询语义通道记录 ∪ 别名孪生,sidecar 候选查询 rank 行 ∪ 去重孪生——一席两套 id 集,两面今日靠工件级继承规则一致;若将来「席位 id 集合并」(UnifySemanticSpanSeats 并入 donor id)会改变语义行 (+N),需独立裁定;②非冠席幸存者/候选 id 随结果顺序(RankedSeats 先去重后排序)——既有,未动。
+
+**验证**:全仓套件绿(PTV6D specimen1 徽章有意识重钉);eval 两帧例 Markdown 的 E#(+N) 徽章按预期增多(同席位第二生产者记录并入 roster),sidecar `evidence_refs`/候选 id 不变。
+

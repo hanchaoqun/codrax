@@ -188,35 +188,49 @@ func renderV2RuntimeWorkRelationReceipt(b *strings.Builder, blk types.AnswerBloc
 		if row.Subject != "" {
 			fmt.Fprintf(b, "（线程 `%s`）", row.Subject)
 		}
-		fmt.Fprintf(b, "实测 %.3fms；%s\n\n", row.MeasuredDurationMS, runtimeWorkRelationConclusionZH(receipt.Conclusion, row.Credential))
+		fmt.Fprintf(b, "实测 %.3fms；%s\n\n", row.MeasuredDurationMS, runtimeWorkRelationConclusionZH(receipt.Conclusion, row.Credential, row.FrameCausalityApplicable))
 		return
 	}
 	fmt.Fprintf(b, "**Runtime-work relation conclusion**: `%s`", row.WorkLabel)
 	if row.Subject != "" {
 		fmt.Fprintf(b, " (thread `%s`)", row.Subject)
 	}
-	fmt.Fprintf(b, " measured %.3fms; %s\n\n", row.MeasuredDurationMS, runtimeWorkRelationConclusionEN(receipt.Conclusion, row.Credential))
+	fmt.Fprintf(b, " measured %.3fms; %s\n\n", row.MeasuredDurationMS, runtimeWorkRelationConclusionEN(receipt.Conclusion, row.Credential, row.FrameCausalityApplicable))
 }
 
-func runtimeWorkRelationConclusionZH(conclusion types.RuntimeWorkRelationConclusion, credential string) string {
+// runtimeWorkRelationConclusionZH — RECEIPT-1 (§40.32): the unproven-mechanism
+// clause names a dropped frame / frame deadline only on a typed frame
+// question (frame=true); otherwise it names the generic target-wait /
+// completion mechanism. Credential facts are identical on both forks.
+func runtimeWorkRelationConclusionZH(conclusion types.RuntimeWorkRelationConclusion, credential string, frame bool) string {
+	unprovenTail := "目标等待其完成或它构成因果贡献"
+	hostTail := "工作完成触发唤醒、目标等待该工作或该工作构成因果贡献"
+	selfTail := "是否构成因果贡献仍需独立的等待或截止期证据"
+	selfTailShort := "是否构成因果贡献仍未证"
+	if frame {
+		unprovenTail = "目标等待其完成或它造成丢帧"
+		hostTail = "工作完成触发唤醒、目标等待该工作或该工作造成丢帧"
+		selfTail = "是否造成该帧超时仍需独立帧或截止期证据"
+		selfTailShort = "是否造成该帧超时仍未证"
+	}
 	switch conclusion {
 	case types.RuntimeWorkRelationConclusionRelatedCausalityUnproven:
 		if credential == "host_direct_wakeup_edge" {
-			return "已证实该宿主线程随后直接唤醒目标，但尚未证明工作完成触发唤醒、目标等待该工作或该工作造成丢帧"
+			return "已证实该宿主线程随后直接唤醒目标，但尚未证明" + hostTail
 		}
-		return "已证实它与链上区间存在关系，但尚未证明目标等待其完成或它造成丢帧"
+		return "已证实它与链上区间存在关系，但尚未证明" + unprovenTail
 	case types.RuntimeWorkRelationConclusionTargetSelfWorkObserved:
-		return "已证实这是目标自身执行的工作；是否造成该帧超时仍需独立帧或截止期证据"
+		return "已证实这是目标自身执行的工作；" + selfTail
 	case types.RuntimeWorkRelationConclusionCausalContributionSupported:
 		return "现有链上证据支持其构成因果贡献，结论范围受该证据链约束"
 	case types.RuntimeWorkRelationConclusionRelationUnproven:
 		switch credential {
 		case "host_direct_wakeup_edge":
-			return "已证实宿主线程随后直接唤醒目标；但尚未证明该工作完成触发唤醒、目标等待该工作或该工作造成丢帧，因此工作到目标的因果关系仍未证"
+			return "已证实宿主线程随后直接唤醒目标；但尚未证明该" + hostTail + "，因此工作到目标的因果关系仍未证"
 		case "typed_chain_interval_overlap":
-			return "已证实该工作与链上区间存在关系；但尚未证明目标等待其完成或它造成丢帧，因此工作到目标的因果关系仍未证"
+			return "已证实该工作与链上区间存在关系；但尚未证明" + unprovenTail + "，因此工作到目标的因果关系仍未证"
 		case "target_self_execution":
-			return "已证实这是目标自身执行的工作；是否造成该帧超时仍未证"
+			return "已证实这是目标自身执行的工作；" + selfTailShort
 		default:
 			return "已观测到该工作，但当前证据尚未建立它与目标的关系"
 		}
@@ -225,25 +239,35 @@ func runtimeWorkRelationConclusionZH(conclusion types.RuntimeWorkRelationConclus
 	}
 }
 
-func runtimeWorkRelationConclusionEN(conclusion types.RuntimeWorkRelationConclusion, credential string) string {
+func runtimeWorkRelationConclusionEN(conclusion types.RuntimeWorkRelationConclusion, credential string, frame bool) string {
+	hostTail := "work-completion, target-wait, and causal-contribution mechanisms remain unproved"
+	overlapTail := "target wait/completion and causal contribution remain unproved"
+	selfTail := "whether it constitutes a causal contribution needs separate wait or deadline evidence"
+	selfTailShort := "whether it constitutes a causal contribution remains unproved"
+	if frame {
+		hostTail = "work-completion, target-wait, and dropped-frame causality remain unproved"
+		overlapTail = "target wait/completion and dropped-frame causality remain unproved"
+		selfTail = "whether it caused the frame or deadline miss needs separate frame evidence"
+		selfTailShort = "whether it caused the frame or deadline miss remains unproved"
+	}
 	switch conclusion {
 	case types.RuntimeWorkRelationConclusionRelatedCausalityUnproven:
 		if credential == "host_direct_wakeup_edge" {
-			return "the host thread is proved to wake the target directly afterward, but work-completion, target-wait, and dropped-frame causality remain unproved"
+			return "the host thread is proved to wake the target directly afterward, but " + hostTail
 		}
-		return "a typed chain-interval relation is proved, but target wait/completion and dropped-frame causality remain unproved"
+		return "a typed chain-interval relation is proved, but " + overlapTail
 	case types.RuntimeWorkRelationConclusionTargetSelfWorkObserved:
-		return "this is proved target-self work; whether it caused the frame or deadline miss needs separate frame evidence"
+		return "this is proved target-self work; " + selfTail
 	case types.RuntimeWorkRelationConclusionCausalContributionSupported:
 		return "typed on-chain evidence supports a causal contribution within that evidence boundary"
 	case types.RuntimeWorkRelationConclusionRelationUnproven:
 		switch credential {
 		case "host_direct_wakeup_edge":
-			return "the host thread is proved to wake the target directly afterward; work-completion, target-wait, and dropped-frame causality remain unproved, so the work-to-target causal relation is still unproved"
+			return "the host thread is proved to wake the target directly afterward; " + hostTail + ", so the work-to-target causal relation is still unproved"
 		case "typed_chain_interval_overlap":
-			return "a typed chain-interval relation is proved; target wait/completion and dropped-frame causality remain unproved, so the work-to-target causal relation is still unproved"
+			return "a typed chain-interval relation is proved; " + overlapTail + ", so the work-to-target causal relation is still unproved"
 		case "target_self_execution":
-			return "this is proved target-self work; whether it caused the frame or deadline miss remains unproved"
+			return "this is proved target-self work; " + selfTailShort
 		default:
 			return "the work is observed, but its relation to the target is not established by current evidence"
 		}

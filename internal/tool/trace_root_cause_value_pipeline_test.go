@@ -54,9 +54,15 @@ func TestRootCauseValueCaliberSurvivesObservationProjectionEmitAndPatch(t *testi
 		!strings.Contains(strings.Join(report.RootCauses[1].Evidence, " "), "非 I/O") {
 		t.Fatalf("published wrong caliber: %+v", report)
 	}
+	// SIDECAR-EVID-1 (§40.32): the public evidence names the seat's typed facts
+	// and NEVER the internal provenance handle — the customer cannot open it.
 	for _, item := range report.RootCauses {
-		if !strings.Contains(strings.Join(item.Evidence, " "), source) {
-			t.Fatalf("sidecar dropped source provenance: %+v", item)
+		joined := strings.Join(item.Evidence, " ")
+		if strings.Contains(joined, source) || strings.Contains(joined, "trace_query:") {
+			t.Fatalf("sidecar leaked an internal provenance reference: %+v", item)
+		}
+		if item.ThreadName != "" && !strings.Contains(joined, item.ThreadName) {
+			t.Fatalf("sidecar evidence must name the seat's subject: %+v", item)
 		}
 	}
 	patched, err := (&EmitAnswerDocumentPatch{}).Execute(ctx, json.RawMessage(`{"unchanged_block_ids":["summary"]}`))

@@ -8,6 +8,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// SIDECAR-EVID-1: the evidence names the subject and caliber words, never the
+// internal evidence id.
 func TestRootCauseReportPreservesRankedValueCaliber(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -25,7 +27,7 @@ func TestRootCauseReportPreservesRankedValueCaliber(t *testing.T) {
 			types.TraceRootCauseComputeSupplyShortage, "未知 2.000 ms"},
 		{"raw running does not become a deficit", types.TraceCausalProjectionNode{TypeToken: "running", ImpactMS: 12,
 			SpanName: "DrawFrame", SupplyFoldComputed: true, SupplyFoldDeficitMS: 3, SupplyFoldKnownMS: 12},
-			types.TraceRootCausePhaseHighLoad, "E1"},
+			types.TraceRootCausePhaseHighLoad, "worker-9"},
 		{"D proven non IO", types.TraceCausalProjectionNode{TypeToken: "d_state_or_io_wait", ImpactMS: 36.757,
 			EffectiveImpactMS: 36.757, EffectiveImpactPublished: true, DStateRefinedNonIO: true,
 			DStateSplitMS: 36.757}, types.TraceRootCauseSleepBlocking, "非 I/O"},
@@ -38,10 +40,10 @@ func TestRootCauseReportPreservesRankedValueCaliber(t *testing.T) {
 		{"merged pure IO", types.TraceCausalProjectionNode{TypeToken: "d_state_or_io_wait", ImpactMS: 7,
 			IOWaitSplitMS: 7}, types.TraceRootCauseIOBlocking, "I/O 等待 7.000 ms"},
 		{"explicit IO wait including S", types.TraceCausalProjectionNode{TypeToken: "io_wait", ImpactMS: 7, StateKind: "s_sleep"},
-			types.TraceRootCauseIOBlocking, "E1"},
+			types.TraceRootCauseIOBlocking, "worker-9"},
 		{"semantic work is not a supply fold", types.TraceCausalProjectionNode{TypeToken: "jit_compile", ImpactMS: 12,
 			EffectiveImpactMS: 12, EffectiveImpactPublished: true, SupplyFoldComputed: true, SupplyFoldDeficitMS: 3},
-			types.TraceRootCauseJITCompilation, "E1"},
+			types.TraceRootCauseJITCompilation, "worker-9"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			node := tc.node

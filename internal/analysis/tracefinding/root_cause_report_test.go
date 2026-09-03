@@ -38,7 +38,9 @@ func TestBindRootCauseReportSelectionUsesOnlyFrozenCandidateFacts(t *testing.T) 
 	cause := report.RootCauses[0]
 	if cause.CandidateID != "" || cause.Category != types.TraceRootCauseCPUSchedulingDelay ||
 		cause.ThreadName != "RenderThread" || cause.ImpactSeconds == nil || *cause.ImpactSeconds != 0.0124 ||
-		len(cause.Evidence) != 1 || !strings.Contains(cause.Evidence[0], "E1") {
+		len(cause.Evidence) != 1 || !strings.Contains(cause.Evidence[0], "RenderThread") || strings.Contains(cause.Evidence[0], "E1") {
+		// SIDECAR-EVID-1: the evidence speaks the typed facts, never an
+		// internal evidence id.
 		t.Fatalf("model-authored semantic fields escaped the typed binder: %+v", cause)
 	}
 }
@@ -105,7 +107,7 @@ func TestRootCauseSelectionIdentityIsNotItsDisplaySummary(t *testing.T) {
 				}
 				for i, cause := range report.RootCauses {
 					if cause.Rank != i+1 || cause.CandidateID != "" || *cause.ImpactSeconds != float64(2-i)/1000 ||
-						!strings.Contains(cause.Evidence[0], []string{"E-second", "E-first"}[i]) {
+						strings.Contains(cause.Evidence[0], "E-") || (cause.ThreadName != "" && !strings.Contains(cause.Evidence[0], cause.ThreadName)) {
 						t.Fatalf("model order, bound value, provenance or private-id boundary changed: %+v", cause)
 					}
 					if (token.Token == "running" || token.Token == "gc_pause") && cause.ThreadName == "" {

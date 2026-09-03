@@ -29,6 +29,28 @@ func TestTraceCausalProjectionDedupeNodesScopesRankBoards(t *testing.T) {
 
 	assertCount("same board duplicate", 1, base, base)
 
+	// LEDGER-MERGE-1 (§40.33): the discarded exact-identity twin's ids ride the
+	// survivor's MergedEvidenceIDs (a second query result republishing the
+	// same seat), so the seat's evidence set no longer depends on result order.
+	first, second := base, base
+	first.EvidenceID, second.EvidenceID = "trace_query:p-frame_root_cause_bundle#root_cause_rank:1", "trace_query:p-root_cause_rank#root_cause_rank:1"
+	second.MergedEvidenceIDs = []string{"trace_query:p-root_cause_rank#root_cause_rank:9"}
+	for name, order := range map[string][]TraceCausalProjectionNode{"bundle first": {first, second}, "rank first": {second, first}} {
+		got := traceCausalProjectionDedupeNodes(order)
+		if len(got) != 1 || got[0].EvidenceID != order[0].EvidenceID || len(got[0].MergedEvidenceIDs) != 2 {
+			t.Fatalf("%s: the survivor must carry the twin's ids: %+v", name, got)
+		}
+		for _, want := range []string{order[1].EvidenceID, "trace_query:p-root_cause_rank#root_cause_rank:9"} {
+			found := false
+			for _, id := range got[0].MergedEvidenceIDs {
+				found = found || id == want
+			}
+			if !found {
+				t.Fatalf("%s: twin id %q missing from the survivor: %+v", name, want, got[0].MergedEvidenceIDs)
+			}
+		}
+	}
+
 	differentTarget := base
 	differentTarget.RankBoardTarget = "logd.writer-9163"
 	assertCount("different target board", 2, base, differentTarget)

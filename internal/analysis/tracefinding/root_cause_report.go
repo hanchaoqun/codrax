@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -247,14 +248,17 @@ func RootCauseValueDescription(decision types.TraceCauseDecision) string {
 	return ""
 }
 
+// boundRootCauseEvidence renders the public sidecar evidence (SIDECAR-EVID-1,
+// customer report 2026-09-02 → §40.32): up to four customer-readable
+// sentences — 量化 / 链路关系与凭证 / 机理与边界 / trace 定位 — from the
+// system-owned typed facts. Internal artifact paths and trace_query result
+// ids are NEVER published (the customer cannot open them); the attachment
+// line range and timestamps are the locators a reader can follow in their
+// own trace. Legacy candidates without facts keep the quantified sentence.
 func boundRootCauseEvidence(decision types.TraceCauseDecision) []string {
 	subject := strings.TrimSpace(decision.SubjectName)
 	if subject == "" {
 		subject = "目标链路"
-	}
-	refs := decision.EvidenceRefs
-	if len(refs) == 0 {
-		refs = []string{"typed-trace-row"}
 	}
 	// SIDECAR-Q1: the sentence speaks the magnitude's own caliber — a raw
 	// window projection is never called 有效 (CROWNCAL discipline).
@@ -262,34 +266,154 @@ func boundRootCauseEvidence(decision types.TraceCauseDecision) []string {
 	if strings.TrimSpace(decision.Magnitude.Caliber) == types.TraceImpactCaliberWindowProjection {
 		statement = fmt.Sprintf("%s 在目标窗口内的窗内投影占用为 %.3f ms（未发布有效归因）", subject, decision.Magnitude.Value)
 	}
-	evidence := statement + "（证据 " + strings.Join(refs, ",") + "）"
-	description := RootCauseValueDescription(decision)
-	if description != "" {
-		evidence += "；" + description
+	if description := RootCauseValueDescription(decision); description != "" {
+		statement += "；" + description
 	}
-	if utf8.RuneCountInString(evidence) <= types.TraceRootCauseEvidenceMaxRunes {
-		return []string{evidence}
-	}
-	// Long source handles plus a value-caliber note can exceed one entry even
-	// though the existing four-entry schema can represent every fact. Pack at
-	// semantic boundaries; never split/truncate a reference or drop the note.
-	// Truly oversized atoms/sets remain intact for the strict validator to
-	// reject; this formatter cannot silently reduce evidence to make it fit.
-	parts := []string{statement}
-	if description != "" {
-		parts = append(parts, description)
-	}
-	for _, ref := range refs {
-		parts = append(parts, "证据 "+ref)
-	}
-	var entries []string
-	for _, part := range parts {
-		last := len(entries) - 1
-		if last >= 0 && utf8.RuneCountInString(entries[last])+1+utf8.RuneCountInString(part) <= types.TraceRootCauseEvidenceMaxRunes {
-			entries[last] += "；" + part
-		} else {
-			entries = append(entries, part)
+	entries := []string{statement}
+	if facts := decision.EvidenceFacts; facts != nil {
+		if relation := rootCauseEvidenceRelationSentence(subject, facts); relation != "" {
+			entries = append(entries, relation)
+		}
+		if mechanism := rootCauseEvidenceMechanismSentence(decision, facts); mechanism != "" {
+			entries = append(entries, mechanism)
+		}
+		if locator := rootCauseEvidenceLocatorSentence(facts); locator != "" {
+			entries = append(entries, locator)
 		}
 	}
+	for i := range entries {
+		entries[i] = rootCauseEvidenceFit(entries[i])
+	}
+	if len(entries) > types.TraceRootCauseEvidenceMaxEntries {
+		entries = entries[:types.TraceRootCauseEvidenceMaxEntries]
+	}
 	return entries
+}
+
+// rootCauseEvidenceRelationSentence — 链路关系与凭证.
+func rootCauseEvidenceRelationSentence(subject string, facts *types.TraceCauseEvidenceFacts) string {
+	var parts []string
+	target := strings.TrimSpace(facts.TargetSubject)
+	switch {
+	case target != "" && strings.EqualFold(subject, target):
+		parts = append(parts, "该线程即分析目标自身")
+	case facts.ChainDepth > 0 && target != "":
+		parts = append(parts, fmt.Sprintf("位于目标 %s 唤醒依赖链第 %d 级（分支 %d）", target, facts.ChainDepth, facts.ChainBranch))
+	case facts.ChainDepth > 0:
+		parts = append(parts, fmt.Sprintf("位于目标唤醒依赖链第 %d 级（分支 %d）", facts.ChainDepth, facts.ChainBranch))
+	case facts.ChainRelevance == "on_chain":
+		parts = append(parts, "位于目标唤醒链上")
+	case facts.ChainRelevance == "adjacent":
+		parts = append(parts, "位于目标唤醒链邻近（无链上凭证）")
+	}
+	switch facts.OnChainBasis {
+	case types.TraceCausalOnChainBasisHostWakeupEdgeSpan, "host_wakeup_edge_pre_state":
+		via := "唤醒边"
+		switch facts.HostWakeupEdgeVia {
+		case "direct":
+			via = "直接唤醒边"
+		case "chain_hop":
+			via = "链跳唤醒边"
+		case "direct+chain_hop":
+			via = "直接唤醒边与链跳边"
+		}
+		if facts.HostWakeupEdgeAnchorTs > 0 {
+			parts = append(parts, fmt.Sprintf("凭证=唤醒锚定：该线程于 %.6f s 通过%s唤醒目标，边前份按边=凭证/边前=有效/边后=解除计入", facts.HostWakeupEdgeAnchorTs, via))
+		} else {
+			parts = append(parts, "凭证=唤醒锚定：该线程持有对目标的窗内唤醒边，边前份计入")
+		}
+	case types.TraceCausalOnChainBasisSemanticChainIntervalRelation:
+		parts = append(parts, "凭证=交集证明：该确定性语义工作与目标唤醒链的 typed 区间精确相交，相交份计入")
+	case types.TraceCausalOnChainBasisSelfDeterministicSpan, "self_wall_clock_interval":
+		parts = append(parts, "凭证=目标自身：目标线程窗内自身的状态/工作")
+	default:
+		if facts.ChainRelevance == "on_chain" && facts.OnChainBasis == "" {
+			parts = append(parts, "凭证=唤醒链成员：其等待/运行段落落在目标的唤醒依赖窗内")
+		}
+	}
+	if len(facts.WakeupPath) > 0 {
+		hops := facts.WakeupPath
+		const maxHops = 6
+		suffix := ""
+		if len(hops) > maxHops {
+			suffix = fmt.Sprintf(" … 等 %d 级", len(hops))
+			hops = hops[:maxHops]
+		}
+		parts = append(parts, "唤醒链："+strings.Join(hops, " → ")+suffix)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "链路关系：" + strings.Join(parts, "；")
+}
+
+// rootCauseEvidenceMechanismSentence — 机理与边界.
+func rootCauseEvidenceMechanismSentence(decision types.TraceCauseDecision, facts *types.TraceCauseEvidenceFacts) string {
+	var parts []string
+	if facts.StateKind != "" {
+		parts = append(parts, "状态="+facts.StateKind)
+	}
+	if facts.SemanticClass != "" && facts.SpanName != "" {
+		parts = append(parts, fmt.Sprintf("确定性语义工作 %s（%s）", facts.SpanName, facts.SemanticClass))
+	}
+	if facts.BlockedReasonCaller != "" {
+		parts = append(parts, "阻塞记录调用者="+facts.BlockedReasonCaller)
+	}
+	if word, ok := tracefence.FixDirectionWord(facts.FixDirection, true); ok {
+		parts = append(parts, "修向="+word)
+	}
+	switch facts.OnChainBasis {
+	case types.TraceCausalOnChainBasisHostWakeupEdgeSpan, types.TraceCausalOnChainBasisSemanticChainIntervalRelation:
+		parts = append(parts, "语义完成机理未证（仅披露，边前份/相交份仍按凭证规则计价）")
+	}
+	if decision.CausalQualifier == types.TraceCausalQualifierFrameUnproven {
+		parts = append(parts, "帧因果未证：本席位引用的 trace 证据中没有帧证据，该限定不改变有效归因与排序")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "机理与边界：" + strings.Join(parts, "；")
+}
+
+// rootCauseEvidenceLocatorSentence — trace 定位 (customer-accessible: the
+// attachment's line range and timestamps; never an internal path).
+func rootCauseEvidenceLocatorSentence(facts *types.TraceCauseEvidenceFacts) string {
+	var parts []string
+	label := "附件 trace"
+	if facts.ArtifactLabel != "" {
+		label = facts.ArtifactLabel
+	}
+	if facts.LineStart > 0 {
+		if facts.LineEnd > facts.LineStart {
+			parts = append(parts, fmt.Sprintf("%s 第 %d–%d 行", label, facts.LineStart, facts.LineEnd))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s 第 %d 行", label, facts.LineStart))
+		}
+	}
+	if facts.SeatEndTs > facts.SeatStartTs {
+		parts = append(parts, fmt.Sprintf("发生 %.6f–%.6f s", facts.SeatStartTs, facts.SeatEndTs))
+	}
+	if facts.WindowEndTs > facts.WindowStartTs {
+		parts = append(parts, fmt.Sprintf("分析窗 %.6f–%.6f s", facts.WindowStartTs, facts.WindowEndTs))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "trace 定位：" + strings.Join(parts, "，")
+}
+
+// rootCauseEvidenceFit keeps one entry inside the wire cap at a semantic
+// boundary (the last "；" part is dropped first; a single oversized atom is
+// cut on a rune boundary with an ellipsis so the strict validator never
+// rejects a system-rendered sentence).
+func rootCauseEvidenceFit(entry string) string {
+	for utf8.RuneCountInString(entry) > types.TraceRootCauseEvidenceMaxRunes {
+		if cut := strings.LastIndex(entry, "；"); cut > 0 {
+			entry = entry[:cut]
+			continue
+		}
+		runes := []rune(entry)
+		return string(runes[:types.TraceRootCauseEvidenceMaxRunes-1]) + "…"
+	}
+	return entry
 }

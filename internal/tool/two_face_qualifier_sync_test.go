@@ -154,3 +154,87 @@ func TestTwoFacesShareOneSeatLevelFrameQualifier(t *testing.T) {
 		t.Fatalf("gate closed: both faces must make no frame claim for %q (crown=%v sidecar=%q)", subject, crown, sidecar)
 	}
 }
+
+// RECEIPT-1 (§40.32): the runtime_work_relation contract stamps the analyzer's
+// typed frame decision on every system-bound row from the SAME ledger input
+// the two faces read (real trace_query records, not hand-typed notes).
+func TestRuntimeWorkRelationContractRowsCarryTypedFrameDecision(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frame_semantic_span.ftrace")
+	if err := os.WriteFile(path, []byte(twoFaceSemanticEvalTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := twoFaceResults(t, idx, []twoFaceResultSpec{{view: "root_cause_rank", start: 5.0, end: 5.007}})
+	for _, tc := range []struct {
+		name  string
+		frame bool
+	}{{"frame question", true}, {"non-frame question", false}} {
+		input := types.ObservationLedgerInput{ToolResults: results,
+			RequestModel: &types.RequestModel{RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+				Scope: types.RuntimeQuestionScopeCausalDiagnosis, FrameCausalityRequested: tc.frame}}}
+		contract := types.BuildRuntimeWorkRelationContract(input, true)
+		if contract == nil || len(contract.Rows) == 0 {
+			t.Fatalf("%s: the VerifyClass span must compile a work-relation row", tc.name)
+		}
+		for _, row := range contract.Rows {
+			if row.FrameCausalityApplicable != tc.frame {
+				t.Fatalf("%s: row %s frame decision=%v want %v", tc.name, row.ObservationID, row.FrameCausalityApplicable, tc.frame)
+			}
+		}
+	}
+	if contract := types.BuildRuntimeWorkRelationContract(types.ObservationLedgerInput{ToolResults: results}, true); contract != nil {
+		for _, row := range contract.Rows {
+			if row.FrameCausalityApplicable {
+				t.Fatalf("no typed profile ⇒ generic wording (frame=false): %+v", row)
+			}
+		}
+	}
+}
+
+// LEDGER-MERGE-1 (§40.33): a same-seat twin from a second query result no
+// longer vanishes — the survivor carries both ids in either result order, so
+// the seat-level qualifier index reaches the seat through whichever id it
+// keyed (the sidecar / rank-row side of the two-face split).
+func TestDroppedSameSeatTwinIDStaysReachableOnTheSidecar(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frame_semantic_span.ftrace")
+	if err := os.WriteFile(path, []byte(twoFaceSemanticEvalTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rank := twoFaceResultSpec{view: "root_cause_rank", start: 5.0, end: 5.007}
+	bundle := twoFaceResultSpec{view: "frame_root_cause_bundle", start: 5.0, end: 5.007}
+	for name, specs := range map[string][]twoFaceResultSpec{"rank_then_bundle": {rank, bundle}, "bundle_then_rank": {bundle, rank}} {
+		input := types.ObservationLedgerInput{ToolResults: twoFaceResults(t, idx, specs)}
+		set := types.CompileTraceCausalProjectionSet(types.CompileObservationLedger(input))
+		if len(set.Projections) != 1 {
+			t.Fatalf("%s: one projection expected", name)
+		}
+		var seat *types.TraceCausalProjectionNode
+		for i := range set.Projections[0].RankedSeats {
+			if set.Projections[0].RankedSeats[i].Subject == "worker-200" {
+				seat = &set.Projections[0].RankedSeats[i]
+			}
+		}
+		if seat == nil {
+			t.Fatalf("%s: worker-200 seat missing", name)
+		}
+		ids := append([]string{seat.EvidenceID}, seat.MergedEvidenceIDs...)
+		for _, want := range []string{"trace_query:p-root_cause_rank#root_cause_rank:1", "trace_query:p-frame_root_cause_bundle#root_cause_rank:1"} {
+			found := false
+			for _, id := range ids {
+				found = found || id == want
+			}
+			if !found {
+				t.Fatalf("%s: the seat must carry both producers' ids, got %v", name, ids)
+			}
+		}
+	}
+}

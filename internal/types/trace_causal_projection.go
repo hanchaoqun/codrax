@@ -954,7 +954,10 @@ type TraceCausalProjectionNode struct {
 	// MergedEvidenceIDs lists the observation ids of rows merged into this node
 	// by R1 (same subject + same projected ms at 3 decimals + same evidence line
 	// range across predicates — e.g. an io_latency row and its same-interval
-	// critical_blocking twin) or R2 (same subject+object repeated ≥3 times).
+	// critical_blocking twin), R2 (same subject+object repeated ≥3 times), or
+	// the compile-level exact-identity dedupe (traceCausalProjectionDedupeNodes
+	// — a second query result republishing the SAME seat: same role/subject/
+	// predicate/object/support refs/board; LEDGER-MERGE-1 §40.33).
 	// EvidenceID stays the lead id; renderers union both for the E# roster.
 	MergedEvidenceIDs []string `json:"merged_evidence_ids,omitempty"`
 	// MergedCount > 1 marks an R2 ×N aggregate row: ImpactMS/CumulativeImpactMS
@@ -5808,7 +5811,7 @@ func traceCausalProjectionDedupeNodes(nodes []TraceCausalProjectionNode) []Trace
 		}
 		namedBoardBases[traceCausalProjectionDedupeBaseKey(node)] = true
 	}
-	seen := make(map[string]bool, len(nodes))
+	seen := make(map[string]int, len(nodes))
 	out := make([]TraceCausalProjectionNode, 0, len(nodes))
 	for _, node := range nodes {
 		baseKey := traceCausalProjectionDedupeBaseKey(node)
@@ -5830,13 +5833,49 @@ func traceCausalProjectionDedupeNodes(nodes []TraceCausalProjectionNode) []Trace
 			rankBoard = "unnamed"
 		}
 		key := baseKey + "\x00" + rankBoard
-		if seen[key] {
+		if at, dup := seen[key]; dup {
+			// LEDGER-MERGE-1 (§40.29.1 残留 → §40.33, 2026-09-02): a second
+			// query result republishing the SAME seat (same role/subject/
+			// predicate/object/support refs/board — e.g. the model's
+			// root_cause_rank and the system supplement's frame_root_cause_bundle)
+			// used to be discarded without a trace, so the seat's evidence set
+			// depended on which result happened to win the survivor slot. The
+			// twin's ids now ride the survivor's MergedEvidenceIDs — every id-set
+			// consumer (seat qualifier index, crown raw ids, tree folds, aggregate
+			// identity) sees ONE set regardless of result order. The zero-account
+			// mirror branch above stays a plain discard (ISPGAP-1 F-A).
+			traceCausalProjectionAbsorbDedupeTwinEvidence(&out[at], node)
 			continue
 		}
-		seen[key] = true
+		seen[key] = len(out)
 		out = append(out, node)
 	}
 	return out
+}
+
+// traceCausalProjectionAbsorbDedupeTwinEvidence unions the exact-identity
+// twin's EvidenceID ∪ MergedEvidenceIDs into the survivor (canonical-keyed,
+// survivor's own id excluded); SupportRefs are shared by key definition and
+// are not touched, so locator order and E# ordinals never move.
+func traceCausalProjectionAbsorbDedupeTwinEvidence(survivor *TraceCausalProjectionNode, twin TraceCausalProjectionNode) {
+	if survivor == nil {
+		return
+	}
+	seen := make(map[string]bool, 1+len(survivor.MergedEvidenceIDs))
+	for _, id := range append([]string{survivor.EvidenceID}, survivor.MergedEvidenceIDs...) {
+		if key := traceCausalProjectionCanonicalNode(id); key != "" {
+			seen[key] = true
+		}
+	}
+	for _, id := range append([]string{twin.EvidenceID}, twin.MergedEvidenceIDs...) {
+		id = strings.TrimSpace(id)
+		key := traceCausalProjectionCanonicalNode(id)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		survivor.MergedEvidenceIDs = append(survivor.MergedEvidenceIDs, id)
+	}
 }
 
 // traceCausalProjectionDedupeSemanticAliasPublications folds only duplicate

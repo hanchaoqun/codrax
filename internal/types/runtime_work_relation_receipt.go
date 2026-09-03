@@ -43,6 +43,14 @@ type RuntimeWorkRelationRow struct {
 	AllowedConclusions []RuntimeWorkRelationConclusion
 	Credential         string
 	Boundary           string
+	// FrameCausalityApplicable (RECEIPT-1, §40.31.1 ○14 → §40.32, 2026-09-02)
+	// is the analyzer's typed frame decision (FrameCausalityQualifierApplicable)
+	// stamped on the system-bound row at contract build time: the receipt's
+	// unproven-mechanism wording names a dropped frame / frame deadline only
+	// when the request is a frame question; otherwise it speaks the generic
+	// target-wait / completion mechanism. System-owned — the model authors
+	// only observation_id + conclusion.
+	FrameCausalityApplicable bool
 }
 
 // RuntimeWorkRelationContract is active only when the analyzer explicitly
@@ -94,6 +102,7 @@ func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bo
 		return nil
 	}
 	set := CompileTraceCausalProjectionSet(CompileObservationLedger(input))
+	frameQuestion := FrameCausalityQualifierApplicable(input.RequestModel)
 	seen := map[string]bool{}
 	var rows []RuntimeWorkRelationRow
 	for _, projection := range set.Projections {
@@ -104,6 +113,7 @@ func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bo
 				continue
 			}
 			row := runtimeWorkRelationRowFromNode(id, label, node)
+			row.FrameCausalityApplicable = frameQuestion
 			if row.MeasuredDurationMS <= 0 || math.IsNaN(row.MeasuredDurationMS) || math.IsInf(row.MeasuredDurationMS, 0) {
 				continue
 			}
