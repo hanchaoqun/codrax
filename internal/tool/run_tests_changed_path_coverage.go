@@ -188,7 +188,7 @@ func enrichSuccessfulCommandCoveredPaths(
 		cmd := &out[i]
 		cmd.CoveredPaths = normalizeCoveredTargetPaths(cmd.CoveredPaths, targets)
 		outcome := strings.TrimSpace(cmd.Outcome)
-		if outcome != "executed" || cmd.ExitCode != 0 || strings.TrimSpace(cmd.Runner) == "verification_probe" {
+		if outcome != types.ExecutedCommandOutcomeExecuted || cmd.ExitCode != 0 || strings.TrimSpace(cmd.Runner) == "verification_probe" {
 			continue
 		}
 		runnerFamilies, declaredPaths := executedCommandCoverageAuthority(*cmd, surface)
@@ -219,10 +219,10 @@ func changedPathCoverageFromCommands(
 		var caliber types.ChangedPathVerificationCaliber
 		var capability types.VerificationCapability
 		switch {
-		case outcome == "executed" && cmd.ExitCode == 0 && strings.TrimSpace(cmd.Runner) != "verification_probe":
+		case outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 && strings.TrimSpace(cmd.Runner) != "verification_probe":
 			caliber = types.ChangedPathVerificationProjectRunner
 			capability = types.VerificationCapabilityTargetBehavior
-		case (outcome == "syntax_check_fallback" || outcome == "syntax_preflight") && cmd.ExitCode == 0:
+		case (outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback || outcome == types.ExecutedCommandOutcomeSyntaxPreflight) && cmd.ExitCode == 0:
 			caliber = types.ChangedPathVerificationSourceCheck
 			capability = types.VerificationCapabilitySyntaxOnly
 		default:

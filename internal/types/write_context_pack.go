@@ -1850,13 +1850,33 @@ func maxInt(a, b int) int {
 	return b
 }
 
+// writeContextItemKindKeepsWholeText names the item kinds whose text is a
+// typed-token row built by this package (fold-in round four, finding M):
+// the worktree effect row is fitted to the bound by
+// writeContextFitTokensThenPath (basename never cut, tokens dropped whole),
+// and the lockfile fixed-point disclosure item exists precisely so the
+// phrase and the WHOLE path survive verbatim. Neither is ever trimmed with
+// "..." — a trim would land on a typed token or inside a path basename.
+func writeContextItemKindKeepsWholeText(kind string) bool {
+	switch kind {
+	case "verification_worktree_effect", "verification_lockfile_fixed_point":
+		return true
+	default:
+		return false
+	}
+}
+
 func normalizeWriteContextItem(in WriteContextItem) WriteContextItem {
 	in.ID = trimWriteContextText(in.ID)
 	in.BatchID = trimWriteContextText(in.BatchID)
 	in.SliceID = trimWriteContextText(in.SliceID)
 	in.Priority = normalizeWriteContextPriority(in.Priority)
 	in.Kind = trimWriteContextText(in.Kind)
-	in.Text = trimWriteContextText(in.Text)
+	if writeContextItemKindKeepsWholeText(in.Kind) {
+		in.Text = strings.Join(strings.Fields(strings.TrimSpace(in.Text)), " ")
+	} else {
+		in.Text = trimWriteContextText(in.Text)
+	}
 	in.SourceStage = trimWriteContextText(in.SourceStage)
 	in.SourceID = trimWriteContextText(in.SourceID)
 	in.StaleReason = trimWriteContextText(in.StaleReason)
@@ -2736,68 +2756,136 @@ func writeContextStableID(parts ...string) string {
 	return strings.Join(out, "|")
 }
 
-// WriteContextLockfileFixedPointSuffix renders the typed fixed-point token
-// of a dependency_lockfile_refresh row on the effect line of the write
-// handoff (context pack and controller prompt share it). "" for rows of
-// other classes.
-func WriteContextLockfileFixedPointSuffix(fp VerificationLockfileFixedPoint) string {
-	if fp == "" {
-		return ""
+// writeContextEffectToken is one typed token of an effect row with its
+// keep priority (higher survives longer when the item bound binds).
+type writeContextEffectToken struct {
+	key, value string
+	priority   int
+}
+
+// Keep priorities of the effect-row elements when the per-item bound binds
+// (fold-in round four, finding M): the path BASENAME is never cut; below it
+// the typed tokens are dropped WHOLE, lowest priority first, and the
+// directory prefix of the path is shrunk from the left before any token is
+// dropped. Order (highest kept longest): basename > lockfile_fixed_point >
+// drift_class > disposition > owner_runner > kind > ownership > action >
+// directory prefix. kind / ownership / action are the descriptive tokens of
+// every row; on a tracked drift row the decision tokens (fixed point, class,
+// disposition, owner) carry the verdict, so they outrank them.
+const (
+	writeContextEffectPriorityAction = iota + 1
+	writeContextEffectPriorityOwnership
+	writeContextEffectPriorityKind
+	writeContextEffectPriorityOwnerRunner
+	writeContextEffectPriorityDisposition
+	writeContextEffectPriorityDriftClass
+	writeContextEffectPriorityLockfileFixedPoint
+)
+
+// writeContextWorktreeEffectTokens lists the typed tokens of one effect row
+// in display order (kind, ownership, action, drift_class, disposition,
+// owner_runner, lockfile_fixed_point); empty values are omitted.
+func writeContextWorktreeEffectTokens(effect VerificationWorktreeEffect) []writeContextEffectToken {
+	tokens := []writeContextEffectToken{
+		{key: "kind", value: string(effect.Kind), priority: writeContextEffectPriorityKind},
+		{key: "ownership", value: effect.Ownership, priority: writeContextEffectPriorityOwnership},
+		{key: "action", value: effect.Action, priority: writeContextEffectPriorityAction},
 	}
-	return " lockfile_fixed_point=" + string(fp)
+	if effect.DriftClass != "" {
+		tokens = append(tokens,
+			writeContextEffectToken{key: "drift_class", value: string(effect.DriftClass), priority: writeContextEffectPriorityDriftClass},
+			writeContextEffectToken{key: "disposition", value: string(effect.Disposition), priority: writeContextEffectPriorityDisposition})
+		if effect.OwnerRunner != "" {
+			tokens = append(tokens, writeContextEffectToken{key: "owner_runner", value: effect.OwnerRunner, priority: writeContextEffectPriorityOwnerRunner})
+		}
+		if effect.LockfileFixedPoint != "" {
+			tokens = append(tokens, writeContextEffectToken{key: "lockfile_fixed_point", value: string(effect.LockfileFixedPoint), priority: writeContextEffectPriorityLockfileFixedPoint})
+		}
+	}
+	return tokens
 }
 
 // WriteContextWorktreeEffectText renders one worktree-audit effect row for
 // the write handoff (context pack item and controller prompt line share
 // it): every typed token first — kind, ownership, action, drift_class,
 // disposition, owner_runner, lockfile_fixed_point — and the path as the
-// LAST element, fitted so the whole row stays within the per-item text
-// bound. A long lockfile path is shortened from the left (its basename is
-// the informative end); a typed token is never cut.
+// LAST element, fitted to the per-item text bound by
+// writeContextFitTokensThenPath: the directory prefix is shrunk from the
+// left first, then whole tokens are dropped by priority; the basename and
+// every rendered token are always intact.
 func WriteContextWorktreeEffectText(effect VerificationWorktreeEffect) string {
-	tokens := fmt.Sprintf("kind=%s ownership=%s action=%s", effect.Kind, effect.Ownership, effect.Action)
-	if effect.DriftClass != "" {
-		tokens += fmt.Sprintf(" drift_class=%s disposition=%s", effect.DriftClass, effect.Disposition)
-		if effect.OwnerRunner != "" {
-			tokens += " owner_runner=" + effect.OwnerRunner
-		}
-		tokens += WriteContextLockfileFixedPointSuffix(effect.LockfileFixedPoint)
-	}
-	return writeContextTokensThenPath(tokens, effect.Path)
+	return writeContextFitTokensThenPath(writeContextWorktreeEffectTokens(effect), effect.Path)
 }
 
 // WriteContextLockfileFixedPointDisclosureText is the write-handoff form of
 // the plain-words disclosure for an UNPROVEN lockfile fixed point
 // ("lockfile_fixed_point=<state> (<phrase>) path=<p>"): typed token, then
-// the single-sourced phrase, then the path last (fitted to the item bound);
-// "" when the fixed point is proven, disproven or not applicable. Context
-// pack and controller prompt both render it, so the wording is
-// single-sourced here.
+// the single-sourced phrase, then the WHOLE path last — this dedicated item
+// exists so the phrase and the path survive verbatim whatever the effect
+// row had to drop; it is never shortened. "" when the fixed point is proven,
+// disproven or not applicable. Context pack and controller prompt both
+// render it, so the wording is single-sourced here.
 func WriteContextLockfileFixedPointDisclosureText(path string, fp VerificationLockfileFixedPoint) string {
 	phrase := VerificationLockfileFixedPointDisclosure(fp, false)
 	if phrase == "" {
 		return ""
 	}
-	return writeContextTokensThenPath("lockfile_fixed_point="+string(fp)+" ("+phrase+")", path)
+	return "lockfile_fixed_point=" + string(fp) + " (" + phrase + ") path=" + strings.TrimSpace(path)
 }
 
-// writeContextTokensThenPath appends " path=<p>" to a token prefix and fits
-// the result within writeContextPackTextLen runes by shortening the PATH
-// from the left (prefixing "…"), never the tokens. The result therefore
-// passes trimWriteContextText unchanged.
-func writeContextTokensThenPath(tokens, path string) string {
+// writeContextFitTokensThenPath renders "<tokens> path=<p>" within
+// writeContextPackTextLen runes. When the bound binds it first shortens the
+// DIRECTORY prefix of the path from the left (prefixing "…", keeping at
+// least "/<basename>"), then drops whole tokens in ascending priority until
+// the basename fits; a token is never truncated and the basename is never
+// cut (a basename longer than the bound is rendered whole, over the bound —
+// the reader's path is worth more than the bound). The result therefore
+// passes trimWriteContextText unchanged whenever the basename fits.
+func writeContextFitTokensThenPath(tokens []writeContextEffectToken, path string) string {
 	path = strings.TrimSpace(path)
-	head := strings.TrimSpace(tokens) + " path="
-	budget := writeContextPackTextLen - len([]rune(head))
-	runes := []rune(path)
-	if budget < 0 {
-		return strings.TrimSpace(tokens)
-	}
-	if len(runes) > budget {
-		if budget <= 1 {
-			return head + string(runes[len(runes)-max(budget, 0):])
+	active := make([]writeContextEffectToken, 0, len(tokens))
+	for _, token := range tokens {
+		if token.value != "" {
+			active = append(active, token)
 		}
-		runes = append([]rune{'…'}, runes[len(runes)-(budget-1):]...)
 	}
-	return head + string(runes)
+	pathRunes := []rune(path)
+	minTail := pathRunes
+	if slash := strings.LastIndex(path, "/"); slash >= 0 {
+		minTail = []rune(path[slash:]) // "/<basename>"
+	}
+	for {
+		head := writeContextEffectHead(active)
+		budget := writeContextPackTextLen - len([]rune(head))
+		if len(pathRunes) <= budget {
+			return head + path
+		}
+		if len(minTail) < len(pathRunes) && 1+len(minTail) <= budget {
+			// Shrink the directory prefix: "…" + the longest tail that fits
+			// (always at least "/<basename>").
+			return head + "…" + string(pathRunes[len(pathRunes)-(budget-1):])
+		}
+		if len(active) == 0 {
+			return head + path
+		}
+		lowest := 0
+		for i, token := range active {
+			if token.priority < active[lowest].priority {
+				lowest = i
+			}
+		}
+		active = append(active[:lowest:lowest], active[lowest+1:]...)
+	}
+}
+
+func writeContextEffectHead(tokens []writeContextEffectToken) string {
+	var b strings.Builder
+	for _, token := range tokens {
+		b.WriteString(token.key)
+		b.WriteByte('=')
+		b.WriteString(token.value)
+		b.WriteByte(' ')
+	}
+	b.WriteString("path=")
+	return b.String()
 }

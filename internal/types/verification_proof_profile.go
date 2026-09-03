@@ -467,7 +467,7 @@ func (ledger *VerificationProofLedger) resolveNonAuthoritativeProbeFailures(prim
 	hasContinuation := false
 	for _, cmd := range primary.ExecutedCommands {
 		if strings.TrimSpace(cmd.Source) == "probe_primary_suite_continued" &&
-			strings.TrimSpace(cmd.Outcome) == "suite_continued" &&
+			strings.TrimSpace(cmd.Outcome) == ExecutedCommandOutcomeSuiteContinued &&
 			strings.TrimSpace(cmd.ReasonCode) == "probe_non_authoritative" &&
 			cmd.ExitCode == 0 {
 			hasContinuation = true
@@ -858,16 +858,24 @@ func verificationProofCommandUnavailableReasonCode(cmd ExecutedCommand, class Ve
 	if class == VerificationProofRunnerUnavailable {
 		return firstNonEmptyVerificationProof(outcome, string(FailureKindParserError))
 	}
+	// Total over the closed ExecutedCommandOutcome set (consumer census).
+	// The legacy FailureKindNoTests spelling ("no_tests") is not an Outcome
+	// member; it is kept for reports persisted before the labels closed.
 	switch outcome {
-	case string(FailureKindParserError):
+	case ExecutedCommandOutcomeParserError:
 		return string(FailureKindParserError)
-	case string(FailureKindRunnerMissing):
+	case ExecutedCommandOutcomeRunnerMissing, ExecutedCommandOutcomeNotConfigured:
 		return string(FailureKindRunnerMissing)
-	case string(FailureKindNoTests), "synthetic_no_tests", "zero_tests":
+	case string(FailureKindNoTests), ExecutedCommandOutcomeSyntheticNoTests, ExecutedCommandOutcomeZeroTests:
 		return string(FailureKindNoTests)
-	case "not_configured":
-		return string(FailureKindRunnerMissing)
+	case "", ExecutedCommandOutcomeExecuted, ExecutedCommandOutcomeSyntaxCheckFallback, ExecutedCommandOutcomeSyntaxPreflight,
+		ExecutedCommandOutcomeSuiteSkipped, ExecutedCommandOutcomeSuiteContinued, ExecutedCommandOutcomeTimeout,
+		ExecutedCommandOutcomeOOM, ExecutedCommandOutcomeCPULimit, ExecutedCommandOutcomeProbeConfigError,
+		ExecutedCommandOutcomeExpectedStdoutMissing, ExecutedCommandOutcomeExpectedFailureObserved,
+		ExecutedCommandOutcomeExpectedFailureNotObserved, ExecutedCommandOutcomeBaselineUnavailable:
+		return ""
 	default:
+		// Unknown label (not a member; the census pins every member above).
 		return ""
 	}
 }
@@ -1834,16 +1842,29 @@ func verificationProofCommandClass(cmd ExecutedCommand) VerificationProofRunnerE
 	source := strings.TrimSpace(cmd.Source)
 	suite := strings.TrimSpace(cmd.Suite)
 	outcome := strings.TrimSpace(cmd.Outcome)
-	if outcome == "syntax_check_fallback" {
+	if outcome == ExecutedCommandOutcomeSyntaxCheckFallback {
 		return VerificationProofRunnerSyntaxFallback
 	}
 	if strings.Contains(source, "verification_probe") ||
 		strings.HasPrefix(suite, "verification_probe/") {
 		return VerificationProofRunnerVerificationProbe
 	}
+	// Total over the closed ExecutedCommandOutcome set (consumer census):
+	// environment refusals and skips are the unavailable class; every other
+	// member is a project runner row when it names a runner or command.
 	switch outcome {
-	case "runner_missing", "parser_error", "not_configured", "suite_skipped":
+	case ExecutedCommandOutcomeRunnerMissing, ExecutedCommandOutcomeParserError, ExecutedCommandOutcomeNotConfigured,
+		ExecutedCommandOutcomeSuiteSkipped:
 		return VerificationProofRunnerUnavailable
+	case "", ExecutedCommandOutcomeExecuted, ExecutedCommandOutcomeSyntheticNoTests, ExecutedCommandOutcomeSyntaxCheckFallback,
+		ExecutedCommandOutcomeSyntaxPreflight, ExecutedCommandOutcomeSuiteContinued, ExecutedCommandOutcomeTimeout,
+		ExecutedCommandOutcomeOOM, ExecutedCommandOutcomeCPULimit, ExecutedCommandOutcomeZeroTests,
+		ExecutedCommandOutcomeProbeConfigError, ExecutedCommandOutcomeExpectedStdoutMissing,
+		ExecutedCommandOutcomeExpectedFailureObserved, ExecutedCommandOutcomeExpectedFailureNotObserved,
+		ExecutedCommandOutcomeBaselineUnavailable:
+	default:
+		// Unknown label (not a member; the census pins every member above):
+		// classified by runner/command presence like a member.
 	}
 	if strings.TrimSpace(cmd.Runner) != "" || strings.TrimSpace(cmd.Command) != "" {
 		return VerificationProofRunnerProject

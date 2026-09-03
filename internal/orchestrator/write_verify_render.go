@@ -225,21 +225,31 @@ func reportUntriedRunnableCandidate(report *types.ChangeReport) *types.TestSurfa
 			wd = "."
 		}
 		key := cmd.Runner + "@" + wd
+		// Total over the closed ExecutedCommandOutcome set (consumer census).
 		switch cmd.Outcome {
-		case "", "executed", "parser_error", "timeout", "oom", "cpu_limit", "zero_tests":
+		case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeTimeout,
+			types.ExecutedCommandOutcomeOOM, types.ExecutedCommandOutcomeCPULimit, types.ExecutedCommandOutcomeZeroTests:
 			ranByKey[key] = append(ranByKey[key], cmd)
-		case "synthetic_no_tests":
+		case types.ExecutedCommandOutcomeSyntheticNoTests:
 			// Explicit non-execution that says nothing about the
 			// environment; the candidate stays untried-eligible.
-		case "runner_missing", "not_configured":
+		case types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeNotConfigured:
 			// Typed environment refusal: the "environment is not
 			// missing" claim would be a lie for this key.
 			disqualifiedByKey[key] = true
+		case types.ExecutedCommandOutcomeSyntaxCheckFallback, types.ExecutedCommandOutcomeSyntaxPreflight,
+			types.ExecutedCommandOutcomeSuiteSkipped, types.ExecutedCommandOutcomeSuiteContinued,
+			types.ExecutedCommandOutcomeProbeConfigError, types.ExecutedCommandOutcomeExpectedStdoutMissing,
+			types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
+			types.ExecutedCommandOutcomeBaselineUnavailable:
+			// Other typed outcomes (skips, preflight-only rows, probe
+			// contract rows, main-snapshot baseline evidence): conservative
+			// — not a try, and not a licence to claim the environment is
+			// intact either.
+			disqualifiedByKey[key] = true
 		default:
-			// Unknown / other typed outcomes (suite_skipped,
-			// probe_config_error, future values...): conservative —
-			// not a try, and not a licence to claim the environment
-			// is intact either.
+			// Unknown label (not a member; the census pins every member
+			// above): the same conservative disqualification.
 			disqualifiedByKey[key] = true
 		}
 	}

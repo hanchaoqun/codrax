@@ -73,9 +73,6 @@ const (
 	verificationProbeContinuationSourceDeclaredCoverage    = "declared_coverage_test_surface"
 	verificationProbeContinuationSourceProbeSuiteContinued = "probe_primary_suite_continued"
 	verificationProbeBaselineSource                        = "verification_probe_main_snapshot_baseline"
-	verificationProbeBaselineObserved                      = "expected_failure_observed"
-	verificationProbeBaselineUnexpectedPass                = "expected_failure_not_observed"
-	verificationProbeBaselineUnavailable                   = "baseline_unavailable"
 )
 
 type pytestTextFallbackResult struct {
@@ -1717,7 +1714,7 @@ func runExpectedFailureVerificationProbeBaselines(ctx *types.BusContext, source 
 				WorkingDir: strings.TrimSpace(probe.WorkingDir),
 				Command:    "verification_probe_baseline:" + id,
 				Source:     verificationProbeBaselineSource,
-				Outcome:    verificationProbeBaselineUnavailable,
+				Outcome:    types.ExecutedCommandOutcomeBaselineUnavailable,
 				ReasonCode: "verification_probe_baseline_snapshot_unavailable",
 			})
 			continue
@@ -1733,7 +1730,7 @@ func runExpectedFailureVerificationProbeBaselines(ctx *types.BusContext, source 
 			WorkingDir: strings.TrimSpace(probe.WorkingDir),
 			Command:    "verification_probe_baseline:" + id,
 			Source:     verificationProbeBaselineSource,
-			Outcome:    verificationProbeBaselineUnavailable,
+			Outcome:    types.ExecutedCommandOutcomeBaselineUnavailable,
 			ReasonCode: "verification_probe_baseline_unavailable",
 		}
 		if len(result.Commands) > 0 {
@@ -1743,13 +1740,13 @@ func runExpectedFailureVerificationProbeBaselines(ctx *types.BusContext, source 
 		}
 		switch {
 		case result.Report != nil && result.Report.NormalizeVerificationStatus() == types.VerificationStatusFailed && result.Report.FailureKind == types.FailureKindTestsFailed:
-			command.Outcome = verificationProbeBaselineObserved
+			command.Outcome = types.ExecutedCommandOutcomeExpectedFailureObserved
 			command.ReasonCode = "verification_probe_baseline_expected_failure_observed"
 		case result.Report != nil && result.Report.NormalizeVerificationStatus() == types.VerificationStatusPassed:
-			command.Outcome = verificationProbeBaselineUnexpectedPass
+			command.Outcome = types.ExecutedCommandOutcomeExpectedFailureNotObserved
 			command.ReasonCode = "verification_probe_baseline_expected_failure_not_observed"
 		default:
-			command.Outcome = verificationProbeBaselineUnavailable
+			command.Outcome = types.ExecutedCommandOutcomeBaselineUnavailable
 			if command.ReasonCode == "" {
 				command.ReasonCode = "verification_probe_baseline_unavailable"
 			}
@@ -2191,7 +2188,7 @@ func latestExecutedCommandForVerifyScope(commands []types.ExecutedCommand, p *ru
 		if _, ok := allowedRunners[runner]; !ok {
 			continue
 		}
-		if strings.TrimSpace(cmd.Outcome) != "" && strings.TrimSpace(cmd.Outcome) != "executed" {
+		if strings.TrimSpace(cmd.Outcome) != "" && strings.TrimSpace(cmd.Outcome) != types.ExecutedCommandOutcomeExecuted {
 			continue
 		}
 		if wantRunner != "" && wantRunner != runner {
@@ -3053,6 +3050,12 @@ func failureReasonCandidatesFromExecutedCommands(commands []types.ExecutedComman
 	return out
 }
 
+// failureKindFromExecutedCommand is total over the closed
+// ExecutedCommandOutcome set (consumer census): verdict-override labels
+// name their kind directly; launched labels defer to the probe reason code
+// for probe rows; the main-snapshot baseline evidence rows never name a
+// report failure kind (their reason codes belong to the probe_baseline
+// confidence lane, not to the report's failure reason).
 func failureKindFromExecutedCommand(cmd types.ExecutedCommand) types.FailureKind {
 	switch strings.TrimSpace(cmd.Outcome) {
 	case types.ExecutedCommandOutcomeTimeout:
@@ -3069,6 +3072,15 @@ func failureKindFromExecutedCommand(cmd types.ExecutedCommand) types.FailureKind
 		return types.FailureKindNoTests
 	case types.ExecutedCommandOutcomeExpectedStdoutMissing:
 		return types.FailureKindTestsFailed
+	case types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
+		types.ExecutedCommandOutcomeBaselineUnavailable:
+		return ""
+	case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSyntaxCheckFallback,
+		types.ExecutedCommandOutcomeSyntaxPreflight, types.ExecutedCommandOutcomeSuiteContinued:
+		// Launched rows: the kind comes from the probe reason code below.
+	default:
+		// Unknown label (not a member; the census pins every member above):
+		// treated like a launched row.
 	}
 	if strings.TrimSpace(cmd.Runner) == "verification_probe" {
 		return failureKindFromVerificationProbeReasonCode(cmd.ReasonCode)
@@ -3207,10 +3219,16 @@ func verificationDiagnosticClass(runner, outcome, reasonCode string) (category, 
 	runner = strings.TrimSpace(runner)
 	outcome = strings.TrimSpace(outcome)
 	reasonCode = strings.TrimSpace(reasonCode)
+	// Total over the closed ExecutedCommandOutcome set (consumer census).
+	// The main-snapshot baseline evidence rows never become a diagnostic
+	// here: their reason codes are read by the probe_baseline confidence
+	// lane (an error-severity "probe runtime failure" for the probe's
+	// DESIRED baseline failure was the default-arm mislabel of fold-in
+	// round four, finding K).
 	switch outcome {
-	case "runner_missing", "not_configured":
+	case types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeNotConfigured:
 		return "environment", "warning"
-	case "parser_error":
+	case types.ExecutedCommandOutcomeParserError:
 		if runner == "verification_probe" {
 			switch reasonCode {
 			case "verification_probe_name_error", "verification_probe_syntax_error",
@@ -3224,14 +3242,24 @@ func verificationDiagnosticClass(runner, outcome, reasonCode string) (category, 
 			}
 		}
 		return "parser_or_startup", "warning"
-	case "timeout", "oom", "cpu_limit":
+	case types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM, types.ExecutedCommandOutcomeCPULimit:
 		return "resource_limit", "warning"
-	case "probe_config_error":
+	case types.ExecutedCommandOutcomeProbeConfigError:
 		return "probe_authoring", "warning"
-	case "expected_stdout_missing":
+	case types.ExecutedCommandOutcomeExpectedStdoutMissing:
 		return "probe_contract", "error"
-	case "zero_tests", "synthetic_no_tests":
+	case types.ExecutedCommandOutcomeZeroTests, types.ExecutedCommandOutcomeSyntheticNoTests:
 		return "no_tests", "warning"
+	case types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
+		types.ExecutedCommandOutcomeBaselineUnavailable:
+		return "", ""
+	case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSyntaxCheckFallback,
+		types.ExecutedCommandOutcomeSyntaxPreflight, types.ExecutedCommandOutcomeSuiteSkipped,
+		types.ExecutedCommandOutcomeSuiteContinued:
+		// Launched / skipped rows: classified by the reason code below.
+	default:
+		// Unknown label (not a member; the census pins every member above):
+		// classified by the reason code below.
 	}
 	if runner == "verification_probe" && reasonCode != "" {
 		switch reasonCode {
@@ -3618,7 +3646,7 @@ func projectTestObservationExecuted(observation types.ProjectTestObservation, re
 		candidateKey := testSurfaceCandidateKey(candidate.Runner, candidate.Framework, candidate.WorkingDir)
 		executed := false
 		for _, cmd := range report.ExecutedCommands {
-			if strings.TrimSpace(cmd.Outcome) != "executed" || cmd.ExitCode != 0 || strings.TrimSpace(cmd.Runner) == "verification_probe" {
+			if strings.TrimSpace(cmd.Outcome) != types.ExecutedCommandOutcomeExecuted || cmd.ExitCode != 0 || strings.TrimSpace(cmd.Runner) == "verification_probe" {
 				continue
 			}
 			if testSurfaceCandidateKey(cmd.Runner, cmd.Framework, cmd.WorkingDir) != candidateKey {
@@ -3753,12 +3781,27 @@ func verificationProbeBaselineCommandCounts(plan *types.ChangePlan, report *type
 		if strings.TrimSpace(cmd.Source) != verificationProbeBaselineSource {
 			continue
 		}
+		// Total over the closed ExecutedCommandOutcome set (consumer census):
+		// a baseline-source row carries one of the three baseline labels;
+		// any other member on a baseline row is a producer defect and is
+		// counted conservatively as unavailable.
 		switch strings.TrimSpace(cmd.Outcome) {
-		case verificationProbeBaselineObserved:
+		case types.ExecutedCommandOutcomeExpectedFailureObserved:
 			observed++
-		case verificationProbeBaselineUnexpectedPass:
+		case types.ExecutedCommandOutcomeExpectedFailureNotObserved:
 			unexpectedPass++
-		case verificationProbeBaselineUnavailable:
+		case types.ExecutedCommandOutcomeBaselineUnavailable:
+			unavailable++
+		case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSyntheticNoTests,
+			types.ExecutedCommandOutcomeSyntaxCheckFallback, types.ExecutedCommandOutcomeSyntaxPreflight,
+			types.ExecutedCommandOutcomeSuiteSkipped, types.ExecutedCommandOutcomeSuiteContinued,
+			types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM,
+			types.ExecutedCommandOutcomeCPULimit, types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeZeroTests,
+			types.ExecutedCommandOutcomeNotConfigured, types.ExecutedCommandOutcomeProbeConfigError,
+			types.ExecutedCommandOutcomeExpectedStdoutMissing:
+			unavailable++
+		default:
+			// Unknown label (not a member; the census pins every member above).
 			unavailable++
 		}
 	}
@@ -3784,7 +3827,7 @@ func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.V
 	runner := strings.TrimSpace(cmd.Runner)
 	reason := strings.TrimSpace(cmd.ReasonCode)
 	var out []types.VerificationConfidenceRecord
-	if outcome == "syntax_check_fallback" && status != types.VerificationStatusFailed {
+	if outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback && status != types.VerificationStatusFailed {
 		out = append(out, types.VerificationConfidenceRecord{
 			Source:     firstNonEmptyRunTests(strings.TrimSpace(cmd.Source), "syntax_preflight"),
 			Category:   "source_compile",
@@ -3795,8 +3838,10 @@ func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.V
 		})
 	}
 	if runner == "verification_probe" {
+		// Total over the closed ExecutedCommandOutcome set (consumer census).
 		switch outcome {
-		case "parser_error", "runner_missing", "timeout", "oom", "cpu_limit", "probe_config_error":
+		case types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeTimeout,
+			types.ExecutedCommandOutcomeOOM, types.ExecutedCommandOutcomeCPULimit, types.ExecutedCommandOutcomeProbeConfigError:
 			out = append(out, types.VerificationConfidenceRecord{
 				Source:     firstNonEmptyRunTests(strings.TrimSpace(cmd.Source), "verification_probe"),
 				Category:   "probe_execution",
@@ -3805,7 +3850,7 @@ func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.V
 				ReasonCode: firstNonEmptyRunTests(reason, "verification_probe_unavailable"),
 				Detail:     "verification probe did not produce a behavior verdict",
 			})
-		case "expected_stdout_missing":
+		case types.ExecutedCommandOutcomeExpectedStdoutMissing:
 			out = append(out, types.VerificationConfidenceRecord{
 				Source:     firstNonEmptyRunTests(strings.TrimSpace(cmd.Source), "verification_probe"),
 				Category:   "probe_contract",
@@ -3814,6 +3859,16 @@ func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.V
 				ReasonCode: "verification_probe_expected_stdout_missing",
 				Detail:     "verification probe passed execution but missed expected stdout fragments",
 			})
+		case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSyntheticNoTests,
+			types.ExecutedCommandOutcomeSyntaxCheckFallback, types.ExecutedCommandOutcomeSyntaxPreflight,
+			types.ExecutedCommandOutcomeSuiteSkipped, types.ExecutedCommandOutcomeSuiteContinued,
+			types.ExecutedCommandOutcomeZeroTests, types.ExecutedCommandOutcomeNotConfigured,
+			types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
+			types.ExecutedCommandOutcomeBaselineUnavailable:
+			// No per-command confidence record: the baseline rows are read by
+			// the probe_baseline lane, the launched rows by the verdict.
+		default:
+			// Unknown label (not a member; the census pins every member above).
 		}
 	}
 	return out
@@ -3841,7 +3896,7 @@ func reportHasPassedVerificationProbeObservation(report *types.ChangeReport) boo
 	}
 	for _, cmd := range report.ExecutedCommands {
 		if strings.TrimSpace(cmd.Runner) == "verification_probe" &&
-			strings.TrimSpace(cmd.Outcome) == "executed" && cmd.ExitCode == 0 {
+			strings.TrimSpace(cmd.Outcome) == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 {
 			return true
 		}
 	}
@@ -3992,6 +4047,10 @@ func makeExecutionFailureReport(suite, detail string, buildFailed bool) *types.C
 // (Kind=TestResultKindBuildError).
 func makeResourceExhaustionReport(kind, detail string) *types.ChangeReport {
 	var fk types.FailureKind
+	// Total over the closed ExecutedCommandOutcome set (consumer census):
+	// only the three infrastructure labels are resource kinds; every other
+	// member (never passed by a producer — the infra roster census pins the
+	// callers) and an unknown label degrade to a crash.
 	switch kind {
 	case types.ExecutedCommandOutcomeTimeout:
 		fk = types.FailureKindTimeout
@@ -3999,6 +4058,14 @@ func makeResourceExhaustionReport(kind, detail string) *types.ChangeReport {
 		fk = types.FailureKindOOM
 	case types.ExecutedCommandOutcomeCPULimit:
 		fk = types.FailureKindCPULimit
+	case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSyntheticNoTests,
+		types.ExecutedCommandOutcomeSyntaxCheckFallback, types.ExecutedCommandOutcomeSyntaxPreflight,
+		types.ExecutedCommandOutcomeSuiteSkipped, types.ExecutedCommandOutcomeSuiteContinued,
+		types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeZeroTests,
+		types.ExecutedCommandOutcomeNotConfigured, types.ExecutedCommandOutcomeProbeConfigError,
+		types.ExecutedCommandOutcomeExpectedStdoutMissing, types.ExecutedCommandOutcomeExpectedFailureObserved,
+		types.ExecutedCommandOutcomeExpectedFailureNotObserved, types.ExecutedCommandOutcomeBaselineUnavailable:
+		fk = types.FailureKindCrash
 	default:
 		fk = types.FailureKindCrash
 	}

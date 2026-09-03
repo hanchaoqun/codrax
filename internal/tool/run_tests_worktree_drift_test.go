@@ -340,7 +340,7 @@ func TestVerificationWorktreeAuditFailedReportSkipsLockedReverify(t *testing.T) 
 		t.Fatalf("a failing suite must keep its own failure and never re-run locked: calls=%d report=%+v", len(calls), report)
 	}
 	if audit.Status != types.VerificationWorktreeAuditTrackedDriftDisclosed || audit.Effects[0].Disposition != types.VerificationWorktreeEffectDisclosed ||
-		len(audit.LockedReverify) != 1 || audit.LockedReverify[0].Outcome != "skipped_report_failed" {
+		len(audit.LockedReverify) != 1 || audit.LockedReverify[0].Outcome != types.VerificationLockedReverifySkippedReportFailed {
 		t.Fatalf("lockfile rows stay disclosed with the re-verify recorded as skipped: %+v", audit)
 	}
 }

@@ -249,21 +249,33 @@ func verificationDriftRoster(in verificationWorktreeDriftInput, auditRoot string
 	return out
 }
 
-// verificationDriftLaunchedOutcomes is the closed "process was started"
-// roster; verificationDriftSuiteInfraOutcomes is its infrastructure-downgrade
-// subset (the supervisor killed the suite: wall timeout / memory cap / CPU
-// cap — the same three kinds makeResourceExhaustionReport types). Both
-// tables are built from the typed types.ExecutedCommandOutcome* labels the
-// producers write — never from parallel literals — and are census-pinned
-// (run_tests_outcome_census_test.go reads the writers through go/ast;
-// run_tests_worktree_fold_in_test.go pins the infra subset against
-// makeResourceExhaustionReport) so a renamed label or an outcome added to
-// one table without the other goes red.
+// verificationDriftLaunchedOutcomes is the closed "process was started in
+// the audited worktree" roster; verificationDriftNotLaunchedOutcomes is its
+// exact complement (nothing ran in the audit root: synthetic / skipped /
+// refused / preflight-only rows, and the main-snapshot baseline evidence
+// rows, which execute against the immutable MAIN snapshot outside the
+// audited worktree); verificationDriftSuiteInfraOutcomes is the launched
+// roster's infrastructure-downgrade subset (the supervisor killed the suite:
+// wall timeout / memory cap / CPU cap — the same three kinds
+// makeResourceExhaustionReport types). All tables are built from the typed
+// types.ExecutedCommandOutcome* labels the producers write — never from
+// parallel literals — and are census-pinned (run_tests_outcome_census_test.go
+// reads the writers through go/ast and pins launched ∪ not-launched ==
+// AllExecutedCommandOutcomes, disjoint, infra ⊆ launched) so a renamed
+// label, a member classified in neither table, or an outcome added to one
+// table without the other goes red.
 var (
 	verificationDriftLaunchedOutcomes = []string{
 		types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSuiteContinued, types.ExecutedCommandOutcomeParserError,
 		types.ExecutedCommandOutcomeExpectedStdoutMissing, types.ExecutedCommandOutcomeZeroTests,
 		types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM, types.ExecutedCommandOutcomeCPULimit,
+	}
+	verificationDriftNotLaunchedOutcomes = []string{
+		types.ExecutedCommandOutcomeSyntheticNoTests, types.ExecutedCommandOutcomeSyntaxCheckFallback,
+		types.ExecutedCommandOutcomeSyntaxPreflight, types.ExecutedCommandOutcomeSuiteSkipped,
+		types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeNotConfigured,
+		types.ExecutedCommandOutcomeProbeConfigError, types.ExecutedCommandOutcomeExpectedFailureObserved,
+		types.ExecutedCommandOutcomeExpectedFailureNotObserved, types.ExecutedCommandOutcomeBaselineUnavailable,
 	}
 	verificationDriftSuiteInfraOutcomes = []string{types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM, types.ExecutedCommandOutcomeCPULimit}
 )
@@ -405,8 +417,8 @@ func runVerificationLockedReverify(in verificationWorktreeDriftInput, auditRoot 
 //     (never refused, never re-run under the caps that just killed it;
 //     evaluated BEFORE any other check so a cut-short suite is never
 //     called "failed")
-//   - owner seat exited non-zero ⇒ skipped_report_failed /
-//     unproven_report_failed ("the test suite failed")
+//   - owner seat exited non-zero ⇒ skipped_report_failed (published wire
+//     bytes) / unproven_suite_failed ("the owner suite exited non-zero")
 //   - owner seat exited 0 ⇒ the locked re-run executes — also when the
 //     report-level verdict is not Passed for reasons that are not the
 //     seat's (changed-path coverage → verification_incomplete, another
@@ -426,7 +438,7 @@ func verificationLockedReverifyRecordForOwner(in verificationWorktreeDriftInput,
 		return record, types.VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded
 	case owner.suiteExitFailed:
 		record.Outcome = types.VerificationLockedReverifySkippedReportFailed
-		return record, types.VerificationLockfileFixedPointUnprovenReportFailed
+		return record, types.VerificationLockfileFixedPointUnprovenSuiteFailed
 	}
 	record = runVerificationLockedReverify(in, auditRoot, owner)
 	if record.Outcome == types.VerificationLockedReverifyPassed {

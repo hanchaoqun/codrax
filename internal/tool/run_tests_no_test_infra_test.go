@@ -1182,7 +1182,7 @@ func TestRunTestsVerificationProbeExpectedBaselineFailureUsesImmutableMainSnapsh
 	foundBaseline := false
 	foundSuiteExecution := false
 	for _, cmd := range report.ExecutedCommands {
-		if cmd.Source == verificationProbeBaselineSource && cmd.Outcome == verificationProbeBaselineObserved {
+		if cmd.Source == verificationProbeBaselineSource && cmd.Outcome == types.ExecutedCommandOutcomeExpectedFailureObserved {
 			foundBaseline = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Outcome == "executed" {
@@ -1217,7 +1217,7 @@ func TestVerificationProbeExpectedBaselineFailureDoesNotMintAuthorityWhenMainAls
 		}},
 		ExecutedCommands: []types.ExecutedCommand{
 			{Runner: "verification_probe", Source: "pre_suite_verification_probe", Outcome: "executed"},
-			{Runner: "verification_probe", Source: verificationProbeBaselineSource, Outcome: verificationProbeBaselineUnexpectedPass},
+			{Runner: "verification_probe", Source: verificationProbeBaselineSource, Outcome: types.ExecutedCommandOutcomeExpectedFailureNotObserved},
 		},
 	}
 	records := verificationConfidenceRecordsFromReport(plan, report)
@@ -3627,13 +3627,15 @@ func TestInlineVerificationProbeDiagnosticsCarryStructuredDetails(t *testing.T) 
 			Exception: "Error",
 			ExitCode:  1,
 		},
-		Output:     "Error: Cannot find module 'left-pad'\n",
-		Source:     "pre_suite_verification_probe",
-		WorkingDir: ".",
-		Command:    "node -e <verification_probe:missing>",
-		Outcome:    "parser_error",
-		ReasonCode: "verification_probe_import_error",
-		ExitCode:   1,
+		Output: "Error: Cannot find module 'left-pad'\n",
+		Command: types.ExecutedCommand{
+			Source:     "pre_suite_verification_probe",
+			WorkingDir: ".",
+			Command:    "node -e <verification_probe:missing>",
+			Outcome:    types.ExecutedCommandOutcomeParserError,
+			ReasonCode: "verification_probe_import_error",
+			ExitCode:   1,
+		},
 	})
 	if !verificationDiagnosticsContain(diags, "probe_import_or_environment", "verification_probe_import_error") {
 		t.Fatalf("import diagnostic missing: %+v", diags)

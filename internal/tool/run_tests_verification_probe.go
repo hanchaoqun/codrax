@@ -252,17 +252,29 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 	if !passed {
 		failureKind = types.FailureKindTestsFailed
 		for _, cmd := range commands {
+			// Total over the closed ExecutedCommandOutcome set (consumer
+			// census): only the verdict-override labels rename the kind.
 			switch cmd.Outcome {
-			case "runner_missing":
+			case types.ExecutedCommandOutcomeRunnerMissing:
 				failureKind = types.FailureKindRunnerMissing
-			case "parser_error":
+			case types.ExecutedCommandOutcomeParserError:
 				failureKind = types.FailureKindParserError
-			case "timeout":
+			case types.ExecutedCommandOutcomeTimeout:
 				failureKind = types.FailureKindTimeout
-			case "oom":
+			case types.ExecutedCommandOutcomeOOM:
 				failureKind = types.FailureKindOOM
-			case "cpu_limit":
+			case types.ExecutedCommandOutcomeCPULimit:
 				failureKind = types.FailureKindCPULimit
+			case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSyntheticNoTests,
+				types.ExecutedCommandOutcomeSyntaxCheckFallback, types.ExecutedCommandOutcomeSyntaxPreflight,
+				types.ExecutedCommandOutcomeSuiteSkipped, types.ExecutedCommandOutcomeSuiteContinued,
+				types.ExecutedCommandOutcomeZeroTests, types.ExecutedCommandOutcomeNotConfigured,
+				types.ExecutedCommandOutcomeProbeConfigError, types.ExecutedCommandOutcomeExpectedStdoutMissing,
+				types.ExecutedCommandOutcomeExpectedFailureObserved, types.ExecutedCommandOutcomeExpectedFailureNotObserved,
+				types.ExecutedCommandOutcomeBaselineUnavailable:
+				// The kind stays tests_failed (or the reason code decides).
+			default:
+				// Unknown label (not a member; the census pins every member above).
 			}
 			if failureReasonCode == "" && strings.TrimSpace(cmd.ReasonCode) != "" {
 				failureReasonCode = strings.TrimSpace(cmd.ReasonCode)
@@ -884,7 +896,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	}
 	passed := supRes.Err == nil
 	reasonCode := ""
-	if outcome == "executed" && probeStatus.Outcome != "" {
+	if outcome == types.ExecutedCommandOutcomeExecuted && probeStatus.Outcome != "" {
 		switch probeStatus.Outcome {
 		case "passed":
 			passed = passed && probeStatus.ExitCode == 0
@@ -1118,7 +1130,7 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 		}
 	}
 	passed := supRes.Err == nil
-	if outcome == "executed" && status.Outcome != "" {
+	if outcome == types.ExecutedCommandOutcomeExecuted && status.Outcome != "" {
 		switch status.Outcome {
 		case "passed":
 			passed = passed && status.ExitCode == 0
@@ -1219,14 +1231,9 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 			FailureReasonCode: reasonCode,
 			FailureSummary:    detail,
 			VerificationDiagnostics: inlineVerificationProbeDiagnostics(in.Language, inlineVerificationProbeDiagnosticInput{
-				Status:     status,
-				Output:     output,
-				Source:     in.Source,
-				WorkingDir: in.WorkingDir,
-				Command:    in.CommandText,
-				Outcome:    outcome,
-				ReasonCode: reasonCode,
-				ExitCode:   exitCode,
+				Status:  status,
+				Output:  output,
+				Command: command,
 			}),
 		},
 		Output:   output,
@@ -1445,21 +1452,22 @@ func inlineVerificationProbeReasonCode(language string, status inlineVerificatio
 	}
 }
 
+// inlineVerificationProbeDiagnosticInput carries the probe's typed command
+// row itself (fold-in round four, finding K): the diagnostic is projected
+// from the SAME types.ExecutedCommand the report publishes, so its Outcome
+// is the row's closed-set label — the former parallel Outcome/ReasonCode/
+// ExitCode fields re-wrote the label through a carrier and, when empty,
+// fell back to the probe status envelope word (never a member).
 type inlineVerificationProbeDiagnosticInput struct {
-	Status     inlineVerificationProbeStatus
-	Output     string
-	Source     string
-	WorkingDir string
-	Command    string
-	Outcome    string
-	ReasonCode string
-	ExitCode   int
+	Status  inlineVerificationProbeStatus
+	Output  string
+	Command types.ExecutedCommand
 }
 
 func inlineVerificationProbeDiagnostics(language string, in inlineVerificationProbeDiagnosticInput) []types.VerificationDiagnostic {
-	reasonCode := strings.TrimSpace(in.ReasonCode)
+	reasonCode := strings.TrimSpace(in.Command.ReasonCode)
 	nativeProcess := strings.TrimSpace(language) == "go" || strings.TrimSpace(language) == "java"
-	if nativeProcess && reasonCode == "" && strings.TrimSpace(in.Outcome) == "executed" && in.ExitCode == 0 && strings.TrimSpace(in.Status.Outcome) == "" {
+	if nativeProcess && reasonCode == "" && strings.TrimSpace(in.Command.Outcome) == types.ExecutedCommandOutcomeExecuted && in.Command.ExitCode == 0 && strings.TrimSpace(in.Status.Outcome) == "" {
 		// Native probes (currently Go and Java) report success through the
 		// process exit status and do not emit the wrapper status envelope used
 		// by interpreted runtimes. Absence of that envelope on exit 0 is not an
@@ -1469,20 +1477,10 @@ func inlineVerificationProbeDiagnostics(language string, in inlineVerificationPr
 	if reasonCode == "" {
 		reasonCode = inlineVerificationProbeReasonCode(language, in.Status)
 	}
-	outcome := strings.TrimSpace(in.Outcome)
-	if outcome == "" {
-		outcome = strings.TrimSpace(in.Status.Outcome)
-	}
-	cmd := types.ExecutedCommand{
-		Runner:     "verification_probe",
-		Framework:  strings.TrimSpace(language),
-		WorkingDir: strings.TrimSpace(in.WorkingDir),
-		Command:    strings.TrimSpace(in.Command),
-		Source:     strings.TrimSpace(in.Source),
-		Outcome:    outcome,
-		ReasonCode: reasonCode,
-		ExitCode:   in.ExitCode,
-	}
+	cmd := in.Command
+	cmd.Runner = "verification_probe"
+	cmd.Framework = strings.TrimSpace(language)
+	cmd.ReasonCode = reasonCode
 	diag, ok := verificationDiagnosticFromExecutedCommand(cmd)
 	if !ok {
 		return nil

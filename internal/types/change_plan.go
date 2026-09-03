@@ -1629,14 +1629,24 @@ func executedCommandUnavailableReasonCode(cmd ExecutedCommand) string {
 	if code := firstVerificationUnavailableReasonCode(cmd.ReasonCode); code != "" {
 		return code
 	}
+	// Total over the closed ExecutedCommandOutcome set (consumer census):
+	// only the environment-refusal and no-tests labels are unavailable
+	// reasons; every other member is enumerated so a new label cannot
+	// silently fall through.
 	switch strings.TrimSpace(cmd.Outcome) {
-	case "runner_missing":
+	case ExecutedCommandOutcomeRunnerMissing, ExecutedCommandOutcomeNotConfigured:
 		return string(FailureKindRunnerMissing)
-	case "synthetic_no_tests", "zero_tests":
+	case ExecutedCommandOutcomeSyntheticNoTests, ExecutedCommandOutcomeZeroTests:
 		return string(FailureKindNoTests)
-	case "not_configured":
-		return string(FailureKindRunnerMissing)
+	case "", ExecutedCommandOutcomeExecuted, ExecutedCommandOutcomeSyntaxCheckFallback, ExecutedCommandOutcomeSyntaxPreflight,
+		ExecutedCommandOutcomeSuiteSkipped, ExecutedCommandOutcomeSuiteContinued, ExecutedCommandOutcomeTimeout,
+		ExecutedCommandOutcomeOOM, ExecutedCommandOutcomeCPULimit, ExecutedCommandOutcomeParserError,
+		ExecutedCommandOutcomeProbeConfigError, ExecutedCommandOutcomeExpectedStdoutMissing,
+		ExecutedCommandOutcomeExpectedFailureObserved, ExecutedCommandOutcomeExpectedFailureNotObserved,
+		ExecutedCommandOutcomeBaselineUnavailable:
+		return ""
 	default:
+		// Unknown label (not a member; the census pins every member above).
 		return ""
 	}
 }
@@ -1648,13 +1658,30 @@ func ExecutedCommandUnavailableReasonCode(cmd ExecutedCommand) string {
 	return executedCommandUnavailableReasonCode(cmd)
 }
 
+// executedCommandFailed is total over the closed ExecutedCommandOutcome set
+// (consumer census): launched rows fail on their exit code, no-tests rows
+// and the main-snapshot baseline evidence rows never fail (fold-in round
+// four, finding K — expected_failure_observed is the probe's desired
+// baseline result; expected_failure_not_observed and baseline_unavailable
+// weaken proof through the probe_baseline confidence lane, they are not a
+// failed command), every verdict-override label is a failure, and an
+// unknown label stays conservatively failed.
 func executedCommandFailed(cmd ExecutedCommand) bool {
 	switch strings.TrimSpace(cmd.Outcome) {
-	case "", "executed", "syntax_preflight", "syntax_check_fallback", "suite_continued", "suite_skipped":
+	case "", ExecutedCommandOutcomeExecuted, ExecutedCommandOutcomeSyntaxPreflight, ExecutedCommandOutcomeSyntaxCheckFallback,
+		ExecutedCommandOutcomeSuiteContinued, ExecutedCommandOutcomeSuiteSkipped:
 		return cmd.ExitCode != 0
-	case "synthetic_no_tests", "zero_tests":
+	case ExecutedCommandOutcomeSyntheticNoTests, ExecutedCommandOutcomeZeroTests:
 		return false
+	case ExecutedCommandOutcomeExpectedFailureObserved, ExecutedCommandOutcomeExpectedFailureNotObserved,
+		ExecutedCommandOutcomeBaselineUnavailable:
+		return false
+	case ExecutedCommandOutcomeRunnerMissing, ExecutedCommandOutcomeTimeout, ExecutedCommandOutcomeOOM,
+		ExecutedCommandOutcomeCPULimit, ExecutedCommandOutcomeParserError, ExecutedCommandOutcomeNotConfigured,
+		ExecutedCommandOutcomeProbeConfigError, ExecutedCommandOutcomeExpectedStdoutMissing:
+		return true
 	default:
+		// Unknown label (not a member; the census pins every member above).
 		return true
 	}
 }

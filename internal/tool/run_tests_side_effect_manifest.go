@@ -115,3 +115,17 @@ func runnerSideEffectLockfileOwners() map[string][]string {
 	}
 	return out
 }
+
+// RunnerSideEffectLockfileBasenames exposes the runner → declared lockfile
+// basenames rows of the closed manifest (a copy) so cross-package pins can
+// iterate every real owner without re-declaring the table.
+func RunnerSideEffectLockfileBasenames() map[string][]string {
+	out := map[string][]string{}
+	for runner, manifest := range runnerSideEffectManifests() {
+		if len(manifest.LockfileBasenames) == 0 {
+			continue
+		}
+		out[runner] = append([]string(nil), manifest.LockfileBasenames...)
+	}
+	return out
+}

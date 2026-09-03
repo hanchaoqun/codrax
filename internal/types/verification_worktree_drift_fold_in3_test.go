@@ -70,10 +70,17 @@ func lockfileEffectForPath(path string, fp VerificationLockfileFixedPoint) Verif
 	}
 }
 
-// E: on every long / deep lockfile path, the effect row keeps every typed
-// token intact, ends with the path (last element), stays within the item
-// bound (so trimWriteContextText is a no-op — no "..." mangling), and the
-// dedicated disclosure item keeps the whole phrase.
+// E: on every long / deep lockfile path, the effect row keeps every
+// rendered typed token intact, ends with the path (last element, basename
+// whole), stays within the item bound (so trimWriteContextText is a no-op
+// — no "..." mangling), and the dedicated disclosure item keeps the whole
+// phrase and the whole path.
+//
+// EVOLUTION RECORD (fold-in round four, finding M): the row used to keep
+// every token and cut INTO the basename ("path=…lock.yaml"); the basename
+// is now never cut — under the longest fixed-point member the row drops
+// whole tokens by priority instead (action first), and the dedicated
+// disclosure item is no longer fitted to the bound at all (whole path).
 func TestWriteContextPackWorktreeEffectRowsKeepTypedTokensForLongLockfilePaths(t *testing.T) {
 	tokens := []string{"kind=tracked_changed", "ownership=git_tracked", "action=disclosed_not_committed_not_auto_reverted",
 		"drift_class=dependency_lockfile_refresh", "disposition=disclosed", "owner_runner=rust", "lockfile_fixed_point=unproven_suite_infra_downgraded"}
@@ -97,18 +104,14 @@ func TestWriteContextPackWorktreeEffectRowsKeepTypedTokensForLongLockfilePaths(t
 		if row != WriteContextWorktreeEffectText(effect) || strings.HasSuffix(row, "...") || len([]rune(row)) > writeContextPackTextLen {
 			t.Fatalf("%s: effect row must survive the item bound untrimmed (%d runes): %q", path, len([]rune(row)), row)
 		}
-		for _, token := range tokens {
-			if !strings.Contains(row, " "+token+" ") && !strings.HasPrefix(row, token+" ") {
-				t.Fatalf("%s: effect row lost the typed token %q: %q", path, token, row)
-			}
-		}
-		if !pathIsLastElementOf(row, path) || strings.Index(row, " path=") < strings.Index(row, "lockfile_fixed_point=") {
+		assertEffectRowTokensWholeAndBasenameIntact(t, row, tokens, path)
+		if strings.Index(row, " path=") < strings.Index(row, "lockfile_fixed_point=") {
 			t.Fatalf("%s: the path must be the LAST element, after every token: %q", path, row)
 		}
 		if item != WriteContextLockfileFixedPointDisclosureText(path, VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded) ||
 			!strings.HasPrefix(item, "lockfile_fixed_point=unproven_suite_infra_downgraded (") || !strings.Contains(item, phrase) ||
-			!pathIsLastElementOf(item, path) || len([]rune(item)) > writeContextPackTextLen {
-			t.Fatalf("%s: disclosure item must keep token + whole phrase and end with the path (%d runes): %q", path, len([]rune(item)), item)
+			!strings.HasSuffix(item, ") path="+path) {
+			t.Fatalf("%s: disclosure item must keep token + whole phrase and end with the WHOLE path: %q", path, item)
 		}
 		if path == "Cargo.lock" && !strings.HasSuffix(row, " path="+path) {
 			t.Fatalf("%s: a path that fits is kept whole: %q", path, row)
@@ -118,9 +121,70 @@ func TestWriteContextPackWorktreeEffectRowsKeepTypedTokensForLongLockfilePaths(t
 	// (basename kept), never the tokens.
 	deep := strings.Repeat("segment/", 40) + "package-lock.json"
 	row := WriteContextWorktreeEffectText(lockfileEffectForPath(deep, VerificationLockfileFixedPointProven))
-	if len([]rune(row)) != writeContextPackTextLen || !strings.HasSuffix(row, "package-lock.json") || !strings.Contains(row, " path=…") ||
+	if len([]rune(row)) != writeContextPackTextLen || !strings.HasSuffix(row, "/package-lock.json") || !strings.Contains(row, " path=…") ||
 		!strings.Contains(row, "lockfile_fixed_point=proven ") {
 		t.Fatalf("deep path must be shortened from the left within the bound: %q", row)
+	}
+}
+
+// assertEffectRowTokensWholeAndBasenameIntact pins the fitted-row contract:
+// the segment after " path=" is the whole path or "…" plus a suffix that
+// still contains the whole basename; every "key=value" element before it
+// is exactly one of the expected tokens (never a truncated one); and the
+// tokens present are a priority-consistent subset (a dropped token never
+// outranks a kept one).
+func assertEffectRowTokensWholeAndBasenameIntact(t *testing.T, row string, expected []string, path string) {
+	t.Helper()
+	idx := strings.LastIndex(row, " path=")
+	if idx < 0 && !strings.HasPrefix(row, "path=") {
+		t.Fatalf("row lacks the path element: %q", row)
+	}
+	var seg, head string
+	if idx < 0 {
+		seg, head = strings.TrimPrefix(row, "path="), ""
+	} else {
+		seg, head = row[idx+len(" path="):], row[:idx]
+	}
+	base := path
+	if slash := strings.LastIndex(path, "/"); slash >= 0 {
+		base = path[slash:]
+	}
+	if seg != path {
+		tail := strings.TrimPrefix(seg, "…")
+		if tail == seg || tail == "" || !strings.HasSuffix(path, tail) || !strings.HasSuffix(tail, base) {
+			t.Fatalf("path segment %q cuts into the basename of %q: %q", seg, path, row)
+		}
+	}
+	rank := func(token string) int {
+		for i, want := range expected {
+			if want == token {
+				return i
+			}
+		}
+		return -1
+	}
+	present := map[int]bool{}
+	if head != "" {
+		for _, token := range strings.Split(head, " ") {
+			r := rank(token)
+			if r < 0 {
+				t.Fatalf("row carries a token that is not a whole expected token: %q in %q", token, row)
+			}
+			present[r] = true
+		}
+	}
+	// Priority ladder in display order: kind(3) ownership(2) action(1)
+	// drift_class(6) disposition(5) owner_runner(4) lockfile_fixed_point(7).
+	priority := []int{3, 2, 1, 6, 5, 4, 7}
+	for i := range expected {
+		if present[i] {
+			continue
+		}
+		for j := range expected {
+			if present[j] && priority[j] < priority[i] {
+				t.Fatalf("token %q was dropped while the lower-priority %q was kept: %q", expected[i], expected[j], row)
+			}
+		}
 	}
 }
 

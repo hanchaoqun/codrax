@@ -130,8 +130,12 @@ type ExecutedCommand struct {
 	// syntax_check_fallback | syntax_preflight | suite_skipped |
 	// suite_continued | runner_missing | timeout | oom | cpu_limit |
 	// parser_error | zero_tests | not_configured | probe_config_error |
-	// expected_stdout_missing). Producers write the constants, never a
-	// literal (census: internal/tool run_tests_outcome_census_test.go).
+	// expected_stdout_missing | expected_failure_observed |
+	// expected_failure_not_observed | baseline_unavailable). The set is
+	// closed and total: producers write the constants through local data
+	// flow only (census: internal/tool run_tests_outcome_census_test.go)
+	// and every consumer switch enumerates every member explicitly
+	// (census: executed_command_outcome_consumer_census_test.go).
 	Outcome string `json:"outcome,omitempty"`
 
 	// ReasonCode is a bounded typed subreason for the outcome, when the
@@ -142,10 +146,14 @@ type ExecutedCommand struct {
 
 // ExecutedCommand.Outcome labels — the single source for every producer in
 // the run_tests tool (Execute's command rows, the supervisor overrides, the
-// verification probes) and for the consumers that key on them (the
-// worktree-drift launched/infra rosters, makeResourceExhaustionReport).
-// Untyped string constants so the field and its cross-package comparisons
-// keep their shape; the census binds the tool's writers to these names.
+// verification probes and their main-snapshot baselines) and for the
+// consumers that key on them (ExecutedCommandFailed, the unavailable reason
+// classifier, the proof ledger, the worktree-drift launched/infra rosters,
+// makeResourceExhaustionReport, the render arms). Untyped string constants
+// so the field and its cross-package comparisons keep their shape; the
+// producer census binds the tool's writers to these names by local data
+// flow, the consumer census binds every switch over Outcome to the full
+// member list (AllExecutedCommandOutcomes).
 const (
 	ExecutedCommandOutcomeExecuted              = "executed"
 	ExecutedCommandOutcomeSyntheticNoTests      = "synthetic_no_tests"
@@ -162,7 +170,50 @@ const (
 	ExecutedCommandOutcomeNotConfigured         = "not_configured"
 	ExecutedCommandOutcomeProbeConfigError      = "probe_config_error"
 	ExecutedCommandOutcomeExpectedStdoutMissing = "expected_stdout_missing"
+	// Main-snapshot baseline rows of an expects_baseline_failure probe
+	// (fold-in round four, finding K): evidence records about the immutable
+	// main snapshot, Source verification_probe_main_snapshot_baseline. They
+	// are never a failed command (ExecutedCommandFailed is false for all
+	// three) and never name a report failure kind or a diagnostic — their
+	// meaning is carried by the probe_baseline verification-confidence lane
+	// (observed ⇒ satisfied, not_observed ⇒ missing/warning, unavailable ⇒
+	// missing/warning).
+	//   - ExpectedFailureObserved: the probe failed on main as declared —
+	//     the probe's DESIRED baseline result.
+	//   - ExpectedFailureNotObserved: the probe also passed on main, so no
+	//     regression authority was minted.
+	//   - BaselineUnavailable: the main snapshot could not be probed.
+	ExecutedCommandOutcomeExpectedFailureObserved    = "expected_failure_observed"
+	ExecutedCommandOutcomeExpectedFailureNotObserved = "expected_failure_not_observed"
+	ExecutedCommandOutcomeBaselineUnavailable        = "baseline_unavailable"
 )
+
+// AllExecutedCommandOutcomes is the closed member list in declaration order.
+// The consumer census pins that it names every declared
+// ExecutedCommandOutcome* constant and that every switch over
+// ExecutedCommand.Outcome enumerates each member explicitly.
+func AllExecutedCommandOutcomes() []string {
+	return []string{
+		ExecutedCommandOutcomeExecuted,
+		ExecutedCommandOutcomeSyntheticNoTests,
+		ExecutedCommandOutcomeSyntaxCheckFallback,
+		ExecutedCommandOutcomeSyntaxPreflight,
+		ExecutedCommandOutcomeSuiteSkipped,
+		ExecutedCommandOutcomeSuiteContinued,
+		ExecutedCommandOutcomeRunnerMissing,
+		ExecutedCommandOutcomeTimeout,
+		ExecutedCommandOutcomeOOM,
+		ExecutedCommandOutcomeCPULimit,
+		ExecutedCommandOutcomeParserError,
+		ExecutedCommandOutcomeZeroTests,
+		ExecutedCommandOutcomeNotConfigured,
+		ExecutedCommandOutcomeProbeConfigError,
+		ExecutedCommandOutcomeExpectedStdoutMissing,
+		ExecutedCommandOutcomeExpectedFailureObserved,
+		ExecutedCommandOutcomeExpectedFailureNotObserved,
+		ExecutedCommandOutcomeBaselineUnavailable,
+	}
+}
 
 // SortTestSurfaceCandidates orders candidates in place by the typed selection
 // rule: HasTestSignal desc, manifest priority asc, path depth asc, working

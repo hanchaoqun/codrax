@@ -663,8 +663,7 @@ func TestRunTestsDryRunGoSamePackageProbeExecutesEveryDeclaredTest(t *testing.T)
 
 func TestInlineVerificationProbeDiagnosticsDoesNotClassifySuccessfulNativeProcess(t *testing.T) {
 	diags := inlineVerificationProbeDiagnostics("go", inlineVerificationProbeDiagnosticInput{
-		Outcome:  "executed",
-		ExitCode: 0,
+		Command: types.ExecutedCommand{Outcome: types.ExecutedCommandOutcomeExecuted, ExitCode: 0},
 	})
 	if len(diags) != 0 {
 		t.Fatalf("successful native process must not emit an unclassified warning: %+v", diags)

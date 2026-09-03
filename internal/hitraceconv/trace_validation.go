@@ -634,6 +634,21 @@ const (
 	TraceEventInvalidPerfSampleIntegrity TraceEventInvalidKind = "perf_sample_integrity"
 )
 
+// AllTraceEventInvalidKinds is the closed kind set in declaration order —
+// the single source the diagnostic-report advertisement census (cmd) binds
+// to; a kind declared above but missing here is red in this package's
+// census (trace_validation_witness_test.go).
+func AllTraceEventInvalidKinds() []TraceEventInvalidKind {
+	return []TraceEventInvalidKind{
+		TraceEventInvalidCarrierSignatureUnderForeignHeader,
+		TraceEventInvalidSourceRawVisibilityForeignHeader,
+		TraceEventInvalidTraceDBRecordSequence,
+		TraceEventInvalidTraceDBRecordSequenceForeignRow,
+		TraceEventInvalidTraceDBRecordSequenceIncomplete,
+		TraceEventInvalidPerfSampleIntegrity,
+	}
+}
+
 // TraceEventInvalidWitnessError is the bounded, customer-safe FIRST witness
 // attached to a tracequery_postvalidation_event_invalid refusal: it names the
 // refused row (physical line, parsed event name/type) and the first bytes of
@@ -1377,9 +1392,18 @@ func traceEventInvalidWitnessRowBody(text, eventName string) (string, bool) {
 }
 
 // maxTraceEventInvalidWitnessBodyBytes bounds the row-body excerpt carried by
-// TraceEventInvalidWitnessError: enough to show which producer wrote the
-// refused row, never a whole payload.
-const maxTraceEventInvalidWitnessBodyBytes = 64
+// TraceEventInvalidWitnessError: at most 64 BYTES OF BODY are taken (on a
+// rune boundary) BEFORE escaping — enough to show which producer wrote the
+// refused row, never a whole payload. Escaping then rewrites every byte that
+// is not valid UTF-8 as a four-byte `\xNN` sequence, so the escaped excerpt
+// is at most 4× that budget: maxTraceEventInvalidWitnessExcerptBytes (256
+// bytes, reached by a body of 64 invalid bytes). The precise bound is the
+// pair (64 B of body, ≤ 256 B escaped), not "64 B" alone (fold-in round
+// four, finding P — documentation and pin only, no behaviour change).
+const (
+	maxTraceEventInvalidWitnessBodyBytes    = 64
+	maxTraceEventInvalidWitnessExcerptBytes = 4 * maxTraceEventInvalidWitnessBodyBytes
+)
 
 // traceEventInvalidWitnessBodyPrefix returns the bounded, valid-UTF-8 excerpt
 // of a refused row's body (traceEventInvalidWitnessExcerpt), or "" when the
@@ -1398,7 +1422,10 @@ func traceEventInvalidWitnessBodyPrefix(text, eventName string) string {
 // escaped strconv.Quote-style (`\xNN`). A non-empty body therefore always
 // yields a non-empty, valid-UTF-8 excerpt that still shows the producer's
 // bytes — an invalid first byte or a stray byte inside the budget no longer
-// collapses the witness (§40.43 F-carrier-2 H).
+// collapses the witness (§40.43 F-carrier-2 H). Bound: 64 bytes of body are
+// cut before escaping; the escaped result is at most
+// maxTraceEventInvalidWitnessExcerptBytes (4× — every invalid byte becomes
+// four bytes).
 func traceEventInvalidWitnessExcerpt(body string) string {
 	cut := types.CutPrefixRuneSafe(body, maxTraceEventInvalidWitnessBodyBytes)
 	if cut == "" && body != "" {

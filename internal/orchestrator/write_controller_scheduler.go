@@ -3823,10 +3823,21 @@ func verifyCoverageCommandCoversPath(cmd types.ExecutedCommand) bool {
 	if strings.TrimSpace(cmd.Suite) == "" || cmd.ExitCode != 0 {
 		return false
 	}
+	// Total over the closed ExecutedCommandOutcome set (consumer census):
+	// only a launched exit-0 row or a passed syntax fallback covers a path.
 	switch strings.TrimSpace(cmd.Outcome) {
-	case "", "executed", "syntax_check_fallback":
+	case "", types.ExecutedCommandOutcomeExecuted, types.ExecutedCommandOutcomeSyntaxCheckFallback:
 		return true
+	case types.ExecutedCommandOutcomeSyntheticNoTests, types.ExecutedCommandOutcomeSyntaxPreflight,
+		types.ExecutedCommandOutcomeSuiteSkipped, types.ExecutedCommandOutcomeSuiteContinued,
+		types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeTimeout, types.ExecutedCommandOutcomeOOM,
+		types.ExecutedCommandOutcomeCPULimit, types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeZeroTests,
+		types.ExecutedCommandOutcomeNotConfigured, types.ExecutedCommandOutcomeProbeConfigError,
+		types.ExecutedCommandOutcomeExpectedStdoutMissing, types.ExecutedCommandOutcomeExpectedFailureObserved,
+		types.ExecutedCommandOutcomeExpectedFailureNotObserved, types.ExecutedCommandOutcomeBaselineUnavailable:
+		return false
 	default:
+		// Unknown label (not a member; the census pins every member above).
 		return false
 	}
 }
@@ -8552,7 +8563,7 @@ func reportHasTypedUnavailableProbeRunnerMissing(report *types.ChangeReport) boo
 	for _, cmd := range report.ExecutedCommands {
 		if strings.TrimSpace(cmd.Runner) == "verification_probe" &&
 			strings.TrimSpace(cmd.Source) == "pre_suite_verification_probe" &&
-			strings.TrimSpace(cmd.Outcome) == "runner_missing" &&
+			strings.TrimSpace(cmd.Outcome) == types.ExecutedCommandOutcomeRunnerMissing &&
 			strings.TrimSpace(cmd.ReasonCode) == "verification_probe_runner_missing" {
 			return true
 		}
@@ -8604,7 +8615,7 @@ func proofFollowupWouldRepeatStableStaticVerification(
 	}
 	hasExecutedReceipt := false
 	for _, command := range report.ExecutedCommands {
-		if strings.TrimSpace(command.Outcome) == "executed" && command.ExitCode == 0 {
+		if strings.TrimSpace(command.Outcome) == types.ExecutedCommandOutcomeExecuted && command.ExitCode == 0 {
 			hasExecutedReceipt = true
 			break
 		}
@@ -8851,7 +8862,7 @@ func changeReportHasConcretePassedTestResult(report *types.ChangeReport) bool {
 	// fallback for resume compatibility.
 	hasExecutedCommand := false
 	for _, cmd := range report.ExecutedCommands {
-		if strings.TrimSpace(cmd.Outcome) != "executed" {
+		if strings.TrimSpace(cmd.Outcome) != types.ExecutedCommandOutcomeExecuted {
 			continue
 		}
 		hasExecutedCommand = true
@@ -9240,7 +9251,7 @@ func verificationProofFailuresAreOnlyNonAuthoritativeProbeCommands(
 	hasFailedProbeCommand := false
 	for _, command := range report.ExecutedCommands {
 		if strings.TrimSpace(command.Source) == "probe_primary_suite_continued" &&
-			strings.TrimSpace(command.Outcome) == "suite_continued" &&
+			strings.TrimSpace(command.Outcome) == types.ExecutedCommandOutcomeSuiteContinued &&
 			strings.TrimSpace(command.ReasonCode) == "probe_non_authoritative" &&
 			command.ExitCode == 0 {
 			hasNonAuthoritativeContinuation = true
@@ -9250,7 +9261,7 @@ func verificationProofFailuresAreOnlyNonAuthoritativeProbeCommands(
 		}
 		if strings.TrimSpace(command.Runner) != "verification_probe" ||
 			strings.TrimSpace(command.Source) != "pre_suite_verification_probe" ||
-			strings.TrimSpace(command.Outcome) != "executed" {
+			strings.TrimSpace(command.Outcome) != types.ExecutedCommandOutcomeExecuted {
 			return false
 		}
 		hasFailedProbeCommand = true

@@ -170,23 +170,23 @@ func verifyFailureHandoffHasOnlyUnavailableVerifierEvidence(handoff *types.Verif
 	return seenUnavailable
 }
 
+// verifyFailureCommandLooksFailed is the single-sourced ExecutedCommand
+// failure classifier (types.ExecutedCommandFailed); it used to duplicate the
+// switch with literals and a default arm (fold-in round four, finding K).
 func verifyFailureCommandLooksFailed(cmd types.ExecutedCommand) bool {
-	switch strings.TrimSpace(cmd.Outcome) {
-	case "", "executed", "syntax_preflight", "syntax_check_fallback", "suite_continued", "suite_skipped":
-		return cmd.ExitCode != 0
-	case "synthetic_no_tests", "zero_tests":
-		return false
-	default:
-		return true
-	}
+	return types.ExecutedCommandFailed(cmd)
 }
 
 func verifyFailureDiagnosticUnavailableReasonCode(diag types.VerificationDiagnostic) string {
 	if types.FailureReasonCodeIndicatesVerificationUnavailable(diag.ReasonCode) {
 		return strings.TrimSpace(diag.ReasonCode)
 	}
+	// VerificationDiagnostic.Outcome mirrors ExecutedCommand.Outcome for
+	// command-derived diagnostics and carries probe-status words for others;
+	// the member labels are spelled through the typed constants.
 	switch strings.TrimSpace(diag.Outcome) {
-	case "not_configured", "runner_missing", "parser_error", "suite_skipped":
+	case types.ExecutedCommandOutcomeNotConfigured, types.ExecutedCommandOutcomeRunnerMissing,
+		types.ExecutedCommandOutcomeParserError, types.ExecutedCommandOutcomeSuiteSkipped:
 		return strings.TrimSpace(diag.Outcome)
 	}
 	return ""
@@ -194,9 +194,9 @@ func verifyFailureDiagnosticUnavailableReasonCode(diag types.VerificationDiagnos
 
 func verifyFailureDiagnosticLooksFailed(diag types.VerificationDiagnostic) bool {
 	switch strings.TrimSpace(diag.Outcome) {
-	case "", "passed", "available", "suite_skipped":
+	case "", "passed", "available", types.ExecutedCommandOutcomeSuiteSkipped:
 		return false
-	case "not_configured", "runner_missing", "parser_error":
+	case types.ExecutedCommandOutcomeNotConfigured, types.ExecutedCommandOutcomeRunnerMissing, types.ExecutedCommandOutcomeParserError:
 		return false
 	}
 	return strings.TrimSpace(diag.Severity) == "error" ||

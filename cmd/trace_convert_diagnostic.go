@@ -110,6 +110,43 @@ var traceConvertDiagnosticCapabilities = []string{
 	"official_frame_gpu_relation_v1",
 	"official_perf_napi_async_relation_v1",
 	"official_ebpf_interval_v1",
+	"conversion_typed_error_graph_v1",
+	"event_invalid_first_witness_v1",
+	"trace_db_record_sequence_foreign_row_v1",
+}
+
+// traceConvertDiagnosticTypedLineAdvertisements binds every typed
+// `typed_error_<name>=` line the report body can emit (each producer in
+// appendTraceConvertDiagnosticError) to the capability roster entry that
+// advertises it, so a report can tell a build that would have written the
+// line apart from an older build that never could (fold-in round four,
+// finding O). The census in trace_convert_diagnostic_advertisement_test.go
+// reads the producers through go/ast: a typed line without an
+// advertisement, a stale advertisement, or an advertisement outside the
+// roster is red.
+var traceConvertDiagnosticTypedLineAdvertisements = map[string]string{
+	"typed_error_conversion_input": "conversion_typed_error_graph_v1",
+	"typed_error_trace_provider":   "conversion_typed_error_graph_v1",
+	"typed_error_trace_fallback":   "conversion_typed_error_graph_v1",
+	"typed_error_builtin_sys":      "conversion_typed_error_graph_v1",
+	"typed_error_archive":          "conversion_typed_error_graph_v1",
+	"typed_error_clock_regression": "clock_regression_first_witness_v1",
+	"typed_error_event_invalid":    "event_invalid_first_witness_v1",
+}
+
+// traceConvertDiagnosticEventInvalidKindAdvertisements binds every member
+// of the closed hitraceconv.TraceEventInvalidKind set (the `kind` value of
+// the typed_error_event_invalid line) to the roster entry that advertises
+// it; the record-sequence foreign-row split has its own entry because a
+// report carrying the older `trace_db_record_sequence` kind for a foreign
+// row cannot otherwise be told apart from a build that names the row.
+var traceConvertDiagnosticEventInvalidKindAdvertisements = map[hitraceconv.TraceEventInvalidKind]string{
+	hitraceconv.TraceEventInvalidCarrierSignatureUnderForeignHeader: "event_invalid_first_witness_v1",
+	hitraceconv.TraceEventInvalidSourceRawVisibilityForeignHeader:   "event_invalid_first_witness_v1",
+	hitraceconv.TraceEventInvalidTraceDBRecordSequence:              "event_invalid_first_witness_v1",
+	hitraceconv.TraceEventInvalidTraceDBRecordSequenceForeignRow:    "trace_db_record_sequence_foreign_row_v1",
+	hitraceconv.TraceEventInvalidTraceDBRecordSequenceIncomplete:    "event_invalid_first_witness_v1",
+	hitraceconv.TraceEventInvalidPerfSampleIntegrity:                "event_invalid_first_witness_v1",
 }
 
 type traceConvertDiagnosticProgressLog struct {

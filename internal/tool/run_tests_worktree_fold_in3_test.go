@@ -23,7 +23,8 @@ import (
 //     uncovered gets its cheap locked witness, and a timed-out suite without
 //     a passed probe is labelled infra-downgraded, not "failed".
 //   - D: one install choke point builds every exit's summary, so the early
-//     timeout exit names both audit lanes.
+//     timeout exit names both audit lanes (structural census: see
+//     run_tests_install_choke_point_census_test.go).
 
 func fixedPointRowsByPath(audit *types.VerificationWorktreeAudit) map[string]types.VerificationWorktreeEffect {
 	out := map[string]types.VerificationWorktreeEffect{}
@@ -114,14 +115,14 @@ func TestVerificationWorktreeAuditEveryLockfileRowCarriesADeclaredFixedPoint(t *
 			want: map[string]types.VerificationLockfileFixedPoint{"Cargo.lock": types.VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded}, status: types.VerificationWorktreeAuditTrackedDriftDisclosed,
 		},
 		{
-			name: "owner seat exited non-zero: unproven_report_failed", files: map[string]string{"Cargo.lock": "v1\n"}, mutate: []string{"Cargo.lock"},
+			name: "owner seat exited non-zero: unproven_suite_failed", files: map[string]string{"Cargo.lock": "v1\n"}, mutate: []string{"Cargo.lock"},
 			stub: verificationLockedReverifyResult{ExitCode: 101},
 			report: func() *types.ChangeReport {
 				return &types.ChangeReport{Passed: false, FailureKind: types.FailureKindTestsFailed, FailureReasonCode: "tests_failed",
 					TestResults: []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "t", Suite: "project", Passed: false}}}
 			},
 			seat: types.ExecutedCommand{Runner: "rust", WorkingDir: ".", Outcome: types.ExecutedCommandOutcomeExecuted, ExitCode: 101},
-			want: map[string]types.VerificationLockfileFixedPoint{"Cargo.lock": types.VerificationLockfileFixedPointUnprovenReportFailed}, status: types.VerificationWorktreeAuditTrackedDriftDisclosed,
+			want: map[string]types.VerificationLockfileFixedPoint{"Cargo.lock": types.VerificationLockfileFixedPointUnprovenSuiteFailed}, status: types.VerificationWorktreeAuditTrackedDriftDisclosed,
 		},
 	}
 	for _, tc := range cases {
@@ -264,7 +265,7 @@ func TestRunTestsUncoveredChangedPathStillRunsTheLockedWitnessForAPassingSeat(t 
 	if report.FailureKind != types.FailureKindVerificationIncomplete {
 		t.Fatalf("the coverage verdict must survive the audit: %+v", report)
 	}
-	failedPhrase := types.VerificationLockfileFixedPointDisclosure(types.VerificationLockfileFixedPointUnprovenReportFailed, false)
+	failedPhrase := types.VerificationLockfileFixedPointDisclosure(types.VerificationLockfileFixedPointUnprovenSuiteFailed, false)
 	if strings.Contains(result.Summary, failedPhrase) || !strings.Contains(result.Summary, "Cargo.lock=dependency_lockfile_refresh(rust)") {
 		t.Fatalf("summary must name the proven lockfile row and never say the suite failed:\n%s", result.Summary)
 	}
@@ -300,7 +301,7 @@ func TestRunTestsTimeoutExitDisclosesInfraDowngradedLockfileAndUntrackedOutput(t
 		t.Fatalf("lockfile row = %+v", rows["Cargo.lock"])
 	}
 	infraPhrase := types.VerificationLockfileFixedPointDisclosure(types.VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded, false)
-	failedPhrase := types.VerificationLockfileFixedPointDisclosure(types.VerificationLockfileFixedPointUnprovenReportFailed, false)
+	failedPhrase := types.VerificationLockfileFixedPointDisclosure(types.VerificationLockfileFixedPointUnprovenSuiteFailed, false)
 	for _, want := range []string{"command timed out after", "Cargo.lock=dependency_lockfile_refresh(rust) [" + infraPhrase + "]", verificationWorktreeUntrackedRetainedClause, "junk.out"} {
 		if !strings.Contains(result.Summary, want) {
 			t.Fatalf("the timeout exit summary must name both audit lanes (lost %q):\n%s", want, result.Summary)
@@ -345,8 +346,8 @@ func TestVerificationDriftRosterAggregatesSeatFactsInPrecedenceOrder(t *testing.
 					t.Fatalf("infra seat must be skipped as infra-downgraded first: %+v %s", record, fp)
 				}
 			case tc.wantFailed:
-				if record.Outcome != types.VerificationLockedReverifySkippedReportFailed || fp != types.VerificationLockfileFixedPointUnprovenReportFailed {
-					t.Fatalf("failed seat must be skipped as report failed: %+v %s", record, fp)
+				if record.Outcome != types.VerificationLockedReverifySkippedReportFailed || fp != types.VerificationLockfileFixedPointUnprovenSuiteFailed {
+					t.Fatalf("failed seat must be skipped with the seat-failed state: %+v %s", record, fp)
 				}
 			default:
 				// A seat that exited 0 reaches the locked runner (no locked
@@ -361,23 +362,6 @@ func TestVerificationDriftRosterAggregatesSeatFactsInPrecedenceOrder(t *testing.
 	}
 }
 
-// D (structural): installRunTestsReport is called from exactly one place in
-// run_tests.go besides its definition — the installFinishedReport choke
-// point — so no exit can install a report while skipping the audit sentence.
-func TestRunTestsInstallsFinishedReportsThroughOneChokePoint(t *testing.T) {
-	src, err := os.ReadFile("run_tests.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(src)
-	calls := strings.Count(text, "installRunTestsReport(ctx, ")
-	if calls != 1 {
-		t.Fatalf("installRunTestsReport must be called once (inside installFinishedReport), got %d call sites", calls)
-	}
-	if !strings.Contains(text, "return base + renderRunTestsWorktreeAuditSummary(report)") {
-		t.Fatalf("the choke point must append the worktree audit sentence to every exit summary")
-	}
-	if strings.Contains(text, "Summary:    renderVerificationProbePrimarySummary(") || strings.Contains(text, "Summary:    fmt.Sprintf(\"[run_tests: %s] command timed out") {
-		t.Fatalf("an exit builds its summary through installFinishedReport, never directly")
-	}
-}
+// D (structural): the choke-point pin moved to
+// run_tests_install_choke_point_census_test.go (fold-in round four, finding
+// N) — it is a go/ast census bound by data flow, not a substring count.

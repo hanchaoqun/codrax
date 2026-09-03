@@ -156,7 +156,7 @@ func TestVerificationWorktreeAuditPassedZeroTestReportRunsLockedReverify(t *test
 	failedSeat := types.ExecutedCommand{Runner: "rust", WorkingDir: ".", Outcome: types.ExecutedCommandOutcomeExecuted, ExitCode: 101}
 	attachVerificationWorktreeAudit(context.Background(), failed, baseline, root, driftInput(root, nil, failedSeat))
 	if len(calls) != 0 || failed.WorktreeAudit.LockedReverify[0].Outcome != types.VerificationLockedReverifySkippedReportFailed ||
-		failed.WorktreeAudit.Effects[0].LockfileFixedPoint != types.VerificationLockfileFixedPointUnprovenReportFailed {
+		failed.WorktreeAudit.Effects[0].LockfileFixedPoint != types.VerificationLockfileFixedPointUnprovenSuiteFailed {
 		t.Fatalf("a failed report keeps skipped_report_failed with the typed unproven state: calls=%d audit=%+v", len(calls), failed.WorktreeAudit)
 	}
 }

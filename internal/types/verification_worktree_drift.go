@@ -74,19 +74,25 @@ const (
 	VerificationLockedReverifyFailedReason = "lockfile_locked_reverify_failed"
 )
 
-// Closed outcome set of a VerificationLockedReverify record (F-run-tests
-// fold-in of §40.36: the labels are accurate — a locked re-run is skipped
-// as "report failed" only when the report actually failed, and as "suite
-// infra downgraded" when the primary suite of the owning runner was cut
+// Closed outcome set of a VerificationLockedReverify record. The decision
+// is keyed on the OWNER SEAT's typed facts (F-run-tests round three,
+// finding B; verificationLockedReverifyRecordForOwner in the tool package
+// never reads the report-level verdict): a locked re-run is skipped when
+// the seat's own suite exited non-zero, or when the seat's suite was cut
 // short by a timeout / memory cap / CPU cap so re-running it under the same
-// caps would only die again).
+// caps would only die again.
 const (
 	VerificationLockedReverifyPassed        = "passed"
 	VerificationLockedReverifyFailed        = "failed"
 	VerificationLockedReverifyDriftRecurred = "drift_recurred"
 	VerificationLockedReverifyUnavailable   = "unavailable"
-	// VerificationLockedReverifySkippedReportFailed: the report is not
-	// Passed; the locked re-run would fail for the suite's own reasons.
+	// VerificationLockedReverifySkippedReportFailed: the owning runner's
+	// SEAT (runner, workdir) exited non-zero on a launched, non-infra row,
+	// so the locked re-run would fail for the suite's own reasons and is
+	// not attempted. The report-level verdict is not consulted — a report
+	// that is not Passed for coverage reasons still gets its locked
+	// witness when the seat exited 0. The wire bytes keep the historical
+	// "report" spelling (published on origin/main; append-only).
 	VerificationLockedReverifySkippedReportFailed = "skipped_report_failed"
 	// VerificationLockedReverifySkippedSuiteInfraDowngraded: the owning
 	// runner's primary suite was killed by an infrastructure cap; the
@@ -132,10 +138,14 @@ const (
 	// owning runner's suite was cut short by an infrastructure cap, so the
 	// locked re-run was not attempted; the row stays disclosed.
 	VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded VerificationLockfileFixedPoint = "unproven_suite_infra_downgraded"
-	// VerificationLockfileFixedPointUnprovenReportFailed: the owning
-	// runner's own suite failed (non-zero exit), so the locked re-run was
-	// not attempted.
-	VerificationLockfileFixedPointUnprovenReportFailed VerificationLockfileFixedPoint = "unproven_report_failed"
+	// VerificationLockfileFixedPointUnprovenSuiteFailed: the owning
+	// runner's SEAT exited non-zero on its own suite (a launched, non-infra
+	// row of that runner and working dir), so the locked re-run was not
+	// attempted. Decided from the seat, never from the report-level
+	// verdict. (Fold-in round four, finding L: renamed from
+	// unproven_report_failed, which was introduced in unpushed commits and
+	// described the verdict the decision no longer reads.)
+	VerificationLockfileFixedPointUnprovenSuiteFailed VerificationLockfileFixedPoint = "unproven_suite_failed"
 	// VerificationLockfileFixedPointUnprovenRunRefused (F-run-tests round
 	// three, finding A): the verification run was refused because OTHER
 	// tracked paths drifted (unclassified rows), so no locked re-run was
@@ -152,7 +162,7 @@ func AllVerificationLockfileFixedPoints() []VerificationLockfileFixedPoint {
 		VerificationLockfileFixedPointProven,
 		VerificationLockfileFixedPointDisproven,
 		VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded,
-		VerificationLockfileFixedPointUnprovenReportFailed,
+		VerificationLockfileFixedPointUnprovenSuiteFailed,
 		VerificationLockfileFixedPointUnprovenRunRefused,
 	}
 }
@@ -175,7 +185,7 @@ func VerificationLockfileFixedPointDeclared(fp VerificationLockfileFixedPoint) b
 // every disclosure surface must say so in plain words.
 func VerificationLockfileFixedPointUnproven(fp VerificationLockfileFixedPoint) bool {
 	switch fp {
-	case VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded, VerificationLockfileFixedPointUnprovenReportFailed,
+	case VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded, VerificationLockfileFixedPointUnprovenSuiteFailed,
 		VerificationLockfileFixedPointUnprovenRunRefused:
 		return true
 	default:
@@ -194,11 +204,11 @@ func VerificationLockfileFixedPointDisclosure(fp VerificationLockfileFixedPoint,
 			return "锁文件定点未证明：测试套件被超时或资源上限中止，未能执行锁定复验"
 		}
 		return "lockfile fixed point UNPROVEN: the test suite was cut short by a timeout or resource cap before a locked re-run could prove it"
-	case VerificationLockfileFixedPointUnprovenReportFailed:
+	case VerificationLockfileFixedPointUnprovenSuiteFailed:
 		if zh {
-			return "锁文件定点未证明：测试套件失败，未执行锁定复验"
+			return "锁文件定点未证明：该测试座位的套件以非零退出码结束，未执行锁定复验"
 		}
-		return "lockfile fixed point UNPROVEN: the test suite failed so no locked re-run was attempted"
+		return "lockfile fixed point UNPROVEN: the owner suite exited non-zero so no locked re-run was attempted"
 	case VerificationLockfileFixedPointUnprovenRunRefused:
 		if zh {
 			return "锁文件定点未证明：本次验证运行因其他路径的改动被拒绝，未执行锁定复验"
