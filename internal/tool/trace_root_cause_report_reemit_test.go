@@ -193,7 +193,11 @@ func TestEmitAnswerDocumentPublishesModelDescriptionBesideTypedEvidence(t *testi
 	if err != nil || !result.Success {
 		t.Fatalf("the full answer must survive an invalid description: result=%+v err=%v", result, err)
 	}
-	if mutable.TraceRootCauseReport() != nil {
-		t.Fatal("a selector whose description leaks an internal reference must not be published")
+	report = mutable.TraceRootCauseReport()
+	if report == nil || len(report.RootCauses) != 1 || report.RootCauses[0].Description != "" {
+		t.Fatalf("复核: the typed selection is kept and only the leaking description is dropped: %#v", report)
+	}
+	if !strings.Contains(result.Summary, "description for root_causes[0] dropped") || !strings.Contains(result.Summary, "internal references") {
+		t.Fatalf("the drop must be disclosed on the tool summary so the model can repair it: %q", result.Summary)
 	}
 }

@@ -156,7 +156,7 @@ func TestRootCauseSelectorContextTeachesPlainLanguageDescription(t *testing.T) {
 	contract.Required, contract.RootCauseReportEnabled = false, true
 	ctx.Mutable.SetTraceFindingContract(contract)
 	text := renderTraceFindingContract(ctx)
-	for _, want := range []string{"`description`", "plain-language", "never quote candidate ids, file paths or evidence ids"} {
+	for _, want := range []string{"`description`", types.TraceRootCauseDescriptionTeaching(), "frame_unproven"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("selector context must teach the description (%q):\n%s", want, text)
 		}

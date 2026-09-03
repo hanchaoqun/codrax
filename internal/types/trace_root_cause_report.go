@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -98,15 +99,45 @@ type TraceRootCauseItemV2 struct {
 // TraceRootCauseDescriptionMaxRunes bounds the model-authored description.
 const TraceRootCauseDescriptionMaxRunes = 320
 
-// traceRootCauseDescriptionForbiddenTokens are verbatim substrings that mark
-// an internal reference leaking into customer-facing prose: blob paths,
-// trace_query artifact names, ranking anchors and evidence-key spellings.
-var traceRootCauseDescriptionForbiddenTokens = []string{".codrax/", "trace-query-result", "#root_cause_rank", "trace_query:", "attached_trace"}
+// traceRootCauseInternalReferenceGrammar is the closed grammar of internal
+// artifact references that must never reach customer-facing prose: runtime
+// blob/output directories and stamps, trace_query result/offload artifact
+// names, ranking anchors, attached-trace copies, evidence-key badges and
+// candidate receipt ids. Each pattern is an exact artifact naming rule, not a
+// heuristic.
+var traceRootCauseInternalReferenceGrammar = []*regexp.Regexp{
+	regexp.MustCompile(`\.codrax/`),
+	regexp.MustCompile(`(^|[^A-Za-z0-9_])/(private/)?tmp/`),
+	regexp.MustCompile(`trace[-_]query[-_a-z]*-[0-9a-f]{6,}`),
+	regexp.MustCompile(`\b[0-9]{8}-[0-9]{6}[.-][0-9]{3}-[0-9]+\b`),
+	regexp.MustCompile(`#root_cause_rank`),
+	regexp.MustCompile(`trace_query:`),
+	regexp.MustCompile(`attached_(trace|log|hitrace|atrace)`),
+	regexp.MustCompile(`\[E[0-9]{1,4}(\(\+[0-9]+\))?\]`),
+	regexp.MustCompile(`\bE[0-9]{1,4}\b`),
+	regexp.MustCompile(`\bcandidate-[A-Za-z0-9_-]+`),
+	regexp.MustCompile(`\bobservation-[A-Za-z0-9_-]+`),
+}
+
+// TraceRootCauseDescriptionInternalReference returns the first internal
+// reference found in a description, or "" when it is clean.
+func TraceRootCauseDescriptionInternalReference(description string, candidateIDs []string) string {
+	for _, pattern := range traceRootCauseInternalReferenceGrammar {
+		if match := pattern.FindString(description); match != "" {
+			return strings.TrimSpace(match)
+		}
+	}
+	for _, id := range candidateIDs {
+		if id = strings.TrimSpace(id); id != "" && strings.Contains(description, id) {
+			return id
+		}
+	}
+	return ""
+}
 
 // ValidateTraceRootCauseDescription compacts and bounds a model description
-// and refuses internal references; the candidate id (when known) must not be
-// quoted either.
-func ValidateTraceRootCauseDescription(raw, candidateID, field string) (string, error) {
+// and refuses internal references against the whole selectable roster's ids.
+func ValidateTraceRootCauseDescription(raw string, candidateIDs []string, field string) (string, error) {
 	description := compactTraceRootCauseField(raw)
 	if description == "" {
 		return "", nil
@@ -114,15 +145,17 @@ func ValidateTraceRootCauseDescription(raw, candidateID, field string) (string, 
 	if utf8.RuneCountInString(description) > TraceRootCauseDescriptionMaxRunes {
 		return "", fmt.Errorf("trace_root_causes.%s.description exceeds %d characters", field, TraceRootCauseDescriptionMaxRunes)
 	}
-	for _, token := range traceRootCauseDescriptionForbiddenTokens {
-		if strings.Contains(description, token) {
-			return "", fmt.Errorf("trace_root_causes.%s.description must be customer-readable prose and must not cite internal references (%q)", field, token)
-		}
-	}
-	if id := strings.TrimSpace(candidateID); id != "" && strings.Contains(description, id) {
-		return "", fmt.Errorf("trace_root_causes.%s.description must not quote the internal candidate id", field)
+	if leak := TraceRootCauseDescriptionInternalReference(description, candidateIDs); leak != "" {
+		return "", fmt.Errorf("trace_root_causes.%s.description must be customer-readable prose and must not cite internal references (%q)", field, leak)
 	}
 	return description, nil
+}
+
+// TraceRootCauseDescriptionTeaching is the ONE sentence the selector schema
+// and the selector context both carry (same source), including the frame
+// qualifier discipline.
+func TraceRootCauseDescriptionTeaching() string {
+	return "Optional plain-language account of this cause for the reader: which thread or resource did what, for how long, and why that delayed the target (for example 「同进程 GC 线程 HeapTaskDaemon 执行并发标记约 12 ms，UIThread 在此期间等待堆锁」). One or two sentences reusing the roster's impact_ms and value_description; never quote candidate ids, file paths, artifact names or evidence ids. When the candidate's causal_qualifier is frame_unproven, describe the mechanism without asserting that it caused the frame drop. The runtime keeps its own typed evidence sentences beside it; a description that cites an internal reference is dropped and reported, the selection itself is kept."
 }
 
 // TraceImpactCaliber values carried on the public sidecar — closed set.
@@ -253,7 +286,7 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		}
 		out.Evidence = append(out.Evidence, evidence)
 	}
-	description, err := ValidateTraceRootCauseDescription(in.Description, out.CandidateID, field)
+	description, err := ValidateTraceRootCauseDescription(in.Description, []string{out.CandidateID}, field)
 	if err != nil {
 		return nil, err
 	}

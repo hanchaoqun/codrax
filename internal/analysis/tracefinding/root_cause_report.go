@@ -14,17 +14,30 @@ import (
 // magnitudes come from the frozen typed contract; model prose is not an
 // authority input.
 func BindRootCauseReportSelection(in *types.TraceRootCauseReportV2, contract *types.TraceFindingContract) (*types.TraceRootCauseReportV2, error) {
+	report, _, err := BindRootCauseReportSelectionWithAdvisories(in, contract)
+	return report, err
+}
+
+// BindRootCauseReportSelectionWithAdvisories is the binder with the
+// SIDECAR-NARR-1 disclosure lane: a description that cites an internal
+// reference or exceeds the cap is dropped from its item (the typed selection
+// stands) and the reason is returned so the tool result can tell the model
+// what to repair instead of silently losing the whole selector.
+func BindRootCauseReportSelectionWithAdvisories(in *types.TraceRootCauseReportV2, contract *types.TraceFindingContract) (*types.TraceRootCauseReportV2, []string, error) {
+	var advisories []string
 	if in == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if contract == nil || !contract.RootCauseReportEnabled {
-		return nil, fmt.Errorf("trace_root_causes is not enabled for this request")
+		return nil, nil, fmt.Errorf("trace_root_causes is not enabled for this request")
 	}
 	if in.SchemaVersion != types.TraceRootCauseReportSchemaVersion {
-		return nil, fmt.Errorf("trace_root_causes schema_version=%d, want %d", in.SchemaVersion, types.TraceRootCauseReportSchemaVersion)
+		return nil, nil, fmt.Errorf("trace_root_causes schema_version=%d, want %d", in.SchemaVersion, types.TraceRootCauseReportSchemaVersion)
 	}
 	byID := make(map[string]types.TraceFindingCandidateV1, len(contract.Candidates))
+	rosterIDs := make([]string, 0, len(contract.Candidates))
 	for _, candidate := range contract.Candidates {
+		rosterIDs = append(rosterIDs, candidate.Decision.CandidateID)
 		if _, ok := boundRootCauseItem(candidate); ok {
 			byID[candidate.Decision.CandidateID] = candidate
 		}
@@ -36,39 +49,46 @@ func BindRootCauseReportSelection(in *types.TraceRootCauseReportV2, contract *ty
 	seen := make(map[string]bool, len(in.RootCauses))
 	for index, selection := range in.RootCauses {
 		if selection == nil {
-			return nil, fmt.Errorf("trace_root_causes.root_causes[%d] is null", index)
+			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d] is null", index)
 		}
 		candidateID := strings.TrimSpace(selection.CandidateID)
 		if candidateID == "" {
-			return nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is required", index)
+			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is required", index)
 		}
 		if seen[candidateID] {
-			return nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id duplicates an earlier selection", index)
+			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id duplicates an earlier selection", index)
 		}
 		candidate, ok := byID[candidateID]
 		if !ok {
-			return nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is outside the selectable typed on-chain roster", index)
+			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is outside the selectable typed on-chain roster", index)
 		}
 		item, ok := boundRootCauseItem(candidate)
 		if !ok {
-			return nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is not representable in the public report", index)
+			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is not representable in the public report", index)
 		}
 		// SIDECAR-NARR-1: the model's plain-language account rides beside the
-		// typed facts; the normalizer bounds it and refuses internal references.
-		item.Description = selection.Description
+		// typed facts. It is advisory, so a description that cites an internal
+		// reference (checked against the WHOLE roster's ids) is dropped from
+		// this item and disclosed; the typed selection is never lost for it.
+		description, derr := types.ValidateTraceRootCauseDescription(selection.Description, rosterIDs, fmt.Sprintf("root_causes[%d]", index))
+		if derr != nil {
+			advisories = append(advisories, fmt.Sprintf("description for root_causes[%d] dropped: %v", index, derr))
+			description = ""
+		}
+		item.Description = description
 		seen[candidateID] = true
 		bound.RootCauses = append(bound.RootCauses, item)
 	}
 	report, err := types.NormalizeAndValidateTraceRootCauseReport(bound)
 	if err != nil {
-		return nil, err
+		return nil, advisories, err
 	}
 	// Candidate identity owns selection uniqueness, but remains private to the
 	// binding transaction. The public v2 sidecar keeps its existing wire shape.
 	for _, item := range report.RootCauses {
 		item.CandidateID = ""
 	}
-	return report, nil
+	return report, advisories, nil
 }
 
 // SelectableRootCauseCandidates returns only exact typed on-chain candidates

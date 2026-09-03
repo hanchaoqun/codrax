@@ -442,6 +442,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		rootCauses = nil
 	}
 	res, err := ApplyAndPersistMutationWithFinding(ctx, toolName, mutation, nil, finding, now)
+	if err == nil && res.Success {
+		res.Summary += traceRootCauseSelectorAdvisorySuffix(ctx)
+	}
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil && rootCauses != nil {
 		ctx.Mutable.SetTraceRootCauseReport(rootCauses)
 	} else if ctx != nil && ctx.Mutable != nil && rootCauses != nil && len(strings.TrimSpace(string(p.TraceRootCauses))) > 0 {

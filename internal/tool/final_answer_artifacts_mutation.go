@@ -279,9 +279,26 @@ func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.Ra
 		}
 		return nil, fmt.Errorf("decode optional trace_root_causes selector: %w", err)
 	}
-	report, err := tracefinding.BindRootCauseReportSelection(&selection, contract)
+	report, advisories, err := tracefinding.BindRootCauseReportSelectionWithAdvisories(&selection, contract)
+	if len(advisories) > 0 {
+		ctx.Mutable.SetTraceRootCauseSelectorAdvisories(advisories)
+	}
 	if err != nil && patch {
 		return ctx.Mutable.TraceRootCauseReport(), err
 	}
 	return report, err
+}
+
+// traceRootCauseSelectorAdvisorySuffix renders the binder's selector
+// disclosures onto an accepted tool summary (SIDECAR-NARR-1 复核: an
+// optional carrier's dropped part is reported, never only logged).
+func traceRootCauseSelectorAdvisorySuffix(ctx *types.BusContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	advisories := ctx.Mutable.TakeTraceRootCauseSelectorAdvisories()
+	if len(advisories) == 0 {
+		return ""
+	}
+	return " [trace_root_causes: " + strings.Join(advisories, "; ") + "]"
 }

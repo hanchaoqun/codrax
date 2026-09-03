@@ -6103,6 +6103,8 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 
 **pin**:types(压空白/上限/五种内部引用/候选 id 各拒;normalize 保留 description 且 summary/evidence 不变)、tracefinding(绑定携带;内部引用拒绝)、tool(schema 暴露 description 且教学不含内部名;e2e 发布在 typed evidence 之旁;泄漏描述 → selector 不发布而答案成功)、agent(selector 上下文教学句)。
 
+**对抗复核收编**(鉴权恢复后补审,5 finding 全部收编):①**内部引用只钉了五个子串**——改为闭合的内部工件命名语法(正则表):`.codrax/`、`/tmp` 与 `/private/tmp` 目录、`trace_query-<hex>` 原始卸载名与 `trace-query-result-*`、`YYYYMMDD-HHMMSS-mmm-pid` 输出戳、`#root_cause_rank`、`trace_query:`、`attached_(trace|log|hitrace|atrace)`、`[E12(+n)]` 证据徽章与裸 `E12`、`candidate-*`/`observation-*` 回执 id;②**候选 id 只查自身**——binder 以名册全部 id 校验;③**一条坏描述整体丢 selector 且模型无修复信号**(V2-3 同类)——改为只丢该项 `description`、typed 选择保留,binder 返回 advisories,经 Mutable 一次性载体附到 emit/patch 成功摘要(`[trace_root_causes: description for root_causes[i] dropped: …]`),V2-3 泛化(`OptionalCarrierOutcomes`)时并入;④**教学双写**——`types.TraceRootCauseDescriptionTeaching()` 单源,schema 与 selector 上下文逐字相等(pin);⑤**与帧限定一致性无教学**——教学句加"causal_qualifier=frame_unproven 时描述机理但不断言导致丢帧"(散文一致性属噪声信号,只教学不设硬门)。
+
 **验证**:全仓套件 `go test ./internal/... ./cmd/` 绿 + `make` 通过;定向 pin(types/tracefinding/tool/agent)绿;eval 复跑 `trace_query_donghu_real_frame_multicausal` PASS,sidecar 三席位均带模型 `description`(例:「同进程 CookieMonsterCl 线程在依赖链上以 runnable 状态等待调度，与目标线程存在优先级差（目标 52 vs 该线程 20），构成链上优先级反转候选，有效归因 23.994ms」「ThreadPoolForeg 线程在依赖链上进入 D 状态不可中断等待，已测 10.433ms，内核未记录具体阻塞资源，该等待位于唤醒链上游。」),typed 四句证据保持并列,内部引用泄漏 0。
 
 ### §40.42 裁定补记(2026-09-03,用户「按最优方案裁定」)

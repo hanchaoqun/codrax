@@ -31,11 +31,16 @@ func TestBindRootCauseReportSelectionCarriesDescription(t *testing.T) {
 	if len(report.RootCauses[0].Evidence) == 0 {
 		t.Fatal("typed evidence must remain")
 	}
-	_, err = BindRootCauseReportSelection(&types.TraceRootCauseReportV2{
+	// 复核: an internal reference drops only the description; the typed
+	// selection stands and the reason is returned for disclosure.
+	report, advisories, err := BindRootCauseReportSelectionWithAdvisories(&types.TraceRootCauseReportV2{
 		SchemaVersion: types.TraceRootCauseReportSchemaVersion,
 		RootCauses:    []*types.TraceRootCauseItemV2{{CandidateID: id, Description: "见 .codrax/blob/x/attached_trace.txt:2892"}},
 	}, contract)
-	if err == nil || !strings.Contains(err.Error(), "internal references") {
-		t.Fatalf("an internal reference in the description must be refused: %v", err)
+	if err != nil || report == nil || len(report.RootCauses) != 1 || report.RootCauses[0].Description != "" {
+		t.Fatalf("the selection must survive a leaking description: %+v %v", report, err)
+	}
+	if len(advisories) != 1 || !strings.Contains(advisories[0], "internal references") {
+		t.Fatalf("the drop must be disclosed: %v", advisories)
 	}
 }

@@ -425,6 +425,11 @@ type MutableState struct {
 	// selector inherits it (omission ≠ withdrawal; the contract is frozen per
 	// run). Cleared whenever a report is stored or the dispatch resets.
 	pendingTraceRootCauseReport *TraceRootCauseReportV2
+	// traceRootCauseSelectorAdvisories (SIDECAR-NARR-1 复核) are the typed
+	// disclosures the binder produced for the latest selector (e.g. a
+	// description dropped for citing an internal reference). Taken once by
+	// the emitting tool for its summary; never persisted.
+	traceRootCauseSelectorAdvisories []string
 
 	// finalizerTypedRelationRecipeAvailable is a dispatch-scoped producer
 	// receipt: the finalizer prompt compiler sets it only when the exact prompt
@@ -3866,6 +3871,29 @@ func (m *MutableState) SetTraceRootCauseReport(report *TraceRootCauseReportV2) {
 
 // SetPendingTraceRootCauseReport stages a validly bound selector whose
 // carrying emit was rejected for answer-structure reasons (§40.31.1 ★16).
+// SetTraceRootCauseSelectorAdvisories records binder disclosures for the
+// latest selector; TakeTraceRootCauseSelectorAdvisories hands them to the
+// tool summary exactly once.
+func (m *MutableState) SetTraceRootCauseSelectorAdvisories(advisories []string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.traceRootCauseSelectorAdvisories = append([]string(nil), advisories...)
+}
+
+func (m *MutableState) TakeTraceRootCauseSelectorAdvisories() []string {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := m.traceRootCauseSelectorAdvisories
+	m.traceRootCauseSelectorAdvisories = nil
+	return out
+}
+
 func (m *MutableState) SetPendingTraceRootCauseReport(report *TraceRootCauseReportV2) {
 	if m == nil || report == nil {
 		return

@@ -72,8 +72,8 @@ func assertDynamicRootCauseArraySchema(t *testing.T, raw json.RawMessage) {
 	if description["type"] != "string" {
 		t.Fatalf("description is not offered on the selector item: %#v", itemProperties)
 	}
-	if text, _ := description["description"].(string); !strings.Contains(text, "plain-language") || strings.Contains(text, "candidate_compiler") || strings.Contains(text, "EvidenceFacts") {
-		t.Fatalf("description teaching must be customer-facing and free of internal names: %q", text)
+	if text, _ := description["description"].(string); text != types.TraceRootCauseDescriptionTeaching() || strings.Contains(text, "candidate_compiler") || strings.Contains(text, "EvidenceFacts") {
+		t.Fatalf("description teaching must be the single types-level sentence: %q", text)
 	}
 	required, _ := item["required"].([]any)
 	want := map[string]bool{"candidate_id": false}
