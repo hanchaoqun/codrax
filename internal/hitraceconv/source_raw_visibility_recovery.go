@@ -9,14 +9,75 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strconv"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 const (
-	traceDBSourceRawVisibilityWire   = "codrax_source_raw_visibility/v1"
-	traceDBSourceRawVisibilityFamily = "source_rawtrace_visibility"
-	traceDBSourceRawVisibilityTable  = "__raw_visibility__"
+	// Both wire tokens are read from the parser package so the emission side
+	// and the recognition side share one source (colleague_merge_audit §40.13).
+	traceDBSourceRawVisibilityWire      = tracequery.SourceRawVisibilityWire
+	traceDBSourceRawVisibilityEventName = tracequery.SourceRawVisibilityEventName
+	traceDBSourceRawVisibilityFamily    = "source_rawtrace_visibility"
+	traceDBSourceRawVisibilityTable     = "__raw_visibility__"
+	// maxTraceDBSourceRawVisibilityEventNameBytes mirrors the parser's
+	// event_name_b64 cap (tracequery sourceRawVisibilityOnlyPayload): a name the
+	// parser would reject fails closed here, before any row reaches the sink.
+	maxTraceDBSourceRawVisibilityEventNameBytes         = tracequery.SourceRawVisibilityEventNameMaxBytes
+	maxTraceDBSourceRawVisibilityFormatNameWitnesses    = 32
+	maxTraceDBSourceRawVisibilityFormatNameWitnessBytes = 512
 )
+
+// traceDBCarrierFamily declares one converter-owned ftrace-body carrier
+// family: rows whose body starts with a versioned `codrax_<family>/v<N>` wire
+// token and that carry no semantic authority of their own. Every such family
+// MUST publish under the single reserved header name — a carrier wearing the
+// wrapped record's original event name is audited as a malformed semantic row
+// by every header-name-keyed consumer (§40.13 root-cause class: "the carrier
+// borrows the identity of what it carries"). The emitter file/body builder
+// pair is what the structural census test binds the declaration to, so a new
+// family cannot be added without registering here and cannot register without
+// emitting under the reserved name.
+type traceDBCarrierFamily struct {
+	Wire string
+	// Kind: an ftrace-body carrier publishes under the reserved header name;
+	// a comment carrier is a `# <wire> …` line that is never an ftrace row.
+	Kind        traceDBCarrierKind
+	EventName   string
+	BodyBuilder string
+	EmitterFile string
+}
+
+type traceDBCarrierKind string
+
+const (
+	traceDBCarrierKindFtraceBody traceDBCarrierKind = "ftrace_body"
+	traceDBCarrierKindComment    traceDBCarrierKind = "comment"
+)
+
+// traceDBReservedCarrierFamilies is the single registry of every codrax wire
+// family (`codrax_<family>/v<N>`). Ftrace-body carriers MUST publish under the
+// reserved header name; comment carriers are `# <wire>` lines outside the
+// ftrace row namespace and are registered so the census can prove that no
+// wire token exists that the registry does not know about.
+var traceDBReservedCarrierFamilies = []traceDBCarrierFamily{
+	{
+		Wire:        traceDBSourceRawVisibilityWire,
+		Kind:        traceDBCarrierKindFtraceBody,
+		EventName:   traceDBSourceRawVisibilityEventName,
+		BodyBuilder: "traceDBSourceRawVisibilityBody",
+		EmitterFile: "source_raw_visibility_recovery.go",
+	},
+	{Wire: "codrax_sched_wakeup_cpu_unavailable/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/cpu_unavailable_wakeup.go"},
+	{Wire: "codrax_trace_mark_cpu_unavailable/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/cpu_unavailable_trace_mark.go"},
+	{Wire: "codrax_frame_map/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/frame_map_relation.go"},
+	{Wire: "codrax_trace_async_interval/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/completed_async_interval.go"},
+	{Wire: "codrax_trace_mark_exact/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/exact_trace_mark.go"},
+	{Wire: "codrax_ebpf_interval/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/official_ebpf_interval.go"},
+}
 
 type traceDBSourceRawVisibilitySchema struct {
 	Version  int                               `json:"version"`
@@ -51,7 +112,7 @@ func newTraceDBSourceRawVisibilityCoverage() TraceDBCoverage {
 			"payload":    "byte-exact raw event content encoded as base64url, including the physical event id and common envelope bytes",
 			"schema":     "canonical versioned JSON containing exact admitted event id/name, ordered field type/name/offset/size/signed geometry and print-fmt; the first physical row per format carries it and every row carries its SHA-256",
 			"authority":  "visibility-only source_raw_visibility advisory; this carrier cannot create a span, pair, duration, CPU-supply fact, wake edge or root-cause candidate",
-			"viewer":     "standard ftrace row under the original safe event name; generic viewers can display the occurrence and payload while unaware readers ignore the Codrax body contract",
+			"viewer":     "standard ftrace row under the reserved " + traceDBSourceRawVisibilityEventName + " event name so header-name-keyed readers never mistake the carrier for the wrapped record; the original event name is recoverable from event_name_b64 and the schema payload; generic viewers can display the occurrence and payload while unaware readers ignore the Codrax body contract",
 			"duplicates": "supplementary source observation may coexist with a DB-derived semantic row; the visibility-only token prevents double causal accounting and is not a deduplication claim",
 		},
 		Metadata: map[string]string{"publication_state": "unavailable"},
@@ -124,28 +185,20 @@ func traceDBSourceRawVisibilitySchemaFor(format eventFormat) ([]byte, string, er
 	return payload, hex.EncodeToString(digest[:]), nil
 }
 
-func traceDBSourceRawVisibilityEventName(name string) string {
-	if name == "" || len(name) > 128 {
-		return "codrax_source_raw_event"
-	}
-	for _, value := range []byte(name) {
-		if (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
-			(value >= '0' && value <= '9') || value == '_' || value == '-' ||
-			value == '.' || value == '/' {
-			continue
-		}
-		return "codrax_source_raw_event"
-	}
-	return name
-}
-
+// traceDBSourceRawVisibilityBody renders the carrier body. The header name is
+// NOT derived from the format: every carrier row is published under
+// traceDBSourceRawVisibilityEventName and the original name travels only in
+// the typed event_name_b64 token (and the schema payload). The name length
+// guard mirrors the parser's cap so an unpublishable name fails the family
+// closed here instead of surfacing later as a less specific count mismatch.
 func traceDBSourceRawVisibilityBody(
 	format eventFormat,
 	content []byte,
 	schema *traceDBSourceRawVisibilitySchemaWire,
 ) (string, error) {
 	if schema == nil || len(schema.payload) == 0 || len(schema.digest) != sha256.Size*2 ||
-		len(content) < 2 {
+		len(content) < 2 || len(format.Name) == 0 ||
+		len(format.Name) > maxTraceDBSourceRawVisibilityEventNameBytes {
 		return "", &traceDBOutputInvariantError{Reason: "source_raw_visibility_wire_invalid"}
 	}
 	body := traceDBSourceRawVisibilityWire +
@@ -304,7 +357,7 @@ func publishTraceDBSourceRawVisibility(
 				row, err := prepareTraceDBRenderedRowEnvelopeContext(
 					ctx, int64(ts), sink.stats.RowsAccepted, task,
 					int64(headerPID), 0, int64(pageHeader.CPU), flags, preemptCount, true,
-					traceDBSourceRawVisibilityEventName(format.Name)+": "+visibilityBody)
+					traceDBSourceRawVisibilityEventName+": "+visibilityBody)
 				if err != nil {
 					return out, err
 				}
@@ -329,6 +382,44 @@ func publishTraceDBSourceRawVisibility(
 	traceDBAddCoverageMetric(&out, "schema_bytes_preserved", schemaBytes)
 	traceDBAddCoverageMetric(&out, "semantic_authority_rows", 0)
 	out.Metadata["publication_state"] = "published_complete_visibility_only_source_census"
-	out.Metadata["wire"] = fmt.Sprintf("%s; exact payload+schema; semantic_authority=none", traceDBSourceRawVisibilityWire)
+	out.Metadata["wire"] = fmt.Sprintf("%s; event_name=%s; exact payload+schema; semantic_authority=none",
+		traceDBSourceRawVisibilityWire, traceDBSourceRawVisibilityEventName)
+	// The header name no longer says which source formats were wrapped, so the
+	// diagnostic report keeps the published original names as a bounded
+	// witness (the `_witness` suffix is the shared sideband contract).
+	names := make([]string, 0, len(schemas))
+	for formatID := range schemas {
+		names = append(names, catalog.Formats[formatID].Name)
+	}
+	out.Metadata["published_format_names_witness"] = traceDBSourceRawVisibilityFormatNamesWitness(names)
 	return out, nil
+}
+
+// traceDBSourceRawVisibilityFormatNamesWitness renders the sorted original
+// event names published through the reserved carrier as one bounded witness
+// value (name count and byte caps; the omitted tail is counted, never
+// truncated mid-name). Unsafe names take the shared decode-ledger witness form.
+func traceDBSourceRawVisibilityFormatNamesWitness(names []string) string {
+	sorted := make([]string, 0, len(names))
+	for _, name := range names {
+		sorted = append(sorted, traceDBRawDecodeFormatWitnessName(name))
+	}
+	sort.Strings(sorted)
+	var builder strings.Builder
+	emitted := 0
+	for _, name := range sorted {
+		if emitted >= maxTraceDBSourceRawVisibilityFormatNameWitnesses ||
+			builder.Len()+len(name)+1 > maxTraceDBSourceRawVisibilityFormatNameWitnessBytes {
+			break
+		}
+		if emitted > 0 {
+			builder.WriteByte(';')
+		}
+		builder.WriteString(name)
+		emitted++
+	}
+	if omitted := len(sorted) - emitted; omitted > 0 {
+		builder.WriteString(fmt.Sprintf(";+%d more", omitted))
+	}
+	return builder.String()
 }

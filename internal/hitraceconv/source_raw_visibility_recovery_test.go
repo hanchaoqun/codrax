@@ -15,10 +15,13 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-func traceDBRawVisibilityCapture(t *testing.T, corruptEnvelope bool) ([]byte, []byte) {
-	t.Helper()
-	format := eventFormat{
-		ID: 33086, Name: "hmfs_writepage",
+// traceDBRawVisibilityFormat is the synthetic non-strict source format the
+// visibility fixtures wrap. The name is a parameter on purpose: the reserved
+// header name (colleague_merge_audit §40.13) must hold for every wrapped
+// family, not just the HMFS-like one the carrier was first built for.
+func traceDBRawVisibilityFormat(name string) eventFormat {
+	return eventFormat{
+		ID: 33086, Name: name,
 		Fields: []eventField{
 			{Type: "unsigned short", Name: "common_type", Offset: 0, Size: 2},
 			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
@@ -29,9 +32,9 @@ func traceDBRawVisibilityCapture(t *testing.T, corruptEnvelope bool) ([]byte, []
 		},
 		PrintFmt: `"ino=%lu index=%lu", REC->ino, REC->index`,
 	}
-	if corruptEnvelope {
-		format.Fields[3].Offset = 12
-	}
+}
+
+func traceDBRawVisibilityContent(format eventFormat) []byte {
 	content := make([]byte, 24)
 	binary.LittleEndian.PutUint16(content[0:2], uint16(format.ID))
 	content[2] = 0x04
@@ -39,7 +42,16 @@ func traceDBRawVisibilityCapture(t *testing.T, corruptEnvelope bool) ([]byte, []
 	binary.LittleEndian.PutUint32(content[4:8], 25827)
 	binary.LittleEndian.PutUint64(content[8:16], 0x1234)
 	binary.LittleEndian.PutUint64(content[16:24], 77)
+	return content
+}
 
+func traceDBRawVisibilityCaptureNamed(t *testing.T, name string, corruptEnvelope bool) ([]byte, []byte) {
+	t.Helper()
+	format := traceDBRawVisibilityFormat(name)
+	if corruptEnvelope {
+		format.Fields[3].Offset = 12
+	}
+	content := traceDBRawVisibilityContent(format)
 	var capture bytes.Buffer
 	writeFileHeader(&capture, 4)
 	header := capture.Bytes()
@@ -54,6 +66,26 @@ func traceDBRawVisibilityCapture(t *testing.T, corruptEnvelope bool) ([]byte, []
 		{EventID: uint16(format.ID), OffsetNS: 2000, Content: content},
 	}))
 	return capture.Bytes(), content
+}
+
+func traceDBRawVisibilityCapture(t *testing.T, corruptEnvelope bool) ([]byte, []byte) {
+	t.Helper()
+	return traceDBRawVisibilityCaptureNamed(t, "hmfs_writepage", corruptEnvelope)
+}
+
+// traceDBSourceRawVisibilityOriginalEventName recovers the wrapped record's
+// original event name from a published carrier row: the header carries only
+// the reserved name, the typed event_name_b64 token carries the identity.
+func traceDBSourceRawVisibilityOriginalEventName(line string) (string, bool) {
+	token := traceDBRawVisibilityToken(line, "event_name_b64")
+	if token == "" {
+		return "", false
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || len(decoded) == 0 {
+		return "", false
+	}
+	return string(decoded), true
 }
 
 func TestTraceDBSourceRawVisibilityPublishesLosslessNonAuthoritativeRows(t *testing.T) {
@@ -91,8 +123,12 @@ func TestTraceDBSourceRawVisibilityPublishesLosslessNonAuthoritativeRows(t *test
 		coverage.Metrics["semantic_authority_rows"] != 0 || len(sink.rows) != 2 {
 		t.Fatalf("visibility publication mismatch: coverage=%+v rows=%+v", coverage, sink.rows)
 	}
+	// EVOLUTION RECORD (colleague_merge_audit §40.13, V6-2): the row header
+	// used to be the wrapped record's own name (`hmfs_writepage: ...`). Every
+	// carrier now publishes under the single reserved event name; the original
+	// name is asserted through the typed event_name_b64 token instead.
 	for index, row := range sink.rows {
-		if !strings.Contains(row.line, "hmfs_writepage: "+traceDBSourceRawVisibilityWire+" ") ||
+		if !strings.Contains(row.line, traceDBSourceRawVisibilityEventName+": "+traceDBSourceRawVisibilityWire+" ") ||
 			!strings.Contains(row.line, "semantic_authority=none") ||
 			!strings.Contains(row.line, "event_name_b64=aG1mc193cml0ZXBhZ2U") {
 			t.Fatalf("visibility row lost its exact typed wire: %s", row.line)
@@ -103,9 +139,12 @@ func TestTraceDBSourceRawVisibilityPublishesLosslessNonAuthoritativeRows(t *test
 			t.Fatalf("visibility payload did not round-trip: payload=%q err=%v", payload, decodeErr)
 		}
 		event, ok := tracequery.ParseLine(index+1, row.line, nil)
-		if !ok || event.Type != tracequery.EventSourceRawVisibility || event.Name != "hmfs_writepage" ||
-			event.SubsystemKind != "" {
+		if !ok || event.Type != tracequery.EventSourceRawVisibility ||
+			event.Name != tracequery.SourceRawVisibilityEventName || event.SubsystemKind != "" {
 			t.Fatalf("visibility row gained filesystem/root authority: %+v ok=%t", event, ok)
+		}
+		if name, ok := traceDBSourceRawVisibilityOriginalEventName(row.line); !ok || name != "hmfs_writepage" {
+			t.Fatalf("original event name not recoverable from carrier payload: name=%q ok=%t line=%s", name, ok, row.line)
 		}
 	}
 	schemaRaw := traceDBRawVisibilityToken(sink.rows[0].line, "schema_b64")
@@ -121,6 +160,9 @@ func TestTraceDBSourceRawVisibilityPublishesLosslessNonAuthoritativeRows(t *test
 	}
 	if strings.Contains(sink.rows[1].line, " schema_b64=") {
 		t.Fatalf("schema was redundantly copied onto every event: %s", sink.rows[1].line)
+	}
+	if got := coverage.Metadata["published_format_names_witness"]; got != "hmfs_writepage" {
+		t.Fatalf("published format name witness drifted: %q", got)
 	}
 }
 
@@ -211,8 +253,11 @@ func TestTraceStreamerConversionPublishesSourceRawVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(body), "hmfs_writepage: "+traceDBSourceRawVisibilityWire) != 2 {
-		t.Fatalf("end-to-end visibility rows missing or duplicated:\n%s", body)
+	// EVOLUTION RECORD (§40.13, V6-2): end-to-end rows are counted under the
+	// reserved header, and the original name must be absent from every header.
+	if strings.Count(string(body), traceDBSourceRawVisibilityEventName+": "+traceDBSourceRawVisibilityWire) != 2 ||
+		strings.Contains(string(body), "hmfs_writepage: ") {
+		t.Fatalf("end-to-end visibility rows missing, duplicated or published under the original name:\n%s", body)
 	}
 	found := false
 	for _, coverage := range result.TraceDBCoverage {
@@ -228,11 +273,13 @@ func TestTraceStreamerConversionPublishesSourceRawVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Keyed on the typed event type (the header name is now the reserved
+	// constant, so a name-keyed loop would be vacuous).
 	visibilityRows := 0
 	for _, event := range index.Events {
-		if event.Name == "hmfs_writepage" {
+		if event.Type == tracequery.EventSourceRawVisibility || event.Name == tracequery.SourceRawVisibilityEventName {
 			visibilityRows++
-			if event.Type != tracequery.EventSourceRawVisibility || event.SubsystemKind != "" {
+			if event.SubsystemKind != "" {
 				t.Fatalf("end-to-end visibility row gained semantic authority: %+v", event)
 			}
 		}

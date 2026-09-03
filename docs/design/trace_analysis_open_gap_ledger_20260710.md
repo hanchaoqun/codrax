@@ -1624,11 +1624,21 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
    整个 visibility family 在写入 sorter 前撤销，禁止部分成功制造完整假象。
 2. 只有官方 raw envelope、完整 segment inventory 和完整 decode census 才保留同一不可变输入句柄，
    发布阶段做一次有界二次扫描。每条输出保留原始纳秒时间、CPU、namespace `common_pid`、flags、
-   preempt count、原始 event name，以及 byte-exact raw content。
+   preempt count、原始 event name（**只在 typed `event_name_b64` 与 schema payload 中**，不在行头），
+   以及 byte-exact raw content。
 3. 标准 ftrace 行携带版本化 `codrax_source_raw_visibility/v1`：raw content 用 base64url；canonical JSON
    schema 保存 event id/name、字段顺序、type/name/offset/size/signed 与原始 print-fmt；首行携 schema，
    每行携 schema SHA-256。载体明确 `semantic_authority=none`，普通查看器可显示事件及完整 payload，
-   不理解扩展的查看器仍可安全忽略。
+   不理解扩展的查看器仍可安全忽略。**行头事件名统一为保留名 `codrax_source_raw_event`**
+   （2026-09-02 修订，colleague_merge_audit §40.13/§40.35 V6-2）：载体是元数据行，穿被载事件的名字
+   会被 tracequery 前置完整性预筛（`sched_migrate_task:`/`irq_handler_*` 等子串键）当作畸形语义行审计；
+   保留名一次隔离名空间，消费者零改动；`tracequery.SourceRawVisibilityWire`/`SourceRawVisibilityEventName`
+   为两包单源；owned-output postvalidation 对每条 `source_raw_visibility` 行做发射面 census（行头≠保留名
+   ⇒ `tracequery_postvalidation_event_invalid` fail-close）；载体族注册表 `traceDBReservedCarrierFamilies`
+   + go/ast census（wire 字面量必注册、发射位形状必为 `<保留名常量> + ": " + body`）；诊断报告以
+   `published_format_names_witness` 保留被载原名（有界）。parser 仍名无关，旧产物照常解析。
+   披露：显式 `event_search` 字面 pattern 不再按原名命中载体（只经 base64 或
+   `EventTypes: source_raw_visibility`）。
 4. tracequery 新增专用 `source_raw_visibility` advisory 类型，并将 parser cache 升至 v40。识别读取完整
    canonical token grammar（固定字段次序、canonical base64url、schema SHA）；畸形 reserved carrier
    fail-close 为 `Unknown`，不能因 `hmfs_*`/`f2fs_*` 名字再获文件系统语义。

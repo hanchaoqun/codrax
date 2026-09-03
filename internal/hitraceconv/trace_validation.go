@@ -11,6 +11,7 @@ import (
 	"hash"
 	"math"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -794,6 +795,14 @@ func validateOwnedTraceOutput(
 				}
 				if event.Type == tracequery.EventSourceRawVisibility {
 					sourceRawVisibilityCount++
+					// Emission census (colleague_merge_audit §40.13): every
+					// visibility carrier passes this single throat, so a carrier
+					// published under any header other than the reserved name
+					// fails the owned output closed here. The parser stays
+					// name-agnostic; the reserved name is a producer contract.
+					if event.Name != tracequery.SourceRawVisibilityEventName {
+						eventInvalid = true
+					}
 				}
 				if !typedSequence.observe(event) {
 					eventInvalid = true
@@ -826,6 +835,15 @@ func validateOwnedTraceOutput(
 				}
 				if observation.Parsed && observation.EventType == tracequery.EventUnknown {
 					unknownDigest.add(observation.Line, observation.Text)
+				}
+				// Emission census, body half (§40.13 复核): the `codrax_<family>/v<N>`
+				// body signature is reserved to converter carriers, so any parsed
+				// row carrying it under a header other than the reserved name is a
+				// carrier wearing a semantic identity — refused regardless of which
+				// parser lane classified it, present or future family alike.
+				if observation.Parsed && observation.EventName != "" && observation.EventName != tracequery.SourceRawVisibilityEventName &&
+					traceDBRowBodyCarriesCarrierSignature(observation.Text, observation.EventName) {
+					eventInvalid = true
 				}
 				if observation.Parsed && profile.Kind == ownedTraceValidationBuiltin &&
 					ownedBuiltinAdvisoryEvent(observation.EventName, observation.EventType) {
@@ -1178,4 +1196,19 @@ func publishValidatedOwnedTraceOutputNoReplace(
 		return traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(bindingPath))
 	}
 	return nil
+}
+
+// traceDBCarrierBodySignature is the reserved carrier wire grammar at the
+// start of an ftrace row body.
+var traceDBCarrierBodySignature = regexp.MustCompile(`^codrax_[a-z0-9_]+/v[0-9]+(\s|$)`)
+
+// traceDBRowBodyCarriesCarrierSignature reports whether the body of an ftrace
+// row (the text after "<eventName>: ") starts with a codrax carrier wire token.
+func traceDBRowBodyCarriesCarrierSignature(text, eventName string) bool {
+	marker := " " + eventName + ": "
+	idx := strings.Index(text, marker)
+	if idx < 0 {
+		return false
+	}
+	return traceDBCarrierBodySignature.MatchString(text[idx+len(marker):])
 }
