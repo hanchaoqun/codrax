@@ -297,7 +297,7 @@ func (w *instructionWalker) addLiteral(lit *ast.BasicLit) {
 		return
 	}
 	p := w.idx.fset.Position(lit.Pos())
-	w.parts = append(w.parts, surfacePart{pos: p.Filename + ":" + strconv.Itoa(p.Line), text: raw})
+	w.parts = append(w.parts, surfacePart{pos: p.Filename + ":" + strconv.Itoa(p.Line), text: raw, lit: lit.Pos()})
 }
 
 // universeIdents are the predeclared identifiers that carry no text.

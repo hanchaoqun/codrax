@@ -257,7 +257,7 @@ func TestSwiftConstructorExpressionRegistersNewExpressionLineFeature(t *testing.
 // every language whose call rows changed shape rejects pre-B1554 caches.
 func TestGenericCalleeExtractorCacheEpochFloors(t *testing.T) {
 	floors := map[string]int{
-		types.LangRust: 12, types.LangC: 11, types.LangCpp: 14,
+		types.LangRust: 12, types.LangC: 11, types.LangCpp: 15,
 		types.LangSwift: 10, types.LangCangjie: 10,
 	}
 	for language, floor := range floors {
@@ -276,13 +276,15 @@ func TestGenericCalleeExtractorCacheEpochFloors(t *testing.T) {
 // (identifier, field, scoped/qualified); no instantiated spelling ever
 // reaches ToEP.Name. The one grammar ambiguity, a comparison chain
 // `a < b && c > (d)` the grammar also reads as a template call, is dropped
-// only by the typed discriminator cppTemplateReadingIsComparisonChain: the
-// template_argument_list is exactly one binary_expression whose top-level
-// operator is `&&`/`||` and whose BOTH operands are value-shaped (an
-// integer literal, or an identifier declared as a parameter / local of the
-// enclosing function or a field of the enclosing class). Anything else
-// keeps the row — including chains over undeclared names, which is the
-// disclosed residual.
+// only by the typed discriminator cppTemplateReadingIsComparisonChain,
+// keyed on the callee (§40.59 收编复核三轮): a callee resolving to a
+// declared value mints no row whatever the interior spells (the comma and
+// nested-chain interiors over a declared parameter below flipped from
+// "row" to "no row" in round three — a declared int can never take
+// template arguments); an unresolvable callee is dropped only on the
+// typed witnesses (both operands integer literals / runtime values, or the
+// self-name operand). A chain over wholly undeclared names keeps the row —
+// the disclosed residual.
 //
 // EVOLUTION RECORD: red on 381f36cc9 — the byte-whitelist interior guard
 // dropped `f<-1>(x)`, `f<T&&>(x)`, `f<N + 1>(x)`, `f<!flag>(x)`, the
@@ -320,11 +322,15 @@ func TestCppTemplateReadingsMintBareNamesExceptTypedComparisonChains(t *testing.
 		{"spaced template call", "void run() { make_unique <T> (); }", map[string]string{"make_unique": ""}, []string{"make_unique <T>"}},
 		{"bool literal conjunction is not a chain", "void run(int x, int flag) { f<true && flag>(x); }", map[string]string{"f": ""}, []string{"f<true && flag>"}},
 		{"nested template", "void run(int x) { foo<std::vector<int>>(x); }", map[string]string{"foo": ""}, []string{"foo<std::vector<int>>"}},
-		{"two type arguments over declared names", "void run(int a, int b, int c, int d) { if (a<b, c>(d)) { helper(); } }", map[string]string{"a": "", "helper": ""}, []string{"a<b, c>"}},
+		{"two type arguments over an undeclared callee", "void run(int b, int c, int d) { if (a<b, c>(d)) { helper(); } }", map[string]string{"a": "", "helper": ""}, []string{"a<b, c>"}},
 		{"template method on receiver", "void run(Repository& repo, int x) { repo.get<int&>(x); }", map[string]string{"get": "Repository"}, []string{"get<int&>"}},
 
-		// The typed comparison-chain discriminator: `&&`/`||` over two
-		// value-shaped operands mints no row in any arm.
+		// The typed comparison-chain discriminator is keyed on the callee
+		// (§40.59 收编复核三轮): a callee that resolves to a declared value
+		// mints no row in any arm whatever the interior spells; an
+		// unresolvable callee over two runtime operands is the retained
+		// tie-breaker.
+		{"comma expression over a declared callee", "void run(int a, int b, int c, int d) { if (a<b, c>(d)) { helper(); } }", map[string]string{"helper": ""}, []string{"a", "a<b, c>"}},
 		{"compact chain over parameters", "void run(int a, int b, int c, int d) { if (a<b && c>(d)) { helper(); } }", map[string]string{"helper": ""}, []string{"a", "a<b && c>", "c"}},
 		{"spaced chain over parameters", "void run(int a, int b, int c, int d) { if (a < b && c > (d)) { helper(); } }", map[string]string{"helper": ""}, []string{"a", "c"}},
 		{"or chain over parameters", "void run(int a, int b, int c, int d) { if (a<b || c>(d)) { helper(); } }", map[string]string{"helper": ""}, []string{"a", "a<b || c>", "c"}},
@@ -335,12 +341,13 @@ func TestCppTemplateReadingsMintBareNamesExceptTypedComparisonChains(t *testing.
 		{"chain over class fields", "class Svc { int lhs_; int limit_; int cnt_; int max_; void run() { if (lhs_<limit_ && cnt_>(max_)) { helper(); } } };", map[string]string{"helper": ""}, []string{"lhs_", "lhs_<limit_ && cnt_>", "cnt_"}},
 		{"chain inside lambda over lambda parameters", "void run() { auto fn = [](int a, int b, int c, int d) { return a<b && c>(d); }; }", nil, []string{"a", "a<b && c>"}},
 
-		// Residuals, disclosed: without a declared value witness the
-		// template reading stands (the grammar's own reading, base
-		// behaviour), and a chain whose operand is itself a chain is not
-		// the ruled shape.
+		{"nested chain over a declared callee", "void run(int a, int b, int c, int d, int e) { if (a<b && c || d>(e)) { helper(); } }", map[string]string{"helper": ""}, []string{"a", "a<b && c || d>"}},
+
+		// Residual, disclosed: without any declared witness — callee and
+		// operands all unresolvable — the template reading stands (the
+		// grammar's own reading). The full scope / witness matrix lives in
+		// extract_cpp_callee_scope_test.go.
 		{"chain over undeclared names keeps the template reading", "void run() { if (a<b && c>(d)) { helper(); } }", map[string]string{"a": "", "helper": ""}, []string{"a<b && c>"}},
-		{"nested chain keeps the template reading", "void run(int a, int b, int c, int d, int e) { if (a<b && c || d>(e)) { helper(); } }", map[string]string{"a": "", "helper": ""}, []string{"a<b && c || d>"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -365,27 +372,40 @@ func TestCppTemplateReadingsMintBareNamesExceptTypedComparisonChains(t *testing.
 	}
 }
 
-// The discriminator is keyed on typed operator and operand shapes only:
-// any other template_argument_list interior returns false without
-// consulting the declared-name oracle.
+// The discriminator reads the typed oracle answer for the callee first
+// (a declared value: chain in any interior; a declared callable: never a
+// chain) and, only for an unresolvable callee, the typed operator + operand
+// shape of the interior (the self-name witness, or `&&`/`||` over integer
+// literals and RUNTIME values); any other interior returns false.
 func TestCppTemplateComparisonChainDiscriminatorReadsTypedShapeOnly(t *testing.T) {
 	cases := []struct {
-		name     string
-		src      string
-		declared bool
-		want     bool
+		name  string
+		src   string
+		kinds map[string]cppNameKind // stub oracle; absent names are unresolved
+		want  bool
 	}{
-		{"and over declared identifiers", "if (a<b && c>(d)) {}", true, true},
-		{"and over undeclared identifiers", "if (a<b && c>(d)) {}", false, false},
-		{"or with integer literal", "if (a<1 || c>(d)) {}", true, true},
-		{"single type argument", "f<T>(x);", true, false},
-		{"two arguments", "f<a, b>(x);", true, false},
-		{"arithmetic", "f<a + b>(x);", true, false},
-		{"equality", "f<a == b>(x);", true, false},
-		{"negative literal", "f<-1>(x);", true, false},
-		{"bool literal operand", "f<true && b>(x);", true, false},
-		{"nested chain operand", "if (a<b && c || d>(e)) {}", true, false},
-		{"plain callee", "f(x);", true, false},
+		{"value callee with a type-argument interior", "f<T>(x);", map[string]cppNameKind{"f": cppNameValue}, true},
+		{"constant callee with a type-argument interior", "f<T>(x);", map[string]cppNameKind{"f": cppNameConstant}, true},
+		{"value callee with a comma interior", "if (a<b, c>(d)) {}", map[string]cppNameKind{"a": cppNameValue}, true},
+		{"value callee with a nested chain interior", "if (a<b && c || d>(e)) {}", map[string]cppNameKind{"a": cppNameValue}, true},
+		{"callable callee over runtime operands", "if (a<b && c>(d)) {}", map[string]cppNameKind{"a": cppNameCallable, "b": cppNameValue, "c": cppNameValue}, false},
+		{"unresolved callee over runtime operands", "if (a<b && c>(d)) {}", map[string]cppNameKind{"b": cppNameValue, "c": cppNameValue}, true},
+		{"unresolved callee over undeclared operands", "if (a<b && c>(d)) {}", nil, false},
+		{"unresolved callee over one runtime operand", "if (a<b && MAX>(d)) {}", map[string]cppNameKind{"b": cppNameValue}, false},
+		{"unresolved callee over constant operands", "f<a && b>(x);", map[string]cppNameKind{"a": cppNameConstant, "b": cppNameConstant}, false},
+		{"unresolved callee or with integer literal", "if (a<1 || c>(d)) {}", map[string]cppNameKind{"c": cppNameValue}, true},
+		{"unresolved callee with the self-name witness", "if (x<lo || x>(hi)) {}", nil, true},
+		{"unresolved qualified callee over runtime operands", "if (ns::a<b && c>(d)) {}", map[string]cppNameKind{"b": cppNameValue, "c": cppNameValue}, true},
+		{"unresolved nested-qualified callee over runtime operands", "if (ns::inner::a<b && c>(d)) {}", map[string]cppNameKind{"b": cppNameValue, "c": cppNameValue}, true},
+		{"single type argument", "f<T>(x);", nil, false},
+		{"two arguments", "f<a, b>(x);", map[string]cppNameKind{"a": cppNameValue, "b": cppNameValue}, false},
+		{"arithmetic", "f<a + b>(x);", map[string]cppNameKind{"a": cppNameValue, "b": cppNameValue}, false},
+		{"equality", "f<a == b>(x);", map[string]cppNameKind{"a": cppNameValue, "b": cppNameValue}, false},
+		{"negative literal", "f<-1>(x);", nil, false},
+		{"bool literal operand", "f<true && b>(x);", map[string]cppNameKind{"b": cppNameValue}, false},
+		{"nested chain operand", "if (a<b && c || d>(e)) {}", map[string]cppNameKind{"b": cppNameValue, "c": cppNameValue, "d": cppNameValue}, false},
+		{"plain callee", "f(x);", map[string]cppNameKind{"f": cppNameValue}, false},
+		{"template method on a receiver is never consulted", "r.template f<a && b>(x);", map[string]cppNameKind{"f": cppNameValue, "a": cppNameValue, "b": cppNameValue}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -397,13 +417,15 @@ func TestCppTemplateComparisonChainDiscriminatorReadsTypedShapeOnly(t *testing.T
 					return
 				}
 				seen = true
-				got = cppTemplateReadingIsComparisonChain(node.ChildByFieldName("function"), src, func(string) bool { return tc.declared })
+				got = cppTemplateReadingIsComparisonChain(node.ChildByFieldName("function"), src, func(ident *sitter.Node) cppNameKind {
+					return tc.kinds[nodeText(ident, src)]
+				})
 			})
 			if !seen {
 				t.Fatalf("%q: fixture must parse to a call_expression", tc.src)
 			}
 			if got != tc.want {
-				t.Fatalf("%q declared=%t: comparison chain=%t, want %t", tc.src, tc.declared, got, tc.want)
+				t.Fatalf("%q kinds=%v: comparison chain=%t, want %t", tc.src, tc.kinds, got, tc.want)
 			}
 		})
 	}

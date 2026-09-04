@@ -101,7 +101,9 @@ var (
 	// out-of-line `T Parser<T>::parse(`), and — after the parameter list —
 	// the Dart `async` / `async*` / `sync*` body opener beside the C++ /
 	// Java tails it already knew.
-	cFamilyDefinitionLineRe = regexp.MustCompile(`^\s*(` + templatePrefixRe + `\s*)?(?:(?:__device__|__global__|__host__|abstract|async|constexpr|extern|final|friend|inline|native|open|override|private|protected|public|static|synchronized|virtual)\s+)*(?:` + typeParameterListRe + `\s+)?(?:[A-Za-z_][A-Za-z0-9_:<>\[\]\*&?,.]*\s+)+(?:[A-Za-z_~][A-Za-z0-9_~]*(?:` + typeParameterListRe + `)?::)*[A-Za-z_~][A-Za-z0-9_~]*(?:\s*` + typeParameterListRe + `)?\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:throws\s+[^{};]+)?(?:->\s*[^{};]+)?(?:(?:async|sync)\*?\s*)?(?:\{|$)`)
+	// The parameter list admits one level of brace nesting so a default
+	// brace argument (`int parse(Opts o = {}) {`) stays inside the atom.
+	cFamilyDefinitionLineRe = regexp.MustCompile(`^\s*(` + templatePrefixRe + `\s*)?(?:(?:__device__|__global__|__host__|abstract|async|constexpr|extern|final|friend|inline|native|open|override|private|protected|public|static|synchronized|virtual)\s+)*(?:` + typeParameterListRe + `\s+)?(?:[A-Za-z_][A-Za-z0-9_:<>\[\]\*&?,.]*\s+)+(?:[A-Za-z_~][A-Za-z0-9_~]*(?:` + typeParameterListRe + `)?::)*[A-Za-z_~][A-Za-z0-9_~]*(?:\s*` + typeParameterListRe + `)?\s*\((?:[^;{}]|\{[^;{}]*\})*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:throws\s+[^{};]+)?(?:->\s*[^{};]+)?(?:(?:async|sync)\*?\s*)?(?:\{|$)`)
 	// methodDefinitionLineRe is the bare method signature `name(...)`
 	// followed by a return type, throws/where clause, body or arrow. It
 	// deliberately spells no type-parameter list: `name<…>(…) {` is also
@@ -114,17 +116,33 @@ var (
 	// return-type annotation right after the parameter list (`): T {`,
 	// `): T =>`, `): Promise<T> {`). A generic method spelled without a
 	// return annotation keeps the base behaviour (grounded) — disclosed.
+	//
+	// The generic form's parameter atom spans one level of nested
+	// parentheses so a function-typed parameter (`map<U>(fn: (x: T) => U):
+	// U[] {`) reaches its own `): U[]` annotation (§40.59 收编复核三轮 #3);
+	// the bare form keeps the flat atom because its `{` tail would
+	// otherwise swallow a trailing-lambda call with a nested call argument
+	// (`run(compute(x)) {`).
 	methodDefinitionLineRe        = regexp.MustCompile(`^\s*(?:(?:abstract|async|export|final|internal|open|operator|override|private|protected|public|static|suspend)\s+)*[A-Za-z_][A-Za-z0-9_]*\s*\([^)]*\)\s*(?::|throws\b|where\b|\{|=>)`)
-	genericMethodDefinitionLineRe = regexp.MustCompile(`^\s*(?:(?:abstract|async|export|final|internal|open|operator|override|private|protected|public|static|suspend)\s+)*[A-Za-z_][A-Za-z0-9_]*\s*` + typeParameterListRe + `\s*\([^)]*\)\s*:`)
+	genericMethodDefinitionLineRe = regexp.MustCompile(`^\s*(?:(?:abstract|async|export|final|internal|open|operator|override|private|protected|public|static|suspend)\s+)*[A-Za-z_][A-Za-z0-9_]*\s*` + typeParameterListRe + `\s*\((?:[^()]|\([^()]*\))*\)\s*:`)
 	// constructorInitialiserDefinitionLineRe is the out-of-line C++
 	// constructor with a member-initialiser list: `Parser::Parser(int x) :
-	// x_(x) {`, `Parser<T>::Parser(int x) : x_(x) {`, optionally behind a
-	// `template<…>` prefix. The `) : ident(` (or `) : ident{`) tail after a
-	// scope-qualified name is the precise signal — no call statement spells
-	// it. An out-of-line constructor WITHOUT an initialiser list
+	// x_(x) {`, `Parser<T>::Parser(int x) : x_(x) {`, `Parser::Parser(Opts
+	// o = {}) : o_(o) {`, the function-try-block `Parser::Parser(int x) try
+	// : x_(x) {`, optionally behind a `template<…>` prefix. Two typed
+	// signals make the shape: the `) : ident(` (or `) : ident{`) tail after
+	// a scope-qualified name, and — checked by
+	// constructorInitialiserNamesAgree on the two capture groups — the
+	// terminal name equalling its immediate qualifier (`Parser::Parser`),
+	// the only spelling C++ allows a member-initialiser list on. A ternary
+	// continuation `Foo::bar(x) : Foo::baz(y);` fails the second signal,
+	// and a one-line ternary `Foo::ok(x) ? Foo::bar(x) : Foo::baz(y)` never
+	// spans the parameter atom, whose plain bytes exclude `(` / `)` (one
+	// nested level of parentheses or braces is admitted for default
+	// arguments). An out-of-line constructor WITHOUT an initialiser list
 	// (`Parser::Parser(int x) {`) is not distinguishable from a Ruby
 	// `Foo::bar(x) {` block call by shape and keeps the base behaviour.
-	constructorInitialiserDefinitionLineRe = regexp.MustCompile(`^\s*(?:` + templatePrefixRe + `\s*)?(?:[A-Za-z_][A-Za-z0-9_]*(?:` + typeParameterListRe + `)?::)+[A-Za-z_][A-Za-z0-9_]*\s*\([^;{}]*\)\s*(?:noexcept\s*)?:\s*[A-Za-z_][A-Za-z0-9_:]*(?:` + typeParameterListRe + `)?\s*[({]`)
+	constructorInitialiserDefinitionLineRe = regexp.MustCompile(`^\s*(?:` + templatePrefixRe + `\s*)?(?:[A-Za-z_][A-Za-z0-9_]*(?:` + typeParameterListRe + `)?::)*([A-Za-z_][A-Za-z0-9_]*)(?:` + typeParameterListRe + `)?::([A-Za-z_][A-Za-z0-9_]*)\s*\((?:[^;(){}]|\([^;(){}]*\)|\{[^;(){}]*\})*\)\s*(?:noexcept\s*)?(?:try\s*)?:\s*[A-Za-z_][A-Za-z0-9_:]*(?:` + typeParameterListRe + `)?\s*[({]`)
 	assignedCallableDefinitionLineRe       = regexp.MustCompile(`^\s*(?:(?:export|default|public|private|protected|static|readonly|final)\s+)*(?:(?:const|let|var|val)\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b[^{(]*\([^)]*\)|\([^)]*\)\s*(?::\s*[^=]+)?=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>|lambda\b)`)
 	cangjieOperatorDefinitionLineRe        = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|open|static|operator|sealed|abstract|foreign|override|redef|mut|const|unsafe)\s+)*operator\s+func\s+[^\s()]+\s*\(`)
 	objectiveCMethodDefinitionLineRe       = regexp.MustCompile(`^\s*[-+]\s*\([^)]*\)\s*[A-Za-z_][A-Za-z0-9_]*(?::|\s*\{)`)
@@ -143,6 +161,28 @@ type definitionLineShape struct {
 	re       *regexp.Regexp
 	form     string
 	callable bool
+	// accept, when set, reads the regex's capture groups and can refuse a
+	// textual match the regex alone cannot (a constraint RE2 cannot spell,
+	// such as two groups being equal).
+	accept func(groups []string) bool
+}
+
+func (s definitionLineShape) matches(text string) bool {
+	if s.accept == nil {
+		return s.re.MatchString(text)
+	}
+	groups := s.re.FindStringSubmatch(text)
+	return groups != nil && s.accept(groups)
+}
+
+// constructorInitialiserNamesAgree is the second typed signal of the
+// constructor member-initialiser form: the terminal name (group 2) equals
+// its immediate qualifier (group 1) — `Parser::Parser`, `Parser<T>::Parser`,
+// `ns::Parser::Parser`. Only a constructor may carry a member-initialiser
+// list, and a constructor is named after its class, so a scoped call
+// continuing a ternary (`Foo::bar(x) : Foo::baz(y)`) never agrees.
+func constructorInitialiserNamesAgree(groups []string) bool {
+	return len(groups) >= 3 && groups[1] != "" && groups[1] == groups[2]
 }
 
 // definitionLineShapes is ordered by note precedence: keyword-led forms
@@ -157,7 +197,7 @@ var definitionLineShapes = []definitionLineShape{
 	{re: objectiveCTypeDefinitionLineRe},
 	{re: methodDefinitionLineRe, form: "method signature (name(...) followed by a return type or body)", callable: true},
 	{re: genericMethodDefinitionLineRe, form: "method signature (name<...>(...) followed by a return type)", callable: true},
-	{re: constructorInitialiserDefinitionLineRe, form: "constructor definition with a member-initialiser list", callable: true},
+	{re: constructorInitialiserDefinitionLineRe, form: "constructor definition with a member-initialiser list", callable: true, accept: constructorInitialiserNamesAgree},
 	{re: assignedCallableDefinitionLineRe, form: "callable assigned to a name", callable: true},
 	{re: cFamilyDefinitionLineRe, callable: true},
 }
@@ -4145,7 +4185,7 @@ func sourceLineDeclarationForm(lineText string) (string, bool) {
 		if shape.callable && control {
 			continue
 		}
-		if shape.re.MatchString(text) {
+		if shape.matches(text) {
 			return shape.label(text), true
 		}
 	}
@@ -4163,7 +4203,7 @@ func sourceLineLooksLikeCallableDefinition(lineText string) bool {
 		return false
 	}
 	for _, shape := range definitionLineShapes {
-		if shape.callable && shape.re.MatchString(text) {
+		if shape.callable && shape.matches(text) {
 			return true
 		}
 	}

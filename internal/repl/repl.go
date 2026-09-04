@@ -4761,7 +4761,21 @@ func (r *REPL) handleOperationApproveCmd(line string) {
 		return
 	}
 	r.clearPendingOperationState()
-	r.executeCommandOperationPlan(plan, "/approve", "/approve")
+	// The answerer's `## user_request` (and the memory turn's
+	// RequestForSummary) is the request the plan was built from — the
+	// user's own wording, carried by the parked plan as RequestText —
+	// while "/approve" stays the display form the history echoes.
+	// EVOLUTION RECORD (batch six fold-in, review round three #5): this
+	// arm handed "/approve" as both request and display since fa9a90132,
+	// so every approval-gated plan was answered against a slash command
+	// instead of the request text. A parked plan without RequestText
+	// (never minted by operation.BuildCommandOperationPlan, which trims
+	// req.Text into it) falls back to the display form.
+	request := strings.TrimSpace(plan.RequestText)
+	if request == "" {
+		request = "/approve"
+	}
+	r.executeCommandOperationPlan(plan, request, "/approve")
 }
 
 func (r *REPL) handleOperationRejectCmd(line string) {

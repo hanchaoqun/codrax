@@ -23,18 +23,21 @@ const llmImportPath = "github.com/hanchaoqun/codrax/internal/llm"
 // llm.Message literal, or the Text of one Type:"text" element of its
 // ContentParts.
 //
-// The text a surface binds lives in two disjoint sets that are BOTH
-// scanned: `exact` is the text resolved at the surface site itself
-// (literals, concatenations, consts — scanned under Label) and `parts`
-// are the literal positions bound through the instruction walker
-// (Role:"user" / "assistant" / "tool" text and same-package builder
-// calls inside a system message — each scanned under its own file:line
-// so a hit names the literal, not the message site). Text is the union
-// of the two for callers that pin a roster. EVOLUTION RECORD (batch six
-// fold-in, F6-prompt-surface #5): the hit loop used to scan exact text
-// only when no parts were bound, so a system Content of the form
-// `someConst + samePackageBuilder()` reported the surface as bound while
-// never scanning the const — a latent hard-gate blind spot.
+// The text a surface binds lives in two sets that are BOTH scanned:
+// `exact` is the text resolved at the surface site itself (literals,
+// concatenations, consts — scanned under Label) and `parts` are the
+// literal positions bound through the instruction walker (Role:"user" /
+// "assistant" / "tool" text and same-package builder calls inside a
+// system message — each scanned under its own file:line so a hit names
+// the literal, not the message site). The two sets are made disjoint by
+// literal position in messageLane.bind — a literal the resolver folded
+// into `exact` never stays in `parts`, even when the walker re-reaches
+// it through a same-package builder — so no hit is reported twice. Text
+// is the union of the two for callers that pin a roster. EVOLUTION
+// RECORD (batch six fold-in, F6-prompt-surface #5): the hit loop used to
+// scan exact text only when no parts were bound, so a system Content of
+// the form `someConst + samePackageBuilder()` reported the surface as
+// bound while never scanning the const — a latent hard-gate blind spot.
 type PromptSurface struct {
 	Label string // "<file>:<line> <owner>" — owner is the const name, "ToolSchema.<Field>", "<Role>Message.Content" or "<Role>Message.ContentParts.Text"
 	Text  string
@@ -59,6 +62,7 @@ func (s PromptSurface) withText() PromptSurface {
 type surfacePart struct {
 	pos  string
 	text string
+	lit  token.Pos // the literal's own position — the disjointness key against the exact text
 }
 
 // ScanPromptSurfaces finds every model-facing text that a package binds
@@ -249,9 +253,10 @@ func ScanPromptSurfaces(dir string) ([]Hit, []PromptSurface, error) {
 	for _, s := range surfaces {
 		// Both sets are scanned: the exactly-resolved text under the
 		// surface label and every flow-bound literal under its own line.
-		// They are disjoint by construction (the resolver never adds a
-		// literal it resolved to the walker's parts), so no hit is
-		// reported twice.
+		// They are disjoint by literal position: messageLane.bind drops
+		// from parts every literal the resolver resolved exactly, so a
+		// package-level const the walker re-reaches through a
+		// same-package builder is reported once, at the surface label.
 		hits = append(hits, scanWithTerms(s.Label, s.exact, terms)...)
 		owner := s.Label[strings.LastIndex(s.Label, " ")+1:]
 		for _, p := range s.parts {
@@ -324,7 +329,23 @@ func (l messageLane) bind(label string, expr ast.Expr) (PromptSurface, error) {
 		if len(r.walker.problems) > 0 {
 			return PromptSurface{}, fmt.Errorf("%s: %s", label, strings.Join(r.walker.problems, "; "))
 		}
-		return PromptSurface{Label: label, exact: text, parts: r.walker.parts}.withText(), nil
+		// The exact text and the flow-bound parts are kept disjoint by
+		// literal position: a package-level const the resolver folded into
+		// the exact text is reached again by the walker whenever a
+		// same-package builder in the same value names it (walkIdent →
+		// pkgValues → addLiteral), in either concatenation order, and
+		// would otherwise be reported twice under this owner. EVOLUTION
+		// RECORD (batch six fold-in, review round three #6): the lane
+		// appended every walker part, so `const + builderReturningConst()`
+		// reported one glossary token at the surface line AND at the
+		// const's line.
+		parts := make([]surfacePart, 0, len(r.walker.parts))
+		for _, p := range r.walker.parts {
+			if !r.resolved[p.lit] {
+				parts = append(parts, p)
+			}
+		}
+		return PromptSurface{Label: label, exact: text, parts: parts}.withText(), nil
 	}
 	w := newInstructionWalker(l.index)
 	w.walk(expr, l.ctx, 0)
@@ -472,6 +493,10 @@ type valueResolver struct {
 	scope  map[string]ast.Expr
 	walker *instructionWalker
 	ctx    walkCtx
+	// resolved records the position of every string literal folded into
+	// the exact text, so the system lane can keep the walker's parts
+	// disjoint from it (see messageLane.bind).
+	resolved map[token.Pos]bool
 }
 
 func (r *valueResolver) resolve(expr ast.Expr, inConcat bool, depth int) (string, error) {
@@ -487,6 +512,10 @@ func (r *valueResolver) resolve(expr ast.Expr, inConcat bool, depth int) (string
 		if err != nil {
 			return "", fmt.Errorf("unquote literal: %v", err)
 		}
+		if r.resolved == nil {
+			r.resolved = map[token.Pos]bool{}
+		}
+		r.resolved[v.Pos()] = true
 		return raw, nil
 	case *ast.ParenExpr:
 		return r.resolve(v.X, inConcat, depth+1)
