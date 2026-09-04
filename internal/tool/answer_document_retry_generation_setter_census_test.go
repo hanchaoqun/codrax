@@ -35,9 +35,18 @@ import (
 // AnswerDocumentMutation composite literal, and Apply on a mutation value)
 // and, per §40.45 fold-in, every ALIASED spelling — function values, method
 // values/expressions, alias/defined types, interface lanes, container
-// elements, struct fields, conversions, copies, range frames; the
-// staged_for_retry flag census covers address-taking, helper writes, and
-// aliased references to the staging entry point.
+// elements, struct fields, conversions, copies, range frames — and, per
+// §40.45 round-eight #2–#5, classifies carriers by TYPE-SET CLOSURE rather
+// than spelling: alias/defined chains over carrying constraints, generic
+// Apply interfaces instantiated with the document type, carrying type
+// parameters in parameter/receiver/field/result position (a generic call's
+// result binds, outright or inferred from a mutation-bound argument),
+// func-typed values whose result is the mutation (a call on them yields it),
+// with a fail-loud default for every mutation-mentioning type expression
+// none of those lanes classifies and for an Apply whose receiver is a call
+// the census cannot classify; the staged_for_retry flag census covers
+// address-taking, helper writes, and aliased references to the staging
+// entry point.
 // Every evasion shape has a self-red subtest that injects the shape into a
 // copy of the parsed tree.
 
@@ -653,28 +662,102 @@ type answerDocumentMutationFacts struct {
 	fieldNames map[string]bool
 	pkgVars    map[string]bool
 	results    map[string]answerDocumentMutationResultSlot
-	// constraintNames (§40.43 round-seven #4) are the NAMED interface
+	// constraintNames (§40.45 round-seven #4) are the NAMED interface
 	// constraints whose type set carries the mutation — `type mutC interface{
 	// ~[]types.AnswerDocumentMutation }`, a scalar `~types.AnswerDocumentMutation`,
 	// a union, a map/array of it, or an embedded carrying constraint — to a
 	// fixpoint. A named interface is deliberately NOT a typeName (it is a
 	// constraint, not a value type); a type parameter constrained by one
-	// binds as a mutation carrier instead.
+	// binds as a mutation carrier instead. §40.45 round-eight #2: an alias or
+	// defined type over a carrying constraint (`type mutC2 = mutC`, `type
+	// mutC2 mutC`) carries too — computed to the same fixpoint.
 	constraintNames map[string]bool
+	// §40.45 round-eight #5: func-typed carriers. A func type whose RESULT
+	// slot is the mutation is not a mutation value — a CALL on it yields one.
+	// funcTypeNames are the named func types (`type mkFn func() …`),
+	// funcFields the struct fields, funcPkgVars the package-level vars, each
+	// with the yielding result slot.
+	funcTypeNames map[string]answerDocumentMutationResultSlot
+	funcFields    map[string]answerDocumentMutationResultSlot
+	funcPkgVars   map[string]answerDocumentMutationResultSlot
+	// §40.45 round-eight #4: generic FuncDecls by name — which type params
+	// are bound by a carrying constraint, which type params each parameter
+	// slot mentions, and which each result slot mentions — so a call whose
+	// result type is a carrier (directly, or inferred from a mutation-bound
+	// argument) binds its result.
+	generics map[string]*answerDocumentGenericFacts
+	// §40.45 round-eight #3: generic interfaces declaring an Apply method
+	// (`type applier[D any] interface{ Apply(prev *D) (*D, error) }`) by
+	// name: an INSTANTIATION is classified by its method set after
+	// substitution — with the document type it has the base-constructor
+	// signature and carries.
+	genericAppliers map[string]*answerDocumentGenericApplier
+	// funcDecls are every FuncDecl name in the tree (functions and methods):
+	// a call to one that yields nothing is CLASSIFIED as non-yielding, so the
+	// fail-loud on unclassifiable call receivers keys on foreign callees only.
+	funcDecls map[string]bool
+	// unrecognized are the type expressions that mention the mutation (or a
+	// carrier name) in a shape the census cannot classify: FAIL LOUD.
+	unrecognized []answerDocumentUnrecognizedShape
 }
 
-// answerDocumentConstraintCarries (§40.43 round-seven #4) classifies a
+type answerDocumentUnrecognizedShape struct {
+	node ast.Node
+	why  string
+}
+
+// answerDocumentGenericFacts describes one generic FuncDecl.
+type answerDocumentGenericFacts struct {
+	carrying   map[string]bool   // type params bound by a carrying constraint
+	paramSlots []map[string]bool // per argument slot: the type params its declared type mentions (variadic = last slot)
+	variadic   bool
+	results    []answerDocumentGenericResultSlot
+}
+
+// answerDocumentGenericResultSlot describes one result slot of a generic
+// FuncDecl: whether its type is the mutation outright and which type params
+// it mentions.
+type answerDocumentGenericResultSlot struct {
+	mutation   bool
+	typeParams map[string]bool
+}
+
+// answerDocumentGenericApplier describes a generic interface declaring Apply.
+type answerDocumentGenericApplier struct {
+	params  []string
+	applies []*ast.FuncType
+}
+
+// answerDocumentCarrierNames is every name whose mention makes a type
+// expression census-relevant: mutation type names, carrying constraint
+// names, func-carrier type names.
+func (facts *answerDocumentMutationFacts) carrierNames() map[string]bool {
+	out := map[string]bool{}
+	for name := range facts.typeNames {
+		out[name] = true
+	}
+	for name := range facts.constraintNames {
+		out[name] = true
+	}
+	for name := range facts.funcTypeNames {
+		out[name] = true
+	}
+	return out
+}
+
+// answerDocumentConstraintCarries (§40.45 round-seven #4) classifies a
 // generic constraint expression by its TYPE SET: it reports whether the set
 // carries the mutation and which elements it could not classify. Recognized
 // element shapes — precise, structural: a type name denoting the mutation
 // (typeNames) or a carrying named constraint (constraintNames), `~T`, unions
 // `A | B`, arrays/slices, maps, pointers, and inline interfaces over those.
-// Every OTHER element shape that mentions the mutation (a chan, a func, a
-// generic instantiation, …) is UNRECOGNIZED: the census cannot follow the
-// values it admits, so the caller fails loud on it instead of guessing.
-// Methods of an inline interface are not type-set elements (the Apply-method
-// lane handles them) and are skipped here.
+// Every OTHER element shape that mentions the mutation or a carrier name (a
+// chan, a func, a generic instantiation, …) is UNRECOGNIZED: the census
+// cannot follow the values it admits, so the caller fails loud on it instead
+// of guessing. Methods of an inline interface are not type-set elements (the
+// Apply-method lane handles them) and are skipped here.
 func answerDocumentConstraintCarries(expr ast.Expr, facts *answerDocumentMutationFacts) (carries bool, unrecognized []ast.Node) {
+	names := facts.carrierNames()
 	var term func(e ast.Expr) bool
 	term = func(e ast.Expr) bool {
 		switch x := e.(type) {
@@ -712,7 +795,7 @@ func answerDocumentConstraintCarries(expr ast.Expr, facts *answerDocumentMutatio
 			}
 			return found
 		}
-		if answerDocumentMutationMentions(e, facts.typeNames) {
+		if answerDocumentMutationMentions(e, names) {
 			unrecognized = append(unrecognized, e)
 			return true
 		}
@@ -737,6 +820,166 @@ func answerDocumentMutationMentions(node ast.Node, names map[string]bool) bool {
 	return found
 }
 
+// answerDocumentValueKind classifies a VALUE type expression (a parameter,
+// receiver, field, var, result or TypeSpec type) that mentions the mutation.
+type answerDocumentValueKind int
+
+const (
+	answerDocumentValueNone         answerDocumentValueKind = iota // mentions nothing census-relevant
+	answerDocumentValueMutation                                    // a mutation, or a pointer/array/slice/map/struct holding one: binds as a carrier
+	answerDocumentValueFunc                                        // a func type whose result slot is the mutation: a CALL on it yields one
+	answerDocumentValueUnrecognized                                // mentions the mutation in a shape the census cannot classify: fail loud
+)
+
+// answerDocumentClassifyValueType (§40.45 round-eight #3/#4/#5, the
+// type-set-closure ruling) classifies a value type expression precisely:
+//
+//   - a func type: its RESULT slot must be a plain mutation value (then a
+//     call on the value yields the mutation); a func type that mentions the
+//     mutation in a PARAMETER — a callback receiving the mutation — or whose
+//     result is itself a func/chan/instantiation is unrecognized;
+//   - a name: a mutation type name (or a type parameter bound by a carrying
+//     constraint) is a mutation value; a named func carrier is a func; a
+//     constraint name used as a value type is unrecognized;
+//   - a generic instantiation `G[…]`: a mutation-holding generic type
+//     instantiated WITHOUT the mutation as a type argument is a mutation
+//     value (its mutation fields are concrete); any instantiation that takes
+//     the mutation (or a carrier) as a type ARGUMENT is unrecognized (its
+//     fields are typed by a parameter the binder never sees);
+//   - chans and interfaces mentioning the mutation are unrecognized;
+//   - pointers, arrays, slices, maps, structs, variadics over those recurse:
+//     a nested func/chan/instantiation/interface mentioning the mutation
+//     makes the whole type unrecognized, otherwise it is a mutation value.
+func answerDocumentClassifyValueType(expr ast.Expr, facts *answerDocumentMutationFacts, typeParams map[string]bool) (kind answerDocumentValueKind, slot answerDocumentMutationResultSlot, why string) {
+	names := facts.carrierNames()
+	for name := range typeParams {
+		names[name] = true
+	}
+	var classify func(e ast.Expr) (answerDocumentValueKind, answerDocumentMutationResultSlot, string)
+	classify = func(e ast.Expr) (answerDocumentValueKind, answerDocumentMutationResultSlot, string) {
+		for {
+			p, ok := e.(*ast.ParenExpr)
+			if !ok {
+				break
+			}
+			e = p.X
+		}
+		if !answerDocumentMutationMentions(e, names) {
+			return answerDocumentValueNone, answerDocumentMutationResultSlot{}, ""
+		}
+		switch x := e.(type) {
+		case *ast.FuncType:
+			if x.Params != nil {
+				for _, field := range x.Params.List {
+					if answerDocumentMutationMentions(field.Type, names) {
+						return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "a func type that receives the mutation as a parameter (a callback lane the census cannot follow — bind the mutation in a func literal or a named function's parameter instead)"
+					}
+				}
+			}
+			if x.Results == nil {
+				return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "a func type mentioning the mutation without a result slot"
+			}
+			idx, count := 0, 0
+			for _, field := range x.Results.List {
+				n := len(field.Names)
+				if n == 0 {
+					n = 1
+				}
+				count += n
+			}
+			for _, field := range x.Results.List {
+				n := len(field.Names)
+				if n == 0 {
+					n = 1
+				}
+				if answerDocumentMutationMentions(field.Type, names) {
+					k, _, why := classify(field.Type)
+					if k != answerDocumentValueMutation {
+						return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "a func type whose mutation result is not a plain mutation value (" + why + ")"
+					}
+					return answerDocumentValueFunc, answerDocumentMutationResultSlot{idx: idx, count: count}, ""
+				}
+				idx += n
+			}
+			return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "a func type mentioning the mutation outside its parameters and results"
+		case *ast.Ident, *ast.SelectorExpr:
+			name := typeName(x)
+			if slot, ok := facts.funcTypeNames[name]; ok {
+				return answerDocumentValueFunc, slot, ""
+			}
+			if facts.constraintNames[name] {
+				return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "a constraint interface used as a value type"
+			}
+			return answerDocumentValueMutation, answerDocumentMutationResultSlot{}, ""
+		case *ast.ChanType:
+			return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "a chan carrying the mutation"
+		case *ast.InterfaceType:
+			return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "an interface type mentioning the mutation used as a value type"
+		case *ast.IndexExpr, *ast.IndexListExpr:
+			var base ast.Expr
+			var args []ast.Expr
+			if ix, ok := x.(*ast.IndexExpr); ok {
+				base, args = ix.X, []ast.Expr{ix.Index}
+			} else {
+				il := x.(*ast.IndexListExpr)
+				base, args = il.X, il.Indices
+			}
+			for _, arg := range args {
+				if answerDocumentMutationMentions(arg, names) {
+					return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "a generic type instantiated with the mutation as a type argument (its fields are typed by a parameter the binder never sees)"
+				}
+			}
+			if k, _, why := classify(base); k != answerDocumentValueMutation {
+				return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "an instantiation of a non-value carrier (" + why + ")"
+			}
+			return answerDocumentValueMutation, answerDocumentMutationResultSlot{}, ""
+		case *ast.StarExpr:
+			return classify(x.X)
+		case *ast.Ellipsis:
+			return classify(x.Elt)
+		case *ast.ArrayType:
+			k, _, w := classify(x.Elt)
+			if k == answerDocumentValueFunc {
+				return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "a container of func carriers (an indexed call the census cannot follow)"
+			}
+			return k, answerDocumentMutationResultSlot{}, w
+		case *ast.MapType:
+			kind := answerDocumentValueNone
+			for _, part := range []ast.Expr{x.Key, x.Value} {
+				k, _, w := classify(part)
+				switch k {
+				case answerDocumentValueUnrecognized:
+					return k, answerDocumentMutationResultSlot{}, w
+				case answerDocumentValueFunc:
+					return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, "a map of func carriers (an indexed call the census cannot follow)"
+				case answerDocumentValueMutation:
+					kind = k
+				}
+			}
+			return kind, answerDocumentMutationResultSlot{}, ""
+		case *ast.StructType:
+			// Fields classify one by one (a func field is a func carrier
+			// followed by name); the struct is a mutation value when a field
+			// holds one outright.
+			kind := answerDocumentValueNone
+			if x.Fields != nil {
+				for _, field := range x.Fields.List {
+					k, _, w := classify(field.Type)
+					switch k {
+					case answerDocumentValueUnrecognized:
+						return k, answerDocumentMutationResultSlot{}, "a struct field of " + w
+					case answerDocumentValueMutation:
+						kind = k
+					}
+				}
+			}
+			return kind, answerDocumentMutationResultSlot{}, ""
+		}
+		return answerDocumentValueUnrecognized, answerDocumentMutationResultSlot{}, fmt.Sprintf("a %T type expression", e)
+	}
+	return classify(expr)
+}
+
 // answerDocumentTypeParamConstraintDeclaresApply (§40.43 round-six #13)
 // reports whether a generic type-parameter constraint declares an Apply
 // method with the mutation's base-constructor signature.
@@ -757,6 +1000,71 @@ func answerDocumentTypeParamConstraintDeclaresApply(expr ast.Expr, docName map[s
 		}
 	}
 	return false
+}
+
+// answerDocumentInstantiationParts splits `G[A]` / `G[A, B]` into the generic
+// name and its type arguments.
+func answerDocumentInstantiationParts(expr ast.Expr) (name string, args []ast.Expr, ok bool) {
+	switch x := expr.(type) {
+	case *ast.IndexExpr:
+		return typeName(x.X), []ast.Expr{x.Index}, true
+	case *ast.IndexListExpr:
+		return typeName(x.X), x.Indices, true
+	}
+	return "", nil, false
+}
+
+// answerDocumentApplierInstantiation (§40.45 round-eight #3) classifies an
+// instantiation of a generic Apply interface by its method set AFTER
+// substitution: it carries when an Apply signature mentions the document
+// type directly or through a type parameter instantiated with the document
+// type. A substitution the census cannot resolve — a mismatched argument
+// count, or an argument that is itself an enclosing type parameter — is
+// reported as `why` (fail loud).
+func answerDocumentApplierInstantiation(expr ast.Expr, facts *answerDocumentMutationFacts, docName, enclosing map[string]bool) (isApplier, carries bool, why string) {
+	name, args, ok := answerDocumentInstantiationParts(expr)
+	if !ok {
+		return false, false, ""
+	}
+	ga := facts.genericAppliers[name]
+	if ga == nil {
+		return false, false, ""
+	}
+	if len(args) != len(ga.params) {
+		return true, false, fmt.Sprintf("%d type argument(s) for %d parameter(s); the substitution cannot be resolved", len(args), len(ga.params))
+	}
+	for _, ft := range ga.applies {
+		if answerDocumentMutationMentions(ft, docName) {
+			carries = true
+		}
+		for i, param := range ga.params {
+			if !answerDocumentMutationMentions(ft, map[string]bool{param: true}) {
+				continue
+			}
+			if answerDocumentMutationMentions(args[i], enclosing) {
+				return true, false, "instantiated with an enclosing type parameter; the substitution cannot be resolved"
+			}
+			if answerDocumentMutationMentions(args[i], docName) {
+				carries = true
+			}
+		}
+	}
+	return true, carries, ""
+}
+
+// answerDocumentApplierCarries reports whether any generic-Apply
+// instantiation inside expr carries after substitution.
+func answerDocumentApplierCarries(expr ast.Expr, facts *answerDocumentMutationFacts, docName, enclosing map[string]bool) bool {
+	found := false
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if e, ok := n.(ast.Expr); ok {
+			if _, carries, _ := answerDocumentApplierInstantiation(e, facts, docName, enclosing); carries {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 // answerDocumentFuncLitResultSlot (§40.43 round-six #15) mirrors the
@@ -787,6 +1095,44 @@ func answerDocumentFuncLitResultSlot(lit *ast.FuncLit, typeNames map[string]bool
 	return answerDocumentMutationResultSlot{}, false
 }
 
+// answerDocumentTypeParamNames lists the names declared by a type-parameter
+// list (nil-safe).
+func answerDocumentTypeParamNames(list *ast.FieldList) []string {
+	var out []string
+	if list == nil {
+		return out
+	}
+	for _, field := range list.List {
+		for _, name := range field.Names {
+			out = append(out, name.Name)
+		}
+	}
+	return out
+}
+
+// answerDocumentCarryingTypeParams classifies a declaration's type-parameter
+// list: the names bound by a carrying constraint (type set, Apply-method or
+// instantiated-applier lane).
+func answerDocumentCarryingTypeParams(list *ast.FieldList, facts *answerDocumentMutationFacts, docName map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	if list == nil {
+		return out
+	}
+	enclosing := map[string]bool{}
+	for _, name := range answerDocumentTypeParamNames(list) {
+		enclosing[name] = true
+	}
+	for _, tp := range list.List {
+		setCarries, _ := answerDocumentConstraintCarries(tp.Type, facts)
+		if setCarries || answerDocumentTypeParamConstraintDeclaresApply(tp.Type, docName) || answerDocumentApplierCarries(tp.Type, facts, docName, enclosing) {
+			for _, name := range tp.Names {
+				out[name.Name] = true
+			}
+		}
+	}
+	return out
+}
+
 func collectAnswerDocumentMutationFacts(tree *retryGenerationTree) *answerDocumentMutationFacts {
 	facts := &answerDocumentMutationFacts{
 		typeNames:       map[string]bool{"AnswerDocumentMutation": true},
@@ -794,44 +1140,141 @@ func collectAnswerDocumentMutationFacts(tree *retryGenerationTree) *answerDocume
 		pkgVars:         map[string]bool{},
 		results:         map[string]answerDocumentMutationResultSlot{},
 		constraintNames: map[string]bool{},
+		funcTypeNames:   map[string]answerDocumentMutationResultSlot{},
+		funcFields:      map[string]answerDocumentMutationResultSlot{},
+		funcPkgVars:     map[string]answerDocumentMutationResultSlot{},
+		generics:        map[string]*answerDocumentGenericFacts{},
+		genericAppliers: map[string]*answerDocumentGenericApplier{},
+		funcDecls:       map[string]bool{},
 	}
-	mentions := func(n ast.Node) bool { return answerDocumentMutationMentions(n, facts.typeNames) }
+	docName := map[string]bool{"AnswerDocumentV2": true}
+	unrecognized := func(n ast.Node, why string) {
+		facts.unrecognized = append(facts.unrecognized, answerDocumentUnrecognizedShape{node: n, why: why})
+	}
+	// §40.45 round-eight #3: generic interfaces declaring Apply (anywhere in
+	// their body, embedded inline interfaces included) are classified at
+	// their instantiations; a generic TypeSpec that re-exports one (embeds
+	// or aliases it under new type parameters) cannot be followed → fail
+	// loud below.
+	for _, file := range tree.files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			spec, ok := n.(*ast.TypeSpec)
+			if !ok || spec.TypeParams == nil {
+				return true
+			}
+			iface, ok := spec.Type.(*ast.InterfaceType)
+			if !ok {
+				return true
+			}
+			var applies []*ast.FuncType
+			ast.Inspect(iface, func(m ast.Node) bool {
+				field, ok := m.(*ast.Field)
+				if !ok {
+					return true
+				}
+				ft, ok := field.Type.(*ast.FuncType)
+				if !ok {
+					return true
+				}
+				for _, name := range field.Names {
+					if name.Name == "Apply" {
+						applies = append(applies, ft)
+					}
+				}
+				return true
+			})
+			if len(applies) > 0 {
+				facts.genericAppliers[spec.Name.Name] = &answerDocumentGenericApplier{params: answerDocumentTypeParamNames(spec.TypeParams), applies: applies}
+			}
+			return true
+		})
+	}
 	// defined/alias types over the mutation carry the census to their names
 	// (`type mut = types.AnswerDocumentMutation`, `type mut2 mut`, ...);
 	// named interface constraints whose type set carries the mutation
-	// (§40.43 round-seven #4) are collected as constraintNames, to the same
-	// fixpoint (an embedded carrying constraint carries its embedder).
+	// (§40.45 round-seven #4) are collected as constraintNames, to the same
+	// fixpoint (an embedded carrying constraint carries its embedder, and —
+	// round-eight #2 — so does an alias/defined type over one); named func
+	// types whose result is the mutation are func carriers (round-eight #5).
+	// Every other TypeSpec shape mentioning a carrier name fails loud.
+	classified := map[*ast.TypeSpec]bool{}
 	for changed := true; changed; {
 		changed = false
 		for _, file := range tree.files {
 			ast.Inspect(file, func(n ast.Node) bool {
 				spec, ok := n.(*ast.TypeSpec)
-				if !ok || facts.typeNames[spec.Name.Name] || facts.constraintNames[spec.Name.Name] {
+				if !ok || classified[spec] {
 					return true
 				}
 				if iface, isInterface := spec.Type.(*ast.InterfaceType); isInterface {
 					if spec.TypeParams == nil {
 						if carries, _ := answerDocumentConstraintCarries(iface, facts); carries {
 							facts.constraintNames[spec.Name.Name] = true
+							classified[spec] = true
 							changed = true
 						}
 					}
-				} else if mentions(spec.Type) {
+					return true
+				}
+				if named := typeName(spec.Type); named != "" && facts.constraintNames[named] {
+					facts.constraintNames[spec.Name.Name] = true
+					classified[spec] = true
+					changed = true
+					return true
+				}
+				kind, slot, _ := answerDocumentClassifyValueType(spec.Type, facts, nil)
+				switch kind {
+				case answerDocumentValueMutation:
 					facts.typeNames[spec.Name.Name] = true
+					classified[spec] = true
+					changed = true
+				case answerDocumentValueFunc:
+					facts.funcTypeNames[spec.Name.Name] = slot
+					classified[spec] = true
 					changed = true
 				}
 				return true
 			})
 		}
 	}
+	genericApplierNames := map[string]bool{}
+	for name := range facts.genericAppliers {
+		genericApplierNames[name] = true
+	}
 	for _, file := range tree.files {
 		ast.Inspect(file, func(n ast.Node) bool {
-			if st, ok := n.(*ast.StructType); ok && st.Fields != nil {
-				for _, field := range st.Fields.List {
-					if mentions(field.Type) {
+			switch node := n.(type) {
+			case *ast.TypeSpec:
+				if classified[node] {
+					return true
+				}
+				if node.TypeParams != nil && answerDocumentMutationMentions(node.Type, genericApplierNames) {
+					unrecognized(node, "a generic type re-exporting a generic Apply interface under its own type parameters; the census cannot resolve its instantiations")
+					return true
+				}
+				if _, isInterface := node.Type.(*ast.InterfaceType); isInterface {
+					return true // the type-set / Apply-method lanes classify interfaces
+				}
+				if kind, _, why := answerDocumentClassifyValueType(node.Type, facts, nil); kind == answerDocumentValueUnrecognized {
+					unrecognized(node, "declares a type over "+why)
+				}
+			case *ast.StructType:
+				if node.Fields == nil {
+					return true
+				}
+				for _, field := range node.Fields.List {
+					kind, slot, why := answerDocumentClassifyValueType(field.Type, facts, nil)
+					switch kind {
+					case answerDocumentValueMutation:
 						for _, name := range field.Names {
 							facts.fieldNames[name.Name] = true
 						}
+					case answerDocumentValueFunc:
+						for _, name := range field.Names {
+							facts.funcFields[name.Name] = slot
+						}
+					case answerDocumentValueUnrecognized:
+						unrecognized(field, "declares a struct field of "+why)
 					}
 				}
 			}
@@ -845,24 +1288,46 @@ func collectAnswerDocumentMutationFacts(tree *retryGenerationTree) *answerDocume
 					if !ok {
 						continue
 					}
-					holds := vs.Type != nil && mentions(vs.Type)
+					holds := false
+					var funcSlot *answerDocumentMutationResultSlot
+					if vs.Type != nil {
+						kind, slot, why := answerDocumentClassifyValueType(vs.Type, facts, nil)
+						switch kind {
+						case answerDocumentValueMutation:
+							holds = true
+						case answerDocumentValueFunc:
+							s := slot
+							funcSlot = &s
+						case answerDocumentValueUnrecognized:
+							unrecognized(vs, "declares a package-level var of "+why)
+						}
+					}
 					for _, v := range vs.Values {
 						if call, isCall := v.(*ast.CallExpr); isCall && answerDocumentMutationConstructors[selectorCallee(call)] {
 							holds = true
 						}
-						if _, isLit := v.(*ast.CompositeLit); isLit && mentions(v) {
+						if _, isLit := v.(*ast.CompositeLit); isLit && answerDocumentMutationMentions(v, facts.typeNames) {
 							holds = true
 						}
 					}
-					if holds {
-						for _, name := range vs.Names {
+					for _, name := range vs.Names {
+						if holds {
 							facts.pkgVars[name.Name] = true
+						}
+						if funcSlot != nil {
+							facts.funcPkgVars[name.Name] = *funcSlot
 						}
 					}
 				}
 			case *ast.FuncDecl:
+				facts.funcDecls[d.Name.Name] = true
 				if d.Type.Results == nil {
 					continue
+				}
+				carrying := answerDocumentCarryingTypeParams(d.Type.TypeParams, facts, docName)
+				typeParams := map[string]bool{}
+				for _, name := range answerDocumentTypeParamNames(d.Type.TypeParams) {
+					typeParams[name] = true
 				}
 				idx, count := 0, 0
 				for _, field := range d.Type.Results.List {
@@ -872,13 +1337,59 @@ func collectAnswerDocumentMutationFacts(tree *retryGenerationTree) *answerDocume
 					}
 					count += n
 				}
+				var generic *answerDocumentGenericFacts
+				if len(typeParams) > 0 {
+					generic = &answerDocumentGenericFacts{carrying: carrying}
+					if d.Type.Params != nil {
+						for _, field := range d.Type.Params.List {
+							mentioned := map[string]bool{}
+							for name := range typeParams {
+								if answerDocumentMutationMentions(field.Type, map[string]bool{name: true}) {
+									mentioned[name] = true
+								}
+							}
+							n := len(field.Names)
+							if n == 0 {
+								n = 1
+							}
+							for i := 0; i < n; i++ {
+								generic.paramSlots = append(generic.paramSlots, mentioned)
+							}
+							if _, variadic := field.Type.(*ast.Ellipsis); variadic {
+								generic.variadic = true
+							}
+						}
+					}
+					facts.generics[d.Name.Name] = generic
+				}
+				recorded := false
 				for _, field := range d.Type.Results.List {
 					n := len(field.Names)
 					if n == 0 {
 						n = 1
 					}
-					if mentions(field.Type) {
-						facts.results[d.Name.Name] = answerDocumentMutationResultSlot{idx: idx, count: count}
+					kind, _, why := answerDocumentClassifyValueType(field.Type, facts, carrying)
+					switch kind {
+					case answerDocumentValueMutation:
+						if !recorded {
+							facts.results[d.Name.Name] = answerDocumentMutationResultSlot{idx: idx, count: count}
+							recorded = true
+						}
+					case answerDocumentValueFunc:
+						unrecognized(field, "returns a func carrier (a call on a call result the census cannot follow)")
+					case answerDocumentValueUnrecognized:
+						unrecognized(field, "returns "+why)
+					}
+					if generic != nil {
+						mentioned := map[string]bool{}
+						for name := range typeParams {
+							if answerDocumentMutationMentions(field.Type, map[string]bool{name: true}) {
+								mentioned[name] = true
+							}
+						}
+						for i := 0; i < n; i++ {
+							generic.results = append(generic.results, answerDocumentGenericResultSlot{mutation: kind == answerDocumentValueMutation, typeParams: mentioned})
+						}
 					}
 					idx += n
 				}
@@ -895,15 +1406,46 @@ func collectAnswerDocumentMutationFacts(tree *retryGenerationTree) *answerDocume
 // alias/defined types, container elements, struct fields, conversions,
 // copies, range frames and package-level vars all escaped (confirmed by
 // overlay probes); v2 binds identifiers by data flow to a fixpoint and reds
-// every reference shape, each pinned by its own self-red subtest.
+// every reference shape, each pinned by its own self-red subtest. v3 (§40.45
+// round-eight #2–#5) classifies by TYPE-SET CLOSURE instead of spelling:
+// alias/defined chains over carrying constraints carry; generic Apply
+// interfaces carry at their instantiation with the document type; carrying
+// type parameters bind in parameter, receiver, field AND result position
+// (a generic call's result binds — outright, or inferred from a
+// mutation-bound argument); func-typed values whose result is the mutation
+// yield it when called; and every type expression mentioning the mutation
+// in a shape none of those lanes classifies fails loud — including an Apply
+// whose receiver is a call the census cannot classify.
 func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites map[retryGenerationWriterKey]bool) (offenders []string) {
 	seen := map[retryGenerationWriterKey]bool{}
 	facts := collectAnswerDocumentMutationFacts(tree)
 	mentions := func(n ast.Node) bool { return answerDocumentMutationMentions(n, facts.typeNames) }
 	docName := map[string]bool{"AnswerDocumentV2": true}
+	for _, u := range facts.unrecognized {
+		offenders = append(offenders, fmt.Sprintf("%s %s carrying the mutation; the census cannot classify it — spell the carrier as a plain mutation value, a slice/array/map/pointer of it, or a func returning it (§40.45 round-eight: type-set closure, fail-loud on unrecognized shapes)", tree.pos(u.node), u.why))
+	}
 	for path, file := range tree.files {
 		pkg, base := retryGenerationPkgDir(path), filepath.Base(path)
-		scan := func(key retryGenerationWriterKey, fn *ast.FuncDecl, root ast.Node) {
+		// foreignImports are this file's import names outside the module: a
+		// call qualified by one is a FOREIGN callee the tree-wide facts (keyed
+		// by bare name) say nothing about — unclassifiable, never "a tree
+		// function that yields nothing" (`slices.Clone` vs a tree `Clone`).
+		foreignImports := map[string]bool{}
+		for _, spec := range file.Imports {
+			importPath := strings.Trim(spec.Path.Value, "\"`")
+			if strings.HasPrefix(importPath, "github.com/hanchaoqun/codrax/") {
+				continue
+			}
+			local := importPath
+			if i := strings.LastIndex(local, "/"); i >= 0 {
+				local = local[i+1:]
+			}
+			if spec.Name != nil && spec.Name.Name != "" {
+				local = spec.Name.Name
+			}
+			foreignImports[local] = true
+		}
+		scan := func(key retryGenerationWriterKey, fn *ast.FuncDecl, root ast.Node, enclosing map[string]bool) {
 			report := func(n ast.Node, what string) {
 				if sites[key] {
 					seen[key] = true
@@ -918,11 +1460,20 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 			for name := range facts.pkgVars {
 				bound[name] = true
 			}
+			// §40.45 round-eight #5: identifiers bound to a FUNC CARRIER — a
+			// call on them yields the mutation at the recorded result slot.
+			boundFuncs := map[string]answerDocumentMutationResultSlot{}
+			for name, slot := range facts.funcPkgVars {
+				boundFuncs[name] = slot
+			}
 			// §40.43 round-six #13: interface lanes living in the SIGNATURE
 			// — a generic type-parameter's inline constraint or an anonymous
 			// interface parameter type — are choked at the declaration
 			// exactly like a named interface: fn.Type covers TypeParams,
 			// Params and Results, none of which the body-rooted scan saw.
+			// §40.45 round-eight #3: an Apply method abstracted over an
+			// ENCLOSING type parameter (`[D any, M interface{ Apply(*D) (*D,
+			// error) }]`) has no instantiation site to classify — fail loud.
 			reportSignatureInterfaces := func(root ast.Node) {
 				ast.Inspect(root, func(n ast.Node) bool {
 					iface, ok := n.(*ast.InterfaceType)
@@ -935,20 +1486,62 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 							continue
 						}
 						for _, name := range method.Names {
-							if name.Name == "Apply" && answerDocumentMutationMentions(ft, docName) {
+							if name.Name != "Apply" {
+								continue
+							}
+							if answerDocumentMutationMentions(ft, docName) {
 								report(method, "declares an Apply method with the mutation's base-constructor signature (an interface lane could launder base construction)")
+							} else if answerDocumentMutationMentions(ft, enclosing) {
+								report(method, "declares an Apply method abstracted over an enclosing type parameter; the census cannot resolve its instantiations — spell the document type concretely or drop the generic lane")
 							}
 						}
 					}
 					return true
 				})
 			}
+			// §40.45 round-eight #3: every instantiation of a generic Apply
+			// interface is classified by its method set after substitution.
+			reportApplierInstantiations := func(root ast.Node) {
+				ast.Inspect(root, func(n ast.Node) bool {
+					e, ok := n.(ast.Expr)
+					if !ok {
+						return true
+					}
+					isApplier, carries, why := answerDocumentApplierInstantiation(e, facts, docName, enclosing)
+					switch {
+					case !isApplier:
+					case why != "":
+						report(n, "instantiates a generic Apply interface the census cannot resolve ("+why+")")
+					case carries:
+						report(n, "instantiates a generic interface whose Apply method set, after substitution, has the mutation's base-constructor signature (an interface lane could launder base construction)")
+					}
+					return true
+				})
+			}
 			mutationTypeParams := map[string]bool{}
+			// bindValue classifies one declared value (parameter, receiver,
+			// func-literal parameter, local var) and binds its names.
+			bindValue := func(field *ast.Field) {
+				kind, slot, why := answerDocumentClassifyValueType(field.Type, facts, mutationTypeParams)
+				switch kind {
+				case answerDocumentValueMutation:
+					for _, name := range field.Names {
+						bound[name.Name] = true
+					}
+				case answerDocumentValueFunc:
+					for _, name := range field.Names {
+						boundFuncs[name.Name] = slot
+					}
+				case answerDocumentValueUnrecognized:
+					report(field, "declares a value of "+why+"; the census cannot classify it")
+				}
+			}
 			if fn != nil {
 				reportSignatureInterfaces(fn.Type)
+				reportApplierInstantiations(fn.Type)
 				if fn.Type.TypeParams != nil {
 					for _, tp := range fn.Type.TypeParams.List {
-						// §40.43 round-seven #4: the constraint is classified by
+						// §40.45 round-seven #4: the constraint is classified by
 						// its TYPE SET — a named constraint (`[M mutC]`), an
 						// inline interface, `~T`, a union, arrays/maps of the
 						// mutation — and its type parameters bind as mutation
@@ -960,15 +1553,19 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 						// reusable spelling — was neither (the ident is not a
 						// typeName), so `ms[0].Apply` / `range ms` through it
 						// went unreported (confirmed by overlay probe).
+						// Round-eight #2/#3: alias/defined chains over a carrying
+						// constraint and instantiated generic Apply interfaces
+						// carry too.
 						setCarries, unrecognized := answerDocumentConstraintCarries(tp.Type, facts)
 						declaresApply := answerDocumentTypeParamConstraintDeclaresApply(tp.Type, docName)
-						if !setCarries && !declaresApply && !mentions(tp.Type) {
+						applierCarries := answerDocumentApplierCarries(tp.Type, facts, docName, enclosing)
+						if !setCarries && !declaresApply && !applierCarries && !mentions(tp.Type) {
 							continue
 						}
 						for _, n := range unrecognized {
 							report(n, "uses an unrecognized generic constraint element shape carrying the mutation; the census cannot follow the values it admits — spell the type set with the mutation type, ~T, a union, or a slice/array/map of it, or drop the generic lane")
 						}
-						if !setCarries && !declaresApply {
+						if !setCarries && !declaresApply && !applierCarries {
 							// Mentions the mutation but no recognized type-set
 							// element carries it (a generic instantiation, …):
 							// FAIL LOUD instead of guessing.
@@ -984,13 +1581,23 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 					fields = append(fields, fn.Recv.List...)
 				}
 				for _, field := range fields {
-					if mentions(field.Type) || answerDocumentMutationMentions(field.Type, mutationTypeParams) {
-						for _, name := range field.Names {
-							bound[name.Name] = true
-						}
-					}
+					bindValue(field)
 				}
 			}
+			// §40.45 round-eight #5: func-literal parameters bind like
+			// FuncDecl parameters (a callback body applying its mutation
+			// parameter is a constructor use).
+			ast.Inspect(root, func(n ast.Node) bool {
+				lit, ok := n.(*ast.FuncLit)
+				if !ok || lit.Type.Params == nil {
+					return true
+				}
+				for _, field := range lit.Type.Params.List {
+					bindValue(field)
+				}
+				return true
+			})
+			reportApplierInstantiations(root)
 			// §40.43 round-six #15: func-literal identity/passthrough lanes —
 			// a call through a func-literal-valued variable whose literal
 			// RETURNS the mutation type yields the mutation; collect the
@@ -1029,8 +1636,114 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 				}
 				return false
 			}
-			// yields: the expression's value is (or contains) a mutation.
 			var yields func(expr ast.Expr) bool
+			// funcCarrierSlot resolves a func-carrier reference expression
+			// (a bound func value, a func field, a mutation-returning
+			// FuncDecl or method value) to its yielding result slot.
+			funcCarrierSlot := func(expr ast.Expr) (answerDocumentMutationResultSlot, bool) {
+				switch x := expr.(type) {
+				case *ast.ParenExpr:
+					expr = x.X
+				}
+				switch x := expr.(type) {
+				case *ast.Ident:
+					if slot, ok := boundFuncs[x.Name]; ok {
+						return slot, true
+					}
+					if lit := funcVals[x.Name]; lit != nil {
+						return answerDocumentFuncLitResultSlot(lit, facts.typeNames)
+					}
+					if slot, ok := facts.results[x.Name]; ok && facts.generics[x.Name] == nil {
+						return slot, true
+					}
+				case *ast.SelectorExpr:
+					if slot, ok := facts.funcFields[x.Sel.Name]; ok {
+						return slot, true
+					}
+					if slot, ok := facts.results[x.Sel.Name]; ok && facts.generics[x.Sel.Name] == nil {
+						return slot, true
+					}
+				}
+				return answerDocumentMutationResultSlot{}, false
+			}
+			// callYields classifies a call: per result slot, whether it
+			// yields the mutation. nil means the callee is not one the census
+			// can classify (fail loud when a mutation-bound argument flows in
+			// and the result is applied).
+			callYields := func(x *ast.CallExpr) []bool {
+				slots := func(slot answerDocumentMutationResultSlot) []bool {
+					out := make([]bool, slot.count)
+					if slot.idx < slot.count {
+						out[slot.idx] = true
+					}
+					return out
+				}
+				if isCtor(x) {
+					return []bool{true}
+				}
+				if mentions(x.Fun) { // conversion: AnswerDocumentMutation(v)
+					return []bool{true}
+				}
+				if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
+					if qual, ok := sel.X.(*ast.Ident); ok && foreignImports[qual.Name] {
+						return nil // foreign package: unclassifiable
+					}
+				}
+				callee := selectorCallee(x)
+				if generic := facts.generics[callee]; generic != nil {
+					// §40.45 round-eight #4: a carrying type param carries in
+					// RESULT position; a non-carrying one is inferred from a
+					// mutation-bound argument in a parameter it types.
+					instantiated := map[string]bool{}
+					for name := range generic.carrying {
+						instantiated[name] = true
+					}
+					for i, arg := range x.Args {
+						slot := i
+						if slot >= len(generic.paramSlots) {
+							if !generic.variadic || len(generic.paramSlots) == 0 {
+								break
+							}
+							slot = len(generic.paramSlots) - 1
+						}
+						if yields(arg) {
+							for name := range generic.paramSlots[slot] {
+								instantiated[name] = true
+							}
+						}
+					}
+					out := make([]bool, len(generic.results))
+					for i, res := range generic.results {
+						if res.mutation {
+							out[i] = true
+							continue
+						}
+						for name := range res.typeParams {
+							if instantiated[name] {
+								out[i] = true
+							}
+						}
+					}
+					return out
+				}
+				if _, isIdent := x.Fun.(*ast.Ident); isIdent && callee == "append" && len(x.Args) > 0 {
+					if yields(x.Args[0]) {
+						return []bool{true}
+					}
+					return []bool{false}
+				}
+				if slot, ok := funcCarrierSlot(x.Fun); ok {
+					return slots(slot)
+				}
+				if slot, ok := facts.results[callee]; ok {
+					return slots(slot)
+				}
+				if facts.funcDecls[callee] {
+					return []bool{false} // a tree function/method with no mutation result
+				}
+				return nil
+			}
+			// yields: the expression's value is (or contains) a mutation.
 			yields = func(expr ast.Expr) bool {
 				switch x := expr.(type) {
 				case *ast.Ident:
@@ -1048,22 +1761,8 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 				case *ast.SelectorExpr:
 					return facts.fieldNames[x.Sel.Name]
 				case *ast.CallExpr:
-					if isCtor(x) {
-						return true
-					}
-					if slot, ok := facts.results[selectorCallee(x)]; ok && slot.count == 1 {
-						return true
-					}
-					// §40.43 round-six #15: a call through a func-literal-
-					// valued variable whose literal returns the mutation.
-					if id, ok := x.Fun.(*ast.Ident); ok {
-						if lit := funcVals[id.Name]; lit != nil {
-							if slot, ok := answerDocumentFuncLitResultSlot(lit, facts.typeNames); ok && slot.count == 1 {
-								return true
-							}
-						}
-					}
-					return mentions(x.Fun) // conversion: AnswerDocumentMutation(v)
+					out := callYields(x)
+					return len(out) == 1 && out[0]
 				case *ast.CompositeLit:
 					return x.Type != nil && mentions(x.Type)
 				case *ast.TypeAssertExpr:
@@ -1079,19 +1778,22 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 						changed = true
 					}
 				}
+				bindFunc := func(e ast.Expr, slot answerDocumentMutationResultSlot) {
+					if id, ok := e.(*ast.Ident); ok && id.Name != "_" {
+						if _, already := boundFuncs[id.Name]; !already {
+							boundFuncs[id.Name] = slot
+							changed = true
+						}
+					}
+				}
 				ast.Inspect(root, func(n ast.Node) bool {
 					switch node := n.(type) {
 					case *ast.AssignStmt:
 						if len(node.Rhs) == 1 && len(node.Lhs) > 1 {
 							if call, ok := node.Rhs[0].(*ast.CallExpr); ok {
-								if slot, ok := facts.results[selectorCallee(call)]; ok && slot.idx < len(node.Lhs) {
-									bind(node.Lhs[slot.idx])
-								}
-								if id, ok := call.Fun.(*ast.Ident); ok {
-									if lit := funcVals[id.Name]; lit != nil {
-										if slot, ok := answerDocumentFuncLitResultSlot(lit, facts.typeNames); ok && slot.idx < len(node.Lhs) {
-											bind(node.Lhs[slot.idx])
-										}
+								for i, y := range callYields(call) {
+									if y && i < len(node.Lhs) {
+										bind(node.Lhs[i])
 									}
 								}
 							}
@@ -1101,17 +1803,36 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 								if yields(rhs) {
 									bind(node.Lhs[i])
 								}
+								if slot, ok := funcCarrierSlot(rhs); ok {
+									bindFunc(node.Lhs[i], slot)
+								}
 							}
 						}
 					case *ast.ValueSpec:
-						if node.Type != nil && mentions(node.Type) {
-							for _, name := range node.Names {
-								bind(name)
+						if node.Type != nil {
+							kind, slot, why := answerDocumentClassifyValueType(node.Type, facts, mutationTypeParams)
+							switch kind {
+							case answerDocumentValueMutation:
+								for _, name := range node.Names {
+									bind(name)
+								}
+							case answerDocumentValueFunc:
+								for _, name := range node.Names {
+									bindFunc(name, slot)
+								}
+							case answerDocumentValueUnrecognized:
+								report(node, "declares a value of "+why+"; the census cannot classify it")
 							}
 						}
 						for i, v := range node.Values {
-							if i < len(node.Names) && yields(v) {
+							if i >= len(node.Names) {
+								break
+							}
+							if yields(v) {
 								bind(node.Names[i])
+							}
+							if slot, ok := funcCarrierSlot(v); ok {
+								bindFunc(node.Names[i], slot)
 							}
 						}
 					case *ast.RangeStmt:
@@ -1143,6 +1864,24 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 				}
 				return true
 			})
+			// receiverCall unwraps an Apply receiver (index / slice / paren /
+			// deref) down to the call it is taken from, if any.
+			var receiverCall func(expr ast.Expr) *ast.CallExpr
+			receiverCall = func(expr ast.Expr) *ast.CallExpr {
+				switch x := expr.(type) {
+				case *ast.CallExpr:
+					return x
+				case *ast.ParenExpr:
+					return receiverCall(x.X)
+				case *ast.StarExpr:
+					return receiverCall(x.X)
+				case *ast.IndexExpr:
+					return receiverCall(x.X)
+				case *ast.SliceExpr:
+					return receiverCall(x.X)
+				}
+				return nil
+			}
 			ast.Inspect(root, func(n ast.Node) bool {
 				switch node := n.(type) {
 				case *ast.CallExpr:
@@ -1159,6 +1898,18 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 						return true
 					}
 					if !yields(node.X) && !mentions(node.X) {
+						// §40.45 round-eight #4/#5 fail-loud: an Apply on the
+						// result of a call the census cannot classify, fed a
+						// mutation-bound (or mutation-mentioning) argument, is
+						// a laundered constructor use until proven otherwise.
+						if call := receiverCall(node.X); call != nil && callYields(call) == nil {
+							for _, arg := range call.Args {
+								if yields(arg) || mentions(arg) {
+									report(node, "applies the result of a call the census cannot classify ("+selectorCallee(call)+") fed a mutation-bound argument")
+									return true
+								}
+							}
+						}
 						return true
 					}
 					switch {
@@ -1178,7 +1929,7 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 						report(node, "builds an AnswerDocumentMutation literal")
 					}
 				case *ast.TypeSpec:
-					// §40.43 round-seven #4: a named constraint's type set is
+					// §40.45 round-seven #4: a named constraint's type set is
 					// classified at the declaration — an element shape the
 					// census cannot follow fails loud; and a GENERIC TYPE whose
 					// constraint carries the mutation is unrecognized as a
@@ -1193,9 +1944,13 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 						}
 					}
 					if node.TypeParams != nil {
+						own := map[string]bool{}
+						for _, name := range answerDocumentTypeParamNames(node.TypeParams) {
+							own[name] = true
+						}
 						for _, tp := range node.TypeParams.List {
 							setCarries, _ := answerDocumentConstraintCarries(tp.Type, facts)
-							if setCarries || mentions(tp.Type) || answerDocumentTypeParamConstraintDeclaresApply(tp.Type, docName) {
+							if setCarries || mentions(tp.Type) || answerDocumentTypeParamConstraintDeclaresApply(tp.Type, docName) || answerDocumentApplierCarries(tp.Type, facts, docName, own) {
 								report(tp, "declares a generic type whose constraint carries the mutation; the census cannot follow its fields or methods — spell the carrier as a concrete type or drop the generic lane")
 							}
 						}
@@ -1222,11 +1977,36 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 		for _, decl := range file.Decls {
 			if fn, ok := decl.(*ast.FuncDecl); ok {
 				if fn.Body != nil {
-					scan(retryGenerationWriterKey{pkg, base, retryGenerationFuncName(fn)}, fn, fn.Body)
+					enclosing := map[string]bool{}
+					for _, name := range answerDocumentTypeParamNames(fn.Type.TypeParams) {
+						enclosing[name] = true
+					}
+					if fn.Recv != nil {
+						for _, field := range fn.Recv.List {
+							if _, args, ok := answerDocumentInstantiationParts(exprUnstar(field.Type)); ok {
+								for _, arg := range args {
+									if id, isIdent := arg.(*ast.Ident); isIdent {
+										enclosing[id.Name] = true
+									}
+								}
+							}
+						}
+					}
+					scan(retryGenerationWriterKey{pkg, base, retryGenerationFuncName(fn)}, fn, fn.Body, enclosing)
 				}
 				continue
 			}
-			scan(retryGenerationWriterKey{pkg, base, "<package scope>"}, nil, decl)
+			enclosing := map[string]bool{}
+			if gd, ok := decl.(*ast.GenDecl); ok {
+				for _, spec := range gd.Specs {
+					if ts, ok := spec.(*ast.TypeSpec); ok {
+						for _, name := range answerDocumentTypeParamNames(ts.TypeParams) {
+							enclosing[name] = true
+						}
+					}
+				}
+			}
+			scan(retryGenerationWriterKey{pkg, base, "<package scope>"}, nil, decl, enclosing)
 		}
 	}
 	for key := range sites {
@@ -1235,6 +2015,14 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 		}
 	}
 	return offenders
+}
+
+// exprUnstar strips a leading pointer from a receiver type expression.
+func exprUnstar(expr ast.Expr) ast.Expr {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		return star.X
+	}
+	return expr
 }
 
 // TestAnswerDocumentPatchBaseCensus_SingleBaseConstructor (§40.17 ②): under
@@ -1459,6 +2247,160 @@ func TestAnswerDocumentPatchBaseCensus_SingleBaseConstructor(t *testing.T) {
 	t.Run("self_red_func_literal_multi_result_apply", func(t *testing.T) {
 		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, m types.AnswerDocumentMutation) {\n\tid := func(mm types.AnswerDocumentMutation) (types.AnswerDocumentMutation, bool) { return mm, true }\n\ta, _ := id(m)\n\t_, _ = a.Apply(prev)\n}"),
 			"applies the mutation a")
+	})
+
+	// §40.45 round-eight #2–#5 (type-set closure). EVOLUTION RECORD: on
+	// 154b1a5c5 every shape below reported 0 offenders (overlay probe) —
+	// the round-seven classifier keyed on SPELLING (a constraint's own
+	// declaration, the mutation type name in a signature) and the binder
+	// followed calls only to FuncDecls/func literals whose declared result
+	// named the mutation. The census now closes over alias/defined chains
+	// (#2), generic Apply interfaces after substitution (#3), carrying and
+	// inferred type parameters in result position (#4), func-typed carriers
+	// (#5), and fails loud on every mutation-mentioning type expression or
+	// call-receiver Apply it cannot classify.
+	t.Run("self_red_alias_of_carrying_named_constraint", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~[]types.AnswerDocumentMutation }\n\ntype mutC2 = mutC\n\nfunc launder[M mutC2](prev *types.AnswerDocumentV2, ms M) { _, _ = ms[0].Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:launder", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_defined_type_over_carrying_named_constraint", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~[]types.AnswerDocumentMutation }\n\ntype mutC2 mutC\n\nfunc launder[M mutC2](prev *types.AnswerDocumentV2, ms M) { _, _ = ms[0].Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:launder", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_generic_type_over_aliased_constraint_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~[]types.AnswerDocumentMutation }\n\ntype mutC2 = mutC\n\ntype box[M mutC2] struct{ ms M }"),
+			"declares a generic type whose constraint carries the mutation")
+	})
+	t.Run("self_red_generic_applier_instantiated_with_document_in_constraint", func(t *testing.T) {
+		expectProbe(t, probe("type applier[D any] interface{ Apply(prev *D) (*D, error) }\n\nfunc launder[M applier[types.AnswerDocumentV2]](prev *types.AnswerDocumentV2, m M) (*types.AnswerDocumentV2, error) { return m.Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:launder", "instantiates a generic interface whose Apply method set, after substitution", "applies the mutation m")
+	})
+	t.Run("self_red_generic_applier_instantiated_as_parameter_type", func(t *testing.T) {
+		expectProbe(t, probe("type applier[D any] interface{ Apply(prev *D) (*D, error) }\n\nfunc launder(prev *types.AnswerDocumentV2, a applier[types.AnswerDocumentV2]) { _, _ = a.Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:launder", "instantiates a generic interface whose Apply method set, after substitution")
+	})
+	t.Run("self_red_generic_applier_instantiation_aliased", func(t *testing.T) {
+		expectProbe(t, probe("type applier[D any] interface{ Apply(prev *D) (*D, error) }\n\ntype docApplier = applier[types.AnswerDocumentV2]"),
+			"internal/orchestrator/zz_probe.go:<package scope>", "instantiates a generic interface whose Apply method set, after substitution")
+	})
+	t.Run("self_red_generic_applier_instantiated_with_enclosing_type_param_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("type applier[D any] interface{ Apply(prev *D) (*D, error) }\n\nfunc launder[D any, M applier[D]](prev *D, m M) { _, _ = m.Apply(prev) }"),
+			"instantiates a generic Apply interface the census cannot resolve")
+	})
+	t.Run("self_red_generic_applier_reexported_under_new_type_params_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("type applier[D any] interface{ Apply(prev *D) (*D, error) }\n\ntype reexport[E any] interface{ applier[E] }"),
+			"a generic type re-exporting a generic Apply interface")
+	})
+	t.Run("self_red_inline_apply_over_enclosing_type_param_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("func launder[D any, M interface{ Apply(*D) (*D, error) }](prev *D, m M) { _, _ = m.Apply(prev) }"),
+			"declares an Apply method abstracted over an enclosing type parameter")
+	})
+	t.Run("self_green_generic_applier_instantiated_without_the_document", func(t *testing.T) {
+		got := answerDocumentPatchBaseConstructorCensus(probe("type applier[D any] interface{ Apply(prev *D) (*D, error) }\n\ntype config struct{ n int }\n\nfunc tune(a applier[config], c *config) { _, _ = a.Apply(c) }"), answerDocumentPatchBaseConstructorSites)
+		for _, o := range got {
+			if strings.Contains(o, "zz_probe.go") {
+				t.Fatalf("an Apply interface instantiated without the document must not be reported: %s", o)
+			}
+		}
+	})
+	t.Run("self_red_carrying_type_param_in_result_position_chained_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ types.AnswerDocumentMutation }\n\nfunc pick[M mutC](ms []M) M { return ms[0] }\n\nfunc probe(prev *types.AnswerDocumentV2, ms []types.AnswerDocumentMutation) { _, _ = pick(ms).Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_carrying_type_param_in_result_position_bound_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~types.AnswerDocumentMutation }\n\nfunc pick[M mutC](ms []M) M { return ms[0] }\n\nfunc probe(prev *types.AnswerDocumentV2, ms []types.AnswerDocumentMutation) { m := pick(ms); _, _ = m.Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies the mutation m")
+	})
+	t.Run("self_red_any_type_param_result_inferred_from_bound_argument", func(t *testing.T) {
+		expectProbe(t, probe("func first[T any](xs []T) T { return xs[0] }\n\nfunc probe(prev *types.AnswerDocumentV2, ms []types.AnswerDocumentMutation) { _, _ = first(ms).Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_any_type_param_multi_result_inferred", func(t *testing.T) {
+		expectProbe(t, probe("func pop[T any](xs []T) (T, []T) { return xs[0], xs[1:] }\n\nfunc probe(prev *types.AnswerDocumentV2, ms []types.AnswerDocumentMutation) { m, rest := pop(ms); _, _ = m.Apply(prev); _, _ = rest[0].Apply(prev) }"),
+			"applies the mutation m", "applies a mutation-typed expression")
+	})
+	t.Run("self_green_any_type_param_result_without_a_bound_argument", func(t *testing.T) {
+		got := answerDocumentPatchBaseConstructorCensus(probe("type policy struct{ n int }\n\nfunc (p policy) Apply(x int) int { return x + p.n }\n\nfunc first[T any](xs []T) T { return xs[0] }\n\nfunc probe(ps []policy) int { return first(ps).Apply(1) }"), answerDocumentPatchBaseConstructorSites)
+		for _, o := range got {
+			if strings.Contains(o, "zz_probe.go") {
+				t.Fatalf("a generic result inferred from a mutation-free argument must not be reported: %s", o)
+			}
+		}
+	})
+	t.Run("self_red_foreign_call_result_applied_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("import \"slices\"\n\nfunc probe(prev *types.AnswerDocumentV2, ms []types.AnswerDocumentMutation) { _, _ = slices.Clone(ms)[0].Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies the result of a call the census cannot classify (Clone)")
+	})
+	t.Run("self_red_builtin_append_result_applied", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, ms []types.AnswerDocumentMutation, m types.AnswerDocumentMutation) { _, _ = append(ms, m)[0].Apply(prev) }"),
+			"applies a mutation-typed expression")
+	})
+	t.Run("self_green_tree_function_result_applied_without_the_mutation", func(t *testing.T) {
+		got := answerDocumentPatchBaseConstructorCensus(probe("type policy struct{ n int }\n\nfunc (p policy) Apply(x int) int { return x + p.n }\n\nfunc newPolicy(ms []types.AnswerDocumentMutation) policy { return policy{n: len(ms)} }\n\nfunc probe(ms []types.AnswerDocumentMutation) int { return newPolicy(ms).Apply(1) }"), answerDocumentPatchBaseConstructorSites)
+		for _, o := range got {
+			if strings.Contains(o, "zz_probe.go") {
+				t.Fatalf("a tree function with no mutation result is classified, not failed loud: %s", o)
+			}
+		}
+	})
+	t.Run("self_red_func_typed_parameter_called_and_applied", func(t *testing.T) {
+		expectProbe(t, probe("func launder(prev *types.AnswerDocumentV2, mk func() types.AnswerDocumentMutation) { _, _ = mk().Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:launder", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_func_typed_struct_field_called_and_applied", func(t *testing.T) {
+		expectProbe(t, probe("type holder struct{ mk func() types.AnswerDocumentMutation }\n\nfunc probe(prev *types.AnswerDocumentV2, h holder) { _, _ = h.mk().Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_func_typed_closure_variable_copy", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, mk func() types.AnswerDocumentMutation) { f := mk; _, _ = f().Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_func_typed_call_result_bound", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, mk func() (types.AnswerDocumentMutation, error)) { m, _ := mk(); _, _ = m.Apply(prev) }"),
+			"applies the mutation m")
+	})
+	t.Run("self_red_func_typed_package_level_var", func(t *testing.T) {
+		expectProbe(t, probe("var mk func() types.AnswerDocumentMutation\n\nfunc probe(prev *types.AnswerDocumentV2) { _, _ = mk().Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_named_func_type_carrier", func(t *testing.T) {
+		expectProbe(t, probe("type mkFn func() types.AnswerDocumentMutation\n\nfunc probe(prev *types.AnswerDocumentV2, mk mkFn) { _, _ = mk().Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_mutation_returning_funcdecl_as_value", func(t *testing.T) {
+		expectProbe(t, probe("func mint() types.AnswerDocumentMutation {\n\tvar m types.AnswerDocumentMutation\n\treturn m\n}\n\nfunc probe(prev *types.AnswerDocumentV2) { f := mint; _, _ = f().Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_func_typed_parameter_position_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("func probe(visit func(types.AnswerDocumentMutation)) { _ = visit }"),
+			"internal/orchestrator/zz_probe.go:probe", "a func type that receives the mutation as a parameter")
+	})
+	t.Run("self_red_func_literal_parameter_bound", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, ms []types.AnswerDocumentMutation) {\n\teach := func(m types.AnswerDocumentMutation) { _, _ = m.Apply(prev) }\n\teach(ms[0])\n}"),
+			"applies the mutation m")
+	})
+	t.Run("self_red_container_of_func_carriers_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, mks []func() types.AnswerDocumentMutation) { _, _ = mks[0]().Apply(prev) }"),
+			"a container of func carriers")
+	})
+	t.Run("self_red_chan_of_mutation_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("type feed struct{ ch chan types.AnswerDocumentMutation }"),
+			"a chan carrying the mutation")
+	})
+	t.Run("self_red_generic_instantiated_with_mutation_as_value_type_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("type bag[T any] struct{ items []T }\n\nfunc probe(prev *types.AnswerDocumentV2, b bag[types.AnswerDocumentMutation]) { _ = b }"),
+			"a generic type instantiated with the mutation as a type argument")
+	})
+	t.Run("self_red_factory_closure_second_base", func(t *testing.T) {
+		// The end-to-end launder: the registered site hands its bound
+		// mutation to a factory closure, a sibling helper applies the
+		// closure's result — a second base outside the registered sites.
+		mutated := tree.withInjected(t, patchFile,
+			"merged, mutation, applyErr := buildAnswerDocumentPatchBase(prev, patch)\n",
+			"merged, mutation, applyErr := buildAnswerDocumentPatchBase(prev, patch)\n\tzzLaunder(prev, func() types.AnswerDocumentMutation { return mutation })\n").
+			with(t, "internal/tool/zz_probe.go", "package tool\n\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n\nfunc zzLaunder(prev *types.AnswerDocumentV2, mk func() types.AnswerDocumentMutation) { _, _ = mk().Apply(prev) }")
+		got := answerDocumentPatchBaseConstructorCensus(mutated, answerDocumentPatchBaseConstructorSites)
+		retryGenerationExpectOffender(t, got, "internal/tool/zz_probe.go:zzLaunder")
 	})
 }
 
