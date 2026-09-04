@@ -383,7 +383,21 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 		// `recv.f<T>(..)`, `recv.template f<T>(..)`) wraps the callee name in
 		// template_function / template_method; the published endpoint is
 		// the bare name so it matches the symbol table and the grounder.
-		fn := genericCalleeBase(node.ChildByFieldName("function"), src)
+		// The one grammar ambiguity — a comparison chain `a < b && c > (d)`
+		// tree-sitter also reads as a template call — mints no row when the
+		// typed discriminator recognises it; every other template reading
+		// is the precise witness and keeps its bare-name row.
+		raw := node.ChildByFieldName("function")
+		var declared map[string]bool
+		if cppTemplateReadingIsComparisonChain(raw, src, func(name string) bool {
+			if declared == nil {
+				declared = cppEnclosingValueNames(node, src)
+			}
+			return declared[name]
+		}) {
+			return
+		}
+		fn := genericCalleeBase(raw)
 		if fn == nil {
 			return
 		}
@@ -400,7 +414,7 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 				ResolvedBy: "c_ast_identifier_call",
 			})
 		case "field_expression":
-			if field := genericCalleeBase(fn.ChildByFieldName("field"), src); field != nil {
+			if field := genericCalleeBase(fn.ChildByFieldName("field")); field != nil {
 				receiver := ""
 				if argument := fn.ChildByFieldName("argument"); argument != nil {
 					receiver = strings.TrimSpace(nodeText(argument, src))
@@ -422,7 +436,7 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 				})
 			}
 		case "scoped_identifier", "qualified_identifier":
-			if nameNode := genericCalleeBase(fn.ChildByFieldName("name"), src); nameNode != nil {
+			if nameNode := genericCalleeBase(fn.ChildByFieldName("name")); nameNode != nil {
 				receiver := ""
 				if scope := fn.ChildByFieldName("scope"); scope != nil {
 					receiver = strings.TrimSpace(nodeText(scope, src))

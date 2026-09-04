@@ -111,6 +111,10 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		metric := traceDBSyncSpanViewerDispositionMetric(disposition)
 		copyMetric(metric, "slice", "callstack", metric)
 	}
+	// Both copies are keyed by row identity, never by row order: the
+	// scheduler reconciliation row is appended after the callstack export,
+	// so an early exit on the callstack census would drop the reconciliation
+	// copy from conversion_quality whenever the census closed first.
 	for _, item := range items {
 		if item.Family == traceDBSchedulerPublicationFamily &&
 			item.Table == traceDBSchedulerPublicationTable {
@@ -122,7 +126,6 @@ func traceDBSemanticQualityCoverage(items []TraceDBCoverage) TraceDBCoverage {
 		if item.Family == "slice" && item.Table == "callstack" &&
 			item.Metadata["official_viewer_typed_only_sync_reason_census"] == "complete" {
 			quality.Metadata["official_viewer_typed_only_sync_reason_census"] = "complete"
-			break
 		}
 	}
 	copyMetric("raw_marker_pairs_unique_cpu_unavailable_callstack_candidate",

@@ -512,10 +512,16 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 // checks, and a citation-mode conflict skips the preserved-citation scan — so
 // the list never reports phantom follow-ups the fix for the gating violation
 // would re-shape anyway. A duplicate entry is one such gate in every arm
-// (合流复核收编 §40.51): its first occurrence already reported the cross-op /
-// existing-block / kind / value lines for that id, so the repeat reports only
-// `duplicated` and never re-mints a byte-identical line. Cross-op checks keep
-// running per distinct entry. Catches:
+// (合流复核收编 §40.51), and the duplicate gate runs BEFORE the unknown-id arm
+// (收编复核再收编, b6f2 #11): its first occurrence already reported the
+// unknown-id / cross-op / existing-block / kind / value lines for that id, so
+// the repeat reports only `duplicated` and never re-mints a byte-identical
+// line — whether or not the id passed the id gates. An unknown-id line is
+// minted once per distinct id per op: unchanged_block_ids has no duplicate
+// violation (a redundant Unchanged is harmless), and a second field /
+// receipt edit of the same unknown block is a distinct entry naming the same
+// missing block. Empty ids carry no key and each empty entry stays its own
+// line. Cross-op checks keep running per distinct entry. Catches:
 //   - unknown ids in UnchangedBlockIDs / ReplaceBlocks / local edits
 //   - dup ids within a single op (e.g. two Replace entries for
 //     same id, two Add entries for same id, Add id colliding with
@@ -536,14 +542,19 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 		prevIDs[b.ID] = true
 	}
 
-	// UnchangedBlockIDs must each name an existing prev block.
+	// UnchangedBlockIDs must each name an existing prev block. A repeated id
+	// is harmless here (there is no duplicate violation for this op), so a
+	// repeated unknown id is reported once per distinct id rather than once
+	// per occurrence (b6f2 #11).
+	unchangedUnknown := make(map[string]bool)
 	for _, id := range p.UnchangedBlockIDs {
 		if id == "" {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpUnchangedBlockIDs, AnswerDocumentPatchViolationEmptyID, "", "",
 				"patch: unchanged_block_ids contains empty id"))
 			continue
 		}
-		if !prevIDs[id] {
+		if !prevIDs[id] && !unchangedUnknown[id] {
+			unchangedUnknown[id] = true
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpUnchangedBlockIDs, AnswerDocumentPatchViolationUnknownID, id, "",
 				"patch: unchanged_block_ids[%q] not present in previous emit", id))
 		}
@@ -612,7 +623,15 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 	}
 
 	// ReplaceBlocks: each must have non-empty id, id in prev, no
-	// dup within Replace, no overlap with RemoveBlockIDs.
+	// dup within Replace, no overlap with RemoveBlockIDs. Two rosters:
+	// replaceSeen keys the duplicate gate (every non-empty id, recorded
+	// BEFORE the unknown-id arm so a repeated unknown id reports
+	// `duplicated` rather than a second byte-identical `not present` line —
+	// 收编复核再收编 §40.51, b6f2 #11); replaceSet is the cross-op roster the
+	// later arms consult and holds only ids that passed the id gates, so an
+	// unknown replace id never mints a phantom `also in replace_blocks`
+	// follow-up on the add_blocks entry its own line already points to.
+	replaceSeen := make(map[string]bool, len(p.ReplaceBlocks))
 	replaceSet := make(map[string]bool, len(p.ReplaceBlocks))
 	for _, b := range p.ReplaceBlocks {
 		id := strings.TrimSpace(b.ID)
@@ -621,14 +640,15 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 				"patch: replace_blocks entry with empty id (kind=%s)", b.Kind))
 			continue
 		}
+		if replaceSeen[id] {
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationDuplicate, id, "",
+				"patch: replace_blocks[%q] duplicated", id))
+			continue
+		}
+		replaceSeen[id] = true
 		if !prevIDs[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationUnknownID, id, "",
 				"patch: replace_blocks[%q] not present in previous emit (use add_blocks for new blocks)", id))
-			continue
-		}
-		if replaceSet[id] {
-			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationDuplicate, id, "",
-				"patch: replace_blocks[%q] duplicated", id))
 			continue
 		}
 		if removeSet[id] {
@@ -641,8 +661,15 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 	// BlockFieldEditsV1: exact existing model block, one assignment per
 	// block+field, valid closed-enum value, and no whole-block mutation of the
 	// same target. Redundant Unchanged is intentionally harmless. An empty /
-	// padded / unknown / system-generated target gates the value check.
+	// padded / unknown / system-generated target gates the value check. The
+	// duplicate gate (block+field key) sits right after the id-shape checks
+	// and before the unknown-id arm, so a repeated unknown target reports one
+	// `not present` line and one `duplicated` line; a second field of the
+	// same unknown block is a distinct entry but the same missing block, so
+	// the `not present` line (which names the block, not the field) is minted
+	// once per distinct block id (b6f2 #11).
 	fieldEditSet := make(map[string]bool, len(p.BlockFieldEditsV1))
+	fieldEditUnknown := make(map[string]bool)
 	for _, edit := range p.BlockFieldEditsV1 {
 		id := strings.TrimSpace(edit.BlockID)
 		if id == "" {
@@ -655,21 +682,25 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 				"patch: block_field_edits_v1 block_id=%q must match the exact previous block id without surrounding whitespace", edit.BlockID))
 			continue
 		}
+		key := id + "\x00" + string(edit.Field)
+		if fieldEditSet[key] {
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
+				"patch: block_field_edits_v1[%q].%s duplicated", id, edit.Field))
+			continue
+		}
+		fieldEditSet[key] = true
 		block, ok := answerDocumentBlockByID(prev, id)
 		if !ok {
-			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationUnknownID, id, string(edit.Field),
-				"patch: block_field_edits_v1[%q] not present in previous emit", id))
+			if !fieldEditUnknown[id] {
+				fieldEditUnknown[id] = true
+				add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationUnknownID, id, string(edit.Field),
+					"patch: block_field_edits_v1[%q] not present in previous emit", id))
+			}
 			continue
 		}
 		if block.SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationSystemBlock, id, string(edit.Field),
 				"patch: block_field_edits_v1[%q] cannot edit a system-generated block", id))
-			continue
-		}
-		key := id + "\x00" + string(edit.Field)
-		if fieldEditSet[key] {
-			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
-				"patch: block_field_edits_v1[%q].%s duplicated", id, edit.Field))
 			continue
 		}
 		if removeSet[id] {
@@ -683,12 +714,14 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 		if _, v := applyAnswerBlockFieldEditV1(block, edit); v != nil {
 			add(v)
 		}
-		fieldEditSet[key] = true
 	}
 
 	// BlockReceiptEditsV1: exact existing model block, one assignment per
 	// block+receipt field, and no whole-block mutation of the same target.
+	// Same gate order as the field edits: duplicate before unknown, and the
+	// unknown block reported once per distinct block id (b6f2 #11).
 	receiptEditSet := make(map[string]bool, len(p.BlockReceiptEditsV1))
+	receiptEditUnknown := make(map[string]bool)
 	for _, edit := range p.BlockReceiptEditsV1 {
 		id := strings.TrimSpace(edit.BlockID)
 		if id == "" {
@@ -701,21 +734,25 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 				"patch: block_receipt_edits_v1 block_id=%q must match the exact previous block id without surrounding whitespace", edit.BlockID))
 			continue
 		}
+		key := id + "\x00" + string(edit.Field)
+		if receiptEditSet[key] {
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
+				"patch: block_receipt_edits_v1[%q].%s duplicated", id, edit.Field))
+			continue
+		}
+		receiptEditSet[key] = true
 		block, ok := answerDocumentBlockByID(prev, id)
 		if !ok {
-			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationUnknownID, id, string(edit.Field),
-				"patch: block_receipt_edits_v1[%q] not present in previous emit", id))
+			if !receiptEditUnknown[id] {
+				receiptEditUnknown[id] = true
+				add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationUnknownID, id, string(edit.Field),
+					"patch: block_receipt_edits_v1[%q] not present in previous emit", id))
+			}
 			continue
 		}
 		if block.SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationSystemBlock, id, string(edit.Field),
 				"patch: block_receipt_edits_v1[%q] cannot edit a system-generated block", id))
-			continue
-		}
-		key := id + "\x00" + string(edit.Field)
-		if receiptEditSet[key] {
-			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
-				"patch: block_receipt_edits_v1[%q].%s duplicated", id, edit.Field))
 			continue
 		}
 		if removeSet[id] {
@@ -729,7 +766,6 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 		if _, v := applyAnswerBlockReceiptEditV1(block, edit); v != nil {
 			add(v)
 		}
-		receiptEditSet[key] = true
 	}
 
 	// AddBlocks: each must have non-empty id, id NOT in prev,

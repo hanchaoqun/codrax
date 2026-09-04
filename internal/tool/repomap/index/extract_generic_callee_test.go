@@ -53,7 +53,7 @@ func genericCalleeMatrix() []genericCalleeCase {
 		},
 		{
 			lang: types.LangCpp, file: "svc.cpp",
-			src: "void run(Repository& repo) { auto s = std::make_unique<ConsoleSink>(); auto t = make_unique<Sink>(1); repo.get<int>(); repo.template fetch<int>(); ns::convert<Item>(2); helper(); if (a < b && c > (d)) { helper(); } }\n",
+			src: "void run(Repository& repo, int a, int b, int c, int d) { auto s = std::make_unique<ConsoleSink>(); auto t = make_unique<Sink>(1); repo.get<int>(); repo.template fetch<int>(); ns::convert<Item>(2); helper(); if (a < b && c > (d)) { helper(); } }\n",
 			extract: func(t *testing.T, src []byte, file string) []types.Relation {
 				_, _, _, rels := extractCCpp(parseSourceFor(t, types.LangCpp, string(src)), src, file, types.LangCpp)
 				return rels
@@ -220,12 +220,12 @@ func TestGenericCalleeBasePassesPlainCalleesThrough(t *testing.T) {
 			return
 		}
 		fn := node.ChildByFieldName("function")
-		if got := genericCalleeBase(fn, []byte(src)); got != fn {
+		if got := genericCalleeBase(fn); got != fn {
 			t.Fatalf("plain callee must pass through unchanged: %s -> %s", fn.Type(), got.Type())
 		}
 		seen = true
 	})
-	if !seen || genericCalleeBase(nil, []byte(src)) != nil {
+	if !seen || genericCalleeBase(nil) != nil {
 		t.Fatalf("fixture must contain a call (seen=%t) and nil must pass through", seen)
 	}
 }
@@ -257,7 +257,7 @@ func TestSwiftConstructorExpressionRegistersNewExpressionLineFeature(t *testing.
 // every language whose call rows changed shape rejects pre-B1554 caches.
 func TestGenericCalleeExtractorCacheEpochFloors(t *testing.T) {
 	floors := map[string]int{
-		types.LangRust: 12, types.LangC: 11, types.LangCpp: 13,
+		types.LangRust: 12, types.LangC: 11, types.LangCpp: 14,
 		types.LangSwift: 10, types.LangCangjie: 10,
 	}
 	for language, floor := range floors {
@@ -267,53 +267,143 @@ func TestGenericCalleeExtractorCacheEpochFloors(t *testing.T) {
 	}
 }
 
-// G6-debt #1 (colleague_merge_audit §40.59 合流复核收编): the two byte
-// adjacencies alone let a compact comparison chain `a<b && c>(d)` read as a
-// template call. The interior of the template-argument list must be a
-// type-argument list — identifiers, qualified names, commas, whitespace,
-// nested angles, integer/bool literals, `*`, `&`, const/typename — and any
-// comparison / logical / arithmetic operator or string literal inside
-// rejects the template_function reading, so no call row is minted. The
-// same interior rule gates the Cangjie lexer arm and the grounder's regex
-// arm (typeArgumentListClosesIntoCall), so the three tiers accept one
-// shape.
+// §40.59 收编复核再收编 (batch-six fold-in review #1/#2): the tree-sitter
+// template_function reading is the precise witness on the AST tier. Every
+// template call — whatever its template-argument interior spells (a type,
+// a negative / arithmetic / comparison / logical non-type argument, an
+// rvalue reference, a string literal, a lambda, sizeof, a ternary) —
+// mints a Kind=call row carrying the BARE callee name in every arm
+// (identifier, field, scoped/qualified); no instantiated spelling ever
+// reaches ToEP.Name. The one grammar ambiguity, a comparison chain
+// `a < b && c > (d)` the grammar also reads as a template call, is dropped
+// only by the typed discriminator cppTemplateReadingIsComparisonChain: the
+// template_argument_list is exactly one binary_expression whose top-level
+// operator is `&&`/`||` and whose BOTH operands are value-shaped (an
+// integer literal, or an identifier declared as a parameter / local of the
+// enclosing function or a field of the enclosing class). Anything else
+// keeps the row — including chains over undeclared names, which is the
+// disclosed residual.
 //
-// EVOLUTION RECORD: red on 8a1e5d695 — `a<b && c>(d)`, `lhs<0 &&
-// cnt>(height)`, `a<b || c>(d)` and `bool ok = i<n && j>(k)` each minted a
-// Kind=call row headed by the comparison operand; green once
-// cppTemplateCalleeTouchesArguments also scans the argument-list interior.
-func TestCppTemplateCalleeInteriorMustBeTypeArgumentList(t *testing.T) {
+// EVOLUTION RECORD: red on 381f36cc9 — the byte-whitelist interior guard
+// dropped `f<-1>(x)`, `f<T&&>(x)`, `f<N + 1>(x)`, `f<!flag>(x)`, the
+// ternary, string-literal and lambda non-type arguments (rows the declared
+// base 8a1e5d695 minted), and the qualified arm published the instantiated
+// spelling `get<N - 1>` / `make_index_sequence<N - 1>` /
+// `integral_constant<int, -1>` / `a<b && c>` verbatim; red on 8a1e5d695 —
+// the compact chain `a<b && c>(d)` over declared operands minted `a`, and
+// the spaced `make_unique <T> ()` template call minted no row (adjacency
+// guard). Green once genericCalleeBase always unwraps to the bare name and
+// the comparison chain is keyed on the typed operator + operand shape.
+func TestCppTemplateReadingsMintBareNamesExceptTypedComparisonChains(t *testing.T) {
 	cases := []struct {
 		name   string
-		src    string
-		callee string
-		want   bool
+		src    string            // one C++ translation unit
+		want   map[string]string // callee → receiver that must appear on a call row ("" = any)
+		forbid []string          // names that must not appear on any call row
 	}{
-		{"and chain", "if (a<b && c>(d)) { helper(); }", "a", false},
-		{"and chain with literal", "if (lhs<0 && cnt>(height)) { helper(); }", "lhs", false},
-		{"or chain", "if (a<b || c>(d)) { helper(); }", "a", false},
-		{"and chain in initialiser", "bool ok = i<n && j>(k);", "i", false},
-		{"equality inside", "foo<a == b>(x);", "foo", false},
-		{"inequality inside", "foo<a != b>(x);", "foo", false},
-		{"arithmetic inside", "foo<n + 1>(x);", "foo", false},
-		{"division inside", "foo<n / 2>(x);", "foo", false},
-		{"string literal inside", "foo<\"s\">(x);", "foo", false},
-		{"qualified template", "auto m = std::max<int>(a, b);", "max", true},
-		{"nested template", "foo<std::vector<int>>(x);", "foo", true},
-		{"integer literal", "foo<3>(x);", "foo", true},
-		{"bool literal", "foo<true>(x);", "foo", true},
-		{"const pointer", "foo<const T*>(x);", "foo", true},
-		{"typename qualified", "foo<typename T::type>(x);", "foo", true},
-		{"lvalue reference", "obj.get<int&>(x);", "get", true},
-		{"two type arguments", "if (a<b, c>(d)) { helper(); }", "a", true},
+		{"negative non-type argument", "void run(int x) { f<-1>(x); }", map[string]string{"f": ""}, []string{"f<-1>"}},
+		{"rvalue reference argument", "void run(int x) { f<T&&>(x); }", map[string]string{"f": ""}, []string{"f<T&&>"}},
+		{"arithmetic non-type argument", "void run(int x) { f<N + 1>(x); }", map[string]string{"f": ""}, []string{"f<N + 1>"}},
+		{"negation non-type argument", "void run(int x) { f<!flag>(x); }", map[string]string{"f": ""}, []string{"f<!flag>"}},
+		{"ternary non-type argument", "void run(int x) { f<(N > 0 ? 1 : 2)>(x); }", map[string]string{"f": ""}, []string{"f<(N > 0 ? 1 : 2)>"}},
+		{"string literal argument", "void run(int x) { f<\"abc\">(x); }", map[string]string{"f": ""}, []string{"f<\"abc\">"}},
+		{"lambda non-type argument", "void run(int x) { f<[](int v){ return v; }>(x); }", map[string]string{"f": ""}, nil},
+		{"sizeof argument", "void run(int x) { f<sizeof(x)>(x); }", map[string]string{"f": ""}, []string{"f<sizeof(x)>"}},
+		{"equality non-type argument", "void run(int x) { foo<a == b>(x); }", map[string]string{"foo": ""}, []string{"foo<a == b>"}},
+		{"division non-type argument", "void run(int x) { foo<n / 2>(x); }", map[string]string{"foo": ""}, []string{"foo<n / 2>"}},
+		{"qualified tuple recursion", "void run(T& t) { std::get<N - 1>(t); }", map[string]string{"get": "std"}, []string{"get<N - 1>"}},
+		{"qualified index sequence", "void run() { std::make_index_sequence<N - 1>(); }", map[string]string{"make_index_sequence": "std"}, []string{"make_index_sequence<N - 1>"}},
+		{"qualified integral constant", "void run() { std::integral_constant<int, -1>(); }", map[string]string{"integral_constant": "std"}, []string{"integral_constant<int, -1>"}},
+		{"qualified arithmetic", "void run(T& t) { std::apply<N+1>(t); }", map[string]string{"apply": "std"}, []string{"apply<N+1>"}},
+		{"qualified comparison argument", "void run(T& t) { std::foo<N == 1>(t); }", map[string]string{"foo": "std"}, []string{"foo<N == 1>"}},
+		{"qualified type argument control", "void run(T& t) { std::get<N>(t); }", map[string]string{"get": "std"}, []string{"get<N>"}},
+		{"spaced template call", "void run() { make_unique <T> (); }", map[string]string{"make_unique": ""}, []string{"make_unique <T>"}},
+		{"bool literal conjunction is not a chain", "void run(int x, int flag) { f<true && flag>(x); }", map[string]string{"f": ""}, []string{"f<true && flag>"}},
+		{"nested template", "void run(int x) { foo<std::vector<int>>(x); }", map[string]string{"foo": ""}, []string{"foo<std::vector<int>>"}},
+		{"two type arguments over declared names", "void run(int a, int b, int c, int d) { if (a<b, c>(d)) { helper(); } }", map[string]string{"a": "", "helper": ""}, []string{"a<b, c>"}},
+		{"template method on receiver", "void run(Repository& repo, int x) { repo.get<int&>(x); }", map[string]string{"get": "Repository"}, []string{"get<int&>"}},
+
+		// The typed comparison-chain discriminator: `&&`/`||` over two
+		// value-shaped operands mints no row in any arm.
+		{"compact chain over parameters", "void run(int a, int b, int c, int d) { if (a<b && c>(d)) { helper(); } }", map[string]string{"helper": ""}, []string{"a", "a<b && c>", "c"}},
+		{"spaced chain over parameters", "void run(int a, int b, int c, int d) { if (a < b && c > (d)) { helper(); } }", map[string]string{"helper": ""}, []string{"a", "c"}},
+		{"or chain over parameters", "void run(int a, int b, int c, int d) { if (a<b || c>(d)) { helper(); } }", map[string]string{"helper": ""}, []string{"a", "a<b || c>", "c"}},
+		{"chain with integer literal and local", "void run(int height) { int lhs = 1; int cnt = 2; if (lhs<0 && cnt>(height)) { helper(); } }", map[string]string{"helper": ""}, []string{"lhs", "lhs<0 && cnt>", "cnt"}},
+		{"chain in initialiser over locals", "void run(int n, int k) { int i = 0; int j = 1; bool ok = i<n && j>(k); }", nil, []string{"i", "i<n && j>", "j"}},
+		{"chain over for-loop locals", "void run(int n, int k) { for (int i = 0, j = 1; i<n && j>(k); ++i) { helper(); } }", map[string]string{"helper": ""}, []string{"i", "i<n && j>", "j"}},
+		{"qualified chain over parameters", "void run(int b, int c, int d) { if (ns::a<b && c>(d)) { helper(); } }", map[string]string{"helper": ""}, []string{"a", "a<b && c>"}},
+		{"chain over class fields", "class Svc { int lhs_; int limit_; int cnt_; int max_; void run() { if (lhs_<limit_ && cnt_>(max_)) { helper(); } } };", map[string]string{"helper": ""}, []string{"lhs_", "lhs_<limit_ && cnt_>", "cnt_"}},
+		{"chain inside lambda over lambda parameters", "void run() { auto fn = [](int a, int b, int c, int d) { return a<b && c>(d); }; }", nil, []string{"a", "a<b && c>"}},
+
+		// Residuals, disclosed: without a declared value witness the
+		// template reading stands (the grammar's own reading, base
+		// behaviour), and a chain whose operand is itself a chain is not
+		// the ruled shape.
+		{"chain over undeclared names keeps the template reading", "void run() { if (a<b && c>(d)) { helper(); } }", map[string]string{"a": "", "helper": ""}, []string{"a<b && c>"}},
+		{"nested chain keeps the template reading", "void run(int a, int b, int c, int d, int e) { if (a<b && c || d>(e)) { helper(); } }", map[string]string{"a": "", "helper": ""}, []string{"a<b && c || d>"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := []byte(tc.src + "\n")
+			_, _, _, rels := extractCCpp(parseSourceFor(t, types.LangCpp, string(src)), src, "svc.cpp", types.LangCpp)
+			names := genericCalleeNames(rels)
+			for callee, receiver := range tc.want {
+				if names[callee] == 0 {
+					t.Errorf("%q: no call row named %q; rows=%v", tc.src, callee, names)
+					continue
+				}
+				if receiver != "" {
+					requireCallReceiver(t, rels, callee, receiver)
+				}
+			}
+			for _, forbid := range tc.forbid {
+				if names[forbid] != 0 {
+					t.Errorf("%q: call row must not be named %q (instantiated spelling or comparison operand); rows=%v", tc.src, forbid, names)
+				}
+			}
+		})
+	}
+}
+
+// The discriminator is keyed on typed operator and operand shapes only:
+// any other template_argument_list interior returns false without
+// consulting the declared-name oracle.
+func TestCppTemplateComparisonChainDiscriminatorReadsTypedShapeOnly(t *testing.T) {
+	cases := []struct {
+		name     string
+		src      string
+		declared bool
+		want     bool
+	}{
+		{"and over declared identifiers", "if (a<b && c>(d)) {}", true, true},
+		{"and over undeclared identifiers", "if (a<b && c>(d)) {}", false, false},
+		{"or with integer literal", "if (a<1 || c>(d)) {}", true, true},
+		{"single type argument", "f<T>(x);", true, false},
+		{"two arguments", "f<a, b>(x);", true, false},
+		{"arithmetic", "f<a + b>(x);", true, false},
+		{"equality", "f<a == b>(x);", true, false},
+		{"negative literal", "f<-1>(x);", true, false},
+		{"bool literal operand", "f<true && b>(x);", true, false},
+		{"nested chain operand", "if (a<b && c || d>(e)) {}", true, false},
+		{"plain callee", "f(x);", true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			src := []byte("void run() { " + tc.src + " }\n")
-			_, _, _, rels := extractCCpp(parseSourceFor(t, types.LangCpp, string(src)), src, "svc.cpp", types.LangCpp)
-			names := genericCalleeNames(rels)
-			if got := names[tc.callee] > 0; got != tc.want {
-				t.Fatalf("%q: call row %q present=%t, want %t; rows=%v", tc.src, tc.callee, got, tc.want, names)
+			root := parseSourceFor(t, types.LangCpp, string(src))
+			var got, seen bool
+			walkNamedChildren(root, true, func(node *sitter.Node) {
+				if node.Type() != "call_expression" || seen {
+					return
+				}
+				seen = true
+				got = cppTemplateReadingIsComparisonChain(node.ChildByFieldName("function"), src, func(string) bool { return tc.declared })
+			})
+			if !seen {
+				t.Fatalf("%q: fixture must parse to a call_expression", tc.src)
+			}
+			if got != tc.want {
+				t.Fatalf("%q declared=%t: comparison chain=%t, want %t", tc.src, tc.declared, got, tc.want)
 			}
 		})
 	}

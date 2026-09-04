@@ -1,6 +1,8 @@
 package index
 
 import (
+	"strings"
+
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
@@ -32,15 +34,21 @@ import (
 //
 // Type arguments are never part of the published name: the endpoint stays
 // the bare callee identifier so the AST row, the regex grounding tier and
-// the symbol table agree on one spelling.
+// the symbol table agree on one spelling. The tree-sitter reading is the
+// precise witness on this tier: every template_function / template_method
+// the grammar produces is unwrapped to its bare name, whatever the
+// template-argument interior spells (a type, a negative or arithmetic
+// non-type argument, an rvalue reference, a string literal, a lambda), and
+// no arm ever publishes the instantiated spelling (§40.59 收编复核再收编).
+// The one grammar ambiguity — a comparison chain `a < b && c > (d)` that
+// tree-sitter also reads as a template call — is rejected by the typed
+// discriminator cppTemplateReadingIsComparisonChain, not by a byte scan.
 
 // genericCalleeBase unwraps a callee node that carries explicit type
 // arguments to the node that names the callee. Any other node is returned
 // as is, so every extractor switch can feed its `function` child through
-// this normaliser before dispatching on the node type. src is the file's
-// source: the C++ arm reads the template-argument bytes to tell a type
-// list from an expression the grammar parsed the same way.
-func genericCalleeBase(fn *sitter.Node, src []byte) *sitter.Node {
+// this normaliser before dispatching on the node type.
+func genericCalleeBase(fn *sitter.Node) *sitter.Node {
 	if fn == nil {
 		return nil
 	}
@@ -50,92 +58,129 @@ func genericCalleeBase(fn *sitter.Node, src []byte) *sitter.Node {
 			return inner
 		}
 	case "template_function", "template_method":
-		if inner := fn.ChildByFieldName("name"); inner != nil && cppTemplateCalleeTouchesArguments(fn, src) {
+		if inner := fn.ChildByFieldName("name"); inner != nil {
 			return inner
 		}
 	case "dependent_name":
 		if fn.NamedChildCount() > 0 {
-			return genericCalleeBase(fn.NamedChild(0), src)
+			return genericCalleeBase(fn.NamedChild(0))
 		}
 	}
 	return fn
 }
 
-// cppTemplateCalleeTouchesArguments is the C++ precision guard. The grammar
-// cannot tell `a < b && c > (d)` (a comparison chain) from `a<b && c>(d)` (a
-// template call) — real compilers decide by name lookup — and parses both
-// as template_function. Two structural signals remain in the bytes, and a
-// template call must carry both:
+// cppTemplateReadingIsComparisonChain is the C++ precision discriminator
+// for the one shape the grammar cannot decide: `a<b && c>(d)` and
+// `a < b && c > (d)` both parse as call_expression{function:
+// template_function{name: a, arguments: template_argument_list(
+// binary_expression)}} although a real compiler reads them as a comparison
+// chain whenever `a` names a value. The discriminator fires only on the
+// typed shape of that chain — the callee's template_argument_list holds
+// exactly one binary_expression whose top-level operator is `&&` or `||`
+// and whose BOTH operands are value-shaped: an integer literal
+// (number_literal) or an identifier the enclosing function declares as a
+// parameter or local (or the enclosing class declares as a field). Any
+// other interior keeps tree-sitter's template reading, so a genuine
+// `f<N - 1>(x)`, `f<-1>(x)`, `f<T&&>(x)`, `f<true && flag>(x)` or a bool
+// non-type argument over undeclared names still mints its bare-name row.
 //
-//   - adjacency: a written template call spells `name<` with the `<`
-//     touching the name and `>(` with the `(` touching the closing `>`;
-//   - interior: the bytes between the angle brackets spell a type-argument
-//     list (cppTemplateArgumentInteriorIsTypeList) — a comparison or logical
-//     operator, arithmetic, or a string literal there means the parse is an
-//     expression chain (`a<b && c>(d)` also satisfies both adjacencies).
-//
-// The same adjacency + interior rule gates the Cangjie lexer arm
-// (cangjieCallParenIndex) and the grounder's regex arm
-// (typeArgumentListClosesIntoCall), so all three tiers accept one shape. A
-// template_function that fails the guard is returned unchanged and, as
-// before this file, mints no row.
-func cppTemplateCalleeTouchesArguments(fn *sitter.Node, src []byte) bool {
-	name := fn.ChildByFieldName("name")
-	args := fn.ChildByFieldName("arguments")
-	if name == nil || args == nil || name.EndByte() != args.StartByte() {
+// fn is the raw callee of a call_expression before genericCalleeBase: a
+// template_function, or a qualified_identifier whose name child is one
+// (`ns::a<b && c>(d)`); a template_method behind `.`/`->`/`template` can
+// never be a comparison chain and is never consulted. declared reports
+// whether an identifier is a declared value name at the call.
+func cppTemplateReadingIsComparisonChain(fn *sitter.Node, src []byte, declared func(name string) bool) bool {
+	if fn == nil {
 		return false
 	}
-	if !cppTemplateArgumentInteriorIsTypeList(nodeText(args, src)) {
-		return false
-	}
-	call := fn.Parent()
-	for call != nil && call.Type() != "call_expression" {
-		call = call.Parent()
-	}
-	if call == nil {
-		return true
-	}
-	list := call.ChildByFieldName("arguments")
-	return list != nil && list.StartByte() == fn.EndByte()
-}
-
-// cppTemplateArgumentInteriorIsTypeList reports whether the text of a
-// template_argument_list (outer `<` … `>` included) spells only what a
-// type-argument list can contain: identifiers and keywords (const,
-// typename, integer and bool literals are identifier bytes), qualified
-// names (`::`, `.`), commas, whitespace, nested angles, `*`, a single `&`,
-// `'` (digit separators / char literals), and the `(` `)` `[` `]` of
-// function and array types. `->` is accepted only as the arrow of a
-// trailing-return function type. Any comparison, logical or arithmetic
-// operator (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `+`, `-`, `/`, `%`, `|`,
-// `^`, `~`, `?`) or a string literal rejects the list. The byte set mirrors
-// the grounder's typeArgumentListClosesIntoCall so the AST row and the
-// regex tier never disagree about the same bytes.
-func cppTemplateArgumentInteriorIsTypeList(text string) bool {
-	if len(text) < 2 || text[0] != '<' || text[len(text)-1] != '>' {
-		return false
-	}
-	inner := text[1 : len(text)-1]
-	for i := 0; i < len(inner); i++ {
-		c := inner[i]
-		switch {
-		case c == '_', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-		case c == ':', c == '.', c == ',', c == ' ', c == '\t', c == '<', c == '>',
-			c == '*', c == '\'', c == '(', c == ')', c == '[', c == ']':
-		case c == '&':
-			if i+1 < len(inner) && inner[i+1] == '&' {
-				return false
-			}
-		case c == '-':
-			if i+1 >= len(inner) || inner[i+1] != '>' {
-				return false
-			}
-			i++ // the `>` of `->` is not a closing angle
-		default:
+	if fn.Type() == "qualified_identifier" || fn.Type() == "scoped_identifier" {
+		fn = fn.ChildByFieldName("name")
+		if fn == nil {
 			return false
 		}
 	}
-	return true
+	if fn.Type() != "template_function" {
+		return false
+	}
+	args := fn.ChildByFieldName("arguments")
+	if args == nil || args.NamedChildCount() != 1 {
+		return false
+	}
+	chain := args.NamedChild(0)
+	if chain.Type() != "binary_expression" {
+		return false
+	}
+	operator := chain.ChildByFieldName("operator")
+	if operator == nil {
+		return false
+	}
+	switch nodeText(operator, src) {
+	case "&&", "||":
+	default:
+		return false
+	}
+	valueShaped := func(operand *sitter.Node) bool {
+		if operand == nil {
+			return false
+		}
+		switch operand.Type() {
+		case "number_literal":
+			return true
+		case "identifier":
+			return declared != nil && declared(strings.TrimSpace(nodeText(operand, src)))
+		}
+		return false
+	}
+	return valueShaped(chain.ChildByFieldName("left")) && valueShaped(chain.ChildByFieldName("right"))
+}
+
+// cppEnclosingValueNames collects the value names lexically visible at
+// node for the comparison-chain discriminator: every parameter and local
+// declarator of the nearest enclosing function body or lambda (for-loop
+// initialisers and nested blocks included) and every field of the nearest
+// enclosing class/struct. File-scope variables are deliberately absent —
+// this is the same "declaration alone does not prove which object a name
+// denotes" boundary cReceiverDeclarations draws.
+func cppEnclosingValueNames(node *sitter.Node, src []byte) map[string]bool {
+	names := map[string]bool{}
+	var function, class *sitter.Node
+	for current := node; current != nil; current = current.Parent() {
+		switch current.Type() {
+		case "function_definition", "lambda_expression":
+			if function == nil {
+				function = current
+			}
+		case "class_specifier", "struct_specifier":
+			if class == nil {
+				class = current
+			}
+		}
+	}
+	collect := func(root *sitter.Node, declarationTypes ...string) {
+		if root == nil {
+			return
+		}
+		walkNamedChildren(root, true, func(child *sitter.Node) {
+			matched := false
+			for _, declarationType := range declarationTypes {
+				if child.Type() == declarationType {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return
+			}
+			for i := 0; i < int(child.NamedChildCount()); i++ {
+				if name := cDeclaratorName(child.NamedChild(i), src); name != "" {
+					names[name] = true
+				}
+			}
+		})
+	}
+	collect(function, "parameter_declaration", "optional_parameter_declaration", "declaration")
+	collect(class, "field_declaration")
+	return names
 }
 
 // cangjieCallParenIndex returns the index of the `(` token that opens the
@@ -149,7 +194,10 @@ func cppTemplateArgumentInteriorIsTypeList(text string) bool {
 // `ident<`), and the interior whitelist (identifiers, keywords, `,` `.`
 // `[` `]` `(` `)` `->` `?` and nested angles) rejects any operator that a
 // type argument cannot contain, so an unbalanced or expression-bearing `<`
-// yields no call row rather than a guessed one.
+// yields no call row rather than a guessed one. The lexer has no AST
+// witness, so unlike the C++ arm above it keeps the byte-shape guard; the
+// grounder's regex arm (typeArgumentListClosesIntoCall) is on the same
+// footing.
 func cangjieCallParenIndex(tokens []cangjieToken, nameIndex int) int {
 	if nameIndex < 0 || nameIndex+1 >= len(tokens) || tokens[nameIndex].Kind != cjTokIdent {
 		return -1

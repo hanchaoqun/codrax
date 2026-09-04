@@ -233,12 +233,25 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 	// unavailable"; all seven now say "<lane> not applicable: strict official
 	// source raw profile absent". Output bytes/SHA, event counts and the
 	// authority/advisory split are again unchanged: no row moved.
+	// EVOLUTION RECORD (batch-six review fold-in #7, §40.53 收编复核再收编):
+	// the digest moved e5f616ab… → cfbdef02… because the eighth writer of the
+	// closed key reconciliation_state — scheduler_publication_reconciliation /
+	// __sched_switch_publication__ — now inherits the switch join's gate
+	// outcome on this legacy 0x0ace fixture: it said nothing (Skipped empty)
+	// and published db_source_rows_read / db_boundaries_published /
+	// standard_sched_switch_events / raw_records_accounted… metrics under
+	// complete_exact_raw_record_closure over a join that had said
+	// not_applicable_source_profile; it now says "scheduler publication
+	// reconciliation not applicable: strict official source raw profile
+	// absent" with no metrics (Skipped and Metrics are part of the
+	// projection). Output bytes/SHA, event counts and the authority/advisory
+	// split are unchanged: no row moved.
 	const (
 		wantInputBytes  = 8442
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
 		wantOutputBytes = 37140
 		wantOutputSHA   = "427d8b8664897dba6641f271fb01ec29a3870c18b9417c26019da8ccb8388752"
-		wantReceiptSHA  = "e5f616abf09a213f541a2ad5b74a1a2a95a226cf742ba0d5c143aa7101f470ee"
+		wantReceiptSHA  = "cfbdef0262f692414d29973464a92efdfbe063a1e5f3c69efe8541f3c7308867"
 		wantEvents      = 35
 		wantAuthority   = 18
 		wantAdvisory    = 17

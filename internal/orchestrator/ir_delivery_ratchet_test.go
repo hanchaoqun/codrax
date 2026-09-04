@@ -76,13 +76,22 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		{path: "cgec_summary_log.go", maxLines: 100},
 		// §40.55 V7-5: the ChangePlan verify→plan retry-hint trio; small
 		// headroom over the lines moved so a hint-wording fix does not force
-		// a second extraction. CORRECTED 300→320 by the §40.55 合流复核
-		// fold-in: the 300 row was minted at 289 actual with buildRetryHint's
-		// godoc still sitting in orchestrator.go; the doc (and the header's
-		// true-caller note) moved here in the change that tightened
-		// orchestrator.go 8473→8451, so this is a transfer bounded by the
-		// god-file's tightening, not new budget (318 actual, 2 headroom).
-		{path: "write_retry_hint.go", maxLines: 320},
+		// a second extraction. The §40.55 合流复核 fold-in briefly wrote this
+		// row as 320 (the 300 row was minted at 289 actual with
+		// buildRetryHint's godoc still sitting in orchestrator.go; the doc
+		// and the header's true-caller note moved here in the change that
+		// tightened orchestrator.go 8473→8451, pushing the file to 318).
+		// RESTORED to 300 by the §40.55 收编复核再收编 (b6f2 #10): rule 4
+		// (§11.8) admits no doc-transfer correction — budgets are never
+		// raised, concerns are extracted — so the plan-content diff helper
+		// (retryHintDiffMaxBytes / buildPlanContentDiff) moved into
+		// write_retry_hint_diff.go with a fresh row below and this file
+		// dropped to 206 actual, every comment intact.
+		{path: "write_retry_hint.go", maxLines: 300},
+		// §40.55 收编复核再收编 (b6f2 #10): the bounded per-path plan content
+		// diff behind the regression delta; small round headroom like the
+		// sibling concern-file rows (134 actual).
+		{path: "write_retry_hint_diff.go", maxLines: 140},
 		{path: "first_draft_reference.go", maxLines: 120},
 		// §40.43 R1: the P6 hard cap (tightened 110→45 after finding S moved
 		// the advisory into finalize_loop_gate_advisory.go, own budget below).

@@ -4878,24 +4878,52 @@ func dataTaskRecordHasPostScriptTypedProgress(rec dataTaskWorkflowRecord) bool {
 }
 
 // dataTaskWorkflowOutputContract is the seed fold: the output contract in
-// effect for a workflow read from its recorded declarations in chronological
-// order (each record's plan then its result, the current plan last). It
-// resolves through the same helper and the same ascending order as the carry
-// resolver below, so the fold over executed records equals the live carry
-// chain over the same declarations (pinned by
-// TestDataTaskOutputContractFoldEqualsCarryChain): a CLI/REPL resume seed,
-// a system-built continuation and the completion authorities read the same
-// snapshot the loop carried.
+// effect for a workflow read from its recorded Plan-level declarations in
+// chronological order (each executed record's carried plan, the current plan
+// last). It resolves through the same helper and the same ascending order as
+// the carry resolver below over exactly the declarations the live loop's
+// protectPlan closure carried, so the fold over executed records equals the
+// live carry chain (pinned by TestDataTaskOutputContractFoldEqualsCarryChain
+// and, on the real CLI resume, TestRunDataTaskCLIResumeKeepsRevisedOutputContract*):
+// a CLI/REPL resume seed, a system-built continuation and the gate baseline
+// read the same snapshot the loop carried. A record's Result.OutputContract
+// is an execution echo — the contract the produced answer actually satisfies
+// (a batch without assemble_answer adopts the seed answer AND the seed
+// contract, internal/dataquery/action_runner.go) — never a declaration, and
+// the carry chain never reads it; folding it (batch-six fold-in #8 at
+// 381f36cc9) let a json_only echo under an explicitly revised
+// plain_single_line plan win the equal-specificity tie on resume and revert
+// the user's revision. The census rule (h) in
+// data_task_output_contract_census_test.go pins this body to Plan-level
+// selectors only.
 func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataquery.OutputContract {
 	var values []dataquery.OutputContract
 	for _, rec := range records {
 		values = append(values, rec.Plan.OutputContract)
-		if rec.Result != nil {
-			values = append(values, rec.Result.OutputContract)
-		}
 	}
 	values = append(values, current.OutputContract)
 	return dataworkflow.ResolveOutputContract(values...)
+}
+
+// dataTaskCandidateJudgedOutputContract is the ONE contract a candidate
+// result is judged under by the reference-grounding validators (projection
+// gap, invalid generated authority, grounding report). Two sources enter,
+// in ascending precedence: the candidate's own Result.OutputContract first,
+// the Plan-level seed fold last. The fold is the owed declaration chain and
+// wins every equal-specificity tie, so an execution echo (a batch without
+// assemble_answer adopts the seed answer AND the seed contract — always a
+// contract already in the fold's closure) can never outrank the carried
+// revision. The candidate's contract still enters because on the script
+// lane it is a DECLARATION the model emits with the result payload
+// (internal/dataquery/dataquery.go parseRunnerResult decodes output_contract
+// from the emitted JSON): a payload that declares complete_reference against
+// a reference path no plan carried is typed output intent the validators
+// must judge — and refuse when it names a generated artifact (§29.142
+// replay, 件C/件D pins) — instead of a claim laundered by omission. This is
+// the only place a Result.OutputContract enters a resolve (census rule (h2)
+// pins the shape: Result first, fold after; anywhere else it is red).
+func dataTaskCandidateJudgedOutputContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataquery.OutputContract {
+	return dataworkflow.ResolveOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current)).Normalize()
 }
 
 // dataTaskCarryDurableOutputContract keeps the strongest structured output
@@ -5957,7 +5985,7 @@ func dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot string, recor
 		}
 	}
 	return dataworkflow.OutputProjectionGraphInput{
-		Output:                         dataworkflow.ResolveOutputContract(current.OutputContract, dataTaskWorkflowOutputContract(records, current), result.OutputContract),
+		Output:                         dataTaskWorkflowOutputContract(records, current),
 		Coverage:                       dataTaskWorkflowCoverageContract(repoRoot, records, current),
 		AnswerPresent:                  dataworkflow.ResultAnswerPresent(result),
 		ProjectionArtifactPresent:      dataworkflow.ResultHasAssembleAnswerArtifact(result),
@@ -6025,7 +6053,7 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 	if result.Reconcile == nil || len(result.Reconcile.Groups) == 0 {
 		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
-	contract := dataworkflow.ResolveOutputContract(current.OutputContract, dataTaskWorkflowOutputContract(records, current), result.OutputContract).Normalize()
+	contract := dataTaskCandidateJudgedOutputContract(records, current, result)
 	if contract.Format == "" || (contract.Format == dataquery.OutputFreeform && contract.ExplanationAllowed) {
 		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
@@ -6176,7 +6204,7 @@ func dataTaskOutputReferenceGroundingGuardResult(repoRoot string, records []data
 // invalid typed carrier and must repair it. Source-material declarations and
 // genuinely inapplicable ledgers remain owned by their existing gates.
 func dataTaskInvalidGeneratedReferenceAuthorityGuardResult(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
-	contract := dataworkflow.ResolveOutputContract(current.OutputContract, dataTaskWorkflowOutputContract(records, current), result.OutputContract).Normalize()
+	contract := dataTaskCandidateJudgedOutputContract(records, current, result)
 	path := strings.TrimSpace(contract.ReferencePath)
 	if !contract.CompleteReference || path == "" || dataTaskReferencePathIsWorkflowMaterial(repoRoot, records, current, result, path) {
 		return dataworkflow.GuardResult{}
@@ -6207,7 +6235,7 @@ func dataTaskOutputReferenceGroundingReport(repoRoot string, records []dataTaskW
 	if !dataworkflow.ResultAnswerPresent(result) {
 		return dataquery.ReferenceGroundingReport{}, dataquery.ReferenceKeyCandidate{}, false
 	}
-	contract := dataworkflow.ResolveOutputContract(current.OutputContract, dataTaskWorkflowOutputContract(records, current), result.OutputContract).Normalize()
+	contract := dataTaskCandidateJudgedOutputContract(records, current, result)
 	candidate, ok := dataTaskResolveDeclaredOutputReferenceSet(repoRoot, records, current, result, contract)
 	if !ok {
 		return dataquery.ReferenceGroundingReport{}, dataquery.ReferenceKeyCandidate{}, false

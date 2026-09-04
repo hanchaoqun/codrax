@@ -19,16 +19,40 @@ const llmImportPath = "github.com/hanchaoqun/codrax/internal/llm"
 
 // PromptSurface is one shape-bound model-facing text found by
 // ScanPromptSurfaces: a package-level `…SystemPrompt` const/var, one
-// field of an llm.ToolSchema composite literal, or the Content of an
-// llm.Message literal.
+// field of an llm.ToolSchema composite literal, the Content of an
+// llm.Message literal, or the Text of one Type:"text" element of its
+// ContentParts.
+//
+// The text a surface binds lives in two disjoint sets that are BOTH
+// scanned: `exact` is the text resolved at the surface site itself
+// (literals, concatenations, consts — scanned under Label) and `parts`
+// are the literal positions bound through the instruction walker
+// (Role:"user" / "assistant" / "tool" text and same-package builder
+// calls inside a system message — each scanned under its own file:line
+// so a hit names the literal, not the message site). Text is the union
+// of the two for callers that pin a roster. EVOLUTION RECORD (batch six
+// fold-in, F6-prompt-surface #5): the hit loop used to scan exact text
+// only when no parts were bound, so a system Content of the form
+// `someConst + samePackageBuilder()` reported the surface as bound while
+// never scanning the const — a latent hard-gate blind spot.
 type PromptSurface struct {
-	Label string // "<file>:<line> <owner>" — owner is the const name, "ToolSchema.<Field>" or "<Role>Message.Content"
+	Label string // "<file>:<line> <owner>" — owner is the const name, "ToolSchema.<Field>", "<Role>Message.Content" or "<Role>Message.ContentParts.Text"
 	Text  string
-	// parts are the literal positions bound through the instruction
-	// walker (Role:"user" / "assistant" / "tool" Content and same-package
-	// builder calls inside a system message); each is scanned under its
-	// own file:line so a hit names the literal, not the message site.
+	exact string
 	parts []surfacePart
+}
+
+// withText fills Text from exact and parts.
+func (s PromptSurface) withText() PromptSurface {
+	texts := make([]string, 0, len(s.parts)+1)
+	if s.exact != "" {
+		texts = append(texts, s.exact)
+	}
+	for _, p := range s.parts {
+		texts = append(texts, p.text)
+	}
+	s.Text = strings.Join(texts, "\n")
+	return s
 }
 
 // surfacePart is one string literal bound to a surface by text flow.
@@ -45,8 +69,17 @@ type surfacePart struct {
 //  2. any composite literal of llm.ToolSchema, at package level or
 //     inside a function — its Name / Description / Parameters fields;
 //  3. any llm.Message composite literal (typed `llm.Message{…}` or an
-//     element of a `[]llm.Message{…}` literal) — its Content field, which
-//     is how every prompt reaches the provider.
+//     element of a `[]llm.Message{…}` literal) — its Content field and,
+//     when it carries ContentParts, the Text of every Type:"text" part
+//     (the adapter serializes both to the provider as text; each text
+//     part is its own surface, "<Role>Message.ContentParts.Text"). The
+//     part list must be a `[]llm.ContentPart{…}` literal of keyed
+//     elements whose Type is a string literal: "text" / "" parts bind
+//     their Text through the message's role lane, "image_url" / "image"
+//     parts carry data only (an image part with a Text field, a part of
+//     any other Type, a positional or non-literal part, or a part list
+//     that is not such a literal is an unrecognized shape and returns an
+//     error).
 //
 // Shapes 1–2 and a Role:"system" message resolve the text exactly: a
 // literal, a concatenation of literals, a package-level or same-function
@@ -138,7 +171,7 @@ func ScanPromptSurfaces(dir string) ([]Hit, []PromptSurface, error) {
 						problems = append(problems, label+": "+err.Error())
 						continue
 					}
-					surfaces = append(surfaces, PromptSurface{Label: label, Text: text})
+					surfaces = append(surfaces, PromptSurface{Label: label, exact: text}.withText())
 				}
 			}
 		}
@@ -191,15 +224,15 @@ func ScanPromptSurfaces(dir string) ([]Hit, []PromptSurface, error) {
 							problems = append(problems, label+": "+err.Error())
 							continue
 						}
-						surfaces = append(surfaces, PromptSurface{Label: label, Text: text})
+						surfaces = append(surfaces, PromptSurface{Label: label, exact: text}.withText())
 					}
 				case (llmAlias != "" && isSelectorType(cl.Type, llmAlias, "Message")) || messageLits[cl]:
-					s, err := bindMessageLiteral(cl, pos, scope, ctx, index)
+					bound, err := bindMessageLiteral(cl, pos, scope, ctx, index, llmAlias)
 					if err != nil {
 						problems = append(problems, err.Error())
 						return true
 					}
-					surfaces = append(surfaces, s)
+					surfaces = append(surfaces, bound...)
 				case messageRoleLiteral(cl) != "":
 					problems = append(problems, fmt.Sprintf("%s:%d Role:%q literal of a type other than llm.Message is an unrecognized message shape", pos.Filename, pos.Line, messageRoleLiteral(cl)))
 				}
@@ -214,10 +247,12 @@ func ScanPromptSurfaces(dir string) ([]Hit, []PromptSurface, error) {
 	terms := Terms()
 	var hits []Hit
 	for _, s := range surfaces {
-		if len(s.parts) == 0 {
-			hits = append(hits, scanWithTerms(s.Label, s.Text, terms)...)
-			continue
-		}
+		// Both sets are scanned: the exactly-resolved text under the
+		// surface label and every flow-bound literal under its own line.
+		// They are disjoint by construction (the resolver never adds a
+		// literal it resolved to the walker's parts), so no hit is
+		// reported twice.
+		hits = append(hits, scanWithTerms(s.Label, s.exact, terms)...)
 		owner := s.Label[strings.LastIndex(s.Label, " ")+1:]
 		for _, p := range s.parts {
 			hits = append(hits, scanWithTerms(p.pos+" "+owner, p.text, terms)...)
@@ -231,46 +266,153 @@ func ScanPromptSurfaces(dir string) ([]Hit, []PromptSurface, error) {
 var messageRoles = map[string]bool{"system": true, "user": true, "assistant": true, "tool": true}
 
 // bindMessageLiteral classifies one llm.Message literal by its Role and
-// binds its Content through the matching lane.
-func bindMessageLiteral(cl *ast.CompositeLit, pos token.Position, scope map[string]ast.Expr, ctx walkCtx, index *packageIndex) (PromptSurface, error) {
+// binds its Content — and the Text of every Type:"text" ContentParts
+// element — through the matching lane. It returns one surface for the
+// Content and one per text part.
+func bindMessageLiteral(cl *ast.CompositeLit, pos token.Position, scope map[string]ast.Expr, ctx walkCtx, index *packageIndex, llmAlias string) ([]PromptSurface, error) {
 	role := keyValue(cl, "Role")
 	if role == nil {
-		return PromptSurface{}, fmt.Errorf("%s:%d llm.Message literal without a Role field is an unrecognized message shape", pos.Filename, pos.Line)
+		return nil, fmt.Errorf("%s:%d llm.Message literal without a Role field is an unrecognized message shape", pos.Filename, pos.Line)
 	}
 	roleName := messageRoleLiteral(cl)
 	if roleName == "" {
-		return PromptSurface{}, fmt.Errorf("%s:%d llm.Message Role %s is not a string literal — unrecognized message shape (spell the role literally so the lane can classify the message)", pos.Filename, pos.Line, exprString(role))
+		return nil, fmt.Errorf("%s:%d llm.Message Role %s is not a string literal — unrecognized message shape (spell the role literally so the lane can classify the message)", pos.Filename, pos.Line, exprString(role))
 	}
 	if !messageRoles[roleName] {
-		return PromptSurface{}, fmt.Errorf("%s:%d llm.Message Role %q is outside the provider role set — unrecognized message shape", pos.Filename, pos.Line, roleName)
+		return nil, fmt.Errorf("%s:%d llm.Message Role %q is outside the provider role set — unrecognized message shape", pos.Filename, pos.Line, roleName)
 	}
-	owner := strings.ToUpper(roleName[:1]) + roleName[1:] + "Message.Content"
-	label := fmt.Sprintf("%s:%d %s", pos.Filename, pos.Line, owner)
+	ownerPrefix := strings.ToUpper(roleName[:1]) + roleName[1:] + "Message."
+	label := fmt.Sprintf("%s:%d %sContent", pos.Filename, pos.Line, ownerPrefix)
 	content := keyValue(cl, "Content")
 	if content == nil {
-		return PromptSurface{}, fmt.Errorf("%s: Role:%q literal without a Content field is an unrecognized message shape", label, roleName)
+		return nil, fmt.Errorf("%s: Role:%q literal without a Content field is an unrecognized message shape", label, roleName)
 	}
-	if roleName == "system" {
-		r := &valueResolver{scope: scope, walker: newInstructionWalker(index), ctx: ctx}
-		text, err := r.resolve(content, false, 0)
+	lane := messageLane{system: roleName == "system", scope: scope, ctx: ctx, index: index}
+	s, err := lane.bind(label, content)
+	if err != nil {
+		return nil, err
+	}
+	surfaces := []PromptSurface{s}
+	if parts := keyValue(cl, "ContentParts"); parts != nil {
+		partSurfaces, err := lane.bindContentParts(fmt.Sprintf("%s:%d %sContentParts", pos.Filename, pos.Line, ownerPrefix), ownerPrefix+"ContentParts.Text", parts, index, llmAlias)
+		if err != nil {
+			return nil, err
+		}
+		surfaces = append(surfaces, partSurfaces...)
+	}
+	return surfaces, nil
+}
+
+// messageLane binds one text-valued expression of an llm.Message literal
+// the way its Role prescribes: the system lane resolves the value
+// exactly (same-package builder calls contribute flow-bound parts), the
+// user / assistant / tool lane binds it by text flow.
+type messageLane struct {
+	system bool
+	scope  map[string]ast.Expr
+	ctx    walkCtx
+	index  *packageIndex
+}
+
+func (l messageLane) bind(label string, expr ast.Expr) (PromptSurface, error) {
+	if l.system {
+		r := &valueResolver{scope: l.scope, walker: newInstructionWalker(l.index), ctx: l.ctx}
+		text, err := r.resolve(expr, false, 0)
 		if err != nil {
 			return PromptSurface{}, fmt.Errorf("%s: %v", label, err)
 		}
 		if len(r.walker.problems) > 0 {
 			return PromptSurface{}, fmt.Errorf("%s: %s", label, strings.Join(r.walker.problems, "; "))
 		}
-		return PromptSurface{Label: label, Text: text, parts: r.walker.parts}, nil
+		return PromptSurface{Label: label, exact: text, parts: r.walker.parts}.withText(), nil
 	}
-	w := newInstructionWalker(index)
-	w.walk(content, ctx, 0)
+	w := newInstructionWalker(l.index)
+	w.walk(expr, l.ctx, 0)
 	if len(w.problems) > 0 {
 		return PromptSurface{}, fmt.Errorf("%s: %s", label, strings.Join(w.problems, "; "))
 	}
-	texts := make([]string, 0, len(w.parts))
-	for _, p := range w.parts {
-		texts = append(texts, p.text)
+	return PromptSurface{Label: label, parts: w.parts}.withText(), nil
+}
+
+// contentPartTypes mirrors the adapter's part switch
+// (llm.openAIRequestContent): the Type is trimmed and lower-cased, "text"
+// and "" serialize Text as a text part, "image_url" and "image" serialize
+// ImageURL / Detail as an image part; any other Type is dropped by the
+// adapter and is therefore an unrecognized shape here.
+var contentPartTypes = map[string]bool{"text": true, "": true, "image_url": false, "image": false}
+
+// bindContentParts binds the Text of every text part of a ContentParts
+// value. The value must be a `[]llm.ContentPart{…}` literal whose elements
+// are keyed ContentPart literals with a string-literal Type — every other
+// part shape fails loud (§40.50 ④). EVOLUTION RECORD (batch six fold-in,
+// F6-prompt-surface #6): the lane used to read only the Content key, so a
+// Type:"text" part's Text — serialized to the provider as text — was
+// neither bound nor failed loud on.
+func (l messageLane) bindContentParts(label, owner string, value ast.Expr, index *packageIndex, llmAlias string) ([]PromptSurface, error) {
+	list, ok := value.(*ast.CompositeLit)
+	if !ok || llmAlias == "" || !isContentPartSliceType(list.Type, llmAlias) {
+		return nil, fmt.Errorf("%s bound to %s is an unrecognized shape (spell the parts as a []llm.ContentPart literal so each text part can be bound)", label, exprString(value))
 	}
-	return PromptSurface{Label: label, Text: strings.Join(texts, "\n"), parts: w.parts}, nil
+	var surfaces []PromptSurface
+	for i, elt := range list.Elts {
+		part, ok := elt.(*ast.CompositeLit)
+		if !ok || (part.Type != nil && !isSelectorType(part.Type, llmAlias, "ContentPart")) {
+			return nil, fmt.Errorf("%s element %d is not a ContentPart literal — unrecognized part shape", label, i+1)
+		}
+		partPos := index.fset.Position(part.Pos())
+		partLabel := fmt.Sprintf("%s:%d %s", partPos.Filename, partPos.Line, owner)
+		fields := map[string]ast.Expr{}
+		for _, f := range part.Elts {
+			kv, ok := f.(*ast.KeyValueExpr)
+			if !ok {
+				return nil, fmt.Errorf("%s: positional ContentPart element is an unrecognized part shape", partLabel)
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok {
+				return nil, fmt.Errorf("%s: non-identifier ContentPart key is an unrecognized part shape", partLabel)
+			}
+			fields[key.Name] = kv.Value
+		}
+		typeExpr, ok := fields["Type"]
+		if !ok {
+			return nil, fmt.Errorf("%s: ContentPart without a Type field is an unrecognized part shape (spell Type literally so the lane can tell text from image parts)", partLabel)
+		}
+		typeLit, ok := typeExpr.(*ast.BasicLit)
+		if !ok || typeLit.Kind != token.STRING {
+			return nil, fmt.Errorf("%s: ContentPart Type %s is not a string literal — unrecognized part shape", partLabel, exprString(typeExpr))
+		}
+		typeName, err := strconv.Unquote(typeLit.Value)
+		if err != nil {
+			return nil, fmt.Errorf("%s: unquote ContentPart Type: %v", partLabel, err)
+		}
+		typeName = strings.ToLower(strings.TrimSpace(typeName))
+		isText, known := contentPartTypes[typeName]
+		if !known {
+			return nil, fmt.Errorf("%s: ContentPart Type %q is outside the adapter's part set (text / image_url) — unrecognized part shape", partLabel, typeName)
+		}
+		text, hasText := fields["Text"]
+		if !isText {
+			if hasText {
+				return nil, fmt.Errorf("%s: image ContentPart carrying a Text field is an unrecognized part shape (the adapter drops it; move the text to a text part or to Content)", partLabel)
+			}
+			continue
+		}
+		if !hasText {
+			return nil, fmt.Errorf("%s: text ContentPart without a Text field is an unrecognized part shape", partLabel)
+		}
+		s, err := l.bind(partLabel, text)
+		if err != nil {
+			return nil, err
+		}
+		surfaces = append(surfaces, s)
+	}
+	return surfaces, nil
+}
+
+// isContentPartSliceType reports whether t is `[]<alias>.ContentPart`.
+func isContentPartSliceType(t ast.Expr, alias string) bool {
+	at, ok := t.(*ast.ArrayType)
+	return ok && isSelectorType(at.Elt, alias, "ContentPart")
 }
 
 // RunPromptSurfaceScan is the marker for the shape-bound lane: it runs

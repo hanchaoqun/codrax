@@ -130,7 +130,12 @@ const (
 	// this family's retained record store was withdrawn by its byte budget
 	// (decode_state strict_target_ledger_complete_with_family_retention_withdrawal).
 	traceDBSourceRawLaneFamilyRetentionWithdrawnState = "withheld_family_retention_budget_exceeded"
-	traceDBSourceRawLaneGateUnresolvedReason          = "source_raw_lane_gate_unresolved"
+	// traceDBSourceRawLaneRetainedRecordCensusMismatchState is the post-gate
+	// withheld arm shared by the retained-record lanes (switch/wakeup joins,
+	// wakeup-new display-name recovery): the census closed but the family's
+	// retained record count disagrees with its admitted/captured counters.
+	traceDBSourceRawLaneRetainedRecordCensusMismatchState = "withheld_retained_record_census_mismatch"
+	traceDBSourceRawLaneGateUnresolvedReason              = "source_raw_lane_gate_unresolved"
 )
 
 // traceDBMintSourceRawLaneGateOutcome is the ONE write funnel for the two

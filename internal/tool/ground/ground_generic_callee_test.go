@@ -194,7 +194,17 @@ func TestGenericDefinitionLinesNeverGroundAsCallSites(t *testing.T) {
 
 // The widened declaration forms must not swallow generic CALL lines: the
 // B1554 positives stay grounded when they are spelled at statement start
-// without an assignment or return keyword in front.
+// without an assignment or return keyword in front — including the
+// Kotlin / Swift / TypeScript generic call with a trailing lambda,
+// closure or arrow argument (`name<…>(…) {`, `name<…>(() => {`), which
+// spells the same bytes as a body-only generic method and is a genuine
+// call statement (§40.59 收编复核再收编 #0).
+//
+// EVOLUTION RECORD: red on 381f36cc9 — methodDefinitionLineRe had gained
+// an optional type-parameter list, so all six trailing-lambda shapes were
+// refused with the false note "cites a definition-shaped source line
+// (method signature …)"; green (and green on 8a1e5d695) once the generic
+// method form keys on the `): ReturnType` annotation instead.
 func TestGenericCallStatementsStayGroundedAfterDeclarationWidening(t *testing.T) {
 	cases := []struct {
 		name, line, anchor string
@@ -204,12 +214,144 @@ func TestGenericCallStatementsStayGroundedAfterDeclarationWidening(t *testing.T)
 		{"typescript statement call", "parse<number>(text);", "parse"},
 		{"rust statement call", "parse::<u32>(text)?;", "parse"},
 		{"cangjie statement call", "repo.load<Item>(key)", "load"},
+		{"kotlin trailing lambda", "launch<Unit>(Dispatchers.IO) {", "launch"},
+		{"kotlin trailing lambda with body", "remember<Int>(key) { compute() }", "remember"},
+		{"kotlin nullable nested type argument", "produceState<Result<T>?>(null, id) {", "produceState"},
+		{"swift trailing closure", "Task<Void, Never>(priority: .high) {", "Task"},
+		{"swift trailing closure with capture", "withCheckedContinuation<Int, Never>(isolation: nil) { cont in", "withCheckedContinuation"},
+		{"typescript arrow argument", "useEffect<void>(() => {", "useEffect"},
+		{"kotlin receiver-qualified trailing lambda", "scope.launch<Unit>(Dispatchers.IO) {", "launch"},
+		{"kotlin assigned trailing lambda", "val x = remember<Int>(key) { compute() }", "remember"},
+		{"swift returned trailing closure", "return Task<Void, Never>(priority: .high) {", "Task"},
+		{"typescript receiver-qualified arrow argument", "React.useEffect<void>(() => {", "useEffect"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			item, report := groundCallAnchor(tc.line, tc.anchor, nil)
 			if report.Status != types.GroundingGrounded {
 				t.Fatalf("%q anchor %q is a call site: report=%+v item=%+v", tc.line, tc.anchor, report, item)
+			}
+		})
+	}
+}
+
+// A generic METHOD definition is refused on the one token a trailing-lambda
+// call never carries: the return-type annotation right after the parameter
+// list (`): T {`, `): T =>`, `): Promise<T> {`). A generic method spelled
+// without a return annotation (`parse<T>(s: string) {`) is byte-identical
+// to a Kotlin / Swift trailing-lambda call and keeps the base behaviour
+// (grounded) — disclosed residual, pinned so the trade-off is visible.
+func TestGenericMethodDefinitionRefusalKeysOnReturnTypeAnnotation(t *testing.T) {
+	refused := []struct {
+		name, line, anchor string
+	}{
+		{"typescript generic method", "parse<T>(s: string): T {", "parse"},
+		{"typescript generic method arrow body", "parse<T>(s: string): T =>", "parse"},
+		{"typescript async generic method", "async fetch<T>(id: number): Promise<T> {", "fetch"},
+		{"typescript exported generic method", "public static build<T>(s: string): Box<T> {", "build"},
+		{"typescript generic interface member", "parse<T>(s: string): T;", "parse"},
+	}
+	for _, tc := range refused {
+		t.Run(tc.name, func(t *testing.T) {
+			item, report := groundCallAnchor(tc.line, tc.anchor, nil)
+			if report.Status != types.GroundingUngrounded {
+				t.Fatalf("%q anchor %q is a generic method definition, never a call site: report=%+v item=%+v", tc.line, tc.anchor, report, item)
+			}
+			if !strings.Contains(item.GroundingNote, "method signature (name<...>(...) followed by a return type)") {
+				t.Fatalf("%q: the repair note must name the generic method form: %q", tc.line, item.GroundingNote)
+			}
+		})
+	}
+	t.Run("generic method without a return annotation keeps the base behaviour", func(t *testing.T) {
+		item, report := groundCallAnchor("parse<T>(s: string) {", "parse", nil)
+		if report.Status != types.GroundingGrounded {
+			t.Fatalf("`name<T>(…) {` is indistinguishable from a trailing-lambda call by regex; base behaviour (grounded) must stand: report=%+v item=%+v", report, item)
+		}
+	})
+}
+
+// §40.59 收编复核再收编 #3: declaration shapes the regex tier accepted as
+// call sites beyond the generic-parity class, each extended precisely per
+// shape — a leading type-parameter list before the return type (Java), a
+// receiver-qualified `fun` name path (Kotlin extensions, nullable receiver
+// included), the Dart `async` / `async*` / `sync*` body opener, a scoped
+// out-of-line definition with a return type before `Class<T>::name`, the
+// constructor member-initialiser list `) : ident(` after a scoped name, a
+// `template<…>` prefix with nested default arguments, and two levels of
+// nesting in the shared type-parameter spelling. Each shape is pinned
+// beside a genuine-call twin that must stay grounded. Forms the regex
+// cannot discriminate from calls stay on the base behaviour and are
+// pinned as disclosed residuals.
+//
+// EVOLUTION RECORD: red on 381f36cc9 and on 8a1e5d695 — every refused
+// shape below was Status=grounded tier=line_text on both trees (the
+// hard gate accepting a definition line as a call site); green once the
+// declaration forms carry the per-shape extensions.
+func TestDeclarationFormsBeyondGenericParityNeverGroundAsCallSites(t *testing.T) {
+	refused := []struct {
+		name, line, anchor, form string
+	}{
+		{"java leading type parameters", "public static <T> List<T> parse(String s) {", "parse", "C-style signature with the return type before the name"},
+		{"java bare leading type parameters", "<T> T parse(String s) {", "parse", "C-style signature with the return type before the name"},
+		{"java bounded leading type parameters", "static <T extends Comparable<T>> T parse(String s) {", "parse", "C-style signature with the return type before the name"},
+		{"java leading type parameters with throws", "public <T> T parse(String s) throws ParseException {", "parse", "C-style signature with the return type before the name"},
+		{"kotlin generic receiver extension", "fun <T> List<T>.second(): T {", "second", `"fun" declaration`},
+		{"kotlin generic receiver", "fun List<Int>.second(): Int {", "second", `"fun" declaration`},
+		{"kotlin generic receiver expression body", "fun <T> Flow<T>.throttle(ms: Long): Flow<T> = channelFlow {", "throttle", `"fun" declaration`},
+		{"kotlin nullable receiver", "fun String?.orEmpty(): String {", "orEmpty", `"fun" declaration`},
+		{"dart async main", "Future<void> main() async {", "main", "C-style signature with the return type before the name"},
+		{"dart async generic", "Future<T> fetch<T>(int id) async {", "fetch", "C-style signature with the return type before the name"},
+		{"dart async void", "void main() async {", "main", "C-style signature with the return type before the name"},
+		{"dart async generator", "Stream<int> ticks() async* {", "ticks", "C-style signature with the return type before the name"},
+		{"dart sync generator", "Iterable<int> ticks() sync* {", "ticks", "C-style signature with the return type before the name"},
+		{"cpp out-of-line template member", "template<typename T> T Parser<T>::parse(const std::string& s) {", "parse", `"template<...>" declaration`},
+		{"cpp out-of-line generic class member", "int Parser<T>::parse(const std::string& s) const {", "parse", "C-style signature with the return type before the name"},
+		{"cpp constructor initialiser generic", "Parser<T>::Parser(int x) : x_(x) {", "Parser", "constructor definition with a member-initialiser list"},
+		{"cpp constructor initialiser", "Parser::Parser(int x) : x_(x) {", "Parser", "constructor definition with a member-initialiser list"},
+		{"cpp constructor initialiser template prefix", "template<typename T> Parser<T>::Parser(int x) : x_(x) {", "Parser", "constructor definition with a member-initialiser list"},
+		{"cpp constructor initialiser base class", "Derived::Derived(int x) : Base<int>(x) {", "Derived", "constructor definition with a member-initialiser list"},
+		{"cpp constructor brace initialiser", "Parser::Parser(int x) : x_{x} {", "Parser", "constructor definition with a member-initialiser list"},
+		{"cpp default template argument", "template <typename T, typename U = std::vector<T>> T parse(const U& u) {", "parse", `"template<...>" declaration`},
+		{"rust two-level bound", "fn parse<T: Into<Vec<u8>>>(s: T) {", "parse", `"fn" declaration`},
+		{"cpp two-level specialisation", "template<> int parse<std::map<int, std::vector<int>>>(const std::string& s) {", "parse", `"template<...>" declaration`},
+	}
+	for _, tc := range refused {
+		t.Run(tc.name, func(t *testing.T) {
+			item, report := groundCallAnchor(tc.line, tc.anchor, nil)
+			if report.Status != types.GroundingUngrounded {
+				t.Fatalf("%q anchor %q is a declaration, never a call site: report=%+v item=%+v", tc.line, tc.anchor, report, item)
+			}
+			if !strings.Contains(item.GroundingNote, "cites a definition-shaped source line") ||
+				!strings.Contains(item.GroundingNote, tc.form) {
+				t.Fatalf("%q: the repair note must name the declaration form %q: %q", tc.line, tc.form, item.GroundingNote)
+			}
+		})
+	}
+	grounded := []struct {
+		name, line, anchor string
+	}{
+		{"kotlin receiver call", "list.second()", "second"},
+		{"kotlin generic receiver call", "items.throttle<Int>(ms)", "throttle"},
+		{"kotlin nullable-safe call", "name?.orEmpty()", "orEmpty"},
+		{"cpp two-level template call", "auto map = build<std::map<std::string, std::vector<int>>>(kind);", "build"},
+		{"cpp two-level template statement call", "build<std::map<std::string, std::vector<int>>>(kind);", "build"},
+		{"rust two-level turbofish", "let v = parse::<Vec<Vec<u8>>>(s);", "parse"},
+		{"cpp scoped call statement", "Parser::parse(s);", "parse"},
+		{"cpp scoped template call statement", "Parser<int>::parse(s);", "parse"},
+		{"dart call", "fetch(id);", "fetch"},
+		{"dart awaited call", "await fetch<int>(id);", "fetch"},
+		{"ruby scoped block call", "Foo::bar(x) { |y| y }", "bar"},
+		{"java generic call statement", "Util.<String>parse(text);", "parse"},
+		// Disclosed residuals: shapes no regex can tell from a call keep
+		// the base behaviour (grounded).
+		{"residual: out-of-line constructor without initialiser list", "Parser::Parser(int x) {", "Parser"},
+		{"residual: three-level nested type-parameter list", "fn parse<T: Into<Vec<Vec<u8>>>>(s: T) {", "parse"},
+	}
+	for _, tc := range grounded {
+		t.Run(tc.name, func(t *testing.T) {
+			item, report := groundCallAnchor(tc.line, tc.anchor, nil)
+			if report.Status != types.GroundingGrounded {
+				t.Fatalf("%q anchor %q must keep grounding: report=%+v item=%+v", tc.line, tc.anchor, report, item)
 			}
 		})
 	}

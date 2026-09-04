@@ -33,14 +33,26 @@ import (
 //   - every publication_state value assigned anywhere in the package starts
 //     with exactly one prefix of the class roster;
 //   - readers of decode_state / publication_state classify through the tables
-//     (no hand-kept switch or literal comparison), and every table keyed by
-//     the decode_state constants is total over the closed set with labels that
-//     agree with the gate kind.
+//     (no hand-kept switch, case, literal comparison, prefix/substring test or
+//     lookup through an unseen map — direct reads and reads tainted through
+//     local bindings alike; an unrecognized read shape is red), and every
+//     table keyed by the decode_state constants is total over the closed set
+//     with labels that agree with the gate kind;
+//   - every function that writes a lane state key runs or inherits the class
+//     gate in the same file for that key (a writer that consumes another
+//     lane's coverage inherits; fold-in #7).
 
 // traceDBPackageStringConsts collects every package-level string constant of
 // the non-test files of this package (value = literal, or another collected
 // constant, resolved transitively) so a write site can be resolved by name.
 func traceDBPackageStringConsts(t *testing.T) (map[string]string, map[string]*ast.File, *token.FileSet) {
+	t.Helper()
+	files, fset := traceDBParsePackageFiles(t)
+	return traceDBStringConstsOf(files), files, fset
+}
+
+// traceDBParsePackageFiles parses every non-test file of this package.
+func traceDBParsePackageFiles(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	t.Helper()
 	fset := token.NewFileSet()
 	files := map[string]*ast.File{}
@@ -59,6 +71,13 @@ func traceDBPackageStringConsts(t *testing.T) (map[string]string, map[string]*as
 		}
 		files[name] = file
 	}
+	return files, fset
+}
+
+// traceDBStringConstsOf resolves the package-level string constants declared
+// by the given files (a self-red hands in the real files plus a synthetic
+// one parsed with the same FileSet).
+func traceDBStringConstsOf(files map[string]*ast.File) map[string]string {
 	pending := map[string]ast.Expr{}
 	for _, file := range files {
 		for _, decl := range file.Decls {
@@ -112,7 +131,7 @@ func traceDBPackageStringConsts(t *testing.T) (map[string]string, map[string]*as
 	for name := range pending {
 		resolve(name, 0)
 	}
-	return consts, files, fset
+	return consts
 }
 
 // traceDBTypedStringConsts returns the values of every package-level constant
@@ -338,6 +357,14 @@ var traceDBSourceRawGateCallers = map[string]int{
 func traceDBLaneStateWriteSites(t *testing.T) ([]traceDBStateWriteSite, map[string]string) {
 	t.Helper()
 	consts, files, fset := traceDBPackageStringConsts(t)
+	return traceDBLaneStateWriteSitesOf(t, consts, files, fset)
+}
+
+// traceDBLaneStateWriteSitesOf is the write-site census over an explicit
+// file map (the package's non-test files, plus a synthetic file in a
+// self-red).
+func traceDBLaneStateWriteSitesOf(t *testing.T, consts map[string]string, files map[string]*ast.File, fset *token.FileSet) ([]traceDBStateWriteSite, map[string]string) {
+	t.Helper()
 	laneKeys := traceDBTypedStringConsts(t, files, consts, "traceDBSourceRawLaneStateKey")
 	if len(laneKeys) < 7 {
 		t.Fatalf("lane state key closed set lost members: %v", laneKeys)
@@ -681,6 +708,13 @@ func TestTraceDBSourceRawLaneKeysAreGatedThroughTheOneFunnel(t *testing.T) {
 			t.Errorf("lane state key %s=%q has no gate call site", name, value)
 		}
 	}
+	// Every writer runs or inherits the gate (fold-in #7): a per-key gate
+	// call site anywhere in the package let an eighth writer of
+	// reconciliation_state publish a complete_ closure over a join that had
+	// said not-applicable / census-incomplete.
+	for _, problem := range traceDBUngatedLaneKeyWriters(sites) {
+		t.Error(problem)
+	}
 	want := map[string]bool{traceDBSourceRawLaneNotApplicableState: true, traceDBSourceRawLaneCensusIncompleteState: true}
 	for value := range funnelValues {
 		if !want[value] {
@@ -912,39 +946,21 @@ func TestTraceDBRawDecodeStateReadersClassifyThroughTheTables(t *testing.T) {
 			declared[value] = name
 		}
 	}
-	readKeys := map[string]bool{"decode_state": true, "publication_state": true}
-	isStateRead := func(expr ast.Expr) (string, bool) {
-		index, ok := expr.(*ast.IndexExpr)
-		if !ok {
-			return "", false
-		}
-		sel, ok := index.X.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "Metadata" {
-			return "", false
-		}
-		key, ok := traceDBStringLiteral(index.Index)
-		return key, ok && readKeys[key]
+	// Reader census (fold-in #9): every read of decode_state /
+	// publication_state — direct, or tainted through local bindings — lands in
+	// a recognized consumer position; the live reader floor keeps a silently
+	// empty walk red.
+	problems, reads := traceDBStateReadProblems(files, fset, consts)
+	for _, problem := range problems {
+		t.Error(problem)
+	}
+	if reads < 5 {
+		t.Fatalf("state reader census found only %d reads; the walk drifted", reads)
 	}
 	tables := 0
 	for name, file := range files {
 		ast.Inspect(file, func(node ast.Node) bool {
 			switch n := node.(type) {
-			case *ast.SwitchStmt:
-				if n.Tag == nil {
-					return true
-				}
-				if key, ok := isStateRead(n.Tag); ok {
-					t.Errorf("%s:%d: hand-kept switch over %s; readers classify through the gate table", name, fset.Position(n.Pos()).Line, key)
-				}
-			case *ast.BinaryExpr:
-				if n.Op != token.EQL && n.Op != token.NEQ {
-					return true
-				}
-				for _, side := range []ast.Expr{n.X, n.Y} {
-					if key, ok := isStateRead(side); ok {
-						t.Errorf("%s:%d: literal comparison over %s; readers classify through the gate table", name, fset.Position(n.Pos()).Line, key)
-					}
-				}
 			case *ast.CompositeLit:
 				keyed := map[string]bool{}
 				stateKeyed := false

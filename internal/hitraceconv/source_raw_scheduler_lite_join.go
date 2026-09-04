@@ -7,6 +7,47 @@ import (
 	"sort"
 )
 
+// Post-gate join_state vocabulary of the scheduler-lite switch join. The
+// two non-ready gate outcomes (traceDBSourceRawLaneNotApplicableState /
+// traceDBSourceRawLaneCensusIncompleteState) are minted by the class funnel
+// and the two shared post-gate withheld arms come from source_raw_lane_gate.go;
+// every other join_state the lane writes is declared here so a consumer of
+// the published join coverage (the scheduler publication reconciliation)
+// classifies through traceDBRawSchedSwitchLiteJoinReconcilable instead of
+// hand-keeping a switch, and an undeclared state fails loud (§40.50).
+const (
+	traceDBRawSchedSwitchLiteJoinStateCompleteNoSourceRecords   = "complete_no_source_records"
+	traceDBRawSchedSwitchLiteJoinStateReadyForDBBoundaryCensus  = "ready_for_db_boundary_census"
+	traceDBRawSchedSwitchLiteJoinStateDBBoundaryCensusComplete  = "db_boundary_census_complete"
+	traceDBRawSchedSwitchLiteJoinStateFailedPublicationMismatch = "failed_publication_mismatch"
+	traceDBRawSchedSwitchLiteJoinStateDBCensusUnavailable       = "withheld_db_scheduler_census_unavailable"
+	traceDBRawSchedSwitchLiteJoinStateCompleteNoUniqueMatch     = "complete_no_unique_match"
+	traceDBRawSchedSwitchLiteJoinStatePublished                 = "published_unique_exact_scheduler_lite"
+)
+
+// traceDBRawSchedSwitchLiteJoinReconcilable binds every join_state the switch
+// join publishes (the census in source_raw_lane_gate_census_test.go pins the
+// table total over the lane's write sites, both ways) to whether the join's
+// raw counters are exact closure inputs: true only when the join reached one
+// of its own terminal arms (no source records, no unique match, published;
+// the failed publication mismatch arm carries out.Error and is withheld by the
+// consumer's error arm). A withheld, unfinished or gate-stopped join has no
+// exact raw accounting to close, so a consumer must not publish a complete_
+// closure over its zero counters.
+var traceDBRawSchedSwitchLiteJoinReconcilable = map[string]bool{
+	traceDBSourceRawLaneNotApplicableState:                      false,
+	traceDBSourceRawLaneCensusIncompleteState:                   false,
+	traceDBSourceRawLaneFamilyRetentionWithdrawnState:           false,
+	traceDBSourceRawLaneRetainedRecordCensusMismatchState:       false,
+	traceDBRawSchedSwitchLiteJoinStateCompleteNoSourceRecords:   true,
+	traceDBRawSchedSwitchLiteJoinStateReadyForDBBoundaryCensus:  false,
+	traceDBRawSchedSwitchLiteJoinStateDBBoundaryCensusComplete:  false,
+	traceDBRawSchedSwitchLiteJoinStateFailedPublicationMismatch: true,
+	traceDBRawSchedSwitchLiteJoinStateDBCensusUnavailable:       false,
+	traceDBRawSchedSwitchLiteJoinStateCompleteNoUniqueMatch:     true,
+	traceDBRawSchedSwitchLiteJoinStatePublished:                 true,
+}
+
 type traceDBRawSchedSwitchLiteJoinKey struct {
 	TimestampNS  int64
 	CPU          int64
@@ -71,7 +112,7 @@ func newTraceDBRawSchedSwitchLiteJoin(
 	admitted := inventory.RawDecode.Metrics["target_sched_switch_lite_body_admitted"]
 	if admitted != int64(len(inventory.RawSwitchLite)) ||
 		inventory.RawDecode.Metrics["target_sched_switch_lite_record_capture_failed"] != 0 {
-		join.coverage.Metadata["join_state"] = "withheld_retained_record_census_mismatch"
+		join.coverage.Metadata["join_state"] = traceDBSourceRawLaneRetainedRecordCensusMismatchState
 		join.coverage.Skipped = "scheduler-lite switch join withheld: retained/admitted record census mismatch"
 		return join
 	}
@@ -111,10 +152,10 @@ func newTraceDBRawSchedSwitchLiteJoin(
 	}
 	join.ready = true
 	if len(inventory.RawSwitchLite) == 0 {
-		join.coverage.Metadata["join_state"] = "complete_no_source_records"
+		join.coverage.Metadata["join_state"] = traceDBRawSchedSwitchLiteJoinStateCompleteNoSourceRecords
 		join.coverage.Skipped = "scheduler-lite switch join complete: no source sched_switch_lite records"
 	} else {
-		join.coverage.Metadata["join_state"] = "ready_for_db_boundary_census"
+		join.coverage.Metadata["join_state"] = traceDBRawSchedSwitchLiteJoinStateReadyForDBBoundaryCensus
 	}
 	return join
 }
@@ -300,7 +341,7 @@ func (join *traceDBRawSchedSwitchLiteJoin) auditDBBoundaries(
 		}
 	}
 	traceDBAddCoverageMetric(&join.coverage, "eligible_unique_boundaries", int64(len(join.eligible)))
-	join.coverage.Metadata["join_state"] = "db_boundary_census_complete"
+	join.coverage.Metadata["join_state"] = traceDBRawSchedSwitchLiteJoinStateDBBoundaryCensusComplete
 	join.dbReady = true
 	return nil
 }
@@ -424,7 +465,7 @@ func (join *traceDBRawSchedSwitchLiteJoin) finalize() (TraceDBCoverage, error) {
 	if enriched != eligible {
 		err := &traceDBOutputInvariantError{Reason: "scheduler_lite_switch_join_publication_mismatch"}
 		join.coverage.Error = err.Error()
-		join.coverage.Metadata["join_state"] = "failed_publication_mismatch"
+		join.coverage.Metadata["join_state"] = traceDBRawSchedSwitchLiteJoinStateFailedPublicationMismatch
 		return join.coverage, err
 	}
 	join.coverage.RowsEmitted = int(enriched + rawUnmatched)
@@ -432,7 +473,7 @@ func (join *traceDBRawSchedSwitchLiteJoin) finalize() (TraceDBCoverage, error) {
 		return join.coverage, nil
 	}
 	if !join.dbReady {
-		join.coverage.Metadata["join_state"] = "withheld_db_scheduler_census_unavailable"
+		join.coverage.Metadata["join_state"] = traceDBRawSchedSwitchLiteJoinStateDBCensusUnavailable
 		join.coverage.Skipped = "scheduler-lite switch join withheld: audited DB boundary census unavailable"
 		return join.coverage, nil
 	}
@@ -451,7 +492,7 @@ func (join *traceDBRawSchedSwitchLiteJoin) finalize() (TraceDBCoverage, error) {
 		join.coverage.Metadata["raw_db_time_alignment_observation"] =
 			"not_applicable_empty_admitted_lane"
 	}
-	if join.coverage.Metadata["join_state"] == "complete_no_source_records" {
+	if join.coverage.Metadata["join_state"] == traceDBRawSchedSwitchLiteJoinStateCompleteNoSourceRecords {
 		return join.coverage, nil
 	}
 	traceDBAddCoverageMetric(&join.coverage, "raw_unique_records_unmatched",
@@ -460,10 +501,10 @@ func (join *traceDBRawSchedSwitchLiteJoin) finalize() (TraceDBCoverage, error) {
 	traceDBAddCoverageMetric(&join.coverage, "db_boundaries_unmatched",
 		join.coverage.Metrics["db_boundaries_audited"]-enriched)
 	if enriched == 0 && rawUnmatched == 0 {
-		join.coverage.Metadata["join_state"] = "complete_no_unique_match"
+		join.coverage.Metadata["join_state"] = traceDBRawSchedSwitchLiteJoinStateCompleteNoUniqueMatch
 		join.coverage.Skipped = "scheduler-lite switch join complete: no unique exact raw/DB boundary match"
 	} else {
-		join.coverage.Metadata["join_state"] = "published_unique_exact_scheduler_lite"
+		join.coverage.Metadata["join_state"] = traceDBRawSchedSwitchLiteJoinStatePublished
 		join.coverage.Metadata["publication_contract"] = fmt.Sprintf(
 			"enriched_boundaries=%d; raw_unmatched_physical_events=%d; duplicate_events=0",
 			enriched, rawUnmatched)

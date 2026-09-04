@@ -618,7 +618,7 @@ func BuildRequiredOutputProjectionPlan(input OutputProjectionPlanInput) (dataque
 			return dataquery.TaskPlan{}, false
 		}
 	}
-	contract := ResolveOutputContract(input.Current.OutputContract, input.Output, input.Result.OutputContract)
+	contract := ResolveOutputContract(input.Current.OutputContract, input.Output)
 	coverage := input.Coverage
 	coverage.ReconcileRequired = true
 	params := map[string]string{
@@ -715,7 +715,7 @@ type ResultProjectionNeedInput struct {
 }
 
 func ResultNeedsOutputProjection(input ResultProjectionNeedInput) bool {
-	contract := ResolveOutputContract(input.Current.OutputContract, input.Output, input.Result.OutputContract)
+	contract := ResolveOutputContract(input.Current.OutputContract, input.Output)
 	if contract.Format == "" {
 		return false
 	}
@@ -879,7 +879,7 @@ func ledgerPrerequisitesSatisfiedByContributionContinuation(dep LedgerDependency
 func requiredLedgerCompletionBasePlan(input RequiredLedgerCompletionPlanInput) dataquery.TaskPlan {
 	plan := dataquery.TaskPlan{
 		Status:           "ready",
-		OutputContract:   ResolveOutputContract(input.Current.OutputContract, input.Output, input.Result.OutputContract),
+		OutputContract:   ResolveOutputContract(input.Current.OutputContract, input.Output),
 		CoverageContract: input.Coverage,
 		Goal:             strings.TrimSpace(input.Current.Goal),
 		SuccessCriteria:  append([]string(nil), input.Current.SuccessCriteria...),
@@ -938,6 +938,25 @@ func RuleCoverageCompletionAction(contract dataquery.CoverageContract) dataquery
 // declaration while the resolver let the LATEST win, so a system-built
 // continuation or a CLI resume silently reverted the user's explicit
 // format revision (G6-data-contract #0).
+//
+// Only DECLARATIONS enter a chain: a plan-level OutputContract (each record's
+// carried plan, the current plan) or a fold of them. A Result.OutputContract
+// is an execution echo — the contract the produced answer actually satisfies
+// (a batch without assemble_answer adopts the seed answer AND the seed
+// contract, internal/dataquery/action_runner.go) — and is never in the
+// closure of anything but earlier plan declarations, so folding it adds no
+// specificity and only lets a stale echo win an equal-specificity tie over
+// the explicit revision (batch-six fold-in #8: the projection/ledger-completion
+// builders and the repl completion authorities ranked the echo highest, and a
+// json_only echo under a revised plain_single_line plan drove the validator
+// proposal and the CLI resume back to json_only). The one resolve a
+// Result.OutputContract still enters is the repl candidate-judging helper
+// (dataTaskCandidateJudgedOutputContract), FIRST with the fold after it: on
+// the script lane the result payload carries a model-DECLARED output_contract
+// (dataquery.parseRunnerResult), and the reference-grounding validators must
+// judge that typed intent rather than let it be laundered by omission — the
+// owed fold still wins every tie. The other echo readers are the runner seed
+// and the terminal-answer face, which describe what was produced.
 func ResolveOutputContract(ascending ...dataquery.OutputContract) dataquery.OutputContract {
 	var best dataquery.OutputContract
 	bestScore := -1

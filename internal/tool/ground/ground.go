@@ -70,22 +70,66 @@ var identifierTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
 //
 // typeParameterListRe is the one spelling of that list every form shares:
 // balanced angle brackets whose interior holds no parenthesis, brace,
-// semicolon or bare angle, with one level of nesting (`<K, V>`,
-// `<T: Comparable<T>>`, `<T extends Foo<Bar>>`). A bare `>` followed by
-// further tokens (`template<> int parse<int>(`) is therefore never read as
-// one list, so the method-signature form cannot swallow a C++ template
-// specialisation.
-const typeParameterListRe = `<(?:[^();{}<>]|<[^();{}<>]*>)*>`
+// semicolon or bare angle, with two levels of nesting (`<K, V>`,
+// `<T: Comparable<T>>`, `<T: Into<Vec<u8>>>`,
+// `<std::map<int, std::vector<int>>>`). A bare `>` followed by further
+// tokens (`template<> int parse<int>(`) is therefore never read as one
+// list, so the method-signature form cannot swallow a C++ template
+// specialisation. Deeper nesting is not a list this regex recognises; the
+// line then falls back to the non-generic reading (disclosed residual).
+const typeParameterListRe = `<(?:[^();{}<>]|<(?:[^();{}<>]|<[^();{}<>]*>)*>)*>`
+
+// templatePrefixRe is the C++ `template<…>` head of a declaration. Unlike
+// a type-parameter list it may carry default arguments with any bytes
+// (`template <typename T, typename U = std::vector<T>>`), so only the
+// angle brackets are structural, balanced to two levels of nesting.
+const templatePrefixRe = `template\s*<(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*>`
+
+// declarationNamePathSegmentRe is one segment of a keyword-led callable's
+// name path: an identifier that may carry a type-argument list and a
+// nullable marker, so a Kotlin receiver-qualified extension
+// (`fun <T> List<T>.second(`, `fun String?.orEmpty(`) is read as the
+// declaration it is rather than as a `.second(` call.
+const declarationNamePathSegmentRe = `[A-Za-z_][A-Za-z0-9_]*(?:` + typeParameterListRe + `)?\??`
 
 var (
-	callableDefinitionLineRe         = regexp.MustCompile(`^\s*(?:(?:abstract|async|const|default|export|final|foreign|inline|internal|local|mut|native|open|operator|override|private|protected|public|pub|redef|sealed|static|suspend|unsafe|virtual)\s+)*(def|func|function|fun|fn|rpc)\s+(?:` + typeParameterListRe + `\s*)?(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*(?:\s*(?:` + typeParameterListRe + `|\[[^\]()]*\]))?\s*\(`)
-	cFamilyDefinitionLineRe          = regexp.MustCompile(`^\s*(template\s*<[^>]*>\s*)?(?:(?:__device__|__global__|__host__|abstract|async|constexpr|extern|final|friend|inline|native|open|override|private|protected|public|static|synchronized|virtual)\s+)*(?:[A-Za-z_][A-Za-z0-9_:<>\[\]\*&?,.]*\s+)+(?:[A-Za-z_~][A-Za-z0-9_~]*::)*[A-Za-z_~][A-Za-z0-9_~]*(?:\s*` + typeParameterListRe + `)?\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:throws\s+[^{};]+)?(?:->\s*[^{};]+)?(?:\{|$)`)
-	methodDefinitionLineRe           = regexp.MustCompile(`^\s*(?:(?:abstract|async|export|final|internal|open|operator|override|private|protected|public|static|suspend)\s+)*[A-Za-z_][A-Za-z0-9_]*(?:\s*` + typeParameterListRe + `)?\s*\([^)]*\)\s*(?::|throws\b|where\b|\{|=>)`)
-	assignedCallableDefinitionLineRe = regexp.MustCompile(`^\s*(?:(?:export|default|public|private|protected|static|readonly|final)\s+)*(?:(?:const|let|var|val)\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b[^{(]*\([^)]*\)|\([^)]*\)\s*(?::\s*[^=]+)?=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>|lambda\b)`)
-	cangjieOperatorDefinitionLineRe  = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|open|static|operator|sealed|abstract|foreign|override|redef|mut|const|unsafe)\s+)*operator\s+func\s+[^\s()]+\s*\(`)
-	objectiveCMethodDefinitionLineRe = regexp.MustCompile(`^\s*[-+]\s*\([^)]*\)\s*[A-Za-z_][A-Za-z0-9_]*(?::|\s*\{)`)
-	typeDefinitionLineRe             = regexp.MustCompile(`^\s*((?:(?:abstract|annotation|case|data|enum|export|final|inner|open|private|protected|public|pub|sealed|static|value)\s+)*(?:class|enum|extension|interface|message|protocol|record|service|struct|trait|type|impl|object|actor|union|extend))\b(?:\s*<[^>]*>)?\s+[A-Za-z_][A-Za-z0-9_]*\b`)
-	objectiveCTypeDefinitionLineRe   = regexp.MustCompile(`^\s*(@(?:interface|implementation|protocol))\s+[A-Za-z_][A-Za-z0-9_]*\b`)
+	callableDefinitionLineRe = regexp.MustCompile(`^\s*(?:(?:abstract|async|const|default|export|final|foreign|inline|internal|local|mut|native|open|operator|override|private|protected|public|pub|redef|sealed|static|suspend|unsafe|virtual)\s+)*(def|func|function|fun|fn|rpc)\s+(?:` + typeParameterListRe + `\s*)?(?:\([^)]+\)\s*)?` + declarationNamePathSegmentRe + `(?:[.:]` + declarationNamePathSegmentRe + `)*(?:\s*(?:` + typeParameterListRe + `|\[[^\]()]*\]))?\s*\(`)
+	// cFamilyDefinitionLineRe is the return-type-before-name signature. The
+	// head admits a `template<…>` prefix (captured for the note), a leading
+	// type-parameter list after the modifiers (Java `public static <T>
+	// List<T> parse(`), scope qualifiers that carry type arguments (C++
+	// out-of-line `T Parser<T>::parse(`), and — after the parameter list —
+	// the Dart `async` / `async*` / `sync*` body opener beside the C++ /
+	// Java tails it already knew.
+	cFamilyDefinitionLineRe = regexp.MustCompile(`^\s*(` + templatePrefixRe + `\s*)?(?:(?:__device__|__global__|__host__|abstract|async|constexpr|extern|final|friend|inline|native|open|override|private|protected|public|static|synchronized|virtual)\s+)*(?:` + typeParameterListRe + `\s+)?(?:[A-Za-z_][A-Za-z0-9_:<>\[\]\*&?,.]*\s+)+(?:[A-Za-z_~][A-Za-z0-9_~]*(?:` + typeParameterListRe + `)?::)*[A-Za-z_~][A-Za-z0-9_~]*(?:\s*` + typeParameterListRe + `)?\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:throws\s+[^{};]+)?(?:->\s*[^{};]+)?(?:(?:async|sync)\*?\s*)?(?:\{|$)`)
+	// methodDefinitionLineRe is the bare method signature `name(...)`
+	// followed by a return type, throws/where clause, body or arrow. It
+	// deliberately spells no type-parameter list: `name<…>(…) {` is also
+	// how Kotlin / Swift / TypeScript spell a generic CALL with a trailing
+	// lambda, closure or arrow argument (`launch<Unit>(Dispatchers.IO) {`,
+	// `Task<Void, Never>(priority: .high) {`, `useEffect<void>(() => {`),
+	// and a regex cannot tell those from a body-only generic method; the
+	// generic form below therefore keys on the one token a generic method
+	// definition carries and a trailing-lambda call never does — the
+	// return-type annotation right after the parameter list (`): T {`,
+	// `): T =>`, `): Promise<T> {`). A generic method spelled without a
+	// return annotation keeps the base behaviour (grounded) — disclosed.
+	methodDefinitionLineRe        = regexp.MustCompile(`^\s*(?:(?:abstract|async|export|final|internal|open|operator|override|private|protected|public|static|suspend)\s+)*[A-Za-z_][A-Za-z0-9_]*\s*\([^)]*\)\s*(?::|throws\b|where\b|\{|=>)`)
+	genericMethodDefinitionLineRe = regexp.MustCompile(`^\s*(?:(?:abstract|async|export|final|internal|open|operator|override|private|protected|public|static|suspend)\s+)*[A-Za-z_][A-Za-z0-9_]*\s*` + typeParameterListRe + `\s*\([^)]*\)\s*:`)
+	// constructorInitialiserDefinitionLineRe is the out-of-line C++
+	// constructor with a member-initialiser list: `Parser::Parser(int x) :
+	// x_(x) {`, `Parser<T>::Parser(int x) : x_(x) {`, optionally behind a
+	// `template<…>` prefix. The `) : ident(` (or `) : ident{`) tail after a
+	// scope-qualified name is the precise signal — no call statement spells
+	// it. An out-of-line constructor WITHOUT an initialiser list
+	// (`Parser::Parser(int x) {`) is not distinguishable from a Ruby
+	// `Foo::bar(x) {` block call by shape and keeps the base behaviour.
+	constructorInitialiserDefinitionLineRe = regexp.MustCompile(`^\s*(?:` + templatePrefixRe + `\s*)?(?:[A-Za-z_][A-Za-z0-9_]*(?:` + typeParameterListRe + `)?::)+[A-Za-z_][A-Za-z0-9_]*\s*\([^;{}]*\)\s*(?:noexcept\s*)?:\s*[A-Za-z_][A-Za-z0-9_:]*(?:` + typeParameterListRe + `)?\s*[({]`)
+	assignedCallableDefinitionLineRe       = regexp.MustCompile(`^\s*(?:(?:export|default|public|private|protected|static|readonly|final)\s+)*(?:(?:const|let|var|val)\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b[^{(]*\([^)]*\)|\([^)]*\)\s*(?::\s*[^=]+)?=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>|lambda\b)`)
+	cangjieOperatorDefinitionLineRe        = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|open|static|operator|sealed|abstract|foreign|override|redef|mut|const|unsafe)\s+)*operator\s+func\s+[^\s()]+\s*\(`)
+	objectiveCMethodDefinitionLineRe       = regexp.MustCompile(`^\s*[-+]\s*\([^)]*\)\s*[A-Za-z_][A-Za-z0-9_]*(?::|\s*\{)`)
+	typeDefinitionLineRe                   = regexp.MustCompile(`^\s*((?:(?:abstract|annotation|case|data|enum|export|final|inner|open|private|protected|public|pub|sealed|static|value)\s+)*(?:class|enum|extension|interface|message|protocol|record|service|struct|trait|type|impl|object|actor|union|extend))\b(?:\s*<[^>]*>)?\s+[A-Za-z_][A-Za-z0-9_]*\b`)
+	objectiveCTypeDefinitionLineRe         = regexp.MustCompile(`^\s*(@(?:interface|implementation|protocol))\s+[A-Za-z_][A-Za-z0-9_]*\b`)
 )
 
 // definitionLineShape is one declaration form the source-shape guard
@@ -112,6 +156,8 @@ var definitionLineShapes = []definitionLineShape{
 	{re: typeDefinitionLineRe},
 	{re: objectiveCTypeDefinitionLineRe},
 	{re: methodDefinitionLineRe, form: "method signature (name(...) followed by a return type or body)", callable: true},
+	{re: genericMethodDefinitionLineRe, form: "method signature (name<...>(...) followed by a return type)", callable: true},
+	{re: constructorInitialiserDefinitionLineRe, form: "constructor definition with a member-initialiser list", callable: true},
 	{re: assignedCallableDefinitionLineRe, form: "callable assigned to a name", callable: true},
 	{re: cFamilyDefinitionLineRe, callable: true},
 }

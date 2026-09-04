@@ -2580,7 +2580,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			r.clearPendingOperationState()
 			r.finishOperationAutoStartSpinner()
 			r.renderBordered(commandOperationAutoValidateMarkdown(r.language, plan))
-			r.executeCommandOperationPlan(plan, display, line)
+			r.executeCommandOperationPlan(plan, line, display)
 			return
 		}
 		initialDecision := operation.DecideCommandPlanApproval(r.operationPolicy, plan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalInitial})
@@ -2590,7 +2590,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			r.clearPendingOperationState()
 			r.finishOperationAutoStartSpinner()
 			r.renderBordered(commandOperationAutoExecuteMarkdown(r.language, plan))
-			r.executeCommandOperationPlan(plan, display, line)
+			r.executeCommandOperationPlan(plan, line, display)
 			return
 		}
 		if plan.Status == operation.StatusReady {

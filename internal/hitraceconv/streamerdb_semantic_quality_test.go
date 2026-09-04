@@ -136,6 +136,7 @@ func TestTraceDBSemanticQualityDisclosesUnprovenRawDBTimeAlignmentWithoutGating(
 			"raw_db_exact_coordinate_overlap_cohorts": 0,
 		},
 		Metadata: map[string]string{
+			"join_state":                        traceDBRawSchedSwitchLiteJoinStatePublished,
 			"raw_db_time_alignment_observation": "unproven_no_exact_timestamp_cpu_overlap",
 		},
 	}

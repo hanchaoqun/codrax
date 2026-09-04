@@ -46,7 +46,7 @@ func traceDBApplyRawWakeupNewDisplayNames(
 	if inventory.RawDecode.Metrics["target_sched_wakeup_new_name_record_capture_failed"] != 0 ||
 		inventory.RawDecode.Metrics["target_sched_wakeup_new_name_records_retained"] !=
 			int64(len(inventory.RawWakeupNames)) {
-		coverage.Metadata["recovery_state"] = "withheld_retained_record_census_mismatch"
+		coverage.Metadata["recovery_state"] = traceDBSourceRawLaneRetainedRecordCensusMismatchState
 		coverage.Skipped = "raw wakeup-new display-name recovery withheld: retained/admitted record census mismatch"
 		return coverage
 	}

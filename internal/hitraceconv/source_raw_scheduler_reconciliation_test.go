@@ -25,6 +25,9 @@ func TestTraceDBSchedulerPublicationReconciliationClosesLargCCounts(t *testing.T
 				Table:  "__raw_vs_db_sched_switch__",
 				Role:   "query_ready_enrichment",
 				Found:  true,
+				Metadata: map[string]string{
+					"join_state": traceDBRawSchedSwitchLiteJoinStatePublished,
+				},
 				Metrics: map[string]int64{
 					"raw_records_retained":                                     790734,
 					"db_boundaries_enriched":                                   219784,
@@ -61,6 +64,9 @@ func TestTraceDBSchedulerPublicationReconciliationDisclosesResidual(t *testing.T
 				Table:  "__raw_vs_db_sched_switch__",
 				Role:   "query_ready_enrichment",
 				Found:  true,
+				Metadata: map[string]string{
+					"join_state": traceDBRawSchedSwitchLiteJoinStatePublished,
+				},
 				Metrics: map[string]int64{
 					"raw_records_retained":   2,
 					"db_boundaries_enriched": 1,
@@ -90,6 +96,9 @@ func TestTraceDBSchedulerPublicationReconciliationFeedsUserCaveat(t *testing.T) 
 				Table:  "__raw_vs_db_sched_switch__",
 				Role:   "query_ready_enrichment",
 				Found:  true,
+				Metadata: map[string]string{
+					"join_state": traceDBRawSchedSwitchLiteJoinStatePublished,
+				},
 				Metrics: map[string]int64{
 					"raw_records_retained":                                   5,
 					"db_boundaries_enriched":                                 3,

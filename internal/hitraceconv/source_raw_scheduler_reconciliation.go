@@ -42,6 +42,36 @@ func traceDBSchedulerPublicationReconciliationCoverage(
 		out.Skipped = "scheduler publication reconciliation unavailable: DB scheduler or raw join coverage absent"
 		return out
 	}
+	// The join ran the class gate over the strict raw decode ledger; its
+	// non-ready outcome (source not applicable / census incomplete) is carried
+	// forward verbatim under this lane's key so a legacy or truncated capture
+	// never reads "complete exact raw record closure" over counters that were
+	// never evaluated (G6-visibility fold-in #7).
+	if traceDBInheritSourceRawLaneGate(&out, join,
+		traceDBSourceRawLaneStateKeyJoin, traceDBSourceRawLaneStateKeyReconciliation,
+		"scheduler publication reconciliation") {
+		return out
+	}
+	// Past the gate the join's own post-gate arms decide whether its raw
+	// counters are exact closure inputs; the table is total over the join's
+	// vocabulary and an undeclared state fails loud instead of closing. A join
+	// that failed loud (Error set) keeps the source-coverage-error arm below.
+	if join.Error == "" {
+		joinState := join.Metadata[string(traceDBSourceRawLaneStateKeyJoin)]
+		reconcilable, declared := traceDBRawSchedSwitchLiteJoinReconcilable[joinState]
+		if !declared {
+			out.Error = (&traceDBOutputInvariantError{
+				Reason: "scheduler_publication_reconciliation_join_state_unresolved",
+			}).Error()
+			return out
+		}
+		if !reconcilable {
+			out.Metadata["reconciliation_state"] = "withheld_source_join_not_reconcilable"
+			out.Metadata["source_join_state"] = joinState
+			out.Skipped = "scheduler publication reconciliation withheld: scheduler-lite switch join did not reach an exact raw record census (" + joinState + ")"
+			return out
+		}
+	}
 	out.Found = db.Found || join.Found
 	traceDBAddCoverageMetric(
 		&out, "db_source_rows_read", int64(db.RowsRead))

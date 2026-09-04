@@ -57,6 +57,25 @@ import (
 //	    planner call takes runtimeView(), which is where the carried value
 //	    is bound (rule (c)); a literal view would silently fall back to the
 //	    seed fold.
+//	(h) seed fold (batch-six fold-in #8, 收编复核再收编) — ONE declaration
+//	    chain: the body of dataTaskWorkflowOutputContract reads OutputContract
+//	    only through `<rec>.Plan.OutputContract` and the current-plan
+//	    parameter (never a `.Result` — a Result.OutputContract is an
+//	    execution echo the carry chain never reads); every
+//	    `durableOutputContract :=` seed in data_task_cli.go / repl.go is
+//	    that fold's call; and dataTaskExecutionOutputContractBaseline
+//	    returns either the loop's carried value or that fold — no resume
+//	    path derives its own snapshot.
+//	(h2) declaration chains (same fold-in) — every ResolveOutputContract
+//	    argument in the scanned files is a declaration: the seed fold, a
+//	    bare carried identifier, or a `.OutputContract` selector whose chain
+//	    has no `Result` segment and no result-named root. The ONE exception
+//	    is the judged helper dataTaskCandidateJudgedOutputContract, where
+//	    the candidate's own contract (a script-lane payload DECLARATION,
+//	    dataquery.parseRunnerResult) is the FIRST argument with the fold
+//	    after it, so the owed chain wins every tie; the three
+//	    reference-grounding validators used to fold `result.OutputContract`
+//	    last (highest) and let an echo outrank the carried revision.
 //
 // A parse error is red; the file-count floor keeps a silently empty scan
 // red; every rule has a self-red witness below.
@@ -577,6 +596,202 @@ func censusDataTaskOutputContractLoopViews(name string, file *ast.File) []string
 	return offenders
 }
 
+// censusDataTaskOutputContractSeedFold — rule (h).
+func censusDataTaskOutputContractSeedFold(files map[string]*ast.File) []string {
+	var offenders []string
+	folds, baselines := 0, 0
+	for name, file := range files {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || fn.Recv != nil {
+				continue
+			}
+			switch fn.Name.Name {
+			case "dataTaskWorkflowOutputContract":
+				folds++
+				current := ""
+				if params := fn.Type.Params; params != nil && len(params.List) == 2 && len(params.List[1].Names) == 1 {
+					current = params.List[1].Names[0].Name
+				}
+				if current == "" {
+					offenders = append(offenders, name+": (h) seed fold signature drifted from (records, current)")
+				}
+				ast.Inspect(fn.Body, func(node ast.Node) bool {
+					sel, ok := node.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					switch sel.Sel.Name {
+					case "Result":
+						offenders = append(offenders, fmt.Sprintf("%s: (h) seed fold reads %s — a Result.OutputContract is an execution echo, never a declaration", name, exprCensusText(sel)))
+					case "OutputContract":
+						x := sel.X
+						if inner, ok := x.(*ast.SelectorExpr); ok && inner.Sel.Name == "Plan" {
+							if _, ok := inner.X.(*ast.Ident); ok {
+								return true
+							}
+						}
+						if ident, ok := x.(*ast.Ident); ok && (ident.Name == current || ident.Name == "dataquery") {
+							// The current plan's declaration, or the
+							// package-qualified TYPE dataquery.OutputContract
+							// (the fold's value slice) — not a read.
+							return true
+						}
+						offenders = append(offenders, fmt.Sprintf("%s: (h) seed fold reads OutputContract through %q, not a Plan-level declaration", name, exprCensusText(sel)))
+						// The offending chain is reported once; its inner
+						// selectors are not re-reported as separate reads.
+						return false
+					}
+					return true
+				})
+			case "dataTaskExecutionOutputContractBaseline":
+				baselines++
+				ast.Inspect(fn.Body, func(node ast.Node) bool {
+					ret, ok := node.(*ast.ReturnStmt)
+					if !ok || len(ret.Results) != 1 {
+						return true
+					}
+					if exprCensusText(ret.Results[0]) == "view.ExecutionOutputContract" {
+						return true
+					}
+					if _, ok := isCall(ret.Results[0], "dataTaskWorkflowOutputContract"); ok {
+						return true
+					}
+					offenders = append(offenders, fmt.Sprintf("%s: (h) gate baseline returns %q, neither the loop's carried value nor the seed fold", name, exprCensusText(ret.Results[0])))
+					return true
+				})
+			}
+		}
+		if name != "data_task_cli.go" && name != "repl.go" {
+			continue
+		}
+		seeds := 0
+		ast.Inspect(file, func(node ast.Node) bool {
+			assign, ok := node.(*ast.AssignStmt)
+			if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+				return true
+			}
+			if ident, ok := assign.Lhs[0].(*ast.Ident); !ok || ident.Name != "durableOutputContract" {
+				return true
+			}
+			seeds++
+			if _, ok := isCall(assign.Rhs[0], "dataTaskWorkflowOutputContract"); !ok {
+				offenders = append(offenders, fmt.Sprintf("%s: (h) durableOutputContract is seeded from %q, not the seed fold", name, exprCensusText(assign.Rhs[0])))
+			}
+			return true
+		})
+		if seeds != 1 {
+			offenders = append(offenders, fmt.Sprintf("%s: (h) durableOutputContract seeds=%d, want exactly one loop seed", name, seeds))
+		}
+	}
+	if folds != 1 || baselines != 1 {
+		offenders = append(offenders, fmt.Sprintf("(h) seed folds=%d gate baselines=%d, want exactly one each — census walk drifted", folds, baselines))
+	}
+	sort.Strings(offenders)
+	return offenders
+}
+
+// censusDataTaskOutputContractDeclarationChains — rule (h2): every
+// ResolveOutputContract call in the scanned files folds DECLARATIONS only.
+// An argument is declaration-shaped when it is the seed fold
+// (dataTaskWorkflowOutputContract(...)), a bare identifier (the loop's
+// carried value, or the fold's value slice), or a `.OutputContract`
+// selector whose chain has no `Result` segment and whose root identifier is
+// not result-named. A `result.OutputContract` / `rec.Result.OutputContract`
+// argument is an execution echo entering a declaration chain (batch-six
+// fold-in #8: four completion/reference authorities ranked the echo highest
+// and a json_only echo under a revised plain_single_line plan drove the
+// validator proposal and the CLI resume back to json_only).
+func censusDataTaskOutputContractDeclarationChains(files map[string]*ast.File) []string {
+	var offenders []string
+	calls, judged := 0, 0
+	for name, file := range files {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			inJudged := fn.Recv == nil && fn.Name.Name == "dataTaskCandidateJudgedOutputContract"
+			if inJudged {
+				judged++
+			}
+			ast.Inspect(fn.Body, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				fun := exprCensusText(call.Fun)
+				if fun != "dataworkflow.ResolveOutputContract" && fun != "ResolveOutputContract" {
+					return true
+				}
+				calls++
+				foldAt := -1
+				for i, arg := range call.Args {
+					if _, ok := isCall(arg, "dataTaskWorkflowOutputContract"); ok {
+						foldAt = i
+					}
+				}
+				for i, arg := range call.Args {
+					if _, ok := isCall(arg, "dataTaskWorkflowOutputContract"); ok {
+						continue
+					}
+					switch a := arg.(type) {
+					case *ast.Ident:
+						continue
+					case *ast.SelectorExpr:
+						if a.Sel.Name != "OutputContract" {
+							break
+						}
+						if !censusSelectorChainNamesResult(a.X) {
+							continue
+						}
+						// The candidate's own contract enters ONE resolve: the
+						// judged helper, first (lowest), with the fold after
+						// it, so the owed chain wins every tie.
+						if inJudged && i == 0 && foldAt > 0 {
+							continue
+						}
+						if inJudged {
+							offenders = append(offenders, fmt.Sprintf("%s: (h2) judged helper folds %q at position %d (fold at %d) — the candidate contract must be the FIRST argument with the seed fold after it", name, exprCensusText(arg), i, foldAt))
+							continue
+						}
+					}
+					offenders = append(offenders, fmt.Sprintf("%s: (h2) declaration chain folds %q — a Result.OutputContract is an execution echo, never a declaration", name, exprCensusText(arg)))
+				}
+				return true
+			})
+		}
+	}
+	if calls < 3 || judged != 1 {
+		offenders = append(offenders, fmt.Sprintf("(h2) ResolveOutputContract calls=%d judged helpers=%d, want the seed fold, the carry resolver and exactly one judged helper — census walk drifted", calls, judged))
+	}
+	sort.Strings(offenders)
+	return offenders
+}
+
+// censusSelectorChainNamesResult reports whether a selector chain has a
+// `Result` segment or a result-named root identifier (result, answerResult,
+// res, …): the shapes through which an execution echo reaches a chain.
+func censusSelectorChainNamesResult(expr ast.Expr) bool {
+	for {
+		switch e := expr.(type) {
+		case *ast.SelectorExpr:
+			if e.Sel.Name == "Result" {
+				return true
+			}
+			expr = e.X
+		case *ast.Ident:
+			return strings.Contains(strings.ToLower(e.Name), "result") || e.Name == "res"
+		case *ast.ParenExpr:
+			expr = e.X
+		case *ast.StarExpr:
+			expr = e.X
+		default:
+			return false
+		}
+	}
+}
+
 func TestDataTaskOutputContractSnapshotCensus(t *testing.T) {
 	files := dataTaskOutputContractCensusFiles(t)
 	if offenders := censusDataTaskOutputContractWriters(files, dataTaskOutputContractWriterAllowlist); len(offenders) > 0 {
@@ -615,6 +830,12 @@ func TestDataTaskOutputContractSnapshotCensus(t *testing.T) {
 		if offenders := censusDataTaskOutputContractLoopViews(name, files[name]); len(offenders) > 0 {
 			t.Fatalf("(g) loop view offenders:\n%s", strings.Join(offenders, "\n"))
 		}
+	}
+	if offenders := censusDataTaskOutputContractSeedFold(files); len(offenders) > 0 {
+		t.Fatalf("(h) seed fold offenders:\n%s", strings.Join(offenders, "\n"))
+	}
+	if offenders := censusDataTaskOutputContractDeclarationChains(files); len(offenders) > 0 {
+		t.Fatalf("(h2) declaration chain offenders:\n%s", strings.Join(offenders, "\n"))
 	}
 }
 
@@ -844,6 +1065,146 @@ func elsewhere(records []dataTaskWorkflowRecord) dataTaskWorkflowRuntimeView { r
 	t.Run("loop_owner_missing", func(t *testing.T) {
 		files := parseDataTaskCensusSource(t, header+"func nothing() {}\n")
 		if offenders := censusDataTaskOutputContractLoopViews("probe.go", files["probe.go"]); len(offenders) != 1 || !strings.Contains(offenders[0], "census walk drifted") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	// Rule (h): the seed fold and every resume seed read ONE Plan-level chain.
+	seedHeader := header + "import \"github.com/hanchaoqun/codrax/internal/dataworkflow\"\n"
+	greenFold := `
+func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataquery.OutputContract {
+	var values []dataquery.OutputContract
+	for _, rec := range records { values = append(values, rec.Plan.OutputContract) }
+	values = append(values, current.OutputContract)
+	return dataworkflow.ResolveOutputContract(values...)
+}
+func dataTaskExecutionOutputContractBaseline(view dataTaskWorkflowRuntimeView) dataquery.OutputContract {
+	if dataworkflow.OutputContractDeclared(view.ExecutionOutputContract) { return view.ExecutionOutputContract }
+	return dataTaskWorkflowOutputContract(view.Records, view.CurrentPlan)
+}
+func dataTaskCandidateJudgedOutputContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataquery.OutputContract {
+	return dataworkflow.ResolveOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current)).Normalize()
+}
+func carryProbe(candidate dataquery.TaskPlan, durable dataquery.OutputContract) dataquery.OutputContract {
+	return dataworkflow.ResolveOutputContract(durable, candidate.OutputContract)
+}
+`
+	seedFoldFiles := func(t *testing.T, src string, loopFile string, loopSrc string) map[string]*ast.File {
+		t.Helper()
+		files := parseDataTaskCensusSource(t, src)
+		if loopFile != "" {
+			files[loopFile] = parseDataTaskCensusSource(t, loopSrc)["probe.go"]
+		}
+		return files
+	}
+	t.Run("fold_reads_result", func(t *testing.T) {
+		files := seedFoldFiles(t, seedHeader+strings.Replace(greenFold, "values = append(values, rec.Plan.OutputContract)", "values = append(values, rec.Plan.OutputContract); if rec.Result != nil { values = append(values, rec.Result.OutputContract) }", 1), "", "")
+		offenders := censusDataTaskOutputContractSeedFold(files)
+		if len(offenders) != 2 || !strings.Contains(offenders[0], `reads OutputContract through "rec.Result.OutputContract"`) || !strings.Contains(offenders[1], "seed fold reads rec.Result —") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("fold_foreign_selector", func(t *testing.T) {
+		files := seedFoldFiles(t, seedHeader+strings.Replace(greenFold, "rec.Plan.OutputContract", "rec.Admission.Plan.OutputContract", 1), "", "")
+		offenders := censusDataTaskOutputContractSeedFold(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], `reads OutputContract through "rec.Admission.Plan.OutputContract", not a Plan-level declaration`) {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("baseline_local_snapshot", func(t *testing.T) {
+		files := seedFoldFiles(t, seedHeader+strings.Replace(greenFold, "return dataTaskWorkflowOutputContract(view.Records, view.CurrentPlan)", "return view.CurrentPlan.OutputContract", 1), "", "")
+		offenders := censusDataTaskOutputContractSeedFold(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], `gate baseline returns "view.CurrentPlan.OutputContract"`) {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("seed_not_from_fold", func(t *testing.T) {
+		files := seedFoldFiles(t, seedHeader+greenFold, "repl.go", header+`
+func loop(plan dataquery.TaskPlan) { durableOutputContract := plan.OutputContract; _ = durableOutputContract }
+`)
+		offenders := censusDataTaskOutputContractSeedFold(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], `repl.go: (h) durableOutputContract is seeded from "plan.OutputContract", not the seed fold`) {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("seed_missing", func(t *testing.T) {
+		files := seedFoldFiles(t, seedHeader+greenFold, "data_task_cli.go", header+"func loop() {}\n")
+		offenders := censusDataTaskOutputContractSeedFold(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], "data_task_cli.go: (h) durableOutputContract seeds=0") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("fold_missing", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, header+"func nothing() {}\n")
+		offenders := censusDataTaskOutputContractSeedFold(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], "census walk drifted") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("seed_green_shape", func(t *testing.T) {
+		files := seedFoldFiles(t, seedHeader+greenFold, "repl.go", header+`
+func loop(records []dataTaskWorkflowRecord, plan dataquery.TaskPlan) { durableOutputContract := dataTaskWorkflowOutputContract(records, plan); _ = durableOutputContract }
+`)
+		if offenders := censusDataTaskOutputContractSeedFold(files); len(offenders) != 0 {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	// Rule (h2): declaration chains fold declarations only.
+	chainHeader := seedHeader + greenFold
+	t.Run("chain_reads_result_echo", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, chainHeader+`
+func authority(records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataquery.OutputContract {
+	return dataworkflow.ResolveOutputContract(current.OutputContract, dataTaskWorkflowOutputContract(records, current), result.OutputContract)
+}
+`)
+		offenders := censusDataTaskOutputContractDeclarationChains(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], `(h2) declaration chain folds "result.OutputContract"`) {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("chain_reads_record_result", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, chainHeader+`
+func authority(rec dataTaskWorkflowRecord, answerResult *dataquery.Result) dataquery.OutputContract {
+	return dataworkflow.ResolveOutputContract(rec.Plan.OutputContract, rec.Result.OutputContract, answerResult.OutputContract)
+}
+`)
+		offenders := censusDataTaskOutputContractDeclarationChains(files)
+		if len(offenders) != 2 || !strings.Contains(offenders[0], `folds "answerResult.OutputContract"`) || !strings.Contains(offenders[1], `folds "rec.Result.OutputContract"`) {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("chain_green_shapes", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, chainHeader+`
+func carry(candidate dataquery.TaskPlan, durable dataquery.OutputContract, rec dataTaskWorkflowRecord, records []dataTaskWorkflowRecord) dataquery.OutputContract {
+	return dataworkflow.ResolveOutputContract(durable, candidate.OutputContract, rec.Plan.OutputContract, dataTaskWorkflowOutputContract(records, candidate))
+}
+`)
+		if offenders := censusDataTaskOutputContractDeclarationChains(files); len(offenders) != 0 {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("chain_walk_drifted", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, header+"func nothing() {}\n")
+		offenders := censusDataTaskOutputContractDeclarationChains(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], "(h2) ResolveOutputContract calls=0 judged helpers=0") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("judged_helper_result_last", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, strings.Replace(chainHeader, "dataworkflow.ResolveOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current))", "dataworkflow.ResolveOutputContract(dataTaskWorkflowOutputContract(records, current), result.OutputContract)", 1))
+		offenders := censusDataTaskOutputContractDeclarationChains(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], `(h2) judged helper folds "result.OutputContract" at position 1 (fold at 0)`) {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("judged_helper_without_fold", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, strings.Replace(chainHeader, "dataworkflow.ResolveOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current))", "dataworkflow.ResolveOutputContract(result.OutputContract, current.OutputContract)", 1))
+		offenders := censusDataTaskOutputContractDeclarationChains(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], `(h2) judged helper folds "result.OutputContract" at position 0 (fold at -1)`) {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("judged_helper_green", func(t *testing.T) {
+		if offenders := censusDataTaskOutputContractDeclarationChains(parseDataTaskCensusSource(t, chainHeader)); len(offenders) != 0 {
 			t.Fatalf("offenders=%v", offenders)
 		}
 	})

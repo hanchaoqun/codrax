@@ -272,6 +272,159 @@ func banner() string { return wrap("EvidencePlan in operator output") }
 	}
 }
 
+// TestScanPromptSurfaces_SystemExactTextAndBuilderPartsBothScanned pins
+// that a system Content of the form `const + samePackageBuilder()` scans
+// BOTH the exactly-resolved const text (under the message site) and the
+// builder's flow-bound literals (under their own lines). EVOLUTION RECORD
+// (batch six fold-in, F6-prompt-surface #5): the hit loop scanned the
+// resolved text only when no parts were bound, so the const beside a
+// builder was reported bound and never scanned — red on 381f36cc9 (only
+// the builder's EvidencePlan hit, TaskGraph in the const silent).
+func TestScanPromptSurfaces_SystemExactTextAndBuilderPartsBothScanned(t *testing.T) {
+	dir := writeScratchPackage(t, map[string]string{"p.go": `package scratch
+
+import "github.com/hanchaoqun/codrax/internal/llm"
+
+const toolUseTail = "Use tools when the TaskGraph wants them."
+
+func tail() string { return "Builder tail naming the EvidencePlan." }
+
+func build() []llm.Message {
+	return []llm.Message{{Role: "system", Content: toolUseTail + "\n" + tail()}}
+}
+`})
+	hits, surfaces, err := ScanPromptSurfaces(dir)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(surfaces) != 1 || !strings.HasSuffix(surfaces[0].Label, "p.go:10 SystemMessage.Content") {
+		t.Fatalf("surfaces = %+v, want the one system message at p.go:10", surfaces)
+	}
+	var got []string
+	for _, h := range hits {
+		pos := h.Label[:strings.Index(h.Label, " ")]
+		got = append(got, filepath.Base(pos)+"/"+h.Term)
+	}
+	want := []string{
+		"p.go:10/TaskGraph",   // the const, resolved exactly, reported at the message site
+		"p.go:7/EvidencePlan", // the builder literal, bound by flow, reported at its own line
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("hits = %v\nwant %v", got, want)
+	}
+	if !strings.Contains(surfaces[0].Text, "TaskGraph") || !strings.Contains(surfaces[0].Text, "EvidencePlan") {
+		t.Fatalf("surface Text must be the union of the exact text and the builder parts, got %q", surfaces[0].Text)
+	}
+}
+
+// TestScanPromptSurfaces_ContentPartsTextIsBound pins that the Text of a
+// Type:"text" ContentParts element is a surface of its own, bound through
+// the message's role lane (flow for user, exact for system), while image
+// parts contribute nothing. EVOLUTION RECORD (batch six fold-in,
+// F6-prompt-surface #6): the lane read only the Content key — red on
+// 381f36cc9 (two Content surfaces, zero ContentParts surfaces, zero hits).
+func TestScanPromptSurfaces_ContentPartsTextIsBound(t *testing.T) {
+	dir := writeScratchPackage(t, map[string]string{"p.go": `package scratch
+
+import "github.com/hanchaoqun/codrax/internal/llm"
+
+const visionSystemPrompt = "Describe the image."
+
+const partHeader = "Part header: the HypothesisSet."
+
+func caption(kind string) string { return "Caption kind=" + kind + " (RiskMatrix)" }
+
+func build(dataURL string) []llm.Message {
+	return []llm.Message{
+		{Role: "system", Content: visionSystemPrompt, ContentParts: []llm.ContentPart{{Type: "text", Text: partHeader}}},
+		{
+			Role:    "user",
+			Content: "Extract text evidence.",
+			ContentParts: []llm.ContentPart{
+				{Type: "image_url", ImageURL: dataURL, Detail: "high"},
+				{Type: "Text ", Text: caption("chart") + " and the TaskGraph"},
+				{Type: "", Text: "untyped part is text: EvidencePlan"},
+			},
+		},
+	}
+}
+`})
+	hits, surfaces, err := ScanPromptSurfaces(dir)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	var owners []string
+	for _, s := range surfaces {
+		owners = append(owners, filepath.Base(s.Label))
+	}
+	wantOwners := "p.go:5 visionSystemPrompt p.go:13 SystemMessage.Content p.go:13 SystemMessage.ContentParts.Text p.go:14 UserMessage.Content p.go:19 UserMessage.ContentParts.Text p.go:20 UserMessage.ContentParts.Text"
+	if got := strings.Join(owners, " "); got != wantOwners {
+		t.Fatalf("surfaces = %v\nwant %s", owners, wantOwners)
+	}
+	var got []string
+	for _, h := range hits {
+		got = append(got, filepath.Base(h.Label)+"/"+h.Term)
+	}
+	want := []string{
+		"p.go:13 SystemMessage.ContentParts.Text/HypothesisSet", // system lane: the const resolved exactly at the part site
+		"p.go:9 UserMessage.ContentParts.Text/RiskMatrix",       // user lane: the builder literal reached by flow
+		"p.go:19 UserMessage.ContentParts.Text/TaskGraph",       // user lane: the inline literal (Type "Text " normalizes to text)
+		"p.go:20 UserMessage.ContentParts.Text/EvidencePlan",    // user lane: Type "" serializes as text
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("hits = %v\nwant %v", got, want)
+	}
+}
+
+func TestScanPromptSurfaces_ContentPartsUnrecognizedShapesFailLoud(t *testing.T) {
+	const header = `package scratch
+
+import "github.com/hanchaoqun/codrax/internal/llm"
+
+`
+	cases := map[string]struct{ src, want string }{
+		"parts bound to a variable": {header + `func build(parts []llm.ContentPart) llm.Message {
+	return llm.Message{Role: "user", Content: "x", ContentParts: parts}
+}
+`, "bound to parts is an unrecognized shape"},
+		"parts bound to a call": {header + `func parts() []llm.ContentPart { return nil }
+
+var m = llm.Message{Role: "user", Content: "x", ContentParts: parts()}
+`, "bound to parts() is an unrecognized shape"},
+		"part element that is not a literal": {header + `func build(p llm.ContentPart) llm.Message {
+	return llm.Message{Role: "user", Content: "x", ContentParts: []llm.ContentPart{p}}
+}
+`, "element 1 is not a ContentPart literal"},
+		"positional part element": {header + `var m = llm.Message{Role: "user", Content: "x", ContentParts: []llm.ContentPart{{"text", "y", "", ""}}}
+`, "positional ContentPart element"},
+		"part without a Type": {header + `var m = llm.Message{Role: "user", Content: "x", ContentParts: []llm.ContentPart{{Text: "y"}}}
+`, "without a Type field"},
+		"part Type bound to a const": {header + `const partText = "text"
+
+var m = llm.Message{Role: "user", Content: "x", ContentParts: []llm.ContentPart{{Type: partText, Text: "y"}}}
+`, "Type partText is not a string literal"},
+		"part Type outside the adapter set": {header + `var m = llm.Message{Role: "user", Content: "x", ContentParts: []llm.ContentPart{{Type: "audio", Text: "y"}}}
+`, `Type "audio" is outside the adapter's part set`},
+		"text part without Text": {header + `var m = llm.Message{Role: "user", Content: "x", ContentParts: []llm.ContentPart{{Type: "text"}}}
+`, "text ContentPart without a Text field"},
+		"image part carrying Text": {header + `var m = llm.Message{Role: "user", Content: "x", ContentParts: []llm.ContentPart{{Type: "image_url", ImageURL: "data:", Text: "y"}}}
+`, "image ContentPart carrying a Text field"},
+		"system text part bound to a parameter": {header + `func build(caption string) llm.Message {
+	return llm.Message{Role: "system", Content: "x", ContentParts: []llm.ContentPart{{Type: "text", Text: caption}}}
+}
+`, "SystemMessage.ContentParts.Text: identifier \"caption\" is not a single-assignment"},
+		"user text part with an unresolvable identifier": {header + `var m = llm.Message{Role: "user", Content: "x", ContentParts: []llm.ContentPart{{Type: "text", Text: mystery}}}
+`, "UserMessage.ContentParts.Text: "},
+	}
+	for name, c := range cases {
+		dir := writeScratchPackage(t, map[string]string{"p.go": c.src})
+		_, _, err := ScanPromptSurfaces(dir)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: expected an error containing %q, got %v", name, c.want, err)
+		}
+	}
+}
+
 func TestScanPromptSurfaces_UnrecognizedShapesFailLoud(t *testing.T) {
 	cases := map[string]struct{ src, want string }{
 		"local variable": {`package scratch

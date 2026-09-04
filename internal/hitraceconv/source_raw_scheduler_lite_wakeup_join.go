@@ -67,7 +67,7 @@ func newTraceDBRawSchedWakeupLiteJoin(
 	admitted := inventory.RawDecode.Metrics["target_sched_wakeup_lite_body_admitted"]
 	if admitted != int64(len(inventory.RawWakeupLite)) ||
 		inventory.RawDecode.Metrics["target_sched_wakeup_lite_record_capture_failed"] != 0 {
-		join.coverage.Metadata["join_state"] = "withheld_retained_record_census_mismatch"
+		join.coverage.Metadata["join_state"] = traceDBSourceRawLaneRetainedRecordCensusMismatchState
 		join.coverage.Skipped = "scheduler-lite wakeup join withheld: retained/admitted record census mismatch"
 		return join
 	}
