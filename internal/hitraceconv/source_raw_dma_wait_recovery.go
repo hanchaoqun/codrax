@@ -36,7 +36,7 @@ func newTraceDBRawDMAWaitRecoveryCoverage() TraceDBCoverage {
 			"namespace":     "no namespace PID rewrite, name alias, or TGID=TID fallback; absent, rejected, or ambiguous public identity poisons only its exact key lane",
 		},
 		Metadata: map[string]string{
-			"publication_state": "unavailable",
+			"publication_state": traceDBSourceRawLanePlaceholderState,
 		},
 	}
 }
@@ -49,10 +49,6 @@ func publishTraceDBRawDMAWaitRecovery(
 	dbRawCoverage []TraceDBCoverage,
 ) (TraceDBCoverage, error) {
 	out := newTraceDBRawDMAWaitRecoveryCoverage()
-	if inventory == nil {
-		out.Skipped = "raw DMA wait recovery unavailable: immutable source inventory absent"
-		return out, nil
-	}
 	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "raw DMA wait recovery"); stop {
 		return out, err
 	}

@@ -142,6 +142,10 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 	coverage.Found = threadCoverage.Found && argsCoverage.Found && dictCoverage.Found && schedCoverage.Found
 	if !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		coverage.Skipped = traceDBBlockedSchemaSkip(threadCoverage, argsCoverage, dictCoverage, schedCoverage)
+		if err := traceDBWithholdRawBlockedLanesWithoutDBExport(tdb, coverage.Skipped); err != nil {
+			coverage.Error = err.Error()
+			return coverage, err
+		}
 		return coverage, nil
 	}
 	stateStable, ok, err := traceDBBlockedStableSourceForTable(ctx, tdb, "thread_state")
@@ -152,6 +156,10 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 	if !ok {
 		coverage.FieldSources["stable_identity"] = "unavailable: no thread_state.id and no provable SQLite hidden rowid"
 		coverage.Skipped = "missing thread_state.id and usable SQLite rowid; blocked rows have no stable source identity/order"
+		if err := traceDBWithholdRawBlockedLanesWithoutDBExport(tdb, coverage.Skipped); err != nil {
+			coverage.Error = err.Error()
+			return coverage, err
+		}
 		return coverage, nil
 	}
 	if stateStable.ProjectedUint32 {
@@ -251,6 +259,50 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 		}
 	}
 	return coverage, nil
+}
+
+// traceDBRawBlockedLaneDBExportUnavailableState is the raw blocked key
+// ledger / raw blocked recovery state when the DB blocked-reason export
+// stopped before the ledger could run (schema or stable identity absent):
+// the source passed the class gate, but the DB-side prerequisite the
+// ledger reconciles against is absent, so both lanes are withheld and say
+// why instead of leaving the constructor placeholder standing.
+const traceDBRawBlockedLaneDBExportUnavailableState = "withheld_db_blocked_export_unavailable"
+
+// traceDBWithholdRawBlockedLanesWithoutDBExport publishes the two raw
+// blocked lanes when exportTraceDBBlockedReasons returns before
+// traceDBRawBlockedKeyLedger runs. The class gate speaks first — an absent
+// or non-official source is not applicable and an official census that did
+// not close is census-incomplete, carried onto the recovery lane verbatim —
+// and only past the gate are both lanes withheld for the missing DB export,
+// naming the DB-side reason. The fail-loud Unset shape is returned.
+func traceDBWithholdRawBlockedLanesWithoutDBExport(tdb *traceDB, reason string) error {
+	if tdb == nil {
+		return nil
+	}
+	key := &tdb.rawBlockedKeyCoverage
+	recovery := &tdb.rawBlockedRecoveryCoverage
+	if tdb.sourceNameInventory != nil {
+		key.Found = tdb.sourceNameInventory.RawDecode.Found
+	}
+	recovery.Found = key.Found
+	stop, err := traceDBApplySourceRawLaneGateKeyed(key, tdb.sourceNameInventory,
+		traceDBSourceRawLaneStateKeyLedger, "raw blocked key ledger")
+	if err != nil {
+		recovery.Error = err.Error()
+		return err
+	}
+	if stop {
+		traceDBInheritSourceRawLaneGate(recovery, *key,
+			traceDBSourceRawLaneStateKeyLedger, traceDBSourceRawLaneStateKeyPublication,
+			"raw blocked recovery")
+		return nil
+	}
+	key.Metadata["ledger_state"] = traceDBRawBlockedLaneDBExportUnavailableState
+	key.Skipped = "raw blocked key ledger withheld: DB blocked-reason export unavailable (" + reason + ")"
+	recovery.Metadata["publication_state"] = traceDBRawBlockedLaneDBExportUnavailableState
+	recovery.Skipped = "raw blocked recovery withheld: DB blocked-reason export unavailable (" + reason + ")"
+	return nil
 }
 
 func traceDBBlockedPublicationCandidates(

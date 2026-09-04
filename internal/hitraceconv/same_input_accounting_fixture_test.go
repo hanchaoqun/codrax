@@ -222,12 +222,23 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 	// now say "not applicable: strict official source raw profile absent"
 	// (Skipped is part of the projection). Output bytes/SHA, event counts and
 	// the authority/advisory split are unchanged: no row moved.
+	// EVOLUTION RECORD (batch-six review fold-in, G6-visibility #0): the
+	// digest moved f557d2c1… → e5f616ab… because the seven keyed source-raw
+	// lanes on this legacy 0x0ace fixture now publish the same gate prose:
+	// raw/trace_streamer reconciliation, scheduler-lite switch/wakeup joins,
+	// raw scheduler CPU fallback and raw wakeup-new display-name recovery said
+	// "withheld: … raw decode ledger/census incomplete", the raw blocked key
+	// ledger said "withheld: strict raw decode ledger incomplete" and raw
+	// blocked recovery said "withheld: exact content-multiset subset ledger
+	// unavailable"; all seven now say "<lane> not applicable: strict official
+	// source raw profile absent". Output bytes/SHA, event counts and the
+	// authority/advisory split are again unchanged: no row moved.
 	const (
 		wantInputBytes  = 8442
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
 		wantOutputBytes = 37140
 		wantOutputSHA   = "427d8b8664897dba6641f271fb01ec29a3870c18b9417c26019da8ccb8388752"
-		wantReceiptSHA  = "f557d2c18be0ceb166af7fd17858bafddd0b6e979dcb7f15afffe2b5d9a50d13"
+		wantReceiptSHA  = "e5f616abf09a213f541a2ad5b74a1a2a95a226cf742ba0d5c143aa7101f470ee"
 		wantEvents      = 35
 		wantAuthority   = 18
 		wantAdvisory    = 17

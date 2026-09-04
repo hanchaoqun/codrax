@@ -7143,7 +7143,7 @@ func TestAnswerDocumentEvaluator_PatchRejectCardinalityUsesTypedRepair(t *testin
 		`{"id":"table-stage-detail_diagram","kind":"diagram"}`,
 		`{"id":"diagram-stage","kind":"diagram"}`,
 		`Existing ` + "`kind=diagram`" + ` block ids: ` + "`[\"table-stage-detail_diagram\",\"diagram-stage\"]`",
-		"The model must choose which content to retain; the system does not choose or remove a block",
+		"The model must choose which content to retain; no block is chosen or removed on its behalf",
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("cardinality hint missing exact patch-base roster %q: %q", want, sig.Hint)

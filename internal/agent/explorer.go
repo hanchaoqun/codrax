@@ -7976,7 +7976,7 @@ func renderCompactClosureRepairSection(repair types.RepairDirective) string {
 	case types.RepairSwapView:
 		b.WriteString("## View Reconcile\n")
 		if strings.TrimSpace(repair.Subject) != "" {
-			fmt.Fprintf(&b, "Use the corrected QuestionFamily routing: %s.\n", repair.Subject)
+			fmt.Fprintf(&b, "Use the corrected question-family routing: %s.\n", repair.Subject)
 		}
 	case types.RepairRebindSubject:
 		b.WriteString("## Subject Constraint\n")

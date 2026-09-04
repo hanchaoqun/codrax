@@ -40,6 +40,23 @@ import (
 //	(d) admission — dataTaskWorkflowActionStagingGuardResult calls
 //	    dataworkflow.ActionOutputContractGuardResult on its plan parameter,
 //	    so plans that never met the planner gate meet the same judge.
+//	(e) gate callers (G6-data-contract #1, 合流复核收编) — every call of
+//	    planDataTaskWithTool passes, as its execution baseline, either the
+//	    undeclared literal `dataquery.OutputContract{}` (initial plan, no
+//	    workflow yet) or `dataTaskExecutionOutputContractBaseline(<view>)`
+//	    — the single reader of the loop's carried value. A caller handing
+//	    the gate a locally derived snapshot (view.CurrentPlan.OutputContract,
+//	    a fresh fold, a variable) is red; the caller count floor is ≥ 3.
+//	(f) nested writers — a field-level write `<x>.OutputContract.<f> = …`,
+//	    an index/slice write through it, an `&<x>.OutputContract` address
+//	    taken (mutation by pointer), or an `OutputContract` field passed by
+//	    pointer is red with no allowlist: the contract is written whole by
+//	    rule (a)'s writers only.
+//	(g) loop views — the function that owns the `protectPlan` closure never
+//	    builds a `dataTaskWorkflowRuntimeView{…}` literal: every in-loop
+//	    planner call takes runtimeView(), which is where the carried value
+//	    is bound (rule (c)); a literal view would silently fall back to the
+//	    seed fold.
 //
 // A parse error is red; the file-count floor keeps a silently empty scan
 // red; every rule has a self-red witness below.
@@ -408,6 +425,158 @@ func censusDataTaskOutputContractAdmission(files map[string]*ast.File) []string 
 	return offenders
 }
 
+// censusDataTaskOutputContractGateCallers — rule (e).
+func censusDataTaskOutputContractGateCallers(files map[string]*ast.File) (offenders []string, callers int) {
+	for name, file := range files {
+		walkWithFuncStack(file, func(node ast.Node, stack []ast.Node) {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "planDataTaskWithTool" {
+				return
+			}
+			callers++
+			where := fmt.Sprintf("%s: %s", name, funcDeclCensusName(enclosingFuncDecl(stack)))
+			if len(call.Args) != 5 {
+				offenders = append(offenders, where+": planDataTaskWithTool call arity is not (ctx, scope, prompt, tool, executionBaseline)")
+				return
+			}
+			switch arg := call.Args[4].(type) {
+			case *ast.CompositeLit:
+				if exprCensusText(arg.Type) == "dataquery.OutputContract" && len(arg.Elts) == 0 {
+					return
+				}
+				offenders = append(offenders, where+": execution baseline is a non-empty or foreign literal "+exprCensusText(arg.Type))
+			case *ast.CallExpr:
+				if exprCensusText(arg.Fun) == "dataTaskExecutionOutputContractBaseline" && len(arg.Args) == 1 {
+					if _, isIdent := arg.Args[0].(*ast.Ident); isIdent {
+						return
+					}
+				}
+				offenders = append(offenders, where+": execution baseline is derived by "+exprCensusText(arg)+" instead of dataTaskExecutionOutputContractBaseline(<view>)")
+			default:
+				offenders = append(offenders, where+": execution baseline is a locally derived snapshot "+exprCensusText(arg))
+			}
+		})
+	}
+	sort.Strings(offenders)
+	return offenders, callers
+}
+
+// outputContractSelectorInChain reports whether expr (an lvalue) reaches
+// through a `.OutputContract` selector below its top level — a field,
+// index or slice write into the contract rather than a whole-value write.
+func outputContractSelectorInChain(expr ast.Expr) bool {
+	for {
+		var inner ast.Expr
+		switch e := expr.(type) {
+		case *ast.SelectorExpr:
+			inner = e.X
+		case *ast.IndexExpr:
+			inner = e.X
+		case *ast.SliceExpr:
+			inner = e.X
+		case *ast.ParenExpr:
+			expr = e.X
+			continue
+		case *ast.StarExpr:
+			expr = e.X
+			continue
+		default:
+			return false
+		}
+		if sel, ok := inner.(*ast.SelectorExpr); ok && sel.Sel.Name == "OutputContract" {
+			return true
+		}
+		expr = inner
+	}
+}
+
+// censusDataTaskOutputContractNestedWriters — rule (f).
+func censusDataTaskOutputContractNestedWriters(files map[string]*ast.File) []string {
+	var offenders []string
+	for name, file := range files {
+		walkWithFuncStack(file, func(node ast.Node, stack []ast.Node) {
+			where := fmt.Sprintf("%s: %s", name, funcDeclCensusName(enclosingFuncDecl(stack)))
+			switch n := node.(type) {
+			case *ast.AssignStmt:
+				for _, lhs := range n.Lhs {
+					if outputContractSelectorInChain(lhs) {
+						offenders = append(offenders, where+": nested OutputContract write "+exprCensusText(lhs))
+					}
+				}
+			case *ast.IncDecStmt:
+				if outputContractSelectorInChain(n.X) {
+					offenders = append(offenders, where+": nested OutputContract write "+exprCensusText(n.X))
+				}
+			case *ast.UnaryExpr:
+				if n.Op != token.AND {
+					return
+				}
+				target := n.X
+				for {
+					paren, ok := target.(*ast.ParenExpr)
+					if !ok {
+						break
+					}
+					target = paren.X
+				}
+				if sel, ok := target.(*ast.SelectorExpr); ok && sel.Sel.Name == "OutputContract" {
+					offenders = append(offenders, where+": OutputContract address taken "+exprCensusText(n.X))
+				} else if outputContractSelectorInChain(target) {
+					offenders = append(offenders, where+": address of a field inside OutputContract "+exprCensusText(n.X))
+				}
+			}
+		})
+	}
+	sort.Strings(offenders)
+	return offenders
+}
+
+// censusDataTaskOutputContractLoopViews — rule (g) for one file.
+func censusDataTaskOutputContractLoopViews(name string, file *ast.File) []string {
+	var offenders []string
+	var owner *ast.FuncDecl
+	var viewClosure *ast.FuncLit
+	walkWithFuncStack(file, func(node ast.Node, stack []ast.Node) {
+		assign, ok := node.(*ast.AssignStmt)
+		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+			return
+		}
+		ident, ok := assign.Lhs[0].(*ast.Ident)
+		lit, litOK := assign.Rhs[0].(*ast.FuncLit)
+		if !ok || !litOK {
+			return
+		}
+		switch ident.Name {
+		case "protectPlan":
+			owner = enclosingFuncDecl(stack)
+		case "runtimeView":
+			viewClosure = lit
+		}
+	})
+	if owner == nil || owner.Body == nil {
+		return append(offenders, name+": no function owns a protectPlan closure — census walk drifted")
+	}
+	ast.Inspect(owner.Body, func(node ast.Node) bool {
+		if node == viewClosure {
+			// The runtimeView closure is the one place the loop composes
+			// its view; rule (c) pins that it binds ExecutionOutputContract.
+			return false
+		}
+		lit, ok := node.(*ast.CompositeLit)
+		if !ok || exprCensusText(lit.Type) != "dataTaskWorkflowRuntimeView" {
+			return true
+		}
+		offenders = append(offenders, fmt.Sprintf("%s: %s builds a dataTaskWorkflowRuntimeView literal inside the loop (bypasses runtimeView(), falls back to the seed fold)", name, funcDeclCensusName(owner)))
+		return true
+	})
+	sort.Strings(offenders)
+	return offenders
+}
+
 func TestDataTaskOutputContractSnapshotCensus(t *testing.T) {
 	files := dataTaskOutputContractCensusFiles(t)
 	if offenders := censusDataTaskOutputContractWriters(files, dataTaskOutputContractWriterAllowlist); len(offenders) > 0 {
@@ -431,6 +600,21 @@ func TestDataTaskOutputContractSnapshotCensus(t *testing.T) {
 	}
 	if offenders := censusDataTaskOutputContractAdmission(files); len(offenders) > 0 {
 		t.Fatalf("(d) admission offenders:\n%s", strings.Join(offenders, "\n"))
+	}
+	callerOffenders, callers := censusDataTaskOutputContractGateCallers(files)
+	if len(callerOffenders) > 0 {
+		t.Fatalf("(e) gate caller offenders:\n%s", strings.Join(callerOffenders, "\n"))
+	}
+	if callers < 3 {
+		t.Fatalf("(e) planDataTaskWithTool callers=%d, want at least initial/repair/continuation — census walk drifted", callers)
+	}
+	if offenders := censusDataTaskOutputContractNestedWriters(files); len(offenders) > 0 {
+		t.Fatalf("(f) nested OutputContract writers:\n%s", strings.Join(offenders, "\n"))
+	}
+	for _, name := range []string{"data_task_cli.go", "repl.go"} {
+		if offenders := censusDataTaskOutputContractLoopViews(name, files[name]); len(offenders) > 0 {
+			t.Fatalf("(g) loop view offenders:\n%s", strings.Join(offenders, "\n"))
+		}
 	}
 }
 
@@ -569,6 +753,97 @@ func dataTaskWorkflowActionStagingGuardResult(repoRoot string, records []dataTas
 }
 `)
 		if offenders := censusDataTaskOutputContractAdmission(files); len(offenders) != 2 {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	callerSource := func(baseline string) string {
+		return header + `
+func (p *llmDataTaskPlanner) sneakyRepair(view dataTaskWorkflowRuntimeView) (dataquery.TaskPlan, error) {
+	local := dataTaskWorkflowOutputContract(view.Records, view.CurrentPlan)
+	_ = local
+	return p.planDataTaskWithTool(nil, "scope", "prompt", dataTaskPlanTool, ` + baseline + `)
+}
+`
+	}
+	t.Run("caller_current_plan_snapshot", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, callerSource("view.CurrentPlan.OutputContract"))
+		offenders, callers := censusDataTaskOutputContractGateCallers(files)
+		if callers != 1 || len(offenders) != 1 || !strings.Contains(offenders[0], "locally derived snapshot view.CurrentPlan.OutputContract") {
+			t.Fatalf("callers=%d offenders=%v", callers, offenders)
+		}
+	})
+	t.Run("caller_fresh_fold", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, callerSource("dataTaskWorkflowOutputContract(view.Records, view.CurrentPlan)"))
+		offenders, _ := censusDataTaskOutputContractGateCallers(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], "derived by dataTaskWorkflowOutputContract(…)") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("caller_local_variable", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, callerSource("local"))
+		offenders, _ := censusDataTaskOutputContractGateCallers(files)
+		if len(offenders) != 1 || !strings.Contains(offenders[0], "locally derived snapshot local") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("caller_green_shapes", func(t *testing.T) {
+		for _, baseline := range []string{"dataquery.OutputContract{}", "dataTaskExecutionOutputContractBaseline(view)"} {
+			files := parseDataTaskCensusSource(t, callerSource(baseline))
+			if offenders, callers := censusDataTaskOutputContractGateCallers(files); callers != 1 || len(offenders) != 0 {
+				t.Fatalf("baseline %s: callers=%d offenders=%v", baseline, callers, offenders)
+			}
+		}
+	})
+	t.Run("nested_field_write", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, header+`
+func sneakyFormat(p dataquery.TaskPlan) dataquery.TaskPlan { p.OutputContract.Format = dataquery.OutputJSONOnly; return p }
+`)
+		if offenders := censusDataTaskOutputContractNestedWriters(files); len(offenders) != 1 || !strings.Contains(offenders[0], "sneakyFormat: nested OutputContract write p.OutputContract.Format") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("nested_pointer_write", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, header+`
+func mutate(c *dataquery.OutputContract) { c.Format = dataquery.OutputJSONOnly }
+func sneakyPointer(p dataquery.TaskPlan) dataquery.TaskPlan { mutate(&p.OutputContract); return p }
+`)
+		if offenders := censusDataTaskOutputContractNestedWriters(files); len(offenders) != 1 || !strings.Contains(offenders[0], "sneakyPointer: OutputContract address taken p.OutputContract") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("nested_green_shapes", func(t *testing.T) {
+		// Reads through the contract and whole-value writes are rule (a)'s
+		// business, not rule (f)'s.
+		files := parseDataTaskCensusSource(t, header+`
+func reader(p dataquery.TaskPlan) bool { format := p.OutputContract.Format; return format == "" }
+func whole(p dataquery.TaskPlan) dataquery.TaskPlan { p.OutputContract = dataquery.OutputContract{}; return p }
+`)
+		if offenders := censusDataTaskOutputContractNestedWriters(files); len(offenders) != 0 {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("loop_literal_view", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, loopSource("view.ExecutionOutputContract = durableOutputContract")+`
+func elsewhere(records []dataTaskWorkflowRecord) dataTaskWorkflowRuntimeView { return dataTaskWorkflowRuntimeView{Records: records} }
+`)
+		if offenders := censusDataTaskOutputContractLoopViews("probe.go", files["probe.go"]); len(offenders) != 0 {
+			t.Fatalf("literal outside the loop owner must pass: offenders=%v", offenders)
+		}
+		// The runtimeView closure is where the loop composes its view (a
+		// literal there is bound by rule (c)); a literal anywhere else in
+		// the loop owner bypasses it and is red.
+		files = parseDataTaskCensusSource(t, loopSource("view.ExecutionOutputContract = durableOutputContract"))
+		if offenders := censusDataTaskOutputContractLoopViews("probe.go", files["probe.go"]); len(offenders) != 0 {
+			t.Fatalf("literal inside runtimeView must pass: offenders=%v", offenders)
+		}
+		files = parseDataTaskCensusSource(t, strings.Replace(loopSource("view.ExecutionOutputContract = durableOutputContract"), "\t_, _ = protectPlan, runtimeView\n", "\t_, _ = protectPlan, runtimeView\n\tliteral := dataTaskWorkflowRuntimeView{Records: records, CurrentPlan: plan}\n\t_ = literal\n", 1))
+		if offenders := censusDataTaskOutputContractLoopViews("probe.go", files["probe.go"]); len(offenders) != 1 || !strings.Contains(offenders[0], "loop builds a dataTaskWorkflowRuntimeView literal inside the loop") {
+			t.Fatalf("offenders=%v", offenders)
+		}
+	})
+	t.Run("loop_owner_missing", func(t *testing.T) {
+		files := parseDataTaskCensusSource(t, header+"func nothing() {}\n")
+		if offenders := censusDataTaskOutputContractLoopViews("probe.go", files["probe.go"]); len(offenders) != 1 || !strings.Contains(offenders[0], "census walk drifted") {
 			t.Fatalf("offenders=%v", offenders)
 		}
 	})

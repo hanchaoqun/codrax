@@ -19,8 +19,8 @@ import (
 //   - by shape: ProducerPackages finds a producer shape in them (a
 //     BuildInitialInstruction method, a Tool Parameters() method, a
 //     composite literal of a model-facing carrier, a `…SystemPrompt`
-//     const, a Role:"system" message literal) — the census fails when
-//     such a package is missing here;
+//     const, a Role:"system" or Role:"user" message literal) — the
+//     census fails when such a package is missing here;
 //   - by data flow: the package builds text that a shape-bearing
 //     package forwards verbatim (Why says which carrier).
 //
@@ -28,7 +28,7 @@ import (
 // test and producers ⊆ roster, so a new renderer package, a stale row,
 // or a marker without a row all fail the build naming the package.
 var RendererRoster = []RosterEntry{
-	{Dir: "cmd", Lane: LanePromptSurface, Why: "memory summarizer prompt + tool schema; the rest of the package is operator-facing CLI text"},
+	{Dir: "cmd", Lane: LanePromptSurface, Why: "memory summarizer system prompt, tool schema and user-message turn text; the rest of the package is operator-facing CLI text"},
 	{Dir: "internal/agent", Lane: LanePackage, Why: "evaluator BuildInitialInstruction renderers, LoopSignal hints, StageOutput.Error retry text; dynamic twin = prompt_snapshot_test"},
 	{Dir: "internal/analysis/amplifier", Lane: LanePackage, Why: "Amplification.Reason rows render into the analyzer retry directive"},
 	{Dir: "internal/analysis/contract", Lane: LanePackage, Why: "Violation.Detail/Repair and SuspectedRoot.Reason feed the retry-hint composer"},
@@ -37,7 +37,7 @@ var RendererRoster = []RosterEntry{
 	{Dir: "internal/context", Lane: LanePackage, Why: "BuildPromptContext assembles every system/user section"},
 	{Dir: "internal/env/recommend", Lane: LanePackage, Why: "environment-recommendation tool schema + system prompt"},
 	{Dir: "internal/orchestrator", Lane: LanePackage | LanePromptSurface, Why: "reviewer system prompts + tool schemas (surface lane; const values are skipped by the static policy) and validator Violation/SuspectedRoot/RepairDirective text (package lane)"},
-	{Dir: "internal/repl", Lane: LanePromptSurface, Why: "turn-policy / chit-chat / operation / data-lane prompts and schemas; the rest of the package is operator-facing REPL text"},
+	{Dir: "internal/repl", Lane: LanePromptSurface, Why: "turn-policy / chit-chat / operation / data-lane system prompts, schemas, and the runtime-assembled user-role instruction text (user blobs, no-tool and structured-tool repair prompts, tool replies) bound by text flow; operator-facing REPL text stays outside the bound flows"},
 	{Dir: "internal/tool", Lane: LanePackage, Why: "tool Description/Parameters schemas and ToolResult.Summary rejection text; roster twin = TestNoInternalTermsInToolSchemas"},
 	{Dir: "internal/tool/ground", Lane: LanePackage, Why: "CitationReport.Reason is copied into ToolResult.Summary"},
 	{Dir: "internal/tool/repomap", Lane: LanePackage, Why: "repo_map tool Description/Parameters"},
@@ -107,7 +107,8 @@ var CensusRoots = []string{".", "internal", "cmd"}
 //     returns an error;
 //   - a package-level const/var named `…SystemPrompt`;
 //   - a composite literal carrying `Role: "system"` (a provider system
-//     message built in place).
+//     message built in place) or `Role: "user"` (runtime-assembled
+//     instruction text sent as the user turn).
 func ProducerPackages(moduleRoot string) ([]Producer, error) {
 	dirs, err := censusPackageDirs(moduleRoot)
 	if err != nil {
@@ -191,6 +192,9 @@ func ProducerPackages(moduleRoot string) ([]Producer, error) {
 				}
 				if isSystemMessageLiteral(cl) {
 					add("SystemMessage", cl.Pos())
+				}
+				if isUserMessageLiteral(cl) {
+					add("UserMessage", cl.Pos())
 				}
 				switch t := cl.Type.(type) {
 				case *ast.SelectorExpr:

@@ -3161,6 +3161,54 @@ func TestTurnPolicyDispatch_RepoRouteCarriesCurrentPresentationDirective(t *test
 	}
 }
 
+// TestTurnPolicyDispatch_WriteRouteCarriesPresentationAuthorityAsOneCarrier
+// pins §40.54 fold-in (G6-analyzer-key #1): the auto-route write arm used
+// to keep the classifier's requires_diagram bit while dropping the
+// directive span, so the write-mode classifier analyzer saw "Hard visual
+// requirement: required" with no directive text — the bool-only shape the
+// §40.54 residual claimed arose only from tests. Every fall-through route
+// (write / hybrid / repo) now hands the runner the ONE typed carrier
+// (TurnPolicy.PresentationAuthority): directive and bool together, or
+// both cleared.
+func TestTurnPolicyDispatch_WriteRouteCarriesPresentationAuthorityAsOneCarrier(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:                 RouteWrite,
+			NeedsRepoAccess:       true,
+			Operation:             "code_change",
+			WriteIntent:           WriteIntentExplicitChange,
+			Source:                "repo",
+			Confidence:            0.9,
+			Reason:                "repository change request",
+			PresentationDirective: "sequence diagram",
+			RequiresDiagram:       true,
+		},
+	}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, _ := newTurnPolicyREPL(t, store, classifier, responder,
+		"add a sequence diagram of the retry loop to docs/arch.md\n/exit\n")
+	r.writeEnabled = true
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 1 || len(runner.seenModes) != 1 || runner.seenModes[0] != types.ModeApply {
+		t.Fatalf("auto route=write should dispatch exactly one Auto Pilot apply run; requests=%d modes=%v", len(runner.requests), runner.seenModes)
+	}
+	if len(runner.seenDiagramRequired) != 1 || !runner.seenDiagramRequired[0] {
+		t.Fatalf("hard diagram authority not delivered through typed setter: seen=%v setCalls=%v",
+			runner.seenDiagramRequired, runner.diagramSetCalls)
+	}
+	if len(runner.seenDirectives) != 1 || runner.seenDirectives[0] != "sequence diagram" {
+		t.Fatalf("write route dropped the directive while keeping the bool (bool-only carrier): seen=%q setCalls=%q",
+			runner.seenDirectives, runner.directiveSetCalls)
+	}
+	got := types.PresentationAuthority{Directive: runner.seenDirectives[0], DiagramRequired: runner.seenDiagramRequired[0]}
+	if want := classifier.policy.PresentationAuthority(); got != want {
+		t.Fatalf("runner received %+v, want the classifier's typed carrier %+v", got, want)
+	}
+}
+
 func TestTurnPolicyDispatch_OperationRouteUnavailableDoesNotRunPipeline(t *testing.T) {
 	store := newPolicyStore(t)
 

@@ -45,20 +45,27 @@ func newTraceDBRawSchedSwitchLiteJoin(
 		eligible:              map[traceDBRawSchedSwitchLiteJoinKey]traceDBRawSchedSwitchLiteRecord{},
 		consumed:              map[traceDBRawSchedSwitchLiteJoinKey]bool{},
 	}
-	if inventory == nil || inventory.RawDecode.Role == "" {
-		join.coverage.Metadata["join_state"] = "unavailable_source_raw_decode_ledger"
-		join.coverage.Skipped = "scheduler-lite switch join unavailable: source raw decode ledger absent"
+	if inventory != nil {
+		traceDBAttachRawSchedulerLiteDiagnostics(
+			&join.coverage, inventory.RawDecode, "sched_switch_lite")
+		join.coverage.Found = len(inventory.RawSwitchLite) > 0
+		join.coverage.RowsRead = len(inventory.RawSwitchLite)
+		traceDBAddCoverageMetric(&join.coverage, "raw_records_retained", int64(len(inventory.RawSwitchLite)))
+	}
+	// The class gate (source_raw_lane_gate.go) splits absent/non-official
+	// source (not applicable) from an official census that did not close
+	// (census incomplete); an unrecognized ledger shape fails loud on the
+	// coverage and the join stays not ready.
+	if stop, _ := traceDBApplySourceRawLaneGateKeyed(&join.coverage, inventory,
+		traceDBSourceRawLaneStateKeyJoin, "scheduler-lite switch join"); stop {
 		return join
 	}
-	traceDBAttachRawSchedulerLiteDiagnostics(
-		&join.coverage, inventory.RawDecode, "sched_switch_lite")
-	join.coverage.Found = len(inventory.RawSwitchLite) > 0
-	join.coverage.RowsRead = len(inventory.RawSwitchLite)
-	traceDBAddCoverageMetric(&join.coverage, "raw_records_retained", int64(len(inventory.RawSwitchLite)))
+	// Past the gate the census closed; the family predicate can only fail on
+	// the family's own retention store having been withdrawn by byte budget.
 	if !traceDBRawDecodeFamilyComplete(
 		inventory.RawDecode, traceDBRawRetentionSwitchLite) {
-		join.coverage.Metadata["join_state"] = "withheld_source_raw_decode_incomplete"
-		join.coverage.Skipped = "scheduler-lite switch join withheld: source raw decode ledger incomplete"
+		join.coverage.Metadata["join_state"] = traceDBSourceRawLaneFamilyRetentionWithdrawnState
+		join.coverage.Skipped = "scheduler-lite switch join withheld: retained family record store exceeded its byte budget"
 		return join
 	}
 	admitted := inventory.RawDecode.Metrics["target_sched_switch_lite_body_admitted"]
@@ -129,7 +136,7 @@ func newTraceDBRawSchedSwitchLiteJoinCoverage() TraceDBCoverage {
 			"raw_db_time_alignment": "exact timestamp+CPU coordinate overlap is an observational alignment witness; zero overlap with nonempty admitted raw and audited DB lanes is advisory only and does not prove a clock-domain offset or gate publication",
 		},
 		Metadata: map[string]string{
-			"join_state":              "unavailable",
+			"join_state":              traceDBSourceRawLanePlaceholderState,
 			"physical_event_contract": "enrich_existing_db_boundary_or_publish_unique_lifecycle_proven_raw_unmatched; duplicate_events=0",
 		},
 	}

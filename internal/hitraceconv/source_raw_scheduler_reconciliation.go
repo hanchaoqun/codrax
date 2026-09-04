@@ -30,7 +30,7 @@ func traceDBSchedulerPublicationReconciliationCoverage(
 			"time_alignment": "source raw/DB exact timestamp+CPU overlap observation copied from the join; absence is advisory and is not proof of a clock-domain offset",
 		},
 		Metadata: map[string]string{
-			"reconciliation_state": "unavailable",
+			"reconciliation_state": traceDBSourceRawLanePlaceholderState,
 		},
 	}
 	db, dbOK := traceDBCoverageByIdentity(

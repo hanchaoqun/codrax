@@ -73,14 +73,26 @@ func hitLabels(hits []Hit) []string {
 	return out
 }
 
+// TestScanGoDir_SelfRedPerShape proves every structural exclusion and
+// every scanned position on a synthetic package. EVOLUTION RECORD
+// (§40.52 fold-in, G6-jargon #0): the original case pinned only
+// `fmt.Fprintf(os.Stderr, …)` as excluded, so the scanner's unconditional
+// fmt.Fprint* exclusion — which also hid builder-directed
+// `fmt.Fprintf(&b, …)` prompt writes — could never go red. The
+// fmt.Fprint* lane is now keyed on the writer operand: host streams
+// (os.Stdout / os.Stderr / io.Discard / a logger's Writer(), directly or
+// through a single-assignment name) stay excluded; a strings.Builder,
+// an io.Writer parameter and a field writer are scanned.
 func TestScanGoDir_SelfRedPerShape(t *testing.T) {
 	dir := writeScratchPackage(t, map[string]string{
 		"a.go": `package scratch
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"strings"
 	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
@@ -90,6 +102,8 @@ type row struct {
 
 const enumValue = "finalizer_only"
 const prose = "the TaskGraph is ready"
+
+var auditOut = os.Stdout
 
 func f(x string) string {
 	logging.Debug("[CGEC] excluded %s", x)
@@ -101,6 +115,21 @@ func f(x string) string {
 }
 
 func g() error { return fmt.Errorf("HypothesisSet stays in scope") }
+
+type sink struct{ out io.Writer }
+
+func h(w io.Writer, k *sink) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "hit: %s in EvidenceClosure", "x")
+	fmt.Fprintln(w, "hit: ReadSet through an io.Writer parameter")
+	fmt.Fprint(k.out, "hit: PendingReads through a field writer")
+	errOut := os.Stderr
+	fmt.Fprintf(errOut, "GroundingStatus excluded through a stream-bound name")
+	fmt.Fprintf(auditOut, "AnchorKind excluded through a package-level stream name")
+	fmt.Fprintf(log.Writer(), "RiskMatrix excluded through the logger writer")
+	fmt.Fprintln(io.Discard, "QualityGate excluded through io.Discard")
+	return b.String()
+}
 `,
 		"a_test.go": `package scratch
 
@@ -113,12 +142,15 @@ const ignored = "AnalysisIR in a test file is never scanned"
 		t.Fatalf("narrow scan: %v", err)
 	}
 	wantNarrow := []string{
-		"a.go:14/finalizer",      // const enum value: in scope without SkipConstRHS
-		"a.go:15/TaskGraph",      // const prose
-		"a.go:22/EvidencePlan",   // *Error target: in scope without SkipErrorTargets
-		"a.go:23/RequestModel",   // plain literal
-		"a.go:23/AnswerContract", // fmt.Sprintf argument is NOT a logger
-		"a.go:26/HypothesisSet",  // fmt.Errorf argument is NOT a logger
+		"a.go:16/finalizer",       // const enum value: in scope without SkipConstRHS
+		"a.go:17/TaskGraph",       // const prose
+		"a.go:26/EvidencePlan",    // *Error target: in scope without SkipErrorTargets
+		"a.go:27/RequestModel",    // plain literal
+		"a.go:27/AnswerContract",  // fmt.Sprintf argument is NOT a logger
+		"a.go:30/HypothesisSet",   // fmt.Errorf argument is NOT a logger
+		"a.go:36/EvidenceClosure", // fmt.Fprintf into a strings.Builder is a prompt write
+		"a.go:37/ReadSet",         // fmt.Fprintln into an io.Writer parameter is scanned
+		"a.go:38/PendingReads",    // fmt.Fprint into a field writer is scanned
 	}
 	if got := strings.Join(hitLabels(narrow), " "); got != strings.Join(wantNarrow, " ") {
 		t.Fatalf("narrow policy hits = %v\nwant %v", hitLabels(narrow), wantNarrow)
@@ -128,7 +160,10 @@ const ignored = "AnalysisIR in a test file is never scanned"
 	if err != nil {
 		t.Fatalf("wide scan: %v", err)
 	}
-	wantWide := []string{"a.go:23/RequestModel", "a.go:23/AnswerContract", "a.go:26/HypothesisSet"}
+	wantWide := []string{
+		"a.go:27/RequestModel", "a.go:27/AnswerContract", "a.go:30/HypothesisSet",
+		"a.go:36/EvidenceClosure", "a.go:37/ReadSet", "a.go:38/PendingReads",
+	}
 	if got := strings.Join(hitLabels(wide), " "); got != strings.Join(wantWide, " ") {
 		t.Fatalf("wide policy hits = %v\nwant %v", hitLabels(wide), wantWide)
 	}

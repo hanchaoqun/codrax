@@ -7157,18 +7157,23 @@ func (r *REPL) dispatch(line, display string) {
 	// pure memory-meta question that happens to follow a sticky
 	// attached log correctly routes to chitchat (chitchat doesn't
 	// consume the attachment).
-	// presentationDirective carries a typed current-turn display
-	// request into the runner via SetPresentationDirective. It can
-	// come from route=hybrid (fresh repo + previous-answer transform)
-	// or route=repo (fresh repo question whose own wording asks for a
-	// specific view such as a diagram/table). Critical invariant:
-	// `line` is the USER's authoritative phrasing — it must NOT be
-	// overwritten with system-generated headers, because recordTurn
-	// at the end of dispatch persists `line` into memory verbatim.
-	// Mutating line would inject "## Presentation directive ..."
-	// headers into BuildContext on every subsequent turn (#6). The
+	// presentation carries the typed current-turn presentation
+	// authority (directive span + precise hard-visual bit, ONE value —
+	// §40.54 fold-in) into the runner via the two typed setters. It is
+	// copied whole from the classifier policy on every route that falls
+	// through to the pipeline — route=hybrid (fresh repo +
+	// previous-answer transform), route=repo (fresh repo question whose
+	// own wording asks for a specific view such as a diagram/table) and
+	// route=write (Auto Pilot; the write-mode classifier analyzer renders
+	// the same Presentation Directive section) — and stays zero otherwise,
+	// so a runner never sees the bool without its directive. Critical
+	// invariant: `line` is the USER's authoritative phrasing — it must
+	// NOT be overwritten with system-generated headers, because
+	// recordTurn at the end of dispatch persists `line` into memory
+	// verbatim. Mutating line would inject "## Presentation directive
+	// ..." headers into BuildContext on every subsequent turn (#6). The
 	// directive instead rides on a separate typed metadata channel.
-	presentationDirective := ""
+	presentation := types.PresentationAuthority{}
 	turnRouteHint := types.TurnRouteHint{}
 	resolvedTurnPolicy := TurnPolicy{}
 	hasAttach := r.attachedLog != "" || r.attachedHitrace != "" ||
@@ -7194,7 +7199,7 @@ func (r *REPL) dispatch(line, display string) {
 				r.dataTaskDispatch(line, display, policy)
 				return
 			case UserModeCode:
-				presentationDirective = policy.PresentationDirective
+				presentation = policy.PresentationAuthority()
 				logging.Info("[repl/turn_policy] explicit code mode → pipeline")
 			}
 		}
@@ -7302,6 +7307,11 @@ func (r *REPL) dispatch(line, display string) {
 						return
 					}
 					defer restoreMode()
+					// The write-mode run dispatches the read analyzer as
+					// classifier, which renders the same Presentation
+					// Directive section: carry the whole typed carrier, as
+					// the CLI single-shot bridge does for every route.
+					presentation = policy.PresentationAuthority()
 					logging.Info("[repl/turn_policy] write → current dispatch Auto Pilot apply")
 				case RouteHybrid:
 					if r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy) {
@@ -7311,17 +7321,17 @@ func (r *REPL) dispatch(line, display string) {
 					// request below — NEVER mutate `line`
 					// (memory invariant; see top-of-block
 					// comment).
-					presentationDirective = policy.PresentationDirective
+					presentation = policy.PresentationAuthority()
 					logging.Info("[repl/turn_policy] hybrid → pipeline with directive=%q",
-						oneLineClamp(presentationDirective, 80))
+						oneLineClamp(presentation.Directive, 80))
 				case RouteRepo:
 					if r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy) {
 						return
 					}
-					presentationDirective = policy.PresentationDirective
-					if strings.TrimSpace(presentationDirective) != "" {
+					presentation = policy.PresentationAuthority()
+					if presentation.Directive != "" {
 						logging.Info("[repl/turn_policy] repo → pipeline with directive=%q (confidence=%.2f)",
-							oneLineClamp(presentationDirective, 80), policy.Confidence)
+							oneLineClamp(presentation.Directive, 80), policy.Confidence)
 					} else {
 						logging.Info("[repl/turn_policy] repo → pipeline (confidence=%.2f)", policy.Confidence)
 					}
@@ -7357,14 +7367,15 @@ func (r *REPL) dispatch(line, display string) {
 
 	logging.Info("[repl] dispatching request: %s", oneLine(line))
 
-	// Propagate the typed current-turn display directive. Always call the
-	// setter, including with "", so a reused orchestrator cannot leak a
-	// previous turn's diagram/table preference into the next request.
+	// Propagate the typed current-turn presentation authority — both
+	// fields of the one carrier. Always call the setters, including with
+	// the zero carrier, so a reused orchestrator cannot leak a previous
+	// turn's diagram/table preference into the next request.
 	if setter, ok := r.runner.(presentationDirectiveSetter); ok {
-		setter.SetPresentationDirective(presentationDirective)
+		setter.SetPresentationDirective(presentation.Directive)
 	}
 	if setter, ok := r.runner.(presentationDiagramRequirementSetter); ok {
-		setter.SetPresentationDiagramRequired(resolvedTurnPolicy.RequiresDiagram)
+		setter.SetPresentationDiagramRequired(presentation.DiagramRequired)
 	}
 	if setter, ok := r.runner.(turnRouteHintSetter); ok {
 		setter.SetTurnRouteHint(turnRouteHint)

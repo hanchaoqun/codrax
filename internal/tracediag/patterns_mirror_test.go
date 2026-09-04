@@ -133,32 +133,161 @@ func TestStepParamSchemaPinned(t *testing.T) {
 			t.Errorf("%s parameter-face drift (review stepQuery / stepParamsEcho / decode hint / validateStep / architecture.md §13.7 / internal/tool cross-face census, then re-pin with a comment): got=%s want=%s\ncurrent_schema=%s", item.name, got, want, schema)
 		}
 	}
-	pkg := reflect.TypeOf(Script{}).PkgPath()
-	seen := map[reflect.Type]bool{}
-	var walk func(typ reflect.Type)
-	walk = func(typ reflect.Type) {
-		for typ.Kind() == reflect.Ptr || typ.Kind() == reflect.Slice {
-			typ = typ.Elem()
-		}
-		if typ.Kind() != reflect.Struct || typ.PkgPath() != pkg || seen[typ] {
-			return
-		}
-		seen[typ] = true
+	reachable, problems := yamlDecodedStructClosure(reflect.TypeOf(Script{}))
+	for _, problem := range problems {
+		t.Errorf("Script yaml closure: %s", problem)
+	}
+	for _, typ := range reachable {
 		if _, pinned := stepParamSchemaPins[typ]; !pinned {
 			t.Errorf("%s is reachable from the strict-decoded Script but has no parameter-face pin; add it to stepParamSchemaPins", typ.Name())
 		}
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			if field.PkgPath != "" || field.Tag.Get("yaml") == "" {
-				continue
-			}
-			walk(field.Type)
-		}
 	}
-	walk(reflect.TypeOf(Script{}))
+	seen := map[reflect.Type]bool{}
+	for _, typ := range reachable {
+		seen[typ] = true
+	}
 	for typ := range stepParamSchemaPins {
 		if !seen[typ] {
 			t.Errorf("%s is pinned but not reachable from Script's yaml face (stale pin)", typ.Name())
+		}
+	}
+}
+
+// yamlDecodedStructClosure walks every struct yaml.v3 would decode into
+// starting at root, following exactly the decoder's rules through
+// YAMLFieldKey (untagged exported fields under their lowercased name,
+// `yaml:"-"` skipped, `,inline` flattened) and through every container the
+// decoder unwraps (pointer, slice, array, map key and element). Shapes the
+// pin cannot fingerprint — an interface field (open schema) or a struct
+// from another package (its fields are not this package's yaml face) — are
+// reported as problems so the pin fails loud instead of walking past them
+// (§40.50). The returned order is deterministic (discovery order).
+func yamlDecodedStructClosure(root reflect.Type) (reachable []reflect.Type, problems []string) {
+	pkg := root.PkgPath()
+	seen := map[reflect.Type]bool{}
+	var walk func(typ reflect.Type, path string)
+	walk = func(typ reflect.Type, path string) {
+		for {
+			switch typ.Kind() {
+			case reflect.Ptr, reflect.Slice, reflect.Array:
+				typ = typ.Elem()
+				continue
+			case reflect.Map:
+				walk(typ.Key(), path+"[key]")
+				typ = typ.Elem()
+				continue
+			}
+			break
+		}
+		switch typ.Kind() {
+		case reflect.Interface:
+			problems = append(problems, path+": interface-typed field is an open yaml schema the parameter-face pin cannot fingerprint")
+			return
+		case reflect.Struct:
+		default:
+			return
+		}
+		if typ.PkgPath() != pkg {
+			problems = append(problems, path+": "+typ.String()+" is a struct from another package reachable through the yaml face; mirror it locally or pin it explicitly")
+			return
+		}
+		if seen[typ] {
+			return
+		}
+		seen[typ] = true
+		reachable = append(reachable, typ)
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			key, decoded, inline := YAMLFieldKey(field)
+			if !decoded {
+				continue
+			}
+			label := key
+			if inline {
+				label = "<inline " + field.Name + ">"
+			}
+			walk(field.Type, path+"."+label)
+		}
+	}
+	walk(root, root.Name())
+	return reachable, problems
+}
+
+// Self-red per shape for the closure walk (G6-tracediag #1): each shape
+// below is one yaml.v3 decodes but the pre-fix walk skipped.
+func TestYAMLDecodedStructClosureSelfRed(t *testing.T) {
+	type nestedUntagged struct {
+		Foo int
+	}
+	type nestedMapElem struct {
+		Bar string `yaml:"bar"`
+	}
+	type nestedArrayElem struct {
+		Baz string `yaml:"baz"`
+	}
+	type nestedMapKey struct {
+		K string
+	}
+	type nestedDashed struct {
+		Hidden int
+	}
+	type nestedInline struct {
+		Qux string `yaml:"qux"`
+	}
+	type openField struct {
+		Any interface{} `yaml:"any"`
+	}
+	type probeRoot struct {
+		Extra    nestedUntagged           // untagged exported: decoded under "extra"
+		Elems    map[string]nestedMapElem `yaml:"elems"`
+		Keys     map[nestedMapKey]int     `yaml:"keys"`
+		Arr      [2]nestedArrayElem       `yaml:"arr"`
+		Dashed   nestedDashed             `yaml:"-"`
+		Inlined  nestedInline             `yaml:",inline"`
+		Foreign  tracequery.Query         `yaml:"foreign"`
+		Open     openField                `yaml:"open"`
+		hidden   nestedDashed             //nolint:unused — unexported, never decoded
+		Untagged map[string][]nestedUntagged
+	}
+	_ = probeRoot{}.hidden
+	reachable, problems := yamlDecodedStructClosure(reflect.TypeOf(probeRoot{}))
+	names := map[string]bool{}
+	for _, typ := range reachable {
+		names[typ.Name()] = true
+	}
+	for _, want := range []string{"probeRoot", "nestedUntagged", "nestedMapElem", "nestedMapKey", "nestedArrayElem", "nestedInline", "openField"} {
+		if !names[want] {
+			t.Errorf("%s must be reachable through the decoder's rules; reachable=%v", want, names)
+		}
+	}
+	if names["nestedDashed"] {
+		t.Errorf("yaml:\"-\" and unexported fields are never decoded; reachable=%v", names)
+	}
+	joined := strings.Join(problems, "\n")
+	for _, want := range []string{"probeRoot.open.any: interface-typed field", "probeRoot.foreign: tracequery.Query is a struct from another package"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("closure walk must fail loud on %q, got:\n%s", want, joined)
+		}
+	}
+	if len(problems) != 2 {
+		t.Errorf("problems=%d, want exactly the two unpinnable shapes:\n%s", len(problems), joined)
+	}
+	// The key rule itself: default lowercased name, tag name, dash, inline.
+	for name, want := range map[string]struct {
+		key             string
+		decoded, inline bool
+	}{
+		"Extra":    {"extra", true, false},
+		"Elems":    {"elems", true, false},
+		"Dashed":   {"", false, false},
+		"Inlined":  {"", true, true},
+		"hidden":   {"", false, false},
+		"Untagged": {"untagged", true, false},
+	} {
+		field, _ := reflect.TypeOf(probeRoot{}).FieldByName(name)
+		key, decoded, inline := YAMLFieldKey(field)
+		if key != want.key || decoded != want.decoded || inline != want.inline {
+			t.Errorf("YAMLFieldKey(%s) = (%q,%v,%v), want (%q,%v,%v)", name, key, decoded, inline, want.key, want.decoded, want.inline)
 		}
 	}
 }

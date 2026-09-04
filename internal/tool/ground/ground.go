@@ -60,16 +60,92 @@ var gutterLineRe = regexp.MustCompile(`^\s*(\d{1,12})│ (.*)$`)
 // identifierTokenRe extracts identifier-shaped tokens of length ≥3.
 var identifierTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
 
+// Declaration-form regexes. A generic declaration spells a type-parameter
+// list between the name and its `(` (`fn parse<T>(`, `func parse[T any](`,
+// `class Parser<T>(`) or right after the keyword (Kotlin `fun <T> parse(`,
+// Rust `impl<T> Parser<T>`); every form accepts that list so a declaration
+// is definition-shaped with or without it (§40.59 合流复核收编 G6-debt #0).
+// The first capture group of the keyword-led forms is the declaration
+// keyword (or the `template<…>` prefix) the repair note names.
+//
+// typeParameterListRe is the one spelling of that list every form shares:
+// balanced angle brackets whose interior holds no parenthesis, brace,
+// semicolon or bare angle, with one level of nesting (`<K, V>`,
+// `<T: Comparable<T>>`, `<T extends Foo<Bar>>`). A bare `>` followed by
+// further tokens (`template<> int parse<int>(`) is therefore never read as
+// one list, so the method-signature form cannot swallow a C++ template
+// specialisation.
+const typeParameterListRe = `<(?:[^();{}<>]|<[^();{}<>]*>)*>`
+
 var (
-	callableDefinitionLineRe         = regexp.MustCompile(`^\s*(?:(?:abstract|async|const|default|export|final|foreign|inline|internal|local|mut|native|open|operator|override|private|protected|public|pub|redef|sealed|static|suspend|unsafe|virtual)\s+)*(?:def|func|function|fun|fn|rpc)\s+(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*\s*\(`)
-	cFamilyDefinitionLineRe          = regexp.MustCompile(`^\s*(?:(?:template\s*<[^>]+>|__device__|__global__|__host__|abstract|async|constexpr|extern|final|friend|inline|native|open|override|private|protected|public|static|synchronized|virtual)\s+)*(?:[A-Za-z_][A-Za-z0-9_:<>\[\]\*&?,.]*\s+)+(?:[A-Za-z_~][A-Za-z0-9_~]*::)*[A-Za-z_~][A-Za-z0-9_~]*\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:throws\s+[^{};]+)?(?:->\s*[^{};]+)?(?:\{|$)`)
-	methodDefinitionLineRe           = regexp.MustCompile(`^\s*(?:(?:abstract|async|export|final|internal|open|operator|override|private|protected|public|static|suspend)\s+)*[A-Za-z_][A-Za-z0-9_]*\s*\([^)]*\)\s*(?::|throws\b|where\b|\{|=>)`)
+	callableDefinitionLineRe         = regexp.MustCompile(`^\s*(?:(?:abstract|async|const|default|export|final|foreign|inline|internal|local|mut|native|open|operator|override|private|protected|public|pub|redef|sealed|static|suspend|unsafe|virtual)\s+)*(def|func|function|fun|fn|rpc)\s+(?:` + typeParameterListRe + `\s*)?(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*(?:\s*(?:` + typeParameterListRe + `|\[[^\]()]*\]))?\s*\(`)
+	cFamilyDefinitionLineRe          = regexp.MustCompile(`^\s*(template\s*<[^>]*>\s*)?(?:(?:__device__|__global__|__host__|abstract|async|constexpr|extern|final|friend|inline|native|open|override|private|protected|public|static|synchronized|virtual)\s+)*(?:[A-Za-z_][A-Za-z0-9_:<>\[\]\*&?,.]*\s+)+(?:[A-Za-z_~][A-Za-z0-9_~]*::)*[A-Za-z_~][A-Za-z0-9_~]*(?:\s*` + typeParameterListRe + `)?\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:throws\s+[^{};]+)?(?:->\s*[^{};]+)?(?:\{|$)`)
+	methodDefinitionLineRe           = regexp.MustCompile(`^\s*(?:(?:abstract|async|export|final|internal|open|operator|override|private|protected|public|static|suspend)\s+)*[A-Za-z_][A-Za-z0-9_]*(?:\s*` + typeParameterListRe + `)?\s*\([^)]*\)\s*(?::|throws\b|where\b|\{|=>)`)
 	assignedCallableDefinitionLineRe = regexp.MustCompile(`^\s*(?:(?:export|default|public|private|protected|static|readonly|final)\s+)*(?:(?:const|let|var|val)\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b[^{(]*\([^)]*\)|\([^)]*\)\s*(?::\s*[^=]+)?=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>|lambda\b)`)
 	cangjieOperatorDefinitionLineRe  = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|open|static|operator|sealed|abstract|foreign|override|redef|mut|const|unsafe)\s+)*operator\s+func\s+[^\s()]+\s*\(`)
 	objectiveCMethodDefinitionLineRe = regexp.MustCompile(`^\s*[-+]\s*\([^)]*\)\s*[A-Za-z_][A-Za-z0-9_]*(?::|\s*\{)`)
-	typeDefinitionLineRe             = regexp.MustCompile(`^\s*(?:(?:abstract|case|data|export|final|open|private|protected|public|pub|sealed|static)\s+)*(?:class|enum|extension|interface|message|protocol|record|service|struct|trait|type)\s+[A-Za-z_][A-Za-z0-9_]*\b`)
-	objectiveCTypeDefinitionLineRe   = regexp.MustCompile(`^\s*@(interface|implementation|protocol)\s+[A-Za-z_][A-Za-z0-9_]*\b`)
+	typeDefinitionLineRe             = regexp.MustCompile(`^\s*((?:(?:abstract|annotation|case|data|enum|export|final|inner|open|private|protected|public|pub|sealed|static|value)\s+)*(?:class|enum|extension|interface|message|protocol|record|service|struct|trait|type|impl|object|actor|union|extend))\b(?:\s*<[^>]*>)?\s+[A-Za-z_][A-Za-z0-9_]*\b`)
+	objectiveCTypeDefinitionLineRe   = regexp.MustCompile(`^\s*(@(?:interface|implementation|protocol))\s+[A-Za-z_][A-Za-z0-9_]*\b`)
 )
+
+// definitionLineShape is one declaration form the source-shape guard
+// recognises. form is the wording the repair note uses; when empty, the
+// regex's first capture group (a declaration keyword, keyword compound
+// such as `data class`, or the `template<…>` prefix) names the form.
+// callable marks the function/method family the callback and argument
+// readers consult; the type-declaration forms are definition-shaped for
+// the call-anchor refusal and the snippet check only.
+type definitionLineShape struct {
+	re       *regexp.Regexp
+	form     string
+	callable bool
+}
+
+// definitionLineShapes is ordered by note precedence: keyword-led forms
+// name themselves first; the C-style signature — whose type-token head
+// also spans `class Parser(val x: T) {` — comes last so a line that is
+// both is reported by its keyword.
+var definitionLineShapes = []definitionLineShape{
+	{re: callableDefinitionLineRe, callable: true},
+	{re: cangjieOperatorDefinitionLineRe, form: `"operator func" declaration`, callable: true},
+	{re: objectiveCMethodDefinitionLineRe, form: "Objective-C method declaration", callable: true},
+	{re: typeDefinitionLineRe},
+	{re: objectiveCTypeDefinitionLineRe},
+	{re: methodDefinitionLineRe, form: "method signature (name(...) followed by a return type or body)", callable: true},
+	{re: assignedCallableDefinitionLineRe, form: "callable assigned to a name", callable: true},
+	{re: cFamilyDefinitionLineRe, callable: true},
+}
+
+// declarationFormVisibilityWords are the modifiers dropped from a captured
+// declaration prefix before it is named in the note: `pub struct` is a
+// "struct" declaration, `data class` stays a "data class" declaration.
+var declarationFormVisibilityWords = map[string]bool{
+	"abstract": true, "export": true, "final": true, "open": true,
+	"private": true, "protected": true, "public": true, "pub": true, "static": true,
+}
+
+func (s definitionLineShape) label(text string) string {
+	if s.form != "" {
+		return s.form
+	}
+	m := s.re.FindStringSubmatch(text)
+	if len(m) < 2 {
+		return "declaration"
+	}
+	if s.re == cFamilyDefinitionLineRe {
+		if strings.TrimSpace(m[1]) == "" {
+			return "C-style signature with the return type before the name"
+		}
+		return `"template<...>" declaration`
+	}
+	var words []string
+	for _, word := range strings.Fields(m[1]) {
+		if !declarationFormVisibilityWords[word] {
+			words = append(words, word)
+		}
+	}
+	return fmt.Sprintf("%q declaration", strings.Join(words, " "))
+}
 
 // Context carries the per-dispatch inputs the grounding tiers read:
 // the reconstructed line index from every read_file in this Run's
@@ -3891,8 +3967,13 @@ func lineCorroboratesCallSite(lineText string, it *types.EvidenceItem, graph *re
 	if graphLineHasDefinitionFeature(graph, it.Source, lineNo) {
 		return false
 	}
+	// The definition-shaped refusal applies before any callee tier: a line
+	// whose callee token is preceded by a declaration form (keyword
+	// callables, type declarations, template<…> and return-type-then-name
+	// signatures, generic or not) is never a call site — only the typed
+	// tree-sitter call_expression feature on the same line lifts it.
 	typedCallExpression := graphLineHasCallExpressionFeature(graph, it.Source, lineNo)
-	if looksLikeCallableDefinitionLine(lineText) && !typedCallExpression {
+	if sourceLineLooksLikeDefinition(lineText) && !typedCallExpression {
 		return false
 	}
 	for _, target := range candidates {
@@ -4003,11 +4084,31 @@ func looksLikeCallableDefinitionLine(lineText string) bool {
 	return sourceLineLooksLikeCallableDefinition(lineText)
 }
 
-func sourceLineLooksLikeDefinition(lineText string) bool {
+// sourceLineDeclarationForm reports whether the line is definition-shaped
+// (a callable or type declaration, generic or not) and names the
+// declaration form for the repair note. Callable forms are skipped when
+// the line starts with a control keyword (`return parse(x)` is a call);
+// type forms carry their own keyword and need no such exclusion.
+func sourceLineDeclarationForm(lineText string) (string, bool) {
 	text := normalizedSourceLineForShape(lineText)
-	return sourceLineLooksLikeCallableDefinition(lineText) ||
-		typeDefinitionLineRe.MatchString(text) ||
-		objectiveCTypeDefinitionLineRe.MatchString(text)
+	if text == "" {
+		return "", false
+	}
+	control := sourceLineStartsWithControlKeyword(text)
+	for _, shape := range definitionLineShapes {
+		if shape.callable && control {
+			continue
+		}
+		if shape.re.MatchString(text) {
+			return shape.label(text), true
+		}
+	}
+	return "", false
+}
+
+func sourceLineLooksLikeDefinition(lineText string) bool {
+	_, ok := sourceLineDeclarationForm(lineText)
+	return ok
 }
 
 func sourceLineLooksLikeCallableDefinition(lineText string) bool {
@@ -4015,12 +4116,12 @@ func sourceLineLooksLikeCallableDefinition(lineText string) bool {
 	if text == "" || sourceLineStartsWithControlKeyword(text) {
 		return false
 	}
-	return callableDefinitionLineRe.MatchString(text) ||
-		cFamilyDefinitionLineRe.MatchString(text) ||
-		methodDefinitionLineRe.MatchString(text) ||
-		assignedCallableDefinitionLineRe.MatchString(text) ||
-		cangjieOperatorDefinitionLineRe.MatchString(text) ||
-		objectiveCMethodDefinitionLineRe.MatchString(text)
+	for _, shape := range definitionLineShapes {
+		if shape.callable && shape.re.MatchString(text) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizedSourceLineForShape(lineText string) string {
@@ -4197,11 +4298,12 @@ func explainAnchorKindShapeMismatch(it *types.EvidenceItem, gc *Context) string 
 	case types.AnchorCall:
 		if gc != nil && it.Source != "" && it.LineStart > 0 {
 			if fileLines, ok := gc.LineIndex[it.Source]; ok {
-				if line, ok := fileLines[it.LineStart]; ok &&
-					sourceLineLooksLikeDefinition(line) &&
-					!lineCorroboratesCallSite(line, it, gc.Graph, it.LineStart) {
-					return fmt.Sprintf("anchor_kind %q cites a definition-shaped source line at %s:%d, not a call site; re-emit with anchor_kind=%q when citing the declaration, or cite the concrete call-site line with anchor_kind=%q",
-						it.AnchorKind, it.Source, it.LineStart, types.AnchorDefinition, types.AnchorCall)
+				if line, ok := fileLines[it.LineStart]; ok {
+					if form, isDefinition := sourceLineDeclarationForm(line); isDefinition &&
+						!lineCorroboratesCallSite(line, it, gc.Graph, it.LineStart) {
+						return fmt.Sprintf("anchor_kind %q cites a definition-shaped source line (%s) at %s:%d, not a call site; re-emit with anchor_kind=%q when citing the declaration, or cite the concrete call-site line with anchor_kind=%q",
+							it.AnchorKind, form, it.Source, it.LineStart, types.AnchorDefinition, types.AnchorCall)
+					}
 				}
 			}
 		}

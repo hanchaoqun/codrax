@@ -60,6 +60,9 @@ func traceDBSourceRawGateFixture(t *testing.T, arm string) traceDBSourceNameInve
 	case "official_corrupt_envelope":
 		raw, _ := traceDBRawVisibilityCapture(t, true)
 		capture.Write(raw)
+	case "official_full_body":
+		raw, _ := traceDBRawVisibilityCapture(t, false)
+		capture.Write(raw)
 	case "legacy_envelope":
 		format := traceDBRawVisibilityFormat("hmfs_writepage")
 		content := traceDBRawVisibilityContent(format)
@@ -318,6 +321,319 @@ func TestTraceDBSemanticQualityDoesNotEvaluateNonReadyRawMarkerLanes(t *testing.
 			}
 			if quality.Metrics["callstack_sync_spans_recovered_by_raw_marker"] != 0 {
 				t.Fatalf("%s marker lane minted replacement evidence: %+v", state, quality)
+			}
+		})
+	}
+}
+
+// traceDBSourceRawKeyedLane is one source-raw lane that publishes its state
+// under a key other than publication_state (or, for the marker-async ledger,
+// under raw_async_replacement_state on the callstack coverage). run returns
+// the lane's coverage normalized so that Metadata[key] is the state, the
+// reason metadata sits under not_applicable_reason / census_incomplete_reason
+// and Skipped is the lane's prose.
+type traceDBSourceRawKeyedLane struct {
+	key  string
+	lane string
+	run  func(t *testing.T, inventory *traceDBSourceNameInventory) TraceDBCoverage
+}
+
+func traceDBSourceRawKeyedLanes() map[string]traceDBSourceRawKeyedLane {
+	return map[string]traceDBSourceRawKeyedLane{
+		"reconciliation": {key: "reconciliation_state", lane: "raw/trace_streamer reconciliation",
+			run: func(t *testing.T, inventory *traceDBSourceNameInventory) TraceDBCoverage {
+				var items []TraceDBCoverage
+				if inventory != nil {
+					items = []TraceDBCoverage{inventory.RawDecode}
+				}
+				return traceDBRawDecodeReconciliationCoverage(items)
+			}},
+		"switch_join": {key: "join_state", lane: "scheduler-lite switch join",
+			run: func(t *testing.T, inventory *traceDBSourceNameInventory) TraceDBCoverage {
+				return newTraceDBRawSchedSwitchLiteJoin(inventory).coverage
+			}},
+		"wakeup_join": {key: "join_state", lane: "scheduler-lite wakeup join",
+			run: func(t *testing.T, inventory *traceDBSourceNameInventory) TraceDBCoverage {
+				return newTraceDBRawSchedWakeupLiteJoin(inventory).coverage
+			}},
+		"cpu_fallback": {key: "authority_state", lane: "raw scheduler CPU fallback",
+			run: func(t *testing.T, inventory *traceDBSourceNameInventory) TraceDBCoverage {
+				return newTraceDBRawSchedulerCPUFallback(inventory, traceDBSchedulerAuthority{}).coverage
+			}},
+		"wakeup_name": {key: "recovery_state", lane: "raw wakeup-new display-name recovery",
+			run: func(t *testing.T, inventory *traceDBSourceNameInventory) TraceDBCoverage {
+				return traceDBApplyRawWakeupNewDisplayNames(inventory, &traceDBSchedulerAuthority{})
+			}},
+		"blocked_key": {key: "ledger_state", lane: "raw blocked key ledger",
+			run: func(t *testing.T, inventory *traceDBSourceNameInventory) TraceDBCoverage {
+				return traceDBRawBlockedKeyCoverage(inventory, nil, traceDBSchedulerAuthority{})
+			}},
+		"blocked_recovery": {key: "publication_state", lane: "raw blocked recovery",
+			run: func(t *testing.T, inventory *traceDBSourceNameInventory) TraceDBCoverage {
+				key := traceDBRawBlockedKeyCoverage(inventory, nil, traceDBSchedulerAuthority{})
+				out, err := publishTraceDBRawBlockedRecovery(context.Background(), nil, key, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return out
+			}},
+		"marker_async": {key: "raw_async_replacement_state", lane: "raw async marker replacement",
+			run: func(t *testing.T, inventory *traceDBSourceNameInventory) TraceDBCoverage {
+				ledger := newTraceDBRawAsyncMatchLedger(inventory, traceDBSchedulerAuthority{})
+				var callstack TraceDBCoverage
+				ledger.applyCoverage(&callstack)
+				out := TraceDBCoverage{Metadata: map[string]string{
+					"raw_async_replacement_state": callstack.Metadata["raw_async_replacement_state"],
+				}}
+				for _, reason := range []string{"not_applicable_reason", "census_incomplete_reason"} {
+					if value := callstack.Metadata["raw_async_"+reason]; value != "" {
+						out.Metadata[reason] = value
+					}
+				}
+				out.Skipped = callstack.Metadata["raw_async_replacement_disclosure"]
+				if out.Metadata["raw_async_replacement_state"] != ledger.state {
+					t.Fatalf("callstack coverage state %q drifted from the ledger state %q", out.Metadata["raw_async_replacement_state"], ledger.state)
+				}
+				return out
+			}},
+	}
+}
+
+// TestTraceDBSourceRawKeyedLanesShareTheGateSplit (G6-visibility #0): the
+// lanes publishing under reconciliation_state / join_state / authority_state
+// / recovery_state / ledger_state / raw_async_replacement_state (and the
+// blocked recovery lane that inherits the key ledger's outcome) used to label
+// BOTH the non-official envelope and a genuinely incomplete official census
+// "withheld … raw decode ledger/census incomplete". They consume the same
+// classifier as the publication_state family: legacy envelope → not
+// applicable (with the decode_state disclosed), official-but-truncated →
+// census incomplete (naming the census), official-and-closed → the lane's own
+// arm, which never wears either gate label.
+func TestTraceDBSourceRawKeyedLanesShareTheGateSplit(t *testing.T) {
+	lanes := traceDBSourceRawKeyedLanes()
+	wantReady := map[string]string{
+		"reconciliation":   "withheld_trace_streamer_stat_unavailable",
+		"switch_join":      "complete_no_source_records",
+		"wakeup_join":      "complete_no_source_records",
+		"cpu_fallback":     "withheld_lifecycle_authority_incomplete",
+		"wakeup_name":      "withheld_lifecycle_authority_incomplete",
+		"blocked_key":      "exact_raw_family_authority",
+		"blocked_recovery": "complete_no_eligible_raw_only_row",
+		"marker_async":     "withheld_lifecycle_authority_incomplete",
+	}
+	for _, test := range []struct {
+		arm        string
+		wantState  string
+		wantReason string
+		wantPhrase string
+	}{
+		{arm: "legacy_envelope", wantState: "not_applicable_source_profile", wantReason: "not_applicable_non_official_profile",
+			wantPhrase: " not applicable: strict official source raw profile absent"},
+		{arm: "official_truncated_segment", wantState: "census_incomplete_source_raw_decode", wantReason: "withheld_segment_inventory_incomplete",
+			wantPhrase: " not evaluated: source raw decode census incomplete (withheld_segment_inventory_incomplete)"},
+		{arm: "official_full_body"},
+	} {
+		inventory := traceDBSourceRawGateFixture(t, test.arm)
+		for name, lane := range lanes {
+			t.Run(test.arm+"/"+name, func(t *testing.T) {
+				out := lane.run(t, &inventory)
+				state := out.Metadata[lane.key]
+				if test.wantState == "" {
+					if state != wantReady[name] ||
+						out.Metadata["not_applicable_reason"] != "" || out.Metadata["census_incomplete_reason"] != "" ||
+						strings.Contains(out.Skipped, "not applicable") || strings.Contains(out.Skipped, "census incomplete") {
+						t.Fatalf("%s lane past the gate wore a gate label: state=%q %+v", name, state, out)
+					}
+					return
+				}
+				reasonKey := "not_applicable_reason"
+				if test.wantState == "census_incomplete_source_raw_decode" {
+					reasonKey = "census_incomplete_reason"
+				}
+				if state != test.wantState || out.Metadata[reasonKey] != test.wantReason ||
+					out.Skipped != lane.lane+test.wantPhrase || out.RowsEmitted != 0 {
+					t.Fatalf("%s lane mislabeled the %s arm: state=%q %+v", name, test.arm, state, out)
+				}
+				if prose, _, _ := strings.Cut(out.Skipped, " ("); test.wantState == "census_incomplete_source_raw_decode" &&
+					(strings.Contains(prose, "not applicable") || strings.Contains(prose, "withheld")) {
+					t.Fatalf("%s census-incomplete prose borrowed a neighbouring label: %q", name, out.Skipped)
+				}
+			})
+		}
+	}
+}
+
+// TestTraceDBSourceRawLanesTreatAbsentInventoryAsNotApplicable: an absent
+// source inventory means no source was profiled at all — every lane of the
+// class publishes the not-applicable state with the shared prose (and no
+// decode_state reason), never the constructor placeholder with a lane-local
+// "unavailable" sentence.
+func TestTraceDBSourceRawLanesTreatAbsentInventoryAsNotApplicable(t *testing.T) {
+	ctx := context.Background()
+	publication := map[string]func(t *testing.T) []TraceDBCoverage{
+		"raw block recovery": func(t *testing.T) []TraceDBCoverage {
+			out, err := publishTraceDBRawBlockRecovery(ctx, nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return []TraceDBCoverage{out}
+		},
+		"exact source recovery": func(t *testing.T) []TraceDBCoverage {
+			items, err := publishTraceDBRawExactRecoveries(ctx, nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return items
+		},
+		"raw DMA wait recovery": func(t *testing.T) []TraceDBCoverage {
+			out, err := publishTraceDBRawDMAWaitRecovery(ctx, nil, nil, traceDBSchedulerAuthority{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return []TraceDBCoverage{out}
+		},
+		"raw DMA lifecycle recovery": func(t *testing.T) []TraceDBCoverage {
+			out, err := publishTraceDBRawDMALifecycleRecovery(ctx, nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return []TraceDBCoverage{out}
+		},
+		"raw marker sync recovery": func(t *testing.T) []TraceDBCoverage {
+			out, err := submitTraceDBRawMarkerSyncRecovery(ctx, nil, traceDBSchedulerAuthority{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return []TraceDBCoverage{out}
+		},
+		"source raw visibility": func(t *testing.T) []TraceDBCoverage {
+			out, err := publishTraceDBSourceRawVisibility(ctx, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return []TraceDBCoverage{out}
+		},
+	}
+	check := func(t *testing.T, key, lane string, out TraceDBCoverage) {
+		t.Helper()
+		if out.Metadata[key] != "not_applicable_source_profile" ||
+			out.Metadata["not_applicable_reason"] != "" || out.Metadata["census_incomplete_reason"] != "" ||
+			out.Skipped != lane+" not applicable: strict official source raw profile absent" ||
+			out.Found || out.RowsEmitted != 0 || out.Error != "" {
+			t.Fatalf("%s with no inventory: %+v", lane, out)
+		}
+	}
+	for lane, run := range publication {
+		t.Run(lane, func(t *testing.T) {
+			for _, out := range run(t) {
+				check(t, "publication_state", lane, out)
+			}
+		})
+	}
+	for name, lane := range traceDBSourceRawKeyedLanes() {
+		t.Run(name, func(t *testing.T) {
+			check(t, lane.key, lane.lane, lane.run(t, nil))
+		})
+	}
+}
+
+// TestTraceDBRawBlockedRecoveryInheritsTheKeyLedgerGateOutcome: the recovery
+// lane consumes the key ledger's coverage, not the inventory; a non-ready
+// gate outcome on the ledger travels to the recovery lane with the same
+// state, the same reason and the class prose under its own lane phrase — it
+// is never relabeled "withheld: exact content-multiset subset ledger
+// unavailable".
+func TestTraceDBRawBlockedRecoveryInheritsTheKeyLedgerGateOutcome(t *testing.T) {
+	for _, test := range []struct {
+		state, reasonKey, reason, wantSkipped string
+	}{
+		{"not_applicable_source_profile", "not_applicable_reason", "not_applicable_non_official_profile",
+			"raw blocked recovery not applicable: strict official source raw profile absent"},
+		{"census_incomplete_source_raw_decode", "census_incomplete_reason", "withheld_profile_not_ready",
+			"raw blocked recovery not evaluated: source raw decode census incomplete (withheld_profile_not_ready)"},
+	} {
+		key := newTraceDBRawBlockedKeyCoverage()
+		key.Metadata["ledger_state"] = test.state
+		key.Metadata[test.reasonKey] = test.reason
+		out, err := publishTraceDBRawBlockedRecovery(context.Background(), nil, key, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.Metadata["publication_state"] != test.state || out.Metadata[test.reasonKey] != test.reason ||
+			out.Skipped != test.wantSkipped || out.RowsEmitted != 0 {
+			t.Fatalf("recovery lane relabeled the key ledger's %s outcome: %+v", test.state, out)
+		}
+	}
+	key := newTraceDBRawBlockedKeyCoverage()
+	key.Metadata["ledger_state"] = "withheld_unkeyed_rows"
+	out, err := publishTraceDBRawBlockedRecovery(context.Background(), nil, key, nil)
+	if err != nil || out.Metadata["publication_state"] != "withheld_key_ledger_not_exact" {
+		t.Fatalf("a post-gate key ledger withhold lost its own arm: err=%v %+v", err, out)
+	}
+}
+
+// TestTraceDBRawBlockedLanesPublishRosteredStateWhenDBExportUnavailable
+// (G6-visibility #1 live analogue): when the DB blocked-reason export stops
+// at its schema gate, the raw blocked key ledger and raw blocked recovery
+// coverages used to reach the diagnostic report as the constructor
+// placeholder "unavailable" with an empty Skipped. The class gate speaks
+// first (a legacy source is not applicable on both lanes) and, past it, both
+// lanes are withheld for the missing DB export and name the DB-side reason.
+func TestTraceDBRawBlockedLanesPublishRosteredStateWhenDBExportUnavailable(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"CREATE TABLE sched_slice (id INT, ts INT, dur INT, cpu INT, itid INT, end_state TEXT, priority INT)",
+		"CREATE TABLE thread_state (id INT, ts INT, dur INT, cpu INT, itid INT, state TEXT)",
+		"CREATE TABLE args (id INT, key INT, datatype INT, value INT, argset INT)",
+		"CREATE TABLE data_dict (id INT, data TEXT)",
+	})
+	for _, test := range []struct {
+		arm          string
+		wantState    string
+		wantReason   string
+		wantSkipped  string
+		wantRecovery string
+	}{
+		{
+			arm: "official_full_body", wantState: "withheld_db_blocked_export_unavailable",
+			wantSkipped:  "raw blocked key ledger withheld: DB blocked-reason export unavailable (missing thread_state columns arg_setid,pid,tid)",
+			wantRecovery: "raw blocked recovery withheld: DB blocked-reason export unavailable (missing thread_state columns arg_setid,pid,tid)",
+		},
+		{
+			arm: "legacy_envelope", wantState: "not_applicable_source_profile", wantReason: "not_applicable_non_official_profile",
+			wantSkipped:  "raw blocked key ledger not applicable: strict official source raw profile absent",
+			wantRecovery: "raw blocked recovery not applicable: strict official source raw profile absent",
+		},
+	} {
+		t.Run(test.arm, func(t *testing.T) {
+			tdb, err := openTraceDB(context.Background(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tdb.close()
+			inventory := traceDBSourceRawGateFixture(t, test.arm)
+			tdb.sourceNameInventory = &inventory
+			coverage, err := exportTraceDBBlockedReasons(context.Background(), tdb, nil, traceDBSchedulerAuthority{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if coverage.Skipped != "missing thread_state columns arg_setid,pid,tid" {
+				t.Fatalf("DB export schema gate drifted: %+v", coverage)
+			}
+			key, recovery := tdb.rawBlockedKeyCoverage, tdb.rawBlockedRecoveryCoverage
+			if key.Metadata["ledger_state"] != test.wantState || key.Metadata["not_applicable_reason"] != test.wantReason ||
+				key.Skipped != test.wantSkipped || key.Found != inventory.RawDecode.Found {
+				t.Fatalf("raw blocked key ledger without DB export: %+v", key)
+			}
+			if recovery.Metadata["publication_state"] != test.wantState || recovery.Metadata["not_applicable_reason"] != test.wantReason ||
+				recovery.Skipped != test.wantRecovery || recovery.Found != inventory.RawDecode.Found {
+				t.Fatalf("raw blocked recovery without DB export: %+v", recovery)
+			}
+			if !traceDBSourceRawPublicationStateBlocksEvaluation(recovery.Metadata["publication_state"]) {
+				t.Fatalf("recovery state %q is not a blocking roster member", recovery.Metadata["publication_state"])
 			}
 		})
 	}

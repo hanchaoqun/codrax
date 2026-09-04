@@ -415,7 +415,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			//     too noisy to force mechanism helpers into the answer
 			//     slate.
 			b.WriteString("### Cardinality guidance (for completeness claim)\n\n")
-			fmt.Fprintf(&b, "- **Investigation terminal-evidence count:** %d\n", ta.TerminalEvidenceCount)
+			fmt.Fprintf(&b, "- **Terminal evidence rows found by the investigation:** %d\n", ta.TerminalEvidenceCount)
 			if ctx != nil && ctx.AnalysisIR != nil {
 				must := extractorSoftGuidanceNames(ctx.AnalysisIR.AnswerContract.MustInclude)
 				fmt.Fprintf(&b, "- **Analyzer required-name count:** %d name(s)", len(must))
@@ -460,7 +460,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 						for _, bk := range rm.Buckets {
 							labels = append(labels, fmt.Sprintf("`%s`", bk.Label))
 						}
-						fmt.Fprintf(&b, "- **User-named partition:** the user split the answer into %d named groups: %s. Each symbol's `rationale` should name which bucket it belongs to so downstream rendering can section the slate.\n",
+						fmt.Fprintf(&b, "- **User-named partition:** the user split the answer into %d named groups: %s. Each symbol's `rationale` should name which bucket it belongs to so the rendered answer can be sectioned by bucket.\n",
 							len(rm.Buckets), strings.Join(labels, ", "))
 					}
 				}

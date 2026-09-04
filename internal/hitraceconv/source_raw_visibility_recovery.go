@@ -210,7 +210,7 @@ func newTraceDBSourceRawVisibilityCoverage() TraceDBCoverage {
 				string(traceDBSourceRawVisibilityCompleteNoEvent) + " (census closed with no candidate), " +
 				string(traceDBSourceRawVisibilityPublished) + " (every candidate published); only the last carries rows",
 		},
-		Metadata: map[string]string{"publication_state": "unavailable"},
+		Metadata: map[string]string{"publication_state": traceDBSourceRawLanePlaceholderState},
 	}
 }
 

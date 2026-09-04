@@ -245,7 +245,7 @@ var extractorVersions = map[string]int{
 	types.LangProto:      4,  // typed callable surface epoch shared with cache schema
 	types.LangRust:       12, // turbofish callee rows keep the bare name (B1554)
 	types.LangC:          11, // shared C/C++ extractor: template callee names unwrapped (B1554)
-	types.LangCpp:        12, // template_function/template_method callee names unwrapped (B1554)
+	types.LangCpp:        13, // template callee rows require a type-argument interior: `a<b && c>(d)` mints no row (§40.59 合流复核收编)
 }
 
 type cacheFileInfosManifest struct {

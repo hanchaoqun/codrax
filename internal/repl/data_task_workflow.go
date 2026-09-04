@@ -4877,6 +4877,15 @@ func dataTaskRecordHasPostScriptTypedProgress(rec dataTaskWorkflowRecord) bool {
 	return false
 }
 
+// dataTaskWorkflowOutputContract is the seed fold: the output contract in
+// effect for a workflow read from its recorded declarations in chronological
+// order (each record's plan then its result, the current plan last). It
+// resolves through the same helper and the same ascending order as the carry
+// resolver below, so the fold over executed records equals the live carry
+// chain over the same declarations (pinned by
+// TestDataTaskOutputContractFoldEqualsCarryChain): a CLI/REPL resume seed,
+// a system-built continuation and the completion authorities read the same
+// snapshot the loop carried.
 func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current dataquery.TaskPlan) dataquery.OutputContract {
 	var values []dataquery.OutputContract
 	for _, rec := range records {
@@ -4886,18 +4895,19 @@ func dataTaskWorkflowOutputContract(records []dataTaskWorkflowRecord, current da
 		}
 	}
 	values = append(values, current.OutputContract)
-	return firstNonEmptyOutputContract(values...)
+	return dataworkflow.ResolveOutputContract(values...)
 }
 
 // dataTaskCarryDurableOutputContract keeps the strongest structured output
 // obligation across adaptive plan attempts. Action admission and output
 // semantics are independent axes: rejecting a candidate because it crosses
 // DAG ranks must not erase a valid complete-reference declaration carried by
-// that candidate. A later equally-specific contract remains an explicit
-// revision and wins because the new candidate is scored first; merely
-// omitting fields in a repair cannot silently weaken the obligation.
+// that candidate. The candidate is the later declaration, so it is passed
+// last: a later equally-specific contract remains an explicit revision and
+// wins (ResolveOutputContract's single tie policy); merely omitting fields in
+// a repair cannot silently weaken the obligation.
 func dataTaskCarryDurableOutputContract(candidate dataquery.TaskPlan, durable dataquery.OutputContract) (dataquery.TaskPlan, dataquery.OutputContract) {
-	contract := dataworkflow.BestOutputContract(candidate.OutputContract, durable)
+	contract := dataworkflow.ResolveOutputContract(durable, candidate.OutputContract)
 	candidate.OutputContract = contract
 	return candidate, contract
 }
@@ -5947,7 +5957,7 @@ func dataTaskWorkflowCompletionOutputProjectionGraphInput(repoRoot string, recor
 		}
 	}
 	return dataworkflow.OutputProjectionGraphInput{
-		Output:                         firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract),
+		Output:                         dataworkflow.ResolveOutputContract(current.OutputContract, dataTaskWorkflowOutputContract(records, current), result.OutputContract),
 		Coverage:                       dataTaskWorkflowCoverageContract(repoRoot, records, current),
 		AnswerPresent:                  dataworkflow.ResultAnswerPresent(result),
 		ProjectionArtifactPresent:      dataworkflow.ResultHasAssembleAnswerArtifact(result),
@@ -6015,7 +6025,7 @@ func dataTaskOutputReferenceProjectionGap(repoRoot string, records []dataTaskWor
 	if result.Reconcile == nil || len(result.Reconcile.Groups) == 0 {
 		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
-	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract).Normalize()
+	contract := dataworkflow.ResolveOutputContract(current.OutputContract, dataTaskWorkflowOutputContract(records, current), result.OutputContract).Normalize()
 	if contract.Format == "" || (contract.Format == dataquery.OutputFreeform && contract.ExplanationAllowed) {
 		return dataquery.ReferenceKeyCandidate{}, 0, false, false
 	}
@@ -6166,7 +6176,7 @@ func dataTaskOutputReferenceGroundingGuardResult(repoRoot string, records []data
 // invalid typed carrier and must repair it. Source-material declarations and
 // genuinely inapplicable ledgers remain owned by their existing gates.
 func dataTaskInvalidGeneratedReferenceAuthorityGuardResult(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) dataworkflow.GuardResult {
-	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract).Normalize()
+	contract := dataworkflow.ResolveOutputContract(current.OutputContract, dataTaskWorkflowOutputContract(records, current), result.OutputContract).Normalize()
 	path := strings.TrimSpace(contract.ReferencePath)
 	if !contract.CompleteReference || path == "" || dataTaskReferencePathIsWorkflowMaterial(repoRoot, records, current, result, path) {
 		return dataworkflow.GuardResult{}
@@ -6197,7 +6207,7 @@ func dataTaskOutputReferenceGroundingReport(repoRoot string, records []dataTaskW
 	if !dataworkflow.ResultAnswerPresent(result) {
 		return dataquery.ReferenceGroundingReport{}, dataquery.ReferenceKeyCandidate{}, false
 	}
-	contract := firstNonEmptyOutputContract(result.OutputContract, dataTaskWorkflowOutputContract(records, current), current.OutputContract).Normalize()
+	contract := dataworkflow.ResolveOutputContract(current.OutputContract, dataTaskWorkflowOutputContract(records, current), result.OutputContract).Normalize()
 	candidate, ok := dataTaskResolveDeclaredOutputReferenceSet(repoRoot, records, current, result, contract)
 	if !ok {
 		return dataquery.ReferenceGroundingReport{}, dataquery.ReferenceKeyCandidate{}, false
@@ -7341,10 +7351,6 @@ func dataTaskTerminalWorkflowGuardError(repoRoot string, records []dataTaskWorkf
 
 func dataTaskPlanStatusLooksTerminal(status string) bool {
 	return dataworkflow.PlanStatusLooksTerminal(status)
-}
-
-func firstNonEmptyOutputContract(values ...dataquery.OutputContract) dataquery.OutputContract {
-	return dataworkflow.BestOutputContract(values...)
 }
 
 func dataTaskEntityResolutionCompletionInputs(repoRoot string, records []dataTaskWorkflowRecord, current dataquery.TaskPlan, result dataquery.Result) []string {

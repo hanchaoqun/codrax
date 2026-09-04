@@ -17,10 +17,28 @@ import (
 // the arrow; never delete the diagram), and neither may carry an internal
 // identifier from the glossary blocklist.
 func TestDiagramReversedAnchorTeachingSync(t *testing.T) {
-	const token = "typed_anchor_reversed_against_visible_edge"
-	if diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge != token {
+	if diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge != "typed_anchor_reversed_against_visible_edge" {
 		t.Fatalf("issue constant drifted from the taught token: %q", diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge)
 	}
+	diagramIssueTeachingSyncPin(t, diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge, diagramReversedAnchorBoundaryTeaching,
+		[]string{"from_node/to_node", "from_identity/to_identity", "revers", "delete the diagram"})
+}
+
+// TestDiagramStaleAnchorTeachingSync — 合流复核收编 (§40.57): the stale-anchor
+// remedy left the always-on hint prose and became the issue-keyed boundary
+// sentence for typed_anchor_without_visible_edge, so a reversed anchor never
+// receives it. Same two surfaces, same remedy (restore the one matching arrow
+// or remove that stale anchor; never manufacture a self-loop or bridge).
+func TestDiagramStaleAnchorTeachingSync(t *testing.T) {
+	if diagramCallEdgeIssueAnchorWithoutBodyEdge != "typed_anchor_without_visible_edge" {
+		t.Fatalf("issue constant drifted from the taught token: %q", diagramCallEdgeIssueAnchorWithoutBodyEdge)
+	}
+	diagramIssueTeachingSyncPin(t, diagramCallEdgeIssueAnchorWithoutBodyEdge, diagramStaleAnchorBoundaryTeaching,
+		[]string{"restore", "remove that stale anchor", "self-loop"})
+}
+
+func diagramIssueTeachingSyncPin(t *testing.T, token, preEmitSentence string, remedies []string) {
+	t.Helper()
 	agentSrc, err := os.ReadFile("../agent/answer_document_evaluator.go")
 	if err != nil {
 		t.Fatal(err)
@@ -36,16 +54,16 @@ func TestDiagramReversedAnchorTeachingSync(t *testing.T) {
 		t.Fatalf("finalizer recipe teaching in internal/agent does not mention %s", token)
 	}
 	surfaces := map[string]string{
-		"pre-emit boundary":  diagramReversedAnchorBoundaryTeaching,
+		"pre-emit boundary":  preEmitSentence,
 		"finalizer teaching": agentSentence,
 	}
 	for name, text := range surfaces {
 		if !strings.Contains(text, token) {
 			t.Fatalf("%s must name the typed issue token %s: %q", name, token, text)
 		}
-		for _, remedy := range []string{"from_node/to_node", "from_identity/to_identity", "revers", "delete the diagram"} {
+		for _, remedy := range remedies {
 			if !strings.Contains(text, remedy) {
-				t.Fatalf("%s must teach the alignment remedy (%q): %q", name, remedy, text)
+				t.Fatalf("%s must teach the remedy (%q): %q", name, remedy, text)
 			}
 		}
 		for _, term := range skill.InternalTermsBlocklist {

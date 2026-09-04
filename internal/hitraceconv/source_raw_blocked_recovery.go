@@ -22,7 +22,7 @@ func newTraceDBRawBlockedRecoveryCoverage() TraceDBCoverage {
 			"namespace":     "no PID rewrite or namespace guess; absent, rejected, or ambiguous public identity remains unpublished",
 		},
 		Metadata: map[string]string{
-			"publication_state": "unavailable",
+			"publication_state": traceDBSourceRawLanePlaceholderState,
 		},
 	}
 }
@@ -35,6 +35,14 @@ func publishTraceDBRawBlockedRecovery(
 ) (TraceDBCoverage, error) {
 	out := newTraceDBRawBlockedRecoveryCoverage()
 	out.Found = keyCoverage.Found
+	// The key ledger ran the class gate; its non-ready outcome (source not
+	// applicable / census incomplete) is carried forward verbatim so this
+	// lane never relabels it as a key-ledger withhold.
+	if traceDBInheritSourceRawLaneGate(&out, keyCoverage,
+		traceDBSourceRawLaneStateKeyLedger, traceDBSourceRawLaneStateKeyPublication,
+		"raw blocked recovery") {
+		return out, nil
+	}
 	rawFamilyAuthority := keyCoverage.Metadata["ledger_state"] ==
 		"exact_raw_family_authority"
 	if !rawFamilyAuthority &&

@@ -539,3 +539,65 @@ func TestTraceDBSourceNameInventoryNarrowsNamespaceDuplicatesToHostSchedulerLane
 		t.Fatalf("canonical DB display name lost precedence: name=%q source=%q", name, source)
 	}
 }
+
+// TestTraceDBSourceRawDecoderAuthorityNamesRecordFormatAccountingIncomplete
+// (G6-visibility #2): an official capture whose page/format profile is
+// complete but whose record/format accounting is inexact (a record whose
+// event id has no admitted format) mints
+// decode_state=withheld_record_format_accounting_incomplete; the authority
+// row used to fall to the "profile_not_ready" default next to a profile state
+// that proved the opposite. The reader now classifies through the closed-set
+// table and states the fact the ledger proved.
+func TestTraceDBSourceRawDecoderAuthorityNamesRecordFormatAccountingIncomplete(t *testing.T) {
+	var capture bytes.Buffer
+	writeFileHeader(&capture, 2)
+	header := capture.Bytes()
+	binary.LittleEndian.PutUint16(header[0:2], traceStreamerRawTraceMagic)
+	header[2] = harmonyRMQFileType
+	capture.Reset()
+	capture.Write(header)
+	format := strings.Join(syntheticFormatBlock("sched_blocked_reason", 32778, []string{
+		syntheticField("unsigned short", "common_type", 0, 2, false),
+		syntheticField("int", "common_pid", 4, 4, true),
+		syntheticField("int", "pid", 8, 4, true),
+		syntheticField("void *", "caller", 12, 8, false),
+		syntheticField("bool", "io_wait", 20, 1, false),
+	}), "\n")
+	content := make([]byte, 21)
+	binary.LittleEndian.PutUint32(content[4:8], 77)
+	binary.LittleEndian.PutUint32(content[8:12], 88)
+	binary.LittleEndian.PutUint64(content[12:20], 0x1234)
+	content[20] = 1
+	writeSegment(&capture, segmentEventsFormat, []byte(format))
+	writeSegment(&capture, segmentRawTrace, syntheticRawPageEvents([]syntheticRawEvent{
+		{EventID: 32778, OffsetNS: 9, Content: content},
+		{EventID: 40000, OffsetNS: 21, Content: content},
+	}))
+	path := filepath.Join(t.TempDir(), "official-unknown-format.sys")
+	if err := os.WriteFile(path, capture.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := openConversionInputAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.Close()
+	inventory, err := scanTraceDBSourceNameInventory(context.Background(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inventory.RawProfile.Metadata["probe_state"] != "complete" ||
+		inventory.RawProfile.Metadata["page_layout_state"] != "qword_length_cpu_candidate_all_pages" ||
+		inventory.RawDecode.Metadata["decode_state"] != "withheld_record_format_accounting_incomplete" ||
+		inventory.RawDecode.Metrics["records_without_admitted_format"] != 1 {
+		t.Fatalf("fixture did not reach the accounting-incomplete arm: profile=%+v decode=%+v",
+			inventory.RawProfile, inventory.RawDecode)
+	}
+	raw := inventory.RawAuthority
+	if raw.Metadata["decode_authority"] != "withheld_closed_target_decoders_record_format_accounting_incomplete" ||
+		raw.Metadata["decoder_profile_state"] != "qword_length_cpu_candidate_all_pages" ||
+		raw.Metadata["decoder_ledger_state"] != "withheld_record_format_accounting_incomplete" ||
+		!strings.Contains(raw.Metadata["recovery_authority"], "supported_families_require_strict_decoder_admission") {
+		t.Fatalf("decoder authority contradicted the proven profile: %+v", raw)
+	}
+}

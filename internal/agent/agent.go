@@ -1640,7 +1640,7 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 			b.WriteByte('\n')
 		}
 		if omitted := len(citable) - limit; omitted > 0 {
-			fmt.Fprintf(&b, "... %d additional accepted citable evidence rows remain in MutableState for downstream stages.\n", omitted)
+			fmt.Fprintf(&b, "... %d additional accepted citable evidence rows remain retained for later steps.\n", omitted)
 		}
 	} else if nonCitable > 0 {
 		fmt.Fprintf(&b, "\nAccepted citable evidence: 0 (%d recovered/ungrounded/non-citable rows intentionally omitted)\n", nonCitable)
@@ -1808,7 +1808,7 @@ func renderToolHistoryRepairDebtCheckpoint(ctx *types.AgentContext, limit int) s
 		b.WriteByte('\n')
 	}
 	if omitted := len(rows) - limit; omitted > 0 {
-		fmt.Fprintf(&b, "... %d additional repair-debt row(s) remain in EvidenceClosure.\n", omitted)
+		fmt.Fprintf(&b, "... %d additional repair-debt row(s) remain on record.\n", omitted)
 	}
 	return b.String()
 }

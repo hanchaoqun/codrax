@@ -33,20 +33,27 @@ func newTraceDBRawSchedWakeupLiteJoin(
 		eligible: map[traceDBRawSchedWakeupLiteJoinKey]traceDBRawSchedWakeupLiteRecord{},
 		consumed: map[traceDBRawSchedWakeupLiteJoinKey]bool{},
 	}
-	if inventory == nil || inventory.RawDecode.Role == "" {
-		join.coverage.Metadata["join_state"] = "unavailable_source_raw_decode_ledger"
-		join.coverage.Skipped = "scheduler-lite wakeup join unavailable: source raw decode ledger absent"
+	if inventory != nil {
+		traceDBAttachRawSchedulerLiteDiagnostics(
+			&join.coverage, inventory.RawDecode, "sched_wakeup_lite")
+		join.coverage.Found = len(inventory.RawWakeupLite) > 0
+		join.coverage.RowsRead = len(inventory.RawWakeupLite)
+		traceDBAddCoverageMetric(&join.coverage, "raw_records_retained", int64(len(inventory.RawWakeupLite)))
+	}
+	// The class gate (source_raw_lane_gate.go) splits absent/non-official
+	// source (not applicable) from an official census that did not close
+	// (census incomplete); an unrecognized ledger shape fails loud on the
+	// coverage and the join stays not ready.
+	if stop, _ := traceDBApplySourceRawLaneGateKeyed(&join.coverage, inventory,
+		traceDBSourceRawLaneStateKeyJoin, "scheduler-lite wakeup join"); stop {
 		return join
 	}
-	traceDBAttachRawSchedulerLiteDiagnostics(
-		&join.coverage, inventory.RawDecode, "sched_wakeup_lite")
-	join.coverage.Found = len(inventory.RawWakeupLite) > 0
-	join.coverage.RowsRead = len(inventory.RawWakeupLite)
-	traceDBAddCoverageMetric(&join.coverage, "raw_records_retained", int64(len(inventory.RawWakeupLite)))
+	// Past the gate the census closed; the family predicate can only fail on
+	// the family's own retention store having been withdrawn by byte budget.
 	if !traceDBRawDecodeFamilyComplete(
 		inventory.RawDecode, traceDBRawRetentionWakeupLite) {
-		join.coverage.Metadata["join_state"] = "withheld_source_raw_decode_incomplete"
-		join.coverage.Skipped = "scheduler-lite wakeup join withheld: source raw decode ledger incomplete"
+		join.coverage.Metadata["join_state"] = traceDBSourceRawLaneFamilyRetentionWithdrawnState
+		join.coverage.Skipped = "scheduler-lite wakeup join withheld: retained family record store exceeded its byte budget"
 		return join
 	}
 	// TraceStreamer aliases exact and lite inputs into the same DB event name.
@@ -105,7 +112,7 @@ func newTraceDBRawSchedWakeupLiteJoinCoverage() TraceDBCoverage {
 			"deduplication": "raw or DB key multiplicity other than one is ineligible; enrichment never emits a second scheduler event",
 		},
 		Metadata: map[string]string{
-			"join_state":              "unavailable",
+			"join_state":              traceDBSourceRawLanePlaceholderState,
 			"physical_event_contract": "enrich_existing_db_wakeup_only; duplicate_events=0",
 		},
 	}

@@ -91,7 +91,8 @@ func TestTraceDBRawSchedSwitchLiteJoinPublishesUniqueRawBoundaryFromSuppressedCP
 	defer tdb.close()
 	tdb.sourceNameInventory = &traceDBSourceNameInventory{
 		RawDecode: TraceDBCoverage{
-			Role: "diagnostic_ledger",
+			Found: true,
+			Role:  "diagnostic_ledger",
 			Metadata: map[string]string{
 				"decode_state": "strict_target_ledger_complete",
 			},
@@ -267,7 +268,8 @@ func TestTraceDBRawSchedSwitchLiteJoinDoesNotClaimCompletionWithoutDBCensus(t *t
 	}
 	join := newTraceDBRawSchedSwitchLiteJoin(&traceDBSourceNameInventory{
 		RawDecode: TraceDBCoverage{
-			Role: "diagnostic_ledger",
+			Found: true,
+			Role:  "diagnostic_ledger",
 			Metadata: map[string]string{
 				"decode_state": "strict_target_ledger_complete",
 				"scheduler_lite_format_geometry_witnesses": "sched_switch_lite#1[prev_pid@8:4]",
@@ -352,7 +354,8 @@ func exportTraceDBSchedSwitchLiteJoinFixture(
 	defer tdb.close()
 	tdb.sourceNameInventory = &traceDBSourceNameInventory{
 		RawDecode: TraceDBCoverage{
-			Role: "diagnostic_ledger",
+			Found: true,
+			Role:  "diagnostic_ledger",
 			Metadata: map[string]string{
 				"decode_state": "strict_target_ledger_complete",
 			},

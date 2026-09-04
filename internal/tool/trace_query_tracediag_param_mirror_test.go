@@ -117,17 +117,19 @@ func traceQuerySchemaProperties(t *testing.T) []string {
 	return props
 }
 
+// traceDiagStepYAMLTags is the set of keys the strict yaml decoder accepts
+// on a Step, derived through tracediag.YAMLFieldKey (the decoder's own
+// rule: untagged exported fields decode under their lowercased name) rather
+// than tag presence, so an untagged field cannot slip past the mirror.
 func traceDiagStepYAMLTags() map[string]bool {
 	typ := reflect.TypeOf(tracediag.Step{})
 	tags := map[string]bool{}
 	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if field.PkgPath != "" {
+		key, decoded, inline := tracediag.YAMLFieldKey(typ.Field(i))
+		if !decoded || inline {
 			continue
 		}
-		if tag := field.Tag.Get("yaml"); tag != "" {
-			tags[tag] = true
-		}
+		tags[key] = true
 	}
 	return tags
 }

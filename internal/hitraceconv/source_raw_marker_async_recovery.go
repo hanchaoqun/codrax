@@ -71,7 +71,13 @@ type traceDBRawAsyncPair struct {
 // published until the legacy DB async endpoint lane has a cross-source dedup
 // authority.
 type traceDBRawAsyncMatchLedger struct {
-	state                string
+	state string
+	// gate carries the class gate outcome (source_raw_lane_gate.go) minted
+	// under raw_async_replacement_state: the state itself, its typed reason
+	// metadata and the Skipped prose, copied onto the callstack coverage by
+	// applyCoverage. gateErr is the fail-loud Unset shape (no state minted).
+	gate                 TraceDBCoverage
+	gateErr              error
 	pairs                map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair
 	byInterval           map[traceDBRawAsyncIntervalKey][]*traceDBRawAsyncPair
 	bySemantic           map[traceDBRawAsyncSemanticKey][]*traceDBRawAsyncPair
@@ -90,7 +96,8 @@ func newTraceDBRawAsyncMatchLedger(
 	authority traceDBSchedulerAuthority,
 ) *traceDBRawAsyncMatchLedger {
 	ledger := &traceDBRawAsyncMatchLedger{
-		state:             "unavailable",
+		state:             traceDBSourceRawLanePlaceholderState,
+		gate:              TraceDBCoverage{Metadata: map[string]string{}},
 		pairs:             map[traceDBRawAsyncExactKey][]*traceDBRawAsyncPair{},
 		byInterval:        map[traceDBRawAsyncIntervalKey][]*traceDBRawAsyncPair{},
 		bySemantic:        map[traceDBRawAsyncSemanticKey][]*traceDBRawAsyncPair{},
@@ -100,12 +107,25 @@ func newTraceDBRawAsyncMatchLedger(
 		metrics:           map[string]int64{},
 		mismatchWitnesses: make([]string, 0, traceDBRawAsyncMismatchWitnessCap),
 	}
-	if inventory == nil {
+	// The class gate (source_raw_lane_gate.go) splits absent/non-official
+	// source (not applicable) from an official census that did not close
+	// (census incomplete); the unrecognized shape is carried as gateErr for
+	// the callstack exporter to fail loud on.
+	stop, err := traceDBApplySourceRawLaneGateKeyed(&ledger.gate, inventory,
+		traceDBSourceRawLaneStateKeyAsyncReplacement, "raw async marker replacement")
+	if err != nil {
+		ledger.gateErr = err
 		return ledger
 	}
+	if stop {
+		ledger.state = ledger.gate.Metadata[string(traceDBSourceRawLaneStateKeyAsyncReplacement)]
+		return ledger
+	}
+	// Past the gate the census closed; the family predicate can only fail on
+	// the family's own retention store having been withdrawn by byte budget.
 	if !traceDBRawDecodeFamilyComplete(
 		inventory.RawDecode, traceDBRawRetentionMarker) {
-		ledger.state = "withheld_raw_decode_incomplete"
+		ledger.state = traceDBSourceRawLaneFamilyRetentionWithdrawnState
 		return ledger
 	}
 	rows := make([]traceDBRawMarkerRecord, 0)
@@ -621,6 +641,14 @@ func (ledger *traceDBRawAsyncMatchLedger) applyCoverage(coverage *TraceDBCoverag
 		coverage.Metadata = map[string]string{}
 	}
 	coverage.Metadata["raw_async_replacement_state"] = ledger.state
+	for _, reasonKey := range []string{"not_applicable_reason", "census_incomplete_reason"} {
+		if reason := ledger.gate.Metadata[reasonKey]; reason != "" {
+			coverage.Metadata["raw_async_"+reasonKey] = reason
+		}
+	}
+	if ledger.gate.Skipped != "" {
+		coverage.Metadata["raw_async_replacement_disclosure"] = ledger.gate.Skipped
+	}
 	for key, value := range ledger.metrics {
 		traceDBAddCoverageMetric(coverage, "raw_async_"+key, value)
 	}

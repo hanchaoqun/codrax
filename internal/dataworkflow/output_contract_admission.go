@@ -25,7 +25,7 @@ import (
 const GuardCodeActionOutputContractDrift = "action_output_contract_drift"
 
 // OutputContractDeclared reports whether a contract carries any typed
-// declaration (BestOutputContract treats an undeclared contract as absent).
+// declaration (ResolveOutputContract treats an undeclared contract as absent).
 func OutputContractDeclared(contract dataquery.OutputContract) bool {
 	return outputContractSpecificity(contract) >= 0
 }

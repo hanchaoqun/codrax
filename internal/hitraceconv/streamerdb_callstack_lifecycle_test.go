@@ -45,6 +45,7 @@ func exportTraceDBCallstackAuthorityFixture(t *testing.T, statements []string, l
 	defer tdb.close()
 	tdb.sourceNameInventory = &traceDBSourceNameInventory{
 		RawDecode: TraceDBCoverage{
+			Found: true,
 			Metadata: map[string]string{
 				"decode_state":              "strict_target_ledger_complete",
 				"target_first_timestamp_ns": "100",

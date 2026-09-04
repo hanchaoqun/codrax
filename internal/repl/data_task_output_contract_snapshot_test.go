@@ -255,7 +255,7 @@ func TestDataTaskCarryDurableOutputContractIsIdempotent(t *testing.T) {
 // TestDataTaskExecutionOutputContractBaselinePrecedence pins the single
 // reader of the gate baseline: a live loop's carried value wins; outside a
 // loop the seed fold is used; a stale freeform Result never weakens a strict
-// plan contract (BestOutputContract specificity).
+// plan contract (ResolveOutputContract specificity).
 func TestDataTaskExecutionOutputContractBaselinePrecedence(t *testing.T) {
 	strict := dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false}
 	records := []dataTaskWorkflowRecord{{

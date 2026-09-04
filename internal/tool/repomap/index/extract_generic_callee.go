@@ -37,8 +37,10 @@ import (
 // genericCalleeBase unwraps a callee node that carries explicit type
 // arguments to the node that names the callee. Any other node is returned
 // as is, so every extractor switch can feed its `function` child through
-// this normaliser before dispatching on the node type.
-func genericCalleeBase(fn *sitter.Node) *sitter.Node {
+// this normaliser before dispatching on the node type. src is the file's
+// source: the C++ arm reads the template-argument bytes to tell a type
+// list from an expression the grammar parsed the same way.
+func genericCalleeBase(fn *sitter.Node, src []byte) *sitter.Node {
 	if fn == nil {
 		return nil
 	}
@@ -48,12 +50,12 @@ func genericCalleeBase(fn *sitter.Node) *sitter.Node {
 			return inner
 		}
 	case "template_function", "template_method":
-		if inner := fn.ChildByFieldName("name"); inner != nil && cppTemplateCalleeTouchesArguments(fn) {
+		if inner := fn.ChildByFieldName("name"); inner != nil && cppTemplateCalleeTouchesArguments(fn, src) {
 			return inner
 		}
 	case "dependent_name":
 		if fn.NamedChildCount() > 0 {
-			return genericCalleeBase(fn.NamedChild(0))
+			return genericCalleeBase(fn.NamedChild(0), src)
 		}
 	}
 	return fn
@@ -62,16 +64,28 @@ func genericCalleeBase(fn *sitter.Node) *sitter.Node {
 // cppTemplateCalleeTouchesArguments is the C++ precision guard. The grammar
 // cannot tell `a < b && c > (d)` (a comparison chain) from `a<b && c>(d)` (a
 // template call) — real compilers decide by name lookup — and parses both
-// as template_function. The one structural signal the AST still carries is
-// byte adjacency: a written template call spells `name<` with the `<`
-// touching the name and `>(` with the `(` touching the closing `>`. The
-// same two adjacencies gate the Cangjie lexer arm and the grounder's regex
-// arm, so all three tiers accept one shape. A template_function that fails
-// the guard is returned unchanged and, as before this file, mints no row.
-func cppTemplateCalleeTouchesArguments(fn *sitter.Node) bool {
+// as template_function. Two structural signals remain in the bytes, and a
+// template call must carry both:
+//
+//   - adjacency: a written template call spells `name<` with the `<`
+//     touching the name and `>(` with the `(` touching the closing `>`;
+//   - interior: the bytes between the angle brackets spell a type-argument
+//     list (cppTemplateArgumentInteriorIsTypeList) — a comparison or logical
+//     operator, arithmetic, or a string literal there means the parse is an
+//     expression chain (`a<b && c>(d)` also satisfies both adjacencies).
+//
+// The same adjacency + interior rule gates the Cangjie lexer arm
+// (cangjieCallParenIndex) and the grounder's regex arm
+// (typeArgumentListClosesIntoCall), so all three tiers accept one shape. A
+// template_function that fails the guard is returned unchanged and, as
+// before this file, mints no row.
+func cppTemplateCalleeTouchesArguments(fn *sitter.Node, src []byte) bool {
 	name := fn.ChildByFieldName("name")
 	args := fn.ChildByFieldName("arguments")
 	if name == nil || args == nil || name.EndByte() != args.StartByte() {
+		return false
+	}
+	if !cppTemplateArgumentInteriorIsTypeList(nodeText(args, src)) {
 		return false
 	}
 	call := fn.Parent()
@@ -83,6 +97,45 @@ func cppTemplateCalleeTouchesArguments(fn *sitter.Node) bool {
 	}
 	list := call.ChildByFieldName("arguments")
 	return list != nil && list.StartByte() == fn.EndByte()
+}
+
+// cppTemplateArgumentInteriorIsTypeList reports whether the text of a
+// template_argument_list (outer `<` … `>` included) spells only what a
+// type-argument list can contain: identifiers and keywords (const,
+// typename, integer and bool literals are identifier bytes), qualified
+// names (`::`, `.`), commas, whitespace, nested angles, `*`, a single `&`,
+// `'` (digit separators / char literals), and the `(` `)` `[` `]` of
+// function and array types. `->` is accepted only as the arrow of a
+// trailing-return function type. Any comparison, logical or arithmetic
+// operator (`&&`, `||`, `==`, `!=`, `<=`, `>=`, `+`, `-`, `/`, `%`, `|`,
+// `^`, `~`, `?`) or a string literal rejects the list. The byte set mirrors
+// the grounder's typeArgumentListClosesIntoCall so the AST row and the
+// regex tier never disagree about the same bytes.
+func cppTemplateArgumentInteriorIsTypeList(text string) bool {
+	if len(text) < 2 || text[0] != '<' || text[len(text)-1] != '>' {
+		return false
+	}
+	inner := text[1 : len(text)-1]
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		switch {
+		case c == '_', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == ':', c == '.', c == ',', c == ' ', c == '\t', c == '<', c == '>',
+			c == '*', c == '\'', c == '(', c == ')', c == '[', c == ']':
+		case c == '&':
+			if i+1 < len(inner) && inner[i+1] == '&' {
+				return false
+			}
+		case c == '-':
+			if i+1 >= len(inner) || inner[i+1] != '>' {
+				return false
+			}
+			i++ // the `>` of `->` is not a closing angle
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // cangjieCallParenIndex returns the index of the `(` token that opens the

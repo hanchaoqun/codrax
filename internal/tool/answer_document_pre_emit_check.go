@@ -5285,6 +5285,15 @@ func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocu
 
 const diagramRelationSurgicalRepairInstruction = " Only edge pairs listed by the relation-gate hints for this draft failed this relation gate; preserve every visible edge and anchor not listed by any of those hints. Correct or remove only the listed edge pairs."
 
+// diagramStaleAnchorBoundaryTeaching is the single model-facing teaching
+// sentence for typed_anchor_without_visible_edge (colleague_merge_audit §40.57
+// 合流复核收编). It used to be always-on prose of the relation-gate hint, so a
+// reversed anchor — which is never reported as stale — still read "restore
+// the arrow or remove stale metadata" beside the alignment teaching. It is now
+// issue-keyed like every other boundary sentence: appended only when a stale
+// anchor is actually in the mismatch list.
+const diagramStaleAnchorBoundaryTeaching = " A typed_anchor_without_visible_edge mismatch means one diagram-local edge_anchors entry owns no matching visible body edge: restore the one matching evidence-backed arrow or remove that stale anchor instead of keeping a hidden metadata-only graph; never manufacture a self-loop or a new bridge to satisfy metadata."
+
 // diagramReversedAnchorBoundaryTeaching is the single model-facing teaching
 // sentence for typed_anchor_reversed_against_visible_edge (colleague_merge_audit
 // §40.57). It is issue-keyed like the occurrence/operator boundaries above and
@@ -5555,8 +5564,12 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if len(otherParts) > 0 {
 		occurrenceBoundary := ""
 		sequenceOperatorBoundary := ""
+		staleAnchorBoundary := ""
 		reversedAnchorBoundary := ""
 		for _, mismatch := range otherMismatches {
+			if mismatch.Issue == diagramCallEdgeIssueAnchorWithoutBodyEdge {
+				staleAnchorBoundary = diagramStaleAnchorBoundaryTeaching
+			}
 			if mismatch.Issue == diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge {
 				reversedAnchorBoundary = diagramReversedAnchorBoundaryTeaching
 			}
@@ -5574,8 +5587,8 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			Field:               "blocks[].edge_anchors[] AND blocks[kind=diagram].diagram.body",
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, otherMismatches),
-			ExpectedShape: "every explicit relation_kind=call edge in a non-runtime-trace answer must preserve the exact direction of one citable typed call-edge EvidenceItem; " + types.GroundedSourceDiagramEdgeOwnershipContract + " Every diagram-local edge_anchors entry must also own a matching visible body edge; restore the matching evidence-backed arrow or remove stale metadata instead of emitting a hidden metadata-only graph. An optional diagram may show a faithful typed subset of relations already covered by sibling prose/list blocks; do not add unproved edges merely to make the visual exhaustive. Sequence async/lost operators -)/--)/-x/--x and activation suffixes remain visible typed edges, while a -->> reverse edge structurally paired with its forward invocation is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; when an arrow expresses an explicitly typed non-call relation such as callback, register, branch control_flow, assignment, data_flow, return, declared type, guard, observation, containment, or ordering, keep that honest relation_kind and its matching evidence instead of inventing call authority; add missing anchors, restore matching evidence-backed body edges, or remove/correct unsupported visible edges/stale anchors." + occurrenceBoundary + " Mismatches: " +
-				strings.Join(otherParts, "; ") + sequenceOperatorBoundary + reversedAnchorBoundary + diagramRelationSurgicalRepairInstruction,
+			ExpectedShape: "every explicit relation_kind=call edge in a non-runtime-trace answer must preserve the exact direction of one citable typed call-edge EvidenceItem; " + types.GroundedSourceDiagramEdgeOwnershipContract + " Every diagram-local edge_anchors entry must also own a matching visible body edge. An optional diagram may show a faithful typed subset of relations already covered by sibling prose/list blocks; do not add unproved edges merely to make the visual exhaustive. Sequence async/lost operators -)/--)/-x/--x and activation suffixes remain visible typed edges, while a -->> reverse edge structurally paired with its forward invocation is a response/return and needs no reverse call anchor; method-qualified endpoint labels are exact, while class/actor participant labels require an exact message operation that resolves to one unique typed call edge; when an arrow expresses an explicitly typed non-call relation such as callback, register, branch control_flow, assignment, data_flow, return, declared type, guard, observation, containment, or ordering, keep that honest relation_kind and its matching evidence instead of inventing call authority; add missing anchors or remove/correct unsupported visible edges." + occurrenceBoundary + " Mismatches: " +
+				strings.Join(otherParts, "; ") + sequenceOperatorBoundary + staleAnchorBoundary + reversedAnchorBoundary + diagramRelationSurgicalRepairInstruction,
 			Reason:                         "a semantic call_dag and a typed source call-chain family are precise enough to require relation ownership for every visible body edge without scanning labels or prose. Conversely, a diagram-local typed anchor with no visible body edge makes the user-facing graph contradict its structured relation carrier. An explicit call declaration cannot bypass typed authority merely because the answer was classified as a generic explanation, architecture, comparison, or another non-call-chain family; a function definition proves that a symbol exists, but only a grounded call-site EvidenceItem can authorize caller-to-callee direction. Logical workflow arrows remain available through honest non-call relations. Diagram omission is not a relation claim, so sibling principal calls do not create visual completeness pressure. Sequence responses preserve temporal readability without inventing a reverse source-code call.",
 			DiagramRelationFailurePairs:    failurePairs,
 			DiagramRelationFailureIssues:   failureIssues,

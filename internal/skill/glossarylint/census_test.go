@@ -209,7 +209,7 @@ var v = types.Violation{Detail: "outside the census roots"}
 		"internal/tl": "PromptConst ToolParameters",
 		"internal/al": "Carrier:Hint",
 		"cmd":         "Carrier:ToolSchema PromptConst",
-		"internal/sm": "SystemMessage",
+		"internal/sm": "SystemMessage UserMessage",
 	}
 	for dir, shapes := range want {
 		if strings.Join(got[dir], " ") != shapes {

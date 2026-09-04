@@ -23,7 +23,7 @@ func newTraceDBRawDMALifecycleRecoveryCoverage() TraceDBCoverage {
 			"deduplication": "source publication is wholly withheld when the normalized DB raw-ftrace DMA class emitted any row; the high-level dma_fence predecessor-delta table is non-equivalent and does not suppress exact source points",
 		},
 		Metadata: map[string]string{
-			"publication_state":  "unavailable",
+			"publication_state":  traceDBSourceRawLanePlaceholderState,
 			"official_semantics": "point_event_not_interval",
 		},
 	}
@@ -36,10 +36,6 @@ func publishTraceDBRawDMALifecycleRecovery(
 	dbRawCoverage []TraceDBCoverage,
 ) (TraceDBCoverage, error) {
 	out := newTraceDBRawDMALifecycleRecoveryCoverage()
-	if inventory == nil {
-		out.Skipped = "raw DMA lifecycle recovery unavailable: immutable source inventory absent"
-		return out, nil
-	}
 	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "raw DMA lifecycle recovery"); stop {
 		return out, err
 	}

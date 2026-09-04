@@ -5612,7 +5612,7 @@ func formatSubjectMatchSummary(matches map[string]float64, expected types.Answer
 		}
 	}
 	if kept == 0 {
-		fmt.Fprintf(&b, "No chain scored above %.2f for the expected subject. Treat the chain producer's output with SKEPTICISM — the explorer's chains may be about the wrong kind of token.\n", subjectMatchFloor)
+		fmt.Fprintf(&b, "No chain scored above %.2f for the expected subject. Treat the chain producer's output with SKEPTICISM — the investigation's chains may be about the wrong kind of token.\n", subjectMatchFloor)
 	} else {
 		b.WriteString("Prefer the top-scored chain when selecting the primary answer symbol / leading citation.")
 	}

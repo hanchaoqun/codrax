@@ -19,7 +19,7 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 			"effect":         "diagnostic equality/closure checks only; comparisons never publish, suppress, deduplicate, or fabricate a trace row",
 		},
 		Metadata: map[string]string{
-			"reconciliation_state":    "unavailable",
+			"reconciliation_state":    traceDBSourceRawLanePlaceholderState,
 			"stat_counter_semantics":  "event_specific_stage_counters_may_overlap_never_sum",
 			"publication_authority":   "withheld_requires_rpd2_exact_record_deduplication",
 			"blocked_duplicate_state": "not_evaluated_requires_exact_raw_db_record_keys",
@@ -27,15 +27,17 @@ func traceDBRawDecodeReconciliationCoverage(items []TraceDBCoverage) TraceDBCove
 	}
 	raw, rawOK := traceDBCoverageByIdentity(items,
 		"source_rawtrace_decode", "__raw_record_decode__", "diagnostic_ledger")
-	if !rawOK {
-		out.Skipped = "raw decode ledger absent"
-		return out
+	var decode *TraceDBCoverage
+	if rawOK {
+		decode = &raw
+		out.Found = raw.Found
+		out.RowsRead = raw.RowsRead
 	}
-	out.Found = raw.Found
-	out.RowsRead = raw.RowsRead
-	if !raw.Found || !traceDBRawDecodeCensusComplete(raw) {
-		out.Metadata["reconciliation_state"] = "withheld_raw_decode_incomplete"
-		out.Skipped = "raw/trace_streamer reconciliation withheld: strict raw decode ledger is incomplete"
+	// The class gate (source_raw_lane_gate.go): an absent or non-official
+	// ledger is not applicable, an official ledger whose census did not close
+	// is census-incomplete; only a closed census is reconciled.
+	if stop, _ := traceDBApplySourceRawDecodeGate(&out, decode,
+		traceDBSourceRawLaneStateKeyReconciliation, "raw/trace_streamer reconciliation"); stop {
 		return out
 	}
 	capture, captureOK := traceDBCoverageByIdentity(items,

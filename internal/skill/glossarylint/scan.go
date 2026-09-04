@@ -105,9 +105,15 @@ type Exemption struct {
 }
 
 // Policy declares which structural literal positions a package's static
-// scan skips. The always-on exclusions (direct logger arguments, import
+// scan skips. The always-on exclusions (direct arguments of a logger call
+// or of a fmt.Fprint* call whose writer is a host-process stream, import
 // paths, struct field tags) are not options because no package has a
-// model-facing string in those positions. The two optional exclusions
+// model-facing string in those positions. A fmt.Fprint* call whose writer
+// is anything else — a strings.Builder / bytes.Buffer, an io.Writer
+// parameter, a field — is a prompt builder and IS scanned (§40.52 fold-in:
+// the earlier unconditional fmt.Fprint* exclusion hid eight live
+// model-facing hits behind a "writer-directed = logging" premise that is
+// false for builder-directed writes). The two optional exclusions
 // exist for the orchestrator, whose const enum values and fail-loud
 // *Error assignments are wire identifiers / operator diagnostics; a
 // renderer package MUST NOT enable them casually — prose consts and
@@ -158,7 +164,7 @@ func ScanGoDir(dir string, p Policy) ([]Hit, error) {
 		if err != nil {
 			return nil, fmt.Errorf("glossarylint: parse %s: %v", path, err)
 		}
-		excluded := excludedLiteralPositions(file, p)
+		excluded := excludedLiteralPositions(file, p, packageLevelValues([]*ast.File{file}))
 		ast.Inspect(file, func(n ast.Node) bool {
 			lit, ok := n.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING || excluded[lit.Pos()] {
@@ -201,17 +207,32 @@ func reportHits(t testing.TB, gate string, hits []Hit, teach string) {
 }
 
 // excludedLiteralPositions marks the string literals the Policy skips.
-func excludedLiteralPositions(file *ast.File, p Policy) map[token.Pos]bool {
+// fileValues indexes the file's package-level const/var values so a
+// fmt.Fprint* writer bound through a name (`errOut := os.Stderr`) can be
+// resolved to the stream it names; function-local bindings are layered
+// per FuncDecl.
+func excludedLiteralPositions(file *ast.File, p Policy, fileValues map[string]ast.Expr) map[token.Pos]bool {
 	out := map[token.Pos]bool{}
 	for _, imp := range file.Imports {
 		if imp.Path != nil {
 			out[imp.Path.Pos()] = true
 		}
 	}
-	ast.Inspect(file, func(n ast.Node) bool {
+	scope := fileValues
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
 		switch v := n.(type) {
+		case *ast.FuncDecl:
+			if v.Body == nil {
+				return true
+			}
+			saved := scope
+			scope = withLocalValues(fileValues, v.Body)
+			ast.Inspect(v.Body, visit)
+			scope = saved
+			return false
 		case *ast.CallExpr:
-			if isLoggingCall(v.Fun) {
+			if isLoggingCall(v.Fun) || isHostStreamPrintCall(v, scope) {
 				for _, arg := range v.Args {
 					markStringLits(arg, out)
 				}
@@ -240,7 +261,8 @@ func excludedLiteralPositions(file *ast.File, p Policy) map[token.Pos]bool {
 			}
 		}
 		return true
-	})
+	}
+	ast.Inspect(file, visit)
 	return out
 }
 
@@ -272,10 +294,11 @@ func isErrorTargetExpr(expr ast.Expr) bool {
 }
 
 // isLoggingCall reports whether the callee is a logger whose string
-// arguments never leave the host process: logging.* (package logger),
-// log.* (stdlib) and fmt.Fprint* (writer-directed). fmt.Sprintf /
-// fmt.Errorf are deliberately NOT excluded — their results flow into
-// model-facing fields.
+// arguments never leave the host process: logging.* (package logger)
+// and log.* (stdlib). fmt.Sprintf / fmt.Errorf are deliberately NOT
+// excluded — their results flow into model-facing fields — and
+// fmt.Fprint* is excluded only by its writer operand (see
+// isHostStreamPrintCall), never by callee name.
 func isLoggingCall(fn ast.Expr) bool {
 	sel, ok := fn.(*ast.SelectorExpr)
 	if !ok {
@@ -297,11 +320,67 @@ func isLoggingCall(fn ast.Expr) bool {
 		case "Printf", "Println", "Print", "Fatalf", "Fatal", "Panicf", "Panic":
 			return true
 		}
-	case "fmt":
-		switch name {
-		case "Fprintf", "Fprintln", "Fprint":
+	}
+	return false
+}
+
+// isHostStreamPrintCall reports whether call is fmt.Fprintf / Fprintln /
+// Fprint whose writer operand is a host-process stream, so its string
+// arguments never reach a model: os.Stdout / os.Stderr, io.Discard, a
+// logger's writer (`log.Writer()`, `<name>.Writer()`), or a name bound
+// (single assignment in scope) to one of those. Any other writer — a
+// `&strings.Builder`, a bytes.Buffer, an io.Writer parameter, a struct
+// field — is a prompt/text builder and the call is scanned like any
+// other literal position. The writer is classified by its operand shape,
+// never by the variable's name.
+func isHostStreamPrintCall(call *ast.CallExpr, scope map[string]ast.Expr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok || pkg.Name != "fmt" {
+		return false
+	}
+	switch sel.Sel.Name {
+	case "Fprintf", "Fprintln", "Fprint":
+	default:
+		return false
+	}
+	if len(call.Args) == 0 {
+		return false
+	}
+	return isHostStreamWriter(call.Args[0], scope, 0)
+}
+
+// isHostStreamWriter classifies a fmt.Fprint* writer operand by shape.
+func isHostStreamWriter(expr ast.Expr, scope map[string]ast.Expr, depth int) bool {
+	if depth > 16 {
+		return false
+	}
+	switch v := expr.(type) {
+	case *ast.ParenExpr:
+		return isHostStreamWriter(v.X, scope, depth+1)
+	case *ast.SelectorExpr:
+		pkg, ok := v.X.(*ast.Ident)
+		if !ok {
+			return false
+		}
+		switch pkg.Name + "." + v.Sel.Name {
+		case "os.Stdout", "os.Stderr", "io.Discard":
 			return true
 		}
+		return false
+	case *ast.CallExpr:
+		// log.Writer() / logger.Writer(): the stream a logger prints to.
+		sel, ok := v.Fun.(*ast.SelectorExpr)
+		return ok && sel.Sel.Name == "Writer" && len(v.Args) == 0
+	case *ast.Ident:
+		val, ok := scope[v.Name]
+		if !ok || val == nil {
+			return false
+		}
+		return isHostStreamWriter(val, scope, depth+1)
 	}
 	return false
 }

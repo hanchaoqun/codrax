@@ -332,8 +332,10 @@ func scanTraceDBSourceNameInventory(ctx context.Context, input conversionInputVi
 			segments: append([]segmentMeta(nil), rawAudit.segments...),
 		}
 	}
-	reconcileTraceDBSourceRawDecoderAuthority(
-		&inventory.RawAuthority, inventory.RawProfile, inventory.RawDecode)
+	if err := reconcileTraceDBSourceRawDecoderAuthority(
+		&inventory.RawAuthority, inventory.RawProfile, inventory.RawDecode); err != nil {
+		return inventory, err
+	}
 	inventory.Coverage.Found = cmdlineSegments > 0
 	inventory.Coverage.RowsRead = totalRows
 	inventory.Coverage.RowsEmitted = len(inventory.Names)
@@ -479,39 +481,78 @@ func finalizeTraceDBSourceRawAuthority(
 	}
 }
 
+// traceDBRawDecoderAuthorityLabel is what source_rawtrace_authority publishes
+// for one strict raw decode ledger state once the official profile
+// validation has run: the decode_authority label and, for the two ready
+// states, the recovery_authority contract that supersedes the pending one.
+type traceDBRawDecoderAuthorityLabel struct {
+	DecodeAuthority   string
+	RecoveryAuthority string
+}
+
+// traceDBRawDecoderAuthorityByDecodeState is the decoder-authority reader's
+// table over the closed decode_state set (source_raw_lane_gate.go). It is
+// total over the declared constants (pinned by the reader census in
+// source_raw_lane_gate_census_test.go): every label states the fact its
+// decode_state proved, so a complete profile whose record/format
+// accounting is inexact is never presented as "profile not ready", and no
+// arm exists for a state no writer mints.
+var traceDBRawDecoderAuthorityByDecodeState = map[string]traceDBRawDecoderAuthorityLabel{
+	traceDBRawDecodeStateUnavailable: {
+		DecodeAuthority: "not_applicable_closed_target_decoders_source_profile_not_probed",
+	},
+	traceDBRawDecodeStateNotApplicableNonOfficialProfile: {
+		DecodeAuthority: "not_applicable_closed_target_decoders_non_official_profile",
+	},
+	traceDBRawDecodeStateWithheldSegmentInventoryIncomplete: {
+		DecodeAuthority: "withheld_closed_target_decoders_segment_inventory_incomplete",
+	},
+	traceDBRawDecodeStateWithheldProfileNotReady: {
+		DecodeAuthority: "withheld_closed_target_decoders_profile_not_ready",
+	},
+	traceDBRawDecodeStateWithheldRecordFormatAccountingIncomplete: {
+		DecodeAuthority: "withheld_closed_target_decoders_record_format_accounting_incomplete",
+	},
+	traceDBRawDecodeStateIncompleteFormatWitnessCap: {
+		DecodeAuthority: "withheld_closed_target_decoders_format_witness_cap_exceeded",
+	},
+	traceDBRawDecodeStateComplete: {
+		DecodeAuthority:   "available_closed_target_decoders_for_supported_families",
+		RecoveryAuthority: "supported_families_use_strict_raw_decoder; uncovered_families_require_new_typed_decoder_or_upstream_retained_rows",
+	},
+	traceDBRawDecodeStateCompleteWithFamilyRetentionWithdrawal: {
+		DecodeAuthority:   "available_closed_target_decoders_for_complete_retained_families",
+		RecoveryAuthority: "complete retained families use strict raw decoder; budget-withdrawn families remain unavailable",
+	},
+}
+
+// reconcileTraceDBSourceRawDecoderAuthority classifies the strict raw decode
+// ledger through traceDBRawDecoderAuthorityByDecodeState once the official
+// profile validation has run. A decode_state outside the closed set is not
+// absorbed into a neighbouring label: the scan fails loud (§40.50).
 func reconcileTraceDBSourceRawDecoderAuthority(
 	authority *TraceDBCoverage,
 	profile TraceDBCoverage,
 	decode TraceDBCoverage,
-) {
+) error {
 	if authority == nil ||
 		authority.Metadata["decode_authority"] !=
 			"closed_target_decoders_pending_strict_profile_validation" {
-		return
+		return nil
 	}
 	authority.Metadata["decoder_profile_state"] =
 		profile.Metadata["page_layout_state"]
-	authority.Metadata["decoder_ledger_state"] =
-		decode.Metadata["decode_state"]
-	switch decode.Metadata["decode_state"] {
-	case "strict_target_ledger_complete":
-		authority.Metadata["decode_authority"] =
-			"available_closed_target_decoders_for_supported_families"
-		authority.Metadata["recovery_authority"] =
-			"supported_families_use_strict_raw_decoder; uncovered_families_require_new_typed_decoder_or_upstream_retained_rows"
-	case "strict_target_ledger_complete_with_family_retention_withdrawal":
-		authority.Metadata["decode_authority"] =
-			"available_closed_target_decoders_for_complete_retained_families"
-		authority.Metadata["recovery_authority"] =
-			"complete retained families use strict raw decoder; budget-withdrawn families remain unavailable"
-	case "incomplete_format_witness_cap", "incomplete_target_decode_cap",
-		"incomplete_target_retention_budget":
-		authority.Metadata["decode_authority"] =
-			"withheld_closed_target_decoders_ledger_incomplete"
-	default:
-		authority.Metadata["decode_authority"] =
-			"withheld_closed_target_decoders_profile_not_ready"
+	state := decode.Metadata["decode_state"]
+	authority.Metadata["decoder_ledger_state"] = state
+	label, ok := traceDBRawDecoderAuthorityByDecodeState[state]
+	if !ok {
+		return &traceDBOutputInvariantError{Reason: "source_raw_decoder_authority_unresolved"}
 	}
+	authority.Metadata["decode_authority"] = label.DecodeAuthority
+	if label.RecoveryAuthority != "" {
+		authority.Metadata["recovery_authority"] = label.RecoveryAuthority
+	}
+	return nil
 }
 
 func traceDBSourceSegmentPresenceState(count int, bytes int64) string {

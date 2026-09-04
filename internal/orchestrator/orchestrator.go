@@ -3326,28 +3326,6 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 	}
 }
 
-// buildRetryHint synthesises the failure narrative the planner's
-// next dispatch will see. Kept bounded (<1500 chars total) so it
-// doesn't blow up the planner prompt while still carrying enough
-// signal to steer a useful revision:
-//
-//   - FailureSummary (trimmed to 300 chars) — runner-agnostic
-//     one-line verdict from the parser
-//   - Top 3 failing tests with their first-line FailureDetail
-//     excerpt (≤140 chars each) — specific errors the planner
-//     can diff against the code it just wrote
-//   - Files the previous plan modified (ChangePlan.TargetPaths,
-//     cap 10) — the suspect list. Planner doesn't have to guess
-//     which edits broke which test; every failing test touched
-//     one of these files (transitively, at minimum)
-//
-// plan may be nil when the retry fires after an apply-phase
-// failure that never produced a ChangeReport; report may be nil
-// in the same case. Both branches degrade gracefully.
-//
-// Generalisation: only uses fields present on every runner's
-// TestResult (AssertionID, Suite, FailureDetail) and on every
-// ChangePlan (TargetPaths). No language-specific parsing.
 // buildIterationRecord composes one ledger row from the previous
 // attempt's plan + report. Verbatim summary text (no truncation —
 // the planner needs the COMPLETE error, blob ref handles oversize

@@ -65,14 +65,24 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// merged post-move count 8473 (zero headroom, as every god-file
 		// tightening in this chain), not the lower of the two per-group
 		// records — the freed budget of either move must not grow back.
-		{path: "orchestrator.go", maxLines: 8473},
+		// Tightened 8473→8451 after the §40.55 合流复核 fold-in (G6-ratchet
+		// #0) moved buildRetryHint's 22-line godoc — left behind by the V7-5
+		// cut and glued onto buildIterationRecord — to its function in
+		// write_retry_hint.go (that row is corrected below in the same
+		// change; the pair's combined ceiling falls 8773→8771).
+		{path: "orchestrator.go", maxLines: 8451},
 		// §40.52: the "[CGEC] summary" operator log (96 lines moved); small
 		// round headroom like the sibling concern-file rows.
 		{path: "cgec_summary_log.go", maxLines: 100},
 		// §40.55 V7-5: the ChangePlan verify→plan retry-hint trio; small
-		// headroom over the 289 lines moved so a hint-wording fix does not
-		// force a second extraction.
-		{path: "write_retry_hint.go", maxLines: 300},
+		// headroom over the lines moved so a hint-wording fix does not force
+		// a second extraction. CORRECTED 300→320 by the §40.55 合流复核
+		// fold-in: the 300 row was minted at 289 actual with buildRetryHint's
+		// godoc still sitting in orchestrator.go; the doc (and the header's
+		// true-caller note) moved here in the change that tightened
+		// orchestrator.go 8473→8451, so this is a transfer bounded by the
+		// god-file's tightening, not new budget (318 actual, 2 headroom).
+		{path: "write_retry_hint.go", maxLines: 320},
 		{path: "first_draft_reference.go", maxLines: 120},
 		// §40.43 R1: the P6 hard cap (tightened 110→45 after finding S moved
 		// the advisory into finalize_loop_gate_advisory.go, own budget below).

@@ -22,21 +22,32 @@ func traceDBApplyRawWakeupNewDisplayNames(
 			"effect":    "fills only an otherwise-unresolved display name; never changes TID, TGID, ITID, owner, namespace, lifecycle, CPU, event admission or causality",
 			"conflict":  "all lifecycle-admitted raw names for one canonical ITID must be byte-identical; conflicts fail closed for that ITID",
 		},
-		Metadata: map[string]string{"recovery_state": "unavailable"},
+		Metadata: map[string]string{"recovery_state": traceDBSourceRawLanePlaceholderState},
 	}
-	if inventory == nil || inventory.RawDecode.Role == "" {
-		coverage.Skipped = "raw wakeup-new display-name recovery unavailable: source raw decode ledger absent"
+	if inventory != nil {
+		coverage.Found = len(inventory.RawWakeupNames) > 0
+		coverage.RowsRead = len(inventory.RawWakeupNames)
+	}
+	// The class gate (source_raw_lane_gate.go) splits absent/non-official
+	// source (not applicable) from an official census that did not close
+	// (census incomplete); an unrecognized ledger shape fails loud.
+	if stop, _ := traceDBApplySourceRawLaneGateKeyed(&coverage, inventory,
+		traceDBSourceRawLaneStateKeyRecovery, "raw wakeup-new display-name recovery"); stop {
 		return coverage
 	}
-	coverage.Found = len(inventory.RawWakeupNames) > 0
-	coverage.RowsRead = len(inventory.RawWakeupNames)
+	// Past the gate the census closed; the family predicate can only fail on
+	// the family's own retention store having been withdrawn by byte budget.
 	if !traceDBRawDecodeFamilyComplete(
-		inventory.RawDecode, traceDBRawRetentionWakeupName) ||
-		inventory.RawDecode.Metrics["target_sched_wakeup_new_name_record_capture_failed"] != 0 ||
+		inventory.RawDecode, traceDBRawRetentionWakeupName) {
+		coverage.Metadata["recovery_state"] = traceDBSourceRawLaneFamilyRetentionWithdrawnState
+		coverage.Skipped = "raw wakeup-new display-name recovery withheld: retained family record store exceeded its byte budget"
+		return coverage
+	}
+	if inventory.RawDecode.Metrics["target_sched_wakeup_new_name_record_capture_failed"] != 0 ||
 		inventory.RawDecode.Metrics["target_sched_wakeup_new_name_records_retained"] !=
 			int64(len(inventory.RawWakeupNames)) {
-		coverage.Metadata["recovery_state"] = "withheld_source_raw_decode_incomplete"
-		coverage.Skipped = "raw wakeup-new display-name recovery withheld: source raw decode census incomplete"
+		coverage.Metadata["recovery_state"] = "withheld_retained_record_census_mismatch"
+		coverage.Skipped = "raw wakeup-new display-name recovery withheld: retained/admitted record census mismatch"
 		return coverage
 	}
 	if authority == nil || !authority.initialized || !authority.complete {

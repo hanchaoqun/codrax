@@ -71,6 +71,7 @@ func traceDBRawAsyncRecords(end uint64) []traceDBRawMarkerRecord {
 func traceDBRawAsyncInventory(rows []traceDBRawMarkerRecord) *traceDBSourceNameInventory {
 	return &traceDBSourceNameInventory{
 		RawDecode: TraceDBCoverage{
+			Found: true,
 			Metadata: map[string]string{
 				"decode_state": "strict_target_ledger_complete",
 			},

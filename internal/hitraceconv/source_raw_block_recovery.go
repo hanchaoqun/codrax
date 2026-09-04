@@ -26,7 +26,7 @@ func newTraceDBRawBlockRecoveryCoverage() TraceDBCoverage {
 			"deduplication": "a complete source family supersedes normalized SQLite raw rows of the exact governed block event names before DB publication; otherwise source publication is withheld if any DB row of a governed block event name kept publication authority; rows of other block_storage class names are never part of this overlap",
 		},
 		Metadata: map[string]string{
-			"publication_state": "unavailable",
+			"publication_state": traceDBSourceRawLanePlaceholderState,
 		},
 	}
 }
@@ -58,13 +58,10 @@ func publishTraceDBRawBlockRecovery(
 	dbRawCoverage []TraceDBCoverage,
 ) (TraceDBCoverage, error) {
 	out := newTraceDBRawBlockRecoveryCoverage()
-	if inventory == nil {
-		out.Skipped = "raw block recovery unavailable: immutable source inventory absent"
-		return out, nil
+	if inventory != nil {
+		out.RowsRead = len(inventory.RawBlock)
+		traceDBAddCoverageMetric(&out, "raw_block_rows_retained", int64(len(inventory.RawBlock)))
 	}
-	out.Found = inventory.RawDecode.Found
-	out.RowsRead = len(inventory.RawBlock)
-	traceDBAddCoverageMetric(&out, "raw_block_rows_retained", int64(len(inventory.RawBlock)))
 	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "raw block recovery"); stop {
 		return out, err
 	}

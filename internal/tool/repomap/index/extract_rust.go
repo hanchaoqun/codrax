@@ -380,7 +380,7 @@ func rustExtractCalls(root *sitter.Node, src []byte, file string) []types.Relati
 		// Turbofish (`f::<T>(..)`, `path::f::<T>(..)`, `recv.f::<T>(..)`)
 		// wraps the callee in generic_function; the base is the same
 		// identifier / scoped / field shape the arms below already own.
-		fn := genericCalleeBase(node.ChildByFieldName("function"))
+		fn := genericCalleeBase(node.ChildByFieldName("function"), src)
 		if fn == nil {
 			return
 		}

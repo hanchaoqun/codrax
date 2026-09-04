@@ -6,8 +6,12 @@ package orchestrator
 // bounded per-path plan content diff that backs it. Moved out of
 // orchestrator.go under the IR-delivery LOC ratchet (§40.27 V7-5): the
 // ratchet is paid by extracting a concern, never by raising a budget or
-// compressing comments. Write path only — callers are the apply/verify
-// stage hooks (stage_hooks.go) and the orchestrator's retry loop; the read
+// compressing comments. Write path only — the single production reference
+// is clearForReplan (stage_hooks.go), the verify→plan replan reset, which
+// itself has had no production caller since the legacy write DAG scheduler
+// was retired (069b39fb4): the controller-first replan path in
+// write_controller_scheduler.go seeds its planning hints directly. The trio
+// is therefore reachable today only through clearForReplan's tests; the read
 // scheduler loop never reaches this file (L1).
 
 import (
@@ -19,6 +23,31 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// buildRetryHint synthesises the failure narrative the planner's next
+// dispatch will see after a failed apply/verify attempt. LLM-facing
+// context, so the error itself is never truncated:
+//
+//   - a failure-mode header for the resource-exhaustion kinds (OOM /
+//     CPU-time limit / wall-clock timeout) placed BEFORE the test
+//     summary so the model reads the cause ahead of the symptom;
+//   - report.FailureSummary verbatim — the runner-agnostic verdict from
+//     the parser (operator-facing log lines keep their own caps; this
+//     path does not);
+//   - the first maxFailingTests failing tests, each with the
+//     error-bearing excerpt ExtractFailureSignal isolates from
+//     FailureDetail, bounded at maxDetailChars — specific errors the
+//     planner can diff against the code it just wrote;
+//   - the paths the previous plan modified (ChangePlan.TargetPaths, cap
+//     maxPaths) as the suspect list, followed by the repair-scope
+//     guidance that keeps the next plan on those paths.
+//
+// report may be nil when the retry fires after an apply-phase failure
+// that never produced a ChangeReport; plan may be nil in the same case.
+// Both branches degrade gracefully.
+//
+// Generalisation: only uses fields present on every runner's TestResult
+// (AssertionID, Suite, FailureDetail) and on every ChangePlan
+// (TargetPaths). No language-specific parsing.
 func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAttempt int) string {
 	var b strings.Builder
 	if report == nil {

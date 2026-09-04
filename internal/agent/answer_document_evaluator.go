@@ -18124,7 +18124,7 @@ func answerDocPatchBaseBlockRosterHint(ctx *types.AgentContext, primary *types.M
 	if focusKind != "" {
 		idsJSON, marshalErr := json.Marshal(focusedIDs)
 		if marshalErr == nil {
-			fmt.Fprintf(&b, " Existing `kind=%s` block ids: `%s`. The model must choose which content to retain; the system does not choose or remove a block.", focusKind, idsJSON)
+			fmt.Fprintf(&b, " Existing `kind=%s` block ids: `%s`. The model must choose which content to retain; no block is chosen or removed on its behalf.", focusKind, idsJSON)
 		}
 	}
 	return b.String()

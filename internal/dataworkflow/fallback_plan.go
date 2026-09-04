@@ -618,7 +618,7 @@ func BuildRequiredOutputProjectionPlan(input OutputProjectionPlanInput) (dataque
 			return dataquery.TaskPlan{}, false
 		}
 	}
-	contract := BestOutputContract(input.Result.OutputContract, input.Output, input.Current.OutputContract)
+	contract := ResolveOutputContract(input.Current.OutputContract, input.Output, input.Result.OutputContract)
 	coverage := input.Coverage
 	coverage.ReconcileRequired = true
 	params := map[string]string{
@@ -715,7 +715,7 @@ type ResultProjectionNeedInput struct {
 }
 
 func ResultNeedsOutputProjection(input ResultProjectionNeedInput) bool {
-	contract := BestOutputContract(input.Result.OutputContract, input.Output, input.Current.OutputContract)
+	contract := ResolveOutputContract(input.Current.OutputContract, input.Output, input.Result.OutputContract)
 	if contract.Format == "" {
 		return false
 	}
@@ -879,7 +879,7 @@ func ledgerPrerequisitesSatisfiedByContributionContinuation(dep LedgerDependency
 func requiredLedgerCompletionBasePlan(input RequiredLedgerCompletionPlanInput) dataquery.TaskPlan {
 	plan := dataquery.TaskPlan{
 		Status:           "ready",
-		OutputContract:   BestOutputContract(input.Result.OutputContract, input.Output, input.Current.OutputContract),
+		OutputContract:   ResolveOutputContract(input.Current.OutputContract, input.Output, input.Result.OutputContract),
 		CoverageContract: input.Coverage,
 		Goal:             strings.TrimSpace(input.Current.Goal),
 		SuccessCriteria:  append([]string(nil), input.Current.SuccessCriteria...),
@@ -921,15 +921,33 @@ func RuleCoverageCompletionAction(contract dataquery.CoverageContract) dataquery
 	}
 }
 
-func BestOutputContract(values ...dataquery.OutputContract) dataquery.OutputContract {
+// ResolveOutputContract is the ONE output-contract tie policy shared by the
+// data lane's seed fold, the workflow carry resolver and (through the
+// resolver) the planner's pre-dispatch gate (V9-4 §40.56, 合流复核收编).
+//
+// Declarations are passed in ASCENDING precedence — chronological order for
+// a revision sequence (earlier records first, the current plan last), or
+// weakest-to-strongest authority for a precedence list. The most specific
+// declaration wins; among equally-specific declarations the LAST one wins,
+// because a later equally-specific declaration is an explicit revision and
+// merely omitting fields in a later draft cannot silently weaken the
+// obligation. An undeclared contract (specificity < 0) never wins, and with
+// no declaration at all the freeform/explanation-allowed default is returned.
+//
+// Before this helper the seed fold kept the FIRST equal-specificity
+// declaration while the resolver let the LATEST win, so a system-built
+// continuation or a CLI resume silently reverted the user's explicit
+// format revision (G6-data-contract #0).
+func ResolveOutputContract(ascending ...dataquery.OutputContract) dataquery.OutputContract {
 	var best dataquery.OutputContract
 	bestScore := -1
-	for _, value := range values {
+	for _, value := range ascending {
 		score := outputContractSpecificity(value)
-		if score > bestScore {
-			best = value.Normalize()
-			bestScore = score
+		if score < 0 || score < bestScore {
+			continue
 		}
+		best = value.Normalize()
+		bestScore = score
 	}
 	if bestScore >= 0 {
 		return best

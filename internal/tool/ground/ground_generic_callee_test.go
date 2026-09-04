@@ -129,3 +129,88 @@ func TestUngroundedCallExplanationSplitsAbsenceFromShapeMismatch(t *testing.T) {
 		t.Fatalf("absent token must keep the absence wording: %q", item.GroundingNote)
 	}
 }
+
+// G6-debt #0 (colleague_merge_audit §40.59 合流复核收编): the definition-
+// shaped refusal applies before any callee tier. A line whose callee token
+// is preceded by a declaration form — keyword callables (fn/func/function/
+// fun/def), type declarations (class/struct/data class/…), template<…> and
+// return-type-then-name C/C++ signatures — is never a call site, and the
+// type-parameter list a generic declaration spells between the name and
+// its `(` does not change that. Each generic shape is pinned next to its
+// non-generic twin, and the repair note names the declaration form.
+//
+// EVOLUTION RECORD: red on 8a1e5d695 — every generic shape grounded
+// (callTargetWithTypeArguments accepted `name<…>(` while the definition
+// regexes only knew `name(`), Kotlin `fun <T> parse(` and the tuple-struct
+// twin were pre-existing holes; green once the declaration forms accept an
+// optional type-parameter list and the call-site refusal reads the type
+// declaration forms too.
+func TestGenericDefinitionLinesNeverGroundAsCallSites(t *testing.T) {
+	cases := []struct {
+		name, line, anchor, form string
+	}{
+		{"rust fn", "fn parse<T>(s: &str) -> T {", "parse", `"fn" declaration`},
+		{"rust fn twin", "fn parse(s: &str) -> T {", "parse", `"fn" declaration`},
+		{"rust pub fn bounded", "pub fn parse<T: FromStr>(s: &str) -> T {", "parse", `"fn" declaration`},
+		{"cpp template specialisation", "template<> int parse<int>(const std::string& s) {", "parse", `"template<...>" declaration`},
+		{"cpp template twin", "template<class T> T parse(const std::string& s) {", "parse", `"template<...>" declaration`},
+		{"cpp return-type signature", "int parse<int>(const std::string& s) {", "parse", "C-style signature with the return type before the name"},
+		{"cpp return-type twin", "int parse(const std::string& s) {", "parse", "C-style signature with the return type before the name"},
+		{"swift func", "func decode<T>(x: T) -> T {", "decode", `"func" declaration`},
+		{"swift func twin", "func decode(x: T) -> T {", "decode", `"func" declaration`},
+		{"cangjie func", "func parse<T>(s: String): T {", "parse", `"func" declaration`},
+		{"cangjie func twin", "func parse(s: String): T {", "parse", `"func" declaration`},
+		{"go func type parameters", "func parse[T any](s string) T {", "parse", `"func" declaration`},
+		{"typescript function", "function parse<T>(s: string): T {", "parse", `"function" declaration`},
+		{"typescript function twin", "function parse(s: string): T {", "parse", `"function" declaration`},
+		{"typescript export function", "export function parse<T>(s: string): T {", "parse", `"function" declaration`},
+		{"typescript class method", "parse<T>(s: string): T {", "parse", "method signature"},
+		{"typescript class method twin", "parse(s: string): T {", "parse", "method signature"},
+		{"kotlin fun with leading type parameters", "fun <T> parse(s: String): T {", "parse", `"fun" declaration`},
+		{"kotlin fun twin", "fun parse(s: String): T {", "parse", `"fun" declaration`},
+		{"kotlin class", "class Parser<T>(val x: T) {", "Parser", `"class" declaration`},
+		{"kotlin class twin", "class Parser(val x: T) {", "Parser", `"class" declaration`},
+		{"kotlin data class", "data class Box<T>(val v: T)", "Box", `"data class" declaration`},
+		{"kotlin data class twin", "data class Box(val v: T)", "Box", `"data class" declaration`},
+		{"rust tuple struct", "struct Wrapper<T>(T);", "Wrapper", `"struct" declaration`},
+		{"rust tuple struct twin", "struct Wrapper(T);", "Wrapper", `"struct" declaration`},
+		{"rust pub tuple struct", "pub struct Wrapper<T>(T);", "Wrapper", `"struct" declaration`},
+		{"python class bases", "class Parser(Base):", "Base", `"class" declaration`},
+		{"java record", "record Point<T>(T x, T y) {}", "Point", `"record" declaration`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			item, report := groundCallAnchor(tc.line, tc.anchor, nil)
+			if report.Status != types.GroundingUngrounded {
+				t.Fatalf("%q anchor %q is a declaration, never a call site: report=%+v item=%+v", tc.line, tc.anchor, report, item)
+			}
+			if !strings.Contains(item.GroundingNote, "cites a definition-shaped source line") ||
+				!strings.Contains(item.GroundingNote, tc.form) {
+				t.Fatalf("%q: the repair note must name the declaration form %q: %q", tc.line, tc.form, item.GroundingNote)
+			}
+		})
+	}
+}
+
+// The widened declaration forms must not swallow generic CALL lines: the
+// B1554 positives stay grounded when they are spelled at statement start
+// without an assignment or return keyword in front.
+func TestGenericCallStatementsStayGroundedAfterDeclarationWidening(t *testing.T) {
+	cases := []struct {
+		name, line, anchor string
+	}{
+		{"cpp statement call", "std::make_unique<ConsoleSink>();", "make_unique"},
+		{"kotlin statement call", "parse<Int>(text)", "parse"},
+		{"typescript statement call", "parse<number>(text);", "parse"},
+		{"rust statement call", "parse::<u32>(text)?;", "parse"},
+		{"cangjie statement call", "repo.load<Item>(key)", "load"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			item, report := groundCallAnchor(tc.line, tc.anchor, nil)
+			if report.Status != types.GroundingGrounded {
+				t.Fatalf("%q anchor %q is a call site: report=%+v item=%+v", tc.line, tc.anchor, report, item)
+			}
+		})
+	}
+}

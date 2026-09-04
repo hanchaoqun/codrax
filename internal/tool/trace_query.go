@@ -3985,36 +3985,76 @@ func traceQueryObjectiveExactTokenCaveats(ctx *types.BusContext, p traceQueryPar
 	if len(tokens) == 0 {
 		return nil
 	}
-	selector := firstNonEmptyTraceString(p.Pattern, p.SpanName)
+	selectorName, selectorText, selectorSet := traceQueryObjectiveSelector(p)
 	var out []string
 	for _, token := range tokens {
-		if traceQuerySelectorContainsObjectiveToken(selector, token.Token) || traceQueryResultContainsObjectiveToken(result, token.Token) {
+		if traceQuerySelectorSetContainsObjectiveToken(selectorSet, token.Token) || traceQueryResultContainsObjectiveToken(result, token.Token) {
 			continue
 		}
-		selectorName := traceQueryObjectiveSelectorName(p)
 		switch token.Kind {
 		case "frame":
-			out = append(out, fmt.Sprintf("objective_exact_frame_hint=user request names Choreographer#doFrame %s, but this %s %s %q does not include requested token %q; returned rows are not evidence that frame %s is absent. Rerun trace_query(view=\"frame_window\", pattern=%q, event_types=[\"trace_mark\"]) or trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"]) before making an absence claim",
-				token.Token, firstNonEmptyTraceString(view, "event_search"), selectorName, selector, token.Token, token.Token, token.Token, token.Token))
+			out = append(out, fmt.Sprintf("objective_exact_frame_hint=user request names Choreographer#doFrame %s, but this %s %s %s does not include requested token %q; returned rows are not evidence that frame %s is absent. Rerun trace_query(view=\"frame_window\", pattern=%q, event_types=[\"trace_mark\"]) or trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"]) before making an absence claim",
+				token.Token, firstNonEmptyTraceString(view, "event_search"), selectorName, selectorText, token.Token, token.Token, token.Token, token.Token))
 		case "span", "quoted":
-			out = append(out, fmt.Sprintf("objective_exact_span_hint=user request names exact span/marker token %q, but this %s %s %q does not include it and the returned rows do not contain it; do not infer absence from this broad result. Rerun trace_query(view=\"span_window\", span_name=%q) or trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"]) before making an absence claim",
-				token.Token, firstNonEmptyTraceString(view, "event_search"), selectorName, selector, token.Token, token.Token))
+			out = append(out, fmt.Sprintf("objective_exact_span_hint=user request names exact span/marker token %q, but this %s %s %s does not include it and the returned rows do not contain it; do not infer absence from this broad result. Rerun trace_query(view=\"span_window\", span_name=%q) or trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"]) before making an absence claim",
+				token.Token, firstNonEmptyTraceString(view, "event_search"), selectorName, selectorText, token.Token, token.Token))
 		default:
-			out = append(out, fmt.Sprintf("objective_exact_token_hint=user request names exact token %q (kind=%s), but this %s %s %q does not include it and the returned rows do not contain it; do not infer absence from this broad result. Rerun trace_query(view=\"event_search\", pattern=%q) or an appropriate specialized view with that exact literal token before making an absence claim",
-				token.Token, token.Kind, firstNonEmptyTraceString(view, "event_search"), selectorName, selector, token.Token))
+			out = append(out, fmt.Sprintf("objective_exact_token_hint=user request names exact token %q (kind=%s), but this %s %s %s does not include it and the returned rows do not contain it; do not infer absence from this broad result. Rerun trace_query(view=\"event_search\", pattern=%q) or an appropriate specialized view with that exact literal token before making an absence claim",
+				token.Token, token.Kind, firstNonEmptyTraceString(view, "event_search"), selectorName, selectorText, token.Token))
 		}
 	}
 	return out
 }
 
-func traceQueryObjectiveSelectorName(p traceQueryParams) string {
-	if strings.TrimSpace(p.Pattern) != "" {
-		return "pattern"
+// traceQueryObjectiveSelector is the single reader of the call's selector
+// face for the objective-exact-token caveat: the full literal OR set the
+// call sent — pattern ∪ patterns (the same union the engine searches, see
+// tracequery.eventSearchLiteralPatterns) ∪ span_name. The caveat must never
+// tell the model that its own call omitted a token it sent (G6-tracediag
+// #0, §40.58 合流复核收编): a literal carried through `patterns` or
+// `span_name` is as much a selector as `pattern`. name lists the carriers
+// present (`pattern`, `patterns`, `span_name`, joined by `+`); text is
+// already quoted for the caveat sentence — one literal from a scalar
+// carrier renders as %q (pinned wording `pattern "X"`), a set renders as a
+// JSON-style list.
+func traceQueryObjectiveSelector(p traceQueryParams) (name, text string, set []string) {
+	var carriers []string
+	add := func(carrier string, literals ...string) {
+		added := false
+		for _, literal := range literals {
+			if literal = strings.TrimSpace(literal); literal != "" {
+				set = append(set, literal)
+				added = true
+			}
+		}
+		if added {
+			carriers = append(carriers, carrier)
+		}
 	}
-	if strings.TrimSpace(p.SpanName) != "" {
-		return "span_name"
+	add("pattern", p.Pattern)
+	add("patterns", p.Patterns...)
+	add("span_name", p.SpanName)
+	if len(set) == 0 {
+		return "selector", `""`, nil
 	}
-	return "selector"
+	name = strings.Join(carriers, "+")
+	if len(set) == 1 && name != "patterns" {
+		return name, fmt.Sprintf("%q", set[0]), set
+	}
+	quoted := make([]string, 0, len(set))
+	for _, literal := range set {
+		quoted = append(quoted, fmt.Sprintf("%q", literal))
+	}
+	return name, "[" + strings.Join(quoted, ",") + "]", set
+}
+
+func traceQuerySelectorSetContainsObjectiveToken(set []string, token string) bool {
+	for _, selector := range set {
+		if traceQuerySelectorContainsObjectiveToken(selector, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func traceQueryObjectiveExactTokens(ctx *types.BusContext) []traceQueryObjectiveExactToken {

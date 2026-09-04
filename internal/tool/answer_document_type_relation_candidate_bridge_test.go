@@ -191,6 +191,12 @@ func TestPreCheckDiagramCallEdgeEvidenceAlignment_ReversedClassDiagramAnchorTeac
 		!strings.Contains(hint.ExpectedShape, "Do not delete the diagram") {
 		t.Fatalf("hint must teach alignment, not deletion:\n%s", hint.ExpectedShape)
 	}
+	// 合流复核收编 (§40.57): the stale-anchor remedy is issue-keyed now, so the
+	// reversed anchor's hint never carries "remove that stale anchor" beside
+	// the alignment teaching (single teaching per anchor).
+	if strings.Contains(hint.ExpectedShape, diagramStaleAnchorBoundaryTeaching) || strings.Contains(hint.ExpectedShape, "stale") {
+		t.Fatalf("hint must carry only the alignment teaching for a reversed anchor:\n%s", hint.ExpectedShape)
+	}
 	if doc.Blocks[0].EdgeAnchors[0].FromNode != "LoopController" || doc.Blocks[0].EdgeAnchors[0].ToNode != "analyzerEvaluator" {
 		t.Fatalf("pre-emit gate must never rewrite the model anchor: %+v", doc.Blocks[0].EdgeAnchors)
 	}

@@ -43,7 +43,7 @@ func newTraceDBRawBlockedKeyCoverage() TraceDBCoverage {
 			"effect":    "diagnostic cohort and identity accounting only; RowsEmitted is always zero and this ledger never adds or suppresses a systrace row",
 		},
 		Metadata: map[string]string{
-			"ledger_state":          "unavailable",
+			"ledger_state":          traceDBSourceRawLanePlaceholderState,
 			"publication_authority": "withheld_diagnostic_only",
 		},
 	}
@@ -64,18 +64,25 @@ func traceDBRawBlockedKeyLedger(
 	authority traceDBSchedulerAuthority,
 ) (TraceDBCoverage, []traceDBRawBlockedRecoveryRow) {
 	out := newTraceDBRawBlockedKeyCoverage()
-	if inventory == nil {
-		out.Skipped = "raw blocked key ledger unavailable: immutable source inventory absent"
+	if inventory != nil {
+		out.Found = inventory.RawDecode.Found
+		if geometry := inventory.RawDecode.Metadata["blocked_reason_format_geometry_witnesses"]; geometry != "" {
+			out.Metadata["blocked_reason_format_geometry_witnesses"] = geometry
+		}
+	}
+	// The class gate (source_raw_lane_gate.go) splits absent/non-official
+	// source (not applicable) from an official census that did not close
+	// (census incomplete); an unrecognized ledger shape fails loud.
+	if stop, _ := traceDBApplySourceRawLaneGateKeyed(&out, inventory,
+		traceDBSourceRawLaneStateKeyLedger, "raw blocked key ledger"); stop {
 		return out, nil
 	}
-	out.Found = inventory.RawDecode.Found
-	if geometry := inventory.RawDecode.Metadata["blocked_reason_format_geometry_witnesses"]; geometry != "" {
-		out.Metadata["blocked_reason_format_geometry_witnesses"] = geometry
-	}
+	// Past the gate the census closed; the family predicate can only fail on
+	// the family's own retention store having been withdrawn by byte budget.
 	if !traceDBRawDecodeFamilyComplete(
 		inventory.RawDecode, traceDBRawRetentionBlocked) {
-		out.Metadata["ledger_state"] = "withheld_raw_decode_incomplete"
-		out.Skipped = "raw blocked key ledger withheld: strict raw decode ledger incomplete"
+		out.Metadata["ledger_state"] = traceDBSourceRawLaneFamilyRetentionWithdrawnState
+		out.Skipped = "raw blocked key ledger withheld: retained family record store exceeded its byte budget"
 		return out, nil
 	}
 	rawRows := inventory.RawBlocked

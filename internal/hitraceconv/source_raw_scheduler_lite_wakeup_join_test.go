@@ -135,7 +135,8 @@ func TestTraceDBRawSchedWakeupLiteJoinDoesNotClaimCompletionWithoutDBCensus(t *t
 	}
 	join := newTraceDBRawSchedWakeupLiteJoin(&traceDBSourceNameInventory{
 		RawDecode: TraceDBCoverage{
-			Role: "diagnostic_ledger",
+			Found: true,
+			Role:  "diagnostic_ledger",
 			Metadata: map[string]string{
 				"decode_state": "strict_target_ledger_complete",
 				"scheduler_lite_format_geometry_witnesses":   "sched_wakeup_lite#1[target_cpu@16:4]",
@@ -211,6 +212,7 @@ func exportTraceDBSchedWakeupLiteJoinFixture(
 	defer tdb.close()
 	tdb.sourceNameInventory = &traceDBSourceNameInventory{
 		RawDecode: TraceDBCoverage{
+			Found:    true,
 			Role:     "diagnostic_ledger",
 			Metadata: map[string]string{"decode_state": "strict_target_ledger_complete"},
 			Metrics: map[string]int64{

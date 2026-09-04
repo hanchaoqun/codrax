@@ -510,6 +510,24 @@ func TestEmitAnalysisSchemaIncludesDiagramHintEnum(t *testing.T) {
 	if !strings.Contains(requiredProp.Description, types.PresentationHardVisualTeaching()) {
 		t.Fatalf("diagram_hint.required description lacks the shared authority teaching: %q", requiredProp.Description)
 	}
+	// EVOLUTION RECORD (§40.54 fold-in, G6-analyzer-key #0): the
+	// object-level diagram_hint description kept a second, prose-shaped
+	// statement of the authority boundary ("set it true ONLY when the
+	// CURRENT request or typed Presentation Directive explicitly requires
+	// a diagram / visual / drawing") one level above the R2' teaching —
+	// two contradictory teachings inside one schema. The object level now
+	// carries the SAME teaching sentence byte-for-byte and no paraphrase.
+	if !strings.Contains(prop.Description, types.PresentationHardVisualTeaching()) {
+		t.Fatalf("diagram_hint object description must embed the shared authority teaching verbatim: %q", prop.Description)
+	}
+	for _, retired := range []string{"explicitly requires a diagram", "explicitly requires a visual", "Presentation Directive explicitly"} {
+		if strings.Contains(prop.Description, retired) {
+			t.Fatalf("diagram_hint object description still carries the retired prose-inference clause %q: %q", retired, prop.Description)
+		}
+	}
+	if strings.Count(prop.Description, types.PresentationHardVisualTeaching()) != 1 {
+		t.Fatalf("diagram_hint object description must carry the authority teaching exactly once: %q", prop.Description)
+	}
 	if !reflect.DeepEqual(prop.Required, []string{"kind", "required", "relation_scope_quote", "participants"}) {
 		t.Fatalf("diagram_hint required = %v, want [kind required relation_scope_quote participants]", prop.Required)
 	}

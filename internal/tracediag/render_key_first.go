@@ -1458,6 +1458,38 @@ var stepParamSchemaPins = map[reflect.Type]string{
 	reflect.TypeOf(Script{}):          "b46187f3ef4fc8e058388c461c1435f865b4c85b0ed03ea5dcd23525a0e14db2",
 }
 
+// YAMLFieldKey reports the key yaml.v3 decodes a struct field under and
+// whether the decoder reads the field at all. It is the one statement of
+// yaml.v3's field rules shared by the parameter-face pins here and the
+// tool-side cross-face census (internal/tool): unexported fields and
+// `yaml:"-"` are skipped; an untagged exported field decodes under its
+// lowercased Go name (yaml.v3 default, NOT snake_case); `,inline` flattens
+// the field's own keys into the parent and reports inline=true with an
+// empty key. A census that keys on tag presence alone would silently pass
+// an untagged exported field the decoder accepts (G6-tracediag #1).
+func YAMLFieldKey(field reflect.StructField) (key string, decoded, inline bool) {
+	if field.PkgPath != "" {
+		return "", false, false
+	}
+	tag, tagged := field.Tag.Lookup("yaml")
+	if !tagged {
+		return strings.ToLower(field.Name), true, false
+	}
+	name, opts, _ := strings.Cut(tag, ",")
+	if name == "-" {
+		return "", false, false
+	}
+	for _, opt := range strings.Split(opts, ",") {
+		if opt == "inline" {
+			return "", true, true
+		}
+	}
+	if name == "" {
+		name = strings.ToLower(field.Name)
+	}
+	return name, true, false
+}
+
 // paramSchemaFingerprint hashes the yaml face (Name|Type|yaml tag) of one
 // script struct's exported fields — the decoder-visible schema, nothing else.
 func paramSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {

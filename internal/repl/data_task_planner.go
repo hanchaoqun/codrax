@@ -1325,7 +1325,7 @@ func (p *llmDataTaskPlanner) ProposeDataResultPatchWithRuntimeView(ctx context.C
 func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt string) (dataquery.TaskPlan, error) {
 	// An initial plan has no workflow yet: the execution baseline is the
 	// undeclared contract, so the gate judges the draft exactly as the
-	// resolver will carry it (BestOutputContract of the draft alone).
+	// resolver will carry it (ResolveOutputContract of the draft alone).
 	return p.planDataTaskWithTool(ctx, scope, prompt, dataTaskPlanTool, dataquery.OutputContract{})
 }
 

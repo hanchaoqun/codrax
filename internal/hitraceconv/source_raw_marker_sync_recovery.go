@@ -73,7 +73,7 @@ func newTraceDBRawMarkerSyncCoverage() TraceDBCoverage {
 			"local_fence":   "bounded exact emitter/physical-ordinal/timestamp/reason witnesses diagnose rejected endpoint/carrier segment fences; witnesses never admit a row or bridge an open stack",
 		},
 		Metadata: map[string]string{
-			"publication_state": "unavailable",
+			"publication_state": traceDBSourceRawLanePlaceholderState,
 		},
 	}
 }
@@ -85,13 +85,10 @@ func submitTraceDBRawMarkerSyncRecovery(
 	syncSpans *traceDBSyncSpanAuthority,
 ) (TraceDBCoverage, error) {
 	out := newTraceDBRawMarkerSyncCoverage()
-	if inventory == nil {
-		out.Skipped = "raw marker sync recovery unavailable: immutable source inventory absent"
-		return out, nil
-	}
-	out.Found = inventory.RawDecode.Found
-	if geometry := inventory.RawDecode.Metadata["marker_format_geometry_witnesses"]; geometry != "" {
-		out.Metadata["marker_format_geometry_witnesses"] = geometry
+	if inventory != nil {
+		if geometry := inventory.RawDecode.Metadata["marker_format_geometry_witnesses"]; geometry != "" {
+			out.Metadata["marker_format_geometry_witnesses"] = geometry
+		}
 	}
 	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "raw marker sync recovery"); stop {
 		return out, err

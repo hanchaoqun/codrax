@@ -89,7 +89,7 @@ func newTraceDBRawExactRecoveryCoverage(family string) TraceDBCoverage {
 			"pairing":       "workqueue and F2FS endpoints must agree with tracequery's source-neutral typed endpoint authority; filemap rows are point observations and never endpoints",
 			"deduplication": "a complete source family supersedes normalized SQLite raw rows of its exact governed event names before DB publication; partial families never override DB rows; rows of other names sharing a SQL raw class are never part of this overlap",
 		},
-		Metadata: map[string]string{"publication_state": "unavailable"},
+		Metadata: map[string]string{"publication_state": traceDBSourceRawLanePlaceholderState},
 	}
 }
 
@@ -119,14 +119,11 @@ func publishTraceDBRawExactRecoveryFamily(
 	family string,
 ) (TraceDBCoverage, error) {
 	out := newTraceDBRawExactRecoveryCoverage(family)
-	if inventory == nil {
-		out.Skipped = "exact source recovery unavailable: immutable source inventory absent"
-		return out, nil
-	}
-	out.Found = inventory.RawDecode.Found
-	for _, record := range inventory.RawExact {
-		if record.Family == family {
-			out.RowsRead++
+	if inventory != nil {
+		for _, record := range inventory.RawExact {
+			if record.Family == family {
+				out.RowsRead++
+			}
 		}
 	}
 	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "exact source recovery"); stop {

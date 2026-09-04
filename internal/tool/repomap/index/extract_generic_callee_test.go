@@ -220,12 +220,12 @@ func TestGenericCalleeBasePassesPlainCalleesThrough(t *testing.T) {
 			return
 		}
 		fn := node.ChildByFieldName("function")
-		if got := genericCalleeBase(fn); got != fn {
+		if got := genericCalleeBase(fn, []byte(src)); got != fn {
 			t.Fatalf("plain callee must pass through unchanged: %s -> %s", fn.Type(), got.Type())
 		}
 		seen = true
 	})
-	if !seen || genericCalleeBase(nil) != nil {
+	if !seen || genericCalleeBase(nil, []byte(src)) != nil {
 		t.Fatalf("fixture must contain a call (seen=%t) and nil must pass through", seen)
 	}
 }
@@ -257,12 +257,64 @@ func TestSwiftConstructorExpressionRegistersNewExpressionLineFeature(t *testing.
 // every language whose call rows changed shape rejects pre-B1554 caches.
 func TestGenericCalleeExtractorCacheEpochFloors(t *testing.T) {
 	floors := map[string]int{
-		types.LangRust: 12, types.LangC: 11, types.LangCpp: 12,
+		types.LangRust: 12, types.LangC: 11, types.LangCpp: 13,
 		types.LangSwift: 10, types.LangCangjie: 10,
 	}
 	for language, floor := range floors {
 		if got := extractorVersions[language]; got < floor {
 			t.Errorf("extractorVersions[%q]=%d, want >=%d after the generic-callee row change", language, got, floor)
 		}
+	}
+}
+
+// G6-debt #1 (colleague_merge_audit §40.59 合流复核收编): the two byte
+// adjacencies alone let a compact comparison chain `a<b && c>(d)` read as a
+// template call. The interior of the template-argument list must be a
+// type-argument list — identifiers, qualified names, commas, whitespace,
+// nested angles, integer/bool literals, `*`, `&`, const/typename — and any
+// comparison / logical / arithmetic operator or string literal inside
+// rejects the template_function reading, so no call row is minted. The
+// same interior rule gates the Cangjie lexer arm and the grounder's regex
+// arm (typeArgumentListClosesIntoCall), so the three tiers accept one
+// shape.
+//
+// EVOLUTION RECORD: red on 8a1e5d695 — `a<b && c>(d)`, `lhs<0 &&
+// cnt>(height)`, `a<b || c>(d)` and `bool ok = i<n && j>(k)` each minted a
+// Kind=call row headed by the comparison operand; green once
+// cppTemplateCalleeTouchesArguments also scans the argument-list interior.
+func TestCppTemplateCalleeInteriorMustBeTypeArgumentList(t *testing.T) {
+	cases := []struct {
+		name   string
+		src    string
+		callee string
+		want   bool
+	}{
+		{"and chain", "if (a<b && c>(d)) { helper(); }", "a", false},
+		{"and chain with literal", "if (lhs<0 && cnt>(height)) { helper(); }", "lhs", false},
+		{"or chain", "if (a<b || c>(d)) { helper(); }", "a", false},
+		{"and chain in initialiser", "bool ok = i<n && j>(k);", "i", false},
+		{"equality inside", "foo<a == b>(x);", "foo", false},
+		{"inequality inside", "foo<a != b>(x);", "foo", false},
+		{"arithmetic inside", "foo<n + 1>(x);", "foo", false},
+		{"division inside", "foo<n / 2>(x);", "foo", false},
+		{"string literal inside", "foo<\"s\">(x);", "foo", false},
+		{"qualified template", "auto m = std::max<int>(a, b);", "max", true},
+		{"nested template", "foo<std::vector<int>>(x);", "foo", true},
+		{"integer literal", "foo<3>(x);", "foo", true},
+		{"bool literal", "foo<true>(x);", "foo", true},
+		{"const pointer", "foo<const T*>(x);", "foo", true},
+		{"typename qualified", "foo<typename T::type>(x);", "foo", true},
+		{"lvalue reference", "obj.get<int&>(x);", "get", true},
+		{"two type arguments", "if (a<b, c>(d)) { helper(); }", "a", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := []byte("void run() { " + tc.src + " }\n")
+			_, _, _, rels := extractCCpp(parseSourceFor(t, types.LangCpp, string(src)), src, "svc.cpp", types.LangCpp)
+			names := genericCalleeNames(rels)
+			if got := names[tc.callee] > 0; got != tc.want {
+				t.Fatalf("%q: call row %q present=%t, want %t; rows=%v", tc.src, tc.callee, got, tc.want, names)
+			}
+		})
 	}
 }

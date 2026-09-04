@@ -2713,6 +2713,78 @@ func TestDiagramCallEdgeEvidenceMismatches_ReversedAnchorIssueShape(t *testing.T
 			t.Fatalf("a forward anchor with a structurally paired reply must stay clean: %+v", got)
 		}
 	})
+	// 合流复核收编 (§40.57): on the strict lanes (sequence in a call-chain
+	// family, call_dag in any family) the excess-identity arm used to co-mint
+	// typed_anchor_without_visible_edge for the very anchor the anchor loop
+	// reports as reversed, so the retry carried the retired deletion teaching
+	// beside the alignment teaching. The anchor loop owns every block-local
+	// anchor whose own direction is absent from the body; the excess arm owns
+	// only hidden extra identity pairs on visible endpoint pairs. Red on
+	// 8a1e5d695: sequence {without ×1, reversed ×1, missing_grounded_call_anchor ×1}.
+	strictCallEvidence := []types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")}
+	strictDocs := map[string]func() *types.AnswerDocumentV2{
+		"sequence": func() *types.AnswerDocumentV2 { return diagramEvidenceTestDoc("A", "B") },
+		"call_dag": func() *types.AnswerDocumentV2 {
+			doc := diagramEvidenceTestDoc("A", "B")
+			doc.Blocks[0].Diagram.Kind = types.DiagramCallDAG
+			doc.Blocks[0].Diagram.Body = "flowchart TD\n  A[Alpha.Run] --> B[Beta.Run]\n"
+			return doc
+		},
+	}
+	for name, build := range strictDocs {
+		t.Run("strict-lane "+name+" reversed identity-qualified call anchor is one reversed row", func(t *testing.T) {
+			doc := build()
+			doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+				FromNode: "B", ToNode: "A", FromIdentity: "Beta.Run", ToIdentity: "Alpha.Run",
+				RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+			}}
+			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, strictCallEvidence)
+			counts := issuesOf(got)
+			if counts[diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge] != 1 ||
+				counts[diagramCallEdgeIssueAnchorWithoutBodyEdge] != 0 ||
+				counts[diagramCallEdgeIssueMissingGroundedAnchor] != 1 || len(got) != 2 {
+				t.Fatalf("the reversed row owns the anchor; the visible edge keeps its missing-owner row and nothing else is minted: %+v", got)
+			}
+			for _, m := range got {
+				if m.Issue == diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge &&
+					(m.FromNode != "B" || m.ToNode != "A" || m.FromSymbol != "Beta.Run" || m.ToSymbol != "Alpha.Run" || m.Relation != types.DiagramRelCall) {
+					t.Fatalf("reversed row must carry the anchor as emitted: %+v", m)
+				}
+			}
+			if a := doc.Blocks[0].EdgeAnchors[0]; a.FromNode != "B" || a.ToNode != "A" {
+				t.Fatalf("the gate must never rewrite the model anchor: %+v", a)
+			}
+		})
+		t.Run("strict-lane "+name+" absent-pair identity-qualified call anchor is one stale row", func(t *testing.T) {
+			// EVOLUTION RECORD (合流复核收编 §40.57): the same anchor used to be
+			// reported twice under the same issue (anchor loop + excess arm);
+			// ownership is now exclusive, so one anchor is one row.
+			doc := build()
+			doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors, types.DiagramEdgeAnchor{
+				FromNode: "C", ToNode: "A", FromIdentity: "Gamma.Run", ToIdentity: "Alpha.Run",
+				RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+			})
+			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, strictCallEvidence)
+			counts := issuesOf(got)
+			if counts[diagramCallEdgeIssueAnchorWithoutBodyEdge] != 1 ||
+				counts[diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge] != 0 || len(got) != 1 {
+				t.Fatalf("an absent pair is one generic stale row, never a reversal and never duplicated: %+v", got)
+			}
+		})
+	}
+	t.Run("strict-lane hidden second identity pair on a visible edge stays excess", func(t *testing.T) {
+		// The excess arm's own lane is untouched: two distinct identity pairs
+		// on one visible A->B occurrence still leave the second pair unowned.
+		doc := diagramEvidenceTestDoc("A", "B")
+		doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "B", FromIdentity: "Alpha.Run", ToIdentity: "Beta.Run", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			{FromNode: "A", ToNode: "B", FromIdentity: "Alpha.Other", ToIdentity: "Beta.Other", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+		}
+		got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, strictCallEvidence)
+		if issuesOf(got)[diagramCallEdgeIssueAnchorWithoutBodyEdge] != 1 {
+			t.Fatalf("a hidden second identity pair on a visible pair must still be reported as excess: %+v", got)
+		}
+	})
 	t.Run("predicate is pure and exact-key", func(t *testing.T) {
 		keys := map[string]bool{diagramEvidenceEdgeKey("Impl", "Base"): true}
 		counts := map[string]int{diagramEvidenceUnorderedEdgeKey("Impl", "Base"): 1}
@@ -2728,6 +2800,72 @@ func TestDiagramCallEdgeEvidenceMismatches_ReversedAnchorIssueShape(t *testing.T
 			t.Fatal("a self edge under the shared key normalization never qualifies")
 		}
 	})
+}
+
+// TestPreCheckDiagramCallEdgeEvidenceAlignment_StrictLaneReversedCallAnchorCarriesOnlySwapTeaching
+// — 合流复核收编 (§40.57): the retry hint for a reversed anchor is one row and
+// one teaching. The stale-anchor remedy ("restore the arrow or remove that
+// stale anchor") is issue-keyed to typed_anchor_without_visible_edge exactly
+// like the reversed teaching is keyed to its issue, so the two never co-fire on
+// the same anchor. Red on 8a1e5d695: the strict-lane sequence hint listed
+// both issues and carried the generic "remove stale metadata" sentence beside
+// the alignment teaching.
+func TestPreCheckDiagramCallEdgeEvidenceAlignment_StrictLaneReversedCallAnchorCarriesOnlySwapTeaching(t *testing.T) {
+	mut := types.NewMutableState("how does Alpha.Run reach Beta.Run")
+	mut.AppendEvidence([]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+	pctx := newPreEmitCheckContext(&types.BusContext{Mutable: mut})
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+
+	reversed := diagramEvidenceTestDoc("A", "B")
+	reversed.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "B", ToNode: "A", FromIdentity: "Beta.Run", ToIdentity: "Alpha.Run",
+		RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+	}}
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(reversed, view, pctx)
+	if len(hints) != 1 {
+		t.Fatalf("reversed strict-lane anchor must produce exactly one relation-gate hint: %+v", hints)
+	}
+	hint := hints[0]
+	issues := strings.Join(hint.DiagramRelationFailureIssues, ",")
+	if !strings.Contains(issues, diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge) ||
+		strings.Contains(issues, diagramCallEdgeIssueAnchorWithoutBodyEdge) {
+		t.Fatalf("issue set must carry the reversed issue and not the generic stale issue: %q", issues)
+	}
+	if strings.Count(hint.ExpectedShape, "issue="+diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge+" ") != 1 ||
+		strings.Contains(hint.ExpectedShape, "issue="+diagramCallEdgeIssueAnchorWithoutBodyEdge) {
+		t.Fatalf("one anchor is one mismatch row:\n%s", hint.ExpectedShape)
+	}
+	if strings.Count(hint.ExpectedShape, diagramReversedAnchorBoundaryTeaching) != 1 ||
+		strings.Contains(hint.ExpectedShape, diagramStaleAnchorBoundaryTeaching) ||
+		strings.Contains(hint.ExpectedShape, "stale") {
+		t.Fatalf("a reversed anchor carries only the alignment teaching, never the stale-anchor remedy:\n%s", hint.ExpectedShape)
+	}
+	if a := reversed.Blocks[0].EdgeAnchors[0]; a.FromNode != "B" || a.ToNode != "A" {
+		t.Fatalf("pre-emit gate must never rewrite the model anchor: %+v", a)
+	}
+
+	// The stale-anchor remedy is not lost: an absent endpoint pair on the same
+	// strict lane still teaches restore-or-remove, and never the swap teaching.
+	stale := diagramEvidenceTestDoc("A", "B")
+	stale.Blocks[0].EdgeAnchors = append(stale.Blocks[0].EdgeAnchors, types.DiagramEdgeAnchor{
+		FromNode: "C", ToNode: "A", FromIdentity: "Gamma.Run", ToIdentity: "Alpha.Run",
+		RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge,
+	})
+	hints = preCheckDiagramCallEdgeEvidenceAlignment(stale, view, pctx)
+	if len(hints) != 1 {
+		t.Fatalf("stale strict-lane anchor must produce exactly one relation-gate hint: %+v", hints)
+	}
+	hint = hints[0]
+	issues = strings.Join(hint.DiagramRelationFailureIssues, ",")
+	if !strings.Contains(issues, diagramCallEdgeIssueAnchorWithoutBodyEdge) ||
+		strings.Contains(issues, diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge) {
+		t.Fatalf("issue set must carry the generic stale issue only: %q", issues)
+	}
+	if strings.Count(hint.ExpectedShape, "issue="+diagramCallEdgeIssueAnchorWithoutBodyEdge+" ") != 1 ||
+		strings.Count(hint.ExpectedShape, diagramStaleAnchorBoundaryTeaching) != 1 ||
+		strings.Contains(hint.ExpectedShape, diagramReversedAnchorBoundaryTeaching) {
+		t.Fatalf("a stale anchor is one row with the restore-or-remove teaching only:\n%s", hint.ExpectedShape)
+	}
 }
 
 func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsOwnedGroundedEdge(t *testing.T) {

@@ -81,26 +81,32 @@ func newTraceDBRawSchedulerCPUFallback(
 			out.audit.publicTID[itid] = thread.TID
 		}
 	}
-	if inventory == nil || inventory.RawDecode.Role == "" {
-		out.coverage.Metadata["authority_state"] = "unavailable_source_raw_decode_ledger"
-		out.coverage.Skipped = "raw scheduler CPU fallback unavailable: source raw decode ledger absent"
+	if inventory != nil {
+		out.coverage.Found = len(inventory.RawSwitchLite) > 0
+		out.coverage.RowsRead = len(inventory.RawSwitchLite)
+		traceDBAttachRawSchedulerLiteDiagnostics(
+			&out.coverage, inventory.RawDecode, "sched_switch_lite")
+		traceDBAddCoverageMetric(
+			&out.coverage, "raw_records_retained", int64(len(inventory.RawSwitchLite)))
+	}
+	// The class gate (source_raw_lane_gate.go) speaks first: the source-side
+	// fact (absent/non-official source, or an official census that did not
+	// close) precedes the DB-side lifecycle prerequisite.
+	if stop, _ := traceDBApplySourceRawLaneGateKeyed(&out.coverage, inventory,
+		traceDBSourceRawLaneStateKeyAuthority, "raw scheduler CPU fallback"); stop {
 		return out
 	}
-	out.coverage.Found = len(inventory.RawSwitchLite) > 0
-	out.coverage.RowsRead = len(inventory.RawSwitchLite)
-	traceDBAttachRawSchedulerLiteDiagnostics(
-		&out.coverage, inventory.RawDecode, "sched_switch_lite")
-	traceDBAddCoverageMetric(
-		&out.coverage, "raw_records_retained", int64(len(inventory.RawSwitchLite)))
 	if !authority.initialized || !authority.complete {
 		out.coverage.Metadata["authority_state"] = "withheld_lifecycle_authority_incomplete"
 		out.coverage.Skipped = "raw scheduler CPU fallback withheld: scheduler lifecycle authority incomplete"
 		return out
 	}
+	// Past the gate the census closed; the family predicate can only fail on
+	// the family's own retention store having been withdrawn by byte budget.
 	if !traceDBRawDecodeFamilyComplete(
 		inventory.RawDecode, traceDBRawRetentionSwitchLite) {
-		out.coverage.Metadata["authority_state"] = "withheld_source_raw_decode_incomplete"
-		out.coverage.Skipped = "raw scheduler CPU fallback withheld: source raw decode ledger incomplete"
+		out.coverage.Metadata["authority_state"] = traceDBSourceRawLaneFamilyRetentionWithdrawnState
+		out.coverage.Skipped = "raw scheduler CPU fallback withheld: retained family record store exceeded its byte budget"
 		return out
 	}
 	records := inventory.RawDecode.Metrics["target_sched_switch_lite_records"]
@@ -289,7 +295,7 @@ func newTraceDBRawSchedulerCPUFallbackCoverage() TraceDBCoverage {
 			"consumer":     "callstack and frame CPU placement only in this version; scheduler publication, perf, raw-ftrace, syscall, native-hook and task-pool semantics are unchanged",
 		},
 		Metadata: map[string]string{
-			"authority_state": "unavailable",
+			"authority_state": traceDBSourceRawLanePlaceholderState,
 		},
 	}
 }

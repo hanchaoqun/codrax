@@ -31,6 +31,7 @@ package orchestrator
 // a direct reset call anywhere else would bypass the lane discipline.
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -185,36 +186,151 @@ func TestResetInvestigationCompleteSingleGuardedThroat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(string(src), "\n")
-	guarded := false
-	// §40.55 V7-5: the throat's §29.60 "terminal" comment was deleted by
-	// 4c7a0d0a3 to stay under the LOC ratchet and this pin stayed green,
-	// so the ratchet was being paid with comments. Both substrings are
-	// exact (precise signal); the window is 6 lines above the call so the
-	// comment must sit ON the throat, not somewhere earlier in the loop.
-	terminalCommented := false
+	if shape, detail := classifyResetThroat(strings.Split(string(src), "\n")); shape != resetThroatOK {
+		t.Fatalf("orchestrator.go: %s", resetThroatFailureMessage(shape, detail))
+	}
+}
+
+// resetThroatShape is the closed set of outcomes classifyResetThroat can
+// report about the single ResetInvestigationComplete() consume throat. Every
+// reader (the pin above and the self-red table below) classifies through
+// resetThroatFailureMessage, which is total over this set.
+type resetThroatShape int
+
+const (
+	resetThroatOK             resetThroatShape = iota
+	resetThroatNoCall                          // no ResetInvestigationComplete() line in the source
+	resetThroatUnguarded                       // the call is not inside the `if pendingCompletionReset` guard
+	resetThroatNoComment                       // nothing but code sits directly above the guard line
+	resetThroatCommentOffLane                  // a comment group sits on the guard but never says §29.60 … terminal
+)
+
+// resetThroatLaneSubstrings are the two exact substrings one line of the
+// throat's comment group must carry (precise signal, not a count).
+var resetThroatLaneSubstrings = [2]string{"§29.60", "terminal"}
+
+// classifyResetThroat locates the `.ResetInvestigationComplete()` call, the
+// `if pendingCompletionReset` guard it sits under (the call must be the
+// guard's first statement: guard line == call line − 1), and the contiguous
+// `//` comment group whose last line is directly above the guard — the
+// group's extent is structural (it ends at the first non-comment line), so
+// growing the comment never trips the pin while a blank or code line between
+// the group and the guard, or a comment placed earlier in the loop, does.
+//
+// §40.55 V7-5 history: 4c7a0d0a3 deleted the throat's §29.60 "terminal"
+// comment to stay under the LOC ratchet and the previous pin stayed green
+// (ratchet paid with comments). The first replacement pin used a fixed
+// 6-line window sized exactly to the restored 5-line comment, so growing
+// the comment by one line tripped it with a "lost its comment" message
+// (§40.55 合流复核, G6-ratchet #1) — hence the structural bounds here.
+//
+// detail is the human-readable location for the failure message.
+func classifyResetThroat(lines []string) (resetThroatShape, string) {
+	call := -1
 	for i, line := range lines {
-		if !strings.Contains(line, ".ResetInvestigationComplete()") {
-			continue
+		if strings.Contains(line, ".ResetInvestigationComplete()") {
+			call = i
+			break
 		}
-		for back := i - 1; back >= 0 && back >= i-3; back-- {
-			if strings.Contains(lines[back], "if pendingCompletionReset") {
-				guarded = true
+	}
+	if call < 0 {
+		return resetThroatNoCall, "no .ResetInvestigationComplete() call"
+	}
+	guard := call - 1
+	if guard < 0 || !strings.Contains(lines[guard], "if pendingCompletionReset") {
+		return resetThroatUnguarded, fmt.Sprintf("call at line %d", call+1)
+	}
+	group := guard - 1
+	for group >= 0 && strings.HasPrefix(strings.TrimSpace(lines[group]), "//") {
+		group--
+	}
+	first, last := group+1, guard-1
+	if first > last {
+		return resetThroatNoComment, fmt.Sprintf("guard at line %d", guard+1)
+	}
+	for i := first; i <= last; i++ {
+		text := strings.TrimSpace(lines[i])
+		if strings.Contains(text, resetThroatLaneSubstrings[0]) && strings.Contains(text, resetThroatLaneSubstrings[1]) {
+			return resetThroatOK, ""
+		}
+	}
+	return resetThroatCommentOffLane, fmt.Sprintf("comment group at lines %d-%d", first+1, last+1)
+}
+
+// resetThroatFailureMessage renders every non-OK shape; an unrecognized
+// shape is a bug in the classifier and fails loud (§40.50) instead of being
+// read as a pass.
+func resetThroatFailureMessage(shape resetThroatShape, detail string) string {
+	const notCompliance = "restoring the LOC ratchet by compressing or deleting this comment is not compliance — extract a concern file instead"
+	switch shape {
+	case resetThroatOK:
+		return ""
+	case resetThroatNoCall:
+		return "ResetInvestigationComplete must keep its single latch-guarded throat (" + detail + ")"
+	case resetThroatUnguarded:
+		return "the ResetInvestigationComplete throat must be the first statement under the `if pendingCompletionReset` guard (" + detail + ")"
+	case resetThroatNoComment:
+		return "the ResetInvestigationComplete throat has no comment group on it — the §29.60 lane comment must sit directly above the guard, contiguous with it (" + detail + "); " + notCompliance
+	case resetThroatCommentOffLane:
+		return fmt.Sprintf("the comment group on the ResetInvestigationComplete throat does not name the lane — one of its lines must contain both %q and %q (%s); %s", resetThroatLaneSubstrings[0], resetThroatLaneSubstrings[1], detail, notCompliance)
+	}
+	panic(fmt.Sprintf("classifyResetThroat produced an unrecognized shape %d — extend resetThroatFailureMessage", shape))
+}
+
+// TestClassifyResetThroatShapes is the pin's self-red: one synthetic source
+// per shape the classifier can report, so the pin is known to bite on each
+// and, just as important, known NOT to bite when the comment grows.
+func TestClassifyResetThroatShapes(t *testing.T) {
+	t.Parallel()
+	const call = "\t\t\to.busCtx.Mutable.ResetInvestigationComplete()"
+	const guard = "\t\tif pendingCompletionReset {"
+	const lane = "\t\t// §29.60: accepted completion is terminal — clear it only when a"
+	const laneRest = "\t\t// typed lane latched a reset."
+	const unrelated = "\t\t// Phase 2 cancel checkpoint at the top of every iteration."
+	code := "\t\tif cerr := o.checkCanceled(); cerr != nil {\n\t\t\treturn\n\t\t}"
+	cases := []struct {
+		name  string
+		lines []string
+		want  resetThroatShape
+	}{
+		{"green_current_shape", []string{code, lane, laneRest, guard, call, "\t\t}"}, resetThroatOK},
+		// The anti-compression direction must stay green: extra lines
+		// appended below the lane line, or prepended above it, are still
+		// one contiguous group on the guard.
+		{"green_comment_grown_below", []string{code, lane, laneRest, "\t\t// (a fifth lane would be listed on the declaration)", guard, call}, resetThroatOK},
+		{"green_comment_grown_above", []string{code, "\t\t// Consumed before buildEnv.", lane, laneRest, guard, call}, resetThroatOK},
+		{"green_lane_line_only", []string{lane, guard, call}, resetThroatOK},
+		{"red_no_call", []string{code, lane, guard, "\t\t\tpendingCompletionReset = false"}, resetThroatNoCall},
+		{"red_call_not_first_statement", []string{lane, guard, "\t\t\tlogging.Info(\"reset\")", call}, resetThroatUnguarded},
+		{"red_unguarded", []string{lane, call}, resetThroatUnguarded},
+		{"red_comment_deleted", []string{code, guard, call}, resetThroatNoComment},
+		{"red_blank_line_between_comment_and_guard", []string{lane, laneRest, "", guard, call}, resetThroatNoComment},
+		{"red_comment_earlier_in_loop", []string{lane, laneRest, code, guard, call}, resetThroatNoComment},
+		{"red_only_unrelated_comment", []string{unrelated, guard, call}, resetThroatCommentOffLane},
+		{"red_lane_words_split_across_lines", []string{"\t\t// §29.60 lane", "\t\t// accepted completion is terminal", guard, call}, resetThroatCommentOffLane},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, detail := classifyResetThroat(tc.lines)
+			if got != tc.want {
+				t.Fatalf("shape = %d (%s), want %d", got, detail, tc.want)
 			}
-		}
-		for back := i - 1; back >= 0 && back >= i-6; back-- {
-			text := strings.TrimSpace(lines[back])
-			if strings.HasPrefix(text, "//") && strings.Contains(text, "§29.60") && strings.Contains(text, "terminal") {
-				terminalCommented = true
+			msg := resetThroatFailureMessage(got, detail)
+			if (msg == "") != (got == resetThroatOK) {
+				t.Fatalf("message/shape disagree: shape %d, message %q", got, msg)
 			}
+		})
+	}
+	// The failure renderer is total over the closed set; an out-of-set
+	// value must not be read as silence.
+	defer func() {
+		if recover() == nil {
+			t.Fatalf("resetThroatFailureMessage accepted an unrecognized shape silently")
 		}
-	}
-	if !guarded {
-		t.Fatalf("the ResetInvestigationComplete throat must stay guarded by the pendingCompletionReset latch")
-	}
-	if !terminalCommented {
-		t.Fatalf("the ResetInvestigationComplete throat lost its §29.60 lane comment (a comment line within 6 lines above the call must contain both %q and %q); restoring the LOC ratchet by compressing this comment is not compliance — extract a concern file instead", "§29.60", "terminal")
-	}
+	}()
+	_ = resetThroatFailureMessage(resetThroatShape(99), "")
 }
 
 func sitesToHuman(sites []int) []int {

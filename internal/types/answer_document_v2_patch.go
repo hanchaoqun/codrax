@@ -511,7 +511,11 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 // check, a model_block_order combined with add/remove skips the permutation
 // checks, and a citation-mode conflict skips the preserved-citation scan — so
 // the list never reports phantom follow-ups the fix for the gating violation
-// would re-shape anyway. Cross-op checks keep running per entry. Catches:
+// would re-shape anyway. A duplicate entry is one such gate in every arm
+// (合流复核收编 §40.51): its first occurrence already reported the cross-op /
+// existing-block / kind / value lines for that id, so the repeat reports only
+// `duplicated` and never re-mints a byte-identical line. Cross-op checks keep
+// running per distinct entry. Catches:
 //   - unknown ids in UnchangedBlockIDs / ReplaceBlocks / local edits
 //   - dup ids within a single op (e.g. two Replace entries for
 //     same id, two Add entries for same id, Add id colliding with
@@ -559,6 +563,7 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 		if removeSet[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpRemoveBlockIDs, AnswerDocumentPatchViolationDuplicate, id, "",
 				"patch: remove_block_ids[%q] duplicated", id))
+			continue
 		}
 		removeSet[id] = true
 	}
@@ -624,6 +629,7 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 		if replaceSet[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationDuplicate, id, "",
 				"patch: replace_blocks[%q] duplicated", id))
+			continue
 		}
 		if removeSet[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationCrossOpConflict, id, "",
@@ -660,6 +666,12 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 				"patch: block_field_edits_v1[%q] cannot edit a system-generated block", id))
 			continue
 		}
+		key := id + "\x00" + string(edit.Field)
+		if fieldEditSet[key] {
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
+				"patch: block_field_edits_v1[%q].%s duplicated", id, edit.Field))
+			continue
+		}
 		if removeSet[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationCrossOpConflict, id, string(edit.Field),
 				"patch: block_field_edits_v1[%q] also in remove_block_ids — pick one", id))
@@ -667,11 +679,6 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 		if replaceSet[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationCrossOpConflict, id, string(edit.Field),
 				"patch: block_field_edits_v1[%q] also in replace_blocks — pick one", id))
-		}
-		key := id + "\x00" + string(edit.Field)
-		if fieldEditSet[key] {
-			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
-				"patch: block_field_edits_v1[%q].%s duplicated", id, edit.Field))
 		}
 		if _, v := applyAnswerBlockFieldEditV1(block, edit); v != nil {
 			add(v)
@@ -705,6 +712,12 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 				"patch: block_receipt_edits_v1[%q] cannot edit a system-generated block", id))
 			continue
 		}
+		key := id + "\x00" + string(edit.Field)
+		if receiptEditSet[key] {
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
+				"patch: block_receipt_edits_v1[%q].%s duplicated", id, edit.Field))
+			continue
+		}
 		if removeSet[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationCrossOpConflict, id, string(edit.Field),
 				"patch: block_receipt_edits_v1[%q] also in remove_block_ids — pick one", id))
@@ -712,11 +725,6 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 		if replaceSet[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationCrossOpConflict, id, string(edit.Field),
 				"patch: block_receipt_edits_v1[%q] also in replace_blocks — pick one", id))
-		}
-		key := id + "\x00" + string(edit.Field)
-		if receiptEditSet[key] {
-			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
-				"patch: block_receipt_edits_v1[%q].%s duplicated", id, edit.Field))
 		}
 		if _, v := applyAnswerBlockReceiptEditV1(block, edit); v != nil {
 			add(v)
@@ -734,13 +742,14 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 				"patch: add_blocks entry with empty id (kind=%s)", b.Kind))
 			continue
 		}
-		if prevIDs[id] {
-			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationExistingBlock, id, "",
-				"patch: add_blocks[%q] already exists in previous emit (use replace_blocks to modify)", id))
-		}
 		if addSet[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationDuplicate, id, "",
 				"patch: add_blocks[%q] duplicated", id))
+			continue
+		}
+		if prevIDs[id] {
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationExistingBlock, id, "",
+				"patch: add_blocks[%q] already exists in previous emit (use replace_blocks to modify)", id))
 		}
 		if replaceSet[id] {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationCrossOpConflict, id, "",
@@ -759,8 +768,17 @@ func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2
 	}
 
 	// Replace block kind sanity: require valid kind on each
-	// replacement (same gate emit_answer_document applies).
+	// replacement (same gate emit_answer_document applies). A duplicate
+	// replace entry was already reported once above; its kind is not
+	// re-checked (the duplicate gate of the roster walk applies here too).
+	replaceKindSeen := make(map[string]bool, len(p.ReplaceBlocks))
 	for _, b := range p.ReplaceBlocks {
+		if id := strings.TrimSpace(b.ID); id != "" {
+			if replaceKindSeen[id] {
+				continue
+			}
+			replaceKindSeen[id] = true
+		}
 		if !IsValidAnswerBlockKind(b.Kind) {
 			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationInvalidKind, b.ID, "",
 				"patch: replace_blocks[%q] kind=%q is not valid", b.ID, b.Kind))

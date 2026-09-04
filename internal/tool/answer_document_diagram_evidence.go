@@ -221,7 +221,9 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 			// identity pair needs its own visible occurrence. Otherwise a second
 			// typed anchor could survive as a hidden graph after the model removed
 			// the corresponding message. This is an exact structured cardinality
-			// check; labels and message prose are deliberately irrelevant.
+			// check; labels and message prose are deliberately irrelevant. An
+			// anchor whose own pair is absent from the body is owned by the
+			// anchor loop below (reversed / stale), never by this arm.
 			for _, anchor := range diagramEvidenceExcessCallIdentityAnchors(parsedEdges, effectiveAnchors) {
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
 					BlockID: block.ID, Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
@@ -721,9 +723,18 @@ func diagramEvidenceEdgeEndpointSymbolsAtOccurrence(
 }
 
 // diagramEvidenceExcessCallIdentityAnchors returns distinct exact call
-// identity pairs that do not have a corresponding visible edge occurrence.
-// Anchor order and Mermaid occurrence order are both schema-carried order, so
-// the result is deterministic even when one actor pair hosts many operations.
+// identity pairs that exceed the visible occurrences of their own endpoint
+// pair — the hidden second operation on one visible arrow. Anchor order and
+// Mermaid occurrence order are both schema-carried order, so the result is
+// deterministic even when one actor pair hosts many operations.
+//
+// Ownership split (colleague_merge_audit §40.57 合流复核收编): an anchor whose
+// own endpoint pair is absent from the body is the anchor loop's row —
+// typed_anchor_reversed_against_visible_edge for the exact reversed sub-shape,
+// typed_anchor_without_visible_edge otherwise — so this arm never re-mints a
+// second row (once under the generic stale issue) for the same anchor. Only
+// block-local anchors can be absent here: a sibling-carrier anchor enters the
+// effective set solely through a visible key.
 func diagramEvidenceExcessCallIdentityAnchors(edges []mermaidcompat.Edge, anchors []types.DiagramEdgeAnchor) []types.DiagramEdgeAnchor {
 	bodyCount := make(map[string]int)
 	for _, edge := range edges {
@@ -736,6 +747,9 @@ func diagramEvidenceExcessCallIdentityAnchors(edges []mermaidcompat.Edge, anchor
 			continue
 		}
 		key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+		if bodyCount[key] == 0 {
+			continue
+		}
 		pairKey := strings.TrimSpace(anchor.FromIdentity) + "\x00" + strings.TrimSpace(anchor.ToIdentity)
 		if seenPairs[key] == nil {
 			seenPairs[key] = make(map[string]bool)

@@ -25,7 +25,8 @@ func traceDBRawSchedulerCPUFallbackInventory(
 ) *traceDBSourceNameInventory {
 	return &traceDBSourceNameInventory{
 		RawDecode: TraceDBCoverage{
-			Role: "diagnostic_ledger",
+			Found: true,
+			Role:  "diagnostic_ledger",
 			Metadata: map[string]string{
 				"decode_state": "strict_target_ledger_complete",
 			},

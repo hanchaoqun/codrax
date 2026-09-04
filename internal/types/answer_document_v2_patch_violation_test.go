@@ -198,3 +198,91 @@ func TestNumberedViolationListCapsAtTenPlusCount(t *testing.T) {
 		t.Fatal("no violation renders nothing")
 	}
 }
+
+// TestApplyPatch_DuplicateEntryGatesPerEntryRecheck — 合流复核收编 (§40.51):
+// a duplicate entry is one independent violation; it must not re-mint the
+// byte-identical cross-op / existing-block / kind lines its first occurrence
+// already reported. Every duplicate arm gates the per-entry re-check
+// symmetrically (`continue`), the way the empty/unknown arms do. Red on the
+// batch-six tree (8a1e5d695): replace_blocks=[{s1,summary},{s1,section}] +
+// remove [s1] reported THREE violations with [1] == [3] byte-identical
+// (`patch: replace_blocks["s1"] also in remove_block_ids — pick one`).
+func TestApplyPatch_DuplicateEntryGatesPerEntryRecheck(t *testing.T) {
+	prev := samplePrevDoc()
+	assertKinds := func(t *testing.T, structure *AnswerDocumentPatchStructureError, want ...AnswerDocumentPatchViolationKind) {
+		t.Helper()
+		if len(structure.Violations) != len(want) {
+			t.Fatalf("expected exactly %d independent violations, got %d:\n%s", len(want), len(structure.Violations), structure.Error())
+		}
+		seen := map[string]bool{}
+		for i, v := range structure.Violations {
+			if v.Kind != want[i] {
+				t.Fatalf("violation[%d] kind=%s, want %s:\n%s", i, v.Kind, want[i], structure.Error())
+			}
+			if seen[v.Message] {
+				t.Fatalf("byte-identical violation line minted twice: %q\n%s", v.Message, structure.Error())
+			}
+			seen[v.Message] = true
+		}
+	}
+	t.Run("replace duplicate with differing payload plus remove", func(t *testing.T) {
+		structure := patchStructureErrorOf(t, prev, &AnswerDocumentV2Patch{
+			ReplaceBlocks:  []AnswerBlock{{ID: "s1", Kind: BlockSummary, Text: "first"}, {ID: "s1", Kind: BlockSection, Text: "second"}},
+			RemoveBlockIDs: []string{"s1"},
+		})
+		assertKinds(t, structure, AnswerDocumentPatchViolationCrossOpConflict, AnswerDocumentPatchViolationDuplicate)
+	})
+	t.Run("replace duplicate gates the kind re-check", func(t *testing.T) {
+		structure := patchStructureErrorOf(t, prev, &AnswerDocumentV2Patch{
+			ReplaceBlocks: []AnswerBlock{{ID: "s1", Kind: BlockSummary, Text: "first"}, {ID: "s1", Kind: "bogus", Text: "second"}},
+		})
+		assertKinds(t, structure, AnswerDocumentPatchViolationDuplicate)
+	})
+	t.Run("remove duplicate reports the cross-op conflict once", func(t *testing.T) {
+		structure := patchStructureErrorOf(t, prev, &AnswerDocumentV2Patch{
+			RemoveBlockIDs: []string{"s1", "s1"},
+			ReplaceBlocks:  []AnswerBlock{{ID: "s1", Kind: BlockSummary, Text: "first"}},
+		})
+		assertKinds(t, structure, AnswerDocumentPatchViolationDuplicate, AnswerDocumentPatchViolationCrossOpConflict)
+	})
+	t.Run("field edit duplicate with differing value plus remove", func(t *testing.T) {
+		structure := patchStructureErrorOf(t, prev, &AnswerDocumentV2Patch{
+			BlockFieldEditsV1: []AnswerBlockFieldEditV1{
+				{BlockID: "s1", Field: AnswerBlockFieldSurfaceRole, Value: string(SurfacePrincipal)},
+				{BlockID: "s1", Field: AnswerBlockFieldSurfaceRole, Value: "nope"},
+			},
+			RemoveBlockIDs: []string{"s1"},
+		})
+		assertKinds(t, structure, AnswerDocumentPatchViolationCrossOpConflict, AnswerDocumentPatchViolationDuplicate)
+	})
+	t.Run("receipt edit duplicate with differing value plus remove", func(t *testing.T) {
+		structure := patchStructureErrorOf(t, prev, &AnswerDocumentV2Patch{
+			BlockReceiptEditsV1: []AnswerBlockReceiptEditV1{
+				{BlockID: "s1", Field: AnswerBlockReceiptFieldRuntimeWorkRelation, Value: AnswerBlockReceiptEditValueV1{
+					ObservationID: "trace_query:test#trace_semantic_span:1",
+					Conclusion:    string(RuntimeWorkRelationConclusionRelatedCausalityUnproven),
+				}},
+				{BlockID: "s1", Field: AnswerBlockReceiptFieldRuntimeWorkRelation, Value: AnswerBlockReceiptEditValueV1{
+					ObservationID: "trace_query:test#trace_semantic_span:2",
+					Conclusion:    "nope",
+				}},
+			},
+			RemoveBlockIDs: []string{"s1"},
+		})
+		assertKinds(t, structure, AnswerDocumentPatchViolationCrossOpConflict, AnswerDocumentPatchViolationDuplicate)
+	})
+	t.Run("add duplicate with differing payload plus remove and existing id", func(t *testing.T) {
+		structure := patchStructureErrorOf(t, prev, &AnswerDocumentV2Patch{
+			AddBlocks:      []AnswerBlock{{ID: "s1", Kind: BlockSummary, Text: "first"}, {ID: "s1", Kind: "bogus", Text: "second"}},
+			RemoveBlockIDs: []string{"s1"},
+		})
+		assertKinds(t, structure, AnswerDocumentPatchViolationExistingBlock, AnswerDocumentPatchViolationCrossOpConflict, AnswerDocumentPatchViolationDuplicate)
+	})
+	t.Run("first occurrence keeps every independent line", func(t *testing.T) {
+		structure := patchStructureErrorOf(t, prev, &AnswerDocumentV2Patch{
+			ReplaceBlocks:  []AnswerBlock{{ID: "s1", Kind: "bogus", Text: "first"}, {ID: "s1", Kind: BlockSummary, Text: "second"}},
+			RemoveBlockIDs: []string{"s1"},
+		})
+		assertKinds(t, structure, AnswerDocumentPatchViolationCrossOpConflict, AnswerDocumentPatchViolationDuplicate, AnswerDocumentPatchViolationInvalidKind)
+	})
+}

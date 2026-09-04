@@ -1152,6 +1152,19 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 // word means "diagram" nor upgrades an explicit false. The classifier-owned
 // typed boolean still supplies the modality decision, while the byte-backed
 // span proves that the associated request actually came from the user.
+// PresentationAuthority is the single typed current-turn presentation
+// carrier the classifier hands to a runner: the byte-anchored directive
+// span and the precise hard-visual bit travel together (§40.54 fold-in).
+// Dispatch arms copy this value whole — never one field without the
+// other — so a runner can never see a bool-only or directive-only shape
+// the classifier did not emit.
+func (p TurnPolicy) PresentationAuthority() types.PresentationAuthority {
+	return types.PresentationAuthority{
+		Directive:       strings.TrimSpace(p.PresentationDirective),
+		DiagramRequired: p.RequiresDiagram,
+	}
+}
+
 func bindTurnPresentationAuthority(userLine, directive string, requiresDiagram bool) (string, bool) {
 	directive = strings.TrimSpace(directive)
 	if !turnPresentationDirectiveAnchored(userLine, directive) {

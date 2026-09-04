@@ -701,9 +701,15 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 			t.Errorf("prompt missing investigation digest section/content %q", section)
 		}
 	}
-	// Guidance numbers surfaced — terminal-evidence count and analyzer
-	// required-name count.
-	if !contains(prompt, "terminal-evidence count") || !contains(prompt, "required-name count") {
+	// Guidance numbers surfaced — the investigation's terminal evidence
+	// row count and the analyzer required-name count. EVOLUTION RECORD
+	// (§40.52 fold-in, G6-jargon #0): the prompt line used to read
+	// "Investigation terminal-evidence count" — a glossary entry
+	// (contract-field leakage) that the static lint skipped only because
+	// the line is written through fmt.Fprintf(&b, …). The line now names
+	// the count in user-facing words; the number and its position are
+	// unchanged.
+	if !contains(prompt, "Terminal evidence rows found by the investigation") || !contains(prompt, "required-name count") {
 		t.Error("prompt must surface the cardinality baselines by name")
 	}
 	if !contains(prompt, "Hard typed floor") || !contains(prompt, "soft search/completeness reminders") {

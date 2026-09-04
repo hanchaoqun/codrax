@@ -115,6 +115,9 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		return fail(&traceDBOutputInvariantError{Reason: "missing_sync_span_authority"})
 	}
 	rawAsync := newTraceDBRawAsyncMatchLedger(tdb.sourceNameInventory, authority)
+	if rawAsync.gateErr != nil {
+		return fail(rawAsync.gateErr)
+	}
 
 	hasITID, err := tdb.columnExists(ctx, "callstack", "itid")
 	if err != nil {
