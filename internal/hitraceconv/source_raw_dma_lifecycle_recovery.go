@@ -40,11 +40,15 @@ func publishTraceDBRawDMALifecycleRecovery(
 		out.Skipped = "raw DMA lifecycle recovery unavailable: immutable source inventory absent"
 		return out, nil
 	}
-	out.Found = inventory.RawDecode.Found
+	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "raw DMA lifecycle recovery"); stop {
+		return out, err
+	}
+	// Past the gate the census closed; the family predicate can only fail on
+	// the family's own retention store having been withdrawn by byte budget.
 	if !traceDBRawDecodeFamilyComplete(
 		inventory.RawDecode, traceDBRawRetentionDMALifecycle) {
-		out.Metadata["publication_state"] = "withheld_raw_decode_incomplete"
-		out.Skipped = "raw DMA lifecycle recovery withheld: strict raw decode ledger incomplete"
+		out.Metadata["publication_state"] = traceDBSourceRawLaneFamilyRetentionWithdrawnState
+		out.Skipped = "raw DMA lifecycle recovery withheld: retained family record store exceeded its byte budget"
 		return out, nil
 	}
 	rows := inventory.RawDMALifecycle

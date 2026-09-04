@@ -129,10 +129,8 @@ func publishTraceDBRawExactRecoveryFamily(
 			out.RowsRead++
 		}
 	}
-	if !inventory.RawDecode.Found {
-		out.Metadata["publication_state"] = "not_applicable_source_profile"
-		out.Skipped = "exact source recovery not applicable: strict official source raw profile absent"
-		return out, nil
+	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "exact source recovery"); stop {
+		return out, err
 	}
 	if !traceDBRawExactFamilyAuthorityEligible(inventory, family) {
 		if traceDBRawDecodeFamilyComplete(inventory.RawDecode, family) && out.RowsRead == 0 {

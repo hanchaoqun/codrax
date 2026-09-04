@@ -808,7 +808,25 @@ func TestNormalizeEmitAnswerBlock_ConvertsPortableClassDiagramWithoutChangingSem
 	}
 }
 
-func TestNormalizeEmitAnswerBlock_AlignsReverseTypeRelationAnchorWithClassDiagramSemantics(t *testing.T) {
+// EVOLUTION RECORD (colleague_merge_audit §40.57, V10-4; supersedes
+// B698-CLASSUMLANCHORDIRECTION1 commit 60f89da79): this pin replaces
+// TestNormalizeEmitAnswerBlock_AlignsReverseTypeRelationAnchorWithClassDiagramSemantics
+// and TestNormalizeClassDiagramTypeRelationAnchorDirections_FailsOpenOutsideExactUniquePair.
+// The retired pins asserted that the G2 converter silently swapped a model
+// type_relation anchor written in visual token order (Base <|.. Impl with
+// anchor Base -> Impl) into UML semantic direction. Ruling: the system never
+// rewrites a model claim; the anchor flows through verbatim while the body
+// syntax shim still converts the class relation, and the diagram evidence
+// gate reports typed_anchor_reversed_against_visible_edge with alignment
+// teaching (see answer_document_diagram_evidence_test.go and
+// answer_document_type_relation_candidate_bridge_test.go).
+func TestNormalizeEmitAnswerBlock_KeepsReverseTypeRelationAnchorVerbatim(t *testing.T) {
+	in := []types.DiagramEdgeAnchor{{
+		FromNode: "LoopController", FromIdentity: "pkg.LoopController",
+		ToNode: "analyzerEvaluator", ToIdentity: "pkg.analyzerEvaluator",
+		RelationKind: types.DiagramRelTypeRelation,
+	}}
+	want := append([]types.DiagramEdgeAnchor(nil), in...)
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "types",
 		Kind: string(types.BlockDiagram),
@@ -816,68 +834,16 @@ func TestNormalizeEmitAnswerBlock_AlignsReverseTypeRelationAnchorWithClassDiagra
 			Kind: string(types.DiagramArchitecture),
 			Body: "classDiagram\n  LoopController <|.. analyzerEvaluator",
 		},
-		EdgeAnchors: []types.DiagramEdgeAnchor{{
-			FromNode: "LoopController", FromIdentity: "pkg.LoopController",
-			ToNode: "analyzerEvaluator", ToIdentity: "pkg.analyzerEvaluator",
-			RelationKind: types.DiagramRelTypeRelation,
-		}},
+		EdgeAnchors: in,
 	}, "blocks[0]")
 	if err != nil {
 		t.Fatalf("normalize failed: %v", err)
 	}
-	if len(got.EdgeAnchors) != 1 {
-		t.Fatalf("edge anchors = %+v", got.EdgeAnchors)
-	}
-	anchor := got.EdgeAnchors[0]
-	if anchor.FromNode != "analyzerEvaluator" || anchor.ToNode != "LoopController" ||
-		anchor.FromIdentity != "pkg.analyzerEvaluator" || anchor.ToIdentity != "pkg.LoopController" {
-		t.Fatalf("anchor direction not aligned with UML semantics: %+v", anchor)
+	if !reflect.DeepEqual(got.EdgeAnchors, want) {
+		t.Fatalf("model anchor must flow through verbatim (no silent direction swap): got %+v want %+v", got.EdgeAnchors, want)
 	}
 	if got.Diagram == nil || !strings.Contains(got.Diagram.Body, `analyzerEvaluator -->|"implements"| LoopController`) {
-		t.Fatalf("converted body and anchor must share direction: %+v", got.Diagram)
-	}
-}
-
-func TestNormalizeClassDiagramTypeRelationAnchorDirections_FailsOpenOutsideExactUniquePair(t *testing.T) {
-	tests := []struct {
-		name     string
-		body     string
-		anchor   types.DiagramEdgeAnchor
-		wantFrom string
-	}{
-		{
-			name: "already semantic", body: "classDiagram\n  Base <|.. Impl",
-			anchor:   types.DiagramEdgeAnchor{FromNode: "Impl", ToNode: "Base", RelationKind: types.DiagramRelTypeRelation},
-			wantFrom: "Impl",
-		},
-		{
-			name: "call relation", body: "classDiagram\n  Base <|.. Impl",
-			anchor:   types.DiagramEdgeAnchor{FromNode: "Base", ToNode: "Impl", RelationKind: types.DiagramRelCall},
-			wantFrom: "Base",
-		},
-		{
-			name: "ambiguous duplicate", body: "classDiagram\n  Base <|.. Impl\n  Impl ..|> Base",
-			anchor:   types.DiagramEdgeAnchor{FromNode: "Base", ToNode: "Impl", RelationKind: types.DiagramRelTypeRelation},
-			wantFrom: "Base",
-		},
-		{
-			name: "one sided identity", body: "classDiagram\n  Base <|.. Impl",
-			anchor:   types.DiagramEdgeAnchor{FromNode: "Base", ToNode: "Impl", FromIdentity: "pkg.Base", RelationKind: types.DiagramRelTypeRelation},
-			wantFrom: "Base",
-		},
-		{
-			name: "case is not guessed", body: "classDiagram\n  Base <|.. Impl",
-			anchor:   types.DiagramEdgeAnchor{FromNode: "base", ToNode: "Impl", RelationKind: types.DiagramRelTypeRelation},
-			wantFrom: "base",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := normalizeClassDiagramTypeRelationAnchorDirections(tc.body, []types.DiagramEdgeAnchor{tc.anchor})
-			if len(got) != 1 || got[0].FromNode != tc.wantFrom {
-				t.Fatalf("got %+v, want from=%q", got, tc.wantFrom)
-			}
-		})
+		t.Fatalf("body syntax conversion must still run independently of the anchor: %+v", got.Diagram)
 	}
 }
 

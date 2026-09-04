@@ -237,15 +237,15 @@ var extractorVersions = map[string]int{
 	types.LangJavaScript: 9,  // callable parameter identity bindings (typed rows only)
 	types.LangTypeScript: 12, // callable parameter identity bindings
 	types.LangArkTS:      13, // TS-backed callable parameter identity bindings
-	types.LangCangjie:    9,  // lexer-backed callable parameter identity bindings
+	types.LangCangjie:    10, // generic call heads `f<T>(` publish bare callee rows (B1554)
 	types.LangKotlin:     10, // callable parameter identity bindings
 	types.LangRuby:       7,  // callable parameter identity bindings (typed rows only)
-	types.LangSwift:      9,  // callable parameter identity bindings
+	types.LangSwift:      10, // constructor_expression `Box<T>(x)` call rows + new-expression line feature (B1554)
 	types.LangLua:        7,  // callable parameter identity bindings (typed rows only)
 	types.LangProto:      4,  // typed callable surface epoch shared with cache schema
-	types.LangRust:       11, // callable parameter identity bindings
-	types.LangC:          10, // callable parameter identity bindings
-	types.LangCpp:        11, // callable parameter identity bindings
+	types.LangRust:       12, // turbofish callee rows keep the bare name (B1554)
+	types.LangC:          11, // shared C/C++ extractor: template callee names unwrapped (B1554)
+	types.LangCpp:        12, // template_function/template_method callee names unwrapped (B1554)
 }
 
 type cacheFileInfosManifest struct {

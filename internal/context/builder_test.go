@@ -282,7 +282,7 @@ func TestBuildPromptContext_RetryHintProjectsUnavailableToolsForExtractor(t *tes
 			t.Fatalf("extractor retry directive leaked unavailable tool %q:\n%s", forbidden, sec.Content)
 		}
 	}
-	for _, want := range []string{"unavailable in this extraction stage", "`emit_answer_symbol`", "accepted investigation snapshot"} {
+	for _, want := range []string{"unavailable in this structured-output step", "`emit_answer_symbol`", "accepted investigation snapshot"} {
 		if !strings.Contains(sec.Content, want) {
 			t.Fatalf("projected retry directive missing %q:\n%s", want, sec.Content)
 		}
@@ -2880,6 +2880,88 @@ func TestBuildPromptContext_PresentationDirectiveIsTypedMetadata(t *testing.T) {
 	if !strings.Contains(sec.Content, "输出各自的逻辑视图") ||
 		!strings.Contains(sec.Content, "不要把它当作仓库代码") {
 		t.Fatalf("presentation directive section missing guardrails/content: %q", sec.Content)
+	}
+	// V7-4 (§40.54): the typed hard-visual line is rendered from the same
+	// accessor the emit_analysis gate reads, in the prompt language.
+	if want := types.PresentationHardVisualStatement(types.PresentationHardVisualRequired, ""); !strings.Contains(sec.Content, want) {
+		t.Fatalf("presentation directive section must carry the typed line %q: %q", want, sec.Content)
+	}
+}
+
+// TestBuildPromptContext_PresentationAuthorityTypedLine (V7-4, §40.54) pins
+// that the "Presentation Directive" section is keyed on the typed
+// PresentationAuthority: the hard-visual line appears whenever either carrier
+// is set, states exactly the boolean (never inferred from directive words),
+// follows the prompt language, and is absent — with the whole section —
+// when both carriers are empty.
+func TestBuildPromptContext_PresentationAuthorityTypedLine(t *testing.T) {
+	cases := []struct {
+		name        string
+		directive   string
+		required    bool
+		lang        string
+		wantSection bool
+		wantLine    string
+		wantAbsent  string
+	}{
+		{
+			name: "typed bool without directive renders required", required: true, lang: "en",
+			wantSection: true,
+			wantLine:    types.PresentationHardVisualStatement(types.PresentationHardVisualRequired, "en"),
+			wantAbsent:  types.PresentationHardVisualStatement(types.PresentationHardVisualNotRequired, "en"),
+		},
+		{
+			name: "table directive without bool renders not required", directive: "markdown table", lang: "en",
+			wantSection: true,
+			wantLine:    types.PresentationHardVisualStatement(types.PresentationHardVisualNotRequired, "en"),
+			wantAbsent:  types.PresentationHardVisualStatement(types.PresentationHardVisualRequired, "en"),
+		},
+		{
+			name: "diagram-worded directive without bool still renders not required", directive: "draw a sequence diagram", lang: "zh",
+			wantSection: true,
+			wantLine:    types.PresentationHardVisualStatement(types.PresentationHardVisualNotRequired, "zh"),
+			wantAbsent:  types.PresentationHardVisualStatement(types.PresentationHardVisualRequired, "zh"),
+		},
+		{
+			name: "both carriers empty renders no section", lang: "zh",
+			wantSection: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			bus := &types.BusContext{
+				Mutable:                     types.NewMutableState("explain the scheduler"),
+				Language:                    c.lang,
+				PresentationDirective:       c.directive,
+				PresentationDiagramRequired: c.required,
+			}
+			ac := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
+			pc := BuildPromptContext(ac, &skill.Config{Name: "analysis-skill"})
+			sec := findSectionTitle(pc, SectionPresentationDirective)
+			if !c.wantSection {
+				if sec != nil {
+					t.Fatalf("absent authority must render no section, got %q", sec.Content)
+				}
+				return
+			}
+			if sec == nil {
+				t.Fatal("missing Presentation Directive section")
+			}
+			if !strings.Contains(sec.Content, c.wantLine) {
+				t.Fatalf("section must carry %q: %q", c.wantLine, sec.Content)
+			}
+			if strings.Contains(sec.Content, c.wantAbsent) {
+				t.Fatalf("section must not carry %q: %q", c.wantAbsent, sec.Content)
+			}
+			if c.directive != "" && !strings.Contains(sec.Content, c.directive) {
+				t.Fatalf("section must still carry the directive text: %q", sec.Content)
+			}
+			for _, banned := range []string{"requires_diagram", "PresentationDiagramRequired", "out-of-band"} {
+				if strings.Contains(sec.Content, banned) {
+					t.Fatalf("section must not name the wire identifier %q: %q", banned, sec.Content)
+				}
+			}
+		})
 	}
 }
 

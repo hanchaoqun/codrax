@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -207,15 +208,12 @@ func TestRenderFrameDrift_R6Audit(t *testing.T) {
 	if got == "" {
 		t.Skip("drift section did not render in this scenario")
 	}
-	for _, banned := range []string{
-		"explorer", "extractor", "finalizer", "analyzer",
-		"BusContext", "MutableState", "AgentContext",
+	for _, hit := range glossarylint.ScanTextWith("frame-drift section", got,
+		"explorer", "extractor", "analyzer", "AgentContext",
 		"SymbolLocator", "FrameDrift", "MultiGraph",
 		"L1", "L2", "L3", "L4",
-	} {
-		if strings.Contains(got, banned) {
-			t.Errorf("internal term %q leaked into LLM-facing drift section: %q", banned, got)
-		}
+	) {
+		t.Errorf("internal term %q leaked into LLM-facing drift section: %q", hit.Term, got)
 	}
 }
 

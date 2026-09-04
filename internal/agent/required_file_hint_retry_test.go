@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -88,18 +89,13 @@ func TestComposeRequiredFileHintsRetryAdvice_NoInternalTermsInOutput(t *testing.
 		types.RequiredFileHint{Path: "x.go", Confidence: 0.7},
 	)
 	got := composeRequiredFileHintsRetryAdvice(ir)
-	for _, internal := range []string{
+	for _, hit := range glossarylint.ScanTextWith("composeRequiredFileHintsRetryAdvice", got,
 		// Go-side field / function names
-		"RequiredFileHints", "AnalyzerHints", "ir.RequestModel",
-		"composeRequiredFileHintsRetryAdvice",
+		"RequiredFileHints", "ir.RequestModel", "composeRequiredFileHintsRetryAdvice",
 		// Internal stage names
-		"explorer", "extractor", "finalizer", "analyzer",
-		// Internal type / package terms
-		"AnalyzerHints", "EvidencePlan", "AnalysisIR",
-	} {
-		if strings.Contains(got, internal) {
-			t.Errorf("internal term %q leaked into LLM-facing advice: %q", internal, got)
-		}
+		"explorer", "extractor", "analyzer",
+	) {
+		t.Errorf("internal term %q leaked into LLM-facing advice: %q", hit.Term, got)
 	}
 }
 

@@ -212,6 +212,16 @@ type ScriptOverrides struct {
 
 // Step is one collection step. V2 adds only the typed pid_from and
 // windows_from bindings to the original §28.12 static field set.
+//
+// The static event_search filter fields mirror the LLM trace_query tool's
+// parameter face one-for-one (pid/thread/window/line_*/pattern/patterns/
+// event_types/trace_mark_actions/max_lines) so a customer script can replay
+// any LLM-lane event_search deterministically. That mirror is pinned in both
+// directions: internal/tool's cross-face census walks the tool schema against
+// these yaml tags, and stepParamSchemaPins (render_key_first.go) fingerprints
+// this yaml face so an added field is reviewed for stepQuery / stepParamsEcho
+// / the decoder hint / docs before it lands (V11-2, colleague_merge_audit
+// §40.58).
 type Step struct {
 	Label            string       `yaml:"label"`
 	View             string       `yaml:"view"`
@@ -222,6 +232,7 @@ type Step struct {
 	LineStart        int          `yaml:"line_start"`
 	LineEnd          int          `yaml:"line_end"`
 	Pattern          string       `yaml:"pattern"`
+	Patterns         []string     `yaml:"patterns"`
 	EventTypes       []string     `yaml:"event_types"`
 	TraceMarkActions []string     `yaml:"trace_mark_actions"`
 	MaxLines         int          `yaml:"max_lines"`
@@ -304,7 +315,7 @@ func parseScript(data []byte, overrides ScriptOverrides) (*Script, error) {
 	dec.KnownFields(true)
 	var script Script
 	if err := dec.Decode(&script); err != nil {
-		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; step fields include event_types/trace_mark_actions; v2 adds inputs/limits/discoveries/windows_from/pid_from): %w", err)
+		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; step fields include pattern/patterns/event_types/trace_mark_actions; v2 adds inputs/limits/discoveries/windows_from/pid_from): %w", err)
 	}
 	if override := strings.TrimSpace(overrides.Window); override != "" {
 		script.Defaults.Window = override
@@ -557,6 +568,17 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveri
 	if err := tracequery.ValidateTraceMarkActionFilter(step.View, eventTypes, actions); err != nil {
 		return fmt.Errorf("%s (%s): %w", at, step.Label, err)
 	}
+	// Typed OR-set carrier: the SAME engine boundary the LLM tool applies
+	// (view gate on the already-trimmed step.View, ≤ EventSearchPatternLimit,
+	// trimmed-empty rejection, case-insensitive dedupe). The normalized set is
+	// written back onto the step so the report echo and the engine query
+	// carry one canonical set — the effMaxLines "resolved onto the step"
+	// discipline below. An absent field is the escape lane (nil, nil).
+	patterns, err := tracequery.NormalizeEventSearchPatterns(step.View, step.Patterns)
+	if err != nil {
+		return fmt.Errorf("%s (%s): patterns: %w", at, step.Label, err)
+	}
+	step.Patterns = patterns
 	if step.View == tracequery.FallbackViewEventSearch && (step.PID > 0 || step.Thread != "") {
 		if global := tracequery.CPUGlobalEventSearchTypes(eventTypes); len(global) > 0 {
 			parts := make([]string, 0, len(global))

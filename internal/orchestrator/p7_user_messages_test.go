@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -173,13 +174,8 @@ func TestAnalyzeExhaustedUserHint_BothLanguages(t *testing.T) {
 
 	// R6: no internal vocab.
 	for _, msg := range []string{zh, en} {
-		for _, banned := range []string{
-			"analyze stage", "AnalysisIR", "RequestModel",
-			"orchestrator", "TaskGraph", "BusContext",
-		} {
-			if strings.Contains(msg, banned) {
-				t.Errorf("must not leak internal token %q; got %q", banned, msg)
-			}
+		for _, hit := range glossarylint.ScanTextWith("user message", msg, "analyze stage", "orchestrator") {
+			t.Errorf("must not leak internal token %q; got %q", hit.Term, msg)
 		}
 	}
 }

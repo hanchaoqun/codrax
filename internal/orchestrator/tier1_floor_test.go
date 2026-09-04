@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -224,21 +225,11 @@ func TestCheckTier1Floor_RejectMessageR6(t *testing.T) {
 	if msg == "" {
 		t.Fatal("reject message empty when proceed=false")
 	}
-	for _, banned := range []string{
-		"explorer must",
-		"extractor must",
-		"finalizer must",
-		"analyzer must",
-		"line_text",
-		"grounded-via",
-		"answer-render",
-		"BusContext",
-		"MutableState",
-		"AnalysisIR",
-	} {
-		if strings.Contains(msg, banned) {
-			t.Errorf("R6 leak: reject message contains internal term %q: %q", banned, msg)
-		}
+	for _, hit := range glossarylint.ScanTextWith("tier1 floor reject message", msg,
+		"explorer must", "extractor must", "analyzer must",
+		"line_text", "grounded-via", "answer-render",
+	) {
+		t.Errorf("R6 leak: reject message contains internal term %q: %q", hit.Term, msg)
 	}
 	if !strings.Contains(msg, "read_file") {
 		t.Errorf("reject message must still tell the model to call read_file: %q", msg)

@@ -527,20 +527,15 @@ func TestExploreSkillR6_NoInternalGateJargon(t *testing.T) {
 	for _, p := range sk.Prohibitions {
 		corpus += "\n" + p
 	}
-	for _, banned := range []string{
+	for _, hit := range ScanTextWith("explore-skill", corpus,
 		"forced-read gate",
 		"forced-read and citation-floor gates",
 		"citation-floor gate",
 		"leave the gates active",
-		"L1 gate",
-		"L2 gate",
-		"L3 gate",
-		"L4 gate",
-		"BusContext",
-		"MutableState",
-		"AnalysisIR",
-	} {
-		if strings.Contains(corpus, banned) {
+		"L1 gate", "L2 gate", "L3 gate", "L4 gate",
+	) {
+		{
+			banned := hit.Term
 			t.Errorf("internal pipeline term %q leaked into LLM-facing explore-skill text", banned)
 		}
 	}
@@ -569,18 +564,12 @@ func TestExploreSkill_TeachesCascadedRepoLensNavigation(t *testing.T) {
 			t.Fatalf("explore-skill missing repo lens guidance %q:\n%s", want, corpus)
 		}
 	}
-	for _, forbidden := range []string{
+	for _, hit := range ScanTextWith("explore-skill", corpus,
 		"do not treat repo_map output as evidence",
 		"Do not emit line-scope evidence from repo_map/grep navigation output alone",
-		"downstream synthesis",
-		"downstream rendering",
 		"the framework has",
-		"stage's tool allowlist",
-		"mid-loop observer",
-	} {
-		if strings.Contains(corpus, forbidden) {
-			t.Fatalf("explore-skill leaked internal mechanism phrase %q:\n%s", forbidden, corpus)
-		}
+	) {
+		t.Fatalf("explore-skill leaked internal mechanism phrase %q:\n%s", hit.Term, corpus)
 	}
 }
 
@@ -1381,7 +1370,7 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 	for _, want := range []string{
 		"`bounded_effect_verdict`",
 		"`causal_diagnosis`",
-		"Low-mind precedence shortcut",
+		"Precedence shortcut",
 		"exactly one required `target_effect_verdict` and no required causal role ALWAYS selects `bounded_effect_verdict`",
 		"additional duration/state/frequency/evidence dimensions and `scenario=performance_bottleneck` do not widen it",
 		"does not request cause discovery, a root-cause roster, wakeup chain, or full Trace causal projection",
@@ -1415,7 +1404,7 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 		"Do not place that source-exclusion phrase only in `artifact_citation_quotes`",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("analysis workflow missing low-mind runtime JSON guidance %q", want)
+			t.Fatalf("analysis workflow missing precedence-shortcut runtime JSON guidance %q", want)
 		}
 	}
 	if strings.Contains(AnalysisRuntimeScopeFromDimensionTeaching, "intent/scenario/diagnostic flags continue to describe the current request") {

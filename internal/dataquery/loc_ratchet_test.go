@@ -17,7 +17,7 @@ import (
 func TestActionRunnerLOCRatchet(t *testing.T) {
 	const (
 		path     = "action_runner.go"
-		maxLines = 12344 // baseline pinned 2026-07-05 — only allowed to decrease (2026-08-04 DATAPARAM1: action parameter contract split into action_param_contract.go)
+		maxLines = 12269 // baseline pinned 2026-07-05 — only allowed to decrease (2026-08-04 DATAPARAM1: action parameter contract split into action_param_contract.go; 2026-09-03 V9-4 §40.56: DataActionParamError moved next to its contract in action_param_contract.go)
 	)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -28,7 +28,7 @@ func TestActionRunnerLOCRatchet(t *testing.T) {
 		lines++
 	}
 	if lines > maxLines {
-		t.Fatalf("%s has %d lines; the DQA LOC ratchet allows at most %d. This file may only shrink: move the new code into a sibling file (or split an existing concern out first and lower the baseline in the same change). Do not raise the baseline.",
+		t.Fatalf("%s has %d lines; the DQA LOC ratchet allows at most %d. This file may only shrink: move the new code into a sibling file (or split an existing concern out first and lower the baseline in the same change). Do not raise the baseline. Comment/blank-line compression and dead-line trimming are NOT ratchet compliance — extract a concern file and lower this ceiling in the same change.",
 			path, lines, maxLines)
 	}
 }

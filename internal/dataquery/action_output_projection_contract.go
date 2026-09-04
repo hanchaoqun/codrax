@@ -87,6 +87,7 @@ func normalizeActionOutputProjection(raw string, format OutputFormat) (string, e
 			ExpectedShape: "a projection whose owned encoding matches output_contract.format",
 			ActualSnippet: "projection=" + raw + ", format=" + string(format),
 			Message:       "assemble_answer projection=" + raw + " owns a different output encoding and cannot satisfy output_contract.format=" + string(format) + "; choose a projection for the declared format instead of publishing a structurally complete answer with the wrong shape",
+			OutputFormat:  format,
 		}
 	}
 	return "", DataActionParamError{

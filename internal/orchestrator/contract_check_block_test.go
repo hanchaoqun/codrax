@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1575,13 +1576,11 @@ func TestValidateFacetCoverage_RepairNoInternalJargon(t *testing.T) {
 	if len(vs) != 1 {
 		t.Fatalf("want 1 violation; got %+v", vs)
 	}
-	for _, banned := range []string{"AcceptableForms", "ClaimForm", "FacetCoverage", "FacetRequirement", "PromotionPolicy"} {
-		if strings.Contains(vs[0].Repair, banned) {
-			t.Errorf("Repair contains internal jargon %q: %q", banned, vs[0].Repair)
-		}
-		if strings.Contains(vs[0].Detail, banned) {
-			t.Errorf("Detail contains internal jargon %q: %q", banned, vs[0].Detail)
-		}
+	for _, hit := range glossarylint.ScanTextWith("Repair", vs[0].Repair, "ClaimForm", "PromotionPolicy") {
+		t.Errorf("Repair contains internal jargon %q: %q", hit.Term, vs[0].Repair)
+	}
+	for _, hit := range glossarylint.ScanTextWith("Detail", vs[0].Detail, "ClaimForm", "PromotionPolicy") {
+		t.Errorf("Detail contains internal jargon %q: %q", hit.Term, vs[0].Detail)
 	}
 }
 

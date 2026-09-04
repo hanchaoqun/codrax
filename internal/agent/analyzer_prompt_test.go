@@ -139,8 +139,8 @@ func TestAnalyzerPrompt_SkillOwnsContractText(t *testing.T) {
 	if count := strings.Count(sk.OutputFormat, skill.AnalysisDiagramParticipantPlanningContract); count != 1 {
 		t.Fatalf("analysis skill must carry the diagram participant SSOT exactly once, got %d", count)
 	}
-	if count := strings.Count(sk.OutputFormat, skill.AnalysisDiagramParticipantLowMindRule); count != 1 {
-		t.Fatalf("analysis skill must front-load the diagram participant low-mind rule exactly once, got %d", count)
+	if count := strings.Count(sk.OutputFormat, skill.AnalysisDiagramParticipantCurrentRequestRule); count != 1 {
+		t.Fatalf("analysis skill must front-load the diagram participant current-request-only rule exactly once, got %d", count)
 	}
 	for _, want := range []string{
 		"explicitly names participant identities",

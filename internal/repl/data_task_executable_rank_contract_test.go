@@ -193,7 +193,7 @@ func TestDataTaskMalformedParamRepairKeepsNarrowedRankTool(t *testing.T) {
 		dataTaskPlanResp(`{"status":"ready","actions":[{"kind":"derive_rules","input_paths":["rules.md"],"output_artifact":"rules.json"}],"continue_after":true,"next_batch":"continue"}`),
 	}}
 	planner := &llmDataTaskPlanner{adapter: adapter}
-	plan, err := planner.planDataTaskWithTool(context.Background(), "data_task_continuation_planner", "typed current rank", tool)
+	plan, err := planner.planDataTaskWithTool(context.Background(), "data_task_continuation_planner", "typed current rank", tool, dataquery.OutputContract{})
 	if err != nil {
 		t.Fatalf("planDataTaskWithTool: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestDataTaskStringifiedActionsCannotBypassCurrentRankEnum(t *testing.T) {
 		dataTaskPlanResp(`{"status":"ready","actions":[{"kind":"derive_rules"}],"continue_after":true,"next_batch":"continue"}`),
 	}}
 	planner := &llmDataTaskPlanner{adapter: adapter}
-	plan, err := planner.planDataTaskWithTool(context.Background(), "data_task_continuation_planner", "typed current rank", tool)
+	plan, err := planner.planDataTaskWithTool(context.Background(), "data_task_continuation_planner", "typed current rank", tool, dataquery.OutputContract{})
 	if err != nil {
 		t.Fatalf("planDataTaskWithTool: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestDataTaskNativeActionsCannotBypassCurrentRankEnum(t *testing.T) {
 		dataTaskPlanResp(`{"status":"ready","actions":[{"kind":"derive_rules"}],"continue_after":true,"next_batch":"continue"}`),
 	}}
 	planner := &llmDataTaskPlanner{adapter: adapter}
-	plan, err := planner.planDataTaskWithTool(context.Background(), "data_task_continuation_planner", "typed current rank", tool)
+	plan, err := planner.planDataTaskWithTool(context.Background(), "data_task_continuation_planner", "typed current rank", tool, dataquery.OutputContract{})
 	if err != nil {
 		t.Fatalf("planDataTaskWithTool: %v", err)
 	}

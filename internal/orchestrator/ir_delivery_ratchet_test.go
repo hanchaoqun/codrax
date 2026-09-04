@@ -50,7 +50,29 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// Tightened 8813→8809 after the F-orch round-four fold-in (§40.43
 		// finding V) moved the first-draft capture into the typed
 		// firstFinalizeDraftRecord in first_draft_reference.go (own budget).
-		{path: "orchestrator.go", maxLines: 8809},
+		// Tightened 8809→8728 after §40.52 (V8-7/V11-3) moved emitCGECSummary
+		// into cgec_summary_log.go (own budget below) once the CGEC summary
+		// jargon rewording pushed the god-file over the ceiling.
+		// Tightened 8809→8554 after §40.27 V7-5 (§40.55) moved the write
+		// retry-hint concern (buildRetryHint / buildRetryHintWithBest /
+		// buildPlanContentDiff) into write_retry_hint.go (own budget below)
+		// and RESTORED the §29.60 pendingCompletionReset lane comments that
+		// 4c7a0d0a3 had compressed to stay under the then-ceiling: comment
+		// compression is not ratchet compliance (see ratchetComplianceRule
+		// in ratchet_compliance_message_census_test.go).
+		// Batch-six merge (§40.52 + §40.55 landed together against the same
+		// 8809 base): both extractions are present, so the ceiling is the
+		// merged post-move count 8473 (zero headroom, as every god-file
+		// tightening in this chain), not the lower of the two per-group
+		// records — the freed budget of either move must not grow back.
+		{path: "orchestrator.go", maxLines: 8473},
+		// §40.52: the "[CGEC] summary" operator log (96 lines moved); small
+		// round headroom like the sibling concern-file rows.
+		{path: "cgec_summary_log.go", maxLines: 100},
+		// §40.55 V7-5: the ChangePlan verify→plan retry-hint trio; small
+		// headroom over the 289 lines moved so a hint-wording fix does not
+		// force a second extraction.
+		{path: "write_retry_hint.go", maxLines: 300},
 		{path: "first_draft_reference.go", maxLines: 120},
 		// §40.43 R1: the P6 hard cap (tightened 110→45 after finding S moved
 		// the advisory into finalize_loop_gate_advisory.go, own budget below).
@@ -90,7 +112,7 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 				lines++
 			}
 			if lines > tc.maxLines {
-				t.Fatalf("%s has %d lines; IR delivery ratchet allows at most %d. Split concern-specific code or update the delivery ledger before expanding this budget.", tc.path, lines, tc.maxLines)
+				t.Fatalf("%s has %d lines; IR delivery ratchet allows at most %d. Split concern-specific code or update the delivery ledger before expanding this budget. Comment/blank-line compression and dead-line trimming are NOT ratchet compliance — extract a concern file and lower this ceiling in the same change.", tc.path, lines, tc.maxLines)
 			}
 		})
 	}

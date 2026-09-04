@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -118,13 +119,10 @@ func TestRetryStormUserCaveat_RedlineAudit(t *testing.T) {
 
 	// R6: no internal pipeline vocab.
 	for _, c := range allMessages {
-		for _, banned := range []string{
-			"subtopic_coherence", "shape_subject_coherence", "R1.", "R2.",
-			"AnalyzerHints", "TermGraph", "QualityGate", "predicates.",
-		} {
-			if strings.Contains(c, banned) {
-				t.Errorf("caveat must not leak internal token %q; got %q", banned, c)
-			}
+		for _, hit := range glossarylint.ScanTextWith("retry-storm caveat", c,
+			"subtopic_coherence", "shape_subject_coherence", "R1.", "R2.", "predicates.",
+		) {
+			t.Errorf("caveat must not leak internal token %q; got %q", hit.Term, c)
 		}
 	}
 

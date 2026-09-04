@@ -60,7 +60,8 @@ func extractLineFeatures(root *sitter.Node, src []byte) map[int][]types.LineFeat
 //   - raise_statement (Python) → LineFeatureRaiseStmt
 //   - throw_statement (Java/JS/TS) → LineFeatureThrowStmt
 //   - call_expression / method_invocation → LineFeatureCallExpression
-//   - new_expression / object_creation_expression → LineFeatureNewExpression
+//   - new_expression / object_creation_expression / constructor_expression
+//     (Swift) → LineFeatureNewExpression
 //   - assignment / assignment_statement / assignment_expression / short_var_declaration
 //     / variable_declarator / init_declarator / let_declaration
 //     / property_declaration → LineFeatureAssignment
@@ -109,7 +110,8 @@ func walkLineFeatures(node *sitter.Node, src []byte, add func(int, types.LineFea
 		if isDynamicDispatchCall(node, src) {
 			add(line, types.LineFeatureUnknownEffect)
 		}
-	case "new_expression", "object_creation_expression":
+	case "new_expression", "object_creation_expression",
+		"constructor_expression": // Swift `Box<Int>(x)` (B1554)
 		add(line, types.LineFeatureNewExpression)
 	case "assignment", // Python and Ruby grammars
 		"assignment_statement", "assignment_expression",

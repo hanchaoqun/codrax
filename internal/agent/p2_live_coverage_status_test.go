@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -65,13 +66,10 @@ func TestLiveBlockKindBalance_GapMarked(t *testing.T) {
 		t.Errorf("ordered_list should render ⚠ at count 0; got %q", got)
 	}
 	// R6: no internal vocab.
-	for _, banned := range []string{
-		"BlockRequirement", "MinCount", "MaxCount", "ViolKind",
-		"AnchoredCount", "DeclaredCount", "FacetCoverage",
-	} {
-		if strings.Contains(got, banned) {
-			t.Errorf("must not leak internal token %q; got %q", banned, got)
-		}
+	for _, hit := range glossarylint.ScanTextWith("liveBlockKindBalance", got,
+		"MinCount", "MaxCount", "ViolKind", "AnchoredCount", "DeclaredCount",
+	) {
+		t.Errorf("must not leak internal token %q; got %q", hit.Term, got)
 	}
 }
 
@@ -253,12 +251,9 @@ func TestRenderLiveCoverageStatus_FullStackR6(t *testing.T) {
 	prev := &types.AnswerDocumentV2{}
 	_ = json.Unmarshal(rs.PrevEmitJSON, prev)
 	combined := liveBlockKindBalance(prev, view)
-	for _, banned := range []string{
-		"DeclaredCount", "AnchoredCount", "FacetCoverage",
-		"BlockRequirement", "ViolKind", "ClusterKey",
-	} {
-		if strings.Contains(combined, banned) {
-			t.Errorf("rendered output must not leak %q; got %q", banned, combined)
-		}
+	for _, hit := range glossarylint.ScanTextWith("liveBlockKindBalance", combined,
+		"DeclaredCount", "AnchoredCount", "ViolKind", "ClusterKey",
+	) {
+		t.Errorf("rendered output must not leak %q; got %q", hit.Term, combined)
 	}
 }

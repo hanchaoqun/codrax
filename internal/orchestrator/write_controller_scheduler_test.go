@@ -10910,7 +10910,7 @@ func TestRunControllerPlanBatch_NoPlanWithTypedAnchorsGetsOneRetry(t *testing.T)
 		if !strings.Contains(hint, "typed planning context") {
 			t.Fatalf("retry hint must cite typed planning context, got %q", hint)
 		}
-		if !strings.Contains(hint, "batch expected paths") || !strings.Contains(hint, "WriteAnalysisIR scope anchors") {
+		if !strings.Contains(hint, "batch expected paths") || !strings.Contains(hint, "write-scope anchors") {
 			t.Fatalf("retry hint must preserve typed anchor boundary, got %q", hint)
 		}
 		mu.SetChangePlan(&types.ChangePlan{

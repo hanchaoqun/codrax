@@ -104,12 +104,20 @@ type WorkflowRuntimeSnapshot struct {
 }
 
 type WorkflowRuntimeView struct {
-	Records                   []WorkflowRecord
-	CurrentPlan               dataquery.TaskPlan
-	DeferredQueue             DeferredQueueState
-	DeferredPlan              dataquery.TaskPlan
-	DataRounds                int
-	RepairRounds              int
+	Records       []WorkflowRecord
+	CurrentPlan   dataquery.TaskPlan
+	DeferredQueue DeferredQueueState
+	DeferredPlan  dataquery.TaskPlan
+	DataRounds    int
+	RepairRounds  int
+	// ExecutionOutputContract is the durable output contract the workflow's
+	// plan resolver will carry into the next admitted plan — the same value
+	// the CLI/REPL protectPlan closure reads (V9-4, §40.56). Planner-side
+	// pre-dispatch gates judge draft actions against it so the gate and the
+	// executor see one contract snapshot. Undeclared (zero) when the view was
+	// built outside a live workflow loop; readers then derive the seed the
+	// loop would start from.
+	ExecutionOutputContract   dataquery.OutputContract
 	ReducerStateAuthoritative bool
 }
 

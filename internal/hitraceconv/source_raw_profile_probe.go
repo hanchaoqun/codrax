@@ -69,7 +69,7 @@ func probeTraceDBSourceRawProfile(
 		coverage.Metadata["probe_state"] = "not_applicable_non_official_profile"
 		coverage.Metadata["decoder_readiness"] = "not_applicable"
 		coverage.Skipped = "official raw page probe not applicable to this envelope"
-		decode.setUnavailable("not_applicable_non_official_profile",
+		decode.setUnavailable(traceDBRawDecodeStateNotApplicableNonOfficialProfile,
 			"official raw record decode ledger not applicable to this envelope", false)
 		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
 	}
@@ -79,7 +79,7 @@ func probeTraceDBSourceRawProfile(
 		coverage.Metadata["probe_state"] = "withheld_segment_inventory_incomplete"
 		coverage.Metadata["decoder_readiness"] = "unavailable_segment_inventory_incomplete"
 		coverage.Skipped = "raw page probe withheld: segment_inventory_incomplete"
-		decode.setUnavailable("withheld_segment_inventory_incomplete",
+		decode.setUnavailable(traceDBRawDecodeStateWithheldSegmentInventoryIncomplete,
 			"raw record decode ledger withheld: segment_inventory_incomplete", true)
 		return coverage, decode.coverage, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
 	}

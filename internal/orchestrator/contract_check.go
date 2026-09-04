@@ -1009,7 +1009,7 @@ func runExternalArtifactTypedCoverageCheck(ctx *types.BusContext, doc *types.Ans
 		Kind: types.ViolExternalArtifactUnderdecoded,
 		Detail: "required runtime artifact lane is not structurally covered: no answer block declares " +
 			"facet_id=observed_artifact_fact together with claim_form=external_observation",
-		Repair: "emit an AnswerDocumentV2 block for the runtime observation lane. Declare " +
+		Repair: "emit an answer block for the runtime observation lane. Declare " +
 			"facet_ids=[\"observed_artifact_fact\"] on the block or claim_use.facet_id, and add " +
 			"claim_uses=[{claim_form:\"external_observation\", facet_id:\"observed_artifact_fact\"}]. " +
 			"Keep artifact-only observations in the runtime/artifact provenance lane unless a current-repo citation proves the same fact.",
@@ -1388,7 +1388,7 @@ func runSymbolAnchorTrackOracleV2(docV2 *types.AnswerDocumentV2, rm *types.Reque
 		ClusterKey: familyClusterKey(view.Family, "explorer_def_region_coverage_v2"),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "explorer_def_region_coverage_v2",
-			Reason:     "repeated emit_answer_symbol rejections at line-anchor verifier (V2 carrier)",
+			Reason:     "repeated emit_answer_symbol rejections at line-anchor verifier",
 			Confidence: 0.7,
 		},
 		Stage: string(types.StageExtract),
@@ -3016,7 +3016,7 @@ func (o *Orchestrator) runSelfConsistencyReviewV2WithStartNotice(doc *types.Answ
 			ClusterKey: topicClusterKey(c.Topic, "answer_summary_body_consistency"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_summary_body_consistency",
-				Reason:     "reviewer detected inter-paragraph contradiction (V2 carrier)",
+				Reason:     "reviewer detected inter-paragraph contradiction",
 				Confidence: verdict.Confidence,
 			},
 			Stage: string(types.StageFinalize),

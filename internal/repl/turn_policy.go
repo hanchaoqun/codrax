@@ -356,7 +356,7 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "needs_repo_access": {
       "type": "boolean",
-      "description": "true iff route is repo, hybrid, or write, or an operation explicitly needs fresh repository facts first. Route=repo also covers pipeline analysis of external observations such as logs/traces even when the analyzer later excludes current source. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
+      "description": "true iff route is repo, hybrid, or write, or an operation explicitly needs fresh repository facts first. Route=repo also covers pipeline analysis of external observations such as logs/traces even when the classification later excludes current source. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
     },
     "current_source_evidence_mode": {
       "type": "string",
@@ -462,7 +462,7 @@ The seven routes:
             analysis: the same pipeline owns log_triage, perf_triage,
             trace_query, ObservationLedger, and final answer grounding.
             If the user explicitly says not to inspect current code,
-            still use this analysis pipeline; the analyzer will carry
+            still use this analysis pipeline; the classification will carry
             that as an external-observation / no-current-source policy.
             Do NOT reroute external-observation analysis to operation
             merely because it should avoid current source.
@@ -594,7 +594,7 @@ current_source_evidence_mode is orthogonal to needs_repo_access:
              needs_repo_access=true are still required to enter the analysis
              pipeline. Runtime observations remain answer-grade evidence and
              must not be erased merely because the current checkout differs.
-Low-mind precedence: first ask whether the CURRENT message explicitly requests
+Precedence: first ask whether the CURRENT message explicitly requests
 current source/code/repository implementation or an artifact-to-current-source
 correlation. If no, choose optional for an artifact-only question. The facts
 that a repository is available, route=repo is required, needs_repo_access=true,

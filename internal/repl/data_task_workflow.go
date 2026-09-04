@@ -731,6 +731,14 @@ func dataTaskWorkflowActionStagingGuardResult(repoRoot string, records []dataTas
 			AllowedNextActions: state.AllowedNextActions,
 		})
 	}
+	// Every action is judged against the output contract the plan carries
+	// into execution (V9-4, §40.56). Planner plans already passed this exact
+	// check under the same carried contract; deferred remainders, fallbacks
+	// and resumed plans meet it here for the first time — as a typed repair
+	// lane, never as an execution failure.
+	if guard := dataworkflow.ActionOutputContractGuardResult(plan); !guard.Empty() {
+		return guard
+	}
 	if guard := dataTaskActionBatchShapeGuardResult(records, plan, dataworkflow.ActionBatchShapeChecks{
 		TopLevelScript: true,
 		ActionCount:    true,
@@ -4892,6 +4900,20 @@ func dataTaskCarryDurableOutputContract(candidate dataquery.TaskPlan, durable da
 	contract := dataworkflow.BestOutputContract(candidate.OutputContract, durable)
 	candidate.OutputContract = contract
 	return candidate, contract
+}
+
+// dataTaskExecutionOutputContractBaseline is the durable contract the
+// planner's pre-dispatch gate judges a draft against (V9-4, §40.56). Inside a
+// live CLI/REPL workflow loop the view carries the protectPlan closure's own
+// durable value (ExecutionOutputContract), so the gate and the resolver read
+// one snapshot. Views built outside a loop (legacy planner entry points,
+// resume continuation, tests) carry no value; they get the same seed the loop
+// would start from — the records/current fold that seeds durableOutputContract.
+func dataTaskExecutionOutputContractBaseline(view dataTaskWorkflowRuntimeView) dataquery.OutputContract {
+	if dataworkflow.OutputContractDeclared(view.ExecutionOutputContract) {
+		return view.ExecutionOutputContract
+	}
+	return dataTaskWorkflowOutputContract(view.Records, view.CurrentPlan)
 }
 
 func dataTaskPlanIsCoverageOnly(plan dataquery.TaskPlan) bool {

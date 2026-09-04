@@ -213,12 +213,21 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(compact)
+	// EVOLUTION RECORD (colleague_merge_audit §40.53, V6-4): the receipt digest
+	// moved 96e3746d… → f557d2c1… because four source-raw lanes on this legacy
+	// 0x0ace fixture now publish the gate's not-applicable prose instead of a
+	// withheld/replay label — DMA wait, DMA lifecycle and marker sync said
+	// "withheld: strict raw decode ledger incomplete" and visibility said
+	// "not applicable: held official raw replay authority absent"; all four
+	// now say "not applicable: strict official source raw profile absent"
+	// (Skipped is part of the projection). Output bytes/SHA, event counts and
+	// the authority/advisory split are unchanged: no row moved.
 	const (
 		wantInputBytes  = 8442
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
 		wantOutputBytes = 37140
 		wantOutputSHA   = "427d8b8664897dba6641f271fb01ec29a3870c18b9417c26019da8ccb8388752"
-		wantReceiptSHA  = "96e3746d441b7bce81e1cea86ec786dcc619a853368013aa01cd63d56c54fbfe"
+		wantReceiptSHA  = "f557d2c18be0ceb166af7fd17858bafddd0b6e979dcb7f15afffe2b5d9a50d13"
 		wantEvents      = 35
 		wantAuthority   = 18
 		wantAdvisory    = 17

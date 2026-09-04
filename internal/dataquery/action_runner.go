@@ -350,69 +350,6 @@ func dataFieldInferenceError(kind DataActionKind, role, inputAlias, expectedShap
 	}
 }
 
-type DataActionParamError struct {
-	ActionKind    DataActionKind `json:"action_kind,omitempty"`
-	Param         string         `json:"param,omitempty"`
-	ExpectedShape string         `json:"expected_shape,omitempty"`
-	ActualSnippet string         `json:"actual_snippet,omitempty"`
-	Message       string         `json:"message,omitempty"`
-	Cause         error          `json:"-"`
-}
-
-func (e DataActionParamError) Error() string {
-	if text := strings.TrimSpace(e.Message); text != "" {
-		return text
-	}
-	kind := strings.TrimSpace(string(e.ActionKind))
-	if kind == "" {
-		kind = "data action"
-	}
-	param := strings.TrimSpace(e.Param)
-	if param == "" {
-		param = "parameter"
-	}
-	expected := strings.TrimSpace(e.ExpectedShape)
-	if expected == "" {
-		expected = "schema-compatible value"
-	}
-	msg := fmt.Sprintf("%s parameter %q does not match %s", kind, param, expected)
-	if e.Cause != nil {
-		msg += ": " + e.Cause.Error()
-	}
-	return msg
-}
-
-func (e DataActionParamError) Unwrap() error {
-	return e.Cause
-}
-
-func (e DataActionParamError) Violation() DataTaskViolation {
-	return DataTaskViolation{
-		Code:          "action_param_violation",
-		Summary:       clampViolationText(e.Error(), 500),
-		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
-		Param:         strings.TrimSpace(e.Param),
-		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "schema-compatible action parameter"),
-		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
-		Repairability: RepairabilityNeedsRecompute,
-		RepairHint:    "Use the typed action schema for this parameter. Keep arrays as JSON arrays and objects as JSON objects; split the batch if the parameter belongs to a later action.",
-	}
-}
-
-func dataActionParamError(kind DataActionKind, param, expectedShape, actualSnippet string, cause error) DataActionParamError {
-	return DataActionParamError{
-		ActionKind:    kind,
-		Param:         strings.TrimSpace(param),
-		ExpectedShape: strings.TrimSpace(expectedShape),
-		ActualSnippet: strings.TrimSpace(actualSnippet),
-		Cause:         cause,
-	}
-}
-
-func dataActionMissingParamError(kind DataActionKind, param, expectedShape string, actual any) DataActionParamError {
-	return dataActionParamError(kind, param, expectedShape, actionParamActualSnippet(actual), nil)
-}
-
 func actionParamActualSnippet(actual any) string {
 	switch value := actual.(type) {
 	case nil:

@@ -250,26 +250,22 @@ func TestValidatorProposalRequiresLiveValidatorCorroboration(t *testing.T) {
 	}
 }
 
+// TestDataTaskDurableOutputContractIsWiredToCLIAndREPLPlanProtection.
+// EVOLUTION RECORD (V9-4, colleague_merge_audit §40.56): the original pin
+// counted exactly two dataTaskCarryDurableOutputContract calls per file. It
+// now delegates to census rule (c) in data_task_output_contract_census_test.go,
+// which keeps that count (both carries must sit inside the protectPlan
+// closure and bind `durableOutputContract`) AND binds the planner gate's
+// baseline (`view.ExecutionOutputContract`) to that same identifier in the
+// same enclosing function — the two-snapshot defect this item closed.
 func TestDataTaskDurableOutputContractIsWiredToCLIAndREPLPlanProtection(t *testing.T) {
 	for _, path := range []string{"data_task_cli.go", "repl.go"} {
 		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
 		}
-		calls := 0
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			ident, ok := call.Fun.(*ast.Ident)
-			if ok && ident.Name == "dataTaskCarryDurableOutputContract" {
-				calls++
-			}
-			return true
-		})
-		if calls != 2 {
-			t.Fatalf("%s durable output contract calls=%d, want exactly 2 around plan preparation", path, calls)
+		if offenders := censusDataTaskOutputContractLoopBinding(path, file); len(offenders) > 0 {
+			t.Fatalf("%s durable output contract wiring:\n%s", path, strings.Join(offenders, "\n"))
 		}
 	}
 }

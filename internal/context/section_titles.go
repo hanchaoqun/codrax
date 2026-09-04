@@ -1,5 +1,7 @@
 package context
 
+import "github.com/hanchaoqun/codrax/internal/types"
+
 // Section title constants — single source of truth.
 //
 // Section titles are LOAD-BEARING:
@@ -51,7 +53,7 @@ const (
 	SectionTaughtSchemaLessons   = "Structured Handoff Lessons From Earlier Rounds"
 	SectionAnswerCoverageNotes   = "Answer Coverage Notes (READ FIRST)"
 	SectionUserRequest           = "User Request"
-	SectionPresentationDirective = "Presentation Directive"
+	SectionPresentationDirective = types.PresentationDirectiveSectionTitle
 	SectionAnalyzerPrescan       = "Analyzer Pre-scan Findings"
 	SectionPriorConversation     = "Prior Conversation (reference only)"
 	SectionLogTriageExtraction   = "Log Triage — Validated Extraction"

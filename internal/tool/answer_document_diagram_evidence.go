@@ -44,23 +44,31 @@ const (
 	diagramCallEdgeIssueMissingGroundedAnchor = types.DiagramRelationFailureMissingGroundedCallAnchor
 	diagramCallEdgeIssueMissingRelationAnchor = "missing_relation_anchor"
 	diagramCallEdgeIssueAnchorWithoutBodyEdge = "typed_anchor_without_visible_edge"
-	diagramStandaloneRelationIdentityMissing  = "standalone_relation_endpoint_identity_missing"
-	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
-	diagramCallEdgeIssueOccurrenceUnproven    = "call_edge_occurrence_unproven"
-	diagramTypedRelationTupleEndpointReused   = "typed_relation_tuple_reused_across_visible_endpoints"
-	diagramCallEdgeIssueReplyOperatorConflict = "call_reply_operator_conflict"
-	diagramSequenceRelationReplyConflict      = "sequence_relation_reply_operator_conflict"
-	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
-	diagramTypeRelationEdgeIssueNoEvidence    = "type_relation_edge_unproven"
-	diagramAssignmentEdgeIssueNoEvidence      = "assignment_edge_unproven"
-	diagramDataFlowEdgeIssueNoEvidence        = "data_flow_edge_unproven"
-	diagramReturnEdgeIssueNoEvidence          = "return_edge_unproven"
-	diagramCallbackEdgeIssueNoEvidence        = "callback_handoff_unproven"
-	diagramArgumentFlowEdgeIssueNoEvidence    = "argument_flow_unproven"
-	diagramTypedEndpointsCollapsedToSelfEdge  = "typed_endpoints_collapsed_to_self_edge"
-	diagramEdgeAnchorNodeIdentityConflict     = "edge_anchor_node_identity_conflict"
-	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
-	diagramRequestedStageSpineIncomplete      = "requested_stage_precedence_spine_incomplete"
+	// diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge names the exact
+	// sub-shape of a stale anchor where the body shows the same endpoint pair
+	// once, in the opposite direction (colleague_merge_audit §40.57): the
+	// model's typed claim and its own arrow disagree on direction. It is
+	// reported instead of the generic stale-anchor issue so the retry teaches
+	// alignment (swap the anchor endpoints or reverse the arrow) rather than
+	// deletion; the system never realigns the anchor on the model's behalf.
+	diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge = "typed_anchor_reversed_against_visible_edge"
+	diagramStandaloneRelationIdentityMissing             = "standalone_relation_endpoint_identity_missing"
+	diagramCallEdgeIssueNoEvidence                       = "call_edge_unproven"
+	diagramCallEdgeIssueOccurrenceUnproven               = "call_edge_occurrence_unproven"
+	diagramTypedRelationTupleEndpointReused              = "typed_relation_tuple_reused_across_visible_endpoints"
+	diagramCallEdgeIssueReplyOperatorConflict            = "call_reply_operator_conflict"
+	diagramSequenceRelationReplyConflict                 = "sequence_relation_reply_operator_conflict"
+	diagramRegistrationEdgeIssueNoEvidence               = "registration_edge_unproven"
+	diagramTypeRelationEdgeIssueNoEvidence               = "type_relation_edge_unproven"
+	diagramAssignmentEdgeIssueNoEvidence                 = "assignment_edge_unproven"
+	diagramDataFlowEdgeIssueNoEvidence                   = "data_flow_edge_unproven"
+	diagramReturnEdgeIssueNoEvidence                     = "return_edge_unproven"
+	diagramCallbackEdgeIssueNoEvidence                   = "callback_handoff_unproven"
+	diagramArgumentFlowEdgeIssueNoEvidence               = "argument_flow_unproven"
+	diagramTypedEndpointsCollapsedToSelfEdge             = "typed_endpoints_collapsed_to_self_edge"
+	diagramEdgeAnchorNodeIdentityConflict                = "edge_anchor_node_identity_conflict"
+	diagramSemanticRelationIssueNoEvidence               = "semantic_relation_edge_unproven"
+	diagramRequestedStageSpineIncomplete                 = "requested_stage_precedence_spine_incomplete"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -189,9 +197,11 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 			}
 		}
 		visibleBodyEdgeKeys := make(map[string]bool, len(parsedEdges))
+		visibleBodyPairCounts := make(map[string]int, len(parsedEdges))
 		if block.Kind == types.BlockDiagram && block.Diagram != nil {
 			for _, edge := range parsedEdges {
 				visibleBodyEdgeKeys[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+				visibleBodyPairCounts[diagramEvidenceUnorderedEdgeKey(edge.From, edge.To)]++
 			}
 			// A typed endpoint tuple describes one exact relation. It may own
 			// repeated occurrences on the same visible actor pair (whose separate
@@ -383,8 +393,20 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 			// body-edge ownership lane above.
 			if block.Kind == types.BlockDiagram && block.Diagram != nil &&
 				!visibleBodyEdgeKeys[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
+				// The exact sub-shape "same endpoint pair, visible exactly once,
+				// in the opposite direction" is the model contradicting its own
+				// arrow (UML `Base <|.. Impl` with anchor Base -> Impl is the
+				// production witness). Name it precisely so the retry teaches
+				// alignment instead of deletion; ambiguous pairs (repeated or
+				// absent reverse arrows) stay on the generic stale-anchor issue.
+				// Relation-agnostic by class: any relation_kind, any diagram
+				// family. The anchor itself is never rewritten (§40.57).
+				issue := diagramCallEdgeIssueAnchorWithoutBodyEdge
+				if diagramAnchorReversedAgainstUniqueVisibleEdge(anchor, visibleBodyEdgeKeys, visibleBodyPairCounts) {
+					issue = diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge
+				}
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
-					BlockID: block.ID, Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+					BlockID: block.ID, Issue: issue,
 					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
 					FromSymbol: fromSymbol,
 					ToSymbol:   toSymbol,
@@ -1379,6 +1401,39 @@ func diagramAnchorRelation(anchor types.DiagramEdgeAnchor) types.DiagramRelation
 
 func diagramEvidenceEdgeKey(from, to string) string {
 	return strings.ToLower(strings.TrimSpace(from)) + "\x00" + strings.ToLower(strings.TrimSpace(to))
+}
+
+// diagramEvidenceUnorderedEdgeKey keys one visible endpoint pair regardless
+// of arrow direction, using the same exact normalization as
+// diagramEvidenceEdgeKey so the two lanes cannot disagree on identity.
+func diagramEvidenceUnorderedEdgeKey(a, b string) string {
+	a = strings.ToLower(strings.TrimSpace(a))
+	b = strings.ToLower(strings.TrimSpace(b))
+	if a > b {
+		a, b = b, a
+	}
+	return a + "\x00" + b
+}
+
+// diagramAnchorReversedAgainstUniqueVisibleEdge reports the exact stale-anchor
+// sub-shape in which the anchor's own endpoint pair is drawn exactly once in
+// the body, in the opposite direction. Three precise signals only: the
+// anchor's direction is absent from the body, the reverse direction is
+// present, and the unordered pair occurs once. Duplicate or bidirectional
+// pairs and self-edges never qualify; labels, evidence, request text and
+// prose are not read. Pure predicate — it never edits the anchor.
+func diagramAnchorReversedAgainstUniqueVisibleEdge(
+	anchor types.DiagramEdgeAnchor,
+	visibleBodyEdgeKeys map[string]bool,
+	visibleBodyPairCounts map[string]int,
+) bool {
+	from, to := strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode)
+	if from == "" || to == "" || strings.EqualFold(from, to) {
+		return false
+	}
+	return !visibleBodyEdgeKeys[diagramEvidenceEdgeKey(from, to)] &&
+		visibleBodyEdgeKeys[diagramEvidenceEdgeKey(to, from)] &&
+		visibleBodyPairCounts[diagramEvidenceUnorderedEdgeKey(from, to)] == 1
 }
 
 func diagramEvidenceNodeLabels(body string, kind types.DiagramKind) map[string]string {

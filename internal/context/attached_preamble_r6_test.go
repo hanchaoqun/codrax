@@ -13,8 +13,9 @@
 package context
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 )
 
 func TestAttachedLogPreamble_R6(t *testing.T) {
@@ -41,26 +42,18 @@ func TestAttachedTracePreamble_R6(t *testing.T) {
 
 func auditR6(t *testing.T, label, out string) {
 	t.Helper()
-	for _, banned := range []string{
-		// Pipeline stage names
+	// Per-surface extras (agent labels, bare "downstream", layer
+	// designators); the shared glossary — Go type names, "downstream
+	// stages" — comes from glossarylint.ScanTextWith (§40.52).
+	extras := []string{
 		"explorer agent", "extractor agent", "finalizer agent", "analyzer agent",
 		"log-triage producer", "perf-triage producer",
 		"log_triage", "perf_triage", "pre-stage",
-		// Pipeline architecture references that the LLM has no business knowing
-		"downstream agents",
-		"downstream stages",
-		"downstream consumers",
-		"downstream",
-		"answer pipeline",
-		// Internal Go type / package names
-		"BusContext", "MutableState", "AnalysisIR",
-		"AnalyzerHints", "AnswerDocumentV2",
-		// Internal layer designators
+		"downstream agents", "downstream consumers", "downstream", "answer pipeline",
 		"L1 gate", "L2 gate", "L3 gate", "L4 gate",
-	} {
-		if strings.Contains(out, banned) {
-			t.Errorf("[%s] R6 leak: preamble contains internal term %q: %q", label, banned, out)
-		}
+	}
+	for _, hit := range glossarylint.ScanTextWith(label, out, extras...) {
+		t.Errorf("[%s] R6 leak: preamble contains internal term %q: %q", label, hit.Term, out)
 	}
 }
 

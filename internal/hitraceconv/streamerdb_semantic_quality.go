@@ -245,7 +245,10 @@ func traceDBAddRawMarkerReplacementClosure(quality *TraceDBCoverage, items []Tra
 		quality.Metadata["raw_marker_replacement_closure"] = "not_evaluated_raw_coverage_absent"
 		return
 	}
-	if state := raw.Metadata["publication_state"]; strings.HasPrefix(state, "withheld_") {
+	// Not-applicable, census-incomplete and withheld lanes are all read from
+	// the class prefix roster (source_raw_lane_gate.go): none of them may mint
+	// replacement metrics, and the state travels verbatim in the closure label.
+	if state := raw.Metadata["publication_state"]; traceDBSourceRawPublicationStateBlocksEvaluation(state) {
 		quality.Metadata["raw_marker_replacement_closure"] =
 			"not_evaluated_" + state
 		return

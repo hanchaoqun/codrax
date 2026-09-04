@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -313,10 +314,8 @@ func TestProseWallClockConservation_NoInternalJargon(t *testing.T) {
 	for _, f := range findings {
 		for _, lang := range []string{"zh", "en"} {
 			text := f.userReadable(lang)
-			for _, banned := range []string{"P6", "orchestrator", "MutableState", "BusContext", "ledger", "wallclock", "proseWallClock", "finalize"} {
-				if strings.Contains(text, banned) {
-					t.Fatalf("appendix wording leaks internal term %q:\n%s", banned, text)
-				}
+			for _, hit := range glossarylint.ScanTextWith("appendix", text, "P6", "orchestrator", "ledger", "wallclock", "proseWallClock", "finalize") {
+				t.Fatalf("appendix wording leaks internal term %q:\n%s", hit.Term, text)
 			}
 		}
 	}

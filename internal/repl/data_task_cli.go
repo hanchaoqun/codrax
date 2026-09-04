@@ -263,6 +263,9 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	}
 	runtimeView := func() dataTaskWorkflowRuntimeView {
 		view := dataTaskWorkflowRuntimeViewFrom(workflowRuntime, records, currentPlan, currentDeferredPlan(), dataRounds, repairRounds)
+		// The planner gate judges drafts against the same durable contract
+		// protectPlan carries into the admitted plan (V9-4, §40.56).
+		view.ExecutionOutputContract = durableOutputContract
 		records = view.Records
 		currentPlan = view.CurrentPlan
 		dataRounds = view.DataRounds

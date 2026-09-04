@@ -17,6 +17,8 @@ package skill
 import (
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func analysisSkillPrompt(t *testing.T) string {
@@ -191,14 +193,29 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField(t *testing.T
 	}
 }
 
+// EVOLUTION RECORD (V7-4, §40.54): this pin used to require the phrase
+// "out-of-band typed Presentation Directive requiring a visual", which taught
+// the model to infer the hard requirement from directive prose while the
+// emit_analysis gate keyed on a boolean the prompt never rendered. The
+// teaching now names the typed line rendered in the Presentation Directive
+// section (types.PresentationHardVisualStatement) through the single R2'
+// sentence types.PresentationHardVisualTeaching, and the wire identifiers
+// are asserted absent.
 func TestAnalysisSkill_PresentationDirectiveRequiresDiagramHint(t *testing.T) {
 	out := analysisSkillPrompt(t)
+	for _, banned := range []string{"out-of-band", "requires_diagram", "PresentationDiagramRequired"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("analysis prompt must not name the unseen wire signal; found %q", banned)
+		}
+	}
 	for _, want := range []string{
-		"Presentation Directive",
+		types.PresentationDirectiveSectionTitle,
+		types.PresentationHardVisualTeaching(),
+		types.PresentationHardVisualStatement(types.PresentationHardVisualRequired, "en"),
+		types.PresentationHardVisualStatement(types.PresentationHardVisualRequired, "zh"),
 		"emit diagram_hint with `required=true`",
 		"on every complete call, including a repair of an unrelated field",
 		"optional structural hint MUST use `required=false`",
-		"out-of-band typed Presentation Directive requiring a visual",
 		"Explicit presentation modality outranks topic inference",
 		"MUST use `sequence` even when predicate_axis=call",
 		"required diagram call containing such an unauthorized row is rejected",
@@ -273,20 +290,11 @@ func TestAnalysisSkill_DiagnosticPredicatePromptPinned(t *testing.T) {
 
 func TestAnalysisSkill_DiagnosticPredicatePrompt_RedlineAudit(t *testing.T) {
 	paragraph := diagnosticPredicateParagraph(t)
-	for _, banned := range []string{
-		"keyword",
-		"regex",
-		"regexp",
-		"substring",
-		"grep",
-		"TaskGraph",
-		"EvidencePlan",
-		"BusContext",
-		"MutableState",
-		"AnalysisIR",
-		"AnalyzerHints",
-	} {
-		if strings.Contains(paragraph, banned) {
+	for _, hit := range ScanTextWith("diagnostic predicate paragraph", paragraph,
+		"keyword", "regex", "regexp", "substring", "grep",
+	) {
+		{
+			banned := hit.Term
 			t.Errorf("diagnostic predicate prompt leaked banned term %q: %q", banned, paragraph)
 		}
 	}
@@ -411,15 +419,11 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_R6Audit(t *testing.T) {
 	// "explorer agent" as an entity-axes example, so a naive
 	// "next ##" window false-positives there.
 	region := currentQuestionPrimacyBlock(t)
-	for _, banned := range []string{
+	for _, hit := range ScanTextWith("current-question primacy block", region,
 		"explorer agent", "extractor agent", "finalizer agent", "analyzer agent",
-		"BusContext", "MutableState", "AnalysisIR",
 		"L1 gate", "L2 gate", "L3 gate", "L4 gate",
-		"AnalyzerHints",
-	} {
-		if strings.Contains(region, banned) {
-			t.Errorf("internal term %q leaked into LLM-facing primacy rule: %q", banned, region)
-		}
+	) {
+		t.Errorf("internal term %q leaked into LLM-facing primacy rule: %q", hit.Term, region)
 	}
 }
 
@@ -429,8 +433,8 @@ func TestAnalysisDiagramParticipantTeachingSeparatesActorsFromPresentationSyntax
 		"Never add a participant learned from repository pre-scan, search, or evidence",
 		"do not add an inferred controller, middle stage, or table-only carrier",
 	} {
-		if !strings.Contains(AnalysisDiagramParticipantLowMindRule, want) {
-			t.Fatalf("diagram participant low-mind rule missing %q: %s", want, AnalysisDiagramParticipantLowMindRule)
+		if !strings.Contains(AnalysisDiagramParticipantCurrentRequestRule, want) {
+			t.Fatalf("diagram participant current-request-only rule missing %q: %s", want, AnalysisDiagramParticipantCurrentRequestRule)
 		}
 	}
 	for _, want := range []string{

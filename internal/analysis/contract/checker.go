@@ -200,7 +200,7 @@ func checkCitations(draft Answer, c types.AnswerContract) []Violation {
 				Repair:     "collect more evidence with file:line anchors",
 				SuspectedRoot: SuspectedRoot{
 					IRField:    "CitationReq",
-					Reason:     "finalizer produced zero citations though contract requires ≥N",
+					Reason:     "the answer carries zero citations though the contract requires ≥N",
 					Confidence: 0.75,
 				},
 			}}
@@ -545,7 +545,7 @@ func checkAcceptanceOracle(draft Answer, c types.AnswerContract, oracle types.Sy
 	// reconciliation target.
 	acceptanceRoot := SuspectedRoot{
 		IRField:    "AcceptanceTests",
-		Reason:     "finalizer answer does not satisfy acceptance criterion",
+		Reason:     "the answer does not satisfy the acceptance criterion",
 		Confidence: 0.65,
 	}
 	for _, a := range c.AcceptanceTests {

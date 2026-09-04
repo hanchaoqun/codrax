@@ -142,7 +142,7 @@ func clusterClosureExitReachability(caps finalizeLoopCaps) clusterExitReachabili
 	}
 	if caps.MinRetryYield > 0 {
 		add(finalizeLoopGate{Name: "low-yield kill min_retry_yield=" + fmt.Sprint(caps.MinRetryYield), LoopOrder: 6, FiresOnFailure: 2,
-			Qualifier: "only when a round that re-runs an upstream stage yields an evidence delta below the threshold"})
+			Qualifier: "only when a round that re-runs an earlier step yields an evidence delta below the threshold"})
 	}
 	sort.SliceStable(out.PreEmpting, func(i, j int) bool {
 		a, b := out.PreEmpting[i], out.PreEmpting[j]

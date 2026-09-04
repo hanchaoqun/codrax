@@ -130,6 +130,67 @@ type traceDBSourceRawVisibilitySchemaWire struct {
 	emitted bool
 }
 
+// traceDBSourceRawVisibilityState is the closed publication_state set of the
+// visibility lane (colleague_merge_audit §40.53, V6-4). The writer mints only
+// members (through traceDBSetSourceRawVisibilityState), the postvalidation
+// reader accepts only members with the row count the member declares, and the
+// go/ast census in source_raw_lane_gate_test.go binds every literal in this
+// file to the declaration. The two gate outcomes share their spelling with
+// every other source-raw lane (source_raw_lane_gate.go).
+type traceDBSourceRawVisibilityState string
+
+const (
+	// traceDBSourceRawVisibilityNotApplicable: the envelope is not the official
+	// TraceStreamer profile; the lane never ran.
+	traceDBSourceRawVisibilityNotApplicable traceDBSourceRawVisibilityState = traceDBSourceRawLaneNotApplicableState
+	// traceDBSourceRawVisibilityCensusIncomplete: official envelope whose strict
+	// raw decode census did not close (segment inventory, page/format profile,
+	// record/format accounting or format-witness cap); the lane was not
+	// evaluated and `census_incomplete_reason` carries the decode_state.
+	traceDBSourceRawVisibilityCensusIncomplete traceDBSourceRawVisibilityState = traceDBSourceRawLaneCensusIncompleteState
+	// traceDBSourceRawVisibilityWithheldEnvelope: census closed, candidates
+	// exist, but at least one candidate's common envelope was rejected — the
+	// family is withheld whole before any row reaches the sink.
+	traceDBSourceRawVisibilityWithheldEnvelope traceDBSourceRawVisibilityState = "withheld_visibility_envelope_incomplete"
+	// traceDBSourceRawVisibilityCompleteNoEvent: census closed with zero
+	// visibility candidates.
+	traceDBSourceRawVisibilityCompleteNoEvent traceDBSourceRawVisibilityState = "complete_no_visibility_event"
+	// traceDBSourceRawVisibilityPublished: every candidate replayed and
+	// published as a carrier row.
+	traceDBSourceRawVisibilityPublished traceDBSourceRawVisibilityState = "published_complete_visibility_only_source_census"
+)
+
+// traceDBSourceRawVisibilityStateRows declares, per member, whether the state
+// is a zero-row outcome; the published member is the only rows>0 state. The
+// table is the single source both the writer's arms and the reader's
+// acceptance follow.
+var traceDBSourceRawVisibilityStateRows = map[traceDBSourceRawVisibilityState]bool{
+	traceDBSourceRawVisibilityNotApplicable:    true,
+	traceDBSourceRawVisibilityCensusIncomplete: true,
+	traceDBSourceRawVisibilityWithheldEnvelope: true,
+	traceDBSourceRawVisibilityCompleteNoEvent:  true,
+	traceDBSourceRawVisibilityPublished:        false,
+}
+
+// allTraceDBSourceRawVisibilityStates returns the closed set in declaration
+// order (tests iterate it; production code reads the table by key).
+func allTraceDBSourceRawVisibilityStates() []traceDBSourceRawVisibilityState {
+	return []traceDBSourceRawVisibilityState{
+		traceDBSourceRawVisibilityNotApplicable,
+		traceDBSourceRawVisibilityCensusIncomplete,
+		traceDBSourceRawVisibilityWithheldEnvelope,
+		traceDBSourceRawVisibilityCompleteNoEvent,
+		traceDBSourceRawVisibilityPublished,
+	}
+}
+
+// traceDBSetSourceRawVisibilityState is the single write site of the lane's
+// publication_state: the typed member is the only thing that reaches the
+// string-keyed coverage face.
+func traceDBSetSourceRawVisibilityState(out *TraceDBCoverage, state traceDBSourceRawVisibilityState) {
+	out.Metadata["publication_state"] = string(state)
+}
+
 func newTraceDBSourceRawVisibilityCoverage() TraceDBCoverage {
 	return TraceDBCoverage{
 		Family: traceDBSourceRawVisibilityFamily,
@@ -143,6 +204,11 @@ func newTraceDBSourceRawVisibilityCoverage() TraceDBCoverage {
 			"authority":  "visibility-only source_raw_visibility advisory; this carrier cannot create a span, pair, duration, CPU-supply fact, wake edge or root-cause candidate",
 			"viewer":     "standard ftrace row under the reserved " + traceDBSourceRawVisibilityEventName + " event name so header-name-keyed readers never mistake the carrier for the wrapped record; the original event name is recoverable from event_name_b64 and the schema payload; generic viewers can display the occurrence and payload while unaware readers ignore the Codrax body contract",
 			"duplicates": "supplementary source observation may coexist with a DB-derived semantic row; the visibility-only token prevents double causal accounting and is not a deduplication claim",
+			"states": "publication_state is a closed set: " + string(traceDBSourceRawVisibilityNotApplicable) + " (envelope is not the official profile; lane never ran), " +
+				string(traceDBSourceRawVisibilityCensusIncomplete) + " (official envelope whose strict raw decode census did not close; census_incomplete_reason names the census), " +
+				string(traceDBSourceRawVisibilityWithheldEnvelope) + " (census closed but a candidate common envelope was rejected; family withheld whole), " +
+				string(traceDBSourceRawVisibilityCompleteNoEvent) + " (census closed with no candidate), " +
+				string(traceDBSourceRawVisibilityPublished) + " (every candidate published); only the last carries rows",
 		},
 		Metadata: map[string]string{"publication_state": "unavailable"},
 	}
@@ -151,6 +217,11 @@ func newTraceDBSourceRawVisibilityCoverage() TraceDBCoverage {
 // traceDBSourceRawVisibilityPublishedRows reads the producer-owned typed
 // coverage face exactly once. It binds postvalidation to the number of
 // visibility carriers admitted before sorting without inspecting row prose.
+// Acceptance is table-driven: a state is accepted only when it is a declared
+// member AND the row count matches what the member declares
+// (traceDBSourceRawVisibilityStateRows); every other shape — an unknown
+// literal, a zero-row member carrying rows, the published member with none —
+// keeps the hard reject.
 func traceDBSourceRawVisibilityPublishedRows(coverage []TraceDBCoverage) (int, error) {
 	rows := 0
 	found := false
@@ -162,16 +233,10 @@ func traceDBSourceRawVisibilityPublishedRows(coverage []TraceDBCoverage) (int, e
 			return 0, &traceDBOutputInvariantError{Reason: "source_raw_visibility_coverage_invalid"}
 		}
 		found = true
-		state := item.Metadata["publication_state"]
-		if item.RowsEmitted > 0 && state != "published_complete_visibility_only_source_census" {
+		state := traceDBSourceRawVisibilityState(item.Metadata["publication_state"])
+		zeroRow, member := traceDBSourceRawVisibilityStateRows[state]
+		if !member || zeroRow != (item.RowsEmitted == 0) {
 			return 0, &traceDBOutputInvariantError{Reason: "source_raw_visibility_coverage_invalid"}
-		}
-		if item.RowsEmitted == 0 {
-			switch state {
-			case "not_applicable_source_profile", "complete_no_visibility_event", "withheld_visibility_envelope_incomplete":
-			default:
-				return 0, &traceDBOutputInvariantError{Reason: "source_raw_visibility_coverage_invalid"}
-			}
 		}
 		rows = item.RowsEmitted
 	}
@@ -181,10 +246,12 @@ func traceDBSourceRawVisibilityPublishedRows(coverage []TraceDBCoverage) (int, e
 	return rows, nil
 }
 
+// traceDBSourceRawVisibilityEligible is the envelope-admission predicate only:
+// every visibility candidate's common envelope was admitted and none
+// rejected. Whether the census closed at all is the lane gate's decision
+// (traceDBSourceRawLaneGate), asked before this predicate is consulted.
 func traceDBSourceRawVisibilityEligible(inventory *traceDBSourceNameInventory) bool {
-	if inventory == nil || inventory.rawReplay == nil || inventory.rawReplay.input == nil ||
-		inventory.rawReplay.header.Magic != traceStreamerRawTraceMagic ||
-		!traceDBRawDecodeCensusComplete(inventory.RawDecode) {
+	if inventory == nil {
 		return false
 	}
 	candidates := inventory.RawDecode.Metrics["visibility_candidate_records"]
@@ -253,21 +320,28 @@ func publishTraceDBSourceRawVisibility(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if inventory == nil || inventory.rawReplay == nil || inventory.rawReplay.input == nil {
-		out.Metadata["publication_state"] = "not_applicable_source_profile"
-		out.Skipped = "source raw visibility not applicable: held official raw replay authority absent"
-		return out, nil
+	// The lane gate decides not-applicable / census-incomplete / ready from the
+	// strict decode ledger alone (an absent inventory is not applicable); the
+	// held replay generation is a consequence of a closed census
+	// (source_name_inventory.go), so a ready gate without a replay is an
+	// unrecognized shape and fails loud rather than being relabeled.
+	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "source raw visibility"); stop {
+		return out, err
 	}
-	out.Found = inventory.RawDecode.Found
+	if inventory.rawReplay == nil || inventory.rawReplay.input == nil {
+		err := &traceDBOutputInvariantError{Reason: "source_raw_visibility_replay_authority_missing"}
+		out.Error = err.Error()
+		return out, err
+	}
 	candidates := inventory.RawDecode.Metrics["visibility_candidate_records"]
 	out.RowsRead = int(min(candidates, int64(math.MaxInt)))
-	if candidates == 0 && traceDBRawDecodeCensusComplete(inventory.RawDecode) {
-		out.Metadata["publication_state"] = "complete_no_visibility_event"
+	if candidates == 0 {
+		traceDBSetSourceRawVisibilityState(&out, traceDBSourceRawVisibilityCompleteNoEvent)
 		out.Skipped = "source raw visibility complete: no non-semantic admitted format event present"
 		return out, nil
 	}
 	if !traceDBSourceRawVisibilityEligible(inventory) {
-		out.Metadata["publication_state"] = "withheld_visibility_envelope_incomplete"
+		traceDBSetSourceRawVisibilityState(&out, traceDBSourceRawVisibilityWithheldEnvelope)
 		out.Skipped = "source raw visibility withheld: candidate common-envelope census is incomplete"
 		return out, nil
 	}
@@ -410,7 +484,7 @@ func publishTraceDBSourceRawVisibility(
 	traceDBAddCoverageMetric(&out, "payload_bytes_preserved", payloadBytes)
 	traceDBAddCoverageMetric(&out, "schema_bytes_preserved", schemaBytes)
 	traceDBAddCoverageMetric(&out, "semantic_authority_rows", 0)
-	out.Metadata["publication_state"] = "published_complete_visibility_only_source_census"
+	traceDBSetSourceRawVisibilityState(&out, traceDBSourceRawVisibilityPublished)
 	out.Metadata["wire"] = fmt.Sprintf("%s; event_name=%s; exact payload+schema; semantic_authority=none",
 		traceDBSourceRawVisibilityWire, traceDBSourceRawVisibilityEventName)
 	// The header name no longer says which source formats were wrapped, so the

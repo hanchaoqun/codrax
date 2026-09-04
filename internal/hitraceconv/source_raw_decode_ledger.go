@@ -207,7 +207,7 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 			"limits":         "all structurally scanned target records receive strict body decoding; retained typed recovery records have conservative per-family budgets totaling at most 768 MiB, at most 64 sorted format/count witnesses and at most 32 fields per target geometry witness are surfaced; retention/format caps withdraw completion while field overflow is explicitly counted",
 		},
 		Metadata: map[string]string{
-			"decode_state":          "unavailable",
+			"decode_state":          traceDBRawDecodeStateUnavailable,
 			"publication_authority": "retained_records_require_dedicated_family_gate",
 		},
 	}
@@ -310,14 +310,11 @@ func traceDBRawRetentionFamily(name string) string {
 	}
 }
 
+// traceDBRawDecodeCensusComplete reads the decode_state through the single
+// gate table (source_raw_lane_gate.go): complete means the state's gate kind
+// is Ready, never a spelling test.
 func traceDBRawDecodeCensusComplete(coverage TraceDBCoverage) bool {
-	switch coverage.Metadata["decode_state"] {
-	case "strict_target_ledger_complete",
-		"strict_target_ledger_complete_with_family_retention_withdrawal":
-		return true
-	default:
-		return false
-	}
+	return traceDBRawDecodeStateGates[coverage.Metadata["decode_state"]] == traceDBSourceRawGateReady
 }
 
 func traceDBRawDecodeFamilyComplete(coverage TraceDBCoverage, family string) bool {
@@ -731,21 +728,21 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 	}
 	a.coverage.Found = profile.Found
 	if !profile.Found {
-		a.setUnavailable("not_applicable_non_official_profile",
+		a.setUnavailable(traceDBRawDecodeStateNotApplicableNonOfficialProfile,
 			"official raw record decode ledger not applicable to this envelope", false)
 		return a.coverage
 	}
 	if profile.Metadata["probe_state"] != "complete" ||
 		profile.Metadata["page_layout_state"] != "qword_length_cpu_candidate_all_pages" ||
 		profile.Metadata["event_format_probe_state"] != "parsed_strict" {
-		a.setUnavailable("withheld_profile_not_ready",
+		a.setUnavailable(traceDBRawDecodeStateWithheldProfileNotReady,
 			"raw record decode ledger withheld: strict page/format profile is not complete", true)
 		return a.coverage
 	}
 	if profile.Metrics["event_format_ids_poisoned"] > 0 ||
 		a.coverage.Metrics["records_without_admitted_format"] > 0 ||
 		int64(a.coverage.RowsRead) != profile.Metrics["records_structurally_scanned"] {
-		a.setUnavailable("withheld_record_format_accounting_incomplete",
+		a.setUnavailable(traceDBRawDecodeStateWithheldRecordFormatAccountingIncomplete,
 			"raw record decode ledger withheld: record/format accounting is not exact", true)
 		return a.coverage
 	}
@@ -830,7 +827,7 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 	}
 	if omitted > 0 {
 		traceDBAddCoverageMetric(&a.coverage, "format_record_witnesses_omitted", int64(omitted))
-		a.coverage.Metadata["decode_state"] = "incomplete_format_witness_cap"
+		a.coverage.Metadata["decode_state"] = traceDBRawDecodeStateIncompleteFormatWitnessCap
 		a.coverage.Skipped = "raw record decode ledger incomplete: format_witness_cap_exceeded"
 		return a.coverage
 	}
@@ -847,12 +844,12 @@ func (a *traceDBSourceRawDecodeAccumulator) finalize(
 	if a.retentionCapped {
 		traceDBAddCoverageMetric(&a.coverage, "target_retention_budget_exceeded", 1)
 		a.coverage.Metadata["decode_state"] =
-			"strict_target_ledger_complete_with_family_retention_withdrawal"
+			traceDBRawDecodeStateCompleteWithFamilyRetentionWithdrawal
 		a.coverage.Skipped =
 			"raw record decode census complete; one or more family recovery stores were withheld by retained-byte budget"
 		return a.coverage
 	}
-	a.coverage.Metadata["decode_state"] = "strict_target_ledger_complete"
+	a.coverage.Metadata["decode_state"] = traceDBRawDecodeStateComplete
 	a.coverage.Metadata["decoder_readiness"] = "requires_trace_streamer_family_reconciliation"
 	return a.coverage
 }

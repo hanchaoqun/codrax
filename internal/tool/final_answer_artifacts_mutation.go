@@ -346,6 +346,8 @@ func resolveTraceRootCauseSelectionForEmit(ctx *types.BusContext, carriers *opti
 		carriers.mint(traceRootCauseIgnoredOutcome(ctx, carrier, err, patch), "detail="+strconv.Quote(err.Error()))
 	} else if traceRootCauseSelectorSubmitted(submitted) {
 		selection.boundFromSubmit = report != nil
+	} else if report == nil {
+		carriers.note(traceRootCauseOmittedSelectorNote(ctx, carrier))
 	}
 	// §40.44 G-emit-faces fold-in #2: the advisory's typed kind is the precise
 	// signal for the disclosure lane. Only a part the binder did NOT honour
@@ -397,6 +399,41 @@ func traceRootCauseIgnoredOutcome(ctx *types.BusContext, carrier string, err err
 	}
 	outcome.Hint = "resend the complete ordered selection as replace_trace_root_causes in the next emit_answer_document_patch (list untouched blocks in unchanged_block_ids) or as trace_root_causes on a full re-emit; selectable candidate_id: " + strings.Join(ids, ", ")
 	return outcome
+}
+
+// traceRootCauseOmittedSelectorNote words the soft disclosure for the one
+// selector shape that is neither rejected nor inherited (colleague B1548
+// residual, colleague_merge_audit §40.59): the model never submitted a
+// selector in any emit while the contract offers a non-empty selectable
+// roster, so the customer's default root-cause JSON will report no model
+// selection although the long answer names candidates. Omission is a
+// legitimate model choice under the optional-carrier contract (nothing was
+// dishonoured — no typed OptionalCarrierOutcome, no retry round, mirrors the
+// §40.44 note-vs-part_dropped ruling), so it rides as ONE plain Summary
+// line on whichever result the call returns. Precise signals only: the
+// typed contract flag, the roster length, and the nil accepted/staged
+// reports. Returns "" (the ledger drops blank notes) for every other shape.
+func traceRootCauseOmittedSelectorNote(ctx *types.BusContext, carrier string) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	if ctx.Mutable.TraceRootCauseReport() != nil || ctx.Mutable.PendingTraceRootCauseReport() != nil {
+		return ""
+	}
+	contract := ctx.Mutable.TraceFindingContract()
+	if contract == nil || !contract.RootCauseReportEnabled {
+		return ""
+	}
+	selectable := tracefinding.SelectableRootCauseCandidates(contract)
+	if len(selectable) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(selectable))
+	for _, candidate := range selectable {
+		ids = append(ids, candidate.Decision.CandidateID)
+	}
+	return fmt.Sprintf("%s omitted: the run's default root-cause JSON will report no model selection while %d selectable candidate_id value(s) remain (%s); if a selection is intended, send the complete ordered selection as replace_trace_root_causes in the next emit_answer_document_patch or as trace_root_causes on a full re-emit — omitting it stays accepted",
+		carrier, len(ids), strings.Join(ids, ", "))
 }
 
 // commitTraceRootCauseSelection is the ONE commit tail for the selector on

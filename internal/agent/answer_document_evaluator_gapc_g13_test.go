@@ -107,7 +107,7 @@ func TestG13AdvisoryMissingEntityFiresOnceAndNeverBlocks(t *testing.T) {
 	if !first.HintRequested || first.StopRequested {
 		t.Fatalf("missing headline entity must fire ONE advisory without stopping, got %+v", first)
 	}
-	if first.HintKey != "answer_doc.trace_primary_cause_entity" {
+	if first.HintKey != postEmitAdvisoryHintKey {
 		t.Fatalf("advisory must ride its own hint key, got %q", first.HintKey)
 	}
 	for _, want := range []string{"hmfs_discard-5876", "emit_answer_document_patch", "显式说明与该排序的差异"} {

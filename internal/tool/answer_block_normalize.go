@@ -88,16 +88,15 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 			raw.Text = raw.Caveat
 		}
 	}
-	// A directed classDiagram relation already carries one unambiguous UML
-	// endpoint direction. Some models serialize the sibling type_relation
-	// anchor in visual token order (Base <|.. Impl => Base, Impl) instead of
-	// semantic direction (Impl -> Base). Align only that sibling metadata with
-	// the exact model-authored UML edge before the syntax shim converts the
-	// body. This neither invents an edge nor consults prose/evidence: ambiguous
-	// pairs, non-type relations, and one-sided identity selectors fail open.
-	if raw.Diagram != nil {
-		raw.EdgeAnchors = normalizeClassDiagramTypeRelationAnchorDirections(raw.Diagram.Body, raw.EdgeAnchors)
-	}
+	// Model-authored edge_anchors flow through verbatim. This converter may
+	// validate, re-home or reject typed relation metadata, but it never edits
+	// an anchor's endpoints, identities or relation kind: a directed
+	// classDiagram relation whose sibling anchor was serialized in visual
+	// token order (Base <|.. Impl with anchor Base -> Impl) is the model's
+	// claim and is rejected-and-taught by the diagram evidence gate
+	// (typed_anchor_reversed_against_visible_edge), never realigned here
+	// (colleague_merge_audit §40.57; pinned by
+	// TestNormalizeEmitAnswerBlock_NeverMutatesModelEdgeAnchors).
 	blk := types.AnswerBlock{
 		ID:    raw.ID,
 		Kind:  kind,
@@ -291,66 +290,6 @@ func emitAnswerDiagramV2IsZero(diagram *emitAnswerDiagramV2) bool {
 		strings.TrimSpace(diagram.Kind) == "" &&
 		strings.TrimSpace(diagram.Language) == "" &&
 		strings.TrimSpace(diagram.Body) == ""
-}
-
-func normalizeClassDiagramTypeRelationAnchorDirections(body string, anchors []types.DiagramEdgeAnchor) []types.DiagramEdgeAnchor {
-	classBody := stripOuterDiagramFence(body)
-	firstKeyword := ""
-	for _, line := range strings.Split(classBody, "\n") {
-		if strings.TrimSpace(line) != "" {
-			firstKeyword = mermaidcompat.FirstKeywordIn(line)
-			break
-		}
-	}
-	if !strings.EqualFold(firstKeyword, "classDiagram") || len(anchors) == 0 {
-		return anchors
-	}
-	type directedPair struct{ from, to string }
-	edgesByPair := make(map[string][]directedPair)
-	for _, edge := range mermaidcompat.ParseEdges(classBody) {
-		from := strings.TrimSpace(edge.From)
-		to := strings.TrimSpace(edge.To)
-		if from == "" || to == "" || from == to {
-			continue
-		}
-		edgesByPair[unorderedExactEndpointPairKey(from, to)] = append(
-			edgesByPair[unorderedExactEndpointPairKey(from, to)],
-			directedPair{from: from, to: to},
-		)
-	}
-	out := append([]types.DiagramEdgeAnchor(nil), anchors...)
-	for i := range out {
-		anchor := &out[i]
-		if anchor.RelationKind != types.DiagramRelTypeRelation {
-			continue
-		}
-		from := strings.TrimSpace(anchor.FromNode)
-		to := strings.TrimSpace(anchor.ToNode)
-		if from == "" || to == "" || from == to {
-			continue
-		}
-		fromIdentity := strings.TrimSpace(anchor.FromIdentity)
-		toIdentity := strings.TrimSpace(anchor.ToIdentity)
-		if (fromIdentity == "") != (toIdentity == "") {
-			continue
-		}
-		matches := edgesByPair[unorderedExactEndpointPairKey(from, to)]
-		if len(matches) != 1 || from != matches[0].to || to != matches[0].from {
-			continue
-		}
-		anchor.FromNode, anchor.ToNode = anchor.ToNode, anchor.FromNode
-		if fromIdentity != "" {
-			anchor.FromIdentity, anchor.ToIdentity = anchor.ToIdentity, anchor.FromIdentity
-		}
-	}
-	return out
-}
-
-func unorderedExactEndpointPairKey(a, b string) string {
-	if a > b {
-		a, b = b, a
-	}
-	return a + "\x00" + b
 }
 
 // validateEmitAnswerStructuredTableRows keeps the JSON teaching and the
@@ -1286,7 +1225,7 @@ func splitFusedDiagramPatchBlocksWithLineage(logLabel string, budget int, prev *
 //     replace and drops the remove (net 0)
 //
 // Patch shapes outside the accepted set (overlapping ops, unknown
-// remove ids) are rejected by validatePatchStructure before the cap
+// remove ids) are rejected by collectPatchStructureViolations before the cap
 // is ever consulted, so their projection is irrelevant. Identical-
 // duplicate replace/add entries are deliberately over-counted per
 // entry: normalizeAnswerDocumentPatchIDSurface dedups them AFTER

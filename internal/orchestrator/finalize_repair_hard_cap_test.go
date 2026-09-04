@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 )
 
 // TestFinalizeRepairHardCapDefault pins the constant baseline.
@@ -71,16 +73,12 @@ func TestSoftFinalizeRepairCapMessage_RedlineAudit(t *testing.T) {
 
 	for _, msg := range allMessages {
 		// R6: must not leak ViolKind / contract field names.
-		for _, banned := range []string{
+		for _, hit := range glossarylint.ScanTextWith("hard-cap caveat", msg,
 			"ViolKind", "ViolationKind", "ViolFacet", "ViolBlock",
-			"FacetCoverage", "AnchoredCount", "DeclaredCount",
-			"BuildRepairPlan", "RepairCluster", "AnswerDocumentV2",
-			"finalizer", "extractor", "explorer", "analyzer",
-			"orchestrator", "TaskGraph", "BusContext",
-		} {
-			if strings.Contains(msg, banned) {
-				t.Errorf("caveat must not leak internal token %q; got %q", banned, msg)
-			}
+			"AnchoredCount", "DeclaredCount", "BuildRepairPlan", "RepairCluster",
+			"extractor", "explorer", "analyzer", "orchestrator",
+		) {
+			t.Errorf("caveat must not leak internal token %q; got %q", hit.Term, msg)
 		}
 		// R4: no third natural language tokens beyond CN+EN.
 		for _, tok := range []string{"diese", "todos", "tutti", "cette", "esto", "هذا", "это"} {

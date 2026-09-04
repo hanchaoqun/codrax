@@ -143,6 +143,13 @@ func stepParamsEcho(step *Step) string {
 	if step.Pattern != "" {
 		parts = append(parts, fmt.Sprintf("pattern=%q", step.Pattern))
 	}
+	if len(step.Patterns) > 0 {
+		quoted := make([]string, len(step.Patterns))
+		for i, literal := range step.Patterns {
+			quoted[i] = fmt.Sprintf("%q", literal)
+		}
+		parts = append(parts, fmt.Sprintf("patterns=[%s]", strings.Join(quoted, ",")))
+	}
 	if len(step.EventTypes) > 0 {
 		parts = append(parts, fmt.Sprintf("event_types=[%s]", strings.Join(step.EventTypes, ",")))
 	}

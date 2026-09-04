@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -112,13 +113,9 @@ func TestLatestExtractorEmitFailureContext_R6Audit(t *testing.T) {
 	got := latestExtractorEmitFailureContext([]types.ToolResult{
 		{ToolName: "emit_answer_symbol", Success: false, Summary: "rejection text"},
 	})
-	for _, banned := range []string{
-		"explorer", "extractor", "finalizer", "analyzer",
-		"BusContext", "MutableState", "AnswerDocumentV2", "AnswerBlock",
-		"L1", "L2", "L3", "L4",
-	} {
-		if strings.Contains(got, banned) {
-			t.Errorf("internal term %q leaked into prefix: %q", banned, got)
-		}
+	for _, hit := range glossarylint.ScanTextWith("extractor emit-failure prefix", got,
+		"explorer", "extractor", "analyzer", "L1", "L2", "L3", "L4",
+	) {
+		t.Errorf("internal term %q leaked into prefix: %q", hit.Term, got)
 	}
 }

@@ -327,9 +327,10 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 		return nil, fmt.Errorf("ApplyAnswerDocumentV2Patch: empty patch — every retry must declare some change (use unchanged_block_ids to assert preservation)")
 	}
 
-	// Validate patch structure.
-	if err := validatePatchStructure(prev, p); err != nil {
-		return nil, err
+	// Validate patch structure: every independent violation travels in ONE
+	// typed carrier (V2-4, §40.51) so the reject round teaches every fix.
+	if violations := collectPatchStructureViolations(prev, p); len(violations) > 0 {
+		return nil, &AnswerDocumentPatchStructureError{Violations: violations}
 	}
 
 	// Build the merged doc.
@@ -406,9 +407,9 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 		if current, exists := editedBy[edit.BlockID]; exists {
 			block = current
 		}
-		updated, err := applyAnswerBlockFieldEditV1(block, edit)
-		if err != nil {
-			return nil, err
+		updated, violation := applyAnswerBlockFieldEditV1(block, edit)
+		if violation != nil {
+			return nil, &AnswerDocumentPatchStructureError{Violations: []AnswerDocumentPatchViolation{*violation}}
 		}
 		editedBy[edit.BlockID] = updated
 	}
@@ -420,9 +421,9 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 		if current, exists := editedBy[edit.BlockID]; exists {
 			block = current
 		}
-		updated, err := applyAnswerBlockReceiptEditV1(block, edit)
-		if err != nil {
-			return nil, err
+		updated, violation := applyAnswerBlockReceiptEditV1(block, edit)
+		if violation != nil {
+			return nil, &AnswerDocumentPatchStructureError{Violations: []AnswerDocumentPatchViolation{*violation}}
 		}
 		editedBy[edit.BlockID] = updated
 	}
@@ -495,15 +496,37 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 	return out, nil
 }
 
-// validatePatchStructure rejects malformed patches before Apply
-// touches the doc. Catches:
-//   - unknown ids in UnchangedBlockIDs / ReplaceBlocks
+// collectPatchStructureViolations walks EVERY independent arm of the patch
+// payload in schema-field order and returns every structural violation
+// (V2-4, §40.51 — the EMITBURN-1 list discipline applied to the patch
+// transaction). The historical serial gate (validatePatchStructure) returned
+// the first hit, so a patch with N independent mistakes burned N finalize
+// retries; the collector is the only validator now and the serial shape is
+// exactly its first element (pinned by
+// TestApplyPatch_StructureRejectSingleViolationMessageIsSerialByteIdentical).
+//
+// Dependency rule (mirrors aggregateFactViolationSink, §29.173): an arm that
+// gates the meaning of later checks for the SAME entry ends only that entry's
+// walk — an empty / unknown / system-generated id skips that edit's value
+// check, a model_block_order combined with add/remove skips the permutation
+// checks, and a citation-mode conflict skips the preserved-citation scan — so
+// the list never reports phantom follow-ups the fix for the gating violation
+// would re-shape anyway. Cross-op checks keep running per entry. Catches:
+//   - unknown ids in UnchangedBlockIDs / ReplaceBlocks / local edits
 //   - dup ids within a single op (e.g. two Replace entries for
 //     same id, two Add entries for same id, Add id colliding with
 //     prev id)
 //   - cross-op conflicts (Replace + Remove on same id, etc.)
 //   - empty block ids on Replace / Add
-func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) error {
+//   - invalid kinds / whitelisted-field values / receipt shapes
+//   - the citation-pool mode invariants
+func collectPatchStructureViolations(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) []AnswerDocumentPatchViolation {
+	var out []AnswerDocumentPatchViolation
+	add := func(v *AnswerDocumentPatchViolation) {
+		if v != nil {
+			out = append(out, *v)
+		}
+	}
 	prevIDs := make(map[string]bool, len(prev.Blocks))
 	for _, b := range prev.Blocks {
 		prevIDs[b.ID] = true
@@ -512,10 +535,13 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 	// UnchangedBlockIDs must each name an existing prev block.
 	for _, id := range p.UnchangedBlockIDs {
 		if id == "" {
-			return fmt.Errorf("patch: unchanged_block_ids contains empty id")
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpUnchangedBlockIDs, AnswerDocumentPatchViolationEmptyID, "", "",
+				"patch: unchanged_block_ids contains empty id"))
+			continue
 		}
 		if !prevIDs[id] {
-			return fmt.Errorf("patch: unchanged_block_ids[%q] not present in previous emit", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpUnchangedBlockIDs, AnswerDocumentPatchViolationUnknownID, id, "",
+				"patch: unchanged_block_ids[%q] not present in previous emit", id))
 		}
 	}
 
@@ -526,10 +552,13 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 	removeSet := make(map[string]bool, len(p.RemoveBlockIDs))
 	for _, id := range p.RemoveBlockIDs {
 		if id == "" {
-			return fmt.Errorf("patch: remove_block_ids contains empty id")
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpRemoveBlockIDs, AnswerDocumentPatchViolationEmptyID, "", "",
+				"patch: remove_block_ids contains empty id"))
+			continue
 		}
 		if removeSet[id] {
-			return fmt.Errorf("patch: remove_block_ids[%q] duplicated", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpRemoveBlockIDs, AnswerDocumentPatchViolationDuplicate, id, "",
+				"patch: remove_block_ids[%q] duplicated", id))
 		}
 		removeSet[id] = true
 	}
@@ -538,33 +567,42 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 	// previous model-owned roster. This is deliberately stricter than a partial
 	// "move before" command: no executor choice or inferred residual order is
 	// possible. Add/remove would change the roster mid-transaction, so those
-	// combinations fail closed and the model must perform them in another patch.
+	// combinations fail closed and the model must perform them in another patch
+	// (gating: the permutation checks are skipped for that payload).
 	if len(p.ModelBlockOrder) > 0 {
 		if len(p.AddBlocks) > 0 || len(p.RemoveBlockIDs) > 0 {
-			return fmt.Errorf("patch: model_block_order cannot be combined with add_blocks or remove_block_ids; first settle the block roster, then submit one complete model-owned permutation")
-		}
-		modelIDs := make(map[string]bool)
-		for _, block := range prev.Blocks {
-			if block.SystemGeneratedKind == AnswerSystemGeneratedBlockUnknown {
-				modelIDs[block.ID] = true
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpModelBlockOrder, AnswerDocumentPatchViolationRosterChangeCombined, "", "",
+				"patch: model_block_order cannot be combined with add_blocks or remove_block_ids; first settle the block roster, then submit one complete model-owned permutation"))
+		} else {
+			modelIDs := make(map[string]bool)
+			for _, block := range prev.Blocks {
+				if block.SystemGeneratedKind == AnswerSystemGeneratedBlockUnknown {
+					modelIDs[block.ID] = true
+				}
 			}
-		}
-		if len(p.ModelBlockOrder) != len(modelIDs) {
-			return fmt.Errorf("patch: model_block_order must list every model-authored previous block exactly once: got %d ids, want %d", len(p.ModelBlockOrder), len(modelIDs))
-		}
-		seen := make(map[string]bool, len(p.ModelBlockOrder))
-		for _, raw := range p.ModelBlockOrder {
-			id := strings.TrimSpace(raw)
-			if id == "" || id != raw {
-				return fmt.Errorf("patch: model_block_order contains an empty or whitespace-padded id")
+			if len(p.ModelBlockOrder) != len(modelIDs) {
+				add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpModelBlockOrder, AnswerDocumentPatchViolationRosterMismatch, "", "",
+					"patch: model_block_order must list every model-authored previous block exactly once: got %d ids, want %d", len(p.ModelBlockOrder), len(modelIDs)))
 			}
-			if seen[id] {
-				return fmt.Errorf("patch: model_block_order[%q] duplicated", id)
+			seen := make(map[string]bool, len(p.ModelBlockOrder))
+			for _, raw := range p.ModelBlockOrder {
+				id := strings.TrimSpace(raw)
+				if id == "" || id != raw {
+					add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpModelBlockOrder, AnswerDocumentPatchViolationEmptyID, raw, "",
+						"patch: model_block_order contains an empty or whitespace-padded id"))
+					continue
+				}
+				if seen[id] {
+					add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpModelBlockOrder, AnswerDocumentPatchViolationDuplicate, id, "",
+						"patch: model_block_order[%q] duplicated", id))
+					continue
+				}
+				if !modelIDs[id] {
+					add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpModelBlockOrder, AnswerDocumentPatchViolationUnknownID, id, "",
+						"patch: model_block_order[%q] is not a model-authored block in the previous emit", id))
+				}
+				seen[id] = true
 			}
-			if !modelIDs[id] {
-				return fmt.Errorf("patch: model_block_order[%q] is not a model-authored block in the previous emit", id)
-			}
-			seen[id] = true
 		}
 	}
 
@@ -574,51 +612,69 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 	for _, b := range p.ReplaceBlocks {
 		id := strings.TrimSpace(b.ID)
 		if id == "" {
-			return fmt.Errorf("patch: replace_blocks entry with empty id (kind=%s)", b.Kind)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationEmptyID, "", "",
+				"patch: replace_blocks entry with empty id (kind=%s)", b.Kind))
+			continue
 		}
 		if !prevIDs[id] {
-			return fmt.Errorf("patch: replace_blocks[%q] not present in previous emit (use add_blocks for new blocks)", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationUnknownID, id, "",
+				"patch: replace_blocks[%q] not present in previous emit (use add_blocks for new blocks)", id))
+			continue
 		}
 		if replaceSet[id] {
-			return fmt.Errorf("patch: replace_blocks[%q] duplicated", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationDuplicate, id, "",
+				"patch: replace_blocks[%q] duplicated", id))
 		}
 		if removeSet[id] {
-			return fmt.Errorf("patch: replace_blocks[%q] also in remove_block_ids — pick one", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationCrossOpConflict, id, "",
+				"patch: replace_blocks[%q] also in remove_block_ids — pick one", id))
 		}
 		replaceSet[id] = true
 	}
 
 	// BlockFieldEditsV1: exact existing model block, one assignment per
 	// block+field, valid closed-enum value, and no whole-block mutation of the
-	// same target. Redundant Unchanged is intentionally harmless.
+	// same target. Redundant Unchanged is intentionally harmless. An empty /
+	// padded / unknown / system-generated target gates the value check.
 	fieldEditSet := make(map[string]bool, len(p.BlockFieldEditsV1))
 	for _, edit := range p.BlockFieldEditsV1 {
 		id := strings.TrimSpace(edit.BlockID)
 		if id == "" {
-			return fmt.Errorf("patch: block_field_edits_v1 contains empty block_id")
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationEmptyID, "", string(edit.Field),
+				"patch: block_field_edits_v1 contains empty block_id"))
+			continue
 		}
 		if id != edit.BlockID {
-			return fmt.Errorf("patch: block_field_edits_v1 block_id=%q must match the exact previous block id without surrounding whitespace", edit.BlockID)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationEmptyID, edit.BlockID, string(edit.Field),
+				"patch: block_field_edits_v1 block_id=%q must match the exact previous block id without surrounding whitespace", edit.BlockID))
+			continue
 		}
 		block, ok := answerDocumentBlockByID(prev, id)
 		if !ok {
-			return fmt.Errorf("patch: block_field_edits_v1[%q] not present in previous emit", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationUnknownID, id, string(edit.Field),
+				"patch: block_field_edits_v1[%q] not present in previous emit", id))
+			continue
 		}
 		if block.SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
-			return fmt.Errorf("patch: block_field_edits_v1[%q] cannot edit a system-generated block", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationSystemBlock, id, string(edit.Field),
+				"patch: block_field_edits_v1[%q] cannot edit a system-generated block", id))
+			continue
 		}
 		if removeSet[id] {
-			return fmt.Errorf("patch: block_field_edits_v1[%q] also in remove_block_ids — pick one", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationCrossOpConflict, id, string(edit.Field),
+				"patch: block_field_edits_v1[%q] also in remove_block_ids — pick one", id))
 		}
 		if replaceSet[id] {
-			return fmt.Errorf("patch: block_field_edits_v1[%q] also in replace_blocks — pick one", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationCrossOpConflict, id, string(edit.Field),
+				"patch: block_field_edits_v1[%q] also in replace_blocks — pick one", id))
 		}
 		key := id + "\x00" + string(edit.Field)
 		if fieldEditSet[key] {
-			return fmt.Errorf("patch: block_field_edits_v1[%q].%s duplicated", id, edit.Field)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
+				"patch: block_field_edits_v1[%q].%s duplicated", id, edit.Field))
 		}
-		if _, err := applyAnswerBlockFieldEditV1(block, edit); err != nil {
-			return err
+		if _, v := applyAnswerBlockFieldEditV1(block, edit); v != nil {
+			add(v)
 		}
 		fieldEditSet[key] = true
 	}
@@ -629,30 +685,41 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 	for _, edit := range p.BlockReceiptEditsV1 {
 		id := strings.TrimSpace(edit.BlockID)
 		if id == "" {
-			return fmt.Errorf("patch: block_receipt_edits_v1 contains empty block_id")
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationEmptyID, "", string(edit.Field),
+				"patch: block_receipt_edits_v1 contains empty block_id"))
+			continue
 		}
 		if id != edit.BlockID {
-			return fmt.Errorf("patch: block_receipt_edits_v1 block_id=%q must match the exact previous block id without surrounding whitespace", edit.BlockID)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationEmptyID, edit.BlockID, string(edit.Field),
+				"patch: block_receipt_edits_v1 block_id=%q must match the exact previous block id without surrounding whitespace", edit.BlockID))
+			continue
 		}
 		block, ok := answerDocumentBlockByID(prev, id)
 		if !ok {
-			return fmt.Errorf("patch: block_receipt_edits_v1[%q] not present in previous emit", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationUnknownID, id, string(edit.Field),
+				"patch: block_receipt_edits_v1[%q] not present in previous emit", id))
+			continue
 		}
 		if block.SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
-			return fmt.Errorf("patch: block_receipt_edits_v1[%q] cannot edit a system-generated block", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationSystemBlock, id, string(edit.Field),
+				"patch: block_receipt_edits_v1[%q] cannot edit a system-generated block", id))
+			continue
 		}
 		if removeSet[id] {
-			return fmt.Errorf("patch: block_receipt_edits_v1[%q] also in remove_block_ids — pick one", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationCrossOpConflict, id, string(edit.Field),
+				"patch: block_receipt_edits_v1[%q] also in remove_block_ids — pick one", id))
 		}
 		if replaceSet[id] {
-			return fmt.Errorf("patch: block_receipt_edits_v1[%q] also in replace_blocks — pick one", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationCrossOpConflict, id, string(edit.Field),
+				"patch: block_receipt_edits_v1[%q] also in replace_blocks — pick one", id))
 		}
 		key := id + "\x00" + string(edit.Field)
 		if receiptEditSet[key] {
-			return fmt.Errorf("patch: block_receipt_edits_v1[%q].%s duplicated", id, edit.Field)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, AnswerDocumentPatchViolationDuplicate, id, string(edit.Field),
+				"patch: block_receipt_edits_v1[%q].%s duplicated", id, edit.Field))
 		}
-		if _, err := applyAnswerBlockReceiptEditV1(block, edit); err != nil {
-			return err
+		if _, v := applyAnswerBlockReceiptEditV1(block, edit); v != nil {
+			add(v)
 		}
 		receiptEditSet[key] = true
 	}
@@ -663,23 +730,30 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 	for _, b := range p.AddBlocks {
 		id := strings.TrimSpace(b.ID)
 		if id == "" {
-			return fmt.Errorf("patch: add_blocks entry with empty id (kind=%s)", b.Kind)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationEmptyID, "", "",
+				"patch: add_blocks entry with empty id (kind=%s)", b.Kind))
+			continue
 		}
 		if prevIDs[id] {
-			return fmt.Errorf("patch: add_blocks[%q] already exists in previous emit (use replace_blocks to modify)", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationExistingBlock, id, "",
+				"patch: add_blocks[%q] already exists in previous emit (use replace_blocks to modify)", id))
 		}
 		if addSet[id] {
-			return fmt.Errorf("patch: add_blocks[%q] duplicated", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationDuplicate, id, "",
+				"patch: add_blocks[%q] duplicated", id))
 		}
 		if replaceSet[id] {
-			return fmt.Errorf("patch: add_blocks[%q] also in replace_blocks — pick one", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationCrossOpConflict, id, "",
+				"patch: add_blocks[%q] also in replace_blocks — pick one", id))
 		}
 		if removeSet[id] {
-			return fmt.Errorf("patch: add_blocks[%q] also in remove_block_ids — pick one", id)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationCrossOpConflict, id, "",
+				"patch: add_blocks[%q] also in remove_block_ids — pick one", id))
 		}
 		// Validate kind.
 		if !IsValidAnswerBlockKind(b.Kind) {
-			return fmt.Errorf("patch: add_blocks[%q] kind=%q is not valid", id, b.Kind)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpAddBlocks, AnswerDocumentPatchViolationInvalidKind, id, "",
+				"patch: add_blocks[%q] kind=%q is not valid", id, b.Kind))
 		}
 		addSet[id] = true
 	}
@@ -688,29 +762,32 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 	// replacement (same gate emit_answer_document applies).
 	for _, b := range p.ReplaceBlocks {
 		if !IsValidAnswerBlockKind(b.Kind) {
-			return fmt.Errorf("patch: replace_blocks[%q] kind=%q is not valid", b.ID, b.Kind)
+			add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpReplaceBlocks, AnswerDocumentPatchViolationInvalidKind, b.ID, "",
+				"patch: replace_blocks[%q] kind=%q is not valid", b.ID, b.Kind))
 		}
 	}
 
 	// Mutation-contract invariant (5): Citations Replace XOR Append.
 	// ReplaceCitations re-pickes the pool wholesale; AppendCitations
 	// adds to the inherited pool. Setting BOTH signals contradictory
-	// LLM intent and is rejected — the LLM must commit to one mode.
+	// LLM intent and is rejected — the LLM must commit to one mode
+	// (gating: the preserved-citation scan assumes a settled mode).
 	if p.ReplaceCitations != nil && len(p.AppendCitations) > 0 {
-		return fmt.Errorf("patch: replace_citations and append_citations are mutually exclusive (contract invariant 5); set exactly one")
-	}
-	if p.ReplaceCitations != nil {
+		add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpCitations, AnswerDocumentPatchViolationCitationModeConflict, "", "",
+			"patch: replace_citations and append_citations are mutually exclusive (contract invariant 5); set exactly one"))
+	} else if p.ReplaceCitations != nil {
 		for _, b := range prev.Blocks {
 			if removeSet[b.ID] || replaceSet[b.ID] {
 				continue
 			}
 			if answerBlockHasCitationRefs(b) {
-				return fmt.Errorf("patch: replace_citations cannot preserve citation-bearing block %q; replace/remove that block too, use append_citations, or re-emit a full emit_answer_document so every citation_ref is renumbered against the new pool", b.ID)
+				add(newAnswerDocumentPatchViolation(AnswerDocumentPatchOpCitations, AnswerDocumentPatchViolationPreservedCitationBlock, b.ID, "",
+					"patch: replace_citations cannot preserve citation-bearing block %q; replace/remove that block too, use append_citations, or re-emit a full emit_answer_document so every citation_ref is renumbered against the new pool", b.ID))
 			}
 		}
 	}
 
-	return nil
+	return out
 }
 
 func answerDocumentBlockByID(doc *AnswerDocumentV2, id string) (AnswerBlock, bool) {
@@ -725,53 +802,61 @@ func answerDocumentBlockByID(doc *AnswerDocumentV2, id string) (AnswerBlock, boo
 	return AnswerBlock{}, false
 }
 
-func applyAnswerBlockFieldEditV1(block AnswerBlock, edit AnswerBlockFieldEditV1) (AnswerBlock, error) {
+// applyAnswerBlockFieldEditV1 applies one whitelisted local field edit; a nil
+// violation means the edit landed. The violation kind is typed at the arm
+// (invalid_field / field_kind_mismatch / invalid_value) so the tool repair
+// table never keys on prose.
+func applyAnswerBlockFieldEditV1(block AnswerBlock, edit AnswerBlockFieldEditV1) (AnswerBlock, *AnswerDocumentPatchViolation) {
 	id := strings.TrimSpace(edit.BlockID)
 	value := strings.TrimSpace(edit.Value)
+	field := string(edit.Field)
+	fail := func(kind AnswerDocumentPatchViolationKind, format string, args ...any) (AnswerBlock, *AnswerDocumentPatchViolation) {
+		return AnswerBlock{}, newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockFieldEditsV1, kind, id, field, format, args...)
+	}
 	switch edit.Field {
 	case AnswerBlockFieldTraceCausalClaimCaliber:
 		if block.Kind != BlockSummary {
-			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].trace_causal_claim_caliber requires kind=summary", id)
+			return fail(AnswerDocumentPatchViolationFieldKindMismatch, "patch: block_field_edits_v1[%q].trace_causal_claim_caliber requires kind=summary", id)
 		}
 		v, ok := NormalizeTraceCausalClaimCaliber(value)
 		if !ok {
-			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].trace_causal_claim_caliber=%q is invalid", id, edit.Value)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_field_edits_v1[%q].trace_causal_claim_caliber=%q is invalid", id, edit.Value)
 		}
 		block.TraceCausalClaimCaliber = v
 	case AnswerBlockFieldCurrentStatusVerdict:
 		if block.Kind != BlockDecision {
-			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].current_status_verdict requires kind=decision", id)
+			return fail(AnswerDocumentPatchViolationFieldKindMismatch, "patch: block_field_edits_v1[%q].current_status_verdict requires kind=decision", id)
 		}
 		v, ok := NormalizeCurrentStatusVerdict(value)
 		if !ok || v == CurrentStatusUnknown {
-			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].current_status_verdict=%q is invalid", id, edit.Value)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_field_edits_v1[%q].current_status_verdict=%q is invalid", id, edit.Value)
 		}
 		block.CurrentStatusVerdict = v
 	case AnswerBlockFieldErrorGranularityVerdict:
 		if block.Kind != BlockDecision {
-			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].error_granularity_verdict requires kind=decision", id)
+			return fail(AnswerDocumentPatchViolationFieldKindMismatch, "patch: block_field_edits_v1[%q].error_granularity_verdict requires kind=decision", id)
 		}
 		v, ok := NormalizeErrorGranularityVerdict(value)
 		if !ok || v == ErrorGranularityUnknown {
-			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].error_granularity_verdict=%q is invalid", id, edit.Value)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_field_edits_v1[%q].error_granularity_verdict=%q is invalid", id, edit.Value)
 		}
 		block.ErrorGranularityVerdict = v
 	case AnswerBlockFieldScopeDisclosure:
 		v, ok := NormalizeScopeDisclosureKind(value)
 		if !ok || v == ScopeDisclosureUnknown {
-			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].scope_disclosure=%q is invalid", id, edit.Value)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_field_edits_v1[%q].scope_disclosure=%q is invalid", id, edit.Value)
 		}
 		block.ScopeDisclosure = v
 	case AnswerBlockFieldSurfaceRole:
 		v, ok := NormalizeSurfaceRole(value)
 		if !ok || v == "" {
-			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].surface_role=%q is invalid", id, edit.Value)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_field_edits_v1[%q].surface_role=%q is invalid", id, edit.Value)
 		}
 		block.SurfaceRole = v
 	case AnswerBlockFieldAddFacetID:
 		facet := AnswerFacetKind(value)
 		if !IsKnownAnswerFacetKind(facet) {
-			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].add_facet_id=%q is invalid", id, edit.Value)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_field_edits_v1[%q].add_facet_id=%q is invalid", id, edit.Value)
 		}
 		for _, existing := range block.FacetIDs {
 			if strings.TrimSpace(existing) == string(facet) {
@@ -780,23 +865,29 @@ func applyAnswerBlockFieldEditV1(block AnswerBlock, edit AnswerBlockFieldEditV1)
 		}
 		block.FacetIDs = append(block.FacetIDs, string(facet))
 	default:
-		return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].field=%q is not in the v1 whitelist", id, edit.Field)
+		return fail(AnswerDocumentPatchViolationInvalidField, "patch: block_field_edits_v1[%q].field=%q is not in the v1 whitelist", id, edit.Field)
 	}
 	return block, nil
 }
 
-func applyAnswerBlockReceiptEditV1(block AnswerBlock, edit AnswerBlockReceiptEditV1) (AnswerBlock, error) {
+// applyAnswerBlockReceiptEditV1 binds one schema-published typed receipt; a
+// nil violation means the receipt landed.
+func applyAnswerBlockReceiptEditV1(block AnswerBlock, edit AnswerBlockReceiptEditV1) (AnswerBlock, *AnswerDocumentPatchViolation) {
 	id := strings.TrimSpace(edit.BlockID)
 	conclusion := strings.TrimSpace(edit.Value.Conclusion)
+	field := string(edit.Field)
+	fail := func(kind AnswerDocumentPatchViolationKind, format string, args ...any) (AnswerBlock, *AnswerDocumentPatchViolation) {
+		return AnswerBlock{}, newAnswerDocumentPatchViolation(AnswerDocumentPatchOpBlockReceiptEditsV1, kind, id, field, format, args...)
+	}
 	switch edit.Field {
 	case AnswerBlockReceiptFieldRuntimeWorkRelation:
 		observationID := strings.TrimSpace(edit.Value.ObservationID)
 		if observationID == "" || strings.TrimSpace(edit.Value.EvidenceID) != "" {
-			return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].runtime_work_relation requires only observation_id and conclusion", id)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_receipt_edits_v1[%q].runtime_work_relation requires only observation_id and conclusion", id)
 		}
 		value := RuntimeWorkRelationConclusion(conclusion)
 		if !value.IsValid() {
-			return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].runtime_work_relation conclusion=%q is invalid", id, edit.Value.Conclusion)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_receipt_edits_v1[%q].runtime_work_relation conclusion=%q is invalid", id, edit.Value.Conclusion)
 		}
 		block.RuntimeWorkRelation = &AnswerRuntimeWorkRelationReceipt{
 			ObservationID: observationID,
@@ -804,18 +895,18 @@ func applyAnswerBlockReceiptEditV1(block AnswerBlock, edit AnswerBlockReceiptEdi
 		}
 	case AnswerBlockReceiptFieldConceptualTerminalResolution:
 		if strings.TrimSpace(edit.Value.ObservationID) != "" {
-			return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].conceptual_terminal_resolution does not accept observation_id", id)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_receipt_edits_v1[%q].conceptual_terminal_resolution does not accept observation_id", id)
 		}
 		value := ConceptualTerminalResolutionConclusion(conclusion)
 		if !value.IsValid() {
-			return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].conceptual_terminal_resolution conclusion=%q is invalid", id, edit.Value.Conclusion)
+			return fail(AnswerDocumentPatchViolationInvalidValue, "patch: block_receipt_edits_v1[%q].conceptual_terminal_resolution conclusion=%q is invalid", id, edit.Value.Conclusion)
 		}
 		block.ConceptualTerminalResolution = &AnswerConceptualTerminalResolutionReceipt{
 			EvidenceID: strings.TrimSpace(edit.Value.EvidenceID),
 			Conclusion: value,
 		}
 	default:
-		return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].field=%q is not in the v1 whitelist", id, edit.Field)
+		return fail(AnswerDocumentPatchViolationInvalidField, "patch: block_receipt_edits_v1[%q].field=%q is not in the v1 whitelist", id, edit.Field)
 	}
 	return block, nil
 }

@@ -164,8 +164,8 @@ func normalizeMisroutedPatchBlockOperations(raw json.RawMessage, prev *types.Ans
 	if err := dec.Decode(&decoded); err != nil {
 		return raw, nil, "block payload does not match the canonical block schema: " + err.Error()
 	}
-	if _, err := convertEmitBlocksToTyped("replace_snippets block-operation compatibility", decoded, "replace_blocks"); err != nil {
-		return raw, nil, err.Error()
+	if _, violations := convertEmitBlocksToTyped("replace_snippets block-operation compatibility", decoded, "replace_blocks"); len(violations) > 0 {
+		return raw, nil, emitBlockViolationsMessage(violations)
 	}
 
 	root["replace_blocks"] = probe["replace_blocks"]

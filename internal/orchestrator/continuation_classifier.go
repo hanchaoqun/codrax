@@ -38,7 +38,7 @@ type ContinuationClassifier interface {
 // to this file (bypasses the agent framework, mirroring chitchat).
 var continuationClassifierTool = llm.ToolSchema{
 	Name:        "emit_continuation_classification",
-	Description: "Decide whether the current request is a continuation of the prior conversation (downstream stages should inherit prior context) or a fresh self-contained question. Exactly one call per turn.",
+	Description: "Decide whether the current request is a continuation of the prior conversation (later steps should inherit prior context) or a fresh self-contained question. Exactly one call per turn.",
 	Parameters: json.RawMessage(`{
   "type": "object",
   "properties": {

@@ -264,7 +264,7 @@ JSON Schema 限制字段、类型和根因类别
 
 | `reason_code` | 含义 |
 |---|---|
-| `valid_model_root_cause_selection_unavailable` | 本轮模型从未提交过通过校验的选择，也没有可继承的选择。 |
+| `valid_model_root_cause_selection_unavailable` | 本轮模型从未提交过通过校验的选择，也没有可继承的选择。候选名册非空而模型每轮都省略选择器时，每次被接受的 emit 结果都会附一行提示（列出可选 `candidate_id`），省略仍被接受、不消耗重试轮。 |
 | `model_root_cause_selection_rejected` | 模型提交过选择器，但最近一次提交被校验拒绝（`candidate_id` 不在清单、重复、`schema_version` 不符或对象格式错误），之后没有再收到有效选择。 |
 | `no_selectable_typed_on_chain_candidates` | 没有可交给模型选择的链上候选。 |
 | `trace_root_cause_contract_not_active` | 本轮未建立根因选择所需的证据合同。 |

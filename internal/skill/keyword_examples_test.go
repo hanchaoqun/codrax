@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -8,10 +9,10 @@ import (
 // TestNoKeywordExamplesInEnums is the batch-4A hard gate against the
 // red line documented in feedback_no_custom_keyword_matching:
 //
-//   "LLM classification errors must be fixed by sharpening schema
-//    descriptions, not by teaching the LLM keyword examples — each
-//    example seeds a future drift and the enum descriptions must
-//    stay structural."
+//	"LLM classification errors must be fixed by sharpening schema
+//	 descriptions, not by teaching the LLM keyword examples — each
+//	 example seeds a future drift and the enum descriptions must
+//	 stay structural."
 //
 // The test scans every classification enum description
 // (AnalysisIntentChoices / AnalysisComplexityChoices /
@@ -19,14 +20,14 @@ import (
 // AnalysisAnswerSubjectChoices / AnalysisPredicateAxisChoices) and
 // the AnalysisHardRules slice for two disallowed patterns:
 //
-//   1. English imperative user-wording fragments wrapped in double
-//      quotes — "how many X", "list all X", "what is X", etc. The
-//      enum description should describe the STRUCTURE of the
-//      subject, not the surface wording the user might use.
-//   2. Chinese imperative cue characters — the common question-form
-//      particles (统计 / 多少 / 几个 / 怎么 / 什么时候 / 是什么 /
-//      对比 etc.). Any of these inside an enum description is a
-//      keyword-match-by-prompt-example in disguise.
+//  1. English imperative user-wording fragments wrapped in double
+//     quotes — "how many X", "list all X", "what is X", etc. The
+//     enum description should describe the STRUCTURE of the
+//     subject, not the surface wording the user might use.
+//  2. Chinese imperative cue characters — the common question-form
+//     particles (统计 / 多少 / 几个 / 怎么 / 什么时候 / 是什么 /
+//     对比 etc.). Any of these inside an enum description is a
+//     keyword-match-by-prompt-example in disguise.
 //
 // The exact phrase list lives in skill.KeywordExamplePhrases so it
 // can be updated in one place; this test just iterates it.
@@ -37,11 +38,11 @@ import (
 // of leak erode the LLM's schema-driven classification.
 func TestNoKeywordExamplesInEnums(t *testing.T) {
 	corpora := map[string][]AnalysisEnumChoice{
-		"analysisIntents":         AnalysisIntentChoices(),
-		"analysisComplexities":    AnalysisComplexityChoices(),
-		"analysisQuestionKinds":   AnalysisQuestionKindChoices(),
-		"analysisAnswerSubjects":  AnalysisAnswerSubjectChoices(),
-		"analysisPredicateAxes":   AnalysisPredicateAxisChoices(),
+		"analysisIntents":        AnalysisIntentChoices(),
+		"analysisComplexities":   AnalysisComplexityChoices(),
+		"analysisQuestionKinds":  AnalysisQuestionKindChoices(),
+		"analysisAnswerSubjects": AnalysisAnswerSubjectChoices(),
+		"analysisPredicateAxes":  AnalysisPredicateAxisChoices(),
 	}
 
 	var hits []string
@@ -68,7 +69,7 @@ func TestNoKeywordExamplesInEnums(t *testing.T) {
 				continue
 			}
 			if strings.Contains(rule, phrase) {
-				hits = append(hits, "AnalysisHardRules["+itoa(i)+"]: contains keyword example "+phraseQuote(phrase))
+				hits = append(hits, "AnalysisHardRules["+strconv.Itoa(i)+"]: contains keyword example "+phraseQuote(phrase))
 			}
 		}
 	}

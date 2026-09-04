@@ -3759,3 +3759,93 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AttachAndBoundaryRefShareOneTransa
 		t.Fatalf("joint transaction must attach in place and remove only selected boundary: %+v", patch.ReplaceBlocks)
 	}
 }
+
+// localDiagramLeaseWholeBlockMutationViolation is the first-violation view of
+// the V2-4 (§40.51) list-returning validator, kept for the per-shape pins
+// above; the list itself is pinned by
+// TestLocalDiagramLeaseWholeBlockMutationViolationsListEveryOperation.
+func localDiagramLeaseWholeBlockMutationViolation(
+	p *emitAnswerDocumentPatchParams,
+	lease *types.AnswerDiagramRelationRepairLease,
+	prev *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+) *types.AnswerDiagramRelationRepairScopeViolation {
+	if violations := localDiagramLeaseWholeBlockMutationViolations(p, lease, prev, view); len(violations) > 0 {
+		return &violations[0]
+	}
+	return nil
+}
+
+// §40.57 V10-4 typed escape lane, patch shape: the reversed anchor's live
+// stale_anchor ref executes remove (anchor metadata only, body byte-identical),
+// refuses replace (withheld capability), and the resulting block leaves only
+// the visible edge's own missing-owner row for the attach/relation lane — the
+// diagram is never deleted and the anchor is never swapped by the system.
+func TestApplyModelAuthoredDiagramAtomicEdits_ReversedAnchorRefRemovesMetadataOnly(t *testing.T) {
+	ctx := typedRelationBridgeTestContext(exactImplementerCandidate("internal/agent/analyzer.go"))
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisImplement}
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "keep"},
+		{
+			ID: "type-relations", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramArchitecture, Language: "mermaid",
+				Body: "flowchart TD\n  analyzerEvaluator -->|implements| LoopController\n",
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "LoopController", ToNode: "analyzerEvaluator", RelationKind: types.DiagramRelTypeRelation,
+			}},
+		},
+	}}
+	mismatches := DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(ctx, prev, view, nil)
+	var reversed []DiagramCallEdgeEvidenceMismatch
+	for _, m := range mismatches {
+		if m.Issue == diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge {
+			reversed = append(reversed, m)
+		}
+	}
+	if len(reversed) != 1 {
+		t.Fatalf("fixture must produce exactly one reversed-anchor mismatch: %+v", mismatches)
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: reversed[0].BlockID, Issue: reversed[0].Issue, RelationKind: reversed[0].Relation,
+		FromNode: reversed[0].FromNode, ToNode: reversed[0].ToNode,
+		FromIdentity: reversed[0].FromSymbol, ToIdentity: reversed[0].ToSymbol,
+	}}, nil)
+	if lease == nil || len(lease.Failures) != 1 ||
+		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierStaleAnchor ||
+		lease.Failures[0].FailureRef == "" {
+		t.Fatalf("reversed anchor must publish an executable stale_anchor ref: %+v", lease)
+	}
+	ref := lease.Failures[0].FailureRef
+
+	// Withheld capability: replace is refused at the lease boundary.
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: ref, Action: "replace",
+		Edge: &types.DiagramEdgeAnchor{FromNode: "analyzerEvaluator", ToNode: "LoopController", VisibleLabel: "implements"},
+	}}, nil, lease)
+	if err == nil {
+		t.Fatalf("replace must be refused for a reversed anchor (it cannot swap identities and would draw the pair twice): %+v", patch)
+	}
+
+	// Executable capability: remove drops only the anchor metadata.
+	patch = &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: ref, Action: "remove",
+	}}, nil, lease); err != nil {
+		t.Fatalf("remove via the reversed-anchor ref must execute: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("expected one replaced block: %+v", patch)
+	}
+	got := patch.ReplaceBlocks[0]
+	if got.Diagram == nil || got.Diagram.Body != prev.Blocks[1].Diagram.Body || len(got.EdgeAnchors) != 0 {
+		t.Fatalf("remove must keep the body byte-identical and drop only the anchor: %+v", got)
+	}
+	after := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{prev.Blocks[0], got}}
+	remaining := DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(ctx, after, view, nil)
+	if len(remaining) != 1 || remaining[0].Issue != diagramCallEdgeIssueMissingRelationAnchor {
+		t.Fatalf("after remove only the visible edge's own missing-owner row may remain: %+v", remaining)
+	}
+}

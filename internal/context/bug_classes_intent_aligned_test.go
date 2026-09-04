@@ -5,14 +5,14 @@
 // intent drives the answer focus, the system must NOT correct user
 // intent":
 //
-//   1. No "USE THESE EXACT TERMS" mandate — terminology is
-//      conditional on whether the user asked about failure KIND.
-//   2. "VOCABULARY AID" → "FACTUAL CONTEXT" reframing — labels are
-//      data, not lexical hints, but still don't override the user's
-//      question intent.
-//   3. Evidence priority no longer leads with "function names".
-//      Argument dumps (e.g. (0x0)) explicitly tagged as
-//      observation-only and NOT diagnostic of failure KIND.
+//  1. No "USE THESE EXACT TERMS" mandate — terminology is
+//     conditional on whether the user asked about failure KIND.
+//  2. "VOCABULARY AID" → "FACTUAL CONTEXT" reframing — labels are
+//     data, not lexical hints, but still don't override the user's
+//     question intent.
+//  3. Evidence priority no longer leads with "function names".
+//     Argument dumps (e.g. (0x0)) explicitly tagged as
+//     observation-only and NOT diagnostic of failure KIND.
 //
 // Forensic anchor: 2026-05-10 sweep b3jmwty80 logtri_goroutine_dump
 // where the model read (0x0) arg as "nil map" and overrode the
@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -254,15 +255,12 @@ func TestRenderBugClasses_TraceModalityHasMatchingPreamble(t *testing.T) {
 // stay out of the LLM-facing preamble (R6 red line).
 func TestRenderBugClasses_PreambleR6(t *testing.T) {
 	out := renderBugClassesSection(nil, "log")
-	for _, banned := range []string{
-		"explorer", "extractor", "finalizer", "analyzer",
-		"BusContext", "MutableState",
+	for _, hit := range glossarylint.ScanTextWith("renderBugClassesSection", out,
+		"explorer", "extractor", "analyzer",
 		"L1 gate", "L2 gate", "L3", "L4",
 		"BugClass", "DetectedBugClass",
-	} {
-		if strings.Contains(out, banned) {
-			t.Errorf("internal term %q leaked into preamble: %q", banned, out)
-		}
+	) {
+		t.Errorf("internal term %q leaked into preamble: %q", hit.Term, out)
 	}
 }
 

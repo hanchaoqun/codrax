@@ -202,6 +202,21 @@ func answerDiagramRelationRepairFailureCapabilities(
 			}
 		}
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
+	case "typed_anchor_reversed_against_visible_edge":
+		// The anchor's own visible arrow already exists in the opposite
+		// direction (colleague_merge_audit §40.57). The stale-anchor carrier is
+		// exact (one base anchor, no body occurrence of its own), but replace is
+		// deliberately withheld: a replacement keeps the hidden tuple immutable
+		// and appends a new body line, so it could neither swap the identities
+		// nor avoid drawing the same pair twice. The executable patch lane is
+		// remove-this-anchor plus the visible edge's own attach/relation row;
+		// the swap itself is the model's full re-emit choice.
+		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
+			return AnswerDiagramRelationRepairCarrierStaleAnchor, []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionRemove,
+			}
+		}
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	case "diagram_visible_label_mismatch", "diagram_typed_recipe_missing_visible_label", "diagram_visible_label_raw_relation_kind":
 		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
 			return AnswerDiagramRelationRepairCarrierLabelPair, []AnswerDiagramRelationRepairAction{

@@ -65,10 +65,8 @@ func publishTraceDBRawBlockRecovery(
 	out.Found = inventory.RawDecode.Found
 	out.RowsRead = len(inventory.RawBlock)
 	traceDBAddCoverageMetric(&out, "raw_block_rows_retained", int64(len(inventory.RawBlock)))
-	if !inventory.RawDecode.Found {
-		out.Metadata["publication_state"] = "not_applicable_source_profile"
-		out.Skipped = "raw block recovery not applicable: strict official source raw profile absent"
-		return out, nil
+	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "raw block recovery"); stop {
+		return out, err
 	}
 	if !traceDBRawBlockFamilyAuthorityEligible(inventory) {
 		if traceDBRawDecodeFamilyComplete(inventory.RawDecode, traceDBRawRetentionBlock) &&

@@ -1094,7 +1094,7 @@ Hard rules:
 - Allowed patch operations are replace-only scalar edits on existing safe structural fields: contribution operation/group_key/metric, entity resolution status, missing reconcile status only when no differences are present, and reconcile group_key/metric.
 - Do not emit remove or move. If a structural duplicate would require remove/move, emit status=needs_recompute with an empty patches array because the current safe patch layer does not preserve enough raw-result evidence to prove data equivalence.
 - If a fix requires new data, changing a calculation, adding/removing rows/contributions/entities/groups, or interpreting a business rule differently, emit status=needs_recompute with an empty patches array.
-- The system will re-run deterministic validators after applying patches. Passing this tool is advisory; invalid or semantic patches are rejected.
+- Patches are re-validated after they are applied. Passing this tool is advisory; invalid or semantic patches are rejected.
 - This is data-lane repair only. Do not route to source-code analysis, trace analysis, write-mode code editing, or command operation.`
 
 func (p *llmDataTaskPlanner) PlanDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile) (dataquery.TaskPlan, error) {
@@ -1125,7 +1125,7 @@ func (p *llmDataTaskPlanner) RepairDataTaskWithRuntimeView(ctx context.Context, 
 	if err != nil {
 		return dataquery.TaskPlan{}, err
 	}
-	return p.planDataTaskWithTool(ctx, "data_task_repair_planner", dataTaskRepairPromptWithRuntimeViewAndRank(userLine, repoRoot, policy, candidates, previous, executionError, violation, view, rank), tool)
+	return p.planDataTaskWithTool(ctx, "data_task_repair_planner", dataTaskRepairPromptWithRuntimeViewAndRank(userLine, repoRoot, policy, candidates, previous, executionError, violation, view, rank), tool, dataTaskExecutionOutputContractBaseline(view))
 }
 
 func (p *llmDataTaskPlanner) ContinueDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error) {
@@ -1146,7 +1146,7 @@ func (p *llmDataTaskPlanner) ContinueDataTaskWithRuntimeView(ctx context.Context
 	if err != nil {
 		return dataquery.TaskPlan{}, err
 	}
-	return p.planDataTaskWithTool(ctx, "data_task_continuation_planner", dataTaskContinuationPromptWithRuntimeViewAndRank(userLine, repoRoot, policy, candidates, view, rank), tool)
+	return p.planDataTaskWithTool(ctx, "data_task_continuation_planner", dataTaskContinuationPromptWithRuntimeViewAndRank(userLine, repoRoot, policy, candidates, view, rank), tool, dataTaskExecutionOutputContractBaseline(view))
 }
 
 func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine, repoRoot string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
@@ -1323,10 +1323,20 @@ func (p *llmDataTaskPlanner) ProposeDataResultPatchWithRuntimeView(ctx context.C
 }
 
 func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt string) (dataquery.TaskPlan, error) {
-	return p.planDataTaskWithTool(ctx, scope, prompt, dataTaskPlanTool)
+	// An initial plan has no workflow yet: the execution baseline is the
+	// undeclared contract, so the gate judges the draft exactly as the
+	// resolver will carry it (BestOutputContract of the draft alone).
+	return p.planDataTaskWithTool(ctx, scope, prompt, dataTaskPlanTool, dataquery.OutputContract{})
 }
 
-func (p *llmDataTaskPlanner) planDataTaskWithTool(ctx context.Context, scope, prompt string, tool llm.ToolSchema) (dataquery.TaskPlan, error) {
+// planDataTaskWithTool decodes one structured plan emission and runs the
+// pre-dispatch action gate. executionBaseline is the durable output contract
+// the workflow resolver (dataTaskCarryDurableOutputContract) will carry into
+// the admitted plan; the gate carries it FIRST so every action is judged
+// against the contract it will execute under, not against the draft (V9-4,
+// colleague_merge_audit §40.56). The carry is idempotent, so protectPlan's
+// later carry is a no-op on the returned plan.
+func (p *llmDataTaskPlanner) planDataTaskWithTool(ctx context.Context, scope, prompt string, tool llm.ToolSchema, executionBaseline dataquery.OutputContract) (dataquery.TaskPlan, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1387,6 +1397,7 @@ func (p *llmDataTaskPlanner) planDataTaskWithTool(ctx context.Context, scope, pr
 			}
 		}
 		plan := parsed.toPlan()
+		plan, _ = dataTaskCarryDurableOutputContract(plan, executionBaseline)
 		for i, action := range plan.Actions {
 			normalized, err := dataquery.NormalizeDataActionForOutputContract(action, plan.OutputContract)
 			if err != nil {

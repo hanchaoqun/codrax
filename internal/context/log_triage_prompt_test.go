@@ -585,7 +585,7 @@ func TestFormatLogTriageStructured_ExternalSourceDirective_FiresWhenResolvedZero
 		"exact locations below remain valid observations",
 		"keep two lanes",
 		"leave the value uncited",
-		"literal-grounding gate",
+		"Citation validation on emit_answer_document",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("directive missing %q in render:\n%s", want, got)

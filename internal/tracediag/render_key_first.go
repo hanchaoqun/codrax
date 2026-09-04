@@ -1426,6 +1426,54 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "48c46a4dbd374f1c6e215066785754fc36e77bd7ce90e79ee38c2982217978db",
 }
 
+// stepParamSchemaPins is the PARAMETER-face sibling of nonEventPrioritySchemaPins
+// (V11-2, colleague_merge_audit §40.58): the strict-decoded script schema —
+// every yaml-tagged struct the loader accepts — is fingerprinted so a new or
+// renamed field fails TestStepParamSchemaPinned mechanically. The result-side
+// pins above never saw the drift that motivated this table: commit 702dbf277
+// added `patterns` to the LLM trace_query tool + engine while the tracediag
+// Step kept rejecting it as an unknown key, so a customer script could not
+// replay an LLM-lane search. Re-pin ONLY with a review comment naming which
+// of the sync spots the field touched: run.go stepQuery (engine mapping),
+// render.go stepParamsEcho (report disclosure), script.go parseScript decode
+// hint (field roster), script.go validateStep (fail-loud rules, shared
+// engine boundary when the tool has the same parameter), docs/architecture.md
+// §13.7 field list, and — for event_search filter fields — the tool-side
+// cross-face census in internal/tool (TestTraceQueryEventSearchParamsMirroredInTraceDiagStep).
+// Unexported resolved fields (windowStart, effMaxLines, …) are excluded by
+// construction (PkgPath != ""), so resolution-only changes never re-pin.
+var stepParamSchemaPins = map[reflect.Type]string{
+	// V11-2 (§40.58) initial pin: Step gained `Patterns []string yaml:"patterns"`
+	// right after Pattern — synced in stepQuery (defensive copy), stepParamsEcho
+	// (patterns=["a","b"] list form, %q per literal), the decode hint roster,
+	// validateStep (tracequery.NormalizeEventSearchPatterns, view gate on the
+	// trimmed view), architecture.md §13.7 and the internal/tool cross-face
+	// census mirror table.
+	reflect.TypeOf(Step{}):            "77f2f21c1f75a0e0babddb8f9981850ba79bbfbb17f278e1a88fb94eb23ca54e",
+	reflect.TypeOf(Defaults{}):        "1cf3b00340b41b2e5137fda6b2cc806e3cfc58bde5b06c888cf4f7aa8f0f855b",
+	reflect.TypeOf(WindowsFrom{}):     "822eda7621c7cef2de0aa53b2cd950f54bd42f265105136447a88edebb6c1fdb",
+	reflect.TypeOf(WindowDiscovery{}): "e0737069032cdc77329f87cc155e680d438264a1f0e6cb9349d3810b69acce5e",
+	reflect.TypeOf(ScriptInputs{}):    "82fed7a6e9be48c9374459516a65fb5f8432f7c82f9810115f76c2508ef7224e",
+	reflect.TypeOf(V2Limits{}):        "5693e5cceda83a1485609c17064fe45d56f51b93f97d211ab4d5095620b3b212",
+	reflect.TypeOf(Script{}):          "b46187f3ef4fc8e058388c461c1435f865b4c85b0ed03ea5dcd23525a0e14db2",
+}
+
+// paramSchemaFingerprint hashes the yaml face (Name|Type|yaml tag) of one
+// script struct's exported fields — the decoder-visible schema, nothing else.
+func paramSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {
+	parts := make([]string, 0, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		parts = append(parts, field.Name+"|"+field.Type.String()+"|"+field.Tag.Get("yaml"))
+	}
+	schema = strings.Join(parts, ";")
+	sum := sha256.Sum256([]byte(schema))
+	return hex.EncodeToString(sum[:]), schema
+}
+
 func detailSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {
 	parts := make([]string, 0, typ.NumField())
 	for i := 0; i < typ.NumField(); i++ {

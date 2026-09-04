@@ -910,3 +910,43 @@ func TestAnswerDiagramRelationRepairLease_FreezesRequiredDiagramCarrier(t *testi
 		})
 	}
 }
+
+// §40.57 V10-4: a reversed anchor (its own pair is drawn once, the other way)
+// publishes the exact stale-anchor carrier with remove only — replace keeps
+// the hidden tuple immutable and appends a body line, so it could neither
+// express the swap nor avoid drawing the pair twice. The visible edge keeps
+// its own row; the swap is the model's full re-emit choice.
+func TestAnswerDiagramRelationRepairLeaseReversedAnchorIsRemoveOnlyStaleCarrier(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "types", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramArchitecture, Language: "mermaid", Body: "flowchart TD\n  Impl -->|implements| Base\n"},
+		EdgeAnchors: []DiagramEdgeAnchor{
+			{FromNode: "Base", ToNode: "Impl", RelationKind: DiagramRelTypeRelation},
+		},
+	}}}
+	failure := AnswerDiagramRelationRepairFailure{
+		BlockID: "types", Issue: "typed_anchor_reversed_against_visible_edge",
+		RelationKind: DiagramRelTypeRelation, FromNode: "Base", ToNode: "Impl",
+	}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{failure}, nil)
+	if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FailureRef == "" {
+		t.Fatalf("expected one executable failure row: %+v", lease)
+	}
+	got := lease.Failures[0]
+	if got.TargetCarrier != AnswerDiagramRelationRepairCarrierStaleAnchor ||
+		fmt.Sprint(got.AllowedActions) != fmt.Sprint([]AnswerDiagramRelationRepairAction{AnswerDiagramRelationRepairActionRemove}) {
+		t.Fatalf("reversed anchor must publish stale_anchor/[remove]: %s/%v", got.TargetCarrier, got.AllowedActions)
+	}
+	if got.AllowsAction("replace") {
+		t.Fatalf("replace must be withheld for a reversed anchor: %+v", got)
+	}
+
+	// Not a unique base anchor → no executable carrier (unknown), never a guess.
+	base.Blocks[0].EdgeAnchors = append(base.Blocks[0].EdgeAnchors, DiagramEdgeAnchor{
+		FromNode: "Base", ToNode: "Impl", RelationKind: DiagramRelTypeRelation,
+	})
+	carrier, actions := answerDiagramRelationRepairFailureCapabilities(base, failure)
+	if carrier != AnswerDiagramRelationRepairCarrierUnknown || len(actions) != 0 {
+		t.Fatalf("ambiguous base anchor must publish no capability: %s/%v", carrier, actions)
+	}
+}

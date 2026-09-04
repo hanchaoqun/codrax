@@ -7504,6 +7504,17 @@ const (
 	// lease at all. This is distinct from an unknown ref inside a live lease:
 	// there is no current ref roster to republish or infer.
 	ToolRepairCodeAnswerDocRelationRepairLeaseAbsent = "answer_doc_relation_repair_lease_absent"
+	// Patch structure rejects (V2-4, §40.51): ApplyAnswerDocumentV2Patch
+	// returns every independent violation in one AnswerDocumentPatchStructureError
+	// and the tool repair is keyed on the typed violation kind — the three
+	// historical codes keep their spelling; every other kind rides the generic
+	// structure code. ToolRepairMetaAnswerDocPatchViolationCount carries the
+	// listed count.
+	ToolRepairCodeAnswerDocPatchCitationModeConflict            = "answer_doc_patch_citation_mode_conflict"
+	ToolRepairCodeAnswerDocPatchExistingBlock                   = "answer_doc_patch_existing_block"
+	ToolRepairCodeAnswerDocPatchReplaceCitationsPreservedBlocks = "answer_doc_patch_replace_citations_with_preserved_blocks"
+	ToolRepairCodeAnswerDocPatchStructure                       = "answer_doc_patch_structure_invalid"
+	ToolRepairMetaAnswerDocPatchViolationCount                  = "patch_violation_count"
 
 	// ToolRepairMetaMemberSetMissingFingerprint is the ToolRepair.Metadata
 	// key carrying the member-set coverage reject's missing-obligation

@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -2434,13 +2435,8 @@ func TestEmitSwitchToPatchSignal_HintIsLanguageNeutral(t *testing.T) {
 	if !got.HintRequested {
 		t.Fatal("expected nudge")
 	}
-	for _, internal := range []string{
-		"explorer", "extractor", "finalizer", "analyzer",
-		"downstream stage", "AnswerDocumentV2", "AnswerBlock",
-	} {
-		if strings.Contains(got.Hint, internal) {
-			t.Errorf("internal term %q leaked into LLM-facing hint: %q", internal, got.Hint)
-		}
+	for _, hit := range glossarylint.ScanTextWith("switch-to-patch hint", got.Hint, "explorer", "extractor", "analyzer") {
+		t.Errorf("internal term %q leaked into LLM-facing hint: %q", hit.Term, got.Hint)
 	}
 }
 

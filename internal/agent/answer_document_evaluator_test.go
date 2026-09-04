@@ -14,6 +14,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -1186,7 +1187,7 @@ func TestAnswerDocumentEvaluator_ObserveHintsMissingEvidenceSourceCarrier(t *tes
 	})
 
 	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
-	if !sig.HintRequested || sig.HintKey != "answer_doc.requested_dimensions" {
+	if !sig.HintRequested || sig.HintKey != postEmitAdvisoryHintKey {
 		t.Fatalf("missing typed evidence carrier should still get one precise repair hint, got %+v", sig)
 	}
 }
@@ -1355,7 +1356,7 @@ func TestAnswerDocumentEvaluator_ObserveDoesNotLetEndpointBoundaryListMasquerade
 	})
 
 	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
-	if !sig.HintRequested || sig.HintKey != "answer_doc.requested_dimensions" {
+	if !sig.HintRequested || sig.HintKey != postEmitAdvisoryHintKey {
 		t.Fatalf("an endpoint/path list must not satisfy a separately requested member roster, got %+v", sig)
 	}
 	if !strings.Contains(sig.Hint, `facet_ids:["member_set"]`) {
@@ -1391,7 +1392,7 @@ func TestAnswerDocumentEvaluator_ObserveDoesNotLetOneUnboundListCoverTwoMemberSe
 	})
 
 	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
-	if !sig.HintRequested || sig.HintKey != "answer_doc.requested_dimensions" {
+	if !sig.HintRequested || sig.HintKey != postEmitAdvisoryHintKey {
 		t.Fatalf("one generic list must not satisfy two independent member-set dimensions, got %+v", sig)
 	}
 }
@@ -4657,16 +4658,13 @@ func TestRenderAnswerDocFacetCoverage_NoGoInternalNamesLeak(t *testing.T) {
 		combined.WriteString(renderAnswerDocFacetCoverage(ctx))
 	}
 	got := combined.String()
-	for _, banned := range []string{
-		"FacetCoverageContract", "FacetCoverage", "FacetRequirement",
-		"AnswerFacetKind", "QuestionFamily", "ClaimFormOf",
-		"FacetRequiredness", "AcceptableForms", "SourceCandidate",
+	// Shared glossary via glossarylint (§40.52); extras are the Go
+	// constant names specific to this renderer.
+	for _, hit := range glossarylint.ScanTextWith("renderAnswerDocFacetCoverage", got,
 		"ClaimDefinitionFact", "ClaimCallEdge", "ClaimExternalObservation",
 		"QFRootCauseTrace", "QFConfigPrecedence",
-	} {
-		if strings.Contains(got, banned) {
-			t.Errorf("rendered prompt leaked Go-internal token %q\n----\n%s", banned, got)
-		}
+	) {
+		t.Errorf("rendered prompt leaked Go-internal token %q\n----\n%s", hit.Term, got)
 	}
 }
 
@@ -12265,7 +12263,7 @@ func TestRequestedAnswerDimensionOrder_UsesTypedIndicesAndUniqueModelOwnedSeats(
 		violation.EarlierDimensionIndex != 1 || violation.LaterDimensionIndex != 2 {
 		t.Fatalf("unexpected violation: %+v", violation)
 	}
-	sig := (&answerDocumentEvaluator{language: "zh"}).requestedAnswerDimensionOrderSignal(ctx, doc)
+	sig := (&answerDocumentEvaluator{language: "zh"}).postEmitAdvisorySignal(ctx, doc)
 	for _, want := range []string{"model_block_order", "`diagram`", "`roster`", "全部模型自有块 ID 各列一次", "不要改写正文或关系"} {
 		if !sig.HintRequested || !strings.Contains(sig.Hint, want) {
 			t.Fatalf("order repair signal missing %q: %+v", want, sig)

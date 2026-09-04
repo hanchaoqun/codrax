@@ -1,9 +1,11 @@
 package skill
 
 // glossary.go is the single source of truth for LLM-facing prompt
-// hygiene. The lists below drive glossary_test.go's three lint tests
-// (prompts, tool schemas, retry/mid-loop hints) — any listed token
-// appearing in a rendered LLM prompt fails the build.
+// hygiene. The lists below are consumed by exactly one scanner —
+// internal/skill/glossarylint — which every renderer package's lint
+// test runs (glossarylint.RendererRoster is the package roster; the
+// registry-rendered skill configs are scanned by glossary_test.go).
+// Any listed token appearing in model-facing text fails the build.
 
 // ProjectSpecificIdentifierBlocklist is the curated denylist of
 // project-specific identifiers (eval-case-specific config keys,
@@ -143,6 +145,18 @@ var InternalTermsBlocklist = []string{
 
 	// Contract-field leakage (Go constant names surfacing as prose).
 	"MustInclude",
+	// NOT listed here: the turn-policy wire field `requires_diagram` (V7-4,
+	// §40.54). It is the classifier's own emit_turn_policy schema property,
+	// so internal/repl — which the glossary prompt-surface scan covers since
+	// §40.52 — must spell it to the model; a vocabulary entry would be a
+	// false positive on the wire owner and §40.52 forbids term allow-lists.
+	// The analyzer-facing packages (agent/context/orchestrator/skill/tool/
+	// types) are kept free of the wire key and the retired "out-of-band"
+	// framing by internal/types/presentation_authority_census_test.go
+	// (presentationCensusBannedLiterals) plus the direct negative pins in
+	// the skill/builder/emit_analysis tests: prompts name the typed line
+	// rendered in the Presentation Directive section
+	// (types.PresentationHardVisualStatement), never the wire key.
 	"must-include floor",
 	"must-include count",
 	"must-include list",
@@ -325,6 +339,18 @@ var InternalTermsBlocklist = []string{
 	"deterministic compiler",
 	"deterministic alignment",
 	"deterministic fallback",
+
+	// Campaign / rule codenames (§40.52, V4-5). "LOW-MIND" was an
+	// eval-campaign shorthand for "default to empty unless the CURRENT
+	// request asks" that shipped verbatim as a rule label in the
+	// analyzer contract, the emit_analysis schema, the finalizer schema
+	// and the REPL turn-policy prompt; a model has no definition for it.
+	// Name the rule by what it does instead ("Default-empty rule:",
+	// "Current-request-only rule:", "Precedence shortcut:"). One entry
+	// per surface form because the matcher is case-sensitive.
+	"LOW-MIND",
+	"Low-mind",
+	"low-mind",
 }
 
 // KeywordExamplePhrases is the auxiliary blocklist used by

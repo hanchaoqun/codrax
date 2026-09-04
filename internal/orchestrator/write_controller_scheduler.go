@@ -1499,7 +1499,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 				hint += " Preserve the exploration findings and evidence refs already supplied to this planning batch."
 			}
 			if controllerHasBatchOrAnalysisAnchors(o.busCtx.Mutable, batch) {
-				hint += " Use the batch expected paths and WriteAnalysisIR scope anchors as the source boundary; only call read_file for exact current bytes or line ranges needed to construct the patch."
+				hint += " Use the batch expected paths and write-scope anchors as the source boundary; only call read_file for exact current bytes or line ranges needed to construct the patch."
 			}
 			if rejectionHint != "" {
 				hint += "\n\nThe previous round's plan emit was rejected by validation. Correct it in the re-emit using this bounded typed repair input:\n" + rejectionHint
@@ -1759,7 +1759,7 @@ func (o *Orchestrator) localizationCoverageReplanHint(plan *types.ChangePlan) (s
 		}
 	}
 	if ir != nil && len(ir.Request.ScopeAnchors) > 0 {
-		b.WriteString("\nCurrent WriteAnalysisIR scope anchors:\n")
+		b.WriteString("\nCurrent write-scope anchors:\n")
 		for _, p := range normalizedWorkflowScopeAnchors(ir.Request.ScopeAnchors) {
 			fmt.Fprintf(&b, "- %s\n", p)
 		}
@@ -1803,7 +1803,7 @@ func (o *Orchestrator) localizationOwnerDepthReplanHint(plan *types.ChangePlan) 
 		}
 	}
 	if ir != nil && len(ir.Request.ScopeAnchors) > 0 {
-		b.WriteString("\nCurrent WriteAnalysisIR scope anchors:\n")
+		b.WriteString("\nCurrent write-scope anchors:\n")
 		for _, p := range normalizedWorkflowScopeAnchors(ir.Request.ScopeAnchors) {
 			fmt.Fprintf(&b, "- %s\n", p)
 		}
@@ -2439,7 +2439,7 @@ func (o *Orchestrator) offScopeHighRiskReplanHint(plan *types.ChangePlan) (strin
 	sort.Strings(anchors)
 	var b strings.Builder
 	b.WriteString("## Typed plan-risk critique\n\n")
-	b.WriteString("The previous ChangePlan touched high-risk paths outside the WriteAnalysisIR scope anchors. Replan this same batch without those off-scope high-risk paths unless a later typed exploration result expands the scope.\n\n")
+	b.WriteString("The previous ChangePlan touched high-risk paths outside the write-scope anchors. Replan this same batch without those off-scope high-risk paths unless a later typed exploration result expands the scope.\n\n")
 	b.WriteString("Off-scope high-risk paths to exclude:\n")
 	for _, p := range paths {
 		fmt.Fprintf(&b, "- %s\n", p)

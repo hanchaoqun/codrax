@@ -446,16 +446,16 @@ func mergeFusedPatchForTest(t *testing.T, prev *types.AnswerDocumentV2, removeID
 		UnchangedBlockIDs: append([]string(nil), unchangedIDs...),
 	}
 	if len(replaceBlocks) > 0 {
-		converted, err := convertEmitBlocksToTyped("test", replaceBlocks, "replace_blocks")
-		if err != nil {
-			t.Fatalf("replace conversion failed: %v", err)
+		converted, violations := convertEmitBlocksToTyped("test", replaceBlocks, "replace_blocks")
+		if len(violations) > 0 {
+			t.Fatalf("replace conversion failed: %v", violations)
 		}
 		patch.ReplaceBlocks = converted
 	}
 	if len(addBlocks) > 0 {
-		converted, err := convertEmitBlocksToTyped("test", addBlocks, "add_blocks")
-		if err != nil {
-			t.Fatalf("add conversion failed: %v", err)
+		converted, violations := convertEmitBlocksToTyped("test", addBlocks, "add_blocks")
+		if len(violations) > 0 {
+			t.Fatalf("add conversion failed: %v", violations)
 		}
 		patch.AddBlocks = converted
 	}
@@ -982,11 +982,11 @@ func TestSplitFusedDiagramPatchBlocks_AddIndicesUnshifted(t *testing.T) {
 		}
 	}
 	// The fieldPath the model sees for its own broken add names index 2.
-	_, err := convertEmitBlocksToTyped("test", addOut, "add_blocks")
-	if err == nil {
+	_, violations := convertEmitBlocksToTyped("test", addOut, "add_blocks")
+	if len(violations) == 0 {
 		t.Fatal("expected validation error for the bogus add")
 	}
-	if !strings.Contains(err.Error(), "add_blocks[2]:") {
+	if err := emitBlockViolationsMessage(violations); !strings.Contains(err, "add_blocks[2]:") {
 		t.Fatalf("error must name the MODEL's add index 2, got: %v", err)
 	}
 }
@@ -1049,11 +1049,11 @@ func TestIsFusedDiagramBlock_NormalizeEmptiedBodyPassesThrough(t *testing.T) {
 	if len(addOut) != 0 || len(replaceOut) != 1 || replaceOut[0].Diagram == nil {
 		t.Fatalf("normalize-emptied fused block must pass through whole: replace=%+v add=%+v", replaceOut, addOut)
 	}
-	_, err := convertEmitBlocksToTyped("test", replaceOut, "replace_blocks")
-	if err == nil {
+	_, violations := convertEmitBlocksToTyped("test", replaceOut, "replace_blocks")
+	if len(violations) == 0 {
 		t.Fatal("expected the empty-after-normalization diagram reject")
 	}
-	if !strings.Contains(err.Error(), "replace_blocks[0]:") {
+	if err := emitBlockViolationsMessage(violations); !strings.Contains(err, "replace_blocks[0]:") {
 		t.Fatalf("reject must land on the model's own replace index, got: %v", err)
 	}
 	// Control: a genuinely renderable body still splits.

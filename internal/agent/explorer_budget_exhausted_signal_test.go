@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -151,14 +152,11 @@ func TestPostBudgetExhaustedSignal_HintIsLanguageNeutral(t *testing.T) {
 	if !got.HintRequested {
 		t.Fatal("expected nudge")
 	}
-	for _, banned := range []string{
-		"explorer", "extractor", "finalizer", "analyzer",
-		"BusContext", "MutableState", "ExploreBudget",
+	for _, hit := range glossarylint.ScanTextWith("budget-exhausted hint", got.Hint,
+		"explorer", "extractor", "analyzer", "ExploreBudget",
 		"L1 gate", "L2 gate", "L3", "L4",
-	} {
-		if strings.Contains(got.Hint, banned) {
-			t.Errorf("internal term %q leaked into LLM-facing hint: %q", banned, got.Hint)
-		}
+	) {
+		t.Errorf("internal term %q leaked into LLM-facing hint: %q", hit.Term, got.Hint)
 	}
 }
 

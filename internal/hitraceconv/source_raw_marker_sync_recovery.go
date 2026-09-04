@@ -93,10 +93,15 @@ func submitTraceDBRawMarkerSyncRecovery(
 	if geometry := inventory.RawDecode.Metadata["marker_format_geometry_witnesses"]; geometry != "" {
 		out.Metadata["marker_format_geometry_witnesses"] = geometry
 	}
+	if stop, err := traceDBApplySourceRawLaneGate(&out, inventory, "raw marker sync recovery"); stop {
+		return out, err
+	}
+	// Past the gate the census closed; the family predicate can only fail on
+	// the family's own retention store having been withdrawn by byte budget.
 	if !traceDBRawDecodeFamilyComplete(
 		inventory.RawDecode, traceDBRawRetentionMarker) {
-		out.Metadata["publication_state"] = "withheld_raw_decode_incomplete"
-		out.Skipped = "raw marker sync recovery withheld: strict raw decode ledger incomplete"
+		out.Metadata["publication_state"] = traceDBSourceRawLaneFamilyRetentionWithdrawnState
+		out.Skipped = "raw marker sync recovery withheld: retained family record store exceeded its byte budget"
 		return out, nil
 	}
 	if !authority.initialized || !authority.complete || syncSpans == nil {

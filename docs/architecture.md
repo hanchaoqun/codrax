@@ -335,6 +335,7 @@ canonicalSystemSectionOrder:
 
 canonicalUserSectionOrder:
   Retry Directive (READ FIRST), User Request,
+  Presentation Directive,
   Prior Conversation (reference only),
   Log Triage — Validated Extraction, Attached Runtime Log,
   Perf Triage — Validated Extraction, Attached Runtime Trace,
@@ -346,9 +347,13 @@ canonicalUserSectionOrder:
   Required Answer Blocks, Diagram Contract, ...
 ```
 
+**Presentation Directive 段（typed 当前轮展示权威，V7-4 / §40.54）**：`BusContext.PresentationDirective`（逐字锚定的当前请求片段，只决定展示形式/图种）与 `BusContext.PresentationDiagramRequired`（分类器 typed 硬图布尔，永不从指令词面推断）只通过单一访问器 `PresentationAuthority()`（`internal/types/presentation_authority.go`）被读取：builder 用它渲染该段——指令文本 + 一行类型化 `Hard visual requirement: required|not required` / `硬性图示要求：需要|不需要`（标签单源于 `types` 标签表，按 prompt 语言取值；两载体皆空则整段不渲染），`emit_analysis` 硬图门读同一访问器的 `DiagramRequired`。`diagram_hint.required` 的教学句 `types.PresentationHardVisualTeaching()` 同一字符串进 skill prompt、schema 描述、缺字段 reject 与 true→false 归一化披露（R2'）；模型自铸硬权威的唯一逃逸车道仍是 `requested_answer_dimensions` 中 quote 逐字的 required diagram 行。census `TestPresentationAuthorityCensus_*` 钉死布尔的读者名册与 LLM 面无 `requires_diagram`/"out-of-band" 字面。
+
 **读 → 写隔离**：`PipelineStage.IsWrite()` 为真时，`BuildAgentContext` 跳过所有读模式 stage artifact 的传播（RelevantFacts / EvidenceItems / AnswerChains / AnswerSymbols / PriorReports / UnverifiedAnalyzerFindings 等）；`BuildPromptContext` 在 StageApply / StageVerify 抑制 "User Request" 段（用户原始 plan-shaped 描述会干扰 apply / verify 的机械执行角色，plan 意图已在 `Mutable.ChangePlan` 上）。`StageAnalyze` 即使在写管线下也按读模式处理（分类器需要其读模式输入）。
 
 `formatStageReports` 额外剥 `<think>…</think>` 段作为防御纵深——读模式下游 agent 不会看到 analyzer 的内部推理。
+
+**Prompt 词面卫生（glossary lint，§40.52）**：`internal/skill/glossary.go` 是模型面禁用词表的唯一来源（`InternalTermsBlocklist` + `ProjectSpecificIdentifierBlocklist`），`internal/skill/glossary_scan.go` 是唯一匹配器（2–4 字母大写缩写整词匹配，其余大小写敏感子串）。`internal/skill/glossarylint`（仅测试引用）在其上提供两条扫描车道与一份名册：`RunPackageScan`（包内非测试字面量静态扫描；结构性排除 = logger 直参 / import 路径 / struct tag，`Policy` 可显式跳过 const 右值与 `*Error` 赋值；文件级豁免只允许闭集理由 `data_table` / `operator_facing`，过期行 fail-loud）与 `RunPromptSurfaceScan`（按数据流绑定的形：`…SystemPrompt` 常量、`llm.ToolSchema` 字面量、`Role:"system"` 消息；未识别形 fail-loud）。`RendererRoster` 列出所有模型面渲染包，`TestRendererRosterTotality` 在 root/internal/cmd 上做 go/ast 生产者普查（BuildInitialInstruction / Parameters() / 载体类型字面量 / SystemPrompt / system 消息），名册、标记测试、生产者三者任一漂移即失败；`TestNoGlossaryForksInTests` 禁止测试文件再手抄词表（每面额外词只经 `ScanTextWith` 追加）。agent 侧动态孪生 `prompt_snapshot_test.go` 由 `TestPromptRendererCensus` 保证 13 个 evaluator 与 3 个 `ParametersFor` 工具全部被捕获且渲染非空。
 
 ### 3.6 LLM Adapter
 
@@ -1009,13 +1014,13 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 
 **全量发射（emit_answer_document）**：LLM 一次性写完整文档 → 包成 `NewReplaceAllMutation(doc)` → ApplyAndPersistMutation。
 
-**增量补丁（emit_answer_document_patch）**：LLM 在 retry 时声明：哪些 block 保留 byte-identical、哪些替换、哪些追加、哪些删除 → 包成 `NewPartialMutation(patch)` → 通过 `ApplyAnswerDocumentV2Patch(prev, patch)` 合并。**保留语义是 typed 的**——LLM 用 `UnchangedBlockIDs[]` 列出要保留的 id，系统结构性 byte-identical 复制（包括 claim_uses / facet_ids / surface_role / edge_anchors / diagram payload 等所有 typed 注解）。这样修一次"diagram 节点漏了一条边" retry 不会顺手把其他 block 上费力构造好的 facet 标注弄丢。**事务基线单一**（colleague_merge_audit §40.17/§40.18/§40.45）：确定性 patch 归一化链 `normalizeAnswerDocumentPatchForBase` 按模型原始 JSON 位置对齐，只跑一次且先于任何原子图操作（`diagram_edge_edits` 等追加的系统物化块）；暂存/提交的每个基线都由 `buildAnswerDocumentPatchBase` 一个构造函数产出（回滚 = 不写基线；`NewPartialMutation` / `ApplyAnswerDocumentV2Patch` / `AnswerDocumentMutation` 字面量 / 对 mutation 值调用 `Apply` 四种拼法在 internal/ + cmd/ 全树只允许出现在登记站点）；重试局部代次状态（pending base + 关系修复租约）的写入者是一个封闭登记类——patch 工具经 `MutableState.StageAnswerDocumentPatchGeneration` 暂存一个代次（`stage`）、evaluator 经 `SetAnswerDiagramRelationRepairLease` 铸造/撤铸 typed 租约并在双载体间镜像（`install`/`mirror`）、全量 `emit_answer_document` 以 nil 显式回滚（`rollback`）；两字段的清理只在加锁成功尾声 `commitAcceptedAnswerDocumentLocked` 与任务重置 `ResetAnswerDocumentV2`（其余读者只拿克隆）；上述写入类由 `answer_document_retry_generation_setter_census_test.go` 在 internal/ + cmd/ 全树 census 钉死；租约 scope 校验是纯检查，持久层拒绝时租约保留供同一 failure_ref 重提。
+**增量补丁（emit_answer_document_patch）**：LLM 在 retry 时声明：哪些 block 保留 byte-identical、哪些替换、哪些追加、哪些删除 → 包成 `NewPartialMutation(patch)` → 通过 `ApplyAnswerDocumentV2Patch(prev, patch)` 合并。**保留语义是 typed 的**——LLM 用 `UnchangedBlockIDs[]` 列出要保留的 id，系统结构性 byte-identical 复制（包括 claim_uses / facet_ids / surface_role / edge_anchors / diagram payload 等所有 typed 注解）。这样修一次"diagram 节点漏了一条边" retry 不会顺手把其他 block 上费力构造好的 facet 标注弄丢。**事务基线单一**（colleague_merge_audit §40.17/§40.18/§40.45）：确定性 patch 归一化链 `normalizeAnswerDocumentPatchForBase` 按模型原始 JSON 位置对齐，只跑一次且先于任何原子图操作（`diagram_edge_edits` 等追加的系统物化块）；暂存/提交的每个基线都由 `buildAnswerDocumentPatchBase` 一个构造函数产出（回滚 = 不写基线；`NewPartialMutation` / `ApplyAnswerDocumentV2Patch` / `AnswerDocumentMutation` 字面量 / 对 mutation 值调用 `Apply` 四种拼法在 internal/ + cmd/ 全树只允许出现在登记站点）；重试局部代次状态（pending base + 关系修复租约）的写入者是一个封闭登记类——patch 工具经 `MutableState.StageAnswerDocumentPatchGeneration` 暂存一个代次（`stage`）、evaluator 经 `SetAnswerDiagramRelationRepairLease` 铸造/撤铸 typed 租约并在双载体间镜像（`install`/`mirror`）、全量 `emit_answer_document` 以 nil 显式回滚（`rollback`）；两字段的清理只在加锁成功尾声 `commitAcceptedAnswerDocumentLocked` 与任务重置 `ResetAnswerDocumentV2`（其余读者只拿克隆）；上述写入类由 `answer_document_retry_generation_setter_census_test.go` 在 internal/ + cmd/ 全树 census 钉死；租约 scope 校验是纯检查，持久层拒绝时租约保留供同一 failure_ref 重提。**结构拒绝一次报全（colleague_merge_audit §40.51 V2-4）**：`ApplyAnswerDocumentV2Patch` 的结构校验器 `collectPatchStructureViolations` 走完载荷每个独立臂（同一条目的门控违规只终止该条目：未知/空/系统块 id 跳过取值检查、`model_block_order` 与增删同用跳过排列检查、引用模式冲突跳过保留引用扫描），所有违规装进一个 typed 载体 `types.AnswerDocumentPatchStructureError{Violations:[{Op,Kind,BlockID,Field,Message}]}`（Op = 8 个 schema 字段名闭集，Kind = 14 值闭集 `AllAnswerDocumentPatchViolationKinds`），`Error()` 单违规字节等同历史串行文本、多违规经共享编号格式器 `types.NumberedViolationList`（上限 10 + 计数，与 EMITBURN-1 aggregate_facts 同一格式器）；tool 层修复 `answerDocumentPatchStructureRepair` 以 `errors.As` 取 typed Kind 查单源优先级表（三个历史 code 保留拼写，其余 Kind 走 `answer_doc_patch_structure_invalid`，Fields 取并集，Metadata `patch_violation_count`），不再按消息子串键控。同一纪律覆盖执行器内兄弟校验器（field/receipt 分支投影、本地租约整块变更、split 伴生处置、replace/add 块归一化、合并文档不变式、receipt 绑定、eic 装饰器对齐）与全量 emit 的 blocks[] 归一化循环；`emit_validator_list_discipline_census_test.go` 在四个 emit 执行器文件 + 归一化/运行时文件及其按调用数据流触达的 internal/types 校验器上识别「循环内首个违规即返回」的函数，未登记即红、登记为 `serial_with_collector` 者须有 collector[0]==serial 的 parity pin、无法识别的返回形 fail-loud。
 
 `emit_answer_document.Execute` 内：
 
 1. **V1 字段检测**：扫 raw JSON 里的 retired top-level 字段（shape / steps / symbols / value / boolean / summary）；混合 V1+V2 payload 直接 reject
 2. **Flat-mode 容错**：嵌套 array 被 LLM 误编码为 JSON string（`"[{...}]"`）时，`repairBlocksAsString` / `repairNestedArraysAsString` 透明再编码并 WARN
-3. **Typed 归一**：每个 raw block 过 `NormalizeEmitAnswerBlock`，校验 kind / diagram payload / citations / claim_uses / edge_anchors / facet_ids
+3. **Typed 归一**：每个 raw block 过 `NormalizeEmitAnswerBlock`，校验 kind / diagram payload / citations / claim_uses / edge_anchors / facet_ids。**归一化只校验/再安置/拒绝，永不改写模型 typed 锚**（colleague_merge_audit §40.57）：`edge_anchors` 逐字透传，端点/identity/relation_kind 一律不动；类图 UML 方向与 sibling 锚反向（`Base <|.. Impl` 配 `Base -> Impl` 锚）由 diagram 证据门以精确子形 `typed_anchor_reversed_against_visible_edge`（同一无序端点对正文恰好可见一次且方向相反）拒绝并教学"对齐"（交换锚端点或反转箭头，不删图），修复租约对该 issue 只发布 `stale_anchor/[remove]`（replace 的隐藏元组不可变且会追加正文行，无法表达交换）；`answer_block_normalize_anchor_census_test.go` 钉死归一化器对锚的零改写，`diagram_relation_issue_vocabulary_census_test.go` 钉死 producer issue 词表与租约决策的双向闭合。
 4. 包成 mutation，调 `ApplyAndPersistMutation`：
    - `mutation.Apply(prev)` 得到 merged doc
    - `runContractCheck(ctx, mutation)` 跑 validator 套件
@@ -1348,6 +1353,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 详见 §6。
 
 **Forbidden 字段是 reject 不 scrub**：shape 不允许的字段（V1 残留、不该有的 boolean/value）会让整个 call 失败而不是静默清洗。`agent_finalizer_max_correction_retries` 默认 3 次。
+
+**后 emit 顾问车道 = 一张表、一个闩、一轮（colleague_merge_audit §40.51 V3-3）**：`emit_answer_document` 被接受后，`answerDocumentEvaluator.Observe` 只跑一个臂 `postEmitAdvisorySignal`——`internal/agent/answer_document_post_emit_advisory.go` 的 `postEmitAdvisoryLanes` 单源表（typed 闭集 `postEmitAdvisoryLaneKind`：requested_dimensions / requested_dimension_order / external_observation_selectors / trace_primary_cause_entity，前三为 precise_repair、G13 实体为 advisory 类，全部只软引导）在同一次观测里逐行探测，命中项合并为一次披露（一个前言 + 编号修订项 + 「一次 patch 覆盖全部项」规则；排序项的「不增删块」约束只限本项，与其他项同出时一次性声明 `model_block_order` 不能与增删同用、其他项优先 replace/局部编辑），单闩 `postEmitAdvisoryDelivered` 按派发重置，每派发至多多付一轮 LLM，且不读写 `retriesUsed` / `rejectHintsUsed` / `emitFullDocFailStreak` / 空块断路器 / patch 偏好等硬拒账目（`BypassBudget` 保留）；顾问 patch 被拒时已接受文档原样出厂（Observe 的 Stop 臂 = typed 逃逸）。`answer_document_post_emit_advisory_census_test.go` 钉死：Observe 已接受文档分支只允许该臂与 Stop 返回（其余语句形 fail-loud）、表行数 == 闭集常量数且每种恰一行、evaluator 无 `*Hinted` 逐车道闩、闩只由 `postEmitAdvisorySignal`/`BuildInitialInstruction` 写。新增后 emit 车道 = 加一行，永不加臂。
 
 **Shrinkage-salvage**：检测到 "iter 0 rich prose → iter 1 压缩 summary" 时，把 `findLastPreToolCallDraft(messages)` 选中的上一轮 draft verbatim 复制进 summary，UTF-8 边界 trim 到 cap，追加双语 caveat，log `[finalizer/shrinkage]`。由 `agent_finalizer_*` 控制（preserve_prior_prose / shrinkage_min_prose_len / shrinkage_ratio）。
 
@@ -2355,6 +2362,22 @@ REPL `Store.BuildContext` 从 memory 拉上下文，把最近几轮 Q/A 拼进 `
 - OutputFormat 示例使用**混合语言**（Python / Ruby / TypeScript）的文件路径，强化"只学格式，不学语言"
 - 不在 prompt 里硬编码任何特定项目的目录结构、工具名或配置格式
 
+### 11.8 热文件 LOC ratchet（god-file 只降不升）
+
+三个结构测试给热文件钉行数上限，上限=钉定时的实际行数，**只允许单调下降**：
+
+| ratchet | 文件 | 覆盖 |
+|---|---|---|
+| `TestIRDeliveryHotFileLineRatchet` | `internal/orchestrator/ir_delivery_ratchet_test.go` | `orchestrator.go`、`types/evidence_closure.go`、`scheduler.go` 及每个从 god-file 拆出的 concern 文件（各有自己的行） |
+| `TestActionRunnerLOCRatchet` | `internal/dataquery/loc_ratchet_test.go` | `dataquery/action_runner.go` |
+| `TestSourceInventoryConvergence_LOCCeilingRatchet` | `internal/tool/source_inventory_convergence_test.go` | source-inventory 集群（tool / types / sourceinventory 每文件显式上限） |
+
+规则（§40.27 V7-5 / §40.55 裁定）：
+
+1. **唯一合规动作 = 拆 concern**：触限时把一个 concern（一组只被写路径或只被某子系统调用的函数）整体剪切到同包新文件，给新文件加一行自己的预算，并在**同一次改动**里把 god-file 上限降到拆后的实际行数——留下的余量会被下一次提交静默吃掉。
+2. **压缩注释 / 删空行 / 剪死代码都不是合规**：这样 god-file 的代码体积不变，只是把 ratchet 想保护的文档面磨掉（4c7a0d0a3 曾以压缩 §29.60 车道注释达标，§40.55 恢复）。三个 ratchet 的失败文案都带同一句话，由 `internal/orchestrator/ratchet_compliance_message_census_test.go` 单源钉死（ratchet 文件名册 `locRatchetTestFiles`，不可读即红）。
+3. **不加注释行下限 / 注释密度 ratchet**：行数与注释数是嘈声信号（注释合法地随代码迁移），只作软引导（文案 + 本节），不作硬门。
+4. **账本链**：每次收紧在 ratchet 测试的行上追加一条"Tightened A→B after <批次> moved <concern> into <file>"记录；预算**从不上调**（source-inventory 集群保留"DELIBERATE 上调须显式记档"的例外口，因其目标是集群整体收缩而非单文件）。
 
 ---
 
@@ -2603,7 +2626,7 @@ codrax --tracediag <script.yaml> --trace <trace> \
 ```
 
 - **纯读、零 LLM**：完全旁路 initApp / LLM 管线（无 providers.yaml 需求，不触 L1 读管线字节恒等）；只 import tracequery 引擎消费，报告渲染在本包自建证据面。
-- **脚本**：strict YAML（仅 yaml.v3，未知字段 fail-loud）。v1=静态步骤（label/view/pid/thread/window/line 区间/pattern/event_types/max_lines）；v2=受限 typed `discoveries` + `windows_from.discovery` 自动窗发现/fan-out（closed strategy registry，当前 `pairing_integrity`；不开放 JSONPath/模板字符串/prose 解析）。v2 模板以 `inputs.window/tid: required` 声明输入：`--trace-window` 只写 `defaults.window`（显式 step/discovery 窗保持权威），`--trace-tid` 只注入声明 `pid_from: tid` 的目标步骤（raw IO/WQ/DMA/trace-mark/unknown 车道不绑定，保住 IRQ/kworker 对端）；漏传 fail-loud，不产伪报告。
+- **脚本**：strict YAML（仅 yaml.v3，未知字段 fail-loud）。v1=静态步骤（label/view/pid/thread/window/line 区间/pattern/patterns/event_types/trace_mark_actions/max_lines；`patterns` 为 event_search 专属 typed OR 字面量集，与 LLM 工具 `trace_query.patterns` 同经引擎 `tracequery.NormalizeEventSearchPatterns` 单源校验——去空白、大小写不敏感去重、≤`EventSearchPatternLimit`=16，非 event_search 视图 fail-loud；报告「参数:」行以 `patterns=["a","b"]` 回显）；静态过滤字段与工具 event_search 参数面一一镜像，由 `internal/tool` 跨面 census（`TestTraceQueryEventSearchParamsMirroredInTraceDiagStep`：工具 schema 属性 → 镜像/工具专属双闭集名册，未识别属性 fail-loud）与本包参数面指纹 pin（`stepParamSchemaPins` / `TestStepParamSchemaPinned`：Script 可达的每个 yaml struct 必钉）双向钉死（V11-2，colleague_merge_audit §40.58）；v2=受限 typed `discoveries` + `windows_from.discovery` 自动窗发现/fan-out（closed strategy registry，当前 `pairing_integrity`；不开放 JSONPath/模板字符串/prose 解析）。v2 模板以 `inputs.window/tid: required` 声明输入：`--trace-window` 只写 `defaults.window`（显式 step/discovery 窗保持权威），`--trace-tid` 只注入声明 `pid_from: tid` 的目标步骤（raw IO/WQ/DMA/trace-mark/unknown 车道不绑定，保住 IRQ/kworker 对端）；漏传 fail-loud，不产伪报告。
 - **预算与诚实披露**：步行数帽默认 800 硬帽 1000 + 总帽，截断两侧如实披露；报告头带版本/flavor/窗口/provenance（basename-only 脱敏 + 主工件字节级 sha256 对账）。
 - **失败语义**：冲突 flag fail-loud；discovery/step 失败 → 非零退出码，独立步骤仍继续执行；`--out` 走 temp+rename，失败不碰旧报告。
 - **出货模板**：`examples/tracediag/`（collect_format_census / collect_open_gap_witness / collect_io_pairing_witness / collect_berlin_pairing_witness / collect_cap2 / collect_g12 / collect_d10 / collect_acceptance_snapshot）。回访命令与回传规则见 `docs/design/trace_analysis_open_gap_ledger_20260710.md`（统一采集与回访命令节）+ `docs/design/trace_witness_collection_playbook_20260710.md`。
@@ -2637,6 +2660,12 @@ codrax trace convert --input capture.sys \
 **派生行身份随 action 拓扑演化（V9-1，colleague_merge_audit §40.15）**：每个 action kind 在 `internal/dataquery/action_topology.go` 的 `dataActionTopologies` 单源表声明拓扑 ∈ {`1:1`,`1:N`,`N:1`,`none`}（dataworkflow `ActionTopology` 只委托，`TestActionTopologyDeclaredForEveryActionKind` 钉 `actionCapabilities` 双射，`TestOneToManyRunnersStampDerivedRowIdentity` 钉 1:N runner 必经 `stampDerivedRowIdentity`）。行身份 `_row_identity` 与血统 `_source_locator` 两键分职：1:1 继承（filter/qualify/derive/enrich/apply/extract，原始行身份==locator），1:N 每派生行 `<父身份>#<序数>`（expand/join；嵌套链式 `items.csv#1#2#1`），N:1 组行 `<输入>#group#<序数>`（不与输入行碰撞，血统在 `_source_locators`）。`ContributionRecord.RowIdentity` / `RowDecision.RowIdentity`（wire `row_identity`，omitempty，runner 拥有）进 dedupe 键与 `ValidateContributionDecisionConsistency` 键；后者在身份未命中时按 `rowIdentityAncestors`（仅由同一格式规则精确剥离到 locator，不做模糊前缀）查父行排除（B461 类保留），无 `row_identity` 的模型账本行为不变。显式 `item_id_field` 仍主宰 ItemID（B461）但永不折叠兄弟身份。
 
 **不存在第五车道**：组键解释在 compute 时刻（最早诚实点，records 在手）对全 action **全局单次判定**（`resolveContributionGroupKeyInterpretation`），字段名不再按输入逐个静默降级为常量组标签（历史行为曾铸出与 reconcile 自洽的幽灵组，eval gap F11，且同一 action 的组语义可在输入间分叉）。可判定的退化情形——常量组键 ∈ `canonicalLedgerFieldNameSet()`（四账本 struct JSON tag ∪ 解码 alias 注册表的单源闭集，`TestCanonicalLedgerFieldNameSetTripwire` 双向钉死）且无任何输入携带同名字段——硬拒为 typed `DataFieldContractError`（Role=`contribution_group_key_lineage`），修复双臂：enrich/join 物化字段（dataworkflow missing_field_recovery 确定性识别并生成 fallback 计划）或显式声明 `group_key_literal`。两个硬门谓词均精确（逐字字段存在性 + 有限闭集成员）；脚本车道的 GroupKey∈schema/headers 成员性是嘈声信号，只走 `warnLedgerGroupKeyLineage` 软告警（ContractWarnings，模型下轮可见），永不硬拦。
+
+### 13.9 数据车道输出契约单一快照（V9-4，colleague_merge_audit §40.27 / §40.56）
+
+数据工作流的 `OutputContract` 是**一个**标识空间，只有一个解析器：`internal/repl/data_task_workflow.go :: dataTaskCarryDurableOutputContract(candidate, durable)`（= `dataworkflow.BestOutputContract`，按 specificity 取强，平局候选胜；幂等）。CLI/REPL 循环里的 `protectPlan` 闭包用它把 durable 契约携带进每个待准入计划；同一函数的 `runtimeView` 闭包把**同一个变量** `durableOutputContract` 放进 `WorkflowRuntimeView.ExecutionOutputContract`。planner 的派发前投影门（`planDataTaskWithTool` 的 `parsePlan`）在跑 `dataquery.NormalizeDataActionForOutputContract` 之前先对草稿做同一次 carry（基线来自 `dataTaskExecutionOutputContractBaseline(view)`：循环内=闭包值，循环外=`dataTaskWorkflowOutputContract` 种子折叠），因此门判定的契约与执行契约字节相同；模型在 tool call 仍打开时按精确 `DataActionParamError` 修复，而不是执行失败后再烧修复轮。
+
+从未经过 planner 门的计划（deferred 余量、确定性 fallback、resume）在准入与派发前由 `dataworkflow.ActionOutputContractGuardResult(plan)`（`output_contract_admission.go`，接线在 `dataTaskWorkflowActionStagingGuardResult`）用**同一个** executor normalizer 在携带后的契约下判定；只有契约相关的拒绝（`DataActionParamError.OutputFormat` 非空——投影×格式、仅 json_only 存在的 output_field 缺省）升为 typed guard `action_output_contract_drift`（`RepairNeedsTypedAction`，走既有 repair/fallback 恢复车道；violation 保持 executor 自身的 `action_param_violation` 定位，不向 prompt 引入新 typed 值），契约无关的参数缺陷保持原车道；`ActionRunner.Run` 的 `applyDataActionParamContract` 仍是 fail-closed 后盾。census：`internal/repl/data_task_output_contract_census_test.go`（写者闭集允许表 / 门基线数据流 / 循环绑定 / 准入接线，未识别形一律红，逐形自红）。
 
 ---
 

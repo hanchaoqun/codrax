@@ -173,7 +173,7 @@ func TraceRootCauseDescriptionTeaching() string {
 // so the model is never promised silence — an invalid selector is dropped,
 // the tool result names the precise reason, and the fix rides the next patch.
 func TraceRootCauseSelectorOutcomeTeaching() string {
-	return "Optional model-owned ordered selection for a separate JSON report. Omitting it never rejects the full answer. An invalid selection (wrong schema_version, unknown or duplicate candidate_id) never rejects the full answer either: it is dropped, the tool result names the exact reason, and you fix it with replace_trace_root_causes in the next emit_answer_document_patch."
+	return "Optional model-owned ordered selection for a separate JSON report. Omitting it never rejects the full answer. Omitting it while selectable candidates exist is accepted as your choice, and the tool result then notes that the report will carry no model selection. An invalid selection (wrong schema_version, unknown or duplicate candidate_id) never rejects the full answer either: it is dropped, the tool result names the exact reason, and you fix it with replace_trace_root_causes in the next emit_answer_document_patch."
 }
 
 // TraceImpactCaliber values carried on the public sidecar — closed set. The

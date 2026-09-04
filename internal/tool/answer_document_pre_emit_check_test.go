@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -9222,15 +9223,12 @@ func TestFormatEmitFixHints_RedlineAudit(t *testing.T) {
 	got := formatEmitFixHints(hints)
 
 	// R6: must not leak internal vocab.
-	for _, banned := range []string{
+	for _, hit := range glossarylint.ScanTextWith("formatEmitFixHints", got,
 		"orchestrator", "ViolKind", "ViolationKind", "ClusterKey",
 		"SuspectedRoot", "BuildRepairPlan", "RepairCluster",
-		"AnswerDocumentV2", "FacetCoverage", "AnchoredCount",
-		"DeclaredCount", "TaskGraph", "BusContext",
-	} {
-		if strings.Contains(got, banned) {
-			t.Errorf("rejection prose must not leak internal token %q; got %q", banned, got)
-		}
+		"AnchoredCount", "DeclaredCount",
+	) {
+		t.Errorf("rejection prose must not leak internal token %q; got %q", hit.Term, got)
 	}
 
 	// No third natural language.

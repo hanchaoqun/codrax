@@ -19,7 +19,14 @@ func extractNavigationCalls(root *sitter.Node, src []byte, file, resolvedBy stri
 	var rels []types.Relation
 	receiverDeclarations := navigationReceiverDeclarations(root, src)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
-		if node.Type() != "call_expression" || node.NamedChildCount() == 0 {
+		// Swift spells a generic-specialised construction `Box<Int>(x)` as
+		// constructor_expression(user_type(type_identifier, type_arguments))
+		// rather than call_expression (B1554); the callee is the user_type's
+		// own type_identifier, the same bare name `Box(x)` publishes.
+		if node.Type() != "call_expression" && node.Type() != "constructor_expression" {
+			return
+		}
+		if node.NamedChildCount() == 0 {
 			return
 		}
 		fn := node.NamedChild(0)
@@ -168,6 +175,14 @@ func navigationCallTarget(fn *sitter.Node, src []byte) (name, receiver string) {
 	switch fn.Type() {
 	case "simple_identifier", "identifier", "type_identifier":
 		return strings.TrimSpace(nodeText(fn, src)), ""
+	case "user_type":
+		// Swift constructor_expression's constructed_type: the callee is the
+		// type's own identifier; its type_arguments are never part of the
+		// published name (B1554).
+		if typeName := childByType(fn, "type_identifier"); typeName != nil {
+			return strings.TrimSpace(nodeText(typeName, src)), ""
+		}
+		return "", ""
 	case "navigation_expression":
 		target := fn.ChildByFieldName("target")
 		if target == nil && fn.NamedChildCount() > 0 {

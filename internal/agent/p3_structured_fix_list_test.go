@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -225,15 +226,12 @@ func TestRenderRetryStructuredFixList_R6Audit(t *testing.T) {
 	got := renderRetryStructuredFixList(rs)
 
 	// R6: no internal Go type / metric vocab.
-	for _, banned := range []string{
+	for _, hit := range glossarylint.ScanTextWith("renderRetryStructuredFixList", got,
 		"ScoredViolation", "ViolKind", "ViolationKind",
 		"ClusterKey", "SuspectedRoot", "BuildRepairPlan",
-		"FacetCoverage", "AnchoredCount", "DeclaredCount",
-		"BlockRequirement", "RetryState", "RepairCluster",
-	} {
-		if strings.Contains(got, banned) {
-			t.Errorf("must not leak internal token %q; got %q", banned, got)
-		}
+		"AnchoredCount", "DeclaredCount", "RetryState", "RepairCluster",
+	) {
+		t.Errorf("must not leak internal token %q; got %q", hit.Term, got)
 	}
 
 	// No third natural language tokens.

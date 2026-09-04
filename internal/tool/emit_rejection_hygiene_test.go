@@ -2,9 +2,9 @@ package tool
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -14,10 +14,11 @@ import (
 // can only act on schema-level field language. The wordlist below is a
 // TEST oracle; production code never routes on keywords.
 func TestEmitRejectionSummaries_NoInternalJargon(t *testing.T) {
-	banned := []string{
-		"Mutable", "BusContext", "StageOutput", "graphState", "ViolKind",
-		"AnalysisIR", "TurnAArtifacts", "EvidenceClosure", "json.Unmarshal",
-		"*types.", "interface {}", "struct {",
+	// Per-surface extras only; the shared glossary vocabulary comes from
+	// glossarylint.ScanTextWith (§40.52: no test re-lists glossary entries).
+	extras := []string{
+		"Mutable", "graphState", "ViolKind", "TurnAArtifacts",
+		"json.Unmarshal", "*types.", "interface {}", "struct {",
 	}
 	mu := types.NewMutableState("hygiene")
 	ctx := &types.BusContext{Mutable: mu}
@@ -40,10 +41,8 @@ func TestEmitRejectionSummaries_NoInternalJargon(t *testing.T) {
 			if res.Success {
 				t.Skipf("payload unexpectedly accepted; rejection text not exercised")
 			}
-			for _, word := range banned {
-				if strings.Contains(res.Summary, word) {
-					t.Fatalf("rejection summary leaks internal vocabulary %q: %s", word, res.Summary)
-				}
+			for _, hit := range glossarylint.ScanTextWith(tc.name+".Summary", res.Summary, extras...) {
+				t.Fatalf("rejection summary leaks internal vocabulary %q: %s", hit.Term, res.Summary)
 			}
 		})
 	}

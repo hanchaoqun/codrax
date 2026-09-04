@@ -54848,7 +54848,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B698-CLASSUMLANCHORDIRECTION1=production-positive-r418`；
+`B698-CLASSUMLANCHORDIRECTION1=superseded-by-colleague_merge_audit-§40.27-V10-4/§40.57`（2026-09-03：exact-unique-typed-self-heal 退役——系统不再静默交换模型 type_relation 锚方向；同一形状改由 diagram 证据门以 `typed_anchor_reversed_against_visible_edge` 精确拒绝并教学对齐，r418 形状现多付一轮 finalizer 重试而非零轮；原 pin `AlignsReverseTypeRelationAnchorWithClassDiagramSemantics` / `FailsOpenOutsideExactUniquePair` 重钉为 `KeepsReverseTypeRelationAnchorVerbatim` + `NeverMutatesModelEdgeAnchors` census）；
 `B699-DIAGRAMAUTHORITYDUALCARRIER1=production-positive-r418`；
 `B700-IMPLEMENTVISUALFAMILY1=production-positive-r418`；
 `B701-MIXEDCLASSFLOWDIRECTION1=implemented/syntax-only-semantic-direction+pinned/pending-production-replay`；

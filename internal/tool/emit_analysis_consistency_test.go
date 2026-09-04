@@ -288,7 +288,7 @@ func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *t
 	if !strings.Contains(prop.Description, types.CallChainEndpointProfileTeaching) {
 		t.Fatalf("call_chain_endpoints schema must consume the single teaching source: %s", prop.Description)
 	}
-	if !strings.Contains(prop.Description, types.CallChainEndpointLowMindRule) {
+	if !strings.Contains(prop.Description, types.CallChainEndpointDefaultEmptyRule) {
 		t.Fatalf("call_chain_endpoints schema must front-load the inert non-call-chain shape: %s", prop.Description)
 	}
 }
@@ -502,8 +502,13 @@ func TestEmitAnalysisSchemaIncludesDiagramHintEnum(t *testing.T) {
 	if !ok || requiredProp.Type != "boolean" {
 		t.Fatalf("diagram_hint.required missing boolean property: %+v", prop.Properties)
 	}
-	if !strings.Contains(requiredProp.Description, "explicit current-turn visual request") {
-		t.Fatalf("diagram_hint.required description lacks authority boundary: %q", requiredProp.Description)
+	// EVOLUTION RECORD (V7-4, §40.54): the authority boundary used to be
+	// pinned by the phrase "explicit current-turn visual request" that named
+	// the classifier wire signal the analyzer never sees. The boundary is now
+	// the single R2' teaching sentence shared with the skill prompt, the
+	// missing-field reject, and the normalization warning.
+	if !strings.Contains(requiredProp.Description, types.PresentationHardVisualTeaching()) {
+		t.Fatalf("diagram_hint.required description lacks the shared authority teaching: %q", requiredProp.Description)
 	}
 	if !reflect.DeepEqual(prop.Required, []string{"kind", "required", "relation_scope_quote", "participants"}) {
 		t.Fatalf("diagram_hint required = %v, want [kind required relation_scope_quote participants]", prop.Required)

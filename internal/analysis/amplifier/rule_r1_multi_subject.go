@@ -154,7 +154,7 @@ func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel) *Ob
 		Field:  "predicates.is_category_enumeration",
 		Before: "false",
 		After:  "true",
-		Reason: fmt.Sprintf("AnalyzerHints.Entities has %d distinct named subjects with intent=%s and non-scalar answer", count, out.Intent),
+		Reason: fmt.Sprintf("the entities list has %d distinct named subjects with intent=%s and non-scalar answer", count, out.Intent),
 	}
 }
 

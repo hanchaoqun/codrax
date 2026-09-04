@@ -189,40 +189,18 @@ type answerDocumentEvaluator struct {
 	diagramKinds       []types.DiagramKind
 	configTraceDiagram bool
 
-	// requestedDimensionCoverageHinted latches the bounded repair hint for
-	// user-requested answer dimensions. The dimensions are typed analyzer
-	// output, not free-prose intent; this hint only retries dimensions that
-	// have precise structural carriers. Label/presentation-only misses stay
-	// advisory so accepted answers do not pay another LLM round for noisy
-	// display wording.
-	requestedDimensionCoverageHinted bool
-
-	// requestedDimensionOrderHinted bounds one layout-only repair when two or
-	// more analyzer-produced dimensions have a precise, unique model-owned block
-	// seat but those seats contradict their typed indices. It never reads the
-	// request, model prose, Mermaid labels, or rendered answer text, and it never
-	// reorders blocks itself: the model must select a complete permutation via
-	// model_block_order.
-	requestedDimensionOrderHinted bool
-
-	// externalObservationSelectorCoverageHinted latches a similarly bounded
-	// repair hint for typed external-observation selectors such as MCP rows.
-	// The selector is producer-provided structure, not user prose; the hint
-	// keeps final answers from replacing typed external facts with nearby
-	// source-code or raw-line reinterpretations.
-	externalObservationSelectorCoverageHinted bool
-
-	// traceProjectionHeadlineEntityHinted latches the G13 advisory
-	// (§27.4/§28.1 ruling, real_trace_campaign_20260705.md, 2026-07-09):
-	// when the run's trace causal projection elects a primary root-cause
-	// entity and the answer's summary / principal prose never mentions that
-	// entity, ONE advisory round asks the model to either align its
-	// primary-cause statement or state the divergence explicitly. Entity
-	// mention matching is a NOISY signal (substring-level, loose
-	// normalization), so this lane is advisory-only by red line — it never
-	// hard-rejects, and after the single latch the next observation accepts
-	// the emit unconditionally.
-	traceProjectionHeadlineEntityHinted bool
+	// postEmitAdvisoryDelivered is the ONE latch of the post-emit advisory
+	// pass (V3-3 §40.51, answer_document_post_emit_advisory.go): after an
+	// accepted emit_answer_document, every advisory lane — user-requested
+	// answer dimensions (typed analyzer output with precise structural
+	// carriers), the typed dimension order (model_block_order permutation),
+	// typed external-observation selectors (MCP rows), and the G13 trace
+	// primary-cause entity (§27.4/§28.1 ruling; NOISY substring signal, so
+	// advisory-only by red line) — runs in the same observation and the
+	// findings are merged into ONE disclosure costing at most one extra LLM
+	// round per dispatch. The latch is dispatch-scoped (reset in
+	// BuildInitialInstruction) and never touches hard-reject accounting.
+	postEmitAdvisoryDelivered bool
 }
 
 const (
@@ -419,10 +397,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	e.diagramMinimum = 0
 	e.diagramKinds = nil
 	e.configTraceDiagram = false
-	e.requestedDimensionCoverageHinted = false
-	e.requestedDimensionOrderHinted = false
-	e.externalObservationSelectorCoverageHinted = false
-	e.traceProjectionHeadlineEntityHinted = false
+	e.postEmitAdvisoryDelivered = false
 	if ctx != nil {
 		e.mu = ctx.Mutable
 		e.configTraceDiagram = ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace
@@ -15768,16 +15743,12 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		// any successful emit produces ≥1 block).
 		if e.mu != nil {
 			if docV2 := e.mu.AnswerDocumentV2(); docV2 != nil && len(docV2.Blocks) > 0 {
-				if sig := e.requestedAnswerDimensionCoverageSignal(ctx, docV2); sig.HintRequested {
-					return sig
-				}
-				if sig := e.requestedAnswerDimensionOrderSignal(ctx, docV2); sig.HintRequested {
-					return sig
-				}
-				if sig := e.externalObservationSelectorCoverageSignal(ctx, docV2); sig.HintRequested {
-					return sig
-				}
-				if sig := e.traceProjectionHeadlineEntitySignal(ctx, docV2); sig.HintRequested {
+				// V3-3 (§40.51): every post-emit advisory lane runs in this
+				// one observation and the findings are ONE disclosure — never
+				// one lane per round. A rejected advisory patch lands here
+				// again with the accepted document still in place and stops
+				// (the typed escape: the advisory can never block shipping).
+				if sig := e.postEmitAdvisorySignal(ctx, docV2); sig.HintRequested {
 					return sig
 				}
 				return LoopSignal{StopRequested: true, StopReason: "emit_answer_document called"}
@@ -15880,33 +15851,6 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 	}
 }
 
-func (e *answerDocumentEvaluator) requestedAnswerDimensionCoverageSignal(ctx *types.AgentContext, doc *types.AnswerDocumentV2) LoopSignal {
-	if e == nil || e.requestedDimensionCoverageHinted {
-		return LoopSignal{}
-	}
-	missing := missingRequestedAnswerDimensionsInDocument(ctx, doc)
-	if len(missing) == 0 {
-		return LoopSignal{}
-	}
-	missing = requestedAnswerDimensionsRequiringPatchRetry(missing)
-	if len(missing) == 0 {
-		return LoopSignal{}
-	}
-	e.requestedDimensionCoverageHinted = true
-	lang := e.language
-	if strings.TrimSpace(lang) == "" {
-		lang = extractAnswerDocLang(ctx)
-	}
-	return LoopSignal{
-		HintRequested:  true,
-		HintKey:        "answer_doc.requested_dimensions",
-		Hint:           requestedAnswerDimensionCoverageHint(ctx, missing, lang),
-		Progress:       true,
-		BypassThrottle: true,
-		BypassBudget:   true,
-	}
-}
-
 type requestedAnswerDimensionOrderViolation struct {
 	EarlierDimensionIndex int
 	LaterDimensionIndex   int
@@ -15915,41 +15859,14 @@ type requestedAnswerDimensionOrderViolation struct {
 	ModelBlockIDs         []string
 }
 
-// requestedAnswerDimensionOrderSignal asks the model for one layout-only
-// repair when typed requested-dimension order and exact model-owned block seats
-// disagree. The hard signal is intentionally narrow: both dimensions must have
+// requestedAnswerDimensionOrderViolationInDocument detects one layout-only
+// repair: typed requested-dimension order and exact model-owned block seats
+// disagree. The signal is intentionally narrow: both dimensions must have
 // positive distinct indices, each role may occur only once, and each role must
 // resolve to exactly one structural carrier. Ambiguous/multi-block roles fail
 // open to the existing soft teaching instead of turning noisy presentation
-// inference into a hard gate.
-func (e *answerDocumentEvaluator) requestedAnswerDimensionOrderSignal(ctx *types.AgentContext, doc *types.AnswerDocumentV2) LoopSignal {
-	if e == nil || e.requestedDimensionOrderHinted {
-		return LoopSignal{}
-	}
-	violation, ok := requestedAnswerDimensionOrderViolationInDocument(ctx, doc)
-	if !ok {
-		return LoopSignal{}
-	}
-	e.requestedDimensionOrderHinted = true
-	lang := e.language
-	if strings.TrimSpace(lang) == "" {
-		lang = extractAnswerDocLang(ctx)
-	}
-	idsJSON, _ := json.Marshal(violation.ModelBlockIDs)
-	hint := fmt.Sprintf("The typed presentation order requires dimension #%d block `%s` to appear before dimension #%d block `%s`, but the current model-authored block order is reversed. Keep every block byte-identical and use `emit_answer_document_patch` with `model_block_order` containing every current model-authored block id exactly once; choose the complete reader-facing placement of all other model blocks yourself. Current model block ids: `%s`. Do not use add/remove, do not rewrite prose or relations, and do not move system-generated supplements.", violation.EarlierDimensionIndex, violation.EarlierBlockID, violation.LaterDimensionIndex, violation.LaterBlockID, string(idsJSON))
-	if strings.EqualFold(lang, "zh") || strings.HasPrefix(strings.ToLower(lang), "zh-") {
-		hint = fmt.Sprintf("typed 展示顺序要求第 %d 维对应块 `%s` 位于第 %d 维对应块 `%s` 之前，但当前模型块顺序相反。请保持所有块内容字节不变，只调用 `emit_answer_document_patch`，在 `model_block_order` 中将当前全部模型自有块 ID 各列一次；其余模型块的完整阅读顺序仍由你选择。当前模型块 ID：`%s`。不要增删块，不要改写正文或关系，也不要移动系统补充块。", violation.EarlierDimensionIndex, violation.EarlierBlockID, violation.LaterDimensionIndex, violation.LaterBlockID, string(idsJSON))
-	}
-	return LoopSignal{
-		HintRequested:  true,
-		HintKey:        "answer_doc.requested_dimension_order",
-		Hint:           hint,
-		Progress:       true,
-		BypassThrottle: true,
-		BypassBudget:   true,
-	}
-}
-
+// inference into a hard gate. Rendered by requestedAnswerDimensionOrderHint as
+// one item of the merged post-emit advisory (V3-3 §40.51).
 type requestedAnswerDimensionBlockSeat struct {
 	dimension types.RequestedAnswerDimension
 	blockID   string
@@ -17160,8 +17077,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	}
 	var b strings.Builder
 	if zh {
-		b.WriteString("你的 `emit_answer_document` 已经落地，但最终可见答案遗漏了本轮用户明确要求保留的答案维度。")
-		b.WriteString("请只修订答案展示面，不要重新搜索或编造没有证据的内容。")
+		b.WriteString("最终可见答案遗漏了本轮用户明确要求保留的答案维度。")
 		b.WriteString("按维度序号恢复独立输出面；图不能替代另行要求的清单、表格或解释。")
 		b.WriteString("优先使用 `emit_answer_document_patch` 在现有答案中补小标题、表格行/列、列表标签或边界说明；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
 		b.WriteString("下面只列面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
@@ -17203,8 +17119,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
 		return b.String()
 	}
-	b.WriteString("Your `emit_answer_document` call landed, but the visible final answer omitted user-requested answer dimensions for this turn. ")
-	b.WriteString("Repair only the answer surface; do not re-open searches or invent unsupported content. ")
+	b.WriteString("The visible final answer omitted user-requested answer dimensions for this turn. ")
 	b.WriteString("Restore independent output surfaces in dimension order; a diagram does not replace a separately requested roster, table, or explanation. ")
 	b.WriteString("Prefer `emit_answer_document_patch` to add headings, table rows/columns, list labels, or boundary notes to the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
 	b.WriteString("Only user-facing labels are listed below. Do not append internal system roles or enum names to the visible answer.\n")
@@ -17295,29 +17210,6 @@ type externalObservationSelectorRequirement struct {
 }
 
 var observationSelectorKVRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.-]*)=("[^"]+"|'[^']+'|[^\s,;]+)`)
-
-func (e *answerDocumentEvaluator) externalObservationSelectorCoverageSignal(ctx *types.AgentContext, doc *types.AnswerDocumentV2) LoopSignal {
-	if e == nil || e.externalObservationSelectorCoverageHinted {
-		return LoopSignal{}
-	}
-	missing := missingExternalObservationSelectorFactsInDocument(ctx, doc)
-	if len(missing) == 0 {
-		return LoopSignal{}
-	}
-	e.externalObservationSelectorCoverageHinted = true
-	lang := e.language
-	if strings.TrimSpace(lang) == "" {
-		lang = extractAnswerDocLang(ctx)
-	}
-	return LoopSignal{
-		HintRequested:  true,
-		HintKey:        "answer_doc.external_observation_selectors",
-		Hint:           externalObservationSelectorCoverageHint(missing, lang),
-		Progress:       true,
-		BypassThrottle: true,
-		BypassBudget:   true,
-	}
-}
 
 func missingExternalObservationSelectorFactsInDocument(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []externalObservationSelectorRequirement {
 	if ctx == nil || doc == nil || len(doc.Blocks) == 0 {
@@ -17441,7 +17333,7 @@ func externalObservationSelectorCoverageHint(missing []externalObservationSelect
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	var b strings.Builder
 	if zh {
-		b.WriteString("你的 `emit_answer_document` 已经落地，但最终可见答案遗漏或改写了 typed 外部观测 selector 中的关键值。")
+		b.WriteString("最终可见答案遗漏或改写了 typed 外部观测 selector 中的关键值。")
 		b.WriteString("这些 selector 来自 MCP/connector/runtime 等外部观测生产者，是行级事实的结构化解释；不要用当前源码或 raw 行重新推断来覆盖它们。")
 		b.WriteString("请只修订答案展示面，优先使用 `emit_answer_document_patch`，保留已有结论和引用。\n\n")
 		b.WriteString("缺失的 selector 值：\n")
@@ -17455,7 +17347,7 @@ func externalObservationSelectorCoverageHint(missing []externalObservationSelect
 		b.WriteString("\n请在对应行/资源说明中显式保留这些值；证据不足时说明边界。不要写工具外散文。")
 		return b.String()
 	}
-	b.WriteString("Your `emit_answer_document` call landed, but the visible final answer omitted or rewrote key values from typed external-observation selectors. ")
+	b.WriteString("The visible final answer omitted or rewrote key values from typed external-observation selectors. ")
 	b.WriteString("These selectors come from MCP/connector/runtime producers and are structured line-level explanations; do not override them with current-source context or raw-line reinterpretation. ")
 	b.WriteString("Repair only the answer surface, preferably with `emit_answer_document_patch`, and preserve existing conclusions and citations.\n\n")
 	b.WriteString("Missing selector values:\n")
@@ -17477,36 +17369,6 @@ func externalObservationSelectorCoverageHint(missing []externalObservationSelect
 type traceProjectionHeadlineEntity struct {
 	Subject       string
 	ArtifactLabel string
-}
-
-// traceProjectionHeadlineEntitySignal fires the ONE-SHOT G13 advisory when
-// the compiled trace causal projection carries a primary root-cause entity
-// token that the answer's summary / principal prose never mentions. Entity
-// mention matching (substring-level, loose normalization) is a NOISY signal:
-// by red line it drives soft guidance only — an advisory patch round via the
-// standard hint channel, never a hard reject. After the latch fires once,
-// the next observation accepts the emit unconditionally.
-func (e *answerDocumentEvaluator) traceProjectionHeadlineEntitySignal(ctx *types.AgentContext, doc *types.AnswerDocumentV2) LoopSignal {
-	if e == nil || e.traceProjectionHeadlineEntityHinted {
-		return LoopSignal{}
-	}
-	missing := missingTraceProjectionHeadlineEntitiesInDocument(ctx, doc)
-	if len(missing) == 0 {
-		return LoopSignal{}
-	}
-	e.traceProjectionHeadlineEntityHinted = true
-	lang := e.language
-	if strings.TrimSpace(lang) == "" {
-		lang = extractAnswerDocLang(ctx)
-	}
-	return LoopSignal{
-		HintRequested:  true,
-		HintKey:        "answer_doc.trace_primary_cause_entity",
-		Hint:           traceProjectionHeadlineEntityCoverageHint(missing, lang),
-		Progress:       true,
-		BypassThrottle: true,
-		BypassBudget:   true,
-	}
 }
 
 // missingTraceProjectionHeadlineEntitiesInDocument compiles the run's trace
@@ -17731,7 +17593,7 @@ func traceProjectionHeadlineEntityCoverageHint(missing []traceProjectionHeadline
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	var b strings.Builder
 	if zh {
-		b.WriteString("你的 `emit_answer_document` 已经落地，但正文的主要原因表述没有提及运行时证据排序中归因最高的实体。")
+		b.WriteString("正文的主要原因表述没有提及运行时证据排序中归因最高的实体。")
 		b.WriteString("这是一次建议性修订：不要重新搜索或编造没有证据的内容，优先使用 `emit_answer_document_patch` 只修订答案展示面。\n\n")
 		b.WriteString("排序最高的根因实体：\n")
 		for _, entity := range missing {
@@ -17744,7 +17606,7 @@ func traceProjectionHeadlineEntityCoverageHint(missing []traceProjectionHeadline
 		b.WriteString("\n请把主要原因表述对齐到该实体；如果你认定其他因素更重要，必须在正文中点名该实体并显式说明与该排序的差异及理由，不得静默改写主因。保留已有结论和引用；不要写工具外散文。")
 		return b.String()
 	}
-	b.WriteString("Your `emit_answer_document` call landed, but the body's primary-cause statement never mentions the highest-attribution entity in the run's ranked runtime evidence. ")
+	b.WriteString("The body's primary-cause statement never mentions the highest-attribution entity in the run's ranked runtime evidence. ")
 	b.WriteString("This is an advisory revision: do not re-open searches or invent unsupported content; prefer `emit_answer_document_patch` and repair only the answer surface.\n\n")
 	b.WriteString("Top-ranked root-cause entity:\n")
 	for _, entity := range missing {
@@ -25522,7 +25384,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	b.WriteString("- These recipes prove only adjacent stage precedence. They do not prove `call`, `data_flow`, artifact transfer, shared-state participant connectivity, or runtime causality; those relations still require their own typed evidence.\n")
 	b.WriteString("- For a `sequenceDiagram`, one chosen recipe is represented by exactly one forward body message `<from_node>->><to_node>: <visible_arrow_label>` plus exactly one matching block-level `edge_anchors` row `{from_node:<from_node>,to_node:<to_node>,from_identity:<the chosen exact from identity>,to_identity:<the chosen exact to identity>,relation_kind:precedence}`. The Mermaid arrow is presentation syntax; the typed anchor keeps it an ordering relation rather than a function call.\n")
 	b.WriteString("- Do not add dispatcher-to-stage fan-out messages, stage self-messages, activation/deactivation messages, reverse replies, or artifact-transfer arrows merely to make the sequence look complete. Each would be another visible relation claim and needs its own separately published typed recipe. Artifact/state rows above remain table facts or no-arrow groups when no operation recipe exists.\n")
-	b.WriteString("- If a repair reports an unowned visible edge, remove only that named body edge. If it reports `typed_anchor_without_visible_edge`, either restore the one matching body edge from the same recipe or remove that stale anchor; never manufacture a self-loop or a new bridge to satisfy metadata.\n")
+	b.WriteString("- If a repair reports an unowned visible edge, remove only that named body edge. If it reports `typed_anchor_without_visible_edge`, either restore the one matching body edge from the same recipe or remove that stale anchor; never manufacture a self-loop or a new bridge to satisfy metadata. If it reports `typed_anchor_reversed_against_visible_edge`, your anchor and your own arrow disagree on direction: swap the anchor's from_node/to_node (and from_identity/to_identity together) or reverse the arrow; never delete the diagram to satisfy it.\n")
 	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(extractAnswerDocLang(ctx))), "zh")
 	for i, relation := range precedence {
 		fmt.Fprintf(&b, "- stage_precedence[%d]: from_stage=`%s` (`%s`); from_agent=`%s` (`%s`); to_stage=`%s` (`%s`); to_agent=`%s` (`%s`); relation_kind=`precedence`; visible_arrow_label=%q; source=`%s:%d-%d`.\n",

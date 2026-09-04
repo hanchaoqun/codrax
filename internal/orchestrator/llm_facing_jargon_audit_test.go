@@ -3,92 +3,50 @@ package orchestrator
 import (
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 )
 
-// llm_facing_jargon_audit_test.go — Phase 1-D (V2 runtime eval
-// followup, 2026-05-04). Extends the R4 "no internal jargon in
-// LLM prompts" red-line check beyond skill/.
+// TestReviewerPrompts_LLMFacingNoInternalJargon is the orchestrator's
+// prompt-surface marker in the glossarylint renderer roster (§40.52).
+// It replaces the hand-curated map of six reviewer system prompts plus
+// one tool description (which had silently omitted the semantic-quality
+// reviewer prompt and six tool schemas) with the shape-bound census:
+// every package-level `…Prompt` const and every llm.ToolSchema literal
+// in this package is found by the AST, its text resolved, and scanned
+// against the full glossary. A reviewer added with a new construction
+// shape fails loud instead of slipping past the roster.
 //
-// Existing coverage: internal/skill/glossary_test.go::
-// TestNoInternalTermsInPrompts walks every Config in the skill
-// registry. That covers the static prompt corpora.
-//
-// This test extends to orchestrator-side LLM-facing strings that
-// the skill scanner cannot reach:
-//   - SelfConsistencyReviewer system prompt (long const)
-//   - SelfConsistencyReviewer tool Description (separate string)
-//
-// Add new entries here as new LLM-facing string sources are
-// introduced in this package.
-
-// localInternalTerms mirrors a subset of skill.InternalTermsBlocklist
-// — duplicated so the orchestrator package does NOT acquire a
-// dependency on internal/skill (would create import cycles for
-// some test-only callers).
-//
-// Mirror discipline: if skill.InternalTermsBlocklist gains an
-// entry that materially changes the audit shape, add the same
-// entry here. The audit covers the categories most likely to
-// leak into orchestrator-owned LLM strings.
-var localInternalTerms = []string{
-	"finalizer",
-	"BusContext",
-	"MutableState",
-	"FacetCoverageContract",
-	"AnswerSemanticView",
-	"AnswerSupportPlan",
-	"AnswerSupportLane",
-	"AllowedBlocks",
-	"AcceptableClaimForms",
-	"TaskGraph",
-	"EvidenceClosure",
-	"Tier 1",
-	"Tier 2",
-	"Layer 1",
-	"Layer 2",
-	"Phase 1",
-	"Phase 2",
-	"Phase 3",
-	"Phase 4",
-	"Phase 5",
-	"Tier-1",
-	"Tier-2",
-}
-
-// TestReviewerPrompts_LLMFacingNoInternalJargon enforces R4 for
-// every reviewer/classifier system prompt + tool description in
-// the orchestrator package. Each new reviewer added here must be
-// listed below; otherwise jargon can leak silently.
+// The census also pins the roster size so a reviewer file deleted or
+// renamed away from the `…Prompt` / llm.ToolSchema shapes is noticed.
 func TestReviewerPrompts_LLMFacingNoInternalJargon(t *testing.T) {
-	surfaces := map[string]string{
-		// System prompt const blobs (long multi-line text).
-		"selfConsistencyReviewerSystemPrompt":  selfConsistencyReviewerSystemPrompt,
-		"answerReviewerSystemPrompt":           answerReviewerSystemPrompt,
-		"continuationClassifierSystemPrompt":   continuationClassifierSystemPrompt,
-		"acceptanceSystemPrompt":               acceptanceSystemPrompt,
-		"planCriticSystemPrompt":               planCriticSystemPrompt,
-		"reflectorSystemPrompt":                reflectorSystemPrompt,
-
-		// Tool descriptions (Description field on llm.ToolSchema).
-		"selfConsistencyTool.Description": selfConsistencyTool.Description,
-	}
-	for label, text := range surfaces {
-		for _, term := range localInternalTerms {
-			if strings.Contains(text, term) {
-				preview := text
-				if i := strings.Index(text, term); i >= 0 {
-					start := i - 30
-					if start < 0 {
-						start = 0
-					}
-					end := i + len(term) + 30
-					if end > len(text) {
-						end = len(text)
-					}
-					preview = "…" + text[start:end] + "…"
-				}
-				t.Errorf("%s leaks internal term %q: %s", label, term, preview)
+	surfaces := glossarylint.RunPromptSurfaceScan(t, ".")
+	prompts := map[string]bool{}
+	schemas := 0
+	for _, s := range surfaces {
+		owner := s.Label[strings.LastIndex(s.Label, " ")+1:]
+		if strings.HasPrefix(owner, "ToolSchema.") {
+			if owner == "ToolSchema.Name" {
+				schemas++
 			}
+			continue
 		}
+		prompts[owner] = true
+	}
+	for _, want := range []string{
+		"selfConsistencyReviewerSystemPrompt",
+		"semanticQualityReviewerSystemPrompt",
+		"answerReviewerSystemPrompt",
+		"continuationClassifierSystemPrompt",
+		"acceptanceSystemPrompt",
+		"planCriticSystemPrompt",
+		"reflectorSystemPrompt",
+	} {
+		if !prompts[want] {
+			t.Errorf("reviewer prompt %s no longer reaches the prompt-surface census (renamed away from the …Prompt shape?)", want)
+		}
+	}
+	if schemas < 8 {
+		t.Errorf("expected at least 8 llm.ToolSchema literals in the orchestrator (acceptance, answer-pattern, continuation, plan-critic, reflector, failure-pattern, semantic-quality, self-consistency), census found %d", schemas)
 	}
 }

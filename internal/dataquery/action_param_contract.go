@@ -333,12 +333,20 @@ func applyDataActionParamContract(action DataAction, outputContract OutputContra
 			params["projection"] = projection
 		}
 		if outputField != "" && projection != "json_object" {
+			// An omitted projection is contract-dependent: under json_only
+			// the same declaration defaults to json_object above. An
+			// explicit non-object projection is rejected under every format.
+			contractFormat := OutputFormat("")
+			if projection == "" {
+				contractFormat = outputContract.Normalize().Format
+			}
 			return action, DataActionParamError{
 				ActionKind:    action.Kind,
 				Param:         "output_field/projection",
 				ExpectedShape: "output_field with projection=json_object, or an omitted projection under output_contract.format=json_only",
 				ActualSnippet: "projection=" + projection,
 				Message:       "assemble_answer output_field names an external JSON object key and would be ignored by the selected non-object projection",
+				OutputFormat:  contractFormat,
 			}
 		}
 	}
@@ -372,11 +380,95 @@ func applyDataActionParamContract(action DataAction, outputContract OutputContra
 }
 
 // NormalizeDataActionForOutputContract is the shared plan/admission boundary
-// for one typed action. Planner-side pre-dispatch repair and ActionRunner must
-// call this same implementation rather than maintaining separate semantic
-// matrices.
+// for one typed action. Planner-side pre-dispatch repair, workflow admission
+// (dataworkflow.ActionOutputContractGuardResult) and ActionRunner must call
+// this same implementation rather than maintaining separate semantic
+// matrices. Every caller must pass the output contract the plan will EXECUTE
+// under (V9-4, colleague_merge_audit §40.56): the verdict for
+// assemble_answer depends on outputContract.Format, so judging a draft
+// contract here and a carried contract at execution is two snapshots of one
+// identifier space.
 func NormalizeDataActionForOutputContract(action DataAction, outputContract OutputContract) (DataAction, error) {
 	return applyDataActionParamContract(action, outputContract)
+}
+
+// DataActionParamError is the executor-owned typed rejection for one action
+// parameter. OutputFormat is non-empty only when the verdict was judged
+// against the plan's output contract (assemble_answer projection × format,
+// or the output_field default that exists only under json_only): such a
+// rejection is a function of the contract the action executes under, which
+// is what lets workflow admission separate "this action cannot satisfy the
+// contract in effect" from contract-independent parameter defects without
+// scanning message prose.
+type DataActionParamError struct {
+	ActionKind    DataActionKind `json:"action_kind,omitempty"`
+	Param         string         `json:"param,omitempty"`
+	ExpectedShape string         `json:"expected_shape,omitempty"`
+	ActualSnippet string         `json:"actual_snippet,omitempty"`
+	Message       string         `json:"message,omitempty"`
+	OutputFormat  OutputFormat   `json:"output_format,omitempty"`
+	Cause         error          `json:"-"`
+}
+
+// OutputContractDependent reports whether the rejection would change under a
+// different output_contract.format — the precise signal for the admission
+// drift guard.
+func (e DataActionParamError) OutputContractDependent() bool {
+	return strings.TrimSpace(string(e.OutputFormat)) != ""
+}
+
+func (e DataActionParamError) Error() string {
+	if text := strings.TrimSpace(e.Message); text != "" {
+		return text
+	}
+	kind := strings.TrimSpace(string(e.ActionKind))
+	if kind == "" {
+		kind = "data action"
+	}
+	param := strings.TrimSpace(e.Param)
+	if param == "" {
+		param = "parameter"
+	}
+	expected := strings.TrimSpace(e.ExpectedShape)
+	if expected == "" {
+		expected = "schema-compatible value"
+	}
+	msg := fmt.Sprintf("%s parameter %q does not match %s", kind, param, expected)
+	if e.Cause != nil {
+		msg += ": " + e.Cause.Error()
+	}
+	return msg
+}
+
+func (e DataActionParamError) Unwrap() error {
+	return e.Cause
+}
+
+func (e DataActionParamError) Violation() DataTaskViolation {
+	return DataTaskViolation{
+		Code:          "action_param_violation",
+		Summary:       clampViolationText(e.Error(), 500),
+		ActionKind:    strings.TrimSpace(string(e.ActionKind)),
+		Param:         strings.TrimSpace(e.Param),
+		ExpectedShape: firstNonEmptyString(strings.TrimSpace(e.ExpectedShape), "schema-compatible action parameter"),
+		ActualSnippet: clampViolationText(e.ActualSnippet, 300),
+		Repairability: RepairabilityNeedsRecompute,
+		RepairHint:    "Use the typed action schema for this parameter. Keep arrays as JSON arrays and objects as JSON objects; split the batch if the parameter belongs to a later action.",
+	}
+}
+
+func dataActionParamError(kind DataActionKind, param, expectedShape, actualSnippet string, cause error) DataActionParamError {
+	return DataActionParamError{
+		ActionKind:    kind,
+		Param:         strings.TrimSpace(param),
+		ExpectedShape: strings.TrimSpace(expectedShape),
+		ActualSnippet: strings.TrimSpace(actualSnippet),
+		Cause:         cause,
+	}
+}
+
+func dataActionMissingParamError(kind DataActionKind, param, expectedShape string, actual any) DataActionParamError {
+	return dataActionParamError(kind, param, expectedShape, actionParamActualSnippet(actual), nil)
 }
 
 func equivalentActionParamValues(left, right string) bool {

@@ -2634,41 +2634,78 @@ func TestApplyAndPersistMutation_SummaryReportsMutationKind(t *testing.T) {
 	}
 }
 
-func TestAnswerDocumentMutationRepair_MapsDeterministicPatchRejects(t *testing.T) {
+// TestAnswerDocumentMutationRepair_KeysOnTypedViolationKind — V2-4 (§40.51)
+// EVOLUTION RECORD: this pin replaced
+// TestAnswerDocumentMutationRepair_MapsDeterministicPatchRejects, which fed
+// fmt.Errorf strings into a strings.Contains switch (three messages mapped,
+// `default: nil` for the other ~27 arms). The repair is now keyed on the
+// typed violation kind carried by types.AnswerDocumentPatchStructureError:
+// the three historical codes keep their spelling, every other kind rides the
+// generic structure code, several kinds resolve by precedence with the fields
+// unioned and the count disclosed, and an untyped error still yields no
+// repair.
+func TestAnswerDocumentMutationRepair_KeysOnTypedViolationKind(t *testing.T) {
+	violation := func(kind types.AnswerDocumentPatchViolationKind) types.AnswerDocumentPatchViolation {
+		return types.AnswerDocumentPatchViolation{Kind: kind, Message: "wording is irrelevant to routing"}
+	}
 	tests := []struct {
 		name       string
-		err        error
+		kinds      []types.AnswerDocumentPatchViolationKind
 		wantCode   string
 		wantFields []string
 		wantHint   string
+		wantCount  string
 	}{
 		{
 			name:       "citation mode conflict",
-			err:        fmt.Errorf("patch: replace_citations and append_citations are mutually exclusive (contract invariant 5); set exactly one"),
+			kinds:      []types.AnswerDocumentPatchViolationKind{types.AnswerDocumentPatchViolationCitationModeConflict},
 			wantCode:   "answer_doc_patch_citation_mode_conflict",
 			wantFields: []string{"replace_citations", "append_citations"},
 			wantHint:   "exactly one citation-pool operation",
+			wantCount:  "1",
 		},
 		{
 			name:       "existing block added",
-			err:        fmt.Errorf("patch: add_blocks[%q] already exists in previous emit (use replace_blocks to modify)", "s1"),
+			kinds:      []types.AnswerDocumentPatchViolationKind{types.AnswerDocumentPatchViolationExistingBlock},
 			wantCode:   "answer_doc_patch_existing_block",
 			wantFields: []string{"add_blocks", "replace_blocks", "unchanged_block_ids"},
 			wantHint:   "already exists",
+			wantCount:  "1",
 		},
 		{
 			name:       "replace citations preserves old cited block",
-			err:        fmt.Errorf("patch: replace_citations cannot preserve citation-bearing block %q; replace/remove that block too, use append_citations, or re-emit a full emit_answer_document so every citation_ref is renumbered against the new pool", "list1"),
+			kinds:      []types.AnswerDocumentPatchViolationKind{types.AnswerDocumentPatchViolationPreservedCitationBlock},
 			wantCode:   "answer_doc_patch_replace_citations_with_preserved_blocks",
 			wantFields: []string{"replace_citations", "append_citations", "replace_blocks", "remove_block_ids"},
 			wantHint:   "citation_ref",
+			wantCount:  "1",
+		},
+		{
+			name:       "unknown id rides the generic structure code",
+			kinds:      []types.AnswerDocumentPatchViolationKind{types.AnswerDocumentPatchViolationUnknownID},
+			wantCode:   types.ToolRepairCodeAnswerDocPatchStructure,
+			wantFields: []string{"unchanged_block_ids", "replace_blocks"},
+			wantHint:   "exact block id of the current retry base",
+			wantCount:  "1",
+		},
+		{
+			name:       "several kinds: precedence code, unioned fields, list sentence",
+			kinds:      []types.AnswerDocumentPatchViolationKind{types.AnswerDocumentPatchViolationUnknownID, types.AnswerDocumentPatchViolationExistingBlock, types.AnswerDocumentPatchViolationRosterMismatch},
+			wantCode:   "answer_doc_patch_existing_block",
+			wantFields: []string{"add_blocks", "unchanged_block_ids", "model_block_order"},
+			wantHint:   "fix ALL of them in one resubmission",
+			wantCount:  "3",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repair := answerDocumentMutationRepair(tt.err)
+			structure := &types.AnswerDocumentPatchStructureError{}
+			for _, kind := range tt.kinds {
+				structure.Violations = append(structure.Violations, violation(kind))
+			}
+			repair := answerDocumentMutationRepair(structure)
 			if repair == nil {
-				t.Fatalf("expected structured repair for %v", tt.err)
+				t.Fatalf("expected structured repair for kinds %v", tt.kinds)
 			}
 			if repair.Code != tt.wantCode {
 				t.Fatalf("repair code = %q, want %q", repair.Code, tt.wantCode)
@@ -2681,6 +2718,9 @@ func TestAnswerDocumentMutationRepair_MapsDeterministicPatchRejects(t *testing.T
 			if !strings.Contains(repair.Hint, tt.wantHint) {
 				t.Fatalf("repair hint %q does not contain %q", repair.Hint, tt.wantHint)
 			}
+			if got := repair.Metadata[types.ToolRepairMetaAnswerDocPatchViolationCount]; got != tt.wantCount {
+				t.Fatalf("violation count metadata = %q, want %q", got, tt.wantCount)
+			}
 		})
 	}
 }
@@ -2688,6 +2728,9 @@ func TestAnswerDocumentMutationRepair_MapsDeterministicPatchRejects(t *testing.T
 func TestAnswerDocumentMutationRepair_UnknownErrorStaysUnstructured(t *testing.T) {
 	if repair := answerDocumentMutationRepair(fmt.Errorf("patch: unrelated validation failure")); repair != nil {
 		t.Fatalf("unknown mutation error should not fabricate repair metadata: %+v", repair)
+	}
+	if repair := answerDocumentMutationRepair(fmt.Errorf("patch: replace_citations and append_citations are mutually exclusive (contract invariant 5); set exactly one")); repair != nil {
+		t.Fatalf("the historical message wording must no longer route a repair (typed kind only): %+v", repair)
 	}
 }
 

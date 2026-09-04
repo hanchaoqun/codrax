@@ -879,7 +879,7 @@ func (o *Orchestrator) detectStallAndAct() bool {
 	closure.AddRepair(types.RepairDirective{
 		Kind:      types.RepairExpandSearch,
 		Keywords:  kws,
-		Rationale: fmt.Sprintf("ReadSet saturated but %d consecutive rounds produced no new evidence/chain/citation — broaden grep coverage (stems / conceptual synonyms / sibling packages) instead of re-reading the same files", cgecStallThresholdSoft),
+		Rationale: fmt.Sprintf("the read-file list is saturated but %d consecutive rounds produced no new evidence/chain/citation — broaden grep coverage (stems / conceptual synonyms / sibling packages) instead of re-reading the same files", cgecStallThresholdSoft),
 		Origin:    "convergence_detector.soft_stall",
 	})
 	logging.Info("[CGEC] B1b expand_search: origin=convergence_detector.soft_stall keywords=%d", len(kws))

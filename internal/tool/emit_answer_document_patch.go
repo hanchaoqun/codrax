@@ -71,7 +71,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats`: when present, replace the corresponding document-level field. `replace_snippets` replaces only document-level code snippets shaped as {file,start_line,end_line,language?,code}; use a full `replace_blocks` entry for block items, diagrams, evidence_ids, or any other answer-block field.\n\n" +
 		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` MUST exist in the previous emit; `remove_block_ids` is idempotent and may name an already-absent block; every `add_blocks` id MUST NOT exist. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. A live local diagram lease exposes its target through atomic diagram operations; whole replace/add is unavailable, and exact target removal is available only when the typed presentation contract marks that diagram optional. Unrelated blocks remain editable. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
-		"Transactional rejection: if any patch validation fails, NONE of that patch's edits become the accepted answer. When a patch was structurally applicable and only a merged-document validator rejected it, that exact model-authored merged draft remains a retry-local staging base for the next patch; it is never user-visible until a later patch passes every validator. Earlier accepted/rejected-full documents remain unchanged. The retry prompt publishes the live staging block roster, so correct the named failure against that current base.\n\n" +
+		"Transactional rejection: if any patch validation fails, NONE of that patch's edits become the accepted answer. When a patch was structurally applicable and only a merged-document validator rejected it, that exact model-authored merged draft remains a retry-local staging base for the next patch; it is never user-visible until a later patch passes every validator. Earlier accepted/rejected-full documents remain unchanged. The retry prompt publishes the live staging block roster, so correct the named failure against that current base. A structural rejection lists every independent violation of the patch at once — fix all of them in the next patch instead of one per retry.\n\n" +
 		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
 		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
@@ -2018,7 +2018,11 @@ type answerDocumentPatchReceiptSchemaChoice struct {
 // executable surface when a provider forwards them anyway. The check consumes
 // only structured patch JSON plus the exact projected schema: no request,
 // reasoning, visible answer text, or Mermaid carrier participates.
-func validateAnswerDocumentPatchFieldEditsAgainstSchema(raw, schema json.RawMessage) *answerDocumentPatchFieldEditSchemaViolation {
+//
+// V2-4 (§40.51): EVERY entry that misses its published branch is returned
+// (index order) so one reject teaches every fix; an entry's first miss gates
+// that entry's later checks only.
+func validateAnswerDocumentPatchFieldEditsAgainstSchema(raw, schema json.RawMessage) []answerDocumentPatchFieldEditSchemaViolation {
 	var envelope map[string]json.RawMessage
 	if len(raw) == 0 || json.Unmarshal(raw, &envelope) != nil {
 		return nil
@@ -2031,6 +2035,7 @@ func validateAnswerDocumentPatchFieldEditsAgainstSchema(raw, schema json.RawMess
 	if json.Unmarshal(editsRaw, &edits) != nil {
 		return nil
 	}
+	var violations []answerDocumentPatchFieldEditSchemaViolation
 
 	type branch struct {
 		blockIDs []string
@@ -2075,44 +2080,48 @@ func validateAnswerDocumentPatchFieldEditsAgainstSchema(raw, schema json.RawMess
 		_ = json.Unmarshal(edit["block_id"], &blockID)
 		allowed, ok := branches[field]
 		if !ok {
-			return &answerDocumentPatchFieldEditSchemaViolation{
+			violations = append(violations, answerDocumentPatchFieldEditSchemaViolation{
 				Index: i, BlockID: blockID, Field: field, Reason: "field_not_published",
 				AllowedFields: append([]string(nil), allowedFields...),
-			}
+			})
+			continue
 		}
 		if len(allowed.blockIDs) > 0 && !stringInSlice(blockID, allowed.blockIDs) {
-			return &answerDocumentPatchFieldEditSchemaViolation{
+			violations = append(violations, answerDocumentPatchFieldEditSchemaViolation{
 				Index: i, BlockID: blockID, Field: field, Reason: "block_id_not_published",
 				AllowedFields:   append([]string(nil), allowedFields...),
 				AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
 				AllowedValues:   append([]string(nil), allowed.values...),
-			}
+			})
+			continue
 		}
 		var value string
 		if json.Unmarshal(edit["value"], &value) != nil {
-			return &answerDocumentPatchFieldEditSchemaViolation{
+			violations = append(violations, answerDocumentPatchFieldEditSchemaViolation{
 				Index: i, BlockID: blockID, Field: field, Reason: "value_must_be_string",
 				AllowedFields:   append([]string(nil), allowedFields...),
 				AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
 				AllowedValues:   append([]string(nil), allowed.values...),
-			}
+			})
+			continue
 		}
 		if len(allowed.values) > 0 && !stringInSlice(value, allowed.values) {
-			return &answerDocumentPatchFieldEditSchemaViolation{
+			violations = append(violations, answerDocumentPatchFieldEditSchemaViolation{
 				Index: i, BlockID: blockID, Field: field, Reason: "value_not_published",
 				AllowedFields:   append([]string(nil), allowedFields...),
 				AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
 				AllowedValues:   append([]string(nil), allowed.values...),
-			}
+			})
 		}
 	}
-	return nil
+	return violations
 }
 
 // validateAnswerDocumentPatchReceiptEditsAgainstSchema makes the projected
 // receipt oneOf executable even when a provider forwards a malformed tool
 // call. It compares only native JSON selectors with exact schema constants.
-func validateAnswerDocumentPatchReceiptEditsAgainstSchema(raw, schema json.RawMessage) *answerDocumentPatchReceiptEditSchemaViolation {
+// V2-4 (§40.51): every entry that misses its branch is returned, in order.
+func validateAnswerDocumentPatchReceiptEditsAgainstSchema(raw, schema json.RawMessage) []answerDocumentPatchReceiptEditSchemaViolation {
 	var envelope map[string]json.RawMessage
 	if len(raw) == 0 || json.Unmarshal(raw, &envelope) != nil {
 		return nil
@@ -2125,6 +2134,7 @@ func validateAnswerDocumentPatchReceiptEditsAgainstSchema(raw, schema json.RawMe
 	if json.Unmarshal(editsRaw, &edits) != nil {
 		return nil
 	}
+	var violations []answerDocumentPatchReceiptEditSchemaViolation
 	type branch struct {
 		blockIDs []string
 		choices  []answerDocumentPatchReceiptSchemaChoice
@@ -2173,17 +2183,19 @@ func validateAnswerDocumentPatchReceiptEditsAgainstSchema(raw, schema json.RawMe
 		}
 		allowed, ok := branches[edit.Field]
 		if !ok {
-			return &answerDocumentPatchReceiptEditSchemaViolation{
+			violations = append(violations, answerDocumentPatchReceiptEditSchemaViolation{
 				Index: i, BlockID: edit.BlockID, Field: edit.Field, Reason: "field_not_published",
 				AllowedFields: append([]string(nil), allowedFields...),
-			}
+			})
+			continue
 		}
 		if len(allowed.blockIDs) > 0 && !stringInSlice(edit.BlockID, allowed.blockIDs) {
-			return &answerDocumentPatchReceiptEditSchemaViolation{
+			violations = append(violations, answerDocumentPatchReceiptEditSchemaViolation{
 				Index: i, BlockID: edit.BlockID, Field: edit.Field, Reason: "block_id_not_published",
 				AllowedFields: append([]string(nil), allowedFields...), AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
 				AllowedPairs: receiptChoiceSurfaces(allowed.choices),
-			}
+			})
+			continue
 		}
 		matched := false
 		for _, candidate := range allowed.choices {
@@ -2194,14 +2206,14 @@ func validateAnswerDocumentPatchReceiptEditsAgainstSchema(raw, schema json.RawMe
 			}
 		}
 		if !matched {
-			return &answerDocumentPatchReceiptEditSchemaViolation{
+			violations = append(violations, answerDocumentPatchReceiptEditSchemaViolation{
 				Index: i, BlockID: edit.BlockID, Field: edit.Field, Reason: "value_not_published",
 				AllowedFields: append([]string(nil), allowedFields...), AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
 				AllowedPairs: receiptChoiceSurfaces(allowed.choices),
-			}
+			})
 		}
 	}
-	return nil
+	return violations
 }
 
 // normalizeMisroutedPatchReceiptFieldEdits absorbs the production-observed
@@ -2246,7 +2258,7 @@ func normalizeMisroutedPatchReceiptFieldEdits(raw, schema json.RawMessage) (json
 		probe, err := json.Marshal(map[string]any{
 			"block_receipt_edits_v1": []json.RawMessage{editRaw},
 		})
-		if err != nil || validateAnswerDocumentPatchReceiptEditsAgainstSchema(probe, schema) != nil {
+		if err != nil || len(validateAnswerDocumentPatchReceiptEditsAgainstSchema(probe, schema)) > 0 {
 			kept = append(kept, editRaw)
 			continue
 		}
@@ -2433,12 +2445,15 @@ type emitAnswerDiagramParticipantEdit struct {
 // atomic edits are compiled, so it distinguishes the authorized internal
 // carrier from a model-authored whole-block mutation without reading prose or
 // Mermaid labels.
-func localDiagramLeaseWholeBlockMutationViolation(
+//
+// V2-4 (§40.51): every unauthorized whole-block operation is returned at once
+// (replace / add / field edit / receipt edit / remove, in operation order).
+func localDiagramLeaseWholeBlockMutationViolations(
 	p *emitAnswerDocumentPatchParams,
 	lease *types.AnswerDiagramRelationRepairLease,
 	prev *types.AnswerDocumentV2,
 	view *types.AnswerSemanticView,
-) *types.AnswerDiagramRelationRepairScopeViolation {
+) []types.AnswerDiagramRelationRepairScopeViolation {
 	if p == nil {
 		return nil
 	}
@@ -2454,26 +2469,27 @@ func localDiagramLeaseWholeBlockMutationViolation(
 	for _, id := range localRelationLeaseOrdinaryReplacementBlockIDs(lease, prev) {
 		ordinaryReplacementSet[id] = true
 	}
+	var violations []types.AnswerDiagramRelationRepairScopeViolation
 	for _, block := range p.ReplaceBlocks {
 		if id := strings.TrimSpace(block.ID); targetSet[id] && !ordinaryReplacementSet[id] {
-			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_replace_not_authorized"}
+			violations = append(violations, types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_replace_not_authorized"})
 		}
 	}
 	if len(p.AddBlocks) > 0 && !requiredAnswerBlockAdditionsAuthorized(prev, view, p.AddBlocks) {
 		id := strings.TrimSpace(p.AddBlocks[0].ID)
-		return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_add_not_authorized"}
+		violations = append(violations, types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_add_not_authorized"})
 	}
 	for _, edit := range p.BlockFieldEditsV1 {
 		if id := strings.TrimSpace(edit.BlockID); targetSet[id] {
 			if edit.Field == types.AnswerBlockFieldAddFacetID {
 				continue
 			}
-			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "block_field_edit_not_authorized"}
+			violations = append(violations, types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "block_field_edit_not_authorized"})
 		}
 	}
 	for _, edit := range p.BlockReceiptEditsV1 {
 		if id := strings.TrimSpace(edit.BlockID); targetSet[id] {
-			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "block_receipt_edit_not_authorized"}
+			violations = append(violations, types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "block_receipt_edit_not_authorized"})
 		}
 	}
 	for _, rawID := range p.RemoveBlockIDs {
@@ -2485,9 +2501,9 @@ func localDiagramLeaseWholeBlockMutationViolation(
 			containsExactBlockID(localDiagramLeaseTargetBlockIDs(lease), id) {
 			continue
 		}
-		return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_remove_not_authorized"}
+		violations = append(violations, types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_remove_not_authorized"})
 	}
-	return nil
+	return violations
 }
 
 func containsExactBlockID(ids []string, id string) bool {
@@ -2671,7 +2687,9 @@ type splitCompanionDispositionFailure struct {
 // both halves of a system-created fused-block split whenever one half is
 // removed. The exact typed lineage is the only trigger: block titles, prose,
 // Mermaid bodies/messages, and id suffix guesses are never inspected.
-func splitCompanionDispositionViolation(prev *types.AnswerDocumentV2, p *emitAnswerDocumentPatchParams) *splitCompanionDispositionFailure {
+//
+// V2-4 (§40.51): every undisposed pair is returned at once (lineage order).
+func splitCompanionDispositionViolations(prev *types.AnswerDocumentV2, p *emitAnswerDocumentPatchParams) []splitCompanionDispositionFailure {
 	if prev == nil || p == nil || len(prev.BlockCompanionLineages) == 0 || len(p.RemoveBlockIDs) == 0 {
 		return nil
 	}
@@ -2721,6 +2739,7 @@ func splitCompanionDispositionViolation(prev *types.AnswerDocumentV2, p *emitAns
 			explicit[id] = true
 		}
 	}
+	var failures []splitCompanionDispositionFailure
 	for _, lineage := range types.NormalizeAnswerBlockCompanionLineages(prev.BlockCompanionLineages) {
 		pairs := [][2]string{
 			{lineage.VisibleBlockID, lineage.DiagramBlockID},
@@ -2728,15 +2747,15 @@ func splitCompanionDispositionViolation(prev *types.AnswerDocumentV2, p *emitAns
 		}
 		for _, pair := range pairs {
 			if removed[pair[0]] && !explicit[pair[1]] {
-				return &splitCompanionDispositionFailure{
+				failures = append(failures, splitCompanionDispositionFailure{
 					Kind:             lineage.Kind,
 					RemovedBlockID:   pair[0],
 					CompanionBlockID: pair[1],
-				}
+				})
 			}
 		}
 	}
-	return nil
+	return failures
 }
 
 func splitCompanionDispositionRepair(failure splitCompanionDispositionFailure) *types.ToolRepair {
@@ -2893,17 +2912,19 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] losslessly remapped exact typed receipt edit(s): %s", strings.Join(paths, ", "))
 		params = repaired
 	}
-	if violation := validateAnswerDocumentPatchFieldEditsAgainstSchema(params, fieldEditSchema); violation != nil {
+	if violations := validateAnswerDocumentPatchFieldEditsAgainstSchema(params, fieldEditSchema); len(violations) > 0 {
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
-		return failEmitWithRepair(t.Name(), now, answerDocumentPatchFieldEditSchemaRepair(*violation),
-			"block_field_edits_v1[%d] does not match any exact field-edit branch published for this dispatch: reason=%s field=%q block_id=%q",
-			violation.Index, violation.Reason, violation.Field, violation.BlockID)
+		violation := violations[0]
+		return failEmitWithRepair(t.Name(), now, answerDocumentPatchFieldEditSchemaRepairAll(violations),
+			"block_field_edits_v1[%d] does not match any exact field-edit branch published for this dispatch: reason=%s field=%q block_id=%q%s",
+			violation.Index, violation.Reason, violation.Field, violation.BlockID, answerDocumentPatchFieldEditSchemaViolationTail(violations))
 	}
-	if violation := validateAnswerDocumentPatchReceiptEditsAgainstSchema(params, fieldEditSchema); violation != nil {
+	if violations := validateAnswerDocumentPatchReceiptEditsAgainstSchema(params, fieldEditSchema); len(violations) > 0 {
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
-		return failEmitWithRepair(t.Name(), now, answerDocumentPatchReceiptEditSchemaRepair(*violation),
-			"block_receipt_edits_v1[%d] does not match any exact receipt-edit branch published for this dispatch: reason=%s field=%q block_id=%q",
-			violation.Index, violation.Reason, violation.Field, violation.BlockID)
+		violation := violations[0]
+		return failEmitWithRepair(t.Name(), now, answerDocumentPatchReceiptEditSchemaRepairAll(violations),
+			"block_receipt_edits_v1[%d] does not match any exact receipt-edit branch published for this dispatch: reason=%s field=%q block_id=%q%s",
+			violation.Index, violation.Reason, violation.Field, violation.BlockID, answerDocumentPatchReceiptEditSchemaViolationTail(violations))
 	}
 
 	// Decode params.
@@ -2951,15 +2972,17 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] absorbed atomic diagram operation(s) shadowed by explicit optional target removal: %s",
 			strings.Join(fields, ", "))
 	}
-	if violation := localDiagramLeaseWholeBlockMutationViolation(&p, lease, prev, view); violation != nil {
-		return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, []types.AnswerDiagramRelationRepairScopeViolation{*violation}),
-			"local relation repair lease requires atomic operations for block=%q; whole-block operation=%s is not authorized",
-			violation.BlockID, violation.Issue)
+	if violations := localDiagramLeaseWholeBlockMutationViolations(&p, lease, prev, view); len(violations) > 0 {
+		violation := violations[0]
+		return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, violations),
+			"local relation repair lease requires atomic operations for block=%q; whole-block operation=%s is not authorized%s",
+			violation.BlockID, violation.Issue, localDiagramLeaseWholeBlockMutationViolationTail(violations))
 	}
-	if violation := splitCompanionDispositionViolation(prev, &p); violation != nil {
-		return failEmitWithRepair(t.Name(), now, splitCompanionDispositionRepair(*violation),
-			"patch removes split companion block %q but does not explicitly dispose sibling %q",
-			violation.RemovedBlockID, violation.CompanionBlockID)
+	if failures := splitCompanionDispositionViolations(prev, &p); len(failures) > 0 {
+		failure := failures[0]
+		return failEmitWithRepair(t.Name(), now, splitCompanionDispositionRepairAll(failures),
+			"patch removes split companion block %q but does not explicitly dispose sibling %q%s",
+			failure.RemovedBlockID, failure.CompanionBlockID, splitCompanionDispositionViolationTail(failures))
 	}
 	if changed, fields := inheritMissingPatchReplacementKinds(prev, p.ReplaceBlocks); changed {
 		logging.Warning("[emit_answer_document_patch] inherited omitted replacement block kind from exact previous block id: %s",
@@ -3002,19 +3025,22 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		ReplaceSnippets:              convertEmitCodeSnippetsToTyped(p.ReplaceSnippets),
 		AddBlockCompanionLineages:    addedCompanionLineages,
 	}
+	// V2-4 (§40.51): per-block normalize errors of replace_blocks AND
+	// add_blocks are listed in ONE reject (a replace error used to hide every
+	// add error until the next round).
+	var blockViolations []string
 	if len(p.ReplaceBlocks) > 0 {
-		converted, err := convertEmitBlocksToTyped(t.Name(), p.ReplaceBlocks, "replace_blocks")
-		if err != nil {
-			return failEmit(t.Name(), now, "%s", err.Error())
-		}
+		converted, violations := convertEmitBlocksToTyped(t.Name(), p.ReplaceBlocks, "replace_blocks")
+		blockViolations = append(blockViolations, violations...)
 		patch.ReplaceBlocks = converted
 	}
 	if len(p.AddBlocks) > 0 {
-		converted, err := convertEmitBlocksToTyped(t.Name(), p.AddBlocks, "add_blocks")
-		if err != nil {
-			return failEmit(t.Name(), now, "%s", err.Error())
-		}
+		converted, violations := convertEmitBlocksToTyped(t.Name(), p.AddBlocks, "add_blocks")
+		blockViolations = append(blockViolations, violations...)
 		patch.AddBlocks = converted
+	}
+	if len(blockViolations) > 0 {
+		return failEmit(t.Name(), now, "%s", emitBlockViolationsMessage(blockViolations))
 	}
 	if changed, fields := normalizeRedundantPatchBlockFieldEditsV1(params, patch); changed {
 		logging.Warning("[emit_answer_document_patch] absorbed exact block-field assignment(s) already carried by full replacement: %s",
@@ -4942,20 +4968,35 @@ func recoverPrevFromRejectedDraft(mut *types.MutableState) *types.AnswerDocument
 // (invalid kind, duplicate id within emit, etc.) is also rejected
 // at patch time.
 //
-// Returns ([]AnswerBlock, nil) on success; ("", error) names the
-// offending block (with field path) so the LLM can fix the patch.
+// Returns ([]AnswerBlock, nil) on success; otherwise the violations name
+// EVERY offending block (with field path) so the LLM can fix the whole patch
+// in one round (V2-4 §40.51; the converted slice is then not used).
 // convertEmitBlocksToTyped routes through the unified
 // NormalizeEmitAnswerBlock so the patch path picks up every typed
 // annotation field automatically (G2 post_v2_runtime_gap_remediation,
 // 2026-05-04 — pre-G2 this loop silently dropped EdgeAnchors).
-func convertEmitBlocksToTyped(toolName string, in []emitAnswerBlockV2, fieldName string) ([]types.AnswerBlock, error) {
+func convertEmitBlocksToTyped(toolName string, in []emitAnswerBlockV2, fieldName string) ([]types.AnswerBlock, []string) {
 	out := make([]types.AnswerBlock, 0, len(in))
+	var violations []string
 	for i, raw := range in {
 		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("%s: %s[%d]", toolName, fieldName, i))
 		if err != nil {
-			return nil, err
+			violations = append(violations, err.Error())
+			continue
 		}
 		out = append(out, blk)
 	}
+	if len(violations) > 0 {
+		return nil, violations
+	}
 	return out, nil
+}
+
+// emitBlockViolationsMessage renders accumulated per-block normalize errors
+// (patch replace/add lists, full-emit blocks[]) as one reject message through
+// the shared formatter: a single error stays byte-identical.
+func emitBlockViolationsMessage(violations []string) string {
+	return types.ViolationListMessage(violations, func(n int) string {
+		return fmt.Sprintf("%d block(s) failed validation — fix ALL of them in this one resubmission: ", n)
+	})
 }

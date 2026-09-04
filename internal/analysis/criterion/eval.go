@@ -532,7 +532,7 @@ func evalNoCallSites(expr string, env Env) Result {
 		}
 	}
 	if hits == 0 {
-		return Result{Satisfied: true, Detail: "no AnchorKind=call evidence items name the symbol"}
+		return Result{Satisfied: true, Detail: "no call-site evidence items name the symbol"}
 	}
 	return Result{Satisfied: false, Detail: fmt.Sprintf("%d typed call-site evidence item(s) name %q", hits, sym)}
 }
@@ -1141,5 +1141,5 @@ func evalExternalArtifactDecoded(expr string, env Env) Result {
 			Detail: "no external artifact attached — compatibility criterion satisfied"}
 	}
 	return Result{Satisfied: true,
-		Detail: "external artifact coverage is enforced by typed AnswerDocumentV2 observed_artifact_fact/external_observation carriers"}
+		Detail: "external artifact coverage is enforced by the typed observed_artifact_fact/external_observation answer carriers"}
 }

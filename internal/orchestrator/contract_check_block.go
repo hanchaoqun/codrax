@@ -256,10 +256,10 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 		return []types.Violation{{
 			Kind: types.ViolDiagramEdgeUnsupported,
 			Detail: fmt.Sprintf(
-				"family contract requires a diagram of kind=%s but no BlockDiagram is present in the answer",
+				"family contract requires a diagram of kind=%s but no diagram block is present in the answer",
 				plan.Kind),
 			Repair: fmt.Sprintf(
-				"emit a BlockDiagram (kind=%s) covering node facets %v and edge facets %v",
+				"emit a diagram block (kind=%s) covering node facets %v and edge facets %v",
 				plan.Kind, plan.NodeFacets, plan.EdgeFacets),
 			ClusterKey: blockKindClusterKey(types.BlockDiagram, "diagram_block"),
 			SuspectedRoot: types.SuspectedRoot{

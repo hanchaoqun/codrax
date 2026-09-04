@@ -1662,6 +1662,23 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
   fixture 输出 bytes、事件数和 authority/advisory 数不变。
 - **HCONV-IO-VIS-R3：已修（本批）。** 关闭“已 admitted、无严格 decoder 的 source raw 记录从文本
   完全消失”；不宣称已把未知 payload 翻译成人类字段或官方专属泳道。
+- **2026-09-03 修订（colleague_merge_audit §40.53，V6-4）：`publication_state` 发布前门三值闭集。**
+  visibility 泳道曾把“官方信封但严格 raw decode census 未闭”（segment inventory 截断 /
+  page-format profile 未就绪 / record-format 记账不精确 / format-witness cap）标成
+  `not_applicable_source_profile`（且 `Found=false`），与真正的非官方信封同标。现在
+  `source_raw_lane_gate.go` 是所有 source-raw 恢复泳道的单源门分类器：`decode_state` 闭集
+  ↔ 门类别（not_applicable / census_incomplete / ready）单表；非官方信封或未探针 →
+  `not_applicable_source_profile`（+`not_applicable_reason`），官方信封 census 未闭 →
+  `census_incomplete_source_raw_decode`（+`census_incomplete_reason`=decode_state 原文，
+  Skipped 措辞“not evaluated”，不借“withheld/not applicable”），census 已闭 → 泳道自有
+  withheld_/complete_/published_ 臂；未识别 decode_state 或 Found 位矛盾 → 泳道
+  `source_raw_lane_gate_unresolved` fail-loud。visibility 的五值 `traceDBSourceRawVisibilityState`
+  闭集与每值零行/有行表是 writer 与 postvalidation reader 的同一张表；block/exact/DMA wait/
+  DMA lifecycle/marker sync 同门（DMA/marker 原先把非官方信封与 census 未闭都标
+  `withheld_raw_decode_incomplete`，门后仅剩的族保留预算撤回臂改名
+  `withheld_family_retention_budget_exceeded`）；semantic-quality 的 `withheld_` 前缀分支改读
+  类前缀花名册 `traceDBSourceRawPublicationStatePrefixes`。deterministic receipt 因四条泳道在
+  0x0ace fixture 上的 Skipped 措辞统一为 not-applicable 而重钉（输出 bytes/事件数不变）。
 - **HCONV-IO-VIS-R2b（开放）**：取得客户 HMFS 真实多版本 schema 后增加版本化严格 decoder，使
   人类可读字段和成对语义在精确 profile 内生效；未知/未来版本继续只走 R3 advisory。
 - **EBPF-VIS / VIEWER-PARITY（开放）**：官方 SQLite 专表及无真实 CPU 的 eBPF interval 需独立标准

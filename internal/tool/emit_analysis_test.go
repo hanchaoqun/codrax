@@ -4732,8 +4732,8 @@ func TestEmitAnalysis_DiagramParticipantSchemaUsesPlanningSSOT(t *testing.T) {
 	if count := strings.Count(string(raw), skill.AnalysisDiagramParticipantPlanningContract); count != 2 {
 		t.Fatalf("diagram participant SSOT must describe diagram_hint and participants exactly once each, got %d in %s", count, raw)
 	}
-	if count := strings.Count(string(raw), skill.AnalysisDiagramParticipantLowMindRule); count != 2 {
-		t.Fatalf("diagram participant low-mind rule must precede both schema surfaces, got %d in %s", count, raw)
+	if count := strings.Count(string(raw), skill.AnalysisDiagramParticipantCurrentRequestRule); count != 2 {
+		t.Fatalf("diagram participant current-request-only rule must precede both schema surfaces, got %d in %s", count, raw)
 	}
 	if !strings.Contains(string(raw), `"required":["identity","role","source_quote"]`) {
 		t.Fatalf("diagram participant schema must require exact current-request provenance: %s", raw)
@@ -5101,6 +5101,80 @@ func TestEmitAnalysis_Execute_FreeFormPresentationDoesNotAuthorizeHardDiagram(t 
 	}
 	if !strings.Contains(res.Summary, "normalized diagram_hint.required from true to false") {
 		t.Fatalf("normalization must be disclosed: %q", res.Summary)
+	}
+}
+
+// TestParseDiagramHint_RejectAndNormalizationShareTheTypedTeaching (V7-4,
+// §40.54) pins that the analyzer's only model-visible hints about
+// diagram_hint.required — the missing-field reject and the true→false
+// normalization disclosure — carry the single R2' teaching sentence, so the
+// model is taught on the typed line rendered in the Presentation Directive
+// section rather than on a wire signal it cannot see.
+func TestParseDiagramHint_RejectAndNormalizationShareTheTypedTeaching(t *testing.T) {
+	teaching := types.PresentationHardVisualTeaching()
+	_, reason, _ := parseDiagramHint("draw the pipeline", &emitDiagramHintParam{Kind: "flow"}, true)
+	if !strings.HasPrefix(reason, "diagram_hint.required is missing") || !strings.Contains(reason, teaching) {
+		t.Fatalf("missing-field reject must carry the shared teaching: %q", reason)
+	}
+	required := true
+	participants := []emitDiagramParticipantParam{}
+	got, reason, warnings := parseDiagramHint("draw the pipeline", &emitDiagramHintParam{
+		Kind:               "flow",
+		Required:           &required,
+		RelationScopeQuote: "draw the pipeline",
+		Participants:       &participants,
+	}, false)
+	if reason != "" || got == nil || got.Required {
+		t.Fatalf("unauthorized true must normalize softly: got=%+v reason=%q", got, reason)
+	}
+	joined := strings.Join(warnings, " | ")
+	if !strings.Contains(joined, "normalized diagram_hint.required from true to false") || !strings.Contains(joined, teaching) {
+		t.Fatalf("normalization disclosure must keep its prefix and carry the shared teaching: %q", joined)
+	}
+	for _, banned := range []string{"requires_diagram", "out-of-band"} {
+		if strings.Contains(reason+joined, banned) {
+			t.Fatalf("model-visible text must not name the wire signal %q", banned)
+		}
+	}
+}
+
+// TestEmitAnalysis_Execute_GateReadsTypedAuthorityAccessor (V7-4) pins the
+// gate on the same accessor the prompt renders: an untrimmed directive with
+// the typed bool authorizes; the directive text alone never does.
+func TestEmitAnalysis_Execute_GateReadsTypedAuthorityAccessor(t *testing.T) {
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["run","match","call"],
+		"entities":["run","match"],
+		"question_kind":"mechanism",
+		"predicate_axis":"call",
+		"diagram_hint":{"kind":"call_dag","required":true,"relation_scope_quote":"run 到 match 的调用关系","participants":[
+			{"identity":"run","role":"incident_required","source_quote":"run"},
+			{"identity":"match","role":"incident_required","source_quote":"match"}
+		]}
+	}`
+	for _, c := range []struct {
+		name     string
+		bus      *types.BusContext
+		required bool
+	}{
+		{name: "typed bool authorizes", bus: &types.BusContext{PresentationDirective: "  调用关系图  ", PresentationDiagramRequired: true}, required: true},
+		{name: "diagram-worded directive alone does not", bus: &types.BusContext{PresentationDirective: "画出调用关系图"}, required: false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			mu := types.NewMutableState("解释 run 到 match 的调用关系")
+			c.bus.Mutable = mu
+			res, err := (&EmitAnalysis{}).Execute(c.bus, json.RawMessage(withV4Required(payload)))
+			if err != nil || !res.Success {
+				t.Fatalf("Execute: err=%v res=%+v", err, res)
+			}
+			hint := mu.RequestModel().DiagramHint
+			if hint == nil || hint.Required != c.required {
+				t.Fatalf("DiagramHint=%+v, want Required=%t", hint, c.required)
+			}
+		})
 	}
 }
 

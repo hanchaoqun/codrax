@@ -1568,7 +1568,7 @@ func TestMaterializeCaveats_ExactFacetCoverageNamesOnlyMissingSurface(t *testing
 	if strings.Contains(zh[0], "某些维度") {
 		t.Fatalf("exact ZH facet disclosure fell back to broad caveat: %v", zh)
 	}
-	if len(en) != 1 || !strings.Contains(en[0], "selection or branch conditions") || !strings.Contains(en[0], "relationship-diagram spine") {
+	if len(en) != 1 || !strings.Contains(en[0], "selection or branch conditions") || !strings.Contains(en[0], "relationship diagram and its proved relations") {
 		t.Fatalf("exact EN facet disclosure missing: %v", en)
 	}
 }

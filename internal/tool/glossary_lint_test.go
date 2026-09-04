@@ -2,50 +2,78 @@ package tool
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 )
 
-// TestNoInternalTermsInToolSchemas scans every emit_* tool's
-// Description() return and every "description" string in its
-// Parameters() JSON schema for implementation-jargon tokens from
-// skill.InternalTermsBlocklist.
-//
-// Unlike skill configs which have a fixed struct shape, tool schemas
-// are free-form JSON. This test recursively walks the decoded
-// map[string]any tree so descriptions nested inside properties /
-// items / anyOf / oneOf are all covered.
+// llmFacingToolRoster is the single roster of every tool whose
+// Description() / Parameters() the model sees. It is the ONE list the
+// schema jargon gate walks (§40.52 merged the former two hand-written
+// rosters — 8 emit tools in this file, 17 tools in prompt_hygiene_test
+// — which between them had silently missed EmitMultiRepoFocus).
+// TestToolRosterCensus pins it against the source: every type in
+// internal/tool that declares `Parameters() json.RawMessage` must be
+// instantiated here, and nothing here may lack that method.
+var llmFacingToolRoster = []Tool{
+	&ExecCommand{},
+	&GrepTool{},
+	&TraceQuery{},
+	&ReadFile{},
+	&ListFiles{},
+	&GitDiff{},
+	&GitShow{},
+	&GitLog{},
+	&GitHistorySearch{},
+	&ApplyPatch{},
+	&RunTests{},
+	&RecallMemory{},
+	&ListMemory{},
+	NewProposeSubAgents(),
+	&EmitAnalysis{},
+	&EmitEvidence{},
+	&EmitInvestigationComplete{},
+	&EmitAnswerSymbol{},
+	&EmitHypothesisVerdict{},
+	&EmitAnswerDocument{},
+	&EmitAnswerDocumentPatch{},
+	&EmitLogTriage{},
+	&EmitLogSegmentation{},
+	&EmitPerfTrace{},
+	&EmitPerfSegmentation{},
+	&EmitChangePlan{},
+	&EmitPlanSkeleton{},
+	&EmitPlanChange{},
+	&EmitTestResults{},
+	&EmitWriteAnalysis{},
+	&EmitWriteWorkflowDecision{},
+	&EmitMultiRepoFocus{},
+}
+
+// TestNoInternalTermsInToolSchemas scans every rostered tool's
+// Description() and its full Parameters() JSON — both the structured
+// "description" values (walked recursively so descriptions nested
+// inside properties / items / anyOf / oneOf are labelled by path) and
+// the raw schema bytes (enum values, titles, anything else the model
+// reads) — for glossary tokens through the shared scanner.
 //
 // Batch 1 policy: report-only (t.Log). Batch 2B cleaned the tool-schema
-// surfaces and batch 4B promoted the gate to t.Fatal.
+// surfaces and batch 4B promoted the gate to t.Fatal. §40.52 made it
+// the single tool-schema entry over llmFacingToolRoster.
 func TestNoInternalTermsInToolSchemas(t *testing.T) {
-	// The list of emit_* tools the LLM sees. Kept explicit rather
-	// than pulling from the Registry so this test does not depend on
-	// cmd/root.go's registration path (which would pull in the
-	// repomap package just to discard it). Adding a new emit_* tool
-	// requires one line here — the compiler flags the mismatch.
-	tools := []Tool{
-		&EmitAnalysis{},
-		&EmitEvidence{},
-		&EmitInvestigationComplete{},
-		&EmitAnswerSymbol{},
-		&EmitHypothesisVerdict{},
-		&EmitAnswerDocument{},
-		&EmitLogTriage{},
-		&EmitLogSegmentation{},
-	}
-
-	var hits []string
-	for _, tl := range tools {
+	var hits []glossarylint.Hit
+	for _, tl := range llmFacingToolRoster {
 		name := tl.Name()
-
-		if h := scanLLMText(name+".Description", tl.Description()); len(h) > 0 {
-			hits = append(hits, h...)
-		}
-
+		hits = append(hits, glossarylint.ScanText(name+".Description", tl.Description())...)
 		params := tl.Parameters()
 		if len(params) == 0 {
 			continue
@@ -56,29 +84,103 @@ func TestNoInternalTermsInToolSchemas(t *testing.T) {
 			continue
 		}
 		hits = append(hits, scanJSONDescriptions(name+".Parameters", "", decoded)...)
+		hits = append(hits, glossarylint.ScanText(name+".Parameters[raw]", string(params))...)
 	}
-
 	if len(hits) == 0 {
 		return
 	}
-
-	// Per-violation lines via t.Errorf first, summary via t.Fatalf
-	// last so the full list is visible in a single test run.
 	for _, h := range hits {
 		t.Errorf("  %s", h)
 	}
 	t.Fatalf("TestNoInternalTermsInToolSchemas found %d violation(s); rephrase in user-facing language or extend internal/skill/glossary.go :: InternalTermsBlocklist", len(hits))
 }
 
+// TestToolRosterCensus pins llmFacingToolRoster against the package
+// source: the set of receiver types declaring `Parameters()
+// json.RawMessage` in non-test files directly under internal/tool must
+// equal the set of concrete types in the roster.
+func TestToolRosterCensus(t *testing.T) {
+	declared := parametersReceivers(t, ".")
+	rostered := map[string]bool{}
+	for _, tl := range llmFacingToolRoster {
+		rt := reflect.TypeOf(tl)
+		for rt.Kind() == reflect.Ptr {
+			rt = rt.Elem()
+		}
+		if rostered[rt.Name()] {
+			t.Errorf("roster lists %s twice", rt.Name())
+		}
+		rostered[rt.Name()] = true
+	}
+	for name := range declared {
+		if !rostered[name] {
+			t.Errorf("%s declares Parameters() json.RawMessage but is missing from llmFacingToolRoster", name)
+		}
+	}
+	for name := range rostered {
+		if !declared[name] {
+			t.Errorf("llmFacingToolRoster lists %s, which declares no Parameters() json.RawMessage in internal/tool", name)
+		}
+	}
+}
+
+// parametersReceivers returns the receiver type names of every
+// `func (… *T) Parameters() json.RawMessage` in non-test files under dir.
+func parametersReceivers(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	out := map[string]bool{}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, decl := range file.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || fd.Name.Name != "Parameters" || fd.Type.Results == nil || len(fd.Type.Results.List) != 1 {
+				continue
+			}
+			sel, ok := fd.Type.Results.List[0].Type.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "RawMessage" {
+				continue
+			}
+			recv := fd.Recv.List[0].Type
+			if star, ok := recv.(*ast.StarExpr); ok {
+				recv = star.X
+			}
+			if id, ok := recv.(*ast.Ident); ok {
+				out[id.Name] = true
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatalf("no Parameters() json.RawMessage receivers found under %s — census walker is broken", dir)
+	}
+	return out
+}
+
 // scanJSONDescriptions walks a decoded JSON schema tree and scans
 // every value keyed under the literal property name "description"
-// against the blocklist. Non-string "description" values (unlikely
-// but defensively handled) are skipped silently.
-func scanJSONDescriptions(root, path string, node any) []string {
-	var out []string
+// against the glossary, labelling hits by their schema path.
+func scanJSONDescriptions(root, path string, node any) []glossarylint.Hit {
+	var out []glossarylint.Hit
 	switch v := node.(type) {
 	case map[string]any:
-		for k, child := range v {
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			child := v[k]
 			childPath := path
 			if childPath == "" {
 				childPath = k
@@ -87,9 +189,7 @@ func scanJSONDescriptions(root, path string, node any) []string {
 			}
 			if k == "description" {
 				if s, ok := child.(string); ok {
-					if h := scanLLMText(root+"."+childPath, s); len(h) > 0 {
-						out = append(out, h...)
-					}
+					out = append(out, glossarylint.ScanText(root+"."+childPath, s)...)
 				}
 				continue
 			}
@@ -97,105 +197,8 @@ func scanJSONDescriptions(root, path string, node any) []string {
 		}
 	case []any:
 		for i, child := range v {
-			childPath := path + "[" + strconv.Itoa(i) + "]"
-			out = append(out, scanJSONDescriptions(root, childPath, child)...)
+			out = append(out, scanJSONDescriptions(root, path+"["+strconv.Itoa(i)+"]", child)...)
 		}
 	}
 	return out
 }
-
-// scanLLMText runs the blocklist across a single string and returns
-// one hit per match with a short context preview. Short uppercase
-// acronyms require word-boundary matches (so "ERM" does not match
-// inside "TERMINAL"); longer tokens use plain substring matching.
-func scanLLMText(label, s string) []string {
-	if s == "" {
-		return nil
-	}
-	var out []string
-	for _, term := range skill.InternalTermsBlocklist {
-		if term == "" {
-			continue
-		}
-		idx := findTermMatchLocal(s, term)
-		if idx < 0 {
-			continue
-		}
-		out = append(out, label+": token="+term+" preview="+previewLLMText(s, idx, len(term)))
-	}
-	// Project-specific identifier scan — same matcher, separate
-	// list. Catches eval-case-specific config keys / repo paths
-	// that over-fit prompts to one question shape.
-	for _, term := range skill.ProjectSpecificIdentifierBlocklist {
-		if term == "" {
-			continue
-		}
-		idx := findTermMatchLocal(s, term)
-		if idx < 0 {
-			continue
-		}
-		out = append(out, label+": token="+term+" preview="+previewLLMText(s, idx, len(term)))
-	}
-	return out
-}
-
-func findTermMatchLocal(body, term string) int {
-	if isShortUpperAcronymLocal(term) {
-		return findWholeWordLocal(body, term)
-	}
-	return strings.Index(body, term)
-}
-
-func isShortUpperAcronymLocal(s string) bool {
-	if len(s) > 4 {
-		return false
-	}
-	for _, r := range s {
-		if r < 'A' || r > 'Z' {
-			return false
-		}
-	}
-	return len(s) >= 2
-}
-
-func findWholeWordLocal(body, term string) int {
-	from := 0
-	for {
-		i := strings.Index(body[from:], term)
-		if i < 0 {
-			return -1
-		}
-		pos := from + i
-		left := pos == 0 || !isWordCharLocal(body[pos-1])
-		end := pos + len(term)
-		right := end == len(body) || !isWordCharLocal(body[end])
-		if left && right {
-			return pos
-		}
-		from = pos + 1
-		if from >= len(body) {
-			return -1
-		}
-	}
-}
-
-func isWordCharLocal(b byte) bool {
-	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_'
-}
-
-func previewLLMText(s string, start, length int) string {
-	const window = 40
-	from := start - window
-	if from < 0 {
-		from = 0
-	}
-	to := start + length + window
-	if to > len(s) {
-		to = len(s)
-	}
-	snippet := s[from:to]
-	snippet = strings.ReplaceAll(snippet, "\n", " / ")
-	snippet = strings.ReplaceAll(snippet, "\t", " ")
-	return "…" + snippet + "…"
-}
-

@@ -79,6 +79,50 @@ func ValidateTraceMarkActionFilter(view string, eventTypes []EventType, actions 
 	return nil
 }
 
+// EventSearchPatternLimit caps the typed multi-literal OR carrier
+// (Query.Patterns). The LLM tool schema's maxItems and the tracediag script
+// validator both read this one constant.
+const EventSearchPatternLimit = 16
+
+// NormalizeEventSearchPatterns is the shared hard boundary for the typed
+// multi-literal event_search carrier (V11-2, colleague_merge_audit §40.58):
+// the LLM tool and the deterministic tracediag script validate `patterns`
+// through this one function, exactly as ValidateTraceMarkActionFilter serves
+// both faces for `trace_mark_actions`. Precise signals only: canonical view
+// string equality, an integer length bound, and a trimmed-empty check.
+// An absent carrier (len==0) is the typed escape lane — nil, nil, no gate.
+// The legacy single Pattern contract is untouched: a vertical bar in Pattern
+// remains an ordinary literal, and this function never guesses regex intent
+// from caller-authored text. The returned slice is trimmed and case-
+// insensitively de-duplicated (first spelling wins) so every consumer echoes
+// and matches one canonical set.
+func NormalizeEventSearchPatterns(view string, patterns []string) ([]string, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+	if canonical := CanonicalViewName(view); canonical != FallbackViewEventSearch {
+		return nil, fmt.Errorf("patterns is only valid for view=%s, got view=%s", FallbackViewEventSearch, canonical)
+	}
+	if len(patterns) > EventSearchPatternLimit {
+		return nil, fmt.Errorf("received %d literals; maximum is %d", len(patterns), EventSearchPatternLimit)
+	}
+	seen := make(map[string]bool, len(patterns))
+	out := make([]string, 0, len(patterns))
+	for i, raw := range patterns {
+		literal := strings.TrimSpace(raw)
+		if literal == "" {
+			return nil, fmt.Errorf("literal %d is empty after trimming", i+1)
+		}
+		key := strings.ToLower(literal)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, literal)
+	}
+	return out, nil
+}
+
 func traceMarkActionFilterSet(actions []TraceMarkAction) map[string]bool {
 	if len(actions) == 0 {
 		return nil

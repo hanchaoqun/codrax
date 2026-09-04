@@ -165,7 +165,7 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 			types.ViolAuthorityOverreach,
 			types.ViolClaimFormUnsupported,
 		},
-		Reason: "principal claim_use, richness regression, diagram edge support, authority overreach, and claim_form support all key on FacetCoverage typed evidence; an uncovered facet collapses these downstream signals into one repair target — re-cover the facet to clear them at once",
+		Reason: "principal claim_use, richness regression, diagram edge support, authority overreach, and claim_form support all key on typed facet-coverage evidence; an uncovered facet collapses these downstream signals into one repair target — re-cover the facet to clear them at once",
 	},
 
 	// ─────────────────────────────────────────────────────────────
@@ -185,7 +185,7 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 		Derived: []types.ViolationKind{
 			types.ViolFacetUncovered,
 		},
-		Reason: "axis-typed facets draw their SourceCandidate pool from the predicate axis; a missing axis leaves the pool empty, guaranteeing FacetUncovered downstream",
+		Reason: "axis-typed facets draw their candidate pool from the predicate axis; a missing axis leaves the pool empty, guaranteeing FacetUncovered downstream",
 	},
 
 	// ─────────────────────────────────────────────────────────────

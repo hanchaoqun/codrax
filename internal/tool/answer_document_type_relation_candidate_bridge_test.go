@@ -165,6 +165,44 @@ func TestPreCheckDiagramCallEdgeEvidenceAlignment_ExactProviderOwnsCanonicalClas
 	}
 }
 
+// §40.57 V10-4 (production witness r417/r418, B698): the model draws
+// `LoopController <|.. analyzerEvaluator` (UML: analyzerEvaluator -> LoopController)
+// but serializes the sibling type_relation anchor in visual token order. The
+// gate must report that reversal precisely and teach alignment — swap the
+// anchor or reverse the arrow — never delete-the-diagram, and never swap the
+// anchor on the model's behalf.
+func TestPreCheckDiagramCallEdgeEvidenceAlignment_ReversedClassDiagramAnchorTeachesSwapNotDeletion(t *testing.T) {
+	ctx := typedRelationBridgeTestContext(exactImplementerCandidate("internal/agent/analyzer.go"))
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisImplement}
+	doc := typedRelationBridgeClassDiagramDocument("LoopController", "analyzerEvaluator")
+
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, newPreEmitCheckContext(ctx))
+	if len(hints) != 1 {
+		t.Fatalf("reversed anchor must produce exactly one relation-gate hint: %+v", hints)
+	}
+	hint := hints[0]
+	issues := strings.Join(hint.DiagramRelationFailureIssues, ",")
+	if !strings.Contains(issues, diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge) ||
+		strings.Contains(issues, diagramCallEdgeIssueAnchorWithoutBodyEdge) {
+		t.Fatalf("issue set must carry the reversed issue and not the generic stale issue: %q", issues)
+	}
+	if !strings.Contains(hint.ExpectedShape, diagramReversedAnchorBoundaryTeaching) ||
+		!strings.Contains(hint.ExpectedShape, "swapping from_node/to_node (and from_identity/to_identity together)") ||
+		!strings.Contains(hint.ExpectedShape, "Do not delete the diagram") {
+		t.Fatalf("hint must teach alignment, not deletion:\n%s", hint.ExpectedShape)
+	}
+	if doc.Blocks[0].EdgeAnchors[0].FromNode != "LoopController" || doc.Blocks[0].EdgeAnchors[0].ToNode != "analyzerEvaluator" {
+		t.Fatalf("pre-emit gate must never rewrite the model anchor: %+v", doc.Blocks[0].EdgeAnchors)
+	}
+
+	// Typed escape lane, full-emit shape: the model aligns its anchor to its
+	// own arrow and the same provider authorizes the diagram with zero hints.
+	aligned := typedRelationBridgeClassDiagramDocument("analyzerEvaluator", "LoopController")
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(aligned, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("swapped anchor must clear the gate: %+v", hints)
+	}
+}
+
 func typedRelationBridgeClassDiagramDocument(from, to string) *types.AnswerDocumentV2 {
 	return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "type-relations", Kind: types.BlockDiagram,
@@ -188,10 +226,22 @@ func TestDiagramCallEdgeEvidenceMismatchesWithRuntimeContext_UsesExactTypedRelat
 		t.Fatalf("post-finalizer must consume the same exact typed provider as pre-emit: %+v", got)
 	}
 
+	// EVOLUTION RECORD (§40.57 V10-4): tightened from "non-empty" to the
+	// exact issue set so pre-emit and post-finalizer share one diagnosis —
+	// the reversed anchor is reported as reversed (alignment teaching), the
+	// visible class edge keeps its missing-owner row, and nothing is swapped.
 	reversed := typedRelationBridgeClassDiagramDocument("LoopController", "analyzerEvaluator")
 	got := DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(ctx, reversed, view, nil)
-	if len(got) == 0 {
-		t.Fatalf("post-finalizer exact provider must not authorize the reverse edge: %+v", got)
+	gotIssues := map[string]int{}
+	for _, m := range got {
+		gotIssues[m.Issue]++
+	}
+	if len(got) != 2 || gotIssues[diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge] != 1 ||
+		gotIssues[diagramCallEdgeIssueMissingRelationAnchor] != 1 {
+		t.Fatalf("post-finalizer exact provider must not authorize the reverse edge and must name the reversal exactly: %+v", got)
+	}
+	if reversed.Blocks[0].EdgeAnchors[0].FromNode != "LoopController" || reversed.Blocks[0].EdgeAnchors[0].ToNode != "analyzerEvaluator" {
+		t.Fatalf("the gate must never rewrite the model anchor: %+v", reversed.Blocks[0].EdgeAnchors)
 	}
 
 	nameOnly := exactImplementerCandidate("internal/agent/analyzer.go")

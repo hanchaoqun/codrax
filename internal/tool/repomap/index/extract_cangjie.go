@@ -292,7 +292,9 @@ func cangjieExtractCalls(src []byte, file string) []types.Relation {
 			addLexicalReceiverAuthority(scopes[len(scopes)-1].authorities, tokens[i].Text, typeName)
 		}
 		nameTok := tokens[i]
-		if nameTok.Kind != cjTokIdent || tokens[i+1].Kind != cjTokLParen {
+		// `ident(` or `ident<…>(` (B1554: generic call heads); the precise
+		// adjacency shape lives in cangjieCallParenIndex.
+		if nameTok.Kind != cjTokIdent || cangjieCallParenIndex(tokens, i) < 0 {
 			continue
 		}
 		name := strings.TrimSpace(nameTok.Text)

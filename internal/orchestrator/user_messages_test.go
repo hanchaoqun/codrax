@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -203,9 +204,13 @@ func TestSoftTransportRetryHint_CarriesBackoffDuration(t *testing.T) {
 // E2, I4, enforcer counter names, repair kind enums, node IDs) stay
 // in logging.* only.
 func TestSoftMessages_NoInternalJargon(t *testing.T) {
+	// Per-surface, case-insensitive extras; the shared glossary (CGEC,
+	// AnswerContract, …) is applied case-sensitively through
+	// glossarylint.ScanText below (§40.52: no test re-lists glossary
+	// entries).
 	forbidden := []string{
 		// CGEC enforcer naming (previous contract).
-		"CGEC", "E2", "I4", "enforcer", "forced_reads", "chains_demoted", "repair",
+		"E2", "I4", "enforcer", "forced_reads", "chains_demoted", "repair",
 		// Scheduler / criterion internals newly surfaced in session 22
 		// when we folded four more events into the friendly surface.
 		"success criteria", "SuccessCriteria", "envShape", "hypProgress",
@@ -215,7 +220,7 @@ func TestSoftMessages_NoInternalJargon(t *testing.T) {
 		"## Evidence Gaps", "[MISSING]", "(entities:",
 		// Answer-contract violation vocabulary rendered by
 		// renderViolations — must not land in the user-facing event.
-		"answer contract", "AnswerContract", "violation", "pendingViolation",
+		"answer contract", "violation", "pendingViolation",
 	}
 	messages := []string{
 		softForcedReadMessage("en", 3),
@@ -254,6 +259,9 @@ func TestSoftMessages_NoInternalJargon(t *testing.T) {
 			if strings.Contains(lower, strings.ToLower(f)) {
 				t.Errorf("message %q leaks internal token %q", m, f)
 			}
+		}
+		for _, hit := range glossarylint.ScanText("soft message", m) {
+			t.Errorf("message %q leaks internal token %q", m, hit.Term)
 		}
 	}
 }

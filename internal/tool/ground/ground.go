@@ -813,7 +813,7 @@ func GroundCitation(c types.Citation, gc *Context) CitationReport {
 				return CitationReport{Valid: true, QuoteMatched: false, Tier: types.TierSymbolTable}
 			}
 			return CitationReport{
-				Reason: fmt.Sprintf("source %q is indexed but line %d is not inside any symbol range or the file prologue — %sread the file first so Tier 1 can corroborate, or pick a line inside one of the symbols above",
+				Reason: fmt.Sprintf("source %q is indexed but line %d is not inside any symbol range or the file prologue — %sread the file first so its contents can corroborate the citation, or pick a line inside one of the symbols above",
 					file, c.Line, nearestSymbolsHint(fi, c.Line)),
 			}
 		}
@@ -4097,8 +4097,90 @@ func looksLikeCallSyntax(lineText, target string) bool {
 				return true
 			}
 		}
+		if callTargetWithTypeArguments(lineText, candidate) {
+			return true
+		}
 	}
 	return false
+}
+
+// callTargetWithTypeArguments is the regex-tier arm of B1554
+// (colleague_merge_audit §40.59): a callee followed by an explicit
+// type-argument list and then its argument list — C++ `make_unique<T>(`,
+// Rust `parse::<u32>(`, Swift/Kotlin/TypeScript/Cangjie `f<T>(`. The shape
+// is precise on purpose: the candidate must sit on an identifier boundary,
+// the `<` (or Rust's `::<`) must touch it, the angle brackets must balance
+// over characters a type argument can contain, and the closing `>` must be
+// followed by `(` (one optional space, the same tolerance the plain
+// patterns have). A comparison chain (`lhs < rhs && cnt > (limit)`) fails
+// the adjacency and the interior whitelist, so it never reads as a call.
+func callTargetWithTypeArguments(lineText, candidate string) bool {
+	for _, opener := range []string{"<", "::<"} {
+		needle := candidate + opener
+		from := 0
+		for {
+			idx := strings.Index(lineText[from:], needle)
+			if idx < 0 {
+				break
+			}
+			start := from + idx
+			from = start + 1
+			if start > 0 && isIdentifierByte(lineText[start-1]) {
+				continue
+			}
+			if typeArgumentListClosesIntoCall(lineText, start+len(candidate)+len(opener)-1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// typeArgumentListClosesIntoCall scans from the `<` at lineText[open]
+// and reports whether the balanced list closes with `>` directly followed
+// by `(` (or ` (`). Interior bytes are limited to what type arguments spell:
+// identifiers, `::` / `.` paths, `,`, spaces, nested angles, `[` `]`, `&`
+// `*` `'` `?` `$` and parenthesised / arrow function types. Any other byte
+// (`=`, `!`, `;`, `{`, `"`, `|`, `+`, `/`, `%`) or an `&&` / `||` pair ends
+// the scan as "not a type-argument list".
+func typeArgumentListClosesIntoCall(lineText string, open int) bool {
+	if open < 0 || open >= len(lineText) || lineText[open] != '<' {
+		return false
+	}
+	depth := 0
+	for i := open; i < len(lineText); i++ {
+		c := lineText[i]
+		switch {
+		case c == '<':
+			depth++
+		case c == '>':
+			if i > open && lineText[i-1] == '-' {
+				continue // `->` inside a function type
+			}
+			depth--
+			if depth == 0 {
+				rest := lineText[i+1:]
+				return strings.HasPrefix(rest, "(") || strings.HasPrefix(rest, " (")
+			}
+		case isIdentifierByte(c), c == ':', c == '.', c == ',', c == ' ', c == '\t',
+			c == '[', c == ']', c == '(', c == ')', c == '*', c == '\'', c == '?', c == '$':
+		case c == '-':
+			if i+1 >= len(lineText) || lineText[i+1] != '>' {
+				return false // only the `->` of a function type
+			}
+		case c == '&':
+			if i+1 < len(lineText) && lineText[i+1] == '&' {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func isIdentifierByte(c byte) bool {
+	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 // ── ungrounded explanation ───────────────────────────────────────────
@@ -4189,7 +4271,21 @@ func explainUngrounded(it *types.EvidenceItem, gc *Context) string {
 	} else if it.LineStart > 0 && !HasLineInIndex(gc, it.Source, it.LineStart) {
 		parts = append(parts, "line "+strconv.Itoa(it.LineStart)+" for source "+it.Source+" not present in read_file history (call read_file around that line first)")
 	} else if it.AnchorSymbol != "" {
-		parts = append(parts, "anchor_symbol "+strconv.Quote(it.AnchorSymbol)+" not found as a whole-word token near line "+strconv.Itoa(it.LineStart))
+		// B1554 (colleague_merge_audit §40.59): token absence and
+		// target/shape mismatch are different repairs. The precise signal is
+		// the same whole-word presence Tier 1 scans (LineStart±2); when the
+		// token IS visible there, the failure is the typed anchor_kind's
+		// shape (a type argument cited as the callee, a declaration cited
+		// as a call), not a missing token.
+		if anchorTokenVisibleNear(gc.LineIndex[it.Source], it.LineStart, 2, it.AnchorSymbol) {
+			if it.AnchorKind != "" {
+				parts = append(parts, "anchor_symbol "+strconv.Quote(it.AnchorSymbol)+" is present as a whole-word token near line "+strconv.Itoa(it.LineStart)+", but no line there has the shape anchor_kind "+strconv.Quote(string(it.AnchorKind))+" requires for that symbol (target/shape mismatch, not a missing token); cite the exact line whose shape matches that symbol, or change anchor_kind to the shape that is visible")
+			} else {
+				parts = append(parts, "anchor_symbol "+strconv.Quote(it.AnchorSymbol)+" is present as a whole-word token near line "+strconv.Itoa(it.LineStart)+", but no line there corroborated the claim")
+			}
+		} else {
+			parts = append(parts, "anchor_symbol "+strconv.Quote(it.AnchorSymbol)+" not found as a whole-word token near line "+strconv.Itoa(it.LineStart))
+		}
 	} else {
 		parts = append(parts, "no anchor_symbol provided and Subject/Object identifiers did not match any token near line "+strconv.Itoa(it.LineStart))
 	}
@@ -4478,6 +4574,23 @@ func parseBannerPath(banner string) string {
 		return ""
 	}
 	return banner[:colon]
+}
+
+// anchorTokenVisibleNear reports whether the anchor (or its last dotted
+// segment) is a whole-word token on any read line within ±radius of center
+// — the same presence test Tier 1 applies, reused verbatim so the
+// ungrounded explanation can never disagree with the tier about whether
+// the token was there (B1554 target/shape split).
+func anchorTokenVisibleNear(fileLines map[int]string, center, radius int, anchor string) bool {
+	if len(fileLines) == 0 || center <= 0 || strings.TrimSpace(anchor) == "" {
+		return false
+	}
+	for i := center - radius; i <= center+radius; i++ {
+		if text, ok := fileLines[i]; ok && lineContainsCallTarget(text, anchor) {
+			return true
+		}
+	}
+	return false
 }
 
 func lookupLineWithNeighbours(fileLines map[int]string, n, radius int) (string, bool) {

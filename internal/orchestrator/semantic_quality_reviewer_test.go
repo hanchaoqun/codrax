@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1728,17 +1729,15 @@ func TestSemanticQualityStrictCoverageViolation_SatisfiedDiagramGapStaysNonStric
 // R4 lock — reviewer prompts + retry hint surface must NOT contain
 // stage codenames or Go type names.
 func TestSemanticQualityReviewer_Prompts_NoLLMFacingJargon(t *testing.T) {
-	bannedTokens := []string{
-		"finalizer", "extractor", "explorer", "analyzer",
-		"FacetCoverageContract", "FacetRequirement", "AnswerSemanticView",
-		"orchestrator", "TaskGraph", "BusContext",
+	// Per-surface extras (bare stage names, spacing-sensitive labels);
+	// the shared glossary comes from glossarylint.ScanTextWith (§40.52).
+	extras := []string{
+		"extractor", "explorer", "analyzer", "orchestrator",
 		"Phase ", "Tier-1", "Tier-2", "Layer ",
 	}
 	corpus := semanticQualityReviewerSystemPrompt + "\n" + string(semanticQualityTool.Parameters) + "\n" + semanticQualityTool.Description
-	for _, banned := range bannedTokens {
-		if strings.Contains(corpus, banned) {
-			t.Errorf("LLM-facing prompt contains banned token %q", banned)
-		}
+	for _, hit := range glossarylint.ScanTextWith("semanticQualityReviewer", corpus, extras...) {
+		t.Errorf("LLM-facing prompt contains banned token %q: %s", hit.Term, hit.Preview)
 	}
 }
 

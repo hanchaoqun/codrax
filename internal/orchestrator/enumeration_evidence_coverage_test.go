@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -191,16 +192,13 @@ func TestValidateEnumerationEvidenceCoverage_NoLLMFacingJargon(t *testing.T) {
 		t.Fatalf("want 1 violation; got %+v", vs)
 	}
 	corpus := vs[0].Detail + " " + vs[0].Repair
-	for _, banned := range []string{
-		"AnalysisIR", "EnumerationBoundary", "RequestedEnumerationBoundary",
-		"EvidenceItem", "AnswerSemanticView", "QFEnumeration", "QFRootCauseTrace",
-		"FacetCoverageContract", "ViolationKind",
-		"finalizer", "extractor", "explorer", "analyzer",
+	for _, hit := range glossarylint.ScanTextWith("enumeration coverage violation", corpus,
+		"EnumerationBoundary", "RequestedEnumerationBoundary",
+		"EvidenceItem", "QFEnumeration", "QFRootCauseTrace", "ViolationKind",
+		"extractor", "explorer", "analyzer",
 		"Phase ", "Layer ", "Tier-",
-	} {
-		if strings.Contains(corpus, banned) {
-			t.Errorf("LLM-facing text contains banned token %q: %q", banned, corpus)
-		}
+	) {
+		t.Errorf("LLM-facing text contains banned token %q: %q", hit.Term, corpus)
 	}
 }
 

@@ -214,7 +214,7 @@ func TestSourceInventoryConvergence_LOCCeilingRatchet(t *testing.T) {
 			ceiling = sourceInventoryNewFileLOCCeiling
 		}
 		if loc > ceiling {
-			t.Errorf("%s is %d LOC, over its convergence ceiling %d. The source-inventory convergence target is to SHRINK this cluster (reconcile.go -> <=1500): extract code into a concern sub-file or the bounded execution kernel instead of growing it. If a growth is genuinely unavoidable, raise the ceiling here DELIBERATELY (never silently) — it is a ratchet, meant to fall.", path, loc, ceiling)
+			t.Errorf("%s is %d LOC, over its convergence ceiling %d. The source-inventory convergence target is to SHRINK this cluster (reconcile.go -> <=1500): extract code into a concern sub-file or the bounded execution kernel instead of growing it. If a growth is genuinely unavoidable, raise the ceiling here DELIBERATELY (never silently) — it is a ratchet, meant to fall. Comment/blank-line compression and dead-line trimming are NOT ratchet compliance — extract a concern file and lower this ceiling in the same change.", path, loc, ceiling)
 		}
 	}
 }

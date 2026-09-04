@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	"math"
@@ -99,35 +100,6 @@ func ApplyAndPersistMutation(
 		now,
 		answerDocumentMutationExplicitlyRemovesDiagram(mutation, prev),
 	)
-}
-
-func answerDocumentMutationRepair(err error) *types.ToolRepair {
-	if err == nil {
-		return nil
-	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "replace_citations and append_citations are mutually exclusive"):
-		return &types.ToolRepair{
-			Code:   "answer_doc_patch_citation_mode_conflict",
-			Fields: []string{"replace_citations", "append_citations"},
-			Hint:   "Re-emit `emit_answer_document_patch` with exactly one citation-pool operation: use `append_citations` when only adding citations, or `replace_citations` only when every citation_ref-bearing block is also replaced/removed. If many citations change, switch to a full `emit_answer_document` payload.",
-		}
-	case strings.Contains(msg, "add_blocks[") && strings.Contains(msg, "already exists in previous emit"):
-		return &types.ToolRepair{
-			Code:   "answer_doc_patch_existing_block",
-			Fields: []string{"add_blocks", "replace_blocks", "unchanged_block_ids"},
-			Hint:   "Move any block id that already exists in the previous emit out of `add_blocks`. Put the edited block in `replace_blocks`, or list it in `unchanged_block_ids` when it should stay byte-identical.",
-		}
-	case strings.Contains(msg, "replace_citations cannot preserve citation-bearing block"):
-		return &types.ToolRepair{
-			Code:   "answer_doc_patch_replace_citations_with_preserved_blocks",
-			Fields: []string{"replace_citations", "append_citations", "replace_blocks", "remove_block_ids"},
-			Hint:   "Do not replace the citation pool while preserving old blocks that still contain citation_ref values. Use `append_citations`, replace/remove every citation-bearing block, or switch to a full `emit_answer_document` payload with a complete zero-based citation pool.",
-		}
-	default:
-		return nil
-	}
 }
 
 func persistMergedAnswerDocument(
@@ -357,36 +329,65 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 	}, nil
 }
 
+// bindRuntimeWorkRelationReceipts binds every block-level runtime-work receipt
+// against the schema-published contract and lists EVERY block whose receipt
+// does not bind (V2-4 §40.51 list discipline; a single miss keeps its
+// historical message verbatim).
 func bindRuntimeWorkRelationReceipts(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) error {
+	return mergedDocumentViolationsError(collectRuntimeWorkRelationReceiptViolations(doc, view))
+}
+
+func collectRuntimeWorkRelationReceiptViolations(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []string {
 	if doc == nil {
 		return nil
 	}
+	var violations []string
 	for i := range doc.Blocks {
 		receipt := doc.Blocks[i].RuntimeWorkRelation
 		if receipt == nil {
 			continue
 		}
 		if view == nil || !types.BindRuntimeWorkRelationReceipt(receipt, view.RuntimeWorkRelationContract) {
-			return fmt.Errorf("blocks[%d].runtime_work_relation does not match an exact schema-published runtime-work observation/conclusion pair", i)
+			violations = append(violations, fmt.Sprintf("blocks[%d].runtime_work_relation does not match an exact schema-published runtime-work observation/conclusion pair", i))
 		}
 	}
-	return nil
+	return violations
 }
 
+// bindConceptualTerminalResolutionReceipts is the conceptual-terminal twin of
+// bindRuntimeWorkRelationReceipts: every unbound receipt is listed at once.
 func bindConceptualTerminalResolutionReceipts(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) error {
+	return mergedDocumentViolationsError(collectConceptualTerminalResolutionReceiptViolations(doc, view))
+}
+
+func collectConceptualTerminalResolutionReceiptViolations(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []string {
 	if doc == nil {
 		return nil
 	}
+	var violations []string
 	for i := range doc.Blocks {
 		receipt := doc.Blocks[i].ConceptualTerminalResolution
 		if receipt == nil {
 			continue
 		}
 		if view == nil || !types.BindConceptualTerminalResolutionReceipt(receipt, view.ConceptualTerminalResolutionContract) {
-			return fmt.Errorf("blocks[%d].conceptual_terminal_resolution does not match an exact schema-published terminal-operation/conclusion pair", i)
+			violations = append(violations, fmt.Sprintf("blocks[%d].conceptual_terminal_resolution does not match an exact schema-published terminal-operation/conclusion pair", i))
 		}
 	}
-	return nil
+	return violations
+}
+
+// mergedDocumentViolationsError renders an accumulated merged-document
+// validator result as one error through the shared numbered formatter: nil
+// for no violation, the single message verbatim, or the capped `[1] …; [2] …`
+// listing behind one count sentence.
+func mergedDocumentViolationsError(violations []string) error {
+	if len(violations) == 0 {
+		return nil
+	}
+	return errors.New(types.ViolationListMessage(violations, func(n int) string {
+		return fmt.Sprintf("merged doc has %d violations — fix ALL of them in this one resubmission: ", n)
+	}))
 }
 
 // answerDocumentMutationExplicitlyRemovesDiagram preserves the model's typed
@@ -952,31 +953,41 @@ func validateMergedV2Doc(doc *types.AnswerDocumentV2) error {
 		return fmt.Errorf("merged doc has %d blocks; maximum is %d",
 			len(doc.Blocks), maxBlocksPerDoc)
 	}
+	return mergedDocumentViolationsError(collectMergedV2DocBlockViolations(doc))
+}
+
+// collectMergedV2DocBlockViolations walks every merged block: per-block
+// invariants are independent across blocks, so every violation is listed in
+// one reject (V2-4 §40.51). Within one block an empty id gates the identity
+// checks (the payload checks still run on that block).
+func collectMergedV2DocBlockViolations(doc *types.AnswerDocumentV2) []string {
+	var violations []string
 	seenIDs := make(map[string]bool, len(doc.Blocks))
 	for i, b := range doc.Blocks {
 		id := strings.TrimSpace(b.ID)
-		if id == "" {
-			return fmt.Errorf("merged blocks[%d]: id is empty", i)
-		}
-		if seenIDs[id] {
+		switch {
+		case id == "":
+			violations = append(violations, fmt.Sprintf("merged blocks[%d]: id is empty", i))
+		case seenIDs[id]:
 			// No index in this message: the merged doc's physical
 			// layout includes system-inserted blocks (split diagram
 			// halves, prev-doc blocks on the patch path), so a
 			// position here does not correspond to the model's own
 			// emission — the id is the stable handle the model can
 			// act on.
-			return fmt.Errorf("merged doc: duplicate id %q (each block must have a unique id)",
-				id)
+			violations = append(violations, fmt.Sprintf("merged doc: duplicate id %q (each block must have a unique id)",
+				id))
+		default:
+			seenIDs[id] = true
 		}
-		seenIDs[id] = true
 		if b.Diagram != nil && b.Kind != types.BlockDiagram {
-			return fmt.Errorf("merged blocks[%d]: diagram payload is only valid when kind=diagram; replace the block with kind=diagram or remove the sibling diagram object from kind=%q", i, b.Kind)
+			violations = append(violations, fmt.Sprintf("merged blocks[%d]: diagram payload is only valid when kind=diagram; replace the block with kind=diagram or remove the sibling diagram object from kind=%q", i, b.Kind))
 		}
 		if b.Kind == types.BlockDiagram && b.Diagram == nil {
-			return fmt.Errorf("merged blocks[%d]: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If you removed it on a patch retry, restore it on `replace_blocks`; do not move the diagram body into the block-level `text` field", i)
+			violations = append(violations, fmt.Sprintf("merged blocks[%d]: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If you removed it on a patch retry, restore it on `replace_blocks`; do not move the diagram body into the block-level `text` field", i))
 		}
 	}
-	return nil
+	return violations
 }
 
 // Runtime trace causal projection block-id family. Every system-emitted block

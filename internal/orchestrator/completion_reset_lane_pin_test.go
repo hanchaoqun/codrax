@@ -64,6 +64,9 @@ func TestCompletionResetSetSitesStayInTypedLanes(t *testing.T) {
 		"zero-witness retry",
 		"FallbackBackToExplore contract backtracks",
 		"template-SC requeues",
+		// §40.55 V7-5: the 4th lane (4c7a0d0a3) must stay named on the
+		// declaration alongside the original three.
+		"window-scoped completion",
 		"quality-class floor detections disclose and never set it",
 	} {
 		if !strings.Contains(declaration, want) {
@@ -184,6 +187,12 @@ func TestResetInvestigationCompleteSingleGuardedThroat(t *testing.T) {
 	}
 	lines := strings.Split(string(src), "\n")
 	guarded := false
+	// §40.55 V7-5: the throat's §29.60 "terminal" comment was deleted by
+	// 4c7a0d0a3 to stay under the LOC ratchet and this pin stayed green,
+	// so the ratchet was being paid with comments. Both substrings are
+	// exact (precise signal); the window is 6 lines above the call so the
+	// comment must sit ON the throat, not somewhere earlier in the loop.
+	terminalCommented := false
 	for i, line := range lines {
 		if !strings.Contains(line, ".ResetInvestigationComplete()") {
 			continue
@@ -193,9 +202,18 @@ func TestResetInvestigationCompleteSingleGuardedThroat(t *testing.T) {
 				guarded = true
 			}
 		}
+		for back := i - 1; back >= 0 && back >= i-6; back-- {
+			text := strings.TrimSpace(lines[back])
+			if strings.HasPrefix(text, "//") && strings.Contains(text, "§29.60") && strings.Contains(text, "terminal") {
+				terminalCommented = true
+			}
+		}
 	}
 	if !guarded {
 		t.Fatalf("the ResetInvestigationComplete throat must stay guarded by the pendingCompletionReset latch")
+	}
+	if !terminalCommented {
+		t.Fatalf("the ResetInvestigationComplete throat lost its §29.60 lane comment (a comment line within 6 lines above the call must contain both %q and %q); restoring the LOC ratchet by compressing this comment is not compliance — extract a concern file instead", "§29.60", "terminal")
 	}
 }
 

@@ -349,16 +349,24 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		logging.Warning("[emit_answer_document] materialized missing internal block id(s) without retry: %s",
 			strings.Join(fields, ", "))
 	}
+	// V2-4 (§40.51): every block's normalize error is listed in ONE reject
+	// (the patch twin does the same for replace/add); a single error keeps
+	// its historical text byte-identical.
+	var blockViolations []string
 	for _, entry := range splitFusedDiagramBlockEntries(toolName, blockEntries) {
 		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex))
 		if err != nil {
-			persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
-			return failEmit(toolName, now, "%s", err.Error())
+			blockViolations = append(blockViolations, err.Error())
+			continue
 		}
 		doc.Blocks = append(doc.Blocks, blk)
 		if entry.companionLineage != nil {
 			doc.BlockCompanionLineages = append(doc.BlockCompanionLineages, *entry.companionLineage)
 		}
+	}
+	if len(blockViolations) > 0 {
+		persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
+		return failEmit(toolName, now, "%s", emitBlockViolationsMessage(blockViolations))
 	}
 	doc.BlockCompanionLineages = types.NormalizeAnswerBlockCompanionLineages(doc.BlockCompanionLineages)
 	if changed, fields := normalizeAnswerDocumentBlockIDSurface(doc); changed {

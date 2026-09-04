@@ -293,7 +293,7 @@ func r2TypedNameParitySubTopics(in types.RequestModel, out *types.RequestModel) 
 		Field:  "sub_topics",
 		Before: "0",
 		After:  fmt.Sprintf("%d", len(derived)),
-		Reason: fmt.Sprintf("AnalyzerHints.Entities has %d affix-grouped families: %s",
+		Reason: fmt.Sprintf("the entities list has %d affix-grouped families: %s",
 			len(groups), strings.Join(groupAffixes, ", ")),
 	}
 }

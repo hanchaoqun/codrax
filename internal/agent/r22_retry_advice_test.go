@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill/glossarylint"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -97,15 +98,14 @@ func TestComposeCoherenceRetryHint_NoR22_NoAdvice(t *testing.T) {
 
 func TestR22RetryAdvice_NoInternalStageNames(t *testing.T) {
 	got := r22RetryAdvice()
-	for _, internal := range []string{
-		"explorer", "extractor", "finalizer", "analyzer",
-		"downstream stage", "downstream stages", "the explorer", "the extractor",
-		"AnswerSubject.Kind", "AnalyzerHints", "AnalysisIR", "RequestModel",
-		"contract gate", "shape contract gate", "narrative-family",
-	} {
-		if strings.Contains(got, internal) {
-			t.Errorf("internal term %q leaked into LLM-facing advice: %q", internal, got)
-		}
+	// Per-surface extras (bare stage names, gate labels); the shared
+	// glossary comes from glossarylint.ScanTextWith (§40.52).
+	extras := []string{
+		"explorer", "extractor", "analyzer",
+		"AnswerSubject.Kind", "contract gate", "shape contract gate", "narrative-family",
+	}
+	for _, hit := range glossarylint.ScanTextWith("r22RetryAdvice", got, extras...) {
+		t.Errorf("internal term %q leaked into LLM-facing advice: %q", hit.Term, got)
 	}
 }
 

@@ -28,7 +28,10 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	if bus.Mutable != nil {
 		objective = bus.Mutable.Objective()
 	}
-	presentationDirective := strings.TrimSpace(bus.PresentationDirective)
+	// Typed current-turn presentation authority enters the agent view only
+	// through its single accessor (V7-4): the same value object the
+	// emit_analysis hard gate reads.
+	presentationAuthority := bus.PresentationAuthority()
 
 	ac := &types.AgentContext{
 		AgentName:                   agentName,
@@ -42,8 +45,8 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		CompletionOnlySurface:       bus.CompletionOnlySurface,
 		ExploreLanePlan:             bus.ExploreLanePlan,
 		Objective:                   objective,
-		PresentationDirective:       presentationDirective,
-		PresentationDiagramRequired: bus.PresentationDiagramRequired,
+		PresentationDirective:       presentationAuthority.Directive,
+		PresentationDiagramRequired: presentationAuthority.DiagramRequired,
 		TurnRouteHint:               bus.TurnRouteHint,
 		RuntimeArtifactPreflight:    bus.RuntimeArtifactPreflight,
 		MissingPiece:                bus.TaskState.Missing,
@@ -446,7 +449,7 @@ func renderCapabilityProjectedRetryHint(ac *types.AgentContext, available map[st
 	}
 	switch ac.Stage {
 	case types.StageExtract:
-		return "A prior retry directive asked for exploration-only actions that are unavailable in this extraction stage. Do not reopen investigation here. Use only " + toolText + " to convert the accepted investigation snapshot into structured output; if the snapshot lacks proof for a claim, emit a lower-confidence or inconclusive structured result instead of asking for more repository reads."
+		return "A prior retry directive asked for exploration-only actions that are unavailable in this structured-output step. Do not reopen investigation here. Use only " + toolText + " to convert the accepted investigation snapshot into structured output; if the snapshot lacks proof for a claim, emit a lower-confidence or inconclusive structured result instead of asking for more repository reads."
 	case types.StageFinalize:
 		return "A prior retry directive asked for exploration-only actions that are unavailable in this answer-writing stage. Do not reopen investigation here. Use only " + toolText + " to render the accepted structured evidence; if a requested detail is not supported by the snapshot, state the boundary rather than inventing or requesting more reads."
 	default:
@@ -728,7 +731,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 				Content: currentReq,
 			})
 		}
-		if section := formatPresentationDirective(ac.PresentationDirective, ac.Language); section != "" {
+		if section := formatPresentationAuthority(ac.PresentationAuthority(), ac.Language); section != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionPresentationDirective,
 				Content: section,
@@ -2183,7 +2186,7 @@ func formatRelationDossier(ac *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("- Advisory only: use these relation directions to decide what to verify next; do not treat candidate rows as final answer members or completion authority.\n")
 	b.WriteString("- Verified evidence rows may be cited through the normal citation path. Partial or unknown relation sets should be narrowed, verified, or caveated by the model.\n\n")
-	b.WriteString("- Typed source-role boundary: keep the complete structural roster, but build an ordinary relation answer's principal `member_set` from relation_lane=principal rows. Keep relation_lane=auxiliary rows in an explicitly labelled support/audit section or `excluded[]`; they become principal only when the analyzer's typed source scope selects that role. relation_lane=unknown must be disclosed and verified, never silently promoted or removed.\n\n")
+	b.WriteString("- Typed source-role boundary: keep the complete structural roster, but build an ordinary relation answer's principal `member_set` from relation_lane=principal rows. Keep relation_lane=auxiliary rows in an explicitly labelled support/audit section or `excluded[]`; they become principal only when the classification's typed source scope selects that role. relation_lane=unknown must be disclosed and verified, never silently promoted or removed.\n\n")
 	b.WriteString(strings.Join(sections, "\n\n"))
 	return strings.TrimSpace(b.String())
 }
@@ -2931,20 +2934,36 @@ func formatNumberedList(items []string) string {
 	return b.String()
 }
 
-func formatPresentationDirective(directive, lang string) string {
-	directive = strings.TrimSpace(directive)
-	if directive == "" {
+// formatPresentationAuthority renders the "Presentation Directive" section
+// from the typed current-turn presentation authority (V7-4). The section is
+// present whenever either carrier is set: the directive text (form
+// guidance) and, always, the typed hard-visual line from the single label
+// table in internal/types — the same value the emit_analysis hard gate
+// reads, so the analyzer is taught on the field the gate keys on rather
+// than on directive prose. Absent authority renders nothing, keeping
+// non-diagram prompts byte-stable.
+func formatPresentationAuthority(auth types.PresentationAuthority, lang string) string {
+	if !auth.Present() {
 		return ""
 	}
-	if !strings.EqualFold(strings.TrimSpace(lang), "en") {
-		return "这是从用户当前请求中提取的结构化展示要求。只用于选择最终答案的展示字段，例如 diagram_hint、表格、标量答案或决策结论。" +
-			"不要把它当作仓库代码、代码实体、搜索查询、事实证据或历史对话内容。\n\n" +
-			directive
+	var b strings.Builder
+	if types.PromptLanguageIsEnglish(lang) {
+		b.WriteString("Structured current-turn presentation requirement derived from the user's current request. " +
+			"Use it only to choose final-answer presentation fields such as diagram_hint, table, scalar, or decision. " +
+			"Do NOT treat it as repository code, a code entity, a search query, factual evidence, or prior-conversation content. " +
+			"The directive text chooses only the presentation form or diagram family; the typed line at the end of this section alone decides whether a visual is a hard requirement.")
+	} else {
+		b.WriteString("这是从用户当前请求中提取的结构化展示要求。只用于选择最终答案的展示字段，例如 diagram_hint、表格、标量答案或决策结论。" +
+			"不要把它当作仓库代码、代码实体、搜索查询、事实证据或历史对话内容。" +
+			"指令文本只决定展示形式或图示种类；本段末尾的类型化一行单独决定图示是否为硬性要求。")
 	}
-	return "Structured current-turn presentation requirement derived from the user's current request. " +
-		"Use it only to choose final-answer presentation fields such as diagram_hint, table, scalar, or decision. " +
-		"Do NOT treat it as repository code, a code entity, a search query, factual evidence, or prior-conversation content.\n\n" +
-		directive
+	if auth.Directive != "" {
+		b.WriteString("\n\n")
+		b.WriteString(auth.Directive)
+	}
+	b.WriteString("\n\n")
+	b.WriteString(types.PresentationHardVisualStatement(auth.HardVisual(), lang))
+	return b.String()
 }
 
 func finalizerUsesTypedAnswerSupport(ac *types.AgentContext) bool {
@@ -4240,7 +4259,7 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	var b strings.Builder
 	b.WriteString("The attached runtime log was parsed into the structured view below. " +
 		"Prefer this view for citing frames, reading typed operational observations, and reasoning about the error chain. " +
-		"When the validated frame set is already authoritative, downstream stages " +
+		"When the validated frame set is already authoritative, later steps " +
 		"may omit the raw log section to avoid competing interpretations of runtime-only " +
 		"tuple payloads; rely on the structured bundle and residue snippets below.\n\n")
 	b.WriteString("Stack-frame argument annotations attached by the runtime artifact's panic / exception / traceback dumper " +
@@ -4308,8 +4327,8 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	if bundle.IsExternalSource() {
 		b.WriteString("⚠ **External-source log**: none of the attached log's stack-frame paths were verified in the current repository. The exact locations below remain valid observations of the attached log, but they are not current-repository source anchors and must not be opened or cited as though they were.\n")
 		b.WriteString("  - If the current request separately asks to explain or verify current-checkout code, keep two lanes: attached-log observations for what happened, and current-source evidence for how this repo implements the related behavior. Do not collapse a mixed request into observation-only just because the log frames are external.\n")
-		b.WriteString("  - For a BlockScalar answer (single literal, optionally with config-key facet), leave the value uncited and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
-		b.WriteString("  - The literal-grounding gate on emit_answer_document rejects citations whose cited line does NOT contain the literal; do not borrow an unrelated repo citation just to satisfy a source habit.\n")
+		b.WriteString("  - For a kind=scalar answer (single literal, optionally with config-key facet), leave the value uncited and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
+		b.WriteString("  - Citation validation on emit_answer_document rejects citations whose cited line does NOT contain the literal; do not borrow an unrelated repo citation just to satisfy a source habit.\n")
 		b.WriteString("  - For an ordered hop-chain block or a summary-led explanation answer, cite log content by paraphrasing frames, not by inventing file:line anchors in this repo.\n")
 		b.WriteString("  - For an answer-symbol slate or a multi-topic anchor skeleton, set symbols_completeness=\"unknown\" and omit items[] entirely — those channels require repo-grounded file:line anchors, which external-log content cannot satisfy. The summary prose is the answer.\n\n")
 	}
@@ -5642,7 +5661,7 @@ func formatUnverifiedFindings(finds []types.UnverifiedFinding) string {
 		uniq = append(uniq, f)
 	}
 	var b strings.Builder
-	b.WriteString("The analyzer referenced these items but findings_validator could not confirm them against the repo graph. Treat them as UNRELIABLE — do not cite them, do not assume their contents, grep the repo to confirm or disprove.\n")
+	b.WriteString("The classification referenced these items but the repository-graph check could not confirm them against the repo graph. Treat them as UNRELIABLE — do not cite them, do not assume their contents, grep the repo to confirm or disprove.\n")
 	max := unverifiedFindingsRenderCap
 	if len(uniq) < max {
 		max = len(uniq)

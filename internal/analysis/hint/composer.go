@@ -391,7 +391,7 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 	case types.ViolCitation:
 		return "Cite only files from the Allowed list below; do NOT invent line numbers."
 	case types.ViolGhostAnchor:
-		return "The system will read the referenced files on your behalf; wait for the updated ReadSet before re-emitting."
+		return "The referenced files will be read on your behalf; wait for the updated read-file list before re-emitting."
 	case types.ViolSelfRefLiteral:
 		return "Pick a literal matching the target subject kind; self-name of the primary entity is invalid."
 	case types.ViolLiteralFormFailed:
@@ -400,7 +400,7 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		}
 		return "Emit a literal matching the target subject kind's form."
 	case types.ViolPreCompleteDowngrade:
-		return "Continue the investigation; emit more file:line evidence anchored in files Turn A actually read."
+		return "Continue the investigation; emit more file:line evidence anchored in files the accepted investigation actually read."
 	case types.ViolMustInclude:
 		return "Include the required term(s) in your answer text."
 	case types.ViolMustExclude:
@@ -486,7 +486,7 @@ func buildAllowedSet(violations []types.Violation, ctx Context) []Allowed {
 			out = append(out, Allowed{
 				Kind:  AllowedFileCitation,
 				Value: f,
-				Hint:  "file in Turn A ReadSet",
+				Hint:  "file in the accepted investigation's read-file list",
 			})
 		}
 	case types.ViolFamilyMismatch, types.ViolViewSwap:
@@ -581,7 +581,7 @@ func buildForbiddenPatterns(violations []types.Violation, ctx Context) []string 
 			out = append(out, fmt.Sprintf("Do NOT emit a contract that contradicts the %q family.", ctx.TargetFamily))
 		}
 	case types.ViolCitation:
-		out = append(out, "Do NOT cite files that Turn A did not read.")
+		out = append(out, "Do NOT cite files that the accepted investigation did not read.")
 		out = append(out, "Do NOT invent line numbers.")
 	case types.ViolGhostAnchor:
 		out = append(out, "Do NOT reference files outside the ScannedSet.")

@@ -223,7 +223,7 @@ func answerFacetCoverageCaveatLabel(facet types.AnswerFacetKind, useChinese bool
 	case types.FacetComponentRelation:
 		return "relationships between components"
 	case types.FacetDiagramSpine:
-		return "the relationship-diagram spine and its proved relations"
+		return "the relationship diagram and its proved relations"
 	default:
 		return ""
 	}

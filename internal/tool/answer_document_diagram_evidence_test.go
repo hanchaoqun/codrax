@@ -2623,6 +2623,10 @@ func TestDiagramCallEdgeEvidenceMismatches_ClassDiagramTypeRelationUsesCanonical
 
 	// A model-authored anchor in the visual left-to-right spelling is the
 	// reverse semantic relation and must not match the canonical class edge.
+	// EVOLUTION RECORD (§40.57 V10-4): the stale anchor is now reported by
+	// its exact sub-shape — the pair is visible once, in the opposite
+	// direction — so the retry teaches alignment, not deletion. The visible
+	// class edge keeps its own missing-owner row (the patch lane's attach seat).
 	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
 		FromNode: "Sink", ToNode: "FileSink", RelationKind: types.DiagramRelTypeRelation,
 	}}
@@ -2631,9 +2635,99 @@ func TestDiagramCallEdgeEvidenceMismatches_ClassDiagramTypeRelationUsesCanonical
 	for _, mismatch := range got {
 		issues[mismatch.Issue] = true
 	}
-	if !issues[diagramCallEdgeIssueMissingRelationAnchor] || !issues[diagramCallEdgeIssueAnchorWithoutBodyEdge] {
-		t.Fatalf("left-headed class syntax must not reverse typed endpoint identity: %+v", got)
+	if len(got) != 2 || !issues[diagramCallEdgeIssueMissingRelationAnchor] || !issues[diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge] {
+		t.Fatalf("left-headed class syntax must not reverse typed endpoint identity; the reversed anchor is reported as reversed: %+v", got)
 	}
+}
+
+// §40.57 V10-4: the reversed-anchor issue is a class-level sub-shape of the
+// stale-anchor issue — any relation kind, any diagram family — bound by three
+// precise signals (own direction absent, reverse direction present, unordered
+// pair visible exactly once). Everything outside that shape stays on the
+// generic stale-anchor issue, and a reversed anchor is never rewritten.
+func TestDiagramCallEdgeEvidenceMismatches_ReversedAnchorIssueShape(t *testing.T) {
+	flowDoc := func(body string, anchors ...types.DiagramEdgeAnchor) *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "flow", Kind: types.BlockDiagram,
+			Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: body},
+			EdgeAnchors: anchors,
+		}}}
+	}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric}
+	issuesOf := func(got []DiagramCallEdgeEvidenceMismatch) map[string]int {
+		out := map[string]int{}
+		for _, m := range got {
+			out[m.Issue]++
+		}
+		return out
+	}
+
+	t.Run("call anchor reversed against a flowchart arrow is class-level", func(t *testing.T) {
+		doc := flowDoc("flowchart TD\n  A[Alpha.Run] --> B[Beta.Run]\n",
+			types.DiagramEdgeAnchor{FromNode: "B", ToNode: "A", RelationKind: types.DiagramRelCall})
+		got := DiagramCallEdgeEvidenceMismatches(doc, view, nil)
+		if issuesOf(got)[diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge] != 1 ||
+			issuesOf(got)[diagramCallEdgeIssueAnchorWithoutBodyEdge] != 0 {
+			t.Fatalf("reversed call anchor must carry the reversed issue, not the generic stale issue: %+v", got)
+		}
+		for _, m := range got {
+			if m.Issue == diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge &&
+				(m.FromNode != "B" || m.ToNode != "A" || m.Relation != types.DiagramRelCall) {
+				t.Fatalf("reversed issue must report the anchor as emitted (never swapped): %+v", m)
+			}
+		}
+	})
+	t.Run("duplicate reverse arrows are ambiguous and stay stale", func(t *testing.T) {
+		doc := flowDoc("flowchart TD\n  A --> B\n  A -->|again| B\n",
+			types.DiagramEdgeAnchor{FromNode: "B", ToNode: "A", RelationKind: types.DiagramRelPrecedence})
+		got := DiagramCallEdgeEvidenceMismatches(doc, view, nil)
+		if issuesOf(got)[diagramCallEdgeIssueAnchorWithoutBodyEdge] != 1 ||
+			issuesOf(got)[diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge] != 0 {
+			t.Fatalf("a repeated reverse pair is not a unique reversal: %+v", got)
+		}
+	})
+	t.Run("bidirectional pair owns the anchor direction and is not stale at all", func(t *testing.T) {
+		doc := flowDoc("flowchart TD\n  A --> B\n  B --> A\n",
+			types.DiagramEdgeAnchor{FromNode: "B", ToNode: "A", RelationKind: types.DiagramRelPrecedence})
+		got := DiagramCallEdgeEvidenceMismatches(doc, view, nil)
+		if issuesOf(got)[diagramCallEdgeIssueAnchorWithoutBodyEdge] != 0 ||
+			issuesOf(got)[diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge] != 0 {
+			t.Fatalf("an anchor whose own direction is visible is not stale: %+v", got)
+		}
+	})
+	t.Run("absent pair stays on the generic stale issue", func(t *testing.T) {
+		doc := flowDoc("flowchart TD\n  A --> B\n",
+			types.DiagramEdgeAnchor{FromNode: "C", ToNode: "A", RelationKind: types.DiagramRelPrecedence})
+		got := DiagramCallEdgeEvidenceMismatches(doc, view, nil)
+		if issuesOf(got)[diagramCallEdgeIssueAnchorWithoutBodyEdge] != 1 ||
+			issuesOf(got)[diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge] != 0 {
+			t.Fatalf("no reverse arrow means no reversal claim: %+v", got)
+		}
+	})
+	t.Run("sequence reply pairing is untouched", func(t *testing.T) {
+		doc := diagramEvidenceTestDoc("A", "B")
+		doc.Blocks[0].Diagram.Body += "  B-->>A: result\n"
+		got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain},
+			[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
+		if len(got) != 0 {
+			t.Fatalf("a forward anchor with a structurally paired reply must stay clean: %+v", got)
+		}
+	})
+	t.Run("predicate is pure and exact-key", func(t *testing.T) {
+		keys := map[string]bool{diagramEvidenceEdgeKey("Impl", "Base"): true}
+		counts := map[string]int{diagramEvidenceUnorderedEdgeKey("Impl", "Base"): 1}
+		anchor := types.DiagramEdgeAnchor{FromNode: "Base", ToNode: "Impl", RelationKind: types.DiagramRelTypeRelation}
+		if !diagramAnchorReversedAgainstUniqueVisibleEdge(anchor, keys, counts) {
+			t.Fatal("unique reverse pair must qualify")
+		}
+		if anchor.FromNode != "Base" || anchor.ToNode != "Impl" {
+			t.Fatalf("predicate must not edit the anchor: %+v", anchor)
+		}
+		self := types.DiagramEdgeAnchor{FromNode: "Base", ToNode: "base"}
+		if diagramAnchorReversedAgainstUniqueVisibleEdge(self, map[string]bool{diagramEvidenceEdgeKey("base", "Base"): true}, map[string]int{diagramEvidenceUnorderedEdgeKey("Base", "base"): 1}) {
+			t.Fatal("a self edge under the shared key normalization never qualifies")
+		}
+	})
 }
 
 func TestDiagramCallEdgeEvidenceMismatches_TypedFlowAcceptsOwnedGroundedEdge(t *testing.T) {

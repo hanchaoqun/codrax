@@ -2014,26 +2014,11 @@ func completionAggregateFactsCollectViolations(ctx *types.BusContext, raw []type
 
 // completionAggregateFactsViolationList formats the accumulated violations as
 // a numbered single-line listing, capped at the first ten plus a count so a
-// pathological payload cannot flood the reject message.
+// pathological payload cannot flood the reject message. V2-4 (§40.51): the
+// formatter is the shared types.NumberedViolationList — the patch-structure
+// error and the block normalizers render the same shape.
 func completionAggregateFactsViolationList(violations []string) string {
-	const maxListedAggregateViolations = 10
-	shown := violations
-	more := 0
-	if len(shown) > maxListedAggregateViolations {
-		more = len(shown) - maxListedAggregateViolations
-		shown = shown[:maxListedAggregateViolations]
-	}
-	var b strings.Builder
-	for i, violation := range shown {
-		if i > 0 {
-			b.WriteString("; ")
-		}
-		fmt.Fprintf(&b, "[%d] %s", i+1, violation)
-	}
-	if more > 0 {
-		fmt.Fprintf(&b, "; ... and %d more violation(s)", more)
-	}
-	return b.String()
+	return types.NumberedViolationList(violations)
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {
@@ -3496,10 +3481,25 @@ func validateAggregateRequestedDecoratorAlignment(ctx *types.BusContext, facts [
 	return validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, facts, evidence)
 }
 
+// validateAggregateRequestedDecoratorAlignmentWithEvidence lists EVERY
+// member whose typed evidence sits under a different decorator than the
+// aggregate claims (V2-4 §40.51 list discipline; one miss keeps its
+// historical message verbatim).
 func validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) error {
+	violations := collectAggregateRequestedDecoratorAlignmentViolations(ctx, facts, evidence)
+	if len(violations) == 0 {
+		return nil
+	}
+	return errors.New(types.ViolationListMessage(violations, func(n int) string {
+		return fmt.Sprintf("%d aggregate members are misaligned with their typed evidence — fix ALL of them in this one re-emit: ", n)
+	}))
+}
+
+func collectAggregateRequestedDecoratorAlignmentViolations(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []string {
 	if ctx == nil || ctx.Mutable == nil || len(facts) == 0 {
 		return nil
 	}
+	var violations []string
 	requested := requestedDecoratorSurfaceTerms(ctx)
 	if len(requested) == 0 {
 		return nil
@@ -3530,12 +3530,12 @@ func validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx *types.BusCont
 				actualList = append(actualList, term)
 			}
 			sort.Strings(actualList)
-			return fmt.Errorf(
+			violations = append(violations, fmt.Sprintf(
 				"aggregate_facts[%d] member %q is listed under requested decorator %q, but its typed evidence at %s:%d is attached to %s; correct the member_set or move the member to a separate related-context aggregate",
-				i, member, claimed, ev.Source, ev.LineStart, strings.Join(actualList, ", "))
+				i, member, claimed, ev.Source, ev.LineStart, strings.Join(actualList, ", ")))
 		}
 	}
-	return nil
+	return violations
 }
 
 func aggregateFactClaimedRequestedDecorator(fact types.AnswerAggregateFact, requested map[string]bool) string {
