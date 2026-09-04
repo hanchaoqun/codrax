@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -55,7 +56,94 @@ type requiredFileHintProducerSite struct {
 // requiredFileHintOriginCensus reports every hint producer in src that is
 // neither a registered model decoder nor stamps a system origin. relPath is
 // the repo-relative path used for registry keys.
-func requiredFileHintOriginCensus(relPath, src string) ([]requiredFileHintProducerSite, int, error) {
+// requiredFileHintAliasNames is the module-wide alias / defined-type name
+// set over RequiredFileHint (§40.43 round-six #9), collected by
+// requiredFileHintCollectTypeNames before the census runs and consulted by
+// requiredFileHintTypeExpr so an alias-spelled mint (`type myHint =
+// types.RequiredFileHint; myHint{...}`) is judged like the direct spelling.
+// Package-test-local state: the census is single-threaded.
+var requiredFileHintAliasNames map[string]bool
+
+// requiredFileHintCollectTypeNames walks every parsed file for TypeSpecs
+// over the hint type, to a fixpoint. Recognized shapes: a plain
+// alias/defined type (Ident / types.Selector / parenthesised). A struct or
+// interface carrying the hint is a container the census's own field lanes
+// judge. EVERY OTHER type declaration mentioning the hint type (a named
+// slice, pointer, map, …) FAILS LOUD — a shape the walker cannot classify
+// ends the enumeration instead of minting invisibly.
+func requiredFileHintCollectTypeNames(files map[string]string) (map[string]bool, error) {
+	names := map[string]bool{}
+	parsed := map[string]*ast.File{}
+	fset := token.NewFileSet()
+	for rel, src := range files {
+		f, err := parser.ParseFile(fset, rel, src, 0)
+		if err != nil {
+			return nil, err
+		}
+		parsed[rel] = f
+	}
+	recognized := func(expr ast.Expr) bool {
+		for {
+			if paren, ok := expr.(*ast.ParenExpr); ok {
+				expr = paren.X
+				continue
+			}
+			break
+		}
+		switch x := expr.(type) {
+		case *ast.Ident:
+			return x.Name == "RequiredFileHint" || names[x.Name]
+		case *ast.SelectorExpr:
+			pkg, ok := x.X.(*ast.Ident)
+			return ok && pkg.Name == "types" && (x.Sel.Name == "RequiredFileHint" || names[x.Sel.Name])
+		}
+		return false
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, f := range parsed {
+			ast.Inspect(f, func(n ast.Node) bool {
+				ts, ok := n.(*ast.TypeSpec)
+				if !ok || ts.Name.Name == "RequiredFileHint" || names[ts.Name.Name] {
+					return true
+				}
+				if recognized(ts.Type) {
+					names[ts.Name.Name] = true
+					changed = true
+				}
+				return true
+			})
+		}
+	}
+	var unrecognized error
+	for rel, f := range parsed {
+		ast.Inspect(f, func(n ast.Node) bool {
+			ts, ok := n.(*ast.TypeSpec)
+			if !ok || ts.Name.Name == "RequiredFileHint" || names[ts.Name.Name] || unrecognized != nil {
+				return true
+			}
+			switch ts.Type.(type) {
+			case *ast.StructType, *ast.InterfaceType:
+				return true // container shapes: the census's own field lanes judge them
+			}
+			mentions := false
+			ast.Inspect(ts.Type, func(m ast.Node) bool {
+				if id, ok := m.(*ast.Ident); ok && (id.Name == "RequiredFileHint" || names[id.Name]) {
+					mentions = true
+				}
+				return !mentions
+			})
+			if mentions {
+				unrecognized = fmt.Errorf("%s declares type %s over RequiredFileHint in a shape the origin census cannot classify — use []types.RequiredFileHint / *types.RequiredFileHint directly or extend the census", rel, ts.Name.Name)
+			}
+			return true
+		})
+	}
+	return names, unrecognized
+}
+
+func requiredFileHintOriginCensus(relPath, src string, aliasNames map[string]bool) ([]requiredFileHintProducerSite, int, error) {
+	requiredFileHintAliasNames = aliasNames
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, relPath, src, 0)
 	if err != nil {
@@ -192,6 +280,20 @@ func requiredFileHintOriginCensus(relPath, src string) ([]requiredFileHintProduc
 					}
 				case *ast.FuncLit:
 					judgeResults(x.Type, report)
+				case *ast.IndexExpr:
+					// §40.43 round-six #9 fail-loud lane: an explicit generic
+					// instantiation at the hint type (`zero[types.RequiredFileHint]()`)
+					// mints outside every tracked shape — the census cannot
+					// classify it, so it is red by default.
+					if requiredFileHintTypeExpr(x.Index) {
+						report(x, "generic instantiation at RequiredFileHint — the census cannot track its value flow; mint through a recognized producer shape instead")
+					}
+				case *ast.IndexListExpr:
+					for _, idx := range x.Indices {
+						if requiredFileHintTypeExpr(idx) {
+							report(x, "generic instantiation at RequiredFileHint — the census cannot track its value flow; mint through a recognized producer shape instead")
+						}
+					}
 				case *ast.CallExpr:
 					name := requiredFileHintCallee(x)
 					if name == "new" && len(x.Args) == 1 && requiredFileHintTypeExpr(x.Args[0]) {
@@ -385,11 +487,13 @@ func requiredFileHintSliceExpr(e ast.Expr, hintSlices map[string]bool) bool {
 
 func requiredFileHintTypeExpr(expr ast.Expr) bool {
 	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return requiredFileHintTypeExpr(x.X)
 	case *ast.Ident:
-		return x.Name == "RequiredFileHint"
+		return x.Name == "RequiredFileHint" || requiredFileHintAliasNames[x.Name]
 	case *ast.SelectorExpr:
 		pkg, ok := x.X.(*ast.Ident)
-		return ok && pkg.Name == "types" && x.Sel.Name == "RequiredFileHint"
+		return ok && pkg.Name == "types" && (x.Sel.Name == "RequiredFileHint" || requiredFileHintAliasNames[x.Sel.Name])
 	}
 	return false
 }
@@ -432,6 +536,7 @@ func TestRequiredFileHintOriginCensus(t *testing.T) {
 	var offenders []string
 	producers := 0
 	seenDecoder := map[string]bool{}
+	bodies := map[string]string{}
 	// The walk covers every Go file in the module's source trees — root-level
 	// files, internal/ and cmd/ (dot-directories, vendor, testdata and
 	// sibling fixture directories such as eval/ excluded): a producer in
@@ -468,26 +573,48 @@ func TestRequiredFileHintOriginCensus(t *testing.T) {
 			if rerr != nil {
 				return rerr
 			}
-			if !strings.Contains(string(body), "RequiredFileHint") {
-				return nil
-			}
-			sites, n, cerr := requiredFileHintOriginCensus(rel, string(body))
-			if cerr != nil {
-				return cerr
-			}
-			producers += n
-			for key := range requiredFileHintModelDecoders {
-				if strings.HasPrefix(key, rel+"::") && strings.Contains(string(body), "func "+strings.TrimPrefix(key, rel+"::")+"(") {
-					seenDecoder[key] = true
-				}
-			}
-			for _, s := range sites {
-				offenders = append(offenders, s.position+" in "+s.function+": "+s.reason)
-			}
+			bodies[rel] = string(body)
 			return nil
 		})
 		if err != nil {
 			t.Fatalf("census walk failed (a silent green would defeat the tripwire): %v", err)
+		}
+	}
+	// §40.43 round-six #9: collect alias / defined-type names over the hint
+	// type MODULE-WIDE first (an unclassifiable declaration fails loud), so
+	// a file that uses only the alias name is censused too — the old
+	// substring skip never even parsed it.
+	aliasNames, err := requiredFileHintCollectTypeNames(bodies)
+	if err != nil {
+		t.Fatalf("hint type-name collection failed loud: %v", err)
+	}
+	mentionsHint := func(body string) bool {
+		if strings.Contains(body, "RequiredFileHint") {
+			return true
+		}
+		for name := range aliasNames {
+			if strings.Contains(body, name) {
+				return true
+			}
+		}
+		return false
+	}
+	for rel, body := range bodies {
+		if !mentionsHint(body) {
+			continue
+		}
+		sites, n, cerr := requiredFileHintOriginCensus(rel, body, aliasNames)
+		if cerr != nil {
+			t.Fatalf("census parse failed on %s: %v", rel, cerr)
+		}
+		producers += n
+		for key := range requiredFileHintModelDecoders {
+			if strings.HasPrefix(key, rel+"::") && strings.Contains(body, "func "+strings.TrimPrefix(key, rel+"::")+"(") {
+				seenDecoder[key] = true
+			}
+		}
+		for _, s := range sites {
+			offenders = append(offenders, s.position+" in "+s.function+": "+s.reason)
 		}
 	}
 	if producers < 5 {
@@ -528,12 +655,44 @@ func TestRequiredFileHintOriginCensus(t *testing.T) {
 		"func literal with a named hint result":      "func projectFoo() { f := func() (h types.RequiredFileHint) { return }; _ = f }",
 	}
 	for name, body := range shapes {
-		sites, _, err := requiredFileHintOriginCensus("internal/tool/foo.go", "package tool\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n"+body+"\n")
+		sites, _, err := requiredFileHintOriginCensus("internal/tool/foo.go", "package tool\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n"+body+"\n", nil)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if len(sites) == 0 {
 			t.Fatalf("self-red %s: census must report the unregistered producer", name)
+		}
+	}
+	// §40.43 round-six #9: alias / defined-type / generic shapes. The alias
+	// set is what the module-wide collector would return for the probe file
+	// pair; a file using ONLY the alias name is still censused (the walk
+	// keys on the collected names, not the literal substring).
+	aliasProbe := map[string]string{
+		"internal/tool/foo_alias.go": "package tool\nimport \"github.com/hanchaoqun/codrax/internal/types\"\ntype myHint = types.RequiredFileHint\ntype myOwnHint types.RequiredFileHint\n",
+	}
+	probeNames, err := requiredFileHintCollectTypeNames(aliasProbe)
+	if err != nil || !probeNames["myHint"] || !probeNames["myOwnHint"] {
+		t.Fatalf("collector must recognize plain alias/defined types, got %v err=%v", probeNames, err)
+	}
+	if _, cerr := requiredFileHintCollectTypeNames(map[string]string{
+		"internal/tool/foo_bad.go": "package tool\nimport \"github.com/hanchaoqun/codrax/internal/types\"\ntype myHints []types.RequiredFileHint\n",
+	}); cerr == nil {
+		t.Fatal("an unclassifiable named type over the hint must fail the collection loudly")
+	}
+	for name, body := range map[string]string{
+		"alias-typed literal mint":   "func projectFoo() myHint { return myHint{Path: \"x\"} }",
+		"alias-typed zero-value var": "func projectFoo() myHint { var h myHint; h.Path = \"x\"; return h }",
+		"defined-type literal mint":  "func projectFoo() myOwnHint { return myOwnHint{Path: \"x\"} }",
+		"origin write through alias": "func projectFoo(h *myHint) { h.Origin = \"\" }",
+		"generic zero instantiation": "func zeroFoo[T any]() T { var t T; return t }\nfunc projectFoo() types.RequiredFileHint { return zeroFoo[types.RequiredFileHint]() }",
+		"generic zero at the alias":  "func zeroFoo[T any]() T { var t T; return t }\nfunc projectFoo() myHint { return zeroFoo[myHint]() }",
+	} {
+		sites, _, err := requiredFileHintOriginCensus("internal/tool/foo.go", "package tool\nimport \"github.com/hanchaoqun/codrax/internal/types\"\ntype myHint = types.RequiredFileHint\ntype myOwnHint types.RequiredFileHint\n"+body+"\n", probeNames)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(sites) == 0 {
+			t.Fatalf("self-red %s: census must report the alias/defined/generic mint", name)
 		}
 	}
 	// Self-green control: a system-stamped literal, a zero-length make, a
@@ -547,7 +706,7 @@ func TestRequiredFileHintOriginCensus(t *testing.T) {
 		"slice-typed struct field":     "type fooCarrier struct {\n	Hints []types.RequiredFileHint\n}",
 		"elided system-origin element": "func projectFoo() []types.RequiredFileHint { return []types.RequiredFileHint{{Path: \"x\", Origin: types.RequiredFileHintOriginAnalyzerPrescan}} }",
 	} {
-		sites, _, err := requiredFileHintOriginCensus("internal/tool/foo.go", "package tool\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n"+body+"\n")
+		sites, _, err := requiredFileHintOriginCensus("internal/tool/foo.go", "package tool\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n"+body+"\n", nil)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

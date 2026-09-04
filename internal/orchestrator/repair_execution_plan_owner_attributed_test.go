@@ -129,9 +129,12 @@ func TestAdvanceRepairExecutionPlan_StabilityIsOwnerAttributed(t *testing.T) {
 	})
 
 	t.Run("W2.7 rotation carries only for the owner that ran", func(t *testing.T) {
-		// Distinct dispatch ids keep the finalizer-owned block cluster and the
-		// explore-owned facet cluster apart (same-dispatch violations are
-		// clustered by the cooccurrence rules).
+		// Distinct dispatch ids keep the EXTRACT-owned block-coverage cluster
+		// (ViolBlockCoverageMissing without a RepairLocusOverride /
+		// MissingBlockKind is extract-owned via the registry FallbackLocus —
+		// §40.43 round-six #2: an earlier revision of this file mislabeled it
+		// finalizer-owned) and the explore-owned facet cluster apart
+		// (same-dispatch violations are clustered by the cooccurrence rules).
 		missing := types.Violation{Kind: types.ViolBlockCoverageMissing, Detail: `block id="summary" of required kind is missing`, DispatchID: "a"}
 		rotated := vBlock("summary")
 		rotated.DispatchID = "a"
@@ -156,13 +159,41 @@ func TestAdvanceRepairExecutionPlan_StabilityIsOwnerAttributed(t *testing.T) {
 		if got := stableOfKind(plan, types.ViolFacetUncovered); got != 1 {
 			t.Fatalf("the explore-owned cluster's owner ran once, got %d", got)
 		}
-		// Same rotation under the finalizer as dispatched owner still
-		// carries (TestCarryClusterStability_SiblingRotationCarriesOver).
-		single := types.NewMutableState("rotation same owner")
-		AdvanceRepairExecutionPlan(single, []types.Violation{missing}, 1<<30)
-		plan, _, _ = AdvanceRepairExecutionPlan(single, []types.Violation{rotated}, 1<<30)
-		if got := stableOfKind(plan, types.ViolPrincipalClaimUseMissing); got != 1 {
-			t.Fatalf("same-owner rotation must carry 1, got %d", got)
+		// EVOLUTION RECORD (§40.43 round-six #1/#2): this scenario used to be
+		// labeled "Same rotation under the finalizer as dispatched owner
+		// still carries" and asserted carry=1 for block_coverage_missing →
+		// principal_claim_use_missing — which is a CROSS-owner rotation
+		// (extract → finalizer): the pin certified the mis-attribution under
+		// a false label. Ruling: the sibling carry requires the fresh
+		// cluster's owner == the previous cluster's owner. The cross-owner
+		// pair now pins the fresh finalizer cluster at 0 (red on e02828718:
+		// the carry transferred extract's count), and a genuinely same-owner
+		// Implies pair (block_coverage_missing → enumeration_label_ungrounded,
+		// both extract) pins the kept carry.
+		crossOwner := types.NewMutableState("rotation cross owner")
+		plan, target, _ = AdvanceRepairExecutionPlan(crossOwner, []types.Violation{missing}, 1<<30)
+		if target != FallbackBackToExtract {
+			t.Fatalf("fixture: the block-coverage cluster is extract-owned, got %v", target)
+		}
+		plan, target, _ = AdvanceRepairExecutionPlan(crossOwner, []types.Violation{rotated}, 1<<30)
+		if target != FallbackFinalizerOnly {
+			t.Fatalf("cross-owner rotation dispatches the rotated owner, got %v", target)
+		}
+		if got := stableOfKind(plan, types.ViolPrincipalClaimUseMissing); got != 0 {
+			t.Fatalf("a cross-owner rotation starts the fresh finalizer cluster at 0 (the finalizer never ran for this root), got %d (plan=%s)", got, SummarizeRepairExecutionPlan(plan))
+		}
+		sameOwner := types.NewMutableState("rotation same owner")
+		rotatedSameOwner := types.Violation{Kind: types.ViolEnumerationLabelUngrounded, Detail: `block id="summary" labels are ungrounded`}
+		plan, target, _ = AdvanceRepairExecutionPlan(sameOwner, []types.Violation{missing}, 1<<30)
+		if target != FallbackBackToExtract {
+			t.Fatalf("fixture: round 1 dispatches extract, got %v", target)
+		}
+		plan, target, _ = AdvanceRepairExecutionPlan(sameOwner, []types.Violation{rotatedSameOwner}, 1<<30)
+		if target != FallbackBackToExtract {
+			t.Fatalf("fixture: the rotated sibling stays extract-owned, got %v", target)
+		}
+		if got := stableOfKind(plan, types.ViolEnumerationLabelUngrounded); got != 1 {
+			t.Fatalf("same-owner rotation must carry 1, got %d (plan=%s)", got, SummarizeRepairExecutionPlan(plan))
 		}
 	})
 }

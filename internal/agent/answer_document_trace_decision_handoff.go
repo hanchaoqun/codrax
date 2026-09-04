@@ -878,8 +878,17 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 	b.WriteString("- accepted_model_relation_claims: these declarations were authored by the investigation model and already accepted against the typed authorities. Use them as decision context and keep your visible conclusion consistent; you do not need to duplicate them in the final document. If you choose to publish `blocks[i].relation_claims`, submitted metadata must remain exact. The system will reject an invalid submitted claim but will not rewrite your prose.\n")
 	for _, raw := range currentClaims {
 		claim := types.NormalizeAnswerRelationClaim(raw)
-		fmt.Fprintf(b, "  - authority_id=`%s`; member_refs=`%s`; physical_relation=`%s`; addition=`%s`",
-			claim.AuthorityID, strings.Join(claim.MemberRefs, ","), claim.PhysicalRelation, claim.Addition)
+		fmt.Fprintf(b, "  - authority_id=`%s`", claim.AuthorityID)
+		// §40.43 round-six #5 (§40.48: the identity of a relation authority
+		// is the pair (id, artifact_label)): a claim that carries a label
+		// echoes it — two-artifact twin claims are otherwise byte-identical
+		// on this teaching surface, and a finalizer republishing from the
+		// echo would collapse both onto one authority.
+		if claim.ArtifactLabel != "" {
+			fmt.Fprintf(b, "; artifact_label=`%s`", claim.ArtifactLabel)
+		}
+		fmt.Fprintf(b, "; member_refs=`%s`; physical_relation=`%s`; addition=`%s`",
+			strings.Join(claim.MemberRefs, ","), claim.PhysicalRelation, claim.Addition)
 		if claim.SubtotalValue != nil {
 			fmt.Fprintf(b, "; subtotal_value=%.3f; subtotal_unit=`%s`", *claim.SubtotalValue, claim.SubtotalUnit)
 		}

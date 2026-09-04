@@ -91,6 +91,18 @@ type RepairExecutionPlan struct {
 	// of the fresh rebuild.
 	CurrentOwner RepairLocus
 
+	// DispatchedOwner is the owner the scheduler ACTUALLY dispatched for
+	// this round (§40.43 round-six #0). AdvanceRepairExecutionPlan stamps
+	// it to CurrentOwner when it stashes the plan; a post-Advance rewrite
+	// of the fallback target (the runtime accepted-closure downgrade at
+	// the scheduler's repair site) re-stamps it through
+	// RestampDispatchedRepairOwner — the only other writer. The next
+	// round's computeClusterClosure reads THIS field, never CurrentOwner:
+	// the plan semantics (CurrentOwner = the fresh rebuild's deepest
+	// owner) stay intact while the stability accounting bills the round
+	// to the owner that ran.
+	DispatchedOwner RepairLocus
+
 	// RemainingOwners is OrderedOwners[1:] — the shallower owners the
 	// fresh set still names. It is telemetry plus one precise signal:
 	// the stuck-cluster fail-loud exit fires only when it is empty
@@ -308,6 +320,11 @@ func AdvanceRepairExecutionPlan(mut *types.MutableState, fresh []types.Violation
 		plan.HasFailLoud = true
 	}
 
+	// §40.43 round-six #0: record the owner this round dispatches. The
+	// scheduler's post-Advance runtime accepted-closure downgrade re-stamps
+	// this via RestampDispatchedRepairOwner when it rewrites the target.
+	plan.DispatchedOwner = plan.CurrentOwner
+
 	if mut != nil {
 		mut.SetRepairExecutionPlan(plan)
 	}
@@ -333,6 +350,31 @@ func AdvanceRepairExecutionPlan(mut *types.MutableState, fresh []types.Violation
 		}
 	}
 	return plan, target, preDowngrade
+}
+
+// RestampDispatchedRepairOwner re-stamps the persisted plan's
+// DispatchedOwner after a post-Advance rewrite of the fallback target
+// (§40.43 round-six #0: the runtime accepted-closure downgrade rewrites
+// back_to_explore → finalizer_only AFTER AdvanceRepairExecutionPlan stashed
+// the plan, so the stashed owner said "explore" while the finalizer ran —
+// computeClusterClosure billed the next failed round to an owner that never
+// dispatched, defeating the never-attempted veto). The persisted plan
+// records the DISPATCHED owner; this is the single re-stamp writer and the
+// normal dispatch path in AdvanceRepairExecutionPlan is the only other one.
+func RestampDispatchedRepairOwner(mut *types.MutableState, target FallbackTarget) {
+	if mut == nil {
+		return
+	}
+	prev := persistedRepairExecutionPlan(mut)
+	if prev == nil {
+		return
+	}
+	owner := LocusOfTarget(target)
+	if owner == "" || prev.DispatchedOwner == owner {
+		return
+	}
+	prev.DispatchedOwner = owner
+	mut.SetRepairExecutionPlan(*prev)
 }
 
 // persistedRepairExecutionPlan reads the stashed plan from MutableState.
@@ -389,8 +431,15 @@ func anyClusterNeverAttempted(plan RepairExecutionPlan) bool {
 //
 //   - exact (PrimaryKind, PrimaryFingerprint) match, or
 //   - same PrimaryFingerprint with the previous PrimaryKind declaring the
-//     fresh PrimaryKind in its Implies set (W2.7 sibling rotation — the
-//     closure already counted that rotation as "still open").
+//     fresh PrimaryKind in its Implies set AND the fresh cluster's Owner
+//     equal to the previous cluster's Owner (W2.7 sibling rotation — the
+//     closure already counted that rotation as "still open"). §40.43
+//     round-six #1: a CROSS-owner rotation changes WHICH stage must fix
+//     the root, so the rotated cluster starts at 0 — inheriting the
+//     previous stage's attempt count would deny the new owner its budget
+//     and could fail-loud a root whose owner never (or once) ran,
+//     defeating the never-attempted veto. Rotation within one owner
+//     keeps the count.
 //
 // Each previous cluster is consumed at most once. Clusters the previous
 // plan never saw start at zero (a new root cause), and a cluster whose
@@ -408,7 +457,7 @@ func carryClusterStability(plan *RepairExecutionPlan, carried []RepairClusterExe
 			}
 		}
 		for i, prev := range carried {
-			if consumed[i] || prev.PrimaryFingerprint != st.PrimaryFingerprint {
+			if consumed[i] || prev.PrimaryFingerprint != st.PrimaryFingerprint || prev.Owner != st.Owner {
 				continue
 			}
 			if primaryImpliesSiblingsOnFp(prev.PrimaryKind, map[types.ViolationKind]bool{st.PrimaryKind: true}) {

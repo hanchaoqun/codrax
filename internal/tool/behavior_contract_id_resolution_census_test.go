@@ -150,6 +150,36 @@ type behaviorContractCensusFunc struct {
 	// taintedReq marks Request-carrier locals (`req := ir.Request`): a
 	// `.BehaviorContracts` selector on a carrier is the snapshot.
 	taintedReq map[string]bool
+	// §40.43 round-six #8 — the DIRECT-colour lane. A field store used to
+	// drop the snapshot colour entirely (the LHS was not an Ident, so the
+	// assignment was skipped and `s.c` read back untainted). The store lane
+	// is driven by the PRECISE spellings only (directSnapshotExpr): the
+	// broad exprTainted rules (callee returns, composite literals,
+	// field-of-tainted fall-through) colour many benign values in the
+	// rendering packages, and keying a store lane off them turned the
+	// census into a hard gate on a noisy signal (repo red line).
+	//
+	//   - directTainted: identifiers and dotted field paths ("s.c") that
+	//     hold a direct copy of the snapshot within this function.
+	//   - fieldTaint: PACKAGE-shared, keyed "RecvType.field" — receiver
+	//     fields some method of that type stashed the snapshot into
+	//     (`f.c = f.ir.Request.BehaviorContracts` in one method, iterated
+	//     in another).
+	//
+	// Residual (disclosed): a store of a value tainted ONLY through a
+	// callee return / composite literal, a carrier (`.Request`) stash, and
+	// a struct value handed across functions stay untracked by this lane —
+	// bracketed by the sink rules where the value is read.
+	directTainted map[string]bool
+	fieldTaint    map[string]bool
+	// recvIdent / recvType name the method receiver ("" for free
+	// functions) so receiver-field reads resolve through fieldTaint.
+	recvIdent string
+	recvType  string
+	// untrackedStores records field/element stores of tainted values whose
+	// base could not be reduced to an identifier — the census fails loud on
+	// them instead of guessing.
+	untrackedStores []string
 	// authDerived marks locals whose value came from an accepted authority
 	// (per-expression gate resolution).
 	authDerived map[string]bool
@@ -206,10 +236,21 @@ func (fn *behaviorContractCensusFunc) exprTainted(expr ast.Expr) bool {
 	case *ast.TypeAssertExpr:
 		return fn.exprTainted(v.X)
 	case *ast.Ident:
-		return fn.tainted[v.Name]
+		return fn.tainted[v.Name] || fn.directTainted[v.Name]
 	case *ast.SelectorExpr:
 		if v.Sel.Name == "BehaviorContracts" && fn.exprReqTainted(v.X) {
 			return true
+		}
+		// §40.43 round-six #8: a stashed-into field reads back tainted —
+		// the dotted path for a local base, the receiver-typed shared map
+		// for a receiver base (cross-method stash).
+		if base, ok := v.X.(*ast.Ident); ok {
+			if fn.directTainted[base.Name+"."+v.Sel.Name] {
+				return true
+			}
+			if base.Name == fn.recvIdent && fn.fieldTaint[fn.recvType+"."+v.Sel.Name] {
+				return true
+			}
 		}
 		// A field of a tainted value carries the taint.
 		return fn.exprTainted(v.X)
@@ -284,6 +325,69 @@ func (fn *behaviorContractCensusFunc) exprReqTainted(expr ast.Expr) bool {
 	return false
 }
 
+// behaviorContractStoreTarget reduces a non-Ident assignment LHS to its
+// base identifier and (for a field store) the outermost stored-into field
+// name: `s.c` → (s, "c"), `s.c[i]` → (s, "c"), `(*p).f` → (p, "f"),
+// `m[k]` → (m, ""). A nil base means the store target is untracked
+// (§40.43 round-six #8 fail-loud lane).
+func behaviorContractStoreTarget(lhs ast.Expr) (*ast.Ident, string) {
+	switch v := lhs.(type) {
+	case *ast.ParenExpr:
+		return behaviorContractStoreTarget(v.X)
+	case *ast.StarExpr:
+		return behaviorContractStoreTarget(v.X)
+	case *ast.IndexExpr:
+		return behaviorContractStoreTarget(v.X)
+	case *ast.SelectorExpr:
+		base, field := behaviorContractStoreTarget(v.X)
+		if field == "" {
+			field = v.Sel.Name
+		}
+		return base, field
+	case *ast.Ident:
+		return v, ""
+	}
+	return nil, ""
+}
+
+// directSnapshotExpr (§40.43 round-six #8) reports whether an expression IS
+// the snapshot in its precise spellings: a `.BehaviorContracts` selector off
+// a Request carrier (paren/index/slice unwrapped), or an identifier / dotted
+// field path the precise seed already coloured. Deliberately NARROWER than
+// exprTainted for the field-STORE rule: the broad rules (callee returns,
+// composite literals, field-of-tainted fall-through) colour many benign
+// values in the rendering packages, and driving the store lane off them
+// turned the census into a noisy hard gate (repo red line: precise signals
+// for hard gates). Residual (disclosed): a store of a value tainted ONLY
+// through a callee return or composite literal is not tracked by this lane
+// — it stays bracketed by the sink rules where the value is actually read.
+func (fn *behaviorContractCensusFunc) directSnapshotExpr(expr ast.Expr) bool {
+	switch v := expr.(type) {
+	case *ast.ParenExpr:
+		return fn.directSnapshotExpr(v.X)
+	case *ast.IndexExpr:
+		return fn.directSnapshotExpr(v.X)
+	case *ast.SliceExpr:
+		return fn.directSnapshotExpr(v.X)
+	case *ast.Ident:
+		return fn.directTainted[v.Name]
+	case *ast.SelectorExpr:
+		if v.Sel.Name == "BehaviorContracts" && fn.exprReqTainted(v.X) {
+			return true
+		}
+		if base, ok := v.X.(*ast.Ident); ok {
+			if fn.directTainted[base.Name+"."+v.Sel.Name] {
+				return true
+			}
+			if base.Name == fn.recvIdent && fn.fieldTaint[fn.recvType+"."+v.Sel.Name] {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
 // propagateTaintLocally taints locals assigned from tainted expressions
 // (both colours: snapshot values and Request carriers), range variables over
 // tainted collections, and copy() destinations fed a tainted source, to a
@@ -296,10 +400,6 @@ func (fn *behaviorContractCensusFunc) propagateTaintLocally() bool {
 			switch v := n.(type) {
 			case *ast.AssignStmt:
 				for i, lhs := range v.Lhs {
-					id, ok := lhs.(*ast.Ident)
-					if !ok {
-						continue
-					}
 					var rhs ast.Expr
 					if len(v.Rhs) == len(v.Lhs) {
 						rhs = v.Rhs[i]
@@ -309,8 +409,48 @@ func (fn *behaviorContractCensusFunc) propagateTaintLocally() bool {
 					if rhs == nil {
 						continue
 					}
+					id, ok := lhs.(*ast.Ident)
+					if !ok {
+						// §40.43 round-six #8: a store INTO a field or
+						// element used to drop the colour. Track it under
+						// the dotted path key ("s.c"; element stores taint
+						// the base), and for a RECEIVER field additionally
+						// under the receiver-typed package-shared map so a
+						// stash read from another method carries too. A
+						// store whose base is not an identifier is
+						// untracked → fail loud.
+						base, field := behaviorContractStoreTarget(lhs)
+						if !fn.directSnapshotExpr(rhs) {
+							continue
+						}
+						if base == nil {
+							fn.untrackedStores = append(fn.untrackedStores,
+								fn.file+": "+fn.name+" stores the snapshot into an untracked target — the census cannot follow it")
+							continue
+						}
+						localKey := base.Name
+						if field != "" {
+							localKey = base.Name + "." + field
+						}
+						if !fn.directTainted[localKey] {
+							fn.directTainted[localKey] = true
+							round = true
+						}
+						if field != "" && fn.recvIdent != "" && base.Name == fn.recvIdent {
+							recvKey := fn.recvType + "." + field
+							if !fn.fieldTaint[recvKey] {
+								fn.fieldTaint[recvKey] = true
+								round = true
+							}
+						}
+						continue
+					}
 					if !fn.tainted[id.Name] && fn.exprTainted(rhs) {
 						fn.tainted[id.Name] = true
+						round = true
+					}
+					if !fn.directTainted[id.Name] && fn.directSnapshotExpr(rhs) {
+						fn.directTainted[id.Name] = true
 						round = true
 					}
 					if !fn.taintedReq[id.Name] && fn.exprReqTainted(rhs) {
@@ -497,6 +637,15 @@ func behaviorContractIDResolutionCensus(files []behaviorContractCensusFile) (off
 	fset := token.NewFileSet()
 	var funcs []*behaviorContractCensusFunc
 	byPkgName := map[string]map[string]*behaviorContractCensusFunc{}
+	// §40.43 round-six #8: per-package shared field-taint maps (see the
+	// fieldTaint doc on behaviorContractCensusFunc).
+	fieldTaintByPkg := map[string]map[string]bool{}
+	pkgFieldMaps := func(pkg string) map[string]bool {
+		if fieldTaintByPkg[pkg] == nil {
+			fieldTaintByPkg[pkg] = map[string]bool{}
+		}
+		return fieldTaintByPkg[pkg]
+	}
 	// String-named types (`type rejection string`, aliases included) so a
 	// refs gate cannot escape rule (c) by naming its string result type.
 	stringTypes := map[string]map[string]bool{}
@@ -567,7 +716,24 @@ func behaviorContractIDResolutionCensus(files []behaviorContractCensusFile) (off
 			fn := &behaviorContractCensusFunc{
 				name: fd.Name.Name, file: f.name, pkg: f.pkg, decl: fd,
 				tainted: map[string]bool{}, taintedReq: map[string]bool{},
+				directTainted: map[string]bool{}, fieldTaint: pkgFieldMaps(f.pkg),
 				importKey: importKey, lookup: byPkgName,
+			}
+			if fd.Recv != nil && len(fd.Recv.List) == 1 {
+				recv := fd.Recv.List[0]
+				if len(recv.Names) == 1 {
+					fn.recvIdent = recv.Names[0].Name
+				}
+				rt := recv.Type
+				if star, ok := rt.(*ast.StarExpr); ok {
+					rt = star.X
+				}
+				if idx, ok := rt.(*ast.IndexExpr); ok { // generic receiver
+					rt = idx.X
+				}
+				if id, ok := rt.(*ast.Ident); ok {
+					fn.recvType = id.Name
+				}
 			}
 			if fd.Type.Params != nil {
 				for _, field := range fd.Type.Params.List {
@@ -843,6 +1009,18 @@ func behaviorContractIDResolutionCensus(files []behaviorContractCensusFile) (off
 			offenders = append(offenders, msg)
 		}
 	}
+	// §40.43 round-six #8 fail-loud lane: stores of tainted values the
+	// engine could not bind to a base identifier (deduped — the fixpoint
+	// revisits the same store every round).
+	untracked := map[string]bool{}
+	for _, fn := range funcs {
+		for _, store := range fn.untrackedStores {
+			if !untracked[store] {
+				untracked[store] = true
+				offenders = append(offenders, store)
+			}
+		}
+	}
 	sort.Strings(offenders)
 	return offenders, resolutionChecked, nil
 }
@@ -994,6 +1172,44 @@ func render(ir *types.WriteAnalysisIR) string {
 	return out
 }
 `, 0, "feeds the pre-rebase analyzer snapshot (directly or via alias/parameter) to RequiredWriteBehaviorContractIDs", "iterates the pre-rebase analyzer snapshot")
+	})
+	// §40.43 round-six #8: struct-field stores used to launder the snapshot
+	// colour — the LHS was not an Ident, so propagateTaintLocally dropped
+	// the assignment and `s.c` read back untainted, evading both the
+	// rule-(f) iteration sink and the rule-(b) Required* argument sink; the
+	// receiver-field variant evaded identically across methods.
+	t.Run("agent_struct_field_stash", func(t *testing.T) {
+		run(t, "x.go", "agent", `package agent
+import "github.com/hanchaoqun/codrax/internal/types"
+type stash struct{ c []types.WriteBehaviorContract }
+func render(ir *types.WriteAnalysisIR) string {
+	var s stash
+	s.c = ir.Request.BehaviorContracts
+	out := ""
+	for _, c := range s.c {
+		out += c.ID
+	}
+	_ = types.RequiredWriteBehaviorContractIDs(s.c, true)
+	return out
+}
+`, 0, "feeds the pre-rebase analyzer snapshot (directly or via alias/parameter) to RequiredWriteBehaviorContractIDs", "iterates the pre-rebase analyzer snapshot")
+	})
+	t.Run("agent_receiver_field_stash_across_methods", func(t *testing.T) {
+		run(t, "x.go", "agent", `package agent
+import "github.com/hanchaoqun/codrax/internal/types"
+type holder struct {
+	ir *types.WriteAnalysisIR
+	c  []types.WriteBehaviorContract
+}
+func (h *holder) stashProbe() { h.c = h.ir.Request.BehaviorContracts }
+func (h *holder) renderProbe() string {
+	out := ""
+	for _, c := range h.c {
+		out += c.ID
+	}
+	return out
+}
+`, 0, "iterates the pre-rebase analyzer snapshot")
 	})
 	t.Run("tool_parameter_helper", func(t *testing.T) {
 		run(t, "x.go", "tool", `package tool

@@ -64,7 +64,10 @@ import (
 //	    accessor itself is walked and judged in its defining package), a
 //	    non-basic carrier (struct/slice built from figures) is judged where
 //	    its figures are read rather than at the hand-off call, and a
-//	    closure's own return is the closure's face. The reconciliation row
+//	    closure's own return is the closure's face, and a package-level
+//	    variable of a FAKED cross-package import (same lane as the
+//	    cross-package accessor) is not tracked by the §40.43 round-six #16
+//	    package-var lane, which is same-package only. The reconciliation row
 //	    (the fourth CUSTOMER face) is registered in
 //	    targetStateReconciliationRenderers and must speak the single-source
 //	    non-IO lane word (§40.49 合流复核收编).
@@ -101,6 +104,10 @@ type targetStateFnCensus struct {
 	// top-level return expression of basic type derives from an account
 	// figure. The value is the figure-selector set its callers inherit.
 	accessorReturn map[string]bool
+	// pkgVarReads (§40.43 round-six #16): tainted package-level variables
+	// this function reads — a renderer with no selector of its own is still
+	// a renderer of the account when it prints a laundered package var.
+	pkgVarReads map[string]bool
 }
 
 func newTargetStateFnCensus() *targetStateFnCensus {
@@ -109,6 +116,7 @@ func newTargetStateFnCensus() *targetStateFnCensus {
 		unresolved:   map[string]string{},
 		handRendered: map[string]bool{},
 		helperCalls:  map[string]bool{},
+		pkgVarReads:  map[string]bool{},
 	}
 }
 
@@ -169,6 +177,24 @@ type targetStatePkgEnv struct {
 	info      *gotypes.Info
 	derived   map[*gotypes.Named]bool
 	accessors map[gotypes.Object]map[string]bool
+	// pkgVars (§40.43 round-six #16): package-level variables some function
+	// in the package assigned an account-derived figure into — a
+	// cross-function laundering lane the per-function taint map could not
+	// see (`probeStash = a.UninterruptibleWaitMS()` in a store function,
+	// rendered in another). The census fixpoint re-classifies until the set
+	// stops growing. Residual (disclosed in header (g)): a package-level
+	// var of a FAKED cross-package import stays unresolved.
+	pkgVars map[gotypes.Object]bool
+}
+
+// targetStatePkgLevelVar reports whether obj is a package-level variable
+// (its scope parent is the universe scope).
+func targetStatePkgLevelVar(obj gotypes.Object) bool {
+	v, ok := obj.(*gotypes.Var)
+	if !ok || v.IsField() {
+		return false
+	}
+	return obj.Parent() != nil && obj.Parent().Parent() == gotypes.Universe
 }
 
 func (env *targetStatePkgEnv) isAccountType(typ gotypes.Type) bool {
@@ -449,7 +475,7 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, env *
 			}
 		case *ast.Ident:
 			if obj := info.ObjectOf(x); obj != nil {
-				return tainted[obj]
+				return tainted[obj] || env.pkgVars[obj]
 			}
 		case *ast.ParenExpr:
 			return isTainted(x.X)
@@ -470,9 +496,47 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, env *
 		}
 		return false
 	}
+	var taintBase func(e ast.Expr) *ast.Ident
+	taintBase = func(e ast.Expr) *ast.Ident {
+		switch x := e.(type) {
+		case *ast.Ident:
+			return x
+		case *ast.ParenExpr:
+			return taintBase(x.X)
+		case *ast.StarExpr:
+			return taintBase(x.X)
+		case *ast.IndexExpr:
+			return taintBase(x.X)
+		case *ast.SelectorExpr:
+			return taintBase(x.X)
+		}
+		return nil
+	}
 	taint := func(e ast.Expr) bool {
-		if id, ok := e.(*ast.Ident); ok {
-			if obj := info.ObjectOf(id); obj != nil && !tainted[obj] {
+		id, ok := e.(*ast.Ident)
+		if !ok {
+			// §40.43 round-six #16: a store into a field/element of a
+			// package-level variable taints the variable itself.
+			id = taintBase(e)
+			if id == nil {
+				return false
+			}
+			obj := info.ObjectOf(id)
+			if obj == nil || !targetStatePkgLevelVar(obj) || env.pkgVars[obj] {
+				return false
+			}
+			env.pkgVars[obj] = true
+			return true
+		}
+		if obj := info.ObjectOf(id); obj != nil {
+			if targetStatePkgLevelVar(obj) {
+				if !env.pkgVars[obj] {
+					env.pkgVars[obj] = true
+					return true
+				}
+				return false
+			}
+			if !tainted[obj] {
 				tainted[obj] = true
 				return true
 			}
@@ -509,6 +573,16 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, env *
 			return true
 		})
 	}
+	// §40.43 round-six #16: record reads of tainted package-level vars so
+	// the offender gate cannot skip a selector-free renderer fed by one.
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		if id, ok := node.(*ast.Ident); ok {
+			if obj := info.ObjectOf(id); obj != nil && env.pkgVars[obj] {
+				rec.pkgVarReads[id.Name] = true
+			}
+		}
+		return true
+	})
 	renderedNames := func(e ast.Expr) {
 		ast.Inspect(e, func(node ast.Node) bool {
 			switch x := node.(type) {
@@ -517,7 +591,7 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, env *
 					rec.handRendered[x.Sel.Name] = true
 				}
 			case *ast.Ident:
-				if obj := info.ObjectOf(x); obj != nil && tainted[obj] {
+				if obj := info.ObjectOf(x); obj != nil && (tainted[obj] || env.pkgVars[obj]) {
 					rec.handRendered["local:"+x.Name] = true
 				}
 			case *ast.CallExpr:
@@ -780,6 +854,7 @@ func (s *targetStateCensusSession) censusPackage(census *targetStateRenderCensus
 		info:      info,
 		derived:   map[*gotypes.Named]bool{},
 		accessors: map[gotypes.Object]map[string]bool{},
+		pkgVars:   map[gotypes.Object]bool{},
 	}
 	// T3: package-local defined types over the account keep counting
 	// (`type X types.TraceTargetStateScopeAuthority`, chains included —
@@ -829,6 +904,7 @@ func (s *targetStateCensusSession) censusPackage(census *targetStateRenderCensus
 	scratch := newTargetStateRenderCensus()
 	for changed := true; changed; {
 		changed = false
+		pkgVarsBefore := len(env.pkgVars)
 		for _, d := range decls {
 			rec := scratch.censusFunc(d.key, d.fn, env)
 			if rec.accessorReturn == nil {
@@ -842,6 +918,12 @@ func (s *targetStateCensusSession) censusPackage(census *targetStateRenderCensus
 				env.accessors[obj] = rec.accessorReturn
 				changed = true
 			}
+		}
+		// §40.43 round-six #16: a package-level var tainted while
+		// classifying one function must re-colour every function that
+		// reads it — iterate until the set stops growing.
+		if len(env.pkgVars) != pkgVarsBefore {
+			changed = true
 		}
 	}
 	for _, d := range decls {
@@ -965,7 +1047,7 @@ func targetStateCensusOffenders(census *targetStateRenderCensus) map[string][]st
 				}
 			}
 		}
-		if len(fn.selectors) == 0 {
+		if len(fn.selectors) == 0 && len(fn.pkgVarReads) == 0 {
 			continue
 		}
 		allow, allowed := targetStateCensusAllowlist[key]
@@ -1319,6 +1401,18 @@ func TestTargetStateAccountRenderCensusSelfRed(t *testing.T) {
 				return strings.Replace(src, anchor, "\"对账参考(不可中断): ", 1)
 			},
 			key:    "internal/orchestrator/prose_typed_reconciliation.go:renderTargetStateReconciliation",
+			reason: "carries a fold-word literal",
+		},
+		{
+			name: "package-level variable launders a fold figure across functions (§40.43 round-six #16)",
+			file: boundary,
+			mutate: func(src string) string {
+				return src + "\nvar probeStash float64\n" +
+					"func probeStore(a types.TraceTargetStateScopeAuthority) { probeStash = a.UninterruptibleWaitMS() }\n" +
+					"func renderProbePkgVar(a types.TraceTargetStateScopeAuthority) string {\n" +
+					"\tprobeStore(a)\n\treturn fmt.Sprintf(\"不可中断等待 %.3f\", probeStash)\n}\n"
+			},
+			key:    boundaryRel + ":renderProbePkgVar",
 			reason: "carries a fold-word literal",
 		},
 		{

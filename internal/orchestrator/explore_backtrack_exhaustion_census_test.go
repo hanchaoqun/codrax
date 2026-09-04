@@ -89,64 +89,170 @@ func TestHardArmMutableCarrierCensus_CompletionGenerationWritersAreRegisteredDec
 	}
 }
 
-// hardArmRetainedClosureWriters is the closed set of MutableState methods
-// allowed to write the retained closure fields
-// (retainedInvestigationCompleteReason / retainedInvestigationResultKind /
-// retainedAbsenceJustification) — the lane every Stable* consumer and the
-// exhaustion release read after a backtrack's ResetInvestigationComplete.
-// The accepted-completion setters write it directly; MergeExploreFork may
-// write it ONLY from a fork that recorded its own accepted completion
-// (§40.43 F-orch 四轮复核 finding W) — every write inside it must sit under
-// an `if` whose condition reads the fork-decided identifier, itself defined
-// as the completion-generation comparison.
+// hardArmRetainedClosureWriters is the closed set of package-types
+// functions allowed to write the retained closure fields — the lane every
+// Stable* consumer and the exhaustion release read after a backtrack's
+// ResetInvestigationComplete. Keys are "Receiver.Method" for methods and
+// the bare name for free functions (§40.43 round-six #11: the census scans
+// EVERY function in the package, so a free function or a foreign-receiver
+// method writing a retained field is red, exactly like the sibling
+// G-patch-txn field census). The accepted-completion setters write it
+// directly; MergeExploreFork may write it ONLY from a fork that recorded
+// its own accepted completion (§40.43 F-orch 四轮复核 finding W) — every
+// write inside it must sit under an `if` that REQUIRES the fork-decided
+// identifier to be true (§40.43 round-six #10: positive polarity, over &&
+// chains only), itself defined exactly once as the completion-generation
+// comparison (no shadowing, no reassignment).
 var hardArmRetainedClosureWriters = map[string]bool{
-	"SetInvestigationComplete":   true,
-	"SetInvestigationResultKind": true,
-	"SetAbsenceJustification":    true,
-	"MergeExploreFork":           true,
+	"MutableState.SetInvestigationComplete":   true,
+	"MutableState.SetInvestigationResultKind": true,
+	"MutableState.SetAbsenceJustification":    true,
+	"MutableState.MergeExploreFork":           true,
+	// Accepted-completion promotion of the two collection lanes (§40.43
+	// round-six #3): called only from emit_investigation_complete's accepted
+	// paths.
+	"MutableState.RetainInvestigationAggregateFacts": true,
+	"MutableState.RetainInvestigationRelationClaims": true,
+	// Fork creation copies the parent's retained lane verbatim onto the new
+	// fork carrier (out.retained* = clone(m.retained*)) — a copy, not a
+	// mutation of the accepted state.
+	"MutableState.ForkForExploreDispatch": true,
 }
 
+// hardArmRetainedNonClosureLanes registers the MutableState "retained*"
+// fields that are NOT part of the retained-closure lane, each with its
+// justification. §40.43 round-six #3: the closure field set is DERIVED from
+// the struct (hardArmRetainedClosureFieldsFromStruct), and a retained field
+// the walker cannot classify fails loud — never silently uncensused.
+var hardArmRetainedNonClosureLanes = map[string]string{
+	"retainedEvidenceFloorWaiver": "promoted-waiver lane: written only after a successful emit_investigation_complete (own invariant doc at the field)",
+}
+
+// hardArmRetainedClosureFields is the static floor used by the self-red
+// snippets; the census itself judges the DERIVED set so a newly added
+// retained field is auto-covered.
 var hardArmRetainedClosureFields = []string{
 	"retainedInvestigationCompleteReason",
 	"retainedInvestigationResultKind",
 	"retainedAbsenceJustification",
+	"retainedInvestigationAggregateFacts",
+	"retainedInvestigationRelationClaims",
+}
+
+// hardArmRetainedClosureFieldsFromStruct derives the retained-closure field
+// set from the MutableState struct declaration: every field named
+// "retained*" is either a closure-lane field (retainedInvestigation* or
+// retainedAbsenceJustification), a registered non-closure lane, or a
+// FAIL-LOUD violation (a shape the census cannot classify ends the
+// enumeration).
+func hardArmRetainedClosureFieldsFromStruct(t *testing.T) []string {
+	t.Helper()
+	var fields []string
+	for _, decl := range typesPackageDecls(t) {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != "MutableState" {
+				continue
+			}
+			st, ok := ts.Type.(*ast.StructType)
+			if !ok || st.Fields == nil {
+				t.Fatal("MutableState is not a struct")
+			}
+			for _, field := range st.Fields.List {
+				for _, name := range field.Names {
+					if !strings.HasPrefix(name.Name, "retained") {
+						continue
+					}
+					if _, registered := hardArmRetainedNonClosureLanes[name.Name]; registered {
+						continue
+					}
+					if strings.HasPrefix(name.Name, "retainedInvestigation") || name.Name == "retainedAbsenceJustification" {
+						fields = append(fields, name.Name)
+						continue
+					}
+					t.Fatalf("unrecognized retained field MutableState.%s — classify it: a retained-closure field (retainedInvestigation*) or a registered lane in hardArmRetainedNonClosureLanes with a justification", name.Name)
+				}
+			}
+		}
+	}
+	sort.Strings(fields)
+	for _, want := range hardArmRetainedClosureFields {
+		found := false
+		for _, got := range fields {
+			found = found || got == want
+		}
+		if !found {
+			t.Fatalf("derived retained-closure fields %v lost the known field %s — the census lost its subject", fields, want)
+		}
+	}
+	return fields
 }
 
 const hardArmForkDecidedIdent = "forkDecidedCompletion"
 
+// hardArmRetainedWriterKey names one function for the writers census:
+// "Receiver.Method" for methods (any receiver type, star or value),
+// the bare name for free functions.
+func hardArmRetainedWriterKey(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return fn.Name.Name
+	}
+	recv := fn.Recv.List[0].Type
+	if star, ok := recv.(*ast.StarExpr); ok {
+		recv = star.X
+	}
+	if id, ok := recv.(*ast.Ident); ok {
+		return id.Name + "." + fn.Name.Name
+	}
+	return fn.Name.Name
+}
+
 // TestHardArmMutableCarrierCensus_RetainedClosureWritersAreAcceptedCompletions
-// (finding W): (1) the set of MutableState methods in ../types that assign
-// any retained closure field is EXACTLY hardArmRetainedClosureWriters; (2)
-// inside MergeExploreFork every such assignment is guarded by the
-// fork-decided identifier; (3) that identifier is defined as
-// `fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase`.
+// (finding W; §40.43 round-six #3/#10/#11): (1) the retained-closure field
+// set is DERIVED from the MutableState struct (a new retained field is
+// auto-covered, an unclassifiable one fails loud); (2) the set of functions
+// in ../types — free functions and methods on ANY type included — that
+// assign a retained closure field (composite-literal keys included) is
+// EXACTLY hardArmRetainedClosureWriters; (3) inside MergeExploreFork every
+// such assignment sits under an `if` that REQUIRES the fork-decided
+// identifier true (positive polarity over && chains; a negated or or-ed
+// guard does not count); (4) that identifier is defined exactly once, at
+// the top level, as `fork.investigationCompleteGeneration >
+// fork.exploreForkCompletionGenerationBase` — a nested shadow or a
+// reassignment is red.
 func TestHardArmMutableCarrierCensus_RetainedClosureWritersAreAcceptedCompletions(t *testing.T) {
+	fields := hardArmRetainedClosureFieldsFromStruct(t)
 	writers := map[string]bool{}
 	var merge *ast.FuncDecl
 	for _, decl := range typesPackageDecls(t) {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 || fn.Body == nil {
+		if !ok || fn.Body == nil {
 			continue
 		}
-		star, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
-		if !ok {
-			continue
-		}
-		if id, ok := star.X.(*ast.Ident); !ok || id.Name != "MutableState" {
-			continue
-		}
-		if fn.Name.Name == "MergeExploreFork" {
+		key := hardArmRetainedWriterKey(fn)
+		if key == "MutableState.MergeExploreFork" {
 			merge = fn
 		}
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			as, ok := n.(*ast.AssignStmt)
-			if !ok {
-				return true
-			}
-			for _, lhs := range as.Lhs {
-				for _, field := range hardArmRetainedClosureFields {
-					if selectorIsField(lhs, field) {
-						writers[fn.Name.Name] = true
+			switch x := n.(type) {
+			case *ast.AssignStmt:
+				for _, lhs := range x.Lhs {
+					for _, field := range fields {
+						if selectorIsField(lhs, field) {
+							writers[key] = true
+						}
+					}
+				}
+			case *ast.KeyValueExpr:
+				if id, ok := x.Key.(*ast.Ident); ok {
+					for _, field := range fields {
+						if id.Name == field {
+							writers[key] = true
+						}
 					}
 				}
 			}
@@ -168,11 +274,11 @@ func TestHardArmMutableCarrierCensus_RetainedClosureWritersAreAcceptedCompletion
 	if merge == nil {
 		t.Fatal("MergeExploreFork not found")
 	}
-	if problems := retainedWriteGuardVerdict(merge, hardArmRetainedClosureFields, hardArmForkDecidedIdent); len(problems) != 0 {
+	if problems := retainedWriteGuardVerdict(merge, fields, hardArmForkDecidedIdent); len(problems) != 0 {
 		t.Fatalf("MergeExploreFork writes the retained lane outside the fork-decided guard:\n  %s", strings.Join(problems, "\n  "))
 	}
 	if !forkDecidedIdentIsGenerationComparison(merge, hardArmForkDecidedIdent) {
-		t.Fatalf("%s must be defined in MergeExploreFork as `fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase` (the fork's own accepted completion)", hardArmForkDecidedIdent)
+		t.Fatalf("%s must be defined in MergeExploreFork exactly once, at the top level, as `fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase` (the fork's own accepted completion; shadowing or reassignment is red)", hardArmForkDecidedIdent)
 	}
 }
 
@@ -222,7 +328,7 @@ func retainedWriteGuardVerdict(fn *ast.FuncDecl, fields []string, guardIdent str
 		case nil:
 			return
 		case *ast.IfStmt:
-			g := guarded || condMentionsIdent(x.Cond, guardIdent)
+			g := guarded || condRequiresIdentTrue(x.Cond, guardIdent)
 			walk(x.Body, g)
 			if x.Else != nil {
 				// The else branch of the guard is exactly the unguarded case.
@@ -260,21 +366,54 @@ func retainedWriteGuardVerdict(fn *ast.FuncDecl, fields []string, guardIdent str
 	return problems
 }
 
-func condMentionsIdent(cond ast.Expr, ident string) bool {
-	found := false
-	ast.Inspect(cond, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok && id.Name == ident {
-			found = true
+// condRequiresIdentTrue (§40.43 round-six #10) reports whether the branch
+// taken when cond is true REQUIRES the guard identifier to be true: the
+// identifier itself, possibly parenthesised, or an operand of an && chain.
+// A negated guard (`!ident` — the exact inverse of the ruling), an || arm
+// (the branch can run with the guard false), a comparison, or any other
+// shape does NOT count. Polarity-precise by construction.
+func condRequiresIdentTrue(cond ast.Expr, ident string) bool {
+	switch x := cond.(type) {
+	case *ast.Ident:
+		return x.Name == ident
+	case *ast.ParenExpr:
+		return condRequiresIdentTrue(x.X, ident)
+	case *ast.BinaryExpr:
+		if x.Op == token.LAND {
+			return condRequiresIdentTrue(x.X, ident) || condRequiresIdentTrue(x.Y, ident)
 		}
-		return !found
-	})
-	return found
+	}
+	return false
 }
 
-// forkDecidedIdentIsGenerationComparison pins the guard's definition: a
+// forkDecidedIdentIsGenerationComparison pins the guard's definition
+// (§40.43 round-six #10 hardening): the identifier is written EXACTLY once
+// anywhere in fn — nested shadows (`ident := true` inside a block or func
+// literal) and top-level reassignments are red — and that single write is a
 // top-level `ident := fork.investigationCompleteGeneration >
-// fork.exploreForkCompletionGenerationBase` in fn.
+// fork.exploreForkCompletionGenerationBase`.
 func forkDecidedIdentIsGenerationComparison(fn *ast.FuncDecl, ident string) bool {
+	writes := 0
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			for _, lhs := range x.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok && id.Name == ident {
+					writes++
+				}
+			}
+		case *ast.ValueSpec:
+			for _, name := range x.Names {
+				if name.Name == ident {
+					writes++
+				}
+			}
+		}
+		return true
+	})
+	if writes != 1 {
+		return false
+	}
 	for _, stmt := range fn.Body.List {
 		as, ok := stmt.(*ast.AssignStmt)
 		if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
@@ -282,6 +421,9 @@ func forkDecidedIdentIsGenerationComparison(fn *ast.FuncDecl, ident string) bool
 		}
 		if id, ok := as.Lhs[0].(*ast.Ident); !ok || id.Name != ident {
 			continue
+		}
+		if as.Tok != token.DEFINE {
+			return false
 		}
 		bin, ok := as.Rhs[0].(*ast.BinaryExpr)
 		if !ok || bin.Op != token.GTR {
@@ -309,6 +451,13 @@ func TestRetainedWriteGuardVerdict_SelfRed(t *testing.T) {
 		{name: "guarded by a different condition", body: "if r != \"\" {\n\t\tm.retainedInvestigationResultKind = r\n\t}", red: true},
 		{name: "write in the else branch of the guard", body: "if forkDecidedCompletion {\n\t\tm.x = r\n\t} else {\n\t\tm.retainedInvestigationCompleteReason = r\n\t}", red: true},
 		{name: "write inside a func literal", body: "if forkDecidedCompletion {\n\t\tfunc() { m.retainedInvestigationCompleteReason = r }()\n\t}", red: true},
+		// §40.43 round-six #10: polarity — the exact inverse of the ruling
+		// (writing the retained lane from a fork that did NOT record an
+		// accepted completion) used to count as "guarded".
+		{name: "negated guard is not a guard", body: "if !forkDecidedCompletion {\n\t\tm.retainedInvestigationCompleteReason = r\n\t}", red: true},
+		{name: "or-guard is not a guard", body: "if complete || forkDecidedCompletion {\n\t\tm.retainedInvestigationCompleteReason = r\n\t}", red: true},
+		{name: "guard on the new collection lanes", body: "if forkDecidedCompletion {\n\t\tm.retainedInvestigationAggregateFacts = f\n\t\tm.retainedInvestigationRelationClaims = c\n\t}", red: false},
+		{name: "unguarded write to a collection lane", body: "m.retainedInvestigationRelationClaims = c", red: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -331,14 +480,28 @@ func TestRetainedWriteGuardVerdict_SelfRed(t *testing.T) {
 			}
 		})
 	}
-	// The definition pin itself is red for a guard bound to anything else.
-	src := "package p\n\nfunc (m *M) MergeExploreFork(fork *M) {\n\tforkDecidedCompletion := fork.investigationComplete\n}\n"
-	f, err := parser.ParseFile(token.NewFileSet(), "snippet.go", src, 0)
-	if err != nil {
-		t.Fatal(err)
+	// The definition pin itself is red for a guard bound to anything else,
+	// and (§40.43 round-six #10) for a shadowed or reassigned guard — the
+	// original pin checked only the first TOP-LEVEL assignment, so a nested
+	// `forkDecidedCompletion := true` (or a later `forkDecidedCompletion =
+	// true`) laundered every write through a true guard.
+	defRed := []struct{ name, body string }{
+		{name: "bound to the live flag", body: "forkDecidedCompletion := fork.investigationComplete"},
+		{name: "nested shadow", body: "forkDecidedCompletion := fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase\n\tif fork != nil {\n\t\tforkDecidedCompletion := true\n\t\t_ = forkDecidedCompletion\n\t}"},
+		{name: "top-level reassignment", body: "forkDecidedCompletion := fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase\n\tforkDecidedCompletion = true"},
+		{name: "func-literal shadow", body: "forkDecidedCompletion := fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase\n\tfunc() { forkDecidedCompletion := true; _ = forkDecidedCompletion }()"},
 	}
-	if forkDecidedIdentIsGenerationComparison(f.Decls[0].(*ast.FuncDecl), hardArmForkDecidedIdent) {
-		t.Fatal("a guard bound to the live flag instead of the generation comparison must be red")
+	for _, tc := range defRed {
+		t.Run("definition pin: "+tc.name, func(t *testing.T) {
+			src := "package p\n\nfunc (m *M) MergeExploreFork(fork *M) {\n\t" + tc.body + "\n}\n"
+			f, err := parser.ParseFile(token.NewFileSet(), "snippet.go", src, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if forkDecidedIdentIsGenerationComparison(f.Decls[0].(*ast.FuncDecl), hardArmForkDecidedIdent) {
+				t.Fatalf("definition-pin shape must be red:\n%s", tc.body)
+			}
+		})
 	}
 }
 
@@ -365,6 +528,7 @@ func TestExploreBacktrackExhaustion_ReleaseHasOneSchedulerSite(t *testing.T) {
 	fset := token.NewFileSet()
 	releaseCallers := map[string]int{}
 	recordCallers := map[string]int{}
+	var aliasRefs []string
 	var loop *ast.FuncDecl
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
@@ -382,22 +546,26 @@ func TestExploreBacktrackExhaustion_ReleaseHasOneSchedulerSite(t *testing.T) {
 			if file == "orchestrator.go" && fd.Name.Name == "runReadSchedulerLoop" {
 				loop = fd
 			}
-			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
+			calls, aliases := exhaustionEntryPointReferences(fd)
+			for name, n := range calls {
+				switch name {
+				case "releaseExhaustedExploreBacktrack":
+					releaseCallers[fd.Name.Name] += n
+				case "RecordExploreBacktrackExhausted":
+					recordCallers[fd.Name.Name] += n
 				}
-				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-					switch sel.Sel.Name {
-					case "releaseExhaustedExploreBacktrack":
-						releaseCallers[fd.Name.Name]++
-					case "RecordExploreBacktrackExhausted":
-						recordCallers[fd.Name.Name]++
-					}
-				}
-				return true
-			})
+			}
+			for _, alias := range aliases {
+				aliasRefs = append(aliasRefs, file+":"+fd.Name.Name+" "+alias)
+			}
 		}
+	}
+	// §40.43 round-six #17: a method-value alias (`release :=
+	// o.releaseExhaustedExploreBacktrack; release(1)`) is a second,
+	// UNCOUNTED caller — any non-call reference to either entry point is
+	// red, matching the G-patch-txn staging-entry-point standard.
+	if len(aliasRefs) != 0 {
+		t.Fatalf("the release/record entry points may only be called directly — non-call references found:\n  %s", strings.Join(aliasRefs, "\n  "))
 	}
 	if len(releaseCallers) != 1 || releaseCallers["runReadSchedulerLoop"] != 1 {
 		t.Fatalf("releaseExhaustedExploreBacktrack must be called exactly once, in runReadSchedulerLoop; got %v", releaseCallers)
@@ -445,6 +613,76 @@ func TestExploreBacktrackExhaustion_ReleaseHasOneSchedulerSite(t *testing.T) {
 	})
 	if !found {
 		t.Fatal("the exhaustion release must be a top-level `if o.releaseExhaustedExploreBacktrack(...) { continue }` statement of the `if len(blocked) > 0` branch, before the blocked-DAG termination profile is written")
+	}
+}
+
+// exhaustionEntryPointReferences (§40.43 round-six #17) scans one function
+// body for the release/record entry points: `calls` counts DIRECT selector
+// calls per entry-point name; `aliases` reports every OTHER reference — a
+// method value (`release := o.releaseExhaustedExploreBacktrack`) is a
+// second caller the call-only matcher cannot count, so any non-call
+// reference is red. The G-patch-txn staging census set this standard
+// (§40.45); this sibling census escaped the hardening until round six.
+func exhaustionEntryPointReferences(fd *ast.FuncDecl) (calls map[string]int, aliases []string) {
+	names := map[string]bool{
+		"releaseExhaustedExploreBacktrack": true,
+		"RecordExploreBacktrackExhausted":  true,
+	}
+	calls = map[string]int{}
+	callFuns := map[*ast.SelectorExpr]bool{}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && names[sel.Sel.Name] {
+			callFuns[sel] = true
+			calls[sel.Sel.Name]++
+		}
+		return true
+	})
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok || !names[sel.Sel.Name] || callFuns[sel] {
+			return true
+		}
+		aliases = append(aliases, "references "+sel.Sel.Name+" without calling it (method value / alias)")
+		return true
+	})
+	return calls, aliases
+}
+
+// TestExhaustionEntryPointReferences_SelfRed: the matcher counts direct
+// calls and reds every aliased spelling.
+func TestExhaustionEntryPointReferences_SelfRed(t *testing.T) {
+	cases := []struct {
+		name        string
+		body        string
+		wantCalls   int
+		wantAliases int
+	}{
+		{name: "direct call", body: "o.releaseExhaustedExploreBacktrack(1)", wantCalls: 1},
+		{name: "method-value alias", body: "release := o.releaseExhaustedExploreBacktrack\n\trelease(1)", wantAliases: 1},
+		{name: "record method-value alias", body: "record := mut.RecordExploreBacktrackExhausted\n\trecord(nil)", wantAliases: 1},
+		{name: "alias passed as argument", body: "use(o.releaseExhaustedExploreBacktrack)", wantAliases: 1},
+		{name: "direct call plus alias", body: "o.releaseExhaustedExploreBacktrack(1)\n\tr := o.releaseExhaustedExploreBacktrack\n\t_ = r", wantCalls: 1, wantAliases: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package p\n\nfunc f() {\n\t" + tc.body + "\n}\n"
+			f, err := parser.ParseFile(token.NewFileSet(), "snippet.go", src, 0)
+			if err != nil {
+				t.Fatalf("parse snippet: %v", err)
+			}
+			calls, aliases := exhaustionEntryPointReferences(f.Decls[0].(*ast.FuncDecl))
+			total := 0
+			for _, n := range calls {
+				total += n
+			}
+			if total != tc.wantCalls || len(aliases) != tc.wantAliases {
+				t.Fatalf("calls=%d aliases=%v, want calls=%d aliases=%d", total, aliases, tc.wantCalls, tc.wantAliases)
+			}
+		})
 	}
 }
 

@@ -357,6 +357,72 @@ func emitAnalysisEntityRosterCensus(src string) (emitAnalysisEntityRosterCensusR
 			continue
 		}
 		gateParents := emitAnalysisParentMap(fn.Body)
+		// §40.43 round-six #12: bind the judged roster by DATA FLOW to the
+		// frozen capture. A frozen read (`param.Entities()`) either feeds a
+		// recognized consumption (call argument, range operand, …) or binds
+		// exactly one local ident; a BOUND ident may never be reassigned
+		// (`entities = foreignRosterNames(rm)` made the registered gate
+		// judge an arbitrary non-frozen roster while the census stayed
+		// green), a discarded read (`_ = roster.Entities()`) is red (it
+		// satisfied the gateReads floor while the gate judged something
+		// else), and a bound ident that is never read afterwards is red too
+		// (a dead bind is the same laundering with one more step).
+		boundRosters := map[string]bool{}
+		bindingStmts := map[ast.Node]bool{}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != emitAnalysisFrozenAccessor {
+				return true
+			}
+			x, isIdent := sel.X.(*ast.Ident)
+			call, isCall := gateParents[sel].(*ast.CallExpr)
+			if !isIdent || x.Name != param || !isCall || call.Fun != sel {
+				return true
+			}
+			switch p := gateParents[call].(type) {
+			case *ast.AssignStmt:
+				if len(p.Lhs) == 1 {
+					if id, ok := p.Lhs[0].(*ast.Ident); ok {
+						if id.Name == "_" {
+							report(p, "gate "+name+" discards the frozen read (`_ = "+print(sel)+"()`) — a dead read satisfies no judgement")
+							return true
+						}
+						boundRosters[id.Name] = true
+						bindingStmts[p] = true
+					}
+				}
+			}
+			return true
+		})
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok || bindingStmts[assign] {
+				return true
+			}
+			for _, lhs := range assign.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok && boundRosters[id.Name] {
+					report(assign, "gate "+name+" rebinds the judged roster "+id.Name+" from a non-frozen source: "+print(assign)+" — the gate may judge only the frozen roster")
+				}
+			}
+			return true
+		})
+		for bound := range boundRosters {
+			reads := 0
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				id, ok := n.(*ast.Ident)
+				if !ok || id.Name != bound {
+					return true
+				}
+				if assign, ok := gateParents[id].(*ast.AssignStmt); ok && emitAnalysisIsLHS(assign, id) {
+					return true
+				}
+				reads++
+				return true
+			})
+			if reads == 0 {
+				report(fn, "gate "+name+" binds the frozen read to "+bound+" but never judges it — a dead bind launders the gateReads floor")
+			}
+		}
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			sel, ok := n.(*ast.SelectorExpr)
 			if !ok {
@@ -603,6 +669,16 @@ func TestEmitAnalysisEntityRosterCensus(t *testing.T) {
 		"frozen ranged directly":          {gateAnchor, "	for range modelEntities.entities {\n	}\n" + gateAnchor},
 		"gate reads RequestModel roster":  {"	entities := roster.Entities()\n", "	entities := rm.AnalyzerHints.Entities\n"},
 		"gate touches backing field":      {"	entities := roster.Entities()\n", "	entities := roster.entities\n"},
+		// §40.43 round-six #12: pass 5 used to scan only roster-named
+		// SelectorExprs, so a registered gate could judge a foreign roster
+		// through a helper reassignment, a discarded frozen read, or a dead
+		// bind — all while gateReads stayed >= 1.
+		"gate rebinds the judged roster via helper": {"	entities := roster.Entities()\n",
+			"	entities := roster.Entities()\n	entities = foreignRosterNames(rm)\n"},
+		"gate discards the frozen read": {"	entities := roster.Entities()\n",
+			"	entities := foreignRosterNames(rm)\n	_ = roster.Entities()\n"},
+		"gate dead-binds the frozen read": {"	entities := roster.Entities()\n",
+			"	unused := roster.Entities()\n	entities := foreignRosterNames(rm)\n"},
 		// §40.47 round five: the five gate-input / persisted-mint evasions.
 		"inline freeze in the gate argument": {gateAnchor,
 			"	if conflict := validateRequiredFlowDiagramParticipantProvenance(rm, freezeModelEntityRoster(splitFoo(raw, modelEntities.Entities()))); conflict != \"\" {"},

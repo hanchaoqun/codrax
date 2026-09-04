@@ -72,8 +72,9 @@ type RepairClusterExecutionState struct {
 	// cluster's owner was the dispatched owner and the Primary stayed
 	// unresolved. It is owner-attributed (§40.43 F-orch 四轮复核 finding
 	// U): computeClusterClosure advances it only in a round whose
-	// dispatched owner (prev.CurrentOwner — the target actually
-	// dispatched last round, after the R2.2 downgrade) equals this
+	// dispatched owner (prev.DispatchedOwner — the target actually
+	// dispatched last round, after the R2.2 downgrade and the §40.43
+	// round-six #0 post-Advance re-stamp) equals this
 	// cluster's Owner; a cluster whose owner did not run keeps its
 	// count, so a never-dispatched root stays at 0 and is always
 	// dispatched (anyClusterNeverAttempted). Resets to 0 when Primary
@@ -230,9 +231,11 @@ func extractRelationKindFromDetail(detail string) string {
 // fresh. Returns a new []RepairClusterExecutionState with
 // PrimaryResolved / DerivedResolved updated and StableAttempts
 // advanced — owner-attributed (§40.43 F-orch 四轮复核 finding U): only
-// for a cluster whose Owner equals prev.CurrentOwner, the owner the
+// for a cluster whose Owner equals prev.DispatchedOwner, the owner the
 // previous round actually dispatched (after the R2.2 finalizer-local
-// downgrade). A cluster whose owner did not run this round keeps its
+// downgrade AND, §40.43 round-six #0, after the scheduler's runtime
+// accepted-closure rewrite re-stamped it). A cluster whose owner did not
+// run this round keeps its
 // count: with fresh {must_include (finalizer), facet_uncovered
 // (explore)} and two downgraded finalizer_only rounds, the explore
 // cluster stays at 0 and is dispatched when the finalizer clears its
@@ -245,7 +248,16 @@ func computeClusterClosure(prev RepairExecutionPlan, fresh []types.Violation) []
 	if len(prev.ClusterStates) == 0 {
 		return nil
 	}
-	dispatched := prev.CurrentOwner
+	// §40.43 round-six #0: the dispatched owner is the plan's dedicated
+	// DispatchedOwner field — re-stamped by the scheduler after any
+	// post-Advance rewrite of the fallback target (the runtime
+	// accepted-closure downgrade). CurrentOwner keeps the plan semantics
+	// (deepest fresh owner) and is the fallback for plans stashed by older
+	// code paths / hand-built fixtures that never stamped the field.
+	dispatched := prev.DispatchedOwner
+	if dispatched == "" {
+		dispatched = prev.CurrentOwner
+	}
 	freshIdent := make(map[clusterIdent]bool, len(fresh))
 	freshKinds := make(map[types.ViolationKind]bool, len(fresh))
 	// W2.7 (2026-05-05): build a fp -> set of fresh kinds map so

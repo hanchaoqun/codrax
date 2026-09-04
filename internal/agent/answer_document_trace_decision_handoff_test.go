@@ -1185,3 +1185,42 @@ func TestTraceDecisionHandoffGroupsRelationAuthoritiesByTraceFile(t *testing.T) 
 		t.Fatalf("the copyable claim still carries its partition key on a single labeled trace:\n%s", got)
 	}
 }
+
+// §40.43 round-six #5 (§40.48 ruling: relation-authority identity is the
+// pair (id, artifact_label)): two trace files with identical accounting
+// yield two same-id authorities distinguished only by artifact_label. The
+// accepted-claims echo must render the label whenever a claim carries one —
+// before the fix the two echo lines were byte-identical, teaching the
+// finalizer an identity-incomplete rendering whose unlabeled republication
+// both resolve to candidates[0] and get rejected as a duplicate. Red on
+// e02828718: no artifact_label token in the echo.
+func TestTraceDecisionHandoffEchoesArtifactLabelOnTwinAcceptedClaims(t *testing.T) {
+	account := types.TraceCausalProjectionTargetStateAccount{
+		Subject: "target-100", RunningMS: 1, RunnableMS: 2, SleepMS: 7,
+		TotalMS: 10, WindowStartTs: 1, WindowEndTs: 1.010,
+	}
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{
+		{ArtifactLabel: "a.systrace", WindowStartTs: 1, WindowEndTs: 1.010, TargetStateAccount: &account},
+		{ArtifactLabel: "b.systrace", WindowStartTs: 1, WindowEndTs: 1.010, TargetStateAccount: &account},
+	}}
+	authorities := types.CompileTraceAnswerRelationAuthorities(set)
+	var claims []types.AnswerRelationClaim
+	labels := map[string]bool{}
+	for _, authority := range authorities {
+		claims = append(claims, types.AnswerRelationClaimForAuthority(authority))
+		labels[authority.ArtifactLabel] = true
+	}
+	if len(claims) < 2 || !labels["a.systrace"] || !labels["b.systrace"] {
+		t.Fatalf("fixture: want twin same-id authorities from two trace files, got %+v", authorities)
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(set, runtimeTraceGuidanceView{}, claims)
+	if !strings.Contains(got, "- accepted_model_relation_claims:") {
+		t.Fatalf("fixture: accepted claims must be echoed as current:\n%s", got)
+	}
+	echo := got[strings.Index(got, "- accepted_model_relation_claims:"):]
+	for _, want := range []string{"artifact_label=`a.systrace`", "artifact_label=`b.systrace`"} {
+		if !strings.Contains(echo, want) {
+			t.Fatalf("the echo must carry the identity's second component %q — twin claims are otherwise indistinguishable:\n%s", want, echo)
+		}
+	}
+}

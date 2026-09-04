@@ -670,6 +670,56 @@ func answerDocumentMutationMentions(node ast.Node, names map[string]bool) bool {
 	return found
 }
 
+// answerDocumentTypeParamConstraintDeclaresApply (§40.43 round-six #13)
+// reports whether a generic type-parameter constraint declares an Apply
+// method with the mutation's base-constructor signature.
+func answerDocumentTypeParamConstraintDeclaresApply(expr ast.Expr, docName map[string]bool) bool {
+	iface, ok := expr.(*ast.InterfaceType)
+	if !ok || iface.Methods == nil {
+		return false
+	}
+	for _, method := range iface.Methods.List {
+		ft, ok := method.Type.(*ast.FuncType)
+		if !ok {
+			continue
+		}
+		for _, name := range method.Names {
+			if name.Name == "Apply" && answerDocumentMutationMentions(ft, docName) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// answerDocumentFuncLitResultSlot (§40.43 round-six #15) mirrors the
+// FuncDecl result-slot facts for a func literal: which result slot carries
+// the mutation and how many results the literal has.
+func answerDocumentFuncLitResultSlot(lit *ast.FuncLit, typeNames map[string]bool) (answerDocumentMutationResultSlot, bool) {
+	if lit.Type.Results == nil {
+		return answerDocumentMutationResultSlot{}, false
+	}
+	idx, count := 0, 0
+	for _, field := range lit.Type.Results.List {
+		n := len(field.Names)
+		if n == 0 {
+			n = 1
+		}
+		count += n
+	}
+	for _, field := range lit.Type.Results.List {
+		n := len(field.Names)
+		if n == 0 {
+			n = 1
+		}
+		if answerDocumentMutationMentions(field.Type, typeNames) {
+			return answerDocumentMutationResultSlot{idx: idx, count: count}, true
+		}
+		idx += n
+	}
+	return answerDocumentMutationResultSlot{}, false
+}
+
 func collectAnswerDocumentMutationFacts(tree *retryGenerationTree) *answerDocumentMutationFacts {
 	facts := &answerDocumentMutationFacts{
 		typeNames:  map[string]bool{"AnswerDocumentMutation": true},
@@ -788,19 +838,91 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 			for name := range facts.pkgVars {
 				bound[name] = true
 			}
+			// §40.43 round-six #13: interface lanes living in the SIGNATURE
+			// — a generic type-parameter's inline constraint or an anonymous
+			// interface parameter type — are choked at the declaration
+			// exactly like a named interface: fn.Type covers TypeParams,
+			// Params and Results, none of which the body-rooted scan saw.
+			reportSignatureInterfaces := func(root ast.Node) {
+				ast.Inspect(root, func(n ast.Node) bool {
+					iface, ok := n.(*ast.InterfaceType)
+					if !ok || iface.Methods == nil {
+						return true
+					}
+					for _, method := range iface.Methods.List {
+						ft, ok := method.Type.(*ast.FuncType)
+						if !ok {
+							continue
+						}
+						for _, name := range method.Names {
+							if name.Name == "Apply" && answerDocumentMutationMentions(ft, docName) {
+								report(method, "declares an Apply method with the mutation's base-constructor signature (an interface lane could launder base construction)")
+							}
+						}
+					}
+					return true
+				})
+			}
+			mutationTypeParams := map[string]bool{}
 			if fn != nil {
+				reportSignatureInterfaces(fn.Type)
+				if fn.Type.TypeParams != nil {
+					for _, tp := range fn.Type.TypeParams.List {
+						carries := mentions(tp.Type) || answerDocumentTypeParamConstraintDeclaresApply(tp.Type, docName)
+						if !carries {
+							continue
+						}
+						// Recognized shape: an INLINE interface constraint —
+						// its Apply-with-doc-signature method is red at the
+						// declaration via reportSignatureInterfaces above.
+						// Every other constraint shape carrying the mutation
+						// is unrecognized: FAIL LOUD instead of guessing.
+						if _, inline := tp.Type.(*ast.InterfaceType); !inline {
+							report(tp, "uses an unrecognized generic constraint shape carrying the mutation; the census cannot classify its instantiations — spell the constraint as an inline interface (choked at the declaration) or drop the generic lane")
+						}
+						for _, name := range tp.Names {
+							mutationTypeParams[name.Name] = true
+						}
+					}
+				}
 				fields := append([]*ast.Field{}, fn.Type.Params.List...)
 				if fn.Recv != nil {
 					fields = append(fields, fn.Recv.List...)
 				}
 				for _, field := range fields {
-					if mentions(field.Type) {
+					if mentions(field.Type) || answerDocumentMutationMentions(field.Type, mutationTypeParams) {
 						for _, name := range field.Names {
 							bound[name.Name] = true
 						}
 					}
 				}
 			}
+			// §40.43 round-six #15: func-literal identity/passthrough lanes —
+			// a call through a func-literal-valued variable whose literal
+			// RETURNS the mutation type yields the mutation; collect the
+			// literals so yields and the multi-value binder can follow them.
+			funcVals := map[string]*ast.FuncLit{}
+			ast.Inspect(root, func(n ast.Node) bool {
+				switch node := n.(type) {
+				case *ast.AssignStmt:
+					if len(node.Lhs) == len(node.Rhs) {
+						for i, rhs := range node.Rhs {
+							if lit, ok := rhs.(*ast.FuncLit); ok {
+								if id, ok := node.Lhs[i].(*ast.Ident); ok {
+									funcVals[id.Name] = lit
+								}
+							}
+						}
+					}
+				case *ast.ValueSpec:
+					for i, v := range node.Values {
+						if lit, ok := v.(*ast.FuncLit); ok && i < len(node.Names) {
+							funcVals[node.Names[i].Name] = lit
+						}
+					}
+				}
+				return true
+			})
 			var isCtor func(expr ast.Expr) bool
 			isCtor = func(expr ast.Expr) bool {
 				switch x := expr.(type) {
@@ -838,6 +960,15 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 					if slot, ok := facts.results[selectorCallee(x)]; ok && slot.count == 1 {
 						return true
 					}
+					// §40.43 round-six #15: a call through a func-literal-
+					// valued variable whose literal returns the mutation.
+					if id, ok := x.Fun.(*ast.Ident); ok {
+						if lit := funcVals[id.Name]; lit != nil {
+							if slot, ok := answerDocumentFuncLitResultSlot(lit, facts.typeNames); ok && slot.count == 1 {
+								return true
+							}
+						}
+					}
 					return mentions(x.Fun) // conversion: AnswerDocumentMutation(v)
 				case *ast.CompositeLit:
 					return x.Type != nil && mentions(x.Type)
@@ -861,6 +992,13 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 							if call, ok := node.Rhs[0].(*ast.CallExpr); ok {
 								if slot, ok := facts.results[selectorCallee(call)]; ok && slot.idx < len(node.Lhs) {
 									bind(node.Lhs[slot.idx])
+								}
+								if id, ok := call.Fun.(*ast.Ident); ok {
+									if lit := funcVals[id.Name]; lit != nil {
+										if slot, ok := answerDocumentFuncLitResultSlot(lit, facts.typeNames); ok && slot.idx < len(node.Lhs) {
+											bind(node.Lhs[slot.idx])
+										}
+									}
 								}
 							}
 						}
@@ -1118,6 +1256,32 @@ func TestAnswerDocumentPatchBaseCensus_SingleBaseConstructor(t *testing.T) {
 		expectProbe(t, probe("type mut = types.AnswerDocumentMutation\n\nfunc probe(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) { _, _ = (mut{Kind: types.MutationPartial, Patch: patch}).Apply(prev) }"),
 			"builds an AnswerDocumentMutation literal", "applies a freshly constructed mutation")
 	})
+
+	// §40.43 round-six #13: interface lanes living in the SIGNATURE — a
+	// generic inline constraint and an anonymous interface parameter — used
+	// to escape because scan() rooted at fn.Body and never saw fn.Type.
+	t.Run("self_red_generic_inline_constraint_apply", func(t *testing.T) {
+		expectProbe(t, probe("func launder[M interface {\n\tApply(prev *types.AnswerDocumentV2) (*types.AnswerDocumentV2, error)\n}](prev *types.AnswerDocumentV2, m M) (*types.AnswerDocumentV2, error) {\n\treturn m.Apply(prev)\n}"),
+			"declares an Apply method with the mutation's base-constructor signature")
+	})
+	t.Run("self_red_generic_named_constraint_carrying_mutation", func(t *testing.T) {
+		expectProbe(t, probe("func launder[M ~[]types.AnswerDocumentMutation](prev *types.AnswerDocumentV2, ms M) { _, _ = ms[0].Apply(prev) }"),
+			"unrecognized generic constraint shape carrying the mutation")
+	})
+	t.Run("self_red_anonymous_interface_parameter_apply", func(t *testing.T) {
+		expectProbe(t, probe("func launder(prev *types.AnswerDocumentV2, a interface {\n\tApply(prev *types.AnswerDocumentV2) (*types.AnswerDocumentV2, error)\n}) { _, _ = a.Apply(prev) }"),
+			"declares an Apply method with the mutation's base-constructor signature")
+	})
+	// §40.43 round-six #15: a func-literal identity call used to unbind the
+	// mutation (facts.results covers FuncDecls only).
+	t.Run("self_red_func_literal_identity_apply", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, m types.AnswerDocumentMutation) {\n\tid := func(mm types.AnswerDocumentMutation) types.AnswerDocumentMutation { return mm }\n\ta := id(m)\n\t_, _ = a.Apply(prev)\n}"),
+			"applies the mutation a")
+	})
+	t.Run("self_red_func_literal_multi_result_apply", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, m types.AnswerDocumentMutation) {\n\tid := func(mm types.AnswerDocumentMutation) (types.AnswerDocumentMutation, bool) { return mm, true }\n\ta, _ := id(m)\n\t_, _ = a.Apply(prev)\n}"),
+			"applies the mutation a")
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,7 +1350,14 @@ func stagedForRetryFlagCensus(tree *retryGenerationTree, execute *ast.FuncDecl) 
 				case *ast.Ident:
 					consumed[f] = true
 				case *ast.SelectorExpr:
+					// §40.43 round-six #6: the staging entry point is a
+					// package FREE FUNCTION — a selector call spells a
+					// same-named METHOD on a foreign receiver, which sets
+					// the flag without staging. Bind by receiver, not by
+					// name: this is an offender, never THE staging call.
 					consumed[f.Sel] = true
+					offenders = append(offenders, where(node)+" calls a same-named method "+stagingEntryPoint+" on a foreign receiver; the staging entry point is the package free function, called directly")
+					return true
 				}
 				stagingCalls++
 				if len(node.Args) != 4 {
@@ -1239,6 +1410,27 @@ func stagedForRetryFlagCensus(tree *retryGenerationTree, execute *ast.FuncDecl) 
 	}
 	if annotatorReads != 1 {
 		offenders = append(offenders, fmt.Sprintf("%s hands %s to %s %d times, want exactly once (the deferred outcome annotation)", answerDocumentPatchExecuteName, stagedByThisCallIdent, failureOutcomeAnnotator, annotatorReads))
+	}
+	// §40.43 round-six #6: the staging entry point's NAME is a census
+	// subject too — a FuncDecl named stageAnswerDocumentPatchGeneration on
+	// another receiver never appears inside any function body, so the
+	// reference scan below cannot see it. Exactly one declaration may
+	// exist, and it is the package free function.
+	stagingDecls := 0
+	for path, file := range tree.files {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != stagingEntryPoint {
+				continue
+			}
+			stagingDecls++
+			if fn.Recv != nil {
+				offenders = append(offenders, fmt.Sprintf("%s (%s) declares a METHOD named %s on a foreign receiver — a same-named method could satisfy a name-bound staging call while staging nothing", path, tree.pos(fn), stagingEntryPoint))
+			}
+		}
+	}
+	if stagingDecls != 1 {
+		offenders = append(offenders, fmt.Sprintf("%s must be declared exactly once (the package free function), found %d declarations", stagingEntryPoint, stagingDecls))
 	}
 	for path, file := range tree.files {
 		retryGenerationDecls(file, func(fnName string, body ast.Node) {
@@ -1363,5 +1555,21 @@ func TestAnswerDocumentPatchBaseCensus_StagedForRetryFlagIsTruthful(t *testing.T
 			"package tool\n\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n\nfunc probe(mut *types.MutableState, base *types.AnswerDocumentV2) { f := stageAnswerDocumentPatchGeneration; f(mut, base, nil, nil) }"))
 		retryGenerationExpectOffender(t, got, "internal/tool/zz_probe.go:probe")
 		retryGenerationExpectOffender(t, got, "references stageAnswerDocumentPatchGeneration")
+	})
+
+	// §40.43 round-six #6: a same-named METHOD on a foreign receiver used to
+	// satisfy the staging census by bare callee name — the flag was consumed
+	// and stagingCalls counted while nothing was staged (the exact P5
+	// staged_for_retry / not_staged drift this census exists to prevent).
+	t.Run("self_red_same_named_method_on_foreign_receiver", func(t *testing.T) {
+		got := run(t, tree.withInjected(t, answerDocumentPatchToolFile,
+			"stageAnswerDocumentPatchGeneration(ctx.Mutable, merged, nil, &stagedByThisCall)",
+			"evilHelper.stageAnswerDocumentPatchGeneration(ctx.Mutable, merged, nil, &stagedByThisCall)"))
+		retryGenerationExpectOffender(t, got, "same-named method stageAnswerDocumentPatchGeneration on a foreign receiver")
+	})
+	t.Run("self_red_same_named_method_declaration", func(t *testing.T) {
+		got := run(t, tree.with(t, "internal/tool/zz_evil.go",
+			"package tool\n\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n\ntype evilStager struct{}\n\nfunc (evilStager) stageAnswerDocumentPatchGeneration(mut *types.MutableState, base *types.AnswerDocumentV2, lease any, flag *bool) {\n\tif flag != nil {\n\t\t*flag = true\n\t}\n}"))
+		retryGenerationExpectOffender(t, got, "declares a METHOD named stageAnswerDocumentPatchGeneration on a foreign receiver")
 	})
 }

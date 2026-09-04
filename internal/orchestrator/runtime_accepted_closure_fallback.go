@@ -13,6 +13,14 @@ func (o *Orchestrator) downgradeRuntimeAcceptedClosureExploreFallback(fallback F
 	}
 	logging.Info("[orchestrator] runtime accepted-closure fallback guard: downgrading %s to %s because runtime/source authority has no precise current-source hard blocker",
 		fallback, FallbackFinalizerOnly)
+	// §40.43 round-six #0: this rewrite runs AFTER AdvanceRepairExecutionPlan
+	// stashed the plan with DispatchedOwner=explore, but the FINALIZER is
+	// what this round dispatches. Re-stamp the persisted plan so the next
+	// round's closure bills this round to the finalizer — the explore
+	// cluster keeps StableAttempts 0 and the never-attempted veto holds
+	// (a never-dispatched root cause is always dispatched before any
+	// fail-loud).
+	RestampDispatchedRepairOwner(o.busCtx.Mutable, FallbackFinalizerOnly)
 	return FallbackFinalizerOnly
 }
 

@@ -671,3 +671,111 @@ func TestEmitAnswerDocumentCaliberNoteIsPlainGuidanceNotAPartDrop(t *testing.T) 
 		t.Fatalf("line one must stay the accepted counts line: %q", result.Summary)
 	}
 }
+
+// §40.43 round-six #4: the reject exits that fire BEFORE the payload's
+// strict decode (raw-JSON validators — the payload itself may strict-decode
+// fine) must still resolve the selector: a valid one is staged for the
+// retry (★16), an invalid one is disclosed as a typed row and marked
+// rejected. Before the fix these exits returned with the zero-value
+// selection, so a valid selector riding them was silently lost and the
+// customer sidecar reported a false "never selected". Each enumerated exit
+// is pinned in both directions (red on e02828718 via the staged/marked
+// assertions).
+func TestPreDecodeRejectExitsResolveTheSelector(t *testing.T) {
+	prevDraft := func() *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{
+			DocumentModel: "v2",
+			Citations:     []types.Citation{{File: "x.go", Line: 10}},
+			Blocks: []types.AnswerBlock{
+				{ID: "s1", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "stable rejected summary", FacetIDs: []string{string(types.FacetCurrentCodePath)}},
+			},
+		}
+	}
+	type exitCase struct {
+		name        string
+		patch       bool
+		withPrev    bool
+		payload     string // %s = the selector JSON
+		wantSummary string
+	}
+	cases := []exitCase{
+		{name: "patch no-previous-emit", patch: true, withPrev: false,
+			payload:     `{"unchanged_block_ids":["s1"],"replace_trace_root_causes":%s}`,
+			wantSummary: "no previous emit found"},
+		{name: "patch top-level relation_claims", patch: true, withPrev: true,
+			payload:     `{"unchanged_block_ids":["s1"],"relation_claims":[],"replace_trace_root_causes":%s}`,
+			wantSummary: `top-level field "relation_claims" is not accepted`},
+		{name: "patch misrouted block operation", patch: true, withPrev: true,
+			payload:     `{"replace_snippets":[{"id":"s1","text":"body","file":"a.go"}],"replace_trace_root_causes":%s}`,
+			wantSummary: "could not be remapped losslessly"},
+		{name: "patch block_field_edits_v1 schema reject", patch: true, withPrev: true,
+			payload:     `{"unchanged_block_ids":["s1"],"block_field_edits_v1":[{"block_id":"no-such-block","field":"label","value":"x"}],"replace_trace_root_causes":%s}`,
+			wantSummary: "block_field_edits_v1[0] does not match"},
+		{name: "patch block_receipt_edits_v1 schema reject", patch: true, withPrev: true,
+			payload:     `{"unchanged_block_ids":["s1"],"block_receipt_edits_v1":[{"block_id":"no-such-block","field":"runtime_work_relation","value":{}}],"replace_trace_root_causes":%s}`,
+			wantSummary: "block_receipt_edits_v1[0] does not match"},
+		{name: "full-emit top-level relation_claims", patch: false, withPrev: false,
+			payload:     `{"blocks":[{"id":"s1","kind":"summary","text":"answer"}],"relation_claims":[],"trace_root_causes":%s}`,
+			wantSummary: `top-level field "relation_claims" is not accepted`},
+		{name: "full-emit retired v1 field", patch: false, withPrev: false,
+			payload:     `{"blocks":[{"id":"s1","kind":"summary","text":"answer"}],"shape":"chain","trace_root_causes":%s}`,
+			wantSummary: `top-level field "shape" is not accepted`},
+	}
+	const validSelector = `{"schema_version":2,"root_causes":[{"candidate_id":"candidate-sched"}]}`
+	const invalidSelector = `{"schema_version":2,"root_causes":[{"candidate_id":"invented-candidate"}]}`
+	for _, tc := range cases {
+		for _, sel := range []struct {
+			name, selector string
+			valid          bool
+		}{{"valid selector staged", validSelector, true}, {"invalid selector disclosed and marked", invalidSelector, false}} {
+			t.Run(tc.name+"/"+sel.name, func(t *testing.T) {
+				mut := types.NewMutableState("pre-decode reject " + tc.name)
+				mut.SetTraceFindingContract(testSelectableTraceRootCauseContract())
+				if tc.withPrev {
+					mut.SetLastRejectedAnswerDocumentV2(prevDraft())
+				}
+				ctx := &types.BusContext{Mutable: mut}
+				payload := json.RawMessage(fmt.Sprintf(tc.payload, sel.selector))
+				var res types.ToolResult
+				var err error
+				if tc.patch {
+					res, err = (&EmitAnswerDocumentPatch{}).Execute(ctx, payload)
+				} else {
+					res, err = executeAnswerDocumentV2("emit_answer_document", ctx, payload, time.Now())
+				}
+				if err != nil || res.Success || !strings.Contains(res.Summary, tc.wantSummary) {
+					t.Fatalf("fixture must reach the enumerated pre-decode reject: err=%v summary=%q", err, res.Summary)
+				}
+				carrier := "trace_root_causes"
+				if tc.patch {
+					carrier = "replace_trace_root_causes"
+				}
+				if sel.valid {
+					if staged := mut.PendingTraceRootCauseReport(); staged == nil || len(staged.RootCauses) != 1 {
+						t.Fatalf("a valid selector riding this reject must be staged (§40.31.1 ★16): %+v", staged)
+					}
+					if len(res.OptionalCarrierOutcomes) != 0 {
+						t.Fatalf("a valid selector carries no outcome: %+v", res.OptionalCarrierOutcomes)
+					}
+					if mut.TraceRootCauseSelectorRejected() {
+						t.Fatal("a valid submission must not be marked rejected")
+					}
+				} else {
+					if len(res.OptionalCarrierOutcomes) != 1 || res.OptionalCarrierOutcomes[0].Carrier != carrier ||
+						!strings.Contains(res.Summary, "invented-candidate") {
+						t.Fatalf("the reject must disclose the ignored selector as a typed row: %+v %q", res.OptionalCarrierOutcomes, res.Summary)
+					}
+					if !mut.TraceRootCauseSelectorRejected() {
+						t.Fatal("a rejected submission must be marked for the customer reason_code")
+					}
+					if mut.PendingTraceRootCauseReport() != nil {
+						t.Fatal("an invalid selector must not be staged")
+					}
+				}
+				if mut.TraceRootCauseReport() != nil {
+					t.Fatal("a rejected exit must never publish the report")
+				}
+			})
+		}
+	}
+}

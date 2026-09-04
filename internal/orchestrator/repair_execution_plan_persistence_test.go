@@ -362,13 +362,16 @@ func TestFallbackArmPopulateResetVerdict_SelfRed(t *testing.T) {
 	}
 }
 
-// Writer census (§40.43 R3 E i): the persisted plan has exactly two
-// production writers — AdvanceRepairExecutionPlan (stash) and
-// closeFinalizeRetryChain (clear, via ResetRetryState). A plan clear
-// re-added in a scheduler arm (or anywhere else) is red: the plan must
-// persist across ResetForFallback so stability keeps counting.
+// Writer census (§40.43 R3 E i): the persisted plan has exactly three
+// production writers — AdvanceRepairExecutionPlan (stash),
+// closeFinalizeRetryChain (clear, via ResetRetryState), and
+// RestampDispatchedRepairOwner (§40.43 round-six #0: the post-Advance
+// dispatched-owner re-stamp for the runtime accepted-closure downgrade —
+// it rewrites only DispatchedOwner on the already-stashed plan). A plan
+// clear re-added in a scheduler arm (or anywhere else) is red: the plan
+// must persist across ResetForFallback so stability keeps counting.
 func TestRepairExecutionPlan_ProductionWritersAreAdvanceAndChainClose(t *testing.T) {
-	allowed := map[string]bool{"AdvanceRepairExecutionPlan": true, "closeFinalizeRetryChain": true}
+	allowed := map[string]bool{"AdvanceRepairExecutionPlan": true, "closeFinalizeRetryChain": true, "RestampDispatchedRepairOwner": true}
 	files, err := filepath.Glob("*.go")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("glob: %v", err)

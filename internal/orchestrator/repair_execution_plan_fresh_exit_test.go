@@ -113,13 +113,21 @@ func TestAdvanceRepairExecutionPlan_StuckExitReadsFreshCarrier(t *testing.T) {
 // T(ii) PIN: carryClusterStability's W2.7 sibling-rotation carry-over. The
 // previous cluster (BlockCoverageMissing on block "summary") is replaced in
 // the fresh set by a retry-eligible kind it Implies on the SAME fingerprint
-// (PrincipalClaimUseMissing on block "summary"): the closure counts the
-// rotation as "still open" (StableAttempts 0→1) and the carry-over must land
-// that count on the fresh cluster under its new kind — so the rotating
-// cluster reaches the stuck exit on failure budget+1 like a plain stuck
-// one. With the Implies branch of carryClusterStability disabled the fresh
-// cluster restarts at 0 and never exits (every other test stayed green
-// under that variant).
+// under the SAME owner (EnumerationLabelUngrounded on block "summary" —
+// both extract-owned): the closure counts the rotation as "still open"
+// (StableAttempts 0→1) and the carry-over must land that count on the fresh
+// cluster under its new kind — so the rotating cluster reaches the stuck
+// exit on failure budget+1 like a plain stuck one. With the Implies branch
+// of carryClusterStability disabled the fresh cluster restarts at 0 and
+// never exits (every other test stayed green under that variant).
+//
+// EVOLUTION RECORD (§40.43 round-six #1/#2): the original fixture rotated to
+// PrincipalClaimUseMissing — a CROSS-owner (extract → finalizer) rotation —
+// and pinned carry=1 for it. The round-six ruling scopes the sibling carry
+// to rotations within one owner (a cross-owner rotation changes which stage
+// must fix the root and starts at 0, pinned in
+// repair_execution_plan_owner_attributed_test.go), so this pin re-fixtures
+// the SAME-owner pair; the old assertion is red under the owner guard.
 func TestCarryClusterStability_SiblingRotationCarriesOver(t *testing.T) {
 	restoreCluster := ClusterStableBudget()
 	t.Cleanup(func() { SetClusterStableBudget(restoreCluster) })
@@ -127,28 +135,28 @@ func TestCarryClusterStability_SiblingRotationCarriesOver(t *testing.T) {
 	spec, ok := types.ViolKindSpecFor(types.ViolBlockCoverageMissing)
 	implied := false
 	for _, k := range spec.Implies {
-		implied = implied || k == types.ViolPrincipalClaimUseMissing
+		implied = implied || k == types.ViolEnumerationLabelUngrounded
 	}
 	if !ok || !implied {
-		t.Fatalf("fixture: BlockCoverageMissing must imply PrincipalClaimUseMissing, got %+v", spec.Implies)
+		t.Fatalf("fixture: BlockCoverageMissing must imply EnumerationLabelUngrounded, got %+v", spec.Implies)
 	}
 	missing := types.Violation{Kind: types.ViolBlockCoverageMissing, Detail: `block id="summary" of required kind is missing`}
-	rotated := vBlock("summary")
+	rotated := types.Violation{Kind: types.ViolEnumerationLabelUngrounded, Detail: `block id="summary" labels are ungrounded`}
 	if clusterFingerprintOf(missing) != clusterFingerprintOf(rotated) {
 		t.Fatalf("fixture: both kinds must share the fingerprint, got %q vs %q", clusterFingerprintOf(missing), clusterFingerprintOf(rotated))
 	}
 
 	mut := types.NewMutableState("sibling rotation")
 	plan, _, _ := AdvanceRepairExecutionPlan(mut, []types.Violation{missing}, 1<<30)
-	if len(plan.ClusterStates) != 1 || plan.ClusterStates[0].StableAttempts != 0 {
-		t.Fatalf("round 1 seeds the cluster at 0, got %+v", plan.ClusterStates)
+	if len(plan.ClusterStates) != 1 || plan.ClusterStates[0].StableAttempts != 0 || plan.ClusterStates[0].Owner != LocusExtract {
+		t.Fatalf("round 1 seeds the extract-owned cluster at 0, got %+v", plan.ClusterStates)
 	}
 	plan, target, _ := AdvanceRepairExecutionPlan(mut, []types.Violation{rotated}, 1<<30)
 	if target == FallbackFailLoud || len(plan.ClusterStates) != 1 {
 		t.Fatalf("round 2 (rotation) must dispatch, got target=%v plan=%s", target, SummarizeRepairExecutionPlan(plan))
 	}
-	if got := plan.ClusterStates[0]; got.PrimaryKind != types.ViolPrincipalClaimUseMissing || got.StableAttempts != 1 {
-		t.Fatalf("round 2: the rotated sibling must carry StableAttempts 1 under its new kind, got %+v", got)
+	if got := plan.ClusterStates[0]; got.PrimaryKind != types.ViolEnumerationLabelUngrounded || got.Owner != LocusExtract || got.StableAttempts != 1 {
+		t.Fatalf("round 2: the same-owner rotated sibling must carry StableAttempts 1 under its new kind, got %+v", got)
 	}
 	plan, target, _ = AdvanceRepairExecutionPlan(mut, []types.Violation{rotated}, 1<<30)
 	if target != FallbackFailLoud || !plan.HasFailLoud || plan.ClusterStates[0].StableAttempts != 2 {

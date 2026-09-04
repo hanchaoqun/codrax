@@ -2803,15 +2803,24 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 	}
 	if prev == nil {
+		// §40.43 round-six #4: every reject exit BEFORE the strict decode
+		// resolves the selector from the raw payload — these exits fire on
+		// payloads that may strict-decode fine, so a valid selector riding
+		// them is staged (★16) and an invalid one is disclosed + marked; the
+		// deferred commit tail then acts on the resolved selection instead of
+		// the zero value.
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
 		return failEmit(t.Name(), now,
 			"emit_answer_document_patch: no previous emit found. The patch tool is only valid on retry paths after a successful emit_answer_document call. First dispatches must use emit_answer_document.")
 	}
 	if answerDocumentHasTopLevelField(params, "relation_claims") {
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
 		return failEmit(t.Name(), now,
 			"top-level field %q is not accepted; place the exact typed claim object(s) under replace_blocks[i].relation_claims or add_blocks[i].relation_claims on the model-authored block that uses the values (never at $.relation_claims)",
 			"relation_claims")
 	}
 	if paths := answerDocumentStructuralCarrierCorruptionPaths(params); len(paths) > 0 {
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
 		return failEmitWithRepair(t.Name(), now, answerDocumentStructuralCarrierCorruptionRepair(paths),
 			"answer_document patch carrier contains serialized JSON boundary text in field name(s): %s; retry the patch without dropping any requested block",
 			strings.Join(paths, ", "))
@@ -2856,6 +2865,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 	}
 	if repaired, blockIDs, violation := normalizeMisroutedPatchBlockOperations(params, prev); violation != "" {
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
 		return failEmitWithRepair(t.Name(), now, &types.ToolRepair{
 			Code:   "answer_doc_patch_block_operation_misrouted",
 			Fields: []string{"replace_snippets", "replace_blocks"},
@@ -2884,11 +2894,13 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		params = repaired
 	}
 	if violation := validateAnswerDocumentPatchFieldEditsAgainstSchema(params, fieldEditSchema); violation != nil {
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
 		return failEmitWithRepair(t.Name(), now, answerDocumentPatchFieldEditSchemaRepair(*violation),
 			"block_field_edits_v1[%d] does not match any exact field-edit branch published for this dispatch: reason=%s field=%q block_id=%q",
 			violation.Index, violation.Reason, violation.Field, violation.BlockID)
 	}
 	if violation := validateAnswerDocumentPatchReceiptEditsAgainstSchema(params, fieldEditSchema); violation != nil {
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
 		return failEmitWithRepair(t.Name(), now, answerDocumentPatchReceiptEditSchemaRepair(*violation),
 			"block_receipt_edits_v1[%d] does not match any exact receipt-edit branch published for this dispatch: reason=%s field=%q block_id=%q",
 			violation.Index, violation.Reason, violation.Field, violation.BlockID)

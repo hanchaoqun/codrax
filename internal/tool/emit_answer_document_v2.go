@@ -153,6 +153,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// must be moved into the appropriate block kind.
 	if violation := detectV1FieldsInV2Emit(raw); violation != "" {
 		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
+		// §40.43 round-six #4: every reject exit BEFORE the strict decode
+		// resolves the selector from the raw payload (see the patch executor)
+		// — a valid selector riding the reject is staged, an invalid one is
+		// disclosed and marked, through the deferred commit tail.
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, raw, false)
 		return failEmit(toolName, now,
 			"top-level field %q is not accepted; the answer is expressed through blocks[] only — move any answer payload into the appropriate block kind",
 			violation)
@@ -165,6 +170,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// conclusion ownership with the model.
 	if answerDocumentHasTopLevelField(raw, "relation_claims") {
 		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, raw, false) // §40.43 round-six #4
 		return failEmit(toolName, now,
 			"top-level field %q is not accepted; place the exact typed claim object(s) under blocks[i].relation_claims on the model-authored block that uses the values (never at $.relation_claims)",
 			"relation_claims")
@@ -174,6 +180,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		// otherwise absorb the surviving value and erase the delimiter-bearing
 		// key that proves model-authored block loss.
 		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, raw, false) // §40.43 round-six #4
 		return failEmitWithRepair(toolName, now, answerDocumentStructuralCarrierCorruptionRepair(paths),
 			"answer_document carrier contains serialized JSON boundary text in field name(s): %s; the surviving fields are only a partial model answer",
 			strings.Join(paths, ", "))
@@ -244,6 +251,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	if strings.TrimSpace(recovery.Mode) != "" {
 		if err := validateRecoveredAnswerBlocksAgainstDispatchSchema(ctx, raw); err != nil {
 			persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
+			rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, raw, false) // §40.43 round-six #4
 			repair := &types.ToolRepair{
 				Code:   "answer_doc_recovered_blocks_schema",
 				Fields: []string{"blocks"},

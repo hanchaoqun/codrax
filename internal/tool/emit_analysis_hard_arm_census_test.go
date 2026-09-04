@@ -765,6 +765,56 @@ func emitAnalysisHardArmCensus(src string, carriers map[string]bool) ([]emitAnal
 	if execute == nil {
 		return nil, errEmitAnalysisExecuteNotFound
 	}
+	// §40.43 round-six #7: resolve alias / defined types over
+	// types.ToolResult to a fixpoint so an alias-typed reject literal
+	// (`type trAlias = types.ToolResult; return trAlias{...}`) is judged
+	// like the direct spelling. A type declaration carrying ToolResult in a
+	// shape the census cannot classify FAILS LOUD — never silently
+	// uncensused.
+	toolResultNames := map[string]bool{}
+	for changed := true; changed; {
+		changed = false
+		ast.Inspect(file, func(n ast.Node) bool {
+			ts, ok := n.(*ast.TypeSpec)
+			if !ok || toolResultNames[ts.Name.Name] {
+				return true
+			}
+			if emitAnalysisTypeIsToolResult(ts.Type, toolResultNames) {
+				toolResultNames[ts.Name.Name] = true
+				changed = true
+			}
+			return true
+		})
+	}
+	var unclassifiedType error
+	ast.Inspect(file, func(n ast.Node) bool {
+		ts, ok := n.(*ast.TypeSpec)
+		if !ok || toolResultNames[ts.Name.Name] || unclassifiedType != nil {
+			return true
+		}
+		mentionsToolResult := false
+		ast.Inspect(ts.Type, func(m ast.Node) bool {
+			if id, ok := m.(*ast.Ident); ok && (id.Name == "ToolResult" || toolResultNames[id.Name]) {
+				mentionsToolResult = true
+			}
+			return !mentionsToolResult
+		})
+		if mentionsToolResult {
+			unclassifiedType = fmt.Errorf("emit_analysis.go declares type %s over ToolResult in a shape the hard-arm census cannot classify (only plain alias/defined types are recognized) — extend the census before adding it", ts.Name.Name)
+		}
+		return true
+	})
+	if unclassifiedType != nil {
+		return nil, unclassifiedType
+	}
+	// §40.43 round-six #14: a bare `return` under a NAMED first result ships
+	// whatever the named result holds — a site bound to that identifier's
+	// data flow. With unnamed results (today's signature) a bare return
+	// cannot compile and namedResult stays nil.
+	var namedResult *ast.Ident
+	if execute.Type.Results != nil && len(execute.Type.Results.List) > 0 && len(execute.Type.Results.List[0].Names) > 0 {
+		namedResult = execute.Type.Results.List[0].Names[0]
+	}
 	r := emitAnalysisResolveExecute(fset, execute)
 	type frame struct {
 		keys []string
@@ -957,7 +1007,16 @@ func emitAnalysisHardArmCensus(src string, carriers map[string]bool) ([]emitAnal
 			pop()
 			return false
 		case *ast.ReturnStmt:
-			if depth > 0 || len(node.Results) == 0 {
+			if depth > 0 {
+				return true
+			}
+			if len(node.Results) == 0 {
+				// §40.43 round-six #14: bare return with a named result —
+				// the shipped value is the named result's current binding.
+				if namedResult == nil {
+					return true
+				}
+				addSite(node, emitAnalysisNamedResultProducers(r, namedResult.Name))
 				return true
 			}
 			if _, ok := node.Results[0].(*ast.CompositeLit); ok {
@@ -968,7 +1027,7 @@ func emitAnalysisHardArmCensus(src string, carriers map[string]bool) ([]emitAnal
 			addSite(node, emitAnalysisResultProducers(r, node.Results[0]))
 			return true
 		case *ast.CompositeLit:
-			if !emitAnalysisToolResultMayFail(r, node) {
+			if !emitAnalysisToolResultMayFail(r, node, toolResultNames) {
 				return true
 			}
 			addSite(node, nil)
@@ -995,16 +1054,52 @@ func emitAnalysisCallee(expr ast.Expr) string {
 	return ""
 }
 
-// emitAnalysisToolResultMayFail reports whether a types.ToolResult composite
-// literal can carry Success=false: the literal `false`, a missing Success key
-// (the zero value), a positional literal, or any Success binding that does
-// not provably resolve to the literal `true` through the flow resolver.
-func emitAnalysisToolResultMayFail(r *emitAnalysisFlowResolver, lit *ast.CompositeLit) bool {
-	sel, ok := lit.Type.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != "ToolResult" {
-		return false
+// emitAnalysisTypeIsToolResult (§40.43 round-six #7) reports whether a type
+// expression is types.ToolResult in a RECOGNIZED spelling: the direct
+// selector, a resolved alias/defined name, or either behind parentheses.
+func emitAnalysisTypeIsToolResult(expr ast.Expr, names map[string]bool) bool {
+	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return emitAnalysisTypeIsToolResult(x.X, names)
+	case *ast.Ident:
+		return names[x.Name]
+	case *ast.SelectorExpr:
+		id, ok := x.X.(*ast.Ident)
+		return ok && id.Name == "types" && x.Sel.Name == "ToolResult"
 	}
-	if x, ok := sel.X.(*ast.Ident); !ok || x.Name != "types" {
+	return false
+}
+
+// emitAnalysisNamedResultProducers (§40.43 round-six #14) resolves the named
+// result's flow object at census time (the resolver's scope stack is back at
+// the function root, where signature names are defined) and returns its
+// transitive producers.
+func emitAnalysisNamedResultProducers(r *emitAnalysisFlowResolver, name string) []string {
+	o := r.scope.lookup(name)
+	if o == nil {
+		return []string{"<opaque named result " + name + ">"}
+	}
+	produced := map[string]bool{}
+	o.producersOf(map[*emitAnalysisFlowObj]bool{}, produced)
+	if len(produced) == 0 {
+		return []string{"<opaque named result " + name + ">"}
+	}
+	out := make([]string, 0, len(produced))
+	for p := range produced {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// emitAnalysisToolResultMayFail reports whether a ToolResult composite
+// literal — spelled types.ToolResult or through a resolved alias/defined
+// type (§40.43 round-six #7) — can carry Success=false: the literal
+// `false`, a missing Success key (the zero value), a positional literal, or
+// any Success binding that does not provably resolve to the literal `true`
+// through the flow resolver.
+func emitAnalysisToolResultMayFail(r *emitAnalysisFlowResolver, lit *ast.CompositeLit, toolResultNames map[string]bool) bool {
+	if !emitAnalysisTypeIsToolResult(lit.Type, toolResultNames) {
 		return false
 	}
 	for _, elt := range lit.Elts {
@@ -1150,6 +1245,11 @@ func TestEmitAnalysisHardArmCensus(t *testing.T) {
 		"helper-built reject nested in a registered frame":        {nested("		return emitAnalysisRejectFoo(rm, raw), nil\n"), "", "emitAnalysisRejectFoo"},
 		"reject carried through a variable return":                {"	failure := buildFooFailureUnregistered(rm)\n	if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n		return failure, nil\n	}\n", fooJudge, "buildFooFailureUnregistered"},
 		"Success bound to a variable under an unregistered judge": {"	if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n		rejected := issue != \"\"\n		return types.ToolResult{ToolName: t.Name(), Success: rejected, Summary: issue}, nil\n	}\n", fooJudge, ""},
+		// §40.43 round-six #7: an alias-typed reject literal used to fall
+		// between the ReturnStmt arm (composite literal → skipped) and the
+		// literal arm (exact types.ToolResult spelling required).
+		"alias-typed reject literal under an unregistered judge":    {"	type trAlias = types.ToolResult\n	if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n		return trAlias{ToolName: t.Name(), Success: false, Summary: issue}, nil\n	}\n", fooJudge, ""},
+		"alias-of-alias reject literal under an unregistered judge": {"	type trAlias = types.ToolResult\n	type trAlias2 = trAlias\n	if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n		return trAlias2{ToolName: t.Name(), Success: false, Summary: issue}, nil\n	}\n", fooJudge, ""},
 	}
 	for name, sh := range shapes {
 		mutated := strings.Replace(string(src), deposit, sh.insert+deposit, 1)
@@ -1186,6 +1286,43 @@ func TestEmitAnalysisHardArmCensus(t *testing.T) {
 			t.Fatalf("self-red %s: census must attribute the inserted arm to %s as a judge; problems=%v", name, sh.judge, problems)
 		}
 	}
+	// §40.43 round-six #7 fail-loud default: a ToolResult-carrying type
+	// declaration the census cannot classify ends the run loudly instead of
+	// letting its literals mint invisible rejects.
+	t.Run("self_red_unclassifiable_toolresult_type_fails_loud", func(t *testing.T) {
+		mutated := strings.Replace(string(src), deposit, "	type trWrapper struct{ Res types.ToolResult }\n	_ = trWrapper{}\n"+deposit, 1)
+		if _, err := emitAnalysisHardArmCensus(mutated, carriers); err == nil {
+			t.Fatal("an unclassifiable ToolResult-carrying type declaration must fail the census loudly")
+		}
+	})
+	// §40.43 round-six #14: under a named-result signature, a bare `return`
+	// ships whatever the named result holds — the helper-built reject's
+	// producer and the unregistered judge must both be attributed.
+	t.Run("self_red_bare_return_with_named_result", func(t *testing.T) {
+		const sig = "func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {"
+		const namedSig = "func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {"
+		renamed := strings.Replace(string(src), sig, namedSig, 1)
+		if renamed == string(src) {
+			t.Fatal("Execute signature anchor not found — update the self-red")
+		}
+		mutated := strings.Replace(renamed, deposit,
+			"	result = buildFooFailureUnregistered(rm)\n	if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n		return\n	}\n"+deposit, 1)
+		sites, err := emitAnalysisHardArmCensus(mutated, carriers)
+		if err != nil {
+			t.Fatal(err)
+		}
+		problems, _ := emitAnalysisHardArmProblems(sites)
+		if len(problems) == 0 {
+			t.Fatal("a bare return under a named result shipped an unattributed reject — the census stayed green")
+		}
+		named := false
+		for _, p := range problems {
+			named = named || strings.Contains(p, "buildFooFailureUnregistered")
+		}
+		if !named {
+			t.Fatalf("the bare return's producer must be attributed via the named result's data flow; problems=%v", problems)
+		}
+	})
 	// Self-red: a registered value carrier cannot hide a nested reject with
 	// no judge at all (a bare `if !flag { reject }` under a carrier only).
 	mutated := strings.Replace(string(src), deposit, "	if !artifactOnlyRuntime {\n		"+reject+"	}\n"+deposit, 1)

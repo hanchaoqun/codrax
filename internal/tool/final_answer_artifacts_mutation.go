@@ -291,6 +291,41 @@ type traceRootCauseSelection struct {
 	rejected        bool
 }
 
+// resolveTraceRootCauseSelectionFromRawParams resolves the optional selector
+// for a reject exit that fires BEFORE the payload's strict decode (§40.43
+// round-six #4): those exits run raw-JSON validators, so the payload itself
+// may strict-decode perfectly well — the "selector disclosures on every
+// reject exit whose payload decoded" red line applies to them, and before
+// this helper a valid selector riding such a reject was silently lost (the
+// deferred commit tail ran on the zero-value selection, so the customer
+// sidecar later reported a false "never selected"). The resolver needs only
+// ctx plus the one submitted field: apply the same selector re-homing
+// tolerances the accept lane applies, read the field off the top-level
+// object, and run the ordinary resolve — staging a valid submission and
+// disclosing/marking an invalid one on the reject result. A payload that is
+// not a JSON object keeps the zero-value selection (nothing can be read from
+// it — the ledger's genuine carve-out).
+func resolveTraceRootCauseSelectionFromRawParams(ctx *types.BusContext, carriers *optionalCarrierLedger, params json.RawMessage, patch bool) traceRootCauseSelection {
+	field := "trace_root_causes"
+	if patch {
+		field = "replace_trace_root_causes"
+		if repaired, ok := normalizeMisroutedTraceRootCausePatchField(params); ok {
+			params = repaired
+		}
+	}
+	if repaired, ok := normalizeMisplacedTraceRootCauseSelection(params, field); ok {
+		params = repaired
+	}
+	if repaired, ok := normalizeMisplacedTraceRootCauseSchemaVersion(params, field); ok {
+		params = repaired
+	}
+	var root map[string]json.RawMessage
+	if json.Unmarshal(params, &root) != nil {
+		return traceRootCauseSelection{}
+	}
+	return resolveTraceRootCauseSelectionForEmit(ctx, carriers, root[field], patch)
+}
+
 // resolveTraceRootCauseSelectionForEmit runs the binder BEFORE the document
 // persist (so a patch can still see the previously accepted report when
 // deciding between "ignored" and "retained_previous") and mints every
