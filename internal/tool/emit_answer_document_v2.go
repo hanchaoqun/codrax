@@ -267,6 +267,14 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	var p emitAnswerDocumentV2Params
 	if err := dec.Decode(&p); err != nil {
 		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
+		// §40.43 round-seven #2: a strict-decode reject (unknown field / type
+		// mismatch on a SIBLING field — caveats objects, exact_resolution
+		// string, document_model number, …) is still a JSON object, and the
+		// selector is a raw top-level field the raw resolver reads perfectly;
+		// this exit is NOT the ledger's carve-out (only a payload that is not
+		// a JSON object is). A valid selector riding it is staged, an invalid
+		// one disclosed + marked, through the deferred commit tail.
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, raw, false)
 		return failStrictDecode(toolName, now, err, answerDocumentV2MisplacedHints, raw)
 	}
 	// §40.44 G-emit-faces fold-in #1: resolve the optional selector

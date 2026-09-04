@@ -292,19 +292,23 @@ type traceRootCauseSelection struct {
 }
 
 // resolveTraceRootCauseSelectionFromRawParams resolves the optional selector
-// for a reject exit that fires BEFORE the payload's strict decode (§40.43
-// round-six #4): those exits run raw-JSON validators, so the payload itself
-// may strict-decode perfectly well — the "selector disclosures on every
-// reject exit whose payload decoded" red line applies to them, and before
-// this helper a valid selector riding such a reject was silently lost (the
-// deferred commit tail ran on the zero-value selection, so the customer
-// sidecar later reported a false "never selected"). The resolver needs only
-// ctx plus the one submitted field: apply the same selector re-homing
-// tolerances the accept lane applies, read the field off the top-level
-// object, and run the ordinary resolve — staging a valid submission and
-// disclosing/marking an invalid one on the reject result. A payload that is
-// not a JSON object keeps the zero-value selection (nothing can be read from
-// it — the ledger's genuine carve-out).
+// for a reject exit that fires without (or before) a successful strict decode
+// of the payload (§40.43 round-six #4, extended round-seven #2): the
+// pre-decode exits run raw-JSON validators on payloads that may strict-decode
+// perfectly well, and the strict-decode reject itself fires on unknown /
+// mistyped SIBLING fields that leave the payload a JSON object — in both
+// cases the selector is a top-level raw field this helper reads, so the
+// "selector disclosures on every reject exit whose payload is a JSON object"
+// red line applies. Before this helper a valid selector riding such a reject
+// was silently lost (the deferred commit tail ran on the zero-value
+// selection, so the customer sidecar later reported a false "never
+// selected"). The resolver needs only ctx plus the one submitted field: apply
+// the same selector re-homing tolerances the accept lane applies, read the
+// field off the top-level object, and run the ordinary resolve — staging a
+// valid submission and disclosing/marking an invalid one on the reject
+// result. A payload that is not a JSON object keeps the zero-value selection
+// (nothing can be read from it — together with the nil-context guard, the
+// ledger's only carve-out).
 func resolveTraceRootCauseSelectionFromRawParams(ctx *types.BusContext, carriers *optionalCarrierLedger, params json.RawMessage, patch bool) traceRootCauseSelection {
 	field := "trace_root_causes"
 	if patch {

@@ -27,10 +27,13 @@
 //     carries per-cluster closure state across attempts. The next
 //     failure's closure (repair_cluster_closure.go) increments
 //     StableAttempts for every still-open cluster OWNED BY THE OWNER THE
-//     PREVIOUS ROUND DISPATCHED (prev.CurrentOwner; §40.43 F-orch 四轮
+//     PREVIOUS ROUND DISPATCHED (prev.DispatchedOwner; §40.43 F-orch 四轮
 //     finding U — a cluster whose owner did not run keeps its count), the
 //     counts carry over the rebuild for every cluster whose
-//     (PrimaryKind, PrimaryFingerprint) persists, and a stuck deepest
+//     (PrimaryKind, PrimaryFingerprint, Owner) persists — an owner flip on
+//     a persisting key restarts at 0 on BOTH carry lanes (§40.43 round-six
+//     #1 / round-seven #0: the new owner never dispatched for that root) —
+//     and a stuck deepest
 //     owner OF THE FRESH REBUILD (no shallower owner queued, escalation
 //     allowed, no never-attempted cluster) exits through FallbackFailLoud
 //     instead of cycling (§40.43 finding R: the exit is evaluated after
@@ -427,24 +430,32 @@ func anyClusterNeverAttempted(plan RepairExecutionPlan) bool {
 
 // carryClusterStability copies the closure-updated StableAttempts /
 // DerivedResolved of the previous plan's clusters onto the freshly
-// rebuilt plan for every cluster whose identity persists:
+// rebuilt plan for every cluster whose identity persists. Both carry
+// lanes require the fresh cluster's Owner to equal the previous cluster's
+// Owner (stability is OWNER-ATTRIBUTED on every lane):
 //
-//   - exact (PrimaryKind, PrimaryFingerprint) match, or
-//   - same PrimaryFingerprint with the previous PrimaryKind declaring the
-//     fresh PrimaryKind in its Implies set AND the fresh cluster's Owner
-//     equal to the previous cluster's Owner (W2.7 sibling rotation — the
-//     closure already counted that rotation as "still open"). §40.43
-//     round-six #1: a CROSS-owner rotation changes WHICH stage must fix
-//     the root, so the rotated cluster starts at 0 — inheriting the
-//     previous stage's attempt count would deny the new owner its budget
-//     and could fail-loud a root whose owner never (or once) ran,
-//     defeating the never-attempted veto. Rotation within one owner
-//     keeps the count.
+//   - exact (PrimaryKind, PrimaryFingerprint, Owner) match, or
+//   - same PrimaryFingerprint and same Owner with the previous PrimaryKind
+//     declaring the fresh PrimaryKind in its Implies set (W2.7 sibling
+//     rotation — the closure already counted that rotation as "still
+//     open").
+//
+// §40.43 round-six #1 (Implies lane) and round-seven #0 (exact lane): an
+// owner change — a rotated sibling owned elsewhere, or the SAME kind on the
+// SAME cluster key re-stamped to another locus (the designed progression of
+// required_diagram_edge_absent: LocusExplore until the typed relation recipe
+// exists, then assignRequiredDiagramEdgeRepairOwner re-stamps LocusFinalizer;
+// likewise the semantic-quality reviewer choosing a different repair_locus
+// for one topic key) — changes WHICH stage must fix the root, so the fresh
+// cluster starts at 0: the new owner was never dispatched for that root, and
+// inheriting the previous owner's attempt count would deny it its budget and
+// could fail-loud a root whose owner never ran, defeating the never-attempted
+// veto. A same-owner match keeps the count on both lanes.
 //
 // Each previous cluster is consumed at most once. Clusters the previous
 // plan never saw start at zero (a new root cause), and a cluster whose
 // key was absent from the previous round restarts at zero when it
-// reappears — stability is per persisting key, never per locus.
+// reappears — stability is per persisting (key, owner), never per locus.
 func carryClusterStability(plan *RepairExecutionPlan, carried []RepairClusterExecutionState) {
 	if plan == nil || len(carried) == 0 || len(plan.ClusterStates) == 0 {
 		return
@@ -452,7 +463,7 @@ func carryClusterStability(plan *RepairExecutionPlan, carried []RepairClusterExe
 	consumed := make([]bool, len(carried))
 	match := func(st RepairClusterExecutionState) int {
 		for i, prev := range carried {
-			if !consumed[i] && prev.PrimaryKind == st.PrimaryKind && prev.PrimaryFingerprint == st.PrimaryFingerprint {
+			if !consumed[i] && prev.PrimaryKind == st.PrimaryKind && prev.PrimaryFingerprint == st.PrimaryFingerprint && prev.Owner == st.Owner {
 				return i
 			}
 		}

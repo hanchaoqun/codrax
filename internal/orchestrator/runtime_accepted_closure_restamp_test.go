@@ -71,13 +71,24 @@ func TestRuntimeAcceptedClosureDowngradeRestampsDispatchedOwner(t *testing.T) {
 	mut.ResetForFallback(types.FallbackResetTargetFinalizer)
 
 	// Round 2 — the finalizer ran, the explore root did not: stability stays
-	// 0, the never-attempted veto holds, and even at stable budget 1 the
-	// explore root is DISPATCHED, never fail-louded.
+	// 0 and the never-attempted veto holds, so even at stable budget 1 the
+	// cluster exit never fail-louds. What this asserts is Advance's PRE-
+	// downgrade pick (back_to_explore); §40.43 round-seven #1: in production
+	// the repair site runs downgradeRuntimeAcceptedClosureExploreFallback
+	// again on every round with the authority state unchanged
+	// (ResetForFallback(Finalizer) clears only the answer document), so the
+	// target is rewritten to finalizer_only again, DispatchedOwner is
+	// re-stamped finalizer again, and the explore root is never dispatched
+	// while the runtime-authority shape holds — the chain ends through the
+	// P6 finalize repair hard cap (ships with the residual-concerns caveat),
+	// not through the cluster exit. The stability outcome pinned here (0 /
+	// veto holds / no cluster fail-loud at budget 1) is what keeps that loop
+	// from fail-louding a root whose owner never ran.
 	plan, target, _ = AdvanceRepairExecutionPlan(mut, violations, 0)
 	if got := stableOfKind(plan, types.ViolFacetUncovered); got != 0 {
 		t.Fatalf("the explore cluster's owner never ran, StableAttempts=%d want 0 (plan=%s)", got, SummarizeRepairExecutionPlan(plan))
 	}
 	if target != FallbackBackToExplore || plan.HasFailLoud {
-		t.Fatalf("a never-dispatched explore root is always dispatched before fail-loud, got %v fail_loud=%t plan=%s", target, plan.HasFailLoud, SummarizeRepairExecutionPlan(plan))
+		t.Fatalf("a never-dispatched explore root must never reach the cluster fail-loud exit (Advance's pre-downgrade pick stays back_to_explore), got %v fail_loud=%t plan=%s", target, plan.HasFailLoud, SummarizeRepairExecutionPlan(plan))
 	}
 }

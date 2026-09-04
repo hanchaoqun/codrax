@@ -160,16 +160,25 @@ type behaviorContractCensusFunc struct {
 	// census into a hard gate on a noisy signal (repo red line).
 	//
 	//   - directTainted: identifiers and dotted field paths ("s.c") that
-	//     hold a direct copy of the snapshot within this function.
+	//     hold a direct copy of the snapshot within this function — by a
+	//     store (`s.c = …`) or, §40.43 round-seven #6, by a KEYED composite
+	//     literal (`s := stash{c: ir.Request.BehaviorContracts}`), so the
+	//     precise lane also follows `t.c = s.c; range t.c`.
 	//   - fieldTaint: PACKAGE-shared, keyed "RecvType.field" — receiver
 	//     fields some method of that type stashed the snapshot into
 	//     (`f.c = f.ir.Request.BehaviorContracts` in one method, iterated
 	//     in another).
 	//
-	// Residual (disclosed): a store of a value tainted ONLY through a
-	// callee return / composite literal, a carrier (`.Request`) stash, and
-	// a struct value handed across functions stay untracked by this lane —
-	// bracketed by the sink rules where the value is read.
+	// Residual (disclosed, wording corrected §40.43 round-seven #6): a store
+	// of a value coloured ONLY through a callee return, a POSITIONAL
+	// composite literal, a carrier (`.Request`) stash, or a struct value
+	// handed across functions is not tracked by this lane. The read-site
+	// sinks bracket only reads of the source expression / the broad-tainted
+	// local itself (`range s.c` after `s := stash{…}`, `range x` after
+	// `x := contracts(ir)`); a read THROUGH such an untracked store
+	// (`t.c = x; range t.c`) is uncoloured and is NOT caught — that is the
+	// residual, accepted because driving the store lane off the broad rules
+	// would make a hard gate of a noisy signal (repo red line).
 	directTainted map[string]bool
 	fieldTaint    map[string]bool
 	// recvIdent / recvType name the method receiver ("" for free
@@ -358,9 +367,12 @@ func behaviorContractStoreTarget(lhs ast.Expr) (*ast.Ident, string) {
 // composite literals, field-of-tainted fall-through) colour many benign
 // values in the rendering packages, and driving the store lane off them
 // turned the census into a noisy hard gate (repo red line: precise signals
-// for hard gates). Residual (disclosed): a store of a value tainted ONLY
-// through a callee return or composite literal is not tracked by this lane
-// — it stays bracketed by the sink rules where the value is actually read.
+// for hard gates). Keyed composite literals whose value IS the snapshot
+// colour their field key (colourCompositeLiteralKeys, §40.43 round-seven
+// #6). Residual (disclosed): a store of a value coloured ONLY through a
+// callee return or a positional composite literal is not tracked by this
+// lane; the read-site sinks bracket reads of the coloured value itself, not
+// reads through the untracked stored copy (`t.c = x; range t.c` escapes).
 func (fn *behaviorContractCensusFunc) directSnapshotExpr(expr ast.Expr) bool {
 	switch v := expr.(type) {
 	case *ast.ParenExpr:
@@ -386,6 +398,51 @@ func (fn *behaviorContractCensusFunc) directSnapshotExpr(expr ast.Expr) bool {
 		return false
 	}
 	return false
+}
+
+// colourCompositeLiteralKeys (§40.43 round-seven #6) propagates the DIRECT
+// colour through a composite literal's field keys: `s := stash{c:
+// ir.Request.BehaviorContracts}` (or `&stash{…}` / a `var` spec) colours the
+// dotted path "s.c" exactly like the store `s.c = ir.Request.BehaviorContracts`
+// does, so a later field copy `t.c = s.c` stays on the precise store lane and
+// `range t.c` reads back coloured. Only KEYED elements whose value IS the
+// snapshot in its precise spellings (directSnapshotExpr) colour a key —
+// positional literals carry no field name without type information and stay
+// on the broad lane (disclosed residual). Returns true when a key was newly
+// coloured.
+func (fn *behaviorContractCensusFunc) colourCompositeLiteralKeys(base string, rhs ast.Expr) bool {
+	for {
+		switch v := rhs.(type) {
+		case *ast.ParenExpr:
+			rhs = v.X
+			continue
+		case *ast.UnaryExpr:
+			rhs = v.X
+			continue
+		}
+		break
+	}
+	lit, ok := rhs.(*ast.CompositeLit)
+	if !ok {
+		return false
+	}
+	changed := false
+	for _, elt := range lit.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok || !fn.directSnapshotExpr(kv.Value) {
+			continue
+		}
+		path := base + "." + key.Name
+		if !fn.directTainted[path] {
+			fn.directTainted[path] = true
+			changed = true
+		}
+	}
+	return changed
 }
 
 // propagateTaintLocally taints locals assigned from tainted expressions
@@ -453,6 +510,9 @@ func (fn *behaviorContractCensusFunc) propagateTaintLocally() bool {
 						fn.directTainted[id.Name] = true
 						round = true
 					}
+					if fn.colourCompositeLiteralKeys(id.Name, rhs) {
+						round = true
+					}
 					if !fn.taintedReq[id.Name] && fn.exprReqTainted(rhs) {
 						fn.taintedReq[id.Name] = true
 						round = true
@@ -465,6 +525,9 @@ func (fn *behaviorContractCensusFunc) propagateTaintLocally() bool {
 					}
 					if !fn.tainted[name.Name] && fn.exprTainted(v.Values[i]) {
 						fn.tainted[name.Name] = true
+						round = true
+					}
+					if fn.colourCompositeLiteralKeys(name.Name, v.Values[i]) {
 						round = true
 					}
 					if !fn.taintedReq[name.Name] && fn.exprReqTainted(v.Values[i]) {
@@ -1193,6 +1256,44 @@ func render(ir *types.WriteAnalysisIR) string {
 	return out
 }
 `, 0, "feeds the pre-rebase analyzer snapshot (directly or via alias/parameter) to RequiredWriteBehaviorContractIDs", "iterates the pre-rebase analyzer snapshot")
+	})
+	// §40.43 round-seven #6: a KEYED composite literal used to colour only the
+	// whole local (broad lane), so the field copy `t.c = s.c` was skipped by
+	// the precise store rule and `range t.c` read back uncoloured — 0
+	// offenders on 79ca2f98b for exactly this shape. The literal's field key
+	// now carries the direct colour ("s.c"), so the two-hop copy is followed.
+	t.Run("agent_composite_literal_then_field_copy", func(t *testing.T) {
+		run(t, "x.go", "agent", `package agent
+import "github.com/hanchaoqun/codrax/internal/types"
+type stash struct{ c []types.WriteBehaviorContract }
+func render(ir *types.WriteAnalysisIR) string {
+	s := stash{c: ir.Request.BehaviorContracts}
+	var t stash
+	t.c = s.c
+	out := ""
+	for _, c := range t.c {
+		out += c.ID
+	}
+	_ = types.RequiredWriteBehaviorContractIDs(t.c, true)
+	return out
+}
+`, 0, "feeds the pre-rebase analyzer snapshot (directly or via alias/parameter) to RequiredWriteBehaviorContractIDs", "iterates the pre-rebase analyzer snapshot")
+	})
+	t.Run("agent_pointer_composite_literal_then_field_copy", func(t *testing.T) {
+		run(t, "x.go", "agent", `package agent
+import "github.com/hanchaoqun/codrax/internal/types"
+type stash struct{ c []types.WriteBehaviorContract }
+func render(ir *types.WriteAnalysisIR) string {
+	var s = &stash{c: ir.Request.BehaviorContracts}
+	t := &stash{}
+	t.c = s.c
+	out := ""
+	for _, c := range t.c {
+		out += c.ID
+	}
+	return out
+}
+`, 0, "iterates the pre-rebase analyzer snapshot")
 	})
 	t.Run("agent_receiver_field_stash_across_methods", func(t *testing.T) {
 		run(t, "x.go", "agent", `package agent

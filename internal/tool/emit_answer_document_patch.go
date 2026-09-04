@@ -2915,6 +2915,13 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// operations have additional nested homes. Keep the hint in the live
 		// operation grammar instead of redirecting a patch retry to full emit.
 		hints := answerDocumentPatchMisplacedHintsForSchema(err, params, fieldEditSchema)
+		// §40.43 round-seven #2: the strict-decode reject exit resolves the
+		// selector from the raw object too — a sibling-field type mismatch
+		// (replace_caveats objects, replace_exact_resolution string,
+		// remove_block_ids objects, …) leaves the payload a JSON object whose
+		// top-level selector the raw resolver reads; the only carve-out is a
+		// payload that is not a JSON object.
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
 		return failStrictDecode(t.Name(), now, err, hints, params)
 	}
 	// §40.44 G-emit-faces fold-in #1: resolve the optional selector

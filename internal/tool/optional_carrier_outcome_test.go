@@ -672,15 +672,36 @@ func TestEmitAnswerDocumentCaliberNoteIsPlainGuidanceNotAPartDrop(t *testing.T) 
 	}
 }
 
-// §40.43 round-six #4: the reject exits that fire BEFORE the payload's
-// strict decode (raw-JSON validators — the payload itself may strict-decode
-// fine) must still resolve the selector: a valid one is staged for the
-// retry (★16), an invalid one is disclosed as a typed row and marked
-// rejected. Before the fix these exits returned with the zero-value
-// selection, so a valid selector riding them was silently lost and the
-// customer sidecar reported a false "never selected". Each enumerated exit
-// is pinned in both directions (red on e02828718 via the staged/marked
-// assertions).
+// §40.43 round-six #4 / round-seven #2 #3: every reject exit of the two
+// executors whose payload is a JSON object must resolve the selector — the
+// ten exits that fire BEFORE the strict decode (raw-JSON validators; the
+// payload itself may strict-decode fine) and the two strict-decode reject
+// exits themselves (an unknown / mistyped SIBLING field leaves the payload a
+// JSON object whose top-level selector the raw resolver reads). A valid
+// selector is staged for the retry (★16), an invalid one is disclosed as a
+// typed row and marked rejected. Before the round-six fix the pre-decode
+// exits returned with the zero-value selection; before the round-seven fix
+// the strict-decode exits did — a valid selector riding them was silently
+// lost and the customer sidecar reported a false "never selected".
+//
+// Coverage (round-seven #3 — the round-six table enumerated 7 of the 10
+// pre-decode exits; the ledger's "all ten double-pinned" claim was an
+// over-claim): this table now enumerates ALL TEN pre-decode exits — patch:
+// no-previous-emit, top-level relation_claims, structural carrier corruption,
+// misrouted block operation, block_field_edits_v1 schema,
+// block_receipt_edits_v1 schema; full-emit: retired v1 field, top-level
+// relation_claims, structural carrier corruption, recovered-blocks schema —
+// plus the two strict-decode exits through the ten probed sibling-shape
+// mistakes (six full-emit, four patch), each in both directions.
+// TestAnswerDocumentRejectExitsResolveTheSelectorCensus is the structural
+// arm: every reject return in the executors after the payload is known to be
+// an object is dominated by a selector resolve, so a future exit cannot skip
+// it.
+//
+// EVOLUTION RECORD: red on e02828718 for the seven round-six rows; red on a
+// scratch copy of 79ca2f98b with the three round-six-unpinned resolve lines
+// deleted (go test -overlay) for the carrier-corruption / recovered-blocks
+// rows; red on 79ca2f98b itself for the ten strict-decode rows.
 func TestPreDecodeRejectExitsResolveTheSelector(t *testing.T) {
 	prevDraft := func() *types.AnswerDocumentV2 {
 		return &types.AnswerDocumentV2{
@@ -697,6 +718,10 @@ func TestPreDecodeRejectExitsResolveTheSelector(t *testing.T) {
 		withPrev    bool
 		payload     string // %s = the selector JSON
 		wantSummary string
+		// projectedDiagram gives the dispatch the projected sequence-diagram
+		// schema (the recovered-blocks-schema exit compares the recovered
+		// native blocks against THIS dispatch's projection).
+		projectedDiagram bool
 	}
 	cases := []exitCase{
 		{name: "patch no-previous-emit", patch: true, withPrev: false,
@@ -720,6 +745,50 @@ func TestPreDecodeRejectExitsResolveTheSelector(t *testing.T) {
 		{name: "full-emit retired v1 field", patch: false, withPrev: false,
 			payload:     `{"blocks":[{"id":"s1","kind":"summary","text":"answer"}],"shape":"chain","trace_root_causes":%s}`,
 			wantSummary: `top-level field "shape" is not accepted`},
+		// §40.43 round-seven #3: the three pre-decode exits the round-six
+		// table left unpinned.
+		{name: "patch structural carrier corruption", patch: true, withPrev: true,
+			payload:     `{"unchanged_block_ids":["s1"],"add_blocks":[{"id":"c1","kind":"caveat","text":"recoverable","\"}, {\"claim_uses":[{"claim_form":"external_observation"}]}],"replace_trace_root_causes":%s}`,
+			wantSummary: "serialized JSON boundary text"},
+		{name: "full-emit structural carrier corruption", patch: false, withPrev: false,
+			payload:     `{"blocks":[{"\"}, {\"claim_uses":[{"claim_form":"external_observation","facet_id":"observed_artifact_fact"}],"id":"cav1","kind":"caveat","surface_role":"principal","text":"recoverable"}],"citations":[],"trace_root_causes":%s}`,
+			wantSummary: "serialized JSON boundary text"},
+		{name: "full-emit recovered blocks schema", patch: false, withPrev: false,
+			payload:     `{"blocks":"[{\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"answer\"},{\"id\":\"d1\",\"kind\":\"diagram\",\"diagram\":{\"kind\":\"sequence\",\"language\":\"mermaid\",\"body\":\"sequenceDiagram\\nA->>B: call\"}}]","trace_root_causes":%s}`,
+			wantSummary: "recovered blocks[] does not match", projectedDiagram: true},
+		// §40.43 round-seven #2: the strict-decode reject exits — the ten
+		// probed sibling-shape mistakes (valid selector beside a mistyped
+		// sibling). Six full-emit, four patch.
+		{name: "full-emit strict-decode caveats objects", patch: false, withPrev: false,
+			payload:     `{"blocks":[{"id":"s1","kind":"summary","text":"answer"}],"caveats":[{"text":"c"}],"trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
+		{name: "full-emit strict-decode missing_requested_roles strings", patch: false, withPrev: false,
+			payload:     `{"blocks":[{"id":"s1","kind":"summary","text":"answer"}],"missing_requested_roles":["role_a"],"trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
+		{name: "full-emit strict-decode exact_resolution string", patch: false, withPrev: false,
+			payload:     `{"blocks":[{"id":"s1","kind":"summary","text":"answer"}],"exact_resolution":"resolved","trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
+		{name: "full-emit strict-decode document_model number", patch: false, withPrev: false,
+			payload:     `{"document_model":2,"blocks":[{"id":"s1","kind":"summary","text":"answer"}],"trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
+		{name: "full-emit strict-decode blocks[0].text array", patch: false, withPrev: false,
+			payload:     `{"blocks":[{"id":"s1","kind":"summary","text":["answer"]}],"trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
+		{name: "full-emit strict-decode citations[0].scope number", patch: false, withPrev: false,
+			payload:     `{"blocks":[{"id":"s1","kind":"summary","text":"answer"}],"citations":[{"file":"x.go","line":10,"scope":5}],"trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
+		{name: "patch strict-decode replace_caveats objects", patch: true, withPrev: true,
+			payload:     `{"unchanged_block_ids":["s1"],"replace_caveats":[{"text":"c"}],"replace_trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
+		{name: "patch strict-decode replace_exact_resolution string", patch: true, withPrev: true,
+			payload:     `{"unchanged_block_ids":["s1"],"replace_exact_resolution":"resolved","replace_trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
+		{name: "patch strict-decode remove_block_ids objects", patch: true, withPrev: true,
+			payload:     `{"unchanged_block_ids":["s1"],"remove_block_ids":[{"id":"s1"}],"replace_trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
+		{name: "patch strict-decode model_block_order objects", patch: true, withPrev: true,
+			payload:     `{"unchanged_block_ids":["s1"],"model_block_order":[{"id":"s1"}],"replace_trace_root_causes":%s}`,
+			wantSummary: "invalid params:"},
 	}
 	const validSelector = `{"schema_version":2,"root_causes":[{"candidate_id":"candidate-sched"}]}`
 	const invalidSelector = `{"schema_version":2,"root_causes":[{"candidate_id":"invented-candidate"}]}`
@@ -735,6 +804,13 @@ func TestPreDecodeRejectExitsResolveTheSelector(t *testing.T) {
 					mut.SetLastRejectedAnswerDocumentV2(prevDraft())
 				}
 				ctx := &types.BusContext{Mutable: mut}
+				if tc.projectedDiagram {
+					ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+						Intent:        types.IntentTrace,
+						PredicateAxis: types.AxisCall,
+						DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence, Required: false},
+					}}
+				}
 				payload := json.RawMessage(fmt.Sprintf(tc.payload, sel.selector))
 				var res types.ToolResult
 				var err error

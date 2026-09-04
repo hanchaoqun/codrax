@@ -109,8 +109,12 @@ var hardArmRetainedClosureWriters = map[string]bool{
 	"MutableState.SetAbsenceJustification":    true,
 	"MutableState.MergeExploreFork":           true,
 	// Accepted-completion promotion of the two collection lanes (§40.43
-	// round-six #3): called only from emit_investigation_complete's accepted
-	// paths.
+	// round-six #3; wording corrected round-seven #7): called from
+	// emit_investigation_complete's accepted paths AND — via the exported
+	// tool.RefreshExactTypedRelationPrincipalMemberSets — from
+	// explorerEvaluator.ParseOutput's post-explore refresh, gated on
+	// IsInvestigationComplete() (an already accepted completion), not on the
+	// accepting attempt itself.
 	"MutableState.RetainInvestigationAggregateFacts": true,
 	"MutableState.RetainInvestigationRelationClaims": true,
 	// Fork creation copies the parent's retained lane verbatim onto the new
@@ -125,7 +129,14 @@ var hardArmRetainedClosureWriters = map[string]bool{
 // the struct (hardArmRetainedClosureFieldsFromStruct), and a retained field
 // the walker cannot classify fails loud — never silently uncensused.
 var hardArmRetainedNonClosureLanes = map[string]string{
-	"retainedEvidenceFloorWaiver": "promoted-waiver lane: written only after a successful emit_investigation_complete (own invariant doc at the field)",
+	// §40.43 round-seven #7: the field has FOUR writers in context.go — the
+	// non-nil promotion (RetainEvidenceFloorWaiver(true), after an accepted
+	// completion) and three CLEARS: SetEvidenceFloorWaiver(nil) (called from
+	// the tool's decode-time ignored-waiver branches, BEFORE any completion
+	// gate), ClearEvidenceFloorWaiver (explicit retraction) and
+	// RetainEvidenceFloorWaiver(false) (a waiver-less accepted completion).
+	// The field doc says "promoted only after", never "written only after".
+	"retainedEvidenceFloorWaiver": "promoted-waiver lane: PROMOTED (non-nil) only after a successful emit_investigation_complete; its other writers are clears — SetEvidenceFloorWaiver(nil) on decode-time ignored waivers, ClearEvidenceFloorWaiver, RetainEvidenceFloorWaiver(false) (own invariant doc at the field)",
 }
 
 // hardArmRetainedClosureFields is the static floor used by the self-red

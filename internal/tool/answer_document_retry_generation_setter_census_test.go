@@ -653,6 +653,73 @@ type answerDocumentMutationFacts struct {
 	fieldNames map[string]bool
 	pkgVars    map[string]bool
 	results    map[string]answerDocumentMutationResultSlot
+	// constraintNames (§40.43 round-seven #4) are the NAMED interface
+	// constraints whose type set carries the mutation — `type mutC interface{
+	// ~[]types.AnswerDocumentMutation }`, a scalar `~types.AnswerDocumentMutation`,
+	// a union, a map/array of it, or an embedded carrying constraint — to a
+	// fixpoint. A named interface is deliberately NOT a typeName (it is a
+	// constraint, not a value type); a type parameter constrained by one
+	// binds as a mutation carrier instead.
+	constraintNames map[string]bool
+}
+
+// answerDocumentConstraintCarries (§40.43 round-seven #4) classifies a
+// generic constraint expression by its TYPE SET: it reports whether the set
+// carries the mutation and which elements it could not classify. Recognized
+// element shapes — precise, structural: a type name denoting the mutation
+// (typeNames) or a carrying named constraint (constraintNames), `~T`, unions
+// `A | B`, arrays/slices, maps, pointers, and inline interfaces over those.
+// Every OTHER element shape that mentions the mutation (a chan, a func, a
+// generic instantiation, …) is UNRECOGNIZED: the census cannot follow the
+// values it admits, so the caller fails loud on it instead of guessing.
+// Methods of an inline interface are not type-set elements (the Apply-method
+// lane handles them) and are skipped here.
+func answerDocumentConstraintCarries(expr ast.Expr, facts *answerDocumentMutationFacts) (carries bool, unrecognized []ast.Node) {
+	var term func(e ast.Expr) bool
+	term = func(e ast.Expr) bool {
+		switch x := e.(type) {
+		case *ast.ParenExpr:
+			return term(x.X)
+		case *ast.UnaryExpr:
+			return term(x.X)
+		case *ast.BinaryExpr:
+			left := term(x.X)
+			right := term(x.Y)
+			return left || right
+		case *ast.Ident:
+			return facts.typeNames[x.Name] || facts.constraintNames[x.Name]
+		case *ast.SelectorExpr:
+			return facts.typeNames[x.Sel.Name] || facts.constraintNames[x.Sel.Name]
+		case *ast.ArrayType:
+			return term(x.Elt)
+		case *ast.MapType:
+			key := term(x.Key)
+			value := term(x.Value)
+			return key || value
+		case *ast.StarExpr:
+			return term(x.X)
+		case *ast.InterfaceType:
+			found := false
+			if x.Methods != nil {
+				for _, field := range x.Methods.List {
+					if len(field.Names) > 0 {
+						continue // a method, not a type-set element
+					}
+					if term(field.Type) {
+						found = true
+					}
+				}
+			}
+			return found
+		}
+		if answerDocumentMutationMentions(e, facts.typeNames) {
+			unrecognized = append(unrecognized, e)
+			return true
+		}
+		return false
+	}
+	carries = term(expr)
+	return carries, unrecognized
 }
 
 type answerDocumentMutationResultSlot struct{ idx, count int }
@@ -722,23 +789,36 @@ func answerDocumentFuncLitResultSlot(lit *ast.FuncLit, typeNames map[string]bool
 
 func collectAnswerDocumentMutationFacts(tree *retryGenerationTree) *answerDocumentMutationFacts {
 	facts := &answerDocumentMutationFacts{
-		typeNames:  map[string]bool{"AnswerDocumentMutation": true},
-		fieldNames: map[string]bool{},
-		pkgVars:    map[string]bool{},
-		results:    map[string]answerDocumentMutationResultSlot{},
+		typeNames:       map[string]bool{"AnswerDocumentMutation": true},
+		fieldNames:      map[string]bool{},
+		pkgVars:         map[string]bool{},
+		results:         map[string]answerDocumentMutationResultSlot{},
+		constraintNames: map[string]bool{},
 	}
 	mentions := func(n ast.Node) bool { return answerDocumentMutationMentions(n, facts.typeNames) }
 	// defined/alias types over the mutation carry the census to their names
-	// (`type mut = types.AnswerDocumentMutation`, `type mut2 mut`, ...).
+	// (`type mut = types.AnswerDocumentMutation`, `type mut2 mut`, ...);
+	// named interface constraints whose type set carries the mutation
+	// (§40.43 round-seven #4) are collected as constraintNames, to the same
+	// fixpoint (an embedded carrying constraint carries its embedder).
 	for changed := true; changed; {
 		changed = false
 		for _, file := range tree.files {
 			ast.Inspect(file, func(n ast.Node) bool {
-				if spec, ok := n.(*ast.TypeSpec); ok && !facts.typeNames[spec.Name.Name] {
-					if _, isInterface := spec.Type.(*ast.InterfaceType); !isInterface && mentions(spec.Type) {
-						facts.typeNames[spec.Name.Name] = true
-						changed = true
+				spec, ok := n.(*ast.TypeSpec)
+				if !ok || facts.typeNames[spec.Name.Name] || facts.constraintNames[spec.Name.Name] {
+					return true
+				}
+				if iface, isInterface := spec.Type.(*ast.InterfaceType); isInterface {
+					if spec.TypeParams == nil {
+						if carries, _ := answerDocumentConstraintCarries(iface, facts); carries {
+							facts.constraintNames[spec.Name.Name] = true
+							changed = true
+						}
 					}
+				} else if mentions(spec.Type) {
+					facts.typeNames[spec.Name.Name] = true
+					changed = true
 				}
 				return true
 			})
@@ -868,16 +948,30 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 				reportSignatureInterfaces(fn.Type)
 				if fn.Type.TypeParams != nil {
 					for _, tp := range fn.Type.TypeParams.List {
-						carries := mentions(tp.Type) || answerDocumentTypeParamConstraintDeclaresApply(tp.Type, docName)
-						if !carries {
+						// §40.43 round-seven #4: the constraint is classified by
+						// its TYPE SET — a named constraint (`[M mutC]`), an
+						// inline interface, `~T`, a union, arrays/maps of the
+						// mutation — and its type parameters bind as mutation
+						// carriers, so Apply through them is a constructor use
+						// (offender unless at a registered site). EVOLUTION
+						// RECORD: round six recognized only the INLINE interface
+						// (Apply-method lane) and failed loud on every other
+						// carrying shape; a NAMED constraint — the idiomatic
+						// reusable spelling — was neither (the ident is not a
+						// typeName), so `ms[0].Apply` / `range ms` through it
+						// went unreported (confirmed by overlay probe).
+						setCarries, unrecognized := answerDocumentConstraintCarries(tp.Type, facts)
+						declaresApply := answerDocumentTypeParamConstraintDeclaresApply(tp.Type, docName)
+						if !setCarries && !declaresApply && !mentions(tp.Type) {
 							continue
 						}
-						// Recognized shape: an INLINE interface constraint —
-						// its Apply-with-doc-signature method is red at the
-						// declaration via reportSignatureInterfaces above.
-						// Every other constraint shape carrying the mutation
-						// is unrecognized: FAIL LOUD instead of guessing.
-						if _, inline := tp.Type.(*ast.InterfaceType); !inline {
+						for _, n := range unrecognized {
+							report(n, "uses an unrecognized generic constraint element shape carrying the mutation; the census cannot follow the values it admits — spell the type set with the mutation type, ~T, a union, or a slice/array/map of it, or drop the generic lane")
+						}
+						if !setCarries && !declaresApply {
+							// Mentions the mutation but no recognized type-set
+							// element carries it (a generic instantiation, …):
+							// FAIL LOUD instead of guessing.
 							report(tp, "uses an unrecognized generic constraint shape carrying the mutation; the census cannot classify its instantiations — spell the constraint as an inline interface (choked at the declaration) or drop the generic lane")
 						}
 						for _, name := range tp.Names {
@@ -1083,6 +1177,29 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 					if node.Type != nil && mentions(node.Type) {
 						report(node, "builds an AnswerDocumentMutation literal")
 					}
+				case *ast.TypeSpec:
+					// §40.43 round-seven #4: a named constraint's type set is
+					// classified at the declaration — an element shape the
+					// census cannot follow fails loud; and a GENERIC TYPE whose
+					// constraint carries the mutation is unrecognized as a
+					// whole (its fields and methods would carry the mutation
+					// under a type-parameter name the per-function binder
+					// never sees): fail loud.
+					if iface, ok := node.Type.(*ast.InterfaceType); ok {
+						if _, unrecognized := answerDocumentConstraintCarries(iface, facts); len(unrecognized) > 0 {
+							for _, n := range unrecognized {
+								report(n, "declares a generic constraint with an unrecognized type-set element shape carrying the mutation; the census cannot follow the values it admits")
+							}
+						}
+					}
+					if node.TypeParams != nil {
+						for _, tp := range node.TypeParams.List {
+							setCarries, _ := answerDocumentConstraintCarries(tp.Type, facts)
+							if setCarries || mentions(tp.Type) || answerDocumentTypeParamConstraintDeclaresApply(tp.Type, docName) {
+								report(tp, "declares a generic type whose constraint carries the mutation; the census cannot follow its fields or methods — spell the carrier as a concrete type or drop the generic lane")
+							}
+						}
+					}
 				case *ast.InterfaceType:
 					if node.Methods == nil {
 						return true
@@ -1264,9 +1381,70 @@ func TestAnswerDocumentPatchBaseCensus_SingleBaseConstructor(t *testing.T) {
 		expectProbe(t, probe("func launder[M interface {\n\tApply(prev *types.AnswerDocumentV2) (*types.AnswerDocumentV2, error)\n}](prev *types.AnswerDocumentV2, m M) (*types.AnswerDocumentV2, error) {\n\treturn m.Apply(prev)\n}"),
 			"declares an Apply method with the mutation's base-constructor signature")
 	})
-	t.Run("self_red_generic_named_constraint_carrying_mutation", func(t *testing.T) {
+	t.Run("self_red_generic_tilde_constraint_apply", func(t *testing.T) {
+		// EVOLUTION RECORD (§40.43 round-seven #4): this subtest was named
+		// "self_red_generic_named_constraint_carrying_mutation" and pinned
+		// the fail-loud arm on this shape — which is not a named constraint
+		// at all but the implicit-interface shorthand `~[]T`. The type set is
+		// now classified, the parameter binds, and the Apply is the offense.
 		expectProbe(t, probe("func launder[M ~[]types.AnswerDocumentMutation](prev *types.AnswerDocumentV2, ms M) { _, _ = ms[0].Apply(prev) }"),
-			"unrecognized generic constraint shape carrying the mutation")
+			"applies a mutation-typed expression")
+	})
+	// §40.43 round-seven #4: NAMED interface constraints whose type set
+	// carries the mutation used to evade the census entirely (excluded from
+	// typeNames, and the InterfaceType arm reds only an Apply METHOD, not an
+	// embedded `~[]mutation` element) — 0 offenders on 79ca2f98b for each of
+	// the carrying shapes below (overlay probe).
+	t.Run("self_red_generic_named_slice_constraint_index_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~[]types.AnswerDocumentMutation }\n\nfunc launder[M mutC](prev *types.AnswerDocumentV2, ms M) { _, _ = ms[0].Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:launder", "applies a mutation-typed expression")
+	})
+	t.Run("self_red_generic_named_slice_constraint_range_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~[]types.AnswerDocumentMutation }\n\nfunc applyAll[M mutC](prev *types.AnswerDocumentV2, ms M) {\n\tfor _, m := range ms {\n\t\t_, _ = m.Apply(prev)\n\t}\n}"),
+			"applies the mutation m")
+	})
+	t.Run("self_red_generic_named_scalar_constraint_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~types.AnswerDocumentMutation }\n\nfunc launder[M mutC](prev *types.AnswerDocumentV2, m M) { _, _ = m.Apply(prev) }"),
+			"applies the mutation m")
+	})
+	t.Run("self_red_generic_union_constraint_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~[]types.AnswerDocumentMutation | ~[]int }\n\nfunc launder[M mutC](prev *types.AnswerDocumentV2, ms M) { _, _ = ms[0].Apply(prev) }"),
+			"applies a mutation-typed expression")
+	})
+	t.Run("self_red_generic_nested_constraint_apply", func(t *testing.T) {
+		expectProbe(t, probe("type inner interface{ ~[]types.AnswerDocumentMutation }\n\ntype outer interface{ inner }\n\nfunc launder[M outer](prev *types.AnswerDocumentV2, ms M) { _, _ = ms[0].Apply(prev) }"),
+			"applies a mutation-typed expression")
+	})
+	t.Run("self_red_generic_named_map_constraint_range_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~map[string]types.AnswerDocumentMutation }\n\nfunc applyAll[M mutC](prev *types.AnswerDocumentV2, ms M) {\n\tfor _, m := range ms {\n\t\t_, _ = m.Apply(prev)\n\t}\n}"),
+			"applies the mutation m")
+	})
+	t.Run("self_red_generic_named_constraint_slice_parameter_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~types.AnswerDocumentMutation }\n\nfunc applyAll[M mutC](prev *types.AnswerDocumentV2, ms []M) {\n\tfor _, m := range ms {\n\t\t_, _ = m.Apply(prev)\n\t}\n}"),
+			"applies the mutation m")
+	})
+	t.Run("self_red_generic_unrecognized_constraint_element_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~chan types.AnswerDocumentMutation }\n\nfunc drain[M mutC](ms M) { _ = ms }"),
+			"unrecognized type-set element shape carrying the mutation")
+	})
+	t.Run("self_red_generic_type_declaration_carrying_mutation_fail_loud", func(t *testing.T) {
+		expectProbe(t, probe("type mutC interface{ ~[]types.AnswerDocumentMutation }\n\ntype box[M mutC] struct{ ms M }"),
+			"declares a generic type whose constraint carries the mutation")
+	})
+	t.Run("self_red_generic_instantiated_constraint_fail_loud", func(t *testing.T) {
+		// A generic-constraint instantiation is an IndexExpr element the
+		// type-set classifier cannot follow: fail loud at the element.
+		expectProbe(t, probe("type carrier[T any] interface{ ~[]T }\n\nfunc launder[M carrier[types.AnswerDocumentMutation]](prev *types.AnswerDocumentV2, ms M) { _, _ = ms[0].Apply(prev) }"),
+			"unrecognized generic constraint element shape carrying the mutation")
+	})
+	t.Run("self_green_generic_constraint_without_the_mutation", func(t *testing.T) {
+		// Idiomatic generics that do not carry the mutation are not flagged.
+		got := answerDocumentPatchBaseConstructorCensus(probe("type numbers interface{ ~int | ~int64 }\n\nfunc sum[N numbers](ns []N) N {\n\tvar total N\n\tfor _, n := range ns {\n\t\ttotal += n\n\t}\n\treturn total\n}\n\ntype ring[T comparable] struct{ items []T }"), answerDocumentPatchBaseConstructorSites)
+		for _, o := range got {
+			if strings.Contains(o, "zz_probe.go") {
+				t.Fatalf("a mutation-free generic must not be reported: %s", o)
+			}
+		}
 	})
 	t.Run("self_red_anonymous_interface_parameter_apply", func(t *testing.T) {
 		expectProbe(t, probe("func launder(prev *types.AnswerDocumentV2, a interface {\n\tApply(prev *types.AnswerDocumentV2) (*types.AnswerDocumentV2, error)\n}) { _, _ = a.Apply(prev) }"),
