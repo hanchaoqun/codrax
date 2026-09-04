@@ -6,7 +6,9 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -37,9 +39,23 @@ import (
 // results, a wrapped `return withNote(failEmit(…))`, a method-helper or
 // package-qualified reject, a plain `return types.ToolResult{}, err` — all
 // uncounted, undominated, green (overlay probe: exits=9 offenders=0 for each
-// of seven shapes). Now every exit is audited and an exit shape the roster
-// cannot key FAILS LOUD (the round-six ruling: fail-loud on unrecognized
-// shapes ends the evasion enumeration).
+// of eight shapes, the two-step return shadowing the named result included).
+// Now every exit is audited and an exit shape the roster cannot key FAILS
+// LOUD (the round-six ruling: fail-loud on unrecognized shapes ends the
+// evasion enumeration).
+//
+// Round nine (§40.44 round-nine #0–#3) keeps the walker precise where it was
+// loose: the reject recognizer keys the format string by the callee's
+// SIGNATURE POSITION (rejectExitFailCallees) and resolves package consts and
+// `"…" + "…"` concatenations, so the registrable refactors are registrable;
+// the two selector resolvers are classified by EXACT name and any other
+// `resolveTraceRootCauseSelection*` callee fails loud; the accept lane ends
+// the reject-only region only at the top level (an accept resolve inside a
+// branch dominates nothing and fails loud); a goto in the pre-accept region
+// fails loud (domination is by statement order); and a return inside a
+// closure whose results are not (types.ToolResult, error) is closure-local
+// — it never exits the executor and is skipped, while a (types.ToolResult,
+// error) closure and every named-result assignment stay audited.
 //
 // Roster (§40.44 round-eight #7). The `>=` vacuity floors are replaced by an
 // EXACT registered roster of the exits that are not accept-lane-dominated:
@@ -60,9 +76,36 @@ const rejectExitSelectionVar = "rootCauseSelection"
 
 var rejectExitSelectorResolverPrefix = "resolveTraceRootCauseSelection"
 
+// rejectExitRawResolver is the pre-decode resolve that reads the selector
+// from the raw payload; it dominates the reject exits after it in its own
+// statement list.
+const rejectExitRawResolver = "resolveTraceRootCauseSelectionFromRawParams"
+
 // rejectExitAcceptLaneResolver is the resolve after the strict decode; the
 // pre-accept region of an executor ends at its top-level occurrence.
 const rejectExitAcceptLaneResolver = "resolveTraceRootCauseSelectionForEmit"
+
+// rejectExitFailCallees registers every reject helper by verbatim callee and
+// the 0-based ARGUMENT POSITION of its format string; -1 marks a helper that
+// builds its prose inside (rostered with message ""). The registry is pinned
+// against the package: every callee must be a declared free function and
+// the registered position a `string` parameter. EVOLUTION RECORD (§40.44
+// round-nine #0): the round-eight recognizer keyed the FIRST string literal
+// in ANY argument position and demanded one — a const-hoisted or
+// concatenated format was "without a literal format string" with no roster
+// path, an inlined tool-name literal silently keyed the exit by the tool
+// name, and only failStrictDecode (hardcoded) was honoured without a
+// literal, so the live sibling failStrictDecodeWithError or an extracted
+// fail-prefixed helper could not be rostered at all.
+var rejectExitFailCallees = map[string]int{
+	"failEmit":                         2,
+	"failEmitWithRepair":               3,
+	"failStrictDecode":                 -1,
+	"failStrictDecodeWithError":        -1,
+	"failStrictDecodeWithErrorSchema":  -1,
+	"failStrictDecodeMessage":          5,
+	"failStrictDecodeWithErrorMessage": 5,
+}
 
 // rejectExitExecutors are the executor functions the census walks, keyed by
 // file: the FuncDecl name (receiver-qualified for methods).
@@ -83,9 +126,10 @@ const (
 )
 
 // rejectExitRow is one registered reject exit: the verbatim fail* callee and
-// a verbatim prefix of its literal format string (long enough to be unique
-// inside the executor; failStrictDecode builds its prose inside and carries
-// no literal).
+// a verbatim prefix of its format string as resolved from the callee's
+// format position (long enough to be unique inside the executor; a helper
+// registered at position -1 builds its prose inside and is rostered with
+// message "").
 type rejectExitRow struct {
 	callee  string
 	message string
@@ -159,10 +203,14 @@ func rejectExitNamedResults(fn *ast.FuncDecl) map[string]bool {
 }
 
 // rejectExitRecognize keys a return statement for the roster: a single
-// result that is a call to a bare `fail…` helper whose format string is a
-// literal (failStrictDecode carries none). Every other shape is reported
-// verbatim as the reason the roster cannot key it.
-func rejectExitRecognize(ret *ast.ReturnStmt) (callee, message, shape string) {
+// result that is a call to a bare `fail…` helper registered in callees,
+// whose format string — at the callee's registered argument position —
+// resolves to a string (a literal, a `+` concatenation of resolvable parts,
+// or a package-level string const; position -1 = prose built inside, message
+// ""). Every other shape is reported verbatim as the reason the roster
+// cannot key it; an ambiguous key (a local identifier, a call, a non-string
+// literal) is a shape, never a guess.
+func rejectExitRecognize(ret *ast.ReturnStmt, callees map[string]int, consts map[string]ast.Expr) (callee, message, shape string) {
 	if len(ret.Results) == 0 {
 		return "", "", "bare `return` over the named results"
 	}
@@ -180,38 +228,303 @@ func rejectExitRecognize(ret *ast.ReturnStmt) (callee, message, shape string) {
 	if !strings.HasPrefix(ident.Name, "fail") {
 		return "", "", "returns a call to " + ident.Name + ", not a fail* helper"
 	}
-	for _, arg := range call.Args {
-		if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-			return ident.Name, strings.Trim(lit.Value, "\"`"), ""
-		}
+	pos, registered := callees[ident.Name]
+	if !registered {
+		return "", "", "returns a call to " + ident.Name + ", a fail* helper not registered in rejectExitFailCallees (register its format-argument position, or -1 for prose built inside)"
 	}
-	if ident.Name == "failStrictDecode" {
+	if pos < 0 {
 		return ident.Name, "", ""
 	}
-	return "", "", ident.Name + " without a literal format string"
+	if pos >= len(call.Args) {
+		return "", "", fmt.Sprintf("%s called with %d argument(s); its format string is argument %d", ident.Name, len(call.Args), pos)
+	}
+	resolved, why := rejectExitResolveFormat(call.Args[pos], consts)
+	if why != "" {
+		return "", "", fmt.Sprintf("%s format argument %d %s", ident.Name, pos, why)
+	}
+	return ident.Name, resolved, ""
 }
 
-// rejectExitIsResolve reports whether a statement is
-// `rootCauseSelection = resolveTraceRootCauseSelection…(…)` and whether that
-// resolve is the raw-params (pre-decode) one.
-func rejectExitIsResolve(stmt ast.Stmt) (isResolve, raw, accept bool) {
+// rejectExitResolveFormat resolves a format-position expression to its
+// string: a string literal, `a + b` over resolvable parts, parentheses, or a
+// package-level const (consts: name → value expression, chased to a bounded
+// depth). Anything else is returned as the reason it cannot be keyed.
+func rejectExitResolveFormat(expr ast.Expr, consts map[string]ast.Expr) (string, string) {
+	var resolve func(e ast.Expr, depth int) (string, string)
+	resolve = func(e ast.Expr, depth int) (string, string) {
+		if depth > 16 {
+			return "", "is a package-const chain deeper than 16 (cyclic?)"
+		}
+		switch x := e.(type) {
+		case *ast.BasicLit:
+			if x.Kind != token.STRING {
+				return "", "is a " + strings.ToLower(x.Kind.String()) + " literal, not a string"
+			}
+			if s, err := strconv.Unquote(x.Value); err == nil {
+				return s, ""
+			}
+			return strings.Trim(x.Value, "\"`"), ""
+		case *ast.ParenExpr:
+			return resolve(x.X, depth)
+		case *ast.BinaryExpr:
+			if x.Op != token.ADD {
+				return "", "is a " + x.Op.String() + " expression, not a string literal or concatenation"
+			}
+			left, why := resolve(x.X, depth)
+			if why != "" {
+				return "", why
+			}
+			right, why := resolve(x.Y, depth)
+			if why != "" {
+				return "", why
+			}
+			return left + right, ""
+		case *ast.Ident:
+			value, ok := consts[x.Name]
+			if !ok {
+				return "", "is the identifier " + x.Name + ", not a string literal or a package-level string const"
+			}
+			return resolve(value, depth+1)
+		}
+		return "", fmt.Sprintf("is a %T, not a string literal, a concatenation or a package-level const", e)
+	}
+	return resolve(expr, 0)
+}
+
+// rejectExitLocalNames collects every name a function declares locally:
+// parameters, receivers, named results, `:=` targets, var / const specs and
+// range variables (closures included).
+func rejectExitLocalNames(fn *ast.FuncDecl) map[string]bool {
+	names := map[string]bool{}
+	add := func(e ast.Expr) {
+		if id, ok := e.(*ast.Ident); ok {
+			names[id.Name] = true
+		}
+	}
+	for _, list := range []*ast.FieldList{fn.Recv, fn.Type.Params, fn.Type.Results} {
+		if list == nil {
+			continue
+		}
+		for _, field := range list.List {
+			for _, name := range field.Names {
+				names[name.Name] = true
+			}
+		}
+	}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			if x.Tok == token.DEFINE {
+				for _, lhs := range x.Lhs {
+					add(lhs)
+				}
+			}
+		case *ast.ValueSpec:
+			for _, name := range x.Names {
+				names[name.Name] = true
+			}
+		case *ast.RangeStmt:
+			if x.Tok == token.DEFINE {
+				add(x.Key)
+				add(x.Value)
+			}
+		case *ast.FuncLit:
+			for _, list := range []*ast.FieldList{x.Type.Params, x.Type.Results} {
+				if list == nil {
+					continue
+				}
+				for _, field := range list.List {
+					for _, name := range field.Names {
+						names[name.Name] = true
+					}
+				}
+			}
+		}
+		return true
+	})
+	return names
+}
+
+// rejectExitPackageConsts collects the package-level const declarations of
+// parsed files (name → value expression; specs without their own values —
+// iota repetition — are skipped).
+func rejectExitPackageConsts(files []*ast.File, into map[string]ast.Expr) {
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, name := range vs.Names {
+					if i < len(vs.Values) {
+						into[name.Name] = vs.Values[i]
+					}
+				}
+			}
+		}
+	}
+}
+
+// rejectExitPackageFacts is the package as parsed from disk once per test
+// binary: its package-level consts (format resolution reads consts from ANY
+// file of the package) and its free functions (the fail* registry is pinned
+// against real signatures).
+type rejectExitPackageFactsT struct {
+	consts map[string]ast.Expr
+	funcs  map[string]*ast.FuncDecl
+}
+
+var (
+	rejectExitPackageFactsOnce sync.Once
+	rejectExitPackageFactsVal  *rejectExitPackageFactsT
+	rejectExitPackageFactsErr  error
+)
+
+func rejectExitPackageFacts() (*rejectExitPackageFactsT, error) {
+	rejectExitPackageFactsOnce.Do(func() {
+		facts := &rejectExitPackageFactsT{consts: map[string]ast.Expr{}, funcs: map[string]*ast.FuncDecl{}}
+		entries, err := os.ReadDir(".")
+		if err != nil {
+			rejectExitPackageFactsErr = err
+			return
+		}
+		fset := token.NewFileSet()
+		var files []*ast.File
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			src, err := os.ReadFile(name)
+			if err != nil {
+				rejectExitPackageFactsErr = err
+				return
+			}
+			f, err := parser.ParseFile(fset, name, src, 0)
+			if err != nil {
+				rejectExitPackageFactsErr = err
+				return
+			}
+			files = append(files, f)
+			for _, decl := range f.Decls {
+				if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil {
+					facts.funcs[fn.Name.Name] = fn
+				}
+			}
+		}
+		rejectExitPackageConsts(files, facts.consts)
+		rejectExitPackageFactsVal = facts
+	})
+	return rejectExitPackageFactsVal, rejectExitPackageFactsErr
+}
+
+// rejectExitRegistryOffenders pins the fail* registry against the package:
+// every registered callee is a declared free function and its registered
+// format position names a `string` parameter (-1: the helper takes no
+// format position — its prose is built inside).
+func rejectExitRegistryOffenders(callees map[string]int, facts *rejectExitPackageFactsT) (offenders []string) {
+	for name, pos := range callees {
+		fn := facts.funcs[name]
+		if fn == nil {
+			offenders = append(offenders, fmt.Sprintf("rejectExitFailCallees registers %s, which is not a free function of package tool; update the registry", name))
+			continue
+		}
+		if pos < 0 {
+			continue
+		}
+		var params []ast.Expr
+		for _, field := range fn.Type.Params.List {
+			n := len(field.Names)
+			if n == 0 {
+				n = 1
+			}
+			for i := 0; i < n; i++ {
+				params = append(params, field.Type)
+			}
+		}
+		if pos >= len(params) {
+			offenders = append(offenders, fmt.Sprintf("rejectExitFailCallees registers %s's format at argument %d, but it declares %d parameter(s); update the registry", name, pos, len(params)))
+			continue
+		}
+		if id, ok := params[pos].(*ast.Ident); !ok || id.Name != "string" {
+			offenders = append(offenders, fmt.Sprintf("rejectExitFailCallees registers %s's format at argument %d, which is not a string parameter; update the registry", name, pos))
+		}
+	}
+	return offenders
+}
+
+// rejectExitResolveKind classifies `rootCauseSelection = <resolver>(…)`.
+type rejectExitResolveKind int
+
+const (
+	rejectExitNotAResolve    rejectExitResolveKind = iota
+	rejectExitResolveRaw                           // the raw-params (pre-decode) resolve
+	rejectExitResolveAccept                        // the accept-lane resolve
+	rejectExitResolveUnknown                       // a resolveTraceRootCauseSelection* callee of neither exact name: fail loud
+)
+
+// rejectExitResolveOf classifies a statement as a selector resolve by the
+// EXACT resolver name. EVOLUTION RECORD (§40.44 round-nine #1): the
+// round-eight walker treated any prefix-sharing callee without the
+// FromRawParams suffix as the accept lane at any scope, so a new resolver
+// variant or the accept resolver inside a pre-decode branch silently opened
+// an unaudited region.
+func rejectExitResolveOf(stmt ast.Stmt) (kind rejectExitResolveKind, name string) {
 	assign, ok := stmt.(*ast.AssignStmt)
 	if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
-		return false, false, false
+		return rejectExitNotAResolve, ""
 	}
 	lhs, ok := assign.Lhs[0].(*ast.Ident)
 	if !ok || lhs.Name != rejectExitSelectionVar {
-		return false, false, false
+		return rejectExitNotAResolve, ""
 	}
 	call, ok := assign.Rhs[0].(*ast.CallExpr)
 	if !ok {
-		return false, false, false
+		return rejectExitNotAResolve, ""
 	}
 	fn, ok := call.Fun.(*ast.Ident)
 	if !ok || !strings.HasPrefix(fn.Name, rejectExitSelectorResolverPrefix) {
-		return false, false, false
+		return rejectExitNotAResolve, ""
 	}
-	return true, strings.HasSuffix(fn.Name, "FromRawParams"), fn.Name == rejectExitAcceptLaneResolver
+	switch fn.Name {
+	case rejectExitRawResolver:
+		return rejectExitResolveRaw, fn.Name
+	case rejectExitAcceptLaneResolver:
+		return rejectExitResolveAccept, fn.Name
+	}
+	return rejectExitResolveUnknown, fn.Name
+}
+
+// rejectExitClosureCarriesExits reports whether a func literal's results are
+// (types.ToolResult, error) — the executor's own signature, so a return
+// inside it can carry an executor exit. Any other closure is closure-local:
+// its returns never leave the executor.
+func rejectExitClosureCarriesExits(lit *ast.FuncLit) bool {
+	if lit.Type.Results == nil {
+		return false
+	}
+	var types []ast.Expr
+	for _, field := range lit.Type.Results.List {
+		n := len(field.Names)
+		if n == 0 {
+			n = 1
+		}
+		for i := 0; i < n; i++ {
+			types = append(types, field.Type)
+		}
+	}
+	if len(types) != 2 {
+		return false
+	}
+	if exprTypeName(types[0]) != "types.ToolResult" && exprTypeName(types[0]) != "ToolResult" {
+		return false
+	}
+	return exprTypeName(types[1]) == "error"
 }
 
 // rejectExitNamedResultAssign reports whether an assignment writes a named
@@ -253,8 +566,10 @@ func rejectExitNamedResultAssign(assign *ast.AssignStmt, named map[string]bool, 
 }
 
 // auditRejectExitSelector walks one executor body. `resolved` is the
-// domination state inherited from the enclosing statement list.
-func auditRejectExitSelector(fset *token.FileSet, file string, fn *ast.FuncDecl, roster []rejectExitRow, passthroughs []string) rejectExitCensus {
+// domination state inherited from the enclosing statement list; `local` says
+// the statement list belongs to a closure-local func literal (its returns
+// are not executor exits).
+func auditRejectExitSelector(fset *token.FileSet, file string, fn *ast.FuncDecl, roster []rejectExitRow, passthroughs []string, callees map[string]int, consts map[string]ast.Expr) rejectExitCensus {
 	var c rejectExitCensus
 	pos := func(n ast.Node) string { return fset.Position(n.Pos()).String() }
 	named := rejectExitNamedResults(fn)
@@ -292,28 +607,49 @@ func auditRejectExitSelector(fset *token.FileSet, file string, fn *ast.FuncDecl,
 		c.offenders = append(c.offenders, fmt.Sprintf("%s %s: reject exit is not dominated by a `%s = %s…(…)` assignment — a selector riding this reject would be lost (§40.44 round-six #4 / round-seven #2 / round-eight #0: every exit before the accept-lane resolve is a reject exit that resolves the selector; register a nil-context guard as a carve-out roster row)",
 			pos(n), rejectExitFuncName(fn), rejectExitSelectionVar, rejectExitSelectorResolverPrefix))
 	}
-	var walkList func(list []ast.Stmt, resolved, rawResolved bool, top bool) (bool, bool)
-	var walkStmt func(stmt ast.Stmt, resolved, rawResolved bool, top bool) (bool, bool)
-	walkList = func(list []ast.Stmt, resolved, rawResolved bool, top bool) (bool, bool) {
+	// postAccept: the accept-lane-dominated region, which the census does not
+	// audit (only a TOP-LEVEL accept resolve opens it).
+	postAccept := func(resolved, rawResolved bool) bool { return resolved && !rawResolved }
+	var walkList func(list []ast.Stmt, resolved, rawResolved bool, top, local bool) (bool, bool)
+	var walkStmt func(stmt ast.Stmt, resolved, rawResolved bool, top, local bool) (bool, bool)
+	walkList = func(list []ast.Stmt, resolved, rawResolved bool, top, local bool) (bool, bool) {
 		for _, stmt := range list {
-			resolved, rawResolved = walkStmt(stmt, resolved, rawResolved, top)
+			resolved, rawResolved = walkStmt(stmt, resolved, rawResolved, top, local)
 		}
 		return resolved, rawResolved
 	}
 	// walkBranch audits a nested scope that may not execute (branch / loop /
 	// closure): its own resolves dominate only inside it.
-	walkBranch := func(list []ast.Stmt, resolved, rawResolved bool) {
-		walkList(list, resolved, rawResolved, false)
+	walkBranch := func(list []ast.Stmt, resolved, rawResolved bool, local bool) {
+		walkList(list, resolved, rawResolved, false, local)
 	}
-	walkStmt = func(stmt ast.Stmt, resolved, rawResolved bool, top bool) (bool, bool) {
+	walkStmt = func(stmt ast.Stmt, resolved, rawResolved bool, top, local bool) (bool, bool) {
 		switch s := stmt.(type) {
 		case *ast.AssignStmt:
-			if isResolve, raw, accept := rejectExitIsResolve(s); isResolve {
+			switch kind, name := rejectExitResolveOf(s); kind {
+			case rejectExitResolveRaw:
 				c.resolves++
-				if accept && top {
+				return true, true
+			case rejectExitResolveAccept:
+				c.resolves++
+				if top {
 					c.acceptResolves++
+					return true, false
 				}
-				return true, raw
+				// §40.44 round-nine #1: inside a branch / closure the accept
+				// resolve neither ends the reject-only region nor dominates a
+				// reject exit — the pre-decode resolve is the raw resolver.
+				if !postAccept(resolved, rawResolved) {
+					c.offenders = append(c.offenders, fmt.Sprintf("%s %s: accept-lane resolve inside a branch (not at the top level of the body); it neither ends the reject-only region nor dominates a reject exit — resolve pre-decode exits with `%s = %s(…)` (§40.44 round-nine #1)",
+						pos(s), rejectExitFuncName(fn), rejectExitSelectionVar, rejectExitRawResolver))
+				}
+				return resolved, rawResolved
+			case rejectExitResolveUnknown:
+				if !postAccept(resolved, rawResolved) {
+					c.offenders = append(c.offenders, fmt.Sprintf("%s %s: unrecognized selector resolver %s; the census classifies only %s (raw lane) and %s (accept lane) by exact name — register a new resolver deliberately (§40.44 round-nine #1: fail loud on unrecognized shapes)",
+						pos(s), rejectExitFuncName(fn), name, rejectExitRawResolver, rejectExitAcceptLaneResolver))
+				}
+				return resolved, rawResolved
 			}
 			if writes, passthrough := rejectExitNamedResultAssign(s, named, passthroughSet); writes {
 				if passthrough != "" {
@@ -323,68 +659,87 @@ func auditRejectExitSelector(fset *token.FileSet, file string, fn *ast.FuncDecl,
 				}
 			}
 		case *ast.ReturnStmt:
-			callee, message, shape := rejectExitRecognize(s)
+			if local {
+				// §40.44 round-nine #3: a closure-local return never exits
+				// the executor.
+				return resolved, rawResolved
+			}
+			callee, message, shape := rejectExitRecognize(s, callees, consts)
 			exit(s, resolved, rawResolved, callee, message, shape)
+			return resolved, rawResolved
+		case *ast.BranchStmt:
+			// §40.44 round-nine #2: domination is by statement order; a goto
+			// can jump over the raw resolve to a labelled reject.
+			if s.Tok == token.GOTO && !postAccept(resolved, rawResolved) {
+				label := ""
+				if s.Label != nil {
+					label = " " + s.Label.Name
+				}
+				c.offenders = append(c.offenders, fmt.Sprintf("%s %s: goto%s in the pre-accept region: domination is by statement order and a jump can bypass the raw resolve — restructure the reject without goto (§40.44 round-nine #2)",
+					pos(s), rejectExitFuncName(fn), label))
+			}
 			return resolved, rawResolved
 		case *ast.BlockStmt:
 			// A bare block always executes: its resolves dominate what follows.
-			return walkList(s.List, resolved, rawResolved, false)
+			return walkList(s.List, resolved, rawResolved, false, local)
 		case *ast.LabeledStmt:
-			return walkStmt(s.Stmt, resolved, rawResolved, top)
+			return walkStmt(s.Stmt, resolved, rawResolved, top, local)
 		case *ast.IfStmt:
 			if s.Init != nil {
-				resolved, rawResolved = walkStmt(s.Init, resolved, rawResolved, false)
+				resolved, rawResolved = walkStmt(s.Init, resolved, rawResolved, false, local)
 			}
-			walkBranch(s.Body.List, resolved, rawResolved)
+			walkBranch(s.Body.List, resolved, rawResolved, local)
 			if s.Else != nil {
-				walkStmt(s.Else, resolved, rawResolved, false)
+				walkStmt(s.Else, resolved, rawResolved, false, local)
 			}
 			return resolved, rawResolved
 		case *ast.ForStmt:
 			if s.Init != nil {
-				resolved, rawResolved = walkStmt(s.Init, resolved, rawResolved, false)
+				resolved, rawResolved = walkStmt(s.Init, resolved, rawResolved, false, local)
 			}
-			walkBranch(s.Body.List, resolved, rawResolved)
+			walkBranch(s.Body.List, resolved, rawResolved, local)
 			return resolved, rawResolved
 		case *ast.RangeStmt:
-			walkBranch(s.Body.List, resolved, rawResolved)
+			walkBranch(s.Body.List, resolved, rawResolved, local)
 			return resolved, rawResolved
 		case *ast.SwitchStmt:
 			if s.Init != nil {
-				resolved, rawResolved = walkStmt(s.Init, resolved, rawResolved, false)
+				resolved, rawResolved = walkStmt(s.Init, resolved, rawResolved, false, local)
 			}
 			for _, clause := range s.Body.List {
-				walkBranch(clause.(*ast.CaseClause).Body, resolved, rawResolved)
+				walkBranch(clause.(*ast.CaseClause).Body, resolved, rawResolved, local)
 			}
 			return resolved, rawResolved
 		case *ast.TypeSwitchStmt:
 			if s.Init != nil {
-				resolved, rawResolved = walkStmt(s.Init, resolved, rawResolved, false)
+				resolved, rawResolved = walkStmt(s.Init, resolved, rawResolved, false, local)
 			}
 			for _, clause := range s.Body.List {
-				walkBranch(clause.(*ast.CaseClause).Body, resolved, rawResolved)
+				walkBranch(clause.(*ast.CaseClause).Body, resolved, rawResolved, local)
 			}
 			return resolved, rawResolved
 		case *ast.SelectStmt:
 			for _, clause := range s.Body.List {
-				walkBranch(clause.(*ast.CommClause).Body, resolved, rawResolved)
+				walkBranch(clause.(*ast.CommClause).Body, resolved, rawResolved, local)
 			}
 			return resolved, rawResolved
 		}
 		// Closures (defer / go / expression / assignment operands) inherit the
-		// domination state at their definition point; an exit inside one — a
-		// return, or a named-result assignment (the defer/recover guard shape)
-		// — is audited like any other.
+		// domination state at their definition point. A named-result
+		// assignment inside one (the defer/recover guard shape) is audited
+		// like any other exit; a return is audited only when the closure's
+		// results are (types.ToolResult, error) — any other closure is
+		// closure-local (§40.44 round-nine #3).
 		ast.Inspect(stmt, func(n ast.Node) bool {
 			if lit, ok := n.(*ast.FuncLit); ok {
-				walkBranch(lit.Body.List, resolved, rawResolved)
+				walkBranch(lit.Body.List, resolved, rawResolved, !rejectExitClosureCarriesExits(lit))
 				return false
 			}
 			return true
 		})
 		return resolved, rawResolved
 	}
-	endResolved, endRaw := walkList(fn.Body.List, false, false, true)
+	endResolved, endRaw := walkList(fn.Body.List, false, false, true, false)
 	if c.acceptResolves != 1 || !endResolved || endRaw {
 		c.offenders = append(c.offenders, fmt.Sprintf("%s %s: expected exactly one top-level `%s = %s(…)` (the accept-lane resolve that ends the reject-only region), found %d", file, rejectExitFuncName(fn), rejectExitSelectionVar, rejectExitAcceptLaneResolver, c.acceptResolves))
 	}
@@ -438,16 +793,41 @@ func rejectExitCensusOver(t *testing.T, srcs map[string]string) map[string]rejec
 
 func rejectExitCensusOverRoster(t *testing.T, srcs map[string]string, roster map[string][]rejectExitRow, passthroughs map[string][]string) map[string]rejectExitCensus {
 	t.Helper()
-	out := map[string]rejectExitCensus{}
+	return rejectExitCensusOverTables(t, srcs, roster, passthroughs, rejectExitFailCallees)
+}
+
+// rejectExitCensusOverTables parses every file of srcs (the executor files,
+// possibly mutated), overlays their package-level consts on the package's
+// on-disk consts (format resolution reads consts from any file of the
+// package), and audits the executors with the given roster, passthroughs
+// and fail* registry.
+func rejectExitCensusOverTables(t *testing.T, srcs map[string]string, roster map[string][]rejectExitRow, passthroughs map[string][]string, callees map[string]int) map[string]rejectExitCensus {
+	t.Helper()
+	pkg, err := rejectExitPackageFacts()
+	if err != nil {
+		t.Fatalf("parse package tool: %v", err)
+	}
+	pkgConsts := map[string]ast.Expr{}
+	for name, value := range pkg.consts {
+		pkgConsts[name] = value
+	}
 	fset := token.NewFileSet()
-	for file, want := range rejectExitExecutors {
-		src, ok := srcs[file]
-		if !ok {
-			t.Fatalf("census input lacks %s", file)
-		}
+	parsed := map[string]*ast.File{}
+	var files []*ast.File
+	for file, src := range srcs {
 		f, err := parser.ParseFile(fset, file, src, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", file, err)
+		}
+		parsed[file] = f
+		files = append(files, f)
+	}
+	rejectExitPackageConsts(files, pkgConsts)
+	out := map[string]rejectExitCensus{}
+	for file, want := range rejectExitExecutors {
+		f, ok := parsed[file]
+		if !ok {
+			t.Fatalf("census input lacks %s", file)
 		}
 		found := false
 		for _, decl := range f.Decls {
@@ -456,7 +836,17 @@ func rejectExitCensusOverRoster(t *testing.T, srcs map[string]string, roster map
 				continue
 			}
 			found = true
-			out[file] = auditRejectExitSelector(fset, file, fn, roster[file], passthroughs[file])
+			// A name the executor declares locally (parameter, result,
+			// `:=`, var, range) shadows a package const of the same name:
+			// it is not resolvable as a const inside this body.
+			consts := map[string]ast.Expr{}
+			for name, value := range pkgConsts {
+				consts[name] = value
+			}
+			for name := range rejectExitLocalNames(fn) {
+				delete(consts, name)
+			}
+			out[file] = auditRejectExitSelector(fset, file, fn, roster[file], passthroughs[file], callees, consts)
 		}
 		if !found {
 			t.Fatalf("%s: executor %s not found — the census lost its subject", file, want)
@@ -480,6 +870,14 @@ func rejectExitLiveSources(t *testing.T) map[string]string {
 
 func TestAnswerDocumentRejectExitsResolveTheSelectorCensus(t *testing.T) {
 	live := rejectExitLiveSources(t)
+	// The fail* registry is pinned against the package's real signatures.
+	pkg, err := rejectExitPackageFacts()
+	if err != nil {
+		t.Fatalf("parse package tool: %v", err)
+	}
+	for _, o := range rejectExitRegistryOffenders(rejectExitFailCallees, pkg) {
+		t.Error(o)
+	}
 	results := rejectExitCensusOver(t, live)
 	for file, c := range results {
 		for _, o := range c.offenders {
@@ -496,10 +894,12 @@ func TestAnswerDocumentRejectExitsResolveTheSelectorCensus(t *testing.T) {
 		}
 	}
 
-	mutate := func(t *testing.T, file, old, new string) map[string]string {
+	// edit rewrites one file of a source set (first occurrence; the anchor
+	// must exist); mutate edits the live set.
+	edit := func(t *testing.T, base map[string]string, file, old, new string) map[string]string {
 		t.Helper()
 		out := map[string]string{}
-		for k, v := range live {
+		for k, v := range base {
 			out[k] = v
 		}
 		if !strings.Contains(out[file], old) {
@@ -507,6 +907,18 @@ func TestAnswerDocumentRejectExitsResolveTheSelectorCensus(t *testing.T) {
 		}
 		out[file] = strings.Replace(out[file], old, new, 1)
 		return out
+	}
+	mutate := func(t *testing.T, file, old, new string) map[string]string {
+		t.Helper()
+		return edit(t, live, file, old, new)
+	}
+	// expectGreen: the census over a recognized, registrable shape reports
+	// nothing for the file — the shape is not taxed.
+	expectGreen := func(t *testing.T, results map[string]rejectExitCensus, file string) {
+		t.Helper()
+		if len(results[file].offenders) > 0 {
+			t.Fatalf("a recognized shape must not be reported in %s; offenders: %v", file, results[file].offenders)
+		}
 	}
 	expect := func(t *testing.T, results map[string]rejectExitCensus, file, want string) {
 		t.Helper()
@@ -556,7 +968,7 @@ func TestAnswerDocumentRejectExitsResolveTheSelectorCensus(t *testing.T) {
 	})
 
 	// §40.44 round-eight #0: EVERY exit before the accept-lane resolve is a
-	// reject exit — the seven shapes below were uncounted (exits=9,
+	// reject exit — the eight shapes below were uncounted (exits=9,
 	// offenders=0) on 154b1a5c5; each is now undominated AND fails loud as a
 	// shape the roster cannot key.
 	shapes := map[string]string{
@@ -663,5 +1075,188 @@ func TestAnswerDocumentRejectExitsResolveTheSelectorCensus(t *testing.T) {
 			"\trootCauseSelection = resolveTraceRootCauseSelectionForEmit(ctx, carriers, p.TraceRootCauses, false)\n",
 			"\tif len(p.Blocks) > 0 {\n\t\trootCauseSelection = resolveTraceRootCauseSelectionForEmit(ctx, carriers, p.TraceRootCauses, false)\n\t}\n"))
 		expect(t, results, "emit_answer_document_v2.go", "expected exactly one top-level")
+	})
+
+	// §40.44 round-nine #0: the reject recognizer keys the format string by
+	// the callee's SIGNATURE POSITION and resolves package consts and
+	// concatenations. EVOLUTION RECORD: the round-eight recognizer keyed the
+	// first string literal in any argument position and demanded one, so on
+	// 49efc4a2e every registrable shape below was a dead end — const-hoisted
+	// / concatenated formats red as "without a literal format string", an
+	// inlined tool name silently keyed the exit by the tool name, the live
+	// sibling failStrictDecodeWithError and an extracted fail-prefixed helper
+	// unregistrable (message-"" rows were honoured for one hardcoded name).
+	const v1FieldsFormat = "\"top-level field %q is not accepted; the answer is expressed through blocks[] only — move any answer payload into the appropriate block kind\","
+	const v1FieldsConst = "answerDocumentV1FieldsRejectFormat"
+	t.Run("self_green_const_hoisted_format_resolves", func(t *testing.T) {
+		src := mutate(t, "emit_answer_document_v2.go", v1FieldsFormat, v1FieldsConst+",")
+		src["emit_answer_document_v2.go"] += "\n\nconst " + v1FieldsConst + " = " + strings.TrimSuffix(v1FieldsFormat, ",") + "\n"
+		expectGreen(t, rejectExitCensusOver(t, src), "emit_answer_document_v2.go")
+	})
+	t.Run("self_green_cross_file_const_format_resolves", func(t *testing.T) {
+		// The const lives in ANOTHER file of the package: the resolver reads
+		// package-level consts, not the executor file alone.
+		src := mutate(t, "emit_answer_document_v2.go", v1FieldsFormat, v1FieldsConst+",")
+		src["emit_answer_document_patch.go"] += "\n\nconst " + v1FieldsConst + " = " + strings.TrimSuffix(v1FieldsFormat, ",") + "\n"
+		expectGreen(t, rejectExitCensusOver(t, src), "emit_answer_document_v2.go")
+	})
+	t.Run("self_red_const_hoisted_format_drift", func(t *testing.T) {
+		// A drifted const is a drifted message: the row is stale and the exit
+		// unregistered (the same red as a drifted literal).
+		src := mutate(t, "emit_answer_document_v2.go", v1FieldsFormat, v1FieldsConst+",")
+		src["emit_answer_document_v2.go"] += "\n\nconst " + v1FieldsConst + " = \"top-level field %q is refused\"\n"
+		results := rejectExitCensusOver(t, src)
+		expect(t, results, "emit_answer_document_v2.go", "no longer names a reject exit")
+		expect(t, results, "emit_answer_document_v2.go", "is not registered in the exit roster")
+	})
+	t.Run("self_green_concatenated_format_resolves", func(t *testing.T) {
+		src := mutate(t, "emit_answer_document_v2.go", v1FieldsFormat,
+			"\"top-level field %q is not accepted; \" +\n\t\t\t\t\"the answer is expressed through blocks[] only — move any answer payload into the appropriate block kind\",")
+		expectGreen(t, rejectExitCensusOver(t, src), "emit_answer_document_v2.go")
+	})
+	t.Run("self_red_format_argument_is_a_local_identifier", func(t *testing.T) {
+		// A local variable in the format position is not a package const:
+		// the key is ambiguous, fail loud.
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", v1FieldsFormat, "violation,"))
+		expect(t, results, "emit_answer_document_v2.go", "unrecognized reject exit shape")
+		expect(t, results, "emit_answer_document_v2.go", "is the identifier violation, not a string literal or a package-level string const")
+	})
+	t.Run("self_red_local_shadowing_a_package_const_is_ambiguous", func(t *testing.T) {
+		// The package const exists, but the executor declares a local of the
+		// same name before the exit: the format is the local, not the const.
+		src := mutate(t, "emit_answer_document_v2.go", "\t\treturn failEmit(toolName, now,\n\t\t\t"+v1FieldsFormat,
+			"\t\t"+v1FieldsConst+" := \"shadow\"\n\t\treturn failEmit(toolName, now,\n\t\t\t"+v1FieldsConst+",")
+		src["emit_answer_document_v2.go"] += "\n\nconst " + v1FieldsConst + " = " + strings.TrimSuffix(v1FieldsFormat, ",") + "\n"
+		results := rejectExitCensusOver(t, src)
+		expect(t, results, "emit_answer_document_v2.go", "is the identifier "+v1FieldsConst+", not a string literal or a package-level string const")
+	})
+	t.Run("self_red_format_argument_is_a_call", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", v1FieldsFormat, "strings.ToUpper(\"top-level field %q is not accepted\"),"))
+		expect(t, results, "emit_answer_document_v2.go", "unrecognized reject exit shape")
+		expect(t, results, "emit_answer_document_v2.go", "format argument 2 is a *ast.CallExpr")
+	})
+	t.Run("self_red_registered_callee_arity_short_of_the_format_position", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go",
+			"\t\treturn failEmit(toolName, now,\n\t\t\t"+v1FieldsFormat+"\n\t\t\tviolation)", "\t\treturn failEmit(toolName, now)"))
+		expect(t, results, "emit_answer_document_v2.go", "failEmit called with 2 argument(s); its format string is argument 2")
+	})
+	t.Run("self_green_sibling_strict_decode_callee_with_message_empty_row", func(t *testing.T) {
+		// Switching to the live sibling helper is registrable by editing the
+		// roster row's callee: message-"" rows are honoured for every
+		// registered prose-building helper, not one hardcoded name.
+		src := mutate(t, "emit_answer_document_v2.go", "return failStrictDecode(", "return failStrictDecodeWithError(")
+		roster := map[string][]rejectExitRow{}
+		for k, v := range rejectExitRoster {
+			roster[k] = append([]rejectExitRow{}, v...)
+		}
+		rows := roster["emit_answer_document_v2.go"]
+		rows[len(rows)-1] = rejectExitRow{"failStrictDecodeWithError", "", rejectExitLaneRaw}
+		expectGreen(t, rejectExitCensusOverRoster(t, src, roster, rejectExitPassthroughs), "emit_answer_document_v2.go")
+	})
+	t.Run("self_red_sibling_strict_decode_callee_without_roster_update", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", "return failStrictDecode(", "return failStrictDecodeWithError("))
+		expect(t, results, "emit_answer_document_v2.go", "registered exit failStrictDecode(\"\"…) [raw] no longer names a reject exit")
+		expect(t, results, "emit_answer_document_v2.go", "reject exit failStrictDecodeWithError(\"\"…) is not registered")
+	})
+	const relationClaimsReject = "\t\treturn failEmit(toolName, now,\n\t\t\t\"top-level field %q is not accepted; place the exact typed claim object(s) under blocks[i].relation_claims on the model-authored block that uses the values (never at $.relation_claims)\",\n\t\t\t\"relation_claims\")"
+	t.Run("self_green_extracted_fail_helper_registered", func(t *testing.T) {
+		// An extracted fail-prefixed helper that builds its prose inside is
+		// registrable: a registry entry (-1) plus a message-"" roster row.
+		src := mutate(t, "emit_answer_document_v2.go", relationClaimsReject, "\t\treturn failTopLevelRelationClaims(toolName, now)")
+		callees := map[string]int{}
+		for k, v := range rejectExitFailCallees {
+			callees[k] = v
+		}
+		callees["failTopLevelRelationClaims"] = -1
+		roster := map[string][]rejectExitRow{}
+		for k, v := range rejectExitRoster {
+			roster[k] = append([]rejectExitRow{}, v...)
+		}
+		roster["emit_answer_document_v2.go"][1] = rejectExitRow{"failTopLevelRelationClaims", "", rejectExitLaneRaw}
+		expectGreen(t, rejectExitCensusOverTables(t, src, roster, rejectExitPassthroughs, callees), "emit_answer_document_v2.go")
+	})
+	t.Run("self_red_extracted_fail_helper_unregistered", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", relationClaimsReject, "\t\treturn failTopLevelRelationClaims(toolName, now)"))
+		expect(t, results, "emit_answer_document_v2.go", "unrecognized reject exit shape")
+		expect(t, results, "emit_answer_document_v2.go", "failTopLevelRelationClaims, a fail* helper not registered in rejectExitFailCallees")
+	})
+	t.Run("self_green_inlined_tool_name_literal_keys_by_format_position", func(t *testing.T) {
+		// A tool-name literal before the format position is not the key.
+		src := mutate(t, "emit_answer_document_patch.go",
+			"\t\treturn failEmit(t.Name(), now,\n\t\t\t\"emit_answer_document_patch requires a writable context\")",
+			"\t\treturn failEmit(\"emit_answer_document_patch\", now,\n\t\t\t\"emit_answer_document_patch requires a writable context\")")
+		src = edit(t, src, "emit_answer_document_v2.go", "\t\treturn failEmit(toolName, now,\n\t\t\t"+v1FieldsFormat, "\t\treturn failEmit(\"emit_answer_document\", now,\n\t\t\t"+v1FieldsFormat)
+		results := rejectExitCensusOver(t, src)
+		expectGreen(t, results, "emit_answer_document_patch.go")
+		expectGreen(t, results, "emit_answer_document_v2.go")
+	})
+
+	// §40.44 round-nine #1: the selector resolvers are classified by EXACT
+	// name — the raw resolver and the accept-lane resolver — and the accept
+	// lane ends the reject-only region only at the top level. EVOLUTION
+	// RECORD: on 49efc4a2e any `resolveTraceRootCauseSelection*` callee
+	// without the FromRawParams suffix was the accept lane at ANY scope, so
+	// the accept resolver inside a pre-decode branch, or a new resolver
+	// variant at the top level, opened a region whose exits were neither
+	// shape-checked nor reconciled (overlay probes B1/B1b/B4/B5: offenders=0).
+	const acceptResolveV2 = "rootCauseSelection = resolveTraceRootCauseSelectionForEmit(ctx, carriers, nil, false)"
+	t.Run("self_red_accept_lane_resolve_inside_a_pre_decode_branch_does_not_dominate", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", decodeAnchorV2,
+			"\tif len(raw) > 1<<20 {\n\t\t"+acceptResolveV2+"\n\t\tres, e := failEmit(toolName, now, \"payload too large\")\n\t\treturn res, e\n\t}\n"+decodeAnchorV2))
+		expect(t, results, "emit_answer_document_v2.go", "accept-lane resolve inside a branch")
+		expect(t, results, "emit_answer_document_v2.go", "unrecognized reject exit shape")
+		expect(t, results, "emit_answer_document_v2.go", "reject exit is not dominated")
+	})
+	t.Run("self_red_accept_lane_resolve_inside_a_branch_leaves_a_plain_reject_unregistered", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", decodeAnchorV2,
+			"\tif len(raw) > 1<<20 {\n\t\t"+acceptResolveV2+"\n\t\treturn failEmit(toolName, now, \"payload too large\")\n\t}\n"+decodeAnchorV2))
+		expect(t, results, "emit_answer_document_v2.go", "accept-lane resolve inside a branch")
+		expect(t, results, "emit_answer_document_v2.go", "is not registered in the exit roster")
+		expect(t, results, "emit_answer_document_v2.go", "reject exit is not dominated")
+	})
+	t.Run("self_red_unrecognized_resolver_variant_fails_loud", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", decodeAnchorV2,
+			"\trootCauseSelection = resolveTraceRootCauseSelectionFromRawParamsLenient(ctx, carriers, raw, false)\n\tif len(raw) > 1<<20 {\n\t\treturn types.ToolResult{}, fmt.Errorf(\"payload too large\")\n\t}\n"+decodeAnchorV2))
+		expect(t, results, "emit_answer_document_v2.go", "unrecognized selector resolver resolveTraceRootCauseSelectionFromRawParamsLenient")
+		expect(t, results, "emit_answer_document_v2.go", "unrecognized reject exit shape")
+		expect(t, results, "emit_answer_document_v2.go", "reject exit is not dominated")
+	})
+	t.Run("self_red_unrecognized_resolver_noop_fails_loud", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", decodeAnchorV2,
+			"\trootCauseSelection = resolveTraceRootCauseSelectionNoop()\n\tif len(raw) > 1<<20 {\n\t\treturn failEmit(toolName, now, \"payload too large\")\n\t}\n"+decodeAnchorV2))
+		expect(t, results, "emit_answer_document_v2.go", "unrecognized selector resolver resolveTraceRootCauseSelectionNoop")
+		expect(t, results, "emit_answer_document_v2.go", "is not registered in the exit roster")
+		expect(t, results, "emit_answer_document_v2.go", "reject exit is not dominated")
+	})
+
+	// §40.44 round-nine #2: domination is by statement order, so a goto in
+	// the pre-accept region fails loud (a jump over the raw resolve to a
+	// labelled reject was "dominated" textually on 49efc4a2e: offenders=1,
+	// the missing roster row only, and 0 once rostered).
+	t.Run("self_red_goto_over_the_raw_resolve_fails_loud", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", decodeAnchorV2,
+			"\tif len(raw) > 1<<20 {\n\t\tif ctx == nil {\n\t\t\tgoto rejectLarge\n\t\t}\n\t\t"+rawResolveV2+"\n\trejectLarge:\n\t\treturn failEmit(toolName, now, \"payload too large\")\n\t}\n"+decodeAnchorV2))
+		expect(t, results, "emit_answer_document_v2.go", "goto rejectLarge in the pre-accept region")
+	})
+
+	// §40.44 round-nine #3: a return inside a closure whose results are not
+	// (types.ToolResult, error) never exits the executor — closure-local,
+	// skipped; a closure returning (types.ToolResult, error) is audited like
+	// any exit, and named-result assignments inside any closure stay exits
+	// (the defer/recover guard shape above). EVOLUTION RECORD: on 49efc4a2e a
+	// sort comparator before the raw resolve was red as "returns a
+	// *ast.BinaryExpr, not a reject call" + "not dominated" — a false offender
+	// on a routine edit with no roster path.
+	t.Run("self_green_closure_local_return_is_not_an_exit", func(t *testing.T) {
+		src := mutate(t, "emit_answer_document_v2.go",
+			"\t\t"+rawResolveV2+" // §40.43 round-six #4\n\t\treturn failEmitWithRepair(toolName, now, answerDocumentStructuralCarrierCorruptionRepair(paths),",
+			"\t\tsort.Slice(paths, func(i, j int) bool { return paths[i] < paths[j] })\n\t\t"+rawResolveV2+" // §40.43 round-six #4\n\t\treturn failEmitWithRepair(toolName, now, answerDocumentStructuralCarrierCorruptionRepair(paths),")
+		expectGreen(t, rejectExitCensusOver(t, src), "emit_answer_document_v2.go")
+	})
+	t.Run("self_red_tool_result_closure_return_is_audited", func(t *testing.T) {
+		results := rejectExitCensusOver(t, mutate(t, "emit_answer_document_v2.go", decodeAnchorV2,
+			"\treject := func() (types.ToolResult, error) {\n\t\tres, e := failEmit(toolName, now, \"payload too large\")\n\t\treturn res, e\n\t}\n\t_ = reject\n"+decodeAnchorV2))
+		expect(t, results, "emit_answer_document_v2.go", "unrecognized reject exit shape")
+		expect(t, results, "emit_answer_document_v2.go", "reject exit is not dominated")
 	})
 }
