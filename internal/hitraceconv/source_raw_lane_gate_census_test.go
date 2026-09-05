@@ -374,7 +374,6 @@ func traceDBIsMetadataSelector(expr ast.Expr) bool {
 // bound to (round six, #3).
 type traceDBName struct {
 	scope *traceDBLexicalScope
-	name  string
 	// pos: where the name is visible from — the end of its first `:=` / var
 	// statement, the body of its range statement; token.NoPos (the whole
 	// body) for a parameter, result or receiver.
@@ -436,7 +435,7 @@ func (scope *traceDBLexicalScope) declare(name string, pos token.Pos) *traceDBNa
 	}
 	decl, ok := scope.names[name]
 	if !ok {
-		decl = &traceDBName{scope: scope, name: name, pos: pos, position: -1}
+		decl = &traceDBName{scope: scope, pos: pos, position: -1}
 		scope.names[name] = decl
 	} else if pos < decl.pos {
 		decl.pos = pos
