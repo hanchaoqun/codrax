@@ -2276,10 +2276,10 @@ func TestCommandOperationE2E_RepairBudgetExhaustionIsReported(t *testing.T) {
 	}
 	foundBudget := false
 	for _, rec := range r.operationResults {
-		for _, step := range rec.Result.StepResults {
-			if step.FailureClass == "budget_exhausted" {
-				foundBudget = true
-			}
+		// the budget terminal is classified at the result level, not by a
+		// synthetic step (review round seven #2)
+		if commandOperationPrimaryFailureClass(rec.Result) == "budget_exhausted" && len(rec.Result.StepResults) == 0 {
+			foundBudget = true
 		}
 	}
 	if !foundBudget {

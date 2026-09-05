@@ -158,6 +158,12 @@ type CommandOperationResult struct {
 	StepResults   []CommandStepResult
 	OutputPreview string
 	PayloadRef    string
+	// FailureClass classifies a result that is not a step outcome — a
+	// budget terminal, an evaluator verdict or a degraded planner round
+	// minted by the operation loop rather than by the executor. Such a
+	// result carries no StepResults; a step outcome keeps its class on the
+	// step.
+	FailureClass string
 }
 
 type OperationVerificationResult struct {

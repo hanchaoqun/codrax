@@ -88,16 +88,14 @@ func commandOperationEvaluationTerminalResult(plan operation.CommandOperationPla
 	if reason == "" {
 		reason = strings.TrimSpace(string(eval.Status))
 	}
+	// an evaluator verdict is not a step outcome: no StepResults, the
+	// class on the result (review round seven #2, same shape as the
+	// budget terminal)
 	return operation.CommandOperationResult{
 		PlanID:        plan.ID,
 		Status:        status,
 		OutputPreview: reason,
-		StepResults: []operation.CommandStepResult{{
-			Status:        status,
-			OutputPreview: reason,
-			Error:         commandOperationEvaluationErrorForStatus(status, reason),
-			FailureClass:  commandOperationEvaluationFailureClass(status),
-		}},
+		FailureClass:  commandOperationEvaluationFailureClass(status),
 	}, true
 }
 
@@ -126,15 +124,6 @@ func commandOperationEvaluationFailureClass(status operation.OperationStatus) st
 		return "blocked"
 	case operation.StatusNeedsClarification:
 		return "needs_clarification"
-	default:
-		return ""
-	}
-}
-
-func commandOperationEvaluationErrorForStatus(status operation.OperationStatus, reason string) string {
-	switch status {
-	case operation.StatusBudgetExhausted, operation.StatusPartialAnswer, operation.StatusBlocked, operation.StatusNeedsClarification:
-		return reason
 	default:
 		return ""
 	}

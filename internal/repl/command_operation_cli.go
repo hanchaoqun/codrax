@@ -123,7 +123,7 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 			logging.Info("[cli/operation] command plan lint failed plan_id=%s issues=%d summary=%q repair_rounds=%d command_rounds=%d",
 				currentPlan.ID, len(lint.Issues), oneLineClamp(lint.Summary(), 240), repairRounds, commandRounds)
 		} else if commandRounds >= commandOperationCommandRoundLimit(ownRecords) {
-			result = commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+			result = commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, cfg.Language)
 		} else {
 			commandRounds++
 			result = executor.Execute(ctx, currentPlan)
@@ -149,7 +149,8 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 		ownRecords = commandOperationAttachOwnMaterialPages(contextRecords, ownRecords)
 		operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, result))
 
-		if result.Status == operation.StatusFailed && !commandResultTimedOut(result) && repairRounds < commandOperationMaxRepairRounds {
+		if result.Status == operation.StatusFailed && !commandResultTimedOut(result) && repairRounds < commandOperationMaxRepairRounds &&
+			commandRounds < commandOperationCommandRoundLimit(ownRecords) {
 			replanner, ok := cfg.Planner.(CommandOperationReplanner)
 			if ok {
 				snapshot := commandOperationCLICapabilitySnapshot(cfg)
@@ -194,7 +195,15 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 		}
 
 		if commandOperationRepairBudgetExhausted(result, repairRounds) {
-			budget := commandOperationBudgetResult(currentPlan, "command operation repair budget exhausted before the user goal was fully satisfied")
+			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetRepairRounds, cfg.Language)
+			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
+			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
+			return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
+		}
+		if commandOperationFailedRoundCommandBudgetExhausted(result, commandRounds, ownRecords) {
+			logging.Info("[cli/operation] command failed round at the command-round limit plan_id=%s command_rounds=%d limit=%d — budget terminal without replan",
+				currentPlan.ID, commandRounds, commandOperationCommandRoundLimit(ownRecords))
+			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, cfg.Language)
 			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
 			return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
@@ -278,13 +287,13 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 			}
 		}
 		if commandOperationMaterialEvaluationNeedsBudget(result, materialEvaluation, ownRecords) {
-			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, cfg.Language)
 			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
 			return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 		}
 		if commandOperationContinuationBudgetExhausted(currentPlan, result, ownRecords) {
-			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, cfg.Language)
 			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
 			return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil

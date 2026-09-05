@@ -560,8 +560,8 @@ func TestCommandOperationStructuredToolParamFailureResult(t *testing.T) {
 	if !strings.Contains(result.OutputPreview, "结构化工具参数") {
 		t.Fatalf("localized degradation reason missing: %+v", result)
 	}
-	if len(result.StepResults) != 1 || result.StepResults[0].FailureClass != "structured_tool_params" {
-		t.Fatalf("step result should carry structured_tool_params failure: %+v", result.StepResults)
+	if len(result.StepResults) != 0 || result.FailureClass != "structured_tool_params" {
+		t.Fatalf("the degraded round must carry structured_tool_params on the result without a synthetic step: %+v", result)
 	}
 }
 

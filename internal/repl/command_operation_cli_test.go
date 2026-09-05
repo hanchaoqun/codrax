@@ -226,9 +226,118 @@ func TestCommandOperationMaterialExtensionCapsAndPublishesTypedBudget(t *testing
 	if !commandOperationMaterialEvaluationNeedsBudget(last.Result, last.Evaluation, records) {
 		t.Fatal("incomplete material at the extended limit must become budget-exhausted")
 	}
-	budget := commandOperationBudgetResult(last.Plan, "limit reached")
-	if budget.Status != operation.StatusBudgetExhausted || budget.StepResults[0].Status != operation.StatusBudgetExhausted {
-		t.Fatalf("budget result lost typed status: %+v", budget)
+	budget := commandOperationBudgetResult(last.Plan, commandOperationBudgetCommandRounds, "zh")
+	if budget.Status != operation.StatusBudgetExhausted || budget.FailureClass != "budget_exhausted" || len(budget.StepResults) != 0 {
+		t.Fatalf("budget result lost typed status/class or minted a synthetic step: %+v", budget)
+	}
+}
+
+// replanCountingCLIPlanner answers the CLI lane's replan and continuation
+// requests with a low-risk repair and records the records the answerer
+// was handed.
+type replanCountingCLIPlanner struct {
+	replanCalls       int
+	continuationCalls int
+	answered          []commandOperationResultRecord
+}
+
+func (p *replanCountingCLIPlanner) PlanCommandOperation(context.Context, string, string, TurnPolicy) (operation.CommandOperationRequest, error) {
+	return operation.CommandOperationRequest{}, nil
+}
+
+func (p *replanCountingCLIPlanner) ReplanCommandOperation(context.Context, string, string, TurnPolicy, operation.CapabilitySnapshot, operation.CommandOperationPlan, operation.CommandOperationResult) (operation.CommandOperationRequest, error) {
+	p.replanCalls++
+	return operation.CommandOperationRequest{
+		Text:      "write the fallback marker",
+		Goal:      "write fallback marker",
+		RiskLevel: "low",
+		WorkDir:   ".",
+		Steps:     []operation.CommandStep{{ID: "write", Title: "write fallback", Program: "true", RiskLevel: "low"}},
+	}, nil
+}
+
+func (p *replanCountingCLIPlanner) ContinueCommandOperation(context.Context, string, string, TurnPolicy, operation.CapabilitySnapshot, []commandOperationResultRecord) (CommandOperationContinuation, error) {
+	p.continuationCalls++
+	return CommandOperationContinuation{Complete: true, Reason: "nothing left"}, nil
+}
+
+func (p *replanCountingCLIPlanner) AnswerCommandOperationRecords(_ context.Context, _ string, records []commandOperationResultRecord, _ string) (string, error) {
+	p.answered = append([]commandOperationResultRecord(nil), records...)
+	return "final: " + strings.TrimSpace(records[len(records)-1].Result.OutputPreview), nil
+}
+
+// TestCommandOperationCLIFailedRoundAtCounterLimitEndsWithoutReplan is the
+// CLI twin of pin i: the operation resumes with four executed own rounds at
+// counter 4, the fifth round fails with the counter at the limit, and the
+// lane mints the command-round budget terminal for the failed round's plan
+// without consulting the replanner.
+//
+// EVOLUTION RECORD (review round seven #0): the CLI replan lane was gated on
+// status/timeout/repair rounds only, so the replanner was consulted for a
+// round the lane could never execute; its revised plan needed manual
+// approval (it changes the working directory) and the single-shot lane —
+// which has no /approve — returned the plan's approval text as the
+// answer, never reaching the answerer. Red on 42fcf3fd1 and 6f98f839d
+// (replan_calls=1, plan text returned) and identically on 533a939fb,
+// b6f7eeec3 and 480939385, where the lane took the prior rounds as its
+// record window and re-derived the counter (scratch copy of this pin on
+// that signature).
+func TestCommandOperationCLIFailedRoundAtCounterLimitEndsWithoutReplan(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	policy := operation.DefaultCommandPolicy()
+	policy.DefaultWorkDir = workDir
+	planner := &replanCountingCLIPlanner{}
+	prior := make(commandOperationOwnRecords, 0, commandOperationMaxCommandRounds-1)
+	for i := 0; i < commandOperationMaxCommandRounds-1; i++ {
+		prior = append(prior, commandOperationResultRecord{
+			Plan:   operation.CommandOperationPlan{ID: "prior"},
+			Result: operation.CommandOperationResult{PlanID: "prior", Status: operation.StatusExecuted},
+		})
+	}
+	failing := operation.CommandOperationPlan{
+		ID:          "failing-fifth",
+		RequestText: "probe, then write the fallback marker",
+		Status:      operation.StatusReady,
+		RiskLevel:   "low",
+		WorkDir:     workDir,
+		Steps: []operation.CommandStep{{
+			ID:        "probe",
+			Title:     "failing probe",
+			Shell:     "printf 'probe failed\\n'; exit 2",
+			RiskLevel: "low",
+		}},
+	}
+	answer, err := runCommandOperationCLIPlan(context.Background(), CommandOperationCLIConfig{
+		Planner:       planner,
+		Policy:        policy,
+		RepoRoot:      workDir,
+		RuntimeAnchor: t.TempDir(),
+		Language:      "en",
+	}, failing.RequestText, failing, commandOperationAttemptState{
+		Own:           prior,
+		CommandRounds: commandOperationMaxCommandRounds - 1,
+	})
+	if err != nil {
+		t.Fatalf("runCommandOperationCLIPlan: %v", err)
+	}
+	if planner.replanCalls != 0 || planner.continuationCalls != 0 {
+		t.Fatalf("replan_calls=%d continuation_calls=%d, want 0/0 — a failed round at the command-round limit must not consult the planner", planner.replanCalls, planner.continuationCalls)
+	}
+	// four prior rounds, the failed fifth, the budget terminal
+	if len(planner.answered) != commandOperationMaxCommandRounds+1 {
+		t.Fatalf("answerer records=%d, want %d", len(planner.answered), commandOperationMaxCommandRounds+1)
+	}
+	failed := planner.answered[commandOperationMaxCommandRounds-1]
+	if failed.Result.Status != operation.StatusFailed || failed.Plan.ID != failing.ID {
+		t.Fatalf("fifth record=%s/%s, want the failed round of %s", failed.Plan.ID, failed.Result.Status, failing.ID)
+	}
+	last := planner.answered[len(planner.answered)-1]
+	if last.Result.Status != operation.StatusBudgetExhausted || last.Plan.ID != failing.ID || !strings.Contains(last.Result.OutputPreview, "command-round budget exhausted") {
+		t.Fatalf("terminal record=%s/%s preview=%q, want the command-round budget terminal for %s", last.Plan.ID, last.Result.Status, last.Result.OutputPreview, failing.ID)
+	}
+	if !strings.Contains(answer, "final: command operation command-round budget exhausted") {
+		t.Fatalf("answer must be synthesised over the budget terminal:\n%s", answer)
 	}
 }
 

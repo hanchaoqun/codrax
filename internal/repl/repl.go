@@ -4872,7 +4872,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				currentPlan.ID, len(lint.Issues), oneLineClamp(lint.Summary(), 240), repairRounds, commandRounds)
 		} else {
 			if commandRounds >= commandOperationCommandRoundLimit(ownRecords) {
-				result = commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+				result = commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, r.language)
 				currentPlan.Status = result.Status
 				r.operationHistory = append(r.operationHistory, currentPlan)
 				r.appendCommandOperationResult(currentPlan, result)
@@ -4907,7 +4907,8 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 			currentPlan.ID, result.Status, len(result.StepResults), repairRounds, commandRounds)
 		r.renderCommandOperationRoundResult(currentPlan, result)
 
-		if result.Status == operation.StatusFailed && !commandResultTimedOut(result) && repairRounds < commandOperationMaxRepairRounds && r.operationPlanner != nil {
+		if result.Status == operation.StatusFailed && !commandResultTimedOut(result) && repairRounds < commandOperationMaxRepairRounds && r.operationPlanner != nil &&
+			commandRounds < commandOperationCommandRoundLimit(ownRecords) {
 			replanner, ok := r.operationPlanner.(CommandOperationReplanner)
 			if ok {
 				r.startOperationSynthesisSpinner()
@@ -4985,7 +4986,15 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 			}
 		}
 		if commandOperationRepairBudgetExhausted(result, repairRounds) {
-			budget := commandOperationBudgetResult(currentPlan, "command operation repair budget exhausted before the user goal was fully satisfied")
+			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetRepairRounds, r.language)
+			r.appendCommandOperationResult(currentPlan, budget)
+			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
+			result = budget
+			r.renderCommandOperationRoundResult(currentPlan, result)
+		} else if commandOperationFailedRoundCommandBudgetExhausted(result, commandRounds, ownRecords) {
+			logging.Info("[repl/operation] command failed round at the command-round limit plan_id=%s command_rounds=%d limit=%d — budget terminal without replan",
+				currentPlan.ID, commandRounds, commandOperationCommandRoundLimit(ownRecords))
+			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, r.language)
 			r.appendCommandOperationResult(currentPlan, budget)
 			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			result = budget
@@ -5103,14 +5112,14 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 			}
 		}
 		if commandOperationMaterialEvaluationNeedsBudget(result, materialEvaluation, ownRecords) {
-			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, r.language)
 			r.appendCommandOperationResult(currentPlan, budget)
 			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			result = budget
 			r.renderCommandOperationRoundResult(currentPlan, result)
 		}
 		if commandOperationContinuationBudgetExhausted(currentPlan, result, ownRecords) {
-			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
+			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, r.language)
 			r.appendCommandOperationResult(currentPlan, budget)
 			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			result = budget
@@ -5563,8 +5572,11 @@ func (r *REPL) renderCommandOperationHandoff() string {
 	var b strings.Builder
 	for i := start; i < len(r.operationResults); i++ {
 		rec := r.operationResults[i]
-		fmt.Fprintf(&b, "operation_result plan_id=%s status=%s request=%q\n",
-			rec.Plan.ID, rec.Result.Status, oneLineClamp(rec.Plan.RequestText, 200))
+		fmt.Fprintf(&b, "operation_result plan_id=%s status=%s", rec.Plan.ID, rec.Result.Status)
+		if fc := strings.TrimSpace(rec.Result.FailureClass); fc != "" {
+			fmt.Fprintf(&b, " failure_class=%s", fc)
+		}
+		fmt.Fprintf(&b, " request=%q\n", oneLineClamp(rec.Plan.RequestText, 200))
 		if strings.TrimSpace(rec.Plan.Goal) != "" {
 			fmt.Fprintf(&b, "  goal=%q\n", oneLineClamp(rec.Plan.Goal, 240))
 		}
@@ -5671,7 +5683,12 @@ func commandResultTimedOut(result operation.CommandOperationResult) bool {
 	return false
 }
 
+// commandOperationPrimaryFailureClass reads the result-level class of a
+// terminal or degraded round first, then the first classified step.
 func commandOperationPrimaryFailureClass(result operation.CommandOperationResult) string {
+	if fc := strings.TrimSpace(result.FailureClass); fc != "" {
+		return fc
+	}
 	for _, step := range result.StepResults {
 		if fc := strings.TrimSpace(step.FailureClass); fc != "" {
 			return fc
@@ -5684,6 +5701,29 @@ func commandOperationRepairBudgetExhausted(result operation.CommandOperationResu
 	return result.Status == operation.StatusFailed &&
 		replanAttempts >= commandOperationMaxRepairRounds &&
 		!commandResultTimedOut(result)
+}
+
+// commandOperationFailedRoundCommandBudgetExhausted is true for a failed
+// (not timed-out) round whose counter already stands at the operation's
+// command-round limit — the same precise signal the continuation lanes
+// pre-gate on. Such a round mints the command-round budget terminal
+// directly: no replanner call, no park, no approval prompt, in the REPL
+// loop and the CLI lane alike. Between the base limit and the
+// evaluation-granted extended limit the counter is below the limit, so
+// replanning stays allowed. When the repair rounds are exhausted on the
+// same failed round the repair-budget terminal (the narrower axis) is
+// minted instead; neither arm consults the replanner.
+//
+// EVOLUTION RECORD (review round seven #0): the replan lane was gated on
+// status/timeout/repair rounds/planner only, so a failed round at the
+// limit consulted the replanner (one wasted LLM call); a high-risk repair
+// parked with the counter carried at the limit and the panel asked for
+// /approve, which the loop then refused before executor.Execute, while a
+// low-risk repair auto-continued into the same refusal.
+func commandOperationFailedRoundCommandBudgetExhausted(result operation.CommandOperationResult, commandRounds int, ownRecords commandOperationOwnRecords) bool {
+	return result.Status == operation.StatusFailed &&
+		!commandResultTimedOut(result) &&
+		commandRounds >= commandOperationCommandRoundLimit(ownRecords)
 }
 
 // commandOperationContinuationBudgetExhausted reads the operation's OWN
@@ -5704,20 +5744,52 @@ func commandOperationExecutedRoundCount(ownRecords commandOperationOwnRecords) i
 	return count
 }
 
-func commandOperationBudgetResult(plan operation.CommandOperationPlan, reason string) operation.CommandOperationResult {
+// commandOperationBudgetAxis names the budget a terminal exhausted: the
+// command-round counter or the repair rounds.
+type commandOperationBudgetAxis string
+
+const (
+	commandOperationBudgetCommandRounds commandOperationBudgetAxis = "command_rounds"
+	commandOperationBudgetRepairRounds  commandOperationBudgetAxis = "repair_rounds"
+)
+
+// commandOperationBudgetReason is the one sentence a budget terminal shows
+// on the panel and hands to the answerer, in the session language.
+func commandOperationBudgetReason(axis commandOperationBudgetAxis, lang string) string {
+	if axis == commandOperationBudgetRepairRounds {
+		if isZh(lang) {
+			return "修复轮次预算已用尽，用户目标尚未完全达成，将基于已有结果作答。"
+		}
+		return "command operation repair budget exhausted before the user goal was fully satisfied"
+	}
+	if isZh(lang) {
+		return "命令轮次预算已用尽，用户目标尚未完全达成，将基于已有结果作答。"
+	}
+	return "command operation command-round budget exhausted before the user goal was fully satisfied"
+}
+
+// commandOperationBudgetResult mints the budget terminal of an operation.
+// A terminal is not a step outcome, so it carries no StepResults: the
+// panel renders it through the step-less Note shape and consumers read
+// its class from the result-level FailureClass.
+//
+// EVOLUTION RECORD (review round seven #2): since af5825f3a the terminal
+// minted a synthetic step with no StepID and the reason in both Error and
+// OutputPreview, so the panel printed a "1. step" row with an empty
+// backticked id and the status, followed by the reason twice (Error and
+// Output), in the approve, auto-execute and CLI lanes.
+func commandOperationBudgetResult(plan operation.CommandOperationPlan, axis commandOperationBudgetAxis, lang string) operation.CommandOperationResult {
 	return operation.CommandOperationResult{
 		PlanID:        plan.ID,
 		Status:        operation.StatusBudgetExhausted,
-		OutputPreview: reason,
-		StepResults: []operation.CommandStepResult{{
-			Status:        operation.StatusBudgetExhausted,
-			OutputPreview: reason,
-			Error:         reason,
-			FailureClass:  "budget_exhausted",
-		}},
+		OutputPreview: commandOperationBudgetReason(axis, lang),
+		FailureClass:  "budget_exhausted",
 	}
 }
 
+// commandOperationStructuredToolParamFailureResult is the degraded round
+// minted when a planner call's structured parameters stay malformed; like
+// the budget terminal it is not a step outcome and carries no StepResults.
 func commandOperationStructuredToolParamFailureResult(plan operation.CommandOperationPlan, err error, lang string) (operation.CommandOperationResult, bool) {
 	var paramErr *replStructuredToolParamError
 	if !errors.As(err, &paramErr) {
@@ -5731,12 +5803,7 @@ func commandOperationStructuredToolParamFailureResult(plan operation.CommandOper
 		PlanID:        plan.ID,
 		Status:        operation.StatusFailed,
 		OutputPreview: reason,
-		StepResults: []operation.CommandStepResult{{
-			Status:        operation.StatusFailed,
-			OutputPreview: reason,
-			Error:         reason,
-			FailureClass:  "structured_tool_params",
-		}},
+		FailureClass:  "structured_tool_params",
 	}, true
 }
 

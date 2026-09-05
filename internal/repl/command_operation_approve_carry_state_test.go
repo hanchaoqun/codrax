@@ -35,6 +35,15 @@ import (
 // resumed with ReplanAttempts=0 and an approved failure restarted the
 // repair budget (see command_operation_approve_budget_carry_test.go); the
 // two *_after_repair_* arms below were red there (replan_attempts=0).
+//
+// EVOLUTION RECORD (review round seven #1): every earlier arm parked with
+// CommandRounds == len(Own), so a resume that derived the counter from
+// len(resume.Own) stayed green everywhere. A lint-failed continuation is a
+// synthetic failed own round that spends no counter; the
+// *_after_lint_failed_continuation_* arm below pins that park shape
+// (own=2, command_rounds=1) and pin j in the budget-carry file pins the
+// equal remainder on resume (red under the len(Own) derivation, scratch
+// overlay).
 func TestCommandOperationParkedPlanCarriesOperationState(t *testing.T) {
 	const (
 		goRound = `{"status":"ready","risk_level":"low","requires_confirmation":false,"continue_after":true,"work_dir":".","goal":"print go version","steps":[{"id":"s1","title":"show go version","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`
@@ -182,6 +191,32 @@ func TestCommandOperationParkedPlanCarriesOperationState(t *testing.T) {
 		carry := requireCarry(t, r, 0, 1, 1, 1)
 		if carry.Own[0].Result.Status != operation.StatusFailed {
 			t.Fatalf("carry own rounds = %+v, want the failed probe round", carry.Own)
+		}
+	})
+	t.Run("in_loop_repair_after_lint_failed_continuation_carries_uncounted_round", func(t *testing.T) {
+		// the continuation fails plan lint (its shell starts with a pipe),
+		// so it is recorded as a synthetic failed own round without
+		// spending the counter; the repair then parks with
+		// CommandRounds=1 and two own rounds (review round seven #1: the
+		// counter is a carried value, not len(Own))
+		adapter := &scriptedChatAdapter{responses: []llm.Response{
+			commandOperationPlanResp(goRound),
+			commandOperationPlanResp(approveBudgetLintFailedContinuation),
+			commandOperationPlanResp(highPark(t)),
+		}}
+		r := newREPL(t, lowOperation, adapter, "print the go version, filter it, then record a marker file\n/exit\n")
+		if err := r.Loop(); err != nil {
+			t.Fatalf("Loop: %v", err)
+		}
+		if len(adapter.calls) != 3 {
+			t.Fatalf("adapter calls=%d, want 3 (planner, continuation, repair)", len(adapter.calls))
+		}
+		carry := requireCarry(t, r, 0, 2, 1, 1)
+		if carry.Own[0].Result.Status != operation.StatusExecuted || carry.Own[1].Result.Status != operation.StatusFailed {
+			t.Fatalf("carry own rounds = %+v, want the executed go round then the lint-failed continuation", carry.Own)
+		}
+		if got := commandOperationPrimaryFailureClass(carry.Own[1].Result); got != "invalid_plan" {
+			t.Fatalf("lint-failed own round failure class=%q, want invalid_plan", got)
 		}
 	})
 	t.Run("followup_carries_window_as_context_only", func(t *testing.T) {

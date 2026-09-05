@@ -1208,8 +1208,11 @@ func operationPlanRepairContext(plan operation.CommandOperationPlan) string {
 
 func operationResultRepairContext(result operation.CommandOperationResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "result plan_id=%s status=%s output_preview=%q payload_ref=%s\n",
-		result.PlanID, result.Status, oneLineClamp(result.OutputPreview, 600), result.PayloadRef)
+	fmt.Fprintf(&b, "result plan_id=%s status=%s", result.PlanID, result.Status)
+	if fc := strings.TrimSpace(result.FailureClass); fc != "" {
+		fmt.Fprintf(&b, " failure_class=%s", fc)
+	}
+	fmt.Fprintf(&b, " output_preview=%q payload_ref=%s\n", oneLineClamp(result.OutputPreview, 600), result.PayloadRef)
 	for i, step := range result.StepResults {
 		if i >= 8 {
 			fmt.Fprintf(&b, "  omitted_step_results=%d\n", len(result.StepResults)-i)
@@ -1283,7 +1286,14 @@ func renderCommandPlanForPrompt(plan operation.CommandOperationPlan) string {
 
 func renderCommandResultForPrompt(result operation.CommandOperationResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "previous_result plan_id=%s status=%s\n", result.PlanID, result.Status)
+	fmt.Fprintf(&b, "previous_result plan_id=%s status=%s", result.PlanID, result.Status)
+	if fc := strings.TrimSpace(result.FailureClass); fc != "" {
+		// a terminal or degraded round classified at the result level
+		// (review round seven #2): the class the evaluator and answerer
+		// used to read from the synthetic step
+		fmt.Fprintf(&b, " failure_class=%s", fc)
+	}
+	b.WriteString("\n")
 	if strings.TrimSpace(result.OutputPreview) != "" {
 		fmt.Fprintf(&b, "result_summary=%q\n", oneLineClamp(result.OutputPreview, 2000))
 	}
