@@ -53,29 +53,63 @@ import (
 // display or raw. A local with conflicting lanes, a parameter outside the
 // three names, a selector outside the field set, a call outside the helper
 // set, or any other expression is an unrecognized shape and is red (§40.50
-// ruling — the census fails loud instead of skipping). Floors keep a
-// silently empty scan red. Self-red: swapping (line, display) at any
-// operationDispatch site, (expanded, line) at the template dispatch site,
-// or handing a literal in the request slot (the round-three #5 shape
-// `executeCommandOperationPlan(plan, "/approve", "/approve")`) is red.
+// ruling — the census fails loud instead of skipping).
+//
+// Call shape (review round four #7): a dispatcher site is classified only
+// when it is a direct selector call on the enclosing method's receiver
+// (`r.<dispatcher>(…)` inside a *REPL method). Every other reference to a
+// dispatcher name — a method value (`exec := r.dispatch`), a call through a
+// receiver copy (`self := r; self.dispatch(…)`), a method expression
+// (`(*REPL).dispatch(r, …)`), a call in a non-method function or on
+// another receiver — is red as an unrecognized dispatch shape; the census
+// never counts a site it did not classify. Site counts are exact
+// (requestDisplayDispatchSiteRoster): an added or removed site is red until
+// the roster is updated, so a new site cannot slip in unclassified.
+// Self-red (TestCommandOperationRequestDisplayCensusSelfRed): each of those
+// shapes, the round-three #5 literal-in-request-slot shape
+// `executeCommandOperationPlan(plan, "/approve", "/approve")`, a swapped
+// (display, request) pair, and roster drift in either direction.
 func TestCommandOperationRequestDisplayArgumentOrderCensus(t *testing.T) {
 	problems, counts := requestDisplayCensus(t, ".")
+	problems = append(problems, requestDisplayRosterProblems(counts, requestDisplayDispatchSiteRoster)...)
 	if len(problems) > 0 {
 		sort.Strings(problems)
 		t.Fatalf("request/display argument-order census: %d problem(s):\n  %s", len(problems), strings.Join(problems, "\n  "))
 	}
-	floors := map[string]int{
-		"operationDispatch":                  3, // clarification resume, user-mode arm, RouteOperation arm
-		"executeCommandOperationPlan":        3, // validate-and-run, initial auto-execute, /approve
-		"executeCommandOperationPlanAttempt": 5,
-		"dispatch":                           5, // follow-up replay ×3, template expansion, typed line, one-shot user mode
-	}
-	for callee, floor := range floors {
-		if counts[callee] < floor {
-			t.Fatalf("census floor: %d %s call site(s) classified, want ≥ %d (the scan went silently narrow)", counts[callee], callee, floor)
+	t.Logf("request/display census: classified call sites per dispatcher = %v", counts)
+}
+
+// requestDisplayDispatchSiteRoster is the exact number of direct dispatcher
+// call sites in package repl's non-test files. A site added anywhere is red
+// here until it is registered (and therefore classified); a site removed is
+// red until it is retired. EVOLUTION RECORD (review round four #7): the
+// former floors were lower bounds and caught only a removed site; a site
+// added through a method value or a receiver copy was neither classified
+// nor counted and stayed green.
+var requestDisplayDispatchSiteRoster = map[string]int{
+	"operationDispatch":                   3, // clarification resume, user-mode arm, RouteOperation arm
+	"executeCommandOperationPlan":         2, // validate-and-run, initial auto-execute
+	"executeCommandOperationPlanAttempt":  7, // follow-up lint / auto-execute, /approve (carry resume), replan auto-execute, continuation auto-execute, provider-to-command continuation, one-shot user mode
+	"dispatch":                            6, // follow-up replay ×3, template expansion, typed line, one-shot user mode
+	"dispatchWithUserMode":                1,
+	"resumeCommandOperationClarification": 1,
+}
+
+// requestDisplayRosterProblems compares classified site counts with the
+// exact roster in both directions.
+func requestDisplayRosterProblems(counts, roster map[string]int) []string {
+	var problems []string
+	for callee, want := range roster {
+		if got := counts[callee]; got != want {
+			problems = append(problems, fmt.Sprintf("roster: %d direct %s call site(s) classified, roster registers %d — register an added site (it is classified above) or retire a removed one", got, callee, want))
 		}
 	}
-	t.Logf("request/display census: classified call sites per dispatcher = %v", counts)
+	for callee := range counts {
+		if _, ok := roster[callee]; !ok {
+			problems = append(problems, fmt.Sprintf("roster: %s is classified but not registered in requestDisplayDispatchSiteRoster", callee))
+		}
+	}
+	return problems
 }
 
 // requestDisplayDispatchers maps each dispatcher to the (request, display)
@@ -125,9 +159,7 @@ func requestDisplayCensus(t *testing.T, dir string) ([]string, map[string]int) {
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
 	}
-	var problems []string
-	counts := map[string]int{}
-	files := 0
+	var files []*ast.File
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -137,51 +169,90 @@ func requestDisplayCensus(t *testing.T, dir string) ([]string, map[string]int) {
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}
-		files++
+		files = append(files, f)
+	}
+	if len(files) < 20 {
+		t.Fatalf("census scanned %d non-test files in %s, want ≥ 20 (wrong directory?)", len(files), dir)
+	}
+	return requestDisplayCensusFiles(fset, files)
+}
+
+// requestDisplayCensusFiles is the census proper over parsed files: every
+// direct `<receiver>.<dispatcher>(…)` call inside a *REPL method is
+// classified and counted; any other reference to a dispatcher name is red.
+func requestDisplayCensusFiles(fset *token.FileSet, files []*ast.File) ([]string, map[string]int) {
+	var problems []string
+	counts := map[string]int{}
+	for _, f := range files {
+		name := filepath.Base(fset.Position(f.Pos()).Filename)
 		for _, decl := range f.Decls {
 			fd, ok := decl.(*ast.FuncDecl)
 			if !ok || fd.Body == nil {
 				continue
 			}
+			recv := replMethodReceiverName(fd)
 			c := newLaneClassifier(fset, fd)
+			// dispatcher-named selectors that are the Fun of a call — every
+			// other dispatcher-named selector is a method value or a
+			// reference outside a call and is reported below.
+			calleeSel := map[*ast.SelectorExpr]bool{}
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				if recv, ok := sel.X.(*ast.Ident); !ok || recv.Name != "r" {
-					return true
-				}
-				idx, ok := requestDisplayDispatchers[sel.Sel.Name]
-				if !ok {
-					return true
-				}
-				counts[sel.Sel.Name]++
-				site := fmt.Sprintf("%s:%d %s.%s", name, fset.Position(call.Pos()).Line, fd.Name.Name, sel.Sel.Name)
-				if len(call.Args) <= idx[1] {
-					problems = append(problems, site+": fewer arguments than the (request, display) slots — unrecognized call shape")
-					return true
-				}
-				reqLane, reqWhy := c.lane(call.Args[idx[0]])
-				dispLane, dispWhy := c.lane(call.Args[idx[1]])
-				if reqLane != laneRequest && reqLane != laneRaw {
-					problems = append(problems, fmt.Sprintf("%s: request slot carries %s (%s lane: %s) — want the request text or the raw line", site, exprText(call.Args[idx[0]]), reqLane, reqWhy))
-				}
-				if dispLane != laneDisplay && dispLane != laneRaw {
-					problems = append(problems, fmt.Sprintf("%s: display slot carries %s (%s lane: %s) — want the display form or the raw line", site, exprText(call.Args[idx[1]]), dispLane, dispWhy))
+				switch v := n.(type) {
+				case *ast.CallExpr:
+					sel, ok := v.Fun.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					idx, ok := requestDisplayDispatchers[sel.Sel.Name]
+					if !ok {
+						return true
+					}
+					calleeSel[sel] = true
+					site := fmt.Sprintf("%s:%d %s.%s", name, fset.Position(v.Pos()).Line, fd.Name.Name, sel.Sel.Name)
+					if x, ok := sel.X.(*ast.Ident); !ok || recv == "" || x.Name != recv {
+						problems = append(problems, fmt.Sprintf("%s: dispatcher called through %s instead of the enclosing *REPL method's receiver — receiver copy, method expression, non-method function or another receiver; unrecognized dispatch shape", site, exprText(sel.X)))
+						return true
+					}
+					counts[sel.Sel.Name]++
+					if len(v.Args) <= idx[1] {
+						problems = append(problems, site+": fewer arguments than the (request, display) slots — unrecognized call shape")
+						return true
+					}
+					reqLane, reqWhy := c.lane(v.Args[idx[0]])
+					dispLane, dispWhy := c.lane(v.Args[idx[1]])
+					if reqLane != laneRequest && reqLane != laneRaw {
+						problems = append(problems, fmt.Sprintf("%s: request slot carries %s (%s lane: %s) — want the request text or the raw line", site, exprText(v.Args[idx[0]]), reqLane, reqWhy))
+					}
+					if dispLane != laneDisplay && dispLane != laneRaw {
+						problems = append(problems, fmt.Sprintf("%s: display slot carries %s (%s lane: %s) — want the display form or the raw line", site, exprText(v.Args[idx[1]]), dispLane, dispWhy))
+					}
+				case *ast.SelectorExpr:
+					if _, ok := requestDisplayDispatchers[v.Sel.Name]; !ok || calleeSel[v] {
+						return true
+					}
+					problems = append(problems, fmt.Sprintf("%s:%d %s: reference to dispatcher %s outside a direct call — method value or other non-call reference; unrecognized dispatch shape", name, fset.Position(v.Pos()).Line, fd.Name.Name, exprText(v)))
 				}
 				return true
 			})
 		}
 	}
-	if files < 20 {
-		t.Fatalf("census scanned %d non-test files in %s, want ≥ 20 (wrong directory?)", files, dir)
-	}
 	return problems, counts
+}
+
+// replMethodReceiverName returns the receiver identifier of a *REPL method
+// ("" for a non-method function or a method of another type).
+func replMethodReceiverName(fd *ast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) != 1 || len(fd.Recv.List[0].Names) != 1 {
+		return ""
+	}
+	star, ok := fd.Recv.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return ""
+	}
+	if typ, ok := star.X.(*ast.Ident); !ok || typ.Name != "REPL" {
+		return ""
+	}
+	return fd.Recv.List[0].Names[0].Name
 }
 
 // laneClassifier resolves the lane of an expression inside one function
@@ -503,6 +574,8 @@ func exprText(e ast.Expr) string {
 		return exprText(v.Fun) + "(…)"
 	case *ast.ParenExpr:
 		return "(" + exprText(v.X) + ")"
+	case *ast.StarExpr:
+		return "*" + exprText(v.X)
 	case *ast.BinaryExpr:
 		return exprText(v.X) + " " + v.Op.String() + " " + exprText(v.Y)
 	}

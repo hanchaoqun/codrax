@@ -245,7 +245,7 @@ var extractorVersions = map[string]int{
 	types.LangProto:      4,  // typed callable surface epoch shared with cache schema
 	types.LangRust:       12, // turbofish callee rows keep the bare name (B1554)
 	types.LangC:          11, // shared C/C++ extractor: template callee names unwrapped (B1554)
-	types.LangCpp:        15, // comparison-chain discriminator keyed on the callee resolving to a declared value through lambdas / out-of-line classes / file scope; qualifier chains of any depth unwrap to the terminal name (§40.59 收编复核三轮)
+	types.LangCpp:        16, // comparison-chain discriminator keyed on the grammar shape alone (one top-level `&&`/`||` binary_expression as the template_argument_list → no row; the per-file name resolver is gone); qualifier chains of any depth unwrap to the terminal name (§40.59 收编复核四轮)
 }
 
 type cacheFileInfosManifest struct {

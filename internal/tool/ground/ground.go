@@ -101,9 +101,19 @@ var (
 	// out-of-line `T Parser<T>::parse(`), and — after the parameter list —
 	// the Dart `async` / `async*` / `sync*` body opener beside the C++ /
 	// Java tails it already knew.
-	// The parameter list admits one level of brace nesting so a default
-	// brace argument (`int parse(Opts o = {}) {`) stays inside the atom.
-	cFamilyDefinitionLineRe = regexp.MustCompile(`^\s*(` + templatePrefixRe + `\s*)?(?:(?:__device__|__global__|__host__|abstract|async|constexpr|extern|final|friend|inline|native|open|override|private|protected|public|static|synchronized|virtual)\s+)*(?:` + typeParameterListRe + `\s+)?(?:[A-Za-z_][A-Za-z0-9_:<>\[\]\*&?,.]*\s+)+(?:[A-Za-z_~][A-Za-z0-9_~]*(?:` + typeParameterListRe + `)?::)*[A-Za-z_~][A-Za-z0-9_~]*(?:\s*` + typeParameterListRe + `)?\s*\((?:[^;{}]|\{[^;{}]*\})*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:throws\s+[^{};]+)?(?:->\s*[^{};]+)?(?:(?:async|sync)\*?\s*)?(?:\{|$)`)
+	// The parameter atom is the plain `[^;{}]*`: a `{` inside the
+	// parentheses ends the shape. Admitting one brace level so a default
+	// brace argument (`int parse(Opts o = {}) {`) stayed inside the atom
+	// (§40.59 收编复核三轮 ⑤) made every semicolon-free call statement of the
+	// form `<word> name({…})` — Go `go worker(Job{ID: 1})`, JS `export
+	// default new Router({ routes })` / `new Vue({ el: '#app' })`, Python
+	// `assert check({"a": 1})`, Ruby `render json: build({a: 1})` — match
+	// the `$` tail as a C-style signature and refused genuine call sites
+	// on the regex lane; the regex cannot tell that argument from that
+	// default, so the atom keeps the base spelling and the
+	// default-brace-argument definition is a disclosed residual (accepted,
+	// §40.59 收编复核四轮 #3).
+	cFamilyDefinitionLineRe = regexp.MustCompile(`^\s*(` + templatePrefixRe + `\s*)?(?:(?:__device__|__global__|__host__|abstract|async|constexpr|extern|final|friend|inline|native|open|override|private|protected|public|static|synchronized|virtual)\s+)*(?:` + typeParameterListRe + `\s+)?(?:[A-Za-z_][A-Za-z0-9_:<>\[\]\*&?,.]*\s+)+(?:[A-Za-z_~][A-Za-z0-9_~]*(?:` + typeParameterListRe + `)?::)*[A-Za-z_~][A-Za-z0-9_~]*(?:\s*` + typeParameterListRe + `)?\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:throws\s+[^{};]+)?(?:->\s*[^{};]+)?(?:(?:async|sync)\*?\s*)?(?:\{|$)`)
 	// methodDefinitionLineRe is the bare method signature `name(...)`
 	// followed by a return type, throws/where clause, body or arrow. It
 	// deliberately spells no type-parameter list: `name<…>(…) {` is also
@@ -138,10 +148,15 @@ var (
 	// continuation `Foo::bar(x) : Foo::baz(y);` fails the second signal,
 	// and a one-line ternary `Foo::ok(x) ? Foo::bar(x) : Foo::baz(y)` never
 	// spans the parameter atom, whose plain bytes exclude `(` / `)` (one
-	// nested level of parentheses or braces is admitted for default
-	// arguments). An out-of-line constructor WITHOUT an initialiser list
-	// (`Parser::Parser(int x) {`) is not distinguishable from a Ruby
-	// `Foo::bar(x) {` block call by shape and keeps the base behaviour.
+	// nested level of parentheses or braces is admitted for a default
+	// argument). Unlike the C-family atom above, this atom may admit the
+	// brace: the `) : ident(` tail plus the name agreement are two typed
+	// signals no call statement in a semicolon-free language spells, so
+	// `Parser::Parser(Opts o = {}) : o_(o) {` stays refused without
+	// collateral (§40.59 收编复核四轮 #3 合流更正). An out-of-line
+	// constructor WITHOUT an initialiser list (`Parser::Parser(int x) {`)
+	// is not distinguishable from a Ruby `Foo::bar(x) {` block call by
+	// shape and keeps the base behaviour.
 	constructorInitialiserDefinitionLineRe = regexp.MustCompile(`^\s*(?:` + templatePrefixRe + `\s*)?(?:[A-Za-z_][A-Za-z0-9_]*(?:` + typeParameterListRe + `)?::)*([A-Za-z_][A-Za-z0-9_]*)(?:` + typeParameterListRe + `)?::([A-Za-z_][A-Za-z0-9_]*)\s*\((?:[^;(){}]|\([^;(){}]*\)|\{[^;(){}]*\})*\)\s*(?:noexcept\s*)?(?:try\s*)?:\s*[A-Za-z_][A-Za-z0-9_:]*(?:` + typeParameterListRe + `)?\s*[({]`)
 	assignedCallableDefinitionLineRe       = regexp.MustCompile(`^\s*(?:(?:export|default|public|private|protected|static|readonly|final)\s+)*(?:(?:const|let|var|val)\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b[^{(]*\([^)]*\)|\([^)]*\)\s*(?::\s*[^=]+)?=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>|lambda\b)`)
 	cangjieOperatorDefinitionLineRe        = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|open|static|operator|sealed|abstract|foreign|override|redef|mut|const|unsafe)\s+)*operator\s+func\s+[^\s()]+\s*\(`)

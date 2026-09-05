@@ -725,6 +725,7 @@ type REPL struct {
 	dataTaskMaxDataRounds       int
 	operationPolicy             operation.CommandPolicy
 	pendingOperation            *operation.CommandOperationPlan
+	pendingOperationCarry       *pendingCommandOperationCarry
 	pendingCommandClarification *pendingCommandClarification
 	pendingProviderOperation    *pendingProviderOperation
 	providerWorkflow            *operation.WorkflowInstance
@@ -2594,9 +2595,8 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		if plan.Status == operation.StatusReady {
-			r.pendingOperation = &plan
 			r.pendingCommandClarification = nil
-			r.savePendingOperationState()
+			r.parkCommandOperationPlan(plan, nil, 0)
 		} else if plan.Status == operation.StatusNeedsClarification {
 			r.pendingCommandClarification = &pendingCommandClarification{
 				OriginalLine: line,
@@ -2733,8 +2733,7 @@ func (r *REPL) maybeDispatchCommandOperationFollowup(line, display string, polic
 			r.executeCommandOperationPlanAttempt(nextPlan, requestText, display, 0, records)
 			return true
 		}
-		r.pendingOperation = &nextPlan
-		r.savePendingOperationState()
+		r.parkCommandOperationPlan(nextPlan, records, 0)
 	}
 	r.operationHistory = append(r.operationHistory, nextPlan)
 	msg := commandOperationContinuationIntro(r.language, nextPlan)
@@ -4775,7 +4774,16 @@ func (r *REPL) handleOperationApproveCmd(line string) {
 	if request == "" {
 		request = "/approve"
 	}
-	r.executeCommandOperationPlan(plan, request, "/approve")
+	// EVOLUTION RECORD (batch six fold-in, review round four #9): the
+	// approved plan is the NEXT plan of an operation whose earlier rounds
+	// may already have run (a parked continuation or repair plan). Since
+	// fa9a90132 this arm resumed with an empty record list, so the answerer
+	// was asked to answer the full request from the approved round alone
+	// and the repair budget restarted at zero. The carry parked with the
+	// plan (keyed by its ID) restores the operation's records — every
+	// executed round and its round budget — and the repair rounds spent.
+	carry := r.takePendingOperationCarry(plan.ID)
+	r.executeCommandOperationPlanAttempt(plan, request, "/approve", carry.ReplanAttempts, carry.Records)
 }
 
 func (r *REPL) handleOperationRejectCmd(line string) {
@@ -4784,6 +4792,7 @@ func (r *REPL) handleOperationRejectCmd(line string) {
 	plan.Status = operation.StatusRejected
 	r.operationHistory = append(r.operationHistory, plan)
 	r.pendingOperation = nil
+	r.pendingOperationCarry = nil
 	r.clearPendingOperationState()
 	msg := operationRejectedMsg(r.language, plan.ID, reason)
 	r.success(msg)
@@ -4800,6 +4809,7 @@ func (r *REPL) executeCommandOperationPlan(plan operation.CommandOperationPlan, 
 
 func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperationPlan, request, display string, replanAttempts int, records []commandOperationResultRecord) {
 	r.pendingOperation = nil
+	r.pendingOperationCarry = nil
 	r.clearPendingOperationState()
 	r.runInFlight.Store(true)
 	ctx := r.startTurn()
@@ -4948,8 +4958,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 							r.startOperationExecutionSpinner()
 							continue
 						}
-						r.pendingOperation = &revisedPlan
-						r.savePendingOperationState()
+						r.parkCommandOperationPlan(revisedPlan, records, repairRounds)
 					}
 					r.operationHistory = append(r.operationHistory, revisedPlan)
 					msg := commandOperationReplanIntro(r.language, revisedPlan)
@@ -5064,8 +5073,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 									continue
 								}
 								if nextPlan.Status == operation.StatusReady {
-									r.pendingOperation = &nextPlan
-									r.savePendingOperationState()
+									r.parkCommandOperationPlan(nextPlan, records, 0)
 								}
 								r.operationHistory = append(r.operationHistory, nextPlan)
 								msg := commandOperationContinuationIntro(r.language, nextPlan)
@@ -5162,8 +5170,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 						continue
 					} else {
 						if nextPlan.Status == operation.StatusReady {
-							r.pendingOperation = &nextPlan
-							r.savePendingOperationState()
+							r.parkCommandOperationPlan(nextPlan, records, 0)
 						}
 						r.operationHistory = append(r.operationHistory, nextPlan)
 						msg := commandOperationContinuationIntro(r.language, nextPlan)
@@ -5427,8 +5434,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1, records)
 			return true
 		}
-		r.pendingOperation = &revisedPlan
-		r.savePendingOperationState()
+		r.parkCommandOperationPlan(revisedPlan, records, replanAttempts+1)
 	}
 	r.operationHistory = append(r.operationHistory, revisedPlan)
 	msg := commandOperationResultMarkdown(r.language, failedPlan, result)
@@ -5512,8 +5518,7 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 		return true
 	}
 	if nextPlan.Status == operation.StatusReady {
-		r.pendingOperation = &nextPlan
-		r.savePendingOperationState()
+		r.parkCommandOperationPlan(nextPlan, records, 0)
 	}
 	r.operationHistory = append(r.operationHistory, nextPlan)
 	msg := commandOperationRecordsMarkdown(r.language, records)
@@ -5535,6 +5540,44 @@ type commandOperationResultRecord struct {
 	// payload refs. They supply evidence to the planner/evaluator/answerer but
 	// never replace or rewrite the model's conclusion.
 	MaterialPages []commandOperationMaterialPage
+}
+
+// pendingCommandOperationCarry is the accumulated state of a multi-round
+// command operation whose NEXT plan is parked for approval: the records of
+// every round already executed (the answerer's observations, and the
+// executed-round budget derived from them) and the repair rounds already
+// spent. It is keyed by the parked plan's ID, so approval can only resume
+// the operation that plan belongs to. In-memory only: a plan restored from
+// the pending store after a restart has no carry (the earlier rounds'
+// records did not survive the restart either) and resumes from an empty
+// record list.
+type pendingCommandOperationCarry struct {
+	PlanID         string
+	Records        []commandOperationResultRecord
+	ReplanAttempts int
+}
+
+// parkCommandOperationPlan parks plan for approval together with the
+// operation state approval must resume with, and persists the plan.
+func (r *REPL) parkCommandOperationPlan(plan operation.CommandOperationPlan, records []commandOperationResultRecord, replanAttempts int) {
+	r.pendingOperation = &plan
+	r.pendingOperationCarry = &pendingCommandOperationCarry{
+		PlanID:         plan.ID,
+		Records:        append([]commandOperationResultRecord(nil), records...),
+		ReplanAttempts: replanAttempts,
+	}
+	r.savePendingOperationState()
+}
+
+// takePendingOperationCarry returns the carry parked with plan ID (a zero
+// carry when none was parked for that plan) and drops it.
+func (r *REPL) takePendingOperationCarry(planID string) pendingCommandOperationCarry {
+	carry := r.pendingOperationCarry
+	r.pendingOperationCarry = nil
+	if carry == nil || carry.PlanID != planID {
+		return pendingCommandOperationCarry{PlanID: planID}
+	}
+	return *carry
 }
 
 type providerOperationResultRecord struct {
@@ -8303,6 +8346,7 @@ func (r *REPL) enterOneShotUserMode(mode UserMode) (func(), bool) {
 
 func (r *REPL) clearOperationContextForClear() error {
 	r.pendingOperation = nil
+	r.pendingOperationCarry = nil
 	r.pendingCommandClarification = nil
 	r.pendingProviderOperation = nil
 	r.providerWorkflow = nil
@@ -10126,8 +10170,7 @@ func (r *REPL) maybeContinueProviderOperationWithCommand(ctx context.Context, fi
 		return true
 	}
 	if plan.Status == operation.StatusReady {
-		r.pendingOperation = &plan
-		r.savePendingOperationState()
+		r.parkCommandOperationPlan(plan, nil, 0)
 	}
 	r.operationHistory = append(r.operationHistory, plan)
 	msg := commandOperationContinuationIntro(r.language, plan)
@@ -11220,6 +11263,7 @@ func (r *REPL) handleCancelCmd(line string) {
 		plan.Status = operation.StatusCancelled
 		r.operationHistory = append(r.operationHistory, plan)
 		r.pendingOperation = nil
+		r.pendingOperationCarry = nil
 		r.clearPendingOperationState()
 		r.info(operationCancelledMsg(r.language, plan.ID))
 		return

@@ -375,7 +375,6 @@ func cDeclaratorName(node *sitter.Node, src []byte) string {
 func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {
 	var rels []types.Relation
 	receiverDeclarations := cReceiverDeclarations(root, src)
-	scopes := newCppScopeResolver(root, src)
 	walkNamedChildren(root, true, func(node *sitter.Node) {
 		if node.Type() != "call_expression" {
 			return
@@ -386,11 +385,12 @@ func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation 
 		// the bare name so it matches the symbol table and the grounder.
 		// The one grammar ambiguity — a comparison chain `a < b && c > (d)`
 		// tree-sitter also reads as a template call — mints no row when the
-		// typed discriminator recognises it (the callee resolves to a
-		// declared value in this translation unit); every other template
-		// reading is the precise witness and keeps its bare-name row.
+		// typed discriminator recognises its exact grammar shape (one
+		// top-level `&&` / `||` binary_expression as the whole
+		// template_argument_list); every other template reading is the
+		// precise witness and keeps its bare-name row.
 		raw := node.ChildByFieldName("function")
-		if cppTemplateReadingIsComparisonChain(raw, src, scopes.resolve) {
+		if cppTemplateReadingIsComparisonChain(raw, src) {
 			return
 		}
 		fn := genericCalleeBase(raw)
