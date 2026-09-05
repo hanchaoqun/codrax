@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -136,7 +137,7 @@ func traceDBStringConstsOf(files map[string]*ast.File) map[string]string {
 
 // traceDBTypedStringConsts returns the values of every package-level constant
 // declared with the named type (e.g. the lane state keys).
-func traceDBTypedStringConsts(t *testing.T, files map[string]*ast.File, consts map[string]string, typeName string) map[string]string {
+func traceDBTypedStringConsts(t testing.TB, files map[string]*ast.File, consts map[string]string, typeName string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	for _, file := range files {
@@ -269,12 +270,23 @@ func traceDBInspectFuncBodies(file *ast.File, visit func(funcName string, node a
 	}
 }
 
-// traceDBLocalStringBindings collects, per top-level function, the local
-// identifiers bound to exactly one resolvable string (`x := "lit"`,
-// `x = const`, `var x = "lit"`); an identifier bound more than once to
-// different values is left unresolved (a variable, not a constant).
-func traceDBLocalStringBindings(file *ast.File, consts map[string]string) map[string]map[string]string {
-	out := map[string]map[string]string{}
+// traceDBStringBindings are the string locals of one function body: the
+// single-valued names with their value (`x := "lit"`, `x = const`,
+// `var x = "lit"`, `x := string(<constant>)`), and the multi-valued names —
+// bound through a tuple (`x, ok := f()`, `x, _ = f()`, `var x, y = f()`),
+// bound more than once to different values, or bound to an expression the
+// census cannot resolve — which resolve to nothing: a variable, not a
+// constant, and never the first value it happened to be bound to (round
+// six, #3).
+type traceDBStringBindings struct {
+	single map[string]string
+	multi  map[string]bool
+}
+
+// traceDBLocalStringBindings collects the string bindings of every
+// top-level function of file, by function name.
+func traceDBLocalStringBindings(file *ast.File, consts map[string]string) map[string]traceDBStringBindings {
+	out := map[string]traceDBStringBindings{}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
@@ -288,25 +300,32 @@ func traceDBLocalStringBindings(file *ast.File, consts map[string]string) map[st
 // traceDBFuncStringBindings is the per-function half of
 // traceDBLocalStringBindings, shared with the reader census (which keys its
 // state by declaration, not by name).
-func traceDBFuncStringBindings(fn *ast.FuncDecl, consts map[string]string) map[string]string {
-	locals := map[string]string{}
-	conflict := map[string]bool{}
+func traceDBFuncStringBindings(fn *ast.FuncDecl, consts map[string]string) traceDBStringBindings {
+	bindings := traceDBStringBindings{single: map[string]string{}, multi: map[string]bool{}}
 	bind := func(name string, expr ast.Expr) {
 		value, ok := traceDBResolveStateExpr(expr, consts)
 		if !ok {
-			conflict[name] = true
+			bindings.multi[name] = true
 			return
 		}
-		if prior, seen := locals[name]; seen && prior != value {
-			conflict[name] = true
+		if prior, seen := bindings.single[name]; seen && prior != value {
+			bindings.multi[name] = true
 			return
 		}
-		locals[name] = value
+		bindings.single[name] = value
+	}
+	tuple := func(names []ast.Expr) {
+		for _, lhs := range names {
+			if ident, ok := lhs.(*ast.Ident); ok {
+				bindings.multi[ident.Name] = true
+			}
+		}
 	}
 	ast.Inspect(fn.Body, func(node ast.Node) bool {
 		switch n := node.(type) {
 		case *ast.AssignStmt:
 			if len(n.Lhs) != len(n.Rhs) {
+				tuple(n.Lhs)
 				return true
 			}
 			for i, lhs := range n.Lhs {
@@ -315,6 +334,14 @@ func traceDBFuncStringBindings(fn *ast.FuncDecl, consts map[string]string) map[s
 				}
 			}
 		case *ast.ValueSpec:
+			if len(n.Values) > 0 && len(n.Names) != len(n.Values) {
+				names := make([]ast.Expr, len(n.Names))
+				for i, name := range n.Names {
+					names[i] = name
+				}
+				tuple(names)
+				return true
+			}
 			for i, name := range n.Names {
 				if i < len(n.Values) {
 					bind(name.Name, n.Values[i])
@@ -323,10 +350,22 @@ func traceDBFuncStringBindings(fn *ast.FuncDecl, consts map[string]string) map[s
 		}
 		return true
 	})
-	for name := range conflict {
-		delete(locals, name)
+	for name := range bindings.multi {
+		delete(bindings.single, name)
 	}
-	return locals
+	return bindings
+}
+
+// traceDBRecordingTB collects the fail-loud reports of a census that speaks
+// through Errorf, so a self-red can pin the exact report; everything else
+// reaches the real test.
+type traceDBRecordingTB struct {
+	testing.TB
+	problems []string
+}
+
+func (r *traceDBRecordingTB) Errorf(format string, args ...interface{}) {
+	r.problems = append(r.problems, fmt.Sprintf(format, args...))
 }
 
 // traceDBLaneStateKeyTypeName is the typed lane state key; a parameter of
@@ -364,9 +403,10 @@ var traceDBSourceRawGateCallers = map[string]int{
 // setter body, applyCoverage's forwarding of ledger.state and the
 // ledger.state forwarding of the gate coverage are the recognized non-constant
 // writes; every other unresolvable RHS, every gate call whose key argument
-// does not resolve to a declared key, and every state-shaped value written
-// under a computed Metadata key is reported as a failure (fail-loud on
-// unrecognized shapes).
+// does not resolve to a declared key, every state-shaped value written
+// under a computed Metadata key, and every resolvable value written under a
+// multi-valued local key (round six, #3) is reported as a failure
+// (fail-loud on unrecognized shapes).
 func traceDBLaneStateWriteSites(t *testing.T) ([]traceDBStateWriteSite, map[string]string) {
 	t.Helper()
 	consts, files, fset := traceDBPackageStringConsts(t)
@@ -375,8 +415,8 @@ func traceDBLaneStateWriteSites(t *testing.T) ([]traceDBStateWriteSite, map[stri
 
 // traceDBLaneStateWriteSitesOf is the write-site census over an explicit
 // file map (the package's non-test files, plus a synthetic file in a
-// self-red).
-func traceDBLaneStateWriteSitesOf(t *testing.T, consts map[string]string, files map[string]*ast.File, fset *token.FileSet) ([]traceDBStateWriteSite, map[string]string) {
+// self-red; a traceDBRecordingTB pins its fail-loud reports).
+func traceDBLaneStateWriteSitesOf(t testing.TB, consts map[string]string, files map[string]*ast.File, fset *token.FileSet) ([]traceDBStateWriteSite, map[string]string) {
 	t.Helper()
 	laneKeys := traceDBTypedStringConsts(t, files, consts, traceDBLaneStateKeyTypeName)
 	if len(laneKeys) < 7 {
@@ -431,7 +471,7 @@ func traceDBLaneStateWriteSitesOf(t *testing.T, consts map[string]string, files 
 					return value, true
 				}
 				if ident, ok := expr.(*ast.Ident); ok {
-					value, ok := locals[funcName][ident.Name]
+					value, ok := locals[funcName].single[ident.Name]
 					return value, ok
 				}
 				return "", false
@@ -485,12 +525,25 @@ func traceDBLaneStateWriteSitesOf(t *testing.T, consts map[string]string, files 
 				}
 				// Computed Metadata key: the funnel's own write is recognized;
 				// anywhere else a state-shaped value under a computed key is an
-				// evasion of the census.
+				// evasion of the census, and a resolvable value under a
+				// multi-valued local key (tuple-bound, re-bound, bound to an
+				// expression the census cannot resolve) is a write the census
+				// cannot place (round six, #3). A value the census cannot
+				// resolve under a computed key (a formatted witness list, a
+				// forwarded range value) is not a state write.
 				if ident, ok := index.(*ast.Ident); ok && ident.Name == "stateKey" && funcName == traceDBSourceRawGateFunnelName {
 					return
 				}
-				if value, ok := resolve(rhs); ok && stateShaped(value) {
+				value, ok := resolve(rhs)
+				if !ok {
+					return
+				}
+				if stateShaped(value) {
 					t.Errorf("%s:%d: state-shaped value %q written under a computed Metadata key", name, line(n), value)
+					return
+				}
+				if ident, ok := index.(*ast.Ident); ok && locals[funcName].multi[ident.Name] {
+					t.Errorf("%s:%d: %q written under a Metadata key the census cannot resolve (%s)", name, line(n), value, ident.Name)
 				}
 			case *ast.KeyValueExpr:
 				key, ok := traceDBStringLiteral(n.Key)

@@ -22,12 +22,19 @@ import (
 // ready plan, follow-up park, provider-to-command continuation) start with
 // Own=nil, CommandRounds=0 and Context = the window they already pass;
 // in-loop parks (continuation, evaluation continuation, repair) carry the
-// loop's context, own rounds and counter.
+// loop's context, own rounds, counter and repair rounds spent.
 //
 // EVOLUTION RECORD (review round five #2): on 533a939fb the carry held one
 // Records slice and the approve arm re-derived the counter from it, so a
 // follow-up parked with the cross-operation window resumed with its budget
 // already spent (see command_operation_followup_budget_test.go).
+//
+// EVOLUTION RECORD (review round six #0): on 6f98f839d the two continuation
+// parks (evaluation continuation and continuation) carried the counter but
+// not the repair rounds spent, so a continuation parked after a repair
+// resumed with ReplanAttempts=0 and an approved failure restarted the
+// repair budget (see command_operation_approve_budget_carry_test.go); the
+// two *_after_repair_* arms below were red there (replan_attempts=0).
 func TestCommandOperationParkedPlanCarriesOperationState(t *testing.T) {
 	const (
 		goRound = `{"status":"ready","risk_level":"low","requires_confirmation":false,"continue_after":true,"work_dir":".","goal":"print go version","steps":[{"id":"s1","title":"show go version","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`
@@ -60,6 +67,11 @@ func TestCommandOperationParkedPlanCarriesOperationState(t *testing.T) {
 		return r
 	}
 	lowOperation := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	// highPark is a high-risk write that parks on its risk signal even
+	// under AutoApprove
+	highPark := func(t *testing.T) string {
+		return `{"status":"ready","risk_level":"high","requires_confirmation":true,"work_dir":".","goal":"write fallback","steps":[{"id":"write","title":"write fallback","program":"touch","args":["` + filepath.Join(t.TempDir(), "marker") + `"],"risk_level":"high","side_effects":["local_file_write"]}]}`
+	}
 
 	t.Run("initial_ready_plan_starts_fresh", func(t *testing.T) {
 		adapter := &scriptedChatAdapter{responses: []llm.Response{commandOperationPlanResp(gitPark)}}
@@ -109,10 +121,56 @@ func TestCommandOperationParkedPlanCarriesOperationState(t *testing.T) {
 			t.Fatalf("carry own round = %+v, want the executed round with its evaluation attached", carry.Own[0])
 		}
 	})
+	t.Run("in_loop_continuation_after_repair_carries_repair_count", func(t *testing.T) {
+		// the probe fails and spends one repair; the auto-executed repair
+		// round continues into a high-risk continuation that parks
+		adapter := &scriptedChatAdapter{responses: []llm.Response{
+			commandOperationPlanResp(failing),
+			commandOperationPlanResp(goRound),
+			commandOperationPlanResp(highPark(t)),
+		}}
+		r := newREPL(t, lowOperation, adapter, "probe, print the go version, then record a marker file\n/exit\n")
+		r.operationPolicy.AutoApprove = true
+		if err := r.Loop(); err != nil {
+			t.Fatalf("Loop: %v", err)
+		}
+		if len(adapter.calls) != 3 {
+			t.Fatalf("adapter calls=%d, want 3 (planner, repair, continuation)", len(adapter.calls))
+		}
+		carry := requireCarry(t, r, 0, 2, 2, 1)
+		if carry.Own[0].Result.Status != operation.StatusFailed || carry.Own[1].Result.Status != operation.StatusExecuted {
+			t.Fatalf("carry own rounds = %+v, want the failed probe then the executed repair round", carry.Own)
+		}
+	})
+	t.Run("in_loop_evaluation_continuation_after_repair_carries_repair_count", func(t *testing.T) {
+		material := filepath.Join(t.TempDir(), "material.txt")
+		if err := os.WriteFile(material, []byte(strings.Repeat("material line\n", 20000)), 0o644); err != nil {
+			t.Fatalf("write material: %v", err)
+		}
+		adapter := &scriptedChatAdapter{responses: []llm.Response{
+			commandOperationPlanResp(failing),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"read the material","steps":[{"id":"read","title":"read the material file","program":"cat","args":["` + material + `"],"risk_level":"low","side_effects":[]}]}`),
+			operationEvaluationResp(`{"status":"continue_command","reason":"the observation needs a second bounded read","confidence":"high","material_coverage_status":"partial"}`),
+			commandOperationPlanResp(highPark(t)),
+		}}
+		r := newREPL(t, lowOperation, adapter, "probe, then read the complete material\n/exit\n")
+		r.runtimeAnchor = t.TempDir()
+		r.operationPolicy.AutoApprove = true
+		if err := r.Loop(); err != nil {
+			t.Fatalf("Loop: %v", err)
+		}
+		if len(adapter.calls) != 4 {
+			t.Fatalf("adapter calls=%d, want 4 (planner, repair, evaluator, continuation)", len(adapter.calls))
+		}
+		carry := requireCarry(t, r, 0, 2, 2, 1)
+		if carry.Own[0].Result.Status != operation.StatusFailed || carry.Own[1].Result.Status != operation.StatusExecuted || carry.Own[1].Evaluation == nil {
+			t.Fatalf("carry own rounds = %+v, want the failed probe then the executed repair round with its evaluation attached", carry.Own)
+		}
+	})
 	t.Run("in_loop_repair_carries_failed_round_and_repair_count", func(t *testing.T) {
 		adapter := &scriptedChatAdapter{responses: []llm.Response{
 			commandOperationPlanResp(failing),
-			commandOperationPlanResp(`{"status":"ready","risk_level":"high","requires_confirmation":true,"work_dir":".","goal":"write fallback","steps":[{"id":"write","title":"write fallback","program":"touch","args":["` + filepath.Join(t.TempDir(), "marker") + `"],"risk_level":"high","side_effects":["local_file_write"]}]}`),
+			commandOperationPlanResp(highPark(t)),
 		}}
 		r := newREPL(t, lowOperation, adapter, "record a marker file, probing first\n/exit\n")
 		// the shell-form probe is auto-eligible only under AutoApprove; the

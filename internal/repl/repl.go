@@ -5086,7 +5086,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 									continue
 								}
 								if nextPlan.Status == operation.StatusReady {
-									r.parkCommandOperationPlan(nextPlan, commandOperationAttemptState{Context: contextRecords, Own: ownRecords, CommandRounds: commandRounds})
+									r.parkCommandOperationPlan(nextPlan, commandOperationAttemptState{Context: contextRecords, Own: ownRecords, CommandRounds: commandRounds, ReplanAttempts: repairRounds})
 								}
 								r.operationHistory = append(r.operationHistory, nextPlan)
 								msg := commandOperationContinuationIntro(r.language, nextPlan)
@@ -5183,7 +5183,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 						continue
 					} else {
 						if nextPlan.Status == operation.StatusReady {
-							r.parkCommandOperationPlan(nextPlan, commandOperationAttemptState{Context: contextRecords, Own: ownRecords, CommandRounds: commandRounds})
+							r.parkCommandOperationPlan(nextPlan, commandOperationAttemptState{Context: contextRecords, Own: ownRecords, CommandRounds: commandRounds, ReplanAttempts: repairRounds})
 						}
 						r.operationHistory = append(r.operationHistory, nextPlan)
 						msg := commandOperationContinuationIntro(r.language, nextPlan)
@@ -5425,7 +5425,10 @@ type commandOperationAttemptState struct {
 	// state was captured (every executor round, failed ones included);
 	// 0 on a fresh operation.
 	CommandRounds int
-	// ReplanAttempts are the repair rounds already spent.
+	// ReplanAttempts are the repair rounds already spent, carried by every
+	// in-loop park (repair, continuation and evaluation continuation) so
+	// an approved plan is granted the same repair remainder the
+	// auto-execute lane grants.
 	ReplanAttempts int
 }
 
