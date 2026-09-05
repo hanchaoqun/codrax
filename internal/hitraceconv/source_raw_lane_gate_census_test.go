@@ -50,7 +50,11 @@ import (
 //     load-bearing roster (traceDBUnresolvedKeyForwardingWrites); a
 //     scope-declared name re-bound in the body is never single-valued and a
 //     closure parameter shadows the outer name inside its literal,
-//     resolving through the closure's own call sites (round eight).
+//     resolving through the closure's own call sites (round eight); the
+//     scopes are lexical — the body the root, every closure a child, the
+//     receiver a root declaration, every name and binding keyed by its
+//     declaration — and a compared range key resolves its operand through
+//     the key lanes or fails loud at the range (round nine).
 
 // traceDBPackageStringConsts collects every package-level string constant of
 // the non-test files of this package (value = literal, or another collected
@@ -303,20 +307,6 @@ func traceDBBoundTo(node ast.Node, parent ast.Node) (ast.Expr, bool) {
 	return nil, false
 }
 
-// traceDBBoundLocal: the local identifier node is bound to under parent, if
-// it is bound to one.
-func traceDBBoundLocal(node ast.Node, parent ast.Node) (string, bool) {
-	target, ok := traceDBBoundTo(node, parent)
-	if !ok {
-		return "", false
-	}
-	ident, ok := target.(*ast.Ident)
-	if !ok || ident.Name == "_" {
-		return "", false
-	}
-	return ident.Name, true
-}
-
 // traceDBInspectFuncBodies walks every top-level function of file, handing
 // each node to visit together with the enclosing declaration — a
 // declaration, never a name: same-named methods on different receivers are
@@ -349,120 +339,190 @@ func traceDBIsKeyType(expr ast.Expr) bool {
 	return ok && (ident.Name == "string" || ident.Name == traceDBLaneStateKeyTypeName)
 }
 
-// traceDBStringBindings are the string bindings of one function body:
+// traceDBIsMetadataSelector: the `<x>.Metadata` selector — the state map,
+// statically.
+func traceDBIsMetadataSelector(expr ast.Expr) bool {
+	sel, ok := traceDBStripParens(expr).(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "Metadata"
+}
+
+// traceDBName is one declaration of one lexical scope (round nine, #0 /
+// #1): a parameter — the receiver included — a named result, a local
+// declared with `:=` / `var`, or a range name; the unit every binding,
+// every resolution lane and the entry seeding are keyed by. The same
+// spelling in another scope is another name.
 //
-//   - single: the names whose every binding resolves to one value —
-//     `x := "lit"`, `x = const`, `var x = "lit"`, `x := string(<constant>)`,
-//     a copy of another single-valued name, a package variable never
-//     re-bound — resolved through the function's own scope before the
-//     package (round seven, #4: a copy of a local shadowing a package
-//     constant carries the local's value, or nothing);
-//   - once: the names bound exactly once, with the bound expression whatever
-//     its shape — the lane a key spelled through a copy of a parameter, a
-//     conversion of one, or a concatenation resolves through (round seven,
-//     #5).
+// Bindings: the body's `=` / `:=` / var bindings of the name, a tuple, an
+// op-assignment or a range assignment binding it to nothing the census can
+// spell (nil). A parameter, result, receiver or range name is seeded with
+// its incoming binding — nil, the body cannot spell it (round eight, #2) —
+// so bound in the body it is multi-valued, never single and never once.
+//
+//   - single: every binding spells the same value — `x := "lit"`, `x =
+//     const`, `var x = "lit"`, `x := string(<constant>)`, a copy of another
+//     single-valued name, a package variable never re-bound — resolved to a
+//     fixpoint through the function's scopes before the package (round
+//     seven, #4: a copy of a local shadowing a package constant carries the
+//     local's value, or nothing);
+//   - once: bound exactly once, to an expression of any shape — the lane a
+//     key spelled through a copy of a parameter, a conversion of one, or a
+//     concatenation resolves through (round seven, #5).
 //
 // A name bound through a tuple (`x, ok := f()`, `var x, y = f()`), an
-// op-assignment, or more than once to different values is in neither: a
+// op-assignment, or more than once to different values is neither: a
 // variable, not a constant, and never the first value it happened to be
 // bound to (round six, #3).
-type traceDBStringBindings struct {
-	single map[string]string
-	once   map[string]ast.Expr
+type traceDBName struct {
+	scope *traceDBLexicalScope
+	name  string
+	// pos: where the name is visible from — the end of its first `:=` / var
+	// statement, the body of its range statement; token.NoPos (the whole
+	// body) for a parameter, result or receiver.
+	pos token.Pos
+	// position: a string / lane-key typed parameter's position, resolved
+	// through the callers of the function or the call sites of the closure;
+	// -1 for every other declaration (the receiver included).
+	position int
+	// ranges: the range statements declaring the name.
+	ranges int
+	// bound: the body's bindings of the name (a zero-value `var` included);
+	// a parameter or range name bound in the body is unresolved.
+	bound int
+	// exprs: the bindings — the entry seed and every body binding, nil for
+	// one the census cannot spell.
+	exprs []ast.Expr
+	// listKeys: a range value over a key-list literal → the literal's keys
+	// (resolved through the key lanes, round nine).
+	listKeys []string
+	// key: a range key compared against a state key → that key.
+	key string
+	// everyKey: an uncompared range key over the state map — the `.Metadata`
+	// selector statically; the reader census adds the ranges over its
+	// tainted map locals and map-returning helper calls.
+	everyKey bool
+	// escaped: used as a value other than a call's function operand — a
+	// local bound to a closure and used this way escapes, so the closure's
+	// call sites are unknown.
+	escaped bool
+	// single / isSingle and once: the string bindings above.
+	single   string
+	isSingle bool
+	once     ast.Expr
+}
+
+// traceDBLexicalScope is one lexical scope of a function (round nine): the
+// function body — the root, declaring the receiver, the parameters and the
+// named results — or a closure literal, a child of the scope it sits in,
+// declaring its own parameters and results. Locals declared with `:=` /
+// `var` and range names belong to the scope they are declared in. An
+// occurrence resolves to the innermost scope declaring the name at that
+// point: outer names are visible inside a closure unless the closure
+// declares the same spelling, and a closure parameter is the closure's own
+// declaration (round eight, #3). Blocks inside one scope are not modelled:
+// a name declared twice in one scope is one multi-valued name (unresolved,
+// never the first value).
+type traceDBLexicalScope struct {
+	owner  *traceDBFuncScope
+	parent *traceDBLexicalScope
+	lit    *ast.FuncLit // nil at the root
+	names  map[string]*traceDBName
+}
+
+// declare: the scope's declaration of name, visible from pos (the earliest
+// declaration wins); nil for the blank identifier.
+func (scope *traceDBLexicalScope) declare(name string, pos token.Pos) *traceDBName {
+	if name == "_" {
+		return nil
+	}
+	decl, ok := scope.names[name]
+	if !ok {
+		decl = &traceDBName{scope: scope, name: name, pos: pos, position: -1}
+		scope.names[name] = decl
+	} else if pos < decl.pos {
+		decl.pos = pos
+	}
+	return decl
+}
+
+// declareFields: the receiver, the parameters or the results of the scope's
+// function — each seeded with its entry binding; a key-typed parameter at
+// its position.
+func (scope *traceDBLexicalScope) declareFields(fields *ast.FieldList, params bool) {
+	if fields == nil {
+		return
+	}
+	position := 0
+	for _, field := range fields.List {
+		for _, name := range field.Names {
+			if decl := scope.declare(name.Name, token.NoPos); decl != nil {
+				decl.exprs = append(decl.exprs, nil)
+				if params && traceDBIsKeyType(field.Type) {
+					decl.position = position
+				}
+			}
+			position++
+		}
+	}
+}
+
+// lookup: the innermost declaration of name visible at pos; nil for a
+// package-level name.
+func (scope *traceDBLexicalScope) lookup(name string, pos token.Pos) *traceDBName {
+	for s := scope; s != nil; s = s.parent {
+		if decl, ok := s.names[name]; ok && decl.pos <= pos {
+			return decl
+		}
+	}
+	return nil
 }
 
 // traceDBFuncScope is the static scope of one top-level function, keyed by
-// declaration (round seven, #6), that both censuses resolve names through:
-// the function's own names — parameters of any type, named results, closure
-// parameters and results, range names, every name bound in the body —
-// precede the package (round six, #5).
+// declaration (round seven, #6) and lexically nested (round nine): the root
+// scope and one scope per closure literal, the range statements' key
+// comparisons, and the local each closure is bound to.
 type traceDBFuncScope struct {
 	fn      *ast.FuncDecl
 	file    string
 	imports map[string]bool
-	// params: string / lane-key typed parameter → position (resolved through
-	// every caller's argument).
-	params map[string]int
-	// declared: every parameter (of any type), named result and closure
-	// parameter / result.
-	declared map[string]bool
-	// assigned: every name bound in the body (a parameter or range name
-	// re-bound is unresolved).
-	assigned map[string]bool
-	// ranged: range key/value ident → number of range statements defining it.
-	ranged map[string]int
-	// listKeys: range ident over a key-list literal → the literal's resolved
-	// elements.
-	listKeys map[string][]string
-	// keys: range key ident → the state key it is compared against in the
-	// body of its (first) range statement; comparedRanges holds the same per
-	// statement.
-	keys           map[string]string
+	root    *traceDBLexicalScope
+	lits    map[*ast.FuncLit]*traceDBLexicalScope
+	// comparedRanges: range statement → the state key its key is compared
+	// against in its body.
 	comparedRanges map[*ast.RangeStmt]string
-	// everyKey: uncompared range key ident over the state map — the
-	// `.Metadata` selector statically; the reader census adds the ranges over
-	// its tainted map locals and map-returning helper calls.
-	everyKey map[string]bool
-	// closureNames: every value occurrence of a name inside a closure that
-	// declares it (round eight, #3) → that closure's declaration of the
-	// name, which shadows the outer name for the occurrence.
-	closureNames map[*ast.Ident]traceDBClosureParam
+	// rangeProblems: range statement → the report of a key comparison the
+	// census cannot place — an operand it cannot resolve, several state keys
+	// — raised by the reader census over the state map and by the write
+	// census over the `.Metadata` selector (fail-loud, §40.50), the key
+	// staying unresolved.
+	rangeProblems map[*ast.RangeStmt]string
 	// closureLocals: closure literal → the local it is bound to (`f :=
 	// func…`, `var f = func…`, `f = func…`).
-	closureLocals map[*ast.FuncLit]string
-	// escapedLocals: names used as a value other than a call's function
-	// operand — a local bound to a closure and used this way escapes, so the
-	// closure's call sites are unknown.
-	escapedLocals map[string]bool
-	bindings      traceDBStringBindings
+	closureLocals map[*ast.FuncLit]*traceDBName
 }
 
-// traceDBClosureParam names one declaration of a closure: a parameter, or
-// (position -1) a result or a parameter that is not key-typed.
-type traceDBClosureParam struct {
-	lit      *ast.FuncLit
-	name     string
-	position int
-}
-
-// traceDBClosureDeclaring: the innermost closure on the stack that declares
-// name, if any — the declaration a value occurrence of name inside it
-// refers to.
-func traceDBClosureDeclaring(stack []ast.Node, name string) (traceDBClosureParam, bool) {
+// at: the lexical scope of a node under stack — the innermost closure
+// literal, else the root.
+func (scope *traceDBFuncScope) at(stack []ast.Node) *traceDBLexicalScope {
 	for i := len(stack) - 1; i >= 0; i-- {
-		lit, ok := stack[i].(*ast.FuncLit)
-		if !ok {
-			continue
-		}
-		position := 0
-		for _, field := range lit.Type.Params.List {
-			for _, param := range field.Names {
-				if param.Name == name {
-					if !traceDBIsKeyType(field.Type) {
-						position = -1
-					}
-					return traceDBClosureParam{lit: lit, name: name, position: position}, true
-				}
-				position++
-			}
-		}
-		if lit.Type.Results != nil {
-			for _, field := range lit.Type.Results.List {
-				for _, result := range field.Names {
-					if result.Name == name {
-						return traceDBClosureParam{lit: lit, name: name, position: -1}, true
-					}
-				}
-			}
+		if lit, ok := stack[i].(*ast.FuncLit); ok {
+			return scope.lits[lit]
 		}
 	}
-	return traceDBClosureParam{}, false
+	return scope.root
 }
 
-// declares reports whether the scope declares name — with or without a
-// value the census can spell.
-func (scope *traceDBFuncScope) declares(name string) bool {
-	return scope.declared[name] || scope.assigned[name] || scope.ranged[name] > 0
+// decls: every declaration of the function, the root's and the closures'.
+func (scope *traceDBFuncScope) decls() []*traceDBName {
+	var out []*traceDBName
+	for _, decl := range scope.root.names {
+		out = append(out, decl)
+	}
+	for _, lit := range scope.lits {
+		for _, decl := range lit.names {
+			out = append(out, decl)
+		}
+	}
+	return out
 }
 
 // traceDBCallSite is one call expression, the scope it sits in and the
@@ -489,24 +549,18 @@ type traceDBKeyParam struct {
 	position int
 }
 
-// traceDBBoundName names one once-bound local of one scope.
-type traceDBBoundName struct {
-	scope *traceDBFuncScope
-	name  string
-}
-
 // traceDBKeyPath is one resolution's path: the key parameters being resolved
 // through their callers (outermost first entered), the closure parameters
 // being resolved through their closure's call sites, and the once-bound
 // names being resolved through their expression.
 type traceDBKeyPath struct {
 	params   map[traceDBKeyParam]bool
-	closures map[traceDBClosureParam]bool
-	names    map[traceDBBoundName]bool
+	closures map[*traceDBName]bool
+	names    map[*traceDBName]bool
 }
 
 func newTraceDBKeyPath() *traceDBKeyPath {
-	return &traceDBKeyPath{params: map[traceDBKeyParam]bool{}, closures: map[traceDBClosureParam]bool{}, names: map[traceDBBoundName]bool{}}
+	return &traceDBKeyPath{params: map[traceDBKeyParam]bool{}, closures: map[*traceDBName]bool{}, names: map[*traceDBName]bool{}}
 }
 
 // onPath reports whether any key parameter of fn is being resolved: a call
@@ -553,18 +607,21 @@ func (path *traceDBKeyPath) onPath(fn *ast.FuncDecl) bool {
 //     spell (round seven, #3). Surfaces only inside the caller loops of
 //     paramKeys and closureParamKeys: a top-level resolution never returns
 //     it.
-//   - traceDBKeyUnresolved: anything else — a re-bound parameter, closure
-//     parameter, named result or range name (a scope-declared name is never
-//     single-valued from the body's bindings alone, so a copy of it carries
-//     nothing — round eight, #2), a multi-valued local (tuple-bound,
-//     re-bound, bound to a value the census cannot resolve, or a copy of
-//     one), a parameter of a function that escapes as a value, has no
-//     caller outside its own cycle, or has a caller whose argument does not
-//     resolve, a closure parameter whose closure is not bound once to a
-//     local that is only ever called, or has no call site outside its own
-//     body, or has a site whose argument does not resolve, a closure result
-//     or non-key closure parameter, a name shadowing a package constant
-//     without a single value, a computed expression.
+//   - traceDBKeyUnresolved: anything else — a re-bound parameter, receiver,
+//     closure parameter, named result or range name (a scope-declared name
+//     is seeded with its entry binding and never single-valued from the
+//     body's bindings alone, so a copy of it carries nothing — round eight,
+//     #2; the receiver, round nine, #1), a multi-valued local
+//     (tuple-bound, re-bound, bound to a value the census cannot resolve,
+//     or a copy of one), a parameter of a function that escapes as a value,
+//     has no caller outside its own cycle, or has a caller whose argument
+//     does not resolve, a closure parameter whose closure is not bound once
+//     to a local that is only ever called, or has no call site outside its
+//     own body, or has a site whose argument does not resolve, a closure
+//     result or non-key closure parameter, a range key under a comparison
+//     the census cannot place (its range carries the fail-loud report), a
+//     name shadowing a package constant without a single value, a computed
+//     expression.
 type traceDBKeyResolution int
 
 const (
@@ -594,6 +651,9 @@ type traceDBKeyResolver struct {
 	// escaped: key-parameter functions used as values (their callers are
 	// unknown: the parameter is unresolved).
 	escaped map[*ast.FuncDecl]bool
+	// decls: every identifier occurrence of every body → the declaration it
+	// resolves to; nil for a package-level name (round nine).
+	decls map[*ast.Ident]*traceDBName
 }
 
 func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string) *traceDBKeyResolver {
@@ -604,16 +664,7 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 		methods:     map[string][]*ast.FuncDecl{},
 		scopes:      map[*ast.FuncDecl]*traceDBFuncScope{},
 		escaped:     map[*ast.FuncDecl]bool{},
-	}
-	declare := func(scope *traceDBFuncScope, fields *ast.FieldList) {
-		if fields == nil {
-			return
-		}
-		for _, field := range fields.List {
-			for _, name := range field.Names {
-				scope.declared[name.Name] = true
-			}
-		}
+		decls:       map[*ast.Ident]*traceDBName{},
 	}
 	for name, file := range files {
 		imports := map[string]bool{}
@@ -630,20 +681,12 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 			if !ok || fn.Body == nil {
 				continue
 			}
-			scope := &traceDBFuncScope{fn: fn, file: name, imports: imports, params: map[string]int{}, declared: map[string]bool{}, assigned: map[string]bool{},
-				ranged: map[string]int{}, listKeys: map[string][]string{}, keys: map[string]string{}, comparedRanges: map[*ast.RangeStmt]string{}, everyKey: map[string]bool{},
-				closureNames: map[*ast.Ident]traceDBClosureParam{}, closureLocals: map[*ast.FuncLit]string{}, escapedLocals: map[string]bool{}}
-			declare(scope, fn.Type.Params)
-			declare(scope, fn.Type.Results)
-			position := 0
-			for _, field := range fn.Type.Params.List {
-				for _, param := range field.Names {
-					if traceDBIsKeyType(field.Type) {
-						scope.params[param.Name] = position
-					}
-					position++
-				}
-			}
+			scope := &traceDBFuncScope{fn: fn, file: name, imports: imports, lits: map[*ast.FuncLit]*traceDBLexicalScope{},
+				comparedRanges: map[*ast.RangeStmt]string{}, rangeProblems: map[*ast.RangeStmt]string{}, closureLocals: map[*ast.FuncLit]*traceDBName{}}
+			scope.root = &traceDBLexicalScope{owner: scope, names: map[string]*traceDBName{}}
+			scope.root.declareFields(fn.Recv, false)
+			scope.root.declareFields(fn.Type.Params, true)
+			scope.root.declareFields(fn.Type.Results, false)
 			r.scopes[fn] = scope
 			r.order = append(r.order, fn)
 			if fn.Recv != nil {
@@ -655,7 +698,9 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 	}
 	// Package-level string variables: a single-valued initializer (a literal,
 	// a constant, `string(<constant>)`) never re-bound in any body resolves
-	// like a constant.
+	// like a constant — spelled through the constants alone, whatever the
+	// order of the declarations.
+	packageVars := map[string]string{}
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -671,31 +716,74 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 					if i >= len(vs.Values) {
 						continue
 					}
-					if value, ok := r.spelled(nil, vs.Values[i]); ok {
-						r.packageVars[ident.Name] = value
+					if value, ok := r.spelled(vs.Values[i]); ok {
+						packageVars[ident.Name] = value
 					}
 				}
 			}
 		}
 	}
+	r.packageVars = packageVars
 	sort.Slice(r.order, func(i, j int) bool {
 		if r.scopes[r.order[i]].file != r.scopes[r.order[j]].file {
 			return r.scopes[r.order[i]].file < r.scopes[r.order[j]].file
 		}
 		return r.order[i].Pos() < r.order[j].Pos()
 	})
-	// Static pre-pass, stage one: the names each body binds (a package
-	// variable re-bound in any body is a variable, not a constant), the
-	// closures' own parameters and results (the function's scope, round six;
-	// the occurrences they shadow and the local each closure is bound to,
-	// round eight), the range statements defining a name, every call site
-	// with its enclosing closures, the names used as values, and the
-	// key-parameter functions that escape as values.
+	// Static pre-pass, stage one, first pass: the declarations of every
+	// lexical scope — the root's receiver, parameters and results above; a
+	// closure's own parameters and results; the `:=` / var locals and the
+	// range names of the scope they sit in (round nine).
+	for _, fn := range r.order {
+		scope := r.scopes[fn]
+		traceDBWalk(fn.Body, func(node ast.Node, stack []ast.Node) {
+			at := scope.at(stack)
+			switch n := node.(type) {
+			case *ast.FuncLit:
+				child := &traceDBLexicalScope{owner: scope, parent: at, lit: n, names: map[string]*traceDBName{}}
+				scope.lits[n] = child
+				child.declareFields(n.Type.Params, true)
+				child.declareFields(n.Type.Results, false)
+			case *ast.AssignStmt:
+				if n.Tok != token.DEFINE {
+					return
+				}
+				for _, lhs := range n.Lhs {
+					if ident, ok := lhs.(*ast.Ident); ok {
+						at.declare(ident.Name, n.End())
+					}
+				}
+			case *ast.ValueSpec:
+				for _, name := range n.Names {
+					at.declare(name.Name, n.End())
+				}
+			case *ast.RangeStmt:
+				if n.Tok != token.DEFINE {
+					return
+				}
+				for _, expr := range []ast.Expr{n.Key, n.Value} {
+					if ident, ok := expr.(*ast.Ident); ok {
+						if decl := at.declare(ident.Name, n.Body.Pos()); decl != nil {
+							decl.ranges++
+							decl.exprs = append(decl.exprs, nil)
+						}
+					}
+				}
+			}
+		})
+	}
+	// Stage one, second pass: every identifier occurrence resolved to its
+	// declaration — a binding target to the name it binds, a value
+	// occurrence to the innermost declaration visible at it — with the
+	// bindings each records (a package variable re-bound in any body is a
+	// variable, not a constant); the local each closure is bound to; every
+	// call site with its enclosing closures; the names and the key-parameter
+	// functions used as values.
 	keyParamDecls := func(scope *traceDBFuncScope, expr ast.Expr) []*ast.FuncDecl {
 		var decls []*ast.FuncDecl
 		switch f := expr.(type) {
 		case *ast.Ident:
-			if fn, ok := r.functions[f.Name]; ok {
+			if fn, ok := r.functions[f.Name]; ok && r.decls[f] == nil {
 				decls = []*ast.FuncDecl{fn}
 			}
 		case *ast.SelectorExpr:
@@ -706,7 +794,7 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 		}
 		var out []*ast.FuncDecl
 		for _, decl := range decls {
-			if len(r.scopes[decl].params) > 0 {
+			if r.scopes[decl].root.hasKeyParams() {
 				out = append(out, decl)
 			}
 		}
@@ -714,33 +802,15 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 	}
 	for _, fn := range r.order {
 		scope := r.scopes[fn]
-		noteBound := func(expr ast.Expr) {
-			if ident, ok := expr.(*ast.Ident); ok && ident.Name != "_" {
-				scope.assigned[ident.Name] = true
-				delete(r.packageVars, ident.Name)
-			}
-		}
 		traceDBWalk(fn.Body, func(node ast.Node, stack []ast.Node) {
-			parent := traceDBNearest(stack)
+			at, parent := scope.at(stack), traceDBNearest(stack)
 			switch n := node.(type) {
-			case *ast.AssignStmt:
-				for _, lhs := range n.Lhs {
-					noteBound(lhs)
-				}
-			case *ast.ValueSpec:
-				for _, name := range n.Names {
-					noteBound(name)
-				}
 			case *ast.FuncLit:
-				declare(scope, n.Type.Params)
-				declare(scope, n.Type.Results)
-				if local, ok := traceDBBoundLocal(node, parent); ok {
-					scope.closureLocals[n] = local
-				}
-			case *ast.RangeStmt:
-				for _, expr := range []ast.Expr{n.Key, n.Value} {
-					if ident, ok := expr.(*ast.Ident); ok && ident.Name != "_" {
-						scope.ranged[ident.Name]++
+				if target, ok := traceDBBoundTo(node, parent); ok {
+					if ident, ok := target.(*ast.Ident); ok {
+						if local := r.decls[ident]; local != nil {
+							scope.closureLocals[n] = local
+						}
 					}
 				}
 			case *ast.CallExpr:
@@ -752,16 +822,24 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 				}
 				r.callSites = append(r.callSites, traceDBCallSite{scope: scope, call: n, lits: lits})
 			case *ast.Ident:
+				if n.Name == "_" {
+					return
+				}
+				if r.bindTarget(at, n, parent) {
+					return
+				}
 				if traceDBIdentIsName(n, parent) {
 					return
 				}
-				if closure, ok := traceDBClosureDeclaring(stack, n.Name); ok {
-					scope.closureNames[n] = closure
-				}
+				decl := at.lookup(n.Name, n.Pos())
+				r.decls[n] = decl
 				if traceDBIsCallFun(node, parent) {
 					return
 				}
-				scope.escapedLocals[n.Name] = true
+				if decl != nil {
+					decl.escaped = true
+					return
+				}
 				for _, decl := range keyParamDecls(scope, n) {
 					r.escaped[decl] = true
 				}
@@ -775,14 +853,25 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 			}
 		})
 	}
-	// Stage two: the string bindings of every body, spelled through the
-	// scope above.
+	// Stage two: the string bindings of every declaration, spelled through
+	// the scopes above.
 	for _, fn := range r.order {
 		r.bind(r.scopes[fn])
 	}
-	// Stage three: the key-list ranges (elements spelled through the
-	// bindings), the compared range keys, and the every-key ranges over the
-	// `.Metadata` selector.
+	// Stage three: the key-list ranges and the compared range keys, resolved
+	// through the key lanes as a package-wide fixpoint — a comparison against
+	// a key carried from another range resolves once that range is decided —
+	// then the every-key ranges over the `.Metadata` selector; a comparison
+	// the fixpoint cannot place is the range's fail-loud report (round nine,
+	// #0: never an every-key range).
+	type rangeCase struct {
+		scope      *traceDBFuncScope
+		stmt       *ast.RangeStmt
+		name       *traceDBName // the key, or the value over a key-list literal
+		list       *ast.CompositeLit
+		unresolved string
+	}
+	var pending []*rangeCase
 	for _, fn := range r.order {
 		scope := r.scopes[fn]
 		ast.Inspect(fn.Body, func(node ast.Node) bool {
@@ -794,108 +883,179 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 				if _, array := lit.Type.(*ast.ArrayType); !array {
 					return true
 				}
-				var elements []string
-				for _, element := range lit.Elts {
-					value, ok := r.spelled(scope, element)
-					if !ok {
-						return true
+				if ident, ok := n.Value.(*ast.Ident); ok {
+					if decl := r.decls[ident]; decl != nil && decl.ranges > 0 {
+						pending = append(pending, &rangeCase{scope: scope, stmt: n, name: decl, list: lit})
 					}
-					elements = append(elements, value)
-				}
-				if ident, ok := n.Value.(*ast.Ident); ok && ident.Name != "_" {
-					scope.listKeys[ident.Name] = elements
 				}
 				return true
 			}
-			key, ok := n.Key.(*ast.Ident)
-			if !ok || key.Name == "_" {
-				return true
-			}
-			if state, compared := r.rangeKeyComparison(scope, key.Name, n.Body); compared {
-				scope.comparedRanges[n] = state
-				if scope.keys[key.Name] == "" {
-					scope.keys[key.Name] = state
-				}
-			} else if sel, ok := traceDBStripParens(n.X).(*ast.SelectorExpr); ok && sel.Sel.Name == "Metadata" {
-				scope.everyKey[key.Name] = true
+			if ident, ok := n.Key.(*ast.Ident); ok && ident.Name != "_" {
+				pending = append(pending, &rangeCase{scope: scope, stmt: n, name: r.decls[ident]})
 			}
 			return true
 		})
 	}
+	decide := func(rc *rangeCase) bool {
+		if rc.list != nil {
+			keys := []string{}
+			for _, element := range rc.list.Elts {
+				resolved, resolution := r.resolveKey(element, newTraceDBKeyPath())
+				switch resolution {
+				case traceDBKeySpelled, traceDBKeyCarried:
+					keys = append(keys, resolved...)
+				case traceDBKeyExcluded:
+				default:
+					return false
+				}
+			}
+			rc.name.listKeys = keys
+			return true
+		}
+		states, unresolved := r.rangeKeyComparison(rc.name, rc.stmt.Body)
+		ranged := rc.name != nil && rc.name.ranges > 0
+		switch {
+		case len(unresolved) > 0:
+			rc.unresolved = unresolved[0]
+			return false
+		case len(states) > 1:
+			rc.scope.rangeProblems[rc.stmt] = fmt.Sprintf("compared range key names several state keys (%s)", strings.Join(states, ", "))
+		case len(states) == 1:
+			rc.scope.comparedRanges[rc.stmt] = states[0]
+			if ranged && rc.name.key == "" {
+				rc.name.key = states[0]
+			}
+		case ranged && traceDBIsMetadataSelector(rc.stmt.X):
+			rc.name.everyKey = true
+		}
+		return true
+	}
+	for progress := true; progress; {
+		progress = false
+		var rest []*rangeCase
+		for _, rc := range pending {
+			if decide(rc) {
+				progress = true
+			} else {
+				rest = append(rest, rc)
+			}
+		}
+		pending = rest
+	}
+	for _, rc := range pending {
+		if rc.list == nil {
+			rc.scope.rangeProblems[rc.stmt] = fmt.Sprintf("compared range key the census cannot resolve (%s)", rc.unresolved)
+		}
+	}
 	return r
 }
 
-// bind collects scope's string bindings: every `=` / `:=` / var binding of
-// a name, a tuple or op-assignment binding it to nothing it can spell. A
-// name is single-valued when its every binding spells the same value —
-// resolved to a fixpoint, so a copy of a single-valued local is single
-// (round seven, #4) — and once-bound when the body binds it exactly once
-// to an expression. A name the scope declares (a parameter, named result,
-// closure parameter or result, range name) carries its incoming binding,
-// which the body cannot spell (round eight, #2): re-bound in the body it is
-// multi-valued, never single and never once, so a copy of it carries
-// nothing and the name resolves through its own lane or not at all.
-func (r *traceDBKeyResolver) bind(scope *traceDBFuncScope) {
-	exprs := map[string][]ast.Expr{}
-	record := func(name string, expr ast.Expr) {
-		if name != "_" {
-			exprs[name] = append(exprs[name], expr)
+// hasKeyParams reports whether the root scope declares a key-typed
+// parameter.
+func (scope *traceDBLexicalScope) hasKeyParams() bool {
+	for _, decl := range scope.names {
+		if decl.position >= 0 {
+			return true
 		}
 	}
-	for name := range scope.declared {
-		record(name, nil)
-	}
-	for name := range scope.ranged {
-		record(name, nil)
-	}
-	ast.Inspect(scope.fn.Body, func(node ast.Node) bool {
-		switch n := node.(type) {
-		case *ast.AssignStmt:
-			tuple := len(n.Lhs) != len(n.Rhs) || (n.Tok != token.ASSIGN && n.Tok != token.DEFINE)
-			for i, lhs := range n.Lhs {
-				ident, ok := lhs.(*ast.Ident)
-				if !ok {
-					continue
-				}
-				if tuple {
-					record(ident.Name, nil)
-					continue
-				}
-				record(ident.Name, n.Rhs[i])
-			}
-		case *ast.ValueSpec:
-			tuple := len(n.Values) > 0 && len(n.Names) != len(n.Values)
-			for i, name := range n.Names {
-				switch {
-				case tuple:
-					record(name.Name, nil)
-				case i < len(n.Values):
-					record(name.Name, n.Values[i])
-				}
-			}
+	return false
+}
+
+// bindTarget records ident as a binding target under parent — a `=` / `:=`
+// left-hand side, a var name, a range key or value — resolving it to the
+// name it binds (a `:=`, var or `:=`-range target is the declaration of
+// its own scope; a `=` target the innermost visible declaration, a
+// package variable when there is none) and recording the binding: the
+// right-hand side one-to-one, nil for a tuple, an op-assignment, a range
+// assignment or a zero-value var. Reports whether ident was a target.
+func (r *traceDBKeyResolver) bindTarget(at *traceDBLexicalScope, ident *ast.Ident, parent ast.Node) bool {
+	record := func(decl *traceDBName, expr ast.Expr, bound bool) {
+		r.decls[ident] = decl
+		if decl == nil {
+			delete(r.packageVars, ident.Name)
+			return
 		}
+		decl.bound++
+		if bound {
+			decl.exprs = append(decl.exprs, expr)
+		}
+	}
+	switch p := parent.(type) {
+	case *ast.AssignStmt:
+		for i, lhs := range p.Lhs {
+			if lhs != ident {
+				continue
+			}
+			decl := at.lookup(ident.Name, ident.Pos())
+			if p.Tok == token.DEFINE {
+				decl = at.names[ident.Name]
+			}
+			if len(p.Lhs) != len(p.Rhs) || (p.Tok != token.ASSIGN && p.Tok != token.DEFINE) {
+				record(decl, nil, true)
+			} else {
+				record(decl, p.Rhs[i], true)
+			}
+			return true
+		}
+	case *ast.ValueSpec:
+		for i, name := range p.Names {
+			if name != ident {
+				continue
+			}
+			decl := at.names[ident.Name]
+			switch {
+			case len(p.Values) > 0 && len(p.Names) != len(p.Values):
+				record(decl, nil, true)
+			case i < len(p.Values):
+				record(decl, p.Values[i], true)
+			default:
+				record(decl, nil, false)
+			}
+			return true
+		}
+	case *ast.RangeStmt:
+		if p.Key != ident && p.Value != ident {
+			return false
+		}
+		if p.Tok == token.DEFINE {
+			r.decls[ident] = at.names[ident.Name]
+			return true
+		}
+		record(at.lookup(ident.Name, ident.Pos()), nil, true)
 		return true
-	})
-	scope.bindings = traceDBStringBindings{single: map[string]string{}, once: map[string]ast.Expr{}}
-	pending := map[string]bool{}
-	for name, list := range exprs {
-		if len(list) == 1 && list[0] != nil {
-			scope.bindings.once[name] = list[0]
+	}
+	return false
+}
+
+// bind computes the string bindings of every declaration of scope: a name is
+// single-valued when its every binding spells the same value — resolved to
+// a fixpoint over the function's scopes, so a copy of a single-valued name
+// is single (round seven, #4) — and once-bound when the body binds it
+// exactly once to an expression. A declared parameter, result, receiver or
+// range name carries its entry seed, which nothing spells (round eight,
+// #2): bound in the body it is multi-valued, never single and never once,
+// so a copy of it carries nothing and the name resolves through its own
+// lane or not at all.
+func (r *traceDBKeyResolver) bind(scope *traceDBFuncScope) {
+	pending := map[*traceDBName]bool{}
+	for _, decl := range scope.decls() {
+		if len(decl.exprs) == 1 && decl.exprs[0] != nil {
+			decl.once = decl.exprs[0]
 		}
-		single := true
-		for _, expr := range list {
+		single := len(decl.exprs) > 0
+		for _, expr := range decl.exprs {
 			single = single && expr != nil
 		}
 		if single {
-			pending[name] = true
+			pending[decl] = true
 		}
 	}
 	for changed := true; changed; {
 		changed = false
-		for name := range pending {
+		for decl := range pending {
 			value, resolved, agree := "", true, true
-			for i, expr := range exprs[name] {
-				spelled, ok := r.spelled(scope, expr)
+			for i, expr := range decl.exprs {
+				spelled, ok := r.spelled(expr)
 				if !ok {
 					resolved = false
 					break
@@ -908,10 +1068,10 @@ func (r *traceDBKeyResolver) bind(scope *traceDBFuncScope) {
 			}
 			switch {
 			case !agree:
-				delete(pending, name)
+				delete(pending, decl)
 			case resolved:
-				scope.bindings.single[name] = value
-				delete(pending, name)
+				decl.single, decl.isSingle = value, true
+				delete(pending, decl)
 				changed = true
 			}
 		}
@@ -919,32 +1079,25 @@ func (r *traceDBKeyResolver) bind(scope *traceDBFuncScope) {
 }
 
 // spelled: the one value a string-valued operand names — a literal, a
-// `string(<x>)` / `<keyType>(<x>)` conversion of one, a single-valued local,
-// or, for a name the function scope does not declare, a package variable
-// never re-bound or a package constant. Function scope precedes the package
-// (round six, #5; round seven, #4 through every copy): a name the scope
-// declares without a single value never resolves as the constant it
-// shadows. A nil scope is the package level: a literal, a constant, a
-// conversion of one.
-func (r *traceDBKeyResolver) spelled(scope *traceDBFuncScope, expr ast.Expr) (string, bool) {
+// `string(<x>)` / `<keyType>(<x>)` conversion of one, a single-valued
+// declaration, or, for a name no scope declares, a package variable never
+// re-bound or a package constant. The declaration precedes the package
+// (round six, #5; round seven, #4 through every copy): a declared name
+// without a single value never resolves as the constant it shadows.
+func (r *traceDBKeyResolver) spelled(expr ast.Expr) (string, bool) {
 	switch e := traceDBStripParens(expr).(type) {
 	case *ast.BasicLit:
 		return traceDBStringLiteral(e)
 	case *ast.CallExpr:
 		if fun, ok := e.Fun.(*ast.Ident); ok && traceDBIsKeyType(fun) && len(e.Args) == 1 {
-			return r.spelled(scope, e.Args[0])
+			return r.spelled(e.Args[0])
 		}
 	case *ast.Ident:
-		if scope != nil {
-			if value, ok := scope.bindings.single[e.Name]; ok {
-				return value, true
-			}
-			if scope.declares(e.Name) {
-				return "", false
-			}
-			if value, ok := r.packageVars[e.Name]; ok {
-				return value, true
-			}
+		if decl := r.decls[e]; decl != nil {
+			return decl.single, decl.isSingle
+		}
+		if value, ok := r.packageVars[e.Name]; ok {
+			return value, true
 		}
 		value, ok := r.consts[e.Name]
 		return value, ok
@@ -952,33 +1105,44 @@ func (r *traceDBKeyResolver) spelled(scope *traceDBFuncScope, expr ast.Expr) (st
 	return "", false
 }
 
-// rangeKeyComparison: the state key a range key identifier is compared
-// against inside body — `k == "<key>"` / `k != "<key>"` either way round,
-// or a switch over k with a case naming the key; the key spelled through
-// the function's scope before the package (round six, #5).
-func (r *traceDBKeyResolver) rangeKeyComparison(scope *traceDBFuncScope, key string, body *ast.BlockStmt) (string, bool) {
+// rangeKeyComparison: the state keys the range key is compared against
+// inside body — `k == <key>` / `k != <key>` either way round, or a switch
+// over k with a case naming a key — every operand resolved through the key
+// lanes (round nine, #0: a key parameter through its callers, a local in its
+// own scope); the operands the lanes cannot resolve, by text. An operand
+// that resolves to no state key compares against nothing the census
+// follows.
+func (r *traceDBKeyResolver) rangeKeyComparison(key *traceDBName, body *ast.BlockStmt) (states, unresolved []string) {
 	isKey := func(expr ast.Expr) bool {
 		ident, ok := traceDBStripParens(expr).(*ast.Ident)
-		return ok && ident.Name == key
+		return ok && key != nil && r.decls[ident] == key
 	}
-	stateKey := func(expr ast.Expr) (string, bool) {
-		k, ok := r.spelled(scope, expr)
-		return k, ok && traceDBStateReadKeys[k]
-	}
-	found, ok := "", false
-	ast.Inspect(body, func(node ast.Node) bool {
-		if ok {
-			return false
+	seen := map[string]bool{}
+	operand := func(expr ast.Expr) {
+		keys, resolution := r.resolveKey(expr, newTraceDBKeyPath())
+		switch resolution {
+		case traceDBKeySpelled, traceDBKeyCarried:
+			for _, k := range keys {
+				if traceDBStateReadKeys[k] && !seen[k] {
+					seen[k] = true
+					states = append(states, k)
+				}
+			}
+		case traceDBKeyExcluded:
+		default:
+			unresolved = append(unresolved, exprText(expr))
 		}
+	}
+	ast.Inspect(body, func(node ast.Node) bool {
 		switch n := node.(type) {
 		case *ast.BinaryExpr:
 			if n.Op != token.EQL && n.Op != token.NEQ {
 				return true
 			}
 			if isKey(n.X) {
-				found, ok = stateKey(n.Y)
+				operand(n.Y)
 			} else if isKey(n.Y) {
-				found, ok = stateKey(n.X)
+				operand(n.X)
 			}
 		case *ast.SwitchStmt:
 			if n.Tag == nil || !isKey(n.Tag) {
@@ -990,20 +1154,19 @@ func (r *traceDBKeyResolver) rangeKeyComparison(scope *traceDBFuncScope, key str
 					continue
 				}
 				for _, expr := range clause.List {
-					if found, ok = stateKey(expr); ok {
-						return false
-					}
+					operand(expr)
 				}
 			}
 		}
 		return true
 	})
-	return found, ok
+	sort.Strings(states)
+	return states, unresolved
 }
 
 // concatExcludes: the concatenation's outermost literal operands rule every
 // state key out.
-func (r *traceDBKeyResolver) concatExcludes(scope *traceDBFuncScope, e *ast.BinaryExpr) bool {
+func (r *traceDBKeyResolver) concatExcludes(e *ast.BinaryExpr) bool {
 	if e.Op != token.ADD {
 		return false
 	}
@@ -1023,7 +1186,7 @@ func (r *traceDBKeyResolver) concatExcludes(scope *traceDBFuncScope, e *ast.Bina
 		rightmost = b.Y
 	}
 	excludes := func(operand ast.Expr, matches func(key, literal string) bool) bool {
-		literal, ok := r.spelled(scope, operand)
+		literal, ok := r.spelled(operand)
 		if !ok || literal == "" {
 			return false
 		}
@@ -1037,12 +1200,13 @@ func (r *traceDBKeyResolver) concatExcludes(scope *traceDBFuncScope, e *ast.Bina
 	return excludes(leftmost, strings.HasPrefix) || excludes(rightmost, strings.HasSuffix)
 }
 
-// names reports whether the call names fn (a plain function by identifier,
-// a method by selector name; an import-qualified selector never).
+// names reports whether the call names fn (a plain function by an
+// identifier no scope declares, a method by selector name; an
+// import-qualified selector never).
 func (r *traceDBKeyResolver) names(site traceDBCallSite, fn *ast.FuncDecl) bool {
 	switch f := traceDBStripParens(site.call.Fun).(type) {
 	case *ast.Ident:
-		return fn.Recv == nil && r.functions[f.Name] == fn
+		return fn.Recv == nil && r.decls[f] == nil && r.functions[f.Name] == fn
 	case *ast.SelectorExpr:
 		if x, ok := f.X.(*ast.Ident); ok && site.scope.imports[x.Name] {
 			return false
@@ -1081,7 +1245,7 @@ func (r *traceDBKeyResolver) paramKeys(fn *ast.FuncDecl, position int, path *tra
 		if site.call.Ellipsis.IsValid() || position >= len(site.call.Args) {
 			return nil, traceDBKeyUnresolved
 		}
-		passed, resolution := r.resolveKey(site.scope, site.call.Args[position], path)
+		passed, resolution := r.resolveKey(site.call.Args[position], path)
 		switch resolution {
 		case traceDBKeyUnresolved, traceDBKeyEveryKey:
 			return nil, traceDBKeyUnresolved
@@ -1108,17 +1272,15 @@ func (r *traceDBKeyResolver) paramKeys(fn *ast.FuncDecl, position int, path *tra
 // eight, #3) — the argument every call site of the closure passes at the
 // parameter's position, plus the keys a site inside the closure's own body
 // spells, the closure being bound exactly once to a local that is only
-// ever called. Unresolved for a result or a parameter that is not
-// key-typed, a parameter re-bound in the body, a literal not bound to a
-// local, a local re-bound or used as a value, no call site outside the
-// closure's own body, or a site whose argument does not resolve; forwarded
-// when, resolved from inside a cycle, every site is the cycle.
-func (r *traceDBKeyResolver) closureParamKeys(scope *traceDBFuncScope, param traceDBClosureParam, path *traceDBKeyPath) ([]string, traceDBKeyResolution) {
-	if param.position < 0 || scope.assigned[param.name] || scope.ranged[param.name] > 0 {
-		return nil, traceDBKeyUnresolved
-	}
-	local, bound := scope.closureLocals[param.lit]
-	if !bound || traceDBStripParens(scope.bindings.once[local]) != ast.Expr(param.lit) || scope.escapedLocals[local] {
+// ever called. Unresolved for a parameter bound in the body, a literal not
+// bound to a local, a local bound more than once or used as a value, no
+// call site outside the closure's own body, or a site whose argument does
+// not resolve; forwarded when, resolved from inside a cycle, every site is
+// the cycle.
+func (r *traceDBKeyResolver) closureParamKeys(param *traceDBName, path *traceDBKeyPath) ([]string, traceDBKeyResolution) {
+	scope, lit := param.scope.owner, param.scope.lit
+	local, bound := scope.closureLocals[lit]
+	if !bound || traceDBStripParens(local.once) != ast.Expr(lit) || local.escaped {
 		return nil, traceDBKeyUnresolved
 	}
 	if path.closures[param] {
@@ -1134,17 +1296,14 @@ func (r *traceDBKeyResolver) closureParamKeys(scope *traceDBFuncScope, param tra
 			continue
 		}
 		fun, ok := traceDBStripParens(site.call.Fun).(*ast.Ident)
-		if !ok || fun.Name != local {
+		if !ok || r.decls[fun] != local {
 			continue
-		}
-		if _, shadowed := scope.closureNames[fun]; shadowed {
-			continue // a closure's own declaration of the name, not the local
 		}
 		sites++
 		if site.call.Ellipsis.IsValid() || param.position >= len(site.call.Args) {
 			return nil, traceDBKeyUnresolved
 		}
-		passed, resolution := r.resolveKey(scope, site.call.Args[param.position], path)
+		passed, resolution := r.resolveKey(site.call.Args[param.position], path)
 		switch resolution {
 		case traceDBKeyUnresolved, traceDBKeyEveryKey:
 			return nil, traceDBKeyUnresolved
@@ -1153,7 +1312,7 @@ func (r *traceDBKeyResolver) closureParamKeys(scope *traceDBFuncScope, param tra
 			continue
 		}
 		keys = append(keys, passed...)
-		if !site.inside(param.lit) {
+		if !site.inside(lit) {
 			callers++
 		}
 	}
@@ -1167,7 +1326,7 @@ func (r *traceDBKeyResolver) closureParamKeys(scope *traceDBFuncScope, param tra
 }
 
 // resolveKey: the keys an index expression names and how they resolved.
-func (r *traceDBKeyResolver) resolveKey(scope *traceDBFuncScope, expr ast.Expr, path *traceDBKeyPath) ([]string, traceDBKeyResolution) {
+func (r *traceDBKeyResolver) resolveKey(expr ast.Expr, path *traceDBKeyPath) ([]string, traceDBKeyResolution) {
 	switch e := traceDBStripParens(expr).(type) {
 	case *ast.BasicLit:
 		if key, ok := traceDBStringLiteral(e); ok {
@@ -1177,71 +1336,70 @@ func (r *traceDBKeyResolver) resolveKey(scope *traceDBFuncScope, expr ast.Expr, 
 		// A conversion (`string(k)` / `<keyType>(k)`) over a resolvable
 		// operand resolves as the operand.
 		if fun, ok := e.Fun.(*ast.Ident); ok && traceDBIsKeyType(fun) && len(e.Args) == 1 {
-			return r.resolveKey(scope, e.Args[0], path)
+			return r.resolveKey(e.Args[0], path)
 		}
 	case *ast.BinaryExpr:
-		if r.concatExcludes(scope, e) {
+		if r.concatExcludes(e) {
 			return nil, traceDBKeyExcluded
 		}
 	case *ast.Ident:
-		// Function scope first (round six, #5): the closure-parameter lane
-		// for an occurrence a closure's own declaration shadows (round
-		// eight, #3), then the key-parameter, compared range key, key-list
-		// range, single-valued local and once-bound local lanes, then any
-		// other name the scope declares (unresolved), and only for a name
-		// the scope does not declare the package variable or constant it
-		// names.
-		name := e.Name
-		if name == "_" {
+		// The declaration the occurrence resolves to (round nine), then its
+		// lane: a key parameter — of the function through its callers, of a
+		// closure through the closure's call sites (round eight, #3) — a
+		// compared range key, a key-list range value, an every-key range, a
+		// single-valued or once-bound name; any other declaration is
+		// unresolved. Only a name no scope declares is the package variable
+		// or constant it names.
+		if e.Name == "_" {
 			return nil, traceDBKeyUnresolved
 		}
-		if closure, shadowed := scope.closureNames[e]; shadowed {
-			return r.closureParamKeys(scope, closure, path)
+		decl := r.decls[e]
+		if decl == nil {
+			if value, ok := r.packageVars[e.Name]; ok {
+				return []string{value}, traceDBKeySpelled
+			}
+			if value, ok := r.consts[e.Name]; ok {
+				return []string{value}, traceDBKeySpelled
+			}
+			return nil, traceDBKeyUnresolved
 		}
-		if position, isParam := scope.params[name]; isParam {
-			if scope.assigned[name] || scope.ranged[name] > 0 {
+		if decl.position >= 0 {
+			if decl.bound > 0 || decl.ranges > 0 {
 				return nil, traceDBKeyUnresolved
 			}
-			return r.paramKeys(scope.fn, position, path)
+			if decl.scope.lit == nil {
+				return r.paramKeys(decl.scope.owner.fn, decl.position, path)
+			}
+			return r.closureParamKeys(decl, path)
 		}
-		if key := scope.keys[name]; key != "" {
-			return []string{key}, traceDBKeyCarried
-		}
-		if scope.ranged[name] > 0 {
-			if scope.assigned[name] || scope.ranged[name] > 1 {
+		if decl.ranges > 0 {
+			if decl.bound > 0 || decl.ranges > 1 {
 				return nil, traceDBKeyUnresolved
 			}
-			if elements, ok := scope.listKeys[name]; ok {
-				return elements, traceDBKeyCarried
+			if decl.key != "" {
+				return []string{decl.key}, traceDBKeyCarried
 			}
-			if scope.everyKey[name] {
+			if decl.listKeys != nil {
+				return decl.listKeys, traceDBKeyCarried
+			}
+			if decl.everyKey {
 				return nil, traceDBKeyEveryKey
 			}
 			return nil, traceDBKeyUnresolved
 		}
-		if value, ok := scope.bindings.single[name]; ok {
-			return []string{value}, traceDBKeySpelled
+		if decl.isSingle {
+			return []string{decl.single}, traceDBKeySpelled
 		}
-		if bound, ok := scope.bindings.once[name]; ok {
+		if decl.once != nil {
 			// Bound once to an expression the bindings cannot spell: a copy
 			// or conversion of a parameter, a concatenation — resolved as
 			// that expression (round seven, #5).
-			local := traceDBBoundName{scope: scope, name: name}
-			if path.names[local] {
+			if path.names[decl] {
 				return nil, traceDBKeyUnresolved
 			}
-			path.names[local] = true
-			defer delete(path.names, local)
-			return r.resolveKey(scope, bound, path)
-		}
-		if scope.declares(name) {
-			return nil, traceDBKeyUnresolved
-		}
-		if value, ok := r.packageVars[name]; ok {
-			return []string{value}, traceDBKeySpelled
-		}
-		if value, ok := r.consts[name]; ok {
-			return []string{value}, traceDBKeySpelled
+			path.names[decl] = true
+			defer delete(path.names, decl)
+			return r.resolveKey(decl.once, path)
 		}
 	}
 	return nil, traceDBKeyUnresolved
@@ -1330,8 +1488,10 @@ func traceDBPublicationStatePrefixMatches(value string) int {
 // declared key, every state-shaped value written under a computed Metadata
 // key that is not a lane key, and every write under a computed key the
 // census cannot resolve — whatever the value, unless the write is on the
-// disclosed roster traceDBUnresolvedKeyForwardingWrites — is reported as a
-// failure (fail-loud on unrecognized shapes). A computed key that resolves
+// disclosed roster traceDBUnresolvedKeyForwardingWrites — and every range
+// over the `.Metadata` selector whose key comparison the census cannot place
+// (round nine) is reported as a failure (fail-loud on unrecognized shapes).
+// A computed key that resolves
 // to no lane key (a spelled or carried non-key, an every-key forwarding
 // loop, a concatenation whose literal prefix / suffix excludes every lane
 // key) is not a lane write: the key is the precise signal, not the value.
@@ -1370,7 +1530,7 @@ func traceDBLaneStateWriteSitesOf(t testing.TB, consts map[string]string, files 
 			return
 		}
 		if ident, ok := index.(*ast.Ident); ok && ident.Name == "stateKey" {
-			value, ok := resolver.spelled(resolver.scopes[fn], rhs)
+			value, ok := resolver.spelled(rhs)
 			if !ok {
 				t.Errorf("source_raw_lane_gate.go:%d: gate funnel mints an unresolvable value", fset.Position(stmt.Pos()).Line)
 				return
@@ -1402,8 +1562,15 @@ func traceDBLaneStateWriteSitesOf(t testing.TB, consts map[string]string, files 
 			funcName := fn.Name.Name
 			scope := resolver.scopes[fn]
 			line := func(n ast.Node) int { return fset.Position(n.Pos()).Line }
-			resolve := func(expr ast.Expr) (string, bool) { return resolver.spelled(scope, expr) }
+			resolve := func(expr ast.Expr) (string, bool) { return resolver.spelled(expr) }
 			switch n := node.(type) {
+			case *ast.RangeStmt:
+				// A range over the `.Metadata` selector whose key comparison the
+				// census cannot place (round nine, #0): the key stays
+				// unresolved, the range is red.
+				if text, ok := scope.rangeProblems[n]; ok && traceDBIsMetadataSelector(n.X) {
+					t.Errorf("%s:%d: %s", name, line(n), text)
+				}
 			case *ast.AssignStmt:
 				if len(n.Lhs) == 1 && len(n.Rhs) == 1 && n.Tok == token.ASSIGN {
 					// The marker-async ledger's own state field.
@@ -1434,7 +1601,7 @@ func traceDBLaneStateWriteSitesOf(t testing.TB, consts map[string]string, files 
 					return
 				}
 				_, literal := traceDBStringLiteral(index)
-				keys, resolution := resolver.resolveKey(scope, index, newTraceDBKeyPath())
+				keys, resolution := resolver.resolveKey(index, newTraceDBKeyPath())
 				var lanes []string
 				if resolution == traceDBKeySpelled || resolution == traceDBKeyCarried {
 					lanes = laneKeysOf(keys)
@@ -1527,13 +1694,14 @@ func traceDBLaneStateWriteSitesOf(t testing.TB, consts map[string]string, files 
 						return
 					}
 					if ident, ok := n.Args[keyArg].(*ast.Ident); ok {
-						_, isParam := scope.params[ident.Name]
+						decl := resolver.decls[ident]
+						isParam := decl != nil && decl.scope.lit == nil && decl.position >= 0
 						_, wrapper := traceDBSourceRawGateCallers[funcName]
 						if isParam && wrapper {
 							return // the wrapper forwards its own key parameter; its callers mint
 						}
 					}
-					resolved, resolution := resolver.resolveKey(scope, n.Args[keyArg], newTraceDBKeyPath())
+					resolved, resolution := resolver.resolveKey(n.Args[keyArg], newTraceDBKeyPath())
 					if resolution != traceDBKeySpelled && resolution != traceDBKeyCarried {
 						t.Errorf("%s:%d: gate call %s key argument does not resolve to a declared lane key", name, line(n), fun.Name)
 						return
