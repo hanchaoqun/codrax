@@ -2030,6 +2030,10 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 			b.WriteString(fmt.Sprintf("操作计划 `%s` 已达到本轮预算。\n\n", plan.ID))
 		case operation.StatusPartialAnswer:
 			b.WriteString(fmt.Sprintf("操作计划 `%s` 已形成部分结果。\n\n", plan.ID))
+		case operation.StatusBlocked:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 已被策略或能力边界阻止。\n\n", plan.ID))
+		case operation.StatusNeedsClarification:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 需要补充信息后才能继续。\n\n", plan.ID))
 		case operation.StatusCancelled:
 			b.WriteString(fmt.Sprintf("操作计划 `%s` 已取消。\n\n", plan.ID))
 		default:
@@ -2077,6 +2081,10 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 		b.WriteString(fmt.Sprintf("Operation plan `%s` reached the operation budget.\n\n", plan.ID))
 	case operation.StatusPartialAnswer:
 		b.WriteString(fmt.Sprintf("Operation plan `%s` produced a partial result.\n\n", plan.ID))
+	case operation.StatusBlocked:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` was blocked by policy or capability limits.\n\n", plan.ID))
+	case operation.StatusNeedsClarification:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` needs clarification before it can continue.\n\n", plan.ID))
 	case operation.StatusCancelled:
 		b.WriteString(fmt.Sprintf("Operation plan `%s` was cancelled.\n\n", plan.ID))
 	default:

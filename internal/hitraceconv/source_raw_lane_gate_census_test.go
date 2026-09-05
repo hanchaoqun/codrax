@@ -47,7 +47,10 @@ import (
 //     spelled through a local, a constant, a conversion, a caller-resolved
 //     parameter or a copy of one is a lane key like a literal, and the two
 //     live writes under keys the census cannot resolve are a named,
-//     load-bearing roster (traceDBUnresolvedKeyForwardingWrites).
+//     load-bearing roster (traceDBUnresolvedKeyForwardingWrites); a
+//     scope-declared name re-bound in the body is never single-valued and a
+//     closure parameter shadows the outer name inside its literal,
+//     resolving through the closure's own call sites (round eight).
 
 // traceDBPackageStringConsts collects every package-level string constant of
 // the non-test files of this package (value = literal, or another collected
@@ -273,6 +276,47 @@ func traceDBIsCallFun(node ast.Node, parent ast.Node) bool {
 	return ok && (call.Fun == node || traceDBStripParens(call.Fun) == node)
 }
 
+// traceDBBoundTo reports whether node is a right-hand side bound one-to-one
+// under parent (`x := node`, `x = node`, `var x = node`) and returns the
+// target it is bound to.
+func traceDBBoundTo(node ast.Node, parent ast.Node) (ast.Expr, bool) {
+	switch p := parent.(type) {
+	case *ast.AssignStmt:
+		if len(p.Lhs) != len(p.Rhs) {
+			return nil, false
+		}
+		for i, rhs := range p.Rhs {
+			if rhs == node || traceDBStripParens(rhs) == node {
+				return p.Lhs[i], true
+			}
+		}
+	case *ast.ValueSpec:
+		if len(p.Names) != len(p.Values) {
+			return nil, false
+		}
+		for i, value := range p.Values {
+			if value == node || traceDBStripParens(value) == node {
+				return p.Names[i], true
+			}
+		}
+	}
+	return nil, false
+}
+
+// traceDBBoundLocal: the local identifier node is bound to under parent, if
+// it is bound to one.
+func traceDBBoundLocal(node ast.Node, parent ast.Node) (string, bool) {
+	target, ok := traceDBBoundTo(node, parent)
+	if !ok {
+		return "", false
+	}
+	ident, ok := target.(*ast.Ident)
+	if !ok || ident.Name == "_" {
+		return "", false
+	}
+	return ident.Name, true
+}
+
 // traceDBInspectFuncBodies walks every top-level function of file, handing
 // each node to visit together with the enclosing declaration — a
 // declaration, never a name: same-named methods on different receivers are
@@ -359,7 +403,60 @@ type traceDBFuncScope struct {
 	// `.Metadata` selector statically; the reader census adds the ranges over
 	// its tainted map locals and map-returning helper calls.
 	everyKey map[string]bool
-	bindings traceDBStringBindings
+	// closureNames: every value occurrence of a name inside a closure that
+	// declares it (round eight, #3) → that closure's declaration of the
+	// name, which shadows the outer name for the occurrence.
+	closureNames map[*ast.Ident]traceDBClosureParam
+	// closureLocals: closure literal → the local it is bound to (`f :=
+	// func…`, `var f = func…`, `f = func…`).
+	closureLocals map[*ast.FuncLit]string
+	// escapedLocals: names used as a value other than a call's function
+	// operand — a local bound to a closure and used this way escapes, so the
+	// closure's call sites are unknown.
+	escapedLocals map[string]bool
+	bindings      traceDBStringBindings
+}
+
+// traceDBClosureParam names one declaration of a closure: a parameter, or
+// (position -1) a result or a parameter that is not key-typed.
+type traceDBClosureParam struct {
+	lit      *ast.FuncLit
+	name     string
+	position int
+}
+
+// traceDBClosureDeclaring: the innermost closure on the stack that declares
+// name, if any — the declaration a value occurrence of name inside it
+// refers to.
+func traceDBClosureDeclaring(stack []ast.Node, name string) (traceDBClosureParam, bool) {
+	for i := len(stack) - 1; i >= 0; i-- {
+		lit, ok := stack[i].(*ast.FuncLit)
+		if !ok {
+			continue
+		}
+		position := 0
+		for _, field := range lit.Type.Params.List {
+			for _, param := range field.Names {
+				if param.Name == name {
+					if !traceDBIsKeyType(field.Type) {
+						position = -1
+					}
+					return traceDBClosureParam{lit: lit, name: name, position: position}, true
+				}
+				position++
+			}
+		}
+		if lit.Type.Results != nil {
+			for _, field := range lit.Type.Results.List {
+				for _, result := range field.Names {
+					if result.Name == name {
+						return traceDBClosureParam{lit: lit, name: name, position: -1}, true
+					}
+				}
+			}
+		}
+	}
+	return traceDBClosureParam{}, false
 }
 
 // declares reports whether the scope declares name — with or without a
@@ -368,10 +465,22 @@ func (scope *traceDBFuncScope) declares(name string) bool {
 	return scope.declared[name] || scope.assigned[name] || scope.ranged[name] > 0
 }
 
-// traceDBCallSite is one call expression and the scope it sits in.
+// traceDBCallSite is one call expression, the scope it sits in and the
+// closures enclosing it (outermost first).
 type traceDBCallSite struct {
 	scope *traceDBFuncScope
 	call  *ast.CallExpr
+	lits  []*ast.FuncLit
+}
+
+// inside reports whether the site sits in the closure's body.
+func (site traceDBCallSite) inside(lit *ast.FuncLit) bool {
+	for _, enclosing := range site.lits {
+		if enclosing == lit {
+			return true
+		}
+	}
+	return false
 }
 
 // traceDBKeyParam names one key parameter of one function.
@@ -387,15 +496,17 @@ type traceDBBoundName struct {
 }
 
 // traceDBKeyPath is one resolution's path: the key parameters being resolved
-// through their callers (outermost first entered) and the once-bound names
-// being resolved through their expression.
+// through their callers (outermost first entered), the closure parameters
+// being resolved through their closure's call sites, and the once-bound
+// names being resolved through their expression.
 type traceDBKeyPath struct {
-	params map[traceDBKeyParam]bool
-	names  map[traceDBBoundName]bool
+	params   map[traceDBKeyParam]bool
+	closures map[traceDBClosureParam]bool
+	names    map[traceDBBoundName]bool
 }
 
 func newTraceDBKeyPath() *traceDBKeyPath {
-	return &traceDBKeyPath{params: map[traceDBKeyParam]bool{}, names: map[traceDBBoundName]bool{}}
+	return &traceDBKeyPath{params: map[traceDBKeyParam]bool{}, closures: map[traceDBClosureParam]bool{}, names: map[traceDBBoundName]bool{}}
 }
 
 // onPath reports whether any key parameter of fn is being resolved: a call
@@ -422,7 +533,11 @@ func (path *traceDBKeyPath) onPath(fn *ast.FuncDecl) bool {
 //     or conversion of one) resolved through the key argument of every
 //     direct caller (a wrapper's forwarded parameter recursively); the set
 //     is every key the callers pass, plus every key a call site inside the
-//     function's own cycle spells (round seven, #3).
+//     function's own cycle spells (round seven, #3). A closure's key-typed
+//     parameter is the closure's own declaration (round eight, #3): inside
+//     the literal it shadows the outer name and resolves the same way
+//     through the closure's own call sites — the literal bound exactly once
+//     to a local that is only ever called.
 //   - traceDBKeyEveryKey: an uncompared range key of the state map itself:
 //     the identifier ranges over every key and carries no key signal (the
 //     ruled range reading — a range read is a range value under a key
@@ -435,15 +550,21 @@ func (path *traceDBKeyPath) onPath(fn *ast.FuncDecl) bool {
 //     resolution — the cycle's forwarding of the parameter, which adds no
 //     key and no caller of its own (round six, #6) — or a nested resolution
 //     whose every call site is the cycle, carrying the keys those sites
-//     spell (round seven, #3). Surfaces only inside paramKeys' caller loop:
-//     a top-level resolution never returns it.
-//   - traceDBKeyUnresolved: anything else — a re-bound parameter or range
-//     name, a multi-valued local (tuple-bound, re-bound, bound to a value
-//     the census cannot resolve, or a copy of one), a parameter of a
-//     function that escapes as a value, has no caller outside its own cycle,
-//     or has a caller whose argument does not resolve, a closure parameter,
-//     a name shadowing a package constant without a single value, a
-//     computed expression.
+//     spell (round seven, #3). Surfaces only inside the caller loops of
+//     paramKeys and closureParamKeys: a top-level resolution never returns
+//     it.
+//   - traceDBKeyUnresolved: anything else — a re-bound parameter, closure
+//     parameter, named result or range name (a scope-declared name is never
+//     single-valued from the body's bindings alone, so a copy of it carries
+//     nothing — round eight, #2), a multi-valued local (tuple-bound,
+//     re-bound, bound to a value the census cannot resolve, or a copy of
+//     one), a parameter of a function that escapes as a value, has no
+//     caller outside its own cycle, or has a caller whose argument does not
+//     resolve, a closure parameter whose closure is not bound once to a
+//     local that is only ever called, or has no call site outside its own
+//     body, or has a site whose argument does not resolve, a closure result
+//     or non-key closure parameter, a name shadowing a package constant
+//     without a single value, a computed expression.
 type traceDBKeyResolution int
 
 const (
@@ -510,7 +631,8 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 				continue
 			}
 			scope := &traceDBFuncScope{fn: fn, file: name, imports: imports, params: map[string]int{}, declared: map[string]bool{}, assigned: map[string]bool{},
-				ranged: map[string]int{}, listKeys: map[string][]string{}, keys: map[string]string{}, comparedRanges: map[*ast.RangeStmt]string{}, everyKey: map[string]bool{}}
+				ranged: map[string]int{}, listKeys: map[string][]string{}, keys: map[string]string{}, comparedRanges: map[*ast.RangeStmt]string{}, everyKey: map[string]bool{},
+				closureNames: map[*ast.Ident]traceDBClosureParam{}, closureLocals: map[*ast.FuncLit]string{}, escapedLocals: map[string]bool{}}
 			declare(scope, fn.Type.Params)
 			declare(scope, fn.Type.Results)
 			position := 0
@@ -564,8 +686,10 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 	})
 	// Static pre-pass, stage one: the names each body binds (a package
 	// variable re-bound in any body is a variable, not a constant), the
-	// closures' own parameters and results (the function's scope, round six),
-	// the range statements defining a name, every call site, and the
+	// closures' own parameters and results (the function's scope, round six;
+	// the occurrences they shadow and the local each closure is bound to,
+	// round eight), the range statements defining a name, every call site
+	// with its enclosing closures, the names used as values, and the
 	// key-parameter functions that escape as values.
 	keyParamDecls := func(scope *traceDBFuncScope, expr ast.Expr) []*ast.FuncDecl {
 		var decls []*ast.FuncDecl
@@ -610,6 +734,9 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 			case *ast.FuncLit:
 				declare(scope, n.Type.Params)
 				declare(scope, n.Type.Results)
+				if local, ok := traceDBBoundLocal(node, parent); ok {
+					scope.closureLocals[n] = local
+				}
 			case *ast.RangeStmt:
 				for _, expr := range []ast.Expr{n.Key, n.Value} {
 					if ident, ok := expr.(*ast.Ident); ok && ident.Name != "_" {
@@ -617,11 +744,24 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 					}
 				}
 			case *ast.CallExpr:
-				r.callSites = append(r.callSites, traceDBCallSite{scope: scope, call: n})
+				var lits []*ast.FuncLit
+				for _, ancestor := range stack {
+					if lit, ok := ancestor.(*ast.FuncLit); ok {
+						lits = append(lits, lit)
+					}
+				}
+				r.callSites = append(r.callSites, traceDBCallSite{scope: scope, call: n, lits: lits})
 			case *ast.Ident:
-				if traceDBIdentIsName(n, parent) || traceDBIsCallFun(node, parent) {
+				if traceDBIdentIsName(n, parent) {
 					return
 				}
+				if closure, ok := traceDBClosureDeclaring(stack, n.Name); ok {
+					scope.closureNames[n] = closure
+				}
+				if traceDBIsCallFun(node, parent) {
+					return
+				}
+				scope.escapedLocals[n.Name] = true
 				for _, decl := range keyParamDecls(scope, n) {
 					r.escaped[decl] = true
 				}
@@ -690,13 +830,23 @@ func newTraceDBKeyResolver(files map[string]*ast.File, consts map[string]string)
 // name is single-valued when its every binding spells the same value —
 // resolved to a fixpoint, so a copy of a single-valued local is single
 // (round seven, #4) — and once-bound when the body binds it exactly once
-// to an expression.
+// to an expression. A name the scope declares (a parameter, named result,
+// closure parameter or result, range name) carries its incoming binding,
+// which the body cannot spell (round eight, #2): re-bound in the body it is
+// multi-valued, never single and never once, so a copy of it carries
+// nothing and the name resolves through its own lane or not at all.
 func (r *traceDBKeyResolver) bind(scope *traceDBFuncScope) {
 	exprs := map[string][]ast.Expr{}
 	record := func(name string, expr ast.Expr) {
 		if name != "_" {
 			exprs[name] = append(exprs[name], expr)
 		}
+	}
+	for name := range scope.declared {
+		record(name, nil)
+	}
+	for name := range scope.ranged {
+		record(name, nil)
 	}
 	ast.Inspect(scope.fn.Body, func(node ast.Node) bool {
 		switch n := node.(type) {
@@ -954,6 +1104,68 @@ func (r *traceDBKeyResolver) paramKeys(fn *ast.FuncDecl, position int, path *tra
 	return nil, traceDBKeyUnresolved
 }
 
+// closureParamKeys: the keys a closure's key-typed parameter carries (round
+// eight, #3) — the argument every call site of the closure passes at the
+// parameter's position, plus the keys a site inside the closure's own body
+// spells, the closure being bound exactly once to a local that is only
+// ever called. Unresolved for a result or a parameter that is not
+// key-typed, a parameter re-bound in the body, a literal not bound to a
+// local, a local re-bound or used as a value, no call site outside the
+// closure's own body, or a site whose argument does not resolve; forwarded
+// when, resolved from inside a cycle, every site is the cycle.
+func (r *traceDBKeyResolver) closureParamKeys(scope *traceDBFuncScope, param traceDBClosureParam, path *traceDBKeyPath) ([]string, traceDBKeyResolution) {
+	if param.position < 0 || scope.assigned[param.name] || scope.ranged[param.name] > 0 {
+		return nil, traceDBKeyUnresolved
+	}
+	local, bound := scope.closureLocals[param.lit]
+	if !bound || traceDBStripParens(scope.bindings.once[local]) != ast.Expr(param.lit) || scope.escapedLocals[local] {
+		return nil, traceDBKeyUnresolved
+	}
+	if path.closures[param] {
+		return nil, traceDBKeyForwarded // re-entered from inside its own cycle
+	}
+	nested := len(path.params) > 0 || len(path.closures) > 0
+	path.closures[param] = true
+	defer delete(path.closures, param)
+	var keys []string
+	sites, callers := 0, 0
+	for _, site := range r.callSites {
+		if site.scope != scope {
+			continue
+		}
+		fun, ok := traceDBStripParens(site.call.Fun).(*ast.Ident)
+		if !ok || fun.Name != local {
+			continue
+		}
+		if _, shadowed := scope.closureNames[fun]; shadowed {
+			continue // a closure's own declaration of the name, not the local
+		}
+		sites++
+		if site.call.Ellipsis.IsValid() || param.position >= len(site.call.Args) {
+			return nil, traceDBKeyUnresolved
+		}
+		passed, resolution := r.resolveKey(scope, site.call.Args[param.position], path)
+		switch resolution {
+		case traceDBKeyUnresolved, traceDBKeyEveryKey:
+			return nil, traceDBKeyUnresolved
+		case traceDBKeyForwarded:
+			keys = append(keys, passed...) // the cycle's own spelled keys, no caller
+			continue
+		}
+		keys = append(keys, passed...)
+		if !site.inside(param.lit) {
+			callers++
+		}
+	}
+	switch {
+	case callers > 0:
+		return keys, traceDBKeyCarried
+	case nested && sites > 0:
+		return keys, traceDBKeyForwarded
+	}
+	return nil, traceDBKeyUnresolved
+}
+
 // resolveKey: the keys an index expression names and how they resolved.
 func (r *traceDBKeyResolver) resolveKey(scope *traceDBFuncScope, expr ast.Expr, path *traceDBKeyPath) ([]string, traceDBKeyResolution) {
 	switch e := traceDBStripParens(expr).(type) {
@@ -972,14 +1184,19 @@ func (r *traceDBKeyResolver) resolveKey(scope *traceDBFuncScope, expr ast.Expr, 
 			return nil, traceDBKeyExcluded
 		}
 	case *ast.Ident:
-		// Function scope first (round six, #5): the key-parameter, compared
-		// range key, key-list range, single-valued local and once-bound local
-		// lanes, then any other name the scope declares (unresolved), and
-		// only for a name the scope does not declare the package variable or
-		// constant it names.
+		// Function scope first (round six, #5): the closure-parameter lane
+		// for an occurrence a closure's own declaration shadows (round
+		// eight, #3), then the key-parameter, compared range key, key-list
+		// range, single-valued local and once-bound local lanes, then any
+		// other name the scope declares (unresolved), and only for a name
+		// the scope does not declare the package variable or constant it
+		// names.
 		name := e.Name
 		if name == "_" {
 			return nil, traceDBKeyUnresolved
+		}
+		if closure, shadowed := scope.closureNames[e]; shadowed {
+			return r.closureParamKeys(scope, closure, path)
 		}
 		if position, isParam := scope.params[name]; isParam {
 			if scope.assigned[name] || scope.ranged[name] > 0 {

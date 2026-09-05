@@ -2,6 +2,7 @@ package repl
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -31,14 +32,16 @@ func terminalRenderStructured(t *testing.T, lang string) operation.CommandOperat
 	return result
 }
 
-func terminalRenderEvaluation(t *testing.T) operation.CommandOperationResult {
+// terminalRenderEvaluation mints the evaluator terminal for one verdict
+// with the reason every evaluator case shares.
+func terminalRenderEvaluation(t *testing.T, status operation.OperationEvaluationStatus) operation.CommandOperationResult {
 	t.Helper()
 	result, ok := commandOperationEvaluationTerminalResult(terminalRenderPlan(), operation.OperationEvaluation{
-		Status: operation.EvalBudgetExhausted,
+		Status: status,
 		Reason: "the material is exhausted",
 	})
 	if !ok {
-		t.Fatal("expected an evaluator terminal")
+		t.Fatalf("expected an evaluator terminal for %s", status)
 	}
 	return result
 }
@@ -52,6 +55,15 @@ func terminalRenderEvaluation(t *testing.T) operation.CommandOperationResult {
 // printed a "1. step" row with an empty backticked id and the status,
 // followed by the reason twice (Error and Output) — in the approve,
 // auto-execute and CLI lanes, EN and ZH alike.
+//
+// EVOLUTION RECORD (review round eight #1): on 42d2017e4 the round card's
+// status switch had no arm for StatusBlocked / StatusNeedsClarification,
+// so an evaluator verdict of blocked or needs_clarification rendered under
+// the default "failed" header with no status word on the card (the
+// synthetic step row that used to carry the word was removed by round
+// seven #2): the evaluation_blocked_* and evaluation_clarification_* cases
+// below were red there ("Operation plan `op-1` failed." / "操作计划
+// `op-1` 执行失败。").
 func TestCommandOperationTerminalRendersStepless(t *testing.T) {
 	plan := terminalRenderPlan()
 	for _, tc := range []struct {
@@ -73,10 +85,22 @@ func TestCommandOperationTerminalRendersStepless(t *testing.T) {
 			"Operation plan `op-1` failed.\n\nNote:\nstructured tool parameters were malformed after compact repair; no further operation commands were executed"},
 		{"structured_zh", "zh", terminalRenderStructured(t, "zh"), "structured_tool_params",
 			"操作计划 `op-1` 执行失败。\n\n说明：\n结构化工具参数在紧凑修复后仍不合法；系统未执行新的操作命令，已基于现有结果降级作答"},
-		{"evaluation_en", "en", terminalRenderEvaluation(t), "budget_exhausted",
+		{"evaluation_budget_en", "en", terminalRenderEvaluation(t, operation.EvalBudgetExhausted), "budget_exhausted",
 			"Operation plan `op-1` reached the operation budget.\n\nNote:\nthe material is exhausted"},
-		{"evaluation_zh", "zh", terminalRenderEvaluation(t), "budget_exhausted",
+		{"evaluation_budget_zh", "zh", terminalRenderEvaluation(t, operation.EvalBudgetExhausted), "budget_exhausted",
 			"操作计划 `op-1` 已达到本轮预算。\n\n说明：\nthe material is exhausted"},
+		{"evaluation_partial_en", "en", terminalRenderEvaluation(t, operation.EvalPartialAnswerPossible), "partial_answer_possible",
+			"Operation plan `op-1` produced a partial result.\n\nNote:\nthe material is exhausted"},
+		{"evaluation_partial_zh", "zh", terminalRenderEvaluation(t, operation.EvalPartialAnswerPossible), "partial_answer_possible",
+			"操作计划 `op-1` 已形成部分结果。\n\n说明：\nthe material is exhausted"},
+		{"evaluation_blocked_en", "en", terminalRenderEvaluation(t, operation.EvalBlocked), "blocked",
+			"Operation plan `op-1` was blocked by policy or capability limits.\n\nNote:\nthe material is exhausted"},
+		{"evaluation_blocked_zh", "zh", terminalRenderEvaluation(t, operation.EvalBlocked), "blocked",
+			"操作计划 `op-1` 已被策略或能力边界阻止。\n\n说明：\nthe material is exhausted"},
+		{"evaluation_clarification_en", "en", terminalRenderEvaluation(t, operation.EvalNeedsClarification), "needs_clarification",
+			"Operation plan `op-1` needs clarification before it can continue.\n\nNote:\nthe material is exhausted"},
+		{"evaluation_clarification_zh", "zh", terminalRenderEvaluation(t, operation.EvalNeedsClarification), "needs_clarification",
+			"操作计划 `op-1` 需要补充信息后才能继续。\n\n说明：\nthe material is exhausted"},
 	} {
 		if len(tc.result.StepResults) != 0 {
 			t.Errorf("%s: a terminal must not mint a synthetic step: %+v", tc.name, tc.result.StepResults)
@@ -99,6 +123,85 @@ func TestCommandOperationTerminalRendersStepless(t *testing.T) {
 	// remember (the synthetic step used to yield a command-less entry)
 	if entries := operation.BuildMemoryEntries(plan, commandOperationBudgetResult(plan, commandOperationBudgetCommandRounds, "en"), operation.CapabilitySnapshot{}); len(entries) != 0 {
 		t.Fatalf("budget terminal minted %d command memory entries, want none: %+v", len(entries), entries)
+	}
+}
+
+// TestCommandOperationEvaluatorVerdictStatusesHaveCardArms enumerates the
+// closed evaluator verdict set — the enum the evaluator tool schema hands
+// the model, cross-checked against the typed constants — and pins that
+// every verdict which mints a result-level terminal has its own round-card
+// header in both languages: a known status falling through to the default
+// "failed" header fails here, as does a terminal verdict the header roster
+// does not name, a schema enum entry without a typed constant, or a roster
+// entry no verdict reaches (review round eight #1).
+func TestCommandOperationEvaluatorVerdictStatusesHaveCardArms(t *testing.T) {
+	var schema struct {
+		Properties struct {
+			Status struct {
+				Enum []string `json:"enum"`
+			} `json:"status"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(operationEvaluationTool.Parameters, &schema); err != nil {
+		t.Fatalf("decode evaluator tool schema: %v", err)
+	}
+	typed := []operation.OperationEvaluationStatus{
+		operation.EvalComplete, operation.EvalContinueCommand, operation.EvalContinueProvider, operation.EvalNeedsApproval,
+		operation.EvalNeedsClarification, operation.EvalBlocked, operation.EvalBudgetExhausted, operation.EvalPartialAnswerPossible,
+	}
+	if len(schema.Properties.Status.Enum) != len(typed) {
+		t.Fatalf("evaluator schema enum=%v, typed constants=%v — the closed set changed; extend the roster", schema.Properties.Status.Enum, typed)
+	}
+	for _, raw := range schema.Properties.Status.Enum {
+		if operation.NormalizeEvaluationStatus(raw) != operation.OperationEvaluationStatus(raw) {
+			t.Fatalf("schema enum entry %q has no typed constant", raw)
+		}
+	}
+	// the verdicts that mint no terminal: the loop continues, approves or
+	// completes on them
+	nonTerminal := map[operation.OperationEvaluationStatus]bool{
+		operation.EvalComplete: true, operation.EvalContinueCommand: true, operation.EvalContinueProvider: true, operation.EvalNeedsApproval: true,
+	}
+	// the round-card header of every terminal verdict, EN then ZH
+	headers := map[operation.OperationStatus][2]string{
+		operation.StatusBudgetExhausted:    {"Operation plan `op-1` reached the operation budget.", "操作计划 `op-1` 已达到本轮预算。"},
+		operation.StatusPartialAnswer:      {"Operation plan `op-1` produced a partial result.", "操作计划 `op-1` 已形成部分结果。"},
+		operation.StatusBlocked:            {"Operation plan `op-1` was blocked by policy or capability limits.", "操作计划 `op-1` 已被策略或能力边界阻止。"},
+		operation.StatusNeedsClarification: {"Operation plan `op-1` needs clarification before it can continue.", "操作计划 `op-1` 需要补充信息后才能继续。"},
+	}
+	failedHeader := [2]string{"Operation plan `op-1` failed.", "操作计划 `op-1` 执行失败。"}
+	plan := terminalRenderPlan()
+	terminals := 0
+	for _, verdict := range typed {
+		status := commandOperationStatusFromEvaluation(verdict)
+		if status == "" {
+			if !nonTerminal[verdict] {
+				t.Fatalf("evaluator verdict %s mints no terminal and is not on the non-terminal roster", verdict)
+			}
+			continue
+		}
+		if nonTerminal[verdict] {
+			t.Fatalf("evaluator verdict %s is on the non-terminal roster but mints a %s terminal", verdict, status)
+		}
+		want, ok := headers[status]
+		if !ok {
+			t.Fatalf("evaluator verdict %s mints a %s terminal the header roster does not name", verdict, status)
+		}
+		terminals++
+		result := terminalRenderEvaluation(t, verdict)
+		for i, lang := range []string{"en", "zh"} {
+			card := commandOperationResultMarkdown(lang, plan, result)
+			header := strings.SplitN(card, "\n", 2)[0]
+			if header == failedHeader[i] {
+				t.Errorf("%s/%s: the %s verdict fell through to the default failed header:\n%s", verdict, lang, status, card)
+			}
+			if header != want[i] {
+				t.Errorf("%s/%s: header=%q, want %q", verdict, lang, header, want[i])
+			}
+		}
+	}
+	if terminals != len(headers) {
+		t.Fatalf("terminal verdicts=%d, header roster=%d — a roster entry no verdict reaches", terminals, len(headers))
 	}
 }
 
