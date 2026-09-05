@@ -32,7 +32,7 @@ import (
 // EVOLUTION RECORD (run on live and, in git-archive scratch copies, on
 // 480939385 and b6f7eeec3; the retired extract_cpp_callee_scope_test.go /
 // extract_cpp_scope_resolver_test.go pinned the resolver these rows replace):
-//   - red on 480939385, 43 of 101 sub-pins (operand-keyed tie-breaker over
+//   - red on 480939385, 45 of 103 sub-pins (operand-keyed tie-breaker over
 //     the nearest function's locals / class fields only, one-level
 //     qualifier unwrap): a false callee row for every chain whose operands
 //     were not both integer literals / nearest-scope declarations — the
@@ -54,20 +54,24 @@ import (
 //     condition-clause / catch / non-type-parameter / enumerator callees
 //     and the constexpr-field / constexpr-local / declared-template
 //     residuals were green there by the operand tie-breaker's accident.
-//   - red on b6f7eeec3, 32 of 101 sub-pins (callee-keyed per-file resolver):
+//   - red on b6f7eeec3, 34 of 103 sub-pins (callee-keyed per-file resolver):
 //     the five most-vexing-parse locals and the two paren-initialised range
 //     checks (`Timer t(clock)` resolved callable), the three init-captures,
 //     the four anonymous / inline namespace shapes, the second same-named
 //     class and the detail-before-public class (visited keyed on the bare
 //     class name), the four case / default / goto-label declarations, the
 //     wholly undeclared and single-witness chains, the header-only compact
-//     chain, and all seven constexpr-bool residual shapes (declared
+//     chain, and all nine constexpr-bool residual shapes (declared
 //     template callees included) minted a row; `a<b, c>(d)` / `a<T>(x)`
 //     over a declared parameter minted nothing (the resolver's "declared
 //     value takes no template arguments" reading, retired — the extractor
 //     no longer decides what a name denotes).
-//   - green on live, 101/101: every `&&` / `||` shape mints no row, every
+//   - green on live, 103/103: every `&&` / `||` shape mints no row, every
 //     other template reading mints its bare-name row.
+//   - the two type-trait residual pins (`dispatch<std::is_same_v<T, int> &&
+//     std::is_signed_v<T>>(x)` and the `||` twin) were added after the
+//     round-four review (both bases minted `dispatch@`; live mints no row):
+//     the round-four figures were 43 / 32 of 101.
 
 func cppChainShapeRows(t *testing.T, src string) ([]types.Relation, map[string]int) {
 	t.Helper()
@@ -337,6 +341,14 @@ func TestCppComparisonChainIsTheGrammarShapeAlone(t *testing.T) {
 		{"residual: bool literal conjunction",
 			"void run(int x, int flag) { f<true && flag>(x); }",
 			nil, []string{"f", "f<true && flag>"}},
+		// The most common real-world spelling of the residual: a type-trait
+		// conjunction / disjunction as the bool non-type argument.
+		{"residual: type-trait conjunction as a bool non-type argument",
+			"template<class T> void run(T x) { dispatch<std::is_same_v<T, int> && std::is_signed_v<T>>(x); }",
+			nil, []string{"dispatch", "dispatch<std::is_same_v<T, int> && std::is_signed_v<T>>"}},
+		{"residual: type-trait disjunction as a bool non-type argument",
+			"template<class T> void run(T x) { dispatch<std::is_same_v<T, int> || std::is_floating_point_v<T>>(x); }",
+			nil, []string{"dispatch"}},
 
 		// ---- every other template reading: bare-name row ----
 

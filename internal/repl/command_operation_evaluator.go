@@ -41,33 +41,39 @@ func commandOperationAttachEvaluation(records []commandOperationResultRecord, ev
 // typed evidence that material-backed work must continue. Command approval is
 // still evaluated for every generated continuation plan, so this changes
 // investigation capacity without widening execution authority.
-func commandOperationCommandRoundLimit(records []commandOperationResultRecord) int {
+//
+// The limit reads the operation's OWN rounds only (review round five #2):
+// an evaluation carried by an earlier operation's round in the context
+// window never extends a fresh operation's limit.
+func commandOperationCommandRoundLimit(ownRecords commandOperationOwnRecords) int {
 	executed := 0
-	for i := range records {
-		if records[i].Result.Status == operation.StatusExecuted {
+	for i := range ownRecords {
+		if ownRecords[i].Result.Status == operation.StatusExecuted {
 			executed++
 		}
-		if executed < commandOperationMaxCommandRounds || records[i].Evaluation == nil {
+		if executed < commandOperationMaxCommandRounds || ownRecords[i].Evaluation == nil {
 			continue
 		}
-		eval := records[i].Evaluation
+		eval := ownRecords[i].Evaluation
 		if eval.Status != operation.EvalContinueCommand ||
 			(eval.MaterialCoverageStatus != operation.MaterialCoveragePartial &&
 				eval.MaterialCoverageStatus != operation.MaterialCoverageNotEvaluated) {
 			continue
 		}
-		if commandOperationShouldRunMaterialEvaluator(records[:i+1]) {
+		if commandOperationShouldRunMaterialEvaluator(ownRecords[:i+1]) {
 			return commandOperationExtendedCommandRounds
 		}
 	}
 	return commandOperationMaxCommandRounds
 }
 
-func commandOperationMaterialEvaluationNeedsBudget(result operation.CommandOperationResult, eval *operation.OperationEvaluation, records []commandOperationResultRecord) bool {
-	if result.Status != operation.StatusExecuted || !commandOperationShouldRunMaterialEvaluator(records) {
+// commandOperationMaterialEvaluationNeedsBudget reads the operation's OWN
+// rounds only (review round five #2).
+func commandOperationMaterialEvaluationNeedsBudget(result operation.CommandOperationResult, eval *operation.OperationEvaluation, ownRecords commandOperationOwnRecords) bool {
+	if result.Status != operation.StatusExecuted || !commandOperationShouldRunMaterialEvaluator(ownRecords) {
 		return false
 	}
-	if commandOperationExecutedRoundCount(records) < commandOperationCommandRoundLimit(records) {
+	if commandOperationExecutedRoundCount(ownRecords) < commandOperationCommandRoundLimit(ownRecords) {
 		return false
 	}
 	return eval == nil || eval.Status != operation.EvalComplete

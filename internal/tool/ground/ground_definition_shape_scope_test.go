@@ -65,11 +65,15 @@ import (
 //     1})`, callback handoff for `go run(handler, Opts{Retry: 1})`): red on
 //     b6f7eeec3 (Ungrounded with the false "C-style signature" note; zero
 //     flows; no handoff), green on 480939385.
-//   - the three default-brace-argument definitions (residual, accepted):
-//     red on b6f7eeec3 (refused), green on 480939385.
+//   - the two C-family default-brace-argument definitions (residual,
+//     accepted): red on b6f7eeec3 (refused), green on 480939385.
+//   - the constructor with a default brace argument (`Parser::Parser(Opts
+//     o = {}) : o_(o) {`, refused by its two typed signals): green on
+//     b6f7eeec3, red on 480939385 (its flat parameter atom ends at the
+//     `{`, so the line was accepted as a call site there).
 //   - the base definition shapes without a brace (`int parse(int x) {`,
 //     `int Parser::parse(Opts o) const {`, `static int parse(Opts o =
-//     Opts()) {`): refused on every tree.
+//     Opts()) {`, `Parser::Parser() : x_(0) {`): refused on every tree.
 //   - green on live for all of the above.
 
 func groundDefinitionShapeProbe(line, anchor string) (types.EvidenceItem, Report) {

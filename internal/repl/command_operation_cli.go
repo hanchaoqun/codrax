@@ -62,10 +62,10 @@ func RunCommandOperationCLI(ctx context.Context, userLine string, policy TurnPol
 	switch {
 	case plan.Status == operation.StatusReady && !operation.LintCommandOperationPlan(plan).OK():
 		operationCLIProgress(cfg.Progress, commandOperationAutoValidateMarkdown(cfg.Language, plan))
-		return runCommandOperationCLIPlan(ctx, cfg, userLine, plan, 0, nil)
+		return runCommandOperationCLIPlan(ctx, cfg, userLine, plan, commandOperationAttemptState{})
 	case plan.Status == operation.StatusReady && initial.AutoExecute():
 		operationCLIProgress(cfg.Progress, commandOperationAutoExecuteMarkdown(cfg.Language, plan))
-		return runCommandOperationCLIPlan(ctx, cfg, userLine, plan, 0, nil)
+		return runCommandOperationCLIPlan(ctx, cfg, userLine, plan, commandOperationAttemptState{})
 	default:
 		// Single-shot CLI has no interactive /approve or clarification loop.
 		// Return the same structured preflight text REPL would show, but keep
@@ -84,11 +84,19 @@ func planCommandOperationForCLI(ctx context.Context, userLine string, policy Tur
 	return cfg.Planner.PlanCommandOperation(ctx, userLine, cfg.RepoRoot, policy)
 }
 
-func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConfig, request string, initialPlan operation.CommandOperationPlan, initialRepairRounds int, initialRecords []commandOperationResultRecord) (string, error) {
-	records := append([]commandOperationResultRecord(nil), initialRecords...)
+// runCommandOperationCLIPlan runs initialPlan as the next round of the
+// operation described by resume — the same role split as the REPL attempt
+// (review round five #2): the planner, evaluator and answerer see
+// resume.Context followed by the operation's own rounds; the command-round
+// budget reads the own rounds and the carried counter only. Single-shot
+// CLI has no earlier operation, so its callers start from a zero state.
+func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConfig, request string, initialPlan operation.CommandOperationPlan, resume commandOperationAttemptState) (string, error) {
+	contextRecords := resume.Context
+	ownRecords := append(commandOperationOwnRecords(nil), resume.Own...)
+	window := func() commandOperationRecordWindow { return commandOperationWindow(contextRecords, ownRecords) }
 	currentPlan := initialPlan
-	repairRounds := initialRepairRounds
-	commandRounds := commandOperationExecutedRoundCount(records)
+	repairRounds := resume.ReplanAttempts
+	commandRounds := resume.CommandRounds
 	var syntheticResult *operation.CommandOperationResult
 
 	executor := operation.CommandExecutor{
@@ -114,7 +122,7 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 			result = commandOperationResultFromPlanLint(currentPlan, lint)
 			logging.Info("[cli/operation] command plan lint failed plan_id=%s issues=%d summary=%q repair_rounds=%d command_rounds=%d",
 				currentPlan.ID, len(lint.Issues), oneLineClamp(lint.Summary(), 240), repairRounds, commandRounds)
-		} else if commandRounds >= commandOperationCommandRoundLimit(records) {
+		} else if commandRounds >= commandOperationCommandRoundLimit(ownRecords) {
 			result = commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
 		} else {
 			commandRounds++
@@ -137,8 +145,8 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 		}
 
 		currentPlan.Status = result.Status
-		records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: result})
-		records = commandOperationAttachMaterialPages(records)
+		ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: result})
+		ownRecords = commandOperationAttachOwnMaterialPages(contextRecords, ownRecords)
 		operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, result))
 
 		if result.Status == operation.StatusFailed && !commandResultTimedOut(result) && repairRounds < commandOperationMaxRepairRounds {
@@ -149,9 +157,9 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 				if err != nil {
 					logging.Warning("[cli/operation] command replan failed: %v", err)
 					if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, cfg.Language); ok {
-						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
+						ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
 						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, degraded))
-						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+						return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 					}
 				} else {
 					repairRounds++
@@ -161,11 +169,11 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 					revisedPlan = operation.ApplyCommandPlanApprovalDecision(revisedPlan, decision)
 					logging.Info("[cli/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d repair_rounds=%d",
 						currentPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, decision.Action, decision.ReasonCode, len(revisedPlan.Steps), repairRounds)
-					if commandOperationTerminalAfterReplan(revisedPlan, records) {
+					if commandOperationTerminalAfterReplan(revisedPlan, window()) {
 						terminal := commandOperationTerminalResult(revisedPlan)
-						records = append(records, commandOperationResultRecord{Plan: revisedPlan, Result: terminal})
+						ownRecords = append(ownRecords, commandOperationResultRecord{Plan: revisedPlan, Result: terminal})
 						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, revisedPlan, terminal))
-						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+						return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 					}
 					if revisedPlan.Status == operation.StatusReady {
 						if lint := commandRevisedPlanPreflightLint(revisedPlan, currentPlan, result); !lint.OK() {
@@ -187,30 +195,30 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 
 		if commandOperationRepairBudgetExhausted(result, repairRounds) {
 			budget := commandOperationBudgetResult(currentPlan, "command operation repair budget exhausted before the user goal was fully satisfied")
-			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
+			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
-			return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+			return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 		}
 		var materialEvaluation *operation.OperationEvaluation
 		if result.Status == operation.StatusExecuted &&
-			commandOperationShouldRunMaterialEvaluator(records) {
+			commandOperationShouldRunMaterialEvaluator(window()) {
 			if evaluator, ok := cfg.Planner.(CommandOperationEvaluator); ok {
-				eval, err := evaluator.EvaluateCommandOperation(ctx, currentPlan.RequestText, records, cfg.Language)
+				eval, err := evaluator.EvaluateCommandOperation(ctx, currentPlan.RequestText, window(), cfg.Language)
 				if err != nil {
 					logging.Warning("[cli/operation] command operation evaluation failed: %v", err)
 				} else {
 					evalCopy := eval
 					materialEvaluation = &evalCopy
-					records = commandOperationAttachEvaluation(records, eval)
-					coverageSourceRefs, coverageSourceIdentities, coverageSourceLocators := commandOperationCoverageSourceLogFields(records, eval.CoverageMaterialRefs)
+					ownRecords = commandOperationAttachEvaluation(ownRecords, eval)
+					coverageSourceRefs, coverageSourceIdentities, coverageSourceLocators := commandOperationCoverageSourceLogFields(window(), eval.CoverageMaterialRefs)
 					logging.Info("[cli/operation] command evaluation status=%s material_coverage_status=%s coverage_material_refs=%q coverage_source_refs=%q coverage_source_identities=%q coverage_source_locators=%q confidence=%q reason=%q materials=%d rounds=%d",
 						eval.Status, eval.MaterialCoverageStatus, oneLineClamp(strings.Join(eval.CoverageMaterialRefs, " | "), 600),
 						oneLineClamp(coverageSourceRefs, 600), oneLineClamp(coverageSourceIdentities, 600), oneLineClamp(coverageSourceLocators, 900),
-						oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(records))
+						oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(window()))
 					if terminal, ok := commandOperationEvaluationTerminalResult(currentPlan, eval); ok {
-						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: terminal})
+						ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: terminal})
 						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, terminal))
-						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+						return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 					}
 					// Batch-6 B3: a typed complete verdict from the
 					// evaluator (non-low declared confidence) makes the
@@ -223,33 +231,33 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 					// a system input, not decoration).
 					if eval.Status == operation.EvalComplete && strings.TrimSpace(strings.ToLower(eval.Confidence)) != "low" {
 						logging.Info("[cli/operation] command evaluation complete confidence=%q — skipping continuation planning rounds=%d",
-							oneLineClamp(eval.Confidence, 20), len(records))
-						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+							oneLineClamp(eval.Confidence, 20), len(window()))
+						return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 					}
 					if eval.Status == operation.EvalContinueCommand &&
-						commandRounds < commandOperationCommandRoundLimit(records) {
+						commandRounds < commandOperationCommandRoundLimit(ownRecords) {
 						continuer, ok := cfg.Planner.(CommandOperationContinuationPlanner)
 						if ok {
 							snapshot := commandOperationCLICapabilitySnapshot(cfg)
-							next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, cfg.RepoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
+							next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, cfg.RepoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, window())
 							if err != nil {
 								logging.Warning("[cli/operation] command evaluation continuation planning failed: %v", err)
 								if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, cfg.Language); ok {
-									records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
+									ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
 									operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, degraded))
-									return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+									return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 								}
 							} else if !next.Complete {
 								nextPlan := operation.BuildCommandOperationPlan(next.Request, cfg.Policy)
 								decision := operation.DecideCommandPlanApproval(cfg.Policy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
 								nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, decision)
 								logging.Info("[cli/operation] command evaluation continuation generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d rounds=%d",
-									currentPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, decision.Action, decision.ReasonCode, len(nextPlan.Steps), len(records))
-								if commandOperationTerminalAfterReplan(nextPlan, records) {
+									currentPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, decision.Action, decision.ReasonCode, len(nextPlan.Steps), len(window()))
+								if commandOperationTerminalAfterReplan(nextPlan, window()) {
 									terminal := commandOperationTerminalResult(nextPlan)
-									records = append(records, commandOperationResultRecord{Plan: nextPlan, Result: terminal})
+									ownRecords = append(ownRecords, commandOperationResultRecord{Plan: nextPlan, Result: terminal})
 									operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, nextPlan, terminal))
-									return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+									return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 								}
 								if lint := operation.LintCommandOperationPlan(nextPlan); !lint.OK() {
 									lintResult := commandOperationResultFromPlanLint(nextPlan, lint)
@@ -269,41 +277,41 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 				}
 			}
 		}
-		if commandOperationMaterialEvaluationNeedsBudget(result, materialEvaluation, records) {
+		if commandOperationMaterialEvaluationNeedsBudget(result, materialEvaluation, ownRecords) {
 			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
-			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
+			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
-			return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+			return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 		}
-		if commandOperationContinuationBudgetExhausted(currentPlan, result, records) {
+		if commandOperationContinuationBudgetExhausted(currentPlan, result, ownRecords) {
 			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
-			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
+			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
-			return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+			return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 		}
-		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && commandRounds < commandOperationCommandRoundLimit(records) {
+		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && commandRounds < commandOperationCommandRoundLimit(ownRecords) {
 			continuer, ok := cfg.Planner.(CommandOperationContinuationPlanner)
 			if ok {
 				snapshot := commandOperationCLICapabilitySnapshot(cfg)
-				next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, cfg.RepoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
+				next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, cfg.RepoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, window())
 				if err != nil {
 					logging.Warning("[cli/operation] command continuation planning failed: %v", err)
 					if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, cfg.Language); ok {
-						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
+						ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: degraded})
 						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, degraded))
-						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+						return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 					}
 				} else if !next.Complete {
 					nextPlan := operation.BuildCommandOperationPlan(next.Request, cfg.Policy)
 					decision := operation.DecideCommandPlanApproval(cfg.Policy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
 					nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, decision)
 					logging.Info("[cli/operation] command continuation generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d rounds=%d",
-						currentPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, decision.Action, decision.ReasonCode, len(nextPlan.Steps), len(records))
-					if commandOperationTerminalAfterReplan(nextPlan, records) {
+						currentPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, decision.Action, decision.ReasonCode, len(nextPlan.Steps), len(window()))
+					if commandOperationTerminalAfterReplan(nextPlan, window()) {
 						terminal := commandOperationTerminalResult(nextPlan)
-						records = append(records, commandOperationResultRecord{Plan: nextPlan, Result: terminal})
+						ownRecords = append(ownRecords, commandOperationResultRecord{Plan: nextPlan, Result: terminal})
 						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, nextPlan, terminal))
-						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+						return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 					}
 					if lint := operation.LintCommandOperationPlan(nextPlan); !lint.OK() {
 						lintResult := commandOperationResultFromPlanLint(nextPlan, lint)
@@ -320,7 +328,7 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 				}
 			}
 		}
-		return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+		return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 	}
 }
 

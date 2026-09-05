@@ -180,7 +180,12 @@ func TestRunCommandOperationCLI_EvaluatesBaseLimitAndExtendsIncompleteMaterial(t
 		RepoRoot:      workDir,
 		RuntimeAnchor: t.TempDir(),
 		Language:      "zh",
-	}, initialPlan.RequestText, initialPlan, 0, initialRecords)
+	}, initialPlan.RequestText, initialPlan, commandOperationAttemptState{
+		// the prior rounds are this operation's OWN rounds, resumed at the
+		// counter they reached (review round five #2: no re-derivation)
+		Own:           initialRecords,
+		CommandRounds: commandOperationMaxCommandRounds - 1,
+	})
 	if err != nil {
 		t.Fatalf("runCommandOperationCLIPlan: %v", err)
 	}

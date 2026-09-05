@@ -22,17 +22,22 @@ import (
 //     complete_ closure over a join that had said not-applicable.
 //   - traceDBStateReadProblems: every read of decode_state / publication_state
 //     — a state key indexed over `<x>.Metadata` or over a local tainted by
-//     the map (an alias, a map[string]string parameter), a range value under
-//     a key comparison, a local tainted by a read through any chain of
-//     bindings / launders / helper results (function and method values
-//     included) — lands in a recognized consumer position (a lookup into a
-//     package-level table keyed by the decode_state constants, a registered
-//     classifier call, a binding, a forwarding write, prose concatenation /
-//     fmt, a return). A hand-kept switch/case, a ==/!= comparison, a
-//     strings.* prefix/substring test, a lookup through a map the census
-//     cannot see, a state key over an expression that is not the map, a map
-//     or producer value in a shape the walker cannot follow, or any other
-//     shape is red (§40.50).
+//     the map (an alias, a map[string]string parameter), the key spelled at
+//     the site or resolved through a single-valued local / package
+//     variable, a compared range key, a key-list range, or a string /
+//     lane-key parameter's callers; a range value under a key comparison; a
+//     local tainted by a read through any chain of bindings / launders /
+//     helper results (function and method values included) — lands in a
+//     recognized consumer position (a lookup into a package-level table
+//     keyed by the decode_state constants, a registered classifier call, a
+//     binding, a forwarding write, prose concatenation / fmt, a helper's
+//     return). A write target (`<x>.Metadata[<key>] = …`) is not a read. A
+//     hand-kept switch/case, a ==/!= comparison, a strings.* prefix/substring
+//     test, a lookup through a map the census cannot see, a state key over
+//     an expression that is not the map, a key the census cannot resolve
+//     over the state map, a read returned from a closure the census cannot
+//     follow, a map or producer value in a shape the walker cannot follow,
+//     or any other shape is red (§40.50).
 
 // traceDBUngatedLaneKeyWriters — rule: (file, key) groups of plain writes
 // need a gate call (apply or inherit) under the same key in the same file.
@@ -163,10 +168,22 @@ func traceDBIdentIsName(ident *ast.Ident, parent ast.Node) bool {
 // tainted map, a map occurrence in a shape the walker cannot classify, and
 // a producer value in any position but a binding to a local are red.
 //
-// Classification: every read occurrence — a direct read, a tainted local, a
-// call to a helper with a tainted result — is judged by its nearest non-paren
-// ancestor, except that an occurrence directly under a concatenation or a
-// fmt.Sprint* argument is judged where that laundered expression lands.
+// Key resolution (round five): the index key resolves through the lanes of
+// resolveKey below — spelled at the site, a single-valued local or package
+// variable (the write census's binding helper), a compared range key, a
+// key-list range, a string / lane-key typed parameter through every direct
+// caller's argument (wrappers recursively), a concatenation whose literal
+// prefix / suffix rules every state key out. A key that resolves to no
+// state key is not a read; a key the census cannot resolve over the state
+// map is red.
+//
+// Classification: every read occurrence — a direct read (a plain write
+// target is not one), a tainted local, a call to a helper with a tainted
+// result — is judged by its nearest non-paren ancestor, except that an
+// occurrence directly under a concatenation or a fmt.Sprint* argument is
+// judged where that laundered expression lands. A return inside a closure
+// the census cannot follow (any function literal not bound to a local) is
+// red: the literal's value is judged nowhere.
 func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, consts map[string]string) (problems []string, reads int) {
 	// Package-level tables keyed by the decode_state constants: the one
 	// lookup target a reader may classify through.
@@ -237,6 +254,10 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 		}
 		return nil
 	}
+	isCallFun := func(node ast.Node, parent ast.Node) bool {
+		call, ok := parent.(*ast.CallExpr)
+		return ok && (call.Fun == node || strip(call.Fun) == node)
+	}
 	isStringMapType := func(expr ast.Expr) bool {
 		m, ok := expr.(*ast.MapType)
 		if !ok {
@@ -253,13 +274,26 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 	// Same-package helpers and the per-function taint state (identifier
 	// scoping is per function, sticky, shared with the function's closures).
 	type fnState struct {
+		fn        *ast.FuncDecl
 		file      string
 		imports   map[string]bool
 		locals    map[string]string          // ident → key (sticky)
 		maps      map[string]bool            // ident → bound to the state map / a map[string]string parameter
 		keys      map[string]string          // range key ident → the state key it was compared against
+		everyKey  map[string]bool            // uncompared range key ident over the state map (ranges over every key)
 		producers map[string][]*ast.FuncDecl // ident → same-package function/method value bound to it
 		results   map[int]string             // result position → key
+		// Key resolution (round five): the static bindings an index key
+		// identifier resolves through.
+		params   map[string]int      // string / lane-key typed parameter → position (resolved through every caller)
+		assigned map[string]bool     // every name bound in the body (a parameter or range name re-bound is unresolved)
+		bindings map[string]string   // single-valued string locals (traceDBFuncStringBindings)
+		ranged   map[string]int      // range key/value ident → number of range statements defining it
+		listKeys map[string][]string // range ident over a key-list literal → the literal's resolved elements
+	}
+	isKeyType := func(expr ast.Expr) bool {
+		ident, ok := expr.(*ast.Ident)
+		return ok && (ident.Name == "string" || ident.Name == traceDBLaneStateKeyTypeName)
 	}
 	functions := map[string]*ast.FuncDecl{}
 	methods := map[string][]*ast.FuncDecl{}
@@ -280,13 +314,18 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 			if !ok || fn.Body == nil {
 				continue
 			}
-			st := &fnState{file: name, imports: imports, locals: map[string]string{}, maps: map[string]bool{}, keys: map[string]string{}, producers: map[string][]*ast.FuncDecl{}, results: map[int]string{}}
+			st := &fnState{fn: fn, file: name, imports: imports, locals: map[string]string{}, maps: map[string]bool{}, keys: map[string]string{}, everyKey: map[string]bool{}, producers: map[string][]*ast.FuncDecl{}, results: map[int]string{},
+				params: map[string]int{}, assigned: map[string]bool{}, bindings: traceDBFuncStringBindings(fn, consts), ranged: map[string]int{}, listKeys: map[string][]string{}}
+			position := 0
 			for _, field := range fn.Type.Params.List {
-				if !isStringMapType(field.Type) {
-					continue
-				}
 				for _, param := range field.Names {
-					st.maps[param.Name] = true
+					if isStringMapType(field.Type) {
+						st.maps[param.Name] = true
+					}
+					if _, variadic := field.Type.(*ast.Ellipsis); isKeyType(field.Type) && !variadic {
+						st.params[param.Name] = position
+					}
+					position++
 				}
 			}
 			states[fn] = st
@@ -298,12 +337,146 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 			}
 		}
 	}
+	// Package-level string variables: a single-valued initializer never
+	// re-bound in any body resolves like a constant (round five).
+	packageVars := map[string]string{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, ident := range vs.Names {
+					if i >= len(vs.Values) {
+						continue
+					}
+					if value, ok := traceDBResolveStateExpr(vs.Values[i], consts); ok {
+						packageVars[ident.Name] = value
+					}
+				}
+			}
+		}
+	}
 	sort.Slice(order, func(i, j int) bool {
 		if states[order[i]].file != states[order[j]].file {
 			return states[order[i]].file < states[order[j]].file
 		}
 		return order[i].Pos() < order[j].Pos()
 	})
+	// Static pre-pass (round five): the names each body binds, the range
+	// statements defining a name (a key-list literal's elements resolved
+	// through constants and single-valued locals), every call site, the
+	// key-parameter functions that escape as values (their callers are
+	// unknown: the parameter is unresolved), and the package variables
+	// re-bound in any body (a variable, not a constant).
+	type callSite struct {
+		st   *fnState
+		call *ast.CallExpr
+	}
+	var callSites []callSite
+	escaped := map[*ast.FuncDecl]bool{}
+	keyParamDecls := func(st *fnState, expr ast.Expr) []*ast.FuncDecl {
+		var decls []*ast.FuncDecl
+		switch f := expr.(type) {
+		case *ast.Ident:
+			if fn, ok := functions[f.Name]; ok {
+				decls = []*ast.FuncDecl{fn}
+			}
+		case *ast.SelectorExpr:
+			if x, ok := f.X.(*ast.Ident); ok && st.imports[x.Name] {
+				return nil
+			}
+			decls = methods[f.Sel.Name]
+		}
+		var out []*ast.FuncDecl
+		for _, decl := range decls {
+			if len(states[decl].params) > 0 {
+				out = append(out, decl)
+			}
+		}
+		return out
+	}
+	for _, fn := range order {
+		st := states[fn]
+		noteBound := func(expr ast.Expr) {
+			if ident, ok := expr.(*ast.Ident); ok && ident.Name != "_" {
+				st.assigned[ident.Name] = true
+				delete(packageVars, ident.Name)
+			}
+		}
+		walk(fn.Body, func(node ast.Node, stack []ast.Node) {
+			parent := nearest(stack)
+			switch n := node.(type) {
+			case *ast.AssignStmt:
+				for _, lhs := range n.Lhs {
+					noteBound(lhs)
+				}
+			case *ast.ValueSpec:
+				for _, name := range n.Names {
+					noteBound(name)
+				}
+			case *ast.RangeStmt:
+				var elements []string
+				resolved := true
+				if lit, ok := strip(n.X).(*ast.CompositeLit); ok {
+					if _, array := lit.Type.(*ast.ArrayType); array {
+						for _, element := range lit.Elts {
+							value, ok := traceDBResolveStateExpr(element, consts)
+							if !ok {
+								if ident, isIdent := element.(*ast.Ident); isIdent {
+									value, ok = st.bindings[ident.Name]
+								}
+							}
+							if !ok {
+								resolved = false
+								break
+							}
+							elements = append(elements, value)
+						}
+					} else {
+						resolved = false
+					}
+					for _, expr := range []ast.Expr{n.Key, n.Value} {
+						ident, ok := expr.(*ast.Ident)
+						if !ok || ident.Name == "_" {
+							continue
+						}
+						st.ranged[ident.Name]++
+						if resolved && expr == n.Value {
+							st.listKeys[ident.Name] = elements
+						}
+					}
+					return
+				}
+				for _, expr := range []ast.Expr{n.Key, n.Value} {
+					if ident, ok := expr.(*ast.Ident); ok && ident.Name != "_" {
+						st.ranged[ident.Name]++
+					}
+				}
+			case *ast.CallExpr:
+				callSites = append(callSites, callSite{st: st, call: n})
+			case *ast.Ident:
+				if traceDBIdentIsName(n, parent) || isCallFun(node, parent) {
+					return
+				}
+				for _, decl := range keyParamDecls(st, n) {
+					escaped[decl] = true
+				}
+			case *ast.SelectorExpr:
+				if isCallFun(node, parent) {
+					return
+				}
+				for _, decl := range keyParamDecls(st, n) {
+					escaped[decl] = true
+				}
+			}
+		})
+	}
 	// producersOf: the same-package declarations a function or method VALUE
 	// (not a call) names — a plain function by identifier, a local bound to
 	// one, a method by selector name (an import-qualified selector never).
@@ -352,47 +525,232 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 		}
 		return false
 	}
-	// resolveKey: the state key an index expression names — a literal, a
-	// constant, `string(<constant>)` (spelled: the key is written at the
-	// site), or a range key compared to one (carried: the identifier ranges
-	// over every key and is the state key only under the comparison).
-	resolveKey := func(st *fnState, expr ast.Expr) (key string, ok bool, spelled bool) {
-		if key, ok := traceDBResolveStateExpr(expr, consts); ok {
-			return key, traceDBStateReadKeys[key], true
+	// resolveKey: the keys an index expression names and how they resolved
+	// (round five; the earlier census resolved only the spelled lane and a
+	// compared range key).
+	//
+	//   - keySpelled: written at the site or bound to exactly one value — a
+	//     literal, a package constant, `string(<constant>)`, a single-valued
+	//     local (`k := "lit"`, `const k = …`, `k := string(<constant>)`,
+	//     through traceDBFuncStringBindings) or a package variable never
+	//     re-bound.
+	//   - keyCarried: an identifier standing for a set of keys — a range key
+	//     compared against a state key, the value ranging over a key-list
+	//     literal, or a string / lane-key typed parameter resolved through
+	//     the key argument of every direct caller (a wrapper's forwarded
+	//     parameter recursively); the set is every key the callers pass.
+	//   - keyEveryKey: an uncompared range key of the state map itself: the
+	//     identifier ranges over every key and carries no key signal (the
+	//     ruled range reading — a range read is a range value under a key
+	//     comparison).
+	//   - keyExcluded: a concatenation whose leftmost or rightmost operand
+	//     resolves to a literal that no state key starts / ends with
+	//     (`"retention_" + family + "_state"`): whatever the rest is, the key
+	//     is not a state key.
+	//   - keyUnresolved: anything else — a re-bound parameter or range name,
+	//     a name bound to a value the census cannot resolve, a parameter of
+	//     a function that escapes as a value or has a caller whose argument
+	//     does not resolve, a closure parameter, a computed expression.
+	type keyResolution int
+	const (
+		keyUnresolved keyResolution = iota
+		keySpelled
+		keyCarried
+		keyEveryKey
+		keyExcluded
+	)
+	// concatExcludes: the concatenation's outermost literal operands rule
+	// every state key out.
+	concatExcludes := func(st *fnState, e *ast.BinaryExpr) bool {
+		if e.Op != token.ADD {
+			return false
 		}
-		if ident, ok := strip(expr).(*ast.Ident); ok {
-			key, ok := st.keys[ident.Name]
-			return key, ok, false
+		leftmost, rightmost := ast.Expr(e), ast.Expr(e)
+		for {
+			b, ok := strip(leftmost).(*ast.BinaryExpr)
+			if !ok || b.Op != token.ADD {
+				break
+			}
+			leftmost = b.X
 		}
-		return "", false, false
+		for {
+			b, ok := strip(rightmost).(*ast.BinaryExpr)
+			if !ok || b.Op != token.ADD {
+				break
+			}
+			rightmost = b.Y
+		}
+		excludes := func(operand ast.Expr, matches func(key, literal string) bool) bool {
+			literal, ok := traceDBResolveStateExpr(strip(operand), consts)
+			if !ok {
+				if ident, isIdent := strip(operand).(*ast.Ident); isIdent {
+					literal, ok = st.bindings[ident.Name]
+				}
+			}
+			if !ok || literal == "" {
+				return false
+			}
+			for key := range traceDBStateReadKeys {
+				if matches(key, literal) {
+					return false
+				}
+			}
+			return true
+		}
+		return excludes(leftmost, strings.HasPrefix) || excludes(rightmost, strings.HasSuffix)
 	}
+	var resolveKey func(st *fnState, expr ast.Expr, visiting map[*ast.FuncDecl]map[int]bool) ([]string, keyResolution)
+	// paramKeys: the keys every direct caller passes at the parameter's
+	// position; unresolved when the function escapes as a value, has no
+	// caller, or any caller's argument does not resolve.
+	paramKeys := func(fn *ast.FuncDecl, position int, visiting map[*ast.FuncDecl]map[int]bool) ([]string, keyResolution) {
+		if escaped[fn] {
+			return nil, keyUnresolved
+		}
+		if visiting[fn] == nil {
+			visiting[fn] = map[int]bool{}
+		}
+		if visiting[fn][position] {
+			return nil, keyCarried // a recursive forwarding adds no key of its own
+		}
+		visiting[fn][position] = true
+		defer delete(visiting[fn], position)
+		var keys []string
+		callers := 0
+		for _, site := range callSites {
+			named := false
+			switch f := strip(site.call.Fun).(type) {
+			case *ast.Ident:
+				named = fn.Recv == nil && functions[f.Name] == fn
+			case *ast.SelectorExpr:
+				if x, ok := f.X.(*ast.Ident); ok && site.st.imports[x.Name] {
+					break
+				}
+				named = fn.Recv != nil && f.Sel.Name == fn.Name.Name
+			}
+			if !named {
+				continue
+			}
+			callers++
+			if site.call.Ellipsis.IsValid() || position >= len(site.call.Args) {
+				return nil, keyUnresolved
+			}
+			passed, resolution := resolveKey(site.st, site.call.Args[position], visiting)
+			if resolution == keyUnresolved || resolution == keyEveryKey {
+				return nil, keyUnresolved
+			}
+			// keyExcluded passes a key that is not a state key: nothing to add.
+			keys = append(keys, passed...)
+		}
+		if callers == 0 {
+			return nil, keyUnresolved
+		}
+		return keys, keyCarried
+	}
+	resolveKey = func(st *fnState, expr ast.Expr, visiting map[*ast.FuncDecl]map[int]bool) ([]string, keyResolution) {
+		if key, ok := traceDBResolveStateExpr(expr, consts); ok {
+			return []string{key}, keySpelled
+		}
+		switch e := strip(expr).(type) {
+		case *ast.CallExpr:
+			// A conversion (`string(k)` / `<keyType>(k)`) over a resolvable
+			// operand resolves as the operand.
+			if fun, ok := e.Fun.(*ast.Ident); ok && isKeyType(fun) && len(e.Args) == 1 {
+				return resolveKey(st, e.Args[0], visiting)
+			}
+		case *ast.BinaryExpr:
+			if concatExcludes(st, e) {
+				return nil, keyExcluded
+			}
+		case *ast.Ident:
+			name := e.Name
+			if name == "_" {
+				return nil, keyUnresolved
+			}
+			if position, isParam := st.params[name]; isParam {
+				if st.assigned[name] || st.ranged[name] > 0 {
+					return nil, keyUnresolved
+				}
+				return paramKeys(st.fn, position, visiting)
+			}
+			if key := st.keys[name]; key != "" {
+				return []string{key}, keyCarried
+			}
+			if st.ranged[name] > 0 {
+				if st.assigned[name] || st.ranged[name] > 1 {
+					return nil, keyUnresolved
+				}
+				if elements, ok := st.listKeys[name]; ok {
+					return elements, keyCarried
+				}
+				if st.everyKey[name] {
+					return nil, keyEveryKey
+				}
+				return nil, keyUnresolved
+			}
+			if value, ok := st.bindings[name]; ok {
+				return []string{value}, keySpelled
+			}
+			if st.assigned[name] {
+				return nil, keyUnresolved
+			}
+			if value, ok := packageVars[name]; ok {
+				return []string{value}, keySpelled
+			}
+		}
+		return nil, keyUnresolved
+	}
+	// readKind classifies an index expression for the census.
+	type readKind int
+	const (
+		readNone       readKind = iota // not an index, no state key named, an every-key range, a carried key over something else
+		readSeen                       // a state key over the state map
+		readUnseen                     // a spelled state key over an expression that is not the state map
+		readUnresolved                 // a key the census cannot resolve over the state map
+	)
 	// directRead: an index by a state key over the state map (the selector
 	// or a tainted map local). A spelled key over anything else is a read
-	// the census cannot see (seen=false, ok=true): the key literal is the
-	// precise signal. A carried range key over anything else is not a read:
-	// a forwarding loop's `out[k] = v` ranges over every key.
-	directRead := func(st *fnState, expr ast.Expr) (key string, ok bool, seen bool) {
+	// the census cannot see (readUnseen): the spelled key is the precise
+	// signal. A carried key over anything else is not a read: a forwarding
+	// loop's `out[k] = v` ranges over every key, a caller-resolved
+	// parameter over some other map is that map's business. An unresolved
+	// key over the state map is red (readUnresolved): the census cannot say
+	// what was read.
+	directRead := func(st *fnState, expr ast.Expr) (key string, kind readKind) {
 		index, isIndex := strip(expr).(*ast.IndexExpr)
 		if !isIndex {
-			return "", false, false
+			return "", readNone
 		}
-		key, ok, spelled := resolveKey(st, index.Index)
-		if !ok {
-			return "", false, false
+		keys, resolution := resolveKey(st, index.Index, map[*ast.FuncDecl]map[int]bool{})
+		seen := mapValue(st, index.X)
+		if resolution == keyUnresolved {
+			if seen {
+				return "", readUnresolved
+			}
+			return "", readNone
 		}
-		seen = mapValue(st, index.X)
-		if !seen && !spelled {
-			return "", false, false
+		for _, key := range keys {
+			if !traceDBStateReadKeys[key] {
+				continue
+			}
+			if seen {
+				return key, readSeen
+			}
+			if resolution == keySpelled {
+				return key, readUnseen
+			}
+			return "", readNone
 		}
-		return key, true, seen
+		return "", readNone
 	}
+	isRead := func(kind readKind) bool { return kind == readSeen || kind == readUnseen }
 	// taintOf: the key a single-valued expression carries, if any.
 	var taintOf func(st *fnState, expr ast.Expr) (string, bool)
 	taintOf = func(st *fnState, expr ast.Expr) (string, bool) {
 		switch e := strip(expr).(type) {
 		case *ast.IndexExpr:
-			key, ok, _ := directRead(st, e)
-			return key, ok
+			key, kind := directRead(st, e)
+			return key, isRead(kind)
 		case *ast.Ident:
 			key, ok := st.locals[e.Name]
 			return key, ok
@@ -423,7 +781,7 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 		walk(expr, func(node ast.Node, stack []ast.Node) {
 			switch n := node.(type) {
 			case *ast.IndexExpr:
-				if _, ok, _ := directRead(st, n); ok {
+				if _, kind := directRead(st, n); isRead(kind) {
 					found = true
 				}
 			case *ast.Ident:
@@ -508,7 +866,7 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 		unfollowed(st, rhs)
 	}
 	bindTuple := func(st *fnState, lhs []ast.Expr, rhs ast.Expr) {
-		if key, ok, _ := directRead(st, rhs); ok { // comma-ok over a direct read
+		if key, kind := directRead(st, rhs); isRead(kind) { // comma-ok over a direct read
 			bindValue(st, lhs[0], key)
 			return
 		}
@@ -599,6 +957,10 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 					}
 					state, compared := rangeKeyComparison(key.Name, n.Body)
 					if !compared {
+						if mapValue(st, n.X) && !st.everyKey[key.Name] {
+							st.everyKey[key.Name] = true
+							changed = true
+						}
 						return
 					}
 					if st.keys[key.Name] == "" {
@@ -691,13 +1053,38 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 		}
 		return nil, false
 	}
+	// isLHS: a plain write target (`=` / `:=`); an op-assign target reads
+	// the old value and is judged as a read.
 	isLHS := func(node ast.Node, parent ast.Node) bool {
-		if p, ok := parent.(*ast.AssignStmt); ok {
-			for _, lhs := range p.Lhs {
-				if lhs == node {
-					return true
+		p, ok := parent.(*ast.AssignStmt)
+		if !ok || (p.Tok != token.ASSIGN && p.Tok != token.DEFINE) {
+			return false
+		}
+		for _, lhs := range p.Lhs {
+			if lhs == node {
+				return true
+			}
+		}
+		return false
+	}
+	// closureReturn: whether a return under node's ancestors belongs to a
+	// closure (the innermost function literal) the census cannot follow —
+	// one that is not bound to a local, where the binding arm already
+	// reports it (an invoked literal, an argument, a literal element…).
+	closureReturn := func(stack []ast.Node) bool {
+		for i := len(stack) - 1; i >= 0; i-- {
+			if _, closure := stack[i].(*ast.FuncLit); !closure {
+				continue
+			}
+			var parent ast.Node
+			for j := i - 1; j >= 0; j-- {
+				if _, paren := stack[j].(*ast.ParenExpr); !paren {
+					parent = stack[j]
+					break
 				}
 			}
+			_, bound := boundToLocal(stack[i], parent)
+			return !bound
 		}
 		return false
 	}
@@ -705,8 +1092,9 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 		ident, ok := strip(expr).(*ast.Ident)
 		return ok && ident.Name == "nil"
 	}
-	// classifyMap judges a bare state map occurrence by its parent: indexed
-	// and ranged occurrences are judged as reads elsewhere; a write target,
+	// classifyMap judges a bare state map occurrence by its parent: an
+	// indexed occurrence is judged at the index, a ranged one through its
+	// key comparison (an uncompared range carries no key signal); a write target,
 	// a binding to a local or to another `.Metadata` field, a call argument
 	// (a same-package map[string]string parameter is tainted by type; the
 	// map leaving the package is a disclosed residual), a nil comparison, a
@@ -765,10 +1153,6 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 		}
 		report(name, node, "function value of a %s producer in a %T; the census cannot follow the value", key, parent)
 	}
-	isCallFun := func(node ast.Node, parent ast.Node) bool {
-		call, ok := parent.(*ast.CallExpr)
-		return ok && (call.Fun == node || strip(call.Fun) == node)
-	}
 	firstResult := func(results map[int]string) string {
 		positions := make([]int, 0, len(results))
 		for i := range results {
@@ -786,11 +1170,17 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 			leaf := true
 			switch n := node.(type) {
 			case *ast.IndexExpr:
-				k, ok, seen := directRead(st, n)
-				if !ok {
-					return
+				if isLHS(node, parent) {
+					return // a write target is the write census's business, not a read
 				}
-				if !seen {
+				k, kind := directRead(st, n)
+				switch kind {
+				case readNone:
+					return
+				case readUnresolved:
+					report(name, node, "state key the census cannot resolve over the state map (%s); readers spell the state key", exprText(n.Index))
+					return
+				case readUnseen:
 					report(name, node, "state key %s indexed over a %T the census cannot see; readers index the state map", k, strip(n.X))
 					return
 				}
@@ -877,8 +1267,23 @@ func traceDBStateReadProblems(files map[string]*ast.File, fset *token.FileSet, c
 				}
 			}
 			switch p := parent.(type) {
-			case *ast.AssignStmt, *ast.ValueSpec, *ast.ReturnStmt, *ast.KeyValueExpr, *ast.CompositeLit:
-				// binding, forwarding into a field/metadata/literal, return
+			case *ast.AssignStmt:
+				// binding, forwarding into a field/metadata; an op-assign
+				// target is read back through an operator the census
+				// cannot classify
+				if p.Tok != token.ASSIGN && p.Tok != token.DEFINE {
+					report(name, node, "unrecognized read shape (%s) over %s", p.Tok, key)
+				}
+			case *ast.ReturnStmt:
+				// a helper's return is followed into its callers; a
+				// closure's return is not the helper's (fold-in #8, round
+				// five: the invoked / passed / stored literal's value is
+				// judged nowhere)
+				if closureReturn(stack) {
+					report(name, node, "read returned from a closure the census cannot follow (%s)", key)
+				}
+			case *ast.ValueSpec, *ast.KeyValueExpr, *ast.CompositeLit:
+				// binding, forwarding into a literal
 			case *ast.IndexExpr:
 				if p.Index != node && strip(p.Index) != node {
 					report(name, node, "unrecognized read shape (indexed) over %s", key)
@@ -1232,6 +1637,113 @@ func zzPlainValue(c TraceDBCoverage) string { f := zzPlain; return f(c) }
 func zzParamTable(md map[string]string) traceDBSourceRawGateKind { return traceDBRawDecodeStateGates[md["decode_state"]] }
 func zzParamKeys(md map[string]string) int { n := 0; for k := range md { if k != "" { n++ } }; return n }
 `},
+		// Round five (colleague_merge_audit §40.53 收编复核五轮): write targets
+		// are not reads (#7), a read returned from a closure the census
+		// cannot follow is red while the bound closure stays on its binding
+		// pin (#8), and an index key resolves through the same bindings the
+		// write census resolves — a local constant, a local bound to the key
+		// constant, a package variable, a key-list range, a string / typed
+		// key parameter through its callers — with an unresolvable key over
+		// the state map red (#6). Each shape stayed green at 480939385,
+		// b6f7eeec3 and 533a939fb; see the EVOLUTION RECORD on
+		// TestTraceDBStateReadKeyAndClosureShapesEvadedTheBaseCensus.
+		{name: "op_assign_target_is_a_read", src: header + `
+func zz(out *TraceDBCoverage) { out.Metadata["decode_state"] += "_suffix" }
+`, want: []string{"zz_probe.go:9: unrecognized read shape (+=) over decode_state"}},
+		{name: "local_const_key", src: header + `
+func zz(c TraceDBCoverage) bool { const key = "decode_state"; switch c.Metadata[key] { case "x": return true }; return false }
+`, want: []string{"zz_probe.go:9: hand-kept switch over decode_state; readers classify through the gate table"}},
+		{name: "local_binding_of_key_constant", src: header + `
+func zz(c TraceDBCoverage) bool { stateKey := string(traceDBSourceRawLaneStateKeyPublication); switch c.Metadata[stateKey] { case "x": return true }; return false }
+`, want: []string{"zz_probe.go:9: hand-kept switch over publication_state; readers classify through the gate table"}},
+		{name: "package_var_key", src: header + `
+var zzKey = "decode_state"
+func zz(c TraceDBCoverage) bool { switch c.Metadata[zzKey] { case "x": return true }; return false }
+`, want: []string{"zz_probe.go:10: hand-kept switch over decode_state; readers classify through the gate table"}},
+		{name: "package_var_rebound_is_unresolved", src: header + `
+var zzKey = "decode_state"
+func zzSet() { zzKey = "reason" }
+func zz(c TraceDBCoverage) bool { switch c.Metadata[zzKey] { case "x": return true }; return false }
+`, want: []string{"zz_probe.go:11: state key the census cannot resolve over the state map (zzKey); readers spell the state key"}},
+		{name: "key_list_range", src: header + `
+func zz(c TraceDBCoverage) bool { for _, k := range []string{"reason", "decode_state"} { if c.Metadata[k] == "x" { return true } }; return false }
+`, want: []string{"zz_probe.go:9: literal comparison over decode_state; readers classify through the gate table"}},
+		{name: "string_key_param_literal_caller", src: header + `
+func zzRead(c TraceDBCoverage, k string) bool { return c.Metadata[k] == "x" }
+func zz(c TraceDBCoverage) bool { return zzRead(c, "decode_state") }
+`, want: []string{"zz_probe.go:9: literal comparison over decode_state; readers classify through the gate table"}},
+		{name: "typed_key_param_read_caller", src: header + `
+func zzRead(c TraceDBCoverage, k traceDBSourceRawLaneStateKey) bool { switch c.Metadata[string(k)] { case "x": return true }; return false }
+func zz(c TraceDBCoverage) bool { return zzRead(c, traceDBSourceRawLaneStateKeyPublication) }
+`, want: []string{"zz_probe.go:9: hand-kept switch over publication_state; readers classify through the gate table"}},
+		{name: "typed_key_param_forwarded_by_wrapper", src: header + `
+func zzRead(c TraceDBCoverage, k traceDBSourceRawLaneStateKey) bool { switch c.Metadata[string(k)] { case "x": return true }; return false }
+func zzWrap(c TraceDBCoverage, key traceDBSourceRawLaneStateKey) bool { return zzRead(c, key) }
+func zz(c TraceDBCoverage) bool { return zzWrap(c, traceDBSourceRawLaneStateKeyPublication) }
+`, want: []string{"zz_probe.go:9: hand-kept switch over publication_state; readers classify through the gate table"}},
+		{name: "typed_key_param_gate_keys_only", src: header + `
+func zzRead(c TraceDBCoverage, k traceDBSourceRawLaneStateKey) bool { switch c.Metadata[string(k)] { case "x": return true }; return false }
+func zz(c TraceDBCoverage) bool { return zzRead(c, traceDBSourceRawLaneStateKeyLedger) || zzRead(c, traceDBSourceRawLaneStateKeyJoin) }
+`},
+		{name: "key_param_without_caller", src: header + `
+func zzRead(c TraceDBCoverage, k string) bool { return c.Metadata[k] == "x" }
+`, want: []string{"zz_probe.go:9: state key the census cannot resolve over the state map (k); readers spell the state key"}},
+		{name: "key_param_function_escapes_as_value", src: header + `
+func zzRead(c TraceDBCoverage, k string) bool { return c.Metadata[k] == "x" }
+func zzApply(c TraceDBCoverage, f func(TraceDBCoverage, string) bool) bool { return f(c, "decode_state") }
+func zz(c TraceDBCoverage) bool { return zzRead(c, "reason") && zzApply(c, zzRead) }
+`, want: []string{"zz_probe.go:9: state key the census cannot resolve over the state map (k); readers spell the state key"}},
+		{name: "key_param_rebound", src: header + `
+func zzRead(c TraceDBCoverage, k string) bool { k = "decode_state"; return c.Metadata[k] == "x" }
+func zz(c TraceDBCoverage) bool { return zzRead(c, "reason") }
+`, want: []string{"zz_probe.go:9: state key the census cannot resolve over the state map (k); readers spell the state key"}},
+		{name: "unresolvable_range_key", src: header + `
+func zz(c TraceDBCoverage, keys []string) bool { for _, k := range keys { if c.Metadata[k] == "x" { return true } }; return false }
+`, want: []string{"zz_probe.go:9: state key the census cannot resolve over the state map (k); readers spell the state key"}},
+		{name: "unresolvable_local_key", src: header + `
+func zzName() string { return "decode_state" }
+func zz(c TraceDBCoverage) bool { k := zzName(); return c.Metadata[k] == "x" }
+`, want: []string{"zz_probe.go:10: state key the census cannot resolve over the state map (k); readers spell the state key"}},
+		{name: "closure_param_key", src: header + `
+func zz(c TraceDBCoverage) bool { f := func(k string) bool { return c.Metadata[k] == "x" }; return f("decode_state") }
+`, want: []string{"zz_probe.go:9: state key the census cannot resolve over the state map (k); readers spell the state key"}},
+		{name: "concat_key_unresolved", src: header + `
+func zz(c TraceDBCoverage, lane string) bool { return c.Metadata[lane+"_state"] == "x" }
+`, want: []string{"zz_probe.go:9: state key the census cannot resolve over the state map (<*ast.BinaryExpr>); readers spell the state key"}},
+		{name: "bound_key_over_unseen_map", src: header + `
+func zz(c TraceDBCoverage) bool { k := "decode_state"; m := map[string]string{}; return m[k] == "x" }
+`, want: []string{"zz_probe.go:9: state key decode_state indexed over a *ast.Ident the census cannot see; readers index the state map"}},
+		{name: "invoked_closure_return", src: header + `
+func zz(c TraceDBCoverage) bool { return func(md map[string]string) string { return md["decode_state"] }(c.Metadata) == "x" }
+`, want: []string{"zz_probe.go:9: read returned from a closure the census cannot follow (decode_state)"}},
+		{name: "captured_closure_return", src: header + `
+func zz(c TraceDBCoverage) bool { switch func() string { return c.Metadata["decode_state"] }() { case "x": return true }; return false }
+`, want: []string{"zz_probe.go:9: read returned from a closure the census cannot follow (decode_state)"}},
+		{name: "passed_closure_return", src: header + `
+func zzApply(c TraceDBCoverage, f func(map[string]string) string) bool { return f(c.Metadata) == "x" }
+func zz(c TraceDBCoverage) bool { return zzApply(c, func(md map[string]string) string { return md["publication_state"] }) }
+`, want: []string{"zz_probe.go:10: read returned from a closure the census cannot follow (publication_state)"}},
+		{name: "closure_returns_tainted_local", src: header + `
+func zz(c TraceDBCoverage) bool { return strings.HasPrefix(func() string { s := c.Metadata["decode_state"]; return s }(), "withheld_") }
+`, want: []string{"zz_probe.go:9: read returned from a closure the census cannot follow (decode_state)"}},
+		{name: "invoked_closure_tuple_binding", src: header + `
+func zz(c TraceDBCoverage) bool { s, ok := func() (string, bool) { return c.Metadata["decode_state"], true }(); return ok && s == "x" }
+`, want: []string{"zz_probe.go:9: read returned from a closure the census cannot follow (decode_state)"}},
+		// Green controls of round five: a write-only body, the live
+		// prefixed-key read (`"retention_" + family + "_state"` names no
+		// state key whatever family is), a carried key over some other map,
+		// and the ruled range reading — a range over the state map without a
+		// key comparison, as the value or as `m[k]`, carries no key signal
+		// (disclosed residual, not silently expanded).
+		{name: "round_five_green_shapes", src: header + `
+func zzWrite(out *TraceDBCoverage) { out.Metadata["publication_state"] = "x"; out.Metadata["decode_state"] = "y" }
+func zzRetention(c TraceDBCoverage, family string) bool { s, ok := c.Metadata["retention_"+family+"_state"]; return ok && s == "x" }
+func zzSuffixed(c TraceDBCoverage, key string) string { return c.Metadata[key+"_witnesses"] }
+func zzSeen(seen map[string]bool, k string) bool { return seen[k] }
+func zzSeenCaller() bool { return zzSeen(map[string]bool{}, "decode_state") }
+func zzValues(c TraceDBCoverage) bool { for _, v := range c.Metadata { switch v { case "x": return true } }; return false }
+func zzKeysIndex(c TraceDBCoverage) bool { for k := range c.Metadata { if c.Metadata[k] == "" { return true } }; return false }
+`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			consts, files, fset := traceDBCensusFilesWithProbe(t, test.src)
@@ -1354,7 +1866,10 @@ func zzLaunderCall(c TraceDBCoverage) bool { return zzLaunderUse("x" + c.Metadat
 //     parameter, a range value, a method value and a function value carried
 //     no taint and never reached the unrecognized-binding arm.
 //   - now: every site of the probe is named, and nothing else; the live
-//     reader floor is unchanged (58 reads, 0 problems).
+//     reader floor is unchanged (0 problems; the "58 reads" recorded at
+//     round four counted index occurrences — 42 write targets among them —
+//     and reads 16 genuine reads since round five, see
+//     TestTraceDBStateReadKeyAndClosureShapesEvadedTheBaseCensus).
 func TestTraceDBStateReadMapAndValueShapesEvadedTheBaseCensus(t *testing.T) {
 	consts, files, fset := traceDBCensusFilesWithProbe(t, traceDBStateReadMapValueProbe)
 	problems, _ := traceDBStateReadProblems(files, fset, consts)
@@ -1439,6 +1954,189 @@ func zzFuncValue(c TraceDBCoverage) bool {
 	return false
 }
 `
+
+// TestTraceDBStateReadKeyAndClosureShapesEvadedTheBaseCensus is the EVOLUTION
+// RECORD of round five (§40.53 收编复核五轮, findings #6 / #7 / #8): one probe
+// file carrying the key-resolution and closure-return shapes, fed to the
+// census as a non-test file, plus a write-only probe for the read count.
+//
+//   - 480939385 / b6f7eeec3 / 533a939fb: the census resolved an index key
+//     only when spelled at the site (a literal, a package constant,
+//     `string(<constant>)`) or carried by a compared range key; every other
+//     key over the state map was silently not a read (the local constant,
+//     the local bound to the key constant, the package variable, the
+//     key-list range, the string and typed-key parameters — a caller passing
+//     the publication key to the live inherit funnel minted nothing at any
+//     base). A read returned from a closure was counted where the closure's
+//     parameter or capture was tainted and judged nowhere. The probe minted
+//     0 problems at every base; its reads delta was +1 (480939385,
+//     b6f7eeec3: the captured literal's inner read only) and +3 (533a939fb:
+//     the map-parameter closures' inner reads too, tainted by type since
+//     round four). Plain write targets were counted as reads: the
+//     write-only probe (two writes, one forwarding read) moved the count by
+//     +3 at every base, and the plain live figures — 55 at 480939385, 58 at
+//     b6f7eeec3 and 533a939fb — were index occurrences, 42 of the 58 being
+//     write targets.
+//   - now: every read site of the probe is named, and nothing else; the
+//     probe adds exactly its nine genuine reads, the write-only probe adds
+//     exactly its one forwarding read, and the live floor reads 16 genuine
+//     reads with 0 problems.
+func TestTraceDBStateReadKeyAndClosureShapesEvadedTheBaseCensus(t *testing.T) {
+	consts, files, fset := traceDBPackageStringConsts(t)
+	problems, live := traceDBStateReadProblems(files, fset, consts)
+	if len(problems) != 0 {
+		t.Fatalf("live tree reported %v", problems)
+	}
+	consts, files, fset = traceDBCensusFilesWithProbe(t, traceDBStateReadKeyClosureProbe)
+	problems, reads := traceDBStateReadProblems(files, fset, consts)
+	got := traceDBProbeProblems(problems)
+	want := []string{ // sorted as strings
+		"zz_probe.go:18: hand-kept switch over publication_state; readers classify through the gate table",
+		"zz_probe.go:26: literal comparison over decode_state; readers classify through the gate table",
+		"zz_probe.go:31: prefix/substring classification over decode_state (strings.HasPrefix); readers classify through the gate table",
+		"zz_probe.go:39: literal comparison over decode_state; readers classify through the gate table",
+		"zz_probe.go:45: hand-kept switch over publication_state; readers classify through the gate table",
+		"zz_probe.go:58: state key the census cannot resolve over the state map (k); readers spell the state key",
+		"zz_probe.go:66: read returned from a closure the census cannot follow (decode_state)",
+		"zz_probe.go:70: read returned from a closure the census cannot follow (decode_state)",
+		"zz_probe.go:82: read returned from a closure the census cannot follow (publication_state)",
+		"zz_probe.go:9: hand-kept switch over decode_state; readers classify through the gate table",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("problems=\n%s\nwant=\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// The probe's genuine reads: the local-constant, local-binding,
+	// package-variable, key-list, string-parameter and typed-parameter
+	// reads, and the three closures' inner reads; the unresolved key is
+	// not counted.
+	if reads != live+9 {
+		t.Fatalf("key/closure probe moved the read count %d → %d, want +9 genuine reads", live, reads)
+	}
+	consts, files, fset = traceDBCensusFilesWithProbe(t, traceDBStateReadWriteTargetProbe)
+	problems, reads = traceDBStateReadProblems(files, fset, consts)
+	if got := traceDBProbeProblems(problems); len(got) != 0 {
+		t.Fatalf("write-only probe reported %v", got)
+	}
+	if reads != live+1 {
+		t.Fatalf("write-only probe moved the read count %d → %d, want +1 (its forwarding read; write targets are not reads)", live, reads)
+	}
+}
+
+// traceDBStateReadKeyClosureProbe is the probe file of the EVOLUTION RECORD
+// above, kept verbatim so the base runs and this pin read the same bytes.
+const traceDBStateReadKeyClosureProbe = `package hitraceconv
+
+import "strings"
+
+var zzPackageKey = "decode_state"
+
+func zzLocalConst(c TraceDBCoverage) bool {
+	const key = "decode_state"
+	switch c.Metadata[key] {
+	case "strict_target_ledger_complete":
+		return true
+	}
+	return false
+}
+
+func zzLocalBinding(c TraceDBCoverage) bool {
+	stateKey := string(traceDBSourceRawLaneStateKeyPublication)
+	switch c.Metadata[stateKey] {
+	case "withheld_visibility_envelope_incomplete":
+		return true
+	}
+	return false
+}
+
+func zzPackageVar(c TraceDBCoverage) bool {
+	return c.Metadata[zzPackageKey] == "strict_target_ledger_complete"
+}
+
+func zzKeyList(c TraceDBCoverage) bool {
+	for _, k := range []string{"reason", "decode_state"} {
+		if strings.HasPrefix(c.Metadata[k], "withheld_") {
+			return true
+		}
+	}
+	return false
+}
+
+func zzStringKeyRead(c TraceDBCoverage, k string) bool {
+	return c.Metadata[k] == "strict_target_ledger_complete"
+}
+
+func zzStringKeyCaller(c TraceDBCoverage) bool { return zzStringKeyRead(c, "decode_state") }
+
+func zzTypedKeyRead(c TraceDBCoverage, k traceDBSourceRawLaneStateKey) bool {
+	switch c.Metadata[string(k)] {
+	case "withheld_visibility_envelope_incomplete":
+		return true
+	}
+	return false
+}
+
+func zzTypedKeyCaller(c TraceDBCoverage) bool {
+	return zzTypedKeyRead(c, traceDBSourceRawLaneStateKeyPublication)
+}
+
+func zzUnresolvedKey(c TraceDBCoverage, keys []string) bool {
+	for _, k := range keys {
+		if c.Metadata[k] == "strict_target_ledger_complete" {
+			return true
+		}
+	}
+	return false
+}
+
+func zzInvokedClosure(c TraceDBCoverage) bool {
+	return func(md map[string]string) string { return md["decode_state"] }(c.Metadata) == "strict_target_ledger_complete"
+}
+
+func zzCapturedClosure(c TraceDBCoverage) bool {
+	switch func() string { return c.Metadata["decode_state"] }() {
+	case "strict_target_ledger_complete":
+		return true
+	}
+	return false
+}
+
+func zzApplyClosure(c TraceDBCoverage, f func(map[string]string) string) bool {
+	return f(c.Metadata) == "withheld_visibility_envelope_incomplete"
+}
+
+func zzPassedClosure(c TraceDBCoverage) bool {
+	return zzApplyClosure(c, func(md map[string]string) string { return md["publication_state"] })
+}
+`
+
+// traceDBStateReadWriteTargetProbe is the write-only probe of the EVOLUTION
+// RECORD above: two plain write targets and one forwarding read.
+const traceDBStateReadWriteTargetProbe = `package hitraceconv
+
+func zzWriteTargets(out *TraceDBCoverage) {
+	out.Metadata["publication_state"] = "withheld_visibility_envelope_incomplete"
+	out.Metadata["decode_state"] = "strict_target_ledger_complete"
+	out.Metadata["reason"] = out.Metadata["decode_state"]
+}
+`
+
+// TestTraceDBStateReadInheritFunnelResolvesThroughItsCallers (round five,
+// #6): the live inherit funnel reads the upstream lane's state through its
+// key parameter (`from.Metadata[string(fromKey)]`, a hand-kept switch by
+// shape). The census resolves that parameter through the key argument of
+// every caller — today the ledger and join keys, outside the read set — so
+// the live tree is green; a caller passing the publication key turns
+// exactly that switch red, so the resolution is bound to the callers and
+// cannot go silently green.
+func TestTraceDBStateReadInheritFunnelResolvesThroughItsCallers(t *testing.T) {
+	const caller = "package hitraceconv\n\nfunc zzInheritPublication(out *TraceDBCoverage, c TraceDBCoverage) bool {\n\treturn traceDBInheritSourceRawLaneGate(out, c, traceDBSourceRawLaneStateKeyPublication, traceDBSourceRawLaneStateKeyReconciliation, \"probe\")\n}\n"
+	consts, files, fset := traceDBCensusFilesWithProbe(t, caller)
+	problems, _ := traceDBStateReadProblems(files, fset, consts)
+	want := "source_raw_lane_gate.go:248: hand-kept switch over publication_state; readers classify through the gate table"
+	if len(problems) != 1 || problems[0] != want {
+		t.Fatalf("with a publication-key caller the live tree reported %v\nwant exactly %q", problems, want)
+	}
+}
 
 // TestTraceDBRawSchedSwitchLiteJoinReconcilableIsTotalOverTheLaneVocabulary:
 // the reconciliation consumer classifies join_state through

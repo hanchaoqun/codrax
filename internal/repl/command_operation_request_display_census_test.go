@@ -65,18 +65,47 @@ import (
 // never counts a site it did not classify. Site counts are exact
 // (requestDisplayDispatchSiteRoster): an added or removed site is red until
 // the roster is updated, so a new site cannot slip in unclassified.
+//
+// Receiver identity (review round five #5): the census keys "direct call on
+// the enclosing method's receiver" on the receiver's identifier, so a
+// rebinding of that name inside the method body — `r := other`, `var r`,
+// `for r := range …`, a func-literal parameter or named result `r` —
+// would let a call on the rebound name pass as a call on the receiver.
+// Any such rebinding is red on a precise signal (the four binding shapes,
+// nothing else), and the multi-value producer arm (`line, display :=
+// r.readInputPair(…)`) resolves against the enclosing receiver ident, not
+// the literal `r`.
+//
+// On a red census the failure output lists every classified site
+// (file:line, enclosing method, dispatcher, request/display lanes) and the
+// per-dispatcher counts, so a legitimately added site is red WITH its
+// location (review round five #4).
+//
 // Self-red (TestCommandOperationRequestDisplayCensusSelfRed): each of those
 // shapes, the round-three #5 literal-in-request-slot shape
 // `executeCommandOperationPlan(plan, "/approve", "/approve")`, a swapped
 // (display, request) pair, and roster drift in either direction.
 func TestCommandOperationRequestDisplayArgumentOrderCensus(t *testing.T) {
-	problems, counts := requestDisplayCensus(t, ".")
-	problems = append(problems, requestDisplayRosterProblems(counts, requestDisplayDispatchSiteRoster)...)
+	report := requestDisplayCensus(t, ".")
+	problems := append(append([]string(nil), report.Problems...), requestDisplayRosterProblems(report.Counts, requestDisplayDispatchSiteRoster)...)
 	if len(problems) > 0 {
-		sort.Strings(problems)
-		t.Fatalf("request/display argument-order census: %d problem(s):\n  %s", len(problems), strings.Join(problems, "\n  "))
+		t.Fatal(requestDisplayCensusFailure(problems, report))
 	}
-	t.Logf("request/display census: classified call sites per dispatcher = %v", counts)
+	t.Logf("request/display census: classified call sites per dispatcher = %v", report.Counts)
+}
+
+// requestDisplayCensusFailure renders a red census: the problems, then
+// every classified site and the per-dispatcher counts, so the roster
+// message's "listed below" is true of what is printed.
+func requestDisplayCensusFailure(problems []string, report requestDisplayCensusReport) string {
+	sort.Strings(problems)
+	sites := append([]string(nil), report.Sites...)
+	sort.Strings(sites)
+	if len(sites) == 0 {
+		sites = []string{"(none)"}
+	}
+	return fmt.Sprintf("request/display argument-order census: %d problem(s):\n  %s\nclassified sites (%d), counts per dispatcher %v:\n  %s",
+		len(problems), strings.Join(problems, "\n  "), len(report.Sites), report.Counts, strings.Join(sites, "\n  "))
 }
 
 // requestDisplayDispatchSiteRoster is the exact number of direct dispatcher
@@ -86,13 +115,20 @@ func TestCommandOperationRequestDisplayArgumentOrderCensus(t *testing.T) {
 // former floors were lower bounds and caught only a removed site; a site
 // added through a method value or a receiver copy was neither classified
 // nor counted and stayed green.
+//
+// EVOLUTION RECORD (review round five #3): the former Attempt roster of 7
+// counted two sites inside maybeReplanCommandOperation and
+// maybeContinueCommandOperation — methods with no caller outside a
+// self-recursion (dead since before b6f7eeec3, deleted) — and labelled the
+// executeCommandOperationPlan wrapper body "one-shot user mode".
 var requestDisplayDispatchSiteRoster = map[string]int{
-	"operationDispatch":                   3, // clarification resume, user-mode arm, RouteOperation arm
-	"executeCommandOperationPlan":         2, // validate-and-run, initial auto-execute
-	"executeCommandOperationPlanAttempt":  7, // follow-up lint / auto-execute, /approve (carry resume), replan auto-execute, continuation auto-execute, provider-to-command continuation, one-shot user mode
-	"dispatch":                            6, // follow-up replay ×3, template expansion, typed line, one-shot user mode
-	"dispatchWithUserMode":                1,
-	"resumeCommandOperationClarification": 1,
+	"operationDispatch":                     3, // clarification resume, user-mode arm, RouteOperation arm
+	"executeCommandOperationPlan":           2, // validate-and-run, initial auto-execute
+	"executeCommandOperationPlanAttempt":    5, // follow-up lint / auto-execute, /approve (carry resume), executeCommandOperationPlan wrapper body, provider-to-command continuation
+	"dispatch":                              6, // follow-up replay ×3, template expansion, typed line, one-shot user mode
+	"dispatchWithUserMode":                  1,
+	"resumeCommandOperationClarification":   1,
+	"maybeDispatchCommandOperationFollowup": 3, // RouteLocal / RouteHybrid / RouteRepo arms of dispatch (review round five #5)
 }
 
 // requestDisplayRosterProblems compares classified site counts with the
@@ -101,7 +137,7 @@ func requestDisplayRosterProblems(counts, roster map[string]int) []string {
 	var problems []string
 	for callee, want := range roster {
 		if got := counts[callee]; got != want {
-			problems = append(problems, fmt.Sprintf("roster: %d direct %s call site(s) classified, roster registers %d — register an added site (it is classified above) or retire a removed one", got, callee, want))
+			problems = append(problems, fmt.Sprintf("roster: %d direct %s call site(s) classified, roster registers %d — register an added site (every classified site is listed below) or retire a removed one", got, callee, want))
 		}
 	}
 	for callee := range counts {
@@ -113,14 +149,29 @@ func requestDisplayRosterProblems(counts, roster map[string]int) []string {
 }
 
 // requestDisplayDispatchers maps each dispatcher to the (request, display)
-// argument indices of its call.
+// argument indices of its call. maybeDispatchCommandOperationFollowup is on
+// the operation route — it forwards display into two Attempt sites and line
+// into the follow-up request text — so its call sites are classified too
+// (review round five #5); the other (line, display) methods of package repl
+// (chitchatDispatch, localDispatch, clarifyDispatch,
+// operationUnavailableDispatch, dataTaskDispatch) are non-operation routes
+// and stay outside the census.
 var requestDisplayDispatchers = map[string][2]int{
-	"operationDispatch":                   {0, 1},
-	"executeCommandOperationPlan":         {1, 2},
-	"executeCommandOperationPlanAttempt":  {1, 2},
-	"dispatch":                            {0, 1},
-	"dispatchWithUserMode":                {0, 1},
-	"resumeCommandOperationClarification": {0, 1},
+	"operationDispatch":                     {0, 1},
+	"executeCommandOperationPlan":           {1, 2},
+	"executeCommandOperationPlanAttempt":    {1, 2},
+	"dispatch":                              {0, 1},
+	"dispatchWithUserMode":                  {0, 1},
+	"resumeCommandOperationClarification":   {0, 1},
+	"maybeDispatchCommandOperationFollowup": {0, 1},
+}
+
+// requestDisplayCensusReport is the census outcome: the problems, the
+// per-dispatcher classified site counts, and every classified site.
+type requestDisplayCensusReport struct {
+	Problems []string
+	Counts   map[string]int
+	Sites    []string
 }
 
 type textLane int
@@ -151,8 +202,8 @@ func (l textLane) String() string {
 }
 
 // requestDisplayCensus classifies every dispatcher call site in dir's
-// non-test files and returns the problems plus per-callee site counts.
-func requestDisplayCensus(t *testing.T, dir string) ([]string, map[string]int) {
+// non-test files.
+func requestDisplayCensus(t *testing.T, dir string) requestDisplayCensusReport {
 	t.Helper()
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(dir)
@@ -179,9 +230,11 @@ func requestDisplayCensus(t *testing.T, dir string) ([]string, map[string]int) {
 
 // requestDisplayCensusFiles is the census proper over parsed files: every
 // direct `<receiver>.<dispatcher>(…)` call inside a *REPL method is
-// classified and counted; any other reference to a dispatcher name is red.
-func requestDisplayCensusFiles(fset *token.FileSet, files []*ast.File) ([]string, map[string]int) {
+// classified and counted; any other reference to a dispatcher name is red,
+// and so is any rebinding of a *REPL method's receiver name in its body.
+func requestDisplayCensusFiles(fset *token.FileSet, files []*ast.File) requestDisplayCensusReport {
 	var problems []string
+	var sites []string
 	counts := map[string]int{}
 	for _, f := range files {
 		name := filepath.Base(fset.Position(f.Pos()).Filename)
@@ -191,7 +244,12 @@ func requestDisplayCensusFiles(fset *token.FileSet, files []*ast.File) ([]string
 				continue
 			}
 			recv := replMethodReceiverName(fd)
-			c := newLaneClassifier(fset, fd)
+			if recv != "" {
+				for _, rb := range receiverRebindings(fset, fd, recv) {
+					problems = append(problems, fmt.Sprintf("%s:%d %s: receiver %s rebound by %s — a dispatcher call on the rebound name is not a call on the method's receiver; unrecognized dispatch shape", name, rb.line, fd.Name.Name, recv, rb.shape))
+				}
+			}
+			c := newLaneClassifier(fset, fd, recv)
 			// dispatcher-named selectors that are the Fun of a call — every
 			// other dispatcher-named selector is a method value or a
 			// reference outside a call and is reported below.
@@ -220,6 +278,7 @@ func requestDisplayCensusFiles(fset *token.FileSet, files []*ast.File) ([]string
 					}
 					reqLane, reqWhy := c.lane(v.Args[idx[0]])
 					dispLane, dispWhy := c.lane(v.Args[idx[1]])
+					sites = append(sites, fmt.Sprintf("%s: request=%s (%s lane: %s), display=%s (%s lane: %s)", site, exprText(v.Args[idx[0]]), reqLane, reqWhy, exprText(v.Args[idx[1]]), dispLane, dispWhy))
 					if reqLane != laneRequest && reqLane != laneRaw {
 						problems = append(problems, fmt.Sprintf("%s: request slot carries %s (%s lane: %s) — want the request text or the raw line", site, exprText(v.Args[idx[0]]), reqLane, reqWhy))
 					}
@@ -236,7 +295,74 @@ func requestDisplayCensusFiles(fset *token.FileSet, files []*ast.File) ([]string
 			})
 		}
 	}
-	return problems, counts
+	return requestDisplayCensusReport{Problems: problems, Counts: counts, Sites: sites}
+}
+
+// receiverRebinding is one rebinding of a *REPL method's receiver name
+// inside its body.
+type receiverRebinding struct {
+	line  int
+	shape string
+}
+
+// receiverRebindings finds every rebinding of recv inside fd's body on a
+// precise signal: a `:=` definition (plain, type-switch or select
+// receive), a `var` declaration, a `for … := range` key or value, and a
+// func-literal parameter or named result. Nothing else is a rebinding.
+func receiverRebindings(fset *token.FileSet, fd *ast.FuncDecl, recv string) []receiverRebinding {
+	var found []receiverRebinding
+	add := func(n ast.Node, shape string) {
+		found = append(found, receiverRebinding{line: fset.Position(n.Pos()).Line, shape: shape})
+	}
+	names := func(ids []*ast.Ident) bool {
+		for _, id := range ids {
+			if id != nil && id.Name == recv {
+				return true
+			}
+		}
+		return false
+	}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.AssignStmt:
+			if v.Tok != token.DEFINE {
+				return true
+			}
+			for _, lhs := range v.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok && id.Name == recv {
+					add(v, "a := definition")
+				}
+			}
+		case *ast.ValueSpec:
+			if names(v.Names) {
+				add(v, "a var declaration")
+			}
+		case *ast.RangeStmt:
+			if v.Tok != token.DEFINE {
+				return true
+			}
+			for _, e := range []ast.Expr{v.Key, v.Value} {
+				if id, ok := e.(*ast.Ident); ok && id.Name == recv {
+					add(v, "a range definition")
+				}
+			}
+		case *ast.FuncLit:
+			for _, field := range v.Type.Params.List {
+				if names(field.Names) {
+					add(field, "a func-literal parameter")
+				}
+			}
+			if v.Type.Results != nil {
+				for _, field := range v.Type.Results.List {
+					if names(field.Names) {
+						add(field, "a func-literal named result")
+					}
+				}
+			}
+		}
+		return true
+	})
+	return found
 }
 
 // replMethodReceiverName returns the receiver identifier of a *REPL method
@@ -260,6 +386,7 @@ func replMethodReceiverName(fd *ast.FuncDecl) string {
 type laneClassifier struct {
 	fset    *token.FileSet
 	fn      *ast.FuncDecl
+	recv    string // the enclosing *REPL method's receiver ident ("" outside one)
 	params  map[string]textLane
 	assigns map[string][]laneAssign // local name → every non-fallback assignment
 	memo    map[string]textLane
@@ -274,10 +401,11 @@ type laneAssign struct {
 	add   bool // `x += rhs`
 }
 
-func newLaneClassifier(fset *token.FileSet, fn *ast.FuncDecl) *laneClassifier {
+func newLaneClassifier(fset *token.FileSet, fn *ast.FuncDecl, recv string) *laneClassifier {
 	c := &laneClassifier{
 		fset:    fset,
 		fn:      fn,
+		recv:    recv,
 		params:  map[string]textLane{},
 		assigns: map[string][]laneAssign{},
 		memo:    map[string]textLane{},
@@ -548,8 +676,10 @@ func (c *laneClassifier) resultLane(rhs ast.Expr, i int) (textLane, string) {
 	if !ok {
 		return laneUnknown, "multi-value call of an unrecognized shape"
 	}
-	if recv, ok := sel.X.(*ast.Ident); !ok || recv.Name != "r" {
-		return laneUnknown, "multi-value call " + exprText(call.Fun) + " is outside the request/display producer set"
+	// the producer must be called on the enclosing *REPL method's own
+	// receiver ident (review round five #5), not on the literal `r`
+	if recv, ok := sel.X.(*ast.Ident); !ok || c.recv == "" || recv.Name != c.recv {
+		return laneUnknown, "multi-value call " + exprText(call.Fun) + " is outside the request/display producer set (not on the enclosing *REPL method's receiver)"
 	}
 	switch {
 	case sel.Sel.Name == "readInputPair" && i == 0:

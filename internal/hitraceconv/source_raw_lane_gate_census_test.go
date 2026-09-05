@@ -280,47 +280,60 @@ func traceDBLocalStringBindings(file *ast.File, consts map[string]string) map[st
 		if !ok || fn.Body == nil {
 			continue
 		}
-		locals := map[string]string{}
-		conflict := map[string]bool{}
-		bind := func(name string, expr ast.Expr) {
-			value, ok := traceDBResolveStateExpr(expr, consts)
-			if !ok {
-				conflict[name] = true
-				return
-			}
-			if prior, seen := locals[name]; seen && prior != value {
-				conflict[name] = true
-				return
-			}
-			locals[name] = value
-		}
-		ast.Inspect(fn.Body, func(node ast.Node) bool {
-			switch n := node.(type) {
-			case *ast.AssignStmt:
-				if len(n.Lhs) != len(n.Rhs) {
-					return true
-				}
-				for i, lhs := range n.Lhs {
-					if ident, ok := lhs.(*ast.Ident); ok {
-						bind(ident.Name, n.Rhs[i])
-					}
-				}
-			case *ast.ValueSpec:
-				for i, name := range n.Names {
-					if i < len(n.Values) {
-						bind(name.Name, n.Values[i])
-					}
-				}
-			}
-			return true
-		})
-		for name := range conflict {
-			delete(locals, name)
-		}
-		out[fn.Name.Name] = locals
+		out[fn.Name.Name] = traceDBFuncStringBindings(fn, consts)
 	}
 	return out
 }
+
+// traceDBFuncStringBindings is the per-function half of
+// traceDBLocalStringBindings, shared with the reader census (which keys its
+// state by declaration, not by name).
+func traceDBFuncStringBindings(fn *ast.FuncDecl, consts map[string]string) map[string]string {
+	locals := map[string]string{}
+	conflict := map[string]bool{}
+	bind := func(name string, expr ast.Expr) {
+		value, ok := traceDBResolveStateExpr(expr, consts)
+		if !ok {
+			conflict[name] = true
+			return
+		}
+		if prior, seen := locals[name]; seen && prior != value {
+			conflict[name] = true
+			return
+		}
+		locals[name] = value
+	}
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) != len(n.Rhs) {
+				return true
+			}
+			for i, lhs := range n.Lhs {
+				if ident, ok := lhs.(*ast.Ident); ok {
+					bind(ident.Name, n.Rhs[i])
+				}
+			}
+		case *ast.ValueSpec:
+			for i, name := range n.Names {
+				if i < len(n.Values) {
+					bind(name.Name, n.Values[i])
+				}
+			}
+		}
+		return true
+	})
+	for name := range conflict {
+		delete(locals, name)
+	}
+	return locals
+}
+
+// traceDBLaneStateKeyTypeName is the typed lane state key; a parameter of
+// this type (or of string) indexing the state map is resolved through every
+// caller's argument by the reader census, and the type's constants are the
+// lane key closed set of the write census.
+const traceDBLaneStateKeyTypeName = "traceDBSourceRawLaneStateKey"
 
 // The class gate write funnel and the wrappers that forward a lane key into
 // it. The value is the index of the key argument; -1 means the wrapper fixes
@@ -365,7 +378,7 @@ func traceDBLaneStateWriteSites(t *testing.T) ([]traceDBStateWriteSite, map[stri
 // self-red).
 func traceDBLaneStateWriteSitesOf(t *testing.T, consts map[string]string, files map[string]*ast.File, fset *token.FileSet) ([]traceDBStateWriteSite, map[string]string) {
 	t.Helper()
-	laneKeys := traceDBTypedStringConsts(t, files, consts, "traceDBSourceRawLaneStateKey")
+	laneKeys := traceDBTypedStringConsts(t, files, consts, traceDBLaneStateKeyTypeName)
 	if len(laneKeys) < 7 {
 		t.Fatalf("lane state key closed set lost members: %v", laneKeys)
 	}
@@ -949,13 +962,15 @@ func TestTraceDBRawDecodeStateReadersClassifyThroughTheTables(t *testing.T) {
 	// Reader census (fold-in #9): every read of decode_state /
 	// publication_state — direct, or tainted through local bindings — lands in
 	// a recognized consumer position; the live reader floor keeps a silently
-	// empty walk red.
+	// empty walk red. Since round five (#7) the count is genuine reads only —
+	// a plain write target `<x>.Metadata[<key>] = …` is not a read — 16 on
+	// the live tree; the floor is a floor, not the number.
 	problems, reads := traceDBStateReadProblems(files, fset, consts)
 	for _, problem := range problems {
 		t.Error(problem)
 	}
 	if reads < 5 {
-		t.Fatalf("state reader census found only %d reads; the walk drifted", reads)
+		t.Fatalf("state reader census found only %d genuine reads; the walk drifted", reads)
 	}
 	tables := 0
 	for name, file := range files {
