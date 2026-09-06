@@ -57404,6 +57404,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - C++ 146s，实际 applied commit `1f857bb458a1bc4f7cbd1144652261d2c7056b4f` 仅把加法前值和传递参数拓宽为 `long long`（2+/2-），原测试未删改，两次 make 命令成功。终验仍 required=1/covered=0，`unverified` 正确保留；原生 aggregate 与断言凭证缺口 B1561 再获见证，不降低门槛、不将重复执行算新增覆盖。
 - B1565 先红证据 `.codrax/tmp/b1565-red.log`：reorder panic、replace 同时替换两版、remove 同时删除两版；evaluator 三个恢复车道错误宣称可 patch。修后共用 `ValidateAnswerDocumentPatchBaseIdentity`：full emit 在既有完全相同块无损去重之后判唯一；差异内容全部保留为恢复草稿，要求模型 full emit；patch 合并前拒绝歧义基线；evaluator 不再关闭 full emit。正负回归在 `.codrax/tmp/b1565-green.log`，扩大回归另记 `b1565-regression.log`；生产复放待下一严格双路批，未提前宣称 live 闭环。
 - 不以正文措辞决定保留哪版，不改 trace 数学/投影/补采/模型结论，不添加 JSON 新义务；这是已有“块 ID 唯一”的结构合同统一接线，避免教学与执行互相矛盾。
+- B1565 已推送 `6baf142ad`；扩大 types/agent/tool 恢复与 patch 回归全绿，独立审查补齐 patch Execute 早检并保留旁路 selector 解码义务。另补真实 `buildToolSchemas` 挂点四臂 pin：重复草稿隐藏 patch、full 保持，较新重复 pending 不能借旧 accepted 打开 patch，旧作者正文不改写。直接调用 ParametersFor 的封装边界无新生产见证，本批不扩修。
 - 继承 B1566（P2，待独立批）：家族聚合旁路目前未完整携带 typed 成员数/折叠口径，代表 SpanName 可能将聚合成本误说成单个业务阶段；先记录，不借本批候选限定扩大为模型结论改写。
 
 #### B1564 类图无损显示小批
