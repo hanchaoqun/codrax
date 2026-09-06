@@ -57470,6 +57470,31 @@ B1569：仅改共享提示的中英首句、待核对标题和局部修补指导
 - B1565清册补全 `35c12f0ec`、B1567来源诊断 `93be77e2b`、B1568排名窗传递 `32de27d8d`、r1022人工收账 `21dca8496`、B1570状态事实卡 `947d5916e` 均已推送。后一版 clean make 通过，r1023 固定该快照运行 H11 + 跨仓 Python SDK write，严格两路。
 - 全套 `20260906-b1562-b1570-full-suite.log` 除 agent 一处旧 fixture 缺原始 runnable 值外均绿。该 fixture 已补生产端本应携带的 `runnable=7.000`，不改原预期、不恢复错误 Impact 兜底；最新 agent/types 全包复验均绿（`20260906-b1570-final-packages.log`）。最终统一全套结果稍后另记，不隐去失败过程。
 
+#### r1023 收账与下一批（2026-09-06）
+
+`snapshot=947d5916e / exactly-two-parallel / machine=1/2 / human=trace-fail,write-partial`。
+机器及完整人工审计：`eval/parallel_selected_summary_evalcampaign_trace_multirepowrite_r1023_20260906{,_manual_audit}.md`。
+
+- H11 136s，4次trace_query，0成文拒绝/patch；模型总结、唯一投影、实际占时/现规则可消双轴、链上业务族及邻近背景分层保留。◎锁/优先级双席7.405/4.710、小计12.115在场；本轮所有探测窗为精确窗，B1568旧rounded触发臂未命中，不能借正常回归冒称故障臂live通过。B1570实际发给模型的上下文确认Comp原始8.294、Jank原始3.299，与7.405/4.710复合可消量分开，生产命中。
+- 根因JSON正常生成139字节，真实为unavailable/空数组；模型未提交任何候选选择，非格式打包失败或系统删除选择。14候选及可patch补选提示已提供，默认必有旁路文件正常。不得自动替模型选根因以凑available；本轮程序化根因内容不足保持可见，不改机器记录。
+- 答案仍有频率单位/治理来源误述、“未证关系”与独立措辞矛盾、内部枚举及业务修向总结不足。IO4次4.384ms是已发布子集下界，不是凭空造数；需与47段12.658ms全族口径分清。本轮调度值为3.956ms，不拿上一轮6.797ms套判。反复“上限”有旧教学明确诱因，见B1573，不能全归模型波动。
+- Python write 128s，只有授权python-sdk/client.py变更，sync/async修复正确；测试和API reference原样，只读兄弟仓干净。Codrax执行一个probe后保留unverified:proof_weak，未谎报全部验证。人工另跑sync/async及namespace有/无、返回与await行为通过；人工结果不写回原run证明。动态probe仅测sync，async仅AST的模型验证设计不足独立记录。
+
+| 次序 / 优先级 | 已确认问题 | 下一批边界 / 验收 |
+|---|---|---|
+| 1 / P1 / B1571-TRUNCATEDRANKCENSUS1 | `renderTraceFinalPrincipalRankPopulation`取前8项却说ranked_row_count=8、其余均unranked；同一prompt又提供#9–#14方向项，显示上限冒充资格全集 | 保留展示cap，但以现有完整typed候选计算total/ordinal，发布emitted/total/complete；未列≠无资格。主窗/链凭证/模型选择不变；补超过cap、正好cap、空集、异窗背景排除及生产prompt一致性 |
+| 1（同批） / P1 / B1574-RANKDONORREFIDENTITY1 | 同一Comp链上7.405席，原rank Object与folded host Object不同使ref哈希分叉，四席变成2个headline+3个additional；不是合法异板同序数 | 精确rank-donor alias沿现有RankFoldPeers贯穿至subtotal、relation roster和prompt；不得按ordinal或忽略Object粗去重。钉fold前后ref恒等、4=2+2互斥集合、异board/异type/adjacent仍独立；不改加总/正文 |
+| 2 / P1 / B1573-DIRECTIONCEILINGTEACHING1 | defaults.go的共享教学把最大单席称整个方向的recoverable ceiling，和已证同向合计及估算口径冲突 | 单项领先值、精确同向合计、未知关联和供给估算分别说明，读取现有typed关系/口径，不靠关键词选收益，也不把物理相交本身扩成保证收益。既裁方向不漏/不可瞎加职责保留；钉教学与精确事实一致，不钉模型必须使用某句结论 |
+| 3 / P1 / B1572-PROOFREASONDRIFT1 | run_tests发`project_test_assertion_not_observed`；按同ref替代凭证的消解已成立，但原因码清单只认旧`project_test_observation_not_executed`，28/28义务covered后仍weak且无新缺项可补 | 统一获准消解类别或兼容新旧码；同报告/累计报告、部分覆盖、异ref、失败/不可用均回归。不能“有probe即免项目测试”，不能用人工成功改写旧run状态 |
+| 4 / P1（继承） / B1561 | C++原生行为证明能力 | 先提供通用运行能力/结构化报告支持，不用Python包装器绕语言合同，不重复fmt aggregate作为新证明 |
+| 5 / P2（继承） / B1566 | 家族代表项与整体描述口径 | 贯穿成员数/折叠口径，保持代表与整体不同尺，不代写业务结论 |
+
+B1574独立否证：两份blob的工件、目标、板参数、精确rank窗、Comp同一line22663..24828/区间/7.405456均一致；仅Object不同分别复算出`#3@306172b5`与`#3@e9473a8a`。这是既有host/rank别名缺口在B1568恢复合法总览后显露，非放宽入链。系统重复的是同一7.405席；正文“另#3=0.598”是模型将邻近rank11错误配过去，系统并未直接给#3赋0.598，二者责任不能混写。下一批不删除合法双席、不恢复旧漏项以掩盖问题。
+
+本轮B1569另批已推送`61a6feb2b`，不在r1023快照。保持低ROI/已有足够上下文的模型措辞问题为观察，优先处理上述确定性系统信息冲突。下次先修前三个批次（排名全集/别名、方向教学、验证原因码），再选读模式日志/源码边界与异构写模式双路；Trace受改则追加相应显式窗回归，不无休止重跑同一窗。
+
+最终验证：`go test ./... -count=1` 在`61a6feb2b`完整通过，86个测试包全绿（`.codrax/tmp/20260906-final-full-suite.log`），包括成文/关系、Trace查询/诊断/旁路、写模式/REPL/流式测试；先前失败及修正过程保留，不用最终绿覆盖历史。当前新确认B1571–B1574均为**已审计/待施工**，不是已修复或全系统闭环。
+
 ### §123.1637 r1020：旁路打包生产验收，原生行为证明与候选限定继续分批（2026-09-02）
 
 `base=5cd7368a4f7b / exactly-two-parallel / machine=1/2 / human=both-partial`。
