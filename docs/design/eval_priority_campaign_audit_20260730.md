@@ -57414,6 +57414,16 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - 专有 UML 箭头与业务标签是两份独立信息，普通 flowchart 的一个标签位不能同时无损承载；有此组合时保留完整原生 classDiagram，而非吞掉继承/实现/所有权意义或拼写作者没写的标签。普通有向关联仍可无损转换。
 - 正式先红 `class-fidelity-red-20260906.log` 15 个子形；分段/重复/转义/顺序/10种UML箭头/普通关联/未闭合形修后整包绿。仓内官方 Mermaid JS + Chrome 实测原生分段声明和转换图都显示后续成员；带业务标签的继承图保留 operator/type 和 title 并可渲染，证据 `.codrax/tmp/class-fidelity-browser-20260906.json`。tool 的类图/反向锚与 render 定向回归通过，未把库子集边界泄漏为模型新限制。
 
+#### B1563 失败验证的文件与执行范围同源联接
+
+`implemented / typed+real-RunTests+controller-targeted-pass / full-suite-pending`。
+
+- 确认 `BuildVerifyFailureContractRelevance` 仅按断言名/suite 连接时，会把兄弟文件同名失败误归给当前软契约，导致永久退役。成功证明已有更精确的 project observation → candidate → executed command → test result 联接；本批提炼为同一 helper，失败分支换 outcome 而不另写一套文件/runner/framework/workdir 匹配规则。
+- types 层只投影运行时提供的精确 observation/result binding，不接受 planner 新字段；无 binding 的 legacy 项目失败行不能退役。controller 调用的是 tool 包纯 builder，**没有执行工具**。probe 身份通道不变，成功证明行为不放松。
+- TestResult 尚缺执行来源时，多种不同失败命令或 Make 多文件无来源仍保守保留；给 `typed_failed_rows_joined_with_unbound_project_assertions` 原因，不猜 stdout、测试名称或文件邻近关系。退役证据明确包含实际 test_path。
+- 旧实现在跨文件、runner、framework、workdir、无候选、无执行命令等十臂已实测先红；修后 `TestProjectFailureContractRelevanceRequiresExactExecutionAndFile`、成功/失败同源对照、types 无 binding 保留、controller 接线与 outcome census 通过。实际 RunTests 执行 Python unittest 失败后可绑定真实文件，偷绑兄弟文件负例拒绝；最终只退役已执行失败文件对应的期望，多文件 Make 歧义不退役。
+- B1561 原生 aggregate-only 能力不冒充本批已修；r1021 C++ 正确改动仍无断言级 receipt，后续需通用能力恢复，不以成功字符串/特定用例主函数/重复命令拟合。
+
 首次全仓检查在施工并行期间仅报 UXG-1 新判据铸点 census 漂移（新 helper 已落盘）；不可称洁净基线失败或全仓通过。合流后再跑完整套件，候选 token 族应减少为真正单源，禁止直接扩豁免。
 
 ### §123.1637 r1020：旁路打包生产验收，原生行为证明与候选限定继续分批（2026-09-02）

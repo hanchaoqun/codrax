@@ -130,17 +130,31 @@ func (r *VerifyFailureContractRelevance) HitByContractID() map[string]VerifyFail
 	return out
 }
 
+// ProjectTestFailureBinding is the runner resolver's exact binding of a
+// declared project observation to a failed row of this report. It is an
+// in-memory execution fact, never a planner-authored field. The types layer
+// cannot resolve runner-specific file selectors on its own.
+type ProjectTestFailureBinding struct {
+	ObservationID  string
+	TestPath       string
+	AssertionSuite string
+	AssertionID    string
+	ResultIndex    int
+}
+
 // BuildVerifyFailureContractRelevance joins the failed rows of report with the
 // probes / project-test observations of plan (including its cumulative
-// verification scope) using the same exact identities the satisfied lane uses:
+// verification scope). Project rows additionally require the runner resolver's
+// binding through the same execution/path matcher as the satisfied lane:
 //   - failed `verification_probe/<lang>` rows join a probe by
 //     AssertionID == probe.ID → probe.ContractRefs ∪ probe.PlacementRefs;
-//   - failed assertion-scoped, non-build rows join a project_test_observation
-//     by AssertionID == observation.AssertionID and a boundary-qualified suite
-//     match → observation.ContractRefs.
+//   - failed assertion-scoped, non-build rows join an explicitly bound
+//     project_test_observation by its full identity and result index.
 //
-// A nil report/plan or a plan/report id mismatch yields `unavailable`.
-func BuildVerifyFailureContractRelevance(report *ChangeReport, plan *ChangePlan) VerifyFailureContractRelevance {
+// A nil report/plan or a plan/report id mismatch yields `unavailable`. Calling
+// without project bindings preserves the direct probe lane and retains all
+// project-test expectations: matching display names alone cannot retire them.
+func BuildVerifyFailureContractRelevance(report *ChangeReport, plan *ChangePlan, bindings ...ProjectTestFailureBinding) VerifyFailureContractRelevance {
 	switch {
 	case report == nil:
 		return VerifyFailureContractRelevance{Status: VerifyFailureContractRelevanceUnavailable, ReasonCode: "report_unavailable"}
@@ -152,6 +166,7 @@ func BuildVerifyFailureContractRelevance(report *ChangeReport, plan *ChangePlan)
 	probes := ChangePlanVerificationProbes(plan)
 	observations := ChangePlanVerificationProjectTestObservations(plan)
 	hits := map[string]*VerifyFailureContractHit{}
+	unboundProjectAssertion := false
 	record := func(id string, reason WriteBehaviorContractRetirementReason, evidence string) {
 		id = strings.TrimSpace(id)
 		if id == "" {
@@ -164,7 +179,7 @@ func BuildVerifyFailureContractRelevance(report *ChangeReport, plan *ChangePlan)
 		}
 		hit.EvidenceRefs = append(hit.EvidenceRefs, evidence)
 	}
-	for _, row := range report.TestResults {
+	for rowIndex, row := range report.TestResults {
 		if row.Passed || row.Kind == TestResultKindBuildError {
 			continue
 		}
@@ -196,13 +211,20 @@ func BuildVerifyFailureContractRelevance(report *ChangeReport, plan *ChangePlan)
 				!ProjectTestAssertionSuiteMatches(suite, observation.AssertionSuite) {
 				continue
 			}
-			evidence := WriteBehaviorContractEvidenceAssertionPrefix + strings.TrimSpace(observation.AssertionSuite) + "::" + assertionID
+			if !projectTestFailureBindingMatches(bindings, observation, rowIndex) {
+				unboundProjectAssertion = true
+				continue
+			}
+			evidence := WriteBehaviorContractEvidenceAssertionPrefix + strings.TrimSpace(observation.TestPath) + "::" + strings.TrimSpace(observation.AssertionSuite) + "::" + assertionID
 			for _, ref := range observation.ContractRefs {
 				record(ref, WriteBehaviorContractRetiredFailedProjectTestAssertion, evidence)
 			}
 		}
 	}
 	out := VerifyFailureContractRelevance{Status: VerifyFailureContractRelevanceAvailable, ReasonCode: "typed_failed_rows_joined"}
+	if unboundProjectAssertion {
+		out.ReasonCode = "typed_failed_rows_joined_with_unbound_project_assertions"
+	}
 	ids := make([]string, 0, len(hits))
 	for id := range hits {
 		ids = append(ids, id)
@@ -214,6 +236,20 @@ func BuildVerifyFailureContractRelevance(report *ChangeReport, plan *ChangePlan)
 		out.Hits = append(out.Hits, *hit)
 	}
 	return out
+}
+
+func projectTestFailureBindingMatches(bindings []ProjectTestFailureBinding, observation ProjectTestObservation, rowIndex int) bool {
+	if strings.TrimSpace(observation.ID) == "" || strings.TrimSpace(observation.TestPath) == "" {
+		return false
+	}
+	for _, binding := range bindings {
+		if binding.ResultIndex == rowIndex && binding.ObservationID == observation.ID &&
+			binding.TestPath == observation.TestPath && binding.AssertionSuite == observation.AssertionSuite &&
+			binding.AssertionID == observation.AssertionID {
+			return true
+		}
+	}
+	return false
 }
 
 // ProjectTestAssertionSuiteMatches is the one authority for matching a

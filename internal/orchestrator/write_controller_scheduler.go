@@ -10045,7 +10045,7 @@ func (o *Orchestrator) finalizeVerifyFailureHandoff(h *types.VerifyFailureHandof
 	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
 		plan = o.busCtx.Mutable.ChangePlan()
 	}
-	relevance := types.BuildVerifyFailureContractRelevance(report, plan)
+	relevance := tool.BuildVerifyFailureContractRelevance(report, plan)
 	h.ContractRelevance = &relevance
 	// §40.46: the failed plan's tombstones are merged into the run's
 	// retirement ledger before the carrier replaces the previous handoff —

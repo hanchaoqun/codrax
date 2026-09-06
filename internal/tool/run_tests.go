@@ -3671,27 +3671,35 @@ func stringSetContains(set map[string]struct{}, key string) bool {
 }
 
 func projectTestObservationExecuted(observation types.ProjectTestObservation, report *types.ChangeReport) bool {
+	return len(projectTestObservationExecutionMatches(observation, report, true)) > 0
+}
+
+// projectTestObservationExecutionMatches is the shared success/failure
+// identity join. Verdict changes the required command and assertion outcome,
+// never the candidate, source path or suite authority.
+func projectTestObservationExecutionMatches(observation types.ProjectTestObservation, report *types.ChangeReport, passed bool) []projectTestObservationExecutionMatch {
 	if report == nil || report.TestSurface == nil {
-		return false
+		return nil
 	}
 	testPath := cleanRepoRelPath(observation.TestPath)
 	if testPath == "" {
-		return false
+		return nil
 	}
 	assertionSuite := strings.TrimSpace(observation.AssertionSuite)
 	assertionID := strings.TrimSpace(observation.AssertionID)
 	if assertionSuite == "" || assertionID == "" {
-		return false
+		return nil
 	}
-	for _, candidate := range report.TestSurface.Candidates {
+	var matches []projectTestObservationExecutionMatch
+	for candidateIndex, candidate := range report.TestSurface.Candidates {
 		expectedSuite, ok := projectTestObservationCandidateSuite(candidate, testPath)
 		if !ok {
 			continue
 		}
 		candidateKey := testSurfaceCandidateKey(candidate.Runner, candidate.Framework, candidate.WorkingDir)
-		executed := false
-		for _, cmd := range report.ExecutedCommands {
-			if strings.TrimSpace(cmd.Outcome) != types.ExecutedCommandOutcomeExecuted || cmd.ExitCode != 0 || strings.TrimSpace(cmd.Runner) == "verification_probe" {
+		commandIndex := -1
+		for index, cmd := range report.ExecutedCommands {
+			if strings.TrimSpace(cmd.Outcome) != types.ExecutedCommandOutcomeExecuted || (cmd.ExitCode == 0) != passed || strings.TrimSpace(cmd.Runner) == "verification_probe" {
 				continue
 			}
 			if testSurfaceCandidateKey(cmd.Runner, cmd.Framework, cmd.WorkingDir) != candidateKey {
@@ -3700,24 +3708,26 @@ func projectTestObservationExecuted(observation types.ProjectTestObservation, re
 			if strings.TrimSpace(cmd.Suite) != expectedSuite {
 				continue
 			}
-			executed = true
+			commandIndex = index
 			break
 		}
-		if !executed {
+		if commandIndex < 0 {
 			continue
 		}
-		for _, result := range report.TestResults {
-			if result.Kind == types.TestResultKindBuildError || !result.Passed ||
+		for resultIndex, result := range report.TestResults {
+			if result.Kind == types.TestResultKindBuildError || result.Passed != passed ||
 				result.ObservationScope != types.TestObservationScopeAssertion ||
 				strings.TrimSpace(result.AssertionID) != assertionID ||
 				!projectTestAssertionSuiteMatches(strings.TrimSpace(result.Suite), assertionSuite) ||
 				!projectTestResultSuiteBelongsToPath(candidate, testPath, expectedSuite, strings.TrimSpace(result.Suite)) {
 				continue
 			}
-			return true
+			matches = append(matches, projectTestObservationExecutionMatch{
+				CandidateIndex: candidateIndex, CommandIndex: commandIndex, ResultIndex: resultIndex,
+			})
 		}
 	}
-	return false
+	return matches
 }
 
 func projectTestObservationCandidateSuite(candidate types.TestSurfaceCandidate, testPath string) (string, bool) {

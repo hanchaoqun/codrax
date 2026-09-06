@@ -26,7 +26,7 @@ func TestBuildVerifyFailureContractRelevanceJoinsFailedProbeAndAssertionRows(t *
 		ID:                 "plan-1",
 		VerificationProbes: []VerificationProbe{{ID: "p1", ContractRefs: []string{"c1"}, PlacementRefs: []string{"c1-placement"}}, {ID: "p-passed", ContractRefs: []string{"c-passed"}}},
 		ProjectTestObservations: []ProjectTestObservation{
-			{ID: "o1", AssertionSuite: "pkg", AssertionID: "TestX", ContractRefs: []string{"c2"}},
+			{ID: "o1", TestPath: "pkg/x_test.go", AssertionSuite: "pkg", AssertionID: "TestX", ContractRefs: []string{"c2"}},
 			{ID: "o2", AssertionSuite: "pkg", AssertionID: "TestZ", ContractRefs: []string{"c-aggregate"}},
 		},
 	}
@@ -38,14 +38,19 @@ func TestBuildVerifyFailureContractRelevanceJoinsFailedProbeAndAssertionRows(t *
 		{Suite: "repo/pkg", AssertionID: "TestZ", ObservationScope: TestObservationScopeAggregate, Passed: false},
 		{Kind: TestResultKindBuildError, Suite: "build", AssertionID: "TestX", Passed: false},
 	}}
-	got := BuildVerifyFailureContractRelevance(report, plan)
+	// EVOLUTION RECORD: project-test retirement now requires the runner's
+	// exact execution/path binding. The old fixture contained names only and
+	// could not prove which source file produced the failed assertion.
+	got := BuildVerifyFailureContractRelevance(report, plan, ProjectTestFailureBinding{
+		ObservationID: "o1", TestPath: "pkg/x_test.go", AssertionSuite: "pkg", AssertionID: "TestX", ResultIndex: 2,
+	})
 	if got.Status != VerifyFailureContractRelevanceAvailable {
 		t.Fatalf("relevance = %+v, want available", got)
 	}
 	want := []VerifyFailureContractHit{
 		{ContractID: "c1", Reason: WriteBehaviorContractRetiredFailedVerificationProbe, EvidenceRefs: []string{"probe:p1"}},
 		{ContractID: "c1-placement", Reason: WriteBehaviorContractRetiredFailedVerificationProbe, EvidenceRefs: []string{"probe:p1"}},
-		{ContractID: "c2", Reason: WriteBehaviorContractRetiredFailedProjectTestAssertion, EvidenceRefs: []string{"assertion:pkg::TestX"}},
+		{ContractID: "c2", Reason: WriteBehaviorContractRetiredFailedProjectTestAssertion, EvidenceRefs: []string{"assertion:pkg/x_test.go::pkg::TestX"}},
 	}
 	if !reflect.DeepEqual(got.Hits, want) {
 		t.Fatalf("hits = %+v, want %+v", got.Hits, want)

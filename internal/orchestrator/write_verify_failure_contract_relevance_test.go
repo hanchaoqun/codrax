@@ -19,7 +19,7 @@ func TestFinalizeVerifyFailureHandoffStampsContractRelevanceFromLivePlan(t *test
 		ID:                 "plan-1",
 		VerificationProbes: []types.VerificationProbe{{ID: "shape_probe", ContractRefs: []string{"stale-soft"}}},
 		ProjectTestObservations: []types.ProjectTestObservation{
-			{ID: "o1", AssertionSuite: "widget_test", AssertionID: "test_value", ContractRefs: []string{"exact-value"}},
+			{ID: "o1", TestPath: "tests/widget_test.py", AssertionSuite: "widget_test", AssertionID: "test_value", ContractRefs: []string{"exact-value"}},
 		},
 	})
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorkDir: t.TempDir(), Mode: types.ModeApply}}
@@ -28,17 +28,34 @@ func TestFinalizeVerifyFailureHandoffStampsContractRelevanceFromLivePlan(t *test
 		{Suite: "tests.widget_test", AssertionID: "test_value", ObservationScope: types.TestObservationScopeAssertion, Passed: false},
 		{Suite: "tests.widget_test", AssertionID: "test_other", ObservationScope: types.TestObservationScopeAssertion, Passed: false},
 	}}
+	// EVOLUTION RECORD: names alone were formerly sufficient to retire a
+	// project contract. Include the exact failed execution and path roster so
+	// this pin exercises the production resolver rather than a suffix guess.
+	report.TestSurface = &types.TestSurface{Candidates: []types.TestSurfaceCandidate{{
+		Runner: "python", Framework: "unittest", WorkingDir: ".", HasTestSignal: true,
+	}}}
+	report.ExecutedCommands = []types.ExecutedCommand{{
+		Runner: "python", Framework: "unittest", WorkingDir: ".", Suite: "tests/widget_test.py",
+		Outcome: types.ExecutedCommandOutcomeExecuted, ExitCode: 1,
+	}}
 
 	handoff := o.finalizeVerifyFailureHandoff(types.BuildVerifyFailureHandoff(report, "batch-1", 1, "", ""), report)
 	if handoff == nil || handoff.ContractRelevance == nil || handoff.ContractRelevance.Status != types.VerifyFailureContractRelevanceAvailable {
 		t.Fatalf("relevance not stamped from the live plan: %+v", handoff)
 	}
 	want := []types.VerifyFailureContractHit{
-		{ContractID: "exact-value", Reason: types.WriteBehaviorContractRetiredFailedProjectTestAssertion, EvidenceRefs: []string{"assertion:widget_test::test_value"}},
+		{ContractID: "exact-value", Reason: types.WriteBehaviorContractRetiredFailedProjectTestAssertion, EvidenceRefs: []string{"assertion:tests/widget_test.py::widget_test::test_value"}},
 		{ContractID: "stale-soft", Reason: types.WriteBehaviorContractRetiredFailedVerificationProbe, EvidenceRefs: []string{"probe:shape_probe"}},
 	}
 	if !reflect.DeepEqual(handoff.ContractRelevance.Hits, want) {
 		t.Fatalf("hits = %+v, want %+v", handoff.ContractRelevance.Hits, want)
+	}
+	// Removing runner authority keeps direct probes but cannot retire a
+	// project expectation. This also pins the scheduler's pure-helper wiring.
+	report.TestSurface = nil
+	unbound := o.finalizeVerifyFailureHandoff(types.BuildVerifyFailureHandoff(report, "batch-1", 1, "", ""), report)
+	if !reflect.DeepEqual(unbound.ContractRelevance.Hits, want[1:]) {
+		t.Fatalf("unbound project row escaped the scheduler resolver: %+v", unbound.ContractRelevance.Hits)
 	}
 
 	// Report-less resume carrier: unavailable, authorizes nothing.
