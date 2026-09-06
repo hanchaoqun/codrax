@@ -57406,6 +57406,14 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - 不以正文措辞决定保留哪版，不改 trace 数学/投影/补采/模型结论，不添加 JSON 新义务；这是已有“块 ID 唯一”的结构合同统一接线，避免教学与执行互相矛盾。
 - 继承 B1566（P2，待独立批）：家族聚合旁路目前未完整携带 typed 成员数/折叠口径，代表 SpanName 可能将聚合成本误说成单个业务阶段；先记录，不借本批候选限定扩大为模型结论改写。
 
+#### B1564 类图无损显示小批
+
+`implemented / mermaidcompat-full+tool-render-targeted-pass / live-pending`。
+
+- 旧 `seenNode` 在同一类的第二段声明直接返回，丢掉后段成员。改用节点索引按作者顺序追加所有成员，包含重复成员，保持首次节点位置、所有边及关系方向。不增加源代码关系，不改 typed 证据资格。
+- 专有 UML 箭头与业务标签是两份独立信息，普通 flowchart 的一个标签位不能同时无损承载；有此组合时保留完整原生 classDiagram，而非吞掉继承/实现/所有权意义或拼写作者没写的标签。普通有向关联仍可无损转换。
+- 正式先红 `class-fidelity-red-20260906.log` 15 个子形；分段/重复/转义/顺序/10种UML箭头/普通关联/未闭合形修后整包绿。仓内官方 Mermaid JS + Chrome 实测原生分段声明和转换图都显示后续成员；带业务标签的继承图保留 operator/type 和 title 并可渲染，证据 `.codrax/tmp/class-fidelity-browser-20260906.json`。tool 的类图/反向锚与 render 定向回归通过，未把库子集边界泄漏为模型新限制。
+
 首次全仓检查在施工并行期间仅报 UXG-1 新判据铸点 census 漂移（新 helper 已落盘）；不可称洁净基线失败或全仓通过。合流后再跑完整套件，候选 token 族应减少为真正单源，禁止直接扩豁免。
 
 ### §123.1637 r1020：旁路打包生产验收，原生行为证明与候选限定继续分批（2026-09-02）

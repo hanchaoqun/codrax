@@ -27,21 +27,25 @@ func NormalizeClassDiagramToFlowchart(body string) (normalized string, converted
 		members []string
 	}
 	var (
-		comments []string
-		nodes    []classNode
-		edges    []Edge
-		inside   *classNode
-		seenNode = make(map[string]bool)
+		comments  []string
+		nodes     []classNode
+		edges     []Edge
+		inside    *classNode
+		nodeIndex = make(map[string]int)
 	)
 
 	appendNode := func(node classNode) bool {
 		if !portableClassDiagramIdentifier(node.ident) {
 			return false
 		}
-		if seenNode[node.ident] {
+		if index, exists := nodeIndex[node.ident]; exists {
+			// Mermaid permits separate declarations and repeated class bodies.
+			// Its class database appends later members to the existing class;
+			// preserve that order and every authored member, including repeats.
+			nodes[index].members = append(nodes[index].members, node.members...)
 			return true
 		}
-		seenNode[node.ident] = true
+		nodeIndex[node.ident] = len(nodes)
 		nodes = append(nodes, node)
 		return true
 	}
@@ -103,6 +107,13 @@ func NormalizeClassDiagramToFlowchart(body string) (normalized string, converted
 			!portableClassDiagramIdentifier(from) || !portableClassDiagramIdentifier(to) {
 			return body, false
 		}
+		// UML operator semantics and an authored label carry independent
+		// information. The portable arrow has no equivalent operator, and its
+		// label slot is already occupied. Keep the native source rather than
+		// dropping either fact or rewriting the author's label to combine them.
+		if strings.TrimSpace(label) != "" && operator != "-->" && operator != "<--" {
+			return body, false
+		}
 		edges = append(edges, Edge{From: from, To: to, Label: label, Operator: operator})
 	}
 	if !directiveSeen || inside != nil || (len(nodes) == 0 && len(edges) == 0) {
@@ -113,14 +124,8 @@ func NormalizeClassDiagramToFlowchart(body string) (normalized string, converted
 	// does not invent entities: each endpoint is already authored in a visible
 	// classDiagram edge.
 	for _, edge := range edges {
-		if !seenNode[edge.From] {
-			seenNode[edge.From] = true
-			nodes = append(nodes, classNode{ident: edge.From})
-		}
-		if !seenNode[edge.To] {
-			seenNode[edge.To] = true
-			nodes = append(nodes, classNode{ident: edge.To})
-		}
+		appendNode(classNode{ident: edge.From})
+		appendNode(classNode{ident: edge.To})
 	}
 
 	out := make([]string, 0, 1+len(comments)+len(nodes)+len(edges))
