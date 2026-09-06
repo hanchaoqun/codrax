@@ -57438,6 +57438,25 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 #### 合流验证与后续排队
 
+#### r1022：机器两路通过，人工继续否证系统事实面
+
+`25a4f4362 / machine=2/2 / human=class-pass-with-caveats,trace-fail`。
+
+- H11 451s，5次 trace_query，0成文硬拒/1次模型patch；模型答案、唯一 Trace 因果投影和 5723 字节 available 根因 JSON 均生成，选择5项。B1562 获生产正证：CompThread 7.405ms=0.109ms就绪等待+7.296ms运行缺口，JankManager 4.710ms=1.759ms+2.951ms；候选限定/独立帧资格/算力来源完整，旧 category/模型选择顺序不改。本次未再次触发重复块ID分支，不能声称 B1565 生产故障臂已重击通过；精确复现及真实schema/执行挂点 pins 已通过。
+- 类型图182s，0硬拒/1次 advisory patch；12个生产实现均有真实 Observe，12条实现关系及所在文件正确保留。仓内官方 Mermaid+Chrome对最终原始fence parse/render成功（13节点/12边，`.codrax/tmp/r1022-loopcontroller-mermaid-20260906.json`）。模型直接用了flowchart，本次是关系回归，不是新分段class shim分支的live覆盖；后者以专门fixture和官方渲染验证。
+- H11正文仍臆断不同修向物理重叠、IO与频率独立，把“无相加/相交凭证”说成确定物理关系；不能以机器PASS否认答案质量问题。不得后处理改写模型正文。本轮发现系统上下文也确有错误，见 B1570，需先修精确信息供给，再看模型残余。
+
+| 优先级 / ID | 新事实与最优修向 | 状态 |
+|---|---|---|
+| P1 / B1567-DIMENSIONPROVENANCE1 | analyzer第4–8轮已提交required causal role，却因拼接/省略号source_quote未逐字锚定而丢行，工具只返回“缺角色”。接回既有normalization诊断，指导只修引用、不改role/required/删同伴维度；无新硬门 | 已实现，9臂真实EmitAnalysis入口先红后绿；同时纠正教学中“未锚定维度绝不会重试”的过宽承诺 |
+| P1 / B1568-RANKFOLDIDENTITY1 | rounded链窗与精确rank窗的同段折叠只带Rank/板身份，漏RankQueryWindow对，导致树/JSON有7.405和4.710但◎方向总览缺锁/优先级。完整rank donor身份原子传递，不放宽精确主窗门 | 已确认，独立施工中；非正常节拍排除，非合法邻窗降级 |
+| P1 / B1570-STATEFACTCALIBER1 | 系统读者事实卡把复合可消量7.405/4.710称为实测running，并反向禁止真实原始8.294/3.299；helper默认拿ImpactMS冒充状态墙钟 | 已确认，独立施工中；原始状态值与presence贯穿，缺证不反推也不伪造0 |
+| P2 / B1569-DIMENSIONADVISORY1 | 类型图原本已有12项文件清单，只有member_set标记缺失，却提示“可见答案遗漏”；单次patch仅增加元数据，正文原样 | 待小批：区分结构绑定未声明与内容不存在，仅精准指导，不扫描正文重判或强改答案 |
+
+B1567：第1轮 completeness 缺和scope/fact_families冲突原本并存，串行先返确有多轮成本；第3轮excluded roles改为空则是新重发错误，不能全算系统挤牙膏。本批只恢复来源诊断，通用独立错误收集另行评估，不自动更换模型语义决定。证据 `b1567-dimension-diagnostics-{red,green}-20260906.log` 与教学红绿日志。原有合法引用、verbatim label回退、真正缺role及不相关可选无锚行仍soft处理均已验证。
+
+#### 合流检查记录
+
 - 首次全仓检查在施工并行期间仅报 UXG-1 新判据铸点 census 漂移（新 helper 已落盘）；不可称洁净基线失败或全仓通过。该族已减少为真正单源。
 - `20260906-b1562-b1565-full-suite.log` 全仓实跑发现 **本批 B1565 两项工程遗漏**：新增 patch 提前拒绝未登记到 optional-selector 出口清册；ID 校验只返第一处错误，未满足 list discipline。不是关测试或提高阈值：现在登记真实已执行 raw selector resolve 的新增出口，并改为一次列齐所有冲突 ID/空 ID，共用一个完整重提指令。新增多错误同轮测试与两类 census 均绿（`b1565-all-violations-census.log`），全仓复验待下一记录，不能把首次失败隐去。
 - 已推送：B1565 `6baf142ad`，挂点 pin `25a4f4362`；B1564 `db83055be`；B1563 `d7a703c16`；B1562 `a7607b83e`。r1022 用 `25a4f4362` 干净快照严格双路，结果另节人工判定。

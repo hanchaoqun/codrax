@@ -1857,9 +1857,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	})
 	if len(runtimeProfileErrors) > 0 {
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: runtime profile validation failed: " + strings.Join(runtimeProfileErrors, "; "),
+			ToolName: t.Name(),
+			Success:  false,
+			Summary: emitAnalysisWithDimensionDiagnostics(
+				"emit_analysis rejected: runtime profile validation failed: "+strings.Join(runtimeProfileErrors, "; "),
+				requestedAnswerDimensionsWarnings,
+			),
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -1885,7 +1888,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_analysis rejected: " + issue,
+			Summary:   emitAnalysisWithDimensionDiagnostics("emit_analysis rejected: "+issue, requestedAnswerDimensionsWarnings),
 			Timestamp: time.Now(),
 		}, nil
 	}
