@@ -57380,6 +57380,34 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1638 主干同步与系统边界批次（2026-09-06）
+
+基线 `224a6b7d5`，由 `d044112bc` 快进 63 笔提交；对照同事报告 §40.28–§40.60 复核，按项目目标“减少无效轮次、丰富准确答案、降低维护复杂度”排期。此前收账不是当前树的完成证明，以下以实际代码和复放重新判定。
+
+| 优先级 / 批次 | 事项 | 当前事实 / 施工边界 |
+|---|---|---|
+| P0 / B1565-AMBIGUOUSPATCHBASE1 | 重复块标识导致排序崩溃 | r1021 真回放：重复 JSON 数组合并后形成 10 个块/5 个 ID，冲突草稿却被宣称可 patch；按 5 个 ID 排序时访问第 6 个位置而 panic，答案/投影未落盘。先共享块 ID 唯一性判据，完整保留两版内容但不允许按歧义 ID 编辑；full emit 留草稿并精确引导完整重提，不代替模型选版本 |
+| P1 / B1562 | 根因旁路机制限定与复合量 | 帧因果限定已由 SIDECAR-Q1/QUALGATE 补齐，但不等于反转发生已证。反转候选 bool/type、gated runnable/running 分量在投影存在，旁路尚未携带。下沉现有精确资格判据为共享单源，v2 追加可选机制限定/分量，名册和证据同源，保留模型排序/描述；无新增模型字段义务 |
+| P1 / B1563-FAILEDASSERTIONSCOPE1 | 失败断言跨文件误退役 | 失败契约关联仅 assertion/suite，同名断言的文件/执行域不足；成功证明已有更精确联接。先复现，再复用成功/失败共同的文件与执行联接，缺精确信息不能退役；不以测试输出字符串猜测 |
+| P2 / B1564-CLASSMEMBERPRESERVATION1 | 类图分段声明成员丢失 | class shim 重复节点直接返回，后段成员可能丢失；以合法分段声明证明后作无损合并或保留原文。节点/边/成员不由系统猜造 |
+| P1 / B1561（继承） | 原生行为验证能力 | 远程 witness 矩阵/源码基准修复未新增 C++ inline probe；aggregate-only 测试仍不能铸断言证明。先排上述精确误关联，能力披露与通用原生恢复后续另批，不把重复执行相同命令算新增证明 |
+| P2 / B1554（更新） | 泛型调用关系 | 九语言旧矩阵复跑均恢复正例，九个错误目标均拒，提取器版本已更新。旧四语言 witness 关闭；C++ 歧义文法保守边界、Go 泛型/索引同形等按 §40.59 保留，零新活体依据时不追加名字解析特判 |
+| P2 / B1560（继承） | 图显示标签 | 已有可选可见标签、尊重模型标签；保持体验观察，后续异构图回放，不设必须填标签硬门 |
+
+评测按风险与覆盖增量排序：① `r1021` 主干回归 H11 显式窗 Trace + C++ fmt 写模式（严格两路、独立干净二进制快照）；② 修复后 Trace + 类型关系图；③ 后续原生恢复 + 数据/其它语言读模式。每组先审正文/图与过程、已供给模型的上下文和项目 diff，再决定下一组，机器 PASS 不代替人工结论。
+
+同事九轮收编仅剩 census-only 低危的 §40.60 收敛结论按原边界保留，不重开无生产见证的对抗循环。活跃流 first-byte/stall watchdog 继续按流活动计时，调用方取消/deadline 仍有效；4ms/4min 无可见正文不构成降级依据。
+
+#### r1021 基线活体验收与紧急批 B1565
+
+- **严格两路 / 机器 0/2 / 人工 Trace fail、写模式 partial**。Trace 199s，4 次 trace_query、3 次成文拒绝/patch；最终 `model_block_order` 在重复 ID 草稿上触发确定性数组越界，非模型波动、非预算耗尽、非活跃流超时。无 md/html，强制默认 `.root-causes.json` 的 132 字节 unavailable 兜底已生成，但不代表答案或投影成功。初版已拿到完整精确事实，不能将这次无投影解释为缺 trace 信息。
+- C++ 146s，实际 applied commit `1f857bb458a1bc4f7cbd1144652261d2c7056b4f` 仅把加法前值和传递参数拓宽为 `long long`（2+/2-），原测试未删改，两次 make 命令成功。终验仍 required=1/covered=0，`unverified` 正确保留；原生 aggregate 与断言凭证缺口 B1561 再获见证，不降低门槛、不将重复执行算新增覆盖。
+- B1565 先红证据 `.codrax/tmp/b1565-red.log`：reorder panic、replace 同时替换两版、remove 同时删除两版；evaluator 三个恢复车道错误宣称可 patch。修后共用 `ValidateAnswerDocumentPatchBaseIdentity`：full emit 在既有完全相同块无损去重之后判唯一；差异内容全部保留为恢复草稿，要求模型 full emit；patch 合并前拒绝歧义基线；evaluator 不再关闭 full emit。正负回归在 `.codrax/tmp/b1565-green.log`，扩大回归另记 `b1565-regression.log`；生产复放待下一严格双路批，未提前宣称 live 闭环。
+- 不以正文措辞决定保留哪版，不改 trace 数学/投影/补采/模型结论，不添加 JSON 新义务；这是已有“块 ID 唯一”的结构合同统一接线，避免教学与执行互相矛盾。
+- 继承 B1566（P2，待独立批）：家族聚合旁路目前未完整携带 typed 成员数/折叠口径，代表 SpanName 可能将聚合成本误说成单个业务阶段；先记录，不借本批候选限定扩大为模型结论改写。
+
+首次全仓检查在施工并行期间仅报 UXG-1 新判据铸点 census 漂移（新 helper 已落盘）；不可称洁净基线失败或全仓通过。合流后再跑完整套件，候选 token 族应减少为真正单源，禁止直接扩豁免。
+
 ### §123.1637 r1020：旁路打包生产验收，原生行为证明与候选限定继续分批（2026-09-02）
 
 `base=5cd7368a4f7b / exactly-two-parallel / machine=1/2 / human=both-partial`。

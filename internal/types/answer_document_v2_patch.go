@@ -326,6 +326,9 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 	if p == nil || p.IsEmpty() {
 		return nil, fmt.Errorf("ApplyAnswerDocumentV2Patch: empty patch — every retry must declare some change (use unchanged_block_ids to assert preservation)")
 	}
+	if err := ValidateAnswerDocumentPatchBaseIdentity(prev); err != nil {
+		return nil, err
+	}
 
 	// Validate patch structure: every independent violation travels in ONE
 	// typed carrier (V2-4, §40.51) so the reject round teaches every fix.

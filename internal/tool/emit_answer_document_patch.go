@@ -2832,6 +2832,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		return failEmit(t.Name(), now,
 			"emit_answer_document_patch: no previous emit found. The patch tool is only valid on retry paths after a successful emit_answer_document call. First dispatches must use emit_answer_document.")
 	}
+	if err := types.ValidateAnswerDocumentPatchBaseIdentity(prev); err != nil {
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
+		return failEmit(t.Name(), now, "%s", err)
+	}
 	if answerDocumentHasTopLevelField(params, "relation_claims") {
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
 		return failEmit(t.Name(), now,

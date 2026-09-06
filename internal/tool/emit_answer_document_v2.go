@@ -373,6 +373,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		logging.Warning("[emit_answer_document] id duplicate(s) normalized via transactional tolerance: %s",
 			strings.Join(fields, ", "))
 	}
+	if err := types.ValidateAnswerDocumentPatchBaseIdentity(doc); err != nil {
+		rememberRejectedAnswerDocumentDraft(ctx, doc)
+		persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
+		return failEmit(toolName, now, "%s", err)
+	}
 	if answerDocumentRecoveryLostUnattachedBlocks(recovery) {
 		persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
 		return failEmitWithRepair(toolName, now, answerDocumentLossyBlocksRecoveryRepair(recovery),

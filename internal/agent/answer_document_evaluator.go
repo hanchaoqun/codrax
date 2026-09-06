@@ -18020,7 +18020,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 }
 
 func answerDocumentPatchBaseAvailable(ctx *types.AgentContext, primary *types.MutableState) bool {
-	return answerDocumentPatchBaseDocumentAcrossMutableState(ctx, primary) != nil
+	return types.ValidateAnswerDocumentPatchBaseIdentity(answerDocumentPatchBaseDocumentAcrossMutableState(ctx, primary)) == nil
 }
 
 // answerDocumentPatchBaseDocumentAcrossMutableState preserves the patch
