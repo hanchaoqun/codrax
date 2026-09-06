@@ -17077,14 +17077,14 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	}
 	var b strings.Builder
 	if zh {
-		b.WriteString("最终可见答案遗漏了本轮用户明确要求保留的答案维度。")
-		b.WriteString("按维度序号恢复独立输出面；图不能替代另行要求的清单、表格或解释。")
-		b.WriteString("优先使用 `emit_answer_document_patch` 在现有答案中补小标题、表格行/列、列表标签或边界说明；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
+		b.WriteString("结构化覆盖检查尚未确认以下用户要求已获独立承载；这不等于正文确实缺失。")
+		b.WriteString("先核对现有内容：如果已经回答，只补相应归属或绑定，并保留原有正文；确实缺少内容时，再按维度序号补充最小独立输出面。图不能替代另行要求的清单、表格或解释。")
+		b.WriteString("优先使用 `emit_answer_document_patch` 对现有答案作局部修补；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
 		b.WriteString("下面只列面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
 		if memberSetMetadataRepair {
 			b.WriteString("Patch 执行形：`facet_ids` 是数组元数据，不要把数组本身塞进 `block_field_edits_v1`。若当前工具 schema 发布精确的 `add_facet_id` 分支，直接选择其 block_id/value，只补该归属并保留整块内容；否则使用 `replace_blocks` 完整重发目标块：复制上一版的 id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family，只改 `facet_ids`；`replace_blocks` 不是字段合并。\n")
 		}
-		b.WriteString("缺失维度：\n")
+		b.WriteString("待核对维度：\n")
 		for _, dim := range missing {
 			index := dim.Index
 			if index <= 0 {
@@ -17119,14 +17119,14 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
 		return b.String()
 	}
-	b.WriteString("The visible final answer omitted user-requested answer dimensions for this turn. ")
-	b.WriteString("Restore independent output surfaces in dimension order; a diagram does not replace a separately requested roster, table, or explanation. ")
-	b.WriteString("Prefer `emit_answer_document_patch` to add headings, table rows/columns, list labels, or boundary notes to the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
+	b.WriteString("Structured coverage has not confirmed an independent carrier for the following user requests; this does not prove that visible content is missing. ")
+	b.WriteString("Check the existing content first: if it already answers the request, repair only its ownership or binding and preserve the prose. If content is actually absent, add the minimum independent surface in dimension order; a diagram does not replace a separately requested roster, table, or explanation. ")
+	b.WriteString("Prefer `emit_answer_document_patch` for a local repair of the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
 	b.WriteString("Only user-facing labels are listed below. Do not append internal system roles or enum names to the visible answer.\n")
 	if memberSetMetadataRepair {
 		b.WriteString("Executable patch shape: `facet_ids` itself remains array metadata; do not send that array through `block_field_edits_v1`. When the current tool schema publishes an exact `add_facet_id` branch, select its block_id/value to add only that ownership membership while preserving the relation carrier byte-for-byte. Otherwise use `replace_blocks` with the COMPLETE target block: copy the previous id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family and change only `facet_ids`; `replace_blocks` is not a field merge.\n")
 	}
-	b.WriteString("Missing dimensions:\n")
+	b.WriteString("Dimensions to check:\n")
 	for _, dim := range missing {
 		index := dim.Index
 		if index <= 0 {
