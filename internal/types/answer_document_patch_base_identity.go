@@ -9,19 +9,27 @@ import (
 // retained block each. A conflicting draft remains useful for recovery, but no
 // ID-based edit may choose between its model-authored versions implicitly.
 func ValidateAnswerDocumentPatchBaseIdentity(doc *AnswerDocumentV2) error {
+	if violations := collectAnswerDocumentPatchBaseIdentityViolations(doc); len(violations) > 0 {
+		return fmt.Errorf("patch base: %s; use emit_answer_document with unique, non-empty block IDs to resolve the retained draft, not an ID-based patch", strings.Join(violations, "; "))
+	}
+	return nil
+}
+
+func collectAnswerDocumentPatchBaseIdentityViolations(doc *AnswerDocumentV2) []string {
 	if doc == nil || len(doc.Blocks) == 0 {
-		return fmt.Errorf("patch base has no blocks; use emit_answer_document for a complete answer")
+		return []string{"no blocks"}
 	}
 	seen := make(map[string]bool, len(doc.Blocks))
+	var violations []string
 	for i, block := range doc.Blocks {
 		id := strings.TrimSpace(block.ID)
 		if id == "" || id != block.ID {
-			return fmt.Errorf("patch base blocks[%d] has an invalid block ID; use emit_answer_document with unique, non-empty block IDs", i)
+			violations = append(violations, fmt.Sprintf("blocks[%d] has an invalid block ID", i))
 		}
 		if seen[id] {
-			return fmt.Errorf("patch base contains duplicate block ID %q; use emit_answer_document with unique block IDs to resolve the retained draft, not an ID-based patch", id)
+			violations = append(violations, fmt.Sprintf("duplicate block ID %q", id))
 		}
 		seen[id] = true
 	}
-	return nil
+	return violations
 }

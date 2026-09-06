@@ -148,6 +148,9 @@ var rejectExitRoster = map[string][]rejectExitRow{
 	"emit_answer_document_patch.go": {
 		{"failEmit", "emit_answer_document_patch requires a writable context", rejectExitLaneCarveOut},
 		{"failEmit", "emit_answer_document_patch: no previous emit found", rejectExitLaneRaw},
+		// B1565: the identity guard resolves the optional selector before
+		// rejecting the unaddressable draft, just like the missing-base lane.
+		{"failEmit", "emit_answer_document_patch: unaddressable current draft", rejectExitLaneRaw},
 		{"failEmit", "top-level field %q is not accepted; place the exact typed claim object(s) under replace_blocks[i].relation_claims", rejectExitLaneRaw},
 		{"failEmitWithRepair", "answer_document patch carrier contains serialized JSON boundary text", rejectExitLaneRaw},
 		{"failEmitWithRepair", "answer_document patch placed a block operation in replace_snippets", rejectExitLaneRaw},

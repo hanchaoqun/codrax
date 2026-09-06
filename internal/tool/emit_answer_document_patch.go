@@ -2834,7 +2834,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 	if err := types.ValidateAnswerDocumentPatchBaseIdentity(prev); err != nil {
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
-		return failEmit(t.Name(), now, "%s", err)
+		return failEmit(t.Name(), now, "emit_answer_document_patch: unaddressable current draft: %s", err)
 	}
 	if answerDocumentHasTopLevelField(params, "relation_claims") {
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4

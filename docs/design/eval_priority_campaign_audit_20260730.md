@@ -57436,7 +57436,14 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - 真实 scheduler/frequency 输入走 `BuildIndex→Run→typed observations→projection→full emit→patch`：17.577ms 按 10.000ms 就绪等待 + 7.577ms 运行缺口保留。用旧 compiler overlay 同一生产链测试确定变红，日志 `.codrax/tmp/b1562-red/production-pipeline-red.log`；五包定向全绿，含候选资格、旧 JSON、克隆隔离、错误组成、长证据、帧存在但未证、假 readonly 字段不取信、原始窗口量负例、CROWNSEM/STATERES/UXG1。
 - B1566 家族整体与代表成员描述问题继续开放，不把本批声称为所有旁路事实均已完整。
 
-首次全仓检查在施工并行期间仅报 UXG-1 新判据铸点 census 漂移（新 helper 已落盘）；不可称洁净基线失败或全仓通过。合流后再跑完整套件，候选 token 族应减少为真正单源，禁止直接扩豁免。
+#### 合流验证与后续排队
+
+- 首次全仓检查在施工并行期间仅报 UXG-1 新判据铸点 census 漂移（新 helper 已落盘）；不可称洁净基线失败或全仓通过。该族已减少为真正单源。
+- `20260906-b1562-b1565-full-suite.log` 全仓实跑发现 **本批 B1565 两项工程遗漏**：新增 patch 提前拒绝未登记到 optional-selector 出口清册；ID 校验只返第一处错误，未满足 list discipline。不是关测试或提高阈值：现在登记真实已执行 raw selector resolve 的新增出口，并改为一次列齐所有冲突 ID/空 ID，共用一个完整重提指令。新增多错误同轮测试与两类 census 均绿（`b1565-all-violations-census.log`），全仓复验待下一记录，不能把首次失败隐去。
+- 已推送：B1565 `6baf142ad`，挂点 pin `25a4f4362`；B1564 `db83055be`；B1563 `d7a703c16`；B1562 `a7607b83e`。r1022 用 `25a4f4362` 干净快照严格双路，结果另节人工判定。
+- 当前实际 243 个 case，MODE=read 215/apply 25/plan 3；Trace 附件62、日志附件24、多仓16（维度重叠）。显式 Mermaid oracle 仅2，不表示只有2个图场景；另有14个 `sr_*` 关系矩阵、Harmony目录12场景。不能用问题关键词当精确语言/图覆盖标签，应按 fixture/预期产物判。
+- r1011–r1021 共22次/15个独立case：Trace9、非Trace读9、写4；写只跑dateutil/fmt各两次。下一严格双路优先 `github_issue_memoclaw_text_search_multirepo_py`（跨仓只读API边界、sync/async两实现、行为证明）+ `read_combo_log_current_code_boundary`（日志与源码证据不串轴）；再排 `sr_java_call_chain`。本机未有Cargo/Java运行时，暂不重复Rust/Java写模式的已知环境缺口。
+- 活跃流实测三包绿：stream HTTP client timeout=0；240秒是非流式默认，不是流式无正文总帽。实际Reader收到任何字节（SSE心跳/半帧/推理/工具参数）都会续期；4ms小预算与旧4分钟错误注入均不触发系统代写。仅TCP连接存在但连续无应用字节仍可按首数据/后续静默阈值超时，用户取消、明确caller/write整体截止保留。
 
 ### §123.1637 r1020：旁路打包生产验收，原生行为证明与候选限定继续分批（2026-09-02）
 

@@ -35,3 +35,21 @@ func TestApplyPatchRejectsAmbiguousBaseBeforeOrdering(t *testing.T) {
 		t.Fatal("failed patch changed retained model draft")
 	}
 }
+
+func TestPatchBaseIdentityReportsAllConflictingIDsTogether(t *testing.T) {
+	doc := &AnswerDocumentV2{Blocks: []AnswerBlock{
+		{ID: "lead"}, {ID: "detail"}, {ID: "lead"}, {ID: "detail"}, {ID: ""},
+	}}
+	err := ValidateAnswerDocumentPatchBaseIdentity(doc)
+	if err == nil {
+		t.Fatal("invalid identity set accepted")
+	}
+	for _, want := range []string{`duplicate block ID "lead"`, `duplicate block ID "detail"`, "blocks[4] has an invalid block ID"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("independent identity error was withheld: %s", err)
+		}
+	}
+	if strings.Count(err.Error(), "use emit_answer_document") != 1 {
+		t.Fatalf("one full repair instruction is sufficient: %s", err)
+	}
+}

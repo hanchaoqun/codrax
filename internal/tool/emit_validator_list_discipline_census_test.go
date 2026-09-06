@@ -66,6 +66,7 @@ var emitValidatorScannedFiles = []string{
 var emitValidatorRoster = map[string]emitValidatorRow{
 	// ── converted to the list discipline (V2-4) ──
 	"types/collectPatchStructureViolations":                      {class: emitValidatorList},
+	"types/collectAnswerDocumentPatchBaseIdentityViolations":     {class: emitValidatorList},
 	"tool/validateAnswerDocumentPatchFieldEditsAgainstSchema":    {class: emitValidatorList},
 	"tool/validateAnswerDocumentPatchReceiptEditsAgainstSchema":  {class: emitValidatorList},
 	"tool/localDiagramLeaseWholeBlockMutationViolations":         {class: emitValidatorList},
