@@ -147,7 +147,7 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 		OnChainCauses: []types.TraceCausalProjectionNode{targetSymptom, principal},
 		SemanticSpans: []types.TraceCausalProjectionNode{{
 			EvidenceID: "off-chain-jit", Subject: "compiler-300", SemanticClass: "jit_compile",
-			ImpactMS: 4.5, ChainRelevance: "background", WithinRequestedWindow: &inWindow,
+			ImpactMS: 4.5, ChainRelevance: "background", WithinRequestedWindow: &inWindow, Predicate: "trace_semantic_span", Unit: "ms",
 			QueryWindowStartTs: 1, QueryWindowEndTs: 1.010,
 		}},
 		BackgroundCauses: []types.TraceCausalProjectionNode{{
@@ -228,6 +228,7 @@ func TestTraceFinalReaderDecisionCardUsesEnglishReaderLabels(t *testing.T) {
 	node := types.TraceCausalProjectionNode{
 		EvidenceID: "io", Subject: "storage-worker", TypeToken: "d_state_or_io_wait",
 		StateKind: "io_wait", Rank: 1, ImpactMS: 7, EffectiveImpactMS: 6,
+		IOWaitSplitMS:  7, // The state measurement is distinct from the priced impact.
 		ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
 	}
 	got := renderTraceFinalReaderDecisionCards(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
@@ -807,7 +808,8 @@ func TestTraceFinalStateValueAuthoritySeparatesMeasuredOccupancyFromEffectiveAtt
 		BackgroundCauses: []types.TraceCausalProjectionNode{{
 			EvidenceID: "logger-bg", Subject: "logger-900", StateKind: "d_sleep",
 			ImpactMS: 7, CumulativeImpactMS: 19.5, EffectiveImpactMS: 7,
-			StartTs: 2.0005, EndTs: 2.020,
+			DStateSplitMS: 7,
+			StartTs:       2.0005, EndTs: 2.020,
 		}},
 	}
 	got := renderTraceFinalStateValueAuthority(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})

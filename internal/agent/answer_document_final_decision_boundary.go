@@ -392,15 +392,31 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 			for _, node := range actual {
 				cause := traceFinalReaderActualCauseLabel(node, zh)
 				onChain := traceFinalReaderNodeProvedOnChain(projection, node)
-				measured := traceFinalMeasuredStateOccupancy(node)
-				if zh && onChain {
-					fmt.Fprintf(&b, "  - %s：%s，已测 %.3f 毫秒；已证位于依赖链上，可参与主因推理", strings.TrimSpace(node.Subject), cause, measured)
-				} else if zh {
-					fmt.Fprintf(&b, "  - %s：%s，已测 %.3f 毫秒；未证位于依赖链上，只能作为耗时与优化线索，不能作为主因", strings.TrimSpace(node.Subject), cause, measured)
-				} else if onChain {
-					fmt.Fprintf(&b, "  - %s: %s, measured %.3f ms; proved on the dependency chain and eligible for primary-cause reasoning", strings.TrimSpace(node.Subject), cause, measured)
+				measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
+				if zh {
+					fmt.Fprintf(&b, "  - %s：%s，", strings.TrimSpace(node.Subject), cause)
+					if measuredOK {
+						fmt.Fprintf(&b, "已测 %.3f 毫秒", measured)
+					} else {
+						b.WriteString("原始状态占用未提供；不能把可消除影响当作实测时长")
+					}
+					if onChain {
+						b.WriteString("；已证位于依赖链上，可参与主因推理")
+					} else {
+						b.WriteString("；未证位于依赖链上，只能作为耗时与优化线索，不能作为主因")
+					}
 				} else {
-					fmt.Fprintf(&b, "  - %s: %s, measured %.3f ms; not proved on the dependency chain, so it is an occupancy and optimization clue rather than a primary cause", strings.TrimSpace(node.Subject), cause, measured)
+					fmt.Fprintf(&b, "  - %s: %s, ", strings.TrimSpace(node.Subject), cause)
+					if measuredOK {
+						fmt.Fprintf(&b, "measured %.3f ms", measured)
+					} else {
+						b.WriteString("original state occupancy not provided; eliminable impact is not a measured duration")
+					}
+					if onChain {
+						b.WriteString("; proved on the dependency chain and eligible for primary-cause reasoning")
+					} else {
+						b.WriteString("; not proved on the dependency chain, so it is an occupancy and optimization clue rather than a primary cause")
+					}
 				}
 				traceFinalReaderWriteCumulativeRole(&b, node, measured, zh)
 				if zh {
@@ -420,17 +436,23 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 			}
 			for _, node := range seats {
 				cause := traceFinalReaderCauseLabel(node, zh)
-				measured := traceFinalMeasuredStateOccupancy(node)
+				measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
 				if zh {
 					fmt.Fprintf(&b, "  - 第 %d 位，%s：%s；可消除影响 %.3f 毫秒", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
 				} else {
 					fmt.Fprintf(&b, "  - Rank %d, %s: %s; eliminable impact %.3f ms", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
 				}
-				if measured > 0 && math.Abs(measured-node.EffectiveImpactMS) > 0.0005 {
+				if measuredOK && math.Abs(measured-node.EffectiveImpactMS) > 0.0005 {
 					if zh {
 						fmt.Fprintf(&b, "，对应已测状态占用 %.3f 毫秒", measured)
 					} else {
 						fmt.Fprintf(&b, ", with %.3f ms measured state occupancy", measured)
+					}
+				} else if !measuredOK && strings.TrimSpace(node.StateKind) != "" {
+					if zh {
+						b.WriteString("，原始状态占用未提供")
+					} else {
+						b.WriteString(", original state occupancy not provided")
 					}
 				}
 				traceFinalReaderWriteCumulativeRole(&b, node, measured, zh)
@@ -459,17 +481,21 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 				caller := traceDecisionPromptScalar(node.BlockedReasonCaller)
 				subject := traceDecisionPromptScalar(node.Subject)
 				cause := traceFinalReaderActualCauseLabel(node, zh)
-				measured := traceFinalReaderBlockedReasonMeasuredMS(node)
+				measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
 				if zh {
 					fmt.Fprintf(&b, "  - %s：%s", subject, cause)
-					if measured > 0 {
+					if measuredOK {
 						fmt.Fprintf(&b, "，已测 %.3f 毫秒", measured)
+					} else {
+						b.WriteString("，原始状态占用未提供")
 					}
 					fmt.Fprintf(&b, "；内核记录的等待调用位置为 `%s`。它只定位这条等待发生时的内核调用位置；当前证据没有给出具体等待对象、持有者、文件系统/缓存/存储后端，也不证明目标线程的睡眠完全由该线程或该工作传导，不能仅凭符号名称推出预取、缓存穿透等修复方案。\n", caller)
 				} else {
 					fmt.Fprintf(&b, "  - %s: %s", subject, cause)
-					if measured > 0 {
+					if measuredOK {
 						fmt.Fprintf(&b, ", measured %.3f ms", measured)
+					} else {
+						b.WriteString(", original state occupancy not provided")
 					}
 					fmt.Fprintf(&b, "; the kernel-recorded wait call site is `%s`. It locates only the kernel call site for this wait record; the specific waited object, holder, filesystem/cache/storage backend, and complete cause of the target thread's sleep remain unproved, so the symbol alone cannot justify a prefetch or cache-penetration fix.\n", caller)
 				}
@@ -576,21 +602,11 @@ func traceFinalReaderBlockedReasonRows(projection types.TraceCausalProjection, l
 	return out
 }
 
-func traceFinalReaderBlockedReasonMeasuredMS(node types.TraceCausalProjectionNode) float64 {
-	if node.IOWaitSplitMS > 0 {
-		return node.IOWaitSplitMS
-	}
-	if node.DStateSplitMS > 0 {
-		return node.DStateSplitMS
-	}
-	return traceFinalMeasuredStateOccupancy(node)
-}
-
 // traceFinalReaderWriteCumulativeRole keeps the projection's three duration
 // roles adjacent in the final reader card. CumulativeImpactMS is a chain
 // account (the node plus any admitted downstream/sub-chain contribution), not
-// a state-specific occupancy. It must therefore never replace ImpactMS or a
-// more specific per-state split merely because it is numerically larger.
+// a state-specific occupancy. It must therefore never replace a published
+// per-state account merely because it is numerically larger.
 // This is display-only typed guidance: no answer prose is inspected or
 // rewritten and no ranking/value is changed.
 func traceFinalReaderWriteCumulativeRole(b *strings.Builder, node types.TraceCausalProjectionNode, measured float64, zh bool) {
@@ -1767,8 +1783,10 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 			if stateKind := strings.TrimSpace(node.StateKind); stateKind != "" {
 				fmt.Fprintf(&b, "; leader_state_kind=`%s`", stateKind)
 			}
-			if measured := traceFinalMeasuredStateOccupancy(node); measured > 0 {
+			if measured, ok := traceFinalMeasuredStateOccupancy(node); ok {
 				fmt.Fprintf(&b, "; leader_measured_state_occupancy=%.3fms", measured)
+			} else if strings.TrimSpace(node.StateKind) != "" {
+				b.WriteString("; leader_measured_state_occupancy=`unavailable`")
 			}
 			if node.StartTs > 0 && node.EndTs > node.StartTs {
 				fmt.Fprintf(&b, "; occurrence_interval=`%.6f..%.6f`", node.StartTs, node.EndTs)
@@ -1895,17 +1913,23 @@ func renderTraceFinalStateValueAuthority(set types.TraceCausalProjectionSet) str
 			}
 			seen[identity] = true
 			stateKind := strings.TrimSpace(node.StateKind)
-			measured := traceFinalMeasuredStateOccupancy(node)
+			measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
 			effective := node.EffectiveImpactMS
 			cumulative := node.CumulativeImpactMS
 			measuredDiffersFromEffective := effective > 0 && math.Abs(measured-effective) >= 0.0005
 			cumulativeDiffersFromMeasured := cumulative > 0 && math.Abs(cumulative-measured) >= 0.0005
-			if stateKind == "" || measured <= 0 || effective <= 0 || (!measuredDiffersFromEffective && !cumulativeDiffersFromMeasured) {
+			if stateKind == "" || effective <= 0 || (measuredOK && !measuredDiffersFromEffective && !cumulativeDiffersFromMeasured) {
 				continue
 			}
-			fmt.Fprintf(&b, "- state_value_authority artifact=`%s`; subject=`%s`; state_kind=`%s`; measured_state_occupancy=%.3fms; effective_attribution=%.3fms; relation=`distinct_do_not_substitute`; row_identity=`%s`",
+			fmt.Fprintf(&b, "- state_value_authority artifact=`%s`; subject=`%s`; state_kind=`%s`; ",
 				traceDecisionPromptScalar(label), traceDecisionPromptScalar(strings.TrimSpace(node.Subject)),
-				traceDecisionPromptScalar(stateKind), measured, effective, traceDecisionPromptScalar(identity))
+				traceDecisionPromptScalar(stateKind))
+			if measuredOK {
+				fmt.Fprintf(&b, "measured_state_occupancy=%.3fms", measured)
+			} else {
+				b.WriteString("measured_state_occupancy=`unavailable`")
+			}
+			fmt.Fprintf(&b, "; effective_attribution=%.3fms; relation=`distinct_do_not_substitute`; row_identity=`%s`", effective, traceDecisionPromptScalar(identity))
 			if cumulative > 0 {
 				fmt.Fprintf(&b, "; chain_cumulative=%.3fms; chain_cumulative_role=`node_or_subchain_account_not_state_occupancy`", cumulative)
 			}
@@ -1960,18 +1984,24 @@ func renderTraceFinalSupplyFoldValueAuthority(set types.TraceCausalProjectionSet
 			if coverageTotal > 0 && math.Abs(coverageTotal-foldedTotal) > 0.002 {
 				continue
 			}
-			measured := traceFinalMeasuredStateOccupancy(node)
+			measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
 			effectiveRelation := "separate_typed_value"
 			if node.EffectiveImpactMS > 0 && math.Abs(node.EffectiveImpactMS-deficit) < 0.0005 {
 				effectiveRelation = "same_numeric_value_as_supply_deficit_for_this_seat"
 			}
 			measuredRelation := "separate_typed_value"
-			if measured > 0 && math.Abs(measured-foldedTotal) < 0.0005 {
+			measuredText := "unavailable"
+			if measuredOK {
+				measuredText = fmt.Sprintf("%.3fms", measured)
+			} else {
+				measuredRelation = "not_provided"
+			}
+			if measuredOK && math.Abs(measured-foldedTotal) < 0.0005 {
 				measuredRelation = "same_numeric_value_as_folded_running_total"
 			}
-			fmt.Fprintf(&b, "- supply_fold_value_authority artifact=`%s`; subject=`%s`; state_kind=`running`; folded_running_total=%.3fms; ideal_equivalent_running=%.3fms; low_frequency_supply_deficit=%.3fms; equation=`ideal_equivalent_running + low_frequency_supply_deficit = folded_running_total`; frequency_covered_running=%.3fms; frequency_uncovered_running=%.3fms; measured_state_occupancy=%.3fms; measured_to_folded_relation=`%s`; effective_attribution=%.3fms; effective_to_deficit_relation=`%s`; occupancy_minus_effective_role=`not_a_supply_deficit_formula`; row_identity=`%s`. Use the engine-published deficit for the supply-fold opportunity. Do not derive or rename measured occupancy minus effective attribution as another supply deficit.\n",
+			fmt.Fprintf(&b, "- supply_fold_value_authority artifact=`%s`; subject=`%s`; state_kind=`running`; folded_running_total=%.3fms; ideal_equivalent_running=%.3fms; low_frequency_supply_deficit=%.3fms; equation=`ideal_equivalent_running + low_frequency_supply_deficit = folded_running_total`; frequency_covered_running=%.3fms; frequency_uncovered_running=%.3fms; measured_state_occupancy=%s; measured_to_folded_relation=`%s`; effective_attribution=%.3fms; effective_to_deficit_relation=`%s`; occupancy_minus_effective_role=`not_a_supply_deficit_formula`; row_identity=`%s`. Use the engine-published deficit for the supply-fold opportunity. Do not derive or rename measured occupancy minus effective attribution as another supply deficit.\n",
 				traceDecisionPromptScalar(label), traceDecisionPromptScalar(strings.TrimSpace(node.Subject)),
-				foldedTotal, ideal, deficit, known, unknown, measured, measuredRelation,
+				foldedTotal, ideal, deficit, known, unknown, measuredText, measuredRelation,
 				node.EffectiveImpactMS, effectiveRelation, traceDecisionPromptScalar(identity))
 			emitted++
 			if emitted >= 8 {
@@ -1986,18 +2016,18 @@ func traceFinalFiniteNonNegative(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
 }
 
-func traceFinalMeasuredStateOccupancy(node types.TraceCausalProjectionNode) float64 {
-	// ImpactMS is the row's selected-window state/span projection. A larger
-	// CumulativeImpactMS is the node/sub-chain account and may include other
-	// states (for example running+runnable+sleep on one wakeup-chain member).
-	// Treating cumulative as the state occupancy produced the impossible phrase
-	// "9ms runnable" beside a typed runnable=8.3ms split. RunnableMS is the
-	// strictest state-specific carrier where available; ImpactMS is the honest
-	// row-local fallback for every other state/span family.
-	if strings.EqualFold(strings.TrimSpace(node.StateKind), "runnable") && node.RunnableMS > 0 {
-		return node.RunnableMS
+func traceFinalMeasuredStateOccupancy(node types.TraceCausalProjectionNode) (float64, bool) {
+	if strings.TrimSpace(node.StateKind) != "" {
+		return node.PublishedStateOccupancy()
 	}
-	return node.ImpactMS
+	// A semantic-span observation owns its published span duration. This is
+	// not a fallback for a scheduler/composite rank row with a state label.
+	if strings.TrimSpace(node.Predicate) == "trace_semantic_span" && strings.TrimSpace(node.Unit) == "ms" &&
+		node.MergedCount <= 1 && !node.OnChainOverflowFold &&
+		traceFinalFiniteNonNegative(node.ImpactMS) && node.ImpactMS > 0 {
+		return node.ImpactMS, true
+	}
+	return 0, false
 }
 
 type traceFinalBlockingRelation struct {

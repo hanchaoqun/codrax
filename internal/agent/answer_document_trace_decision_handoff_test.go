@@ -118,7 +118,9 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"does not prove that B synchronously blocked waiting for A",
 		"Use stronger blocked-wait/holder wording only when a separate typed blocking or holder relation provides that authority",
 		"axis_A_actual_occupancy_candidates",
-		"subject=`Cookie-150`; kind=`s_sleep`; window_projection=44.836ms",
+		// A fold retains a seed node, not every member's state account.
+		// Without an exact original state account it must not claim a wall value.
+		"subject=`Cookie-150`; kind=`s_sleep`; state_occupancy=`unavailable`",
 		"span=`ParseCards`; total=18.500ms; occurrences=12; member_max=3.200ms",
 		"axis_B_existing_rule_eliminable",
 		"rank=#1; subject=`Cookie-150`; kind=`priority_inversion_candidate`; effective_attribution=23.994ms; validation_direction=`priority_or_dependency_supply`",
@@ -996,6 +998,7 @@ func TestFinalizerInitialInstructionWiresTraceDecisionHandoff(t *testing.T) {
 			RichNotes: []string{
 				"rank=1", "tier=primary", "chain_relevance=on_chain",
 				"dominant_state=runnable", "impact_ms=7.000",
+				"runnable=7.000", // Producer-published state wall clock, not the priced impact fallback.
 				"effective_impact_ms=6.000", "fix_direction=scheduling_priority",
 				"selected_window=10.000000..10.020000",
 			},

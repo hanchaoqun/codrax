@@ -1603,6 +1603,13 @@ type TraceCausalProjectionNode struct {
 	// "调度压力 runnable Y ms" magnitude. 0 when the source row did not
 	// expose the per-state split.
 	RunnableMS float64 `json:"runnable_ms,omitempty"`
+	// RunningMS / SleepMS carry the same published row-local raw state
+	// account as RunnableMS, never the priced ImpactMS/EffectiveImpactMS.
+	// StateOccupancyPresence records explicitly published zeroes; positive
+	// state fields also remain usable in legacy decoded projection nodes.
+	RunningMS              float64 `json:"running_ms,omitempty"`
+	SleepMS                float64 `json:"sleep_ms,omitempty"`
+	StateOccupancyPresence uint8   `json:"state_occupancy_presence,omitempty"`
 	// DStateSplitMS / IOWaitSplitMS mirror the node's typed "d_state=" /
 	// "io_wait=" rich notes (the rank row's own per-state split — the SAME
 	// already-emitted notes the RunnableMS lane consumes, one more decoded
@@ -4365,6 +4372,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// already-emitted note family as RunnableMS above, one more consumer.
 	node.DStateSplitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDState)
 	node.IOWaitSplitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyIOWait)
+	node.RunningMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunning)
+	node.SleepMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySleep)
+	node.StateOccupancyPresence = traceCausalProjectionStateOccupancyPresence(record.RichNotes)
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize
 	// the unresolved-peer wording for blocking_span / d_state_or_io_wait rows.
 	node.TypeToken = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyType))

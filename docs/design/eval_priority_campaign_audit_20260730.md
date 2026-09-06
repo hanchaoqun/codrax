@@ -57448,12 +57448,14 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 |---|---|---|
 | P1 / B1567-DIMENSIONPROVENANCE1 | analyzer第4–8轮已提交required causal role，却因拼接/省略号source_quote未逐字锚定而丢行，工具只返回“缺角色”。接回既有normalization诊断，指导只修引用、不改role/required/删同伴维度；无新硬门 | 已实现，9臂真实EmitAnalysis入口先红后绿；同时纠正教学中“未锚定维度绝不会重试”的过宽承诺 |
 | P1 / B1568-RANKFOLDIDENTITY1 | rounded链窗与精确rank窗的同段折叠只带Rank/板身份，漏RankQueryWindow对，导致树/JSON有7.405和4.710但◎方向总览缺锁/优先级。完整rank donor身份原子传递，不放宽精确主窗门 | 已实现；真实engine→ledger→tree/◎→JSON先红后绿，缺凭证与跨板/窗负例通过；live待复放 |
-| P1 / B1570-STATEFACTCALIBER1 | 系统读者事实卡把复合可消量7.405/4.710称为实测running，并反向禁止真实原始8.294/3.299；helper默认拿ImpactMS冒充状态墙钟 | 已确认，独立施工中；原始状态值与presence贯穿，缺证不反推也不伪造0 |
+| P1 / B1570-STATEFACTCALIBER1 | 系统读者事实卡把复合可消量7.405/4.710称为实测running，并反向禁止真实原始8.294/3.299；helper默认拿ImpactMS冒充状态墙钟 | 已实现，定向验证/全仓检查中；原始状态值与presence贯穿，缺证不反推也不伪造0，live待复放 |
 | P2 / B1569-DIMENSIONADVISORY1 | 类型图原本已有12项文件清单，只有member_set标记缺失，却提示“可见答案遗漏”；单次patch仅增加元数据，正文原样 | 待小批：区分结构绑定未声明与内容不存在，仅精准指导，不扫描正文重判或强改答案 |
 
 B1567：第1轮 completeness 缺和scope/fact_families冲突原本并存，串行先返确有多轮成本；第3轮excluded roles改为空则是新重发错误，不能全算系统挤牙膏。本批只恢复来源诊断，通用独立错误收集另行评估，不自动更换模型语义决定。证据 `b1567-dimension-diagnostics-{red,green}-20260906.log` 与教学红绿日志。原有合法引用、verbatim label回退、真正缺role及不相关可选无锚行仍soft处理均已验证。
 
 B1568：同段折叠保留链行自己的状态/金额/查询窗，但 Rank、Tier、板目标、参数指纹和 rank 查询窗对必须来自同一个 donor；已有席位保留自己的完整身份。已知板目标或参数冲突保留双行，未完整给出的窗不能跨行拼端点，缺链凭证不能因搬入排名而加冕。原 ±1ms 同段折叠容差与 2µs 主窗金额门不变。旧 displaywrap 测试中允许跨目标折叠的错误假设被对应负例取代，不是删门以求测试绿。真实 donghu fixture 的粗探/精确补采路径恢复 CompThread 7.405ms、JankManager 4.710ms 两席到树和◎，独立 JSON 金额/选择不变；其余 fixture 与 live IO 段数差异不拟合。证据 `.codrax/tmp/b1568-red-real.log`、`b1568-focused.log`，相关 RNB/主窗隔离/候选机制定向回归通过。
+
+B1570：从既有 producer 状态分量携带 RunningMS/SleepMS，复用 Runnable/D/IO 分量并增加显式零值存在位；值复制/JSON 往返不引入可变引用。读者事实卡、状态/供给口径卡和实际耗时轴 handoff 共用原始状态读取，不再拿 Impact/Effective/累计量/供给公式或区间反推实测状态。D/IO 合并仅在互斥分区两成员都已发布时复用现有求和函数；设备延迟不冒充线程状态。显示折叠只有代表行时披露未提供完整原始量，不把代表值说成整族量。独立审查发现 semantic label 同样会出现在定价 rank 行，故业务 span 回退也必须有原始 trace_semantic_span、毫秒单位和未被显示折叠的载体；不凭名字存在推断，也不拿跨窗 ActualImpact 代替窗内量。正常 producer semantic family 保留整体 TotalMs。字段清册逐项登记实际消费者，Running/Sleep 的 Node 镜像已补，但 OM-12“完整多状态呈现”仍开放；没有盲改哈希或宣称全案清零。
 
 #### 合流检查记录
 

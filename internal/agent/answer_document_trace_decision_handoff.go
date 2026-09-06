@@ -142,9 +142,14 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 		if len(actual) > 0 || len(projection.BusinessSpanMentions) > 0 {
 			b.WriteString("- axis_A_actual_occupancy_candidates (not a conclusion; compare only compatible calibers):\n")
 			for _, node := range actual {
-				fmt.Fprintf(&b, "  - subject=`%s`; kind=`%s`; window_projection=%.3fms",
-					strings.TrimSpace(node.Subject), traceDecisionNodeKind(node), node.ImpactMS)
-				if node.CumulativeImpactMS > 0 && node.CumulativeImpactMS != node.ImpactMS {
+				fmt.Fprintf(&b, "  - subject=`%s`; kind=`%s`; ", strings.TrimSpace(node.Subject), traceDecisionNodeKind(node))
+				measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
+				if measuredOK {
+					fmt.Fprintf(&b, "window_projection=%.3fms", measured)
+				} else {
+					b.WriteString("state_occupancy=`unavailable`; priced_impact_is_not_state_occupancy=`true`")
+				}
+				if node.CumulativeImpactMS > 0 && (!measuredOK || node.CumulativeImpactMS != measured) {
 					fmt.Fprintf(&b, "; chain_total=%.3fms", node.CumulativeImpactMS)
 				}
 				if count, maxMS := traceDecisionNodeMultiplicity(node); count > 1 {
