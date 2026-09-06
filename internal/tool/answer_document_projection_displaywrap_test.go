@@ -679,7 +679,7 @@ func TestDisplayWrapSelfHeadRawTokenFallback(t *testing.T) {
 
 // TestDisplayWrapSameSegmentFoldCarriesBoardIdentity — 件② unit pin on the
 // same-segment lane-twin fold: the adopted ordinal carries its board identity
-// (empty-slot caller); a host that already owns board identity keeps it.
+// (one rank donor); a seated host on the same board keeps its own identity.
 func TestDisplayWrapSameSegmentFoldCarriesBoardIdentity(t *testing.T) {
 	rank := types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "u-rank",
@@ -702,15 +702,16 @@ func TestDisplayWrapSameSegmentFoldCarriesBoardIdentity(t *testing.T) {
 		kept[0].RankBoardParamsFingerprint != "aaaa1111" {
 		t.Fatalf("the adopted ordinal must carry its board identity: %+v", kept[0])
 	}
-	// Seated survivor keeps its OWN board fields untouched (priority-scan
-	// doctrine — same as the XLANE-3 件1 aggregate arm).
+	// A seated survivor on the SAME board keeps its OWN ordinal. B1568:
+	// the old cross-target variant folded two different board receipts into
+	// one host; known board conflicts now preserve both rows instead.
 	seated := chain
 	seated.Rank = 5
-	seated.RankBoardTarget = "target.b-200"
-	seated.RankBoardParamsFingerprint = "bbbb2222"
+	seated.RankBoardTarget = rank.RankBoardTarget
+	seated.RankBoardParamsFingerprint = rank.RankBoardParamsFingerprint
 	kept, _ = runtimeTraceProjFoldSameSegmentLaneTwins([]types.TraceCausalProjectionNode{rank, seated})
-	if len(kept) != 1 || kept[0].Rank != 5 || kept[0].RankBoardTarget != "target.b-200" ||
-		kept[0].RankBoardParamsFingerprint != "bbbb2222" {
+	if len(kept) != 1 || kept[0].Rank != 5 || kept[0].RankBoardTarget != rank.RankBoardTarget ||
+		kept[0].RankBoardParamsFingerprint != rank.RankBoardParamsFingerprint {
 		t.Fatalf("a seated survivor must keep its own board identity: %+v", kept)
 	}
 }

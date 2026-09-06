@@ -7771,6 +7771,20 @@ func runtimeTraceProjRankFoldChainArm(node types.TraceCausalProjectionNode) bool
 		strings.TrimSpace(node.ChainRelevance) == "on_chain"
 }
 
+// The ordinal's preserved donor window wins over the display host's query
+// window. Both endpoints always come from one carrier; absence never borrows
+// either endpoint from the other lane. This resolver serves the existing fold
+// window comparison and the subsequent identity transfer, not a second gate.
+func runtimeTraceProjRankFoldWindow(node types.TraceCausalProjectionNode) (float64, float64, bool) {
+	if types.TraceCausalProjectionWindowPresent(node.RankQueryWindowStartTs, node.RankQueryWindowEndTs) {
+		return node.RankQueryWindowStartTs, node.RankQueryWindowEndTs, true
+	}
+	if types.TraceCausalProjectionWindowPresent(node.QueryWindowStartTs, node.QueryWindowEndTs) {
+		return node.QueryWindowStartTs, node.QueryWindowEndTs, true
+	}
+	return 0, 0, false
+}
+
 // runtimeTraceProjFoldSameSegmentLaneTwins folds the rank-lane twin of a
 // same-segment pair into its chain-lane row (RNB R2). Runs on the chain-node
 // universe BEFORE the subject buckets are built (NEW-3 position), so the rank
@@ -7790,12 +7804,17 @@ func runtimeTraceProjRankFoldChainArm(node types.TraceCausalProjectionNode) bool
 //     word/rank/confidence/E#) — never an ms account, never a fold group;
 //   - cross-window veto (SFD F1 mirror): both arms declaring their own typed
 //     selected_window with any endpoint beyond the F-2 ±1ms tolerance were
-//     measured in DIFFERENT query windows and never fold.
+//     measured in DIFFERENT query windows and never fold; a preserved rank
+//     donor window is authoritative over the host query window;
+//   - known target/parameter conflicts preserve both board receipts, never a
+//     hybrid identity assembled from one lane's rank and the other's board.
 //
-// The kept chain node adopts the rank (typed transfer, display model only —
-// the ➊➋➌ badge lane and the fold note read it; projection buckets, the rank
-// funnel and every EffectiveImpactMs consumer are untouched). Coverage
-// invariance rides the peer carriers (see runtimeTraceProjRankFoldPeer).
+// B1568: the kept chain node adopts the complete rank identity from ONE donor
+// (ordinal, tier, board target/params, and query-window pair). Its own chain
+// query window, state and amounts stay untouched. Otherwise the later exact
+// principal-window gate rejects a legitimate rank seat using its host's
+// rounded exploration window. Neither fold tolerance nor value admission is
+// widened; coverage invariance rides the original peer carrier.
 func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
 	type group struct {
 		rankIdx  []int
@@ -7829,6 +7848,15 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 			continue // ambiguity fails open (SFD donor-conflict rule)
 		}
 		rank, chain := nodes[g.rankIdx[0]], nodes[g.chainIdx[0]]
+		if (strings.TrimSpace(rank.RankBoardTarget) != "" && strings.TrimSpace(chain.RankBoardTarget) != "" &&
+			strings.TrimSpace(rank.RankBoardTarget) != strings.TrimSpace(chain.RankBoardTarget)) ||
+			(strings.TrimSpace(rank.RankBoardParamsFingerprint) != "" && strings.TrimSpace(chain.RankBoardParamsFingerprint) != "" &&
+				strings.TrimSpace(rank.RankBoardParamsFingerprint) != strings.TrimSpace(chain.RankBoardParamsFingerprint)) {
+			continue // different known rank boards — preserve both receipts
+		}
+		if chain.IsTargetSelfStateRow() && !rank.IsTargetSelfStateRow() {
+			continue // adopting a rank must not erase the host's symptom exclusion
+		}
 		if rank.EffectiveImpactMS <= 0 || rank.EffectiveImpactMS != chain.EffectiveImpactMS {
 			continue // not the engine's same-segment mirror — never fold
 		}
@@ -7848,10 +7876,11 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 			rank.CumulativeImpactMS != chain.CumulativeImpactMS {
 			continue // diverging cumulative accounts (W-A) — never fold
 		}
-		if types.TraceCausalProjectionWindowPresent(rank.QueryWindowStartTs, rank.QueryWindowEndTs) &&
-			types.TraceCausalProjectionWindowPresent(chain.QueryWindowStartTs, chain.QueryWindowEndTs) &&
-			(math.Abs(rank.QueryWindowStartTs-chain.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
-				math.Abs(rank.QueryWindowEndTs-chain.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS) {
+		rankStart, rankEnd, rankWindow := runtimeTraceProjRankFoldWindow(rank)
+		chainStart, chainEnd, chainWindow := runtimeTraceProjRankFoldWindow(chain)
+		if rankWindow && chainWindow &&
+			(math.Abs(rankStart-chainStart) > types.TraceCausalProjectionSameWindowToleranceS ||
+				math.Abs(rankEnd-chainEnd) > types.TraceCausalProjectionSameWindowToleranceS) {
 			continue // cross-window re-measurement (SFD F1 mirror) — never fold
 		}
 		foldInto[g.rankIdx[0]] = g.chainIdx[0]
@@ -7873,30 +7902,14 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 		}
 		if rankIdx, ok := rankByChainIdx[i]; ok {
 			if node.Rank <= 0 {
-				node.Rank = nodes[rankIdx].Rank
-				// SYM (§24.13 裁定一): the typed tier travels WITH the rank it
-				// annotates — a folded self-state rank twin must not launder
-				// its board exclusion through the fold (the kept chain node
-				// would otherwise wear Rank>0 with no tier identity).
-				if strings.TrimSpace(node.Tier) == "" {
-					node.Tier = nodes[rankIdx].Tier
-				}
-				// DISPLAY-WRAP 件② (§29.104.18.1 B1 修根, 2026-07-16): the
-				// ordinal's BOARD identity travels WITH the adopted seat — the
-				// XLANE-3 件1 aggregate-merge discipline, previously missing on
-				// THIS display-level fold. A fold host wearing Rank>0 with an
-				// empty RankBoardTarget minted a phantom UNNAMED board in the
-				// chip census, flipping a SINGLE-board single-window report
-				// into multi-board mode: every named seat then wore the
-				// zero-disambiguation 窗…·板锚 chip 39/38 times (donghu 17267
-				// witness). Empty-slot caller only; a host that already
-				// carries its own board identity keeps it untouched.
-				if strings.TrimSpace(node.RankBoardTarget) == "" {
-					node.RankBoardTarget = nodes[rankIdx].RankBoardTarget
-				}
-				if strings.TrimSpace(node.RankBoardParamsFingerprint) == "" {
-					node.RankBoardParamsFingerprint = nodes[rankIdx].RankBoardParamsFingerprint
-				}
+				// SYM + DISPLAY-WRAP + B1568: one rank supplier, one complete
+				// identity. A seated host keeps its own tuple; an unseated host
+				// adopts the donor tuple verbatim, including absent halves.
+				donor := nodes[rankIdx]
+				node.Rank, node.Tier = donor.Rank, donor.Tier
+				node.RankBoardTarget = donor.RankBoardTarget
+				node.RankBoardParamsFingerprint = donor.RankBoardParamsFingerprint
+				node.RankQueryWindowStartTs, node.RankQueryWindowEndTs, _ = runtimeTraceProjRankFoldWindow(donor)
 			}
 			// §29.50.5 (v5 P1 批 件②, 2026-07-13): the folded rank twin's
 			// typed D/IO proof family travels with the surviving chain node —
