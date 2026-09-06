@@ -94,7 +94,11 @@ type TraceRootCauseItemV2 struct {
 	// request is not a frame/jank question per the analyzer's typed decision.
 	// Always explicit.
 	CausalQualifier string `json:"causal_qualifier"`
-	Summary         string `json:"summary"`
+	// Read-only, append-only v2 facts. Missing fields keep legacy documents
+	// readable and never imply that an inversion mechanism was confirmed.
+	MechanismQualifier string                         `json:"mechanism_qualifier,omitempty"`
+	ImpactBreakdown    *TraceRootCauseImpactBreakdown `json:"impact_breakdown,omitempty"`
+	Summary            string                         `json:"summary"`
 	// Description (SIDECAR-NARR-1, customer feedback 2026-09-03) is the
 	// model's own plain-language account of the mechanism — who did what for
 	// how long and why it delayed the target — written for a customer who
@@ -164,7 +168,7 @@ func ValidateTraceRootCauseDescription(raw string, candidateIDs []string, field 
 // and the selector context both carry (same source), including the frame
 // qualifier discipline.
 func TraceRootCauseDescriptionTeaching() string {
-	return "Optional plain-language account of this cause for the reader: which thread or resource did what, for how long, and why that delayed the target (for example 「同进程 GC 线程 HeapTaskDaemon 执行并发标记约 12 ms，UIThread 在此期间等待堆锁」). One or two sentences reusing the roster's impact_ms and value_description; never quote candidate ids, file paths, artifact names or evidence ids. When the candidate's causal_qualifier is frame_unproven, describe the mechanism without asserting that it caused the frame drop. When its impact_caliber is " + TraceImpactCaliberWindowProjection + ", the number is a raw window projection whose effective attribution was never published — describe it as window-projected occupancy, never as " + tracefence.ImpactCaliberEffectiveZH + ". The runtime keeps its own typed evidence sentences beside it, and they state that caliber; a description that cites an internal reference is dropped and reported while the selection itself is kept."
+	return "Optional plain-language account of this cause for the reader: which thread or resource did what, for how long, and why that delayed the target (for example 「同进程 GC 线程 HeapTaskDaemon 执行并发标记约 12 ms，UIThread 在此期间等待堆锁」). One or two sentences reusing the roster's impact_ms and value_description; never quote candidate ids, file paths, artifact names or evidence ids. When the candidate's causal_qualifier is frame_unproven, describe the mechanism without asserting that it caused the frame drop. When its impact_caliber is " + TraceImpactCaliberWindowProjection + ", the number is a raw window projection whose effective attribution was never published — describe it as window-projected occupancy, never as " + tracefence.ImpactCaliberEffectiveZH + ". " + TraceRootCauseMechanismTeaching() + " The runtime keeps its own typed evidence sentences beside it, and they state that caliber; a description that cites an internal reference is dropped and reported while the selection itself is kept."
 }
 
 // TraceRootCauseSelectorOutcomeTeaching is the ONE sentence that teaches the
@@ -272,14 +276,15 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		return nil, fmt.Errorf("trace_root_causes.%s is null", field)
 	}
 	out := &TraceRootCauseItemV2{
-		CandidateID:     compactTraceRootCauseField(in.CandidateID),
-		Category:        in.Category,
-		ThreadName:      compactTraceRootCauseField(in.ThreadName),
-		ResourceName:    compactTraceRootCauseField(in.ResourceName),
-		PhaseName:       compactTraceRootCauseField(in.PhaseName),
-		ArtifactLabel:   compactTraceRootCauseField(in.ArtifactLabel),
-		ImpactCaliber:   strings.TrimSpace(in.ImpactCaliber),
-		CausalQualifier: strings.TrimSpace(in.CausalQualifier),
+		CandidateID:        compactTraceRootCauseField(in.CandidateID),
+		Category:           in.Category,
+		ThreadName:         compactTraceRootCauseField(in.ThreadName),
+		ResourceName:       compactTraceRootCauseField(in.ResourceName),
+		PhaseName:          compactTraceRootCauseField(in.PhaseName),
+		ArtifactLabel:      compactTraceRootCauseField(in.ArtifactLabel),
+		ImpactCaliber:      strings.TrimSpace(in.ImpactCaliber),
+		CausalQualifier:    strings.TrimSpace(in.CausalQualifier),
+		MechanismQualifier: strings.TrimSpace(in.MechanismQualifier),
 	}
 	// SIDECAR-Q1 (§40.28 ②): both qualifiers are closed-set and REQUIRED on
 	// every bound item — a consumer never infers them from absence.
@@ -288,6 +293,9 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 	}
 	if !ValidTraceCausalQualifier(out.CausalQualifier) {
 		return nil, fmt.Errorf("trace_root_causes.%s.causal_qualifier=%q is unsupported", field, out.CausalQualifier)
+	}
+	if out.MechanismQualifier != "" && out.MechanismQualifier != TraceMechanismLowerPriorityDependencyCandidate {
+		return nil, fmt.Errorf("trace_root_causes.%s.mechanism_qualifier=%q is unsupported", field, out.MechanismQualifier)
 	}
 	if !validTraceRootCauseCategory(out.Category) {
 		return nil, fmt.Errorf("trace_root_causes.%s.category=%q is unsupported", field, out.Category)
@@ -309,6 +317,11 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		return nil, fmt.Errorf("trace_root_causes.%s.impact_seconds must be a finite positive number", field)
 	}
 	out.ImpactSeconds = &impactSeconds
+	breakdown, err := NormalizeTraceRootCauseImpactBreakdown(in.ImpactBreakdown, out.ImpactCaliber, impactSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("trace_root_causes.%s: %w", field, err)
+	}
+	out.ImpactBreakdown = breakdown
 	if len(in.Evidence) == 0 || len(in.Evidence) > TraceRootCauseEvidenceMaxEntries {
 		return nil, fmt.Errorf("trace_root_causes.%s.evidence must contain 1 to %d concise entries", field, TraceRootCauseEvidenceMaxEntries)
 	}
@@ -368,6 +381,9 @@ func traceRootCauseSummary(item TraceRootCauseItemV2) string {
 	case TraceRootCauseSynchronousBinder:
 		return item.ThreadName + "线程同步binder"
 	case TraceRootCausePriorityInversion:
+		if item.MechanismQualifier == TraceMechanismLowerPriorityDependencyCandidate {
+			return item.ThreadName + "线程优先级反转候选"
+		}
 		return item.ThreadName + "线程优先级反转"
 	case TraceRootCauseGCLongPause:
 		return "GC耗时长"
@@ -404,6 +420,10 @@ func cloneTraceRootCauseReportV2(in *TraceRootCauseReportV2) *TraceRootCauseRepo
 		}
 		cause := *item
 		cause.Evidence = append([]string(nil), item.Evidence...)
+		if item.ImpactBreakdown != nil {
+			breakdown := *item.ImpactBreakdown
+			cause.ImpactBreakdown = &breakdown
+		}
 		if item.ImpactSeconds != nil {
 			impactSeconds := *item.ImpactSeconds
 			cause.ImpactSeconds = &impactSeconds

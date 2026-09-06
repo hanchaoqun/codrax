@@ -18988,24 +18988,16 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 // candidate) AND the RunnableTop lane stamped by
 // applyRunnableTopPriorityInversion (priority_inversion_runnable_wait).
 //
-// UXG-1 M4 (2026-07-12): THE engine-side family single point — the literal
-// token pair may appear together only here and in the causal-token registry
-// rows (source-scan pinned by
-// internal/tool/uxg1_family_predicate_tripwire_test.go; the display-side
-// single point runtimeTracePriorityInversionCandidateType is interlocked with
-// this one through the exported wrapper below).
+// UXG-1 M4 / B1562: membership now lives in types, shared by the engine,
+// model evidence handoff, sidecar compiler and display. The engine preserves
+// exact token matching; the display adapter retains its whitespace handling.
 func rootCauseTypeIsPriorityInversion(typ string) bool {
-	switch typ {
-	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
-		return true
-	default:
-		return false
-	}
+	return types.TraceRootCauseTypeIsPriorityInversion(typ)
 }
 
 // RootCauseTypeIsPriorityInversion exposes the inversion row-type family
 // predicate for cross-package consumers and the M4 interlock pin. No token
-// literals here — the family bytes live only at the single point above.
+// literals here — the family bytes live only at the shared types predicate.
 func RootCauseTypeIsPriorityInversion(typ string) bool {
 	return rootCauseTypeIsPriorityInversion(typ)
 }

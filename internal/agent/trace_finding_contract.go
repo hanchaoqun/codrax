@@ -104,18 +104,19 @@ type traceRootCauseRosterGroup struct {
 // the partition roster, so a silent partition is disclosed, not miscounted.
 func traceRootCauseRosterGroups(selectable []types.TraceFindingCandidateV1, contract *types.TraceFindingContract) ([]traceRootCauseRosterGroup, []string, error) {
 	type candidateView struct {
-		CandidateID      string   `json:"candidate_id"`
-		ArtifactLabel    string   `json:"artifact_label,omitempty"`
-		CauseKind        string   `json:"cause_kind"`
-		Subject          string   `json:"subject,omitempty"`
-		Resource         string   `json:"resource,omitempty"`
-		Phase            string   `json:"phase,omitempty"`
-		Rank             int      `json:"rank,omitempty"`
-		ImpactMS         float64  `json:"impact_ms"`
-		ImpactCaliber    string   `json:"impact_caliber"`
-		CausalQualifier  string   `json:"causal_qualifier"`
-		ValueDescription string   `json:"value_description,omitempty"`
-		EvidenceRefs     []string `json:"evidence_refs"`
+		CandidateID        string   `json:"candidate_id"`
+		ArtifactLabel      string   `json:"artifact_label,omitempty"`
+		CauseKind          string   `json:"cause_kind"`
+		Subject            string   `json:"subject,omitempty"`
+		Resource           string   `json:"resource,omitempty"`
+		Phase              string   `json:"phase,omitempty"`
+		Rank               int      `json:"rank,omitempty"`
+		ImpactMS           float64  `json:"impact_ms"`
+		ImpactCaliber      string   `json:"impact_caliber"`
+		CausalQualifier    string   `json:"causal_qualifier"`
+		MechanismQualifier string   `json:"mechanism_qualifier,omitempty"`
+		ValueDescription   string   `json:"value_description,omitempty"`
+		EvidenceRefs       []string `json:"evidence_refs"`
 	}
 	view := func(candidate types.TraceFindingCandidateV1) candidateView {
 		decision := candidate.Decision
@@ -125,7 +126,8 @@ func traceRootCauseRosterGroups(selectable []types.TraceFindingCandidateV1, cont
 			Phase: decision.PhaseName, Rank: decision.Rank,
 			ImpactMS: decision.Magnitude.Value, EvidenceRefs: decision.EvidenceRefs,
 			ImpactCaliber: decision.Magnitude.Caliber, CausalQualifier: decision.CausalQualifier,
-			ValueDescription: tracefinding.RootCauseValueDescription(decision),
+			MechanismQualifier: decision.MechanismQualifier,
+			ValueDescription:   tracefinding.RootCauseValueDescription(decision),
 		}
 	}
 	labels := []string{""}

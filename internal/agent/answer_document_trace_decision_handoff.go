@@ -1453,15 +1453,7 @@ func traceDecisionEliminableSeatKind(node types.TraceCausalProjectionNode) strin
 // deliberately excluded so an ordinary runnable/lock-priority row cannot be
 // upgraded by inference.
 func traceDecisionNodeIsPriorityInversionCandidate(node types.TraceCausalProjectionNode) bool {
-	if node.PriorityInversionCandidate {
-		return true
-	}
-	switch strings.TrimSpace(node.TypeToken) {
-	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
-		return true
-	default:
-		return false
-	}
+	return types.TraceNodeIsPriorityInversionCandidate(node)
 }
 
 // traceDecisionWriteModelFacingDirection keeps the registry's internal

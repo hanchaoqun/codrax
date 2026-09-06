@@ -10160,19 +10160,10 @@ func runtimeTracePriorityInversionMeasuredRecord(record types.ObservationRecord)
 }
 
 // runtimeTracePriorityInversionCandidateType is the DISPLAY-side inversion
-// row-type family single point (UXG-1 M4, 2026-07-12): the literal token pair
-// may appear together only here on the display side — everywhere else calls
-// this predicate. Interlocked with the engine single point
-// (tracequery.RootCauseTypeIsPriorityInversion) by
-// TestUXG1InversionFamilyPredicatesInterlocked; local re-enumeration is
-// intercepted by the source scan in uxg1_family_predicate_tripwire_test.go.
+// row-type family display adapter (UXG-1 M4 / B1562): the literal family is
+// shared with engine and sidecar in types; preserve this adapter's trimming.
 func runtimeTracePriorityInversionCandidateType(value string) bool {
-	switch strings.TrimSpace(value) {
-	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
-		return true
-	default:
-		return false
-	}
+	return types.TraceRootCauseTypeIsPriorityInversion(strings.TrimSpace(value))
 }
 
 // runtimeTracePriorityInversionIdentityTokens derives the display aliases only

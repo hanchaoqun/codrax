@@ -15,7 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const CandidateCompilerVersion = "trace-candidate-v2"
+const CandidateCompilerVersion = "trace-candidate-v3"
 
 // CompileCandidateContract freezes the deterministic candidate rows that the
 // finalizer may select. It consumes typed trace records only; final answer
@@ -195,8 +195,17 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 		Value: value, Unit: unit, Additivity: string(spec.Additivity), Caliber: caliber,
 		WindowDuration: projection.WindowDurationMS(),
 	}
-	if node.SupplyFoldComputed || node.DStateRefinedNonIO || node.DStateSplitMS > 0 || node.IOWaitSplitMS > 0 {
+	mechanismNode := node
+	mechanismNode.TypeToken = token // the same precise producer token resolved above
+	mechanismQualifier := ""
+	if types.TraceNodeIsPriorityInversionCandidate(mechanismNode) {
+		mechanismQualifier = types.TraceMechanismLowerPriorityDependencyCandidate
+	}
+	gatedPartsPresent := mechanismQualifier != "" && (node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0)
+	if gatedPartsPresent || node.SupplyFoldComputed || node.DStateRefinedNonIO || node.DStateSplitMS > 0 || node.IOWaitSplitMS > 0 {
 		magnitude.Components = &types.TraceMagnitudeComponents{
+			GatedComponentsPresent: gatedPartsPresent, GatedRunnableMS: node.GatedRunnableMS,
+			GatedRunningDeficitMS: node.GatedRunningDeficitMS, GatedCapabilitySource: node.GatedCapabilitySource,
 			SupplyFoldComputed: node.SupplyFoldComputed, SupplyFoldDeficitMS: node.SupplyFoldDeficitMS,
 			SupplyFoldIdealMS: node.SupplyFoldIdealMS, SupplyFoldKnownMS: node.SupplyFoldKnownMS,
 			SupplyFoldUnknownMS: node.SupplyFoldUnknownMS, SupplyFoldCapabilitySource: node.SupplyFoldCapabilitySource,
@@ -213,8 +222,9 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 		status = types.TraceCausalProven
 	}
 	decision := types.TraceCauseDecision{
-		Status:          status,
-		CausalQualifier: qualifier,
+		Status:             status,
+		CausalQualifier:    qualifier,
+		MechanismQualifier: mechanismQualifier,
 		// V1-4 (§40.26 ①): the partition key rides the decision and the
 		// evidence facts from the SAME projection field (one source).
 		ArtifactLabel: strings.TrimSpace(projection.ArtifactLabel),

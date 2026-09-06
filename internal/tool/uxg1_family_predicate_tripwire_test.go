@@ -36,6 +36,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 var uxg1ScanDirs = []string{".", "../tracequery", "../types", "../preview", "../render"}
@@ -71,14 +72,13 @@ var uxg1InversionAllowedClusters = map[string]int{
 	// fix-direction declaration — itself a census-pinned single-source table
 	// (one direction per token; not enumeration-for-treatment).
 	"causal_token_registry.go": 2,
-	// THE engine family single point rootCauseTypeIsPriorityInversion.
-	"query.go": 1,
+	// B1562 EVOLUTION: the engine and display enumerations are removed;
+	// both wrappers and the sidecar/handoff share this one types table.
+	"trace_cause_mechanism.go": 1,
 	// Typed recon rule "causal_inversion_window": the two tokens play
 	// DIFFERENT roles (absorber vs absorbed) — a per-token rule table, not
 	// same-treatment enumeration.
 	"rank_cross_type_recon.go": 1,
-	// THE display family single point runtimeTracePriorityInversionCandidateType.
-	"answer_document_mutation_runtime.go": 1,
 	// Per-token zh label table (distinct label per token — cannot collapse
 	// into a predicate). Second cluster (RULE3-1 件8, §29.182②, 2026-07-21):
 	// the EN verdict-word table runtimeTraceRootCauseTypeENLabel — the same
@@ -243,15 +243,18 @@ func TestUXG1CrossThreadAggregateFamilyNoLocalReEnumeration(t *testing.T) {
 	uxg1AssertClusters(t, "cross-thread-aggregate", uxg1FamilyClusters(t, family), uxg1AggregateAllowedClusters)
 }
 
-// TestUXG1InversionFamilyPredicatesInterlocked pins the engine and display
-// single points to each other over the full registry universe plus
-// non-members — the two-predicate topology can never fork silently.
+// TestUXG1InversionFamilyPredicatesInterlocked pins engine and display
+// adapters to the shared types table over the full registry universe plus
+// non-members, retaining the original guard through the B1562 consolidation.
 func TestUXG1InversionFamilyPredicatesInterlocked(t *testing.T) {
 	probes := append([]string{}, tracequery.CausalTokenUniverse()...)
 	probes = append(probes, "blocking_span", "not_a_token", "")
 	for _, token := range probes {
 		if got, want := runtimeTracePriorityInversionCandidateType(token), tracequery.RootCauseTypeIsPriorityInversion(token); got != want {
 			t.Errorf("inversion family fork on %q: display=%v engine=%v", token, got, want)
+		}
+		if got, want := types.TraceRootCauseTypeIsPriorityInversion(token), tracequery.RootCauseTypeIsPriorityInversion(token); got != want {
+			t.Errorf("inversion family fork on %q: shared=%v engine=%v", token, got, want)
 		}
 	}
 	if !tracequery.RootCauseTypeIsPriorityInversion("priority_inversion_candidate") ||

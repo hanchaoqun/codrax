@@ -39,6 +39,27 @@ func TestRootCauseSelectorContextPublishesTheSameValueCaliberAsSidecar(t *testin
 	}
 }
 
+func TestRootCauseSelectorContextCarriesMechanismIndependentOfFrameQualifier(t *testing.T) {
+	ctx := traceRootCauseTestContext("analyze this trace root cause")
+	contract, err := tracefinding.CompileCandidateContract(types.ObservationLedger{}, types.TraceCausalProjectionSet{
+		Projections: []types.TraceCausalProjection{{RankedSeats: []types.TraceCausalProjectionNode{{
+			EvidenceID: "E1", Subject: "worker", Rank: 1, TypeToken: "priority_inversion_candidate", ChainRelevance: "on_chain",
+			ImpactMS: 12, EffectiveImpactMS: 9, EffectiveImpactPublished: true, GatedRunnableMS: 5, GatedRunningDeficitMS: 4,
+		}}}}}, tracefinding.SeatFrameCausalityAuthority{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract.RootCauseReportEnabled = true
+	ctx.Mutable.SetTraceFindingContract(contract)
+	got := renderTraceFindingContract(ctx)
+	for _, want := range []string{`"causal_qualifier": "not_applicable"`, `"mechanism_qualifier": "lower_priority_dependency_candidate"`,
+		tracefinding.RootCauseValueDescription(contract.Candidates[0].Decision), types.TraceRootCauseMechanismTeaching()} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("selector lacks the same mechanism boundary taught by its schema: missing %q in %s", want, got)
+		}
+	}
+}
+
 func TestPrepareTraceFindingContractDoesNotEnableReportWithoutTypedCandidates(t *testing.T) {
 	ctx := traceRootCauseTestContext("analyze this trace root cause")
 	if err := prepareTraceFindingContract(ctx); err != nil {

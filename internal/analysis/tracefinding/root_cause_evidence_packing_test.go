@@ -43,7 +43,9 @@ func TestBoundRootCauseEvidenceRendersTypedFactsWithoutInternalReferences(t *tes
 	for _, want := range []string{
 		"worker-9 在目标窗口内的链上有效归因为 58.320 ms", RootCauseValueDescription(candidate.Decision),
 		"链路关系：位于目标 com.baidu.tieba-59566 唤醒依赖链第 1 级（分支 2）", "凭证=唤醒链成员", "唤醒链：worker-9 → com.baidu.tieba-59566",
-		"机理与边界：状态=running", "修向=调度供给", "帧因果未证：本席位引用的 trace 证据中没有帧证据",
+		// B1562: unproven frame flow can coexist with present frames; the
+		// common qualifier cannot state that frame records are missing.
+		"机理与边界：状态=running", "修向=调度供给", "帧因果未证：本席位的证据尚未证明帧因果",
 		"trace 定位：附件 trace 第 2892–13060 行，发生 34579.480100–34579.521000 s，分析窗 34579.472865–34579.587805 s",
 	} {
 		if !strings.Contains(joined, want) {

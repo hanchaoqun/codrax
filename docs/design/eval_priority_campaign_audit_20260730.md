@@ -57424,6 +57424,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - 旧实现在跨文件、runner、framework、workdir、无候选、无执行命令等十臂已实测先红；修后 `TestProjectFailureContractRelevanceRequiresExactExecutionAndFile`、成功/失败同源对照、types 无 binding 保留、controller 接线与 outcome census 通过。实际 RunTests 执行 Python unittest 失败后可绑定真实文件，偷绑兄弟文件负例拒绝；最终只退役已执行失败文件对应的期望，多文件 Make 歧义不退役。
 - B1561 原生 aggregate-only 能力不冒充本批已修；r1021 C++ 正确改动仍无断言级 receipt，后续需通用能力恢复，不以成功字符串/特定用例主函数/重复命令拟合。
 
+#### B1562 候选机制、复合金额和帧资格分别贯穿旁路
+
+`implemented / real-query-to-emit-patch+five-package-targeted-pass / full-suite+live-pending`。
+
+- 共享原有 producer bool/token 判据，未改变反转候选选举或数值数学。唯一族表下沉 types，engine/display/handoff/compiler 薄包装共享；UXG1 删除两个旧枚举名册点，新增一个共享点并三面互校，不扩豁免掩盖复制。
+- v2 仅追加可选只读 `mechanism_qualifier=lower_priority_dependency_candidate` 和 `impact_breakdown`（就绪等待秒、运行供给折算缺口秒、算力来源）；兼容旧文档，缺字段不表示机理已证。compiler v2→v3，冻结/clone/验证跟进。固定摘要保留候选，不将低优先级依赖方直接说成已发生反转或锁阻塞；帧资格独立，不因帧已证取消候选边界。
+- 分量只从同席位既有 gated 字段取值且必须组成公开有效归因量，原始窗口占用不能冒充该组成。名册 value_description 与旁路证据同源，机制限定在长文本句首及独立字段同时保留；模型只提交原有 candidate_id/可选 description，系统不拆换根因、不改 category/金额/选择顺序/作者正文。
+- 顺修来源明确的错误披露：有帧但 frame-flow 未证时，旧固定句仍说“没有帧证据”。改为“本席位的证据尚未证明帧因果”，不把 unproven 反推 absent。
+- 真实 scheduler/frequency 输入走 `BuildIndex→Run→typed observations→projection→full emit→patch`：17.577ms 按 10.000ms 就绪等待 + 7.577ms 运行缺口保留。用旧 compiler overlay 同一生产链测试确定变红，日志 `.codrax/tmp/b1562-red/production-pipeline-red.log`；五包定向全绿，含候选资格、旧 JSON、克隆隔离、错误组成、长证据、帧存在但未证、假 readonly 字段不取信、原始窗口量负例、CROWNSEM/STATERES/UXG1。
+- B1566 家族整体与代表成员描述问题继续开放，不把本批声称为所有旁路事实均已完整。
+
 首次全仓检查在施工并行期间仅报 UXG-1 新判据铸点 census 漂移（新 helper 已落盘）；不可称洁净基线失败或全仓通过。合流后再跑完整套件，候选 token 族应减少为真正单源，禁止直接扩豁免。
 
 ### §123.1637 r1020：旁路打包生产验收，原生行为证明与候选限定继续分批（2026-09-02）

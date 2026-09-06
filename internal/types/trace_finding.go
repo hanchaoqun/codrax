@@ -84,6 +84,13 @@ type TypedMagnitude struct {
 }
 
 type TraceMagnitudeComponents struct {
+	// Gated components retain the measured dependency's ready-to-run share
+	// and discounted running share. Their presence is independent of the
+	// ordinary running supply fold and D/I/O accounting below.
+	GatedComponentsPresent     bool    `json:"gated_components_present,omitempty"`
+	GatedRunnableMS            float64 `json:"gated_runnable_ms,omitempty"`
+	GatedRunningDeficitMS      float64 `json:"gated_running_deficit_ms,omitempty"`
+	GatedCapabilitySource      string  `json:"gated_capability_source,omitempty"`
 	SupplyFoldComputed         bool    `json:"supply_fold_computed,omitempty"`
 	SupplyFoldDeficitMS        float64 `json:"supply_fold_deficit_ms,omitempty"`
 	SupplyFoldIdealMS          float64 `json:"supply_fold_ideal_ms,omitempty"`
@@ -124,6 +131,9 @@ type TraceCauseDecision struct {
 	// 「（帧因果未证）」 qualifier (T3-1 ruling §7.3). Never the session-wide
 	// ANY aggregate.
 	CausalQualifier string `json:"causal_qualifier"`
+	// MechanismQualifier does not inherit the frame-causality result. Empty
+	// means no qualifier was supplied, never that the mechanism was proven.
+	MechanismQualifier string `json:"mechanism_qualifier,omitempty"`
 	// ArtifactLabel (V1-4, §40.26 ①) is the SYSTEM-OWNED partition key of the
 	// trace this seat was compiled from — the projection partitioner's
 	// ArtifactLabel, the same label the answer's per-trace sections and the

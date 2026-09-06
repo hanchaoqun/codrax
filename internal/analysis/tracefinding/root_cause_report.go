@@ -214,13 +214,15 @@ func boundRootCauseItem(candidate types.TraceFindingCandidateV1) (*types.TraceRo
 		return nil, false
 	}
 	item := &types.TraceRootCauseItemV2{
-		CandidateID:     strings.TrimSpace(decision.CandidateID),
-		Category:        category,
-		ArtifactLabel:   strings.TrimSpace(decision.ArtifactLabel),
-		ImpactSeconds:   &impactSeconds,
-		ImpactCaliber:   caliber,
-		CausalQualifier: qualifier,
-		Evidence:        boundRootCauseEvidence(decision),
+		CandidateID:        strings.TrimSpace(decision.CandidateID),
+		Category:           category,
+		ArtifactLabel:      strings.TrimSpace(decision.ArtifactLabel),
+		ImpactSeconds:      &impactSeconds,
+		ImpactCaliber:      caliber,
+		CausalQualifier:    qualifier,
+		MechanismQualifier: decision.MechanismQualifier,
+		ImpactBreakdown:    rootCauseImpactBreakdown(decision),
+		Evidence:           boundRootCauseEvidence(decision),
 	}
 	switch category {
 	case types.TraceRootCauseGCLongPause, types.TraceRootCauseComputeSupplyShortage:
@@ -257,6 +259,9 @@ func rootCauseCategory(decision types.TraceCauseDecision) (types.TraceRootCauseC
 	if rootCauseUsesRunningSupplyDeficit(decision) {
 		return types.TraceRootCauseComputeSupplyShortage, true
 	}
+	if types.TraceRootCauseTypeIsPriorityInversion(token) {
+		return types.TraceRootCausePriorityInversion, true
+	}
 	switch token {
 	case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
 		// The combined family does not establish that all its waiting is IO.
@@ -269,8 +274,6 @@ func rootCauseCategory(decision types.TraceCauseDecision) (types.TraceRootCauseC
 			}
 		}
 		return types.TraceRootCauseSleepBlocking, true
-	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
-		return types.TraceRootCausePriorityInversion, true
 	case "binder_wait":
 		return types.TraceRootCauseSynchronousBinder, true
 	case "jit_compile":
@@ -319,6 +322,29 @@ func RootCauseValueDescription(decision types.TraceCauseDecision) string {
 	if decision.Magnitude == nil {
 		return ""
 	}
+	if decision.MechanismQualifier == types.TraceMechanismLowerPriorityDependencyCandidate {
+		description := "低优先级依赖方的调度/算力供给候选，未证明反转已发生或存在锁阻塞"
+		if split := rootCauseImpactBreakdown(decision); split != nil {
+			description += fmt.Sprintf("；组成：就绪等待全额 %.3f ms + 运行供给折算缺口 %.3f ms", split.RunnableSeconds*1000, split.RunningDeficitSeconds*1000)
+			switch split.CapabilitySource {
+			case "default_table":
+				description += "（运行缺口按默认算力比估算）"
+			case "freq_only":
+				description += "（运行缺口仅按频率比折算）"
+			case "evidence_table":
+				description += "（运行缺口采用证据支持的算力比）"
+			}
+		} else if amount := rootCauseNonGatedValueDescription(decision); amount != "" {
+			// A node may carry the candidacy flag alongside another measured
+			// state family. Keep that family's original supply/D-I/O ruler.
+			description += "；" + amount
+		}
+		return description
+	}
+	return rootCauseNonGatedValueDescription(decision)
+}
+
+func rootCauseNonGatedValueDescription(decision types.TraceCauseDecision) string {
 	parts := decision.Magnitude.Components
 	if rootCauseUsesRunningSupplyDeficit(decision) {
 		// Table ③c caliber words (折算 / 下界) are read from tracefence, never
@@ -348,6 +374,24 @@ func RootCauseValueDescription(decision types.TraceCauseDecision) string {
 		return "D 状态与 I/O 等待的合并口径，不能全部视为 I/O"
 	}
 	return ""
+}
+
+// Only a composition of the selected published value may be displayed beside
+// it. Raw window occupancy keeps its own ruler; incomplete/legacy gated facts
+// retain the candidate qualifier without inventing a numerical breakdown.
+func rootCauseImpactBreakdown(decision types.TraceCauseDecision) *types.TraceRootCauseImpactBreakdown {
+	if decision.MechanismQualifier != types.TraceMechanismLowerPriorityDependencyCandidate || decision.Magnitude == nil ||
+		decision.Magnitude.Components == nil || !decision.Magnitude.Components.GatedComponentsPresent {
+		return nil
+	}
+	parts := decision.Magnitude.Components
+	breakdown, err := types.NormalizeTraceRootCauseImpactBreakdown(&types.TraceRootCauseImpactBreakdown{
+		RunnableSeconds: parts.GatedRunnableMS / 1000, RunningDeficitSeconds: parts.GatedRunningDeficitMS / 1000,
+		CapabilitySource: parts.GatedCapabilitySource}, decision.Magnitude.Caliber, decision.Magnitude.Value/1000)
+	if err != nil {
+		return nil
+	}
+	return breakdown
 }
 
 // boundRootCauseEvidence renders the public sidecar evidence (SIDECAR-EVID-1,
@@ -457,6 +501,10 @@ func rootCauseEvidenceRelationSentence(subject string, facts *types.TraceCauseEv
 // rootCauseEvidenceMechanismSentence — 机理与边界.
 func rootCauseEvidenceMechanismSentence(decision types.TraceCauseDecision, facts *types.TraceCauseEvidenceFacts) string {
 	var parts []string
+	if decision.MechanismQualifier == types.TraceMechanismLowerPriorityDependencyCandidate {
+		// Put the mechanism boundary before potentially long work/site names.
+		parts = append(parts, "低优先级依赖方供给候选：未证明反转已发生或存在锁阻塞")
+	}
 	if facts.StateKind != "" {
 		parts = append(parts, "状态="+facts.StateKind)
 	}
@@ -466,7 +514,9 @@ func rootCauseEvidenceMechanismSentence(decision types.TraceCauseDecision, facts
 	if facts.BlockedReasonCaller != "" {
 		parts = append(parts, "阻塞记录调用者="+facts.BlockedReasonCaller)
 	}
-	if word, ok := tracefence.FixDirectionWord(facts.FixDirection, true); ok {
+	if decision.MechanismQualifier == types.TraceMechanismLowerPriorityDependencyCandidate {
+		parts = append(parts, "排查方向=优先级与依赖方供给")
+	} else if word, ok := tracefence.FixDirectionWord(facts.FixDirection, true); ok {
 		parts = append(parts, "修向="+word)
 	}
 	switch facts.OnChainBasis {
@@ -474,7 +524,7 @@ func rootCauseEvidenceMechanismSentence(decision types.TraceCauseDecision, facts
 		parts = append(parts, "语义完成机理未证（仅披露，边前份/相交份仍按凭证规则计价）")
 	}
 	if decision.CausalQualifier == types.TraceCausalQualifierFrameUnproven {
-		parts = append(parts, "帧因果未证：本席位引用的 trace 证据中没有帧证据，该限定不改变有效归因与排序")
+		parts = append(parts, "帧因果未证：本席位的证据尚未证明帧因果，该限定不改变有效归因与排序")
 	}
 	if len(parts) == 0 {
 		return ""
