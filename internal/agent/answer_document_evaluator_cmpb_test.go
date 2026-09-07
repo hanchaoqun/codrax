@@ -293,7 +293,9 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementDropsSyntheticMissingWakeup
 		SupportRefs:     []string{"seven.systrace:44"},
 		Summary:         "sleep interval has no matching sched_wakeup row in the selected trace window",
 	}})
-	if !strings.Contains(final, "根因证据：OS_FFRT_2_6-18695") || !strings.Contains(final, "seven.systrace") {
+	// B1601: absence evidence remains visible, but the reduced witness label
+	// no longer promotes it to a root cause. Synthetic locator rules are intact.
+	if !strings.Contains(final, "分析支撑观测：OS_FFRT_2_6-18695") || !strings.Contains(final, "seven.systrace") {
 		t.Fatalf("missing_wakeup supplement row must render with its artifact name:\n%s", final)
 	}
 	if strings.Contains(final, "seven.systrace:44") {

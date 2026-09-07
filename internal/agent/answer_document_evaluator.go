@@ -23679,7 +23679,7 @@ func traceQueryObservationSupplementClaimLabel(record types.ObservationRecord, z
 	// reader label must follow the row's typed causal position rather than the
 	// historical ClaimKey prefix; otherwise a symptom row is visually crowned
 	// as a root cause even though the value and admission logic remain honest.
-	if strings.HasPrefix(claim, "root_cause") {
+	if strings.HasPrefix(claim, "root_cause") || strings.HasPrefix(claim, "root_evidence") {
 		if scoped := traceQueryObservationSupplementNonCauseLabel(record, zh); scoped != "" {
 			return scoped
 		}
@@ -23704,7 +23704,10 @@ func traceQueryObservationSupplementClaimLabel(record types.ObservationRecord, z
 	case strings.HasPrefix(claim, "wakeup_causal_aggregate"):
 		return label("唤醒链聚合", "wakeup-chain aggregate")
 	case strings.HasPrefix(claim, "root_evidence"):
-		return label("根因证据", "root-cause evidence")
+		// This reduced-shape support family lacks rank-board attribution
+		// authority, even when the raw witness has a direct-cause provenance.
+		// Its historical name alone must never claim an established root cause.
+		return label("分析支撑观测", "analysis supporting observation")
 	case strings.HasPrefix(claim, "top_io_inode"):
 		return label("IO 热点对象", "IO hotspot object")
 	default:
@@ -23715,11 +23718,15 @@ func traceQueryObservationSupplementClaimLabel(record types.ObservationRecord, z
 func traceQueryObservationSupplementNonCauseLabel(record types.ObservationRecord, zh bool) string {
 	relevance := strings.ToLower(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyChainRelevance))
 	causality := strings.ToLower(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyCausality))
+	tier := traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyTier)
 	label := func(zhLabel, enLabel string) string {
 		if zh {
 			return zhLabel
 		}
 		return enLabel
+	}
+	if tier == types.TraceCausalTierDataGap {
+		return label("证据覆盖缺口", "evidence coverage gap")
 	}
 	// Conflict handling is deliberately fail-closed on the display face: an
 	// explicit background/adjacent marker wins over a stale cause-family key.
@@ -23735,6 +23742,9 @@ func traceQueryObservationSupplementNonCauseLabel(record types.ObservationRecord
 	}
 	if causality == "unproven" {
 		return label("待核实候选观测", "unproved candidate observation")
+	}
+	if tier == types.TraceCausalTierContextOnly {
+		return label("分析支撑观测", "analysis supporting observation")
 	}
 	return ""
 }

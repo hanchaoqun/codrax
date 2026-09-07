@@ -57380,6 +57380,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1658 r1033 收账与 B1600–B1602：不以机器通过掩盖合同冲突或归因错误（2026-09-07）
+
+干净 `8cba22b92108` 04:26:46 严格并行 H1 真 Trace 与 C++ Sink 继承读问答；机器2/2 PASS（204s/96s）。人工：C++核心三类、位置和两级继承正确，附加“仅覆写write”遗漏name；H1核心IPC结论不通过，S睡眠被说成无同步阻塞、请求接收被说成事务完成、下界被说成唯一总量、普通sleep被说成pacing，剩余peer计数也不一致。完整证据、真实日志/答案路径在 `eval/parallel_selected_summary_evalcampaign_trace_binder_cpp_read_r1033_20260907_manual_audit.md`，机器表同前缀。没有修改旧答案或oracle。
+
+| 优先级 / 工单 | 准确性复核与泛化修向 | 本批状态 |
+|---|---|---|
+| P1 / B1600-PRINCIPALITEMOWNERCONSISTENCY1 | C++模型首稿只选择evidence_ids；系统自动绑定source_inventory_row_id后再因双owner硬拒。自动补全必须尊重已有精确owner，不能删除模型字段或让正常输入被自铸字段拒绝；显式冲突/未知ID/必需行身份原门保持 | 真实入口先红，单组/分组与多种item载体施工验证中 |
+| P2 / B1601-TRACESUPPORTCLAIMLABEL1 | reduced root_evidence全是无排名支撑，但系统附录叫“根因证据”，包括15.758/15.565ms pacing。root_evidence改中性分析支撑观测；root_cause的精确context_only/data_gap分别中性/覆盖缺口，背景/邻近沿原typed标记更具体；已证onchain主次根因原词形不变 | 已实现；实际ParseOutput中英22臂先红后绿，ledger/投影canonical JSON/模型文档不变；完整agent49.768s通过 |
+| P1 / B1602-BLOCKINGMEASUREMENTTIERIDENTITY1 | target_self_state因Rank=0正确降为support显示predicate，但下游等待测量消费误绑旧predicate而漏收精确Binder1.409ms。改用现有deterministic dimension+tier及原target/window/value/span门；不提升排名，不把critical发送包络猜成阻塞时长 | 已实现；真实Donghu BuildIndex→Run→typedObservations→Authority→双语附注先红后绿，恢复至少1段1.409ms；同窗仅Binder与两IO类型，无pacing误纳，count3绿；全包待统一 |
+
+H1输入已经明确S不排除同步等待、传输与阻塞不同、容量下界不得说全部（log2366–2405）；这些模型误读列P2观察，不新增关键词硬门/重复堆prompt。B1602是独立的精确数据漏传，不能以“模型波动”掩盖。14.302ms实际13763.009537..13763.023839完整在用户窗，错误仅是无凭证pacing归因，不立“窗外”假案。
+
+不遗漏的后续项：C++principal/supporting成员域对齐P2待审（准确ConsoleSink/FileSink定义被放support，产生弱证据警示）；Binder critical twin起点为发送、值为睡眠阻塞，0.050ms口径差仍独立保留，正确extent门没有放松；全量Binder等待仍需完整观测，恢复下界不意味着现已统计所有事务。root-causes.json本轮已生成139B typed-unavailable，模型未补14个可选ID的selection，不是旁路漏写，系统不得从正文代填。
+
+状态：`r1033=machine-pass-2/2,human-cpp-core-pass+trace-core-fail`；`B1601=implemented/agent-full-pass`；`B1600/B1602=in-flight-bounded-batches`；`Trace-explicit-window/projection/two-axes/business-context=preserved`；`non-chain=root-ineligible`；`model-prose-hardgate/rewrite=none`。
+
 ### §123.1657 B1599：补读后的当前缺口与历史完成边界分离（2026-09-07）
 
 1. r1032 的 Java 生产见证复核成立：历史 demotion 只有 ForcedReadCoverage 席位、没有来源；后续真实完整读取无法解除附注，且 `acceptedClosureHasTypedUnresolvedBoundary` 同样消费历史值，污染最终入模边界提示。不是模型波动，不通过删改模型正文处理。
@@ -57390,7 +57406,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 6. 测试留痕：`.codrax/tmp/20260907-b1599-{types-red,types-green,wiring-red,wiring-green,hint-replay-green}.log`。交叉审查补了旧 parent/旧 fork 双向无来源合并反例，最终 types 全包 42.051s、定向 race count3 1.926s 通过；真实入口针明确断言 offset=1 的确只读取第 2 行，避免小文件首页自动扩读让 partial 测试碰巧通过。初次五包全绿（tool 314.363s、agent 55.808s、orchestrator 19.218s、tracediag 9.708s、tracequery 104.315s）；末轮类型兼容分支与措辞微调后正做最终快照复验，日志 `20260907-b1598-b1599-final-full-packages.log`，不把早先全包结果冒称末次快照。
 7. 活跃流补跑 `20260907-active-stream-regression.log`：repl 2.993s / llm 0.675s 通过；并非“4ms/固定4分钟未输出答案就降级”，实际流仍活跃时不采用非流式固定请求超时，显式总预算/取消/真实无字节超时仍有效。未知来源与部分范围的系统警示统一为“尚未确认读全”，不把未知事实说成确定未读。
 
-状态：`B1599=implemented/real-entry-red-to-green/current-display-only/initial-full-pass+final-types-race-pass/final-cross-package-recheck-running`；`B1598=committed+pushed-5d364dfa9`；`source-key=physical-repository+exact-relative-file+ranges`；`accepted-gate-history=preserved`；`model-answer/conclusion/diagram=untouched`；`Trace-root=on-chain-only/background=support-only`。
+8. B1599 已提交推送 `8cba22b92`。最终五包复验退出 0：tool 309.192s、agent 69.774s、orchestrator 24.746s、tracediag 缓存通过、tracequery 104.297s；最后系统警示措辞调整另跑完整 orchestrator 15.350s 通过。最终 types 全包/race 见上，实际部分读取针 count3 1.236s 通过。由该干净提交构建的 r1033 已于 04:26:46 严格启动两路，不以本批回归冒充后续新代码的完整包验证。
+
+状态：`B1599=committed+pushed-8cba22b92/real-entry-red-to-green/current-display-only/final-affected-full+types-race-pass`；`B1598=committed+pushed-5d364dfa9`；`source-key=physical-repository+exact-relative-file+ranges`；`accepted-gate-history=preserved`；`model-answer/conclusion/diagram=untouched`；`Trace-root=on-chain-only/background=support-only`。
 
 ### §123.1656 B1598：等待词面与检索三层计数，同源读者说明（2026-09-07）
 
