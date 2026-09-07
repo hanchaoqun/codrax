@@ -60,7 +60,7 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 		"fold=sum_disjoint",
 		"channel=chain",
 		"confidence=0.80",
-		"cross_seat_aggregation_authority=forbidden",
+		"cross_seat_aggregation_authority=not_provided_by_this_row",
 		// CR-3 件③ P11 (冷读案8): the seat's process attribution (tgid) on
 		// the LLM face — bare thread names stay traceable to their process.
 		"tgid=2916",
@@ -186,7 +186,7 @@ func TestTraceRootCauseBoardSummary_FixDirectionWord(t *testing.T) {
 	// 件⑤ EVOLUTION (§29.160⑤ user ruling 2026-07-20: EN 双面并列): the row
 	// wears the zh face WITH its Table ⑦ EN face in parentheses — one pair,
 	// both halves from tracefence.FixDirectionWord (零二表).
-	want := "- #1 root-cause seat — .ugc.aweme.lite-17267 · running · channel=chain · confidence=0.86 · cross_seat_aggregation_authority=forbidden · tgid=17267 · 58.320ms (effective attribution) · tier=primary · 修向=频率与热治理 (frequency & thermal) · repair_lane_fold=max_on_chain_seat_not_sum"
+	want := "- #1 root-cause seat — .ugc.aweme.lite-17267 · running · channel=chain · confidence=0.86 · cross_seat_aggregation_authority=not_provided_by_this_row · tgid=17267 · 58.320ms (effective attribution) · tier=primary · 修向=频率与热治理 (frequency & thermal) · repair_lane_value=single_seat_not_direction_total"
 	if !strings.Contains(summary, want) {
 		t.Fatalf("the #1 seat must wear its typed direction word pair verbatim (件⑤ EN 双面), want\n%q\nin:\n%s", want, summary)
 	}
@@ -196,15 +196,13 @@ func TestTraceRootCauseBoardSummary_FixDirectionWord(t *testing.T) {
 	if got := strings.Count(summary, "· 修向="); got != 1 {
 		t.Fatalf("only note-carrying rows may wear 修向= (want 1 row token, got %d):\n%s", got, summary)
 	}
-	// The preamble teaches the repair-lane rule alongside the token. 返工
-	// P2-1 (双复核): the lane maximum is CHANNEL-QUALIFIED — adjacent rows
-	// also wear 修向= and can exceed the chain maximum, but the ◎ section
-	// heads fold on-chain members only, so an unqualified sentence would let
-	// the model derive a lane maximum larger than the rendered board's.
+	// B1590a retains the channel-qualified direction boundary, but a largest
+	// member is not a total/ceiling. Exact composition belongs to its own
+	// typed carrier, never to the bare direction label or this row.
 	for _, teach := range []string{
 		"seats sharing one 修向 form ONE repair lane",
-		"LARGEST on-chain seat value — never the seats' sum",
-		"adjacent rows are conditional upper bounds and never join the lane maximum",
+		types.TraceRepairDirectionValueTeaching,
+		"Adjacent rows remain conditional upper bounds outside that lane",
 		"A row without 修向 published no direction; never infer one",
 	} {
 		if !strings.Contains(summary, teach) {

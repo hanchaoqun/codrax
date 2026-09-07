@@ -57393,9 +57393,9 @@ H7模型仍将74.915运行称为最大状态（S为118.586）、D/IO混称、将
 
 | 批次 | 优先级 / 已证机制 | 施工边界 / 状态 |
 |---|---|---|
-| B1588-ENUMERATIONMULTIFAMILYTEACHING1 | P1，上批追审确认：旧Principal Enumeration仍将首marker当唯一分类计数，落后于已支持plural的typed gate | 纯显示共享完整family与允许重叠的命中计数，总声明不增、不能相加；不改rowID、SelectionFamily、canonical去重、analyzer角色或资格。施工中，旧排他显示pin明确换为重叠反例，不暗改门 |
-| B1589-WRITECONTRACTPOLARITYREPAIR1 | P1，TS日志实发not_contains被quality repair换成satisfies，expected仍为GET with URLSearchParams，否定语义丢失 | 保留Operator/Expected/Polarity，仅以已有Required=false+planning-only marker降权；各必需ID/proof消费者已复核排除，不新造执行凭证。invalid-placement分支另案，不能顺手把局部约束变全局约束。施工中 |
-| B1590a-TRACEBOARDDIRECTIONTEACHING1 | P1，现场与源码双证：context摘要仍教方向总量只能取最大单项，与同prompt精确小计5.324ms及B1573教学矛盾 | 复用/抽取现有同向小计边界；无typed加总凭证仍不得任意求和，最大单项也不得冒充可回收上限；不改值或模型答案。施工中 |
+| B1588-ENUMERATIONMULTIFAMILYTEACHING1 | P1，上批追审确认：旧Principal Enumeration仍将首marker当唯一分类计数，落后于已支持plural的typed gate | 已提交推送`f058711dc`；纯显示共享完整family与允许重叠的命中计数，总声明不增、不能相加；不改rowID、SelectionFamily、canonical去重、analyzer角色或资格。旧排他显示pin明确换为重叠反例，不暗改门 |
+| B1589-WRITECONTRACTPOLARITYREPAIR1 | P1，TS日志实发not_contains被quality repair换成satisfies，expected仍为GET with URLSearchParams，否定语义丢失 | 已提交推送`5461676fb`；保留Operator/Expected/Polarity，仅以已有Required=false+planning-only marker降权；各必需ID/proof消费者已复核排除，不新造执行凭证。invalid-placement分支另案，不能顺手把局部约束变全局约束 |
+| B1590a-TRACEBOARDDIRECTIONTEACHING1 | P1，现场与源码双证：context摘要仍教方向总量只能取最大单项，与同prompt精确小计5.324ms及B1573教学矛盾 | 已实现、受影响三完整包通过，见下验收；抽取现有同向小计边界，无typed加总凭证仍不得任意求和，最大单项也不得冒充可回收上限；不改值或模型答案 |
 | B1590b-TRACEBOARDQUERYDOMAIN1 | P1，context同窗不同参数榜单丢组身份、同rank混排后称单一排序 | 需保留工件/目标/窗口/参数域分组与同组排序，不能last-wins或按字符串选榜。原投影参数域有保留；先冻结设计，不能把改变查询深度的合法值差误当计算错 |
 | B1586b/c / oracle债 | P2，逐属性可用性/精确任务绑定及合并表、合法query参数的评测分域 | 继续开放；不猜缺失属性、不全局ready跳任务、不改case收绿。跨语言细粒度执行receipt仍是能力债，人工Node通过不替产品签绿 |
 
@@ -57410,6 +57410,16 @@ Principal Enumeration显示与硬门已经支持的plural family同源：逐行�
 缺精确绑定的合同只失去requirement authority，不失去含义：保留原Operator/Expected/Polarity，Required=false并加现成planning-only标记。原未经降权IR仍被既有质量门拒，已绑定证据的精确合同仍硬必需；规划上下文保持正/否定运算符及P1参考，验证上下文不消费规划条目。无新增字段、hard gate、正文/历史计划语义猜回。
 
 真实RunWriteAnalyzePhase入口及9运算符×2极性先红后绿，另54个请求精确值/ref/comparator/observed/non-required对照；JSON持久化重载、normalize、必需ID集合排除、原IR字节不变、修复幂等均钉。旧测试从“变satisfies”明确改为“只降权限”，不是移除质量验收。`20260906-b1589-{red,green}.log`同族count=3绿1.083s；完整orchestrator14.924s退出0（`20260907-b1589-orchestrator-full.log`）。invalid-placement分支原实现与测试未改，其局部约束/否定保真需单独设计，不能删除位置后默认为全局禁令；历史已丢operator的计划也不猜测复原。
+
+#### B1590a实施验收（2026-09-07）
+
+旧board摘要的“同方向只能取最大单项”与已发布的精确小计教学冲突；逐行无条件`cross_seat_aggregation_authority=forbidden`也会误否定由其它组合凭证成立的小计。现抽取B1573原830字符教学为单一常量，skill与context共用：最大单项不是方向总量/可回收上限；有精确同向小计才按其成员与算术口径使用，不从标签相同推加法，也不把保守下界、供给折算或head-room估计换成上界/实测节省。
+
+逐行现在明确“本行不提供跨席加总权限”“本值是单项而非方向总量”；只修显示，不撤销真正typed overlap/组合边界的禁止状态。无值通道、排名、原始数据、链上资格、窗口/补采或模型答案变更。原skill段全文4516字符字节不变，SHA256=`b1f03b587f5b72994525824b665b28c5490db3eed27c323aea0f88cd838de31e`；context前言压缩后1588→1857字符（+269），不复制长教学。
+
+真实BuildPromptContext→ToMessages及现有方向算术覆盖可加的同榜不交叠正例、重叠/缺区间/异榜负例，有限事实清单不误带因果榜、原observation深等不变；旧词面pin明确换为新边界，没有删测试或提阈值。先红日志`b1590a-direction-red.log`；同族count=3最终绿`b1590a-direction-final.log`。最终受影响三完整包退出0：context0.820s、skill1.460s、types38.382s（`20260907-b1590a-affected-full.log`）。后续全仓另记，不用之前22299b53e的全绿覆盖本修改。
+
+B1590b仍开放：实际同窗不同query参数的榜单混入一个context摘要。需复用既有工件/目标/窗口/参数域身份分组，包含context和selected_window_reader_rank_roster两消费面；不能按latest/最大值/最深查询选一个“权威榜”。本批不声称已修该身份丢失，更不按模型正文猜榜或回写旧答案。
 
 完整人工记录见`eval/parallel_selected_summary_evalcampaign_trace_tswrite_r1029_20260906_manual_audit.md`。此轮不再重开第三个live或追跑同题，先闭环这些泛化的教学/语义保持小批并逐笔提交推送。
 
@@ -57441,10 +57451,10 @@ B1587实现收账：`repoMapSourceInventoryPathDiscoveryRecommendation`只消费
 | 顺序 | 任务 / 覆盖增量 | 验收及状态 |
 |---|---|---|
 | 1 / P1 | B1586a：explorer机械落地与finalizer共享声明行显示；Dossier保留精确类别、多标记、位置/属性 | 已提交推送`4fc28deed`；真实入口先红后绿，3个受影响完整包通过；保留同名不同构造、范围及主/支持清单边界，不新增模型JSON义务 |
-| 2 / P1/P2 | B1586b：完整后端与被裁剪显示不同，emit-only不应要求重抄隐藏信息 | 复核确认既有全量投影/稳定事实继承，非确定性隐藏成员丢失；补大集真实completion入口测试。逐请求属性未提供的状态建模仍是独立残余，不能用nil制造必拒合同 |
+| 2 / P1/P2 | B1586b：完整后端与被裁剪显示不同，emit-only不应要求重抄隐藏信息 | test-only已提交推送`d67e3b2c9`；复核确认既有全量投影/稳定事实继承，非确定性隐藏成员丢失，补大集真实completion入口测试。逐请求属性未提供的状态建模仍是独立残余，不能用nil制造必拒合同 |
 | 3 / P2 | B1586c：只对精确绑定且完整覆盖的机械任务收账，保留独立多主题 | 重复调度有见证，但现有子题无逐主题inventory role/requested-field绑定，先保留设计；不以全局mechanicalReady或节点描述关键词豁免多主题 |
-| r1028 / 两路 | `harmony/arkts_repomap` + `sr_c_xmacro_table` | 待源码验证/提交/干净构建后执行；多标记声明交接与C预处理生成清单/两次展开机制异构读，检查信息是否入模、分类/关系是否正确，不重复仓颉求绿 |
-| r1029 / 两路 | `real_trace_h7_self_seat_full_spectrum` + `github_issue_memoclaw_text_search_multirepo_ts` | 前批人工收账后再启动；具体窗Trace自身运行折算/D-state/链上微贡献/背景隔离与TypeScript跨仓写/真实验证。已测Python写不能替代TS验收 |
+| r1028 / 两路 | `harmony/arkts_repomap` + `sr_c_xmacro_table` | 已完成并逐项人工收账，见§123.1649；机器1/2，ArkTS合并表计数误报和模型措辞问题分开，不改oracle求绿 |
+| r1029 / 两路 | `real_trace_h7_self_seat_full_spectrum` + `github_issue_memoclaw_text_search_multirepo_ts` | 已完成并逐项人工收账，见§123.1650；机器0/2，Trace能力保留但答案部分不准，TS补丁行为正确但正式逐义务证明不足，不以人工补验替产品签绿 |
 
 当前case总盘仍243项：read215、apply25、plan3。排序依据为确定性系统损失、用户影响、跨语言/模式覆盖增量、真实执行可验证性和近期重复度，不改case/oracle以提高通过率。每批严格两路，若出现更高ROI确定性问题先记账修复；模型有足够信息仍表达不准则保留质量观察，不靠系统代写或原文扫描硬化。
 

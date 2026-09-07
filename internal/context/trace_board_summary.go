@@ -176,12 +176,12 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	} else {
 		b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. ")
 	}
-	b.WriteString("This board is authoritative for ranked eliminable-seat order and published values, not by itself for a mechanism or end-to-end causal verdict. The separately supplied selected claim-caliber contract decides whether visible prose may describe the ordered leader as a typed cause, a bounded candidate, or no causal conclusion. Present eligible seats in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread measurements — wall-clock or converted, per each row's own published caliber word), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window. When a row lists 修向=X, X is that seat's typed repair-direction word published as the 中文 face with its English face in parentheses — one closed registry vocabulary behind both faces, copied verbatim as a pair (this word IS the row's repair semantics, so never re-classify the seat under a different direction by its bare state word): seats sharing one 修向 form ONE repair lane, and that lane's maximum recoverable amount is the direction's LARGEST on-chain seat value — never the seats' sum; adjacent rows are conditional upper bounds and never join the lane maximum. A row without 修向 published no direction; never infer one.\n")
+	b.WriteString("This board is authoritative for ranked eliminable-seat order and published values, not by itself for a mechanism or end-to-end causal verdict. The selected claim-caliber contract distinguishes a typed cause, a bounded candidate, or no causal conclusion; the model owns that conclusion. Preserve the published order and values; explain a justified deviation, never reorder silently. Use each value with its caliber; never sum rows together without exact typed composition authority: they are per-thread measurements — wall-clock or converted, per each row's own published caliber word. Exact composition authorizes only its named members/caliber, not guaranteed repair benefit. representative_window is ONE occurrence among several, not a whole-window total. When 修向=X is published, use that registry-backed direction: seats sharing one 修向 form ONE repair lane; keep every published on-chain direction. Adjacent rows remain conditional upper bounds outside that lane. " + types.TraceRepairDirectionValueTeaching + " A row without 修向 published no direction; never infer one.\n")
 	if omittedSupportingWindows {
 		b.WriteString("Measurements from exploratory or narrower query windows remain available in the evidence ledger but are omitted from this principal requested-window board; never add or compare their raw durations across windows.\n")
 	}
 	writeRow := func(row traceBoardRow, channelWord string) {
-		line := fmt.Sprintf("- #%d %s — %s · %s · channel=%s · confidence=%.2f · cross_seat_aggregation_authority=forbidden", row.rank, channelWord, firstNonEmptyBoardField(row.subject, "(window-level)"), row.typeToken, row.channel, row.confidence)
+		line := fmt.Sprintf("- #%d %s — %s · %s · channel=%s · confidence=%.2f · cross_seat_aggregation_authority=not_provided_by_this_row", row.rank, channelWord, firstNonEmptyBoardField(row.subject, "(window-level)"), row.typeToken, row.channel, row.confidence)
 		if row.tgid != "" {
 			// CR-3 件③ P11: the seat's process attribution (tgid) — bare
 			// thread names stay traceable to their process on the LLM face.
@@ -197,9 +197,9 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 		if row.fixDirection != "" {
 			// FREQDIR-1 件1 (§29.149): the typed repair-direction word,
 			// verbatim from the single word-face source — the preamble
-			// carries the lane rule (same-direction seats = one repair lane,
-			// lane max = the direction's largest seat value).
-			line += " · 修向=" + row.fixDirection + " · repair_lane_fold=max_on_chain_seat_not_sum"
+			// carries the lane rule. This row supplies a single value, never
+			// a direction-total or counterfactual arithmetic permission.
+			line += " · 修向=" + row.fixDirection + " · repair_lane_value=single_seat_not_direction_total"
 		}
 		if row.representativeWindow != "" {
 			// CR-2 组③ P7 / F-4: the first typed occurrence window, labeled as
