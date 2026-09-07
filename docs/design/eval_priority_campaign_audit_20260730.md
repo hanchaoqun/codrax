@@ -57405,6 +57405,12 @@ Principal Enumeration显示与硬门已经支持的plural family同源：逐行�
 
 实际finalizer六坐标4+2先红后绿：完整@Component/@Entry、Builder计数入模，逐行member/location/citation与profile/observation/registry深等，缺type角色不猜补。同名异源/不同构造不合并，显示32类/每类96字符及每行8类省略均诚实且不裁后台。原计数helper移出热文件以保持复杂度ratchet，无新schema、gate或答案改写。日志`20260906-b1588-{red,green,regression}.log`；相关族绿，完整agent包51.075s退出0（`20260907-b1588-agent-full.log`）。lineage首标记比较仍未有独立反例，不冒称本批修复了后台资格。
 
+#### B1589实施验收（2026-09-07）
+
+缺精确绑定的合同只失去requirement authority，不失去含义：保留原Operator/Expected/Polarity，Required=false并加现成planning-only标记。原未经降权IR仍被既有质量门拒，已绑定证据的精确合同仍硬必需；规划上下文保持正/否定运算符及P1参考，验证上下文不消费规划条目。无新增字段、hard gate、正文/历史计划语义猜回。
+
+真实RunWriteAnalyzePhase入口及9运算符×2极性先红后绿，另54个请求精确值/ref/comparator/observed/non-required对照；JSON持久化重载、normalize、必需ID集合排除、原IR字节不变、修复幂等均钉。旧测试从“变satisfies”明确改为“只降权限”，不是移除质量验收。`20260906-b1589-{red,green}.log`同族count=3绿1.083s；完整orchestrator14.924s退出0（`20260907-b1589-orchestrator-full.log`）。invalid-placement分支原实现与测试未改，其局部约束/否定保真需单独设计，不能删除位置后默认为全局禁令；历史已丢operator的计划也不猜测复原。
+
 完整人工记录见`eval/parallel_selected_summary_evalcampaign_trace_tswrite_r1029_20260906_manual_audit.md`。此轮不再重开第三个live或追跑同题，先闭环这些泛化的教学/语义保持小批并逐笔提交推送。
 
 ### §123.1649 r1028人工收账与B1587阶段指引冲突（2026-09-06）

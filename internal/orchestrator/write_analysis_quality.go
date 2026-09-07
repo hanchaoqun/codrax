@@ -68,10 +68,11 @@ func repairWriteAnalysisIRQuality(ir *types.WriteAnalysisIR) (*types.WriteAnalys
 		if writeAnalysisContractNeedsExactGrounding(*contract) {
 			expected := strings.TrimSpace(contract.Expected)
 			if expected != "" && !strings.Contains(raw, expected) && !writeBehaviorContractGroundsExactExpected(*contract, raw) {
-				oldOperator := contract.Operator
-				contract.Operator = types.WriteBehaviorOpSatisfies
-				contract.Source = appendWriteAnalysisContractSource(contract.Source, "quality_repaired:softened_ungrounded_exact")
-				repairs = append(repairs, fmt.Sprintf("behavior_contracts[%d] id=%q operator=%s->%s", i, contract.ID, oldOperator, contract.Operator))
+				// Missing grounding removes requirement authority, not the
+				// model's proposed meaning (including a negative operator).
+				contract.Required = false
+				contract.Source = appendWriteAnalysisContractSource(contract.Source, types.WriteBehaviorContractSourcePlanningOnlyUngrounded)
+				repairs = append(repairs, fmt.Sprintf("behavior_contracts[%d] id=%q authority=planning_only", i, contract.ID))
 			}
 		}
 		if writeAnalysisContractNeedsRequirementAuthority(*contract) &&

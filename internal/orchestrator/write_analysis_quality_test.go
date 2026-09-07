@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -215,7 +217,7 @@ func TestWriteAnalysisIRQualityRejectionRejectsUngroundedRenderedTextPlacement(t
 	}
 }
 
-func TestRepairWriteAnalysisIRQualitySoftensOnlyUngroundedExactContracts(t *testing.T) {
+func TestRepairWriteAnalysisIRQualityCalibratesOnlyUngroundedExactAuthority(t *testing.T) {
 	ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
 		RawRequest:       "Desired output contains rainfall, in mm (time, y, x) float32 ... and Array([]) raises ValueError",
 		Task:             types.WriteTask{Kind: types.WriteTaskFeature, Scope: types.ScopePackage, Summary: "show units"},
@@ -247,8 +249,8 @@ func TestRepairWriteAnalysisIRQualitySoftensOnlyUngroundedExactContracts(t *test
 
 	repaired, repairs := repairWriteAnalysisIRQuality(ir)
 
-	if len(repairs) != 2 || !strings.Contains(strings.Join(repairs, "\n"), "ungrounded-no-raise") {
-		t.Fatalf("expected exact softening plus planning-only calibration, got %+v", repairs)
+	if len(repairs) != 1 || !strings.Contains(repairs[0], "ungrounded-no-raise") {
+		t.Fatalf("expected only planning-only authority calibration, got %+v", repairs)
 	}
 	if got := writeAnalysisIRQualityRejection(repaired); got != "" {
 		t.Fatalf("repaired IR should satisfy quality gate, got %q", got)
@@ -260,11 +262,8 @@ func TestRepairWriteAnalysisIRQualitySoftensOnlyUngroundedExactContracts(t *test
 		t.Fatalf("grounded exact contract should remain hard, got %+v", repaired.Request.BehaviorContracts[0])
 	}
 	soft := repaired.Request.BehaviorContracts[1]
-	if soft.Operator != types.WriteBehaviorOpSatisfies {
-		t.Fatalf("ungrounded exact contract should become soft satisfies, got %+v", soft)
-	}
-	if !strings.Contains(soft.Source, "quality_repaired:softened_ungrounded_exact") {
-		t.Fatalf("softened contract should be source-tagged, got %+v", soft)
+	if soft.Operator != types.WriteBehaviorOpNotRaises {
+		t.Fatalf("planning guidance must retain its original negative operator, got %+v", soft)
 	}
 	if soft.Required || !types.IsPlanningOnlyWriteBehaviorContract(soft) {
 		t.Fatalf("ungrounded analyzer example must remain planning guidance, not a verifier target: %+v", soft)
@@ -395,8 +394,10 @@ func TestRunWriteAnalyzePhaseRepairsUngroundedExactContractWithoutWholeIRRetry(t
 	}
 	got := mu.WriteAnalysisIR()
 	if got == nil || len(got.Request.BehaviorContracts) != 1 ||
-		got.Request.BehaviorContracts[0].Operator != types.WriteBehaviorOpSatisfies {
-		t.Fatalf("final IR should preserve and soften only the ungrounded contract: %+v", got)
+		got.Request.BehaviorContracts[0].Operator != types.WriteBehaviorOpEquals ||
+		got.Request.BehaviorContracts[0].Required ||
+		!types.IsPlanningOnlyWriteBehaviorContract(got.Request.BehaviorContracts[0]) {
+		t.Fatalf("final IR should preserve exact semantics without ungrounded verifier authority: %+v", got)
 	}
 	if got.Request.Task.Summary != "fix array empty" || len(got.Request.Constraints) != 1 ||
 		len(got.Request.ExpectedOutcomes) != 1 || len(got.PitfallsApplied) != 1 {
@@ -532,11 +533,154 @@ func TestRunWriteAnalyzePhaseRepairsFirstIRUngroundedContractInsteadOfRetryOrFal
 	if got.Request.BehaviorContracts[0].Operator != types.WriteBehaviorOpContains {
 		t.Fatalf("grounded output contract should remain hard, got %+v", got.Request.BehaviorContracts[0])
 	}
-	if got.Request.BehaviorContracts[1].Operator != types.WriteBehaviorOpSatisfies ||
-		!strings.Contains(got.Request.BehaviorContracts[1].Source, "quality_repaired:softened_ungrounded_exact") {
-		t.Fatalf("ungrounded contract should be softened and tagged, got %+v", got.Request.BehaviorContracts[1])
+	if got.Request.BehaviorContracts[1].Operator != types.WriteBehaviorOpNotRaises ||
+		got.Request.BehaviorContracts[1].Required ||
+		!types.IsPlanningOnlyWriteBehaviorContract(got.Request.BehaviorContracts[1]) {
+		t.Fatalf("ungrounded contract should retain negative semantics as planning-only guidance, got %+v", got.Request.BehaviorContracts[1])
 	}
 	if strings.Contains(got.Request.Task.Summary, "Follow the user's requested") {
 		t.Fatalf("should not install fallback IR after partial contract repair: %+v", got.Request.Task)
+	}
+}
+
+// B1589: requirement authority and the model's proposed meaning are separate
+// axes. Unsupported exactness removes verifier authority, not negation (or any
+// other operator). This matrix deliberately covers all exact operators rather
+// than teaching the repair about one request, language, or expected string.
+func TestB1589UngroundedExactCalibrationPreservesSemantics(t *testing.T) {
+	operators := []types.WriteBehaviorOperator{
+		types.WriteBehaviorOpEquals, types.WriteBehaviorOpNotEquals,
+		types.WriteBehaviorOpContains, types.WriteBehaviorOpNotContains,
+		types.WriteBehaviorOpExists, types.WriteBehaviorOpNotExists,
+		types.WriteBehaviorOpRaises, types.WriteBehaviorOpNotRaises,
+		types.WriteBehaviorOpReturns,
+	}
+	for _, operator := range operators {
+		for _, polarity := range []types.WriteBehaviorPolarity{types.WriteBehaviorPolarityExpected, types.WriteBehaviorPolarityForbidden} {
+			t.Run(string(operator)+"/"+string(polarity), func(t *testing.T) {
+				contract := types.WriteBehaviorContract{
+					ID: "candidate", Kind: types.WriteBehaviorObservable, Polarity: polarity,
+					Subject: "candidate behavior", Operator: operator, Expected: "opaque-exact-value",
+					Required: true, Source: "write_analyzer",
+				}
+				ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
+					RawRequest: "repair behavior", BehaviorContracts: []types.WriteBehaviorContract{contract},
+				}}
+				before, err := json.Marshal(ir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if rejection := writeAnalysisIRQualityRejection(ir); rejection == "" {
+					t.Fatal("ungrounded required exact contract must still fail the existing quality check")
+				}
+
+				repaired, repairs := repairWriteAnalysisIRQuality(ir)
+				if len(repairs) != 1 || !strings.Contains(repairs[0], "authority=planning_only") {
+					t.Fatalf("want one authority-only calibration, got %v", repairs)
+				}
+				want := contract
+				want.Required = false
+				want.Source += ";" + types.WriteBehaviorContractSourcePlanningOnlyUngrounded
+				if got := repaired.Request.BehaviorContracts[0]; !reflect.DeepEqual(got, want) {
+					t.Fatalf("calibration changed more than authority: got %+v, want %+v", got, want)
+				}
+				after, err := json.Marshal(ir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(after) != string(before) {
+					t.Fatalf("repair mutated the analyzer's original IR: before=%s after=%s", before, after)
+				}
+				if rejection := writeAnalysisIRQualityRejection(repaired); rejection != "" {
+					t.Fatalf("planning-only exact meaning must not become a hard rejection: %s", rejection)
+				}
+
+				// The persisted marker must survive omission of required=false in
+				// JSON and normalization; preserving an operator cannot promote it
+				// back into the source-contract/proof completion lane.
+				data, err := json.Marshal(repaired)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var reloaded types.WriteAnalysisIR
+				if err := json.Unmarshal(data, &reloaded); err != nil {
+					t.Fatal(err)
+				}
+				contracts := types.NormalizeWriteBehaviorContracts(reloaded.Request.BehaviorContracts, nil)
+				if len(contracts) != 1 || !reflect.DeepEqual(contracts[0], want) {
+					t.Fatalf("reload changed authority or meaning: %+v", contracts)
+				}
+				if len(types.RequiredWriteBehaviorContractIDs(contracts, true)) != 0 ||
+					len(types.HardRequiredWriteBehaviorContractIDs(contracts)) != 0 ||
+					types.IsHardRequiredWriteBehaviorContract(contracts[0]) {
+					t.Fatalf("planning-only contract acquired proof completion authority: %+v", contracts)
+				}
+				pack := types.WriteContextPackFromWriteAnalysisIR(repaired)
+				plannerView := pack.View(types.WriteConsumerPlanner, 10)
+				if len(plannerView.Items) != 1 || plannerView.Items[0].Priority != types.WriteContextP1 ||
+					!strings.Contains(plannerView.Items[0].Text, "operator="+string(operator)) ||
+					!strings.Contains(plannerView.Items[0].Text, "polarity="+string(polarity)) ||
+					!strings.Contains(plannerView.Items[0].Text, "expected="+contract.Expected) ||
+					!strings.Contains(plannerView.Items[0].Text, "planning_only=true") {
+					t.Fatalf("planner lost the original proposed meaning or its advisory boundary: %+v", plannerView)
+				}
+				if verifierView := pack.View(types.WriteConsumerVerifier, 10); len(verifierView.Items) != 0 {
+					t.Fatalf("planning-only proposal entered verifier context: %+v", verifierView)
+				}
+				again, againRepairs := repairWriteAnalysisIRQuality(repaired)
+				if len(againRepairs) != 0 || !reflect.DeepEqual(again, repaired) {
+					t.Fatalf("calibration is not idempotent: repairs=%v got=%+v", againRepairs, again)
+				}
+			})
+		}
+	}
+}
+
+func TestB1589ExactCalibrationPreservesGroundedAndNonRequiredContracts(t *testing.T) {
+	for _, operator := range []types.WriteBehaviorOperator{
+		types.WriteBehaviorOpEquals, types.WriteBehaviorOpNotEquals,
+		types.WriteBehaviorOpContains, types.WriteBehaviorOpNotContains,
+		types.WriteBehaviorOpExists, types.WriteBehaviorOpNotExists,
+		types.WriteBehaviorOpRaises, types.WriteBehaviorOpNotRaises,
+		types.WriteBehaviorOpReturns,
+	} {
+		for _, witness := range []string{"request", "evidence_ref", "comparator_ref", "comparator_request", "observed", "not_required"} {
+			t.Run(string(operator)+"/"+witness, func(t *testing.T) {
+				contract := types.WriteBehaviorContract{
+					ID: "preserved", Kind: types.WriteBehaviorObservable, Polarity: types.WriteBehaviorPolarityExpected,
+					Subject: "behavior", Operator: operator, Expected: "opaque-exact-value",
+					Required: true, Source: "write_analyzer",
+				}
+				raw := "repair behavior; compare with baseline-value"
+				switch witness {
+				case "request":
+					raw += "; opaque-exact-value"
+				case "evidence_ref":
+					contract.EvidenceRef = "tests/behavior_test.go:11"
+				case "comparator_ref":
+					contract.Comparator = &types.WriteBehaviorComparator{EvidenceRef: "tests/behavior_test.go:12"}
+				case "comparator_request":
+					contract.Comparator = &types.WriteBehaviorComparator{Expected: "baseline-value"}
+				case "observed":
+					contract.Polarity = types.WriteBehaviorPolarityObserved
+				case "not_required":
+					contract.Required = false
+				}
+				ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{RawRequest: raw, BehaviorContracts: []types.WriteBehaviorContract{contract}}}
+				repaired, repairs := repairWriteAnalysisIRQuality(ir)
+				if len(repairs) != 0 || !reflect.DeepEqual(repaired, ir) || !reflect.DeepEqual(repaired.Request.BehaviorContracts[0], contract) {
+					t.Fatalf("unaffected contract was changed: repairs=%v got=%+v want=%+v", repairs, repaired, contract)
+				}
+				if rejection := writeAnalysisIRQualityRejection(repaired); rejection != "" {
+					t.Fatalf("unaffected contract should retain existing quality admission: %s", rejection)
+				}
+				if witness != "observed" && witness != "not_required" {
+					if !types.IsHardRequiredWriteBehaviorContract(repaired.Request.BehaviorContracts[0]) ||
+						len(types.RequiredWriteBehaviorContractIDs(repaired.Request.BehaviorContracts, true)) != 1 {
+						t.Fatalf("grounded exact contract lost its hard requirement: %+v", repaired.Request.BehaviorContracts[0])
+					}
+				}
+			})
+		}
 	}
 }
