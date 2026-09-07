@@ -99,6 +99,13 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 
 func TestTraceRootCauseBoardSummaryCollapsesExactCrossQuerySeat(t *testing.T) {
 	ledger := traceBoardTestLedger()
+	// Deduplication requires the complete typed query domain. Unknown-domain
+	// publications must not borrow identity merely from equal seat labels.
+	for i := range ledger.Records {
+		ledger.Records[i].SourceRef.CaptureIdentityPath = "/capture/customer.systrace"
+		ledger.Records[i].RichNotes = append(ledger.Records[i].RichNotes,
+			"selected_window=1..2", "rank_board_target=ui-42", "rank_board_params_fingerprint=params")
+	}
 	duplicate := ledger.Records[0]
 	duplicate.ID = "trace_query:supplement#root_cause_rank:1"
 	ledger.Records = append(ledger.Records, duplicate)
@@ -252,7 +259,7 @@ func TestTraceRootCauseBoardSummaryPrefersExplicitRequestedWindow(t *testing.T) 
 
 	summary := formatTraceRootCauseBoardFromLedger(ledger)
 	for _, want := range []string{
-		"single authoritative ordering for the explicitly requested window 13762.791708..13763.024898",
+		"separate ordinal domains for the explicitly requested window 13762.791708..13763.024898",
 		"CompThread_0-2955",
 		"adj-5",
 		"exploratory or narrower query windows remain available in the evidence ledger",
@@ -314,7 +321,7 @@ func TestTraceRootCauseBoardSummaryPreservesEvidenceWhenRequestedWindowWasNotMea
 	if !strings.Contains(summary, "CompThread_0-2955") || !strings.Contains(summary, "keva-1-17437") {
 		t.Fatalf("absence of an exact requested-window board must preserve bounded runtime evidence:\n%s", summary)
 	}
-	if strings.Contains(summary, "single authoritative ordering for the explicitly requested window") {
+	if strings.Contains(summary, "separate ordinal domains for the explicitly requested window") {
 		t.Fatalf("an unmeasured requested window must not be claimed as measured authority:\n%s", summary)
 	}
 }

@@ -20,7 +20,6 @@ package context
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -84,8 +83,8 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	preferRequestedWindow := requestedWindow && traceBoardHasSeatedRequestedWindow(
 		ledger.Records, requestedStart, requestedEnd)
 	omittedSupportingWindows := false
-	var chain, adjacent []traceBoardRow
-	seenRows := map[string]bool{}
+	var domains []*traceBoardDomain
+	byDomain := map[string]*traceBoardDomain{}
 	for _, record := range ledger.Records {
 		if record.Producer != "trace_query" || !strings.Contains(record.ID, "#root_cause_rank:") {
 			continue
@@ -142,28 +141,12 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 			// allocates ordinals on the chain and adjacent channels).
 			row.channel = "chain"
 		}
-		// Exploration and deterministic supplementation can publish the exact
-		// same final board seat under different result IDs. Result identity is
-		// provenance, not a second ranking seat. Collapse only a byte-exact
-		// typed seat signature; any value/caliber/window disagreement remains
-		// visible for fail-loud auditing.
-		rowKey := traceBoardRowIdentity(row)
-		if seenRows[rowKey] {
-			continue
-		}
-		seenRows[rowKey] = true
-		switch row.channel {
-		case "adjacent":
-			adjacent = append(adjacent, row)
-		default:
-			chain = append(chain, row)
-		}
+		traceBoardAppendDomainRow(&domains, byDomain, record, row)
 	}
-	if len(chain) == 0 && len(adjacent) == 0 {
+	if len(domains) == 0 {
 		return ""
 	}
-	sort.SliceStable(chain, func(i, j int) bool { return chain[i].rank < chain[j].rank })
-	sort.SliceStable(adjacent, func(i, j int) bool { return adjacent[i].rank < adjacent[j].rank })
+	traceBoardSelectDomainRows(domains)
 	var b strings.Builder
 	// DISPHYG-3 件4 (FREQDIR-1 冷读 P3-1, 2026-07-20). EVOLUTION RECORD: the
 	// no-sum parenthetical no longer blanket-claims "wall-clock measurements"
@@ -172,11 +155,11 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	// row's own published caliber word instead (soft teaching lane, never a
 	// gate).
 	if preferRequestedWindow {
-		b.WriteString(fmt.Sprintf("The measured root-cause board below is the single authoritative ordering for the explicitly requested window %.6f..%.6f. ", requestedStart, requestedEnd))
+		b.WriteString(fmt.Sprintf("The measured root-cause boards below are separate ordinal domains for the explicitly requested window %.6f..%.6f. ", requestedStart, requestedEnd))
 	} else {
-		b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. ")
+		b.WriteString("The measured root-cause boards below are separate ordinal domains for this run. ")
 	}
-	b.WriteString("This board is authoritative for ranked eliminable-seat order and published values, not by itself for a mechanism or end-to-end causal verdict. The selected claim-caliber contract distinguishes a typed cause, a bounded candidate, or no causal conclusion; the model owns that conclusion. Preserve the published order and values; explain a justified deviation, never reorder silently. Use each value with its caliber; never sum rows together without exact typed composition authority: they are per-thread measurements — wall-clock or converted, per each row's own published caliber word. Exact composition authorizes only its named members/caliber, not guaranteed repair benefit. representative_window is ONE occurrence among several, not a whole-window total. When 修向=X is published, use that registry-backed direction: seats sharing one 修向 form ONE repair lane; keep every published on-chain direction. Adjacent rows remain conditional upper bounds outside that lane. " + types.TraceRepairDirectionValueTeaching + " A row without 修向 published no direction; never infer one.\n")
+	b.WriteString("There is no single cross-board ranking: capture, analysis target, query window and parameter fingerprint identify each board. Never merge their ordinals or select a winning board by value or query depth. Rows with incomplete identity are retained separately, not assumed to share a board. Each board is authoritative for ranked eliminable-seat order and published values, not by itself for a mechanism or end-to-end causal verdict. The selected claim-caliber contract distinguishes a typed cause, a bounded candidate, or no causal conclusion; the model owns that conclusion. Preserve the published order and values; explain a justified deviation, never reorder silently. Use each value with its caliber; never sum rows together without exact typed composition authority: they are per-thread measurements — wall-clock or converted, per each row's own published caliber word. Exact composition authorizes only its named members/caliber, not guaranteed repair benefit. representative_window is ONE occurrence among several, not a whole-window total. When 修向=X is published, use that registry-backed direction: within one board, seats sharing one 修向 form ONE repair lane; keep every published on-chain direction. Adjacent rows remain conditional upper bounds outside that lane. " + types.TraceRepairDirectionValueTeaching + " A row without 修向 published no direction; never infer one.\n")
 	if omittedSupportingWindows {
 		b.WriteString("Measurements from exploratory or narrower query windows remain available in the evidence ledger but are omitted from this principal requested-window board; never add or compare their raw durations across windows.\n")
 	}
@@ -209,26 +192,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 		}
 		b.WriteString(line + "\n")
 	}
-	if len(chain) > 0 {
-		b.WriteString("On-chain seats (root-cause order):\n")
-		for i, row := range chain {
-			if i >= traceBoardChainRowCap {
-				b.WriteString(fmt.Sprintf("- (+%d more seated rows; see the measured observations)\n", len(chain)-traceBoardChainRowCap))
-				break
-			}
-			writeRow(row, "root-cause seat")
-		}
-	}
-	if len(adjacent) > 0 {
-		b.WriteString("Adjacent-impact seats (time-adjacent to the chain, not on it — a distinct ordinal space, never merged with the on-chain order):\n")
-		for i, row := range adjacent {
-			if i >= traceBoardAdjacentRowCap {
-				b.WriteString(fmt.Sprintf("- (+%d more adjacent rows; see the measured observations)\n", len(adjacent)-traceBoardAdjacentRowCap))
-				break
-			}
-			writeRow(row, "adjacent seat")
-		}
-	}
+	traceBoardWriteDomains(&b, domains, writeRow)
 	return strings.TrimRight(b.String(), "\n")
 }
 

@@ -834,69 +834,6 @@ func traceFinalReaderMechanismScope(token string, zh bool) (permitted, unproved 
 	}
 }
 
-// renderTraceFinalPrincipalRankPopulation repeats the exact selected-window
-// ordinal population at the final synthesis seam. Earlier rank boards remain
-// losslessly available for investigation, but a row measured in a different
-// query window is contextual evidence for this answer and cannot retain its
-// local board ordinal in the elected-window conclusion. This consumes only
-// compiled typed window/rank fields; it neither inspects nor rewrites prose.
-func renderTraceFinalPrincipalRankPopulation(set types.TraceCausalProjectionSet, lang string) string {
-	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
-	var b strings.Builder
-	for index, projection := range set.Projections {
-		if !types.TraceCausalProjectionPrincipalWindowAuthoritative(projection) {
-			continue
-		}
-		label := strings.TrimSpace(projection.ArtifactLabel)
-		if label == "" {
-			label = fmt.Sprintf("trace-%d", index+1)
-		}
-		// Census and display use the same eligibility selector. The bounded
-		// prompt is only a preview, not authority to demote unlisted seats.
-		population := types.TraceAnswerDecisionEliminableSeats(projection, 0)
-		principal := population
-		if len(principal) > 8 {
-			principal = principal[:8]
-		}
-		excluded := traceFinalDifferentWindowRankedSeats(projection, 8)
-		if len(principal) == 0 && len(excluded) == 0 {
-			continue
-		}
-		displayedOrdinals := make([]string, 0, len(principal))
-		for _, node := range principal {
-			displayedOrdinals = append(displayedOrdinals, fmt.Sprintf("#%d", node.Rank))
-		}
-		fmt.Fprintf(&b, "- selected_window_reader_rank_roster artifact=`%s`; selected_window=`%.6f..%.6f`; ranked_row_count=`%d`; emitted_row_count=`%d`; ranked_rows_complete=`%t`; displayed_ordinals=`%s`. The model owns the conclusion; not displayed here does not change a row's eligibility or published rank. Use the full typed selected-window population for other ranked rows; an explicit different-window row below remains supporting context only.\n",
-			traceDecisionPromptScalar(label), projection.WindowStartTs, projection.WindowEndTs,
-			len(population), len(principal), len(population) == len(principal), strings.Join(displayedOrdinals, ","))
-		for _, node := range principal {
-			causeLabel := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(traceDecisionEliminableSeatKind(node), zh))
-			if causeLabel == "" {
-				if zh {
-					causeLabel = "已测链上候选"
-				} else {
-					causeLabel = "measured on-chain candidate"
-				}
-			}
-			fmt.Fprintf(&b, "  - reader_rank=`#%d`; subject=`%s`; reader_cause_label=%q; effective_attribution=%.3fms",
-				node.Rank, traceDecisionPromptScalar(strings.TrimSpace(node.Subject)), causeLabel, node.EffectiveImpactMS)
-			if start, end, ok := traceDecisionNodeQueryWindow(node); ok {
-				fmt.Fprintf(&b, "; query_window=`%.6f..%.6f`", start, end)
-			}
-			b.WriteByte('\n')
-		}
-		for _, node := range excluded {
-			fmt.Fprintf(&b, "  - unranked_context_row subject=`%s`; effective_attribution=%.3fms; selected_window_role=`supporting_context_only`; selected_window_ordinal_permission=`forbidden`",
-				traceDecisionPromptScalar(strings.TrimSpace(node.Subject)), node.EffectiveImpactMS)
-			if start, end, ok := traceDecisionNodeQueryWindow(node); ok {
-				fmt.Fprintf(&b, "; row_query_window=`%.6f..%.6f`", start, end)
-			}
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
-}
-
 func traceFinalDifferentWindowRankedSeats(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
 	if !types.TraceCausalProjectionPrincipalWindowAuthoritative(projection) {
 		return nil

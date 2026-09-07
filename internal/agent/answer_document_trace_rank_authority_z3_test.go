@@ -33,6 +33,8 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceRankAuthorityZ3(t *testing.
 				"type=" + typ,
 				"effective_impact_ms=" + value,
 				"fix_direction=" + direction,
+				"rank_board_target=com.baidu.tieba-59566",
+				"rank_board_params_fingerprint=fixture-query",
 				"chain_relevance=on_chain",
 				"selected_window=34579.472865..34579.587805",
 			},

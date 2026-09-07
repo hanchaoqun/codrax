@@ -22,6 +22,9 @@ func rankPopulationCoverageFixture(count int) types.TraceCausalProjection {
 			Object: "runnable", StateKind: "runnable", Rank: i,
 			EffectiveImpactMS: 20 - float64(i)/2, ChainRelevance: "on_chain",
 			QueryWindowStartTs: 10, QueryWindowEndTs: 10.1,
+			// This census fixture represents one known query board. Missing
+			// identity is covered separately and must not mint a shared board.
+			RankBoardTarget: "app-100", RankBoardParamsFingerprint: "same-query",
 		})
 	}
 	return p
@@ -91,6 +94,7 @@ func TestFinalizerRankPopulationCensusDoesNotDemoteUnlistedTypedCandidates(t *te
 		row := traceStateOccupancyTestRecord("runnable", "runnable=7.405", "fix_direction=scheduling_supply")
 		row.ID, row.ClaimKey, row.Subject = fmt.Sprintf("rank-%d", i), fmt.Sprintf("root_cause_primary:worker-%d", i), fmt.Sprintf("worker-%d", i)
 		row.RichNotes[0] = fmt.Sprintf("rank=%d", i)
+		row.RichNotes = append(row.RichNotes, types.TraceNoteKeyRankBoardTarget+"=worker-200", types.TraceNoteKeyRankBoardParams+"=same-query")
 		rows = append(rows, row)
 	}
 	state := rows[0]

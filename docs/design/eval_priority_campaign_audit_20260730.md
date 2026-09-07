@@ -57380,6 +57380,30 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1652 B1590b/B1591施工与异构回放计划（2026-09-07）
+
+起点`e17a62e1a`，工作区干净，fetch后与origin/main为0/0。本轮继续先修确定性上下文/合同冲突，随后每批两路live并逐项人工审计，不把旧机器误报、模型波动或人工验证改写成产品已证。
+
+| 批次 | 实测问题 / 最小方案 | 状态与边界 |
+|---|---|---|
+| B1590b / P1 | context将同窗不同参数榜混成单一名次；final principal roster出现#1,#1,#2,#2且没有参数；另一已分榜reader roster隐藏参数与capture path | 已实施并完成独立审阅；共享只读显示身份复用原capture partition及rank-board key；工件/目标/查询窗/设置完整才同域，未知身份逐行保留。全局8+4或8行预算不乘以榜数，稳定分域轮询，显式省略组/行。现有资格/原rank/值/两轴/修向/窗口偏好不改；真实入口先红后绿 |
+| B1590a同族补漏 / 只修教学 | reader-rank提示仍称仅单条合并行内总量合法，与另有精确同向小计的提示不一致 | 同一B1590b显示小批已明确“单行不授予跨行加法；独立具名成员/口径的小计可按其凭证用，不是保证收益”；等待caller专属禁令未动，不扩大加法资格 |
+| B1590c / P1，独立复审新增 | reader decision cards仍扁平第N位；repair-direction与compact/mechanism摘要只按direction跨参数选单一leader | 紧接施工；沿用b的显示域，保留原资格/原值/全局显示cap。精确小计只能绑定原发布section且全成员同域，不能切投影后重算新小计或从不完整身份猜同榜；先补执行反例，不宣称b已覆盖所有finalizer面 |
+| B1591 / P1 | invalid-placement修复删除局部位置、将原contains/not_contains改satisfies，甚至Expected在请求中时仍Required=true；只保原结构又被quality二次必拒。planning-only placement教学要求refs而门不接受；240字符摘要还可能裁断末尾planning_only | 真实EmitWriteAnalysis.Execute→RunWriteAnalyzePhase已复现；保Placement/Operator/Expected/Polarity，只对未证required位置降为已有planning-only。quality与required/observed权限同源，位置refs原门不放宽、只对准确状态给正确教学/诊断；权限词前置，原240显示上限和完整typed载体不变。无新wire字段/执行凭证，施工中 |
+
+B1590b旧census测试原未提供target/params，却声称单榜完整；已明确补齐其单榜前提，同时新增缺身份仍逐条保留的独立反例，不通过把未知硬拒、删掉测试或涨cap收绿。新显示身份Complete仅表示四轴身份齐全，不表示枚举完整。不同查询深度的合法值差不归为引擎数值回归。
+
+B1590b验证留痕：`20260907-b1590b-{context,agent}-red.log`记录真实混榜/缺身份/全局预算/同名异工件及实际入模入口失败；定向count=3绿（agent expanded 1.317s），完整受影响包agent48.886s/context1.998s/types31.144s退出0（`20260907-b1590b-full-affected.log`）。最后显示字段转义不改变原始身份，补同形显示/异原值反例，context/types最终定向0.823s/0.750s绿（`20260907-b1590b-final-targeted.log`）。这些是本批验证，不冒充后续c或B1591完整包验证，也不是live回放。
+
+本轮case盘243（read215/apply25/plan3）。按真实用户影响、确定性机制、异构图表达/模式增量、实际执行能力与近期重复度排序；r1020–1029已重复H11五批、memoclaw Python三批，不继续围绕同一输出求绿。
+
+| 顺序 | 两路用例 | 人工验收重点 |
+|---|---|---|
+| r1030 | `sr_ts_workspace_chain` + `github_issue_libgit2_foreach_worktree_symptom` | TS paths/barrel非runtime调用，dispatchOnce→fetch、真实FixedDelay(200,3)、status<500返回/>=500重试及末次不sleep，图可选但若画须逐边/条件核验；C原生cc实际运行callback -42/17、lookup -7及成功0，测试/原仓不改，验证粒度与总结一致 |
+| r1031 | `real_trace_h8_semantic_edge_anchor_sentinel` + `real_trace_h2_dstate_dma_fence_triform` | H8精确窗投影正臂、VerifyClass0.285原始占用/关系证据不等于完成致醒，H2有限状态负臂明确不应生成因果投影；D 11段36.757与blocked_reason12条Σ39.157/iowait0分开，caller不升级资源持有者 |
+
+统一`PARALLEL=2 TIMEOUT=1800`，现有15读/24写步骤尚无提高依据；遇真实预算不足再按证据调整，不裁活跃流。CPU6 limits备选暂缓：case无隔离fixture会回落本仓，可能引入本仓测试/台账信息，优先采用已有stub隔离的H2；Rust/Java写本机缺真实工具链，不拿系统占位命令签验证。所有机器oracle原样保留，TS弱词面oracle/C实现形regex/旧H2注释与现行断言差异均在人审解释，不本轮改case求绿。
+
 ### §123.1651 本轮收批与剩余问题的施工顺序（2026-09-07）
 
 本轮七笔提交均已推送：B1586a=`4fc28deed`、B1586b测试=`d67e3b2c9`、B1587=`22299b53e`、r1029人工收账=`ee7998e9b`、B1588=`f058711dc`、B1589=`5461676fb`、B1590a=`d76c204e1`。生产源码冻结`d76c204e1119`；干净make成功（`20260907-b1588-b1590-clean-build.log`，无dirty标记）。最终`go test ./... -count=1`退出0、86测试包通过，无FAIL/panic（`20260907-b1588-b1590-full-suite.log`）：agent73.141s、tool297.436s、tracequery101.343s、tracediag15.061s、types43.498s。测试开始于该提交前、源码冻结后，随后只有提交及文档变化，没有用旧快照全绿代替本批验收。

@@ -6704,7 +6704,7 @@ func renderAnswerDocTraceIPCRequestCensusAuthority(ctx *types.AgentContext, ledg
 
 func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang string) string {
 	set := types.CompileTraceCausalProjectionSet(ledger)
-	authorities := types.BuildTraceRankRosterAuthorities(set)
+	authorities := traceReaderRankDisplayAuthorities(set)
 	if len(authorities) == 0 {
 		return ""
 	}
@@ -6760,10 +6760,30 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang stri
 				fmt.Fprintf(&b, "; window: %.6f..%.6f seconds", authority.WindowStartTs, authority.WindowEndTs)
 			}
 		}
+		if authority.identity.ArtifactPath != "" {
+			if zh {
+				fmt.Fprintf(&b, "；来源路径：%s", traceDecisionPromptScalar(authority.identity.ArtifactPath))
+			} else {
+				fmt.Fprintf(&b, "; capture path: %s", traceDecisionPromptScalar(authority.identity.ArtifactPath))
+			}
+		}
 		if zh {
-			b.WriteString("。同一排序范围内可比较各行的可消除影响，但各行可能在时间、线程或因果片段上重叠，不得相加；不同排序范围的名次也不得互相比较。只有证据在一条合并行内明确发布的合计才可作为该行总量。\n")
+			if authority.BoardParamsFingerprint != "" {
+				fmt.Fprintf(&b, "；查询设置标识：%s（仅区分测量，不必抄入答案）", traceDecisionPromptScalar(authority.BoardParamsFingerprint))
+			}
+			b.WriteString("。名次只属于同一工件、目标、查询窗和查询设置的排序范围；不同范围不能互相比较或拼成一张榜。各行可能重叠，单行本身不授予跨行相加权限；另有精确小计时只使用其具名成员和口径，不当成方向完整总量或保证收益。\n")
 		} else {
-			b.WriteString(". Eliminable impacts are comparable only within this ranking scope, but rows may overlap in time, thread, or causal segments and must not be added. Ranks from different scopes are not comparable. Only a total explicitly published within one merged evidence row is additive as that row's total.\n")
+			if authority.BoardParamsFingerprint != "" {
+				fmt.Fprintf(&b, "; query settings identity: %s (measurement metadata, not wording to copy into the answer)", traceDecisionPromptScalar(authority.BoardParamsFingerprint))
+			}
+			b.WriteString(". Ranks belong to one capture, target, query window and query settings; never compare or interleave ranks from different boards. Rows may overlap and a row alone grants no cross-row addition. A separately published exact subtotal covers only its named members and caliber, not an exhaustive direction total or guaranteed benefit.\n")
+		}
+		if !authority.identity.Complete {
+			if zh {
+				b.WriteString("  - 查询身份未提供完整：保留本条已测名次，不据此推断它与其它条目同榜或属于全局排序。\n")
+			} else {
+				b.WriteString("  - Query identity is incomplete: retain this observed rank without inferring a shared board or global order.\n")
+			}
 		}
 		if !authority.Complete {
 			if zh {
