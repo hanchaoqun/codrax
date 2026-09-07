@@ -875,10 +875,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// user/model prose and does not decide whether any answer fact is true.
 	if e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
 		e.phase = 1
-		return composeInitialInstruction(renderExplorerTypedToolSurfaceInstruction(
+		toolSurface := renderExplorerTypedToolSurfaceInstruction(
 			investigationCompleteOnlyToolNames,
 			"The complete mechanical source-inventory row-set is already the principal answer authority. Land its exact members, counts, locations, and attributes without reopening discovery.",
-		))
+		)
+		return composeInitialInstruction(joinExplorerInstructionSections(toolSurface, e.renderMechanicalSourceInventoryHandoff(ctx)))
 	}
 	if e.sourceInventoryRequiredFileVerificationSurfaceActive(ctx) {
 		e.phase = 1

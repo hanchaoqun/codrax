@@ -57380,6 +57380,30 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1648 B1586实施与异构回放安排（2026-09-06）
+
+起点`fb6e77095`，fetch后main与origin/main为0/0，工作区干净。接§123.1647，先修确定性上下文缺失，不把r1027最终答案正确当成过程已闭环。
+
+| 顺序 | 任务 / 覆盖增量 | 验收及状态 |
+|---|---|---|
+| 1 / P1 | B1586a：explorer机械落地与finalizer共享声明行显示；Dossier保留精确类别、多标记、位置/属性 | 已实现；真实入口先红后绿，3个受影响完整包通过；保留同名不同构造、范围及主/支持清单边界，不新增模型JSON义务 |
+| 2 / P1/P2 | B1586b：完整后端与被裁剪显示不同，emit-only不应要求重抄隐藏信息 | 复核确认既有全量投影/稳定事实继承，非确定性隐藏成员丢失；补大集真实completion入口测试。逐请求属性未提供的状态建模仍是独立残余，不能用nil制造必拒合同 |
+| 3 / P2 | B1586c：只对精确绑定且完整覆盖的机械任务收账，保留独立多主题 | 重复调度有见证，但现有子题无逐主题inventory role/requested-field绑定，先保留设计；不以全局mechanicalReady或节点描述关键词豁免多主题 |
+| r1028 / 两路 | `harmony/arkts_repomap` + `sr_c_xmacro_table` | 待源码验证/提交/干净构建后执行；多标记声明交接与C预处理生成清单/两次展开机制异构读，检查信息是否入模、分类/关系是否正确，不重复仓颉求绿 |
+| r1029 / 两路 | `real_trace_h7_self_seat_full_spectrum` + `github_issue_memoclaw_text_search_multirepo_ts` | 前批人工收账后再启动；具体窗Trace自身运行折算/D-state/链上微贡献/背景隔离与TypeScript跨仓写/真实验证。已测Python写不能替代TS验收 |
+
+当前case总盘仍243项：read215、apply25、plan3。排序依据为确定性系统损失、用户影响、跨语言/模式覆盖增量、真实执行可验证性和近期重复度，不改case/oracle以提高通过率。每批严格两路，若出现更高ROI确定性问题先记账修复；模型有足够信息仍表达不准则保留质量观察，不靠系统代写或原文扫描硬化。
+
+#### B1586a：跨阶段使用同一声明显示，不让模型从泛化角色重新猜类别
+
+- 机械落地真实早返回现在带入原authority snapshot→answer view。finalizer原有行/范围/属性渲染抽到阶段中性`source_inventory_handoff.go`；原角色/主支持审计边界、32/36行上限、资格及工具schema不动。原单值SurfaceFamily保持，独立多marker从同一typed SurfaceTerms派生；新增marker显示最多8项×96字符，过长或过多显式披露，原observation深等不变。
+- Dossier同样消费精确family，成员与属性都保留独立标记；保留4组/5成员/2属性旧上限，新增family及范围显示最多4项/180字节、整词省略。显示当前成员数、扫描总量或下界、shown/omitted，空集合也实际占一显示席，不再跳过空集合后把它报为隐藏。集合仍是advisory，不提升主答案资格；不按名字或问题词语推构造。
+- 审阅期间拦下了一个新教学冲突：机械emit-only说明一度复用了带`read_file/grep`动作的通用边界句。已改为仅陈述事实能证明什么/不能证明行为，不教调用未提供工具，真实schema对照负pin保持。不因此放宽工具面。也去掉无界原始SurfaceTerms重复显示，保留有界family和原support ref。
+- agent真实入口红证`20260906-b1586a-agent-red.log`（3个正臂确实缺成员/属性/省略，非编译失败），修复后新测试及SourceInventory/MechanicalLanding/RequestedUniverse/TypedRelationPrincipal/来源适用域族绿。Dossier真实BuildPromptContext的仓颉/ArkTS/Java/Rust同名不同构造、属性/范围/空集/裁剪红绿见`b1586a-dossier-{red,green}.log`；完整context包count=3绿。两面测试均保原数据和无答案代写。
+- 最终受影响完整包`go test ./internal/agent ./internal/context ./internal/types -count=1`全部通过：47.582s/1.178s/32.731s（`20260906-b1586a-full-affected.log`）。独立第二席审阅agent交接通过；Trace三完整包84.107s/5.620s/1.969s及活跃流llm/repl相关正负护栏通过。该成绩不是本批重新跑过全仓86包或live已改善的宣称，后续记录单列。
+
+B1586b/c设计收窄：snapshot在显示裁剪前已投影全量principal aggregates，completion在current为空时继承稳定事实并使用全量投影，不能把显示32行当后台只剩32行。未覆盖scope可以合法软结束并披露欠账，`IsInvestigationComplete`也不等于`CanEnterMechanicalLanding`。第67行缺请求package属性的fixture暴露“清单就绪不证明每个显示属性齐全”，但nil尚不区分不存在/未采到/不适用；本批不擅自增加必拒，只保留原缺失不合成及后续typed可用性设计。B1586c现有_tN→unit index映射可定位调度节点，却不能证明独立子题的role/字段均已完成，禁止一键跳过。
+
 ### §123.1647 本轮最终验收与B1586分批方案（2026-09-06）
 
 最终源码冻结于 `3c8abb5d3636`，已推送main。`go test ./... -count=1`退出0，86个测试包通过，无FAIL/panic；日志`.codrax/tmp/20260906-b1584-b1585-full-suite-green.log`，agent58.938s/tool290.278s/tracequery96.097s/types40.319s。此结果覆盖B1584/B1585及compact教学修正，不再引用前批绿替代后续改动验收。该快照`make`成功，日志`20260906-b1584-b1585-final-build.log`。

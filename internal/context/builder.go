@@ -2160,6 +2160,7 @@ const (
 	relationDossierMaxEvidenceItems    = 6
 	relationDossierMaxAggregateFacts   = 4
 	relationDossierMaxAggregateMembers = 5
+	relationDossierMaxInventoryTerms   = 4
 	relationDossierTextLimit           = 180
 )
 
@@ -2311,20 +2312,28 @@ func formatRelationDossierSourceInventory(observation types.SourceInventoryObser
 		return ""
 	}
 	var b strings.Builder
+	b.WriteString("- Inventory complete/count refer to observed rows, not this bounded display. Omissions are not exclusions.\n")
 	written := 0
 	const maxSets = 4
 	for _, set := range observation.Sets {
 		if written >= maxSets {
 			break
 		}
-		if len(set.Members) == 0 {
-			continue
-		}
-		fmt.Fprintf(&b, "- role=%s complete=%t count=%d", set.Role, set.Complete, set.Count)
+		fmt.Fprintf(&b, "- role=%s complete=%t count=%d", set.Role, set.Complete, len(set.Members))
 		if len(observation.Scopes) > 0 {
-			fmt.Fprintf(&b, " scopes=%s", relationDossierClip(strings.Join(observation.Scopes, ",")))
+			fmt.Fprintf(&b, " scopes=%s", relationDossierSourceInventoryTerms(observation.Scopes))
 		}
-		if examples := relationDossierSourceInventoryMemberExamples(set.Members, relationDossierMaxAggregateMembers); examples != "" {
+		if len(observation.QueryPathScopes) > 0 {
+			fmt.Fprintf(&b, " query_path_scopes=%s", relationDossierSourceInventoryTerms(observation.QueryPathScopes))
+		}
+		if set.Total > 0 || (set.Complete && len(set.Members) == 0) {
+			fmt.Fprintf(&b, " total_or_lower_bound=%d", set.Total)
+		} else {
+			b.WriteString(" total_or_lower_bound=unknown")
+		}
+		examples, shown := relationDossierSourceInventoryMemberExamples(set.Members, relationDossierMaxAggregateMembers)
+		fmt.Fprintf(&b, " shown=%d omitted=%d", shown, len(set.Members)-shown)
+		if examples != "" {
 			b.WriteString("; examples: ")
 			b.WriteString(examples)
 		}
@@ -2405,9 +2414,9 @@ func relationDossierAggregateFacts(ac *types.AgentContext) []types.AnswerAggrega
 	return facts
 }
 
-func relationDossierSourceInventoryMemberExamples(members []types.SourceInventoryObservationMember, limit int) string {
+func relationDossierSourceInventoryMemberExamples(members []types.SourceInventoryObservationMember, limit int) (string, int) {
 	if len(members) == 0 || limit <= 0 {
-		return ""
+		return "", 0
 	}
 	var examples []string
 	for _, member := range members {
@@ -2425,6 +2434,9 @@ func relationDossierSourceInventoryMemberExamples(members []types.SourceInventor
 		if member.Language != "" {
 			item += " lang=" + relationDossierClip(member.Language)
 		}
+		if families := types.SourceInventorySurfaceFamilyKeys(member.SurfaceTerms); len(families) > 0 {
+			item += " families=[" + relationDossierSourceInventoryTerms(families) + "]"
+		}
 		if member.CoverageState != "" {
 			item += " state=" + relationDossierClip(string(member.CoverageState))
 		}
@@ -2434,12 +2446,40 @@ func relationDossierSourceInventoryMemberExamples(members []types.SourceInventor
 		examples = append(examples, item)
 	}
 	if len(examples) == 0 {
-		return ""
+		return "", 0
 	}
+	shown := len(examples)
 	if len(members) > len(examples) {
 		examples = append(examples, fmt.Sprintf("+%d more", len(members)-len(examples)))
 	}
-	return strings.Join(examples, "; ")
+	return strings.Join(examples, "; "), shown
+}
+
+// Render only whole typed terms: a clipped family or path must not look like a
+// different exact construct or scope. The cap affects this excerpt, not the
+// observation or the full typed family derivation.
+func relationDossierSourceInventoryTerms(terms []string) string {
+	var examples []string
+	size := 0
+	for _, term := range terms {
+		term = relationDossierCleanText(term)
+		if term == "" {
+			continue
+		}
+		nextSize := size + len(term)
+		if len(examples) > 0 {
+			nextSize += 2
+		}
+		if len(examples) >= relationDossierMaxInventoryTerms || nextSize > relationDossierTextLimit {
+			break
+		}
+		examples = append(examples, term)
+		size = nextSize
+	}
+	if omitted := len(terms) - len(examples); omitted > 0 {
+		examples = append(examples, fmt.Sprintf("+%d not shown", omitted))
+	}
+	return strings.Join(examples, ", ")
 }
 
 func relationDossierSourceInventoryAttributeExamples(attrs []types.SourceInventoryObservationAttribute, limit int) string {
@@ -2461,6 +2501,9 @@ func relationDossierSourceInventoryAttributeExamples(attrs []types.SourceInvento
 		}
 		if loc := relationDossierSourceInventoryLocation(attr.File, attr.Line); loc != "" {
 			item += "@" + relationDossierClip(loc)
+		}
+		if families := types.SourceInventorySurfaceFamilyKeys(attr.SurfaceTerms); len(families) > 0 {
+			item += " families=[" + relationDossierSourceInventoryTerms(families) + "]"
 		}
 		examples = append(examples, item)
 	}
