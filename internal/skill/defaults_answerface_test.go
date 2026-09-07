@@ -81,7 +81,7 @@ func TestAnswerfaceTypedWordFaceConsumption(t *testing.T) {
 	}
 	for _, want := range []string{
 		"`fix_direction`",
-		"do not sum seats into a guaranteed combined gain unless an exact typed additive or joint-counterfactual carrier authorizes it",
+		"a combined value requires an exact typed additive or joint-counterfactual carrier; arithmetic permission alone does not establish a guaranteed combined gain",
 		"does NOT prove that the seats overlap, that one depends on another, or that fixing one makes another disappear",
 		"`cross_direction_overlaps`",
 		"never present that shared part as stackable",
