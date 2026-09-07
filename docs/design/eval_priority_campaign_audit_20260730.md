@@ -57400,6 +57400,16 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 前批完整 `go test ./... -count=1` 已通过（`.codrax/tmp/20260906-b1571-b1574-full-suite.log`），干净`make`与main推送完成。B1571/73/74有生产正证；B1572有真实入口先红后绿+原报告只读重投影，r1024为应拒负例。当前新批不在上述全仓结果内，须单独验证后收账。
 
+#### B1579：满额只限制新增身份，不跳过已入池证据的纠正
+
+`implemented / full-pool-to-relation-authority-red-to-green / full-suite-pending`。
+
+- 共享enrichment pool原有same-ID canonical merger保持原样，仅取消读取TurnA/Mutable前的“池未满”前置条件；新增身份仍在原limit处拒绝，已有ID始终接收后续合法纠正。不会因接收纠正扩大池、改排序、挤掉原成员或合成新关系。
+- 1/128/256/1024满额×TurnA/Mutable/二者同在，晚到新ID位于纠正之前仍不阻断合并；上游truth set字节不变。真实机制关系编译入口从原空关系恢复同一grounded调用与原方向，显示预算不再让旧definition盖过新call。
+- 原满池裁剪/小池纠正测试保留；新组合臂先红日志 `.codrax/tmp/b1579-capacity-merge-red.log`，绿 `b1579-capacity-merge-green.log`。未改canonical merger的准入、字段权威、关系资格、模型正文或JSON schema。
+
+r1024补充否证：表格原始emit没有headers/columns且label/cells重复，系统通用列名是已有兼容降级，未删除模型提交的列名；IO状态行明确带scheduler_marked_only及零值范围，另有47段完成闭合12.658ms独立尺，系统没有把两者等同。模型漏限定和结构使用问题暂列质量观察，不加case词法门。
+
 ### §123.1639 B1571–B1574：完整候选、同席引用与教学/验证一致性（2026-09-06）
 
 基线 `706fda809`，远程同步后无新增提交。本节接 §123.1638 的 r1023 四项确定性缺口；保持原问题、金额、链上资格、精确主窗、模型选择与答案所有权，不按模型正文关键词建立硬门。

@@ -11899,12 +11899,12 @@ func answerDocTypedEnrichmentEvidencePool(ctx *types.AgentContext, limit int) []
 	// deduplicated truth set. Prefer it over raw Mutable emissions; the
 	// latter is only a backstop for unusual tests or partial contexts.
 	addGroup(ctx.EvidenceItems)
-	if ctx.Mutable != nil && len(out) < limit {
+	// The capacity bound rejects new IDs inside addGroup, but existing IDs
+	// must still consume later corrections even when the pool is already full.
+	if ctx.Mutable != nil {
 		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
 			addGroup(ta.EvidenceItems)
 		}
-	}
-	if ctx.Mutable != nil && len(out) < limit {
 		addGroup(ctx.Mutable.EmittedEvidence())
 	}
 	return out
