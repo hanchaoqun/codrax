@@ -700,6 +700,10 @@ func walkStructDetail(v reflect.Value, path string, emit func(string), depth int
 
 func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
 	t := v.Type()
+	if t == reflect.TypeOf(tracequery.TargetWindowSleepInventory{}) {
+		renderTargetSleepInventoryDetail(v.Interface().(tracequery.TargetWindowSleepInventory), path, emit, depth, policy)
+		return
+	}
 	// Inline token types render as one token, never as a line family.
 	if t == reflect.TypeOf(tracequery.ThreadRef{}) || t == reflect.TypeOf(tracequery.TimeWindow{}) {
 		if token := formatInlineStruct(v); token != "" {

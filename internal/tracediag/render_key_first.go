@@ -789,6 +789,14 @@ func renderStringSet(values map[string]bool, limit int) string {
 // duplication and bulk-lane semantics are reviewed instead of inheriting an
 // accidental declaration-order default.
 var nonEventPrioritySchemaPins = map[reflect.Type]string{
+	// B1607a (2026-09-07): TargetWindowStates gained the NESTED
+	// SleepInventory pointer. The Result/bundle pointer fingerprints below do
+	// not change. Exact-type detail rendering preserves zero counts, raw
+	// coordinates and the engine's separate scan/return/closure boundaries;
+	// its rows remain below existing key-first and causal detail, not a new
+	// rank/cause channel. The generic walker consumes the inventory once at
+	// its existing position, so no skip-policy entry or duplicate is needed.
+	// Actual four-view and report-cap pins live in render_sleep_inventory_test.
 	// §29.27② 常态发布 (SMR-1 修复轮 引擎件①, 2026-07-13): Result gained the
 	// top-level TargetWindowStates slot (non-bundle runs only — the bundle
 	// path keeps its own copy, so no run ever carries two). Generic detail

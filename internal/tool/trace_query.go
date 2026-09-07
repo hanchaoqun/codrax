@@ -4601,6 +4601,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	// preserves engine order and values, reads no request/answer prose, and
 	// neither elects a cause nor changes the full rank/projection sections.
 	writeTraceRootCauseRankPreview(&b, traceQueryRootCauseRankForHeadPreview(result), payloadRef)
+	writeTraceSleepInventoryPreview(&b, traceQueryTargetWindowStatesAccount(result), payloadRef)
 	for _, suppression := range result.LifecycleSuppressions {
 		fmt.Fprintf(&b, "lifecycle_suppression conflict_tid=%d signal=%s boundary_line=%d boundary_ts=%.6f scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s\n",
 			suppression.ConflictTID, sanitizeForBanner(suppression.Signal), suppression.BoundaryLine, suppression.BoundaryTs,
@@ -9889,6 +9890,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	// traceQueryTypedWindowStatsObservations; the two slots are set by
 	// disjoint view paths, so no result mints the same census twice.
 	out = append(out, traceQueryTypedVsyncGeneratorCensusObservations(result.VsyncGeneratorCensus, ref, scope, at)...)
+	// Full target state inventory is appended after existing causal and
+	// resource rows. It cannot displace their ordering or acquire D/IO-only
+	// roster/chain authority merely by sharing a subject and time window.
+	out = append(out, traceQuerySleepInventoryObservations(traceQueryTargetWindowStatesAccount(result), ref, scope, at)...)
 
 	// NEW-9 (adversarial re-review 2026-07-04): a capacity-truncated result
 	// (typed per-view compaction channel non-empty — row budgets cut the TAIL;

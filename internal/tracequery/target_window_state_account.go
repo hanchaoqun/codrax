@@ -113,6 +113,9 @@ type TargetWindowStateAccount struct {
 	WaitOccurrenceTotal   int                           `json:"wait_occurrence_total,omitempty"`
 	WaitOccurrenceEmitted int                           `json:"wait_occurrence_emitted,omitempty"`
 	WaitOccurrenceStatus  string                        `json:"wait_occurrence_status,omitempty"`
+	// SleepInventory is a separate all-S/D/IO scheduler inventory. It does
+	// not widen the D/IO-only WaitOccurrences contract or attribute a cause.
+	SleepInventory *TargetWindowSleepInventory `json:"sleep_inventory,omitempty"`
 }
 
 // TargetWindowCPURunning is one exact CPU bucket of the focused thread's
@@ -302,6 +305,7 @@ func buildTargetWindowStateAccount(idx *Index, tl TimelineResult, ok bool, targe
 	account.WaitOccurrenceEmitted = len(account.WaitOccurrences)
 	account.DeterministicRunningMs = targetSemanticRunningMs(stats, target, window, running)
 	stampWindowStateBoundaryFolds(account, tl)
+	account.SleepInventory = buildTargetWindowSleepInventory(tl, window)
 	return account
 }
 

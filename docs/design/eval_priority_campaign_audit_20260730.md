@@ -57380,6 +57380,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1672 B1607a 独立状态等待账：统计完整不等于因果完整（2026-09-07）
+
+本批从目标线程已经通过完整性检查的 Timeline.Intervals 构建独立 SleepInventory，附于共用 TargetWindowStateAccount。普通 S、D、scheduler IO 的次数、窗内 union 和分类 union 在输出 cap32 之前计算，工具头只预览4行并同时披露两层分母。closed/关联/因果均保持未评估；ActualEndTs 可能是窗尾/EOF flush，EndLine 可能是 blocked_reason 定位，不能拿这两个字段铸造真实闭合。unknown-only/不可用时间线不输出假零；测得 Running/Runnable 而未见睡眠才允许已构造时间线中的零。窗前恢复状态及本次 unknown 边界保留并送入摘要。
+
+新 predicate 为 target_sleep_inventory / target_sleep_interval，角色仅 supporting_coverage，追加在原根因/资源/业务语义行之后；不借用旧 target_state_occurrence 的 D/IO-only 统计/成文合同，不写 rank、effective_impact 或链资格。工具模型摘要180字符预算针保留本次边界、union和“不是因果/闭合证明”，不是把精确信息只藏在JSON。旧 BinderWaits、D/IO WaitOccurrences、S+iowait overlay、RootEvidence、排序计价和模型正文不改；四种真实 Run 视图的增量投影前后字节恒等。
+
+已完成引擎定向/三遍及race、真实工具出口红绿：39次短睡眠在高min/depth/branch/display预算下仍total39、返回32、union7.8ms，旧D/IO总数仍26；1.409ms真实Binder样例仍旧链资格、窗裁剪双账/未知头/未闭合尾/S+iowait/lifecycle抑制均有针。完整tracequery首次只被新增状态switch未登记的清册针拦下，保留首红并仅登记新consumer，原golden/扫描器不删；最终全包80.414s通过（20260907-b1607a-tracequery-full-green.log），本族race1.881s。真实tool出口/180字符投影/双帽针0.999s通过（20260907-b1607a-tool-green.log）。tracediag实测首红还查到通用Summary优先会藏掉嵌入Interval的时间坐标：仅对新carrier用已有标量/tag定点渲染，保持原detail位置/报告行帽/所有值，不增加根因头部。大时间戳、双账、零、39→32、实际report行帽均通过；全tracediag4.949s（20260907-b1607a-tracediag-full.log）及count3通过，原四个Result哈希未漂移未重签。
+
+剩余 B1607b 明确保留：独立于链预算的完整 Binder 请求/回复/调度唤醒关联和真实闭合，尚未施工；本批不能宣称完整 Binder 等待总量已恢复，也不能把普通 S 总量当 Binder/IO 根因。当前代码243个case（25 apply、3 plan、29真实trace，其余默认read），优先级按客户影响、精确反例、覆盖广度和可原生验证排序：①本批H1显式窗/真假Binder，②近期未复放的Python跨仓apply且真实unittest可用，恰2并行；③qualified-owner图/读模式回放，④异构交付域分组。模型措辞波动不占用上述确定性合同修复优先级，不增关键词硬门。
+
+状态：`B1607a=implemented/targeted+race/full-tracequery+tracediag-pass/pending-live-replay`；`B1607b=planned/not-complete`；`chain-causal-projection=unchanged`；`model-owned-answer=preserved`。本次active-stream定向真实HTTP/SSE测试再过（llm4.742s/agent1.142s）：无默认4ms/旧4m正文等待降级；保留显式取消/截止时间及真正byte silence，不用缩时测试冒充长时live回放。全tool/全仓在B1613相邻批冻结后另跑，不能用已完成定向冒称此时全仓验收完成。
+
 ### §123.1671 B1612 已知单域迁移与完整等待库存的下一小批（2026-09-07）
 
 起点`8530c57e0`，工作区干净，远程fetch确认0/0，无远程新提交待合入。沿§1670只处理可明确的实现单域：napi symptom既有true/error两个预期都应在`cli/src/api/templates/js-binding.ts`成立，不能由README中的正确说明代替。case只加一行POST_APPLY_FILE，QUESTION、原regex、fixture、历史结果不变。至此25个apply中15个绑定、10个仍需测试/实现异构域分离，不能声称这10个已迁移。
