@@ -57380,16 +57380,33 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1643 r1026：机器双绿后的人工差分与下一小批（2026-09-06）
+
+`snapshot=fbc15596cd74 / exactly-two-parallel / machine=2/2 / human=read-partial,write-patch-pass-with-proof-boundary`。
+完整记录：`eval/parallel_selected_summary_evalcampaign_selector_multirepowrite_r1026_20260906{,_manual_audit}.md`。本批没有第三路live、重跑求绿、改原答案/oracle或回写验证报告。
+
+- read160s：主类JsonPlugin正确，但正文把类变量cls称为实例、工厂register与bind接类略混。7轮成文6次拒绝，最终发布第6轮已验收稿；模型第2轮删4条图边、第3轮删3孤点，最后只剩两节点往返图。原图浏览器parse+render成功（20,173字节SVG），不是语法失败，也不能因此认定关系完整。第4轮实际为模型remove四个列表锚，第5轮add字段放错层，第6轮修正，第7轮replace又漏identity。未证系统代写删图、过期patch状态或同一声明必带必拒，不将全部拒绝归系统。
+- 精确上下文缺口优先于模型措辞：日志1550候选编译`0 / rejected=2 / ambiguous_lookup=2`。完整池内同一已验证赋值由模型`maps`与parser `assigns`载体重复表示，旧occurrence key包含自由predicate而分裂成两操作。B1580索引与旧扫描一致、完整保留反证，独立审查未见索引回归；新增B1585只考虑精确同操作同发生点去重，不宽松全部唯一性。
+- write129s：只有授权client.py的+8/-11，两方法POST正确路由+JSON，签名/await保留，测试/API/只读兄弟仓不变。独立无网络sync/awaited async×namespace两状态4/4通过。生产本身只跑原AST/source检查make check（46ms），零probe、零必需行为refs，3/3账本是2文件影响项+1advisory。最终披露自然语言验收不代表逐项执行；不拿本席动态补验制造产品运行凭证。B1575/B1578/B1572均未触发本轮适用条件，不算live正证。
+
+| 批次 / 优先级 | 精确问题与最小修向 | 状态 |
+|---|---|---|
+| B1584-PATCHREPAIRGUIDANCE1 / P2 | schema正确，但实际description/高频修补提示省略`diagram_edge_edits[i].edge.*`容器；attempt-only提示又将累计次数说成同一问题未修/最后一轮。共享准确路径教学，中性累计轮次，零新硬门/阈值/字段 | 已确认；真实入口先红后绿施工中，不用一次模型flatten解释全部6拒 |
+| B1585-DYNAMICSELECTOROCCURRENCEDUPLICATE1 / P1 | 同一精确赋值多合法载体被误计为不同lookup；以已验证源操作及同文件/坐标/owner建立专用key，完整index表达保留，无完整源证据仍保守 | 独立双席确认，最小可执行反例与六类否证施工中；不按ID或文本相似合并，不一并放宽其它唯一性 |
+| 跨语言逐义务运行凭证 / 能力债 | 整段probe或聚合runner通过与逐方法行为观测仍不同 | B1575只关披露缺失，真实执行器per-ref receipts仍待独立设计，不用模型自报构造权威 |
+
+先完成这两个同源系统小批再轮换Cangjie/ArkTS与C读写。JsonPlugin措辞/MRO展现保留模型质量观察，不加用户/答案词法门，不为图完整性直接补写模型结论。Trace精确窗、链上资格/占时/业务线索/可消除尺及自动补齐未改；B1583默认活跃流预算保护已由真实正负SSE矩阵覆盖，显式总时限、parent取消及真正idle继续有效。
+
 ### §123.1642 剩余批次：完整候选判定、证明粒度、重复反馈与路由流式预算（2026-09-06）
 
 起点 `baf311887`；已 fetch，主干与远端一致，开始时工作区干净。按确定性影响/可泛化性/用户可见损失安排，补丁逐批提交推送；新 live 必须干净构建、两路并行，机器结果与人工答案审计分开。既有 r1024/r1025 不作为本轮新修复的生产正证。
 
 | 批次 | 方案与边界 | 状态 |
 |---|---|---|
-| B1580 / P1 | 完整同 ID 证据协调后再由共享 selector 编译器判定所有关系组；仅最终候选/recipe显示限额，不复制资格谓词 | 已实现；六类完整冲突、旧扫描逐字段对照、大池索引基准均通过，全仓运行中 |
+| B1580 / P1 | 完整同 ID 证据协调后再由共享 selector 编译器判定所有关系组；仅最终候选/recipe显示限额，不复制资格谓词 | 已提交推送 `fbc15596c`；六类完整冲突、旧扫描逐字段对照、大池索引基准及全仓86包通过 |
 | B1575 / P1 披露 | 复用既有 confidence/witness 事实说明整段 probe 与逐义务执行记录的区别；不改通过状态、消债或新增模型字段 | 已提交推送 `5fecd1215`，四处真实接线与原资格不变测试通过；真实逐义务执行凭证仍单列能力债 |
 | B1582 / P2 | 当次重复 emit 命中的存量行继续参与既有操作归属软提示；不扩大到全会话，不替模型迁移索引 | 已提交推送 `10ac0f74f`；真实入口先红后绿，同族 count=3 通过 |
-| B1583 / P1 | 已配置总预算与未配置默认请求预算分开；默认不以固定墙钟取消活跃流，实际非流腿保留预算；调用者取消、显式配置、首字节/idle保护继续有效 | 已实现；真实SSE先红后绿，含旧B1581矩阵的race通过，4完整包通过 |
+| B1583 / P1 | 已配置总预算与未配置默认请求预算分开；默认不以固定墙钟取消活跃流，实际非流腿保留预算；调用者取消、显式配置、首字节/idle保护继续有效 | 已提交推送 `93a799777`；真实SSE先红后绿，含旧B1581矩阵的race、4完整包及全仓86包通过 |
 
 #### B1580：完整冲突集合先于显示限额，并用完整索引控制成本
 
@@ -57401,7 +57418,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `TestB1580`及原selector族count=3通过；日志`b1580-checked-in-red.log`、`b1580-matrix-green.log`及`b1580-indexed-multigroup-benchmark.log`。Apple M5 Max固定合成夹具32,768行×32组、单次测量：4.285秒→28.24毫秒，累计分配5.179GB→53.32MB（非驻留内存）；×1/8/32组现均约28–29ms，取消了此夹具G×N主成本。不把这项局部基准当整场LLM或真实客户总时长加速比；两显示面仍各自编译，未为复用引入陈腐缓存。
 
-验收准备：全套`go test ./... -count=1`在最终源码冻结后启动；Trace边界相关3包及JSON/图表恢复相关4包定向均绿。首次定向命令误写不存在的`internal/render/mermaid`包导致setup失败，已按真实`internal/render`/`internal/mermaidcompat`重跑通过，非产品失败。下一双路r1026选`sr_py_registry_dispatch`（关系/选择/回调读）+`github_issue_memoclaw_text_search_multirepo_py`（多仓写/补验证），改动后仅一次定向live；小fixture不会制造大池冲突，不能用live代替上面反证矩阵。此后优先轮换Cangjie/ArkTS与C读写，不围着模型措辞反复磨绿。
+验收结果：全套`go test ./... -count=1`在最终源码冻结后执行完成，退出0，86个测试包通过（`.codrax/tmp/20260906-b1575-b1583-full-suite.log`；tool300.052s、tracequery99.733s、types42.531s），覆盖全部本批修正；干净make成功。Trace边界相关3包及JSON/图表恢复相关4包定向均绿。首次定向命令误写不存在的`internal/render/mermaid`包导致setup失败，已按真实`internal/render`/`internal/mermaidcompat`重跑通过，非产品失败。双路r1026选`sr_py_registry_dispatch`（关系/选择/回调读）+`github_issue_memoclaw_text_search_multirepo_py`（多仓写），机器2/2通过，仍需分开记录人工验收；小fixture不会制造大池冲突，不能用live代替上面反证矩阵。此后优先轮换Cangjie/ArkTS与C读写，不围着模型措辞反复磨绿。
 
 #### B1583：默认路由预算不得取消活跃流，显式总时限仍有权威
 
@@ -57417,11 +57434,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 新增纯展示 helper 只接受既有 verification_probe 来源、satisfied 状态、三种 probe refs 类别及兼容解码后的对应 witness。正式/规划 `run_tests` 结果仅附一次限定，planner初始上下文、write context、proof ledger Detail共用同一说明。限定明确“整段探针通过+变更目标绑定不等于逐合同/逐方法独立执行凭证或运行覆盖率”。上下文仍守原240字行预算，将短说明前置防长 refs 截掉，原完整报告不写回。
 
-实际 Python 动态调用与 AST-only 两种成功探针都保持原 admission，并得到同一诚实边界；失败、不可用、错误目标不能发射“通过”披露。原 ReasonCode、义务集合、covered/uncovered、原始 report bytes 与 B1572 同 ref 同报告/累计消债均有正负 pin，未新建任何 typed category 或模型 JSON 字段。四消费者真实入口先红后绿，三个相关包定向回归通过，types完整包41.872s通过；其余完整包仍运行，未提前声称全仓绿。
+实际 Python 动态调用与 AST-only 两种成功探针都保持原 admission，并得到同一诚实边界；失败、不可用、错误目标不能发射“通过”披露。原 ReasonCode、义务集合、covered/uncovered、原始 report bytes 与 B1572 同 ref 同报告/累计消债均有正负 pin，未新建任何 typed category 或模型 JSON 字段。四消费者真实入口先红后绿，三个相关包定向回归通过；最终全仓结果见本节验收结果。
 
-完整回归后续结果：types41.872s、agent59.933s通过，tool298.514s只有旧统一出口AST pin失败；原pin严格要求两个加数，本批临时summary局部变量不符合该结构约束。已补最小出口重构：`base + 原工作树审计(report) + 新粒度披露(report)`，两种披露都经同一安装出口，原数据流/14出口守卫保留。守卫现在逐加数验证同一report，并有删除任一披露、错report、重复/未知加数、双/无安装的独立变异拒绝，常规及括号重组正例通过；不是删除tripwire或允许任意含audit的表达式。定向1.914s绿，完整tool复跑中。此前定向绿不等于完整包绿，失败与纠正都留账。
+完整回归后续结果：types41.872s、agent59.933s通过，tool298.514s只有旧统一出口AST pin失败；原pin严格要求两个加数，本批临时summary局部变量不符合该结构约束。已补最小出口重构：`base + 原工作树审计(report) + 新粒度披露(report)`，两种披露都经同一安装出口，原数据流/14出口守卫保留。守卫现在逐加数验证同一report，并有删除任一披露、错report、重复/未知加数、双/无安装的独立变异拒绝，常规及括号重组正例通过；不是删除tripwire或允许任意含audit的表达式。定向1.914s绿，完整tool复跑277.432s退出0（`b1575-tool-full-green.log`）。此前定向绿不等于完整包绿，失败与纠正都留账。
 
-出口修正已提交推送 `ca1526f3e`。独立变异再补强安装调用本身的第二参数也必须绑定同一report，防“安装other、展示report”；该变异先红（旧守卫无违规）再绿，原全族+11变异+实际入口1.946s通过。全仓compile-only通过，不等于执行全套测试；当前等待完整运行结果。
+出口修正已提交推送 `ca1526f3e`。独立变异再补强安装调用本身的第二参数也必须绑定同一report，防“安装other、展示report”；该变异先红（旧守卫无违规）再绿，原全族+11变异+实际入口1.946s通过，补强提交 `045890835`。先完成的全仓compile-only不冒充运行验证；最终上述86包全套也覆盖此补强并通过。
 
 本批关闭**披露缺失**，不声称新增了逐方法执行观测。跨语言 executor-owned per-ref receipts 仍为后续能力债，不能用模型自报 refs、源码词法扫描或本说明去铸造执行证据，也不把这句说明注入或替换模型最终答案。
 
