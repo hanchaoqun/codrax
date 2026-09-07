@@ -111,20 +111,11 @@ const (
 	WriteIntentAmbiguous      = "ambiguous"
 )
 
-// turnPolicyClassifierTimeout bounds only the lightweight REPL route
-// classifier. On timeout the dispatcher falls back to the normal read
-// pipeline, so a slow classifier cannot pin the interactive prompt.
-//
-// INTERACTIVE LANE ONLY. This wall clock was introduced (2026-06-25→06-28,
-// three commits) to protect REPL prompt latency, where the fallback cost is
-// low: the user sees the pipeline start and can re-ask. The single-shot CLI
-// lane deliberately does NOT share it (see singleShotRoutePolicyTimeout):
-// there the process has exactly one unretryable classification, healthy
-// classifier latency (observed 6.6–11.4s) overlaps a 10s clock, and a
-// timeout silently demotes a data-lane request to the read pipeline, which
-// structurally cannot satisfy the data-lane output contract (data terminal
-// JSON / route=data log / bare-scalar final answer). Keeping 10s here and
-// 120s there is the intended asymmetry, not drift.
+// turnPolicyClassifierTimeout is the REPL route-classifier budget. Its
+// built-in default bounds each actual non-streaming request; live streams
+// retain adapter-owned first-byte/idle protection. An explicit setter/config
+// value preserves the historical total classification deadline. The REPL
+// and single-shot values remain independent (10s and 120s).
 var turnPolicyClassifierTimeout = 10 * time.Second
 
 // turnPolicyTimeoutBackoffThreshold (CHATFIX-1, customer log
@@ -171,8 +162,8 @@ func (r *REPL) turnPolicyClassifierAvailable() bool {
 	return false
 }
 
-// singleShotRoutePolicyTimeout bounds the single-shot (non-REPL CLI)
-// route-policy classification. Split from turnPolicyClassifierTimeout
+// singleShotRoutePolicyTimeout is the single-shot (non-REPL CLI)
+// route-policy budget. Split from turnPolicyClassifierTimeout
 // (attribution 2026-07, data-route failure class): reusing the REPL 10s
 // clock put the one unretryable classification of the process under a
 // deadline calibrated for interactive ergonomics, turning healthy 6.6–11.4s
@@ -188,8 +179,10 @@ func (r *REPL) turnPolicyClassifierAvailable() bool {
 // value-only change; the deadline still sits far below the cost of a wrong
 // degrade (a read-pipeline run on a data-lane request cannot satisfy the
 // data output contract at any speed).
-// Zero disables this outer wall clock entirely — the adapter-native guards
-// (first-byte 40s, stall 2m, retry ladder) remain the only protection.
+// B1583: an unset configuration now applies this default only to each actual
+// non-streaming request. Explicit configuration retains the total wall-clock
+// contract, including zero disabling it. Active streams otherwise use the
+// adapter-native first-byte/stall/retry protections.
 // Configured via codrax.yaml single_shot_route_policy_timeout_seconds.
 var singleShotRoutePolicyTimeout = 120 * time.Second
 
@@ -206,6 +199,7 @@ func SetTurnPolicyClassifierTimeout(timeout time.Duration) {
 		return
 	}
 	turnPolicyClassifierTimeout = timeout
+	turnPolicyClassifierTimeoutExplicit = true
 }
 
 // SetSingleShotRoutePolicyTimeout updates the single-shot route-policy wall
@@ -218,11 +212,12 @@ func SetSingleShotRoutePolicyTimeout(timeout time.Duration) {
 		return
 	}
 	singleShotRoutePolicyTimeout = timeout
+	singleShotRoutePolicyTimeoutExplicit = true
 }
 
-// SingleShotRoutePolicyTimeout reports the configured single-shot
-// route-policy wall clock (0 = disabled). Exposed so the CLI route-degrade
-// event can state the deadline that fired.
+// SingleShotRoutePolicyTimeout reports the single-shot route-policy budget
+// (0 = disabled). An explicit setting is a total deadline; the built-in
+// default applies per actual non-streaming request.
 func SingleShotRoutePolicyTimeout() time.Duration {
 	return singleShotRoutePolicyTimeout
 }
@@ -957,47 +952,26 @@ unclear side effects, pick clarify.`
 // nil adapter, empty userLine, chat error, no tool call, wrong tool
 // name, malformed params JSON, unknown route enum.
 func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, priorTurnHint string, hasPriorAnswer bool) (TurnPolicy, error) {
-	// Interactive REPL lane: the small turnPolicyClassifierTimeout wall
-	// clock is deliberately RETAINED here (ctx wrap + chat guard, matching
-	// pre-split behaviour byte for byte). In the REPL a timeout degrade is
-	// cheap — the user watches the pipeline start and can re-ask — so
-	// prompt latency wins. The single-shot lane has the opposite tradeoff;
-	// see ClassifyPolicySingleShot and the var comments on the two
-	// timeouts for the 2026-07 attribution history.
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if turnPolicyClassifierTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, turnPolicyClassifierTimeout)
-		defer cancel()
-	}
-	return c.classifyPolicyLLM(ctx, userLine, priorTurnHint, hasPriorAnswer, turnPolicyClassifierTimeout)
+	budget := classifierBudget(turnPolicyClassifierTimeout, turnPolicyClassifierTimeoutExplicit)
+	ctx, cancel := budget.context(ctx)
+	defer cancel()
+	return c.classifyPolicyLLM(ctx, userLine, priorTurnHint, hasPriorAnswer, budget)
 }
 
-// ClassifyPolicySingleShot implements SingleShotTurnPolicyClassifier. The
-// ONLY outer deadline on this path is singleShotRoutePolicyTimeout; the
-// chat-level guard is passed as 0 so chatWithClassifierHardTimeout adds no
-// second, shorter deadline and the adapter-native retry/first-byte/stall
-// protections stay effective (pinned by
-// TestClassifyPolicy_SingleShotLaneSurvivesBetweenDeadlinesSleep).
+// ClassifyPolicySingleShot uses the single-shot budget without importing the
+// shorter REPL budget. An operator-selected total deadline spans repairs;
+// the default delegates each request's liveness to its actual adapter.
 func (c *llmChitchatClassifier) ClassifyPolicySingleShot(ctx context.Context, userLine, priorTurnHint string, hasPriorAnswer bool) (TurnPolicy, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if singleShotRoutePolicyTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, singleShotRoutePolicyTimeout)
-		defer cancel()
-	}
-	return c.classifyPolicyLLM(ctx, userLine, priorTurnHint, hasPriorAnswer, 0)
+	budget := classifierBudget(singleShotRoutePolicyTimeout, singleShotRoutePolicyTimeoutExplicit)
+	ctx, cancel := budget.context(ctx)
+	defer cancel()
+	return c.classifyPolicyLLM(ctx, userLine, priorTurnHint, hasPriorAnswer, budget)
 }
 
-// classifyPolicyLLM is the shared classification core. chatGuard is the
-// lane-specific chat-level hard-timeout handed to
-// chatWithClassifierHardTimeout; <=0 means "no extra guard here" (the
-// caller-owned ctx deadline, if any, governs).
-func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine, priorTurnHint string, hasPriorAnswer bool, chatGuard time.Duration) (TurnPolicy, error) {
+// classifyPolicyLLM is the shared classification core. Budget ownership is
+// independent of route/schema interpretation and shared by initial and repair
+// requests; a caller-owned deadline always remains authoritative.
+func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine, priorTurnHint string, hasPriorAnswer bool, budget classifierCallBudget) (TurnPolicy, error) {
 	var zero TurnPolicy
 	if c.adapter == nil {
 		return zero, fmt.Errorf("turn-policy classifier not configured: no LLM adapter")
@@ -1035,7 +1009,7 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		{Role: "user", Content: b.String()},
 	}
 	tools := []llm.ToolSchema{turnPolicyTool}
-	resp, err := chatWithClassifierHardTimeout(ctx, c.adapter, messages, tools, llm.ChatOptions{ToolChoice: "required"}, chatGuard)
+	resp, err := chatWithClassifierBudget(ctx, c.adapter, messages, tools, llm.ChatOptions{ToolChoice: "required"}, budget)
 	c.lastTrace = traceFromLLMResponse("turn_policy_classifier", resp)
 	if err != nil {
 		return zero, fmt.Errorf("turn-policy classifier llm call: %w", err)
@@ -1057,7 +1031,7 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		// false and only the repaired typed value drives downstream gates.
 		repairMessages := append([]llm.Message(nil), messages...)
 		repairMessages = append(repairMessages, llm.Message{Role: "user", Content: turnPolicyStructuralRepairPrompt(err)})
-		repairedResp, repairErr := chatWithClassifierHardTimeout(ctx, c.adapter, repairMessages, tools, llm.ChatOptions{ToolChoice: "required"}, chatGuard)
+		repairedResp, repairErr := chatWithClassifierBudget(ctx, c.adapter, repairMessages, tools, llm.ChatOptions{ToolChoice: "required"}, budget)
 		c.lastTrace = traceFromLLMResponse("turn_policy_classifier", repairedResp)
 		if repairErr != nil {
 			return zero, fmt.Errorf("turn-policy classifier structural repair llm call: %w", repairErr)
@@ -1088,7 +1062,7 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		!structuralRepairUsed {
 		repairMessages := append([]llm.Message(nil), messages...)
 		repairMessages = append(repairMessages, llm.Message{Role: "user", Content: turnPolicyPresentationProvenanceRepairPrompt()})
-		repairedResp, repairErr := chatWithClassifierHardTimeout(ctx, c.adapter, repairMessages, tools, llm.ChatOptions{ToolChoice: "required"}, chatGuard)
+		repairedResp, repairErr := chatWithClassifierBudget(ctx, c.adapter, repairMessages, tools, llm.ChatOptions{ToolChoice: "required"}, budget)
 		c.lastTrace = traceFromLLMResponse("turn_policy_classifier", repairedResp)
 		if repairErr != nil {
 			return zero, fmt.Errorf("turn-policy classifier presentation provenance repair llm call: %w", repairErr)

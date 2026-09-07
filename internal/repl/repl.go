@@ -6342,7 +6342,7 @@ func (r *REPL) runTurnPolicyClassifierInFlight(fn func(context.Context) (TurnPol
 	}
 	ctx, finish := r.beginREPLDirectLLMInFlight()
 	defer finish()
-	return runBoundedTurnPolicyClassifier(ctx, turnPolicyClassifierTimeout, fn)
+	return runBoundedTurnPolicyClassifier(ctx, classifierDispatcherTimeout(r.chitchatClassifier), fn)
 }
 
 func runBoundedTurnPolicyClassifier(ctx context.Context, timeout time.Duration, fn func(context.Context) (TurnPolicy, error)) (TurnPolicy, error) {
@@ -6375,7 +6375,7 @@ func (r *REPL) runBoolClassifierInFlight(fn func(context.Context) (bool, error))
 	}
 	ctx, finish := r.beginREPLDirectLLMInFlight()
 	defer finish()
-	return runBoundedBoolClassifier(ctx, turnPolicyClassifierTimeout, fn)
+	return runBoundedBoolClassifier(ctx, classifierDispatcherTimeout(r.chitchatClassifier), fn)
 }
 
 func runBoundedBoolClassifier(ctx context.Context, timeout time.Duration, fn func(context.Context) (bool, error)) (bool, error) {

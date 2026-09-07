@@ -1394,28 +1394,28 @@
 #   --chitchat-classifier 可按次覆盖。默认 true。
 # chitchat_classifier_enabled: true
 
-# repl_turn_policy_timeout_seconds — wall-clock cap for the lightweight REPL
-#   structured route classifier. Timeout fails safe to the normal repo pipeline.
-#   Keep this small because routing is an ergonomics layer, not a blocker.
-#   Default 10.
-#   REPL 结构化路由分类器的墙钟超时。超时会安全降级到普通仓库分析
-#   流水线。建议保持较小,因为路由只是易用层,不能阻塞真实读/写任务。
-#   默认 10。
+# repl_turn_policy_timeout_seconds — an explicit positive value sets a total
+#   wall-clock cap for REPL route classification. When UNSET, the default 10s
+#   applies per actual non-streaming request; active streaming requests use
+#   adapter first-byte/idle guards and caller cancellation, not that wall cap.
+#   Non-positive values are ignored. A genuine classification error can still
+#   fall back to repo analysis; choose an explicit total cap deliberately.
+#   显式正数限定整次 REPL 分类总时长；不配置时默认10秒只约束实际非流式
+#   请求。持续接收字节的流不因该默认值降级，仍受首字节/停顿及调用者取消
+#   保护。非正数忽略；真正分类失败仍可能回退仓库分析，请谨慎配置总时限。
 # repl_turn_policy_timeout_seconds: 10
 
-# single_shot_route_policy_timeout_seconds — wall-clock cap for the ONE
-#   unretryable route classification a single-shot (non-REPL CLI) process
-#   gets. A timeout silently demotes a data-lane request to the read
-#   pipeline, which cannot satisfy the data-lane output contract, so this
-#   deadline is deliberately generous. Default 120 (was 60; reasoning-tier
-#   gateways re-enter a thinking period before the structured emission).
-#   0 is meaningful: disable the outer wall clock and rely on the
-#   adapter-native first-byte/stall/retry guards. Negative values ignored.
-#   单发(非 REPL 命令行)进程唯一一次不可重试路由分类的墙钟超时。超时会
-#   静默降级到读流水线且无法满足数据车道输出契约,故此死线刻意宽松。
-#   默认 120(原 60;推理档网关在结构化发射前会重新进入思考期)。
-#   0 有含义:关闭外层墙钟,只保留 adapter 原生首字节/停顿/重试守护。
-#   负值忽略。
+# single_shot_route_policy_timeout_seconds — an explicit positive value caps
+#   the whole single-shot CLI classification, including its repair request.
+#   When UNSET, default 120s applies per actual non-streaming request, never
+#   to active streams. An explicit 0 disables this budget; caller cancellation
+#   and adapter-native first-byte/stall/retry guards remain. Negatives ignored.
+#   A failed classification may fall back to read mode and cannot then satisfy
+#   a data-mode contract; a configured total cap should allow healthy reasoning.
+#   显式正数限定整次 CLI 分类（含结构修补）；不配置时默认120秒仅约束实际
+#   非流式请求，不取消活跃流。显式0禁用本预算，负值忽略；调用者取消与
+#   adapter原生首字节/停顿/重试保护仍有效。失败可能回退读模式，故显式
+#   总时限应给正常推理留足空间；没有正文输出不等于没有收到流式字节。
 # single_shot_route_policy_timeout_seconds: 120
 
 # repl_memory_context_timeout_seconds — wall-clock cap for foreground REPL

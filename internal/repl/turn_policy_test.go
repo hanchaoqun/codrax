@@ -1412,7 +1412,8 @@ func TestClassifyPolicy_TimesOutRouteClassifier(t *testing.T) {
 
 func TestSetTurnPolicyClassifierTimeout(t *testing.T) {
 	old := turnPolicyClassifierTimeout
-	defer func() { turnPolicyClassifierTimeout = old }()
+	oldExplicit := turnPolicyClassifierTimeoutExplicit
+	defer func() { turnPolicyClassifierTimeout, turnPolicyClassifierTimeoutExplicit = old, oldExplicit }()
 
 	SetTurnPolicyClassifierTimeout(3 * time.Second)
 	if turnPolicyClassifierTimeout != 3*time.Second {
@@ -1561,7 +1562,8 @@ func TestClassifyPolicySingleShot_ZeroTimeoutDisablesOuterDeadline(t *testing.T)
 // keep the current guard.
 func TestSetSingleShotRoutePolicyTimeout(t *testing.T) {
 	old := singleShotRoutePolicyTimeout
-	defer func() { singleShotRoutePolicyTimeout = old }()
+	oldExplicit := singleShotRoutePolicyTimeoutExplicit
+	defer func() { singleShotRoutePolicyTimeout, singleShotRoutePolicyTimeoutExplicit = old, oldExplicit }()
 
 	SetSingleShotRoutePolicyTimeout(45 * time.Second)
 	if singleShotRoutePolicyTimeout != 45*time.Second {
