@@ -57380,6 +57380,20 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1671 B1612 已知单域迁移与完整等待库存的下一小批（2026-09-07）
+
+起点`8530c57e0`，工作区干净，远程fetch确认0/0，无远程新提交待合入。沿§1670只处理可明确的实现单域：napi symptom既有true/error两个预期都应在`cli/src/api/templates/js-binding.ts`成立，不能由README中的正确说明代替。case只加一行POST_APPLY_FILE，QUESTION、原regex、fixture、历史结果不变。至此25个apply中15个绑定、10个仍需测试/实现异构域分离，不能声称这10个已迁移。
+
+B1612有效首红为真实runner消费原case、未修实现、README正确示例以及独立durable mock交付报告后仍PASS（`20260907-b1612-napi-scope-baseline-red.log`）；初次mock报告形状失败不计红证。新六臂覆盖未修+诱饵、只满足true缺error、两条件真实在实现、实现缺失、旧unscoped及显式文档scope，均通过（`20260907-b1612-napi-scope-green.log`）；完整runner退出0（`20260907-b1612-runner-contracts.log`），含原scope全套与新case实际接线。shell语法/diff通过。这里只验证源码预期域，不冒称已原生执行生成的JavaScript。
+
+异构域后续设计冻结为显式断言分组：每组字面files和完整matcher输入，编译为(group,path,assertions)，组内/组间AND；plan/日志/正式终验仍一次。全部旧预期需要逐字映射，不遗失、不留全仓兜底；各组局部隔离、不继承上一组的EXPECT。不是逐case发明执行器，也不按扩展名、已改文件或模型原文猜域。本轮未实施该新配置。
+
+并行推进B1607a：现BinderWaits来自经过链预算裁剪的节点，新全量数据不能直接塞回该自动进入RootEvidence的集合。最小a批先从已有完整目标Timeline独立枚举S/D/IO状态区间，附在TargetWindowStateAccount，旧D/IO-only WaitOccurrences及旧根因消费者不动；普通S既不等于无等待，也不因此等于Binder/IO根因。全量扫描口径仅为已构造timeline，不能冒称采集完整；区间EndLine可能由blocked_reason补写、ActualEnd可能为窗尾/EOF延伸，因此闭合、Binder关联、因果归属明确未评估，b批再做精确关联。窗内union/分类总量先于输出cap，不改排序、计价、唤醒链递归或模型答案。另案B1613已复现qualified owner丢失导致A.Run被定位为B.Run，按精确声明身份而非leaf相同修复，正在构造合法限定名兼容正针。
+
+后续回放仍恰两路：本轮涉及Trace载体则选H1 Binder精确窗与Python tokenizers跨仓写；前者近期r1033重复但直接验证本改动、不能用固定1.409 oracle当全量总账，后者上次20260820且本机真实unittest可运行。原始Python基线2项一过一败（普通merge过、五换行失败），非Python文本检查伪装其它语言原生执行。先冻结、提交、干净构建再启动，未另开第三例。
+
+状态：`B1612=implemented/real-case-red-to-green/full-runner-pass`；`unscoped-apply=10/heterogeneous-contract-design-pending`；`B1607a/B1613=in-progress`；`model-prose-hardgate/rewrite=none`。
+
 ### §123.1670 本轮冻结验收与下一批边界（2026-09-07）
 
 本轮已分批推送main：`7937cc22a`（Binder区间/读者标签）、`d564d5a75`（引用角色同源）、`224e47cff`（成员权限/实体名称所有权）、`ce3c18994`（活跃图修补教学）、`c79f104a8`（系统凭证重复附注）、`506b7863d`（多文件交付评测域）；阶段设计和r1034人工收账也已单独推送。没有本地未提交实现留给后续回放。

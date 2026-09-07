@@ -2335,5 +2335,6 @@ assert_eq "$(runner_function_body run_commandless_apply_step | grep -c -- '--pip
   "commandless Auto Pilot must use the expanded budget"
 
 bash "$ROOT/eval/post_apply_scope_test.sh" || fail "post-apply scope contracts"
+bash "$ROOT/eval/napi_post_apply_scope_test.sh" || fail "napi implementation scope contracts"
 
 echo "ok eval runner contracts"
