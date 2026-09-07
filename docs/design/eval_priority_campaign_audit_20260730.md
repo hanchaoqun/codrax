@@ -57394,11 +57394,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 | P1 / B1576-RUNTIMEDIMENSIONSOURCEAPPLICABILITY1 | 源码ownership教学/completion与typed source-excluded不同域；共享既有源码适用域，保留runtime维度、角色及源码必需场景 | 确认/施工，禁止以attached trace或关键词一概豁免源码 |
 | P1 / B1578-PROOFFOLLOWUPREADCAPABILITY1 | 历史定位被当成当前已持有源码，proof补验从首轮禁读；复用系统授权与既有只读预算，schema/stop/result/提示同源 | 确认/施工，源码变更/risk/worktree权限不放松 |
 | P1 / B1579-ENRICHMENTCAPACITYCORRECTION1 | 满池提前跳过TurnA/Mutable同ID纠正；限新增身份而不跳过既有ID修正 | 真实关系入口先红/施工 |
-| P1 / B1577-CITATIONCENSUSBEFOREDISPLAY1 | callable12项显示cap先于唯一性，可能丢同尾owner反证 | 代码风险/执行否证中；完整身份判定后才裁显示 |
+| P1 / B1577-CITATIONCENSUSBEFOREDISPLAY1 | callable12项显示cap先于唯一性，丢同尾owner反证 | 已精确复现并修复，完整身份判定后才裁显示，见下 |
 | P1 / B1580-DYNAMICSELECTORCENSUS1 | 384core/128call前缀上做完整selector冲突判定，cap外不同candidate可能消失 | 待执行反例，未声称已复现；先完整同ID合并与冲突索引，按完整组裁剪 |
 | P1能力边界 / B1575-PROBECONTRACTEXECUTIONGRANULARITY1 | 整段probe通过+模块耦合不证明每个自报contract ref对应行为确实执行 | 已审计/方案待设计；先披露证明粒度，后续跨语言执行器逐ref凭证，不以模型自报或代码词法造权威 |
 
 前批完整 `go test ./... -count=1` 已通过（`.codrax/tmp/20260906-b1571-b1574-full-suite.log`），干净`make`与main推送完成。B1571/73/74有生产正证；B1572有真实入口先红后绿+原报告只读重投影，r1024为应拒负例。当前新批不在上述全仓结果内，须单独验证后收账。
+
+#### B1577：定义唯一性先看完整身份集合，再截取12项显示
+
+`implemented / finalizer-production-entry-red-to-green / full-suite-pending`。
+
+- 精确反例成立：同文件两个合法owner `A.run/B.run`，B位于第13个身份；旧逻辑把B连同其否证作用一起丢弃，于是短名定义run被错误标为proved。不是普通展示遗漏。
+- 完整身份map参与原唯一性判据，最多12项只限最终preview；隐藏callable不再消失于否证集合。仅为可见行解析定义，避免无谓扩大渲染计算；披露12/13，不把未显示说成不存在。
+- 原producer/owner/source匹配及callsite/definition分工不变，无新JSON义务和硬门。顺序置换、同文件多owner、不同文件、全限定定义、真实BuildInitialInstruction入口均先红后绿；日志 `.codrax/tmp/b1577-citation-census-{red,green}.log`，旧citation回归全绿。
 
 #### B1579：满额只限制新增身份，不跳过已入池证据的纠正
 

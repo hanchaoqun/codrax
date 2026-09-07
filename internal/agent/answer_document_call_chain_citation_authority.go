@@ -31,7 +31,7 @@ func renderAnswerDocCallChainCitationAuthority(plan *types.AnswerSupportPlan) st
 		return ""
 	}
 	entries := answerDocCurrentCodePathEntries(plan)
-	rows := answerDocCallableCitationRows(entries)
+	rows, total := answerDocCallableCitationRows(entries)
 	if len(rows) == 0 {
 		return ""
 	}
@@ -40,6 +40,9 @@ func renderAnswerDocCallChainCitationAuthority(plan *types.AnswerSupportPlan) st
 	b.WriteString("### Callable role and citation authority (typed advisory)\n\n")
 	b.WriteString("- A call-site reference proves only that its exact caller invokes its exact target. A definition reference proves the callable declaration/body at that location. Do not describe a call-site line as where the callee is defined, and do not use a definition line as proof that a caller invoked it.\n")
 	b.WriteString("- For an ordered hop, cite `callsite_refs`. Discuss a callable's signature or general body only when `definition_status=proved`, and cite `definition_ref`. An exact `body_call_fact` independently proves only that listed invocation inside the callable and may be described from its own reference even when the declaration line is absent. When neither definition nor body fact is proved, say only that the grounded chain invokes/reaches the endpoint.\n")
+	if total > len(rows) {
+		fmt.Fprintf(&b, "- Callable preview: showing %d of %d observed callables. Definition uniqueness uses the full observed set; omission from this preview does not prove absence or change relation evidence requirements.\n", len(rows), total)
+	}
 	for i, row := range rows {
 		fmt.Fprintf(&b, "- callable[%d]: identity=`%s`; observed_roles=`%s`; callsite_refs=`%s`; definition_status=`%s`",
 			i+1, answerDocCallChainInline(row.identity), strings.Join(row.roles, "|"), strings.Join(row.callsiteRefs, " | "), row.definitionState)
@@ -65,7 +68,7 @@ func answerDocCurrentCodePathEntries(plan *types.AnswerSupportPlan) []types.Answ
 	return out
 }
 
-func answerDocCallableCitationRows(entries []types.AnswerSupportEntry) []answerDocCallableCitationRow {
+func answerDocCallableCitationRows(entries []types.AnswerSupportEntry) ([]answerDocCallableCitationRow, int) {
 	rows := make(map[string]*answerDocCallableCitationRow)
 	var order []string
 	add := func(identity, role, source, location, definitionAuthority string) {
@@ -76,9 +79,6 @@ func answerDocCallableCitationRows(entries []types.AnswerSupportEntry) []answerD
 		}
 		row := rows[key]
 		if row == nil {
-			if len(order) >= maxAnswerDocCallableCitationRows {
-				return
-			}
 			row = &answerDocCallableCitationRow{identity: identity, sources: make(map[string]bool)}
 			rows[key] = row
 			order = append(order, key)
@@ -106,6 +106,14 @@ func answerDocCallableCitationRows(entries []types.AnswerSupportEntry) []answerD
 			row.bodyCallFacts = appendAnswerDocUniqueString(row.bodyCallFacts,
 				fmt.Sprintf("%s -> %s @ %s", strings.TrimSpace(entry.Subject), strings.TrimSpace(entry.Object), strings.TrimSpace(entry.Location)))
 		}
+	}
+
+	// Limit only the preview, after collecting every callable identity. The full
+	// map remains the uniqueness census: an omitted same-file owner can still
+	// make a short definition ambiguous for a visible callable.
+	total := len(order)
+	if len(order) > maxAnswerDocCallableCitationRows {
+		order = order[:maxAnswerDocCallableCitationRows]
 	}
 
 	definitions := make([]types.AnswerSupportEntry, 0)
@@ -140,7 +148,7 @@ func answerDocCallableCitationRows(entries []types.AnswerSupportEntry) []answerD
 		sort.Strings(row.roles)
 		out = append(out, *row)
 	}
-	return out
+	return out, total
 }
 
 func answerDocDefinitionMatchesCallableRow(definition types.AnswerSupportEntry, row *answerDocCallableCitationRow) bool {
