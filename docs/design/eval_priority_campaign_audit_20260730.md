@@ -57380,6 +57380,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1668 B1611：只合并同一系统凭证的重复附注（2026-09-07）
+
+r1034 Rust 首稿图块已绑定概念终点凭证，后续summary软提示又让模型选择同凭证；原renderer逐块发射，故同一“概念目标核对”出现两次。模型正文重复与系统重复附注是两件事。本批只在文档单次渲染中记忆已实际发射的完整typed code receipt，严格相等才省掉后续同凭证系统附注，首条位置和中英措辞不变。
+
+比较包含EvidenceID、Conclusion、Bound和完整BoundRow（证据ID、terminal callable、exact operation、精确source、allowed conclusions及顺序），没有从显示句、模型正文或图猜同一事实。未绑定/nil/系统块不能占用去重席位；不同来源、行号、大小写、操作或结论均保留。原AnswerDocument及receipt不修改，模型自行写出相同句子也保留，RuntimeWork/Trace披露完全不参加此集合。当前code receipt没有时间窗字段，不冒称本批验证了跨窗合并，也不从相邻Trace推测补绑窗口。
+
+真实Render中英重复先红（`20260907-b1611-red.log`），定向count3通过0.701s（`20260907-b1611-green.log`）；冻结后完整render包通过0.941s（`20260907-b1611-render-full.log`），本批race通过1.832s（`20260907-b1611-race.log`）。测试覆盖完整字段异值不合并、未发射不占位、单条精确字节不变、模型同句保留、图和Trace/RuntimeWork保留、输入deep-equal及重复渲染一致。本批不是通用模型段落去重器，也没有改Trace投影或成文合同。
+
+状态：`B1611=implemented/real-render-red-to-green/count3+render-full-pass`；`dedup=exact-system-code-receipt-only`；`model-content/source-receipt=unchanged`；`B1609=pushed-ce3c18994`；`new-live-replay=pending`。
+
 ### §123.1667 B1609：修补教学必须服从当前可执行能力（2026-09-07）
 
 r1034 Rust 的关系本来有准确调用证据；失败不是合法关系无法表达，而是系统在安装逐边原子修补权限后，仍优先发送旧 `replace_blocks` 整图元数据配方，模型照做又被原权限拒绝。真实完整提交与patch两入口、必需图与可选图四臂先红，证据见 `20260907-b1609-red.log`。最终原子replace已经保留五条核心调用边，所以不把首轮遗漏、自增无凭证self边或“并行执行”误述都算成系统删除图。

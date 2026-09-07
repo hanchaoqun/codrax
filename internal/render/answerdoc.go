@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -36,12 +37,14 @@ func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 
 	renderAnswerDocV2ExactResolution(&b, doc.ExactResolution, docLang)
 	renderedScopeDisclosures := map[types.ScopeDisclosureKind]bool{}
+	var renderedConceptualReceipts []*types.AnswerConceptualTerminalResolutionReceipt
 	for _, blk := range doc.Blocks {
 		blk = stripDuplicateStructuredDiagramFencesFromBlock(blk, structuredDiagramBodies)
 		if duplicatedSectionItems[strings.TrimSpace(blk.ID)] {
 			blk.Items = nil
 		}
 		renderAnswerDocV2Block(&b, blk, doc, docLang)
+		renderedConceptualReceipts = renderV2ConceptualTerminalResolutionReceiptOnce(&b, blk, docLang, renderedConceptualReceipts)
 		renderAnswerDocV2ScopeDisclosure(&b, blk.ScopeDisclosure, docLang, renderedScopeDisclosures)
 	}
 
@@ -174,7 +177,6 @@ func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *type
 	}
 	renderV2StandaloneTypedRelations(b, blk, doc)
 	renderV2RuntimeWorkRelationReceipt(b, blk, lang)
-	renderV2ConceptualTerminalResolutionReceipt(b, blk, lang)
 }
 
 func renderV2RuntimeWorkRelationReceipt(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) {
@@ -276,10 +278,26 @@ func runtimeWorkRelationConclusionEN(conclusion types.RuntimeWorkRelationConclus
 	}
 }
 
-func renderV2ConceptualTerminalResolutionReceipt(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) {
+// Only identical, fully bound code receipts share a system disclosure within
+// one rendering. Compare the whole typed value (including non-JSON binding
+// fields), not its displayed text, model prose, or diagram. Runtime/Trace
+// receipts have independent scopes and never enter this document-local set.
+func renderV2ConceptualTerminalResolutionReceiptOnce(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang, rendered []*types.AnswerConceptualTerminalResolutionReceipt) []*types.AnswerConceptualTerminalResolutionReceipt {
+	for _, previous := range rendered {
+		if reflect.DeepEqual(previous, blk.ConceptualTerminalResolution) {
+			return rendered
+		}
+	}
+	if renderV2ConceptualTerminalResolutionReceipt(b, blk, lang) {
+		return append(rendered, blk.ConceptualTerminalResolution)
+	}
+	return rendered
+}
+
+func renderV2ConceptualTerminalResolutionReceipt(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) bool {
 	receipt := blk.ConceptualTerminalResolution
 	if b == nil || receipt == nil || !receipt.IsBound() || blk.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown {
-		return
+		return false
 	}
 	row := receipt.BoundRow
 	if lang == answerDocLangZH {
@@ -293,7 +311,7 @@ func renderV2ConceptualTerminalResolutionReceipt(b *strings.Builder, blk types.A
 		}
 		b.WriteString(conceptualTerminalResolutionConclusionZH(receipt.Conclusion, row.TerminalCallable != ""))
 		b.WriteString("\n\n")
-		return
+		return true
 	}
 	b.WriteString("**Conceptual-destination check**: ")
 	if row.TerminalCallable != "" && row.ExactOperation != "" {
@@ -305,6 +323,7 @@ func renderV2ConceptualTerminalResolutionReceipt(b *strings.Builder, blk types.A
 	}
 	b.WriteString(conceptualTerminalResolutionConclusionEN(receipt.Conclusion, row.TerminalCallable != ""))
 	b.WriteString("\n\n")
+	return true
 }
 
 func conceptualTerminalResolutionConclusionZH(conclusion types.ConceptualTerminalResolutionConclusion, hasOperation bool) string {
