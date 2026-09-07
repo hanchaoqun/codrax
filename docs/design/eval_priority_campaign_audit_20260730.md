@@ -57380,6 +57380,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1678 本轮最终冻结验收（2026-09-07）
+
+本轮分批推送main：B1612=`babf20b31`，B1607a=`f8014fed1`及计数收尾`5a46e4197`，B1613=`6a17d2f42`，B1614=`617550fde`，B1615=`4fe4b9600`，r1035审计及B1616设计=`7e426b6f4`。没有把本轮新提示的单元通过算作r1035修改前快照的生产正证；机器PASS/FAIL和人工两个残余均保留。
+
+所有产品源码冻结后最终`go test ./... -count=1`实际退出0，86测试包全通过，无FAIL/panic。日志`20260907-b1607a-b1615-final-full-suite.log`：agent58.169s、tool292.463s、types40.028s、context8.266s、orchestrator24.729s、tracequery94.869s、tracediag11.940s、repomap11.245s、render9.012s、llm28.515s、repl62.879s。§1674初轮全仓两红保留为真实过程记录，本次才是修正后完整全绿。eval shell完整runner验收见§1671，不以Go套件代替shell或真实交付行为检查。
+
+干净make成功，revision=`7e426b6f406c`、无dirty（`20260907-b1614-b1615-clean-build.log`），与本次全部产品修复一致。本段仅文档状态变更，不再叠加未验收源码。活跃流本轮真实HTTP/SSE定向及最终llm/repl包再次通过；无默认4ms/旧4分钟“未见正文”降级，保显式取消/截止与真正byte-idle，测试范围不冒充长时客户live。
+
+剩余任务未收假账：B1607b完整Binder闭合/关联账户为P1；B1616a探测身份先于B1616b同/跨计划三载体履约投影；B1561逐assertion原生证明与10项异构eval域继续开放。下一新回放始终恰两路，按冻结的具体改动选Trace值通道或异构读/写，不把模型波动反复拟合成题目专用规则。
+
+状态：`B1612/B1607a/B1613/B1614/B1615=pushed+final-whole-repo-86-pass`；`r1035=machine1/2,human-no-complete-pass`；`build=clean`；`B1607b/B1616/B1561/open-eval-domains=not-closed`；`model-prose/diagram-rewrite/keyword-hardgate=none`；`Trace-exact-window/chain-only-roots/two-axes/business-clues/auto-supplement=preserved`。
+
 ### §123.1677 r1035 人工收账与 B1616 累计证明域排期（2026-09-07）
 
 严格两路使用已提交干净`6a17d2f42e5e`：H1机器PASS141s，Python跨仓apply机器FAIL，外层批次311s/子进程wall309s。机器1/2不代表人工1/2：两例人工均有实质残余。机器表和完整人工逐轮/上下文/交付审计已保存为`eval/parallel_selected_summary_evalcampaign_trace_sleep_python_write_r1035_20260907{,_manual_audit}.md`，不覆盖历史成绩、原答案或交付树。B1607a计数收尾及B1614/B1615未进入该快照，不冒称已生产验证。
