@@ -57380,6 +57380,39 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1670 本轮冻结验收与下一批边界（2026-09-07）
+
+本轮已分批推送main：`7937cc22a`（Binder区间/读者标签）、`d564d5a75`（引用角色同源）、`224e47cff`（成员权限/实体名称所有权）、`ce3c18994`（活跃图修补教学）、`c79f104a8`（系统凭证重复附注）、`506b7863d`（多文件交付评测域）；阶段设计和r1034人工收账也已单独推送。没有本地未提交实现留给后续回放。
+
+末次产品源码冻结后 `go test ./... -count=1` 退出0，86测试包通过，无FAIL/panic（`20260907-b1609-b1611-final-full-suite.log`）：agent68.573s/tool301.123s/types43.905s/orchestrator25.212s/tracequery101.507s/tracediag13.377s/render9.865s/llm28.406s/repl70.079s。随后仅eval脚本显示接线和文档变化，不用Go全仓测试替代shell测试；后者完整runner及最后scope矩阵分别见§123.1669。干净make成功，版本`506b7863dcb0`（`20260907-b1609-b1611-clean-build.log`），无dirty标记。
+
+r1034保持机器2/2 PASS、人审两例均未完整正确的历史事实；完整上下文/每轮修补/最终图/持久化补丁均已人工审查。新修复已有真实入口或runner红绿反例，但尚未进行其后的新LLM回放，不宣称Rust已零重试或模型已纠正“并行”。活跃流本轮定向真实HTTP/SSE测试通过（`20260907-b1603-active-stream.log`），最终llm/repl全包亦通过：默认不会仅因4ms或旧4分钟墙钟内没有正文而降级；显式预算、parent取消和真正byte-idle仍保留。缩时测试不冒充一次超过4分钟的live见证。
+
+#### 剩余交付域清册：不能机械迁移11案
+
+§123.1669所列11个未绑定apply已经只读逐案审计，尚未批量改case：1个实现单域、5个测试单域、5个异构多域。必须区分“原回归没有被删除”“实现文本具备条件”和“原生行为已运行通过”，不让一种凭证替另一种签绿。
+
+| 用例组 | 正确文件范围 | 后续处理 |
+|---|---|---|
+| napi symptom（1） | `cli/src/api/templates/js-binding.ts` | 两个现有条件均属于此实现，可单域绑定；生成代码行为仍另验 |
+| dayjs普通/symptom（2） | `tests/duration.test.js`；实现`src/duration.js` | 现有字符串条件是测试域，不等于实现已修；补独立原生行为验收 |
+| zod普通/symptom（2） | `packages/zod/src/v4/classic/tests/to-json-schema.test.ts`；实现`packages/zod/src/v4/core/to-json-schema.ts` | 三个falsy字面属于测试，不能机械要求每个实现文件携带测试内容 |
+| tokenizers跨仓Python（1） | 写根`bindings-py`内`tests/test_tokenizer.py`和`fastlex/tokenizer.py` | 现有五换行regex证明测试保留；真实unittest才证明实现与普通merge行为 |
+| chrono symptom（1） | `src/duration.rs` / `tests/duration_min.rs` | 构造/边界实现与i64::MIN回归分别定义预期 |
+| commons普通/symptom（2） | `src/main/java/org/apache/commons/lang3/RandomStringUtils.java` / 对应test树`RandomStringUtilsTest.java` | ASCII实现与非ASCII字母/数字测试分域；symptom原regex仅覆盖一类，不能当完整两类行为验收 |
+| fmt symptom（1） | `include/tmfmt.hpp` / `tests/test_tmfmt.cpp` | 宽整数实现与2147485547回归分域，原生编译运行证明行为 |
+| pyo3 symptom（1） | `src/types/list.rs`、`src/types/tuple.rs` / `tests/iterators.rs` | 两实现可共享checked_add/sub子集，usize::MAX属于测试；不能把完整三条件无差别AND给每文件 |
+
+逐文件异构预期应复用同一matcher而显式绑定断言域，不能靠扩展名或已改文件猜测，也不删除未满足的原条件。此处只冻结设计/清册，不新造本批已支持的配置字段或迁移完成声明。
+
+#### 下一批按证据和ROI推进
+
+1. B1607a/b完整Binder等待账户继续P1：从完整目标状态区间统计，独立于可视链的节点/深度/时长裁剪；真实闭合、窗前上下文、返回cap分别披露。不能把新全量等待直接灌进会自动升级root_evidence的旧集合；S/D/IO、生命周期/namespace/工件身份、重叠区间并集及根因资格保持原红线。当前恢复1.409ms仍是有证据的下界，不是全部等待。
+2. qualified-owner定位回退需要真实无别名反例，保合法同实体限定名兼容；B1561原生逐assertion执行证明与上述异构eval域分别设计，不把源码字符串/聚合runner/模型all_verified当细粒度行为凭证。
+3. 下一异构两路候选为 `eval/cases/github_issue_tokenizers_newline_run_multirepo_py.case`（跨仓Python写，五换行与普通merge、只写bindings-py、真实unittest）和 `eval/cases/harmony/cangjie_repomap_fixture.case`（隔离Cangjie读，extend/foreign/public class及真实package来源）。未启动；前者上次20260820、后者r1027，避开刚跑Rust/C++求绿。若先改Trace值通道，则将读侧替换为精确窗Trace正/负哨兵，仍只同时两路，不能用代码读例代验Trace计算。当前PATH缺Node/cargo/rustc、Java为不可用stub，不把相关Python文本检查冒称对应原生执行；需要时先确认合法运行环境。
+
+状态：`B1603/B1604/B1605/B1606/B1608/B1609/B1610/B1611=pushed`；`final-whole-repo=86-pass`；`build=clean-506b7863dcb0`；`r1034=machine-pass-2/2,human-fail-2/2/preserved`；`next-live=not-started`；`remaining-scope-cases=audited-not-migrated`；`Trace-window/projection/auto-supplement/on-chain-authority/two-axes/business-clues=preserved`；`model-answer-rewrite/keyword-hardgate=none`。
+
 ### §123.1669 B1610：交付评测逐目标验收，禁止其它文件代为通过（2026-09-07）
 
 r1034 C++ 补丁把两份头的`%.*lg`改成固定小数`%.*Lf`；它修复了类型警告，却改变一般格式语义。原生make只查非空，正式报告诚实记录aggregate通过；eval另有正确`%.*Lg`预期，但未指定文件，汇总全部交付文本后被未改README中的正确示例满足。该域泄漏是确定性评测gap，模型错误补丁与原生细粒度验证不足则分别保留，不能混成产品伪造执行报告。
