@@ -122,6 +122,102 @@ type dynamicSelectorArgumentCandidate struct {
 	argument string
 }
 
+type dynamicSelectorCallsite struct {
+	source string
+	line   int
+}
+
+// The index is local to one immutable compiler input. Buckets retain every
+// occurrence in source input order and only narrow exact typed comparisons;
+// they never decide uniqueness, erase a conflicting row or cap a family.
+type dynamicSelectorEvidenceIndex struct {
+	evidence           []EvidenceItem
+	identityKeys       map[string]string
+	bindingsByOwner    map[string][]int
+	lookupsByContainer map[string][]int
+	returnsByOwner     map[string][]int
+	callsByTarget      map[string][]int
+	callsByOwnerTarget map[string]map[string][]int
+	argumentsBySite    map[dynamicSelectorCallsite][]int
+	handoffsByReceiver map[string][]int
+	typesByCandidate   map[string][]int
+	firstOrdinalByID   map[string]int
+}
+
+func (index *dynamicSelectorEvidenceIndex) identityKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if key, ok := index.identityKeys[raw]; ok {
+		return key
+	}
+	key := AnswerCodeIdentitySurfaceKey(raw)
+	index.identityKeys[raw] = key
+	return key
+}
+
+func newDynamicSelectorEvidenceIndex(evidence []EvidenceItem) *dynamicSelectorEvidenceIndex {
+	index := &dynamicSelectorEvidenceIndex{
+		evidence: evidence, identityKeys: make(map[string]string),
+		bindingsByOwner: make(map[string][]int), lookupsByContainer: make(map[string][]int),
+		returnsByOwner: make(map[string][]int), callsByTarget: make(map[string][]int),
+		callsByOwnerTarget: make(map[string]map[string][]int),
+		argumentsBySite:    make(map[dynamicSelectorCallsite][]int),
+		handoffsByReceiver: make(map[string][]int), typesByCandidate: make(map[string][]int),
+		firstOrdinalByID: make(map[string]int),
+	}
+	add := func(bucket map[string][]int, raw string, position int) {
+		// Invalid/empty identities are never equivalent, including to each
+		// other. Preserve that behavior instead of joining an empty-key bucket.
+		if key := index.identityKey(raw); key != "" {
+			bucket[key] = append(bucket[key], position)
+		}
+	}
+	for position, item := range evidence {
+		// The old stable type-order lookup used the first matching ID across
+		// all rows, including uncitable/non-type rows. Keep that exact domain.
+		id := dynamicSelectorEvidenceID(item)
+		if _, exists := index.firstOrdinalByID[id]; !exists {
+			ordinal := item.RelationOrdinal
+			if ordinal <= 0 {
+				ordinal = int(^uint(0) >> 1)
+			}
+			index.firstOrdinalByID[id] = ordinal
+		}
+		if !item.IsCitable() {
+			continue
+		}
+		switch ClaimFormOf(item) {
+		case ClaimRegistrationEdge:
+			add(index.bindingsByOwner, item.OwnerSymbol, position)
+		case ClaimAssignmentFact:
+			add(index.bindingsByOwner, item.OwnerSymbol, position)
+			if container, ok := IndexedAssignmentValueContainer(item); ok {
+				add(index.lookupsByContainer, container, position)
+			}
+		case ClaimReturnFact:
+			add(index.returnsByOwner, firstNonEmptyDynamicSelectorIdentity(item.OwnerSymbol, item.Subject), position)
+		case ClaimCallEdge:
+			add(index.callsByTarget, item.Object, position)
+			owner := index.identityKey(firstNonEmptyDynamicSelectorIdentity(item.OwnerSymbol, item.Subject))
+			target := index.identityKey(item.Object)
+			if owner != "" && target != "" {
+				if index.callsByOwnerTarget[owner] == nil {
+					index.callsByOwnerTarget[owner] = make(map[string][]int)
+				}
+				index.callsByOwnerTarget[owner][target] = append(index.callsByOwnerTarget[owner][target], position)
+			}
+		case ClaimArgumentFlow:
+			site := dynamicSelectorCallsite{source: strings.TrimSpace(item.Source), line: item.LineStart}
+			index.argumentsBySite[site] = append(index.argumentsBySite[site], position)
+		case ClaimCallbackHandoff:
+			add(index.handoffsByReceiver, item.Subject, position)
+		}
+		if IsRepoMapTypeRelationEvidence(item) {
+			add(index.typesByCandidate, item.Subject, position)
+		}
+	}
+	return index
+}
+
 // CompileDynamicSelectorResolutionPaths joins only citable typed evidence.
 // It does not parse source snippets, summaries, request prose, model output,
 // diagram text, language names, or file extensions. Every emitted hop keeps
@@ -160,6 +256,7 @@ func CompileDynamicSelectorResolutionPaths(evidence []EvidenceItem, entryIdentit
 		})
 	}
 
+	var index *dynamicSelectorEvidenceIndex
 	for _, groupKey := range groupOrder {
 		apps := dynamicSelectorUniqueApplications(groups[groupKey])
 		if len(apps) == 0 {
@@ -175,7 +272,10 @@ func CompileDynamicSelectorResolutionPaths(evidence []EvidenceItem, entryIdentit
 			continue
 		}
 		app := apps[0]
-		path, reason, ids := compileOneDynamicSelectorResolutionPath(evidence, app.item, entryIdentity)
+		if index == nil {
+			index = newDynamicSelectorEvidenceIndex(evidence)
+		}
+		path, reason, ids := compileOneDynamicSelectorResolutionPath(index, app.item, entryIdentity)
 		if reason != "" {
 			out.Rejected = append(out.Rejected, DynamicSelectorResolutionRejection{
 				SelectorLiteral: app.selector,
@@ -197,12 +297,13 @@ func CompileDynamicSelectorResolutionPaths(evidence []EvidenceItem, entryIdentit
 	return out
 }
 
-func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app EvidenceItem, requestedEntry string) (DynamicSelectorResolutionPath, DynamicSelectorResolutionRejectionReason, []string) {
+func compileOneDynamicSelectorResolutionPath(index *dynamicSelectorEvidenceIndex, app EvidenceItem, requestedEntry string) (DynamicSelectorResolutionPath, DynamicSelectorResolutionRejectionReason, []string) {
 	selector := app.SelectorApplication
 	appID := dynamicSelectorEvidenceID(app)
 
 	var bindings []dynamicSelectorBindingCandidate
-	for _, item := range evidence {
+	for _, position := range index.bindingsByOwner[index.identityKey(selector.Owner)] {
+		item := index.evidence[position]
 		if !item.IsCitable() || !dynamicSelectorIdentityEquivalent(item.OwnerSymbol, selector.Owner) {
 			continue
 		}
@@ -240,7 +341,8 @@ func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app Eviden
 	bindingRow := bindings[0]
 
 	var lookups []dynamicSelectorLookupCandidate
-	for _, item := range evidence {
+	for _, position := range index.lookupsByContainer[bindingRow.containerKey] {
+		item := index.evidence[position]
 		if !item.IsCitable() || ClaimFormOf(item) != ClaimAssignmentFact || !AssignmentEvidenceEndpointsMatch(item) {
 			continue
 		}
@@ -266,7 +368,8 @@ func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app Eviden
 	lookupRow := lookups[0]
 
 	var returns []dynamicSelectorReturnCandidate
-	for _, item := range evidence {
+	for _, position := range index.returnsByOwner[index.identityKey(lookupRow.owner)] {
+		item := index.evidence[position]
 		if !item.IsCitable() || ClaimFormOf(item) != ClaimReturnFact ||
 			!dynamicSelectorIdentityEquivalent(firstNonEmptyDynamicSelectorIdentity(item.OwnerSymbol, item.Subject), lookupRow.owner) {
 			continue
@@ -287,7 +390,8 @@ func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app Eviden
 	returnRow := returns[0]
 
 	var entries []dynamicSelectorEntryCandidate
-	for _, item := range evidence {
+	for _, position := range index.callsByTarget[index.identityKey(lookupRow.owner)] {
+		item := index.evidence[position]
 		if !item.IsCitable() || ClaimFormOf(item) != ClaimCallEdge ||
 			!dynamicSelectorIdentityEquivalent(item.Object, lookupRow.owner) {
 			continue
@@ -314,7 +418,9 @@ func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app Eviden
 	entry := entries[0]
 
 	var arguments []dynamicSelectorArgumentCandidate
-	for _, item := range evidence {
+	site := dynamicSelectorCallsite{source: strings.TrimSpace(entry.item.Source), line: entry.item.LineStart}
+	for _, position := range index.argumentsBySite[site] {
+		item := index.evidence[position]
 		if !item.IsCitable() || ClaimFormOf(item) != ClaimArgumentFlow ||
 			!dynamicSelectorIdentityEquivalent(item.Object, lookupRow.owner) ||
 			strings.TrimSpace(item.Source) != strings.TrimSpace(entry.item.Source) ||
@@ -355,8 +461,8 @@ func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app Eviden
 			dynamicSelectorHop(DynamicSelectorHopFactoryReturn, DiagramRelReturn, returnRow.item, lookupRow.owner, returnRow.expression),
 		},
 	}
-	path.CallbackHops = compileDynamicSelectorCallbackHops(evidence, entry.from)
-	path.TypeRoster = compileDynamicSelectorTypeRoster(evidence, path.CandidateIdentity)
+	path.CallbackHops = compileDynamicSelectorCallbackHops(index, entry.from)
+	path.TypeRoster = compileDynamicSelectorTypeRoster(index, path.CandidateIdentity)
 	return path, "", nil
 }
 
@@ -367,22 +473,31 @@ func dynamicSelectorHop(role DynamicSelectorResolutionHopRole, relation DiagramR
 	}
 }
 
-func compileDynamicSelectorCallbackHops(evidence []EvidenceItem, entry string) []DynamicSelectorResolutionHop {
-	var calls []EvidenceItem
-	for _, item := range evidence {
-		if item.IsCitable() && ClaimFormOf(item) == ClaimCallEdge &&
-			dynamicSelectorIdentityEquivalent(firstNonEmptyDynamicSelectorIdentity(item.OwnerSymbol, item.Subject), entry) {
-			calls = append(calls, item)
+func compileDynamicSelectorCallbackHops(index *dynamicSelectorEvidenceIndex, entry string) []DynamicSelectorResolutionHop {
+	callsByTarget := index.callsByOwnerTarget[index.identityKey(entry)]
+	var handoffs []int
+	for receiver, positions := range index.handoffsByReceiver {
+		if len(callsByTarget[receiver]) > 0 {
+			handoffs = append(handoffs, positions...)
 		}
 	}
+	// The original join iterated handoffs first, then matching calls. Map
+	// lookup must not reorder those occurrences or their first-ID selection.
+	sort.Ints(handoffs)
 	var out []DynamicSelectorResolutionHop
 	seenCalls := make(map[string]bool)
 	seenHandoffs := make(map[string]bool)
-	for _, item := range evidence {
+	for _, position := range handoffs {
+		item := index.evidence[position]
 		if !item.IsCitable() || ClaimFormOf(item) != ClaimCallbackHandoff {
 			continue
 		}
-		for _, call := range calls {
+		for _, callPosition := range callsByTarget[index.identityKey(item.Subject)] {
+			call := index.evidence[callPosition]
+			if !call.IsCitable() || ClaimFormOf(call) != ClaimCallEdge ||
+				!dynamicSelectorIdentityEquivalent(firstNonEmptyDynamicSelectorIdentity(call.OwnerSymbol, call.Subject), entry) {
+				continue
+			}
 			if !dynamicSelectorIdentityEquivalent(call.Object, item.Subject) {
 				continue
 			}
@@ -407,10 +522,11 @@ func compileDynamicSelectorCallbackHops(evidence []EvidenceItem, entry string) [
 	return out
 }
 
-func compileDynamicSelectorTypeRoster(evidence []EvidenceItem, candidate string) []DynamicSelectorResolutionHop {
+func compileDynamicSelectorTypeRoster(index *dynamicSelectorEvidenceIndex, candidate string) []DynamicSelectorResolutionHop {
 	var out []DynamicSelectorResolutionHop
 	seen := make(map[string]bool)
-	for _, item := range evidence {
+	for _, position := range index.typesByCandidate[index.identityKey(candidate)] {
+		item := index.evidence[position]
 		if !item.IsCitable() || !IsRepoMapTypeRelationEvidence(item) || !dynamicSelectorIdentityEquivalent(item.Subject, candidate) {
 			continue
 		}
@@ -422,21 +538,9 @@ func compileDynamicSelectorTypeRoster(evidence []EvidenceItem, candidate string)
 		out = append(out, dynamicSelectorHop(DynamicSelectorHopTypeRelation, DiagramRelTypeRelation, item, item.Subject, item.Object))
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		return dynamicSelectorRelationOrdinal(evidence, out[i].EvidenceID) < dynamicSelectorRelationOrdinal(evidence, out[j].EvidenceID)
+		return index.firstOrdinalByID[out[i].EvidenceID] < index.firstOrdinalByID[out[j].EvidenceID]
 	})
 	return out
-}
-
-func dynamicSelectorRelationOrdinal(evidence []EvidenceItem, id string) int {
-	for _, item := range evidence {
-		if dynamicSelectorEvidenceID(item) == id {
-			if item.RelationOrdinal > 0 {
-				return item.RelationOrdinal
-			}
-			return int(^uint(0) >> 1)
-		}
-	}
-	return int(^uint(0) >> 1)
 }
 
 func dynamicSelectorContainerIdentity(raw string) string {

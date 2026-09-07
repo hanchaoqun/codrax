@@ -3031,7 +3031,6 @@ type answerDocLocalFactOrderGroup struct {
 }
 
 const (
-	answerDocDynamicSelectorEvidenceLimit  = 512
 	answerDocDynamicSelectorCandidateLimit = 4
 )
 
@@ -3040,7 +3039,7 @@ const (
 // It does not select the runtime target, invent a continuous call chain, draw a
 // diagram, or rewrite an answer. Incomplete or ambiguous groups stay withheld.
 func renderAnswerDocDynamicSelectorResolutionCandidates(ctx *types.AgentContext, entryIdentity string) string {
-	pool := answerDocDynamicSelectorEvidencePool(ctx, answerDocDynamicSelectorEvidenceLimit, entryIdentity)
+	pool := answerDocDynamicSelectorEvidenceCensus(ctx)
 	compiled := types.CompileDynamicSelectorResolutionPaths(
 		pool,
 		entryIdentity,
@@ -3153,7 +3152,7 @@ func renderAnswerDocDynamicSelectorRelationRecipes(b *strings.Builder, ctx *type
 	if entry == "" {
 		return nil
 	}
-	pool := answerDocDynamicSelectorEvidencePool(ctx, answerDocDynamicSelectorEvidenceLimit, entry)
+	pool := answerDocDynamicSelectorEvidenceCensus(ctx)
 	compiled := types.CompileDynamicSelectorResolutionPaths(pool, entry)
 	if len(compiled.Candidates) == 0 {
 		return nil
@@ -3248,43 +3247,31 @@ func renderAnswerDocDynamicSelectorRelationRecipes(b *strings.Builder, ctx *type
 	return anchors
 }
 
-func answerDocDynamicSelectorEvidencePool(ctx *types.AgentContext, limit int, entryIdentity string) []types.EvidenceItem {
-	if ctx == nil || limit <= 0 {
+// answerDocDynamicSelectorEvidenceCensus merges the complete accepted evidence
+// snapshot before the shared compiler examines any relation or uniqueness.
+// Candidate/recipe limits belong to rendering, never to this conflict census:
+// a late application, binding, lookup, return, call, or argument can refute a
+// previously complete path. Same-ID corrections must also be merged before
+// claim filtering, including corrections to a non-selector claim.
+func answerDocDynamicSelectorEvidenceCensus(ctx *types.AgentContext) []types.EvidenceItem {
+	if ctx == nil {
 		return nil
 	}
-	entryIdentity = strings.TrimSpace(entryIdentity)
-	isCore := func(item types.EvidenceItem) bool {
-		if item.SelectorApplication != nil {
-			return true
+	groups := [][]types.EvidenceItem{ctx.EvidenceItems}
+	if ctx.Mutable != nil {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			groups = append(groups, ta.EvidenceItems)
 		}
-		switch types.ClaimFormOf(item) {
-		case types.ClaimRegistrationEdge, types.ClaimAssignmentFact, types.ClaimReturnFact,
-			types.ClaimArgumentFlow, types.ClaimCallbackHandoff:
-			return true
-		default:
-			return types.IsRepoMapTypeRelationEvidence(item)
-		}
+		groups = append(groups, ctx.Mutable.EmittedEvidence())
 	}
-	isCall := func(item types.EvidenceItem) bool {
-		if types.ClaimFormOf(item) != types.ClaimCallEdge {
-			return false
-		}
-		// Subject is the typed source endpoint of a call edge. OwnerSymbol is
-		// only enclosing qualification and may legitimately be more qualified
-		// than the requested entry (for example pipeline.runner.run_pipeline
-		// versus run_pipeline). Keep the same endpoint priority as the selector
-		// compiler so an exact call is not discarded before compilation.
-		return entryIdentity == "" || types.AnswerCodeIdentitySurfacesEquivalent(
-			firstNonEmptyAnswerDocString(item.Subject, item.OwnerSymbol), entryIdentity,
-		)
+	total := 0
+	for _, group := range groups {
+		total += len(group)
 	}
-	seen := make(map[string]int, limit)
-	out := make([]types.EvidenceItem, 0, extractorMinInt(len(ctx.EvidenceItems), limit))
-	addGroup := func(items []types.EvidenceItem, accept func(types.EvidenceItem) bool, familyCount *int, familyLimit int) {
-		for _, item := range items {
-			if !accept(item) {
-				continue
-			}
+	seen := make(map[string]int, total)
+	out := make([]types.EvidenceItem, 0, total)
+	for _, group := range groups {
+		for _, item := range group {
 			id := strings.TrimSpace(item.ID)
 			if id == "" {
 				id = types.StableEvidenceID(item)
@@ -3294,33 +3281,9 @@ func answerDocDynamicSelectorEvidencePool(ctx *types.AgentContext, limit int, en
 				out[idx] = types.MergeEvidenceItemByStableID(out[idx], item)
 				continue
 			}
-			if len(out) >= limit || *familyCount >= familyLimit {
-				continue
-			}
 			seen[id] = len(out)
 			out = append(out, item)
-			*familyCount = *familyCount + 1
 		}
-	}
-	groups := [][]types.EvidenceItem{ctx.EvidenceItems}
-	if ctx.Mutable != nil {
-		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
-			groups = append(groups, ta.EvidenceItems)
-		}
-		groups = append(groups, ctx.Mutable.EmittedEvidence())
-	}
-	// Calls are normally the largest family. Reserve three quarters of this
-	// bounded pool for the rarer selector/binding/value/type carriers so a
-	// broad call inventory cannot starve the very rows needed to compile the
-	// dynamic boundary. The remaining quarter carries entry/callback calls.
-	coreLimit := limit - limit/4
-	coreCount := 0
-	for _, group := range groups {
-		addGroup(group, isCore, &coreCount, coreLimit)
-	}
-	callCount := 0
-	for _, group := range groups {
-		addGroup(group, isCall, &callCount, limit-coreLimit)
 	}
 	return out
 }

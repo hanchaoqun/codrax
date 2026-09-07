@@ -57386,10 +57386,22 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 | 批次 | 方案与边界 | 状态 |
 |---|---|---|
-| B1580 / P1 | 完整同 ID 证据协调后再由共享 selector 编译器判定所有关系组；仅最终候选/recipe显示限额，不复制资格谓词 | 已有真实发布入口先红，施工/矩阵验证中 |
+| B1580 / P1 | 完整同 ID 证据协调后再由共享 selector 编译器判定所有关系组；仅最终候选/recipe显示限额，不复制资格谓词 | 已实现；六类完整冲突、旧扫描逐字段对照、大池索引基准均通过，全仓运行中 |
 | B1575 / P1 披露 | 复用既有 confidence/witness 事实说明整段 probe 与逐义务执行记录的区别；不改通过状态、消债或新增模型字段 | 已提交推送 `5fecd1215`，四处真实接线与原资格不变测试通过；真实逐义务执行凭证仍单列能力债 |
 | B1582 / P2 | 当次重复 emit 命中的存量行继续参与既有操作归属软提示；不扩大到全会话，不替模型迁移索引 | 已提交推送 `10ac0f74f`；真实入口先红后绿，同族 count=3 通过 |
 | B1583 / P1 | 已配置总预算与未配置默认请求预算分开；默认不以固定墙钟取消活跃流，实际非流腿保留预算；调用者取消、显式配置、首字节/idle保护继续有效 | 已实现；真实SSE先红后绿，含旧B1581矩阵的race通过，4完整包通过 |
+
+#### B1580：完整冲突集合先于显示限额，并用完整索引控制成本
+
+实际发布入口先红：387行完整证据会拒绝json歧义且保留csv；旧385行工作池却丢掉cap外反证，两面同时发布JsonPlugin。现将ctx/TurnA/Mutable全部同ID协调后交给共享编译器；不在合并前过滤claim/entry，改为非selector或不同entry的最新载体也能撤回旧候选。最终显示仍为最多4候选/24关系，无新增JSON字段、词法门、运行时目标推断或系统代写图。
+
+回归覆盖application及binding/lookup/return/entry/argument六类不同发生点冲突、反证前后顺序、不同owner/literal/不可引用边界、三输入通道同ID纠正、non-selector降级和输入字节不变。5完整候选/25骨架关系夹具精确钉4/24显示限额及非唯一性/省略披露。真实生产fixture的模型/自动增强关系不改语义，callback与type关系不升级为直接调用。
+
+取消前缀后压力测试发现原共享编译器每候选反复扫全池，不能将这个新放大的性能问题留给用户。本批增加**单输入快照内**完整索引：既有精确身份键缓存、owner/container/target/callsite bucket，原关联/唯一性谓词仍逐项执行，bucket不截断；callback恢复原handoff外序，type排序保留全池首同ID ordinal。无跨context缓存或第二生产资格判据。冻结旧五个扫描函数仅作测试oracle，在多组/全部拒绝臂/别名/缺失/错来源/owner优先级/可引用性/乱序及可选关系顺序上逐字段等价。
+
+`TestB1580`及原selector族count=3通过；日志`b1580-checked-in-red.log`、`b1580-matrix-green.log`及`b1580-indexed-multigroup-benchmark.log`。Apple M5 Max固定合成夹具32,768行×32组、单次测量：4.285秒→28.24毫秒，累计分配5.179GB→53.32MB（非驻留内存）；×1/8/32组现均约28–29ms，取消了此夹具G×N主成本。不把这项局部基准当整场LLM或真实客户总时长加速比；两显示面仍各自编译，未为复用引入陈腐缓存。
+
+验收准备：全套`go test ./... -count=1`在最终源码冻结后启动；Trace边界相关3包及JSON/图表恢复相关4包定向均绿。首次定向命令误写不存在的`internal/render/mermaid`包导致setup失败，已按真实`internal/render`/`internal/mermaidcompat`重跑通过，非产品失败。下一双路r1026选`sr_py_registry_dispatch`（关系/选择/回调读）+`github_issue_memoclaw_text_search_multirepo_py`（多仓写/补验证），改动后仅一次定向live；小fixture不会制造大池冲突，不能用live代替上面反证矩阵。此后优先轮换Cangjie/ArkTS与C读写，不围着模型措辞反复磨绿。
 
 #### B1583：默认路由预算不得取消活跃流，显式总时限仍有权威
 
