@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const DynamicSelectorResolutionPathVersion = 3
+const DynamicSelectorResolutionPathVersion = 4
 
 type EvidenceSelectorApplication struct {
 	Owner   string `json:"owner"`
@@ -707,9 +707,7 @@ func uniqueDynamicSelectorLookups(in []dynamicSelectorLookupCandidate) []dynamic
 	out := make([]dynamicSelectorLookupCandidate, 0, len(in))
 	seen := make(map[string]bool)
 	for _, candidate := range in {
-		key := AnswerCodeIdentitySurfaceKey(candidate.owner) + "\x00" +
-			AnswerCodeIdentitySurfaceKey(candidate.receiver) + "\x00" +
-			AnswerCodeIdentitySurfaceKey(candidate.container) + "\x00" + dynamicSelectorEvidenceOccurrenceKey(candidate.item)
+		key := dynamicSelectorLookupShapeKey(candidate)
 		if seen[key] {
 			continue
 		}
@@ -722,11 +720,48 @@ func uniqueDynamicSelectorLookups(in []dynamicSelectorLookupCandidate) []dynamic
 func distinctDynamicSelectorLookupShapes(in []dynamicSelectorLookupCandidate) int {
 	seen := make(map[string]bool)
 	for _, item := range in {
-		seen[AnswerCodeIdentitySurfaceKey(item.owner)+"\x00"+
-			AnswerCodeIdentitySurfaceKey(item.receiver)+"\x00"+
-			AnswerCodeIdentitySurfaceKey(item.container)+"\x00"+dynamicSelectorEvidenceOccurrenceKey(item.item)] = true
+		seen[dynamicSelectorLookupShapeKey(item)] = true
 	}
 	return len(seen)
+}
+
+// A grounded model assignment and a parser assignment can describe the same
+// source operation with different legitimate predicate/object surfaces. Only
+// this lookup lane has already proved their common assignment tuple. Preserve
+// the full source expression (especially the index), not merely its container,
+// when treating those rows as corroboration. Other relation families retain
+// their existing occurrence rules. The first accepted carrier still supplies
+// every emitted identity, predicate, relation kind and evidence reference.
+func dynamicSelectorLookupShapeKey(candidate dynamicSelectorLookupCandidate) string {
+	item := candidate.item
+	legacy := func() string {
+		return AnswerCodeIdentitySurfaceKey(candidate.owner) + "\x00" +
+			AnswerCodeIdentitySurfaceKey(candidate.receiver) + "\x00" +
+			AnswerCodeIdentitySurfaceKey(candidate.container) + "\x00" + dynamicSelectorEvidenceOccurrenceKey(item)
+	}
+	// The shared assignment parser reads the first source line. It does not
+	// prove that a multi-line/range snippet contains only one operation, so
+	// incomplete or broader source carriers keep the old conservative key.
+	if !item.IsCitable() || ClaimFormOf(item) != ClaimAssignmentFact ||
+		strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 || item.LineEnd != item.LineStart ||
+		strings.ContainsAny(strings.TrimSpace(item.Snippet), "\r\n") || !AssignmentEvidenceEndpointsMatch(item) {
+		return legacy()
+	}
+	receiver, _, assignmentOK := AssignmentEvidenceEndpoints(item)
+	container, indexedOK := IndexedAssignmentValueContainer(item)
+	lhs, rhs, sourceOK := assignmentEvidenceSourceSides(item)
+	owner := AnswerCodeIdentitySurfaceKey(item.OwnerSymbol)
+	if !assignmentOK || !indexedOK || !sourceOK || owner == "" ||
+		owner != AnswerCodeIdentitySurfaceKey(candidate.owner) ||
+		!dynamicSelectorIdentityEquivalent(receiver, candidate.receiver) ||
+		!dynamicSelectorIdentityEquivalent(container, candidate.container) {
+		return legacy()
+	}
+	return strings.Join([]string{
+		"exact_lookup_assignment", strings.TrimSpace(item.Source),
+		fmt.Sprintf("%d:%d", item.LineStart, item.LineEnd), owner,
+		AnswerCodeIdentitySurfaceKey(receiver), lhs, rhs,
+	}, "\x00")
 }
 
 func dynamicSelectorLookupEvidenceIDs(in []dynamicSelectorLookupCandidate) []string {

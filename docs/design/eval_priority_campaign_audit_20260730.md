@@ -57380,6 +57380,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1644 B1585：同一源码操作的多载体互证，不等于多操作歧义（2026-09-06）
+
+`implemented / real-carriers-and-two-publishing-seams-red-to-green / independent-review-pass / broader-regressions-pass`。
+
+r1026真实parser行与模型行的Subject/Object都是`cls/REGISTRY`，源码为同一`pipeline/registry.py:31`的`cls = REGISTRY[name]`；差别是合法`assigns/maps`谓词及Kind/Producer/ID。每行单独都构成完整候选链，合入同池却双双变成ambiguous_lookup。完整RHS Object=`REGISTRY[name]`是另一个合法回归变体，不冒称它是此次parser原始字段。最小先红日志`.codrax/tmp/20260906-b1585-red.log`覆盖实际载体正反顺序及真实补采后的候选/recipe两个发布入口。
+
+- 将lookup的去重与distinct计数收敛到同一个精确operation key：仅既有citable、assignment端点验证、indexed lookup解析均通过，且Source/正单行坐标/owner完整、snippet无多行时，比较同来源位置、owner、receiver和完整解析LHS/RHS。完整索引表达式不丢，不从container相同推断相同操作。
+- 模型载体与parser载体都只是既有源码证据的不同表示；保留先出现的原EvidenceID/谓词/assignment关系，外部证据集合与模型答案不修改，不升级为直接调用、运行时唯一选中或实测执行。
+- 不同文件、起止行、owner、index/index call/index expression、LHS声明差异、多行尾操作均保持冲突；另补原始S/P/O和坐标相同但完整RHS不同的反例，防止旧key反向将真正差异合并。agent两个真实教学入口在该反例仍不发候选/recipe。
+- 无完整Source/正起止同位/单行片段、解析不完整、端点不匹配或不可引用时，不增加资格，沿用旧保守key/原过滤。没有全局删predicate，也没有按ID、文字相似或producer分数去重。
+- 六类唯一性共同审查：binding有既有同发生点规则，application固定谓词并有parser metadata；return/entry/argument目前缺少本批同等完整操作证明，未放宽其判据。r1026模型return没有Object/Predicate，不会成为`cls()`调用返回候选，不能仅因同行便把它说成第二个已证重复歧义。其它载体保守重复风险留作观察，不宣称整族所有可能形态全修。
+- 语义版本3→4；生产两处消费均为即时编译、索引为单次快照内，没有发现持久化结果缓存。版本升级遵循既有语义契约，不声称已复现暖缓存问题；未改parser输出，无关extractor版本不动。
+
+最终`.codrax/tmp/20260906-b1585-selector-regression.log`：types1.081s/agent2.244s退出0，覆盖完整census、索引旧扫描oracle、六类歧义及真实Python补采。独立第二席审阅通过；旧扫描oracle只证明索引等价，新增B1585正反测试单独证明本次语义变更，不用共享helper把新语义暗藏于性能验证。全仓及后续异构live另记，不能把r1026旧失败工件重新标绿。
+
 ### §123.1643 r1026：机器双绿后的人工差分与下一小批（2026-09-06）
 
 `snapshot=fbc15596cd74 / exactly-two-parallel / machine=2/2 / human=read-partial,write-patch-pass-with-proof-boundary`。
@@ -57392,7 +57407,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 | 批次 / 优先级 | 精确问题与最小修向 | 状态 |
 |---|---|---|
 | B1584-PATCHREPAIRGUIDANCE1 / P2 | schema正确，但实际description/高频修补提示省略`diagram_edge_edits[i].edge.*`容器；attempt-only提示又将累计次数说成同一问题未修/最后一轮。共享准确路径教学，中性累计轮次，零新硬门/阈值/字段 | 已确认；真实入口先红后绿施工中，不用一次模型flatten解释全部6拒 |
-| B1585-DYNAMICSELECTOROCCURRENCEDUPLICATE1 / P1 | 同一精确赋值多合法载体被误计为不同lookup；以已验证源操作及同文件/坐标/owner建立专用key，完整index表达保留，无完整源证据仍保守 | 独立双席确认，最小可执行反例与六类否证施工中；不按ID或文本相似合并，不一并放宽其它唯一性 |
+| B1585-DYNAMICSELECTOROCCURRENCEDUPLICATE1 / P1 | 同一精确赋值多合法载体被误计为不同lookup；以已验证源操作及同文件/坐标/owner建立专用key，完整index表达保留，无完整源证据仍保守 | 已实现、独立审阅及真实入口/六类否证回归通过，见§123.1644；不按ID或文本相似合并，不一并放宽其它唯一性 |
 | 跨语言逐义务运行凭证 / 能力债 | 整段probe或聚合runner通过与逐方法行为观测仍不同 | B1575只关披露缺失，真实执行器per-ref receipts仍待独立设计，不用模型自报构造权威 |
 
 先完成这两个同源系统小批再轮换Cangjie/ArkTS与C读写。JsonPlugin措辞/MRO展现保留模型质量观察，不加用户/答案词法门，不为图完整性直接补写模型结论。Trace精确窗、链上资格/占时/业务线索/可消除尺及自动补齐未改；B1583默认活跃流预算保护已由真实正负SSE矩阵覆盖，显式总时限、parent取消及真正idle继续有效。
