@@ -536,12 +536,12 @@ eval_case_oracle_surface() {
   if LC_ALL=C grep -aEq '^[[:space:]]*MODE=["'\'']?plan' "$file"; then
     eval_case_oracle_surface_add "write_plan"
   fi
-  if LC_ALL=C grep -aEq '^[[:space:]]*(PLAN_EXPECT_REGEX|POST_APPLY_FILE)=' "$file"; then
+  if LC_ALL=C grep -aEq '^[[:space:]]*(PLAN_EXPECT_REGEX|POST_APPLY_FILES?)=' "$file"; then
     eval_case_oracle_surface_add "write_patch_oracle"
   fi
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_REGEX=' "$file" || {
     LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_MATCHES_REGEX=' "$file" &&
-      ! LC_ALL=C grep -aEq '^[[:space:]]*POST_APPLY_FILE=' "$file"
+      ! LC_ALL=C grep -aEq '^[[:space:]]*POST_APPLY_FILES?=' "$file"
   }; then
     eval_case_oracle_surface_add "answer_regex"
   fi
@@ -1450,6 +1450,47 @@ eval_post_apply_source_file() {
     return 0
   fi
   return 1
+}
+
+# Explicit plural scopes are newline-separated literal relative file paths.
+# Spaces and glob characters are filename bytes, never tokenized/expanded.
+# This validation is intentionally not applied to the legacy single-file API.
+eval_post_apply_scope_path_valid() {
+  case "$1" in
+    ''|/*|[A-Za-z]:*|*$'\n'*|*$'\r'*|*$'\t'*) return 1 ;;
+  esac
+  case "/$1/" in
+    *'/../'*) return 1 ;;
+  esac
+}
+
+# Prints the exact scoped file on success, otherwise one stable failure kind.
+# Resolve links only to enforce containment, not to guess a different target.
+eval_post_apply_scope_source_file() {
+  local source="$1" relative="$2"
+  if ! eval_post_apply_scope_path_valid "$relative"; then
+    printf 'invalid_path\n'
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf 'path_validation_unavailable\n'
+    return 1
+  fi
+  python3 - "$source" "$relative" <<'PY'
+import os
+import sys
+
+root = os.path.realpath(sys.argv[1])
+path = os.path.join(root, sys.argv[2])
+resolved = os.path.realpath(path)
+if os.path.commonpath([root, resolved]) != root:
+    print("outside_source")
+    raise SystemExit(1)
+if not os.path.isfile(path):
+    print("missing")
+    raise SystemExit(1)
+print(path)
+PY
 }
 
 eval_print_regex_matching_lines() {

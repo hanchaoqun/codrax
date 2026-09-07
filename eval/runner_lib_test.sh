@@ -2334,4 +2334,6 @@ assert_eq "$(runner_function_body run_apply_step | grep -c -- '--pipeline-max-st
 assert_eq "$(runner_function_body run_commandless_apply_step | grep -c -- '--pipeline-max-steps \"\$WRITE_APPLY_PIPELINE_MAX_STEPS\"')" "2" \
   "commandless Auto Pilot must use the expanded budget"
 
+bash "$ROOT/eval/post_apply_scope_test.sh" || fail "post-apply scope contracts"
+
 echo "ok eval runner contracts"

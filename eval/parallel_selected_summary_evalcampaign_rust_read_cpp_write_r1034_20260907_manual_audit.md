@@ -40,3 +40,9 @@ B1610确证：MODE=apply无POST_APPLY_FILE时，run.sh汇总应用树所有跟�
 2. B1610/P1：多工件逐文件eval域与假绿反例；不降低预期、不加产品格式关键词门。
 3. B1611/P2：系统自有同绑定概念目标披露去重；模型正文不动。
 4. B1607a/b、qualified-owner定位回退审计、B1561原生行为证明继续在统一台账，不因本轮机器PASS关闭。
+
+## 修复后的独立核验（不改原回放评分）
+
+B1609 已推送`ce3c18994`：真实完整提交/patch、必需/可选图的提示与原子执行能力统一，冻结后完整agent测试通过。B1611 已推送`c79f104a8`：仅同完整绑定的系统code receipt附注去重，中英真实渲染、完整render及race通过；模型正文与图不动。两项均尚无新LLM回放，不据单元测试写“本例已零重试”。
+
+B1610 以**原r1034同一durable树**做显式双文件后验，两头分别`FAIL no_regex_match:%[.][*]Lg`，总判定FAIL。原机器`run-1.verdict=PASS`及正式report哈希未改，没有重跑产品LLM或原生验证。记录`.codrax/tmp/20260907-b1610-r1034-posthoc.log`与`.codrax/tmp/b1610-r1034-posthoc.lOrh42/run-1.post-apply-scopes.tsv`。新case声明只供今后回放，不能改写当时未声明scope的历史事实。完整处置/兼容边界见统一台账§123.1667–1669。

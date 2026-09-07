@@ -57380,6 +57380,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1669 B1610：交付评测逐目标验收，禁止其它文件代为通过（2026-09-07）
+
+r1034 C++ 补丁把两份头的`%.*lg`改成固定小数`%.*Lf`；它修复了类型警告，却改变一般格式语义。原生make只查非空，正式报告诚实记录aggregate通过；eval另有正确`%.*Lg`预期，但未指定文件，汇总全部交付文本后被未改README中的正确示例满足。该域泄漏是确定性评测gap，模型错误补丁与原生细粒度验证不足则分别保留，不能混成产品伪造执行报告。
+
+新增显式`POST_APPLY_FILES`，按换行声明字面相对路径，每份文件独立复用现有完整`write_verdict` EXPECT检查，结果取AND，不拼接多文件。每份verdict及`run-N.post-apply-scopes.tsv`保留目标身份；plan、日志、交付/终验等全局前提仍只汇入总判定一次。摘要使用同一交付源/路径，不能显示本仓或README当目标。非空plural与single冲突、全空列表、非apply、绝对/父级越界路径在派发前拒绝；缺文件或外链出域失败，空格不拆词、glob不展开。旧single与未声明域的行为原样保留；文档任务可明确绑定README，不假定所有文档命中都错误。
+
+本批只给两个已经明确要求同步两头的nlohmann用例绑定`include/nlohmann/detail/output/serializer.hpp`和`single_include/nlohmann/json.hpp`；不改预期regex、fixture、原生测试、产品代码或历史机器结果。现有243项中25个apply，14个已显式绑定、11个尚未绑定需逐案按需求审计，不能全局猜域或直接标为已修。清册见`20260907-b1610-scope-census-{before,after}.tsv`。
+
+真实runner配确定性交付mock的首红是“两头均错、README正确、旧runner仍PASS”（`20260907-b1610-red.log`），初次mock报告形状错误不计有效首红。修后矩阵含两错、任一错/换序、两好、缺文件、合法文档、single正反与旧unscoped、全部文本EXPECT、全局plan失败、空格/不glob/外链/双声明/越界/空列表；完整runner测试退出0，末尾`ok post-apply per-file scope contracts`和`ok eval runner contracts`（`20260907-b1610-runner-full.log`），shell语法和diff检查通过。mock只用于跑批器协议测试，不冒充产品LLM或真实行为验证。
+
+独立后验仍用r1034同一durable交付树：两份头分别`FAIL no_regex_match`，新逐文件总判定FAIL；原机器PASS和原report哈希不变。记录`20260907-b1610-r1034-posthoc.log`及`.codrax/tmp/b1610-r1034-posthoc.lOrh42/run-1.post-apply-scopes.tsv`，不是新live或重新执行原生测试。此前人工原生1.25/1e12/1e-12对照失败仍由原记录负责。本项是eval验收域修复，不把实现形regex移入产品答案硬门，也不替模型改补丁。
+
+第二席末审补齐摘要接线：不仅预览相同路径，还按同序号读取已持久化per-file verdict；缺receipt诚实显示不可用，不重新判分。一好一坏摘要状态先红（`20260907-b1610-summary-red.log`），最后独立scope完整矩阵重新通过（`20260907-b1610-summary-green.log`），语法/diff通过。此12行显示接线晚于前述完整runner测试，采用其全套旧回归通过+最后scope全套通过的准确表述，不冒称前命令已包含后加代码。
+
+状态：`B1610=implemented/real-runner-red-to-green/full-runner-pass`；`r1034-original=PASS/preserved;posthoc-explicit-scope=FAIL-2-files`；`remaining-unscoped-apply=11/audit-pending`；`B1611=pushed-c79f104a8`；`B1561-native-per-assertion-proof=open`。
+
 ### §123.1668 B1611：只合并同一系统凭证的重复附注（2026-09-07）
 
 r1034 Rust 首稿图块已绑定概念终点凭证，后续summary软提示又让模型选择同凭证；原renderer逐块发射，故同一“概念目标核对”出现两次。模型正文重复与系统重复附注是两件事。本批只在文档单次渲染中记忆已实际发射的完整typed code receipt，严格相等才省掉后续同凭证系统附注，首条位置和中英措辞不变。

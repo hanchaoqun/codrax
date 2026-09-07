@@ -155,8 +155,11 @@ fi
 # cloned into a scratch git repo per-run. PLAN_EXPECT_REGEX runs
 # against the emitted ChangePlan JSON (always checked when MODE is
 # non-empty). POST_APPLY_FILE scopes the EXPECT_* verdict checks to
-# a single file's post-apply content for MODE=apply; when unset, the
-# verdict reads the concatenation of all tracked fixture files.
+# a single file's post-apply content for MODE=apply. POST_APPLY_FILES is an
+# explicit newline-separated list of literal relative paths: every target
+# must independently satisfy the same EXPECT_* checks. The two declarations
+# are mutually exclusive. When neither is set, the legacy verdict still reads
+# the concatenation of all tracked fixture files.
 # MODE=apply also writes run-N.write-apply.json and, by default,
 # requires both an authoritative current-plan post_apply_verify ChangeReport
 # with passed=true and the same plan's typed final workflow verdict=verified.
@@ -168,6 +171,30 @@ MODE="${MODE:-}"
 FIXTURE="${FIXTURE:-}"
 PLAN_EXPECT_REGEX="${PLAN_EXPECT_REGEX:-}"
 POST_APPLY_FILE="${POST_APPLY_FILE:-}"
+POST_APPLY_FILES="${POST_APPLY_FILES:-}"
+POST_APPLY_SCOPE_FILES=()
+if [[ -n "$POST_APPLY_FILES" ]]; then
+  if [[ -n "$POST_APPLY_FILE" ]]; then
+    echo "case must not set both POST_APPLY_FILE and POST_APPLY_FILES" >&2
+    exit 2
+  fi
+  if [[ "$MODE" != "apply" ]]; then
+    echo "case POST_APPLY_FILES requires MODE=apply" >&2
+    exit 2
+  fi
+  while IFS= read -r scope_path || [[ -n "$scope_path" ]]; do
+    [[ -n "$scope_path" ]] || continue
+    if ! eval_post_apply_scope_path_valid "$scope_path"; then
+      printf 'invalid POST_APPLY_FILES path: %q\n' "$scope_path" >&2
+      exit 2
+    fi
+    POST_APPLY_SCOPE_FILES+=("$scope_path")
+  done <<<"$POST_APPLY_FILES"
+  if (( ${#POST_APPLY_SCOPE_FILES[@]} == 0 )); then
+    echo "case POST_APPLY_FILES must contain at least one path" >&2
+    exit 2
+  fi
+fi
 COMMANDLESS_APPLY="${COMMANDLESS_APPLY:-}"
 ALLOW_UNVERIFIED_APPLY="${ALLOW_UNVERIFIED_APPLY:-}"
 REQUIRED_EXECUTABLES="${REQUIRED_EXECUTABLES:-}"
@@ -1252,6 +1279,42 @@ write_verdict() {
   fi
 }
 
+# B1610: one complete existing matcher invocation per declared delivery file.
+# Never concatenate targets; retain each verdict and its exact declared path.
+# Global delivery/log/plan failures join the aggregate once, independently of
+# file-level content results (a verified delivery is not an oracle PASS).
+write_post_apply_scope_verdict() {
+  local verdict_file="$1" source="$2" run_id="$3"
+  shift 3
+  local reasons=("$@")
+  local index=0 path resolved content file_verdict status
+  local receipt="$OUTDIR/run-$run_id.post-apply-scopes.tsv"
+  printf 'index\tpath\tverdict\n' >"$receipt"
+  for path in "${POST_APPLY_SCOPE_FILES[@]}"; do
+    index=$((index + 1))
+    file_verdict="$OUTDIR/run-$run_id.post-apply-$index.verdict"
+    if resolved="$(eval_post_apply_scope_source_file "$source" "$path")"; then
+      if content="$(cat "$resolved")"; then
+        write_verdict "$file_verdict" "$content"
+      else
+        printf 'FAIL unreadable\n' >"$file_verdict"
+      fi
+    else
+      printf 'FAIL %s\n' "${resolved:-path_validation_failed}" >"$file_verdict"
+    fi
+    status="$(cat "$file_verdict")"
+    printf '%s\t%s\t%s\n' "$index" "$path" "$status" >>"$receipt"
+    if [[ "$status" != "PASS" ]]; then
+      reasons+=("post_apply_file:$path:${status#FAIL }")
+    fi
+  done
+  if (( ${#reasons[@]} == 0 )); then
+    printf 'PASS\n' >"$verdict_file"
+  else
+    printf 'FAIL %s\n' "${reasons[*]}" >"$verdict_file"
+  fi
+}
+
 run_one() {
   local i="$1"
   local run_started_epoch
@@ -1494,7 +1557,11 @@ run_one() {
         # the worktree mask a broken/absent recovery ref.
         extra_reasons+=("durable_apply_ref_missing")
       fi
-      if [[ -n "$POST_APPLY_FILE" ]]; then
+      if [[ -n "$POST_APPLY_FILES" ]]; then
+        # Each declared file goes separately through write_verdict below.
+        # Do not build an all-files/README carrier for the plural oracle.
+        cleaned=""
+      elif [[ -n "$POST_APPLY_FILE" ]]; then
         if [[ -f "$apply_source/$POST_APPLY_FILE" ]]; then
           cleaned="$(cat "$apply_source/$POST_APPLY_FILE")"
         else
@@ -1723,7 +1790,11 @@ run_one() {
     IFS="$old_ifs"
   fi
 
-  write_verdict "$verdict" "$cleaned" "${extra_reasons[@]:+${extra_reasons[@]}}"
+  if [[ "$MODE" == "apply" && -n "$POST_APPLY_FILES" ]]; then
+    write_post_apply_scope_verdict "$verdict" "$apply_source" "$i" "${extra_reasons[@]:+${extra_reasons[@]}}"
+  else
+    write_verdict "$verdict" "$cleaned" "${extra_reasons[@]:+${extra_reasons[@]}}"
+  fi
   echo "run $i: $(cat "$verdict")" >&2
 }
 
@@ -1835,58 +1906,90 @@ PYEOF
     done
     echo
     if [[ "$MODE" == "apply" ]]; then
-      # Post-apply file snapshot for the primary file (when
-      # POST_APPLY_FILE is set). Reads from the worktree or durable
+      # Post-apply snapshots for each explicitly scoped file. Reads from the worktree or durable
       # recovery ref because apply is sandboxed there; scratch-repo
       # bytes are unchanged by construction (L5 red line).
       # The first-20-line preview stays for continuity, then matched
       # oracle lines / applied diff / command provenance make late-file
       # changes diagnosable without opening every run artifact.
-      if [[ -n "$POST_APPLY_FILE" ]]; then
-        echo "## Post-apply file — \`$POST_APPLY_FILE\` (first 20 lines, from worktree)"
-        echo
-        for i in $(seq 1 "$N"); do
-          echo "### run $i"
+      if [[ -n "$POST_APPLY_FILE$POST_APPLY_FILES" ]]; then
+        summary_scope_files=("$POST_APPLY_FILE")
+        if [[ -n "$POST_APPLY_FILES" ]]; then
+          summary_scope_files=("${POST_APPLY_SCOPE_FILES[@]}")
+          echo "## Post-apply oracle scope"
           echo
-          plan_path="$OUTDIR/run-$i.plan.json"
-          src="$(eval_post_apply_source_file "$plan_path" "$OUTDIR" "$OUTDIR/run-$i.repo" "$i" "$POST_APPLY_FILE" || true)"
-          if [[ -n "$src" ]]; then
-            echo '```'
-            head -20 "$src"
-            echo '```'
-            if [[ -n "$EXPECT_MATCHES_REGEX" ]]; then
-              matches="$(eval_print_regex_matching_lines "$src" "$EXPECT_MATCHES_REGEX" 12 || true)"
-              if [[ -n "$matches" ]]; then
+          echo "Every declared file must independently satisfy the same EXPECT checks; results are recorded in run-N.post-apply-scopes.tsv."
+          echo
+        fi
+        summary_scope_index=0
+        for summary_path in "${summary_scope_files[@]}"; do
+          summary_scope_index=$((summary_scope_index + 1))
+          echo "## Post-apply file — \`$summary_path\` (first 20 lines, from delivered source)"
+          echo
+          for i in $(seq 1 "$N"); do
+            echo "### run $i"
+            echo
+            if [[ -n "$POST_APPLY_FILES" ]]; then
+              summary_scope_verdict="$OUTDIR/run-$i.post-apply-$summary_scope_index.verdict"
+              if [[ -f "$summary_scope_verdict" ]]; then
+                printf '**Scoped oracle verdict:** %s\n\n' "$(cat "$summary_scope_verdict")"
+              else
+                echo "**Scoped oracle verdict:** unavailable (receipt missing)"
                 echo
-                echo "**Matched oracle lines**"
-                echo
-                echo '```'
-                printf '%s\n' "$matches"
-                echo '```'
               fi
             fi
-          else
-            echo "_(file missing — apply likely did not land or worktree was discarded)_"
-          fi
-          diff_hunk="$(eval_print_applied_diff_hunk "$plan_path" "$OUTDIR/run-$i.repo" "$POST_APPLY_FILE" 80 || true)"
-          if [[ -n "$diff_hunk" ]]; then
+            plan_path="$OUTDIR/run-$i.plan.json"
+            summary_scratch="$OUTDIR/run-$i.repo"
+            if [[ -n "$POST_APPLY_FILES" ]]; then
+              if [[ -n "$MULTIREPO" ]]; then
+                summary_scratch="$OUTDIR/run-$i.parent/$MULTIREPO_WRITE_ROOT"
+              fi
+              summary_source="$(eval_materialize_write_apply_source "$plan_path" "$OUTDIR" "$summary_scratch" "$i" || true)"
+              src=""
+              if [[ -n "$summary_source" ]]; then
+                src="$(eval_post_apply_scope_source_file "$summary_source" "$summary_path")" || src=""
+              fi
+            else
+              src="$(eval_post_apply_source_file "$plan_path" "$OUTDIR" "$summary_scratch" "$i" "$summary_path" || true)"
+            fi
+            if [[ -n "$src" ]]; then
+              echo '```'
+              head -20 "$src"
+              echo '```'
+              if [[ -n "$EXPECT_MATCHES_REGEX" ]]; then
+                matches="$(eval_print_regex_matching_lines "$src" "$EXPECT_MATCHES_REGEX" 12 || true)"
+                if [[ -n "$matches" ]]; then
+                  echo
+                  echo "**Matched oracle lines**"
+                  echo
+                  echo '```'
+                  printf '%s\n' "$matches"
+                  echo '```'
+                fi
+              fi
+            else
+              echo "_(scoped file unavailable in delivered source; see the run verdict)_"
+            fi
+            diff_hunk="$(eval_print_applied_diff_hunk "$plan_path" "$summary_scratch" "$summary_path" 80 || true)"
+            if [[ -n "$diff_hunk" ]]; then
+              echo
+              echo "**Applied diff hunk**"
+              echo
+              echo '```diff'
+              printf '%s\n' "$diff_hunk"
+              echo '```'
+            fi
+            commands="$(eval_print_write_report_commands "$plan_path" "$OUTDIR" "$summary_scratch" || true)"
+            if [[ -n "$commands" ]]; then
+              echo
+              echo "**Post-apply verify commands**"
+              echo
+              echo '```text'
+              printf '%s\n' "$commands"
+              echo '```'
+            fi
             echo
-            echo "**Applied diff hunk**"
-            echo
-            echo '```diff'
-            printf '%s\n' "$diff_hunk"
-            echo '```'
-          fi
-          commands="$(eval_print_write_report_commands "$plan_path" "$OUTDIR" "$OUTDIR/run-$i.repo" || true)"
-          if [[ -n "$commands" ]]; then
-            echo
-            echo "**Post-apply verify commands**"
-            echo
-            echo '```text'
-            printf '%s\n' "$commands"
-            echo '```'
-          fi
-          echo
+          done
         done
       fi
     fi
