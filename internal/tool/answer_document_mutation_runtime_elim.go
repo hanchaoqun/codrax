@@ -1902,7 +1902,7 @@ func TraceAnswerDecisionDirectionSections(projection types.TraceCausalProjection
 				(node.EffectiveImpactMS == published.Leader.EffectiveImpactMS && node.Rank < published.Leader.Rank) {
 				published.Leader = node
 			}
-			if ref := types.TraceAnswerRelationMemberRef(node); ref != "" {
+			if ref := runtimeTraceProjRowRelationMemberRef(entry.row); ref != "" {
 				published.MemberRefs = append(published.MemberRefs, ref)
 			}
 		}
@@ -1912,6 +1912,18 @@ func TraceAnswerDecisionDirectionSections(projection types.TraceCausalProjection
 		out = append(out, published)
 	}
 	return out
+}
+
+// A same-segment display fold keeps its host's state/amounts, while its rank
+// seat still has the donor's exact relation identity. No match is made against
+// other rows here: only the receipt from the successful adoption is consumed.
+func runtimeTraceProjRowRelationMemberRef(row runtimeTraceProjTreeRow) string {
+	for _, peer := range row.RankFoldPeers {
+		if peer.RankIdentityAdopted {
+			return peer.RelationMemberRef
+		}
+	}
+	return types.TraceAnswerRelationMemberRef(row.Node)
 }
 
 func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {

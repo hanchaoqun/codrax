@@ -3473,7 +3473,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// twin never mints a sibling/cause tree row (成因形与兄弟形 both covered by
 	// construction — the fold precedes tree-position assignment). The peers
 	// are re-attached to the surviving row after flatten (evidence + note).
-	chainNodes, rankFoldPeers := runtimeTraceProjFoldSameSegmentLaneTwins(chainNodes)
+	chainNodes, rankFoldPeers, rankDonorRefs := runtimeTraceProjFoldSameSegmentLaneTwinsWithRefs(chainNodes)
 	// CR-2 组② P5 member arm (WO-D1①; the equality arm retired to the engine
 	// one-seat mint in v5 P1 件①, 2026-07-13): a legacy raw root_evidence
 	// member re-issue folds into its ×N seat BEFORE the subject buckets. The
@@ -4224,6 +4224,16 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		attach := func(rows []runtimeTraceProjTreeRow) {
 			for i := range rows {
 				for _, peer := range rankFoldPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
+					// B1574: this ref was minted from the exact rank donor at
+					// ordinal adoption, before its Object became a chain-host
+					// display label. Do not reconstruct it from the host.
+					var memberRef string
+					var rankIdentityAdopted bool
+					if donor, ok := rankDonorRefs[runtimeTraceCausalProjectionNodeKey(rows[i].Node)]; ok &&
+						donor.PeerKey == runtimeTraceCausalProjectionNodeKey(peer) {
+						memberRef = donor.MemberRef
+						rankIdentityAdopted = true
+					}
 					peerRank := peer.Rank
 					if lane, ok := runtimeTraceProjSemanticTwinLane(peer); ok && lane == "background" {
 						peerRank = 0
@@ -4237,13 +4247,15 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 						rows[i].Node.FixDirection = peer.FixDirection
 					}
 					rows[i].RankFoldPeers = append(rows[i].RankFoldPeers, runtimeTraceProjRankFoldPeer{
-						TypeWord:           strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(peer, zh)),
-						Rank:               peerRank,
-						Confidence:         peer.Confidence,
-						EvidenceTag:        runtimeTraceProjEvidenceTag(peer, evidence, zh),
-						CumulativeImpactMS: peer.CumulativeImpactMS,
-						DisplayImpactMS:    runtimeTraceProjNodeDisplayImpact(peer),
-						TargetImpactMS:     peer.TargetImpactMS,
+						RankIdentityAdopted: rankIdentityAdopted,
+						RelationMemberRef:   memberRef,
+						TypeWord:            strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(peer, zh)),
+						Rank:                peerRank,
+						Confidence:          peer.Confidence,
+						EvidenceTag:         runtimeTraceProjEvidenceTag(peer, evidence, zh),
+						CumulativeImpactMS:  peer.CumulativeImpactMS,
+						DisplayImpactMS:     runtimeTraceProjNodeDisplayImpact(peer),
+						TargetImpactMS:      peer.TargetImpactMS,
 					})
 				}
 			}
@@ -6390,12 +6402,19 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 // cumulative-equality fold guard bounds the cumulative carrier: a fold only
 // happens between agreeing (or absent) cumulative accounts).
 type runtimeTraceProjRankFoldPeer struct {
-	TypeWord           string
-	Rank               int
-	Confidence         float64
-	EvidenceTag        string
-	CumulativeImpactMS float64
-	DisplayImpactMS    float64
+	// RelationMemberRef follows only an exact rank identity adoption. It is
+	// not an ordinal-based alias and does not alter the host's state, values,
+	// Object, evidence identity, or chain admission.
+	RelationMemberRef string
+	// Keep adopted-but-unavailable distinct from no adoption. A donor lacking
+	// a stable ref cannot borrow the chain host's more complete identity.
+	RankIdentityAdopted bool
+	TypeWord            string
+	Rank                int
+	Confidence          float64
+	EvidenceTag         string
+	CumulativeImpactMS  float64
+	DisplayImpactMS     float64
 	// TargetImpactMS carries the folded rank row's typed TargetBlockedMs
 	// caliber (COV §24.9 D-1) so the coverage-numerator invariance holds: the
 	// peer competes with the same 已由链上解释 ladder it would have used as a
@@ -7816,6 +7835,19 @@ func runtimeTraceProjRankFoldWindow(node types.TraceCausalProjectionNode) (float
 // rounded exploration window. Neither fold tolerance nor value admission is
 // widened; coverage invariance rides the original peer carrier.
 func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
+	kept, peers, _ := runtimeTraceProjFoldSameSegmentLaneTwinsWithRefs(nodes)
+	return kept, peers
+}
+
+type runtimeTraceProjRankDonorRef struct {
+	PeerKey   string
+	MemberRef string
+}
+
+// The third result preserves relation identity at the SAME adoption point as
+// the rank tuple. A host that already owns a rank never adopts a donor ref.
+// Existing consumers of the two-result fold keep their lossless node payloads.
+func runtimeTraceProjFoldSameSegmentLaneTwinsWithRefs(nodes []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode, map[string]runtimeTraceProjRankDonorRef) {
 	type group struct {
 		rankIdx  []int
 		chainIdx []int
@@ -7886,7 +7918,7 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 		foldInto[g.rankIdx[0]] = g.chainIdx[0]
 	}
 	if len(foldInto) == 0 {
-		return nodes, nil
+		return nodes, nil, nil
 	}
 	dropped := map[int]bool{}
 	rankByChainIdx := map[int]int{}
@@ -7896,11 +7928,14 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 	}
 	kept := make([]types.TraceCausalProjectionNode, 0, len(nodes))
 	peers := map[string][]types.TraceCausalProjectionNode{}
+	donorRefs := map[string]runtimeTraceProjRankDonorRef{}
 	for i, node := range nodes {
 		if dropped[i] {
 			continue
 		}
 		if rankIdx, ok := rankByChainIdx[i]; ok {
+			var adoptedRef runtimeTraceProjRankDonorRef
+			adopted := false
 			if node.Rank <= 0 {
 				// SYM + DISPLAY-WRAP + B1568: one rank supplier, one complete
 				// identity. A seated host keeps its own tuple; an unseated host
@@ -7910,6 +7945,10 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 				node.RankBoardTarget = donor.RankBoardTarget
 				node.RankBoardParamsFingerprint = donor.RankBoardParamsFingerprint
 				node.RankQueryWindowStartTs, node.RankQueryWindowEndTs, _ = runtimeTraceProjRankFoldWindow(donor)
+				adoptedRef = runtimeTraceProjRankDonorRef{
+					PeerKey: runtimeTraceCausalProjectionNodeKey(donor), MemberRef: types.TraceAnswerRelationMemberRef(donor),
+				}
+				adopted = true
 			}
 			// §29.50.5 (v5 P1 批 件②, 2026-07-13): the folded rank twin's
 			// typed D/IO proof family travels with the surviving chain node —
@@ -7927,12 +7966,17 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 				node.BlockedReasonWindowCount = rankTwin.BlockedReasonWindowCount
 				node.BlockedReasonWindowCaller = rankTwin.BlockedReasonWindowCaller
 			}
+			if adopted {
+				// Store alongside the peer map only after host mutations are
+				// complete, so both carriers use the identical retained key.
+				donorRefs[runtimeTraceCausalProjectionNodeKey(node)] = adoptedRef
+			}
 			peers[runtimeTraceCausalProjectionNodeKey(node)] = append(
 				peers[runtimeTraceCausalProjectionNodeKey(node)], nodes[rankIdx])
 		}
 		kept = append(kept, node)
 	}
-	return kept, peers
+	return kept, peers, donorRefs
 }
 
 // PTV8-RCR-A (§24 ③裁定/§24.2, 2026-07-08). EVOLUTION RECORD: the R2 fold

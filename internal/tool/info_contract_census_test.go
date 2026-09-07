@@ -511,13 +511,15 @@ var queryWindowContract = map[string]fieldDisposition{
 // --- T1 · display-layer fold-peer carrier (OM-6 host struct) -------------------
 
 var rankFoldPeerContract = map[string]fieldDisposition{
-	"TypeWord":           {Status: "known_gap", Ref: "OM-6"},
-	"Rank":               {Status: "displayed", Ref: "行2 榜位(fold-adopted)", NoScan: true},
-	"Confidence":         {Status: "displayed", Ref: "行2 置信(fold-adopted)", NoScan: true},
-	"EvidenceTag":        {Status: "displayed", Ref: "行1 [E#+E#] bracket + 明细根因排序行"},
-	"CumulativeImpactMS": {Status: "internal_gate", Ref: "W-A 累计相等 fold guard + 覆盖分子不变量", NoScan: true},
-	"DisplayImpactMS":    {Status: "internal_gate", Ref: "bar scale/unadmitted-disclosure MAX 不变量"},
-	"TargetImpactMS":     {Status: "internal_gate", Ref: "覆盖分子不变量(COV D-1)", NoScan: true},
+	"RelationMemberRef":   {Status: "displayed", Ref: "B1574 exact donor relation ref → direction section / relation roster / prompt", NoScan: true},
+	"RankIdentityAdopted": {Status: "internal_gate", Ref: "B1574 adopted-but-unavailable relation identity must not borrow host identity", NoScan: true},
+	"TypeWord":            {Status: "known_gap", Ref: "OM-6"},
+	"Rank":                {Status: "displayed", Ref: "行2 榜位(fold-adopted)", NoScan: true},
+	"Confidence":          {Status: "displayed", Ref: "行2 置信(fold-adopted)", NoScan: true},
+	"EvidenceTag":         {Status: "displayed", Ref: "行1 [E#+E#] bracket + 明细根因排序行"},
+	"CumulativeImpactMS":  {Status: "internal_gate", Ref: "W-A 累计相等 fold guard + 覆盖分子不变量", NoScan: true},
+	"DisplayImpactMS":     {Status: "internal_gate", Ref: "bar scale/unadmitted-disclosure MAX 不变量"},
+	"TargetImpactMS":      {Status: "internal_gate", Ref: "覆盖分子不变量(COV D-1)", NoScan: true},
 }
 
 // --- T2 armB · RootCauseRankItem contract (D 区) --------------------------------

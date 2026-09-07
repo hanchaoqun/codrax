@@ -57411,7 +57411,16 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - 真实 `RunTests.Execute` 入口先红后绿：完整获准 probe 能关闭同两条义务，部分 probe 必须保留缺项且实际执行项目测试。新旧原因码×当前/累计报告矩阵、types 全包及 tool 写验证广回归通过（`.codrax/tmp/b1572-production-red.log` 及 `b1572-*green.log`）。
 - 原 r1023 plan/report 只读重新计算为 adequate、verified、28/28 covered、无未决原因（`b1572-r1023-reprojection.log`），确认是原因码接线错误，不回写原 run 的 unverified 结果。原 probe 对 async 仅做 AST 的验证设计不足另行保留，不能把该离线结果当成新 live 或人工运行证明。
 
-B1571 已提交 `5a7bee347`、B1573 已提交 `179afe1f1`。B1574 同席引用正在独立验证；各批落地后统一全仓检查、干净构建及严格双路回放，不能提前宣称全部闭环。
+#### B1574：同一排名条目折叠前后使用同一关系引用
+
+`implemented / real-donghu+four-face-red-to-green / full-suite-running / live-pending`。
+
+- 在原先“无排名链行采用唯一同段排名 donor”的成功分支，同时保存原 donor 的精确 relation ref。原 host 仍保留自己的状态、金额和显示 Object，不从 host 重新哈希出第二个同席身份。该只读回执经既有 RankFoldPeers 进入方向成员清单，使小计、关系表、详细 handoff 和最终摘要四面一致。
+- 不改全局 member hash、不忽略 Object、不用 ordinal 粗去重。已有自身排名的 host 不采用 donor ref；adopted-but-unavailable 与未采用区分，原 donor 缺稳定身份时不得借 host 字段补造。异板、异目标、异类型、多 donor 歧义、邻近 0.598ms 均保持独立或无 alias。
+- 真实 donghu engine→ledger→projection 验证原 rank 与 folded host 指向相同 donor ref；独立 4 席方向在两份模型上下文中严格分成 2 个小计成员 + 2 个额外项，不再是 2+3。语义 rank fold 同源回归通过，公开金额、小计和资格保持原样。新增两个内部载体字段已逐项登记消费者，无盲目哈希重钉。
+- 先红 `.codrax/tmp/b1574-rank-ref-real-red.log`、`b1574-rank-ref-red.log`，真实查询与上下文绿日志 `b1574-rank-ref-real-green.log`、`b1574-rank-ref-green.log`。原 B1568 rounded/window 身份组继续验证；不用正常精确窗回放冒称覆盖了旧 rounded 故障分支。
+
+B1571 已提交 `5a7bee347`、B1573 `179afe1f1`、B1572 `9492be86c`；每批均推送 main。完整 `go test ./... -count=1` 正在运行；之后干净构建并严格双路 H11 + 跨仓 Python write 回归本批两类生产影响，再按日志/源码证据边界及异构语言图优先级扩展，不把重复同一 Trace 的模型措辞波动硬拟合成规则。
 
 ### §123.1638 主干同步与系统边界批次（2026-09-06）
 

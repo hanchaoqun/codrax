@@ -183,6 +183,28 @@ func TestRankFoldRoundedProbeMatchesExactRankInTreeOverviewAndJSON(t *testing.T)
 		t.Fatalf("expected one trace partition, got %d", len(set.Projections))
 	}
 	projection := set.Projections[0]
+	// B1574: the original rank seat and its displayed chain twin must keep
+	// one relation identity; the host's different Object is not a new seat.
+	wantRefs := map[string]string{}
+	for _, seat := range projection.RankedSeats {
+		if seat.Object == "priority_inversion_candidate" {
+			wantRefs[seat.Subject] = types.TraceAnswerRelationMemberRef(seat)
+		}
+	}
+	for _, section := range TraceAnswerDecisionDirectionSections(projection) {
+		if section.Direction != "lock_priority" {
+			continue
+		}
+		if len(section.MemberRefs) != len(section.Members) {
+			t.Errorf("real folded section has incomplete rank identity: members=%d refs=%v", len(section.Members), section.MemberRefs)
+			continue
+		}
+		for i, member := range section.Members {
+			if want := wantRefs[member.Subject]; want == "" || section.MemberRefs[i] != want {
+				t.Errorf("real fold donor ref split: subject=%s got=%s want=%s", member.Subject, section.MemberRefs[i], want)
+			}
+		}
+	}
 	if projection.WindowStartTs != start || projection.WindowEndTs != end || !types.TraceCausalProjectionPrincipalWindowAuthoritative(projection) {
 		t.Fatalf("fixture must elect the exact principal scope: %.6f..%.6f", projection.WindowStartTs, projection.WindowEndTs)
 	}
