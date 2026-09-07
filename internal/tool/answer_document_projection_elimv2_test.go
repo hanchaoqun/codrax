@@ -83,6 +83,13 @@ func elimv2DirectionBoardProjection() types.TraceCausalProjection {
 	adj.Predicate = "root_cause_tertiary"
 	adj.ChainRelevance = "adjacent"
 	adj.Causality = "adjacent_to_wakeup_chain"
+	// The subtotal fixtures represent one actual query, not missing query
+	// identity inferred from their non-overlapping occurrence intervals.
+	for _, node := range []*types.TraceCausalProjectionNode{&m1, &m2, &m3, &m4, &m5, &adj} {
+		node.RankBoardTarget = "worker-T-77"
+		node.RankBoardParamsFingerprint = "elim-v2-one-board"
+		node.RankQueryWindowStartTs, node.RankQueryWindowEndTs = 1000, 1000.2
+	}
 	return types.TraceCausalProjection{
 		RootCauseFamilyObserved: true,
 		WakeupPath:              []string{"waker-1", "worker-T-77"},
@@ -360,6 +367,7 @@ func TestELIMV2SubtotalLadderCarrierAbsent(t *testing.T) {
 	// unproven and the section publishes no arithmetic (缺席不进算术).
 	mixed := elimv2DirectionBoardProjection()
 	mixed.OnChainCauses[0].RankBoardTarget = "worker-T-77" // == ruler subject; multiBoardRuler stays false
+	mixed.OnChainCauses[1].RankBoardTarget = ""            // explicitly remove this required premise
 	_, fence = elimRenderOverview(t, mixed, true)
 	if strings.Contains(fence, "跨板不可相加") {
 		t.Fatalf("fixture: the mixed form must keep the single-board head:\n%s", fence)

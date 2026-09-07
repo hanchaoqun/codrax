@@ -127,6 +127,8 @@ func TestG8TimestampZeroElimSubtotalEligibility(t *testing.T) {
 			Node: types.TraceCausalProjectionNode{
 				Subject: subject, EffectiveImpactMS: eff,
 				StartTs: start, EndTs: end,
+				RankBoardTarget: "target-100", RankBoardParamsFingerprint: "zero-start-board",
+				RankQueryWindowStartTs: 0, RankQueryWindowEndTs: 0.2,
 			},
 		}}
 	}

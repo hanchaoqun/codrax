@@ -197,8 +197,21 @@ func TraceAnswerDirectionSectionArithmetic(direction string, members []TraceCaus
 		return TraceAnswerDirectionArithmeticNone, 0
 	}
 	boards := map[string]bool{}
+	queryBoard := ""
 	subtotalUS := int64(0)
 	for _, node := range members {
+		// The enclosing projection already owns capture partitioning. Within
+		// that capture, disjoint intervals do not authorize combining values
+		// from different queries. Require the existing complete board carrier
+		// and compare its unrounded key; display precision is not identity.
+		if _, known := answerRelationRankBoardIdentity(node); !known {
+			return TraceAnswerDirectionArithmeticNone, 0
+		}
+		identity := traceCausalProjectionRankBoardIdentityKey(node)
+		if queryBoard != "" && queryBoard != identity {
+			return TraceAnswerDirectionArithmeticNone, 0
+		}
+		queryBoard = identity
 		if target := strings.TrimSpace(node.RankBoardTarget); target != "" {
 			boards[traceCausalProjectionCanonicalNode(target)] = true
 		} else if boardHasNamedTargets {
