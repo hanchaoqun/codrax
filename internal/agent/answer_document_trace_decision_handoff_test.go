@@ -349,6 +349,11 @@ func TestTraceDecisionHandoffFallsBackToLeaderWithoutExactDirectionFold(t *testi
 			FixDirection: direction, TypeToken: typeToken, Object: typeToken,
 			EffectiveImpactMS: value, EffectiveImpactPublished: true,
 			ChainRelevance: "on_chain", WithinRequestedWindow: &inside,
+			// The query board is known, but no occurrence envelope exists to
+			// authorize a direction subtotal. Unknown-board rows have their
+			// own individual-seat negative fixture.
+			RankBoardTarget: "target", RankBoardParamsFingerprint: "same-board",
+			RankQueryWindowStartTs: 10, RankQueryWindowEndTs: 10.1,
 		}
 	}
 	projection := types.TraceCausalProjection{

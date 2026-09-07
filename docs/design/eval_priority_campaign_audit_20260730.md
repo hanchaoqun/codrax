@@ -57388,7 +57388,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 |---|---|---|
 | B1590b / P1 | context将同窗不同参数榜混成单一名次；final principal roster出现#1,#1,#2,#2且没有参数；另一已分榜reader roster隐藏参数与capture path | 已实施并完成独立审阅；共享只读显示身份复用原capture partition及rank-board key；工件/目标/查询窗/设置完整才同域，未知身份逐行保留。全局8+4或8行预算不乘以榜数，稳定分域轮询，显式省略组/行。现有资格/原rank/值/两轴/修向/窗口偏好不改；真实入口先红后绿 |
 | B1590a同族补漏 / 只修教学 | reader-rank提示仍称仅单条合并行内总量合法，与另有精确同向小计的提示不一致 | 同一B1590b显示小批已明确“单行不授予跨行加法；独立具名成员/口径的小计可按其凭证用，不是保证收益”；等待caller专属禁令未动，不扩大加法资格 |
-| B1590c / P1，独立复审新增 | reader decision cards仍扁平第N位；repair-direction与compact/mechanism摘要只按direction跨参数选单一leader | 紧接施工；沿用b的显示域，保留原资格/原值/全局显示cap。精确小计只能绑定原发布section且全成员同域，不能切投影后重算新小计或从不完整身份猜同榜；先补执行反例，不宣称b已覆盖所有finalizer面 |
+| B1590c / P1，独立复审新增 | reader decision cards仍扁平第N位；repair-direction与compact/mechanism摘要只按direction跨参数选单一leader；presentation-plan及同板不同显示子类也有同根错位 | 已实施并独立复审，先红后绿；沿用b的显示域，保留原资格/原值/全局显示cap。精确小计只能绑定原发布section且Leader/全成员同域，handoff显示子类另需原typed分类一致；不切投影重算新小计或从不完整身份猜同榜。原完整direction receipt独立保留，不因子类不绑定而删除 |
 | B1591 / P1 | invalid-placement修复删除局部位置、将原contains/not_contains改satisfies，甚至Expected在请求中时仍Required=true；只保原结构又被quality二次必拒。planning-only placement教学要求refs而门不接受；240字符摘要还可能裁断末尾planning_only | 已实施、独立审阅并通过真实入口及完整受影响包；保Placement/Operator/Expected/Polarity，只对未证required位置降为已有planning-only。quality与required/observed权限同源，位置refs原门不放宽、只对准确状态给正确教学/诊断；权限和局部关系枚举前置，原240字符加省略号和完整typed载体不变。无新wire字段/执行凭证 |
 | B1590d / P1，双席执行新增 | 原共享direction arithmetic只检目标/区间，不检参数与查询窗；真实publisher将depth-a 7.405与depth-b 4.710发为12.115精确小计，另三席见证15.713 | 已实施、独立审阅、真实双语appendix与广域回归通过；在原section/appendix共享算术入口补同一完整查询榜前提，复用既有完整board资格和未舍入identity key。原capture由projection分区持有，缺/异target、params或querywindow不铸小计，保所有原始单项与资格；同板合法subtotal与overlap正负臂保留。不把错误原小计当权威延续 |
 
@@ -57401,6 +57401,10 @@ B1590b已提交推送`7fc815c9b`。B1591真实分析入口18格（正负局部�
 活跃流本轮复验：`20260907-active-stream-guard.log`，真实HTTP/SSE测试9.073s绿，覆盖活跃reasoning/tool/heartbeat/逐字节未完整frame不因4ms或旧总墙钟降级；显式调用预算、parent取消及真正byte-idle仍有效。本轮没有改stream超时配置，不把单元缩时测试冒称单次4分钟live。
 
 B1591已提交推送`34fd1e56a`。B1590d红证`20260907-b1590d-domain-red.log`：不同params、不同window、缺params、全部缺params、缺window及1e-7窗差均误获12.115精确小计，真实publisher与zh/en appendix同源验证。修复仅13行共享算术前提，无根因类别分支、无成员修改/新查询/模型prose门。14格包含同板、fallback window、合法0起点、不同/缺域、overlap、merged与multi-board，广域types/tool方向/投影/ELIM回归0.889s/8.801s绿（`20260907-b1590d-expanded-final.log`）。旧ELIM-V2和G8小计fixture明确补齐原来隐含的query target/params/window，原µs打印舍入、overlap和0起点断言未放松；混合缺身份负臂显式清空对应字段。旧缺身份载体仍保留逐项数值/方向，但不再获得Σ授权；本函数依赖上游capture分区，不允许跨projection直接拼接成员调用。未从某个类型或某个客户数值拟合判定。
+
+B1590d已提交推送`945803145`。B1590c额外确认同完整板的priority候选与monitor等不同显示子类可互借leader（非candidate并不等于机制已确认）；两种最大项互换真实先红，修为仅本typed显示子组可绑定，而原完整direction小计仍独立保留。新共享selector读取原全projection构造的section，原donor refs/4=2+2、12.115同板小计不改，不新选获胜query。reader自然语言双语预览、compact各保6行总预算，mechanism保原6→3两层cap并披露省略；handoff/plan方向摘要有界8组，未知逐行且字段称seat而非leader，完整后台不裁。未改原on-chain比较器、phase、target blocker、JSON/schema、自动补采或模型正文。
+
+B1590c日志：`20260907-b1590c-domain-red.log`、`20260907-b1590c-model-facing-{red,green}.log`（最终1.164s）；`b1590c-final-domains-red.log`→`b1590c-final-domains-green.log`（真实finalizer接线等5测试count3 9.787s）；旧TraceFinal/RankDonor/TraceDecision定向1.126s绿。5处旧同榜fixture只补其声称共享leader需要的完整query/capture前提，未知独立负臂和自然语言负pin均不减弱。生产冻结后已启动统一`20260907-b1590-b1591-full-suite.log`，尚未完成，不提前宣称全仓绿。待干净make后按上表两路r1030，再审计后运行r1031。
 
 本轮case盘243（read215/apply25/plan3）。按真实用户影响、确定性机制、异构图表达/模式增量、实际执行能力与近期重复度排序；r1020–1029已重复H11五批、memoclaw Python三批，不继续围绕同一输出求绿。
 

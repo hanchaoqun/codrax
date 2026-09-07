@@ -1232,6 +1232,7 @@ func TestTraceFinalCompactAuthorityLedgerSeparatesWakeupFromTypedBlockingAndDire
 			{EvidenceID: "rank-3", Subject: target, Rank: 3, EffectiveImpactMS: 3, FixDirection: "scheduling", ChainRelevance: "on_chain", BlockingKind: "lock_contention", BlockingPeer: "holder-300", WithinRequestedWindow: &inWindow},
 		},
 	}
+	finalRankDomainCompleteFixture(&projection, target)
 	got := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
 	for _, want := range []string{
 		"target_direct_blocking_authority=`typed_waiter_holder`",
@@ -1283,6 +1284,7 @@ func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupP
 			},
 		},
 	}
+	finalRankDomainCompleteFixture(&projection, "target-100")
 	got := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
 	for _, want := range []string{
 		"leader_subject=`full-worker`",
@@ -1325,6 +1327,7 @@ func TestTraceFinalDecisionLedgerKeepsBlockedReasonCallerOnExactPartitionSeat(t 
 		RankedSeats:   []types.TraceCausalProjectionNode{unproven, proved},
 		OnChainCauses: []types.TraceCausalProjectionNode{unproven, proved},
 	}
+	finalRankDomainCompleteFixture(&projection, "target-100")
 	got := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
 	for _, want := range []string{
 		"leader_subject=`worker-60555`",
@@ -1527,6 +1530,7 @@ func TestTraceFinalDecisionLedgerDirectionLeaderPrefersPublishedOnChainMaximumOv
 		OnChainCauses:  []types.TraceCausalProjectionNode{chain},
 		AdjacentCauses: []types.TraceCausalProjectionNode{adjacent},
 	}
+	finalRankDomainCompleteFixture(&projection, "target-100")
 	got := renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
 	for _, want := range []string{
 		"leader_rank=#3", "leader_subject=`chain-worker`", "leader_effective_attribution=10.433ms",

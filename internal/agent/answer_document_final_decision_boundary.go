@@ -427,45 +427,53 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 			}
 		}
 
-		seats := traceDecisionEliminableSeats(projection, 6)
+		seats := traceDecisionEliminableSeats(projection, 0)
 		if len(seats) > 0 {
+			groups := traceFinalRankDisplayGroups(projection, seats, 6)
 			if zh {
 				b.WriteString("- 按现有规则可消除的影响（用于修复优先级，不等同于实测等待时长）：\n")
 			} else {
 				b.WriteString("- Impact eliminable under existing rules (for repair priority, not automatically a measured wait duration):\n")
 			}
-			for _, node := range seats {
-				cause := traceFinalReaderCauseLabel(node, zh)
-				measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
-				if zh {
-					fmt.Fprintf(&b, "  - 第 %d 位，%s：%s；可消除影响 %.3f 毫秒", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
-				} else {
-					fmt.Fprintf(&b, "  - Rank %d, %s: %s; eliminable impact %.3f ms", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
+			traceFinalWriteReaderBoardPreview(&b, groups, zh)
+			for _, group := range groups {
+				if len(group.shown) == 0 {
+					continue
 				}
-				if measuredOK && math.Abs(measured-node.EffectiveImpactMS) > 0.0005 {
+				traceFinalWriteReaderBoardScope(&b, group.identity, zh)
+				for _, node := range group.shown {
+					cause := traceFinalReaderCauseLabel(node, zh)
+					measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
 					if zh {
-						fmt.Fprintf(&b, "，对应已测状态占用 %.3f 毫秒", measured)
+						fmt.Fprintf(&b, "  - 第 %d 位，%s：%s；可消除影响 %.3f 毫秒", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
 					} else {
-						fmt.Fprintf(&b, ", with %.3f ms measured state occupancy", measured)
+						fmt.Fprintf(&b, "  - Rank %d, %s: %s; eliminable impact %.3f ms", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
 					}
-				} else if !measuredOK && strings.TrimSpace(node.StateKind) != "" {
-					if zh {
-						b.WriteString("，原始状态占用未提供")
-					} else {
-						b.WriteString(", original state occupancy not provided")
+					if measuredOK && math.Abs(measured-node.EffectiveImpactMS) > 0.0005 {
+						if zh {
+							fmt.Fprintf(&b, "，对应已测状态占用 %.3f 毫秒", measured)
+						} else {
+							fmt.Fprintf(&b, ", with %.3f ms measured state occupancy", measured)
+						}
+					} else if !measuredOK && strings.TrimSpace(node.StateKind) != "" {
+						if zh {
+							b.WriteString("，原始状态占用未提供")
+						} else {
+							b.WriteString(", original state occupancy not provided")
+						}
 					}
-				}
-				traceFinalReaderWriteCumulativeRole(&b, node, measured, zh)
-				if zh {
-					b.WriteString("。\n")
-				} else {
-					b.WriteString(".\n")
-				}
-				if permitted, unproved := traceFinalReaderMechanismScope(traceDecisionEliminableSeatKind(node), zh); permitted != "" || unproved != "" {
+					traceFinalReaderWriteCumulativeRole(&b, node, measured, zh)
 					if zh {
-						fmt.Fprintf(&b, "    证据允许的表述：%s；尚未证明：%s。\n", permitted, unproved)
+						b.WriteString("。\n")
 					} else {
-						fmt.Fprintf(&b, "    Supported wording: %s; not proved: %s.\n", permitted, unproved)
+						b.WriteString(".\n")
+					}
+					if permitted, unproved := traceFinalReaderMechanismScope(traceDecisionEliminableSeatKind(node), zh); permitted != "" || unproved != "" {
+						if zh {
+							fmt.Fprintf(&b, "    证据允许的表述：%s；尚未证明：%s。\n", permitted, unproved)
+						} else {
+							fmt.Fprintf(&b, "    Supported wording: %s; not proved: %s.\n", permitted, unproved)
+						}
 					}
 				}
 			}
@@ -1688,63 +1696,78 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 			}
 		}
 
-		leaders := traceFinalFixDirectionLeaders(projection, 6)
-		if len(leaders) == 0 {
+		groups := traceFinalFixDirectionLeaderGroups(projection, 6)
+		if len(groups) == 0 {
 			continue
 		}
-		sections := map[string]types.TraceAnswerDirectionSection{}
-		for _, section := range tool.TraceAnswerDecisionDirectionSections(projection) {
-			sections[section.Direction] = section
-		}
+		sections := tool.TraceAnswerDecisionDirectionSections(projection)
 		fmt.Fprintf(&b, "- compact_authority artifact=`%s`: fix_direction_summary_authority=`exact_typed_subtotal_when_published_else_single_leader`; cross_direction_joint_total_authority=`not_provided`. Do not sum same-direction seats merely because their labels share a direction, and never add direction values across directions without a separate typed carrier.\n", label)
 		traceDecisionWriteRepairDirectionRelationRoster(&b, projection, label, 8)
 		traceDecisionWriteRepairDirectionPresentationPlan(&b, projection, label, 8, 12)
-		for _, node := range leaders {
-			section, sectionOK := sections[strings.TrimSpace(node.FixDirection)]
-			if sectionOK && section.Leader.Rank > 0 {
-				node = section.Leader
-			}
-			key, value, ok := traceDecisionModelFacingDirection(node)
-			if !ok {
+		traceFinalWriteBoardPreviewSummary(&b, "compact_direction_preview", groups)
+		for _, group := range groups {
+			if len(group.shown) == 0 {
 				continue
 			}
-			fmt.Fprintf(&b, "  - %s=`%s`", key, value)
-			fmt.Fprintf(&b, "; leader_rank=#%d; leader_subject=`%s`; leader_effective_attribution=%.3fms; row_identity=`%s`",
-				node.Rank, strings.TrimSpace(node.Subject), node.EffectiveImpactMS, traceDecisionNodeIdentity(node))
-			switch {
-			case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticSubtotal:
-				fmt.Fprintf(&b, "; direction_subtotal_authority=`typed_pairwise_disjoint_section`; direction_subtotal=%.3fms; subtotal_member_count=%d",
-					section.SubtotalMS, len(section.Members))
-				if len(section.MemberRefs) == len(section.Members) {
-					fmt.Fprintf(&b, "; subtotal_member_refs=`%s`", strings.Join(section.MemberRefs, ","))
+			b.WriteString("  - compact_direction_query_board")
+			traceRankWriteDirectionDomain(&b, group.identity)
+			b.WriteString(". Authoring metadata, not answer wording: each leader belongs only to this board; an incomplete identity cannot select a shared leader.\n")
+			for _, node := range group.shown {
+				section, sectionOK := traceRankDisplayDirectionSection(projection, sections, node)
+				if sectionOK && section.Leader.Rank > 0 {
+					node = section.Leader
 				}
-			case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticOverlap:
-				b.WriteString("; direction_subtotal_authority=`forbidden_by_typed_overlap`")
-			default:
-				b.WriteString("; direction_subtotal_authority=`not_provided_without_exact_fold`")
-			}
-			if stateKind := strings.TrimSpace(node.StateKind); stateKind != "" {
-				fmt.Fprintf(&b, "; leader_state_kind=`%s`", stateKind)
-			}
-			if measured, ok := traceFinalMeasuredStateOccupancy(node); ok {
-				fmt.Fprintf(&b, "; leader_measured_state_occupancy=%.3fms", measured)
-			} else if strings.TrimSpace(node.StateKind) != "" {
-				b.WriteString("; leader_measured_state_occupancy=`unavailable`")
-			}
-			if node.StartTs > 0 && node.EndTs > node.StartTs {
-				fmt.Fprintf(&b, "; occurrence_interval=`%.6f..%.6f`", node.StartTs, node.EndTs)
-			}
-			if start, end, ok := traceDecisionNodeQueryWindow(node); ok {
-				role := "supporting_query_window"
-				if traceDecisionSameWindow(start, end, projection.WindowStartTs, projection.WindowEndTs) {
-					role = "requested_or_elected_window"
+				key, value, ok := traceDecisionModelFacingDirection(node)
+				if !ok {
+					continue
 				}
-				fmt.Fprintf(&b, "; query_window=`%.6f..%.6f`; window_role=`%s`", start, end, role)
+				fmt.Fprintf(&b, "  - %s=`%s`", key, value)
+				if group.identity.Complete {
+					fmt.Fprintf(&b, "; leader_rank=#%d; leader_subject=`%s`; leader_effective_attribution=%.3fms; row_identity=`%s`",
+						node.Rank, strings.TrimSpace(node.Subject), node.EffectiveImpactMS, traceDecisionNodeIdentity(node))
+				} else {
+					fmt.Fprintf(&b, "; seat_rank=#%d; seat_subject=`%s`; seat_effective_attribution=%.3fms; row_identity=`%s`; shared_leader_authority=`not_provided`",
+						node.Rank, strings.TrimSpace(node.Subject), node.EffectiveImpactMS, traceDecisionNodeIdentity(node))
+				}
+				switch {
+				case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticSubtotal:
+					fmt.Fprintf(&b, "; direction_subtotal_authority=`typed_pairwise_disjoint_section`; direction_subtotal=%.3fms; subtotal_member_count=%d",
+						section.SubtotalMS, len(section.Members))
+					if len(section.MemberRefs) == len(section.Members) {
+						fmt.Fprintf(&b, "; subtotal_member_refs=`%s`", strings.Join(section.MemberRefs, ","))
+					}
+				case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticOverlap:
+					b.WriteString("; direction_subtotal_authority=`forbidden_by_typed_overlap`")
+				default:
+					b.WriteString("; direction_subtotal_authority=`not_provided_without_exact_fold`")
+				}
+				role := "leader"
+				if !group.identity.Complete {
+					role = "seat"
+				}
+				if stateKind := strings.TrimSpace(node.StateKind); stateKind != "" {
+					fmt.Fprintf(&b, "; %s_state_kind=`%s`", role, stateKind)
+				}
+				if measured, ok := traceFinalMeasuredStateOccupancy(node); ok {
+					fmt.Fprintf(&b, "; %s_measured_state_occupancy=%.3fms", role, measured)
+				} else if strings.TrimSpace(node.StateKind) != "" {
+					fmt.Fprintf(&b, "; %s_measured_state_occupancy=`unavailable`", role)
+				}
+				if node.StartTs > 0 && node.EndTs > node.StartTs {
+					fmt.Fprintf(&b, "; occurrence_interval=`%.6f..%.6f`", node.StartTs, node.EndTs)
+				}
+				if start, end, ok := traceDecisionNodeQueryWindow(node); ok {
+					role := "supporting_query_window"
+					if traceDecisionSameWindow(start, end, projection.WindowStartTs, projection.WindowEndTs) {
+						role = "requested_or_elected_window"
+					}
+					fmt.Fprintf(&b, "; query_window=`%.6f..%.6f`; window_role=`%s`", start, end, role)
+				}
+				traceDecisionWritePhase(&b, node)
+				traceDecisionWritePriorityCandidateClaimEnvelope(&b, node)
+				traceDecisionWriteNodeBlockingReasonAuthority(&b, node)
+				b.WriteString("\n")
 			}
-			traceDecisionWritePhase(&b, node)
-			traceDecisionWritePriorityCandidateClaimEnvelope(&b, node)
-			traceDecisionWriteNodeBlockingReasonAuthority(&b, node)
-			b.WriteString("\n")
 		}
 	}
 	return b.String()
@@ -1808,22 +1831,40 @@ func renderTraceFinalLeaderMechanismCeiling(set types.TraceCausalProjectionSet) 
 			label = fmt.Sprintf("trace-%d", index+1)
 		}
 		seen := map[string]bool{}
-		emitted := 0
-		for _, node := range traceFinalFixDirectionLeaders(projection, 6) {
-			if traceDecisionNodePhase(node) != "pre_wakeup_dependency" || strings.TrimSpace(node.BlockingKind) != "" {
-				continue
+		groups := traceFinalFixDirectionLeaderGroups(projection, 6)
+		leaderTotal, leaderShown := 0, 0
+		var candidates []types.TraceCausalProjectionNode
+		for _, group := range groups {
+			leaderTotal += len(group.rows)
+			leaderShown += len(group.shown)
+			for _, node := range group.shown {
+				if traceDecisionNodePhase(node) != "pre_wakeup_dependency" || strings.TrimSpace(node.BlockingKind) != "" {
+					continue
+				}
+				identity := traceDecisionNodeIdentity(node)
+				if seen[identity] {
+					continue
+				}
+				seen[identity] = true
+				candidates = append(candidates, node)
 			}
-			identity := traceDecisionNodeIdentity(node)
-			if seen[identity] {
-				continue
-			}
-			seen[identity] = true
-			fmt.Fprintf(&b, "  - final_answer_mechanism_scope artifact=`%s`; subject=`%s`; target=`%s`: describe this selected leader only as on-chain work overlapping the interval before the target wakeup. No typed target-blocking relation establishes that the target waited for this work, waited for its completion, or was directly blocked by it.\n",
+		}
+		emitted := min(len(candidates), 3)
+		for _, node := range candidates[:emitted] {
+			fmt.Fprintf(&b, "  - final_answer_mechanism_scope artifact=`%s`; subject=`%s`; target=`%s`",
 				traceDecisionPromptScalar(label), traceDecisionPromptScalar(strings.TrimSpace(node.Subject)), traceDecisionPromptScalar(target))
-			emitted++
-			if emitted >= 3 {
-				break
+			identity := types.TraceRankBoardDisplayIdentityFromNode(projection, node)
+			traceRankWriteDirectionDomain(&b, identity)
+			if identity.Complete {
+				b.WriteString(": describe this selected leader only as on-chain work overlapping the interval before the target wakeup. ")
+			} else {
+				b.WriteString(": describe this independent observed row only as on-chain work overlapping the interval before the target wakeup, not as a shared direction leader. ")
 			}
+			b.WriteString("No typed target-blocking relation establishes that the target waited for this work, waited for its completion, or was directly blocked by it.\n")
+		}
+		if len(candidates) > 0 || leaderTotal > leaderShown {
+			fmt.Fprintf(&b, "  - mechanism_scope_preview: emitted=%d; eligible_among_shown_leaders=%d; omitted_by_leader_preview=%d; omitted_by_mechanism_preview=%d. Query identities are authoring metadata, not answer wording; preview omission does not remove evidence or grant a cross-board leader.\n",
+				emitted, len(candidates), leaderTotal-leaderShown, len(candidates)-emitted)
 		}
 	}
 	return b.String()
@@ -2032,36 +2073,110 @@ func traceFinalTargetBlockingRelations(projection types.TraceCausalProjection, t
 }
 
 func traceFinalFixDirectionLeaders(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
-	seats := traceDecisionEliminableSeats(projection, 0)
-	onChain := traceFinalOnChainSeatIdentities(projection)
-	leaders := map[string]types.TraceCausalProjectionNode{}
-	for _, node := range seats {
-		direction := strings.TrimSpace(node.FixDirection)
-		if direction == "" {
-			continue
-		}
-		current, ok := leaders[direction]
-		if !ok || traceFinalDirectionSeatBefore(node, current, onChain) {
-			leaders[direction] = node
-		}
-	}
-	out := make([]types.TraceCausalProjectionNode, 0, len(leaders))
-	for _, node := range leaders {
-		out = append(out, node)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].EffectiveImpactMS != out[j].EffectiveImpactMS {
-			return out[i].EffectiveImpactMS > out[j].EffectiveImpactMS
-		}
-		if out[i].Rank != out[j].Rank {
-			return out[i].Rank < out[j].Rank
-		}
-		return traceDecisionNodeIdentity(out[i]) < traceDecisionNodeIdentity(out[j])
-	})
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
+	var out []types.TraceCausalProjectionNode
+	for _, group := range traceFinalFixDirectionLeaderGroups(projection, limit) {
+		out = append(out, group.shown...)
 	}
 	return out
+}
+
+// A leader belongs to one complete query board and typed direction. Grouping
+// changes presentation only: eligibility and the within-board comparator are
+// unchanged, while rows without a complete board identity remain independent.
+func traceFinalFixDirectionLeaderGroups(projection types.TraceCausalProjection, limit int) []traceFinalRankDisplayGroup {
+	seats := traceDecisionEliminableSeats(projection, 0)
+	onChain := traceFinalOnChainSeatIdentities(projection)
+	var leaders []types.TraceCausalProjectionNode
+	for _, group := range traceRankDisplayDirectionGroups(projection, seats) {
+		var leader types.TraceCausalProjectionNode
+		for _, node := range group.members {
+			if leader.Rank == 0 || traceFinalDirectionSeatBefore(node, leader, onChain) {
+				leader = node
+			}
+		}
+		leaders = append(leaders, leader)
+	}
+	// Preserve the previous leader ordering only inside each board. The shared
+	// bounded preview interleaves selection fairly, then displays separate boards.
+	var ordered []types.TraceCausalProjectionNode
+	for _, group := range traceFinalRankDisplayGroups(projection, leaders, 0) {
+		sort.SliceStable(group.rows, func(i, j int) bool {
+			if group.rows[i].EffectiveImpactMS != group.rows[j].EffectiveImpactMS {
+				return group.rows[i].EffectiveImpactMS > group.rows[j].EffectiveImpactMS
+			}
+			if group.rows[i].Rank != group.rows[j].Rank {
+				return group.rows[i].Rank < group.rows[j].Rank
+			}
+			return traceDecisionNodeIdentity(group.rows[i]) < traceDecisionNodeIdentity(group.rows[j])
+		})
+		ordered = append(ordered, group.rows...)
+	}
+	if limit <= 0 {
+		limit = len(ordered)
+	}
+	return traceFinalRankDisplayGroups(projection, ordered, limit)
+}
+
+func traceFinalWriteBoardPreviewSummary(b *strings.Builder, label string, groups []traceFinalRankDisplayGroup) {
+	total, shown, omittedBoards := traceFinalBoardPreviewCounts(groups)
+	fmt.Fprintf(b, "  - %s: admitted_rows=%d; displayed_rows=%d; omitted_rows=%d; board_groups=%d; omitted_board_groups=%d. Display coverage is not whole-query completeness; omitted rows retain their original eligibility and values.\n",
+		label, total, shown, total-shown, len(groups), omittedBoards)
+}
+
+func traceFinalBoardPreviewCounts(groups []traceFinalRankDisplayGroup) (total, shown, omittedBoards int) {
+	for _, group := range groups {
+		total += len(group.rows)
+		shown += len(group.shown)
+		if len(group.shown) == 0 {
+			omittedBoards++
+		}
+	}
+	return total, shown, omittedBoards
+}
+
+func traceFinalWriteReaderBoardPreview(b *strings.Builder, groups []traceFinalRankDisplayGroup, zh bool) {
+	total, shown, omittedBoards := traceFinalBoardPreviewCounts(groups)
+	if zh {
+		fmt.Fprintf(b, "  - 本段预览共展示 %d 条已接纳记录中的 %d 条，省略 %d 条；共有 %d 个独立查询分组，其中 %d 组未在此展开。预览没有改变原有资格或数值，也不代表查询已穷尽所有原因。\n",
+			total, shown, total-shown, len(groups), omittedBoards)
+		return
+	}
+	fmt.Fprintf(b, "  - This preview shows %d of %d admitted rows, omitting %d rows; %d independent query groups exist and %d groups are not expanded here. Preview omission changes neither eligibility nor values and does not establish exhaustive cause coverage.\n",
+		shown, total, total-shown, len(groups), omittedBoards)
+}
+
+func traceFinalWriteReaderBoardScope(b *strings.Builder, identity types.TraceRankBoardDisplayIdentity, zh bool) {
+	field := func(value string) string {
+		if strings.TrimSpace(value) != "" {
+			return traceDecisionPromptScalar(value)
+		}
+		if zh {
+			return "未提供"
+		}
+		return "not provided"
+	}
+	capture := identity.ArtifactPath
+	if capture == "" {
+		capture = identity.ArtifactLabel
+	}
+	window := ""
+	if types.TraceCausalProjectionWindowPresent(identity.WindowStartTs, identity.WindowEndTs) {
+		window = fmt.Sprintf("%.6f..%.6f", identity.WindowStartTs, identity.WindowEndTs)
+	}
+	if zh {
+		fmt.Fprintf(b, "  - 本组来源：%s；分析目标：%s；查询窗口：%s；查询设置标识：%s（仅辅助作者区分测量，不必抄入答案）。名次只在本组内比较。",
+			field(capture), field(identity.BoardTarget), field(window), field(identity.BoardParamsFingerprint))
+		if !identity.Complete {
+			b.WriteString("查询身份未提供齐全，本条单独保留，不推断它与其他条目同榜。")
+		}
+	} else {
+		fmt.Fprintf(b, "  - Query group source: %s; analysis target: %s; query window: %s; query settings identity: %s (authoring metadata, not wording to copy into the answer). Rank comparisons belong only to this group.",
+			field(capture), field(identity.BoardTarget), field(window), field(identity.BoardParamsFingerprint))
+		if !identity.Complete {
+			b.WriteString(" Some query identity fields are absent: retain this row independently, without inferring a shared board.")
+		}
+	}
+	b.WriteByte('\n')
 }
 
 // traceFinalOnChainSeatIdentities mirrors the published eliminable board's

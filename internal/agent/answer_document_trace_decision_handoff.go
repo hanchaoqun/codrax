@@ -245,65 +245,38 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 	if b == nil {
 		return
 	}
-	type directionRecord struct {
-		key, value string
-		direction  string
-		leader     types.TraceCausalProjectionNode
-		count      int
-	}
 	for projectionIndex, projection := range set.Projections {
-		seats := traceDecisionEliminableSeats(projection, 0)
-		if len(seats) == 0 {
+		groups := traceRankDisplayModelFacingDirectionGroups(projection, traceDecisionEliminableSeats(projection, 0))
+		if len(groups) == 0 {
 			continue
 		}
-		byDirection := map[string]directionRecord{}
-		for _, node := range seats {
-			key, value, ok := traceDecisionModelFacingDirection(node)
-			if !ok {
-				continue
-			}
-			identity := key + "\x00" + value
-			record := byDirection[identity]
-			record.key, record.value, record.direction, record.count = key, value, strings.TrimSpace(node.FixDirection), record.count+1
-			if record.leader.Rank == 0 || node.EffectiveImpactMS > record.leader.EffectiveImpactMS ||
-				(node.EffectiveImpactMS == record.leader.EffectiveImpactMS && node.Rank < record.leader.Rank) {
-				record.leader = node
-			}
-			byDirection[identity] = record
-		}
-		if len(byDirection) == 0 {
-			continue
-		}
-		sectionByDirection := map[string]types.TraceAnswerDirectionSection{}
-		for _, section := range tool.TraceAnswerDecisionDirectionSections(projection) {
-			sectionByDirection[section.Direction] = section
-		}
-		records := make([]directionRecord, 0, len(byDirection))
-		for _, record := range byDirection {
-			records = append(records, record)
-		}
-		sort.SliceStable(records, func(i, j int) bool {
-			if records[i].leader.EffectiveImpactMS != records[j].leader.EffectiveImpactMS {
-				return records[i].leader.EffectiveImpactMS > records[j].leader.EffectiveImpactMS
-			}
-			return records[i].value < records[j].value
-		})
+		sections := tool.TraceAnswerDecisionDirectionSections(projection)
 		label := strings.TrimSpace(projection.ArtifactLabel)
 		if label == "" {
 			label = fmt.Sprintf("trace-%d", projectionIndex+1)
 		}
-		fmt.Fprintf(b, "- repair_direction_authority: artifact=`%s`; value_role=`exact_typed_direction_subtotal_when_published_else_single_leader`; joint_total_authority=`not_provided`; unlisted_pair_physical_relation=`unresolved`; direction_independence_authority=`not_provided`; direction_overlap_authority=`exact_physical_overlap_rows_only`; instruction=`do_not_sum_across_directions_or_unlisted_members`.\n", label)
+		fmt.Fprintf(b, "- repair_direction_authority: artifact=`%s`; value_role=`exact_typed_direction_subtotal_when_published_else_single_leader`; joint_total_authority=`not_provided`; unlisted_pair_physical_relation=`unresolved`; direction_independence_authority=`not_provided`; direction_overlap_authority=`exact_physical_overlap_rows_only`; instruction=`do_not_sum_across_directions_or_unlisted_members`. Leaders are local to one complete query board; missing board identity permits only an individual seat, not a direction leader.\n", traceDecisionPromptScalar(label))
 		traceDecisionWriteRepairDirectionRelationRoster(b, projection, label, 8)
 		traceDecisionWriteRepairDirectionPresentationPlan(b, projection, label, 8, 12)
-		for _, record := range records {
-			section, sectionOK := sectionByDirection[record.direction]
-			leader := record.leader
+		emitted := len(groups)
+		if emitted > 8 {
+			emitted = 8
+		}
+		for _, group := range groups[:emitted] {
+			leader := traceRankDirectionGroupLeader(group)
+			section, sectionOK := traceRankDisplayModelFacingDirectionSection(projection, sections, group, leader)
 			if sectionOK && section.Leader.Rank > 0 {
 				leader = section.Leader
 			}
-			fmt.Fprintf(b, "  - %s=`%s`; member_count=%d; leader_rank=#%d; leader_subject=`%s`; leader_value=%.3fms",
-				record.key, record.value, record.count, leader.Rank,
-				strings.TrimSpace(leader.Subject), leader.EffectiveImpactMS)
+			role := "leader"
+			if !group.identity.Complete {
+				role = "seat"
+			}
+			fmt.Fprintf(b, "  - %s=`%s`; member_count=%d; %s_rank=#%d; %s_subject=`%s`; %s_value=%.3fms",
+				group.key, traceDecisionPromptScalar(group.value), len(group.members), role, leader.Rank,
+				role, traceDecisionPromptScalar(leader.Subject), role, leader.EffectiveImpactMS)
+			traceRankWriteDirectionDomain(b, group.identity)
+			b.WriteString("; subtotal_binding_scope=`model_facing_subgroup`")
 			switch {
 			case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticSubtotal:
 				fmt.Fprintf(b, "; same_direction_subtotal_authority=`typed_pairwise_disjoint_section`; published_direction_value=`exact_subtotal`; direction_subtotal=%.3fms; subtotal_member_count=%d",
@@ -313,6 +286,8 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 				}
 			case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticOverlap:
 				b.WriteString("; same_direction_subtotal_authority=`forbidden_by_typed_overlap`; published_direction_value=`leader_only`")
+			case !group.identity.Complete:
+				b.WriteString("; same_direction_subtotal_authority=`not_provided`; published_direction_value=`individual_seat`; board_leader_authority=`unavailable_without_complete_identity`")
 			default:
 				b.WriteString("; same_direction_subtotal_authority=`not_provided`; published_direction_value=`leader_only`")
 			}
@@ -325,6 +300,9 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 				b.WriteString("; mechanism_boundary=`typed_io_or_kernel_wait_seat`; kernel_callsite_proves_resource_or_holder=`false`")
 			}
 			b.WriteString("\n")
+		}
+		if omitted := len(groups) - emitted; omitted > 0 {
+			fmt.Fprintf(b, "  - repair_direction_groups_omitted=%d; total=%d; emitted=%d; omitted seats remain in the typed population.\n", omitted, len(groups), emitted)
 		}
 	}
 }
@@ -487,7 +465,8 @@ func traceDecisionWriteRepairDirectionRelationRoster(b *strings.Builder, project
 		return
 	}
 	fmt.Fprintf(b, "  - repair_direction_relation_roster: artifact=`%s`; emitted=%d; total=%d; complete=`%t`; source=`typed_projection_relations_only`.\n",
-		artifact, emitted, total, emitted == total)
+		traceDecisionPromptScalar(artifact), emitted, total, emitted == total)
+	b.WriteString("    - published_section_scope=`original_exact_member_refs_only`; board_rebinding=`not_authorized_by_shared_direction`; a receipt is not a subtotal or leader for another query board or an incomplete board identity.\n")
 	for _, relation := range relations[:emitted] {
 		fmt.Fprintf(b, "    - relation_scope=`%s`; direction_a=`%s`", relation.scope, relation.directionA)
 		if relation.directionB != "" {
@@ -514,63 +493,26 @@ func traceDecisionWriteRepairDirectionPresentationPlan(b *strings.Builder, proje
 	if b == nil {
 		return
 	}
-	type directionPlan struct {
-		direction string
-		key       string
-		value     string
-		leader    types.TraceCausalProjectionNode
-		members   []types.TraceCausalProjectionNode
-	}
-	byDirection := map[string]directionPlan{}
-	for _, node := range traceDecisionEliminableSeats(projection, 0) {
-		key, value, ok := traceDecisionModelFacingDirection(node)
-		direction := strings.TrimSpace(node.FixDirection)
-		if !ok || direction == "" {
-			continue
-		}
-		plan := byDirection[direction]
-		plan.direction, plan.key, plan.value = direction, key, value
-		plan.members = append(plan.members, node)
-		if plan.leader.Rank == 0 || node.EffectiveImpactMS > plan.leader.EffectiveImpactMS ||
-			(node.EffectiveImpactMS == plan.leader.EffectiveImpactMS && node.Rank < plan.leader.Rank) {
-			plan.leader = node
-		}
-		byDirection[direction] = plan
-	}
-	if len(byDirection) == 0 {
+	plans := traceRankDisplayDirectionGroups(projection, traceDecisionEliminableSeats(projection, 0))
+	if len(plans) == 0 {
 		return
 	}
-	sections := map[string]types.TraceAnswerDirectionSection{}
-	for _, section := range tool.TraceAnswerDecisionDirectionSections(projection) {
-		sections[strings.TrimSpace(section.Direction)] = section
-	}
-	plans := make([]directionPlan, 0, len(byDirection))
-	for _, plan := range byDirection {
-		sort.SliceStable(plan.members, func(i, j int) bool {
-			if plan.members[i].Rank != plan.members[j].Rank {
-				return plan.members[i].Rank < plan.members[j].Rank
-			}
-			return plan.members[i].EffectiveImpactMS > plan.members[j].EffectiveImpactMS
-		})
-		plans = append(plans, plan)
-	}
-	sort.SliceStable(plans, func(i, j int) bool {
-		if plans[i].leader.EffectiveImpactMS != plans[j].leader.EffectiveImpactMS {
-			return plans[i].leader.EffectiveImpactMS > plans[j].leader.EffectiveImpactMS
-		}
-		return plans[i].direction < plans[j].direction
-	})
+	sections := tool.TraceAnswerDecisionDirectionSections(projection)
 	total := len(plans)
 	emitted := total
 	if directionLimit > 0 && emitted > directionLimit {
 		emitted = directionLimit
 	}
 	fmt.Fprintf(b, "  - repair_direction_presentation_plan: artifact=`%s`; emitted=%d; total=%d; complete=`%t`; source=`same_typed_direction_sections_and_ranked_seats`; metadata_not_user_copy=true.\n",
-		artifact, emitted, total, emitted == total)
+		traceDecisionPromptScalar(artifact), emitted, total, emitted == total)
 	for _, plan := range plans[:emitted] {
-		section, sectionOK := sections[plan.direction]
-		headline := plan.leader
+		headline := traceRankDirectionGroupLeader(plan)
+		key, value, _ := traceDecisionModelFacingDirection(headline)
+		section, sectionOK := traceRankDisplayDirectionSection(projection, sections, headline)
 		headlineRole := "single_leader"
+		if !plan.identity.Complete {
+			headlineRole = "individual_seat"
+		}
 		headlineValue := headline.EffectiveImpactMS
 		var headlineRefs []string
 		if ref := types.TraceAnswerRelationMemberRef(headline); ref != "" {
@@ -603,10 +545,12 @@ func traceDecisionWriteRepairDirectionPresentationPlan(b *strings.Builder, proje
 		if memberLimit > 0 && additionalEmitted > memberLimit {
 			additionalEmitted = memberLimit
 		}
-		fmt.Fprintf(b, "    - direction=`%s`; %s=`%s`; member_count=%d; headline_value_role=`%s`; headline_value=%.3fms; headline_member_refs=`%s`; additional_unresolved_member_refs=`%s`; additional_members_emitted=%d; additional_members_total=%d; additional_members_complete=`%t`; members_without_stable_ref=%d; display_contract=`headline_arithmetic_applies_only_to_headline_member_refs|list_additional_members_as_separate_values|never_plus_join_additional_members|pairwise_relation_unresolved_unless_relation_roster_lists_it|independence_not_authorized`.\n",
-			plan.direction, plan.key, plan.value, len(plan.members), headlineRole, headlineValue,
+		fmt.Fprintf(b, "    - direction=`%s`; %s=`%s`; member_count=%d; headline_value_role=`%s`; headline_value=%.3fms; headline_member_refs=`%s`; additional_unresolved_member_refs=`%s`; additional_members_emitted=%d; additional_members_total=%d; additional_members_complete=`%t`; members_without_stable_ref=%d; display_contract=`headline_arithmetic_applies_only_to_headline_member_refs|list_additional_members_as_separate_values|never_plus_join_additional_members|pairwise_relation_unresolved_unless_relation_roster_lists_it|independence_not_authorized`",
+			traceDecisionPromptScalar(plan.direction), key, traceDecisionPromptScalar(value), len(plan.members), headlineRole, headlineValue,
 			strings.Join(headlineRefs, ","), strings.Join(additionalRefs[:additionalEmitted], ","),
 			additionalEmitted, additionalTotal, additionalEmitted == additionalTotal, membersWithoutRef)
+		traceRankWriteDirectionDomain(b, plan.identity)
+		b.WriteString(".\n")
 	}
 }
 
