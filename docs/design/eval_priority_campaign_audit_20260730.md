@@ -57380,6 +57380,25 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1655 r1032：异构读写两路收账；不把评分通过扩大为未执行能力（2026-09-07）
+
+`43cbded5e0ef`干净构建于09:42:24Z，02:42:42严格并行2例，无第三路；runner两例均PASS。原始机器表及完整人审：`eval/parallel_selected_summary_evalcampaign_java_read_python_write_r1032_20260907{,_manual_audit}.md`。保持read15步/write24步、1200s预算，不为了机器结果修改oracle或模型正文。
+
+| 用例 | 机器 / 人工 | 关键正证与边界 |
+|---|---|---|
+| sr_java_annotation_route | PASS 217s / 核心三问pass | StatsHandler、注册先注入后入表、Field.set赋值正确，成文1轮/零拒绝，未要求图所以无图合法。25次read/8次complete/10次中途指导有结构补报成本，29%上下文；未证明预算不足。单例/所有字段措辞与声明锚引用属表达精度观察，不自动改写 |
+| github_issue_dateutil_relativedelta_float_symptom | PASS 142s / 修复与交付pass | 持久df8d7fa43仅改实现+10/-2，years/months两路处理正确，原测试字节不变；同plan正式post_apply报告通过。实际只跑1个行为probe覆盖5项，项目suite明示跳过，不能称为原生unittest或逐项目断言映射正控。人工独立跑原4测试绿，仅作为补验 |
+
+排除两个可疑但不应误立P1的点：Java声明行先被call normalizer写出`Router.register calls register`日志，但在缓存/发射前已由`stabilizeUnprovenCallAnchorAuthority`清空关系并降为普通文本引用，最终23条typed关系无该伪边，最终正文也未声称自调用；不是可借用的图边权威泄漏。分析器axis=call首轮缺endpoint载体按已教schema正确要求补空数组，非call关系的兼容默认不适用，不是必带必拒自冲突。
+
+Python原suite跳过也不能从“保留回归测试”反推新硬执行合同：本轮required/changed-source由精确行为probe覆盖，无累计失败/相关测试改动等续跑前提，report与最终系统卡如实标1测试、自然语言清单不代表逐项执行证明。模型过程一度把7项仅供规划清单说成已满足，准确入模上下文已在，列模型质量观察；不得回填正式report或扫原文改调度。原4测试独立补验日志`20260907-r1032-dateutil-independent-unittest.log`；这轮不能替代原计划中的project_test_observations正控。
+
+新确认B1599 / P2：初始probe缺读AuditLog后追加ForcedReadCoverage，兄弟/后续子题已成功完整read，最终仍发布“建议文件未读”。实际见证在主日志1465附近的初始缺口与2502/2635、2695/2828、3839/3883后读，持久read snapshot `trace-1788774172699099000.json`及最终`20260907-024616.641-42904.md`。实现点`emit_investigation_complete.go:4713..4718`只有单向追加lane级标志、无源身份；`termination_disclosure.go:80`直接按旧标志发警示。后续小批优先携带同仓/同文件/范围pending身份，再由真实coverage逐项消解，unknown旧状态诚实保留；禁止任意新read全局清空、禁止把建议升级必读硬门或修改模型结论。验收需先红后绿跨子题已补读正臂、另一文件仍缺/部分范围/同名异仓/读失败/陈腐dispatch反臂及模型文档不变。
+
+其余队列不遗漏：B1598 P2（等待字段本地化/事件检索计数与返回三层说明）已有精确消费点与测试设计；显示MergedCount全成员raw测量凭证P2保留；B1561 C/C++原生assertion receipt P1仍属能力设计；B1586c是read多主题逐任务绑定/重复调查债，**不是**本轮Python probe跳过suite问题，不串账。通用测试卡区分行为检查与项目suite、分析Required总表与详细schema共源列P2教学显示审计，不能为几句话另造硬合同或覆盖模型答案。声明伪调用已由既有B255-CALLANCHORAUTH1 §123.239拒绝，不重开P1。
+
+本批交付已推送：B1595 `aa2e7c4d6`（默认预算透过真实显示包装到实际流式/fallback叶子）；B1596/B1597 `43cbded5e`（原始占时/价格分尺与链上/邻近/背景榜域）。后三包完整回归退出0，tool292.441s/orchestrator16.703s/types32.129s；干净make通过。本对没有Trace附件及单次超过4分钟活跃流，因此不拿本对PASS冒称这些能力live覆盖；原r1031、真实Trace回归及活跃流缩时/race正负针分别保留。工作继续遵守模型正文所有权、无用户/模型原文关键词硬门、链上根因与背景隔离。
+
 ### §123.1654 r1031收账与活跃流/两轴/榜域后续（2026-09-07）
 
 B1592已提交推送`e93028b28`。同一干净源码`e93028b287a4`构建于09:07:57Z，r1031两路同时开始、零第三路；机器0/2原判保留，日志/最终正文/输入上下文/投影/旁路与原事件人工审计见`eval/parallel_selected_summary_evalcampaign_trace_explicit_status_r1031_20260907{,_manual_audit}.md`。不改oracle或模型正文求绿。
@@ -57413,6 +57432,8 @@ B1597代表时间窗的原候选池保留所有通道，仅“链上项目”表
 两者均只修系统已拥有的事实显示，不改模型原始正文、原因果证据或根因计算。测试同时钉投影/ledger/模型文档不变；原测试只补其所声称的raw测量或on_chain前提，unknown折叠新增独立负臂，真实原始semantic族保记录统计正臂，不删或放松未知、合并次数、上限断言。
 
 先红留痕：`20260907-b1596-red.log`、`20260907-b1597-red-final-fixture.log`、`20260907-b1597-representative-red.log`。定向绿：占时4.358s、占时新针count=3为2.180s、事实并置广族1.088s、代表窗count=3为1.423s。最终生产冻结后的`go test ./internal/tool ./internal/orchestrator ./internal/types -count=1`退出0：292.441s/16.703s/32.129s（`20260907-b1596-b1597-full-packages.log`）；本批不挪用之前B1592全仓或B1595套件结果。显示共同边界作为一个独立提交收住，干净构建后的r1032另行审计，不能将单元正针声称为新版live通过。
+
+B1596/B1597已提交推送`43cbded5e`。B1598只读复核已定最小方案、尚未施工：仅翻译系统自有逐段等待显示，D状态不可机械复用D+IO合并量词源；iowait=0/1/unknown分别说内核IO等待标记未标记/已标记/未提供，不把0说成已排除IO等待。caller符号逐字保留，只说明内核调用点，不升格资源对象；CanonicalLine兼有指纹/一致性消费，禁止为翻译修改。事件检索需区分匹配统计完成、引擎返回条数、报告再次裁剪的展示条数三个量，1639/40/2不得并成一个完整性标志；旧JSON和Compactions权限不改。验收应覆盖D/IO/S+IO/未知标记双语真实附注、统计完成但返回截断/全返/零匹配/未知、报告二次裁剪及原文/数值/CanonicalLine不变。已定位入口为`answer_document_mutation_runtime_wait_coverage.go`、`trace_query.go`与`tracediag/render.go`，后续共用读者口径说明，不增加模型必填字段或正文硬门。
 
 ### §123.1653 r1030：机器通过不等于答案正确；三项跨语言合同缺口（2026-09-07）
 
