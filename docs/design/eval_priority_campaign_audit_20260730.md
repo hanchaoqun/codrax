@@ -57380,6 +57380,12 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1674 B1607a 全仓计数清册补齐（2026-09-07）
+
+6a17d2f42冻结后的全仓首次退出1，唯一失败包internal/tool（300.557s），两红均为补采披露精确计数旧pin：新状态库存引入1条set+4条occurrence，原57增至62，但旧测试仍期望57。其余包通过，包括Trace、tracediag、agent、context、ground、repomap等。不是删除旧pin或把值改回57：逐条核验真实SystemTraceSupplementResults，新增5条支持状态记录；补采只读family计数把两个新predicate归状态，不归根因/链。ZH/EN完整/部分补采四个exact预期同步为62（根因12、链9、状态11、其他30），新增实际记录组成断言。旧D/IO-only合同和补采触发/预算不变，模型caveat逐字保留针仍在。
+
+最终定向通过1.296s（20260907-b1607a-supplement-family-green-final.log）；初次完整红日志保留20260907-b1607a-b1613-full-suite.log。当前r1035始终使用修改前已提交的6a17d2f42干净二进制快照，不把此小修或后续教学变更冒充已回放。B1613窄race也通过2.503s（20260907-b1613-race.log）。后续源码批冻结后重新全仓验收；本段不宣称首轮全仓绿。
+
 ### §123.1673 B1613 符号身份与位置修复共同边界（2026-09-07）
 
 真实 emit_answer_symbol 首红证实：只有 B.Run:20 的 grounded candidate 时，模型选择 A.Run:60 被悄悄替换成 B.Run:20；仅修候选表不足，通用ground成功臂还会在未读/已读/精确parser三种形态把A.Run定位到B.Run的声明行。该问题不是模型输出措辞波动，而是把同名末段当成限定身份，再把系统匹配结果写回模型Name。两次有效红日志为20260907-qualified-owner-red.log / 20260907-b1613-ground-escape-red.log。
