@@ -57380,6 +57380,27 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1649 r1028人工收账与B1587阶段指引冲突（2026-09-06）
+
+源码冻结`d67e3b2c94cb`，B1586a已推送`4fc28deed`，B1586b test-only已推送`d67e3b2c9`。干净make成功；此快照`go test ./... -count=1`退出0、86测试包通过，无FAIL/panic（`20260906-b1586-full-suite.log`，agent66.949s/tool287.209s/tracequery99.563s）。不将此全绿覆盖后续B1587源码。r1028严格两路并行，原结果保留`machine=1/2`，没有改oracle或旧答案求绿。
+
+| 用例 | 机器 / 人工 | 过程与范围 |
+|---|---|---|
+| ArkTS repomap | FAIL / 六条主体通过，正文有瑕疵 | 299s；4 Entry+2 Builder、路径及引用全对，BuilderParam/仅Component/EntryAbility未混入。oracle按含两类的标题将整表6行算成Builder；这是分组误报，不是答案多出4个Builder。模型原文`source_class=thirdparty`泄漏及“全部顶层”误称成员方法，保留质量观察 |
+| C X-macro | PASS / 主体通过，引用绑定不全 | 128s；五命令/handler/arity及两次展开（声明、表初始化）正确，未将宏声明当runtime call。21条引用中11条机制引用无正文item绑定，按原规则清理；教学本已正确，不是系统删除结论或JSON自冲突。未要求图，零图不算缺失 |
+
+人工日志/答案核验见`eval/parallel_selected_summary_evalcampaign_arkts_cmacro_r1028_20260906_manual_audit.md`。两例均一次finalizer、零成文拒绝/patch；不是靠增加重试收绿。C第二探索读取完整源码有实际依据：前阶段交接的read摘要已裁短，不能仅按重复文件名判无效重复。C首次completion缺support_refs被DOWNGRADED后补齐，未计入reject指标是既有B777的新见证。
+
+**B1587-STAGEREFINEMENTCONFLICT1 / P1 / 确定性系统冲突**：ArkTS all.log约625–649行，repo_map拒绝roles=[file]，Summary与typed PreferredParams共同教`list_files recursive=true`；模型照做，analyzer精确浅扫边界又拒绝。这不是模型波动。根为repomap file-role修复建议没有消费已有PipelineStage/ActiveAgent，而非analyzer门错误；静态roles schema也无条件推荐递归。
+
+最小施工：文件发现建议的说明/Repair/Refinement从同一阶段适配源生成，分类阶段只推荐浅扫与后续探索移交；普通探索保留递归。已有typed semantic roles优先回到repo_map，不能猜用户意图来填role。schema说明与实际阶段权限一致，建议不是权限凭证；不改runtime gate、不新加模型字段、不扫描原文、不修改答案。真实BaseAgent.executeTool拒绝→读取推荐参数→再次执行先红后绿；同时钉探索递归、分类旧递归拒绝、terminal emit-only、未知上下文/角色分支。当前施工中，完成后独立记测试与提交，不拿r1028机器误报当该冲突修复正证。
+
+B1587实现收账：`repoMapSourceInventoryPathDiscoveryRecommendation`只消费已有阶段/agent类型，为三种反馈共源生成路径与递归建议；静态schema明确分类浅扫/探索递归。现成semantic roles路径不变，不引入全工具policy框架或新模型字段。工具实际Execute覆盖分析stage-only/agent-only、探索、nil/unknown、先拒绝不建索引；共享反馈先红日志`b1587-file-role-stage-red.log`，新旧回归count=3绿0.940s。
+
+独立真实BaseAgent.executeTool→ToolBusContext→RepoMap→读取PreferredParams→BaseAgent.executeTool(ListFiles)先红：分类被自己的推荐recursive=true硬拒；修后真实浅扫可执行且不扫nested，探索保留nested递归。随后终结模式仍拒同一建议，原分类recursive=true门仍拒。`20260906-b1587-dispatch-{red,green}.log`保存证据，真实入口及旧schema/guard族count=3绿1.017s；两个受影响完整包通过（`20260906-b1587-affected-full.log`）。非本批重新回放ArkTS的成功宣称，实际新批轮换另记。
+
+其他残余分开排队：B1586c重复materialization在本批三次completion再现，但4+2均幸存；B1586a共享交接确实保留@Component+@Entry。另一Principal Enumeration Rows仍按首标记@Component分组，且analyzer角色仅function/method使Entry类型进audit，属于多标记请求/成员范围的后续复核项，不能靠全局ready跳过独立主题或硬改model分类。评测合并表分组问题单列oracle审计债，不本批修改。下一批仍按r1029具体窗Trace+跨仓TS写轮换，不围绕ArkTS重跑至绿。
+
 ### §123.1648 B1586实施与异构回放安排（2026-09-06）
 
 起点`fb6e77095`，fetch后main与origin/main为0/0，工作区干净。接§123.1647，先修确定性上下文缺失，不把r1027最终答案正确当成过程已闭环。

@@ -174,7 +174,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
         "x-codrax-enum-style-alias": true
       },
       "x-codrax-split-string-array": true,
-      "description": "For source_inventory view: semantic candidate roles to list. Do not use file as the only primary role; file-path or file-family discovery belongs to list_files with recursive=true plus include/file_type filters. Use file only with attribute_roles for bounded file-local member expansion, or alongside semantic roles such as config_file when the file itself is a typed source-inventory member. Omit to use the current typed request roles."
+      "description": "For source_inventory view: semantic candidate roles to list. Do not use file as the only primary role; file-path or file-family discovery belongs to list_files with include/file_type filters when that tool is available. During classification use recursive=false; recursive=true is for exploration. Use file only with attribute_roles for bounded file-local member expansion, or alongside semantic roles such as config_file when the file itself is a typed source-inventory member. Omit to use the current typed request roles."
     },
     "attribute_roles": {
       "type": "array",
@@ -1014,7 +1014,8 @@ func repoMapSourceInventoryParamPreflight(ctx *ctypes.BusContext, p repoMapParam
 	if roles := repoMapSourceInventoryPreferredSemanticRoles(ctx, p); len(roles) > 0 {
 		return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. Re-issue source_inventory with the already-typed semantic roles [\"" + strings.Join(sourceInventoryRoleNames(roles), "\",\"") + "\"] and keep requested file/location data as row fields; do not infer repository absence from this refusal. Use list_files only for a later file-path/file-family discovery dispatch when that tool is available.", false
 	}
-	return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. Use `list_files` with recursive=true plus include/file_type filters for file-path or file-family discovery; use source_inventory with semantic roles such as " + sourceInventoryLensSemanticRoleProse() + " when you need a member/count checklist.", false
+	guidance, _ := repoMapSourceInventoryPathDiscoveryRecommendation(ctx, p)
+	return "repo_map refused: source_inventory with roles=[\"file\"] as the only primary role is a path-discovery request, not a semantic source-inventory lens. " + guidance + " Use source_inventory with semantic roles such as " + sourceInventoryLensSemanticRoleProse() + " when you need a member/count checklist.", false
 }
 
 func repoMapSourceInventoryPreferredSemanticRoles(ctx *ctypes.BusContext, p repoMapParams) []ctypes.AnswerCandidateRole {
@@ -1049,7 +1050,8 @@ func sourceInventoryRoleNames(roles []ctypes.AnswerCandidateRole) []string {
 func repoMapSourceInventoryFileRoleRepair(ctx *ctypes.BusContext, p repoMapParams) *ctypes.ToolRepair {
 	roles := repoMapSourceInventoryPreferredSemanticRoles(ctx, p)
 	preferredNextTool := "list_files"
-	hint := "source_inventory roles=[\"file\"] is file-path discovery; use list_files for path families, or source_inventory with semantic member roles for declaration/member inventories."
+	guidance, _ := repoMapSourceInventoryPathDiscoveryRecommendation(ctx, p)
+	hint := "source_inventory roles=[\"file\"] is file-path discovery. " + guidance + " Use source_inventory with semantic member roles for declaration/member inventories."
 	metadata := map[string]string{
 		"view":                    string(p.View),
 		"preferred_next_tool":     preferredNextTool,
@@ -1099,10 +1101,7 @@ func repoMapSourceInventoryFileRoleRefinement(ctx *ctypes.BusContext, p repoMapP
 		}
 		return &refinement
 	}
-	params := map[string]string{
-		"path":      firstNonEmptyRepoMapPath(p.Path, "."),
-		"recursive": "true",
-	}
+	_, params := repoMapSourceInventoryPathDiscoveryRecommendation(ctx, p)
 	refinement := ctypes.NormalizeToolRefinementHint(ctypes.ToolRefinementHint{
 		ReasonCode:        "source_inventory_file_role_path_discovery",
 		PreferredNextTool: "list_files",
@@ -1116,6 +1115,23 @@ func repoMapSourceInventoryFileRoleRefinement(ctx *ctypes.BusContext, p repoMapP
 		return nil
 	}
 	return &refinement
+}
+
+// Keep refusal prose, typed repair, and preferred parameters on one producer-
+// stage policy. This is guidance only: the agent's existing pre-scan gate still
+// owns execution permissions. Missing stage information retains the ordinary
+// discovery recommendation rather than inventing a classification restriction.
+func repoMapSourceInventoryPathDiscoveryRecommendation(ctx *ctypes.BusContext, p repoMapParams) (string, map[string]string) {
+	recursive := "true"
+	guidance := "Use list_files with recursive=true plus include/file_type filters for file-path or file-family discovery when that tool is available."
+	if ctx != nil && (ctx.PipelineStage == ctypes.StageAnalyze || ctx.ActiveAgent == ctypes.AgentAnalyzer) {
+		recursive = "false"
+		guidance = "For classification, use list_files with recursive=false plus include/file_type filters only for shallow path discovery when that tool is available; defer recursive file-family enumeration to exploration."
+	}
+	return guidance, map[string]string{
+		"path":      firstNonEmptyRepoMapPath(p.Path, "."),
+		"recursive": recursive,
+	}
 }
 
 func firstNonEmptyRepoMapPath(values ...string) string {
