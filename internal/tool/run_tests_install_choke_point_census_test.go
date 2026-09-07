@@ -20,7 +20,8 @@ import (
 // data flow:
 //   - every call of installRunTestsReport in the package's non-test files
 //     is lexically inside the FuncLit bound to `installFinishedReport`, and
-//     that FuncLit returns `base + renderRunTestsWorktreeAuditSummary(report)`
+//     that FuncLit returns base plus the worktree-audit and probe-granularity
+//     summaries, each exactly once and from the same installed report
 //     (the bound identifiers, not a text match); every OTHER reference to
 //     the identifier — an alias binding, a function value passed around, a
 //     parenthesised callee outside the choke point — is red (fold-in round
@@ -38,6 +39,10 @@ import (
 //     body must be fed by the choke point; and a returned helper call that
 //     receives the bound summary is followed by data flow — the helper's
 //     returned ToolResult Summary must be the parameter that received it.
+//
+// EVOLUTION RECORD (B1575): the new execution-granularity display is the one
+// explicitly admitted third addend. The audit addend and report-to-Summary
+// data flow remain mandatory; arbitrary extra expressions are still rejected.
 
 type installChokePointFinding struct {
 	pos  string
@@ -92,12 +97,24 @@ func isToolResultType(expr ast.Expr) bool {
 	return ok && pkg.Name == "types" && sel.Sel.Name == "ToolResult"
 }
 
+// chokePointSummaryTerms flattens addition and grouping only. The caller checks
+// every leaf against the closed summary composition, not arbitrary expressions.
+func chokePointSummaryTerms(expr ast.Expr) []ast.Expr {
+	if paren, ok := expr.(*ast.ParenExpr); ok {
+		return chokePointSummaryTerms(paren.X)
+	}
+	if bin, ok := expr.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
+		return append(chokePointSummaryTerms(bin.X), chokePointSummaryTerms(bin.Y)...)
+	}
+	return []ast.Expr{expr}
+}
+
 // installChokePointCensus analyses the given files as one package.
 func installChokePointCensus(fset *token.FileSet, files []*ast.File, result *installChokePointResult) {
 	// Pass 1: locate every FuncLit bound to `installFinishedReport` and
 	// check its body: exactly one installRunTestsReport call and a return
-	// of `base + renderRunTestsWorktreeAuditSummary(report)` where base and
-	// report are its parameters.
+	// of base + audit(report) + granularity(report), with a closed helper
+	// roster and each report/base identifier bound to its parameters.
 	chokeRanges := map[*ast.FuncLit]bool{}
 	for _, file := range files {
 		ast.Inspect(file, func(n ast.Node) bool {
@@ -127,8 +144,13 @@ func installChokePointCensus(fset *token.FileSet, files []*ast.File, result *ins
 				return true
 			}
 			reportParam, baseParam := params[0], params[1]
-			returns := 0
+			returns, installs := 0, 0
 			ast.Inspect(lit.Body, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					if _, isInstall := isCallTo(call, "installRunTestsReport"); isInstall {
+						installs++
+					}
+				}
 				ret, ok := n.(*ast.ReturnStmt)
 				if !ok {
 					return true
@@ -138,24 +160,34 @@ func installChokePointCensus(fset *token.FileSet, files []*ast.File, result *ins
 					result.violate(fset, ret, "the choke point returns exactly one summary")
 					return true
 				}
-				bin, ok := ret.Results[0].(*ast.BinaryExpr)
-				if !ok || bin.Op != token.ADD {
-					result.violate(fset, ret, "the choke point must return base + renderRunTestsWorktreeAuditSummary(report)")
+				const expectedComposition = "the choke point must return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)"
+				terms := chokePointSummaryTerms(ret.Results[0])
+				if len(terms) != 3 {
+					result.violate(fset, ret, expectedComposition)
 					return true
 				}
-				left, ok := bin.X.(*ast.Ident)
-				call, isRender := isCallTo(bin.Y, "renderRunTestsWorktreeAuditSummary")
-				if !ok || left.Name != baseParam || !isRender || len(call.Args) != 1 {
-					result.violate(fset, ret, "the choke point must return base + renderRunTestsWorktreeAuditSummary(report)")
+				left, ok := terms[0].(*ast.Ident)
+				if !ok || left.Name != baseParam {
+					result.violate(fset, ret, expectedComposition)
 					return true
 				}
-				if arg, ok := call.Args[0].(*ast.Ident); !ok || arg.Name != reportParam {
-					result.violate(fset, ret, "the audit sentence must be rendered from the installed report")
+				for i, helper := range []string{"renderRunTestsWorktreeAuditSummary", "renderRunTestsProbeGranularitySummary"} {
+					call, isRender := isCallTo(terms[i+1], helper)
+					if !isRender || len(call.Args) != 1 {
+						result.violate(fset, ret, expectedComposition)
+						continue
+					}
+					if arg, ok := call.Args[0].(*ast.Ident); !ok || arg.Name != reportParam {
+						result.violate(fset, ret, helper+" must be rendered from the installed report")
+					}
 				}
 				return true
 			})
 			if returns != 1 {
 				result.violate(fset, lit, "the choke point has exactly one return")
+			}
+			if installs != 1 {
+				result.violate(fset, lit, "the choke point must install exactly one report")
 			}
 			return true
 		})
@@ -578,12 +610,13 @@ import "github.com/hanchaoqun/codrax/internal/types"
 
 func installRunTestsReport(ctx *types.BusContext, report *types.ChangeReport, dryRunProbe bool) {}
 func renderRunTestsWorktreeAuditSummary(report *types.ChangeReport) string { return "" }
+func renderRunTestsProbeGranularitySummary(report *types.ChangeReport) string { return "" }
 `
 
 const chokePointDefinition = `
 	installFinishedReport := func(report *types.ChangeReport, base string) string {
 		installRunTestsReport(ctx, report, dryRunProbe)
-		return base + renderRunTestsWorktreeAuditSummary(report)
+		return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)
 	}
 `
 

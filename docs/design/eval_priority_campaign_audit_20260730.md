@@ -57407,6 +57407,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 实际 Python 动态调用与 AST-only 两种成功探针都保持原 admission，并得到同一诚实边界；失败、不可用、错误目标不能发射“通过”披露。原 ReasonCode、义务集合、covered/uncovered、原始 report bytes 与 B1572 同 ref 同报告/累计消债均有正负 pin，未新建任何 typed category 或模型 JSON 字段。四消费者真实入口先红后绿，三个相关包定向回归通过，types完整包41.872s通过；其余完整包仍运行，未提前声称全仓绿。
 
+完整回归后续结果：types41.872s、agent59.933s通过，tool298.514s只有旧统一出口AST pin失败；原pin严格要求两个加数，本批临时summary局部变量不符合该结构约束。已补最小出口重构：`base + 原工作树审计(report) + 新粒度披露(report)`，两种披露都经同一安装出口，原数据流/14出口守卫保留。守卫现在逐加数验证同一report，并有删除任一披露、错report、重复/未知加数、双/无安装的独立变异拒绝，常规及括号重组正例通过；不是删除tripwire或允许任意含audit的表达式。定向1.914s绿，完整tool复跑中。此前定向绿不等于完整包绿，失败与纠正都留账。
+
 本批关闭**披露缺失**，不声称新增了逐方法执行观测。跨语言 executor-owned per-ref receipts 仍为后续能力债，不能用模型自报 refs、源码词法扫描或本说明去铸造执行证据，也不把这句说明注入或替换模型最终答案。
 
 #### B1582：重复提交仍返回同一缺口的准确软反馈

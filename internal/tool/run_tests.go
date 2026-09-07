@@ -470,16 +470,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// carried them, only the summary used to drop them.
 	installFinishedReport := func(report *types.ChangeReport, base string) string {
 		installRunTestsReport(ctx, report, dryRunProbe)
-		summary := base + renderRunTestsWorktreeAuditSummary(report)
-		if report != nil {
-			for _, record := range report.VerificationConfidence {
-				if note := types.VerificationProbeExecutionGranularityNote(record); note != "" {
-					summary += "\n" + note
-					break // one boundary disclosure, not one per contract reference
-				}
-			}
-		}
-		return summary
+		return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)
 	}
 	// provisionalReport is the mid-loop changed-path ledger: same typed
 	// evidence, no worktree audit (see finishReportForPlan).
@@ -2091,6 +2082,19 @@ func plannerProbeAuthorityPlan(active *types.ChangePlan, probe types.Verificatio
 		copyPlan.CumulativeVerificationScope = &copyScope
 	}
 	return &copyPlan
+}
+
+// renderRunTestsProbeGranularitySummary is a pure display projection. All
+// installed-report exits compose it with, never instead of, the worktree audit.
+func renderRunTestsProbeGranularitySummary(report *types.ChangeReport) string {
+	if report != nil {
+		for _, record := range report.VerificationConfidence {
+			if note := types.VerificationProbeExecutionGranularityNote(record); note != "" {
+				return "\n" + note // one boundary disclosure, not one per reference
+			}
+		}
+	}
+	return ""
 }
 
 func renderPlannerVerificationProbeSummary(report *types.ChangeReport, surface types.TestSurface) string {
