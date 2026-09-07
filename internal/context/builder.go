@@ -943,7 +943,11 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Content: toolValue,
 		})
 	}
-	if mrAdvisory := formatMultiRepoActiveSetAdvisory(ac); mrAdvisory != "" {
+	mrAdvisory := formatWriteScopedRepositoryAdvisory(ac)
+	if mrAdvisory == "" {
+		mrAdvisory = formatMultiRepoActiveSetAdvisory(ac)
+	}
+	if mrAdvisory != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionMultiRepoActiveSet,
 			Content: mrAdvisory,
@@ -5883,6 +5887,23 @@ func formatExactResolutionHint(ac *types.AgentContext) string {
 		b.WriteString(" Read same-scope anchors first, then close the investigation with `emit_investigation_complete(result_kind=\"absence\", absence_justification=...)` instead of completing a positive substitute chain if the exact target remains absent.")
 	}
 	return b.String()
+}
+
+// A scoped write already runs inside its selected child repository (or that
+// repository's worktree). The retained topology snapshot is an identity, not a
+// path prefix to apply a second time. This is prompt-only path guidance; the
+// existing scope, tool, worktree and approval checks remain authoritative.
+func formatWriteScopedRepositoryAdvisory(ac *types.AgentContext) string {
+	if ac == nil || !ac.Mode.IsWrite() || ac.ActiveSubRepo == nil {
+		return ""
+	}
+	// Quote the exact topology path rather than normalizing its identity. Also
+	// escape backticks so unusual directory names cannot form Markdown fences.
+	selected := strings.ReplaceAll(fmt.Sprintf("%q", ac.ActiveSubRepo.RootRel), "`", `\u0060`)
+	return fmt.Sprintf("This write task is already inside the selected repository %s.\n"+
+		"File-system tool paths and proposed change paths are relative to the current repository root (or its isolated worktree), not the parent workspace.\n"+
+		"Use \".\" for this repository root; do not prepend the parent-workspace sub-repository path %s again.\n"+
+		"This path convention does not change the permitted repository or any approval requirements.", selected, selected)
 }
 
 // formatMultiRepoActiveSetAdvisory composes the L0 LLM advisory that

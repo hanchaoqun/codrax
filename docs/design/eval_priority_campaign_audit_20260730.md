@@ -57380,6 +57380,14 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1675 B1614 已选子仓的工作路径提示（2026-09-07）
+
+r1035 Python真实日志给出可复现的上下文缺口：系统已在configureWriteScopedMultiRepo选定bindings-py并正确切为child/worktree根，ActiveSubRepo也进入AgentContext；旧readmulti advisory却在write+ActiveSubRepo时直接跳过，缺替代说明，write_analyzer照问题里的bindings-py再次加前缀，repo_map失败，再两次list_files自纠。这不是权限门矛盾，也不是repo scope值丢失。
+
+仅在既有提示区增加typed已选child说明：当前任务已经在该仓/隔离工作树中，工具和拟议变更路径相对当前根，勿再次添加父工作区前缀。仅消费write mode和ActiveSubRepo；不从原问题推断、不改原请求、路径身份、路由、权限或approve门，不输出其它子仓，也不复用readmulti的prefixed-path合同。snapshot RootRel按原值转义显示，不能让异常目录名构造Markdown提示结构；不能把临时worktree误说成原RootAbs。
+
+真实BuildAgentContext→BuildPromptContext在write analyze/plan/explore × child/worktree先红后绿；三write mode、无snapshot、单仓、readmulti、无多仓清单但有明确snapshot、原始请求/身份字节及路径转义对照通过。完整context0.602s、定向count3 0.877s、race2.009s（20260907-b1614-context-full.log / b1614-green.log / b1614-race.log），独立复审通过。状态：`B1614=implemented/shared-soft-scope-prompt/package+race-pass/pending-replay`。r1035仍是修改前快照，不宣称该新提示已使真实重试下降。
+
 ### §123.1674 B1607a 全仓计数清册补齐（2026-09-07）
 
 6a17d2f42冻结后的全仓首次退出1，唯一失败包internal/tool（300.557s），两红均为补采披露精确计数旧pin：新状态库存引入1条set+4条occurrence，原57增至62，但旧测试仍期望57。其余包通过，包括Trace、tracediag、agent、context、ground、repomap等。不是删除旧pin或把值改回57：逐条核验真实SystemTraceSupplementResults，新增5条支持状态记录；补采只读family计数把两个新predicate归状态，不归根因/链。ZH/EN完整/部分补采四个exact预期同步为62（根因12、链9、状态11、其他30），新增实际记录组成断言。旧D/IO-only合同和补采触发/预算不变，模型caveat逐字保留针仍在。
