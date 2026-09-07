@@ -57388,7 +57388,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 4. 正反针包含展示标签新旧等价、缺/未知/背景 tier、另一维度/目标/查询窗、无工件/窗口、缺口、非有限/零值、模型来源/软凭证及宽事务包络。定向 count3：types0.462s/tool11.329s，日志 `20260907-b1602-final-count3.log`；最终生产四包全绿见§123.1659。独立交叉审查确认没有放宽根因资格或修改模型正文。该实现尚未以新二进制跑新 LLM 对，不回填 r1033 为修后成绩。
 5. 仍需保留的队列：全量 Binder 等待 census/critical twin 起点与时长口径审计，以及 C++成员 principal/supporting 域对齐；已有准确指导下的 S/传输/全部口径/pacing 误读暂列模型质量观察。下一批继续异构优先级轮换、每次并行2个，不因单题波动反复加硬门。精确窗投影、自动补齐、链上业务线索、原始占时与可消量双轴不变。
 
-状态：`B1602=implemented/real-producer-red-to-green/count3+affected-full-pass`；`measurement=target-self-lower-bound/not-root-seat`；`B1600=pushed-8d3583e67`；`B1601=pushed-5cfa69267`；`model-rewrite/prose-hardgate=none`；`fresh-live-replay=pending`。
+6. 本轮五个实现批均已推送 main：B1598=`5d364dfa9`、B1599=`8cba22b92`、B1601=`5cfa69267`、B1600=`8d3583e67`、B1602=`c28454879`。r1033机器2/2通过但人工Trace核心不通过的结论保持不变。最终构建将在此收账提交后执行，日志 `20260907-b1600-b1602-clean-build.log`，不以旧二进制接续新代码回放。
+
+状态：`B1602=pushed-c28454879/real-producer-red-to-green/count3+affected-full-pass`；`measurement=target-self-lower-bound/not-root-seat`；`B1600=pushed-8d3583e67`；`B1601=pushed-5cfa69267`；`model-rewrite/prose-hardgate=none`；`fresh-live-replay=pending`。
 
 ### §123.1659 B1600：自动补全不能制造第二个引用所有者（2026-09-07）
 
@@ -57414,7 +57416,7 @@ H1输入已经明确S不排除同步等待、传输与阻塞不同、容量下�
 
 不遗漏的后续项：C++principal/supporting成员域对齐P2待审（准确ConsoleSink/FileSink定义被放support，产生弱证据警示）；Binder critical twin起点为发送、值为睡眠阻塞，0.050ms口径差仍独立保留，正确extent门没有放松；全量Binder等待仍需完整观测，恢复下界不意味着现已统计所有事务。root-causes.json本轮已生成139B typed-unavailable，模型未补14个可选ID的selection，不是旁路漏写，系统不得从正文代填。
 
-状态：`r1033=machine-pass-2/2,human-cpp-core-pass+trace-core-fail`；`B1601=pushed-5cfa69267/agent-full-pass`；`B1600=pushed-8d3583e67/affected-full+race-pass`；`B1602=implemented/real-producer+count3+affected-full-pass`；`Trace-explicit-window/projection/two-axes/business-context=preserved`；`non-chain=root-ineligible`；`model-prose-hardgate/rewrite=none`。
+状态：`r1033=machine-pass-2/2,human-cpp-core-pass+trace-core-fail`；`B1601=pushed-5cfa69267/agent-full-pass`；`B1600=pushed-8d3583e67/affected-full+race-pass`；`B1602=pushed-c28454879/real-producer+count3+affected-full-pass`；`Trace-explicit-window/projection/two-axes/business-context=preserved`；`non-chain=root-ineligible`；`model-prose-hardgate/rewrite=none`。
 
 ### §123.1657 B1599：补读后的当前缺口与历史完成边界分离（2026-09-07）
 
