@@ -86,6 +86,23 @@ func ClaimFormsSupportingCitationRoleAlignment(forms []ClaimForm) []ClaimForm {
 	return out
 }
 
+// SelectedCitationRoleClaimForms distinguishes the model's selected claim
+// forms from the forms merely available in the answer view. A definition row
+// must not acquire an import/call assertion just because that alternative is
+// also permitted on the same block kind and facet. Preserve the existing emit
+// contract: view/facet forms are a legacy fallback only when claim_uses is
+// absent. This does not alter evidence matching or validate the selected form.
+func SelectedCitationRoleClaimForms(selected []RenderedClaimUse, available []ClaimForm) []ClaimForm {
+	if len(selected) > 0 {
+		forms := make([]ClaimForm, 0, len(selected))
+		for _, use := range selected {
+			forms = append(forms, use.ClaimForm)
+		}
+		return ClaimFormsSupportingCitationRoleAlignment(forms)
+	}
+	return ClaimFormsSupportingCitationRoleAlignment(available)
+}
+
 // EvidenceClaimRoleMentionedBySurface reports whether a visible
 // surface asserts ev's claim role strongly enough for a hard
 // citation-role alignment check. It consumes only typed evidence fields

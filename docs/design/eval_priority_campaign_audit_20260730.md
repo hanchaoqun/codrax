@@ -57380,6 +57380,15 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1663 B1606：提交与最终校验消费同一份模型声明（2026-09-07）
+
+1. r1033 C++ 两条 `answer_item_citation_role` 软警告真实复现，但不是首次提交硬拒：emit已正确只读取模型显式选择的definition_fact，最终校验却把视图可供选择的import_edge混入，借另一处include证据把定义引用当成错误关系引用。与B1600自动补双owner及B1604成员权限分别立案，不合并误报机制。
+2. 共享 `SelectedCitationRoleClaimForms` 保持原emit语义：有显式claim_uses只选其forms，无显式选择才用原view/facet兼容路径。原有证据匹配、显式relation与legacy箭头校验均不改，不能顺手扩大definition正文的硬拒范围。无新模型字段、关键词门或系统代写；文档、引用和证据原字节保留。
+3. 新针覆盖15种声明形、显式混合/无声明兼容、多question family与list/table/section载体。真实 `EmitAnswerDocument → 持久化 → AnswerSemanticView → 最终 runV2BlockOraclesWithOracleContext` 固定两个原错误警告消失，显式关系错引及无声明旧关系控制仍有效。首红 `20260907-b1606-red.log`；三包count3为types0.971s/tool1.314s/orchestrator2.282s；最终真实入口count3为1.077s。独立只读审查无阻断。
+4. orchestrator完整包17.424s通过；同期types全包因B1604施工中两条测试失败，不作为验收绿证。最终root定向三包count3为0.874s/0.970s/1.851s（`20260907-b1606-root-final-retry.log`）；前次被同期新测试字段编译错误中止，不记绿。所有生产与测试冻结后全仓另行启动。B1603/B1605已推送`7937cc22a`，不把它们的旧全包结果挪作B1604/B1606最终快照。
+
+状态：`B1606=implemented/real-entry-red-to-green/selected-claim-only`；`emit-hardgate-contract=preserved`；`post-false-advisory=corrected`；`model-document/relation/Trace-projection=unchanged`；`final-whole-repo=pending`。
+
 ### §123.1662 B1603/B1605：统一 Binder 等待区间与读者词面（2026-09-07）
 
 1. B1603生产先红成立：真实 `critical_blocking_calls` 单独查询时有1.409ms行，却因起点误用send导致下游墙钟测量栏无法接收。两个生产出口改共用 `binderWaitTargetWindow`，只用已携带且正有限有序的 SleepStartTs/WakeupTs；保持 DurationMs、Peer/PeerSource、flags、confidence与请求/接收的行定位不变。PeerState现在按同一真实等待区间下钻，发送前的50µs不再混进等待上下文。无闭合端点时保留原观测和时长，但不拿SendTs或DurationMs猜造跨度。

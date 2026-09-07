@@ -1854,9 +1854,6 @@ func answerBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemanti
 		return nil
 	}
 	var forms []types.ClaimForm
-	for _, cu := range b.ClaimUses {
-		forms = append(forms, cu.ClaimForm)
-	}
 	if view != nil {
 		for _, req := range append(append([]types.BlockRequirement(nil), view.RequiredBlocks...), view.OptionalBlocks...) {
 			if !req.AcceptsKind(b.Kind) || len(req.AcceptableClaimForms) == 0 {
@@ -1875,7 +1872,7 @@ func answerBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemanti
 		answerBlockHasFacet(b, types.FacetCurrentCodePath) {
 		forms = append(forms, types.ClaimCallEdge)
 	}
-	return types.ClaimFormsSupportingCitationRoleAlignment(forms)
+	return types.SelectedCitationRoleClaimForms(b.ClaimUses, forms)
 }
 
 func answerBlockHasFacet(b types.AnswerBlock, facet types.AnswerFacetKind) bool {

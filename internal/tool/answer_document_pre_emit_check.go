@@ -12684,12 +12684,6 @@ func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemant
 		return nil
 	}
 	var forms []types.ClaimForm
-	for _, cu := range b.ClaimUses {
-		forms = append(forms, cu.ClaimForm)
-	}
-	if len(forms) > 0 {
-		return types.ClaimFormsSupportingCitationRoleAlignment(forms)
-	}
 	if view != nil {
 		for _, req := range append(append([]types.BlockRequirement(nil), view.RequiredBlocks...), view.OptionalBlocks...) {
 			if !req.AcceptsKind(b.Kind) || len(req.AcceptableClaimForms) == 0 {
@@ -12708,7 +12702,7 @@ func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemant
 		containsBlockFacet(b, types.FacetCurrentCodePath) {
 		forms = append(forms, types.ClaimCallEdge)
 	}
-	return types.ClaimFormsSupportingCitationRoleAlignment(forms)
+	return types.SelectedCitationRoleClaimForms(b.ClaimUses, forms)
 }
 
 func preEmitItemMatchesSourceLocationPrincipalMember(ctx *types.BusContext, item types.AnswerBlockItem, cit types.Citation) bool {
