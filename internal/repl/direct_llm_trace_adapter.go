@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -35,6 +36,13 @@ type directLLMTraceAdapter struct {
 }
 
 func (a *directLLMTraceAdapter) Chat(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+	return a.ChatWithRequestBudget(ctx, messages, tools, opts, 0)
+}
+
+// ChatWithRequestBudget keeps presentation outside the budgeted leaf. A mixed
+// fallback stack must forward this policy to the provider actually entered;
+// treating this wrapper as a non-streaming provider would cancel active SSE.
+func (a *directLLMTraceAdapter) ChatWithRequestBudget(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions, timeout time.Duration) (llm.Response, error) {
 	if a == nil || a.inner == nil {
 		return llm.Response{}, nil
 	}
@@ -55,16 +63,50 @@ func (a *directLLMTraceAdapter) Chat(ctx context.Context, messages []llm.Message
 		})
 	}
 	stream := newDirectLLMStreamPreview(a.emit, a.agent, a.stage)
-	opts.OnContentDelta = chainStringCallback(opts.OnContentDelta, stream.onDeltaWithContext(ctx))
-	opts.OnReasoningDelta = chainStringCallback(opts.OnReasoningDelta, stream.onDeltaWithContext(ctx))
-	opts.OnToolCallDelta = chainToolCallCallback(opts.OnToolCallDelta, stream.onToolCallDeltaWithContext(ctx))
-	opts.OnRetry = chainRetryCallback(opts.OnRetry, a.emit, a.agent, a.stage)
-	opts.OnFallback = chainFallbackCallback(opts.OnFallback, a.emit, a.agent, a.stage)
-	resp, err := a.inner.Chat(ctx, messages, tools, opts)
+	// A bounded non-streaming leaf may ignore cancellation and return late.
+	// Its callbacks must not reopen an already finished preview. This context
+	// owns presentation lifetime only: it adds no deadline to the model call,
+	// and original caller callbacks remain outside the presentation guard.
+	previewCtx, cancelPreview := context.WithCancel(ctx)
+	defer cancelPreview()
+	var previewMu sync.Mutex
+	withPreview := func(fn func()) {
+		previewMu.Lock()
+		defer previewMu.Unlock()
+		if previewCtx.Err() == nil {
+			fn()
+		}
+	}
+	onDelta := func(delta string) { withPreview(func() { stream.onDelta(delta) }) }
+	onToolDelta := func(index int, name, args string) {
+		withPreview(func() { stream.onToolCallDelta(index, name, args) })
+	}
+	emitDuringRequest := func(event render.Event) {
+		withPreview(func() {
+			if a.emit != nil {
+				a.emit(event)
+			}
+		})
+	}
+	opts.OnContentDelta = chainStringCallback(opts.OnContentDelta, onDelta)
+	opts.OnReasoningDelta = chainStringCallback(opts.OnReasoningDelta, onDelta)
+	opts.OnToolCallDelta = chainToolCallCallback(opts.OnToolCallDelta, onToolDelta)
+	opts.OnRetry = chainRetryCallback(opts.OnRetry, emitDuringRequest, a.agent, a.stage)
+	opts.OnFallback = chainFallbackCallback(opts.OnFallback, emitDuringRequest, a.agent, a.stage)
+	resp, err := llm.ChatWithRequestBudget(ctx, a.inner, messages, tools, opts, timeout)
+	// Serialize final flush with any in-flight preview callback; all later UI
+	// callbacks observe the closed lifetime. Neither response nor error changes.
+	func() {
+		previewMu.Lock()
+		defer previewMu.Unlock()
+		cancelPreview()
+		if ctx.Err() == nil {
+			stream.flush()
+		}
+	}()
 	if ctx.Err() != nil {
 		return resp, err
 	}
-	stream.flush()
 	if a.emit != nil {
 		a.emit(render.Event{
 			Kind:              render.EventAgentResponse,
@@ -120,6 +162,23 @@ func (a *directLLMTraceAdapter) RetryMaxAttempts() int {
 		return 0
 	}
 	return a.inner.RetryMaxAttempts()
+}
+
+func (a *directLLMTraceAdapter) StreamingLivenessWatchdogEnabled() bool {
+	if a == nil || a.inner == nil {
+		return false
+	}
+	reporter, ok := a.inner.(llm.StreamingLivenessReporter)
+	return ok && reporter.StreamingLivenessWatchdogEnabled()
+}
+
+func (a *directLLMTraceAdapter) StreamFirstByteTimeout() time.Duration {
+	if a != nil && a.inner != nil {
+		if reporter, ok := a.inner.(llm.StreamFirstByteTimeoutReporter); ok {
+			return reporter.StreamFirstByteTimeout()
+		}
+	}
+	return 0
 }
 
 type directLLMStreamPreview struct {

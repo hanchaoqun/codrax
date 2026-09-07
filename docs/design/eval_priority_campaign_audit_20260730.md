@@ -57380,6 +57380,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1654 r1031收账与活跃流/两轴/榜域后续（2026-09-07）
+
+B1592已提交推送`e93028b28`。同一干净源码`e93028b287a4`构建于09:07:57Z，r1031两路同时开始、零第三路；机器0/2原判保留，日志/最终正文/输入上下文/投影/旁路与原事件人工审计见`eval/parallel_selected_summary_evalcampaign_trace_explicit_status_r1031_20260907{,_manual_audit}.md`。不改oracle或模型正文求绿。
+
+| 用例 | 机器 / 人审 | 正常能力 / 残余 |
+|---|---|---|
+| H2 D-state状态查询 | FAIL / partial；126s | 11段36.757ms及逐段明细、调用点非资源对象、非IO口径正确；有限问题零因果投影，系统window_stats补采有效。机器缺独立blocked_reason 12条/39.157ms与旧调用点词形，不等同D-state计算错。模型误称已归账231.794为总窗，正确入模已明确部分覆盖、未归账1.396，真实窗233.190；列模型质量观察 |
+| H8语义边前与唤醒链 | FAIL / partial；326s | 10ms投影1块、六名主榜、root-causes available/6、占时/可消除两轴和业务线索存在。§29.88.1/.2及§40.28最新裁定允许已证宿主边前.285计价，仍披露完成触发/帧因果未证；旧oracle要求退役词形属陈腐。模型局部正文说反两条唤醒边/把.105聚合包络说连续，准确有向上下文在场，不是系统改写 |
+
+| 批次 / 优先级 | 精确问题 / 通用方案 | 状态 |
+|---|---|---|
+| B1595 / P1 | 路由分类真实生产显示包装漏RequestBudgetAdapter，默认REPL10s/单次120s将活跃SSE当非流式整链截止；透传到实际fallback叶子并保存预览生命周期 | 已实施、根审与定向/完整repl+llm/race通过，随本条提交；主成文已有保护不改 |
+| B1596 / P1 | 系统实际占时表直接取ImpactMS；真实Network行Impact=Effective=5.950875，而raw runnable5.930/running.476。把5.951标“真实占时”串了两轴 | 已确证、独立施工；复用原始状态测量合同，价格/累计/跨窗实际量不兜底，不能让合法原始聚合或语义工作消失；不改排名算法 |
+| B1597 / P1 | 同工件/目标/窗/params内，representative table把全通道RankedSeats前三标“链上项目”；事实并置载体丢channel，邻近#1/#2被叫根因序号 | 已确证、独立施工；主榜窗口只以精确链上角色为界，事实并置保原全事实并标各自榜域；不新增正文门或推断用户意图 |
+| B1598 / P2 | H2系统附注d_sleep/caller/iowait词面；event_search enumeration_complete表示匹配全集计数完成，与40/1639返回不完整易混淆 | 留档，真正Compactions枚举权限已诚实incomplete，未见硬合同冲突；后续共享读者显示说明，不变旧JSON语义 |
+
+B1595真实接线先红`20260907-b1595-red.log`；主修后独立加迟到不合作非stream叶子，原UI能在预算返回后再发3条事件，单独红`20260907-b1595-late-preview-red.log`。修复同一个包装器入口，普通Chat仍同源透传零附加预算；每个非stream fallback叶子独立预算，stream叶子保真实字节存活，默认/显式预算分开。wrapper-local mutex和无新增deadline的preview生命周期仅串行系统UI事件与flush，原五类调用者回调、response/error不变，未增加模型内容/JSON扫描。
+
+最终`TestDirectLLMTrace* -count=3` 5.590s、race3.589s、完整repl46.390s/llm22.359s退出0（`20260907-b1595-{final-green,race,repl-llm-full}.log`），包含真实HTTP/SSE五路classifier入口、两向mixed fallback、stream失败后nonstream接手、每叶独立预算、explicit/parent取消、首字节/真正停滞、迟到回调和原响应不变。该验证是缩时机制针，不冒称单次超过4分钟客户live；r1031也没有单次超过4分钟调用正证。后续B1596/B1597不能挪用此包绿作为自身验收。
+
+下一对eval按用户价值、风险、覆盖新鲜度及成本排序：`sr_java_annotation_route`（上次08-11，反射注入/注册与请求期分开、接口无体）+`github_issue_dateutil_relativedelta_float_symptom`（Python真实unittest与逐义务凭证正控）。暂不涨预算，不围绕同一TS图或陈旧H8词形重复刷绿。B1561原生C/C++ assertion receipt仍P1设计债；B1586c需逐任务typed绑定，不以global ready硬跳过。Rust chrono现oracle为源码检查且本机无cargo/rustc，不用它假装原生Rust执行正控。
+
 ### §123.1653 r1030：机器通过不等于答案正确；三项跨语言合同缺口（2026-09-07）
 
 源码`6cb87aad9`干净构建、严格两路，机器1/2：TS读PASS 263s，C写FAIL 331s（正式verification_proof_incomplete）。完整日志、上下文、最终图/正文、durable diff及原生执行均人工审计，见`eval/parallel_selected_summary_evalcampaign_ts_read_libgit2_write_r1030_20260907{,_manual_audit}.md`。TS人审fail；C补丁人审pass而产品细粒度证明未闭合，不能把人工通过回填机器。
