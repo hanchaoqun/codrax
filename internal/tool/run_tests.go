@@ -470,7 +470,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// carried them, only the summary used to drop them.
 	installFinishedReport := func(report *types.ChangeReport, base string) string {
 		installRunTestsReport(ctx, report, dryRunProbe)
-		return base + renderRunTestsWorktreeAuditSummary(report)
+		summary := base + renderRunTestsWorktreeAuditSummary(report)
+		if report != nil {
+			for _, record := range report.VerificationConfidence {
+				if note := types.VerificationProbeExecutionGranularityNote(record); note != "" {
+					summary += "\n" + note
+					break // one boundary disclosure, not one per contract reference
+				}
+			}
+		}
+		return summary
 	}
 	// provisionalReport is the mid-loop changed-path ledger: same typed
 	// evidence, no worktree audit (see finishReportForPlan).

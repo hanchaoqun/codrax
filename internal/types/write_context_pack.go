@@ -2678,6 +2678,11 @@ func renderVerificationDiagnosticContext(diag VerificationDiagnostic) string {
 
 func renderVerificationConfidenceContext(conf VerificationConfidenceRecord) string {
 	parts := []string{}
+	if note := VerificationProbeExecutionGranularityNote(conf); note != "" {
+		// The existing per-item text budget can truncate long ref lists and
+		// details. Keep the execution boundary visible within that same budget.
+		parts = append(parts, note)
+	}
 	if conf.Category != "" {
 		parts = append(parts, "category="+conf.Category)
 	}

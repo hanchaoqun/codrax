@@ -2347,6 +2347,9 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 		if confidence.Source != "" {
 			parts = append(parts, "source="+confidence.Source)
 		}
+		if detail := types.VerificationConfidenceDisplayDetail(confidence); detail != "" {
+			parts = append(parts, "detail="+limitWriteControllerText(detail, 700))
+		}
 		fmt.Fprintf(&b, "- confidence: %s\n", strings.Join(parts, " "))
 	}
 	const maxRows = 10

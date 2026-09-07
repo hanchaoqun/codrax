@@ -906,7 +906,7 @@ func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(plan
 			Category:     strings.TrimSpace(rec.Category),
 			Severity:     strings.TrimSpace(rec.Severity),
 			ReasonCode:   strings.TrimSpace(rec.ReasonCode),
-			Detail:       strings.TrimSpace(rec.Detail),
+			Detail:       VerificationConfidenceDisplayDetail(rec),
 		}
 		add := func(item VerificationProofLedgerItem) {
 			if item.ID == "" {
