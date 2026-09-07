@@ -57380,6 +57380,26 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1640 r1024：回放收账及适用域/读取能力矛盾（2026-09-06）
+
+`snapshot=c55a5a51d / exactly-two-parallel / machine=1/2 / human=both-partial`。
+完整记录：`eval/parallel_selected_summary_evalcampaign_trace_multirepowrite_r1024_20260906{,_manual_audit}.md`。
+
+- H11 291s：模型正文、唯一因果投影、5711字节/5项available根因JSON齐全；B1571实为14/8/false，B1574两份交接四席=2+2，B1573最大单项/同向小计/未证联合收益教学真实入模且模型说明明显改善。业务占时线索保留，模型业务修向总结仍弱；通用表头、未明示分母的49.4%、独立候选等措辞保留为人工残余，不代写。
+- write 245s：sync/async实际补丁正确、只改授权client.py、原测试/API与只读兄弟仓干净。初计划无行为probe，3条补采probe全异常，没有可用同ref替代凭证；B1572正确保留未验证，不把无凭证的这次误作原因码回归。人工额外动态测试通过不回写产品报告。
+- 本轮发现两处真实合同自冲突，不能归为模型波动：纯Trace已明确排除源码却被要求源码operation ownership；proof-only上下文没有当前文件却禁用read_file并同时教学要求先读取。前者靠low-delta强行完成、后者靠模型猜路径，均不是闭环。
+
+| 优先级 / ID | 问题与泛化修向 | 状态 |
+|---|---|---|
+| P1 / B1576-RUNTIMEDIMENSIONSOURCEAPPLICABILITY1 | 源码ownership教学/completion与typed source-excluded不同域；共享既有源码适用域，保留runtime维度、角色及源码必需场景 | 确认/施工，禁止以attached trace或关键词一概豁免源码 |
+| P1 / B1578-PROOFFOLLOWUPREADCAPABILITY1 | 历史定位被当成当前已持有源码，proof补验从首轮禁读；复用系统授权与既有只读预算，schema/stop/result/提示同源 | 确认/施工，源码变更/risk/worktree权限不放松 |
+| P1 / B1579-ENRICHMENTCAPACITYCORRECTION1 | 满池提前跳过TurnA/Mutable同ID纠正；限新增身份而不跳过既有ID修正 | 真实关系入口先红/施工 |
+| P1 / B1577-CITATIONCENSUSBEFOREDISPLAY1 | callable12项显示cap先于唯一性，可能丢同尾owner反证 | 代码风险/执行否证中；完整身份判定后才裁显示 |
+| P1 / B1580-DYNAMICSELECTORCENSUS1 | 384core/128call前缀上做完整selector冲突判定，cap外不同candidate可能消失 | 待执行反例，未声称已复现；先完整同ID合并与冲突索引，按完整组裁剪 |
+| P1能力边界 / B1575-PROBECONTRACTEXECUTIONGRANULARITY1 | 整段probe通过+模块耦合不证明每个自报contract ref对应行为确实执行 | 已审计/方案待设计；先披露证明粒度，后续跨语言执行器逐ref凭证，不以模型自报或代码词法造权威 |
+
+前批完整 `go test ./... -count=1` 已通过（`.codrax/tmp/20260906-b1571-b1574-full-suite.log`），干净`make`与main推送完成。B1571/73/74有生产正证；B1572有真实入口先红后绿+原报告只读重投影，r1024为应拒负例。当前新批不在上述全仓结果内，须单独验证后收账。
+
 ### §123.1639 B1571–B1574：完整候选、同席引用与教学/验证一致性（2026-09-06）
 
 基线 `706fda809`，远程同步后无新增提交。本节接 §123.1638 的 r1023 四项确定性缺口；保持原问题、金额、链上资格、精确主窗、模型选择与答案所有权，不按模型正文关键词建立硬门。
