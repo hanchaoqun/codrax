@@ -57380,6 +57380,35 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1677 r1035 人工收账与 B1616 累计证明域排期（2026-09-07）
+
+严格两路使用已提交干净`6a17d2f42e5e`：H1机器PASS141s，Python跨仓apply机器FAIL，外层批次311s/子进程wall309s。机器1/2不代表人工1/2：两例人工均有实质残余。机器表和完整人工逐轮/上下文/交付审计已保存为`eval/parallel_selected_summary_evalcampaign_trace_sleep_python_write_r1035_20260907{,_manual_audit}.md`，不覆盖历史成绩、原答案或交付树。B1607a计数收尾及B1614/B1615未进入该快照，不冒称已生产验证。
+
+H1完整状态库存生产命中：65段S、union70.338ms、输出32/65、关联/闭合/因果未评估；正文、表格、Trace投影及必选root-causes JSON都在。JSON为空是模型未提交根因选择（schema2 typed unavailable），不是旁路丢失，也不授权系统代选。原链上算力58.320ms、IO12.658ms、反转7.405/4.710ms、调度3.956ms与运行157.248ms/业务线索并存；非链背景没有进入新库存的根因入口。本例补采入口检查后因families_present跳过engine，不能把它称真实补采再次命中。
+
+**B1607b仍为下一值通道P1**：原fixture五次同步Binder完整S→reply→wakeup等待为1.409/0.924/0.068/0.120/0.573ms，非重叠合计3.094ms（事务和五轴行号见manual）。当前系统只发布至少1.409ms；后四条sub-ms仍被可视因果链预算裁掉。完整状态账已修不等于完整Binder账已修，人工3.094ms只作开发真源见证，不能回灌旧答案或改原1.409下界。模型另把结果cap说成采集截断、将两段不同waker/不同pacing权限睡眠合并；前者B1615已修入模丢域、后者模型误述继续观察，不造prose门或补假链。
+
+Python真实持久树仅tokenizer.py +19行，原回归和其余子仓主HEAD未变；原生Python fallback两原测试全绿。独立原生三组2过1败：单LF被合并成[300]而非[10]，2..6LF、普通自合并、折叠后继续merge等通过。真实缺陷不能由源码regex或正式aggregate报告替代验收；模型已有below-activation/不覆盖原测试的通用教学，故不再追加LF专用硬门。主report passed但terminal unverified/非权威，系统未签绿；规划提议错误与累计证明域问题分别立账。
+
+#### B1616-CUMULATIVEPROOFSCOPE1（P1，确认，尚未施工）
+
+源码与真实两代plan/report/final.json交叉证明三载体不同步：旧plan `...25471` 的三个behavior_contract在正式合同载体已covered，impact和patch_review各三条仍unverified；旧plan属于新plan `...35725` 的CumulativeVerificationScope.SourcePlanIDs，retained TargetPaths=`fastlex/tokenizer.py`，三个正式合同typed内容完全相同。`verification_proof_profile.go:1168`起patch review投影仅EvidenceRef无ContractRef，`resolveVerificationProofLedgerObligations`只消解missing，且现coveredContracts以裸ref为key不带计划代次，不能简单扩到unverified。
+
+另有相反的过度承接风险：两代probe复用nl-collapse-probe ID但代码不同，旧错误比较器期待五LF留尾10，新仅验证五LF折为rank；ExecutedCommand同为`python -c <verification_probe:nl-collapse-probe>`，`verificationProofCommandIdentity`只取runner/framework/cwd/suite/command，旧失败被标`superseded_by_terminal_exact_command_pass`。这是占位显示命令碰撞，不是实际同定义探测重跑。本轮最终未签绿，不能据此声称已经发生错误交付放行；但它是后续放宽履约resolver前必须修的身份缺口。
+
+施工顺序冻结：
+
+1. B1616a先补探测定义与实际执行代次身份，保旧实际失败，禁止同ID异代码或只有占位命令相同便降为exact-rerun成功；普通项目测试实际重跑保持旧合法通道。旧非权威比较器被项目测试否定如需advisory，使用已有typed依据并明确原因，不能冒充同探测通过。
+2. B1616b统一合同/impact/patch_review的同计划承接：仅已识别的合同coverage finding/target、能在本plan找到完整精确合同，投影PlanID+ContractRef，并仅由已接纳真实witness消解missing/unverified；不对任意EvidenceRef/模型文本猜合同。
+3. 跨计划只允许controller累计source-plan闭包、同仓同仍存目标域、完整typed合同相同、terminal对当前交付树的实际receipt承接，记录resolved来源并保历史失败；rollback/tombstone/删除目标不承接。不能复用裸ref全局map或聚合“全部测试过”充当逐合同语义证明。
+4. 必须实际入口先红后绿：同plan三载体、真实r1035域同三合同；反针同ID改expected、同probeID改code、换仓/路径、旧plan不在闭包、旧树指纹、rollback/tombstone、仅元数据无执行receipt。最新五LF probe及两原测试未逐项证明全部合同语义，B1561原生逐assertion证明债继续开放，不用B1616抹平。
+
+#### 后续回放与剩余清册
+
+243个case保持25 apply/3 plan/29真实trace；B1612后仍10个apply须异构测试域/实现域显式分组，设计沿§1670/1671，不机械套单文件。下一批优先B1607b完整等待与B1616a/b验证身份，冻结后仍恰两路：改变Trace值通道则一条显式窗真/假关联正反例；另一条异构write选择能原生执行且需要replan承接的用例。若仅修验证侧，用近期未跑的Cangjie/ArkTS读关系作另一侧，避免一直对同题求绿；不额外并行第三例。
+
+活跃流真实HTTP/SSE回归本轮再次通过，无默认4ms/旧4分钟正文等待降级；parent显式截止/取消与真实字节静默独立处理。r1035案例总体时长不能作为单连接持续四分钟live证据。状态：`r1035=machine-pass1/fail1,human-partial/fail`；`B1607a=production-positive-state-inventory`；`B1607b=P1-open`；`B1614/B1615=implemented+targeted/race-pass,pending-live`；`B1616=P1-confirmed/design-frozen/not-implemented`；`B1561+10-heterogeneous-eval-domains=open`；`model-owned-answer/diagram=preserved`。
+
 ### §123.1676 B1615 结果容量与采集完整性分域教学（2026-09-07）
 
 r1035 H1中已有精确`lower_bound_capacity_truncated`，但两个入模面只说“覆盖被截断”，模型据此在最终答案断言Trace采集被截断。原始扫描完成不等于证明采集完整，查询结果有帽也不等于原始采集缺失；这两个方向都不能推断。成文后系统附注虽已正确说“结果达到容量上限”，却不能补回模型在推理时缺少的主体。
