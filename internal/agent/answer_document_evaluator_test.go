@@ -1755,9 +1755,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalRowAttr
 		"surface_family=`extend`",
 		"typed_surface_family_row_counts=[`extend`:1]",
 		"family_coverage=1/1, complete=true",
-		"copy them exactly when reporting top-level family counts and do not recount the row prose",
-		"Finer row-local modifiers remain item detail and do not create additional top-level members",
-		"omit derived per-family file counts or modifier totals unless another typed fact supplies them",
+		"family memberships may overlap; do not add these counts",
+		"not additional declarations",
+		"omit derived per-family file counts unless another typed fact supplies them",
 		"source_inventory_family",
 		"attributes=[`package:demo.cart`]",
 		"do not infer them from paths",
@@ -1768,7 +1768,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalRowAttr
 	}
 }
 
-func TestAnswerDocPrincipalEnumerationSurfaceFamilyCounts_UsesCanonicalRowPartition(t *testing.T) {
+// Independent typed modifiers/markers count as memberships of the same row,
+// not additional declarations or an exclusive replacement for its first key.
+func TestAnswerDocPrincipalEnumerationSurfaceFamilyCounts_PreservesOverlappingMemberships(t *testing.T) {
 	sets := []types.EnumerationDisplaySet{{
 		Rows: []types.EnumerationDisplayRow{
 			{SurfaceTerms: []string{"foreign func", "foreign func native_add"}},
@@ -1781,7 +1783,7 @@ func TestAnswerDocPrincipalEnumerationSurfaceFamilyCounts_UsesCanonicalRowPartit
 	}}
 
 	got, covered, total := answerDocPrincipalEnumerationSurfaceFamilyCounts(sets)
-	if want := "`extend`:1, `foreign func`:1, `public class`:3"; got != want {
+	if want := "`extend`:1, `foreign func`:1, `public abstract class`:1, `public class`:3, `public sealed class`:1"; got != want {
 		t.Fatalf("typed family counts = %q, want %q", got, want)
 	}
 	if covered != 5 || total != 6 {

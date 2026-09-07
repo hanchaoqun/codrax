@@ -57399,6 +57399,12 @@ H7模型仍将74.915运行称为最大状态（S为118.586）、D/IO混称、将
 | B1590b-TRACEBOARDQUERYDOMAIN1 | P1，context同窗不同参数榜单丢组身份、同rank混排后称单一排序 | 需保留工件/目标/窗口/参数域分组与同组排序，不能last-wins或按字符串选榜。原投影参数域有保留；先冻结设计，不能把改变查询深度的合法值差误当计算错 |
 | B1586b/c / oracle债 | P2，逐属性可用性/精确任务绑定及合并表、合法query参数的评测分域 | 继续开放；不猜缺失属性、不全局ready跳任务、不改case收绿。跨语言细粒度执行receipt仍是能力债，人工Node通过不替产品签绿 |
 
+#### B1588实施验收（2026-09-07）
+
+Principal Enumeration显示与硬门已经支持的plural family同源：逐行保留legacy代表键并展示有界完整family，分类命中数允许交叠，covered/total仍按原声明行计一次，不能用家族数之和当声明总量。旧“首标记唯一获准分类/其它只是modifier”教学退役；明确SelectionFamily只是共同代表键、接纳row ID不变。旧显示pin合法更新为重叠口径，并保留public class/abstract/sealed单声明、多标记换序及重复去重、缺marker的未知覆盖。
+
+实际finalizer六坐标4+2先红后绿：完整@Component/@Entry、Builder计数入模，逐行member/location/citation与profile/observation/registry深等，缺type角色不猜补。同名异源/不同构造不合并，显示32类/每类96字符及每行8类省略均诚实且不裁后台。原计数helper移出热文件以保持复杂度ratchet，无新schema、gate或答案改写。日志`20260906-b1588-{red,green,regression}.log`；相关族绿，完整agent包51.075s退出0（`20260907-b1588-agent-full.log`）。lineage首标记比较仍未有独立反例，不冒称本批修复了后台资格。
+
 完整人工记录见`eval/parallel_selected_summary_evalcampaign_trace_tswrite_r1029_20260906_manual_audit.md`。此轮不再重开第三个live或追跑同题，先闭环这些泛化的教学/语义保持小批并逐笔提交推送。
 
 ### §123.1649 r1028人工收账与B1587阶段指引冲突（2026-09-06）

@@ -11291,9 +11291,9 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	b.WriteString("- Preserve every `member` as the principal row identity. Use `display_label`, `location`, and `citation_key` to build clear table cells; use `note` to keep the answer explanatory instead of a dry symbol dump.\n")
 	b.WriteString("- When any row has a non-empty `note`, render that note on the same row as a concise description/说明 column or equivalent item text. Do not collapse per-row notes only into a summary paragraph.\n")
 	b.WriteString("- When a row has non-empty `attributes`, preserve those typed dimensions on that same row as table columns or equivalent item text; do not infer them from paths.\n")
-	b.WriteString("- When a set exposes `selection_family`, that exact typed value is the membership boundary because every row independently carries it. A model-authored `display_group` is presentation only: it must not add exclusions, subtract rows, or change the typed row count. If the display wording conflicts, keep the typed roster and rewrite the display wording yourself.\n")
+	b.WriteString("- When a set exposes `selection_family`, it is a common representative key, not the only family a row can carry. The accepted row IDs define this set's roster. A model-authored `display_group` is presentation only: it must not add exclusions, subtract rows, or change the typed row count; use each row's full typed `surface_families` to describe its construct markers.\n")
 	b.WriteString("- When the required principal table carries `bucket_label`, preserve every row's `display_group`/set label as a separate visible category cell and matching column. Preserve the exact member in item `label` or one exact structured member cell; member-first and category-first column order are both valid. Never drop either axis while repairing the row.\n")
-	b.WriteString("- For EVERY structured source-inventory item, copy that row's exact `row_id` to `source_inventory_row_id` and expose its exact `member`/`display_label` in item `label` or one exact `cells[]` value. The row id owns typed identity, so table column order remains presentation and a category-first table may put the member in its dedicated symbol cell without a hidden duplicate label. The system binds the row-local citation, so omit manual `citation_ref` arithmetic. This keeps member, family, location, and citation on one typed identity even when labels are unique, decorated for display, or repeated across files. When rows expose `surface_family`, use that exact row-local key for grouping. A principal block intentionally carrying exactly one family should copy it to block `source_inventory_family`; omit the field for a global/mixed-family block. Never infer family from a block title, path, language, or neighboring row.\n")
+	b.WriteString("- For EVERY structured source-inventory item, copy that row's exact `row_id` to `source_inventory_row_id` and expose its exact `member`/`display_label` in item `label` or one exact `cells[]` value. The row id owns typed identity, so table column order remains presentation and a category-first table may put the member in its dedicated symbol cell without a hidden duplicate label. The system binds the row-local citation, so omit manual `citation_ref` arithmetic. This keeps member, family, location, and citation on one typed identity even when labels are unique, decorated for display, or repeated across files. `surface_family` is the legacy representative; `surface_families` preserves independent typed memberships on that same declaration, not additional declarations. A block intentionally scoped to one exact family may copy that family from its rows' `surface_families` to block `source_inventory_family`; omit the field for a global/mixed-family block. Never infer family from a block title, path, language, or neighboring row.\n")
 	if ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable {
 		b.WriteString("- Render these rows exactly once in the required per-member `table`; that table is the single structured principal-member carrier. Preserve each set/bucket in a visible category column. Optional bucket `section` blocks may keep headings and concise framing prose, but MUST NOT repeat the principal rows in `section.items[]` or another list/table. Copy each `source_inventory_row_id` only to its table row.\n")
 	} else {
@@ -11305,7 +11305,7 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 		b.WriteString("\n")
 	}
 	if counts, covered, total := answerDocPrincipalEnumerationSurfaceFamilyCounts(sets); counts != "" {
-		fmt.Fprintf(&b, "- typed_surface_family_row_counts=[%s], family_coverage=%d/%d, complete=%t. These mutually exclusive counts are computed from the same single typed `surface_family` rendered on each principal row; copy them exactly when reporting top-level family counts and do not recount the row prose. Finer row-local modifiers remain item detail and do not create additional top-level members. These row counts are the only numeric family summary authorized by this carrier; omit derived per-family file counts or modifier totals unless another typed fact supplies them. The counts sum to `family_coverage`, not necessarily to all rows when some rows have no typed family.\n\n",
+		fmt.Fprintf(&b, "- typed_surface_family_row_counts=[%s], family_coverage=%d/%d, complete=%t. These are exact per-family membership counts within the accepted principal rows: family memberships may overlap; do not add these counts to obtain a declaration total. Each row contributes at most once to each family and once to family_coverage. Use the relevant typed family counts when helpful; omit derived per-family file counts unless another typed fact supplies them. `complete` means every supplied row has at least one typed family, not a repository-wide completeness claim. Family lists and count summaries may be abbreviated with explicit omissions; omitted labels are not absent memberships.\n\n",
 			counts, covered, total, covered == total)
 	}
 	for _, set := range sets {
@@ -11317,7 +11317,7 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 			fmt.Fprintf(&b, "### %s (%d row(s))\n\n", title, len(set.Rows))
 		}
 		if display := strings.TrimSpace(set.Label); set.SelectionFamily != "" && display != "" && !strings.EqualFold(display, set.SelectionFamily) {
-			fmt.Fprintf(&b, "- model-authored display_group=`%s` (presentation only; `selection_family` remains the membership authority)\n", display)
+			fmt.Fprintf(&b, "- model-authored display_group=`%s` (presentation only; the row-local typed families below supply construct facts)\n", display)
 		}
 		for _, row := range set.Rows {
 			member := sanitizeAggregateExcludedCandidatesForPrompt(ctx, row.Member, stableFacts)
@@ -11332,6 +11332,9 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 			}
 			if family := types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms); family != "" {
 				fmt.Fprintf(&b, ", surface_family=`%s`", family)
+			}
+			if families := types.SourceInventorySurfaceFamilyKeys(row.SurfaceTerms); len(families) > 0 {
+				fmt.Fprintf(&b, ", surface_families=%s", renderSourceInventorySurfaceFamilies(families))
 			}
 			if location := strings.TrimSpace(row.Location); location != "" {
 				fmt.Fprintf(&b, ", location=`%s`", location)
@@ -11359,45 +11362,6 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 		b.WriteString("\n")
 	}
 	return b.String()
-}
-
-// answerDocPrincipalEnumerationSurfaceFamilyCounts publishes exact canonical
-// row-family cardinalities beside the authoritative principal rows. It uses
-// the same single family selector as the row renderer; finer independent
-// parser markers remain row-local detail rather than becoming overlapping
-// top-level buckets. The finalizer should not have to recount a long
-// Markdown-like list, and shadowed model aggregates must not regain numeric
-// authority merely because their labels resemble one of these families. This
-// projection consumes only typed row SurfaceTerms; it never reads the request,
-// model reasoning, answer prose, or rendered output.
-func answerDocPrincipalEnumerationSurfaceFamilyCounts(sets []types.EnumerationDisplaySet) (string, int, int) {
-	counts := map[string]int{}
-	covered := 0
-	total := 0
-	for _, set := range sets {
-		for _, row := range set.Rows {
-			total++
-			family := types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms)
-			if family == "" {
-				continue
-			}
-			covered++
-			counts[family]++
-		}
-	}
-	if len(counts) == 0 {
-		return "", covered, total
-	}
-	families := make([]string, 0, len(counts))
-	for family := range counts {
-		families = append(families, family)
-	}
-	sort.Strings(families)
-	parts := make([]string, 0, len(families))
-	for _, family := range families {
-		parts = append(parts, fmt.Sprintf("`%s`:%d", family, counts[family]))
-	}
-	return strings.Join(parts, ", "), covered, total
 }
 
 func answerDocPrincipalEnumerationSetAuthorityLabel(set types.EnumerationDisplaySet) string {
