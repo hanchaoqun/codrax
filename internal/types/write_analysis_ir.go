@@ -6,6 +6,11 @@ package types
 // behavior_contracts and sibling structured fields are arrays or strings.
 const WriteAnalysisJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit exactly one JSON object. scope_anchors[], constraints[], expected_outcomes[], behavior_contracts[], applicable_pitfalls[], and phase_proposal.phases[] are native JSON arrays, never quoted or escaped JSON strings. task, risk, phase_proposal, constraints[] entries, behavior_contracts[] entries, and phase_proposal.phases[] entries are native JSON objects; scope_anchors[], expected_outcomes[], and applicable_pitfalls[] entries are strings. Preserve every intended entry when repairing shape; do not delete a field merely to make decoding pass."
 
+// WriteProtectedBaselineTargetTeaching keeps the schema and write-analyzer
+// instructions aligned. Exact read identity permits protecting baseline bytes,
+// not assigning a source role or manufacturing a verification result.
+const WriteProtectedBaselineTargetTeaching = "For kind=preserve_regression_test use one exact repo-relative file path, never a directory or a pattern to expand. Conventional test paths such as tests/test_widget.py remain accepted. For an explicitly protected baseline with another filename, first read_file that exact existing file in the current repository during this dispatch, then retain the same constraint. Pattern-looking characters are allowed only when a successful exact read identifies that literal filename and it remains a regular file. A successful read permits baseline preservation only, not test classification or execution proof. Keep protected method/input details in note and never append prose to target."
+
 // WriteAnalysisIndependentOutcomeTeaching keeps the write-analyzer skill and
 // emit schema aligned on outcome completeness. It is model-facing guidance,
 // not a prose parser or a deterministic completeness gate: the analyzer owns

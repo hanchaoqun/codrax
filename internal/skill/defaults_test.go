@@ -349,7 +349,7 @@ func TestWriteAnalysisSkillTeachesProtectedRegressionOracleCarrier(t *testing.T)
 	for _, want := range []string{
 		"REGRESSION ORACLE OWNERSHIP",
 		"kind=preserve_regression_test",
-		"one exact repo-relative test file",
+		"one exact repo-relative baseline file",
 		"preserves the existing baseline assertion as one oracle",
 		"do not reinterpret 'keep the input' as permission to update its expected output",
 		"does not choose the implementation or a correct expected value",

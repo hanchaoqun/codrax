@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/hanchaoqun/codrax/internal/canonpath"
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/safety"
@@ -4794,7 +4795,9 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// (BusContext.MultiGraph any → typed cast) so this package
 	// doesn't import the multigraph package directly — that would
 	// re-introduce the tool→multigraph→topology→tool cycle.
+	sourceRepoRoot := ""
 	if ctx != nil {
+		sourceRepoRoot = ctx.RepoRoot
 		if gater, ok := ctx.MultiGraph.(types.MultiRepoActiveSetGater); ok && gater != nil {
 			gate := gater.ResolveActiveSetPath(ctx, t.Name(), p.Path, func(abs string) bool {
 				info, err := os.Stat(abs)
@@ -4809,6 +4812,13 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				}, nil
 			}
 			p.Path = gate.ResolvedPath
+			if subRoot := strings.TrimSpace(gate.SubRepoRootRel); subRoot != "" && subRoot != "." {
+				if rel, ok := canonpath.CanonicalRepoRelativeIdentity(subRoot); ok {
+					sourceRepoRoot = filepath.Join(ctx.RepoRoot, filepath.FromSlash(rel))
+				} else {
+					sourceRepoRoot = ""
+				}
+			}
 		}
 	}
 
@@ -5012,7 +5022,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		ref = StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "read_file-visible.txt", content)
 	}
 	now := time.Now()
-	return types.ToolResult{
+	result := types.ToolResult{
 		ToolName:            t.Name(),
 		Success:             true,
 		Summary:             summary,
@@ -5025,7 +5035,9 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		),
 		Observations: readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now),
 		Timestamp:    now,
-	}, nil
+	}
+	recordSuccessfulRepositoryRead(ctx, sourceRepoRoot, fsPath, result)
+	return result, nil
 }
 
 func readFileEnumerationAuthority(requestedPath string, lineStart, lineEnd, totalLines int, clampedByInlineBudget bool) *types.ToolEnumerationAuthority {

@@ -57388,11 +57388,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 |---|---|---|
 | B1592 / P1 | Transport.send接口签名9..9被要求已读实现体，连续拒绝后同一行definition_fact又假闭合；真实parser→preComplete双红 | 独立施工中：parser-owned present/absent/unknown，只有精确present进入实现体义务；保留声明身份/语义，未知只作查证指导。覆盖全部支持语言、解析fallback与暖缓存失效，不能自动给接口绑定实现 |
 | B1593 / P1 | 原图CLI/API与错误metadata run→API，系统addition允许ID却为cli/api；模型依约修改后图出现隐式小写节点、大写CLI被判孤立，最终断链 | 独立审计施工：lookup归一化键不能充任可见node ID；候选/动态schema/执行器复用精确源ID，大小写碰撞与歧义不猜，不系统改关系、改名或代写答案 |
-| B1594 / P1 | write_analyzer成功读test_repository.c，保护约束因命名惯例不识别连续3拒，模型最终删除约束 | 独立施工：保护基线可接受本dispatch精确成功读取文件；不改变共享测试角色分类、不把保留约束当执行证明、不豁免assertion-scoped验证。原命名兼容臂及跨仓/陈腐读取边界明确测试 |
+| B1594 / P1 | write_analyzer成功读test_repository.c，保护约束因命名惯例不识别连续3拒，模型最终删除约束 | 已实施、定向验证与独立审阅完成：保护基线可接受本dispatch精确成功读取文件；私有receipt绑定物理仓、canonical path、RawRef，reset同清。不改变共享测试角色分类、不把保留约束当执行证明、不豁免assertion-scoped验证 |
 
 TS主链/paths有据，但源码已给当前实例FixedDelay(200,3)，模型仍称ExponentialBackoff，并未解释末次不sleep。现有信息充分的部分列模型质量观察，不给正文增加关键词门、不替模型改结论。C模型自行猜src/tests路径及ret||，准确源读到后最终只改两个括号，callback!=0/lookup<0均保留。真实make check通过但只有aggregate，两个要求合同没有逐assertion执行凭证，unverified是正确保护；独立原生7格补验通过也不变造正式report。更多语言/执行器细粒度receipt为既有能力债，不借此降杆。
 
-前批生产提交7fc815c9b/34fd1e56a/945803145/6cb87aad9均推送，test-only跨包前提收尾37fc5385d另提交。下一live按既定r1031：H8精确窗因果投影正臂+H2有限状态查询不产投影负臂；在不可变已验生产快照运行，不跟随并行修复工作区漂移。Trace链上/背景边界、占时与可消除双轴、业务线索、补采、模型答案所有权及active-stream保护不变。
+前批生产提交7fc815c9b/34fd1e56a/945803145/6cb87aad9均推送，test-only跨包前提收尾37fc5385d另提交。下一live按既定r1031：H8精确窗因果投影正臂+H2有限状态查询不产投影负臂。两次启动前分别被旧revision及并行改动后的dirty-inputs检查拒绝，均exit2、零case启动；不绕门、不把有并行写入的make作验收，改为本批提交后重建。Trace链上/背景边界、占时与可消除双轴、业务线索、补采、模型答案所有权及active-stream保护不变。
+
+#### B1594：文件保护不是测试分类或执行证明
+
+仅命名惯例不足以拒绝已观察的保护基线；但原ReadCoverage也没有仓轴，不能直接拿同basename或累积历史授权。ReadFile成功出口现在记录非持久化、锁保护的本dispatch物理repository/path/RawRef私有receipt；入门同时要求同一次成功工具结果的精确有效coverage、同RawRef、当前实际regular文件及本仓身份。失败read、自报summary、其它工具、runtime artifact、跨仓/多仓alias、出仓symlink、陈腐dispatch、目录或未经实际读取的pattern均不进新分支。
+
+独立审阅纠正了“一律禁止方括号”的过严草案：合法literal文件`fixtures/expected[1].output`、`tests/expected[1].py`及其它特殊字符名，在精确读取后可保留；不通过shell展开模式。旧conventional-test命名兼容臂仍保留，遇pattern-looking字符不获该快捷授权；不是全局重新定义测试身份。schema与skill共享`WriteProtectedBaselineTargetTeaching`，既有禁止改测试预期/模型所有权文字保留，不制造新的required行为合同或执行凭证。
+
+先红`20260907-b1594-red.log`与`20260907-b1594-literal-teaching-red.log`，最终有限write/read_file/assertion/probe+skill/types退出0：14.041s/0.789s/1.513s（`20260907-b1594-final-green.log`）。私有receipt race 1.812s、完整types中途快照35.434s另记，不代替后续最终全仓。真实ReadFile→dispatch→EmitWriteAnalysis入口钉保护约束原目标/note保留且不生成plan/report/role权威。本批不改调用图、Trace、流式超时或模型正文。
 
 ### §123.1652 B1590b/B1591施工与异构回放计划（2026-09-07）
 

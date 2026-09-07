@@ -336,7 +336,10 @@ type MutableState struct {
 	// appends to this buffer on every successful result, and
 	// ResetDispatchToolResults clears it at loop entry so cross-
 	// dispatch leakage is impossible.
-	dispatchToolResults         []ToolResult
+	dispatchToolResults []ToolResult
+	// Read receipts carry only the current dispatch's physical repository/path
+	// identity. They are private, non-persistent, and never test/behavior proof.
+	dispatchRepositoryFileReads map[dispatchRepositoryFileReadKey]struct{}
 	turnAArtifactsRevision      uint64
 	dispatchToolResultsRevision uint64
 	searchGraphRevision         uint64
@@ -2917,6 +2920,7 @@ func (m *MutableState) ResetDispatchToolResults() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dispatchToolResults = nil
+	m.dispatchRepositoryFileReads = nil
 	m.dispatchToolResultsRevision++
 }
 

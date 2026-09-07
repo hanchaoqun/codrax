@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hanchaoqun/codrax/internal/canonpath"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -220,11 +219,16 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 		kind := strings.TrimSpace(c.Kind)
 		target := strings.TrimSpace(c.Target)
 		if kind == "preserve_regression_test" {
-			canonical, ok := canonpath.CanonicalRepoRelativeIdentity(target)
-			if !ok || !types.LooksLikeTestFilePath(canonical) {
+			canonical, ok := protectedBaselineExactPath(target)
+			if !ok || protectedBaselineTargetIsDirectory(ctx, canonical) {
 				return errResult(t.Name(), fmt.Sprintf(
-					"emit_write_analysis rejected: constraints[%d] kind=preserve_regression_test requires target to be one exact repo-relative test file path (for example tests/test_widget.py), got %q; keep symbol/input details in note instead",
+					"emit_write_analysis rejected: constraints[%d] kind=preserve_regression_test requires target to be one exact repo-relative test file path (not a directory, glob, or symbol locator), got %q; keep symbol/input details in note instead",
 					i, target)), nil
+			}
+			conventionalTestPath := !strings.ContainsAny(canonical, "*?[]{}") && types.LooksLikeTestFilePath(canonical)
+			if !conventionalTestPath && !protectedBaselineObservedInCurrentRepository(ctx, canonical) {
+				return errResult(t.Name(), fmt.Sprintf(
+					"emit_write_analysis rejected: constraints[%d] kind=preserve_regression_test requires one exact repo-relative test file path or an explicitly protected baseline file successfully read in this dispatch from the current repository; %q has no matching current read. Read that exact existing file with read_file, then retain the same constraint; do not remove the protection or rename the path to fit a test naming convention. This protects baseline bytes, not test identity or execution proof.", i, target)), nil
 			}
 			target = canonical
 		}
@@ -405,7 +409,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 					"required": []string{"kind"},
 					"properties": map[string]any{
 						"kind":   map[string]any{"type": "string", "description": "Short label like preserve_api / no_external_deps / match_existing_style. Use preserve_regression_test when the user explicitly says an existing regression test, input, fixture, snapshot, or assertion is intentional or must be kept; this protects the existing baseline assertion/oracle rather than authorizing its expected output to be changed to match a new implementation. Pick the closest fit; free string is fine."},
-						"target": map[string]any{"type": "string", "description": "Path or symbol the constraint applies to. Use '*' when global. For kind=preserve_regression_test this MUST be one exact repo-relative test file path such as tests/test_widget.py; keep the protected method/input details in note and never append prose to target."},
+						"target": map[string]any{"type": "string", "description": "Path or symbol the constraint applies to. Use '*' when global. " + types.WriteProtectedBaselineTargetTeaching},
 						"note":   map[string]any{"type": "string", "description": "Short quote of the user's wording, when applicable."},
 					},
 				},
