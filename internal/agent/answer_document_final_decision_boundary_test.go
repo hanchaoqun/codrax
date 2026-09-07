@@ -1431,7 +1431,7 @@ func TestTraceFinalPrincipalRankPopulationSeparatesSelectedWindowOrdinalsFromCon
 	got := renderTraceFinalPrincipalRankPopulation(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, "zh-CN")
 	for _, want := range []string{
 		"selected_window_reader_rank_roster artifact=`customer.systrace`; selected_window=`1.000000..1.010000`",
-		"ranked_row_count=`1`; allowed_visible_ordinals=`#1`; every_other_row=`unranked_context_or_symptom`",
+		"ranked_row_count=`1`; emitted_row_count=`1`; ranked_rows_complete=`true`; displayed_ordinals=`#1`",
 		"reader_rank=`#1`; subject=`worker-1`; reader_cause_label=\"优先级反转候选\"; effective_attribution=8.300ms",
 		"unranked_context_row subject=`app-100`; effective_attribution=0.020ms",
 		"selected_window_role=`supporting_context_only`; selected_window_ordinal_permission=`forbidden`",

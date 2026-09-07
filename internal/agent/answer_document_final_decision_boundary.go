@@ -851,18 +851,24 @@ func renderTraceFinalPrincipalRankPopulation(set types.TraceCausalProjectionSet,
 		if label == "" {
 			label = fmt.Sprintf("trace-%d", index+1)
 		}
-		principal := types.TraceAnswerDecisionEliminableSeats(projection, 8)
+		// Census and display use the same eligibility selector. The bounded
+		// prompt is only a preview, not authority to demote unlisted seats.
+		population := types.TraceAnswerDecisionEliminableSeats(projection, 0)
+		principal := population
+		if len(principal) > 8 {
+			principal = principal[:8]
+		}
 		excluded := traceFinalDifferentWindowRankedSeats(projection, 8)
 		if len(principal) == 0 && len(excluded) == 0 {
 			continue
 		}
-		allowedOrdinals := make([]string, 0, len(principal))
+		displayedOrdinals := make([]string, 0, len(principal))
 		for _, node := range principal {
-			allowedOrdinals = append(allowedOrdinals, fmt.Sprintf("#%d", node.Rank))
+			displayedOrdinals = append(displayedOrdinals, fmt.Sprintf("#%d", node.Rank))
 		}
-		fmt.Fprintf(&b, "- selected_window_reader_rank_roster artifact=`%s`; selected_window=`%.6f..%.6f`; ranked_row_count=`%d`; allowed_visible_ordinals=`%s`; every_other_row=`unranked_context_or_symptom`. The model owns the conclusion, but only the rows below may receive these ordinals in the selected-window answer.\n",
+		fmt.Fprintf(&b, "- selected_window_reader_rank_roster artifact=`%s`; selected_window=`%.6f..%.6f`; ranked_row_count=`%d`; emitted_row_count=`%d`; ranked_rows_complete=`%t`; displayed_ordinals=`%s`. The model owns the conclusion; not displayed here does not change a row's eligibility or published rank. Use the full typed selected-window population for other ranked rows; an explicit different-window row below remains supporting context only.\n",
 			traceDecisionPromptScalar(label), projection.WindowStartTs, projection.WindowEndTs,
-			len(principal), strings.Join(allowedOrdinals, ","))
+			len(population), len(principal), len(population) == len(principal), strings.Join(displayedOrdinals, ","))
 		for _, node := range principal {
 			causeLabel := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(traceDecisionEliminableSeatKind(node), zh))
 			if causeLabel == "" {
