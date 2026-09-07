@@ -94,6 +94,10 @@ type AnswerSurfacePlan struct {
 	// case consumers should fall through to the legacy "treat
 	// identifier-shaped tokens as symbols" path.
 	SubRepoNames []string
+
+	// Only the accepted symbol-tool producer can seed this run-local stamp.
+	// Context-projected extractor fallbacks do not prove a selected slate.
+	stepBackboneFromAcceptedSymbolSlate bool
 }
 
 // IsCrashSourcedRootCause reports whether the surface plan was
@@ -335,6 +339,8 @@ func ApplyAnswerSymbolStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR, symb
 	if len(anchors) == 0 {
 		return
 	}
+	plan.stepBackboneFromAcceptedSymbolSlate = plan.stepBackboneFromAcceptedSymbolSlate &&
+		exactStepAnchorSubset(anchors, plan.StepBackbone)
 	plan.StepBackbone = anchors
 	if claim != "" {
 		plan.StepBackboneCompleteness = claim
@@ -462,6 +468,11 @@ func mergeStepBackboneAnchors(base []StepSurfaceAnchor, extra []StepSurfaceAncho
 
 func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR, evidence []EvidenceItem) {
 	if plan == nil || !answerWantsStepBackbone(ir) || len(evidence) == 0 {
+		return
+	}
+	// A same-file evidence sequence is not a collection-membership authority.
+	// Enumeration uses exact selected slates or facet-backed facts below.
+	if ResolveQuestionFamily(ir.RequestModel) == QFEnumeration {
 		return
 	}
 	best := compileEvidenceStepBackbone(evidence)
@@ -1747,8 +1758,10 @@ func BuildAnswerSurfacePlan(
 			}
 		}
 		plan.ExactContextRequiredFiles = mutable.ExactContextRequiredFiles()
-		if syms, claim := mutable.EmittedAnswerSymbols(); len(syms) > 0 {
+		if syms, claim, origin := mutable.EmittedAnswerSymbolsWithOrigin(); len(syms) > 0 {
 			ApplyAnswerSymbolStepBackbone(plan, ir, syms, claim)
+			plan.stepBackboneFromAcceptedSymbolSlate = origin == AnswerSymbolSelectionExplicitItems &&
+				exactStepAnchorSubset(plan.StepBackbone, compileStepSurfaceAnchors(syms))
 			if ResolveQuestionFamily(ir.RequestModel) == QFEnumeration {
 				plan.StableAggregateFacts = ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
 					plan.StableAggregateFacts,

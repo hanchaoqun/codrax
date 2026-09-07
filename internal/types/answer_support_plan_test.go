@@ -1167,14 +1167,14 @@ func TestBuildAnswerSupportPlan_CategoryEnumerationKeepsRequiredMemberPolicy(t *
 		},
 	}
 
-	got := BuildAnswerSupportPlan(RequestModel{
+	rm := RequestModel{
 		Intent: IntentEnumerate,
 		Predicates: SemanticPredicates{
 			IsCategoryEnumeration: true,
-			IsRelationalLookup:    true,
 		},
 		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
-	}, plan)
+	}
+	got := BuildAnswerSupportPlan(rm, plan)
 	if got == nil {
 		t.Fatal("expected support plan")
 	}
@@ -1187,6 +1187,13 @@ func TestBuildAnswerSupportPlan_CategoryEnumerationKeepsRequiredMemberPolicy(t *
 	}
 	if !strings.Contains(obligations[0].Location, "entry/src/main/ets/pages/index.ets:3") {
 		t.Fatalf("obligation should preserve typed citation location, got %+v", obligations[0])
+	}
+	// A category request with a typed relation obligation is different: an
+	// isolated grounded import is support, not a proved closed member set.
+	rm.Predicates.IsRelationalLookup = true
+	got = BuildAnswerSupportPlan(rm, plan)
+	if got.PrincipalMemberCoverage != PrincipalMemberCoveragePolicyEnrichmentOnly || len(PrincipalSupportMemberObligations(got)) != 0 {
+		t.Fatalf("unproved relation candidates acquired required membership: %+v", got)
 	}
 }
 

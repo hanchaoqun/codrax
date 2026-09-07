@@ -309,7 +309,6 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	}
 	groundCtx := ground.BuildContext(ctx)
 	surfacePlan := types.BuildAnswerSurfacePlanForBusContext(ctx)
-	stepCandidates := compiledStepCandidateNames(surfacePlan)
 	groundedCandidates := buildAnswerSymbolGroundedCandidates(ctx, surfacePlan)
 	built := make([]types.AnswerSymbol, 0, len(p.Items)+len(deterministicSlate))
 	var dropped []string
@@ -318,7 +317,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		built = append(built, deterministicSlate...)
 	} else {
 		for i, in := range p.Items {
-			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx, stepCandidates, groundedCandidates, &repaired)
+			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx, groundedCandidates, &repaired)
 			if perr != nil {
 				dropped = append(dropped, perr.Error())
 				// P1 #3 (2026-05-03) — feed the per-Run rejection
@@ -364,7 +363,11 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	// ParseOutput time, not here, so that it has access to the full
 	// AgentContext (Turn A baseline + AnalysisIR MustInclude) which
 	// BusContext alone does not expose.
-	ctx.Mutable.SetEmittedAnswerSymbols(built, claim)
+	origin := types.AnswerSymbolSelectionExplicitItems
+	if len(deterministicSlate) > 0 {
+		origin = types.AnswerSymbolSelectionInventoryMaterialized
+	}
+	ctx.Mutable.SetEmittedAnswerSymbolsWithOrigin(built, claim, origin)
 	// Commit 55 Batch A.3 — persist the LLM's self-declared count
 	// so the finalizer-stage Answer Shape Oracle can cross-check
 	// `declared count` vs `rendered len(doc.Symbols)` to catch
@@ -517,7 +520,7 @@ func boundaryTypedDiagnosticForEmitAnswerSymbol(ctx *types.BusContext) string {
 // message names. This is the symmetric sibling of the kind=absent
 // retirement on emit_evidence: both channels reject an unsatisfiable
 // item and point at the proper whole-shape escape.
-func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string, bundle *types.LogBundle, groundCtx *ground.Context, stepCandidates map[string]string, groundedCandidates map[string][]answerSymbolGroundedCandidate, repaired *[]string) (types.AnswerSymbol, error) {
+func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string, bundle *types.LogBundle, groundCtx *ground.Context, groundedCandidates map[string][]answerSymbolGroundedCandidate, repaired *[]string) (types.AnswerSymbol, error) {
 	externalSource := bundle.IsExternalSource()
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
@@ -561,13 +564,6 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 	// the line bears either the full form or the "Method" segment
 	// alone (typical for method definitions where the receiver is
 	// already visible in the surrounding def line).
-	if groundCtx != nil {
-		if candidate := stepCandidates[compiledStepCandidateKey(file, lineN)]; candidate != "" &&
-			answerSymbolNameGrounds(groundCtx, file, lineN, candidate) &&
-			!answerSymbolNameGrounds(groundCtx, file, lineN, name) {
-			name = candidate
-		}
-	}
 	if groundCtx != nil {
 		if matchedLine, ok, negative := ground.ResolveSymbolLineAnchor(groundCtx, file, lineN, name, 2); ok {
 			lineN = matchedLine
@@ -709,21 +705,6 @@ func canonicalAnswerSymbolCandidateFile(file string) string {
 		file = strings.TrimPrefix(file, "./")
 	}
 	return file
-}
-
-func answerSymbolNameGrounds(groundCtx *ground.Context, file string, line int, name string) bool {
-	if groundCtx == nil || strings.TrimSpace(file) == "" || line <= 0 || strings.TrimSpace(name) == "" {
-		return false
-	}
-	if _, ok, _ := ground.ResolveSymbolLineAnchor(groundCtx, file, line, name, 2); ok {
-		return true
-	}
-	if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
-		if _, ok, _ := ground.ResolveSymbolLineAnchor(groundCtx, file, line, name[idx+1:], 2); ok {
-			return true
-		}
-	}
-	return false
 }
 
 func sourceInventoryAggregateAnswerSymbolFallback(ctx *types.BusContext) []types.AnswerSymbol {
@@ -887,26 +868,6 @@ func sourceInventorySupportRefMatchesMember(refLabel string, member string) bool
 		}
 	}
 	return false
-}
-
-func compiledStepCandidateNames(plan *types.AnswerSurfacePlan) map[string]string {
-	if plan == nil || len(plan.StepBackbone) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(plan.StepBackbone))
-	for _, anchor := range plan.StepBackbone {
-		name := strings.TrimSpace(anchor.Name)
-		file := strings.TrimSpace(anchor.File)
-		if name == "" || file == "" || anchor.Line <= 0 {
-			continue
-		}
-		out[compiledStepCandidateKey(file, anchor.Line)] = name
-	}
-	return out
-}
-
-func compiledStepCandidateKey(file string, line int) string {
-	return strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)) + "#" + fmt.Sprintf("%d", line)
 }
 
 // isInsideWorkDir reports whether path is inside (or equal to) the

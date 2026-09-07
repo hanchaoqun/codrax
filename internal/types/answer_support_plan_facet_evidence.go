@@ -39,7 +39,16 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 		}
 	}
 	if !aggregatePrincipal {
+		unprovenRelationMembers := family == QFEnumeration && PrincipalMemberSetRequiresTypedRelationAuthority(rm) &&
+			!plan.stepBackboneFromAcceptedSymbolSlate
+		if unprovenRelationMembers {
+			out.PrincipalMemberCoverage = PrincipalMemberCoveragePolicyEnrichmentOnly
+		}
 		if lane := compilePrincipalEvidenceSupportLane(family, rm, plan); len(lane.Entries) > 0 {
+			if unprovenRelationMembers {
+				lane.Title = "Grounded relation evidence candidates"
+				lane.Guidance = "These individually grounded facts are not a proved relation-member set. Use them to support the model's requested claims; do not render every definition, base type, import, or helper as a required member. Preserve uncertain membership as an explicit boundary until a typed relation set or accepted explicit symbol slate selects the members. " + lane.Guidance
+			}
 			out.Lanes = append(out.Lanes, lane)
 		}
 	}
@@ -2174,7 +2183,7 @@ func enumerationPrincipalEvidenceMatchingBackbone(plan *AnswerSurfacePlan, items
 	}
 	out := make([]EvidenceItem, 0, len(items))
 	for _, item := range items {
-		if enumerationEvidenceMatchesStepBackbone(plan.StepBackbone, item) {
+		if enumerationEvidenceMatchesAcceptedSymbolSlate(plan, item) {
 			out = append(out, item)
 		}
 	}
@@ -2187,7 +2196,7 @@ func enumerationEvidenceNotMatchingBackbone(plan *AnswerSurfacePlan, items []Evi
 	}
 	out := make([]EvidenceItem, 0, len(items))
 	for _, item := range items {
-		if !enumerationEvidenceMatchesStepBackbone(plan.StepBackbone, item) {
+		if !enumerationEvidenceMatchesAcceptedSymbolSlate(plan, item) {
 			out = append(out, item)
 		}
 	}

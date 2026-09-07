@@ -248,6 +248,7 @@ type MutableState struct {
 	// atomically under the write lock.
 	emittedAnswerSymbols            []AnswerSymbol
 	emittedAnswerSymbolCompleteness CompletenessClaim
+	emittedAnswerSymbolOrigin       AnswerSymbolSelectionOrigin
 	// emittedAnswerSymbolDeclaredCount mirrors the LLM's
 	// self-declared count from the most recent emit_answer_symbol
 	// call. Zero = no claim made (back-compat). Finalize-stage
@@ -1421,6 +1422,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	out.emittedEvidence = append([]EvidenceItem(nil), m.emittedEvidence...)
 	out.emittedAnswerSymbols = append([]AnswerSymbol(nil), m.emittedAnswerSymbols...)
 	out.emittedAnswerSymbolCompleteness = m.emittedAnswerSymbolCompleteness
+	out.emittedAnswerSymbolOrigin = m.emittedAnswerSymbolOrigin
 	out.emittedAnswerSymbolDeclaredCount = m.emittedAnswerSymbolDeclaredCount
 	out.emittedHypothesisVerdicts = append([]HypothesisVerdict(nil), m.emittedHypothesisVerdicts...)
 	out.sourceInventoryAdvisory = CloneSourceInventoryAdvisory(m.sourceInventoryAdvisory)
@@ -3439,8 +3441,8 @@ func (m *MutableState) ResetEmittedEvidence() {
 
 // SetEmittedAnswerSymbols atomically replaces the answer-symbol
 // buffer and the accompanying completeness claim (P2.1 Phase 9
-// set-level semantics). The emit_answer_symbol tool calls this on
-// every invocation; subsequent calls REPLACE the prior slate,
+// set-level semantics). This legacy entry leaves producer origin unknown;
+// emit_answer_symbol uses SetEmittedAnswerSymbolsWithOrigin. Calls REPLACE the prior slate,
 // matching the "last writer wins" retry contract: on a mismatch
 // retry the LLM either raises the list or downgrades the claim, and
 // either way the new batch wins.
@@ -3451,21 +3453,7 @@ func (m *MutableState) ResetEmittedEvidence() {
 // defensively copied so a later mutation on the caller's side cannot
 // race with reader goroutines.
 func (m *MutableState) SetEmittedAnswerSymbols(items []AnswerSymbol, claim CompletenessClaim) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(items) == 0 {
-		m.emittedAnswerSymbols = nil
-	} else {
-		m.emittedAnswerSymbols = append([]AnswerSymbol(nil), items...)
-	}
-	if !claim.IsValid() {
-		claim = CompletenessUnknown
-	}
-	m.emittedAnswerSymbolCompleteness = claim
-	m.bumpAnswerSurfaceRevisionLocked()
+	m.SetEmittedAnswerSymbolsWithOrigin(items, claim, AnswerSymbolSelectionUnknown)
 }
 
 // SetEmittedAnswerSymbolDeclaredCount stores the LLM's self-
@@ -3527,6 +3515,7 @@ func (m *MutableState) ResetEmittedAnswerSymbols() {
 	defer m.mu.Unlock()
 	m.emittedAnswerSymbols = nil
 	m.emittedAnswerSymbolCompleteness = CompletenessUnknown
+	m.emittedAnswerSymbolOrigin = AnswerSymbolSelectionUnknown
 	m.bumpAnswerSurfaceRevisionLocked()
 }
 

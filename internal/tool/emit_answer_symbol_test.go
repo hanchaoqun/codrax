@@ -18,6 +18,7 @@ package tool
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -675,33 +676,44 @@ func TestEmitAnswerSymbol_AttributeBearingEnumerationRejectsLowerBoundWithTwoAxi
 	}
 }
 
-func TestEmitAnswerSymbol_ReusesCompiledStepCandidateNameAtSameLine(t *testing.T) {
-	tool := &EmitAnswerSymbol{}
-	ctx := newAnswerSymbolCtx()
-	ctx.AnalysisIR = &types.AnalysisIR{
-		RequestModel: types.RequestModel{
-			RawRequest: "What order do gate.Run's 7 checks execute in?",
-			AnalyzerHints: types.AnalyzerHints{
-				MentionedEntities: []string{"gate.Run"},
-			},
-			EnumerationBoundary: &types.RequestedEnumerationBoundary{
-				DeclaredCount: 7,
-				SourceQuote:   "7 checks",
-			},
-		},
-		AnswerContract: types.AnswerContract{},
-	}
-	ctx.EvidenceItems = []types.EvidenceItem{
-		{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 135, AnchorKind: types.AnchorCall, AnchorSymbol: "checkContractComplete", Subject: "Run", GroundingStatus: types.GroundingGrounded},
-		{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 136, AnchorKind: types.AnchorCall, AnchorSymbol: "checkHypothesisCoverage", Subject: "Run", GroundingStatus: types.GroundingGrounded},
-		{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 144, AnchorKind: types.AnchorCall, AnchorSymbol: "checkSubtopicCoherence", Subject: "Run", GroundingStatus: types.GroundingGrounded},
-	}
-	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary:  "[internal/analysis/gate/gate.go: showing lines 135-145 of 471 total]\n   135│ \t\tchecks = append(checks, checkContractComplete(ir, th))\n   136│ \t\tchecks = append(checks, checkHypothesisCoverage(ir, th))\n   137│ \t\t// Cross-signal coherence gates.\n   138│ \t\t// for the multi-topic / shape-vs-subject mis-classification\n   139│ \t\t// patterns the downstream explorer / extractor / finalizer\n   140│ \t\t// layers historically had to clean up after the fact.\n   141│ \t\t// purely structural (no keyword tables)\n   142│ \t\t// emitted IR fields against each other and against the\n   143│ \t\t// repomap-verified TermGraph domains.\n   144│ \t\tchecks = append(checks, checkSubtopicCoherence(ir))\n   145│ \t\tchecks = append(checks, checkShapeSubjectCoherence(ir))\n",
-	})
-	params := json.RawMessage(`{
+func TestB1608EmitAnswerSymbolDoesNotReplaceSelectedEntityAtSameLine(t *testing.T) {
+	for _, family := range []types.QuestionFamily{types.QFEnumeration, types.QFCallChain} {
+		t.Run(string(family), func(t *testing.T) {
+			tool := &EmitAnswerSymbol{}
+			ctx := newAnswerSymbolCtx()
+			ctx.AnalysisIR = &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					RawRequest: "What order do gate.Run's 7 checks execute in?",
+					AnalyzerHints: types.AnalyzerHints{
+						MentionedEntities: []string{"gate.Run"},
+					},
+					EnumerationBoundary: &types.RequestedEnumerationBoundary{
+						DeclaredCount: 7,
+						SourceQuote:   "7 checks",
+					},
+				},
+				AnswerContract: types.AnswerContract{},
+			}
+			if family == types.QFCallChain {
+				ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+				ctx.AnalysisIR.RequestModel.EnumerationBoundary = nil
+			} else {
+				ctx.AnalysisIR.RequestModel.Intent = types.IntentEnumerate
+			}
+			if got := types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel); got != family {
+				t.Fatalf("wrong family fixture: %s", got)
+			}
+			ctx.EvidenceItems = []types.EvidenceItem{
+				{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 135, AnchorKind: types.AnchorCall, AnchorSymbol: "checkContractComplete", Subject: "Run", GroundingStatus: types.GroundingGrounded},
+				{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 136, AnchorKind: types.AnchorCall, AnchorSymbol: "checkHypothesisCoverage", Subject: "Run", GroundingStatus: types.GroundingGrounded},
+				{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 144, AnchorKind: types.AnchorCall, AnchorSymbol: "checkSubtopicCoherence", Subject: "Run", GroundingStatus: types.GroundingGrounded},
+			}
+			ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[internal/analysis/gate/gate.go: showing lines 135-145 of 471 total]\n   135│ \t\tchecks = append(checks, checkContractComplete(ir, th))\n   136│ \t\tchecks = append(checks, checkHypothesisCoverage(ir, th))\n   137│ \t\t// Cross-signal coherence gates.\n   138│ \t\t// for the multi-topic / shape-vs-subject mis-classification\n   139│ \t\t// patterns the downstream explorer / extractor / finalizer\n   140│ \t\t// layers historically had to clean up after the fact.\n   141│ \t\t// purely structural (no keyword tables)\n   142│ \t\t// emitted IR fields against each other and against the\n   143│ \t\t// repomap-verified TermGraph domains.\n   144│ \t\tchecks = append(checks, checkSubtopicCoherence(ir))\n   145│ \t\tchecks = append(checks, checkShapeSubjectCoherence(ir))\n",
+			})
+			params := json.RawMessage(`{
         "items": [
           {"name": "checkResourceCount", "file": "internal/analysis/gate/gate.go", "line": 135, "kind": "method"},
           {"name": "checkOutputValueCount", "file": "internal/analysis/gate/gate.go", "line": 136, "kind": "method"},
@@ -709,22 +721,53 @@ func TestEmitAnswerSymbol_ReusesCompiledStepCandidateNameAtSameLine(t *testing.T
         ],
         "completeness": "lower_bound"
     }`)
-	res, err := tool.Execute(ctx, params)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Fatalf("expected success via compiled candidate reuse, got %q", res.Summary)
-	}
-	got, _ := ctx.Mutable.EmittedAnswerSymbols()
-	if len(got) != 3 {
-		t.Fatalf("want 3 accepted symbols, got %d", len(got))
-	}
-	want := []string{"checkContractComplete", "checkHypothesisCoverage", "checkSubtopicCoherence"}
-	for i, name := range want {
-		if got[i].Name != name {
-			t.Fatalf("accepted symbol[%d] = %q, want %q", i, got[i].Name, name)
-		}
+			corrected := strings.NewReplacer("checkResourceCount", "checkContractComplete", "checkOutputValueCount", "checkHypothesisCoverage", "checkResourceAddressing", "checkSubtopicCoherence").Replace(string(params))
+			priorContext := ctx
+			if family == types.QFCallChain {
+				// A previous dispatch accepted a slate; a later no-slate
+				// call-chain dispatch must leave that existing buffer alone.
+				priorContext = &types.BusContext{Mutable: ctx.Mutable}
+			}
+			priorResult, priorErr := tool.Execute(priorContext, json.RawMessage(corrected))
+			if priorErr != nil || !priorResult.Success {
+				t.Fatalf("prior accepted selection failed: %+v %v", priorResult, priorErr)
+			}
+			prior, priorClaim, priorOrigin := ctx.Mutable.EmittedAnswerSymbolsWithOrigin()
+			if len(prior) != 3 {
+				t.Fatalf("prior acceptance did not publish the exact three candidates: %+v", prior)
+			}
+			res, err := tool.Execute(ctx, params)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if family == types.QFCallChain {
+				if !res.Success || !strings.Contains(res.Summary, "ignored:") {
+					t.Fatalf("call-chain dispatch unexpectedly acquired a slate obligation: %+v", res)
+				}
+			} else if res.Success {
+				t.Fatalf("different name at a grounded candidate location was silently rewritten: %s", res.Summary)
+			}
+			got, claim, origin := ctx.Mutable.EmittedAnswerSymbolsWithOrigin()
+			if !reflect.DeepEqual(got, prior) || claim != priorClaim || origin != priorOrigin {
+				t.Fatalf("failed wrong-entity emit changed accepted slate: %+v", got)
+			}
+			// The candidate may guide the model, but only its explicit corrected
+			// selection can publish a different entity.
+			res, err = tool.Execute(ctx, json.RawMessage(corrected))
+			if err != nil || !res.Success {
+				t.Fatalf("explicit corrected selection must pass: %+v %v", res, err)
+			}
+			got, _ = ctx.Mutable.EmittedAnswerSymbols()
+			if len(got) != 3 {
+				t.Fatalf("want 3 accepted symbols, got %d", len(got))
+			}
+			want := []string{"checkContractComplete", "checkHypothesisCoverage", "checkSubtopicCoherence"}
+			for i, name := range want {
+				if got[i].Name != name {
+					t.Fatalf("accepted symbol[%d] = %q, want %q", i, got[i].Name, name)
+				}
+			}
+		})
 	}
 }
 
@@ -1089,8 +1132,8 @@ func TestEmitAnswerSymbol_FloorGroundingRepairsWrongLineFromGroundedEvidence(t *
 	if len(got) != 1 {
 		t.Fatalf("want 1 item, got %+v", got)
 	}
-	if got[0].Line != 14 {
-		t.Fatalf("line=%d, want grounded definition line 14", got[0].Line)
+	if got[0].Line != 14 || got[0].Name != "SubAgentValidator" {
+		t.Fatalf("same-entity line repair changed its identity or missed line 14: %+v", got[0])
 	}
 	if !strings.Contains(res.Summary, "auto-canonicalized") {
 		t.Fatalf("summary should disclose local canonicalization, got: %s", res.Summary)

@@ -57380,6 +57380,31 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1665 B1608：安全定位修复不能静默改成另一实体（2026-09-07）
+
+全仓中途快照退出1，仅 `TestEmitAnswerSymbol_ReusesCompiledStepCandidateNameAtSameLine` 失败，其余包通过。该旧针要求把模型提交的checkResourceCount等三个不同名称，凭同file:line的候选替换成checkContractComplete等；B1604取消集合热点骨架后不再满足。检查生产代码确认，替换仅依赖候选在已读行±2中出现、原名称未出现，没有别名或同实体证明，且同址候选map后写覆盖。恢复该自动候选只会保留语义越权，不是修复正确能力。
+
+B1608最小方案是全family退役这条跨名称替换，保留原floor grounding、叶名语法归一和按同名唯一grounded definition修行号。结构JSON修复与同实体定位仍可自愈；name和位置指向不同实体时不能判断哪一边是模型本意，应保已接受结果并反馈精确不一致供模型选择。旧针更新为集合/调用链两面错误实体不被代换、后续模型明确提供正确名称可通过，同名错行仍自动修复的正针继续有效。不扫描答案原文、不改变模型结论或关系，不按这三个函数名设规则。
+
+已实现：删除唯一跨名赋值及3个无消费helper/参数，不改原同名查找和ground门。有效full入口首红为“先接受正确slate，再次以同位置提交不同name，仍被旧系统改回并报告成功”（`20260907-b1608-red.log`，1.090s）；此前callchain测试被DeclaredCount正规路由为enumeration的前提错误不计红证。修后真实集合入口拒不同实体且保原成员/来源/claim，模型明确正确名称可通过；callchain无集合义务保持ignored，不伪造profile强开该工具。原同名错行正针追加Name不变断言。全EmitAnswerSymbol选族+B1604/B1608定向1.112s通过（`20260907-b1608-green.log`）。旧跨名分支blame为`fba7fcf96c`（2026-04-29），本批统一退役而非仅把旧测试改绿。最终冻结全仓已重新启动。
+
+独立审阅通过，窄race11.275s（`20260907-b1608-race.log`）。另留P1精确身份风险复核：既有`lookupAnswerSymbolGroundedCandidate`会在全名不命中时按leaf检索，可能把A.Run引向同文件唯一B.Run；需要真实无别名/不同owner的执行反例并审计合法限定名兼容，不能据名字不同就硬拒真实别名。本批只退役同址跨名称分支，不声称所有qualified-owner边界已穷尽，也不在冻结验证中再扩张该查找器。
+
+状态：`B1608=implemented/real-full-entry-red-to-green/focused+race-pass`；`intermediate-whole-repo=85-pass+tool-one-fail/not-final-green`；`same-identity-location-healing=preserved`；`same-location-cross-name-rewrite=retired`；`qualified-owner-fallback=P1-repro-audit-pending`；`final-whole-repo=pending`。
+
+### §123.1664 B1604：成员集合不能由文件热度或自动候选取得必列权限（2026-09-07）
+
+1. 原通用序列选择在同文件至少3条证据时取热点文件，且并列组来自map；QFEnumeration后续把该步骤骨架当成员范围。因此跨文件的准确成员可能成为弱支撑，单纯移除筛选又会把基类和辅助定义一起变成必列。这是候选范围与成员权限混用，不是C++特有语法或模型波动。
+2. 仅集合问答不再自动消费通用同文件序列；调用链/Trace既有路径和模型明确symbol骨架不改。没有既有typed关系成员集合、也没有成功接受的显式symbol slate时，复用现有enrichment-only政策：保留准确事实并说明集合尚未证实，不把每个定义、import或helper升级为完整成员义务。已有typed集合和显式选择成员的遗漏校验继续有效。
+3. provenance在真实 `emit_answer_symbol` 成功出口随成员、completeness原子记录，区分显式items、source-inventory自动物化与未知；空/无效origin、legacy setter均不自铸权限。fork同拷，reset同清，来源变化刷新本轮缓存；原merge不回写symbol slate，保持原域不扩张。后续context重投影只能精确同name/file/line/end/kind子集继承已接受来源，不能因当前profile改变倒推历史来源。声明count、wire及ground校验不变。
+4. 明确slate匹配只认同源同行同声明身份的definition，附近include/关系事实留支撑，不能再当第三个成员。完整与lower-bound slate都仅保自身选择，不将其视为仓库全集。新测试覆盖改名/倒序、全部8个question family、自动fallback负臂、精确/缺定位/跨源/改名/扩容、来源缓存/fork/merge/reset以及真实工具生产者。最终finalizer教学与最终成员校验入口均验证“候选没有必列义务；真正集合遗漏仍报告”。
+5. 有效首红 `20260907-b1604-red.log`：集合候选被置required、QFEnumeration误得3条通用骨架、显式2成员被邻近import扩张；非编译失败。旧类别测试拆明普通类别仍required、typed关系请求无集合凭证则enrichment，未批量把legacy setter改成explicit以刷绿。四包consumer定向0.771s/1.906s/0.986s/2.854s、路径小修前四包窄race1.784s/12.191s/10.044s/11.010s均通过。末轮交叉审查发现新精确臂复用了转小写的旧路径函数，Linux大小写不同文件会误合；真实`path case matched=true`首红留档`20260907-b1604-pathcase-red.log`。仅新臂改保大小写的斜杠规范化，不按basename/相对路径猜仓，绝对/相对或./不明同源保持不合并，旧全局路径函数不动。修后四包定向1.006s/0.983s/1.950s/2.782s（`20260907-b1604-final-green.log`）。此前已启动的全仓降为中途快照，不能据此宣称末次小修已验；最终验收另收账，无新live结论。
+6. r1033“实现类名称”未覆盖的额外软提醒不是同一个gap：原模型给该需求标source_attribute，入模属性要求却主要按package/module/namespace解释。B1604不改需求role，也不扫描label或正文猜正确role；另留P2属性维度语义审计，不能宣称已消掉此提醒或其重试。新增来源仅解释入模集合边界，不发射成用户答案或系统结论。
+
+路径最终修正后types完整包27.953s、该族race1.920s通过（`20260907-b1604-final-types.log` / `20260907-b1604-final-race.log`）；其他三包按修后定向验收。最终全仓与干净构建后的r1034另行收账。
+
+状态：`B1604=implemented/producer-origin+shared-member-policy/focused+types-full+race-pass`；`typed-set/explicit-selected-members=preserved`；`candidate-facts=retained/not-mandatory-roster`；`model-answer/prose-hardgate/Trace-projection=unchanged`；`whole-repo-and-r1034=pending`。
+
 ### §123.1663 B1606：提交与最终校验消费同一份模型声明（2026-09-07）
 
 1. r1033 C++ 两条 `answer_item_citation_role` 软警告真实复现，但不是首次提交硬拒：emit已正确只读取模型显式选择的definition_fact，最终校验却把视图可供选择的import_edge混入，借另一处include证据把定义引用当成错误关系引用。与B1600自动补双owner及B1604成员权限分别立案，不合并误报机制。
@@ -57399,7 +57424,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 **B1607 / P1 全量目标等待 census：确认能力缺口，独立排期。** 现有BinderWaits只从最终chain.Nodes选择，受MinDurationMs、MaxBranches/Depth/ChainNodes影响；请求graph先筛窗内send再截边，D/IO链终止分支本来不构结束唤醒边。故请求清单complete不证明阻塞段complete，简单加大limit、取消D终止规则或用send替代sleep均不正确。后续最优方案为独立同工件/目标生命周期/精确窗口的完整状态读集，复用现有P9事务与唤醒匹配谓词；边界外上下文只作精确配对见证，完整匹配段再窗内裁剪/union。统计与显示cap分离，分别披露扫描/闭合匹配/返回覆盖；未知与未闭合不转实测零，不改变根因资格与定价。需要sub-ms、窗前send/窗后wake、S/D/IO、oneway/reply/嵌套、错source/PID重用、ordinary S/pacing、重叠段及limit/depth不变性正反针。该新账户尚未实施，1.409ms仍只是本轮观测下界。
 
-状态：`B1603=implemented/real-producer+count3+query-diag-tool-full-pass`；`B1605=implemented/bilingual-reader-only/count3+tool-full-pass`；`B1607=confirmed/P1/design-pending`；`root-seat/price/model-answer=unchanged`。
+**B1607 独立复审后的拆批约束。** B1607a先在`buildWakeupChainWithCache`已有完整targetTimeline上、interestingIntervals/递归预算之前构建独立目标状态账户，不能把新统计塞回BinderWaits（旧消费者会直接生成RootEvidence与critical）；既有WaitOccurrences仅D/IO及带IO标记的S且有32条cap，也不能充全量输入。分开披露状态扫描、事务配对上下文、真实闭合与显示截断四种覆盖。B1607b再补边界外精确事务配对，原公开IPCGraph窗口语义保持。P9的100ms回看/未见reply候选不是独立闭合证明；reply键缺事务/生命周期，部分wakeup/cadence键仅PID，新增账户必须先绑定物理源、目标生命周期、真实状态端点，不能把扩大窗口后的邻近唤醒或异源同PID当闭合。复用的是排除和披露谓词，不借旧helper候选升级根因；namespace提示、推定peer、未知flags/oneway/reply/普通S/pacing均保非已证车道。状态统计先配对再裁窗/union，Binder与IO重叠不能重复加总。两批均尚未开发，不宣称全量Binder根因已闭环。
+
+状态：`B1603=implemented/real-producer+count3+query-diag-tool-full-pass`；`B1605=implemented/bilingual-reader-only/count3+tool-full-pass`；`B1607=confirmed/P1/a-state-census-then-b-scoped-pairing`；`root-seat/price/model-answer=unchanged`。
 
 ### §123.1661 剩余问题续修与 r1034 双路队列（2026-09-07）
 
