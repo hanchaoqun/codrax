@@ -172,8 +172,11 @@ func traceBlockingWallClockCandidateFromRecord(record ObservationRecord, rm *Req
 	dimension := traceObservationDimension(record)
 	criticalBlocking := dimension == TraceObservationDimensionCriticalBlocking &&
 		strings.EqualFold(strings.TrimSpace(record.Predicate), "critical_blocking")
+	// Principal-rank publication may relabel a Rank=0 target-self row as
+	// root_cause_context_only without changing its engine-owned tier or
+	// measured interval. Read that precise tier, not the display predicate:
+	// this account describes the target's wait, never grants a root-cause seat.
 	targetSelfState := dimension == TraceObservationDimensionRootCauseRank &&
-		strings.EqualFold(strings.TrimSpace(record.Predicate), "root_cause_target_self_state") &&
 		strings.EqualFold(strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyTier)), TraceCausalTierTargetSelfState)
 	completionClosedIO := strings.EqualFold(strings.TrimSpace(record.Predicate), "io_latency") &&
 		traceObservationRichNoteBool(record.RichNotes, TraceNoteKeyIOCompletionWokeIssuer) &&

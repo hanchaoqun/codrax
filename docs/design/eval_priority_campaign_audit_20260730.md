@@ -57380,6 +57380,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1660 B1602：等待测量按语义身份消费，不借显示标签授予根因资格（2026-09-07）
+
+1. 真实 r1033 的 `binder_wait` 根因排序行保持 `tier=target_self_state`、精确目标和区间，但 Rank=0 正确只作支撑，工具发布将显示 Predicate 降为 `root_cause_context_only`。下游阻塞墙钟汇总还合取旧 Predicate，导致 1.409ms 在普通观测中可见、专用入模测量栏却缺失。这是展示身份与测量身份耦合的系统漏传，不是数据源无证据。
+2. 最小根修只移除旧显示 Predicate 合取，仍读取确定性生产者、硬凭证、RootCauseRank 维度及目标自身状态 tier，并保留目标、工件、查询窗口、非缺口、正有限数值、单位和时长与区间一致性条件。不同查询窗口仍分别建账；不以会话任意一次结果跨窗借值，不更改源测量、排名、价格、投影、模型结论或根因席位。背景 pacing 与未知 tier 不得借道进入等待账。
+3. 实际 Donghu `BuildIndex → Run(root_cause_rank/critical_blocking_calls) → traceQueryTypedObservations → BuildTraceBlockingWallClockAuthorities → 中英系统附注` 先红后绿，恢复的是 `13762.835861..13762.837270` **至少1段、合计1.409ms**。Rank=0、supporting 资格与容量截断下界原样保留。起点为发送的 critical twin 跨度更宽0.050ms，不能替代精确入睡区间；测试固定仅收准确排序行的记录 ID，不从另一行补 peer、不把部分观测写成全量。
+4. 正反针包含展示标签新旧等价、缺/未知/背景 tier、另一维度/目标/查询窗、无工件/窗口、缺口、非有限/零值、模型来源/软凭证及宽事务包络。定向 count3：types0.462s/tool11.329s，日志 `20260907-b1602-final-count3.log`；最终生产四包全绿见§123.1659。独立交叉审查确认没有放宽根因资格或修改模型正文。该实现尚未以新二进制跑新 LLM 对，不回填 r1033 为修后成绩。
+5. 仍需保留的队列：全量 Binder 等待 census/critical twin 起点与时长口径审计，以及 C++成员 principal/supporting 域对齐；已有准确指导下的 S/传输/全部口径/pacing 误读暂列模型质量观察。下一批继续异构优先级轮换、每次并行2个，不因单题波动反复加硬门。精确窗投影、自动补齐、链上业务线索、原始占时与可消量双轴不变。
+
+状态：`B1602=implemented/real-producer-red-to-green/count3+affected-full-pass`；`measurement=target-self-lower-bound/not-root-seat`；`B1600=pushed-8d3583e67`；`B1601=pushed-5cfa69267`；`model-rewrite/prose-hardgate=none`；`fresh-live-replay=pending`。
+
 ### §123.1659 B1600：自动补全不能制造第二个引用所有者（2026-09-07）
 
 1. 真实 C++ 首稿只选择 `evidence_ids`，自动补全却按同一精确定义位置追加 `source_inventory_row_id`，再由互斥校验拒绝；这是系统自冲突，不是 JSON 畸形或模型首稿双填。根修仅让已有非空、规范化后的证据 ID 保持其所有权，不再自动补第二个行身份。模型正文、引用、图与关系均不代改，已有双 owner、无效 ID、真实必需行身份仍走原校验。
@@ -57388,7 +57398,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 4. 首红 `20260907-b1600-red-expanded.log`，定向回归1.568s、race3.339s通过；最终包含原 r1033 profile/逐字首稿的新测试 `20260907-b1600-final.log` 1.086s通过。最终生产快照四包 `20260907-b1600-b1602-full-packages.log` 退出0：tool280.616s、types34.461s、agent53.124s、orchestrator18.291s；原首稿新针在全包启动后追加，独立终验如上，不冒称全包编译已包含后来新增的测试。
 5. 此项只关闭引用自冲突。C++定义的 principal/supporting 成员域不一致及软提醒、模型“仅覆写write”误述仍独立保留；没有将一次回归通过写成新 LLM 回放零重试。r1033 旧日志、答案与机器评分不修改。
 
-状态：`B1600=implemented/real-entry-red-to-green/final-regression+race+affected-full-pass`；`selected-evidence-owner=preserved`；`explicit-dual/invalid-ID/required-row-gates=unchanged`；`model-prose-hardgate/rewrite=none`；`fresh-live-replay=pending`。
+状态：`B1600=pushed-8d3583e67/real-entry-red-to-green/final-regression+race+affected-full-pass`；`selected-evidence-owner=preserved`；`explicit-dual/invalid-ID/required-row-gates=unchanged`；`model-prose-hardgate/rewrite=none`；`fresh-live-replay=pending`。
 
 ### §123.1658 r1033 收账与 B1600–B1602：不以机器通过掩盖合同冲突或归因错误（2026-09-07）
 
@@ -57398,13 +57408,13 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 |---|---|---|
 | P1 / B1600-PRINCIPALITEMOWNERCONSISTENCY1 | C++模型首稿只选择evidence_ids；系统自动绑定source_inventory_row_id后再因双owner硬拒。自动补全必须尊重已有精确owner，不能删除模型字段或让正常输入被自铸字段拒绝；显式冲突/未知ID/必需行身份原门保持 | 已实现；真实提交/patch、多载体分组、原r1033生产归一化与逐字首稿绿，race及最终生产四包通过，见§123.1659；新live待回放 |
 | P2 / B1601-TRACESUPPORTCLAIMLABEL1 | reduced root_evidence全是无排名支撑，但系统附录叫“根因证据”，包括15.758/15.565ms pacing。root_evidence改中性分析支撑观测；root_cause的精确context_only/data_gap分别中性/覆盖缺口，背景/邻近沿原typed标记更具体；已证onchain主次根因原词形不变 | 已实现；实际ParseOutput中英22臂先红后绿，ledger/投影canonical JSON/模型文档不变；完整agent49.768s通过 |
-| P1 / B1602-BLOCKINGMEASUREMENTTIERIDENTITY1 | target_self_state因Rank=0正确降为support显示predicate，但下游等待测量消费误绑旧predicate而漏收精确Binder1.409ms。改用现有deterministic dimension+tier及原target/window/value/span门；不提升排名，不把critical发送包络猜成阻塞时长 | 已实现；真实Donghu BuildIndex→Run→typedObservations→Authority→双语附注先红后绿，恢复至少1段1.409ms；同窗仅Binder与两IO类型，无pacing误纳，count3绿；全包待统一 |
+| P1 / B1602-BLOCKINGMEASUREMENTTIERIDENTITY1 | target_self_state因Rank=0正确降为support显示predicate，但下游等待测量消费误绑旧predicate而漏收精确Binder1.409ms。改用现有deterministic dimension+tier及原target/window/value/span门；不提升排名，不把critical发送包络猜成阻塞时长 | 已实现；真实Donghu BuildIndex→Run→typedObservations→Authority→双语附注先红后绿，恢复至少1段1.409ms；同窗仅Binder与两IO类型，无pacing误纳，count3与最终生产四包绿；见§123.1660，新live待回放 |
 
 H1输入已经明确S不排除同步等待、传输与阻塞不同、容量下界不得说全部（log2366–2405）；这些模型误读列P2观察，不新增关键词硬门/重复堆prompt。B1602是独立的精确数据漏传，不能以“模型波动”掩盖。14.302ms实际13763.009537..13763.023839完整在用户窗，错误仅是无凭证pacing归因，不立“窗外”假案。
 
 不遗漏的后续项：C++principal/supporting成员域对齐P2待审（准确ConsoleSink/FileSink定义被放support，产生弱证据警示）；Binder critical twin起点为发送、值为睡眠阻塞，0.050ms口径差仍独立保留，正确extent门没有放松；全量Binder等待仍需完整观测，恢复下界不意味着现已统计所有事务。root-causes.json本轮已生成139B typed-unavailable，模型未补14个可选ID的selection，不是旁路漏写，系统不得从正文代填。
 
-状态：`r1033=machine-pass-2/2,human-cpp-core-pass+trace-core-fail`；`B1601=pushed-5cfa69267/agent-full-pass`；`B1600=implemented/affected-full+race-pass`；`B1602=in-flight-bounded-batch`；`Trace-explicit-window/projection/two-axes/business-context=preserved`；`non-chain=root-ineligible`；`model-prose-hardgate/rewrite=none`。
+状态：`r1033=machine-pass-2/2,human-cpp-core-pass+trace-core-fail`；`B1601=pushed-5cfa69267/agent-full-pass`；`B1600=pushed-8d3583e67/affected-full+race-pass`；`B1602=implemented/real-producer+count3+affected-full-pass`；`Trace-explicit-window/projection/two-axes/business-context=preserved`；`non-chain=root-ineligible`；`model-prose-hardgate/rewrite=none`。
 
 ### §123.1657 B1599：补读后的当前缺口与历史完成边界分离（2026-09-07）
 
