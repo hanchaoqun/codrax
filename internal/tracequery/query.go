@@ -22786,6 +22786,19 @@ func frameIDFromName(name string) string {
 	return ""
 }
 
+// binderWaitTargetWindow projects only the scheduler-owned endpoints already
+// carried by a wait. DurationMs measures this sleep interval, not the earlier
+// request-send phase. A legacy or unclosed wait retains its measurement and IPC
+// locators, but must not manufacture an extent from SendTs or DurationMs.
+func binderWaitTargetWindow(wait BinderWaitSummary) TimeWindow {
+	if wait.SleepStartTs <= 0 || wait.WakeupTs <= wait.SleepStartTs ||
+		math.IsNaN(wait.SleepStartTs) || math.IsInf(wait.SleepStartTs, 0) ||
+		math.IsNaN(wait.WakeupTs) || math.IsInf(wait.WakeupTs, 0) {
+		return TimeWindow{}
+	}
+	return TimeWindow{StartTs: wait.SleepStartTs, EndTs: wait.WakeupTs}
+}
+
 func BuildCriticalBlockingCalls(idx *Index, q Query) CriticalBlockingResult {
 	q = normalizeQuery(idx, q)
 	// ONCHAIN-FIX-2 件2 (Q5 已追认, 2026-07-18): chain-first, exactly like the
@@ -22918,6 +22931,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		}
 		chainForContext = &chain
 		for _, wait := range chain.BinderWaits {
+			window := binderWaitTargetWindow(wait)
 			add(CriticalBlockingCandidate{
 				Type:              "binder_wait",
 				Thread:            wait.Thread,
@@ -22928,8 +22942,8 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 				SyncLike:          traceBoolPtr(wait.SyncLike),
 				BlockingCandidate: traceBoolPtr(wait.BlockingCandidate),
 				DurationMs:        wait.DurationMs,
-				StartTs:           wait.SendTs,
-				EndTs:             firstPositiveFloat(wait.WakeupTs, wait.SleepStartTs),
+				StartTs:           window.StartTs,
+				EndTs:             window.EndTs,
 				LineStart:         firstPositive(wait.SendLine, wait.SleepLine),
 				LineEnd:           firstPositive(wait.WakeupLine, wait.ReceiveLine, wait.SleepLine),
 				Confidence:        wait.Confidence,
@@ -27849,6 +27863,7 @@ func evidenceFromChain(chain ChainResult) []EvidenceFact {
 		})
 	}
 	for _, wait := range chain.BinderWaits {
+		window := binderWaitTargetWindow(wait)
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(wait.Thread),
 			Predicate:  "binder_wait",
@@ -27856,8 +27871,8 @@ func evidenceFromChain(chain ChainResult) []EvidenceFact {
 			Summary:    wait.Summary,
 			LineStart:  firstPositive(wait.SendLine, wait.SleepLine),
 			LineEnd:    firstPositive(wait.WakeupLine, wait.ReceiveLine, wait.SleepLine),
-			StartTs:    wait.SendTs,
-			EndTs:      firstPositiveFloat(wait.WakeupTs, wait.SleepStartTs),
+			StartTs:    window.StartTs,
+			EndTs:      window.EndTs,
 			Confidence: wait.Confidence,
 		})
 	}

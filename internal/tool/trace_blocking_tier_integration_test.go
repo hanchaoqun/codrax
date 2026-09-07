@@ -22,6 +22,7 @@ func TestB1602DonghuBlockingTierThroughRealProducer(t *testing.T) {
 	}
 	var records []types.ObservationRecord
 	var rankRecord types.ObservationRecord
+	var criticalRecord types.ObservationRecord
 	for _, view := range []string{"root_cause_rank", "critical_blocking_calls"} {
 		limit := 12
 		if view == "critical_blocking_calls" {
@@ -44,6 +45,9 @@ func TestB1602DonghuBlockingTierThroughRealProducer(t *testing.T) {
 		for _, record := range obs {
 			if record.Predicate == "root_cause_context_only" && record.Object == "binder_wait" {
 				rankRecord = record
+			}
+			if record.Predicate == "critical_blocking" && record.ClaimKey == "critical_blocking:binder_wait" {
+				criticalRecord = record
 			}
 		}
 		records = append(records, obs...)
@@ -71,8 +75,17 @@ func TestB1602DonghuBlockingTierThroughRealProducer(t *testing.T) {
 		t.Fatalf("real target-self wait must survive as a lower bound: %+v", found)
 	}
 	occurrence := found.Occurrences[0]
-	if occurrence.StartTs != 13762.835861 || occurrence.EndTs != 13762.837270 || len(occurrence.RecordIDs) != 1 || occurrence.RecordIDs[0] != rankRecord.ID {
-		t.Fatalf("wider transaction-phase critical twin must not replace exact sleep ownership: %+v", occurrence)
+	if occurrence.StartTs != 13762.835861 || occurrence.EndTs != 13762.837270 || len(occurrence.RecordIDs) != 2 || criticalRecord.ID == "" ||
+		!containsB1603RecordID(occurrence.RecordIDs, rankRecord.ID) || !containsB1603RecordID(occurrence.RecordIDs, criticalRecord.ID) || occurrence.Peer != criticalRecord.Object {
+		t.Fatalf("same exact sleep published by rank and repaired critical must fold once and retain the critical peer: %+v", occurrence)
+	}
+	// B1603 repairs the source interval; B1602's original rejection of an
+	// independently wider request envelope remains required.
+	wrong := criticalRecord
+	wrong.ID += "-wide-transaction"
+	wrong.Span.StartTs = 13762.835811
+	if got := types.BuildTraceBlockingWallClockAuthorities(types.ObservationLedger{Records: []types.ObservationRecord{wrong}}, &rm); len(got) != 0 {
+		t.Fatalf("wider request envelope must remain inadmissible: %+v", got)
 	}
 	for _, lang := range []string{"zh", "en"} {
 		t.Run(lang, func(t *testing.T) {
@@ -91,9 +104,9 @@ func TestB1602DonghuBlockingTierThroughRealProducer(t *testing.T) {
 			for _, block := range doc.Blocks {
 				surface += types.AnswerBlockVisibleSurface(block)
 			}
-			want := "type=binder_wait; at least 1 interval totaling 1.409ms"
+			want := "type=binder wait; at least 1 interval totaling 1.409ms"
 			if lang == "zh" {
-				want = "类型=binder_wait；当前至少观测到 1 段、合计 1.409ms"
+				want = "类型=binder等待；当前至少观测到 1 段、合计 1.409ms"
 			}
 			if !strings.Contains(surface, want) || doc.Blocks[0].Text != modelText {
 				t.Fatalf("reader lower bound or model ownership lost: %s", surface)
@@ -104,4 +117,13 @@ func TestB1602DonghuBlockingTierThroughRealProducer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func containsB1603RecordID(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }

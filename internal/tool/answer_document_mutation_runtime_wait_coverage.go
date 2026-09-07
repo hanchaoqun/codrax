@@ -126,7 +126,7 @@ func materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc *types.AnswerDoc
 				authority.ArtifactLabel,
 				authority.SelectedWindow,
 				authority.Subject,
-				authority.Type,
+				runtimeTraceBlockingWaitTypeLabel(authority.Type, zh),
 				len(authority.Occurrences),
 				authority.ObservedMS,
 			)
@@ -140,7 +140,7 @@ func materializeRuntimeTraceBlockingCoverageAuthorityCaveat(doc *types.AnswerDoc
 				authority.ArtifactLabel,
 				authority.SelectedWindow,
 				authority.Subject,
-				authority.Type,
+				runtimeTraceBlockingWaitTypeLabel(authority.Type, zh),
 				len(authority.Occurrences),
 				intervalWord,
 				authority.ObservedMS,

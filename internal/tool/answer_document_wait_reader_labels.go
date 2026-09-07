@@ -66,3 +66,18 @@ func runtimeTraceWaitCallsiteLabel(caller string, zh bool) string {
 	}
 	return caller // Kernel symbol bytes are data, never translated or classified.
 }
+
+// The wait account's type is a wire identity, not a reader-facing name or
+// a root-cause qualification. Reuse the shared lexicon where it applies.
+func runtimeTraceBlockingWaitTypeLabel(token string, zh bool) string {
+	if token == "block_io_completion_closed_issuer_wait" {
+		if zh {
+			return "IO完成唤醒提交线程的等待"
+		}
+		return "issuer wait ended by IO completion"
+	}
+	if label := TraceRootCauseTypeDisplayLabel(token, zh); label != "" {
+		return label
+	}
+	return token // Unknown future identities remain inspectable, never guessed.
+}

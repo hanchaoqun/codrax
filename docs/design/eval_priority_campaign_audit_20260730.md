@@ -57380,6 +57380,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1662 B1603/B1605：统一 Binder 等待区间与读者词面（2026-09-07）
+
+1. B1603生产先红成立：真实 `critical_blocking_calls` 单独查询时有1.409ms行，却因起点误用send导致下游墙钟测量栏无法接收。两个生产出口改共用 `binderWaitTargetWindow`，只用已携带且正有限有序的 SleepStartTs/WakeupTs；保持 DurationMs、Peer/PeerSource、flags、confidence与请求/接收的行定位不变。PeerState现在按同一真实等待区间下钻，发送前的50µs不再混进等待上下文。无闭合端点时保留原观测和时长，但不拿SendTs或DurationMs猜造跨度。
+2. 修后真实Donghu critical-only可发布至少1段1.409ms并保留对端；与root_cause_rank并取时两来源ID按同物理区间去重，仍1段/1.409ms，不重复相加。原宽包络反例仍被精确时长一致性门拒绝；不为结果变绿松门。S正针必须有实际结束唤醒，D变体明确当前没有该结束边，分别固定行为。窗口测试不虚称完整裁剪覆盖：左端移入等待后donor=0，右端早于唤醒donor=1但无闭合，之后窗口donor=0；这些是边界/未闭合负针。
+3. B1605独立显示gap：系统自有阻塞范围附注直接发射 `binder_wait`/`io_latency`/`block_io_completion_closed_issuer_wait`。现以共享双语词库显示前两者，闭合IO账户显示“IO完成唤醒提交线程的等待”；只按既有精确type作标签，不添加根因资格。未知未来type原样保留以免猜测；工件、窗口、对象、数值、原始token、证据JSON与模型原文（含相同枚举字串）不变。真实materializer中英8臂先红后绿并钉幂等。
+4. 验证：B1603首红 `20260907-b1603-red-confirmed.log`（之前tool针把Object误当类型的无效前提已纠正，不计有效红证）；最终count3 query0.769s/tool20.922s；完整query87.061s/tracediag6.928s。B1605首红 `20260907-b1605-red.log`、count3及旧词库/等待兼容1.080s；两项联合tool count3为18.501s。完整tool `20260907-b1603-b1605-full-tool.log` 291.152s退出0。独立只读审查通过；后续B1604/B1606的最终快照须另验，不借本包旧快照签绿。
+5. 资格边界不藏变化：缺闭合端点的D变体从原错误send→sleep包络变为空跨度，会进入既有同PID身份继承车道，ChainRelevance可能由adjacent变on_chain，但Overlap仍0、无发生段凭证；这不是新直接因果证明，critical仍为support，target-self等待不授予根因排名。无跨度的PeerState/PeerChain保留既有查询窗背景下钻并显式携窗，不冒充1.409ms发生段内的对端状态。本批不重诉既裁身份继承规则，也不保留错误时间来维持旧显示字节。追加持久资格针从真实D生产结果验证原1.409ms保留、supporting/Rank=0、无完整区间测量权限及无可消除方向成员；目标自身遵循原规则不显示身份继承标记，非目标同链成员显示。该追加针在全包之后独立count3通过（query0.768s/tool2.376s，`20260907-b1603-identity-boundary-count3.log`），不冒称旧全包包含后来测试。
+
+**B1607 / P1 全量目标等待 census：确认能力缺口，独立排期。** 现有BinderWaits只从最终chain.Nodes选择，受MinDurationMs、MaxBranches/Depth/ChainNodes影响；请求graph先筛窗内send再截边，D/IO链终止分支本来不构结束唤醒边。故请求清单complete不证明阻塞段complete，简单加大limit、取消D终止规则或用send替代sleep均不正确。后续最优方案为独立同工件/目标生命周期/精确窗口的完整状态读集，复用现有P9事务与唤醒匹配谓词；边界外上下文只作精确配对见证，完整匹配段再窗内裁剪/union。统计与显示cap分离，分别披露扫描/闭合匹配/返回覆盖；未知与未闭合不转实测零，不改变根因资格与定价。需要sub-ms、窗前send/窗后wake、S/D/IO、oneway/reply/嵌套、错source/PID重用、ordinary S/pacing、重叠段及limit/depth不变性正反针。该新账户尚未实施，1.409ms仍只是本轮观测下界。
+
+状态：`B1603=implemented/real-producer+count3+query-diag-tool-full-pass`；`B1605=implemented/bilingual-reader-only/count3+tool-full-pass`；`B1607=confirmed/P1/design-pending`；`root-seat/price/model-answer=unchanged`。
+
 ### §123.1661 剩余问题续修与 r1034 双路队列（2026-09-07）
 
 起点 `5de7e9e505bd` 工作区干净，fetch 后与 origin/main 为0/0；当前仍243个 `.case`。先修可确定的生产口径/权限污染，再从用户影响、证据确定性、泛化收益、语言/模式覆盖、近期回放间隔及执行环境六个维度安排下一对，不重跑同一道题追分。
@@ -57388,6 +57400,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 |---|---|---|
 | P1 / B1603-BINDERWAITINTERVALIDENTITY1 | BinderWaitSummary 已有精确 SleepStartTs/WakeupTs，critical candidate 与 evidenceFact 却从 SendTs 构窗，而 DurationMs 按睡眠段计算。同一行值与区间不等；修两个生产出口共用真实等待端点，保发送/接收信息、原始凭证与根因资格。缺失/零/反序/非有限端点不可用发送或时长反推 | 已确认，真实入口先红后绿施工中；全量等待 census 另审，不混称该修复完成全量统计 |
 | P1 / B1604-ENUMERATIONBACKBONESCOPE1 | 通用同文件至少3条证据的序列启发式在 facet 编译前选热文件，随后集合成员权限拿它裁 principal，导致其他文件合法成员变弱支撑。修向为成员集合只消费自身精确权限，不借热点/文件计数确定成员域；保模型明确 symbol backbone 和真正链路规则 | 已确认生产链，正在核对集合兄弟面与实际校验反例；不一把提升所有support |
+| P1 / B1606-CITATIONCLAIMFORMPARITY1 | emit已按模型显式claim_uses选forms，post校验却混入模板可选import_edge，把定义列表的引用判成模型未作出的关系断言。两面共用原emit精确选择，不扩大现有箭头/正文拒绝范围 | 独立先红后绿施工中；与热文件成员域不是同一个gap |
 | P2 / 精度与教学后续 | Binder 等待 census、调用链分支是否同受启发式影响、JSON/patch所有权教学与结构合同对齐 | 只读复核；无确定反例不新设硬门或扩张结论所有权 |
 
 后续 r1034 冻结候选为 `sr_rust_cross_module_chain`（纯读、多模块、动态分派/递归/回程关系，距r1019已多轮）与 `github_issue_nlohmann_long_double_symptom`（写模式、两发布头同步、原生严格编译）。主机 clang++ 可用；Java是无运行时的stub，Rust工具链未在PATH，不用缺工具链的写例浪费本批，也不安装大依赖。Rust读不需要Cargo。待修复分批提交推送且干净构建后，以 PARALLEL=2/TIMEOUT=1200 启动，暂无live结果。
@@ -57395,6 +57408,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 验收不降低：C++原测试同时包含两头，任一 `%.*lg` 未修都应被 -Wformat/-Werror 拒绝；原断言仅证明1.25L输出非空，不声称完整浮点/JSON库回归，更不能用文本checker替代原生断言凭证。Rust必须人工核顺序与分支、walker职责及图边/返回，不把出现四个函数名当正确关系证明。
 
 活跃流定向复核 `20260907-b1603-active-stream.log` 通过：llm1.167s/repl2.243s。保持实际字节活跃时无默认4ms/固定4分钟成文降级，显式预算/取消/首字节或后续真实静默超时仍有效。全程不改用户/模型原文硬门、模型结论、显式窗投影和自动补齐。
+
+B1604设计复核不能停在“排除热文件”：移除错误过滤后，旧fallback会把基类等所有definition升为必列，仍是错误集合义务。因此同批还须在已有“关系集合需要精确权限”政策下区分候选事实与必需成员：无marked关系成员、无已接受精确symbol slate时仅作enrichment，不制造全量集合要求。symbol slate来源必须在真实producer写入并随状态携带；不能按当前profile是否active倒推旧buffer来源，也不能把extractor自动fallback当模型已确认集合。
 
 ### §123.1660 B1602：等待测量按语义身份消费，不借显示标签授予根因资格（2026-09-07）
 
