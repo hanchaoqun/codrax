@@ -1,6 +1,38 @@
 package types
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func TestRequestedExplanationOperationNeedsConsumesSharedSourceAuthorityOnly(t *testing.T) {
+	rm := &RequestModel{
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []RequestedAnswerDimension{
+			{Index: 3, Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+			{Index: 4, Role: RequestedAnswerDimensionBranchBehavior, Required: true},
+		}},
+		AnalyzerHints: AnalyzerHints{RequiredFileHints: []RequiredFileHint{{
+			Path: "worker.go", Confidence: 1, RequestedDimensionIndices: []int{3},
+		}}},
+	}
+	want := RequestedExplanationOperationNeeds(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints)
+	for _, authority := range []RuntimeSourceAnswerAuthoritySnapshot{
+		{},
+		{CurrentSourceLane: CurrentSourceLaneRequired, CurrentSourceRequirement: RuntimeSourceRequirementPrecise},
+		{CurrentSourceLane: CurrentSourceLaneAllowedOptional, RuntimeObservationCount: 2, RuntimeOnlySufficient: true},
+		{CurrentSourceLane: CurrentSourceLaneSatisfiedAbsent},
+	} {
+		if got := RequestedExplanationOperationNeedsForAuthority(rm, authority); !reflect.DeepEqual(got, want) {
+			t.Fatalf("non-excluded authority must preserve exact operation seats: authority=%+v got=%+v", authority, got)
+		}
+	}
+	if got := RequestedExplanationOperationNeedsForAuthority(rm, RuntimeSourceAnswerAuthoritySnapshot{CurrentSourceLane: CurrentSourceLaneExcluded}); len(got) != 0 {
+		t.Fatalf("existing authority exclusion must not be re-derived from roles or file hints: %+v", got)
+	}
+	if got := RequestedExplanationOperationNeedsForAuthority(nil, RuntimeSourceAnswerAuthoritySnapshot{}); len(got) != 0 {
+		t.Fatalf("nil request produced operation seats: %+v", got)
+	}
+}
 
 func TestRequestedExplanationOperationNeedsUsesOnlyExplicitHighConfidenceFileBindings(t *testing.T) {
 	profile := &RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []RequestedAnswerDimension{

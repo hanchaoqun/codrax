@@ -1925,7 +1925,16 @@ func renderEmitEvidenceExternalObservationSoftSkipSummary(ctx *types.BusContext,
 	// citations" from the completion gate as a contradiction and loops
 	// between the two surfaces (trace_repl.log 2026-07-02).
 	if emitEvidenceCompletionCitationFloorWaived(ctx) {
-		b.WriteString("This turn's completion does not require current-source citations: once the runtime observations answer the question, call emit_investigation_complete directly with the conclusion in reason plus aggregate_facts.\n")
+		var sourceNeeds []types.RequestedExplanationOperationNeed
+		if ctx.AnalysisIR != nil {
+			sourceNeeds = types.RequestedExplanationOperationNeedsForAuthority(&ctx.AnalysisIR.RequestModel,
+				types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{}))
+		}
+		if len(sourceNeeds) > 0 {
+			b.WriteString("The current-source citation-count floor is waived, but independently requested current-source operation evidence is still required. Keep these runtime observations in reason plus aggregate_facts; emit separate grounded operation rows with requested_dimension_indices for the required source dimensions before completion.\n")
+		} else {
+			b.WriteString("This turn's completion does not require current-source citations: once the runtime observations answer the question, call emit_investigation_complete directly with the conclusion in reason plus aggregate_facts.\n")
+		}
 	}
 	return b.String()
 }
@@ -6271,10 +6280,8 @@ func renderRequestedDimensionOperationOwnershipAdvisory(ctx *types.BusContext, c
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
-	needs := types.RequestedExplanationOperationNeeds(
-		ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions,
-		ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints,
-	)
+	needs := types.RequestedExplanationOperationNeedsForAuthority(&ctx.AnalysisIR.RequestModel,
+		types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{}))
 	if len(needs) == 0 {
 		return ""
 	}

@@ -57391,14 +57391,23 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 | 优先级 / ID | 问题与泛化修向 | 状态 |
 |---|---|---|
-| P1 / B1576-RUNTIMEDIMENSIONSOURCEAPPLICABILITY1 | 源码ownership教学/completion与typed source-excluded不同域；共享既有源码适用域，保留runtime维度、角色及源码必需场景 | 确认/施工，禁止以attached trace或关键词一概豁免源码 |
+| P1 / B1576-RUNTIMEDIMENSIONSOURCEAPPLICABILITY1 | 源码ownership教学/completion与typed source-excluded不同域；共享既有源码适用域，保留runtime维度、角色及源码必需场景 | 已实现/真实三面红绿，禁止以attached trace或关键词一概豁免源码 |
 | P1 / B1578-PROOFFOLLOWUPREADCAPABILITY1 | 历史定位被当成当前已持有源码，proof补验从首轮禁读；复用系统授权与既有只读预算，schema/stop/result/提示同源 | 确认/施工，源码变更/risk/worktree权限不放松 |
 | P1 / B1579-ENRICHMENTCAPACITYCORRECTION1 | 满池提前跳过TurnA/Mutable同ID纠正；限新增身份而不跳过既有ID修正 | 真实关系入口先红/施工 |
 | P1 / B1577-CITATIONCENSUSBEFOREDISPLAY1 | callable12项显示cap先于唯一性，丢同尾owner反证 | 已精确复现并修复，完整身份判定后才裁显示，见下 |
-| P1 / B1580-DYNAMICSELECTORCENSUS1 | 384core/128call前缀上做完整selector冲突判定，cap外不同candidate可能消失 | 待执行反例，未声称已复现；先完整同ID合并与冲突索引，按完整组裁剪 |
+| P1 / B1580-DYNAMICSELECTORCENSUS1 | 384core/128call前缀上做完整selector冲突判定，cap外不同candidate消失 | overlay已确证/待完整组方案；不能只补selector application而漏binding/lookup/return/entry/argument的同类唯一性 |
 | P1能力边界 / B1575-PROBECONTRACTEXECUTIONGRANULARITY1 | 整段probe通过+模块耦合不证明每个自报contract ref对应行为确实执行 | 已审计/方案待设计；先披露证明粒度，后续跨语言执行器逐ref凭证，不以模型自报或代码词法造权威 |
 
 前批完整 `go test ./... -count=1` 已通过（`.codrax/tmp/20260906-b1571-b1574-full-suite.log`），干净`make`与main推送完成。B1571/73/74有生产正证；B1572有真实入口先红后绿+原报告只读重投影，r1024为应拒负例。当前新批不在上述全仓结果内，须单独验证后收账。
+
+#### B1576：源码操作证据与统一来源适用域一致
+
+`implemented / shared-authority-three-seams-red-to-green / full-suite-pending`。
+
+- 用已有 `BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext/ForBusContext` 的同一snapshot；新薄投影仅消费已裁定的CurrentSourceLane=excluded，不重新计算来源规则。explorer教学、emit_evidence早期提示、completion检查共用它，纯Trace明确排除源码时不再要求伪造operation席位。
+- 原维度索引/role/Required/文件binding原样保留；不从HasTrace、optional、runtime sufficient或证据为空推断豁免。不改snapshot已有优先级，包括明确用户exclude与其它提示并存的既有处理；allow混合、default+精确源码锚、无来源凭证exclude等仍按原authority保留源码要求。
+- citation-count floor waiver不自动等于源码operation要求消失。仍有独立源码席位时，emit_evidence只承诺计数floor豁免，明确要求独立源码证据；没有这种席位才指引直接runtime completion。该边界不臆造一个更大的waiver。
+- 真实完成入口、explorer完整prompt、emit_evidence提示及request不变正/负例先红后绿；三包source authority/ownership/外部观测/集中判据lint回归通过。日志 `.codrax/tmp/b1576-source-applicability-red.log`、`b1576-source-promise-red.log`、`b1576-source-authority-regression.log`、`b1576-source-promise-green.log`。本批未动Trace投影、查询补采、链上金额或模型正文。
 
 #### B1577：定义唯一性先看完整身份集合，再截取12项显示
 
@@ -57417,6 +57426,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - 原满池裁剪/小池纠正测试保留；新组合臂先红日志 `.codrax/tmp/b1579-capacity-merge-red.log`，绿 `b1579-capacity-merge-green.log`。未改canonical merger的准入、字段权威、关系资格、模型正文或JSON schema。
 
 r1024补充否证：表格原始emit没有headers/columns且label/cells重复，系统通用列名是已有兼容降级，未删除模型提交的列名；IO状态行明确带scheduler_marked_only及零值范围，另有47段完成闭合12.658ms独立尺，系统没有把两者等同。模型漏限定和结构使用问题暂列质量观察，不加case词法门。
+
+B1580执行复核：真实python-plugin-mro扫描/解析产生的fixture证据上加入明确反事实冲突，387行全集保留csv并将json记为ambiguous_candidate；冲突落在384 core后时，实际385行工作池错误保留csv/json两个candidate，capsule与recipes都发布JsonPlugin。移动同一冲突到cap前恢复正确；异owner/异literal/不可引用三条负例通过。日志 `.codrax/tmp/b1580-dynamic-selector-probe.log`。这是静态候选完整性假阳性，不代表已伪造运行时选择或直接调用；candidate-only边界仍在。后续必须从完整同ID合并与共享编译判据建立完整应用/绑定/查找/返回/入口/实参组，再裁候选/recipe展示，且评估计算预算，不能只把一种应用记录塞回受限池便宣称整族闭环。
 
 ### §123.1639 B1571–B1574：完整候选、同席引用与教学/验证一致性（2026-09-06）
 

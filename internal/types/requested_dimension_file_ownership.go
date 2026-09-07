@@ -15,6 +15,20 @@ type RequestedExplanationOperationNeed struct {
 	Source    string
 }
 
+// RequestedExplanationOperationNeedsForAuthority is the shared source-applicable
+// projection for exploration guidance and completion. Explanation roles also
+// describe runtime-only questions; they do not override a validated exclusion
+// of current source. Callers provide the existing agent/bus authority snapshot,
+// preserving its policy precedence instead of re-deriving source applicability.
+// Merely having an attached trace or an optional source lane does not waive
+// operation seats. Requested roles, requiredness and file bindings never change.
+func RequestedExplanationOperationNeedsForAuthority(rm *RequestModel, authority RuntimeSourceAnswerAuthoritySnapshot) []RequestedExplanationOperationNeed {
+	if rm == nil || authority.CurrentSourceLane == CurrentSourceLaneExcluded {
+		return nil
+	}
+	return RequestedExplanationOperationNeeds(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints)
+}
+
 // RequestedExplanationOperationNeeds compiles the typed ownership contract.
 // A dimension with one or more explicit file bindings requires an operation
 // row from every bound file. Dimensions without bindings retain the legacy

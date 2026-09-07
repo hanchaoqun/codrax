@@ -1934,22 +1934,20 @@ func renderExplorerRequestedDimensionEvidenceOwnershipGuide(ctx *types.AgentCont
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
+	needs := types.RequestedExplanationOperationNeedsForAuthority(&ctx.AnalysisIR.RequestModel,
+		types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{}))
+	if len(needs) == 0 {
+		return ""
+	}
 	dimensions := types.RequestedExplanationOperationOwnershipDimensions(
 		ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions,
 	)
-	if len(dimensions) == 0 {
-		return ""
-	}
 	var b strings.Builder
 	b.WriteString("### Requested Explanation Evidence Ownership\n\n")
 	b.WriteString("Before the first completion attempt, keep independent requested explanation dimensions attached to the operation evidence that actually supports each one:\n")
 	for _, dimension := range dimensions {
 		fmt.Fprintf(&b, "- index=%d role=%s\n", dimension.Index, dimension.Role)
 	}
-	needs := types.RequestedExplanationOperationNeeds(
-		ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions,
-		ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints,
-	)
 	fileScoped := false
 	for _, need := range needs {
 		if need.Source == "" {

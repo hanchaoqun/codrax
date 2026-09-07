@@ -5030,10 +5030,8 @@ func requestedDimensionEvidenceOwnershipDowngrade(ctx *types.BusContext, evidenc
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions == nil {
 		return ""
 	}
-	needs := types.RequestedExplanationOperationNeeds(
-		ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions,
-		ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints,
-	)
+	needs := types.RequestedExplanationOperationNeedsForAuthority(&ctx.AnalysisIR.RequestModel,
+		types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{}))
 	if len(needs) == 0 {
 		return ""
 	}
