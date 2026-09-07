@@ -2651,14 +2651,14 @@ func bindDiagramRelationRepairCandidateExistingTypedNodeIDs(
 		out := make([]string, 0, len(values)+len(additions))
 		for _, raw := range append(append([]string(nil), values...), additions...) {
 			value := strings.TrimSpace(raw)
-			key := strings.ToLower(value)
+			key := value
 			if value == "" || seen[key] {
 				continue
 			}
 			seen[key] = true
 			out = append(out, value)
 		}
-		sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+		sort.Strings(out)
 		return out
 	}
 	binds := func(resolved, endpoint string) bool {
@@ -2709,14 +2709,12 @@ func bindDiagramRelationRepairCandidateExistingTypedNodeIDs(
 			block.Kind != types.BlockDiagram || block.Diagram == nil {
 			continue
 		}
-		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
-		nodeIDs := make([]string, 0, len(labels))
-		for nodeID := range labels {
-			nodeIDs = append(nodeIDs, nodeID)
-		}
-		sort.Slice(nodeIDs, func(i, j int) bool { return strings.ToLower(nodeIDs[i]) < strings.ToLower(nodeIDs[j]) })
 		var fromMatches, toMatches []string
-		for _, nodeID := range nodeIDs {
+		for _, declaration := range diagramExplicitSourceNodeDeclarations(block.Diagram.Body, block.Diagram.Kind) {
+			nodeID := declaration.ID
+			// The code-identity resolver keeps its existing lookup dialect, but
+			// receives only this exact source declaration (no case-colliding peer).
+			labels := map[string]string{strings.ToLower(nodeID): declaration.Label}
 			if declaredNodeBindsEndpoint(nodeID, labels, row.FromIdentity) {
 				fromMatches = append(fromMatches, nodeID)
 			}
@@ -2838,14 +2836,14 @@ func mergeDiagramRelationRepairCandidateNodeIDs(
 		out := make([]string, 0, len(left)+len(right))
 		for _, raw := range append(append([]string(nil), left...), right...) {
 			value := strings.TrimSpace(raw)
-			key := strings.ToLower(value)
+			key := value
 			if value == "" || seen[key] {
 				continue
 			}
 			seen[key] = true
 			out = append(out, value)
 		}
-		sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+		sort.Strings(out)
 		return out
 	}
 	target.FromNodeIDs = merge(target.FromNodeIDs, source.FromNodeIDs)
@@ -2934,36 +2932,21 @@ func diagramParticipantExactVisibleEndpointIDs(
 			block.Kind != types.BlockDiagram || block.Diagram == nil {
 			continue
 		}
-		sequenceSyntax := diagramEvidenceUsesSequenceSyntax(block.Diagram.Body, block.Diagram.Kind)
-		visit := func(decl mermaidcompat.NodeDecl) {
-			nodeID := strings.TrimSpace(decl.Ident)
-			labelIdentity := diagramEvidenceLabelSymbol(strings.TrimSpace(decl.Label))
+		for _, declaration := range diagramExplicitSourceNodeDeclarations(block.Diagram.Body, block.Diagram.Kind) {
+			nodeID := declaration.ID
+			labelIdentity := diagramEvidenceLabelSymbol(declaration.Label)
 			if nodeID == "" || (!diagramParticipantSurfaceListContainsExact(surfaces, nodeID) &&
 				!diagramParticipantSurfaceListContainsExact(surfaces, labelIdentity)) {
-				return
+				continue
 			}
-			ids[strings.ToLower(nodeID)] = nodeID
-		}
-		for _, raw := range strings.Split(block.Diagram.Body, "\n") {
-			line := strings.TrimSpace(raw)
-			for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
-				visit(decl)
-			}
-			// Sequence messages may contain parenthesized payloads that look like
-			// flow-node declarations. As with the evidence label registry, only
-			// explicit participant/actor declarations may mint a sequence alias.
-			if !sequenceSyntax {
-				for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
-					visit(decl)
-				}
-			}
+			ids[nodeID] = nodeID
 		}
 	}
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
 		out = append(out, id)
 	}
-	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+	sort.Strings(out)
 	return out
 }
 
@@ -3013,7 +2996,7 @@ func diagramRelationRepairAllowedAdditionsWithTypedReceipts(
 		}
 		seenNode, seenIdentity := false, false
 		for _, binding := range bindings {
-			if strings.EqualFold(binding.node, node) {
+			if binding.node == node {
 				seenNode = true
 				if !types.AnswerCodeIdentitySurfacesEquivalent(binding.identity, identity) {
 					return false
@@ -3021,7 +3004,7 @@ func diagramRelationRepairAllowedAdditionsWithTypedReceipts(
 			}
 			if types.AnswerCodeIdentitySurfacesEquivalent(binding.identity, identity) {
 				seenIdentity = true
-				if !strings.EqualFold(binding.node, node) {
+				if binding.node != node {
 					return false
 				}
 			}
@@ -3033,7 +3016,7 @@ func diagramRelationRepairAllowedAdditionsWithTypedReceipts(
 			return values
 		}
 		out := append(append([]string(nil), values...), node)
-		sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+		sort.Strings(out)
 		return out
 	}
 	bindReceiptNodes := func(candidate *types.AnswerDiagramRelationRepairCandidate, receipt types.DiagramEdgeAnchor) {
@@ -3117,23 +3100,21 @@ func diagramRelationRepairReceiptAliasAllowedByCurrentBlock(
 			continue
 		}
 		declared := make(map[string]bool)
-		for nodeID := range diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind) {
-			if nodeID = strings.TrimSpace(nodeID); nodeID != "" {
-				declared[strings.ToLower(nodeID)] = true
-			}
+		for _, declaration := range diagramExplicitSourceNodeDeclarations(block.Diagram.Body, block.Diagram.Kind) {
+			declared[declaration.ID] = true
 		}
-		aliasDeclared := declared[strings.ToLower(alias)]
+		aliasDeclared := declared[alias]
 		for _, nodeID := range currentNodeIDs {
-			if declared[strings.ToLower(strings.TrimSpace(nodeID))] && !strings.EqualFold(strings.TrimSpace(nodeID), alias) {
+			if declared[strings.TrimSpace(nodeID)] && strings.TrimSpace(nodeID) != alias {
 				return false
 			}
 		}
 		for _, anchor := range block.EdgeAnchors {
-			if strings.EqualFold(strings.TrimSpace(anchor.FromNode), alias) && strings.TrimSpace(anchor.FromIdentity) != "" &&
+			if strings.TrimSpace(anchor.FromNode) == alias && strings.TrimSpace(anchor.FromIdentity) != "" &&
 				!types.AnswerCodeIdentitySurfacesEquivalent(anchor.FromIdentity, identity) {
 				return false
 			}
-			if strings.EqualFold(strings.TrimSpace(anchor.ToNode), alias) && strings.TrimSpace(anchor.ToIdentity) != "" &&
+			if strings.TrimSpace(anchor.ToNode) == alias && strings.TrimSpace(anchor.ToIdentity) != "" &&
 				!types.AnswerCodeIdentitySurfacesEquivalent(anchor.ToIdentity, identity) {
 				return false
 			}
@@ -3148,7 +3129,7 @@ func diagramRelationRepairReceiptAliasAllowedByCurrentBlock(
 
 func diagramRelationRepairHasDeclaredCandidateNode(currentNodeIDs []string, declared map[string]bool) bool {
 	for _, nodeID := range currentNodeIDs {
-		if declared[strings.ToLower(strings.TrimSpace(nodeID))] {
+		if declared[strings.TrimSpace(nodeID)] {
 			return true
 		}
 	}

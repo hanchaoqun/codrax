@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
-	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1043,39 +1042,7 @@ func explicitDiagramEndpointDeclarations(prev *types.AnswerDocumentV2, blockID s
 	if count != 1 || diagram == nil {
 		return nil
 	}
-	uniqueLabels := diagramEvidenceNodeLabels(diagram.Body, diagram.Kind)
-	if len(uniqueLabels) == 0 {
-		return nil
-	}
-	byFoldedID := make(map[string]explicitDiagramEndpointDeclaration, len(uniqueLabels))
-	sequenceSyntax := diagramEvidenceUsesSequenceSyntax(diagram.Body, diagram.Kind)
-	for _, line := range strings.Split(diagram.Body, "\n") {
-		var declarations []mermaidcompat.NodeDecl
-		if sequenceSyntax {
-			declarations = mermaidcompat.SequenceParticipantDeclarations(line)
-		} else {
-			declarations = mermaidcompat.NodeDeclarationsAll(line)
-		}
-		for _, declaration := range declarations {
-			id := strings.TrimSpace(declaration.Ident)
-			key := strings.ToLower(id)
-			label, ok := uniqueLabels[key]
-			if id == "" || !ok || strings.TrimSpace(declaration.Label) != strings.TrimSpace(label) {
-				continue
-			}
-			if _, exists := byFoldedID[key]; !exists {
-				byFoldedID[key] = explicitDiagramEndpointDeclaration{ID: id, Label: label}
-			}
-		}
-	}
-	declarations := make([]explicitDiagramEndpointDeclaration, 0, len(byFoldedID))
-	for _, declaration := range byFoldedID {
-		declarations = append(declarations, declaration)
-	}
-	sort.Slice(declarations, func(i, j int) bool {
-		return declarations[i].ID < declarations[j].ID
-	})
-	return declarations
+	return diagramExplicitSourceNodeDeclarations(diagram.Body, diagram.Kind)
 }
 
 func exactLocalDiagramEdgeBranch(

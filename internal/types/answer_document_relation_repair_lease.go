@@ -1312,16 +1312,14 @@ func answerDiagramRelationRepairCandidateNodeIDs(values []string) ([]string, boo
 		if value == "" || strings.ContainsAny(value, "\r\n") {
 			return nil, false
 		}
-		key := strings.ToLower(value)
+		key := value
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 		out = append(out, value)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i]) < strings.ToLower(out[j])
-	})
+	sort.Strings(out)
 	return out, true
 }
 

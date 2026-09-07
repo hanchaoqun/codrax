@@ -2249,7 +2249,7 @@ func validateAtomicDiagramAdditionEndpointBindings(
 
 func atomicDiagramNodeIDListed(node string, allowed []string) bool {
 	for _, candidate := range allowed {
-		if strings.EqualFold(strings.TrimSpace(node), strings.TrimSpace(candidate)) {
+		if strings.TrimSpace(node) == strings.TrimSpace(candidate) {
 			return true
 		}
 	}
@@ -2417,7 +2417,7 @@ func atomicSequenceUniqueDeclaredTypedNode(
 			}
 		}
 		if declBinds {
-			matches[strings.ToLower(ident)] = ident
+			matches[ident] = ident
 		}
 	}
 	if len(matches) == 0 {
