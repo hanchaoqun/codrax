@@ -57387,10 +57387,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 | 批次 / 优先级 | 事项 | 当前状态与边界 |
 |---|---|---|
 | r1025 | `read_combo_log_current_code_boundary` + `sr_java_call_chain`，`PARALLEL=2 TIMEOUT=1800` | 已完成；359s机器PASS/153s机器FAIL，人工均fail，不改oracle或原答案求绿 |
-| B1581-MIXEDFALLBACKSTREAMLIVENESS1 / P1 | 主流式+备用非流式时全栈AND能力为false，BaseAgent固定阶段budget取消正在发字节的主流 | 已实现；真实BaseAgent+SSE 4ms及完整正负矩阵绿，独立review通过；相关完整包收尾中 |
+| B1581-MIXEDFALLBACKSTREAMLIVENESS1 / P1 | 主流式+备用非流式时全栈AND能力为false，BaseAgent固定阶段budget取消正在发字节的主流 | 已提交推送`3f410e084`；真实SSE先红后绿，完整正负矩阵及5个相关完整包通过 |
 | B1575（承接） | probe整体通过不证明每个绑定义务/异步方法实际执行 | 最小方案已审：复用confidence/ledger Detail披露证明粒度，零新增category/义务/模型字段，不动B1572同ref消债；逐方法执行凭证仍为独立能力建设 |
 | B1580（承接） | 动态候选全集冲突被工作池截断隐藏 | 继续按完整关系组编译设计，非只补一种selector application；未实现，不借本批read回放宣称关闭 |
 | B1582-DUPLICATEOPERATIONFEEDBACK1 / P2 | 纯重复emit只给通用metadata建议，已知“索引在definition上”软提示消失 | 代码确认/待排；提示输入可含本次命中的存量重复行，不扫描全会话、不提升definition、不改同ID或ownership判据 |
+| B1583-ROUTERACTIVEBUDGETSCOPE1 / 设计复核 | 路由分类仍有历史显式交互总预算，可能中断活跃分类流后转读模式 | 代码路径确认，非本批wrapper误判；尚未新SSE复现，不擅改既裁交互时限，不宣称全系统所有流式入口无墙钟 |
 
 - B1576–B1579源码快照`1af911411`的完整`go test ./... -count=1`已退出0，86个测试包通过，日志`.codrax/tmp/20260906-b1576-b1579-full-suite.log`；make通过。B1571–B1574快照此前全套同样通过；不把该成绩覆盖到后来新写的B1581。
 - r1025独立人工审计已写`eval/parallel_selected_summary_evalcampaign_logjava_r1025_20260906_manual_audit.md`。Java6条调用边保持，原文经本仓Mermaid浏览器parse+render成功；但stdout被称“实现审计落库”，校验Note放错owner/order，超限alt结束后仍无条件insert。精确terminal/effect_scope/guard/order均到达模型，首轮推理甚至知道不是数据库：按模型质量观察保留，不用stdout词形门或系统改图求绿。
@@ -57404,7 +57405,8 @@ B1581不是“默认finalizer到4分钟必降级”：既有finalizer固定可�
 已实现公共`llm.ChatWithRequestBudget`入口，在每个实际adapter处分派；Fallback/Telemetry仅转交，BaseAgent不提前给全链套固定deadline。非流腿独立同额预算从进入该腿开始，不继承前一腿过期child context；原parent取消/更短deadline、各adapter自身HTTP timeout及首字节/中途真实无字节idle仍有效。保留全栈原AND能力描述，零budget仍走原Chat行为。不通过模型文字、连接存在或回调猜测活动腿；无新增模型JSON义务，不改Trace资格/投影/自动补齐/答案所有权。
 
 - 真实BaseAgent的主流式SSE连续25条reasoning后才给正文，direct及nested两臂超过4ms均正常完成，未进入备用。正反矩阵覆盖非流主超时→流备用、流主EOF→非流备用、两条非流各自fresh budget、nested telemetry/fallback、parent取消/更早deadline、非流自身25ms HTTP超时，以及首字节/中途真正静默的typed失败；没有把超时保护全关。
-- `.codrax/tmp/b1581-active-leg-budget-matrix-green.log`、`b1581-stream-matrix-repeat.log`、`b1581-nonstream-fresh-budget-pin.log`通过；stream相关广回归llm17.931s/agent1.593s/orchestrator1.036s通过，独立reader新增LLM矩阵count=3通过。开发时HTTP测试fixture未读完request body导致server.Close等待，已修fixture并保留诊断，不下调产品断言。相关完整包与最终干净构建随后收账。
+- `.codrax/tmp/b1581-active-leg-budget-matrix-green.log`、`b1581-stream-matrix-repeat.log`、`b1581-nonstream-fresh-budget-pin.log`通过；stream相关广回归llm17.931s/agent1.593s/orchestrator1.036s通过，独立reader新增LLM矩阵count=3通过。开发时HTTP测试fixture未读完request body导致server.Close等待，已修fixture并保留诊断，不下调产品断言。最终5个完整包llm21.628s/agent45.101s/orchestrator16.805s/cmd11.842s/context0.730s全部通过（`.codrax/tmp/20260906-b1581-full-affected-packages.log`），干净make通过；本新增批未冒称重新跑完所有86包。
+- 边界补记B1583：`repl/turn_policy.go:969–993` 的REPL分类10s/CLI分类120s、`chitchat.go:1104–1127`交互总计时仍在；classifier经factory默认可为stream，`cmd/root.go`超时可回退read pipeline。该路由探测总预算有既裁产品历史，并非finalizer无正文超时，也不等于B1581的误用备用配置。后续先补真实SSE见证、区分默认请求预算与操作者显式总限时，再确定是否沿用本批执行器；本批不暗改路由语义。
 
 ### §123.1640 r1024：回放收账及适用域/读取能力矛盾（2026-09-06）
 
@@ -57422,13 +57424,13 @@ B1581不是“默认finalizer到4分钟必降级”：既有finalizer固定可�
 | P1 / B1579-ENRICHMENTCAPACITYCORRECTION1 | 满池提前跳过TurnA/Mutable同ID纠正；限新增身份而不跳过既有ID修正 | 已实现/真实关系入口红绿，提交8cd80e5c5 |
 | P1 / B1577-CITATIONCENSUSBEFOREDISPLAY1 | callable12项显示cap先于唯一性，丢同尾owner反证 | 已精确复现并修复，完整身份判定后才裁显示，见下 |
 | P1 / B1580-DYNAMICSELECTORCENSUS1 | 384core/128call前缀上做完整selector冲突判定，cap外不同candidate消失 | overlay已确证/待完整组方案；不能只补selector application而漏binding/lookup/return/entry/argument的同类唯一性 |
-| P1能力边界 / B1575-PROBECONTRACTEXECUTIONGRANULARITY1 | 整段probe通过+模块耦合不证明每个自报contract ref对应行为确实执行 | 已审计/方案待设计；先披露证明粒度，后续跨语言执行器逐ref凭证，不以模型自报或代码词法造权威 |
+| P1能力边界 / B1575-PROBECONTRACTEXECUTIONGRANULARITY1 | 整段probe通过+模块耦合不证明每个自报contract ref对应行为确实执行 | 最小披露方案已审/待实现；后续跨语言执行器逐ref凭证，不以模型自报或代码词法造权威，见§123.1641 |
 
-前批完整 `go test ./... -count=1` 已通过（`.codrax/tmp/20260906-b1571-b1574-full-suite.log`），干净`make`与main推送完成。B1571/73/74有生产正证；B1572有真实入口先红后绿+原报告只读重投影，r1024为应拒负例。当前新批不在上述全仓结果内，须单独验证后收账。
+前批完整 `go test ./... -count=1` 已通过（`.codrax/tmp/20260906-b1571-b1574-full-suite.log`），干净`make`与main推送完成。B1571/73/74有生产正证；B1572有真实入口先红后绿+原报告只读重投影，r1024为应拒负例。B1576/77/78/79分别提交`03ced0092`/`560a31531`/`1af911411`/`8cd80e5c5`并推送；新增完整全仓86包与构建通过，见§123.1641。修复后的纯Trace与proof-followup正向live仍未新跑，不用r1025不同路径替代验收。
 
 #### B1576：源码操作证据与统一来源适用域一致
 
-`implemented / shared-authority-three-seams-red-to-green / full-suite-pending`。
+`implemented / shared-authority-three-seams-red-to-green / full-suite-pass / targeted-live-pending`。
 
 - 用已有 `BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext/ForBusContext` 的同一snapshot；新薄投影仅消费已裁定的CurrentSourceLane=excluded，不重新计算来源规则。explorer教学、emit_evidence早期提示、completion检查共用它，纯Trace明确排除源码时不再要求伪造operation席位。
 - 原维度索引/role/Required/文件binding原样保留；不从HasTrace、optional、runtime sufficient或证据为空推断豁免。不改snapshot已有优先级，包括明确用户exclude与其它提示并存的既有处理；allow混合、default+精确源码锚、无来源凭证exclude等仍按原authority保留源码要求。
@@ -57437,7 +57439,7 @@ B1581不是“默认finalizer到4分钟必降级”：既有finalizer固定可�
 
 #### B1577：定义唯一性先看完整身份集合，再截取12项显示
 
-`implemented / finalizer-production-entry-red-to-green / full-suite-pending`。
+`implemented / finalizer-production-entry-red-to-green / full-suite-pass`。
 
 - 精确反例成立：同文件两个合法owner `A.run/B.run`，B位于第13个身份；旧逻辑把B连同其否证作用一起丢弃，于是短名定义run被错误标为proved。不是普通展示遗漏。
 - 完整身份map参与原唯一性判据，最多12项只限最终preview；隐藏callable不再消失于否证集合。仅为可见行解析定义，避免无谓扩大渲染计算；披露12/13，不把未显示说成不存在。
@@ -57445,7 +57447,7 @@ B1581不是“默认finalizer到4分钟必降级”：既有finalizer固定可�
 
 #### B1578：补验证计划取得当前文件的有限读取能力
 
-`implemented / real-BaseAgent-read-probe-emit-red-to-green / full-suite-pending / live-pending`。
+`implemented / real-BaseAgent-read-probe-emit-red-to-green / full-suite-pass / live-pending`。
 
 - 仍由既有活动batch+系统progress授权识别proof-only，不凭purpose文字开放权限。原来“已定位=当前已持有源码”的假设移除；首次允许read_file查看当前worktree目标、相关测试及必要元数据。复用原3成功/2失败预算，schema、soft-stop和结果记账共享同一允许条件，达到任一阈值后下一轮收口；当轮已准入并行调用照常计账，emit拒绝不刷新预算。
 - 读取复用原ReadFile工作树重映射、已激活多仓、敏感路径、typed denial和大文件窗口规则；没有新放开任意来源，也不臆造按文件名的拒绝。proof-only仍只许changes=[]+验证探针；grep/repo_map/list/exec/apply、普通非dry-run测试和无授权源码修改继续不可用。
@@ -57454,7 +57456,7 @@ B1581不是“默认finalizer到4分钟必降级”：既有finalizer固定可�
 
 #### B1579：满额只限制新增身份，不跳过已入池证据的纠正
 
-`implemented / full-pool-to-relation-authority-red-to-green / full-suite-pending`。
+`implemented / full-pool-to-relation-authority-red-to-green / full-suite-pass`。
 
 - 共享enrichment pool原有same-ID canonical merger保持原样，仅取消读取TurnA/Mutable前的“池未满”前置条件；新增身份仍在原limit处拒绝，已有ID始终接收后续合法纠正。不会因接收纠正扩大池、改排序、挤掉原成员或合成新关系。
 - 1/128/256/1024满额×TurnA/Mutable/二者同在，晚到新ID位于纠正之前仍不阻断合并；上游truth set字节不变。真实机制关系编译入口从原空关系恢复同一grounded调用与原方向，显示预算不再让旧definition盖过新call。
@@ -57470,7 +57472,7 @@ B1580执行复核：真实python-plugin-mro扫描/解析产生的fixture证据�
 
 #### B1571：摘要显示上限不再冒充候选全集
 
-`implemented / finalizer-production-seam-red-to-green / live-pending`。
+`implemented / finalizer-production-seam-red-to-green / full-suite-pass / r1024-positive`。
 
 - 仍用原有 `TraceAnswerDecisionEliminableSeats` 精确候选选择器，不复制资格判定。先取完整人口再保留前 8 项明细，发布完整计数、实际展示数和完整性；ordinal 清单只表示本段已展示项。删除“其余全部未排名”与“只有本段列出的项可以使用排名”的错误系统指令。
 - 摘要未列出不改变原条目的资格或已发布排名，也不自动赋予缺证条目资格。明确异窗项仍为背景且不得带入选定窗排名；邻近、背景、目标自身状态、聚合行及缺链资格的既有门均不动。模型原始正文和选择数组不读不写。
@@ -57479,7 +57481,7 @@ B1580执行复核：真实python-plugin-mro扫描/解析产生的fixture证据�
 
 #### B1573：算术许可、单项领先量与修复收益分开教学
 
-`implemented / skill-context-packages-pass / live-pending`。
+`implemented / skill-context-packages-pass / full-suite-pass / r1024-positive`。
 
 - 单项最大值只是该方向最大的单个已发布贡献，不是方向总量或收益上限。精确同向小计仅覆盖其列明成员；缺完整性不冒充整个方向总量。供给折算仍是估算，不是实测修复收益；下界和保守回退不能改叫上界或保证收益。
 - 物理重叠只证明共享已测时间，不证明修任一侧就能回收整段，也不证明另一修复无用。`undisclosed` 可能来自小交集过滤、缺包络或 partner cap，旧“无显著重叠”的通用解释删除；不从未披露推导互斥、独立或无重叠。
@@ -57488,7 +57490,7 @@ B1580执行复核：真实python-plugin-mro扫描/解析产生的fixture证据�
 
 #### B1572：已获准同义务证明不再卡在陈旧原因码
 
-`implemented / real-run-tests-red-to-green / types+write-verification-regressions-pass / live-pending`。
+`implemented / real-run-tests-red-to-green / full-suite-pass / r1024-correct-negative / positive-live-pending`。
 
 - 项目测试断言未观察到仍原样记入历史，既有同 contract-ref 的获准替代凭证也不变。新原因码由 producer/consumer 共用 types 常量，消解清单兼容原持久化旧码；只有原精确义务消解已成立时才能解除这条证明债。
 - 不是“有 probe 就跳过测试”：部分、异 ref、空 ref、失败、不可用、仅 advisory、source-static 不能证明 runtime 的负例仍保留弱/失败/不可用状态。未知原因码不扩豁免；整体执行失败不能被凭证消解盖成绿色，原报告不修改。
@@ -57497,14 +57499,14 @@ B1580执行复核：真实python-plugin-mro扫描/解析产生的fixture证据�
 
 #### B1574：同一排名条目折叠前后使用同一关系引用
 
-`implemented / real-donghu+four-face-red-to-green / full-suite-running / live-pending`。
+`implemented / real-donghu+four-face-red-to-green / full-suite-pass / r1024-positive`。
 
 - 在原先“无排名链行采用唯一同段排名 donor”的成功分支，同时保存原 donor 的精确 relation ref。原 host 仍保留自己的状态、金额和显示 Object，不从 host 重新哈希出第二个同席身份。该只读回执经既有 RankFoldPeers 进入方向成员清单，使小计、关系表、详细 handoff 和最终摘要四面一致。
 - 不改全局 member hash、不忽略 Object、不用 ordinal 粗去重。已有自身排名的 host 不采用 donor ref；adopted-but-unavailable 与未采用区分，原 donor 缺稳定身份时不得借 host 字段补造。异板、异目标、异类型、多 donor 歧义、邻近 0.598ms 均保持独立或无 alias。
 - 真实 donghu engine→ledger→projection 验证原 rank 与 folded host 指向相同 donor ref；独立 4 席方向在两份模型上下文中严格分成 2 个小计成员 + 2 个额外项，不再是 2+3。语义 rank fold 同源回归通过，公开金额、小计和资格保持原样。新增两个内部载体字段已逐项登记消费者，无盲目哈希重钉。
 - 先红 `.codrax/tmp/b1574-rank-ref-real-red.log`、`b1574-rank-ref-red.log`，真实查询与上下文绿日志 `b1574-rank-ref-real-green.log`、`b1574-rank-ref-green.log`。原 B1568 rounded/window 身份组继续验证；不用正常精确窗回放冒称覆盖了旧 rounded 故障分支。
 
-B1571 已提交 `5a7bee347`、B1573 `179afe1f1`、B1572 `9492be86c`；每批均推送 main。完整 `go test ./... -count=1` 正在运行；之后干净构建并严格双路 H11 + 跨仓 Python write 回归本批两类生产影响，再按日志/源码证据边界及异构语言图优先级扩展，不把重复同一 Trace 的模型措辞波动硬拟合成规则。
+B1571 已提交 `5a7bee347`、B1573 `179afe1f1`、B1572 `9492be86c`、B1574 `c55a5a51d`，每批均推送 main。完整 `go test ./... -count=1` 86包通过，干净构建及严格双路H11+跨仓Python write的r1024已完成；扩展日志/源码边界和Java条件调用r1025也完成，分别见§123.1640/1641，不把同一Trace的模型措辞波动硬拟合成规则。
 
 ### §123.1638 主干同步与系统边界批次（2026-09-06）
 
