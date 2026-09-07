@@ -254,7 +254,7 @@ type AnswerBlockReceiptEditV1 struct {
 // schema without extending its capabilities. Keep the add payload nesting and
 // the ref-only omission rule together so whole-block replacement cannot borrow
 // an atomic branch's hidden-field omission.
-const AnswerDocumentPatchRelationShapeTeaching = "When the current schema publishes an addition_ref with action=add, author `diagram_edge_edits[].edge.{from_node,to_node,visible_label}` in the nested `edge` object, not at the operation's top level. When the current schema publishes action=attach, send only the fields in its exact schema branch. Only ref-selected edits omit hidden relation fields; this omission does not apply to `replace_blocks`: preserve complete `edge_anchors` for relation metadata you choose to retain, including endpoint identities required by the current block schema. "
+const AnswerDocumentPatchRelationShapeTeaching = "Published add: nest `diagram_edge_edits[].edge.{from_node,to_node,visible_label}`; attach uses its published schema branch. Only ref-selected edits omit hidden fields; `replace_blocks` must include chosen relation metadata and endpoint identities its block schema requires. "
 
 // AnswerDocumentPatchOperationTeaching is the one compact, shared explanation
 // of patch operation semantics used by finalizer prompts and retry hints. The

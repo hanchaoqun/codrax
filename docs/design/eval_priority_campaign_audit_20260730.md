@@ -57380,9 +57380,27 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1646 r1027：仓颉分类交接与C原生验证（2026-09-06）
+
+`snapshot=c05682e3dfad / exactly-two-parallel / machine=2/2 / human-final=2/2 / process-gap-open`。
+当前case总盘243项（read215/apply25/plan3）。按声明类别精度、跨语言覆盖、真实执行验证和近期已测面去重排序，本批轮换`harmony/cangjie_repomap_fixture`+`patch_c_typo`；不是将r1026重复到绿。完整记录：`eval/parallel_selected_summary_evalcampaign_cangjie_cwrite_r1027_20260906{,_manual_audit}.md`。
+
+- 仓颉117s（case内部115s）：最终五个声明及五引用/三个package逐项正确，1 extend/1 foreign/3 public class，struct未混入，不需要图。首轮拿齐后却两次进入emit-only物化；剩余Relation Dossier只给role=type4/function1，无精确surface family，Known Facts被裁后模型无法恢复类别，又被禁止read。中间发射class4、extend0/foreign0及臆造extend2。最终完整typed行和family counts幸存，模型据此修正最终答案。三次read_file是不可用尝试，不是3次成功读取。
+- Finalizer两次结构拒绝为section无text及4cells额外带label/text，按本来正确的schema修复；JSON字符串carrier安全解码，未见系统删改正文。机器PASS不能覆盖中间数据劣化。另陈旧aggregate class4附注与family3并存，没有触发本轮拒绝或改写，需随同交接权威审计。
+- C写104s（case内部101s）：仅main.c:19拼写修复+1/-1，原native Makefile未变，原仓不合并。make test真实cc编译并运行两次，868ms；独立运行原生成binary四种参数的精确输出4/4通过，不回写原机器报告。原项目测试是aggregate结果，未逐字符验证输出；5合同均planning-only/required0，3/3账本仍2impact+1advisory。
+- planner曾尝试Go包装器运行C编译器，被原精确语言门拒后改原native验证，1次收敛；已有教学正确，不是新合同矛盾。未跟踪编译产物main被保留、未提交、未自动删，系统准确披露。没有新增C写P1缺陷；也不将本轮算B1575/B1578/B1572的live正证。
+
+| 下一任务 | 优先级 / 已证范围 | 施工边界 |
+|---|---|---|
+| B1586-INVENTORYMATERIALIZATIONCONTEXT1 | P1：emit-only上下文缺精确声明分类，`context/builder.go::relationDossierSourceInventoryMemberExamples`未消费同一typed family，完整1/1/3被role4/1摘要替代 | 复用既有源码row-set分类/关键属性权威，不为Cangjie硬编码；检查大集合裁剪的显示完整性，不能只加一个词就宣称全局解决 |
+| B1586调度/陈旧聚合子项 | 待精确复核：已完整仍两次物化、被权威row-set遮蔽的model aggregate仍发class4建议 | 先证明调度和适用域，复用完成事实及当前权威，不放开所有read、不新增原文关键词门或代写答案；与主字段缺失分开验收 |
+| 轮换计划 | ArkTS声明/组件及C宏/平台逻辑、具体窗Trace与跨仓write | 每批2路，人工核上下文/过程/输出；保留未命中正臂，不靠模型波动重跑求绿 |
+
+完整回归诚实补记：`c05682e3d`的`go test ./... -count=1`退出1，85包通过，agent只有`TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority`失败：新增共享教学在同一compact hint出现两次，6818字节超过原6000上限。这是本批新增提示成本问题，不提高阈值、不删测试。后续删除两调用者的branch重复并压缩共享句，required/optional/joint、full/patch真实入口均钉恰1次；原6000及相关两包count=3通过（`b1584-guidance-dedup-{red,green}.log`）。全文schema/正文所有权及精确关系权限不变。完整回归再跑后补记最终结果，之前的86包全绿只覆盖§123.1642源码，不冒充这次后续修改。
+
 ### §123.1645 B1584：JSON修补路径与重试状态的准确教学（2026-09-06）
 
-`implemented / production-schema-and-hint-seams-red-to-green / guidance-only / no-contract-change`。
+`implemented / production-schema-and-hint-seams-red-to-green / guidance-only / no-contract-change`，初批已提交推送`c05682e3d`；紧凑教学预算的后续回归修正见§123.1646。
 
 - r1026第5轮模型将`from_node`放到`diagram_edge_edits[i]`顶层；真实schema始终要求`edge`对象，第6轮更正即通过。因此不是不可能JSON合同；但actual DescriptionFor、共享patch教学和missing-anchor高频提示省略容器，给模型增加了猜测负担。
 - 新共享短教学明确`diagram_edge_edits[].edge.{from_node,to_node,visible_label}`，只在current schema提供add分支时适用。attach必须按本代准确分支，metadata attach不要求重放edge。ref原子分支隐藏字段不由模型重发；whole replacement仍按完整block schema保留模型选择保留的关系metadata，不把普通描述段落提及关系变成新义务。

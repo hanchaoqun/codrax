@@ -18967,10 +18967,14 @@ type answerDocDiagramRelationRepairVisibleDelta struct {
 }
 
 func answerDocDiagramRelationRepairBranchTeaching(delta answerDocDiagramRelationRepairDelta) string {
+	// Both relation and joint-repair callers append PatchOperationTeaching
+	// once after their delta. Keep shared payload/ownership teaching there;
+	// repeating it per branch consumes the compact retry budget without adding
+	// any current-generation capability information.
 	if types.AnswerDiagramRelationRepairHasExecutableAttachPair(delta.Failures, delta.AllowedAdditions) {
-		return "For relation_delta, use only an exact current tool-schema branch: a failure branch uses its displayed allowed action, an addition branch uses action=add with one selected candidate, and action=attach is valid only from a schema branch that fixes both exact opaque ref values. Never infer or combine a pair from adjacent failure/addition rows. " + types.AnswerDocumentPatchRelationShapeTeaching
+		return "For relation_delta, use only an exact current tool-schema branch: a failure branch uses its displayed allowed action, an addition branch uses action=add with one selected candidate, and action=attach is valid only from a schema branch that fixes both exact opaque ref values. Never infer or combine a pair from adjacent failure/addition rows. "
 	}
-	return "For relation_delta, a failure_ref may use only an action displayed on that failure row, and an addition_ref may use only action=add. " + types.AnswerDocumentPatchRelationShapeTeaching + "This generation publishes no action=attach capability: never combine a failure_ref and addition_ref in one edit. "
+	return "For relation_delta, use each failure_ref only with its allowed action and each addition_ref only with action=add. This generation publishes no action=attach capability: never combine a failure_ref and addition_ref in one edit. "
 }
 
 func parseAnswerDocDiagramParticipantRepairDelta(result *types.ToolResult) (answerDocDiagramParticipantRepairDelta, string, bool) {

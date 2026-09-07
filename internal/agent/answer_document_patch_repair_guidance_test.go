@@ -8,6 +8,13 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func assertB1584RelationShapeTaughtOnce(t *testing.T, hint string) {
+	t.Helper()
+	if got := strings.Count(hint, types.AnswerDocumentPatchRelationShapeTeaching); got != 1 {
+		t.Fatalf("one relation retry must include the shared nested/ownership teaching exactly once, got %d", got)
+	}
+}
+
 func TestB1584PatchRetrySequenceDoesNotInventUnchangedFailureOrFinality(t *testing.T) {
 	ctx := ctxWithAnswerPatchBase()
 	evaluator := &answerDocumentEvaluator{}
@@ -65,6 +72,7 @@ func TestB1584RelationRepairEntryPublishesNestedAddGuidance(t *testing.T) {
 		if !signal.HintRequested || !strings.HasPrefix(signal.HintKey, "answer_doc.patch_relation_repair_scope") {
 			t.Fatalf("expected actual relation-repair entry, got %+v", signal)
 		}
+		assertB1584RelationShapeTaughtOnce(t, signal.Hint)
 		for _, want := range []string{"diagram_edge_edits[].edge.{from_node,to_node,visible_label}", "ref-selected", "replace_blocks", "endpoint identities", ref} {
 			if !strings.Contains(signal.Hint, want) {
 				t.Errorf("required=%v relation retry omitted %q: %s", required, want, signal.Hint)

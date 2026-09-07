@@ -1041,6 +1041,7 @@ func TestRequiredDiagramMixedParticipantAndRelationDeltasStayInOneRetryGeneratio
 			if !signal.HintRequested || !strings.Contains(signal.HintKey, "joint") || !e.preferPatchNext {
 				t.Fatalf("mixed deltas must select one joint patch retry: %+v", signal)
 			}
+			assertB1584RelationShapeTaughtOnce(t, signal.Hint)
 			lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
 			if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FailureRef == "" ||
 				lease.Failures[0].FailureRef == staleProducerRef {
@@ -1230,6 +1231,7 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 	}
 	assertCompact := func(t *testing.T, signal LoopSignal) {
 		t.Helper()
+		assertB1584RelationShapeTaughtOnce(t, signal.Hint)
 		if !signal.HintRequested ||
 			(!strings.Contains(signal.HintKey, "required_diagram_relation_delta") &&
 				!strings.Contains(signal.HintKey, "required-diagram-relation-delta")) {
@@ -1742,6 +1744,7 @@ func TestOptionalDiagramRelationRetryUsesProducerCompactDeltaWithSiblingViolatio
 				!reflect.DeepEqual(lease.OrdinaryValidationBlockIDs, []string{"ol1"}) {
 				t.Fatalf("optional mixed reject must install one live local relation lease: signal=%+v lease=%+v", got, lease)
 			}
+			assertB1584RelationShapeTaughtOnce(t, got.Hint)
 			liveRef := lease.Failures[0].FailureRef
 			for _, want := range []string{
 				"diagram_edge_edits", `"failure_ref":"` + liveRef + `"`,

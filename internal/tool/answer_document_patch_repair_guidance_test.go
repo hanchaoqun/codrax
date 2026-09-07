@@ -116,7 +116,7 @@ func TestB1584LiveMetadataAttachDoesNotRequestAnEdgeReplay(t *testing.T) {
 			}
 		}
 	}
-	if !found || !strings.Contains((&EmitAnswerDocumentPatch{}).DescriptionFor(ctx), "When the current schema publishes action=attach, send only the fields in its exact schema branch") {
+	if !found || !strings.Contains((&EmitAnswerDocumentPatch{}).DescriptionFor(ctx), "attach uses its published schema branch") {
 		t.Fatal("attach teaching must not borrow addition's edge requirement")
 	}
 }
@@ -157,7 +157,7 @@ func TestB1584WholeBlockRepairTeachingDoesNotInheritAtomicFieldOmissions(t *test
 				}
 			}
 			description := (&EmitAnswerDocumentPatch{}).DescriptionFor(ctx)
-			for _, want := range []string{"relation metadata you choose to retain", "required by the current block schema", "When the current schema publishes action=attach"} {
+			for _, want := range []string{"chosen relation metadata", "endpoint identities its block schema requires", "attach uses its published schema branch"} {
 				if !strings.Contains(description, want) {
 					t.Errorf("whole-block teaching broadened atomic obligations or omissions: missing %q in %s", want, description)
 				}
