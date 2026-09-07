@@ -57380,6 +57380,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1667 B1609：修补教学必须服从当前可执行能力（2026-09-07）
+
+r1034 Rust 的关系本来有准确调用证据；失败不是合法关系无法表达，而是系统在安装逐边原子修补权限后，仍优先发送旧 `replace_blocks` 整图元数据配方，模型照做又被原权限拒绝。真实完整提交与patch两入口、必需图与可选图四臂先红，证据见 `20260907-b1609-red.log`。最终原子replace已经保留五条核心调用边，所以不把首轮遗漏、自增无凭证self边或“并行执行”误述都算成系统删除图。
+
+修复只调齐共享提示与现有能力：有本次relation lease时，两入口优先使用其failure_ref/diagram_edge_edits配方；没有lease的旧生产者继续使用合法整块补锚车道。仅当已有精确失败类型证明“这些边都有证据、只是缺元数据”，软提示保留端点、箭头、顺序和可见标签，并选择schema允许的attach或同可见内容replace；混合未证边不获得该断言。不改执行器权限，不增加模型原文扫描，不替模型选择、删除或改写关系。
+
+真实producer→evaluator→当前dispatch schema→executor贯通：旧整图操作仍拒绝，精确原子补锚通过；正文、图body、原anchor、兄弟块和引用保持不变。另验无lease完整提交/patch两个整块兼容正臂、必需participant、joint/mixed failure、原6000预算提示边界和nested JSON教学。最终定向count3通过1.273s（`20260907-b1609-final-count3.log`）；冻结后完整agent包退出0、50.760s（`20260907-b1609-agent-full.log`），不用此前全仓86包通过代替本批源码验收。独立第二席复核无阻断问题。
+
+状态：`B1609=implemented/real-entry-red-to-green/count3+agent-full-pass`；`live-lease/schema/hint=aligned`；`executor-permissions=unchanged`；`model-prose/diagram/trace-projection-rewrite=none`；`new-live-replay=pending`。
+
 ### §123.1666 r1034 收账：机器通过不能代替正确关系与正确补丁（2026-09-07）
 
 前三批已推送main：B1603/B1605=`7937cc22a`，B1606=`d564d5a75`，B1604/B1608=`224e47cff`。末次生产与测试冻结后的 `go test ./... -count=1` 退出0、86测试包通过（`20260907-b1604-b1608-final-full-suite.log`）：tool301.466s/types40.560s/agent58.158s/orchestrator25.782s/tracequery97.832s/tracediag12.666s。旧中途85包通过+tool单红已纠正，不能混成从未红过。干净构建revision=`224e47cffc77`，随后严格两路r1034；全仓部分时间与回放重叠，不作时延优化对照。

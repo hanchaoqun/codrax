@@ -17980,13 +17980,33 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 			Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
 		}
 	}
-	// A graph that is already grounded must not be replaced by a smaller
-	// evidence skeleton merely because the model omitted edge_anchors. The
+	// The live lease is also the prompt's operation authority. Even a wholly
+	// grounded graph with missing metadata must use its executable atomic delta,
+	// not the legacy whole-block recipe below, which that same lease forbids.
+	if relationLeaseInstalled {
+		if hint, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, true, e.diagramRequired); ok {
+			e.rejectHintsUsed++
+			e.preferPatchNext = true
+			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+			key := "answer_doc.patch_optional_diagram_relation_delta"
+			if e.diagramRequired {
+				key = "answer_doc.patch_required_diagram_relation_delta"
+			}
+			return LoopSignal{
+				HintRequested: true, HintKey: key,
+				Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
+			}
+		}
+	}
+	// Without a local relation lease, a graph that is already grounded must not
+	// be replaced by a smaller evidence skeleton merely because the model omitted
+	// edge_anchors. The
 	// producer supplies a complete block-local anchor array for this exact
 	// metadata-only defect; preserve every model-authored visible relation and
 	// repair only the structured carrier. This lane is independent of whether
 	// the diagram is required or optional.
-	if hint, ok := answerDocGroundedDiagramAnchorPatchHint(obs.LastToolResult, true); ok {
+	if hint, ok := answerDocGroundedDiagramAnchorPatchHint(obs.LastToolResult, true); ok && !relationLeaseInstalled {
 		e.rejectHintsUsed++
 		e.preferPatchNext = true
 		hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
@@ -17998,23 +18018,6 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 			Progress:       true,
 			BypassThrottle: true,
 			BypassBudget:   true,
-		}
-	}
-	// Optional diagrams use the same exact relation lease as required diagrams.
-	// Keep mixed diagram+sibling failures on this local opaque-ref surface so
-	// the model does not have to recopy fragile block/node/occurrence selectors.
-	// The model still decides whether to edit the graph or remove the optional
-	// block; neither action is performed here.
-	if !e.diagramRequired && relationLeaseInstalled {
-		if hint, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, true, false); ok {
-			e.rejectHintsUsed++
-			e.preferPatchNext = true
-			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
-			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
-			return LoopSignal{
-				HintRequested: true, HintKey: "answer_doc.patch_optional_diagram_relation_delta",
-				Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
-			}
 		}
 	}
 	if e.diagramRequired && answerDocumentRejectIsRequiredDiagramParticipantRepair(obs.LastToolResult) {
@@ -19078,6 +19081,9 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	b.WriteString(action)
 	b.WriteString("; use `diagram_edge_edits` instead of re-emitting the whole diagram. ")
 	b.WriteString(answerDocDiagramRelationRepairBranchTeaching(delta))
+	if answerDocumentRejectOnlyGroundedMissingCallAnchors(result) {
+		b.WriteString("The listed edges are already grounded; only their anchor metadata is missing. Prefer keeping every such edge, its endpoints, operator, order, and visible label: use a schema-published attach pair, or a permitted replace with the same visible content. Missing metadata does not make an edge unsupported. ")
+	}
 	if answerDocRelationRepairHasOrdinaryValidationBlocks(result) {
 		b.WriteString("For any exact non-diagram id also published by the live `replace_blocks` schema, submit one complete replacement of that block to repair its row-local evidence and relation metadata together; do not also submit a `diagram_edge_edits` operation for the same block. The ordinary merged-document evidence and relation validators remain authoritative. ")
 	}
@@ -19782,27 +19788,28 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			e.preferPatchNext = true
 		}
 	}
-	// Prefer a metadata-only repair whenever every rejected diagram relation is
-	// already grounded and only its edge-anchor carrier is absent. This precise
-	// lane applies equally to required and optional diagrams and prevents the
-	// general call-edge recovery from deleting grounded model-authored edges.
-	if !diagramCallEdgePatchRecovery && hasPatchBase {
-		if groundedHint, ok := answerDocGroundedDiagramAnchorPatchHint(obs.LastToolResult, false); ok {
-			hint = groundedHint
-			reasonKey = "grounded-diagram-anchors"
+	// Required and optional diagrams use the current executable lease before
+	// any legacy whole-block metadata recipe. This preserves the executor's
+	// local scope without making a model recopy a forbidden complete block.
+	if !diagramCallEdgePatchRecovery && hasPatchBase && relationLeaseInstalled {
+		if compact, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, false, e.diagramRequired); ok {
+			hint = compact
+			reasonKey = "optional-diagram-relation-delta"
+			if e.diagramRequired {
+				reasonKey = "required-diagram-relation-delta"
+			}
 			diagramCallEdgePatchRecovery = true
 			e.preferPatchNext = true
 		}
 	}
-	// Optional diagrams consume the same producer-owned local relation delta as
-	// required diagrams, including when the reject also names a sibling
-	// structured block. This replaces fragile coordinate copying with the live
-	// opaque-ref lease while leaving keep/remove and every visible edit to the
-	// model.
-	if !diagramCallEdgePatchRecovery && hasPatchBase && !e.diagramRequired && relationLeaseInstalled {
-		if compact, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, false, false); ok {
-			hint = compact
-			reasonKey = "optional-diagram-relation-delta"
+	// Without a local relation lease, prefer metadata-only repair whenever every
+	// rejected diagram relation is grounded and only its edge-anchor carrier is absent. This precise
+	// lane applies equally to required and optional diagrams and prevents the
+	// general call-edge recovery from deleting grounded model-authored edges.
+	if !diagramCallEdgePatchRecovery && hasPatchBase && !relationLeaseInstalled {
+		if groundedHint, ok := answerDocGroundedDiagramAnchorPatchHint(obs.LastToolResult, false); ok {
+			hint = groundedHint
+			reasonKey = "grounded-diagram-anchors"
 			diagramCallEdgePatchRecovery = true
 			e.preferPatchNext = true
 		}
