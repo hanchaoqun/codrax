@@ -57386,7 +57386,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 | 顺序 | 任务 / 覆盖增量 | 验收及状态 |
 |---|---|---|
-| 1 / P1 | B1586a：explorer机械落地与finalizer共享声明行显示；Dossier保留精确类别、多标记、位置/属性 | 已实现；真实入口先红后绿，3个受影响完整包通过；保留同名不同构造、范围及主/支持清单边界，不新增模型JSON义务 |
+| 1 / P1 | B1586a：explorer机械落地与finalizer共享声明行显示；Dossier保留精确类别、多标记、位置/属性 | 已提交推送`4fc28deed`；真实入口先红后绿，3个受影响完整包通过；保留同名不同构造、范围及主/支持清单边界，不新增模型JSON义务 |
 | 2 / P1/P2 | B1586b：完整后端与被裁剪显示不同，emit-only不应要求重抄隐藏信息 | 复核确认既有全量投影/稳定事实继承，非确定性隐藏成员丢失；补大集真实completion入口测试。逐请求属性未提供的状态建模仍是独立残余，不能用nil制造必拒合同 |
 | 3 / P2 | B1586c：只对精确绑定且完整覆盖的机械任务收账，保留独立多主题 | 重复调度有见证，但现有子题无逐主题inventory role/requested-field绑定，先保留设计；不以全局mechanicalReady或节点描述关键词豁免多主题 |
 | r1028 / 两路 | `harmony/arkts_repomap` + `sr_c_xmacro_table` | 待源码验证/提交/干净构建后执行；多标记声明交接与C预处理生成清单/两次展开机制异构读，检查信息是否入模、分类/关系是否正确，不重复仓颉求绿 |
@@ -57403,6 +57403,14 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - 最终受影响完整包`go test ./internal/agent ./internal/context ./internal/types -count=1`全部通过：47.582s/1.178s/32.731s（`20260906-b1586a-full-affected.log`）。独立第二席审阅agent交接通过；Trace三完整包84.107s/5.620s/1.969s及活跃流llm/repl相关正负护栏通过。该成绩不是本批重新跑过全仓86包或live已改善的宣称，后续记录单列。
 
 B1586b/c设计收窄：snapshot在显示裁剪前已投影全量principal aggregates，completion在current为空时继承稳定事实并使用全量投影，不能把显示32行当后台只剩32行。未覆盖scope可以合法软结束并披露欠账，`IsInvestigationComplete`也不等于`CanEnterMechanicalLanding`。第67行缺请求package属性的fixture暴露“清单就绪不证明每个显示属性齐全”，但nil尚不区分不存在/未采到/不适用；本批不擅自增加必拒，只保留原缺失不合成及后续typed可用性设计。B1586c现有_tN→unit index映射可定位调度节点，却不能证明独立子题的role/字段均已完成，禁止一键跳过。
+
+#### B1586b：大集真实完成入口验收与反例前提纠正（test-only）
+
+`source_inventory_large_handoff_test.go`在67个独立文件/函数上验证：snapshot显示上限32/40时完整总量/省略数正确，全部67成员、67来源及计数保留在投影；无稳定事实，以及真实Execute已接受后Reset再交接两臂，current aggregate为空仍经真实`EmitInvestigationComplete.Execute`完整通过。因此“显示裁剪后必然丢全量”被否证，不能以此放开全部读取或新增模型重发义务。
+
+初稿测试红中两处前提不成立，明确纠正并保留`20260906-b1586b-large-handoff-red.log`：①未调用接受/retain便直接设置当前facts，不能当stable；②SetSourceInventoryObservation为单调merge，不能在已有完整观测上用nil擦除属性或complete凭证来模拟首次缺失。已改真实Execute后Reset及fresh Mutable变体；也不把允许有caveat的软结束误判为必须硬拒。上述初稿红不是产品回归见证，更不是本批修复了新的生产谓词。
+
+校正后的`-v`日志`20260906-b1586b-large-handoff-green.log`明确记录真实`requested=package rows=67 tail_attributes=0 mechanical_landing=true`，整行/其余66行属性均未被合成或改写；该日志仅证明成员清单就绪和逐属性可用性不是同一状态，不证明所有package请求应拒。尚未区分absent/unavailable/not-applicable，保留独立设计残余，不在测试里钉强制true或false，也不Skip假绿。缺required scope的负例保留RequiredFilesCovered=false、NeedsFollowup=true和不能进入机械就绪。此批不改任何生产代码、JSON教学、schema或gate。
 
 ### §123.1647 本轮最终验收与B1586分批方案（2026-09-06）
 
