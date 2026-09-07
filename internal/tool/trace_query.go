@@ -4567,6 +4567,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			coverage.ScopeTimeStart, coverage.ScopeTimeEnd, scopeDurationMs,
 			scopeTimestampRows, sanitizeForBanner(matchedTime),
 			coverage.MatchedTotal, coverage.Emitted, coverage.EnumerationComplete)
+		b.WriteString(tracequery.FormatEventSearchCoverageForReaders(coverage, nil, false) + "\n")
 	}
 	if selection := result.ThreadSelection; selection != nil {
 		fmt.Fprintf(&b, "thread_selection status=%s requested_pid=%d requested_name=%s selected=%s name_mismatch=%t routing=%s name_candidates=%s\n",

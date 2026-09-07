@@ -524,11 +524,11 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 	)
 	for _, want := range []string{
 		"非 IO D-state 6.000ms",
-		"等待明细完整，共 2 段（D-state 2",
+		"等待明细完整，共 2 段（D 状态 2",
 		"墙钟合计 6.000ms",
-		"已解析 caller：dma_fence_default_w",
-		"第 1 段：d_sleep，13762.811000..13762.813000，2.000ms，iowait=0，caller=dma_fence_default_w",
-		"第 2 段：d_sleep，13762.821000..13762.825000，4.000ms，iowait=0，caller=dma_fence_default_w",
+		"已解析内核调用点/符号：dma_fence_default_w",
+		"第 1 段：D 状态（不可中断等待），13762.811000..13762.813000，2.000ms，内核 IO 等待标记：未标记，内核调用点/符号：dma_fence_default_w",
+		"第 2 段：D 状态（不可中断等待），13762.821000..13762.825000，4.000ms，内核 IO 等待标记：未标记，内核调用点/符号：dma_fence_default_w",
 		"逐段合计与上述 D/IO 状态账一致",
 	} {
 		if !strings.Contains(got, want) {
@@ -632,8 +632,8 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 	for _, want := range []string{
 		"等待明细完整，共 3 段",
 		"墙钟合计 0.635ms",
-		"第 1 段：io_wait，13762.801000..13762.801138，0.138ms，iowait=1，caller=sync_buffer_read_wi",
-		"第 3 段：io_wait，13762.803000..13762.803350，0.350ms，iowait=1，caller=sync_buffer_read_wi",
+		"第 1 段：调度器标记的 IO 等待，13762.801000..13762.801138，0.138ms，内核 IO 等待标记：已标记，内核调用点/符号：sync_buffer_read_wi",
+		"第 3 段：调度器标记的 IO 等待，13762.803000..13762.803350，0.350ms，内核 IO 等待标记：已标记，内核调用点/符号：sync_buffer_read_wi",
 	} {
 		if !strings.Contains(surface, want) {
 			t.Fatalf("focused typed principal-value card missing %q:\n%s", want, surface)
@@ -769,8 +769,8 @@ func TestRuntimeTargetWaitAuthorityListsRequestedScopeBeforeExploration(t *testi
 	for _, want := range []string{
 		"请求主范围先列",
 		"不能替代主范围的次数、总量或清单",
-		"D-state、io_wait 与 S 态 IO 等待是分开的记录类型",
-		"等待明细完整，共 2 段（D-state 0、io_wait 2",
+		"D 状态、调度器标记的 IO 等待与带 IO 等待标记的可中断睡眠是分开的记录类型",
+		"等待明细完整，共 2 段（D 状态 0、调度器标记的 IO 等待 2",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("requested-scope data card missing %q:\n%s", want, got)
@@ -829,9 +829,9 @@ func TestRuntimeTargetStateAuthorityRealDonghuPublishesElevenOccurrencesAndParti
 		"另有 1.396ms 未归账",
 		"窗口尾部开放 8.793ms（状态=sleep",
 		"等待明细完整，共 11 段",
-		"D-state 11",
+		"D 状态 11",
 		"墙钟合计 36.757ms",
-		"已解析 caller：dma_fence_default_w+0x260/0x4dc[devhost.elf]",
+		"已解析内核调用点/符号：dma_fence_default_w+0x260/0x4dc[devhost.elf]",
 		"逐段合计与上述 D/IO 状态账一致",
 	} {
 		if !strings.Contains(got, want) {

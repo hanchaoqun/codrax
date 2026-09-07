@@ -344,10 +344,10 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		return false
 	}
 	title := "目标线程状态与等待明细"
-	lead := "以下为所选窗口内的调度状态账；若存在请求主范围与探索子范围，请求主范围先列，探索子范围只用于下钻，不能替代主范围的次数、总量或清单。若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。D-state、io_wait 与 S 态 IO 等待是分开的记录类型；blocked_reason 记录数、IPC 传输延迟和线程状态墙钟也属于不同口径，不能互相替代。"
+	lead := "以下为所选窗口内的调度状态账；若存在请求主范围与探索子范围，请求主范围先列，探索子范围只用于下钻，不能替代主范围的次数、总量或清单。若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。D 状态、调度器标记的 IO 等待与带 IO 等待标记的可中断睡眠是分开的记录类型；内核等待原因记录数、IPC 传输延迟和线程状态墙钟也属于不同口径，不能互相替代。IO 等待标记未标记或未提供不表示排除了 IO 阻塞；内核调用点只标识等待位置，不单独证明资源对象或持有者。"
 	if !zh {
 		title = "Target-thread states and wait details"
-		lead = "This is the scheduler-state account for the selected window. When both a requested scope and supporting exploration scopes exist, the requested scope is listed first; exploration scopes are drill-down only and cannot replace its count, total, or roster. When per-interval waits are listed, their count and total come from the complete pairing in the same query result. D-state, io_wait, and S-state IO wait are separate record kinds; blocked_reason record counts, IPC transport latency, and thread-state wall clock are also different measures and are not interchangeable."
+		lead = "This is the scheduler-state account for the selected window. When both a requested scope and supporting exploration scopes exist, the requested scope is listed first; exploration scopes are drill-down only and cannot replace its count, total, or roster. When per-interval waits are listed, their count and total come from the complete pairing in the same query result. D state, scheduler-marked IO wait, and interruptible sleep carrying an IO-wait marker are separate record kinds; kernel wait-reason record counts, IPC transport latency, and thread-state wall clock are also different measures and are not interchangeable. An unmarked or unavailable IO-wait marker does not rule out IO blocking; a kernel call site identifies a wait location, not by itself a resource or holder."
 	}
 	return insertRuntimeTraceDataBoundaryBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceTargetStateAuthorityBlockID,
@@ -397,7 +397,7 @@ func runtimeTraceTargetWaitSummarySuffix(
 	if zh {
 		fmt.Fprintf(
 			&b,
-			"；等待明细完整，共 %d 段（D-state %d、io_wait %d、S 态 IO 等待 %d、其他 %d），墙钟合计 %.3fms，已解析 caller：%s%s",
+			"；等待明细完整，共 %d 段（D 状态 %d、调度器标记的 IO 等待 %d、带 IO 等待标记的可中断睡眠 %d、其他 %d），墙钟合计 %.3fms，已解析内核调用点/符号：%s%s",
 			wait.Count,
 			wait.DStateOccurrences,
 			wait.IOWaitOccurrences,
@@ -410,7 +410,7 @@ func runtimeTraceTargetWaitSummarySuffix(
 	} else {
 		fmt.Fprintf(
 			&b,
-			"; the wait roster is complete: %d intervals (D-state %d, io_wait %d, S-state IO wait %d, other %d), totaling %.3fms wall clock; resolved callers: %s%s",
+			"; the wait roster is complete: %d intervals (D state %d, scheduler-marked IO wait %d, interruptible sleep carrying an IO-wait marker %d, other %d), totaling %.3fms wall clock; resolved kernel call-sites/symbols: %s%s",
 			wait.Count,
 			wait.DStateOccurrences,
 			wait.IOWaitOccurrences,
@@ -425,26 +425,26 @@ func runtimeTraceTargetWaitSummarySuffix(
 		if zh {
 			fmt.Fprintf(
 				&b,
-				"\n- 第 %d 段：%s，%s..%s，%.3fms，iowait=%s，caller=%s",
+				"\n- 第 %d 段：%s，%s..%s，%.3fms，内核 IO 等待标记：%s，内核调用点/符号：%s",
 				occurrence.Ordinal,
-				occurrence.State,
+				runtimeTraceWaitOccurrenceStateLabel(occurrence.State, zh),
 				occurrence.StartToken(),
 				occurrence.EndToken(),
 				occurrence.DurationM,
-				occurrence.IOWait,
-				occurrence.Caller,
+				runtimeTraceWaitIOMarkerLabel(occurrence.IOWait, zh),
+				runtimeTraceWaitCallsiteLabel(occurrence.Caller, zh),
 			)
 		} else {
 			fmt.Fprintf(
 				&b,
-				"\n- Interval %d: %s, %s..%s, %.3fms, iowait=%s, caller=%s",
+				"\n- Interval %d: %s, %s..%s, %.3fms, kernel IO-wait marker: %s, kernel call-site/symbol: %s",
 				occurrence.Ordinal,
-				occurrence.State,
+				runtimeTraceWaitOccurrenceStateLabel(occurrence.State, zh),
 				occurrence.StartToken(),
 				occurrence.EndToken(),
 				occurrence.DurationM,
-				occurrence.IOWait,
-				occurrence.Caller,
+				runtimeTraceWaitIOMarkerLabel(occurrence.IOWait, zh),
+				runtimeTraceWaitCallsiteLabel(occurrence.Caller, zh),
 			)
 		}
 	}
@@ -454,7 +454,7 @@ func runtimeTraceTargetWaitSummarySuffix(
 func runtimeTraceWaitCallerRoster(callers []string, zh bool) string {
 	if len(callers) == 0 {
 		if zh {
-			return "无已解析 caller"
+			return "无已解析内核调用点"
 		}
 		return "none resolved"
 	}
@@ -536,7 +536,7 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 				row.artifact, row.selectedWindow, row.subject, row.count, row.callers,
 			)
 			if row.callerOverflow > 0 {
-				caveat += fmt.Sprintf("；另有 %d 个 caller 未在此紧凑列表中展示", row.callerOverflow)
+				caveat += fmt.Sprintf("；另有 %d 个内核调用点未在此紧凑列表中展示", row.callerOverflow)
 			}
 		} else {
 			caveat = fmt.Sprintf(
@@ -544,7 +544,7 @@ func materializeRuntimeTraceBlockedReasonCensusCaliberCaveat(doc *types.AnswerDo
 				row.artifact, row.selectedWindow, row.subject, row.count, row.callers,
 			)
 			if row.callerOverflow > 0 {
-				caveat += fmt.Sprintf("; %d additional callers are omitted from this compact list", row.callerOverflow)
+				caveat += fmt.Sprintf("; %d additional kernel call-sites are omitted from this compact list", row.callerOverflow)
 			}
 		}
 		caveats = append(caveats, caveat)

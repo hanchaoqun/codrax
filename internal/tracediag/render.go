@@ -374,7 +374,8 @@ func renderEventSearchBody(step *Step, res *tracequery.Result) stepBody {
 		emitted, matched, emitted, compacted, priorityCaveat,
 		len(shownDiagnostics), len(diagnostics), shownDetailCount, len(details))
 	if coverage := res.EventSearchCoverage; coverage != nil {
-		header += " coverage={" + renderEventSearchCoverageToken(coverage) + "}"
+		header += " coverage={" + renderEventSearchCoverageToken(coverage) + "; " +
+			tracequery.FormatEventSearchCoverageForReaders(coverage, &emitted, true) + "}"
 	}
 	// If the protected raw-row floor leaves no independent advisory line, fold
 	// one compact typed receipt into the accounting header. This preserves the

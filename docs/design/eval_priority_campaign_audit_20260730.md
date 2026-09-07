@@ -57380,6 +57380,15 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1656 B1598：等待词面与检索三层计数，同源读者说明（2026-09-07）
+
+1. B1598 / P2 已实现。只调整系统自有等待附注：D 表示不可中断等待，不复用 D+IO 合并指标；内核 IO 等待标记 0/1/unknown 分别显示未标记/已标记/未提供，未标记不等于排除 IO。caller 显示为内核调用点/符号，真实符号逐字保留，不升格为资源对象或持有者。中英文采用相同数据，模型正文没有改写。
+2. 事件检索共用 `FormatEventSearchCoverageForReaders`：匹配统计完成、引擎返回条数、报告二次裁剪的展示条数分别披露。真实扫描正针为 1639 条匹配、引擎返回 40、报告展示 2；完成统计不授予“全部行已返回/已展示”的权利。现有 JSON、Compactions、完整性布尔、行数预算与定点时间戳字段顺序不变。
+3. 首红 `20260907-b1598-red.log`；等待实际 ApplyAndPersist 入口的有效首红为 `20260907-b1598-wait-real-red.log`（先前未提供 fact_families 的测试前提无效，不计有效红证）。新针 count=3、原等待/检索三包兼容、真实 Donghu 11 段等待与完整 tracediag 全绿；既有 schema hash/key-first 未重签，CanonicalLine/指纹字节不变。日志均在 `.codrax/tmp/`。
+4. 后续 r1033 冻结两路优先队列：H1 真实显式窗 Binder 归因 + C++ Sink 多级继承读模式。H1 验证链上等待、帧间 pacing 背景边界、原始占时与规则可消双轴；C++ 验证三个实现、两级继承和抽象声明无体。上一批 r1032 已覆盖读+写，本批轮换 Trace+语言读。每批严格并行 2；机器分数不代替日志/上下文/答案人工审计，B1598 仅在真实命中时收生产正证。
+
+状态：`B1598=implemented/targeted+tracediag-full-pass/pending-live-replay`；`wire/canonical/authority/budget/model-authorship=unchanged`；`Trace-root=on-chain-only/background=support-only`；`active-stream-fixed-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1655 r1032：异构读写两路收账；不把评分通过扩大为未执行能力（2026-09-07）
 
 `43cbded5e0ef`干净构建于09:42:24Z，02:42:42严格并行2例，无第三路；runner两例均PASS。原始机器表及完整人审：`eval/parallel_selected_summary_evalcampaign_java_read_python_write_r1032_20260907{,_manual_audit}.md`。保持read15步/write24步、1200s预算，不为了机器结果修改oracle或模型正文。
