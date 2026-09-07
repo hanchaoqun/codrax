@@ -57380,6 +57380,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1673 B1613 符号身份与位置修复共同边界（2026-09-07）
+
+真实 emit_answer_symbol 首红证实：只有 B.Run:20 的 grounded candidate 时，模型选择 A.Run:60 被悄悄替换成 B.Run:20；仅修候选表不足，通用ground成功臂还会在未读/已读/精确parser三种形态把A.Run定位到B.Run的声明行。该问题不是模型输出措辞波动，而是把同名末段当成限定身份，再把系统匹配结果写回模型Name。两次有效红日志为20260907-qualified-owner-red.log / 20260907-b1613-ground-escape-red.log。
+
+本批仅在答案符号入口收束：限定名称保留大小写和完整owner，普通未限定名仍允许唯一同源叶名；候选别名只能来自同物理source+精确声明line的parser Receiver/Parent/Package事实。同实体修位保留模型Name逐字，不再改A到B或展开成系统偏好的名字。成功ground臂和后续候选臂共享同址声明反证；缺owner不新造拒绝，缺namespace前缀不等于namespace冲突、也不授权自动跨行改位。明确method却没有Receiver/Parent时不能把Package.Run当完整方法owner。原ground全局、write grounding禁令、图语义合同、Trace均不动。
+
+名称分隔/Go receiver语法沿用已有SplitQualifiedSegments单源函数，下沉repomap/types而原函数薄wrapper，避免tool→repomap→tool依赖环；不复制第二套语言白名单，也不采用lowercase存在性匹配。回归范围包括限定名/::/#/Go receiver/Java包+类/ArkTS类/Cangjie包、源身份、case冲突、多owner、同址多声明、同实体不同carrier、未知/缺namespace和首个ground成功臂。交叉审已使“局部A不能否定ns.A”“method缺owner不能借Package伪完整”在施工中收窄，精确信号红线优先于盲目拒绝。共享grammar不理解的泛型/复合owner统一不参与新异实体反证；真实Go ParseFiles提取A[T]后再执行Emit的原址/跨行两针验证不拒绝、不猜泛型别名、不自动改位。
+
+最终定向count3及既有answer floor/B1608/qualified oracle通过（tool1.745s/repomap0.798s，20260907-b1613-targeted-final.log），独立只读复审通过，源码6文件冻结。状态：`B1613=implemented/actual-emit-red-to-green/count3-pass/full-suite-running`；`model-name-preserved`；`ground-global=unchanged`；`unknown-owner=not-new-hard-rejection`。相邻批统一全仓日志为20260907-b1607a-b1613-full-suite.log，尚未完成时不声称已全绿。
+
 ### §123.1672 B1607a 独立状态等待账：统计完整不等于因果完整（2026-09-07）
 
 本批从目标线程已经通过完整性检查的 Timeline.Intervals 构建独立 SleepInventory，附于共用 TargetWindowStateAccount。普通 S、D、scheduler IO 的次数、窗内 union 和分类 union 在输出 cap32 之前计算，工具头只预览4行并同时披露两层分母。closed/关联/因果均保持未评估；ActualEndTs 可能是窗尾/EOF flush，EndLine 可能是 blocked_reason 定位，不能拿这两个字段铸造真实闭合。unknown-only/不可用时间线不输出假零；测得 Running/Runnable 而未见睡眠才允许已构造时间线中的零。窗前恢复状态及本次 unknown 边界保留并送入摘要。

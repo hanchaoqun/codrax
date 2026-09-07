@@ -309,7 +309,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	}
 	groundCtx := ground.BuildContext(ctx)
 	surfacePlan := types.BuildAnswerSurfacePlanForBusContext(ctx)
-	groundedCandidates := buildAnswerSymbolGroundedCandidates(ctx, surfacePlan)
+	groundedCandidates := buildAnswerSymbolGroundedCandidates(ctx, surfacePlan, groundCtx)
 	built := make([]types.AnswerSymbol, 0, len(p.Items)+len(deterministicSlate))
 	var dropped []string
 	var repaired []string
@@ -560,45 +560,29 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 	// structural repomap symbol index when it can canonicalise the line;
 	// otherwise we let the item through and rely on downstream grounding.
 	//
-	// Leaf-name fallback: a name like "Type.Method" is accepted when
-	// the line bears either the full form or the "Method" segment
-	// alone (typical for method definitions where the receiver is
-	// already visible in the surrounding def line).
+	// Leaf spelling can corroborate the original location of a qualified
+	// method, but cannot override a parser-proven owner or alone authorize a
+	// different location. Recovery requires the same exact qualified identity
+	// or parser-owned receiver/parent/package spellings at that declaration.
 	if groundCtx != nil {
-		if matchedLine, ok, negative := ground.ResolveSymbolLineAnchor(groundCtx, file, lineN, name, 2); ok {
+		if matchedLine, ok, negative := resolveAnswerSymbolLineAnchor(groundCtx, groundedCandidates, file, lineN, name, 2); ok {
 			lineN = matchedLine
 		} else if negative {
-			if candidate, ok := lookupAnswerSymbolGroundedCandidate(groundedCandidates, file, name); ok {
+			candidate, ok := lookupAnswerSymbolGroundedCandidate(groundedCandidates, file, name)
+			if ok {
+				_, differentOwner := answerSymbolParserLineIdentity(groundCtx, candidate.File, candidate.Line, name)
+				ok = !differentOwner
+			}
+			if ok {
 				if repaired != nil {
 					*repaired = append(*repaired,
 						fmt.Sprintf("items[%d] %s: cited line %s:%d was canonicalized to grounded definition %s:%d",
 							index, name, file, lineN, candidate.File, candidate.Line))
 				}
-				name = candidate.Name
 				file = candidate.File
 				lineN = candidate.Line
 			} else {
-				leaf := name
-				if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
-					leaf = name[idx+1:]
-				}
-				if leaf == name {
-					return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain no identifier token matching it). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN)
-				}
-				if matchedLine, ok, _ := ground.ResolveSymbolLineAnchor(groundCtx, file, lineN, leaf, 2); ok {
-					lineN = matchedLine
-				} else if candidate, ok := lookupAnswerSymbolGroundedCandidate(groundedCandidates, file, leaf); ok {
-					if repaired != nil {
-						*repaired = append(*repaired,
-							fmt.Sprintf("items[%d] %s: cited line %s:%d was canonicalized to grounded definition %s:%d",
-								index, name, file, lineN, candidate.File, candidate.Line))
-					}
-					name = candidate.Name
-					file = candidate.File
-					lineN = candidate.Line
-				} else {
-					return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain neither %q nor its leaf %q). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN, name, leaf)
-				}
+				return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain no identifier token matching it), and no unique same-identity grounded definition can repair the location. Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). Keep the selected owner: another owner's same-named method is not an alias. If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN)
 			}
 		}
 	}
@@ -620,7 +604,7 @@ type answerSymbolGroundedCandidate struct {
 	Line int
 }
 
-func buildAnswerSymbolGroundedCandidates(ctx *types.BusContext, plan *types.AnswerSurfacePlan) map[string][]answerSymbolGroundedCandidate {
+func buildAnswerSymbolGroundedCandidates(ctx *types.BusContext, plan *types.AnswerSurfacePlan, groundCtx *ground.Context) map[string][]answerSymbolGroundedCandidate {
 	out := make(map[string][]answerSymbolGroundedCandidate)
 	add := func(name, file string, line int) {
 		name = strings.TrimSpace(name)
@@ -629,16 +613,19 @@ func buildAnswerSymbolGroundedCandidates(ctx *types.BusContext, plan *types.Answ
 			return
 		}
 		candidate := answerSymbolGroundedCandidate{Name: name, File: file, Line: line}
-		for _, key := range answerSymbolCandidateKeys(name) {
-			dupe := false
-			for _, existing := range out[key] {
-				if existing.Name == candidate.Name && existing.File == candidate.File && existing.Line == candidate.Line {
-					dupe = true
-					break
+		candidate, names := answerSymbolCandidateParserIdentities(groundCtx, candidate)
+		for _, identity := range names {
+			for _, key := range answerSymbolCandidateKeys(identity) {
+				dupe := false
+				for _, existing := range out[key] {
+					if existing.Name == candidate.Name && existing.File == candidate.File && existing.Line == candidate.Line {
+						dupe = true
+						break
+					}
 				}
-			}
-			if !dupe {
-				out[key] = append(out[key], candidate)
+				if !dupe {
+					out[key] = append(out[key], candidate)
+				}
 			}
 		}
 	}
@@ -669,32 +656,33 @@ func lookupAnswerSymbolGroundedCandidate(candidates map[string][]answerSymbolGro
 		return answerSymbolGroundedCandidate{}, false
 	}
 	file = canonicalAnswerSymbolCandidateFile(file)
-	for _, key := range answerSymbolCandidateKeys(name) {
-		var matched []answerSymbolGroundedCandidate
-		for _, candidate := range candidates[key] {
-			if canonicalAnswerSymbolCandidateFile(candidate.File) != file {
-				continue
-			}
-			matched = append(matched, candidate)
+	keys := answerSymbolCandidateKeys(name)
+	if len(keys) == 0 {
+		return answerSymbolGroundedCandidate{}, false
+	}
+	// Qualified requests keep their complete owner. The leaf key is only a
+	// lookup surface for a model request that was itself unqualified.
+	var matched []answerSymbolGroundedCandidate
+	for _, candidate := range candidates[keys[0]] {
+		if canonicalAnswerSymbolCandidateFile(candidate.File) != file {
+			continue
 		}
-		if len(matched) == 1 {
-			return matched[0], true
-		}
+		matched = append(matched, candidate)
+	}
+	if len(matched) == 1 {
+		return matched[0], true
 	}
 	return answerSymbolGroundedCandidate{}, false
 }
 
 func answerSymbolCandidateKeys(name string) []string {
-	name = strings.TrimSpace(name)
-	if name == "" {
+	segments := answerSymbolIdentitySegments(name)
+	if len(segments) == 0 {
 		return nil
 	}
-	keys := []string{name}
-	if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
-		leaf := name[idx+1:]
-		if leaf != "" && leaf != name {
-			keys = append(keys, leaf)
-		}
+	keys := []string{strings.Join(segments, "\x1f")}
+	if len(segments) > 1 {
+		keys = append(keys, segments[len(segments)-1])
 	}
 	return keys
 }
