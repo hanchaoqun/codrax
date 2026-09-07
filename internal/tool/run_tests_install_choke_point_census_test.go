@@ -149,6 +149,11 @@ func installChokePointCensus(fset *token.FileSet, files []*ast.File, result *ins
 				if call, ok := n.(*ast.CallExpr); ok {
 					if _, isInstall := isCallTo(call, "installRunTestsReport"); isInstall {
 						installs++
+						if len(call.Args) != 3 {
+							result.violate(fset, call, "the choke point must install its report parameter")
+						} else if arg, ok := call.Args[1].(*ast.Ident); !ok || arg.Name != reportParam {
+							result.violate(fset, call, "the choke point must install its report parameter")
+						}
 					}
 				}
 				ret, ok := n.(*ast.ReturnStmt)

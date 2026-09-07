@@ -27,6 +27,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *type
 		{"missing granularity", install + "return base + renderRunTestsWorktreeAuditSummary(report)", false},
 		{"wrong audit report", install + "return base + renderRunTestsWorktreeAuditSummary(other) + renderRunTestsProbeGranularitySummary(report)", false},
 		{"wrong granularity report", install + "return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(other)", false},
+		{"different installed report", "installRunTestsReport(ctx, other, dryRunProbe)\nreturn " + expression, false},
 		{"duplicate granularity", install + "return " + expression + " + renderRunTestsProbeGranularitySummary(report)", false},
 		{"unknown addend", install + "return " + expression + " + unrelated(report)", false},
 		{"double installation", install + install + "return " + expression, false},
