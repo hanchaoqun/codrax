@@ -434,7 +434,7 @@ func TestPlannerFilterToolSchemas_PatchReviewHardFailureRequiresReplacementPatch
 	}
 }
 
-func TestPlannerFilterToolSchemas_PureProofFollowupMaterializesImmediately(t *testing.T) {
+func TestPlannerFilterToolSchemas_PureProofFollowupReadsThenMaterializes(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	mu := types.NewMutableState("pure proof followup")
 	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{
@@ -466,10 +466,17 @@ func TestPlannerFilterToolSchemas_PureProofFollowupMaterializesImmediately(t *te
 	if !plannerContextHasWriteHandoffMaterial(ctx) {
 		t.Fatal("pure proof follow-up should activate materialization handoff mode")
 	}
-	if got := plannerHandoffSynthesisReadBudget(ctx); got != 0 {
-		t.Fatalf("pure proof follow-up read budget = %d, want 0", got)
+	if got := plannerHandoffSynthesisReadBudget(ctx); got != plannerHandoffSynthesisBaseReadBudget {
+		t.Fatalf("pure proof follow-up read budget = %d, want %d", got, plannerHandoffSynthesisBaseReadBudget)
 	}
 	got := e.FilterToolSchemas(ctx, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "read_file,run_tests,emit_change_plan" {
+		t.Fatalf("proof current-byte read surface = %s", names)
+	}
+	for i := 0; i < plannerHandoffSynthesisBaseReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{CurrentToolResults: []types.ToolResult{{ToolName: "read_file", Success: true}}})
+	}
+	got = e.FilterToolSchemas(ctx, schemas)
 	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "run_tests,emit_change_plan" {
 		t.Fatalf("proof materialization tool surface = %s", names)
 	}
@@ -502,6 +509,9 @@ func TestPlannerFilterToolSchemas_PureProofFollowupKeepsMaterializationAfterEmit
 	})
 	ctx := &types.AgentContext{Mutable: mu}
 	_ = e.BuildInitialInstruction(ctx, nil)
+	for i := 0; i < plannerHandoffSynthesisBaseReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{CurrentToolResults: []types.ToolResult{{ToolName: "read_file", Success: true}}})
+	}
 	e.ObserveToolResults(ctx, LoopObservation{
 		CurrentToolResults: []types.ToolResult{{
 			ToolName: emitChangePlanToolName,
@@ -604,10 +614,10 @@ func TestPlannerFilterToolSchemas_MixedProofImpactFollowupWithoutFailureMaterial
 	if !plannerContextHasWriteHandoffMaterial(ctx) {
 		t.Fatal("mixed impact/proof follow-up should activate proof materialization handoff mode")
 	}
-	if got := plannerHandoffSynthesisReadBudget(ctx); got != 0 {
-		t.Fatalf("mixed impact/proof follow-up without failure read budget = %d, want 0", got)
+	if got := plannerHandoffSynthesisReadBudget(ctx); got != plannerHandoffSynthesisBaseReadBudget {
+		t.Fatalf("mixed impact/proof follow-up without failure read budget = %d, want %d", got, plannerHandoffSynthesisBaseReadBudget)
 	}
-	if got := e.FilterToolSchemas(ctx, schemas); strings.Join(toolSchemaNamesForTest(got), ",") != "run_tests,emit_change_plan" {
+	if got := e.FilterToolSchemas(ctx, schemas); strings.Join(toolSchemaNamesForTest(got), ",") != "read_file,run_tests,emit_change_plan" {
 		t.Fatalf("mixed impact/proof without failure should materialize proof only, got %v", toolSchemaNamesForTest(got))
 	}
 }

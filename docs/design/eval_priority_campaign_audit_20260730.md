@@ -57392,8 +57392,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 | 优先级 / ID | 问题与泛化修向 | 状态 |
 |---|---|---|
 | P1 / B1576-RUNTIMEDIMENSIONSOURCEAPPLICABILITY1 | 源码ownership教学/completion与typed source-excluded不同域；共享既有源码适用域，保留runtime维度、角色及源码必需场景 | 已实现/真实三面红绿，禁止以attached trace或关键词一概豁免源码 |
-| P1 / B1578-PROOFFOLLOWUPREADCAPABILITY1 | 历史定位被当成当前已持有源码，proof补验从首轮禁读；复用系统授权与既有只读预算，schema/stop/result/提示同源 | 确认/施工，源码变更/risk/worktree权限不放松 |
-| P1 / B1579-ENRICHMENTCAPACITYCORRECTION1 | 满池提前跳过TurnA/Mutable同ID纠正；限新增身份而不跳过既有ID修正 | 真实关系入口先红/施工 |
+| P1 / B1578-PROOFFOLLOWUPREADCAPABILITY1 | 历史定位被当成当前已持有源码，proof补验从首轮禁读；复用系统授权与既有只读预算，schema/stop/result/提示同源 | 已实现/真实BaseAgent读→probe→emit红绿，源码变更/risk/worktree权限不放松 |
+| P1 / B1579-ENRICHMENTCAPACITYCORRECTION1 | 满池提前跳过TurnA/Mutable同ID纠正；限新增身份而不跳过既有ID修正 | 已实现/真实关系入口红绿，提交8cd80e5c5 |
 | P1 / B1577-CITATIONCENSUSBEFOREDISPLAY1 | callable12项显示cap先于唯一性，丢同尾owner反证 | 已精确复现并修复，完整身份判定后才裁显示，见下 |
 | P1 / B1580-DYNAMICSELECTORCENSUS1 | 384core/128call前缀上做完整selector冲突判定，cap外不同candidate消失 | overlay已确证/待完整组方案；不能只补selector application而漏binding/lookup/return/entry/argument的同类唯一性 |
 | P1能力边界 / B1575-PROBECONTRACTEXECUTIONGRANULARITY1 | 整段probe通过+模块耦合不证明每个自报contract ref对应行为确实执行 | 已审计/方案待设计；先披露证明粒度，后续跨语言执行器逐ref凭证，不以模型自报或代码词法造权威 |
@@ -57416,6 +57416,15 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - 精确反例成立：同文件两个合法owner `A.run/B.run`，B位于第13个身份；旧逻辑把B连同其否证作用一起丢弃，于是短名定义run被错误标为proved。不是普通展示遗漏。
 - 完整身份map参与原唯一性判据，最多12项只限最终preview；隐藏callable不再消失于否证集合。仅为可见行解析定义，避免无谓扩大渲染计算；披露12/13，不把未显示说成不存在。
 - 原producer/owner/source匹配及callsite/definition分工不变，无新JSON义务和硬门。顺序置换、同文件多owner、不同文件、全限定定义、真实BuildInitialInstruction入口均先红后绿；日志 `.codrax/tmp/b1577-citation-census-{red,green}.log`，旧citation回归全绿。
+
+#### B1578：补验证计划取得当前文件的有限读取能力
+
+`implemented / real-BaseAgent-read-probe-emit-red-to-green / full-suite-pending / live-pending`。
+
+- 仍由既有活动batch+系统progress授权识别proof-only，不凭purpose文字开放权限。原来“已定位=当前已持有源码”的假设移除；首次允许read_file查看当前worktree目标、相关测试及必要元数据。复用原3成功/2失败预算，schema、soft-stop和结果记账共享同一允许条件，达到任一阈值后下一轮收口；当轮已准入并行调用照常计账，emit拒绝不刷新预算。
+- 读取复用原ReadFile工作树重映射、已激活多仓、敏感路径、typed denial和大文件窗口规则；没有新放开任意来源，也不臆造按文件名的拒绝。proof-only仍只许changes=[]+验证探针；grep/repo_map/list/exec/apply、普通非dry-run测试和无授权源码修改继续不可用。
+- 新真实BaseAgent三轮离线执行read_file→实际Python dry-run probe→真实EmitChangePlan成功；主仓旧绝对路径被已有重映射解析为当前工作树新字节。成功/失败预算、emit不续杯、同批计数、换dispatch、伪purpose/非活动、敏感/缺失/非激活仓/大文件及写权限负例通过。
+- 保留原多次emit拒绝停止机制，开发中fixture曾人为制造第3次拒绝而触发该原保护；已修测试为1–2次拒绝夹在合法读取之间，不改保护求绿。最终 `.codrax/tmp/b1578-green.log`、`b1578-agent-regression.log`、`b1578-tool-regression.log`及orchestrator proof/cumulative/risk回归通过；完整agent包44.620s通过（`b1578-agent-full.log`），先红 `b1578-red.log` 保留。旧proof读预算=0的测试同步为有限读后收口，不删除拒绝臂。
 
 #### B1579：满额只限制新增身份，不跳过已入池证据的纠正
 

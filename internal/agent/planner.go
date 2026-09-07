@@ -85,8 +85,9 @@ type plannerEvaluator struct {
 	// proofFollowupMaterializationOnly is true for controller-authorized
 	// verification proof follow-up batches that do not currently have a typed
 	// code-failure handoff requiring source repair. These batches materialize
-	// probes over the already-applied worktree; they must not reopen read/repair
-	// exploration even when an emit tool rejects malformed edit coordinates.
+	// probes over the already-applied worktree, with a bounded exact-file read
+	// allowance but no broad exploration or source repair. Emit rejections
+	// cannot renew that read allowance.
 	proofFollowupMaterializationOnly bool
 
 	// handoffSynthesisActive is true when the dispatch has typed exploration
@@ -840,6 +841,7 @@ func (e *plannerEvaluator) buildProofFollowupMaterializationSection(ctx *types.A
 	var b strings.Builder
 	b.WriteString("## Verification proof materialization\n\n")
 	b.WriteString("Typed workflow state marks this active batch as a verification proof follow-up over an already-applied worktree, with no typed code-failure handoff currently authorizing repair. Materialize verification by emitting `changes: []` plus `verification_probes[]` that import or execute the changed code and bind the uncovered typed criteria. Do not create or edit production, test, fixture, documentation, or other auxiliary files to manufacture proof; any file repair requires a separate impact batch or a same-batch typed verification-failure handoff.\n")
+	fmt.Fprintf(&b, "Before forming probes, use bounded `read_file` calls if needed to inspect the current worktree's changed code, relevant tests, and necessary project metadata. Use the current repository root and returned source paths; do not assume prior plan summaries contain current bytes. This dispatch allows up to %d successful reads or %d failed reads; the next turn closes reads when either count is reached, including all calls already admitted in the same tool batch. Rejected plan submissions do not refresh this allowance. Repository search and source writes remain unavailable in this proof-only lane.\n", plannerHandoffSynthesisBaseReadBudget, plannerReadFailureBudget)
 	if len(batch.ExpectedPaths) > 0 {
 		fmt.Fprintf(&b, "- expected_paths: %s\n", strings.Join(batch.ExpectedPaths, ", "))
 	}
@@ -1305,7 +1307,10 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if plannerResponseCallsAny(resp, plannerStructuredEmitTools()...) {
 		return false
 	}
-	if e.materializationOnlySurfaceActive() && !e.verifyFailureProbeBatchComplete && plannerResponseCallsAny(resp, "run_tests") {
+	if (e.materializationOnlySurfaceActive() || e.proofFollowupMaterializationOnly) && !e.verifyFailureProbeBatchComplete && plannerResponseCallsAny(resp, "run_tests") {
+		return false
+	}
+	if e.proofFollowupReadAllowed() && plannerResponseCallsAny(resp, "read_file") {
 		return false
 	}
 	handoffReadAllowed := e.handoffSynthesisActive && !e.proofFollowupMaterializationOnly && !e.handoffSynthesisReadBudgetExhausted()
@@ -1340,10 +1345,9 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 		return schemas
 	}
 	if e.proofFollowupMaterializationOnly {
-		// A proof follow-up without a typed code-failure handoff is already
-		// localized and already applied. Even malformed structured emits must
-		// recover by emitting a probe-only plan, not by reopening repository
-		// reads or staging no-op source patches.
+		// Applied/localized does not imply the planner has current source bytes.
+		// Permit only bounded exact-file reads, never the full exploration tool
+		// set or source edits. Emit failures cannot renew this dispatch budget.
 	} else if e.structuredEmitRepairActive {
 		if !e.structuredEmitRepairReadBudgetExhausted() {
 			return schemas
@@ -1358,6 +1362,9 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 	allowed := plannerHandoffSynthesisMaterializationToolNames()
 	if e.proofFollowupMaterializationOnly {
 		allowed = plannerProofFollowupMaterializationToolNames()
+		if e.proofFollowupReadAllowed() {
+			allowed["read_file"] = true
+		}
 	}
 	if e.verifyFailureProbeBatchComplete {
 		// The completed typed probe batch remains in tool history. Repeating it
@@ -1377,7 +1384,11 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 	if len(out) == 0 {
 		return schemas
 	}
-	if e.structuredEmitRepairActive {
+	if e.proofFollowupMaterializationOnly {
+		logging.Debug("[planner] proof-followup read allowance (success=%d/%d failure=%d/%d); tool surface=%s",
+			e.handoffSynthesisReadCalls, e.handoffSynthesisReadBudget,
+			e.handoffSynthesisReadFailures, plannerReadFailureBudget, strings.Join(sortedToolSchemaNames(out), ","))
+	} else if e.structuredEmitRepairActive {
 		logging.Debug("[planner] structured emit repair read budget exhausted (success=%d/%d failure=%d/%d); narrowed tool surface to %s",
 			e.structuredEmitRepairReadCalls, plannerStructuredEmitRepairReadBudget,
 			e.structuredEmitRepairReadFailures, plannerReadFailureBudget, strings.Join(sortedToolSchemaNames(out), ","))
@@ -1494,6 +1505,11 @@ func (e *plannerEvaluator) handoffSynthesisReadBudgetExhausted() bool {
 		e.handoffSynthesisReadFailures >= plannerReadFailureBudget
 }
 
+func (e *plannerEvaluator) proofFollowupReadAllowed() bool {
+	return e != nil && e.handoffSynthesisActive && e.proofFollowupMaterializationOnly &&
+		!e.handoffSynthesisReadBudgetExhausted()
+}
+
 func (e *plannerEvaluator) structuredEmitRepairReadBudgetExhausted() bool {
 	if e == nil || !e.structuredEmitRepairActive {
 		return false
@@ -1521,7 +1537,7 @@ func (e *plannerEvaluator) materializationOnlySurfaceActive() bool {
 		return false
 	}
 	if e.proofFollowupMaterializationOnly {
-		return true
+		return !e.proofFollowupReadAllowed()
 	}
 	if e.structuredEmitRepairActive {
 		return e.structuredEmitRepairReadBudgetExhausted()
@@ -1869,7 +1885,14 @@ func plannerExplorationPackLocalizationKind(kind string) bool {
 func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObservation) {
 	readSuccesses, readFailures := plannerReadSynthesisToolResultCounts(obs.CurrentToolResults)
 	if e.handoffSynthesisActive {
-		if e.structuredEmitRepairActive {
+		if e.proofFollowupMaterializationOnly {
+			// The only admitted proof-only read is read_file. Its successful and
+			// failed results consume one dispatch-long allowance, including after
+			// emit rejection; unavailable broad-search attempts do not consume it.
+			readSuccesses, readFailures = plannerReadToolResultCounts(obs.CurrentToolResults, map[string]bool{"read_file": true})
+			e.handoffSynthesisReadCalls += readSuccesses
+			e.handoffSynthesisReadFailures += readFailures
+		} else if e.structuredEmitRepairActive {
 			e.structuredEmitRepairReadCalls += readSuccesses
 			e.structuredEmitRepairReadFailures += readFailures
 		} else if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() {
@@ -1943,7 +1966,7 @@ func (e *plannerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) L
 	}
 	hint := "The planning read/repair budget for this batch is exhausted. Do not call repository-reading tools in this planning round. Use the typed handoff, prior tool results, and any validator rejection already visible to emit a bounded ChangePlan now via `emit_change_plan`, or use `emit_plan_skeleton` followed by `emit_plan_change` for a large plan. `run_tests` is available only as `dry_run=true` with a `verification_probe` object; `suite` remains a test selector and must not contain `python -c` or runner flags."
 	if e.proofFollowupMaterializationOnly {
-		hint = "This active batch is a verification proof follow-up over the already-applied worktree, with no typed code-failure handoff authorizing source repair. Do not call repository-reading tools and do not repair source coordinates in this planning round. Emit a proof plan now with `changes: []` and at least one `verification_probes[]` entry bound to the typed proof criteria; `run_tests` is available only as `dry_run=true` with a `verification_probe` object."
+		hint = "The bounded current-file read allowance for this proof-follow-up dispatch is exhausted. Use the current worktree bytes, returned paths, and typed proof criteria already in context. No typed code-failure handoff authorizes source repair: do not call repository-reading tools or edit files in this planning round. Emit a proof plan now with `changes: []` and at least one `verification_probes[]` entry bound to the typed proof criteria; `run_tests` is available only as `dry_run=true` with a `verification_probe` object."
 	} else if e.verifyFailureRepairActive {
 		hint = "The typed verify-failure repair read/search budget for this batch is exhausted. Do not call repository-reading tools in this planning round. Use the verify-failure handoff, failure observations, prior tool results, and current visible bytes to emit the smallest replacement ChangePlan that addresses the failed build/test signal, or emit a no-change/probe plan only when the typed evidence proves source repair is unnecessary. `run_tests` is available only as `dry_run=true` with a `verification_probe` object; ordinary command execution remains unavailable in planning."
 	}
@@ -1970,10 +1993,13 @@ func (e *plannerEvaluator) materializationSurfaceHintKey() string {
 }
 
 func plannerReadSynthesisToolResultCounts(results []types.ToolResult) (successes, failures int) {
+	return plannerReadToolResultCounts(results, plannerReadSynthesisToolNames())
+}
+
+func plannerReadToolResultCounts(results []types.ToolResult, readTools map[string]bool) (successes, failures int) {
 	if len(results) == 0 {
 		return 0, 0
 	}
-	readTools := plannerReadSynthesisToolNames()
 	for _, result := range results {
 		if !readTools[strings.TrimSpace(result.ToolName)] {
 			continue
@@ -2008,7 +2034,7 @@ func plannerHandoffSynthesisReadBudget(ctx *types.AgentContext) int {
 		return 0
 	}
 	if plannerContextHasProofFollowupMaterializationOnly(ctx) {
-		return 0
+		return plannerHandoffSynthesisBaseReadBudget
 	}
 	budget := plannerHandoffSynthesisBaseReadBudget
 	if ctx == nil || ctx.Mutable == nil {
