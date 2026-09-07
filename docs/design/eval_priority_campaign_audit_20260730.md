@@ -57380,6 +57380,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1661 剩余问题续修与 r1034 双路队列（2026-09-07）
+
+起点 `5de7e9e505bd` 工作区干净，fetch 后与 origin/main 为0/0；当前仍243个 `.case`。先修可确定的生产口径/权限污染，再从用户影响、证据确定性、泛化收益、语言/模式覆盖、近期回放间隔及执行环境六个维度安排下一对，不重跑同一道题追分。
+
+| 顺序 / 工单 | 已确认机制与施工边界 | 状态 |
+|---|---|---|
+| P1 / B1603-BINDERWAITINTERVALIDENTITY1 | BinderWaitSummary 已有精确 SleepStartTs/WakeupTs，critical candidate 与 evidenceFact 却从 SendTs 构窗，而 DurationMs 按睡眠段计算。同一行值与区间不等；修两个生产出口共用真实等待端点，保发送/接收信息、原始凭证与根因资格。缺失/零/反序/非有限端点不可用发送或时长反推 | 已确认，真实入口先红后绿施工中；全量等待 census 另审，不混称该修复完成全量统计 |
+| P1 / B1604-ENUMERATIONBACKBONESCOPE1 | 通用同文件至少3条证据的序列启发式在 facet 编译前选热文件，随后集合成员权限拿它裁 principal，导致其他文件合法成员变弱支撑。修向为成员集合只消费自身精确权限，不借热点/文件计数确定成员域；保模型明确 symbol backbone 和真正链路规则 | 已确认生产链，正在核对集合兄弟面与实际校验反例；不一把提升所有support |
+| P2 / 精度与教学后续 | Binder 等待 census、调用链分支是否同受启发式影响、JSON/patch所有权教学与结构合同对齐 | 只读复核；无确定反例不新设硬门或扩张结论所有权 |
+
+后续 r1034 冻结候选为 `sr_rust_cross_module_chain`（纯读、多模块、动态分派/递归/回程关系，距r1019已多轮）与 `github_issue_nlohmann_long_double_symptom`（写模式、两发布头同步、原生严格编译）。主机 clang++ 可用；Java是无运行时的stub，Rust工具链未在PATH，不用缺工具链的写例浪费本批，也不安装大依赖。Rust读不需要Cargo。待修复分批提交推送且干净构建后，以 PARALLEL=2/TIMEOUT=1200 启动，暂无live结果。
+
+验收不降低：C++原测试同时包含两头，任一 `%.*lg` 未修都应被 -Wformat/-Werror 拒绝；原断言仅证明1.25L输出非空，不声称完整浮点/JSON库回归，更不能用文本checker替代原生断言凭证。Rust必须人工核顺序与分支、walker职责及图边/返回，不把出现四个函数名当正确关系证明。
+
+活跃流定向复核 `20260907-b1603-active-stream.log` 通过：llm1.167s/repl2.243s。保持实际字节活跃时无默认4ms/固定4分钟成文降级，显式预算/取消/首字节或后续真实静默超时仍有效。全程不改用户/模型原文硬门、模型结论、显式窗投影和自动补齐。
+
 ### §123.1660 B1602：等待测量按语义身份消费，不借显示标签授予根因资格（2026-09-07）
 
 1. 真实 r1033 的 `binder_wait` 根因排序行保持 `tier=target_self_state`、精确目标和区间，但 Rank=0 正确只作支撑，工具发布将显示 Predicate 降为 `root_cause_context_only`。下游阻塞墙钟汇总还合取旧 Predicate，导致 1.409ms 在普通观测中可见、专用入模测量栏却缺失。这是展示身份与测量身份耦合的系统漏传，不是数据源无证据。
