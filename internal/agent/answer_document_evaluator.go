@@ -6621,6 +6621,10 @@ func renderAnswerDocTraceBlockingWallClockAuthority(ctx *types.AgentContext, led
 			len(authority.Occurrences),
 			authority.CoverageStatus,
 		)
+		if note := traceBlockingCapacityScopeNote(authority.CoverageStatus,
+			strings.HasPrefix(strings.ToLower(strings.TrimSpace(extractAnswerDocLang(ctx))), "zh")); note != "" {
+			fmt.Fprintf(&b, "  - coverage_scope_note: %s\n", note)
+		}
 		for index, occurrence := range authority.Occurrences {
 			fmt.Fprintf(&b,
 				"  - occurrence=%d; interval=`%.6f..%.6f`; duration=%.3fms",

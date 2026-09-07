@@ -215,12 +215,14 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 				block.Type, block.Subject, len(block.Occurrences), block.SelectedWindow, block.ObservedMS)
 		case block.CoverageStatus == "lower_bound_capacity_truncated" && zh:
 			fmt.Fprintf(&b,
-				"  - principal_conclusion_zh=`关于 %s，当前只确认 %s 在窗 %s 内至少 %d 次、至少 %.3fms；由于覆盖被截断，全窗总次数和总量未知，不能表述为只有、唯一或总计，也不能断言其他请求没有阻塞。`\n",
-				block.Type, block.Subject, block.SelectedWindow, len(block.Occurrences), block.ObservedMS)
+				"  - principal_conclusion_zh=`关于 %s，当前只确认 %s 在窗 %s 内至少 %d 次、至少 %.3fms；由于查询结果容量受限，全窗总次数和总量未知，不能表述为只有、唯一或总计，也不能断言其他请求没有阻塞。%s`\n",
+				block.Type, block.Subject, block.SelectedWindow, len(block.Occurrences), block.ObservedMS,
+				traceBlockingCapacityScopeNote(block.CoverageStatus, zh))
 		case block.CoverageStatus == "lower_bound_capacity_truncated":
 			fmt.Fprintf(&b,
-				"  - principal_conclusion_en=`For %s, the current evidence confirms at least %d occurrence(s) and at least %.3fms for %s in %s. Coverage is truncated, so the full-window count and total are unknown; do not say only/unique/total or claim that every other request caused no blocking.`\n",
-				block.Type, len(block.Occurrences), block.ObservedMS, block.Subject, block.SelectedWindow)
+				"  - principal_conclusion_en=`For %s, the current evidence confirms at least %d occurrence(s) and at least %.3fms for %s in %s. The published query result is capacity-limited, so the full-window count and total are unknown; do not say only/unique/total or claim that every other request caused no blocking. %s`\n",
+				block.Type, len(block.Occurrences), block.ObservedMS, block.Subject, block.SelectedWindow,
+				traceBlockingCapacityScopeNote(block.CoverageStatus, zh))
 		}
 	}
 	const wakeupEdgeLimit = 8

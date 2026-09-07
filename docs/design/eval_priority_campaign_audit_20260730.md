@@ -57380,6 +57380,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1676 B1615 结果容量与采集完整性分域教学（2026-09-07）
+
+r1035 H1中已有精确`lower_bound_capacity_truncated`，但两个入模面只说“覆盖被截断”，模型据此在最终答案断言Trace采集被截断。原始扫描完成不等于证明采集完整，查询结果有帽也不等于原始采集缺失；这两个方向都不能推断。成文后系统附注虽已正确说“结果达到容量上限”，却不能补回模型在推理时缺少的主体。
+
+本批只给既有blocking观察交接与principal recap共用一个私有双语说明，精确枚举匹配时解释“查询返回条目或链遍历结果的容量裁剪”；缺失收尾/未知状态仍需独立说明。未知、其它lower-bound、complete、不规范大小写或空格等11种status不获得该解释。不改producer、原枚举、测量、下界、rank、链资格、模型正文、Trace投影或成文门；不用模型原文扫描触发。原中文含混示范句也同源收窄主体，保留至少、总量未知的边界。
+
+真实TraceQuery.Execute→binder authority→observation handoff/principal recap/BuildInitialInstruction，完整窗20条帽和精确窄窗100完整双语先红后绿，1.409ms坐标/原始结果/ledger/模型doc/projection/authority及渲染幂等不变。首红3.860s、首绿3.852s、同族count3 9.350s、race22.041s，日志`20260907-b1615-{red,green,family-green,race}.log`；独立只读复审无阻断。源码4文件冻结后统一全仓开始，未在结果出来前宣称全绿。
+
+状态：`B1615=implemented/real-entry-red-to-green/count3+race-pass`；`capture-loss-or-completeness-inference=none`；`model-answer-rewrite=none`；`pending-live-replay`。r1035用修改前6a17d2f42，不能声称新教学已经让该答案正确；B1607b完整Binder等待账仍未实现。
+
 ### §123.1675 B1614 已选子仓的工作路径提示（2026-09-07）
 
 r1035 Python真实日志给出可复现的上下文缺口：系统已在configureWriteScopedMultiRepo选定bindings-py并正确切为child/worktree根，ActiveSubRepo也进入AgentContext；旧readmulti advisory却在write+ActiveSubRepo时直接跳过，缺替代说明，write_analyzer照问题里的bindings-py再次加前缀，repo_map失败，再两次list_files自纠。这不是权限门矛盾，也不是repo scope值丢失。
