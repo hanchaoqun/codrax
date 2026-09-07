@@ -57380,6 +57380,23 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1642 剩余批次：完整候选判定、证明粒度、重复反馈与路由流式预算（2026-09-06）
+
+起点 `baf311887`；已 fetch，主干与远端一致，开始时工作区干净。按确定性影响/可泛化性/用户可见损失安排，补丁逐批提交推送；新 live 必须干净构建、两路并行，机器结果与人工答案审计分开。既有 r1024/r1025 不作为本轮新修复的生产正证。
+
+| 批次 | 方案与边界 | 状态 |
+|---|---|---|
+| B1580 / P1 | 完整同 ID 证据协调后再由共享 selector 编译器判定所有关系组；仅最终候选/recipe显示限额，不复制资格谓词 | 已有真实发布入口先红，施工/矩阵验证中 |
+| B1575 / P1 披露 | 复用既有 confidence/witness 事实说明整段 probe 与逐义务执行记录的区别；不改通过状态、消债或新增模型字段 | 施工中；真实逐义务执行凭证仍单列能力债 |
+| B1582 / P2 | 当次重复 emit 命中的存量行继续参与既有操作归属软提示；不扩大到全会话，不替模型迁移索引 | 已实现，真实入口先红后绿，同族 count=3 通过，待提交 |
+| B1583 / P1 | 已配置总预算与未配置默认请求预算分开；默认不以固定墙钟取消活跃流，实际非流腿保留预算；调用者取消、显式配置、首字节/idle保护继续有效 | 真实 SSE 5臂先红，已确认分层方案，施工中 |
+
+#### B1582：重复提交仍返回同一缺口的准确软反馈
+
+`emit_evidence` 的重复过滤原本使本次 built 为空，后续 advisory 直接返回，虽存量中已有明确 indices，却只返回通用重试建议。现仅把**本次** duplicate 按现有 stable/revision 身份找到的存量完整行与本次新行一起交给原共享 operation ownership 判据。存量全池只作查找来源，不作会话粘滞触发；首次提示并非原来缺失，修的是重复重试时的反馈退化。
+
+真实 `EmitEvidence.Execute` 覆盖完全重发、省略存量 indices、重复+无关新行、错误文件、未绑操作行、正常补 index、无关后续调用。补齐后 advisory 与原 completion 缺口同时消失；RequestModel、调用参数、重复前后证据缓冲、原 definition 索引保持不变。无新 JSON 字段、无新硬门、无系统改写答案。日志 `.codrax/tmp/b1582-duplicate-operation-advisory-{red,green}.log` 与 `b1582-operation-advisory-regression.log`；独立同族三次通过，尚未用新 live 宣称模型质量改善。
+
 ### §123.1641 r1025：日志/源码边界、Java 关系语义与混合备用流式预算（2026-09-06）
 
 基线 `1af911411`，B1576–B1579 已分批提交推送，干净构建后快照双路回放。case总盘243项（read215/apply25/plan3；Trace62、log24、multi-repo16，分类有重叠），本批不追拟同一Trace措辞，选择日志+当前源码边界和Java多层条件调用。Java为静态读case，无JDK/Maven依赖；上一批已覆盖实际跨仓Python write。

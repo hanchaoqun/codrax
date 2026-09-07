@@ -1222,7 +1222,8 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	if surfaceReview != nil && strings.TrimSpace(surfaceReview.Hint) != "" {
 		summary = strings.TrimRight(summary, "\n") + "\n\n" + surfaceReview.Hint + "\n"
 	}
-	if advisory := renderRequestedDimensionOperationOwnershipAdvisory(ctx, built, allEvidence); advisory != "" {
+	advisoryItems := emitEvidenceOperationAdvisoryItems(built, duplicateItems, allEvidence)
+	if advisory := renderRequestedDimensionOperationOwnershipAdvisory(ctx, advisoryItems, allEvidence); advisory != "" {
 		// Put the actionable delta before the potentially long per-item audit.
 		// Tail placement made a correct advisory easy to miss once grounding
 		// notes and repair history filled several kilobytes.
@@ -6270,6 +6271,38 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 	return b.String()
 }
 
+// emitEvidenceOperationAdvisoryItems includes only rows selected by this call.
+// A duplicate is still a current selection, even when it added no evidence.
+// Resolve it to the stored row using the same identity keys as duplicate
+// filtering: sparse replays may omit indices already held by that exact row.
+// The full buffer is a lookup source, never a session-wide advisory trigger.
+// No evidence, ownership metadata or duplicate/amendment behavior is changed.
+func emitEvidenceOperationAdvisoryItems(built, duplicates, all []types.EvidenceItem) []types.EvidenceItem {
+	if len(duplicates) == 0 {
+		return built
+	}
+	byStable := make(map[string]types.EvidenceItem, len(all))
+	byRevision := make(map[string]types.EvidenceItem, len(all))
+	for _, item := range all {
+		byStable[types.EvidenceStableMergeKey(item)] = item
+		if key := types.EvidenceRevisionKey(item); key != "" {
+			byRevision[key] = item
+		}
+	}
+	current := make([]types.EvidenceItem, 0, len(built)+len(duplicates))
+	current = append(current, built...)
+	for _, item := range duplicates {
+		stored, ok := byStable[types.EvidenceStableMergeKey(item)]
+		if !ok {
+			stored, ok = byRevision[types.EvidenceRevisionKey(item)]
+		}
+		if ok {
+			current = append(current, stored)
+		}
+	}
+	return current
+}
+
 // renderRequestedDimensionOperationOwnershipAdvisory gives the model an early,
 // soft correction after a successful evidence emission. Completion retains its
 // exact hard contract, but the model no longer needs to reach completion before
@@ -6295,7 +6328,8 @@ func renderRequestedDimensionOperationOwnershipAdvisory(ctx *types.BusContext, c
 
 	// This is per-emission guidance, not a sticky session warning. Only a
 	// current accepted operation row or a current typed index on a non-operation
-	// row makes the missing ownership actionable in this result.
+	// row makes the missing ownership actionable in this result. Current rows
+	// include the exact stored rows selected by a no-op duplicate emission.
 	actionable := false
 	for _, item := range current {
 		if !grounded(item) {
