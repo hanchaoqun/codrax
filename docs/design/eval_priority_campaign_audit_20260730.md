@@ -57380,6 +57380,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1657 B1599：补读后的当前缺口与历史完成边界分离（2026-09-07）
+
+1. r1032 的 Java 生产见证复核成立：历史 demotion 只有 ForcedReadCoverage 席位、没有来源；后续真实完整读取无法解除附注，且 `acceptedClosureHasTypedUnresolvedBoundary` 同样消费历史值，污染最终入模边界提示。不是模型波动，不通过删改模型正文处理。
+2. 最小根修为 run-local `ScopedReadCoverage`：demotion 记录物理仓根、仓内精确文件、建议行范围（空范围代表全文件）。真实 read_file 成功出口且 RawRef、范围合法，非运行时附件，才记录同身份的实际阅读区间。仅与对应来源连续覆盖匹配；部分读取、另一文件、异仓同名、grep、失败、附件与缺失来源不能消解。全文件必须有已知总行数；未知总数可证明精确读过的局部范围。真实工具入口分页读取两源的正/反针先红后绿。
+3. `CompletionCaveats()` 仍是历史单调完成边界，原调度/收敛消费者不改；新增 `CurrentCompletionCaveats()` 只投影当前未完成的读覆盖提示，其他 lane 不变。最终模型提示与系统附注共用当前视图。fork/merge 仅携带该 lane 历史与专用 repo-bound 读证据，不借用旧 readRanges 的相对路径合并；陈腐 fork 回流不会复活已经完成的覆盖。legacy 无 source 的 unknown 独立保留，不能被新精确来源覆盖。
+4. 最终重渲染的旧附注注册表也会复活历史警示，因此为该系统条目单设 typed replay kind，在重渲染时再次核对当前覆盖；不扫描/剥离任意正文字符串。zh/en 真实附注与 replay 回归固定模型正文前缀不变，补读后无旧警示、新来源缺口仍可再次披露，独立唤醒链缺口继续给模型提示。Reset 清理本轮 caveat 状态，不向下一任务传播。
+5. 边界诚实保留：本批没有给 read snapshot v3 加跨进程持久化载体，不声称崩溃恢复后的历史 caveat 已闭环；旧无来源记录/无法物理定位的建议保持 unknown。`ClearCompletionCaveat(ForcedRead)` 目前无生产调用，若未来显式清除再新增 scope，旧 scoped demand/unknown 仍可能保守残留，需该新消费出现时单独处理；不为本批扩张门控权限。其他 lane 的既有 Clone/Merge 语义没有顺手改变。
+6. 测试留痕：`.codrax/tmp/20260907-b1599-{types-red,types-green,wiring-red,wiring-green,hint-replay-green}.log`。交叉审查补了旧 parent/旧 fork 双向无来源合并反例，最终 types 全包 42.051s、定向 race count3 1.926s 通过；真实入口针明确断言 offset=1 的确只读取第 2 行，避免小文件首页自动扩读让 partial 测试碰巧通过。初次五包全绿（tool 314.363s、agent 55.808s、orchestrator 19.218s、tracediag 9.708s、tracequery 104.315s）；末轮类型兼容分支与措辞微调后正做最终快照复验，日志 `20260907-b1598-b1599-final-full-packages.log`，不把早先全包结果冒称末次快照。
+7. 活跃流补跑 `20260907-active-stream-regression.log`：repl 2.993s / llm 0.675s 通过；并非“4ms/固定4分钟未输出答案就降级”，实际流仍活跃时不采用非流式固定请求超时，显式总预算/取消/真实无字节超时仍有效。未知来源与部分范围的系统警示统一为“尚未确认读全”，不把未知事实说成确定未读。
+
+状态：`B1599=implemented/real-entry-red-to-green/current-display-only/initial-full-pass+final-types-race-pass/final-cross-package-recheck-running`；`B1598=committed+pushed-5d364dfa9`；`source-key=physical-repository+exact-relative-file+ranges`；`accepted-gate-history=preserved`；`model-answer/conclusion/diagram=untouched`；`Trace-root=on-chain-only/background=support-only`。
+
 ### §123.1656 B1598：等待词面与检索三层计数，同源读者说明（2026-09-07）
 
 1. B1598 / P2 已实现。只调整系统自有等待附注：D 表示不可中断等待，不复用 D+IO 合并指标；内核 IO 等待标记 0/1/unknown 分别显示未标记/已标记/未提供，未标记不等于排除 IO。caller 显示为内核调用点/符号，真实符号逐字保留，不升格为资源对象或持有者。中英文采用相同数据，模型正文没有改写。

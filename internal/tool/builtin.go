@@ -5037,6 +5037,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		Timestamp:    now,
 	}
 	recordSuccessfulRepositoryRead(ctx, sourceRepoRoot, fsPath, result)
+	recordCompletionReadCoverage(ctx, fsPath, result)
 	return result, nil
 }
 

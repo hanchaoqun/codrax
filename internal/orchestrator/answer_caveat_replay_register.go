@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
-	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -54,6 +54,8 @@ const (
 	// after a blank line (the enumeration-label verification
 	// supplement's historical form).
 	answerCaveatRawSection
+	// Re-render checks the current typed source coverage, not historical prose.
+	answerCaveatCurrentReadCoverage
 )
 
 type answerCaveatReplayEntry struct {
@@ -67,6 +69,9 @@ type answerCaveatReplayRegister struct {
 }
 
 func answerCaveatReplayKey(kind answerCaveatReplayEntryKind, text string) string {
+	if kind == answerCaveatCurrentReadCoverage {
+		return "current_read_coverage\x00" + text
+	}
 	if kind == answerCaveatRawSection {
 		return "raw\x00" + text
 	}
@@ -117,6 +122,25 @@ func (o *Orchestrator) appendRegisteredAnswerCaveatBullet(answer, bullet string)
 	return AppendSystemCaveatString(answer, bullet, o.answerCaveatLanguage())
 }
 
+func (o *Orchestrator) appendRegisteredReadCoverageCaveat(answer, bullet string) string {
+	if o == nil || !o.registerAnswerCaveatEntry(answerCaveatCurrentReadCoverage, bullet) {
+		return answer
+	}
+	return AppendSystemCaveatString(answer, bullet, o.answerCaveatLanguage())
+}
+
+func (o *Orchestrator) currentReadCoverageCaveatRemains() bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return true // Unknown coverage never silently clears a registered note.
+	}
+	for _, note := range o.busCtx.Mutable.EvidenceClosure().CurrentCompletionCaveats() {
+		if note.Lane == types.DowngradeLaneForcedReadCoverage {
+			return true
+		}
+	}
+	return false
+}
+
 // appendRegisteredAnswerCaveatRawSection is the register-aware form of
 // the historical raw-supplement append (TrimRight + blank line + block).
 func (o *Orchestrator) appendRegisteredAnswerCaveatRawSection(answer, section string) string {
@@ -140,6 +164,9 @@ func (o *Orchestrator) replayRegisteredAnswerCaveats(answer string) string {
 	}
 	lang := o.answerCaveatLanguage()
 	for _, e := range o.answerCaveatReplay.entries {
+		if e.kind == answerCaveatCurrentReadCoverage && !o.currentReadCoverageCaveatRemains() {
+			continue
+		}
 		switch e.kind {
 		case answerCaveatRawSection:
 			answer = strings.TrimRight(answer, "\n") + "\n\n" + e.text + "\n"

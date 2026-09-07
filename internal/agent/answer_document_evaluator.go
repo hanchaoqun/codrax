@@ -5501,7 +5501,7 @@ func acceptedClosureHasTypedUnresolvedBoundary(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
 		return false
 	}
-	for _, caveat := range ctx.Mutable.EvidenceClosure().CompletionCaveats() {
+	for _, caveat := range ctx.Mutable.EvidenceClosure().CurrentCompletionCaveats() {
 		// completion_form is landing-shape debt, not evidence/coverage debt.
 		// It must not by itself downgrade the semantic closure description.
 		if caveat.Lane != "" && caveat.Lane != types.DowngradeLaneCompletionForm {

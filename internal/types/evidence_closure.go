@@ -165,6 +165,9 @@ type EvidenceClosure struct {
 	// force-completed without resolving the blocker, for downstream
 	// answer-caveat / telemetry consumers. Deduped by lane.
 	completionCaveats []CompletionCaveat
+	// scopedReadCoverage tracks only current disclosure for demoted file-read
+	// suggestions; it never changes historical completion/gate authority.
+	scopedReadCoverage scopedReadCoverageState
 
 	// repairs is the queue of structured RepairDirective values that
 	// downstream enforcers (grounder, pre-complete check, stall
@@ -458,6 +461,7 @@ func (c *EvidenceClosure) Clone() *EvidenceClosure {
 	out.fingerprints = append([]ClosureFingerprint(nil), c.fingerprints...)
 	out.downgradeFingerprints = append([]DowngradeFingerprint(nil), c.downgradeFingerprints...)
 	out.latestProgressDecision = c.latestProgressDecision
+	c.cloneForcedReadCoverageLocked(out)
 	out.repairs = cloneRepairDirectives(c.repairs)
 	out.nodeExecStatus = cloneNodeExecStatusMap(c.nodeExecStatus)
 	out.nodeExecAttempts = cloneNodeExecAttemptMap(c.nodeExecAttempts)
@@ -542,6 +546,7 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 		c.citedRefs[file] = mergeSortedUniqueInts(c.citedRefs[file], lines)
 	}
 	c.acceptedEvidence = mergeAcceptedEvidenceRefs(c.acceptedEvidence, snap.acceptedEvidence)
+	c.mergeForcedReadCoverageLocked(snap)
 	for _, p := range snap.pendingReads {
 		c.mergePendingReadLocked(p)
 	}
@@ -1903,6 +1908,15 @@ func (c *EvidenceClosure) AppendCompletionCaveat(caveat CompletionCaveat) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if caveat.Lane == DowngradeLaneForcedReadCoverage {
+		// Legacy callers do not identify which source remains unread. Keep
+		// that unknown independently even if a later caller supplies scopes.
+		c.scopedReadCoverage.unknown = true
+	}
+	c.appendCompletionCaveatLocked(caveat)
+}
+
+func (c *EvidenceClosure) appendCompletionCaveatLocked(caveat CompletionCaveat) {
 	for _, existing := range c.completionCaveats {
 		if existing.Lane == caveat.Lane &&
 			(existing.BlockerKey == 0 || caveat.BlockerKey == 0 || existing.BlockerKey == caveat.BlockerKey) {
@@ -2481,6 +2495,8 @@ func (c *EvidenceClosure) Reset() {
 	c.fingerprints = nil
 	c.downgradeFingerprints = nil
 	c.latestProgressDecision = ProgressDecision{}
+	c.completionCaveats = nil
+	c.scopedReadCoverage = scopedReadCoverageState{}
 	c.repairs = nil
 	c.nodeExecStatus = make(map[string]NodeExecStatus)
 	c.nodeExecAttempts = make(map[string]int)

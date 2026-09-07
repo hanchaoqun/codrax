@@ -4711,11 +4711,7 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 			// (件2, 2026-07-13) carries the same fact to the user-facing
 			// answer disclosure (completionCaveatLaneSystemCaveats).
 			ctx.Mutable.AppendCompletionGateNote(advisoryPendingReadCoverageNote(advisory))
-			closure.AppendCompletionCaveat(types.CompletionCaveat{
-				Lane:       types.DowngradeLaneForcedReadCoverage,
-				ReasonCode: "coverage_reads_demoted",
-				Reason:     "coverage-class read suggestions were demoted to advisory at the accepted completion",
-			})
+			appendAdvisoryReadCoverageCaveat(ctx, advisory)
 		}
 		pending = blocking
 	}

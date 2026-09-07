@@ -312,7 +312,7 @@ func TestCompletionCaveatLanesReachAnswerSurface(t *testing.T) {
 
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Language: "zh"}}
 	answer := o.appendSystemCaveatsToAnswer("正文")
-	for _, want := range []string{"未定位到上游唤醒者", "定义位置", "未读取"} {
+	for _, want := range []string{"未定位到上游唤醒者", "定义位置", "尚未确认读全"} {
 		if !strings.Contains(answer, want) {
 			t.Fatalf("answer missing lane disclosure %q, got: %q", want, answer)
 		}
@@ -324,7 +324,7 @@ func TestCompletionCaveatLanesReachAnswerSurface(t *testing.T) {
 	// English rendering of the same lanes.
 	o2 := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Language: "en"}}
 	answerEN := o2.appendSystemCaveatsToAnswer("body")
-	for _, want := range []string{"upstream waker", "defining location", "were not read"} {
+	for _, want := range []string{"upstream waker", "defining location", "has not been confirmed"} {
 		if !strings.Contains(answerEN, want) {
 			t.Fatalf("en answer missing lane disclosure %q, got: %q", want, answerEN)
 		}

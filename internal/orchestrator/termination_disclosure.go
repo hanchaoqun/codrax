@@ -51,6 +51,19 @@ func degradedTerminationSystemCaveat(o *Orchestrator) string {
 // here — other lanes (form/convergence) keep their existing surfaces. Text
 // is user-vocabulary only; the typed lane, not prose, is the routing signal.
 func completionCaveatLaneSystemCaveats(o *Orchestrator) []string {
+	var out []string
+	for _, note := range completionCaveatLaneDisclosures(o) {
+		out = append(out, note.text)
+	}
+	return out
+}
+
+type completionCaveatDisclosure struct {
+	lane types.DowngradeLane
+	text string
+}
+
+func completionCaveatLaneDisclosures(o *Orchestrator) []completionCaveatDisclosure {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return nil
 	}
@@ -59,29 +72,30 @@ func completionCaveatLaneSystemCaveats(o *Orchestrator) []string {
 		return nil
 	}
 	zh := isChineseLang(o.busCtx.Language)
-	var out []string
-	for _, caveat := range closure.CompletionCaveats() {
+	var out []completionCaveatDisclosure
+	for _, caveat := range closure.CurrentCompletionCaveats() {
+		add := func(text string) { out = append(out, completionCaveatDisclosure{lane: caveat.Lane, text: text}) }
 		switch caveat.Lane {
 		case types.DowngradeLaneWakeupChainDrilldown:
 			if narrowRuntimeFactCaveatScope(o) {
 				continue
 			}
 			if zh {
-				out = append(out, "trace 中部分线程的睡眠等待未定位到上游唤醒者;相关结论基于已收集的证据,未定位的唤醒来源请按未验证对待。")
+				add("trace 中部分线程的睡眠等待未定位到上游唤醒者;相关结论基于已收集的证据,未定位的唤醒来源请按未验证对待。")
 			} else {
-				out = append(out, "Some threads' sleep waits in the trace were not traced back to an upstream waker; related conclusions stand on the collected evidence — treat unresolved wakeup sources as unverified.")
+				add("Some threads' sleep waits in the trace were not traced back to an upstream waker; related conclusions stand on the collected evidence — treat unresolved wakeup sources as unverified.")
 			}
 		case types.DowngradeLaneExactResolvedDefiningProof:
 			if zh {
-				out = append(out, "未找到直接命名目标定义位置的已核实证据;涉及精确定义位置的结论请按未验证对待。")
+				add("未找到直接命名目标定义位置的已核实证据;涉及精确定义位置的结论请按未验证对待。")
 			} else {
-				out = append(out, "No verified evidence directly names the target's defining location; treat conclusions about the exact definition site as unverified.")
+				add("No verified evidence directly names the target's defining location; treat conclusions about the exact definition site as unverified.")
 			}
 		case types.DowngradeLaneForcedReadCoverage:
 			if zh {
-				out = append(out, "部分建议阅读的文件在回答完成前未读取;关于这些文件的说法请按未验证对待。")
+				add("部分建议阅读的文件范围尚未确认读全;关于这些范围的说法请按未验证对待。")
 			} else {
-				out = append(out, "Some files suggested for reading were not read before this answer was completed; treat claims about those files as unverified.")
+				add("Complete reading of some suggested source ranges has not been confirmed; treat claims about those ranges as unverified.")
 			}
 		}
 	}
@@ -179,8 +193,12 @@ func (o *Orchestrator) appendSystemCaveatsToAnswer(answer string) string {
 	if caveat := degradedTerminationSystemCaveat(o); caveat != "" {
 		answer = o.appendRegisteredAnswerCaveatBullet(answer, caveat)
 	}
-	for _, caveat := range completionCaveatLaneSystemCaveats(o) {
-		answer = o.appendRegisteredAnswerCaveatBullet(answer, caveat)
+	for _, caveat := range completionCaveatLaneDisclosures(o) {
+		if caveat.lane == types.DowngradeLaneForcedReadCoverage {
+			answer = o.appendRegisteredReadCoverageCaveat(answer, caveat.text)
+		} else {
+			answer = o.appendRegisteredAnswerCaveatBullet(answer, caveat.text)
+		}
 	}
 	if caveat := preStageDegradationSystemCaveat(o); caveat != "" {
 		answer = o.appendRegisteredAnswerCaveatBullet(answer, caveat)
