@@ -57389,11 +57389,16 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 | B1590b / P1 | context将同窗不同参数榜混成单一名次；final principal roster出现#1,#1,#2,#2且没有参数；另一已分榜reader roster隐藏参数与capture path | 已实施并完成独立审阅；共享只读显示身份复用原capture partition及rank-board key；工件/目标/查询窗/设置完整才同域，未知身份逐行保留。全局8+4或8行预算不乘以榜数，稳定分域轮询，显式省略组/行。现有资格/原rank/值/两轴/修向/窗口偏好不改；真实入口先红后绿 |
 | B1590a同族补漏 / 只修教学 | reader-rank提示仍称仅单条合并行内总量合法，与另有精确同向小计的提示不一致 | 同一B1590b显示小批已明确“单行不授予跨行加法；独立具名成员/口径的小计可按其凭证用，不是保证收益”；等待caller专属禁令未动，不扩大加法资格 |
 | B1590c / P1，独立复审新增 | reader decision cards仍扁平第N位；repair-direction与compact/mechanism摘要只按direction跨参数选单一leader | 紧接施工；沿用b的显示域，保留原资格/原值/全局显示cap。精确小计只能绑定原发布section且全成员同域，不能切投影后重算新小计或从不完整身份猜同榜；先补执行反例，不宣称b已覆盖所有finalizer面 |
-| B1591 / P1 | invalid-placement修复删除局部位置、将原contains/not_contains改satisfies，甚至Expected在请求中时仍Required=true；只保原结构又被quality二次必拒。planning-only placement教学要求refs而门不接受；240字符摘要还可能裁断末尾planning_only | 真实EmitWriteAnalysis.Execute→RunWriteAnalyzePhase已复现；保Placement/Operator/Expected/Polarity，只对未证required位置降为已有planning-only。quality与required/observed权限同源，位置refs原门不放宽、只对准确状态给正确教学/诊断；权限词前置，原240显示上限和完整typed载体不变。无新wire字段/执行凭证，施工中 |
+| B1591 / P1 | invalid-placement修复删除局部位置、将原contains/not_contains改satisfies，甚至Expected在请求中时仍Required=true；只保原结构又被quality二次必拒。planning-only placement教学要求refs而门不接受；240字符摘要还可能裁断末尾planning_only | 已实施、独立审阅并通过真实入口及完整受影响包；保Placement/Operator/Expected/Polarity，只对未证required位置降为已有planning-only。quality与required/observed权限同源，位置refs原门不放宽、只对准确状态给正确教学/诊断；权限和局部关系枚举前置，原240字符加省略号和完整typed载体不变。无新wire字段/执行凭证 |
+| B1590d / P1，双席执行新增 | 原共享direction arithmetic只检目标/区间，不检参数与查询窗；真实publisher将depth-a 7.405与depth-b 4.710发为12.115精确小计，另三席见证15.713 | 独立于c的显示修复，在原section/appendix共享算术入口补同一完整查询榜前提；复用既有完整board资格和未舍入identity key。原capture由projection分区持有，缺/异target、params或querywindow不铸小计，保所有原始单项与资格；同板合法subtotal与overlap正负臂保留。已先红，施工中，不把错误原小计当权威延续 |
 
 B1590b旧census测试原未提供target/params，却声称单榜完整；已明确补齐其单榜前提，同时新增缺身份仍逐条保留的独立反例，不通过把未知硬拒、删掉测试或涨cap收绿。新显示身份Complete仅表示四轴身份齐全，不表示枚举完整。不同查询深度的合法值差不归为引擎数值回归。
 
 B1590b验证留痕：`20260907-b1590b-{context,agent}-red.log`记录真实混榜/缺身份/全局预算/同名异工件及实际入模入口失败；定向count=3绿（agent expanded 1.317s），完整受影响包agent48.886s/context1.998s/types31.144s退出0（`20260907-b1590b-full-affected.log`）。最后显示字段转义不改变原始身份，补同形显示/异原值反例，context/types最终定向0.823s/0.750s绿（`20260907-b1590b-final-targeted.log`）。这些是本批验证，不冒充后续c或B1591完整包验证，也不是live回放。
+
+B1590b已提交推送`7fc815c9b`。B1591真实分析入口18格（正负局部操作×缺位置/缺delimiter/无证/观察/规划/禁止/原证正臂）及JSON持久化、normalize、幂等、原IR不可变验证通过；实际EmitChangePlan正负对照证明placement_refs原门不变，planning-only不绑定时原载体可完整保留且不制造验证义务。实际schema三个placement_refs节点与两处skill入模教学共源。首次完整types套件暴露权限前置挤掉局部relation的旧pin，未放松pin/涨预算，而把有限语义枚举一并前置；新增30格长字段正负relation/observed legacy Required=true反例。最终types34.612s/orchestrator14.902s/skill1.390s完整绿；tool完整264.095s绿（首次四包进程exit1仅含已修types pin）。日志`20260907-placement-preservation-red.log`、`20260907-b1591-{tool-red,context-order-red,context-order-green,final-context-full,affected-full}.log`。旧版本已删除的持久化Placement不从历史prose猜恢复，列为兼容边界而不是虚称修复。
+
+活跃流本轮复验：`20260907-active-stream-guard.log`，真实HTTP/SSE测试9.073s绿，覆盖活跃reasoning/tool/heartbeat/逐字节未完整frame不因4ms或旧总墙钟降级；显式调用预算、parent取消及真正byte-idle仍有效。本轮没有改stream超时配置，不把单元缩时测试冒称单次4分钟live。
 
 本轮case盘243（read215/apply25/plan3）。按真实用户影响、确定性机制、异构图表达/模式增量、实际执行能力与近期重复度排序；r1020–1029已重复H11五批、memoclaw Python三批，不继续围绕同一输出求绿。
 

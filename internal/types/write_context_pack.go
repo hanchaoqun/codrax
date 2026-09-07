@@ -2712,8 +2712,19 @@ func renderVerificationConfidenceContext(conf VerificationConfidenceRecord) stri
 
 func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 	parts := []string{}
-	if c.ID != "" {
-		parts = append(parts, "id="+c.ID)
+	// Authority must survive the bounded display even when a model-authored
+	// identity, subject or expected value consumes the remaining text budget.
+	if IsPlanningOnlyWriteBehaviorContract(c) {
+		parts = append(parts, "planning_only=true")
+	} else if c.Required && c.Polarity != WriteBehaviorPolarityObserved {
+		if IsHardRequiredWriteBehaviorContract(c) {
+			parts = append(parts, "hard_required=true")
+		} else {
+			parts = append(parts, "soft_required=true")
+		}
+	}
+	if c.Polarity != "" {
+		parts = append(parts, "polarity="+string(c.Polarity))
 	}
 	if c.Kind != "" {
 		parts = append(parts, "kind="+string(c.Kind))
@@ -2721,8 +2732,16 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 	if c.Operator != "" {
 		parts = append(parts, "operator="+string(c.Operator))
 	}
-	if c.Polarity != "" {
-		parts = append(parts, "polarity="+string(c.Polarity))
+	if c.Placement != nil {
+		if c.Placement.Surface != "" {
+			parts = append(parts, "placement_surface="+string(c.Placement.Surface))
+		}
+		if c.Placement.Relation != "" {
+			parts = append(parts, "placement_relation="+string(c.Placement.Relation))
+		}
+	}
+	if c.ID != "" {
+		parts = append(parts, "id="+c.ID)
 	}
 	if c.Subject != "" {
 		parts = append(parts, "subject="+c.Subject)
@@ -2739,17 +2758,11 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 		parts = append(parts, "transition_phases="+strings.Join(phases, ">"))
 	}
 	if c.Placement != nil {
-		if c.Placement.Surface != "" {
-			parts = append(parts, "placement_surface="+string(c.Placement.Surface))
-		}
 		if c.Placement.Anchor != "" {
 			parts = append(parts, "placement_anchor="+c.Placement.Anchor)
 		}
 		if c.Placement.Expected != "" {
 			parts = append(parts, "placement_expected="+c.Placement.Expected)
-		}
-		if c.Placement.Relation != "" {
-			parts = append(parts, "placement_relation="+string(c.Placement.Relation))
 		}
 		if c.Placement.Delimiter != "" {
 			parts = append(parts, "placement_delimiter="+c.Placement.Delimiter)
@@ -2773,15 +2786,6 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 		}
 		if c.Comparator.EvidenceRef != "" {
 			parts = append(parts, "comparator_evidence_ref="+c.Comparator.EvidenceRef)
-		}
-	}
-	if IsPlanningOnlyWriteBehaviorContract(c) {
-		parts = append(parts, "planning_only=true")
-	} else if c.Required {
-		if IsHardRequiredWriteBehaviorContract(c) {
-			parts = append(parts, "hard_required=true")
-		} else {
-			parts = append(parts, "soft_required=true")
 		}
 	}
 	if c.EvidenceRef != "" {

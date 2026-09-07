@@ -56,14 +56,12 @@ func repairWriteAnalysisIRQuality(ir *types.WriteAnalysisIR) (*types.WriteAnalys
 	for i := range repaired.Request.BehaviorContracts {
 		contract := &repaired.Request.BehaviorContracts[i]
 		if rejection := writeAnalysisPlacementQualityRejection(i, *contract, raw); rejection != "" {
-			oldOperator := contract.Operator
-			contract.Placement = nil
-			if contract.Required && contract.Polarity != types.WriteBehaviorPolarityObserved &&
-				contract.Operator != types.WriteBehaviorOpSatisfies {
-				contract.Operator = types.WriteBehaviorOpSatisfies
-			}
-			contract.Source = appendWriteAnalysisContractSource(contract.Source, "quality_repaired:dropped_invalid_placement")
-			repairs = append(repairs, fmt.Sprintf("behavior_contracts[%d] id=%q dropped invalid placement and operator=%s->%s", i, contract.ID, oldOperator, contract.Operator))
+			// An incomplete or ungrounded local relation has no requirement
+			// authority. Retain its meaning for planning: removing placement
+			// would turn a local exclusion into an unrelated global one.
+			contract.Required = false
+			contract.Source = appendWriteAnalysisContractSource(contract.Source, types.WriteBehaviorContractSourcePlanningOnlyUngrounded)
+			repairs = append(repairs, fmt.Sprintf("behavior_contracts[%d] id=%q authority=planning_only", i, contract.ID))
 		}
 		if writeAnalysisContractNeedsExactGrounding(*contract) {
 			expected := strings.TrimSpace(contract.Expected)
@@ -124,7 +122,9 @@ func writeAnalysisContractHasRequirementAuthority(contract types.WriteBehaviorCo
 }
 
 func writeAnalysisPlacementQualityRejection(index int, contract types.WriteBehaviorContract, raw string) string {
-	if contract.Placement == nil {
+	// Observations and planning-only proposals retain local context without
+	// acquiring the completeness/grounding obligations of a required target.
+	if !types.IsPlacementRequiredWriteBehaviorContract(contract) {
 		return ""
 	}
 	p := contract.Placement

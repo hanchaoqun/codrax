@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+// WritePlacementRefsTeaching describes the existing placement-ref admission
+// domain for the analyzer, planner and tools. It is teaching only, never a
+// source of requirement authority or an execution gate.
+const WritePlacementRefsTeaching = "Use placement_refs[] only for active hard-required behavior contracts with placement{} whose line-local relation the probe directly checks, not merely global substring presence. Facts with polarity=observed and planning-only proposals retain their local context but are not required placement targets; do not bind their ids in placement_refs[]. Use this field only when the current tool schema publishes it."
+
 // WriteBehaviorContract is a typed observable that the write workflow should
 // preserve or satisfy. The write_analyzer emits these atoms through
 // emit_write_analysis; downstream validators only check IDs/enums/coverage

@@ -270,7 +270,7 @@ func (t *RunTests) Parameters() json.RawMessage {
         "timeout_seconds": {"type": "integer", "description": "Probe timeout in seconds, capped by the executor."},
         "expected_stdout": {"type": "array", "items": {"type": "string"}, "description": "Optional stdout fragments that must be present for the probe to pass."},
         "contract_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional behavior contract ids covered by this probe."},
-        "placement_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional behavior contract ids whose rendered-text placement relation this probe directly verifies. Use only when the contract has placement{} and the probe checks line-local anchor/expected relation."},
+        "placement_refs": {"type": "array", "items": {"type": "string"}, "description": "` + types.WritePlacementRefsTeaching + `"},
         "changed_symbol_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional changed identities exercised by this probe. Use a language-level symbol name for symbols and path:<repo-relative-file> for files/modules."}
       },
       "required": ["code"]

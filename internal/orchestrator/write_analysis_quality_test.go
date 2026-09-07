@@ -294,21 +294,21 @@ func TestRepairWriteAnalysisIRQualitySoftensInvalidPlacementContract(t *testing.
 
 	repaired, repairs := repairWriteAnalysisIRQuality(ir)
 
-	if len(repairs) != 1 || !strings.Contains(repairs[0], "dropped invalid placement") {
+	if len(repairs) != 1 || !strings.Contains(repairs[0], "authority=planning_only") {
 		t.Fatalf("expected invalid placement repair, got %+v", repairs)
 	}
 	got := repaired.Request.BehaviorContracts[0]
-	if got.Placement != nil {
-		t.Fatalf("invalid placement should be removed from repaired IR: %+v", got.Placement)
+	if got.Placement == nil || *got.Placement != *ir.Request.BehaviorContracts[0].Placement {
+		t.Fatalf("partial placement must retain its original local meaning: %+v", got.Placement)
 	}
-	if got.Operator != types.WriteBehaviorOpSatisfies {
-		t.Fatalf("invalid placement contract should soften instead of becoming global contains, got %+v", got)
+	if got.Operator != types.WriteBehaviorOpContains || got.Expected != ", in mm" {
+		t.Fatalf("authority calibration must not rewrite the proposed operator/expected value: %+v", got)
 	}
-	if !strings.Contains(got.Source, "quality_repaired:dropped_invalid_placement") {
-		t.Fatalf("softened placement contract should be source-tagged, got %+v", got)
+	if !types.IsPlanningOnlyWriteBehaviorContract(got) {
+		t.Fatalf("partial placement should use the existing planning-only authority marker: %+v", got)
 	}
-	if !got.Required || types.IsPlanningOnlyWriteBehaviorContract(got) {
-		t.Fatalf("request-grounded expected text should remain a soft completion target after placement removal: %+v", got)
+	if got.Required || writeAnalysisIRQualityRejection(repaired) != "" {
+		t.Fatalf("grounded expected text alone must not turn incomplete local placement into a required target: %+v", got)
 	}
 	if ir.Request.BehaviorContracts[0].Placement == nil {
 		t.Fatalf("repair should not mutate original placement")

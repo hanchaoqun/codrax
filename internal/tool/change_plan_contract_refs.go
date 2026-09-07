@@ -59,7 +59,7 @@ func validatePlanBehaviorContractRefs(plan *types.ChangePlan) (rej string, reaso
 					return msg, probeContractRefReason(retired), []string{"$.verification_probes[].placement_refs", "$.changes[].verification_probes[].placement_refs"}
 				}
 				if _, ok := placementIDs[strings.TrimSpace(ref)]; !ok {
-					return fmt.Sprintf("%s contains behavior_contract id %q without placement{}; use one of %s", field, ref, formatStringSet(placementIDs)),
+					return fmt.Sprintf("%s contains behavior_contract id %q %s; use one of %s", field, ref, placementRefAuthorityDescription(res, ref), formatStringSet(placementIDs)),
 						verificationProbeContractRefsFailedReason, []string{"$.verification_probes[].placement_refs", "$.changes[].verification_probes[].placement_refs"}
 				}
 			}
@@ -83,6 +83,28 @@ func validatePlanBehaviorContractRefs(plan *types.ChangePlan) (rej string, reaso
 		}
 	}
 	return "", "", nil
+}
+
+// This only explains an already-rejected active reference. The admission set
+// above remains PlacementRequiredWriteBehaviorContractIDs of the same resolved
+// generation; retaining a local carrier does not make it a required target.
+func placementRefAuthorityDescription(res types.WriteBehaviorContractResolution, ref string) string {
+	for _, contract := range res.Contracts {
+		if strings.TrimSpace(contract.ID) != strings.TrimSpace(ref) {
+			continue
+		}
+		if contract.Placement == nil {
+			return "without placement{}"
+		}
+		if contract.Polarity == types.WriteBehaviorPolarityObserved {
+			return "with observed placement context, not a required placement target"
+		}
+		if types.IsPlanningOnlyWriteBehaviorContract(contract) {
+			return "with planning-only placement context, not a required placement target"
+		}
+		return "with placement context that is not a required placement target"
+	}
+	return "without placement{}"
 }
 
 func probeContractRefReason(retired bool) string {
