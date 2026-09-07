@@ -57380,6 +57380,23 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1666 r1034 收账：机器通过不能代替正确关系与正确补丁（2026-09-07）
+
+前三批已推送main：B1603/B1605=`7937cc22a`，B1606=`d564d5a75`，B1604/B1608=`224e47cff`。末次生产与测试冻结后的 `go test ./... -count=1` 退出0、86测试包通过（`20260907-b1604-b1608-final-full-suite.log`）：tool301.466s/types40.560s/agent58.158s/orchestrator25.782s/tracequery97.832s/tracediag12.666s。旧中途85包通过+tool单红已纠正，不能混成从未红过。干净构建revision=`224e47cffc77`，随后严格两路r1034；全仓部分时间与回放重叠，不作时延优化对照。
+
+原机器2/2 PASS：Rust115s、C++143s；人工两者均不完整正确。完整源码、输入上下文、每轮修补、最终答案、durable diff与独立原生验证已记入 `eval/parallel_selected_summary_evalcampaign_rust_read_cpp_write_r1034_20260907_manual_audit.md`，机器原表同前缀。不修改旧成绩/旧工件，不拿正式aggregate报告冒充未执行的逐assertion证明。
+
+| 顺序 / 工单 | 本轮精确见证 | 泛化处置 |
+|---|---|---|
+| P1 / B1609-LEASETEACHINGPARITY1 | Rust第2次图修补后已有原子lease，辅助hint却教replace_blocks，第3轮照教被whole_replace_not_authorized拒；第4轮正确failure_ref原子replace即通过 | 活跃能力与辅助提示同源；保执行器原子约束、完整关系/正文不代写，无lease仍保原合法整块提示。真实full/patch入口先红后绿施工中 |
+| P1 / B1610-EVALAPPLYSCOPE1 | C++两头均lg→Lf而非Lg，原生非空测试放过；无POST_APPLY_FILE时eval汇总全应用树，正确Lg唯一命中未改README:9而判PASS | 显式多文件作用域+逐文件校验，不让文档或另一正确文件遮住错误目标；保单文件兼容，文档任务可显式选文档，不降预期。设计施工中 |
+| P2 / B1611-TERMINALRECEIPTDISPLAY1 | diagram首稿已有概念终点receipt，后续soft要求summary再补同receipt，renderer逐块发相同“概念目标核对”两遍 | 后续仅系统自有同绑定同结论披露去重；不同来源/结论不合并，模型原文不扫不删，未施工 |
+| P2 / 模型与既有验证债 | Rust仍称两条并行执行路径，但源码和探索/最终上下文已给顺序；C++模型自行改成固定小数Lf，计划原文如此，不是系统改写 | 不靠词门纠正模型；并行误述归r1006已有观察。C++原生独立比对1e-12实际输出0.000000，人审失败；正式报告只aggregate且已披露范围，B1561细粒度行为证明继续开放 |
+
+Rust最终5条调用边保留，无整图消失；相同call证据在第4轮已合法绑定，所以不立“该边无法表达”的假案。具体first/second patch metadata错误与系统误导须分别审，不把三次拒绝全归模型或全归系统。S/D/IO/Binder等待、链上业务线索、双维根因、显式窗投影与自动补齐没有改动；B1607完整统计仍按a/b独立账户方案排期。
+
+状态：`B1603/B1604/B1605/B1606/B1608=pushed+final-whole-repo-pass`；`r1034=machine-pass-2/2,human-fail-2/2`；`B1609/B1610=confirmed/P1/in-progress`；`B1611=confirmed/P2/pending`；`old-results=preserved`；`model-prose-hardgate/rewrite=none`。
+
 ### §123.1665 B1608：安全定位修复不能静默改成另一实体（2026-09-07）
 
 全仓中途快照退出1，仅 `TestEmitAnswerSymbol_ReusesCompiledStepCandidateNameAtSameLine` 失败，其余包通过。该旧针要求把模型提交的checkResourceCount等三个不同名称，凭同file:line的候选替换成checkContractComplete等；B1604取消集合热点骨架后不再满足。检查生产代码确认，替换仅依赖候选在已读行±2中出现、原名称未出现，没有别名或同实体证明，且同址候选map后写覆盖。恢复该自动候选只会保留语义越权，不是修复正确能力。
