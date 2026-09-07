@@ -9,6 +9,12 @@ const verificationProofMaxReasonCodes = 32
 const verificationProofLedgerMaxItems = 64
 const verificationProofLedgerMaxDisclosures = 256
 
+// VerificationProjectTestAssertionNotObservedReasonCode is shared by the
+// project-test receipt producer and the exact-ref proof-debt resolver. Keep
+// the wire spelling stable; the older observation-level spelling is accepted
+// below only for reports persisted before assertion-scoped receipts existed.
+const VerificationProjectTestAssertionNotObservedReasonCode = "project_test_assertion_not_observed"
+
 type VerificationProofStatus string
 
 const (
@@ -1800,6 +1806,7 @@ func verificationProofReasonCanBeResolvedByConfidence(code string) bool {
 		"verification_probe_missing_required_placement_ref",
 		"verification_probe_missing_soft_contract_ref",
 		"verification_probe_missing_changed_symbol_ref",
+		VerificationProjectTestAssertionNotObservedReasonCode,
 		"project_test_observation_not_executed":
 		return true
 	default:

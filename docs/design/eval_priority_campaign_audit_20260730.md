@@ -57402,7 +57402,16 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - explore/finalizer 两份既有供给教学和跨行求和教学同步承认已发布精确同向小计的合法例外，不再一处允许、一处只准 merged-row。是否可以列算式与是否保证优化收益分开；链上各修向、折算口径、实际占时及业务成员线索要求保留。
 - 只改已有教学，不添加 JSON 字段、必填项、模型措辞检测器或重试门。通过真实 registry→context→LLM messages 拼装，中间与最终阶段一致、非 Trace 不渲染；同向 9+3=12、物理重叠、缺窗和异板算术对照通过。修正一个旧测试中错误的“算术允许即保证收益”期望，未降低验证标准。红日志 `b1573-direction-teaching-red.log`、`b1573-arithmetic-benefit-red.log`，绿日志 `.codrax/tmp/b1573-teaching-packages-green.log`（skill/context 全包）。
 
-B1571 已提交 `5a7bee347`。B1574 同席引用与 B1572 写验证原因码正在独立验证；各批落地后统一全仓检查、干净构建及严格双路回放，不能提前宣称全部闭环。
+#### B1572：已获准同义务证明不再卡在陈旧原因码
+
+`implemented / real-run-tests-red-to-green / types+write-verification-regressions-pass / live-pending`。
+
+- 项目测试断言未观察到仍原样记入历史，既有同 contract-ref 的获准替代凭证也不变。新原因码由 producer/consumer 共用 types 常量，消解清单兼容原持久化旧码；只有原精确义务消解已成立时才能解除这条证明债。
+- 不是“有 probe 就跳过测试”：部分、异 ref、空 ref、失败、不可用、仅 advisory、source-static 不能证明 runtime 的负例仍保留弱/失败/不可用状态。未知原因码不扩豁免；整体执行失败不能被凭证消解盖成绿色，原报告不修改。
+- 真实 `RunTests.Execute` 入口先红后绿：完整获准 probe 能关闭同两条义务，部分 probe 必须保留缺项且实际执行项目测试。新旧原因码×当前/累计报告矩阵、types 全包及 tool 写验证广回归通过（`.codrax/tmp/b1572-production-red.log` 及 `b1572-*green.log`）。
+- 原 r1023 plan/report 只读重新计算为 adequate、verified、28/28 covered、无未决原因（`b1572-r1023-reprojection.log`），确认是原因码接线错误，不回写原 run 的 unverified 结果。原 probe 对 async 仅做 AST 的验证设计不足另行保留，不能把该离线结果当成新 live 或人工运行证明。
+
+B1571 已提交 `5a7bee347`、B1573 已提交 `179afe1f1`。B1574 同席引用正在独立验证；各批落地后统一全仓检查、干净构建及严格双路回放，不能提前宣称全部闭环。
 
 ### §123.1638 主干同步与系统边界批次（2026-09-06）
 

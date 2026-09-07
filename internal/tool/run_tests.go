@@ -3657,7 +3657,7 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 			Category:     "project_test_contract_refs",
 			Status:       "missing",
 			Severity:     "warning",
-			ReasonCode:   "project_test_assertion_not_observed",
+			ReasonCode:   types.VerificationProjectTestAssertionNotObservedReasonCode,
 			ContractRefs: refs,
 			Detail:       "declared project-test observations did not have both a successful exact typed candidate execution and the same passed assertion-scoped result identity",
 		})
