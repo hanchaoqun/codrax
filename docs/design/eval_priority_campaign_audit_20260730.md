@@ -57380,6 +57380,24 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1651 本轮收批与剩余问题的施工顺序（2026-09-07）
+
+本轮七笔提交均已推送：B1586a=`4fc28deed`、B1586b测试=`d67e3b2c9`、B1587=`22299b53e`、r1029人工收账=`ee7998e9b`、B1588=`f058711dc`、B1589=`5461676fb`、B1590a=`d76c204e1`。生产源码冻结`d76c204e1119`；干净make成功（`20260907-b1588-b1590-clean-build.log`，无dirty标记）。最终`go test ./... -count=1`退出0、86测试包通过，无FAIL/panic（`20260907-b1588-b1590-full-suite.log`）：agent73.141s、tool297.436s、tracequery101.343s、tracediag15.061s、types43.498s。测试开始于该提交前、源码冻结后，随后只有提交及文档变化，没有用旧快照全绿代替本批验收。
+
+当前case盘核实仍243项。已按前述多维优先级完成r1028/r1029两批、每批恰两路，原机器结果1/2与0/2保留；完整日志、模型上下文、答案、TS补丁及独立验证已逐项人工审计。新修复不能回填旧结果，合并表/合法查询参数差异也不能靠改oracle伪造通过。下一live先完成确定性P1再轮换语言/读写/Trace范围，不连续追跑同题求绿。
+
+| 顺序 | 剩余问题 / 证据等级 | 下一批边界与验收 |
+|---|---|---|
+| 1 / P1 | B1590b同窗不同查询榜单混排，生产与源码确认 | context摘要和selected_window_reader_rank_roster两面一起审计；复用既有工件capture身份、目标、查询窗、参数fingerprint形成榜域，只在同域内排名/去重。已有BuildTraceRankRosterAuthorities与projection rank identity作为一致性参照，不能复制第二套资格规则。钉同窗不同深度、同rank异榜、同名异工件、未知域、输入换序、精确用户窗及显示cap；不新造单一获胜榜、不改值/排名或模型结论 |
+| 2 / P1设计 | B1589 invalid-placement仍可能改变位置绑定的合同含义，现成分支未改 | 先取得局部约束的精确结构保真方案与反例；不能删除placement后默认为全局not_contains，也不能从旧prose猜已丢operator。与本批已修的ungrounded-exact只降权分支分开验收 |
+| 3 / P2 | B1586逐属性可用性与重复机械落地，前者状态缺口、后者有生产见证 | absent/unavailable/not-applicable先定义清楚；逐主题role/requested-field绑定完成后才能精确收账。保留完整后端，不用全局ready跳过独立子题、不新增emit-only不可能义务 |
+| 4 / 跨语言能力债 | 实际执行器缺逐方法/逐ref行为凭证 | 保留静态检查/聚合runner/动态观察的不同证明强度，研究执行器产生可核验细粒度receipt；不能将模型all_verified、人工Node通过或源码字符串检查升级成产品执行证明 |
+| 观察，不并入已确认P1 | wait摘要仍含宽泛跨席禁止；lineage仍有首marker比较；模型D/IO、完整性/引用/内部词表述 | B1590a独立末审没有找到“同一blocked_reason席获精确方向小计、同时被wait摘要否定”的执行反例：r1029 CompThread 36.757所在io_dependency没有小计，5.324属于lock_priority #4/#5。保留待证矩阵，不全局改caller/member/资源身份禁令。lineage同样尚无独立反例；模型已有足够信息仍犯错的部分保留质量观察，不增关键词硬门或系统代写 |
+
+B1590a独立第二席确认六文件无新gate/schema/算术/排序修改；旧skill与新共享拼接均4538字节、哈希相同。其“本行不授予合成权”不等于放开任意加总，重叠/成员范围/非保证收益边界保留。Trace显式窗、链上根因与背景分离、原始占时/业务线索/可消除尺和自动补采均不在本轮改动面。
+
+活跃流边界再次对照当前代码与既有真实SSE测试：默认request/路由墙钟不截断仍有心跳、推理或工具字节的流，不因4ms或4分钟未出正文而降级；用户显式总预算、parent取消、首字节与真正byte-idle保护仍有效。r1029只提供45.126s/35.701s自然结束的live见证，不冒充单次>4分钟live。最终全仓中的llm28.648s、repl71.571s完整包通过，包含现有真实SSE默认/显式预算、活跃reasoning/heartbeat、fallback腿、parent取消及真正静默正负测试。
+
 ### §123.1650 r1029：Trace全谱与TS写的验收边界及后续批次（2026-09-06）
 
 B1587已提交推送`22299b53e`，干净make后严格两路r1029；同快照全仓`go test ./... -count=1`退出0、86测试包通过（`20260906-b1587-full-suite.log`），不覆盖后续施工源码。机器0/2，不改oracle或正式report；人工分别区分功能、证明和模型表述，不把正确补丁或大量投影等同于全部通过。
@@ -57395,7 +57413,7 @@ H7模型仍将74.915运行称为最大状态（S为118.586）、D/IO混称、将
 |---|---|---|
 | B1588-ENUMERATIONMULTIFAMILYTEACHING1 | P1，上批追审确认：旧Principal Enumeration仍将首marker当唯一分类计数，落后于已支持plural的typed gate | 已提交推送`f058711dc`；纯显示共享完整family与允许重叠的命中计数，总声明不增、不能相加；不改rowID、SelectionFamily、canonical去重、analyzer角色或资格。旧排他显示pin明确换为重叠反例，不暗改门 |
 | B1589-WRITECONTRACTPOLARITYREPAIR1 | P1，TS日志实发not_contains被quality repair换成satisfies，expected仍为GET with URLSearchParams，否定语义丢失 | 已提交推送`5461676fb`；保留Operator/Expected/Polarity，仅以已有Required=false+planning-only marker降权；各必需ID/proof消费者已复核排除，不新造执行凭证。invalid-placement分支另案，不能顺手把局部约束变全局约束 |
-| B1590a-TRACEBOARDDIRECTIONTEACHING1 | P1，现场与源码双证：context摘要仍教方向总量只能取最大单项，与同prompt精确小计5.324ms及B1573教学矛盾 | 已实现、受影响三完整包通过，见下验收；抽取现有同向小计边界，无typed加总凭证仍不得任意求和，最大单项也不得冒充可回收上限；不改值或模型答案 |
+| B1590a-TRACEBOARDDIRECTIONTEACHING1 | P1，现场与源码双证：context摘要仍教方向总量只能取最大单项，与同prompt精确小计5.324ms及B1573教学矛盾 | 已提交推送`d76c204e1`，受影响三完整包及最终全仓通过，见下验收与§123.1651；抽取现有同向小计边界，无typed加总凭证仍不得任意求和，最大单项也不得冒充可回收上限；不改值或模型答案 |
 | B1590b-TRACEBOARDQUERYDOMAIN1 | P1，context同窗不同参数榜单丢组身份、同rank混排后称单一排序 | 需保留工件/目标/窗口/参数域分组与同组排序，不能last-wins或按字符串选榜。原投影参数域有保留；先冻结设计，不能把改变查询深度的合法值差误当计算错 |
 | B1586b/c / oracle债 | P2，逐属性可用性/精确任务绑定及合并表、合法query参数的评测分域 | 继续开放；不猜缺失属性、不全局ready跳任务、不改case收绿。跨语言细粒度执行receipt仍是能力债，人工Node通过不替产品签绿 |
 
