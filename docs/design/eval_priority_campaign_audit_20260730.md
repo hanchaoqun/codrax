@@ -57380,6 +57380,27 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1650 r1029：Trace全谱与TS写的验收边界及后续批次（2026-09-06）
+
+B1587已提交推送`22299b53e`，干净make后严格两路r1029；同快照全仓`go test ./... -count=1`退出0、86测试包通过（`20260906-b1587-full-suite.log`），不覆盖后续施工源码。机器0/2，不改oracle或正式report；人工分别区分功能、证明和模型表述，不把正确补丁或大量投影等同于全部通过。
+
+| 用例 | 机器 / 人工 | 实测与边界 |
+|---|---|---|
+| H7全谱Trace | FAIL / 能力保留、模型答案部分不准确 | 218s；4次显式同窗trace_query，0源码读，完整投影、两轴、业务span/未计价及微贡献仍在；6项root-causes JSON status=available。默认query二分0.033/49.623，max_chain_nodes48合法query为0.018/49.638；最终树标后者参数域，不能据旧固定oracle判引擎回归 |
+| TypeScript跨仓写 | FAIL proof_weak / 补丁行为通过、正式证据不足 | 134s；仅client.ts+6/-7，POST /v1/search+JSON，兄弟仓/测试/API/配置不改；make check45ms仅源码字符串检查，不能证明三条必需合同6项细粒度义务。系统拒绝模型all_verified，保留unverified；独立离线Node模拟fetch 7/7通过但不回填正式报告、不冒充tsc |
+
+H7模型仍将74.915运行称为最大状态（S为118.586）、D/IO混称、将部分枚举称完整、作跨席合计；已接收状态分区/非IO证据/枚举披露的部分按模型质量观察，不以关键词门或代写改正。初稿表有columns，模型replace_blocks时漏发，最终中性列标题；不是系统删表头。JSON别名安全迁移成功，无成文硬拒。补采因已有family证据而跳过，活跃流45.126s/35.701s正常结束，无超时/降级；不冒称本次live已测单次>4分钟。
+
+| 批次 | 优先级 / 已证机制 | 施工边界 / 状态 |
+|---|---|---|
+| B1588-ENUMERATIONMULTIFAMILYTEACHING1 | P1，上批追审确认：旧Principal Enumeration仍将首marker当唯一分类计数，落后于已支持plural的typed gate | 纯显示共享完整family与允许重叠的命中计数，总声明不增、不能相加；不改rowID、SelectionFamily、canonical去重、analyzer角色或资格。施工中，旧排他显示pin明确换为重叠反例，不暗改门 |
+| B1589-WRITECONTRACTPOLARITYREPAIR1 | P1，TS日志实发not_contains被quality repair换成satisfies，expected仍为GET with URLSearchParams，否定语义丢失 | 保留Operator/Expected/Polarity，仅以已有Required=false+planning-only marker降权；各必需ID/proof消费者已复核排除，不新造执行凭证。invalid-placement分支另案，不能顺手把局部约束变全局约束。施工中 |
+| B1590a-TRACEBOARDDIRECTIONTEACHING1 | P1，现场与源码双证：context摘要仍教方向总量只能取最大单项，与同prompt精确小计5.324ms及B1573教学矛盾 | 复用/抽取现有同向小计边界；无typed加总凭证仍不得任意求和，最大单项也不得冒充可回收上限；不改值或模型答案。施工中 |
+| B1590b-TRACEBOARDQUERYDOMAIN1 | P1，context同窗不同参数榜单丢组身份、同rank混排后称单一排序 | 需保留工件/目标/窗口/参数域分组与同组排序，不能last-wins或按字符串选榜。原投影参数域有保留；先冻结设计，不能把改变查询深度的合法值差误当计算错 |
+| B1586b/c / oracle债 | P2，逐属性可用性/精确任务绑定及合并表、合法query参数的评测分域 | 继续开放；不猜缺失属性、不全局ready跳任务、不改case收绿。跨语言细粒度执行receipt仍是能力债，人工Node通过不替产品签绿 |
+
+完整人工记录见`eval/parallel_selected_summary_evalcampaign_trace_tswrite_r1029_20260906_manual_audit.md`。此轮不再重开第三个live或追跑同题，先闭环这些泛化的教学/语义保持小批并逐笔提交推送。
+
 ### §123.1649 r1028人工收账与B1587阶段指引冲突（2026-09-06）
 
 源码冻结`d67e3b2c94cb`，B1586a已推送`4fc28deed`，B1586b test-only已推送`d67e3b2c9`。干净make成功；此快照`go test ./... -count=1`退出0、86测试包通过，无FAIL/panic（`20260906-b1586-full-suite.log`，agent66.949s/tool287.209s/tracequery99.563s）。不将此全绿覆盖后续B1587源码。r1028严格两路并行，原结果保留`machine=1/2`，没有改oracle或旧答案求绿。
