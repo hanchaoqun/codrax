@@ -2014,6 +2014,7 @@ type runtimeTraceOccupancyCandidate struct {
 	unit             string
 	location         string
 	caliber          string
+	unavailable      bool
 }
 
 // runtimeTraceCausalProjectionOccupancyBlock is the TWODIM-2 answer surface:
@@ -2055,12 +2056,16 @@ func runtimeTraceCausalProjectionOccupancyBlock(
 	items := make([]types.AnswerBlockItem, 0, len(rows))
 	for i, row := range rows {
 		maxValue, count := runtimeTraceOccupancyStatisticCells(row, zh)
+		value := fmt.Sprintf("%.3f%s", row.totalMS, row.unit)
+		if row.unavailable {
+			value, maxValue, count = "—", "—", "—"
+		}
 		items = append(items, types.AnswerBlockItem{
 			ID: fmt.Sprintf("%s_occupancy_%d", idPrefix, i+1),
 			Cells: []string{
 				row.group,
 				row.subject,
-				fmt.Sprintf("%.3f%s", row.totalMS, row.unit),
+				value,
 				maxValue,
 				count,
 				row.location,
@@ -2140,6 +2145,11 @@ func runtimeTraceOccupancyPathCandidates(
 		if !runtimeTraceOccupancyPathNodeAdmitted(row) {
 			continue
 		}
+		value, known, state, _ := runtimeTraceOccupancyPathMeasurement(node)
+		if !known {
+			continue
+		}
+		node.ImpactMS, node.StateKind = value, state
 		envelopeKey := runtimeTraceOccupancyExactStateEnvelopeKey(node)
 		accountKey := runtimeTraceOccupancyStateAccountKey(node)
 		if envelopeKey == "" || accountKey == "" {
@@ -2163,9 +2173,16 @@ func runtimeTraceOccupancyPathCandidates(
 		if !runtimeTraceOccupancyPathNodeAdmitted(row) {
 			continue
 		}
-		total := node.ImpactMS
-		accountKey := runtimeTraceOccupancyStateAccountKey(node)
-		envelopeKey := runtimeTraceOccupancyExactStateEnvelopeKey(node)
+		total, known, state, independentState := runtimeTraceOccupancyPathMeasurement(node)
+		// This local display copy makes deduplication and ruler comparison read
+		// the same measurement as the value cell. The causal node is untouched.
+		measured := node
+		measured.ImpactMS, measured.StateKind = total, state
+		accountKey, envelopeKey := "", ""
+		if known {
+			accountKey = runtimeTraceOccupancyStateAccountKey(measured)
+			envelopeKey = runtimeTraceOccupancyExactStateEnvelopeKey(measured)
+		}
 		key := accountKey
 		if key == "" {
 			key = envelopeKey
@@ -2201,8 +2218,21 @@ func runtimeTraceOccupancyPathCandidates(
 			seen[envelopeKey] = true
 		}
 		count, maxValue := runtimeTraceOccupancyNodeCountAndMax(node)
+		if independentState {
+			// These statistics describe the published Impact records, not the
+			// separately selected state account. Even equal cumulative scalars
+			// do not prove equal per-record maxima. Count still denotes source
+			// records, never physical occurrences (see the table legend).
+			maxValue = 0
+		}
 		subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 		cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
+		if known && state != "" && cause != "" {
+			cause = runtimeTraceCausalProjectionTypeTokenStateWord(state, zh)
+			if cause == "" {
+				cause = runtimeTraceProjStateKindLabel(measured, zh)
+			}
+		}
 		if cause != "" && cause != subject {
 			subject += " / " + cause
 		}
@@ -2210,8 +2240,13 @@ func runtimeTraceOccupancyPathCandidates(
 		if !zh {
 			caliber = "actual wall-clock occupancy; accounted separately from eliminable benefit"
 		}
-		if strings.EqualFold(strings.TrimSpace(node.StateKind), "s_sleep") ||
-			strings.EqualFold(strings.TrimSpace(node.StateKind), "sleep") {
+		if !known {
+			caliber = "本行未提供可独立核对的原始占用；不是零，归因及可消除值仍见原榜"
+			if !zh {
+				caliber = "this row does not provide a separately verifiable raw occupancy; not zero; attribution and priced values remain on their original board"
+			}
+		} else if strings.EqualFold(strings.TrimSpace(state), "s_sleep") ||
+			strings.EqualFold(strings.TrimSpace(state), "sleep") {
 			if zh {
 				caliber = "等待症状 / 关键路径占用；沿唤醒链继续下钻，不自动计价"
 			} else {
@@ -2230,7 +2265,7 @@ func runtimeTraceOccupancyPathCandidates(
 				caliber = fmt.Sprintf("actual occupancy; %.3fms is separately priced by existing rules on the eliminable board", node.EffectiveImpactMS)
 			}
 		}
-		if qualifier := runtimeTraceOccupancyPathStateRulerQualifier(node, account, zh); qualifier != "" {
+		if qualifier := runtimeTraceOccupancyPathStateRulerQualifier(measured, account, zh); known && qualifier != "" {
 			if zh {
 				caliber += "；" + qualifier
 			} else {
@@ -2247,13 +2282,72 @@ func runtimeTraceOccupancyPathCandidates(
 			unit:             "ms",
 			location:         runtimeTraceOccupancyNodeLocation(node, zh),
 			caliber:          caliber,
+			unavailable:      !known,
 		})
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].totalMS > out[j].totalMS })
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].unavailable != out[j].unavailable {
+			return !out[i].unavailable
+		}
+		return out[i].totalMS > out[j].totalMS
+	})
 	if len(out) > runtimeTraceOccupancyPathLimit {
 		out = out[:runtimeTraceOccupancyPathLimit]
 	}
 	return out
+}
+
+// runtimeTraceOccupancyPathMeasurement selects a measurement, not a price.
+// The original state-account reader handles measured zero and refuses a
+// display fold's retained seed. Impact is retained only under an existing
+// raw-duration producer contract: state-view observations or a pure-state
+// type (the shared type/state map deliberately excludes priced composites).
+// Unknown kinds stay visible as unavailable; cumulative, physical extents,
+// effective values, and cross-window actual values are never fallbacks.
+func runtimeTraceOccupancyPathMeasurement(node types.TraceCausalProjectionNode) (value float64, known bool, state string, independentState bool) {
+	state = strings.ToLower(strings.TrimSpace(node.StateKind))
+	var rawTypeState string
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		token = strings.ToLower(strings.TrimSpace(token))
+		if token == "" {
+			continue
+		}
+		rawTypeState = runtimeTraceCausalProjectionTypeTokenStateClass(types.TraceCausalProjectionNode{TypeToken: token})
+		if rawTypeState == "" && types.TraceStateKindRegistered(token) {
+			rawTypeState = token
+		}
+		// The first populated type/object is the row's declared measurement
+		// kind. An unknown type must not borrow a different lower-priority kind.
+		break
+	}
+	if state == "" || rawTypeState == "d_state_or_io_wait" {
+		state = rawTypeState
+	}
+	account := node
+	account.StateKind = state
+	if value, ok := account.PublishedStateOccupancy(); ok {
+		return value, true, state, true
+	}
+	if node.MergedCount > 1 || node.OnChainOverflowFold {
+		// A display fold preserves the seed's fields but not a complete raw
+		// measurement census. Its predicate cannot certify every member's
+		// value caliber. Engine family accounts are distinct: their complete
+		// state partition remains available to PublishedStateOccupancy above.
+		return 0, false, state, false
+	}
+	rawContract := rawTypeState != ""
+	switch strings.TrimSpace(node.Predicate) {
+	case "wakeup_causal_impact", "wakeup_causal_aggregate", "critical_blocking", "state_drilldown":
+		// These observations publish the original projected/dominant state
+		// duration; their rank-only weights occupy separate fields. Their
+		// typed raw folds retain the whole-group value on Impact, not on the
+		// single retained state's fields.
+		rawContract = true
+	}
+	if rawContract && node.ImpactMS > 0 && !math.IsNaN(node.ImpactMS) && !math.IsInf(node.ImpactMS, 0) {
+		return node.ImpactMS, true, state, false
+	}
+	return 0, false, state, false
 }
 
 // runtimeTraceOccupancyPathStateRulerQualifier distinguishes one published
@@ -2300,11 +2394,12 @@ func runtimeTraceOccupancyPathStateRulerQualifier(
 
 func runtimeTraceOccupancyPathNodeAdmitted(row runtimeTraceProjTreeRow) bool {
 	node := row.Node
+	measured, known, _, _ := runtimeTraceOccupancyPathMeasurement(node)
 	return row.HasData &&
 		!node.OnChainOverflowFold &&
 		!runtimeTraceProjNonWallClockValueCaliber(node) &&
 		(node.WithinRequestedWindow == nil || *node.WithinRequestedWindow) &&
-		node.ImpactMS > 0
+		(node.ImpactMS > 0 || (known && measured > 0))
 }
 
 // runtimeTraceOccupancyStateAccountKey is the strong producer identity. It
@@ -2690,6 +2785,12 @@ func runtimeTraceCausalProjectionRepresentativeWindowNodes(
 	out := make([]types.TraceCausalProjectionNode, 0, runtimeTraceCausalProjectionRepresentativeWindowLimit)
 	principalWindowAuthoritative := types.TraceCausalProjectionPrincipalWindowAuthoritative(projection)
 	for _, node := range candidates {
+		// RankedSeats also retains independent adjacent/background ordinals.
+		// The on-chain window table cannot promote them by their rank number.
+		// This display boundary does not require a price or change any cause.
+		if strings.TrimSpace(node.ChainRelevance) != "on_chain" {
+			continue
+		}
 		if principalWindowAuthoritative && !types.TraceCausalProjectionNodeMatchesPrincipalWindow(
 			node, projection.WindowStartTs, projection.WindowEndTs,
 		) {

@@ -153,7 +153,7 @@ func TestCR4Arm6_Round2WitnessFactLane(t *testing.T) {
 	var appLine, seatedLine string
 	for _, f := range facts {
 		zh := f.userReadable("zh")
-		if strings.Contains(zh, "app-9511") && strings.Contains(zh, "未进入根因排序") {
+		if strings.Contains(zh, "app-9511") && strings.Contains(zh, "本次排序记录中未见该线程") {
 			appLine = zh
 		}
 		if strings.Contains(zh, "CompThread_0-2955") && strings.Contains(zh, "根因排序=#1") {

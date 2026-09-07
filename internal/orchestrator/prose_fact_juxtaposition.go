@@ -130,6 +130,11 @@ type proseFactSeat struct {
 	effectiveMS float64
 	hasEff      bool
 	memberCount int
+	// Rank ordinals are local to the capture/target/query/params AND the
+	// producer's typed channel. None of these display fields admits a seat.
+	board        types.TraceRankBoardDisplayIdentity
+	boardChannel string
+	unknownRef   string // incomplete identities cannot merge unrelated rows
 	// causeSymbol / unprovenRemainder (FACT-REL arm b, §29.55.4 R2-F1
 	// claim-of-absence, 2026-07-13): the seat's typed cause word and the
 	// §29.50.5 cause-unproven remainder marker ride the roster chip, so the
@@ -354,7 +359,7 @@ func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFa
 		return f
 	}
 	boardExists := false
-	for _, record := range ledger.Records {
+	for recordIndex, record := range ledger.Records {
 		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
 		}
@@ -372,7 +377,17 @@ func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFa
 			}
 			if rank > 0 {
 				boardExists = true
-				seat := proseFactSeat{rank: rank}
+				seat := proseFactSeat{
+					rank:         rank,
+					board:        types.TraceRankBoardDisplayIdentityFromRecord(record),
+					boardChannel: strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyChainRelevance)),
+				}
+				if !seat.board.Complete {
+					seat.unknownRef = strings.TrimSpace(record.ID)
+					if seat.unknownRef == "" {
+						seat.unknownRef = fmt.Sprintf("record:%d", recordIndex)
+					}
+				}
 				// RANKDIS-M18 (§29.104.17 裁定② 2026-07-16, 复核件2 勘正):
 				// composite-score rows publish the *_score twin instead of
 				// the ms key. Under the current closed matrix they are always
@@ -397,8 +412,8 @@ func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFa
 				seat.unprovenRemainder = strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyDStateCauseUnprovenRemainder)) == "true"
 				// Identical republications collapse (the same board row may
 				// reach the ledger through several result channels);
-				// distinct-value twins (two query windows' boards) stay —
-				// both are typed truth.
+				// Distinct domains or channels stay even at the same ordinal
+				// and value; both are typed truth, not two interchangeable roots.
 				dup := false
 				for _, have := range f.seats {
 					if have == seat {
@@ -605,13 +620,29 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 	var zh, en []string
 	if len(f.seats) > 0 {
 		var pz, pe []string
+		domains := map[string]bool{}
+		incompleteDomain := false
+		for _, seat := range f.seats {
+			if seat.board.Complete {
+				domains[seat.board.Key] = true
+			} else {
+				incompleteDomain = true
+			}
+		}
+		showDomain := len(domains) > 1 || (len(domains) > 0 && incompleteDomain)
 		for _, seat := range f.seats {
 			z := fmt.Sprintf("#%d", seat.rank)
 			e := fmt.Sprintf("#%d", seat.rank)
+			labelZH, labelEN := proseFactRankChannelLabel(seat.boardChannel)
 			var dz, de []string
 			if seat.hasEff {
-				dz = append(dz, fmt.Sprintf("有效归因 %.3fms", seat.effectiveMS))
-				de = append(de, fmt.Sprintf("effective %.3fms", seat.effectiveMS))
+				if seat.boardChannel == "on_chain" {
+					dz = append(dz, fmt.Sprintf("有效归因 %.3fms", seat.effectiveMS))
+					de = append(de, fmt.Sprintf("effective %.3fms", seat.effectiveMS))
+				} else {
+					dz = append(dz, fmt.Sprintf("参考值 %.3fms", seat.effectiveMS))
+					de = append(de, fmt.Sprintf("reference value %.3fms", seat.effectiveMS))
+				}
 			}
 			if seat.memberCount > 1 {
 				dz = append(dz, fmt.Sprintf("成员共%d", seat.memberCount))
@@ -633,14 +664,26 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 				z += "(" + strings.Join(dz, ",") + ")"
 				e += " (" + strings.Join(de, ", ") + ")"
 			}
-			pz = append(pz, z)
-			pe = append(pe, e)
+			if showDomain && seat.board.Complete {
+				scopeZH, scopeEN := proseFactRankBoardScope(seat.board)
+				z += scopeZH
+				e += scopeEN
+			}
+			pz = append(pz, labelZH+"="+z)
+			pe = append(pe, labelEN+"="+e)
 		}
-		zh = append(zh, "根因排序="+strings.Join(pz, "/"))
-		en = append(en, "root-cause rank(s)="+strings.Join(pe, "/"))
+		zh = append(zh, strings.Join(pz, "/"))
+		en = append(en, strings.Join(pe, "/"))
+		if incompleteDomain {
+			zh = append(zh, "部分排序项的榜域信息不完整，未证明属于同一榜")
+			en = append(en, "some rank domains are incomplete; a shared ranking is not established")
+		}
 	} else if f.boardExists {
-		zh = append(zh, "未进入根因排序")
-		en = append(en, "not present in the root-cause ranking")
+		// A positive ordinal elsewhere only proves that ranking records
+		// exist. Their channels or coverage may not include a complete root
+		// board; do not turn an observed absence into a root-cause exclusion.
+		zh = append(zh, "本次排序记录中未见该线程")
+		en = append(en, "this thread is absent from the observed rank records")
 	}
 	if len(f.callers) > 0 {
 		count := ""
@@ -695,6 +738,46 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 	}
 	return fmt.Sprintf("事实对照：%s — %s", f.subject, strings.Join(zh, " · ")),
 		fmt.Sprintf("Evidence reference: %s — %s", f.subject, strings.Join(en, " · "))
+}
+
+// These are labels for the existing BoardChannel vocabulary, not an
+// alternative causal-qualification rule. Unknown/absent channels never gain
+// root-cause authority from their predicate, positive ordinal or value.
+func proseFactRankChannelLabel(channel string) (string, string) {
+	switch channel {
+	case "on_chain":
+		return "链上根因排序", "on-chain root-cause rank(s)"
+	case "adjacent":
+		return "邻近参考排序", "adjacent reference rank(s)"
+	case "background":
+		return "背景参考排序", "background reference rank(s)"
+	default:
+		return "排序归属未标明", "rank scope unspecified"
+	}
+}
+
+func proseFactRankBoardScope(board types.TraceRankBoardDisplayIdentity) (string, string) {
+	artifact := board.ArtifactPath
+	if artifact == "" {
+		artifact = board.ArtifactLabel
+	}
+	// Quoted scalar data cannot introduce new lines or Markdown code fences.
+	quote := func(value string, zh bool) string {
+		const scalarRuneLimit = 160
+		runes := []rune(value)
+		suffix := ""
+		if len(runes) > scalarRuneLimit {
+			if zh {
+				suffix = fmt.Sprintf("（另%d字符未展示）", len(runes)-scalarRuneLimit)
+			} else {
+				suffix = fmt.Sprintf(" (%d characters omitted)", len(runes)-scalarRuneLimit)
+			}
+			value = string(runes[:scalarRuneLimit])
+		}
+		return strings.ReplaceAll(strconv.Quote(value), "`", "\\`") + suffix
+	}
+	return fmt.Sprintf("〔工件=%s；目标=%s；查询窗=%.6f..%.6f；参数=%s〕", quote(artifact, true), quote(board.BoardTarget, true), board.WindowStartTs, board.WindowEndTs, quote(board.BoardParamsFingerprint, true)),
+		fmt.Sprintf(" [artifact=%s; target=%s; query=%.6f..%.6f; params=%s]", quote(artifact, false), quote(board.BoardTarget, false), board.WindowStartTs, board.WindowEndTs, quote(board.BoardParamsFingerprint, false))
 }
 
 // proseFactEquationFindings — C-2 假等式臂: the only verdict lane, pure

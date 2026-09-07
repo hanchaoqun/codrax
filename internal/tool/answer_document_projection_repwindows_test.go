@@ -96,9 +96,9 @@ func TestRuntimeTraceCausalProjectionRepresentativeWindowsBlockUsesTypedRankedSe
 func TestRuntimeTraceCausalProjectionRepresentativeWindowsBlockOmitsInvalidIntervals(t *testing.T) {
 	projection := types.TraceCausalProjection{
 		RankedSeats: []types.TraceCausalProjectionNode{
-			{Subject: "closed", Rank: 1, StartTs: 4, EndTs: 4},
-			{Subject: "reversed", Rank: 2, StartTs: 5, EndTs: 4},
-			{Subject: "negative", Rank: 3, StartTs: -1, EndTs: 1},
+			{Subject: "closed", ChainRelevance: "on_chain", Rank: 1, StartTs: 4, EndTs: 4},
+			{Subject: "reversed", ChainRelevance: "on_chain", Rank: 2, StartTs: 5, EndTs: 4},
+			{Subject: "negative", ChainRelevance: "on_chain", Rank: 3, StartTs: -1, EndTs: 1},
 		},
 	}
 	if got := runtimeTraceCausalProjectionRepresentativeWindowsBlock(
@@ -110,12 +110,12 @@ func TestRuntimeTraceCausalProjectionRepresentativeWindowsBlockOmitsInvalidInter
 
 func TestRuntimeTraceCausalProjectionRepresentativeWindowsExcludeExpandedQueryBoard(t *testing.T) {
 	exact := types.TraceCausalProjectionNode{
-		EvidenceID: "exact", Subject: "worker", Rank: 1,
+		EvidenceID: "exact", Subject: "worker", ChainRelevance: "on_chain", Rank: 1,
 		StartTs: 1.001, EndTs: 1.009,
 		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.010,
 	}
 	expanded := types.TraceCausalProjectionNode{
-		EvidenceID: "expanded", Subject: "target", Rank: 2,
+		EvidenceID: "expanded", Subject: "target", ChainRelevance: "on_chain", Rank: 2,
 		StartTs: 1.010, EndTs: 1.010020,
 		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.011,
 	}

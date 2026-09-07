@@ -86,7 +86,7 @@ func TestProseFactThreadLineUsesReaderVocabulary(t *testing.T) {
 	ranked := &proseFactThreadFacts{
 		subject: "worker-200",
 		seats: []proseFactSeat{{
-			rank: 1, effectiveMS: 8.25, hasEff: true, memberCount: 2,
+			rank: 1, effectiveMS: 8.25, hasEff: true, memberCount: 2, boardChannel: "on_chain",
 		}},
 		callers:     []string{"fscache_page_wait_on_page_bit"},
 		callerCount: 3,
@@ -396,7 +396,7 @@ func TestCR4Fact_NonTraceRunsInert(t *testing.T) {
 // while distinct-value twins (two query windows' boards) both stay.
 func TestCR4Fact_SeatRepublicationCollapses(t *testing.T) {
 	seat := func(id string, eff string) types.ObservationRecord {
-		rec := psgTraceRecord(id, "root_cause_rank_4", eff, "rank=4", "effective_impact_ms="+eff)
+		rec := psgTraceRecord(id, "root_cause_rank_4", eff, "rank=4", "effective_impact_ms="+eff, "chain_relevance=on_chain")
 		rec.Subject = "ThreadPoolForeg-60555"
 		rec.Object = "io_wait"
 		return rec

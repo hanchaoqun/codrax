@@ -36,12 +36,14 @@ func TestOccupancyStatisticsNeverSubstituteCumulativeForSingle(t *testing.T) {
 
 func TestOccupancyTableSeparatesRecordsFromPhysicalSpanOccurrences(t *testing.T) {
 	for _, zh := range []bool{true, false} {
-		unknown := types.TraceCausalProjectionNode{Subject: "worker-9", StateKind: "running", ImpactMS: 21, StartTs: 1, EndTs: 1.1}
+		unknown := types.TraceCausalProjectionNode{Subject: "worker-9", StateKind: "running", ImpactMS: 21, RunningMS: 21, StartTs: 1, EndTs: 1.1}
 		merged := types.TraceCausalProjectionNode{Subject: "worker-10", StateKind: "d_state", ImpactMS: 12, MergedCount: 4, MergedMaxMS: 8}
 		model := runtimeTraceProjTreeModel{SelfRows: []runtimeTraceProjTreeRow{
 			{Kind: runtimeTraceProjTreeRowSelf, HasData: true, Node: unknown},
 			{Kind: runtimeTraceProjTreeRowSelf, HasData: true, Node: merged},
-		}}
+		}, TreeRows: []runtimeTraceProjTreeRow{{Kind: runtimeTraceProjTreeRowSemantic, HasData: true, Node: types.TraceCausalProjectionNode{
+			Subject: "worker-12", Predicate: "trace_semantic_span", Unit: "ms", ImpactMS: 12, FamilyMemberCount: 4, FamilyMemberMaxMS: 8,
+		}}}}
 		projection := types.TraceCausalProjection{BusinessSpanMentions: []types.TraceCausalProjectionBusinessSpanMention{
 			{Subject: "worker-11", Name: "business work", Count: 6, TotalMS: 18, MaxMS: 5, Basis: "self"},
 		}}
@@ -50,7 +52,7 @@ func TestOccupancyTableSeparatesRecordsFromPhysicalSpanOccurrences(t *testing.T)
 			t.Fatal(err)
 		}
 		block := runtimeTraceCausalProjectionOccupancyBlock(projection, model, zh, "test", "", nil, nil)
-		if block == nil || len(block.Items) != 3 {
+		if block == nil || len(block.Items) != 4 {
 			t.Fatalf("all occupancy values must remain visible: %+v", block)
 		}
 		after, err := json.Marshal(model)
@@ -68,6 +70,12 @@ func TestOccupancyTableSeparatesRecordsFromPhysicalSpanOccurrences(t *testing.T)
 					t.Fatalf("single aggregate row cannot mint one physical occurrence: %v", cells)
 				}
 			case strings.Contains(cells[1], "worker-10"):
+				// A display fold does not retain its members' raw measurement
+				// provenance. Keep the record, not a guessed seed/population value.
+				if cells[2] != "—" || cells[3] != "—" || cells[4] != "—" {
+					t.Fatalf("unknown display-fold measurement/statistics must not masquerade as raw: %v", cells)
+				}
+			case strings.Contains(cells[1], "worker-12"):
 				label := "统计记录"
 				if !zh {
 					label = "records"

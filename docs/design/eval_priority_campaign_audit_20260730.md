@@ -57391,9 +57391,9 @@ B1592已提交推送`e93028b28`。同一干净源码`e93028b287a4`构建于09:07
 
 | 批次 / 优先级 | 精确问题 / 通用方案 | 状态 |
 |---|---|---|
-| B1595 / P1 | 路由分类真实生产显示包装漏RequestBudgetAdapter，默认REPL10s/单次120s将活跃SSE当非流式整链截止；透传到实际fallback叶子并保存预览生命周期 | 已实施、根审与定向/完整repl+llm/race通过，随本条提交；主成文已有保护不改 |
-| B1596 / P1 | 系统实际占时表直接取ImpactMS；真实Network行Impact=Effective=5.950875，而raw runnable5.930/running.476。把5.951标“真实占时”串了两轴 | 已确证、独立施工；复用原始状态测量合同，价格/累计/跨窗实际量不兜底，不能让合法原始聚合或语义工作消失；不改排名算法 |
-| B1597 / P1 | 同工件/目标/窗/params内，representative table把全通道RankedSeats前三标“链上项目”；事实并置载体丢channel，邻近#1/#2被叫根因序号 | 已确证、独立施工；主榜窗口只以精确链上角色为界，事实并置保原全事实并标各自榜域；不新增正文门或推断用户意图 |
+| B1595 / P1 | 路由分类真实生产显示包装漏RequestBudgetAdapter，默认REPL10s/单次120s将活跃SSE当非流式整链截止；透传到实际fallback叶子并保存预览生命周期 | 已提交推送`aa2e7c4d6`，根审与定向/完整repl+llm/race通过；主成文已有保护不改 |
+| B1596 / P1 | 系统实际占时表直接取ImpactMS；真实Network行Impact=Effective=5.950875，而raw runnable5.930/running.476。把5.951标“真实占时”串了两轴 | 已实施、独立复审与真实Trace定向通过；复用原始状态测量合同，价格/累计/跨窗实际量不兜底；原始聚合、语义工作和原主榜保留，不改排名算法。显示折叠缺全成员原始口径时仅该表标不可得，后续能力债见下 |
+| B1597 / P1 | 同工件/目标/窗/params内，representative table把全通道RankedSeats前三标“链上项目”；事实并置载体丢channel，邻近#1/#2被叫根因序号 | 已实施、实际发布双语正负回归通过；主榜窗口只以精确链上角色为界，未计价链上项目不被误删；事实并置保原全事实并标各自榜域。不新增正文门或推断用户意图 |
 | B1598 / P2 | H2系统附注d_sleep/caller/iowait词面；event_search enumeration_complete表示匹配全集计数完成，与40/1639返回不完整易混淆 | 留档，真正Compactions枚举权限已诚实incomplete，未见硬合同冲突；后续共享读者显示说明，不变旧JSON语义 |
 
 B1595真实接线先红`20260907-b1595-red.log`；主修后独立加迟到不合作非stream叶子，原UI能在预算返回后再发3条事件，单独红`20260907-b1595-late-preview-red.log`。修复同一个包装器入口，普通Chat仍同源透传零附加预算；每个非stream fallback叶子独立预算，stream叶子保真实字节存活，默认/显式预算分开。wrapper-local mutex和无新增deadline的preview生命周期仅串行系统UI事件与flush，原五类调用者回调、response/error不变，未增加模型内容/JSON扫描。
@@ -57401,6 +57401,18 @@ B1595真实接线先红`20260907-b1595-red.log`；主修后独立加迟到不合
 最终`TestDirectLLMTrace* -count=3` 5.590s、race3.589s、完整repl46.390s/llm22.359s退出0（`20260907-b1595-{final-green,race,repl-llm-full}.log`），包含真实HTTP/SSE五路classifier入口、两向mixed fallback、stream失败后nonstream接手、每叶独立预算、explicit/parent取消、首字节/真正停滞、迟到回调和原响应不变。该验证是缩时机制针，不冒称单次超过4分钟客户live；r1031也没有单次超过4分钟调用正证。后续B1596/B1597不能挪用此包绿作为自身验收。
 
 下一对eval按用户价值、风险、覆盖新鲜度及成本排序：`sr_java_annotation_route`（上次08-11，反射注入/注册与请求期分开、接口无体）+`github_issue_dateutil_relativedelta_float_symptom`（Python真实unittest与逐义务凭证正控）。暂不涨预算，不围绕同一TS图或陈旧H8词形重复刷绿。B1561原生C/C++ assertion receipt仍P1设计债；B1586c需逐任务typed绑定，不以global ready硬跳过。Rust chrono现oracle为源码检查且本机无cargo/rustc，不用它假装原生Rust执行正控。
+
+#### B1596/B1597：同一显示批保住原始占时、价格和榜域的不同含义
+
+B1596使用现有`PublishedStateOccupancy`读取行自身的原始状态测量；实测零与未发布分开。对于旧状态视图或已登记纯状态类型，保留既有原始Impact合同，而不将所有Impact一概删掉。opaque/future计价类型不借低优先级字段猜原始值，Cumulative/Actual/物理包络均不补造。去重、目标状态尺对照与显示值使用同一本地测量副本；原投影、原排名、资格、单项价格及模型正文完全不变。真实H8从5.951“实际占时”修正为runnable5.930，5.951仍在可消除榜。原74.915ms running及36.757ms D-state聚合正臂保留。
+
+独立复审确认：engine的FamilyMemberCount原始状态合计/并集/最大值已有生产口径，不能与显示层MergedCount一概抑制。后者只有seed状态字段，无法证明全成员原始值同尺，在本占时表显示“—，不是零”；原因果树、原始记录和可消除值仍在。若独立状态量与Impact恰巧数值相等，也不代表旧Family/Merged最长记录值同源；独立状态分支不借用该max，统计记录数仍明确不是物理发生次数。后续需要在显示聚合点携带全成员原始测量来源才能恢复这些折叠的占时与最大值，列为P2有界能力债；本批不虚称已穷尽恢复、不新造泛用硬门。
+
+B1597代表时间窗的原候选池保留所有通道，仅“链上项目”表在精确on_chain角色内取原前三有效窗；不复用要求正价格的可消除选择器，不丢未计价的链上工作，邻近/背景/未知不占该表名额。事实并置的排序载体保留工件/目标/查询窗/参数及原通道，跨榜或跨通道相同名次/数值不合并；分别称链上根因、邻近参考、背景参考或归属未标明。多域才增加有界范围说明，4席预算和原因未证余量旁路不变；未知身份不猜。无席位仅说“本次排序记录中未见该线程”，不由任意其它榜的存在推断该线程不存在根因。
+
+两者均只修系统已拥有的事实显示，不改模型原始正文、原因果证据或根因计算。测试同时钉投影/ledger/模型文档不变；原测试只补其所声称的raw测量或on_chain前提，unknown折叠新增独立负臂，真实原始semantic族保记录统计正臂，不删或放松未知、合并次数、上限断言。
+
+先红留痕：`20260907-b1596-red.log`、`20260907-b1597-red-final-fixture.log`、`20260907-b1597-representative-red.log`。定向绿：占时4.358s、占时新针count=3为2.180s、事实并置广族1.088s、代表窗count=3为1.423s。最终生产冻结后的`go test ./internal/tool ./internal/orchestrator ./internal/types -count=1`退出0：292.441s/16.703s/32.129s（`20260907-b1596-b1597-full-packages.log`）；本批不挪用之前B1592全仓或B1595套件结果。显示共同边界作为一个独立提交收住，干净构建后的r1032另行审计，不能将单元正针声称为新版live通过。
 
 ### §123.1653 r1030：机器通过不等于答案正确；三项跨语言合同缺口（2026-09-07）
 

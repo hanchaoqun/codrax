@@ -127,7 +127,7 @@ func TestFactRel_PartitionFactUnbalancedNoIdentityClaim(t *testing.T) {
 // chip (the generic paren renderer no longer gates 成员共N on hasEff).
 func TestFactRel_SeatWithoutEffectiveKeepsMemberCount(t *testing.T) {
 	seat := psgTraceRecord("trace_query:t#root_cause_rank:1", "root_cause_rank_2", "",
-		"rank=2", types.TraceNoteKeyMemberCount+"=7")
+		"rank=2", "chain_relevance=on_chain", types.TraceNoteKeyMemberCount+"=7")
 	seat.Subject = "ThreadPoolForeg-60555"
 	seat.Object = "io_wait"
 	seat.Value = ""
@@ -195,7 +195,7 @@ func TestFactRel_SingleStateProseSilent(t *testing.T) {
 func TestFactRel_SeatRosterCarriesUnprovenRemainder(t *testing.T) {
 	seat := func(id string, rank, eff string, notes ...string) types.ObservationRecord {
 		rec := psgTraceRecord(id, "root_cause_rank_"+rank, eff,
-			append([]string{"rank=" + rank, "effective_impact_ms=" + eff}, notes...)...)
+			append([]string{"rank=" + rank, "effective_impact_ms=" + eff, "chain_relevance=on_chain"}, notes...)...)
 		rec.Subject = "ThreadPoolForeg-60555"
 		rec.Object = "io_wait"
 		return rec

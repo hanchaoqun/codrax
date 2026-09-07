@@ -341,7 +341,8 @@ func TestTwoDimOccupancyUsesExactStateAccountAcrossDifferentViewEnvelopes(t *tes
 	rank := types.TraceCausalProjectionNode{
 		EvidenceID: "ranked-io-row", Subject: "threadpool-400",
 		Predicate: "root_cause_io_wait", StateKind: types.TraceStateKindIOWait,
-		StateAccountKey: accountKey, ImpactMS: 11, StartTs: 2.003, EndTs: 2.014,
+		// The account key proves identity, not the value's measurement role.
+		StateAccountKey: accountKey, ImpactMS: 11, IOWaitSplitMS: 11, StartTs: 2.003, EndTs: 2.014,
 		LineStart: 6, LineEnd: 8,
 	}
 	impact := rank
@@ -400,6 +401,7 @@ func TestTwoDimOccupancyExcludesNonWallClockCaliberRows(t *testing.T) {
 		Subject:    "app-100",
 		StateKind:  types.TraceStateKindRunning,
 		ImpactMS:   12.5,
+		RunningMS:  12.5, // Explicit raw measurement; StateKind alone is not a value contract.
 		StartTs:    5,
 		EndTs:      5.0125,
 	}
