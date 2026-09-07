@@ -406,7 +406,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 	targets := localLeaseAtomicTargetBlockIDs(lease, prev)
 	if len(targets) == 0 {
 		return "Repair the previous structured answer using the executable compatibility operations shown in this tool's current parameter schema. " +
-			"For live relation rows, use a failure_ref only with an action listed in that row, or use one addition_ref with action=add and model-authored visible endpoints and label. " +
+			"For live relation rows, use a failure_ref only with an action listed in that row. " + types.AnswerDocumentPatchRelationShapeTeaching +
 			"This broad compatibility schema publishes no paired attach branch: never combine a failure_ref and addition_ref in one edit. Whole-block edits remain available for broader model-authored repairs. " +
 			"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 	}
@@ -414,7 +414,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 		return "The exact model-authored relation edits are already stored in an unpublished retry base. This dispatch exposes only the complete typed orphan roster. Submit exactly one `diagram_participant_edits` branch for every row: choose `remove_if_isolated`, or choose `retain_as_context` and author its visible_label. Do not replay old edge, boundary, block, or citation operations. The system selects no disposition, wording, relation, layout, or conclusion."
 	}
 	description := "Repair the previous structured answer using only the exact current relation-repair choices shown in this tool's parameter schema. " +
-		"Select one exact schema branch. A branch may use one published failure_ref, one published addition_ref, or one boundary_ref/action pair that changes only a named participant-boundary row; author every visible endpoint and label required by relation branches. "
+		"Select one exact schema branch. A branch may use one published failure_ref, one published addition_ref, or one boundary_ref/action pair that changes only a named participant-boundary row; author every visible endpoint and label required by relation branches. " + types.AnswerDocumentPatchRelationShapeTeaching
 	if types.AnswerDiagramRelationRepairHasExecutableAttachPair(lease.Failures, lease.AllowedAdditions) {
 		description += "Only an exact action=attach schema branch that fixes both opaque ref values may bind a typed relation to one existing relation carrier; never infer a pair from adjacent rows. "
 	}
@@ -424,11 +424,11 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 	if len(localRelationLeaseOrdinaryReplacementBlockIDs(lease, prev)) > 0 {
 		return description +
 			"An exact non-diagram relation carrier delegated to ordinary merged-document validation may appear in the replace_blocks id enum; replace that complete block once when row-local evidence and relation metadata both need correction, and do not also submit an atomic relation edit for the same block. " +
-			"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. When `diagram_relation_scope_edits` is present, use its exact block_id/action branch for the block-level coverage disclosure instead of whole replacement. Except for an exact delegated non-diagram id explicitly present in replace_blocks, whole replacement/addition of a lease-target relation carrier is unavailable. " +
+			"The current schema is the sole capability authority. For ref-selected atomic branches, omitted legacy coordinates and hidden relation fields are unavailable; whole-block replacements follow their complete current block schema. When `diagram_relation_scope_edits` is present, use its exact block_id/action branch for the block-level coverage disclosure instead of whole replacement. Except for an exact delegated non-diagram id explicitly present in replace_blocks, whole replacement/addition of a lease-target relation carrier is unavailable. " +
 			"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 	}
 	return description +
-		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. When `diagram_relation_scope_edits` is present, use its exact block_id/action branch for the block-level coverage disclosure instead of whole replacement. Whole replacement/addition of a lease-target relation carrier is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
+		"The current schema is the sole capability authority. For ref-selected atomic branches, omitted legacy coordinates and hidden relation fields are unavailable; whole-block replacements follow their complete current block schema. When `diagram_relation_scope_edits` is present, use its exact block_id/action branch for the block-level coverage disclosure instead of whole replacement. Whole replacement/addition of a lease-target relation carrier is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
 		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 }
 

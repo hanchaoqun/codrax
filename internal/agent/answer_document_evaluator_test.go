@@ -14788,18 +14788,9 @@ func TestAnswerDocumentSkill_DeclaresEmitTool(t *testing.T) {
 	}
 }
 
-// TestAnswerDocAttachEscalation pins B2-F4's retry escalation
-// contract: same-issue retry text must visibly differ between
-// attempts so the LLM knows it's being re-prompted on a
-// persisted failure rather than reading a fresh issue.
-//
-//	attempt 1 → no escalation (first time hitting this issue)
-//	attempt 2 → "RETRY ... your previous fix did not address it"
-//	attempt 3+ → "FINAL RETRY ... fix NOW or the answer ships with violation"
-//
-// The dedup-key contract (rejectHintsUsed embedded in HintKey) is
-// orthogonal — it ensures each retry actually delivers the hint;
-// this test ensures the hint TEXT escalates.
+// The cumulative counter still distinguishes retry deliveries, but does not
+// establish that an issue persisted, that an earlier edit failed, or that no
+// retry remains. The current typed repair/transaction state owns those facts.
 func TestAnswerDocAttachEscalation(t *testing.T) {
 	hint := "Attach claim_use to block X."
 	cases := []struct {
@@ -14810,21 +14801,23 @@ func TestAnswerDocAttachEscalation(t *testing.T) {
 	}{
 		{
 			attempt:        1,
-			mustEqual:      hint, // no escalation
+			mustEqual:      hint,
 			mustNotContain: []string{"RETRY", "FINAL RETRY"},
 		},
 		{
 			attempt:        2,
-			mustContain:    []string{"RETRY", "2nd attempt", "previous fix did not address"},
-			mustNotContain: []string{"FINAL RETRY"},
+			mustContain:    []string{"Repair attempt #2", "current listed issues", "reported patch transaction state"},
+			mustNotContain: []string{"FINAL RETRY", "SAME issue", "previous fix did not address"},
 		},
 		{
-			attempt:     3,
-			mustContain: []string{"FINAL RETRY", "fix the named field NOW", "ships with the violation"},
+			attempt:        3,
+			mustContain:    []string{"Repair attempt #3", "preserve changes already accepted into the live retry base"},
+			mustNotContain: []string{"FINAL RETRY", "SAME issue", "ships with the violation"},
 		},
 		{
-			attempt:     5,
-			mustContain: []string{"FINAL RETRY", "attempt #5"},
+			attempt:        5,
+			mustContain:    []string{"Repair attempt #5", "current tool schema"},
+			mustNotContain: []string{"FINAL RETRY", "SAME issue", "ships with the violation"},
 		},
 	}
 	for _, tc := range cases {

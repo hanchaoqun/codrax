@@ -18968,9 +18968,9 @@ type answerDocDiagramRelationRepairVisibleDelta struct {
 
 func answerDocDiagramRelationRepairBranchTeaching(delta answerDocDiagramRelationRepairDelta) string {
 	if types.AnswerDiagramRelationRepairHasExecutableAttachPair(delta.Failures, delta.AllowedAdditions) {
-		return "For relation_delta, use only an exact current tool-schema branch: a failure branch uses its displayed allowed action, an addition branch uses action=add with one selected candidate, and action=attach is valid only from a schema branch that fixes both exact opaque ref values. Never infer or combine a pair from adjacent failure/addition rows. "
+		return "For relation_delta, use only an exact current tool-schema branch: a failure branch uses its displayed allowed action, an addition branch uses action=add with one selected candidate, and action=attach is valid only from a schema branch that fixes both exact opaque ref values. Never infer or combine a pair from adjacent failure/addition rows. " + types.AnswerDocumentPatchRelationShapeTeaching
 	}
-	return "For relation_delta, a failure_ref may use only an action displayed on that failure row, and an addition_ref may use only action=add with model-authored from_node/to_node/visible_label. This generation publishes no action=attach capability: never combine a failure_ref and addition_ref in one edit. "
+	return "For relation_delta, a failure_ref may use only an action displayed on that failure row, and an addition_ref may use only action=add. " + types.AnswerDocumentPatchRelationShapeTeaching + "This generation publishes no action=attach capability: never combine a failure_ref and addition_ref in one edit. "
 }
 
 func parseAnswerDocDiagramParticipantRepairDelta(result *types.ToolResult) (answerDocDiagramParticipantRepairDelta, string, bool) {
@@ -19274,7 +19274,7 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 		b.WriteString(". The failed call was not published as the answer. For this retry, the newly issued refs/delta are the sole executable authority over the live patch base: do not replay refs or operations from older attempts, and rely on patch preservation for every unlisted carrier. ")
 	}
 	if len(delta.Failures) == 0 {
-		b.WriteString(" because the last atomic relation operation was not executable under the current additions-only lease. The patch executor has returned the complete current additions-only typed capability roster. ")
+		b.WriteString(". The patch executor has returned the complete current additions-only typed capability roster. Use the reported patch transaction state to determine which earlier operations are already in the live retry base. ")
 	} else {
 		b.WriteString(" by a local typed source-diagram relation mismatch. ")
 	}
@@ -20286,17 +20286,9 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	hint = e.appendDiagramRelationRepeatGuidance(hint)
 	hint = sanitizeNoCitationSentinelForPrompt(hint)
 
-	// B2-F4 retry escalation: the dedup key already embeds the
-	// retry counter so each retry gets a fresh delivery, but the
-	// hint *text* itself was historically identical across retries
-	// — the LLM saw the same wording and made the same mistake
-	// again. Prepend an explicit escalation marker on retry ≥ 1 so
-	// the model knows this is a re-prompt of an unchanged issue:
-	// the text should be read MORE strictly (focus only on the
-	// named field; do not re-investigate; do not re-frame the
-	// answer). On retry ≥ 2 escalate further to "this is your
-	// LAST retry on this issue — fix THIS field now or the answer
-	// ships with the violation as a caveat".
+	// The counter distinguishes cumulative repair rounds, not issue identity,
+	// whether the prior operation was applied, or remaining retry capacity.
+	// Those facts come only from the current typed repair/transaction state.
 	e.rejectHintsUsed++
 	hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 	return LoopSignal{
@@ -20349,26 +20341,14 @@ func answerDocFullRejectPatchHint(repair *types.ToolRepair, existingHint string)
 	return b.String()
 }
 
-// answerDocAttachEscalation prepends a retry-iteration aware
-// marker to the hint text so retries are signal-progressive rather
-// than text-identical. P14 escalation contract:
-//
-//	retry 1 (rejectHintsUsed == 1): no escalation — first hint at
-//	  this issue, the LLM hasn't seen this text before.
-//	retry 2 (rejectHintsUsed == 2): "RETRY — same issue persisted
-//	  from the previous attempt" prefix to make explicit that this
-//	  is a re-prompt of an unchanged failure.
-//	retry 3+ (rejectHintsUsed >= 3): "FINAL RETRY — fix THIS field
-//	  now or the answer ships with the violation as a caveat" so
-//	  the LLM treats it as an absolute, not a suggestion.
+// answerDocAttachEscalation reports only the cumulative repair ordinal known
+// here. A new validation phase can expose a different issue after a successful
+// staged edit, so this counter cannot assert repeated failure or finality.
 func answerDocAttachEscalation(hint string, attempt int) string {
 	if attempt <= 1 {
 		return hint
 	}
-	if attempt == 2 {
-		return "RETRY (this is your 2nd attempt on the SAME issue — your previous fix did not address it; re-read the named field and constraint below before re-emitting): " + hint
-	}
-	return "FINAL RETRY (this is attempt #" + fmt.Sprint(attempt) + " on the SAME issue — fix the named field NOW or the answer ships with the violation surfaced as a caveat): " + hint
+	return "Repair attempt #" + fmt.Sprint(attempt) + ": address only the current listed issues using the current tool schema and reported patch transaction state; preserve changes already accepted into the live retry base and unrelated model-authored content. " + hint
 }
 
 func repairHintMentionsFields(hint string, fields []string) bool {

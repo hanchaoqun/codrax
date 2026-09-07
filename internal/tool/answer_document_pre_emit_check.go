@@ -6411,8 +6411,8 @@ func preCheckStandaloneCallChainRelationAnchorPresence(
 		var expectedShape string
 		if relationRepairDelta != "" {
 			expectedShape = fmt.Sprintf(
-				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Follow the current tool schema: when it publishes addition_ref row(s) for this block, preserve the model-selected relation with diagram_edge_edits action=add and author only from_node, to_node, and visible_label for each selected ref. If the current schema instead delegates this exact block id to replace_blocks, replace that complete block with its corrected relation metadata. Do not combine atomic and whole-block edits for the same block. Preserve the block's visible title, text, items, and wording. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
-				block.ID, strings.Join(relationForms, ", "),
+				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Follow the current tool schema: when it publishes addition_ref row(s) for this block, preserve the model-selected relation with diagram_edge_edits action=add. %sIf the current schema instead delegates this exact block id to replace_blocks, replace that complete block with its corrected relation metadata. Do not combine atomic and whole-block edits for the same block. Preserve the block's visible title, text, items, and wording. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
+				block.ID, strings.Join(relationForms, ", "), types.AnswerDocumentPatchRelationShapeTeaching,
 			)
 		} else {
 			expectedShape = fmt.Sprintf(

@@ -57380,9 +57380,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1645 B1584：JSON修补路径与重试状态的准确教学（2026-09-06）
+
+`implemented / production-schema-and-hint-seams-red-to-green / guidance-only / no-contract-change`。
+
+- r1026第5轮模型将`from_node`放到`diagram_edge_edits[i]`顶层；真实schema始终要求`edge`对象，第6轮更正即通过。因此不是不可能JSON合同；但actual DescriptionFor、共享patch教学和missing-anchor高频提示省略容器，给模型增加了猜测负担。
+- 新共享短教学明确`diagram_edge_edits[].edge.{from_node,to_node,visible_label}`，只在current schema提供add分支时适用。attach必须按本代准确分支，metadata attach不要求重放edge。ref原子分支隐藏字段不由模型重发；whole replacement仍按完整block schema保留模型选择保留的关系metadata，不把普通描述段落提及关系变成新义务。
+- 独立审阅发现旧DescriptionFor尾句无条件称hidden identities unavailable，会与delegated replace_blocks需要完整字段相邻冲突。现在严格限定为ref-selected atomic分支，whole-block按其完整schema。broad compatibility、delegated replacement、add与metadata attach四条能力表面对照实际schema测试，原无attach分支继续无attach。
+- 累计attempt不能证明issue相同、上轮修补无效或这是最后一轮。删除基于次数的SAME issue/FINAL RETRY/带错发货断言，改中性“修补第N轮”，指向当前issues/schema及typed patch transaction state；staged/not_staged仍使用原精确结果，原重试计数、预算、调度、停止条件不变。
+- 同一提示函数中，只有additions-only roster也不能推出上一atomic操作不可执行。删除该无证断言，保留当前能力清单并要求按已有transaction state判断前次改动是否在live base，不重放旧ref/操作。
+- 没有新schema字段、枚举、必选项、关键词门或validator放宽；没有自动选择图边、删除/改写模型关系、重写答案。第4轮模型主动remove、第7轮replace遗漏等质量问题不归功于本小批，更不承诺所有重试归零。
+
+真实`DescriptionFor/ParametersFor`、missing-anchor precheck、`emitPatchRejectFullRewriteSignal`先红后绿；实际staged→另一issue→not_staged序列保留原状态，模型工件bytes不变。初次定向tool1.176s/agent2.097s绿；异构关系、standalone、JSON patch及ownership族count=3通过（`b1584-patch-guidance-regression.log`，tool166.617s/agent1.151s/types0.716s）。独立审阅及既有paired/no-attach回归通过；最后作用域措辞补强先红再count=3绿（`b1584-patch-guidance-scope-{red,green}.log`，tool1.195s/agent2.058s），包括普通summary不增加anchor义务，不用之前测试冒充之后输入。
+
 ### §123.1644 B1585：同一源码操作的多载体互证，不等于多操作歧义（2026-09-06）
 
-`implemented / real-carriers-and-two-publishing-seams-red-to-green / independent-review-pass / broader-regressions-pass`。
+`implemented / real-carriers-and-two-publishing-seams-red-to-green / independent-review-pass / broader-regressions-pass`，已提交推送`7b0011461`。
 
 r1026真实parser行与模型行的Subject/Object都是`cls/REGISTRY`，源码为同一`pipeline/registry.py:31`的`cls = REGISTRY[name]`；差别是合法`assigns/maps`谓词及Kind/Producer/ID。每行单独都构成完整候选链，合入同池却双双变成ambiguous_lookup。完整RHS Object=`REGISTRY[name]`是另一个合法回归变体，不冒称它是此次parser原始字段。最小先红日志`.codrax/tmp/20260906-b1585-red.log`覆盖实际载体正反顺序及真实补采后的候选/recipe两个发布入口。
 
@@ -57406,7 +57419,7 @@ r1026真实parser行与模型行的Subject/Object都是`cls/REGISTRY`，源码�
 
 | 批次 / 优先级 | 精确问题与最小修向 | 状态 |
 |---|---|---|
-| B1584-PATCHREPAIRGUIDANCE1 / P2 | schema正确，但实际description/高频修补提示省略`diagram_edge_edits[i].edge.*`容器；attempt-only提示又将累计次数说成同一问题未修/最后一轮。共享准确路径教学，中性累计轮次，零新硬门/阈值/字段 | 已确认；真实入口先红后绿施工中，不用一次模型flatten解释全部6拒 |
+| B1584-PATCHREPAIRGUIDANCE1 / P2 | schema正确，但实际description/高频修补提示省略`diagram_edge_edits[i].edge.*`容器；attempt-only提示又将累计次数说成同一问题未修/最后一轮。共享准确路径教学，中性累计轮次，零新硬门/阈值/字段 | 已实现，真实入口先红后绿及异构关系/JSON/ownership回归通过，见§123.1645；不用一次模型flatten解释全部6拒 |
 | B1585-DYNAMICSELECTOROCCURRENCEDUPLICATE1 / P1 | 同一精确赋值多合法载体被误计为不同lookup；以已验证源操作及同文件/坐标/owner建立专用key，完整index表达保留，无完整源证据仍保守 | 已实现、独立审阅及真实入口/六类否证回归通过，见§123.1644；不按ID或文本相似合并，不一并放宽其它唯一性 |
 | 跨语言逐义务运行凭证 / 能力债 | 整段probe或聚合runner通过与逐方法行为观测仍不同 | B1575只关披露缺失，真实执行器per-ref receipts仍待独立设计，不用模型自报构造权威 |
 
