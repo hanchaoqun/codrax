@@ -2465,8 +2465,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if disableToolsThisTurn || len(effectiveTools) == 0 {
 			toolChoice = ""
 		}
-		requestCtx := ctx.Context()
-		cancelRequestCtx := func() {}
+		requestTimeout := time.Duration(0)
 		if budgetCtrl, ok := b.eval.(LLMRequestBudgetController); ok {
 			if timeout, reason := budgetCtrl.LLMRequestTimeout(ctx, LLMRequestBudgetObservation{
 				Iteration:          i,
@@ -2475,29 +2474,18 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				ToolNames:          sortedToolSchemaNames(effectiveTools),
 				ToolChoice:         toolChoice,
 			}); timeout > 0 {
-				if streaming, ok := b.deps.LLM.(llm.StreamingLivenessReporter); ok &&
-					streaming.StreamingLivenessWatchdogEnabled() {
-					// A streaming adapter already has precise liveness gates for
-					// no-first-byte and mid-stream byte silence. Do not turn this
-					// evaluator budget into a fixed stream-age kill switch: active
-					// heartbeat/reasoning/tool-call bytes may legitimately outlive it.
-					// The parent task context still carries explicit user/deadline
-					// cancellation. Non-streaming adapters continue to receive the
-					// evaluator wall budget below.
-					logging.Debug("[diag %s] iter=%d phase=llm_request_budget skipped timeout=%s reason=%s ownership=stream_first_byte_and_byte_stall_watchdogs",
-						b.name, i, timeout, reason)
-				} else {
-					var cancel context.CancelFunc
-					requestCtx, cancel = context.WithTimeout(requestCtx, timeout)
-					cancelRequestCtx = cancel
-					logging.Debug("[diag %s] iter=%d phase=llm_request_budget timeout=%s reason=%s tools=%s",
-						b.name, i, timeout, reason, strings.Join(sortedToolSchemaNames(effectiveTools), ","))
-				}
+				// The active provider, not the aggregate fallback stack, owns
+				// liveness. The shared executor skips this age budget for a
+				// streaming leg and applies it only upon entering a non-streaming
+				// leg. Caller cancellation/deadlines always remain in force.
+				requestTimeout = timeout
+				logging.Debug("[diag %s] iter=%d phase=llm_request_budget timeout=%s reason=%s tools=%s ownership=per_active_adapter",
+					b.name, i, timeout, reason, strings.Join(sortedToolSchemaNames(effectiveTools), ","))
 			}
 		}
 		streamActivity := &llmStreamActivityTracker{}
 		stopLLMRequestWatchdog := b.startLLMRequestWatchdog(ctx, i, telemetry, streamActivity)
-		resp, err := b.deps.LLM.Chat(requestCtx, requestMessages, effectiveTools, llm.ChatOptions{
+		resp, err := llm.ChatWithRequestBudget(ctx.Context(), b.deps.LLM, requestMessages, effectiveTools, llm.ChatOptions{
 			ToolChoice:       toolChoice,
 			OnContentDelta:   streamBuf.onDelta,
 			OnReasoningDelta: streamBuf.onDelta,
@@ -2505,8 +2493,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			OnStreamActivity: streamActivity.observe,
 			OnRetry:          onRetry,
 			OnFallback:       onFallback,
-		})
-		cancelRequestCtx()
+		}, requestTimeout)
 		stopLLMRequestWatchdog()
 		streamBuf.flush()
 		// Flush any throttled-out summary preview chunks before the

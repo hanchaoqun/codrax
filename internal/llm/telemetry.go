@@ -110,6 +110,10 @@ func NewTelemetryAdapter(inner Adapter, observe RequestTelemetryObserver) Adapte
 }
 
 func (t *TelemetryAdapter) Chat(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+	return t.ChatWithRequestBudget(ctx, messages, tools, opts, 0)
+}
+
+func (t *TelemetryAdapter) ChatWithRequestBudget(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions, timeout time.Duration) (Response, error) {
 	if t != nil && t.observe != nil {
 		telemetry := BuildRequestTelemetry(t.inner, messages, tools)
 		func() {
@@ -117,7 +121,7 @@ func (t *TelemetryAdapter) Chat(ctx context.Context, messages []Message, tools [
 			t.observe(telemetry)
 		}()
 	}
-	return t.inner.Chat(ctx, messages, tools, opts)
+	return ChatWithRequestBudget(ctx, t.inner, messages, tools, opts, timeout)
 }
 
 func (t *TelemetryAdapter) ModelID() string {

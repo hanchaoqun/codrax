@@ -57387,7 +57387,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 | 批次 / 优先级 | 事项 | 当前状态与边界 |
 |---|---|---|
 | r1025 | `read_combo_log_current_code_boundary` + `sr_java_call_chain`，`PARALLEL=2 TIMEOUT=1800` | 已完成；359s机器PASS/153s机器FAIL，人工均fail，不改oracle或原答案求绿 |
-| B1581-MIXEDFALLBACKSTREAMLIVENESS1 / P1 | 主流式+备用非流式时全栈AND能力为false，BaseAgent固定阶段budget取消正在发字节的主流 | 真实BaseAgent+SSE 4ms先红后绿，完整负臂验收中；按每个实际adapter适用预算，非粗改ANY |
+| B1581-MIXEDFALLBACKSTREAMLIVENESS1 / P1 | 主流式+备用非流式时全栈AND能力为false，BaseAgent固定阶段budget取消正在发字节的主流 | 已实现；真实BaseAgent+SSE 4ms及完整正负矩阵绿，独立review通过；相关完整包收尾中 |
 | B1575（承接） | probe整体通过不证明每个绑定义务/异步方法实际执行 | 最小方案已审：复用confidence/ledger Detail披露证明粒度，零新增category/义务/模型字段，不动B1572同ref消债；逐方法执行凭证仍为独立能力建设 |
 | B1580（承接） | 动态候选全集冲突被工作池截断隐藏 | 继续按完整关系组编译设计，非只补一种selector application；未实现，不借本批read回放宣称关闭 |
 | B1582-DUPLICATEOPERATIONFEEDBACK1 / P2 | 纯重复emit只给通用metadata建议，已知“索引在definition上”软提示消失 | 代码确认/待排；提示输入可含本次命中的存量重复行，不扫描全会话、不提升definition、不改同ID或ownership判据 |
@@ -57401,7 +57401,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 B1581不是“默认finalizer到4分钟必降级”：既有finalizer固定可见答案时限已退役，4ms/4min无可见正文均不构成流式失败；此次遗漏位于有evaluator request预算的analyzer terminal-emit-only阶段。`FallbackAdapter.StreamingLivenessWatchdogEnabled`要求所有腿stream=true，备用腿非流令BaseAgent对整个调用预先WithTimeout。真实测试主腿已发2条reasoning增量，direct/nested wrapper仍被4ms上限取消（`.codrax/tmp/b1581-mixed-stream-red.log`）。
 
-修向为公共预算调用入口在每个实际adapter处分派，Fallback/Telemetry薄转交；非流腿保留独立同额预算和自身request timeout，caller取消/更短deadline及真实无字节idle仍有效。保留全栈原AND能力描述，不通过模型文字、连接存在或回调猜测活动腿；无新增模型JSON义务，不改Trace资格/投影/自动补齐/答案所有权。完整测试结果待收账。
+已实现公共`llm.ChatWithRequestBudget`入口，在每个实际adapter处分派；Fallback/Telemetry仅转交，BaseAgent不提前给全链套固定deadline。非流腿独立同额预算从进入该腿开始，不继承前一腿过期child context；原parent取消/更短deadline、各adapter自身HTTP timeout及首字节/中途真实无字节idle仍有效。保留全栈原AND能力描述，零budget仍走原Chat行为。不通过模型文字、连接存在或回调猜测活动腿；无新增模型JSON义务，不改Trace资格/投影/自动补齐/答案所有权。
+
+- 真实BaseAgent的主流式SSE连续25条reasoning后才给正文，direct及nested两臂超过4ms均正常完成，未进入备用。正反矩阵覆盖非流主超时→流备用、流主EOF→非流备用、两条非流各自fresh budget、nested telemetry/fallback、parent取消/更早deadline、非流自身25ms HTTP超时，以及首字节/中途真正静默的typed失败；没有把超时保护全关。
+- `.codrax/tmp/b1581-active-leg-budget-matrix-green.log`、`b1581-stream-matrix-repeat.log`、`b1581-nonstream-fresh-budget-pin.log`通过；stream相关广回归llm17.931s/agent1.593s/orchestrator1.036s通过，独立reader新增LLM矩阵count=3通过。开发时HTTP测试fixture未读完request body导致server.Close等待，已修fixture并保留诊断，不下调产品断言。相关完整包与最终干净构建随后收账。
 
 ### §123.1640 r1024：回放收账及适用域/读取能力矛盾（2026-09-06）
 

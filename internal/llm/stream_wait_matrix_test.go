@@ -336,7 +336,7 @@ func TestRequestTelemetry_CarriesFirstByteCeiling(t *testing.T) {
 		Stream: false, RequestTimeout: 10 * time.Second, RetryMaxAttempts: 1,
 	})
 	if NewFallbackAdapter(adapter, nonStreaming).StreamingLivenessWatchdogEnabled() {
-		t.Fatal("heterogeneous fallback stack must retain the evaluator wall budget for its non-streaming leg")
+		t.Fatal("heterogeneous fallback stack must not advertise every leg as streaming; request budgets are applied per active leg")
 	}
 }
 

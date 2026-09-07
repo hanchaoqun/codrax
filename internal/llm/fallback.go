@@ -32,6 +32,10 @@ func NewFallbackAdapter(adapters ...Adapter) *FallbackAdapter {
 }
 
 func (f *FallbackAdapter) Chat(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+	return f.ChatWithRequestBudget(ctx, messages, tools, opts, 0)
+}
+
+func (f *FallbackAdapter) ChatWithRequestBudget(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions, timeout time.Duration) (Response, error) {
 	var lastErr error
 	for i, a := range f.adapters {
 		// Honour ctx between adapters too — a canceled outer ctx
@@ -39,7 +43,7 @@ func (f *FallbackAdapter) Chat(ctx context.Context, messages []Message, tools []
 		if cerr := ctx.Err(); cerr != nil {
 			return Response{}, cerr
 		}
-		resp, err := a.Chat(ctx, messages, tools, opts)
+		resp, err := ChatWithRequestBudget(ctx, a, messages, tools, opts, timeout)
 		if err == nil {
 			return resp, nil
 		}
@@ -116,9 +120,9 @@ func (f *FallbackAdapter) RetryMaxAttempts() int {
 }
 
 // StreamingLivenessWatchdogEnabled is true only when every configured fallback
-// leg advertises precise streaming liveness. A heterogeneous stack fails closed
-// to the ordinary evaluator wall budget because a later non-streaming leg could
-// otherwise lose its only request timeout.
+// leg advertises precise streaming liveness. This aggregate capability must not
+// decide a fixed deadline for a mixed stack: ChatWithRequestBudget forwards the
+// evaluator budget to each active leg and preserves non-streaming timeouts.
 func (f *FallbackAdapter) StreamingLivenessWatchdogEnabled() bool {
 	if f == nil || len(f.adapters) == 0 {
 		return false
