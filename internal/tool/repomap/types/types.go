@@ -79,6 +79,14 @@ type Symbol struct {
 	Exported  bool   `json:"exported"`
 	Receiver  string `json:"receiver,omitempty"` // for methods
 	Signature string `json:"signature,omitempty"`
+	// BodyPresence is syntax-owned implementation-body presence, not a claim
+	// that behavior was read, understood, or executed. Legacy and fallback
+	// symbols remain unknown; a callable kind or line range is not proof.
+	BodyPresence CallableBodyPresence `json:"body_presence,omitempty"`
+	// These are the actual syntax body's inclusive lines, not the declaration
+	// or signature extent. They are zero for absent/unknown bodies.
+	BodyStartLine int `json:"body_start_line,omitempty"`
+	BodyEndLine   int `json:"body_end_line,omitempty"`
 	// DeclaredType is the parser-owned static type of a field/property/value
 	// declaration. It is empty when the language or declaration carries no
 	// exact static type. Consumers may use it to align a source binding with a

@@ -108,6 +108,7 @@ func tryTSGrammarForArkTS(src []byte, file string) ([]types.Symbol, []types.Impo
 	// no package keyword) and pass isTS=true.
 	_, syms, imps, rels := extractJS(root, src, file, true)
 	backfillCallableParameterBindings(root, src, syms)
+	backfillCallableBodyPresence(root, src, types.LangArkTS, syms)
 	return syms, imps, rels, extractLineFeatures(root, src),
 		extractMemberInitializerBindings(root, src, types.LangArkTS),
 		extractControlFlowBranches(root, src), true
@@ -479,6 +480,13 @@ func mergeArkTSSymbols(ts, ak []types.Symbol) []types.Symbol {
 		key := s.Name + ":" + intToStr(s.Line)
 		if idx, ok := seen[key]; ok {
 			if prefer {
+				// Richer ArkTS labels do not prove a body. Preserve a TS parser
+				// fact only for the exact same owner and source extent; regex-only
+				// or differently bounded replacements stay unknown.
+				if out[idx].Parent == s.Parent && out[idx].EndLine == s.EndLine {
+					s.BodyPresence = out[idx].BodyPresence
+					s.BodyStartLine, s.BodyEndLine = out[idx].BodyStartLine, out[idx].BodyEndLine
+				}
 				out[idx] = s
 			}
 			return

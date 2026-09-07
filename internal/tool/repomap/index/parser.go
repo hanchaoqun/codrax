@@ -424,6 +424,7 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 	// post-pass only sets the field when currently empty.
 	backfillReturnTypeNames(root, source, fi.Symbols)
 	backfillCallableParameterBindings(root, source, fi.Symbols)
+	backfillCallableBodyPresence(root, source, entry.Language, fi.Symbols)
 
 	return fi
 }

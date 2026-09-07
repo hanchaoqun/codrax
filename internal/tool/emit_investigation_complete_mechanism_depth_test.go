@@ -16,9 +16,9 @@ func mechanismSemanticDescentFixture() (*repotypes.Graph, *repotypes.FileInfo) {
 		Language: repotypes.LangGo,
 		Package:  "fixture",
 		Symbols: []repotypes.Symbol{
-			{Name: "Render", Kind: "function", File: "src/pipeline.go", Line: 2, EndLine: 4},
-			{Name: "rewrite", Kind: "function", File: "src/pipeline.go", Line: 6, EndLine: 8},
-			{Name: "fallback", Kind: "function", File: "src/pipeline.go", Line: 10, EndLine: 12},
+			{Name: "Render", Kind: "function", File: "src/pipeline.go", Line: 2, EndLine: 4, BodyPresence: repotypes.CallableBodyPresent, BodyStartLine: 2, BodyEndLine: 4},
+			{Name: "rewrite", Kind: "function", File: "src/pipeline.go", Line: 6, EndLine: 8, BodyPresence: repotypes.CallableBodyPresent, BodyStartLine: 6, BodyEndLine: 8},
+			{Name: "fallback", Kind: "function", File: "src/pipeline.go", Line: 10, EndLine: 12, BodyPresence: repotypes.CallableBodyPresent, BodyStartLine: 10, BodyEndLine: 12},
 		},
 		Relations: []repotypes.Relation{
 			{
@@ -176,8 +176,11 @@ func TestMechanismSemanticDescent_LongCallableUsesMergedParserOwnedWindows(t *te
 	// rewrite/fallback live after Render rather than being nested by the widened
 	// fixture span.
 	fi.Symbols[0].EndLine = 402
+	fi.Symbols[0].BodyEndLine = 402
 	fi.Symbols[1].Line, fi.Symbols[1].EndLine = 410, 412
+	fi.Symbols[1].BodyStartLine, fi.Symbols[1].BodyEndLine = 410, 412
 	fi.Symbols[2].Line, fi.Symbols[2].EndLine = 414, 416
+	fi.Symbols[2].BodyStartLine, fi.Symbols[2].BodyEndLine = 414, 416
 	fi.Relations[0].Line = 350
 	fi.Relations[0].FromEP.Line = 350
 	fi.Relations[0].ToEP.Line = 350

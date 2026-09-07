@@ -218,7 +218,10 @@ const (
 	// scans expose identical condition/case -> effect ownership.
 	// v6: FileInfo persists syntax-explicit member-initializer container
 	// identities so warm and cold relation endpoints preserve Type.Member.
-	cacheSchemaVersion = 6
+	// Parser-owned callable body presence is persisted with each symbol. Old
+	// caches cannot establish the new body prerequisite; rebuild rather than
+	// silently serving mixed old/new completion authority.
+	cacheSchemaVersion = 7
 )
 
 const cacheFileInfosChunkSize = 1024
@@ -231,21 +234,21 @@ const cacheFileInfosChunkSize = 1024
 // would be cheaper but adds complexity we don't need until scan
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
-	types.LangGo:         11, // callable parameter identity bindings
-	types.LangJava:       10, // callable parameter identity bindings
-	types.LangPython:     12, // callable parameter identity bindings
-	types.LangJavaScript: 9,  // callable parameter identity bindings (typed rows only)
-	types.LangTypeScript: 12, // callable parameter identity bindings
-	types.LangArkTS:      13, // TS-backed callable parameter identity bindings
-	types.LangCangjie:    10, // generic call heads `f<T>(` publish bare callee rows (B1554)
-	types.LangKotlin:     10, // callable parameter identity bindings
-	types.LangRuby:       7,  // callable parameter identity bindings (typed rows only)
-	types.LangSwift:      10, // constructor_expression `Box<T>(x)` call rows + new-expression line feature (B1554)
-	types.LangLua:        7,  // callable parameter identity bindings (typed rows only)
+	types.LangGo:         12, // parser-owned callable body presence (B1592)
+	types.LangJava:       11, // parser-owned callable body presence (B1592)
+	types.LangPython:     13, // parser-owned callable body presence (B1592)
+	types.LangJavaScript: 10, // parser-owned callable body presence (B1592)
+	types.LangTypeScript: 13, // parser-owned callable body presence (B1592)
+	types.LangArkTS:      14, // TS-backed body presence; salvage remains unknown (B1592)
+	types.LangCangjie:    11, // token-parser callable body presence (B1592)
+	types.LangKotlin:     11, // parser-owned callable body presence (B1592)
+	types.LangRuby:       8,  // parser-owned callable body presence (B1592)
+	types.LangSwift:      11, // parser-owned callable body presence (B1592)
+	types.LangLua:        8,  // parser-owned callable body presence (B1592)
 	types.LangProto:      4,  // typed callable surface epoch shared with cache schema
-	types.LangRust:       12, // turbofish callee rows keep the bare name (B1554)
-	types.LangC:          11, // shared C/C++ extractor: template callee names unwrapped (B1554)
-	types.LangCpp:        16, // comparison-chain discriminator keyed on the grammar shape alone (one top-level `&&`/`||` binary_expression as the template_argument_list → no row; the per-file name resolver is gone); qualifier chains of any depth unwrap to the terminal name (§40.59 收编复核四轮)
+	types.LangRust:       13, // parser-owned callable body presence (B1592)
+	types.LangC:          12, // parser-owned callable body presence (B1592)
+	types.LangCpp:        17, // parser-owned callable body presence (B1592)
 }
 
 type cacheFileInfosManifest struct {

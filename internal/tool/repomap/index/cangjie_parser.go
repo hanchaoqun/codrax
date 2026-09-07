@@ -354,7 +354,9 @@ func (p *cangjieParser) parseFuncDecl(mods, decorators []string, parent string) 
 	name := p.cur().Text
 	p.advance()
 	p.skipGenerics()
+	paramsStart := p.pos
 	arity, parameterBindings := p.countAndSkipParamsWithBindings()
+	paramsEnd := p.pos
 	// Return type `: T` — opaque, skip.
 	cjReturnTypes := p.skipReturnType()
 	p.skipWhereClause()
@@ -378,10 +380,7 @@ func (p *cangjieParser) parseFuncDecl(mods, decorators []string, parent string) 
 	})
 	idx := len(p.syms) - 1
 
-	// Body may be absent (interface method). If present, skip it.
-	if p.cur().Kind == cjTokLBrace {
-		p.syms[idx].EndLine = p.skipBalancedEndLine(cjTokLBrace, cjTokRBrace)
-	}
+	p.finishCallableBody(idx, paramsStart, paramsEnd, p.callableDeclarationAllowsNoBody(parent, mods))
 }
 
 // parseForeignFunc — `foreign func Name(params) Ret`.
@@ -397,12 +396,20 @@ func (p *cangjieParser) parseForeignFunc(mods, decorators []string) {
 	name := p.cur().Text
 	p.advance()
 	p.skipGenerics()
+	paramsStart := p.pos
 	_, parameterBindings := p.countAndSkipParamsWithBindings()
+	paramsEnd := p.pos
 	cjReturnTypes := p.skipReturnType()
+	presence := types.CallableBodyUnknown
+	if p.callableHeaderIntact(paramsStart, paramsEnd, p.pos) &&
+		(p.cur().Kind == cjTokSemicolon || p.cur().Kind == cjTokRBrace || p.cur().Kind == cjTokEOF) {
+		presence = types.CallableBodyAbsent
+	}
 	p.consumeOptionalSemi()
 	p.syms = append(p.syms, types.Symbol{
 		Name:              name,
 		Kind:              "foreign-func",
+		BodyPresence:      presence,
 		File:              p.file,
 		Line:              start.Line,
 		EndLine:           start.Line,
@@ -454,7 +461,9 @@ func (p *cangjieParser) parseOperatorFunc(mods, decorators []string, parent stri
 		// Unknown token shape — advance defensively to avoid stall.
 		p.advance()
 	}
+	paramsStart := p.pos
 	_, parameterBindings := p.countAndSkipParamsWithBindings()
+	paramsEnd := p.pos
 	cjReturnTypes := p.skipReturnType()
 	p.skipWhereClause()
 	p.syms = append(p.syms, types.Symbol{
@@ -470,16 +479,16 @@ func (p *cangjieParser) parseOperatorFunc(mods, decorators []string, parent stri
 		ParameterBindings: parameterBindings,
 	})
 	idx := len(p.syms) - 1
-	if p.cur().Kind == cjTokLBrace {
-		p.syms[idx].EndLine = p.skipBalancedEndLine(cjTokLBrace, cjTokRBrace)
-	}
+	p.finishCallableBody(idx, paramsStart, paramsEnd, p.callableDeclarationAllowsNoBody(parent, mods))
 }
 
 // parseInit — `init(params) { ... }` (no func keyword).
 func (p *cangjieParser) parseInit(mods, decorators []string, parent string) {
 	start := p.cur()
 	p.advance() // 'init'
+	paramsStart := p.pos
 	_, parameterBindings := p.countAndSkipParamsWithBindings()
+	paramsEnd := p.pos
 	p.syms = append(p.syms, types.Symbol{
 		Name:              "init",
 		Kind:              "ctor",
@@ -492,9 +501,7 @@ func (p *cangjieParser) parseInit(mods, decorators []string, parent string) {
 		ParameterBindings: parameterBindings,
 	})
 	idx := len(p.syms) - 1
-	if p.cur().Kind == cjTokLBrace {
-		p.syms[idx].EndLine = p.skipBalancedEndLine(cjTokLBrace, cjTokRBrace)
-	}
+	p.finishCallableBody(idx, paramsStart, paramsEnd, false)
 }
 
 // parseMainEntry — `main(): Int64 { ... }`.
@@ -504,7 +511,9 @@ func (p *cangjieParser) parseMainEntry() {
 	if p.cur().Kind != cjTokLParen {
 		return // not a main-entry shorthand
 	}
+	paramsStart := p.pos
 	_, parameterBindings := p.countAndSkipParamsWithBindings()
+	paramsEnd := p.pos
 	cjReturnTypes := p.skipReturnType()
 	p.syms = append(p.syms, types.Symbol{
 		Name:              "main",
@@ -518,9 +527,109 @@ func (p *cangjieParser) parseMainEntry() {
 		ParameterBindings: parameterBindings,
 	})
 	idx := len(p.syms) - 1
+	p.finishCallableBody(idx, paramsStart, paramsEnd, false)
+}
+
+// finishCallableBody only records syntax actually consumed by this parser.
+// Its permissive header readers may cross a malformed declaration, and its
+// block skipper may reach EOF without a close. Neither is body authority.
+func (p *cangjieParser) finishCallableBody(idx, paramsStart, paramsEnd int, allowAbsent bool) {
+	bodyStart := p.pos
+	headerIntact := p.callableHeaderIntact(paramsStart, paramsEnd, bodyStart)
 	if p.cur().Kind == cjTokLBrace {
 		p.syms[idx].EndLine = p.skipBalancedEndLine(cjTokLBrace, cjTokRBrace)
+		if headerIntact && cangjieClosedTokenGroup(p.toks[bodyStart:p.pos], cjTokLBrace, cjTokRBrace) {
+			p.syms[idx].BodyPresence = types.CallableBodyPresent
+			p.syms[idx].BodyStartLine = p.toks[bodyStart].Line
+			p.syms[idx].BodyEndLine = p.syms[idx].EndLine
+		}
+	} else if headerIntact && allowAbsent && (p.cur().Kind == cjTokSemicolon || p.cur().Kind == cjTokRBrace) {
+		p.syms[idx].BodyPresence = types.CallableBodyAbsent
 	}
+}
+
+func (p *cangjieParser) callableHeaderIntact(paramsStart, paramsEnd, bodyStart int) bool {
+	if paramsStart < 0 || paramsEnd > bodyStart || bodyStart > len(p.toks) ||
+		!cangjieClosedTokenGroup(p.toks[paramsStart:paramsEnd], cjTokLParen, cjTokRParen) {
+		return false
+	}
+	var typeClosers []cangjieTokKind
+	for i, tok := range p.toks[paramsEnd:bodyStart] {
+		switch tok.Kind {
+		case cjTokLBrace, cjTokRBrace, cjTokSemicolon, cjTokEq, cjTokEOF:
+			return false
+		case cjTokKeyword:
+			// Return/where type syntax must not borrow the next declaration's
+			// parameters or implementation. This is token grammar, not prose.
+			if tok.Text != "where" {
+				return false
+			}
+		case cjTokLAngle:
+			// `<:` is an inheritance bound, not a generic opener.
+			if paramsEnd+i+1 < bodyStart && p.toks[paramsEnd+i+1].Kind == cjTokColon {
+				continue
+			}
+			typeClosers = append(typeClosers, cjTokRAngle)
+		case cjTokLParen:
+			typeClosers = append(typeClosers, cjTokRParen)
+		case cjTokLBracket:
+			typeClosers = append(typeClosers, cjTokRBracket)
+		case cjTokRAngle, cjTokRParen, cjTokRBracket:
+			if len(typeClosers) == 0 || typeClosers[len(typeClosers)-1] != tok.Kind {
+				return false
+			}
+			typeClosers = typeClosers[:len(typeClosers)-1]
+		}
+	}
+	return len(typeClosers) == 0 && (bodyStart == paramsEnd || p.toks[bodyStart-1].Kind != cjTokColon)
+}
+
+func (p *cangjieParser) callableDeclarationAllowsNoBody(parent string, mods []string) bool {
+	for _, mod := range mods {
+		if mod == "abstract" {
+			return true
+		}
+	}
+	if parent == "" {
+		return false
+	}
+	for i := len(p.syms) - 1; i >= 0; i-- {
+		sym := p.syms[i]
+		if sym.Name == parent && (sym.Kind == "interface" || sym.Kind == "class" || sym.Kind == "struct" || sym.Kind == "enum") {
+			return sym.Kind == "interface"
+		}
+	}
+	return false
+}
+
+// Angles are intentionally excluded: inside a body/parameter default they
+// can be comparisons. Braces, parentheses and brackets must close in order.
+func cangjieClosedTokenGroup(tokens []cangjieToken, open, close cangjieTokKind) bool {
+	if len(tokens) < 2 || tokens[0].Kind != open || tokens[len(tokens)-1].Kind != close {
+		return false
+	}
+	var stack []cangjieTokKind
+	for i, tok := range tokens {
+		switch tok.Kind {
+		case cjTokLParen:
+			stack = append(stack, cjTokRParen)
+		case cjTokLBracket:
+			stack = append(stack, cjTokRBracket)
+		case cjTokLBrace:
+			stack = append(stack, cjTokRBrace)
+		case cjTokRParen, cjTokRBracket, cjTokRBrace:
+			if len(stack) == 0 || stack[len(stack)-1] != tok.Kind {
+				return false
+			}
+			stack = stack[:len(stack)-1]
+			if len(stack) == 0 && i != len(tokens)-1 {
+				return false
+			}
+		case cjTokEOF:
+			return false
+		}
+	}
+	return len(stack) == 0
 }
 
 // parseBody walks a `{ ... }` body, recognising nested decls and

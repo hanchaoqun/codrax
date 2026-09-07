@@ -127,6 +127,22 @@ func requestedSubTopicCallableBodyDebts(
 	graph *repotypes.Graph,
 	evidence []types.EvidenceItem,
 ) []requestedSubTopicCallableBodyDebt {
+	var debts []requestedSubTopicCallableBodyDebt
+	for _, candidate := range requestedSubTopicCallableBodyCandidates(topics, graph, evidence) {
+		if candidate.sym.HasParserOwnedBody() && !requestedSubTopicCallableHasBodyEvidence(evidence, candidate.file, candidate.sym) {
+			debts = append(debts, candidate)
+		}
+	}
+	return debts
+}
+
+// Resolve identity before inspecting body presence. Removing declarations
+// from the identity census would silently choose an implementation/overload.
+func requestedSubTopicCallableBodyCandidates(
+	topics []types.SubTopic,
+	graph *repotypes.Graph,
+	evidence []types.EvidenceItem,
+) []requestedSubTopicCallableBodyDebt {
 	if graph == nil || len(topics) == 0 || len(evidence) == 0 {
 		return nil
 	}
@@ -139,8 +155,7 @@ func requestedSubTopicCallableBodyDebts(
 				continue
 			}
 			file, fi, sym, ok := requestedSubTopicUniqueCallable(graph, identity)
-			if !ok || requestedSubTopicCallableHasBodyEvidence(evidence, file, sym) ||
-				!requestedSubTopicCallableHasCallEvidence(evidence, sym, fi) {
+			if !ok || !requestedSubTopicCallableHasCallEvidence(evidence, sym, fi) {
 				continue
 			}
 			key := mechanismSemanticDescentSymbolKey(file, sym)
@@ -204,7 +219,7 @@ func requestedSubTopicUniqueCallable(graph *repotypes.Graph, identity string) (s
 }
 
 func requestedSubTopicCallableHasBodyEvidence(evidence []types.EvidenceItem, file string, sym *repotypes.Symbol) bool {
-	if sym == nil || sym.Line <= 0 {
+	if !sym.HasParserOwnedBody() || sym.Line <= 0 {
 		return false
 	}
 	end := sym.EndLine
@@ -217,15 +232,62 @@ func requestedSubTopicCallableHasBodyEvidence(evidence []types.EvidenceItem, fil
 			!callChainSourcePathEquivalent(canonicalRelationSourcePath(item.Source), canonicalRelationSourcePath(file)) {
 			continue
 		}
-		// A multi-line callable needs at least one body line (or a range that
-		// spans into the body). Its declaration line alone proves existence,
-		// not behavior. A one-line callable necessarily carries declaration
-		// and implementation on the same parser-owned line.
-		if end == sym.Line || item.LineStart > sym.Line || item.LineEnd > sym.Line {
+		// Declaration extent includes multi-line parameters and return types.
+		// Those lines are not body inspection. Intersect the parser-owned body
+		// while retaining the original declaration-first-line boundary. A Python
+		// or Ruby body starts at its first statement, not at an opening brace.
+		itemEnd := max(item.LineStart, item.LineEnd)
+		if item.LineStart <= sym.BodyEndLine && itemEnd >= sym.BodyStartLine &&
+			(end == sym.Line || item.LineStart > sym.Line || itemEnd > sym.Line) {
 			return true
 		}
 	}
 	return false
+}
+
+// callableBodyInspectionAdvisory is a current-snapshot, bounded soft exit for
+// selected declarations and unclassified callables. It neither creates a
+// completion obligation nor stores a sticky session-wide missing-body fact.
+// The accepted tool summary already carries authoring notes to later stages.
+func callableBodyInspectionAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) string {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || !genericForcedReadBoundaryCanUseModelPrincipalSet(ctx.AnalysisIR.RequestModel) {
+		return ""
+	}
+	graph, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if !ok || graph == nil {
+		return ""
+	}
+	var candidates []requestedSubTopicCallableBodyDebt
+	if len(ctx.AnalysisIR.RequestModel.SubTopics) >= 2 {
+		candidates = requestedSubTopicCallableBodyCandidates(ctx.AnalysisIR.RequestModel.SubTopics, graph, evidence)
+	}
+	for _, seed := range mechanismSemanticDescentSelectedDefinitionSeeds(ctx, graph, facts, evidence) {
+		candidates = append(candidates, requestedSubTopicCallableBodyDebt{file: seed.file, sym: seed.sym})
+	}
+	seen := make(map[string]bool)
+	var notes []string
+	for _, candidate := range candidates {
+		if candidate.sym == nil || candidate.sym.HasParserOwnedBody() {
+			continue
+		}
+		key := mechanismSemanticDescentSymbolKey(candidate.file, candidate.sym)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		if len(notes) >= requestedSubTopicCallableBodyMaxDemands {
+			continue
+		}
+		boundary := "body presence is not established; inspect the source if its implementation behavior is needed, and do not infer absence"
+		if candidate.sym.BodyPresence == repotypes.CallableBodyAbsent {
+			boundary = "the parser identifies a declaration without a local body; keep its declaration semantics, and use separately grounded implementation evidence for behavior"
+		}
+		notes = append(notes, fmt.Sprintf("%q at %s:%d: %s", qualifiedEvidenceSymbolName(candidate.sym), candidate.file, candidate.sym.Line, boundary))
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Callable inspection advisory (non-blocking; showing %d of %d selected declarations/unknown bodies): %s. No implementation is selected or behavior established by this note.", len(notes), len(seen), strings.Join(notes, "; "))
 }
 
 // requestedSubTopicCallableBodyEvidenceProducer admits exactly two ownership

@@ -57386,13 +57386,23 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 | 批次 / 优先级 | 可执行或生产见证 | 通用修向 / 状态 |
 |---|---|---|
-| B1592 / P1 | Transport.send接口签名9..9被要求已读实现体，连续拒绝后同一行definition_fact又假闭合；真实parser→preComplete双红 | 独立施工中：parser-owned present/absent/unknown，只有精确present进入实现体义务；保留声明身份/语义，未知只作查证指导。覆盖全部支持语言、解析fallback与暖缓存失效，不能自动给接口绑定实现 |
+| B1592 / P1 | Transport.send接口签名9..9被要求已读实现体，连续拒绝后同一行definition_fact又假闭合；真实parser→preComplete双红 | 已实施、独立复审、最终定向count=3与生产冻结全仓通过：parser-owned present/absent/unknown加实际body行范围，只有精确present进入实现体义务；保留声明身份/语义，未知只作查证指导。14语言矩阵、解析fallback与暖缓存失效均覆盖，不宣称每种语法构造已穷尽、不自动给接口绑定实现 |
 | B1593 / P1 | 原图CLI/API与错误metadata run→API，系统addition允许ID却为cli/api；模型依约修改后图出现隐式小写节点、大写CLI被判孤立，最终断链 | 已实施、真实入口与广图回归完成、独立复审通过：lookup归一化键不能充任可见node ID；候选/动态schema/lease/执行器复用精确源ID，大小写碰撞与歧义不猜，不系统改关系、改名或代写答案 |
 | B1594 / P1 | write_analyzer成功读test_repository.c，保护约束因命名惯例不识别连续3拒，模型最终删除约束 | 已实施、定向验证与独立审阅完成：保护基线可接受本dispatch精确成功读取文件；私有receipt绑定物理仓、canonical path、RawRef，reset同清。不改变共享测试角色分类、不把保留约束当执行证明、不豁免assertion-scoped验证 |
 
 TS主链/paths有据，但源码已给当前实例FixedDelay(200,3)，模型仍称ExponentialBackoff，并未解释末次不sleep。现有信息充分的部分列模型质量观察，不给正文增加关键词门、不替模型改结论。C模型自行猜src/tests路径及ret||，准确源读到后最终只改两个括号，callback!=0/lookup<0均保留。真实make check通过但只有aggregate，两个要求合同没有逐assertion执行凭证，unverified是正确保护；独立原生7格补验通过也不变造正式report。更多语言/执行器细粒度receipt为既有能力债，不借此降杆。
 
 前批生产提交7fc815c9b/34fd1e56a/945803145/6cb87aad9均推送，test-only跨包前提收尾37fc5385d另提交。下一live按既定r1031：H8精确窗因果投影正臂+H2有限状态查询不产投影负臂。两次启动前分别被旧revision及并行改动后的dirty-inputs检查拒绝，均exit2、零case启动；不绕门、不把有并行写入的make作验收，改为本批提交后重建。Trace链上/背景边界、占时与可消除双轴、业务线索、补采、模型答案所有权及active-stream保护不变。
+
+#### B1592：实现体存在性与声明、参数范围分开
+
+Symbol新增解析器所有的实现体三态和实际起止行，旧载体/未知枚举/无效范围均不能铸实现体硬义务。通用AST要求名称与完整声明范围唯一精确匹配，语法错误/歧义保持未知；Cangjie在已消费的参数与配对体上记录范围，只有明确abstract/interface/foreign无体形铸absent，宽松旧解析器跨入下一声明或不完整体保持unknown。ArkTS富化合并仅同owner与完整范围一致才携带TS证据，regex-only不猜。先解析实体身份再看body，不移除接口后偷偷选另一个实现。
+
+复审另发现“多行参数的第二行”也能被旧行数谓词算作body：本批一并改为与实际body范围相交，保留原声明首行边界。Python/Ruby/Lua首个真实语句仍可成立；这是代码检查粒度，不声称一行足以证明全部业务行为。unknown/absent只给本次快照最多4项非阻塞提示，不存会话sticky缺失，不覆盖既有completion note，不改变调用关系或模型答案，不新增模型JSON字段。缓存schema 6→7及14个受影响语言epoch同步升级；Proto不变，旧暖缓存需重建。
+
+真实客户TS先红日志`b1592-body-probe/red.log`→重新parse count=3绿`green.log`。持久测试真正通过ParseFiles→BuildGraph→EmitInvestigationComplete公共入口，覆盖接口声明与实际方法、三种语言参数误充/首语句不误拒；不是只测内部helper。14语言与Proto负臂、解析错误/同位置歧义、ArkTS合并、Cangjie21格、cache三态/extent roundtrip与旧epoch失效、旧body债/semantic descent均纳入最终三包count=3，tool1.376s/index1.721s/repomap-types2.185s（`b1592-body-final-focused.log`）。部分Swift特殊方法等未可靠识别的构造仍unknown软出口，Cangjie有限token解析器不升级宣称完整语言验证器。
+
+B1593已提交推送`99952d3de`，B1594已提交推送`940af1e40`。B1592生产冻结后的全仓`go test ./... -count=1`退出0、86测试包通过（`20260907-b1592-b1594-full-suite.log`，tool281.026s/tracequery94.203s/types41.423s）；全仓启动后新增的公共入口测试另由上述最终count=3覆盖，不伪称全仓命令开始时已包含所有最后测试。后续干净构建与r1031结果另记，不能把本地验证称为客户/live已闭环。
 
 #### B1593：图中的源节点ID不是归一化查找键
 

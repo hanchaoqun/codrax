@@ -3207,6 +3207,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	if gateNote := ctx.Mutable.TakeCompletionGateNote(); gateNote != "" {
 		summary += " | " + gateNote
 	}
+	if bodyNote := callableBodyInspectionAdvisory(ctx, effectiveAggregateFacts, evidenceSnapshot); bodyNote != "" {
+		summary += " | " + bodyNote
+	}
 	recordToolRuntimeTiming(&runtimeTimings, "completion_state_write", stateWriteStart, len(effectiveAggregateFacts))
 
 	// The prose audit above already words each ignored waiver on the summary;

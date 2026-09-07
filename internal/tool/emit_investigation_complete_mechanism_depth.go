@@ -157,7 +157,7 @@ func raiseMechanismSemanticDescentPendingReads(
 	for len(frontier) > 0 && demands < mechanismSemanticDescentMaxDemands {
 		node := frontier[0]
 		frontier = frontier[1:]
-		if node.sym == nil || node.fi == nil || node.sym.Line <= 0 {
+		if node.sym == nil || node.fi == nil || node.sym.Line <= 0 || !node.sym.HasParserOwnedBody() {
 			continue
 		}
 		bodyRanges := mechanismSemanticDescentReadRanges(node)
@@ -181,6 +181,9 @@ func raiseMechanismSemanticDescentPendingReads(
 				}
 				children := mechanismReturnCallChildren(graph, node.fi, node.sym, rel)
 				for _, child := range children {
+					if !child.sym.HasParserOwnedBody() {
+						continue
+					}
 					key := mechanismSemanticDescentSymbolKey(child.file, child.sym)
 					if key == "" || seen[key] {
 						continue
