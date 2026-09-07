@@ -57380,6 +57380,29 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1647 本轮最终验收与B1586分批方案（2026-09-06）
+
+最终源码冻结于 `3c8abb5d3636`，已推送main。`go test ./... -count=1`退出0，86个测试包通过，无FAIL/panic；日志`.codrax/tmp/20260906-b1584-b1585-full-suite-green.log`，agent58.938s/tool290.278s/tracequery96.097s/types40.319s。此结果覆盖B1584/B1585及compact教学修正，不再引用前批绿替代后续改动验收。该快照`make`成功，日志`20260906-b1584-b1585-final-build.log`。
+
+- 六项施工B1575/B1580/B1582/B1583/B1584/B1585均已分批提交推送，具体边界见§123.1642–1645。B1584紧凑修正提交`3c8abb5d3`：共享短教学545→274字节，去掉两个分支的重复拼接；原6000字节上限不动，required/optional/joint及full/patch入口均钉恰一次。措辞明确whole-block按其schema**必须携带**所保留关系的metadata和端点身份，不暗示系统自动保留或补写。
+- B1585后的完整索引基准重新通过：32,768行×32组，单次31.515ms，累计分配53,662,936B、285,242次分配；日志`20260906-b1585-indexed-benchmark.log`。仅为本地合成编译基准，不是客户端到端LLM耗时，也不是驻留内存。
+- 两批live各严格并行2路，机器4/4；人工结论仍是r1026读部分失败/写通过且有证明边界，r1027最终两答案通过/仓颉过程缺口未闭环。没有修改旧答案、oracle、阈值或机器验证报告来收绿，也没有新跑第三路。
+- 默认活跃流不因4ms/4分钟未见正文降级；B1581/B1583真实SSE正反例与本次全仓均通过。显式总预算、父取消、真正首字节或字节停滞保护保留。Trace链上根因、两耗时维度、业务线索、显式窗投影及补采未改；本轮异构read/write不是新的Trace生产回放正证。
+
+#### B1586：先共享保真交接，再核裁剪合同，最后精确消除重复任务
+
+本轮只读对照代码与r1027日志完成以下分解，**尚未实现**，不能以最终答案恢复正确当成过程修复。共同红线：不按Cangjie特例填词，不扫描原始问题/模型prose设门，不替模型生成结论，不让source inventory完整标记豁免独立子题或Trace任务。
+
+| 批次 | 优先级 / 确认程度 | 最小泛化方案与验收 |
+|---|---|---|
+| B1586a：机械清单分类与属性交接 | P1，生产与代码确认 | `explorer.go`机械落地早返回跳过已有清单；Dossier成员显示未消费SurfaceTerms。共享`BuildSourceInventoryAuthoritySnapshot`→`BuildSourceInventoryAnswerAuthorityView`及`SourceInventorySurfaceFamilyKeys`，复用最终成文行显示字段；Dossier同样投影typed family，避免context反向依赖agent。覆盖仓颉1 extend/1 foreign/3 class、ArkTS多标记、普通Java/Go/Python角色、同名不同文件/行/构造；保留请求范围、支持清单及引用权限，不能把导航行升为主事实 |
+| B1586b：后端完整与显示完整分开 | P1/P2，裁剪代码确认；大集错误发射尚无本轮生产见证 | Dossier最多4组×5成员×2属性，Snapshot默认32行/finalizer36行，旧explorer advisory另有40行截断。展示总数/显示/省略及属性覆盖，不强迫emit-only模型重抄隐藏成员；优先复用稳定aggregate facts的现有继承机制。需选择/比较隐藏成员才使用精确范围/分页。离线覆盖各截断边界、完整零集合/未覆盖非零、属性缺失；先确定受影响门，不凭裁剪存在即宣称全族硬拒 |
+| B1586c：精确覆盖的机械任务收账 | P2，r1027重复调度链已确认 | 编译后通用probe及required Evidence仍在；`hasPendingRequiredMultiTopicEvidence`仅看pending/多子题，`acceptedCompletionMustRemainWindowScoped`保留当前窗口完成并导致后续重复两轮。复用同一清单覆盖snapshot，只关闭有typed目标绑定且已覆盖的机械任务；若节点缺目标绑定先补绑定，不能解析节点说明猜测。完整五行后不重复物化；部分范围、属性缺失、源码行为、普通关系和独立混合子题必须继续，不能放开所有read或直接跳过多子题 |
+
+陈旧`public class expected=4`软提示随B1586a复核当前权威与aggregate适用域；本轮未造成两次结构拒绝，也未覆盖最终正确的3类答案。只修反馈适用域，不增加答案词法裁决。真实逐方法/逐ref执行记录仍是另一个能力债：B1575仅补证明粒度披露，不能拿人工补验或整段探针通过构造产品执行凭证。
+
+后续先B1586a真实交接入口红转绿，异构/裁剪反例审查后再逐批推进b/c；每批更新状态并提交推送。live继续按语言、读写模式、Trace明确窗及近期已测面轮换，每批2路，机器验收与人工答案/过程验收分列。
+
 ### §123.1646 r1027：仓颉分类交接与C原生验证（2026-09-06）
 
 `snapshot=c05682e3dfad / exactly-two-parallel / machine=2/2 / human-final=2/2 / process-gap-open`。
@@ -57393,10 +57416,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 | 下一任务 | 优先级 / 已证范围 | 施工边界 |
 |---|---|---|
 | B1586-INVENTORYMATERIALIZATIONCONTEXT1 | P1：emit-only上下文缺精确声明分类，`context/builder.go::relationDossierSourceInventoryMemberExamples`未消费同一typed family，完整1/1/3被role4/1摘要替代 | 复用既有源码row-set分类/关键属性权威，不为Cangjie硬编码；检查大集合裁剪的显示完整性，不能只加一个词就宣称全局解决 |
-| B1586调度/陈旧聚合子项 | 待精确复核：已完整仍两次物化、被权威row-set遮蔽的model aggregate仍发class4建议 | 先证明调度和适用域，复用完成事实及当前权威，不放开所有read、不新增原文关键词门或代写答案；与主字段缺失分开验收 |
+| B1586调度/陈旧聚合子项 | 后续只读复核确认重复调度链；被权威row-set遮蔽的model aggregate仍发class4建议，但本轮未造成最终拒绝或改写 | 具体三批方案见§123.1647；复用完成事实及当前权威，不放开所有read、不新增原文关键词门或代写答案；与主字段缺失分开验收 |
 | 轮换计划 | ArkTS声明/组件及C宏/平台逻辑、具体窗Trace与跨仓write | 每批2路，人工核上下文/过程/输出；保留未命中正臂，不靠模型波动重跑求绿 |
 
-完整回归诚实补记：`c05682e3d`的`go test ./... -count=1`退出1，85包通过，agent只有`TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority`失败：新增共享教学在同一compact hint出现两次，6818字节超过原6000上限。这是本批新增提示成本问题，不提高阈值、不删测试。后续删除两调用者的branch重复并压缩共享句，required/optional/joint、full/patch真实入口均钉恰1次；原6000及相关两包count=3通过（`b1584-guidance-dedup-{red,green}.log`）。全文schema/正文所有权及精确关系权限不变。完整回归再跑后补记最终结果，之前的86包全绿只覆盖§123.1642源码，不冒充这次后续修改。
+完整回归诚实补记：`c05682e3d`的`go test ./... -count=1`退出1，85包通过，agent只有`TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority`失败：新增共享教学在同一compact hint出现两次，6818字节超过原6000上限。这是本批新增提示成本问题，不提高阈值、不删测试。后续删除两调用者的branch重复并压缩共享句，required/optional/joint、full/patch真实入口均钉恰1次；原6000及相关两包count=3通过（`b1584-guidance-dedup-{red,green}.log`）。全文schema/正文所有权及精确关系权限不变。最终`3c8abb5d3`重跑86包全绿，详见§123.1647；此前失败保留记录，之前的86包全绿只覆盖§123.1642源码，不冒充后续修改。
 
 ### §123.1645 B1584：JSON修补路径与重试状态的准确教学（2026-09-06）
 
