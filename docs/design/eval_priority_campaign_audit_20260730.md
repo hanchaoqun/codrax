@@ -57380,6 +57380,20 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1653 r1030：机器通过不等于答案正确；三项跨语言合同缺口（2026-09-07）
+
+源码`6cb87aad9`干净构建、严格两路，机器1/2：TS读PASS 263s，C写FAIL 331s（正式verification_proof_incomplete）。完整日志、上下文、最终图/正文、durable diff及原生执行均人工审计，见`eval/parallel_selected_summary_evalcampaign_ts_read_libgit2_write_r1030_20260907{,_manual_audit}.md`。TS人审fail；C补丁人审pass而产品细粒度证明未闭合，不能把人工通过回填机器。
+
+| 批次 / 优先级 | 可执行或生产见证 | 通用修向 / 状态 |
+|---|---|---|
+| B1592 / P1 | Transport.send接口签名9..9被要求已读实现体，连续拒绝后同一行definition_fact又假闭合；真实parser→preComplete双红 | 独立施工中：parser-owned present/absent/unknown，只有精确present进入实现体义务；保留声明身份/语义，未知只作查证指导。覆盖全部支持语言、解析fallback与暖缓存失效，不能自动给接口绑定实现 |
+| B1593 / P1 | 原图CLI/API与错误metadata run→API，系统addition允许ID却为cli/api；模型依约修改后图出现隐式小写节点、大写CLI被判孤立，最终断链 | 独立审计施工：lookup归一化键不能充任可见node ID；候选/动态schema/执行器复用精确源ID，大小写碰撞与歧义不猜，不系统改关系、改名或代写答案 |
+| B1594 / P1 | write_analyzer成功读test_repository.c，保护约束因命名惯例不识别连续3拒，模型最终删除约束 | 独立施工：保护基线可接受本dispatch精确成功读取文件；不改变共享测试角色分类、不把保留约束当执行证明、不豁免assertion-scoped验证。原命名兼容臂及跨仓/陈腐读取边界明确测试 |
+
+TS主链/paths有据，但源码已给当前实例FixedDelay(200,3)，模型仍称ExponentialBackoff，并未解释末次不sleep。现有信息充分的部分列模型质量观察，不给正文增加关键词门、不替模型改结论。C模型自行猜src/tests路径及ret||，准确源读到后最终只改两个括号，callback!=0/lookup<0均保留。真实make check通过但只有aggregate，两个要求合同没有逐assertion执行凭证，unverified是正确保护；独立原生7格补验通过也不变造正式report。更多语言/执行器细粒度receipt为既有能力债，不借此降杆。
+
+前批生产提交7fc815c9b/34fd1e56a/945803145/6cb87aad9均推送，test-only跨包前提收尾37fc5385d另提交。下一live按既定r1031：H8精确窗因果投影正臂+H2有限状态查询不产投影负臂；在不可变已验生产快照运行，不跟随并行修复工作区漂移。Trace链上/背景边界、占时与可消除双轴、业务线索、补采、模型答案所有权及active-stream保护不变。
+
 ### §123.1652 B1590b/B1591施工与异构回放计划（2026-09-07）
 
 起点`e17a62e1a`，工作区干净，fetch后与origin/main为0/0。本轮继续先修确定性上下文/合同冲突，随后每批两路live并逐项人工审计，不把旧机器误报、模型波动或人工验证改写成产品已证。
