@@ -104,6 +104,13 @@ func TestB1590aTraceBoardTeachingPreservesExactArithmeticBoundary(t *testing.T) 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			members := []types.TraceCausalProjectionNode{{RankBoardTarget: "ui-10", StartTs: 1, EndTs: 1.009, EffectiveImpactMS: 9}, tc.second}
+			// These cases vary the occurrence envelope or target within an
+			// otherwise fully identified rank query; absent board identity is
+			// separately covered by the arithmetic authority's negative tests.
+			for i := range members {
+				members[i].RankBoardParamsFingerprint = "teaching-board"
+				members[i].RankQueryWindowStartTs, members[i].RankQueryWindowEndTs = 1, 1.1
+			}
 			got, value := types.TraceAnswerDirectionSectionArithmetic("lock_priority", members, false, true)
 			if got != tc.want || value != tc.value {
 				t.Fatalf("existing typed arithmetic changed: (%s, %v), want (%s, %v)", got, value, tc.want, tc.value)

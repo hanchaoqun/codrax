@@ -484,7 +484,13 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 			Object:    "runnable",
 			Value:     "7.000",
 			Unit:      "ms",
-			RichNotes: []string{"rank=1", "tier=primary", "chain_relevance=on_chain", "impact_ms=7.000", "effective_impact_ms=6.000", "fix_direction=scheduling_priority", "selected_window=10.000000..10.020000"},
+			RichNotes: []string{
+				"rank=1", "tier=primary", "chain_relevance=on_chain", "impact_ms=7.000", "effective_impact_ms=6.000", "fix_direction=scheduling_priority", "selected_window=10.000000..10.020000",
+				// A local direction leader requires the complete typed query board,
+				// independently of whether a target state account was observed.
+				types.TraceNoteKeyRankBoardTarget + "=app-100",
+				types.TraceNoteKeyRankBoardParams + "=same-board-fixture",
+			},
 		}, {
 			ID:              "typed-wakeup-topology",
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,

@@ -137,9 +137,34 @@ func TestPlannerContextPackRendersRetiredContractOnFirstReplan(t *testing.T) {
 	if !strings.Contains(got, "behavior_contract_retired [write_analysis/stale-soft]: id=stale-soft reason=failed_verification_probe evidence=probe:shape_probe failed_plan_id=plan-1 attempt=1") {
 		t.Fatalf("pack lacks the retired item:\n%s", got)
 	}
-	if !strings.Contains(got, "behavior_contract [write_analysis/sibling-soft]: id=sibling-soft") {
-		t.Fatalf("active sibling dropped from the pack:\n%s", got)
+	// Contract identity and authority belong to the same typed item. Their
+	// display order is not the contract: finite authority fields precede long
+	// model-authored values so truncation cannot turn guidance into a mandate.
+	assertActiveItem := func(prefix string, requiredFields ...string) {
+		t.Helper()
+		matches := 0
+		for _, line := range strings.Split(got, "\n") {
+			payload, found := strings.CutPrefix(strings.TrimSpace(line), prefix)
+			if !found {
+				continue
+			}
+			matches++
+			fields := map[string]bool{}
+			for _, field := range strings.Fields(payload) {
+				fields[field] = true
+			}
+			for _, required := range requiredFields {
+				if !fields[required] {
+					t.Fatalf("active contract item %q lost exact field %q on that same line:\n%s", prefix, required, line)
+				}
+			}
+		}
+		if matches != 1 {
+			t.Fatalf("expected one active contract item %q, got %d:\n%s", prefix, matches, got)
+		}
 	}
+	assertActiveItem("- p1 behavior_contract [write_analysis/sibling-soft]: ", "id=sibling-soft", "soft_required=true", "polarity=expected", "kind=invariant", "operator=satisfies")
+	assertActiveItem("- p0 behavior_contract [write_analysis/hard-api]: ", "id=hard-api", "hard_required=true", "polarity=expected", "kind=invariant", "operator=equals")
 	framing := (&plannerEvaluator{}).buildTaskFramingSection(&types.AgentContext{Mutable: mu})
 	if !strings.Contains(framing, "retired contract id (do not reference): stale-soft") {
 		t.Fatalf("framing and pack must agree:\n%s", framing)

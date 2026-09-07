@@ -57404,7 +57404,7 @@ B1591已提交推送`34fd1e56a`。B1590d红证`20260907-b1590d-domain-red.log`�
 
 B1590d已提交推送`945803145`。B1590c额外确认同完整板的priority候选与monitor等不同显示子类可互借leader（非candidate并不等于机制已确认）；两种最大项互换真实先红，修为仅本typed显示子组可绑定，而原完整direction小计仍独立保留。新共享selector读取原全projection构造的section，原donor refs/4=2+2、12.115同板小计不改，不新选获胜query。reader自然语言双语预览、compact各保6行总预算，mechanism保原6→3两层cap并披露省略；handoff/plan方向摘要有界8组，未知逐行且字段称seat而非leader，完整后台不裁。未改原on-chain比较器、phase、target blocker、JSON/schema、自动补采或模型正文。
 
-B1590c日志：`20260907-b1590c-domain-red.log`、`20260907-b1590c-model-facing-{red,green}.log`（最终1.164s）；`b1590c-final-domains-red.log`→`b1590c-final-domains-green.log`（真实finalizer接线等5测试count3 9.787s）；旧TraceFinal/RankDonor/TraceDecision定向1.126s绿。5处旧同榜fixture只补其声称共享leader需要的完整query/capture前提，未知独立负臂和自然语言负pin均不减弱。生产冻结后已启动统一`20260907-b1590-b1591-full-suite.log`，尚未完成，不提前宣称全仓绿。待干净make后按上表两路r1030，再审计后运行r1031。
+B1590c日志：`20260907-b1590c-domain-red.log`、`20260907-b1590c-model-facing-{red,green}.log`（最终1.164s）；`b1590c-final-domains-red.log`→`b1590c-final-domains-green.log`（真实finalizer接线等5测试count3 9.787s）；旧TraceFinal/RankDonor/TraceDecision定向1.126s绿。旧同榜fixture只补其声称共享leader需要的完整query/capture前提，未知独立负臂和自然语言负pin均不减弱。生产冻结并推送`6cb87aad9`后，统一`20260907-b1590-b1591-full-suite.log`已经完成：首次exit1，83个包通过，agent/context/skill共4个旧fixture/prefix断言失败。三处未声明完整榜身份却要求同榜leader/小计，另一处把旧字段顺序作为权限合同；没有新的生产分支失败。test-only补齐明确的同榜前提，保留原未知target-state、overlap、算术与所有权断言；权限断言改为同一且唯一carrier中精确字段集合（并加强hard sibling），不减字段或扩大预算。三个受影响完整包重新执行exit0：agent47.625s/context0.481s/skill0.994s，日志`20260907-b1590-b1591-affected-recheck.log`。这是“83包首轮绿+3包修正测试后完整绿”，不是伪称首条全仓命令exit0。干净make成功，r1030使用不可变`6cb87aad9`二进制，后续test-only变化不改变回放源码。
 
 本轮case盘243（read215/apply25/plan3）。按真实用户影响、确定性机制、异构图表达/模式增量、实际执行能力与近期重复度排序；r1020–1029已重复H11五批、memoclaw Python三批，不继续围绕同一输出求绿。
 

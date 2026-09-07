@@ -78,6 +78,12 @@ func TestTraceDirectionTeachingMatchesExistingArithmeticAuthority(t *testing.T) 
 		{RankBoardTarget: "ui-10", StartTs: 1, EndTs: 1.009, EffectiveImpactMS: 9},
 		{RankBoardTarget: "ui-10", StartTs: 1.020, EndTs: 1.023, EffectiveImpactMS: 3},
 	}
+	// Keep a complete shared query identity while the cases below vary the
+	// occurrence envelope or target; a label alone is not a board identity.
+	for i := range members {
+		members[i].RankBoardParamsFingerprint = "teaching-board"
+		members[i].RankQueryWindowStartTs, members[i].RankQueryWindowEndTs = 1, 1.1
+	}
 	_, prompt := directionTeachingPrompt(t, "answer-document-skill", true)
 	for _, tc := range []struct {
 		name     string
