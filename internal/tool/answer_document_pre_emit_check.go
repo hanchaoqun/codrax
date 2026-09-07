@@ -3487,6 +3487,8 @@ func preEmitSourceInventoryExactLabelRows(item types.AnswerBlockItem, rows []typ
 // and cells-only rows. SourceInventoryRowID is the historical wire-field name;
 // its authority is the exact compiled Principal Enumeration Row, not a prose
 // inference that the request is a source inventory.
+// An explicitly selected evidence_ids owner is left to its own validator;
+// availability of a row carrier must not create a conflicting second owner.
 // The repair reads only item.label or item.cells[0], citation_ref, and typed
 // source coordinates. It never reads later cells, request, title, or answer
 // prose, and it refuses to guess unless the citation selects one alias identity
@@ -3515,6 +3517,7 @@ func normalizePrincipalEnumerationRowIDsByExactIdentityAndCitationWithContext(do
 		for ii := range block.Items {
 			item := &block.Items[ii]
 			if strings.TrimSpace(item.SourceInventoryRowID) != "" ||
+				len(normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)) > 0 ||
 				item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
