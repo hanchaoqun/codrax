@@ -57380,6 +57380,32 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1689 r1039 人工复核与第二小批（2026-09-08）
+
+B1619-P1已提交推送 `4077ce397a2e`，clean make 0.1.20260908；全仓最终86包通过。冻结快照恰两例并行：H7 Trace自动PASS214s、fmt原生write自动FAIL164s（最终proof未闭合）。机器表及完整人工报告：`eval/parallel_selected_summary_evalcampaign_h7_fmt_r1039_20260908{,_manual_audit}.md`，没有第三例/单题重复求绿/修改oracle。
+
+H7人工partial：233.190ms精确用户窗、新scope、原running74.915/折算65.912、D11段36.757及完整文本因果投影保留；业务span108.005/98.485/69.337、语义工作2.388ms与规则可消两轴在。真实logd49.656=.033+49.623仍符合既有oracle。模型把#9–12链上小席归为背景，虽然完整资格及“显示8不改变12席资格”的信息已给；此项先作为模型事实使用失误观察，不增正文硬门。根因JSON必选旁路真实生成139字节，但模型没有选择所以为typed unavailable/空数组；不冒称接口漏文件，也不由系统代选。成文畸形JSON在第二轮完整重发、第三轮metadata patch后正常成文；教学/schema未见对应自冲突，保留模型构造波动判断。
+
+fmt人审代码与原生测试通过，正式证明未闭环：仅两行long long拓宽并在加法前转换，原测试/期望不改；两次正式make check与独立交付树make check均exit0。3次计划结构拒绝+1次protected-test重规划，首计划只是重命名测试并追加边界，不能称作降低期望。receipt只有aggregate检查结果，不能替模型声明的large_positive断言签字，最终明确unverified/proof weak合理，归并B1561，不是B1616b跨计划丢证据。上下文峰值分别55%/28%，没有工具不可用/剪枝或活跃流短时降级。
+
+#### B1621 / TRACE-FAMILY-NOT-CHAIN-AUTHORITY1（P1，确认，立即小批）
+
+日志2597–2598给唯一adjacent的JIT族固定教学“已观测到的链上语义工作”；模型最终确实用了“链上已观测”措辞。`renderTraceFinalReaderFacingLanguageHandoff` 跨Ranked/OnChain/Adjacent/Background/SemanticSpans收集、按type去重，`traceFinalReaderMechanismScope`却把类别当作链上角色；优先级类别也有邻近项，同样不能由类别断言入链。最优方案：类别映射只给机制词义和可用证据边界；是否链上由逐行位置及凭证确定，不能改成“按遇到的第一条角色”选择全局词义。覆盖JIT/类校验/着色器/运行时编译/纹理上传/GC/普通span及priority两臂、ZH/EN、混池/调序；保留值/资格/排序/模型正文，不新建硬门。已开始先红后绿施工，不能将r1039当修后验收。
+
+#### B1619-P1a / PATH-QUERY-SCOPE-PRODUCER1（P2，确认，同次独立小修）
+
+4条路径的旧window来自chain.Window，原始查询范围已知；新消费者只认selected_window，导致同时显示观测窗口与查询范围未知。修向是在明确的path query producer发布同源selected_window，保留原window；不放宽全局消费者从Span或普通window猜查询范围。path并非原选窗anchor family，仍须整个投影前后深比较钉住选举/数值/位置不变。其它尚未核定的缺范围族不可一概补值。已开始producer入口正负针施工。
+
+#### 新残余（仅立案，不计已修）
+
+- B1622/P2：D榜4个CPU组包含5+3+2+1=11次，概览/榜项仍称共4段或4次；完整等待表正确11次，占时表正确4条统计记录。需统一aggregate-group与physical-occurrence计数载体和显示，不改36.757ms。
+- B1623/P2：CPU process summary直接从每CPU running项取最大TopThreadMs，漏先按线程跨CPU累加；本例最高线程26.444 vs真实74.915ms，亦可能选错线程。需身份正确的分层聚合/并列/多CPU/多进程回归，不以当前线程写特判。
+- 重复范围说明可读性继续观察；应按精确查询组共享披露，不为缩短答案删除边界。空根因选择只能改善模型输入/选择教学或由调用方处理typed unavailable，不得系统代选填满。
+
+排序：本次B1621+P1a小批 → B1618-P2a state/wait同来源同窗 → B1620字段级权限 → B1622/1623 → B1616b/B1561既有验证闭包。高风险精确问题先于模型偶发措辞，历史工件不重写。边界同§1688，所有修复均不得让邻近/背景成为主因，不改变Trace明确窗/自动补齐/合法探索投影或答案所有权。
+
+状态：`B1619-P1=4077ce397/pushed/86-package-pass/exact-window-production-positive`；`r1039=machine1/2,human-Trace-partial+write-correct-but-unverified`；`B1621/P1a=in-progress`；`B1622/B1623=new-open`；`B1618-P2a/B1620/B1616b/B1561=open`。
+
 ### §123.1688 B1619 用户范围与实际查询范围同源披露（2026-09-08）
 
 承接 r1038 的 20ms 请求/21ms 实测反例，第一阶段只修范围信息在不同消费面的不一致，不裁剪原值、不更换查询目标、不删除合法探索投影。先前“缺精确用户账户”方案收紧为逐查询事实：一个补充查询**不能代替**用户范围的独立统计，但不能据此断言其它查询没有精确账户。
@@ -57404,7 +57430,7 @@ B1618-P2a 本轮只读补证（下一施工优先）：`matchingTraceTargetWaitS
 
 收批验证：`go test ./... -count=1` 第二次完整运行 exit0，86个有测试包均通过，日志 `20260908-b1619-full-suite-final.log`；tool/tracefinding边界race与types独立race均通过，typed/agent/orchestrator/writer各自count3及活跃流五项count3通过。第一次全仓失败保留在 `20260908-b1619-full-suite.log`。构建及实际双路回放另行记录，不用定向测试充当生产验收。
 
-状态：`B1619-P1=implemented/targeted+86-package+race-pass/pending-commit+live`；`scope=disclosure-only/not-causal-or-election-gate`；`remaining-queue=open`。
+状态：`B1619-P1=4077ce397/committed+pushed/targeted+86-package+race-pass/r1039-exact-window-positive`；`scope=disclosure-only/not-causal-or-election-gate`；`remaining-queue=open`。扩/缩窗保持原值的生产条件尚未在r1039命中，不以精确同窗代替该验收。
 
 ### §123.1687 r1038 双域人工审计与 B1618-P1 交付（2026-09-08）
 
