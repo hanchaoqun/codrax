@@ -486,14 +486,28 @@ func matchingTraceIPCRequestCensusAuthority(
 	blocking types.TraceBlockingWallClockAuthority,
 	requests []types.TraceIPCRequestCensusAuthority,
 ) (types.TraceIPCRequestCensusAuthority, bool) {
+	artifact := strings.TrimSpace(blocking.ArtifactKey)
+	window := strings.TrimSpace(blocking.SelectedWindow)
+	subject := strings.TrimSpace(blocking.Subject)
+	if artifact == "" || window == "" || subject == "" {
+		return types.TraceIPCRequestCensusAuthority{}, false
+	}
+	var match types.TraceIPCRequestCensusAuthority
+	found := false
 	for _, request := range requests {
-		if strings.EqualFold(strings.TrimSpace(request.ArtifactLabel), strings.TrimSpace(blocking.ArtifactLabel)) &&
-			strings.TrimSpace(request.SelectedWindow) == strings.TrimSpace(blocking.SelectedWindow) &&
-			strings.EqualFold(strings.TrimSpace(request.Subject), strings.TrimSpace(blocking.Subject)) {
-			return request, true
+		if strings.TrimSpace(request.ArtifactKey) == artifact &&
+			strings.TrimSpace(request.SelectedWindow) == window &&
+			strings.TrimSpace(request.Subject) == subject {
+			// Independent query-result censuses remain separate even within
+			// one capture/window. Without a unique match, do not borrow a
+			// result's counts to extend another authority's reader display.
+			if found {
+				return types.TraceIPCRequestCensusAuthority{}, false
+			}
+			match, found = request, true
 		}
 	}
-	return types.TraceIPCRequestCensusAuthority{}, false
+	return match, found
 }
 
 type runtimeTraceBlockedReasonCensusCaliber struct {

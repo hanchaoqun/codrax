@@ -25,6 +25,9 @@ type TraceBlockingWallClockOccurrence struct {
 // answer-writing authority only and changes no trace query, causal projection,
 // rank, wakeup chain, supplementation, or measured value.
 type TraceBlockingWallClockAuthority struct {
+	// ArtifactKey is the exact typed partition identity. ArtifactLabel is
+	// display-only and must never be used to join independent accounts.
+	ArtifactKey    string
 	ArtifactLabel  string
 	SelectedWindow string
 	Subject        string
@@ -35,7 +38,7 @@ type TraceBlockingWallClockAuthority struct {
 }
 
 type traceBlockingWallClockCandidate struct {
-	artifact       string
+	artifact       traceRuntimeAuthorityArtifact
 	selectedWindow string
 	subject        string
 	typ            string
@@ -65,18 +68,20 @@ func BuildTraceBlockingWallClockAuthorities(ledger ObservationLedger, rm *Reques
 		return nil
 	}
 	groups := map[string][]traceBlockingWallClockCandidate{}
+	artifacts := map[string]traceRuntimeAuthorityArtifact{}
 	for _, record := range ledger.Records {
 		candidate, ok := traceBlockingWallClockCandidateFromRecord(record, rm)
 		if !ok {
 			continue
 		}
 		key := strings.Join([]string{
-			strings.ToLower(candidate.artifact),
+			candidate.artifact.key,
 			candidate.selectedWindow,
 			strings.ToLower(candidate.subject),
 			strings.ToLower(candidate.typ),
 		}, "\x00")
 		groups[key] = append(groups[key], candidate)
+		artifacts[candidate.artifact.key] = candidate.artifact
 	}
 	if len(groups) == 0 {
 		return nil
@@ -87,6 +92,7 @@ func BuildTraceBlockingWallClockAuthorities(ledger ObservationLedger, rm *Reques
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	labels := traceRuntimeAuthorityArtifactLabels(artifacts)
 	out := make([]TraceBlockingWallClockAuthority, 0, len(keys))
 	for _, key := range keys {
 		candidates := groups[key]
@@ -132,7 +138,8 @@ func BuildTraceBlockingWallClockAuthorities(ledger ObservationLedger, rm *Reques
 
 		base := candidates[0]
 		authority := TraceBlockingWallClockAuthority{
-			ArtifactLabel:  base.artifact,
+			ArtifactKey:    base.artifact.key,
+			ArtifactLabel:  labels[base.artifact.key],
 			SelectedWindow: base.selectedWindow,
 			Subject:        base.subject,
 			Type:           base.typ,
@@ -146,6 +153,9 @@ func BuildTraceBlockingWallClockAuthorities(ledger ObservationLedger, rm *Reques
 		out = append(out, authority)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].ArtifactKey != out[j].ArtifactKey {
+			return out[i].ArtifactKey < out[j].ArtifactKey
+		}
 		if out[i].ArtifactLabel != out[j].ArtifactLabel {
 			return out[i].ArtifactLabel < out[j].ArtifactLabel
 		}
@@ -222,16 +232,13 @@ func traceBlockingWallClockCandidateFromRecord(record ObservationRecord, rm *Req
 	if math.Abs(durationMS-valueMS) > toleranceMS {
 		return traceBlockingWallClockCandidate{}, false
 	}
-	artifact := strings.TrimSpace(record.SourceRef.ArtifactID)
-	if artifact == "" {
-		artifact = RuntimeArtifactCaptureIdentityPath(record.SourceRef)
-	}
+	artifact := traceRuntimeAuthorityArtifactFromRecord(record)
 	selectedWindow := strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeySelectedWindow))
 	subject := strings.TrimSpace(record.Subject)
 	if typ == "" {
 		typ = traceValueOccurrenceType(record)
 	}
-	if artifact == "" || selectedWindow == "" || subject == "" || typ == "" {
+	if artifact.key == "" || selectedWindow == "" || subject == "" || typ == "" {
 		return traceBlockingWallClockCandidate{}, false
 	}
 	return traceBlockingWallClockCandidate{
@@ -246,6 +253,34 @@ func traceBlockingWallClockCandidateFromRecord(record ObservationRecord, rm *Req
 		recordID:       strings.TrimSpace(record.ID),
 		truncated:      traceObservationRichNoteBool(record.RichNotes, TraceNoteKeyCapacityTruncated),
 	}, true
+}
+
+// Share the projection's precise capture identity, not its census-only
+// suffix/family alias folds. Display collisions may expand a label, but never
+// change a key or confer permission to combine two captures' measurements.
+type traceRuntimeAuthorityArtifact struct {
+	key, label, path string
+}
+
+func traceRuntimeAuthorityArtifactFromRecord(record ObservationRecord) traceRuntimeAuthorityArtifact {
+	key, label, path := traceCausalProjectionArtifactIdentity(record)
+	return traceRuntimeAuthorityArtifact{key: key, label: label, path: path}
+}
+
+func traceRuntimeAuthorityArtifactLabels(artifacts map[string]traceRuntimeAuthorityArtifact) map[string]string {
+	counts := map[string]int{}
+	for _, artifact := range artifacts {
+		counts[artifact.label]++
+	}
+	labels := make(map[string]string, len(artifacts))
+	for key, artifact := range artifacts {
+		label := artifact.label
+		if counts[label] > 1 && artifact.path != "" {
+			label = artifact.path
+		}
+		labels[key] = label
+	}
+	return labels
 }
 
 func traceBlockingWallClockCandidateRichness(candidate traceBlockingWallClockCandidate) int {

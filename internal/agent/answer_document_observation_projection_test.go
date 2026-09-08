@@ -232,6 +232,14 @@ func TestRenderAnswerDocBoundedRuntimeFactAuthorityKeepsExactIOCalibersOutsideGe
 		record("trace#io_pressure:1", "", "scheduler_iowait_with_storage_latency", "4340", types.TraceObservationUnitCompositeScore,
 			"type=io_pressure", "io_pressure_signal=scheduler_iowait_with_storage_latency", "io_pressure_score_caliber=cross_unit_activity_index"),
 	}
+	// The real publisher carries the capture and selected window on every
+	// constituent ruler. A shared thread name alone is not a source join.
+	for i := range records {
+		records[i].SourceRef.Path = "/captures/donghu.ftrace"
+		if traceQueryObservationSupplementNoteValue(records[i], types.TraceNoteKeySelectedWindow) == "" {
+			records[i].RichNotes = append(records[i].RichNotes, "selected_window=13762.791708..13763.024898")
+		}
+	}
 	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
 	got := renderAnswerDocBoundedRuntimeFactAuthority(ctx, types.ObservationLedger{Records: records})
 	for _, want := range []string{

@@ -6374,10 +6374,19 @@ func renderAnswerDocIOMeasurementRelationBridge(
 	if profile == nil || !profile.RequestsFactFamily(types.RuntimeQuestionFactIOLatency) {
 		return ""
 	}
+	// A bridge juxtaposes rulers for one capture/window. This local join does
+	// not alter original observations or the ordinary audit-row budget.
+	scope, scoped := answerDocUniqueRuntimeMeasurementScope(ioRecords)
+	if !scoped {
+		return "  - IO measurement rulers cannot be paired into one account without a unique capture and query window. Use separately scoped source records; missing pairing is not a measured zero.\n"
+	}
+	ioRecords = answerDocRuntimeMeasurementScopedRecords(ioRecords, scope)
+	ledger.Records = answerDocRuntimeMeasurementScopedRecords(ledger.Records, scope)
 
 	rows := answerDocBoundedRuntimeFactAuthorityRows(ioRecords, types.RuntimeQuestionFactIOLatency, rm)
 	requestWitnesses := 0
 	requestMaxMS := 0.0
+	requestSubject := ""
 	for _, record := range rows {
 		if !types.ObservationRecordMatchesUserRuntimeTarget(record, rm) ||
 			!strings.EqualFold(strings.TrimSpace(record.Predicate), "io_latency") ||
@@ -6388,6 +6397,12 @@ func renderAnswerDocIOMeasurementRelationBridge(
 		if err != nil || value < 0 {
 			continue
 		}
+		if subject := strings.TrimSpace(record.Subject); subject != "" {
+			if requestSubject != "" && !strings.EqualFold(requestSubject, subject) {
+				return "  - IO measurement rulers refer to multiple target threads. Keep each target's original rows separate; do not combine their blocking times.\n"
+			}
+			requestSubject = subject
+		}
 		requestWitnesses++
 		if value > requestMaxMS {
 			requestMaxMS = value
@@ -6396,26 +6411,47 @@ func renderAnswerDocIOMeasurementRelationBridge(
 
 	var completionClosed *types.TraceBlockingWallClockAuthority
 	for _, authority := range types.BuildTraceBlockingWallClockAuthorities(ledger, rm) {
-		if authority.Type != "block_io_completion_closed_issuer_wait" {
+		if authority.Type != "block_io_completion_closed_issuer_wait" ||
+			authority.ArtifactKey != scope.artifact || authority.SelectedWindow != scope.window ||
+			(requestSubject != "" && !strings.EqualFold(strings.TrimSpace(authority.Subject), requestSubject)) {
 			continue
+		}
+		if completionClosed != nil {
+			completionClosed = nil // no first-result choice among distinct targets
+			break
 		}
 		copy := authority
 		completionClosed = &copy
-		break
 	}
 
 	var schedulerWait *types.TargetWaitOccurrenceAuthority
 	for _, authority := range types.BuildTargetWaitOccurrenceAuthorities(ledger, rm) {
+		if requestSubject != "" && !strings.EqualFold(strings.TrimSpace(authority.Subject), requestSubject) {
+			continue
+		}
+		if schedulerWait != nil {
+			schedulerWait = nil
+			break
+		}
 		copy := authority
 		schedulerWait = &copy
-		break
 	}
 
 	var coverage *types.ObservationRecord
 	for i := range ioRecords {
 		if strings.EqualFold(strings.TrimSpace(ioRecords[i].Predicate), "io_latency_coverage") {
+			if coverage != nil {
+				// Different result generations may publish different counts.
+				// Do not choose a first/more complete one for this joint sentence.
+				if coverage.Subject != ioRecords[i].Subject || coverage.Object != ioRecords[i].Object ||
+					coverage.Value != ioRecords[i].Value || coverage.Unit != ioRecords[i].Unit ||
+					!slices.Equal(coverage.RichNotes, ioRecords[i].RichNotes) {
+					coverage = nil
+					break
+				}
+				continue
+			}
 			coverage = &ioRecords[i]
-			break
 		}
 	}
 
@@ -6516,10 +6552,7 @@ func answerDocBoundedRuntimeFactAuthorityRows(records []types.ObservationRecord,
 // exact record id and remains separately visible.
 func answerDocBoundedRuntimeFactPhysicalKey(record types.ObservationRecord) string {
 	if strings.EqualFold(strings.TrimSpace(record.Predicate), "io_latency") {
-		artifact := strings.TrimSpace(record.SourceRef.ArtifactID)
-		if artifact == "" {
-			artifact = types.RuntimeArtifactCaptureIdentityPath(record.SourceRef)
-		}
+		artifact := types.TraceCausalProjectionRecordArtifactIdentity(record)
 		parts := []string{
 			artifact,
 			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOEndpointFamily),

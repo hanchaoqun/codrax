@@ -10,8 +10,13 @@ func traceIPCRequestCensusAuthorityRecord(id, predicate, value string, start, en
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
 		SourceRef: ObservationSourceRef{
+			// This fixture models one real query result. A lane name alone
+			// cannot identify either the capture or the census/row cohort.
 			Kind:       ObservationSourceRuntimeArtifact,
 			ArtifactID: "attached_trace",
+			Path:       "/captures/trace.ftrace",
+			PayloadRef: "/query-results/census.json",
+			RawRef:     "/query-results/census.txt",
 		},
 		Span:      ObservationSpan{StartTs: start, EndTs: end},
 		ClaimKey:  predicate,

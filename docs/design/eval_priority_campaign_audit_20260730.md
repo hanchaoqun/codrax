@@ -57380,6 +57380,40 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1686 B1618-P1 捕获与结果来源隔离（2026-09-07–08）
+
+承接§1683的真实工具入口反例，本批修复blocking/IPC两个builder及tool匹配、agent最终状态IO限定、IO口径并置、物理请求展示去重的消费链；不是仅换map key。原始ObservationRecord、模型正文/引用选择/图、engine链和可消量均不改。
+
+1. blocking和IPC复用既有Trace投影精确capture identity，新增内部ArtifactKey，与ArtifactLabel显示名分离；同basename不同目录、POSIX大小写不同路径不能合账。显示名冲突时展示可区分路径；单捕获原区间并集、目标、选窗与时长规则不变。
+2. IPC清单必须从同capture/target/window且同SourceRef结果引用组装，PayloadRef/RawRef至少一项存在才可配叶行；不按同秒时间戳、最大计数或最后结果取值。同一精确结果的计数分区自相矛盾不发布账户，原记录保留。缺结果凭证可保精确计数，但不得宣称同步请求明细完整（包括零同步数）。不同limit/结果集合分别保留；仅完整事实及坐标一致的重复结果可合并见证，不能跨结果补字段。
+3. 同一次发送的身份为事务号+发送行/时间，接收行/时间、peer、flags、code等是需一致的配对事实。同send而receive不同不能铸成两请求或取首条；真正复用事务号且send不同继续独立。冲突只排除该条明细并披露明细不完整，不删原始证据或伪造总数。
+4. tool只在内部capture key、目标、窗口均非空且精确唯一时把IPC清单与blocking并置，不再按basename忽略大小写或first-result匹配。agent从状态原EvidenceID恢复来源，把完成闭合IO时长与该状态的同capture/窗账户配对；缺失/多义不能借另一来源的数，仍明确未评估而非实测零。
+5. agent IO口径并置只用同capture/窗的请求、完成闭合等待、scheduler清单及coverage；多个目标或来源不拼总账。coverage的主体/对象/单位/数值/typed附注不同，不能以数值碰巧相同当同一覆盖事实。局部配对不改变原观察、既有展示预算或模型结论；physical请求去重只修capture轴，**不宣称同capture全部附加闭合信息冲突已解决**。
+
+有效先红：types同send三臂（receive行/时间/两者）`20260907-b1618-same-send-red.log`；tool真实TraceQuery.Execute→CompileObservationLedger的同名两捕获、同事务号不同peer、反序、同capture不同limit四格`20260907-b1618-tool-real-red.log`；agent跨来源和跨窗联合时长`20260907-b1618-agent-valid-red.log`，以及覆盖identity三臂`20260907-b1618-agent-coverage-identity-red.log`。agent首次bridge测试缺profile.Scope的空结果属于测试设置错误，原日志保留但不充当有效先红。
+
+初次冻结定向：types新旧族count3=0.920s/race=1.739s，tool新旧双语/真实Donghu/ownership/持久输出/scope count3=23.921s，agent新旧口径count3=0.936s/race=2.300s，分别见`20260907-b1618-{types-final-targeted,types-final-race,tool-focused-count3,agent-final-targeted,agent-final-race}.log`。既有正针只补真实producer的Path/SelectedWindow/单结果PayloadRef前提，原计数和数值断言不弱化；缺来源另有负针。早先完整types38.928s早于同send收尾，不算最终全包证明。全仓过程及收尾如下，不预报全绿。
+
+独立复核发现并截住本批新回归：真实target_window_wait_occurrences及leaf未带selected_window，新增过滤会丢单capture的scheduler清单。aggregate的Span本是account.Window，leaf Span却是发生区间，不能用统一Span猜query窗。真实TraceQuery.Execute→agent bridge三格实际先红（`20260907-b1618-agent-real-rulers-red.log`）：普通S闭合时scheduler为0，D闭合与S+iowait=1时各1段0.240ms，三者请求0.275ms/完成闭合0.240ms均在，唯scheduler被过滤。producer已从account.Window给set/leaf补既有typed窗，零清单同样保留；不是放松来源隔离。正起点/显式零/未定起点×有行/零清单六格与旧完整/11条cap正针count3=1.301s；原projected notes精确5→6（新增1条窗，meta+sum+三原行不变）。真实Execute→bridge三格加本批agent全族count3=1.166s，绿日志`20260907-b1618-agent-real-rulers-green.log`；首次全仓在复核后主动终止（exit143），`20260907-b1618-final-full-suite.log`不作通过凭证，最终冻结全仓另记`20260907-b1618-final-full-suite-green.log`，现已启动。
+
+剩余范围与下一批：
+
+- B1618-P2a（高ROI）：八项TargetWaitOccurrenceAuthority目前subject全局分组，异capture/异窗清单相互冲突消失、相同零值折叠；完整TraceTargetWaitSummaryAuthority仍按小写basename分组。应统一携带capture/target/query-window/source-record，再同时修state↔wait的label/约1ms容差匹配和reader-shadow按subject遮掉别域清单。shadow只隐藏实际被该账户展示替代的来源行。已有主窗选举、0.635ms三段、6ms D、Donghu十一段36.757ms、状态231.794/233.190ms及未归账1.396ms需原值正针；旧一致性入口仍只作软提示。
+- B1618-P2b：answerDocRuntimeObservationSamePhysicalArtifact优先通道ArtifactID、proseWallClockAccountsFromLedger丢capture/窗后byTID覆盖，属于另外两个同轴消费残余，继续审计，不借此新开prose硬门。本批physical去重仅修capture轴，不冒称所有IO字段冲突已解决。
+- B1616b同/跨计划三载体履约resolver、B1561原生逐断言与10个异构eval域继续开放；不能只放宽unverified到covered。只读复核确认patch review只投EvidenceRef未投ContractRef，impact保引用但resolver仅解missing；profile先读原始impact/review状态又保留低可信原因，单改resolver仍两面不一致。同时resolver及累计必需合同检查用裸ContractRef跨计划借证，缺完整定义域。先从完整输入建立同计划合同履约快照，三载体及profile共用解析结果；只认精确覆盖债，保失败/不可用/hard block。跨计划另需controller保留计划集合、同仓/路径/完整定义及最终交付树对应的实际执行关联。B1616a执行receipt尚无交付树指纹，confidence无执行实例引用，WorktreeAudit clean不能替代，两阶段不可偷合。r1035实际六项unverified是已确认投影不一致，但其单LF行为仍错，**不证明六项应绿**；裸ID不同Expected误借证为源码确认、尚无新的生产终态误绿见证。无新代码或live混入本批。
+
+r1037已完成两路读写人工审计，暂未启动第三路或新live；下一轮必须从新提交clean构建再恰2并行，不反复跑单题求绿。本批先过滤局部ledger保护IO bridge，未宣称旧target-wait builder已全面重构。
+
+边界：本批不扫描用户/模型prose，不新增关键词硬门，不接管结论；Trace显式窗口、链上根因资格、优先级反转/调度/算力/D与IO/确定性语义和业务线索两轴、因果投影与自动补采均沿用原规则。JSON/图教学不增加新义务。活跃流另行复验`20260907-b1618-active-stream.log`（llm4.313s/agent0.849s）绿：真实持续SSE正文/隐藏推理/tool call可超过旧正文或全程上限，用户取消仍生效；无默认4ms或旧4分钟无正文降级，显式取消/截止和真实字节空闲保留。这里是测试，不冒称本批进行了长时客户live。
+
+全仓收尾：第二次完整运行`20260907-b1618-final-full-suite-green.log`实际退出1，85包通过，仅agent旧IPC正fixture缺Path/结果凭证而不再发布该账户；文件名含green不代表通过，失败记录不覆盖。补明确的同一capture Path+PayloadRef，原15/5/10计数、事务号、flags/code与全部断言不变；新旧agent count3=1.199s（`20260907-b1618-agent-final-prompt-green.log`）。真实IO三格race=2.167s。最后`go test ./... -count=1`按冻结版本重跑，日志`20260908-b1618-final-verified-full-suite.log`，不借之前85包结果提前签绿。
+
+推送实况：早先SSH22/443连续超时；HTTPS可读但无push凭证，未更改remote/认证/主机校验。09-08再次原SSH推送成功，3bbc749e1、e10746db5已在main（b59f03730→e10746db5）。本批仍待最终全仓验收后独立提交推送，不把未提交源码冒称已在远端。
+
+最终验收（09-08）：`go test ./... -count=1`已实际退出0，86测试包全通过；`20260908-b1618-final-verified-full-suite.log`才是本批最终整体验收，前两次中止/失败过程不改。最终源码包含producer查询窗口收尾，最终测试还包含旧IPC正fixture的来源前提。独立只读复核覆盖了真实producer到三把IO尺的完整路径；git diff --check通过。本批待独立提交，随后clean make；下一真实回放拟`trace_query_wakeup_causal_io_chain`+`harmony/cangjie_repomap_fixture`恰两路，分别保护显式窗链上IO/投影与异构语言精确分类、引用、输入完整性。仓颉题不要求图，不造图必须存在的门；保持case/oracle不变，以五项源码清单人工补足机器只验关键词的盲区。
+
+状态：`B1618-P1=implemented/real-red-green/count3+race/final-full-suite-86-pass`；`B1618-P2/B1616b/B1561=open`；`model-authorship/Trace-root-boundaries=unchanged`。
+
 ### §123.1685 r1037 异构读写人工审计与 B1617 最终验收（2026-09-07）
 
 B1617 `3bbc749e1`修正无引用旧条标记后，最终`go test ./...`实际退出0，86包通过（允许Go标准缓存，不冒称86包均强制重跑）；日志`20260907-b1617-final-full-suite-green.log`。agent66.559s/tool302.364s/types43.908s/tracequery103.928s，其余稳定包含llm/repl/tracediag使用有效缓存；本轮此前真实HTTP/SSE定向证据仍见§1681。clean make成功，revision=3bbc749e1eaf。§1684首次全仓红及收尾保持记录，不覆盖失败过程。

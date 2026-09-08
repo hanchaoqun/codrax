@@ -1274,8 +1274,10 @@ func renderAnswerDocBoundedRuntimeCompletionClosedReaderFact(
 	zh bool,
 ) string {
 	wantWindow := fmt.Sprintf("%.6f..%.6f", state.WindowStartTs, state.WindowEndTs)
+	scope, sourceKnown := answerDocRuntimeMeasurementEvidenceScope(ledger, state.EvidenceID)
 	for _, authority := range types.BuildTraceBlockingWallClockAuthorities(ledger, rm) {
-		if authority.Type != "block_io_completion_closed_issuer_wait" ||
+		if !sourceKnown || scope.window != wantWindow || authority.ArtifactKey != scope.artifact ||
+			authority.Type != "block_io_completion_closed_issuer_wait" ||
 			!strings.EqualFold(strings.TrimSpace(authority.Subject), strings.TrimSpace(state.Subject)) ||
 			strings.TrimSpace(authority.SelectedWindow) != wantWindow {
 			continue

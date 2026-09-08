@@ -59,11 +59,12 @@ func TestTraceQueryTypedObservationsPublishCompleteTargetWaitOccurrenceRoster(t 
 		nil,
 		types.DefaultObservationPromptProjectionOptions(1),
 	)
-	if len(projected) != 1 || len(projected[0].Notes) != 5 {
-		t.Fatalf("complete prompt occurrence roster must retain meta + sum + 3 rows: %+v", projected)
+	if len(projected) != 1 || len(projected[0].Notes) != 6 {
+		t.Fatalf("complete prompt occurrence roster must retain selected window + meta + sum + 3 rows: %+v", projected)
 	}
 	projectedNotes := strings.Join(projected[0].Notes, "\n")
 	for _, want := range []string{
+		"selected_window=10.000000..10.100000",
 		"target_wait_occurrence_prompt=status=complete,emitted=3,total=3",
 		"target_wait_occurrence_prompt_sum_ms=0.635",
 		"#1 state=io_wait 10.001000..10.001138 duration=0.138ms",

@@ -19,6 +19,10 @@ func runtimeWaitCoverageTestBus() *types.BusContext {
 		Kind:       types.ObservationSourceRuntimeArtifact,
 		ArtifactID: "attached_trace",
 		Path:       "/tmp/attached_trace.txt",
+		// The request-count set and its rows belong to one explicit result,
+		// as the real trace_query producer publishes; a capture alone does
+		// not identify a query result or license cross-result row completion.
+		PayloadRef: "/tmp/runtime-wait-coverage-result.json",
 	}
 	blocking := types.ObservationRecord{
 		ID:              "root:binder",

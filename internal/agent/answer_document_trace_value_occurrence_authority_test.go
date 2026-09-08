@@ -173,6 +173,8 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceBlockingWallClockAuthority(
 }
 
 func TestRenderAnswerDocObservationLedgerCarriesTraceIPCRequestCensusAuthority(t *testing.T) {
+	// This positive census/roster fixture represents one real query result;
+	// a channel label alone cannot supply its capture or result identity.
 	set := types.ObservationRecord{
 		ID:              "ipc:set",
 		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -182,6 +184,8 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceIPCRequestCensusAuthority(t
 		SourceRef: types.ObservationSourceRef{
 			Kind:       types.ObservationSourceRuntimeArtifact,
 			ArtifactID: "attached_trace",
+			Path:       "/captures/attached_trace.ftrace",
+			PayloadRef: "trace_query/result/ipc-census",
 		},
 		Span:      types.ObservationSpan{StartTs: 13762.791708, EndTs: 13763.024898},
 		ClaimKey:  "ipc_request_census:.ugc.aweme.lite-17267",

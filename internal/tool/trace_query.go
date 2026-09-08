@@ -10259,11 +10259,15 @@ func traceQueryTargetWindowWaitOccurrenceObservations(
 		promptOccurrenceCount < account.WaitOccurrenceTotal {
 		promptStatus = "incomplete"
 	}
-	notes := []string{fmt.Sprintf(
+	selectedWindow := traceQuerySelectedWindowNoteValue(account.Window)
+	notes := traceQueryTypedKVNotes([][2]string{
+		{types.TraceNoteKeySelectedWindow, selectedWindow},
+	})
+	notes = append(notes, fmt.Sprintf(
 		"%s=status=%s,emitted=%d,total=%d",
 		types.TraceNoteKeyTargetWaitOccurrencePrompt,
 		promptStatus, promptOccurrenceCount, account.WaitOccurrenceTotal,
-	)}
+	))
 	var promptOccurrenceSum float64
 	for i := 0; i < promptOccurrenceCount; i++ {
 		promptOccurrenceSum += account.WaitOccurrences[i].DurationMs
@@ -10341,6 +10345,9 @@ func traceQueryTargetWindowWaitOccurrenceObservations(
 			Value:     traceQueryObservationMSValue(occurrence.DurationMs),
 			Unit:      "ms",
 			Summary:   roster[occurrence.Ordinal-1],
+			RichNotes: traceQueryTypedKVNotes([][2]string{
+				{types.TraceNoteKeySelectedWindow, selectedWindow},
+			}),
 			SupportRefs: traceQueryObservationSupportRefs(
 				ref,
 				occurrence.StartLine,
