@@ -723,6 +723,17 @@ type AnswerBlockItem struct {
 	// values. It is internal-only and never rendered or serialized.
 	CitationRefsModelSubmittedValues []int `json:"-"`
 
+	// CitationRefsModelSubmittedCitations snapshots the selected entries from
+	// that submission's citation pool, positionally matching SubmittedValues.
+	// An out-of-range index has a zero Citation; later pool growth/remapping
+	// cannot turn it into a new source selection. This is run-local provenance.
+	CitationRefsModelSubmittedCitations []Citation `json:"-"`
+
+	// CitationRefsEvidenceIDAdoptionEvaluated freezes the eligibility decision
+	// for this submission. A genuinely new model citation submission resets it;
+	// inherited rows, including rejected retry bases, retain the old decision.
+	CitationRefsEvidenceIDAdoptionEvaluated bool `json:"-"`
+
 	// CitationRefsEvidenceIDAdoptionRequired records the precise pre-normalize
 	// decision that every model-submitted citation index for this item resolved
 	// to an accepted, citable current-source evidence row. This lets the later

@@ -3625,8 +3625,18 @@ func normalizeAnswerDocumentPatchForBase(prev *types.AnswerDocumentV2, params js
 	// retain the internal provenance captured on their original full/patch
 	// emit, while citation refs added by later deterministic normalizers remain
 	// explicitly non-model-owned.
-	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.ReplaceBlocks})
-	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.AddBlocks})
+	// Capture the model-addressed pool before citation-operation tolerance can
+	// deduplicate/remap it. An inherited row carries its own original snapshot;
+	// a newly submitted index selects this invocation's pool, not an older one.
+	var submittedPool []types.Citation
+	if patch.ReplaceCitations != nil {
+		submittedPool = append(submittedPool, patch.ReplaceCitations...)
+	} else if prev != nil {
+		submittedPool = append(submittedPool, prev.Citations...)
+	}
+	submittedPool = append(submittedPool, patch.AppendCitations...)
+	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.ReplaceBlocks, Citations: submittedPool})
+	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.AddBlocks, Citations: submittedPool})
 	if changed, fields := normalizeSparsePatchRelationMetadataEdits(prev, params, patch); changed {
 		logging.Warning("[emit_answer_document_patch] preserved prior model-authored block content for typed relation-metadata-only replacement(s): %s",
 			strings.Join(fields, ", "))
@@ -4177,6 +4187,10 @@ func preservePatchReplacementStableItemCitationRefs(prev *types.AnswerDocumentV2
 			newComparable.CitationRefsModelSubmitted = false
 			oldComparable.CitationRefsModelSubmittedValues = nil
 			newComparable.CitationRefsModelSubmittedValues = nil
+			oldComparable.CitationRefsModelSubmittedCitations = nil
+			newComparable.CitationRefsModelSubmittedCitations = nil
+			oldComparable.CitationRefsEvidenceIDAdoptionEvaluated = false
+			newComparable.CitationRefsEvidenceIDAdoptionEvaluated = false
 			oldComparable.CitationRefsEvidenceIDAdoptionRequired = false
 			newComparable.CitationRefsEvidenceIDAdoptionRequired = false
 			if !reflect.DeepEqual(oldComparable, newComparable) {
@@ -4189,6 +4203,8 @@ func preservePatchReplacementStableItemCitationRefs(prev *types.AnswerDocumentV2
 			item.CitationRef = old.item.CitationRef
 			item.CitationRefsModelSubmitted = old.item.CitationRefsModelSubmitted
 			item.CitationRefsModelSubmittedValues = append([]int(nil), old.item.CitationRefsModelSubmittedValues...)
+			item.CitationRefsModelSubmittedCitations = append([]types.Citation(nil), old.item.CitationRefsModelSubmittedCitations...)
+			item.CitationRefsEvidenceIDAdoptionEvaluated = old.item.CitationRefsEvidenceIDAdoptionEvaluated
 			item.CitationRefsEvidenceIDAdoptionRequired = old.item.CitationRefsEvidenceIDAdoptionRequired
 			fields = append(fields, fmt.Sprintf("replace_blocks[%q].items[%q]→%d", blockID, id, old.item.CitationRef))
 		}

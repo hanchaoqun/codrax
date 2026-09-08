@@ -57380,6 +57380,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1684 B1617 引用来源随提交代次固定（2026-09-07）
+
+实际 full emit 拒绝→局部 patch 的先红后绿已完成：原稿8槽引用池中的非法ref8被隔离后，另一条目补入的logger.cpp:30不能使unchanged旧条自动获得该新证据。原稿错误索引仍保留供审计，模型标签、正文、表格单元格及其原始事实选择不变；系统不根据“rotating”等词帮模型挑另一条看似正确的引用。
+
+最小实现是运行期来源快照，而不是新成文合同：每次模型真正提交item refs时，记录该次所选完整Citation（原越界位置记录空槽），并只计算一次原提交的采用资格。后续引用池增长、删除、去重或换序不得重解释旧索引；仅这些池操作不能消解原来源上的多义匹配，缺快照旧数据不猜来源。新replace/add显式提交相同数字索引时，按本次声明的replace/append池解析，快照先于保留旧池的重映射。稀疏metadata替换、原条行位移容错与Mutable读写/拒绝草稿clone保持来源深拷贝。新增两字段均json:-，不进入模型schema、用户渲染或程序化输出；不增加模型心智或第二次LLM调用。
+
+验证：真实入口反例、显式新replace/add正臂、原合法多义遇池换序、replace池保留重映射、legacy/部分越界、深拷贝与wire隔离全通过。广定向旧Citation/Patch/EvidenceID族tool50.622s/types0.834s；初次冻结count3为tool2.462s/types0.804s，race为tool3.773s/types2.027s，日志`20260907-b1617-{red,regression,final-count3,final-race}.log`。独立只读审查及git diff --check通过。
+
+首次全仓`20260907-b1617-final-full-suite.log`实际退出1，85包通过，只有agent的B1609原子图metadata修复不变针两红：可选/必需图的full拒绝路径在恢复附件加入无引用item后，后续atomic patch把该无模型提交条目的内部Evaluated从false写成true。虽可见正文未变，仍违反无关条目精确不变合同，不能弱化DeepEqual针。收尾已在任何写标记前限定真正具有原模型refs的item，新增无ref/系统ref两负臂先红后绿，B1609原四分支不改均恢复绿。最终count3 tool1.295s/agent2.373s，race tool2.484s（`20260907-b1617-unsubmitted-{red,green,race}.log`）；修正后的全仓另记`20260907-b1617-final-full-suite-green.log`，当前仍在运行，先前§1683的86包绿不算本批验收。
+
+保证边界：冻结的是原Citation来源及首次资格，不是当时全部EvidenceItems匹配集合。每次检查仍按该原来源查询当前Bus/TurnA/Mutable证据；普通同轮finalizer patch未裁剪这三个真值面，但其他阶段存在合法Supersede/Reset。若这些真值本身跨阶段变化导致同址多义减为唯一，是否应另绑定证据代次需独立审计；本批不能宣称“永久冻结证据歧义”，也没有该分支的新生产反例，不据理论分支再加成文拒绝。
+
+本批不改JSON教学或图关系合同，不改Trace显式窗口、链上主因资格、实际占时/规则可消两轴、业务线索、因果投影及系统补采，也不改活跃流超时。r1036历史机器成绩和错误答案不回填、不重写；修复回归通过不等于下一次模型一定选对引用。B1618多捕获账户隔离、B1616b三载体履约和B1561原生逐断言证明仍开放。
+
+状态：`B1617=implemented/real-red-green/count3+race/independent-review-pass/pending-final-full-suite`；`citation-origin=per-model-submission/not-current-pool-position`；`new-model-obligation/prose-scan/answer-rewrite=none`。
+
 ### §123.1683 r1036 人工收账与新的来源隔离任务（2026-09-07）
 
 两路真实回放clean34f5dcf0a，H1249s/C++131s均机器PASS，但**人工两例都不收完整正确**。全量过程、最终md及native源码见`eval/parallel_selected_summary_evalcampaign_binder_cpp_virtual_r1036_20260907_manual_audit.md`；机器表不篡改。H1新独立清单5段3.094ms首次生产正证，旧1.409链值保持，Trace投影、两轴/链业务线索及root-causes.json schema2/available/5项模型选择均存在；模型仍错称对端全同进程496、全部长睡眠pacing并漏内部键。C++主要虚调用/kind选择/stderr正确，时间戳幻觉、换行/flush和构造注入边界遗漏、3条分支引用错位；首稿即无Mermaid，不是系统删图。C++上下文已给正确源码，不以README陈腐（未实际读到）替模型错误背书，不添prose/关键词硬门。
@@ -57399,6 +57415,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 3. B1616b三载体履约及B1561原生逐assertion仍P1，不借本轮读例证明write域已闭环；B1618-P2 legacy/summary等待载体补来源/窗并同修取first消费者，不能只改mapkey。
 4. 新Binder handoff直接使用verified_wait_union等内部词的呈现可改为中性自然语言，从信息输入端减泄漏，不扫描/替换模型最终正文。分析器附件身份误报用户目标、关系selection完成边界先按具体typed反例审，不以单题强规则拟合。
 5. 10项异构eval域继续开放。下一新live不立即重跑本题求绿，按新冻结修复选高优先级异构读/写，仍恰2并行。机器2/2与模型质量未闭环同时留账。
+
+B1618施工面补齐（独立只读复核）：不只改两个builder。blocking/IPC载体需区分内部ArtifactKey与显示label；IPC保原set出处，按同一次结果的capture、target、window及精确SourceRef结果引用组装set/rows，不能“最后set+全历史rows”，也不能用同秒ObservedAt、更多行或更大计数选择事实。真实producer的PayloadRef/RawRef是同结果绑定依据，缺凭证不能推同次。tool的matchingTraceIPCRequestCensusAuthority必须同key且唯一，不再EqualFold(label)取首份；agent final-decision闭合IO关联和evaluator IO bridge也须通过原EvidenceID/record恢复同域，不跨来源取first。原capture重复结果与同txID跨capture/同capture不同limit结果都须反序测试。旧无Path且泛ArtifactID的人工正针需补真实前提，保原计数/字段断言及新增缺来源反针；不得恢复泛名授权以求绿。数值合账只复用精确分区key，不用另带same-stem/suffix家族合并的helper；对端和原生事务字段随原行，不以同txID移植。
 
 B1616a+B1607b+producer收尾的最终全仓`20260907-b1616a-b1607b-final-full-suite.log`退出0，86包全绿：agent55.262s/tool294.399s/types39.389s/tracequery97.519s/tracediag12.796s/llm32.648s/repl61.033s/orchestrator24.295s。首次红保留§1682。此全仓快照早于正在开发的B1617，不冒称覆盖新代码。
 

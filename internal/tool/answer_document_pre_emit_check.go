@@ -137,6 +137,15 @@ func markModelSubmittedItemCitationRefs(doc *types.AnswerDocumentV2) {
 			refs := types.AnswerBlockItemCitationRefs(*item)
 			item.CitationRefsModelSubmitted = len(refs) > 0
 			item.CitationRefsModelSubmittedValues = append(item.CitationRefsModelSubmittedValues[:0], refs...)
+			item.CitationRefsModelSubmittedCitations = nil
+			for _, ref := range refs {
+				citation := types.Citation{}
+				if ref >= 0 && ref < len(doc.Citations) {
+					citation = doc.Citations[ref]
+				}
+				item.CitationRefsModelSubmittedCitations = append(item.CitationRefsModelSubmittedCitations, citation)
+			}
+			item.CitationRefsEvidenceIDAdoptionEvaluated = false
 			item.CitationRefsEvidenceIDAdoptionRequired = false
 		}
 	}
@@ -156,19 +165,26 @@ func markModelSubmittedItemEvidenceIDAdoptionRequired(doc *types.AnswerDocumentV
 	for bi := range doc.Blocks {
 		for ii := range doc.Blocks[bi].Items {
 			item := &doc.Blocks[bi].Items[ii]
-			item.CitationRefsEvidenceIDAdoptionRequired = false
+			// An atomic metadata edit must not stamp unrelated/system-created
+			// items that never submitted a citation selection at all.
 			if !item.CitationRefsModelSubmitted || len(item.CitationRefsModelSubmittedValues) == 0 ||
+				item.CitationRefsEvidenceIDAdoptionEvaluated {
+				continue
+			}
+			item.CitationRefsEvidenceIDAdoptionEvaluated = true
+			item.CitationRefsEvidenceIDAdoptionRequired = false
+			if len(item.CitationRefsModelSubmittedCitations) != len(item.CitationRefsModelSubmittedValues) ||
 				len(normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)) > 0 ||
 				strings.TrimSpace(item.SourceInventoryRowID) != "" {
 				continue
 			}
 			eligible := true
-			for _, ref := range item.CitationRefsModelSubmittedValues {
-				if ref < 0 || ref >= len(doc.Citations) {
+			for _, citation := range item.CitationRefsModelSubmittedCitations {
+				if citation.File == "" {
 					eligible = false
 					break
 				}
-				matches, ok := pctx.citedEvidenceItems(doc.Citations[ref])
+				matches, ok := pctx.citedEvidenceItems(citation)
 				if !ok {
 					eligible = false
 					break
@@ -217,6 +233,7 @@ func normalizeUniqueModelCitationRefsToEvidenceIDs(doc *types.AnswerDocumentV2, 
 		for ii := range doc.Blocks[bi].Items {
 			item := &doc.Blocks[bi].Items[ii]
 			if !item.CitationRefsEvidenceIDAdoptionRequired ||
+				len(item.CitationRefsModelSubmittedCitations) != len(item.CitationRefsModelSubmittedValues) ||
 				len(normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)) > 0 ||
 				strings.TrimSpace(item.SourceInventoryRowID) != "" {
 				continue
@@ -224,12 +241,12 @@ func normalizeUniqueModelCitationRefsToEvidenceIDs(doc *types.AnswerDocumentV2, 
 			ids := make([]string, 0, len(item.CitationRefsModelSubmittedValues))
 			seen := make(map[string]bool, len(item.CitationRefsModelSubmittedValues))
 			valid := true
-			for _, ref := range item.CitationRefsModelSubmittedValues {
-				if ref < 0 || ref >= len(doc.Citations) {
+			for _, citation := range item.CitationRefsModelSubmittedCitations {
+				if citation.File == "" {
 					valid = false
 					break
 				}
-				matches, ok := pctx.citedEvidenceItems(doc.Citations[ref])
+				matches, ok := pctx.citedEvidenceItems(citation)
 				if !ok {
 					valid = false
 					break
