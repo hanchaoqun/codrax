@@ -961,12 +961,14 @@ func TestTraceFinalTargetWaitEnumerationAuthorityOverridesCandidateDisplayCaps(t
 	count := 3
 	ref := types.ObservationSourceRef{
 		Kind: types.ObservationSourceRuntimeArtifact, Path: "/captures/donghu.ftrace", ArtifactID: "donghu.ftrace",
+		PayloadRef: "complete-waits.json", RawRef: "complete-waits.json",
 	}
 	records := []types.ObservationRecord{{
 		ID: "trace_query:window#target_window_wait_occurrences", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
 		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
 		Span: types.ObservationSpan{StartTs: 10, EndTs: 10.020}, Predicate: "target_window_wait_occurrences",
 		Subject: subject, Object: "complete", Value: "3", ResultCount: &count,
+		RichNotes: []string{"selected_window=10.000000..10.020000"},
 	}}
 	for i := 1; i <= count; i++ {
 		start := 10 + float64(i)*0.002
@@ -977,6 +979,7 @@ func TestTraceFinalTargetWaitEnumerationAuthorityOverridesCandidateDisplayCaps(t
 			Span:      types.ObservationSpan{StartTs: start, EndTs: start + 0.001},
 			Predicate: "target_window_wait_occurrence", Subject: subject,
 			Object: "state=d_sleep;iowait=0;caller=dma_fence_default_w", Value: "1.000", Unit: "ms",
+			RichNotes: []string{"selected_window=10.000000..10.020000"},
 		})
 	}
 	rm := &types.RequestModel{RuntimeTargets: []types.RuntimeTarget{{
@@ -1099,6 +1102,7 @@ func TestFinalizerPromptCarriesCompleteWaitAndSupplyFoldRelationsAtProductionBou
 	)
 	ref := types.ObservationSourceRef{
 		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "donghu.ftrace", ArtifactKind: "trace",
+		Path: "/captures/donghu.ftrace", PayloadRef: "finalizer-complete-waits.json", RawRef: "finalizer-complete-waits.json",
 	}
 	root := types.ObservationRecord{
 		ID: "root-running", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
@@ -1133,6 +1137,7 @@ func TestFinalizerPromptCarriesCompleteWaitAndSupplyFoldRelationsAtProductionBou
 		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
 		Span: types.ObservationSpan{StartTs: start, EndTs: end}, Predicate: "target_window_wait_occurrences",
 		Subject: subject, Object: "complete", Value: "3", ResultCount: &count,
+		RichNotes: []string{"selected_window=13762.791708..13763.024898"},
 	}
 	records := []types.ObservationRecord{root, state, waitAggregate}
 	for i := 1; i <= count; i++ {
@@ -1144,6 +1149,7 @@ func TestFinalizerPromptCarriesCompleteWaitAndSupplyFoldRelationsAtProductionBou
 			Span:      types.ObservationSpan{StartTs: rowStart, EndTs: rowStart + 0.001},
 			Predicate: "target_window_wait_occurrence", Subject: subject,
 			Object: "state=d_sleep;iowait=0;caller=dma_fence_default_w", Value: "1.000", Unit: "ms",
+			RichNotes: []string{"selected_window=13762.791708..13763.024898"},
 		})
 	}
 	ctx := answerDocCausalCeilingTestContext(false)

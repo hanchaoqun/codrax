@@ -3,6 +3,7 @@ package tool
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -223,7 +224,9 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 	}
 	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
 	rows := make([]string, 0, len(states))
-	matchedWaits := map[string]bool{}
+	// An observation ID can repeat across captures/results. Track the actual
+	// scoped authority index, never a global ID or subject, when folding rows.
+	matchedWaits := map[int]bool{}
 	for i, state := range states {
 		if i >= 4 {
 			break
@@ -231,10 +234,9 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		var row string
 		if zh {
 			row = fmt.Sprintf(
-				"目标线程状态：工件=%s，窗口=%.6f..%.6f，线程=%s；running %.3fms，runnable %.3fms，sleep %.3fms（其中 S 态 IO 等待 %.3fms，已包含在 sleep），%s %.3fms，io_wait %.3fms；已归账 %.3fms / 窗口 %.3fms，覆盖=%s",
+				"目标线程状态：工件=%s，窗口=%s，线程=%s；running %.3fms，runnable %.3fms，sleep %.3fms（其中 S 态 IO 等待 %.3fms，已包含在 sleep），%s %.3fms，io_wait %.3fms；已归账 %.3fms / 窗口 %.3fms，覆盖=%s",
 				state.ArtifactLabel,
-				state.WindowStartTs,
-				state.WindowEndTs,
+				types.FormatTraceRuntimeAccountWindow(state.WindowStartTs, state.WindowEndTs, "zh"),
 				state.Subject,
 				state.RunningMS,
 				state.RunnableMS,
@@ -249,10 +251,9 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 			)
 		} else {
 			row = fmt.Sprintf(
-				"Target-thread state: artifact=%s, window=%.6f..%.6f, thread=%s; running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), %s %.3fms, io_wait %.3fms; accounted %.3fms / window %.3fms, coverage=%s",
+				"Target-thread state: artifact=%s, window=%s, thread=%s; running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), %s %.3fms, io_wait %.3fms; accounted %.3fms / window %.3fms, coverage=%s",
 				state.ArtifactLabel,
-				state.WindowStartTs,
-				state.WindowEndTs,
+				types.FormatTraceRuntimeAccountWindow(state.WindowStartTs, state.WindowEndTs, "en"),
 				state.Subject,
 				state.RunningMS,
 				state.RunnableMS,
@@ -293,14 +294,15 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 				row += fmt.Sprintf("; %.3fms remains open at the window tail (state=%s, already included)", state.TailOpenMS, state.TailOpenState)
 			}
 		}
-		if wait, ok := matchingTraceTargetWaitSummary(state, waits); ok {
+		if waitIndex, ok := matchingTraceTargetWaitSummary(state, waits, ledger); ok {
+			wait := waits[waitIndex]
 			row += runtimeTraceTargetWaitSummarySuffix(wait, &state, zh)
-			matchedWaits[wait.RecordID] = true
+			matchedWaits[waitIndex] = true
 		}
 		rows = append(rows, row)
 	}
-	for _, wait := range waits {
-		if len(rows) >= 4 || matchedWaits[wait.RecordID] {
+	for waitIndex, wait := range waits {
+		if len(rows) >= 4 || matchedWaits[waitIndex] {
 			continue
 		}
 		scopeLabel := ""
@@ -321,20 +323,18 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		var row string
 		if zh {
 			row = fmt.Sprintf(
-				"目标等待：%s工件=%s，窗口=%.6f..%.6f，线程=%s",
+				"目标等待：%s工件=%s，窗口=%s，线程=%s",
 				scopeLabel,
 				wait.ArtifactLabel,
-				wait.WindowStartTs,
-				wait.WindowEndTs,
+				types.FormatTraceRuntimeAccountWindow(wait.WindowStartTs, wait.WindowEndTs, "zh"),
 				wait.Subject,
 			)
 		} else {
 			row = fmt.Sprintf(
-				"Target waits: %sartifact=%s, window=%.6f..%.6f, thread=%s",
+				"Target waits: %sartifact=%s, window=%s, thread=%s",
 				scopeLabel,
 				wait.ArtifactLabel,
-				wait.WindowStartTs,
-				wait.WindowEndTs,
+				types.FormatTraceRuntimeAccountWindow(wait.WindowStartTs, wait.WindowEndTs, "en"),
 				wait.Subject,
 			)
 		}
@@ -344,10 +344,10 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		return false
 	}
 	title := "目标线程状态与等待明细"
-	lead := "以下为所选窗口内的调度状态账；若存在请求主范围与探索子范围，请求主范围先列，探索子范围只用于下钻，不能替代主范围的次数、总量或清单。若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。D 状态、调度器标记的 IO 等待与带 IO 等待标记的可中断睡眠是分开的记录类型；内核等待原因记录数、IPC 传输延迟和线程状态墙钟也属于不同口径，不能互相替代。IO 等待标记未标记或未提供不表示排除了 IO 阻塞；内核调用点只标识等待位置，不单独证明资源对象或持有者。"
+	lead := "以下按各条记录自身的查询范围列出调度状态与等待；范围缺失时明确标为未明确，不能按零窗口或请求主范围使用。若存在请求主范围与探索子范围，请求主范围先列，探索子范围只用于下钻，不能替代主范围的次数、总量或清单。若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。D 状态、调度器标记的 IO 等待与带 IO 等待标记的可中断睡眠是分开的记录类型；内核等待原因记录数、IPC 传输延迟和线程状态墙钟也属于不同口径，不能互相替代。IO 等待标记未标记或未提供不表示排除了 IO 阻塞；内核调用点只标识等待位置，不单独证明资源对象或持有者。"
 	if !zh {
 		title = "Target-thread states and wait details"
-		lead = "This is the scheduler-state account for the selected window. When both a requested scope and supporting exploration scopes exist, the requested scope is listed first; exploration scopes are drill-down only and cannot replace its count, total, or roster. When per-interval waits are listed, their count and total come from the complete pairing in the same query result. D state, scheduler-marked IO wait, and interruptible sleep carrying an IO-wait marker are separate record kinds; kernel wait-reason record counts, IPC transport latency, and thread-state wall clock are also different measures and are not interchangeable. An unmarked or unavailable IO-wait marker does not rule out IO blocking; a kernel call site identifies a wait location, not by itself a resource or holder."
+		lead = "Scheduler states and waits are listed within each record's own query scope. A missing query scope is explicitly unknown, not a zero-length window or an account of the requested scope. When both a requested scope and supporting exploration scopes exist, the requested scope is listed first; exploration scopes are drill-down only and cannot replace its count, total, or roster. When per-interval waits are listed, their count and total come from the complete pairing in the same query result. D state, scheduler-marked IO wait, and interruptible sleep carrying an IO-wait marker are separate record kinds; kernel wait-reason record counts, IPC transport latency, and thread-state wall clock are also different measures and are not interchangeable. An unmarked or unavailable IO-wait marker does not rule out IO blocking; a kernel call site identifies a wait location, not by itself a resource or holder."
 	}
 	return insertRuntimeTraceDataBoundaryBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceTargetStateAuthorityBlockID,
@@ -464,22 +464,66 @@ func runtimeTraceWaitCallerRoster(callers []string, zh bool) string {
 func matchingTraceTargetWaitSummary(
 	state types.TraceTargetStateScopeAuthority,
 	waits []types.TraceTargetWaitSummaryAuthority,
-) (types.TraceTargetWaitSummaryAuthority, bool) {
-	var matches []types.TraceTargetWaitSummaryAuthority
-	for _, wait := range waits {
-		stateArtifact := strings.TrimSpace(state.ArtifactLabel)
-		waitArtifact := strings.TrimSpace(wait.ArtifactLabel)
-		if strings.EqualFold(strings.TrimSpace(state.Subject), strings.TrimSpace(wait.Subject)) &&
-			math.Abs(state.WindowStartTs-wait.WindowStartTs) <= 0.001 &&
-			math.Abs(state.WindowEndTs-wait.WindowEndTs) <= 0.001 &&
-			(stateArtifact == "" || waitArtifact == "" || strings.EqualFold(stateArtifact, waitArtifact)) {
-			matches = append(matches, wait)
+	ledger types.ObservationLedger,
+) (int, bool) {
+	stateScope := types.TraceRuntimeAccountScope{
+		ArtifactKey: state.ArtifactKey, Subject: strings.TrimSpace(state.Subject),
+		WindowStartTs: state.WindowStartTs, WindowEndTs: state.WindowEndTs,
+		WindowKnown: state.WindowEndTs > state.WindowStartTs,
+	}
+	if !stateScope.Complete() || len(state.SourceRecordIDs) == 0 {
+		return 0, false
+	}
+	// Resolve the selected state's exact source. A matching query interval
+	// alone does not prove that independently issued results form one account.
+	var stateSource *types.ObservationRecord
+	for _, record := range ledger.Records {
+		if strings.TrimSpace(record.ID) != strings.TrimSpace(state.EvidenceID) ||
+			strings.TrimSpace(record.Predicate) != "target_window_states" ||
+			!stateScope.SameQuery(types.TraceRuntimeAccountRecordScope(record)) {
+			continue
+		}
+		// An ID collision with conflicting content has no unique selected
+		// source, even if both records point at the same exported result.
+		if stateSource != nil && (!types.TraceRuntimeAccountRecordsSameResult(*stateSource, record) ||
+			!reflect.DeepEqual(*stateSource, record)) {
+			return 0, false
+		}
+		copy := record
+		stateSource = &copy
+	}
+	if stateSource == nil {
+		return 0, false
+	}
+	var matches []int
+	for index, wait := range waits {
+		waitScope := types.TraceRuntimeAccountScope{
+			ArtifactKey: wait.ArtifactKey, Subject: strings.TrimSpace(wait.Subject),
+			WindowStartTs: wait.WindowStartTs, WindowEndTs: wait.WindowEndTs,
+			WindowKnown: wait.WindowEndTs > wait.WindowStartTs,
+		}
+		if !stateScope.SameQuery(waitScope) {
+			continue
+		}
+		ids := make(map[string]bool, len(wait.SourceRecordIDs))
+		for _, id := range wait.SourceRecordIDs {
+			ids[strings.TrimSpace(id)] = true
+		}
+		for _, record := range ledger.Records {
+			if !ids[strings.TrimSpace(record.ID)] ||
+				strings.TrimSpace(record.Predicate) != "target_window_wait_occurrences" ||
+				!waitScope.SameQuery(types.TraceRuntimeAccountRecordScope(record)) ||
+				!types.TraceRuntimeAccountRecordsSameResult(*stateSource, record) {
+				continue
+			}
+			matches = append(matches, index)
+			break
 		}
 	}
 	if len(matches) == 1 {
 		return matches[0], true
 	}
-	return types.TraceTargetWaitSummaryAuthority{}, false
+	return 0, false
 }
 
 func matchingTraceIPCRequestCensusAuthority(

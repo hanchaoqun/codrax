@@ -1020,10 +1020,11 @@ func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) st
 	}
 	if waitRequested {
 		for _, authority := range types.BuildTargetWaitOccurrenceAuthorities(ledger, rm) {
+			fmt.Fprintf(&b, "- %s\n", answerDocTargetWaitOccurrenceReaderSummary(authority, extractAnswerDocLang(ctx)))
 			if zh {
-				fmt.Fprintf(&b, "- %s 的调度器标记等待清单已完整覆盖所选窗口：共 %d 次，合计 %.3f 毫秒。该清单只包含 D 状态、明确的 IO 等待，以及带有 IO 等待标记的 S 状态。\n", authority.Subject, authority.Count, authority.SumMS)
+				b.WriteString("  - 该清单只包含 D 状态、明确的 IO 等待，以及带有 IO 等待标记的 S 状态。\n")
 			} else {
-				fmt.Fprintf(&b, "- The scheduler-marked wait roster for %s completely covers the selected window: %d occurrence(s), totaling %.3f ms. It includes only D-state, explicit IO wait, and S-state carrying an IO-wait marker.\n", authority.Subject, authority.Count, authority.SumMS)
+				b.WriteString("  - It includes only D-state, explicit IO wait, and S-state carrying an IO-wait marker.\n")
 			}
 		}
 	}
@@ -1457,28 +1458,44 @@ func renderTraceFinalTargetWaitEnumerationAuthority(ledger types.ObservationLedg
 	if len(waits) == 0 {
 		return ""
 	}
-	hasRequestedPrincipal := false
-	for _, wait := range waits {
-		if wait.IsRequestedScopePrincipal() {
-			hasRequestedPrincipal = true
-			break
-		}
-	}
 	var b strings.Builder
 	for _, wait := range waits {
-		if hasRequestedPrincipal && !wait.IsRequestedScopePrincipal() {
+		if answerDocWaitHasRequestedPrincipalInSameTarget(waits, wait) && !wait.IsRequestedScopePrincipal() {
 			continue
 		}
 		role := strings.TrimSpace(string(wait.RequestedScopeRole))
 		if role == "" {
 			role = "unclassified"
 		}
-		fmt.Fprintf(&b, "- target_wait_enumeration_authority artifact=`%s`; subject=`%s`; selected_window=`%.6f..%.6f`; scope_role=`%s`; rowset_permission=`exact_complete_same_result`; occurrence_count=%d; complete_occurrence_ordinals=`1..%d`; wall_clock_sum=%.3fms; candidate_view_compaction_role=`does_not_downgrade_this_rowset`; missing_occurrence_inference=`forbidden`; residual_count_or_duration_estimation=`forbidden`. Every declared occurrence row is already present in the typed principal roster above. A capped root-cause, blocking, or display view may omit candidates from its own view, but it does not prove that any occurrence in this complete target-wait rowset is missing from the trace.\n",
+		ordinals := "none"
+		if wait.Count > 0 {
+			ordinals = fmt.Sprintf("1..%d", wait.Count)
+		}
+		fmt.Fprintf(&b, "- target_wait_enumeration_authority artifact=`%s`; subject=`%s`; selected_window=`%s`; scope_role=`%s`; rowset_permission=`exact_complete_same_result`; occurrence_count=%d; complete_occurrence_ordinals=`%s`; wall_clock_sum=%.3fms; candidate_view_compaction_role=`does_not_downgrade_this_rowset`; missing_occurrence_inference=`forbidden`; residual_count_or_duration_estimation=`forbidden`. Every declared occurrence row is already present in the typed principal roster above. A capped root-cause, blocking, or display view may omit candidates from its own view, but it does not prove that any occurrence in this complete target-wait rowset is missing from the trace.\n",
 			traceDecisionPromptScalar(wait.ArtifactLabel), traceDecisionPromptScalar(wait.Subject),
-			wait.WindowStartTs, wait.WindowEndTs, traceDecisionPromptScalar(role),
-			wait.Count, wait.Count, wait.WallClockMS)
+			types.FormatTraceRuntimeAccountWindow(wait.WindowStartTs, wait.WindowEndTs, "en"), traceDecisionPromptScalar(role),
+			wait.Count, ordinals, wait.WallClockMS)
+		if scope := wait.WindowScope.ForWindow(wait.WindowStartTs, wait.WindowEndTs); scope.Role == types.TraceQueryWindowScopeUnknownQueryWindow {
+			fmt.Fprintf(&b, "  - %s.\n", scope.Format("en"))
+		}
 	}
 	return b.String()
+}
+
+func answerDocWaitHasRequestedPrincipalInSameTarget(waits []types.TraceTargetWaitSummaryAuthority, current types.TraceTargetWaitSummaryAuthority) bool {
+	currentScope := types.TraceRuntimeAccountScope{ArtifactKey: current.ArtifactKey, Subject: current.Subject,
+		WindowStartTs: current.WindowStartTs, WindowEndTs: current.WindowEndTs, WindowKnown: true}
+	if !currentScope.Complete() {
+		return false
+	}
+	for _, wait := range waits {
+		scope := types.TraceRuntimeAccountScope{ArtifactKey: wait.ArtifactKey, Subject: wait.Subject,
+			WindowStartTs: wait.WindowStartTs, WindowEndTs: wait.WindowEndTs, WindowKnown: true}
+		if wait.IsRequestedScopePrincipal() && scope.Complete() && currentScope.SameTarget(scope) {
+			return true
+		}
+	}
+	return false
 }
 
 // renderTraceFinalBlockedReasonStateRelation keeps two independent kernel

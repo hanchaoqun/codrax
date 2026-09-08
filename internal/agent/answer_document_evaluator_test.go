@@ -8261,12 +8261,15 @@ func TestRenderAnswerDocTargetWaitOccurrenceAuthorityBypassesLedgerAndRepairBudg
 		Producer:        "trace_query",
 		Role:            types.AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: types.ClaimGroundingHard,
-		Subject:         "main-59566",
-		Predicate:       "target_window_wait_occurrences",
-		Object:          "complete",
-		Value:           "3",
-		ResultCount:     &count,
+		SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact,
+			Path: "/captures/waits.trace", PayloadRef: "wait-window.json", RawRef: "wait-window.json"},
+		Subject:     "main-59566",
+		Predicate:   "target_window_wait_occurrences",
+		Object:      "complete",
+		Value:       "3",
+		ResultCount: &count,
 		RichNotes: []string{
+			"selected_window=34579.450000..34579.480000",
 			types.TraceNoteKeyTargetWaitOccurrencePrompt + "=status=complete,emitted=3,total=3",
 			types.TraceNoteKeyTargetWaitOccurrencePromptSum + "=0.635",
 			types.TraceNoteKeyTargetWaitOccurrence + "=#1 state=io_wait 34579.451701..34579.451839 duration=0.138ms iowait=1 caller=sync_buffer_read_wi lines=1-2 reason_line=3",
@@ -8280,6 +8283,7 @@ func TestRenderAnswerDocTargetWaitOccurrenceAuthorityBypassesLedgerAndRepairBudg
 	}
 	duplicate := observation
 	duplicate.ID = "trace_query:second-window-query#target_window_wait_occurrences"
+	duplicate.SourceRef.PayloadRef, duplicate.SourceRef.RawRef = "wait-repeat.json", "wait-repeat.json"
 	duplicateRef, ok := types.ToolObservationRefFromObservationRecord(duplicate)
 	if !ok {
 		t.Fatal("duplicate target wait observation should produce a typed handoff ref")
@@ -8319,7 +8323,7 @@ func TestRenderAnswerDocTargetWaitOccurrenceAuthorityBypassesLedgerAndRepairBudg
 			t.Fatalf("dedicated target occurrence authority missing %q:\n%s", want, out)
 		}
 	}
-	if count := strings.Count(out, "the list completely covers the selected window"); count != 1 {
+	if count := strings.Count(out, "this roster's contents are complete"); count != 1 {
 		t.Fatalf("identical complete rosters from repeated queries must publish once, got %d:\n%s", count, out)
 	}
 	if ledgerPrompt := renderAnswerDocObservationLedger(ctx); strings.Contains(ledgerPrompt, "target_window_wait_occurrences") ||

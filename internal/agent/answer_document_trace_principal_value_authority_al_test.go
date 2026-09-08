@@ -108,6 +108,9 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsRequestedScopePrincipal
 		Path: "/tmp/attached_trace.txt", ArtifactID: "attached_trace",
 	}
 	makeRoster := func(scope string, start, end float64, durations []float64, supplement bool) []types.ObservationRecord {
+		ref := ref
+		ref.PayloadRef, ref.RawRef = scope+"-result.json", scope+"-result.json"
+		windowNote := fmt.Sprintf("selected_window=%.6f..%.6f", start, end)
 		count := len(durations)
 		records := []types.ObservationRecord{{
 			ID:     "trace_query:" + scope + "#target_window_wait_occurrences",
@@ -117,6 +120,7 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsRequestedScopePrincipal
 			Predicate: "target_window_wait_occurrences", Subject: subject,
 			Object: "complete", Value: fmt.Sprintf("%d", count), ResultCount: &count,
 			SystemSupplement: supplement,
+			RichNotes:        []string{windowNote},
 		}}
 		cursor := start + 0.001
 		for i, duration := range durations {
@@ -130,6 +134,7 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsRequestedScopePrincipal
 				Object: "state=io_wait;iowait=1;caller=sync_buffer_read_wi",
 				Value:  fmt.Sprintf("%.3f", duration), Unit: "ms",
 				SystemSupplement: supplement,
+				RichNotes:        []string{windowNote},
 			})
 			cursor = rowEnd + 0.001
 		}

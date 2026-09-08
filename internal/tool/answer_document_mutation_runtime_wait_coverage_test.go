@@ -493,7 +493,7 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 	count := 2
 	ref := types.ObservationSourceRef{
 		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace",
-		Path: "/tmp/attached_trace.txt",
+		Path: "/tmp/attached_trace.txt", PayloadRef: "/tmp/runtime-wait-coverage-result.json",
 	}
 	records := []types.ObservationRecord{{
 		ID: "trace_query:waits#target_window_wait_occurrences", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
@@ -501,6 +501,7 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 		Span:      types.ObservationSpan{StartTs: 13762.791708, EndTs: 13763.024898},
 		Predicate: "target_window_wait_occurrences", Subject: target, Object: "complete",
 		Value: "2", ResultCount: &count,
+		RichNotes: []string{types.TraceNoteKeySelectedWindow + "=" + window},
 	}}
 	for index, bounds := range [][3]float64{
 		{13762.811000, 13762.813000, 2},
@@ -514,6 +515,7 @@ func TestRuntimeTargetStateAuthorityPublishesCompleteOccurrenceSummary(t *testin
 			Predicate: "target_window_wait_occurrence", Subject: target,
 			Object: "state=d_sleep;iowait=0;caller=dma_fence_default_w",
 			Value:  fmt.Sprintf("%.3f", bounds[2]), Unit: "ms",
+			RichNotes: []string{types.TraceNoteKeySelectedWindow + "=" + window},
 		})
 	}
 	bus.ToolResults[0].Observations = append(bus.ToolResults[0].Observations, records...)
@@ -575,7 +577,7 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 	count := 3
 	ref := types.ObservationSourceRef{
 		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace",
-		Path: "/tmp/attached_trace.txt",
+		Path: "/tmp/attached_trace.txt", PayloadRef: "/tmp/runtime-wait-coverage-result.json",
 	}
 	records := []types.ObservationRecord{{
 		ID:     "trace_query:focused#target_window_wait_occurrences",
@@ -584,6 +586,7 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 		Span:      types.ObservationSpan{StartTs: 13762.791708, EndTs: 13763.024898},
 		Predicate: "target_window_wait_occurrences", Subject: target,
 		Object: "complete", Value: "3", ResultCount: &count,
+		RichNotes: []string{types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898"},
 	}}
 	for index, bounds := range [][3]float64{
 		{13762.801000, 13762.801138, 0.138},
@@ -601,6 +604,7 @@ func TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport(t *testin
 			Predicate: "target_window_wait_occurrence", Subject: target,
 			Object: "state=io_wait;iowait=1;caller=sync_buffer_read_wi",
 			Value:  fmt.Sprintf("%.3f", bounds[2]), Unit: "ms",
+			RichNotes: []string{types.TraceNoteKeySelectedWindow + "=13762.791708..13763.024898"},
 		})
 	}
 	bus.ToolResults[0].Observations = append(bus.ToolResults[0].Observations, records...)
@@ -701,13 +705,19 @@ func TestRuntimeTargetWaitAuthorityListsRequestedScopeBeforeExploration(t *testi
 	}
 	makeRoster := func(scope string, start, end float64, durations []float64) []types.ObservationRecord {
 		count := len(durations)
+		// Model the producer's query receipt, not just a shared capture and
+		// event span: each aggregate/leaf family belongs to this exact result.
+		queryRef := ref
+		queryRef.PayloadRef = "/tmp/" + scope + "-wait-result.json"
+		windowNote := fmt.Sprintf("%s=%.6f..%.6f", types.TraceNoteKeySelectedWindow, start, end)
 		records := []types.ObservationRecord{{
 			ID:     "trace_query:" + scope + "#target_window_wait_occurrences",
 			Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
-			GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+			GroundingPolicy: types.ClaimGroundingHard, SourceRef: queryRef,
 			Span:      types.ObservationSpan{StartTs: start, EndTs: end},
 			Predicate: "target_window_wait_occurrences", Subject: target,
 			Object: "complete", Value: strconv.Itoa(count), ResultCount: &count,
+			RichNotes: []string{windowNote},
 		}}
 		cursor := start + 0.001
 		for i, duration := range durations {
@@ -715,11 +725,12 @@ func TestRuntimeTargetWaitAuthorityListsRequestedScopeBeforeExploration(t *testi
 			records = append(records, types.ObservationRecord{
 				ID:     fmt.Sprintf("trace_query:%s#target_window_wait_occurrence:%d", scope, i+1),
 				Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
-				GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+				GroundingPolicy: types.ClaimGroundingHard, SourceRef: queryRef,
 				Span:      types.ObservationSpan{StartTs: cursor, EndTs: rowEnd},
 				Predicate: "target_window_wait_occurrence", Subject: target,
 				Object: "state=io_wait;iowait=1;caller=sync_buffer_read_wi",
 				Value:  fmt.Sprintf("%.3f", duration), Unit: "ms",
+				RichNotes: []string{windowNote},
 			})
 			cursor = rowEnd + 0.001
 		}

@@ -57380,6 +57380,36 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1691 B1618-P2a：状态与等待同域配对施工（2026-09-08）
+
+基线 `a603ca54c`，本轮fetch确认与origin/main一致。承接§1690下批方案，不改测量引擎、因果资格、投影选举、自动补采或模型答案。不是将1ms简单改成2µs：capture、目标、query、实际结果来源与被重述记录分别核对。
+
+施工清单：
+
+1. types三载体共享精确范围/来源字段；preview/full按capture+target+query分域，完整set/leaf必须同结果，测得零与未知分开，保留已证等价来源集合。
+2. tool只把同域且具有同结果来源凭证的完整等待接到state，未知或歧义独立显示；去重按实际账户而不是全局RecordID。保留既有4-card预算，不新增答案硬门。
+3. agent preview携带自己的工件/窗口；shadow仅作用于实际已重述且无歧义的来源。原reader没有4-card上限，不能把tool预算误移植为新上下文裁剪。顺带闭合同根两个full handoff的全局hasRequestedPrincipal：A工件主范围不能隐藏B工件/另一目标的探索细项。
+4. 先红后绿：真实TraceQuery.Execute的20ms零等待与20.5ms/0.300ms邻窗，ZH/EN、正反顺序；跨目录同basename、CaptureIdentityPath异源、target大小写、同ID异来源/异事实、零/unknown、等价重复与8项preview/另域11项full。保留真实东湖11段/36.757ms及部分覆盖原值。
+5. 全仓/构建后独立提交推送；下一双路按覆盖老化与跨域风险优先考虑双窗Trace E1和TypeScript实现集read，不修改旧oracle，不把无必需图的用例强行加图。两例完成后分别人工审日志、上下文和答案。
+
+有效首红已保存：`.codrax/tmp/20260908-b1618p2a-tool-red.log`复现实际零清单被跳过；`...-tool-source-red.log`复现同ID异事实仍被拼接；`...-types-red.log`复现跨capture/跨query错分区、零清单与foreign-capture leaf。旧测试若只有共享Path而缺实际query/payload凭证，补齐真实producer前提，保留原义务，不将空来源通配保为兼容权限。后续绿色结果另记。
+
+末审补齐三个同根边界：
+
+- 无query的旧正数完整清单仍保留本地测量，但不能借Span生成查询范围；中英均明确范围未知。实测零须已知capture/target/query且同结果来源自检通过，零项没有leaf不能绕过正数已有来源检查。局部preview编译入口若仍缺kind或result receipt则可读，但不登记可用于隐藏原记录的SourceRecordIDs；不是新增答案拒绝。真实ctx的旧ledger规范化会依据runtime origin补齐部分缺kind/current_source形，此后已有真实receipt的正向不能假称unknown；入口测试分层核对原ledger负向、真实ctx未归一的web_page/无receipt负向及旧补全正向，不修改该既有规范化。
+- 主范围替代只限同capture/target；一个工件的主范围不能吞另一个工件的补充清单。reader与tool handoff均按真正重述的记录ID折叠，ID碰撞异事实/异来源不授予折叠权限。未对旧IOBridge所有上游目标比较作全系统销账。
+- preview使用完整清单验证叶来源时，原全表反复扫描会放大成本。本批按精确producer记录族建立一次候选索引，再逐条执行原来源、序号、范围、值及冲突校验；保留所有碰撞和嵌套坏后缀候选，不用缓存或省校验换速度。已验证完整来源反向索引、重复来源集合只合并一次。2048清单的单次离线基准full约138.9→8.14ms、preview约296.0→16.22ms，preview索引分配约增加3.3MB；仅证明该编译器局部改善，不代表客户转换或整轮LLM耗时加速。
+
+新增有效首红包括unknown-query被显示0..0、无kind/receipt零集被升级以及preview来源折叠权限。类型/agent旧fixture补真实query与result前提，不改变3段6ms、0.635ms、11段36.757ms等原数值义务。中途编译/旧文案fixture失败日志保留，不冒充产品首红；最终冻结后的全仓结果另记。
+
+流式活跃不按4ms或旧4分钟无最终正文降级：既有隐藏推理、工具调用、正文及保活测试继续保留，agent 4ms evaluator预算不能覆盖精确stream watchdog。真实无字节空闲、明确取消和调用方截止仍生效；本批不改这些政策。四种流式生产适配器专项回归已通过5.254s（`...-active-stream.log`）；agent的40ms延迟跨越4ms evaluator预算针随最终全仓验证。
+
+冻结定向证据：types最终来源/索引及旧状态等待族count3通过0.498s、race通过1.916s；agent实际prompt/handoff来源针count3通过1.128s。tool先前完整相关族count3通过5.701s、race通过2.443s，agent包51.834s/types包34.875s是末审来源/索引修改前快照，不替代本次全仓。最终全仓首轮85包通过（含agent79.639s/types45.364s/tracequery106.056s/tracediag13.411s/hitraceconv150.077s），仅tool一个旧fixture缺同query/receipt失败，完整日志`...-full-suite.log`不覆盖。`TestFocusedRuntimeFactPublishesTypedRosterWithoutFullCausalReport`补同producer selected_window和同state payload，3段0.635ms、逐行精确值、模型所有权与不触发全因果报告全部原断言保留；该针及新真实Query族count3通过1.260s。只改测试前提，生产源码未动，完整tool复跑通过289.400s（`...-full-tool-recheck.log`，exit0）；最终86包均完成验证，但不将此fixture修正记作新产品gap或偷称首轮全绿。最后fixture也经独立只读复核，未弱化断言。
+
+下批B1623只读预审：`cpu_occupancy.go`已有未截断threads累计表，但process的TopThreadMs仍取单CPU bucket最大值。优先复用完整threads选择winner，不取已裁Top8，不再累加进程总量；同TID改名可合、同名异TID隔离，缺TID不新借comm授跨CPU身份。保留既有生命周期冲突门，补跨核6+6对单核10、跨进程/改名、Top8外、调序/并列与真实Query复用反针。另一ProcessCPULoad含Runnable口径不顺手合并；输入跨CPU重叠完整性如需确认应独立立案，不能靠裁数掩盖。此处只有源码预审，未施工/未测，不计B1623关闭。
+
+状态：`B1618-P2a=implemented/targeted+race+86-package-validation-pass/delivered-with-this-commit/pending-production-replay`；`B1621/P1a=a603ca54c/pushed/pending-next-production-replay`；`B1620/B1622/B1623/B1616b/B1561=open`。
+
 ### §123.1690 B1621/P1a 第二小批施工与边界复核（2026-09-08）
 
 在已推送的r1039审计 `089dab101` 后施工；没有改历史答案、case或oracle，也没有追加第三个live用例。
@@ -57404,7 +57434,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 4. tool suffix只在完整同域且唯一或已证等价时拼到state；未匹配继续独立带窗披露。agent reader-shadow从subject级改为实际已重述的来源IDs，preview文本携带自身capture/query；保留4-card显示预算，但预算外和另一域的11项完整清单不能被冒充已重述而遮掉。
 5. 先红入口矩阵：实际TraceQuery.Execute同capture两窗10..10.020零与10..10.0205窗后0.300ms，正反顺序贯通ledger和state发布；同basename跨目录同PID、双目标、unknown/歧义；8项preview与另域11项full、同结果/等价重复、1µs表示漂移正臂与500µs邻窗负臂。复用真实东湖11段/36.757ms、231.794/233.190ms及未归账1.396ms回归，保留原3段6ms、0.635ms、测得零和advisory-only义务。
 
-代码锚：`internal/tool/answer_document_mutation_runtime_wait_coverage.go` state suffix+matchedWaits及matching函数；`internal/types/target_wait_occurrence_authority.go` preview按subject分组；`internal/types/trace_target_state_scope_authority.go` full零清单及分组；`internal/agent/evaluator.go` reader shadow与preview、`answer_document_final_decision_boundary.go` preview教学。保留full-artifact的SystemSupplement/同结果scope coverage授权，不把较大时间窗自动当主窗；旧无来源fixture若需测试联合账户应补真实同结果前提，不保空标签任意通配。`preCheckTargetWaitOccurrenceConsistency`仍只作advisory。上述是已读代码的下批方案，**尚无新增可执行首红/无live回放**，不得记作本批已修；不改变因果资格、原测量、选举、补采或模型正文。
+代码锚：`internal/tool/answer_document_mutation_runtime_wait_coverage.go` state suffix+matchedWaits及matching函数；`internal/types/target_wait_occurrence_authority.go` preview按subject分组；`internal/types/trace_target_state_scope_authority.go` full零清单及分组；`internal/agent/answer_document_evaluator.go` reader shadow与preview、`answer_document_final_decision_boundary.go` preview教学。保留full-artifact的SystemSupplement/同结果scope coverage授权，不把较大时间窗自动当主窗；旧无来源fixture若需测试联合账户应补真实同结果前提，不保空标签任意通配。`preCheckTargetWaitOccurrenceConsistency`仍只作advisory。上述在§1690收尾时是已读代码的下批方案，**当时尚无新增可执行首红/无live回放**，不得记作§1690已修；后续施工见§1691，不改变因果资格、原测量、选举、补采或模型正文。
 
 ### §123.1689 r1039 人工复核与第二小批（2026-09-08）
 

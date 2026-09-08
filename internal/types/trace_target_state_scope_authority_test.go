@@ -119,7 +119,7 @@ func TestBuildTraceTargetWaitSummaryAuthoritiesUsesCompleteSameResultRows(t *tes
 	target := "CompThread_0-2955"
 	ref := ObservationSourceRef{
 		Kind: ObservationSourceRuntimeArtifact, ArtifactID: "attached_trace",
-		Path: "/tmp/attached_trace.txt",
+		Path: "/tmp/attached_trace.txt", PayloadRef: "/payload/scope.json",
 	}
 	count := 3
 	aggregate := ObservationRecord{
@@ -134,6 +134,7 @@ func TestBuildTraceTargetWaitSummaryAuthoritiesUsesCompleteSameResultRows(t *tes
 		Object:          "complete",
 		Value:           "3",
 		ResultCount:     &count,
+		RichNotes:       []string{TraceNoteKeySelectedWindow + "=10.000000..10.100000"},
 	}
 	records := []ObservationRecord{aggregate}
 	for i, bounds := range [][3]float64{
@@ -177,6 +178,8 @@ func TestBuildTraceTargetWaitSummaryAuthoritiesElectsRequestedScopeWithoutTimest
 		Path: "/tmp/attached_trace.txt",
 	}
 	makeRoster := func(scope string, start, end float64, durations []float64, supplement bool) []ObservationRecord {
+		ref := ref
+		ref.PayloadRef = "/payload/" + scope + ".json"
 		count := len(durations)
 		aggregate := ObservationRecord{
 			ID:     "trace_query:" + scope + "#target_window_wait_occurrences",
@@ -186,6 +189,7 @@ func TestBuildTraceTargetWaitSummaryAuthoritiesElectsRequestedScopeWithoutTimest
 			Predicate: "target_window_wait_occurrences", Subject: target,
 			Object: "complete", Value: fmt.Sprintf("%d", count), ResultCount: &count,
 			SystemSupplement: supplement,
+			RichNotes:        []string{fmt.Sprintf("%s=%.6f..%.6f", TraceNoteKeySelectedWindow, start, end)},
 		}
 		records := []ObservationRecord{aggregate}
 		cursor := start + 0.001
@@ -234,7 +238,7 @@ func TestBuildTraceTargetWaitSummaryAuthoritiesElectsRequestedScopeWithoutTimest
 	records = append(records, ObservationRecord{
 		ID:     "trace_query:full#runtime_artifact_scope_coverage",
 		Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
-		GroundingPolicy: ClaimGroundingHard, SourceRef: ref,
+		GroundingPolicy: ClaimGroundingHard, SourceRef: full[0].SourceRef,
 		Predicate: RuntimeArtifactScopeCoveragePredicate,
 		Object:    string(RuntimeArtifactScopeFullArtifact),
 		Scope:     string(RuntimeArtifactScopeFullArtifact),
@@ -270,12 +274,13 @@ func TestBuildTraceTargetWaitSummaryAuthoritiesElectsRequestedScopeWithoutTimest
 func TestBuildTraceTargetWaitSummaryAuthoritiesFailsClosedOnMissingOrConflictingRows(t *testing.T) {
 	target := "worker-200"
 	count := 2
-	ref := ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactID: "trace"}
+	ref := ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactID: "trace", PayloadRef: "/payload/scope.json"}
 	aggregate := ObservationRecord{
 		ID: "trace_query:scope#target_window_wait_occurrences", Origin: AnswerEvidenceOriginRuntimeArtifact,
 		Producer: "trace_query", GroundingPolicy: ClaimGroundingHard, SourceRef: ref,
 		Span: ObservationSpan{StartTs: 1, EndTs: 2}, Predicate: "target_window_wait_occurrences",
 		Subject: target, Object: "complete", Value: "2", ResultCount: &count,
+		RichNotes: []string{TraceNoteKeySelectedWindow + "=1.000000..2.000000"},
 	}
 	row := ObservationRecord{
 		ID: "trace_query:scope#target_window_wait_occurrence:1", Origin: AnswerEvidenceOriginRuntimeArtifact,

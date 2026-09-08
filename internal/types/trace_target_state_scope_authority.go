@@ -15,26 +15,28 @@ import (
 // target thread's own wall-clock state partition; none is a CPU-wide
 // utilization or saturation measurement.
 type TraceTargetStateScopeAuthority struct {
-	ArtifactLabel  string
-	Subject        string
-	WindowStartTs  float64
-	WindowEndTs    float64
-	WindowScope    TraceQueryWindowScope
-	WindowMS       float64
-	RunningMS      float64
-	RunnableMS     float64
-	SleepMS        float64
-	DStateMS       float64
-	IOWaitMS       float64
-	SleepIOWaitMS  float64
-	TotalMS        float64
-	UnaccountedMS  float64
-	CoverageStatus string
-	HeadCarryMS    float64
-	HeadCarryState string
-	TailOpenMS     float64
-	TailOpenState  string
-	EvidenceID     string
+	ArtifactKey     string
+	ArtifactLabel   string
+	SourceRecordIDs []string
+	Subject         string
+	WindowStartTs   float64
+	WindowEndTs     float64
+	WindowScope     TraceQueryWindowScope
+	WindowMS        float64
+	RunningMS       float64
+	RunnableMS      float64
+	SleepMS         float64
+	DStateMS        float64
+	IOWaitMS        float64
+	SleepIOWaitMS   float64
+	TotalMS         float64
+	UnaccountedMS   float64
+	CoverageStatus  string
+	HeadCarryMS     float64
+	HeadCarryState  string
+	TailOpenMS      float64
+	TailOpenState   string
+	EvidenceID      string
 }
 
 const traceTargetStateCoverageToleranceMS = 0.002
@@ -199,26 +201,28 @@ func BuildTraceTargetStateScopeAuthorities(set TraceCausalProjectionSet) []Trace
 		}
 		seen[key] = true
 		out = append(out, TraceTargetStateScopeAuthority{
-			ArtifactLabel:  strings.TrimSpace(projection.ArtifactLabel),
-			Subject:        strings.TrimSpace(account.Subject),
-			WindowStartTs:  account.WindowStartTs,
-			WindowEndTs:    account.WindowEndTs,
-			WindowScope:    projection.WindowScope.ForWindow(account.WindowStartTs, account.WindowEndTs),
-			WindowMS:       windowMS,
-			RunningMS:      account.RunningMS,
-			RunnableMS:     account.RunnableMS,
-			SleepMS:        account.SleepMS,
-			DStateMS:       account.DStateMS,
-			IOWaitMS:       account.IOWaitMS,
-			SleepIOWaitMS:  account.SleepIOWaitMS,
-			TotalMS:        account.TotalMS,
-			UnaccountedMS:  unaccountedMS,
-			CoverageStatus: coverageStatus,
-			HeadCarryMS:    account.HeadCarryMS,
-			HeadCarryState: strings.TrimSpace(account.HeadCarryState),
-			TailOpenMS:     account.TailOpenMS,
-			TailOpenState:  strings.TrimSpace(account.TailOpenState),
-			EvidenceID:     strings.TrimSpace(account.EvidenceID),
+			ArtifactKey:     TraceCausalProjectionRecordArtifactIdentity(ObservationRecord{SourceRef: ObservationSourceRef{CaptureIdentityPath: projection.ArtifactPath, ArtifactID: projection.ArtifactLabel}}),
+			SourceRecordIDs: traceRuntimeAccountMergeRecordIDs(nil, []string{account.EvidenceID}),
+			ArtifactLabel:   strings.TrimSpace(projection.ArtifactLabel),
+			Subject:         strings.TrimSpace(account.Subject),
+			WindowStartTs:   account.WindowStartTs,
+			WindowEndTs:     account.WindowEndTs,
+			WindowScope:     projection.WindowScope.ForWindow(account.WindowStartTs, account.WindowEndTs),
+			WindowMS:        windowMS,
+			RunningMS:       account.RunningMS,
+			RunnableMS:      account.RunnableMS,
+			SleepMS:         account.SleepMS,
+			DStateMS:        account.DStateMS,
+			IOWaitMS:        account.IOWaitMS,
+			SleepIOWaitMS:   account.SleepIOWaitMS,
+			TotalMS:         account.TotalMS,
+			UnaccountedMS:   unaccountedMS,
+			CoverageStatus:  coverageStatus,
+			HeadCarryMS:     account.HeadCarryMS,
+			HeadCarryState:  strings.TrimSpace(account.HeadCarryState),
+			TailOpenMS:      account.TailOpenMS,
+			TailOpenState:   strings.TrimSpace(account.TailOpenState),
+			EvidenceID:      strings.TrimSpace(account.EvidenceID),
 		})
 	}
 	return out
@@ -317,10 +321,13 @@ func BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger ObservationLedger) [
 // bounded eight-row projection without parsing model prose or rebuilding
 // scheduler intervals from neighboring events.
 type TraceTargetWaitSummaryAuthority struct {
+	ArtifactKey            string
 	ArtifactLabel          string
+	SourceRecordIDs        []string
 	Subject                string
 	WindowStartTs          float64
 	WindowEndTs            float64
+	WindowScope            TraceQueryWindowScope
 	RequestedScopeRole     TraceTargetWaitRequestedScopeRole
 	Count                  int
 	WallClockMS            float64
@@ -364,7 +371,10 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 		authority   TraceTargetWaitSummaryAuthority
 	}
 	var candidates []candidate
-	for _, aggregate := range ledger.Records {
+	artifacts := map[string]traceRuntimeAuthorityArtifact{}
+	safeIDs := traceRuntimeAccountUnambiguousRecordIDs(ledger.Records)
+	rowIndex, coverageIndex := traceTargetWaitRecordIndexes(ledger.Records)
+	for position, aggregate := range ledger.Records {
 		if aggregate.Origin != AnswerEvidenceOriginRuntimeArtifact ||
 			!RuntimeObservationProducerIsDeterministicQuery(aggregate.Producer) ||
 			aggregate.GroundingPolicy != ClaimGroundingHard ||
@@ -376,7 +386,18 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			continue
 		}
 		count, err := strconv.Atoi(strings.TrimSpace(aggregate.Value))
-		if err != nil || count <= 0 || count != *aggregate.ResultCount {
+		if err != nil || count < 0 || count != *aggregate.ResultCount {
+			continue
+		}
+		accountScope := TraceRuntimeAccountRecordScope(aggregate)
+		if accountScope.WindowKnown && !TraceCausalProjectionPrincipalValueSameWindow(
+			accountScope.WindowStartTs, accountScope.WindowEndTs, aggregate.Span.StartTs, aggregate.Span.EndTs,
+		) {
+			continue
+		}
+		// A complete zero is measured evidence only for a known query. The
+		// absence of source rows or query identity cannot manufacture a zero.
+		if count == 0 && (!accountScope.Complete() || !TraceRuntimeAccountRecordsSameResult(aggregate, aggregate)) {
 			continue
 		}
 		scopePrefix, ok := strings.CutSuffix(strings.TrimSpace(aggregate.ID), "#target_window_wait_occurrences")
@@ -386,17 +407,25 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 		rowPrefix := scopePrefix + "#target_window_wait_occurrence:"
 		rows := make(map[int]ObservationRecord, count)
 		conflict := false
-		for _, row := range ledger.Records {
+		for _, rowPosition := range rowIndex[scopePrefix] {
+			row := ledger.Records[rowPosition]
 			if !strings.HasPrefix(strings.TrimSpace(row.ID), rowPrefix) ||
 				row.Origin != AnswerEvidenceOriginRuntimeArtifact ||
 				!RuntimeObservationProducerIsDeterministicQuery(row.Producer) ||
 				row.GroundingPolicy != ClaimGroundingHard ||
 				strings.TrimSpace(row.Predicate) != "target_window_wait_occurrence" ||
-				!strings.EqualFold(strings.TrimSpace(row.Subject), strings.TrimSpace(aggregate.Subject)) ||
+				strings.TrimSpace(row.Subject) != strings.TrimSpace(aggregate.Subject) ||
 				!traceTargetWaitSameResultSource(aggregate, row) {
 				continue
 			}
 			ordinal, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(row.ID), rowPrefix))
+			// A declared leaf query must not contradict its own aggregate.
+			// Legacy absent leaf notes do not invent a query: the same-result
+			// pairing and aggregate bounds remain the local roster witnesses.
+			if leafScope := TraceRuntimeAccountRecordScope(row); accountScope.WindowKnown && leafScope.WindowKnown && !accountScope.SameQuery(leafScope) {
+				conflict = true
+				break
+			}
 			if err != nil || ordinal <= 0 || ordinal > count {
 				conflict = true
 				break
@@ -413,17 +442,21 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			continue
 		}
 		authority := TraceTargetWaitSummaryAuthority{
-			ArtifactLabel:      traceTargetStateAuthorityArtifactLabel(aggregate.SourceRef),
+			ArtifactKey:        accountScope.ArtifactKey,
+			ArtifactLabel:      accountScope.ArtifactLabel,
+			SourceRecordIDs:    []string{aggregate.ID},
 			Subject:            strings.TrimSpace(aggregate.Subject),
-			WindowStartTs:      aggregate.Span.StartTs,
-			WindowEndTs:        aggregate.Span.EndTs,
-			RequestedScopeRole: traceTargetWaitRequestedScopeRole(aggregate, ledger, rm),
+			WindowStartTs:      accountScope.WindowStartTs,
+			WindowEndTs:        accountScope.WindowEndTs,
+			WindowScope:        ResolveTraceQueryWindowScope(traceRuntimeAccountRequestedProfile(ledger, rm), accountScope.WindowStartTs, accountScope.WindowEndTs),
+			RequestedScopeRole: traceTargetWaitRequestedScopeRole(aggregate, ledger, rm, coverageIndex[scopePrefix]),
 			Count:              count,
 			RecordID:           strings.TrimSpace(aggregate.ID),
 		}
 		callers := map[string]bool{}
 		for ordinal := 1; ordinal <= count; ordinal++ {
 			row := rows[ordinal]
+			authority.SourceRecordIDs = append(authority.SourceRecordIDs, row.ID)
 			duration, err := strconv.ParseFloat(strings.TrimSpace(row.Value), 64)
 			if err != nil || duration < 0 || strings.TrimSpace(row.Unit) != "ms" ||
 				row.Span.EndTs < row.Span.StartTs ||
@@ -465,16 +498,15 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 		if conflict {
 			continue
 		}
+		authority.SourceRecordIDs = traceRuntimeAccountSafeRecordIDs(authority.SourceRecordIDs, safeIDs)
+		if artifact := traceRuntimeAuthorityArtifactFromRecord(aggregate); artifact.key != "" {
+			artifacts[artifact.key] = artifact
+		}
 		for caller := range callers {
 			authority.Callers = append(authority.Callers, caller)
 		}
 		sort.Strings(authority.Callers)
-		key := fmt.Sprintf("%s\x00%s\x00%.6f\x00%.6f",
-			strings.ToLower(authority.ArtifactLabel),
-			strings.ToLower(authority.Subject),
-			authority.WindowStartTs,
-			authority.WindowEndTs,
-		)
+		key := traceRuntimeAccountScopeKey(accountScope, aggregate.ID, position)
 		fingerprint := fmt.Sprintf("%d|%s|%d|%d|%d|%d|%s",
 			authority.Count,
 			strconv.FormatFloat(authority.WallClockMS, 'g', -1, 64),
@@ -490,6 +522,7 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 		candidates = append(candidates, candidate{key: key, fingerprint: fingerprint, authority: authority})
 	}
 	byKey := map[string]TraceTargetWaitSummaryAuthority{}
+	idsByKey := map[string]traceRuntimeAccountRecordIDSet{}
 	fingerprints := map[string]string{}
 	conflicted := map[string]bool{}
 	for _, candidate := range candidates {
@@ -498,7 +531,12 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			continue
 		}
 		fingerprints[candidate.key] = candidate.fingerprint
-		if prior, ok := byKey[candidate.key]; !ok ||
+		prior, exists := byKey[candidate.key]
+		if idsByKey[candidate.key] == nil {
+			idsByKey[candidate.key] = traceRuntimeAccountRecordIDSet{}
+		}
+		idsByKey[candidate.key].add(candidate.authority.SourceRecordIDs)
+		if !exists ||
 			traceTargetWaitRequestedScopeRolePriority(candidate.authority.RequestedScopeRole) <
 				traceTargetWaitRequestedScopeRolePriority(prior.RequestedScopeRole) {
 			byKey[candidate.key] = candidate.authority
@@ -520,24 +558,63 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 		return keys[i] < keys[j]
 	})
 	out := make([]TraceTargetWaitSummaryAuthority, 0, len(keys))
+	labels := traceRuntimeAuthorityArtifactLabels(artifacts)
 	for _, key := range keys {
-		out = append(out, byKey[key])
+		authority := byKey[key]
+		authority.SourceRecordIDs = idsByKey[key].sorted()
+		if label := labels[authority.ArtifactKey]; label != "" {
+			authority.ArtifactLabel = label
+		}
+		out = append(out, authority)
 	}
 	return out
+}
+
+// Index only the producer record-family address, not source authority. Keep
+// every collision; the consumer still checks each candidate's source, target,
+// query, ordinal and facts. Index every delimiter occurrence so a malformed
+// nested suffix remains visible to the old ordinal-conflict check.
+func traceTargetWaitRecordIndexes(records []ObservationRecord) (map[string][]int, map[string][]int) {
+	rows, coverage := map[string][]int{}, map[string][]int{}
+	const marker = "#target_window_wait_occurrence:"
+	for position, record := range records {
+		id := strings.TrimSpace(record.ID)
+		for offset := 0; offset < len(id); {
+			at := strings.Index(id[offset:], marker)
+			if at < 0 {
+				break
+			}
+			at += offset
+			if at > 0 {
+				rows[id[:at]] = append(rows[id[:at]], position)
+			}
+			offset = at + len(marker)
+		}
+		if prefix, ok := strings.CutSuffix(id, "#runtime_artifact_scope_coverage"); ok && prefix != "" {
+			coverage[prefix] = append(coverage[prefix], position)
+		}
+	}
+	return rows, coverage
 }
 
 func traceTargetWaitRequestedScopeRole(
 	aggregate ObservationRecord,
 	ledger ObservationLedger,
 	rm *RequestModel,
+	coveragePositions []int,
 ) TraceTargetWaitRequestedScopeRole {
 	if rm == nil || rm.RuntimeArtifactScopeProfile == nil {
 		return TraceTargetWaitScopeUnclassified
 	}
+	scope := TraceRuntimeAccountRecordScope(aggregate)
+	if !scope.WindowKnown {
+		// Even a measured local roster cannot borrow its occurrence envelope
+		// to claim the user's principal query domain.
+		return TraceTargetWaitScopeUnclassified
+	}
 	profile := rm.RuntimeArtifactScopeProfile
 	if start, end, ok := profile.ExplicitTimeWindow(); ok {
-		if math.Abs(aggregate.Span.StartTs-start) <= 0.000002 &&
-			math.Abs(aggregate.Span.EndTs-end) <= 0.000002 {
+		if TraceCausalProjectionPrincipalValueSameWindow(scope.WindowStartTs, scope.WindowEndTs, start, end) {
 			return TraceTargetWaitScopeRequestedPrincipal
 		}
 		return TraceTargetWaitScopeSupportingExploration
@@ -560,7 +637,8 @@ func traceTargetWaitRequestedScopeRole(
 	)
 	if ok && scopePrefix != "" {
 		coverageID := scopePrefix + "#runtime_artifact_scope_coverage"
-		for _, record := range ledger.Records {
+		for _, position := range coveragePositions {
+			record := ledger.Records[position]
 			if strings.TrimSpace(record.ID) != coverageID ||
 				record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
 				record.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
@@ -590,17 +668,7 @@ func traceTargetWaitRequestedScopeRolePriority(role TraceTargetWaitRequestedScop
 }
 
 func traceTargetWaitSameResultSource(aggregate, row ObservationRecord) bool {
-	a, b := aggregate.SourceRef, row.SourceRef
-	if a.Kind != b.Kind ||
-		strings.TrimSpace(a.ArtifactID) != strings.TrimSpace(b.ArtifactID) ||
-		strings.TrimSpace(a.Path) != strings.TrimSpace(b.Path) ||
-		strings.TrimSpace(a.PayloadRef) != strings.TrimSpace(b.PayloadRef) ||
-		strings.TrimSpace(a.RawRef) != strings.TrimSpace(b.RawRef) {
-		return false
-	}
-	aggregateAt := strings.TrimSpace(aggregate.ObservedAt)
-	rowAt := strings.TrimSpace(row.ObservedAt)
-	return aggregateAt == "" || rowAt == "" || aggregateAt == rowAt
+	return TraceRuntimeAccountRecordsSameResult(aggregate, row)
 }
 
 func traceTargetWaitOccurrenceObjectFields(raw string) (map[string]string, bool) {

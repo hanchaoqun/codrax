@@ -6033,13 +6033,7 @@ func renderAnswerDocTargetWaitOccurrenceAuthority(ctx *types.AgentContext) strin
 		b.WriteString("- If the answer enumerates any item, preserve every item in the same list with its original start, end, and duration. Do not rebuild intervals from adjacent scheduler events or use a blocked-reason timestamp as an interval start. Field names and machine status codes are validation metadata and must not appear in customer-facing prose.\n\n")
 	}
 	for _, authority := range authorities {
-		if zh {
-			fmt.Fprintf(&b, "- %s：清单完整覆盖所选窗口；共 %d 次，合计 %.3f 毫秒。\n",
-				authority.Subject, authority.Count, authority.SumMS)
-		} else {
-			fmt.Fprintf(&b, "- %s: the list completely covers the selected window; %d occurrence(s), totaling %.3f ms.\n",
-				authority.Subject, authority.Count, authority.SumMS)
-		}
+		fmt.Fprintf(&b, "- %s\n", answerDocTargetWaitOccurrenceReaderSummary(authority, extractAnswerDocLang(ctx)))
 		for _, row := range authority.Rows {
 			state := traceFinalReaderStateLabel(row.State, zh)
 			if state == "" {
@@ -6074,6 +6068,27 @@ func renderAnswerDocTargetWaitOccurrenceAuthority(ctx *types.AgentContext) strin
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// One scope sentence is shared by the detailed reader roster and its final
+// recap. Complete roster contents do not establish a missing query identity.
+func answerDocTargetWaitOccurrenceReaderSummary(authority types.TargetWaitOccurrenceAuthority, lang string) string {
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	artifact := strings.TrimSpace(authority.ArtifactLabel)
+	scope := authority.WindowScope.Format(lang)
+	if scope == "" {
+		scope = authority.WindowScope.ForWindow(authority.WindowStartTs, authority.WindowEndTs).Format(lang)
+	}
+	if zh {
+		if artifact == "" {
+			artifact = "未确认"
+		}
+		return fmt.Sprintf("工件 %s；%s；%s 的调度器标记等待清单：共 %d 次，合计 %.3f 毫秒；本条清单内容完整。", artifact, scope, authority.Subject, authority.Count, authority.SumMS)
+	}
+	if artifact == "" {
+		artifact = "unconfirmed"
+	}
+	return fmt.Sprintf("Artifact %s; %s; scheduler-marked wait roster for %s: %d occurrence(s), totaling %.3f ms; this roster's contents are complete.", artifact, scope, authority.Subject, authority.Count, authority.SumMS)
 }
 
 func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) string {
@@ -6434,8 +6449,11 @@ func renderAnswerDocIOMeasurementRelationBridge(
 	}
 
 	var schedulerWait *types.TargetWaitOccurrenceAuthority
+	queryStart, queryEnd, queryKnown := types.TraceCausalProjectionSelectedWindowNote([]string{types.TraceNoteKeySelectedWindow + "=" + scope.window})
 	for _, authority := range types.BuildTargetWaitOccurrenceAuthorities(ledger, rm) {
-		if requestSubject != "" && !strings.EqualFold(strings.TrimSpace(authority.Subject), requestSubject) {
+		if !queryKnown || authority.ArtifactKey != scope.artifact ||
+			!types.TraceCausalProjectionPrincipalValueSameWindow(authority.WindowStartTs, authority.WindowEndTs, queryStart, queryEnd) ||
+			(requestSubject != "" && strings.TrimSpace(authority.Subject) != requestSubject) {
 			continue
 		}
 		if schedulerWait != nil {
@@ -7521,23 +7539,50 @@ func answerDocReaderAuthorityShadowedObservationIDs(ctx *types.AgentContext, led
 	if len(authorities) == 0 {
 		return nil
 	}
-	subjects := make(map[string]bool, len(authorities))
+	// SourceRecordIDs includes only rows actually restated by this complete
+	// preview. The compiler excludes colliding IDs with different source facts;
+	// recheck the source scope here rather than extending a subject-wide shadow
+	// over other captures, query windows, or the uncapped eleven-plus roster.
+	scopesByID := make(map[string][]types.TraceRuntimeAccountScope)
 	for _, authority := range authorities {
-		if subject := strings.ToLower(strings.TrimSpace(authority.Subject)); subject != "" {
-			subjects[subject] = true
+		scope := types.TraceRuntimeAccountScope{ArtifactKey: authority.ArtifactKey, Subject: authority.Subject,
+			WindowStartTs: authority.WindowStartTs, WindowEndTs: authority.WindowEndTs, WindowKnown: true}
+		if !scope.Complete() {
+			continue
+		}
+		for _, id := range authority.SourceRecordIDs {
+			if id = strings.TrimSpace(id); id != "" {
+				scopesByID[id] = append(scopesByID[id], scope)
+			}
 		}
 	}
 	shadowed := make(map[string]bool)
+	unrepresented := make(map[string]bool)
 	for _, record := range ledger.Records {
-		predicate := strings.ToLower(strings.TrimSpace(record.Predicate))
-		if predicate != "target_window_wait_occurrences" && predicate != "target_window_wait_occurrence" {
+		id := strings.TrimSpace(record.ID)
+		if len(scopesByID[id]) == 0 {
 			continue
 		}
-		if subjects[strings.ToLower(strings.TrimSpace(record.Subject))] {
-			if id := strings.TrimSpace(record.ID); id != "" {
-				shadowed[id] = true
+		predicate := strings.ToLower(strings.TrimSpace(record.Predicate))
+		if predicate != "target_window_wait_occurrences" && predicate != "target_window_wait_occurrence" {
+			unrepresented[id] = true
+			continue
+		}
+		covered := false
+		for _, scope := range scopesByID[id] {
+			if scope.SameQuery(types.TraceRuntimeAccountRecordScope(record)) {
+				covered = true
+				break
 			}
 		}
+		if covered {
+			shadowed[id] = true
+		} else {
+			unrepresented[id] = true
+		}
+	}
+	for id := range unrepresented {
+		delete(shadowed, id)
 	}
 	return shadowed
 }

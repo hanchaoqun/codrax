@@ -15,11 +15,16 @@ import (
 // that matches a typed user runtime target. Free-form investigation prose and
 // aggregate facts never enter this authority.
 type TargetWaitOccurrenceAuthority struct {
-	RecordID string
-	Subject  string
-	Count    int
-	SumMS    float64
-	Rows     []TargetWaitOccurrenceAuthorityRow
+	ArtifactKey                string
+	ArtifactLabel              string
+	WindowStartTs, WindowEndTs float64
+	WindowScope                TraceQueryWindowScope
+	SourceRecordIDs            []string
+	RecordID                   string
+	Subject                    string
+	Count                      int
+	SumMS                      float64
+	Rows                       []TargetWaitOccurrenceAuthorityRow
 }
 
 type TargetWaitOccurrenceAuthorityRow struct {
@@ -58,18 +63,28 @@ func (r TargetWaitOccurrenceAuthorityRow) CanonicalLine() string {
 }
 
 // BuildTargetWaitOccurrenceAuthorities returns only unambiguous complete
-// rosters. Multiple identical observations are deduplicated. If the same
-// target subject carries conflicting complete rosters, that subject is
-// omitted entirely: ambiguous runtime evidence may guide investigation but
-// must never become a hard answer gate.
+// rosters. Identical observations deduplicate only within a known capture,
+// target and producer query. Conflicts suppress only that domain; independent
+// or unknown domains stay separate. This does not change the soft checker.
 func BuildTargetWaitOccurrenceAuthorities(ledger ObservationLedger, rm *RequestModel) []TargetWaitOccurrenceAuthority {
 	if rm == nil || len(rm.RuntimeTargets) == 0 {
 		return nil
 	}
-	bySubject := map[string]TargetWaitOccurrenceAuthority{}
+	byScope := map[string]TargetWaitOccurrenceAuthority{}
+	idsByScope := map[string]traceRuntimeAccountRecordIDSet{}
+	fullAddedByScope := map[string]map[int]bool{}
 	fingerprints := map[string]string{}
 	conflicted := map[string]bool{}
-	for _, record := range ledger.Records {
+	artifacts := map[string]traceRuntimeAuthorityArtifact{}
+	safeIDs := traceRuntimeAccountUnambiguousRecordIDs(ledger.Records)
+	full := BuildTraceTargetWaitSummaryAuthorities(ledger, rm)
+	fullByRecordID := map[string][]int{}
+	for i, complete := range full {
+		for _, id := range complete.SourceRecordIDs {
+			fullByRecordID[id] = append(fullByRecordID[id], i)
+		}
+	}
+	for position, record := range ledger.Records {
 		if record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
 			!RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
 			strings.TrimSpace(record.Predicate) != "target_window_wait_occurrences" ||
@@ -81,30 +96,81 @@ func BuildTargetWaitOccurrenceAuthorities(ledger ObservationLedger, rm *RequestM
 		if !ok {
 			continue
 		}
-		key := strings.ToLower(strings.TrimSpace(authority.Subject))
-		if key == "" {
+		scope := TraceRuntimeAccountRecordScope(record)
+		if scope.Subject == "" {
 			continue
 		}
+		authority.ArtifactKey, authority.ArtifactLabel = scope.ArtifactKey, scope.ArtifactLabel
+		authority.WindowStartTs, authority.WindowEndTs = scope.WindowStartTs, scope.WindowEndTs
+		authority.WindowScope = ResolveTraceQueryWindowScope(traceRuntimeAccountRequestedProfile(ledger, rm), scope.WindowStartTs, scope.WindowEndTs)
+		// Legacy notes may remain readable without a runtime result receipt,
+		// but cannot authorize hiding their underlying observation by ID.
+		if TraceRuntimeAccountRecordsSameResult(record, record) {
+			authority.SourceRecordIDs = []string{record.ID}
+		}
+		// Notes establish only this set's bounded roster. Leaf IDs are covered
+		// only after the independent full same-result compiler verified them.
+		var matchingFull []int
+		for _, fullIndex := range fullByRecordID[strings.TrimSpace(record.ID)] {
+			complete := full[fullIndex]
+			if complete.Count != authority.Count ||
+				strconv.FormatFloat(complete.WallClockMS, 'f', 3, 64) != strconv.FormatFloat(authority.SumMS, 'f', 3, 64) ||
+				len(complete.Occurrences) != len(authority.Rows) {
+				continue
+			}
+			equal := true
+			for i, row := range complete.Occurrences {
+				if row.CanonicalLine() != authority.Rows[i].CanonicalLine() {
+					equal = false
+					break
+				}
+			}
+			if equal {
+				matchingFull = append(matchingFull, fullIndex)
+			}
+		}
+		authority.SourceRecordIDs = traceRuntimeAccountSafeRecordIDs(authority.SourceRecordIDs, safeIDs)
+		if artifact := traceRuntimeAuthorityArtifactFromRecord(record); artifact.key != "" {
+			artifacts[artifact.key] = artifact
+		}
+		key := traceRuntimeAccountScopeKey(scope, record.ID, position)
 		fingerprint := targetWaitOccurrenceAuthorityFingerprint(authority)
 		if prior, exists := fingerprints[key]; exists && prior != fingerprint {
 			conflicted[key] = true
 			continue
 		}
 		fingerprints[key] = fingerprint
-		if _, exists := bySubject[key]; !exists {
-			bySubject[key] = authority
+		if _, exists := byScope[key]; !exists {
+			byScope[key] = authority
+			idsByScope[key] = traceRuntimeAccountRecordIDSet{}
+			fullAddedByScope[key] = map[int]bool{}
+		}
+		idsByScope[key].add(authority.SourceRecordIDs)
+		for _, fullIndex := range matchingFull {
+			if !fullAddedByScope[key][fullIndex] {
+				// A complete duplicate-query group may contain many set/leaf
+				// receipts. Add its verified IDs once, not once per preview.
+				idsByScope[key].add(full[fullIndex].SourceRecordIDs)
+				fullAddedByScope[key][fullIndex] = true
+			}
 		}
 	}
-	keys := make([]string, 0, len(bySubject))
-	for key := range bySubject {
+	keys := make([]string, 0, len(byScope))
+	for key := range byScope {
 		if !conflicted[key] {
 			keys = append(keys, key)
 		}
 	}
 	sort.Strings(keys)
 	out := make([]TargetWaitOccurrenceAuthority, 0, len(keys))
+	labels := traceRuntimeAuthorityArtifactLabels(artifacts)
 	for _, key := range keys {
-		out = append(out, bySubject[key])
+		authority := byScope[key]
+		authority.SourceRecordIDs = idsByScope[key].sorted()
+		if label := labels[authority.ArtifactKey]; label != "" {
+			authority.ArtifactLabel = label
+		}
+		out = append(out, authority)
 	}
 	return out
 }

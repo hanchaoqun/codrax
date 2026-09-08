@@ -106,7 +106,7 @@ func TestBoundedRuntimeFinalReaderHandoffUsesNaturalLanguageWithoutWireEnums(t *
 		"没有匹配到由调度器标记的 D 状态或 IO 等待",
 		"没有评估由 IO 完成事件闭合的 S 状态等待",
 		"缺席表示未评估，不是测得为零",
-		"调度器标记等待清单已完整覆盖所选窗口：共 0 次，合计 0.000 毫秒",
+		"调度器标记等待清单：共 0 次，合计 0.000 毫秒；本条清单内容完整",
 		"CPU 4",
 		"策略范围为 558000–2100000 kHz",
 		"是否限制了目标线程，仍需同一 CPU 上目标运行切片与策略的重叠",

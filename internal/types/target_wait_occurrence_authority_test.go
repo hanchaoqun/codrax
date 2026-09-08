@@ -10,18 +10,22 @@ func targetWaitAuthorityFixtureRecord(id string, thirdStart, thirdEnd string) Ob
 		Producer:        "trace_query",
 		Role:            AnswerAggregateRoleSupportingCoverage,
 		GroundingPolicy: ClaimGroundingHard,
-		ClaimKey:        "target_window_wait_occurrences:main-59566",
-		Subject:         "main-59566",
-		Predicate:       "target_window_wait_occurrences",
-		Object:          "complete",
-		Value:           "3",
-		ResultCount:     &count,
+		// Repeated-result and conflict tests describe one known capture/query,
+		// not two unrelated records that merely share the thread name.
+		SourceRef:   ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, Path: "/capture/waits.ftrace", PayloadRef: "/payload/waits.json"},
+		ClaimKey:    "target_window_wait_occurrences:main-59566",
+		Subject:     "main-59566",
+		Predicate:   "target_window_wait_occurrences",
+		Object:      "complete",
+		Value:       "3",
+		ResultCount: &count,
 		RichNotes: []string{
 			TraceNoteKeyTargetWaitOccurrencePrompt + "=status=complete,emitted=3,total=3",
 			TraceNoteKeyTargetWaitOccurrencePromptSum + "=0.635",
 			TraceNoteKeyTargetWaitOccurrence + "=#1 state=io_wait 34579.451701..34579.451839 duration=0.138ms iowait=1 caller=sync_buffer_read_wi lines=1-2 reason_line=3",
 			TraceNoteKeyTargetWaitOccurrence + "=#2 state=io_wait 34579.452934..34579.453081 duration=0.147ms iowait=1 caller=sync_buffer_read_wi lines=4-5 reason_line=6",
 			TraceNoteKeyTargetWaitOccurrence + "=#3 state=io_wait " + thirdStart + ".." + thirdEnd + " duration=0.350ms iowait=1 caller=sync_buffer_read_wi lines=7-8 reason_line=9",
+			TraceNoteKeySelectedWindow + "=34579.440000..34579.480000",
 		},
 	}
 }

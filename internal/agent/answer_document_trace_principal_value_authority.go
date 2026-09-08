@@ -131,24 +131,17 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		}
 		b.WriteByte('\n')
 	}
-	hasRequestedWaitPrincipal := false
 	for _, wait := range waits {
-		if wait.IsRequestedScopePrincipal() {
-			hasRequestedWaitPrincipal = true
-			break
-		}
-	}
-	for _, wait := range waits {
+		queryScope := wait.WindowScope.ForWindow(wait.WindowStartTs, wait.WindowEndTs)
 		scopeRole := strings.TrimSpace(string(wait.RequestedScopeRole))
 		if scopeRole == "" {
 			scopeRole = "unclassified"
 		}
 		fmt.Fprintf(&b,
-			"- principal_wait_occurrences: artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; scope_role=`%s`; permission=`exact_complete_rowset`; occurrence_count=%d; d_state_occurrences=%d; io_wait_occurrences=%d; sleep_iowait_occurrences=%d; other_wait_occurrences=%d; wall_clock_sum=%.3fms",
+			"- principal_wait_occurrences: artifact=`%s`; target=`%s`; window=`%s`; scope_role=`%s`; permission=`exact_complete_rowset`; occurrence_count=%d; d_state_occurrences=%d; io_wait_occurrences=%d; sleep_iowait_occurrences=%d; other_wait_occurrences=%d; wall_clock_sum=%.3fms",
 			wait.ArtifactLabel,
 			wait.Subject,
-			wait.WindowStartTs,
-			wait.WindowEndTs,
+			types.FormatTraceRuntimeAccountWindow(wait.WindowStartTs, wait.WindowEndTs, extractAnswerDocLang(ctx)),
 			scopeRole,
 			wait.Count,
 			wait.DStateOccurrences,
@@ -157,11 +150,14 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			wait.OtherWaitOccurrences,
 			wait.WallClockMS,
 		)
+		if queryScope.Role == types.TraceQueryWindowScopeUnknownQueryWindow {
+			fmt.Fprintf(&b, "; query_scope_note=`%s`", queryScope.Format(extractAnswerDocLang(ctx)))
+		}
 		if len(wait.Callers) > 0 {
 			fmt.Fprintf(&b, "; blocked_reason_callers=`%s`; caller_role=`kernel_reported_wait_callsite`; holder_authority=`not_provided_by_caller`", strings.Join(wait.Callers, "`, `"))
 		}
 		b.WriteString("; use this occurrence count rather than blocked_reason record count or aggregate-group count\n")
-		if hasRequestedWaitPrincipal && !wait.IsRequestedScopePrincipal() {
+		if answerDocWaitHasRequestedPrincipalInSameTarget(waits, wait) && !wait.IsRequestedScopePrincipal() {
 			b.WriteString("  - scope_boundary=`supporting exploration window only; do not use this row's count, total, or occurrence roster as the answer for the requested artifact scope.`\n")
 			continue
 		}
@@ -169,11 +165,14 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			fmt.Fprintf(&b, "  - principal_occurrence=`%s`\n", occurrence.CanonicalLine())
 		}
 		if zh {
+			window := fmt.Sprintf("在 %.6f..%.6f 窗内", wait.WindowStartTs, wait.WindowEndTs)
+			if queryScope.Role == types.TraceQueryWindowScopeUnknownQueryWindow {
+				window = "在实际查询范围未明确的这份清单中"
+			}
 			fmt.Fprintf(&b,
-				"  - principal_conclusion_zh=`%s 在 %.6f..%.6f 窗内确切发生 %d 次目标等待，目标等待墙钟合计 %.3fms",
+				"  - principal_conclusion_zh=`%s %s确切发生 %d 次目标等待，目标等待墙钟合计 %.3fms",
 				wait.Subject,
-				wait.WindowStartTs,
-				wait.WindowEndTs,
+				window,
 				wait.Count,
 				wait.WallClockMS,
 			)
@@ -182,10 +181,13 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			}
 			b.WriteString("。`\n")
 		} else {
+			window := fmt.Sprintf("In %.6f..%.6f", wait.WindowStartTs, wait.WindowEndTs)
+			if queryScope.Role == types.TraceQueryWindowScopeUnknownQueryWindow {
+				window = "For this roster whose actual query window is unknown"
+			}
 			fmt.Fprintf(&b,
-				"  - principal_conclusion_en=`In %.6f..%.6f, %s has exactly %d target-wait occurrence(s), totaling %.3fms of target-wait wall clock",
-				wait.WindowStartTs,
-				wait.WindowEndTs,
+				"  - principal_conclusion_en=`%s, %s has exactly %d target-wait occurrence(s), totaling %.3fms of target-wait wall clock",
+				window,
 				wait.Subject,
 				wait.Count,
 				wait.WallClockMS,
