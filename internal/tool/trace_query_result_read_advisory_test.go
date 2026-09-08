@@ -126,11 +126,10 @@ func TestB1624RealPublishedResultGrepAndReadFile(t *testing.T) {
 						if strings.Contains(shape.name, "broad") && (result.RawRef == "" || !strings.Contains(result.Summary, "decision=broad_result_compacted")) {
 							t.Errorf("broad-result budget/refinement lost: %+v", result)
 						}
-						// The existing streamed branch may supply only its bounded
-						// preview to the refinement threshold. Do not turn this role
-						// repair into a change to that independent legacy behavior.
-						if strings.Contains(shape.name, "broad") && result.Refinement != nil && !result.Refinement.ResultTruncated {
-							t.Errorf("existing broad refinement lost truncation: %+v", result.Refinement)
+						// Both in-memory and streamed compaction retain the full
+						// measured extent while preserving the result-reader role.
+						if strings.Contains(shape.name, "broad") && (result.Refinement == nil || !result.Refinement.ResultTruncated) {
+							t.Errorf("broad refinement lost truncation: %+v", result.Refinement)
 						}
 						if shape.name == "zero" && (result.Refinement == nil || result.Refinement.PreferredNextTool != "grep") {
 							t.Errorf("zero-match did not retain result grep: %+v", result.Refinement)

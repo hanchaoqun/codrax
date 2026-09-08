@@ -57380,6 +57380,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1700 r1042异构读写验收与B1624c流式提示计数（2026-09-08）
+
+B1628已提交推送`1290d1a73`；其最终全仓86包全绿、clean build=2026-09-08T15:37:20Z，revision1290d1a73233。随后严格两路跑仓颉隔离声明清单+dateutil原生Python写，机器及人工均2/2通过。runner86/198s，内部84/195s，context峰值均28%；完整机表与人工报告为`eval/parallel_selected_summary_evalcampaign_cangjie_dateutil_r1042_20260908{,_manual_audit}.md`。case/oracle/原答案不改。
+
+- **仓颉**：五项声明/坐标/package全部准确；Item struct与ohSum wrapper未混入，extend不说成继承。一次合法成文、0reject/0patch，精确row ID自动绑定引用；三次accepted调查完成不是成文重试，题目不要求图。无read_file，不能记B1628读取资格的live正证。
+- **B1620/P1再次确认，不销账**：log1205模型错称extend在Cart类定义体中，2158/2285仍将旧note与整项强权限混载；实际class于28结束、extend在30独立。2262要求每个非空note出厂，与2270–2272仅请求name/location/package及声明不证明关系的规则有张力。最终答案未采用错误note，不代表上下文正确。下一优先批统一字段级支持上限与教学：声明身份/坐标/类型/包、模型说明分别有来源，保留有用线索，不扫描错误词、不代写、不硬逼模型原note出厂。
+- **Python写**：实际交付仅relativedelta.py +15/-2，两参数校验/规范化正确，原4测试及README不改，主仓跟踪源码不变。系统真实跑1个动态probe和4个原生unittest并全部通过，不再以probe签绿代替suite；报告与同plan交付指纹/4项assertion一致。人工交付树重跑原4及23组边界均通过，仅工具输出留痕，未伪造独立日志或扩正式报告。自然语言7项清单未被冒称7个实测。测试selector报错提示要求读无效路径且当轮仅开放emit，留P2能力/修复提示观察；一次contract_refs超10条为真实schema拒绝。模型倒向加法/误称divmod报错未污染实现，保软观察。
+
+**B1624c独立施工，r1042不包含此改动**：流式grep先将全结果裁为默认48条预览，再以预览去判断80行/16KiB门，导致真实已裁剪结果的typed Refinement为空。新共享helper保非流式原partition计数和字节口径；流式用成功capture的实际Lines/Bytes决定裁剪提示，preview仅提供定位候选。不是用文本banner、目录名或模型原文推断新角色。保存的完整结果、preview预算、trace_query原ref及escape权限均不改；没有强迫下一工具或发明数据缺失。
+
+实际入口先红：120短行、60行末12长行字节臂、真实TraceQuery→已注册txt/json→GrepTool共四臂均nil，短版首红日志`.codrax/tmp/20260908-b1624c-streamed-red-verified.log`，无fixture/setup误红；小结果和零匹配原来就绿。新增针保护完整late行仍保存、直接提示回原ref、派生RawRef不入旧registry，旧直接读取矩阵增强为裁剪时必须非nil。root相关族count3 2.962s、独立green1.180s/race2.510s通过；最终冻结`go test ./... -count=1`实际退出0，86个测试包全通过（tool314.490s、agent63.574s、tracequery99.146s、hitraceconv145.102s），日志`...-b1624c-full-suite.log`。独立只读末审通过、git diff --check通过；新live仍待后续异构双例，不借r1042签生产覆盖。
+
+队列：B1620字段权限/教学为下一P1；B1624b来源谱系及可调用的原结果导航、B1626多请求成员窗继续独立设计。**B1622是D榜物理发生次数与统计分组混淆**；原生写验证继承债属B1616b/B1561，不混编号。B1624b的最小修向是仅供建议的精确派生来源链并指回原已准许ref；无坐标映射时不借派生行号作原始行号，不直接放行派生文件。本次c为可独立封闭的小修，不冒称高优先b同时完成。
+
+状态：`r1042=machine2/2+human2/2/context-B1620-open`；`B1628=1290d1a73/pushed/86-packages-green`；`B1624c=implemented/actual-entry-red-green+independent-race/86-packages-green/delivered-with-this-commit/pending-new-live`；`B1624b/B1626/B1622/B1616b/B1561=open`。无系统改写答案/图/根因选择，无请求或模型prose关键词硬门；Trace精确窗、链上两轴、D/IO/业务线索、投影与补齐保持。活跃SSE不因4ms/旧4m没有最终正文降级，真实停滞/取消/显式deadline仍生效。
+
 ### §123.1699 B1628：已见源码注释范围与字符串边界共同收口（2026-09-08）
 
 B1623已独立提交推送`a0b3d3824`，r1041审计已推送`1c9ac87c2`。本小批只处理`ground/comment.go`的共享纯注释判定和回归，不改emit schema、模型答案、关系、Trace值或自动补齐。
@@ -57442,7 +57458,7 @@ Python成文第4轮已接受，第5轮展示advisory修补将summary错误改成
 |---|---|---|
 | 下一双例r1041（严格并行2） | sr_py_registry_dispatch + real_trace_d4_demand_vs_supply | Python真实装饰器注册/解析/图关系，不围绕TS同题求绿；Trace显式窗的依赖/供给两轴、目标账/投影/自动补采及背景不升主因。H8已有陈旧oracle结论，暂不重复追词形。 |
 | 随后双例 | Cangjie/ArkTS关系读 + 原生可执行的跨仓Python写 | 补语言/模式覆盖；正式验证域和逐义务凭证比模型自述测试通过优先。 |
-| 后续机制施工 | B1624b/c、B1626、B1623、B1622及原开放项 | 结果派生阅读/streamed提示，多请求窗身份，CPU线程总量聚合，原生写验证证明。按实际witness推进，不让一次机器PASS代销全部。 |
+| 后续机制施工 | B1624b/c、B1626、B1623、B1622、B1616b/B1561及原开放项 | 结果派生阅读/streamed提示，多请求窗身份，CPU线程总量聚合，物理次数与统计分组，原生写验证证明。按实际witness推进，不让一次机器PASS代销全部。 |
 
 最终全仓验收：`go test ./... -count=1`退出0，86包通过（`20260908-b1627-full-suite-final.log`），并已独立只读复核红线。首轮84包通过、agent/skill三条失败原样留存于`...-full-suite.log`：新共享提示误带内部字段名MustInclude已改普通语义；DOWNGRADED保原合同断言；旧bridge刷新测试仍要求猜测join授集合权，现改为原聚合与候选保留而不授强权，再实际ReadFile→EmitEvidence提交独立显式注册，第二次ParseOutput及TurnA必须刷新精确权限。没有删除原正向能力，旧bridge仍不升级。该双阶段测试族count3/race通过后执行上述第二次全仓；不把首轮失败算绿。
 

@@ -2655,7 +2655,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}, nil
 		}
 		summary, ref := compactStreamedRuntimeArtifactGrepOutput(ctx, p, countBanner, paramsBanner, capture)
-		refinement := grepBroadResultRefinement(ctx, p, strings.Join(capture.PreviewLines, "\n"))
+		refinement := grepStreamedResultRefinement(ctx, p, capture)
 		return types.ToolResult{
 			ToolName:      t.Name(),
 			Success:       true,
@@ -2924,11 +2924,24 @@ func formatPreferredToolCallParam(key, value string) string {
 func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, rawOutput string) *types.ToolRefinementHint {
 	production, auxiliary, other, _ := partitionGrepOutputByRelevance(ctx, params, rawOutput)
 	entryCount := len(production) + len(auxiliary) + len(other)
+	return grepMeasuredResultRefinement(ctx, params, production, auxiliary, other, entryCount, len(rawOutput))
+}
+
+// The stream's measured output extent owns the truncation signal. Its bounded
+// preview supplies navigation candidates only; measuring that preview again
+// would hide the very truncation for which it was created. Neither the hint
+// nor a derived output path grants new read permission or source authority.
+func grepStreamedResultRefinement(ctx *types.BusContext, params grepToolParams, capture runtimeArtifactGrepCapture) *types.ToolRefinementHint {
+	production, auxiliary, other, _ := partitionGrepOutputByRelevance(ctx, params, strings.Join(capture.PreviewLines, "\n"))
+	return grepMeasuredResultRefinement(ctx, params, production, auxiliary, other, capture.Lines, capture.Bytes)
+}
+
+func grepMeasuredResultRefinement(ctx *types.BusContext, params grepToolParams, production, auxiliary, other []string, entryCount, byteCount int) *types.ToolRefinementHint {
 	threshold := grepWidthLineEntryThreshold()
 	if params.FilesOnly {
 		threshold = grepWidthFileEntryThreshold()
 	}
-	if entryCount <= threshold && len(rawOutput) <= grepWidthByteThreshold() {
+	if entryCount <= threshold && byteCount <= grepWidthByteThreshold() {
 		return nil
 	}
 	ordered := make([]string, 0, len(production)+len(auxiliary)+len(other))
