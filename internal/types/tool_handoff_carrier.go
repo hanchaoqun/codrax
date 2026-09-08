@@ -48,6 +48,10 @@ type AcceptedEvidenceRef struct {
 	ClaimForm       ClaimForm       `json:"claim_form,omitempty"`
 	SourcePathRole  SourcePathRole  `json:"source_path_role,omitempty"`
 	GroundingStatus GroundingStatus `json:"grounding_status,omitempty"`
+	// Preserve the system-owned negative qualification when the full evidence
+	// is projected into repair/stage/snapshot identity carriers. Grounding and
+	// ClaimForm still describe the cited source, not proof of this derivation.
+	DerivationCandidate bool `json:"derivation_candidate,omitempty"`
 }
 
 // ToolObservationRef is the ToolResult observation companion used by handoff
@@ -485,18 +489,19 @@ func ToolJSONSurfaceDescriptorFromToolRepair(toolName string, repair *ToolRepair
 func AcceptedEvidenceRefFromEvidenceItem(item EvidenceItem) (AcceptedEvidenceRef, bool) {
 	source := trimToolHandoffText(item.Source)
 	ref := AcceptedEvidenceRef{
-		ID:              trimToolHandoffText(item.ID),
-		Kind:            item.Kind,
-		Scope:           item.Scope,
-		Source:          source,
-		LineStart:       item.LineStart,
-		LineEnd:         item.LineEnd,
-		Subject:         trimToolHandoffText(item.Subject),
-		OwnerSymbol:     trimToolHandoffText(item.OwnerSymbol),
-		AnchorSymbol:    trimToolHandoffText(item.AnchorSymbol),
-		ClaimForm:       ClaimFormOf(item),
-		SourcePathRole:  ClassifySourcePathRole(source),
-		GroundingStatus: item.GroundingStatus,
+		ID:                  trimToolHandoffText(item.ID),
+		Kind:                item.Kind,
+		Scope:               item.Scope,
+		Source:              source,
+		LineStart:           item.LineStart,
+		LineEnd:             item.LineEnd,
+		Subject:             trimToolHandoffText(item.Subject),
+		OwnerSymbol:         trimToolHandoffText(item.OwnerSymbol),
+		AnchorSymbol:        trimToolHandoffText(item.AnchorSymbol),
+		ClaimForm:           ClaimFormOf(item),
+		SourcePathRole:      ClassifySourcePathRole(source),
+		GroundingStatus:     item.GroundingStatus,
+		DerivationCandidate: item.DerivationCandidate,
 	}
 	if ref.ID == "" && ref.Source != "" && ref.LineStart > 0 {
 		ref.ID = "evidence:" + ref.Source + ":" + strconv.Itoa(ref.LineStart)
@@ -814,7 +819,7 @@ func normalizeToolRepairPtr(in *ToolRepair) *ToolRepair {
 }
 
 func normalizeAcceptedEvidenceRefs(in []AcceptedEvidenceRef) []AcceptedEvidenceRef {
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	out := make([]AcceptedEvidenceRef, 0, len(in))
 	for _, ref := range in {
 		ref = normalizeAcceptedEvidenceRef(ref)
@@ -822,14 +827,19 @@ func normalizeAcceptedEvidenceRefs(in []AcceptedEvidenceRef) []AcceptedEvidenceR
 			continue
 		}
 		key := ref.ID + ":" + ref.Source + ":" + strconv.Itoa(ref.LineStart) + ":" + strconv.Itoa(ref.LineEnd)
-		if seen[key] {
+		if index, exists := seen[key]; exists {
+			// A later unmarked copy cannot erase a known limitation on the
+			// same exact reference. Other first-carrier fields stay unchanged.
+			out[index].DerivationCandidate = out[index].DerivationCandidate || ref.DerivationCandidate
 			continue
 		}
-		seen[key] = true
-		out = append(out, ref)
 		if len(out) >= toolHandoffMaxAcceptedEvidence {
-			break
+			// Keep the existing selection cap, but still inspect later copies
+			// of selected identities for negative qualifications.
+			continue
 		}
+		seen[key] = len(out)
+		out = append(out, ref)
 	}
 	return out
 }

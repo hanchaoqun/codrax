@@ -110,11 +110,18 @@ func (index runtimeArtifactPreflightSourceIndex) requalify(record ObservationRec
 	default:
 		return record
 	}
-	record.Origin = AnswerEvidenceOriginRuntimeArtifact
-	record.SourceRef.Kind = ObservationSourceRuntimeArtifact
 	record.SourceRef.ArtifactID = artifact.artifactID
 	record.SourceRef.ArtifactKind = artifact.artifactKind
 	record.SourceRef.CaptureIdentityPath = artifact.path
+	// An explicit inference qualification belongs to the claim, not its
+	// physical source. Enrich its capture identity without turning it into
+	// an observed fact (or merging it with an independent observed row).
+	if record.Origin == AnswerEvidenceOriginSystemInference &&
+		record.ClaimAuthority == ObservationClaimAuthorityModelInference {
+		return record
+	}
+	record.Origin = AnswerEvidenceOriginRuntimeArtifact
+	record.SourceRef.Kind = ObservationSourceRuntimeArtifact
 	// Keep the producer's existing grounding strength. In particular,
 	// trace_query publishes hard pair-atomic rows; origin enrichment must not
 	// soften those rows and silently remove them from causal projection.

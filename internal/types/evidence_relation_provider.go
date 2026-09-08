@@ -25,8 +25,10 @@ func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelation
 	}
 	var out []TypedRelationCandidate
 	seen := map[string]bool{}
+	candidateIDs := evidenceRelationCandidateDependencyIDs(s.Items)
 	itemsByID := make(map[string]EvidenceItem, len(s.Items))
 	for _, item := range s.Items {
+		item = evidenceRelationWithDerivationBoundary(item, candidateIDs)
 		if id := strings.TrimSpace(item.ID); id != "" {
 			// A deterministic terminal companion describes the same source
 			// return as the ordinary concrete_values row and therefore may share
@@ -41,6 +43,7 @@ func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelation
 		}
 	}
 	for _, item := range s.Items {
+		item = evidenceRelationWithDerivationBoundary(item, candidateIDs)
 		for _, source := range q.Sources {
 			if q.AllowsKind(TypedRelationRegisters) && evidenceRelationRegistrationItemUsable(item, q.Purpose) {
 				out = appendEvidenceRelationCandidates(out, seen, evidenceRegistrationCandidatesForSource(item, source, q.Purpose)...)
@@ -77,8 +80,55 @@ func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelation
 	return out
 }
 
-// evidenceBridgeLiteralRegistrationCandidatesForSource projects one exact
-// registry member only when the deterministic bridge producer preserved both
+// evidenceRelationCandidateDependencyIDs carries the weakest explicit
+// derivation limitation through ID-linked joins. A duplicate ID cannot clear
+// a limitation, and cycles are visited once. Missing IDs preserve the legacy
+// policy; this does not infer proof or mutate the original evidence pool.
+func evidenceRelationCandidateDependencyIDs(items []EvidenceItem) map[string]bool {
+	weak := make(map[string]bool)
+	dependents := make(map[string][]string)
+	var queue []string
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		if EvidenceIsDerivationCandidate(item) && !weak[id] {
+			weak[id] = true
+			queue = append(queue, id)
+		}
+		for _, parent := range item.DerivedFrom {
+			if parent = strings.TrimSpace(parent); parent != "" {
+				dependents[parent] = append(dependents[parent], id)
+			}
+		}
+	}
+	for i := 0; i < len(queue); i++ {
+		for _, child := range dependents[queue[i]] {
+			if !weak[child] {
+				weak[child] = true
+				queue = append(queue, child)
+			}
+		}
+	}
+	return weak
+}
+
+func evidenceRelationWithDerivationBoundary(item EvidenceItem, candidateIDs map[string]bool) EvidenceItem {
+	if candidateIDs[strings.TrimSpace(item.ID)] {
+		item.DerivationCandidate = true
+	}
+	for _, parent := range item.DerivedFrom {
+		if candidateIDs[strings.TrimSpace(parent)] {
+			item.DerivationCandidate = true
+			break
+		}
+	}
+	return item
+}
+
+// evidenceBridgeLiteralRegistrationCandidatesForSource projects a registry
+// member only when the deterministic bridge producer preserved both
 // ends of the join: the registration-family binding site and the terminal
 // identity return. Generic dataflow prose, a lone literal, or a same-named
 // method cannot mint this relation. The projection consumes structured fields
@@ -102,7 +152,7 @@ func evidenceBridgeLiteralRegistrationCandidatesForSource(
 		!evidenceRelationContextRoleUsable(bridge.ContextRole) {
 		return nil
 	}
-	if purpose == TypedRelationPurposeCoverageGate && !bridge.IsCitable() {
+	if purpose == TypedRelationPurposeCoverageGate && (EvidenceIsDerivationCandidate(bridge) || !bridge.IsCitable()) {
 		return nil
 	}
 	source := strings.TrimSpace(rawSource)
@@ -126,7 +176,7 @@ func evidenceBridgeLiteralRegistrationCandidatesForSource(
 		strings.TrimSpace(terminal.Object) != strings.TrimSpace(bridge.Object) {
 		return nil
 	}
-	if purpose == TypedRelationPurposeCoverageGate && !terminal.IsCitable() {
+	if purpose == TypedRelationPurposeCoverageGate && (EvidenceIsDerivationCandidate(terminal) || !terminal.IsCitable()) {
 		return nil
 	}
 	memberName, ok := evidenceRelationQuotedLiteral(terminal.Object)
@@ -136,6 +186,10 @@ func evidenceBridgeLiteralRegistrationCandidatesForSource(
 	sourceKind := "registrar_identity_chain"
 	if registryMatch && !registrarMatch {
 		sourceKind = "registry_identity_chain"
+	}
+	precision := TypedRelationPrecisionExactEvidence
+	if EvidenceIsDerivationCandidate(bridge) || EvidenceIsDerivationCandidate(terminal) {
+		precision = TypedRelationPrecisionHeuristic
 	}
 	return []TypedRelationCandidate{{
 		Relation:   TypedRelationRegisters,
@@ -151,7 +205,7 @@ func evidenceBridgeLiteralRegistrationCandidatesForSource(
 			Distance: 1,
 		},
 		Carrier:   TypedRelationCarrierEvidence,
-		Precision: TypedRelationPrecisionExactEvidence,
+		Precision: precision,
 	}}
 }
 
@@ -206,7 +260,7 @@ func evidenceRelationRegistrationItemUsable(item EvidenceItem, purpose TypedRela
 	if purpose != TypedRelationPurposeCoverageGate {
 		return true
 	}
-	if !item.IsCitable() {
+	if EvidenceIsDerivationCandidate(item) || !item.IsCitable() {
 		return false
 	}
 	if item.ContextRole == EvidenceContextRoleDefining {
@@ -234,7 +288,7 @@ func evidenceRelationConfigItemUsable(item EvidenceItem, purpose TypedRelationPu
 	if purpose != TypedRelationPurposeCoverageGate {
 		return true
 	}
-	if !item.IsCitable() {
+	if EvidenceIsDerivationCandidate(item) || !item.IsCitable() {
 		return false
 	}
 	if item.ContextRole == EvidenceContextRoleDefining {
@@ -262,7 +316,7 @@ func evidenceRelationRouteItemUsable(item EvidenceItem, purpose TypedRelationPur
 	if purpose != TypedRelationPurposeCoverageGate {
 		return true
 	}
-	if !item.IsCitable() {
+	if EvidenceIsDerivationCandidate(item) || !item.IsCitable() {
 		return false
 	}
 	if item.ContextRole == EvidenceContextRoleDefining {
@@ -335,10 +389,6 @@ func evidenceRouteCandidatesForSource(item EvidenceItem, rawSource string, purpo
 }
 
 func evidenceRegistrationCandidate(item EvidenceItem, sourceName, sourceKind string, member TypedRelationMember, purpose TypedRelationPurpose) TypedRelationCandidate {
-	precision := TypedRelationPrecisionExactEvidence
-	if purpose == TypedRelationPurposePromptHint && item.GroundingStatus == GroundingRecovered {
-		precision = TypedRelationPrecisionNameOnly
-	}
 	return TypedRelationCandidate{
 		Relation:   TypedRelationRegisters,
 		SourceName: strings.TrimSpace(sourceName),
@@ -347,15 +397,11 @@ func evidenceRegistrationCandidate(item EvidenceItem, sourceName, sourceKind str
 		SourceLine: item.LineStart,
 		Member:     member,
 		Carrier:    TypedRelationCarrierEvidence,
-		Precision:  precision,
+		Precision:  evidenceRelationItemPrecision(item, purpose),
 	}
 }
 
 func evidenceConfigCandidate(item EvidenceItem, sourceName, sourceKind string, member TypedRelationMember, purpose TypedRelationPurpose) TypedRelationCandidate {
-	precision := TypedRelationPrecisionExactEvidence
-	if purpose == TypedRelationPurposePromptHint && item.GroundingStatus == GroundingRecovered {
-		precision = TypedRelationPrecisionNameOnly
-	}
 	return TypedRelationCandidate{
 		Relation:   TypedRelationConfigures,
 		SourceName: strings.TrimSpace(sourceName),
@@ -364,15 +410,11 @@ func evidenceConfigCandidate(item EvidenceItem, sourceName, sourceKind string, m
 		SourceLine: item.LineStart,
 		Member:     member,
 		Carrier:    TypedRelationCarrierEvidence,
-		Precision:  precision,
+		Precision:  evidenceRelationItemPrecision(item, purpose),
 	}
 }
 
 func evidenceRouteCandidate(item EvidenceItem, sourceName, sourceKind string, member TypedRelationMember, purpose TypedRelationPurpose) TypedRelationCandidate {
-	precision := TypedRelationPrecisionExactEvidence
-	if purpose == TypedRelationPurposePromptHint && item.GroundingStatus == GroundingRecovered {
-		precision = TypedRelationPrecisionNameOnly
-	}
 	return TypedRelationCandidate{
 		Relation:   TypedRelationRoutesTo,
 		SourceName: strings.TrimSpace(sourceName),
@@ -381,8 +423,18 @@ func evidenceRouteCandidate(item EvidenceItem, sourceName, sourceKind string, me
 		SourceLine: item.LineStart,
 		Member:     member,
 		Carrier:    TypedRelationCarrierEvidence,
-		Precision:  precision,
+		Precision:  evidenceRelationItemPrecision(item, purpose),
 	}
+}
+
+func evidenceRelationItemPrecision(item EvidenceItem, purpose TypedRelationPurpose) TypedRelationPrecision {
+	if EvidenceIsDerivationCandidate(item) {
+		return TypedRelationPrecisionHeuristic
+	}
+	if purpose == TypedRelationPurposePromptHint && item.GroundingStatus == GroundingRecovered {
+		return TypedRelationPrecisionNameOnly
+	}
+	return TypedRelationPrecisionExactEvidence
 }
 
 func evidenceRegistrationMember(item EvidenceItem, preferred, fallbackKind string) TypedRelationMember {
@@ -505,12 +557,18 @@ func evidenceRelationCandidateKey(candidate TypedRelationCandidate) string {
 	if candidate.Relation == "" || candidate.SourceName == "" || candidate.Member.Name == "" {
 		return ""
 	}
-	return strings.ToLower(fmt.Sprintf("%s|%s|%s|%s|%d",
+	key := strings.ToLower(fmt.Sprintf("%s|%s|%s|%s|%d",
 		candidate.Relation,
 		evidenceRelationStableKey(candidate.SourceName),
 		evidenceRelationStableKey(candidate.Member.Name),
 		cleanEvidenceRelationPath(candidate.Member.File),
 		candidate.Member.Line))
+	// Preserve independently exact evidence even when an identical candidate
+	// relation is encountered first. Legacy non-candidate dedup is unchanged.
+	if candidate.Precision == TypedRelationPrecisionHeuristic {
+		key += "|derivation_candidate"
+	}
+	return key
 }
 
 func cleanEvidenceRelationPath(raw string) string {

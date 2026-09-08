@@ -68,11 +68,11 @@ func SetSymbolLocatorProvider(p func(graph any) types.SymbolLocator) {
 //
 // cmd/root.go registers this at startup via
 // types.RegisterEvidenceProjector. Items that already have non-
-// zero Origin or Authority pass through untouched (idempotent —
-// emit_evidence's items have already been projected).
+// zero Origin or Authority pass through untouched, except that an explicit
+// derivation limitation must still cap a prefilled factual grade.
 func BackfillEvidenceProjector() types.EvidenceProjector {
 	return func(items []types.EvidenceItem, m *types.MutableState) []types.EvidenceItem {
-		if len(items) == 0 || m == nil {
+		if len(items) == 0 {
 			return items
 		}
 		// Synthesise a minimal bus context. ComputeForEvidence reads
@@ -80,8 +80,15 @@ func BackfillEvidenceProjector() types.EvidenceProjector {
 		// bus, so an otherwise-empty BusContext is sufficient.
 		bus := &types.BusContext{Mutable: m}
 		for i := range items {
-			if items[i].Origin != types.ClaimOriginUnknown ||
+			if m == nil || items[i].Origin != types.ClaimOriginUnknown ||
 				items[i].Authority != types.AuthorityUnknown {
+				if types.EvidenceIsDerivationCandidate(items[i]) {
+					items[i].Authority = types.WeakerOf(items[i].Authority, types.AuthorityConditional)
+					boundary := types.EvidenceDerivationBoundary(items[i])
+					if !strings.Contains(items[i].AuthorityReason, boundary) {
+						items[i].AuthorityReason = strings.TrimSpace(items[i].AuthorityReason + " " + boundary)
+					}
+				}
 				continue
 			}
 			proj := ComputeForEvidence(items[i], bus)
@@ -253,6 +260,15 @@ type Projection struct {
 //     default — they survive grounding but the anchor is less
 //     precise).
 func ComputeForEvidence(item types.EvidenceItem, bus *types.BusContext) Projection {
+	proj := computeForEvidence(item, bus)
+	if types.EvidenceIsDerivationCandidate(item) {
+		proj.Authority = types.WeakerOf(proj.Authority, types.AuthorityConditional)
+		proj.Reason = types.EvidenceDerivationBoundary(item)
+	}
+	return proj
+}
+
+func computeForEvidence(item types.EvidenceItem, bus *types.BusContext) Projection {
 	if bus == nil {
 		return Projection{}
 	}

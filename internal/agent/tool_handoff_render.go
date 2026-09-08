@@ -190,6 +190,11 @@ func renderTypedToolHandoffEvidenceRefs(refs []types.AcceptedEvidenceRef, limit 
 			status = "unspecified"
 		}
 		fmt.Fprintf(&b, " grounding=%s", quoteHandoffValue(status))
+		// This compact carrier retains the same system-owned limitation as
+		// its full EvidenceItem. A grounded location is not derivation proof.
+		if boundary := types.EvidenceDerivationBoundary(types.EvidenceItem{DerivationCandidate: ref.DerivationCandidate}); boundary != "" {
+			fmt.Fprintf(&b, " qualification=%s", quoteHandoffValue(boundary))
+		}
 		b.WriteString("\n")
 	}
 	return b.String()

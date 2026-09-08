@@ -175,10 +175,10 @@ func renderExplorerStageReportWithFlowCoverage(
 		// here so the same chain list isn't rendered twice with
 		// different framings — the section is now the single
 		// canonical home for deterministically-extracted answer chains.
-		b.WriteString("These facts were extracted deterministically from source code and directly answer the question. " +
-			"Use them as the primary basis for your answer — do NOT contradict or ignore them. " +
-			"The rightmost hop of each chain (after the final `→`) is the ANSWER TERMINAL the question resolves to; " +
-			"intermediate nodes are MECHANISM, not answer.\n\n")
+		b.WriteString("These extracted chains provide source navigation and possible answer paths. " +
+			"A located source line or a chain that matches the request's predicates does not by itself prove a binding, exclusivity, or an answer. " +
+			"Use the source evidence and each row's derivation boundary to assess the operations; choose answer members that satisfy the requested entity type. " +
+			"The rightmost hop is a candidate endpoint, not an automatic answer.\n\n")
 		for _, c := range chains {
 			b.WriteString("- " + renderAnswerChain(c, exactResolution) + "\n")
 		}
@@ -420,6 +420,9 @@ func formatEvidenceLineForReport(ev types.EvidenceItem, exactResolution *types.E
 	if boundary := types.EvidenceMechanismAuthorityBoundary(ev); boundary != "" {
 		parts = append(parts, "("+boundary+")")
 	}
+	if boundary := types.EvidenceDerivationBoundary(ev); boundary != "" {
+		parts = append(parts, "("+boundary+")")
+	}
 	// Call/callback endpoints alone omit exact arguments that can carry the
 	// decisive value (output stream, selector, flag, payload field, etc.). The
 	// grounder has already replaced Snippet with the verified source line, so a
@@ -622,6 +625,9 @@ func renderAnswerChain(c types.AnswerChain, exactResolution *types.ExactResoluti
 	display := types.EvidenceDeterministicSurfaceText(ev, false)
 	if loc := ev.DisplayLocation(true); loc != "" {
 		display += " (" + loc + ")"
+	}
+	if boundary := types.EvidenceDerivationBoundary(ev); boundary != "" {
+		display += " (" + boundary + ")"
 	}
 	return display
 }

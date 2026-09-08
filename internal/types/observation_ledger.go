@@ -36,8 +36,10 @@ const (
 	ObservationSourceWebPage          ObservationSourceKind = "web_page"
 	ObservationSourceMCPResource      ObservationSourceKind = "mcp_resource"
 	ObservationSourceConnector        ObservationSourceKind = "connector_resource"
-	// ObservationSourceModelClaim marks a record whose only backing is a model
-	// assertion (system_inference origin — the §29.21 advisory lane). It is a
+	// ObservationSourceModelClaim marks an unwitnessed claim on the
+	// system_inference advisory lane. The legacy name also covers system
+	// heuristic derivations: their Producer and boundary note distinguish them
+	// from model-authored assertions. It is a
 	// purely internal classification: no LLM-facing schema emits or receives
 	// it (so no R2' six-spot sync), every kind switch in the tree has a
 	// default arm, and the authority view counts only current_source /
@@ -1255,12 +1257,24 @@ func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationR
 		if origin == AnswerEvidenceOriginCurrentSource && ev.GroundingStatus == GroundingUngrounded {
 			origin = AnswerEvidenceOriginSystemInference
 		}
+		var notes []string
+		claimAuthority := ObservationClaimAuthorityUnknown
+		if EvidenceIsDerivationCandidate(ev) {
+			// Keep the source coordinates and expression for inspection, but do
+			// not let the derived claim or a later aggregate borrowing its line
+			// become independently proven merely because that line exists.
+			origin = AnswerEvidenceOriginSystemInference
+			role = AnswerAggregateRoleSupportingCoverage
+			claimAuthority = ObservationClaimAuthorityModelInference
+			notes = []string{EvidenceDerivationBoundary(ev)}
+		}
 		add(ObservationRecord{
 			ID:              id,
 			Origin:          origin,
 			Producer:        firstNonEmptyString(ev.Producer, "evidence_item"),
 			Role:            role,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+			ClaimAuthority:  claimAuthority,
 			SourceRef:       sourceRefForEvidenceItem(ev, origin),
 			Span: ObservationSpan{
 				LineStart: ev.LineStart,
@@ -1276,6 +1290,7 @@ func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationR
 			Object:          strings.TrimSpace(ev.Object),
 			Summary:         strings.TrimSpace(ev.Summary),
 			RawExcerpt:      strings.TrimSpace(ev.Snippet),
+			RichNotes:       notes,
 			SupportRefs:     cloneStringSlice(ev.SurfaceTerms),
 			SurfaceTerms:    cloneStringSlice(ev.SurfaceTerms),
 			Confidence:      ev.Confidence,

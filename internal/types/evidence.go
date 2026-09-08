@@ -714,6 +714,12 @@ type EvidenceItem struct {
 	DerivedFrom []string     `json:"derived_from,omitempty"`
 	Confidence  float64      `json:"confidence,omitempty"`
 	Producer    string       `json:"producer,omitempty"`
+	// DerivationCandidate is set only by system extractors when the claim was
+	// inferred from a heuristic match or join rather than proved as a complete
+	// source operation. Source locations remain useful for inspection; they do
+	// not prove this derived claim. Persist the bit across snapshots/replays,
+	// but never expose it in the model-writable emit_evidence schema.
+	DerivationCandidate bool `json:"derivation_candidate,omitempty"`
 	// RelationOrdinal is a system-authored, one-based declaration order for
 	// parser-grounded relations that share one source declaration
 	// (source/line/kind/subject). It preserves semantically relevant base,
@@ -1113,6 +1119,9 @@ func StableEvidenceID(item EvidenceItem) string {
 		"origin=" + string(item.Origin),
 		"authority=" + string(item.Authority),
 	}
+	if EvidenceIsDerivationCandidate(item) {
+		parts = append(parts, "derivation_candidate=true")
+	}
 	if item.SelectorApplication != nil {
 		parts = append(parts,
 			"selector_owner="+item.SelectorApplication.Owner,
@@ -1196,13 +1205,17 @@ func EvidenceRevisionKey(item EvidenceItem) string {
 			strings.TrimSpace(item.Condition),
 		}, "\x1e")
 	}
-	return strings.Join([]string{
+	parts := []string{
 		string(scope),
 		canonicalEvidenceIdentityPath(item.Source),
 		fmt.Sprintf("%d:%d", item.LineStart, end),
 		token,
 		semanticSiblingKey,
-	}, "\x1f")
+	}
+	if EvidenceIsDerivationCandidate(item) {
+		parts = append(parts, "derivation_candidate=true")
+	}
+	return strings.Join(parts, "\x1f")
 }
 
 func canonicalEvidenceIdentityPath(raw string) string {
@@ -1240,6 +1253,9 @@ func EvidenceStableMergeKey(item EvidenceItem) string {
 	if id == "" {
 		id = StableEvidenceID(item)
 	}
+	if EvidenceIsDerivationCandidate(item) {
+		id += "\x1fderivation_candidate=true"
+	}
 	if rev := EvidenceRevisionKey(item); rev != "" {
 		return id + "\x1frev=" + rev
 	}
@@ -1258,6 +1274,10 @@ func EvidenceStableMergeKey(item EvidenceItem) string {
 // carrier may still replace the bundle, so richer corrections remain possible.
 // Rich summaries and set-like fields are unioned independently.
 func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
+	// Even a caller forcing an explicit-ID collision cannot use a richer
+	// anchor or unmarked copy to upgrade a heuristic claim. A separately
+	// proved row has its own stable identity and remains independently usable.
+	dst.DerivationCandidate = dst.DerivationCandidate || src.DerivationCandidate
 	if dst.ID == "" {
 		if src.ID != "" {
 			dst.ID = src.ID
@@ -1341,6 +1361,9 @@ func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
 	}
 	if dst.Authority == AuthorityUnknown {
 		dst.Authority = src.Authority
+	}
+	if EvidenceIsDerivationCandidate(dst) {
+		dst.Authority = WeakerOf(WeakerOf(dst.Authority, src.Authority), AuthorityConditional)
 	}
 	if dst.AuthorityReason == "" {
 		dst.AuthorityReason = src.AuthorityReason

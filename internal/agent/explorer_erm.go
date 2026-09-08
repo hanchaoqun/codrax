@@ -546,6 +546,10 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 		return reqs
 	}
 	_ = notes
+	// Keep heuristic extractions in the navigation pool, but do not let a
+	// located source line stand in for proof of the extracted operation.
+	// Independent model/tool evidence still follows the existing rules below.
+	evidence = requirementFactEvidence(evidence)
 
 	for i := range reqs {
 		req := &reqs[i]
@@ -848,6 +852,9 @@ var normalizeForMatch = normalizer.NormalizeCodeKey
 func countEvidenceByKinds(evidence []types.EvidenceItem, entities []string, kinds ...types.EvidenceKind) int {
 	count := 0
 	for _, ev := range evidence {
+		if types.EvidenceIsDerivationCandidate(ev) {
+			continue
+		}
 		kindMatch := false
 		for _, k := range kinds {
 			if ev.Kind == k {
@@ -934,6 +941,9 @@ func matchEvidenceSlotsByEntity(ev types.EvidenceItem, entity string) bool {
 func countEvidenceForRequirement(evidence []types.EvidenceItem, entities []string, reqKind types.RequirementKind) int {
 	count := 0
 	for _, ev := range evidence {
+		if types.EvidenceIsDerivationCandidate(ev) {
+			continue
+		}
 		if !types.EvidenceStructurallyMatchesRequirement(ev, reqKind) {
 			continue
 		}
@@ -942,6 +952,26 @@ func countEvidenceForRequirement(evidence []types.EvidenceItem, entities []strin
 		}
 	}
 	return count
+}
+
+// requirementFactEvidence excludes only explicitly marked system candidates
+// from factual bookkeeping. It never mutates the retained pool or
+// changes the legacy policy for evidence without that limitation.
+func requirementFactEvidence(items []types.EvidenceItem) []types.EvidenceItem {
+	for i, item := range items {
+		if !types.EvidenceIsDerivationCandidate(item) {
+			continue
+		}
+		out := make([]types.EvidenceItem, 0, len(items)-1)
+		out = append(out, items[:i]...)
+		for _, remaining := range items[i+1:] {
+			if !types.EvidenceIsDerivationCandidate(remaining) {
+				out = append(out, remaining)
+			}
+		}
+		return out
+	}
+	return items
 }
 
 // ermUnsatisfiedGaps returns a human-readable prompt section describing
@@ -1438,7 +1468,7 @@ func formatERMStatuses(reqs []EvidenceRequirement) string {
 // predicate contains "binds" (e.g. "binds ONLY", "binds first").
 //
 // Single source of truth used by both `identifyAnswerChains` (which
-// classifies these as candidate Ground Truth answer chains) and the
+// classifies these as candidate answer chains) and the
 // `case "registration"` branch of `checkRequirementSatisfaction` (which
 // uses them to satisfy registration requirements without depending on
 // LLM-tagged [REGISTRATION] notes). Keeping the predicate in one helper
@@ -1823,15 +1853,17 @@ func resolutionChainControlText(ev types.EvidenceItem) string {
 
 // hasTerminalEvidence reports whether any item in the strict subset
 // carries a structurally single-symbol terminal shape. Called by
-// Turn A ParseOutput to compute terminalEvidenceCount (β) which
-// becomes the cardinality baseline Turn B (extractor) cross-checks
-// the emitted answer-symbol slate against.
+// Turn A ParseOutput to compute terminalEvidenceCount (β), which is
+// advisory evidence breadth, not a hard answer-symbol cardinality floor.
 //
 // `decorates` and `maps` Concrete evidence are recognised as
 // terminal shapes alongside registration chains. Both carry an
 // `X → Y` hop pair where the terminal Y is a handler/value.
 func hasTerminalEvidence(items []types.EvidenceItem) bool {
 	for _, ev := range items {
+		if types.EvidenceIsDerivationCandidate(ev) {
+			continue
+		}
 		if isRegistrationShape(ev) {
 			return true
 		}
@@ -1877,6 +1909,9 @@ func hasGroundedRequirementCarrier(items []types.EvidenceItem, reqs []EvidenceRe
 		return false
 	}
 	for _, ev := range items {
+		if types.EvidenceIsDerivationCandidate(ev) {
+			continue
+		}
 		switch ev.GroundingStatus {
 		case types.GroundingGrounded, types.GroundingRecovered, "":
 		default:

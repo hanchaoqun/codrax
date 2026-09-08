@@ -57380,6 +57380,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1696 B1627a+b 冻结与下一双例优先级（2026-09-08）
+
+前一独立tool小批B1625已提交推送`0a3faa59c`。本批处理“系统候选被当事实/答案”的通用生产与消费闭包；不替模型写结论，不改变Trace根因资格/值/自动补采，不按请求或答案正文词汇造门。
+
+1. **源提取**：构造器形状参数、普通resolution_chain、bridge_literal及consumer_gate派生join显式携带系统候选限制；单次扫描只找到一个候选不再铸ONLY。完整单行return保留全部表达式，独立确定字面量仍为原源事实；未知/部分语法保留原文作候选，不冒充计算后的值。真实TS/Go ParseFiles入口正反例与SupportedReadLanguages()的15语言母表齐有处置：14种执行语言做公共提取形状测试，Proto做声明对照；这些**不是**15种语言原生编译/完整语义证明。复核发现的新`//`截断风险以有效首红修复，Python/Lua除法不被裁剪，JS regexp/template、Rust lifetime等歧义不造截短强值。
+2. **依据资格**：新bit进入stable/revision/merge并由新快照JSON保留；同ID强制合并继承双方较弱等级。ledger不因line/grounded而给候选独立证明，authority/backfill幂等补边界；附件requalify只补物理身份，显式inference不升级Origin/Kind，也不与独立实际观测合并。原位置/片段/表达式/独立强证据不丢失。旧无标记的历史快照保持旧策略，**不反推其未证性，也不宣称历史启发式全部闭环**；历史迁移与全语言操作证明仍属后续设计。
+3. **消费与教学**：候选仍在导航池；不用于事实完成、终点计数或已有关系覆盖门的强证据。关系provider沿明确DerivedFrom ID传播最弱限制并用既有heuristic精度，不扩大硬门；独立精确行不被同位置候选吞并。StageReport/EvidencePool/dossier及extract-skill不再把每个链尾预选为答案；精简AcceptedEvidenceRef同样保bit，64条显示上限/定位状态不变。共享边界为stage-neutral事实说明，不要求无工具阶段重新读源。
+4. **JSON合同**：模型不能写候选bit；实际emit true/false两臂均由现schema拒绝。保留items[]等合法教学。纠正三处expected-count措辞及一条陈旧测试：β/terminal/MustInclude是现有软指导，硬floor只来自明确集合/主题锚；没有新增填凑答案义务，也未改已有typed escape或预算阈值。
+5. **冻结验证**：有效首红涵盖source提取、资格/合并、附件、精简交接、实际producer→relation provider及上下文相反总教学，保留于`.codrax/tmp/20260908-b1627*`和`B1627-consumers-*`。新旧族count3及窄race均通过；root冻结定向5包通过（`20260908-b1627-final-targeted.log`），包含真实4ms evaluator预算不取消活跃SSE以及混合fallback看护针。全仓测试进行中，结果另记，未提前称全绿。
+
+当前case盘243项（默认read215、apply25、plan3）。按确定性机制风险、本批影响面、异构覆盖与老化、原生可执行性排序：
+
+| 顺序 | 现有case | 验收重点与界限 |
+|---|---|---|
+| 下一双例r1041（严格并行2） | sr_py_registry_dispatch + real_trace_d4_demand_vs_supply | Python真实装饰器注册/解析/图关系，不围绕TS同题求绿；Trace显式窗的依赖/供给两轴、目标账/投影/自动补采及背景不升主因。H8已有陈旧oracle结论，暂不重复追词形。 |
+| 随后双例 | Cangjie/ArkTS关系读 + 原生可执行的跨仓Python写 | 补语言/模式覆盖；正式验证域和逐义务凭证比模型自述测试通过优先。 |
+| 后续机制施工 | B1624b/c、B1626、B1623、B1622及原开放项 | 结果派生阅读/streamed提示，多请求窗身份，CPU线程总量聚合，原生写验证证明。按实际witness推进，不让一次机器PASS代销全部。 |
+
+最终全仓验收：`go test ./... -count=1`退出0，86包通过（`20260908-b1627-full-suite-final.log`），并已独立只读复核红线。首轮84包通过、agent/skill三条失败原样留存于`...-full-suite.log`：新共享提示误带内部字段名MustInclude已改普通语义；DOWNGRADED保原合同断言；旧bridge刷新测试仍要求猜测join授集合权，现改为原聚合与候选保留而不授强权，再实际ReadFile→EmitEvidence提交独立显式注册，第二次ParseOutput及TurnA必须刷新精确权限。没有删除原正向能力，旧bridge仍不升级。该双阶段测试族count3/race通过后执行上述第二次全仓；不把首轮失败算绿。
+
+新live须提交后clean make且固定快照；未改case/oracle/历史答案。自动结果与人工过程/正文审计分开记账。
+
 ### §123.1695 B1625 / B1627a+b：目标账出口与提取依据闭包（2026-09-08，分批施工）
 
 远程核对main@8e3d51c50，HEAD/origin无差异；原工作区clean。两条独立实现线并行，root统一验收分批提交，不改case/oracle、不提前启动live。

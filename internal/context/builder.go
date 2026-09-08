@@ -1060,10 +1060,9 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	//
 	//   - CompletenessComplete → Translation mode (legacy behaviour):
 	//     render with "MUST NOT add or remove" directive. Used when
-	//     the producer has structurally validated the list against
-	//     Turn A's TerminalEvidenceCount and AnswerContract.MustInclude,
-	//     or when the legacy flag-off explorer path committed after
-	//     hasTerminalEvidence passed.
+	//     the model's complete claim has survived the applicable precise
+	//     typed cardinality floor. Turn A's terminal candidate count and
+	//     AnswerContract.MustInclude are advisory, not hard floors.
 	//
 	//   - CompletenessLowerBound → softened floor prompt: render with
 	//     "MUST include at least these, MAY add more" directive. Used
@@ -1133,8 +1132,8 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// AnswerChains are no longer rendered as a separate "Ground Truth"
 	// section here — the explorer's stage report (see stage_report_render.go)
 	// already carries them under Prior Stage Findings' Resolution
-	// Chains subsection with the same "do NOT contradict, terminal is
-	// the answer" directive text. Rendering the same chain list twice
+	// Chains subsection with the same derivation boundaries. A candidate
+	// endpoint is not automatically the answer. Rendering the same list twice
 	// with different headers was pure signal dilution; the duplicate
 	// was ~5% of the extractor prompt and ~1-2% of the finalizer
 	// prompt. Consolidated 2026-04-17.
@@ -1867,7 +1866,8 @@ func exactResolutionScenarioForRender(ac *types.AgentContext) types.Scenario {
 func knowledgePoolPreamble() string {
 	return "The pool below unifies evidence the investigation collected (provenance=llm_evidence) " +
 		"with structurally-derived relation candidates from repository indexes or observations. " +
-		"Treat llm_evidence rows as grounded evidence; treat typed_* rows as advisory candidates to verify with normal source/observation citations before making them user-visible claims.\n\n"
+		"Treat llm_evidence rows as grounded evidence only within their stated boundaries; treat typed_* rows as advisory candidates to verify with normal source/observation citations before making them user-visible claims. " +
+		"Each row's derivation and grounding boundaries take precedence over its provenance label; a source-located candidate is not proof of the operation or answer.\n\n"
 }
 
 func typedSupportKnowledgePoolPreamble() string {
@@ -1989,6 +1989,9 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 		}
 		if loc := item.DisplayLocation(opts.StrictLocation); loc != "" {
 			line += " (" + loc + ")"
+		}
+		if boundary := types.EvidenceDerivationBoundary(item); boundary != "" {
+			line += " [" + boundary + "]"
 		}
 		if item.GroundingStatus == types.GroundingRecovered {
 			if opts.StrictLocation {
@@ -2262,18 +2265,23 @@ func formatRelationDossierEvidence(items []types.EvidenceItem) string {
 			if guard == "" {
 				continue
 			}
-			key := "guard\x00" + strings.ToLower(guard) + "\x00" + strings.ToLower(item.Source)
+			key := "guard\x00" + strings.ToLower(guard) + "\x00" + strings.ToLower(item.Source) + fmt.Sprintf("\x00candidate=%t", types.EvidenceIsDerivationCandidate(item))
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
 			status := "lead"
-			if item.IsCitable() {
+			if types.EvidenceIsDerivationCandidate(item) {
+				status = "candidate"
+			} else if item.IsCitable() {
 				status = "verified"
 			}
 			fmt.Fprintf(&b, "- %s guard %s", status, relationDossierClip(guard))
 			if loc := item.DisplayLocation(false); loc != "" {
 				fmt.Fprintf(&b, " @ %s", loc)
+			}
+			if boundary := types.EvidenceDerivationBoundary(item); boundary != "" {
+				fmt.Fprintf(&b, "; %s", boundary)
 			}
 			b.WriteByte('\n')
 			written++
@@ -2282,14 +2290,16 @@ func formatRelationDossierEvidence(items []types.EvidenceItem) string {
 		if subject == "" || object == "" {
 			continue
 		}
-		key := strings.ToLower(subject) + "\x00" + strings.ToLower(object) + "\x00" + strings.ToLower(string(item.AnchorKind)) + "\x00" + strings.ToLower(item.Source)
+		key := strings.ToLower(subject) + "\x00" + strings.ToLower(object) + "\x00" + strings.ToLower(string(item.AnchorKind)) + "\x00" + strings.ToLower(item.Source) + fmt.Sprintf("\x00candidate=%t", types.EvidenceIsDerivationCandidate(item))
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 		relation := relationDossierEvidenceRelation(item)
 		status := "lead"
-		if item.IsCitable() {
+		if types.EvidenceIsDerivationCandidate(item) {
+			status = "candidate"
+		} else if item.IsCitable() {
 			status = "verified"
 		}
 		fmt.Fprintf(&b, "- %s %s -> %s", status, relationDossierClip(subject), relationDossierClip(object))
@@ -2301,6 +2311,9 @@ func formatRelationDossierEvidence(items []types.EvidenceItem) string {
 		}
 		if item.AnchorSymbol != "" {
 			fmt.Fprintf(&b, " anchor=%s", relationDossierClip(item.AnchorSymbol))
+		}
+		if boundary := types.EvidenceDerivationBoundary(item); boundary != "" {
+			fmt.Fprintf(&b, "; %s", boundary)
 		}
 		b.WriteByte('\n')
 		written++

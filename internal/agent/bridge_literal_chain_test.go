@@ -2,11 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -428,29 +431,85 @@ func (s *SubExplorer) Name() string {
 		readFileCoverageResult("subagent.go", 1, 5, 5),
 		readFileCoverageResult("sub_explorer.go", 1, 11, 11),
 	}
+	originalFacts := mut.StableInvestigationAggregateFacts()
 	out, err := eval.ParseOutput(ctx, nil, toolResults, nil)
 	if err != nil {
 		t.Fatalf("ParseOutput error: %v", err)
 	}
 	got := mut.StableInvestigationAggregateFacts()
-	if len(got) != 1 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(got[0]) {
-		t.Fatalf("ParseOutput did not refresh the accepted aggregate authority after deterministic evidence: facts=%+v evidence=%+v", got, out.EvidenceItems)
+	if !reflect.DeepEqual(got, originalFacts) || len(got) != 1 || types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(got[0]) {
+		t.Fatalf("candidate-only bridge changed or authorized the model's aggregate: facts=%+v evidence=%+v", got, out.EvidenceItems)
 	}
 	handoff := mut.TurnAArtifacts()
 	if handoff == nil || len(handoff.AcceptedAggregateFacts) != 1 ||
-		!types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(handoff.AcceptedAggregateFacts[0]) {
-		t.Fatalf("Turn-A handoff did not receive refreshed authority: %+v", handoff)
+		!reflect.DeepEqual(handoff.AcceptedAggregateFacts, originalFacts) ||
+		types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(handoff.AcceptedAggregateFacts[0]) {
+		t.Fatalf("Turn-A handoff lost the aggregate or promoted the candidate: %+v", handoff)
 	}
 	foundBridge := false
 	for _, item := range out.EvidenceItems {
 		if item.Producer == "bridge_literal" && item.OwnerSymbol == "RegisterDefaultSubAgents" &&
 			item.DeclaredOwner == "SubAgentRegistry" && item.Object == `"explorer"` {
+			if !types.EvidenceIsDerivationCandidate(item) {
+				t.Fatalf("call endpoint and identity-return heuristic became operation proof: %+v", item)
+			}
 			foundBridge = true
 			break
 		}
 	}
 	if !foundBridge {
-		t.Fatalf("ParseOutput did not preserve the exact bridge evidence: %+v", out.EvidenceItems)
+		t.Fatalf("ParseOutput did not preserve the bridge navigation evidence: %+v", out.EvidenceItems)
+	}
+
+	// A separately observed explicit registry assignment can refresh the same
+	// accepted member set. The heuristic bridge must not be upgraded to make
+	// that happen: read and emit the actual assignment, then exercise the
+	// ParseOutput refresh and its retained Turn-A handoff again.
+	const registration = `package agent
+type SubAgentRegistry struct { members map[string]*SubExplorer }
+func RegisterExactName(r *SubAgentRegistry, sa *SubExplorer) {
+    r.members["explorer"] = sa
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "registry_assignment.go"), []byte(registration), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bus := &types.BusContext{RepoRoot: root, WorkDir: t.TempDir(), Mutable: mut, AnalysisIR: ctx.AnalysisIR}
+	read, err := (&tool.ReadFile{}).Execute(bus, json.RawMessage(`{"path":"registry_assignment.go"}`))
+	if err != nil || !read.Success {
+		t.Fatalf("read exact registration: %v %+v", err, read)
+	}
+	mut.AppendDispatchToolResult(read)
+	emitted, err := (&tool.EmitEvidence{}).Execute(bus, json.RawMessage(`{"items":[{"kind":"registration","scope":"line","subject":"SubAgentRegistry","predicate":"registers","object":"explorer","source":"registry_assignment.go","line_start":4,"anchor_kind":"assignment","anchor_symbol":"r.members","salience":"load_bearing","summary":"The registry explicitly stores the explorer member."}]}`))
+	if err != nil || !emitted.Success {
+		t.Fatalf("emit independently exact registration: %v %+v", err, emitted)
+	}
+	exactItems := mut.EmittedEvidence()
+	if len(exactItems) != 1 || types.EvidenceIsDerivationCandidate(exactItems[0]) || !exactItems[0].IsCitable() || exactItems[0].GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("independent emission did not supply exact evidence: %+v", exactItems)
+	}
+	if !reflect.DeepEqual(mut.StableInvestigationAggregateFacts(), originalFacts) {
+		t.Fatal("evidence emission must not preempt ParseOutput's aggregate refresh")
+	}
+	out, err = eval.ParseOutput(ctx, nil, append(toolResults, read), nil)
+	if err != nil {
+		t.Fatalf("ParseOutput with exact registration: %v", err)
+	}
+	got = mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(got[0]) {
+		t.Fatalf("ParseOutput did not refresh independently evidenced aggregate: %+v", got)
+	}
+	if !reflect.DeepEqual(got[0].Members, originalFacts[0].Members) || !reflect.DeepEqual(got[0].SupportRefs, originalFacts[0].SupportRefs) || got[0].Value != originalFacts[0].Value {
+		t.Fatalf("authority refresh rewrote the model's accepted members or support: %+v", got)
+	}
+	handoff = mut.TurnAArtifacts()
+	if handoff == nil || !reflect.DeepEqual(handoff.AcceptedAggregateFacts, got) || !types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(handoff.AcceptedAggregateFacts[0]) {
+		t.Fatalf("Turn-A handoff did not receive the exact-evidence refresh: %+v", handoff)
+	}
+	for _, item := range out.EvidenceItems {
+		if item.Producer == "bridge_literal" && !types.EvidenceIsDerivationCandidate(item) {
+			t.Fatalf("independent exact evidence silently upgraded the old bridge: %+v", item)
+		}
 	}
 }
 

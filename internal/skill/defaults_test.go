@@ -1444,7 +1444,7 @@ func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 	}
 	for _, want := range []string{
 		"emit_answer_symbol.items[]",
-		"the answer is the terminal that the chain RESOLVES TO",
+		"Resolution Chains provide candidate paths, not a preselected answer set",
 		"final rendering answers from prose / blocks only",
 		"explicitly renders an `Anchor skeleton (one per sub-topic)` block",
 		"Classification sub_topics alone are guidance, not a hard slate obligation",

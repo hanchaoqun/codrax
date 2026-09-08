@@ -4976,12 +4976,13 @@ func (e *explorerEvaluator) relationConsumerGateValues(ctx context.Context, grap
 				}
 				seenValue[key] = true
 				out = append(out, concreteValue{
-					file:     file,
-					receiver: owner,
-					method:   qual,
-					kind:     cv.kind,
-					value:    cv.value,
-					line:     line,
+					file:      file,
+					receiver:  owner,
+					method:    qual,
+					kind:      cv.kind,
+					value:     cv.value,
+					line:      line,
+					candidate: cv.candidate,
 				})
 				if len(out) >= relationConsumerGateMaxValues {
 					break
@@ -8461,6 +8462,9 @@ func (e *explorerEvaluator) groundedRequirementCarrierCount() int {
 	}
 	count := 0
 	for _, ev := range e.structuredEvidence {
+		if types.EvidenceIsDerivationCandidate(ev) {
+			continue
+		}
 		switch ev.GroundingStatus {
 		case types.GroundingGrounded, types.GroundingRecovered, "":
 		default:
@@ -8565,6 +8569,9 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 
 	directCount := 0
 	for _, item := range e.structuredEvidence {
+		if types.EvidenceIsDerivationCandidate(item) {
+			continue
+		}
 		switch item.Kind {
 		case types.EvidenceDirect, types.EvidenceRegistration:
 			directCount++
@@ -13044,7 +13051,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	if cvPreview != "" {
 		hint.WriteString("\n\n---\n## Programmatic Evidence Preview\n\n")
 		hint.WriteString("The system has ALREADY extracted the following concrete values from source code. " +
-			"You do NOT need to re-investigate these — they will be provided as ground truth in synthesis.\n\n")
+			"Use them to focus source inspection; candidate derivations still need relationship verification and are not guaranteed answers.\n\n")
 		// Truncate to keep the continuation prompt from bloating.
 		if len(cvPreview) > e.heuristics.CVPreviewMaxLen {
 			cvPreview = types.CutPrefixRuneSafe(cvPreview, e.heuristics.CVPreviewMaxLen) + "\n... [preview truncated]\n"
@@ -13889,22 +13896,19 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// Turn A computes only the terminal-evidence count (β) and hands
-	// the strict subset to Turn B via TurnAArtifacts. Turn B
-	// (extractor) is the sole producer of AnswerSymbols — it calls
-	// emit_answer_symbol and the cardinality validator cross-checks
-	// the emitted count against max(β, len(AnswerContract.MustInclude))
-	// before allowing a CompletenessComplete claim to pass through to
-	// the finalizer. Turn A leaves StageOutput.AnswerSymbols nil and
+	// Turn A computes the advisory terminal-evidence count (β) and hands
+	// the request-predicate-matching subset to Turn B via TurnAArtifacts.
+	// StrictOK establishes request fit, not derivation strength. Turn B
+	// (extractor) is the sole producer of AnswerSymbols; β is not its hard
+	// cardinality floor. Turn A leaves StageOutput.AnswerSymbols nil and
 	// the completeness claim at CompletenessUnknown; the orchestrator's
 	// per-task merge rule treats nil as "no claim yet" so Turn B's
 	// subsequent output authoritatively fills the slot.
 	// β counts DISTINCT answer terminals, not raw evidence items.
 	// When multiple strict chains converge on the same terminal
 	// (e.g. two chains both ending in `Name() returns "explorer"`),
-	// they describe ONE answer — inflating β with per-chain counts
-	// pushes the extractor's cardinality validator to demand a slate
-	// that over-populates with mechanism nodes just to clear floor.
+	// they describe ONE terminal — inflating β with per-chain counts
+	// would give the extractor misleading cardinality guidance.
 	// Chains whose terminal is unparseable (key == "") count
 	// independently so we never under-count by collapsing legitimately
 	// distinct answers into one.
@@ -15612,7 +15616,7 @@ func runtimeTargetExactReturnExpression(raw, lang string) (string, bool) {
 	values := make([]string, 0, 1)
 	for _, entry := range extractConcreteValues(raw, lang) {
 		value := strings.TrimSpace(entry.value)
-		if entry.kind != concreteValueKindReturns || entry.lineOffset != 0 || value == "" ||
+		if entry.kind != concreteValueKindReturns || entry.candidate || entry.lineOffset != 0 || value == "" ||
 			!runtimeTargetReturnExpressionBalanced(value) {
 			continue
 		}
@@ -16864,12 +16868,13 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 					snippet := strings.Join(allLines[ctxStart:ctxEnd], "\n")
 					for _, cv := range extractConcreteValues(snippet, fi.Language) {
 						allValues = append(allValues, concreteValue{
-							file:     file,
-							receiver: owner,
-							method:   qualName,
-							kind:     cv.kind,
-							value:    cv.value,
-							line:     concreteValueAbsoluteLine(ctxStart+1, cv.lineOffset),
+							file:      file,
+							receiver:  owner,
+							method:    qualName,
+							kind:      cv.kind,
+							value:     cv.value,
+							line:      concreteValueAbsoluteLine(ctxStart+1, cv.lineOffset),
+							candidate: cv.candidate,
 						})
 					}
 				}
@@ -16894,12 +16899,13 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 					continue
 				}
 				allValues = append(allValues, concreteValue{
-					file:     file,
-					receiver: owner,
-					method:   qualName,
-					kind:     cv.kind,
-					value:    cv.value,
-					line:     concreteValueAbsoluteLine(sym.Line, cv.lineOffset),
+					file:      file,
+					receiver:  owner,
+					method:    qualName,
+					kind:      cv.kind,
+					value:     cv.value,
+					line:      concreteValueAbsoluteLine(sym.Line, cv.lineOffset),
+					candidate: cv.candidate,
 				})
 			}
 		}
@@ -16935,12 +16941,13 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			receiver, qualName := declarationConcreteValueContext(sym)
 			for _, cv := range extractDeclarationConcreteValues(src, fi.Language) {
 				allValues = append(allValues, concreteValue{
-					file:     file,
-					receiver: receiver,
-					method:   qualName,
-					kind:     cv.kind,
-					value:    cv.value,
-					line:     sym.Line,
+					file:      file,
+					receiver:  receiver,
+					method:    qualName,
+					kind:      cv.kind,
+					value:     cv.value,
+					line:      sym.Line,
+					candidate: cv.candidate,
 				})
 			}
 		}
@@ -17294,7 +17301,8 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		b.WriteString(terminalBodyCalls.markdown)
 	}
 	b.WriteString("## Concrete Values (programmatically extracted from source code)\n\n")
-	b.WriteString("These are EXACT values from source code — ground truth, not summaries. " +
+	b.WriteString("Source expressions retain their original text; a source location is not proof of a derived relationship. " +
+		"Rows marked Candidate derivation are inspection leads, not proven operations, exclusive bindings, or answers. " +
 		"Rows whose Fact column starts with `calls →` surface cross-component " +
 		"dispatch: the method on the left transfers control to the target on the " +
 		"right. Follow the arrow with a `read_file` on the target's file to trace " +
@@ -17317,6 +17325,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			fact = "guard: " + v.value
 		case "errors":
 			fact = "⚠ " + v.value
+		}
+		if v.candidate {
+			fact = "Candidate derivation: " + fact
 		}
 		fmt.Fprintf(&b, "| %s:%d | `%s()` | %s |\n",
 			v.file, v.line, v.method, fact)
@@ -17555,7 +17566,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	}
 	if len(chains) > 0 {
 		b.WriteString("### Resolution Chains\n\n")
-		b.WriteString("These chains trace through the concrete values to resolve conditions:\n\n")
+		b.WriteString("Candidate derivations join source expressions by structural/name correspondence. Inspect the cited sources to establish each relationship; the terminal is not a guaranteed answer.\n\n")
 		for _, c := range chains {
 			b.WriteString("- " + c + "\n")
 		}
@@ -17685,7 +17696,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			hierarchyChains = hierarchyChains[:hierCap]
 		}
 		b.WriteString("### Type Hierarchy Chains\n\n")
-		b.WriteString("These types inherit behavior via embedding (Go) or inheritance (Java/Python/JS/Rust):\n\n")
+		b.WriteString("Candidate behavior paths follow embedding/inheritance declarations. Check method selection and overrides before attributing a parent's behavior or value to a child.\n\n")
 		for _, e := range hierarchyChains {
 			b.WriteString("- " + e + "\n")
 		}
@@ -17719,17 +17730,18 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		kind := types.EvidenceConcrete
 		predicate := v.kind
 		cvItem := types.EvidenceItem{
-			Kind:       kind,
-			Subject:    v.method,
-			Predicate:  predicate,
-			Object:     v.value,
-			Source:     v.file,
-			LineStart:  v.line,
-			LineEnd:    v.line,
-			Confidence: 0.95,
-			Producer:   "concrete_values",
-			Summary:    fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
-			Scope:      types.ScopeLine,
+			Kind:                kind,
+			Subject:             v.method,
+			Predicate:           predicate,
+			Object:              v.value,
+			Source:              v.file,
+			LineStart:           v.line,
+			LineEnd:             v.line,
+			Confidence:          0.95,
+			Producer:            "concrete_values",
+			Summary:             fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
+			Scope:               types.ScopeLine,
+			DerivationCandidate: v.candidate,
 			// 2026-05-02 L1: project the syntactic predicate into the
 			// typed AnchorKind axis so Phase 0's ClaimFormOf can
 			// classify the evidence (was 100% ClaimUnknown
@@ -17772,13 +17784,14 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		// downstream consumers (the chain producer fills LineStart=0
 		// intentionally; existing logic accepts that).
 		chainItem := types.EvidenceItem{
-			Kind:       types.EvidenceDataflowPath,
-			Subject:    c,
-			Predicate:  "resolution_chain",
-			Confidence: 0.9,
-			Producer:   "concrete_values",
-			Summary:    c,
-			Scope:      types.ScopeLine,
+			Kind:                types.EvidenceDataflowPath,
+			Subject:             c,
+			Predicate:           "resolution_chain",
+			Confidence:          0.9,
+			Producer:            "concrete_values",
+			Summary:             c,
+			Scope:               types.ScopeLine,
+			DerivationCandidate: true,
 		}
 		chainItem.ID = types.StableEvidenceID(chainItem)
 		cvEvidence = append(cvEvidence, chainItem)
@@ -18568,12 +18581,13 @@ func extractDecisionBlocks(lines []string, funcStart, funcEnd int, lineFeatures 
 // for Pass D consumer-gate join. Previously declared inside
 // buildConcreteValuesSection.
 type concreteValue struct {
-	file     string
-	receiver string
-	method   string // qualified: Receiver.Name or Name
-	kind     string // "returns", "binds ONLY", "assigns", etc.
-	value    string
-	line     int
+	file      string
+	receiver  string
+	method    string // qualified: Receiver.Name or Name
+	kind      string // "returns", "binds", "assigns", etc.
+	value     string
+	line      int
+	candidate bool // system-owned limit on a heuristic or incomplete derivation
 }
 
 type concreteValueReceiverIndex struct {
@@ -18653,7 +18667,7 @@ func concreteValueFoldName(s string) string {
 }
 
 func concreteValueKey(v concreteValue) string {
-	return v.file + "\x00" + v.receiver + "\x00" + v.method + "\x00" + v.kind + "\x00" + v.value + "\x00" + strconv.Itoa(v.line)
+	return v.file + "\x00" + v.receiver + "\x00" + v.method + "\x00" + v.kind + "\x00" + v.value + "\x00" + strconv.Itoa(v.line) + "\x00" + strconv.FormatBool(v.candidate)
 }
 
 func (idx *concreteValueReceiverIndex) addReceiver(out map[string]bool, receiver string) {
@@ -18786,9 +18800,10 @@ func graphFileInfo(graph *repomap.Graph, file string) *repotypes.FileInfo {
 }
 
 type concreteValueEntry struct {
-	kind       string // "returns", "binds ONLY", "binds"
+	kind       string // "returns", "binds", etc.
 	value      string // the concrete value
 	lineOffset int    // zero-based line offset within the scanned snippet
+	candidate  bool   // extraction is a lead, not an independently established fact
 }
 
 func concreteValueAbsoluteLine(snippetStartLine, lineOffset int) int {
@@ -19155,8 +19170,7 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 						if len(cv.value) < 2 {
 							continue
 						}
-						first, last := cv.value[0], cv.value[len(cv.value)-1]
-						if (first != '"' && first != '\'') || first != last {
+						if cv.candidate || !concreteValueIsQuotedLiteral(cv.value) {
 							continue
 						}
 						lit := cv.value[1 : len(cv.value)-1]
@@ -19253,24 +19267,25 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 					}
 					seen[summary] = true
 					bridgeItem := types.EvidenceItem{
-						Kind:         types.EvidenceDataflowPath,
-						Subject:      summary,
-						Predicate:    "resolution_chain",
-						Object:       strconv.Quote(id.literal),
-						Summary:      summary,
-						Source:       b.file,
-						LineStart:    b.line,
-						LineEnd:      b.line,
-						DerivedFrom:  []string{terminalID},
-						Confidence:   0.9,
-						Producer:     "bridge_literal",
-						Scope:        types.ScopeLine,
-						AnchorSymbol: id.class + "." + id.method,
-						OwnerSymbol:  b.fnQual,
+						Kind:                types.EvidenceDataflowPath,
+						Subject:             summary,
+						Predicate:           "resolution_chain",
+						Object:              strconv.Quote(id.literal),
+						Summary:             summary,
+						Source:              b.file,
+						LineStart:           b.line,
+						LineEnd:             b.line,
+						DerivedFrom:         []string{terminalID},
+						Confidence:          0.9,
+						Producer:            "bridge_literal",
+						Scope:               types.ScopeLine,
+						DerivationCandidate: true,
+						AnchorSymbol:        id.class + "." + id.method,
+						OwnerSymbol:         b.fnQual,
 						// DeclaredOwner is a system-only endpoint identity resolved from
 						// the parser-authored call edge at this exact binding line. The
-						// bridge already proves the registration relation; this field
-						// only lets typed consumers address that same fact from the
+						// join remains a candidate; this field
+						// only lets typed consumers address the source call from the
 						// registry/receiver side. Missing or ambiguous owners stay empty.
 						DeclaredOwner: b.registryOwner,
 					}
@@ -19288,16 +19303,17 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 				}
 				seen[summary] = true
 				bridgeFactoryItem := types.EvidenceItem{
-					Kind:       types.EvidenceDataflowPath,
-					Subject:    summary,
-					Predicate:  "resolution_chain",
-					Summary:    summary,
-					Source:     b.file,
-					LineStart:  b.line,
-					LineEnd:    b.line,
-					Confidence: 0.88,
-					Producer:   "bridge_literal",
-					Scope:      types.ScopeLine,
+					Kind:                types.EvidenceDataflowPath,
+					Subject:             summary,
+					Predicate:           "resolution_chain",
+					Summary:             summary,
+					Source:              b.file,
+					LineStart:           b.line,
+					LineEnd:             b.line,
+					Confidence:          0.88,
+					Producer:            "bridge_literal",
+					Scope:               types.ScopeLine,
+					DerivationCandidate: true,
 				}
 				bridgeFactoryItem.ID = types.StableEvidenceID(bridgeFactoryItem)
 				items = append(items, bridgeFactoryItem)
@@ -19353,16 +19369,17 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 				}
 				seen[summary] = true
 				consumerItem := types.EvidenceItem{
-					Kind:       types.EvidenceDataflowPath,
-					Subject:    summary,
-					Predicate:  "resolution_chain",
-					Summary:    summary,
-					Source:     cv.file,
-					LineStart:  cv.line,
-					LineEnd:    cv.line,
-					Confidence: 0.85,
-					Producer:   "consumer_gate",
-					Scope:      types.ScopeLine,
+					Kind:                types.EvidenceDataflowPath,
+					Subject:             summary,
+					Predicate:           "resolution_chain",
+					Summary:             summary,
+					Source:              cv.file,
+					LineStart:           cv.line,
+					LineEnd:             cv.line,
+					Confidence:          0.85,
+					Producer:            "consumer_gate",
+					Scope:               types.ScopeLine,
+					DerivationCandidate: true,
 				}
 				consumerItem.ID = types.StableEvidenceID(consumerItem)
 				items = append(items, consumerItem)
@@ -19762,6 +19779,76 @@ func stripCommentLines(lines []string) []string {
 	return out
 }
 
+// concreteValueReturnExpression preserves one source-line expression. Only
+// statement terminators and enclosing-body braces outside the expression are
+// removed; braces inside composite values and quoted bytes remain intact. This
+// is a source-text boundary, not authority for a call, binding, or runtime value.
+func concreteValueReturnExpression(raw, lang string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	jsLike := lang == repotypes.LangJavaScript || lang == repotypes.LangTypeScript || lang == repotypes.LangArkTS
+	var quote rune
+	escaped := false
+	stack := make([]rune, 0, 4)
+	for i, r := range value {
+		if quote != 0 {
+			if escaped {
+				escaped = false
+			} else if r == '\\' {
+				escaped = true
+			} else if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		// These source forms require a language parser to distinguish
+		// operators/comments, regexp/templates, or lifetime syntax. Keep
+		// their exact bytes as a candidate rather than trimming to a
+		// misleading smaller expression. Python/Lua // is floor division.
+		if (jsLike && (r == '/' || r == '`')) ||
+			(lang == repotypes.LangRust && r == '\'' && !concreteValueIsQuotedLiteral(value)) ||
+			(strings.HasPrefix(value[i:], "//") && lang != repotypes.LangPython && lang != repotypes.LangLua) ||
+			strings.HasPrefix(value[i:], "/*") || r == '#' {
+			return value, false
+		}
+		if len(stack) == 0 && (r == ';' || r == '}') {
+			value = strings.TrimSpace(value[:i])
+			break
+		}
+		switch r {
+		case '\'', '"', '`':
+			quote = r
+		case '(', '[', '{':
+			stack = append(stack, r)
+		case ')', ']', '}':
+			if len(stack) == 0 || stack[len(stack)-1] != map[rune]rune{')': '(', ']': '[', '}': '{'}[r] {
+				return value, false
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	return value, value != "" && runtimeTargetReturnExpressionBalanced(value)
+}
+
+// A source expression such as "prefix" + "suffix" is not one literal. The
+// bridge may keep the expression as a source clue, but must not mint a quoted
+// terminal value by removing only its first and last quote.
+func concreteValueIsQuotedLiteral(value string) bool {
+	if len(value) < 2 || (value[0] != '"' && value[0] != '\'') {
+		return false
+	}
+	escaped := false
+	for i := 1; i < len(value); i++ {
+		if escaped {
+			escaped = false
+		} else if value[i] == '\\' {
+			escaped = true
+		} else if value[i] == value[0] {
+			return i == len(value)-1
+		}
+	}
+	return false
+}
+
 // extractConcreteValues parses a short source code snippet for patterns
 // that establish concrete values. The universal patterns are language-
 // agnostic (return literals, constructor-passing calls, map entries,
@@ -19855,45 +19942,17 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 		}
 
 		if hasValue {
-			// Strip trailing "}" and whitespace for inline functions
-			rest = strings.TrimRight(rest, " \t}")
-			rest = strings.TrimSpace(rest)
-			rest = strings.TrimRight(rest, ";") // for non-Go/Java/JS
-			// String literal (double or single quotes)
-			if len(rest) >= 2 &&
-				((rest[0] == '"' && rest[len(rest)-1] == '"') ||
-					(rest[0] == '\'' && rest[len(rest)-1] == '\'')) {
-				appendEntry("returns", rest, i)
-				continue
+			// Preserve the whole source expression, not only a nested call's
+			// arguments. Expression length does not prove or disprove a
+			// binding; the existing downstream value/row budgets still apply.
+			// An incomplete line remains an explicitly limited source lead.
+			expression, complete := concreteValueReturnExpression(rest, lang)
+			if expression != "" {
+				results = append(results, concreteValueEntry{
+					kind: "returns", value: expression, lineOffset: i, candidate: !complete,
+				})
 			}
-			// Boolean / nil / null / none
-			lower := strings.ToLower(rest)
-			if lower == "true" || lower == "false" || lower == "nil" ||
-				lower == "null" || lower == "none" {
-				appendEntry("returns", rest, i)
-				continue
-			}
-			// Number
-			isNum := true
-			for _, c := range rest {
-				if !((c >= '0' && c <= '9') || c == '.' || c == '-') {
-					isNum = false
-					break
-				}
-			}
-			if isNum && len(rest) > 0 {
-				appendEntry("returns", rest, i)
-				continue
-			}
-			// Type literal: return Type{...} or return &Type{...}
-			if strings.Contains(rest, "{") {
-				appendEntry("returns", rest, i)
-				continue
-			}
-			// Simple expression: return string(x), return x
-			if !strings.Contains(rest, "\n") && len(rest) < 40 {
-				appendEntry("returns", rest, i)
-			}
+			continue
 		}
 
 		// Pattern: variable assignment creating a new composite value.
@@ -19949,7 +20008,8 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 				}
 				if end > 0 {
 					inner := strings.TrimSpace(arg[:end])
-					// Require an actual constructor or type reference:
+					// Find constructor-shaped argument candidates, not proof of
+					// construction, registration, or exclusivity:
 					//   Go:     NewXxx(...) or &Xxx{...}
 					//   Java:   new Xxx(...)
 					//   Python: Xxx() where Xxx is capitalized (class instantiation)
@@ -19957,7 +20017,7 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 					for _, token := range strings.Fields(inner) {
 						rawToken := strings.Trim(token, ",")
 						clean := strings.Trim(rawToken, ",()")
-						// A NewXxx/Capitalized identifier is a constructor
+						// A NewXxx/Capitalized identifier is a candidate
 						// only when this argument actually contains its call
 						// opener. Without this structural byte, C/C++ enum
 						// constants (`Level::kError`) and declaration parameter
@@ -20042,10 +20102,6 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 
 	// If there are constructor-passing calls, summarize them.
 	if len(registerCalls) > 0 {
-		qualifier := "binds ONLY"
-		if len(registerCalls) > 1 {
-			qualifier = "binds"
-		}
 		values := make([]string, 0, len(registerCalls))
 		firstOffset := registerCalls[0].lineOffset
 		for _, call := range registerCalls {
@@ -20054,7 +20110,9 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 				firstOffset = call.lineOffset
 			}
 		}
-		appendEntry(qualifier, strings.Join(values, ", "), firstOffset)
+		results = append(results, concreteValueEntry{
+			kind: "binds", value: strings.Join(values, ", "), lineOffset: firstOffset, candidate: true,
+		})
 	}
 
 	// Language-aware structural facts: executable snippets can emit
@@ -22032,7 +22090,7 @@ func crossValidateEvidence(notes []string, concreteValuesSection string) string 
 		}
 		if !valueAssertionsAgree(claimCore, cvCore) {
 			conflicts = append(conflicts, fmt.Sprintf(
-				"- **`%s`**: LLM claims \"%s\" but source code shows **%s**",
+				"- **`%s`**: investigation states \"%s\"; extracted source entry: **%s**",
 				claim.methodOrig, claim.fact, cvFact))
 		}
 	}
@@ -22043,9 +22101,8 @@ func crossValidateEvidence(notes []string, concreteValuesSection string) string 
 
 	var b strings.Builder
 	b.WriteString("## Evidence Conflicts (LLM vs. Source Code)\n\n")
-	b.WriteString("The following claims from your investigation CONTRADICT the programmatic ")
-	b.WriteString("evidence extracted directly from source code. The Concrete Values table is ")
-	b.WriteString("ground truth — adjust your reasoning accordingly:\n\n")
+	b.WriteString("These possible discrepancies come from an approximate comparison of investigation notes and extracted entries. ")
+	b.WriteString("Inspect the cited source to resolve them; candidate derivations do not prove a contradiction or override grounded evidence.\n\n")
 	for _, c := range conflicts {
 		b.WriteString(c + "\n")
 	}
