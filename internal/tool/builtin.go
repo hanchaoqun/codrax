@@ -2759,11 +2759,12 @@ func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanne
 		payload += advisory + "\n"
 	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		payload += traceQueryResultReadAdvisory(ctx, params.Path)
 		if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
 			payload += advisory
 			refinement = mergeToolRefinementHints(refinement, grepTraceQueryRefinement(ctx, params, "grep_trace_artifact_search", false))
 		}
-		payload += grepRuntimeArtifactTraceSpanAdvisory(params, rawOutput)
+		payload += grepRuntimeArtifactTraceSpanAdvisory(ctx, params, rawOutput)
 	}
 	payload += annotated
 	summary, ref = StoreBlob(ctx, "grep", payload)
@@ -2812,18 +2813,21 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
 		targetsTrace := grepParamsTargetTraceQueryArtifactFile(ctx, params)
-		if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
+		if advisory := grepRuntimeArtifactParamAdvisory(ctx, params); advisory != "" {
 			b.WriteString(advisory)
 		}
 		if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
 			b.WriteString(advisory)
 		}
-		if targetsTrace {
+		if advisory := traceQueryResultReadAdvisory(ctx, params.Path); advisory != "" {
+			b.WriteString(advisory)
+			b.WriteString("next_shape=narrow the search within this query result or read_file the returned result line range; a zero result match is not proof that the capture lacks the event.\n")
+		} else if targetsTrace {
 			b.WriteString("next_shape=trace artifact grep matched too broadly; do not keep paging grep/read_file as the main analysis path. Use trace_query(view=\"event_search\" for literal lookup, or window_stats/root_cause_rank/frame_root_cause_bundle for scheduler/root-cause analysis) with the same path plus bounded window/pid/thread.\n")
 		} else {
 			b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
 		}
-		if advisory := grepRuntimeArtifactTraceSpanAdvisory(params, strings.Join(production, "\n")); advisory != "" {
+		if advisory := grepRuntimeArtifactTraceSpanAdvisory(ctx, params, strings.Join(production, "\n")); advisory != "" {
 			b.WriteString(advisory)
 		}
 		if !targetsTrace {
@@ -2958,6 +2962,11 @@ func grepBroadResultRefinement(ctx *types.BusContext, params grepToolParams, raw
 			}
 		}
 		hint.ParamNarrowingSuggestions = kept
+		if traceQueryResultReadTarget(ctx, params.Path, "") {
+			hint.PreferredParams = map[string]string{"path": strings.TrimSpace(params.Path)}
+			out := types.NormalizeToolRefinementHint(hint)
+			return &out
+		}
 		out := promoteSourceToolRefinementToRepoMap(ctx, hint)
 		return &out
 	}
@@ -3247,19 +3256,22 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 	} else {
 		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
 	}
-	if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
+	if advisory := grepRuntimeArtifactParamAdvisory(ctx, params); advisory != "" {
 		b.WriteString(advisory)
 	}
 	if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
 		b.WriteString(advisory)
 	}
 	targetsTrace := grepParamsTargetTraceQueryArtifactFile(ctx, params)
-	if targetsTrace {
+	if advisory := traceQueryResultReadAdvisory(ctx, params.Path); advisory != "" {
+		b.WriteString(advisory)
+		b.WriteString("next_shape=narrow the search within this query result or read_file the returned result line range; a zero result match is not proof that the capture lacks the event.\n")
+	} else if targetsTrace {
 		b.WriteString("next_shape=trace artifact grep matched too broadly; stop iterating grep/read_file for trace root-cause analysis and use trace_query with the same path plus bounded window/pid/thread.\n")
 	} else {
 		b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
 	}
-	if advisory := grepRuntimeArtifactTraceSpanAdvisory(params, strings.Join(capture.PreviewLines, "\n")); advisory != "" {
+	if advisory := grepRuntimeArtifactTraceSpanAdvisory(ctx, params, strings.Join(capture.PreviewLines, "\n")); advisory != "" {
 		b.WriteString(advisory)
 	}
 	windows := capture.LineWindows
@@ -3288,10 +3300,10 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 		var b strings.Builder
 		b.WriteString("no matches found\n")
 		b.WriteString(lineWindowNote)
-		if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
+		if advisory := grepRuntimeArtifactParamAdvisory(ctx, params); advisory != "" {
 			b.WriteString(advisory)
 		}
-		if advisory := grepRuntimeArtifactTraceSpanAdvisory(params, ""); advisory != "" {
+		if advisory := grepRuntimeArtifactTraceSpanAdvisory(ctx, params, ""); advisory != "" {
 			b.WriteString(advisory)
 		}
 		if advisory := grepFixedStringRegexAdvisory(params); advisory != "" {
@@ -3302,7 +3314,10 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 		// sends the model after a tool it cannot call (trace_repl.log
 		// 2026-07-02) and the generic bounded-read guidance below is the
 		// honest fallback.
-		if grepParamsTargetTraceQueryArtifactFile(ctx, params) && types.TraceQueryContextActiveFromBus(ctx) {
+		if advisory := traceQueryResultReadAdvisory(ctx, params.Path); advisory != "" {
+			b.WriteString(advisory)
+			b.WriteString("no_match_advisory=the exact pattern matched zero result lines, not necessarily zero capture events. Try a simpler literal in this result, or adjust line_start/line_end before paging with read_file.\n")
+		} else if grepParamsTargetTraceQueryArtifactFile(ctx, params) && types.TraceQueryContextActiveFromBus(ctx) {
 			if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
 				b.WriteString(advisory)
 			}
@@ -3475,11 +3490,11 @@ func grepPatternContainsUnescapedRune(pattern string, want rune) bool {
 	return false
 }
 
-func grepRuntimeArtifactParamAdvisory(params grepToolParams) string {
+func grepRuntimeArtifactParamAdvisory(ctx *types.BusContext, params grepToolParams) string {
 	if strings.TrimSpace(params.FileType) == "" && strings.TrimSpace(params.Include) == "" && (params.ContextLines == nil || *params.ContextLines <= 0) {
 		return ""
 	}
-	targetsTrace := grepPathLooksLikeTraceQueryArtifact(params.Path)
+	targetsTrace := !traceQueryResultReadTarget(ctx, params.Path, "") && grepPathLooksLikeTraceQueryArtifact(params.Path)
 	var notes []string
 	if strings.TrimSpace(params.FileType) != "" || strings.TrimSpace(params.Include) != "" {
 		notes = append(notes, "path is already one concrete runtime/log/trace file; file_type/include filters are redundant and may distract from narrowing by timestamp/thread/event")
@@ -3506,7 +3521,10 @@ type grepTraceMarkerBegin struct {
 	Cookie   string
 }
 
-func grepRuntimeArtifactTraceSpanAdvisory(params grepToolParams, output string) string {
+func grepRuntimeArtifactTraceSpanAdvisory(ctx *types.BusContext, params grepToolParams, output string) string {
+	if traceQueryResultReadTarget(ctx, params.Path, "") {
+		return ""
+	}
 	var b strings.Builder
 	if spanName, ok := grepNamedTraceEndPattern(params.Pattern); ok {
 		b.WriteString("trace_marker_span_end_shape=pattern appears to search a named B/E end marker")
@@ -3717,6 +3735,9 @@ func grepBroadResultRelationNavigationHint(ctx *types.BusContext, params grepToo
 }
 
 func grepParamsTargetRuntimeArtifactFile(ctx *types.BusContext, params grepToolParams) bool {
+	if traceQueryResultReadTarget(ctx, params.Path, "") {
+		return true // retain runtime retrieval budgets and source-citation isolation.
+	}
 	explicit, ok := explicitGrepPath(ctx, params.Path)
 	if !ok || !explicit.isFile {
 		return false
@@ -3725,6 +3746,9 @@ func grepParamsTargetRuntimeArtifactFile(ctx *types.BusContext, params grepToolP
 }
 
 func grepParamsTargetTraceQueryArtifactFile(ctx *types.BusContext, params grepToolParams) bool {
+	if traceQueryResultReadTarget(ctx, params.Path, "") {
+		return false
+	}
 	explicit, ok := explicitGrepPath(ctx, params.Path)
 	if !ok || !explicit.isFile {
 		return false
@@ -4842,15 +4866,21 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if err != nil {
 		var oversized *width.ErrSourceReadOversized
 		if errors.As(err, &oversized) {
+			nextRead := "Use grep (pattern + path) to locate the lines you need, or trace_query for runtime trace artifacts."
+			repairHint := "This file exceeds the whole-file read bound. Locate the needed lines with grep (it streams and returns file:line anchors), then cite those lines directly; for runtime trace artifacts use trace_query views instead of raw reads."
+			if traceQueryResultReadTarget(ctx, p.Path, fsPath) {
+				nextRead = "Use grep (pattern + path) to search this published query result; it is not the original trace capture."
+				repairHint = "This query result exceeds the whole-file read bound. Use grep with the same result path and a narrow pattern or line window; paging read_file still requires loading the whole file. Result lines remain result references, not current repository source."
+			}
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Success:  false,
-				Summary: fmt.Sprintf("read refused: %s is %.1f MiB — too large to load whole. Use grep (pattern + path) to locate the lines you need, or trace_query for runtime trace artifacts.",
-					p.Path, float64(oversized.Size)/(1<<20)),
+				Summary: fmt.Sprintf("read refused: %s is %.1f MiB — too large to load whole. %s",
+					p.Path, float64(oversized.Size)/(1<<20), nextRead),
 				Repair: &types.ToolRepair{
 					Code:   "read_file_too_large",
 					Fields: []string{"path"},
-					Hint:   "This file exceeds the whole-file read bound. Locate the needed lines with grep (it streams and returns file:line anchors), then cite those lines directly; for runtime trace artifacts use trace_query views instead of raw reads.",
+					Hint:   repairHint,
 				},
 				Timestamp: time.Now(),
 			}, nil
@@ -5122,7 +5152,7 @@ func readFileResultRefinement(ctx *types.BusContext, requestedPath, fsPath strin
 	if preferredPath == "" {
 		return nil
 	}
-	if readFileTargetsTraceQueryArtifact(preferredPath, fsPath) {
+	if !traceQueryResultReadTarget(ctx, requestedPath, fsPath) && readFileTargetsTraceQueryArtifact(preferredPath, fsPath) {
 		hint := types.ToolRefinementHint{
 			ReasonCode:        "read_file_trace_artifact_truncated",
 			ResultTruncated:   true,

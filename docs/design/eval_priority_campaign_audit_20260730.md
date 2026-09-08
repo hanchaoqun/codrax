@@ -57380,6 +57380,41 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1694 B1627 后续架构任务：提取依据不能被包装成证明（2026-09-08，只读设计）
+
+r1040的完整源码已经入模，但系统提供了更强、错误的绑定/终点说明，故不是仅靠再次提示模型仔细阅读即可关闭。独立只读复核确认：`explorer.go`首个括号、大写名字及扫描单命中共同产生错误的`binds ONLY`；普通return长度小于40的筛选又遗漏了完整长表达式，留下其内部短片段。`IsCitable`、ledger按行号推强度、dossier的verified标签、`StrictOK`/终点数量和StageReport的“不应反驳/答案终点”分别放大这一候选。此处是提取与消费共因，不能修Math黑名单、删除全部构造/注册线索或由系统重写最终公式。
+
+后续按依赖顺序安排，尚未实施、不能据此销账：
+
+1. **B1627a，最高优先：共用提取依据与传播**。在系统产生的concrete value、派生链和EvidenceItem之间明确启发式候选/精确源码操作；复用位置、DerivedFrom与既有authority时必须核对ledger实际消费，不能加一个无人读的字段。源码有行号只保证可定位，不等于绑定/排他/整链事实已经证明。候选经过clone、merge或派生后不得升强；候选与精确记录的身份合并需独立反针。
+2. **B1627b，同一闭包提交：消费者与教学一致**。ledger claim、dossier状态、registration需求、终点数量及Resolution Chains教学读取同一解释。StrictOK只表示请求谓词通过，不可冒充源码事实证明。可定位候选仍供软探索；不靠命名约定自动完成事实型需求、不无条件声明链尾就是答案，不给模型新增JSON字段负担，不新增答案硬拒绝。
+3. **B1627c，精确操作逐层提升**。实际调用、构造表达式作为参数、注册副作用、排他集合、最终业务答案是不同命题。现repomap Relation只有端点/行号，不能伪造完整嵌套参数语法；没有解析凭证的语言先诚实保留候选。ONLY须完整同owner/范围集合凭证，不能由单命中数铸造。ReturnTypeNames也不能替具体实例、非nil或实际注册证明。需要新增持久parser字段时同步缓存版本，不为了该样例扩大语法猜测。
+4. **验证矩阵**：真实ParseFiles→concrete values→AnswerChains→ledger→入模链至少一条；TS长return/嵌套工具调用及改名变体，Go composite/factory，Python真实class与大写函数，Java new与静态工具调用，C++构造/cast/namespace，ArkTS工程识别，Cangjie调用与fallback。保持既有合法Go/Python/Java bridge导航正例，但原fake graph或命名测试不能冒充精确证明。补部分body、分支/循环/多绑定、注释字符串、同名异文件、预算裁剪、调序、clone/merge、候选后补精确证据。断言系统字段/源码范围/强度与教学，不钉模型结论词形。
+   此表是重点机制正反例，不是完整语言覆盖的替身；后续回归以`repomap/types.SupportedReadLanguages()`实际15语言清单为母表：Go/Python/JavaScript/TypeScript/Java/Kotlin/Rust/C/C++/Ruby/Swift/Lua/Proto/ArkTS/Cangjie。每语言须明确适用操作、无此语义或暂仅候选，Proto等不能虚构构造/运行时注册能力。原扩展名路由和fallback声明不变，禁止手写七语言表后称全项目通过。
+
+普通chain/bridge/consumer_gate的输入依赖也须检查最弱依据传播；bridge跨域或首literal的更多风险目前仅为待测同源面，不另称实测失败。排期：B1624直接结果角色小批先收；B1627a+b优先于新的泛化功能，B1625目标主账文字出口可作独立小批；B1626多窗域另行设计。两例一批的下一live必须用新构建，并按读/写/Trace覆盖老化配对，不为TS修复反复独跑同一题。
+
+### §123.1693 B1624：查询结果阅读角色与后续建议（2026-09-08，已实现）
+
+r1040审计已单独提交推送`45e1e9ada`。本小批修直接查询结果的阅读角色与后续建议，不改解析器、原始Trace查询、数据、模型答案或读写许可。
+
+1. 已存在当前会话的published trace_query result registry，允许模型用grep/read_file检查JSON/raw结果；结果里出现sched_switch等系统说明不等于它是原始捕获。新建议角色必须复用真实解析目标的现有registry结果，不新建文件名前缀或整个.codrax排除规则。
+2. 统一grep成功/零匹配/宽结果/streamed/截断及参数、span提示，read_file截断继续建议结果阅读；不再建议trace_query自身结果。原始attached_trace也在同blob目录，必须保留其原始trace回拉；结果不能反落仓库关系导航；无可靠源捕获映射时只撤错误建议，不猜另一个path。
+3. 新测试先用实际TraceQuery.Execute→AppendDispatchToolResult登记JSON/raw两种结果，核正文、来源标记/引用惰性、零匹配与分页；原附件、未登记/新会话/无上下文/失败结果对照。现basename解析/权限机制不在本批变更；其真实解析到registered目标的既有正向不能伪造为负向。
+4. 有效首红`.codrax/tmp/20260908-b1624-red.log`：实际发布结果的grep零匹配/宽结果及read_file分页误建议原Trace查询。追加整文件读取大小拒绝出口首红`...-whole-read-red.log`：使用超既有64MiB墙的sparse文件走实际入口，拒绝正确但Summary/Repair.Hint同样误导。本批只更正对象提示，大小墙、拒绝码和失败状态不变；冻结后完整验证另记。
+5. **末审修正“纯文案”范围描述**：共用runtime角色还控制grep的流式执行分支。原JSON不在路径扩展名分类内，真实trace_query的正常/空查询以及metadata JSON均可能原走外部grep缓冲臂；现在在非files_only、无native行窗等条件下纳入既有增量流式检索。命令、参数、60s超时、宽度阈值、完整RawRef保存和权限不变，改变的是有界内存/预览执行路径，不能宣称所有结果执行路径字节不变。真实JSON×streamed宽结果已在入口回归矩阵中；原始捕获仍保留原分支。
+
+明确保留的同族残余：
+
+- **B1624b/P1，衍生结果来源谱系开放**：registry只登记成功trace_query直接RawRef/PayloadRef；grep-full与read_file再产的RawRef不在其中。read_file已有RuntimeArtifactRead带一跳请求/来源标记，grep尚无可可靠复用的原目标typed谱系。把衍生ref直接塞旧registry会扩大escape许可，不能为修建议这样做。后续建立极窄、只供软建议的来源角色，producer铸造并随实际成功结果传播，读取许可保持原门；不得用目录、文件名前缀、banner或Refinement字符串授角色。本小批不宣称所有衍生文件均已关闭误分问题。
+- **B1624c/P2，streamed宽结果提示覆盖观察**：当前grep已裁PreviewLines再传refinement阈值，完整raw已保存但48行预览可能未达到旧宽结果门，故Refinement可空；文本next_shape和full_raw_saved仍在。先保留本批原行为，后续应由实际计数/截断载体驱动提示，不偷偷修改结果宽度或权限。测试不把可空refinement冒称本次保证全有。
+
+B1624b只读方案已核：不能直接复用RuntimeArtifactRead，其存在性已参与ground、源码引用隔离、ledger与coverage。最小方向是ToolResult系统私有纯值载体及Mutable独立soft-only索引；真实成功grep/read_file输出才记实际输入→RawRef谱系，精确路径查询，不给衍生文件basename别名/escape权限。同输出异来源保留歧义；跨dispatch/fork/merge保留来源与冲突，reset及迟到旧fork隔离；跨任务序列化/replay缺载体则未知，不能从正文恢复。后续建议helper还须与grep执行分类分离，不能把soft谱系再次接入流式选择。必要针：真实query→grep→read_file→grep、失败/无输出、冲突、reset/迟到fork、同名未登记、原权限拒绝及证据/执行路由不变。此为设计，未实现。
+
+冻结定向测试：新实际发布/阅读矩阵与既有Grep/ReadFile/ToolRefinement族count3通过3.136s（`...-family-count3.log`），narrow race通过3.167s（`...-race.log`）；独立只读复核通过，三份源码/测试冻结。完整agent包通过54.929s（`...-full-agent.log`），含4ms evaluator预算不覆盖活跃流看护针；完整tool通过291.984s（`...-full-tool.log`，exit0），make通过（`...-build.log`）。本批为上批86包全测后的私有tool实现变化，完整复跑实际影响的tool/agent，未冒称再次执行全仓。r1040是修复前的真实witness；本批未加第三例live，不把入口测试签成修复后客户/完整回放。
+
+状态：`B1624=implemented/precise-result-read-role/targeted+race+full-tool+full-agent+build-pass/delivered-with-this-commit/pending-production-replay`；`B1624b/B1624c=open`；`B1627/B1625=high-priority-next`；`B1626=typed-multi-window-design-needed`。shell命令建议属于同族后续审计，当前live无对应可执行复现，不混入shell许可/解析改造。
+
 ### §123.1692 r1040 双窗与实现集：机器2/2，人审均有残差（2026-09-08）
 
 B1618-P2a已提交推送`282d93003a8b`，clean make；首轮全仓85包通过+工具包补齐旧fixture前提后完整复跑289.400s，86包均完成验证。新双路严格并行2：E1双窗Trace自动PASS160s、TypeScript实现集自动PASS53s。报告：`eval/parallel_selected_summary_evalcampaign_e1_ts_r1040_20260908{,_manual_audit}.md`。无第三例、未改oracle或历史输出。
