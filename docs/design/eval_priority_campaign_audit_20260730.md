@@ -57380,6 +57380,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1695 B1625 / B1627a+b：目标账出口与提取依据闭包（2026-09-08，分批施工）
+
+远程核对main@8e3d51c50，HEAD/origin无差异；原工作区clean。两条独立实现线并行，root统一验收分批提交，不改case/oracle、不提前启动live。
+
+- **B1625**：generic window_stats文本复用原frame bundle的目标状态账+CPU名单writer，置于长预览前；bundle仍在原位置输出一次，不重算、不扩大TopN，不用进程/全局CPU补目标缺测。真实Execute目标不在全局Top8而JSON有20ms账户、文本无账户的首红成立（`...-b1625-actual-red.log`）；较短结果RawRef实际是JSON fallback，测试已修为读inline Summary，先前这些短窗的读取错误不冒充产品首红。测得running0保留，nil/生命周期抑制或无CPU来源不造零。
+- **B1627a+b**：最小系统标记`EvidenceItem.DerivationCandidate`，只由启发式提取/派生关系赋值，不入模型写入schema；序列化保留，不因读取旧快照丢位而升级。精确源码行仍供检查，不把IsCitable当语义证明。标记进入stable/revision/merge边界，强证据独立保留；强制同ID合并保守继承限制。ledger和authority不再凭line/grounded把该派生候选铸成已证事实，原句/片段/位置保留。真实TS ParseFiles首红复现错误ONLY与长return遗漏；shared types/authority首红也核实碰撞、误授独立证明和旧backfill跳过强度限制（`...-b1627a-producer-red.log`、`...-b1627-types-authority-red.log`）。
+- **教学与消费闭环**：普通绑定猜测和启发式join保线索不铸ONLY；完整源return不被短片段替代。StageReport、EvidencePool/dossier和extract-skill共用候选边界说明，不再宣称所有链尾就是答案、模型不可反驳。候选不能贡献事实完成计数，但仍可探索、可由模型独立提交精确证据满足原合同；现有typed escape、硬floor和模型结论所有权不变。
+- **纠正前批设计措辞**：已亲验`validateCompletenessClaim`，TerminalEvidenceCount/β与MustInclude当前仅为软指导，真正硬floor是明确请求集合/主题锚数量；旧注释与extract-skill仍误教expected count硬门。本批修相同概念的教学漂移，不新把β设为硬门，也不冒称原实现有这一硬门。
+
+B1625冻结：真实查询/不可用/CPU/单次输出族count3通过（`...-b1625-final-count3.log`，1.317s），窄race通过2.395s；root复核加B1624生命周期阅读与关系双尺族count3通过1.187s（`...-b1625-root-freeze.log`）。旧关系预览测试把合法目标Runnable=5.604ms也全局禁掉，与3.956+1.648错误跨尺加总恰同数；现仍全局禁止cross_ruler_total，只对真实关系writer禁止错误合计，并正钉目标账5.604ms，不隐藏新值求绿。
+
+全包检查同时纠正上批B1624新测试的BusContext值复制：`TestBusContextCopylocksVetClean`精确指出测试221行复制mutex，改用既有ShallowClone，所有原断言保留；该tripwire+真实阅读测试通过（types9.990s/tool1.132s，`...-b1624-copylocks-green.log`）。这是测试实现遗漏，不冒称生产复制锁；上批仅重跑agent/tool而未再次跑types全包的范围已原样记档。本小批先提交上述tool变化与台账；B1627修改不混入。
+
+B1627a+b仍在收敛：独立复核追加附件身份归一与accepted-evidence跨阶段压缩两处负资格闭包；前者首红证明候选误升direct_observation并与精确记录合并，现保物理capture身份而不升级claim，混序正反例通过（`...-b1627-attachment-{red,green}.log`）。后者施工后另签验收。优先完成已证闭包，语法级注册副作用/排他证明的全语言扩展仍属B1627c，不因新增标记就称所有语法能力齐全。B1624b/c、B1626多窗等继续开放。活跃流不因4ms/旧4m无最终正文降级，真正停滞/取消/显式调用预算保持。
+
 ### §123.1694 B1627 后续架构任务：提取依据不能被包装成证明（2026-09-08，只读设计）
 
 r1040的完整源码已经入模，但系统提供了更强、错误的绑定/终点说明，故不是仅靠再次提示模型仔细阅读即可关闭。独立只读复核确认：`explorer.go`首个括号、大写名字及扫描单命中共同产生错误的`binds ONLY`；普通return长度小于40的筛选又遗漏了完整长表达式，留下其内部短片段。`IsCitable`、ledger按行号推强度、dossier的verified标签、`StrictOK`/终点数量和StageReport的“不应反驳/答案终点”分别放大这一候选。此处是提取与消费共因，不能修Math黑名单、删除全部构造/注册线索或由系统重写最终公式。

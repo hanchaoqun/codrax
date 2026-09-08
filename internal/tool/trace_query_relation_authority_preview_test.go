@@ -71,8 +71,19 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 			t.Fatalf("summary missing relation authority %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "cross_ruler_total") || strings.Contains(got, "5.604ms") {
+	if strings.Contains(got, "cross_ruler_total") {
 		t.Fatalf("relation preview must never mint a cross-ruler total:\n%s", got)
+	}
+	// 5.604 also is this fixture's independently measured target Runnable
+	// account. Its new generic head mirror is legal; only the relation
+	// preview must not manufacture that number by adding the two rulers.
+	var relationPreview strings.Builder
+	writeTraceRootCauseRelationAuthorityPreview(&relationPreview, result)
+	if strings.Contains(relationPreview.String(), "5.604ms") {
+		t.Fatalf("relation preview minted a cross-ruler total:\n%s", relationPreview.String())
+	}
+	if !strings.Contains(got, "- target_window_states target-17267 running=157.248ms runnable=5.604ms") {
+		t.Fatalf("legitimate target account must remain visible:\n%s", got)
 	}
 	if strings.Contains(got, "relation_claim_required") || strings.Contains(got, "model_must_copy_to") {
 		t.Fatalf("optional relation JSON carrier must not be taught as mandatory:\n%s", got)

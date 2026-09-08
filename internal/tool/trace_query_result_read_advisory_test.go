@@ -218,17 +218,17 @@ func TestB1624PublishedResultRoleLifetimeAndRawCapture(t *testing.T) {
 			{"reset-cycle", func(m *types.MutableState) { m.AppendDispatchToolResult(published); m.ResetTurnAArtifacts() }},
 		} {
 			t.Run(filepath.Ext(ref)+"/"+tc.name, func(t *testing.T) {
-				ctx := *base
+				ctx := base.ShallowClone()
 				ctx.Mutable = types.NewMutableState(tc.name)
 				tc.setup(ctx.Mutable)
-				if _, ok := resolveTraceQueryBlobRefPath(&ctx, ref); ok {
+				if _, ok := resolveTraceQueryBlobRefPath(ctx, ref); ok {
 					t.Fatal("fixture unexpectedly registered stale/failed ref")
 				}
-				if traceQueryResultReadTarget(&ctx, ref, ref) || traceQueryResultReadAdvisory(&ctx, ref) != "" {
+				if traceQueryResultReadTarget(ctx, ref, ref) || traceQueryResultReadAdvisory(ctx, ref) != "" {
 					t.Fatal("unpublished ref acquired result role")
 				}
 				params, _ := json.Marshal(map[string]any{"path": ref, "pattern": "E|100|quoted-result-span", "fixed_string": true, "line_start": 1, "line_end": 10000})
-				result, err := (&GrepTool{}).Execute(&ctx, params)
+				result, err := (&GrepTool{}).Execute(ctx, params)
 				if err != nil {
 					t.Fatal(err)
 				}

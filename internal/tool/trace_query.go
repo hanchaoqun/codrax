@@ -4575,6 +4575,12 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			traceThreadLabel(selection.Selected), selection.NameMismatch, sanitizeForBanner(selection.Routing),
 			sanitizeForBanner(traceQueryThreadCandidateRoster(selection.NameCandidates)))
 	}
+	// The focused account is independent of global TopRunning/CPU top-N.
+	// Publish its existing values before long generic detail. Bundles retain
+	// their one copy at the existing bundle location, using the same writer.
+	if result.FrameRootCauseBundle == nil || result.FrameRootCauseBundle.TargetWindowStates == nil {
+		writeTraceTargetWindowStateAccount(&b, traceQueryTargetWindowStatesAccount(result))
+	}
 	// B33-WAITPREVIEW (2026-08-01): target wait occurrences already have a
 	// complete typed account, but the ordinary thread_timeline preview lists
 	// only its first 12 scheduler intervals. A small wait rowset can therefore
@@ -5585,11 +5591,7 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 	// wall clock, never a fifth addend; completion-closed S-state IO waits use a
 	// separate typed ruler; total==window only when the timeline covered the
 	// window).
-	if account := bundle.TargetWindowStates; account != nil && account.TotalMs > 0 {
-		fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms io_wait_caliber=scheduler_marked_only io_wait_zero_scope=no_matching_scheduler_marker_only other_io_mechanisms=not_assessed_by_state_partition sleep_mechanism=unproven completion_closed_s_io_wait=separate_typed_ruler total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
-			traceThreadLabel(account.Thread), account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs, account.LineStart, account.LineEnd)
-		writeTraceTargetCPURunningRoster(b, account)
-	}
+	writeTraceTargetWindowStateAccount(b, bundle.TargetWindowStates)
 	if bundle.WakeupChain != nil {
 		// P0-E CHAIN-PATH (ledger §22.1): per-branch true paths; flattened
 		// walk only for identity-less legacy results.
@@ -8432,6 +8434,19 @@ func traceQueryRelationRulerSeats(ranks []int, values []float64) string {
 		parts = append(parts, fmt.Sprintf("#%d:%.3fms", ranks[i], values[i]))
 	}
 	return strings.Join(parts, ",")
+}
+
+// writeTraceTargetWindowStateAccount is the shared text mirror of an already
+// measured target account. Missing/zero-total accounts stay absent; measured
+// zero components are printed. No global, process, or nearby CPU row fills a
+// missing target field, and the existing IO/boundary-fold calibers are retained.
+func writeTraceTargetWindowStateAccount(b *strings.Builder, account *tracequery.TargetWindowStateAccount) {
+	if b == nil || account == nil || !(account.TotalMs > 0) {
+		return
+	}
+	fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms io_wait_caliber=scheduler_marked_only io_wait_zero_scope=no_matching_scheduler_marker_only other_io_mechanisms=not_assessed_by_state_partition sleep_mechanism=unproven completion_closed_s_io_wait=separate_typed_ruler total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
+		traceThreadLabel(account.Thread), account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs, account.LineStart, account.LineEnd)
+	writeTraceTargetCPURunningRoster(b, account)
 }
 
 // writeTraceTargetCPURunningRoster publishes the focused thread's exact CPU
