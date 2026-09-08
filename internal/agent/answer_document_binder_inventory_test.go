@@ -64,6 +64,11 @@ func TestB1607BinderInventoryPromptSourceScopeAndCaps(t *testing.T) {
 	ctx := tracePrincipalValueAuthorityTestContext("client-100", 100, nil)
 	rm := &ctx.AnalysisIR.RequestModel
 	set := b1607BinderPromptRecords()[0]
+	runScoped := set
+	runScoped.Producer = "trace_query:run2"
+	if got := renderAnswerDocBinderInventory(types.ObservationLedger{Records: []types.ObservationRecord{runScoped}}, rm, "en"); !strings.Contains(got, "verified_wait_union=3.094ms") {
+		t.Fatal("run-scoped deterministic producer lost verified inventory")
+	}
 	ledger := types.ObservationLedger{Records: []types.ObservationRecord{set, set}}
 	for i := 0; i < 10; i++ {
 		row := set

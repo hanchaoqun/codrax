@@ -57380,6 +57380,12 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1682 B1607b 生产者统一入口收尾（2026-09-07）
+
+首次全仓`20260907-b1616a-b1607b-full-suite.log`退出1，只有types的TestProducerPrecedenceNotReimplementedInline红：新增agent helper直接比较Producer==trace_query，遗漏合法run-suffixed生产者（如trace_query:run2）。这是本批真实遗漏，不是测试漂移。改为复用RuntimeObservationProducerIsDeterministicQuery，新增合法后缀正针；model/错误origin/role/目标/缺capture/非法value/object等反针不变，不放松结构lint。定向agent1.136s/types1.928s绿（`20260907-b1607b-producer-chokepoint-green.log`）。首次全仓其它包结果保留，包括tool、tracequery，不在本文冒称全仓已绿；收尾后再跑最终全仓。
+
+r1036两路来自已提交clean34f5dcf0a，18:54:19同时启动：C++131s机器PASS、H1249s机器PASS。该snapshot使用普通trace_query生产者，未包含本次合法后缀修正；人工日志/答案/图审计进行中，机器2/2不作为人工结论。B1616a已d3047527e、B1607b主体已34f5dcf0a分别推送，后续无本地积压。
+
 ### §123.1681 B1607b1 独立核实 Binder 等待与端到端传递（2026-09-07）
 
 本批不再从已被min-duration/depth/branch裁选的旧BinderWaits/P9候选推全窗总账。四视图window_stats/wakeup_chain/root_cause_rank/frame_root_cause_bundle在既有constructed目标状态账户下新增独立BinderWaitInventory：扫描全部已保留目标S/D/IO正区间；完整请求send/receive、反向reply send/receive、原物理switch-out、同peer实际sched_wakeup、唯一待决同步请求、source/双方生命周期/已知TGID不冲突/时钟顺序共同闭合才确认。reply ID与request ID可以不同；reply receive可以在wake及选窗之外。保实际端点坐标再裁窗，不能把原Interval.EndLine（可能blocked_reason）冒作物理唤醒。

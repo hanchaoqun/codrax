@@ -33,7 +33,7 @@ func traceBinderInventoryRecords(ledger types.ObservationLedger, rm *types.Reque
 
 func traceBinderInventoryRecordEligible(r types.ObservationRecord, rm *types.RequestModel) bool {
 	v, err := strconv.ParseFloat(r.Value, 64)
-	return r.Producer == "trace_query" && r.Origin == types.AnswerEvidenceOriginRuntimeArtifact &&
+	return types.RuntimeObservationProducerIsDeterministicQuery(r.Producer) && r.Origin == types.AnswerEvidenceOriginRuntimeArtifact &&
 		r.Role == types.AnswerAggregateRoleSupportingCoverage && r.GroundingPolicy == types.ClaimGroundingHard &&
 		types.ObservationRecordMatchesUserRuntimeTarget(r, rm) && traceBinderInventoryArtifact(r) != "" &&
 		r.Unit == "ms" && err == nil && v >= 0 && !math.IsNaN(v) && !math.IsInf(v, 0) &&
