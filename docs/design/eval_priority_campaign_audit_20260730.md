@@ -57380,6 +57380,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1692 r1040 双窗与实现集：机器2/2，人审均有残差（2026-09-08）
+
+B1618-P2a已提交推送`282d93003a8b`，clean make；首轮全仓85包通过+工具包补齐旧fixture前提后完整复跑289.400s，86包均完成验证。新双路严格并行2：E1双窗Trace自动PASS160s、TypeScript实现集自动PASS53s。报告：`eval/parallel_selected_summary_evalcampaign_e1_ts_r1040_20260908{,_manual_audit}.md`。无第三例、未改oracle或历史输出。
+
+- Trace人工PARTIAL：A2.992ms=running0/runnable.014/S2.978，B30ms=3.414/.780/25.806及11.38%正确。三个实际query窄D/IO零清单独立，B1618生产正证但不是500µs非零反例重放。模型无依据“20–100倍”与“无穷倍”属零基数解释错误，暂观察不加正文硬门。有限比较不要求全因果报告，必选root JSON以contract-not-active空旁路合理生成。
+- **B1624/P1，新确认**：registered raw_ref可读，但grep/read_file提示根据结果正文再把它当原trace，建议trace_query同blob path。复用当前结果registry角色，统一成功/零匹配/宽结果/截断后续建议，保留真实附件回拉与权限；不靠名字/.codrax目录/原文扫描授角色。独立小批施工。
+- **B1625/P1，新确认**：普通window_stats JSON和typed ledger有目标四态，完整raw文本却没有；formatter仅frame bundle使用，generic等待卡与全局TopN不足。3轮6grep可见成本。复用同源目标主账/CPU清单优先显示，不扩大榜或用process值补线程。
+- **B1626/P1，新确认**：两请求窗被单端点对profile压成32.992ms包络，补采与披露执行错误身份，A/B反被称补充查询。账户独立，不是B1618串值；需typed多窗成员域及共享补采/显示/主值选择，包络不能替代成员，不扫描用户数字硬补或换成其中一窗。
+- TS核心集合通过、整体PARTIAL。**B1627/P1，新确认**：完整源码apply是delayMs+Math.floor(Math.random()*spreadMs)，启发式提取器将嵌套大写Math调用误当构造器参数，再因唯一命中升binds ONLY；verified/independently_proven/ANSWER TERMINAL教学向模型错误确权，最终公式失真。需语法片段、绑定、排他和终点证明分层，不能加Math特判或归模型独错。跨语言构造/注册及复合return正反例必需，排高优先级。
+- TS两次修订：缺summary（已教）后补齐，未发布add_facet_id被模型误用；有whole-replace替代，未证不可能JSON合同。默认列头/重复类名/后置summary记显示观察，不扫描正文替换。上下文44%/29%，均无工具不可用、剪枝、活跃流短时降级。
+
+下批：B1624结果角色独立小批；B1627事实强度与B1625目标主账优先，B1626多窗单列设计；B1620/B1622/B1623/B1616b/B1561不销账。系统只供精确事实与边界，根因限已证链上，邻近/背景仅支持；模型所有权、合法Trace查询/补采与活跃流保护不变。
+
+状态：`B1618-P2a=282d93003/pushed/86-package-validated/production-three-query-zero-positive`；`r1040=machine2/2,human-partial2/2`；`B1624/B1625/B1626/B1627=new-open`。
+
 ### §123.1691 B1618-P2a：状态与等待同域配对施工（2026-09-08）
 
 基线 `a603ca54c`，本轮fetch确认与origin/main一致。承接§1690下批方案，不改测量引擎、因果资格、投影选举、自动补采或模型答案。不是将1ms简单改成2µs：capture、目标、query、实际结果来源与被重述记录分别核对。
