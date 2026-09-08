@@ -57380,6 +57380,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1699 B1628：已见源码注释范围与字符串边界共同收口（2026-09-08）
+
+B1623已独立提交推送`a0b3d3824`，r1041审计已推送`1c9ac87c2`。本小批只处理`ground/comment.go`的共享纯注释判定和回归，不改emit schema、模型答案、关系、Trace值或自动补齐。
+
+1. **根因和修复**：原两臂扫描下界错误，实际只回看上一行；不能只扩大原始delimiter计数，因为字符串/单行注释内的符号、同一行先关后开、非嵌套块等会引出新的误降级。改为在已见且连续、起于物理line1、最多200条前行的范围顺序维护注释/字符串状态；目标行也参与检查，闭合后仍有代码就不是纯注释。不开新文件、不补读未见行、不改LineIndex。没有起点、缺行或超过边界不冒充文件开头，仅保既有有限单行形；false意为“没有纯注释证明”，不是“已证代码”。
+2. **语言与不确定性**：公共测试矩阵对全部15种SupportedReadLanguages显式列出路径和普通注释处置（含ArkTS/Cangjie），并检验Python同/异triple、绑定值/括号/续行、C非嵌套和多块顺序、常见raw literal、Lua长括号和config注释。不是15种原生编译器或完整语法证明。独立对抗又以有效首红发现Swift扩展raw、JS嵌套template及其它语言插值内层quote风险；统一以“未解析插值/高级literal”保留当前有界续段未知，不把内层quote猜成外层结束，不从payload铸注释资格。Ruby heredoc/%literal、Cangjie复杂入口等同样保守未知，不写完整插值parser。未知处后续普通ground/source checks保持原职责；全文件注释完备、未知起点恢复及完整语义证明不在本批承诺内。
+3. **实际入口**：持久`runner_comment_evidence_test.go`用相对原fixture路径，真实ParseFiles→BuildGraph→ReadFile→EmitEvidence，原runner.py:15、调用端点和位置不动；修前同ID收到illustrative_only/Do NOT repair，修后直接line_text且真实文档行仍被识别。读出的工件只进入t.TempDir；临时首红时产生的两份阅读副本已核验并移到`.codrax/tmp/b1628-repro-artifacts/`，未删除材料、未改fixture内容。
+4. **验证纪律**：实际入口、通用范围、绑定literal、扩展raw/模板及插值分别保留有效首红。原两条ground注释fixture补上真实已见前缀前提，保留原“注释不得作为Tier1代码”断言，新增稀疏/200上限未知反针，不删除拒绝臂。独立review及ground全包count3（0.734s）、窄race（1.673s）通过；最终插值修复后独立ground/index复核5.590/5.920s通过。最终冻结版`go test ./... -count=1`实际退出0，86个测试包全通过（ground4.921s、index7.389s、orchestrator22.970s、tracequery102.423s）；`make`构建检查通过。初次全仓运行早于插值收尾，不作为最终快照验收，两个日志分别为`20260908-b1628-full-suite.log`和`...-full-suite-final.log`，只有后者用于本次最终签收。提交前构建带dirty revision，只作构建检查，不用于下一live。
+
+本批不把r1041模型自己的43ms相加、抽象方法误称等改写为系统结论；这些已在人工审计中区分。历史答案/旧证据资格不自动重写；B1627c的完整操作证明/历史资格迁移和B1624b/c、B1626、B1622等继续开放。活跃流与取消边界另以真实LLM层测试count3重核11.337s通过，未新增4ms/旧4m无最终答案年龄门。
+
+下一双例（严格2路，提交后clean build）：`harmony/cangjie_repomap_fixture.case`+`github_issue_dateutil_relativedelta_float_symptom.case`。前者确有隔离fixture，五项真值为App/Cart/Bridge public class、Cart extend、native_add foreign func，包只来自声明，不能把extend说成继承；现oracle不证明分类和五项齐全。后者距上次九批，本机stdlib unittest原生可运行，基线1pass/1failure/2TypeError，必须在交付树确认整数浮点/整数/非整数拒绝的实际行为；不是grep/AST-only“通过”。本轮暂不追加围绕r1041同题追绿的live。
+
+状态：`B1628=implemented/actual-entry+independent-adversarial-positive/finite-source-comment-boundary/86-packages-green+build-pass/pending-new-live`；`B1623=a0b3d3824/pushed`；`system-answer-rewrite=none`；`request/model-prose-keyword-gate=none`；`Trace-explicit-window/projection/supplement=unchanged`。
+
 ### §123.1698 B1623：进程最高线程复用完整跨 CPU 线程账（2026-09-08）
 
 已完成独立小批。`computeCPUOccupancyStats` 原有 process loop 从单CPU `ThreadDuration` 取最大，修复后只从其现成、未裁Top8的完整线程累计表选最高线程；进程运行总量仍只累计原桶一次，各CPU桶、供给折算、主根因值和排名不变。没有第二次计时或按输出正文改数。

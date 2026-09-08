@@ -2649,6 +2649,9 @@ func TestGroundItem_Tier1AcceptsRealCodeLine(t *testing.T) {
 // Tier-1 ground a line sitting inside an unclosed block opener.
 func TestGroundItem_Tier1RejectsBlockComment(t *testing.T) {
 	history := []types.ToolResult{
+		// Multiline comment authority requires an observed lexical origin;
+		// an unread prefix must not be silently treated as outside a literal.
+		buildGutterReadResult("a.c", 1, []string{"", "", "", "", "", "", "", "", ""}, 20),
 		buildGutterReadResult("a.c", 10, []string{
 			"/*",
 			" * Block comment mentioning Foo here",
@@ -2673,6 +2676,7 @@ func TestGroundItem_Tier1RejectsBlockComment(t *testing.T) {
 // `""" ... """` block must not ground at Tier 1.
 func TestGroundItem_Tier1RejectsPythonDocstring(t *testing.T) {
 	history := []types.ToolResult{
+		buildGutterReadResult("mod.py", 1, []string{"", "", "", ""}, 10),
 		buildGutterReadResult("mod.py", 5, []string{
 			`def foo():`,
 			`    """`,
