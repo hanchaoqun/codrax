@@ -57380,6 +57380,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1683 r1036 人工收账与新的来源隔离任务（2026-09-07）
+
+两路真实回放clean34f5dcf0a，H1249s/C++131s均机器PASS，但**人工两例都不收完整正确**。全量过程、最终md及native源码见`eval/parallel_selected_summary_evalcampaign_binder_cpp_virtual_r1036_20260907_manual_audit.md`；机器表不篡改。H1新独立清单5段3.094ms首次生产正证，旧1.409链值保持，Trace投影、两轴/链业务线索及root-causes.json schema2/available/5项模型选择均存在；模型仍错称对端全同进程496、全部长睡眠pacing并漏内部键。C++主要虚调用/kind选择/stderr正确，时间戳幻觉、换行/flush和构造注入边界遗漏、3条分支引用错位；首稿即无Mermaid，不是系统删图。C++上下文已给正确源码，不以README陈腐（未实际读到）替模型错误背书，不添prose/关键词硬门。
+
+成文重试：H1两次（JSON-string blocks无损恢复后字段schema非法；接纳4block后的可选patch引用不存在s4）；C++三次（typed evidence/endpoint不完整；同block replacement和atomic重复提交；replacement丢原visible_label）。目前没有发现这些是同一声明必带必拒，模型正确答案未被系统替换。C++完成门曾DOWNGRADED、最后low-delta force-complete且selection仍unproven，不把工具ok=true和机器reject0误作合同已完备。H1补采因no_typed_target没有engine调用：分析器把3个附件邻居也标user_explicit造成4目标歧义，明示教学已存在却未遵守；列精确来源/主目标绑定观察项，不能从用户原文关键词或近邻事件强选PID。
+
+**B1617 / CITATION-GENERATION1（P1，确认，施工中）**：原稿非法ref8在8槽池先被隔离，后续修改别block让池新增第8项，unchanged原条被markModelSubmittedItemEvidenceIDAdoptionRequired按新pool重算，自动获得ev-added-guard并错引logger30。实际full拒绝→真实patch复现已红（20260907-b1617-red.log）。修向冻结原提交池的完整Citation来源及采用资格，仅模型明确新提交refs才重新登记；旧合法多义/旧越界/unchanged不得随pool增减换序复活，保raw错误供审计。不按可见标签或语义帮模型挑证据，原文不改。此P1优先于继续追模型措辞，和r1036快照分批验收。
+
+**B1618 / MULTICAPTURE-ACCOUNT1（P1/P2，确认，待施工）**：独立审真实TraceQuery.Execute→CompileObservationLedger→authority证明旧分组把泛ArtifactID当capture key，Path始终在而消费错轴。原Donghu临时副本A与事件整体平移2ms的独立B（同basename、同PID17267、同选窗13762.8355..13762.8395），各1.409ms；无精确preflight合并后2.818ms/2条/complete，输入反序相同。精确producer-path preflight对照能隔离两份，不能据此声称所有path工具链都免疫。日志`20260907-capture-blocking-real-producer.log:11/19/33/48/63`，程序`.codrax/tmp/capture-blocking-audit/main.go`。
+
+另一真实双捕获同PID41/窗/重复txn7见`20260907-capture-identity-real-producer-v2.log`及`.codrax/tmp/capture-identity-audit/main.go`：IPC把B总数配A txn7/B txn9仍complete；旧target-wait两套清单各单捕获1份，合并0份，summary的basename冲突即使有完整preflight也存在。无产品改动、原捕获不改写，所用B明确为审计合成而非客户新数据。新Binder独立清单已按物理path隔离且不认领旧混账，目标状态账户也已有完整artifactKey；不扩大归罪到原engine链或根因排序。
+
+后续排序冻结：
+
+1. B1617先收真实引用代次修复，记录新提交/旧继承/clone正反针，及时提交。
+2. B1618-P1：blocking+IPC复用TraceCausalProjectionRecordArtifactIdentityWithLabel的精确capture identity/label分离；保持原target/window/type与union，IPC set/row同结果源约束及事务复用边界一起修，禁只改basename或POSIX全lowercase。
+3. B1616b三载体履约及B1561原生逐assertion仍P1，不借本轮读例证明write域已闭环；B1618-P2 legacy/summary等待载体补来源/窗并同修取first消费者，不能只改mapkey。
+4. 新Binder handoff直接使用verified_wait_union等内部词的呈现可改为中性自然语言，从信息输入端减泄漏，不扫描/替换模型最终正文。分析器附件身份误报用户目标、关系selection完成边界先按具体typed反例审，不以单题强规则拟合。
+5. 10项异构eval域继续开放。下一新live不立即重跑本题求绿，按新冻结修复选高优先级异构读/写，仍恰2并行。机器2/2与模型质量未闭环同时留账。
+
+B1616a+B1607b+producer收尾的最终全仓`20260907-b1616a-b1607b-final-full-suite.log`退出0，86包全绿：agent55.262s/tool294.399s/types39.389s/tracequery97.519s/tracediag12.796s/llm32.648s/repl61.033s/orchestrator24.295s。首次红保留§1682。此全仓快照早于正在开发的B1617，不冒称覆盖新代码。
+
 ### §123.1682 B1607b 生产者统一入口收尾（2026-09-07）
 
 首次全仓`20260907-b1616a-b1607b-full-suite.log`退出1，只有types的TestProducerPrecedenceNotReimplementedInline红：新增agent helper直接比较Producer==trace_query，遗漏合法run-suffixed生产者（如trace_query:run2）。这是本批真实遗漏，不是测试漂移。改为复用RuntimeObservationProducerIsDeterministicQuery，新增合法后缀正针；model/错误origin/role/目标/缺capture/非法value/object等反针不变，不放松结构lint。定向agent1.136s/types1.928s绿（`20260907-b1607b-producer-chokepoint-green.log`）。首次全仓其它包结果保留，包括tool、tracequery，不在本文冒称全仓已绿；收尾后再跑最终全仓。
