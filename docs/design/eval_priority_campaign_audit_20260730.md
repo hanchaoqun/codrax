@@ -57380,6 +57380,34 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1687 r1038 双域人工审计与 B1618-P1 交付（2026-09-08）
+
+B1618-P1已提交推送 `6d77732c4`：捕获身份/显示名分离，IPC结果来源与物理发送身份分离，状态及IO三把尺按同capture/target/query-window配对；真实producer补齐set/leaf查询窗。最终全仓86包实际通过（§1686保留两次失败/中止过程），clean make revision=`6d77732c4cb5`、版本0.1.20260908，构建日志`20260908-b1618-clean-build.log`。SSH恢复后使用原remote正常推送，未改认证或关闭主机校验；无本批源码积压。
+
+从该clean冻结快照恰两路并发，243个现有case中按“显式窗链上IO/投影 + 异构声明类别/引用”选取 Trace IO chain203s、Cangjie87s；机器2/2 PASS，**人工两例都只部分正确**。机器表及全过程人工审计分别见`eval/parallel_selected_summary_evalcampaign_iochain_cangjie_r1038_20260908{,_manual_audit}.md`。未改case/oracle，未跑第三路或反复单题求绿。
+
+#### B1619 / TRACE-REQUESTED-SCOPE-PARITY1（P1，确认，下一范围批）
+
+Trace用户要求app-100的2.000..2.020/20ms；accepted分析窗正确，但把100/400/200三PID同时标user_explicit。五次模型查询主动扩到2.021，补采因no_typed_target未调用engine；歧义时不替用户挑PID的保护正确。系统保留最后合法21ms探索投影同样是应保留的既有行为，缺口在**跨consumer未区分它是否为用户窗账户**：finalizer一面收到20ms才能作总量依据的提示，一面又收到21ms的requested_or_elected_window主值。系统状态、占时表、投影和旁路亦沿用21ms；app真实2.020000..2.020020的.020ms窗后runnable进入主答。不是引擎改窗，也不是纯模型波动。
+
+第一阶段冻结：共享精确scope角色，贯通decision/principal-value/state/普通观察/占时与投影发布/旁路范围解释；使用已存在的RuntimeArtifactScopeProfile、原查询窗、PrincipalValueSameWindow判据，不建立第二套近似同窗。缺精确用户账户时，保留探索图及真实数值，明确补充查询范围与用户范围未获得独立账户；不得给21ms账户改20ms标签、裁现成时长为零或删投影。保留旧TestTraceProjectionExplicitUserWindowRequiresExactTraceCoverage正针，加20请求/21实测、补到20后恢复主席、窗后值不冒充窗内、无显式窗、多目标歧义和跨capture六域。第二阶段才审计每个user_explicit成员的来源绑定；不能扫用户原文/按顺序/置信度/近邻游标自动挑target。该新触发与§1683 r1036多目标误标观察关联，不宣称旧精确同窗修复已经全部失效。
+
+正向能力：四节点唤醒链、threadpool链上IO11ms、三项各1ms低优先级依赖候选、两轴及背景隔离/因果投影均在；root-causes JSON6487字节、schema2/available/5项模型选择在。存在不是范围正确：.020ms旁路仍继承探索窗。Harmony prio20=CFS、52=RT，本批不可按普通Linux数字方向否定候选。模型另把52给了threadpool、把唤醒点说成睡眠起点、过窄限定锁/PI-mutex，并同时说完全传导和直接阻塞未证；正确原事实已给，保留软表达观察，不新增prose硬门。占时表cookie/network重复行记P2来源去重观察，未验证物理身份前不按显示字节合并。
+
+#### B1620 / AGGREGATE-FIELD-AUTHORITY1（字段混杂确认，泛化方案待复现）
+
+Cangjie五项声明/坐标/包名/引用完整，extend与class的Cart不合并、struct/wrapper不混类，B1586两次emit-only分类交接有生产正证；但模型首稿把extend误说为继承。错误始于explorer.member_notes，非系统改写。系统将含模型notes的aggregate整行标independently_proven，紧邻“清单不证明继承”提示仍无局部权限区分展示note；源码精确位置提升的是整项，不自动验证任意说明中的行为关系。因此不能只称模型波动。
+
+拟按字段拆开已证声明身份/坐标/计数与模型候选说明支持上限，保留有用业务线索及原引用资格，共用producer证据来源；不扫描“继承”、不改模型正文、不做仓颉特判。完整异构正负针和实际prompt优先于追加长教学。此项在B1619/B1618-P2a后排P1上下文修复，尚无代码施工，不冒称已关。
+
+重试如实收账：Trace初稿已accepted，之后一次post-emit展示归属提示；模型metadata patch把schema限定conclusion填成长句，**该patch确被拒绝**且未staged，旧首稿保留，不是零拒绝/patch成功，也没有丢答案。动态schema原有oneOf/const，未知schema_version被安全隔离；同源有界错误提示可作为减负候选，不能复制第二份schema。Cangjie一次拒绝为漏精确label，字符串replace_blocks安全恢复后补齐五项，claim_uses遗漏仅软提示。两例context峰值43%/28%、无工具不可用/剪枝，不靠提预算或新硬门求绿。
+
+后续队列：B1619范围角色 → B1618-P2a预览/完整wait清单、state匹配及reader-shadow → B1620字段权威 → B1616b三载体/履约profile；B1618-P2b其他同源匹配残余、B1561逐断言与十个异构交付域继续开放。B1616b跨计划必须有完整合同定义/实际执行/最终交付树绑定，不把六条unverified一律改绿。每批独立测试提交推送，下一live仍为clean构建恰两题；本批不再启动第三题。
+
+边界不变：模型拥有正文、图与根因选择；系统提供同源精确事实，不扫描原文做硬门。Trace根因仍限链上，反转/调度/算力/D与IO/语义工作及业务线索两轴保留；不削弱明确窗、自动补采或合法探索投影。B1618-P1真实HTTP活跃流定向测试已过，本轮未跑4分钟长流，不冒称新生产验收；无默认4ms或旧4分钟无正文降级，显式取消/截止/真实字节空闲仍生效。
+
+状态：`B1618-P1=committed+pushed/86-package-pass/clean-build`；`r1038=machine2/2,human-partial2/2`；`B1619=confirmed/P1/scope-parity-next`；`B1620=field-authority-mixing-confirmed/design-open`；`B1618-P2/B1616b/B1561=open`。
+
 ### §123.1686 B1618-P1 捕获与结果来源隔离（2026-09-07–08）
 
 承接§1683的真实工具入口反例，本批修复blocking/IPC两个builder及tool匹配、agent最终状态IO限定、IO口径并置、物理请求展示去重的消费链；不是仅换map key。原始ObservationRecord、模型正文/引用选择/图、engine链和可消量均不改。
