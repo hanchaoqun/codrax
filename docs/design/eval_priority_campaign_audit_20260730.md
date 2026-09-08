@@ -57380,6 +57380,32 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1688 B1619 用户范围与实际查询范围同源披露（2026-09-08）
+
+承接 r1038 的 20ms 请求/21ms 实测反例，第一阶段只修范围信息在不同消费面的不一致，不裁剪原值、不更换查询目标、不删除合法探索投影。先前“缺精确用户账户”方案收紧为逐查询事实：一个补充查询**不能代替**用户范围的独立统计，但不能据此断言其它查询没有精确账户。
+
+1. `TraceQueryWindowScope` 由已验证 `RuntimeArtifactScopeProfile` 与 producer 查询起止时间派生；共用既有 2µs 同窗判据。明确区分指定范围、补充查询、未绑定用户窗的查询和未知查询窗；未知不能借事件自身区间补成查询范围。角色仅供事实解释，不参与因果资格、选举、根因排序、值裁剪或枚举完整性判定。
+2. 共享范围贯通最终 reader/time/selected-window/compact 卡、principal-state 摘要、普通观察与补充观察、候选清单、状态/占时/投影发布及中性复算附注。补充状态不再冒充请求范围主统计；用户正文、图、根因选择和业务描述不改。只发布事实，不要求模型新填字段，不增加 JSON 义务或原文扫描硬门。
+3. 冻结候选和 v2 根因 JSON 增加只读 `window_scope`，使用值本身的 rank donor 查询窗，缺失才使用普通 query 窗，绝不借 occurrence。`candidate_id`、数值与资格不变；模型选择仍只绑定已有冻结候选。默认与指定路径同源序列化；available/unavailable 和空结果规则不变。副本隔离补到候选 facts/唤醒路径/scope 与已绑定报告，避免外部修改共享指针污染冻结快照。
+4. 定位说明保留物理行号/发生时间优先级，旧 projection 时间明确标“投影范围”，与数值来源查询范围分开；长证据仍遵守既有 240 字符上限，完整范围在 typed 字段保留。文本截短不能反向改变范围或主值。
+5. 回归覆盖：20ms 请求/21ms 查询（投影与 .020ms 原值不丢）、之后补到20ms、缩窗、零起点、未知 query 与事件区间不混用、无显式窗、多捕获同名隔离、rank donor 与 seed 窗相反、ZH/EN、多次 emit/patch 的模型所有权、候选及报告 snapshot clone、真实默认/指定 writer、两种 unavailable、Markdown/Mermaid 不变及幂等。保留原 `TestTraceProjectionExplicitUserWindowRequiresExactTraceCoverage` 的合法探索正针。
+
+验证过程：types 与 tool 前两项生产入口针均有真实先红记录；outputdump 首轮失败来自不合法测试图被既有格式修复器归一化，修正 fixture 后通过，**不算产品先红**。另一次 types race 编译失败发生于并发编辑尚未形成完整结构的瞬间，之后单独 race 复跑通过；不隐去失败日志。首次全仓仅旧 `TestRenderAnswerDocObservationLedgerPublishesFiniteStateForTypedParenthesizedTarget` 的英语 coverage 连续字串失败，实际原值/目标仍正确；更新为限定本查询范围的词面并加精确匹配范围断言后 count3 通过，其余包首次已绿。当前 targeted count3、边界 race 与完整 outputdump 已过，完整复跑/构建/回放状态待本批收尾更新。日志统一在 `.codrax/tmp/20260908-b1619-*.log`。
+
+下一双并发：从 243 个 case 按显式窗高风险完整性、原生写模式、距上次回放间隔排序，选 H7 自身/链上多机制全谱 Trace 与 fmt 年份溢出原生 C++ 写模式。两例不改 oracle；H7 历史精确分割值差异须对照本次真实查询，fmt 必须人工检查交付树并运行原生断言，不能用机器 PASS 替代审计。这一对提供异构回归，不冒称必然复现 r1038 扩窗条件。
+
+未结项：B1619 第二阶段多目标来源绑定、B1618-P2a wait 预览与完整清单、B1620 声明字段权限混杂、B1616b 跨计划验证范围、B1561 逐断言证据仍按前序排队，未因范围显示修复而销账。
+
+B1620 本轮只读补证：`observation_ledger.go` 的 aggregate 编译将精确成员支持所给的整行权限与模型 `member_notes` 混入同一观察；`enumeration_display_rows.go` 又把 evidence/anchor/step/member 各来源说明归入单一 Note，finalizer 要求非空 note 同行呈现。已有 `aggregateMemberNoteSupportAuthority` 不是不存在，而是依赖 EvidenceItems，source-inventory 声明车道缺实际逐行数据。另一个通用系统补齐入口 `answer_document_pre_emit_check.go` 直接复制 row.Note；r1038 并非它触发，但必须同批审计。后续 A 批在混合前保留成员精确事实与候选说明/ClaimForm 支持上限，B 批对齐提示和自动补齐消费者；不把“call 已证”扩大成备注整句已证，也不扫描继承/语言关键词或要求照抄错误说明。需 source-inventory 无 EvidenceItems、Go/C++ 异构、definition/call/guard 正例、同名跨文件/代次与真实 emit 所有权矩阵，本轮只定位未实施。
+
+B1618-P2a 本轮只读补证（下一施工优先）：`matchingTraceTargetWaitSummary` 仍用同显示名/目标加两端各≤1ms匹配，而 wait 的请求范围判据是2µs；匹配后 suffix 不再显示 wait 自己的查询窗，并按 RecordID 隐藏独立行。源码反例配方：主state 10..10.020且D/IO=0，同capture补充query 10..10.0205含窗后10.0201..10.0204的.300ms等待，会落入宽松匹配；零清单又不建wait摘要。这是源码确定的可达路径，**尚未新增先红针或live复现**，不得计为本批已修。下一批统一preview/完整清单/state的capture+target+query identity，复用既有同窗函数；未精确关联保留独立范围，reader-shadow只隐藏实际被替代的ID。需500µs邻窗、缺失/多义、顺序互换、零清单和8项预览/11项完整清单共存正负针，不仅修改一个阈值。
+
+边界：Trace 显式窗/补采/合法探索投影保留；根因限已证链上，运行折算/反转/调度/D与IO/确定性语义工作及业务线索两轴不变；背景仅辅助。无系统替换模型结论/图，无请求或模型正文关键词硬门。真实 HTTP 活跃 reasoning/tool/visible 流超旧总时限、调用者取消及 evaluator 非流年龄门五项定向 count3 通过；不存在本批新增的 4ms/4分钟无答案自动降级，显式取消/截止与真实空闲机制仍保留。
+
+收批验证：`go test ./... -count=1` 第二次完整运行 exit0，86个有测试包均通过，日志 `20260908-b1619-full-suite-final.log`；tool/tracefinding边界race与types独立race均通过，typed/agent/orchestrator/writer各自count3及活跃流五项count3通过。第一次全仓失败保留在 `20260908-b1619-full-suite.log`。构建及实际双路回放另行记录，不用定向测试充当生产验收。
+
+状态：`B1619-P1=implemented/targeted+86-package+race-pass/pending-commit+live`；`scope=disclosure-only/not-causal-or-election-gate`；`remaining-queue=open`。
+
 ### §123.1687 r1038 双域人工审计与 B1618-P1 交付（2026-09-08）
 
 B1618-P1已提交推送 `6d77732c4`：捕获身份/显示名分离，IPC结果来源与物理发送身份分离，状态及IO三把尺按同capture/target/query-window配对；真实producer补齐set/leaf查询窗。最终全仓86包实际通过（§1686保留两次失败/中止过程），clean make revision=`6d77732c4cb5`、版本0.1.20260908，构建日志`20260908-b1618-clean-build.log`。SSH恢复后使用原remote正常推送，未改认证或关闭主机校验；无本批源码积压。

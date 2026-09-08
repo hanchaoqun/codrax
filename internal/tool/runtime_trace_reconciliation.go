@@ -26,6 +26,7 @@ type RuntimeTraceReconciliationRow struct {
 	ArtifactLabel string
 	Subject       string
 	EvidenceTag   string
+	WindowScope   types.TraceQueryWindowScope
 
 	WindowStartTs float64
 	WindowEndTs   float64
@@ -103,6 +104,7 @@ func RuntimeTraceReconciliationRows(ctx *types.BusContext) []RuntimeTraceReconci
 				ArtifactLabel: label,
 				Subject:       strings.TrimSpace(account.Subject),
 				EvidenceTag:   strings.TrimSpace(model.TargetStateEvidenceTag),
+				WindowScope:   projection.WindowScope.ForWindow(account.WindowStartTs, account.WindowEndTs),
 				WindowStartTs: account.WindowStartTs,
 				WindowEndTs:   account.WindowEndTs,
 				WindowMS:      model.WindowMS,
@@ -124,11 +126,13 @@ func RuntimeTraceReconciliationRows(ctx *types.BusContext) []RuntimeTraceReconci
 		if tag == "" || !evidence.has(row.Node) {
 			continue
 		}
+		boardScope := types.TraceRankBoardDisplayIdentityFromNode(projection, row.Node)
 		out = append(out, RuntimeTraceReconciliationRow{
 			Kind:          RuntimeTraceReconciliationRankOne,
 			ArtifactLabel: label,
 			Subject:       strings.TrimSpace(row.Node.Subject),
 			EvidenceTag:   tag,
+			WindowScope:   projection.WindowScope.ForWindow(boardScope.WindowStartTs, boardScope.WindowEndTs),
 			Rank:          row.Node.Rank,
 			EffectiveMS:   row.Node.EffectiveImpactMS,
 			CauseToken:    strings.TrimSpace(row.Node.TypeToken),

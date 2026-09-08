@@ -430,6 +430,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 // --- T1 · TraceCausalProjection contract (A 区) --------------------------------
 
 var projectionFieldContract = map[string]fieldDisposition{
+	"WindowScope":                  {Status: "displayed", Ref: "B1619 shared requested/query window disclosure in projection and occupancy lead"},
 	"PrimaryRootCause":             {Status: "displayed", Ref: "行族桶来源(F1–F7)"},
 	"PrimaryRootCauses":            {Status: "displayed", Ref: "行族桶来源"},
 	"RankedSeats":                  {Status: "displayed", Ref: "AB3 answer-writer ordered rank roster authority", NoScan: true},

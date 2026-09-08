@@ -185,7 +185,8 @@ func TestRenderAnswerDocObservationLedgerPublishesFiniteStateForTypedParenthesiz
 		"### Target-thread scheduler-state accounting",
 		"target thread .ugc.aweme.lite-17267",
 		"running 157.248 ms, runnable but not yet scheduled 5.604 ms, interruptible sleep 70.338 ms, uninterruptible wait 0.000 ms",
-		"total 233.190 ms; complete coverage",
+		"total 233.190 ms; within this query window: complete coverage",
+		"query window 13762.791708–13763.024898 seconds (matches the requested window)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("parenthesized typed target lost finite state authority %q:\n%s", want, got)

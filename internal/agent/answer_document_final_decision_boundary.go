@@ -368,6 +368,9 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 		}
 		fmt.Fprintf(&b, "\n### %s\n", label)
 		if types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
+			if scope := projection.WindowScope.Format(lang); scope != "" {
+				fmt.Fprintf(&b, "- %s\n", scope)
+			}
 			if zh {
 				fmt.Fprintf(&b, "- 所选分析窗口：%.6f–%.6f 秒（%.3f 毫秒）。\n", projection.WindowStartTs, projection.WindowEndTs, projection.WindowDurationMS())
 				b.WriteString("  - 窗口边界：只有上述起止时刻内的状态和事件能支持本窗口结论。窗口结束后的切入运行属于另一区间；不能据此声称线程已在本窗口内醒后立即运行，也不能把本窗口内未测得的醒后调度延迟写成零。\n")
@@ -1596,6 +1599,9 @@ func renderTraceFinalTimeRoleAuthority(set types.TraceCausalProjectionSet) strin
 		}
 		fmt.Fprintf(&b, "- time_role_authority artifact=`%s`; selected_query_window=`%.6f..%.6f`; selected_query_window_duration=%.3fms; attachment_extent_role=`artifact_navigation_only_not_selected_window_duration`; out_of_window_switch_in_role=`separate_event_not_selected_window_state_duration`.\n",
 			traceDecisionPromptScalar(label), projection.WindowStartTs, projection.WindowEndTs, projection.WindowDurationMS())
+		if scope := projection.WindowScope.Format("en"); scope != "" {
+			fmt.Fprintf(&b, "  - query_scope: %s.\n", scope)
+		}
 		account := projection.TargetStateAccount
 		if account == nil || strings.TrimSpace(account.Subject) == "" || account.TotalMS <= 0 {
 			continue
@@ -1625,6 +1631,9 @@ func renderTraceFinalSelectedWindowAuthority(set types.TraceCausalProjectionSet,
 		}
 		fmt.Fprintf(&b, "- selected_window_authority artifact=`%s`; selected_window=`%.6f..%.6f`; out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`; a preview/triage row outside this interval cannot establish selected-window state, event order, duration, frame boundary, completion, or deadline unless a separate typed relation explicitly binds it into this projection.\n",
 			traceDecisionPromptScalar(label), projection.WindowStartTs, projection.WindowEndTs)
+		if scope := projection.WindowScope.Format("en"); scope != "" {
+			fmt.Fprintf(&b, "  - query_scope: %s.\n", scope)
+		}
 		if frameEvidenceStatus == "absent" || frameEvidenceStatus == "unavailable" {
 			b.WriteString("  No target-bound frame boundary, completion, or deadline is provided; do not turn an unbound preview marker into this selected window's frame boundary or cadence explanation.\n")
 		}
@@ -1758,13 +1767,12 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 				if node.StartTs > 0 && node.EndTs > node.StartTs {
 					fmt.Fprintf(&b, "; occurrence_interval=`%.6f..%.6f`", node.StartTs, node.EndTs)
 				}
-				if start, end, ok := traceDecisionNodeQueryWindow(node); ok {
-					role := "supporting_query_window"
-					if traceDecisionSameWindow(start, end, projection.WindowStartTs, projection.WindowEndTs) {
-						role = "requested_or_elected_window"
-					}
-					fmt.Fprintf(&b, "; query_window=`%.6f..%.6f`; window_role=`%s`", start, end, role)
+				start, end, queryWindowKnown := traceDecisionNodeQueryWindow(node)
+				if queryWindowKnown {
+					fmt.Fprintf(&b, "; query_window=`%.6f..%.6f`", start, end)
 				}
+				scope := projection.WindowScope.ForWindow(start, end)
+				fmt.Fprintf(&b, "; window_role=`%s`; scope_note=%q", scope.Role, scope.Format("en"))
 				traceDecisionWritePhase(&b, node)
 				traceDecisionWritePriorityCandidateClaimEnvelope(&b, node)
 				traceDecisionWriteNodeBlockingReasonAuthority(&b, node)

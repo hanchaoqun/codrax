@@ -79,8 +79,11 @@ type TraceRootCauseItemV2 struct {
 	// is empty only for an identity-less single-trace ledger). Two same-named
 	// threads from two trace files stay two distinct causes on the wire.
 	// Append-only v2 extension (schema_version stays 2).
-	ArtifactLabel string   `json:"artifact_label,omitempty"`
-	ImpactSeconds *float64 `json:"impact_seconds"`
+	ArtifactLabel string `json:"artifact_label,omitempty"`
+	// Read-only, append-only v2 scope provenance. The binder copies the
+	// selected candidate's exact query scope; model-supplied values are ignored.
+	WindowScope   *TraceQueryWindowScope `json:"window_scope,omitempty"`
+	ImpactSeconds *float64               `json:"impact_seconds"`
 	// ImpactCaliber (SIDECAR-Q1, §40.28 ②) names the ruler behind
 	// impact_seconds — "effective_attribution" (the engine-published effective
 	// attribution) or "window_projection" (the raw window projection of a seat
@@ -286,6 +289,10 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		CausalQualifier:    strings.TrimSpace(in.CausalQualifier),
 		MechanismQualifier: strings.TrimSpace(in.MechanismQualifier),
 	}
+	if in.WindowScope != nil {
+		scope := in.WindowScope.ForWindow(in.WindowScope.QueryWindowStartTs, in.WindowScope.QueryWindowEndTs)
+		out.WindowScope = &scope
+	}
 	// SIDECAR-Q1 (§40.28 ②): both qualifiers are closed-set and REQUIRED on
 	// every bound item — a consumer never infers them from absence.
 	if !ValidTraceImpactCaliber(out.ImpactCaliber) {
@@ -420,6 +427,10 @@ func cloneTraceRootCauseReportV2(in *TraceRootCauseReportV2) *TraceRootCauseRepo
 		}
 		cause := *item
 		cause.Evidence = append([]string(nil), item.Evidence...)
+		if item.WindowScope != nil {
+			scope := *item.WindowScope
+			cause.WindowScope = &scope
+		}
 		if item.ImpactBreakdown != nil {
 			breakdown := *item.ImpactBreakdown
 			cause.ImpactBreakdown = &breakdown

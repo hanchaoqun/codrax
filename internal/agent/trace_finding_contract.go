@@ -104,23 +104,25 @@ type traceRootCauseRosterGroup struct {
 // the partition roster, so a silent partition is disclosed, not miscounted.
 func traceRootCauseRosterGroups(selectable []types.TraceFindingCandidateV1, contract *types.TraceFindingContract) ([]traceRootCauseRosterGroup, []string, error) {
 	type candidateView struct {
-		CandidateID        string   `json:"candidate_id"`
-		ArtifactLabel      string   `json:"artifact_label,omitempty"`
-		CauseKind          string   `json:"cause_kind"`
-		Subject            string   `json:"subject,omitempty"`
-		Resource           string   `json:"resource,omitempty"`
-		Phase              string   `json:"phase,omitempty"`
-		Rank               int      `json:"rank,omitempty"`
-		ImpactMS           float64  `json:"impact_ms"`
-		ImpactCaliber      string   `json:"impact_caliber"`
-		CausalQualifier    string   `json:"causal_qualifier"`
-		MechanismQualifier string   `json:"mechanism_qualifier,omitempty"`
-		ValueDescription   string   `json:"value_description,omitempty"`
-		EvidenceRefs       []string `json:"evidence_refs"`
+		CandidateID        string                       `json:"candidate_id"`
+		ArtifactLabel      string                       `json:"artifact_label,omitempty"`
+		CauseKind          string                       `json:"cause_kind"`
+		Subject            string                       `json:"subject,omitempty"`
+		Resource           string                       `json:"resource,omitempty"`
+		Phase              string                       `json:"phase,omitempty"`
+		Rank               int                          `json:"rank,omitempty"`
+		ImpactMS           float64                      `json:"impact_ms"`
+		ImpactCaliber      string                       `json:"impact_caliber"`
+		CausalQualifier    string                       `json:"causal_qualifier"`
+		MechanismQualifier string                       `json:"mechanism_qualifier,omitempty"`
+		ValueDescription   string                       `json:"value_description,omitempty"`
+		EvidenceRefs       []string                     `json:"evidence_refs"`
+		WindowScope        *types.TraceQueryWindowScope `json:"window_scope,omitempty"`
+		WindowScopeNote    string                       `json:"window_scope_note,omitempty"`
 	}
 	view := func(candidate types.TraceFindingCandidateV1) candidateView {
 		decision := candidate.Decision
-		return candidateView{
+		out := candidateView{
 			CandidateID: decision.CandidateID, ArtifactLabel: decision.ArtifactLabel, CauseKind: decision.Token.Token,
 			Subject: decision.SubjectName, Resource: decision.ResourceName,
 			Phase: decision.PhaseName, Rank: decision.Rank,
@@ -129,6 +131,11 @@ func traceRootCauseRosterGroups(selectable []types.TraceFindingCandidateV1, cont
 			MechanismQualifier: decision.MechanismQualifier,
 			ValueDescription:   tracefinding.RootCauseValueDescription(decision),
 		}
+		if facts := decision.EvidenceFacts; facts != nil && facts.WindowScope != nil {
+			out.WindowScope = facts.WindowScope
+			out.WindowScopeNote = facts.WindowScope.Format("en")
+		}
+		return out
 	}
 	labels := []string{""}
 	if contract.MultiArtifact() {

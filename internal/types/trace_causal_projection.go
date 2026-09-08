@@ -141,14 +141,13 @@ type TraceCausalProjection struct {
 	// bucket came back empty" (true — absence of background rows is itself an
 	// auditable outcome). Precise typed signal only; never derived from prose.
 	RootCauseFamilyObserved bool `json:"root_cause_family_observed,omitempty"`
-	// WindowStartTs/WindowEndTs is the user's originally-requested analysis
-	// window (seconds), sourced from the same precise frame_target_resolution
-	// anchor that feeds WithinRequestedWindow (window_source=query_window or the
-	// explicit-union variant). Zero when no such anchor exists — the renderer
-	// must then fall back to a relative bar scale and MUST NOT fabricate a
-	// window or percentages (presentation v3 §5 fallback rule).
-	WindowStartTs float64 `json:"window_start_ts,omitempty"`
-	WindowEndTs   float64 `json:"window_end_ts,omitempty"`
+	// WindowStartTs/WindowEndTs is the elected, observed analysis window.
+	// It can remain an exploration window when no exact requested-window
+	// carrier exists. WindowScope separately discloses that distinction; it
+	// never replaces this ruler or manufactures a coverage denominator.
+	WindowStartTs float64               `json:"window_start_ts,omitempty"`
+	WindowEndTs   float64               `json:"window_end_ts,omitempty"`
+	WindowScope   TraceQueryWindowScope `json:"window_scope,omitempty"`
 	// ArtifactPath/ArtifactLabel is the typed artifact identity of the trace
 	// this projection was compiled from (CMP-1, customer compare audit
 	// 2026-07-03 §7.2): the canonicalised SourceRef.Path (shared canonicaliser,
@@ -2398,6 +2397,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	if !out.Active() {
 		return TraceCausalProjection{}
 	}
+	out.WindowScope = ResolveTraceQueryWindowScope(requestedScope, out.WindowStartTs, out.WindowEndTs)
 	return out
 }
 

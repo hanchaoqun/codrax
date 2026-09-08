@@ -176,7 +176,7 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 		// reader handoff); the uninterruptible figure is the D+IO fold with
 		// its scheduler-marked IO share disclosed.
 		"工件 customer.systrace；目标线程 app-100；窗口 1.000000–1.010000 秒；",
-		"不可中断等待 1.000 毫秒（其中调度器标记的 IO 等待 0.500 毫秒）；合计 10.000 毫秒；覆盖完整；未归账 0.000 毫秒。",
+		"不可中断等待 1.000 毫秒（其中调度器标记的 IO 等待 0.500 毫秒）；合计 10.000 毫秒；本查询范围内：覆盖完整；未归账 0.000 毫秒。",
 		"窗口结束后的切入运行属于另一区间",
 		"不能把本窗口内未测得的醒后调度延迟写成零",
 		"真实耗时集中（已测墙钟占用，用于发现新的优化方向）",
@@ -1271,10 +1271,15 @@ func TestTraceFinalCompactAuthorityLedgerSeparatesWakeupFromTypedBlockingAndDire
 }
 
 func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupPhase(t *testing.T) {
+	start, end := 10.0, 10.1
 	projection := types.TraceCausalProjection{
 		ArtifactLabel: "customer.systrace",
 		WindowStartTs: 10,
 		WindowEndTs:   10.1,
+		WindowScope: types.ResolveTraceQueryWindowScope(&types.RuntimeArtifactScopeProfile{
+			RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+			TimeStart:      &start, TimeEnd: &end, SourceQuote: "10..10.1",
+		}, start, end),
 		RankedSeats: []types.TraceCausalProjectionNode{
 			{
 				EvidenceID: "micro-io", Subject: "micro-worker", Rank: 1,
@@ -1296,7 +1301,7 @@ func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupP
 		"leader_subject=`full-worker`",
 		"leader_effective_attribution=10.433ms",
 		"query_window=`10.000000..10.100000`",
-		"window_role=`requested_or_elected_window`",
+		"window_role=`requested_scope_principal`",
 		"impact_phase=`pre_wakeup_dependency`",
 		"mechanism_ceiling=`on_chain_prewakeup_work_candidate_only`",
 		"target_wait_for_work_authority=`not_provided_by_this_seat`",

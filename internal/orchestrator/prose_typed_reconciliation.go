@@ -133,12 +133,13 @@ func renderTargetStateReconciliation(row tool.RuntimeTraceReconciliationRow) pro
 	// which the body four-state line prints as "D-state …(其中 IO等待 …)";
 	// spelling this lane bare put two calibers under one word on one
 	// customer page (D-state 4.039 here vs D-state 5.379 in the body).
-	return proseScalarBindingFinding{
+	finding := proseScalarBindingFinding{
 		entryZH: fmt.Sprintf("对账参考: %s%s 全窗状态分区 running %.3fms + runnable %.3fms + sleep %.3fms + %s %.3fms + io_wait %.3fms = %.3fms(分析窗 %.3fms) [%s]",
 			artifactZH, row.Subject, row.RunningMS, row.RunnableMS, row.SleepMS, tool.TraceStateNonIODStateWord(true), row.DStateMS, row.IOWaitMS, row.TotalMS, row.WindowMS, row.EvidenceTag),
 		entry: fmt.Sprintf("Reconciliation reference: %s%s full-window state partition: running %.3fms + runnable %.3fms + sleep %.3fms + %s %.3fms + io_wait %.3fms = %.3fms (analysis window %.3fms) [%s]",
 			artifactEN, row.Subject, row.RunningMS, row.RunnableMS, row.SleepMS, tool.TraceStateNonIODStateWord(false), row.DStateMS, row.IOWaitMS, row.TotalMS, row.WindowMS, row.EvidenceTag),
 	}
+	return reconciliationWithWindowScope(finding, row.WindowScope)
 }
 
 func renderRankOneReconciliation(row tool.RuntimeTraceReconciliationRow) proseScalarBindingFinding {
@@ -148,24 +149,34 @@ func renderRankOneReconciliation(row tool.RuntimeTraceReconciliationRow) proseSc
 		causeZH = strings.TrimSpace(row.CauseToken)
 	}
 	causeEN := strings.ReplaceAll(strings.TrimSpace(row.CauseToken), "_", " ")
-	return proseScalarBindingFinding{
+	return reconciliationWithWindowScope(proseScalarBindingFinding{
 		entryZH: fmt.Sprintf("同尺并置: %s根因排序#1 %s / %s,已发布有效归因 %.3fms [%s]",
 			artifactZH, row.Subject, causeZH, row.EffectiveMS, row.EvidenceTag),
 		entry: fmt.Sprintf("Like-for-like reference: %sroot-cause rank #1 %s / %s, published attribution %.3fms [%s]",
 			artifactEN, row.Subject, causeEN, row.EffectiveMS, row.EvidenceTag),
-	}
+	}, row.WindowScope)
 }
 
 func renderDirectionReconciliation(row tool.RuntimeTraceReconciliationRow) proseScalarBindingFinding {
 	wordZH, _ := tracefence.FixDirectionWord(row.FixDirection, true)
 	wordEN, _ := tracefence.FixDirectionWord(row.FixDirection, false)
 	artifactZH, artifactEN := reconciliationArtifactPrefix(row.ArtifactLabel)
-	return proseScalarBindingFinding{
+	return reconciliationWithWindowScope(proseScalarBindingFinding{
 		entryZH: fmt.Sprintf("同尺并置: %s根因排序#1 的修向=%s,该席有效归因 %.3fms [%s]",
 			artifactZH, wordZH, row.EffectiveMS, row.EvidenceTag),
 		entry: fmt.Sprintf("Like-for-like reference: %sroot-cause rank #1 fix direction=%s, seat attribution %.3fms [%s]",
 			artifactEN, wordEN, row.EffectiveMS, row.EvidenceTag),
+	}, row.WindowScope)
+}
+
+func reconciliationWithWindowScope(finding proseScalarBindingFinding, scope types.TraceQueryWindowScope) proseScalarBindingFinding {
+	if note := scope.Format("zh"); note != "" {
+		finding.entryZH += "；" + note
 	}
+	if note := scope.Format("en"); note != "" {
+		finding.entry += "; " + note
+	}
+	return finding
 }
 
 func reconciliationArtifactPrefix(raw string) (zh, en string) {

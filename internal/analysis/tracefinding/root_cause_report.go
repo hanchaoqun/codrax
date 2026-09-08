@@ -224,6 +224,10 @@ func boundRootCauseItem(candidate types.TraceFindingCandidateV1) (*types.TraceRo
 		ImpactBreakdown:    rootCauseImpactBreakdown(decision),
 		Evidence:           boundRootCauseEvidence(decision),
 	}
+	if facts := decision.EvidenceFacts; facts != nil && facts.WindowScope != nil {
+		scope := *facts.WindowScope
+		item.WindowScope = &scope
+	}
 	switch category {
 	case types.TraceRootCauseGCLongPause, types.TraceRootCauseComputeSupplyShortage:
 		// These categories permit an unnamed scope, but retain a supplied
@@ -416,7 +420,18 @@ func boundRootCauseEvidence(decision types.TraceCauseDecision) []string {
 	if !ok {
 		return nil
 	}
-	statement := fmt.Sprintf("%s 在目标窗口内的%s为 %.3f ms%s", subject, phrase, decision.Magnitude.Value, suffix)
+	windowLabel := "目标窗口"
+	if facts := decision.EvidenceFacts; facts != nil && facts.WindowScope != nil {
+		switch facts.WindowScope.Role {
+		case types.TraceQueryWindowScopeSupportingExploration:
+			windowLabel = "补充查询窗口"
+		case types.TraceQueryWindowScopeUnknownQueryWindow:
+			windowLabel = "范围未明确的查询窗口"
+		case types.TraceQueryWindowScopeElectedQueryWindow:
+			windowLabel = "本次查询窗口"
+		}
+	}
+	statement := fmt.Sprintf("%s 在%s内的%s为 %.3f ms%s", subject, windowLabel, phrase, decision.Magnitude.Value, suffix)
 	if description := RootCauseValueDescription(decision); description != "" {
 		statement += "；" + description
 	}
@@ -551,12 +566,25 @@ func rootCauseEvidenceLocatorSentence(facts *types.TraceCauseEvidenceFacts) stri
 		parts = append(parts, fmt.Sprintf("发生 %.6f–%.6f s", facts.SeatStartTs, facts.SeatEndTs))
 	}
 	if facts.WindowEndTs > facts.WindowStartTs {
-		parts = append(parts, fmt.Sprintf("分析窗 %.6f–%.6f s", facts.WindowStartTs, facts.WindowEndTs))
+		label := "分析窗"
+		if facts.WindowScope != nil {
+			label = "投影范围"
+		}
+		parts = append(parts, fmt.Sprintf("%s %.6f–%.6f s", label, facts.WindowStartTs, facts.WindowEndTs))
 	}
 	if len(parts) == 0 {
+		if scope := facts.WindowScope; scope != nil && scope.RequestedWindowKnown {
+			return scope.Format("zh")
+		}
 		return ""
 	}
-	return "trace 定位：" + strings.Join(parts, "，")
+	locator := "trace 定位：" + strings.Join(parts, "，")
+	if scope := facts.WindowScope; scope != nil && scope.RequestedWindowKnown {
+		// Keep physical locators ahead of the optional prose explanation under
+		// the evidence sentence cap. The full typed scope remains on the item.
+		locator += "；" + scope.Format("zh")
+	}
+	return locator
 }
 
 // rootCauseEvidenceFit keeps one entry inside the wire cap at a semantic

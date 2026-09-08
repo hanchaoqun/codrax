@@ -67,7 +67,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	var b strings.Builder
 	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(extractAnswerDocLang(ctx))), "zh")
 	b.WriteString("## Runtime Trace Principal Values — Final Typed Recap\n\n")
-	b.WriteString("- Use these typed rows for the leading numeric conclusion. They are a compact recap of the same authority used by the deterministic answer lead; later blocked-reason records, IPC request counts, transport latency, capped exploration rows, per-CPU aggregate groups, or narrative estimates cannot replace their caliber.\n")
+	b.WriteString("- Use these typed rows only within their displayed query scope. A `supporting_state` row preserves a supplementary query's measurements, not the requested-window total; keep its values and scope separate. The rows recap the same authority used by the deterministic answer lead; later blocked-reason records, IPC request counts, transport latency, capped exploration rows, per-CPU aggregate groups, or narrative estimates cannot replace their caliber.\n")
 	b.WriteString("- `principal_state` is the selected-window authority for a target thread's running/runnable/sleep/D-state totals. A perf-triage `time_semantics` duration is the whole attachment's first-to-last timestamp extent; it is unit/provenance context only and must never replace a `principal_state` value or be emitted as the target's selected-window state total. If an earlier narrative or model-authored aggregate used the attachment extent for that purpose, keep the model's diagnosis but correct the numeric caliber from `principal_state`.\n")
 	b.WriteString("- Within a `principal_state` row, `head_carry` or `tail_open` marked `already_included=true` is selected-window wall clock already contained in its named state and in `accounted_total`; never add it again, call it outside the selected window, or combine it with `unaccounted`. Only `unaccounted` is the separate uncovered remainder, and insufficient boundary evidence means its state is unknown. If an earlier model aggregate/completion note conflicts, use this final typed accounting while keeping the conclusion model-authored.\n")
 	b.WriteString("- A complete target-wait row authorizes its exact occurrence count and wall-clock sum. A capacity-truncated blocking row authorizes only the displayed observed lower bound (`>=`); never turn it into an exact total, a unique/only occurrence, or a claim that every other request caused no blocking.\n\n")
@@ -97,8 +97,13 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		)
 	}
 	for _, state := range states {
+		role := "principal_state"
+		if state.WindowScope.IsSupportingExploration() {
+			role = "supporting_state"
+		}
 		fmt.Fprintf(&b,
-			"- principal_state: artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; accounted_total=%.3fms; window_ms=%.3fms; coverage_status=`%s`",
+			"- %s: artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; accounted_total=%.3fms; window_ms=%.3fms; coverage_status=`%s`",
+			role,
 			state.ArtifactLabel,
 			state.Subject,
 			state.WindowStartTs,
@@ -112,6 +117,9 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			state.WindowMS,
 			state.CoverageStatus,
 		)
+		if scope := state.WindowScope.Format(extractAnswerDocLang(ctx)); scope != "" {
+			fmt.Fprintf(&b, "; scope_note=%q", scope)
+		}
 		if state.UnaccountedMS > 0 {
 			fmt.Fprintf(&b, "; unaccounted=%.3fms (typed boundary evidence is insufficient to assign this remainder to any state)", state.UnaccountedMS)
 		}

@@ -313,6 +313,13 @@ func candidateEvidenceFacts(projection types.TraceCausalProjection, node types.T
 	if facts.WindowEndTs <= facts.WindowStartTs && node.QueryWindowEndTs > node.QueryWindowStartTs {
 		facts.WindowStartTs, facts.WindowEndTs = node.QueryWindowStartTs, node.QueryWindowEndTs
 	}
+	if projection.WindowScope.Role != "" {
+		// A node's occurrence interval is not its query ruler. Missing query
+		// endpoints remain unknown rather than borrowing the projection's window.
+		board := types.TraceRankBoardDisplayIdentityFromNode(projection, node)
+		scope := projection.WindowScope.ForWindow(board.WindowStartTs, board.WindowEndTs)
+		facts.WindowScope = &scope
+	}
 	// The elected wakeup path is quoted only when this seat's subject sits on it.
 	subject := strings.TrimSpace(node.Subject)
 	for _, hop := range projection.WakeupPath {

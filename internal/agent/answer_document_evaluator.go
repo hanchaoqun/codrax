@@ -5850,6 +5850,12 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 			b.WriteString("- Complete scheduler-marked target-wait rows are intentionally published once in the dedicated reader-ready section below; their lossless machine records remain in the audit ledger and validators.\n")
 		}
 	}
+	queryScopes := make(map[string]string)
+	for _, record := range promptLedger.Records {
+		if scope := traceQueryObservationRequestedScopeNote(record, promptLedger.RuntimeArtifactScopeProfile, extractAnswerDocLang(ctx)); scope != "" {
+			queryScopes[record.ID] = scope
+		}
+	}
 	for _, record := range records {
 		fmt.Fprintf(&b,
 			"- `%s`: origin=`%s`; producer=`%s`; source=`%s`; role=`%s`; policy=`%s`",
@@ -5868,6 +5874,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		}
 		if span := strings.TrimSpace(record.Span); span != "" {
 			fmt.Fprintf(&b, "; span=%s", span)
+		}
+		if scope := queryScopes[record.ID]; scope != "" {
+			fmt.Fprintf(&b, "; query_scope=%q", scope)
 		}
 		if claim := strings.TrimSpace(record.Claim); claim != "" {
 			fmt.Fprintf(&b, "; claim=%q", claim)
@@ -23360,6 +23369,13 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 			continue
 		}
 		outsideNote := traceQueryObservationOutsideWindowNote(entry.record, projectionSet, zh)
+		lang := "en"
+		if zh {
+			lang = "zh"
+		}
+		if scope := traceQueryObservationRequestedScopeNote(entry.record, ledger.RuntimeArtifactScopeProfile, lang); scope != "" {
+			outsideNote += " (" + scope + ")"
+		}
 		text += outsideNote
 		base, lineStart, lineEnd := traceQueryObservationSourceCoordinate(entry.record)
 		if foldKey := traceQueryObservationSameValueFoldKey(entry.record, base, outsideNote, zh); foldKey != "" {
@@ -23511,6 +23527,20 @@ func traceQueryObservationSameValueFoldNote(dups []traceQueryObservationSameValu
 		return fmt.Sprintf("; %d more identical-value row(s) (lines %s)", len(dups), strings.Join(located, ", "))
 	}
 	return fmt.Sprintf("; %d more identical-value row(s)", len(dups))
+}
+
+// traceQueryObservationRequestedScopeNote only describes the producer's query
+// scope relative to an explicit request. It changes no observation admission.
+func traceQueryObservationRequestedScopeNote(record types.ObservationRecord, requested *types.RuntimeArtifactScopeProfile, lang string) string {
+	if _, _, ok := requested.ExplicitTimeWindow(); !ok ||
+		record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+		!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+		return ""
+	}
+	// An occurrence's Span is not its query window. Missing producer-owned
+	// query endpoints stay unknown even when the row has a precise event span.
+	start, end, _ := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+	return types.ResolveTraceQueryWindowScope(requested, start, end).Format(lang)
 }
 
 // traceQueryObservationOutsideWindowNote implements CMP-5b: when BOTH the

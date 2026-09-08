@@ -1579,6 +1579,7 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 	if label := strings.TrimSpace(artifactLabel); label != "" {
 		titleSuffix = " — " + label
 	}
+	titleSuffix += runtimeTraceQueryScopeTitleSuffix(projection.WindowScope, zh)
 	claimUses := []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}}
 	facets := []string{"observed_artifact_fact"}
 	leadText := runtimeTraceProjReaderLeadText(projection, model, lang, zh)
@@ -2050,6 +2051,7 @@ func runtimeTraceCausalProjectionOccupancyBlock(
 		text = "This table answers where time was actually spent and which NEW repair direction deserves exploration. The eliminable-work board below answers how much the existing rules can price as recoverable. The two axes use separate accounting bases and cannot be added or substituted. Wall-clock ms and cpu·ms are grouped separately. This table alone does not prove that an occupancy caused a specific dropped frame; without target-bound frame/deadline evidence it is only a major occupancy or critical-path candidate in the selected window."
 	}
 	text += runtimeTraceOccupancyStatisticsLegend(zh)
+	text = runtimeTraceQueryScopePreface(text, projection.WindowScope, zh)
 	if stateAccount != "" {
 		text += "\n\n" + stateAccount
 	}

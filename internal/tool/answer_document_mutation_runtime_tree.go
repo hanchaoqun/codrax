@@ -15421,6 +15421,9 @@ func runtimeTraceProjReaderLeadText(projection types.TraceCausalProjection, mode
 
 func runtimeTraceProjLeadTextWithLegend(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, lang string, zh, readerFacing bool) string {
 	var sections []string
+	if scope := runtimeTraceQueryScopePreface("", projection.WindowScope, zh); scope != "" {
+		sections = append(sections, scope)
+	}
 	if line := runtimeTraceProjConclusionLine(projection, model, zh); line != "" {
 		sections = append(sections, line)
 	}

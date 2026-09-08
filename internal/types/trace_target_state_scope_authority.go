@@ -19,6 +19,7 @@ type TraceTargetStateScopeAuthority struct {
 	Subject        string
 	WindowStartTs  float64
 	WindowEndTs    float64
+	WindowScope    TraceQueryWindowScope
 	WindowMS       float64
 	RunningMS      float64
 	RunnableMS     float64
@@ -93,6 +94,14 @@ func FormatTargetStateAccount(a TraceTargetStateScopeAuthority, lang string) str
 		return w
 	}
 	coverage := tracefence.StateCoverageWord(a.CoverageStatus, zh)
+	scopeText := a.WindowScope.Format(lang)
+	if scopeText != "" {
+		if zh {
+			coverage = "本查询范围内：" + coverage
+		} else {
+			coverage = "within this query window: " + coverage
+		}
+	}
 	label := strings.TrimSpace(a.ArtifactLabel)
 	var b strings.Builder
 	if zh {
@@ -100,6 +109,9 @@ func FormatTargetStateAccount(a TraceTargetStateScopeAuthority, lang string) str
 			fmt.Fprintf(&b, "工件 %s；", label)
 		}
 		fmt.Fprintf(&b, "目标线程 %s；窗口 %.6f–%.6f 秒；", a.Subject, a.WindowStartTs, a.WindowEndTs)
+		if scopeText != "" {
+			b.WriteString(scopeText + "；")
+		}
 		fmt.Fprintf(&b, "%s %.3f 毫秒，%s %.3f 毫秒，%s %.3f 毫秒",
 			word(tracefence.StateLaneRunning), a.RunningMS,
 			word(tracefence.StateLaneRunnable), a.RunnableMS,
@@ -117,6 +129,9 @@ func FormatTargetStateAccount(a TraceTargetStateScopeAuthority, lang string) str
 		fmt.Fprintf(&b, "Artifact %s; ", label)
 	}
 	fmt.Fprintf(&b, "target thread %s; window %.6f–%.6f seconds; ", a.Subject, a.WindowStartTs, a.WindowEndTs)
+	if scopeText != "" {
+		b.WriteString(scopeText + "; ")
+	}
 	fmt.Fprintf(&b, "%s %.3f ms, %s %.3f ms, %s %.3f ms",
 		word(tracefence.StateLaneRunning), a.RunningMS,
 		word(tracefence.StateLaneRunnable), a.RunnableMS,
@@ -188,6 +203,7 @@ func BuildTraceTargetStateScopeAuthorities(set TraceCausalProjectionSet) []Trace
 			Subject:        strings.TrimSpace(account.Subject),
 			WindowStartTs:  account.WindowStartTs,
 			WindowEndTs:    account.WindowEndTs,
+			WindowScope:    projection.WindowScope.ForWindow(account.WindowStartTs, account.WindowEndTs),
 			WindowMS:       windowMS,
 			RunningMS:      account.RunningMS,
 			RunnableMS:     account.RunnableMS,
@@ -288,6 +304,7 @@ func BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger ObservationLedger) [
 			ArtifactPath:       item.path,
 			ArtifactLabel:      item.label,
 			TargetStateAccount: &account,
+			WindowScope:        ResolveTraceQueryWindowScope(ledger.RuntimeArtifactScopeProfile, account.WindowStartTs, account.WindowEndTs),
 		})
 	}
 	return BuildTraceTargetStateScopeAuthorities(TraceCausalProjectionSet{Projections: projections})

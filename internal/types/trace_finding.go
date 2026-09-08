@@ -154,28 +154,31 @@ type TraceCauseDecision struct {
 
 // TraceCauseEvidenceFacts — see TraceCauseDecision.EvidenceFacts.
 type TraceCauseEvidenceFacts struct {
-	ArtifactLabel          string   `json:"artifact_label,omitempty"`
-	WindowStartTs          float64  `json:"window_start_ts,omitempty"`
-	WindowEndTs            float64  `json:"window_end_ts,omitempty"`
-	SeatStartTs            float64  `json:"seat_start_ts,omitempty"`
-	SeatEndTs              float64  `json:"seat_end_ts,omitempty"`
-	LineStart              int      `json:"line_start,omitempty"`
-	LineEnd                int      `json:"line_end,omitempty"`
-	TargetSubject          string   `json:"target_subject,omitempty"`
-	ChainRelevance         string   `json:"chain_relevance,omitempty"`
-	Causality              string   `json:"causality,omitempty"`
-	OnChainBasis           string   `json:"on_chain_basis,omitempty"`
-	ChainDepth             int      `json:"chain_depth,omitempty"`
-	ChainBranch            int      `json:"chain_branch,omitempty"`
-	HostWakeupEdgeAnchorTs float64  `json:"host_wakeup_edge_anchor_ts,omitempty"`
-	HostWakeupEdgeVia      string   `json:"host_wakeup_edge_via,omitempty"`
-	WakeupPath             []string `json:"wakeup_path,omitempty"`
-	StateKind              string   `json:"state_kind,omitempty"`
-	BlockedReasonCaller    string   `json:"blocked_reason_caller,omitempty"`
-	Lane                   string   `json:"lane,omitempty"`
-	FixDirection           string   `json:"fix_direction,omitempty"`
-	SemanticClass          string   `json:"semantic_class,omitempty"`
-	SpanName               string   `json:"span_name,omitempty"`
+	// WindowScope describes the seat's query ruler independently of the
+	// elected projection window below. It never changes magnitude or rank.
+	WindowScope            *TraceQueryWindowScope `json:"window_scope,omitempty"`
+	ArtifactLabel          string                 `json:"artifact_label,omitempty"`
+	WindowStartTs          float64                `json:"window_start_ts,omitempty"`
+	WindowEndTs            float64                `json:"window_end_ts,omitempty"`
+	SeatStartTs            float64                `json:"seat_start_ts,omitempty"`
+	SeatEndTs              float64                `json:"seat_end_ts,omitempty"`
+	LineStart              int                    `json:"line_start,omitempty"`
+	LineEnd                int                    `json:"line_end,omitempty"`
+	TargetSubject          string                 `json:"target_subject,omitempty"`
+	ChainRelevance         string                 `json:"chain_relevance,omitempty"`
+	Causality              string                 `json:"causality,omitempty"`
+	OnChainBasis           string                 `json:"on_chain_basis,omitempty"`
+	ChainDepth             int                    `json:"chain_depth,omitempty"`
+	ChainBranch            int                    `json:"chain_branch,omitempty"`
+	HostWakeupEdgeAnchorTs float64                `json:"host_wakeup_edge_anchor_ts,omitempty"`
+	HostWakeupEdgeVia      string                 `json:"host_wakeup_edge_via,omitempty"`
+	WakeupPath             []string               `json:"wakeup_path,omitempty"`
+	StateKind              string                 `json:"state_kind,omitempty"`
+	BlockedReasonCaller    string                 `json:"blocked_reason_caller,omitempty"`
+	Lane                   string                 `json:"lane,omitempty"`
+	FixDirection           string                 `json:"fix_direction,omitempty"`
+	SemanticClass          string                 `json:"semantic_class,omitempty"`
+	SpanName               string                 `json:"span_name,omitempty"`
 }
 
 // TraceCausalQualifier values — closed set, always explicit on every public
