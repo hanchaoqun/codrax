@@ -12307,6 +12307,7 @@ func traceQueryTypedWakeupPathRichNotes(chain tracequery.ChainResult, path strin
 		{"nodes", traceQueryTypedCount(len(chain.Nodes))},
 		{"priority_inversion_edges", traceQueryTypedCount(priorityInversions)},
 		{types.TraceNoteKeyWindow, traceQueryWindowValue(chain.Window.StartTs, chain.Window.EndTs)},
+		{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(chain.Window)},
 	})
 }
 
@@ -12335,6 +12336,8 @@ func traceQueryTypedWakeupBranchPathRichNotes(chain tracequery.ChainResult, br t
 		pairs = append(pairs, [2]string{"side_chains", traceQueryTypedCount(br.SideChains)})
 	}
 	pairs = append(pairs, [2]string{types.TraceNoteKeyWindow, traceQueryWindowValue(chain.Window.StartTs, chain.Window.EndTs)})
+	// This path's ruler is the query window, not any member occurrence span.
+	pairs = append(pairs, [2]string{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(chain.Window)})
 	return traceQueryTypedKVNotes(pairs)
 }
 

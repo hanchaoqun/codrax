@@ -57380,6 +57380,32 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1690 B1621/P1a 第二小批施工与边界复核（2026-09-08）
+
+在已推送的r1039审计 `089dab101` 后施工；没有改历史答案、case或oracle，也没有追加第三个live用例。
+
+1. B1621修复两个类别说明族：7种语义工作只说明已观测工作/占用/业务方向，明确逐行位置及凭证决定链上、邻近或背景；2种优先级候选明确只有逐行已证链上依赖时才可作链上贡献，仍保留runnable调度等待和running算力供给空间两臂。按类别去重不变，不按首先遇到的角色给全局类别定谳；没有新硬门、输出字段或模型正文改写。9类别×ZH/EN、混池/调序/context-only输入不变、未知类别边界针通过。
+2. P1a在legacy path和branch path两个producer补来自chain.Window的selected_window，复用已有格式器，保留旧window，未知或无效范围不发值。不会将普通occurrence Span解释为query范围。
+3. **修正初始“纯显示/零选举影响”的判断**：path不是frame/rank选窗锚，但其query字段会进入既有PreferRequestedWindowWakeupPaths、PrincipalWindowAuthoritative和W-7跨窗挂接规则；补齐后多查询的精确主路径及主范围成员可能按既有规则改变。这是恢复丢失的来源凭证，而非新增选择政策。无exact时必须保留合法探索；不改每query原测量、链路凭证或原始观察账本。单窗除了两path query字段和原来漏掉的精确QueryWindows显示名册，其余整projection深比较保持不变，名册也必须与producer范围精确一致。
+4. 新增两窗两顺序优先exact、无exact保探索、实际Execute多路径与legacy/8分支/零起点/未知或退化范围、producer范围→既有树发布模型的同窗挂接和异窗depthless保值针。最后这一条是producer+发布模型拼接的回归，**不是实际TraceQuery到最终HTML全链e2e**。
+5. 验证保留真实先红及收口过程：B1621 semantic/priority教学先红；两条旧严格前缀断言按同一条件化文案更新，未删其余两轴/数值/负因果检查。P1a先复现缺selected_window，再由整结构parity发现范围字段及QueryWindows名册恢复，逐项确认后才允许这些精确差异；不把任意结构变化忽略。日志前缀20260908-b1621与20260908-b1619-path-scope。完整agent包已过44.119s；P1a最终count3（tool 1.150s/types 1.738s）、窄race（tool 2.518s）、旧branch/edge/budget兼容族count3（0.966s）通过。冻结后的合并全仓 `go test ./... -count=1` exit0、86个测试包全部通过；完整日志 `.codrax/tmp/20260908-b1621-path-combined-suite.log`，覆盖转换、模型流、读写、Trace及渲染相关包。
+
+独立末审无阻断；特别确认路径修复的上述功能影响。B1622/B1623及§1689队列仍开放，不因本批修复销账。生产有效性须下一次两路异构回放继续验证，不把r1039原始错误答案称为修后正证。
+
+状态：`B1621/P1a=implemented/targeted+race+full-suite-pass/delivered-with-this-commit/pending-production-replay`；`family-label-is-not-chain-proof`；`path-query-identity=existing-exact-scope-rules-restored`；`model-answer-and-selection=preserved`。
+
+#### 下批 B1618-P2a：复合等待账户边界（只读确认，未施工）
+
+不能只把 `matchingTraceTargetWaitSummary` 的1ms改成2µs：工具拼接、preview/full分组及reader-shadow三处有同根弱身份。只读复核收束以下5项，同一小批闭合后再销账：
+
+1. state、preview、full载体保留共同capture identity、target、producer query端点及确切来源记录集合；复用已有artifact identity与2µs窗口比较，不以basename、空标签通配、普通Span、用户原文或耗时相等推身份。state的EvidenceID可回查原ledger，不为显示拼接扩大引擎或旁路schema。
+2. preview的bySubject及full的lowercase basename分组改为capture+target+query；complete set/leaf还必须同结果配对，保存完整payload/raw引用及所有实际等价来源IDs。重复完整同事实可合并显示，冲突仅限本域，不吞另一个capture/窗口；两窗同为零也各自保留范围。
+3. full的count<=0跳过需增加精确测得零正臂：complete、Value=ResultCount=0、合法query且同结果无leaf。partial、缺记录、身份未知不能铸零。该零仍仅覆盖D/标记IO/带IO标记S口径，不能否定普通S、completion-closed IO或Binder。
+4. tool suffix只在完整同域且唯一或已证等价时拼到state；未匹配继续独立带窗披露。agent reader-shadow从subject级改为实际已重述的来源IDs，preview文本携带自身capture/query；保留4-card显示预算，但预算外和另一域的11项完整清单不能被冒充已重述而遮掉。
+5. 先红入口矩阵：实际TraceQuery.Execute同capture两窗10..10.020零与10..10.0205窗后0.300ms，正反顺序贯通ledger和state发布；同basename跨目录同PID、双目标、unknown/歧义；8项preview与另域11项full、同结果/等价重复、1µs表示漂移正臂与500µs邻窗负臂。复用真实东湖11段/36.757ms、231.794/233.190ms及未归账1.396ms回归，保留原3段6ms、0.635ms、测得零和advisory-only义务。
+
+代码锚：`internal/tool/answer_document_mutation_runtime_wait_coverage.go` state suffix+matchedWaits及matching函数；`internal/types/target_wait_occurrence_authority.go` preview按subject分组；`internal/types/trace_target_state_scope_authority.go` full零清单及分组；`internal/agent/evaluator.go` reader shadow与preview、`answer_document_final_decision_boundary.go` preview教学。保留full-artifact的SystemSupplement/同结果scope coverage授权，不把较大时间窗自动当主窗；旧无来源fixture若需测试联合账户应补真实同结果前提，不保空标签任意通配。`preCheckTargetWaitOccurrenceConsistency`仍只作advisory。上述是已读代码的下批方案，**尚无新增可执行首红/无live回放**，不得记作本批已修；不改变因果资格、原测量、选举、补采或模型正文。
+
 ### §123.1689 r1039 人工复核与第二小批（2026-09-08）
 
 B1619-P1已提交推送 `4077ce397a2e`，clean make 0.1.20260908；全仓最终86包通过。冻结快照恰两例并行：H7 Trace自动PASS214s、fmt原生write自动FAIL164s（最终proof未闭合）。机器表及完整人工报告：`eval/parallel_selected_summary_evalcampaign_h7_fmt_r1039_20260908{,_manual_audit}.md`，没有第三例/单题重复求绿/修改oracle。
@@ -57394,7 +57420,7 @@ fmt人审代码与原生测试通过，正式证明未闭环：仅两行long lon
 
 #### B1619-P1a / PATH-QUERY-SCOPE-PRODUCER1（P2，确认，同次独立小修）
 
-4条路径的旧window来自chain.Window，原始查询范围已知；新消费者只认selected_window，导致同时显示观测窗口与查询范围未知。修向是在明确的path query producer发布同源selected_window，保留原window；不放宽全局消费者从Span或普通window猜查询范围。path并非原选窗anchor family，仍须整个投影前后深比较钉住选举/数值/位置不变。其它尚未核定的缺范围族不可一概补值。已开始producer入口正负针施工。
+4条路径的旧window来自chain.Window，原始查询范围已知；新消费者只认selected_window，导致同时显示观测窗口与查询范围未知。修向是在明确的path query producer发布同源selected_window，保留原window；不放宽全局消费者从Span或普通window猜查询范围。path并非原选窗anchor family，但施工后发现既有路径优先和挂接消费者确会读这些字段，影响及收口见§1690；不能再声称所有场景投影选择不变。其它尚未核定的缺范围族不可一概补值。已开始producer入口正负针施工。
 
 #### 新残余（仅立案，不计已修）
 

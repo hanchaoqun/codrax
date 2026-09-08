@@ -796,15 +796,17 @@ func traceStateLaneWord(lane string, zh bool) string {
 // traceFinalReaderMechanismScope keeps the final reader-facing cause label and
 // its mechanism ceiling adjacent. The switch consumes exact typed tokens only:
 // it never classifies request/answer prose, chooses a cause, or rewrites the
-// model's conclusion. Unmapped families retain the existing generic typed
-// relation boundary.
+// model's conclusion. Category mappings also appear in a token-deduplicated
+// handoff spanning all chain positions, so they cannot assign a position from
+// the category or its first occurrence. Unmapped families retain the existing
+// generic typed relation boundary.
 func traceFinalReaderMechanismScope(token string, zh bool) (permitted, unproved string) {
 	switch strings.ToLower(strings.TrimSpace(token)) {
 	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
 		if zh {
-			return "只陈述证据行实际计入的链上低优先级依赖方贡献：被唤醒后处于 runnable 的调度等待，和/或 running 期间明确计入的算力供给提升空间；二者不得互换", "候选标签或唤醒先后本身不证明该线程持有 CPU、锁或资源，不证明目标当时已 runnable 却被抢占，也不证明同步阻塞、等待其工作完成或直接因果"
+			return "只有每条记录的链路位置和依赖凭证确认其在链上时，才陈述证据行实际计入的低优先级依赖方贡献：被唤醒后处于 runnable 的调度等待，和/或 running 期间明确计入的算力供给提升空间；二者不得互换", "候选标签或唤醒先后本身不证明该线程持有 CPU、锁或资源，不证明目标当时已 runnable 却被抢占，也不证明同步阻塞、等待其工作完成或直接因果；类别标签不赋予链上或根因资格，邻近与背景记录仍只作排查线索"
 		}
-		return "state only the contribution actually carried by the evidence row for the lower-priority on-chain dependency: runnable scheduling delay after wakeup and/or an explicitly accounted compute-supply opportunity while running; do not interchange them", "the candidate label or wakeup order alone does not prove CPU occupation, lock/resource ownership, target post-wakeup preemption, synchronous blocking, waiting for work completion, or direct causality"
+		return "only when each row's declared chain position and dependency evidence establish an on-chain dependency, state the contribution actually carried by that row for the lower-priority dependency: runnable scheduling delay after wakeup and/or an explicitly accounted compute-supply opportunity while running; do not interchange them", "the candidate label or wakeup order alone does not prove CPU occupation, lock/resource ownership, target post-wakeup preemption, synchronous blocking, waiting for work completion, or direct causality; the category label does not grant on-chain or root-cause status, and adjacent or background rows remain investigation clues"
 	case "runnable_wait", "fragmented_runnable_wait", "scheduler_latency":
 		if zh {
 			return "陈述线程已经可运行但尚未获得调度的已测延迟，以及证据行明确给出的同核竞争或调度供给信息", "runnable 不等于正在 CPU 上执行；仅凭该行不证明锁、IO、同步阻塞或具体竞争者"
@@ -827,9 +829,9 @@ func traceFinalReaderMechanismScope(token string, zh bool) (permitted, unproved 
 		return "state the measured sleep interval and only the before/after relation provided by an exact structured wakeup edge", "sleep alone does not prove whom the thread awaited, work completion, normal coordination, or root-cause status; that requires separate structured dependency evidence"
 	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause", "trace_span":
 		if zh {
-			return "陈述 trace 中已观测到的链上语义工作及其已测占用，并据业务含义提出验证或优化方向", "语义标签或时间邻近本身不证明该工作完成后才唤醒下游，也不自动证明掉帧、截止期或同步阻塞因果"
+			return "陈述 trace 中已观测到的语义工作及其已测占用，并据业务含义提出验证或优化方向；按每条记录的链路位置和依赖凭证区分链上工作、邻近线索与背景", "语义标签或时间邻近本身不赋予链上或根因资格，不证明该工作完成后才唤醒下游，也不自动证明掉帧、截止期或同步阻塞因果"
 		}
-		return "state the observed on-chain semantic work and its measured occupancy, then use its business meaning to propose a validation or optimization direction", "the semantic label or temporal proximity alone does not prove downstream wakeup on completion, dropped-frame/deadline causality, or synchronous blocking"
+		return "state the observed semantic work and its measured occupancy, then use its business meaning to propose a validation or optimization direction; distinguish on-chain work, adjacent clues, and background from each row's declared chain position and dependency evidence", "the semantic label or temporal proximity alone does not grant on-chain or root-cause status, nor prove downstream wakeup on completion, dropped-frame/deadline causality, or synchronous blocking"
 	case "binder_wait", "blocking_span":
 		if zh {
 			return "只陈述结构化证据中实际存在的阻塞、对端、持有者/等待者或请求语义", "类别标签本身不补齐缺失的对端、锁、持有者/等待者、同步性、回复或直接因果"
