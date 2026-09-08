@@ -605,6 +605,12 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// publishes only the two blocking lanes plus Harmony's S+iowait overlay.
 	// This is an evidence carrier, not a second state-account calculation.
 	"target_window_state_account.go:targetWindowWaitOccurrences": "s_sleep,d_sleep,io_wait#3",
+	// B1607b's independent Binder account enumerates the existing S/D/IO
+	// population without assigning a new scheduler state. A closure additionally
+	// requires the physical opening switch-out to carry S or D; IO remains the
+	// original D-derived refinement, never a newly inferred state from Binder.
+	"target_window_binder_wait_inventory.go:binderInventorySleep":            "s_sleep,d_sleep,io_wait#3",
+	"target_window_binder_wait_inventory.go:binderInventoryClosedOccurrence": "s_sleep,d_sleep#2",
 	// P0-E §20 merge caliber + §20.2 deficit attribution (2026-07-07): the
 	// exported effective helpers now use exhaustive state switches pinned by
 	// the switch-site census; the remaining explicit comparisons stay below.

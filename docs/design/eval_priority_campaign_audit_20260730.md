@@ -57380,6 +57380,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1681 B1607b1 独立核实 Binder 等待与端到端传递（2026-09-07）
+
+本批不再从已被min-duration/depth/branch裁选的旧BinderWaits/P9候选推全窗总账。四视图window_stats/wakeup_chain/root_cause_rank/frame_root_cause_bundle在既有constructed目标状态账户下新增独立BinderWaitInventory：扫描全部已保留目标S/D/IO正区间；完整请求send/receive、反向reply send/receive、原物理switch-out、同peer实际sched_wakeup、唯一待决同步请求、source/双方生命周期/已知TGID不冲突/时钟顺序共同闭合才确认。reply ID与request ID可以不同；reply receive可以在wake及选窗之外。保实际端点坐标再裁窗，不能把原Interval.EndLine（可能blocked_reason）冒作物理唤醒。
+
+oneway、未知flags、缺端点、错namespace/对端、重复或更早唤醒、重入、多待决、来源污染/截断、生命周期不明等不猜关联。Confirmed/UnresolvedCandidate/RemainingUnassociated三数按constructed目标睡眠区间分区；未关联不等于非Binder/主动休眠。scan complete仅指保留索引扫描，不代表采集完整或全部机制均识别；计数与union在32条返回帽前计算，工具预览4条和模型摘要8条分别披露。未知头状态保留，取消合作退出，不用cap删unknown制造唯一候选。索引按精确物理source作时间区间检索，6000串行查询120960节点对照原前缀18003000，真实Run3000段=600ms/32返回；不按距离近邻认因果。
+
+真实H1四视图及TraceQuery.Execute找到5段：1.409/0.924/0.068/0.120/0.573ms，union3.094ms。旧1.409链片段仍原数，原因果投影/RootEvidence/排序/可消除价格/WaitOccurrences/模型正文均不变。两类清单用不同筛选与证明范围，不假定互为子集、不相加；新清单仅supporting_coverage，无新增root rank/price或因果边。H1 case仅修“the one true”误导注释为单次正oracle，QUESTION/原1.409机器oracle/fixture未改。
+
+端到端护栏：原180字符handoff前置完整count/union/未决；最终软提示与工具数据同时列原链和独立账户，移除本批存在独立账户时的互斥“仅旧blocking可提供时长”教学，不改模型答案或数值builder。独立审发现三处新增风险并在交付前修正：真实零确认经旧helper漏成空串→新账户明确0.000；真实ArtifactID为泛名→新显示身份优先物理capture path、旧blocking同域须回查全部贡献记录而非标签；final recap复用既有显式窗显示filter，防早期粗窗回流挤掉当前窗。旧legacy blocking按泛标签跨capture分组的历史债不由本批偷偷重分组，保持数值并不授予新增同域关系，待独立审计。tracediag留原嵌套明细，零值/四端点/closure/原坐标完整；两新carrier逐字段处置pin，无盲重签原hash。
+
+验收记录：引擎真实H1有效先红后绿；完整tracequery84.405s与本族race41.274s绿，之后只加client sched_wakeup_new实际Run负针0.709s绿。tracediag count3 0.748s、全包5.033s。共享工具先红`20260907-b1607b-tool-red.log`，初入模先红`...prompt-red.log`，真实零值两个入口另红`...zero-red.log`；修后agent4.204s/tool2.137s（`...boundaries-green.log`），物理source/窗修后agent4.692s（`...source-window-green.log`）。补采披露实际62→63，只增加1个零确认Binder账户入状态族11→12；根因12/链9/其他30不变，针直接枚举producer delta而非盲改数字。最终全仓测试已启动，本文不提前宣称退出。
+
+独立补验`20260907-b1607b-scope-first.log`11.768s绿：两真实TraceQuery.Execute不同物理路径/相同目标窗、count/union、不同peer不去重、不借叶行；十次query经真实Finalizer三个入口，前8个粗窗不能挤掉第9个用户窗，contained窗口按原规则保留，完整ledger字节不变。该补针在最终全仓启动后新增，单列已实测而不暗称全仓初始快照包含它。scope test首次执行时root修复已在，故不编造该针独立首红。
+
+活跃流额外复验`20260907-b1616a-b1607b-active-stream.log`：llm4.378s/agent1.100s全绿，真实SSE/hidden reasoning/toolcall持续活跃可超过原正文预算；取消和调用方显式deadline独立保留。没有默认4ms/旧4分钟无正文降级。本段产品冻结验收后才clean build及r1036两例；不将单元测试当生产回放。B1616a已推送`d3047527e`，B1616b/B1561/10异构eval域仍开放。
+
 ### §123.1680 B1616a 探测定义与真实执行身份（2026-09-07）
 
 已实现，独立只读审核无阻断：verification_probe的展示占位命令不再作为exact rerun身份。真实runner在进程成功启动、Wait有确定终态后铸造v1 receipt；完整typed定义SHA、实际调用SHA与独立execution ID/起止时间分离。定义包括code/语言/cwd/timeout/expectedstdout/合同引用等；实际调用包括可执行文件、argv、稳定目标仓域、工作目录和有效timeout。Java自动包装的真实生成源码也纳入调用摘要。只按producer创建时登记的精确源/overlay/output角色归一临时路径，不猜随机文件名；不同目标子仓不互认，同仓worktree合法重跑保留。

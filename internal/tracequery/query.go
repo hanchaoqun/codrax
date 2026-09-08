@@ -994,6 +994,9 @@ func Run(idx *Index, q Query) Result {
 				return runCancelFinalize(&res, cancel)
 			}
 			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, tl.Thread, window, res.WindowStats)
+			if res.TargetWindowStates != nil {
+				res.TargetWindowStates.BinderWaitInventory = buildTargetWindowBinderWaitInventory(idx, q, tl, window)
+			}
 		}
 	}
 	return runCancelFinalize(&res, cancel)
@@ -21202,6 +21205,9 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	}
 	targetTimeline, targetTimelineOK := targetWindowTimeline(idx, analysisQ, target, bundle.Window)
 	bundle.TargetWindowStates = buildTargetWindowStateAccount(idx, targetTimeline, targetTimelineOK, target, bundle.Window, &stats)
+	if bundle.TargetWindowStates != nil {
+		bundle.TargetWindowStates.BinderWaitInventory = buildTargetWindowBinderWaitInventory(idx, analysisQ, targetTimeline, bundle.Window)
+	}
 	bundle.Skeleton = buildCausalSkeleton(targetTimeline, targetTimelineOK, target, bundle.Window, &blocking, chainPtr, stats.SupplyPressureSummary)
 	bundle.Caveats = append(bundle.Caveats, targetResolution.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, stats.Caveats...)

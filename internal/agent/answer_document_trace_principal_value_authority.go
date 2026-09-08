@@ -39,9 +39,15 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	}
 	var waits []types.TraceTargetWaitSummaryAuthority
 	var blocking []types.TraceBlockingWallClockAuthority
+	var binderInventories []types.ObservationRecord
+	var binderRecap string
 	if waitAllowed {
 		waits = types.BuildTraceTargetWaitSummaryAuthorities(ledger, authorityRM)
 		blocking = types.BuildTraceBlockingWallClockAuthorities(ledger, authorityRM)
+		binderLedger := ledger
+		binderLedger.Records, _ = answerDocSelectedWindowObservationRecords(ctx, ledger.Records)
+		binderInventories = traceBinderInventoryRecords(binderLedger, authorityRM)
+		binderRecap = renderAnswerDocBinderInventory(binderLedger, authorityRM, extractAnswerDocLang(ctx))
 	}
 	var wakeupEdges []types.TraceWakeupEdgeRoleAuthority
 	if wakeupAllowed {
@@ -54,7 +60,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		}
 	}
 	stateRosterTruncated := stateAllowed && len(projectionSet.OmittedArtifactLabels) > 0
-	if len(states) == 0 && len(waits) == 0 && len(blocking) == 0 && len(wakeupEdges) == 0 && !stateRosterTruncated {
+	if len(states) == 0 && len(waits) == 0 && len(blocking) == 0 && len(wakeupEdges) == 0 && !stateRosterTruncated && binderRecap == "" {
 		return ""
 	}
 
@@ -204,6 +210,12 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			wallClockToken,
 			block.CoverageStatus,
 		)
+		if traceBinderInventoryMatchesBlocking(binderInventories, block, ledger) {
+			// Keep the measured legacy row intact, but don't teach that its
+			// selected/capped population is the independent inventory's total.
+			fmt.Fprintf(&b, "  - selected blocking-view scope: %s\n", traceBinderInventoryScopeNote(zh))
+			continue
+		}
 		switch {
 		case block.CoverageStatus == "complete" && zh:
 			fmt.Fprintf(&b,
@@ -225,6 +237,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 				traceBlockingCapacityScopeNote(block.CoverageStatus, zh))
 		}
 	}
+	b.WriteString(binderRecap)
 	const wakeupEdgeLimit = 8
 	wakeupEdgeCount := len(wakeupEdges)
 	if wakeupEdgeCount > wakeupEdgeLimit {

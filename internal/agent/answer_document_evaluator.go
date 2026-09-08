@@ -5817,6 +5817,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
+	if ctx.AnalysisIR != nil {
+		b.WriteString(renderAnswerDocBinderInventory(promptLedger, &ctx.AnalysisIR.RequestModel, extractAnswerDocLang(ctx)))
+	}
 	if authority := renderAnswerDocTraceIPCRequestCensusAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -6606,10 +6609,22 @@ func renderAnswerDocTraceBlockingWallClockAuthority(ctx *types.AgentContext, led
 	}
 	var b strings.Builder
 	b.WriteString("### Trace Target Blocking Wall-Clock Authority\n\n")
-	b.WriteString("- Only the typed target-owned intervals below are proven blocking wall clock. A synchronous request count, transaction/reply latency, peer execution interval, or model aggregate is a different measurement and must not be added unless it owns one of these blocking intervals.\n")
+	inventories := traceBinderInventoryRecords(ledger, &ctx.AnalysisIR.RequestModel)
+	if len(inventories) > 0 {
+		b.WriteString("- These are the selected blocking-view intervals. Independently verified Binder wait inventories below have separate selection and proof scopes; neither account subsumes the other. A request count, transaction/reply latency, peer execution interval, or model aggregate is not target blocking wall clock.\n")
+	} else {
+		b.WriteString("- Only the typed target-owned intervals below are proven blocking wall clock. A synchronous request count, transaction/reply latency, peer execution interval, or model aggregate is a different measurement and must not be added unless it owns one of these blocking intervals.\n")
+	}
 	b.WriteString("- An interruptible `S` scheduler state is compatible with a proven blocking occurrence. Zero `D-state`/uninterruptible time cannot refute a listed `S`-state wait or prove that no counterpart wait occurred.\n")
-	b.WriteString("- `coverage_status=complete` permits an exhaustive total for that type/window. `lower_bound_capacity_truncated` permits only a proven observed lower bound; do not say total/all/only. Overlapping occurrence intervals are unioned, never double-counted.\n")
+	if len(inventories) > 0 {
+		b.WriteString("- Coverage below describes the selected blocking-view rowset, not an exhaustive census of captured Binder waits. Its capacity-truncated lower bound does not override the independent inventory's pre-cap measurements. Overlapping intervals within an account are unioned, never double-counted.\n")
+	} else {
+		b.WriteString("- `coverage_status=complete` permits an exhaustive total for that type/window. `lower_bound_capacity_truncated` permits only a proven observed lower bound; do not say total/all/only. Overlapping occurrence intervals are unioned, never double-counted.\n")
+	}
 	for _, authority := range authorities {
+		if traceBinderInventoryMatchesBlocking(inventories, authority, ledger) {
+			fmt.Fprintf(&b, "- selected Binder blocking-view scope: %s\n", traceBinderInventoryScopeNote(strings.HasPrefix(strings.ToLower(extractAnswerDocLang(ctx)), "zh")))
+		}
 		fmt.Fprintf(&b,
 			"- artifact=`%s`; selected_window=`%s`; subject=`%s`; blocking_type=`%s`; proven_blocking_wall_clock=%.3fms; blocking_occurrences_present=`%t`; occurrence_count=%d; coverage_status=`%s`\n",
 			authority.ArtifactLabel,
@@ -6659,7 +6674,11 @@ func renderAnswerDocTraceIPCRequestCensusAuthority(ctx *types.AgentContext, ledg
 	}
 	var b strings.Builder
 	b.WriteString("### Trace IPC Request Census Authority\n\n")
-	b.WriteString("- IPC request counts and target blocking-occurrence counts are separate typed calibers. `sync_request=N` counts synchronous request rows; it does not mean N requests produced a proven target blocking interval. Blocking wall clock and its occurrence count come only from `Trace Target Blocking Wall-Clock Authority`.\n")
+	if len(traceBinderInventoryRecords(ledger, &ctx.AnalysisIR.RequestModel)) > 0 {
+		b.WriteString("- IPC request counts and target blocking-occurrence counts are separate measurements. `sync_request=N` does not mean N requests produced proven blocking intervals. Use the independently verified Binder wait inventory or selected blocking-view account with its own scope, never the request census, for wait wall clock.\n")
+	} else {
+		b.WriteString("- IPC request counts and target blocking-occurrence counts are separate typed calibers. `sync_request=N` counts synchronous request rows; it does not mean N requests produced a proven target blocking interval. Blocking wall clock and its occurrence count come only from `Trace Target Blocking Wall-Clock Authority`.\n")
+	}
 	b.WriteString("- Native transaction fields below belong to the exact IPC send row. Keep transaction id, flags, code, peer, send time, and matched-receive time together; never copy those fields from a neighboring IPC row or blocking interval.\n")
 	b.WriteString("- `coverage_status=complete` permits exhaustive request-count wording. Every other status is incomplete/lower-bound for at least one count or roster dimension and forbids total/all/only wording.\n")
 	for _, authority := range authorities {

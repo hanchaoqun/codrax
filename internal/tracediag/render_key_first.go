@@ -789,6 +789,16 @@ func renderStringSet(values map[string]bool, limit int) string {
 // duplication and bulk-lane semantics are reviewed instead of inheriting an
 // accidental declaration-order default.
 var nonEventPrioritySchemaPins = map[reflect.Type]string{
+	// B1607b1 (2026-09-07): TargetWindowStates gained the NESTED
+	// BinderWaitInventory pointer. These Result/bundle fingerprints remain
+	// unchanged. The dedicated detail renderer preserves explicit zero counts,
+	// scan/confirmed-subset/return boundaries and every scheduler/request/
+	// reply/closure coordinate without Summary hiding the interval. HeadState
+	// and unresolved reasons keep their existing detail semantics; occurrences
+	// remain bounded bulk at the original position, not new rank authority.
+	// No skip-policy entry is needed: the exact-type walker emits this face
+	// once. Field disposition and real output/cap pins are independently
+	// recorded in render_binder_inventory_test.go.
 	// B1607a (2026-09-07): TargetWindowStates gained the NESTED
 	// SleepInventory pointer. The Result/bundle pointer fingerprints below do
 	// not change. Exact-type detail rendering preserves zero counts, raw

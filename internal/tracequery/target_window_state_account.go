@@ -116,6 +116,9 @@ type TargetWindowStateAccount struct {
 	// SleepInventory is a separate all-S/D/IO scheduler inventory. It does
 	// not widen the D/IO-only WaitOccurrences contract or attribute a cause.
 	SleepInventory *TargetWindowSleepInventory `json:"sleep_inventory,omitempty"`
+	// BinderWaitInventory is a separate confirmed-subset account. It neither
+	// replaces the full sleep census nor adds donors to the causal chain.
+	BinderWaitInventory *TargetWindowBinderWaitInventory `json:"binder_wait_inventory,omitempty"`
 }
 
 // TargetWindowCPURunning is one exact CPU bucket of the focused thread's

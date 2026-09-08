@@ -3,8 +3,9 @@
 # Golden sample donghu.ftrace, window 13762.791708..13763.024898 (~233.19ms).
 #
 # HARD oracle (trace-recomputable, grep-checkable):
-#   POSITIVE — the one true synchronous binder wait must be present with its
-#   trace-exact magnitude and peer identity:
+#   POSITIVE — this synchronous binder wait must be present with its
+#   trace-exact magnitude and peer identity (an occurrence oracle, not the
+#   complete window's Binder count or total):
 #     · txn 12145859 sent at 13762.835811 (trace line 4353), main thread
 #       sleeps at 13762.835861 (line 4356), reply txn 12145860 completes at
 #       13762.837261 and wakes the main thread at 13762.837270 (lines
