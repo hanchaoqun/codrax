@@ -57380,6 +57380,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1685 r1037 异构读写人工审计与 B1617 最终验收（2026-09-07）
+
+B1617 `3bbc749e1`修正无引用旧条标记后，最终`go test ./...`实际退出0，86包通过（允许Go标准缓存，不冒称86包均强制重跑）；日志`20260907-b1617-final-full-suite-green.log`。agent66.559s/tool302.364s/types43.908s/tracequery103.928s，其余稳定包含llm/repl/tracediag使用有效缓存；本轮此前真实HTTP/SSE定向证据仍见§1681。clean make成功，revision=3bbc749e1eaf。§1684首次全仓红及收尾保持记录，不覆盖失败过程。
+
+r1037从该clean快照恰2路并发：Python MRO118s、Go typo写入79s，机器2/2 PASS。人工Go交付通过、Python核心正确但非全绿；全过程与实际文件见`eval/parallel_selected_summary_evalcampaign_mro_go_write_r1037_20260907_manual_audit.md`。Go持久树只改main.go一行，原测试/其余源逐字不变；正式go test -json与独立持久树原生go test/CLI都通过，最终verified/strong与单域事实一致。计划摘要的拼写方向误述保留为模型表达观察，不扫正文修词。
+
+Python顺序Timestamp→Validation→Base和异常短路正确，原生实测也支持；C3被模型误说成深度优先、参数身份含混、Base引用类注释而非实现。当前上下文有正确源码、峰值仅28%，不归因预算、不增加单题硬门。blocks JSON字符串成功恢复，一次成文拒绝来自不可引用recovered ID和无相邻owner精确调用支持的可选图，模型下一patch自己删图；原题未要求图，不以无图判失败。两次completion DOWNGRADED也如实收账，机器reject0不等于零降级；目前未确认新“必带又必拒”实例。
+
+P2候选：成员证据不匹配时提供同源精确候选及原因；recovered的源码支持/可引用资格两轴并置。两者可降模型心智，但不放宽资格或替模型取证。B1618跨capture账仍优先，按§1683扩到所有匹配consumer，不做仅builder局部修；B1616b/B1561与10个异构交付域仍开放。当前无第三路live。
+
+提交与网络状态：B1616a/B1607b/producer收尾和r1036审计已推main；3bbc749e1已提交，全仓/构建/回放完成，但后续SSH22多次及GitHub SSH443均连接超时，正尝试同仓HTTPS传输。不能把本地已提交状态写成远端已同步，未改remote配置或放宽主机校验。状态：`B1617=implemented/full-suite+build-pass`；`r1037=machine2/2,human-write-pass+read-partial`；`B1618=P1-implementation-next`；`model-authority/Trace-boundaries/active-stream-policy=unchanged`。
+
 ### §123.1684 B1617 引用来源随提交代次固定（2026-09-07）
 
 实际 full emit 拒绝→局部 patch 的先红后绿已完成：原稿8槽引用池中的非法ref8被隔离后，另一条目补入的logger.cpp:30不能使unchanged旧条自动获得该新证据。原稿错误索引仍保留供审计，模型标签、正文、表格单元格及其原始事实选择不变；系统不根据“rotating”等词帮模型挑另一条看似正确的引用。
