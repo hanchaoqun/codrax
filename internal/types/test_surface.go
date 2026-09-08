@@ -102,6 +102,11 @@ type ExecutedCommand struct {
 	ExitCode   int    `json:"exit_code"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 
+	// ProbeExecution is a runner-produced terminal execution receipt. It is
+	// absent from planner input and legacy reports; Command is display-only
+	// for probes and must never substitute for this identity.
+	ProbeExecution *VerificationProbeExecutionReceipt `json:"probe_execution,omitempty"`
+
 	// CoveredPaths names the repo-relative changed source paths this
 	// successful command authoritatively exercised. Ordinary project runners
 	// derive it from the runner's typed language family plus WorkingDir. A

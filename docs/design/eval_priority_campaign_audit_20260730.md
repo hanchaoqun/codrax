@@ -57380,6 +57380,26 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1680 B1616a 探测定义与真实执行身份（2026-09-07）
+
+已实现，独立只读审核无阻断：verification_probe的展示占位命令不再作为exact rerun身份。真实runner在进程成功启动、Wait有确定终态后铸造v1 receipt；完整typed定义SHA、实际调用SHA与独立execution ID/起止时间分离。定义包括code/语言/cwd/timeout/expectedstdout/合同引用等；实际调用包括可执行文件、argv、稳定目标仓域、工作目录和有效timeout。Java自动包装的真实生成源码也纳入调用摘要。只按producer创建时登记的精确源/overlay/output角色归一临时路径，不猜随机文件名；不同目标子仓不互认，同仓worktree合法重跑保留。
+
+旧失败只能由同定义/同调用域、不同执行ID且时间在旧终态之后的真实成功重跑降为advisory，保原失败记录和原因。旧或不完整receipt、同ID异code、复制receipt、反向时间、不可用/失败当前执行均不能承接。普通项目command既有身份和baseline三个辅助Outcome不改。生成的receipt不是planner字段、不来自模型原文；不改合同resolver、逐断言语义证明或用户结论。
+
+有效先红是`20260907-b1616a-red.log`的真实runPlan执行同ID两个不同Python程序，旧代码错误吞掉历史失败；不是仅手构命令字符串。Java生成wrapper变化另有`20260907-b1616a-java-generated-red.log`。最终冻结count3：tool22.867s/types2.009s；窄race：tool7.953s/types3.217s（`20260907-b1616a-frozen-{count3,race}.log`）。Python/Ruby/Go source/Go overlay真实子进程正反针通过。本机JDK/Node缺失诚实skip；Java编译/执行路径接线另有POSIX假JDK协议子进程，不冒称真实Java字节码验证。主审核和Dewey独立审核均核对精确角色、目标域、复用/缺凭证边界。
+
+本段只收B1616a，B1616b同/跨计划合同三载体履约resolver与B1561逐assertion证明债仍开放，r1035历史失败不改。B1607b并行施工未冻结，不把本批绿数视为它的验收；下一次live仍恰两路。状态：`B1616a=implemented+real-red-green+count3+race`；`B1616b/B1561=open`；`keyword-hardgate/model-answer-rewrite=none`。
+
+### §123.1679 下一轮施工起点：凭证身份先于履约放宽（2026-09-07）
+
+起点`299e031da`，工作区干净，fetch确认HEAD与origin/main无差异。按§1677同时推进两个独立高ROI子批：B1616a探测执行身份与B1607b完整Binder闭环库存。B1616b跨计划履约resolver暂不放宽，先避免错误身份被继承；任何旧失败降为提示都必须保原因和来源，不能删记录换绿。
+
+B1616a从真实执行producer给receipt，不以`python -c <verification_probe:ID>`展示文本作身份。比较定义/执行域与本次执行ID/起止时间分开：后者是审计定位而非跨次相等条件；临时源/二进制/隔离工作树需producer明确角色映射，不用字符串猜路径或直接把随机临时路径当稳定身份。缺旧receipt保守不能认exact rerun；普通项目命令合法重跑不变。真实入口正反针包括同ID异code、完整定义不同、无真实执行、同定义临时目录变化以及来源/范围变化。
+
+B1607b继续独立于旧BinderWaits/RootEvidence：完整constructed目标状态是扫描对象，真实请求/接收/回复/调度唤醒证明闭环后才记录窗内等待；普通S、oneway、未知代际/时钟/身份、不闭合或模糊关联不铸因果。新库存不能只藏payload；必须送入工具头和最终模型上下文，说明旧链展示片段与完整已核实库存的不同范围，不能让两个数被教学当作互相否定，也不替模型写结论。
+
+当前243case不改历史预期：冻结后拟H1 Binder显式窗（直接验证本批，不能把固定1.409旧oracle当完整总账）+近期未跑的C++虚分发读关系`sr_cpp_virtual_chain`（qualified owner/构造与调用/图补锚异构保护），恰2并行。写mode的同ID异探测定义必须由真实执行入口pins证明，不声称没有replan/probe的任意写case能代验；若最终值通道未冻结则重新按已提交改动选两例。本段是施工计划，不宣称已实现/测试/回放。
+
 ### §123.1678 本轮最终冻结验收（2026-09-07）
 
 本轮分批推送main：B1612=`babf20b31`，B1607a=`f8014fed1`及计数收尾`5a46e4197`，B1613=`6a17d2f42`，B1614=`617550fde`，B1615=`4fe4b9600`，r1035审计及B1616设计=`7e426b6f4`。没有把本轮新提示的单元通过算作r1035修改前快照的生产正证；机器PASS/FAIL和人工两个残余均保留。

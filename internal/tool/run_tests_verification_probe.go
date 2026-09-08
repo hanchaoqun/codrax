@@ -572,6 +572,7 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 	defer os.RemoveAll(tmpDir)
 	sourcePath := filepath.Join(tmpDir, "CodraxVerificationProbe.java")
 	sourceCode := javaVerificationProbeSource(probe.Code)
+	generatedSourceDigest := verificationProbeExecutionDigest(sourceCode)
 	mainClass := javaVerificationProbeMainClass(sourceCode)
 	if err := os.WriteFile(sourcePath, []byte(sourceCode), 0o600); err != nil {
 		detail := fmt.Sprintf("verification probe %q could not write temp Java source: %v", id, err)
@@ -582,7 +583,11 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 	sourcePathArg := javaVerificationProbeSourcePath(ctx.RepoRoot, wd)
 	javacArgs := []string{"-encoding", "UTF-8", "-cp", classPath, "-sourcepath", sourcePathArg, "-d", tmpDir, sourcePath}
 	compileCtx, compileCmd, compileTimeout, compileCancel := newVerificationProbeCommand("javac", javacArgs, wd, "java", ctx, probe, "")
+	compileStart := time.Now()
 	compileOutput, compileExit, compileDuration, compileExitKind, compileErr := runVerificationProbeCommand(compileCtx, compileCmd, compileTimeout)
+	compileReceipt := verificationProbeExecutionReceipt(ctx, probe, compileCmd, compileTimeout, compileStart, compileErr, verificationProbeInvocationRoles{
+		Paths: map[string]string{tmpDir: "probe_output", sourcePath: "probe_source"}, PathListArgs: map[int]bool{4: true, 6: true}, GeneratedSourceSHA256: generatedSourceDigest,
+	})
 	compileCancel()
 	if compileErr != nil {
 		outcome := types.ExecutedCommandOutcomeParserError
@@ -631,15 +636,16 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 			},
 			Output: detail,
 			Commands: []types.ExecutedCommand{{
-				Runner:     "verification_probe",
-				Framework:  "java",
-				WorkingDir: rel,
-				Command:    "javac <verification_probe:" + id + ">",
-				ExitCode:   compileExit,
-				DurationMS: compileDuration.Milliseconds(),
-				Source:     source,
-				Outcome:    outcome,
-				ReasonCode: reasonCode,
+				Runner:         "verification_probe",
+				Framework:      "java",
+				WorkingDir:     rel,
+				Command:        "javac <verification_probe:" + id + ">",
+				ExitCode:       compileExit,
+				DurationMS:     compileDuration.Milliseconds(),
+				Source:         source,
+				Outcome:        outcome,
+				ReasonCode:     reasonCode,
+				ProbeExecution: compileReceipt,
 			}},
 		}
 	}
@@ -647,24 +653,26 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 	runCtx, runCmd, timeout, runCancel := newVerificationProbeCommand("java", []string{"-ea", "-cp", classPath, mainClass}, wd, "java", ctx, probe, "")
 	defer runCancel()
 	res := runExternalVerificationProbe(ctx, probe, externalVerificationProbeInput{
-		ID:          id,
-		Language:    "java",
-		Command:     runCmd,
-		ExecCtx:     runCtx,
-		Timeout:     timeout,
-		WorkingDir:  rel,
-		Source:      source,
-		CommandText: "java -ea <verification_probe:" + id + ">",
+		ID:            id,
+		Language:      "java",
+		Command:       runCmd,
+		ExecCtx:       runCtx,
+		Timeout:       timeout,
+		WorkingDir:    rel,
+		Source:        source,
+		CommandText:   "java -ea <verification_probe:" + id + ">",
+		IdentityRoles: verificationProbeInvocationRoles{Paths: map[string]string{tmpDir: "probe_output"}, PathListArgs: map[int]bool{3: true}, GeneratedSourceSHA256: generatedSourceDigest},
 	})
 	res.Commands = append([]types.ExecutedCommand{{
-		Runner:     "verification_probe",
-		Framework:  "java",
-		WorkingDir: rel,
-		Command:    "javac <verification_probe:" + id + ">",
-		ExitCode:   compileExit,
-		DurationMS: compileDuration.Milliseconds(),
-		Source:     source,
-		Outcome:    types.ExecutedCommandOutcomeExecuted,
+		Runner:         "verification_probe",
+		Framework:      "java",
+		WorkingDir:     rel,
+		Command:        "javac <verification_probe:" + id + ">",
+		ExitCode:       compileExit,
+		DurationMS:     compileDuration.Milliseconds(),
+		Source:         source,
+		Outcome:        types.ExecutedCommandOutcomeExecuted,
+		ProbeExecution: compileReceipt,
 	}}, res.Commands...)
 	return res
 }
@@ -690,14 +698,15 @@ func runGoVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe
 	execCtx, cmd, timeout, cancel := newVerificationProbeCommand("go", []string{"run", tmpPath}, wd, "go", ctx, probe, "")
 	defer cancel()
 	return runExternalVerificationProbe(ctx, probe, externalVerificationProbeInput{
-		ID:          id,
-		Language:    "go",
-		Command:     cmd,
-		ExecCtx:     execCtx,
-		Timeout:     timeout,
-		WorkingDir:  rel,
-		Source:      source,
-		CommandText: "go run <verification_probe:" + id + ">",
+		ID:            id,
+		Language:      "go",
+		Command:       cmd,
+		ExecCtx:       execCtx,
+		Timeout:       timeout,
+		WorkingDir:    rel,
+		Source:        source,
+		CommandText:   "go run <verification_probe:" + id + ">",
+		IdentityRoles: verificationProbeInvocationRoles{Paths: map[string]string{tmpPath: "probe_source"}},
 	})
 }
 
@@ -723,14 +732,15 @@ func runGoSamePackageTestVerificationProbe(ctx *types.BusContext, probe types.Ve
 	)
 	defer cancel()
 	return runExternalVerificationProbe(ctx, probe, externalVerificationProbeInput{
-		ID:          id,
-		Language:    "go",
-		Command:     cmd,
-		ExecCtx:     execCtx,
-		Timeout:     timeout,
-		WorkingDir:  rel,
-		Source:      source,
-		CommandText: "go test <same-package-verification_probe:" + id + ">",
+		ID:            id,
+		Language:      "go",
+		Command:       cmd,
+		ExecCtx:       execCtx,
+		Timeout:       timeout,
+		WorkingDir:    rel,
+		Source:        source,
+		CommandText:   "go test <same-package-verification_probe:" + id + ">",
+		IdentityRoles: verificationProbeInvocationRoles{Paths: map[string]string{overlayPath: "probe_overlay"}},
 	})
 }
 
@@ -1006,29 +1016,31 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		},
 		Output: output,
 		Commands: []types.ExecutedCommand{{
-			Runner:     "verification_probe",
-			Framework:  "python",
-			WorkingDir: rel,
-			Command:    commandText,
-			ExitCode:   exitCode,
-			DurationMS: duration.Milliseconds(),
-			Source:     source,
-			Outcome:    outcome,
-			ReasonCode: reasonCode,
+			Runner:         "verification_probe",
+			Framework:      "python",
+			WorkingDir:     rel,
+			Command:        commandText,
+			ExitCode:       exitCode,
+			DurationMS:     duration.Milliseconds(),
+			Source:         source,
+			Outcome:        outcome,
+			ReasonCode:     reasonCode,
+			ProbeExecution: verificationProbeExecutionReceipt(ctx, probe, cmd, timeout, start, supRes.Err, verificationProbeInvocationRoles{}),
 		}},
 	}
 }
 
 type externalVerificationProbeInput struct {
-	ID          string
-	Language    string
-	Command     *exec.Cmd
-	ExecCtx     context.Context
-	Timeout     time.Duration
-	StatusPath  string
-	WorkingDir  string
-	Source      string
-	CommandText string
+	ID            string
+	Language      string
+	Command       *exec.Cmd
+	ExecCtx       context.Context
+	Timeout       time.Duration
+	StatusPath    string
+	WorkingDir    string
+	Source        string
+	CommandText   string
+	IdentityRoles verificationProbeInvocationRoles
 }
 
 func newVerificationProbeStatusPath() string {
@@ -1206,15 +1218,16 @@ func runExternalVerificationProbe(ctx *types.BusContext, probe types.Verificatio
 	logging.Info("[run_tests] verification_probe id=%s lang=%s cwd=%s outcome=%s exit=%d duration=%v",
 		in.ID, in.Language, in.WorkingDir, outcome, exitCode, duration)
 	command := types.ExecutedCommand{
-		Runner:     "verification_probe",
-		Framework:  in.Language,
-		WorkingDir: in.WorkingDir,
-		Command:    in.CommandText,
-		ExitCode:   exitCode,
-		DurationMS: duration.Milliseconds(),
-		Source:     in.Source,
-		Outcome:    outcome,
-		ReasonCode: reasonCode,
+		Runner:         "verification_probe",
+		Framework:      in.Language,
+		WorkingDir:     in.WorkingDir,
+		Command:        in.CommandText,
+		ExitCode:       exitCode,
+		DurationMS:     duration.Milliseconds(),
+		Source:         in.Source,
+		Outcome:        outcome,
+		ReasonCode:     reasonCode,
+		ProbeExecution: verificationProbeExecutionReceipt(ctx, probe, in.Command, in.Timeout, start, supRes.Err, in.IdentityRoles),
 	}
 	return verificationProbeRunResult{
 		Report: &types.ChangeReport{

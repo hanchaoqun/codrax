@@ -442,7 +442,7 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 	for _, artifact := range unique {
 		out.addRequiredBehaviorContractLedgerItems(artifact.Plan)
 	}
-	out.resolveHistoricalVerificationFailures(primaryReport)
+	out.resolveHistoricalVerificationFailures(primaryReport, unique)
 	out.resolveNonAuthoritativeProbeFailures(primaryReport)
 	out.resolveSuccessfulRunnerMissingEscalations(primaryReport)
 	out.resolveCumulativeChangedPathObligations(primaryPlan, primaryReport)
@@ -642,7 +642,7 @@ func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *
 			cmdStatus = VerificationProofLedgerItemFailed
 		}
 		ledger.Capabilities = append(ledger.Capabilities, VerificationProofLedgerItem{
-			ID:           verificationProofLedgerStableID("command", report.PlanID, cmd.Source, cmd.Suite, cmd.Outcome, cmd.Command),
+			ID:           verificationProofCommandLedgerID(report.PlanID, cmd),
 			Kind:         "executed_command",
 			Status:       cmdStatus,
 			Source:       firstNonEmptyVerificationProof(cmd.Source, "run_tests"),
@@ -662,21 +662,45 @@ func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *
 // the final ledger falsely failed. Only a passed primary report can supersede
 // an earlier command, and identity excludes outcome/status so no prose match
 // or fuzzy command relation is involved.
-func (ledger *VerificationProofLedger) resolveHistoricalVerificationFailures(primary *ChangeReport) {
+func (ledger *VerificationProofLedger) resolveHistoricalVerificationFailures(primary *ChangeReport, artifacts []VerificationProofArtifact) {
 	if ledger == nil || primary == nil || primary.NormalizeVerificationStatus() != VerificationStatusPassed {
 		return
 	}
 	primaryPlanID := strings.TrimSpace(primary.PlanID)
 	covered := map[string]bool{}
+	probePasses := map[string][]*VerificationProbeExecutionReceipt{}
 	for _, cmd := range primary.ExecutedCommands {
 		if executedCommandFailed(cmd) || verificationProofCommandUnavailableReasonCode(cmd, verificationProofCommandClass(cmd)) != "" {
 			continue
 		}
 		if key := verificationProofCommandIdentity(cmd); key != "" {
-			covered[key] = true
+			if verificationProofCommandUsesProbeIdentity(cmd) {
+				if cmd.Outcome == ExecutedCommandOutcomeExecuted && cmd.ExitCode == 0 {
+					probePasses[key] = append(probePasses[key], cmd.ProbeExecution)
+				}
+			} else {
+				covered[key] = true
+			}
 		}
 	}
-	if len(covered) == 0 {
+	probeReruns := map[string]bool{}
+	for _, artifact := range artifacts {
+		if artifact.Report == nil || artifact.Report.PlanID == primary.PlanID {
+			continue
+		}
+		for _, cmd := range artifact.Report.ExecutedCommands {
+			if !verificationProofCommandUsesProbeIdentity(cmd) {
+				continue
+			}
+			for _, current := range probePasses[verificationProofCommandIdentity(cmd)] {
+				old := cmd.ProbeExecution
+				if old != nil && current.ExecutionID != old.ExecutionID && !current.StartedAt.Before(old.FinishedAt) {
+					probeReruns[verificationProofCommandLedgerID(artifact.Report.PlanID, cmd)] = true
+				}
+			}
+		}
+	}
+	if len(covered) == 0 && len(probeReruns) == 0 {
 		return
 	}
 	supersededReports := map[string]bool{}
@@ -687,7 +711,7 @@ func (ledger *VerificationProofLedger) resolveHistoricalVerificationFailures(pri
 			item.ReportPlanID == primaryPlanID {
 			continue
 		}
-		if covered[item.EvidenceRef] {
+		if covered[item.EvidenceRef] || probeReruns[item.ID] {
 			item.Status = VerificationProofLedgerItemAdvisory
 			item.ReasonCode = "superseded_by_terminal_exact_command_pass"
 			supersededReports[item.ReportPlanID] = true
@@ -813,6 +837,9 @@ func (ledger *VerificationProofLedger) resolveCumulativeChangedPathObligations(p
 }
 
 func verificationProofCommandIdentity(cmd ExecutedCommand) string {
+	if verificationProofCommandUsesProbeIdentity(cmd) {
+		return verificationProbeExecutionIdentity(cmd.ProbeExecution)
+	}
 	return verificationProofLedgerStableID(
 		"command_identity",
 		cmd.Runner,
@@ -821,6 +848,19 @@ func verificationProofCommandIdentity(cmd ExecutedCommand) string {
 		cmd.Suite,
 		cmd.Command,
 	)
+}
+
+func verificationProofCommandLedgerID(planID string, cmd ExecutedCommand) string {
+	id := verificationProofLedgerStableID("command", planID, cmd.Source, cmd.Suite, cmd.Outcome, cmd.Command)
+	if verificationProofCommandUsesProbeIdentity(cmd) && cmd.ProbeExecution != nil {
+		return verificationProofLedgerStableID(id, cmd.ProbeExecution.ExecutionID)
+	}
+	return id
+}
+
+func verificationProofCommandUsesProbeIdentity(cmd ExecutedCommand) bool {
+	return cmd.Runner == "verification_probe" || cmd.ProbeExecution != nil ||
+		verificationProofCommandClass(cmd) == VerificationProofRunnerVerificationProbe
 }
 
 func verificationProofCommandTargetIdentity(cmd ExecutedCommand) string {
