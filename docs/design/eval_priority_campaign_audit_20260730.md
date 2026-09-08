@@ -57380,6 +57380,25 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1697 r1041：目标账获正证；结论口径错误与源码角色误判分开处理（2026-09-08）
+
+已交付推送 `0a3faa59c`（B1625）与 `1518f5abf652`（B1627a+b）；后者 clean make 后固定二进制并发恰好 2 路。完整86包测试通过。机器汇总及人工核验见 `eval/parallel_selected_summary_evalcampaign_python_d4_r1041_20260908{,_manual_audit}.md`，未修改 case/oracle/历史答案。
+
+| 项目 | 机器结果 | 人工结果 | 证据与处置 |
+|---|---|---|---|
+| sr_py_registry_dispatch | PASS，284s | partial | 注册存类→运行时实例化→executor回调→MRO基本正确；concrete handle错称abstract，装饰器详述被模型自有patch删除。4次修补逐项对应实际非法结构，未确认新矛盾合同。没有启发式join生成，B1627反升级本次生产未命中，不误销账。 |
+| real_trace_d4_demand_vs_supply | FAIL，152s | fail | 机器旧否定词形regex漏匹配另记。目标状态/CPU与原Trace独立复算一致，B1625正证；模型仍误加重叠收益、把单修向席当状态总量、把wake解释成业务完成并过强排除供给。正式上下文已给出相反边界，不立虚假的缺证据单，不代改答案。 |
+
+Trace114.940ms窗：目标Running26.946/Runnable3.636/S84.358ms；五CPU精确分桶合计26.946ms。log947/965的两次普通query文字提前给目标账；frame/事件自动补齐824ms，显式窗投影、双维度占时/规则可消除、链上优先级/D/IO/算力10.331ms/类校验.285ms和业务线索均保留，邻近/背景不升主因。侧车available两项，typed数值和窗正确；其43ms等错误说明也是模型原文，不是系统合计。已知B1623最高线程11.487ms仍为单CPU桶，归并新witness。
+
+Python成文第4轮已接受，第5轮展示advisory修补将summary错误改成ordered_list被拒，最终保留此前已接受稿；不属活跃SSE超时/强行降级。四次拒绝不是同一合法声明同时必带/必拒，不因为次数多就放弃精确结构合同或追加过拟合JSON教学。两路最大上下文44%，没有上下文溢出或4ms/旧4m活跃流年龄截止。已有真实4ms测试继续有效，实际idle/cancel/显式任务预算保持。
+
+**B1628/P1，已确认**：Python log1162–1165 将 runner.py:15 `plugin = resolve(kind)` 判为说明文字，前一行是docstring闭合符。公共 `ground/comment.go :: scanBlockBackward` 两臂下界初始化错误，maxWalk200实际上只回看上一行。实际原fixture ParseFiles→BuildGraph→ReadFile→EmitEvidence首红重现同ID ev-baa85f7c9f12757a 被置illustrative_only并收到Do NOT repair；Python闭合后code及Python/C/Lua多行正文正反例均首红（`.codrax/tmp/20260908-b1628-runner-comment-red.log`，overlay仅承载临时测试，未改源码/fixture）。单改回看距离可能扩大字符串/单行注释内delimiter误判，必须按读到的实际源码范围配对并保留歧义/稀疏边界，不能凭正文/词形猜测强降级，独立小批修。
+
+下一施工：B1623复用完整线程跨CPU累计账选择进程最高线程（不从Top8回推）；B1628公共源码范围判定；之后Cangjie/ArkTS读+原生Python写双例。B1624b/c、B1626、B1622等开放债继续保留，不靠一次PASS清账。模型结论错误维持人工观察，不增请求/最终答案关键词硬门，不系统改写正文/关系/根因选择。
+
+状态：`r1041=machine1/2,human-Python-partial+Trace-fail`；`B1625=production-positive`；`B1627a+b=1518f5abf652/pushed/86-packages-green/heuristic-live-not-exercised`；`B1623=open/new-witness/next`；`B1628=confirmed-P1/production+actual-entry-red/next`；`Trace-projection+supplement=production-positive`；`active-stream-age-degrade=none`。
+
 ### §123.1696 B1627a+b 冻结与下一双例优先级（2026-09-08）
 
 前一独立tool小批B1625已提交推送`0a3faa59c`。本批处理“系统候选被当事实/答案”的通用生产与消费闭包；不替模型写结论，不改变Trace根因资格/值/自动补采，不按请求或答案正文词汇造门。
