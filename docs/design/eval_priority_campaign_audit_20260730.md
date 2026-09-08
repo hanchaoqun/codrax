@@ -57380,6 +57380,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1698 B1623：进程最高线程复用完整跨 CPU 线程账（2026-09-08）
+
+已完成独立小批。`computeCPUOccupancyStats` 原有 process loop 从单CPU `ThreadDuration` 取最大，修复后只从其现成、未裁Top8的完整线程累计表选最高线程；进程运行总量仍只累计原桶一次，各CPU桶、供给折算、主根因值和排名不变。没有第二次计时或按输出正文改数。
+
+身份边界：只对已知PID使用跨CPU线程总量；同TID改名按既有最新来源名归账，同名异TID/异进程不合。缺PID仍保原局部桶观察，不借comm同名授跨CPU身份；未知CPU不造CPU0、不抹掉已测线程时间；无运行测量不发布假零。原ComputeWindowStats的生命周期冲突门保留，跨incarnation窗口不合并；新代次独立窗仍恢复精确统计。平局按测得量、来源行和数值身份确定次序，不靠map遍历顺序。
+
+先红证据：实际Run(window_stats)的6+6ms迁移线程错误输给10ms单核兄弟；真实D4同窗TopThreadMs=11.487但目标Running=26.946（`20260908-b1623-entry-red-verified.log`）。首个试验用错误View="window"落到event_search，属于无效fixture，未算产品首红。修后实际D4最高线程26.946ms、最大原CPU桶仍11.487ms、进程总量仍108.356cpu·ms；不是历史答案被重写，也未声称LLM自动纠正结论。
+
+新增6组测试含真实查询、Top8外进程赢家、多进程/改名、平局换序、未知PID/CPU、无运行量、生命周期冲突与新代次恢复。新旧相关族count3通过（1.494s）、窄race通过（4.786s），root完整 `go test ./internal/tracequery -count=1` 通过（82.804s，`.codrax/tmp/20260908-b1623-full-tracequery.log`），diff检查通过。另一ProcessCPULoad含Runnable的不同口径不在本批改动。
+
+状态：`B1623=implemented/actual-query+real-D4-regression-positive/count3+race+full-tracequery-pass/pending-new-live`；`B1628=in-progress/independent-batch`。B1624b/c、B1626、B1622及其余开放项不变。系统不代写答案，不用请求/模型正文关键词造门；Trace显式窗/因果投影/补齐及活跃流保护不改。
+
 ### §123.1697 r1041：目标账获正证；结论口径错误与源码角色误判分开处理（2026-09-08）
 
 已交付推送 `0a3faa59c`（B1625）与 `1518f5abf652`（B1627a+b）；后者 clean make 后固定二进制并发恰好 2 路。完整86包测试通过。机器汇总及人工核验见 `eval/parallel_selected_summary_evalcampaign_python_d4_r1041_20260908{,_manual_audit}.md`，未修改 case/oracle/历史答案。

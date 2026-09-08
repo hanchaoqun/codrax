@@ -124,6 +124,7 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 	// keep their true share.
 	type procAcc struct {
 		item      ProcessCPULoadSummary
+		topThread *CPUOccupancyThread
 		threadSet map[int]bool
 		cpuSet    map[int]bool
 		coreSet   map[string]bool
@@ -154,9 +155,14 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 			acc.item.ThreadCount++
 		}
 		acc.item.RunningMs += td.DurationMs
-		if td.DurationMs > acc.item.TopThreadMs {
-			acc.item.TopThread = td.Thread
-			acc.item.TopThreadMs = td.DurationMs
+		if td.Thread.PID <= 0 {
+			// A comm-only row does not prove cross-CPU thread identity.
+			// Preserve its existing local-bucket observation; do not borrow
+			// the comm fallback aggregation from the thread display above.
+			candidate := CPUOccupancyThread{Thread: td.Thread, RunningMs: td.DurationMs, LineStart: td.LineStart}
+			if acc.topThread == nil || cpuOccupancyTopThreadLess(candidate, *acc.topThread) {
+				acc.topThread = &candidate
+			}
 		}
 		if td.CPU >= 0 && !acc.cpuSet[td.CPU] {
 			acc.cpuSet[td.CPU] = true
@@ -173,7 +179,26 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 			acc.item.LineEnd = td.LineEnd
 		}
 	}
+	// Select the process's busiest thread from the complete cross-CPU
+	// thread account, not a single CPU bucket or the display-truncated Top8.
+	// Process totals above already include every bucket; do not add again.
+	// ComputeWindowStats retains its lifecycle-conflict guard on this entire
+	// composite, so a known PID here cannot join two in-window incarnations.
+	for _, thread := range threads {
+		if thread.item.Thread.PID <= 0 {
+			continue
+		}
+		proc := processRefForThread(thread.item.Thread, catalog)
+		acc := procs[processKey(proc)]
+		if acc != nil && (acc.topThread == nil || cpuOccupancyTopThreadLess(thread.item, *acc.topThread)) {
+			acc.topThread = &thread.item
+		}
+	}
 	for _, acc := range procs {
+		if acc.topThread != nil {
+			acc.item.TopThread = acc.topThread.Thread
+			acc.item.TopThreadMs = acc.topThread.RunningMs
+		}
 		sort.Ints(acc.item.CPUs)
 		sort.SliceStable(acc.item.CoreClasses, func(i, j int) bool {
 			return coreClassRank(acc.item.CoreClasses[i]) < coreClassRank(acc.item.CoreClasses[j])
@@ -267,6 +292,22 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 		occ.Caveats = append(occ.Caveats, tidTgidDerivedCaveat)
 	}
 	return occ
+}
+
+// cpuOccupancyTopThreadLess orders already measured thread totals. Ties use
+// existing physical provenance and exact numeric identity, never map order,
+// a CPU bucket's size, or the textual resemblance of thread names.
+func cpuOccupancyTopThreadLess(a, b CPUOccupancyThread) bool {
+	if a.RunningMs != b.RunningMs {
+		return a.RunningMs > b.RunningMs
+	}
+	if a.LineStart != b.LineStart {
+		return a.LineStart < b.LineStart
+	}
+	if a.Thread.PID != b.Thread.PID {
+		return a.Thread.PID < b.Thread.PID
+	}
+	return threadDisplayLess(a.Thread, b.Thread)
 }
 
 // computeProcessDomainCensus builds the WSR §8 b3 pid-scoped process-domain
