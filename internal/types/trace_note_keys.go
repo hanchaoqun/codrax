@@ -136,6 +136,13 @@ const (
 	TraceNoteKeyTargetCPURunningAssignmentStatus = "target_cpu_running_assignment_status"
 	TraceNoteKeyTargetCPURunningUnknownMS        = "target_cpu_running_unknown_ms"
 	TraceNoteKeyTargetCPURunningOverflowMS       = "target_cpu_running_overflow_ms"
+	// Representative frequency is a target-owned running-bucket sample, not
+	// a whole-window frequency or residency measurement. Keep this metadata
+	// separate from the legacy generic cpu/freq display channel.
+	TraceNoteKeyTargetCPURunningRepresentativeFrequencyKHz         = "target_cpu_running_representative_frequency_khz"
+	TraceNoteKeyTargetCPURunningRepresentativeFrequencyCaliber     = "target_cpu_running_representative_frequency_caliber"
+	TraceNoteKeyTargetCPURunningRepresentativeFrequencyDonorCPU    = "target_cpu_running_representative_frequency_donor_cpu"
+	TraceNoteKeyTargetCPURunningRepresentativeFrequencyDonorSource = "target_cpu_running_representative_frequency_donor_source"
 )
 
 // 因果排名族 (causal-rank family).
@@ -2202,6 +2209,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyTargetCPURunningAssignmentStatus, "cpu_load", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyTargetCPURunningUnknownMS, "cpu_load", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyTargetCPURunningOverflowMS, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningRepresentativeFrequencyKHz, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningRepresentativeFrequencyCaliber, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningRepresentativeFrequencyDonorCPU, "cpu_load", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetCPURunningRepresentativeFrequencyDonorSource, "cpu_load", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyCPUOccupancyCPUs, "cpu_load", TraceNoteCarrierHardConsumer},
 	{"core_class", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyCPUOccupancyCoreClasses, "cpu_load", TraceNoteCarrierHardConsumer},

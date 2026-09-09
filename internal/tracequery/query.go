@@ -994,6 +994,7 @@ func Run(idx *Index, q Query) Result {
 				return runCancelFinalize(&res, cancel)
 			}
 			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, tl.Thread, window, res.WindowStats)
+			stampTargetWindowCPURepresentativeFrequencies(res.TargetWindowStates, idx, q, res.WindowStats)
 			if res.TargetWindowStates != nil {
 				res.TargetWindowStates.BinderWaitInventory = buildTargetWindowBinderWaitInventory(idx, q, tl, window)
 			}
@@ -3192,8 +3193,21 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 		}
 	}
+	stats.targetCPUFrequencyCensus = newTargetCPURepresentativeFrequencyCensus(idx, q)
 	for _, td := range running {
 		stats.TopRunning = append(stats.TopRunning, td)
+		if census := stats.targetCPUFrequencyCensus; census != nil && td.Thread.PID > 0 && td.CPU >= 0 && td.Frequency > 0 {
+			frequency := TargetWindowCPURepresentativeFrequency{
+				FrequencyKHz: td.Frequency, Caliber: TargetWindowCPURepresentativeFrequencyCaliber,
+			}
+			// Read the SAME resolver's already-used donor, never resolve a new
+			// donor just to enrich a display row or alter reuse caveat counts.
+			if donor, shared := freqDonors.memo[td.CPU]; shared {
+				frequency.ClusterDonorCPU = &donor
+				frequency.ClusterDonorSource = freqDonors.sourceToken()
+			}
+			census.rows[threadCPUKey(td.Thread, td.CPU)] = frequency
+		}
 	}
 	sort.SliceStable(stats.TopRunning, func(i, j int) bool { return stats.TopRunning[i].DurationMs > stats.TopRunning[j].DurationMs })
 	if len(stats.TopRunning) > 8 {
@@ -21205,6 +21219,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	}
 	targetTimeline, targetTimelineOK := targetWindowTimeline(idx, analysisQ, target, bundle.Window)
 	bundle.TargetWindowStates = buildTargetWindowStateAccount(idx, targetTimeline, targetTimelineOK, target, bundle.Window, &stats)
+	stampTargetWindowCPURepresentativeFrequencies(bundle.TargetWindowStates, idx, analysisQ, &stats)
 	if bundle.TargetWindowStates != nil {
 		bundle.TargetWindowStates.BinderWaitInventory = buildTargetWindowBinderWaitInventory(idx, analysisQ, targetTimeline, bundle.Window)
 	}

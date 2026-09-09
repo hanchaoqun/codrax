@@ -1691,6 +1691,11 @@ type WindowStats struct {
 	// nil on legacy/direct-literal WindowStats, where consumers fail open to
 	// the public slice.
 	cpuConstraintCensus []CPUConstraintSummary
+	// targetCPUFrequencyCensus retains the already-computed pre-TopN running
+	// representatives for a same-index, same-query target CPU display join.
+	// It is private execution provenance, not a serialized fallback source.
+	// Legacy/direct-literal stats without this receipt leave frequency unknown.
+	targetCPUFrequencyCensus *targetCPURepresentativeFrequencyCensus
 	// offCPUProducerDisjoint (件6 修复轮, 2026-07-14). Unexported: the
 	// ordered-stream premise of the off-CPU state machine (ORD 复核 P3-1
 	// same gate the mint sites read) — false on clock-regressed indexes. The

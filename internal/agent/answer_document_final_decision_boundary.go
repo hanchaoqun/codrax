@@ -1098,7 +1098,9 @@ func renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact(
 				coverage = "完整目标运行 CPU 清单中的一项"
 			}
 			fmt.Fprintf(&b, "  - 工件 %s：%s 在 %s 秒窗口内于 CPU %d 运行 %s%s（%s）。", traceDecisionPromptScalar(row.source), row.subject, row.window, row.cpu, row.running, row.unit, coverage)
-			if frequencyText != "absent" {
+			if row.representative != nil {
+				b.WriteString(answerDocTargetCPUFrequencyRowText(row, true) + "。")
+			} else if frequencyText != "absent" {
 				fmt.Fprintf(&b, "同一查询结果的该 CPU 运行时间桶记录了代表频率 %s；这是 CPU 归属的桶级代表值，不证明该频率覆盖了目标线程的具体运行切片。", frequencyText)
 			} else {
 				b.WriteString("同一查询结果的该 CPU 没有可用的运行时间桶代表频率，不能补猜。")
@@ -1119,7 +1121,9 @@ func renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact(
 				coverage = "an entry in the complete target-running CPU roster"
 			}
 			fmt.Fprintf(&b, "  - Source %s: %s ran for %s%s on CPU %d in %s seconds (%s). ", traceDecisionPromptScalar(row.source), row.subject, row.running, row.unit, row.cpu, row.window, coverage)
-			if frequencyText != "absent" {
+			if row.representative != nil {
+				b.WriteString(answerDocTargetCPUFrequencyRowText(row, false) + ". ")
+			} else if frequencyText != "absent" {
 				fmt.Fprintf(&b, "The same query result's CPU running-time bucket records representative frequency %s; this is a CPU-owned bucket representative, not proof that the frequency covered the target's concrete running slices. ", frequencyText)
 			} else {
 				b.WriteString("No running-bucket representative frequency is available on this CPU in the same query result; do not guess one. ")

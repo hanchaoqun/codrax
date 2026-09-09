@@ -8506,9 +8506,51 @@ func writeTraceTargetCPURunningRoster(b *strings.Builder, account *tracequery.Ta
 		account.RunningCPURosterTotal, account.RunningCPUKnownMs, account.RunningCPUUnknownMs,
 		account.RunningCPUOverflowMs)
 	for _, row := range account.RunningByCPU {
-		fmt.Fprintf(b, "  target_cpu_running cpu=%d running=%.3fms segments=%d window=%.6f..%.6f lines=%d-%d\n",
-			row.CPU, row.RunningMs, row.SegmentCount, row.StartTs, row.EndTs, row.LineStart, row.LineEnd)
+		_, frequencyText := traceQueryTargetCPURepresentativeFrequency(row)
+		fmt.Fprintf(b, "  target_cpu_running cpu=%d running=%.3fms segments=%d window=%.6f..%.6f lines=%d-%d%s\n",
+			row.CPU, row.RunningMs, row.SegmentCount, row.StartTs, row.EndTs, row.LineStart, row.LineEnd, frequencyText)
 	}
+}
+
+// traceQueryTargetCPURepresentativeFrequency publishes only the engine's
+// complete, recognized representative-sample carrier. Both output faces use
+// this one validation boundary; absent or inconsistent provenance stays
+// unknown, and no nearby frequency record is used to repair it.
+func traceQueryTargetCPURepresentativeFrequency(row tracequery.TargetWindowCPURunning) ([][2]string, string) {
+	f := row.RepresentativeFrequency
+	if row.CPU < 0 || f == nil || f.FrequencyKHz <= 0 || f.Caliber != tracequery.TargetWindowCPURepresentativeFrequencyCaliber {
+		return nil, ""
+	}
+	donorText := ""
+	if f.ClusterDonorCPU == nil {
+		if f.ClusterDonorSource != "" {
+			return nil, ""
+		}
+	} else {
+		if *f.ClusterDonorCPU < 0 || *f.ClusterDonorCPU == row.CPU {
+			return nil, ""
+		}
+		var source string
+		switch f.ClusterDonorSource {
+		case tracequery.ClusterFreqSourceExplicit:
+			source = "explicit topology"
+		case tracequery.ClusterFreqSourceDerived:
+			source = "frequency-change-derived cluster"
+		default:
+			return nil, ""
+		}
+		donorText = fmt.Sprintf("; cluster-shared from CPU%d, %s", *f.ClusterDonorCPU, source)
+	}
+	notes := [][2]string{
+		{types.TraceNoteKeyTargetCPURunningRepresentativeFrequencyKHz, strconv.FormatInt(f.FrequencyKHz, 10)},
+		{types.TraceNoteKeyTargetCPURunningRepresentativeFrequencyCaliber, f.Caliber},
+	}
+	if f.ClusterDonorCPU != nil {
+		notes = append(notes,
+			[2]string{types.TraceNoteKeyTargetCPURunningRepresentativeFrequencyDonorCPU, strconv.Itoa(*f.ClusterDonorCPU)},
+			[2]string{types.TraceNoteKeyTargetCPURunningRepresentativeFrequencyDonorSource, f.ClusterDonorSource})
+	}
+	return notes, fmt.Sprintf(" representative_frequency=%dkHz (last positive running-segment-start value; not constant frequency or residency%s)", f.FrequencyKHz, donorText)
 }
 
 // writeTraceTargetWaitOccurrencePreview renders the target account's exact
@@ -10224,6 +10266,8 @@ func traceQueryTargetCPURunningObservations(
 			[2]string{types.TraceNoteKeyTargetCPURunningCPU, strconv.Itoa(row.CPU)},
 			[2]string{types.TraceNoteKeyTargetCPURunningSegments, strconv.Itoa(row.SegmentCount)},
 		)
+		frequencyNotes, frequencyText := traceQueryTargetCPURepresentativeFrequency(row)
+		notes = append(notes, frequencyNotes...)
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#target_cpu_running:%d", scope, i+1),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -10250,7 +10294,7 @@ func traceQueryTargetCPURunningObservations(
 				subject, row.CPU, row.RunningMs, row.SegmentCount, account.RunningCPURosterStatus,
 				account.RunningCPUAssignmentStatus, account.RunningCPURosterEmitted,
 				account.RunningCPURosterTotal, account.RunningCPUUnknownMs, account.RunningCPUOverflowMs,
-			),
+			) + frequencyText,
 			RichNotes:   traceQueryTypedKVNotes(notes),
 			SupportRefs: traceQueryObservationSupportRefs(ref, row.LineStart, row.LineEnd),
 			ObservedAt:  at,

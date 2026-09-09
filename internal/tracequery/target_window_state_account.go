@@ -1,6 +1,8 @@
 package tracequery
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"sort"
 	"strings"
 )
@@ -133,6 +135,92 @@ type TargetWindowCPURunning struct {
 	EndTs        float64 `json:"end_ts,omitempty"`
 	LineStart    int     `json:"line_start,omitempty"`
 	LineEnd      int     `json:"line_end,omitempty"`
+	// RepresentativeFrequency is one already-observed running-bucket context
+	// value. Its presence does not imply constant frequency, residency, full
+	// frequency coverage, or an effective policy ceiling on this target.
+	RepresentativeFrequency *TargetWindowCPURepresentativeFrequency `json:"representative_frequency,omitempty"`
+}
+
+const TargetWindowCPURepresentativeFrequencyCaliber = "last_positive_running_segment_start"
+
+// TargetWindowCPURepresentativeFrequency preserves ThreadDuration.Frequency's
+// existing caliber: the last positive sample governing a judged running segment
+// start in this thread/CPU bucket. It is neither a weighted average nor a peak.
+// A nil parent pointer means unknown; this carrier is minted only for positive
+// values. Nil ClusterDonorCPU therefore means the CPU's own sample timeline.
+type TargetWindowCPURepresentativeFrequency struct {
+	FrequencyKHz       int64  `json:"frequency_khz"`
+	Caliber            string `json:"caliber"`
+	ClusterDonorCPU    *int   `json:"cluster_donor_cpu,omitempty"`
+	ClusterDonorSource string `json:"cluster_donor_source,omitempty"`
+}
+
+// This receipt never crosses JSON/cache boundaries. The complete exported
+// Query fingerprint includes line/event/target/topology filters, not just time
+// endpoints. The concrete Index pointer keeps separate captures independent
+// even if their paths, timestamps, TIDs and numeric values happen to match.
+type targetCPURepresentativeFrequencyCensus struct {
+	index       *Index
+	queryDigest [32]byte
+	rows        map[string]TargetWindowCPURepresentativeFrequency
+}
+
+func targetCPURepresentativeFrequencyQueryDigest(idx *Index, q Query) ([32]byte, bool) {
+	encoded, err := json.Marshal(ensureQueryFlavor(idx, q))
+	if err != nil {
+		return [32]byte{}, false
+	}
+	return sha256.Sum256(encoded), true
+}
+
+func newTargetCPURepresentativeFrequencyCensus(idx *Index, q Query) *targetCPURepresentativeFrequencyCensus {
+	if idx == nil || q.runCancel.fired() {
+		return nil
+	}
+	digest, ok := targetCPURepresentativeFrequencyQueryDigest(idx, q)
+	if !ok {
+		return nil
+	}
+	return &targetCPURepresentativeFrequencyCensus{
+		index: idx, queryDigest: digest, rows: map[string]TargetWindowCPURepresentativeFrequency{},
+	}
+}
+
+// Both actual account publication sites call this display-only join with the
+// query that produced stats. It neither re-reads events nor uses public TopN
+// slices, comm/TGID aliases, another state bucket, or a CPU-global last value.
+func stampTargetWindowCPURepresentativeFrequencies(account *TargetWindowStateAccount, idx *Index, q Query, stats *WindowStats) {
+	if account == nil || idx == nil || stats == nil || account.Thread.PID <= 0 || q.runCancel.fired() {
+		return
+	}
+	if q.PID > 0 && q.PID != account.Thread.PID {
+		return
+	}
+	census := stats.targetCPUFrequencyCensus
+	if census == nil || census.index != idx || stats.Window != account.Window || account.Window != queryResultTimeWindow(q) {
+		return
+	}
+	digest, ok := targetCPURepresentativeFrequencyQueryDigest(idx, q)
+	if !ok || census.queryDigest != digest {
+		return
+	}
+	for i := range account.RunningByCPU {
+		row := &account.RunningByCPU[i]
+		if row.CPU < 0 || row.RunningMs <= 0 {
+			continue
+		}
+		frequency, ok := census.rows[threadCPUKey(account.Thread, row.CPU)]
+		if !ok || frequency.FrequencyKHz <= 0 {
+			continue
+		}
+		// Published rows own their optional scalar pointer; consumers cannot
+		// mutate the private census through an earlier account's donor field.
+		if frequency.ClusterDonorCPU != nil {
+			donor := *frequency.ClusterDonorCPU
+			frequency.ClusterDonorCPU = &donor
+		}
+		row.RepresentativeFrequency = &frequency
+	}
 }
 
 // TargetWindowStateOccurrence is one engine-paired target wait interval.

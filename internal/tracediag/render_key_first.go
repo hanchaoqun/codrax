@@ -789,6 +789,15 @@ func renderStringSet(values map[string]bool, limit int) string {
 // duplication and bulk-lane semantics are reviewed instead of inheriting an
 // accidental declaration-order default.
 var nonEventPrioritySchemaPins = map[reflect.Type]string{
+	// B1633a (2026-09-09): RunningByCPU gained the nested optional
+	// RepresentativeFrequency pointer; Result/bundle pointer fingerprints do
+	// not change. Generic detail preserves the positive frequency, fixed
+	// representative caliber and donor source, then follows the non-nil
+	// donor pointer even for CPU0. Nil stays absent. These are supporting
+	// detail lines at the existing target CPU row, not a new key-first or
+	// root-cause lane. No skip entry or hash re-sign is needed. Exact nested
+	// field disposition and actual Run/zero-donor/unchanged-duration pins live
+	// in render_target_cpu_frequency_test.go.
 	// B1607b1 (2026-09-07): TargetWindowStates gained the NESTED
 	// BinderWaitInventory pointer. These Result/bundle fingerprints remain
 	// unchanged. The dedicated detail renderer preserves explicit zero counts,

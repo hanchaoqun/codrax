@@ -57380,6 +57380,24 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1712 B1633a：完整目标 CPU 频率通道与无策略事件接线（2026-09-09）
+
+B1633b已独立以`6111367b7`推送。本批复用原`ComputeWindowStats`截断前running聚合，不增加事件扫描、不放大全局Top8/每CPU Top2；可选频率经私有Index+完整Query摘要、实际目标TID/CPU及窗口校验后附到完整目标RunningByCPU，在普通Run与frame bundle两个实际发布点共用。私有摘要不序列化/不从旧缓存猜造；不会从comm、相邻线程/CPU末值补数。
+
+- [x] engine实际Run双重榜外目标有效RED，目标5ms及原TopN正确但可选值原来缺失；另有完整来源/实际目标域有效RED。两实际发布点、H4 CPU7/17267/1280000kHz、同名异TID、生命周期拒绝与新代、缺值/污染/倒序、显式零窗、CPU0 donor及指针独立、旧JSON无私有census、扫描次数均钉定。engine count3 2.555s/race8.433s/完整包91.385s绿。
+- [x] 原值口径是**运行桶最近一次有正值的运行段起点所依据的频率**；不是最后CPU全局事件、整窗恒定、峰值、加权平均、驻留，也不是策略限制效果。既有同簇resolver的donor CPU及显式/变化点推导来源随值携带，不把复用说成该CPU直接采样。时长/片段/排行/供给折算不动。
+- [x] tool真实Execute先红后绿：原100ms/CPU0保留，新增2000000kHz从专用notes及文本同源发布；实际共享CPU0→CPU1和缺频率仍各50ms。13格未知/非法/未来caliber/来源负例均保持无值而非补零。四新soft key登记；唯一旧pin红因全键fixture未携新值，仅补原CPU4 fixture合法carrier，保原所有数值/断言/门。最终tool/types count3 1.203/1.505s，race2.256s绿。
+- [x] 两成文入口共用完整source/query/target/CPU关联及可选carrier解析，既有不同桶值独立保留，不首胜/不合并。另亲验**无cpu_frequency_limits事件导致两成文入口一并丢目标频率**：`...-no-policy-red.log`双语两面有效RED；仅对同域有效新carrier开放无policy读者通道，旧无值/未知口径仍原静默面。真实Execute→Dispatch→ledger→BuildInitialInstruction异捕获同basename/同CPU、双序双语保各自频率，不借另一捕获policy。root新旧agent族count3 1.371s、race2.990s绿。
+- [x] 新nested公开字段由tracediag默认walker已正确支持，零值CPU donor指针不丢，nil不造数；显式字段清册+实际Run双view六格逐字对照其余诊断行。旧非递归schema摘要无需变化，仅登记处置注释，不盲重钉hash。该面首绿不是RED；新旧pin count3 0.569s绿。
+- [x] 三席分工与交叉只读review无阻断，root复核生产差异；所有生产/回归冻结后`go test ./... -count=1`退出0，86个测试包全绿，包含agent75.531s、orchestrator28.758s、tracequery111.091s、tracediag15.142s、types49.284s，未放宽旧判据。
+- [x] 实际LLM/agent活跃流与混合fallback预算专项count3绿9.708/10.282s，`.../20260909-b1633-active-stream-count3.log`；4ms缩时活跃SSE不降级，真实停滞/取消/显式deadline负臂仍有效。完整llm包27.844s也覆盖partial-frame/keepalive/旧总时长帽；缩时测试不冒充超过4分钟真人回放。
+- [x] 本节随B1633a独立提交；交付前再次fetch确认0/0，随后推送与clean build。下一轮冻结H11明确窗链上根因/修向读+C精准单行实际apply，exact2/1200s，不扩case或重写oracle。H11仍同Donghu捕获但问题维度不同；C控制例不冒充复杂跨计划proof闭环。
+- [ ] r1046实际过程、上下文/答案、写worktree原生验收及生产状态另节收账。
+
+日志前缀`.codrax/tmp/20260909-b1633a-*`，整体全仓`.codrax/tmp/20260909-b1633-full-suite.log`。测试层分别覆盖engine双TopN原数值、tool两出口与实际双成文联通，不冒称同一个fixture贯穿了所有反例。r1045旧产物不重新渲染当新live；B1632、B1633a/b后续生产观察分别登记。无新增LLM必填字段、JSON合同、原文关键词硬门；不改模型正文/图/结论，不扩大邻近/背景到链上主因，显式窗、投影、自动补齐与链上两轴/业务线索保留。
+
+状态：`B1633a=implemented/entry-red-green/focused+race+86-package-green/independent-reviewed/delivered-with-this-commit/pending-live`；`B1633b=6111367b7/pushed/pending-live`；B1624b/B1629b/B1626/B1622/B1616b/B1561仍开放。
+
 ### §123.1711 B1633b：频率事实附注按来源和线程独立展示（2026-09-09）
 
 起点 `89a50234e`，fetch确认远端同值。旧附注把不同捕获/查询/线程/状态桶的频率按CPU扁平合并；r1045中CPU7的其他线程558/640/1380MHz并非目标17267的频率证据。本批只修附注归属，不改模型正文、值、图、结论，也不改请求/正文选择器或门。

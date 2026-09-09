@@ -19,6 +19,7 @@ type answerDocFrequencySourceJoinRow struct {
 	cpu                                            int
 	targetObserved, rosterComplete                 bool
 	frequencies                                    map[int64]bool
+	representative                                 *answerDocTargetFrequencyRepresentative
 	policy                                         *types.TraceFrequencyLimitAuthority
 	policyStatus, binding                          string
 }
@@ -66,7 +67,7 @@ func answerDocFrequencyJoinCPU(r types.ObservationRecord) (int, bool) {
 }
 
 func answerDocFrequencySourceJoinRows(ctx *types.AgentContext, published []types.TraceFrequencyLimitAuthority) []answerDocFrequencySourceJoinRow {
-	if ctx == nil || len(published) == 0 {
+	if ctx == nil {
 		return nil
 	}
 	// Completeness/uniqueness is checked before the existing policy display
@@ -181,7 +182,16 @@ func answerDocFrequencySourceJoinRows(ctx *types.AgentContext, published []types
 				visibleCPU[w.CPU] = true
 			}
 		}
-		if len(visibleCPU) == 0 {
+		// Full-target measurements do not require policy-limit events. Keep
+		// the legacy policy-only entry unchanged, but let a valid new carrier
+		// publish its own roster without borrowing another result's policy.
+		hasTargetFrequency := false
+		for cpu, targets := range g.targets {
+			for _, target := range targets {
+				hasTargetFrequency = hasTargetFrequency || answerDocTargetFrequencyFromRecord(target, cpu) != nil
+			}
+		}
+		if len(visibleCPU) == 0 && !hasTargetFrequency {
 			continue
 		}
 		policies := map[int][]types.TraceFrequencyLimitAuthority{}
@@ -228,6 +238,7 @@ func answerDocFrequencySourceJoinRows(ctx *types.AgentContext, published []types
 					running: strings.TrimSpace(target.Value), unit: strings.TrimSpace(target.Unit),
 					roster:       strings.TrimSpace(traceDecisionRichNoteValue(target.RichNotes, types.TraceNoteKeyTargetCPURunningRosterStatus)),
 					policyStatus: "not_observed_in_same_result", binding: "not_comparable_missing_same_cpu_pair"}
+				row.representative = answerDocTargetFrequencyFromRecord(target, cpu)
 				switch {
 				case len(g.targets[cpu]) > 1 || len(policies[cpu]) > 1 || ambiguousCPU[cpu]:
 					row.policyStatus, row.binding = "ambiguous_same_result_records", "not_comparable_ambiguous_source_rows"
