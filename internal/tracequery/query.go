@@ -2218,10 +2218,13 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 				res.Caveats = append(res.Caveats, fmt.Sprintf("thread_generation_boundary=true; sched_wakeup_new reset tid=%d at line=%d", ev.WakeePID, ev.Line))
 				return
 			}
-			if !offOpen && ev.Ts == q.TimeStart {
+			// An observed headless wake establishes runnable only from its
+			// timestamp; it neither classifies the unknown prefix nor reopens
+			// a thread already known to be running.
+			if !offOpen && !runningOpen {
 				offStart, offOpen = ev.Ts, true
 				offLine, offKnownState, offState = ev.Line, StateRunnable, "R"
-				boundaryObserved = true
+				boundaryObserved = boundaryObserved || ev.Ts == q.TimeStart
 			}
 			if offOpen && ev.Ts >= offStart {
 				copy := ev

@@ -219,15 +219,21 @@ func TestGatedCalDegenerateArmCompositeNeverWearsFull(t *testing.T) {
 	gatedCalAssertCompositeWordSplitReachable(t, tieba)
 	// 正臂 (donghu A2 实铸形): the counted composite keeps its word faces —
 	// the 行3 equation, the ◎ note and the projection-cell annotation.
+	// B1636 evolution of the original 3.429 == 2.181 + 1.248 witness:
+	// physical wake 20769 at 13762.974666 -> sched-in 20816 at .974768
+	// restores .102ms; the existing chain window starts at .974683, so
+	// only .085ms joins runnable (2.266), not the .017ms outside that window.
+	// Raw running 1.419 and its counted deficit 1.247679843645 are unchanged.
+	// Synthetic 3.429 forms below remain valid and keep their original pins.
 	donghu := gatedCalEngineRealMD(t, elimSemanticDonghuTrace, 17267, 13762.791708, 13763.024898)
-	if !strings.Contains(donghu, "有效归因 3.429ms = runnable(全额) 2.181ms + running(折算) 1.248ms") {
+	if !strings.Contains(donghu, "有效归因 3.514ms = runnable(全额) 2.266ms + running(折算) 1.248ms") {
 		t.Fatalf("件A 正臂: the A2 composite must render its equation:\n%s", donghu)
 	}
 	// OMGCLEAN-1 件8: the ◎ short mark is the bare 构成; the detail-table cell
 	// annotation keeps the full 构成,见明细 word (two faces, one legend).
 	if (!strings.Contains(donghu, "优先级反转候选 ·构成") &&
 		!strings.Contains(donghu, "优先级反转候选·供给缺口主导 ·构成")) ||
-		!strings.Contains(donghu, "3.429ms(构成,见明细)") {
+		!strings.Contains(donghu, "3.514ms(构成,见明细)") {
 		t.Fatalf("件A 正臂: the A2 composite keeps its ◎ note and cell annotation:\n%s", donghu)
 	}
 	gatedCalAssertCompositeWordSplitReachable(t, donghu)

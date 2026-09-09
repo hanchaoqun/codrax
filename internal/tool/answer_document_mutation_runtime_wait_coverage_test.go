@@ -839,9 +839,13 @@ func TestRuntimeTargetStateAuthorityRealDonghuPublishesElevenOccurrencesAndParti
 	)
 	for _, want := range []string{
 		"工件=donghu.ftrace",
-		"已归账 231.794ms / 窗口 233.190ms",
+		// B1636 restores only the observed headless wake suffix: physical
+		// lines 131 -> 139 contribute .040ms. The old 231.794/1.396 account
+		// omitted it; the eleven D intervals and the unknown prefix remain.
+		"runnable 1.576ms",
+		"已归账 231.834ms / 窗口 233.190ms",
 		"覆盖=部分（存在未归账区间）",
-		"另有 1.396ms 未归账",
+		"另有 1.356ms 未归账",
 		"窗口尾部开放 8.793ms（状态=sleep",
 		"等待明细完整，共 11 段",
 		"D 状态 11",

@@ -37,7 +37,9 @@
 5. 默认root-causes旁路存在，status=available，5项是模型选择集合，不是全13席榜；frame causality未证仍披露。不因为行数少就自行补齐模型根因选择。
 6. 模型质量仍有问题：MD15“直接根因不在自身”与自身#3过强冲突；MD19/40把核能力折算简化为低频原因，并把原始总量叫“实测折算后总量”。完整精确数值、默认能力比和机理未证限制已经入模，未证明系统缺事实；保留partial，不伪造新硬判据。
 7. 修订过程：log2957首稿accepted；3042将普通wakeup impact选成runtime_work_relation收据，3045精确候选门拒绝，旧模型首稿继续发布，没有空答案。不是 field_not_published，没有确认新的 JSON 教学冲突；额外 schema_version 被隔离也不导致系统代选。
-8. **独立显示残余**：MD250/277称keva-1原始running未发布，但原JSON及MD467已有1.419，事实冲突已证，具体载体传播根修仍待追。MD470同物理CPU0/4策略事件跨四结果重复长句，共占8条；每份query人口/ObservedAt不同，原完整来源去重不应放松。本案没有第三CPU库存，不能声称已挤掉其它CPU；后续仅可研究同物理事件显示分组、逐query统计/来源完整保留，并以3CPU×多收据验证公平cap。
+8. **独立显示残余**：MD250/277的折算分量原始running未发布，而原JSON及MD467的整行running有1.419。**后续源码复核纠正本报告初版“事实冲突已证”**：两者可能属于不同人口，未知披露本身不能判错，不能直接以整行数值补折算子集。详见下段；MD470同物理CPU0/4策略事件跨四结果重复长句，共占8条；每份query人口/ObservedAt不同，原完整来源去重不应放松。本案没有第三CPU库存，不能声称已挤掉其它CPU；后续仅可研究同物理事件显示分组、逐query统计/来源完整保留，并以3CPU×多收据验证公平cap。
+
+**原始running复核更正与待办**：字段并未被producer或投影丢弃，`trace_query.go:10911/11287 → trace_causal_projection.go:4375`已传RunningMS。构成显示`answer_document_mutation_runtime_rcr.go:1041`只尝试完整供给折算原量或running主导行的显示值；keva-1是runnable、无SupplyFoldBasis，故当前保持未知。引擎`query.go:25796–25820`明确分别对完整节点和优先级证明子集计算，不能认为整行running就是参与计价的原始分量。本例单条causal_impacts的running+runnable与proven_lower均为3.60000000182481、gated runnable与原runnable相等，因此本例可独立审计复算子集running1.4190000019880245；这不构成通用读者端推算授权。尚缺同一子集产出的可选gated原始running载体。另有running主导分支用full折算原量配gated子集缺口的静态风险；现有引擎针有总7ms/合格3ms，但未取得实际发布反例，不标live已证。后续应先公开入口复现，再由原引擎子集产点携原值/存在性，聚合严格随该分量的sum/max规则；部分覆盖、未知频率、缺失/零、异来源/窗、重叠聚合、旧载体都须反针。不得借其它查询或总量填数，不改变归因值/排名/原完整折算面。本轮未实施。
 
 ## 本批边界与后续
 

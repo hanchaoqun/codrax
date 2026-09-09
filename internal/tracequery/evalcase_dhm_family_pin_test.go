@@ -239,7 +239,10 @@ func TestEvalcaseDHMA3aInversionSeatPairEarlyWindow(t *testing.T) {
 	if !near(wait.ImpactMs, 19.372, 0.001) || !near(wait.EffectiveImpactMs, 1.847, 0.001) {
 		t.Fatalf("DHM-A3a: runnable-wait inversion values drifted: %.3f/%.3f", wait.ImpactMs, wait.EffectiveImpactMs)
 	}
-	if !near(cand.ImpactMs, 12.128, 0.001) {
+	// B1636: physical wake 2776 -> sched-in 2891 restores .740ms of
+	// headless runnable; this candidate's first sub-window includes .716ms.
+	// Original 12.128 was missing that slice; the running deficit is unchanged.
+	if !near(cand.ImpactMs, 12.844, 0.001) {
 		t.Fatalf("DHM-A3a: candidate inversion value drifted: %.3f", cand.ImpactMs)
 	}
 	if wait.EffectiveImpactMs > wait.ImpactMs {

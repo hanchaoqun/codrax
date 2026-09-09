@@ -57380,6 +57380,24 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1720 B1636：真实首个唤醒后缀补入线程状态账户（2026-09-09）
+
+r1049审计以`38b464b18`独立推送。本数值批接续§1718/1719确认的第四消费者漏项；不改原ThreeFaces裁定，不由未知窗首推测线程状态，不改变排名/折算/合并规则来迁就单个样例。
+
+- [x] **真实入口RED→GREEN**：`BuildIndex/BuildWindow → Run(thread_timeline/window_stats)`最小headless fixture旧R15/已归账70，对照offCPU/churn/stream R35；原donghu旧1.536、对照完整scheduler mean×count/stream1.576。有效RED `.codrax/tmp/20260909-b1636-public-red.log`（2.633s），不是编译失败；最终最小R35/已归账90，未知前缀10ms仍不归账。
+- [x] `threadTimelineForTarget`普通`sched_wakeup`只在没有已开off-CPU段且没有已知running段时，从**实际唤醒时间**建立R；原先仅允许`ev.Ts == q.TimeStart`漏掉更晚的首个真实唤醒。完整窗首标记仍只由精确窗首事件建立。保原line filter、prefix snapshot、生命周期/完整性拒绝、`sched_wakeup_new`独立通道及物理尾界；不修改源事件和trace文本。
+- [x] 原donghu真实131→139行、`13762.793064..13762.793104`补回0.040ms；R1.536→1.576、总已归账231.794→231.834。running74.915/S118.586/D36.757/IO0不变，233.190ms全窗仍有1.356ms未知，不能声称完整。附着副本多一行前缀，不混引用原文件与副本行号。
+- [x] 新八族覆盖显式/全工件、full/windowed、时间+行筛选、排除wake行但index保seed、重复wake不重置起点、已经running的普通wake不重复造R、显式零时间、EOF开放R不越物理边界、旧代拒绝及wakeup_new新代。Timeline.HeadState的full=nil/windowed=unknown仍按旧接口，二者账户head coverage均partial_unknown，不硬造字段字节一致。
+- [x] **完整包首轮两旧针红，逐值溯源后迁移，不盲重钉**：CookieMonster原2776唤醒→2891切入为0.740ms，实际候选首子窗仅纳入0.716ms，12.127952952→12.843952947；原running1.077999994/缺口0.030952946及另一候选19.372/1.847不变。Chrome_IOThread原2659→4310的10.782ms首R补回后，CPU4获得既有overlap basis，与CPU0/2按未改`sum_disjoint`合成10.816+5.450+3.037＝19.303ms、有效12.173，self_ruled行数7→6不是丢席。旧数值和历史census说明保留演化注，新增两个真实物理来源针另钉3成员、14条非目标完整roster、Compositor0.175/65.514/0.077及invalid=0不变。
+- [x] 前后只读快照`.codrax/tmp/20260909-b1636-golden-{baseline,current}.jsonl`。最初完整包90.918s的两红保留在`...-tracequery-full.log`；末版新10族+旧两针count3 9.450s、原新族race27.464s/新增物理来源针race14.036s、完整tracequery重跑89.064s通过。混合行/时间窗测试初次误将裁剪后25ms写成35ms的fixture修正不算产品RED；生产未为此扩大。
+- [x] 独立只读审阅确认未知前缀、行窗、代次、物理尾界与源不可变保护；root另复核两条golden的物理来源及成员保真，未修改其它旧针或hash。
+- [x] 同一冻结源码栈`go test ./... -count=1`首次85包绿、tool325.330s两条旧预期红，日志`.../20260909-b1636-b1637-full-suite.log`保留。账户旧231.794/1.396按已证0.040ms迁移，额外钉R1.576；真实keva-1旧构成式3.429另独立逐段核实：原20769行唤醒13762.974666→20816行切入13762.974768，共0.102ms；既有链窗从13762.974683起，仅补0.085ms，窗前0.017ms不计。R2.181→2.266、有效3.429→3.514，原running1.419/缺口1.247679843645及链资格/类型/来源不变。只迁移真实donghu正臂合式与cell两literal；历史说明、synthetic3.429、tieba8.049及构成/非全额负针原样保留。双快照`.../20260909-b1636-gatedcal-{baseline,current}.json`。
+- [x] 末版上述两个tool针、GatedCal族与B1637族一起count3通过20.234s；状态发布单针count3另绿5.268s。生产源码没有为旧针增改；最终完整tool重跑285.408s退出0，日志`.../20260909-b1636-b1637-final-tool-full.log`。另85包生产/测试未再修改且已全通过（agent76.571s、orchestrator28.553s、llm28.847s、hitraceconv148.428s、tracequery113.415s、tracediag12.829s、types46.103s）。最终86包覆盖已通过，不把首轮85包绿+2旧针红改写成一次全仓绿，不将r1049旧二进制当新代码live。
+
+本批生产仅5加2删。计量以真实观测为起点，既有链凭证/邻近背景隔离/两轴/IO与语义业务线索均保持；正常running不会因额外wake被重复计量，未知仍未知。没有请求/答案关键词硬门、没有模型JSON新增字段、没有系统代写正文/图/结论，active-stream策略不改。
+
+状态：`B1636=implemented/public-red-green/count3+race+86-package-final-coverage-green/independent-reviewed/delivered-with-this-commit/live-pending`；`old-pins=two-engine+two-tool/physical-source-audited/evolution-recorded/member-values-preserved`。
+
 ### §123.1719 r1049：等待尺注与候选显示生效；混合关系所有权合同漏域（2026-09-09）
 
 B1635a/b已以`99e399163`提交推送，clean binary `99e39916318a` built`2026-09-09T12:44:29Z`。243例按影响/覆盖老化/关系与上下文风险选H9单基准明确窗Trace、Java分层调用链读，严格exact2、各一次1200s，case/oracle/默认步数不改。机器2/2 PASS：Java148s、H9 361s；**人工Java fail，H9核心数值与范围正确、正文措辞和修订partial**。完整收账`eval/parallel_selected_summary_evalcampaign_h9_java_r1049_20260909{,_manual_audit}.md`；不改原机器表或客户答案。
@@ -57389,18 +57407,20 @@ B1635a/b已以`99e399163`提交推送，clean binary `99e39916318a` built`2026-0
 3. **B1637-STANDALONERELATIONOWNERDOMAIN1/P1确认**：Java教学允许混合关系声明，首稿hop-list已显式call_edge+guard_condition；`preCheckStandaloneCallChainRelationAnchorPresence`把principal三类资格集合误用于所有anchor的同块所有权检查，随后反报guard无声明，模型patch删锚。真实log3171/3237/3257/3338构成教学→正确声明→误拒→缩减链。独立图锚S→S却指向IllegalStateException确实不等价，不能把全部拒绝都归此gap。最小通用修向分离两个集合、沿既有relation→claim映射认全部同块显式声明；principal三类条件、方向/证据门不变，不系统删锚，不增JSON字段。公开Emit有效RED和修复定向已在施工留痕，最终全仓/独立审阅/提交另节收账。
 4. Java原代码只ArrayList.add与System.out.println，正文仍称持久化/落库，概念目标附注不能抵消正文矛盾。图六条主调用边保留但C→S写create而非schedule、只有容量Note没有失败分支或成功路径限定；实际仓库Mermaid引擎解析渲染绿SVG25330bytes不是语义绿。精准操作/命名边界已经入模，保人工fail，不能系统改结论或加prose关键词门。
 5. **Java机评假绿确认**：primary_answer原正则跨同段“未完成访问数…持久化…System.out.println”命中，“未”不是否认持久化。已以原scope/原case复验，不是引用/页脚污染。原PASS保留，不为单句改产品或oracle；后续通用语义验收能力另审，不能拿机评绿证明正确。
-6. H9首稿accepted，后续把普通wakeup impact作runtime_work_relation收据被正确拒绝，旧模型稿仍在；不是field_not_published，也未证JSON教学自冲突。正文“主因不在自身”与自身#3过强冲突、算力折算被讲成纯低频，精确信息已入模，保partial不拟合。**显示残余**：keva-1原running1.419在原JSON及MD467已在，MD250/277却称未发布，事实冲突已证、载体根因待追；MD470四份不同query收据重复同物理CPU0/4策略长句，占8条，来源人口不同不能放松authority去重。本案无第三CPU不能声称挤掉其它CPU；后续研究显示分组/保留逐query人口并钉3CPU公平cap，未施工。
+6. H9首稿accepted，后续把普通wakeup impact作runtime_work_relation收据被正确拒绝，旧模型稿仍在；不是field_not_published，也未证JSON教学自冲突。正文“主因不在自身”与自身#3过强冲突、算力折算被讲成纯低频，精确信息已入模，保partial不拟合。**显示残余**：keva-1整行running1.419在原JSON及MD467已在，MD250/277的折算分量原始值却未发布；**源码复核已纠正初版“事实冲突已证”判断，二者人口不能直接等同**，详见下段。MD470四份不同query收据重复同物理CPU0/4策略长句，占8条，来源人口不同不能放松authority去重。本案无第三CPU不能声称挤掉其它CPU；后续研究显示分组/保留逐query人口并钉3CPU公平cap，未施工。
+
+**§1719复核更正（保留初版38b464b18历史，不篡改旧工件）**：keva-1的RunningMS已经从query notes传入投影，未被交接丢弃；缺的是参与优先级折算子集的独立原始running载体。`rcr.go:1041`当前无该载体，只在完整供给折算/部分running主导回退有值；引擎`query.go:25796–25820`对完整节点和lower-priority证明子集分别计算，不能拿整行1.419直接填分量。r1049单条causal_impacts可审计确认running+runnable=proven_lower=3.60000000182481且gated R等于原R，故**本例**子集原值可复算1.4190000019880245，但没有推广读者端推算权限。反向running主导分支还有full原值配gated子集缺口的静态风险，现有engine测试已含总7ms/合格3ms，尚无实际发布反例，不称live错误。后续先复现，再由同一子集产点发布可选原值/存在性并按分量原sum/max聚合；部分覆盖、未知频率、缺失/零、异来源/窗、重叠及旧载体负矩阵必须齐全。未知不造零/不借全量/不跨query补值，原有效量/排序/完整供给面不改；本轮未实施，不以此挤占已确认B676/B1634d优先级。
 
 **任务队列**：
 
 - [x] B1635a/b clean binary exact2及真实日志/上下文/答案人工审计；原机评保留，本节与两份报告独立提交。
-- [ ] B1636 headless唤醒→首次上核后缀账户独立数值批。实际公开RED→GREEN、新矩阵及race已绿；完整tracequery两旧针差异已定位原物理区间：CookieMonster首R子窗新增0.716ms使候选12.128→12.844；Chrome_IOThread首R10.782ms恢复后原三CPU席按未改sum_disjoint合并19.303ms，使self_ruled7→6。须用逐成员/原running与折算不变针证明后才能迁移旧数值，不盲改golden求绿。
+- [x] B1636 headless唤醒→首次上核后缀账户独立数值批已于§1720完成。实际公开RED→GREEN、成员/裁剪来源针、count3/race/末版86包覆盖均绿；两engine与两tool旧数值已按原物理区间溯源迁移，历史说明和成员保留，不盲改golden求绿。新live仍待验。
 - [ ] B1637优先闭合同块关系所有权；实际Emit/Patch、14映射关系、缺/跨块声明/反向/缺证据、principal仅三类、Trace隔离和原稿字节保护，末版全仓与独立review后单独提交。
-- [ ] keva-1 raw-running次级显示载体及跨query频率长句分别继续根因审计；本节只登记已观察事实，不签已根修。B676、B1634d、B1634b/c、B1122、B1629b/B1626/B1622/B1561/B1616b及旧fork权限队列原样保留。
+- [ ] gated原始running子集载体/旧full原值回退风险与跨query频率长句分别继续公开入口验证；前者已纠正“整行数据丢失/事实冲突”初判，按上述范围根修，不签已实施。B676、B1634d、B1634b/c、B1122、B1629b/B1626/B1622/B1561/B1616b及旧fork权限队列原样保留。
 
 H9总361s并非单流>4分钟，最长单调用78.473s；本轮不夸大流式live证明。实际4ms/旧4m活跃SSE缩时工程针已绿；真实停滞、取消及显式deadline保留。没有系统代写正文/图/结论，没有请求/答案关键词硬门；Trace显式窗、投影、补齐及链上两轴/IO/语义/业务方向不动。
 
-状态：`r1049=machine2/2,human-Java-fail+H9-partial/audited`；`B1635a/b=99e399163/pushed/production-positive-r1049`；`B1636/B1637=implementation-under-final-verification/not-pushed`；`H9-secondary-raw-running/frequency-display=residual-open`。
+状态：`r1049=machine2/2,human-Java-fail+H9-partial/audited`；`B1635a/b=99e399163/pushed/production-positive-r1049`；`B1636=delivered/see-1720/live-pending`；`B1637=final-coverage-green/not-pushed`；`H9-gated-raw-domain/frequency-display=residual-open`。
 
 ### §123.1718 B1635a/b：等待统计范围与同核重叠候选的显示边界（2026-09-09）
 
@@ -57417,7 +57437,7 @@ H9总361s并非单流>4分钟，最长单调用78.473s；本轮不夸大流式li
 - [x] 首次 `go test ./... -count=1`：85 包绿，tool 仅 `TestElimSelfDegenerateWindowBoardCarriesSelfFamily` 因旧“可运行等待”子串认不出新候选名称失败（原 0.214ms 席仍在），日志 `.codrax/tmp/20260909-b1635-full-suite.log`。只将该分支的期望收窄到完整新候选名称，不放宽“目标自身 runnable 家族必须在榜”条件；末版该针 count3 2.068s、完整 tool 重跑 289.957s 退出0，日志 `...-b1635-presence-pin-count3.log`、`...-b1635-final-tool-suite.log`。其余85包对应生产代码/测试未再改。最终86包覆盖均已通过，不能把首轮执行改写成全绿；无hash盲重钉或生产降门。
 - [x] r1049 冻结新 clean binary 后 exact2：H9 显式窗单基准/混合状态 Trace + Java 分层调用链读。按 243 个 case 的影响、覆盖老化、关系表达及上下文风险选择；上一批已做真实 C 写，本批不冒称覆盖写模式证明残余。case/oracle/默认步数不动，1200s 各一次；人工审查日志、真实入模信息及最终回答已于§1719收账，机器2/2但Java人工fail、H9partial；B1635a/b均真实触发。
 
-**B1636-HEADLESSRUNNABLEFOURTHFACE1/P1 独立数值问题确认，未施工**：r1048 的 runnable 1.576 与状态账户 1.536 相差 0.040ms，来源为首个窗内 headless wakeup `13762.793064` 到首次切入 `13762.793104`。原 fixture 第 131/139 行（附着副本多一行前缀，索引行号不可混引）。另一席通过公开入口在 full/windowed 两索引独立复现：`ThreadTimeline` 与 `Run` 目标账户均 1.535999992ms，scheduler 完整 mean×count 与 stream 均 1.575999993ms；不得把 Top20 已发条目之和当成完整 41 段总量。最小旧 ThreeFaces 同形复现 timeline/Run=15ms、offCPU/churn/stream=35ms，旧缺头 unknown/partial_unknown 保留。日志 `.codrax/tmp/20260909-b1635-headless-timeline-diagnostic.log`。
+**B1636-HEADLESSRUNNABLEFOURTHFACE1/P1 当时确认，当前实现与验收见§1720**：r1048 的 runnable 1.576 与状态账户 1.536 相差 0.040ms，来源为首个窗内 headless wakeup `13762.793064` 到首次切入 `13762.793104`。原 fixture 第 131/139 行（附着副本多一行前缀，索引行号不可混引）。另一席通过公开入口在 full/windowed 两索引独立复现：`ThreadTimeline` 与 `Run` 目标账户均 1.535999992ms，scheduler 完整 mean×count 与 stream 均 1.575999993ms；不得把 Top20 已发条目之和当成完整 41 段总量。最小旧 ThreeFaces 同形复现 timeline/Run=15ms、offCPU/churn/stream=35ms，旧缺头 unknown/partial_unknown 保留。日志 `.codrax/tmp/20260909-b1635-headless-timeline-diagnostic.log`。
 
 原 `TestHeadlessWakeupRunnableParityAcrossThreeFaces` 等三针本轮仍绿：既裁已经允许精确唤醒后缀记 R，缺的是未纳入三面测试的第四消费者 `ThreadTimeline/TargetWindowStateAccount`，不是推翻裁定。下一独立数值批须覆盖 running 中普通 wakeup 不增 R、重复 wake 不重置起点、生命周期边界、行窗/full/windowed/stream 一致性；首次唤醒前的未知区间不填补。不与显示修复混批，不将本问题算成模型波动，也不以显示绿销账。
 

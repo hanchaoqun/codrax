@@ -178,7 +178,12 @@ func TestEvalcaseDHMP3MDistributionNewCombo(t *testing.T) {
 		}
 	}
 	want := map[string]int{
-		p3mDispositionSelfRuled: 7,
+		// B1636 evolution of the original seven-row census above: the
+		// witnessed 10.782ms headless R interval restores the CPU4 overlap
+		// basis. The unchanged family fold now combines CPU4/0/2 into one
+		// 19.303ms family instead of two rows (10.816 + 8.487); no member
+		// or other cause family is dropped. See the dedicated B1636 pin.
+		p3mDispositionSelfRuled: 6,
 		// B1260: ThreadPoolForeg-60559's D/IO-dominant dependency now keeps
 		// its exact scheduling sub-seat, carrying the same typed disposition
 		// as the underlying occurrence instead of disappearing at rank mint.
