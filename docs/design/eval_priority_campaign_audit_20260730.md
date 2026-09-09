@@ -57380,6 +57380,35 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1710 B1633a/b：目标频率供给与事实附注范围的分批方案（2026-09-09）
+
+以下为r1045生产见证后的只读设计，**未实施，不计修复完成**。不能因H4原JSON恰有CPU7行就从另一个TopN拼补，必须解决同类完整目标账户的交接。
+
+**批一，B1633b/P1附注域**：`prose_fact_juxtaposition.go`将各记录cpu/freq扁平并到freqByCPU，发射“窗内观测频点/无窗内记录”时未带捕获、查询、线程或状态域。r1045已有“其他线程频点却只标CPU”的生产见证；跨捕获/跨查询同CPU合账只有静态路径确认，必须独立实际入口红针。修向是保已有typed record完整来源、目标/状态及窗口口径，在事实附注中明确其归属，unknown保持未确认，不依据正文选出一个域当真值。保持既裁纯选择器→typed事实并置，不增加正文事实判断硬门，不替模型改结论或删其数字；没有同域观测不能推出整条Trace无频率。先核读取聚合→公共发布双語、同basename/同CPU/异目标异窗两序、旧unknown、计数/去重cap和模型正文不变。
+
+**批二，B1633a/P1完整目标CPU代表频率**：
+
+- [ ] 首红走真实Execute→ledger→两个成文入口：目标同时在全局Top8与每CPU Top2之外；原测量数值先断言正确，不能靠手工造missing记录冒充产品红。H4 CPU7/17267/1280000为生产补充见证。
+- [ ] 复用ComputeWindowStats在query.go已有pre-cap running map，不重扫trace、不加大Top8/Top2、不改变CPU/线程时长；保存私有只读census后，由buildTargetWindowStateAccount用已解析正TID+CPU+同一query账户附可选值。不能从comm、TGID、Interval（无freq）或全CPU末值推导；身份冲突、非法CPU、nil/旧stats仍unknown。
+- [ ] 该值是既有运行桶最近一次有正值的运行段起点频率样本，不是全程/加权/最大值/驻留。既有freqTimelineFor可能复用同簇donor；必须同resolver保donor CPU/来源或明确共频推定，不能伪称目标CPU原始采样。旧weighted/supply算法不动。
+- [ ] 沿已有target RunningByCPU文字/typed出口接线，保B1631 SourceRef/QueryScopeID/ObservedAt；两处成文join复用共享编译器。同源同query同subject同CPU才配，旧running_time兼容，同域异值保歧义。用专门口径载体，不把泛freq塞入旧全局附注再扩权。
+- [ ] 覆盖原raw JSON/文字/typed/双join一致，变化频率仍代表而非恒定；target不入两种TopN、同名异TID、跨代际、unknown CPU、无频率、频率taint、donor正反、同capture不同行query/异capture同basename两序。RunningMs/segments/坐标、原TopN、state/rank/projection、扫描次数与模型正文/图保持。
+
+每批先有效RED→最小实现→公开入口/独立审阅/影响包回归→提交推送，再轮换异构live（仍严格2路，含write，不连续只跑H4求绿）。B1624b纯导航谱系在此后接续；B1629b、B1626、B1622、B1616b/B1561不删。涉及新公开字段时必须显式处置序列化和tracediag pin，不盲重钉。两批不提升背景为链上根因，不改Trace两轴/业务线索或活跃流规则。
+
+### §123.1709 B1632：未确认覆盖不再被说成模型漏答（2026-09-09）
+
+r1045审计已先以`ee18e415f`独立提交推送。B1632只修改`repair_caveat_materializer.go`的两条中英文返回文案：系统尚未确认答案中哪些部分对应所列内容，**不表示正文缺少**；用户结合证据核对，只补真实缺口。最终词面避开“结构化覆盖”等内部术语。
+
+- [x] 真实`validateFacetCoverage → RenderAnswerDocument → AppendSoftContractCaveatsToAnswerForBus`先红后绿，证明已有正文关系/可选模型图仍可因未标facet触发附注，而附注不能由此宣告正文缺失。有效RED在`.codrax/tmp/20260909-b1632-caveat-red.log`；最初DiagramKind测试类型编译错误另留initial-compile日志，不计产品红。
+- [x] 3个新测试族/36子格：12已知facet双语、正反序重复去重、unknown/mixed/unclustered/other-root保持原family fallback；原文前缀、完整doc JSON及Mutable已接受文档不变，模型自行补FacetIDs仍按原判据消除附注。不修改旧测试、不扫正文、不自动加facet/图/证据，不改变义务、门级别、重试或cap。
+- [x] 最终冻结count3为0.975s，独立窄race2.122s；root更宽相关race count3为2.234s。影响包完整`go test ./internal/orchestrator ./internal/render/... ./internal/types -count=1`退出0，17.236/1.312/30.457s，日志`...-b1632-affected-packages.log`。两席独立只读review无阻断，`git diff --check`通过。
+- [x] 代码/回归/账本随本小批交付，`make`通过；交付前fetch确认main与origin/main同值。提交后clean build，新live随下一异构两路轮换，不把r1045旧答案重新渲染当新生产验证。
+
+本批仅2行生产变化+独立回归；B1631的86包全测属于前一冻结版本，不冒称B1632又跑全仓。Trace查询/测量/投影/自动补齐、链上两轴、D/IO/业务语义及活跃SSE行为均未改；真实停滞/取消/显式deadline保留，4ms或旧4m无最终正文不能降级仍活跃的流。B1633a/b尚未施工，见§1710。
+
+状态：`B1632=implemented/public-entry-red-green/affected-packages+race-green/independent-reviewed/delivered-with-this-commit/pending-new-live`；`B1633a/b=design-ready/not-implemented`；r1045旧产物不改写。
+
 ### §123.1708 r1045：来源隔离正证、目标频率交接残余与覆盖附注越界（2026-09-09）
 
 B1631已以`55d497b92`推送；clean binary built`2026-09-09T07:08:40Z`、revision`55d497b92196`。243case按风险/影响/覆盖老化选H4显式窗状态频率读与Python cooperative MRO读，严格两路，无第三路live；此前r1042/r1044已轮换真实write。完整机器/人工报告`eval/parallel_selected_summary_evalcampaign_h4_mro_r1045_20260909{,_manual_audit}.md`。机器H4 FAIL119s、Python PASS139s；人工两例均不能签整份通过，核心正向与残余分开，不改case/oracle求绿。
@@ -57392,8 +57421,8 @@ B1631已以`55d497b92`推送；clean binary built`2026-09-09T07:08:40Z`、revisi
 6. **B1632/P1附注权限越界确认**：validateFacetCoverage检查FacetIDs/ClaimUses.FacetID，未声明只证明结构归属未确认；附注却断言“答案未完整呈现…主路径上的关系”，与同轮提示矛盾。统一12类已知facet中英显示，保typed义务、混合unknown fallback、原正文/图与软门；公共入口红绿，不扫描prose、不自动加facet、不强制图。
 
 - [x] r1045两路实际过程、payload/成文、源码/原生行为审计，不把机器1/2当质量全过。
-- [ ] B1632优先小批显示边界修复、双语/入口/所有权测试、独立复核后提交推送（施工中）。
-- [ ] B1633a/b供给与显示域分别冻结泛化方案，再分批施工；不重复H4求绿。
+- [x] B1632小批显示边界修复、双语/入口/所有权测试与独立复核完成，随§1709小批提交；新live待轮换。
+- [x] B1633a/b供给与显示域分别冻结泛化方案，见§1710；实现尚未开始，不重复H4求绿。
 - [ ] B1624b纯导航谱系及B1629b/B1626/B1622/B1616b/B1561保原队列，模型MRO/迁移表述保观察。
 
 两路SSE正常但不足4m，不能当超过4m实测；B1631实际HTTP/SSE与agent专项count3已保4ms/旧4m无最终正文不降级，停滞/取消/显式deadline有效。本收账不改模型答案/关系/结论、Trace测量/链上两轴、显式窗、投影/补齐或原文关键词门。

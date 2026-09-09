@@ -164,9 +164,9 @@ func materializeAnswerFacetCoverageCaveat(violations []types.Violation, useChine
 		return ""
 	}
 	if useChinese {
-		return "答案未完整呈现这些已要求的内容：" + strings.Join(labels, "、") + "。只需针对这些位置补齐或结合对应源码证据核对；其他已覆盖内容不因此整体降级。"
+		return "系统尚未确认答案中哪些部分对应以下内容：" + strings.Join(labels, "、") + "。这不表示正文缺少这些内容；请结合相应证据核对，仅补齐确有缺失的部分。其他已覆盖内容不因此整体降级。"
 	}
-	return "The answer did not fully present these requested elements: " + strings.Join(labels, ", ") + ". Complete or verify only these locations against their source evidence; other covered content is not globally downgraded."
+	return "The system has not confirmed which parts of the answer address: " + strings.Join(labels, ", ") + ". This does not mean the answer lacks these elements; check them against the relevant evidence and complete only actual gaps. Other covered content is not globally downgraded."
 }
 
 func answerFacetCoverageCaveatLabel(facet types.AnswerFacetKind, useChinese bool) string {
