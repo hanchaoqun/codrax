@@ -57380,6 +57380,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1702 r1043 异构回放与 B1629/B1630 精确信息边界（2026-09-08）
+
+B1620 已提交推送 `20507fcde`（24文件，主要为泛化回归）；clean build=2026-09-09T02:10:48Z，revision20507fcdeb1b。此前86包完整全测、独立race及活跃流专项通过记录见§1701。端口22连接关闭后，仅本次git命令使用已有github.com主机信任经SSH443推送；未改用户连接配置或降低host-key验证。
+
+当前243case（215read、25apply、3plan），按客户影响/证据权限/覆盖老化选 Java Handler实现+注解路径，与H4精确窗四态+供给，严格并行2。上批r1042是仓颉读+原生Python写。本次runner73/122s、内部71/120s，context28%/38%，机器0/2，人工两例partial；完整报告 `eval/parallel_selected_summary_evalcampaign_java_h4_r1043_20260908{,_manual_audit}.md`。未修改case/oracle/fixture/历史输出，没有第三路live。
+
+- **Java**：三组实现/路径全对；机器逐行filename要求未满足，不是核心映射漏答。但模型首次payload自带重复表和String.length字节长度误述，class-only引用不单独证明注解属性，不能签整份答案绿。B1620实际上下文已分离ModelNotes及NoteParts来源/支持上限，未再强制所有notes出厂，故错误prose保模型波动，不靠系统替换正文。唯一修补是模型选未发布add_facet_id；当前schema/条件教学已有合法full replace出口，不是无解合同，保P2低负担恢复观察。
+- **H4**：233.190ms窗内157.248 Running/5.604 Runnable/70.338 S/0 D，8CPU目标账完整；policy存在不等于目标影响已证，旁路JSON已生成empty/unavailable/trace_root_cause_contract_not_active。本题finite fact不强加完整因果投影。机器两条措辞regex假阴性保原FAIL；“两个CPU均有运行（CPU0无记录）”是模型在已知完整roster后自相矛盾，保波动，不新增正文关键词硬门。至少4/4.384ms IO闭合等待属于S和容量下界；附录scheduler等待0不等于所有层级IO0。
+
+本次确定性新问题按范围分批，不借好答案掩盖坏上下文：
+
+| 工单 | 证据与性质 | 通用修向/状态 |
+|---|---|---|
+| B1629/P1 证据范围重定位 | Java ledger 8–7/14–13/10–9；GroundItem只改LineStart、保旧LineEnd | 按实际scope和单点定位凭证保持区间一致；不扩大范围伪造注解支持。独立小批施工，先RED再泛化正负针。 |
+| B1630a/P1 CPU身份卡窗域 | H4同卡混列CPU12主窗96.081与子窗94.933且没有窗口，另一卡却正确分窗 | typed capture/query/window完整分组，未知显式，不选大值/删探索。仅上下文出口。 |
+| B1630b/P1 等待覆盖枚举域 | blocking lower_bound_capacity_truncated传StateCoverageWord变unknown，丢“至少” | 本域reader保容量下界和精确窗，不扩通用state enum、不改计时。与a同文件不同函数协调施工。 |
+| B1630c/P2 limits总行数/极值 | CPU4 count28包含2.27/2.10各14；aggregator只留最严格row，evidence Summary却称此min/max appeared28times，入模卡再并置 | 确认为系统代表值/次数错述，不只是模型省略。后续分离总记录数与最严格观测row；各档次数须源数据统计，不能从现聚合猜造。本次留档，未改频率计算。 |
+
+优先闭合B1629，再交付B1630a/b；有效首红、入口回归、影响包/全仓测试、独立审计各自留痕后提交推送。B1620-P2b超长候选提示预算、B1624b派生来源导航、B1626多请求成员窗、B1622 D物理次数与统计分组、B1616b/B1561写验证继承债仍在队列。不存在用本批0/2简单判所有功能退化或通过改oracle虚构2/2。
+
+状态：`B1620=20507fcde/pushed/86-packages-green/live-candidate-boundary-positive`；`r1043=machine0/2/human-partial2/2/audited`；`B1629+B1630a/b=in-progress/not-delivered`；`B1630c=open`。模型解释/结论/图所有权、JSON条件教学、Trace精确窗/链上两轴/补齐/D与各层IO/业务线索不变；背景不升根因。活跃SSE不以4ms或旧4m没有最终正文降级；本次live最长被核调用32.952s不作4分钟证明，既有真实停滞/取消/显式deadline仍保留。
+
 ### §123.1701 B1620 字段级说明来源与系统补充边界（2026-09-08）
 
 基线 `main=a23198885`，已 fetch，远端同值、工作区清洁。r1042 的好答案不作为上下文销账依据：仓颉日志1205的模型note误称独立extend在Cart类体内；2158/2285将它挂在已证声明权限下，2262要求每条非空note出厂又与2270–2272的仅name/location/package教学冲突。以这类“成员坐标正确≠说明整句已证”为修复对象，不识别该错误词句或拟合仓颉。
