@@ -57380,6 +57380,26 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1708 r1045：来源隔离正证、目标频率交接残余与覆盖附注越界（2026-09-09）
+
+B1631已以`55d497b92`推送；clean binary built`2026-09-09T07:08:40Z`、revision`55d497b92196`。243case按风险/影响/覆盖老化选H4显式窗状态频率读与Python cooperative MRO读，严格两路，无第三路live；此前r1042/r1044已轮换真实write。完整机器/人工报告`eval/parallel_selected_summary_evalcampaign_h4_mro_r1045_20260909{,_manual_audit}.md`。机器H4 FAIL119s、Python PASS139s；人工两例均不能签整份通过，核心正向与残余分开，不改case/oracle求绿。
+
+1. H4保233.190ms窗、157.248/5.604/70.338/0.000ms四态及8CPU账。B1630c总记录16/28与代表tuple区别入模，正文未复述计数，只计上下文正证。B1631双成文面同结果配对生效，CPU4 max2100000不冒充目标绑定，CPU12等不借CPU0/4。机器边界措辞regex未匹配，人工确认已有边界，保原FAIL。单查询不冒充跨源live，跨源有实际Execute→双成文红绿针。
+2. **B1633a/P1目标频率交接确认**：全线程top_running仅目标CPU12/4入榜，CPU7目标11.030ms来自完整running_by_cpu；原JSON cpu_occupancy.per_cpu_top已有17267/CPU7/1280000kHz，formatter与typed出口未带出。B1631未删已发布目标桶。per_cpu_top自身仍TopN；后续复用目标域完整已有聚合，保来源和桶代表口径，不升全程频率、驻留或策略效果。
+3. **B1633b/P1附注频点域确认**：系统CPU7的558/640/1380MHz来自其他线程状态桶，附注只写CPU。应保来源/线程域，不能借给17267，也不能用该旁证修复a；两项分开设计验收。
+4. H4模型由8核推频繁迁移、将桶缺频率扩大成无频率记录、混合D/IO标签并泄漏unproven；已有迁移/范围教学，过称不靠prose硬门纠正。Binder5次3.094ms均同目标s_sleep，计入Sleep有凭证。add_facet_id未发布被拒，当前条件教学有完整replace_blocks出口，非已证自冲突。有限事实题不强套根因；131B空旁路带unavailable/trace_root_cause_contract_not_active。
+5. Python handle顺序正确，完整MRO漏ABC；BasePlugin(abc.ABC)已入模，首稿即错。native只读复算六层MRO及两次浅复制、原输入不变。无图且未要求图；成文零拒绝，只补member_set成功，正文引用不变。B1620 notes/advisory边界正向。
+6. **B1632/P1附注权限越界确认**：validateFacetCoverage检查FacetIDs/ClaimUses.FacetID，未声明只证明结构归属未确认；附注却断言“答案未完整呈现…主路径上的关系”，与同轮提示矛盾。统一12类已知facet中英显示，保typed义务、混合unknown fallback、原正文/图与软门；公共入口红绿，不扫描prose、不自动加facet、不强制图。
+
+- [x] r1045两路实际过程、payload/成文、源码/原生行为审计，不把机器1/2当质量全过。
+- [ ] B1632优先小批显示边界修复、双语/入口/所有权测试、独立复核后提交推送（施工中）。
+- [ ] B1633a/b供给与显示域分别冻结泛化方案，再分批施工；不重复H4求绿。
+- [ ] B1624b纯导航谱系及B1629b/B1626/B1622/B1616b/B1561保原队列，模型MRO/迁移表述保观察。
+
+两路SSE正常但不足4m，不能当超过4m实测；B1631实际HTTP/SSE与agent专项count3已保4ms/旧4m无最终正文不降级，停滞/取消/显式deadline有效。本收账不改模型答案/关系/结论、Trace测量/链上两轴、显式窗、投影/补齐或原文关键词门。
+
+状态：`B1631=55d497b92/pushed/86-packages-green/single-query-live-positive/multi-source-entry-red-green`；`r1045=machine1/2/human-not-fully-passed-2/2`；`B1632=confirmed/implementing`；`B1633a/b=confirmed/designing`；其他队列open。
+
 ### §123.1707 B1631：频率策略与目标 CPU 的结果来源隔离（2026-09-09）
 
 起点`main=7d3e0b423`，fetch确认远端同值，没有需要覆盖的本地修改。B1631由静态待证升级为**真实入口已复现P1**：两个不同目录同名捕获，以及同一捕获/同窗的两组不同行过滤查询，分别真实Execute→Dispatch→ledger→BuildInitialInstruction。原查询数值、CPU及行坐标正确，两个成文关联出口却都把后一个结果的运行时长配到前一个结果的策略；反序后错误随之反转。有效红日志`.codrax/tmp/20260908-b1631-real-entry-both-joins-red.log`（四格、双出口）；tool source缺失红日志`.../20260909-b1631-tool-source-red.log`。不是以手工错造数据替代生产复现。
@@ -57390,7 +57410,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - [x] 来源共享类型/匹配/去重/防指针别名单测；QueryScopeID是内部输出元数据，不增模型必填schema。
 - [x] 全部真实query成功出口、自动子窗、三处去重、双成文入口和系统policy附注接线，旧正向fixture补明确同结果来源，不弱化原值/绑定边界。
 - [x] JSON、memo/dispatch/TurnA/fork/merge/reset、只读消费不变性；三席独立交叉review无剩余阻断。types/tracediag完整包通过30.947s/5.769s；最终冻结版本全仓86包通过，完整首轮红与复验记录见下。
-- [ ] 小批提交推送、clean build后r1045严格两路：H4显式窗频率/状态读（直接验证B1630c与本批），Python cooperative MRO读（距r1037八批、异构关系/顺序/业务说明）。刚完成r1042 Python写及r1044 C++写，本批不重复C++同题求绿；后续仍轮换真实apply/verify。case/oracle/fixture不改。
+- [x] 已提交推送`55d497b92`、clean build后r1045严格两路：H4显式窗频率/状态读与Python cooperative MRO读；结果见§1708。刚完成r1042 Python写及r1044 C++写，后续仍轮换真实apply/verify。case/oracle/fixture不改。
 
 数值聚合、代表tuple选择、排名/折算、因果权限、原模型正文/图均不改；Trace精确窗、投影/补齐及链上两轴保留。bundle整体捕获身份不改成代表行child身份，WitnessLine沿用原虚拟行口径；本批不冒充新增物理子文件/本地行展示已交付。其他开放项B1624b纯导航谱系、B1629b范围、B1626多请求成员窗、B1622次数/分组、B1616b/B1561验证证明继续在账。
 
