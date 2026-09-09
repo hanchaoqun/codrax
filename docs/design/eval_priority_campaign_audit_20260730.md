@@ -57380,6 +57380,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1711 B1633b：频率事实附注按来源和线程独立展示（2026-09-09）
+
+起点 `89a50234e`，fetch确认远端同值。旧附注把不同捕获/查询/线程/状态桶的频率按CPU扁平合并；r1045中CPU7的其他线程558/640/1380MHz并非目标17267的频率证据。本批只修附注归属，不改模型正文、值、图、结论，也不改请求/正文选择器或门。
+
+- [x] 原记录完整来源及查询身份参与去重，未知不借域；正频率保各自线程、测量口径、捕获/查询结果、查询时间窗及记录坐标。旧正值优先、每CPU最多4记录、最多3CPU、整体8finding容量不扩；省略明示，不按数值相近合并。
+- [x] 口径明确为各记录附带的代表频率，不是CPU原始采样、整窗恒定、驻留或限频效果；当前证据无可列值不扩大成整条Trace无频率。已知测量类型用双语读者名称，unknown不泄漏内部枚举。
+- [x] 独立矩阵有效RED `.../20260909-b1633b-scope-red.log`；真实 `TraceQuery.Execute→Dispatch→ledger→attachSystemCrossCheckAppendix` 同basename异捕获、同/异目标、双序双语也复现旧扁平显示，日志 `...-actual-entry-red-final.log`。该轮同时暴露测试误要求整个FinalAnswer字节不变（附注必然改变最终串），已纠正为原模型render保留、存储doc完整JSON不变；纠正后日志 `...-actual-entry-red-ownership-verified.log` 实际为GREEN，不冒称第二个有效RED。更早fixture选择summary空桶/触发前提失败不计产品红。
+- [x] 新旧族count3通过1.249s，窄race通过2.369s，实际入口通过0.873s；双席独立只读review无阻断，diffcheck通过。B1633a并行施工尚未收批，最终全仓测试将在其冻结后另记，不冒称本批已全仓绿。
+- [x] 代码、回归和本节单独提交推送；不修改r1045旧报告求绿。下一轮仍exact2异构live，含真实write，不连续只刷H4。
+
+状态：`B1633b=implemented/actual-entry-red-green/focused+race-green/independent-reviewed/delivered-with-this-commit/pending-live`；`B1633a=implementing`。Trace链上两轴、显式窗、投影/补齐、原数值与模型所有权不变；活跃SSE不能因4ms或旧4m无最终正文降级，真实停滞/取消/显式deadline保留。其余开放队列沿§1710不删。
+
 ### §123.1710 B1633a/b：目标频率供给与事实附注范围的分批方案（2026-09-09）
 
 以下为r1045生产见证后的只读设计，**未实施，不计修复完成**。不能因H4原JSON恰有CPU7行就从另一个TopN拼补，必须解决同类完整目标账户的交接。

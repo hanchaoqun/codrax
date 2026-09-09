@@ -42,8 +42,8 @@ import (
 //     carries the thread's typed 内核调用点=dma_fence_default_w(12条记录);
 //   - F-CR3-1: prose mentions ZeusThreadPo-61841 → fact line carries typed
 //     锁角色=等待侧(锁主 tid=62020);
-//   - F-CR3-2: prose mentions CPU0 + a frequency token → fact line carries
-//     「CPU0:窗内 typed 频点=无观测记录」;
+//   - F-CR3-2: prose mentions a CPU + a frequency token → scoped records
+//     retain their own source/thread/query and representative-frequency ruler;
 //   - SMR-1 P0: prose mentions the target thread → fact line carries the
 //     full four-state account (running 157.248ms …);
 //   - ghost seats (56249/91951/73346): prose mentions app-9511 /
@@ -248,7 +248,7 @@ func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *t
 			types.CompileTraceCausalProjectionSet(ledger),
 		)
 	}
-	facts, freqByCPU, freqSeen := buildProseFactEvidence(ledger)
+	facts := buildProseFactEvidence(ledger)
 	prose := collectModelProseUnits(doc)
 	wakeupTargetCPUIntegrity := types.BuildTraceWakeupTargetCPUIntegrity(ledger)
 
@@ -310,39 +310,18 @@ func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *t
 		}
 	}
 
-	// ── per-CPU frequency facts (cpu token + any frequency token) ───────
-	if len(freqSeen) > 0 {
-		for _, cpuID := range proseFactPresentCPUs(prose) {
-			points := freqByCPU[cpuID]
-			if len(points) == 0 {
-				add(proseScalarBindingFinding{
-					entry:   fmt.Sprintf("Evidence reference: CPU%d has no in-window frequency observation in this report's evidence", cpuID),
-					entryZH: fmt.Sprintf("事实对照：CPU%d 在本报告证据面无窗内频率观测记录", cpuID),
-				})
-				continue
-			}
-			add(proseScalarBindingFinding{
-				entry:   fmt.Sprintf("Evidence reference: CPU%d observed in-window frequency point(s) = %s", cpuID, proseFactFreqListLabel(points)),
-				entryZH: fmt.Sprintf("事实对照：CPU%d 窗内观测频点=%s", cpuID, proseFactFreqListLabel(points)),
-			})
-		}
+	// CPU tokens select a bounded set, never a thread/query binding. Each
+	// frequency row carries its own measurement scope instead of a CPU union.
+	for _, finding := range proseFactFrequencyScopeFindings(ledger, prose) {
+		add(finding)
 	}
 	return out
 }
 
-// buildProseFactEvidence assembles per-thread typed fact bundles plus the
-// per-CPU frequency inventory from the observation ledger.
-//
-// F-A11 design note (落档): the frequency inventory admits every freq= note
-// the accepted ledger carries; per-note WINDOW filtering is not possible
-// today because the notes carry no timestamps — the records themselves are
-// window-scoped by the run's queries, so the inventory is "this run's
-// evidence face", not "all time". A per-note ts would need an engine-side
-// emission change (future candidate).
-func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFactThreadFacts, map[int][]float64, map[int]bool) {
+// buildProseFactEvidence assembles the existing per-thread typed fact bundles.
+// Frequency records have a separate source-preserving display collector.
+func buildProseFactEvidence(ledger types.ObservationLedger) map[string]*proseFactThreadFacts {
 	facts := map[string]*proseFactThreadFacts{}
-	freqByCPU := map[int][]float64{}
-	freqSeen := map[int]bool{}
 	get := func(subject string) *proseFactThreadFacts {
 		tid := proseWallClockSubjectTID(subject)
 		if tid == "" {
@@ -479,13 +458,6 @@ func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFa
 		if tgid := strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyTGID)); tgid != "" && f.tgid == "" {
 			f.tgid = tgid
 		}
-		// per-CPU frequency inventory.
-		if cpuID, ok := proseFactNoteInt(notes, "cpu"); ok {
-			freqSeen[cpuID] = true
-			if khz, ok := proseFactNoteFloat(notes, "freq"); ok && khz > 0 {
-				freqByCPU[cpuID] = append(freqByCPU[cpuID], khz)
-			}
-		}
 	}
 	for i := range facts {
 		facts[i].boardExists = boardExists
@@ -498,7 +470,7 @@ func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFa
 			f.account = &acc
 		}
 	}
-	return facts, freqByCPU, freqSeen
+	return facts
 }
 
 // proseFactNameIndex maps evidence thread NAME parts to their tids (with the
@@ -1275,34 +1247,4 @@ func proseFactNoteFloat(notes []string, key string) (float64, bool) {
 		return 0, false
 	}
 	return f, true
-}
-
-func proseFactFreqListLabel(points []float64) string {
-	var distinct []float64
-	for _, p := range points {
-		dup := false
-		for _, have := range distinct {
-			d := have - p
-			if d < 0 {
-				d = -d
-			}
-			if d <= 500 {
-				dup = true
-				break
-			}
-		}
-		if !dup {
-			distinct = append(distinct, p)
-		}
-	}
-	sort.Float64s(distinct)
-	var parts []string
-	for i, p := range distinct {
-		if i >= 4 {
-			parts = append(parts, fmt.Sprintf("(+%d)", len(distinct)-i))
-			break
-		}
-		parts = append(parts, fmt.Sprintf("%.0fMHz", p/1e3))
-	}
-	return strings.Join(parts, "/")
 }

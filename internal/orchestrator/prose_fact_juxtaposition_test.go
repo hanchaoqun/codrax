@@ -146,9 +146,8 @@ func TestCR4Fact_LockRoleLine(t *testing.T) {
 }
 
 // TestCR4Fact_CPUFrequencyLines — F-CR3-2 witness + C-3 k=v word form: the
-// prose names CPU0 with a frequency token; the fact line states CPU0 has no
-// in-window typed frequency observation, and a real-point CPU renders its
-// typed points.
+// prose names CPU0 with a frequency token; missing report evidence is not
+// trace-wide absence. CPU3 retains each thread's own representative value.
 func TestCR4Fact_CPUFrequencyLines(t *testing.T) {
 	mut := psgTraceMutable(cr4FactRecords()...)
 	bus := psgBus(mut)
@@ -165,11 +164,22 @@ func TestCR4Fact_CPUFrequencyLines(t *testing.T) {
 			cpu3 = zh
 		}
 	}
-	if !strings.Contains(cpu0, "无窗内频率观测记录") {
+	if !strings.Contains(cpu0, "当前证据未提供可列出的该 CPU 频率记录") || !strings.Contains(cpu0, "不表示整条 Trace 没有频率数据") {
 		t.Fatalf("CPU0's absent-observation fact must render, got %+v", facts)
 	}
 	if !strings.Contains(cpu3, "807MHz") || !strings.Contains(cpu3, "2189MHz") {
 		t.Fatalf("CPU3's typed points must render: %q (%+v)", cpu3, facts)
+	}
+	for _, pair := range [][2]string{{"807MHz", "NetworkService-60595"}, {"2189MHz", "CookieMonsterCl-59843"}} {
+		found := false
+		for _, line := range strings.Split(cpu3, "\n") {
+			if strings.Contains(line, pair[0]) && strings.Contains(line, pair[1]) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("frequency must stay on its source thread's row: pair=%v facts=%s", pair, cpu3)
+		}
 	}
 
 	// C-3 word form: the bare k=v spelling (「CPU0(freq=1090000 kHz)」) also
@@ -178,7 +188,7 @@ func TestCR4Fact_CPUFrequencyLines(t *testing.T) {
 	doc2 := psgProseDoc("主线程在 CPU0(freq=1090000 kHz) 上等待调度。")
 	found := false
 	for _, f := range proseFactJuxtapositionFindings(doc2, psgBus(mut2), mut2) {
-		if strings.Contains(f.userReadable("zh"), "CPU0") && strings.Contains(f.userReadable("zh"), "无窗内频率观测记录") {
+		if strings.Contains(f.userReadable("zh"), "CPU0") && strings.Contains(f.userReadable("zh"), "当前证据未提供可列出的该 CPU 频率记录") {
 			found = true
 		}
 	}
