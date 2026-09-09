@@ -57380,6 +57380,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1719 r1049：等待尺注与候选显示生效；混合关系所有权合同漏域（2026-09-09）
+
+B1635a/b已以`99e399163`提交推送，clean binary `99e39916318a` built`2026-09-09T12:44:29Z`。243例按影响/覆盖老化/关系与上下文风险选H9单基准明确窗Trace、Java分层调用链读，严格exact2、各一次1200s，case/oracle/默认步数不改。机器2/2 PASS：Java148s、H9 361s；**人工Java fail，H9核心数值与范围正确、正文措辞和修订partial**。完整收账`eval/parallel_selected_summary_evalcampaign_h9_java_r1049_20260909{,_manual_audit}.md`；不改原机器表或客户答案。
+
+1. **B1635a/b获live正证**：H9 MD95–97等待范围注只限定163.223分母及120.553/74%、42.670/26%，未纳入58.358保留，不冒称全窗完整；MD185–187/415同CPU候选0.084/0.035发完整候选词，keva依赖链候选仍原独立类。主数值17267的143.499−91.764347＝51.734653、keva-3的1.023＋2.286041＝3.309041，单基准与两轴保留。
+2. 明确233.190ms窗/目标17597在三次模型query及一次系统frame bundle补采均不变；1份因果投影、链上IO及业务语义线索在，邻近/背景不获根因资格。默认侧车available5项是模型所选，不是13席完整榜。账户230.969/未归账2.221属于旧二进制，不签B1636 live；本轮不含尚在施工的B1636/B1637。
+3. **B1637-STANDALONERELATIONOWNERDOMAIN1/P1确认**：Java教学允许混合关系声明，首稿hop-list已显式call_edge+guard_condition；`preCheckStandaloneCallChainRelationAnchorPresence`把principal三类资格集合误用于所有anchor的同块所有权检查，随后反报guard无声明，模型patch删锚。真实log3171/3237/3257/3338构成教学→正确声明→误拒→缩减链。独立图锚S→S却指向IllegalStateException确实不等价，不能把全部拒绝都归此gap。最小通用修向分离两个集合、沿既有relation→claim映射认全部同块显式声明；principal三类条件、方向/证据门不变，不系统删锚，不增JSON字段。公开Emit有效RED和修复定向已在施工留痕，最终全仓/独立审阅/提交另节收账。
+4. Java原代码只ArrayList.add与System.out.println，正文仍称持久化/落库，概念目标附注不能抵消正文矛盾。图六条主调用边保留但C→S写create而非schedule、只有容量Note没有失败分支或成功路径限定；实际仓库Mermaid引擎解析渲染绿SVG25330bytes不是语义绿。精准操作/命名边界已经入模，保人工fail，不能系统改结论或加prose关键词门。
+5. **Java机评假绿确认**：primary_answer原正则跨同段“未完成访问数…持久化…System.out.println”命中，“未”不是否认持久化。已以原scope/原case复验，不是引用/页脚污染。原PASS保留，不为单句改产品或oracle；后续通用语义验收能力另审，不能拿机评绿证明正确。
+6. H9首稿accepted，后续把普通wakeup impact作runtime_work_relation收据被正确拒绝，旧模型稿仍在；不是field_not_published，也未证JSON教学自冲突。正文“主因不在自身”与自身#3过强冲突、算力折算被讲成纯低频，精确信息已入模，保partial不拟合。**显示残余**：keva-1原running1.419在原JSON及MD467已在，MD250/277却称未发布，事实冲突已证、载体根因待追；MD470四份不同query收据重复同物理CPU0/4策略长句，占8条，来源人口不同不能放松authority去重。本案无第三CPU不能声称挤掉其它CPU；后续研究显示分组/保留逐query人口并钉3CPU公平cap，未施工。
+
+**任务队列**：
+
+- [x] B1635a/b clean binary exact2及真实日志/上下文/答案人工审计；原机评保留，本节与两份报告独立提交。
+- [ ] B1636 headless唤醒→首次上核后缀账户独立数值批。实际公开RED→GREEN、新矩阵及race已绿；完整tracequery两旧针差异已定位原物理区间：CookieMonster首R子窗新增0.716ms使候选12.128→12.844；Chrome_IOThread首R10.782ms恢复后原三CPU席按未改sum_disjoint合并19.303ms，使self_ruled7→6。须用逐成员/原running与折算不变针证明后才能迁移旧数值，不盲改golden求绿。
+- [ ] B1637优先闭合同块关系所有权；实际Emit/Patch、14映射关系、缺/跨块声明/反向/缺证据、principal仅三类、Trace隔离和原稿字节保护，末版全仓与独立review后单独提交。
+- [ ] keva-1 raw-running次级显示载体及跨query频率长句分别继续根因审计；本节只登记已观察事实，不签已根修。B676、B1634d、B1634b/c、B1122、B1629b/B1626/B1622/B1561/B1616b及旧fork权限队列原样保留。
+
+H9总361s并非单流>4分钟，最长单调用78.473s；本轮不夸大流式live证明。实际4ms/旧4m活跃SSE缩时工程针已绿；真实停滞、取消及显式deadline保留。没有系统代写正文/图/结论，没有请求/答案关键词硬门；Trace显式窗、投影、补齐及链上两轴/IO/语义/业务方向不动。
+
+状态：`r1049=machine2/2,human-Java-fail+H9-partial/audited`；`B1635a/b=99e399163/pushed/production-positive-r1049`；`B1636/B1637=implementation-under-final-verification/not-pushed`；`H9-secondary-raw-running/frequency-display=residual-open`。
+
 ### §123.1718 B1635a/b：等待统计范围与同核重叠候选的显示边界（2026-09-09）
 
 基线 `be65d76ac`，本轮重新 fetch 后与 origin/main 0/0。接续 r1048 已证实的两项显示缺口；不把本次显示修复扩为数值、排名、来源资格或模型结论修改。
@@ -57393,7 +57415,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - [x] B1635b 主显示及旧 A5/PTV6C/D/宽度/链背景/agent supplement count3：tool22.353s、agent2.149s；窄 race tool2.924s、agent3.623s。实际 4ms/活跃 hidden reasoning、toolcall、可见增量、keepalive、真实停滞、逐 leg 取消/deadline 与 agent预算专项 count3：llm29.352s、agent1.164s 绿；不是持续4分钟客户 live，不夸大验收。
 - [x] 末版真实附注、旧 HeadlineElim（含退役接线针）与 TypedReconciliation count3 1.113s、窄 race2.352s 绿；另一席最终只读审阅无阻断。未知/空/其它 known token 各自原回退逐字保留。
 - [x] 首次 `go test ./... -count=1`：85 包绿，tool 仅 `TestElimSelfDegenerateWindowBoardCarriesSelfFamily` 因旧“可运行等待”子串认不出新候选名称失败（原 0.214ms 席仍在），日志 `.codrax/tmp/20260909-b1635-full-suite.log`。只将该分支的期望收窄到完整新候选名称，不放宽“目标自身 runnable 家族必须在榜”条件；末版该针 count3 2.068s、完整 tool 重跑 289.957s 退出0，日志 `...-b1635-presence-pin-count3.log`、`...-b1635-final-tool-suite.log`。其余85包对应生产代码/测试未再改。最终86包覆盖均已通过，不能把首轮执行改写成全绿；无hash盲重钉或生产降门。
-- [ ] r1049 冻结新 clean binary 后 exact2：H9 显式窗单基准/混合状态 Trace + Java 分层调用链读。按 243 个 case 的影响、覆盖老化、关系表达及上下文风险选择；上一批已做真实 C 写，本批不冒称覆盖写模式证明残余。case/oracle/默认步数不动，1200s 各一次；人工审查日志、真实入模信息及最终回答后另节收账。
+- [x] r1049 冻结新 clean binary 后 exact2：H9 显式窗单基准/混合状态 Trace + Java 分层调用链读。按 243 个 case 的影响、覆盖老化、关系表达及上下文风险选择；上一批已做真实 C 写，本批不冒称覆盖写模式证明残余。case/oracle/默认步数不动，1200s 各一次；人工审查日志、真实入模信息及最终回答已于§1719收账，机器2/2但Java人工fail、H9partial；B1635a/b均真实触发。
 
 **B1636-HEADLESSRUNNABLEFOURTHFACE1/P1 独立数值问题确认，未施工**：r1048 的 runnable 1.576 与状态账户 1.536 相差 0.040ms，来源为首个窗内 headless wakeup `13762.793064` 到首次切入 `13762.793104`。原 fixture 第 131/139 行（附着副本多一行前缀，索引行号不可混引）。另一席通过公开入口在 full/windowed 两索引独立复现：`ThreadTimeline` 与 `Run` 目标账户均 1.535999992ms，scheduler 完整 mean×count 与 stream 均 1.575999993ms；不得把 Top20 已发条目之和当成完整 41 段总量。最小旧 ThreeFaces 同形复现 timeline/Run=15ms、offCPU/churn/stream=35ms，旧缺头 unknown/partial_unknown 保留。日志 `.codrax/tmp/20260909-b1635-headless-timeline-diagnostic.log`。
 
@@ -57401,7 +57423,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 其余顺序保留：B676 proof-only 生命周期、B1634d 精确配置值交接优先；B1634b 图关系标签、B1634c 已应用计划 oracle 域、B1122 Make 失败上下文，以及 B1629b/B1626/B1622/B1561/B1616b 和旧 fork 权限可达性均未关闭。无新模型 JSON 必填字段、无关键词硬门、无系统代写图/正文/结论。Trace 链上两轴、IO/语义/业务线索、显式窗、因果投影及自动补齐保持；活跃连接不能仅因 4ms 或旧 4m 没有最终正文而降级，真实停滞/取消/调用方 deadline 保留。
 
-状态：`B1635a=implemented/public-red-green/count3+race-green/reviewed`；`B1635b=implemented/shared-candidate-display+EN-outlets/reviewed`；`final-verification=85-unchanged-packages-pass+final-full-tool-pass/commit-ready/live-pending`；`B1636=confirmed/P1/public-witness/design-ready/not-implemented`。
+状态：`B1635a=99e399163/pushed/public-red-green/count3+race-green/reviewed/live-positive-r1049`；`B1635b=99e399163/pushed/shared-candidate-display+EN-outlets/reviewed/live-positive-r1049`；`final-verification=85-unchanged-packages-pass+final-full-tool-pass`；`B1636=confirmed/P1/public-witness/implementation-final-verification/see-1719`。
 
 ### §123.1717 r1048：控制器缺口供给生效；等待人口尺注的部分账户盲区（2026-09-09）
 
