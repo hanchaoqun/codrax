@@ -57380,6 +57380,25 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1721 B1637：主路径资格与同块显式关系所有权分离（2026-09-09）
+
+B1636已以`aeb6a3f21`独立推送，r1049审计`38b464b18`已推送。本批只修§1719实际日志证实的合同自冲突；模型按现有JSON教学声明的条件/返回等关系不应因校验器只收调用类而遭误拒。与B1636分开提交，不把模型持久化误称或图消息错误算成本修复解决。
+
+- [x] **实际提交入口有效RED→GREEN**：真实Java源码位置的call+guard证据先独立通过既有`DiagramCallEdgeEvidenceMismatches`，同块显式两种claim+两锚仍被旧Emit门报guard owner缺失。有效RED `.codrax/tmp/20260909-b1637-red.log`；通用14个已映射relation中旧call/callback/register三类通过、另11类被同窄集合误拒，非仅一个Java枚举样例。
+- [x] `preCheckStandaloneCallChainRelationAnchorPresence`现在保留两种职责：`relationForms`仍仅原三种principal调用资格；`explicitClaimForms`记录同块模型显式声明，逐anchor用既有`ClaimFormForRelation`确认归属。不跨块借用、不由anchor反填claim、不由正文/请求猜所有权。QFCallChain、principal、ordered/bullet/table及principal_path_edge条件均不扩大；guard/return/definition单独不能替代主调用路径。
+- [x] 原类型/端点方向/证据/可见label门全部保持；未知mapping旧策略不变，不授予新证据权限、不改风险或图表渲染策略。生产仅一个函数6加3删，零新增JSON字段、零教学补丁、零模型正文/图/结论修改。修复减少的是系统误拒，不要求模型去掉合法关系来换取通过。
+- [x] 六族回归：真实Emit→Patch正针保完整公开模型block JSON不变；14mapped所有权正针及42缺/错/跨块声明负针；三种主路径触发、空anchor、仅companion不能顶替路径；7类实际Emit缺声明/缺证据/错方向等负臂拒绝且Mutable不落稿；diagram/Trace/非principal隔离。14类矩阵只证明所有权检查，不冒称所有类型均有新端到端授权。
+- [x] expanded green1.160s；新族+旧Standalone/DiagramEvidence/关键PreEmit count3 1.194s，race2.471s。正针初版DeepEqual误把原有内部`json:"-"`引用印记当模型字段，改为比较完整公开block JSON；这次测试前提修正不算产品RED，不删模型字段或改生产。
+- [x] 另一席独立只读末审无阻断，root复核实际Emit/Patch与全映射读集合。末版与B1636同冻结栈最终覆盖86包均通过：首全仓85包绿、tool两条B1636旧数值针红经物理来源确认后迁移，最终完整tool285.408s绿；本族与GatedCal/状态发布最后count3 20.234s绿。过程细节和日志见§1720，不把首轮执行写成全绿。
+- [x] 有界同类审计：其余`IsCallChainPrincipalRelationClaimForm`调用点为主路径触发/能力选择，未发现另一个拿窄集合直接逐项报广域owner缺失的点；renderer与repair lease的所有权集合为完整显式声明。没有据此宣称全部图表关系已闭环。
+- [ ] **B1637b 相邻反向映射风险，待实际入口验证**：`answer_document_diagram_normalize.go:67–87`用`RelationForClaimForm`筛standalone claim，再按`ClaimFormForRelation`查anchor；`type_relation → definition_fact`但反向definition故意unknown，因此mixed call+definition+type_relation载体可能被该helper判false。`answer_document_diagram_evidence.go:379`据此决定独立关系端点身份完整性门，可能漏检；alias/recipe/repair也消费该helper。本轮只静态核路，未验证公开Emit是否可凭节点名通过，不写成live已证/不偷偷改变反向映射授权。下一步最小公开正反针，若确证再按关系到显式claim的单源归属修复，不让definition prose自动变成type边。
+
+**后续按ROI执行**：先推进已确认B676 proof-only持久身份/状态变更及B1634d精确配置原值交接；B1637b以小公开入口复现判定是否需升序。B1634b可见关系别名、B1634c真实已应用计划oracle域、B1122失败上下文、gated原始running子集载体和频率长句显示分组等保持独立待办，不用扩prompt/加关键词硬门替代根修。下一live仍严格两路并轮换真实write，当前r1049是修复前见证，B1636/B1637工程绿不能冒签新live。
+
+Trace明确时间窗、因果投影及自动补采不变，链上真实占时/规则可消两轴、优先级/调度/算力/D/IO/语义业务方向不丢；邻近和背景只辅助。实际SSE/agent保护由本轮llm28.847s与agent76.571s全包复验，活跃增量/keepalive不因4ms或旧4m无最终正文降级，真实停滞/取消/显式deadline仍有效；不冒称本轮持续>4分钟单流live。
+
+状态：`B1637=implemented/public-emit-red-green/full+patch/14-mapped-owner-matrix/count3+race+86-package-final-coverage-green/reviewed/delivered-with-this-commit/live-pending`；`B1636=aeb6a3f21/pushed/live-pending`；`B1637b=static-adjacent-risk/public-entry-validation-pending/not-implemented`；`model-prose+diagram-semantic-quality=residual-open/no-system-rewrite`。
+
 ### §123.1720 B1636：真实首个唤醒后缀补入线程状态账户（2026-09-09）
 
 r1049审计以`38b464b18`独立推送。本数值批接续§1718/1719确认的第四消费者漏项；不改原ThreeFaces裁定，不由未知窗首推测线程状态，不改变排名/折算/合并规则来迁就单个样例。
@@ -57396,7 +57415,7 @@ r1049审计以`38b464b18`独立推送。本数值批接续§1718/1719确认的�
 
 本批生产仅5加2删。计量以真实观测为起点，既有链凭证/邻近背景隔离/两轴/IO与语义业务线索均保持；正常running不会因额外wake被重复计量，未知仍未知。没有请求/答案关键词硬门、没有模型JSON新增字段、没有系统代写正文/图/结论，active-stream策略不改。
 
-状态：`B1636=implemented/public-red-green/count3+race+86-package-final-coverage-green/independent-reviewed/delivered-with-this-commit/live-pending`；`old-pins=two-engine+two-tool/physical-source-audited/evolution-recorded/member-values-preserved`。
+状态：`B1636=aeb6a3f21/pushed/public-red-green/count3+race+86-package-final-coverage-green/independent-reviewed/live-pending`；`old-pins=two-engine+two-tool/physical-source-audited/evolution-recorded/member-values-preserved`。
 
 ### §123.1719 r1049：等待尺注与候选显示生效；混合关系所有权合同漏域（2026-09-09）
 
@@ -57415,12 +57434,12 @@ B1635a/b已以`99e399163`提交推送，clean binary `99e39916318a` built`2026-0
 
 - [x] B1635a/b clean binary exact2及真实日志/上下文/答案人工审计；原机评保留，本节与两份报告独立提交。
 - [x] B1636 headless唤醒→首次上核后缀账户独立数值批已于§1720完成。实际公开RED→GREEN、成员/裁剪来源针、count3/race/末版86包覆盖均绿；两engine与两tool旧数值已按原物理区间溯源迁移，历史说明和成员保留，不盲改golden求绿。新live仍待验。
-- [ ] B1637优先闭合同块关系所有权；实际Emit/Patch、14映射关系、缺/跨块声明/反向/缺证据、principal仅三类、Trace隔离和原稿字节保护，末版全仓与独立review后单独提交。
+- [x] B1637同块关系所有权已于§1721闭合；实际Emit/Patch、14映射关系、缺/跨块声明/反向/缺证据、principal仅三类、Trace隔离和原稿字节保护，末版86包覆盖与独立review通过。相邻反向映射B1637b单列待公开验证，不伪称全图关系已闭环。
 - [ ] gated原始running子集载体/旧full原值回退风险与跨query频率长句分别继续公开入口验证；前者已纠正“整行数据丢失/事实冲突”初判，按上述范围根修，不签已实施。B676、B1634d、B1634b/c、B1122、B1629b/B1626/B1622/B1561/B1616b及旧fork权限队列原样保留。
 
 H9总361s并非单流>4分钟，最长单调用78.473s；本轮不夸大流式live证明。实际4ms/旧4m活跃SSE缩时工程针已绿；真实停滞、取消及显式deadline保留。没有系统代写正文/图/结论，没有请求/答案关键词硬门；Trace显式窗、投影、补齐及链上两轴/IO/语义/业务方向不动。
 
-状态：`r1049=machine2/2,human-Java-fail+H9-partial/audited`；`B1635a/b=99e399163/pushed/production-positive-r1049`；`B1636=delivered/see-1720/live-pending`；`B1637=final-coverage-green/not-pushed`；`H9-gated-raw-domain/frequency-display=residual-open`。
+状态：`r1049=machine2/2,human-Java-fail+H9-partial/audited`；`B1635a/b=99e399163/pushed/production-positive-r1049`；`B1636=aeb6a3f21/pushed/see-1720/live-pending`；`B1637=delivered/see-1721/live-pending`；`H9-gated-raw-domain/frequency-display=residual-open`。
 
 ### §123.1718 B1635a/b：等待统计范围与同核重叠候选的显示边界（2026-09-09）
 

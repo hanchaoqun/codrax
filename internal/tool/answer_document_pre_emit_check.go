@@ -6363,11 +6363,14 @@ func preCheckStandaloneCallChainRelationAnchorPresence(
 			continue
 		}
 		var relationForms []string
-		relationFormSet := make(map[types.ClaimForm]bool)
+		explicitClaimForms := make(map[types.ClaimForm]bool)
 		for _, use := range block.ClaimUses {
+			// Principal path eligibility is narrower than same-block ownership:
+			// a path can also explicitly own guards, returns, or other relations.
+			// The existing relation-to-claim mapping below decides their owner.
+			explicitClaimForms[use.ClaimForm] = true
 			if types.IsCallChainPrincipalRelationClaimForm(use.ClaimForm) {
 				relationForms = append(relationForms, string(use.ClaimForm))
-				relationFormSet[use.ClaimForm] = true
 			}
 		}
 		// principal_path_edge is itself a typed assertion that this block owns
@@ -6399,7 +6402,7 @@ func preCheckStandaloneCallChainRelationAnchorPresence(
 		var unownedAnchorForms []string
 		for _, anchor := range block.EdgeAnchors {
 			form := types.ClaimFormForRelation(anchor.RelationKind)
-			if form == types.ClaimUnknown || relationFormSet[form] {
+			if form == types.ClaimUnknown || explicitClaimForms[form] {
 				continue
 			}
 			unownedAnchorForms = append(unownedAnchorForms, string(form))
