@@ -249,7 +249,8 @@ func TestRuntimeTraceFrequencyAuthorityCaveatNamesIndependentTypedEvidence(t *te
 	got := types.AnswerBlockVisibleSurface(doc.Blocks[1])
 	if !strings.Contains(got, "低频驻留") ||
 		!strings.Contains(got, "不能归因于上述事件计数") ||
-		!strings.Contains(got, "CPU0 418000–1530000kHz") ||
+		!strings.Contains(got, "CPU0 此 CPU 当前查询范围内有效策略记录共 16 条；正上限最低的一条代表记录的策略范围为 418000–1530000 kHz") ||
+		!strings.Contains(got, "样例行8048@13762.861720s，窗口13762.791708..13763.024898") ||
 		!strings.Contains(got, "证明策略上限存在") ||
 		!strings.Contains(got, "不能证明已经触顶或已造成性能影响") ||
 		!strings.Contains(got, "不能单独证明热节流") {
@@ -298,7 +299,8 @@ func TestRuntimeTraceFrequencyBoundaryUsesReaderFacingEnglish(t *testing.T) {
 	for _, want := range []string{
 		"Frequency evidence and conclusion limits",
 		"12 CPU-frequency samples",
-		"CPU0 418000–1530000kHz",
+		"CPU0 16 valid frequency-policy records for this CPU in the current query scope; one representative record with the lowest positive upper bound has policy bounds 418000–1530000 kHz",
+		"sample line 8048 at 13762.861720s, window 13762.791708..13763.024898",
 		"prove that a policy ceiling existed",
 		"does not by itself prove thermal throttling",
 	} {
@@ -365,7 +367,8 @@ func TestPersistMergedAnswerDocumentPublishesFrequencyBoundaryAfterModelProse(t 
 	}
 	surface := types.AnswerBlockVisibleSurface(persisted.Blocks[1])
 	for _, want := range []string{
-		"CPU4 558000–2100000kHz",
+		"CPU4 此 CPU 当前查询范围内有效策略记录共 28 条；正上限最低的一条代表记录的策略范围为 558000–2100000 kHz",
+		"样例行17113@13762.940114s，窗口13762.791708..13763.024898",
 		"证明策略上限存在",
 		"不能证明已经触顶或已造成性能影响",
 		"不能单独证明热节流",

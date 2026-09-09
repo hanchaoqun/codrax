@@ -16087,7 +16087,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		if limit.MaxFrequency <= 0 {
 			continue
 		}
-		items = append(items, rootCauseItem("cpu_frequency_limit", ThreadRef{}, windowImpactMs, 0.58, limit.Line, limit.Line, "window_stats", fmt.Sprintf("cpu=%d had frequency limit min=%dkHz max=%dkHz in the selected window (count=%d)", limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count)))
+		items = append(items, rootCauseItem("cpu_frequency_limit", ThreadRef{}, windowImpactMs, 0.58, limit.Line, limit.Line, "window_stats", formatCPUFrequencyLimitSummary(limit)))
 	}
 	// Q4-A 修1 (ledger §12.1/§12.3-5) + P2-3: structured lock-contention spans
 	// get their own typed rank lane (type=blocking_span, registry RowToken
@@ -26875,7 +26875,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 		out = append(out, EvidenceFact{
 			Subject:    fmt.Sprintf("cpu=%d", limit.CPU),
 			Predicate:  "cpu_frequency_limit",
-			Summary:    fmt.Sprintf("cpu=%d frequency limit min=%dkHz max=%dkHz appeared %d time(s) in the selected window", limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count),
+			Summary:    formatCPUFrequencyLimitSummary(limit),
 			LineStart:  limit.Line,
 			LineEnd:    limit.Line,
 			StartTs:    limit.Ts,

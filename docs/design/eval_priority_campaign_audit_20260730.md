@@ -57380,6 +57380,30 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1705 B1630c：频率策略总记录数与代表行分离（2026-09-08）
+
+从已交付 `4aa94e2ac` 继续，fetch后远端同值，起点工作区清洁。r1043 CPU4共28条是2.27/2.10GHz各14条，CPU0共16条是1.72/1.53GHz各8条；现聚合只保存最严格正上限的原子代表行，不能把全部记录数解释为该min/max组合的出现次数，更不能推持续时长。
+
+本批仅修同类语义出口，不改已有CPU/标量资格、时间与行范围过滤、最小正max选择与首条tie规则、计数、频率驻留、供给折算或根因排名。有效max=0行仍按原规则计入库存，但不变成有效正上限证据。不扩JSON/schema，不改模型正文或图，不迁移重写历史证据。
+
+- [x] 引擎两处Summary共源：总记录数、最严格正上限代表行（或全零库存）、原子min/max/line/ts；不能猜各档次数。
+- [x] 查询真实Execute出口：head-safe authority与window_stats原始行同时明确总数/代表行，保既有机器字段；zero-only仍不铸正ceiling权限。
+- [x] 模型上下文普通提示、目标卡与逐CPU卡，以及系统附注共用事实表述；zh/en保坐标、窗口和缺见证边界；不增加发布/重试门。
+- [x] 有效入口先红后绿、混合tuple/顺序/同max异min/零值/窗外与行外/双语言/模型原块字节保持；独立互审、影响包及全仓测试通过，随本批提交交付。
+- [ ] 新clean binary后r1044严格两路：Rust跨模块读 + nlohmann原生C++写，保case/oracle/fixture原样；审真实上下文、顺序/关系、双头文件交付与原生行为，不以弱测试/regex替代语义验收。
+
+**独立待证B1631**：frequency-limit authority未携capture/result身份，下游扁平合并后两处目标CPU关联只按时间窗+CPU首条胜，存在跨捕获借用的构造路径。当前为静态待证/设计项，需独立真实入口针和来源传递方案，不把本批措辞修正冒充身份隔离已完成。B1624b派生结果纯导航、B1629b非point范围、B1626多请求成员窗、B1622次数分组、B1616b/B1561验证证据仍在队列。
+
+**入口与测试证据**：引擎实际BuildIndex→Run双出口有效首红 `...-b1630c-core-red-verified-final.log`；tool真实Execute首红 `...-b1630c-tool-red.log`；成文真实BuildInitialInstruction双语首红 `...-b1630c-agent-frequency-entry-red.log`；实际ApplyAndPersistMutation发布首红 `...-b1630c-system-caveat-red.log`，均在`.codrax/tmp/20260908-`。最初测试自身unused import、nil与空slice预期、拿私有weight反推已校准Score的前提错误，均已排除，不计产品gap或有效红。最终针固定原Count、原子代表行、Confidence/Impact及公开Score、CPU对应关系、坐标、输入序列化字节和模型原块不变。旧测试仅按新明示口径更新5处精确词面，不删资格/未绑定/完整roster断言。
+
+core新旧相关count3通过0.976s、最终race3通过1.685s；tool真实Execute及原authority族count3通过1.173s；system附注相关count3通过1.114s、race通过2.184s；agent/types最终count3为1.116/1.029s，race为2.889/1.783s。三方交叉末审无阻断。泛型tracediag直接Summary面继承引擎修正，纯scalar回退仍显示已有字段（无“该档出现N次”计算），不为此新造专项renderer或盲重钉schema。完整`go test ./... -count=1`在全部代码/测试冻结后启动，结果待回填；没有把施工中快照当最终验收。
+
+活跃流实际HTTP/SSE五族count3通过21.238s，涵盖隐藏推理、工具流、4ms分帧、仅heartbeat超过旧总年龄直到调用方取消，以及真正停滞仍报错；agent预算不叠加活跃流年龄门count3通过0.824s。分别见`...-b1630c-active-stream.log`和`...-b1630c-agent-stream-final.log`。这是既有保护复验，不是本批新增4ms/4m特判。
+
+完整`go test ./... -count=1`已退出0，86测试包通过，日志`.codrax/tmp/20260908-b1630c-full-suite.log`；全部生产及测试于启动前冻结，执行期间只更新账本。`git diff --check`通过；交付前fetch确认HEAD与origin/main无差异。B1630c状态为implemented/actual-entry-red-green/independent-review/full-suite-green/delivered-with-this-commit/pending-live；r1044尚未启动，后续独立收账。
+
+活跃SSE不能因4ms或旧4m尚无最终正文降级；真实空闲停滞、显式deadline、调用方取消保留。Trace精确窗、探索+补齐、链上占用/规则可消除双轴及D/IO/业务语义不变，背景不升主因。B1631下一设计需每个witness携producer来源收据（旧无身份只展示未知，不关联目标），共源typed关联两处join，完整capture/query/result cohort/CPU对齐；不能仅凭basename/时间相同选firstwins。暂为静态设计，不签已执行复现或修复。
+
 ### §123.1704 B1630a/b：CPU查询身份与IO下界的上下文闭包（2026-09-08）
 
 B1629先独立提交 `7195864a6`。本批只改成文入模的两处共享信息出口和8个测试族，不改Trace测量、查询资格、证据产生、原模型块、图或结论，也不增加JSON字段/重试门。两个问题按同文件不同函数独立开发、互审后合批。

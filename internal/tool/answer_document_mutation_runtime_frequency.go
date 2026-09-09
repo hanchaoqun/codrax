@@ -181,14 +181,17 @@ func runtimeTraceDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuth
 
 func runtimeTraceFrequencyLimitWitnessRoster(in []types.TraceFrequencyLimitAuthority, zh bool) string {
 	rows := make([]string, 0, len(in))
+	lang := "en"
+	if zh {
+		lang = "zh"
+	}
 	for _, witness := range in {
+		observation := types.FormatTraceFrequencyLimitRecordObservation(witness, lang)
 		if zh {
 			rows = append(rows, fmt.Sprintf(
-				"CPU%d %d–%dkHz（%d条，样例行%d@%.6fs，窗口%.6f..%.6f）",
+				"CPU%d %s（样例行%d@%.6fs，窗口%.6f..%.6f）",
 				witness.CPU,
-				witness.MinFrequencyKHz,
-				witness.MaxFrequencyKHz,
-				witness.LimitRowCount,
+				observation,
 				witness.WitnessLine,
 				witness.WitnessTs,
 				witness.WindowStartTs,
@@ -196,11 +199,9 @@ func runtimeTraceFrequencyLimitWitnessRoster(in []types.TraceFrequencyLimitAutho
 			))
 		} else {
 			rows = append(rows, fmt.Sprintf(
-				"CPU%d %d–%dkHz (%d rows, sample line %d at %.6fs, window %.6f..%.6f)",
+				"CPU%d %s (sample line %d at %.6fs, window %.6f..%.6f)",
 				witness.CPU,
-				witness.MinFrequencyKHz,
-				witness.MaxFrequencyKHz,
-				witness.LimitRowCount,
+				observation,
 				witness.WitnessLine,
 				witness.WitnessTs,
 				witness.WindowStartTs,

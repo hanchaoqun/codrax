@@ -1033,13 +1033,13 @@ func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) st
 		witnesses := answerDocRuntimeTraceGuidanceView(ctx).FrequencyLimitWitnesses
 		for _, witness := range witnesses {
 			if zh {
-				fmt.Fprintf(&b, "- CPU %d 在 %.6f–%.6f 秒窗口内出现 %d 条频率策略上限记录，策略范围为 %d–%d kHz。这只证明该 CPU 的策略上限在窗口内存在；是否限制了目标线程，仍需同一 CPU 上目标运行切片与策略的重叠或其他目标绑定证据。\n",
-					witness.CPU, witness.WindowStartTs, witness.WindowEndTs, witness.LimitRowCount,
-					witness.MinFrequencyKHz, witness.MaxFrequencyKHz)
+				fmt.Fprintf(&b, "- CPU %d，查询时间范围 %s 秒：%s这只证明该 CPU 的策略上限在查询范围内存在；是否限制了目标线程，仍需同一 CPU 上目标运行切片与策略的重叠或其他目标绑定证据。\n",
+					witness.CPU, types.FormatTraceRuntimeAccountWindow(witness.WindowStartTs, witness.WindowEndTs, "zh"),
+					types.FormatTraceFrequencyLimitRecordObservation(witness, "zh"))
 			} else {
-				fmt.Fprintf(&b, "- CPU %d has %d frequency-policy limit record(s) in %.6f–%.6f seconds, with a policy range of %d–%d kHz. This proves only that the CPU policy ceiling existed in the window; showing that it constrained the target still requires same-CPU target-slice overlap or another target-binding witness.\n",
-					witness.CPU, witness.LimitRowCount, witness.WindowStartTs, witness.WindowEndTs,
-					witness.MinFrequencyKHz, witness.MaxFrequencyKHz)
+				fmt.Fprintf(&b, "- CPU %d, query time range %s seconds: %s This proves only that the CPU policy ceiling existed in the query scope; showing that it constrained the target still requires same-CPU target-slice overlap or another target-binding witness.\n",
+					witness.CPU, types.FormatTraceRuntimeAccountWindow(witness.WindowStartTs, witness.WindowEndTs, "en"),
+					types.FormatTraceFrequencyLimitRecordObservation(witness, "en"))
 			}
 		}
 		b.WriteString(renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact(ctx, witnesses, zh))
@@ -1188,7 +1188,7 @@ func renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact(
 					b.WriteString("同一 CPU 没有可用的运行时间桶代表频率，不能补猜。")
 				}
 				if hasPolicy {
-					fmt.Fprintf(&b, "同窗还存在 %d 条策略记录，范围 %d–%d kHz；两项出现在同一 CPU 仍不足以证明目标切片与策略重叠、目标受限或产生性能影响。\n", policy.LimitRowCount, policy.MinFrequencyKHz, policy.MaxFrequencyKHz)
+					fmt.Fprintf(&b, "%s两项出现在同一 CPU 仍不足以证明目标切片与策略重叠、目标受限或产生性能影响。\n", types.FormatTraceFrequencyLimitRecordObservation(policy, "zh"))
 				} else {
 					b.WriteString("该 CPU 没有同窗策略上限记录，因此不能在这一行评价策略限制。\n")
 				}
@@ -1204,7 +1204,7 @@ func renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact(
 					b.WriteString("No running-bucket representative frequency is available on the same CPU; do not guess one. ")
 				}
 				if hasPolicy {
-					fmt.Fprintf(&b, "The same window also has %d policy record(s), spanning %d–%d kHz. Co-location on one CPU still does not prove target-slice overlap, target restriction, or performance impact.\n", policy.LimitRowCount, policy.MinFrequencyKHz, policy.MaxFrequencyKHz)
+					fmt.Fprintf(&b, "%s Co-location on one CPU still does not prove target-slice overlap, target restriction, or performance impact.\n", types.FormatTraceFrequencyLimitRecordObservation(policy, "en"))
 				} else {
 					b.WriteString("This CPU has no same-window policy-ceiling record, so this row cannot assess policy restriction.\n")
 				}

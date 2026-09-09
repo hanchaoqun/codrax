@@ -4516,6 +4516,18 @@ func writeTraceWindowSweepSummary(b *strings.Builder, sweep *tracequery.WindowSw
 	b.WriteString("\n")
 }
 
+// These are descriptions of the existing accumulator contract, not new
+// authority signals. Count includes every qualified policy row in query scope;
+// the min/max/line/ts tuple is one selected record, never a frequency histogram.
+func traceQueryFrequencyPolicyCountCaliber(maxFrequency int64) string {
+	selected := "strictest_positive_maximum"
+	if maxFrequency <= 0 {
+		selected = "first_valid_row_no_positive_maximum"
+	}
+	return "count_scope=all_valid_policy_rows_in_query_scope selected_row_scope=" + selected +
+		" (total count is not the selected min/max pair's repetition count or duration)"
+}
+
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	result = traceQueryPriorityResultForPublication(result)
 	var b strings.Builder
@@ -4686,7 +4698,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				sanitizeForBanner(strings.Join(authority.FrequencyTypedSupplyEvidence, ",")))
 		}
 		for _, witness := range authority.FrequencyLimitWitnesses {
-			fmt.Fprintf(&b, "frequency_limit_witness cpu=%d min=%dkHz max=%dkHz limit_rows=%d witness_line=%d witness_ts=%.6f window=%.6f..%.6f authority=%s policy_limit_status=%s binding_caliber=%s (the row proves that a policy ceiling was present; an actual frequency below the ceiling neither negates that limit nor proves its binding performance impact)\n",
+			fmt.Fprintf(&b, "frequency_limit_witness cpu=%d min=%dkHz max=%dkHz limit_rows=%d witness_line=%d witness_ts=%.6f window=%.6f..%.6f authority=%s policy_limit_status=%s binding_caliber=%s %s (the row proves that a policy ceiling was present; an actual frequency below the ceiling neither negates that limit nor proves its binding performance impact)\n",
 				witness.CPU,
 				witness.MinFrequencyKHz,
 				witness.MaxFrequencyKHz,
@@ -4698,6 +4710,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				sanitizeForBanner(witness.Authority),
 				sanitizeForBanner(authority.FrequencyPolicyLimitStatus),
 				sanitizeForBanner(authority.FrequencyLimitBindingCaliber),
+				traceQueryFrequencyPolicyCountCaliber(witness.MaxFrequencyKHz),
 			)
 		}
 	}
@@ -5140,8 +5153,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				result.WindowStats.IOLatencyOverflowCount, result.WindowStats.IOLatencyOverflowRequestMs)
 		}
 		for _, limit := range result.WindowStats.CPUFrequencyLimits {
-			fmt.Fprintf(&b, "- cpu_frequency_limit cpu=%d min=%dkHz max=%dkHz count=%d line=%d\n",
-				limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count, limit.Line)
+			fmt.Fprintf(&b, "- cpu_frequency_limit cpu=%d min=%dkHz max=%dkHz count=%d line=%d ts=%.6f %s\n",
+				limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count, limit.Line, limit.Ts, traceQueryFrequencyPolicyCountCaliber(limit.MaxFrequency))
 		}
 		for _, pressure := range result.WindowStats.CPUPressure {
 			// CMP-9: the per-CPU runnable-wait sum is cross-thread cpu·ms; the

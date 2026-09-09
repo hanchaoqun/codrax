@@ -13996,7 +13996,9 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			}
 		}
 		if len(view.FrequencyLimitWitnesses) > 0 {
-			b.WriteString("- Runtime direct frequency-limit authority: each following line is one strict in-window policy-limit witness. Keep each CPU's fields on its own line; never exchange row counts or bounds between CPUs.\n")
+			b.WriteString("- Runtime direct frequency-limit authority: limit_rows counts valid policy-limit records for this CPU in the current query scope (including any line/range filters); min/max and witness_line/witness_ts describe one representative record with the lowest positive upper bound. Keep each CPU's fields on its own line; never exchange row counts or bounds between CPUs. ")
+			b.WriteString(types.TraceFrequencyLimitRecordCaliber("en"))
+			b.WriteByte('\n')
 			for _, witness := range view.FrequencyLimitWitnesses {
 				b.WriteString("  - ")
 				fmt.Fprintf(&b, "`cpu=%d min=%dkHz max=%dkHz limit_rows=%d witness_line=%d witness_ts=%.6f window=%.6f..%.6f authority=%s`",
@@ -14237,7 +14239,7 @@ func renderAnswerDocRuntimeFrequencyCPUJoin(ctx *types.AgentContext, witnesses [
 			}
 			policyText := "absent"
 			if policyObserved {
-				policyText = fmt.Sprintf("present:min=%dkHz,max=%dkHz,rows=%d", policy.MinFrequencyKHz, policy.MaxFrequencyKHz, policy.LimitRowCount)
+				policyText = fmt.Sprintf("present:min=%dkHz,max=%dkHz,rows=%d (one lowest-positive-ceiling record; rows count valid same-CPU/query records)", policy.MinFrequencyKHz, policy.MaxFrequencyKHz, policy.LimitRowCount)
 			}
 			binding := "target_effect_unproven_no_slice_binding"
 			if !targetObserved || !policyObserved {

@@ -3338,6 +3338,13 @@ type AsyncFileWorkSummary struct {
 	Summary    string    `json:"summary,omitempty"`
 }
 
+// CPUFrequencyLimit is a per-CPU inventory of valid limit records admitted by
+// the query's existing time/line and source-integrity filters. Count includes
+// zero-maximum records; it is not the repetition count of the representative
+// min/max pair. MinFrequency, MaxFrequency, Line and Ts all come from one row:
+// the smallest positive maximum, with the first encountered row kept on ties.
+// When all admitted maxima are zero, the first row represents inventory only,
+// not a positive governing ceiling. No residency or thermal cause is implied.
 type CPUFrequencyLimit struct {
 	CPU          int     `json:"cpu"`
 	MinFrequency int64   `json:"min_frequency,omitempty"`

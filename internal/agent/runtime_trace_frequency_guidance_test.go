@@ -91,8 +91,8 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 		"A policy row for one CPU binds only to target running evidence on that same CPU",
 		"Runtime target/CPU policy comparison matrix (typed identity alignment only; the model still owns the restriction verdict)",
 		"Every frequency and policy value is owned by that row's exact CPU; never compare, copy, or combine values across rows",
-		"| `app-17267` | `13762.791708..13763.024898` | `0` | `absent_in_complete_roster` | `absent` | `present:min=418000kHz,max=1530000kHz,rows=16` | `not_comparable_missing_same_cpu_pair` |",
-		"| `app-17267` | `13762.791708..13763.024898` | `4` | `35.960ms` | `558000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof)` | `present:min=558000kHz,max=2100000kHz,rows=28` | `target_effect_unproven_no_slice_binding` |",
+		"| `app-17267` | `13762.791708..13763.024898` | `0` | `absent_in_complete_roster` | `absent` | `present:min=418000kHz,max=1530000kHz,rows=16 (one lowest-positive-ceiling record; rows count valid same-CPU/query records)` | `not_comparable_missing_same_cpu_pair` |",
+		"| `app-17267` | `13762.791708..13763.024898` | `4` | `35.960ms` | `558000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof)` | `present:min=558000kHz,max=2100000kHz,rows=28 (one lowest-positive-ceiling record; rows count valid same-CPU/query records)` | `target_effect_unproven_no_slice_binding` |",
 		"| `app-17267` | `13762.791708..13763.024898` | `12` | `96.081ms` | `2075000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof)` | `absent` | `not_comparable_missing_same_cpu_pair` |",
 	} {
 		if !strings.Contains(got, want) {
