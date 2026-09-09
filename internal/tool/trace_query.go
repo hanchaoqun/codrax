@@ -508,8 +508,8 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 		logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 		now := time.Now()
-		observations := traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now)
-		if coverage, ok := traceQueryFullArtifactScopeCoverageObservation(result, p, sourceLabel, payloadRef, rawRef, now); ok {
+		observations := traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q)
+		if coverage, ok := traceQueryFullArtifactScopeCoverageObservation(result, p, sourceLabel, payloadRef, rawRef, now, q); ok {
 			observations = append(observations, coverage)
 		}
 		return types.ToolResult{
@@ -520,7 +520,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
 			Observations:           observations,
 			TraceViewCancellation:  traceQueryToolViewCancellation(result),
-			TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+			TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 			EnumerationAuthority:   traceQueryEnumerationAuthority(result),
 			Timestamp:              now,
 		}, nil
@@ -825,6 +825,44 @@ func traceQueryApplyFrequencyPolicyLimitSemantics(authority *types.TraceEvidence
 	}
 	authority.FrequencyPolicyLimitStatus = "present"
 	authority.FrequencyLimitBindingCaliber = "limit_row_proves_ceiling_presence;binding_impact_requires_separate_overlap_or_supply_evidence"
+}
+
+// The source-aware factory is called only at publication, when the actual
+// result receipt and effective query are both available. The summary-only
+// factory above deliberately cannot mint a source credential.
+func traceQueryEvidenceAuthorityWithSource(result tracequery.Result, sourceLabel, payloadRef, rawRef, idScope string, observedAt time.Time, q tracequery.Query) *types.TraceEvidenceAuthority {
+	authority := traceQueryEvidenceAuthority(result)
+	if authority == nil {
+		return nil
+	}
+	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
+	ref.QueryScopeID = traceQueryPublicationScope(result, payloadRef, rawRef, idScope, q)
+	for i := range authority.FrequencyLimitWitnesses {
+		// Each witness owns its source value. Never add provenance by mutating
+		// a result already stored in memo, dispatch, or the Turn A snapshot.
+		source := ref
+		authority.FrequencyLimitWitnesses[i].SourceRef = &source
+		authority.FrequencyLimitWitnesses[i].ObservedAt = observedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	return authority
+}
+
+// The complete submitted query distinguishes filters even when two executions
+// publish identical content-addressed results in the same second. JSON excludes
+// the engine's private cancellation/instrumentation plumbing. Query line filters
+// are not the index's scan/cache bounds. Existing observation IDs stay unchanged.
+// The full payload/raw locator remains in SourceRef, not just its basename.
+func traceQueryPublicationScope(result tracequery.Result, payloadRef, rawRef, idScope string, q tracequery.Query) string {
+	encoded, err := json.Marshal(q)
+	if err != nil {
+		return ""
+	}
+	queryDigest := sha256.Sum256(encoded)
+	scope := traceQueryObservationScope(result, payloadRef, rawRef)
+	if strings.TrimSpace(idScope) != "" {
+		scope += ":" + strings.TrimSpace(idScope)
+	}
+	return fmt.Sprintf("%s:query=%x:query_lines=%d..%d", scope, queryDigest, q.LineStart, q.LineEnd)
 }
 
 func traceQueryFrequencyLimitAuthorities(result tracequery.Result) []types.TraceFrequencyLimitAuthority {
@@ -1180,7 +1218,7 @@ func (t *TraceQuery) traceQueryIndexLimitResult(ctx *types.BusContext, p traceQu
 			Summary:      preview,
 			RawRef:       rawRef,
 			Refinement:   traceQueryIndexLimitRefinement(ctx, p, sourceLabel, path),
-			Observations: traceQueryTypedObservations(cluster, sourceLabel, payloadRef, rawRef, "stream_state_cluster", now),
+			Observations: traceQueryTypedObservations(cluster, sourceLabel, payloadRef, rawRef, "stream_state_cluster", now, q),
 			Timestamp:    now,
 		}, true
 	} else if clusterErr != nil {
@@ -1466,8 +1504,8 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 			Summary:                preview,
 			RawRef:                 rawRef,
 			Refinement:             traceQueryRefinement(searchResult, searchQ, searchP, sourceLabel),
-			Observations:           traceQueryTypedObservations(searchResult, sourceLabel, payloadRef, rawRef, "", now),
-			TraceEvidenceAuthority: traceQueryEvidenceAuthority(searchResult),
+			Observations:           traceQueryTypedObservations(searchResult, sourceLabel, payloadRef, rawRef, "", now, searchQ),
+			TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(searchResult, sourceLabel, payloadRef, rawRef, "", now, searchQ),
 			EnumerationAuthority:   traceQueryEnumerationAuthority(searchResult),
 			Timestamp:              now,
 		}, true
@@ -1530,9 +1568,9 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 		Summary:                preview,
 		RawRef:                 rawRef,
 		Refinement:             traceQueryRefinement(result, q, boundedP, sourceLabel),
-		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		TraceViewCancellation:  traceQueryToolViewCancellation(result),
-		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
 		Timestamp:              now,
 	}, true
@@ -1619,9 +1657,9 @@ func (t *TraceQuery) maybeStreamSpanLocate(ctx *types.BusContext, p traceQueryPa
 	return types.ToolResult{
 		ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef,
 		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
-		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		TraceViewCancellation:  traceQueryToolViewCancellation(result),
-		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
 		Timestamp:              now,
 	}, true
@@ -1661,6 +1699,8 @@ type traceQueryAutoWindowChild struct {
 	Candidate traceQueryAutoWindowCandidate `json:"candidate"`
 	Result    tracequery.Result             `json:"result,omitempty"`
 	Error     string                        `json:"error,omitempty"`
+	// Query is publication metadata only; no engine or model schema change.
+	Query tracequery.Query `json:"-"`
 }
 
 func traceQueryAutoWindowFromEvents(p traceQueryParams, events []tracequery.EventView) (float64, float64, bool) {
@@ -1855,7 +1895,7 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 				mode, candidate.Rank, candidate.Source, candidate.Token, candidate.Line, candidate.Ts, candidate.Start, candidate.End))
 		traceQueryAppendCallCaveats(&result, timeCaveat)
 		result = traceQueryPriorityResultForPublication(result)
-		children = append(children, traceQueryAutoWindowChild{Candidate: candidate, Result: result})
+		children = append(children, traceQueryAutoWindowChild{Candidate: candidate, Result: result, Query: q})
 	}
 	payload := map[string]any{
 		"mode":           mode,
@@ -1884,7 +1924,7 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 		}
 		observations = append(observations, traceQueryTypedObservations(
 			child.Result, sourceLabel, payloadRef, rawRef,
-			fmt.Sprintf("w%d", child.Candidate.Rank), now)...)
+			fmt.Sprintf("w%d", child.Candidate.Rank), now, child.Query)...)
 	}
 	return types.ToolResult{
 		ToolName:               t.Name(),
@@ -1893,13 +1933,18 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 		RawRef:                 rawRef,
 		Refinement:             traceQueryAutoWindowCandidatesRefinement(ctx, p, sourceLabel, path, children),
 		Observations:           observations,
-		TraceEvidenceAuthority: traceQueryAutoWindowEvidenceAuthority(children),
+		TraceEvidenceAuthority: traceQueryAutoWindowEvidenceAuthority(children, traceQueryAuthorityPublication{sourceLabel, payloadRef, rawRef, now}),
 		EnumerationAuthority:   traceQueryAutoWindowEnumerationAuthority(children),
 		Timestamp:              now,
 	}
 }
 
-func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild) *types.TraceEvidenceAuthority {
+type traceQueryAuthorityPublication struct {
+	sourceLabel, payloadRef, rawRef string
+	observedAt                      time.Time
+}
+
+func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild, publication ...traceQueryAuthorityPublication) *types.TraceEvidenceAuthority {
 	var combined *types.TraceEvidenceAuthority
 	seenLifecycle := map[string]bool{}
 	framePresent := false
@@ -1910,6 +1955,11 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 			continue
 		}
 		current := traceQueryEvidenceAuthority(child.Result)
+		if len(publication) > 0 {
+			p := publication[0]
+			current = traceQueryEvidenceAuthorityWithSource(child.Result, p.sourceLabel, p.payloadRef, p.rawRef,
+				fmt.Sprintf("w%d", child.Candidate.Rank), p.observedAt, child.Query)
+		}
 		if current == nil {
 			continue
 		}
@@ -2005,34 +2055,7 @@ func traceQueryAutoWindowEvidenceAuthority(children []traceQueryAutoWindowChild)
 }
 
 func dedupTraceQueryFrequencyLimitAuthorities(in []types.TraceFrequencyLimitAuthority, limit int) []types.TraceFrequencyLimitAuthority {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]types.TraceFrequencyLimitAuthority, 0, len(in))
-	seen := map[string]bool{}
-	for _, witness := range in {
-		key := fmt.Sprintf(
-			"%d/%d/%d/%d/%d/%.9f/%.9f/%.9f/%s",
-			witness.CPU,
-			witness.MinFrequencyKHz,
-			witness.MaxFrequencyKHz,
-			witness.LimitRowCount,
-			witness.WitnessLine,
-			witness.WitnessTs,
-			witness.WindowStartTs,
-			witness.WindowEndTs,
-			strings.TrimSpace(witness.Authority),
-		)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, witness)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
-	}
-	return out
+	return types.DedupTraceFrequencyLimitAuthorities(in, limit)
 }
 
 func traceQueryAutoWindowEnumerationAuthority(children []traceQueryAutoWindowChild) *types.ToolEnumerationAuthority {
@@ -2140,8 +2163,8 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 	}
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 	now := time.Now()
-	observations := traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now)
-	if coverage, ok := traceQueryFullArtifactScopeCoverageObservation(result, p, sourceLabel, payloadRef, rawRef, now); ok {
+	observations := traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q)
+	if coverage, ok := traceQueryFullArtifactScopeCoverageObservation(result, p, sourceLabel, payloadRef, rawRef, now, q); ok {
 		observations = append(observations, coverage)
 	}
 	traceQueryAnnotateLookupWindowContract(observations, window)
@@ -2152,7 +2175,7 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 		RawRef:                 rawRef,
 		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
 		Observations:           observations,
-		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
 		Timestamp:              now,
 	}, true
@@ -2203,8 +2226,8 @@ func (t *TraceQuery) maybeStreamWindowSweep(ctx *types.BusContext, p traceQueryP
 		Summary:                preview,
 		RawRef:                 rawRef,
 		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
-		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
-		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
+		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
 		Timestamp:              now,
 	}, true
@@ -2972,6 +2995,7 @@ func traceQueryFullArtifactScopeCoverageObservation(
 	p traceQueryParams,
 	sourceLabel, payloadRef, rawRef string,
 	observedAt time.Time,
+	query ...tracequery.Query,
 ) (types.ObservationRecord, bool) {
 	eventSearchProvesFullArtifact := result.EventSearchCoverage != nil &&
 		result.EventSearchCoverage.ScopeKind == tracequery.EventSearchScopeArtifact &&
@@ -2987,6 +3011,9 @@ func traceQueryFullArtifactScopeCoverageObservation(
 		return types.ObservationRecord{}, false
 	}
 	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
+	if len(query) > 0 {
+		ref.QueryScopeID = traceQueryPublicationScope(result, payloadRef, rawRef, "", query[0])
+	}
 	if ref.Kind != types.ObservationSourceRuntimeArtifact {
 		return types.ObservationRecord{}, false
 	}
@@ -8674,9 +8701,12 @@ func traceQueryTargetWindowStatesAccount(result tracequery.Result) *tracequery.T
 	return result.TargetWindowStates
 }
 
-func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadRef, rawRef, idScope string, observedAt time.Time) []types.ObservationRecord {
+func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadRef, rawRef, idScope string, observedAt time.Time, query ...tracequery.Query) []types.ObservationRecord {
 	result = traceQueryPriorityResultForPublication(result)
 	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
+	if len(query) > 0 {
+		ref.QueryScopeID = traceQueryPublicationScope(result, payloadRef, rawRef, idScope, query[0])
+	}
 	scope := traceQueryObservationScope(result, payloadRef, rawRef)
 	if strings.TrimSpace(idScope) != "" {
 		scope += ":" + strings.TrimSpace(idScope)

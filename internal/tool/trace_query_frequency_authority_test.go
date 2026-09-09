@@ -132,16 +132,16 @@ func TestTraceQueryFrequencyLimitAuthorityRejectsDisplayZeros(t *testing.T) {
 
 func TestTraceQueryAutoWindowFrequencyLimitAuthorityDeduplicatesWitnesses(t *testing.T) {
 	result := tracequery.Result{
-		View: "window_stats", TimeStart: 1, TimeEnd: 2,
+		View: "window_stats", SourcePath: "/captures/policy.systrace", TimeStart: 1, TimeEnd: 2,
 		WindowStats: &tracequery.WindowStats{CPUFrequencyLimits: []tracequery.CPUFrequencyLimit{{
 			CPU: 4, MinFrequency: 558000, MaxFrequency: 2100000,
 			Count: 28, Line: 17113, Ts: 1.5,
 		}}},
 	}
 	authority := traceQueryAutoWindowEvidenceAuthority([]traceQueryAutoWindowChild{
-		{Result: result},
-		{Result: result},
-	})
+		{Candidate: traceQueryAutoWindowCandidate{Rank: 1}, Result: result},
+		{Candidate: traceQueryAutoWindowCandidate{Rank: 1}, Result: result},
+	}, traceQueryAuthorityPublication{"path", "/results/policy.json", "/results/policy.txt", time.Unix(100, 0)})
 	if authority == nil || len(authority.FrequencyLimitWitnesses) != 1 {
 		t.Fatalf("combined frequency witnesses = %+v, want one deduplicated row", authority)
 	}

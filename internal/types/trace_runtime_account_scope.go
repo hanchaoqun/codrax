@@ -64,6 +64,7 @@ func TraceRuntimeAccountRecordsSameResult(a, b ObservationRecord) bool {
 		strings.TrimSpace(x.Path) != strings.TrimSpace(y.Path) ||
 		strings.TrimSpace(x.PayloadRef) != strings.TrimSpace(y.PayloadRef) ||
 		strings.TrimSpace(x.RawRef) != strings.TrimSpace(y.RawRef) ||
+		x.QueryScopeID != y.QueryScopeID ||
 		(strings.TrimSpace(x.PayloadRef) == "" && strings.TrimSpace(x.RawRef) == "") {
 		return false
 	}

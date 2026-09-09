@@ -7,6 +7,31 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// These fixtures describe records from one actual query result, not unrelated
+// numeric witnesses. Make that existing premise explicit at the source join.
+func runtimeFrequencyReceiptFixture(result types.ToolResult) types.ToolResult {
+	ref := types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/frequency.ftrace"}
+	for _, record := range result.Observations {
+		if record.SourceRef.Path != "" {
+			ref = record.SourceRef
+			break
+		}
+	}
+	ref.PayloadRef, ref.RawRef, ref.QueryScopeID = "frequency-fixture-result.json", "frequency-fixture-result.json", "frequency-fixture-query"
+	const observed = "2026-09-08T20:00:00Z"
+	for i := range result.Observations {
+		result.Observations[i].SourceRef, result.Observations[i].ObservedAt = ref, observed
+	}
+	if result.TraceEvidenceAuthority != nil {
+		for i := range result.TraceEvidenceAuthority.FrequencyLimitWitnesses {
+			copy := ref
+			result.TraceEvidenceAuthority.FrequencyLimitWitnesses[i].SourceRef = &copy
+			result.TraceEvidenceAuthority.FrequencyLimitWitnesses[i].ObservedAt = observed
+		}
+	}
+	return result
+}
+
 func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) {
 	mut := types.NewMutableState("分析显式窗口内 CPU 供给")
 	witness0 := types.TraceFrequencyLimitAuthority{
@@ -22,7 +47,7 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 		Authority: "direct_in_window_policy_limit",
 	}
 	for i := 0; i < 2; i++ {
-		mut.AppendDispatchToolResult(types.ToolResult{
+		mut.AppendDispatchToolResult(runtimeFrequencyReceiptFixture(types.ToolResult{
 			ToolName: "trace_query",
 			Success:  true,
 			TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
@@ -61,7 +86,7 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 					RichNotes: []string{types.TraceNoteKeySelectedWindow + "=1.000000..2.000000", types.TraceNoteKeyTargetCPURunningCPU + "=7", types.TraceNoteKeyTargetCPURunningRosterStatus + "=complete"},
 				},
 			},
-		})
+		}))
 	}
 	ctx := &types.AgentContext{Mutable: mut}
 
@@ -93,7 +118,7 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 		"Every frequency and policy value is owned by that row's exact CPU; never compare, copy, or combine values across rows",
 		"| `app-17267` | `13762.791708..13763.024898` | `0` | `absent_in_complete_roster` | `absent` | `present:min=418000kHz,max=1530000kHz,rows=16 (one lowest-positive-ceiling record; rows count valid same-CPU/query records)` | `not_comparable_missing_same_cpu_pair` |",
 		"| `app-17267` | `13762.791708..13763.024898` | `4` | `35.960ms` | `558000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof)` | `present:min=558000kHz,max=2100000kHz,rows=28 (one lowest-positive-ceiling record; rows count valid same-CPU/query records)` | `target_effect_unproven_no_slice_binding` |",
-		"| `app-17267` | `13762.791708..13763.024898` | `12` | `96.081ms` | `2075000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof)` | `absent` | `not_comparable_missing_same_cpu_pair` |",
+		"| `app-17267` | `13762.791708..13763.024898` | `12` | `96.081ms` | `2075000kHz(CPU-owned running-bucket representative; not target-slice/policy overlap proof)` | `not_paired_in_same_result` | `not_comparable_missing_same_cpu_pair` |",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("frequency guidance missing %q:\n%s", want, got)
@@ -112,7 +137,7 @@ func TestRuntimeTraceGuidanceCarriesDirectFrequencyLimitWitnesses(t *testing.T) 
 
 func TestRuntimeTraceFrequencyCPUJoinEscapesMarkdownCellSeparators(t *testing.T) {
 	mut := types.NewMutableState("bounded runtime frequency")
-	mut.AppendDispatchToolResult(types.ToolResult{
+	mut.AppendDispatchToolResult(runtimeFrequencyReceiptFixture(types.ToolResult{
 		ToolName: "trace_query", Success: true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{FrequencyLimitWitnesses: []types.TraceFrequencyLimitAuthority{{
 			CPU: 4, MinFrequencyKHz: 500000, MaxFrequencyKHz: 2000000, LimitRowCount: 1,
@@ -125,7 +150,7 @@ func TestRuntimeTraceFrequencyCPUJoinEscapesMarkdownCellSeparators(t *testing.T)
 				RichNotes: []string{types.TraceNoteKeySelectedWindow + "=1.000000..2.000000", types.TraceNoteKeyTargetCPURunningCPU + "=4", types.TraceNoteKeyTargetCPURunningRosterStatus + "=complete"},
 			},
 		},
-	})
+	}))
 	got := renderAnswerDocRuntimeTraceAnswerGuidance(&types.AgentContext{Mutable: mut})
 	if !strings.Contains(got, "`app¦worker`") || strings.Contains(got, "`app|worker`") {
 		t.Fatalf("matrix cell did not escape markdown separator:\n%s", got)

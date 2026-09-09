@@ -26,6 +26,13 @@ func TestB1630PolicySystemCaveatPublishedTotalAndSelectedSampleAreSeparate(t *te
 		for _, reverse := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/reverse=%t", lang, reverse), func(t *testing.T) {
 				witnesses := b1630PolicyWitnesses()
+				// The duplicate-publication premise now carries its actual same-
+				// result identity; unknown-source equality cannot prove a repeat.
+				for i := range witnesses {
+					witnesses[i].SourceRef = &types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact,
+						Path: "/captures/policy.ftrace", PayloadRef: "/results/policy.json", RawRef: "/results/policy.txt", QueryScopeID: "same-policy-query"}
+					witnesses[i].ObservedAt = "2026-09-09T03:00:00Z"
+				}
 				if reverse {
 					witnesses[0], witnesses[1] = witnesses[1], witnesses[0]
 				}

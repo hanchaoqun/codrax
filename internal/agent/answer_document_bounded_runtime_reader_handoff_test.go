@@ -16,7 +16,7 @@ func boundedRuntimeReaderHandoffTestContext() *types.AgentContext {
 		Path:       "/tmp/h4.ftrace",
 	}
 	mut := types.NewMutableState("查询显式窗口内线程状态与频率")
-	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{runtimeFrequencyReceiptFixture(types.ToolResult{
 		ToolName: "trace_query",
 		Success:  true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
@@ -68,7 +68,7 @@ func boundedRuntimeReaderHandoffTestContext() *types.AgentContext {
 				},
 			},
 		},
-	}}})
+	})}})
 	return &types.AgentContext{
 		Language: "zh",
 		Mutable:  mut,

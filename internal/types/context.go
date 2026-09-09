@@ -7847,6 +7847,11 @@ type TraceFrequencyLimitAuthority struct {
 	WindowStartTs   float64 `json:"window_start_ts,omitempty"`
 	WindowEndTs     float64 `json:"window_end_ts,omitempty"`
 	Authority       string  `json:"authority,omitempty"`
+	// SourceRef and ObservedAt are frozen producer receipts, not a thread
+	// identity. Legacy witnesses without them remain readable but cannot be
+	// joined to another result's target CPU observations.
+	SourceRef  *ObservationSourceRef `json:"source_ref,omitempty"`
+	ObservedAt string                `json:"observed_at,omitempty"`
 }
 
 type TraceLifecycleBoundaryAuthority struct {

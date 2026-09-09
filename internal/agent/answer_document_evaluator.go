@@ -14012,6 +14012,10 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 					witness.WindowEndTs,
 					witness.Authority,
 				)
+				fmt.Fprintf(&b, " source=`%s`", answerDocRuntimeFrequencyJoinCell(answerDocFrequencyWitnessSource(witness)))
+				if types.TraceFrequencyLimitSourceKey(witness) == "" {
+					b.WriteString("; source/query-result receipt incomplete: retain as an independent observation, not a cross-record pair")
+				}
 				b.WriteByte('\n')
 			}
 			b.WriteString(renderAnswerDocRuntimeFrequencyCPUJoin(ctx, view.FrequencyLimitWitnesses))
@@ -14102,154 +14106,32 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 // identities. It does not inspect answer prose, infer frequency overlap, or
 // decide whether a policy constrained the target.
 func renderAnswerDocRuntimeFrequencyCPUJoin(ctx *types.AgentContext, witnesses []types.TraceFrequencyLimitAuthority) string {
-	if ctx == nil || len(witnesses) == 0 {
+	rows := answerDocFrequencySourceJoinRows(ctx, witnesses)
+	if len(rows) == 0 {
 		return ""
 	}
-	type targetCPURow struct {
-		running string
-		unit    string
-	}
-	type targetWindowKey struct {
-		subject string
-		window  string
-	}
-	type targetCPUFrequencyRows map[int]map[int64]bool
-	policyByWindow := make(map[string]map[int]types.TraceFrequencyLimitAuthority)
-	for _, witness := range witnesses {
-		if witness.CPU < 0 {
-			continue
-		}
-		window := fmt.Sprintf("%.6f..%.6f", witness.WindowStartTs, witness.WindowEndTs)
-		if policyByWindow[window] == nil {
-			policyByWindow[window] = make(map[int]types.TraceFrequencyLimitAuthority)
-		}
-		if _, exists := policyByWindow[window][witness.CPU]; !exists {
-			policyByWindow[window][witness.CPU] = witness
-		}
-	}
-	targets := make(map[targetWindowKey]map[int]targetCPURow)
-	rosterByTargetWindow := make(map[targetWindowKey]string)
-	frequenciesByTargetWindow := make(map[targetWindowKey]targetCPUFrequencyRows)
-	for _, record := range answerDocObservationLedger(ctx).Records {
-		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
-			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
-			continue
-		}
-		subject := strings.TrimSpace(record.Subject)
-		if subject == "" {
-			continue
-		}
-		window := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeySelectedWindow))
-		if window == "" || policyByWindow[window] == nil {
-			// A target CPU row from another exploratory window must never be
-			// joined to this policy witness. Missing window identity fails open.
-			continue
-		}
-		cpuText := ""
-		switch record.Predicate {
-		case "target_cpu_running":
-			cpuText = strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningCPU))
-			if cpuText == "" && strings.HasPrefix(strings.TrimSpace(record.Object), "cpu=") {
-				cpuText = strings.TrimPrefix(strings.TrimSpace(record.Object), "cpu=")
-			}
-		case "running_time":
-			// top_running is already a typed target+CPU running bucket. Its
-			// frequency is CPU-owned representative context, not a
-			// target-slice-to-policy overlap credential. Keeping it on the
-			// identical subject/window/CPU key prevents a representative from
-			// one CPU being compared with another CPU's policy row.
-			cpuText = strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, "cpu"))
-		default:
-			continue
-		}
-		cpu, err := strconv.Atoi(cpuText)
-		if err != nil || cpu < 0 {
-			continue
-		}
-		key := targetWindowKey{subject: subject, window: window}
-		if record.Predicate == "running_time" {
-			freqText := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, "freq"))
-			freq, err := strconv.ParseInt(freqText, 10, 64)
-			if err != nil || freq <= 0 {
-				continue
-			}
-			if frequenciesByTargetWindow[key] == nil {
-				frequenciesByTargetWindow[key] = make(targetCPUFrequencyRows)
-			}
-			if frequenciesByTargetWindow[key][cpu] == nil {
-				frequenciesByTargetWindow[key][cpu] = make(map[int64]bool)
-			}
-			frequenciesByTargetWindow[key][cpu][freq] = true
-			continue
-		}
-		if targets[key] == nil {
-			targets[key] = make(map[int]targetCPURow)
-		}
-		roster := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningRosterStatus))
-		targets[key][cpu] = targetCPURow{
-			running: strings.TrimSpace(record.Value),
-			unit:    strings.TrimSpace(record.Unit),
-		}
-		if roster != "" {
-			rosterByTargetWindow[key] = roster
-		}
-	}
-	if len(targets) == 0 {
-		return ""
-	}
-	keys := make([]targetWindowKey, 0, len(targets))
-	for key := range targets {
-		keys = append(keys, key)
-	}
-	sort.SliceStable(keys, func(i, j int) bool {
-		if keys[i].subject != keys[j].subject {
-			return keys[i].subject < keys[j].subject
-		}
-		return keys[i].window < keys[j].window
-	})
 	var b strings.Builder
 	b.WriteString("- Runtime target/CPU policy comparison matrix (typed identity alignment only; the model still owns the restriction verdict):\n")
-	b.WriteString("  - Read one row at a time. Every frequency and policy value is owned by that row's exact CPU; never compare, copy, or combine values across rows.\n")
-	b.WriteString("  - `target_effect_unproven_no_slice_binding` means the same CPU has both target-running and policy evidence, but no target-slice binding proves performance impact. `not_comparable_missing_same_cpu_pair` means that CPU lacks one side of the pair.\n")
-	b.WriteString("\n")
-	b.WriteString("  | target | window | CPU | target running | same-CPU representative frequency | same-CPU policy | comparison authority |\n")
-	b.WriteString("  |---|---|---:|---:|---:|---|---|\n")
-	for _, key := range keys {
-		policyByCPU := policyByWindow[key.window]
-		cpuSet := make(map[int]bool, len(targets[key])+len(policyByCPU))
-		for cpu := range targets[key] {
-			cpuSet[cpu] = true
+	b.WriteString("  - Read one row at a time. Every frequency and policy value is owned by that row's exact CPU; never compare, copy, or combine values across rows. Rows also require the same capture, query result, target, and query range; independent or unknown sources are not pairs.\n")
+	b.WriteString("  - `target_effect_unproven_no_slice_binding` means the same result has both target-running and policy evidence on this CPU, but no target-slice binding proves performance impact. `not_comparable_missing_same_cpu_pair` means this source lacks one side of the pair; `not_comparable_ambiguous_source_rows` preserves conflicting source-local records without choosing a winner. Preview omission is not evidence of policy absence.\n\n")
+	b.WriteString("  | target | window | CPU | target running | same-CPU representative frequency | same-CPU policy | comparison authority | source |\n")
+	b.WriteString("  |---|---|---:|---:|---:|---|---|---|\n")
+	for _, row := range rows {
+		targetRunning := "not_observed_in_emitted_roster"
+		if !row.targetObserved && row.rosterComplete {
+			targetRunning = "absent_in_complete_roster"
+		} else if row.targetObserved {
+			targetRunning = row.running + row.unit
 		}
-		for cpu := range policyByCPU {
-			cpuSet[cpu] = true
+		policyText := "not_paired_in_same_result"
+		if policy := row.policy; policy != nil {
+			policyText = fmt.Sprintf("present:min=%dkHz,max=%dkHz,rows=%d (one lowest-positive-ceiling record; rows count valid same-CPU/query records)", policy.MinFrequencyKHz, policy.MaxFrequencyKHz, policy.LimitRowCount)
+		} else if row.policyStatus != "not_observed_in_same_result" {
+			policyText = row.policyStatus
 		}
-		cpus := make([]int, 0, len(cpuSet))
-		for cpu := range cpuSet {
-			cpus = append(cpus, cpu)
-		}
-		sort.Ints(cpus)
-		for _, cpu := range cpus {
-			targetRow, targetObserved := targets[key][cpu]
-			policy, policyObserved := policyByCPU[cpu]
-			targetRunning := "not_observed_in_emitted_roster"
-			if !targetObserved && strings.EqualFold(rosterByTargetWindow[key], "complete") {
-				targetRunning = "absent_in_complete_roster"
-			} else if targetObserved {
-				targetRunning = targetRow.running + targetRow.unit
-			}
-			policyText := "absent"
-			if policyObserved {
-				policyText = fmt.Sprintf("present:min=%dkHz,max=%dkHz,rows=%d (one lowest-positive-ceiling record; rows count valid same-CPU/query records)", policy.MinFrequencyKHz, policy.MaxFrequencyKHz, policy.LimitRowCount)
-			}
-			binding := "target_effect_unproven_no_slice_binding"
-			if !targetObserved || !policyObserved {
-				binding = "not_comparable_missing_same_cpu_pair"
-			}
-			frequencyText := answerDocTargetCPUFrequencyText(frequenciesByTargetWindow[key][cpu])
-			fmt.Fprintf(&b, "  | `%s` | `%s` | `%d` | `%s` | `%s` | `%s` | `%s` |\n",
-				answerDocRuntimeFrequencyJoinCell(key.subject), answerDocRuntimeFrequencyJoinCell(key.window),
-				cpu, targetRunning, frequencyText, policyText, binding)
-		}
+		fmt.Fprintf(&b, "  | `%s` | `%s` | `%d` | `%s` | `%s` | `%s` | `%s` | `%s` |\n",
+			answerDocRuntimeFrequencyJoinCell(row.subject), answerDocRuntimeFrequencyJoinCell(row.window), row.cpu,
+			targetRunning, answerDocTargetCPUFrequencyText(row.frequencies), policyText, row.binding, answerDocRuntimeFrequencyJoinCell(row.source))
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -14639,34 +14521,12 @@ func answerDocDedupRuntimeTraceFrameMeasurements(in []runtimeTraceFrameMeasureme
 }
 
 func answerDocDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuthority, limit int) []types.TraceFrequencyLimitAuthority {
-	if len(in) == 0 {
-		return nil
+	// Preserve this wrapper's legacy non-positive unlimited budget while
+	// sharing receipt-aware equality with the producer and reader caveat.
+	if limit <= 0 {
+		limit = len(in)
 	}
-	out := make([]types.TraceFrequencyLimitAuthority, 0, len(in))
-	seen := map[string]bool{}
-	for _, witness := range in {
-		key := fmt.Sprintf(
-			"%d/%d/%d/%d/%d/%.9f/%.9f/%.9f/%s",
-			witness.CPU,
-			witness.MinFrequencyKHz,
-			witness.MaxFrequencyKHz,
-			witness.LimitRowCount,
-			witness.WitnessLine,
-			witness.WitnessTs,
-			witness.WindowStartTs,
-			witness.WindowEndTs,
-			strings.TrimSpace(witness.Authority),
-		)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, witness)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
-	}
-	return out
+	return types.DedupTraceFrequencyLimitAuthorities(in, limit)
 }
 
 func answerDocRuntimeTraceGuidanceRecord(record types.ObservationRecord) bool {

@@ -57380,6 +57380,32 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1707 B1631：频率策略与目标 CPU 的结果来源隔离（2026-09-09）
+
+起点`main=7d3e0b423`，fetch确认远端同值，没有需要覆盖的本地修改。B1631由静态待证升级为**真实入口已复现P1**：两个不同目录同名捕获，以及同一捕获/同窗的两组不同行过滤查询，分别真实Execute→Dispatch→ledger→BuildInitialInstruction。原查询数值、CPU及行坐标正确，两个成文关联出口却都把后一个结果的运行时长配到前一个结果的策略；反序后错误随之反转。有效红日志`.codrax/tmp/20260908-b1631-real-entry-both-joins-red.log`（四格、双出口）；tool source缺失红日志`.../20260909-b1631-tool-source-red.log`。不是以手工错造数据替代生产复现。
+
+**范围与方案**：CPU policy不是线程事实，禁止伪造Subject复用目标账户接口。只增producer-only来源：完整Path/payload/raw、执行时刻、逻辑子结果/实际过滤范围标识；自动选窗共父payload必须保留不同child身份。先同结果再核窗/CPU，两处成文关联共源；旧无receipt仍独立展示、不参与目标关联；完整同源同值才去重，矛盾不首胜，展示cap不能证明唯一/缺失。preflight只补捕获身份时不误拒，双方已知捕获冲突仍拒绝；不以basename、相近时刻、模型原文或观察ID解析构造关系。
+
+- [x] 真实入口四格双出口有效RED；另补同父payload不同child、冲突/旧unknown的成文入口RED。
+- [x] 来源共享类型/匹配/去重/防指针别名单测；QueryScopeID是内部输出元数据，不增模型必填schema。
+- [x] 全部真实query成功出口、自动子窗、三处去重、双成文入口和系统policy附注接线，旧正向fixture补明确同结果来源，不弱化原值/绑定边界。
+- [x] JSON、memo/dispatch/TurnA/fork/merge/reset、只读消费不变性；三席独立交叉review无剩余阻断。types/tracediag完整包通过30.947s/5.769s；最终冻结版本全仓86包通过，完整首轮红与复验记录见下。
+- [ ] 小批提交推送、clean build后r1045严格两路：H4显式窗频率/状态读（直接验证B1630c与本批），Python cooperative MRO读（距r1037八批、异构关系/顺序/业务说明）。刚完成r1042 Python写及r1044 C++写，本批不重复C++同题求绿；后续仍轮换真实apply/verify。case/oracle/fixture不改。
+
+数值聚合、代表tuple选择、排名/折算、因果权限、原模型正文/图均不改；Trace精确窗、投影/补齐及链上两轴保留。bundle整体捕获身份不改成代表行child身份，WitnessLine沿用原虚拟行口径；本批不冒充新增物理子文件/本地行展示已交付。其他开放项B1624b纯导航谱系、B1629b范围、B1626多请求成员窗、B1622次数/分组、B1616b/B1561验证证明继续在账。
+
+**联调补全与过程证据**：交叉审计发现normal/stream两个full-artifact coverage行在typedObservations外单独追加，最初漏QueryScopeID，导致新同结果匹配拒绝真实coverage→wait requested-principal；有效红`.../20260909-b1631-tool-fullscope-red.log`，已与普通/自动子窗复用同一producer scope工厂，不放宽matcher。另因StoreBlobArtifact是内容地址、ObservedAt按秒，scope不只加行过滤：完整提交Query的JSON SHA256参与标识，避免异Pattern/TargetScope等过滤偶然同结果同秒被合并；有效红`.../20260909-b1631-query-identity-red.log`。Query编码失败只保unknown，现有Observation ID不变，逻辑标识不打印到用户附注。物理来源定位保留，JSON教学无新增必填项。
+
+成文新10族及相关旧针count3通过1.223s，race3通过3.221s；root实际Execute→两个prompt出口及types/旧frequency/B1630c交叉count3为0.802s/1.221s。target冲突中ledger补ToolCallID导致组分开，最终保留原两结果反序针，增加跨兼容组的同目标/CPU事实冲突检查；没有改成弱针求绿。clock元数据不同的同值policy保守独立并披露不配对，不默默合值。来源descriptor/dedup深拷贝clock指针race3通过1.927s；完整handoff族count3/race通过0.669s/1.796s。最初full-artifact principal测试缺SourceQuote为测试前提错误，补齐合法typed profile后才作principal正向见证，不算产品红。
+
+活跃HTTP/SSE五族count3通过25.202s、agent跨fallback预算保护count3通过1.274s，日志`.../20260909-b1631-{active-stream,agent-stream}.log`：隐藏推理/工具流/可见进展/heartbeat持续活跃不因4ms或旧4m无最终正文降级，真实停滞仍结束；未新增按本case计时特判。全仓日志`.../20260909-b1631-full-suite.log`，运行中只更新本账本。
+
+tool最终冻结count3/race3为1.356s/3.885s，含全部query参数hash与normal/stream覆盖接线；root在最终producer上真实四格双出口count3通过10.581s（与全仓并发的测试负载，不作为性能基准）。各红日志中的临时编译/测试前提错误不计产品首红，只有先验证原始测量/合法profile后观察到的来源错误才立案。
+
+首轮全仓并未全绿：85包通过，tool仅B1630旧系统附注重复发布测试失败（321.120s），该fixture无来源却要求自动合并。root只在此正向测试内部补齐“同结果重复发布”的来源前提，保原计数/tuple/坐标/模型原块不变/idempotence断言；共享b1630 factory不改、B1631 unknown负针不删，未改生产代码或退回数值去重。`TestB1630PolicySystem|TestB1631` count3通过1.441s；最终完整`go test ./... -count=1`重新执行于`.../20260909-b1631-full-suite-final.log`，首轮红日志保留，不冒称首次全绿。
+
+最终全仓退出0，86测试包通过：agent78.546s/tool320.786s/tracequery106.530s/tracediag12.205s/types42.791s。复验期间生产/测试全冻结，只更新账本；唯一旧fixture前提更正经独立只读复核。`git diff --check`通过、fetch后main与origin/main同值。B1631状态=`implemented/actual-entry-red-green/full-suite-green/independent-reviewed/delivered-with-this-commit/pending-r1045-live`，本提交不含case/oracle/fixture改动；剩余设计债不据此销账。
+
 ### §123.1706 r1044：异构读写复验与来源隔离后续批次（2026-09-08）
 
 B1630c已以`cf5dc8596`提交推送；clean binary built 2026-09-09T03:35:26Z、revision cf5dc859694a。全部16文件在86包全测及独立review/race后提交，未混入case/oracle变更。r1044于20:36:10严格两路启动，Rust读146s、C++写119s，机器2/2；人工Rust fail、C++在已测平台范围pass，完整报告`eval/parallel_selected_summary_evalcampaign_rust_nlohmann_r1044_20260908{,_manual_audit}.md`。没有第三路live。

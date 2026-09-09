@@ -144,13 +144,10 @@ func runtimeTraceFrequencyEvidenceLabel(token string, zh bool) string {
 }
 
 func runtimeTraceDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuthority, limit int) []types.TraceFrequencyLimitAuthority {
-	if len(in) == 0 {
-		return nil
-	}
-	byKey := map[string]types.TraceFrequencyLimitAuthority{}
-	var keys []string
-	for _, witness := range in {
-		key := fmt.Sprintf(
+	// Preserve this surface's historical lexical value ordering, but delegate
+	// identity/deduplication to the same source-aware compiler as the prompt.
+	key := func(witness types.TraceFrequencyLimitAuthority) string {
+		return fmt.Sprintf(
 			"%d/%d/%d/%d/%d/%.9f/%.9f/%.9f/%s",
 			witness.CPU,
 			witness.MinFrequencyKHz,
@@ -162,21 +159,10 @@ func runtimeTraceDedupFrequencyLimitWitnesses(in []types.TraceFrequencyLimitAuth
 			witness.WindowEndTs,
 			strings.TrimSpace(witness.Authority),
 		)
-		if _, ok := byKey[key]; ok {
-			continue
-		}
-		byKey[key] = witness
-		keys = append(keys, key)
 	}
-	sort.Strings(keys)
-	if limit > 0 && len(keys) > limit {
-		keys = keys[:limit]
-	}
-	out := make([]types.TraceFrequencyLimitAuthority, 0, len(keys))
-	for _, key := range keys {
-		out = append(out, byKey[key])
-	}
-	return out
+	ordered := append([]types.TraceFrequencyLimitAuthority(nil), in...)
+	sort.SliceStable(ordered, func(i, j int) bool { return key(ordered[i]) < key(ordered[j]) })
+	return types.DedupTraceFrequencyLimitAuthorities(ordered, limit)
 }
 
 func runtimeTraceFrequencyLimitWitnessRoster(in []types.TraceFrequencyLimitAuthority, zh bool) string {
@@ -187,29 +173,53 @@ func runtimeTraceFrequencyLimitWitnessRoster(in []types.TraceFrequencyLimitAutho
 	}
 	for _, witness := range in {
 		observation := types.FormatTraceFrequencyLimitRecordObservation(witness, lang)
+		source := runtimeTraceFrequencyWitnessSource(witness, zh)
 		if zh {
 			rows = append(rows, fmt.Sprintf(
-				"CPU%d %s（样例行%d@%.6fs，窗口%.6f..%.6f）",
+				"CPU%d %s（样例行%d@%.6fs，窗口%.6f..%.6f；%s）",
 				witness.CPU,
 				observation,
 				witness.WitnessLine,
 				witness.WitnessTs,
 				witness.WindowStartTs,
 				witness.WindowEndTs,
+				source,
 			))
 		} else {
 			rows = append(rows, fmt.Sprintf(
-				"CPU%d %s (sample line %d at %.6fs, window %.6f..%.6f)",
+				"CPU%d %s (sample line %d at %.6fs, window %.6f..%.6f; %s)",
 				witness.CPU,
 				observation,
 				witness.WitnessLine,
 				witness.WitnessTs,
 				witness.WindowStartTs,
 				witness.WindowEndTs,
+				source,
 			))
 		}
 	}
 	return strings.Join(rows, "；")
+}
+
+func runtimeTraceFrequencyWitnessSource(witness types.TraceFrequencyLimitAuthority, zh bool) string {
+	if types.TraceFrequencyLimitSourceKey(witness) == "" {
+		if zh {
+			return "来源未完整记录，不能与其他记录关联"
+		}
+		return "source incompletely recorded; cannot associate with other records"
+	}
+	ref := witness.SourceRef
+	result := ref.PayloadRef
+	if result == "" {
+		result = ref.RawRef
+	}
+	// %q keeps producer paths and result locators on one display line. The
+	// witness line remains the engine coordinate (virtual for a bundle), not
+	// a newly inferred physical-child line.
+	if zh {
+		return fmt.Sprintf("捕获 %q，独立查询结果 %q", ref.Path, result)
+	}
+	return fmt.Sprintf("capture %q, independent query result %q", ref.Path, result)
 }
 
 // materializeRuntimeTraceVsyncAuthorityCaveat — GAP-B3 (§13.3, 2026-07-25):

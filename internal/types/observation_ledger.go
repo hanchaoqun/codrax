@@ -84,6 +84,10 @@ type ObservationSourceRef struct {
 	// grouped as one capture without rewriting either locator. It is minted
 	// only from run-entry RuntimeArtifactPreflight provenance.
 	CaptureIdentityPath string `json:"capture_identity_path,omitempty"`
+	// QueryScopeID identifies a producer-owned logical result within a payload
+	// (including query filters and auto-window children). It is not inferred
+	// from observation IDs, display labels, or model prose.
+	QueryScopeID string `json:"query_scope_id,omitempty"`
 }
 
 // ObservationSpan locates the observation inside SourceRef when that source has
