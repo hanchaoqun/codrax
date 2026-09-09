@@ -654,6 +654,7 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 		return Report{}
 	}
 	originalLine := it.LineStart
+	originalLineEnd := it.LineEnd
 
 	// Canonicalise Source up-front so every tier's LineIndex /
 	// FileIndex / SymbolsInFile lookup on `it.Source` lands on the
@@ -670,6 +671,7 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 		candidate.LineStart = matchedLine
 		if lineShapeCorroboratesTypedAnchor(&candidate, gc) {
 			it.LineStart = matchedLine
+			syncGroundedPointLineEnd(it, originalLine, originalLineEnd)
 			attachGroundedLineSnippet(it, gc)
 			it.GroundingStatus = types.GroundingGrounded
 			it.GroundingTier = types.TierLineText
@@ -682,6 +684,7 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 
 	// Tier 2: symbol_table via repomap dispatch.
 	if tier2SymbolTable(it, gc) {
+		syncGroundedPointLineEnd(it, originalLine, originalLineEnd)
 		attachGroundedLineSnippet(it, gc)
 		it.GroundingStatus = types.GroundingGrounded
 		it.GroundingTier = types.TierSymbolTable
@@ -719,6 +722,7 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 			it.Source = candidate.Source
 			it.LineStart = candidate.LineStart
 			it.LineEnd = candidate.LineEnd
+			syncGroundedPointLineEnd(it, originalLine, originalLineEnd)
 			it.AnchorSymbol = candidate.AnchorSymbol
 			attachGroundedLineSnippet(it, gc)
 			it.GroundingStatus = types.GroundingRecovered
@@ -747,6 +751,19 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 		ItemID: it.ID, Status: it.GroundingStatus,
 		OriginalLine: originalLine, AdjustedLine: it.LineStart,
 		Note: it.GroundingNote,
+	}
+}
+
+// syncGroundedPointLineEnd keeps an explicitly single-line citation a point
+// after an existing grounding tier accepts its actual location. Moving only
+// the start otherwise inverts a forward relocation or stretches a backward
+// relocation into an unsupported range. An omitted end remains omitted;
+// genuine multi-line carriers (including bounded precedence) retain their
+// existing scope-specific validation; this synchronization does not translate
+// or collapse them.
+func syncGroundedPointLineEnd(it *types.EvidenceItem, originalStart, originalEnd int) {
+	if originalStart > 0 && originalEnd == originalStart && it.LineStart > 0 {
+		it.LineEnd = it.LineStart
 	}
 }
 

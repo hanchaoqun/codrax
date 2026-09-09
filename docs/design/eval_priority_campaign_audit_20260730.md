@@ -57380,6 +57380,20 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1703 B1629：已准许单点重定位的终点一致性（2026-09-08）
+
+r1043审计已先提交推送 `4e2aba17c`；本小批只处理ground坐标，不调整parser、证据形式、强弱资格、模型说明或原引用的来源选择。
+
+- 在T1已读文本、T2符号表与R1–R5恢复的**成功提交出口**共用单点同步：原LineStart>0且原LineEnd==LineStart，终点跟随已准许的新起点；不会在定位前修形再制造通过。原end=0保持未声明终点，定位失败不改；真正multi-line/line_range/precedence保持原范围规则，不平移宽度、不点化，不把Java注解行也加入class证明。
+- 两份独立有效RED：`.codrax/tmp/20260908-b1629-ground-point-red-verified.log` 和 `...-actual-entry-red-verified.log`，后者真实ParseFiles→BuildGraph→ReadFile→EmitEvidence，三项8–7/10–9/14–13均以正确定位前提失败。最初ground fixture相对路径错误、入口测试将正常auto_pair companion计入单条断言，均属于测试前提问题，不计有效RED；分别纠正后才留上述产品红。
+- 新测试覆盖真实Java三项、T1与R1–R5双方向×显式/省略end、T2声明归一、零起点/无移动/失败、跨文件恢复、范围内外anchor、legacy line与line_range precedence正控。独立实际入口同时固定Source/Subject/Summary/Scope/AnchorDefinition及单行snippet未扩权，原fixture和模型payload不改。坐标数学共享，不宣称跑了15种语言编译器。
+- 冻结源码仅 `ground.go` +17行，ground新5族和独立index入口1族。ground全包及新族race×3通过；root入口count3通过。独立末审确认没有资格/范围/说明改变。共享全仓与最终增补测试验收结果将在完成后补记。
+- **保留边界债B1629b**：旧非point recovery的clamp/前移可能保留更大范围，是独立范围语义设计债；本次没有按一个单点witness改整个兼容合同，不能称所有非单点重定位均已审完。历史快照/已生成答案也不重写。
+
+完整 `go test ./... -count=1` 退出0，86测试包通过，日志 `.codrax/tmp/20260908-b1629-b1630-full-suite.log`，包含独立的B1630a/b上下文修复工作树；不存在两组间代码依赖。全仓启动后ground测试仅补零起点正断言，生产代码未动，最终两包另完整复验 `...-b1629-final-ground-index.log`（ground0.414s/index1.307s，退出0），不把较早测试快照冒充新增断言覆盖。实际入口count3、ground最终全包8.880s及新族race×3 10.907s均绿。四项活跃流/4ms分帧/调用方取消专项count3亦退出0（agent1.140s/llm5.338s），不新增无最终正文年龄门。
+
+状态：`B1629=implemented/independent-actual-entry-red-green/86-packages-green+final-ground-index+race/delivered-with-this-commit/pending-new-live`。Trace查询/因果投影/自动补齐及模型图/正文不变；不扫描用户或模型prose设硬门。
+
 ### §123.1702 r1043 异构回放与 B1629/B1630 精确信息边界（2026-09-08）
 
 B1620 已提交推送 `20507fcde`（24文件，主要为泛化回归）；clean build=2026-09-09T02:10:48Z，revision20507fcdeb1b。此前86包完整全测、独立race及活跃流专项通过记录见§1701。端口22连接关闭后，仅本次git命令使用已有github.com主机信任经SSH443推送；未改用户连接配置或降低host-key验证。
