@@ -63,7 +63,34 @@ type EnumerationDisplayRow struct {
 	EvidenceOrigins     []AnswerEvidenceOrigin
 	Attributes          []EnumerationDisplayRowAttribute
 	Note                string
-	Detail              string
+	// NoteParts keep explanatory text separate from the row's declaration
+	// identity. A cited operation supports its ClaimForm, not every assertion
+	// made by a model-authored summary at the same location.
+	NoteParts             []EnumerationDisplayNotePart
+	CandidateAttributes   []EnumerationDisplayRowAttribute
+	CandidateSurfaceTerms []string
+	Detail                string
+}
+
+type EnumerationDisplayNoteOrigin string
+
+const (
+	EnumerationDisplayNoteAggregate EnumerationDisplayNoteOrigin = "aggregate_member_note"
+	EnumerationDisplayNoteEvidence  EnumerationDisplayNoteOrigin = "evidence_summary"
+	EnumerationDisplayNoteAnchor    EnumerationDisplayNoteOrigin = "anchor_summary"
+	EnumerationDisplayNoteStep      EnumerationDisplayNoteOrigin = "answer_step"
+)
+
+// EnumerationDisplayNotePart preserves the provenance of one explanation.
+// Origin is attribution, not a permission or an independent proof stamp.
+// SupportRef/ClaimForm describe the supporting source's scope only; missing
+// support remains unknown. This is system-projected metadata, not emit JSON.
+type EnumerationDisplayNotePart struct {
+	Text       string
+	Origin     EnumerationDisplayNoteOrigin
+	EvidenceID string
+	ClaimForm  ClaimForm
+	SupportRef string
 }
 
 // EnumerationDisplayRowAttribute is a typed row-local dimension carried from
@@ -359,8 +386,17 @@ func compileEnumerationDisplayRow(
 		display = strings.TrimSpace(entry.Text)
 	}
 	note := ""
+	var noteParts []EnumerationDisplayNotePart
 	if ev, found := enumerationDisplayEvidenceForEntry(member, entry, support); found {
 		note = enumerationDisplayEvidenceNote(ev)
+		if note != "" {
+			form := ClaimUnknown
+			if !EvidenceIsDerivationCandidate(ev) && (ev.GroundingStatus == GroundingGrounded || ev.GroundingStatus == GroundingRecovered) {
+				form = ClaimFormOf(ev)
+			}
+			noteParts = append(noteParts, EnumerationDisplayNotePart{Text: note, Origin: EnumerationDisplayNoteEvidence,
+				EvidenceID: ev.ID, ClaimForm: form, SupportRef: aggregateSupportLocationKeyForDisplay(ev.Source, ev.LineStart)})
+		}
 	}
 	location := strings.TrimSpace(entry.Location)
 	row := EnumerationDisplayRow{
@@ -387,33 +423,34 @@ func compileEnumerationDisplayRow(
 		OwnerSymbol:   entry.OwnerSymbol,
 		MemberSurface: entry.MemberSurface,
 		AnchorKind:    entry.AnchorKind,
-		SurfaceTerms: dedupeAggregateMemberTerms(append(
-			append(append([]string(nil), entry.SurfaceTerms...), enumerationDisplayMemberNoteSurfaceTerms(memberNote)...),
-			sourceInventoryAttributes.surfaceTermsFor(member, entry)...,
-		)),
+		SurfaceTerms: dedupeAggregateMemberTerms(append(append([]string(nil), entry.SurfaceTerms...),
+			sourceInventoryAttributes.surfaceTermsFor(member, entry)...)),
 		EquivalentLocations: append([]string(nil), entry.EquivalentLocations...),
 		Producer:            entry.Producer,
 		GroundingTier:       entry.GroundingTier,
 		EvidenceOrigins:     cloneEnumerationDisplayOrigins(set.EvidenceOrigins),
 		Attributes: mergeEnumerationDisplayRowAttributes(
-			mergeEnumerationDisplayRowAttributes(
-				sourceInventoryAttributes.attributesFor(member, entry),
-				enumerationDisplayAggregateMemberAttributes(member, memberNote, entry),
-			),
+			sourceInventoryAttributes.attributesFor(member, entry),
 			declarationAttributes.attributesFor(entry),
 		),
-		Note:   note,
-		Detail: enumerationDisplayDetail(entry.Detail, note),
+		CandidateAttributes:   enumerationDisplayAggregateMemberAttributes(member, memberNote),
+		CandidateSurfaceTerms: enumerationDisplayMemberNoteSurfaceTerms(memberNote),
+		NoteParts:             noteParts,
+		Note:                  note,
+		Detail:                enumerationDisplayDetail(entry.Detail, note),
 	}
 	if anchorNote := enumerationDisplayAnchorSummaryNoteForRow(row, anchorSummaries); anchorNote != "" {
+		row.NoteParts = append(row.NoteParts, EnumerationDisplayNotePart{Text: anchorNote, Origin: EnumerationDisplayNoteAnchor, ClaimForm: ClaimUnknown, SupportRef: location})
 		row.Note = MergeEvidenceSummaries(row.Note, anchorNote)
 		row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	}
 	if stepNote := enumerationDisplayStepBackboneNoteForRow(row, stepSupport); stepNote != "" {
+		row.NoteParts = append(row.NoteParts, EnumerationDisplayNotePart{Text: stepNote, Origin: EnumerationDisplayNoteStep, ClaimForm: ClaimUnknown, SupportRef: location})
 		row.Note = MergeEvidenceSummaries(row.Note, stepNote)
 		row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	}
 	if memberNote != "" {
+		row.NoteParts = append(row.NoteParts, EnumerationDisplayNotePart{Text: memberNote, Origin: EnumerationDisplayNoteAggregate, ClaimForm: ClaimUnknown, SupportRef: location})
 		row.Note = MergeEvidenceSummaries(row.Note, memberNote)
 		row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	}
@@ -525,22 +562,16 @@ func enumerationDisplayMemberNoteSurfaceTerms(note string) []string {
 	return dedupeAggregateMemberTerms(out)
 }
 
-func enumerationDisplayAggregateMemberAttributes(member string, memberNote string, entry AnswerSupportEntry) []EnumerationDisplayRowAttribute {
+// Model-authored qualifiers remain useful candidates, but neither a matching
+// member name nor its declaration location proves the qualifier's value.
+func enumerationDisplayAggregateMemberAttributes(member string, memberNote string) []EnumerationDisplayRowAttribute {
 	_, qualifier, ok := AnswerAggregateDecoratedLabelParts(member)
 	if !ok {
 		qualifier = strings.TrimSpace(memberNote)
 	}
 	var out []EnumerationDisplayRowAttribute
 	add := func(role AnswerCandidateRole, name string) {
-		attr := EnumerationDisplayRowAttribute{
-			Role:   role,
-			Name:   name,
-			Source: strings.TrimSpace(entry.Source),
-			Line:   entry.LineStart,
-		}
-		if attr.Source != "" {
-			attr.Location = aggregateSupportLocationKeyForDisplay(attr.Source, attr.Line)
-		}
+		attr := EnumerationDisplayRowAttribute{Role: role, Name: name}
 		out = mergeEnumerationDisplayRowAttributes(out, []EnumerationDisplayRowAttribute{attr})
 	}
 	if role, name, ok := aggregateMemberAttributeQualifierFromDecorator(qualifier); ok {

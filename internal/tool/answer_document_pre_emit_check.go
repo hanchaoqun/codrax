@@ -7763,10 +7763,16 @@ func appendAggregateMemberSetCarrier(
 			citationRef = appendOrReusePreEmitCitation(doc, cit)
 		}
 		itemText := ""
-		if strings.TrimSpace(row.Note) != "" {
-			itemText = strings.TrimSpace(row.Note)
-		} else if ev, ok := evidenceForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
-			itemText = aggregateMemberSetEvidenceSummaryText(ev)
+		// Current-source references attest to the typed member facts, never
+		// to every proposition in a model summary. Do not copy a candidate
+		// explanation into the system voice, including via the fallback.
+		if principalEnumerationPrimaryOrigin(row) != types.AnswerEvidenceOriginCurrentSource ||
+			principalEnumerationRowHasOrigin(row, types.AnswerEvidenceOriginRuntimeArtifact) {
+			if strings.TrimSpace(row.Note) != "" {
+				itemText = strings.TrimSpace(row.Note)
+			} else if ev, ok := evidenceForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
+				itemText = aggregateMemberSetEvidenceSummaryText(ev)
+			}
 		}
 		itemLabel := aggregateMemberSetCarrierLabel(member)
 		if strings.TrimSpace(row.DisplayLabel) != "" {

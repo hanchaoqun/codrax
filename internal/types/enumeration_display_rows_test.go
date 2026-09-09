@@ -397,7 +397,7 @@ func TestCompileEnumerationDisplaySets_SourceInventoryRowAttributesPreservePacka
 	}
 }
 
-func TestCompileEnumerationDisplaySets_PreservesPackageAttributeFromAlignedMemberNotes(t *testing.T) {
+func TestCompileEnumerationDisplaySets_PreservesCandidatePackageFromAlignedMemberNotes(t *testing.T) {
 	rm := &RequestModel{
 		Intent:   IntentEnumerate,
 		Language: "zh",
@@ -435,10 +435,10 @@ func TestCompileEnumerationDisplaySets_PreservesPackageAttributeFromAlignedMembe
 	}
 	seen := map[string]string{}
 	for _, row := range sets[0].Rows {
-		if len(row.Attributes) != 1 {
-			t.Fatalf("row should carry one typed package attribute: %+v", row)
+		if len(row.Attributes) != 0 || len(row.CandidateAttributes) != 1 {
+			t.Fatalf("model note should carry one candidate, not a proved package attribute: %+v", row)
 		}
-		seen[normalizeAnswerSupportLocation(row.Location)] = row.Attributes[0].Name
+		seen[normalizeAnswerSupportLocation(row.Location)] = row.CandidateAttributes[0].Name
 	}
 	for loc, want := range map[string]string{
 		"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6":                  "demo.bridge",
@@ -812,7 +812,7 @@ func TestCompileEnumerationDisplaySets_PreservesSameLabelDistinctSourceLocations
 	}
 }
 
-func TestCompileEnumerationDisplaySets_PreservesDecoratedPackageAttributesWithoutSourceInventory(t *testing.T) {
+func TestCompileEnumerationDisplaySets_PreservesCandidateDecoratedPackageWithoutSourceInventory(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,
 		Predicates: SemanticPredicates{
@@ -852,7 +852,10 @@ func TestCompileEnumerationDisplaySets_PreservesDecoratedPackageAttributesWithou
 	}
 	byLocation := map[string][]EnumerationDisplayRowAttribute{}
 	for _, row := range sets[0].Rows {
-		byLocation[row.Location] = row.Attributes
+		if len(row.Attributes) != 0 {
+			t.Fatalf("decorated model label cannot mint a proved attribute: %+v", row)
+		}
+		byLocation[row.Location] = row.CandidateAttributes
 	}
 	for location, wantPackage := range map[string]string{
 		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6": "demo.ffi",

@@ -1966,6 +1966,9 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 			fmt.Fprintf(&b, " note=%s", logging.Truncate(note, toolHistoryObservationCheckpointNoteMaxLen))
 			break
 		}
+		if notes := types.FormatObservationModelNotes(record.ModelNotes); notes != "" {
+			fmt.Fprintf(&b, " %s", notes)
+		}
 		b.WriteByte('\n')
 		if written >= limit {
 			break

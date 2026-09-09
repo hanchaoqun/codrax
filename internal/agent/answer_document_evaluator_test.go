@@ -4419,12 +4419,12 @@ func TestRenderAnswerDocAggregateFacts_SourceOperationSiteCitationGuidance(t *te
 	}
 
 	contract := renderAnswerDocPrincipalMemberSetContract(ctx)
-	if !strings.Contains(contract, "source operation-site set") ||
+	if !strings.Contains(contract, "source member/site set") ||
 		!strings.Contains(contract, "must not replace the citation for the function/call/write site") {
 		t.Fatalf("source operation-site principal contract missing citation guidance:\n%s", contract)
 	}
 	prompt := renderAnswerDocAggregateFacts(ctx)
-	if !strings.Contains(prompt, "Source operation-site contract") ||
+	if !strings.Contains(prompt, "source member/site set") ||
 		!strings.Contains(prompt, "Treat `member_notes` as model-authored candidate descriptions") ||
 		!strings.Contains(prompt, "calibrate every behavior or effect") ||
 		!strings.Contains(prompt, "describe the exact observed operation or disclose the evidence boundary") ||
@@ -5499,7 +5499,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalEnumera
 		"even when labels are unique, decorated for display, or repeated across files",
 		"use a required bucket `section`'s `items[]` when the row belongs to that bucket",
 		"do not add a second global list/table merely to repeat rows already carried by sections",
-		"render that note on the same row as a concise description/说明 column",
+		"When `summary` or another typed explanatory dimension is requested, explain the supported portion on the same row as a concise description/说明 column",
 		"members_rendered_in=authoritative_principal_member_rows",
 		"Entries already rendered in `Principal Enumeration Rows`: 1",
 	} {

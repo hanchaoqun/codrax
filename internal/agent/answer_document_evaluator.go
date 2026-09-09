@@ -5901,6 +5901,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 				fmt.Fprintf(&b, "; notes=%s", notes)
 			}
 		}
+		if modelNotes := types.FormatObservationModelNotes(record.ModelNotes); modelNotes != "" {
+			fmt.Fprintf(&b, "; %s", modelNotes)
+		}
 		if record.SupportRefCount > 0 {
 			fmt.Fprintf(&b, "; support_refs=%d", record.SupportRefCount)
 		}
@@ -8577,7 +8580,7 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 		b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — in some `blocks[].items[].label`, `blocks[].items[].text`, `blocks[].items[].cells[]`, or `blocks[].text` of the emitted answer document.** ")
 	}
 	if types.RequiresSourceOperationSiteMemberSetHandoff(rm) {
-		b.WriteString("This request's member_set is a source operation-site set: render it as the principal write/call/registration/entry-point list or table before broad mechanism prose. Use member-specific support refs for the operation-site citation; constants, literal target paths, config keys, or registry names are row details and must not replace the citation for the function/call/write site itself. ")
+		b.WriteString(answerDocSourceMemberCitationTeaching + " ")
 	}
 	b.WriteString("The pre-emit oracle rejects the call (with field `blocks[].items[].label/text/cells OR blocks[].text`) if any member is missing, paraphrased, abbreviated, or has its decorator stripped. Mirror each string byte-for-byte; do NOT rewrite the wording.\n\n")
 	b.WriteString("Concretely: a member rendered as `gate.Run (9 checks)` is NOT satisfied by `gate.Run` alone, `gate.Run / gate.RunWith`, or `gate.Run 函数`. The full string `gate.Run (9 checks)` must appear together inside one block's label/text/cells/items.\n\n")
@@ -11249,6 +11252,10 @@ func answerDocRelationSurfaceRowKey(row answerDocRelationSurfaceRow) string {
 	return key
 }
 
+const answerDocSourceMemberCitationTeaching = "For this source member/site set, render the requested members before broader mechanism prose. Use each member's own declaration/operation evidence and source location; the roster does not make every declaration a write, call, registration, or entry point. Constants, literal target paths, config keys, and registry names must not replace the citation for the function/call/write site when that operation is the requested member."
+
+const answerDocPrincipalNoteTeaching = "A non-empty `note` is retained candidate explanation, not an extra output requirement or proof. When `summary` or another typed explanatory dimension is requested, explain the supported portion on the same row as a concise description/说明 column or equivalent item text; do not copy unsupported claims. Otherwise, keep the requested fields without adding a description merely because a note exists. A note's origin or matching claim form does not prove the entire note; declaration evidence proves the declaration only, and operation evidence proves only its corresponding operation shape."
+
 func renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx *types.AgentContext, refs []types.AnswerAggregateFactRef, sets []types.EnumerationDisplaySet) string {
 	if ctx == nil || ctx.AnalysisIR == nil || len(refs) == 0 || len(sets) == 0 {
 		return ""
@@ -11290,7 +11297,7 @@ func renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx *types.Age
 		}
 	}
 	if types.RequiresSourceOperationSiteMemberSetHandoff(rm) {
-		b.WriteString("This request's member_set is a source operation-site set: render it as the principal write/call/registration/entry-point list or table before broad mechanism prose. Use member-specific support refs for the operation-site citation; constants, literal target paths, config keys, or registry names are row details and must not replace the citation for the function/call/write site itself.\n\n")
+		b.WriteString(answerDocSourceMemberCitationTeaching + "\n\n")
 	}
 	b.WriteString("This section intentionally does not duplicate the full member list. Use the row ids, locations, citation keys, and notes from `Principal Enumeration Rows` as the single rich member/citation contract.\n\n")
 	for _, set := range sets {
@@ -11332,7 +11339,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("- `kind=negative_search` is the typed lane for a verified zero-result repository search. It has no citation line by design; use its repo/query-or-pattern/scope/searched_at dimensions to support no-hit conclusions, cross-repository boundaries, and caveats without inventing a file:line citation.\n")
 	b.WriteString("- `kind=negative_observation` is the typed lane for a verified zero-result non-repo observation, such as git history/diff output, an attached log, a trace, command output, or repo-map/index output. Use its origin/target-or-query/scope/result_count/searched_at dimensions; do not rewrite it as repo search and do not invent file:line citations.\n")
 	b.WriteString("- For evidence-authorized `member_set` rows, `role=principal_answer` marks the concrete principal slate. Pure `system_inference` sets remain advisory regardless of that model-authored role. `role=supporting_coverage` / `role=audit_ledger` rows are context or investigation bookkeeping and must not create duplicate principal rows.\n")
-	b.WriteString("- Grounded definition evidence from read files and the requested source scope is the detail/citation authority for those principal members. Aggregate facts organize the slate/counts; they must not cause you to drop richer per-member summaries already present in the evidence pool or typed exploration enrichment rows.\n")
+	b.WriteString("- Grounded definition evidence supplies member identity/citation authority, not proof of a whole explanation. Aggregate facts organize the slate/counts; retain richer per-member summaries as candidate explanations, bounded by their actual source claim forms and the requested fields.\n")
 	b.WriteString("- `member_note_support_authority` is a positional ceiling derived from accepted evidence at each `support_refs` location. A `definition_fact{...definition_site_only...}` entry proves the member/entry exists but not the model-authored member note's function-body behavior; call/guard/assignment/return forms prove only their corresponding operation shape. Multiple support refs do not by themselves create order, a complete path, or branch equivalence.\n")
 	b.WriteString("- `member_note_composite_support` groups accepted anchors for one exact typed owner in one source-definition incarnation. Use the grouped locations to cite the corresponding parts of a composite member description; the group does not prove execution order, branch equivalence, reachability, or any relation absent from its listed claim forms. Members without this field remain bounded by `member_note_support_authority`.\n")
 	if rows != "" {
@@ -11348,11 +11355,11 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 		b.WriteString("- Per-member source-location contract: for every principal member with an aligned `support_refs` source location, render that exact path or file:line in the same visible member row/cell. A citation proves the row but does not display the user-requested location.\n")
 	}
 	if ctx != nil && ctx.AnalysisIR != nil && types.RequiresSourceOperationSiteMemberSetHandoff(ctx.AnalysisIR.RequestModel) {
-		b.WriteString("- Source operation-site contract: the principal `member_set` rows are the requested write/call/registration/entry points. Render every member identity as a visible list/table row and cite that member's function/call/file:line support ref. Treat `member_notes` as model-authored candidate descriptions: calibrate every behavior or effect in a note to that row's `member_note_support_authority` and accepted grounded operation evidence. A definition-only anchor proves existence only; when the grounded operation supports a narrower effect than the note, describe the exact observed operation or disclose the evidence boundary instead of preserving the stronger note. Do not borrow a nearby constant/path citation as the main citation for a function or call-site member.\n")
+		b.WriteString("- " + answerDocSourceMemberCitationTeaching + " Treat `member_notes` as model-authored candidate descriptions: calibrate every behavior or effect to the corresponding claim form only. A definition-only anchor proves existence only; when support is narrower than the note, describe the exact observed operation or disclose the evidence boundary instead of preserving the stronger note. Do not borrow a nearby constant/path citation as the main citation for a function or call-site member.\n")
 	}
 	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, use that row's exact projected row/evidence carrier; only a schema-permitted legacy lane should create or reuse a manual citation-pool index. Member labels with no citable source-location handoff should remain unsupported rather than borrowing an adjacent source.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
-	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, unstructured prose, or raw tool snippets conflict with these facts, prefer evidence-authorized rows marked `role=principal_answer`. For `fact_authority=advisory_model_inference`, let grounded typed evidence and component/flow boundaries decide instead of preserving the proposed slate by force. If a same-member grounded definition evidence row provides richer detail, use that evidence to explain the member instead of deleting the detail.\n\n")
+	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, unstructured prose, or raw tool snippets conflict with these facts, prefer evidence-authorized rows marked `role=principal_answer` within their field-specific authority. For `fact_authority=advisory_model_inference`, let grounded typed evidence and component/flow boundaries decide instead of preserving the proposed slate by force. Same-member richer detail remains available, but a definition location does not certify the summary's behavior or relations.\n\n")
 	if rows != "" {
 		b.WriteString(rows)
 		b.WriteString("## Aggregate Fact Metadata\n\n")
@@ -11418,8 +11425,9 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	var b strings.Builder
 	b.WriteString("## Principal Enumeration Rows\n\n")
 	b.WriteString("- These rows are compiled deterministically from accepted principal aggregate facts, member-specific support refs, and grounded evidence. Use them as the stable row/citation skeleton for enumeration tables or lists.\n")
-	b.WriteString("- Preserve every `member` as the principal row identity. Use `display_label`, `location`, and `citation_key` to build clear table cells; use `note` to keep the answer explanatory instead of a dry symbol dump.\n")
-	b.WriteString("- When any row has a non-empty `note`, render that note on the same row as a concise description/说明 column or equivalent item text. Do not collapse per-row notes only into a summary paragraph.\n")
+	b.WriteString("- Preserve every `member` as the principal row identity. Use `display_label`, `location`, and `citation_key` to build clear table cells.\n")
+	b.WriteString("- " + answerDocPrincipalNoteTeaching + "\n")
+	b.WriteString("- `note_parts` attributes each explanation fragment to its source; its claim form supports only that shape, not the fragment's entire wording. Missing support is unclassified, never proven. `candidate_attributes` and `candidate_surface_terms` are retained navigation hints, not exact row dimensions or required answer fields.\n")
 	b.WriteString("- When a row has non-empty `attributes`, preserve those typed dimensions on that same row as table columns or equivalent item text; do not infer them from paths.\n")
 	b.WriteString("- When a set exposes `selection_family`, it is a common representative key, not the only family a row can carry. The accepted row IDs define this set's roster. A model-authored `display_group` is presentation only: it must not add exclusions, subtract rows, or change the typed row count; use each row's full typed `surface_families` to describe its construct markers.\n")
 	b.WriteString("- When the required principal table carries `bucket_label`, preserve every row's `display_group`/set label as a separate visible category cell and matching column. Preserve the exact member in item `label` or one exact structured member cell; member-first and category-first column order are both valid. Never drop either axis while repairing the row.\n")
@@ -11484,14 +11492,69 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 			if attrs := renderEnumerationDisplayRowAttributes(row.Attributes); attrs != "" {
 				fmt.Fprintf(&b, ", attributes=%s", attrs)
 			}
+			if attrs := renderEnumerationDisplayRowAttributes(row.CandidateAttributes); attrs != "" {
+				fmt.Fprintf(&b, ", candidate_attributes=%s", attrs)
+			}
+			if len(row.CandidateSurfaceTerms) > 0 {
+				fmt.Fprintf(&b, ", candidate_surface_terms=%s", renderAggregateStringList(row.CandidateSurfaceTerms, 8))
+			}
 			if note != "" {
 				fmt.Fprintf(&b, " — note: %s", note)
 			}
+			b.WriteString(renderAnswerDocEnumerationRowNoteParts(row))
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// The complete legacy Note stays visible above. This bounded provenance view
+// never reinterprets its prose, chooses a stronger claim, or edits an answer.
+func renderAnswerDocEnumerationRowNoteParts(row types.EnumerationDisplayRow) string {
+	const maxParts = 8
+	const maxPartText = 200
+	var parts []string
+	total := 0
+	for _, part := range row.NoteParts {
+		if strings.TrimSpace(part.Text) == "" {
+			continue
+		}
+		total++
+		if len(parts) == maxParts {
+			continue
+		}
+		origin := string(part.Origin)
+		if origin == "" {
+			origin = "unclassified_candidate"
+		}
+		form := string(part.ClaimForm)
+		if form == "" {
+			form = "unclassified"
+		}
+		entry := fmt.Sprintf("{text=%q, origin=%q, explanation=candidate, claim_form=%q, ceiling=claim_form_only", truncateAnswerDocPromptText(part.Text, maxPartText), origin, form)
+		if boundary := types.MechanismAuthorityBoundaryForClaimForm(part.ClaimForm); boundary != "" {
+			entry += fmt.Sprintf(", source_boundary=%q", boundary)
+		}
+		if part.EvidenceID != "" {
+			entry += fmt.Sprintf(", evidence_id=%q", part.EvidenceID)
+		}
+		if part.SupportRef != "" {
+			entry += fmt.Sprintf(", support_ref=%q", part.SupportRef)
+		}
+		parts = append(parts, entry+"}")
+	}
+	if total == 0 {
+		if strings.TrimSpace(row.Note) == "" {
+			return ""
+		}
+		return "; note_parts=[{origin=unclassified_candidate, explanation=candidate, support=unclassified}]"
+	}
+	out := "; note_parts=[" + strings.Join(parts, ", ") + "]"
+	if total > len(parts) {
+		out += fmt.Sprintf("; note_parts_shown=%d/%d (remaining provenance omitted; no additional proof implied)", len(parts), total)
+	}
+	return out
 }
 
 func answerDocPrincipalEnumerationSetAuthorityLabel(set types.EnumerationDisplaySet) string {
@@ -11553,7 +11616,7 @@ func renderAnswerDocSourceInventoryRowGuidance(ctx *types.AgentContext) string {
 	if profile.RequestsField(types.SourceInventoryFieldLocation) {
 		b.WriteString("- `location` is a user-visible row field: copy each row's exact `location` into that same item's text/cells (prefer a Location/文件路径 column for tables). A bound `citation_ref` proves the row but does not replace the requested visible file path.\n")
 	}
-	b.WriteString("- A typed source-inventory row proves that exact declaration/construct kind, location, and listed typed attributes only. It does not by itself prove inheritance, implementation, execution, ownership, or another behavioral relation. When `summary` was not requested, keep the row to the requested fields and do not invent such a relation.\n")
+	b.WriteString("- A typed source-inventory row proves that exact declaration/construct kind, location, and listed typed attributes only. It does not by itself prove inheritance, implementation, execution, ownership, or another behavioral relation. When `summary` was not requested and no other typed explanatory dimension applies, keep the row to the requested fields. A requested explanation still needs corresponding evidence; the request itself does not prove a relation.\n")
 	if profile.RequiresConstSet {
 		b.WriteString("- `requires_const_set=true` is a membership qualifier for enum-like types; it does not by itself mean the final answer should list every const/member value.\n")
 	}

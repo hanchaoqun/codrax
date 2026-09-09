@@ -353,6 +353,10 @@ const aggregateMemberNoteSupportAuthorityLimit = 12
 
 const aggregateMemberNoteCompositeSupportAnchorLimit = 8
 
+func aggregateMemberNoteSupportRefsAligned(fact types.AnswerAggregateFact) bool {
+	return len(fact.Members) > 0 && len(fact.SupportRefs) == len(fact.Members)
+}
+
 // aggregateMemberNoteSupportAuthority binds each model-authored member note
 // to the deterministic ClaimForm of its positional support ref. A source
 // location is only an identity until it matches an accepted EvidenceItem; a
@@ -360,25 +364,23 @@ const aggregateMemberNoteCompositeSupportAnchorLimit = 8
 // whole function body. This is a bounded prompt projection only: it does not
 // rewrite or delete model-authored notes, and it never parses user/final prose.
 func aggregateMemberNoteSupportAuthority(fact types.AnswerAggregateFact, evidence []types.EvidenceItem) string {
-	if len(fact.MemberNotes) == 0 || len(fact.SupportRefs) == 0 || len(evidence) == 0 {
+	if len(fact.MemberNotes) == 0 {
 		return ""
 	}
-	limit := len(fact.SupportRefs)
-	if len(fact.MemberNotes) < limit {
-		limit = len(fact.MemberNotes)
-	}
+	limit := len(fact.MemberNotes)
 	if limit > aggregateMemberNoteSupportAuthorityLimit {
 		limit = aggregateMemberNoteSupportAuthorityLimit
 	}
 	entries := make([]string, 0, limit)
 	for i := 0; i < limit; i++ {
-		_, location, ok := types.ParseAnswerSupportRefMemberLocation(fact.SupportRefs[i])
-		if !ok {
+		if strings.TrimSpace(fact.MemberNotes[i]) == "" {
 			continue
 		}
-		forms := aggregateSupportLocationClaimForms(location, evidence)
-		if len(forms) == 0 {
-			continue
+		var forms []types.ClaimForm
+		if aggregateMemberNoteSupportRefsAligned(fact) && i < len(fact.SupportRefs) {
+			if _, location, ok := types.ParseAnswerSupportRefMemberLocation(fact.SupportRefs[i]); ok {
+				forms = aggregateSupportLocationClaimForms(location, evidence)
+			}
 		}
 		parts := make([]string, 0, len(forms))
 		for _, form := range forms {
@@ -388,7 +390,13 @@ func aggregateMemberNoteSupportAuthority(fact types.AnswerAggregateFact, evidenc
 			}
 			parts = append(parts, part)
 		}
-		entries = append(entries, fmt.Sprintf("`%d:%s`", i+1, strings.Join(parts, "+")))
+		if len(parts) == 0 {
+			parts = append(parts, "support_unclassified")
+		}
+		entries = append(entries, fmt.Sprintf("`%d:%s; note=candidate_description; ceiling=claim_form_only`", i+1, strings.Join(parts, "+")))
+	}
+	if len(fact.MemberNotes) > limit {
+		entries = append(entries, fmt.Sprintf("`%d further note positions: candidate_description; support detail omitted`", len(fact.MemberNotes)-limit))
 	}
 	return strings.Join(entries, ", ")
 }
@@ -397,7 +405,7 @@ func aggregateSupportLocationClaimForms(location types.AnswerSourceLocationSurfa
 	seen := map[types.ClaimForm]bool{}
 	forms := make([]types.ClaimForm, 0, 2)
 	for _, item := range evidence {
-		if item.GroundingStatus == types.GroundingUngrounded || strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+		if types.EvidenceIsDerivationCandidate(item) || item.GroundingStatus == types.GroundingUngrounded || strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
 			continue
 		}
 		if !aggregateSupportLocationMatchesEvidence(location, item) {
@@ -442,7 +450,7 @@ func aggregateSupportLocationMatchesEvidence(location types.AnswerSourceLocation
 // nearest preceding exact-owner definition and the next such definition.
 // Ambiguous owner identity fails closed rather than borrowing a nearby row.
 func aggregateMemberNoteCompositeSupport(fact types.AnswerAggregateFact, evidence []types.EvidenceItem) string {
-	if len(fact.MemberNotes) == 0 || len(fact.SupportRefs) == 0 || len(evidence) == 0 {
+	if len(fact.MemberNotes) == 0 || !aggregateMemberNoteSupportRefsAligned(fact) || len(evidence) == 0 {
 		return ""
 	}
 	limit := len(fact.SupportRefs)
@@ -571,7 +579,8 @@ func aggregateCompositeSupportAnchors(location types.AnswerSourceLocationSurface
 }
 
 func aggregateCompositeSupportEvidenceAccepted(item types.EvidenceItem) bool {
-	return (item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered) &&
+	return !types.EvidenceIsDerivationCandidate(item) &&
+		(item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered) &&
 		strings.TrimSpace(item.Source) != "" && item.LineStart > 0
 }
 

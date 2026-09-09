@@ -177,6 +177,7 @@ type SemanticObservationSummary struct {
 	Summary         string
 	Excerpt         string
 	Notes           []string
+	ModelNotes      []types.ObservationModelNote
 	Negative        bool
 	ResultCount     *int
 	SupportRefCount int
@@ -758,6 +759,9 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 			if len(obs.Notes) > 0 {
 				fmt.Fprintf(&b, " notes=%s", renderSemanticObservationNotes(obs.Notes))
 			}
+			if notes := types.FormatObservationModelNotes(obs.ModelNotes); notes != "" {
+				fmt.Fprintf(&b, " %s", notes)
+			}
 			if obs.SupportRefCount > 0 {
 				fmt.Fprintf(&b, " support_refs=%d", obs.SupportRefCount)
 			}
@@ -831,6 +835,7 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 			Summary:         strings.TrimSpace(record.Summary),
 			Excerpt:         strings.TrimSpace(record.Excerpt),
 			Notes:           append([]string(nil), record.Notes...),
+			ModelNotes:      append([]types.ObservationModelNote(nil), record.ModelNotes...),
 			Negative:        record.Negative,
 			ResultCount:     record.ResultCount,
 			SupportRefCount: record.SupportRefCount,

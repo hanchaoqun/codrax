@@ -3738,7 +3738,7 @@ func TestNormalizeAggregateMemberSetCarriers_DoesNotOverrideSingletonModelCatego
 	}
 }
 
-func TestNormalizeAggregateMemberSetCarriers_UsesEvidenceSummaryText(t *testing.T) {
+func TestNormalizeAggregateMemberSetCarriers_KeepsEvidenceSummaryAsModelGuidance(t *testing.T) {
 	mu := types.NewMutableState("rich aggregate handoff")
 	mu.AppendEvidence([]types.EvidenceItem{
 		{
@@ -3803,9 +3803,23 @@ func TestNormalizeAggregateMemberSetCarriers_UsesEvidenceSummaryText(t *testing.
 	if len(doc.Blocks) != 2 || len(doc.Blocks[1].Items) != 2 {
 		t.Fatalf("expected materialized rows, got %+v", doc.Blocks)
 	}
-	if !strings.Contains(doc.Blocks[1].Items[0].Text, "布尔条件求值") ||
-		!strings.Contains(doc.Blocks[1].Items[1].Text, "artifact 下限") {
-		t.Fatalf("materialized rows should carry evidence summaries, got %+v", doc.Blocks[1].Items)
+	for i, name := range []string{"KindA", "KindB"} {
+		item := doc.Blocks[1].Items[i]
+		if item.Label != name || item.Text != "" || item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+			t.Fatalf("system row must retain only the proved declaration and citation: %+v", item)
+		}
+		if doc.Citations[item.CitationRef].File != "internal/analysis/criterion/grammar.go" || doc.Citations[item.CitationRef].Line != 29+i {
+			t.Fatalf("declaration citation changed: %+v", doc.Citations[item.CitationRef])
+		}
+	}
+	if doc.Blocks[0].Text != "KindA、KindB。" {
+		t.Fatal("model-authored summary was rewritten")
+	}
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, answerSurfacePlan(ctx))
+	if len(sets) != 1 || len(sets[0].Rows) != 2 ||
+		!strings.Contains(sets[0].Rows[0].Note, "布尔条件求值") ||
+		!strings.Contains(sets[0].Rows[1].Note, "artifact 下限") {
+		t.Fatalf("explanations must remain available to the model with attribution: %+v", sets)
 	}
 }
 

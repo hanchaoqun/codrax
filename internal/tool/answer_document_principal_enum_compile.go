@@ -2782,6 +2782,13 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 	// Value/typed tokens survive; narrative clauses never do. Model-authored
 	// carriers elsewhere are untouched (this rewrites the SYSTEM face only).
 	for i := range blockSet.Rows {
+		if principalEnumerationPrimaryOrigin(blockSet.Rows[i]) == types.AnswerEvidenceOriginCurrentSource &&
+			!principalEnumerationRowHasOrigin(blockSet.Rows[i], types.AnswerEvidenceOriginRuntimeArtifact) {
+			// A source coordinate proves the declaration/operation, not its
+			// accompanying explanation. Keep explanations in model guidance;
+			// this system-owned supplement publishes only the typed row facts.
+			blockSet.Rows[i].Note = ""
+		}
 		if !principalEnumerationRowHasOrigin(blockSet.Rows[i], types.AnswerEvidenceOriginRuntimeArtifact) {
 			continue
 		}

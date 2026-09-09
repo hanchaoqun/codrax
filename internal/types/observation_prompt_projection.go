@@ -48,6 +48,7 @@ type ObservationPromptRecord struct {
 	Summary         string
 	Excerpt         string
 	Notes           []string
+	ModelNotes      []ObservationModelNote
 	Negative        bool
 	ResultCount     *int
 	SupportRefCount int
@@ -94,6 +95,7 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 	for _, record := range prioritized {
 		summary := observationPromptAuthoritativeSummary(record, opts.SummaryMaxLen)
 		value := clampObservationPromptText(record.Value, opts.ValueMaxLen)
+		modelNotes := observationPromptModelNotes(record, opts)
 		out = append(out, ObservationPromptRecord{
 			ID:              strings.TrimSpace(record.ID),
 			Origin:          record.Origin,
@@ -108,7 +110,8 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 			Value:           value,
 			Summary:         summary,
 			Excerpt:         observationPromptExcerpt(record, opts),
-			Notes:           observationPromptNotes(record, opts),
+			Notes:           observationPromptNotesWithLimit(record, opts, observationPromptNoteLimit(record, opts)-len(modelNotes)),
+			ModelNotes:      modelNotes,
 			Negative:        record.Negative,
 			ResultCount:     cloneObservationPromptResultCount(record.ResultCount),
 			SupportRefCount: len(record.SupportRefs),
@@ -246,7 +249,25 @@ func observationPromptExcerpt(record ObservationRecord, opts ObservationPromptPr
 }
 
 func observationPromptNotes(record ObservationRecord, opts ObservationPromptProjectionOptions) []string {
+	return observationPromptNotesWithLimit(record, opts, observationPromptNoteLimit(record, opts))
+}
+
+func observationPromptModelNotes(record ObservationRecord, opts ObservationPromptProjectionOptions) []ObservationModelNote {
 	limit := observationPromptNoteLimit(record, opts)
+	var out []ObservationModelNote
+	for _, note := range record.ModelNotes {
+		if len(out) >= limit {
+			break
+		}
+		note.Text = clampObservationPromptText(note.Text, opts.NoteMaxLen)
+		if note.Text != "" {
+			out = append(out, note)
+		}
+	}
+	return out
+}
+
+func observationPromptNotesWithLimit(record ObservationRecord, opts ObservationPromptProjectionOptions, limit int) []string {
 	if limit <= 0 || len(record.RichNotes) == 0 {
 		return nil
 	}

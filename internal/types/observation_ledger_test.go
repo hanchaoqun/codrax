@@ -766,7 +766,7 @@ func TestCompileObservationLedger_SourceInventoryObservationProjectionBudget(t *
 	}
 }
 
-func TestCompileObservationLedger_AggregateRichNotesPreferMemberNotes(t *testing.T) {
+func TestCompileObservationLedger_AggregateModelNotesPreserveMemberExplanations(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		AggregateFacts: []AnswerAggregateFact{{
 			Kind:    AnswerAggregateMemberSet,
@@ -785,17 +785,17 @@ func TestCompileObservationLedger_AggregateRichNotesPreferMemberNotes(t *testing
 		}},
 	})
 	got := findObservationRecord(t, ledger, "aggregate:0#system_inference")
-	if len(got.RichNotes) < 2 {
-		t.Fatalf("rich member notes should be preserved in the ledger: %+v", got)
+	if len(got.ModelNotes) != 2 || len(got.RichNotes) != 2 {
+		t.Fatalf("explanations and member identities should both survive separately: %+v", got)
 	}
-	if got.RichNotes[0] != "KindSymbolPresent 用于符号存在性判定，检查目标符号是否能在当前证据中解析。" {
-		t.Fatalf("member_notes should outrank dry member names, got: %+v", got.RichNotes)
+	if got.ModelNotes[0].Text != "KindSymbolPresent 用于符号存在性判定，检查目标符号是否能在当前证据中解析。" || got.ModelNotes[0].MemberIndex != 0 {
+		t.Fatalf("first candidate explanation lost its position/text: %+v", got.ModelNotes)
 	}
-	if got.RichNotes[1] != "KindNoCallSites 用于调用点缺失判定，表达没有发现调用关系的负向条件。" {
-		t.Fatalf("second member note lost: %+v", got.RichNotes)
+	if got.ModelNotes[1].Text != "KindNoCallSites 用于调用点缺失判定，表达没有发现调用关系的负向条件。" || got.ModelNotes[1].MemberIndex != 1 {
+		t.Fatalf("second candidate explanation lost: %+v", got.ModelNotes)
 	}
-	if got.RichNotes[2] != "KindSymbolPresent" {
-		t.Fatalf("members should remain as fallback notes after rich notes, got: %+v", got.RichNotes)
+	if got.RichNotes[0] != "KindSymbolPresent" || got.RichNotes[1] != "KindNoCallSites" {
+		t.Fatalf("member identities should remain ordinary notes: %+v", got.RichNotes)
 	}
 }
 
@@ -1718,7 +1718,7 @@ func TestCompileObservationLedger_AutoCreatesLargeAggregateRowSetRef(t *testing.
 	for _, want := range []string{
 		`"member":"Kind00"`,
 		`"support_ref":"Kind00: internal/types/kind.go:10"`,
-		`"note":"Kind00 的中文说明"`,
+		`"model_note":{"member_index":0,"member":"Kind00","text":"Kind00 的中文说明","support_ref":"Kind00: internal/types/kind.go:10"}`,
 		`"label":"Kind members"`,
 	} {
 		if !strings.Contains(seenContent, want) {
@@ -2779,9 +2779,9 @@ func TestObservationLedgerInputFromContexts_MergesTurnAAcceptedAggregateFacts(t 
 		if record.Role != AnswerAggregateRolePrincipalAnswer {
 			t.Fatalf("%s aggregate role = %q, want principal: %+v", name, record.Role, record)
 		}
-		notes := strings.Join(record.RichNotes, "\n")
+		notes := FormatObservationModelNotes(record.ModelNotes)
 		if !strings.Contains(notes, "loadW3Token") || !strings.Contains(notes, "CodeAgent2.0") {
-			t.Fatalf("%s aggregate rich notes lost TurnA member details: %+v", name, record.RichNotes)
+			t.Fatalf("%s aggregate candidate notes lost TurnA member details: %+v", name, record.ModelNotes)
 		}
 		if len(record.SupportRefs) != 2 {
 			t.Fatalf("%s aggregate support refs lost: %+v", name, record.SupportRefs)

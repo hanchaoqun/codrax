@@ -545,6 +545,16 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingSameNameDifferentL
 		enumEvidence("native_bridge", "native_add", "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "foreign func native_add，包路径 demo.bridge。"),
 		enumEvidence("native_ffi", "native_add", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "foreign func native_add，包路径 demo.ffi。"),
 	})
+	// Same-named declarations carry their own typed package fields; the
+	// summaries above do not establish package membership.
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{Role: types.AnswerCandidateRoleFunction, Complete: true, Count: 2,
+			Members: []types.SourceInventoryObservationMember{
+				sourceInventoryScopedMarkdownTestMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "demo.bridge", "foreign func", "foreign func native_add"),
+				sourceInventoryScopedMarkdownTestMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "demo.ffi", "foreign func", "foreign func native_add"),
+			}}},
+	})
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateMemberSet,
 		Label: "foreign func 声明",
@@ -574,6 +584,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingSameNameDifferentL
 				RequestedFields: []types.SourceInventoryRequestedField{
 					types.SourceInventoryFieldName,
 					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldPackage,
 					types.SourceInventoryFieldSummary,
 				},
 				Confidence: 0.95,
@@ -5034,7 +5045,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_MaterializesEmptySourceInventory
 	}
 }
 
-func TestNormalizePrincipalEnumerationRowBlocks_FillsPackageColumnFromAlignedMemberNotes(t *testing.T) {
+func TestNormalizePrincipalEnumerationRowBlocks_KeepsAlignedMemberPackageNotesAsCandidates(t *testing.T) {
 	mu := types.NewMutableState("列出 foreign func 声明，包含文件路径和包路径")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:        types.AnswerAggregateMemberSet,
@@ -5099,7 +5110,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_FillsPackageColumnFromAlignedMem
 		{"eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6", "demo.bridge"},
 		{"internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6", "demo.ffi"},
 	}
-	if got, want := table.Columns, []string{"符号名称", "定义位置", "包路径", "说明"}; len(got) != len(want) {
+	if got, want := table.Columns, []string{"符号名称", "定义位置"}; len(got) != len(want) {
 		t.Fatalf("columns=%+v, want %+v", got, want)
 	} else {
 		for i := range want {
@@ -5109,11 +5120,34 @@ func TestNormalizePrincipalEnumerationRowBlocks_FillsPackageColumnFromAlignedMem
 		}
 	}
 	for i, want := range wantRows {
-		if len(table.Items[i].Cells) < 2 {
-			t.Fatalf("row %d cells=%+v, want location/package", i, table.Items[i].Cells)
+		if len(table.Items[i].Cells) != 1 || table.Items[i].Cells[0] != want[0] {
+			t.Fatalf("row %d should preserve its exact location without copying a proposed package: %+v", i, table.Items[i].Cells)
 		}
-		if table.Items[i].Cells[0] != want[0] || table.Items[i].Cells[1] != want[1] {
-			t.Fatalf("row %d cells=%+v, want location/package %+v", i, table.Items[i].Cells, want)
+		if strings.Contains(answerDocumentTestVisibleSurface(doc), want[1]) {
+			t.Fatalf("unproven member-note package was copied into the deterministic answer: %s", want[1])
+		}
+	}
+	// The same production plan still supplies both proposed packages and
+	// explanations for model review; suppressing automatic copying is not
+	// permission to discard the original candidate information.
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, answerSurfacePlan(ctx))
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("candidate rows were lost from the accepted context: %+v", sets)
+	}
+	for i, row := range sets[0].Rows {
+		if row.Location != wantRows[i][0] || len(row.Attributes) != 0 || len(row.CandidateAttributes) != 1 ||
+			row.CandidateAttributes[0].Name != wantRows[i][1] || row.CandidateAttributes[0].Location != "" ||
+			!strings.Contains(row.Note, wantRows[i][1]) || !strings.Contains(row.Note, "FFI 外部函数声明") {
+			t.Fatalf("candidate/source separation lost exact identity or the model's explanation: %+v", row)
+		}
+		var hasCandidatePart bool
+		for _, part := range row.NoteParts {
+			if part.Origin == types.EnumerationDisplayNoteAggregate && part.SupportRef == row.Location && part.ClaimForm == types.ClaimUnknown {
+				hasCandidatePart = strings.Contains(part.Text, wantRows[i][1])
+			}
+		}
+		if !hasCandidatePart {
+			t.Fatalf("explanation must retain its member attribution, not package-declaration proof: %+v", row.NoteParts)
 		}
 	}
 }
@@ -5526,6 +5560,23 @@ func TestNormalizePrincipalEnumerationRowBlocks_PrunesWrongLocationAndExtraSameF
 			"surface=foreign func foreign func native_add; package=demo.ffi",
 		},
 	}})
+	// Family-specific pruning requires typed declaration membership; the
+	// original member_notes remain candidates and do not define the family.
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true,
+		Sets: []types.SourceInventoryObservationSet{
+			{Role: types.AnswerCandidateRoleType, Complete: true, Count: 2,
+				Members: []types.SourceInventoryObservationMember{
+					sourceInventoryScopedMarkdownTestMember("String", types.AnswerCandidateRoleType, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", 6, "demo.stringext", "extend", "extend String"),
+					sourceInventoryScopedMarkdownTestMember("Cart", types.AnswerCandidateRoleType, "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", 30, "demo.cart", "extend", "extend Cart"),
+				}},
+			{Role: types.AnswerCandidateRoleFunction, Complete: true, Count: 2,
+				Members: []types.SourceInventoryObservationMember{
+					sourceInventoryScopedMarkdownTestMember("native_add", types.AnswerCandidateRoleFunction, "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", 6, "demo.bridge", "foreign func", "foreign func native_add"),
+					sourceInventoryScopedMarkdownTestMember("native_add", types.AnswerCandidateRoleFunction, "internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj", 6, "demo.ffi", "foreign func", "foreign func native_add"),
+				}},
+		},
+	})
 	mu.RetainInvestigationAggregateFacts()
 	ctx := &types.BusContext{
 		Mutable: mu,

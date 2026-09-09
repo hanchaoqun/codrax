@@ -226,6 +226,7 @@ type ObservationRecord struct {
 	Summary         string                    `json:"summary,omitempty"`
 	RawExcerpt      string                    `json:"raw_excerpt,omitempty"`
 	RichNotes       []string                  `json:"rich_notes,omitempty"`
+	ModelNotes      []ObservationModelNote    `json:"model_notes,omitempty"`
 	SupportRefs     []string                  `json:"support_refs,omitempty"`
 	SurfaceTerms    []string                  `json:"surface_terms,omitempty"`
 	ObservedAt      string                    `json:"observed_at,omitempty"`
@@ -623,6 +624,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		if !record.ClaimAuthority.IsValid() {
 			record.ClaimAuthority = inferObservationClaimAuthority(record)
 		}
+		record.ModelNotes = cloneObservationModelNotes(record.ModelNotes)
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
@@ -938,6 +940,7 @@ func mergeObservationRecord(dst, src ObservationRecord) ObservationRecord {
 		dst.Summary = strings.TrimSpace(src.Summary)
 	}
 	dst.RichNotes = mergeObservationRecordRichNotes(dst, src)
+	dst.ModelNotes = mergeObservationModelNotes(dst.ModelNotes, src.ModelNotes)
 	dst.SupportRefs = appendUniqueObservationStrings(dst.SupportRefs, src.SupportRefs...)
 	if dst.RawExcerpt == "" {
 		dst.RawExcerpt = strings.TrimSpace(src.RawExcerpt)
@@ -1430,6 +1433,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 				ResultCount:     resultCount,
 				Summary:         strings.TrimSpace(fact.Label),
 				RichNotes:       aggregateFactObservationRichNotes(fact),
+				ModelNotes:      aggregateFactObservationModelNotes(fact),
 				SupportRefs:     cloneStringSlice(fact.SupportRefs),
 				ObservedAt:      dims["searched_at"],
 				Scope:           dims["scope"],
@@ -1453,14 +1457,15 @@ func observationProvenanceLaneForAggregateFact(dims map[string]string) Observati
 const observationRowSetMinRows = 24
 
 type observationRowSetLine struct {
-	Index        int      `json:"index"`
-	Member       string   `json:"member,omitempty"`
-	SupportRef   string   `json:"support_ref,omitempty"`
-	Note         string   `json:"note,omitempty"`
-	SurfaceTerms []string `json:"surface_terms,omitempty"`
-	Label        string   `json:"label,omitempty"`
-	Kind         string   `json:"kind,omitempty"`
-	Role         string   `json:"role,omitempty"`
+	Index        int                   `json:"index"`
+	Member       string                `json:"member,omitempty"`
+	SupportRef   string                `json:"support_ref,omitempty"`
+	Note         string                `json:"note,omitempty"`
+	ModelNote    *ObservationModelNote `json:"model_note,omitempty"`
+	SurfaceTerms []string              `json:"surface_terms,omitempty"`
+	Label        string                `json:"label,omitempty"`
+	Kind         string                `json:"kind,omitempty"`
+	Role         string                `json:"role,omitempty"`
 }
 
 func observationRowSetRefForAggregateFact(writer ObservationRowSetWriter, factIndex int, origin AnswerEvidenceOrigin, fact AnswerAggregateFact) string {
@@ -1490,10 +1495,8 @@ func observationRowSetJSONLForAggregateFact(fact AnswerAggregateFact) string {
 			Role:   string(NormalizeAnswerAggregateRole(fact.Role)),
 		}
 		line.SupportRef = observationRowSetSupportRefAt(fact, i, member)
-		if i < len(fact.MemberNotes) {
-			line.Note = strings.Join(strings.Fields(strings.TrimSpace(fact.MemberNotes[i])), " ")
-		}
-		if line.Member == "" && line.SupportRef == "" && line.Note == "" {
+		line.ModelNote = aggregateFactObservationModelNoteAt(fact, i)
+		if line.Member == "" && line.SupportRef == "" && line.ModelNote == nil {
 			continue
 		}
 		raw, err := json.Marshal(line)
@@ -4784,30 +4787,7 @@ func clippedObservationExcerpt(s string) string {
 }
 
 func aggregateFactObservationRichNotes(fact AnswerAggregateFact) []string {
-	if len(fact.MemberNotes) == 0 {
-		return cloneStringSlice(fact.Members)
-	}
-	out := make([]string, 0, len(fact.MemberNotes)+len(fact.Members))
-	seen := make(map[string]struct{}, len(fact.MemberNotes)+len(fact.Members))
-	appendOne := func(raw string) {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			return
-		}
-		key := strings.Join(strings.Fields(trimmed), " ")
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		out = append(out, trimmed)
-	}
-	for _, note := range fact.MemberNotes {
-		appendOne(note)
-	}
-	for _, member := range fact.Members {
-		appendOne(member)
-	}
-	return out
+	return cloneStringSlice(fact.Members)
 }
 
 func cloneStringSlice(in []string) []string {

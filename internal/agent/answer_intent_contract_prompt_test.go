@@ -588,8 +588,17 @@ func TestRenderAnswerDocObservationLedger_DoesNotRepeatSummaryAsNote(t *testing.
 		},
 	}
 	got := renderAnswerDocObservationLedger(ctx)
-	if strings.Count(got, "KindSymbolPresent 用于符号存在性判定") != 1 {
-		t.Fatalf("summary should not be duplicated as a rich note:\n%s", got)
+	// Summary and an independently submitted explanation have distinct
+	// provenance even when their wording is equal. Keep each once in its own
+	// field; do not fold the candidate into the record's ordinary notes.
+	const text = "KindSymbolPresent 用于符号存在性判定"
+	if strings.Count(got, `summary="`+text+`"`) != 1 ||
+		strings.Count(got, `"text":"`+text+`"`) != 1 ||
+		strings.Count(got, text) != 2 ||
+		!strings.Contains(got, "model_notes/advisory=") ||
+		!strings.Contains(got, "not covered by record claim_authority") ||
+		strings.Contains(got, `; notes="`+text+`"`) {
+		t.Fatalf("summary and candidate explanation must keep separate, non-duplicated authority fields:\n%s", got)
 	}
 }
 
@@ -935,7 +944,15 @@ func TestRenderAnswerDocObservationLedger_CreatesLargeAggregateRowSetArtifact(t 
 		t.Fatalf("read row-set artifact: %v", err)
 	}
 	if !strings.Contains(string(body), `"member":"Kind00"`) ||
-		!strings.Contains(string(body), `"note":"Kind00 用于保持第 1 类条件的中文说明"`) {
+		!strings.Contains(string(body), `"model_note":{"member_index":0,"member":"Kind00","text":"Kind00 用于保持第 1 类条件的中文说明","support_ref":"Kind00: internal/types/kind.go:1"}`) {
 		t.Fatalf("row-set artifact missing member details:\n%s", string(body))
+	}
+	if lines := strings.Split(strings.TrimSpace(string(body)), "\n"); len(lines) != len(members) {
+		t.Fatalf("row-set must retain all %d original member rows, got %d", len(members), len(lines))
+	}
+	for i, note := range notes {
+		if !strings.Contains(string(body), fmt.Sprintf(`"model_note":{"member_index":%d,"member":%q,"text":%q,"support_ref":%q}`, i, members[i], note, refs[i])) {
+			t.Fatalf("candidate note/identity/support misaligned at %d:\n%s", i, string(body))
+		}
 	}
 }

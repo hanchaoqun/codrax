@@ -57380,6 +57380,33 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1701 B1620 字段级说明来源与系统补充边界（2026-09-08）
+
+基线 `main=a23198885`，已 fetch，远端同值、工作区清洁。r1042 的好答案不作为上下文销账依据：仓颉日志1205的模型note误称独立extend在Cart类体内；2158/2285将它挂在已证声明权限下，2262要求每条非空note出厂又与2270–2272的仅name/location/package教学冲突。以这类“成员坐标正确≠说明整句已证”为修复对象，不识别该错误词句或拟合仓颉。
+
+施工清单：
+
+1. **账本拆字段**：aggregate成员/计数/支持坐标原权限不变；`ModelNotes` 保存原member index、member、text、可精确对齐的support ref。候选说明不继承record claim authority。合并、深复制、JSON、完整rowset、checkpoint、reviewer、finalizer均需一致；非aggregate Trace证据说明不改。
+2. **显示行拆来源**：保留原Note及业务内容，另外给出evidence/anchor/answer-step/aggregate来源和证据形式支持上限。自由说明或装饰标签里的surface/package只进入候选字段，不再铸进精确SurfaceTerms/Attributes，不借同名其他文件或声明坐标证明package。解析器inventory与同文件真实package声明保正控。
+3. **教学消冲突**：所有说明默认候选；已证call/definition等仅支持该事实形式，不证明整个解释。只在用户要求解释维度时引导选择有用且有支持的说明，不硬逼每个非空note照抄。不增加模型JSON字段，不改schema/硬门/答案正文。
+4. **系统补充出口**：实际生产append入口复现声明补表和第二member-set载体同时复制未证summary（含无row时的evidence fallback）。当前源码补充仅发成员/位置/精确属性，不把自由说明换成系统声音；原模型块与上下文说明保持。Trace独立模板车道不改。
+5. **验收与交付**：有效先红日志 `...-b1620-{fields,note-parts,ledger,checkpoint,teaching,supplement}-red.log`（均位于`.codrax/tmp/20260908-`前缀），最初测试编译中间态不计产品红。逐字段迁移旧针，禁止盲重钉哈希；冻结后定向、race、全仓验证；小批提交推送后clean build。
+6. **下一异构双例 r1043**：Java Handler实现+注解路径（读模式，旧异构覆盖较久）与H4精确窗CPU供给/四态（防Trace回归）。严格并行2，case/oracle不改；Java防声明→路由/行为越权，H4区分policy上限与实际频率/已作用瓶颈。这一H4是有限事实问答，不人为追加完整因果投影合同。后续写模式继续轮转，r1042已有dateutil native apply验证。
+
+独立末审补强：原软说明选择器可返回同名异文件或同址另一证据形式，新NoteParts三字段必须全取实际选中的evidence，不能用row的坐标/ClaimForm冒充。三臂（异文件、同址call与definition不同、候选证据）实际编译先红 `...-note-evidence-source-red-verified.log`，修后同源count3及race绿；选择器本身不扩门。系统补充亦补runtime-only与混合来源双顺序针，保留旧Trace数值模板，不让current_source在前时误删runtime值。活跃流专项count3全绿21.093s。
+
+后续非阻断观察：候选说明条数及Text沿原压缩预算，member/support_ref为避免伪造截断坐标仍完整展示；极长成员或引用的提示字符预算尚未单独封顶，记B1620-P2b显示预算观察（未证明生产溢出，不扩大为当前功能失败）。历史只有RichNotes的快照不扫描原文猜role；新运行从原facts重编译得到独立候选字段。
+
+下一B1624b只读设计已拆为三小任务（未实施）：①独立导航元数据保真实InputRef、成功OutputRef、原已登记OriginQueryRef，以精确路径索引，冲突/旧snapshot未知；②贯通grep/read_file成功结果、Mutable clone/dispatch/fork/reset及提示，只建议回原query结果，不复用会改变grounding/读许可的RuntimeArtifactRead，不扩充直接registry或traceQueryResultReadTarget；③真实query→派生→再读、失败/零匹配/保存失败、同输出异源/同basename/伪banner、reset后迟到fork、source-excluded实际agent正负矩阵。无坐标映射不借派生行号/分页偏移，无原ref仍有效登记不发布导航。任务内dispatch保持来源，TurnA reset推进私有代次防旧fork复活；不用扫描全ledger或模型文字。这比给派生文件新增许可边界更小，原读取拒绝保持，拒绝提示可附有来源的回程建议。
+
+首轮冻结全仓实际退出1：85包通过，tool四条旧断言仍要求模型summary/notes铸入系统说明、package或family。不能算全绿。四条逐语义迁移：系统说明改为“精确identity/citation仍出厂、模型原块不变、上下文说明仍在”；package/family正控补真实inventory属性与明确请求维度；纯notes无源臂反向保护candidate不被自动复制。此后生产代码不再改动，待最终完整验证。
+
+最终冻结验证 `go test ./... -count=1` 实际退出0，86测试包全绿，日志 `.codrax/tmp/20260908-b1620-full-suite-final.log`；tool317.093s、agent68.712s、types44.043s、tracequery106.005s、hitraceconv157.909s、tracediag13.408s。4旧针迁移后count3亦独立通过；新增24条回归含实际上下文/发布入口、全tuple复制/存储与异源反例；未盲改schema/hash pin。`git diff --check`通过。第一轮退出1与最终退出0分开留痕，不用定向绿冒充全仓绿。
+
+当前状态：`B1620=implemented/actual-entry-red-green+independent-race/86-packages-green/delivered-with-this-commit/pending-live`；`r1043=planned/not-started`。B1624b来源谱系导航、B1626多请求成员窗、B1622 D物理发生次数与统计分组、B1616b/B1561验证继承债仍开放，未混号或销账。
+
+红线：模型保有解释/结论/图所有权；无原始请求或模型prose关键词硬门；Trace精确窗、模型探索+系统补齐、链上占用与规则可消除两轴、D/IO/业务线索均保留，邻近与背景不得升根因。活跃SSE没有“4ms/旧4m未出最终正文即降级”路径；仍保护真实停滞、调用方取消、显式deadline，验收包含现有活跃流与4ms分帧针。
+
 ### §123.1700 r1042异构读写验收与B1624c流式提示计数（2026-09-08）
 
 B1628已提交推送`1290d1a73`；其最终全仓86包全绿、clean build=2026-09-08T15:37:20Z，revision1290d1a73233。随后严格两路跑仓颉隔离声明清单+dateutil原生Python写，机器及人工均2/2通过。runner86/198s，内部84/195s，context峰值均28%；完整机表与人工报告为`eval/parallel_selected_summary_evalcampaign_cangjie_dateutil_r1042_20260908{,_manual_audit}.md`。case/oracle/原答案不改。
