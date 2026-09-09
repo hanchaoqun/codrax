@@ -57380,6 +57380,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1714 B1624b：派生查询结果的纯返回导航（2026-09-09）
+
+基线 `2719673b8`，本轮 fetch 后与 origin/main 0/0。接续 §1713 的已确认 P1，不为 r1046 的正文算术/措辞残余再堆硬门。
+
+- [x] 实际 `trace_query → grep → AppendDispatchToolResult → read_file` 首红：原查询与派生页读取成功、正文原字节/原权限不变，独立返回原查询的提示缺失。文本/JSON × 有界 native grep、流式 grep、read_file 六格同红，日志 `.codrax/tmp/20260909-b1624b-tool-navigation-marker-red.log`。不能用 grep 参数 banner 中偶然出现原路径充当导航正证。
+- [x] 独立内存载体记录实际解析 InputRef、成功落盘 OutputRef、仍登记的 OriginQueryRef 与任务代次；不复用影响 grounding 的 RuntimeArtifactRead。I/O 前取得 ticket，dispatch 唯一登记；仅成功 grep/read_file 且 RawRef 相同才存。JSON 重放无私有代次则 unknown，不从摘要恢复。
+- [x] 派生路径精确索引、分叉共享代次、合并核同代、任务 reset 换代；同输出异谱系保冲突，祖先冲突使后代未知。原查询登记仍是原 hard allow 单源，派生不加入；不按 basename、文件内容或参数 banner 猜谱系。
+- [x] 工具执行后附独立返回提示，保原分页/筛选正文、有效分页 Refinement、Observation、ReadCoverage、原始行号和根因权威；agent 两个提前拒绝分支也能提示回原路径，但拒绝码、权限判据与 metadata 不变。失败不能登记新的派生，旧/歧义提示不发。
+- [x] 类型生命周期、真实 tool 六格、agent 两拒绝出口与实际 query→分页→拒派生→回原成功通道均已先红后绿。原文件/派生正文/证据资格不改；默认/显式分页保实际派生路径及自身 cursor，原 capture/未知来源继续旧策略。两席独立交叉审阅无阻断。
+- [x] 冻结生产实现的 `go test ./... -count=1` 86 包全绿，日志 `.codrax/tmp/20260909-b1624b-full-suite.log`，含 tool322.901s、agent80.973s、types49.271s、tracediag14.161s、tracequery114.565s、hitraceconv162.993s。末加分页护栏另跑最终 tool count3 11.394s；最终三包新族 race 5.336/7.533/3.537s（types/tool/agent）全绿。已存在 registry/memo/Trace gate 也在定向 count3 中，`git diff --check`通过；没有盲重钉 hash 或修改旧测试求绿。
+- [x] 4ms/活跃流专项旧合同重核：LLM/agent 实际流与逐leg预算、取消/deadline/真实无字节停滞 count3 2.488/0.855s 通过，见 `...-b1624b-four-ms-stream-regression.log`。不是等待4分钟的客户live，不冒称全时长回放。
+- [ ] 随本小批提交推送后构建干净二进制，r1047按风险/覆盖老化选 TS workspace 跨包调用链（r1030后未复放）+Go原生单行apply（r1037后未复放），严格2路/各1次。先审日志、模型上下文、答案及保留worktree，再收账；不是为同一个Trace题重复跑到绿。
+
+两项独立复核增量同批闭包：
+
+1. reset 后旧 fork 会按既有规则合回旧 direct registry；若直接复用它，可给旧原路径铸新导航票据。有效 RED 在 `...-b1624b-types-late-original-red.log`。仅新增独立的当前代次导航原始登记集合，与旧 registry 求交并复验；旧 fork 不能复活导航，同路径本轮真正重发仍可用。**不改旧 hard permission merge**。该旧合并路径的跨任务生产可达性仍需后续单独审计，不能称本批修好了所有分叉权限状态。
+2. 真实已登记派生 grep-full 默认 read_file 截断时，旧内容识别仍给 `trace_query(path=派生文件,line_start=1,line_end=78)`，与返回导航自冲突；`...-b1624b-derived-advice-parity-red.log` 留有效 RED。只在 `readFileResultRefinement` 的软建议分支读当前精确导航票据：已知结果页保普通 grep/分页继续路径，不把其坐标给 trace_query。原 capture/未知路径保持旧策略，流式选择/读取 gate 不消费此新信号。真实再次 native/streamed 广 grep 在此 fixture 未复现该冲突，不能把静态可能性写成全族已证，也不扩大修改。
+
+本批不更改模型 JSON 合同、图/正文/结论、Trace 显式窗与补采、根因两轴或业务/IO线索；根因仍限链上，背景仅辅助。流式行为不改：活跃连接不能因 4ms 或旧 4m 未出最终正文被降级，真实停滞/取消/调用方显式 deadline 保留。
+
+状态：`B1624b=implemented/public-entry-red-green/86-packages+final-race-green/independent-reviewed/delivered-with-this-commit/pending-live`；后续 B1629b/B1626/B1622/B1616b/B1561 保留，不能以本导航修复销账。
+
 ### §123.1713 r1046：目标频率交接正证；机器双绿不掩盖 Trace 成文错误（2026-09-09）
 
 两小批已分别推送：B1633b=`6111367b7`、B1633a=`8ddcee9b6`；冻结后完整86包绿，clean binary built`2026-09-09T08:06:26Z`。243例按风险/影响/覆盖老化轮换H11明确窗因果与C单行真实apply，exact2各一次，无第三路live、不改oracle/预算求绿。机器2/2 PASS（H11 202s，C108s）；**人工Trace正文fail，C交付/行为pass**。完整报告`eval/parallel_selected_summary_evalcampaign_h11_cwrite_r1046_20260909{,_manual_audit}.md`，保原产物。

@@ -401,6 +401,11 @@ type MutableState struct {
 	// explorer can audit a payload blob one dispatch after the
 	// trace_query call that produced it.
 	traceQueryPublishedBlobRefs map[string]string
+	// Separate, soft-only derived-result navigation. Never consulted by the
+	// published-ref read permission registry or observation/grounding paths.
+	artifactReadNavigationGeneration *artifactReadNavigationGeneration
+	artifactReadNavigationPublished  map[string]string
+	artifactReadNavigation           artifactReadNavigationIndex
 	// toolResultMemo (EVALFIX-2B 类2, 2026-07-30) is the run-scoped memo for
 	// PURE deterministic tool calls: key = "<tool>\x00<memoKey>" where memoKey
 	// is the tool's own honest purity fingerprint (artifact stat fingerprint +
@@ -1360,8 +1365,9 @@ type HypothesisVerdict struct {
 // literals so the internal mutex is paired correctly with its data.
 func NewMutableState(objective string) *MutableState {
 	return &MutableState{
-		objective:                   objective,
-		traceInputAdmissionTerminal: &traceInputAdmissionTerminalLatch{},
+		objective:                        objective,
+		traceInputAdmissionTerminal:      &traceInputAdmissionTerminalLatch{},
+		artifactReadNavigationGeneration: &artifactReadNavigationGeneration{},
 	}
 }
 
@@ -1410,6 +1416,9 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceQueryRuntimeObservationCount:           m.traceQueryRuntimeObservationCount,
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
+		artifactReadNavigationGeneration:            m.artifactReadNavigationGeneration,
+		artifactReadNavigationPublished:             cloneStringStringMap(m.artifactReadNavigationPublished),
+		artifactReadNavigation:                      cloneArtifactReadNavigationIndex(m.artifactReadNavigation),
 		toolResultMemo:                              cloneToolResultMemoMap(m.toolResultMemo),
 		traceQueryCallWindows:                       append([]TraceQueryCallWindow(nil), m.traceQueryCallWindows...),
 		exploreForkTraceQueryCallWindowBase:         len(m.traceQueryCallWindows),
@@ -1507,6 +1516,9 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	exactContextRequiredFiles := append([]string(nil), fork.exactContextRequiredFiles...)
 	traceQueryRuntimeObservationDelta := fork.traceQueryRuntimeObservationCount - fork.exploreForkTraceQueryRuntimeObservationBase
 	traceQueryBlobRefs := cloneStringStringMap(fork.traceQueryPublishedBlobRefs)
+	artifactNavigationGeneration := fork.artifactReadNavigationGeneration
+	artifactNavigationPublished := cloneStringStringMap(fork.artifactReadNavigationPublished)
+	artifactNavigation := cloneArtifactReadNavigationIndex(fork.artifactReadNavigation)
 	forkToolResultMemo := cloneToolResultMemoMap(fork.toolResultMemo)
 	var traceQueryCallWindowDelta []TraceQueryCallWindow
 	if len(fork.traceQueryCallWindows) > fork.exploreForkTraceQueryCallWindowBase {
@@ -1645,6 +1657,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 			m.traceQueryPublishedBlobRefs[canonKey] = verbatim
 		}
 	}
+	m.mergeArtifactReadNavigationLocked(artifactNavigationGeneration, artifactNavigationPublished, artifactNavigation)
 	// Pure-tool memo union: first-writer-wins (the memo is an economy
 	// optimization, not a correctness contract — concurrent forks that
 	// each computed the same pure call stored byte-equivalent results, so
@@ -2605,6 +2618,7 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	for _, ref := range traceQueryPublishedBlobRefsFromToolResult(r) {
 		m.registerTraceQueryBlobRefLocked(ref)
 	}
+	m.registerArtifactReadNavigationResultLocked(r)
 }
 
 // traceQueryBlobRefPathSegment is the mandatory path segment every
@@ -2765,6 +2779,7 @@ func (m *MutableState) registerTraceQueryBlobRefLocked(ref string) {
 	if _, exists := m.traceQueryPublishedBlobRefs[canon]; !exists {
 		m.traceQueryPublishedBlobRefs[canon] = ref
 	}
+	m.registerArtifactReadNavigationOriginLocked(canon, ref)
 }
 
 // ResolveTraceQueryBlobRef reports whether requested addresses a blob ref
@@ -5458,6 +5473,9 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.traceQueryRuntimeObservationCount = 0
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.traceQueryPublishedBlobRefs = nil
+	m.artifactReadNavigationGeneration = &artifactReadNavigationGeneration{}
+	m.artifactReadNavigationPublished = nil
+	m.artifactReadNavigation = nil
 	m.toolResultMemo = nil
 	m.preReadSourceLines = nil
 	m.preReadSourceRevision++
@@ -7901,6 +7919,10 @@ type ToolResult struct {
 	ReadCoverage        *ToolReadCoverage           `json:"read_coverage,omitempty"`
 	RuntimeArtifactRead *ToolRuntimeArtifactRead    `json:"runtime_artifact_read,omitempty"`
 	SourceInventory     *SourceInventoryObservation `json:"source_inventory,omitempty"`
+
+	// Run-local producer navigation only. Historical JSON/replay snapshots
+	// intentionally lose this ticket rather than reconstructing authority.
+	ArtifactReadNavigation ToolArtifactReadNavigation `json:"-"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

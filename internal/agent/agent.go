@@ -6623,7 +6623,7 @@ func validateExplorerTraceOnlyExactArtifactToolCall(ctx *types.AgentContext, tc 
 			"Use trace_query with that typed trace source; source/generic tools are outside this turn unless a later typed current-source lane opens.",
 		tc.Name, view.Policy.ActiveArtifactSource)
 	logging.Warning("[explorer] source fallback tool %q rejected by trace-only artifact policy: %s", tc.Name, reason)
-	return &types.ToolResult{
+	return appendTraceResultReturnNavigation(ctx, tc, &types.ToolResult{
 		ToolName:  tc.Name,
 		Success:   false,
 		Summary:   reason,
@@ -6640,7 +6640,7 @@ func validateExplorerTraceOnlyExactArtifactToolCall(ctx *types.AgentContext, tc 
 				"current_source_lane": "excluded",
 			},
 		},
-	}
+	})
 }
 
 func validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool) *types.ToolResult {
@@ -6666,7 +6666,7 @@ func validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx *types.AgentContext, 
 			"Continue with trace_query for bounded trace follow-up or emit_investigation_complete; use current-source or generic shell tools only when the typed request model requires current-source evidence or trace_query returned no structured runtime observations.",
 		tc.Name)
 	logging.Warning("[explorer] source fallback tool %q rejected after trace_query runtime observations: %s", tc.Name, reason)
-	return &types.ToolResult{
+	return appendTraceResultReturnNavigation(ctx, tc, &types.ToolResult{
 		ToolName:  tc.Name,
 		Success:   false,
 		Summary:   reason,
@@ -6679,7 +6679,7 @@ func validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx *types.AgentContext, 
 				"policy": "runtime_trace_query_sufficient_evidence",
 			},
 		},
-	}
+	})
 }
 
 func explorerTraceQuerySourceFallbackHardBlocked(rm *types.RequestModel) bool {

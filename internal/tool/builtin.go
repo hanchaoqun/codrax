@@ -2177,7 +2177,9 @@ func (t *GrepTool) Parameters() json.RawMessage {
 }`)
 }
 
-func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
+	var navigation types.ToolArtifactReadNavigation
+	defer func() { finishArtifactReadNavigation(ctx, navigation, &out) }()
 	var p grepToolParams
 	if _, decodeFailure, err := decodeStrictToolParams(t.Name(), params, t.Parameters(), &p, nil); err != nil {
 		return *decodeFailure, err
@@ -2251,6 +2253,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// fixtures pass the predicate (typed escape lane).
 	if searchPathIsFile && IsSensitiveConfigFilePath(searchPath) {
 		return sensitiveConfigRefusal(t.Name()), nil
+	}
+	if searchPathIsFile {
+		navigation = prepareArtifactReadNavigation(ctx, searchPath)
 	}
 	lineWindow := p.LineStart > 0 || p.LineEnd > 0
 	if p.LineStart < 0 || p.LineEnd < 0 {
@@ -4792,7 +4797,9 @@ func readFilePathFailureRepair(requested, fsPath string, err error) (*types.Tool
 // (FirstPathDenial / FirstSymbolDenial) — one implementation of the
 // match rules, one lock acquisition, shared with the repo_map gate.
 
-func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
+	var navigation types.ToolArtifactReadNavigation
+	defer func() { finishArtifactReadNavigation(ctx, navigation, &out) }()
 	p, usedLegacyOffset, decodeFailure, err := decodeReadFileParams(params)
 	if err != nil {
 		return *decodeFailure, err
@@ -4873,6 +4880,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if IsSensitiveConfigFilePath(fsPath) {
 		return sensitiveConfigRefusal(t.Name()), nil
 	}
+	navigation = prepareArtifactReadNavigation(ctx, fsPath)
 	// Whole-read wall (customer OOM 2026-07-03): read_file pages AFTER
 	// slurping, so a GiB-scale artifact must be refused before allocation.
 	data, err := width.ReadFileBounded(fsPath, width.Current().ReadFile.MaxWholeReadBytes)
@@ -5165,7 +5173,12 @@ func readFileResultRefinement(ctx *types.BusContext, requestedPath, fsPath strin
 	if preferredPath == "" {
 		return nil
 	}
-	if !traceQueryResultReadTarget(ctx, requestedPath, fsPath) && readFileTargetsTraceQueryArtifact(preferredPath, fsPath) {
+	// A known derived result is still a result page even if its quoted rows
+	// resemble a capture. This changes only the soft continuation hint: keep
+	// paging the actual result, never submit its coordinates to trace_query.
+	// Do not reuse this navigation signal for read permission or I/O routing.
+	resultNavigation := prepareArtifactReadNavigation(ctx, fsPath)
+	if !traceQueryResultReadTarget(ctx, requestedPath, fsPath) && resultNavigation.InputRef == "" && readFileTargetsTraceQueryArtifact(preferredPath, fsPath) {
 		hint := types.ToolRefinementHint{
 			ReasonCode:        "read_file_trace_artifact_truncated",
 			ResultTruncated:   true,
