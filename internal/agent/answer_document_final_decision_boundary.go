@@ -1288,16 +1288,40 @@ func renderAnswerDocBoundedRuntimeCompletionClosedReaderFact(
 			strings.TrimSpace(authority.SelectedWindow) != wantWindow {
 			continue
 		}
-		coverage := tracefence.StateCoverageWord(authority.CoverageStatus, zh)
-		if zh {
-			return fmt.Sprintf("  - 独立 IO 完成闭合口径（%s）：已证目标线程等待 %d 次，区间并集 %.3f 毫秒。它与调度器标记的 D/IO 等待是两把尺，不能相加或互相否定。\n", coverage, len(authority.Occurrences), authority.ObservedMS)
-		}
-		return fmt.Sprintf("  - Separate completion-closed IO ruler (%s): %d proved target-thread wait occurrence(s), interval union %.3f ms. This and scheduler-marked D/IO wait are different rulers and must neither be added nor used to negate one another.\n", coverage, len(authority.Occurrences), authority.ObservedMS)
+		return formatTraceCompletionClosedReaderFact(authority, zh)
 	}
 	if zh {
 		return "  - 本次状态分布没有评估由 IO 完成事件闭合的 S 状态等待；该口径缺席表示未评估，不是测得为零。\n"
 	}
 	return "  - This state distribution did not assess S-state waits closed by IO completion events. An absent ruler means not assessed, not measured zero.\n"
+}
+
+// Blocking coverage and target-state coverage have distinct status domains.
+// Render the admitted blocking account without changing its values or treating
+// an unknown status as either complete coverage or a known capacity boundary.
+func formatTraceCompletionClosedReaderFact(authority types.TraceBlockingWallClockAuthority, zh bool) string {
+	coverage, countPrefix, valuePrefix, boundary := "coverage completeness unconfirmed", "observed ", "observed ", " Full-window totals are not established."
+	if zh {
+		coverage, countPrefix, valuePrefix, boundary = "覆盖完整性未确认", "已观测 ", "已观测 ", "全窗总次数和总量尚未确定。"
+	}
+	switch strings.TrimSpace(authority.CoverageStatus) {
+	case "complete":
+		coverage, countPrefix, valuePrefix, boundary = "complete coverage", "", "", ""
+		if zh {
+			coverage = "覆盖完整"
+		}
+	case "lower_bound_capacity_truncated":
+		coverage, countPrefix, valuePrefix = "query-result capacity limited; observed lower bound", "at least ", "at least "
+		boundary = " The full-window totals are unknown. Query-result capacity clipping does not imply missing trace capture or prove capture completeness."
+		if zh {
+			coverage, countPrefix, valuePrefix = "查询结果容量受限，仅为已观测下界", "至少 ", "至少 "
+			boundary = "全窗总次数和总量未知。查询结果容量裁剪不代表 Trace 采集缺失，也不证明采集完整。"
+		}
+	}
+	if zh {
+		return fmt.Sprintf("  - 独立 IO 完成闭合口径（%s）：已证目标线程等待 %s%d 次，区间并集 %s%.3f 毫秒。%s它与调度器标记的 D/IO 等待是两把尺，不能相加或互相否定。\n", coverage, countPrefix, len(authority.Occurrences), valuePrefix, authority.ObservedMS, boundary)
+	}
+	return fmt.Sprintf("  - Separate completion-closed IO ruler (%s): %s%d proved target-thread wait occurrence(s), interval union %s%.3f ms.%s This and scheduler-marked D/IO wait are different rulers and must neither be added nor used to negate one another.\n", coverage, countPrefix, len(authority.Occurrences), valuePrefix, authority.ObservedMS, boundary)
 }
 
 // renderAnswerDocLogPeerFinalDecisionBoundary replays the precise LogBundle
@@ -1394,6 +1418,8 @@ func renderAnswerDocTargetCPUIdentityBoundary(ctx *types.AgentContext) string {
 		unit       string
 		roster     string
 		assignment string
+		scope      types.TraceRuntimeAccountScope
+		artifact   string
 	}
 	seen := map[string]bool{}
 	rows := make([]cpuRow, 0)
@@ -1411,12 +1437,26 @@ func renderAnswerDocTargetCPUIdentityBoundary(ctx *types.AgentContext) string {
 			unit:       strings.TrimSpace(record.Unit),
 			roster:     strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningRosterStatus)),
 			assignment: strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningAssignmentStatus)),
+			scope:      types.TraceRuntimeAccountRecordScope(record),
 		}
-		key := strings.Join([]string{row.subject, row.object, row.value, row.unit, row.roster, row.assignment}, "\x00")
-		if seen[key] {
-			continue
+		row.artifact = firstNonEmpty(row.scope.ArtifactLabel, "artifact not stated")
+		// The shared identity's canonical path also distinguishes captures
+		// with the same basename, including support-ref-only legacy records.
+		if path, ok := strings.CutPrefix(row.scope.ArtifactKey, "path\x00"); ok {
+			row.artifact = path
 		}
-		seen[key] = true
+		if row.scope.Complete() {
+			// This is display deduplication, not a cross-query measurement
+			// merge. Unknown scopes remain separate; never fill a query from
+			// the CPU occurrence envelope or from another row.
+			key := strings.Join([]string{row.scope.ArtifactKey,
+				fmt.Sprintf("%g..%g", row.scope.WindowStartTs, row.scope.WindowEndTs),
+				row.subject, row.object, row.value, row.unit, row.roster, row.assignment}, "\x00")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
 		rows = append(rows, row)
 	}
 	if len(rows) == 0 {
@@ -1426,14 +1466,28 @@ func renderAnswerDocTargetCPUIdentityBoundary(ctx *types.AgentContext) string {
 		if rows[i].subject != rows[j].subject {
 			return rows[i].subject < rows[j].subject
 		}
-		return rows[i].object < rows[j].object
+		if rows[i].object != rows[j].object {
+			return rows[i].object < rows[j].object
+		}
+		if rows[i].scope.ArtifactKey != rows[j].scope.ArtifactKey {
+			return rows[i].scope.ArtifactKey < rows[j].scope.ArtifactKey
+		}
+		if rows[i].scope.WindowStartTs != rows[j].scope.WindowStartTs {
+			return rows[i].scope.WindowStartTs < rows[j].scope.WindowStartTs
+		}
+		return rows[i].scope.WindowEndTs < rows[j].scope.WindowEndTs
 	})
 	var b strings.Builder
 	b.WriteString("## Final Target CPU Identity Boundary (Typed Facts; Model-Owned Conclusion)\n\n")
+	b.WriteString("- Window comparisons below describe timestamp ranges only; they do not establish that a row belongs to the requested capture or target. Each row retains its own artifact and target identity.\n")
 	for _, row := range rows {
-		fmt.Fprintf(&b, "- target=`%s`; scheduler_cpu=`%s`; running=`%s%s`; roster_status=`%s`; assignment_status=`%s`.\n",
-			row.subject, row.object, row.value, row.unit, firstNonEmpty(row.roster, "unknown"), firstNonEmpty(row.assignment, "unknown"))
+		fmt.Fprintf(&b, "- target=`%s`; scheduler_cpu=`%s`; running=`%s%s`; roster_status=`%s`; assignment_status=`%s`; artifact=`%s`; query_window=`%s`.\n",
+			row.subject, row.object, row.value, row.unit, firstNonEmpty(row.roster, "unknown"), firstNonEmpty(row.assignment, "unknown"),
+			traceDecisionPromptScalar(row.artifact), types.FormatTraceRuntimeAccountWindow(row.scope.WindowStartTs, row.scope.WindowEndTs, "en"))
+		windowScope := types.ResolveTraceQueryWindowScope(ledger.RuntimeArtifactScopeProfile, row.scope.WindowStartTs, row.scope.WindowEndTs)
+		fmt.Fprintf(&b, "  - %s.\n", windowScope.Format("en"))
 	}
+	b.WriteString("- measurement_scope: each running value and roster status applies only to that row's capture and query window. Keep different or unknown scopes separate; these rows do not by themselves authorize cross-scope addition, replacement, or migration conclusions.\n")
 	b.WriteString("- ftrace_header_identity: the task header's parenthesized numeric field is PID/TGID identity, not a CPU number. Scheduler CPU identity comes from the `[NNN]` CPU column and deterministic target CPU rows; perf-sample CPU identity comes from an explicit typed `cpu=` field when `cpu_known=true`.\n")
 	b.WriteString("- migration_evidence_boundary: do not infer CPU migration by comparing PID/TGID with a CPU field. A migration statement requires a typed migration event or compatible target-running rows on multiple CPUs. The final explanation remains model-authored.\n\n")
 	return b.String()

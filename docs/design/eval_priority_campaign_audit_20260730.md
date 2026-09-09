@@ -57380,6 +57380,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1704 B1630a/b：CPU查询身份与IO下界的上下文闭包（2026-09-08）
+
+B1629先独立提交 `7195864a6`。本批只改成文入模的两处共享信息出口和8个测试族，不改Trace测量、查询资格、证据产生、原模型块、图或结论，也不增加JSON字段/重试门。两个问题按同文件不同函数独立开发、互审后合批。
+
+1. **a，CPU卡范围身份**：复用 `TraceRuntimeAccountRecordScope`、现有工件身份及查询窗formatter；每个running/roster行同时带真实capture与query_window。完整捕获/目标/查询窗/CPU/值/roster/assignment相等才显示去重；缺身份不猜、不合并。原CaptureIdentityPath优先、typed旧support-ref/ArtifactID路径继续有效，不用basename等同捕获，不把CPU occurrence Span当query窗。时间范围与请求相同只说明时间匹配，明确不证明请求捕获/目标归属。原PID/TGID≠CPU、迁移须证据的教学保持，不挑大值代替主窗或删除探索子窗。
+2. **b，IO下界本域**：blocking status不再借状态覆盖字典。已发布complete仍原字节；`lower_bound_capacity_truncated`明确查询结果容量下界，同时在次数和区间并集前保“至少”，不冒充Trace采集缺失/采集完整；未知值仍观测值且总量完整性未确认，不从其他域猜容量原因。D/显式iowait/S+iowait窄账户与completion闭合S等待两尺不相加、不互相否定，数值与来源原样。
+3. **有效首红与入口**：a `.codrax/tmp/20260908-b1630a-cpu-scope-red.log` 真实 DispatchToolResults→ledger→BuildInitialInstruction 复现主/子窗无标识及同值异窗误去重；b `...-b1630b-reader-red.log` 实际四条IO等待4.384ms先确认authority容量状态，再在真实成文IO行同时复现zh/en缺“至少”和错译unknown，complete旧臂原绿。不是仅测试私有字符串helper。
+4. **正负矩阵**：a双窗、同值异窗、同basename异捕获、同时间异捕获/目标、零起点、缺窗/缺捕获、重复、两种输入顺序、同域异值/状态、原capture优先、typed资格原负臂、源JSON字节不变；b完整/容量双语言、未知未来值和误传状态域枚举不升完整/不猜原因、同源窗口筛选、原S/D/S+iowait桥接、complete单行字节恒等。定向count3及narrow race独立通过（a1.044/2.129s；b1.182/2.344s）。两席交叉只读末审无阻断。
+5. **同类清册而非补单点**：全仓 `StateCoverageWord` 生产调用现只剩 `FormatTargetStateAccount`。追到唯一状态账户builder只产生window_unknown/complete/partial_unaccounted，三成文出口均复用同构造；未发现另一处blocking等跨域误入。范围仅此formatter与来源/调用链，不宣称所有Trace字典已审完。
+6. **验收/红线**：两批共享冻结生产版本 `go test ./... -count=1` 退出0，86包通过；log `...-b1629-b1630-full-suite.log`，agent61.427s/tool292.695s/tracequery100.613s/hitraceconv142.599s/tracediag13.196s/types49.350s。a/b测试均在全仓启动前冻结；ground后补测试断言的最终两包复验见§1703。活跃流4项count3通过，系统不会因4ms或旧4m未有最终正文截断仍活跃的流；真实停滞、调用方取消、显式deadline保留。`git diff --check`通过。
+
+**剩余与排期**：下一先处理B1630c总policy记录数与最严格观测row的语义分离（不能从现聚合猜各档次数），再B1624b纯导航来源谱系及原有队列。后续异构live计划为 `sr_rust_cross_module_chain` + `github_issue_nlohmann_long_double_symptom`，距同组合r1034已有9批，前者审关系/顺序图及完整JSON修补教学，后者审双头文件一致性与原生C++验证；本机clang++存在，Rust读场景不依赖cargo。仍须提交后clean build、严格两路、人审实际答案/源码/交付树，不把regex机器通过代替语义审计，也不为模型波动改硬门。此为计划，**尚未启动r1044**，本次只有r1043两例。
+
+状态：`B1620=20507fcde/pushed/live-boundary-positive`；`r1043-audit=4e2aba17c/pushed/machine0/2+human-partial2/2`；`B1629=7195864a6/implemented/verified/pending-new-live`；`B1630a/b=implemented/actual-entry-red-green+independent-review+86-packages-green/delivered-with-this-commit/pending-new-live`；`B1630c/B1629b/B1624b/B1626/B1622/B1616b/B1561=open`。没有系统改写正文/删除模型关系、原prose关键词硬门或背景升主因。Trace精确窗、投影按真实合同启用、探索+自动补齐、链上占用/可消除两轴以及D/IO/业务线索不变。
+
 ### §123.1703 B1629：已准许单点重定位的终点一致性（2026-09-08）
 
 r1043审计已先提交推送 `4e2aba17c`；本小批只处理ground坐标，不调整parser、证据形式、强弱资格、模型说明或原引用的来源选择。
