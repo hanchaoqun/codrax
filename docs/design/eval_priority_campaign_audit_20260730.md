@@ -57380,6 +57380,27 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1717 r1048：控制器缺口供给生效；等待人口尺注的部分账户盲区（2026-09-09）
+
+B1634a以`d931ab3d8`独立推送，clean binary `d931ab3d8361` built `2026-09-09T09:34:47Z`。按覆盖老化/能力风险选H7显式窗全谱Trace与libgit2双错误路径C写，exact2各一次、1200s、原15/24步及case/oracle不动。机器H7 PASS225s、C FAIL288s（case wall285s）；**人工H7整份fail，C代码及原生行为pass、正式proof未闭合**。完整收账 `eval/parallel_selected_summary_evalcampaign_h7_libgit2_r1048_20260909{,_manual_audit}.md`，旧答案/计划/正式报告不改写。
+
+1. **B1634a live正证**：C原生失败后当前9项未闭合独立列8/+1省略；末代当前4项全部显示并由controller复述，明确aggregate make通过不能替代逐合同证明。最终累计8项属于另一域，不能误称重复/冲突。两次最终make check及人工原4断言、直接链接交付C的7×7共49组合均通过，代码仅repository.c24/28两处括号、测试/Makefile及原repo HEAD未改；但B1561逐断言收据/绑定尚缺，机器unverified仍正确。人工测试只在工具输出留痕，不伪写正式report。
+2. **Trace受保护能力正证**：233.190ms明确窗，74.915实际running与65.912规则折算两轴，11段D/36.757、完成闭合IO0.985、链上小贡献、业务span/JIT仅线索、1份因果投影均保留；1.396未归账如实披露，邻近49.623不升主因。B1633a五CPU代表频率/同结果policy交接真实生效；B1633b附注未获发布预算，B1624b导航未触发，不能混签live。
+3. **B1635a/P1确认：等待人口尺注资格错借。** 系统MD153的116.963分母来自已选SelfRows的78.630+36.757+1.576；完整已测状态账户等待为156.879。旧`run2fixa.go:163`尺注依赖`tree.go:16757`五态=全窗严格门，本例231.794≠233.190让说明返回空。恒等式拒绝是对的，跨用其资格导致另一个范围说明漏发才是gap。下一批保数值/分母/选板/排名，仅明确“已发布自身状态行”的人口，并对同完整身份账户独立说明；不能用156.879直接替换分母，不能把39.916差额猜成丢失时段。生产+源码已确认，未实施/未新跑RED。
+4. **B1635b/P2确认：候选显示漏限定。** 引擎priority_inversion_runnable_wait的原Summary明确同CPU真实running重叠候选，按当前Harmony优先级语义、闭合范围和同源凭证；不是已证锁持有者/唤醒依赖。共享typelabels.go:41只发“优先级反转·可运行等待”，丢candidate边界。后续共源双语、多发布面补候选/同核重叠限定，保token/时长/选举，不以本题改引擎判定或正文。自身“5次”和投影“共4段”继续归B1622统计组数冒充物理次数；1.576vs1.536的0.040ms差异query本身已在，原因未追完，独立待证，不能归模型波动或显示修好即销账。
+5. **B1122-MAKEEMBEDDEDFAILLOC1摘要后续/P2**：C真实三断言失败的简短摘要却取编译命令首行，controller先误说编译失败，后续planner收到完整FailureDetail才修正。`run_tests_parsers.go:397–421`已定位；原tests_failed类别和详细证据保留，非执行判据改错。归并旧复合runner保真债，后续有界供给原失败输出，不新增硬判据、不猜expected/actual。模型代码/observable合同早期错误照录，不系统重写。
+6. **模型错误不伪造系统修复**：D的12条caller与11段状态被解释成溢出/实际等待可能更多；无授权的70.758方向相加；5线程叫4个、小计5.324导语范围歧义，模型上下文已有相应精准边界。0.598显示本身另有系统标签/次数债，不能统称模型错。保人工fail，不加prose扫描硬门。130B默认旁路诚实unavailable：前4 fullID有效、后4模型用了rank短hash，正确ID事先已入模且返回修复提示；正文保留，不是文件未产出，也不是程序化根因选择成功。
+
+**后续任务列表（按当前ROI，未施工项不签关闭）**：
+
+- [x] B1634a推送、86包全测后的新live及真实controller/报告/保留树审计，生产缺口供给生效；原机评1/2保留。
+- [x] H7模型首稿、实际精确信息、系统附注及侧车逐域复核；本节和两份报告独立提交，零生产代码混入。
+- [ ] B1635a先真实发布入口RED；partial/完整/缺账户/异capture-target-query/正反序/零值矩阵。只分离账户存在与全窗平衡资格，不放宽既有恒等式。另追0.040ms的原始区间人口，不将其混成显示修复。
+- [ ] B676生命周期与B1634d配置值交接沿§1716已有设计分别施工；B1561原生证明与B1616b跨计划证明仍开放。
+- [ ] B1635b候选词面、B1634b关系可见别名、B1634c显式已应用计划oracle域、B1122普通Make失败摘要逐批实施；B1629b/B1626/B1622及旧fork权限可达性保留。
+
+状态：`B1634a=d931ab3d8/pushed/86-packages+entry-red-green/live-context-positive-r1048`；`r1048=machine1/2,human-Trace-fail+C-code-pass/proof-unverified/audited`；`B1635a/b=confirmed/design-ready/not-implemented`；`B1122-summary-followup=confirmed/P2/not-implemented`。两例无成文JSON自冲突或系统删图；H7无Mermaid不能签图修复验证。单条活跃流4ms或旧4m无最终正文不降级，真正停滞/取消/显式deadline保持；本轮H7单finalizer72.888s、C多次短调用，不能冒称>4分钟单流live。
+
 ### §123.1716 B1634a：当前验证未闭合项独立供给控制器（2026-09-09）
 
 r1047收账已以`3e12b1757`单独推送。本批只修write controller的精准上下文，不修改验收门、执行、风险/审批、模型计划/引用或最终回答；不触碰共享context pack的既有排序和16项上限。
@@ -57392,7 +57413,7 @@ r1047收账已以`3e12b1757`单独推送。本批只修write controller的精准
 - [x] Root独立review再纠正一次潜在循环教学：初稿“需要durable workflow proof verdict”可能被理解成finish前取最终工件。沿当前schema改为每个已应用批次最新验证通过且必需证明闭合，不要求未生成artifact；该句有效RED后最终count3/race0.921/2.114s绿，`...-b1634a-finish-boundary-{red,count3,race}.log`。另一席只读末审无阻断。
 - [x] 影响包完整agent/types/orchestrator54.870/32.028/17.754s绿（末改教学句之前）；活跃SSE/逐leg预算/4ms/真实停滞/取消/deadline专项count3 llm26.960s、agent0.826s绿。无连接年龄降级，不把4ms缩时针说成长时live。
 - [x] 最终冻结后`go test ./... -count=1`退出0，86测试包全绿，日志`.codrax/tmp/20260909-b1634a-full-suite.log`（tool313.245s、tracequery106.394s、tracediag13.012s、types42.826s）。无hash盲重钉/旧门降级；代码/回归/本节随独立小批交付。
-- [ ] 推送后clean build，r1048冻结H7显式窗全谱根因读（最近r1039）+libgit2两条错误传播真实apply（最近r1030），exact2/1200s各一次，原case/oracle/步数不改。H8有已知旧oracle与最新语义计价裁定冲突，本轮不选、不为过case删合法值；H3/H10虽老但有限事实题不强绑投影。新live另节收账，不把旧r1047重渲染作正证。
+- [x] `d931ab3d8`推送后clean build，r1048冻结H7显式窗全谱根因读（最近r1039）+libgit2两条错误传播真实apply（最近r1030），exact2/1200s各一次，原case/oracle/步数不改。H8有已知旧oracle与最新语义计价裁定冲突，本轮不选、不为过case删合法值；H3/H10虽老但有限事实题不强绑投影。新live已在§1717收账，B1634a有真实controller消费正证，不把旧r1047重渲染作正证。
 
 **r1047配置值交接定位补全（B1634d/P1，原§1715候选升级，不重复立项）**：已读配置整行经`ground.go:688/829 → EvidenceItem.Snippet → observation_ledger.go:1298/1299 RawExcerpt`仍在确定生产路径中；本次没有运行对象dump，不冒称读取了完整持久化EvidenceItem。`observation_prompt_projection.go:134`隐藏模型Summary是正确权威隔离，236默认同时隐藏current-source excerpt，主投影只剩字符串锚。StageReport/top12、support pool/top18及enrichment另受call-chain support位置过滤，本轮该lane没有配置位置，单调大cap/加literal分支不够。无LLM compaction见证，不能归长上下文。
 
@@ -57408,7 +57429,7 @@ B676续修施工清单（只读设计，未改plan格式）：
 - [ ] 旧严格`no_change_required`快照兼容迁移；已经applied且无标记的历史空plan不得按文件名/probes/path猜身份。`types.LoadChangePlanFromFile`与REPL `PlanStore.Load`直接Unmarshal都要核，首次合法状态变更前也应保住身份，不能只绕过退出WARN。
 - [ ] 实际sentinel→verify三终态→保存→重载/保留路径回写；普通空plan、缺probe/target、未知标记和普通非空plan正反矩阵。r1047既有文件/正式FAIL原样保留，不将成功人工测试伪写成placement证明。
 
-状态：`B1634a=implemented/entry-red-green/final-count3+race+86-packages-green/independent-reviewed/delivered-with-this-commit/pending-live`；`B1634d=confirmed/P1/design-ready/not-implemented`；`r1047=3e12b1757/pushed/old-artifacts-preserved`。Trace链上两轴、IO/语义/业务线索、显式窗/投影/自动补齐、模型正文图与结论所有权均不改。
+状态：`B1634a=d931ab3d8/pushed/entry-red-green/final-count3+race+86-packages-green/independent-reviewed/live-context-positive-r1048`；`B1634d=confirmed/P1/design-ready/not-implemented`；`r1047=3e12b1757/pushed/old-artifacts-preserved`。Trace链上两轴、IO/语义/业务线索、显式窗/投影/自动补齐、模型正文图与结论所有权均不改。
 
 ### §123.1715 r1047：读写隔离回归与验证缺口提示丢失（2026-09-09）
 
@@ -57422,12 +57443,12 @@ B1624b已以`b12e3385b`推送，clean binary`b12e3385b3e9` built`2026-09-09T09:0
 
 - [x] B1624b代码/回归/统一台账单独推送，86包/最终race/公开入口红绿已收账。
 - [x] r1047机器、实际prompt/payload/最终文档与保留worktree人工审计完成；本节与两份报告单独提交。
-- [ ] B1634a按已确认生产缺口施工；随后B676生命周期续修、配置值交接候选、B1634b/B1634c分别处理，不合并成“模型错误”。
+- [x] B1634a已于§1716施工推送`d931ab3d8`、§1717获live缺口供给正证；B676生命周期续修、B1634d配置值交接、B1634b/B1634c仍分别待办，不合并成“模型错误”。
 - [ ] B1629b已再静态核非point跨界/跨文件迁移及call预重定位风险，但未新跑RED，不写成已公开入口复现；B1626/B1622/B1616b/B1561、旧fork hard registry跨任务生产可达性保留。
 
 本轮无Trace附件、trace_query=0，仅验证B1624b对普通读写隔离，不计其导航live正证；Trace根因链上限制、两轴/业务/IO、显式窗、投影/补齐均未改。两例活跃流无年龄降级，但不能当持续超过4分钟live；4ms/旧4m实际SSE工程针已绿，真实停滞/取消/显式deadline保留。零请求/正文关键词硬门，零系统代写图/正文/结论。
 
-状态：`r1047=machine1/2,human-TS-fail+Go-code-pass/proof-unverified`；`B1624b=b12e3385b/pushed/86-packages+final-race-green/nontrace-isolation-only-r1047`；`B1634a=confirmed/P1/implementing`；`B1634b/c=confirmed/P2/design-pending`；B676生命周期与其它队列open。
+状态：`r1047=machine1/2,human-TS-fail+Go-code-pass/proof-unverified`；`B1624b=b12e3385b/pushed/86-packages+final-race-green/nontrace-isolation-only-r1047`；`B1634a=d931ab3d8/pushed/live-context-positive-r1048`；`B1634b/c=confirmed/P2/design-pending`；B676生命周期与其它队列open。
 
 ### §123.1714 B1624b：派生查询结果的纯返回导航（2026-09-09）
 
