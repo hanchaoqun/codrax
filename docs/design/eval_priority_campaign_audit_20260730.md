@@ -57380,6 +57380,24 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1706 r1044：异构读写复验与来源隔离后续批次（2026-09-08）
+
+B1630c已以`cf5dc8596`提交推送；clean binary built 2026-09-09T03:35:26Z、revision cf5dc859694a。全部16文件在86包全测及独立review/race后提交，未混入case/oracle变更。r1044于20:36:10严格两路启动，Rust读146s、C++写119s，机器2/2；人工Rust fail、C++在已测平台范围pass，完整报告`eval/parallel_selected_summary_evalcampaign_rust_nlohmann_r1044_20260908{,_manual_audit}.md`。没有第三路live。
+
+1. **Rust主链正确、额外语义有错**：`20260908-203834.987-67421.md`中先collect_files再逐文件/逐行匹配、walker职责正确；第20行却虚称简化RegexLike支持跨行/捕获组，46–47把read_dir返回排在递归后；18行详细函数行为选了调用位置引用。前两错均在模型首稿3620已在场，入模3297只给分段find候选说明，源码已完整提供，不是系统代写或新schema矛盾。保人工fail与模型语义/时序观察，不为词句/语言造hard gate。
+2. **两拒绝/三修补逐次核清**：首拒standalone边缺identity及无据interface→implementation调用、递归reply；局部patch随后因两孤立节点要求模型明确处置。模型选择retain_as_context，实际合同仅要求visible_label，名称完整出厂，没有所谓context_note被系统丢失。字符串化ID数组安全恢复，最后只补概念终点绑定。B1609局部事务、B1611一次概念附注、B1620候选说明边界实际正向；不把这些正向当整份回答通过。
+3. **C++真实交付正确但正式验证有边界**：双头均为`%.*Lg`，原告警和tests保留。正式report只有make check/1386ms/aggregate一条；独立在真实durable tree上严格原生编译原tests并跑既有general-format对照，1.25、1e12、1e-12两头均与参考一致，避免r1034的固定小数回退。本机arm64的long double精度不能证明其他ABI。两次planner超读取预算及一次不支持C++ inline probe的schema重试已记；教学已有native验证出口，无自相矛盾。自然语言验收并非逐条执行，B1616b/B1561仍开放。
+4. **信息与心智审计**：Rust43%/C++28%context；未见预算不足或活跃流被截断，不为本批额外抬预算。模型已有实际源码、typed recipe和candidate-only说明，本次错误不以强制重写正文/图修正。频率B1630c新口径在本批无Trace，仍标pending-new-trace-live；不能拿读写2/2销掉其客户验证。
+
+**下一批按ROI**：
+
+- B1631/P1先做真实入口红针：异捕获同basename/同CPU/同目标/同时间窗、输入正反序，证明两个join及去重的source歧义；静态构造路径不冒充已执行复现。
+- B1631来源凭证与双端分区：每条policy保producer-only capture/query/result来源，target行同样按来源分区；两个join共用精确编译器，旧未知只独立展示、不参与关联。不能为复用SameQuery伪造policy的目标Subject；不能将序列化时间容差用于跨结果聚类。auto-window、三处dedup、JSON/TurnA/dispatch/memo、字段处置及schema pins一起验收，先不变任何计时/排名/折算/答案。
+- B1624b纯导航谱系随后独立施工：真实InputRef→OutputRef→已登记OriginQueryRef，只给回程建议，保原读取权限/grounding；不同于上项的policy事实归属，不能混用RuntimeArtifactRead授权。
+- B1629b范围、B1626多请求成员窗、B1622物理次数/统计分组、B1616b/B1561验证证据及原P2队列继续开放。Rust本次过度推断/时序错暂作模型观察，不挤占上述确定性系统问题。
+
+状态：`B1630c=cf5dc8596/pushed/86-packages-green/pending-new-trace-live`；`r1044=machine2/2/human1-pass+1-fail/audited`；`B1631=static-path-confirmed/design-ready/pending-executable-witness`；`B1624b/其余=open`。Trace精确窗、投影/补齐、链上两轴、D/IO/业务线索未改；活跃流保护专项复验见§1705。本次收账只含审计文档，不含未交付生产改动。
+
 ### §123.1705 B1630c：频率策略总记录数与代表行分离（2026-09-08）
 
 从已交付 `4aa94e2ac` 继续，fetch后远端同值，起点工作区清洁。r1043 CPU4共28条是2.27/2.10GHz各14条，CPU0共16条是1.72/1.53GHz各8条；现聚合只保存最严格正上限的原子代表行，不能把全部记录数解释为该min/max组合的出现次数，更不能推持续时长。
@@ -57390,17 +57408,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - [x] 查询真实Execute出口：head-safe authority与window_stats原始行同时明确总数/代表行，保既有机器字段；zero-only仍不铸正ceiling权限。
 - [x] 模型上下文普通提示、目标卡与逐CPU卡，以及系统附注共用事实表述；zh/en保坐标、窗口和缺见证边界；不增加发布/重试门。
 - [x] 有效入口先红后绿、混合tuple/顺序/同max异min/零值/窗外与行外/双语言/模型原块字节保持；独立互审、影响包及全仓测试通过，随本批提交交付。
-- [ ] 新clean binary后r1044严格两路：Rust跨模块读 + nlohmann原生C++写，保case/oracle/fixture原样；审真实上下文、顺序/关系、双头文件交付与原生行为，不以弱测试/regex替代语义验收。
+- [x] 新clean binary后r1044严格两路：Rust跨模块读 + nlohmann原生C++写，保case/oracle/fixture原样；已审真实上下文、顺序/关系、双头文件交付与原生行为，不以弱测试/regex替代语义验收。结果见§1706，机器2/2不等于人工全过。
 
 **独立待证B1631**：frequency-limit authority未携capture/result身份，下游扁平合并后两处目标CPU关联只按时间窗+CPU首条胜，存在跨捕获借用的构造路径。当前为静态待证/设计项，需独立真实入口针和来源传递方案，不把本批措辞修正冒充身份隔离已完成。B1624b派生结果纯导航、B1629b非point范围、B1626多请求成员窗、B1622次数分组、B1616b/B1561验证证据仍在队列。
 
 **入口与测试证据**：引擎实际BuildIndex→Run双出口有效首红 `...-b1630c-core-red-verified-final.log`；tool真实Execute首红 `...-b1630c-tool-red.log`；成文真实BuildInitialInstruction双语首红 `...-b1630c-agent-frequency-entry-red.log`；实际ApplyAndPersistMutation发布首红 `...-b1630c-system-caveat-red.log`，均在`.codrax/tmp/20260908-`。最初测试自身unused import、nil与空slice预期、拿私有weight反推已校准Score的前提错误，均已排除，不计产品gap或有效红。最终针固定原Count、原子代表行、Confidence/Impact及公开Score、CPU对应关系、坐标、输入序列化字节和模型原块不变。旧测试仅按新明示口径更新5处精确词面，不删资格/未绑定/完整roster断言。
 
-core新旧相关count3通过0.976s、最终race3通过1.685s；tool真实Execute及原authority族count3通过1.173s；system附注相关count3通过1.114s、race通过2.184s；agent/types最终count3为1.116/1.029s，race为2.889/1.783s。三方交叉末审无阻断。泛型tracediag直接Summary面继承引擎修正，纯scalar回退仍显示已有字段（无“该档出现N次”计算），不为此新造专项renderer或盲重钉schema。完整`go test ./... -count=1`在全部代码/测试冻结后启动，结果待回填；没有把施工中快照当最终验收。
+core新旧相关count3通过0.976s、最终race3通过1.685s；tool真实Execute及原authority族count3通过1.173s；system附注相关count3通过1.114s、race通过2.184s；agent/types最终count3为1.116/1.029s，race为2.889/1.783s。三方交叉末审无阻断。泛型tracediag直接Summary面继承引擎修正，纯scalar回退仍显示已有字段（无“该档出现N次”计算），不为此新造专项renderer或盲重钉schema。完整`go test ./... -count=1`在全部代码/测试冻结后启动，已通过（结果见下）；没有把施工中快照当最终验收。
 
 活跃流实际HTTP/SSE五族count3通过21.238s，涵盖隐藏推理、工具流、4ms分帧、仅heartbeat超过旧总年龄直到调用方取消，以及真正停滞仍报错；agent预算不叠加活跃流年龄门count3通过0.824s。分别见`...-b1630c-active-stream.log`和`...-b1630c-agent-stream-final.log`。这是既有保护复验，不是本批新增4ms/4m特判。
 
-完整`go test ./... -count=1`已退出0，86测试包通过，日志`.codrax/tmp/20260908-b1630c-full-suite.log`；全部生产及测试于启动前冻结，执行期间只更新账本。`git diff --check`通过；交付前fetch确认HEAD与origin/main无差异。B1630c状态为implemented/actual-entry-red-green/independent-review/full-suite-green/delivered-with-this-commit/pending-live；r1044尚未启动，后续独立收账。
+完整`go test ./... -count=1`已退出0，86测试包通过，日志`.codrax/tmp/20260908-b1630c-full-suite.log`；全部生产及测试于启动前冻结，执行期间只更新账本。`git diff --check`通过；交付前fetch确认HEAD与origin/main无差异。B1630c状态为implemented/actual-entry-red-green/independent-review/full-suite-green/delivered-with-this-commit/pending-trace-live；提交后的r1044独立收账见§1706。
 
 活跃SSE不能因4ms或旧4m尚无最终正文降级；真实空闲停滞、显式deadline、调用方取消保留。Trace精确窗、探索+补齐、链上占用/规则可消除双轴及D/IO/业务语义不变，背景不升主因。B1631下一设计需每个witness携producer来源收据（旧无身份只展示未知，不关联目标），共源typed关联两处join，完整capture/query/result cohort/CPU对齐；不能仅凭basename/时间相同选firstwins。暂为静态设计，不签已执行复现或修复。
 
