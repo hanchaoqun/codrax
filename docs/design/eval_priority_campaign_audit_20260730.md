@@ -57380,6 +57380,26 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1713 r1046：目标频率交接正证；机器双绿不掩盖 Trace 成文错误（2026-09-09）
+
+两小批已分别推送：B1633b=`6111367b7`、B1633a=`8ddcee9b6`；冻结后完整86包绿，clean binary built`2026-09-09T08:06:26Z`。243例按风险/影响/覆盖老化轮换H11明确窗因果与C单行真实apply，exact2各一次，无第三路live、不改oracle/预算求绿。机器2/2 PASS（H11 202s，C108s）；**人工Trace正文fail，C交付/行为pass**。完整报告`eval/parallel_selected_summary_evalcampaign_h11_cwrite_r1046_20260909{,_manual_audit}.md`，保原产物。
+
+1. **B1633a交接生产正证**：实际query及最终成文矩阵均保目标CPU7的11.030ms/1280000kHz，目标CPU7不在全局Top8仍通过完整目标载体入模；CPU3无值仍unknown。专用口径、同查询来源、非恒定/驻留/策略效果限制同时保留。该题未要求逐CPU复述，不能因正文没提CPU7就认定再丢证据；异捕获/无policy/CPU0donor等负臂仍只计工程入口验收。
+2. **Trace受保护能力保留**：233.190ms明确窗、157.248ms实际running与58.320ms规则折算双轴、链上唤醒/低优先级依赖/runnable/D/IO、业务span及JIT关系未证、确定性补齐、1份最终因果投影全部在。47段12.658ms是完成闭合的响应阻塞等待，与scheduler iowait标记为0的账户不同尺；邻近/背景系统表未冒充主因。默认139B旁路存在且诚实unavailable：模型未提交有效选择，错误外层`schema_version="2"/root_causes="[]"`并无可恢复候选清单，不由系统代选。
+3. **人工正文fail必须留档**：无关系凭证却称“相互独立”；两席12.115ms小计升级整方向总和；跨尺/跨主体相加和3.956+1.648+1.193=5.797错误；558000–2100000kHz写成558–2100kHz；可见leader/completion_closed/typed等内部词，模型业务修向总结偏弱。相同值、原主体、精确小计成员、independence-not-authorized、单位换算与用户语言提示均已在实际上下文（log1836–1874/2497–2547/2700–2714）。本轮定位模型首稿/终稿错误，不冒称已证明随机性，也未确认新供给丢失/合同自冲突；不新增正文关键词硬门、不系统改数学或结论。
+4. **B1633b仍待可见live**：最终附注对账/拓扑/线程项占满旧8项预算，CPU4/12频率两项被“另有2项”披露后省略；不能把未显示当已获正确归属live。公开入口红绿保持，不为case扩cap。B1632中性coverage附注本次未命中。
+5. **C写控制通过但不夸大证明**：1删1增只修main.c第19行；原Makefile/fixture/运行repo HEAD未变。系统原生make test exit0，只证明编译与两次退出成功，正式结果保aggregate，最终UI披露自然语言验收不等于逐条独立证明；人工另作强制重编译与4组逐字输出核验通过，不反写正式report。3次计划拒绝来自模型string-wrapped JSON、幻觉附带改动/错误Python包装C；已存在精确教学与门正常。已接受plan摘要反写typo方向记P2模型措辞残余，不硬扫正文。运行repo早期.gitignore与worktree编译main均非源码改动，main未跟随交付且已披露，不宣称目录全净。
+
+**后续任务排序**（本轮审计不新增拟合规则）：
+
+- [ ] B1624b/P1纯导航谱系下一独立小批。已再核direct registry只认原trace_query；派生grep的RawRef缺可返回原结果的导航，read_file的一跳RuntimeArtifactRead参与grounding不能借用。成功生产时仅携实际InputRef→OutputRef→已登记OriginQueryRef+run代次；精确路径索引/冲突unknown/fork-reset防陈腐；只供回程建议，不授予源码读取、grounding、流式路由或证据资格，无映射不继承行号。真实query→grep→dispatch→read首红及agent提前拒绝建议接线一起验收；静态缺导航不等于每次读取必失败。
+- [ ] B1629b范围、B1626多请求成员窗、B1622物理发生次数/统计分组、B1616b/B1561验证证明债按原队列，未因简单C通过销账。
+- [ ] Trace成文单位/小计/独立性/主体及业务修向质量继续异构观察，优先改被证实的精准上下文缺口；不为本题加重复prompt或更换机评标准。后续继续轮换其它语言的图/关系读题与真实write。
+
+活跃流本轮正常，无年龄降级，单例不足4分钟不冒称4分钟实测；本批实际HTTP/SSE4ms、旧总时长帽、停滞/取消/deadline工程回归仍绿。所有代码均先提交推送再live；本节仅收账。
+
+状态：`r1046=machine2/2,human-Trace-fail+C-delivery-pass`；`B1633a=8ddcee9b6/pushed/86-packages-green/production-target-frequency-handoff-positive`；`B1633b=6111367b7/pushed/entry-red-green/live-visible-not-exercised`；`B1632=implemented/live-not-exercised-r1046`；`system-prose/graph/conclusion-rewrite=none`；`Trace explicit-window/projection/auto-supplement/two-axes=preserved`；其余open不删。
+
 ### §123.1712 B1633a：完整目标 CPU 频率通道与无策略事件接线（2026-09-09）
 
 B1633b已独立以`6111367b7`推送。本批复用原`ComputeWindowStats`截断前running聚合，不增加事件扫描、不放大全局Top8/每CPU Top2；可选频率经私有Index+完整Query摘要、实际目标TID/CPU及窗口校验后附到完整目标RunningByCPU，在普通Run与frame bundle两个实际发布点共用。私有摘要不序列化/不从旧缓存猜造；不会从comm、相邻线程/CPU末值补数。
