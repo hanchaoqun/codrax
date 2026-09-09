@@ -57380,6 +57380,36 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1716 B1634a：当前验证未闭合项独立供给控制器（2026-09-09）
+
+r1047收账已以`3e12b1757`单独推送。本批只修write controller的精准上下文，不修改验收门、执行、风险/审批、模型计划/引用或最终回答；不触碰共享context pack的既有排序和16项上限。
+
+- [x] `BuildInitialInstruction`实际入口有效RED：behavior witness1/1仍正确，placement obligation缺失却被24项pack挤掉，只剩泛incomplete。日志`.codrax/tmp/20260909-b1634a-controller-red.log`。fixture基于r1047两类真实confidence记录，不冒称直接载入客户运行对象快照。
+- [x] 将`verification_completion_scope`纠正为`verification_behavior_witness_scope`，原四项计数不变；明确其不能代替placement/impact/execution/cumulative proof。模型仍自己依既有schema选择action/finish_disposition，不增必填JSON字段或第三种完成规则。
+- [x] 经原`authoritativeWriteControllerReport`资格检查后，共用调度器同一个`BuildVerificationProofLedger(plan,report,nil)`；只投影当前计划/报告、无磁盘/历史读取，正常化后的obligation/capability中covered/advisory不占缺口清单。最多8项，kind/status/category/reason/contract_ref/plan/path/detail随行，省略和标量截断显式披露；未知不补成通过，不从正文/请求推断缺失。
+- [x] 清单位于独立16项pack之前；无报告/异plan/非验证channel沿原资格拒显示，旧空ID/channel兼容不改。零local未闭合也明确不代表早批/未知证明已解决；不宣称本批改善了旧epoch或跨计划最终证明。
+- [x] 6族入口针：真实pack裁剪、8cap/重复去重、长值显式省略、旧报告与错配、unknown/failed/unavailable、局部全covered非累计绿、完整plan/report/pack字节与ledgerverdict不变及幂等。旧pin只纠正标题/完备性词面，计数/验收不弱化。初版count3/race1.113/2.132s绿。
+- [x] Root独立review再纠正一次潜在循环教学：初稿“需要durable workflow proof verdict”可能被理解成finish前取最终工件。沿当前schema改为每个已应用批次最新验证通过且必需证明闭合，不要求未生成artifact；该句有效RED后最终count3/race0.921/2.114s绿，`...-b1634a-finish-boundary-{red,count3,race}.log`。另一席只读末审无阻断。
+- [x] 影响包完整agent/types/orchestrator54.870/32.028/17.754s绿（末改教学句之前）；活跃SSE/逐leg预算/4ms/真实停滞/取消/deadline专项count3 llm26.960s、agent0.826s绿。无连接年龄降级，不把4ms缩时针说成长时live。
+- [x] 最终冻结后`go test ./... -count=1`退出0，86测试包全绿，日志`.codrax/tmp/20260909-b1634a-full-suite.log`（tool313.245s、tracequery106.394s、tracediag13.012s、types42.826s）。无hash盲重钉/旧门降级；代码/回归/本节随独立小批交付。
+- [ ] 推送后clean build，r1048冻结H7显式窗全谱根因读（最近r1039）+libgit2两条错误传播真实apply（最近r1030），exact2/1200s各一次，原case/oracle/步数不改。H8有已知旧oracle与最新语义计价裁定冲突，本轮不选、不为过case删合法值；H3/H10虽老但有限事实题不强绑投影。新live另节收账，不把旧r1047重渲染作正证。
+
+**r1047配置值交接定位补全（B1634d/P1，原§1715候选升级，不重复立项）**：已读配置整行经`ground.go:688/829 → EvidenceItem.Snippet → observation_ledger.go:1298/1299 RawExcerpt`仍在确定生产路径中；本次没有运行对象dump，不冒称读取了完整持久化EvidenceItem。`observation_prompt_projection.go:134`隐藏模型Summary是正确权威隔离，236默认同时隐藏current-source excerpt，主投影只剩字符串锚。StageReport/top12、support pool/top18及enrichment另受call-chain support位置过滤，本轮该lane没有配置位置，单调大cap/加literal分支不够。无LLM compaction见证，不能归长上下文。
+
+- [ ] 下批复用已选有精确位置/grounding/真实Snippet的值类记录，独立、有界、保字节显示原source excerpt；保角色和主张上限，不把配置升级调用边，不恢复模型Summary为事实，不增加模型字段。
+- [ ] 不能全局开启旧IncludeCurrentSourceExcerpt：旧strings.Fields会合并字符串内部空白。完整源片段超预算需明确省略而非制造可复制的截短字面量。真实ReadFile→EmitEvidence→成文入口需覆盖混合调用/配置、literal/assignment、多格式、空格/转义、预算饱和，以及缺片段/未grounded/伪Summary负臂；目前只有静态+生产日志定位，未新跑RED/未实现。
+
+后续排序：B676-PROBEONLYDURABILITY1生命周期续修与B1634d值交接优先；B1634b图local ID显示、B1634c显式已应用计划oracle域随后。B1629b范围、B1626多请求窗、B1622次数、B1616b/B1561及旧fork权限可达性不删。仅模型漏时序条件的残余继续异构观察，不加针对本题的图/关键词硬门。
+
+B676续修施工清单（只读设计，未改plan格式）：
+
+- [ ] 共用`proofFollowupProbeOnlyPlanSentinel`产点覆盖`EmitChangePlan`与`EmitPlanSkeleton`两入口；两者现已校验active proof-followup、refs、target语言与probe内容，不能只补一条路。
+- [ ] 合法proof-only类别与`applied/unverified/verify_failed`可变状态分离。当前无可复用的稳定类别字段，倾向一个可选producer-owned持久标记、非新终态；仍保严格probe/唯一target/零changes形。它只用于合法持久形识别，不自动获得apply/审批/指纹豁免；若后续用于执行权限，须独立审核fingerprint与风险。
+- [ ] 旧严格`no_change_required`快照兼容迁移；已经applied且无标记的历史空plan不得按文件名/probes/path猜身份。`types.LoadChangePlanFromFile`与REPL `PlanStore.Load`直接Unmarshal都要核，首次合法状态变更前也应保住身份，不能只绕过退出WARN。
+- [ ] 实际sentinel→verify三终态→保存→重载/保留路径回写；普通空plan、缺probe/target、未知标记和普通非空plan正反矩阵。r1047既有文件/正式FAIL原样保留，不将成功人工测试伪写成placement证明。
+
+状态：`B1634a=implemented/entry-red-green/final-count3+race+86-packages-green/independent-reviewed/delivered-with-this-commit/pending-live`；`B1634d=confirmed/P1/design-ready/not-implemented`；`r1047=3e12b1757/pushed/old-artifacts-preserved`。Trace链上两轴、IO/语义/业务线索、显式窗/投影/自动补齐、模型正文图与结论所有权均不改。
+
 ### §123.1715 r1047：读写隔离回归与验证缺口提示丢失（2026-09-09）
 
 B1624b已以`b12e3385b`推送，clean binary`b12e3385b3e9` built`2026-09-09T09:05:38Z`。按覆盖老化与风险轮换TS workspace跨包链/别名与Go原生精准apply，exact2各一次、timeout1200s，case/oracle/步数不改。机器TS PASS246s、Go FAIL198s；**人工TS整份fail，Go补丁/原生行为pass但正式proof未闭合**。完整记录`eval/parallel_selected_summary_evalcampaign_ts_go_r1047_20260909{,_manual_audit}.md`；旧工件/机评不改写。

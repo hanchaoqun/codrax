@@ -435,7 +435,9 @@ func TestWriteControllerPromptScopesAllVerifiedToTypedObligations(t *testing.T) 
 	})
 
 	got := (&writeControllerEvaluator{}).BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
-	want := "verification_completion_scope: required_typed_contracts=1 covered_required_typed_contracts=1 planning_only_contracts=1 natural_language_acceptance_items=2 all_verified_applies_to=required_typed_obligations acceptance_items_authority=planning_guidance_only"
+	// The counts retain their original witness-matrix semantics; this row
+	// must no longer claim to summarize placement/cumulative proof closure.
+	want := "verification_behavior_witness_scope: required_typed_contracts=1 covered_required_typed_contracts=1 planning_only_contracts=1 natural_language_acceptance_items=2 acceptance_items_authority=planning_guidance_only"
 	if !strings.Contains(got, want) {
 		t.Fatalf("controller prompt lost exact verification authority scope %q:\n%s", want, got)
 	}

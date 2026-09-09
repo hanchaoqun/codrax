@@ -334,9 +334,11 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 			report.NormalizeVerificationStatus(), passedResults, failedResults, len(report.TestResults))
 		if plan := ctx.Mutable.ChangePlan(); plan != nil {
 			hard, covered, planningOnly := writeControllerBehaviorContractCoverage(plan, report)
-			fmt.Fprintf(&b, "- verification_completion_scope: required_typed_contracts=%d covered_required_typed_contracts=%d planning_only_contracts=%d natural_language_acceptance_items=%d all_verified_applies_to=required_typed_obligations acceptance_items_authority=planning_guidance_only\n",
+			fmt.Fprintf(&b, "- verification_behavior_witness_scope: required_typed_contracts=%d covered_required_typed_contracts=%d planning_only_contracts=%d natural_language_acceptance_items=%d acceptance_items_authority=planning_guidance_only\n",
 				hard, covered, planningOnly, len(plan.AcceptanceTests))
 		}
+		b.WriteString("- verification_witness_boundary: behavior-contract witness coverage is not complete proof or workflow completion; placement, impact, execution and cumulative obligations remain separate. all_verified requires every applied batch to pass its latest verification and every required typed proof obligation to be closed; the current ratio or report passed alone is insufficient.\n")
+		b.WriteString(renderWriteControllerProofScope(ctx.Mutable.ChangePlan(), report))
 		for i, cmd := range report.ExecutedCommands {
 			if i >= 8 {
 				fmt.Fprintf(&b, "- verification_command: ... +%d more\n", len(report.ExecutedCommands)-i)
@@ -399,6 +401,47 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		return ""
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// This local projection deliberately reads no historical artifacts. It makes
+// unresolved typed facts visible independently of the context pack's 16-item
+// cap, without replacing the scheduler's cumulative completion authority.
+func renderWriteControllerProofScope(plan *types.ChangePlan, report *types.ChangeReport) string {
+	const maxItems = 8
+	ledger := types.BuildVerificationProofLedger(plan, report, nil)
+	type scopedItem struct {
+		axis string
+		item types.VerificationProofLedgerItem
+	}
+	var open []scopedItem
+	for _, group := range []struct {
+		axis  string
+		items []types.VerificationProofLedgerItem
+	}{{"obligation", ledger.Obligations}, {"capability", ledger.Capabilities}} {
+		for _, item := range group.items {
+			if item.Status == types.VerificationProofLedgerItemCovered || item.Status == types.VerificationProofLedgerItemAdvisory {
+				continue
+			}
+			open = append(open, scopedItem{group.axis, item})
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "- verification_proof_scope: source=current_plan_report state=%s unresolved_items=%d displayed_items=%d scalar_truncation=ellipsis\n",
+		ledger.State, len(open), min(len(open), maxItems))
+	b.WriteString("- verification_proof_scope_boundary: this is only the current plan/report ledger projection, not the cumulative workflow verdict; zero local unresolved items do not establish that earlier batches or unavailable proof are resolved.\n")
+	for i, row := range open {
+		if i == maxItems {
+			fmt.Fprintf(&b, "- verification_proof_unresolved: ... +%d more current-plan/report item(s); omitted items are not resolved\n", len(open)-maxItems)
+			break
+		}
+		item := row.item
+		fmt.Fprintf(&b, "- verification_proof_unresolved: axis=%s kind=%s status=%s category=%s reason_code=%s contract_ref=%q report_plan_id=%q path=%q detail=%q\n",
+			row.axis, limitWriteControllerText(item.Kind, 80), item.Status,
+			limitWriteControllerText(item.Category, 80), limitWriteControllerText(item.ReasonCode, 100),
+			limitWriteControllerText(item.ContractRef, 120), limitWriteControllerText(item.ReportPlanID, 80),
+			limitWriteControllerText(item.Path, 120), limitWriteControllerText(item.Detail, 200))
+	}
+	return b.String()
 }
 
 // writeControllerBehaviorContractCoverage summarizes only structured plan and
