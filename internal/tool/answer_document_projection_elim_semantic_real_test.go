@@ -256,7 +256,7 @@ func TestElimSelfDegenerateWindowBoardCarriesSelfFamily(t *testing.T) {
 	runnableSeen := false
 	for _, line := range members {
 		if strings.Contains(line, "com.baidu.tieba-59566") &&
-			(strings.Contains(line, "调度延迟") || strings.Contains(line, "可运行等待")) {
+			(strings.Contains(line, "调度延迟") || strings.Contains(line, "优先级反转候选·同核可运行重叠")) {
 			runnableSeen = true
 		}
 	}

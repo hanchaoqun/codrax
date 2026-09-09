@@ -57380,6 +57380,29 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1718 B1635a/b：等待统计范围与同核重叠候选的显示边界（2026-09-09）
+
+基线 `be65d76ac`，本轮重新 fetch 后与 origin/main 0/0。接续 r1048 已证实的两项显示缺口；不把本次显示修复扩为数值、排名、来源资格或模型结论修改。
+
+- [x] **B1635a 有效发布 RED→GREEN**：旧四态完整恒等式拒绝仍正确；实际 `ApplyAndPersistMutation → CompileTraceCausalProjection → tree` 在有正等待分母时缺少独立统计范围说明。新增双语注只说明“本句纳入统计的自身等待记录”，百分比/剩余时长也仅属这些记录，不声称全窗等待已完整覆盖。分母、分子、残差、选板、低覆盖判定、原完整账户证明及旧双尺说明均不改；无正分母的全窗回退不附新注。
+- [x] **施工范围修正**：§1717 原拟比较同身份账户，本批没有实施新的跨账户关联。现有 `TargetStateAccount` 缺独立 capture/query ID，不能把间接 partition 和历史 unknown 当成足够的新精确来源证明；也不能把所有可见 SelfRows 都称为实际分母人口。本批仅在原覆盖计算已经完成处披露其范围，不新增 join，不以 156.879 取代 116.963，不把二者差额猜成丢失时段。
+- [x] **B1635a 矩阵**：zh/en × partial/完整/缺账户/异 capture/异 target/异 window/零值 × 正反序，共 28 格真实发布；旧 60/6/54/10%/90% 数值保持，原四态完整门不放宽。附注相邻、单次、幂等，源 Observation 和模型原块保持不变。有效 RED 留于 `.codrax/tmp/20260909-b1635a-public-red.log`，最终新旧族 count3 1.304s、窄 race count3 5.135s 绿；另一席独立审阅无阻断。
+- [x] **B1635b 主显示共源**：`priority_inversion_runnable_wait` 的 zh/en 共享显示改为“优先级反转候选·同核可运行重叠”/“priority inversion candidate · same-CPU runnable overlap”。原 `priority_inversion_candidate` 仍是独立的依赖链候选词面；不增加锁持有者、同步依赖等原本未证明的机制。token、原始/有效量、方向、排名、target_self 及凭证资格均保留。
+- [x] **B1635b 有效公开 RED→GREEN**：真实 scheduler trace → `TraceQuery.Execute` → 投影 → `ApplyAndPersistMutation` → Markdown，原 80ms/primary/rank/lock_priority 均在，仅候选边界缺失使 zh/en 首红。日志 `.codrax/tmp/20260909-b1635b-publication-red.log`。构造测试时的编译错误及误把“系统可追加块”等同于“容器不得变”的前期失败不计产品 RED；正式测试钉模型原块与源观测不变。旧词面 pins 只迁移期望字符串，不削弱旧凭证/宽度/链背景门。
+- [x] B1635b 补一个真实英文对账附注出口及一个已断开发布的旧离线诊断显示出口；两处仅精确 token 查询共享显示，其他 known/unknown 保各自原 fallback。有效附注 RED 在 `.codrax/tmp/20260909-b1635b-appendix-red-verified.log`，模型原文/块、typed rank/source/window 与证据引用不变，不重新接回离线 prose 评判。历史 §29.182② 引文原样保留，另加当前细化记录，不篡改历史裁定。
+- [x] B1635b 主显示及旧 A5/PTV6C/D/宽度/链背景/agent supplement count3：tool22.353s、agent2.149s；窄 race tool2.924s、agent3.623s。实际 4ms/活跃 hidden reasoning、toolcall、可见增量、keepalive、真实停滞、逐 leg 取消/deadline 与 agent预算专项 count3：llm29.352s、agent1.164s 绿；不是持续4分钟客户 live，不夸大验收。
+- [x] 末版真实附注、旧 HeadlineElim（含退役接线针）与 TypedReconciliation count3 1.113s、窄 race2.352s 绿；另一席最终只读审阅无阻断。未知/空/其它 known token 各自原回退逐字保留。
+- [x] 首次 `go test ./... -count=1`：85 包绿，tool 仅 `TestElimSelfDegenerateWindowBoardCarriesSelfFamily` 因旧“可运行等待”子串认不出新候选名称失败（原 0.214ms 席仍在），日志 `.codrax/tmp/20260909-b1635-full-suite.log`。只将该分支的期望收窄到完整新候选名称，不放宽“目标自身 runnable 家族必须在榜”条件；末版该针 count3 2.068s、完整 tool 重跑 289.957s 退出0，日志 `...-b1635-presence-pin-count3.log`、`...-b1635-final-tool-suite.log`。其余85包对应生产代码/测试未再改。最终86包覆盖均已通过，不能把首轮执行改写成全绿；无hash盲重钉或生产降门。
+- [ ] r1049 冻结新 clean binary 后 exact2：H9 显式窗单基准/混合状态 Trace + Java 分层调用链读。按 243 个 case 的影响、覆盖老化、关系表达及上下文风险选择；上一批已做真实 C 写，本批不冒称覆盖写模式证明残余。case/oracle/默认步数不动，1200s 各一次；人工审查日志、真实入模信息及最终回答后另节收账。
+
+**B1636-HEADLESSRUNNABLEFOURTHFACE1/P1 独立数值问题确认，未施工**：r1048 的 runnable 1.576 与状态账户 1.536 相差 0.040ms，来源为首个窗内 headless wakeup `13762.793064` 到首次切入 `13762.793104`。原 fixture 第 131/139 行（附着副本多一行前缀，索引行号不可混引）。另一席通过公开入口在 full/windowed 两索引独立复现：`ThreadTimeline` 与 `Run` 目标账户均 1.535999992ms，scheduler 完整 mean×count 与 stream 均 1.575999993ms；不得把 Top20 已发条目之和当成完整 41 段总量。最小旧 ThreeFaces 同形复现 timeline/Run=15ms、offCPU/churn/stream=35ms，旧缺头 unknown/partial_unknown 保留。日志 `.codrax/tmp/20260909-b1635-headless-timeline-diagnostic.log`。
+
+原 `TestHeadlessWakeupRunnableParityAcrossThreeFaces` 等三针本轮仍绿：既裁已经允许精确唤醒后缀记 R，缺的是未纳入三面测试的第四消费者 `ThreadTimeline/TargetWindowStateAccount`，不是推翻裁定。下一独立数值批须覆盖 running 中普通 wakeup 不增 R、重复 wake 不重置起点、生命周期边界、行窗/full/windowed/stream 一致性；首次唤醒前的未知区间不填补。不与显示修复混批，不将本问题算成模型波动，也不以显示绿销账。
+
+其余顺序保留：B676 proof-only 生命周期、B1634d 精确配置值交接优先；B1634b 图关系标签、B1634c 已应用计划 oracle 域、B1122 Make 失败上下文，以及 B1629b/B1626/B1622/B1561/B1616b 和旧 fork 权限可达性均未关闭。无新模型 JSON 必填字段、无关键词硬门、无系统代写图/正文/结论。Trace 链上两轴、IO/语义/业务线索、显式窗、因果投影及自动补齐保持；活跃连接不能仅因 4ms 或旧 4m 没有最终正文而降级，真实停滞/取消/调用方 deadline 保留。
+
+状态：`B1635a=implemented/public-red-green/count3+race-green/reviewed`；`B1635b=implemented/shared-candidate-display+EN-outlets/reviewed`；`final-verification=85-unchanged-packages-pass+final-full-tool-pass/commit-ready/live-pending`；`B1636=confirmed/P1/public-witness/design-ready/not-implemented`。
+
 ### §123.1717 r1048：控制器缺口供给生效；等待人口尺注的部分账户盲区（2026-09-09）
 
 B1634a以`d931ab3d8`独立推送，clean binary `d931ab3d8361` built `2026-09-09T09:34:47Z`。按覆盖老化/能力风险选H7显式窗全谱Trace与libgit2双错误路径C写，exact2各一次、1200s、原15/24步及case/oracle不动。机器H7 PASS225s、C FAIL288s（case wall285s）；**人工H7整份fail，C代码及原生行为pass、正式proof未闭合**。完整收账 `eval/parallel_selected_summary_evalcampaign_h7_libgit2_r1048_20260909{,_manual_audit}.md`，旧答案/计划/正式报告不改写。
@@ -57395,11 +57418,11 @@ B1634a以`d931ab3d8`独立推送，clean binary `d931ab3d8361` built `2026-09-09
 
 - [x] B1634a推送、86包全测后的新live及真实controller/报告/保留树审计，生产缺口供给生效；原机评1/2保留。
 - [x] H7模型首稿、实际精确信息、系统附注及侧车逐域复核；本节和两份报告独立提交，零生产代码混入。
-- [ ] B1635a先真实发布入口RED；partial/完整/缺账户/异capture-target-query/正反序/零值矩阵。只分离账户存在与全窗平衡资格，不放宽既有恒等式。另追0.040ms的原始区间人口，不将其混成显示修复。
+- [x] B1635a已在§1718以独立范围说明完成真实发布RED→GREEN；partial/完整/缺账户/异capture-target-window/正反序/零值矩阵及原恒等式保护均在。没有新增跨账户比较；0.040ms已独立确认B1636，仍待数值批。
 - [ ] B676生命周期与B1634d配置值交接沿§1716已有设计分别施工；B1561原生证明与B1616b跨计划证明仍开放。
-- [ ] B1635b候选词面、B1634b关系可见别名、B1634c显式已应用计划oracle域、B1122普通Make失败摘要逐批实施；B1629b/B1626/B1622及旧fork权限可达性保留。
+- [x] B1635b候选词面已在§1718完成共享双语/真实附注及最终回归；B1634b关系可见别名、B1634c显式已应用计划oracle域、B1122普通Make失败摘要仍未实施，B1629b/B1626/B1622及旧fork权限可达性保留。
 
-状态：`B1634a=d931ab3d8/pushed/86-packages+entry-red-green/live-context-positive-r1048`；`r1048=machine1/2,human-Trace-fail+C-code-pass/proof-unverified/audited`；`B1635a/b=confirmed/design-ready/not-implemented`；`B1122-summary-followup=confirmed/P2/not-implemented`。两例无成文JSON自冲突或系统删图；H7无Mermaid不能签图修复验证。单条活跃流4ms或旧4m无最终正文不降级，真正停滞/取消/显式deadline保持；本轮H7单finalizer72.888s、C多次短调用，不能冒称>4分钟单流live。
+状态：`B1634a=d931ab3d8/pushed/86-packages+entry-red-green/live-context-positive-r1048`；`r1048=machine1/2,human-Trace-fail+C-code-pass/proof-unverified/audited`；`B1635a/b=implemented/final-verification-pass/see-1718`；`B1122-summary-followup=confirmed/P2/not-implemented`。两例无成文JSON自冲突或系统删图；H7无Mermaid不能签图修复验证。单条活跃流4ms或旧4m无最终正文不降级，真正停滞/取消/显式deadline保持；本轮H7单finalizer72.888s、C多次短调用，不能冒称>4分钟单流live。
 
 ### §123.1716 B1634a：当前验证未闭合项独立供给控制器（2026-09-09）
 
@@ -57427,6 +57450,7 @@ B676续修施工清单（只读设计，未改plan格式）：
 - [ ] 共用`proofFollowupProbeOnlyPlanSentinel`产点覆盖`EmitChangePlan`与`EmitPlanSkeleton`两入口；两者现已校验active proof-followup、refs、target语言与probe内容，不能只补一条路。
 - [ ] 合法proof-only类别与`applied/unverified/verify_failed`可变状态分离。当前无可复用的稳定类别字段，倾向一个可选producer-owned持久标记、非新终态；仍保严格probe/唯一target/零changes形。它只用于合法持久形识别，不自动获得apply/审批/指纹豁免；若后续用于执行权限，须独立审核fingerprint与风险。
 - [ ] 旧严格`no_change_required`快照兼容迁移；已经applied且无标记的历史空plan不得按文件名/probes/path猜身份。`types.LoadChangePlanFromFile`与REPL `PlanStore.Load`直接Unmarshal都要核，首次合法状态变更前也应保住身份，不能只绕过退出WARN。
+- [ ] §1718 只读补全：还须覆盖 `PlanStore.Settle` 与 `types.LoadBestPlanReportPair` 的直接恢复后保存路径；`verifyPostHook → persistPlanStatus`/`syncMutablePlanStatusAfterVerify` 第一次改变 status 前必须保住旧严格身份。新可选标记只给持久化合法形，**不能替换** `changePlanIsProofProbeOnly`：后者在 scheduler 中还控制首次 verify、owner-localization 豁免和 pending-attempt。两 emitter 共用产点，不进入模型参数；未知标记、普通空 plan、重复/缺 target、缺 probe 不授例外。当前 `PlanFingerprint` 显式排除生命周期字段，未来纯持久标记拟不改变已有指纹，须补审批/调度选择不变负针后才能裁为实现。本轮未改 schema/指纹/loader，不能把本只读设计写成已修。
 - [ ] 实际sentinel→verify三终态→保存→重载/保留路径回写；普通空plan、缺probe/target、未知标记和普通非空plan正反矩阵。r1047既有文件/正式FAIL原样保留，不将成功人工测试伪写成placement证明。
 
 状态：`B1634a=d931ab3d8/pushed/entry-red-green/final-count3+race+86-packages-green/independent-reviewed/live-context-positive-r1048`；`B1634d=confirmed/P1/design-ready/not-implemented`；`r1047=3e12b1757/pushed/old-artifacts-preserved`。Trace链上两轴、IO/语义/业务线索、显式窗/投影/自动补齐、模型正文图与结论所有权均不改。

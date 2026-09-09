@@ -15,7 +15,7 @@ package tool
 // share ONE token set and the Chinese state semantics live solely in the
 // legend's state-icon entries. When a reader label equals its raw token it
 // naturally collapses to the bare token (no label（label） echo). Product
-// compound words (优先级反转候选 / 优先级反转·可运行等待), caliber words and
+// compound words (优先级反转候选 and its same-CPU overlap qualifier), caliber words and
 // narrative frames stay Chinese per the same ruling.
 
 import (
@@ -39,7 +39,10 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		// INV-SUPPLY §29.61.11: bytes in tracefence (UXG-1 M1; feed shares them).
 		return tracefence.InversionCandidateWordZH
 	case "priority_inversion_runnable_wait":
-		return "优先级反转·可运行等待"
+		// B1635b: this channel proves same-CPU runnable overlap, not a
+		// holder/waiter dependency. Keep its candidate boundary on every
+		// shared reader face without changing the typed cause or its rank.
+		return "优先级反转候选·同核可运行重叠"
 	case "io_latency":
 		return "IO延迟"
 	case "io_wait":
@@ -156,7 +159,7 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 // case-for-case (a coverage pin holds the two case sets identical, so a new
 // token can never gain a zh word while its EN face regresses to snake_case).
 // Ruled example words verbatim from §29.182②: "priority inversion
-// (candidate)" / "priority-inversion runnable wait" / "page-cache churn";
+// (candidate)" / the same-CPU runnable-overlap candidate / "page-cache churn";
 // the rest follow the same reader-word discipline. State-identity tokens
 // (runnable_wait/sleep_wait/running families) keep the bare kernel state
 // word exactly like the zh table. Returns "" for unmapped tokens — callers
@@ -167,7 +170,7 @@ func runtimeTraceRootCauseTypeENLabel(token string) string {
 	case "priority_inversion_candidate":
 		return "priority inversion (candidate)"
 	case "priority_inversion_runnable_wait":
-		return "priority-inversion runnable wait"
+		return "priority inversion candidate · same-CPU runnable overlap"
 	case "io_latency":
 		return "IO latency"
 	case "io_wait":
@@ -341,6 +344,9 @@ func runtimeTraceAggregateTypeShapeLabel(token string, zh bool) string {
 // zh/EN can never diverge in seat coverage); the raw snake_case wire token
 // keeps its seats in the evidence index and every wire/JSON key
 // (runtimeTraceCausalProjectionRawTypeToken lane, untouched).
+// B1635b refines the current runnable-overlap label to retain the producer's
+// candidate boundary and same-CPU caliber; the historical quote above and
+// the typed cause identity remain unchanged.
 func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
 	// CMP-10 (§7.4): supply_pressure is display-relabeled on BOTH surfaces
 	// (the EN raw-token rule is intentionally overridden for this one token —

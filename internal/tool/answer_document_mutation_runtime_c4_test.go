@@ -657,7 +657,7 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 	}
 	// T1 upgrade: the formerly-elided extras are all reachable in the fence.
 	// PTV6-C #6: recognized 影响点 tokens use reader-facing labels.
-	for _, want := range []string{"链上累计5.997ms", "影响点 优先级反转·可运行等待/runnable"} {
+	for _, want := range []string{"链上累计5.997ms", "影响点 优先级反转候选·同核可运行重叠/runnable"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("demoted tag %q must survive on a subordinate line:\n%s", want, line)
 		}

@@ -17128,6 +17128,9 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		// and a binder wait were silently excluded and only two tiny runnable
 		// rows fed the 3.262ms denominator).
 		censusExcluded, censusMax, censusAllOffWindow := coverage.CensusExcluded, coverage.CensusMaxMS, coverage.CensusAllOff
+		if note := runtimeTraceProjWaitDenomScopeNote(symptom, zh); note != "" {
+			b.WriteString("\n- " + note)
+		}
 		switch {
 		case symptom > 0 && crossBase:
 			// §24.11 C-3 (COV 批, huadong_78 witness, 2026-07-08): when the

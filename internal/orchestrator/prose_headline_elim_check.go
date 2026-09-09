@@ -620,12 +620,13 @@ func proseHeadlineBestSeat(rows []proseHeadlineSeatRow, entity proseHeadlineEnti
 }
 
 // proseHeadlineSeatLabel renders one seat as 「主体 · 类词(通道#N·有效归因
-// X ms)」 on the zh face and the raw-token twin on the EN face. includeRank
+// X ms)」 on the zh face and the raw-token twin on the EN face, except for
+// the candidate-qualified same-CPU overlap label (B1635b). includeRank
 // lets the #1 side drop its rank chip (the finding prefix already names it).
 func proseHeadlineSeatLabel(seat proseHeadlineSeatRow, zh, includeRank bool) string {
 	classWord := seat.classToken
-	if zh {
-		if label := tool.TraceRootCauseTypeZHLabel(seat.classToken); label != "" {
+	if zh || seat.classToken == "priority_inversion_runnable_wait" {
+		if label := tool.TraceRootCauseTypeDisplayLabel(seat.classToken, zh); label != "" {
 			classWord = label
 		}
 	}

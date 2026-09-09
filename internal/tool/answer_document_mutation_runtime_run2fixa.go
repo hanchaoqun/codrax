@@ -137,6 +137,22 @@ func runtimeTraceProjShrinkKeepStateWord(word, chips string, wordBudget int) (st
 
 // --- 件5: wait-denominator two-ruler note ------------------------------------
 
+// runtimeTraceProjWaitDenomScopeNote identifies the population already used by
+// the wait statement, independently of any full-window state-account proof.
+// Admission can select one board, exclude rows, or use a sleep-hop fallback;
+// it is not a census of all SelfRows or of every wait in the query window.
+// Some coverage branches deliberately publish no percentage or residual.
+// This note neither compares accounts nor changes those arithmetic decisions.
+func runtimeTraceProjWaitDenomScopeNote(symptom float64, zh bool) string {
+	if !(symptom > 0) {
+		return ""
+	}
+	if zh {
+		return "等待统计范围：仅限本句纳入统计的自身等待记录；若列出百分比及剩余时长，也仅针对这些记录，不能据此认定全窗等待已完整覆盖。"
+	}
+	return "Wait accounting scope: only the focused thread's own wait records included in this statement; any percentages and residual time apply only to those records and do not establish complete coverage of the window's waits."
+}
+
 // runtimeTraceProjWaitDenomJitterMS reuses the shared state-boundary jitter
 // tolerance for the ruler-divergence judgment (wording-only soft disclosure —
 // 精确数值比较驱动词面,零硬门): below it the two rulers agree to boundary

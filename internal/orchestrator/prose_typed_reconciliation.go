@@ -149,6 +149,13 @@ func renderRankOneReconciliation(row tool.RuntimeTraceReconciliationRow) proseSc
 		causeZH = strings.TrimSpace(row.CauseToken)
 	}
 	causeEN := strings.ReplaceAll(strings.TrimSpace(row.CauseToken), "_", " ")
+	// B1635b: preserve the producer's candidate/caliber boundary on this
+	// reader face too; other tokens retain their existing display fallback.
+	if row.CauseToken == "priority_inversion_runnable_wait" {
+		if label := tool.TraceRootCauseTypeDisplayLabel(row.CauseToken, false); label != "" {
+			causeEN = label
+		}
+	}
 	return reconciliationWithWindowScope(proseScalarBindingFinding{
 		entryZH: fmt.Sprintf("同尺并置: %s根因排序#1 %s / %s,已发布有效归因 %.3fms [%s]",
 			artifactZH, row.Subject, causeZH, row.EffectiveMS, row.EvidenceTag),

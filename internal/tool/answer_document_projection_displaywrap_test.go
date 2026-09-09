@@ -466,7 +466,7 @@ func TestDisplayWrapWitnessRegressionSweep(t *testing.T) {
 	// inversion seat was minted from a non-point priority fallback. The strict
 	// authority publishes no such row; the two independently measured
 	// runnable faces remain distinct and lossless.
-	if strings.Contains(md, "⧖ 自身·优先级反转·可运行等待") {
+	if strings.Contains(md, "⧖ 自身·优先级反转候选·同核可运行重叠") {
 		t.Fatalf("件④(b): unproved self inversion must not survive the point-authority gate:\n%s", md)
 	}
 	for _, head := range []string{"⧖ 自身·调度延迟", "⧖ 自身·runnable"} {

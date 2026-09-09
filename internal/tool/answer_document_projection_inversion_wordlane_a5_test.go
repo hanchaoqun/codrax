@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	a5RunnableWaitWordZH = "优先级反转·可运行等待"
+	a5RunnableWaitWordZH = "优先级反转候选·同核可运行重叠"
 	a5CandidateWordZH    = "优先级反转候选"
 )
 
@@ -53,7 +53,7 @@ func TestA5RunnableWaitTokenThreeFacesSameWord(t *testing.T) {
 	if word, _ := runtimeTraceProjCauseCategoryWord(node, runtimeTraceProjTreeRowChain, true); word != a5RunnableWaitWordZH {
 		t.Fatalf("行2 zh: got %q, want %q", word, a5RunnableWaitWordZH)
 	}
-	if word, _ := runtimeTraceProjCauseCategoryWord(node, runtimeTraceProjTreeRowChain, false); word != "priority-inversion runnable wait" {
+	if word, _ := runtimeTraceProjCauseCategoryWord(node, runtimeTraceProjTreeRowChain, false); word != "priority inversion candidate · same-CPU runnable overlap" {
 		t.Fatalf("行2 en: got %q, want the §29.182② ruled word", word)
 	}
 	// Shape cell — same bytes, never the deleted third word and never a bare
@@ -61,7 +61,7 @@ func TestA5RunnableWaitTokenThreeFacesSameWord(t *testing.T) {
 	if cell, generic := runtimeTraceCausalProjectionImpactShapeCellTyped(node, true); cell != a5RunnableWaitWordZH || generic {
 		t.Fatalf("shape cell zh: got (%q, %v)", cell, generic)
 	}
-	if cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, false); cell != "priority-inversion runnable wait" {
+	if cell, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, false); cell != "priority inversion candidate · same-CPU runnable overlap" {
 		t.Fatalf("shape cell en: got %q", cell)
 	}
 	// C7 family-word cell — same bytes (the form table's candidate CategoryZH
@@ -145,15 +145,16 @@ func TestA5CrossTokenWordsNeverBleed(t *testing.T) {
 			t.Fatalf("candidate seat face %q bleeds the runnable-overlap word", face)
 		}
 	}
-	// The runnable-overlap token seat never wears the candidate word.
+	// Both families are candidates, but the runnable-overlap token must not
+	// collapse to the unqualified chain-candidate word (B1635b).
 	token := a5RunnableWaitSeat(3, 7.727)
 	for _, face := range []string{
 		firstWordA5(runtimeTraceProjCauseCategoryWord(token, runtimeTraceProjTreeRowChain, true)),
 		firstWordA5(runtimeTraceCausalProjectionImpactShapeCellTyped(token, true)),
 		runtimeTraceProjImpactFormFamilyWord(token, true),
 	} {
-		if strings.Contains(face, a5CandidateWordZH) {
-			t.Fatalf("runnable-overlap seat face %q bleeds the candidate word", face)
+		if face == a5CandidateWordZH || face != a5RunnableWaitWordZH {
+			t.Fatalf("runnable-overlap seat face %q lost its own candidate caliber", face)
 		}
 	}
 	// Off-family rows keep their lanes: a plain runnable_wait row never enters

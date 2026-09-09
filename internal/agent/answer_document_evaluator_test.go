@@ -13668,7 +13668,7 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"type=priority_inversion_runnable_wait", "peer=some-peer-7", "waiters=3", "impact_ms=5.000",
 	}}
 	got = notesOf(waiters)
-	want = "details: observation type: priority-inversion runnable wait; related thread: some-peer-7; waiting thread count: 3; impact: 5.000"
+	want = "details: observation type: priority inversion candidate · same-CPU runnable overlap; related thread: some-peer-7; waiting thread count: 3; impact: 5.000"
 	if got != want {
 		t.Fatalf("waiters must pass the allowed table:\n got %q\nwant %q", got, want)
 	}
