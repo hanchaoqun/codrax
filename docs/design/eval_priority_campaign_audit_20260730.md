@@ -57380,6 +57380,25 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1715 r1047：读写隔离回归与验证缺口提示丢失（2026-09-09）
+
+B1624b已以`b12e3385b`推送，clean binary`b12e3385b3e9` built`2026-09-09T09:05:38Z`。按覆盖老化与风险轮换TS workspace跨包链/别名与Go原生精准apply，exact2各一次、timeout1200s，case/oracle/步数不改。机器TS PASS246s、Go FAIL198s；**人工TS整份fail，Go补丁/原生行为pass但正式proof未闭合**。完整记录`eval/parallel_selected_summary_evalcampaign_ts_go_r1047_20260909{,_manual_audit}.md`；旧工件/机评不改写。
+
+1. TS核心发送/重试调用边保留；一次成文拒绝、一次模型patch补summary与关系identity/7条图锚成功，未见JSON/关系合同自冲突或系统删图。模型首稿就把alias路径漏写`packages/`，图首稿就省`status<500`返回和`attempt<maxAttempts`等待分支。重试条件已精准入模，属模型遗漏；alias完整值探索中有、finalizer却只剩字符串锚和坐标，**配置值交接仍需源码定位**，不能把两者都说成上下文充足的模型波动。
+2. **B1634a/P1确认且下批先修**：Go正式日志终态给`verification_completion_scope=1/1`，实际只统计behavior witness；ledger缺的`probe_placement_refs/line25-correct`被16项pack挤掉，仅剩泛incomplete。两验证层本身不矛盾，是摘要计数域和未闭合原因供给缺口。最小方案只在controller从既有当前plan/report的typed proof ledger独立、有界、优先显示未闭合项，明示非累计终验；不放松门、不系统填引用、不改模型contract或最终答复。
+3. Go唯一main.go25`retrun→return`，原运行repo HEAD不变、保留树source commit`7f6bf2d`；最后真实`go test -json ./...`及人工原生`go test ./... -count=1`均通过。前两轮suite skipped是probe-primary策略，不是没有测试。两份report从未满足placement_refs，所以不能销B1616b既有证明跨计划丢失；最终UI如实未完全验证。
+4. **B1634b/P2确认**：系统追加关系行直接泄漏`ApiClient_fetchUser`等local ID；兄弟图别名不同使旧可见标签映射失配。完整identity为validation-only，不直接拿来当正文。后续精确同关系/完整身份对/同证据域/唯一图边查其已有可见标签；无映射保原、不猜词、不新写业务结论，本轮未施工。泛化图表达与已读配置值均留队列，不声称图问题全闭环。
+5. **B1634c/P2确认**：`eval/run.sh:1660`用最终mirror做PLAN_EXPECT，最后空changes证明计划使初始真实patch被附加误报。下一独立批显式选“已应用变更计划”oracle域，以durable checkpoint/ref精确关联、单计划完整满足全部条件，不拼接多个草稿/日志；最终report仍核末代，旧默认不静默改。**B676-PROBEONLYDURABILITY1生命周期续修/P1**：合法sentinel verify后转applied，原只认no_change_required的durable loader拒绝回写/重载。此次JSON已有worktree_path且交付未丢，但后续reload可被挡；修向分离合法身份与可变status，保严格shape，不能全放行普通空计划。两项均不取消本轮真实proof-unverified。
+
+- [x] B1624b代码/回归/统一台账单独推送，86包/最终race/公开入口红绿已收账。
+- [x] r1047机器、实际prompt/payload/最终文档与保留worktree人工审计完成；本节与两份报告单独提交。
+- [ ] B1634a按已确认生产缺口施工；随后B676生命周期续修、配置值交接候选、B1634b/B1634c分别处理，不合并成“模型错误”。
+- [ ] B1629b已再静态核非point跨界/跨文件迁移及call预重定位风险，但未新跑RED，不写成已公开入口复现；B1626/B1622/B1616b/B1561、旧fork hard registry跨任务生产可达性保留。
+
+本轮无Trace附件、trace_query=0，仅验证B1624b对普通读写隔离，不计其导航live正证；Trace根因链上限制、两轴/业务/IO、显式窗、投影/补齐均未改。两例活跃流无年龄降级，但不能当持续超过4分钟live；4ms/旧4m实际SSE工程针已绿，真实停滞/取消/显式deadline保留。零请求/正文关键词硬门，零系统代写图/正文/结论。
+
+状态：`r1047=machine1/2,human-TS-fail+Go-code-pass/proof-unverified`；`B1624b=b12e3385b/pushed/86-packages+final-race-green/nontrace-isolation-only-r1047`；`B1634a=confirmed/P1/implementing`；`B1634b/c=confirmed/P2/design-pending`；B676生命周期与其它队列open。
+
 ### §123.1714 B1624b：派生查询结果的纯返回导航（2026-09-09）
 
 基线 `2719673b8`，本轮 fetch 后与 origin/main 0/0。接续 §1713 的已确认 P1，不为 r1046 的正文算术/措辞残余再堆硬门。
@@ -57391,7 +57410,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - [x] 类型生命周期、真实 tool 六格、agent 两拒绝出口与实际 query→分页→拒派生→回原成功通道均已先红后绿。原文件/派生正文/证据资格不改；默认/显式分页保实际派生路径及自身 cursor，原 capture/未知来源继续旧策略。两席独立交叉审阅无阻断。
 - [x] 冻结生产实现的 `go test ./... -count=1` 86 包全绿，日志 `.codrax/tmp/20260909-b1624b-full-suite.log`，含 tool322.901s、agent80.973s、types49.271s、tracediag14.161s、tracequery114.565s、hitraceconv162.993s。末加分页护栏另跑最终 tool count3 11.394s；最终三包新族 race 5.336/7.533/3.537s（types/tool/agent）全绿。已存在 registry/memo/Trace gate 也在定向 count3 中，`git diff --check`通过；没有盲重钉 hash 或修改旧测试求绿。
 - [x] 4ms/活跃流专项旧合同重核：LLM/agent 实际流与逐leg预算、取消/deadline/真实无字节停滞 count3 2.488/0.855s 通过，见 `...-b1624b-four-ms-stream-regression.log`。不是等待4分钟的客户live，不冒称全时长回放。
-- [ ] 随本小批提交推送后构建干净二进制，r1047按风险/覆盖老化选 TS workspace 跨包调用链（r1030后未复放）+Go原生单行apply（r1037后未复放），严格2路/各1次。先审日志、模型上下文、答案及保留worktree，再收账；不是为同一个Trace题重复跑到绿。
+- [x] 本小批以`b12e3385b`提交推送后构建干净二进制，r1047按风险/覆盖老化选 TS workspace 跨包调用链（r1030后未复放）+Go原生单行apply（r1037后未复放），严格2路/各1次，实际日志/上下文/答案/worktree审计见§1715。两例无Trace，仅异构隔离验证，不计导航生产正证。
 
 两项独立复核增量同批闭包：
 
@@ -57400,7 +57419,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 本批不更改模型 JSON 合同、图/正文/结论、Trace 显式窗与补采、根因两轴或业务/IO线索；根因仍限链上，背景仅辅助。流式行为不改：活跃连接不能因 4ms 或旧 4m 未出最终正文被降级，真实停滞/取消/调用方显式 deadline 保留。
 
-状态：`B1624b=implemented/public-entry-red-green/86-packages+final-race-green/independent-reviewed/delivered-with-this-commit/pending-live`；后续 B1629b/B1626/B1622/B1616b/B1561 保留，不能以本导航修复销账。
+状态：`B1624b=b12e3385b/pushed/public-entry-red-green/86-packages+final-race-green/independent-reviewed/nontrace-isolation-r1047/navigation-live-pending`；后续 B1629b/B1626/B1622/B1616b/B1561 保留，不能以本导航修复销账。
 
 ### §123.1713 r1046：目标频率交接正证；机器双绿不掩盖 Trace 成文错误（2026-09-09）
 
