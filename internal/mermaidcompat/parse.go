@@ -1074,11 +1074,15 @@ func AddRemovableNodeDeclaration(body, ident, visibleLabel string) (string, bool
 func AddExplicitNodeDeclaration(body, ident, visibleLabel string) (string, bool) {
 	ident = strings.TrimSpace(ident)
 	visibleLabel = strings.TrimSpace(visibleLabel)
-	if !safeStandaloneNodeIdentifier(ident) || visibleLabel == "" ||
+	family := mermaidBodyFamily(body)
+	safeID := safeStandaloneNodeIdentifier(ident)
+	if family == "sequence" {
+		safeID = safeExplicitSequenceNodeIdentifier(ident)
+	}
+	if !safeID || visibleLabel == "" ||
 		strings.ContainsAny(visibleLabel, "\r\n\x00") {
 		return body, false
 	}
-	family := mermaidBodyFamily(body)
 	for _, raw := range strings.Split(body, "\n") {
 		line := strings.TrimSpace(raw)
 		var declarations []NodeDecl
@@ -1160,6 +1164,22 @@ func safeStandaloneNodeIdentifier(ident string) bool {
 			continue
 		}
 		return false
+	}
+	return true
+}
+
+// A sequence participant may use a qualified method ID without becoming its
+// receiver actor. Preserve those model-authored bytes; the renderer's existing
+// endpoint-alias shim handles its narrower terminal-library syntax. This does
+// not widen flow/class IDs or admit statement delimiters, arrows, or labels.
+func safeExplicitSequenceNodeIdentifier(ident string) bool {
+	if len(ident) > 128 {
+		return false
+	}
+	for _, segment := range strings.Split(ident, ".") {
+		if !safeStandaloneNodeIdentifier(segment) {
+			return false
+		}
 	}
 	return true
 }

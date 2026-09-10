@@ -57387,7 +57387,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 | 工单 | 优先级/状态 | 通用问题与边界 | 验收/后续 |
 |---|---|---|---|
 | B1640 Completion教学 | P1/a+b已推，集成回归中 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | a实际BuildInitialInstruction+真实schema+合法typed facts先红后绿；b限制schema旧cap句只对整数计数建议grouped_count，不让measurement误分计数 |
-| B1641 图节点操作一致性 | P1/已实现，公开入口/邻近count3/race绿，集成回归中 | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 模型显式新节点保持独立；精确声明表同源；sequence点分ID适配；既有节点改名冲突/typed边证据不放松 |
+| B1641 图节点操作一致性 | P1/工程验收通过，本批提交；完整tool复跑待收据 | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 模型显式新节点保持独立；精确声明表同源；sequence点分ID适配；既有节点改名冲突/typed边证据不放松 |
 | B1642 引用角色行级消歧 | P2/主面已实现，公开入口/count3/race绿，集成回归中 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；不改模型引用/正文；旧fallback另列b |
 | B1643 同节点对多关系修补预算 | P1/独立公开RED已确认，下一修复批 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 预算与真实执行器复用同一精确prior_anchor选择；不是删除break或整对放行；保未选边/重复ref/occurrence/异relation负臂 |
 | B1642b 端点回退同址多关系 | P2/冷审确认，待公开RED及边界审计 | 旧UniqueGroundedClaimRoleForExactEndpoint仅按source:line判唯一，同址不同typed关系仍可能首项抢位 | 审计新advisory末端及旧tool直接调用两面；不改自动引用/全局谓词以冒充闭环；补同址A→B/A→C与反序/receipt边界 |

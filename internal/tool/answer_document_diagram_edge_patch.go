@@ -1887,9 +1887,10 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	// participants even though both spellings resolve to the same typed stage.
 	// This normalization reuses only a declaration already authored in the
 	// rejected draft. It does not choose a relation, direction, endpoint
-	// identity, label, or conclusion; ambiguity still fails closed.
+	// identity, label, or conclusion. A model-authored explicit new declaration
+	// is not an implicit duplicate and retains its chosen ID and label.
 	if action == "replace" {
-		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence); err != nil {
+		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence, edit.FromNodeVisibleLabel, edit.ToNodeVisibleLabel); err != nil {
 			return err
 		}
 	}
@@ -1911,7 +1912,7 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		if err := validateAtomicDiagramAdditionEndpointBindings(block, edit.Edge, edit.additionCandidate, stagePrecedence); err != nil {
 			return err
 		}
-		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence); err != nil {
+		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence, edit.FromNodeVisibleLabel, edit.ToNodeVisibleLabel); err != nil {
 			return err
 		}
 		if err := validateAtomicDiagramAnchor(edit.Edge, "edge"); err != nil {
@@ -2166,14 +2167,19 @@ func ensureAtomicDiagramEndpointDeclarations(block *types.AnswerBlock, edit emit
 		{field: "from_node", node: strings.TrimSpace(edit.Edge.FromNode), label: strings.TrimSpace(edit.FromNodeVisibleLabel)},
 		{field: "to_node", node: strings.TrimSpace(edit.Edge.ToNode), label: strings.TrimSpace(edit.ToNodeVisibleLabel)},
 	}
-	labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+	// Declaration ownership uses the same exact, case-sensitive inventory as
+	// the schema, not the separate case-folded code-identity lookup registry.
+	labels := make(map[string]string)
+	for _, declaration := range diagramExplicitSourceNodeDeclarations(block.Diagram.Body, block.Diagram.Kind) {
+		labels[declaration.ID] = declaration.Label
+	}
 	pending := make(map[string]string, 2)
 	order := make([]string, 0, 2)
 	for _, endpoint := range endpoints {
 		if endpoint.node == "" {
 			return fmt.Errorf("edge.%s must be non-empty", endpoint.field)
 		}
-		if declaredLabel, declared := labels[strings.ToLower(endpoint.node)]; declared {
+		if declaredLabel, declared := labels[endpoint.node]; declared {
 			if endpoint.label != "" && endpoint.label != strings.TrimSpace(declaredLabel) {
 				return fmt.Errorf("%s_visible_label must be omitted or exactly match the current explicit label %q because edge.%s=%q already has an explicit declaration", endpoint.field, strings.TrimSpace(declaredLabel), endpoint.field, endpoint.node)
 			}
@@ -2318,11 +2324,15 @@ func replaceAtomicMermaidStatementLine(lines []string, index int, replacement []
 // endpoint. Read-stage alias families are admitted only for checkout-verified
 // precedence rows. Ambiguity fails closed; labels, direction, relation kind,
 // technical identities, participant membership, and answer prose are never
-// inferred or changed.
+// inferred or changed. An explicit model-authored label on a new ID declares a
+// separate visible carrier, even if an existing actor owns the same method.
+// That choice is not alias ambiguity and must not be silently merged. It does
+// not grant endpoint evidence; the ordinary typed binding checks still apply.
 func canonicalizeAtomicSequenceAdditionNodeRefs(
 	block *types.AnswerBlock,
 	edge *types.DiagramEdgeAnchor,
 	stagePrecedence []stageauthority.PrecedenceRelation,
+	modelVisibleLabels ...string,
 ) error {
 	if block == nil || block.Diagram == nil || edge == nil ||
 		types.MermaidBodySyntaxFamily(block.Diagram.Body) != types.MermaidSyntaxSequence {
@@ -2344,10 +2354,13 @@ func canonicalizeAtomicSequenceAdditionNodeRefs(
 		{name: "from_node", node: &edge.FromNode, identity: edge.FromIdentity},
 		{name: "to_node", node: &edge.ToNode, identity: edge.ToIdentity},
 	}
-	for _, item := range endpoints {
+	for i, item := range endpoints {
 		current := strings.TrimSpace(*item.node)
 		identity := strings.TrimSpace(item.identity)
 		if current == "" || identity == "" || atomicSequenceNodeIsDeclared(current, declarations) {
+			continue
+		}
+		if i < len(modelVisibleLabels) && strings.TrimSpace(modelVisibleLabels[i]) != "" {
 			continue
 		}
 		canonical, matched, ambiguous := atomicSequenceUniqueDeclaredTypedNode(
