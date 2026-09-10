@@ -57380,6 +57380,14 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1733 B1645：链上IO机制教学遗漏完成闭合的S型阻塞（2026-09-10）
+
+P2/静态代码及既有原生数值针确认，待本轮异构回放后独立小批。`answer_document_final_decision_boundary.go`的`traceFinalReaderMechanismScope`把io_latency同D/IO类合并，zh/en限定“只陈述D-state、iowait或IO发起到完成区间”；但`tracequery/query.go`的原生io_latency在提交方在链上且completionClosed时，实际使用switch-out→完成方wakeup的S/D阻塞区间，不是请求驻留。默认donghu数值针`TestSelfAllChainBudgetDefaultTierUsesCompletionClosureRuler`明确45条/11.141ms，目标D0不能否定S型已证IO等待。此处是入模说明覆盖冲突，非新数值/链资格缺陷；不能据该限定句让模型将独立阻塞退回驻留或漏报。
+
+最小方案：仅按既有typed类别修机制说明，区分调度D/iowait、请求issue→complete驻留、独立completion-closed S/D线程阻塞三尺；是否链上仍逐记录凭证，不由类别/状态名/时间邻近授予，不将请求与阻塞相加或把S全算IO。真实producer→causal-overview finalizer入口双语先红后绿，保原量/来源/模型正文；不新增JSON字段、硬门或类别词扫描。暂不在B1642b冻结全仓期间修改生产源码。
+
+B1644的false证明解释只经`CarriesBoundedFactFamilies`有限事实入口；本轮H6因果概览不保证经过。不得用H6通过倒签B1644生产命中。其余已读实占/可消量与业务机制边界暂未发现新的确定性矛盾；本次不是全系统无风险声明。
+
 ### §123.1732 B1642b：端点候选歧义必须贯穿自动引用修复（2026-09-10）
 
 基线`c7cc2713f`，重新fetch远程无新增，工作区从干净状态施工。承接§123.1730同址多关系待办；最初“仅定向软提示”的范围判断必须纠正：`UniqueGroundedClaimRoleForExactEndpoint`还被自动引用fallback调用，post的`ViolClaimFormUnsupported`默认软但可由既有strict策略提升，不能把所有运行模式都写作纯建议。
@@ -57399,6 +57407,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 下一exact2仍按已冻结排期：H6显式窗完整根因+qf analyzer时序图，不重跑Python单LF凑绿、不改stock oracle。H6原窗233.190ms、四态157.248/5.604/70.338/D0；实际IO闭合population必须跟本轮q/来源走，不能借用H3的4/4.384ms当穷尽量；running实占/理想/折算和主账户runnable/edge ruler分开。qf源码两边分别是buildAnalysisIR→RunWith、Run→RunWith，不因题面暗示而伪造buildAnalysisIR→Run。两题机器oracle均不足代替人工数值/方向/证明审计。此刻仅排期，待修复封版及干净二进制后启动。
 
 最终新旧B1642族race count3绿types2.164/tool4.475/orchestrator2.034s（`...-final-matrix-race.log`）；冻结后完整`go test ./... -count=1`已启动（`...-final-frozen-full.log`），此刻未完成。先前全仓曾发中断，最终退出1且无测试FAIL输出，不能记作全绿；不以中断前已通过包替代本次最终源码验收。所有修改、新测试、公开RED和独立复核先收一批提交，工程全仓收据随后补记。
+
+封版收据：`bcb62c5a7`已推main，最终冻结全仓退出0、86个有测试包全部通过（`20260910-b1642b-final-frozen-full.log`；agent59.855/tool296.928/tracequery101.704/tracediag13.675s）。新活跃流专项count3为llm33.643s/agent10.330s绿（`...-active-stream-count3.log`）：持续隐藏推理/工具流/4ms部分帧、旧cap、真实停滞、caller deadline/cancel均保原边界。干净构建revision`bcb62c5a7770`、built`2026-09-10T11:17:29Z`通过；随后仅文档记账，r1053将从记账后的干净HEAD重建。工程回归不冒称live新臂已经命中。
 
 ### §123.1731 r1052排期：写模式交付与显式窗IO异构验收（2026-09-10）
 
@@ -57431,7 +57441,7 @@ H3保留1.347ms请求、1.337ms S型阻塞、4.384ms下界；6条可见不升总
 | B1641 图节点操作一致性 | P1/已推ce76fab83；工程全绿，生产新臂待触发 | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 模型显式新节点保持独立；精确声明表同源；sequence点分ID适配；既有节点改名冲突/typed边证据不放松 |
 | B1642 引用角色行级消歧 | P2/已推2ca6a4947；主面工程全绿，生产新臂待触发 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；不改模型引用/正文；旧fallback另列b |
 | B1643 同节点对多关系修补预算 | P1/已推6c259210e；公开入口/count3/race/全仓及独立审查通过，live新臂待触发 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 四类精确旧anchor载体预算与执行器复用同一选择器；0/多候选不铸缺席预算；原body/legacy路径不扩权 |
-| B1642b 端点回退同址多关系 | P2/已实施公开full/patch闭环，工程集成中，见§123.1732 | 旧Unique按source:line判唯一；并查明三个弱自动改引消费面会绕过歧义 | 收窄不唯一的自动替换，保明确模型选择；不是仅软提示，也不宣称全部normalizer统一 |
+| B1642b 端点回退同址多关系 | P2/已推bcb62c5a7，公开full/patch/count3/race及冻结全仓通过，见§123.1732 | 旧Unique按source:line判唯一；并查明三个弱自动改引消费面会绕过歧义 | 收窄不唯一的自动替换，保明确模型选择；不是仅软提示，也不宣称全部normalizer统一 |
 | B1644 IO完成唤醒证明布尔语义 | P2/已推36f4cf192，36格/count3/race/全仓及独立审查通过；live待验 | CompletionWokeIssuer=false含absence/ambiguity，但入模仅裸布尔；模型据此写“未唤醒”超出证明 | 只补入模双语证明边界：未形成独立闭合证明≠证明未唤醒；true/false/缺值、RQ/BIO、正阻塞量另证；保原API/算法/根因门，不改模型表或结论 |
 
 B1640首红日志`.codrax/tmp/20260910-b1640-completion-teaching-red.log`，1.059s退出1；合法计数/小数/两类分类值、真实工具array schema前提均过，只在矛盾教学/缺原生数组指引失败。Java畸形数组外尾片本身仍判模型错误：不据此猜括号或丢尾，不宣称教学矛盾导致了这次JSON格式错。B1641以新节点明确展示标签优先、旧ID重用等泛化矩阵核权属后施工；继承/时序混表达及C++flush/static type细节另留模型精度观察，不为过单题强制图形。下一exact2候选已排序为写tokenizers Python fallback + H3显式窗IO，未启动。
