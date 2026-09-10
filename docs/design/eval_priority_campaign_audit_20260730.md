@@ -57380,6 +57380,29 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1735 r1053审计后续排序：资格与修补一致性先于词面（2026-09-10）
+
+| 工单 | 优先级/当前证据 | 施工边界 |
+|---|---|---|
+| B1647 staged孤儿收尾误报未改边 | P1/公开Execute有效RED，施工中 | qf iter1关系操作已stage；iter5/6仅remove_if_isolated n4，却因n1→n2 unlisted_relation_removed+added被拒。旧空身份与新完整身份并存的基准，后置recipe补齐旧槽，stabilizer漏混合形；不与模型误选/陈腐ref/畸形JSON混淆。仅补系统补齐动作的同基准稳定，不放宽越界门。 |
+| B1648 现代无闭合IO借legacy自身份上链 | P1/原生S/D无wake与异waker负控确认，施工中 | request .100ms、ResourceCompletionClosure=false却on_chain；`resourceClosureEvaluated`以anchors map存在为前提，把现代已评估false误送旧anchor-less兼容臂。原生IO产点无条件记录已评估，旧手造默认仍兼容，不动正常目标running/D原量或邻近独立序数。 |
+| B1645 IO机制说明三尺 | P2/已确认；两S闭合双语入口有效RED | 除final mechanism，还包括defaults.go:911共享IO-LATENCY ROLE WORDS。本轮H6实际入模把所有IO-latency称请求驻留，与47条完成闭合S阻塞12.658ms不符。两出口统一修，不新增字段/硬门。 |
+| B1646 S型标记等待显示 | P2/生产确认，2个系统自有出口 | `mutation_runtime.go`状态分区及`wait_coverage.go`状态附注泛称“S态IO等待”，未在局部标签保留scheduler-marker-only。只改显示词源和零值解读，0与独立完成闭合12.658均保，禁止相加。 |
+
+B1645首个overlay测试日志`20260910-b1645-public-red.log`退出1/1.144s；仅zh/en S_closed两格走到教学缺项的有效RED，D_closed因D/IO同尺吸收未出现独立io_latency节点（需查证，不铸第二席来过针）；无wake两格另暴露B1648现代产点。测试前提失败不算B1645教学已覆盖。原临时负控保留，不删掉来宣称全绿。r1053仍在跑时使用不可变已提交二进制，候选复现置`.codrax/tmp`，未改变采样中的源码对象。
+
+精确续核：D正控原生Run仍有D-state及io_latency两行各.090ms，缺独立IO节点发生在后续tool/ledger/projection收敛，不能写成引擎已吸收。B1645正式双语public针只以确实发布的S闭合席验教学；S/D原生正反资格由B1648独立覆盖。B1647有效公开RED1.674s在`20260910-b1647-public-overlay-red-verified.log`，移除/保留孤儿均能触发，修复进入独立小批。
+
+### §123.1734 r1053：显式窗链上根因与代码时序的异构回放（2026-09-10）
+
+库存243用例，承接r1052 write+有限IO后，按风险/距上次/跨模态/可复算性轮转H6根因与qf时序图。`8aef20864155`干净构建（built`2026-09-10T11:23:40Z`；`20260910-r1053-clean-build.log`）于11:23:57Z启动严格exact2，快照`codrax-selected-20260910-042356`；原case/oracle/预算不改，TIMEOUT1200s为本次操作者显式外层上限而非活跃流年龄降级。结果目录分别`eval/results/{real_trace_h6_channel_mixed_display,qf_sequence_analyzer_gate}-20260910-042357`，跑批日志`20260910-r1053-live.log`，机器/人工记录`eval/parallel_selected_summary_evalcampaign_h6_sequence_r1053_20260910{,_manual_audit}.md`。此刻仅启动，未收结果。
+
+H6根因候选必须有链凭证，实占/可消量/请求驻留/完成闭合阻塞分别复算，IO集合跟本轮实际预算及查询来源；邻近/背景只保线索，业务语义不凭名字入主因。qf以源码buildAnalysisIR→RunWith及Run→RunWith分支为准，不能把同级顺序调用画成helpers互调；条件/早退不抹平。不用机器图符/字面针代替以上人工审计。
+
+终态：11:35:29Z两题全部完成，机器0/2，人工两题均有未过项；没有追加第三个live。H6 208s/上下文60%/首次成文接受，仅一次summary patch，原窗233.190、四态157.248/5.604/70.338/D0、折算58.320、投影/树/9386字节旁路齐全，Mermaid真实离线渲染通过。本轮IO47/12.658，不借旧人口数。机评仅旧`根因排序#1`/`❶`未命中，但人工另见7.2ms无证明跨行求和、running单态当整项实占、热限制误称policy、caller误称资源对象；已提供精确信息的部分先记模型波动/残余，不硬改正文。系统三尺教学和局部标记等待显示则立B1645/B1646。
+
+qf 692s/上下文40%/20次成文拒绝，最终恢复旧模型稿并明确披露；旧图依然虚构同级互调，Compile引用注释2651不等于实调用2530。该错误证据早已降为可见文本，初次门拒绝正确；后续合法孤儿收尾遭B1647系统自身补齐误拒，不能归模型波动，也不能用更多重试掩盖。实际工件分别`20260910-042723.261-2448.md`与`20260910-043527.206-2436.md`；逐轮/源码证据及责任分界见r1053 manual_audit。1200s未触发，20轮结构修复耗尽不等于按活跃流年龄降级。下轮待本批工程封版后重新按ROI选两题，不改stock oracle凑绿。
+
 ### §123.1733 B1645：链上IO机制教学遗漏完成闭合的S型阻塞（2026-09-10）
 
 P2/静态代码及既有原生数值针确认，待本轮异构回放后独立小批。`answer_document_final_decision_boundary.go`的`traceFinalReaderMechanismScope`把io_latency同D/IO类合并，zh/en限定“只陈述D-state、iowait或IO发起到完成区间”；但`tracequery/query.go`的原生io_latency在提交方在链上且completionClosed时，实际使用switch-out→完成方wakeup的S/D阻塞区间，不是请求驻留。默认donghu数值针`TestSelfAllChainBudgetDefaultTierUsesCompletionClosureRuler`明确45条/11.141ms，目标D0不能否定S型已证IO等待。此处是入模说明覆盖冲突，非新数值/链资格缺陷；不能据该限定句让模型将独立阻塞退回驻留或漏报。
