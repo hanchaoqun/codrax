@@ -57380,6 +57380,12 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1736 B1648：现代IO闭合判定不再借用链锚存在性（2026-09-10）
+
+已实现，先收独立小批；完整工程回归待本组封版。原生请求已运行`ioLatencyIssuerBlockedInterval`并得到独立闭合结果，但`resourceClosureEvaluated`只在chain anchors存在时设置，现代false被误当旧未评估对象。唯一算法变更是原生io_latency构造点无条件置已评估；无wake/错误waker的请求仍显示.100ms驻留和邻近/背景，但不再凭目标身份进入链上响应阻塞。真正S/D完成闭合仍使用.090ms提交线程阻塞；D原状态.090（无wake时.110）、目标running、其它资源和legacy手造默认bit均不改。邻近有自己的序数，不能以Rank>0误判上链。
+
+公开Run与BuildRootCauseRank两入口×S/D×闭合/无wake/异waker共12格，先核真实原始配对/证明/区间，再查值和资格；含anchorless D正控、self/peer legacy默认及非IO守原。有效RED`20260910-b1648-public-exact-red.log`0.642s→GREEN0.576s；新及相邻族count3 9.603s、相同race count3 76.801s（`...-targeted-count3.log`/`...-targeted-race-count3.log`）。首版新针误禁所有邻近序数已纠正，不据其红宣称额外产品缺陷。没有修改原测试/值/JSONschema，types与stamp周边只是陈旧注释对齐。独立冷审无阻断；尚未同revision live复验，不将旧r1053结果翻绿。
+
 ### §123.1735 r1053审计后续排序：资格与修补一致性先于词面（2026-09-10）
 
 | 工单 | 优先级/当前证据 | 施工边界 |

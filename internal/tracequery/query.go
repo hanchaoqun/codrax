@@ -16060,13 +16060,16 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			summary = fmt.Sprintf("block IO %s %s %s sector=%d len=%d response_blocked(%s, completion_closed) projected %.3fms inside the selected window (physical %.3fms); request_residence=%.3fms is mechanism evidence and is not additive", io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len, io.IssuerBlockedState, projectedMs, blockedMs, io.DurationMs)
 		}
 		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, projectedMs, hasCausalChain, onChain), 0.86, lineStart, lineEnd, "window_stats", summary)
-		// RSPA M-IO (§29.61.10c): the per-IO completion-closure credential —
-		// computable only with the anchor basis; the enrich resource arm then
-		// requires it for the on-chain lane (pure overlap demotes to ◇).
+		// RSPA M-IO (§29.61.10c): the per-IO credential comes from the native
+		// completion-to-issuer wake proof and the separately measured blocked
+		// interval above. The existing enrich resource arm requires this
+		// credential for the on-chain lane; pure overlap demotes to ◇.
 		item.ResourceCompletionClosure = completionClosed
-		if stats.chainAnchorsByPID != nil {
-			item.resourceClosureEvaluated = true
-		}
+		// This native request's closure was evaluated above independently of
+		// dependency-anchor availability. A target-only/anchor-less chain must
+		// not treat its false result as an unevaluated legacy request and spend
+		// request residence as target blocking. Legacy rows keep their zero bit.
+		item.resourceClosureEvaluated = true
 		if item.ResourceCompletionClosure {
 			item.Summary = appendRootCauseSummaryDetail(item.Summary, "the physical completion directly woke the issuing chain thread (source-scoped typed completion-closure credential)")
 		}
@@ -16575,10 +16578,10 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	// (blocking_span holders, binder_wait peers, io_latency completers) carry
 	// the typed drill-debt verdict.
 	stampRootCauseRankDrillStatus(idx, items, buildDrillSubjectUniverse(&chain, &stats), &chain, &stats)
-	// RSPA M-IO (§29.61.10c): every resource-attribution row carries the
-	// typed "closure was computable" bit when the anchor basis exists, so the
-	// enrich lane decision below can require the completion-closure
-	// credential (legacy anchor-less builds keep the overlap behavior).
+	// RSPA M-IO (§29.61.10c): preserve the existing anchor-backed resource
+	// evaluation stamp. Native io_latency rows already carry their independent
+	// closure-evaluation bit; this pass does not clear it when anchors are absent.
+	// Legacy IO rows still lacking that bit retain the existing overlap behavior.
 	stampResourceClosureEvaluation(stats, items)
 	items = enrichRootCauseItemsWithChainContext(chain, items)
 	attributeOnChainResourceItemsToWakeupDependency(chain, items)
@@ -20001,9 +20004,9 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 		ctx.overlapMs = 0
 		return ctx
 	}
-	// RSPA M-IO (§29.61.10c 判据: 证据面非类别面): with the anchor basis
-	// present (resourceClosureEvaluated — mint-time typed bit), a NON-target
-	// io_latency row keeps the on-chain lane ONLY with the per-IO
+	// RSPA M-IO (§29.61.10c 判据: 证据面非类别面): when the typed
+	// resourceClosureEvaluated bit is set, this resource arm requires an
+	// io_latency row, target or peer, to carry the per-IO
 	// completion-closure credential; its [issue, complete] interval is a
 	// block-layer COURIER record — overlap with a chain window is proximity,
 	// not a directed dependency record — so without closure it demotes to ◇
@@ -20014,7 +20017,8 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 	// and their double-seat risk is already owned by B4 recon + the Q4-B
 	// material gate. Target identity does not change request residence into
 	// task wait: target rows require the same directed completion credential.
-	// Anchor-less builds never set the evaluated bit.
+	// Native IO rows set the evaluated bit independently of dependency anchors;
+	// legacy rows without that bit retain the prior compatibility behavior.
 	if ctx.relevance == "on_chain" && item.Type == "io_latency" &&
 		item.resourceClosureEvaluated && !item.ResourceCompletionClosure {
 		ctx.relevance = "adjacent"

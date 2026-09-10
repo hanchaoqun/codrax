@@ -4440,16 +4440,16 @@ type RootCauseRankItem struct {
 	CPUConstraintGlobalMaxTierKHz  int64 `json:"cpu_constraint_global_max_tier_khz,omitempty"`
 	// ResourceCompletionClosure (RSPA M-IO, §29.61.10c): typed per-IO
 	// completion-closure credential on an io_latency row — the IO's
-	// completion thread is recorded as the WAKER that ended an ANCHORED D/IO
-	// segment of a chain thread inside the IO's lifetime (block completion →
-	// 段尾 wakeup closure). With the RSPA anchor basis present, a non-target
-	// resource-attribution row keeps the on-chain lane ONLY with this
-	// credential; pure interval overlap demotes to ◇ (10c: 纯时间重叠恒邻近).
+	// completion thread is recorded as the WAKER ending the issuing thread's
+	// independently measured S/D blocked segment (block completion → segment-end
+	// wakeup closure). Evaluated native IO rows require this credential for
+	// on-chain attribution, including target-only chains without dependency
+	// anchors; request overlap alone is proximity, not a directed dependency.
 	ResourceCompletionClosure bool `json:"resource_completion_closure,omitempty"`
-	// resourceClosureEvaluated (unexported): true when the RSPA anchor basis
-	// existed at mint time so the closure credential above was actually
-	// computable — the M-IO demotion arm engages ONLY then (legacy fixtures /
-	// anchor-less sweeps keep the pre-RSPA overlap behavior byte-identically).
+	// resourceClosureEvaluated (unexported): true when the native IO producer
+	// evaluated its closure independently of dependency anchors, or the existing
+	// anchor-backed resource stamp evaluated the row. The M-IO demotion arm
+	// engages only then; legacy rows without this bit retain their prior behavior.
 	resourceClosureEvaluated bool
 	// resourceHostContainment* (unexported; RSPA-HYG 件③, §29.77 立案③ /
 	// §29.61.10c per-edge criterion, 2026-07-14; §29.83 残余③ extended the

@@ -1555,9 +1555,10 @@ func renderRunnableLedgerFallbackCaveat(labels []string) string {
 // stampResourceClosureEvaluation marks every resource-attribution row with
 // the typed "closure credential was computable" bit when the stats sweep ran
 // with the RSPA anchor basis. The enrich lane decision requires the
-// completion-closure credential ONLY on evaluated io_latency rows — an
-// anchor-less build (legacy fixtures, chainless queries) keeps the pre-RSPA
-// overlap behavior byte-identically. Other resource projections keep their
+// completion-closure credential ONLY on evaluated io_latency rows. Native IO
+// rows already set that bit independently of anchors; this backfill never
+// clears it. Only legacy rows still lacking the bit keep the pre-RSPA overlap
+// behavior. Other resource projections keep their
 // lane (host-wait/host-work credential form, see the enrich arm comment) but
 // carry the bit so the display can distinguish "evaluated" from "legacy".
 //
