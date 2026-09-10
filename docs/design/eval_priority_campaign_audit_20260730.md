@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-10）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮以 §123.1732–1738 为准：端点引用歧义修复已过86包全仓并推送；r1053严格两并发已完成人工审计，未将机评或局部通过冒称完整正确；IO资格/三尺教学/状态显示三小批已实现、定向/race绿并逐批推送，整组全仓待关系修补封版后统一验证。B1647分阶段图修补与教学编号域冲突仍在施工，下一轮固定两并发：代码时序复验＋异构C++写模式真实交付。具体来源、RED、未覆盖边界及后续收账见相应小节和r1053 manual_audit。
+本轮以 §123.1732–1740 为准：端点引用歧义修复已过86包全仓并推送；r1053严格两并发已完成人工审计，未将机评或局部通过冒称完整正确。B1645–1648四小批已实现、定向/race绿并逐批推送；整组冻结全仓正在验证。r1054已用干净提交版固定两并发：代码时序复验＋异构C++写模式真实交付。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
 
 ## 1. 基线与目标
 
@@ -57384,6 +57384,14 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1740 r1054：修补后真实回放与C++持久交付（2026-09-10）
+
+已推送独立小批：B1648=`026055ffe`、B1645=`3fcabc587`、B1646=`70a15732c`、B1647a/b=`1f0ead712`；r1053审计=`382164862`。B1647最后race5.795s通过，所有生产/测试冻结，root已冷读实际两原生call正控与原门负控。全仓`20260910-b1645-b1648-final-full.log`执行中；不得将未完成的部分包绿冒称全仓绿。
+
+同提交干净make成功：revision`1f0ead712a60`，built`2026-09-10T12:04:02Z`，构建日志`20260910-r1054-clean-build.log`。12:04:43Z严格exact2启动qf_sequence_analyzer_gate＋github_issue_fmt_tm_year_overflow_symptom，快照`codrax-selected-20260910-050443`，原case/oracle/模型预算未改，TIMEOUT1200s仅本轮明确外层上限。结果目录分别`eval/results/{qf_sequence_analyzer_gate,github_issue_fmt_tm_year_overflow_symptom}-20260910-050443`；总日志`20260910-r1054-live.log`，机器与人工报告前缀`eval/parallel_selected_summary_evalcampaign_sequence_cppwrite_r1054_20260910`。此条为启动记录，尚未收结果，不在运行中追加第三个live。
+
+qf人工基线仍为builder→RunWith、Run→RunWith汇聚及真正同级顺序，Compile调用2530；不强求模型某个具体中间函数，不帮模型生成/修改图。若未自然触发B1647新臂，不能以机评通过倒签该臂生产命中。C++写题距r1039约14轮，可用本机clang++真正编译；比选择已知缺Java/Rust执行环境的更旧题更有验收价值。持久树需保原tests/Makefile/`-fwrapv`，在+1900前宽化且render_year不回窄；121→2021、INT_MAX→2147485547，另INT_MIN、-1900、0、上界切点/越过切点共7项原生复验。正常make通过不替代每个正式证明义务；保留honest unverified时要核缺的是哪一份typed见证。
 
 ### §123.1739 B1647a/b：分阶段孤儿收尾与教学编号域冲突（2026-09-10）
 
