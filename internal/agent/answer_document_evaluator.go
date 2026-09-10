@@ -6373,7 +6373,7 @@ func renderAnswerDocBoundedRuntimeFactAuthority(ctx *types.AgentContext, ledger 
 			fmt.Fprintf(&b, "  - target_owned_request_rows_rendered=`%d`; this is a bounded witness count, not a target request total unless a target-scoped complete census explicitly says so. A selected-window/global `io_latency_coverage` row's emitted/total/overflow values MUST NOT be attributed to the named target.\n", targetRows)
 		}
 		for _, row := range rows {
-			fmt.Fprintf(&b, "  - %s\n", answerDocBoundedRuntimeFactAuthorityRow(row, rm))
+			fmt.Fprintf(&b, "  - %s\n", answerDocBoundedRuntimeFactAuthorityRow(row, rm, extractAnswerDocLang(ctx)))
 		}
 	}
 	b.WriteByte('\n')
@@ -6607,7 +6607,7 @@ func answerDocBoundedRuntimeFactPhysicalKey(record types.ObservationRecord) stri
 	return "record\x00" + strings.TrimSpace(record.ID)
 }
 
-func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm *types.RequestModel) string {
+func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm *types.RequestModel, lang string) string {
 	ownerScope := "selected_window_context"
 	if types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
 		ownerScope = "target_owned"
@@ -6638,6 +6638,7 @@ func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm 
 		appendNote("request_residence_caliber", types.TraceNoteKeyIORequestResidenceCaliber)
 		appendNote("request_clock_scope", types.TraceNoteKeyIORequestResidenceClock)
 		appendNote("completion_woke_issuer", types.TraceNoteKeyIOCompletionWokeIssuer)
+		parts = append(parts, answerDocIOCompletionProofMeaning(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOCompletionWokeIssuer), lang))
 		appendNote("complete_thread", types.TraceNoteKeyIOCompleteThread)
 		appendNote("issuer_blocked_state", types.TraceNoteKeyIOIssuerBlockedState)
 		appendNote("issuer_blocked_start", types.TraceNoteKeyIOIssuerBlockedStart)

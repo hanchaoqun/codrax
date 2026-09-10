@@ -57407,12 +57407,12 @@ H3保留1.347ms请求、1.337ms S型阻塞、4.384ms下界；6条可见不升总
 
 | 工单 | 优先级/状态 | 通用问题与边界 | 验收/后续 |
 |---|---|---|---|
-| B1640 Completion教学 | P1/a+b已推，工程全绿；泛化live运行中 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | a实际BuildInitialInstruction+真实schema+合法typed facts先红后绿；b限制schema旧cap句只对整数计数建议grouped_count，不让measurement误分计数 |
+| B1640 Completion教学 | P1/a+b及旧pin协调已推，工程全绿；r1052完成但未重撞原冲突 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | a实际BuildInitialInstruction+真实schema+合法typed facts先红后绿；b限制schema旧cap句只对整数计数建议grouped_count，不让measurement误分计数 |
 | B1641 图节点操作一致性 | P1/已推ce76fab83；工程全绿，生产新臂待触发 | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 模型显式新节点保持独立；精确声明表同源；sequence点分ID适配；既有节点改名冲突/typed边证据不放松 |
 | B1642 引用角色行级消歧 | P2/已推2ca6a4947；主面工程全绿，生产新臂待触发 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；不改模型引用/正文；旧fallback另列b |
-| B1643 同节点对多关系修补预算 | P1/已实现，公开入口/count3/race及独立审查通过，本批提交 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 四类精确旧anchor载体预算与执行器复用同一选择器；0/多候选不铸缺席预算；原body/legacy路径不扩权 |
+| B1643 同节点对多关系修补预算 | P1/已推6c259210e；公开入口/count3/race及独立审查通过，全仓集成中 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 四类精确旧anchor载体预算与执行器复用同一选择器；0/多候选不铸缺席预算；原body/legacy路径不扩权 |
 | B1642b 端点回退同址多关系 | P2/冷审确认，待公开RED及边界审计 | 旧UniqueGroundedClaimRoleForExactEndpoint仅按source:line判唯一，同址不同typed关系仍可能首项抢位 | 审计新advisory末端及旧tool直接调用两面；不改自动引用/全局谓词以冒充闭环；补同址A→B/A→C与反序/receipt边界 |
-| B1644 IO完成唤醒证明布尔语义 | P2/r1052上下文缺口确认，独立施工 | CompletionWokeIssuer=false含absence/ambiguity，但入模仅裸布尔；模型据此写“未唤醒”超出证明 | 只补入模双语证明边界：未形成独立闭合证明≠证明未唤醒；true/false/缺值、RQ/BIO、正阻塞量另证；保原API/算法/根因门，不改模型表或结论 |
+| B1644 IO完成唤醒证明布尔语义 | P2/已实现，36格/count3/race及独立审查通过，本批提交；全仓集成中 | CompletionWokeIssuer=false含absence/ambiguity，但入模仅裸布尔；模型据此写“未唤醒”超出证明 | 只补入模双语证明边界：未形成独立闭合证明≠证明未唤醒；true/false/缺值、RQ/BIO、正阻塞量另证；保原API/算法/根因门，不改模型表或结论 |
 
 B1640首红日志`.codrax/tmp/20260910-b1640-completion-teaching-red.log`，1.059s退出1；合法计数/小数/两类分类值、真实工具array schema前提均过，只在矛盾教学/缺原生数组指引失败。Java畸形数组外尾片本身仍判模型错误：不据此猜括号或丢尾，不宣称教学矛盾导致了这次JSON格式错。B1641以新节点明确展示标签优先、旧ID重用等泛化矩阵核权属后施工；继承/时序混表达及C++flush/static type细节另留模型精度观察，不为过单题强制图形。下一exact2候选已排序为写tokenizers Python fallback + H3显式窗IO，未启动。
 
@@ -57433,6 +57433,10 @@ B1643独立证据保留在`.codrax/tmp/20260910-b1643-first-break_test.go`、`..
 B1643封版仅`internal/types/answer_document_relation_repair_lease.go`增加精确预算候选选择，types/tool各新增测试。prior_anchor/prior_anchor_metadata/stale_anchor/label_pair复用真实执行器的`AnswerDiagramRelationRepairFailureAnchorCandidates`，必须恰好1项；0/多项不据此获取missing-body新额度。唯一semanticKey至多一席，不能借重复ref/多个occurrence扩出替换预算；旧body remove-only与unknown legacy lane保持原有行为。真实公开入口双序由RED1.130s（`20260910-b1643-public-formal-red.log`）变绿，types call/assignment/stale有效RED0.943s（`...-types-valid-red.log`）；初types类型名拼写错误另存不作产品红。新旧族count3 types0.764/tool1.592s，最后补0/2候选与legacy的自有count3 0.988/1.742s；最终窄race count3 types2.250/tool8.325s（`20260910-b1643-targeted-race-count3.log`）。根复读与独立冷审通过，原测试/fixture/正文未改。body-only旧scope语义计数自身不是逐occurrence完整权限门，actual atomic executor另依ref/BodyOccurrence；未把本批宣称所有whole-block历史车道全面精确化。全仓集成另待收据，r1052快照不含此修复。
 
 集成首跑`go test ./... -count=1`在`20260910-b1640-b1642-final-full.log`退出1：85包通过，tool332.863s仅`TestEmitInvestigationCompleteSchema_PreAnnouncesAggregateFactsCap`失败，旧断言仍要求错误的“per-group scalars→grouped_count”原句，a/b定向选择遗漏此旧针。不能回退正确类型教学迁就旧断言，也不能宣称旧针未变已全绿。B1640b补交仅修这一错误教学要求，保maxItems、cap单源、截断披露及其余原断言，并增加“仅已验证非负整数计数/不可将测量分类转换成计数/不得为cap改kind”三条约束；新旧教学与全部completion聚合邻近count3绿1.227s（`20260910-b1640b-legacy-pin-green.log`）。冻结生产源码不变，完整tool重跑中（`20260910-b1640-b1642-tool-full-recheck.log`）；其余85包既有首跑绿不抹除，首个失败日志也保留。
+
+B1644封版只改`answer_document_evaluator.go`原IO行的说明接线，新增私有双语解释函数及独立测试；原`completion_woke_issuer`值仍原样可审计，不改schema、测量、源receipt、阻塞/链上资格、模型文档或任何硬门。`false`表示尚未形成该请求独立的完成方→提交线程唤醒证明，不是否定事件；缺失/非法legacy值保持未知；`true`也不单凭布尔铸造阻塞量，仍需原生正的闭合区间和独立测量。真实RQ/BIO各自经TraceQuery→dispatch→TurnA/ledger→finalizer入模，覆盖zh/en与正常闭合、无wake、不同waker、已结束等待、缺switchout、共享batch；12个兼容变体另检查缺/非法证明、无/零/负阻塞量及false带量，不把这些手工legacy变体冒充原生生产。24真实入口+12兼容共36格，保留原0.100ms请求与合格0.090ms阻塞、共享批次仅一段独立阻塞量；原模型正文和TurnA逐字不变。
+
+B1644有效RED为`20260910-b1644-public-red-verified.log`1.291s（最初public-red编译前提失败另存，不算产品红）；全矩阵GREEN1.288s，邻近count3 agent1.636s、新族race3.774s（`20260910-b1644-{matrix-green,count3,race}.log`），独立冷审及根复读无阻断，未改旧针。B1643+B1644冻结全仓`go test ./... -count=1`已启动，日志`20260910-b1643-b1644-final-full.log`；尚未取得收据，不预报全绿。r1052二进制不含这两批，工程测试不冒称新模型回放。r1052其它答案精度与Python单LF行为错误继续如实留档，不追加样例专用硬合同或系统改答案。
 
 ### §123.1729 r1051：恢复异构exact2评测（2026-09-10，已完成）
 
