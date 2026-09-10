@@ -395,6 +395,9 @@ func TestEmitChangePlan_ProofFollowupProbeOnlyPlanAccepted(t *testing.T) {
 	if plan.Status != types.PlanStatusNoChangeRequired || len(plan.Changes) != 0 {
 		t.Fatalf("plan should be no-change probe-only, got status=%q changes=%d", plan.Status, len(plan.Changes))
 	}
+	if !types.IsPersistedProofProbeOnlyPlan(plan) {
+		t.Fatal("shared proof-only producer must preserve durable identity")
+	}
 	if len(plan.VerificationProbes) != 1 {
 		t.Fatalf("verification probe not preserved: %+v", plan.VerificationProbes)
 	}

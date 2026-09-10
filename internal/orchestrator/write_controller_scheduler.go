@@ -3603,6 +3603,7 @@ func (o *Orchestrator) syncMutablePlanStatusAfterVerify(report *types.ChangeRepo
 	if plan == nil {
 		return
 	}
+	types.PreserveProofProbeOnlyPlanIdentity(plan)
 	now := time.Now()
 	switch {
 	case reportIndicatesVerificationUnavailable(report):

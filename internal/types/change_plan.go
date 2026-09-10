@@ -485,6 +485,11 @@ type ChangePlan struct {
 	// tracked by Approval, not by a separate status string.
 	Status string `json:"status"`
 
+	// PersistenceKind preserves a producer-validated proof-only payload across
+	// verification/status changes. It is not an approval or execution capability
+	// and is never requested from the planner. Ordinary plans omit it.
+	PersistenceKind string `json:"persistence_kind,omitempty"`
+
 	// AppliedCommitSHA is the git commit SHA produced inside the
 	// worktree after all ChangeUnits applied successfully. Empty
 	// while Status != "applied". B0 worktree-as-dry-run design:
@@ -2057,10 +2062,13 @@ func WritePlanToFile(plan *ChangePlan, path string) error {
 	if plan == nil {
 		return fmt.Errorf("WritePlanToFile: nil plan")
 	}
+	// Do not mutate the caller's snapshot while upgrading the legacy sentinel.
+	snapshot := *plan
+	PreserveProofProbeOnlyPlanIdentity(&snapshot)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("WritePlanToFile: mkdir %s: %w", filepath.Dir(path), err)
 	}
-	data, err := json.MarshalIndent(plan, "", "  ")
+	data, err := json.MarshalIndent(&snapshot, "", "  ")
 	if err != nil {
 		return fmt.Errorf("WritePlanToFile: marshal: %w", err)
 	}
@@ -2102,7 +2110,9 @@ func WriteBestPlanReportPair(plan *ChangePlan, report *ChangeReport, planFilePat
 	}
 	dir := filepath.Dir(planFilePath)
 	bestPath := filepath.Join(dir, planID+".best.json")
-	pair := bestPlanReportPair{Plan: plan, Report: report}
+	snapshot := *plan
+	PreserveProofProbeOnlyPlanIdentity(&snapshot)
+	pair := bestPlanReportPair{Plan: &snapshot, Report: report}
 	data, err := json.MarshalIndent(pair, "", "  ")
 	if err != nil {
 		return fmt.Errorf("WriteBestPlanReportPair: marshal: %w", err)
@@ -2149,6 +2159,7 @@ func LoadBestPlanReportPair(planFilePath string) (*ChangePlan, *ChangeReport, er
 	if err := json.Unmarshal(data, &pair); err != nil {
 		return nil, nil, fmt.Errorf("LoadBestPlanReportPair: unmarshal %s: %w", bestPath, err)
 	}
+	PreserveProofProbeOnlyPlanIdentity(pair.Plan)
 	return pair.Plan, pair.Report, nil
 }
 
@@ -2278,7 +2289,8 @@ func LoadChangePlanFromFile(path string) (*ChangePlan, error) {
 	if strings.TrimSpace(plan.ID) == "" {
 		return nil, fmt.Errorf("LoadChangePlanFromFile: %s has empty plan ID", path)
 	}
-	probeOnlyProofPlan := durableProbeOnlyProofPlanShape(&plan)
+	PreserveProofProbeOnlyPlanIdentity(&plan)
+	probeOnlyProofPlan := IsPersistedProofProbeOnlyPlan(&plan)
 	if len(plan.Changes) == 0 && !probeOnlyProofPlan {
 		return nil, fmt.Errorf("LoadChangePlanFromFile: %s has no changes[] — refusing to install an empty plan", path)
 	}
@@ -2302,9 +2314,37 @@ func LoadChangePlanFromFile(path string) (*ChangePlan, error) {
 	return &plan, nil
 }
 
+const PlanPersistenceProofProbeOnly = "proof_probe_only"
+
+// PreserveProofProbeOnlyPlanIdentity upgrades only the previously accepted,
+// strict no-change sentinel, before its status is changed. Already transitioned
+// legacy empty plans have no surviving identity witness and are not inferred.
+func PreserveProofProbeOnlyPlanIdentity(plan *ChangePlan) {
+	if plan != nil && plan.PersistenceKind == "" && plan.Status == PlanStatusNoChangeRequired &&
+		durableProbeOnlyProofPlanShape(plan) {
+		plan.PersistenceKind = PlanPersistenceProofProbeOnly
+	}
+}
+
+// IsPersistedProofProbeOnlyPlan recognizes a readable durable payload, NOT a
+// request to apply it. Verification and terminal states may retain its identity;
+// pending/apply/unknown states cannot borrow this empty-plan loading exception.
+func IsPersistedProofProbeOnlyPlan(plan *ChangePlan) bool {
+	if plan == nil || plan.PersistenceKind != PlanPersistenceProofProbeOnly || !durableProbeOnlyProofPlanShape(plan) {
+		return false
+	}
+	switch plan.Status {
+	case PlanStatusNoChangeRequired, PlanStatusApplied, PlanStatusUnverified, PlanStatusVerifyFailed,
+		PlanStatusRejected, PlanStatusMerged:
+		return true
+	default:
+		return false
+	}
+}
+
 func durableProbeOnlyProofPlanShape(plan *ChangePlan) bool {
-	if plan == nil || plan.Status != PlanStatusNoChangeRequired || len(plan.Changes) != 0 ||
-		len(plan.VerificationProbes) == 0 || len(plan.TargetPaths) == 0 {
+	if plan == nil || len(plan.Changes) != 0 ||
+		len(plan.VerificationProbes) == 0 || len(plan.TargetPaths) == 0 || len(plan.ProjectTestObservations) != 0 {
 		return false
 	}
 	seenPaths := make(map[string]struct{}, len(plan.TargetPaths))

@@ -70,7 +70,12 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// cut and glued onto buildIterationRecord — to its function in
 		// write_retry_hint.go (that row is corrected below in the same
 		// change; the pair's combined ceiling falls 8773→8771).
-		{path: "orchestrator.go", maxLines: 8451},
+		// B676 (§123.1722) extracts the two plan-status persistence lanes
+		// and their applied-path collector into a dedicated concern file.
+		// Tighten 8451→8339; identity preservation adds two lines in the
+		// extracted implementation, not new capacity in this hot file.
+		{path: "orchestrator.go", maxLines: 8339},
+		{path: "change_plan_status_persistence.go", maxLines: 122},
 		// §40.52: the "[CGEC] summary" operator log (96 lines moved); small
 		// round headroom like the sibling concern-file rows.
 		{path: "cgec_summary_log.go", maxLines: 100},

@@ -589,6 +589,20 @@ func applyPreHook(o *Orchestrator) error {
 			plan.ID, o.busCtx.PlanPath, len(plan.Changes))
 	}
 	plan := o.busCtx.Mutable.ChangePlan()
+	// A readable proof-only artifact is not an apply payload. Keep this
+	// before approval stamping and worktree provisioning, including imports
+	// and plans already installed on Mutable. Persistence identity narrows
+	// the navigation hint only; it never grants a coder transition.
+	if len(plan.Changes) == 0 {
+		msg := "apply stage: plan has no file changes; cannot enter the apply stage"
+		snapshot := *plan
+		types.PreserveProofProbeOnlyPlanIdentity(&snapshot)
+		if types.IsPersistedProofProbeOnlyPlan(&snapshot) {
+			msg += ". This is a proof-only plan; use --write-phase=verify for a verification run, without applying file changes"
+		}
+		o.busCtx.Mutable.SetResultPlain(msg)
+		return fmt.Errorf("%s", msg)
+	}
 	if err := enforceWriteApprovalBeforeApply(o, plan, "apply_pre_hook"); err != nil {
 		return err
 	}

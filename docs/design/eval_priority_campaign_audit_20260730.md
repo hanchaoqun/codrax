@@ -57380,6 +57380,34 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1722 B676续修 / B1634d / B1637b：持久身份、精确原值与关系身份闭环批（2026-09-09）
+
+基线`13867b90a`，本轮开始工作树干净；fetch后main/origin为0/0。接续§1716、§1719、§1721，不重跑已结束r1049，不把此前工程绿写成新live。
+
+施工与验证清单：
+
+- [x] **B676/P1有效RED**：真实旧严格no_change_required空变更证明计划，经UpdatePlanStatusOnDisk转applied/unverified/verify_failed后，三种二次Load全部被旧状态条件拒绝。日志`.codrax/tmp/20260909-b676-lifecycle-red.log`。身份与生命周期耦合，不是probe失败或模型JSON错误。
+- [x] **B676安全扩边RED**：独立实际controller/hook × Mutable/import导入四格证明：旧empty payload会先取得auto approval并覆写工件，直到缺worktree才失败。日志`.codrax/tmp/20260909-b676-apply-boundary-red-sdk.log`。因此不能只放宽重载；必须阻止空变更计划进入apply/coder。恢复可读性不授执行权。
+- [x] B676根修：可选producer-owned `persistence_kind=proof_probe_only`，不加入两个LLM工具schema、不改变approval fingerprint。只从旧严格初始形迁移，在producer、load/save/best、REPL load/settle和Mutable三处覆状态前保留身份；普通empty、未知种类/状态、缺probe/target、重复target、无源PTO声明均不获例外。仅证明验证态与merged/rejected审计终态可重载；已经转态却未带身份的旧文件不反推。精确len(changes)==0在apply前拒绝，不修改原scheduler proof-only判据。
+- [x] **B1637b/P1升级确认**：临时overlay真实Emit/Patch × call/type_relation四格均接受并持久化错误半边身份；去掉definition/type companion后的call-only对照正确拒绝。完整反向与缺parser证据仍拒，故是混合声明让身份完整性门漏检，不是全部关系证据门失效。日志`.codrax/tmp/20260909-b1637b-public-red.log`。根因是type_relation的正向definition_fact映射没有逆向等价映射；不能借此让普通definition事实自动生关系。
+- [x] B1637b根修共享standalone分类：按完整正向映射识别已有显式关系，保普通definition+陈旧call锚的旧清孤儿行为。全部消费者（身份门/alias/recipe/repair等）共用；不改模型边、显示消息、正文或结论，不扩大principal资格。
+- [x] **B1634d/P1有效RED**：真实ReadFile→EmitEvidence→CompileObservationLedger已经保留配置第8/9行原文；default/reviewer预算的公开prompt投影却都为空。日志`.codrax/tmp/20260909-b1634d-public-source-red.log`。隐藏模型Summary仍正确，问题是精确源码字面值未另行交接。
+- [x] B1634d根修：仅已选中、真实grounded的已读源码字节，在现有预算内给独立原文载体；保引号内空格/换行和UTF-8，截断状态独立披露，不猜补值、不解释运行时生效值。finalizer/checkpoint/reviewer共用格式，原观测和模型Summary权威隔离不变，不提高rank/cap、不由系统写答案。末审发现既有ground可能从锚中心±2行取匹配Snippet但不改原LineStart；因此新展示明确为`source_excerpt_anchor`附近已读原文，绝不把锚行伪称为原文精确行，也不擅改原证据坐标。独立精确excerpt坐标载体另列后续。checkpoint另一个count/value-only显示过滤也按同SourceExcerpt资格接通，公开真实入模针覆盖，不让原文到共享投影后再次整行丢失。
+- [x] 完成公开正反矩阵、count3/race、最终86包覆盖与独立末审；各批提交/推送状态见下。宿主SDK27的arm64e.x1/旧linker不兼容是环境阻断，不计产品RED；单命令SDKROOT指向已安装26.5，不修改全局工具链/依赖。
+- [ ] 冻结已推送干净二进制后exact2：H7明确窗全谱Trace + Go真实patch写模式。已核243个`.case`（目录244文件包含非case）；按回归影响、模式轮换、proof持久路径及来源覆盖优先级选择，不改原case/oracle，1200s各一次。机器结果和人工日志/源码/上下文/答案结论分开记录。
+
+**有界后续**：自动把导入proof计划转verify-only涉及保留原worktree、恢复代次与累计证明范围，不能简单把batch改Verifying后测主仓。本批仅安全拒绝apply并提示显式verify，自动恢复单列后续。B1634b/c、B1122、gated原始running子集与频率显示、B1629b/B1626/B1622/B1561/B1616b/旧fork权限等仍保留，不签全系统无gap。
+
+冻结定向验收：B676四包count3（types0.768/repl1.142/orchestrator2.504/tool3.336s）及race count3（2.798/3.377/3.422/4.464s）绿，分别见`20260909-b676-frozen-{count3,race-count3}.log`；包含两个真实emitter无模型新字段、状态变更三出口、best/recovery/REPL settle、payload负形、24格导入/Mutable/批准矩阵与非空旧审批对照。B1637b公开Emit/Patch、全14已映射域、双端/合法省略凭证补全、缺owner/反向/type parser/alias/Trace隔离，新旧count3 1.674s、race3.216s绿。B1634d真实Read→Emit→最终prompt及checkpoint/reviewer、邻行坐标边界、来源/grounding负矩阵、prefix/空白/UTF-8/预算/顺序不变，新旧count3 types1.134/agent2.918/orchestrator1.481s、race2.898/3.504/1.954s绿。三项独立只读末审通过，零旧pin迁移。活动SSE预算/实际取消等专项count3 llm20.688/agent1.670s绿（`20260909-b676-stack-stream-count3.log`），不是客户单流连续4分钟live。
+
+测试过程诚实记录：新status测试最初只填VerificationStatus却没有FailureKind，按现有Normalize规则实际应失败；纠正测试前提为runner_missing，不改产品规则。新模型字段负针最初误要求strict decode err=nil，现钉明确unknown-field拒绝；两次他席在途测试未编译完成导致root宽选型编译失败，冻结后重新通过，不算产品RED或改旧golden。
+
+**最终全包覆盖**：首轮`go test ./... -count=1`为85包绿、orchestrator仅热点文件行数ratchet红（8453>8451）；日志`20260909-b676-b1634d-b1637b-full-suite.log`。没有提限或压缩注释：将两个状态保存出口及其applied路径collector完整114行迁到`change_plan_status_persistence.go`，原文件降8339并同步将ceiling8451→8339，新职责文件独立122行预算。行为调用与函数体（含本修复的2行identity保存）不改；末版完整orchestrator12.271s、尾差count3 race3.196s绿（`20260909-b676-final-{orchestrator-suite,moved-status-race}.log`）。其余85包生产/测试未再改，包含tool293.571s、tracequery100.548s、hitraceconv150.731s、agent58.218s、tracediag12.872s；不能把首轮历史写成一次全绿。所谓零旧pin迁移指零数值/语义针放宽，此次行数pin为真实职责拆分后收紧。
+
+交付：B676本提交落库（proof持久身份与禁止空apply同批），B1637b与B1634d代码已独立验收、待各自提交；干净构建与新exact2尚未执行。
+
+红线：无请求/答案关键词硬门；不修改模型正文/图/结论；Trace链上两轴、优先级/调度/算力、D/IO与语义/业务线索、显式窗/因果投影/自动补采不改。活跃流不能仅因4ms或旧4m缺最终正文降级；真实停滞、取消和调用方deadline保留。不冒领新live。
+
 ### §123.1721 B1637：主路径资格与同块显式关系所有权分离（2026-09-09）
 
 B1636已以`aeb6a3f21`独立推送，r1049审计`38b464b18`已推送。本批只修§1719实际日志证实的合同自冲突；模型按现有JSON教学声明的条件/返回等关系不应因校验器只收调用类而遭误拒。与B1636分开提交，不把模型持久化误称或图消息错误算成本修复解决。

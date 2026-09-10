@@ -641,6 +641,7 @@ func proofFollowupProbeOnlyPlanSentinel(ctx *types.BusContext, p emitChangePlanP
 	}
 	plan.TargetPaths = dedupTrimEmitChangePlanStrings(plan.TargetPaths)
 	plan.VerificationProbes = normalizeVerificationProbeChangedTargetRefs(plan.VerificationProbes, plan.TargetPaths)
+	types.PreserveProofProbeOnlyPlanIdentity(plan)
 	return plan
 }
 

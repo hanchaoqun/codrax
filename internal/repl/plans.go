@@ -293,6 +293,7 @@ func (s *PlanStore) Settle(planID, newStatus, reason string) error {
 	if err := json.Unmarshal(data, &plan); err != nil {
 		return fmt.Errorf("PlanStore.Settle: decode %s: %w", path, err)
 	}
+	types.PreserveProofProbeOnlyPlanIdentity(&plan)
 	now := time.Now()
 	plan.Status = newStatus
 	switch newStatus {
@@ -345,6 +346,7 @@ func (s *PlanStore) Load(id string) (*types.ChangePlan, error) {
 	if err := json.Unmarshal(data, &plan); err != nil {
 		return nil, fmt.Errorf("PlanStore.Load: unmarshal %s: %w", path, err)
 	}
+	types.PreserveProofProbeOnlyPlanIdentity(&plan)
 	return &plan, nil
 }
 
