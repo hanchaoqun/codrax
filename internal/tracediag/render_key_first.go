@@ -1321,7 +1321,16 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// scalar identity used to join exact scheduler-segment inventories. It is
 	// visible once in generic row detail; it adds no bulk/duplicate lane and
 	// does not itself change rank or causal authority.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "3bd7bacec7fe6ec7c920d37502e26ac00bedcca29b2924791cfe57381095e1ca",
+	// B1638b2b (2026-09-10) EVOLUTION: this rank item and the two causal
+	// carriers below each gained ONLY MeasurementSources, an optional typed
+	// pointer. It stays in generic detail; HasUnknown and nested Domains rows
+	// follow the existing report cap. Domain entries use
+	// the fixed-point nine-field renderer; the nested slice is structural bulk,
+	// not a skipped field or a new key-first/causal authority. Nil stays absent.
+	// Result/bundle pointer fingerprints are unchanged. The exact prior-schema
+	// subtraction pin and render_measurement_sources_test.go cover the field,
+	// five owner carriers and nested display disposition; only three hashes change.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "2427fa750275e117d254e44e6c2a366ec690905148a2d7228b4d851e9a075c9e",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
@@ -1406,8 +1415,10 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// no bulk lane, no dup channel, no priority override, no skipped fields.
 	// StateAccountKey mirrors the exact root-rank scheduler account identity;
 	// same scalar-detail adjudication as RootCauseRankItem above.
-	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "80099ccf4d9991e13197eef080b29209bd485c61ea92ceaef50d9fe115b0814c",
-	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "8a216d586b360dd4661e85e12f6de1f68c5959b432c7af1fa1c08eadda1105df",
+	// B1638b2b: same optional-source detail disposition documented at the
+	// RootCauseRankItem pin; no other field, skip entry or priority rule changed.
+	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "28d6e54ee65e1f9a305cff232a6919155fd01045b4e943b5943005649f81254e",
+	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "d5e0b2f056e864e432855ac3c4ad3474948b9fc4b21c1394b6831833bc7ba2ba",
 	// CR-3 件⑥ F-10 (2026-07-12) schema review: SupplyFoldBasis gained
 	// ThermalCapWitnessed (bool, the cap's in-window limits/thermal event
 	// witness — the 受热限压 vs 运行于(限压原因未见证) wording gate).

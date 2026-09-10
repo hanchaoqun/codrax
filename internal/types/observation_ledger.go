@@ -205,37 +205,38 @@ const TraceObservationUnitCompositeScore = "composite_score"
 // evidence remains the only lane that may become repo citations. The ledger
 // gives non-code facts an equally typed route to finalizer/reviewer consumers.
 type ObservationRecord struct {
-	ID              string                    `json:"id"`
-	Origin          AnswerEvidenceOrigin      `json:"origin"`
-	Producer        string                    `json:"producer,omitempty"`
-	Role            AnswerAggregateRole       `json:"role,omitempty"`
-	GroundingPolicy ClaimGroundingPolicy      `json:"grounding_policy,omitempty"`
-	ProvenanceLane  ObservationProvenanceLane `json:"provenance_lane,omitempty"`
-	ClaimAuthority  ObservationClaimAuthority `json:"claim_authority,omitempty"`
-	SourceRef       ObservationSourceRef      `json:"source_ref,omitempty"`
-	Span            ObservationSpan           `json:"span,omitempty"`
-	EvidenceKind    EvidenceKind              `json:"evidence_kind,omitempty"`
-	AnchorKind      AnchorKind                `json:"anchor_kind,omitempty"`
-	EvidenceScope   EvidenceScope             `json:"evidence_scope,omitempty"`
-	GroundingStatus GroundingStatus           `json:"grounding_status,omitempty"`
-	ClaimKey        string                    `json:"claim_key,omitempty"`
-	Subject         string                    `json:"subject,omitempty"`
-	Predicate       string                    `json:"predicate,omitempty"`
-	Object          string                    `json:"object,omitempty"`
-	Value           string                    `json:"value,omitempty"`
-	Unit            string                    `json:"unit,omitempty"`
-	Negative        bool                      `json:"negative,omitempty"`
-	ResultCount     *int                      `json:"result_count,omitempty"`
-	Enumeration     *ToolEnumerationBoundary  `json:"enumeration,omitempty"`
-	Summary         string                    `json:"summary,omitempty"`
-	RawExcerpt      string                    `json:"raw_excerpt,omitempty"`
-	RichNotes       []string                  `json:"rich_notes,omitempty"`
-	ModelNotes      []ObservationModelNote    `json:"model_notes,omitempty"`
-	SupportRefs     []string                  `json:"support_refs,omitempty"`
-	SurfaceTerms    []string                  `json:"surface_terms,omitempty"`
-	ObservedAt      string                    `json:"observed_at,omitempty"`
-	Scope           string                    `json:"scope,omitempty"`
-	Confidence      float64                   `json:"confidence,omitempty"`
+	MeasurementSources *TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+	ID                 string                            `json:"id"`
+	Origin             AnswerEvidenceOrigin              `json:"origin"`
+	Producer           string                            `json:"producer,omitempty"`
+	Role               AnswerAggregateRole               `json:"role,omitempty"`
+	GroundingPolicy    ClaimGroundingPolicy              `json:"grounding_policy,omitempty"`
+	ProvenanceLane     ObservationProvenanceLane         `json:"provenance_lane,omitempty"`
+	ClaimAuthority     ObservationClaimAuthority         `json:"claim_authority,omitempty"`
+	SourceRef          ObservationSourceRef              `json:"source_ref,omitempty"`
+	Span               ObservationSpan                   `json:"span,omitempty"`
+	EvidenceKind       EvidenceKind                      `json:"evidence_kind,omitempty"`
+	AnchorKind         AnchorKind                        `json:"anchor_kind,omitempty"`
+	EvidenceScope      EvidenceScope                     `json:"evidence_scope,omitempty"`
+	GroundingStatus    GroundingStatus                   `json:"grounding_status,omitempty"`
+	ClaimKey           string                            `json:"claim_key,omitempty"`
+	Subject            string                            `json:"subject,omitempty"`
+	Predicate          string                            `json:"predicate,omitempty"`
+	Object             string                            `json:"object,omitempty"`
+	Value              string                            `json:"value,omitempty"`
+	Unit               string                            `json:"unit,omitempty"`
+	Negative           bool                              `json:"negative,omitempty"`
+	ResultCount        *int                              `json:"result_count,omitempty"`
+	Enumeration        *ToolEnumerationBoundary          `json:"enumeration,omitempty"`
+	Summary            string                            `json:"summary,omitempty"`
+	RawExcerpt         string                            `json:"raw_excerpt,omitempty"`
+	RichNotes          []string                          `json:"rich_notes,omitempty"`
+	ModelNotes         []ObservationModelNote            `json:"model_notes,omitempty"`
+	SupportRefs        []string                          `json:"support_refs,omitempty"`
+	SurfaceTerms       []string                          `json:"surface_terms,omitempty"`
+	ObservedAt         string                            `json:"observed_at,omitempty"`
+	Scope              string                            `json:"scope,omitempty"`
+	Confidence         float64                           `json:"confidence,omitempty"`
 	// SystemSupplement marks a record compiled from the SUPP-CORE
 	// post-explore deterministic trace_query supplement lane (typed audit
 	// provenance — §29.21-legal deterministic tool witness, but system-
@@ -629,6 +630,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 			record.ClaimAuthority = inferObservationClaimAuthority(record)
 		}
 		record.ModelNotes = cloneObservationModelNotes(record.ModelNotes)
+		record.MeasurementSources = CloneTraceSchedulerMeasurementSources(record.MeasurementSources)
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)

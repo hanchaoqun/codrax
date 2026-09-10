@@ -410,12 +410,13 @@ func (a TraceCausalProjectionTargetStateAccount) UninterruptibleWaitMS() float64
 // TraceCausalProjectionTargetStateAccount is the §29.27② typed carrier of the
 // focused thread's full-window state partition (see the field doc above).
 type TraceCausalProjectionTargetStateAccount struct {
-	Subject    string  `json:"subject,omitempty"`
-	RunningMS  float64 `json:"running_ms,omitempty"`
-	RunnableMS float64 `json:"runnable_ms,omitempty"`
-	SleepMS    float64 `json:"sleep_ms,omitempty"`
-	DStateMS   float64 `json:"d_state_ms,omitempty"`
-	IOWaitMS   float64 `json:"io_wait_ms,omitempty"`
+	MeasurementOrigins []TraceSchedulerMeasurementOrigin `json:"measurement_origins,omitempty"`
+	Subject            string                            `json:"subject,omitempty"`
+	RunningMS          float64                           `json:"running_ms,omitempty"`
+	RunnableMS         float64                           `json:"runnable_ms,omitempty"`
+	SleepMS            float64                           `json:"sleep_ms,omitempty"`
+	DStateMS           float64                           `json:"d_state_ms,omitempty"`
+	IOWaitMS           float64                           `json:"io_wait_ms,omitempty"`
 	// SleepIOWaitMS (复核 A-1): the sleep-side IO refinement label value —
 	// already inside SleepMS, never an addend (the Σ identity gate ignores
 	// it); feeds the sleep term's 「其中 IO等待」 clause only.
@@ -513,22 +514,25 @@ func (p TraceCausalProjection) Active() bool {
 }
 
 type TraceCausalProjectionNode struct {
-	Role           string   `json:"role,omitempty"`
-	EvidenceID     string   `json:"evidence_id,omitempty"`
-	Subject        string   `json:"subject,omitempty"`
-	Predicate      string   `json:"predicate,omitempty"`
-	Object         string   `json:"object,omitempty"`
-	Value          string   `json:"value,omitempty"`
-	Unit           string   `json:"unit,omitempty"`
-	Summary        string   `json:"summary,omitempty"`
-	SupportRefs    []string `json:"support_refs,omitempty"`
-	LineStart      int      `json:"line_start,omitempty"`
-	LineEnd        int      `json:"line_end,omitempty"`
-	Rank           int      `json:"rank,omitempty"`
-	Tier           string   `json:"tier,omitempty"`
-	Causality      string   `json:"causality,omitempty"`
-	ChainRelevance string   `json:"chain_relevance,omitempty"`
-	ChainDepth     int      `json:"chain_depth,omitempty"`
+	// Source references are bound after ledger capture/clock qualification.
+	// They describe inputs, not causal authority or additive value identity.
+	MeasurementOrigins []TraceSchedulerMeasurementOrigin `json:"measurement_origins,omitempty"`
+	Role               string                            `json:"role,omitempty"`
+	EvidenceID         string                            `json:"evidence_id,omitempty"`
+	Subject            string                            `json:"subject,omitempty"`
+	Predicate          string                            `json:"predicate,omitempty"`
+	Object             string                            `json:"object,omitempty"`
+	Value              string                            `json:"value,omitempty"`
+	Unit               string                            `json:"unit,omitempty"`
+	Summary            string                            `json:"summary,omitempty"`
+	SupportRefs        []string                          `json:"support_refs,omitempty"`
+	LineStart          int                               `json:"line_start,omitempty"`
+	LineEnd            int                               `json:"line_end,omitempty"`
+	Rank               int                               `json:"rank,omitempty"`
+	Tier               string                            `json:"tier,omitempty"`
+	Causality          string                            `json:"causality,omitempty"`
+	ChainRelevance     string                            `json:"chain_relevance,omitempty"`
+	ChainDepth         int                               `json:"chain_depth,omitempty"`
 	// TraceGapKind mirrors the producer's typed trace_gap_kind rich note (G2
 	// 显示半场, §27.2/§28.1 user ruling 2026-07-09,
 	// real_trace_campaign_20260705.md): the PRECISE blind-spot criterion of a
@@ -2366,6 +2370,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	traceCausalProjectionJoinSupplyFoldTwins(&out)
 	if len(out.PrimaryRootCauses) > 0 {
 		node := out.PrimaryRootCauses[0]
+		node.MeasurementOrigins = CloneTraceSchedulerMeasurementOrigins(node.MeasurementOrigins)
 		out.PrimaryRootCause = &node
 	}
 	if anchorStart, anchorEnd, ok := traceCausalProjectionAnchorWindow(records, requestedScope); ok {
@@ -3320,6 +3325,7 @@ func traceCausalProjectionTargetStateCandidateFromRecord(record ObservationRecor
 		return traceCausalProjectionTargetStateCandidate{}, false
 	}
 	account := TraceCausalProjectionTargetStateAccount{
+		MeasurementOrigins:     TraceSchedulerMeasurementOriginsFromRecord(record),
 		Subject:                subject,
 		RunningMS:              traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunning),
 		RunnableMS:             traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable),
@@ -3375,6 +3381,7 @@ func traceCausalProjectionAttachTargetStateAccount(projection *TraceCausalProjec
 		return
 	}
 	account := chosen.Account
+	account.MeasurementOrigins = CloneTraceSchedulerMeasurementOrigins(account.MeasurementOrigins)
 	projection.TargetStateAccount = &account
 }
 
@@ -3994,29 +4001,30 @@ func traceCausalProjectionHopOnChain(record ObservationRecord) bool {
 
 func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) TraceCausalProjectionNode {
 	node := TraceCausalProjectionNode{
-		Role:            role,
-		EvidenceID:      strings.TrimSpace(record.ID),
-		Subject:         strings.TrimSpace(record.Subject),
-		Predicate:       strings.TrimSpace(record.Predicate),
-		Object:          strings.TrimSpace(record.Object),
-		Value:           strings.TrimSpace(record.Value),
-		Unit:            strings.TrimSpace(record.Unit),
-		Summary:         strings.TrimSpace(record.Summary),
-		SupportRefs:     cloneStringSlice(record.SupportRefs),
-		LineStart:       record.Span.LineStart,
-		LineEnd:         record.Span.LineEnd,
-		Tier:            traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTier),
-		Causality:       traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCausality),
-		ChainRelevance:  traceCausalProjectionChainRelevance(record.RichNotes),
-		ChainDepth:      traceCausalProjectionRichNoteFirstInt(record.RichNotes, TraceNoteKeyChainDepth, TraceNoteKeyDepth),
-		ChainBranch:     traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyChainBranch),
-		ImpactMS:        traceCausalProjectionImpact(record),
-		SpanName:        traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanName),
-		SpanKind:        traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanKind),
-		SpanCategory:    traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanCategory),
-		SpanSubcategory: traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanSubcategory),
-		SemanticClass:   traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySemanticClass),
-		Confidence:      record.Confidence,
+		MeasurementOrigins: TraceSchedulerMeasurementOriginsFromRecord(record),
+		Role:               role,
+		EvidenceID:         strings.TrimSpace(record.ID),
+		Subject:            strings.TrimSpace(record.Subject),
+		Predicate:          strings.TrimSpace(record.Predicate),
+		Object:             strings.TrimSpace(record.Object),
+		Value:              strings.TrimSpace(record.Value),
+		Unit:               strings.TrimSpace(record.Unit),
+		Summary:            strings.TrimSpace(record.Summary),
+		SupportRefs:        cloneStringSlice(record.SupportRefs),
+		LineStart:          record.Span.LineStart,
+		LineEnd:            record.Span.LineEnd,
+		Tier:               traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTier),
+		Causality:          traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCausality),
+		ChainRelevance:     traceCausalProjectionChainRelevance(record.RichNotes),
+		ChainDepth:         traceCausalProjectionRichNoteFirstInt(record.RichNotes, TraceNoteKeyChainDepth, TraceNoteKeyDepth),
+		ChainBranch:        traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyChainBranch),
+		ImpactMS:           traceCausalProjectionImpact(record),
+		SpanName:           traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanName),
+		SpanKind:           traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanKind),
+		SpanCategory:       traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanCategory),
+		SpanSubcategory:    traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanSubcategory),
+		SemanticClass:      traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySemanticClass),
+		Confidence:         record.Confidence,
 		// 件5 (SC-F1): typed provenance carry — the audit face's
 		// origin=system_supplement token reads this, never re-derives.
 		SystemSupplement: record.SystemSupplement,

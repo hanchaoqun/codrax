@@ -8994,13 +8994,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			// unset (0,end) form publishes an absent pair (helper doc).
 			accountSpanStartTs, accountSpanEndTs := traceQueryObservationWindowSpanTs(account.Window)
 			out = append(out, types.ObservationRecord{
-				ID:              fmt.Sprintf("trace_query:%s#target_window_states", scope),
-				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-				Producer:        "trace_query",
-				Role:            types.AnswerAggregateRoleSupportingCoverage,
-				GroundingPolicy: types.ClaimGroundingHard,
-				ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
-				SourceRef:       ref,
+				ID:                 fmt.Sprintf("trace_query:%s#target_window_states", scope),
+				MeasurementSources: types.TraceSchedulerMeasurementSourcesFromDomain(account.MeasurementDomain),
+				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:           "trace_query",
+				Role:               types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy:    types.ClaimGroundingHard,
+				ProvenanceLane:     types.ObservationProvenanceArtifactSpan,
+				SourceRef:          ref,
 				Span: types.ObservationSpan{
 					LineStart: account.LineStart,
 					LineEnd:   account.LineEnd,
@@ -9416,13 +9417,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// rank-keyed ID would collide across them. Byte-identical to
 				// the pre-G9 shape whenever every row carries an ordinal
 				// (there rank == i+1 held by construction).
-				ID:              fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, i+1),
-				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-				Producer:        "trace_query",
-				Role:            role,
-				GroundingPolicy: grounding,
-				ProvenanceLane:  provenance,
-				SourceRef:       ref,
+				ID:                 fmt.Sprintf("trace_query:%s#root_cause_rank:%d", scope, i+1),
+				MeasurementSources: types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources),
+				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:           "trace_query",
+				Role:               role,
+				GroundingPolicy:    grounding,
+				ProvenanceLane:     provenance,
+				SourceRef:          ref,
 				// P1-1 (SMR-1 修复轮, 2026-07-13): same wall-clock span emission
 				// as the critical lane above (typed item fields, no re-derivation).
 				Span: types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd,
@@ -9757,13 +9759,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			// single primary-account projection.
 			impact = tracequery.WakeupCausalImpactPrimaryStateAccount(impact)
 			out = append(out, types.ObservationRecord{
-				ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_impact:%d", scope, i+1),
-				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-				Producer:        "trace_query",
-				Role:            types.AnswerAggregateRoleSupportingCoverage,
-				GroundingPolicy: types.ClaimGroundingHard,
-				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
-				SourceRef:       ref,
+				ID:                 fmt.Sprintf("trace_query:%s#wakeup_causal_impact:%d", scope, i+1),
+				MeasurementSources: types.CloneTraceSchedulerMeasurementSources(impact.MeasurementSources),
+				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:           "trace_query",
+				Role:               types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy:    types.ClaimGroundingHard,
+				ProvenanceLane:     types.ObservationProvenanceObservedDirectCause,
+				SourceRef:          ref,
 				Span: types.ObservationSpan{
 					LineStart: impact.LineStart,
 					LineEnd:   impact.LineEnd,
@@ -9809,13 +9812,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			}
 			aggregate = traceQueryPriorityCausalAggregateForPublication(aggregate)
 			out = append(out, types.ObservationRecord{
-				ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_aggregate:%d", scope, i+1),
-				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-				Producer:        "trace_query",
-				Role:            types.AnswerAggregateRoleSupportingCoverage,
-				GroundingPolicy: types.ClaimGroundingHard,
-				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
-				SourceRef:       ref,
+				ID:                 fmt.Sprintf("trace_query:%s#wakeup_causal_aggregate:%d", scope, i+1),
+				MeasurementSources: types.CloneTraceSchedulerMeasurementSources(aggregate.MeasurementSources),
+				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:           "trace_query",
+				Role:               types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy:    types.ClaimGroundingHard,
+				ProvenanceLane:     types.ObservationProvenanceObservedDirectCause,
+				SourceRef:          ref,
 				Span: types.ObservationSpan{
 					LineStart: aggregate.LineStart,
 					LineEnd:   aggregate.LineEnd,
@@ -11034,7 +11038,9 @@ func traceQueryWakeupCausalImpactFoldRecord(scope string, ref types.ObservationS
 	span := types.ObservationSpan{}
 	var subjects []string
 	seen := map[string]bool{}
+	measurementInputs := make([]*types.TraceSchedulerMeasurementSources, 0, len(members))
 	for _, member := range members {
+		measurementInputs = append(measurementInputs, member.MeasurementSources)
 		v := member.DominantImpactMs
 		if minMS == 0 || (v > 0 && v < minMS) {
 			minMS = v
@@ -11069,18 +11075,19 @@ func traceQueryWakeupCausalImpactFoldRecord(scope string, ref types.ObservationS
 		}
 	}
 	return types.ObservationRecord{
-		ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_impact_fold", scope),
-		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-		Producer:        "trace_query",
-		Role:            types.AnswerAggregateRoleSupportingCoverage,
-		GroundingPolicy: types.ClaimGroundingHard,
-		ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
-		SourceRef:       ref,
-		Span:            span,
-		ClaimKey:        "wakeup_causal_impact:folded_overflow",
-		Predicate:       "wakeup_causal_impact",
-		Value:           traceQueryObservationMSValue(maxMS),
-		Unit:            "ms",
+		ID:                 fmt.Sprintf("trace_query:%s#wakeup_causal_impact_fold", scope),
+		MeasurementSources: types.MergeTraceSchedulerMeasurementSources(measurementInputs...),
+		Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:           "trace_query",
+		Role:               types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy:    types.ClaimGroundingHard,
+		ProvenanceLane:     types.ObservationProvenanceObservedDirectCause,
+		SourceRef:          ref,
+		Span:               span,
+		ClaimKey:           "wakeup_causal_impact:folded_overflow",
+		Predicate:          "wakeup_causal_impact",
+		Value:              traceQueryObservationMSValue(maxMS),
+		Unit:               "ms",
 		Summary: fmt.Sprintf("%d on-chain causal-impact rows beyond the typed row cap folded (max %.3fms); full rows remain in the stored trace_query payload",
 			len(members), maxMS),
 		RichNotes: traceQueryTypedKVNotes([][2]string{
@@ -13463,25 +13470,26 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		// semantics as every other family.
 		appendNote(types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window))
 		out = append(out, types.ObservationRecord{
-			ID:              fmt.Sprintf("trace_query:%s#state_churn:%d", scope, i+1),
-			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-			Producer:        "trace_query",
-			Role:            types.AnswerAggregateRoleSupportingCoverage,
-			GroundingPolicy: types.ClaimGroundingHard,
-			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
-			SourceRef:       ref,
-			Span:            types.ObservationSpan{LineStart: churn.LineStart, LineEnd: churn.LineEnd},
-			ClaimKey:        "state_churn:" + churn.DominantState,
-			Subject:         traceThreadLabel(churn.Thread),
-			Predicate:       "state_churn",
-			Object:          churn.DominantState,
-			Value:           traceQueryObservationMSValue(churn.DominantImpactMs),
-			Unit:            "ms",
-			Summary:         churn.Summary,
-			RichNotes:       notes,
-			SupportRefs:     traceQueryObservationSupportRefs(ref, churn.LineStart, churn.LineEnd),
-			ObservedAt:      at,
-			Confidence:      churn.Confidence,
+			ID:                 fmt.Sprintf("trace_query:%s#state_churn:%d", scope, i+1),
+			MeasurementSources: types.TraceSchedulerMeasurementSourcesFromDomain(churn.MeasurementDomain),
+			Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:           "trace_query",
+			Role:               types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy:    types.ClaimGroundingHard,
+			ProvenanceLane:     types.ObservationProvenanceArtifactSpan,
+			SourceRef:          ref,
+			Span:               types.ObservationSpan{LineStart: churn.LineStart, LineEnd: churn.LineEnd},
+			ClaimKey:           "state_churn:" + churn.DominantState,
+			Subject:            traceThreadLabel(churn.Thread),
+			Predicate:          "state_churn",
+			Object:             churn.DominantState,
+			Value:              traceQueryObservationMSValue(churn.DominantImpactMs),
+			Unit:               "ms",
+			Summary:            churn.Summary,
+			RichNotes:          notes,
+			SupportRefs:        traceQueryObservationSupportRefs(ref, churn.LineStart, churn.LineEnd),
+			ObservedAt:         at,
+			Confidence:         churn.Confidence,
 		})
 	}
 
@@ -13497,21 +13505,22 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			// ordinal — same declaration as the root_cause_rank lanes; the
 			// ledger text re-parse lane mints the identical position
 			// semantics (RANKDIS-EXT C8 unification, §29.104.16.1 M23).
-			ID:              fmt.Sprintf("trace_query:%s#state_drilldown:%d", scope, i+1),
-			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-			Producer:        "trace_query",
-			Role:            types.AnswerAggregateRoleSupportingCoverage,
-			GroundingPolicy: types.ClaimGroundingHard,
-			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
-			SourceRef:       ref,
-			Span:            types.ObservationSpan{LineStart: step.LineStart, LineEnd: step.LineEnd, StartTs: step.StartTs, EndTs: step.EndTs},
-			ClaimKey:        "state_drilldown:" + traceThreadLabel(step.Thread) + ":" + step.State,
-			Subject:         traceThreadLabel(step.Thread),
-			Predicate:       "state_drilldown",
-			Object:          step.State,
-			Value:           traceQueryObservationMSValue(step.ImpactMs),
-			Unit:            "ms",
-			Summary:         step.Summary,
+			ID:                 fmt.Sprintf("trace_query:%s#state_drilldown:%d", scope, i+1),
+			MeasurementSources: types.CloneTraceSchedulerMeasurementSources(step.MeasurementSources),
+			Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:           "trace_query",
+			Role:               types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy:    types.ClaimGroundingHard,
+			ProvenanceLane:     types.ObservationProvenanceArtifactSpan,
+			SourceRef:          ref,
+			Span:               types.ObservationSpan{LineStart: step.LineStart, LineEnd: step.LineEnd, StartTs: step.StartTs, EndTs: step.EndTs},
+			ClaimKey:           "state_drilldown:" + traceThreadLabel(step.Thread) + ":" + step.State,
+			Subject:            traceThreadLabel(step.Thread),
+			Predicate:          "state_drilldown",
+			Object:             step.State,
+			Value:              traceQueryObservationMSValue(step.ImpactMs),
+			Unit:               "ms",
+			Summary:            step.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				// RANKDIS-EXT A3 (§29.104.16.1 M15): the drilldown ordinal
 				// rides its DEDICATED state_rank lane (display-tier registry
@@ -14780,25 +14789,26 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 			{"subject_total_authority", "target_window_states_or_full_uncapped_subject_aggregation_only"},
 		})
 		out = append(out, types.ObservationRecord{
-			ID:              fmt.Sprintf("trace_query:%s#%s:%d", scope, family, i+1),
-			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-			Producer:        "trace_query",
-			Role:            types.AnswerAggregateRoleSupportingCoverage,
-			GroundingPolicy: types.ClaimGroundingHard,
-			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
-			SourceRef:       ref,
-			Span:            types.ObservationSpan{LineStart: td.LineStart, LineEnd: td.LineEnd, StartTs: td.StartTs, EndTs: td.EndTs},
-			ClaimKey:        predicate + ":" + thread,
-			Subject:         thread,
-			Predicate:       predicate,
-			Object:          state,
-			Value:           traceQueryObservationMSValue(td.DurationMs),
-			Unit:            "ms",
-			Summary:         fmt.Sprintf("%s %s %.3fms%s", thread, label, td.DurationMs, traceThreadDurationLocation(td)),
-			RichNotes:       notes,
-			SupportRefs:     traceQueryObservationSupportRefs(ref, td.LineStart, td.LineEnd),
-			ObservedAt:      at,
-			Confidence:      confidence,
+			ID:                 fmt.Sprintf("trace_query:%s#%s:%d", scope, family, i+1),
+			MeasurementSources: traceQueryThreadDurationMeasurementSources(td),
+			Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:           "trace_query",
+			Role:               types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy:    types.ClaimGroundingHard,
+			ProvenanceLane:     types.ObservationProvenanceArtifactSpan,
+			SourceRef:          ref,
+			Span:               types.ObservationSpan{LineStart: td.LineStart, LineEnd: td.LineEnd, StartTs: td.StartTs, EndTs: td.EndTs},
+			ClaimKey:           predicate + ":" + thread,
+			Subject:            thread,
+			Predicate:          predicate,
+			Object:             state,
+			Value:              traceQueryObservationMSValue(td.DurationMs),
+			Unit:               "ms",
+			Summary:            fmt.Sprintf("%s %s %.3fms%s", thread, label, td.DurationMs, traceThreadDurationLocation(td)),
+			RichNotes:          notes,
+			SupportRefs:        traceQueryObservationSupportRefs(ref, td.LineStart, td.LineEnd),
+			ObservedAt:         at,
+			Confidence:         confidence,
 		})
 	}
 	return out
@@ -15573,6 +15583,7 @@ func traceQueryPriorityRootCauseForPublication(item tracequery.RootCauseRankItem
 }
 
 func traceQueryPriorityRootCauseForPublicationInUniverse(item tracequery.RootCauseRankItem, universe traceQueryPriorityArtifactUniverse) tracequery.RootCauseRankItem {
+	item.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources)
 	if !runtimeTracePriorityInversionCandidateType(item.Type) {
 		return item
 	}
@@ -15633,6 +15644,7 @@ func traceQueryPriorityCausalImpactForPublication(impact tracequery.WakeupCausal
 }
 
 func traceQueryPriorityCausalImpactForPublicationInUniverse(impact tracequery.WakeupCausalImpact, universe traceQueryPriorityArtifactUniverse) tracequery.WakeupCausalImpact {
+	impact.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(impact.MeasurementSources)
 	hard := traceQueryPriorityEvidenceHard(impact.PriorityRelationCaliber)
 	relationClaim := strings.TrimSpace(impact.PriorityRelation) != "" ||
 		impact.PriorityRelationProvenLowerMs != 0 || impact.PriorityRelationUnknownOrNonLowerMs != 0 ||
@@ -15700,6 +15712,7 @@ func traceQueryPriorityCausalAggregateForPublication(aggregate tracequery.Wakeup
 }
 
 func traceQueryPriorityCausalAggregateForPublicationInUniverse(aggregate tracequery.WakeupCausalAggregate, universe traceQueryPriorityArtifactUniverse) tracequery.WakeupCausalAggregate {
+	aggregate.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(aggregate.MeasurementSources)
 	// This function publishes the aggregate ROW itself. A sleep/D/IO-dominant
 	// aggregate may own a valid separate scheduling sub-seat on root_cause_rank,
 	// but relabeling this dominant-state row would pair its raw blocking bar

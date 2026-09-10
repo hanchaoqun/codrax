@@ -227,6 +227,23 @@ func TestB1638StateCensusChecksEverySelectedAccountField(t *testing.T) {
 		t.Run(typ.Field(index).Name, func(t *testing.T) {
 			set, ledger := b1638StateCensusFixture()
 			field := reflect.ValueOf(set.Projections[0].TargetStateAccount).Elem().Field(index)
+			if typ.Field(index).Name == "MeasurementOrigins" {
+				// B1638b2b disposition: optional source bookkeeping must not
+				// silently become a new gate on legacy values/locators. Final
+				// ledger same-result/capture checks below still own authority.
+				set.Projections[0].TargetStateAccount.MeasurementOrigins = []types.TraceSchedulerMeasurementOrigin{{
+					SourceRef:          types.ObservationSourceRef{Path: "/untrusted/copied-metadata", QueryScopeID: "not-authority"},
+					MeasurementSources: &types.TraceSchedulerMeasurementSources{HasUnknown: true},
+				}}
+				if got := renderTraceFinalBlockedReasonStateRelation(set, ledger); got == "" {
+					t.Fatal("optional source metadata disabled the independently proved legacy card")
+				}
+				ledger.Records[0].SourceRef.QueryScopeID = ""
+				if got := renderTraceFinalBlockedReasonStateRelation(set, ledger); got != "" {
+					t.Fatal("copied origin replaced the required final ledger source proof")
+				}
+				return
+			}
 			switch field.Kind() {
 			case reflect.String:
 				field.SetString(field.String() + "changed")
@@ -241,6 +258,34 @@ func TestB1638StateCensusChecksEverySelectedAccountField(t *testing.T) {
 			}
 			if got := renderTraceFinalBlockedReasonStateRelation(set, ledger); got != "" {
 				t.Fatalf("a changed selected account field must not borrow the original source: %s", typ.Field(index).Name)
+			}
+		})
+	}
+}
+
+func TestB1638B2BOptionalOriginsDoNotChangeExistingCardAuthority(t *testing.T) {
+	a := types.TraceSchedulerMeasurementOrigin{SourceRef: types.ObservationSourceRef{Path: "/metadata-only/A"}, ObservedAt: "first",
+		MeasurementSources: types.TraceSchedulerMeasurementSourcesFromDomain(&types.TraceSchedulerMeasurementDomain{PartitionID: "A"})}
+	b := types.TraceSchedulerMeasurementOrigin{SourceRef: types.ObservationSourceRef{QueryScopeID: "metadata-only-B"}, ObservedAt: "second",
+		MeasurementSources: &types.TraceSchedulerMeasurementSources{HasUnknown: true}}
+	for name, origins := range map[string][]types.TraceSchedulerMeasurementOrigin{
+		"legacy": nil, "empty": {}, "known": {a}, "unknown": {b}, "ordered": {a, b}, "reverse": {b, a},
+	} {
+		t.Run(name, func(t *testing.T) {
+			set, ledger := b1638StateCensusFixture()
+			want := renderTraceFinalBlockedReasonStateRelation(set, ledger)
+			set.Projections[0].TargetStateAccount.MeasurementOrigins = origins
+			before, _ := json.Marshal([]any{set, ledger})
+			if got := renderTraceFinalBlockedReasonStateRelation(set, ledger); want == "" || got != want {
+				t.Fatal("provenance-only addition changed the existing independently sourced card")
+			}
+			after, _ := json.Marshal([]any{set, ledger})
+			if !reflect.DeepEqual(before, after) {
+				t.Fatal("comparison mutated source/account")
+			}
+			set.Projections[0].TargetStateAccount.DStateMS += 1
+			if got := renderTraceFinalBlockedReasonStateRelation(set, ledger); got != "" {
+				t.Fatal("optional provenance obscured a real state fact disagreement")
 			}
 		})
 	}

@@ -92,6 +92,16 @@ worker-55 (55) [000] .... 1.040000: sched_switch: prev_comm=worker prev_pid=55 p
 				full.Timeline.MeasurementDomain = nil
 			}
 			without := traceQueryTypedObservations(full, path, source.PayloadRef, source.RawRef, "", time.Unix(1, 0), q)
+			// EVOLUTION RECORD B1638b2b: native receipts now deliberately
+			// propagate through MeasurementSources. Exclude only this new
+			// metadata; all earlier value, evidence, authority and guidance
+			// fields must still remain identical to the B1 publication.
+			for i := range with {
+				with[i].MeasurementSources = nil
+			}
+			for i := range without {
+				without[i].MeasurementSources = nil
+			}
 			if !reflect.DeepEqual(with, without) || strings.Contains(result.Summary, "constructed_partition") {
 				t.Fatal("b1 must not change observations, priorities, or inject an opaque receipt into model teaching")
 			}

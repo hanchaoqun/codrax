@@ -57380,6 +57380,35 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1727 B1638b2b：原生统计来源传至正式观测与投影入口（2026-09-10）
+
+从已推送 `a9958a777` 干净主线接续，SSH443 fetch 后 main/origin 为0/0。本批承接b2a，不改变统计值、根因资格、模型结论或投影合并算法。**来源传递不是数值问题闭环；B1638b跨查询S308.916/等待347.249的公开复现仍保留。**
+
+- [x] 有效RED先于修复：实际Run→JSON的下钻/普通rank/DIO cause-slice（50ms已关联+10ms余量）、RSPA（37ms=2ms链上+35ms邻近）均先核旧值/资格，再断来源缺失。实际Execute→dispatch→ledger七种原生有值观测及正式Node/目标账户也取得缺失RED；不是缺拟议Go字段的编译失败。
+- [x] 共享可选`TraceSchedulerMeasurementSources`保存完整原生域集合与黏性`HasUnknown`。全九字段（时间按浮点位）精确去重、稳定排序、独立复制、不套8/32/128显示cap；nil不猜，全未知仍无凭证，已知+未知不许由后来已知成员清除。它仅是**该行参考的原生统计来源清单**，不是完整值身份、完整采集、可加性或因果证明。
+- [x] 引擎下钻只携实际赢家来源；普通rank、跨CPU原生TD集合、DIO各已纳cause-slice、同线程同类family的全成员、RSPA余量、causal impact/aggregate转rank均传播自己的来源。不向无来源self-running等独立算法借相邻TopRunning凭证，不改已有单源字段及完整物理`StateAccountKey`。family与原生chain aggregate在全成员上一次union，避免逐成员反复排序。
+- [x] **命中客户实际入口**：H7前32条因果观测中的8条目标S来自`WakeupChain.CausalImpacts`（合78.630ms），不是普通TD。`expandChain`从实际递归局部Timeline传自己的原生域，节点镜像与公开impact独立复制；aggregate在occurrence显示cap之前保留全部成员来源。原始impact数组另有未进前32明细的目标S，不能把这8条称完整账户。
+- [x] tool发布目标账户、五类TD、Churn、下钻、rank、impact/aggregate及impact overflow来源；overflow只合原来已纳成员，绝不借最强代表域。发布用的rank/impact/aggregate副本深拷新集合。新typed metadata不改变旧字段或摘要/教学；b2a旧“新metadata不进入Observation”针按本批传播目的精确演化，排除新字段后旧契约逐字段不变。
+- [x] 最终ledger在来源重新核准及tool默认字段补齐后，正式Node/目标账户绑定完整`SourceRef`+`ObservedAt`+原生集合；保未知、不解码EvidenceID、不用线程名/相似窗口反推。Node主项与选中账户的独立副本另做深拷；clock指针及域集合不与源观测共用。
+- [x] 真实donghu两个独立公开查询（`CompThread_0-2955`,13762.791708..13763.024898）通过：主查询8条S=78.630ms、line1..400查询1条S=230.286ms；各自的局部Timeline来源与原生impact全等，主查询局部域不冒充目标全窗域，两父QueryScopeID不同；正式Node绑定最终ledger来源，不把这项绿说成两查询混合值已绿。
+- [x] 全包抓到本批兼容性风险并立即纠正：既有`traceFinalSelectedStateAccountSource`用whole-account DeepEqual，新增Origins被意外纳入旧配卡硬门，导致旧无该字段账户缺卡；旧字段穷举又把所有slice当`[]string`而panic。仅在比较的值副本中排除新增Origins，旧全部值/locator字段、真实ledger SourceRef/QueryScopeID/SameResult与capture归属核验不变；不向旧fixture强补来源求绿。新增legacy/empty/known/unknown/正反序六形保证卡片字节恒等、原数据不变，改旧D值或删真实query来源仍拒配。独立复核同意此metadata-only兼容边界。
+- [x] 冻结末次全仓`go test ./... -count=1`退出0，86个有测试包全部通过，日志`20260910-b1638b2b-final-full.log`保留；未改写首轮四包失败的过程记录。构建、提交及推送收据在本批末补记；新live暂未启动。
+
+已完成专项收据（`.codrax/tmp/20260910-b1638b2b-*`）：engine全8新测试及旧copy/RCM/RSPA/drilldown最终count3 30.742s、窄race count3 12.579s；tool新旧来源族（含实际donghu）count3 6.436s、race16.529s；Origin实际ledger→Node及未知/深拷count3 0.743s、race2.138s；source九字段逐轴/257域不截断/unknown/复制与tracediag九字段定点接线count3 types1.239s/tracediag0.554s。末冻结跨包窄race types2.656s/tracediag1.526s/tracequery2.982s/agent3.543s；配卡兼容族count3 8.375s。活跃流专项count3 agent2.933s/llm29.576s/repl5.856s绿，覆盖默认预算不截活跃SSE、fallback实际模式、真实停滞与显式deadline。原混算公开overlay重跑4.992s，主-only/同结果重复过，双混合顺序仍因S308.916/等待347.249红（配卡正确），原红日志不删除。
+
+契约登记与首全包过程：`...-full-suite.log`首轮82包绿、agent/tool/tracediag/tracequery四包红。agent是上文实际兼容问题与字段穷举panic；tracequery是旧比较只清单Domain未清新增集合；tool是三字段登记缺失及B1旧同类metadata比较；tracediag是三个直接类型新增字段后hash应演化。逐项处理而非批量重签：InfoContract仅新增W-24（审计来源不进用户词面，b3真实消费须重审）、Node/Account两登记及RankItem嵌套mirror，旧OM12项不动；B1/B2比较只排除新增集合后仍保所有旧字段。三类schema分别完整保留157/63/57旧字段，新增的都只有`MeasurementSources`指针；新增“去掉这一字段后还原旧完整hash”针，Result及其它hash不动。Domains沿已有详情cap与九字段定点渲染，不宣称默认报告cap容纳全部来源。登记/B1/B2/公开链路count3 tool5.913s、schema/差异/五owner针count3 tracediag0.729s与完整包5.081s绿；完整agent47.497s、完整tracequery85.396s复验绿。此后源码冻结，另跑末次全仓，不把首四红改写为一次全绿。
+
+**明确未闭环，下一批优先级不变：**
+
+1. B1638b3/P1：先为完整来源收集与分母选择写实际RED，再协同改ledger同ID/合并、projection通用去重、R1/R2/one-seat/overflow及同窗账户选择。当前这些旧面仍可能只留赢家来源；不能把新字段用于跨查询数值硬门，不能仅以局部Timeline域切分整条合法唤醒链。
+2. 来源缺失面：RootEvidence、critical_blocking、EvidencePack减形、aggregate overflow、即时关系preview Node尚未全部来源化，保持未知。不得按subject/rank/邻窗补借来源；即时关系preview当前不进正式projection且不读新字段，不扩关系合同。
+3. 复制审计残余：Mutable memo/dispatch/fork的既有ToolResult浅复制（context.go约2604/2870/2887/2902/2916及fork/merge路）另需独立实际变异针。本批只承诺新字段直接构造、发布、ledger和Node/账户独立副本的保护，不宣称全系统读写所有权闭环。
+4. b3数值公开复现真正转绿后，按原优先级恢复**每批并行2个**live：Java配置优先级读模式 + C++虚调用/工厂关系，随后写模式 + 显式窗D/IO Trace。维持既有答案人工审计及模型波动/系统gap分账；不调低oracle或加prose硬门。
+
+**下一批首丢点实际定位（未修值）**：独立审阅用临时Go overlay在真实两次Execute→最终Ledger→Compile→Apply链路旁路观察，保原算法/数值/分支，取得有效RED`b1638b3-source-loss-hCkORJ/public-source-loss-red.log`3.494s。main-only从beforeR1至beforeR2均8个来源，afterR2只剩1个，S78.630ms不变；两个混合顺序均从9个来源降为1个，旧S308.916/等待347.249仍实际发布。首丢为`trace_causal_projection_aggregate.go`约1646行R2首成员复制后未合并Origins；本案R1与one-seat不是首丢点。最终混合行留下line1..400、局部13762.794612..13763.024898的过滤来源，原main八个来源消失但证据ID仍保留；main-only同样丢七个来源。旁路源码、overlay和最终ledger/projection快照留同一临时目录，正式生产/测试未改。**下一批必须同时验证来源保全和数值分组/分母，不能只合并Origins就将混算销账。**
+
+本批保持：JSON教学与模型schema不变；模型正文、图与结论不改写；链上优先级/调度/算力/D/IO/语义与业务线索通道不删除；邻近与背景只作支持。活跃SSE不因4ms或旧4m无可见正文降级，真实停滞、取消、显式caller deadline仍有界；专项回归见上。
+
 ### §123.1726 B1638b2a：三条原生统计流的独立来源与复制保护（2026-09-09）
 
 从已推送 `4ffa97b8e` 干净工作树接续；本轮 SSH443 fetch 后 main/origin 为0/0。B1638b1仅覆盖Timeline/目标账户，本批补Running、OffCPU、StateChurn三个不同的原生统计算法；**尚不修改投影合并、目标账户选择或等待分母，B1638b原数值问题仍开放**。

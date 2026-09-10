@@ -1358,6 +1358,9 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		}
 	}
 	merged := base
+	// The representative and display roster do not represent all native
+	// sources. Preserve the full input set independently of the value caliber.
+	merged.MeasurementSources = rootCauseMemberMeasurementSources(members)
 	merged.runnableCPU = runnableCPU
 	merged.runnableCPUKnown = runnableCPUKnown
 	merged.runnableIntervals = runnableIntervals

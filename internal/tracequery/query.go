@@ -8989,7 +8989,7 @@ func buildStateDrilldownPlanForTarget(stats WindowStats, max int, pinnedPID int,
 					continue
 				}
 			}
-			candidates = append(candidates, StateDrilldownStep{
+			step := StateDrilldownStep{
 				Thread:           td.Thread,
 				State:            state,
 				ImpactMs:         td.DurationMs,
@@ -9002,7 +9002,9 @@ func buildStateDrilldownPlanForTarget(stats WindowStats, max int, pinnedPID int,
 				EndTs:            td.EndTs,
 				LineStart:        td.LineStart,
 				LineEnd:          td.LineEnd,
-			})
+			}
+			step.MeasurementSources = threadDurationMeasurementSources(td)
+			candidates = append(candidates, step)
 		}
 	}
 	addDuration("top_sleep", string(StateSSleep), stats.SleepTop)
@@ -9023,7 +9025,7 @@ func buildStateDrilldownPlanForTarget(stats WindowStats, max int, pinnedPID int,
 		// churn totals (§7.30 S1 — the composite leaked into a customer
 		// report as a 119%-of-window running time). The fragmentation boost
 		// lives only in the ranking-only RankImpactMs channel.
-		candidates = append(candidates, StateDrilldownStep{
+		step := StateDrilldownStep{
 			Thread:           churn.Thread,
 			State:            churn.DominantState,
 			ImpactMs:         churn.DominantImpactMs,
@@ -9035,7 +9037,9 @@ func buildStateDrilldownPlanForTarget(stats WindowStats, max int, pinnedPID int,
 			Recursive:        stateDrilldownNeedsRecursiveChainForSource(churn.DominantState, "state_churn"),
 			LineStart:        churn.LineStart,
 			LineEnd:          churn.LineEnd,
-		})
+		}
+		step.MeasurementSources = types.TraceSchedulerMeasurementSourcesFromDomain(churn.MeasurementDomain)
+		candidates = append(candidates, step)
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		ci, cj := stateDrilldownPriority(candidates[i]), stateDrilldownPriority(candidates[j])
@@ -9282,11 +9286,12 @@ func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration 
 // every contributing bucket agrees on one valid CPU.
 func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chainThreads map[int]bool, excludePID int) []ThreadDuration {
 	type accumulator struct {
-		td           ThreadDuration
-		initialized  bool
-		cpuKnown     bool
-		dominantMs   float64
-		displayEndTs float64
+		td                 ThreadDuration
+		measurementSources []*types.TraceSchedulerMeasurementSources
+		initialized        bool
+		cpuKnown           bool
+		dominantMs         float64
+		displayEndTs       float64
 	}
 	keys := make([]string, 0, len(census))
 	for key := range census {
@@ -9335,6 +9340,7 @@ func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chai
 			acc.cpuKnown = false
 		}
 		acc.td.MeasurementDomain = retainThreadDurationMeasurementSource(acc.td.MeasurementDomain, member.MeasurementDomain)
+		acc.measurementSources = append(acc.measurementSources, threadDurationMeasurementSources(member))
 		// Numeric TID is the hard key; display identity follows the latest
 		// contributing bucket so a rename while the task migrates does not leave
 		// the aggregate on a stale comm. Equal-end ties remain deterministic.
@@ -9390,6 +9396,7 @@ func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chai
 	}
 	aggregated := make(map[string]ThreadDuration, len(accs))
 	for key, acc := range accs {
+		acc.td.MeasurementSources = types.MergeTraceSchedulerMeasurementSources(acc.measurementSources...)
 		if !acc.cpuKnown {
 			acc.td.CPU = -1
 			acc.td.CoreClass = ""
@@ -14226,9 +14233,10 @@ func rankSeatAggregates(chain ChainResult) []WakeupCausalAggregate {
 
 func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 	type acc struct {
-		item      WakeupCausalAggregate
-		prioVotes map[string]int
-		invCount  int
+		measurementInputs []*types.TraceSchedulerMeasurementSources
+		item              WakeupCausalAggregate
+		prioVotes         map[string]int
+		invCount          int
 		// members indexes this aggregate's occurrences in chain.CausalImpacts
 		// so VS-1 periodic detection can stamp the member rows in place.
 		members []int
@@ -14253,6 +14261,7 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 			a.item.Path = wakeupChainPathFromThread(*chain, impact.Thread)
 			accs[key] = a
 		}
+		a.measurementInputs = append(a.measurementInputs, impact.MeasurementSources)
 		a.members = append(a.members, idx)
 		a.item.OccurrenceCount++
 		if impact.ChainDepth < a.item.ChainDepth {
@@ -14316,6 +14325,9 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		if a.item.OccurrenceCount < 2 {
 			continue
 		}
+		// Collect once over all native contributors before occurrence display
+		// caps; repeated per-member sorting would make source retention quadratic.
+		a.item.MeasurementSources = types.MergeTraceSchedulerMeasurementSources(a.measurementInputs...)
 		// Periodic-source detection works from recurring occurrence starts, but
 		// cadence does not prove the projected windows are disjoint. Detect on
 		// the raw members, then reconcile every aggregate through the same
@@ -16369,6 +16381,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	for _, td := range runnableMembers {
 		onChain := threadInSet(chainThreads, td.Thread)
 		item := rootCauseItem("runnable_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
+		item.MeasurementSources = threadDurationMeasurementSources(td)
 		item.CumulativeImpactMs = td.DurationMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = td.StartTs
@@ -16414,6 +16427,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		}
 		onChain := threadInSet(chainThreads, td.Thread)
 		item := rootCauseItem("sleep_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.74, td.LineStart, td.LineEnd, "window_stats.sleep_top", fmt.Sprintf("%s slept for %.3fms before wakeup%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
+		item.MeasurementSources = threadDurationMeasurementSources(td)
 		item.CumulativeImpactMs = td.DurationMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = td.StartTs
@@ -16439,6 +16453,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// heuristic is a drilldown-priority hint, not a causal duration, and may
 		// never enter EffectiveImpactMs/Score.
 		item := rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, backgroundImpactMs(q, churn.DominantImpactMs, hasCausalChain, onChain), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary)
+		item.MeasurementSources = types.TraceSchedulerMeasurementSourcesFromDomain(churn.MeasurementDomain)
 		item.CumulativeImpactMs = churn.TotalMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.DominantState = churn.DominantState
@@ -17031,6 +17046,7 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 		}
 		item := rootCauseItem(typ, thread, backgroundImpactMs(q, total, hasCausalChain, onChain), confidence,
 			lineStart, lineEnd, source, summary)
+		item.MeasurementSources = dioStateMemberMeasurementSources(members)
 		item.CumulativeImpactMs = total
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs, item.EndTs = startTs, endTs
@@ -18762,6 +18778,7 @@ func rootCauseItemFromCausalImpactRole(impact WakeupCausalImpact, inversionSeat 
 		impactMs = impact.PriorityInversionGatedMs
 	}
 	item := rootCauseItem(typ, basis.Thread, impactMs, conf, basis.LineStart, basis.LineEnd, "wakeup_chain.causal_impacts", basis.Summary)
+	item.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(basis.MeasurementSources)
 	item.EffectiveImpactMs = effectiveMs
 	item.PriorityRelationCaliber = impact.PriorityRelationCaliber
 	item.PriorityRelationProvenLowerMs = impact.PriorityRelationProvenLowerMs
@@ -18897,6 +18914,7 @@ func rootCauseItemFromCausalAggregateRole(aggregate WakeupCausalAggregate, inver
 		impactMs = aggregate.PriorityInversionGatedMs
 	}
 	item := rootCauseItem(typ, basis.Thread, impactMs, conf, basis.LineStart, basis.LineEnd, "wakeup_chain.aggregated_impacts", basis.Summary)
+	item.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(basis.MeasurementSources)
 	item.EffectiveImpactMs = effectiveMs
 	item.PriorityRelationCaliber = aggregate.PriorityRelationCaliber
 	item.PriorityRelationProvenLowerMs = aggregate.PriorityRelationProvenLowerMs
@@ -25594,6 +25612,9 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		return ""
 	}
 	impact := summarizeWakeupCausalImpact(idx, q, cache, thread, tl.Intervals, start, end, depth, targetBlockedMs, res.Target, consumers)
+	// Keep the actual recursive timeline's native source. The parent query
+	// account can have different line filters/partitions; never borrow it.
+	impact.MeasurementSources = types.TraceSchedulerMeasurementSourcesFromDomain(tl.MeasurementDomain)
 	interesting := mostInterestingInterval(tl.Intervals, q.MinDurationMs)
 	nodeID := fmt.Sprintf("n%d", len(res.Nodes)+1)
 	// P0-E CHAIN-PATH (ledger §22.1): every node — nil-impact transits
@@ -25626,7 +25647,9 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 	}
 	impact.ChainBranch = branch
 	if impact.TotalMs > 0 {
-		node.Impact = &impact
+		nodeImpact := impact
+		nodeImpact.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(impact.MeasurementSources)
+		node.Impact = &nodeImpact
 		if impact.DominantState != "" {
 			node.Dominant = ThreadState(impact.DominantState)
 			node.DurationMs = impact.DominantImpactMs

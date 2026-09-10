@@ -639,7 +639,7 @@ func rspaChainSeatPresenceByPID(items []RootCauseRankItem) map[int]rspaChainSeat
 // (lines / intervals / roster); its published value channels carry only the
 // remainder and the typed decomposition fields disclose the split.
 func rspaCloneAsRemainderSeat(seat RootCauseRankItem, anchoredMs, fullMs, remainderRunnable, remainderD, remainderIO float64, summary string) RootCauseRankItem {
-	clone := seat
+	clone := cloneRootCauseMeasurementSources(seat)
 	clone.Rank = 0
 	clone.BackgroundRank = 0
 	clone.Tier = ""

@@ -1,6 +1,8 @@
 package tracediag
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"reflect"
 	"sort"
 	"strings"
@@ -221,6 +223,45 @@ func TestNonEventPrioritySchemaPins(t *testing.T) {
 		if got != want {
 			t.Errorf("%s schema drift: got=%s want=%s\ncurrent_schema=%s", item.name, got, want, schema)
 		}
+	}
+}
+
+// B1638b2b evolution witness: removing ONLY the new optional source inventory
+// must reproduce each complete pre-change schema fingerprint. This does not
+// re-pin unrelated Result/bundle schemas or erase any earlier field checks.
+func TestB1638B2BNonEventSchemaAddsOnlyMeasurementSources(t *testing.T) {
+	const added = "MeasurementSources|*types.TraceSchedulerMeasurementSources|measurement_sources,omitempty"
+	for _, tc := range []struct {
+		typ      reflect.Type
+		previous string
+	}{
+		{reflect.TypeOf(tracequery.RootCauseRankItem{}), "3bd7bacec7fe6ec7c920d37502e26ac00bedcca29b2924791cfe57381095e1ca"},
+		{reflect.TypeOf(tracequery.WakeupCausalImpact{}), "80099ccf4d9991e13197eef080b29209bd485c61ea92ceaef50d9fe115b0814c"},
+		{reflect.TypeOf(tracequery.WakeupCausalAggregate{}), "8a216d586b360dd4661e85e12f6de1f68c5959b432c7af1fa1c08eadda1105df"},
+	} {
+		t.Run(tc.typ.Name(), func(t *testing.T) {
+			current, schema := detailSchemaFingerprint(tc.typ)
+			var previous []string
+			addedCount := 0
+			for _, field := range strings.Split(schema, ";") {
+				if field == added {
+					addedCount++
+					continue
+				}
+				previous = append(previous, field)
+			}
+			if addedCount != 1 {
+				t.Fatalf("expected exactly one typed source-pointer addition, got %d", addedCount)
+			}
+			sum := sha256.Sum256([]byte(strings.Join(previous, ";")))
+			if got := hex.EncodeToString(sum[:]); got != tc.previous {
+				t.Fatalf("non-source schema also changed: got=%s want=%s", got, tc.previous)
+			}
+			if policySkipsDetailField(&nonEventDetailPolicy, tc.typ, "MeasurementSources") {
+				t.Fatal("new source inventory cannot silently enter the detail skip policy")
+			}
+			t.Logf("only-added=%s current=%s previous=%s preserved_fields=%d", added, current, tc.previous, len(previous))
+		})
 	}
 }
 

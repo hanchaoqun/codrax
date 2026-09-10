@@ -7,6 +7,7 @@ import "github.com/hanchaoqun/codrax/internal/types"
 func cloneThreadDurationMeasurement(in ThreadDuration) ThreadDuration {
 	out := in
 	out.MeasurementDomain = types.CloneTraceSchedulerMeasurementDomain(in.MeasurementDomain)
+	out.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(in.MeasurementSources)
 	return out
 }
 

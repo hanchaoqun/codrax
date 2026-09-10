@@ -116,6 +116,9 @@ func TestB1638B2ARunnableSourceMergePreservesOnlyOneKnownDomain(t *testing.T) {
 				legacy := aggregateChainRunnableCensusByThread(legacyRows, map[int]bool{41: true}, 0)
 				withoutSource := got[0]
 				withoutSource.MeasurementDomain = nil
+				// B1638b2b adds a separate all-member source inventory; both
+				// provenance fields are excluded from this non-source parity pin.
+				withoutSource.MeasurementSources = nil
 				if len(legacy) != 1 || !reflect.DeepEqual(withoutSource, legacy[0]) {
 					t.Fatal("source handling changed non-source aggregate fields")
 				}

@@ -114,6 +114,16 @@ func TestB1638B2ActualQuerySavesNativeStreamsWithoutChangingModelContract(t *tes
 				t.Fatal(err)
 			}
 			without := traceQueryTypedObservations(legacy, path, source.PayloadRef, source.RawRef, "", time.Unix(1, 0), q)
+			// EVOLUTION RECORD B1638b2b: native sources now deliberately enter
+			// the typed observation lane. All pre-existing value, evidence,
+			// authority and guidance fields remain identical after excluding
+			// only this newly propagated metadata.
+			for i := range with {
+				with[i].MeasurementSources = nil
+			}
+			for i := range without {
+				without[i].MeasurementSources = nil
+			}
 			if !reflect.DeepEqual(with, without) || strings.Contains(published.Summary, "constructed_partition") || strings.Contains(published.Summary, "scheduler_partition:v1:") {
 				t.Fatal("native metadata changed model guidance, observations or causal permissions")
 			}

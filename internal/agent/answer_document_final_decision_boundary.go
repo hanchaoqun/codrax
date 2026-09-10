@@ -1568,13 +1568,22 @@ func traceFinalSelectedStateAccountSource(projection types.TraceCausalProjection
 			return types.ObservationRecord{}, false
 		}
 		parsed, ok := types.TraceCausalProjectionTargetStateAccountFromRecord(record)
-		if !ok || !reflect.DeepEqual(parsed, *account) || (found &&
+		if !ok || !traceFinalStateAccountFactsEqual(parsed, *account) || (found &&
 			(!reflect.DeepEqual(source.SourceRef, record.SourceRef) || !types.TraceRuntimeAccountRecordsSameResult(source, record))) {
 			return types.ObservationRecord{}, false
 		}
 		source, found = record, true
 	}
 	return source, found
+}
+
+// Native source inventories are optional provenance, not new authority for
+// this existing same-result fact/card gate. Legacy saved accounts lack them.
+// Keep every established value/locator comparison and the enclosing ledger
+// SourceRef checks; never use a copied inventory to replace those checks.
+func traceFinalStateAccountFactsEqual(a, b types.TraceCausalProjectionTargetStateAccount) bool {
+	a.MeasurementOrigins, b.MeasurementOrigins = nil, nil
+	return reflect.DeepEqual(a, b)
 }
 
 // renderTraceFinalRuntimeEnumerationAuthority repeats the exact runtime

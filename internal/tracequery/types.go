@@ -2704,6 +2704,9 @@ type offCPUCauseSlice struct {
 }
 
 type ThreadDuration struct {
+	// MeasurementSources retains all native input references after a fold;
+	// MeasurementDomain below remains the legacy unanimous-single-source face.
+	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
 	// MeasurementDomain identifies the native accumulation stream that
 	// produced this row, not this row's complete value identity or capture
 	// completeness. Different buckets may share one source stream. Legacy
@@ -2877,6 +2880,7 @@ type ThreadStateChurnSummary struct {
 }
 
 type StateDrilldownStep struct {
+	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
 	// Rank is the state-drilldown Top-N ordinal. Wire/text word is
 	// `drill_rank` (RANKDIS-EXT A1, §29.104.16/.16.1 2026-07-16): the bare
 	// `rank` key was shared with the root-cause board and the auto-window
@@ -4055,8 +4059,9 @@ const (
 )
 
 type RootCauseRankItem struct {
-	Rank int    `json:"rank"`
-	Tier string `json:"tier,omitempty"`
+	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+	Rank               int                                     `json:"rank"`
+	Tier               string                                  `json:"tier,omitempty"`
 	// BackgroundRank (DCS E1b/E6, ledger §23.1 rulings ②/③, 2026-07-08): the
 	// row's 1-based position on the NON-on-chain composite board (the
 	// position COUNTS every published row where rootCauseItemIsOnChain is
@@ -6160,9 +6165,12 @@ type WakeupEdgeCensusPair struct {
 }
 
 type WakeupCausalImpact struct {
-	Thread       ThreadRef  `json:"thread"`
-	Window       TimeWindow `json:"window"`
-	ActualWindow TimeWindow `json:"actual_window,omitempty"`
+	// References the actual local timeline used by this occurrence, not the
+	// parent query's full-window account or a claim of value equivalence.
+	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+	Thread             ThreadRef                               `json:"thread"`
+	Window             TimeWindow                              `json:"window"`
+	ActualWindow       TimeWindow                              `json:"actual_window,omitempty"`
 	// StateAccountKey is the exact segment-inventory identity shared with one
 	// active root-rank state seat. See RootCauseRankItem.StateAccountKey.
 	StateAccountKey string `json:"state_account_key,omitempty"`
@@ -6359,8 +6367,9 @@ const (
 )
 
 type WakeupCausalAggregate struct {
-	Thread ThreadRef `json:"thread"`
-	Path   string    `json:"path,omitempty"`
+	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+	Thread             ThreadRef                               `json:"thread"`
+	Path               string                                  `json:"path,omitempty"`
 	// ChainDepth is the MIN member depth; ChainBranch is the members' shared
 	// branch ordinal when ALL members were measured in ONE branch, 0 when the
 	// occurrences span branches (a cross-branch aggregate has no single branch
