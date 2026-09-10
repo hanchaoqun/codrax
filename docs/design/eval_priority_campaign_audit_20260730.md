@@ -1,5 +1,10 @@
 # Eval 多维优先级与泛化审计战役（2026-07-30）
 
+## 最新进展导航（2026-09-10）
+
+本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+本轮以 §123.1732–1738 为准：端点引用歧义修复已过86包全仓并推送；r1053严格两并发已完成人工审计，未将机评或局部通过冒称完整正确；IO资格/三尺教学/状态显示三小批已实现、定向/race绿并逐批推送，整组全仓待关系修补封版后统一验证。B1647分阶段图修补与教学编号域冲突仍在施工，下一轮固定两并发：代码时序复验＋异构C++写模式真实交付。具体来源、RED、未覆盖边界及后续收账见相应小节和r1053 manual_audit。
+
 ## 1. 基线与目标
 
 - 代码基线：`main@fcbdccdee`，已执行 `git fetch origin && git rebase origin/main`，与 `origin/main` 一致。
@@ -57379,6 +57384,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1739 B1647a/b：分阶段孤儿收尾与教学编号域冲突（2026-09-10）
+
+两层独立且均有有效RED；不是只调重试预算。a：有效关系patch阶段后，旧空方法身份与新完整身份同组并存；后置系统补齐导致lease将未动的边报成删除+新增。原恢复器仅支持全空基准，本批扩为同完整pair混组，要求同方向/node/kind、无该组failure、唯一recipe、完整非identity多重集合及数量不变，只恢复原空槽，原已知槽/ClaimForm/标签不迁移。b：更深的生产复核证明capsule自生成n1/n2（agent:9431/9459，经9078入Mutable）并非模型采用收据；本轮capsule n2=RunWith，模型n2=Normalize。只修a不能关本案。当前图同组已有完整typedpair与候选不同时，跳过裸编号弱补齐；该pair只作冲突反证，不赋予证据资格。全空business旧恢复仍保，后续唯一拓扑恢复继续受完整pair约束，不重新写错方法。
+
+没有新增快照/宽松lease车道，没有扫描正文或读图中文字去改关系。实际变化仅两个既有normalizer文件；系统不创造/删除/逆转/重命名模型边。真实增删边、换方法/方向/种类/引用、部分身份、歧义recipe仍由原门拒绝。普通preemit也验证不会再次把Callee写成OtherCallee。模型若额外添加了已有消息，只有一条调用凭证时仍报`call_edge_occurrence_unproven`，这是正常后继修复义务；不承诺r1053旧首稿解除本门后自动全文正确。
+
+公开先红：`20260910-b1647-public-red-verified.log`1.151s，mixed移除/保留两红与4旧正控；b的`...-public-alias-red.log`1.144s和普通preemit首红独立保留。最终public 5形×两动作=10格，含真实ReadFile→EmitEvidence两独立callsite4/5→stage→孤儿→普通preemit→persist，保原模型消息/原引用前缀，新增来源只供独立system supplement；不是手造grounded形冒充原生。另12语义负矩阵、4 public越界、双序重复发生次数、单条凭证不能授两消息。实际来源矩阵绿1.295s（`...-actual-source-final.log`），新与旧邻近count3绿1.688s（`...-final-count3.log`）；race及整组全仓已启动，未完成前不记全绿。测试前期source-occurrence和系统supplement新增引用的假定错误不算产品RED，不改生产去迎合新测试。
+
+root与独立读者已核两个生产根因、真实setter/日志及最小边界；三份源码/测试冻结后启动`20260910-b1645-b1648-final-full.log`。下一exact2从提交后的同版干净binary开始：qf真实复验＋`github_issue_fmt_tm_year_overflow_symptom`C++ apply。后者上次r1039，当前可原生clang编译；独立7边界基线已复现两个上界wrap（`20260910-fmt-independent-baseline.log`），修后必须在持久交付树复测，不能只看回答关键词或旧probe。
 
 ### §123.1738 B1646：两个状态展示面明确内核IO标记的范围（2026-09-10）
 

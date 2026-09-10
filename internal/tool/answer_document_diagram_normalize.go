@@ -343,6 +343,22 @@ func normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocum
 		default:
 			continue
 		}
+		// B1647b: recipe node IDs belong to the source-derived capsule,
+		// not to every independently authored model diagram. A complete
+		// typed pair already selected on this exact directed node/relation
+		// group can disprove that weak alias match. It grants no evidence
+		// authority and never changes an existing pair or visible label.
+		selectedPairs := make(map[string]map[pair]bool)
+		for _, anchor := range block.EdgeAnchors {
+			if !anchor.HasEndpointIdentityPair() || !anchor.RelationKind.IsValid() {
+				continue
+			}
+			key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode) + "\x00" + string(anchor.RelationKind)
+			if selectedPairs[key] == nil {
+				selectedPairs[key] = make(map[pair]bool)
+			}
+			selectedPairs[key][pair{from: strings.TrimSpace(anchor.FromIdentity), to: strings.TrimSpace(anchor.ToIdentity)}] = true
+		}
 		for j := range block.EdgeAnchors {
 			anchor := &block.EdgeAnchors[j]
 			// A partial pair is structurally suspicious. Do not silently replace
@@ -356,6 +372,16 @@ func normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocum
 				continue
 			}
 			for candidate := range candidates[key] {
+				conflict := false
+				for selected := range selectedPairs[key] {
+					if selected != candidate {
+						conflict = true
+						break
+					}
+				}
+				if conflict {
+					continue
+				}
 				anchor.FromIdentity = candidate.from
 				anchor.ToIdentity = candidate.to
 				fixed++

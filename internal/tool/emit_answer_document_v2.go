@@ -1172,7 +1172,9 @@ func normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(
 // lease comparison. It requires one exact directed node pair/relation group,
 // equal base/result multiplicity, no failure on that group, an identity-less
 // baseline, and one unique exact recipe pair matching every enriched result
-// anchor. Ambiguous groups and all visible topology changes remain fail-closed.
+// anchor. A staged baseline may also contain that same already-identified pair:
+// its exact non-identity anchor multiset and identified slots remain preserved.
+// Ambiguous groups and all visible topology changes remain fail-closed.
 // The ordinary pre-emit normalization runs again after the lease is consumed,
 // so the accepted document still receives and validates the canonical pair.
 func stabilizeUnlistedRelationLeaseAnchorIdentities(
@@ -1266,9 +1268,6 @@ func stabilizeUnlistedRelationLeaseAnchorIdentities(
 		}
 		for key, baseAnchors := range baseGroups {
 			basePair := trimPair(baseAnchors[0])
-			if basePair.from != "" || basePair.to != "" {
-				continue
-			}
 			baseUniform := true
 			for _, anchor := range baseAnchors[1:] {
 				if trimPair(anchor) != basePair {
@@ -1276,7 +1275,7 @@ func stabilizeUnlistedRelationLeaseAnchorIdentities(
 					break
 				}
 			}
-			if !baseUniform {
+			if baseUniform && (basePair.from != "" || basePair.to != "") {
 				continue
 			}
 			var resultIndexes []int
@@ -1307,6 +1306,56 @@ func stabilizeUnlistedRelationLeaseAnchorIdentities(
 			recipeKey := visibleKey{from: key.from, to: key.to, kind: key.kind}
 			pairs := recipePairs[recipeKey]
 			if len(pairs) != 1 || !pairs[resultPair] {
+				continue
+			}
+			if !baseUniform {
+				// B1647: phase one can add a model-selected typed edge beside an
+				// existing identity-less occurrence of that same visible relation.
+				// The orphan-only lease freezes both. Later recipe enrichment must
+				// not masquerade as a model removal/addition, nor may it move an
+				// identity to a differently labelled occurrence. Check the complete
+				// non-identity multiset before restoring only its original empty
+				// slots. Partial or different method pairs remain unmodified so the
+				// ordinary lease rejects them.
+				withoutIdentity := func(anchor types.DiagramEdgeAnchor) types.DiagramEdgeAnchor {
+					anchor.FromIdentity, anchor.ToIdentity = "", ""
+					return anchor
+				}
+				counts := make(map[types.DiagramEdgeAnchor]int, len(baseAnchors))
+				missing := make(map[types.DiagramEdgeAnchor]int, len(baseAnchors))
+				compatible := true
+				for _, anchor := range baseAnchors {
+					pair := trimPair(anchor)
+					if pair != (identityPair{}) && pair != resultPair {
+						compatible = false
+						break
+					}
+					plain := withoutIdentity(anchor)
+					counts[plain]++
+					if pair == (identityPair{}) {
+						missing[plain]++
+					}
+				}
+				for _, index := range resultIndexes {
+					plain := withoutIdentity(resultBlock.EdgeAnchors[index])
+					counts[plain]--
+					if counts[plain] < 0 {
+						compatible = false
+					}
+				}
+				if !compatible || len(missing) == 0 {
+					continue
+				}
+				for _, index := range resultIndexes {
+					plain := withoutIdentity(resultBlock.EdgeAnchors[index])
+					if missing[plain] == 0 {
+						continue
+					}
+					resultBlock.EdgeAnchors[index].FromIdentity = ""
+					resultBlock.EdgeAnchors[index].ToIdentity = ""
+					missing[plain]--
+					fixed++
+				}
 				continue
 			}
 			for _, index := range resultIndexes {
