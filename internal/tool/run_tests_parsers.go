@@ -1896,6 +1896,7 @@ type junitTestSuites struct {
 type junitTestCase struct {
 	Name      string        `xml:"name,attr"`
 	ClassName string        `xml:"classname,attr"`
+	Status    string        `xml:"status,attr"`
 	Time      string        `xml:"time,attr"`
 	Failure   *junitFailure `xml:"failure"`
 	Error     *junitFailure `xml:"error"`

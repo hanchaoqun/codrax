@@ -168,6 +168,13 @@ func (inv *junitInvocation) ReadReport() (*types.ChangeReport, []junitInvocation
 		receipts = append(receipts, receipt)
 		for _, suite := range suites {
 			rows := junitCasesToResults(suite)
+			if runner == "cmake" {
+				for i := range rows {
+					if !ctestJUnitStatusCanAssert(suite.TestCases[i], rows[i]) {
+						rows[i].ObservationScope = types.TestObservationScopeNonAsserting
+					}
+				}
+			}
 			results = append(results, rows...)
 			for range rows {
 				rowFiles = append(rowFiles, fileIndex)
@@ -208,6 +215,23 @@ func (inv *junitInvocation) ReadReport() (*types.ChangeReport, []junitInvocation
 		report.FailureSummary = fmt.Sprintf("%d of %d %s test cases failed (invocation-bound JUnit XML).", failed, len(results), runner)
 	}
 	return report, receipts, nil
+}
+
+// CTest's disabled status has no <skipped> child. Interpret its closed status
+// vocabulary only in the bound CTest adapter; other JUnit dialects retain their
+// existing semantics. Empty status preserves legacy child-based classification.
+// A status never changes the reported outcome or promotes a non-asserting row.
+func ctestJUnitStatusCanAssert(tc junitTestCase, row types.TestResult) bool {
+	switch tc.Status {
+	case "":
+		return true
+	case "run":
+		return row.Passed && tc.Skipped == nil && tc.Failure == nil && tc.Error == nil
+	case "fail":
+		return !row.Passed && tc.Skipped == nil && (tc.Failure != nil || tc.Error != nil)
+	default:
+		return false
+	}
 }
 
 func (inv *junitInvocation) mavenReportPaths() ([]string, error) {

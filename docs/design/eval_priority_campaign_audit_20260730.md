@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-10）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮以 §123.1732–1746 为准：端点引用歧义修复与B1645–1648四小批已逐批推送，两组各86包全仓通过。r1053/r1054均严格两并发并完成人工审计；r1054时序题机器PASS但正文方向/职责仍错，C++交付及7个原生边界通过但正式断言收据未闭合。B1649短显示名补锚已修，十三条分8＋5完整公开续修回归已推；B1650多框架跳过/待定/无终态结果误授行为证明已修推送，最终冻结第四组86包全仓通过。r1055严格两并发、机器2/2 PASS：类型关系12行/12边与原图渲染人工通过，Python持久交付原4测＋17边界独立通过；但系统无关比较附注及产品probe-only证明边界仍在，不冒称过程/证明全绿。B1651旧JUnit被当本轮结果已公共确认，P1来源绑定待修，优先于B1561新增Make报告通道。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
+本轮以 §123.1732–1750 为准：前序 B1645–1650 已逐批推送，r1053–1055 严格两并发并完成人工审计，不以机器 PASS 抵销答案精度/证明范围残余。最新三小批已推：B54 四个启发式诊断退出系统答案判定附注（264ab73b6）；B1652 策略跳过不再显示默认退出成功或暗示缺环境（c3020f17f）；B1651a Maven/CTest 绑定本轮报告（eecd6ebdd），公开 count3/race 和冻结86包全仓通过，保真值/原报告/真实退出/缺报告 unavailable。B1651 整体仅部分完成：Gradle live-event、Meson/Hvigor、旧 JSON 来源仍开放，优先于 B1561 Make 新能力；不得把两适配器成功写成全部闭环。官方 CTest disabled 无 skipped 子元素另确认 P2 B1653（scope 错误，现有 PTO 门仍未授合同），正在独立修复。下一回放 r1056 计划显式窗 H1 Binder＋阶段时序/表格，尚未执行；具体 RED、来源、未覆盖边界见新节与每轮 manual_audit。
 
 ## 1. 基线与目标
 
@@ -57384,6 +57384,17 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1750 B1653-CTESTSTATUS1：禁用状态不能伪装已执行断言（2026-09-10）
+
+1. B1651a 核官方协议时发现独立 P2：CTest 的 `status=disabled` 只在 suite disabled 计数中登记，testcase 不带 `<skipped/>`（[官方写出器](https://github.com/Kitware/CMake/blob/v3.31.0/Source/CTest/cmCTestTestHandler.cxx#L2505)）。旧共享 XML 模型不读取 status、只按 skipped 子元素区分断言，因此当前且真实的 disabled 报告仍被标 `Passed=true, scope=assertion`。这是状态范围错误，与报告是否本轮生成是两层问题。
+2. 有效公共 RED `.codrax/tmp/20260910-b1653-ctest-status-public-red.log`（8.147s）：实际 RunTests/CTest 协议子进程→安装报告→JSON 往返复现；14 格包含官方 run/fail/error/notrun/disabled、空值兼容、未知及冲突形。必须纠正风险范围：当前 `impactCandidateSupportsSuite` 不支持 cmake 的 PTO 精确选择，真实合同及正反 witness 门在所有格仍未 covered；不能虚造 Java 候选来宣称发生了合同授证漏洞。run/fail 等正控及其他 JUnit 框架兼容在 RED 中均通过。
+3. 最窄实现：共享解析结构只增加可选 Status 载体，**仅绑定 CTest 的结果适配器**解释其官方枚举；空值保旧兼容。run 必须与通过/未跳过一致，fail 必须有真实失败/error且未 skipped 才保断言范围；disabled、notrun、未知及相互冲突形保全部原始结果的 Passed、计数、时间、身份、FailureDetail，但范围为 non_asserting。不猜测试真的执行，不改变其他框架自有 status 语义，不新增模型字段/正文扫描/系统结论。
+4. 已按上述边界实现，仅两生产文件（可选解析字段＋绑定 CTest 的单一范围谓词）与一个新测试文件；公开矩阵扩至16格，去掉scope后的完整行DeepEqual确认不改变成败/详情/计数/身份/时长。正式有效 RED 5.830s，最终组合 count3 26.726s（含B1651绑定/B1650跳过/旧JUnit parser），race 9.519s；日志 `.codrax/tmp/20260910-b1653-ctest-status-{formal-red,final-count3,final-race}.log`。本机仍是协议子进程测试，不声称 native CTest 或 C++ 项目行为已验证。最终全仓在跑，结果另记。B1651 的 Gradle/Meson/Hvigor 与历史报告来源缺口、B1561 原生报告能力保持原优先队列，不能用该 P2 小修抵销。
+
+5. root 冷读与独立审查无阻断；最终冻结 `go test ./...` exit0，86 个有测试包通过（部分未变包缓存），日志 `.codrax/tmp/20260910-b1653-final-full.log`。状态只降 scope，后续跨报告消歧也不会提升为 assertion。新 live 在本节提交后的干净二进制上运行，记录另节，不倒签。
+
+状态：`B1653=implemented/public-count3+race+86-package-pass`；`CTest-PTO-coverage=still-unsupported-and-correctly-unproved`；`Trace/model-answer-ownership/active-stream=unchanged`。
 
 ### §123.1749 B1651a：Maven/CTest 的报告必须来自本轮执行（2026-09-10）
 
