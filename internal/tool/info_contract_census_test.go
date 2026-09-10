@@ -106,7 +106,7 @@ var infoContractExemptions = map[string]infoContractExemption{
 	"W-20": {"priority_inversion_gated 理想源 note:显示不凭空合成(no_system_backfill);分量和回退已 pin", "接线留 P0-E,账本宿主 campaign:1272"},
 	"W-22": {"R5 §29.88.12 单基准:折算基准=全域最大核最高频点,词面单形不再随基准簇类分叉(按X核满频 demotion 词族退役);字段保留为基准簇类 wire/审计记录", "客户回访出现基准簇类词面需求(如 prime 基准点名)→ 升 IC-A"},
 	"W-23": {"XLANE-2 件3:AbsorbedWholeSeatDemotedView=compile 侧(types aggregate)×N fold-key 纯判官(anchorFormKey 第五臂),链上面吸收降道视图的账目身份记忆;词面零读是设计(降道句禁上链上面=三面矛盾修根),消费点在 types 包故不进显示权威扫描集", "无(裁定终局;若未来显示面需要「已吸收降道视图」披露词,经用户裁定升 displayed)"},
-	"W-24": {"B1638b2b: MeasurementOrigins 仅保留最终来源与原生量测集合(含 unknown)的审计闭包;本批不在显示面输出 opaque receipt,不授测量等价或改变数值", "B1638b3 接入账户选择/聚合/分母时按真实消费者重审;本豁免不关闭跨查询混算或尚无原生来源的残余"},
+	"W-24": {"B1638b3 重审: 来源字段已由仅审计升级为 internal_gate;仅 opaque 来源串的逐字词面继续豁免,事件筛选范围不一致有中性披露,不授测量等价或新因果资格", "若增加其他范围轴或把来源当可加性正证须重新审计;本豁免不能代替实际聚合/分母接线与公开正反验证"},
 	"W-21": {"rcr.go 形态表 SemanticsZH 空的 5 glyph spec:行2 类别词有词面,图例语义骑既有状态图标条目(两列单源表设计)", "P8 图例承诺面尺子下如需独立图例条,经用户裁定再开"},
 }
 
@@ -141,7 +141,7 @@ var infoContractKnownGaps = map[string]infoContractKnownGap{
 // --- T1 · TraceCausalProjectionNode contract (B 区) ---------------------------
 
 var nodeFieldContract = map[string]fieldDisposition{
-	"MeasurementOrigins":            {Status: "exempt", Ref: "W-24(B1638b2b 最终来源绑定与独立复制,非数值域门)"},
+	"MeasurementOrigins":            {Status: "internal_gate", Ref: "B1638b3 R1/V4/R2/全窗参考范围反证及tree×2/等待分母;W-24仅免opaque逐字词面"},
 	"Role":                          {Status: "displayed", Ref: "行1 glyph/段位 + 明细层级"},
 	"EvidenceID":                    {Status: "displayed", Ref: "[E#] 行尾 + 证据索引"},
 	"Subject":                       {Status: "displayed", Ref: "行1 名字场 + 明细 + 证据索引"},
@@ -483,7 +483,7 @@ var projectionFieldContract = map[string]fieldDisposition{
 // ghost, and registry-reference arms still apply.
 
 var targetStateAccountContract = map[string]fieldDisposition{
-	"MeasurementOrigins":     {Status: "exempt", Ref: "W-24(B1638b2b 所选账户的原生来源保真,不改账户选举)"},
+	"MeasurementOrigins":     {Status: "internal_gate", Ref: "B1638b3 tree.TargetMeasurementOrigins绑定既有所选账户,限制等待分母,不改账户选举;W-24仅免opaque逐字词面"},
 	"Subject":                {Status: "displayed", Ref: "F10 账主语", NoScan: true},
 	"RunningMS":              {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
 	"RunnableMS":             {Status: "displayed", Ref: "F10 两行分量", NoScan: true},
@@ -565,7 +565,7 @@ var rankItemNodeMirror = map[string]string{
 }
 
 var rankItemContract = map[string]fieldDisposition{
-	"MeasurementSources":            {Status: "node_mirror", Ref: "Node.MeasurementOrigins[].MeasurementSources(B1638b2b 仅来源保真;数值消费仍待 b3)"},
+	"MeasurementSources":            {Status: "node_mirror", Ref: "Node.MeasurementOrigins[].MeasurementSources(B1638b3 原生事件行筛选范围反证,不证明值相等或可加性)"},
 	"Rank":                          {Status: "node_mirror", Ref: "Node.Rank"},
 	"Tier":                          {Status: "node_mirror", Ref: "Node.Tier"},
 	"BackgroundRank":                {Status: "node_mirror", Ref: "Node.BackgroundRank(W-2 词面豁免在 Node 侧)"},
@@ -998,8 +998,8 @@ func TestInfoContractFieldCensus(t *testing.T) {
 	// retired, SupplyFoldReferenceClass moved displayed→exempt under it.
 	// XLANE-2 件3 (2026-07-17): +W-23 — the absorbed-demoted account memory
 	// (compile-side fold-key judge, word-less by design).
-	// B1638b2b: +W-24 — audit-only measurement origins; no numeric-domain
-	// equivalence/selection/denominator claim is closed by this registration.
+	// B1638b2b added W-24; B1638b3 promotes both fields to real internal
+	// consumers. Only opaque verbatim display remains exempt, not gate wiring.
 	if len(infoContractExemptions) != 24 {
 		t.Errorf("豁免登记数 %d ≠ 24(§29.40 全裁决 + R5 W-22 + XLANE-2 W-23 + B1638b2b W-24)", len(infoContractExemptions))
 	}

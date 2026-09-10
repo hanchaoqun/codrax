@@ -11,8 +11,9 @@ func offCPUMeasurementWakeClosure(ev Event) string {
 
 // Each TID owns its entire native four-bucket close stream. This runs before
 // display/credential caps; a bucket is not a separate measurement source.
-// Pressure mirrors and later derived accumulators are deliberately not stamped.
-func stampOffCPUMeasurementDomains(recorders map[int]*schedulerMeasurementRecorder, buckets ...map[string]ThreadDuration) {
+// The same sweep's exact runnable segment outputs retain that input source
+// for later latency/constraint calculations. Pressure mirrors remain unstamped.
+func stampOffCPUMeasurementDomains(recorders map[int]*schedulerMeasurementRecorder, segments []runnableWaitSegment, buckets ...map[string]ThreadDuration) {
 	domains := make(map[int]*types.TraceSchedulerMeasurementDomain, len(recorders))
 	for pid, recorder := range recorders {
 		domains[pid] = recorder.finish()
@@ -22,5 +23,8 @@ func stampOffCPUMeasurementDomains(recorders map[int]*schedulerMeasurementRecord
 			td.MeasurementDomain = types.CloneTraceSchedulerMeasurementDomain(domains[td.Thread.PID])
 			bucket[key] = td
 		}
+	}
+	for i := range segments {
+		segments[i].measurementDomain = types.CloneTraceSchedulerMeasurementDomain(domains[segments[i].thread.PID])
 	}
 }

@@ -491,10 +491,14 @@ func TestISPGAPUnionFullMergeSameSegmentMirror(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	targeted := tracequery.Run(idx, tracequery.Query{View: "root_cause_rank", PID: 100, TimeStart: 1.0, TimeEnd: 1.15, MinDurationMs: 0.05})
-	targetedRecords := traceQueryTypedObservations(targeted, "ispgap_union_full.systrace", "payload-ref", "raw-ref", "", time.Unix(1753100000, 0).UTC())
-	chainless := tracequery.Run(idx, tracequery.Query{View: "root_cause_rank", TimeStart: 1.0, TimeEnd: 1.15, MinDurationMs: 0.05})
-	chainlessRecords := traceQueryTypedObservations(chainless, "ispgap_union_full.systrace", "payload-ref-2", "raw-ref-2", "", time.Unix(1753100060, 0).UTC())
+	q := tracequery.Query{View: "root_cause_rank", PID: 100, TimeStart: 1.0, TimeEnd: 1.15, MinDurationMs: 0.05}
+	targeted := tracequery.Run(idx, q)
+	// B1638b3 EVOLUTION: keep each original query on its own publication,
+	// matching Execute without weakening the existing same-segment assertions.
+	targetedRecords := traceQueryTypedObservations(targeted, "ispgap_union_full.systrace", "payload-ref", "raw-ref", "", time.Unix(1753100000, 0).UTC(), q)
+	q2 := tracequery.Query{View: "root_cause_rank", TimeStart: 1.0, TimeEnd: 1.15, MinDurationMs: 0.05}
+	chainless := tracequery.Run(idx, q2)
+	chainlessRecords := traceQueryTypedObservations(chainless, "ispgap_union_full.systrace", "payload-ref-2", "raw-ref-2", "", time.Unix(1753100060, 0).UTC(), q2)
 	union := append(append([]types.ObservationRecord{}, targetedRecords...), chainlessRecords...)
 	set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: union})
 	if len(set.Projections) != 1 {

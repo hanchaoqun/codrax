@@ -693,6 +693,9 @@ type runtimeTraceProjTreeModel struct {
 	// ordinals, so the account joins (rather than forks) the section's single
 	// evidence index. Empty means the carrier had no publishable locator.
 	TargetStateEvidenceTag string
+	// Selected account provenance constrains only this model's wait-account
+	// arithmetic. Unknown or foreign rows keep their own display values.
+	TargetMeasurementOrigins []types.TraceSchedulerMeasurementOrigin
 	// FrameCausalityUnproven is derived from the exact trace_query typed
 	// observation(s) consumed by the finally elected seat. It adds a bounded
 	// frame-causality qualifier but never changes the election or the defined
@@ -3180,6 +3183,11 @@ func runtimeTraceProjTrunkSameStateOccurrencePair(main, extra types.TraceCausalP
 	if !runtimeTraceProjTrunkPlainStateOccurrence(main) || !runtimeTraceProjTrunkPlainStateOccurrence(extra) {
 		return false
 	}
+	mainScope, mainOK := types.TraceSchedulerMeasurementRestrictionKey(main.MeasurementOrigins)
+	extraScope, extraOK := types.TraceSchedulerMeasurementRestrictionKey(extra.MeasurementOrigins)
+	if !mainOK || !extraOK || mainScope != extraScope {
+		return false
+	}
 	if main.PeriodicSource != extra.PeriodicSource ||
 		strings.TrimSpace(main.UndrillableReason) != strings.TrimSpace(extra.UndrillableReason) {
 		return false
@@ -3309,6 +3317,9 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		// disclosure side channel travels verbatim the same way (render
 		// re-validates the running==unknown identity).
 		SelfRunningFoldUnmeasured: projection.SelfRunningFoldUnmeasured,
+	}
+	if projection.TargetStateAccount != nil {
+		model.TargetMeasurementOrigins = types.CloneTraceSchedulerMeasurementOrigins(projection.TargetStateAccount.MeasurementOrigins)
 	}
 	path := runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)
 	if len(path) >= 2 {
@@ -16636,11 +16647,12 @@ func runtimeTraceProjConclusionFamilyCaliberSuffix(primary types.TraceCausalProj
 // denominator-census collapse, beyond-jitter overshoot, and missing-window /
 // missing-attribution shapes. No prose or formatted percentage participates.
 type runtimeTraceProjCoverageVerdict struct {
-	HasData       bool
-	Comparable    bool
-	AttributedMS  float64
-	DenominatorMS float64
-	SymptomMS     float64
+	HasData                     bool
+	Comparable                  bool
+	AttributedMS                float64
+	DenominatorMS               float64
+	SymptomMS                   float64
+	WaitMeasurementScopeLimited bool
 
 	HopResidueCount int
 	HopResidueMaxMS float64
@@ -16678,6 +16690,10 @@ func runtimeTraceProjCoverageVerdictFor(projection types.TraceCausalProjection, 
 	_, _, _, verdict.CrossBase = runtimeTraceProjCoverageWindowConsensus(model)
 	verdict.CensusExcluded, verdict.CensusMaxMS, verdict.CensusAllOff =
 		runtimeTraceProjSymptomDenominatorCensus(projection, model)
+	_, verdict.WaitMeasurementScopeLimited = runtimeTraceProjWaitMeasurementEligibility(model)
+	if verdict.WaitMeasurementScopeLimited {
+		return verdict // no whole-window fallback for an unresolved wait population
+	}
 
 	if verdict.SymptomMS > 0 {
 		// These are the exact first two non-arithmetic arms in
@@ -17135,6 +17151,8 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			b.WriteString("\n- " + note)
 		}
 		switch {
+		case coverage.WaitMeasurementScopeLimited:
+			b.WriteString(runtimeTraceProjWaitMeasurementScopeNote(symptom, censusExcluded, censusMax, attributed, zh))
 		case symptom > 0 && crossBase:
 			// §24.11 C-3 (COV 批, huadong_78 witness, 2026-07-08): when the
 			// symptom denominator's population is not the target's full wait —
@@ -17583,9 +17601,12 @@ func runtimeTraceProjTargetSymptomMS(model runtimeTraceProjTreeModel) float64 {
 // runtimeTraceProjSymptomAdmissionCandidates lists the SelfRows indices the
 // admission's STATE-row loop can admit (its exact non-hop filters, shared by
 // the loop and the A2 board pre-pass so the two can never disagree).
-func runtimeTraceProjSymptomAdmissionCandidates(model runtimeTraceProjTreeModel) []int {
+func runtimeTraceProjSymptomAdmissionCandidates(model runtimeTraceProjTreeModel, measurementEligible []bool) []int {
 	var candidates []int
 	for i, row := range model.SelfRows {
+		if measurementEligible != nil && !measurementEligible[i] {
+			continue
+		}
 		if row.Node.Role == types.TraceCausalRoleCausalHop || row.SelfSymptomRelocated {
 			continue
 		}
@@ -17605,7 +17626,12 @@ func runtimeTraceProjSymptomAdmissionCandidates(model runtimeTraceProjTreeModel)
 // LOSING named boards; empty unless ≥2 named boards exist) and a carrier row
 // index of the winning/only named board (-1 = no named board).
 func runtimeTraceProjSymptomBoardGroups(model runtimeTraceProjTreeModel) (map[int]bool, int) {
-	candidates := runtimeTraceProjSymptomAdmissionCandidates(model)
+	measurementEligible, _ := runtimeTraceProjWaitMeasurementEligibility(model)
+	return runtimeTraceProjSymptomBoardGroupsWithEligibility(model, measurementEligible)
+}
+
+func runtimeTraceProjSymptomBoardGroupsWithEligibility(model runtimeTraceProjTreeModel, measurementEligible []bool) (map[int]bool, int) {
+	candidates := runtimeTraceProjSymptomAdmissionCandidates(model, measurementEligible)
 	var named []*runtimeTraceProjTreeRow
 	rowIdx := map[*runtimeTraceProjTreeRow]int{}
 	for _, i := range candidates {
@@ -17673,6 +17699,14 @@ func runtimeTraceProjSymptomDenominatorBoard(model runtimeTraceProjTreeModel) (t
 }
 
 func runtimeTraceProjTargetSymptomAdmission(model runtimeTraceProjTreeModel) (float64, []bool, int, float64) {
+	measurementEligible, _ := runtimeTraceProjWaitMeasurementEligibility(model)
+	return runtimeTraceProjTargetSymptomAdmissionWithEligibility(model, measurementEligible)
+}
+
+// A nil mask runs the original admission rules. Both scope-impact detection
+// and actual arithmetic share this state/board/MAX decision, never a second
+// approximation of which observations contribute to the denominator.
+func runtimeTraceProjTargetSymptomAdmissionWithEligibility(model runtimeTraceProjTreeModel, measurementEligible []bool) (float64, []bool, int, float64) {
 	admitted := make([]bool, len(model.SelfRows))
 	total := 0.0
 	sleepStateAdmitted := false
@@ -17686,9 +17720,9 @@ func runtimeTraceProjTargetSymptomAdmission(model runtimeTraceProjTreeModel) (fl
 	// legacy and single-step shapes are byte-identical). The excluded rows
 	// flow into the C-3 census as 未计入分母 members through the admitted
 	// flags, and their values stay untouched on their own rendered rows.
-	boardExcluded := runtimeTraceProjSymptomBoardExclusions(model)
+	boardExcluded, _ := runtimeTraceProjSymptomBoardGroupsWithEligibility(model, measurementEligible)
 	for i, row := range model.SelfRows {
-		if boardExcluded[i] {
+		if boardExcluded[i] || (measurementEligible != nil && !measurementEligible[i]) {
 			continue // A2: another board's account — never summed into this denominator
 		}
 		if row.Node.Role == types.TraceCausalRoleCausalHop {
@@ -17741,8 +17775,10 @@ func runtimeTraceProjTargetSymptomAdmission(model runtimeTraceProjTreeModel) (fl
 					continue
 				}
 				if v := runtimeTraceProjNodeDisplayImpact(row.Node); v > 0 {
+					// A rejected source still belongs to the observed loser
+					// roster; only selection into the MAX is restricted.
 					eligible = append(eligible, i)
-					if v > best {
+					if (measurementEligible == nil || measurementEligible[i]) && v > best {
 						best, bestIdx = v, i
 					}
 				}

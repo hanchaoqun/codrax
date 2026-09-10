@@ -228,6 +228,7 @@ func traceCausalProjectionOneSeatAbsorbEvidence(out *TraceCausalProjection, keep
 			if traceCausalProjectionCanonicalNode(node.EvidenceID) != keeperKey {
 				continue
 			}
+			node.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(node.MeasurementOrigins, loser.MeasurementOrigins)
 			absorbed := map[string]bool{keeperKey: true}
 			for _, id := range node.MergedEvidenceIDs {
 				absorbed[traceCausalProjectionCanonicalNode(id)] = true
@@ -770,6 +771,7 @@ func traceCausalProjectionOneSeatAbsorbMergedTwin(out *TraceCausalProjection, ke
 			if traceCausalProjectionCanonicalNode(node.EvidenceID) != keeperKey {
 				continue
 			}
+			node.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(node.MeasurementOrigins, loser.MeasurementOrigins)
 			absorbed := map[string]bool{keeperKey: true}
 			for _, id := range node.MergedEvidenceIDs {
 				absorbed[traceCausalProjectionCanonicalNode(id)] = true

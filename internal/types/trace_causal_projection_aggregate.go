@@ -317,8 +317,10 @@ func traceCausalProjectionSameFactKey(node TraceCausalProjectionNode) string {
 // cross-bucket copy, which bucket-overlap semantics require keeping).
 func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 	type survivorRef struct {
-		bucket int
-		index  int
+		bucket       int
+		index        int
+		absorbed     map[string]bool
+		foldBackfill *traceCausalProjectionSupplyFoldBackfill
 	}
 	buckets := []*[]TraceCausalProjectionNode{
 		&out.PrimaryRootCauses,
@@ -327,12 +329,10 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 		&out.AdjacentCauses,
 		&out.BackgroundCauses,
 	}
-	survivors := map[string]survivorRef{}
-	merged := map[string]map[string]bool{} // fact key -> evidence ids already absorbed
-	// SFD 复核 F4: per-fact-key fold back-fill state — the absorb lane mirrors
-	// the join lane's donor-conflict rule (ambiguity fails open, never
-	// first-writer-wins), which needs memory across sequential losers.
-	foldBackfills := map[string]*traceCausalProjectionSupplyFoldBackfill{}
+	// A legacy same-fact key can contain independently filtered measurements.
+	// Keep candidates in the original scan order; each survivor owns its own
+	// evidence set and SFD donor-conflict state, not the coarse legacy key.
+	survivors := map[string][]*survivorRef{}
 	for b, bucket := range buckets {
 		kept := (*bucket)[:0]
 		for _, node := range *bucket {
@@ -341,11 +341,21 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 				kept = append(kept, node)
 				continue
 			}
-			ref, seen := survivors[key]
-			if !seen {
-				survivors[key] = survivorRef{bucket: b, index: len(kept)}
-				merged[key] = map[string]bool{traceCausalProjectionCanonicalNode(node.EvidenceID): true}
-				foldBackfills[key] = &traceCausalProjectionSupplyFoldBackfill{}
+			var ref *survivorRef
+			for _, candidate := range survivors[key] {
+				prior := &(*buckets[candidate.bucket])[candidate.index]
+				if TraceSchedulerMeasurementRestrictionsConflict(prior.MeasurementOrigins, node.MeasurementOrigins) {
+					continue
+				}
+				ref = candidate
+				break
+			}
+			if ref == nil {
+				survivors[key] = append(survivors[key], &survivorRef{
+					bucket: b, index: len(kept),
+					absorbed:     map[string]bool{traceCausalProjectionCanonicalNode(node.EvidenceID): true},
+					foldBackfill: &traceCausalProjectionSupplyFoldBackfill{},
+				})
 				kept = append(kept, node)
 				continue
 			}
@@ -393,12 +403,12 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 				displaced := *survivor
 				*survivor = node
 				node = displaced
-				delete(merged[key], traceCausalProjectionCanonicalNode(node.EvidenceID))
+				delete(ref.absorbed, traceCausalProjectionCanonicalNode(node.EvidenceID))
 				if id := traceCausalProjectionCanonicalNode(survivor.EvidenceID); id != "" {
-					merged[key][id] = true
+					ref.absorbed[id] = true
 				}
 			}
-			traceCausalProjectionAbsorbSameFact(survivor, node, merged[key], foldBackfills[key])
+			traceCausalProjectionAbsorbSameFact(survivor, node, ref.absorbed, ref.foldBackfill)
 		}
 		*bucket = kept
 	}
@@ -518,6 +528,7 @@ func traceCausalProjectionIdleCadence(node TraceCausalProjectionNode) (float64, 
 }
 
 func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode, absorbed map[string]bool, foldBackfill *traceCausalProjectionSupplyFoldBackfill) {
+	survivor.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(survivor.MeasurementOrigins, loser.MeasurementOrigins)
 	appendEvidence := func(id string) {
 		id = strings.TrimSpace(id)
 		if id == "" {
@@ -1058,6 +1069,12 @@ func traceCausalProjectionDedupDuplicatePublications(nodes []TraceCausalProjecti
 // — the former "near lane lives here only" fork is gone, and the band constant
 // still has exactly one home.
 func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNode) bool {
+	// Different positively bound native event-line filters are different
+	// measurement populations. Equality/near-value and envelope overlap cannot
+	// erase that contradiction; absence leaves every existing rule intact.
+	if TraceSchedulerMeasurementRestrictionsConflict(a.MeasurementOrigins, b.MeasurementOrigins) {
+		return false
+	}
 	if traceCausalProjectionCanonicalNode(a.EvidenceID) != "" &&
 		traceCausalProjectionCanonicalNode(a.EvidenceID) == traceCausalProjectionCanonicalNode(b.EvidenceID) {
 		// The same observation's own copy — renderers dedupe by node key; a fold
@@ -1195,6 +1212,7 @@ func traceCausalProjectionLineSpansOverlap(a, b TraceCausalProjectionNode) bool 
 }
 
 func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjectionNode, dup TraceCausalProjectionNode) {
+	survivor.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(survivor.MeasurementOrigins, dup.MeasurementOrigins)
 	// Near lane only (PTV6 批② #4): when the two publications' values differ
 	// (inside the ≤3% band, or the identity would not have matched), the fold
 	// keeps the LARGEST boundary estimate of the one fact — ImpactMS and
@@ -1531,6 +1549,19 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 			continue
 		}
 		key := subject + "\x00" + object
+		// B1638b3: a display window does not identify the underlying event
+		// selection. Split positively known line restrictions and keep mixed
+		// or partially known provenance independent. Equal restrictions do not
+		// grant additivity: every existing account/union rule below still runs.
+		// Local recursive windows, query views and parent result IDs are not
+		// group keys, preserving legitimate cross-view chain supplementation.
+		restriction, groupable := TraceSchedulerMeasurementRestrictionKey(node.MeasurementOrigins)
+		if !groupable {
+			continue
+		}
+		if restriction != "" {
+			key += "\x00" + restriction
+		}
 		// SHADERCACHE-1 (verify wf_7f51ef7c-02d F1): the shader cache-outcome
 		// families share subject+object (both project as shader_compile on
 		// one thread) but are DISTINCT facts under the customer red line
@@ -1645,6 +1676,13 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 // to the legacy form (the tree-side occurrence merge and every other bucket).
 func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjectionNode, first int, members []int, backgroundLane bool) TraceCausalProjectionNode {
 	aggregate := nodes[first]
+	// Keep every actual member's source once, not the seed plus the members.
+	// This is provenance only; existing membership and value calibers are unchanged.
+	memberOrigins := make([][]TraceSchedulerMeasurementOrigin, len(members))
+	for i, idx := range members {
+		memberOrigins[i] = nodes[idx].MeasurementOrigins
+	}
+	aggregate.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(memberOrigins...)
 	// 修复轮二 件B (2026-07-13): the ×N family's refined-D proof is the AND
 	// over its members — DISTINCT facts, so one unproven member keeps the
 	// honest merged 「D-state/iowait」 word (the R1 same-fact absorb keeps OR:
@@ -2170,7 +2208,9 @@ func TraceCausalProjectionMergeOccurrenceRows(rows []TraceCausalProjectionNode) 
 		return TraceCausalProjectionNode{}
 	}
 	if len(rows) == 1 {
-		return rows[0]
+		row := rows[0]
+		row.MeasurementOrigins = CloneTraceSchedulerMeasurementOrigins(row.MeasurementOrigins)
+		return row
 	}
 	members := make([]int, len(rows))
 	for i := range rows {

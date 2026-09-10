@@ -34,6 +34,37 @@ func CloneTraceSchedulerMeasurementOrigins(in []TraceSchedulerMeasurementOrigin)
 	return out
 }
 
+// ConcatTraceSchedulerMeasurementOrigins preserves the sources of each actual
+// contributing member in order. A legacy member without origins contributes
+// one unknown origin; no members contributes none. Repeated origins are not
+// deduplicated: result receipts and native sources do not establish numeric
+// identity or authorize adding the members' values. Every output owns its
+// nested storage, including repeated references in the inputs.
+func ConcatTraceSchedulerMeasurementOrigins(members ...[]TraceSchedulerMeasurementOrigin) []TraceSchedulerMeasurementOrigin {
+	if len(members) == 0 {
+		return nil
+	}
+	size := 0
+	for _, origins := range members {
+		if len(origins) == 0 {
+			size++
+		} else {
+			size += len(origins)
+		}
+	}
+	out := make([]TraceSchedulerMeasurementOrigin, 0, size)
+	for _, origins := range members {
+		if len(origins) == 0 {
+			out = append(out, TraceSchedulerMeasurementOrigin{})
+			continue
+		}
+		for _, origin := range origins {
+			out = append(out, cloneTraceSchedulerMeasurementOrigin(origin))
+		}
+	}
+	return out
+}
+
 func cloneTraceSchedulerMeasurementOrigin(in TraceSchedulerMeasurementOrigin) TraceSchedulerMeasurementOrigin {
 	if in.SourceRef.ClockOffsetSec != nil {
 		value := *in.SourceRef.ClockOffsetSec

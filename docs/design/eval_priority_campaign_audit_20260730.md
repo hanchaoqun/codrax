@@ -57380,6 +57380,29 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1728 B1638b3：按实际事件筛选范围协调聚合与等待分母（2026-09-10）
+
+基线`0ec121486`干净；SSH443重新fetch无新增远程提交。承接b2b末公开RED，不新增模型JSON要求，不改模型正文/图/结论。首轮实际两个查询的target Total均231.834ms，旧同窗账户选举因此平局先条；本批**不根据S大小或“全量更权威”新造账户选举**，分母必须遵守已经选中的账户范围，两查询的独立事实仍保留。
+
+- [x] 来源保全：R2完整成员、共享二成员入口、R1/V4/通用去重/完整物理账户吸收保全所有Origins并独立复制；nil成员保未知，不能使已知来源洗白未知贡献。来源外字段保持原值/资格，实际完整StateAccountKey跨view收敛仍有效。
+- [x] 精确范围反证：仅原生合法来源中的原`QueryLineStart/End`不同证明事件筛选范围不同；0..0明确表示未设行界，不是未知。相同范围**不是**值相等、完整采集或可加性证明，仍走已有物理账户/跨窗union/MAX规则；不以parent QueryScopeID、局部窗、PartitionID或原生算法切断合法递归/跨view补齐。
+- [x] R1候选索引与V4：已知冲突不吸收，R1同旧key需多候选以保A0/B1/C1两序的B1/C1合并；各候选的证据集合与fold backfill独立，未知不能桥接已知冲突。
+- [x] R2和树二成员：共用范围资格，部分已知/混合范围独立保留，不借首成员标签；全legacy保原行为，不把新字段等同旧值身份。
+- [x] 分母：板选举候选、状态Σ与sleep-hop补位同读已选账户来源；不同范围的行仍显示/进入未纳统计，不借入同一等待量。无可证统一分母的混合形不得打印实测0或退到大窗冒充等待。
+- [x] 全窗状态参考：先按来源范围保各自候选，再沿旧最大值/1.2比值/窗口措辞规则选择兼容参考；参考来源不能被合进节点自身值来源。
+- [x] 公开入口双序、同结果重复、8个不同局部Timeline正臂、未知/跨view/不同方法/跨窗/完整物理账户、旧根因族、race/full/活跃流验证；末冻结全仓退出0。
+- [ ] 交付后以干净同revision二进制恢复exact2 live：Java配置优先级 + C++虚调用/工厂链，读过程、上下文及最终答案；不把工程绿当模型回放绿。
+
+有效首红：`20260910-b1638b3-tool-numeric-red.log`3.517s（真实Execute→ledger→Compile→Apply，main-only/同结果重复过，两混合顺序仍S308.916/等待347.249）；`...-restriction-red.log`1.072s（同显示窗不同事件筛选合并，unknown混进known）；`...-fullwindow-red.log`1.176s（已知本范围1200被另一范围2500覆盖）。来源有效RED另有`...-origins-red-verified.log`2.639s、五吸收入口`...-absorb-origins-red.log`1.016s；最初来源测试字段名错误的编译失败不算产品RED。新未运行live，不把工程测试当模型回放。
+
+**集成中途验证与回归阻断（未交付）**：真实公开入口已复绿，两个事件范围分别保S78.630ms和230.286ms，不再合308.916ms；所选主账户等待116.963ms，反序选择过滤账户则230.326ms，不再347.249ms。首冻结全仓`20260910-b1638b3-full-suite.log`退出1：其余85个有测试包绿，tool304.749s有7条旧pin红。未改原数值/期望求绿：Chainguard/ISPGAP/RNB5B/XLANE/RoundedProbe这些旧直接Run→Observation辅助入口漏传已执行q，逐个迁移为与真实Execute同构的原q；ISPGAP、RNB5B、RoundedProbe及2955 XLANE已恢复。真实剩余另判：9163的CPU约束48.519、调度延迟40.071、低频组32.877的派生数据流原未保统计来源，不能因新门上线把合法旧等待220.887降成99.420；正从各自真实消费的TD/原生runnable段续传，不补配邻窗。另periodic18.933原是sleep-hop MAX49.764的未纳小项，来源不全不能独自触发整个覆盖句降级；资格、实际admission及未纳披露须协同且旧算法单源，保全部未知来源，不授可加性。三个派生载体及RootEvidence的原完整schema先记录；只允许增加可选MeasurementSources，减去该字段必须还原旧完整hash，原字段和固定小数诊断不能漂。活跃流专项count3已绿：agent2.683s/llm51.005s/repl5.672s，含4ms活跃分片、真实停滞、fallback、显式deadline；不把此项绿等同本批完整交付。
+
+回归带出的同根续传修复：Tieba `CookieMonsterCl` 旧12.773ms合3席中的8.307ms来自`rootEvidenceFromCausalImpact`，已有impact原生来源却在精简RootEvidence结构丢失，最终fallback rank与正式root_evidence均变未知。只沿原impact→RootEvidence→fallback rank/typed observation复制已有来源；独立literal、P9 pacing、trace_gap等未自带来源的构造仍未知，不推断同名/邻窗。新诊断源字段自身不授链、优先级反转、算力、D/IO或语义优化资格。CPU约束epoch只收实际纳入受限区间的原生段，cap前合全来源；无epoch才沿旧总runnable累计输入；调度延迟来源取同次offCPU sweep产出的自身段，算力折算沿其直接TD输入。三类RED`...-derived-scheduler-red-verified.log`1.699s，首次绿1.490s；四载体schema与固定点详情count3绿0.663s，最初诊断测试签名编译错误不算产品RED。等待覆盖改为复用**同一份**状态/板/MAX admission核心：只有原本真正入账的成员因来源被排除，才触发范围不齐披露；小MAX败项、落选板仍留未纳普查且不让完整账户被全局降级。9163/XLANE原220.887与cadence针已恢复，末全包尚待所有出口冻结。
+
+末冻结专项收据：来源保全count3 5.282s/race14.584s；R1/V4 count3 2.414s/race1.804s；范围17轴/4算法/单边行界与全窗参考及旧RN12联合race count3 2.165s；新公开数值/二成员/未知矩阵及真实贡献者有限披露count3 8.802s/race19.082s，XLANE及旧GAPB/COV2/RN12/窗口覆盖23.020s全部绿。三派生原生来源与旧OffCPU/SchedulerLatency/CPUConstraint/Epoch/ComputeSupply/RunnableContext count3 4.540s/race14.654s；RootEvidence实际Execute→持久化JSON→最终ledger、三复制出口、unknown/priority边界与Chainguard/ISPGAP/RNB5B旧针count3 10.762s，新三族race count3 16.563s/旧三失败race23.055s。InfoContract W-24已从仅审计重审为真正internal_gate，仅opaque逐字词面豁免保留，登记针1.009s。所有源码/测试冻结并统一gofmt，末次全仓`20260910-b1638b3-final-full.log`退出0，86个有测试包全部绿。独立末审确认四载体与克隆/发布只延续真实数值输入，不动mask/频率/因果资格、排序或model prose；参考来源不是完整数值身份。提交前SSH443再次fetch，HEAD/origin为0/0；交付commit/build及exact2 live收据后补，不能提前宣称live绿。
+
+尚未泛化承诺：原生域未单独编码的其他筛选参数/异算法同line可加性仍受既有规则限制；本批解决明确不同事件行筛选范围被混成一个量这一类问题，不宣称来源集合已经是所有数值的完整身份。完整ledger同ID冲突、memo/dispatch/fork浅复制等上节残余继续留账，不借本批收账一并关闭。
+
 ### §123.1727 B1638b2b：原生统计来源传至正式观测与投影入口（2026-09-10）
 
 从已推送 `a9958a777` 干净主线接续，SSH443 fetch 后 main/origin 为0/0。本批承接b2a，不改变统计值、根因资格、模型结论或投影合并算法。**来源传递不是数值问题闭环；B1638b跨查询S308.916/等待347.249的公开复现仍保留。**

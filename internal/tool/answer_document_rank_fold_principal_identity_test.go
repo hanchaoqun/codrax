@@ -165,7 +165,9 @@ func TestRankFoldRoundedProbeMatchesExactRankInTreeOverviewAndJSON(t *testing.T)
 		if q.View == "root_cause_rank" {
 			resultID = "supplement-1"
 		}
-		observations := traceQueryTypedObservations(result, elimSemanticDonghuTrace, resultID, "r", "", time.Unix(1, 0))
+		// Native measurement provenance needs the same query receipt as Execute;
+		// keep the rounded/exact query values and all publication pins unchanged.
+		observations := traceQueryTypedObservations(result, elimSemanticDonghuTrace, resultID, "r", "", time.Unix(1, 0), q)
 		for i := range observations {
 			observations[i].SystemSupplement = q.View == "root_cause_rank"
 		}

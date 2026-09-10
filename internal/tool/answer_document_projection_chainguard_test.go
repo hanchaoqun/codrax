@@ -316,8 +316,11 @@ func TestChainguardChipFullSeatScanTiebaCarve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := tracequery.Run(idx, tracequery.Query{View: "root_cause_rank", PID: 59843, TimeStart: 34579.450627, TimeEnd: 34579.595131, MinDurationMs: 0.05})
-	records := traceQueryTypedObservations(result, "donghu_tieba_frame.systrace", "payload-ref", "raw-ref", "", time.Unix(1753100000, 0).UTC())
+	q := tracequery.Query{View: "root_cause_rank", PID: 59843, TimeStart: 34579.450627, TimeEnd: 34579.595131, MinDurationMs: 0.05}
+	result := tracequery.Run(idx, q)
+	// B1638b3 EVOLUTION: preserve the actual submitted query receipt, as
+	// Execute does; native provenance without its parent is not mergeable.
+	records := traceQueryTypedObservations(result, "donghu_tieba_frame.systrace", "payload-ref", "raw-ref", "", time.Unix(1753100000, 0).UTC(), q)
 	set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: records})
 	if len(set.Projections) != 1 {
 		t.Fatalf("expected one projection, got %d", len(set.Projections))

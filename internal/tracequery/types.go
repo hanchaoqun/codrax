@@ -2003,6 +2003,10 @@ type SchedulerLatencyResult struct {
 }
 
 type SchedulerLatencyItem struct {
+	// Native account input of this runnable interval, not its frequency or
+	// competitor evidence and not a claim of whole-query completeness.
+	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+
 	Thread        ThreadRef `json:"thread"`
 	StartTs       float64   `json:"start_ts,omitempty"`
 	EndTs         float64   `json:"end_ts,omitempty"`
@@ -2070,6 +2074,10 @@ type SchedulerLatencyItem struct {
 const FrequencySampleNearestFallback = "nearest_fallback"
 
 type ComputeSupplySummary struct {
+	// Sources of the actual duration input; these do not establish the
+	// frequency/pressure verdict or identify its numeric value.
+	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+
 	Thread     ThreadRef `json:"thread,omitempty"`
 	State      string    `json:"state,omitempty"`
 	CPU        int       `json:"cpu"`
@@ -2433,6 +2441,11 @@ type CPUConstraintEpoch struct {
 }
 
 type CPUConstraintSummary struct {
+	// Sources of cpuConstraintAttributedRunnableMs: restricted epoch inputs
+	// when epochs exist, otherwise the actual runnable-total inputs. This is
+	// not mask/constraint authority or proof of a complete value identity.
+	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+
 	Thread ThreadRef `json:"thread"`
 	Kind   string    `json:"kind,omitempty"`
 	Policy string    `json:"policy,omitempty"`
@@ -6531,6 +6544,10 @@ type WakeupCausalAggregateFoldTieMember struct {
 }
 
 type RootEvidence struct {
+	// MeasurementSources follows only the native inputs used by this witness;
+	// it does not confer a source on independently constructed evidence.
+	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+
 	Type       string    `json:"type"`
 	Thread     ThreadRef `json:"thread"`
 	DurationMs float64   `json:"duration_ms,omitempty"`

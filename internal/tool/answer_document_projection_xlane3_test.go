@@ -63,8 +63,11 @@ func xlane3DonghuStepObservations(t *testing.T, steps ...xlane3DonghuStep) []typ
 			q.CoreTopology = s.topo
 			q.View = view
 			result := tracequery.Run(idx, q)
+			// EVOLUTION RECORD (B1638b3): native measurement sources require
+			// the same complete query receipt passed by real Execute publication.
+			// The query, measurements, and board expectations are unchanged.
 			obs = append(obs, traceQueryTypedObservations(result, "donghu.ftrace",
-				"p"+string(rune('1'+step))+"-"+view, "r", "", at)...)
+				"p"+string(rune('1'+step))+"-"+view, "r", "", at, q)...)
 		}
 	}
 	return obs

@@ -1,5 +1,7 @@
 package tracequery
 
+import "github.com/hanchaoqun/codrax/internal/types"
+
 const (
 	RunnableCPUContinuityVerified = "verified"
 	// RunnableCPUContinuitySchedInMismatch is LEGACY-ONLY since XCPU
@@ -207,6 +209,10 @@ func runnableCPUContinuityVerdictForSegment(expectedCPU int, expectedKnown bool,
 }
 
 type runnableWaitSegment struct {
+	// Stamped from this segment's own completed off-CPU sweep, never by
+	// looking up a same-thread row in a later display roster.
+	measurementDomain *types.TraceSchedulerMeasurementDomain
+
 	thread        ThreadRef
 	startTs       float64
 	endTs         float64

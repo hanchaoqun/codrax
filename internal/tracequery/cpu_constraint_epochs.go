@@ -5,11 +5,15 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 const cpuConstraintEpochDisplayCap = 16
 
 type cpuConstraintEpochAccounting struct {
+	measurementSources *types.TraceSchedulerMeasurementSources
+
 	epochs                   []CPUConstraintEpoch
 	total                    int
 	restrictionEpochCount    int
@@ -207,9 +211,11 @@ func computeCPUConstraintEpochAccounting(
 	for pid, epochs := range full {
 		account := cpuConstraintEpochAccounting{total: len(epochs), allowedUniform: cpuConstraintEpochAllowedSetsUniform(epochs)}
 		var restrictedIntervals []foldInterval
+		var restrictedSources []*types.TraceSchedulerMeasurementSources
 		for i := range epochs {
 			epoch := &epochs[i]
 			var epochRunnableIntervals []foldInterval
+			var epochSources []*types.TraceSchedulerMeasurementSources
 			// SEAM-4: AllowedCPUsAuthority answers "who published the
 			// MASK" — a mask-silent witness (name-only binding) contributes
 			// binding provenance, never mask authority.
@@ -242,6 +248,7 @@ func computeCPUConstraintEpochAccounting(
 							}
 							epoch.RunnableWaitMs += segment.durationMs
 							epochRunnableIntervals = append(epochRunnableIntervals, foldInterval{start: segment.startTs, end: segment.endTs})
+							epochSources = append(epochSources, types.TraceSchedulerMeasurementSourcesFromDomain(segment.measurementDomain))
 						}
 					}
 				}
@@ -255,12 +262,14 @@ func computeCPUConstraintEpochAccounting(
 					if end > start {
 						epoch.RunnableWaitMs += (end - start) * 1000
 						epochRunnableIntervals = append(epochRunnableIntervals, foldInterval{start: start, end: end})
+						epochSources = append(epochSources, types.TraceSchedulerMeasurementSourcesFromDomain(segment.measurementDomain))
 					}
 				}
 			}
 			if epoch.RestrictionProof != "" {
 				account.restrictionEpochCount++
 				restrictedIntervals = append(restrictedIntervals, epochRunnableIntervals...)
+				restrictedSources = append(restrictedSources, epochSources...)
 			}
 		}
 		// One physical runnable interval may carry both an explicit binding
@@ -268,6 +277,7 @@ func computeCPUConstraintEpochAccounting(
 		// retain both evidence views, but the causal value owns the interval
 		// once: union before summing.
 		account.restrictedRunnableWaitMs, _ = foldIntervalUnionMs(restrictedIntervals)
+		account.measurementSources = types.MergeTraceSchedulerMeasurementSources(restrictedSources...)
 		account.mergedProof = cpuConstraintEpochMergedRestrictionProof(epochs, account.allowedUniform, account.restrictedRunnableWaitMs)
 		if owner := cpuConstraintEpochFirstMaskBearing(epochs); owner != nil {
 			ownerCopy := *owner

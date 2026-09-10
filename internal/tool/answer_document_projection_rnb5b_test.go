@@ -497,7 +497,9 @@ func TestRNB5BMicroFoldCensusCountsMembersDonghu2955(t *testing.T) {
 		q := query
 		q.View = view
 		result := tracequery.Run(idx, q)
-		obs = append(obs, traceQueryTypedObservations(result, "fixture", "p-"+view, "r", "", at)...)
+		// B1638b3 EVOLUTION: publish the same submitted query receipt as
+		// Execute; do not turn known native sources into unbound fixtures.
+		obs = append(obs, traceQueryTypedObservations(result, "fixture", "p-"+view, "r", "", at, q)...)
 	}
 	projection := types.TraceCausalProjectionFromObservationRecords(obs)
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)

@@ -9901,13 +9901,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				rootNotes = append(rootNotes, types.TraceNoteKeyDominantState+"="+state)
 			}
 			out = append(out, types.ObservationRecord{
-				ID:              fmt.Sprintf("trace_query:%s#root_evidence:%d", scope, i+1),
-				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
-				Producer:        "trace_query",
-				Role:            types.AnswerAggregateRoleSupportingCoverage,
-				GroundingPolicy: types.ClaimGroundingHard,
-				ProvenanceLane:  rootProvenance,
-				SourceRef:       ref,
+				ID:                 fmt.Sprintf("trace_query:%s#root_evidence:%d", scope, i+1),
+				MeasurementSources: types.CloneTraceSchedulerMeasurementSources(root.MeasurementSources),
+				Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:           "trace_query",
+				Role:               types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy:    types.ClaimGroundingHard,
+				ProvenanceLane:     rootProvenance,
+				SourceRef:          ref,
 				Span: types.ObservationSpan{
 					LineStart: root.LineStart, LineEnd: root.LineEnd,
 					StartTs: root.StartTs, EndTs: root.EndTs,
@@ -15843,6 +15844,7 @@ func traceQueryPriorityRootEvidenceForPublication(roots []tracequery.RootEvidenc
 		if runtimeTracePriorityInversionCandidateType(root.Type) {
 			continue
 		}
+		root.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(root.MeasurementSources)
 		published = append(published, root)
 	}
 	return published

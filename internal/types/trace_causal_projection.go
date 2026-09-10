@@ -2024,9 +2024,10 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 			}
 			continue
 		}
-		// RN-12 (§7.9): collect full-window per-state totals as a subject+class
-		// keyed side channel (largest total wins — deterministic on record order
-		// independence). The carrier families (state_drilldown and the
+		// RN-12 / B1638b3: collect totals per subject, state and native event
+		// restriction. Only then choose the largest compatible total. Choosing
+		// a global maximum first would erase the matching smaller candidate.
+		// The carrier families (state_drilldown and the
 		// window-stats top_runnable/top_sleep rows) never classify into nodes,
 		// so collection never needs a `continue`; the state_drilldown record
 		// still falls through to the 裁定3 chain_required check below.
@@ -2034,7 +2035,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		// collect — a total that cannot state its own source window may not
 		// make any window claim (禁猜).
 		if class, total, ok := traceCausalProjectionFullWindowStateTotal(record); ok {
-			key := traceCausalProjectionCanonicalNode(record.Subject) + "\x00" + class
+			key := traceCausalProjectionCanonicalNode(record.Subject) + "\x00" + class + "\x00" + total.RestrictionKey
 			if prev, exists := fullWindowStates[key]; !exists || total.MS > prev.MS {
 				fullWindowStates[key] = total
 			}
@@ -3073,10 +3074,11 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 // carrier observation, and — F-2 — the carrier's own typed selected_window
 // endpoints (seconds), mandatory at collection time.
 type traceCausalProjectionFullWindowState struct {
-	MS          float64
-	Source      string
-	WindowStart float64
-	WindowEnd   float64
+	MS             float64
+	Source         string
+	WindowStart    float64
+	WindowEnd      float64
+	RestrictionKey string
 }
 
 // traceCausalProjectionFullWindowStateTotal recognizes an RN-12 full-window
@@ -3124,11 +3126,16 @@ func traceCausalProjectionFullWindowStateTotal(record ObservationRecord) (string
 	if !ok {
 		return "", traceCausalProjectionFullWindowState{}, false
 	}
+	restriction, groupable := TraceSchedulerMeasurementRestrictionKey(TraceSchedulerMeasurementOriginsFromRecord(record))
+	if !groupable {
+		return "", traceCausalProjectionFullWindowState{}, false
+	}
 	return class, traceCausalProjectionFullWindowState{
-		MS:          ms,
-		Source:      source,
-		WindowStart: windowStart,
-		WindowEnd:   windowEnd,
+		MS:             ms,
+		Source:         source,
+		WindowStart:    windowStart,
+		WindowEnd:      windowEnd,
+		RestrictionKey: restriction,
 	}, true
 }
 
@@ -3275,7 +3282,11 @@ func traceCausalProjectionAttachFullWindowStateTotals(projection *TraceCausalPro
 		if class == "" {
 			return
 		}
-		total, ok := totals[traceCausalProjectionCanonicalNode(node.Subject)+"\x00"+class]
+		restriction, groupable := TraceSchedulerMeasurementRestrictionKey(node.MeasurementOrigins)
+		if !groupable {
+			return
+		}
+		total, ok := totals[traceCausalProjectionCanonicalNode(node.Subject)+"\x00"+class+"\x00"+restriction]
 		if !ok {
 			return
 		}
@@ -5886,6 +5897,7 @@ func traceCausalProjectionAbsorbDedupeTwinEvidence(survivor *TraceCausalProjecti
 	if survivor == nil {
 		return
 	}
+	survivor.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(survivor.MeasurementOrigins, twin.MeasurementOrigins)
 	seen := make(map[string]bool, 1+len(survivor.MergedEvidenceIDs))
 	for _, id := range append([]string{survivor.EvidenceID}, survivor.MergedEvidenceIDs...) {
 		if key := traceCausalProjectionCanonicalNode(id); key != "" {

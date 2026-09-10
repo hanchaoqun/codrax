@@ -6337,7 +6337,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			}
 		}
 	}
-	stampOffCPUMeasurementDomains(measurementRecorders, runnable, sleep, dstate, iowait)
+	stampOffCPUMeasurementDomains(measurementRecorders, runnableSegments, runnable, sleep, dstate, iowait)
 	// ENG-1 (复核冷读 F2-1, 2026-07-12): the FULL pre-cap runnable census
 	// rides back beside the capped display lists so thread_cpu_load totals
 	// can be true full-window sums (see computeThreadCPULoad).
@@ -6570,6 +6570,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 			overlap = overlapCompetitorsForIntervals(p.runningSegments, segment.thread, []timeInterval{{start: segment.startTs, end: segment.endTs}}, 0)
 		}
 		item := SchedulerLatencyItem{
+			MeasurementSources:             types.TraceSchedulerMeasurementSourcesFromDomain(segment.measurementDomain),
 			Thread:                         segment.thread,
 			StartTs:                        segment.startTs,
 			EndTs:                          segment.endTs,
@@ -6687,6 +6688,7 @@ func cloneSchedulerLatencyItemsForAccounting(in []SchedulerLatencyItem) []Schedu
 	out := make([]SchedulerLatencyItem, len(in))
 	for i := range in {
 		out[i] = in[i]
+		out[i].MeasurementSources = types.CloneTraceSchedulerMeasurementSources(in[i].MeasurementSources)
 		out[i].SameCPUTopRunning = append([]ThreadDuration(nil), in[i].SameCPUTopRunning...)
 		out[i].sameCPURunningSegments = append([]ThreadDuration(nil), in[i].sameCPURunningSegments...)
 	}
@@ -6867,7 +6869,11 @@ func capCPUConstraintDisplay(in []CPUConstraintSummary, max int) []CPUConstraint
 	if max > 0 && length > max {
 		length = max
 	}
-	return append([]CPUConstraintSummary(nil), in[:length]...)
+	out := append([]CPUConstraintSummary(nil), in[:length]...)
+	for i := range out {
+		out[i].MeasurementSources = types.CloneTraceSchedulerMeasurementSources(in[i].MeasurementSources)
+	}
+	return out
 }
 
 func cpuConstraintAccounting(stats WindowStats) []CPUConstraintSummary {
@@ -7062,12 +7068,14 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 	}
 	catalog := buildThreadCatalog(idx, q)
 	runnableByPID := map[int]float64{}
+	runnableSourcesByPID := map[int][]*types.TraceSchedulerMeasurementSources{}
 	for _, td := range runnable {
 		// Affinity/cpuset is a CPU-specific hypothesis. Thread-level runnable
 		// time whose CPU continuity failed must not be attached to a concrete
 		// constraint event merely because the TID matches.
 		if td.Thread.PID > 0 && validTraceCPUIndex(td.CPU) {
 			runnableByPID[td.Thread.PID] += td.DurationMs
+			runnableSourcesByPID[td.Thread.PID] = append(runnableSourcesByPID[td.Thread.PID], threadDurationMeasurementSources(td))
 		}
 	}
 	cpuByID := map[int]CPUStats{}
@@ -7288,6 +7296,7 @@ func computeCPUConstraintSummaries(idx *Index, q Query, coreByCPU map[int]string
 		}
 		if item.Thread.PID > 0 {
 			item.RunnableWaitMs = runnableByPID[item.Thread.PID]
+			item.MeasurementSources = types.MergeTraceSchedulerMeasurementSources(runnableSourcesByPID[item.Thread.PID]...)
 		}
 		if epoch, ok := epochAccounting[item.Thread.PID]; ok {
 			applyCPUConstraintEpochOverlay(&item, epoch)
@@ -7751,6 +7760,7 @@ func computeRunnableContextSummaries(items []SchedulerLatencyItem, threadLoads [
 		}
 		if constraint, ok := constraintForThread(item.Thread, constraints); ok {
 			copy := constraint
+			copy.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(constraint.MeasurementSources)
 			ctx.CPUConstraint = &copy
 		}
 		ctx.Verdict, ctx.Confidence = runnableContextVerdict(ctx)
@@ -7782,6 +7792,11 @@ func capRunnableContextDisplay(in []RunnableContextSummary, max int) []RunnableC
 		out[i] = in[i]
 		out[i].SameCPUTopRunning = copyThreadDurationDisplayRoster(in[i].SameCPUTopRunning, 8)
 		out[i].sameCPURunningSegments = nil
+		if in[i].CPUConstraint != nil {
+			constraint := *in[i].CPUConstraint
+			constraint.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(in[i].CPUConstraint.MeasurementSources)
+			out[i].CPUConstraint = &constraint
+		}
 	}
 	return out
 }
@@ -7982,6 +7997,7 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 			summary = fmt.Sprintf("%s system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d", summary, overlap.systemOrKernelMs, overlap.systemOrKernelCompetitorCount)
 		}
 		out = append(out, ComputeSupplySummary{
+			MeasurementSources:             threadDurationMeasurementSources(td),
 			Thread:                         td.Thread,
 			State:                          state,
 			CPU:                            td.CPU,
@@ -15919,6 +15935,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			continue
 		}
 		item := rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary)
+		item.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(root.MeasurementSources)
 		// AB2 (2026-07-31): preserve the evidence row's own temporal identity
 		// before any topology enrichment. NearestChainWindow is an attachment
 		// anchor only; it cannot stand in for the interval that produced this
@@ -17231,6 +17248,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		}
 		onChain := threadInSet(chainThreads, item.Thread)
 		candidate := rootCauseItem("scheduler_latency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), conf, item.StartLine, item.EndLine, "scheduler_latency_stats", summary)
+		candidate.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources)
 		candidate.CumulativeImpactMs = item.DurationMs
 		candidate.Causality = causalityLabel(hasCausalChain, onChain)
 		candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
@@ -17251,6 +17269,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 				lowSummary = fmt.Sprintf("%s frequency_sample=%s", lowSummary, item.FrequencySample)
 			}
 			low := rootCauseItem("low_frequency", item.Thread, backgroundImpactMs(q, item.DurationMs, hasCausalChain, onChain), 0.70, item.StartLine, item.EndLine, "scheduler_latency_stats", lowSummary)
+			low.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources)
 			low.CumulativeImpactMs = item.DurationMs
 			low.Causality = causalityLabel(hasCausalChain, onChain)
 			low.ChainRelevance = chainRelevanceFromCausality(low.Causality)
@@ -17325,6 +17344,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 				}
 			}
 			candidate := rootCauseItem(typ, supply.Thread, backgroundImpactMs(q, supply.DurationMs, hasCausalChain, onChain), supply.Confidence, supply.LineStart, supply.LineEnd, "window_stats.compute_supply", supply.Summary)
+			candidate.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(supply.MeasurementSources)
 			candidate.CumulativeImpactMs = supply.DurationMs
 			candidate.Causality = causalityLabel(hasCausalChain, onChain)
 			candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
@@ -17345,6 +17365,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		conf := cpuConstraintRankConfidence(constraint)
 		onChain := threadInSet(chainThreads, constraint.Thread)
 		candidate := rootCauseItem("cpu_affinity_or_cpuset", constraint.Thread, backgroundImpactMs(q, attributedRunnableMs, hasCausalChain, onChain), conf, constraint.LineStart, constraint.LineEnd, "window_stats.cpu_constraints", constraint.Summary)
+		candidate.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(constraint.MeasurementSources)
 		candidate.CumulativeImpactMs = attributedRunnableMs
 		candidate.Causality = causalityLabel(hasCausalChain, onChain)
 		candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
@@ -17498,6 +17519,7 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 // 2026-07-26) rides the SAME mask payload — it must reach the top level
 // whenever the mask does, so the cause face can speak the supply exclusion.
 func applyCPUConstraintEpochOverlay(item *CPUConstraintSummary, epoch cpuConstraintEpochAccounting) {
+	item.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(epoch.measurementSources)
 	item.Epochs = append([]CPUConstraintEpoch(nil), epoch.epochs...)
 	item.EpochTotal = epoch.total
 	item.EpochEmitted = len(epoch.epochs)
@@ -26127,7 +26149,8 @@ func rootEvidenceFromCausalImpact(item WakeupCausalImpact, fallback string, conf
 		// v5 P1 件① B.2 (2026-07-13): the impact twin's scheduler-state word
 		// travels with the reduced-shape witness — the typed family identity
 		// the engine one-seat arms consume (single mint, verbatim copy).
-		DominantState: item.DominantState,
+		DominantState:      item.DominantState,
+		MeasurementSources: types.CloneTraceSchedulerMeasurementSources(item.MeasurementSources),
 	}
 }
 
