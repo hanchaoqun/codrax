@@ -57410,9 +57410,9 @@ H3保留1.347ms请求、1.337ms S型阻塞、4.384ms下界；6条可见不升总
 | B1640 Completion教学 | P1/a+b及旧pin协调已推，工程全绿；r1052完成但未重撞原冲突 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | a实际BuildInitialInstruction+真实schema+合法typed facts先红后绿；b限制schema旧cap句只对整数计数建议grouped_count，不让measurement误分计数 |
 | B1641 图节点操作一致性 | P1/已推ce76fab83；工程全绿，生产新臂待触发 | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 模型显式新节点保持独立；精确声明表同源；sequence点分ID适配；既有节点改名冲突/typed边证据不放松 |
 | B1642 引用角色行级消歧 | P2/已推2ca6a4947；主面工程全绿，生产新臂待触发 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；不改模型引用/正文；旧fallback另列b |
-| B1643 同节点对多关系修补预算 | P1/已推6c259210e；公开入口/count3/race及独立审查通过，全仓集成中 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 四类精确旧anchor载体预算与执行器复用同一选择器；0/多候选不铸缺席预算；原body/legacy路径不扩权 |
+| B1643 同节点对多关系修补预算 | P1/已推6c259210e；公开入口/count3/race/全仓及独立审查通过，live新臂待触发 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 四类精确旧anchor载体预算与执行器复用同一选择器；0/多候选不铸缺席预算；原body/legacy路径不扩权 |
 | B1642b 端点回退同址多关系 | P2/冷审确认，待公开RED及边界审计 | 旧UniqueGroundedClaimRoleForExactEndpoint仅按source:line判唯一，同址不同typed关系仍可能首项抢位 | 审计新advisory末端及旧tool直接调用两面；不改自动引用/全局谓词以冒充闭环；补同址A→B/A→C与反序/receipt边界 |
-| B1644 IO完成唤醒证明布尔语义 | P2/已实现，36格/count3/race及独立审查通过，本批提交；全仓集成中 | CompletionWokeIssuer=false含absence/ambiguity，但入模仅裸布尔；模型据此写“未唤醒”超出证明 | 只补入模双语证明边界：未形成独立闭合证明≠证明未唤醒；true/false/缺值、RQ/BIO、正阻塞量另证；保原API/算法/根因门，不改模型表或结论 |
+| B1644 IO完成唤醒证明布尔语义 | P2/已推36f4cf192，36格/count3/race/全仓及独立审查通过；live待验 | CompletionWokeIssuer=false含absence/ambiguity，但入模仅裸布尔；模型据此写“未唤醒”超出证明 | 只补入模双语证明边界：未形成独立闭合证明≠证明未唤醒；true/false/缺值、RQ/BIO、正阻塞量另证；保原API/算法/根因门，不改模型表或结论 |
 
 B1640首红日志`.codrax/tmp/20260910-b1640-completion-teaching-red.log`，1.059s退出1；合法计数/小数/两类分类值、真实工具array schema前提均过，只在矛盾教学/缺原生数组指引失败。Java畸形数组外尾片本身仍判模型错误：不据此猜括号或丢尾，不宣称教学矛盾导致了这次JSON格式错。B1641以新节点明确展示标签优先、旧ID重用等泛化矩阵核权属后施工；继承/时序混表达及C++flush/static type细节另留模型精度观察，不为过单题强制图形。下一exact2候选已排序为写tokenizers Python fallback + H3显式窗IO，未启动。
 
@@ -57437,6 +57437,12 @@ B1643封版仅`internal/types/answer_document_relation_repair_lease.go`增加精
 B1644封版只改`answer_document_evaluator.go`原IO行的说明接线，新增私有双语解释函数及独立测试；原`completion_woke_issuer`值仍原样可审计，不改schema、测量、源receipt、阻塞/链上资格、模型文档或任何硬门。`false`表示尚未形成该请求独立的完成方→提交线程唤醒证明，不是否定事件；缺失/非法legacy值保持未知；`true`也不单凭布尔铸造阻塞量，仍需原生正的闭合区间和独立测量。真实RQ/BIO各自经TraceQuery→dispatch→TurnA/ledger→finalizer入模，覆盖zh/en与正常闭合、无wake、不同waker、已结束等待、缺switchout、共享batch；12个兼容变体另检查缺/非法证明、无/零/负阻塞量及false带量，不把这些手工legacy变体冒充原生生产。24真实入口+12兼容共36格，保留原0.100ms请求与合格0.090ms阻塞、共享批次仅一段独立阻塞量；原模型正文和TurnA逐字不变。
 
 B1644有效RED为`20260910-b1644-public-red-verified.log`1.291s（最初public-red编译前提失败另存，不算产品红）；全矩阵GREEN1.288s，邻近count3 agent1.636s、新族race3.774s（`20260910-b1644-{matrix-green,count3,race}.log`），独立冷审及根复读无阻断，未改旧针。B1643+B1644冻结全仓`go test ./... -count=1`已启动，日志`20260910-b1643-b1644-final-full.log`；尚未取得收据，不预报全绿。r1052二进制不含这两批，工程测试不冒称新模型回放。r1052其它答案精度与Python单LF行为错误继续如实留档，不追加样例专用硬合同或系统改答案。
+
+B1644已推`36f4cf192`，B1643已推`6c259210e`。干净源码`make`成功，`codrax 0.1.20260910`、revision`36f4cf19238d`、built`2026-09-10T10:04:06Z`（`20260910-b1643-b1644-clean-build.log`）。两修复尚无新增live，r1052结果不可倒签。默认必选根因旁路、显式窗投影/补齐和链上资格的算法未改；活跃流专项已见§123.1731，不以正文尚无可见token或旧固定流年龄触发降级，仍尊重明确caller deadline/cancel与真实停滞。
+
+最终集成收账：冻结生产源码`36f4cf192`的`go test ./... -count=1`单次退出0，86个有测试包全绿（`20260910-b1643-b1644-final-full.log`）；agent65.945s、tool307.349s、tracequery107.556s、tracediag18.788s、types49.669s、orchestrator24.893s、llm29.249s、repl88.421s。此收据覆盖前述B1640–B1644整合后的当前源码，不覆盖/抹除早轮旧pin失败的历史日志；不把工程绿改写为r1052人工全绿。源码和原测试在冻结期间未追加变动，收尾仅刷新文档/下一轮排序。
+
+下一轮仅排期、不在本轮追加第三个live：按风险/异构覆盖/距上次回放/可独立复算选择`real_trace_h6_channel_mixed_display`与`qf_sequence_analyzer_gate`，执行时仍exact2。H6要求17267原233.190ms窗整体根因与树，区别于r1052有限IO事实；审原四态、链上/邻近/背景、耗时与可消除两尺、投影/补齐及root-causes旁路，不以字样命中替代因果复算。时序题审真实source方向：当前`analyzer.go:2725`调用`gate.RunWith`，`gate.go:134`的Run包装也到RunWith，不编造buildAnalysisIR→Run的连续路径；验证模型图/局部修补/关系身份，只有实际触发新分支才能记B1643生产正证。两原case/oracle及模型预算先不改；随后继续轮转其它write域。B1642b同址多关系回退仍为下一修复候选，先补公开RED，不把未审完的其它身份/证明域债销账。
 
 ### §123.1729 r1051：恢复异构exact2评测（2026-09-10，已完成）
 
