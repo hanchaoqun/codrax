@@ -228,16 +228,30 @@ func EvidenceSetContainsSameClaimRole(items []EvidenceItem, expected EvidenceIte
 // subject/object endpoint. It is the structure-only fallback for list/table
 // rows whose model-authored label is an endpoint but whose visible prose does
 // not carry an explicit arrow. The helper never reads the user request or
-// interprets relation words in answer prose. Multiple source locations remain
-// ambiguous and therefore fail closed instead of choosing a citation.
+// interprets relation words in answer prose. Only exact source/role duplicates
+// coalesce: a shared location does not identify one relation or source receipt.
+// This qualifies both targeted repair suggestions and the caller's automatic
+// citation fallback; it does not alter claim-role or runtime authority rules.
 func UniqueGroundedClaimRoleForExactEndpoint(items []EvidenceItem, allowed []ClaimForm, label string) (EvidenceItem, bool) {
+	candidate, unique, _ := resolveGroundedClaimRoleForExactEndpoint(items, allowed, label)
+	return candidate, unique
+}
+
+// HasAmbiguousGroundedClaimRoleForExactEndpoint distinguishes competing exact
+// relation/source candidates from an absent candidate. Callers can suppress a
+// weaker citation fallback without treating an unknown endpoint as a conflict.
+// It shares all eligibility and identity rules with the unique-candidate query.
+func HasAmbiguousGroundedClaimRoleForExactEndpoint(items []EvidenceItem, allowed []ClaimForm, label string) bool {
+	_, _, ambiguous := resolveGroundedClaimRoleForExactEndpoint(items, allowed, label)
+	return ambiguous
+}
+
+func resolveGroundedClaimRoleForExactEndpoint(items []EvidenceItem, allowed []ClaimForm, label string) (candidate EvidenceItem, unique, ambiguous bool) {
 	label = strings.Trim(strings.TrimSpace(label), "`\"'")
 	if label == "" || len(allowed) == 0 {
-		return EvidenceItem{}, false
+		return EvidenceItem{}, false, false
 	}
-	var candidate EvidenceItem
 	candidateSet := false
-	locationKey := ""
 	for _, ev := range items {
 		if ev.GroundingStatus == GroundingUngrounded || ev.Source == "" || ev.LineStart <= 0 {
 			continue
@@ -249,18 +263,16 @@ func UniqueGroundedClaimRoleForExactEndpoint(items []EvidenceItem, allowed []Cla
 		if !codeSurfaceMatches(label, ev.Subject) && !codeSurfaceMatches(label, ev.Object) {
 			continue
 		}
-		key := strings.TrimSpace(ev.Source) + ":" + fmt.Sprintf("%d", ev.LineStart)
 		if !candidateSet {
 			candidate = ev
 			candidateSet = true
-			locationKey = key
 			continue
 		}
-		if key != locationKey {
-			return EvidenceItem{}, false
+		if !sameExactCitationRoleCandidate(candidate, ev) {
+			return EvidenceItem{}, false, true
 		}
 	}
-	return candidate, candidateSet
+	return candidate, candidateSet, false
 }
 
 // SameEvidenceClaimRole compares two evidence items at the typed claim

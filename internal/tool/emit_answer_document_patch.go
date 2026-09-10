@@ -4649,6 +4649,7 @@ func normalizeAnswerDocumentPatchCitationRefs(prev *types.AnswerDocumentV2, patc
 	}
 	pctx := newPreEmitCheckContext(ctx)
 	sourceInventorySets := preEmitSourceInventoryTypedPrincipalSets(ctx)
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
 	replacePool := patch.ReplaceCitations != nil
 	pool := answerDocumentPatchEffectiveCitationPool(prev, patch)
 	if len(pool) == 0 {
@@ -4729,7 +4730,7 @@ func normalizeAnswerDocumentPatchCitationRefs(prev *types.AnswerDocumentV2, patc
 					preEmitItemCitationAlignedWithContext(pctx, label, text, pool[item.CitationRef]) {
 					continue
 				}
-				cit, ok := preEmitPatchCitationCandidateForItem(pctx, label, text, patchCitations)
+				cit, ok := preEmitPatchCitationCandidateForItem(pctx, label, text, patchCitations, preEmitBlockCitationRoleForms(*block, view))
 				if !ok {
 					continue
 				}
@@ -4835,10 +4836,15 @@ func answerDocumentPatchCitationIndex(pool []types.Citation, cit types.Citation)
 	return -1
 }
 
-func preEmitPatchCitationCandidateForItem(pctx *preEmitCheckContext, label, text string, patchCitations []types.Citation) (types.Citation, bool) {
+func preEmitPatchCitationCandidateForItem(pctx *preEmitCheckContext, label, text string, patchCitations []types.Citation, forms []types.ClaimForm) (types.Citation, bool) {
 	if cit, ok := preEmitExplicitSourceLocationCitationForPatchItem(pctx, label, text); ok {
 		return cit, true
 	}
+	if preEmitEndpointOnlyCitationRoleAmbiguous(pctx, label, text, forms) {
+		return types.Citation{}, false
+	}
+	// The declared citation pool is not the item's selected relation. Resolve
+	// endpoint ambiguity before any location-only match in that pool.
 	if cit, ok := preEmitUniqueAlignedPatchCitationForItem(pctx, label, text, patchCitations); ok {
 		return cit, true
 	}

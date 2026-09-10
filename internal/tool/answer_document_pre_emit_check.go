@@ -4162,6 +4162,13 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				preEmitCitationMatchesAnySourceInventoryCandidate(pctx, doc.Citations[item.CitationRef], label, text) {
 				continue
 			}
+			// A location shared by several directed roles is not one selected
+			// relation. After the stronger source/definition selectors above,
+			// a label-only fallback must not undo the endpoint ambiguity guard
+			// merely because those roles collapse to one citation-pool index.
+			if preEmitEndpointOnlyCitationRoleAmbiguous(pctx, label, text, preEmitBlockCitationRoleForms(*block, view)) {
+				continue
+			}
 			match := preEmitUniqueCitationIndex(doc.Citations, item.CitationRef, func(cit types.Citation) bool {
 				if preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) {
 					return true
@@ -4301,6 +4308,16 @@ func normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc *types.Ans
 			if len(surfaces) == 0 {
 				continue
 			}
+			ambiguousEndpoint := false
+			for _, surface := range surfaces {
+				if preEmitEndpointOnlyCitationRoleAmbiguous(pctx, surface.label, surface.text, preEmitBlockCitationRoleForms(*block, view)) {
+					ambiguousEndpoint = true
+					break
+				}
+			}
+			if ambiguousEndpoint {
+				continue
+			}
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
 				preEmitItemCitationAlreadyAlignedForAnySurface(pctx, *block, surfaces, doc.Citations[item.CitationRef]) {
 				continue
@@ -4427,6 +4444,21 @@ func preEmitEvidenceMatchesTypedEdgeAnchor(ev types.EvidenceItem, anchor types.D
 	return diagramRelationEndpointCandidateMatches(ev.Subject, from) &&
 		(diagramRelationEndpointCandidateMatches(ev.Object, to) ||
 			diagramRelationEndpointCandidateMatches(ev.AnchorSymbol, to))
+}
+
+// Ambiguity only prevents a weaker automatic citation substitution. It does
+// not reject a document, certify its current citation, or select a relation.
+// An explicit supported role surface still uses the existing precise path.
+func preEmitEndpointOnlyCitationRoleAmbiguous(pctx *preEmitCheckContext, label, text string, forms []types.ClaimForm) bool {
+	if pctx == nil || !types.HasAmbiguousGroundedClaimRoleForExactEndpoint(pctx.evidenceItems(), forms, label) {
+		return false
+	}
+	for _, ev := range pctx.evidenceItems() {
+		if types.EvidenceClaimRoleAssertedByAnswerSurface(ev, forms, label, text) {
+			return false
+		}
+	}
+	return true
 }
 
 func preEmitUniqueTypedClaimRoleCitationForItemWithContext(pctx *preEmitCheckContext, item types.AnswerBlockItem, forms []types.ClaimForm) (types.Citation, bool) {

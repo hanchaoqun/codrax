@@ -57380,6 +57380,26 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1732 B1642b：端点候选歧义必须贯穿自动引用修复（2026-09-10）
+
+基线`c7cc2713f`，重新fetch远程无新增，工作区从干净状态施工。承接§123.1730同址多关系待办；最初“仅定向软提示”的范围判断必须纠正：`UniqueGroundedClaimRoleForExactEndpoint`还被自动引用fallback调用，post的`ViolClaimFormUnsupported`默认软但可由既有strict策略提升，不能把所有运行模式都写作纯建议。
+
+真实公开见证：原文件`flow.go:2`声明Dispatch，:3同时有Left/Right两调用。模型只以Dispatch作行标签，并保留已读真实声明行引用；没有可用于稳定引用的独立definition EvidenceID。旧fallback把同址两调用当一项，提示随pool顺序断言Dispatch→Left或Right，实际full/patch均把原:2改成:3。有效公开RED1.085s（`20260910-b1642b-public-mutation-red.log`），扩full/patch两序RED1.185s（`...-public-four-faces.log`）。有唯一definition EvidenceID的形由既有绑定保护，原来即不改引；不抹去这一正控，不声称所有答案都遭改写。
+
+只改types helper后，pre/post错误提示已消失，公开提交仍红：`normalizeItemCitationRefsByUniqueLabelCitationWithContext`另按引用位置唯一，绕过关系消歧（`...-normalizer-gap.log`）。补共同提交链两个弱fallback后，full绿而patch仍红；patch合并前还有`normalizeAnswerDocumentPatchCitationRefs`专用候选入口，主/附引用会先被改掉（`...-integrated-first.log`）。这些是同根多消费面，不把helper绿冒称系统闭环。
+
+本批最小修复：
+
+- types唯一性与歧义状态共用一份原候选过滤和精确来源/角色比较；同址不同callee/方向/form/范围/来源记录不合，完整重复和legacy原准入不变，不改`SameEvidenceClaimRole`或`ClaimFormOf`。
+- 三个弱自动替换位置消费同一歧义状态：full共用的label引用池、preEmit一般候选，以及patch专用候选。明确typed edge/arrow、精确来源行、item实际已选匹配引用、definition/inventory/evidence_ids强绑定仍走原路径。patch声明整池不等于item已选择关系，消歧必须先于整池按位置匹配。歧义只表示没有唯一替换根据，不认证旧引用已经证明关系，也不拒绝模型文档。
+- 不扫描用户原文/模型结论作硬门，不新增JSON字段/教程负担，不改门硬度策略、引用对齐全局谓词、Trace数值/源范围/根因资格/投影或自动补齐；模型正文、关系声明、主/附引用和显式EvidenceIDs有真实发布正控。
+
+验证：types16轴双序有效RED1.363s（`...-types-red.log`）；扩共享歧义API后新旧族count3 1.048s、race2.506s。真实16组合（双序×full/patch×legacy/known-definition/additional-citation/selected-evidence-id）及post7正反控全部绿（`...-all-faces-green.log`：types1.071/tool1.000/orchestrator1.772s）；追加cell端点、明确箭头、唯一关系、精确重复四控，加旧族count3绿0.861/1.403/1.729s（`...-neighbors-count3.log`）。首次窄race count3为2.199/4.313/2.239s。独立复核又发现patch的replace/append整池匹配先于消歧，四个公开形有效RED1.457s（`...-declared-pool-red.log`）；前移至精确source-location之后、整池匹配之前，最终24组合count3及新旧B1642族绿1.194/1.176/1.891s（`...-final-matrix-count3.log`；full的两个pool命名项是原full形重复，不冒称独立接口）。最终冷审无阻断。本轮原有测试不改；首个全仓`...-final-full.log`启动早于这一末次修复，不作最终源码全绿收据；冻结全仓另用`...-final-frozen-full.log`，最终race收据待补。其它显式候选按位置聚合、四面surface范围差异等旧独立面未在本批宣称全部统一。
+
+下一exact2仍按已冻结排期：H6显式窗完整根因+qf analyzer时序图，不重跑Python单LF凑绿、不改stock oracle。H6原窗233.190ms、四态157.248/5.604/70.338/D0；实际IO闭合population必须跟本轮q/来源走，不能借用H3的4/4.384ms当穷尽量；running实占/理想/折算和主账户runnable/edge ruler分开。qf源码两边分别是buildAnalysisIR→RunWith、Run→RunWith，不因题面暗示而伪造buildAnalysisIR→Run。两题机器oracle均不足代替人工数值/方向/证明审计。此刻仅排期，待修复封版及干净二进制后启动。
+
+最终新旧B1642族race count3绿types2.164/tool4.475/orchestrator2.034s（`...-final-matrix-race.log`）；冻结后完整`go test ./... -count=1`已启动（`...-final-frozen-full.log`），此刻未完成。先前全仓曾发中断，最终退出1且无测试FAIL输出，不能记作全绿；不以中断前已通过包替代本次最终源码验收。所有修改、新测试、公开RED和独立复核先收一批提交，工程全仓收据随后补记。
+
 ### §123.1731 r1052排期：写模式交付与显式窗IO异构验收（2026-09-10）
 
 库存复核243个`.case`，其中显式MODE写/计划/验证28个，HTRACE_FILE挂载29个（统计轴不承诺互斥）；不把单一语言或图表反复通过率当系统全景。按风险、距上次回放、跨模态覆盖、可独立复算四轴轮转：本轮先选真实apply的Python fallback与S型IO有限事实题；下一轮优先多关系同节点对图修补B1643的通用回归及异构关系消费者，不为追绿放宽原oracle。
@@ -57411,7 +57431,7 @@ H3保留1.347ms请求、1.337ms S型阻塞、4.384ms下界；6条可见不升总
 | B1641 图节点操作一致性 | P1/已推ce76fab83；工程全绿，生产新臂待触发 | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 模型显式新节点保持独立；精确声明表同源；sequence点分ID适配；既有节点改名冲突/typed边证据不放松 |
 | B1642 引用角色行级消歧 | P2/已推2ca6a4947；主面工程全绿，生产新臂待触发 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；不改模型引用/正文；旧fallback另列b |
 | B1643 同节点对多关系修补预算 | P1/已推6c259210e；公开入口/count3/race/全仓及独立审查通过，live新臂待触发 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 四类精确旧anchor载体预算与执行器复用同一选择器；0/多候选不铸缺席预算；原body/legacy路径不扩权 |
-| B1642b 端点回退同址多关系 | P2/冷审确认，待公开RED及边界审计 | 旧UniqueGroundedClaimRoleForExactEndpoint仅按source:line判唯一，同址不同typed关系仍可能首项抢位 | 审计新advisory末端及旧tool直接调用两面；不改自动引用/全局谓词以冒充闭环；补同址A→B/A→C与反序/receipt边界 |
+| B1642b 端点回退同址多关系 | P2/已实施公开full/patch闭环，工程集成中，见§123.1732 | 旧Unique按source:line判唯一；并查明三个弱自动改引消费面会绕过歧义 | 收窄不唯一的自动替换，保明确模型选择；不是仅软提示，也不宣称全部normalizer统一 |
 | B1644 IO完成唤醒证明布尔语义 | P2/已推36f4cf192，36格/count3/race/全仓及独立审查通过；live待验 | CompletionWokeIssuer=false含absence/ambiguity，但入模仅裸布尔；模型据此写“未唤醒”超出证明 | 只补入模双语证明边界：未形成独立闭合证明≠证明未唤醒；true/false/缺值、RQ/BIO、正阻塞量另证；保原API/算法/根因门，不改模型表或结论 |
 
 B1640首红日志`.codrax/tmp/20260910-b1640-completion-teaching-red.log`，1.059s退出1；合法计数/小数/两类分类值、真实工具array schema前提均过，只在矛盾教学/缺原生数组指引失败。Java畸形数组外尾片本身仍判模型错误：不据此猜括号或丢尾，不宣称教学矛盾导致了这次JSON格式错。B1641以新节点明确展示标签优先、旧ID重用等泛化矩阵核权属后施工；继承/时序混表达及C++flush/static type细节另留模型精度观察，不为过单题强制图形。下一exact2候选已排序为写tokenizers Python fallback + H3显式窗IO，未启动。
