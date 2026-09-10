@@ -57386,11 +57386,13 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 | 工单 | 优先级/状态 | 通用问题与边界 | 验收/后续 |
 |---|---|---|---|
-| B1640 Completion教学 | P1/施工中 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | 实际BuildInitialInstruction+真实schema+合法typed facts先红；只修软教学，明确原生JSON数组，不收紧或放宽validator |
+| B1640 Completion教学 | P1/a已实现验收，b同根尾批施工中 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | a实际BuildInitialInstruction+真实schema+合法typed facts先红后绿；b限制schema旧cap句只对整数计数建议grouped_count，不让measurement误分计数 |
 | B1641 图节点操作一致性 | P1/已证生产见证，待独立RED | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 先审模型显式创建独立方法节点的权属；schema/执行同源，保既有节点改名冲突/typed边证据，不替模型选边或合并意图 |
 | B1642 引用角色行级消歧 | P2/确认待施工 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；缺/歧义只能软提示，不改模型引用/正文 |
 
 B1640首红日志`.codrax/tmp/20260910-b1640-completion-teaching-red.log`，1.059s退出1；合法计数/小数/两类分类值、真实工具array schema前提均过，只在矛盾教学/缺原生数组指引失败。Java畸形数组外尾片本身仍判模型错误：不据此猜括号或丢尾，不宣称教学矛盾导致了这次JSON格式错。B1641以新节点明确展示标签优先、旧ID重用等泛化矩阵核权属后施工；继承/时序混表达及C++flush/static type细节另留模型精度观察，不为过单题强制图形。下一exact2候选已排序为写tokenizers Python fallback + H3显式窗IO，未启动。
+
+B1640a已完成：只改公共Completion Handoff两句，明确native array、整数计数/测量/分类值不同口径及reason叙述归属；没有新JSON字段或validator变更，lossless字符串数组兼容仍在。新实际入口针及旧Completion Handoff count3绿1.163s，窄race count3绿2.710s，完整agent包53.482s绿；日志`20260910-b1640-{completion-teaching-green,completion-teaching-race,agent-full}.log`。独立冷审通过。额外审到现schema cap句仍泛称per-group scalars→grouped_count，作为B1640b同根尾批单独先红后修，不能把a工程绿冒称整个教学绝无矛盾。r1051审计及计划已以`df0d62214`推main；新live须用后续干净构建，r1051不冒称验收这些新教学。
 
 ### §123.1729 r1051：恢复异构exact2评测（2026-09-10，已完成）
 
