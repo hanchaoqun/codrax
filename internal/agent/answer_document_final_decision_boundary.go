@@ -820,9 +820,9 @@ func traceFinalReaderMechanismScope(token string, zh bool) (permitted, unproved 
 		return "state the compute capacity, frequency, or explicitly quantified improvement opportunity measured while running", "a compute-supply row is not runnable scheduling delay and does not prove a lock, direct blocking, or a business dependency beyond the measured execution"
 	case "d_state_or_io_wait", "io_wait", "io_latency", "fragmented_d_state_or_io_wait", "io_burst_episode":
 		if zh {
-			return "只陈述证据行明确覆盖的 D-state、iowait 或 IO 发起到完成区间，并保持状态占用与设备延迟口径分离", "裸状态或时长不证明具体设备、文件、请求、资源持有者或唤醒者；这些身份和关联必须由独立证据给出"
+			return "按证据行区分 D-state/iowait 状态占用、单请求发起到完成的驻留时长，以及由独立完成唤醒证明闭合且单独计量的提交线程 S/D 阻塞区间；保持状态占用与设备延迟口径分离，各口径不得直接相加", "裸状态或时长不证明具体设备、文件、请求、资源持有者或唤醒者；这些身份和关联必须由独立证据给出"
 		}
-		return "state only the D-state, iowait, or IO issue-to-completion interval explicitly covered by the evidence row, keeping state occupancy separate from device latency", "a bare state or duration does not prove a particular device, file, request, resource holder, or waker; those identities and joins require their own structured evidence"
+		return "distinguish the evidence row's D-state/iowait occupancy, single-request issue-to-completion residence, and a separately measured S/D blocked interval of the issuer closed by independent completion-to-issuer wakeup proof; keep state occupancy separate from device latency and do not add these rulers", "a bare state or duration does not prove a particular device, file, request, resource holder, or waker; those identities and joins require their own structured evidence"
 	case "sleep_wait", "fragmented_sleep_wait", "pacing_idle", "periodic_idle":
 		if zh {
 			return "陈述已测 sleep 区间及精确唤醒记录明确给出的前后关系", "sleep 本身不证明等待谁、等待工作完成、属于正常协作，或构成根因；必须另有结构化依赖证据"

@@ -57380,6 +57380,12 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1737 B1645：IO教学统一按记录区分三种统计范围（2026-09-10）
+
+两个实际入模出口已修：因果finalizer的机制说明与共享技能IO-LATENCY ROLE WORDS，不再仅按io_latency名称断言“这是请求驻留”。按每条记录的证明和值区分调度D/iowait、单请求issue→complete、独立完成方唤醒提交线程并单独测量的S/D阻塞。保留旧请求/等待不得互换、不可跨尺相加和具体设备/文件/持有者/唤醒者须独立凭证；类别不授链上资格。只改教学，不增JSON负担/新硬门，不改查询/投影/排序/模型原文。
+
+真实TraceQuery→ledger→投影→BuildInitialInstruction双语S正控，先核request .100、closed blocked .090、原始来源和链上资格才验说明；不是B1644有限事实读者，也不为D同尺收敛强造第二IO节点。相同机制的其余4个typed类别共享范围，未知类别不继承。共享注册技能独立负针拦旧“一切IO都是request”说明。两个出口有效RED`20260910-b1645-two-exits-red.log`agent0.973/skill1.578s；新与旧FIN-BIND邻近count3 1.092/1.514s；末新增同族守护后race count3 4.591/2.256s（`...-final-teaching-race-count3.log`）。原测试未改，独立冷审无阻断；全组full及新live收据后补，不据教学绿宣称模型再无混算。
+
 ### §123.1736 B1648：现代IO闭合判定不再借用链锚存在性（2026-09-10）
 
 已实现，先收独立小批；完整工程回归待本组封版。原生请求已运行`ioLatencyIssuerBlockedInterval`并得到独立闭合结果，但`resourceClosureEvaluated`只在chain anchors存在时设置，现代false被误当旧未评估对象。唯一算法变更是原生io_latency构造点无条件置已评估；无wake/错误waker的请求仍显示.100ms驻留和邻近/背景，但不再凭目标身份进入链上响应阻塞。真正S/D完成闭合仍使用.090ms提交线程阻塞；D原状态.090（无wake时.110）、目标running、其它资源和legacy手造默认bit均不改。邻近有自己的序数，不能以Rank>0误判上链。
