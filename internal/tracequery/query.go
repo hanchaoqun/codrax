@@ -3077,6 +3077,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		return nil
 	}
 	running := map[string]ThreadDuration{}
+	// Each CPU bucket owns its chronological contribution stream; iterating
+	// unrelated CPU map entries must not reorder one measurement identity.
+	runningMeasurements := map[string]*schedulerMeasurementRecorder{}
+	runningMeasurementWindow := queryResultTimeWindow(q)
+	runningMeasurementWindow.EndTs = schedulerEnd
 	pressure := map[int]*cpuPressureAcc{}
 	// CMP-10 (§7.4): per-CPU frequency-weighted running accumulation for the
 	// compute-supply ledger, fed by the SAME busy segments judged below.
@@ -3103,6 +3108,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				end = events[i+1].Ts
 				endLine = events[i+1].Line
 			}
+			actualEnd := end
 			start := ev.Ts
 			if q.TimeStart > 0 && start < q.TimeStart {
 				start = q.TimeStart
@@ -3154,6 +3160,21 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				}
 				td.Priority = ev.NextPrio
 				td.PriorityClass = classifyTracePriority(q.TraceFlavor, ev.NextPrio)
+				measurement, measured := runningMeasurements[key]
+				if !measured {
+					measurement = newSchedulerMeasurementRecorder(q, candidateThread, "cpu_running_sweep", runningMeasurementWindow)
+					runningMeasurements[key] = measurement
+				}
+				closure := runnableCPUContinuityBoundaryWindowEnd
+				if endLine > 0 {
+					closure = string(EventSchedSwitch)
+				}
+				measurement.add(schedulerMeasurementSegment{
+					Thread: candidateThread, State: StateRunning, OriginalState: StateRunning,
+					StartTs: start, EndTs: end, ActualStartTs: ev.Ts, ActualEndTs: actualEnd, DurationMs: dur,
+					StartLine: ev.Line, EndLine: endLine, CPU: cpu, CPUKnown: true,
+					Priority: ev.NextPrio, PriorityClass: td.PriorityClass, Closure: closure,
+				})
 				if td.StartTs == 0 || start < td.StartTs {
 					td.StartTs = start
 				}
@@ -3198,7 +3219,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		}
 	}
 	stats.targetCPUFrequencyCensus = newTargetCPURepresentativeFrequencyCensus(idx, q)
-	for _, td := range running {
+	for key, td := range running {
+		td.MeasurementDomain = runningMeasurements[key].finish()
+		running[key] = td
 		stats.TopRunning = append(stats.TopRunning, td)
 		if census := stats.targetCPUFrequencyCensus; census != nil && td.Thread.PID > 0 && td.CPU >= 0 && td.Frequency > 0 {
 			frequency := TargetWindowCPURepresentativeFrequency{
@@ -5849,10 +5872,12 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	// lanes that built the chain first; nil keeps the sweep byte-identical.
 	anchorsByPID := q.chainAnchorWindowsByPID
 	var anchoredDIOWakeups []anchoredDIOWakeupRecord
-	addDurationCause := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int, cause string, trackSlices bool) float64 {
+	measurementRecorders := map[int]*schedulerMeasurementRecorder{}
+	addDurationCause := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int, cause string, trackSlices bool, measurement schedulerMeasurementSegment) float64 {
 		if !identity.allows(start.thread.PID) {
 			return 0
 		}
+		actualEndTs := endTs
 		startTs := start.ts
 		if q.TimeStart > 0 && startTs < q.TimeStart {
 			startTs = q.TimeStart
@@ -5972,6 +5997,22 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				td.freqInSegmentSamples += fs.inSegmentSamples
 			}
 		}
+		// Observe exactly the accepted, pre-cap contribution. In particular the
+		// booked D/IO lane comes from the existing verdict, not start.state.
+		measurement.Thread, measurement.OriginalState = start.thread, start.state
+		measurement.StartTs, measurement.EndTs = startTs, endTs
+		measurement.ActualStartTs, measurement.ActualEndTs = start.ts, actualEndTs
+		measurement.DurationMs = dur
+		measurement.StartLine, measurement.EndLine = start.line, endLine
+		measurement.CPU, measurement.CPUKnown = start.cpu, start.cpuKnown
+		measurement.CPUProvenance = start.cpuProvenance
+		measurement.Priority, measurement.PriorityClass = start.priority, start.priorityClass
+		recorder, exists := measurementRecorders[start.thread.PID]
+		if !exists {
+			recorder = newSchedulerMeasurementRecorder(q, start.thread, "off_cpu_sweep", queryResultTimeWindow(q))
+			measurementRecorders[start.thread.PID] = recorder
+		}
+		recorder.add(measurement)
 		bucket[key] = td
 		if start.state == StateRunnable && start.cpuKnown && validTraceCPUIndex(start.cpu) {
 			acc := cpuPressure(pressure, start.cpu)
@@ -5993,8 +6034,8 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		}
 		return anchoredOverlap
 	}
-	addDuration := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int) {
-		addDurationCause(bucket, start, endTs, endLine, "", false)
+	addDuration := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int, closure string) {
+		addDurationCause(bucket, start, endTs, endLine, "", false, schedulerMeasurementSegment{State: start.state, Closure: closure})
 	}
 	addRunnableDuration := func(start offCPUStart, endTs float64, endLine int, observedCPU int, observedKnown bool, boundary string) {
 		startTs := start.ts
@@ -6034,7 +6075,10 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		}
 		continuity.observe(segment, verdict)
 		runnableSegments = append(runnableSegments, segment)
-		addDuration(runnable, attributed, endTs, endLine)
+		addDurationCause(runnable, attributed, endTs, endLine, "", false, schedulerMeasurementSegment{
+			State: StateRunnable, Closure: boundary, CPUReason: verdict.reason,
+			ExpectedCPU: verdict.expectedCPU, ObservedCPU: verdict.observedCPU, ObservedCPUKnown: observedKnown,
+		})
 		if !verdict.known {
 			// §29.104.21 DISPLAY-HYG 件4 (2026-07-17): stamp the cpu=-1
 			// bucket's UNIFORM continuity reason (first unknown segment wins;
@@ -6168,10 +6212,12 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				case StateRunnable:
 					addRunnableDuration(start, ev.Ts, ev.Line, -1, false, runnableCPUContinuityBoundaryGeneration)
 				case StateSSleep:
-					addDuration(sleep, start, ev.Ts, ev.Line)
+					addDuration(sleep, start, ev.Ts, ev.Line, offCPUMeasurementWakeClosure(ev))
 				case StateDSleep, StateIOWait:
 					if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true); io {
-						anchored := addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
+						anchored := addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true, schedulerMeasurementSegment{
+							State: StateIOWait, Closure: offCPUMeasurementWakeClosure(ev), IO: io, IOMarked: marked, IOAmbiguous: ambiguous, Caller: caller,
+						})
 						recordAnchoredDIOWakeup(anchored, ev)
 					} else {
 						if ambiguous {
@@ -6181,7 +6227,9 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 						if marked {
 							cause = offCPUCauseSymbol(caller)
 						}
-						anchored := addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true)
+						anchored := addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true, schedulerMeasurementSegment{
+							State: StateDSleep, Closure: offCPUMeasurementWakeClosure(ev), IO: io, IOMarked: marked, IOAmbiguous: ambiguous, Caller: caller,
+						})
 						recordAnchoredDIOWakeup(anchored, ev)
 						markDStateCoverage(start, ev.Ts, marked, caller)
 					}
@@ -6213,10 +6261,12 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 					case StateRunnable:
 						addRunnableDuration(start, ev.Ts, ev.Line, ev.CPU, true, runnableCPUContinuityBoundarySchedIn)
 					case StateSSleep:
-						addDuration(sleep, start, ev.Ts, ev.Line)
+						addDuration(sleep, start, ev.Ts, ev.Line, string(EventSchedSwitch))
 					case StateDSleep, StateIOWait:
 						if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true); io {
-							addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
+							addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true, schedulerMeasurementSegment{
+								State: StateIOWait, Closure: string(EventSchedSwitch), IO: io, IOMarked: marked, IOAmbiguous: ambiguous, Caller: caller,
+							})
 						} else {
 							if ambiguous {
 								blockedReasonAmbiguousIntervals++
@@ -6225,7 +6275,9 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 							if marked {
 								cause = offCPUCauseSymbol(caller)
 							}
-							addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true)
+							addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true, schedulerMeasurementSegment{
+								State: StateDSleep, Closure: string(EventSchedSwitch), IO: io, IOMarked: marked, IOAmbiguous: ambiguous, Caller: caller,
+							})
 							markDStateCoverage(start, ev.Ts, marked, caller)
 						}
 					}
@@ -6263,10 +6315,12 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			case StateRunnable:
 				addRunnableDuration(start, q.TimeEnd, 0, -1, false, runnableCPUContinuityBoundaryWindowEnd)
 			case StateSSleep:
-				addDuration(sleep, start, q.TimeEnd, 0)
+				addDuration(sleep, start, q.TimeEnd, 0, runnableCPUContinuityBoundaryWindowEnd)
 			case StateDSleep, StateIOWait:
 				if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, q.TimeEnd, blockedReasons, q, false); io {
-					addDurationCause(iowait, start, q.TimeEnd, 0, offCPUCauseSymbol(caller), true)
+					addDurationCause(iowait, start, q.TimeEnd, 0, offCPUCauseSymbol(caller), true, schedulerMeasurementSegment{
+						State: StateIOWait, Closure: runnableCPUContinuityBoundaryWindowEnd, IO: io, IOMarked: marked, IOAmbiguous: ambiguous, Caller: caller,
+					})
 				} else {
 					if ambiguous {
 						blockedReasonAmbiguousIntervals++
@@ -6275,12 +6329,15 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 					if marked {
 						cause = offCPUCauseSymbol(caller)
 					}
-					addDurationCause(dstate, start, q.TimeEnd, 0, cause, true)
+					addDurationCause(dstate, start, q.TimeEnd, 0, cause, true, schedulerMeasurementSegment{
+						State: StateDSleep, Closure: runnableCPUContinuityBoundaryWindowEnd, IO: io, IOMarked: marked, IOAmbiguous: ambiguous, Caller: caller,
+					})
 					markDStateCoverage(start, q.TimeEnd, marked, caller)
 				}
 			}
 		}
 	}
+	stampOffCPUMeasurementDomains(measurementRecorders, runnable, sleep, dstate, iowait)
 	// ENG-1 (复核冷读 F2-1, 2026-07-12): the FULL pre-cap runnable census
 	// rides back beside the capped display lists so thread_cpu_load totals
 	// can be true full-window sums (see computeThreadCPULoad).
@@ -6732,7 +6789,11 @@ func copyThreadDurationDisplayRoster(in []ThreadDuration, max int) []ThreadDurat
 	if max > 0 && length > max {
 		length = max
 	}
-	return append([]ThreadDuration(nil), in[:length]...)
+	out := append([]ThreadDuration(nil), in[:length]...)
+	for i := range out {
+		out[i] = cloneThreadDurationMeasurement(out[i])
+	}
+	return out
 }
 
 func cpuPressureAccounting(stats WindowStats) []CPUPressureStats {
@@ -8228,6 +8289,7 @@ type stateChurnAcc struct {
 	lineStart     int
 	lineEnd       int
 	lastState     ThreadState
+	measurement   *schedulerMeasurementRecorder
 }
 
 func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ...*queryPIDIdentityFilter) []ThreadStateChurnSummary {
@@ -8251,13 +8313,13 @@ func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ..
 	head := schedulerHeadForQuery(idx, q)
 	headOwnsPrefix := idx.Windowed && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 && head != nil
 	headComplete := headOwnsPrefix && head.Complete
-	closeState := func(pid int, endTs float64, endLine int) {
+	closeState := func(pid int, endTs float64, endLine int, closure string) {
 		start, ok := open[pid]
 		if !ok {
 			return
 		}
 		delete(open, pid)
-		addStateChurnInterval(idx, accs, start, endTs, endLine, q, blockedReasons)
+		addStateChurnInterval(idx, accs, start, endTs, endLine, q, blockedReasons, closure)
 	}
 	openState := func(thread ThreadRef, state ThreadState, ts float64, line int) {
 		if !identity.allows(thread.PID) {
@@ -8319,7 +8381,7 @@ func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ..
 				return
 			}
 			if ok {
-				closeState(ev.WakeePID, ev.Ts, ev.Line)
+				closeState(ev.WakeePID, ev.Ts, ev.Line, string(ev.Type))
 			}
 			openState(ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID}, StateRunnable, ev.Ts, ev.Line)
 		case EventSchedSwitch:
@@ -8327,7 +8389,7 @@ func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ..
 				if !identity.allows(ev.NextPID) {
 					delete(open, ev.NextPID)
 				} else {
-					closeState(ev.NextPID, ev.Ts, ev.Line)
+					closeState(ev.NextPID, ev.Ts, ev.Line, string(ev.Type))
 					openState(ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}, StateRunning, ev.Ts, ev.Line)
 				}
 			}
@@ -8335,7 +8397,7 @@ func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ..
 				if !identity.allows(ev.PrevPID) {
 					delete(open, ev.PrevPID)
 				} else {
-					closeState(ev.PrevPID, ev.Ts, ev.Line)
+					closeState(ev.PrevPID, ev.Ts, ev.Line, string(ev.Type))
 					openState(ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID}, stateFromPrevState(ev.PrevState), ev.Ts, ev.Line)
 				}
 			}
@@ -8347,7 +8409,7 @@ func computeStateChurnSummaries(idx *Index, q Query, max int, identityFilters ..
 		endTs = idx.LastTs
 	}
 	for pid := range open {
-		closeState(pid, endTs, 0)
+		closeState(pid, endTs, 0, runnableCPUContinuityBoundaryWindowEnd)
 	}
 	out := make([]ThreadStateChurnSummary, 0, len(accs))
 	for _, acc := range accs {
@@ -8490,7 +8552,7 @@ func blockedReasonMarkerInQuery(ev Event, q Query) bool {
 	return true
 }
 
-func addStateChurnInterval(idx *Index, accs map[string]*stateChurnAcc, start stateChurnOpen, endTs float64, endLine int, q Query, blockedReasons map[int][]Event) {
+func addStateChurnInterval(idx *Index, accs map[string]*stateChurnAcc, start stateChurnOpen, endTs float64, endLine int, q Query, blockedReasons map[int][]Event, closure string) {
 	if endTs <= start.ts {
 		return
 	}
@@ -8506,8 +8568,9 @@ func addStateChurnInterval(idx *Index, accs map[string]*stateChurnAcc, start sta
 		return
 	}
 	state := start.state
+	physicalEndLine := endLine
+	match := blockedReasonIntervalMatch{}
 	if state == StateDSleep {
-		match := blockedReasonIntervalMatch{}
 		if !blockedReasonRefinementUnavailableForInterval(idx, q, start.thread.PID, start.ts, endTs, endLine > 0) {
 			match = matchBlockedReasonForIntervalAtClosure(blockedReasons, start.thread, start.ts, endTs, endLine > 0)
 		}
@@ -8521,8 +8584,23 @@ func addStateChurnInterval(idx *Index, accs map[string]*stateChurnAcc, start sta
 	acc := accs[key]
 	if acc == nil {
 		acc = &stateChurnAcc{thread: start.thread}
+		window := queryResultTimeWindow(q)
+		if window.EndTs == 0 && idx != nil && idx.LastTs > 0 {
+			window.EndTs = idx.LastTs
+		}
+		acc.measurement = newSchedulerMeasurementRecorder(q, start.thread, "state_churn_sweep", window)
 		accs[key] = acc
 	}
+	segment := schedulerMeasurementSegment{
+		Thread: start.thread, State: state, OriginalState: start.state,
+		StartTs: clampedStart, EndTs: clampedEnd, ActualStartTs: start.ts, ActualEndTs: endTs, DurationMs: durationMs,
+		StartLine: start.line, EndLine: physicalEndLine, Closure: closure,
+		IO: state == StateIOWait, IOMarked: match.Event != nil, IOAmbiguous: match.Ambiguous,
+	}
+	if match.Event != nil {
+		segment.Caller = match.Event.Reason
+	}
+	acc.measurement.add(segment)
 	candidateEndLine := firstPositive(endLine, start.line)
 	if candidateEndLine > acc.lineEnd || (candidateEndLine == acc.lineEnd && threadDisplayLess(start.thread, acc.thread)) {
 		acc.thread = start.thread
@@ -8625,6 +8703,7 @@ func buildStateChurnSummary(acc *stateChurnAcc, minDurationMs float64) (ThreadSt
 		NextStepKind:     stateChurnNextStepKind(dominantState),
 	}
 	item.Summary = renderStateChurnSummary(item)
+	item.MeasurementDomain = acc.measurement.finish()
 	return item, true
 }
 
@@ -9165,7 +9244,7 @@ func threadDurationCapOverflow(census map[string]ThreadDuration, top []ThreadDur
 func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration {
 	out := make([]ThreadDuration, 0, len(in))
 	for _, td := range in {
-		out = append(out, td)
+		out = append(out, cloneThreadDurationMeasurement(td))
 	}
 	// 修复轮二 件A (DET 纪律, 2026-07-13): the stable sort used to preserve
 	// MAP order among equal durations — a tie was elected by map iteration
@@ -9227,7 +9306,7 @@ func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chai
 			accs[identity] = acc
 		}
 		if !acc.initialized {
-			acc.td = member
+			acc.td = cloneThreadDurationMeasurement(member)
 			acc.td.DurationMs = 0
 			// acc.td was initialized by value from the first member. Clear its
 			// exact inventory before the common append below; otherwise the first
@@ -9255,6 +9334,7 @@ func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chai
 		} else if !validTraceCPUIndex(member.CPU) || !acc.cpuKnown || member.CPU != acc.td.CPU {
 			acc.cpuKnown = false
 		}
+		acc.td.MeasurementDomain = retainThreadDurationMeasurementSource(acc.td.MeasurementDomain, member.MeasurementDomain)
 		// Numeric TID is the hard key; display identity follows the latest
 		// contributing bucket so a rename while the task migrates does not leave
 		// the aggregate on a stale comm. Equal-end ties remain deterministic.

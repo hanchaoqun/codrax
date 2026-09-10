@@ -32,7 +32,10 @@ func TestB1638B1DiagMeasurementFieldDisposition(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("receipt fields need explicit scalar/coordinate disposition: got=%q want=%q", got, want)
 	}
-	for _, owner := range []reflect.Type{reflect.TypeOf(tracequery.TimelineResult{}), reflect.TypeOf(tracequery.TargetWindowStateAccount{})} {
+	// B2 adds two independently owned native-stream carriers. Their optional
+	// descriptors use the same explicit nine-field renderer, not a bulk skip.
+	for _, owner := range []reflect.Type{reflect.TypeOf(tracequery.TimelineResult{}), reflect.TypeOf(tracequery.TargetWindowStateAccount{}),
+		reflect.TypeOf(tracequery.ThreadDuration{}), reflect.TypeOf(tracequery.ThreadStateChurnSummary{})} {
 		field, ok := owner.FieldByName("MeasurementDomain")
 		if !ok || field.Type != reflect.PointerTo(typ) || field.Tag.Get("json") != "measurement_domain,omitempty" {
 			t.Fatalf("%s must retain one optional, typed receipt: %+v", owner, field)
@@ -109,8 +112,10 @@ worker-55 (55) [000] .... 6793224.040000: sched_switch: prev_comm=worker prev_pi
 				result.Timeline.MeasurementDomain = nil
 			}
 			legacy := strings.Join(renderStepBody(&Step{View: view, effMaxLines: 10000}, stepOutcome{result: &result}).lines, "\n")
-			if strings.Contains(legacy, "measurement_domain") {
-				t.Fatal("an absent legacy receipt must not be manufactured")
+			// Only the B1 owners were removed. Independent B2 native-stream
+			// receipts must remain visible rather than being suppressed too.
+			if strings.Contains(legacy, prefix) || strings.Contains(legacy, "timeline.measurement_domain:") {
+				t.Fatal("an absent legacy account/timeline receipt must not be manufactured")
 			}
 		})
 	}

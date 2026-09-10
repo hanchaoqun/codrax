@@ -2704,10 +2704,15 @@ type offCPUCauseSlice struct {
 }
 
 type ThreadDuration struct {
-	Thread     ThreadRef `json:"thread"`
-	DurationMs float64   `json:"duration_ms"`
-	CPU        int       `json:"cpu"`
-	CoreClass  string    `json:"core_class,omitempty"`
+	// MeasurementDomain identifies the native accumulation stream that
+	// produced this row, not this row's complete value identity or capture
+	// completeness. Different buckets may share one source stream. Legacy
+	// and independently constructed rows keep nil; absence proves no join.
+	MeasurementDomain *types.TraceSchedulerMeasurementDomain `json:"measurement_domain,omitempty"`
+	Thread            ThreadRef                              `json:"thread"`
+	DurationMs        float64                                `json:"duration_ms"`
+	CPU               int                                    `json:"cpu"`
+	CoreClass         string                                 `json:"core_class,omitempty"`
 	// Frequency is the legacy single cpu_frequency sample at the last judged
 	// segment start (context only); weighted judgements use the unexported
 	// accumulators below (methodology audit §7.30.2 R5e).
@@ -2826,7 +2831,10 @@ func (td ThreadDuration) weightedFrequencyKHz() int64 {
 }
 
 type ThreadStateChurnSummary struct {
-	Thread ThreadRef `json:"thread"`
+	// MeasurementDomain describes the native state-churn accumulation stream;
+	// it neither replaces StateAccountKey nor grants cross-method equivalence.
+	MeasurementDomain *types.TraceSchedulerMeasurementDomain `json:"measurement_domain,omitempty"`
+	Thread            ThreadRef                              `json:"thread"`
 	// StateAccountKey is the opaque exact scheduler-segment identity shared
 	// with the corresponding wakeup-impact/root-rank publication when all
 	// three views describe the same physical state account. Empty means the

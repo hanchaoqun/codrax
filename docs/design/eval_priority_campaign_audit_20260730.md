@@ -57380,6 +57380,42 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1726 B1638b2a：三条原生统计流的独立来源与复制保护（2026-09-09）
+
+从已推送 `4ffa97b8e` 干净工作树接续；本轮 SSH443 fetch 后 main/origin 为0/0。B1638b1仅覆盖Timeline/目标账户，本批补Running、OffCPU、StateChurn三个不同的原生统计算法；**尚不修改投影合并、目标账户选择或等待分母，B1638b原数值问题仍开放**。
+
+- [x] 实际Run→JSON先红后绿：OffCPU四桶原R3.9/S2.6/D2.6/IO2.6均有值，仅缺来源；Running原同TID两CPU20/10ms、Churn原7片段/6切换/70ms不变，仅缺来源。有效RED分别为`20260909-b1638b2a-offcpu-red.log`0.806s、`...-running-churn-red.log`0.585s，不把缺拟议字段的编译失败算产品复现。
+- [x] `ThreadDuration`与`ThreadStateChurnSummary`增加可选9字段`MeasurementDomain`；沿用b1载体，不新增模型JSON必填字段。来源说明是**已经构造的原生贡献流**，不是该行完整值身份、完整采集、跨算法等价或因果资格。外部capture/clock/result来源仍须独立绑定，现有完整物理`StateAccountKey`不替换。
+- [x] 单源流式recorder在原算法成功记账处逐贡献编码24个typed字段，保原/最终状态、原生输入/裁剪端点、浮点精确位、物理关闭行与方式、CPU及已知性、优先级、原IO判定等；不重扫事件、不从五态总量/已截断明细猜身份、不读prose。只存固定摘要与小型边界，不存区间副本，也不为每线程复制整个Query；额外存储随原生流数而不是片段数增长。空、未知边界、非法数值、取消不铸凭证，既有可用时长不因此归零。
+- [x] Running每(TID,CPU)独立流，避免CPU map遍历顺序改变摘要。实际统计终点取原`schedulerEnd`；请求窗仍原q。窗口头synthetic switch只记录其**原生构造起点**，不声称最早物理切入。OffCPU每TID四桶共用完整关闭流，在Top8和D/IO凭证展示cap之前完成；D起始最终可能记IO，显式保两态。各桶独立clone，pressure等独立构造行未借域。
+- [x] Churn逐已记账的五态流记录，已有fragment/switch/min-duration准入及总量不改。D→IO前先保存物理EndLine；尾部0不能被显示用marker行冒充真实闭合。q未设End时只登记原算法已采用的LastTs，不改q以调整原裁剪。stream_search独立生产通道未接本源，继续nil，不自动继承indexed凭证。
+- [x] 独立审阅抓到新增指针复制漏口：真实OffCPU公开top与私有census共享指针，display roster及跨CPU汇总也会借首成员指针。有效RED`...-copy-source-red.log`0.638s后，仅三处既有复制接独立clone。同TID同原生域跨CPU汇总保持来源；异域或known+nil任一顺序清来源，后续known不复活，所有非来源字段逐字段与legacy结果相同。没有证实当前生产跨TID/跨算法混合走此helper；异源矩阵属前瞻防御，不夸报客户新错算。
+- [x] 真实`TraceQuery.Execute`→保存JSON覆盖window_stats/root_cause_rank/frame_root_cause_bundle：Running、四OffCPU桶、Churn均保正值和正确独立来源。固定相同source/query/at后，去掉所有新来源metadata再编Observation，与有metadata版完全相同；摘要不新增opaque来源教学。主动读取完整JSON仍可看到元数据，不能把“未主动注入模型摘要”说成“模型绝不可见”。本批未接SourceRef/Observation/Node/note/rank来源传播。
+- [x] tracediag沿用b1 exact-type九字段逐一显示，时间固定小数，0行过滤哨兵仍显式；两新owner加入字段处置清册。三视图×nil/nonEvent policy真实引擎输出通过且不修改JSON。B1旧legacy测试只删除账户/时间线，故仅把“全页禁止任意measurement_domain”收窄到这两个owner；独立B2来源必须保留。零schema hash重签，不扩预算、不声称默认行cap容纳全部来源。
+- [x] 三席分区施工后交叉只读末审与root复核通过。只新增来源登记/复制，不改变旧毫秒、求和/排名/链资格、原credential cap、状态准入或模型正文/图/结论。不以用户请求/模型prose关键词建立硬门。
+- [x] 冻结源码最终86包覆盖通过：首轮85包绿，唯一比较清册演化后末完整tracequery87.875s绿；不是一次全仓全绿。干净构建及提交推送收据下文续记，新live未启动。
+
+工程收据（均在`.codrax/tmp/`）：OffCPU最终count3 0.460s、race2.587s；Running/Churn精确owned新旧族count3 0.582s、race1.546s；copy来源新旧族count3 0.731s、race2.089s。共享recorder四族覆盖25个变更轴、24字段清册、全部未知/取消与稳定独立finish、1/4096片段不增长分配；root末冻结b1+b2引擎count3 `20260909-b1638b2a-frozen-native-count3.log`0.768s绿。公开接口/诊断count3 `...-public-diag-count3.log`tool2.573s/tracediag1.504s、race `...-public-diag-race.log`tool3.250s/tracediag1.711s绿。Running席第一次宽前缀count3恰覆盖另一席在途copy有效RED，日志保留；随后按精确owned五名+旧邻近族重跑，不改测试求绿。native末race/全包另记，不能预签。
+
+活跃流保护本轮真实专项count3 `20260909-b1638b2a-stream-protection-count3.log`：agent1.520s、llm2.899s、repl10.990s均绿。包含实际SSE隐藏推理增量、fallback实际流模式、keepalive/partial frame、真实停滞/取消及更短caller deadline。**活跃连接不因4ms或旧4m没有最终正文而降级**；机制以短阈值验，不冒称本轮单流持续四分钟客户live。
+
+**后续施工队列，未完成项不提前勾选：**
+
+1. [ ] B1638b2b：原生来源沿ThreadDuration/StateChurn→drilldown/rank/原因slice/family→Observation/Node保留全部来源及unknown成员，区分父结果范围和递归局部分区。严禁只取members[0]，不借target Timeline，完整物理StateAccountKey正臂继续可跨view。
+2. [ ] B1638b3：统一§1725完整消费清册的早期去重、R1/R2、二成员树、上下文镜像、fullWindowStates、目标账户选择与等待分母。最终公开双序主窗+line1..400必须不再生成S308.916/等待347.249，同时main-only/同query重复及真实8个S正臂保留。缺来源独立显示，不默认同源/归零/丢记录。
+3. [ ] 数值闭环后以干净二进制继续live exact2。本輪重新枚举为243个`.case`（目录另有1个非case文件）。优先Java `sr_java_config_precedence`验证配置值/来源/层级上下文，配C++ `sr_cpp_virtual_chain`验证虚分发+工厂选择的关系完整性；再轮换真实write与明确窗D/IO Trace。不把上次H7机器PASS当人工通过，不反复刷同例，不改case/oracle降低验收。
+4. [ ] B1634c已应用计划oracle域、B1122失败上下文、gated原始running子集与跨query频率显示、其它原统一队列保留独立，未被本来源小批销账。图关系/时序/逻辑及业务语言继续以异构实际回答审计，不由系统代画/代结论。
+
+末冻结native race `20260909-b1638b2a-frozen-native-race.log`2.962s绿。另以原真实公开overlay重新检验最终数值：`20260909-b1638b2a-public-mixed-total-still-red.log`4.136s仍为main-only/同结果重复PASS、两种混合顺序FAIL，旧错误S308.916/等待347.249仍在。没有撤针或改期望；overlay历史文件名带b1629b只是初稿名字，此案仍B1638b，不能混旧工单。源码未改合并算法，正是此小批不能签数值闭环的直接证据。
+
+全仓首轮`20260909-b1638b2a-full-suite.log`：85包绿，仅tracequery116.468s的`TestThreadStateComparisonConsumerCoverage`红。root读完整比较清册说明与实现、独立席逐58条AST结果核对，唯一差异为`addStateChurnInterval`原`d_sleep#1`→`d_sleep,io_wait#2`；新比较只给来源descriptor的IO字段读取**已完成记账选择的最终state**，不进入原D→IO判定、switch求和或摘要准入。仅补这一map值与演化注，另外57项/全部扫描逻辑/零命中sentinel/switch清册不动，不改生产绕过pin。首轮tool328.460s、agent81.355s、hitraceconv156.106s、llm30.241s、orchestrator27.794s、types47.088s、tracediag14.741s已绿；末完整tracequery及定向复验单独记录，不把首轮历史改写为一次全绿。
+
+末版状态清册+新旧b1/b2定向count3 `20260909-b1638b2a-final-state-pin-count3.log`1.255s绿；完整tracequery重跑 `...-final-tracequery-full.log`87.875s退出0。其余85包生产/测试自首全仓后未再改变，最终86包覆盖均通过；未新增/弱化任意数值期望，仅上述一项比较点清册有可审演化。三席末审与root复核均无阻断，源码随本批提交交付，构建/远程收据随后记录。
+
+下一批b2b独立只读复核补成8入口（本批代码坐标，仅施工清册）：`query.go:8952`下钻两构造、`:16362`普通runnable/sleep/churn rank、`:9283`全census→线程汇总、`:16780`D/IO整桶/cause子集、`:16923`完整D/IO members→seat；另`rank_family_fold.go:1130`的`merged := base`、`rank_chain_anchor_rspa.go:641`锚定/余量浅复制、`state_account_identity.go:109`独立物理资格边界。新集合必须从完整实际输入收所有known来源并显式保unknown，不能取strongest/base/有cap的MemberRoster；下钻淘汰行不能被借来充当选中行来源。`rank_self_running_fold.go:60`自running席来自Timeline+supply fold，不是TopRunning，不能借`cpu_running_sweep`。上述不等于已审全部causal-impact独立产点，后续仍须逐源补清册，不能以来源全等代替值相同、区间互斥或可相加证明。
+
+Trace明确窗、因果投影/自动补齐、链上占时与规则可消两轴、优先级/调度/算力/D/IO/确定性语义和业务线索保持；邻近/背景仍仅支撑。`B1638b2a=native-producer-provenance+copy-protection/implemented`；`B1638b2b/b3=open`；`new-live=not-started`。
+
 ### §123.1725 续修计划：测量范围与剩余记录量词（2026-09-09）
 
 基线 `e1f878bd4`，工作树干净；本轮已重新 fetch，main/origin 为 0/0。不重复收账已结束的 r1050，不把上一批工程验证当新 live。

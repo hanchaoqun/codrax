@@ -614,7 +614,11 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// P0-E §20 merge caliber + §20.2 deficit attribution (2026-07-07): the
 	// exported effective helpers now use exhaustive state switches pinned by
 	// the switch-site census; the remaining explicit comparisons stay below.
-	"query.go:addStateChurnInterval": "d_sleep#1",
+	// B1638b2a (2026-09-09): the second comparison records whether the
+	// already-booked native contribution is IO in its source descriptor.
+	// It does not reclassify a state or change duration/summary eligibility;
+	// the existing D -> IO marker judgement and five-state sums are unchanged.
+	"query.go:addStateChurnInterval": "d_sleep,io_wait#2",
 	// A1 bounded continuation (§12.3-5): the peer's own dominant state gates
 	// whether it was itself sleep-blocked (→ name its single direct blocker).
 	"query.go:buildCriticalBlockingPeerChain": "s_sleep#1",
