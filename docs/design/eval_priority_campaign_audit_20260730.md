@@ -57380,15 +57380,30 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1731 r1052排期：写模式交付与显式窗IO异构验收（2026-09-10）
+
+库存复核243个`.case`，其中显式MODE写/计划/验证28个，HTRACE_FILE挂载29个（统计轴不承诺互斥）；不把单一语言或图表反复通过率当系统全景。按风险、距上次回放、跨模态覆盖、可独立复算四轴轮转：本轮先选真实apply的Python fallback与S型IO有限事实题；下一轮优先多关系同节点对图修补B1643的通用回归及异构关系消费者，不为追绿放宽原oracle。
+
+| 车道 | 用例 | 本轮必要性 | 人工验收边界 |
+|---|---|---|---|
+| write/multi-repo | github_issue_tokenizers_newline_run_multirepo_py | 上次r1035；机评文字针不足覆盖单换行/普通BPE，需复核持久交付而非旧probe | 仅bindings-py修改；原五换行用例不削弱；同计划post-apply终验及durable ref；持久树复测单换行、无规则、普通字符多次合并、预折叠后继续BPE |
+| Trace/显式窗IO | real_trace_h3_iofam_one_seat | 上次r1013；S状态闭合IO/请求驻留/全局隐藏请求量的跨尺混算风险；非H7重复 | 233.190ms窗；目标请求1.347ms、S型已证阻塞1.337ms；8/198全局展示与隐藏190项41.329 request·ms；不将D/io=0否认S型等待，不将背景升主因 |
+
+仅root启动exact2，单case显式上限1200s；stock预算、原case与oracle不改。1200s是操作者这次eval外层上限，非活跃SSE按年龄降级。H3询问有限运行事实，不强行要求根因图；默认root-causes旁路应保留合法空包/状态，不允许靠捏造根因补空。新binary必须当前干净已提交源码构建；本节目前仅排期，未宣称live已完成。
+
+启动收据：B1641=`ce76fab83`、B1642=`2ca6a4947`均已推main；`make`干净构建revision`2ca6a4947116`、built`2026-09-10T09:39:53Z`（`20260910-b1640-b1642-clean-build.log`）。完整tool重跑294.400s退出0（`20260910-b1640-b1642-tool-full-recheck.log`），与同一冻结生产源码首跑85包绿合并收齐86个有测试包；不将首跑退出1改记为单次全绿。r1052于`2026-09-10T09:42:38Z`实际exact2启动，不可变snapshot`codrax-selected-20260910-024237`；进程日志`20260910-r1052-live.log`，机器与人工文档`eval/parallel_selected_summary_evalcampaign_write_io_r1052_20260910{,_manual_audit}.md`。此刻运行中。
+
+活跃流专项count3：`20260910-b1640-b1642-active-stream-guard.log`，llm12.474s/agent1.600s绿；覆盖隐藏推理、工具调用、4ms间隔不完整SSE帧字节、heartbeat-only超过旧总cap，以及显式调用方deadline/cancel、unused非流式fallback不污染活跃主流。未通过增大固定时限规避问题。
+
 ### §123.1730 r1051后续高ROI小批（2026-09-10）
 
 本节所有新项均源于实际上下文/工具参数和代码的联合复核；不将机器PASS等同人工全绿，不通过关键词硬门或系统替模型改写答案来补齐。
 
 | 工单 | 优先级/状态 | 通用问题与边界 | 验收/后续 |
 |---|---|---|---|
-| B1640 Completion教学 | P1/a+b已推，集成回归中 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | a实际BuildInitialInstruction+真实schema+合法typed facts先红后绿；b限制schema旧cap句只对整数计数建议grouped_count，不让measurement误分计数 |
-| B1641 图节点操作一致性 | P1/已推ce76fab83；完整tool复跑待收据 | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 模型显式新节点保持独立；精确声明表同源；sequence点分ID适配；既有节点改名冲突/typed边证据不放松 |
-| B1642 引用角色行级消歧 | P2/主面工程验收通过，本批提交；完整tool复跑待收据 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；不改模型引用/正文；旧fallback另列b |
+| B1640 Completion教学 | P1/a+b已推，工程全绿；泛化live运行中 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | a实际BuildInitialInstruction+真实schema+合法typed facts先红后绿；b限制schema旧cap句只对整数计数建议grouped_count，不让measurement误分计数 |
+| B1641 图节点操作一致性 | P1/已推ce76fab83；工程全绿，生产新臂待触发 | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 模型显式新节点保持独立；精确声明表同源；sequence点分ID适配；既有节点改名冲突/typed边证据不放松 |
+| B1642 引用角色行级消歧 | P2/已推2ca6a4947；主面工程全绿，生产新臂待触发 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；不改模型引用/正文；旧fallback另列b |
 | B1643 同节点对多关系修补预算 | P1/独立公开RED已确认，下一修复批 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 预算与真实执行器复用同一精确prior_anchor选择；不是删除break或整对放行；保未选边/重复ref/occurrence/异relation负臂 |
 | B1642b 端点回退同址多关系 | P2/冷审确认，待公开RED及边界审计 | 旧UniqueGroundedClaimRoleForExactEndpoint仅按source:line判唯一，同址不同typed关系仍可能首项抢位 | 审计新advisory末端及旧tool直接调用两面；不改自动引用/全局谓词以冒充闭环；补同址A→B/A→C与反序/receipt边界 |
 
