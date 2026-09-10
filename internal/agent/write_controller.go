@@ -344,12 +344,16 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 				fmt.Fprintf(&b, "- verification_command: ... +%d more\n", len(report.ExecutedCommands)-i)
 				break
 			}
-			fmt.Fprintf(&b, "- verification_command: runner=%s cwd=%s suite=%s outcome=%s exit_code=%d source=%s command=%q\n",
+			execution := types.VerificationCommandNonExecutionDisplay(cmd)
+			if execution == "" {
+				execution = fmt.Sprintf("exit_code=%d", cmd.ExitCode)
+			}
+			fmt.Fprintf(&b, "- verification_command: runner=%s cwd=%s suite=%s outcome=%s %s source=%s command=%q\n",
 				strings.TrimSpace(cmd.Runner),
 				strings.TrimSpace(cmd.WorkingDir),
 				strings.TrimSpace(cmd.Suite),
 				strings.TrimSpace(cmd.Outcome),
-				cmd.ExitCode,
+				execution,
 				strings.TrimSpace(cmd.Source),
 				limitWriteControllerText(cmd.Command, 240),
 			)

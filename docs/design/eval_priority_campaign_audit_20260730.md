@@ -57385,6 +57385,15 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1748 B1652-SUITESKIPDISPLAY1：政策跳过不再伪装成功退出或缺环境（2026-09-10）
+
+1. r1055 Python 写模式暴露的不是缺 Python 环境：有界探针通过后，验证政策没有启动完整测试套件。旧 controller 和共享上下文把 `suite_skipped` 的默认整数显示成 `exit_code=0` / `exit=0`，且没讲清原因，诱导模型继续搜索验证器内部标签或排查并不存在的环境故障。
+2. 两个上下文入口共享纯显示函数，只消费精确 `Outcome=suite_skipped`：显示“未运行”，不显示任何退出码。仅 `Source=probe_primary_suite_skipped` 说明“有界探针通过后按验证政策跳过；不是缺环境证据；验证器标签不是客户源码搜索目标”。未知来源不猜跳过原因。长命令截断前保留该说明；其他全部既有 outcome、空值和未来值逐字不变。
+3. 不修改 ChangeReport、proof ledger、JSON、计划、执行政策、失败类别或模型答案；不把 probe 通过升级成 suite 通过，也不降低必需证明义务。教学只解释系统已经执行的政策，不注入客户业务结论。
+4. 公共路径测试覆盖真实 BuildInitialInstruction 和 WriteContextPackFromChangeReport、已知/未知 source、零/非零遗留整数、长命令及 report/plan JSON 字节保留。有效 RED：`.codrax/tmp/20260910-suite-skipped-display-public-red.log`；定向 count3 GREEN：`.codrax/tmp/20260910-suite-skipped-display-final-count3.log`（agent 1.082s、types 2.784s）。全仓及新 live 在集成冻结后执行，本节不预报通过。
+
+状态：`B1652=implemented/public-path-count3-pass/pending-full-suite-and-live`；`B1651=current-report-provenance-separate-in-progress`；`Trace/active-stream/model-answer-ownership=unchanged`。
+
 ### §123.1747 B54-TIER2PROSE1显示收口：启发式诊断不越权评价答案（2026-09-10）
 
 承接r1055非比较题被附“各方支持强度不均衡”的真实见证，完成独立小批。复核后方案比§1746初稿更小且更泛化：不仅entity_parity，scalar_count/cardinality/path_depth同样仍读prose计数或启发式阈值。即使有typed comparison_axis，也不能从样本数推出答案遗漏或一方证据弱；因此不新增comparison_axis发射门，四个已有永久soft、不可提升kind同源只保telemetry/探索提示，不再自动附成用户答案评价。

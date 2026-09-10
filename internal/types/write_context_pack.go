@@ -2613,6 +2613,12 @@ func renderBuildErrorContext(err BuildError) string {
 
 func renderExecutedCommandContext(cmd ExecutedCommand) string {
 	parts := []string{}
+	nonExecution := VerificationCommandNonExecutionDisplay(cmd)
+	if nonExecution != "" {
+		// Keep non-execution meaning ahead of a possibly long command so the
+		// existing per-item cap cannot turn an intentional skip into exit=0.
+		parts = append(parts, nonExecution)
+	}
 	if cmd.Command != "" {
 		parts = append(parts, "command="+cmd.Command)
 	}
@@ -2625,7 +2631,9 @@ func renderExecutedCommandContext(cmd ExecutedCommand) string {
 	if cmd.Framework != "" {
 		parts = append(parts, "framework="+cmd.Framework)
 	}
-	parts = append(parts, fmt.Sprintf("exit=%d", cmd.ExitCode))
+	if nonExecution == "" {
+		parts = append(parts, fmt.Sprintf("exit=%d", cmd.ExitCode))
+	}
 	if cmd.Outcome != "" {
 		parts = append(parts, "outcome="+cmd.Outcome)
 	}
