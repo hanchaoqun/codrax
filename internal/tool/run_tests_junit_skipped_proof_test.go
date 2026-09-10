@@ -36,8 +36,12 @@ func TestB1650JUnitSkippedDoesNotProveBehaviorThroughRunTests(t *testing.T) {
 			if skipped {
 				child = `<skipped message="not executed"/>`
 			}
-			xml := `<testsuite name="example.ValueTest" tests="1"><testcase classname="example.ValueTest" name="checks">` + child + `</testcase></testsuite>`
-			write("fake-bin/mvn", "#!/bin/sh\nset -eu\nmkdir -p target/surefire-reports\nprintf '%s\\n' '"+xml+"' > target/surefire-reports/TEST-example.ValueTest.xml\nprintf '%s\\n' fixture-runner-finished\n", 0o755)
+			// Emulate Surefire's documented reporting suffix as well as its
+			// outcome protocol; the assertion/skip expectations below stay fixed.
+			wrapper := "#!/bin/sh\nset -eu\nsuffix=''\nfor arg in \"$@\"; do\n case \"$arg\" in -Dsurefire.reportNameSuffix=*) suffix=${arg#*=};; esac\ndone\n"
+			wrapper += "mkdir -p target/surefire-reports\nattr=''\nfile=''\nif [ -n \"$suffix\" ]; then attr=\"($suffix)\"; file=\"-$suffix\"; fi\n"
+			wrapper += "printf '<testsuite name=\"example.ValueTest%s\" tests=\"1\"><testcase classname=\"example.ValueTest%s\" name=\"checks\">%s</testcase></testsuite>\\n' \"$attr\" \"$attr\" '" + child + "' > \"target/surefire-reports/TEST-example.ValueTest$file.xml\"\nprintf '%s\\n' fixture-runner-finished\n"
+			write("fake-bin/mvn", wrapper, 0o755)
 			t.Setenv("PATH", filepath.Join(root, "fake-bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 			plan := &types.ChangePlan{

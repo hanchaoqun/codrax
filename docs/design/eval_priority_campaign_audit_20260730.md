@@ -57385,6 +57385,26 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1749 B1651a：Maven/CTest 的报告必须来自本轮执行（2026-09-10）
+
+1. B1651 根因是执行记录和文件报告之间缺少本轮来源约束，不能只看 `exit=0`、文件存在或修改时间。已先用真实 RunTests＋假 Maven 协议子进程复现：旧成功报告误授 covered、旧失败污染当前失败判断、新旧混合改变行数。有效 RED `.codrax/tmp/20260910-b1651a-maven-public-red.log`（4.478s）；fresh pass/fail/skipped 正控在该 RED 中通过，未降低证明门或修改原验收断言。
+2. 本批只收两个有官方输出协议的适配器。Maven 执行前生成随机报告后缀，传递官方 [`surefire.reportNameSuffix`](https://maven.apache.org/surefire/maven-surefire-plugin/test-mojo.html#reportNameSuffix)；读取时同时要求文件名、suite name、testcase classname 三处精确匹配。官方 reporter 将后缀写成 `TEST-class-suffix.xml` 与 `class(suffix)`，只剥本轮生成的最后一层，保 testcase name 原样（[源码](https://github.com/apache/maven-surefire/blob/surefire-3.2.5/maven-surefire-common/src/main/java/org/apache/maven/plugin/surefire/report/StatelessXmlReporter.java)）。不使用无官方 user-property 保证的 reportsDirectory 参数，不升级客户插件；不支持后缀的旧版/自定义 reporter 明确 unavailable，不退回旧 XML。
+3. CTest 使用官方 [`--output-junit`](https://cmake.org/cmake/help/latest/manual/ctest.1.html#cmdoption-ctest-output-junit)（3.21 起）写入本轮新建的 `.codrax/tmp/junit-invocation-*/ctest.xml`。仅替换系统适配器生成的准确参数对，不改变 selector 或构建目录；旧固定报告不删除、不覆盖、不认领。独有路径需由本轮命令实际产出，未产出是验证不可用，不是通过或伪造的构建失败。
+4. 文件只打开读取一次，固定字节同时产生 SHA256 和解析结果，严格检查 XML 到 EOF；拒绝目录/非普通文件/符号链接路径及读取中发生的 identity、size、mtime 变化。这些 stat 只说明读取一致性，绝不证明“本轮执行”。同名断言跨报告文件出现时保所有测试结果与成败，但因现有 TestResult 缺文件轴而撤去精确断言证明资格，收据披露歧义。报告路径/nonce/摘要仅供审计，不是模型可填写的新权威字段。
+5. 当前命令非零退出，即使 XML 的具名行全绿也不能把本轮签成成功。skipped 保 B1650 的 non_asserting；缺报告零行不授正证也不授反证；持久 JSON 往返后仍走真实 proof ledger。正常 fresh pass/fail、相同结果的不同轮、原始身份恢复、旧报告字节/mtime 保留均有控制；CTest cleanup 仅处理拥有的目录，不递归清理或跟随被替换的路径。
+6. 第一次 CTest 公共测试的 fixture 漏 CMakeCache.txt，第二次把 macOS `/var` 与 `/private/var` 当不同根；两者均为测试装配错误，已修 fixture，不算产品 RED。固定字节 XML 尾部失衡另有有效 helper RED。现有公共分支 GREEN `.codrax/tmp/20260910-b1651a-public-latest.log`（4.080s）；helper count3 1.181s、race 2.599s。最终集成与全仓结果在下一收账节补齐，不提前宣称通过。
+7. **未闭边界**：本机使用真实子进程模拟官方输出协议，没有宣称 native Maven/JVM/CTest 实际安装与行为验证；恶意测试程序知道本轮 nonce 后主动伪造 XML 不在本轮可信 runner 假设内。Gradle FROM-CACHE 不能用新 XML 路径代替 live afterTest 收据，仍 P1 下一批；Meson 现有 `--xunit-file` 与官方 `--logbase`/`.junit.xml` 不一致也需独立修（[官方源码](https://github.com/mesonbuild/meson/blob/1.8.5/mesonbuild/mtest.py)）；Hvigor 缺已验证输出协议、历史已存 JSON 的旧证明，以及 Make 原生具名收据 B1561 均未关闭。不能以两适配器修好宣称全 runner 来源闭环。
+8. 活跃流专项已通过 `.codrax/tmp/20260910-b1651a-active-stream.log`（llm 18.113s、agent 1.777s）：4ms 部分帧、隐藏推理/工具、heartbeat、旧总时限、显式取消/截止和真实静默。下一 live 仍恰好两路，选择显式窗 H1 Binder 真/假归因（精确等待复算、背景排除、投影补齐）＋ read pipeline sequence/table（时序、图表共同表达、教学与修补上下文）；243 库存保持原问题/oracle/预算，不追同一模型措辞。写模式刚由 r1055 及本轮公共持久 proof 接线覆盖，之后继续轮转异构写用例。
+
+9. 独立冷审发现并在发布前收掉两处边界：去除任意 depth6 截断，实际深层报告 RED（`20260910-b1651a-deep-report-red.log`，1.182s）证明旧限制会隐藏深层失败并给浅层同名断言授证；现在遍历不因普通源码/模块嵌套深度截断，仅排明确基础设施目录。根据真实选择的 shell 保留 cmd 的既有双引号、POSIX 的字面量引号，不猜 CTest 相对路径基准；纯构造针不等于 native Windows 验收。另据 [CTest 官方写出器](https://github.com/Kitware/CMake/blob/v3.31.0/Source/CTest/cmCTestTestHandler.cxx#L2474) 保留可为空的 dashboard BuildName，不能将其误作丢失的具名测试身份。
+10. CTest 公共清理接线的有效 RED（`20260910-b1651-cleanup-public-red.log`，1.479s）仅撤 `junitRun==nil` 保护即可复现裸 defer 沿被替换目录误删外部旧报告。现在绑定适配器只使用 owned-directory Cleanup；正常 count3 1.778s，通过实际子进程、外部旧字节/mtime 与 unavailable 零行反控。保留原 owned 目录等意外内容，不做递归清扫，也不声称消灭所有恶意并发文件系统 race。
+
+11. 最终冻结验收完成：`.codrax/tmp/20260910-b1651a-final-count3.log` 17.475s、`...-final-race.log` 6.753s；`go test ./...` 最终 exit0，86 个有测试包通过（部分未变包缓存），完整日志 `...-final-full.log`，agent72.113s、types47.910s、tracequery110.590s、tracediag16.401s、hitraceconv153.340s、orchestrator31.354s。B54 显示权限及 B1652 未执行说明同基线通过。尚无本批修后 live；下一新增 CTest status scope 问题按独立 B1653 收账，不把它或 Gradle 来源遗留抹掉。
+
+状态：`B1651a=implemented/Maven+CTest-only/public-count3+race+86-package-pass`；`B1651=partial/other-adapters-open`；`Trace-chain/window/projection/supplement=unchanged`；`system-authored-conclusions/prose-keyword-hard-gates=none`。
+
+**下一批 B1651b 只读方案冻结（尚未实施）：** Gradle 应从真实 JVM Test task 的 `afterTest` 事件生成独有收据，不以新 XML 路径代表执行。系统私有 init-script 注册 task-local TestListener，保原 selector、build cache、onlyIf、任务及仓库脚本；首批显式关闭 configuration cache 以免恢复旧路径/nonce 的监听配置，需公开该性能成本（[官方 init-script](https://docs.gradle.org/current/userguide/init_scripts.html)、[TestListener](https://docs.gradle.org/current/javadoc/org/gradle/api/tasks/testing/TestListener.html)）。每 task 的版本/nonce/来源/序号、原始 descriptor、原始结果/计时与 suite 闭合构成收据；suite 汇总不铸断言。FROM-CACHE、UP-TO-DATE、无事件、截断、跨模块/task 同名、重试冲突不能借旧 XML 授当前正反证，skip 仍 non_asserting，真实重新执行即使结果字节相同也应接受。官方实际 `executeTests` 才连接 listener 再生成 XML（[8.14.3 源码](https://github.com/gradle/gradle/blob/v8.14.3/platforms/software/testing-base/src/main/java/org/gradle/api/tasks/testing/AbstractTestTask.java#L436)），但本机没有 Gradle 缓存/原生回放，本轮不宣布支持版本矩阵。首施工验收必须补真正 Gradle 的 pass/fail/skip/cache/multi-task/配置缓存及重试插件对照；未支持 custom runner/未知版本保持明示缺口，不把测试协议模拟当原生验收。
+
 ### §123.1748 B1652-SUITESKIPDISPLAY1：政策跳过不再伪装成功退出或缺环境（2026-09-10）
 
 1. r1055 Python 写模式暴露的不是缺 Python 环境：有界探针通过后，验证政策没有启动完整测试套件。旧 controller 和共享上下文把 `suite_skipped` 的默认整数显示成 `exit_code=0` / `exit=0`，且没讲清原因，诱导模型继续搜索验证器内部标签或排查并不存在的环境故障。

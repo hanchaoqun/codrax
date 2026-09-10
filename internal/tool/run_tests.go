@@ -1011,6 +1011,20 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 		}
 		cmdStr, extraFile := buildRunCommandForPlan(plan, plan.Suite, ctx.MainRepoRoot)
+		junitRun, boundCommand, boundExtraFile, bindingErr := prepareJUnitRunnerInvocation(plan, cmdStr, extraFile)
+		if bindingErr != nil {
+			executedCmds = append(executedCmds, types.ExecutedCommand{
+				Runner: runner, Framework: plan.Framework, WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+				Suite: strings.TrimSpace(plan.Suite), Command: cmdStr, Source: planSourceFor(plan),
+				Outcome: types.ExecutedCommandOutcomeNotConfigured, ReasonCode: "junit_invocation_prepare_failed",
+			})
+			projectReports = append(projectReports, qualifyChangeReport(junitInvocationUnavailableReport("junit_invocation_prepare_failed", bindingErr), plan, ctx.RepoRoot))
+			continue
+		}
+		cmdStr, extraFile = boundCommand, boundExtraFile
+		if junitRun != nil {
+			defer junitRun.Cleanup()
+		}
 
 		// Same root cause as the python venv lookup — but for runners
 		// where the dep is consumed by name from cwd (Node's
@@ -1021,7 +1035,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// at warning and the runner's native "missing deps" error
 		// still surfaces.
 		linkProjectDeps(ctx.MainRepoRoot, runnerRoot, runner)
-		if extraFile != "" {
+		if extraFile != "" && junitRun == nil {
 			defer os.Remove(extraFile)
 		}
 
@@ -1295,7 +1309,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}, nil
 		}
 
-		if runner == "java" {
+		if runner == "java" && junitRun == nil {
 			reportDir := locateJUnitReportDir(runnerRoot)
 			if reportDir == "" {
 				projectReports = append(projectReports, qualifyChangeReport(makeBuildFailureReport("Java", output), plan, ctx.RepoRoot))
@@ -1311,7 +1325,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 			extraFile = reportDir
 		}
-		if runner == "cmake" || runner == "meson" {
+		if (runner == "cmake" || runner == "meson") && junitRun == nil {
 			produced := false
 			if extraFile != "" {
 				if info, err := os.Stat(extraFile); err == nil && info.Size() > 0 {
@@ -1328,7 +1342,35 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 		}
 
-		report, err := parseRunnerOutputForPlan(plan, output, extraFile, cmdStr, runErr)
+		var report *types.ChangeReport
+		var err error
+		if junitRun != nil {
+			var reportFiles []junitInvocationReportFile
+			report, reportFiles, err = junitRun.ReadReport()
+			if err != nil {
+				// A successful command without a current bound report is not a
+				// successful assertion, and an old red XML is not a current failure.
+				report = junitInvocationUnavailableReport("junit_current_report_unavailable", err)
+				err = nil
+			} else if runErr != nil && report.Passed {
+				// Preserve actual testcase rows, but do not let green XML mask a
+				// nonzero current command. No synthetic failing assertion is added.
+				report.Passed = false
+				report.FailureKind = types.FailureKindVerificationIncomplete
+				report.FailureReasonCode = "junit_current_command_failed"
+				report.FailureSummary = fmt.Sprintf("current test command exited %d; its reported testcase results do not establish successful completion", execExit)
+			}
+			for _, file := range reportFiles {
+				report.VerificationDiagnostics = append(report.VerificationDiagnostics, types.VerificationDiagnostic{
+					Source: "junit_invocation_report", Category: "report_binding", Severity: "info",
+					Runner: runner, Framework: plan.Framework, WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+					Command: cmdStr, ReasonCode: "junit_current_report_bytes",
+					Detail: fmt.Sprintf("report_path=%q sha256=%s reporting_nonce=%q ambiguous_assertions=%q; this receipt records parsed bytes, not additional assertion coverage", file.Path, file.SHA256, file.Nonce, file.AmbiguousAssertions),
+				})
+			}
+		} else {
+			report, err = parseRunnerOutputForPlan(plan, output, extraFile, cmdStr, runErr)
+		}
 		if err != nil {
 			reasonCode := parserErrorReasonCodeForPlan(plan, output, err)
 			setLastExecOutcome(types.ExecutedCommandOutcomeParserError)
@@ -7219,13 +7261,10 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 			// this string is a non-executable inventory description only.
 			return "javac <manifestless-java-main-sources> && java -ea <manifestless-java-main-test>", ""
 		}
-		// Maven + Gradle both write JUnit XML to a fixed
-		// subdirectory; the parser's post-exec hook walks those
-		// dirs regardless of which tool ran. The "extraFile"
-		// channel isn't used here because the XML files are
-		// multi-file in a directory, not one named file. The
-		// command itself just needs to be `mvn test` / `gradle
-		// test` so the reports get produced.
+		// This is the base command, also used for inventory. At actual
+		// execution Maven gets a fresh reporting namespace before any XML
+		// can supply results. Gradle retains its legacy directory adapter
+		// pending a live test-event receipt (cache replay is not execution).
 		filter := javaTestSelectorFromSuite(suite)
 		build := detectJavaBuildSystem(repoRoot)
 		switch build {
@@ -7268,8 +7307,8 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 			// caller bypassing Execute sees a clear failure.
 			return "", ""
 		}
-		// Tmpfile must end in .xml so parseJUnitXMLDir's suffix gate
-		// accepts it when filepath.Walk passes it through.
+		// Inventory placeholder only: the actual executor replaces this
+		// declared argument with a private .codrax/tmp invocation path.
 		tmpFile := filepath.Join(repoRoot, ".codrax-ctest-report.xml")
 		filter := strings.TrimSpace(suite)
 		if filter == "" {
