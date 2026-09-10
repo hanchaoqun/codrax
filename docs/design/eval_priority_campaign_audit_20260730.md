@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-10）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮以 §123.1732–1750 为准：前序 B1645–1650 已逐批推送，r1053–1055 严格两并发并完成人工审计，不以机器 PASS 抵销答案精度/证明范围残余。最新三小批已推：B54 四个启发式诊断退出系统答案判定附注（264ab73b6）；B1652 策略跳过不再显示默认退出成功或暗示缺环境（c3020f17f）；B1651a Maven/CTest 绑定本轮报告（eecd6ebdd），公开 count3/race 和冻结86包全仓通过，保真值/原报告/真实退出/缺报告 unavailable。B1651 整体仅部分完成：Gradle live-event、Meson/Hvigor、旧 JSON 来源仍开放，优先于 B1561 Make 新能力；不得把两适配器成功写成全部闭环。官方 CTest disabled 无 skipped 子元素另确认 P2 B1653（scope 错误，现有 PTO 门仍未授合同），正在独立修复。下一回放 r1056 计划显式窗 H1 Binder＋阶段时序/表格，尚未执行；具体 RED、来源、未覆盖边界见新节与每轮 manual_audit。
+本轮以 §123.1732–1751 为准。四小批已推：B54 启发式诊断退出答案判定附注（264ab73b6）、B1652 区分策略未执行与退出成功（c3020f17f）、B1651a Maven/CTest 本轮报告来源（eecd6ebdd）、B1653 CTest 非执行状态范围（1d9ab6e49）。两轮冻结86包全仓及各批公共 count3/race 通过；不冒称 native Maven/CTest 验收或全部适配器闭环。r1056严格exact2结束：H1机器PASS273s、人工FAIL；读阶段图表外层TIMEOUT1200s、未交最终答案。显式窗/双轴/因果投影保留，但系统算术附注误把分母当分子，D/IO清单提示泛称所有等待；根因旁路因模型数组包装错误明确unavailable。读图重复陈腐锚点的局部清理可达性列最高后续核验，B193显示残余、B1646提示/旧footer及B1654无损对象解包逐项排期；Gradle来源P1和Meson/Hvigor/旧JSON继续开放，优先于B1561新能力。未以模型thinking认定n2同轮合同矛盾，不为追绿改问题/oracle/正文；见§1751及r1056 manual_audit。
 
 ## 1. 基线与目标
 
@@ -57384,6 +57384,36 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1751 r1056：四批封版后两路回放，机器通过不抵销系统误述（2026-09-10）
+
+**工程与运行。** B54=`264ab73b6`、B1652=`c3020f17f`、B1651a=`eecd6ebdd`、B1653=`1d9ab6e49`均已推main。两轮冻结全仓各86个有测试包通过（未变包部分缓存），末轮 `.codrax/tmp/20260910-b1653-final-full.log` exit0，tool319.313s/agent63.480s/types45.192s/tracequery105.472s/orchestrator18.375s；B1653最终组合count3/race26.726/9.519s。干净binary revision`1d9ab6e49320`、built`2026-09-10T15:16:02Z`；15:16:38Z启动不可变snapshot`codrax-selected-20260910-081636`，15:36:40Z全部结束，无第三路或追跑。源码/问题/oracle/模型预算未在采样中改变。243库存按风险、间隔、跨模态与可复算四轴轮转，本轮H1 Binder（上次r1036）＋read阶段sequence/table，写模式接r1055及本轮公共proof后续轮转。
+
+机器/人工文档：`eval/parallel_selected_summary_evalcampaign_binder_pipeline_r1056_20260910{,_manual_audit}.md`。机器H1 PASS273s，读题TIMEOUT1200s，人工均FAIL。H1七次query原233.190ms窗，峰值59%，仅一次顾问patch拒绝；读题44read、76explorer迭代、19completion、15成文拒绝/14patch、峰值69%。读题日志末行`received terminated`与exit124证明是操作者预设1200s外层截止，非产品活跃SSE因4ms/旧4分钟无可见答案降级。活跃流专项`20260910-b1651a-active-stream.log`（llm18.113s/agent1.777s）仍保4ms部分帧、隐藏推理/工具/heartbeat、旧cap、真实静默及显式deadline/cancel；不以外层SIGTERM冒称正常降级已验收。
+
+**H1原始证据与模型边界。** 五段Binder等待1.409/.924/.068/.120/.573ms，合计3.094ms、对端10961三次+10625一次+11354一次；线程名中的496/227均不是进程ID，10961/11354的TGID9743，10625的TGID9432。日志3021–3026完整入模，MD27逐段正确，但MD15/21/33写成4+1+1、两个对端、虚构重叠；窗中点13762.908303之后有三段，不能说全在前半。15.758ms节拍语境可保，另14.302ms（13763.009537–13763.023839，DetectViewRect-17679唤醒）在日志2121/2289已给，MD53仍漏并说唯一>10ms。操作RCVHS被正文改成RWSB/RS、短传输被推为对端处理正常也属模型误读；不新增硬词门替它改答案。
+
+完整工件`.codrax/output/20260910-082109.501-74211.*`：实际占时、现规则可消、链上/邻近/背景、业务span与一次Trace因果投影均保；前五席58.320/12.658/7.405/4.710/3.956ms和本轮typed值一致，47条完成闭合IO12.658ms不被marker0否定。H1没有Mermaid，0图提取是N/A而非渲染通过。根因旁路130字节，`unavailable/model_root_cause_selection_rejected`不是零根因：首稿裸候选数组、patch完整report外包单元素数组，教学2325同对象形明确。`runtime_work_relation`已给两字段但选错普通s_sleep1.805ms行，不在SemanticSpans选择域，不能系统换成JIT或别的结论。
+
+**读图过程。** 没有最终output_dump/MD/HTML/完整文档JSON；首稿与patch日志可审计，不能冒充交付。首稿声明Run/Phase/Dispatch/Graph/Loop/ExReq/Apply/Bus，无Analyzer/Finalizer声明或alias，消息文字不等于图参与者，因此首次缺参与者拒绝有依据。所谓stage-table实际ordered_list；`runTaskGraph构建DAG`、`FinalAnswer经applyStageOutput合入Bus`也错（实际DAG来自analyzer，FinalAnswer由scheduler消费写任务结果），后续三正文块未修。完整阶段顺序与职责已入模；虚构runExplore/Extract/FinalizePhase由模型先提出，不是系统要求。补丁11删+3precedence+2data_flow已由模型选择并进入stage，后续仅两人孤儿义务却带三人是另一问题；同scope有正确precise拒绝，不把全部15次归一个系统根因。
+
+**剩余任务按ROI排序，未实施不销账：**
+
+| 工单 | 判定/次序 | 施工与验收边界 |
+|---|---|---|
+| B1655-STALEANCHORMULTI1 | P1，公共RED确认，下一修复批 | 日志10266两条Dispatch→Bus无body锚；10305模型实际请求remove，10308被unknown/allowed_actions=[]拒绝。types repair_lease:198只有唯一baseanchor可铸stale清理；同块其他addition又维持局部lease，整块替换受限。公共lease→patch已封证（下段），须以本代冻结的元数据发生定位贯穿失败去重、租约、引用解析与删除，不按label猜、不造/删未授权箭头、不放宽关系证据；单锚旧出口和真实重复调用负证仍保。 |
+| EVAL-B193-ARITHPAIR1新显示残余 | P1，确认 | MD1019将正文MD21的分母233.190ms当分子，报100%/98.7pp；3.094/233.190≈1.327%，原“约1.3%”合理。旧§123.170后置括号闭环不覆盖前句分子/后句分母残形。优先撤回没有精确关系证明的系统算术评价，保typed事实；不跨句猜分子、不按指标词/数值拟合，不新增正文硬门。 |
+| B1651b Gradle及其他runner | P1主批保持 | 当前执行收据与旧报告不能混淆；按§1749真实afterTest/原生cache矩阵方案施工，Maven/CTest修复不能抵销。Meson/Hvigor/旧JSON另批，之后才B1561 Make新能力。 |
+| B1646未覆盖提示/旧footer | P2，确认 | principal_value_authority:173/187把D/io_wait/marked-S清单泛称0次目标等待（日志3010–3011）；只修双语清单范围，保0/正值及独立S/Binder/完成闭合，不跨尺相加。MD63/543已修两出口正常；MD1013旧footer泛标签是既记残余而非两出口回归。 |
+| B1654-ROOTCAUSESINGLETON1 | P2，确认兼容机会 | full/patch共用解析点仅解一层完整report对象外包单数组；版本/候选/顺序/description原样，再走原binder。空/多元素/缺字段/重复key/截断不猜，首稿裸六候选不属安全形。要有主体另拒时暂存、旧选择保留、未知重复候选等公共针。 |
+| stage-roster来源域、n2候选别名 | 待证，不按模型thinking判P1 | provider行47/61/73/85验证完整Responsibility/PrimaryArtifacts复合字面量，不是仅类型声明；implementation-only正确清单被拒需另RED。本轮多次support本身错。n2动态schema被日志截断，同侧候选断言只见模型自述且前后相反，不宣称同轮必带必拒已证。 |
+| B915性能残余 | 观察 | 两次completion分别14.874/14.900s，各有约7.4s flow/aggregate阶段；先profile复核，不能仅计时就断言原全仓扫描修复回归。 |
+
+**B1655独立公共RED收据。** `.codrax/tmp/20260910-r1056-stale-anchor-public-executor-red-final.log`，tool1.193s、预期exit1；真实ReadFile→EmitEvidence→EmitAnswerDocument→NewLease→Patch.Execute，另有真实证据的sibling addition保住live局部租约条件。原两标签/完全重复/反序三格均两锚合一失败、unknown/actions=[]、locally_executable=true，remove实际拒绝且未staged；单锚删除成功且摘要/正文/图体/无关锚不变，错ref/无证增边负控通过。前一verified日志是fixture grounding前提失败，不作产品RED。现有锚没有source字段，不能称不同来源分支已验证；最小修向是元数据发生级定位，不是单改len判据。仅临时overlay，未改正式代码/tests，仍须下一批实施与正式红转绿。
+
+上述系统误述/结构兼容不证明导致模型全部错误。先收存回放事实，再逐小批修补/测试/推送；不通过延长同场景反复跑、增加答案关键词合同、系统代写/删图来追绿。B54/B1652本轮未自然重撞新分支，B1651a/B1653也没有native Java/CTest live，公共/工程验收与生产覆盖各自记账。
+
+状态：`r1056=machine1/2,human0/2,completed`；`four-fix-batches=pushed/public+full-verified`；`new-gap-repair=queued/not-claimed-complete`；`model-body-owner=model`；`Trace-window/projection/supplement=preserved`。
 
 ### §123.1750 B1653-CTESTSTATUS1：禁用状态不能伪装已执行断言（2026-09-10）
 
