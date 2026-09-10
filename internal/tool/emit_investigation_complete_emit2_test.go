@@ -58,15 +58,19 @@ func emit2TypedAggregateFacts(total, principal int) []types.AnswerAggregateFact 
 
 // TestEmitInvestigationCompleteSchema_PreAnnouncesAggregateFactsCap pins
 // NUM-2 C (§21 维度C②): the tool schema must pre-announce the cap value and
-// the preferred consolidation shape so the model never has to learn the cap
-// by burning a rejected round; the number is single-sourced from
+// the type-preserving consolidation shape so the model never has to learn
+// the cap by burning a rejected round; the number is single-sourced from
 // types.MaxAnswerAggregateFacts (维度C④ hygiene).
 func TestEmitInvestigationCompleteSchema_PreAnnouncesAggregateFactsCap(t *testing.T) {
 	params := string((&EmitInvestigationComplete{}).Parameters())
 	for _, want := range []string{
 		fmt.Sprintf(`"maxItems": %d`, types.MaxAnswerAggregateFacts),
 		fmt.Sprintf("HARD CAP: at most %d entries per call", types.MaxAnswerAggregateFacts),
-		"merge same-family per-group scalars into ONE grouped_count fact",
+		// B1640b: grouping is legal for verified integer counts, not arbitrary
+		// scalar measurements. Keep the original capacity/disclosure obligations.
+		"grouped_count with members only for already-verified non-negative integer counts",
+		"never for scalar measurements or categorical outcomes",
+		"do not change a fact's kind merely to fit the cap",
 		"truncated by role priority",
 	} {
 		if !strings.Contains(params, want) {

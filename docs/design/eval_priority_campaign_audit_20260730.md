@@ -57386,15 +57386,29 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 | 工单 | 优先级/状态 | 通用问题与边界 | 验收/后续 |
 |---|---|---|---|
-| B1640 Completion教学 | P1/a已推，b已实现定向验收 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | a实际BuildInitialInstruction+真实schema+合法typed facts先红后绿；b限制schema旧cap句只对整数计数建议grouped_count，不让measurement误分计数 |
-| B1641 图节点操作一致性 | P1/已证生产见证，待独立RED | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 先审模型显式创建独立方法节点的权属；schema/执行同源，保既有节点改名冲突/typed边证据，不替模型选边或合并意图 |
-| B1642 引用角色行级消歧 | P2/确认待施工 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；缺/歧义只能软提示，不改模型引用/正文 |
+| B1640 Completion教学 | P1/a+b已推，集成回归中 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | a实际BuildInitialInstruction+真实schema+合法typed facts先红后绿；b限制schema旧cap句只对整数计数建议grouped_count，不让measurement误分计数 |
+| B1641 图节点操作一致性 | P1/已实现，公开入口/邻近count3/race绿，集成回归中 | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 模型显式新节点保持独立；精确声明表同源；sequence点分ID适配；既有节点改名冲突/typed边证据不放松 |
+| B1642 引用角色行级消歧 | P2/主面已实现，公开入口/count3/race绿，集成回归中 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；不改模型引用/正文；旧fallback另列b |
+| B1643 同节点对多关系修补预算 | P1/独立公开RED已确认，下一修复批 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 预算与真实执行器复用同一精确prior_anchor选择；不是删除break或整对放行；保未选边/重复ref/occurrence/异relation负臂 |
+| B1642b 端点回退同址多关系 | P2/冷审确认，待公开RED及边界审计 | 旧UniqueGroundedClaimRoleForExactEndpoint仅按source:line判唯一，同址不同typed关系仍可能首项抢位 | 审计新advisory末端及旧tool直接调用两面；不改自动引用/全局谓词以冒充闭环；补同址A→B/A→C与反序/receipt边界 |
 
 B1640首红日志`.codrax/tmp/20260910-b1640-completion-teaching-red.log`，1.059s退出1；合法计数/小数/两类分类值、真实工具array schema前提均过，只在矛盾教学/缺原生数组指引失败。Java畸形数组外尾片本身仍判模型错误：不据此猜括号或丢尾，不宣称教学矛盾导致了这次JSON格式错。B1641以新节点明确展示标签优先、旧ID重用等泛化矩阵核权属后施工；继承/时序混表达及C++flush/static type细节另留模型精度观察，不为过单题强制图形。下一exact2候选已排序为写tokenizers Python fallback + H3显式窗IO，未启动。
 
 B1640a已完成：只改公共Completion Handoff两句，明确native array、整数计数/测量/分类值不同口径及reason叙述归属；没有新JSON字段或validator变更，lossless字符串数组兼容仍在。新实际入口针及旧Completion Handoff count3绿1.163s，窄race count3绿2.710s，完整agent包53.482s绿；日志`20260910-b1640-{completion-teaching-green,completion-teaching-race,agent-full}.log`。独立冷审通过。额外审到现schema cap句仍泛称per-group scalars→grouped_count，作为B1640b同根尾批单独先红后修，不能把a工程绿冒称整个教学绝无矛盾。r1051审计及计划已以`df0d62214`推main；新live须用后续干净构建，r1051不冒称验收这些新教学。
 
 B1640a以`4d06455ce`推main。B1640b也已封版：只改Parameters聚合容量段的错误建议，grouped_count限已验证非负整数计数，测量/分类值保原kind，优先交付cap内已验证事实；没有改Description敏感golden、schema字段/类型/11项enum/maxItems、validator或聚合算法。真实schema和9组值边界先红0.946s（`20260910-b1640b-cap-teaching-red.log`），两新针加六旧schema/完成兼容针count3绿1.640s（`...-green.log`）。根复读diff确认仅教学句及独立测试；完整tool随B1641/B1642冻结集成后复跑，本小批不预报该全包结果。
+
+B1640b已以`4820585ab`推main。B1641取得真实producer→lease→ParametersFor→Execute的有效RED1.087s（`20260910-b1641-public-red.log`）；初稿编译类型错误不算产品RED。修掉强并后实际入口仍RED1.155s：AddExplicitNodeDeclaration的通用identifier白名单又拒合法点分ID，不能只称去alias即闭环。根使用随包`internal/preview/assets/mermaid.min.js`离线原文parse/render，Logger.log/Logger.flush/io.write三点分ID成功，SVG21904bytes（`20260910-b1641-qualified-id-render.json`）；r1051原终稿也原文渲染成功24301bytes（`20260910-r1051-cpp-mermaid-render.json`），其问题是关系表达而非语法。后续限定sequence声明适配器点分安全段，flow/class不扩；终端沿既有renderer shim，第三方ASCII子集不能变成模型教学限制。同时核大小写新ID不能被旧casefold evidence-label表冒认成已声明节点，须复用schema精确声明表；不改全局证据身份等价。三入口联合及负面矩阵验收前仍开放。
+
+B1642有效公开RED0.982s（`20260910-b1642-public-red-final.log`）：实际Emit成功、原/改正metadata两臂的properties引用与50原文保留，lookup-first后置却提示Config.java:21，pool反序不报，证明顺序依赖。初稿Go类型/测试omitempty零值前提错误另保留，不算有效RED。按行已选引用优先、多个候选不取首项给改引指令的共享resolver施工；唯一错误引用与有向关系端点门保持原强度，不动模型引用规范化/正文。
+
+B1641工程封版：仅3生产+2新测试文件。explicit新ID+label不吞并，无label继续唯一复用/歧义拒绝，exact已声明ID只接受省略或逐字重放当前label；sequence点分ID只允许安全ASCII段，不扩flow/class或语句注入。7语言方法/actor形及add/replace双端矩阵、大小写精确声明、typed无证据/旧名冲突、原文保真与实际终端渲染均过。邻近count3为tool2.980s/mermaidcompat0.303s/render0.935s（`20260910-b1641-neighbors-count3.log`），新族race count3为tool7.732s/compat1.613s（`20260910-b1641-race.log`）。独立冷审通过；未改render生产源码或旧断言。
+
+B1642工程封版：仅3生产+3新测试。pre/post共用item自身全部引用优先的候选选择器；未选中任何合格候选时，仅同精确来源/角色的唯一候选能支撑定向软提示，外部观测没有query receipt不据同显示行折成唯一。count3 types0.909s/tool2.135s/orchestrator1.046s，race2.107s/3.826s/2.570s（`20260910-b1642-{count3,race}.log`）。独立冷审通过，不改变claim_use验证、自动引用规范化、SameEvidenceClaimRole或Trace数值/根因/投影权威；现有tool首cell与post surface差异和同址fallback未在本批声称全面闭环。
+
+B1643独立证据保留在`.codrax/tmp/20260910-b1643-first-break_test.go`、`...-overlay.json`、`...-public-red.log`，公开入口1.321s有效RED。同Logger→Sink的flush/write（logger.cpp:38/:36），用精确write prior_anchor+BodyOccurrence替换，atomic结果证明未选flush逐字保留；scope预算却在首个可见节点对匹配后break，把未删flush计为零而拒绝write替换。将两anchor及对应body调为write-first即绿。该失败未混作B1641通过：本批replace正规验收使用唯一边，双边预算专立此项；后续从已有精确selector根修，不依赖label/消息/用户或模型prose猜测。
+
+集成首跑`go test ./... -count=1`在`20260910-b1640-b1642-final-full.log`退出1：85包通过，tool332.863s仅`TestEmitInvestigationCompleteSchema_PreAnnouncesAggregateFactsCap`失败，旧断言仍要求错误的“per-group scalars→grouped_count”原句，a/b定向选择遗漏此旧针。不能回退正确类型教学迁就旧断言，也不能宣称旧针未变已全绿。B1640b补交仅修这一错误教学要求，保maxItems、cap单源、截断披露及其余原断言，并增加“仅已验证非负整数计数/不可将测量分类转换成计数/不得为cap改kind”三条约束；新旧教学与全部completion聚合邻近count3绿1.227s（`20260910-b1640b-legacy-pin-green.log`）。冻结生产源码不变，完整tool重跑中（`20260910-b1640-b1642-tool-full-recheck.log`）；其余85包既有首跑绿不抹除，首个失败日志也保留。
 
 ### §123.1729 r1051：恢复异构exact2评测（2026-09-10，已完成）
 
