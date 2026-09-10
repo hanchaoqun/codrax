@@ -57413,6 +57413,23 @@ B1638b实施细分：**b1来源前置**仅给原生Timeline/TargetWindowStateAcc
 
 下一批只读施工审计进一步明确（未实施）：OffCPU仅有R/S/D/IO四桶；Running来自独立busy loop，StateChurn也是第三状态机，不能以OffCPU接线称“五态已统一”。`addDurationCause`的D→IO分支原start.state仍可为D，本源hook须显式携最终记账状态、原始/裁剪端点、物理行、CPU已知性与关闭方式；在全量关闭后Top8前完成逐TID摘要，不借已cap的dioIntervals。原q窗与EOF收缩schedulerQ分列，endLine0不是物理关闭证明。来源沿ThreadDuration→StateDrilldownStep/普通rank/原因slice→family传播，集合必须保全部成员及unknown成员，不能继承members[0]。原因slice仅继承来源，不继承全桶值/完整物理段资格。Running/StateChurn若暂不接必须继续记未知并在b3消费前补齐。后续公开矩阵含主窗/line1..400正反序、超过Top8与D/IO凭证cap的末片段、IO标志0/1/缺失/歧义、wake/sched-in/open-tail、跨CPU族/clone、跨capture/复用TID/取消/EOF；不改已有数值与模型所有权。
 
+**b3消费面只读清册，下一批须逐项公开反例验证，不将清册当新增生产闭环证明**：
+
+| 顺序 | 入口（本批6f12e6322代码位置） | 统一施工时不可遗漏的消费 |
+|---|---|---|
+| 1 | types/trace_causal_projection.go:3995 NodeFromRecord、3313账户候选 | 保父结果来源与本行局部原生分区，不从EvidenceID反解；传播完整成员来源及未知成员 |
+| 2 | 同文件5813通用去重、6132/6161键；aggregate.go:269 R1 | R2前已存在首条去重及“实体+三位小数+行包络”同事实合并，不能只修R2后追补 |
+| 2 | aggregate.go:855/1060 R4/V4；oneseat.go:350/537/661 | 值/包络/时间重叠不等于同次测量；缺窗兼容、按EID吸收删除需同ID异来源反针 |
+| 3 | aggregate.go:1498/1646/2253 R2 | 同类别SUM与跨窗分槽未区分同窗异line过滤；来源集合不能取首成员冒充整组 |
+| 3 | aggregate.go:2168二成员公开入口 → tool/*_tree.go:3204 | 绕过R2分组的树二成员合并须共用域判定；树6112 IO MAX、6537上下文镜像、7853 rank/lane镜像、8406去重、8490邻近测量一并审计，不能修后重合并 |
+| 4 | types/trace_causal_projection.go:2034/3257 fullWindowStates、3354账户选择 | 当前前者先按实体/状态MAX再判窗；后者同窗取最大Total、平局首条。root已复核账户选择处未先比目标，后置树主体校验挡显示但不自动重选；新增目标错选须独立公开RED，不凭只读扩大客户结论 |
+| 4 | tool/*_tree.go:17607板选举、17675等待分母 | 命名板择最大合计、无命名板行继续SUM、sleep-hop MAX补位；录取/总量/census必须同源且与账户协调，保Running不入等待及D/IO分账 |
+| 5 | tool/answer_document_mutation_runtime.go:2129 occupancy、7818 metric snapshot | 完整物理账户正臂保留；等值五态/同窗抑制不升级为任意原生分区同一证明 |
+
+上述位置中`aggregate.go`为`internal/types/trace_causal_projection_aggregate.go`，`oneseat.go`为同目录`trace_causal_projection_oneseat.go`，`*_tree.go`为`internal/tool/answer_document_mutation_runtime_tree.go`。独立只读审计加root核对确认应覆盖这些入口，具体修改资格仍由真实正反例裁定，不能全表机械加门。三种证明分开：同发布看精确来源/结果收据；同局部测量看外部capture/clock+native partition；同完整物理状态账户保StateAccountKey，故意允许跨view/父query收敛。既有外层capture分区与B1638a账户配卡仍有效，不泛称全部跨capture都混算。最小闭环矩阵增加同ID异事实、未知源正反序、平衡账户Total平局、二成员树/三成员R2一致；缺源可独立显示但不凭缺失授权求和。
+
+**交付收据**：B1638b1以`6f12e6322`提交并推送main；随后干净构建成功，`codrax 0.1.20260910`、revision `6f12e63221dc`、built `2026-09-10T04:34:29Z`，日志 `.codrax/tmp/20260909-b1638b1-clean-build.log`，version实测一致。构建后工作树干净、main/origin相同；本收据及下一批清册仅文档，不改测试后源码。`B1622b=implemented/pushed/full-package-verified`；`B1638b1=implemented/pushed/native-provenance-only/full-package-coverage+count3+race+clean-build-pass`；`B1638b2/b3=open`；`new-live=not-started`。保留308.916/347.249原混算验收RED；不以记录量词或来源前置通过宣称值域问题闭环。
+
 ### §123.1724 r1050续修：B1622a量词 / B1639教学 / B1638a同结果配卡（2026-09-09）
 
 r1050审计已以`fff15c0c2`推送；第一次SSH443连接中断后原样重试成功，不改remote或强推。接续§1723，严格拆显示/教学/事实配对三个职责，不把状态值域未修冒称完成。
