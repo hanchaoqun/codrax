@@ -57380,6 +57380,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1730 r1051后续高ROI小批（2026-09-10）
+
+本节所有新项均源于实际上下文/工具参数和代码的联合复核；不将机器PASS等同人工全绿，不通过关键词硬门或系统替模型改写答案来补齐。
+
+| 工单 | 优先级/状态 | 通用问题与边界 | 验收/后续 |
+|---|---|---|---|
+| B1640 Completion教学 | P1/施工中 | 公共primer说value只能数字，与现工具schema合法behavior_outcome/error_granularity_verdict字符串矛盾；又让纯叙述进scalar_value而非reason | 实际BuildInitialInstruction+真实schema+合法typed facts先红；只修软教学，明确原生JSON数组，不收紧或放宽validator |
+| B1641 图节点操作一致性 | P1/已证生产见证，待独立RED | 新ID+显式独立名称schema允许，执行器先alias合并到旧ID再按旧名拒绝；r1051连续两轮 | 先审模型显式创建独立方法节点的权属；schema/执行同源，保既有节点改名冲突/typed边证据，不替模型选边或合并意图 |
+| B1642 引用角色行级消歧 | P2/确认待施工 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；缺/歧义只能软提示，不改模型引用/正文 |
+
+B1640首红日志`.codrax/tmp/20260910-b1640-completion-teaching-red.log`，1.059s退出1；合法计数/小数/两类分类值、真实工具array schema前提均过，只在矛盾教学/缺原生数组指引失败。Java畸形数组外尾片本身仍判模型错误：不据此猜括号或丢尾，不宣称教学矛盾导致了这次JSON格式错。B1641以新节点明确展示标签优先、旧ID重用等泛化矩阵核权属后施工；继承/时序混表达及C++flush/static type细节另留模型精度观察，不为过单题强制图形。下一exact2候选已排序为写tokenizers Python fallback + H3显式窗IO，未启动。
+
+### §123.1729 r1051：恢复异构exact2评测（2026-09-10，已完成）
+
+库存仍为243 cases；本批先轮转两个高ROI读模式维度：`sr_java_config_precedence`验证三层配置值/来源/覆盖顺序与异常边界，`sr_cpp_virtual_chain`验证多态接口、工厂选择和真实运行边关系。下一批仍排写模式与显式窗D/IO Trace；不围绕H7单一trace反复调oracle，不改模型预算/教学/原始问题。exact2、每case显式上限1200s，默认provider预检开启；这是操作者本次eval总上限，不是4ms/旧4m活跃SSE降级策略。
+
+代码基线`f4bb3aee835c9b7ed377410568e7b041b99c80b1`已推main；干净make成功，`codrax 0.1.20260910`、revision`f4bb3aee835c`、built`2026-09-10T08:58:38Z`，构建日志`20260910-b1638b3-clean-build.log`。08:59:17Z启动既有`parallel_selected.sh`，新二进制快照`.codrax/tmp/codrax-selected-20260910-015917`，两case同时开始，无第三个并发，09:05:46Z全部结束退出0。汇总`eval/parallel_selected_summary_evalcampaign_java_cpp_r1051_20260910.md`及同名前缀`_manual_audit.md`；run目录后缀均`20260910-015917`，总日志`.codrax/tmp/20260910-r1051-live.log`。**机器2/2 PASS，人工Java主面过、C++局部精度/图未全过。**
+
+人工预审源码真值：Java默认20→资源`clinic.max-visits=50`→非空env `CLINIC_MAX_VISITS`；资源失败catch保当前值，非法非空env在catch外会抛错，不能声称全部非法配置回退。C++配置调用方未展示；`make_sink`/registry创建发生于初始化而非每次log，`Logger::log`经纯虚`Sink::write`分派到ConsoleSink，真正输出stderr；README声称log→format_value不符实现，后者只由log_latency使用。unknownkind返回nullptr且空sink log直接return，不得把注释“fail loud”当已经存在的异常逻辑。fixture原oracle较宽，只判名字存在不能证明这些关键行为正确，故需人工审计；不为得到特定模型词面加硬门。
+
+终审：Java126s、上下文28%，首次成文成功；3层及数值/运行时边界正确。一次错误枚举轴、一轮畸形JSON后恢复，未丢答案；模型自写`lookup`英文记P3表达观察，不改原文。其log2169错误引用软提示另立B1642。C++389s、上下文40%，8轮成文/7patch：两轮新ID标签被系统alias吞并见证立B1641，其余重复ref、未实际提交attach等拒绝有精确依据，第8轮真正补6条后接受。最终主链/初始化选择/stderr正确，但工厂静态返回类型与默认空flush措辞不准，残图有孤立节点且继承画成消息，不记人工全绿。最终工件分别`.codrax/output/20260910-020122.415-36204.md`和`20260910-020544.382-36202.md`；模型实际读到源码与精确recipes，不能都归缺上下文，也不能把两轮系统冲突归模型波动。详细逐轮责任见manual audit。活跃流4ms/旧4m不因无可见答案降级的工程针仍绿；本次1200s是显式eval上限，未触发。
+
 ### §123.1728 B1638b3：按实际事件筛选范围协调聚合与等待分母（2026-09-10）
 
 基线`0ec121486`干净；SSH443重新fetch无新增远程提交。承接b2b末公开RED，不新增模型JSON要求，不改模型正文/图/结论。首轮实际两个查询的target Total均231.834ms，旧同窗账户选举因此平局先条；本批**不根据S大小或“全量更权威”新造账户选举**，分母必须遵守已经选中的账户范围，两查询的独立事实仍保留。
@@ -57391,7 +57413,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - [x] 分母：板选举候选、状态Σ与sleep-hop补位同读已选账户来源；不同范围的行仍显示/进入未纳统计，不借入同一等待量。无可证统一分母的混合形不得打印实测0或退到大窗冒充等待。
 - [x] 全窗状态参考：先按来源范围保各自候选，再沿旧最大值/1.2比值/窗口措辞规则选择兼容参考；参考来源不能被合进节点自身值来源。
 - [x] 公开入口双序、同结果重复、8个不同局部Timeline正臂、未知/跨view/不同方法/跨窗/完整物理账户、旧根因族、race/full/活跃流验证；末冻结全仓退出0。
-- [ ] 交付后以干净同revision二进制恢复exact2 live：Java配置优先级 + C++虚调用/工厂链，读过程、上下文及最终答案；不把工程绿当模型回放绿。
+- [x] 交付后以干净同revision二进制恢复exact2 live：Java配置优先级 + C++虚调用/工厂链，机器2/2，人工Java过/C++未全过，详§123.1729；不把工程绿当模型质量全绿。
 
 有效首红：`20260910-b1638b3-tool-numeric-red.log`3.517s（真实Execute→ledger→Compile→Apply，main-only/同结果重复过，两混合顺序仍S308.916/等待347.249）；`...-restriction-red.log`1.072s（同显示窗不同事件筛选合并，unknown混进known）；`...-fullwindow-red.log`1.176s（已知本范围1200被另一范围2500覆盖）。来源有效RED另有`...-origins-red-verified.log`2.639s、五吸收入口`...-absorb-origins-red.log`1.016s；最初来源测试字段名错误的编译失败不算产品RED。新未运行live，不把工程测试当模型回放。
 
@@ -57402,6 +57424,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 末冻结专项收据：来源保全count3 5.282s/race14.584s；R1/V4 count3 2.414s/race1.804s；范围17轴/4算法/单边行界与全窗参考及旧RN12联合race count3 2.165s；新公开数值/二成员/未知矩阵及真实贡献者有限披露count3 8.802s/race19.082s，XLANE及旧GAPB/COV2/RN12/窗口覆盖23.020s全部绿。三派生原生来源与旧OffCPU/SchedulerLatency/CPUConstraint/Epoch/ComputeSupply/RunnableContext count3 4.540s/race14.654s；RootEvidence实际Execute→持久化JSON→最终ledger、三复制出口、unknown/priority边界与Chainguard/ISPGAP/RNB5B旧针count3 10.762s，新三族race count3 16.563s/旧三失败race23.055s。InfoContract W-24已从仅审计重审为真正internal_gate，仅opaque逐字词面豁免保留，登记针1.009s。所有源码/测试冻结并统一gofmt，末次全仓`20260910-b1638b3-final-full.log`退出0，86个有测试包全部绿。独立末审确认四载体与克隆/发布只延续真实数值输入，不动mask/频率/因果资格、排序或model prose；参考来源不是完整数值身份。提交前SSH443再次fetch，HEAD/origin为0/0；交付commit/build及exact2 live收据后补，不能提前宣称live绿。
 
 尚未泛化承诺：原生域未单独编码的其他筛选参数/异算法同line可加性仍受既有规则限制；本批解决明确不同事件行筛选范围被混成一个量这一类问题，不宣称来源集合已经是所有数值的完整身份。完整ledger同ID冲突、memo/dispatch/fork浅复制等上节残余继续留账，不借本批收账一并关闭。
+
+**交付**：30个文件（主要新增为反针/真实入口与旧字段恒等测试），代码及本节以`f4bb3aee8`提交推送main，远程从`0ec121486`快进。末全仓86包绿：agent63.007s/tool306.334s/tracediag14.065s/tracequery104.773s/types44.889s，保留首轮7红过程收据不覆写。提交后干净构建及exact2重启见§123.1729；`B1638b3=implemented/pushed/known-event-filter-mixing-closed/86-package+race+active-stream+build-pass`，不将剩余跨参数值身份/源所有权债务一并销账。
 
 ### §123.1727 B1638b2b：原生统计来源传至正式观测与投影入口（2026-09-10）
 
