@@ -82,6 +82,15 @@ func parseRunnerOutputForPlan(plan runnerPlan, stdout, extraFile, cmdStr string,
 	return nil, fmt.Errorf("parseRunnerOutput: unknown runner %q", runner)
 }
 
+// nonAsserting comes from the runner protocol's explicit outcome, never from
+// a test name, failure prose or Passed. It changes proof scope, not suite success.
+func testCaseObservationScope(nonAsserting bool) types.TestObservationScope {
+	if nonAsserting {
+		return types.TestObservationScopeNonAsserting
+	}
+	return types.TestObservationScopeAssertion
+}
+
 func parseNodeScriptExitStatus(stdout string, runErr error) *types.ChangeReport {
 	passed := runErr == nil
 	detail := ""
@@ -145,7 +154,7 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 		}
 		results = append(results, types.TestResult{
 			Kind:             types.TestResultKindUnit,
-			ObservationScope: types.TestObservationScopeAssertion,
+			ObservationScope: testCaseObservationScope(strings.HasPrefix(status, "skipped")),
 			AssertionID:      name,
 			Suite:            suite,
 			Passed:           passed,
@@ -569,12 +578,13 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 	// "TestFoo" and "TestFoo/SubBar"); we treat each as its own
 	// assertion for the report.
 	type accum struct {
-		suite     string
-		name      string
-		passed    bool
-		elapsed   time.Duration
-		output    strings.Builder
-		completed bool
+		suite        string
+		name         string
+		passed       bool
+		elapsed      time.Duration
+		output       strings.Builder
+		completed    bool
+		nonAsserting bool
 	}
 	tests := make(map[string]*accum)
 	keyOf := func(pkg, test string) string { return pkg + "::" + test }
@@ -655,10 +665,12 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 			a.output.WriteString(ev.Output)
 		case "pass":
 			a.passed = true
+			a.nonAsserting = false
 			a.completed = true
 			a.elapsed = time.Duration(ev.Elapsed * float64(time.Second))
 		case "fail":
 			a.passed = false
+			a.nonAsserting = false
 			a.completed = true
 			a.elapsed = time.Duration(ev.Elapsed * float64(time.Second))
 		case "skip":
@@ -666,6 +678,7 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 			// (a skip is not a failure). Mark completed so
 			// they appear in the report.
 			a.passed = true
+			a.nonAsserting = true
 			a.completed = true
 			a.elapsed = time.Duration(ev.Elapsed * float64(time.Second))
 		}
@@ -686,6 +699,7 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 			// timeout. Record as failed with the accumulated output
 			// so the cause surfaces.
 			a.passed = false
+			a.nonAsserting = true
 		}
 		detail := ""
 		if !a.passed {
@@ -697,7 +711,7 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 		}
 		results = append(results, types.TestResult{
 			Kind:             types.TestResultKindUnit,
-			ObservationScope: types.TestObservationScopeAssertion,
+			ObservationScope: testCaseObservationScope(a.nonAsserting),
 			AssertionID:      a.name,
 			Suite:            a.suite,
 			Passed:           a.passed,
@@ -938,7 +952,7 @@ func parseJestJSON(stdout string) (*types.ChangeReport, error) {
 			}
 			results = append(results, types.TestResult{
 				Kind:             types.TestResultKindUnit,
-				ObservationScope: types.TestObservationScopeAssertion,
+				ObservationScope: testCaseObservationScope(ar.Status != "passed" && ar.Status != "failed"),
 				AssertionID:      id,
 				Suite:            tr.Name,
 				Passed:           passed,
@@ -1042,7 +1056,7 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 		}
 		results = append(results, types.TestResult{
 			Kind:             types.TestResultKindUnit,
-			ObservationScope: types.TestObservationScopeAssertion,
+			ObservationScope: testCaseObservationScope(tt.Outcome != "passed" && tt.Outcome != "failed" && tt.Outcome != "error"),
 			AssertionID:      name,
 			Suite:            suite,
 			Passed:           passed,
@@ -1269,7 +1283,7 @@ func parsePytestTextCaseRows(stdout string) []types.TestResult {
 		passed := outcome == "PASSED" || outcome == "SKIPPED" || outcome == "XFAIL"
 		results = append(results, types.TestResult{
 			Kind:             types.TestResultKindUnit,
-			ObservationScope: types.TestObservationScopeAssertion,
+			ObservationScope: testCaseObservationScope(outcome == "SKIPPED" || outcome == "XFAIL" || outcome == "XPASS"),
 			AssertionID:      name,
 			Suite:            suite,
 			Passed:           passed,
@@ -1318,8 +1332,9 @@ var (
 
 func parseCargoTestText(runnerLabel, stdout string) (*types.ChangeReport, error) {
 	type cargoResult struct {
-		name   string
-		passed bool
+		name         string
+		passed       bool
+		nonAsserting bool
 	}
 	var tests []cargoResult
 
@@ -1329,7 +1344,7 @@ func parseCargoTestText(runnerLabel, stdout string) (*types.ChangeReport, error)
 		line := scanner.Text()
 		if m := reCargoTestLine.FindStringSubmatch(line); m != nil {
 			passed := m[2] == "ok" || m[2] == "ignored"
-			tests = append(tests, cargoResult{name: m[1], passed: passed})
+			tests = append(tests, cargoResult{name: m[1], passed: passed, nonAsserting: m[2] == "ignored"})
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -1359,7 +1374,7 @@ func parseCargoTestText(runnerLabel, stdout string) (*types.ChangeReport, error)
 		}
 		results = append(results, types.TestResult{
 			Kind:             types.TestResultKindUnit,
-			ObservationScope: types.TestObservationScopeAssertion,
+			ObservationScope: testCaseObservationScope(t.nonAsserting),
 			AssertionID:      t.name,
 			Suite:            "cargo",
 			Passed:           t.passed,
@@ -1985,8 +2000,8 @@ func parseJUnitXMLDir(runnerLabel, reportDir, stdout string) (*types.ChangeRepor
 // correctly (the reverse — "<testName> @ <className>" — would be
 // ambiguous when two classes share a method name).
 //
-// Skipped cases are Passed=true per the codrax convention (they
-// don't block the verify gate). Failure AND Error elements both
+// Skipped cases remain Passed=true for non-failing suite reporting, but their
+// non_asserting scope cannot witness a behavior contract. Failure AND Error elements both
 // map to Passed=false; their content is concatenated into
 // FailureDetail with type + message + body if present.
 func junitCasesToResults(s junitTestSuite) []types.TestResult {
@@ -2013,7 +2028,7 @@ func junitCasesToResults(s junitTestSuite) []types.TestResult {
 		}
 		out = append(out, types.TestResult{
 			Kind:             types.TestResultKindUnit,
-			ObservationScope: types.TestObservationScopeAssertion,
+			ObservationScope: testCaseObservationScope(tc.Skipped != nil),
 			AssertionID:      id,
 			Suite:            s.Name,
 			Passed:           passed,
@@ -2114,7 +2129,7 @@ func parseRSpecJSON(stdout string) (*types.ChangeReport, error) {
 		}
 		results = append(results, types.TestResult{
 			Kind:             types.TestResultKindUnit,
-			ObservationScope: types.TestObservationScopeAssertion,
+			ObservationScope: testCaseObservationScope(ex.Status != "passed" && ex.Status != "failed"),
 			AssertionID:      ex.FullDescription,
 			Suite:            ex.FilePath,
 			Passed:           passed,

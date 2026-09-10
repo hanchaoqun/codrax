@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-10）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮以 §123.1732–1742 为准：端点引用歧义修复与B1645–1648四小批已逐批推送，两组各86包全仓通过。r1053/r1054均严格两并发并完成人工审计；r1054时序题机器PASS但正文方向/职责仍错，C++交付及7个原生边界通过但正式断言收据未闭合，不冒称答案或证明全绿。新确认B1649已证短显示名的保留式补锚候选缺席已按单源精确证据通道修复，公开执行/count3/race、独立复核及第三组86包全仓通过，修后live尚未执行；B1561继续合并原生断言收据债。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
+本轮以 §123.1732–1745 为准：端点引用歧义修复与B1645–1648四小批已逐批推送，两组各86包全仓通过。r1053/r1054均严格两并发并完成人工审计；r1054时序题机器PASS但正文方向/职责仍错，C++交付及7个原生边界通过但正式断言收据未闭合，不冒称答案或证明全绿。B1649已证短显示名的保留式补锚候选缺席已按单源精确证据通道修复，第三组86包全仓通过；十三条分8＋5完整公开续修回归也已补验推送，修后live尚未执行。B1561原生断言收据扩展前，B1650跳过测试误授行为证明已公共RED并施工；B1651旧JUnit被当本轮结果独立公共确认、来源绑定待修。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
 
 ## 1. 基线与目标
 
@@ -57385,6 +57385,14 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1745 B1651-JUNITFRESH1：陈腐报告借本轮成功命令授证（2026-09-10）
+
+P1/真实公共RED已确认，独立待修，优先于新增Make报告能力。实际RunTests执行Gradle协议fixture：fresh臂本轮生成JUnit正常通过；stale臂预置同名JUnit、mtime为2000年，本轮wrapper仅exit0且报告字节/mtime不变，系统仍读取1个具名行，实际report的confidence与`BuildVerificationProofLedger`均把对应value-contract列covered。测试未手填TestResults、ExecutedCommands或confidence，不声称宿主真实运行Java测试。首RED1.841s，移出正式包后overlay复验1.463s，fresh正控PASS而stale反控精确FAIL。
+
+复现保留`.codrax/tmp/b1651-junit-freshness-rNkCdk/overlay.json`和测试源；日志`20260910-b1651-junit-freshness-{red,overlay-red-verified}.log`。命令为`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -overlay=/Users/han/opt/codrax/.codrax/tmp/b1651-junit-freshness-rNkCdk/overlay.json ./internal/tool -run '^TestB1651JUnitProofRequiresReportFromCurrentExecution$' -count=1 -v`。RED不常驻正式Go包，不掩盖或删除反例。调用链为实际supervisor→Java postexec locateJUnitReportDir→既存XML walker→finishReport的confidence→proof ledger；不是B1650 skipped状态的问题。
+
+下批要求本次执行与具名结果来源绑定，区分可指定独有输出文件和框架固定报告目录，不删除用户报告、不仅凭名字/mtime/成功文字猜作本轮生成。需正反覆盖fresh/不产出/旧报/同名跨执行/失败命令/错误来源，以及合并与持久化不丢归属；精确未确认来源不进入行为授证，同时保留可审计的原结果信息与验证缺口。新Make opt-in仍另批，不把本项收窄冒称B1561全部关闭。
+
 ### §123.1744 B1649补验：真实13条关系分8＋5保留式续修（2026-09-10）
 
 只新增`internal/agent/answer_document_call_repair_staged_b1649_test.go`，没有生产修改。十三对独立调用经真实ReadFile→EmitEvidence取得十三个精确callsite来源；公开Emit触发13缺锚/8候选，实际finalizer安装器发租约，公开Patch attach8后真实`staged_for_retry`保留8锚及原13消息正文；安装器从Pending基准重绑剩5候选，公开Patch attach5成功发布13锚，首8锚与模型摘要/图正文逐字不变。候选来源集合8＋5恰为原13行，未手造delta、lease或accepted base。
@@ -57393,9 +57401,13 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 ### §123.1743 B1650-SKIPPEDPROOF1：未失败不等于已证断言（2026-09-10）
 
-承接B1561扩展前置审计，P1确定性公共反例已成立，施工中，不将该项倒写为r1054 Make无收据的原因。真实`RunTests.Execute`子进程按Maven协议生成JUnit，`<skipped/>`被产为`Passed=true + observation_scope=assertion`，相同测试身份经原project-test关联和`BuildVerificationProofLedger`取得`verified/strong`及行为合同covered；普通passed正控正常。有效RED为`.codrax/tmp/20260910-b1561-junit-skipped-public-red.log`（2.162s）。这是结构化报告协议fixture，不冒称宿主安装了Java或执行了真实Java断言。
+承接B1561扩展前置审计，P1确定性公共反例已成立并完成修复，最终全仓验证中，不将该项倒写为r1054 Make无收据的原因。真实`RunTests.Execute`子进程按Maven协议生成JUnit，`<skipped/>`被产为`Passed=true + observation_scope=assertion`，相同测试身份经原project-test关联和`BuildVerificationProofLedger`取得`verified/strong`及行为合同covered；普通passed正控正常。有效RED为`.codrax/tmp/20260910-b1561-junit-skipped-public-red.log`（2.162s）。这是结构化报告协议fixture，不冒称宿主安装了Java或执行了真实Java断言。
 
-修向采用系统自有结果scope区分“框架没有报告普通断言结果”，保原Passed、身份、时长、失败与套件汇总。跳过不应把整套测试变失败，也不应充当行为证明。拟采用`non_asserting`而非`not_executed`：Go中途Skip、RSpec pending、预期失败可能已有执行，不能把不可授证误报成从未运行。复核范围为现支持JUnit（Java/Hvigor/CMake/Meson）、Go、unittest、pytest两报告面、Jest/Vitest、cargo/Cangjie、RSpec的精确状态产点；不扫描模型正文，不新增模型JSON义务，不放宽原proof消费者只接受assertion的门。各框架矩阵及冻结测试尚待收据。
+修复采用系统自有结果scope区分“框架没有报告普通断言结果”，保原Passed、身份、时长、失败与套件汇总。跳过不把整套测试变失败，也不充当行为证明。采用`non_asserting`而非`not_executed`：Go中途Skip、RSpec pending、预期失败可能已有执行，不能把不可授证误报成从未运行。覆盖现支持JUnit（Java/Hvigor/CMake/Meson）、Go、unittest、pytest两报告面、Jest/Vitest、cargo/Cangjie、RSpec的精确状态产点；Jest/RSpec仅明确passed/failed可授原断言scope，pytest JSON保原passed/failed/error；Go缺终态及其它未知状态不凭系统合成Passed=false授失败证明。pytest文本XFAIL/XPASS与JSON相应状态均不授普通断言资格，原Passed仍不改。不扫描模型正文，不新增模型JSON义务，不放宽原两个proof消费者只接受assertion的门。
+
+仅2个生产文件（types已有scope新增枚举、tool parser赋scope）＋1新测试文件，未改原测试/pin/命令/计划指纹/模型schema。JUnit为实际公开RunTests正反两臂；其它11格实际parser协议→合成执行上下文→原proof/ledger拒证明确区分，8格未知/无终态/XPASS拒绝负向证明，5scope×双Passed共10格保两个原门及report只读字节。另JSON往返/legacy空scope不猜迁移、JUnit正常pass/fail/error/矛盾skip＋fail及身份/时长保持。最后XPASS实际parser负向授证RED5.003s（`20260910-b1650-xpass-red.log`），不把它称为模型波动。
+
+冻结count3 `20260910-b1650-frozen-targeted-count3.log`6.808s（新族＋Parse全族＋PTO/失败关联/真实Python路径），race count3 `...-frozen-race-count3.log`5.485s；root及独立冷审通过。早起全仓在发现XPASS最后同根臂后主动中止，`20260910-b1650-final-full.log`不计通过；重新冻结后的完整`20260910-b1650-final-frozen-full.log`已启动，待退出再记结果。活跃流专项`20260910-b1650-active-stream.log`11.426s通过，含部分帧4ms字节、隐藏推理/工具流、heartbeat、旧总年龄后取消与真实stall；不把代码测试冒称本轮生产超长流自然命中。
 
 相邻B1561来源层只读发现：Make的`DeclaredCoveragePaths`是精确已有输入文件清册，并非报告路径；当前无Make报告协议声明，不得据此扫描任意XML。Java/Hvigor读取现存报告目录，是否可能借旧JUnit为当前exit0授证正在独立公共验证（B1651-JUNITFRESH1，未复现前仅待证）。以后新增原生通道须先绑定本次执行与具名行，再考虑仓库显式报告声明；当前fmt纯Make仍aggregate/unverified。不得删除客户报告目录或把模型路径当新报告权威。
 

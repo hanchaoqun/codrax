@@ -1917,14 +1917,18 @@ type BuildError struct {
 	Message string `json:"message"`          // the compiler's error text (single line)
 }
 
-// TestObservationScope states whether a TestResult identifies one concrete
-// framework assertion or only an aggregate runner/build outcome. The value is
-// producer-owned: consumers must not infer it from AssertionID spelling.
+// TestObservationScope separates an asserting framework result, an aggregate
+// runner/build outcome, and a non-asserting test outcome. The value is
+// producer-owned: consumers must not infer it from AssertionID spelling or Passed.
 type TestObservationScope string
 
 const (
 	TestObservationScopeAssertion TestObservationScope = "assertion"
 	TestObservationScopeAggregate TestObservationScope = "aggregate"
+	// NonAsserting retains skip/pending/expected-failure identities without an
+	// ordinary assertion witness. Some such tests execute code; this is not a
+	// claim that no code ran. Passed retains its suite-level meaning.
+	TestObservationScopeNonAsserting TestObservationScope = "non_asserting"
 )
 
 // TestResult is one row in ChangeReport.TestResults. Mirrors the
@@ -1937,9 +1941,9 @@ type TestResult struct {
 	// rows describing a pre-test build failure.
 	Kind TestResultKind `json:"kind,omitempty"`
 
-	// ObservationScope is assertion only when the runner parser emitted one
-	// concrete test-case identity. Empty and aggregate rows cannot discharge a
-	// behavior-contract obligation.
+	// ObservationScope is assertion only for a concrete asserting test result.
+	// Empty, aggregate and non_asserting rows cannot discharge a behavior-contract
+	// obligation; a skipped row can remain Passed=true for suite-level reporting.
 	ObservationScope TestObservationScope `json:"observation_scope,omitempty"`
 
 	// AssertionID is the canonical identifier used for matching
