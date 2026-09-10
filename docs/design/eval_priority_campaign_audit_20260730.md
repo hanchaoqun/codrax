@@ -57380,6 +57380,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1725 续修计划：测量范围与剩余记录量词（2026-09-09）
+
+基线 `e1f878bd4`，工作树干净；本轮已重新 fetch，main/origin 为 0/0。不重复收账已结束的 r1050，不把上一批工程验证当新 live。
+
+- [ ] **B1638b/P1**：先核 producer 测量域载体与 R1/R2、症状分母、目标账户选举的完整传播；保公开双序混算 RED。相同时间窗不等于相同事件筛选域，完整 QueryScopeID 也不能替代物理测量域。跨 view 的合法补齐、独立原始事实与链路不得被一刀切。
+- [x] **B1622b/P2**：5 个 family 数量词消费点与表格两分支改为“N条记录 / N records”，只读 FamilyMemberCount；普通 MergedCount/MergedWireFold 次数、混合 metadata 下原事件折叠优先级均不变。188行新测试经真实 typed observation→compile→ApplyAndPersist 验证双语树/表格实际存在且不再误称次数，保4汇总记录、11底层发生数、12ms、排名和完整源/模型 JSON；未知 caliber 只显示记录数，不铸求和权限。RCM2/SemLead 旧针仅20处 family 词面迁移，长名额外断言 PID99123仍可见，不提宽度预算。独立只读复核与root末审通过。
+- [ ] 冻结后跑包套件、独立审查并分批提交推送；后续 live 仍 exact2，优先 Java 配置层级与 C++ 虚分发/工厂关系，下一批轮换真实 write 与明确窗 Trace。未执行前不签回放通过。
+
+红线不变：不改模型正文/图/结论，不以请求或答案关键词硬门；链上占时与规则可消两轴、业务线索、因果投影/自动补齐保留。活跃流不因 4ms 或旧 4m 无可见正文降级，真实停滞、取消与显式调用方预算仍生效。
+
+B1622b工程证据：`.codrax/tmp/20260909-b1622b-persistent-red-verified.log` 1.548s 为有效公开 RED（首稿两个测试定位前提修正后，生产尚未改时重新取得）；`20260909-b1622b-final-count3.log` 新旧邻近族51.794s、`20260909-b1622b-final-race.log`2.297s绿，原物理次数/多窗和双轴 pin 保留。另实际流式保护 `20260909-b1622b-stream-protection-count3.log`：agent2.914/llm9.545/repl3.870s绿，含真实SSE在4ms预算后25个隐藏推理片段、partial frame、heartbeat、真实停滞/取消/更短caller deadline；旧总时限用缩短阈值验证机制，不冒称本轮持续四分钟live。本提交先交付B1622b小批；全包与新live另记后续，不在这里提前签绿。
+
+B1638b新一轮公开 RED仍在：`20260909-b1638b-entry-red.log`4.060s，两种查询顺序仍生成S308.916/等待347.249；B1638a已修同结果配卡，不能据此认为总量问题已修。审计还确认`fullWindowStates`、tree两条状态行折叠以及无board分母必须共同处置。排除“一刀切QueryScopeID”的原因：既有StateAccountKey由完整物理段生成，故意允许主窗rank与递归窄窗wakeup收敛；保持该精确跨view正臂。
+
+B1638b实施细分：**b1来源前置**仅给原生Timeline/TargetWindowStateAccount增加实际已构造状态分区凭证，流式摘要完整cap前区间及head/integrity/尾开放边界，物理capture/clock仍由既有来源绑定；不称完整采集证明、不改数值或选举。**b2来源补齐**须独立给OffCPU sweep铸本源凭证（其状态来源不同，不能借target timeline，也不能只hash五态scalar或已截断D清单），并传播合并origin集合。**b3数值闭环**才统一接R1/R2、fullWindowStates、账户与分母。b1单独交付不关闭B1638b，也不安排同一H7反复刷绿。
+
 ### §123.1724 r1050续修：B1622a量词 / B1639教学 / B1638a同结果配卡（2026-09-09）
 
 r1050审计已以`fff15c0c2`推送；第一次SSH443连接中断后原样重试成功，不改remote或强推。接续§1723，严格拆显示/教学/事实配对三个职责，不把状态值域未修冒称完成。

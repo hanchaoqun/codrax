@@ -9827,7 +9827,7 @@ func runtimeTraceProjRowNameKeepSuffix(row runtimeTraceProjTreeRow, zh bool) str
 		// RCM-2 D2: the family count chip is grammar, not name — reserved out
 		// of the name budget like the event-form chip (a width cut eats the
 		// name head, never the count).
-		xn = runtimeTraceProjMergeCountChip(row.Node.FamilyMemberCount, zh)
+		xn = runtimeTraceProjFamilyCountChip(row.Node.FamilyMemberCount, zh)
 	}
 	word, token := runtimeTraceProjRowCauseWordToken(row, zh)
 	stateWord := (token == "priority_inversion_candidate" &&
@@ -11377,9 +11377,9 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 		name += runtimeTraceProjMergeCountChip(row.Node.MergedCount, zh)
 	} else if runtimeTraceProjFamilyRow(row.Node) {
 		// RCM-2 D2 行1 (§24.2 上移行1 同款): the family member count rides
-		// the 词位 (witness ✦ VerifyClass 14次 / ⛓ 块设备IO(inode) 2次); the
+		// the 词位 (✦ VerifyClass 14条记录 / ⛓ 块设备IO(inode) 2条记录); the
 		// caliber stem rides the value cell, the roster rides the sub-rows.
-		name += runtimeTraceProjMergeCountChip(row.Node.FamilyMemberCount, zh)
+		name += runtimeTraceProjFamilyCountChip(row.Node.FamilyMemberCount, zh)
 	}
 	if row.Node.DuplicatePublications > 1 {
 		// UXR-1 §29.36④ (140554 witness 孤行灭): the ×N同值 chip rides the

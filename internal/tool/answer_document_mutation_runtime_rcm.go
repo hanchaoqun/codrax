@@ -54,6 +54,15 @@ func runtimeTraceProjFamilyRecordCountWord(n int, zh bool) string {
 	return fmt.Sprintf("%d records", n)
 }
 
+// B1622b: keep the family-record population separate from MergedCount's
+// physical/event fold vocabulary. The leading space is reserved name grammar.
+func runtimeTraceProjFamilyCountChip(count int, zh bool) string {
+	if zh {
+		return fmt.Sprintf(" %d条记录", count)
+	}
+	return fmt.Sprintf(" %d records", count)
+}
+
 func runtimeTraceProjFamilyRecordCountScope(zh bool) string {
 	if zh {
 		return "“条记录”统计汇总记录数,每条可汇总多个物理区间,不是物理发生次数。"
@@ -965,20 +974,20 @@ func runtimeTraceProjFamilyTableToken(node types.TraceCausalProjectionNode, zh b
 	}
 	prefix := runtimeTraceProjFamilyValuePrefix(node, zh)
 	// EVOLUTION RECORD (WF-xn §29.52.1, 2026-07-12): 「×N合计」→「N次合计」/
-	// en 「n=N total」-family — the count chip speaks the same vocabulary as
+	// en 「n=N total」-family — the count chip spoke the same vocabulary as
 	// the data tokens (tracefence display-table ⑥).
+	// B1622b: family membership is a record count, not a physical occurrence
+	// count. Keep the caliber prefix and unknown-caliber boundary unchanged.
+	count := strings.TrimSpace(runtimeTraceProjFamilyCountChip(node.FamilyMemberCount, zh))
 	if prefix == "" {
 		// Unknown caliber: the count is still typed truth — token without a
 		// caliber claim.
-		if zh {
-			return fmt.Sprintf("%d次", node.FamilyMemberCount)
-		}
-		return fmt.Sprintf("n=%d", node.FamilyMemberCount)
+		return count
 	}
 	if zh {
-		return fmt.Sprintf("%d次%s", node.FamilyMemberCount, prefix)
+		return count + prefix
 	}
-	return fmt.Sprintf("n=%d %s", node.FamilyMemberCount, strings.TrimSpace(prefix))
+	return count + " " + strings.TrimSpace(prefix)
 }
 
 // runtimeTraceProjFamilySemanticClassWord is the semantic family's 行1 词位
@@ -1053,7 +1062,7 @@ func runtimeTraceProjSemanticCellParts(node types.TraceCausalProjectionNode, ms 
 		if word := runtimeTraceProjFamilySemanticClassWord(node, zh); word != "" {
 			name = word
 		}
-		name += runtimeTraceProjMergeCountChip(node.FamilyMemberCount, zh)
+		name += runtimeTraceProjFamilyCountChip(node.FamilyMemberCount, zh)
 		if runtimeTraceProjFamilyCountSumClamped(node) {
 			// §29.55 观察③ 两形一裁 (2026-07-14): the 计数当量 stem never
 			// composes with an ms-suffixed value — suffix-free atom.

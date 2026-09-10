@@ -1051,7 +1051,7 @@ func runtimeTraceProjElimClassWord(row runtimeTraceProjTreeRow, zh, diagnosis bo
 			word = strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseName(node.SemanticClass, zh))
 		}
 		if node.FamilyMemberCount > 1 {
-			word += runtimeTraceProjMergeCountChip(node.FamilyMemberCount, zh)
+			word += runtimeTraceProjFamilyCountChip(node.FamilyMemberCount, zh)
 		}
 		return word
 	}

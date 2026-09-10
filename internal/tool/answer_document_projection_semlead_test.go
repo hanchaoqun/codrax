@@ -93,7 +93,7 @@ func TestSemLeadNonTargetSemanticFamilyCrownsByIntervalCredentialZH(t *testing.T
 	// ① The semantic row wears its ordinal badge like every priced seat.
 	fenceRow := ""
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "纹理上传 2次") && strings.Contains(line, "✦") {
+		if strings.Contains(line, "纹理上传 2条记录") && strings.Contains(line, "✦") {
 			fenceRow = line
 			break
 		}
@@ -123,7 +123,7 @@ func TestSemLeadNonTargetSemanticFamilyCrownsByIntervalCredentialZH(t *testing.T
 
 	// ④ 词值同源: the (a) key-metric table speaks the class word, exactly one
 	// texture row, never a member span name in the node cell.
-	tableRows := regexp.MustCompile(`(?m)^\|.*纹理上传 2次合计.*$`).FindAllString(md, -1)
+	tableRows := regexp.MustCompile(`(?m)^\|.*纹理上传 2条记录合计.*$`).FindAllString(md, -1)
 	if len(tableRows) != 1 {
 		t.Fatalf("the key-metric table must seat the family exactly once with the class word, got %d:\n%s", len(tableRows), md)
 	}
@@ -588,7 +588,7 @@ func TestSemLeadPartialOverlapSingleSeatRelationOnlyDualAccount(t *testing.T) {
 	fenceRows := 0
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "├─语义─") && strings.Contains(line, "✦") &&
-			strings.Contains(line, "纹理上传 2次") {
+			strings.Contains(line, "纹理上传 2条记录") {
 			fenceRows++
 		}
 	}
@@ -623,7 +623,7 @@ func TestSemLeadPartialOverlapSingleSeatRelationOnlyDualAccount(t *testing.T) {
 			t.Fatalf("CROWNSEM-1: typed semantic credential omitted %q: %s", want, semanticNotes)
 		}
 	}
-	if !strings.Contains(md, "| 纹理上传 2次 | 纹理上传 | worker-200 | 合计9.300ms | 5.500ms |") {
+	if !strings.Contains(md, "| 纹理上传 2条记录 | 纹理上传 | worker-200 | 合计9.300ms | 5.500ms |") {
 		t.Fatalf("CROWNSEM-1: optimization table must price the exact intersection beside the raw union:\n%s", md)
 	}
 	// CROWNSEM-1 (§40.28 ①): the exact intersection wears 有效归因; the raw
@@ -979,7 +979,7 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 	if strings.Contains(badgeBlock, "纹理上传") {
 		t.Fatalf("the semantic family (real 5.300 < 8.100) must not wear ➊ on this form:\n%s", badgeBlock)
 	}
-	tex := semLeadNodeBlockLines(md, "纹理上传 2次")
+	tex := semLeadNodeBlockLines(md, "纹理上传 2条记录")
 	if len(tex) == 0 {
 		t.Fatalf("the semantic family row must stay published:\n%s", md)
 	}
@@ -1048,7 +1048,7 @@ func TestSemLeadPureSemanticBoardKeepsRawClueWithoutCrowning(t *testing.T) {
 	if leadLine == "" || strings.Contains(leadLine, "未定位到链上主根因") || !strings.Contains(leadLine, "纹理上传") {
 		t.Fatalf("credentialed semantic evidence must crown, got %q in:\n%s", leadLine, md)
 	}
-	if tex := semLeadNodeBlockLines(md, "纹理上传 2次"); len(tex) == 0 {
+	if tex := semLeadNodeBlockLines(md, "纹理上传 2条记录"); len(tex) == 0 {
 		t.Fatalf("the semantic family row must stay visible:\n%s", md)
 	}
 }

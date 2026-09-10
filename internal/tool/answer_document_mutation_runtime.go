@@ -3962,7 +3962,7 @@ func runtimeTraceProjCompareBackgroundTopRowCell(model runtimeTraceProjTreeModel
 	if runtimeTraceProjFamilyRow(*best) {
 		// RCM-2 D3: the count chip + the family caliber word (shared single
 		// source; unknown calibers make no claim — the count is still truth).
-		cell += runtimeTraceProjMergeCountChip(best.FamilyMemberCount, zh)
+		cell += runtimeTraceProjFamilyCountChip(best.FamilyMemberCount, zh)
 		if cell != "" {
 			cell += " "
 		}
