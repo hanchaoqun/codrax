@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-10）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮以 §123.1732–1740 为准：端点引用歧义修复已过86包全仓并推送；r1053严格两并发已完成人工审计，未将机评或局部通过冒称完整正确。B1645–1648四小批已实现、定向/race绿并逐批推送；整组冻结全仓正在验证。r1054已用干净提交版固定两并发：代码时序复验＋异构C++写模式真实交付。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
+本轮以 §123.1732–1741 为准：端点引用歧义修复与B1645–1648四小批已逐批推送，两组各86包全仓通过。r1053/r1054均严格两并发并完成人工审计；r1054时序题机器PASS但正文方向/职责仍错，C++交付及7个原生边界通过但正式断言收据未闭合，不冒称答案或证明全绿。新确认B1649已证短显示名的保留式补锚候选缺席，按单源精确证据通道施工；B1561继续合并原生断言收据债。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
 
 ## 1. 基线与目标
 
@@ -57385,6 +57385,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1741 B1649：已证调用的短显示名与修补候选域不一致（2026-09-10）
+
+P1/实际r1054与代码联合确认，施工中。r1054日志3286–3297的13条图边均为`missing_grounded_call_anchor`，产点仅在原严格matcher已确认调用时出现；原入模2878–2909有`agent.buildAnalysisIR`的精确callee/callsite，而模型显示名为`buildAnalysisIR`。`preEmitStandaloneRelationCandidateMismatchSelection`再用全限定身份等价比较短显示名与候选，合法补锚候选缺席，模型继而删真边。不能将机器PASS称图关系完整，也不能把13条缺锚说成13条调用无证。
+
+修向：原typed调用matcher返回当前完整证据池内实际匹配的精确证据/来源，既有布尔门与修补者共用；只为当前缺锚诊断携内部receipt。候选交模型显式选择，不自动加边/改图/改正文，不全局放宽`Equivalent`、不读请求或模型prose、不同call/reply/flow语义不混。全池多owner/方法/源歧义不能通过逐候选单元素池变成“唯一”；相同pair多个callsite仍保原来源与发生次数约束。只在唯一完整identity pair时细化failure，已知模型identity不改。
+
+验收前提：实际ReadFile→EmitEvidence→公开成文缺锚→公开delta/lease→模型Attach先红后绿，另qualified正常、同名多owner、反向/种类/无精确证据、不同文件/行/独立callsite、陈腐lease与保留模型wire负控；抽共享resolver不改原调用准入，需邻近parity与count3/race。运行中的r1054不重写为修后通过，修后工程/生产命中分别计账。
+
+精确计数纠正：`additions=1/9`中另外8项是列表claim-only候选，缺claim EvidenceID而不能直接挂租约，列表whole-block修补后来已补齐；不是上述13条图边被9选1截断。不得以此数字误修cap或放宽缺出处的claim。模型Run/RunWith反向、辅助函数职责猜测与用户图后清单次序错误另保人工FAIL，不增加关键词硬门。B1561原生断言收据为下一高ROI既有待办，不另开重复P1；声明变更provenance词面仅记待证观察。
+
 ### §123.1740 r1054：修补后真实回放与C++持久交付（2026-09-10）
 
 已推送独立小批：B1648=`026055ffe`、B1645=`3fcabc587`、B1646=`70a15732c`、B1647a/b=`1f0ead712`；r1053审计=`382164862`。B1647最后race5.795s通过，所有生产/测试冻结，root已冷读实际两原生call正控与原门负控。全仓`20260910-b1645-b1648-final-full.log`执行中；不得将未完成的部分包绿冒称全仓绿。
@@ -57392,6 +57402,12 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 同提交干净make成功：revision`1f0ead712a60`，built`2026-09-10T12:04:02Z`，构建日志`20260910-r1054-clean-build.log`。12:04:43Z严格exact2启动qf_sequence_analyzer_gate＋github_issue_fmt_tm_year_overflow_symptom，快照`codrax-selected-20260910-050443`，原case/oracle/模型预算未改，TIMEOUT1200s仅本轮明确外层上限。结果目录分别`eval/results/{qf_sequence_analyzer_gate,github_issue_fmt_tm_year_overflow_symptom}-20260910-050443`；总日志`20260910-r1054-live.log`，机器与人工报告前缀`eval/parallel_selected_summary_evalcampaign_sequence_cppwrite_r1054_20260910`。此条为启动记录，尚未收结果，不在运行中追加第三个live。
 
 qf人工基线仍为builder→RunWith、Run→RunWith汇聚及真正同级顺序，Compile调用2530；不强求模型某个具体中间函数，不帮模型生成/修改图。若未自然触发B1647新臂，不能以机评通过倒签该臂生产命中。C++写题距r1039约14轮，可用本机clang++真正编译；比选择已知缺Java/Rust执行环境的更旧题更有验收价值。持久树需保原tests/Makefile/`-fwrapv`，在+1900前宽化且render_year不回窄；121→2021、INT_MAX→2147485547，另INT_MIN、-1900、0、上界切点/越过切点共7项原生复验。正常make通过不替代每个正式证明义务；保留honest unverified时要核缺的是哪一份typed见证。
+
+终态：12:10:28Z严格exact2全部结束，机器qf PASS345s、C++ FAIL213s，无第三个live。qf人工FAIL，完整终稿`.codrax/output/20260910-051026.423-17843.md`，原Mermaid随仓离线渲染成功25,543byte（`20260910-r1054-qf-mermaid-render.json`）。5轮成文/3拒绝/4patch/峰值58%上下文；stage→孤儿处置正常推进，后继一凭证双消息拒绝正确，不再出现r1053未改边removed/added。但p0/p14没有n1/n2冲突、无mixed身份恢复日志，不冒称B1647两个分支均命中。正文仍倒置Run/RunWith、职责猜测、列表放图前；系统附注不是模型错误的抵销项。另确认B1649保留式补锚缺口，见上一节。
+
+C++仅header两行在加法前宽化、render_year不回窄，tests/Makefile/README原样；持久ref`refs/codrax/applied/plan-1789042033391417000-17858`=`6cfe3303923bf64e9e0dac1ba9469f49333c43af`，fixture原HEAD`84671723ea808834a07cc160137cbac29f2f76e4`未变。root在保留worktree真实make check及7边界全部通过（`20260910-r1054-fmt-{durable-native,independent}.log`），原baseline同黑盒两个上界wrap失败。INT_MIN期望合法负历年-2147481748，不接受模型泛化“无负数”。正式`no-wrap-or-neg`缺精确assertion receipt，controller已有required1/covered0与why、最终诚实unverified；归既有B1561（r1020/r1021/r1039同根），不是新跨计划丢证明，不拿root独立结果回填report。完整逐轮/源码/原生收据见r1054 manual_audit。
+
+B1645–1648最终冻结全仓已退出0：`20260910-b1645-b1648-final-full.log`共86个有测试的包通过，agent66.419s/tool303.626s/tracequery106.332s/tracediag13.426s/types46.595s/orchestrator27.312s/llm31.409s/repl64.506s。B1647末race5.795s，其余各批race见各节；活跃流专项count3`20260910-b1642b-active-stream-count3.log`llm33.643s/agent10.330s通过，覆盖4ms不完整帧、隐藏推理/工具/heartbeat与旧总cap，同时保显式deadline/cancel及真停滞。活跃连接不会仅因4ms或旧4分钟未出可见答案而降级；本次结构修补拒绝不等同流超时。未增JSON字段/教学硬约束，不改Trace投影、自补采或模型结论所有权。
 
 ### §123.1739 B1647a/b：分阶段孤儿收尾与教学编号域冲突（2026-09-10）
 
