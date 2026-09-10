@@ -57395,6 +57395,12 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 活跃流专项count3：`20260910-b1640-b1642-active-stream-guard.log`，llm12.474s/agent1.600s绿；覆盖隐藏推理、工具调用、4ms间隔不完整SSE帧字节、heartbeat-only超过旧总cap，以及显式调用方deadline/cancel、unused非流式fallback不污染活跃主流。未通过增大固定时限规避问题。
 
+最终收账（09:47:57Z）：机器write PASS249s、H3 FAIL319s，人工均fail。Python仅修改活动子仓tokenizer，durable tree原2项测试真实通过；独立边界证明单LF误合并为300，并可误触后续合并为301。实际planner上下文已有predicate-domain/no-op/minimum-trigger/边界分区完整教学（初log1631/1654），唯一required合同精确为hi→256，1/1覆盖+8 planning-only+4自然语言清单在controller及交付卡诚实披露；不是缺原生执行或系统证明域矛盾，也不据此再加单LF硬规则。B1614子仓相对路径提示获本轮生产正证，未再重复前缀。
+
+H3保留1.347ms请求、1.337ms S型阻塞、4.384ms下界；6条可见不升总数、190项41.329归属及请求端点较r1013改善。机器仅因41.329同一行后无指定词命中而FAIL，标题已写非墙钟；不改oracle刷绿。人工另确认调度时长误称非墙钟、D/IO并列改且、绝对禁止请求均值、Binder升为IO主组成、overflow错挂storage字段等原模型整理错误，主要三尺及背景边界实际入模。两处“未唤醒”还暴露B1644：入模裸false没有承接该证明布尔的absence/ambiguity语义，应补准确上下文而非事后改表。详见本轮manual。
+
+八次查询原窗、首次成文零拒绝/patch，完整答案与131byte合法空根因旁路均在`.codrax/output/20260910-024755.466-58451.*`；有限IO事实题不强行因果图。full_artifact+typedtimes的模型组合错误仍遵WS1旧裁定，不自动改其scope；派生grep-full拒读后返回原JSON成功是B1624b导航正证，非新权限冲突。B1641/B1642修复分支本轮未触发，不冒称live验收；B1643独立继续施工，B1644新增下批，停止对本样例堆叠硬教学，后续轮转异构关系和其它write域。
+
 ### §123.1730 r1051后续高ROI小批（2026-09-10）
 
 本节所有新项均源于实际上下文/工具参数和代码的联合复核；不将机器PASS等同人工全绿，不通过关键词硬门或系统替模型改写答案来补齐。
@@ -57406,6 +57412,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 | B1642 引用角色行级消歧 | P2/已推2ca6a4947；主面工程全绿，生产新臂待触发 | 同表多form+同label多证据，pre/post first-match取错lookup行，软提示将正确配置literal引用改错 | 以item自己选的引用/证据消歧，不由全表form+pool先后抢位；不改模型引用/正文；旧fallback另列b |
 | B1643 同节点对多关系修补预算 | P1/独立公开RED已确认，下一修复批 | 选中的精确write关系已正确替换，但预算按visiblepair的首条flush anchor判零删除量；仅调序即一红一绿 | 预算与真实执行器复用同一精确prior_anchor选择；不是删除break或整对放行；保未选边/重复ref/occurrence/异relation负臂 |
 | B1642b 端点回退同址多关系 | P2/冷审确认，待公开RED及边界审计 | 旧UniqueGroundedClaimRoleForExactEndpoint仅按source:line判唯一，同址不同typed关系仍可能首项抢位 | 审计新advisory末端及旧tool直接调用两面；不改自动引用/全局谓词以冒充闭环；补同址A→B/A→C与反序/receipt边界 |
+| B1644 IO完成唤醒证明布尔语义 | P2/r1052上下文缺口确认，独立施工 | CompletionWokeIssuer=false含absence/ambiguity，但入模仅裸布尔；模型据此写“未唤醒”超出证明 | 只补入模双语证明边界：未形成独立闭合证明≠证明未唤醒；true/false/缺值、RQ/BIO、正阻塞量另证；保原API/算法/根因门，不改模型表或结论 |
 
 B1640首红日志`.codrax/tmp/20260910-b1640-completion-teaching-red.log`，1.059s退出1；合法计数/小数/两类分类值、真实工具array schema前提均过，只在矛盾教学/缺原生数组指引失败。Java畸形数组外尾片本身仍判模型错误：不据此猜括号或丢尾，不宣称教学矛盾导致了这次JSON格式错。B1641以新节点明确展示标签优先、旧ID重用等泛化矩阵核权属后施工；继承/时序混表达及C++flush/static type细节另留模型精度观察，不为过单题强制图形。下一exact2候选已排序为写tokenizers Python fallback + H3显式窗IO，未启动。
 
