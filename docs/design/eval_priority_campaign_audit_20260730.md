@@ -57385,6 +57385,14 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1747 B54-TIER2PROSE1显示收口：启发式诊断不越权评价答案（2026-09-10）
+
+承接r1055非比较题被附“各方支持强度不均衡”的真实见证，完成独立小批。复核后方案比§1746初稿更小且更泛化：不仅entity_parity，scalar_count/cardinality/path_depth同样仍读prose计数或启发式阈值。即使有typed comparison_axis，也不能从样本数推出答案遗漏或一方证据弱；因此不新增comparison_axis发射门，四个已有永久soft、不可提升kind同源只保telemetry/探索提示，不再自动附成用户答案评价。
+
+生产仅`internal/orchestrator/repair_caveat_materializer.go`18行：`MaterializeUnresolvedViolationsAsCaveats`在family聚合前精确过滤四kind；原validator/Hint/registry/排序/重试门/模型schema和正文均不变。其它typed附注仍经原formatter、排序和cap；没有关闭真实证据缺口披露。新增`repair_caveat_tier2_display_b54_test.go`264行：真实RunFamilyValidators→公开Append、Bus/noBus和tracked→实际last-mile重复渲染，zh/en四种类、comparison_axis有无、其它typed正控与cap、原始请求/文档/图/violation JSON及Hint保持。不是只测自造文本过滤。
+
+有效公共RED`.codrax/tmp/20260910-b54-tier2-display-public-red.log`1.016s；首绿1.317s，最终邻近count3`20260910-b54-tier2-display-final-count3.log`0.998s，race`...-final-race.log`2.971s。root与独立冷审无阻断，未迁移旧pin、不把r1055倒记成修后live。本批代码/测试独立提交，全仓与下一strict2在后续冻结集成批收账；当前B1651a Maven＋CTest来源适配仍施工，不因本项收口冒称JUnit总gap闭环。
+
 ### §123.1746 r1055：冻结验收后读类型关系＋写Python行为（2026-09-10）
 
 B1649分8＋5实际续修针已推`961ebb78e`；B1650多框架非断言结果scope已推`87a1c1af9`，main与origin一致。最终冻结全仓`20260910-b1650-final-frozen-full.log`退出0，86个有测试包通过（未变包部分使用Go缓存）：tool334.051s、agent95.509s、types63.670s、tracequery135.635s、tracediag28.156s、orchestrator26.100s。没有删旧断言或把中止的早起全仓计入该收据；早轮的失败历史保留。

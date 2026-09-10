@@ -56,6 +56,14 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 	}
 	hit := make(map[string]bool, len(violations))
 	for _, v := range violations {
+		if tier2CompletenessCaveatIsTelemetry(v.Kind) {
+			// B54: these permanently-soft kinds still include prose/count
+			// heuristics. Preserve their diagnostic and exploration hint, but
+			// do not turn them into claims about missing content, how a model
+			// obtained a value, or one side having weaker evidence. Even an
+			// explicit comparison request does not supply that proof.
+			continue
+		}
 		if genericSelfContradictionCaveatIsRepairTelemetry(v) {
 			// A self-consistency reviewer result without the exact SUMMARY/BODY
 			// pair is not an actionable user fact. Preserve the violation in
@@ -109,6 +117,16 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 		}
 	}
 	return out
+}
+
+func tier2CompletenessCaveatIsTelemetry(kind types.ViolationKind) bool {
+	switch kind {
+	case types.ViolScalarCountUnsourced, types.ViolPathDepthInsufficient,
+		types.ViolCardinalityShort, types.ViolEntityParityImbalanced:
+		return true
+	default:
+		return false
+	}
 }
 
 // materializeAnswerFacetCoverageCaveat replaces the broad answer-coverage
