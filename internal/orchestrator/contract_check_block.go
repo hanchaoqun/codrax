@@ -1797,10 +1797,13 @@ func validateCallChainItemCitationRoleAlignmentContext(ctx context.Context, doc 
 			if len(refs) == 0 {
 				continue
 			}
-			expected, ok := idx.claimRoleMentionedByItemSurface(item, forms)
-			if !ok {
-				expected, ok = types.UniqueGroundedClaimRoleForExactEndpoint(idx.items, forms, item.Label)
+			var cited []types.EvidenceItem
+			for _, ref := range refs {
+				if ref >= 0 && ref < len(doc.Citations) {
+					cited = append(cited, idx.citedEvidenceItems(doc.Citations[ref])...)
+				}
 			}
+			expected, ok := idx.claimRoleMentionedByItemSurface(item, forms, cited)
 			if !ok {
 				continue
 			}
@@ -1913,18 +1916,13 @@ func answerBlockSharesFacet(b types.AnswerBlock, facets []string) bool {
 	return false
 }
 
-func answerClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm, evidence []types.EvidenceItem) (types.EvidenceItem, bool) {
+func answerClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm, evidence, cited []types.EvidenceItem) (types.EvidenceItem, bool) {
 	label := strings.TrimSpace(item.Label)
 	text := strings.TrimSpace(item.Text)
 	if label == "" && text == "" {
 		return types.EvidenceItem{}, false
 	}
-	for _, ev := range evidence {
-		if types.EvidenceClaimRoleAssertedByAnswerSurface(ev, forms, label, text) {
-			return ev, true
-		}
-	}
-	return types.EvidenceItem{}, false
+	return types.SelectAnswerItemCitationRole(evidence, cited, forms, label, text)
 }
 
 func answerCitedEvidenceItems(mut *types.MutableState, cit types.Citation) []types.EvidenceItem {
@@ -1958,11 +1956,11 @@ func newAnswerEvidenceIndex(mut *types.MutableState) *answerEvidenceIndex {
 	return idx
 }
 
-func (idx *answerEvidenceIndex) claimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm) (types.EvidenceItem, bool) {
+func (idx *answerEvidenceIndex) claimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm, cited []types.EvidenceItem) (types.EvidenceItem, bool) {
 	if idx == nil {
 		return types.EvidenceItem{}, false
 	}
-	return answerClaimRoleMentionedByItemSurface(item, forms, idx.items)
+	return answerClaimRoleMentionedByItemSurface(item, forms, idx.items, cited)
 }
 
 func (idx *answerEvidenceIndex) citedEvidenceItems(cit types.Citation) []types.EvidenceItem {

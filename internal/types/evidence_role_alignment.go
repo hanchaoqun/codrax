@@ -153,6 +153,63 @@ func EvidenceClaimRoleAssertedByAnswerSurface(ev EvidenceItem, allowed []ClaimFo
 	}
 }
 
+// SelectAnswerItemCitationRole resolves an item, not a whole block, against
+// the evidence actually selected by its citations. Available block forms do
+// not let an unrelated same-label candidate replace that selection. When no
+// selected citation is suitable, only one exact source/role candidate can
+// justify a location-specific repair; ambiguity is not pool-order authority.
+// This helper neither changes citations nor validates claim_use annotations.
+// Candidate uniqueness qualifies only this targeted soft advisory, never
+// runtime measurement, causal attribution, or projection eligibility.
+func SelectAnswerItemCitationRole(items, cited []EvidenceItem, allowed []ClaimForm, label, text string) (EvidenceItem, bool) {
+	for _, ev := range cited {
+		if EvidenceClaimRoleAssertedByAnswerSurface(ev, allowed, label, text) {
+			return ev, true
+		}
+	}
+	var candidate EvidenceItem
+	found, ambiguous := false, false
+	for _, ev := range items {
+		if !EvidenceClaimRoleAssertedByAnswerSurface(ev, allowed, label, text) {
+			continue
+		}
+		if !found {
+			candidate, found = ev, true
+		} else if !sameExactCitationRoleCandidate(candidate, ev) {
+			ambiguous = true
+		}
+	}
+	if found {
+		return candidate, !ambiguous && candidate.Source != "" && candidate.LineStart > 0
+	}
+	// Preserve the existing unique typed endpoint fallback. Mere endpoint
+	// mention is not permission to choose between multiple relation sources.
+	return UniqueGroundedClaimRoleForExactEndpoint(items, allowed, label)
+}
+
+func sameExactCitationRoleCandidate(a, b EvidenceItem) bool {
+	// EvidenceItem has no runtime query/result receipt. Two external rows at
+	// the same displayed line must not be certified as one unique candidate;
+	// runtime source/value authority belongs to its separate typed carriers.
+	if ClaimFormOf(a) == ClaimExternalObservation || ClaimFormOf(b) == ClaimExternalObservation {
+		return false
+	}
+	if a.Source != b.Source || a.LineStart != b.LineStart || a.LineEnd != b.LineEnd || ClaimFormOf(a) != ClaimFormOf(b) ||
+		a.Origin != b.Origin || a.EvidenceRef != b.EvidenceRef || a.Producer != b.Producer ||
+		a.Subject != b.Subject || a.Object != b.Object || a.AnchorSymbol != b.AnchorSymbol || a.Condition != b.Condition ||
+		a.OwnerSymbol != b.OwnerSymbol || a.Scope != b.Scope || a.SectionPath != b.SectionPath || a.LogPerfSubKind != b.LogPerfSubKind ||
+		a.DiagramRole != b.DiagramRole || a.RequestedDiagramRole != b.RequestedDiagramRole || a.FileRoleLabel != b.FileRoleLabel ||
+		len(a.SurfaceTerms) != len(b.SurfaceTerms) {
+		return false
+	}
+	for i := range a.SurfaceTerms {
+		if a.SurfaceTerms[i] != b.SurfaceTerms[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // EvidenceSetContainsSameClaimRole checks whether a citation's
 // evidence pool contains the same typed claim role as expected. ID
 // equality wins; otherwise the comparison falls back to the form's

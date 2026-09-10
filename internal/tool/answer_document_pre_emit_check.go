@@ -5261,22 +5261,31 @@ func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocu
 			continue
 		}
 		for _, item := range b.Items {
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+			var cit types.Citation
+			var cited []types.EvidenceItem
+			hasCitation := false
+			for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+				if ref < 0 || ref >= len(doc.Citations) {
+					continue
+				}
+				if !hasCitation {
+					cit, hasCitation = doc.Citations[ref], true
+				}
+				if items, found := pctx.citedEvidenceItems(doc.Citations[ref]); found {
+					cited = append(cited, items...)
+				}
+			}
+			if !hasCitation {
 				continue
 			}
-			cit := doc.Citations[item.CitationRef]
 			if preEmitItemMatchesSourceLocationPrincipalMember(ctx, item, cit) {
 				continue
 			}
-			expected, ok := preEmitClaimRoleMentionedByItemSurface(item, forms, allEvidence)
-			if !ok {
-				expected, ok = types.UniqueGroundedClaimRoleForExactEndpoint(allEvidence, forms, item.Label)
-			}
+			expected, ok := preEmitClaimRoleMentionedByItemSurface(item, forms, allEvidence, cited)
 			if !ok {
 				continue
 			}
-			cited, found := pctx.citedEvidenceItems(cit)
-			if found && types.EvidenceSetContainsSameClaimRole(cited, expected) {
+			if types.EvidenceSetContainsSameClaimRole(cited, expected) {
 				continue
 			}
 			mismatches = append(mismatches, mismatch{
@@ -12873,7 +12882,7 @@ func preEmitBlockSharesFacet(b types.AnswerBlock, facets []string) bool {
 	return false
 }
 
-func preEmitClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm, evidence []types.EvidenceItem) (types.EvidenceItem, bool) {
+func preEmitClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm, evidence, cited []types.EvidenceItem) (types.EvidenceItem, bool) {
 	label := strings.TrimSpace(item.Label)
 	if label == "" {
 		for _, cell := range item.Cells {
@@ -12887,12 +12896,7 @@ func preEmitClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []
 	if label == "" && text == "" {
 		return types.EvidenceItem{}, false
 	}
-	for _, ev := range evidence {
-		if types.EvidenceClaimRoleAssertedByAnswerSurface(ev, forms, label, text) {
-			return ev, true
-		}
-	}
-	return types.EvidenceItem{}, false
+	return types.SelectAnswerItemCitationRole(evidence, cited, forms, label, text)
 }
 
 func preEmitItemNonLabelSurface(item types.AnswerBlockItem) string {
