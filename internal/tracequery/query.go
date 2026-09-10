@@ -2335,6 +2335,7 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 	if len(res.Intervals) == 0 {
 		res.Caveats = append(res.Caveats, "no scheduler interval for the target thread was found in the selected window")
 	}
+	res.MeasurementDomain = buildTimelineMeasurementDomain(q, res)
 	return res
 }
 
@@ -25104,6 +25105,7 @@ func (c *chainQueryCache) timeline(q Query, thread ThreadRef) TimelineResult {
 
 func cloneTimelineResult(in TimelineResult) TimelineResult {
 	out := in
+	out.MeasurementDomain = types.CloneTraceSchedulerMeasurementDomain(in.MeasurementDomain)
 	if len(in.Intervals) > 0 {
 		out.Intervals = append([]Interval(nil), in.Intervals...)
 	}

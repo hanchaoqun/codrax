@@ -700,6 +700,10 @@ func walkStructDetail(v reflect.Value, path string, emit func(string), depth int
 
 func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
 	t := v.Type()
+	if t == reflect.TypeOf(types.TraceSchedulerMeasurementDomain{}) {
+		renderSchedulerMeasurementDomainDetail(v.Interface().(types.TraceSchedulerMeasurementDomain), path, emit)
+		return
+	}
 	if t == reflect.TypeOf(tracequery.TargetWindowSleepInventory{}) {
 		renderTargetSleepInventoryDetail(v.Interface().(tracequery.TargetWindowSleepInventory), path, emit, depth, policy)
 		return

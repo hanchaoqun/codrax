@@ -910,8 +910,17 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// EVOLUTION RECORD (2026-09-03, colleague_merge_audit §40.42 ④b): WindowStats
 	// gained legacy_carrier_row_count (original-name visibility carriers of an
 	// artifact converted before V6-2); the fingerprint moves with it.
-	reflect.TypeOf(tracequery.WindowStats{}):                "99190b281118d0e07633db78707e85c985fc5014c7e793fc53a886583467a63b",
-	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
+	reflect.TypeOf(tracequery.WindowStats{}): "99190b281118d0e07633db78707e85c985fc5014c7e793fc53a886583467a63b",
+	// B1638b1 (2026-09-09): TimelineResult adds optional MeasurementDomain.
+	// It describes a constructed scheduler partition, NOT capture completeness
+	// or causal authority. Its nine scalar fields stay in original detail;
+	// an exact-type renderer retains required zero coordinates/filter sentinels
+	// with existing fixed-point formatting, nil stays absent, and the compact
+	// pointer precedes bulk Intervals. No skip/duplicate/priority rule changes.
+	// Nested TargetWindowStateAccount uses the same carrier; Result's
+	// pointer-only schema is unchanged. Explicit nested field and actual Run
+	// rendering pins live in render_scheduler_measurement_domain_test.go.
+	reflect.TypeOf(tracequery.TimelineResult{}):             "0fa59a388c5b4cfb6d819771af6329eed1fe750b75511f9d1f747daf2ab571ed",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	// PERF raw quality disclosure: ParserCaveats is rendered once in the
 	// bounded key-first line (count + top witness) and skipped by detail.

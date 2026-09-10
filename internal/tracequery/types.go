@@ -1451,12 +1451,13 @@ func (it Interval) ActualDurationMsResolved() float64 {
 }
 
 type TimelineResult struct {
-	Thread           ThreadRef          `json:"thread"`
-	Window           TimeWindow         `json:"window"`
-	HeadState        *TimelineHeadState `json:"head_state,omitempty"`
-	IntegrityFailure string             `json:"integrity_failure,omitempty"`
-	Intervals        []Interval         `json:"intervals"`
-	Caveats          []string           `json:"caveats,omitempty"`
+	MeasurementDomain *types.TraceSchedulerMeasurementDomain `json:"measurement_domain,omitempty"`
+	Thread            ThreadRef                              `json:"thread"`
+	Window            TimeWindow                             `json:"window"`
+	HeadState         *TimelineHeadState                     `json:"head_state,omitempty"`
+	IntegrityFailure  string                                 `json:"integrity_failure,omitempty"`
+	Intervals         []Interval                             `json:"intervals"`
+	Caveats           []string                               `json:"caveats,omitempty"`
 }
 
 // TimelineHeadState is the typed completeness verdict for the first instant

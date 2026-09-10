@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // target_window_state_account.go — §29.27 ruling ② (COV-4, ledger
@@ -48,9 +50,10 @@ import (
 // TargetWindowStateAccount is the focused thread's full-window scheduling
 // state partition over the bundle's analysis window.
 type TargetWindowStateAccount struct {
-	Thread   ThreadRef  `json:"thread"`
-	Window   TimeWindow `json:"window"`
-	WindowMs float64    `json:"window_ms"`
+	MeasurementDomain *types.TraceSchedulerMeasurementDomain `json:"measurement_domain,omitempty"`
+	Thread            ThreadRef                              `json:"thread"`
+	Window            TimeWindow                             `json:"window"`
+	WindowMs          float64                                `json:"window_ms"`
 	// The five active-state lanes (ms, window-clamped). TotalMs = Σ(five
 	// lanes); it equals WindowMs only when the timeline covered the whole
 	// window (complete head carry-in, no unobserved/stopped/dead gaps).
@@ -351,18 +354,19 @@ func buildTargetWindowStateAccount(idx *Index, tl TimelineResult, ok bool, targe
 		return nil
 	}
 	account := &TargetWindowStateAccount{
-		Thread:        bd.Thread,
-		Window:        window,
-		WindowMs:      (window.EndTs - window.StartTs) * 1000,
-		RunningMs:     bd.RunningMs,
-		RunnableMs:    bd.RunnableMs,
-		SleepMs:       bd.SleepMs,
-		DStateMs:      bd.DStateMs,
-		IOWaitMs:      bd.IOWaitMs,
-		TotalMs:       bd.TotalMs,
-		FragmentCount: bd.FragmentCount,
-		LineStart:     bd.LineStart,
-		LineEnd:       bd.LineEnd,
+		MeasurementDomain: types.CloneTraceSchedulerMeasurementDomain(tl.MeasurementDomain),
+		Thread:            bd.Thread,
+		Window:            window,
+		WindowMs:          (window.EndTs - window.StartTs) * 1000,
+		RunningMs:         bd.RunningMs,
+		RunnableMs:        bd.RunnableMs,
+		SleepMs:           bd.SleepMs,
+		DStateMs:          bd.DStateMs,
+		IOWaitMs:          bd.IOWaitMs,
+		TotalMs:           bd.TotalMs,
+		FragmentCount:     bd.FragmentCount,
+		LineStart:         bd.LineStart,
+		LineEnd:           bd.LineEnd,
 	}
 	var running []foldInterval
 	for _, it := range tl.Intervals {
