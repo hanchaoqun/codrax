@@ -57404,7 +57404,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 **最终全包覆盖**：首轮`go test ./... -count=1`为85包绿、orchestrator仅热点文件行数ratchet红（8453>8451）；日志`20260909-b676-b1634d-b1637b-full-suite.log`。没有提限或压缩注释：将两个状态保存出口及其applied路径collector完整114行迁到`change_plan_status_persistence.go`，原文件降8339并同步将ceiling8451→8339，新职责文件独立122行预算。行为调用与函数体（含本修复的2行identity保存）不改；末版完整orchestrator12.271s、尾差count3 race3.196s绿（`20260909-b676-final-{orchestrator-suite,moved-status-race}.log`）。其余85包生产/测试未再改，包含tool293.571s、tracequery100.548s、hitraceconv150.731s、agent58.218s、tracediag12.872s；不能把首轮历史写成一次全绿。所谓零旧pin迁移指零数值/语义针放宽，此次行数pin为真实职责拆分后收紧。
 
-交付：B676本提交落库（proof持久身份与禁止空apply同批），B1637b与B1634d代码已独立验收、待各自提交；干净构建与新exact2尚未执行。
+交付：B676以`41999ca77`推送（proof持久身份与禁止空apply同批）；B1637b本提交独立落库；B1634d已验收、待独立提交。热点职责拆分末审逐字比对证明除已审两行Preserve外原三函数体不变、全仓各唯一方法定义。干净构建与新exact2尚未执行。
 
 红线：无请求/答案关键词硬门；不修改模型正文/图/结论；Trace链上两轴、优先级/调度/算力、D/IO与语义/业务线索、显式窗/因果投影/自动补采不改。活跃流不能仅因4ms或旧4m缺最终正文降级；真实停滞、取消和调用方deadline保留。不冒领新live。
 

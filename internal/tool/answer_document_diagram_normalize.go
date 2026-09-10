@@ -66,9 +66,36 @@ func answerBlockCanCarryStandaloneTypedRelations(block types.AnswerBlock) bool {
 
 func answerBlockStandaloneRelationClaimForms(block types.AnswerBlock) map[types.ClaimForm]bool {
 	forms := make(map[types.ClaimForm]bool, len(block.ClaimUses))
-	for _, use := range block.ClaimUses {
-		if use.ClaimForm != types.ClaimUnknown && types.RelationForClaimForm(use.ClaimForm).IsValid() {
-			forms[use.ClaimForm] = true
+	// Ownership uses the complete forward mapping, not the lossy legacy
+	// inference bridge: type_relation requires definition_fact, while a plain
+	// definition must still never infer a directed type relation. This only
+	// classifies explicit claims; each existing anchor and its evidence remain
+	// subject to their own identity, ownership and relation proof checks.
+	for _, relation := range types.AllDiagramRelationKinds() {
+		form := types.ClaimFormForRelation(relation)
+		if !form.IsValid() {
+			continue
+		}
+		if form == types.ClaimDefinitionFact {
+			// A plain definition plus stale call metadata is not a relation
+			// carrier. Only an explicit forward-mapped type anchor can make
+			// this otherwise non-directed form participate in ownership.
+			explicit := false
+			for _, anchor := range block.EdgeAnchors {
+				if anchor.RelationKind == relation {
+					explicit = true
+					break
+				}
+			}
+			if !explicit {
+				continue
+			}
+		}
+		for _, use := range block.ClaimUses {
+			if use.ClaimForm == form {
+				forms[form] = true
+				break
+			}
 		}
 	}
 	return forms
