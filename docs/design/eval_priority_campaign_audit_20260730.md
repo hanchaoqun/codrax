@@ -57409,6 +57409,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 本批保持：JSON教学与模型schema不变；模型正文、图与结论不改写；链上优先级/调度/算力/D/IO/语义与业务线索通道不删除；邻近与背景只作支持。活跃SSE不因4ms或旧4m无可见正文降级，真实停滞、取消、显式caller deadline仍有界；专项回归见上。
 
+**本批交付收据**：代码、正式回归与本节以`5a698127fbe7f6763fb8f6a9e0798f9423364c47`提交并经SSH443推送main，远程从`a9958a777`快进。末冻结全仓86包全部通过，其中agent61.769s/tool299.144s/tracediag15.303s/tracequery103.422s/types43.178s/orchestrator23.996s/hitraceconv147.247s/llm31.875s；日志`20260910-b1638b2b-final-full.log`。提交后干净`make`成功，实测`codrax 0.1.20260910`、revision`5a698127fbe7`、built`2026-09-10T07:44:31Z`，日志`20260910-b1638b2b-clean-build.log`。构建后工作树干净，HEAD/origin为0/0；此收据独立文档提交，不改变已测代码。`B1638b2b=implemented/pushed/source-propagation-only/86-package+targeted-race+active-stream+clean-build-pass`。**B1638b整体仍开放，b3来源保全/分组/分母未施工；旧混算公开RED未改，新live未启动。**
+
 ### §123.1726 B1638b2a：三条原生统计流的独立来源与复制保护（2026-09-09）
 
 从已推送 `4ffa97b8e` 干净工作树接续；本轮 SSH443 fetch 后 main/origin 为0/0。B1638b1仅覆盖Timeline/目标账户，本批补Running、OffCPU、StateChurn三个不同的原生统计算法；**尚不修改投影合并、目标账户选择或等待分母，B1638b原数值问题仍开放**。
