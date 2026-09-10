@@ -57380,6 +57380,26 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1723 r1050：证明持久化与首唤醒账户生效；查询范围混算和教学冲突（2026-09-09）
+
+三批已推送后的干净二进制`bd471758e329`（built `2026-09-10T01:55:33Z`）跑H7全谱明确窗Trace+Go精准patch写模式，exact2各一次1200s，未改case/oracle/默认预算。机器H7 PASS288s、Go FAIL187s；人工H7整份fail、Go实际代码/请求pass但泛化proof语义仍有边界。两份`eval/parallel_selected_summary_evalcampaign_h7_go_r1050_20260909{,_manual_audit}.md`保留原机器结果，手审依据包括实际源diff、计划/收据、日志、入模路径及最终正文/投影，不以机评绿销账。
+
+- [x] **B676 live持久化正证**：原`plan-1789005424994848000-25872`精确应用main.go第25行retrun→return，durable checkpoint `6b2f2b9d08ee2ce581915e10ea0ed049e1e9a48d`与交付source ref可追溯；原测试/模块/README未改。后续`plan-1789005539638893000-25939`零Changes、status=applied、producer persistence_kind在真实emit→verify→磁盘保存→退出清理重载保留。3次原生go test与另1次编译probe均执行通过，verify_only没进coder；新empty-apply拒绝臂本次未被live触发。formal verified不能自动证明probe精确实现所有NL行为断言，B1561/B1616b保留。
+- [x] **B1636 live账户正证**：H7原131→139行首个headless wake的0.040ms补回R；账户R1.576/已归账231.834/未知1.356ms，原running74.915/S118.586/D36.757/IO0不变。明确233.190ms窗、1份Trace因果投影、系统frame补采、占时/规则可消两轴、链上IO0.985ms及业务span保留，邻近仍不升根因。139byte默认旁路存在，typed unavailable原因为没有有效模型根因选择，不是投影缺失。
+- [x] **B1634c/P2再证**：Go唯一机器失败no_plan_regex检查最终proof镜像，实际应用的原计划有patch；eval/run.sh:1660–1671用了最后$plan。后续需要显式已应用计划oracle域与durable来源绑定，最终报告分开验；不能合并所有草稿求过针，也不改当前case阈值。实际代码pass与原机器FAIL同时保留。
+- [x] H7模型正文错误已与系统错误拆分：65.912+同时间行筛选子查询1.326→67.238非法相加；650000等kHz写成650等kHz；11物理D段/4CPU组/12原因记录相混、4+4与12矛盾、top3≈98.5%不可复算。精确单位与不同域不可相加指导已入模，不进行模型正文后置替换、关键词拒绝或为本题强制图形。主结果33项实为12链上+5无rank+16邻近，正文#1–12已覆盖已发链席，**不能误报缺少第13–33链根因**；未展开链记录另有12，故“所有/完整”仍过强。Playe2-V15的81.616有filtered query真实来源，不是挪用其它线程。
+
+新/续修任务按ROI分批：
+
+1. **B1638-TRACEQUERYDOMAINSUM1/P1，值域旗舰批，确认待修**：主query b0e1e8cd的8个S记录78.630ms与同时间但原trace line1..400的f6949c97开放尾S230.286混池，系统树S308.916、等待347.249。B1635“仅限纳入记录”注不解除物理重叠混算。另final_decision_boundary将全范围D36.757与filtered原因记录1/3.213并置，filtered账户实际D0；已有unjoined/禁止差值注不等于逐记录关联，但所选query域没被绑定。须明确producer全query/filter/child/result来源；QueryScopeID还含view等，不能直接全局按它硬切而破坏合法跨view补齐。缺来源保独立事实，不猜合并。先公开RED与精确载体设计、再独立数值施工。**旧B1629b为非point grounding重定位范围债，独立保留，本新问题不挪用其编号。**
+2. **B1622/P2汇总量词小批，施工中**：系统MD227/E6的FamilyMemberCount4是CPU汇总记录，成员occurrence5+3+2+1=11。rcm共享sum/union/max/chainintersection把成员叫“段”，图例同源错词；只改“汇总记录”及双语图例，保FamilyMemberCount/数值/成员/排序/真实逐span计数。本块在模型成文后追加，不能把模型首稿计数错全归它。已安排真实Result→typed→发布RED与独立审查，提交前不签完成。
+3. **B1639-TRACERESULTREADTEACHING1/P2，施工中**：同一已发布result的旧payload_ref禁止直接read，StoreBlob尾注/B1624却教grep/read_file；实际head24576包含旧句byte16040（日志debug只裁印2000字）。schema line_start/end更误称result line window，实际是原始trace/index-global行过滤。共源区分“原capture分析/已发布结果导航/两种行坐标”，不改任何权限、registry、查询值或JSON字段。是否诱发本轮line1..400仅是推测，不能写成已证因果。
+4. B1634c单列runner来源域；B1634d精确配置交接/B1637b混合关系身份本批只工程闭环，r1050未触发对应非Trace读图正臂，下一exact2按异构覆盖轮换，不反复追H7机评绿。B1122、B1629b/B1626、gated原始running子集/频率显示、B1561/B1616b/旧fork权限等继续在账。
+
+本批H7最长单LLM调用66.538s，整案288s不是持续4分钟单流证据；actual4ms/旧4m活动流工程针已在§1722通过。活跃SSE不因没最终正文而降级，真实stall/cancel/caller deadline保持。无系统改写模型正文/图/结论，无输入/答案关键词硬门，不借背景生成主因。
+
+状态：`r1050=audited/machine1-of-2/human-Go-code-pass+H7-fail`；`B676+B1636=production-positive`；`B1638=confirmed/design+public-red-pending`；`B1622+B1639=implementation-in-progress/not-yet-delivered`；`B1634c=confirmed/open`。
+
 ### §123.1722 B676续修 / B1634d / B1637b：持久身份、精确原值与关系身份闭环批（2026-09-09）
 
 基线`13867b90a`，本轮开始工作树干净；fetch后main/origin为0/0。接续§1716、§1719、§1721，不重跑已结束r1049，不把此前工程绿写成新live。
@@ -57394,7 +57414,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 - [x] **B1634d/P1有效RED**：真实ReadFile→EmitEvidence→CompileObservationLedger已经保留配置第8/9行原文；default/reviewer预算的公开prompt投影却都为空。日志`.codrax/tmp/20260909-b1634d-public-source-red.log`。隐藏模型Summary仍正确，问题是精确源码字面值未另行交接。
 - [x] B1634d根修：仅已选中、真实grounded的已读源码字节，在现有预算内给独立原文载体；保引号内空格/换行和UTF-8，截断状态独立披露，不猜补值、不解释运行时生效值。finalizer/checkpoint/reviewer共用格式，原观测和模型Summary权威隔离不变，不提高rank/cap、不由系统写答案。末审发现既有ground可能从锚中心±2行取匹配Snippet但不改原LineStart；因此新展示明确为`source_excerpt_anchor`附近已读原文，绝不把锚行伪称为原文精确行，也不擅改原证据坐标。独立精确excerpt坐标载体另列后续。checkpoint另一个count/value-only显示过滤也按同SourceExcerpt资格接通，公开真实入模针覆盖，不让原文到共享投影后再次整行丢失。
 - [x] 完成公开正反矩阵、count3/race、最终86包覆盖与独立末审；各批提交/推送状态见下。宿主SDK27的arm64e.x1/旧linker不兼容是环境阻断，不计产品RED；单命令SDKROOT指向已安装26.5，不修改全局工具链/依赖。
-- [ ] 冻结已推送干净二进制后exact2：H7明确窗全谱Trace + Go真实patch写模式。已核243个`.case`（目录244文件包含非case）；按回归影响、模式轮换、proof持久路径及来源覆盖优先级选择，不改原case/oracle，1200s各一次。机器结果和人工日志/源码/上下文/答案结论分开记录。
+- [x] 冻结已推送干净二进制后exact2：H7明确窗全谱Trace + Go真实patch写模式。已核243个`.case`（目录244文件包含非case）；按回归影响、模式轮换、proof持久路径及来源覆盖优先级选择，不改原case/oracle，1200s各一次。r1050机器1/2、人工Go代码pass/H7fail，详细收账见§1723；B676持久身份与此前B1636获live正证，B1634d/1637b没有对应实际触发，不能一并签live。
 
 **有界后续**：自动把导入proof计划转verify-only涉及保留原worktree、恢复代次与累计证明范围，不能简单把batch改Verifying后测主仓。本批仅安全拒绝apply并提示显式verify，自动恢复单列后续。B1634b/c、B1122、gated原始running子集与频率显示、B1629b/B1626/B1622/B1561/B1616b/旧fork权限等仍保留，不签全系统无gap。
 
@@ -57404,7 +57424,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 **最终全包覆盖**：首轮`go test ./... -count=1`为85包绿、orchestrator仅热点文件行数ratchet红（8453>8451）；日志`20260909-b676-b1634d-b1637b-full-suite.log`。没有提限或压缩注释：将两个状态保存出口及其applied路径collector完整114行迁到`change_plan_status_persistence.go`，原文件降8339并同步将ceiling8451→8339，新职责文件独立122行预算。行为调用与函数体（含本修复的2行identity保存）不改；末版完整orchestrator12.271s、尾差count3 race3.196s绿（`20260909-b676-final-{orchestrator-suite,moved-status-race}.log`）。其余85包生产/测试未再改，包含tool293.571s、tracequery100.548s、hitraceconv150.731s、agent58.218s、tracediag12.872s；不能把首轮历史写成一次全绿。所谓零旧pin迁移指零数值/语义针放宽，此次行数pin为真实职责拆分后收紧。
 
-交付：B676以`41999ca77`推送（proof持久身份与禁止空apply同批）；B1637b以`37365e6f1`独立推送；B1634d本提交独立落库。热点职责拆分末审逐字比对证明除已审两行Preserve外原三函数体不变、全仓各唯一方法定义。干净构建与新exact2尚未执行。
+交付：B676以`41999ca77`推送（proof持久身份与禁止空apply同批）；B1637b以`37365e6f1`独立推送；B1634d以`bd471758e`独立推送。热点职责拆分末审逐字比对证明除已审两行Preserve外原三函数体不变、全仓各唯一方法定义。干净构建`bd471758e329`成功（built `2026-09-10T01:55:33Z`，日志`20260909-b676-stack-clean-build.log`），r1050 exact2已结束并独立人工审计，见§1723；不是全能力都获生产正证。
 
 红线：无请求/答案关键词硬门；不修改模型正文/图/结论；Trace链上两轴、优先级/调度/算力、D/IO与语义/业务线索、显式窗/因果投影/自动补采不改。活跃流不能仅因4ms或旧4m缺最终正文降级；真实停滞、取消和调用方deadline保留。不冒领新live。
 
