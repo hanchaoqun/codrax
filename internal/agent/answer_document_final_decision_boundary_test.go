@@ -875,6 +875,7 @@ func TestTraceFinalBlockedReasonStateRelationKeepsRecordCensusSeparateFromStateI
 		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
 		SourceRef: types.ObservationSourceRef{
 			Kind: types.ObservationSourceRuntimeArtifact, Path: "/captures/donghu.ftrace",
+			PayloadRef: "/results/donghu.json", RawRef: "/results/donghu.txt", QueryScopeID: "producer-query-a",
 		},
 		Predicate: "blocked_reason_census", Subject: "CompThread_0-2955",
 		Value: "12", ResultCount: &count,
@@ -887,13 +888,16 @@ func TestTraceFinalBlockedReasonStateRelationKeepsRecordCensusSeparateFromStateI
 		ArtifactPath: "/captures/donghu.ftrace", ArtifactLabel: "donghu.ftrace",
 		WindowStartTs: 13762.791708, WindowEndTs: 13763.024898,
 		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
-			Subject: "CompThread_0-2955", DStateMS: 36.757, IOWaitMS: 0,
+			Subject: "CompThread_0-2955", EvidenceID: "state-account", DStateMS: 36.757, IOWaitMS: 0,
 			TotalMS: 36.757, WindowStartTs: 13762.791708, WindowEndTs: 13763.024898,
 		},
 	}
+	// The companion needs a real same-result state record; the original
+	// projection values and all distinct-domain wording assertions stay intact.
+	state := b1638StateRecord(*projection.TargetStateAccount, record.SourceRef)
 	got := renderTraceFinalBlockedReasonStateRelation(
 		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
-		types.ObservationLedger{Records: []types.ObservationRecord{record}},
+		types.ObservationLedger{Records: []types.ObservationRecord{state, record}},
 	)
 	for _, want := range []string{
 		"subject=`CompThread_0-2955`",
@@ -949,7 +953,7 @@ func TestTraceFinalBlockedReasonStateRelationKeepsRecordCensusSeparateFromStateI
 	} {
 		if got := renderTraceFinalBlockedReasonStateRelation(
 			types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
-			types.ObservationLedger{Records: []types.ObservationRecord{candidate}},
+			types.ObservationLedger{Records: []types.ObservationRecord{state, candidate}},
 		); got != "" {
 			t.Fatalf("cross-%s census must not bind to the selected state account: %s", name, got)
 		}
@@ -1044,6 +1048,7 @@ func TestFinalizerPromptCarriesBlockedReasonStateRelationAtProductionBoundary(t 
 	count := 12
 	ref := types.ObservationSourceRef{
 		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "customer.systrace", ArtifactKind: "trace",
+		Path: "/captures/customer.systrace", PayloadRef: "/results/customer.json", RawRef: "/results/customer.txt", QueryScopeID: "producer-query-a",
 	}
 	root := types.ObservationRecord{
 		ID: "root", Origin: types.AnswerEvidenceOriginRuntimeArtifact,

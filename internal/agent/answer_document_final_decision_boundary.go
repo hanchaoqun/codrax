@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -1498,12 +1499,17 @@ func renderTraceFinalBlockedReasonStateRelation(set types.TraceCausalProjectionS
 			!types.TraceCausalProjectionWindowPresent(account.WindowStartTs, account.WindowEndTs) {
 			continue
 		}
+		stateSource, known := traceFinalSelectedStateAccountSource(projection, ledger)
+		if !known {
+			continue // independent observations remain visible; no source is invented for this companion
+		}
 		for _, record := range ledger.Records {
 			if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
 				!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
 				record.GroundingPolicy != types.ClaimGroundingHard ||
 				strings.TrimSpace(record.Predicate) != "blocked_reason_census" ||
-				!strings.EqualFold(strings.TrimSpace(record.Subject), strings.TrimSpace(account.Subject)) {
+				strings.TrimSpace(record.Subject) != strings.TrimSpace(account.Subject) ||
+				!types.TraceRuntimeAccountRecordsSameResult(stateSource, record) {
 				continue
 			}
 			count, err := strconv.Atoi(strings.TrimSpace(record.Value))
@@ -1520,7 +1526,7 @@ func renderTraceFinalBlockedReasonStateRelation(set types.TraceCausalProjectionS
 			if callers == "" {
 				continue
 			}
-			key := strings.ToLower(strings.TrimSpace(account.Subject)) + "\x00" +
+			key := stateSource.ID + "\x00" + stateSource.SourceRef.QueryScopeID + "\x00" + strings.TrimSpace(account.Subject) + "\x00" +
 				fmt.Sprintf("%.6f\x00%.6f\x00%d\x00%s", start, end, count, callers)
 			if seen[key] {
 				continue
@@ -1536,6 +1542,39 @@ func renderTraceFinalBlockedReasonStateRelation(set types.TraceCausalProjectionS
 		}
 	}
 	return b.String()
+}
+
+// Resolve only the account already selected by the projection compiler. Equal
+// target/time or totals do not identify its producer query. Every same-ID record
+// must agree on source and account facts; unrelated display metadata is ignored.
+// The existing parser must reproduce the entire account exactly.
+// This is a companion-display check, not an election or a new evidence gate.
+func traceFinalSelectedStateAccountSource(projection types.TraceCausalProjection, ledger types.ObservationLedger) (types.ObservationRecord, bool) {
+	account := projection.TargetStateAccount
+	if account == nil || strings.TrimSpace(account.EvidenceID) == "" {
+		return types.ObservationRecord{}, false
+	}
+	var source types.ObservationRecord
+	found := false
+	for _, record := range ledger.Records {
+		if strings.TrimSpace(record.ID) != strings.TrimSpace(account.EvidenceID) {
+			continue
+		}
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+			record.GroundingPolicy != types.ClaimGroundingHard || strings.TrimSpace(record.Predicate) != "target_window_states" ||
+			strings.TrimSpace(record.SourceRef.QueryScopeID) == "" || strings.TrimSpace(record.SourceRef.Path) == "" ||
+			!types.TraceRuntimeAccountRecordsSameResult(record, record) || !traceFinalProjectionOwnsObservation(projection, record) {
+			return types.ObservationRecord{}, false
+		}
+		parsed, ok := types.TraceCausalProjectionTargetStateAccountFromRecord(record)
+		if !ok || !reflect.DeepEqual(parsed, *account) || (found &&
+			(!reflect.DeepEqual(source.SourceRef, record.SourceRef) || !types.TraceRuntimeAccountRecordsSameResult(source, record))) {
+			return types.ObservationRecord{}, false
+		}
+		source, found = record, true
+	}
+	return source, found
 }
 
 // renderTraceFinalRuntimeEnumerationAuthority repeats the exact runtime
