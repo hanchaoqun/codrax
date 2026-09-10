@@ -57395,7 +57395,7 @@ r1050审计已以`fff15c0c2`推送；第一次SSH443连接中断后原样重试�
 
 **全包过程记录**：首完整tool294.691s四红为旧Description字节pin、原whole-read裸工具名负针、preview硬编码旧advisory、现教学遗漏量词同步；types31.293s绿。以上均按精确契约处理，不改变模型正文/查询值或放宽任何预算，失败日志`20260909-b1622a-b1639-tool-types-full.log`保留。末版`go test ./... -count=1`退出0，86个包全部通过（`20260909-b1622a-b1639-b1638a-final-full.log`）：tool304.464s、agent58.928s、orchestrator25.092s、types39.798s、skill10.070s、tracequery99.780s、tracediag12.520s、hitraceconv146.847s、llm31.175s。不是新live，不把首轮四红改写成一次全绿。源码此后冻结，仅继续文档/分批提交。
 
-交付状态：B1622a随本提交独立落库（含现有教学同步），B1639/B1638a已经同栈全测与独立review通过，随后分别提交；B1622b/B1638b仍有有效公开RED，未实施。全栈没有新增模型JSON字段、没有Description golden改动、没有active-SSE策略改动。
+交付状态：B1622a以`a3995ca5f`独立提交并推送（含现有教学同步）；B1639随本提交独立落库，B1638a已经同栈全测与独立review通过，随后独立提交；B1622b/B1638b仍有有效公开RED，未实施。全栈没有新增模型JSON字段、没有Description golden改动、没有active-SSE策略改动。
 
 **B1638b旗舰值域批施工图，未实施**：
 

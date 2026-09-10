@@ -100,7 +100,7 @@ func b1624bAssertReturnNavigation(t *testing.T, result types.ToolResult, origin 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := marker + "use grep or read_file on the original published query result at " + string(quoted) + ". This is navigation only: derived line numbers are not original trace lines and this link grants no new read or evidence authority."
+	want := marker + "use grep or read_file on the original published query result at " + string(quoted) + ". This is navigation only: derived line numbers are not original trace lines and this link grants no new read or evidence authority. " + types.TraceQueryResultReadRoleGuidance
 	var navigation []string
 	for _, line := range strings.Split(result.Summary, "\n") {
 		if strings.HasPrefix(line, marker) {

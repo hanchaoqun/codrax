@@ -30,7 +30,7 @@ func traceQueryResultReadAdvisory(ctx *types.BusContext, requested string) strin
 	if !traceQueryResultReadTarget(ctx, requested, "") {
 		return ""
 	}
-	return "query_result_read_advisory=this file is a published query result, not the original trace capture. Search this result with grep or page it with read_file; quoted events and result rows do not turn the result file into a raw capture or current repository source.\n"
+	return "query_result_read_advisory=" + types.TraceQueryResultReadRoleGuidance + "\n"
 }
 
 // ArtifactReadReturnNavigationAdvisory supplies a way back to the published

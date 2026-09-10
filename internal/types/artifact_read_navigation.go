@@ -54,7 +54,7 @@ func ArtifactReadNavigationAdvisory(ticket ToolArtifactReadNavigation) string {
 		return ""
 	}
 	quoted, _ := json.Marshal(ticket.OriginQueryRef)
-	return "query_result_return_navigation: use grep or read_file on the original published query result at " + string(quoted) + ". This is navigation only: derived line numbers are not original trace lines and this link grants no new read or evidence authority.\n"
+	return "query_result_return_navigation: use grep or read_file on the original published query result at " + string(quoted) + ". This is navigation only: derived line numbers are not original trace lines and this link grants no new read or evidence authority. " + TraceQueryResultReadRoleGuidance + "\n"
 }
 
 func artifactReadNavigationRefKey(ref string) string {

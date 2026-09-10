@@ -307,7 +307,7 @@ func TestB1624bNavigationAdvisoryIsSingleSourceAndJSONQuoted(t *testing.T) {
 		t.Fatal("exact quoted path was not prepared")
 	}
 	quoted, _ := json.Marshal(ref)
-	want := "query_result_return_navigation: use grep or read_file on the original published query result at " + string(quoted) + ". This is navigation only: derived line numbers are not original trace lines and this link grants no new read or evidence authority.\n"
+	want := "query_result_return_navigation: use grep or read_file on the original published query result at " + string(quoted) + ". This is navigation only: derived line numbers are not original trace lines and this link grants no new read or evidence authority. " + TraceQueryResultReadRoleGuidance + "\n"
 	if got := ArtifactReadNavigationAdvisory(ticket); got != want {
 		t.Fatalf("shared navigation wording/escaping changed: %q", got)
 	}

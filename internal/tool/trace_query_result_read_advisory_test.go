@@ -196,8 +196,19 @@ func TestB1624ResultWholeReadWallKeepsRoleAndRefusal(t *testing.T) {
 	if result.Success || result.Repair == nil || result.Repair.Code != "read_file_too_large" {
 		t.Fatalf("whole-read wall changed: %+v", result)
 	}
-	if strings.Contains(result.Summary+result.Repair.Hint, "trace_query") || !strings.Contains(result.Summary+result.Repair.Hint, "grep") {
-		t.Errorf("oversized result treated as a capture: %+v", result)
+	// B1639 explains that NEW analysis goes back to the original capture.
+	// Mentioning that tool is not a request to analyze this result as a capture.
+	// Keep the actual refusal and its result-reader next step pinned instead.
+	for _, face := range []struct{ text, next string }{
+		{result.Summary, "Use grep (pattern + path) to search this published query result; it is not the original trace capture."},
+		{result.Repair.Hint, "Use grep with the same result path and a narrow pattern or line window; paging read_file still requires loading the whole file."},
+	} {
+		if !strings.Contains(face.text, face.next) ||
+			!strings.Contains(face.text, "For new analysis, use trace_query on the original capture.") ||
+			strings.Contains(face.text, "trace_query_required_soft_advisory=") ||
+			strings.Contains(face.text, "Use trace_query(") || strings.Contains(face.text, "Next call: trace_query(") {
+			t.Errorf("oversized result lost its refusal/navigation role: %s", face.text)
+		}
 	}
 }
 

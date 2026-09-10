@@ -55,7 +55,7 @@ func TestTraceQuerySummaryPublishesTypedRootCauseRosterBeforeLongBody(t *testing
 		t.Fatalf("head preview exceeded its bounded row cap:\n%s", got)
 	}
 	previewAt := strings.Index(got, "root_cause_rank_preview status=")
-	payloadAt := strings.Index(got, "payload_ref=/tmp/rank.json (audit artifact")
+	payloadAt := strings.Index(got, "payload_ref=/tmp/rank.json "+traceQueryPayloadRefAdvisory)
 	bodyAt := strings.Index(got, "## Root cause rank")
 	if previewAt < 0 || payloadAt < 0 || bodyAt < 0 || previewAt > payloadAt || previewAt > bodyAt {
 		t.Fatalf("rank preview must be head-safe, preview=%d payload=%d body=%d:\n%s", previewAt, payloadAt, bodyAt, got)
