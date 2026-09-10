@@ -57385,6 +57385,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1744 B1649补验：真实13条关系分8＋5保留式续修（2026-09-10）
+
+只新增`internal/agent/answer_document_call_repair_staged_b1649_test.go`，没有生产修改。十三对独立调用经真实ReadFile→EmitEvidence取得十三个精确callsite来源；公开Emit触发13缺锚/8候选，实际finalizer安装器发租约，公开Patch attach8后真实`staged_for_retry`保留8锚及原13消息正文；安装器从Pending基准重绑剩5候选，公开Patch attach5成功发布13锚，首8锚与模型摘要/图正文逐字不变。候选来源集合8＋5恰为原13行，未手造delta、lease或accepted base。
+
+三组旧ref反控分别在暂存后无lease、次代新lease、终态消费后拒绝，均`not_staged`，accepted/rejected/pending/lease四项快照不变；次代基准明确为暂存8锚，不是原始rejected零锚。不存在cap8必删剩余关系的新阻断，不扩大预算、不强迫模型选择或系统代加边。此新增针首次即绿，不杜撰产品RED。最终count3 1.116s、race 2.500s，日志`.codrax/tmp/20260910-b1649-staged-frozen-{count3,race}.log`；root冷读通过。冻结全仓随下一集成批收账，r1054不倒签修后live。
+
+### §123.1743 B1650-SKIPPEDPROOF1：未失败不等于已证断言（2026-09-10）
+
+承接B1561扩展前置审计，P1确定性公共反例已成立，施工中，不将该项倒写为r1054 Make无收据的原因。真实`RunTests.Execute`子进程按Maven协议生成JUnit，`<skipped/>`被产为`Passed=true + observation_scope=assertion`，相同测试身份经原project-test关联和`BuildVerificationProofLedger`取得`verified/strong`及行为合同covered；普通passed正控正常。有效RED为`.codrax/tmp/20260910-b1561-junit-skipped-public-red.log`（2.162s）。这是结构化报告协议fixture，不冒称宿主安装了Java或执行了真实Java断言。
+
+修向采用系统自有结果scope区分“框架没有报告普通断言结果”，保原Passed、身份、时长、失败与套件汇总。跳过不应把整套测试变失败，也不应充当行为证明。拟采用`non_asserting`而非`not_executed`：Go中途Skip、RSpec pending、预期失败可能已有执行，不能把不可授证误报成从未运行。复核范围为现支持JUnit（Java/Hvigor/CMake/Meson）、Go、unittest、pytest两报告面、Jest/Vitest、cargo/Cangjie、RSpec的精确状态产点；不扫描模型正文，不新增模型JSON义务，不放宽原proof消费者只接受assertion的门。各框架矩阵及冻结测试尚待收据。
+
+相邻B1561来源层只读发现：Make的`DeclaredCoveragePaths`是精确已有输入文件清册，并非报告路径；当前无Make报告协议声明，不得据此扫描任意XML。Java/Hvigor读取现存报告目录，是否可能借旧JUnit为当前exit0授证正在独立公共验证（B1651-JUNITFRESH1，未复现前仅待证）。以后新增原生通道须先绑定本次执行与具名行，再考虑仓库显式报告声明；当前fmt纯Make仍aggregate/unverified。不得删除客户报告目录或把模型路径当新报告权威。
+
+下一r1055仍按§1742选读类型关系＋写Python行为两并发；12个LoopController生产实现仅作人工源代码对照基线，题目要求“主要实现类型”，不自行加“必须全部12项”的硬门。若答案自称全集，才核其全集主张；代表性回答按真实范围判断，原case/oracle不改。
+
 ### §123.1742 B1561下一批只读方案：原生项目具名结果收据（2026-09-10）
 
 承接r1054同根见证，不新开工单、不预报已实现。优先恢复当前执行真实产生的具名测试结果，而非为C++增加解释器式probe。现有Make aggregate正确，`make exit0`、成功字符串、源码存在assert、重复同命令均不能提升为逐合同证明。当前fmt没有结构化逐测试报告，应继续honest unverified；本方案即使实现也不保证该样例直接签绿。
