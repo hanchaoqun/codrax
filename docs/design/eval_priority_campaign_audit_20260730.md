@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-10）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮以 §123.1732–1745 为准：端点引用歧义修复与B1645–1648四小批已逐批推送，两组各86包全仓通过。r1053/r1054均严格两并发并完成人工审计；r1054时序题机器PASS但正文方向/职责仍错，C++交付及7个原生边界通过但正式断言收据未闭合，不冒称答案或证明全绿。B1649已证短显示名的保留式补锚候选缺席已按单源精确证据通道修复，第三组86包全仓通过；十三条分8＋5完整公开续修回归也已补验推送，修后live尚未执行。B1561原生断言收据扩展前，B1650跳过测试误授行为证明已公共RED并施工；B1651旧JUnit被当本轮结果独立公共确认、来源绑定待修。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
+本轮以 §123.1732–1746 为准：端点引用歧义修复与B1645–1648四小批已逐批推送，两组各86包全仓通过。r1053/r1054均严格两并发并完成人工审计；r1054时序题机器PASS但正文方向/职责仍错，C++交付及7个原生边界通过但正式断言收据未闭合。B1649短显示名补锚已修，十三条分8＋5完整公开续修回归已推；B1650多框架跳过/待定/无终态结果误授行为证明已修推送，最终冻结第四组86包全仓通过。r1055严格两并发、机器2/2 PASS：类型关系12行/12边与原图渲染人工通过，Python持久交付原4测＋17边界独立通过；但系统无关比较附注及产品probe-only证明边界仍在，不冒称过程/证明全绿。B1651旧JUnit被当本轮结果已公共确认，P1来源绑定待修，优先于B1561新增Make报告通道。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
 
 ## 1. 基线与目标
 
@@ -57385,6 +57385,32 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1746 r1055：冻结验收后读类型关系＋写Python行为（2026-09-10）
+
+B1649分8＋5实际续修针已推`961ebb78e`；B1650多框架非断言结果scope已推`87a1c1af9`，main与origin一致。最终冻结全仓`20260910-b1650-final-frozen-full.log`退出0，86个有测试包通过（未变包部分使用Go缓存）：tool334.051s、agent95.509s、types63.670s、tracequery135.635s、tracediag28.156s、orchestrator26.100s。没有删旧断言或把中止的早起全仓计入该收据；早轮的失败历史保留。
+
+干净构建`codrax 0.1.20260910`，revision`87a1c1af9825`、built`2026-09-10T13:44:20Z`，日志`20260910-r1055-clean-build.log`。13:50:37Z启动r1055，严格`PARALLEL=2 TIMEOUT=1200`，两个各运行一次，未改case/oracle/模型预算：`qf_type_relation_loop_controller`与`github_issue_dateutil_relativedelta_float_symptom`。243库存仍为默认read215/apply25/plan3；排序沿§1742的回放间隔、关系表达覆盖、跨模式和原生可判决性，不重复追跑同一fmt无报告环境。read当前12个生产Observe只作核验基线；Python原4测试独立基线为1正常/2TypeError/1漏ValueError（`20260910-r1055-dateutil-baseline.log`），不为原缺陷修改测试。
+
+本轮结果目录分别`eval/results/qf_type_relation_loop_controller-20260910-065037`、`eval/results/github_issue_dateutil_relativedelta_float_symptom-20260910-065037`；选跑日志`20260910-r1055-selected.log`，summary/manual_audit同`eval/parallel_selected_summary_evalcampaign_type_pywrite_r1055_20260910`。13:54:57Z全部结束，机器2/2 PASS，read260s/write211s（外层用时；内部258s/209s），无第三个live。以下为完成后的人工判定，不回改原runner/oracle。
+
+**读题核心PASS、系统附注有残余。** 终稿`.codrax/output/20260910-065454.863-50322.md`确有12个生产Observe实现的声明坐标、12条implementation→LoopController有向边，无Agent/coder/test类型混入；题目接受类图或类型关系图，当前flowchart合法。实际原图以随仓Mermaid离线parse＋render成功，SVG26238字节，见`20260910-r1055-type-mermaid-render.json`。两次作者图正文1761字符、12锚完全相等；唯一patch只replace表格补member_set，没有删图/换边。首轮13条claim_uses误填`claim_form=type_relation`，现有教学已列出合法claim_form并把type_relation明确放在relation_kind，拒绝正确，不是教学自冲突。blocks字符串两次被安全恢复而未绕过枚举校验。1次成文拒绝、1次patch、最终3成文轮、峰值39%，无跨阶段成文重试；“schema不支持claim_uses”是模型误读，不是实际schema证据。SourceInventoryRowID表行被原atomic facet候选器明确排除，因此本轮未发布add_facet_id=member_set；完整replace是合法fallback，不污名为模型放弃已给原子操作。
+
+读题MD77的“对比问题中各方的证据采样不均衡，某一方的支持强度明显弱于另一方”来自系统，非本题比较意图，也非模型结论。`facet_plan.go:764`按两个bucket选QFComparison，`erm_completeness.go:156,726`走启发式entity_parity，`orchestrator.go:5353`记soft violation，registry给出绝对化附注文案。该规则没有retry且不可strict提升，B54-E既修硬门仍正常；这是同根`EVAL-B54-TIER2PROSE1`的P2显示权限残余，不另开P0。最窄下一批保内部统计与原合同，只有已有typed comparison_axis才考虑软展示，且只能说明样本分布、不据prose/anchor计数断言答案缺失或支持弱；禁止改全局家族路由、增模型字段、增正文硬门或改写作者结论。
+
+**写题代码/native PASS、正式证明bounded。** 持久plan`plan-1789048381555114000-50337`，applied ref=`5ebb957afd9d2c345e7e4686c1b099fba5d76136`，fixture main仍`5db30b64d088d2c96cc92428eb5077dd2550e204`。只改relativedelta.py构造6加2删，原tests/README保持。root在真实保留worktree独立执行原4项unittest全部通过，另17项有限域黑盒（整数值float/整数/负值/正负零/跨年组合9项＋双轴正负分数8项）通过，见`20260910-r1055-dateutil-{durable-native,independent}.log`；不把独立补验写回正式报告。产品实际只运行1个Python probe（内部含多项assert，不等于只有一个行为断言），本轮没有执行unittest项目套件。报告的`probe_primary_suite_skipped/suite_skipped/exit_code=0`是策略未执行记录，零值不是子进程退出成功；required=0、8条自拟无证合同仍planning-only，未见B20-W1/W2或B1132回归，不能销B1561，更不等于本批B1650单测试skip失败。
+
+写题跳过source已在入模上下文保留，并非字段丢载；但被聚合为capability unavailable，控制器无证猜成环境问题、额外探索并在客户仓grep系统suite_skipped。这是一条P2执行状态说明残余：对现有精确source解释“策略未执行；0不是测试通过”，区分环境缺失，不据自然语言acceptance强制扩套件或提升planning-only。持久计划仍错误解释为“divmod不接受float”并预称“现有回归测试全部通过”；真实整数要求来自date.replace，产品只有probe收据。按模型解释精度观察保留，不由系统重写计划或新加关键词门。代码请求域验证通过不能抵销这两句未受支持的说明。
+
+**后续按ROI冻结，不积压成同一大补丁：**
+
+1. P1 B1651：先根修本次执行与JUnit报告来源绑定（§1745），保当前真实fresh正控，旧/错来源不授本轮成功或失败证据。不得清空用户报告或仅按mtime/名字猜来源。
+2. P2 B54-TIER2PROSE1显示残余：保计数telemetry但去除没有typed比较任务的绝对化系统附注，正反覆盖enumeration/真实comparison/不同bucket/用户正文不变；不重开硬门。
+3. P2 write策略跳过说明：复用已有source/outcome，明确未运行与环境失败/真实exit0不同。先公开上下文正反针，不改已裁required证明边界，不伪造项目收据。
+4. P2后序：合法source-inventory表的纯facet原子修补覆盖；当前有replace出口，无无解合同，低于证据权威修复。跨枚举错误与divmod叙述暂按模型精度观察，不为一次样例加新JSON义务。
+5. B1561原生Make声明/当前执行具名结果通道在B1651后另批；不将固定目录现存XML扫描当修复。下一live继续strict2跨维度，显式Trace H1作为高优先保护候选；本轮非Trace，不倒签投影/超长活跃流的自然生产命中。
+
+活跃流专项`20260910-b1650-active-stream.log`11.426s通过：4ms部分帧、隐藏推理/工具、heartbeat持续时不因缺可见答案降级，旧固定总年龄不能误杀活跃连接；调用者deadline/cancel及真实停滞仍可结束。未修改此生产通路。本批无请求/正文关键词硬门、系统代写结论、新增模型JSON字段、Trace根因/显式窗/自动补采变化。
+
 ### §123.1745 B1651-JUNITFRESH1：陈腐报告借本轮成功命令授证（2026-09-10）
 
 P1/真实公共RED已确认，独立待修，优先于新增Make报告能力。实际RunTests执行Gradle协议fixture：fresh臂本轮生成JUnit正常通过；stale臂预置同名JUnit、mtime为2000年，本轮wrapper仅exit0且报告字节/mtime不变，系统仍读取1个具名行，实际report的confidence与`BuildVerificationProofLedger`均把对应value-contract列covered。测试未手填TestResults、ExecutedCommands或confidence，不声称宿主真实运行Java测试。首RED1.841s，移出正式包后overlay复验1.463s，fresh正控PASS而stale反控精确FAIL。
@@ -57401,17 +57427,17 @@ P1/真实公共RED已确认，独立待修，优先于新增Make报告能力。�
 
 ### §123.1743 B1650-SKIPPEDPROOF1：未失败不等于已证断言（2026-09-10）
 
-承接B1561扩展前置审计，P1确定性公共反例已成立并完成修复，最终全仓验证中，不将该项倒写为r1054 Make无收据的原因。真实`RunTests.Execute`子进程按Maven协议生成JUnit，`<skipped/>`被产为`Passed=true + observation_scope=assertion`，相同测试身份经原project-test关联和`BuildVerificationProofLedger`取得`verified/strong`及行为合同covered；普通passed正控正常。有效RED为`.codrax/tmp/20260910-b1561-junit-skipped-public-red.log`（2.162s）。这是结构化报告协议fixture，不冒称宿主安装了Java或执行了真实Java断言。
+承接B1561扩展前置审计，P1确定性公共反例已成立并完成修复，最终全仓86包通过见§1746，不将该项倒写为r1054 Make无收据的原因。真实`RunTests.Execute`子进程按Maven协议生成JUnit，`<skipped/>`被产为`Passed=true + observation_scope=assertion`，相同测试身份经原project-test关联和`BuildVerificationProofLedger`取得`verified/strong`及行为合同covered；普通passed正控正常。有效RED为`.codrax/tmp/20260910-b1561-junit-skipped-public-red.log`（2.162s）。这是结构化报告协议fixture，不冒称宿主安装了Java或执行了真实Java断言。
 
 修复采用系统自有结果scope区分“框架没有报告普通断言结果”，保原Passed、身份、时长、失败与套件汇总。跳过不把整套测试变失败，也不充当行为证明。采用`non_asserting`而非`not_executed`：Go中途Skip、RSpec pending、预期失败可能已有执行，不能把不可授证误报成从未运行。覆盖现支持JUnit（Java/Hvigor/CMake/Meson）、Go、unittest、pytest两报告面、Jest/Vitest、cargo/Cangjie、RSpec的精确状态产点；Jest/RSpec仅明确passed/failed可授原断言scope，pytest JSON保原passed/failed/error；Go缺终态及其它未知状态不凭系统合成Passed=false授失败证明。pytest文本XFAIL/XPASS与JSON相应状态均不授普通断言资格，原Passed仍不改。不扫描模型正文，不新增模型JSON义务，不放宽原两个proof消费者只接受assertion的门。
 
 仅2个生产文件（types已有scope新增枚举、tool parser赋scope）＋1新测试文件，未改原测试/pin/命令/计划指纹/模型schema。JUnit为实际公开RunTests正反两臂；其它11格实际parser协议→合成执行上下文→原proof/ledger拒证明确区分，8格未知/无终态/XPASS拒绝负向证明，5scope×双Passed共10格保两个原门及report只读字节。另JSON往返/legacy空scope不猜迁移、JUnit正常pass/fail/error/矛盾skip＋fail及身份/时长保持。最后XPASS实际parser负向授证RED5.003s（`20260910-b1650-xpass-red.log`），不把它称为模型波动。
 
-冻结count3 `20260910-b1650-frozen-targeted-count3.log`6.808s（新族＋Parse全族＋PTO/失败关联/真实Python路径），race count3 `...-frozen-race-count3.log`5.485s；root及独立冷审通过。早起全仓在发现XPASS最后同根臂后主动中止，`20260910-b1650-final-full.log`不计通过；重新冻结后的完整`20260910-b1650-final-frozen-full.log`已启动，待退出再记结果。活跃流专项`20260910-b1650-active-stream.log`11.426s通过，含部分帧4ms字节、隐藏推理/工具流、heartbeat、旧总年龄后取消与真实stall；不把代码测试冒称本轮生产超长流自然命中。
+冻结count3 `20260910-b1650-frozen-targeted-count3.log`6.808s（新族＋Parse全族＋PTO/失败关联/真实Python路径），race count3 `...-frozen-race-count3.log`5.485s；root及独立冷审通过。早起全仓在发现XPASS最后同根臂后主动中止，`20260910-b1650-final-full.log`不计通过；重新冻结后的完整`20260910-b1650-final-frozen-full.log`最终退出0、86包通过，完整收据见§1746。活跃流专项`20260910-b1650-active-stream.log`11.426s通过，含部分帧4ms字节、隐藏推理/工具流、heartbeat、旧总年龄后取消与真实stall；不把代码测试冒称本轮生产超长流自然命中。
 
-相邻B1561来源层只读发现：Make的`DeclaredCoveragePaths`是精确已有输入文件清册，并非报告路径；当前无Make报告协议声明，不得据此扫描任意XML。Java/Hvigor读取现存报告目录，是否可能借旧JUnit为当前exit0授证正在独立公共验证（B1651-JUNITFRESH1，未复现前仅待证）。以后新增原生通道须先绑定本次执行与具名行，再考虑仓库显式报告声明；当前fmt纯Make仍aggregate/unverified。不得删除客户报告目录或把模型路径当新报告权威。
+相邻B1561来源层只读发现：Make的`DeclaredCoveragePaths`是精确已有输入文件清册，并非报告路径；当前无Make报告协议声明，不得据此扫描任意XML。Java/Hvigor读取现存报告目录，旧JUnit为当前exit0授证已独立公共确认，见§1745 B1651-JUNITFRESH1，仍待修。以后新增原生通道须先绑定本次执行与具名行，再考虑仓库显式报告声明；当前fmt纯Make仍aggregate/unverified。不得删除客户报告目录或把模型路径当新报告权威。
 
-下一r1055仍按§1742选读类型关系＋写Python行为两并发；12个LoopController生产实现仅作人工源代码对照基线，题目要求“主要实现类型”，不自行加“必须全部12项”的硬门。若答案自称全集，才核其全集主张；代表性回答按真实范围判断，原case/oracle不改。
+r1055已按§1742选读类型关系＋写Python行为两并发完成，见§1746。12个LoopController生产实现仅作人工源代码对照基线，题目要求“主要实现类型”，不自行加“必须全部12项”的硬门。若答案自称全集，才核其全集主张；代表性回答按真实范围判断，原case/oracle不改。
 
 ### §123.1742 B1561下一批只读方案：原生项目具名结果收据（2026-09-10）
 
