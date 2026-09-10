@@ -2098,21 +2098,22 @@ func runtimeTraceOccupancyTargetStateText(
 	}
 	if zh {
 		return fmt.Sprintf(
-			"目标线程状态墙钟分区：%s 在 %.6f..%.6f 内 running %.3fms、runnable %.3fms、sleep %.3fms（其中 S 态 IO 等待 %.3fms）、%s %.3fms、io_wait %.3fms。状态分区描述目标经历了什么；sleep/runnable 等等待症状仍需沿已证唤醒链或阻塞关系下钻，不能直接当作可消除收益。",
+			"目标线程状态墙钟分区：%s 在 %.6f..%.6f 内 running %.3fms、runnable %.3fms、sleep %.3fms（其中 %s %.3fms）、%s %.3fms、io_wait %.3fms。状态分区描述目标经历了什么；sleep/runnable 等等待症状仍需沿已证唤醒链或阻塞关系下钻，不能直接当作可消除收益。",
 			account.Subject,
 			account.WindowStartTs,
 			account.WindowEndTs,
 			account.RunningMS,
 			account.RunnableMS,
 			account.SleepMS,
+			runtimeTraceSleepIOMarkerLabel(true),
 			account.SleepIOWaitMS,
 			TraceStateNonIODStateWord(true),
 			account.DStateMS,
 			account.IOWaitMS,
-		)
+		) + runtimeTraceSleepIOMarkerBoundary(true)
 	}
 	return fmt.Sprintf(
-		"Target-thread wall-clock state partition: %s in %.6f..%.6f has running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), %s %.3fms, and io_wait %.3fms. This partition describes what the target experienced; wait symptoms such as sleep/runnable still require drill-down through proven wakeup or blocking relationships and are not automatically eliminable benefit.",
+		"Target-thread wall-clock state partition: %s in %.6f..%.6f has running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of %s), %s %.3fms, and io_wait %.3fms. This partition describes what the target experienced; wait symptoms such as sleep/runnable still require drill-down through proven wakeup or blocking relationships and are not automatically eliminable benefit.",
 		account.Subject,
 		account.WindowStartTs,
 		account.WindowEndTs,
@@ -2120,10 +2121,11 @@ func runtimeTraceOccupancyTargetStateText(
 		account.RunnableMS,
 		account.SleepMS,
 		account.SleepIOWaitMS,
+		runtimeTraceSleepIOMarkerLabel(false),
 		TraceStateNonIODStateWord(false),
 		account.DStateMS,
 		account.IOWaitMS,
-	)
+	) + " " + runtimeTraceSleepIOMarkerBoundary(false)
 }
 
 func runtimeTraceOccupancyPathCandidates(

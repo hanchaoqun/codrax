@@ -57380,6 +57380,12 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1738 B1646：两个状态展示面明确内核IO标记的范围（2026-09-10）
+
+实际状态分区与等待覆盖状态行共用“内核IO等待标记确认的S态等待”双语标签；仅描述旧SleepIOWaitMS分类器。原零/正值不变，局部说明零不排除另一套完成唤醒证明闭合的线程阻塞，且同一时间不可重计。不遍历或改写模型正文，不把缺失证明补成已证，不将独立闭合量加进scheduler-marker分类器。其它树/旧footer词面未扩本批，原一般口径附注也不被说成从未存在。
+
+真实TraceQuery.Execute→ApplyAndPersistMutation八格：zh/en×标记0/9.010×有/无独立completion closure；request10.000、独立阻塞9.010、四态总20.000及来源/证明/model wire始终恒等。每个系统出口各有一次原值与边界；同S段同时带marker与completion时两个账户仍独立不重复计算。有效RED1.256s→GREEN1.197s，邻近族count3 5.853s、race2.983s（`20260910-b1646-{public-red,public-green,target-count3,target-race}.log`）。原测试不改；root全量冷读小diff及公开8格无阻断。全组工程回归待封版，不冒称本轮H6旧答案被修写或新live已通过。
+
 ### §123.1737 B1645：IO教学统一按记录区分三种统计范围（2026-09-10）
 
 两个实际入模出口已修：因果finalizer的机制说明与共享技能IO-LATENCY ROLE WORDS，不再仅按io_latency名称断言“这是请求驻留”。按每条记录的证明和值区分调度D/iowait、单请求issue→complete、独立完成方唤醒提交线程并单独测量的S/D阻塞。保留旧请求/等待不得互换、不可跨尺相加和具体设备/文件/持有者/唤醒者须独立凭证；类别不授链上资格。只改教学，不增JSON负担/新硬门，不改查询/投影/排序/模型原文。

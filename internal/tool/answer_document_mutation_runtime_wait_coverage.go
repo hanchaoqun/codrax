@@ -234,13 +234,14 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		var row string
 		if zh {
 			row = fmt.Sprintf(
-				"目标线程状态：工件=%s，窗口=%s，线程=%s；running %.3fms，runnable %.3fms，sleep %.3fms（其中 S 态 IO 等待 %.3fms，已包含在 sleep），%s %.3fms，io_wait %.3fms；已归账 %.3fms / 窗口 %.3fms，覆盖=%s",
+				"目标线程状态：工件=%s，窗口=%s，线程=%s；running %.3fms，runnable %.3fms，sleep %.3fms（其中 %s %.3fms，已包含在 sleep），%s %.3fms，io_wait %.3fms；已归账 %.3fms / 窗口 %.3fms，覆盖=%s",
 				state.ArtifactLabel,
 				types.FormatTraceRuntimeAccountWindow(state.WindowStartTs, state.WindowEndTs, "zh"),
 				state.Subject,
 				state.RunningMS,
 				state.RunnableMS,
 				state.SleepMS,
+				runtimeTraceSleepIOMarkerLabel(true),
 				state.SleepIOWaitMS,
 				TraceStateNonIODStateWord(true),
 				state.DStateMS,
@@ -251,7 +252,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 			)
 		} else {
 			row = fmt.Sprintf(
-				"Target-thread state: artifact=%s, window=%s, thread=%s; running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), %s %.3fms, io_wait %.3fms; accounted %.3fms / window %.3fms, coverage=%s",
+				"Target-thread state: artifact=%s, window=%s, thread=%s; running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of %s), %s %.3fms, io_wait %.3fms; accounted %.3fms / window %.3fms, coverage=%s",
 				state.ArtifactLabel,
 				types.FormatTraceRuntimeAccountWindow(state.WindowStartTs, state.WindowEndTs, "en"),
 				state.Subject,
@@ -259,6 +260,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 				state.RunnableMS,
 				state.SleepMS,
 				state.SleepIOWaitMS,
+				runtimeTraceSleepIOMarkerLabel(false),
 				TraceStateNonIODStateWord(false),
 				state.DStateMS,
 				state.IOWaitMS,
@@ -267,6 +269,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 				runtimeTraceTargetStateCoverageLabel(state.CoverageStatus, false),
 			)
 		}
+		row += " (" + runtimeTraceSleepIOMarkerBoundary(zh) + ")"
 		if state.CoverageStatus == "partial_unaccounted" {
 			if zh {
 				row += fmt.Sprintf(
