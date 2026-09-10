@@ -5896,6 +5896,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		if excerpt := strings.TrimSpace(record.Excerpt); excerpt != "" {
 			fmt.Fprintf(&b, "; excerpt=%q", excerpt)
 		}
+		if excerpt := types.FormatObservationPromptSourceExcerpt(record.SourceExcerpt); excerpt != "" {
+			fmt.Fprintf(&b, "; %s", excerpt)
+		}
 		if len(record.Notes) > 0 {
 			if notes := renderAnswerDocObservationNotes(record.Notes, len(record.Notes)); notes != "" {
 				fmt.Fprintf(&b, "; notes=%s", notes)

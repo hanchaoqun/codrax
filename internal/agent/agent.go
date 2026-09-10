@@ -1959,6 +1959,9 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 		} else if record.Summary != "" {
 			fmt.Fprintf(&b, " summary=%s", logging.Truncate(record.Summary, toolHistoryObservationCheckpointSummaryMaxLen))
 		}
+		if excerpt := types.FormatObservationPromptSourceExcerpt(record.SourceExcerpt); excerpt != "" {
+			fmt.Fprintf(&b, " %s", excerpt)
+		}
 		for _, note := range record.Notes {
 			if strings.TrimSpace(note) == "" {
 				continue
@@ -2112,7 +2115,7 @@ func toolHistoryCheckpointShouldRenderObservation(record types.ObservationPrompt
 	if record.Origin != types.AnswerEvidenceOriginCurrentSource {
 		return true
 	}
-	return record.ResultCount != nil || strings.TrimSpace(record.Value) != ""
+	return record.ResultCount != nil || strings.TrimSpace(record.Value) != "" || record.SourceExcerpt != nil
 }
 
 func compactEvidenceCheckpointLabel(item types.EvidenceItem) string {

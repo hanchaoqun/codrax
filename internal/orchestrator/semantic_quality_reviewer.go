@@ -176,6 +176,7 @@ type SemanticObservationSummary struct {
 	Value           string
 	Summary         string
 	Excerpt         string
+	SourceExcerpt   *types.ObservationPromptSourceExcerpt
 	Notes           []string
 	ModelNotes      []types.ObservationModelNote
 	Negative        bool
@@ -756,6 +757,9 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 			if obs.Excerpt != "" {
 				fmt.Fprintf(&b, " excerpt=%q", obs.Excerpt)
 			}
+			if excerpt := types.FormatObservationPromptSourceExcerpt(obs.SourceExcerpt); excerpt != "" {
+				fmt.Fprintf(&b, " %s", excerpt)
+			}
 			if len(obs.Notes) > 0 {
 				fmt.Fprintf(&b, " notes=%s", renderSemanticObservationNotes(obs.Notes))
 			}
@@ -834,6 +838,7 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 			Value:           strings.TrimSpace(record.Value),
 			Summary:         strings.TrimSpace(record.Summary),
 			Excerpt:         strings.TrimSpace(record.Excerpt),
+			SourceExcerpt:   record.SourceExcerpt,
 			Notes:           append([]string(nil), record.Notes...),
 			ModelNotes:      append([]types.ObservationModelNote(nil), record.ModelNotes...),
 			Negative:        record.Negative,
