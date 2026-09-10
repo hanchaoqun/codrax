@@ -272,7 +272,7 @@ func TestGatedCalFamilyGatedProductNeverWearsFamilyTotal(t *testing.T) {
 	projection := gatedCalProjection(node)
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := rspaFenceJoined(runtimeTraceProjTreeFence(model, true))
-	if strings.Contains(fence, "有效归因 3.429ms = 合计(共5段,同线程)") {
+	if strings.Contains(fence, "有效归因 3.429ms = 合计(共5条记录,同线程)") {
 		t.Fatalf("件1②: the 合计 word must never label a gated product:\n%s", fence)
 	}
 	// The value's TRUE derivation renders instead (the inversion equation).
@@ -479,13 +479,13 @@ func TestGatedCalHeadlineSelfSemanticSeat(t *testing.T) {
 	if word != "有效归因" || ms != 9.586 || periodic || windowSource {
 		t.Fatalf("件2: the semantic seat must headline 有效归因, got (%v, %q, %v, %v)", ms, word, periodic, windowSource)
 	}
-	if suffix := runtimeTraceProjConclusionFamilyCaliberSuffix(sem, true); suffix != " = 合计(共8段,同线程)" {
+	if suffix := runtimeTraceProjConclusionFamilyCaliberSuffix(sem, true); suffix != " = 合计(共8条记录,同线程)" {
 		t.Fatalf("件2: the family equation suffix must ride the headline, got %q", suffix)
 	}
 	if _, wordEN, _, _ := runtimeTraceProjConclusionMagnitude(sem, false); wordEN != "attribution" {
 		t.Fatalf("件2 en: got %q", wordEN)
 	}
-	if suffixEN := runtimeTraceProjConclusionFamilyCaliberSuffix(sem, false); suffixEN != " = total (8 segments, same thread)" {
+	if suffixEN := runtimeTraceProjConclusionFamilyCaliberSuffix(sem, false); suffixEN != " = total (8 records, same thread)" {
 		t.Fatalf("件2 en suffix: got %q", suffixEN)
 	}
 	// End-to-end: the conclusion line carries the fork's bytes.
@@ -494,7 +494,7 @@ func TestGatedCalHeadlineSelfSemanticSeat(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	runtimeTraceProjTreeFence(model, true)
 	lead := runtimeTraceProjConclusionLine(projection, model, true)
-	if !strings.Contains(lead, "有效归因 9.586ms = 合计(共8段,同线程)") || strings.Contains(lead, "链上累计") {
+	if !strings.Contains(lead, "有效归因 9.586ms = 合计(共8条记录,同线程)") || strings.Contains(lead, "链上累计") {
 		t.Fatalf("件2: the semantic lead line must speak the family accounting, never 链上累计: %q", lead)
 	}
 	// Self wall-clock seat (typed OnChainBasis): same fork, no family suffix.

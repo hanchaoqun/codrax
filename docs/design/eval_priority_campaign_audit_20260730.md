@@ -57380,6 +57380,34 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1724 r1050续修：B1622a量词 / B1639教学 / B1638a同结果配卡（2026-09-09）
+
+r1050审计已以`fff15c0c2`推送；第一次SSH443连接中断后原样重试成功，不改remote或强推。接续§1723，严格拆显示/教学/事实配对三个职责，不把状态值域未修冒称完成。
+
+- [x] **B1622a公开RED→GREEN**：真实Result→typed observations→projection→ApplyAndPersistMutation→Render，4个CPU汇总成员含11个物理occurrence，sum/union/max×zh/en六格原发布错称4段。仅改rcm共源记录数短句、chainintersection同源词与tree两种图例出口；保数值、FamilyMemberCount、roster、排序与模型块/ToolResults字节。未知caliber不新作数值主张、count_sum仍“项”、真实逐span墙钟/行号分支不改。
+- [x] B1622a原词“共N条汇总记录”更长，把原SelfAll目标身份推到续行，旧同行针红；不是身份字段被删除。改用通用短词“共N条记录”/“N records”，公开reader只在原三种family marks解释每条可覆盖多个物理区间，保原width算法/预算及旧身份同行针，未弱化它。末public和新正负1.145s、定向count3 48.034s、窄race2.382s绿。首RED、第一次布局回归、最终绿分别留于`.codrax/tmp/20260909-b1622-{public-red,final-count3,final-count3-verified,final-race,reader-green}.log`，不删除在途失败记录。
+- [x] B1622a独立只读审查通过；root完整tool首轮另外抓到TRACE VALUE WORDS还教旧“段”，与新显示矛盾。同步现有教学zh/en词面及一处旧skill词面针，未增规则/触发/预算；原tool跨包lockstep针原样保留并绿。最初七个旧测试文件只迁移对应量词/完整图例，数值/因果身份/排列/负针不放宽。原图例历史裁定不抹除，演化解释记在本节。末版全仓待下方记录。
+- [ ] **B1622b同根残余，未施工**：FamilyTableToken仍叫N次，五个FamilyMemberCount→通用MergeCountChip调用仍显示N次。通用chip也服务真正MergedCount，不能全局换词。真实producer→发布临时RED1.226s（`20260909-b1622b-public-overlay-red.log`）确认主tree/name/table均4次，而FamilyCount4/MergedCount0、roster11次、rank/value/模型wire/源ToolResults保真前提全过；正常MergedWireFold+MergedCount3仍3次，缺wire凭证仍不铸fold。下一批family专用chip只替tree保留尾/行名、rcm语义cell、elim分类词、背景比较cell五处及table分支，保正常MergedCount和逐span证明；已定位约20处旧family字面针，不能机械换其它合法次数。**总B1622仍partial，不以公式量词绿销整件。**
+- [x] **B1639实际入口RED**：真实Execute→dispatch→Read/Grep及实际Parameters，原始指定line确只保同一原事件、引用权限/结果字节前提均过；旧生产Summary/持久raw/reader意见相反、schema误称result分页处失败，日志`20260909-trace-result-role-public-red.log`（tool1.004s）。不是JSON畸形、不是工具权限拒绝。
+- [x] B1639实现/定向及独立审查：共享原capture分析、发布结果导航与原trace/index行范围说明，JSON参数字段/类型不变，行scope描述经JSON转义插入；producer payload_ref、direct reader与return-navigation同源。完整读取Description golden ritual后撤掉**本次非必要新增尾段**，旧Description/golden逐字不变，不通过重签敏感面来获得绿。实际大文件墙旧针用整个Summary禁止trace_query裸子串，对新增“新分析需回原capture”解释误报；局部迁移为两face各自原精确grep建议/typed read_file_too_large及原capture对照，不放宽大文件权限。第一次迁移误要求Summary与Repair.Hint两种指引逐字相同，纠正测试前提后定向count3 tool4.514/types3.022s绿；窄race tool3.616s绿，types显示no tests to run不冒签该包race。head-safe旧pin只把硬编码“audit artifact”改用新单源advisory查位置，保preview在payload/body之前及cap/全部值断言。末Description/preview/跨包词汇针count3 tool1.189/skill1.683s绿。
+- [x] **B1638公开RED确认**：真实TraceQuery→dispatch→BuildInitialInstruction→发布，main-only及同结果重复绿，主→行筛选/行筛选→主均产生错配卡与S308.916/等待347.249，实际frame=false形3.735s。日志`20260909-b1638-public-scope-red.log`；原临时测试文件仍带早期b1629b名，仅文件名，不混旧工单。
+- [x] **B1638a配卡小批实施/定向/独立审查通过**：从当前account EvidenceID回查全部facts一致且来源唯一的ledger记录，再用既有SameResult和非空QueryScopeID与census核同结果。仅配卡资格，不改当前account选取或任何数值/投影/补采。复用原account parser的8行只读包装避免重造解析；同ID只比完整account与精确来源，不因Summary/Confidence等无关metadata变化拒配。缺源/冲突仍在中英公开prompt保独立36.757/39.157/caller及模型稿，不授权卡片配对。两旧手造针只补真实同结果receipt/原account对应state前提，原36.757/12/39.157与所有禁止跨尺断言保留。真实5查询形、16来源矩阵、全account字段逐字段反针、跨capture等值两卡、模型/原数据保真，matrix+结构清册29.627s、count3 8.856s、race19.997s绿；日志`20260909-b1638a-{matrix-green,count3,race}.log`。另跑原混算overlay4.311s**仍红**但不再错配卡（`20260909-b1638b-pooled-state-still-red.log`），准确界定修复范围。
+
+**全包过程记录**：首完整tool294.691s四红为旧Description字节pin、原whole-read裸工具名负针、preview硬编码旧advisory、现教学遗漏量词同步；types31.293s绿。以上均按精确契约处理，不改变模型正文/查询值或放宽任何预算，失败日志`20260909-b1622a-b1639-tool-types-full.log`保留。末版`go test ./... -count=1`退出0，86个包全部通过（`20260909-b1622a-b1639-b1638a-final-full.log`）：tool304.464s、agent58.928s、orchestrator25.092s、types39.798s、skill10.070s、tracequery99.780s、tracediag12.520s、hitraceconv146.847s、llm31.175s。不是新live，不把首轮四红改写成一次全绿。源码此后冻结，仅继续文档/分批提交。
+
+交付状态：B1622a随本提交独立落库（含现有教学同步），B1639/B1638a已经同栈全测与独立review通过，随后分别提交；B1622b/B1638b仍有有效公开RED，未实施。全栈没有新增模型JSON字段、没有Description golden改动、没有active-SSE策略改动。
+
+**B1638b旗舰值域批施工图，未实施**：
+
+1. 在record→state node/account之前保留producer来源；R2合并后必须保完整来源集合，不能继承首成员冒充同域。当前QueryScopeID含完整Query/view、child和结果scope，只可作严格同结果证明，不能当跨view可合并测量域。
+2. 明确“同结果”和“同物理测量”的不同资格；同capture/target/time不证明同line/filter范围。不同view的合法补齐只有精确来源、事件范围及测量角色证实时才能去重；缺源记录独立保留，不凭标题/hash片段/prose推算。
+3. 同批约束R2分组、tree目标symptom admission/等待分母与TargetStateAccount选择。只加groupkey仍会让无board行Σ，单改分母仍留错误S总行；异query同Total不得首条胜，也不简单取最大。无法证明唯一主域时分域披露，不能压成一个总数。
+4. 回归至少：同查询重复执行、同capture不同view合法补齐、同窗不同line/其它过滤、真正不同窗/auto-window child、跨capture同名同ID、缺QueryScopeID/同ID冲突；逐段值、rank/链路、业务线索/补采与模型块不变。保当前公开308.916/347.249临时RED，直到协调值域修复完成。
+
+红线：本节三小批均不改模型结论、图或原始观测，不引入输入/答案关键词硬门。B1638a卡片修好仍不能称B1638b混算已修；B1622a记录公式修好仍不能称所有发生次数已修。新live须完成当前批冻结/构建后才启动，仍exact2；本节没有新增live。
+
+后续eval优先级已对实际case再核：先把已证B1638b数值混域与B1622b同根量词批收束，不拿重复H7回放替代修复；异构读候选为`sr_java_config_precedence`（默认/配置/env三层真实字面值，检验B1634d精确源码交接）与`sr_cpp_virtual_chain`（虚分发+工厂选择，检验B1637b混合关系），一批仍仅2路。后续轮换真实write及明确窗D/IO trace，人工继续核过程/最终图关系/证据范围，不只依赖这些case的字符串machine oracle。以上仅排期，不声称已启动新live。
+
 ### §123.1723 r1050：证明持久化与首唤醒账户生效；查询范围混算和教学冲突（2026-09-09）
 
 三批已推送后的干净二进制`bd471758e329`（built `2026-09-10T01:55:33Z`）跑H7全谱明确窗Trace+Go精准patch写模式，exact2各一次1200s，未改case/oracle/默认预算。机器H7 PASS288s、Go FAIL187s；人工H7整份fail、Go实际代码/请求pass但泛化proof语义仍有边界。两份`eval/parallel_selected_summary_evalcampaign_h7_go_r1050_20260909{,_manual_audit}.md`保留原机器结果，手审依据包括实际源diff、计划/收据、日志、入模路径及最终正文/投影，不以机评绿销账。

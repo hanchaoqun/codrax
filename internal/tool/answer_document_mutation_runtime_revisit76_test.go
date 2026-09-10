@@ -945,10 +945,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// deliberately records BOTH marks: it emits the ↺ token).
 		runtimeTraceProjMarkCycleFold: {"循环×", "cycle ×"},
 		// RCM-2 D1 (§24.7.1/§24.10/§24.12 维度A ③): the family caliber ladder's
-		// three words. The 合计 probe anchors on its own tail 「段,同线程)」 —
+		// three words. The 合计 probe anchors on its own tail 「条记录,同线程)」 —
 		// the count word says 项,同线程 and the max word says 重叠未拆, so the
 		// three probes never cross-match.
-		runtimeTraceProjMarkFamilyTotal:     {"段,同线程)", "segments, same thread)"},
+		runtimeTraceProjMarkFamilyTotal:     {"条记录,同线程)", "records, same thread)"},
 		runtimeTraceProjMarkFamilyMemberMax: {"重叠未拆", "overlap not deducted"},
 		runtimeTraceProjMarkFamilyCountSum:  {"计数合计", "count total ("},
 		// CAP (§26 C3, 2026-07-08): the capability disclosure words — the

@@ -399,7 +399,7 @@ func TestSpanTopSemanticChainDualCaliberSeatEndToEnd(t *testing.T) {
 	if !ok {
 		t.Fatalf("the semDual family row must build the cause grammar")
 	}
-	if !strings.Contains(structured.Breakdown, "有效归因 6.400ms = 链上计入(共5段,同线程)") ||
+	if !strings.Contains(structured.Breakdown, "有效归因 6.400ms = 链上计入(共5条记录,同线程)") ||
 		!strings.Contains(structured.Breakdown, "(窗口投影合计 8.000ms 见明细)") {
 		t.Fatalf("行3 must speak the dual-caliber intersection form: %q", structured.Breakdown)
 	}

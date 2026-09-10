@@ -739,8 +739,8 @@ func TestExploreSkill_TraceValueWordsDirective(t *testing.T) {
 		"「runnable(全额)」",
 		"「running(折算)」",
 		"`member_fold_caliber`",
-		"「合计(共N段,同线程)」",
-		"「成员最大(共N段,重叠未拆)」",
+		"「合计(共N条记录,同线程)」",
+		"「成员最大(共N条记录,重叠未拆)」",
 		"「计数合计(共N项,同线程)」",
 		"an honest lower bound, never a sum",
 	} {

@@ -741,14 +741,14 @@ func TestElimOverviewDiscountCaliberNote(t *testing.T) {
 
 // TestElimOverviewFamilyCaliberTranscription — 口径注记逐字转录: a family fold
 // row's overview line carries the SAME single-source caliber word its home
-// row publishes (合计(共N段,同线程)).
+// row publishes (合计(共N条记录,同线程)).
 func TestElimOverviewFamilyCaliberTranscription(t *testing.T) {
 	projection := elimBoardProjection()
 	fam := &projection.OnChainCauses[1]
 	fam.FamilyMemberCount = 14
 	fam.FamilyFoldCaliber = "sum_disjoint"
 	_, fence := elimRenderOverview(t, projection, true)
-	if !strings.Contains(fence, "合计(共14段,同线程)") {
+	if !strings.Contains(fence, "合计(共14条记录,同线程)") {
 		t.Fatalf("the family member must transcribe its home caliber word verbatim:\n%s", fence)
 	}
 }

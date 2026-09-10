@@ -6,13 +6,13 @@ package tool
 // half mints (node.FamilyMember* + Inode/Dev, ISOLATED from the display-side
 // Merged* fold lane) get their display shape —
 //
-//   D1  the FIFTH caliber word 合计(共N段,同线程) (closed-set extension;
-//       max_overlap_fallback speaks 成员最大(共N段,重叠未拆), count_sum keeps
+//   D1  the FIFTH caliber word 合计(共N条记录,同线程) (closed-set extension;
+//       max_overlap_fallback speaks 成员最大(共N条记录,重叠未拆), count_sum keeps
 //       the counting-semantics word 计数合计(共N项,同线程)); the legacy
 //       累计(跨线程) fallback word is BANNED on family rows (F6: a same-thread
 //       total mislabeled cross-thread during the merge-batch window);
 //   D2  the four-line grammar family form (行1 类型词+×N+合计 value prefix;
-//       行2 类别·根因排序#N|背景榜位#N·置信; 行3 有效归因 V = 合计(共N段,
+//       行2 类别·根因排序#N|背景榜位#N·置信; 行3 有效归因 V = 合计(共N条记录,
 //       同线程) with the identity pin V == 发布值; 子行 = roster top-3 +
 //       counted 其余 K 见明细 trailer — §24.7.1① roster 折叠必带计数披露);
 //   D3  the three lossless faces (key-metric table ×N token, detail-block
@@ -44,6 +44,23 @@ func runtimeTraceProjFamilyRow(node types.TraceCausalProjectionNode) bool {
 	return node.FamilyMemberCount > 1
 }
 
+// B1622: family membership counts summary records, which can each contain
+// multiple occurrences. Do not parse a roster or borrow another population's
+// count to relabel these records as physical trace segments.
+func runtimeTraceProjFamilyRecordCountWord(n int, zh bool) string {
+	if zh {
+		return fmt.Sprintf("共%d条记录", n)
+	}
+	return fmt.Sprintf("%d records", n)
+}
+
+func runtimeTraceProjFamilyRecordCountScope(zh bool) string {
+	if zh {
+		return "“条记录”统计汇总记录数,每条可汇总多个物理区间,不是物理发生次数。"
+	}
+	return "`records` counts summary records; each may aggregate multiple physical intervals. It is not a physical occurrence count."
+}
+
 // runtimeTraceProjFamilyCaliberWord maps the engine's typed fold-caliber
 // ladder (§24.22 M2 口径梯四臂) onto the display caliber word + its legend
 // mark. ok=false on an unknown caliber token — the display then makes NO
@@ -54,19 +71,20 @@ func runtimeTraceProjFamilyCaliberWord(node types.TraceCausalProjectionNode, zh 
 	switch strings.TrimSpace(node.FamilyFoldCaliber) {
 	case tracequery.RootCauseMemberFoldCaliberSumDisjoint, tracequery.RootCauseMemberFoldCaliberIntervalUnion:
 		// The FIFTH closed-set caliber word (§24.12 维度A ③): same-thread
-		// wall-clock segment sum, overlapping segments as their interval union
-		// (disjoint == Σ; union < Σ discloses via the sum suffix below).
+		// wall-clock sum/union of the member records (disjoint == Σ;
+		// union < Σ discloses via the sum suffix below). The member count
+		// does not establish the number of physical intervals in those records.
 		if zh {
-			return fmt.Sprintf("合计(共%d段,同线程)", n), runtimeTraceProjMarkFamilyTotal, true
+			return fmt.Sprintf("合计(%s,同线程)", runtimeTraceProjFamilyRecordCountWord(n, true)), runtimeTraceProjMarkFamilyTotal, true
 		}
-		return fmt.Sprintf("total (%d segments, same thread)", n), runtimeTraceProjMarkFamilyTotal, true
+		return fmt.Sprintf("total (%s, same thread)", runtimeTraceProjFamilyRecordCountWord(n, false)), runtimeTraceProjMarkFamilyTotal, true
 	case tracequery.RootCauseMemberFoldCaliberMaxOverlapFallback:
 		// Overlap without a usable union deduction: the published value is the
 		// member MAX — an honest lower bound, never a Σ (§24.22 M2 fourth arm).
 		if zh {
-			return fmt.Sprintf("成员最大(共%d段,重叠未拆)", n), runtimeTraceProjMarkFamilyMemberMax, true
+			return fmt.Sprintf("成员最大(%s,重叠未拆)", runtimeTraceProjFamilyRecordCountWord(n, true)), runtimeTraceProjMarkFamilyMemberMax, true
 		}
-		return fmt.Sprintf("member max (%d segments, overlap not deducted)", n), runtimeTraceProjMarkFamilyMemberMax, true
+		return fmt.Sprintf("member max (%s, overlap not deducted)", runtimeTraceProjFamilyRecordCountWord(n, false)), runtimeTraceProjMarkFamilyMemberMax, true
 	case tracequery.RootCauseMemberFoldCaliberCountSum:
 		// F-7 (冷读, 2026-07-12): the off-chain window cap (engine
 		// backgroundImpactMs, 0.35×窗) can clamp the published seat BELOW the
@@ -304,7 +322,7 @@ func runtimeTraceProjSemanticChainDualCaliber(node types.TraceCausalProjectionNo
 
 // runtimeTraceProjSemanticChainIntersectionWord is the dual-caliber 行3 word
 // (assembled from the existing closed-set vocabulary only: 链上 / 计入 /
-// (共N段,同线程) — never a coined term): the participation counts ONLY the
+// (共N条记录,同线程)): the participation counts ONLY the
 // member∩same-thread-chain-window intersection.
 func runtimeTraceProjSemanticChainIntersectionWord(node types.TraceCausalProjectionNode, zh bool) string {
 	n := node.FamilyMemberCount
@@ -315,9 +333,9 @@ func runtimeTraceProjSemanticChainIntersectionWord(node types.TraceCausalProject
 		return "on-chain counted"
 	}
 	if zh {
-		return fmt.Sprintf("链上计入(共%d段,同线程)", n)
+		return fmt.Sprintf("链上计入(%s,同线程)", runtimeTraceProjFamilyRecordCountWord(n, true))
 	}
-	return fmt.Sprintf("on-chain counted (%d segments, same thread)", n)
+	return fmt.Sprintf("on-chain counted (%s, same thread)", runtimeTraceProjFamilyRecordCountWord(n, false))
 }
 
 // runtimeTraceProjSemanticChainUnionDisclosure is the dual-caliber union

@@ -57,7 +57,7 @@ func TestSelfAllPromotedSeatRendersCauseGrammar(t *testing.T) {
 	if !strings.Contains(fence, "IO阻塞候选·目标自身·墙钟席·根因排序#6·置信高") {
 		t.Fatalf("行2 identity must wear the 目标自身·墙钟席 qualifier and the chain-channel ordinal (佩序数):\n%s", fence)
 	}
-	if !strings.Contains(fence, "有效归因 3.264ms = 合计(共5段,同线程)") {
+	if !strings.Contains(fence, "有效归因 3.264ms = 合计(共5条记录,同线程)") {
 		t.Fatalf("行3 breakdown must render the D/IO wall-clock family caliber (§29.61.2a 同形):\n%s", fence)
 	}
 	if !model.Marks.has(runtimeTraceProjMarkSelfWallClockBasis) {

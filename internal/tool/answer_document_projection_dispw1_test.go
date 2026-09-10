@@ -360,7 +360,7 @@ func TestDispW1PartialOverlapTwinFoldsOnTypedIntersection(t *testing.T) {
 // dispW1SemanticIntersectionProjection — the legend-bidirectional probe
 // fixture for the dual-caliber word (#62 ①): a partial-overlap on-chain
 // semantic family (intersection 5.500 < union 9.300) whose ✦ 行3 renders
-// 链上计入(共2段,同线程) + the 窗口投影合计 disclosure.
+// 链上计入(共2条记录,同线程) + the 窗口投影合计 disclosure.
 func dispW1SemanticIntersectionProjection() types.TraceCausalProjection {
 	return types.TraceCausalProjection{
 		WakeupPath:    []string{"worker-200", "app-100"},
@@ -398,7 +398,7 @@ func TestDispW1SemanticDualCaliberRowThreeAndPublishedMS(t *testing.T) {
 	if !ok {
 		t.Fatalf("#62: the folded ✦ family row must build the cause grammar")
 	}
-	if !strings.Contains(structured.Breakdown, "有效归因 5.500ms = 链上计入(共2段,同线程)") ||
+	if !strings.Contains(structured.Breakdown, "有效归因 5.500ms = 链上计入(共2条记录,同线程)") ||
 		!strings.Contains(structured.Breakdown, "(窗口投影合计 9.300ms 见明细)") {
 		t.Fatalf("#62: 行3 must speak the dual-caliber form, got %q", structured.Breakdown)
 	}
@@ -416,7 +416,7 @@ func TestDispW1SemanticDualCaliberRowThreeAndPublishedMS(t *testing.T) {
 	}
 	structured, ok = runtimeTraceProjCauseStructuredParts(
 		runtimeTraceProjTreeRow{Node: unfolded, Kind: runtimeTraceProjTreeRowSemantic, HasData: true}, true)
-	if !ok || !strings.Contains(structured.Breakdown, "有效归因 5.500ms = 链上计入(共2段,同线程)") {
+	if !ok || !strings.Contains(structured.Breakdown, "有效归因 5.500ms = 链上计入(共2条记录,同线程)") {
 		t.Fatalf("#62: the unfolded remnant must keep the dual-caliber intersection claim, got ok=%v %q", ok, structured.Breakdown)
 	}
 
@@ -428,7 +428,7 @@ func TestDispW1SemanticDualCaliberRowThreeAndPublishedMS(t *testing.T) {
 	full.SemanticChainProjectedMS = 5.5
 	structured, ok = runtimeTraceProjCauseStructuredParts(
 		runtimeTraceProjTreeRow{Node: full, Kind: runtimeTraceProjTreeRowSemantic, HasData: true}, true)
-	if !ok || !strings.Contains(structured.Breakdown, "有效归因 5.500ms = 合计(共2段,同线程)") {
+	if !ok || !strings.Contains(structured.Breakdown, "有效归因 5.500ms = 合计(共2条记录,同线程)") {
 		t.Fatalf("#62: full-overlap families keep the legacy 合计 word, got ok=%v %q", ok, structured.Breakdown)
 	}
 	if strings.Contains(structured.Breakdown, "链上计入") {

@@ -1872,18 +1872,18 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// in stable catalog order; adjacency pinned by
 		// TestRCM2FifthCaliberLegendVerbatimAndAdjacency).
 		{runtimeTraceProjMarkFamilyTotal, runtimeTraceProjLegendGroupCaliber,
-			"- `合计(共N段,同线程)` = 同线程墙钟段求和(重叠段取并集),同线程可加;跨线程仍不可加和。",
-			"- `total (N segments, same thread)` = same-thread wall-clock segments summed (overlapping segments as their interval union); same-thread wall clock adds legally — across threads it still never sums."},
+			"- `合计(共N条记录,同线程)` = 同线程成员记录的墙钟值求和(重叠区间取并集),N为汇总记录数,每条可汇总多个物理区间;跨线程仍不可加和。",
+			"- `total (N records, same thread)` = same-thread member wall-clock values summed (overlapping intervals as their union); N counts summary records, each of which may aggregate multiple physical intervals; across threads these values still never sum."},
 		{runtimeTraceProjMarkFamilyMemberMax, runtimeTraceProjLegendGroupCaliber,
-			"- `成员最大(共N段,重叠未拆)` = 同线程 N 段重叠且无法逐段核销,数值取成员最大(诚实下界,非求和);原始和见明细。",
-			"- `member max (N segments, overlap not deducted)` = the N same-thread segments overlap and cannot be deducted per segment, so the value is the member MAX (an honest lower bound, never a sum); the raw sum lives in the detail blocks."},
+			"- `成员最大(共N条记录,重叠未拆)` = 同线程成员记录的区间重叠且无法核销,数值取成员最大(诚实下界,非求和);N为汇总记录数,每条可汇总多个物理区间,原始和见明细。",
+			"- `member max (N records, overlap not deducted)` = same-thread member intervals overlap and cannot be deducted, so the value is the member MAX (an honest lower bound, never a sum); N counts summary records, each of which may aggregate multiple physical intervals; the raw sum lives in the detail blocks."},
 		// 审计 #62 ① (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): the
 		// on-chain semantic dual-caliber entry — assembled from the existing
-		// closed-set tokens (链上/计入/(共N段,同线程)/窗口投影/合计), rendered
+		// closed-set tokens (链上/计入/(共N条记录,同线程)/窗口投影/合计), rendered
 		// exactly when a partial-overlap on-chain semantic row prints the word.
 		{runtimeTraceProjMarkFamilyChainIntersection, runtimeTraceProjLegendGroupCaliber,
-			"- `链上计入(共N段,同线程)` = " + tracefence.ImpactCaliberEffectiveZH + "只计成员段与同线程链窗的精确交集;行旁「" + tracefence.ImpactCaliberWindowProjectionZH + "合计」为全部成员段的并集口径,两口径同处披露、不相加。",
-			"- `on-chain counted (N segments, same thread)` = the " + tracefence.ImpactCaliberEffectiveEN + " counts ONLY the exact intersection of the member segments with the same-thread chain windows; the adjacent complete window-projection total is the full member-union caliber — both calibers are disclosed side by side, never added."},
+			"- `链上计入(共N条记录,同线程)` = " + tracefence.ImpactCaliberEffectiveZH + "只计成员区间与同线程链窗的精确交集;行旁「" + tracefence.ImpactCaliberWindowProjectionZH + "合计」为全部成员区间的并集口径,两口径同处披露、不相加;N为汇总记录数,每条可汇总多个物理区间。",
+			"- `on-chain counted (N records, same thread)` = the " + tracefence.ImpactCaliberEffectiveEN + " counts ONLY the exact intersection of the member intervals with the same-thread chain windows; the adjacent complete window-projection total is the full member-union caliber — both calibers are disclosed side by side, never added; N counts summary records, each of which may aggregate multiple physical intervals."},
 		{runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjLegendGroupCaliber,
 			"- `计数合计(共N项,同线程)` = 计数类指标按同线程成员相加(计数可加,与墙钟时长无关)。",
 			"- `count total (N items, same thread)` = count-class members of one thread added up (counts add; unrelated to wall-clock duration)."},
@@ -2799,6 +2799,9 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 		} else {
 			lines = append(lines, "- A merged item states whether it uses a sum, member maximum, interval union, or duplicate-publication fold. Wall-clock values across threads or overlapping query windows are not added directly.")
 		}
+	}
+	if hasAny(runtimeTraceProjMarkFamilyTotal, runtimeTraceProjMarkFamilyMemberMax, runtimeTraceProjMarkFamilyChainIntersection) {
+		lines = append(lines, "- "+runtimeTraceProjFamilyRecordCountScope(zh))
 	}
 	if hasAny(runtimeTraceProjMarkFamilyCountEquivalent, runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjMarkCaliberSideRow, runtimeTraceProjMarkIconCaliberSide) {
 		if zh {

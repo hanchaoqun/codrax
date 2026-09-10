@@ -11,7 +11,7 @@ package tool
 // block_io_by_inode rows (1.136 #3 + 0.462 #8) never merged and never showed
 // their inode keys. Post-RCM the engine publishes ONE family record each; this
 // batch pins the display: one 行 (行1 类型词+×N+合计值, 行2 身份/榜位, 行3
-// 有效归因 V = 合计(共N段,同线程), 子行 roster top-3+counted trailer), one
+// 有效归因 V = 合计(共N条记录,同线程), 子行 roster top-3+counted trailer), one
 // key-metric row, one detail stanza (full roster + 区分键), one comparison
 // cell (类校验 ×14 合计7.124ms(占其查询窗9%)) and one E# with member_count/
 // member_fold_caliber audit tokens.
@@ -150,7 +150,7 @@ func TestRCM2SemanticFamilyFourLineForm(t *testing.T) {
 		t.Fatalf("the retired 背景榜位 chip must not render (§29.36.2):\n%s", fence)
 	}
 	// 行3: the fifth caliber word with the identity V == 发布值.
-	if !strings.Contains(fence, "有效归因 7.124ms = 合计(共14段,同线程)") {
+	if !strings.Contains(fence, "有效归因 7.124ms = 合计(共14条记录,同线程)") {
 		t.Fatalf("行3 must carry the fifth caliber word with V == 发布值:\n%s", fence)
 	}
 	// 子行: roster top-3 + counted trailer (M-4: dropping the (成员共N,列M)
@@ -175,7 +175,7 @@ func TestRCM2SemanticFamilyFourLineForm(t *testing.T) {
 	for _, want := range []string{
 		"n=14",
 		"total 7.124ms",
-		"attribution 7.124ms = total (14 segments, same thread)",
+		"attribution 7.124ms = total (14 records, same thread)",
 		"11 more in the detail blocks (14 members, 3 listed)",
 	} {
 		if !strings.Contains(fenceEN, want) {
@@ -195,7 +195,7 @@ func TestRCM2GenericInodeFamilyForm(t *testing.T) {
 		"块设备IO(inode) 2次",
 		"合计1.598ms",
 		"➌",
-		"有效归因 1.598ms = 合计(共2段,同线程)",
+		"有效归因 1.598ms = 合计(共2条记录,同线程)",
 		"成员 inode=286395 dev=254:2 1.136ms",
 		"成员 inode=300123 dev=254:2 0.462ms",
 	} {
@@ -282,7 +282,7 @@ func TestRCM2FamilyRowNeverWearsCrossThreadCumWord(t *testing.T) {
 		t.Fatalf("F6 negative pin: the cross-thread legend mark must stay silent on family-only stanzas")
 	}
 	// The family caliber word takes the C00 fallback slot instead.
-	if !strings.Contains(fence, "合计(共14段,同线程)") {
+	if !strings.Contains(fence, "合计(共14条记录,同线程)") {
 		t.Fatalf("the family caliber word must take the fallback slot:\n%s", fence)
 	}
 	// Same ban with a live window projection + differing cum (the stanza cum
@@ -310,15 +310,16 @@ func TestRCM2FifthCaliberLegendVerbatimAndAdjacency(t *testing.T) {
 		}
 	}
 	if mergedMaxIdx < 0 || familyIdx != mergedMaxIdx+1 {
-		t.Fatalf("the 合计(共N段,同线程) entry must sit immediately after ×N取最大 (got merged=%d family=%d)", mergedMaxIdx, familyIdx)
+		t.Fatalf("the 合计(共N条记录,同线程) entry must sit immediately after ×N取最大 (got merged=%d family=%d)", mergedMaxIdx, familyIdx)
 	}
 	if catalog[familyIdx].Group != catalog[mergedMaxIdx].Group {
 		t.Fatalf("the two entries must share the caliber group")
 	}
-	// Legend wording verbatim (§24.12 施工图 ③ 一字不改).
-	wantZH := "- `合计(共N段,同线程)` = 同线程墙钟段求和(重叠段取并集),同线程可加;跨线程仍不可加和。"
+	// Preserve the caliber and adjacency contract. B1622 corrects only the
+	// count population: members are records, not physical segments.
+	wantZH := "- `合计(共N条记录,同线程)` = 同线程成员记录的墙钟值求和(重叠区间取并集),N为汇总记录数,每条可汇总多个物理区间;跨线程仍不可加和。"
 	if catalog[familyIdx].ZH != wantZH {
-		t.Fatalf("fifth caliber word legend must be the 施工图 verbatim:\n got %q\nwant %q", catalog[familyIdx].ZH, wantZH)
+		t.Fatalf("fifth caliber word legend must preserve its declared population:\n got %q\nwant %q", catalog[familyIdx].ZH, wantZH)
 	}
 	// Rendered adjacency: a shape carrying BOTH a family row and a cross-thread
 	// ×N max fold renders the two entries on adjacent legend lines.
@@ -339,7 +340,7 @@ func TestRCM2FifthCaliberLegendVerbatimAndAdjacency(t *testing.T) {
 		if strings.Contains(line, "`N线程取最大(单项a~b)`") {
 			maxLine = i
 		}
-		if strings.Contains(line, "`合计(共N段,同线程)`") {
+		if strings.Contains(line, "`合计(共N条记录,同线程)`") {
 			familyLine = i
 		}
 	}
@@ -358,7 +359,7 @@ func TestRCM2UnionDisclosureAndMaxFallbackForm(t *testing.T) {
 	node.ImpactMS, node.CumulativeImpactMS, node.EffectiveImpactMS = 2.5, 2.5, 2.5
 	_, fence := rcm2RenderFence(t, projection, true)
 	t.Logf("union/max specimen form render (zh fence):\n%s", fence)
-	if !strings.Contains(fence, "有效归因 2.500ms = 合计(共2段,同线程)(重叠段已并,原始和 2.946ms 见明细)") {
+	if !strings.Contains(fence, "有效归因 2.500ms = 合计(共2条记录,同线程)(重叠段已并,原始和 2.946ms 见明细)") {
 		t.Fatalf("union < Σ must disclose the raw sum inline:\n%s", fence)
 	}
 	// max_overlap_fallback: 成员最大 word + Σ disclosure + 行1 stem.
@@ -368,7 +369,7 @@ func TestRCM2UnionDisclosureAndMaxFallbackForm(t *testing.T) {
 	_, fence = rcm2RenderFence(t, projection, true)
 	for _, want := range []string{
 		"成员最大1.136ms",
-		"有效归因 1.136ms = 成员最大(共2段,重叠未拆)(原始和 1.598ms 见明细)",
+		"有效归因 1.136ms = 成员最大(共2条记录,重叠未拆)(原始和 1.598ms 见明细)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("max-fallback form must carry %q:\n%s", want, fence)
@@ -465,7 +466,7 @@ func TestRCM2DetailBlockFamilyStanza(t *testing.T) {
 	detail := runtimeTraceProjDetailFullText(model, true)
 	t.Logf("cmp_78 witness detail stanza (zh):\n%s", detail)
 	for _, want := range []string{
-		"家族合并: 合计(共14段,同线程)",
+		"家族合并: 合计(共14条记录,同线程)",
 		"单段 0.040~2.424ms",
 		"成员(span原文): (共14,列4)VerifyClass com.demo.Big 2.424ms;VerifyClass com.demo.Mid 1.900ms;VerifyClass com.demo.Small 0.800ms;VerifyClass com.demo.Tiny 0.500ms",
 		"家族窗: 50.000~50.079s",
@@ -489,7 +490,7 @@ func TestRCM2DetailBlockFamilyStanza(t *testing.T) {
 	model2, _ := rcm2RenderFence(t, projection2, true)
 	detail2 := runtimeTraceProjDetailFullText(model2, true)
 	for _, want := range []string{
-		"家族合并: 成员最大(共2段,重叠未拆);原始和 1.598ms 供对照;单段 0.462~1.136ms",
+		"家族合并: 成员最大(共2条记录,重叠未拆);原始和 1.598ms 供对照;单段 0.462~1.136ms",
 		"成员: (共2,列2)inode=286395 dev=254:2 1.136ms;inode=300123 dev=254:2 0.462ms",
 		"区分键: dev=254:2",
 	} {
@@ -506,7 +507,7 @@ func TestRCM2DetailBlockFamilyStanza(t *testing.T) {
 	node.ImpactMS, node.CumulativeImpactMS, node.EffectiveImpactMS = 2.5, 2.5, 2.5
 	model3, _ := rcm2RenderFence(t, projection2, true)
 	detail3 := runtimeTraceProjDetailFullText(model3, true)
-	if !strings.Contains(detail3, "家族合并: 合计(共2段,同线程);原始和 2.946ms 供对照(重叠段已并);单段 0.462~1.136ms") {
+	if !strings.Contains(detail3, "家族合并: 合计(共2条记录,同线程);原始和 2.946ms 供对照(重叠段已并);单段 0.462~1.136ms") {
 		t.Fatalf("union family stanza must keep the deduplication clause:\n%s", detail3)
 	}
 }
@@ -529,7 +530,7 @@ func TestRCM2EvidenceIndexFamilyAuditTokens(t *testing.T) {
 	for _, item := range evidence.Items {
 		joined += "\n" + item.Text
 	}
-	for _, want := range []string{"合计(共14段,同线程)"} {
+	for _, want := range []string{"合计(共14条记录,同线程)"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("evidence index must carry reader-facing family caliber %q:\n%s", want, joined)
 		}
@@ -703,7 +704,7 @@ func TestRCM2CompareBackgroundTopRowCellFamilyForm(t *testing.T) {
 	if strings.Contains(cell, "累计(跨线程)") || strings.Contains(cell, "单项最大") {
 		t.Fatalf("F6: a family total must wear neither 累计(跨线程) nor 单项最大: %q", cell)
 	}
-	for _, want := range []string{"14次", "7.124ms", "合计(共14段,同线程)"} {
+	for _, want := range []string{"14次", "7.124ms", "合计(共14条记录,同线程)"} {
 		if !strings.Contains(cell, want) {
 			t.Fatalf("the family background cell must carry %q: %q", want, cell)
 		}
@@ -895,7 +896,7 @@ func TestRCM2BackgroundSeatMintableEndToEnd(t *testing.T) {
 	projection := rcm2CmpSemanticFamilyProjection()
 	projection.SemanticSpans = []types.TraceCausalProjectionNode{node}
 	_, fence := rcm2RenderFence(t, projection, true)
-	for _, want := range []string{"= 合计(共2段,同线程)", "2次"} {
+	for _, want := range []string{"= 合计(共2条记录,同线程)", "2次"} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("the production-minted family must render %q:\n%s", want, fence)
 		}
