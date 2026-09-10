@@ -1509,8 +1509,23 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 			if failure.BlockID != blockID {
 				continue
 			}
+			budgetBase := base
+			switch failure.TargetCarrier {
+			case AnswerDiagramRelationRepairCarrierPriorAnchor,
+				AnswerDiagramRelationRepairCarrierPriorAnchorMetadata,
+				AnswerDiagramRelationRepairCarrierStaleAnchor,
+				AnswerDiagramRelationRepairCarrierLabelPair:
+				// These carriers resolve one prior anchor in the atomic executor.
+				// Its exact selector, not the first same-visible-pair sibling,
+				// must also own the removed-row budget. An unresolved prior
+				// carrier is not a missing body anchor and grants no new budget.
+				budgetBase = AnswerDiagramRelationRepairFailureAnchorCandidates(failure, base)
+				if len(budgetBase) != 1 {
+					continue
+				}
+			}
 			matchedBase := false
-			for _, anchor := range base {
+			for _, anchor := range budgetBase {
 				if answerDiagramRelationFailureMatchesAnchor(failure, anchor) {
 					matchedBase = true
 					key := answerDiagramRelationAnchorSemanticKey(anchor)
