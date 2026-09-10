@@ -29,6 +29,9 @@ type DiagramCallEdgeEvidenceMismatch struct {
 	ToNodeSymbol   string
 	Relation       types.DiagramRelationKind
 	BodyOccurrence int
+	// Same-pool call matcher receipts are repair navigation, not new evidence.
+	// Keep them internal: model-authored mismatches cannot supply these rows.
+	matchedCallEvidence []diagramCallRepairEvidence
 }
 
 // IsRequestedStagePrecedenceSpineIncomplete exposes the typed completeness
@@ -274,7 +277,8 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 						BlockID: block.ID, Issue: issue,
 						FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
 						FromSymbol: fromSymbol, ToSymbol: toSymbol,
-						BodyOccurrence: occurrence + 1,
+						BodyOccurrence:      occurrence + 1,
+						matchedCallEvidence: diagramCallRepairEvidenceForMismatch(issue, evidence, fromSymbol, toSymbol),
 					})
 					continue
 				}
@@ -330,13 +334,14 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 						issue = diagramCallEdgeIssueMissingGroundedAnchor
 					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
-						BlockID:        block.ID,
-						Issue:          issue,
-						FromNode:       strings.TrimSpace(edge.From),
-						ToNode:         strings.TrimSpace(edge.To),
-						FromSymbol:     fromSymbol,
-						ToSymbol:       toSymbol,
-						BodyOccurrence: occurrence + 1,
+						BlockID:             block.ID,
+						Issue:               issue,
+						FromNode:            strings.TrimSpace(edge.From),
+						ToNode:              strings.TrimSpace(edge.To),
+						FromSymbol:          fromSymbol,
+						ToSymbol:            toSymbol,
+						BodyOccurrence:      occurrence + 1,
+						matchedCallEvidence: diagramCallRepairEvidenceForMismatch(issue, evidence, fromSymbol, toSymbol),
 					})
 					continue
 				}
@@ -1930,45 +1935,10 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 	if fromSymbol == "" || toSymbol == "" {
 		return false
 	}
-	// Exact endpoint surfaces remain the strongest and cheapest lane.
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
-			continue
-		}
-		if !diagramCallEvidenceEndpointMatches(ev, ev.Subject, fromSymbol) {
-			continue
-		}
-		// Object is the typed fully-qualified callee surface, while
-		// AnchorSymbol is the exact callee identifier verified on the call
-		// line (for example Object=normalizer.Normalize and
-		// AnchorSymbol=Normalize). Both are closed typed fields of the SAME
-		// grounded call-site record, so either exact surface may label the
-		// destination node without introducing fuzzy/prefix matching.
-		if diagramCallEvidenceEndpointMatches(ev, ev.Object, toSymbol) ||
-			diagramCallEvidenceEndpointMatches(ev, ev.AnchorSymbol, toSymbol) {
-			return true
-		}
-	}
-
-	// Grounding may preserve an enclosing owner on a call row while a compact
-	// architecture/flow diagram uses the operation name alone on either side
-	// (for example Orchestrator.runAnalyzePhase -> Orchestrator.dispatchStage is
-	// displayed as runAnalyzePhase -> Orchestrator.dispatchStage). The call row
-	// already proves the direction; this lane only reconciles each endpoint's
-	// presentation identity. Accept a short spelling when every citable endpoint
-	// on that side that is compatible with it belongs to one identity family.
-	// Two qualified owners with the same operation tail remain incompatible and
-	// fail closed.
-	//
-	// This is intentionally side-aware and pair-preserving.  It does not infer
-	// owners from source paths, labels, request text, or prose, and a source-side
-	// match plus an unrelated target-side match cannot mint a new edge.
-	if diagramRelationEdgeHasExactOrUniqueShortProjection(
-		evidence, fromSymbol, toSymbol,
-		func(ev types.EvidenceItem) bool { return types.ClaimFormOf(ev) == types.ClaimCallEdge },
-		func(ev types.EvidenceItem) []string { return []string{ev.Subject} },
-		func(ev types.EvidenceItem) []string { return []string{ev.Object, ev.AnchorSymbol} },
-	) {
+	// The exact and unique-short lanes share their original full-pool matcher
+	// with repair navigation. The remaining qualified/actor bridges below keep
+	// their existing predicates; they do not manufacture exact-row receipts.
+	if matched, _ := diagramCallEdgeExactOrUniqueShortEvidence(evidence, fromSymbol, toSymbol, false); matched {
 		return true
 	}
 

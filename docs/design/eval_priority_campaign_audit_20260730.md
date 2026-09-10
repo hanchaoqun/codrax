@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-10）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮以 §123.1732–1741 为准：端点引用歧义修复与B1645–1648四小批已逐批推送，两组各86包全仓通过。r1053/r1054均严格两并发并完成人工审计；r1054时序题机器PASS但正文方向/职责仍错，C++交付及7个原生边界通过但正式断言收据未闭合，不冒称答案或证明全绿。新确认B1649已证短显示名的保留式补锚候选缺席，按单源精确证据通道施工；B1561继续合并原生断言收据债。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
+本轮以 §123.1732–1742 为准：端点引用歧义修复与B1645–1648四小批已逐批推送，两组各86包全仓通过。r1053/r1054均严格两并发并完成人工审计；r1054时序题机器PASS但正文方向/职责仍错，C++交付及7个原生边界通过但正式断言收据未闭合，不冒称答案或证明全绿。新确认B1649已证短显示名的保留式补锚候选缺席已按单源精确证据通道修复，公开执行/count3/race、独立复核及第三组86包全仓通过，修后live尚未执行；B1561继续合并原生断言收据债。具体来源、RED、未覆盖边界及后续收账见相应小节和每轮manual_audit。
 
 ## 1. 基线与目标
 
@@ -57385,15 +57385,37 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1742 B1561下一批只读方案：原生项目具名结果收据（2026-09-10）
+
+承接r1054同根见证，不新开工单、不预报已实现。优先恢复当前执行真实产生的具名测试结果，而非为C++增加解释器式probe。现有Make aggregate正确，`make exit0`、成功字符串、源码存在assert、重复同命令均不能提升为逐合同证明。当前fmt没有结构化逐测试报告，应继续honest unverified；本方案即使实现也不保证该样例直接签绿。
+
+最小通路复用`ProjectTestObservation`/`TestResult`、`run_tests.go`精确执行关联、`test_surface.go`已声明Make测试文件清册：仓库显式声明报告产地，读取本次命令在当前交付树产生的结构化具名结果，再接现有proof ledger/controller说明。不得猜文件名、扫描任意旧XML、仅以模型给路径授证，不能把同名其它套件/其它执行/其它树的结果搬来。
+
+复用前安全条件：源码静态可见`junitCasesToResults`把skipped保作`Passed=true`以免阻断整套测试，但该“未失败”不能授予“已执行断言”的资格；正式扩展须保留未执行语义，先做公共RED，不能直接复用此布尔。CMake/Meson已有JUnit解析并不等于源码成员selector与合同关联齐全，不能只放宽runner enum。此处为下一批前提清册，不把未跑公共反例写成r1054 Make失败原因。
+
+验收沿真实原生程序→RunTests.Execute→report→proof ledger→controller instruction：精确具名成功仅闭合对应合同；aggregate、skip、零测试、陈腐/重复/不完整报告、失败命令、错target/path/suite、同名不同执行均不授证。保原测试与模型合同字节，不通过模型正文扫描推断输入域。正上界溢出与合法负历年分开，模型声明输入/期望但域不足时继续披露未覆盖，不让系统代改合同。实施与B1649分批，下一轮live仍按两个异构用例，不因单个fmt反复不具收据而无限重跑。
+
+下一strict2候选已按库存/距最近/人工可验证性复核，尚未运行：`qf_type_relation_loop_controller`（最近r1022，32轮；旧182s/35%上下文）＋`github_issue_dateutil_relativedelta_float_symptom`（r1042，12轮；旧198s/28%）。前者检查当前12个生产实现的完整关系/文件、方向与原图，不把oracle只点少数名字当全集；后者用可执行Python原生4项unittest检查整数值float与分数边界、保测试原样，并区别probe与正式逐测试收据。备选显式Trace H1（r1036，18轮；249s/57%/14查询）复核5段Binder3.094ms、长S不得全算Binder/帧间空闲、链资格/两尺/投影/旁路。优先异构而不重复qf/fmt；默认runner PATH中Node未找到、Java/Rust已有原生阻塞的旧写题不用于本轮高判决力首选，不据此宣称宿主绝无可配置运行时。无需增加当前预算或修改case/oracle。
+
 ### §123.1741 B1649：已证调用的短显示名与修补候选域不一致（2026-09-10）
 
-P1/实际r1054与代码联合确认，施工中。r1054日志3286–3297的13条图边均为`missing_grounded_call_anchor`，产点仅在原严格matcher已确认调用时出现；原入模2878–2909有`agent.buildAnalysisIR`的精确callee/callsite，而模型显示名为`buildAnalysisIR`。`preEmitStandaloneRelationCandidateMismatchSelection`再用全限定身份等价比较短显示名与候选，合法补锚候选缺席，模型继而删真边。不能将机器PASS称图关系完整，也不能把13条缺锚说成13条调用无证。
+P1/实际r1054与代码联合确认，已修复并通过工程验收，修后live待触发。r1054日志3286–3297的13条图边均为`missing_grounded_call_anchor`，产点仅在原严格matcher已确认调用时出现；原入模2878–2909有`agent.buildAnalysisIR`的精确callee/callsite，而模型显示名为`buildAnalysisIR`。`preEmitStandaloneRelationCandidateMismatchSelection`再用全限定身份等价比较短显示名与候选，合法补锚候选缺席，模型继而删真边。不能将机器PASS称图关系完整，也不能把13条缺锚说成13条调用无证。
 
 修向：原typed调用matcher返回当前完整证据池内实际匹配的精确证据/来源，既有布尔门与修补者共用；只为当前缺锚诊断携内部receipt。候选交模型显式选择，不自动加边/改图/改正文，不全局放宽`Equivalent`、不读请求或模型prose、不同call/reply/flow语义不混。全池多owner/方法/源歧义不能通过逐候选单元素池变成“唯一”；相同pair多个callsite仍保原来源与发生次数约束。只在唯一完整identity pair时细化failure，已知模型identity不改。
 
 验收前提：实际ReadFile→EmitEvidence→公开成文缺锚→公开delta/lease→模型Attach先红后绿，另qualified正常、同名多owner、反向/种类/无精确证据、不同文件/行/独立callsite、陈腐lease与保留模型wire负控；抽共享resolver不改原调用准入，需邻近parity与count3/race。运行中的r1054不重写为修后通过，修后工程/生产命中分别计账。
 
 精确计数纠正：`additions=1/9`中另外8项是列表claim-only候选，缺claim EvidenceID而不能直接挂租约，列表whole-block修补后来已补齐；不是上述13条图边被9选1截断。不得以此数字误修cap或放宽缺出处的claim。模型Run/RunWith反向、辅助函数职责猜测与用户图后清单次序错误另保人工FAIL，不增加关键词硬门。B1561原生断言收据为下一高ROI既有待办，不另开重复P1；声明变更provenance词面仅记待证观察。
+
+工程封版：只3个tool生产文件＋1新测试，未改types/agent安装器/schema/原测试。exact与unique-short两条已有匹配通道共用精确row resolver；short判据仍直接调用原generic全池匹配，未复制第二套唯一性规则。普通布尔路径保exact首行早退、不收EvidenceItem切片，完整收集只在缺锚修补；无额外普通exact分配有旧谓词对照针。私有receipt绑定evidenceID、原file:line范围、完整有向pair与call种类；不可分类但已匹配的行保未知哨兵，不能过滤后把剩余候选伪成唯一。failure仅在完整pair唯一时细化，不改节点/BodyOccurrence/模型原标签，原cap8和其它qualified/actor桥不扩权。
+
+有效public RED `20260910-b1649-public-red.log`1.649s：真实ReadFile→EmitEvidence已经确认grounded调用，公共emit却给空additions、只remove/replace。现在短/qualified两臂实际ParametersFor→Patch.Execute attach均成功，保模型原文/原图、另图既有anchors与不可变input。实际两原生callsite4/5保独立ID/source，单attach保两body，原完整pool供两次调用预算；只有一callsite仍不能证明两次，一addition不能重复使用。合成负控另标清，不冒称所有来源反针均为真实原生。全池两owner/正反序/limit1晚歧义、不同file/line/range/ID/方向/kind、无证/缺来源、Object与AnchorSymbol冲突，以及180格旧两lane布尔parity均在。
+
+末族count1绿1.798s，冻结新与既有关系族count3 `20260910-b1649-frozen-count3.log`1.102s、race `...-frozen-race.log`2.529s，root与独立读者末审无阻断；全仓`20260910-b1649-final-full.log`已启动，未完成前不记全绿。早期executor-green误期望不存在旧system source supplement、临时编译/测试前提错误均不算产品RED。冗余第二次same-method attach被拒经实际单attach成功保两消息排除为新缺口，不为错误测试放宽原门。r1054为修前回放，不能冒签新分支live命中或13边一次全修。
+
+cap8后续只读复核：原atomic执行器不强制一次消费全部failure；patch范围通过后若仍有缺锚，`answer_document_patch.go`的`staged_for_retry`分支保存含已修内容的Pending基准、清旧lease；下一轮evaluator按Pending-first取基准与新delta，候选按剩余mismatch筛选后再cap。故存在保留式分批续接，不据13>8立新阻断或扩大预算。专门“13独立pair→8 attach暂存→剩5新lease→13条原body全部保留”的公共正针尚未执行，静态闭环与旧通用staging针不能写成该专门臂已通过；可纳入后续测试补强。
+
+最终冻结全仓已退出0：`20260910-b1649-final-full.log`共86个有测试的包通过（部分未变包复用Go缓存）。关键重跑：tool310.168s、agent64.509s、tracequery106.872s、tracediag17.854s、types46.899s、orchestrator25.175s、llm29.852s、repl60.162s、cmd11.641s。没有改旧pin、扩大候选预算或补第三个live；不把工程绿倒写成r1054人工全绿。r1054完整收账已以`e2dfb5291`推main；本修复及B1561后续边界同批记录，后续按已排异构strict2继续。
 
 ### §123.1740 r1054：修补后真实回放与C++持久交付（2026-09-10）
 
@@ -57441,10 +57463,10 @@ root与独立读者已核两个生产根因、真实setter/日志及最小边界
 
 | 工单 | 优先级/当前证据 | 施工边界 |
 |---|---|---|
-| B1647 staged孤儿收尾误报未改边 | P1/公开Execute有效RED，施工中 | qf iter1关系操作已stage；iter5/6仅remove_if_isolated n4，却因n1→n2 unlisted_relation_removed+added被拒。旧空身份与新完整身份并存的基准，后置recipe补齐旧槽，stabilizer漏混合形；不与模型误选/陈腐ref/畸形JSON混淆。仅补系统补齐动作的同基准稳定，不放宽越界门。 |
-| B1648 现代无闭合IO借legacy自身份上链 | P1/原生S/D无wake与异waker负控确认，施工中 | request .100ms、ResourceCompletionClosure=false却on_chain；`resourceClosureEvaluated`以anchors map存在为前提，把现代已评估false误送旧anchor-less兼容臂。原生IO产点无条件记录已评估，旧手造默认仍兼容，不动正常目标running/D原量或邻近独立序数。 |
-| B1645 IO机制说明三尺 | P2/已确认；两S闭合双语入口有效RED | 除final mechanism，还包括defaults.go:911共享IO-LATENCY ROLE WORDS。本轮H6实际入模把所有IO-latency称请求驻留，与47条完成闭合S阻塞12.658ms不符。两出口统一修，不新增字段/硬门。 |
-| B1646 S型标记等待显示 | P2/生产确认，2个系统自有出口 | `mutation_runtime.go`状态分区及`wait_coverage.go`状态附注泛称“S态IO等待”，未在局部标签保留scheduler-marker-only。只改显示词源和零值解读，0与独立完成闭合12.658均保，禁止相加。 |
+| B1647 staged孤儿收尾误报未改边 | P1/已推1f0ead712；公开/count3/race/86包绿 | qf iter1关系操作已stage；iter5/6仅remove_if_isolated n4，却因n1→n2 unlisted_relation_removed+added被拒。旧空身份与新完整身份并存的基准，后置recipe补齐旧槽，stabilizer漏混合形；不与模型误选/陈腐ref/畸形JSON混淆。仅补系统补齐动作的同基准稳定，不放宽越界门。r1054证一般续接正常，未自然重撞两个新分支。 |
+| B1648 现代无闭合IO借legacy自身份上链 | P1/已推026055ffe；原生S/D正反控/count3/race/86包绿 | request .100ms、ResourceCompletionClosure=false却on_chain；`resourceClosureEvaluated`以anchors map存在为前提，把现代已评估false误送旧anchor-less兼容臂。原生IO产点无条件记录已评估，旧手造默认仍兼容，不动正常目标running/D原量或邻近独立序数。新revision真实Trace live未冒签。 |
+| B1645 IO机制说明三尺 | P2/已推3fcabc587；双语S闭合实际入口/count3/race/86包绿 | 除final mechanism，还包括defaults.go:911共享IO-LATENCY ROLE WORDS。本轮H6实际入模把所有IO-latency称请求驻留，与47条完成闭合S阻塞12.658ms不符。两出口统一修，不新增字段/硬门。 |
+| B1646 S型标记等待显示 | P2/已推70a15732c；两出口实际8格/count3/race/86包绿 | `mutation_runtime.go`状态分区及`wait_coverage.go`状态附注泛称“S态IO等待”，未在局部标签保留scheduler-marker-only。只改显示词源和零值解读，0与独立完成闭合12.658均保，禁止相加。 |
 
 B1645首个overlay测试日志`20260910-b1645-public-red.log`退出1/1.144s；仅zh/en S_closed两格走到教学缺项的有效RED，D_closed因D/IO同尺吸收未出现独立io_latency节点（需查证，不铸第二席来过针）；无wake两格另暴露B1648现代产点。测试前提失败不算B1645教学已覆盖。原临时负控保留，不删掉来宣称全绿。r1053仍在跑时使用不可变已提交二进制，候选复现置`.codrax/tmp`，未改变采样中的源码对象。
 

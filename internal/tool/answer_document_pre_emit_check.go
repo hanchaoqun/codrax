@@ -5953,6 +5953,11 @@ func preEmitStandaloneRelationCandidateMismatchSelection(
 	rank := 2
 	blockIDs := make([]string, 0, 1)
 	for _, mismatch := range mismatches {
+		if mismatch.matchesCallRepairCandidate(candidate) {
+			rank = 0
+			blockIDs = preEmitAppendUniqueSortedFold(blockIDs, mismatch.BlockID)
+			continue
+		}
 		from, to := strings.TrimSpace(mismatch.FromSymbol), strings.TrimSpace(mismatch.ToSymbol)
 		if from == "" {
 			from = strings.TrimSpace(mismatch.FromNode)
@@ -7009,6 +7014,9 @@ func diagramRelationRepairDeltaJSON(
 			FromIdentity:   strings.TrimSpace(mismatch.FromSymbol),
 			ToIdentity:     strings.TrimSpace(mismatch.ToSymbol),
 			BodyOccurrence: mismatch.BodyOccurrence,
+		}
+		if from, to, ok := mismatch.uniqueCallRepairPair(); ok {
+			failure.FromIdentity, failure.ToIdentity = from, to
 		}
 		failure = bindDiagramRelationRepairEquivalentTupleCarrier(doc, failure)
 		failure = normalizeDiagramRelationRepairFailureLocator(doc, failure)
