@@ -3083,7 +3083,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 						}
 						repair.Hint = "The exact model-authored relation edits were applied to an unpublished retry base. The old edge refs are consumed. Submit only one remove_if_isolated or retain_as_context decision for every exact row in optional_orphan_cleanups; retain_as_context also requires your visible_label. The system chooses no disposition or wording."
 						return failEmitWithRepair(t.Name(), now, repair,
-							"diagram relation phase staged; explicit orphan disposition is required for %d participant(s)", len(roster.Missing))
+							"diagram relation phase staged; explicit orphan disposition is required for %d participant(s)%s", len(roster.Missing), stagedOrphanDispositionSummary(orphanLease))
 					}
 				}
 			}

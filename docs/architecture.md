@@ -114,13 +114,15 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 | `perf_triage` | `perf_triager` | `perf-triage-skill` | `BusContext.AttachedHitrace` 非空 | |
 | `analyze` | `analyzer` | `analysis-skill` | 无条件 | |
 | `explore` | `explorer` | `explore-skill` | 读模式无条件 | |
-| `extract` | `extractor` | `extract-skill` | 读模式无条件 | |
+| `extract` | `extractor` | `extract-skill` | 读模式：入口就绪且有必需提炼工作；已完成或可复用时跳过 | |
 | `finalize` | `finalizer` | `answer-document-skill` | 读模式无条件 | ✅ |
 | `plan` | `planner` | `change-plan-skill` | 写模式 | |
 | `apply` | `coder` | `code-write-skill` | 写模式 | |
 | `verify` | `verifier` | `test-execute-skill` | 写模式 | |
 
-`log_triage` 和 `perf_triage` 互相独立——同一个 Run 可以同时挂 panic 日志和性能 trace，两个前置阶段并行写 `Mutable.LogTriage()` / `Mutable.PerfTrace()`，下游 analyzer 同时消费。任一前置阶段失败都不会阻塞主流水线，bundle 留为 nil，每个下游消费者都会 nil-check 优雅降级。
+同一个 Run 可以同时附加 panic 日志和性能 trace；命中的前置阶段按 `log_triage → perf_triage` 顺序执行，分别写 `Mutable.LogTriage()` / `Mutable.PerfTrace()`。因此 perf 阶段可以读取此前已接受的 log 产物，随后 analyzer 消费已产生的两路信息。前置阶段失败时记录降级并继续主流水线；已接受的结构化产物保留，缺少有效产物时下游按 nil 处理。执行顺序由 `internal/orchestrator/topology.go` 的 `preStages` 和 `Run` 的同步分派循环共同确定。
+
+上表描述阶段绑定，不保证每轮都调用各个 Agent。读模式的 extract 在已完成、可复用既有提炼结果、入口未就绪或没有必需输出义务时可以跳过；探索也可分多个窗口执行。阶段先后不代表前一 Agent 直接调用后一 Agent。
 
 ### 2.2 读模式：DAG-aware 调度
 
