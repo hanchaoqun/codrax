@@ -168,9 +168,9 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 	if materializeCurrentSourceNegativeScopeAuthority(merged, ctx) {
 		logging.Info("[%s] materialized typed current-source negative-search scope authority", toolName)
 	}
-	if materializeRuntimeTraceArithmeticRelationCaveat(merged, ctx) {
-		logging.Info("[%s] materialized runtime trace arithmetic relation caveat without rewriting model prose", toolName)
-	}
+	// Prose duration/percentage tokens do not prove a ratio's subject or
+	// denominator. Do not publish arithmetic verdicts from them. The separate
+	// evidence-cross-check lane retains cited producer facts (S4-3/B193).
 	if materializeRuntimeTraceFrequencyAuthorityCaveat(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace frequency transition authority caveat", toolName)
 	}

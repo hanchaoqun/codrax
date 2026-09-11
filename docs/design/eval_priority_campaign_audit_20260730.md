@@ -3,6 +3,7 @@
 ## 最新进展导航（2026-09-10）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+续修以 §123.1752 起的新收账为准：B193 整条正文比例推断评价已退役，独立有引用的事实对照保留；B1655 多陈腐锚的发生级定位与 B1646 等待范围提示在独立批次施工。尚未启动 r1057，不把单测当成新 live 通过。
 本轮以 §123.1732–1751 为准。四小批已推：B54 启发式诊断退出答案判定附注（264ab73b6）、B1652 区分策略未执行与退出成功（c3020f17f）、B1651a Maven/CTest 本轮报告来源（eecd6ebdd）、B1653 CTest 非执行状态范围（1d9ab6e49）。两轮冻结86包全仓及各批公共 count3/race 通过；不冒称 native Maven/CTest 验收或全部适配器闭环。r1056严格exact2结束：H1机器PASS273s、人工FAIL；读阶段图表外层TIMEOUT1200s、未交最终答案。显式窗/双轴/因果投影保留，但系统算术附注误把分母当分子，D/IO清单提示泛称所有等待；根因旁路因模型数组包装错误明确unavailable。读图重复陈腐锚点的局部清理可达性列最高后续核验，B193显示残余、B1646提示/旧footer及B1654无损对象解包逐项排期；Gradle来源P1和Meson/Hvigor/旧JSON继续开放，优先于B1561新能力。未以模型thinking认定n2同轮合同矛盾，不为追绿改问题/oracle/正文；见§1751及r1056 manual_audit。
 
 ## 1. 基线与目标
@@ -57384,6 +57385,17 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1752 B193：退役从正文猜比例的系统评价，保留证据事实对照（2026-09-10）
+
+1. 接续r1056的真实误判，冷读确认不是单个跨句规则漏项：原分子由正文正则/局部桥接猜测，窗只按长度去重，完整性按数值和窗长匹配，没有比例的主体/来源/分母关系凭证。因此全部“重算错误/超容差/无自洽分母/分子不完整”等判语都不具备给模型结论下判断的权限。遵守同事审计§10.6 S4-3既裁：评判退役，独立typed事实并置继续存在。
+2. 最小生产改动是删除 `persistMergedAnswerDocumentWithAttachmentPolicy` 的唯一算术评价调用，连同仅自用的836行实现与629行旧测试整体退役（旧18个测试含一条发布路径针，本身钉了应撤的判语，不保影子实现）。没有跨句猜值、词汇黑名单或新JSON义务；模型正文/选择/caveats不改，Trace窗口、排序、补齐、IO和两轴算法不动。
+3. 新公共测试覆盖双语跨句、另一组数值、确实错误的比例、不完整库存、多窗歧义、后置括号、无窗，实际full→partial→持久载体：不新增推断比例的评价，保模型块和原caveat。有效RED `.codrax/tmp/20260910-b193-public-red-valid.log`（tool1.115s）复现233.190被当分子报98.700个百分点，并在多种非客户数值形失败；首日志包含测试调用未传prev/比较范围不当的装配问题，不作为完整RED收据。
+4. S4-3不删除、不重写：独立公共persist→事实附注四格（中英×错误算式/跨句比例）仍显示真实20/30/64.940/114.940ms和证据引用，不复制模型算式或判语；既有真实可见证据索引/中性披露/所有权测试继续验证。初次count3 tool1.395s/orchestrator2.176s，race2.714/3.476s；日志 `20260910-b193-public-{count3,race}.log`。后续冷审加固测试后复验另记；本节不冒称本轮全仓或新live已通过。
+
+5. 冷审后加固新针：来源数据用执行前独立JSON快照验证，事实引用必须同时命中当前typed row的E#与已发布证据清单；没有非空模型citation装配，不冒称新增该引用保真验证。最终count3 tool0.938s/orchestrator1.578s，race2.494/2.278s（`20260910-b193-final-{count3,race}.log`），独立冷审无阻断。
+
+状态：`B193=implemented/public-count3+race/prose-verdict-retired/cited-facts-preserved`；`B1655=independent-next-batch`；`model-answer-ownership=unchanged`。
 
 ### §123.1751 r1056：四批封版后两路回放，机器通过不抵销系统误述（2026-09-10）
 
