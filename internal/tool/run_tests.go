@@ -3064,6 +3064,7 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 			continue
 		}
 		out.TestResults = append(out.TestResults, report.TestResults...)
+		out.VerificationDiagnostics = mergeVerificationDiagnostics(out.VerificationDiagnostics, report.VerificationDiagnostics)
 		if len(report.MetricDeltas) > 0 {
 			if out.MetricDeltas == nil {
 				out.MetricDeltas = make(map[string]types.MetricDelta, len(report.MetricDeltas))
@@ -3410,6 +3411,9 @@ func mergeVerificationDiagnostics(existing, next []types.VerificationDiagnostic)
 			diag.Outcome,
 			fmt.Sprintf("%d", diag.ExitCode),
 		}, "\x00")
+		if receiptID := types.VerificationDiagnosticReceiptIdentity(diag); receiptID != "" {
+			key += "\x00" + receiptID
+		}
 		if seen[key] {
 			return
 		}

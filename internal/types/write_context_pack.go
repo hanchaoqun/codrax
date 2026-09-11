@@ -2861,7 +2861,9 @@ func writeVerificationDiagnosticContextID(diag VerificationDiagnostic) string {
 		strings.TrimSpace(diag.Outcome) == "" && strings.TrimSpace(diag.Runner) == "" {
 		return ""
 	}
-	return writeContextStableID("verification_diagnostic", diag.Source, diag.Category, diag.Severity,
+	// Keep the receipt discriminator ahead of potentially long command/path
+	// fields so the existing context ID budget cannot erase the distinction.
+	return writeContextStableID("verification_diagnostic", VerificationDiagnosticReceiptIdentity(diag), diag.Source, diag.Category, diag.Severity,
 		diag.ReasonCode, diag.Runner, diag.Framework, diag.WorkingDir, diag.Command, diag.Outcome)
 }
 

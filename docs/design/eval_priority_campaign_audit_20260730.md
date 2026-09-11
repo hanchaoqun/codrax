@@ -3,6 +3,7 @@
 ## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+本轮续修以§123.1764–1766为准：基线`main=origin/main@e25f6e9c9`，fetch零差异。B1661公共报告诊断合并及多文件身份已完成public RED→GREEN、count3/race/冷审及冻结全仓86包通过，准备分批提交。B1651b再次确认旧Gradle XML会污染Passed/Score/证明，不能仅清scope；本机无JVM/Gradle，隔离工具链下载已向用户异步询问，尚未安装或签原生验收。Meson除错误flag还存在报告语义不足，B1662已落独立施工边界。重新构建后r1059只跑C++写与跨语言调用链读两例，不追旧题绿。
 本轮新增§123.1759–1763：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束并以`2a3752bf9`推送审计：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。后续B1659通用runtime-work JSON教学=`f6ed96720`、B1660累计字段误名=`22cc8ad54`均独立提交推送；两批公开回归/count3/race/冷审/冻结86包全仓及最终make全部通过。保持模型已选receipt/正文及原计算，零新硬门；这两批尚未新开live，不能倒签r1058。其它高优先未闭债见§1761。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
 B1656及r1057审计已推 `369855605`；后置全仓首轮遇历史同名2秒超时针失败，保留原红并只加失败诊断，未改断言/超时/生产。相同 `go test ./...` 最终复验exit0、86包通过，见§1758；不据单跑/复跑绿宣称该旧针可靠性根因已解决。
@@ -57387,6 +57388,42 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1766 r1059预排：C++真实编译写与跨语言关系读（2026-09-11，尚未开跑）
+
+1. 保留243例库存（215 read/25 apply/3 plan）。刚跑r1058 H9+仓颉、r1057读阶段图+JS写；本轮优先原生验证可用、最近覆盖较远和跨语言边界。主选 `github_issue_nlohmann_long_double_symptom`（上次r1044）与 `mr_poly_binding_chain`（上次r1016），严格并行2、各1次、1200s；代码提交/重新make/冻结后才启动。
+2. C++原case要求双发布头修复long double严格编译错误且不损普通浮点；本机clang++可用。原oracle仅查`%.*Lg`，原测试仅要求输出非空，不能冒称数值正确或正式行为合同已证。人审必须看两份头同步、告警选项不降低、原生执行和独立多类型/边界格式对照；额外验收仅在私有临时目录，不改原case/fixture/期待项。
+3. 跨语言读题必须审Python FastTokenizer.tokenize→原生模块_fastlex→PyO3 wrapper→Rust core，注册边与调用边不能混为一条，ImportError回退另分支，wrapper与core同名不合并。原oracle三关键词偏宽但未发现过时真值；最终须人工核关系、引用、图语法和实际入模信息。未产生图不能宣称图修补生产验收。
+4. 当前无Gradle eval fixture或wrapper，Java/Gradle/Maven不可用；Gson/commons-lang两写题的Make为源码检查，不替代Gradle native。H8/H9/H11旧断言仍单独审校，不为了本轮机器绿擅改oracle。备选仅在开跑前替换：memoclaw Python跨仓写、Rust跨模块读，不增加第三路。
+5. 活跃流保护原参数复核：`20260911-r1059-active-stream-count3.log`（llm48.448s）与`20260911-r1059-partial-frame-count3.log`（llm0.977s）均exit0/count3，覆盖持续推理/工具参数/heartbeat、分帧字节跨4ms、真正首字节及停滞、混合fallback预算、调用者取消与更短截止。当前没有产品改动；这些是受控流测试，不是声称本轮已有单条真实客户连接持续4分钟。
+6. C++独立基线有效RED：私有`r1059-nlohmann-audit.Zk7wDg/baseline-run.zA66WU`中原测试及新增行为审计均编译exit1，仅双头原`%.*lg`接long double的-Werror,-Wformat诊断；审计器自身未引入其它编译错误。待交付再以同脚本检查2352项（双头×两输入类型×14值×6精度×7缓冲/空指针组合），不改fixture/Make/期待项。Apple clang21 ARM64当前double/long double同为8字节/53位有效精度，成功也不能外推扩展精度平台。此处尚无交付GREEN或新live。
+
+状态：`r1059=planned/not-started`；`case/oracle/budget=unchanged`。
+
+### §123.1765 B1651b续审与B1662 Meson报告语义边界（2026-09-11）
+
+1. **Gradle仍P1未闭。** 现Java无invocation绑定时直接定位旧XML；其中非skip testcase进入TestResults后不仅影响scope，也影响merge的Passed、Score、计数及原有PTO正/负证明。仅清ObservationScope仍不能隔离历史结果。应在SupervisedRun前建立本轮来源，结束后只读其事件收据，缺失/坏/未闭合为verification_incomplete，保真实命令结果；不回落旧XML。
+2. 官方[8.14.3 TestListener](https://raw.githubusercontent.com/gradle/gradle/v8.14.3/platforms/software/testing-base/src/main/java/org/gradle/api/tasks/testing/TestListener.java)与[9.0.0 TestListener](https://raw.githubusercontent.com/gradle/gradle/v9.0.0/platforms/software/testing-base/src/main/java/org/gradle/api/tasks/testing/TestListener.java)四回调相同；首方案使用task.addTestListener追加具名监听器，原子行来自afterTest、root suite parent=null闭合。按build-root+task-path分文件、nonce/版本/序号/descriptor/原结果/时间保真；不替换已有监听器，不添加rerun/continue/ignoreFailures或修改task选择。配置缓存与构建缓存分开：[6.6.1双向配置缓存参数](https://raw.githubusercontent.com/gradle/gradle/v6.6.1/subprojects/core/src/main/java/org/gradle/initialization/StartParameterBuildOptions.java)可证，但未知旧版本不能盲加新flag；FROM-CACHE/UP-TO-DATE无本次事件不是零测试通过。重试冲突不得压成一次断言，root suite结束也不替代整个命令退出结果。
+3. 本机java_home明确无Java Runtime、Gradle/Maven不在PATH、常见JDK与缓存/fixture无可用工具链；未安装任何依赖。已向用户异步询问隔离下载或提供路径。该前提只限制本轮native验收，不把模拟协议签为原生，也不暗中关闭合法Gradle鲜活结果来虚签修复。
+4. **B1662/Meson：不能只改一个参数。** 官方[1.8.5 mtest.py](https://github.com/mesonbuild/meson/blob/1.8.5/mesonbuild/mtest.py)参数定义为--logbase，随后产生`.junit.xml/.json/.txt`，当前适配器却生成--xunit-file及固定`.codrax-meson-report.xml`，属于确定接口不匹配。进一步核JunitBuilder：EXPECTEDFAIL在单测试及TAP分支没有专门XML child，可能与OK同形；单退出码测试与原子子测试也共用testcase载体。若只修参数并照旧把所有非skip XML行当assertion，会放大潜在假证明，不能据命令成功签支持齐全。
+5. Meson下一完整小批应同时处理私有调用logbase及仅本轮文件、原生JSON结果枚举/协议层级与XML实际子测试的来源关联；命名或次数不足不能猜join。EXPECTEDFAIL/skip/ignored不铸普通断言；真实失败、超时、中断与命令结果保留，零测试不猜build失败。原生日志含env，禁止全文灌入模型或审计文档；只投影白名单事实，临时文件清理限系统所有目录。当前本机也无Meson/Ninja，以上是官方源码与本地适配器审计，尚无本轮native生产见证或代码施工。
+
+状态：`B1651b=P1/confirmed/native-environment-pending/not-implemented`；`B1662=P1/adapter-mismatch-confirmed+latent-proof-risk/design-only`；`Maven/CTest/B1661!=all-runner-provenance-closed`。
+
+### §123.1764 B1661：本轮测试来源诊断在报告合并时丢失（2026-09-11）
+
+1. 独立只读复核发现：RunTests实际Maven/CTest invocation已将所读文件path/hash/nonce加入局部report.VerificationDiagnostics，但mergeChangeReports未传递该字段；最后finish仅合并另一条probe carried通道。普通project报告即使成功执行，也会丢掉已经产生的来源诊断。此缺口与Gradle旧XML误授权分案，不假称修可观测性即可修复所有证明来源。
+2. 复核发现第二跳：既有mergeVerificationDiagnostics及writeVerificationDiagnosticContextID都忽略Detail，多份报告的path/hash/nonce仅存其中，直接补合并仍只剩第一份。最小修复在既有报告合并点完整携带输入诊断；仅对既有junit_invocation_report/report_binding/junit_current_report_bytes精确三元组，以trim后完整Detail的稳定摘要补充去重身份，两跳共用同一helper。摘要先于上下文通用大小写归一，路径大小写不同不合并；真正重复仍去重，其它诊断保持原身份。不解析Detail、不从正文生成收据、不把诊断升级为断言、不改Passed/Score/FailureKind/scope/命令，不扩schema或新增模型必填字段。
+3. 先真实RunTests.Execute→已安装报告→JSON→上下文公共RED，再实现。覆盖Maven/CTest、本轮缺失报告、多个runner、与probe重复诊断；除diagnostics字段外旧报告状态须相等。协议子进程测试不是原生Maven/CTest安装验收，最终专项/count3/race/独立冷审与冻结full另记。
+
+4. 有效公共RED已留`20260911-b1661-public-red.log`（tool5.914s，exit1）：Maven/CTest真实协议子进程的pass/failure/skipped/missing及Java双XML前提通过，失败集中在已安装报告和三个消费者上下文的来源收据为0；model plan、PTO、confidence、proof ledger及原结果前提未失败。不能将该RED称为原生Maven/CTest执行验收；多文件去重与上下文身份扩展也须一并钉住后才封版。
+5. 归一化上下文ID同样受既有240字符边界限制，因此来源摘要需位于类型前缀之后、旧长命令之前，否则长命令仍吞文件差异；不增预算。另需区分完整report/JSON收据与上下文短摘要：后者原有Detail位于command之后，可能仍被显示预算截断，本批不以“项数恢复”冒称完整path/hash均已入模；后续核完整报告可寻址通道，不解析截断文本恢复事实。
+6. 独立冷审三处挂点及helper无阻断；静态默认Maven命令84字符、framework=junit/cwd=.时，Detail正文从第243字符才开始，超过原240-rune短摘要预算，故完整来源并非短摘要已展示。完整持久通道仍是orchestrator.WriteChangeReportToFile写`<stem>.report.json`，controller的artifacts.report_path及resume ReportID可寻址；前提为实际落盘成功，不外推所有RunTests直调用。该显示残余只作P2观察，不增加硬合同、不塞满模型上下文、不虚称本批全可见。
+7. 实施冻结：一个报告合并挂点、一个诊断去重挂点、一个上下文ID挂点共用types helper，两个新测试文件。额外公共context RED `20260911-b1661-context-red.log` types0.802s；首绿中协议子进程PWD的`/var`与producer规范化`/private/var`测试前提校准为实际EvalSymlinks，不改变生产，canonical首绿types1.917s/tool7.075s。最终`20260911-b1661-final-count3.log` types0.892s/tool50.517s，包含B1650/B1651/B1653及旧合并/诊断/置信/上下文邻臂；`20260911-b1661-final-race.log` count3 types3.236s/tool18.002s，均exit0。多报告、跨runner、真重复carry、长command/大小写不同路径、空详情、非目标诊断旧ID、JSON/三个context消费者、model plan/PTO/Score/原结果/proof独立保真均有针。源码与测试冻结后已启动`20260911-b1661-full.log`，全仓结果另记，不提前签绿。
+
+8. 冻结后原命令`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./...` exit0，`20260911-b1661-full.log`共86有测试包通过（未变包部分缓存）：tool347.897s、agent82.935s、context8.123s、types49.572s、orchestrator30.670s、tracequery118.410s、tracediag15.944s、hitraceconv160.592s。没有改原测试时限/断言、没有边测边改；产品与测试五文件保持冻结，后置build/live另记。
+
+状态：`B1661=implemented/P2/public-red-green/count3+race+cold+full86-pass/commit-pending`；`test-outcome/proof/Trace/answer-ownership=unchanged`。
 
 ### §123.1763 B1660：短榜累计影响不得误标状态占时（2026-09-11）
 
