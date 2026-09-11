@@ -27,6 +27,8 @@
 
 **追加复核更正（B1664）：** 模块身份错误也被系统上下文放大。模型1441先提交 `py::PyModule → _fastlex` 注册关系；1693标grounded，1997/3179写verified，3294的Preferred anchors把PyModule列成lib.rs:46的安全function定义锚，3542/3561又产生binding segment/注册recipe。真实该行定义 `_fastlex`，PyModule只是参数类型。因此不能将最终这项错误全部归于成文波动；正确源码/教学在场不抵销错误权威信号。3294来自support-evidence派生的 `BuildVisibleAnchorWhitelist`，不是repo_map声明库存，尚无证据证明Rust解析器把参数提成函数。注册端点资格与引用角色放大分层追查，已登记统一台账§123.1768；此处未改代码或重跑，不以最后无图隐去这个系统问题。
 
+后续已核本次实际冷扫描缓存：06:54:29Z的Rust13结果正确为 `py._fastlex`，没有PyModule声明，可排除此例的解析器/缓存污染。源锚核验只证明 `_fastlex`，registration端点检查只约束Object，未证明Subject角色；definition白名单又展开所有Subject/Object并标function，形成两级放大。仅检测Subject在原文出现不够，PyModule确在参数中；下一公共回归需保护真实附着注解注册容器和独立 `m.add_function(...)`绑定，不能一刀切拒绝声明式注册。B1664未实施，B1663只修追加失败定位，二者不混算闭环。
+
 ### B1663：真实系统缺口是错误定位，不是摘要被合同禁止
 
 日志3968一次追加两块：首项是缺失的 `s-summary`，第二项是已有 `d-call-chain` 整图。原二进制已经允许补齐 required block，但整批资格失败后统一把 `AddBlocks[0]` 报为违规（3972），因而错误指向合法摘要。模型随后推断摘要无法追加（3999–4017）；后续单独摘要追加实际成功（4211），最终 patch 亦接受（4272）。
