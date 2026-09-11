@@ -72,8 +72,9 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityCarriesCompleteElevenRowWait
 		"内核报告的等待调用点/符号为 dma_fence_default_w（不据此推断资源持有者）",
 		"rather than blocked_reason record count or aggregate-group count",
 		"principal_conclusion_zh=`CompThread_0-2955",
-		"确切发生 11 次目标等待",
-		"目标等待墙钟合计 11.000ms",
+		// B1646: the exact count belongs to this D/IO roster, not all waits.
+		"D/IO 状态等待清单共 11 段",
+		"墙钟合计 11.000ms",
 		"数值差本身不是关系证据",
 		"不得把 record/occurrence/partition 的差值解释成窗口边界",
 		"`principal_state` is the selected-window authority",
@@ -180,7 +181,7 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsRequestedScopePrincipal
 		t.Fatalf("supporting roster leaked into principal occurrence list:\n%s", got)
 	}
 	if strings.Count(got, "principal_conclusion_zh=") != 1 ||
-		!strings.Contains(got, "确切发生 3 次目标等待") {
+		!strings.Contains(got, "D/IO 状态等待清单共 3 段") {
 		t.Fatalf("only the requested-scope row may mint a principal conclusion:\n%s", got)
 	}
 }

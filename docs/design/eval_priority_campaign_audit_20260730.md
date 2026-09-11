@@ -57386,6 +57386,15 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1753 B1646余项：等待提示与覆盖附注明确各自统计范围（2026-09-10）
+
+1. 两个真实出口先红：agent最终提示经TraceQuery→BuildInitialInstruction，在普通S态Binder等待3.010ms及IO完成闭合阻塞9.010ms都存在时，把D/io_wait/内核IO标记S清单的0泛称“目标等待0”；旧覆盖footer把sleep中内核标记值泛称IO等待。本批只改双语范围，保所有原数值、账户、scope、缺失语义和证据资格。
+2. agent将完整清单数/墙钟称为D/IO状态等待清单，并说明不统计无标记S睡眠/runnable，零不排除独立Binder与IO完成闭合等待，清单之间可能重叠不能直接相加。旧footer复用已有 `runtimeTraceSleepIOMarkerLabel/Boundary`，不新增第二词源、不触碰状态折叠/累计算法，不把数值零改成未知。
+3. 有效RED：`.codrax/tmp/20260910-b1646-remainder-public-red.log` agent1.180s，`...-remainder-footer-red.log` tool1.110s。footer通过真实event_search limit1激活现有覆盖附注；首未触发footer的fixture以及后补scope针的指针编译错误均不算产品RED。
+4. 正式测试实际6格（中英×普通S/带标记S/D），其他请求窗/旧记录未说明查询窗/缺数据6格；footer8格（中英×标记有无×completion有无）及缺数据2格。确认独立Binder3.010ms、completion9.010ms保留，未说明实际窗不能借物理span造窗，缺数据不能铸零，模型块及producer快照不变；旧同族针并跑。最终count3 agent2.899s/tool1.637s，race count3 agent7.219s/tool6.640s（`20260910-b1646-remainder-final-{count3,race}.log`）。root冷读无阻断，生产仅两个显示出口和旧3处词面测试迁移。本批没有新live，不声称穷尽所有IO表述出口。
+
+状态：`B1646-prompt-and-coverage-footer=implemented/public-count3+race`；`source-values/Trace-chain/auto-supplement/model-body=unchanged`；B193已独立提交`1ba027f7d`。
+
 ### §123.1752 B193：退役从正文猜比例的系统评价，保留证据事实对照（2026-09-10）
 
 1. 接续r1056的真实误判，冷读确认不是单个跨句规则漏项：原分子由正文正则/局部桥接猜测，窗只按长度去重，完整性按数值和窗长匹配，没有比例的主体/来源/分母关系凭证。因此全部“重算错误/超容差/无自洽分母/分子不完整”等判语都不具备给模型结论下判断的权限。遵守同事审计§10.6 S4-3既裁：评判退役，独立typed事实并置继续存在。

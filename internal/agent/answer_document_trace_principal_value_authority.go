@@ -70,7 +70,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	b.WriteString("- Use these typed rows only within their displayed query scope. A `supporting_state` row preserves a supplementary query's measurements, not the requested-window total; keep its values and scope separate. The rows recap the same authority used by the deterministic answer lead; later blocked-reason records, IPC request counts, transport latency, capped exploration rows, per-CPU aggregate groups, or narrative estimates cannot replace their caliber.\n")
 	b.WriteString("- `principal_state` is the selected-window authority for a target thread's running/runnable/sleep/D-state totals. A perf-triage `time_semantics` duration is the whole attachment's first-to-last timestamp extent; it is unit/provenance context only and must never replace a `principal_state` value or be emitted as the target's selected-window state total. If an earlier narrative or model-authored aggregate used the attachment extent for that purpose, keep the model's diagnosis but correct the numeric caliber from `principal_state`.\n")
 	b.WriteString("- Within a `principal_state` row, `head_carry` or `tail_open` marked `already_included=true` is selected-window wall clock already contained in its named state and in `accounted_total`; never add it again, call it outside the selected window, or combine it with `unaccounted`. Only `unaccounted` is the separate uncovered remainder, and insufficient boundary evidence means its state is unknown. If an earlier model aggregate/completion note conflicts, use this final typed accounting while keeping the conclusion model-authored.\n")
-	b.WriteString("- A complete target-wait row authorizes its exact occurrence count and wall-clock sum. A capacity-truncated blocking row authorizes only the displayed observed lower bound (`>=`); never turn it into an exact total, a unique/only occurrence, or a claim that every other request caused no blocking.\n\n")
+	b.WriteString("- A complete D/IO-state wait roster row authorizes its exact roster count and wall-clock sum, not all target waits. A capacity-truncated blocking row authorizes only the displayed observed lower bound (`>=`); never turn it into an exact total, a unique/only occurrence, or a claim that every other request caused no blocking.\n\n")
 	b.WriteString("- Complete target-wait rows below are compiled from the uncapped typed per-occurrence leaves. An earlier `target_wait_occurrence_prompt=status=incomplete,emitted=N,total=M` row describes only that compact prompt preview, not an incomplete engine roster. When this recap publishes `permission=exact_complete_rowset`, use its full count/sum/rows and never call the underlying roster incomplete or reconcile its preview-prefix sum with another measurement.\n\n")
 	b.WriteString("- Target wait state kinds remain separate: `d_state_occurrences`, `io_wait_occurrences`, and `sleep_iowait_occurrences` are separately reported typed counts. Do not rename an `io_wait` row to D-state when the same authority reports `d_state_occurrences=0`.\n\n")
 	if zh {
@@ -170,7 +170,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 				window = "在实际查询范围未明确的这份清单中"
 			}
 			fmt.Fprintf(&b,
-				"  - principal_conclusion_zh=`%s %s确切发生 %d 次目标等待，目标等待墙钟合计 %.3fms",
+				"  - principal_conclusion_zh=`%s %s的 D/IO 状态等待清单共 %d 段，墙钟合计 %.3fms",
 				wait.Subject,
 				window,
 				wait.Count,
@@ -179,14 +179,14 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			if len(wait.Callers) > 0 {
 				fmt.Fprintf(&b, "，内核报告的等待调用点/符号为 %s（不据此推断资源持有者）", strings.Join(wait.Callers, "、"))
 			}
-			b.WriteString("。`\n")
+			b.WriteString("。本清单统计 D/io_wait 及内核 IO 等待标记确认的 S 态，不统计未带 IO 等待标记的 S 态睡眠或可运行等待；清单为零不排除独立 Binder 等待或 IO 完成唤醒证明的线程阻塞，各清单可能重叠，不可直接相加。`\n")
 		} else {
 			window := fmt.Sprintf("In %.6f..%.6f", wait.WindowStartTs, wait.WindowEndTs)
 			if queryScope.Role == types.TraceQueryWindowScopeUnknownQueryWindow {
 				window = "For this roster whose actual query window is unknown"
 			}
 			fmt.Fprintf(&b,
-				"  - principal_conclusion_en=`%s, %s has exactly %d target-wait occurrence(s), totaling %.3fms of target-wait wall clock",
+				"  - principal_conclusion_en=`%s, %s's D/IO-state wait roster contains exactly %d interval(s), totaling %.3fms",
 				window,
 				wait.Subject,
 				wait.Count,
@@ -195,7 +195,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			if len(wait.Callers) > 0 {
 				fmt.Fprintf(&b, ", with kernel-reported wait call-site/symbol(s) %s (not holder identity)", strings.Join(wait.Callers, ", "))
 			}
-			b.WriteString(".`\n")
+			b.WriteString(". This roster counts D/io_wait and S-state waits confirmed by kernel IO-wait markers; it does not count unmarked S-state sleep or runnable time. A zero roster does not rule out independent Binder waits or blocking proven by an IO-completion wakeup; these accounts may overlap and must not be added directly.`\n")
 		}
 	}
 	for _, block := range blocking {

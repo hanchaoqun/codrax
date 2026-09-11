@@ -4989,15 +4989,15 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 			share = dominantMS / state.windowMS * 100
 		}
 		if zh {
-			parts = append(parts, fmt.Sprintf("目标窗内状态账: %s 窗%.3fms — 主导状态=%s %.3fms(%.1f%%)，running=%.3fms，runnable=%.3fms，sleep=%.3fms(其中 IO等待 %.3fms)，d_state=%.3fms，io_wait=%.3fms；%s",
+			parts = append(parts, fmt.Sprintf("目标窗内状态账: %s 窗%.3fms — 主导状态=%s %.3fms(%.1f%%)，running=%.3fms，runnable=%.3fms，sleep=%.3fms(其中 %s %.3fms)，d_state=%.3fms，io_wait=%.3fms；%s %s",
 				state.subject, state.windowMS, dominantName, dominantMS, share,
-				state.running, state.runnable, state.sleep, state.sleepIOWait, state.dstate, state.iowait,
-				tracequery.TargetSelfStateRankingBoundaryText(true)))
+				state.running, state.runnable, state.sleep, runtimeTraceSleepIOMarkerLabel(true), state.sleepIOWait, state.dstate, state.iowait,
+				runtimeTraceSleepIOMarkerBoundary(true), tracequery.TargetSelfStateRankingBoundaryText(true)))
 		} else {
-			parts = append(parts, fmt.Sprintf("Target window state account: %s over %.3fms — dominant state %s %.3fms (%.1f%%), running=%.3fms, runnable=%.3fms, sleep=%.3fms (io-wait portion %.3fms), d_state=%.3fms, io_wait=%.3fms; %s",
+			parts = append(parts, fmt.Sprintf("Target window state account: %s over %.3fms — dominant state %s %.3fms (%.1f%%), running=%.3fms, runnable=%.3fms, sleep=%.3fms (%.3fms of %s), d_state=%.3fms, io_wait=%.3fms; %s %s",
 				state.subject, state.windowMS, dominantName, dominantMS, share,
-				state.running, state.runnable, state.sleep, state.sleepIOWait, state.dstate, state.iowait,
-				tracequery.TargetSelfStateRankingBoundaryText(false)))
+				state.running, state.runnable, state.sleep, state.sleepIOWait, runtimeTraceSleepIOMarkerLabel(false), state.dstate, state.iowait,
+				runtimeTraceSleepIOMarkerBoundary(false), tracequery.TargetSelfStateRankingBoundaryText(false)))
 		}
 	}
 	if authority.causalUnproven {
