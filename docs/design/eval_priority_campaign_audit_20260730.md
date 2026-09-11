@@ -1,8 +1,9 @@
 # Eval 多维优先级与泛化审计战役（2026-07-30）
 
-## 最新进展导航（2026-09-10）
+## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+本轮新增§123.1759：B1658公开发布/真实入模入口先复现后修，区分源码存在性与流程成员资格；不会替模型换成系统选定的阶段清单。B1657也已获得公共RED，独立施工，重点是精确来源跨代保留且新清理必须可选。新一轮live尚未开始，后续冻结后按两路各一次执行；阶段性的定向通过不冒充全仓或生产验收。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
 B1656及r1057审计已推 `369855605`；后置全仓首轮遇历史同名2秒超时针失败，保留原红并只加失败诊断，未改断言/超时/生产。相同 `go test ./...` 最终复验exit0、86包通过，见§1758；不据单跑/复跑绿宣称该旧针可靠性根因已解决。
 前轮 §123.1732–1751 保留历史收据：B54/B1652/B1651a/B1653已推，r1056 H1人工错误与读题超时仍是真实原始结果，不因本轮修复倒改。Gradle当前执行来源P1、Meson/Hvigor/历史JSON仍开放并优先于B1561新能力；本轮非Trace不代替显式窗/因果投影生产验收。
@@ -57386,6 +57387,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1759 B1658：流程成员资格与源码位置分离，统一上下文及系统补表消费面（2026-09-11）
+
+基线 `main=origin/main@86e88c33e`，本轮fetch后无远程差异。r1057的系统补表超域见§1757，不将模型正文质量问题混算为本修复已解决。
+
+1. **可复现系统问题。** `ApplyAndPersistMutation`真实替换/局部更新两车道，模型已有四行主流程表，保留七项带真实坐标的候选；原系统仍追加三个不属于已证主流程的成员。双语×有/无fact-level source refs共八格PUBLIC RED（`20260911-b1658-public-red.log`，tool1.262s），原块/聚合/引用保真及普通枚举正控原先已绿。真实 `BuildInitialInstruction` RED（`20260911-b1658-prompt-red.log`，agent1.066s）确认七项被教为权威成员及缺少未证范围披露。测试初稿还把architecture family的空coverage枚举误当失败；其实际成员义务已经为零，此项撤回，另以真正QFEnumeration邻臂单独验证fallback，不把测试过强算系统缺陷。
+2. **统一根修。** `AnswerAggregateFactRequiresWorkflowMembershipEvidence`仅消费已有typed explain+必需stage/workflow维度及member_set。独立验证的relation/inventory provenance与显式非源码来源保持原资格；nil请求、非成员事实、普通声明枚举不变。未经成员证明的声明集合，在fact authority及逐行citation fallback两处均不得授权系统主集合。现存成员、顺序、notes、来源和可用引用不被改写；不扩call-chain/handoff合同，不禁表格，不按阶段名建黑名单，不从用户或模型正文决定资格。
+3. **后备路线不复活义务。** 无独立聚合成员资格的workflow枚举fallback保留grounded evidence entries，但以enrichment-only提供，无一行对应一项的强制成员义务；已有accepted explicit symbol slate保持。真实流程provider的精确主序列/子范围及precedence≠call/data-flow边界照旧，系统不把模型七项替换成自己的四项。教学明确“坐标可以支持其事实，但不自动证明当前流程成员”，不把已读源码统称模型推断，也不声称任意客户仓都存在Codrax专用provider。
+4. **首批边界。** 一般源码流程未携带typed workflow维度时，本批不靠关键词猜补该维度；混合多维度但成员事实未绑定具体维度时，也不靠label分派。带系统验证的库存/关系集合继续按原证明处理；Runtime/Trace/VCS/MCP origin、scalar/count/negative事实保持既有通道，既有runtime-only不发布源码补表的独立策略不变。本批不宣称解决所有工作流发现/证明问题。
+5. **初步收据。** types有效RED `20260911-b1658-types-red-valid.log`（0.978s）涵盖十种语言文件坐标两入口及fallback；第一次错误Go枚举常量造成的编译红不是产品RED。types终版新族/邻族count3通过4.109s（`20260911-b1658-types-final-count3.log`）。公开发布/入模终版、竞态、独立冷审和冻结全仓稍后补齐，不提前签绿。
+6. **下一批选择。** 现有243例（read215/apply25/plan3）按客户影响、最近覆盖、跨语言/跨来源和当前变更风险排序：P0真实H8显式10ms窗，检验链上资格、语义工作关系凭证与实际占时/可消量分离、投影及旁路；P1隔离仓颉库存正控，检验普通源码集合/包名不受流程成员收窄影响。r1057刚覆盖JS写，下一轮不再追同一读图样例；Gradle来源P1与其它原生proof债保留，不因缺本机运行环境伪造验证。两路各一次、1200s、原case/oracle不变，源码冻结后才启动。
+
+7. **本批定向封版。** 公共新族及PrincipalMemberSetContract/CurrentRunStageLaneAuthority/B1620字段来源/普通库存邻族count3通过：agent1.558s、tool2.157s（`20260911-b1658-final-targeted-count3.log`）；新族race通过agent3.070s、tool2.773s（`20260911-b1658-final-targeted-race.log`）。独立origin兼容overlay只回退新workflow资格，runtime两臂仍遵守原不补源码表策略，tool1.066s；不是扩大runtime权限。独立只读冷审无阻断，确认事实/显示集合/逐行引用OR两侧及后备义务同源；没有为architecture的空policy扩生产。活跃SSE/分帧字节/keepalive/真实停滞/取消及明确截止的既有回归count3通过34.344s（`20260911-active-stream-count3.log`），不是单条真实连接持续4分钟的live见证。
+
+状态：`B1658=implemented/public-red-green/count3+race/cold-review-pass/pending-frozen-full-and-live`；`B1657=public-red/implementation-in-progress`；`model-answer/member-choice/citations=preserved`；`Trace/window/on-chain-root/two-axes/auto-supplement=unchanged`；`active-stream=no-fixed-4ms-or-old-4m-degrade`。
 
 ### §123.1758 B1656：修补阶段短摘要复用本代精确孤立清单（2026-09-10）
 

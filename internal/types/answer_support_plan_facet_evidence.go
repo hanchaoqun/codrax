@@ -41,13 +41,19 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 	if !aggregatePrincipal {
 		unprovenRelationMembers := family == QFEnumeration && PrincipalMemberSetRequiresTypedRelationAuthority(rm) &&
 			!plan.stepBackboneFromAcceptedSymbolSlate
-		if unprovenRelationMembers {
+		unprovenWorkflowMembers := family == QFEnumeration && SourceInventoryLaneConflictsWithConceptualWorkflowDimension(rm) &&
+			!plan.stepBackboneFromAcceptedSymbolSlate
+		if unprovenRelationMembers || unprovenWorkflowMembers {
 			out.PrincipalMemberCoverage = PrincipalMemberCoveragePolicyEnrichmentOnly
 		}
 		if lane := compilePrincipalEvidenceSupportLane(family, rm, plan); len(lane.Entries) > 0 {
 			if unprovenRelationMembers {
 				lane.Title = "Grounded relation evidence candidates"
 				lane.Guidance = "These individually grounded facts are not a proved relation-member set. Use them to support the model's requested claims; do not render every definition, base type, import, or helper as a required member. Preserve uncertain membership as an explicit boundary until a typed relation set or accepted explicit symbol slate selects the members. " + lane.Guidance
+			}
+			if unprovenWorkflowMembers {
+				lane.Title = "Grounded workflow supporting evidence"
+				lane.Guidance = "These locations establish source facts, not membership or order in the requested workflow. Use the facts and citations to support your explanation, not as a one-row-per-entry member slate. Determine the requested workflow from its supported execution or ordering evidence; keep declarations, optional pre-stages, and other workflows separate where their membership is not established. The model retains ownership of the explanation and diagram; this lane supplies no additional mandatory members."
 			}
 			out.Lanes = append(out.Lanes, lane)
 		}

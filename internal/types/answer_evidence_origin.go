@@ -155,6 +155,9 @@ func AnswerAggregateFactAuthorizesPrincipalContract(fact AnswerAggregateFact, rm
 	if rm != nil && PrincipalMemberSetRequiresTypedRelationAuthority(*rm) {
 		return false
 	}
+	if AnswerAggregateFactRequiresWorkflowMembershipEvidence(fact, rm) {
+		return false
+	}
 	// Exact file:line support is itself the precise current-source witness. Some
 	// pre-emit compatibility callers do not retain AnalysisIR, so requiring a
 	// request model merely to recognize that coordinate would make authority
@@ -187,6 +190,29 @@ func AnswerAggregateFactAuthorizesPrincipalContract(fact AnswerAggregateFact, rm
 		}
 	}
 	return false
+}
+
+// AnswerAggregateFactRequiresWorkflowMembershipEvidence distinguishes a cited
+// declaration from proof that it belongs to the requested workflow. It does
+// not reject or rewrite the retained model fact: its locations and notes remain
+// usable support. Only promotion into mandatory membership is withheld.
+// Independent typed relation/inventory proofs and explicit non-source evidence
+// lanes retain their existing authority; request-inferred origins do not count.
+func AnswerAggregateFactRequiresWorkflowMembershipEvidence(fact AnswerAggregateFact, rm *RequestModel) bool {
+	if fact.Kind != AnswerAggregateMemberSet || rm == nil ||
+		!SourceInventoryLaneConflictsWithConceptualWorkflowDimension(*rm) {
+		return false
+	}
+	if AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) ||
+		strings.Contains(fact.Provenance, SourceInventoryPrincipalRowSetAggregateProvenance) {
+		return false
+	}
+	for _, origin := range answerAggregateFactExplicitEvidenceOrigins(fact) {
+		if AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			return false
+		}
+	}
+	return true
 }
 
 func answerAggregateFactHasExactCurrentSourceSupportRef(fact AnswerAggregateFact) bool {

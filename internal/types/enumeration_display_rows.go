@@ -119,6 +119,9 @@ func EnumerationDisplaySetAuthorizesPrincipalContract(rm *RequestModel, fact Ans
 	if rm != nil && PrincipalMemberSetRequiresTypedRelationAuthority(*rm) {
 		return false
 	}
+	if AnswerAggregateFactRequiresWorkflowMembershipEvidence(fact, rm) {
+		return false
+	}
 	if AnswerAggregateFactHasRelationMembers(fact) || len(fact.Members) == 0 || len(set.Rows) != len(fact.Members) {
 		return false
 	}

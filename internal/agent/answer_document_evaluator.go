@@ -8542,11 +8542,11 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 	sets := answerDocPrincipalEnumerationSets(ctx, plan)
 	refs, advisoryRefs := answerDocPartitionPrincipalMemberSetRefs(allRefs, &rm, sets)
 	if len(refs) == 0 {
-		return renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs)
+		return renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs, &rm)
 	}
 	if len(sets) > 0 {
 		return renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx, refs, sets) +
-			renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs)
+			renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs, &rm)
 	}
 
 	type renderedFact struct {
@@ -8601,7 +8601,7 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs))
+	b.WriteString(renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs, &rm))
 	return b.String()
 }
 
@@ -8646,13 +8646,25 @@ func answerDocPartitionPrincipalMemberSetRefs(refs []types.AnswerAggregateFactRe
 	return authoritative, advisory
 }
 
-func renderAnswerDocAdvisoryPrincipalMemberSets(refs []types.AnswerAggregateFactRef) string {
+func renderAnswerDocAdvisoryPrincipalMemberSets(refs []types.AnswerAggregateFactRef, rm *types.RequestModel) string {
 	if len(refs) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## Advisory Model-Inferred Member Sets\n\n")
-	b.WriteString("- These structured sets were retained from exploration but carry only `system_inference` / illustrative authority. They are investigation candidates, not a required answer roster, not proof of relation or order, and not permission to join independently grounded components.\n")
+	hasWorkflowCandidates := false
+	for _, ref := range refs {
+		if types.AnswerAggregateFactRequiresWorkflowMembershipEvidence(ref.Fact, rm) {
+			hasWorkflowCandidates = true
+			break
+		}
+	}
+	if hasWorkflowCandidates {
+		b.WriteString("## Advisory Member Sets\n\n")
+		b.WriteString("- These proposed sets are not a verified answer-member roster. Source coordinates and grounded facts, when present, retain their own citation and claim scope; they do not by themselves establish membership in the requested workflow. Use independently supported execution/membership facts (including a typed current-workflow provider when supplied) to select rows. This adds no call-edge, artifact-transfer, or full-roster obligation.\n")
+	} else {
+		b.WriteString("## Advisory Model-Inferred Member Sets\n\n")
+		b.WriteString("- These structured sets were retained from exploration but carry only `system_inference` / illustrative authority. They are investigation candidates, not a required answer roster, not proof of relation or order, and not permission to join independently grounded components.\n")
+	}
 	b.WriteString("- Use, qualify, revise, or omit them according to the grounded evidence and the typed component/flow boundary. A `role=principal_answer` value here records the investigation's proposed slate; it does not create a MUST-render or hard-validation contract.\n")
 	for _, ref := range refs {
 		label := strings.TrimSpace(ref.Fact.Label)
@@ -8660,6 +8672,13 @@ func renderAnswerDocAdvisoryPrincipalMemberSets(refs []types.AnswerAggregateFact
 			label = fmt.Sprintf("aggregate_facts[%d]", ref.Index)
 		}
 		fmt.Fprintf(&b, "- advisory set %q (%d candidate member(s))", label, len(ref.Fact.Members))
+		if hasWorkflowCandidates {
+			if types.AnswerAggregateFactRequiresWorkflowMembershipEvidence(ref.Fact, rm) {
+				b.WriteString("; membership_authority=unverified_workflow_scope")
+			} else {
+				b.WriteString("; authority=system_inference_or_illustrative")
+			}
+		}
 		if members := renderAggregateStringList(ref.Fact.Members, 24); members != "" {
 			fmt.Fprintf(&b, ": %s", members)
 		}

@@ -253,7 +253,11 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		if types.AnswerAggregateFactRoleForRequest(fact, opts.requestModel).IsPrincipal() &&
 			!opts.principalContractIndexes[i] &&
 			!types.AnswerAggregateFactAuthorizesPrincipalContract(fact, opts.requestModel) {
-			fmt.Fprintf(&b, ", fact_authority=`advisory_model_inference`, principal_contract=`not_authorized`")
+			if types.AnswerAggregateFactRequiresWorkflowMembershipEvidence(fact, opts.requestModel) {
+				fmt.Fprintf(&b, ", fact_authority=`workflow_membership_unproven`, principal_contract=`not_authorized`")
+			} else {
+				fmt.Fprintf(&b, ", fact_authority=`advisory_model_inference`, principal_contract=`not_authorized`")
+			}
 		}
 		if fact.Unit != "" && !omitAdvisoryNumeric {
 			fmt.Fprintf(&b, ", unit=%s", fact.Unit)
