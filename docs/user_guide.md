@@ -2228,13 +2228,15 @@ llm:
     context_window: 128000              # 模型最大输入 tokens(默认 128000)
     max_output_tokens: 0                # wire-level max_tokens;0 = 不发,服务器用模型 ceiling
     max_output_fraction: 0              # 替代形式:context_window × fraction
-    request_timeout_seconds: 240        # 非流式 HTTP 超时
+    request_timeout_seconds: 600        # 非流式 HTTP 超时
     retry_max_attempts: 6               # 429 / 5xx 重试上限,默认 6
-    stream_stall_timeout_seconds: 120   # SSE 启动后 N 秒无新字节,主动中止
-    stream_first_byte_timeout_seconds: 180 # 请求被接受后 N 秒还没首字节即中止;默认按推理模型安全档(思考期不吐字节),普通模型可调低
+    stream_stall_timeout_seconds: 300   # SSE 启动后 N 秒无新字节,主动中止
+    stream_first_byte_timeout_seconds: 600 # 响应头等待及首个有效 SSE 分片前的静默上限;可显式调低
     think_aloud: true                   # 是否要求模型在工具调用旁夹 1-2 句推理摘要
     thinking_mode: auto                 # provider 原生 thinking:auto|disabled|enabled|provider_default
 ```
+
+以上超时值是代码默认值,可在 `providers.yaml` 中按 provider/agent 覆盖。持续收到正文、推理、工具调用或心跳字节的 SSE 流没有累计 600 秒上限;显式调用者期限、取消操作及写模式/评测等外层预算仍然有效。
 
 `think_aloud` 和 `thinking_mode` 是两件事:
 
@@ -2923,7 +2925,7 @@ CLI 单次模式输出:
 → 你按了 Ctrl+C,或网络断了。重试。
 
 **`error: upstream LLM stream stalled with no bytes for Ns`**
-→ 上游模型卡住。换 provider 或换模型(thinking model 长 reasoning 段可能正常 120s 无字节;调 `stream_stall_timeout_seconds`)。
+→ 上游连续没有新字节,超过配置的静默上限(当前默认 300 秒)。可检查网络/provider,或调高 `stream_stall_timeout_seconds`;尚无最终正文但仍有推理或心跳字节,不属于这种静默。
 
 **DeepSeek 报 `Thinking mode does not support this tool_choice`**
 → provider 原生 thinking 与 tools / `tool_choice` 冲突。保持 `thinking_mode: auto`(默认)或显式设 `thinking_mode: disabled`。不要用 `think_aloud: false` 当修复手段;它只控制 Codrax prompt 侧的进度摘要,不是 provider 原生 thinking 开关。只有明确需要 DeepSeek 原生 thinking 且确认模型支持 tools 时,才设置 `thinking_mode: enabled`。

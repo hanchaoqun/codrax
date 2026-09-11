@@ -154,12 +154,11 @@ type LLMProviderConfig struct {
 	// fraction form on this entry.
 	MaxOutputFraction *float64 `yaml:"max_output_fraction"`
 
-	// RequestTimeoutSeconds is the per-call HTTP timeout for chat
-	// completion requests. Long emit_change_plan generations on slow
-	// providers can take several minutes; the legacy hard-coded 120s
-	// was tuned for short single-shot stages and silently aborted long
-	// streams. Zero (the absent form) inherits the code default (240s).
-	// Per-agent override uses the same non-zero-overrides rule.
+	// RequestTimeoutSeconds is the per-call non-streaming HTTP timeout.
+	// Zero (the absent form) inherits the code default (600s). Actual
+	// streaming calls instead use first-response/byte-silence guards;
+	// this value never caps the total age of an active stream. A caller's
+	// explicit deadline remains binding. Per-agent overrides are non-zero.
 	RequestTimeoutSeconds int `yaml:"request_timeout_seconds"`
 
 	// RetryMaxAttempts is the maximum number of HTTP attempts (initial
@@ -172,14 +171,13 @@ type LLMProviderConfig struct {
 
 	// StreamStallTimeoutSeconds caps the maximum time the SSE scanner
 	// may go without receiving a single byte before the watchdog
-	// aborts the request. Tuned per-provider — fast small models can
-	// use 15-30s, deep-thinking / reasoning models often need 90-
-	// 120s because they pause 60+ s between thinking blocks. Zero
-	// (the absent form) inherits the code default (120s).
+	// aborts the request. Zero (the absent form) inherits the code
+	// default (300s); explicit provider/agent values remain authoritative.
 	StreamStallTimeoutSeconds int `yaml:"stream_stall_timeout_seconds"`
 
 	// StreamFirstByteTimeoutSeconds caps the maximum time between
-	// "request accepted (200 OK)" and the first received byte. Distinct
+	// response headers and the first usable SSE data, as well as the wait
+	// for response headers themselves. Distinct
 	// from StreamStallTimeoutSeconds: covers the dead-on-arrival
 	// case where a provider hangs before emitting any bytes (server
 	// deadlock, middlebox interference, model genuinely stuck before
@@ -191,7 +189,7 @@ type LLMProviderConfig struct {
 	// defaultStreamFirstByteTimeout in internal/llm for the value and
 	// its evolution record; SSE keep-alive bytes reset the clock).
 	// Tune this knob down per-provider for fail-fast behaviour on
-	// non-reasoning models. Zero inherits the code default.
+	// non-reasoning models. Zero inherits the code default (600s).
 	StreamFirstByteTimeoutSeconds int `yaml:"stream_first_byte_timeout_seconds"`
 }
 

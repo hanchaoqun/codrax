@@ -3,6 +3,7 @@
 ## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+用户随后明确授权延长配置及代码默认值，见§123.1771：非流HTTP600s、首响应600s、流中真实静默300s；本地providers及代码/样例/中英说明同步。公开工厂入口先红后绿、llm/config完整包、三包race count3及make通过；不新增活跃SSE总时长门、不改其它独立预算，不提交凭据。本小批不冒充B1575/B1626已施工，也不重跑r1060。
 本轮续修以§123.1768.7之后及§123.1769–1770为准：B1664参数声明冒注册主体及定义建议越权已完成公共先红后绿、泛化来源边界与原文保真测试；末审根修超过四行/含空行的附着注解完整性，不用截断前文签矛盾。count3/race/独立冷审、冻结全仓86包与前后置make全部通过，已推`e622c8264`。r1060严格exact2各一次完成：E1双窗Trace机器PASS157s/人工FAIL，Python跨仓写PASS177s/补丁正确但验证权威FAIL。B1626仍把两请求成员窗压成包络；B1575未关闭的执行粒度能力债新增生产见证——仅import+AST的探针被授target_behavior，不误归Make/PTO或披露丢失。Python48组独立真调用/await后验通过，不倒填正式proof。两项P1须各自完整来源闭环，不靠标签/教学补丁销账；原case/oracle/1200s及模型答案未改，不新增追跑。
 本轮续修以§123.1764–1768为准：B1661已提交推送`f6e64a545`。r1059严格两路各一次结束：跨语言读机器PASS481s/人工FAIL，C++写TIMEOUT1200s/人工FAIL，审计已推`d2fc1a602`；最终无图不能签渲染通过，最后双头Lf补丁的2352项独立后验1708失败，不回填原流程SDK27链接失败/failed证明。B1663真实失败坐标修复已推`928fdb14d`，public RED→GREEN/count3/race/冷审/冻结全仓86包及前后置make通过，不扩权限。B1664已钉源码和本次真实缓存：Rust符号正确，缺口是注册主体角色未证却被放大为verified关系/函数定义锚/recipe，不能全归最终模型波动；下一批先公共复现并保护合法附着注解/实际binding，不误改Rust解析器。B1651b旧Gradle XML污染与B1662 Meson原生报告语义仍P1；本机无对应工具链，尚未安装或签原生验收；B1561能力感知恢复另续，不将可观测性修复冒称全runner来源闭环。
 本轮新增§123.1759–1763：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束并以`2a3752bf9`推送审计：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。后续B1659通用runtime-work JSON教学=`f6ed96720`、B1660累计字段误名=`22cc8ad54`均独立提交推送；两批公开回归/count3/race/冷审/冻结86包全仓及最终make全部通过。保持模型已选receipt/正文及原计算，零新硬门；这两批尚未新开live，不能倒签r1058。其它高优先未闭债见§1761。
@@ -57389,6 +57390,17 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1771 用户授权：延长模型等待默认值（2026-09-11）
+
+1. 用户先批准本地配置，随后明确要求修改代码默认值。`providers.yaml::llm.default`仅新增`request_timeout_seconds=600`、`stream_first_byte_timeout_seconds=600`、`stream_stall_timeout_seconds=300`，原模型/凭据/路由不改。实际YAML解码及ResolveProvider检查默认七阶段和已声明多模态阶段均继承600/600/300；旧HTTP参数继承测试通过。该文件在.gitignore内，含本地凭据，不纳入提交。
+2. factory的代码默认非流HTTP由240→600s、首响应180→600s、流静默120→300s。adapter duration默认值直接从同一seconds常量派生，避免两处手抄漂移；未改任何计时/取消算法。显式provider或agent覆盖优先级不变，stream client仍无累计时长限制；持续心跳/推理/工具/正文/partial字节不会因4ms、旧4m或新10m尚无最终答案而降级。
+3. 首响应默认值与旧推理模型软告警的180s阈值拆开：只延长未配置时的等待偏好，不把原来合法的显式180..599s配置新判为风险。该提醒仍纯advisory，不修改配置、不拒模型或改变答案。analyzer terminal180s、REPL/CLI非流分类10/120s、reflector等独立预算、write整轮1800s及eval整例1200s均不改；取消/显式deadline/真实静默仍有效。
+4. 公共`config.ResolveProvider→NewFromConfig→adapter/http client`新针先红：`20260911-timeout-defaults-red.log`（llm0.633s）确认旧4m/3m/2m，显式短覆盖原先绿。实现后覆盖新默认、显式37/19/11和900/900/450、stream=false、直接构造器watchdog fallback、HTTP响应头等待=首响应设置、streamHTTPClient.Timeout=0。原默认180/静默≤120针按本次明确授权迁移为600/300，并保旧活跃流及caller正负针；不修改缩时夹具或加真十分钟等待。
+5. 完整`internal/llm`21.875s、`internal/config`0.685s通过（`20260911-timeout-defaults-full-llm-config.log`）；专项race count3为llm53.248s/agent4.904s/repl11.536s通过（`20260911-timeout-defaults-race.log`），覆盖新默认、fallback、真实SSE活跃/首字节/中途静默、partial/keepalive、caller取消与更短期限。独立冷审无阻断，SDK26.5 `make`通过（`20260911-timeout-defaults-build.log`）；这里不是全仓86包新验收，也不是新live。
+6. 样例中英、user guide Markdown/HTML同步新值；HTML旧40s也在相同timeout片段纠正。类型及analyzer独立预算注释同步，历史审计收据不扫改。运行中的adapter不热换配置；重启/新启动后采用新配置，新构建也为未设置字段的部署提供新默认。主干代码随本提交交付，B1575执行证明/B1626成员窗仍在§1770队列，本小批不销账。
+
+状态：`timeout-defaults=user-authorized/600-600-300/config+code+docs/entry-red-green/full-llm-config+race3+build+cold-pass`；`active-stream-total-cap=none`；`caller/independent-budgets=unchanged`；`local-provider-credentials=not-committed`；`new-live-eval=none`。
 
 ### §123.1770 r1060后优先批次：执行证明粒度与请求成员窗（2026-09-11）
 

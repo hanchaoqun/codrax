@@ -10,7 +10,7 @@ import (
 
 // §29.174 RUN2AUDIT-1 F5 件2: startup soft warning when the configured
 // stream first-byte ceiling sits below the reasoning-model safety floor
-// (the §29.92.1 180s code default) AND the routed model name matches a
+// (the §29.92.1 180s advisory floor) AND the routed model name matches a
 // known reasoning family. The runnable_2.txt customer session ran
 // MiniMax-M2.7 with a configured 40s cap and spent the whole run
 // rendering "已 1m0s / 首字节上限 40s" heartbeats — the request only
@@ -23,6 +23,11 @@ import (
 // Nothing is blocked, no value is rewritten, and operators who
 // deliberately run a short cap keep exactly the behavior they
 // configured.
+
+// The user-selected default wait may change independently of the established
+// advisory threshold. Raising defaults must not classify existing explicit
+// 180..599s choices as newly unsafe or rewrite their effective timeout.
+const reasoningStreamFirstByteSafetyFloor = 180 * time.Second
 
 // reasoningFamilyModelMarkers is the case-insensitive substring roster
 // for model families known to hold first output through a long hidden
@@ -55,11 +60,10 @@ func reasoningFamilyModelName(model string) bool {
 // firstByteCapBelowReasoningFloor reports whether the resolved
 // first-byte ceiling deserves the reasoning-floor advisory: a positive
 // configured cap strictly below the 180s safety floor, routed at a
-// reasoning-family model. A cap left at (or raised above) the default
-// never fires — ResolveDurationSeconds returns the 180s floor itself
-// when the knob is absent.
+// reasoning-family model. This floor does not track the operator's current
+// preferred default (600s); an explicit 180s cap retains its old advisory status.
 func firstByteCapBelowReasoningFloor(model string, cap time.Duration) bool {
-	return cap > 0 && cap < defaultStreamFirstByteTimeout && reasoningFamilyModelName(model)
+	return cap > 0 && cap < reasoningStreamFirstByteSafetyFloor && reasoningFamilyModelName(model)
 }
 
 // firstByteFloorWarnOnce dedupes the advisory per (model, cap) pair —
@@ -76,5 +80,5 @@ func warnFirstByteCapBelowReasoningFloor(model string, cap time.Duration) {
 		return
 	}
 	logging.Warning("[llm] providers.yaml stream_first_byte_timeout_seconds=%d is below the reasoning-model safety floor (%ds) while model %q matches a reasoning family: deep-thinking gateways may hold the first byte past this static cap and survive only on keep-alive liveness resets — consider raising it to >=%d",
-		int(cap.Seconds()), defaultStreamFirstByteTimeoutSeconds, strings.TrimSpace(model), defaultStreamFirstByteTimeoutSeconds)
+		int(cap.Seconds()), int(reasoningStreamFirstByteSafetyFloor.Seconds()), strings.TrimSpace(model), int(reasoningStreamFirstByteSafetyFloor.Seconds()))
 }

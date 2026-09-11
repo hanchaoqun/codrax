@@ -990,15 +990,11 @@ func TestStreamStallTimeout_SaneDefaults(t *testing.T) {
 	if defaultStreamStallTimeout < 10*time.Second {
 		t.Errorf("defaultStreamStallTimeout=%v is too aggressive; thinking-model inter-chunk pauses can hit 5-10s, would false-positive", defaultStreamStallTimeout)
 	}
-	// Upper bound widened to 120s in 2026-05-18: deep-thinking models
-	// (DeepSeek-R1 / o1-style) routinely pause 60s+ between
-	// thinking blocks. The previous 60s ceiling fired the watchdog
-	// mid-stream on legitimate slow upstreams. Outer http timeout is
-	// owned by RequestTimeout (default 240s), and the stream client
-	// has NO outer timeout, so the upper bound is a sanity guard
-	// rather than a coupling to the http path.
-	if defaultStreamStallTimeout > 120*time.Second {
-		t.Errorf("defaultStreamStallTimeout=%v is too lax; should be ≤120s to keep the upper bound disciplined", defaultStreamStallTimeout)
+	// User-authorized 2026-09-11: permit five minutes of true byte silence.
+	// This is not an active-stream age cap; an explicit provider override
+	// remains independent of this code-default pin.
+	if defaultStreamStallTimeout != 5*time.Minute {
+		t.Errorf("defaultStreamStallTimeout=%v, want user-selected 5m", defaultStreamStallTimeout)
 	}
 	if streamStallTickInterval >= defaultStreamStallTimeout {
 		t.Errorf("tick interval %v must be < stall timeout %v so detection has resolution", streamStallTickInterval, defaultStreamStallTimeout)

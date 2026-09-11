@@ -139,13 +139,12 @@ type AnalysisLimits struct {
 	// stream first-byte watchdog can help — the request dies as "context
 	// deadline exceeded" while the model is still legitimately thinking
 	// (customer witness 2026-07-15, MiniMax-M2.7: heartbeat at 30s, dead
-	// at 45s, every retry identical). 180 aligns this ceiling with the
-	// reasoning-model-safe stream first-byte default (see
-	// defaultStreamFirstByteTimeout in internal/llm) so the two liveness
-	// guards agree on how long "still thinking" may last; deployments
-	// that want the old fail-fast behaviour for non-reasoning models
-	// tune codrax.yaml :: analysis_terminal_emit_only_timeout_seconds
-	// back down.
+	// at 45s, every retry identical). At that time, 180 aligned this
+	// ceiling with the stream first-byte default. It now remains an
+	// independent non-streaming analyzer budget: the provider defaults
+	// may increase without changing it, and active streams bypass it.
+	// Operators tune codrax.yaml :: analysis_terminal_emit_only_timeout_seconds
+	// independently when needed.
 	TerminalEmitOnlyRequestTimeoutSeconds int
 
 	// WarnBelowEntityHitRatio is the same soft floor for

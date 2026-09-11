@@ -80,8 +80,8 @@ type OpenAIAdapter struct {
 
 	// streamStallTimeout is the SSE no-bytes ceiling the watchdog
 	// uses to abort hung upstream streams. Resolved from
-	// codrax.yaml :: llm_stream_stall_timeout_seconds; zero falls
-	// through to defaultStreamStallTimeout (120s).
+	// providers.yaml :: stream_stall_timeout_seconds; zero falls
+	// through to defaultStreamStallTimeout (300s).
 	streamStallTimeout time.Duration
 
 	// streamFirstByteTimeout is the no-upstream-bytes ceiling the
@@ -96,7 +96,7 @@ type OpenAIAdapter struct {
 	// class. Any received byte (including SSE keep-alive comments)
 	// resets this clock; only true byte-silence trips it.
 	// Resolved from providers.yaml :: stream_first_byte_timeout_seconds;
-	// zero falls through to defaultStreamFirstByteTimeout (180s).
+	// zero falls through to defaultStreamFirstByteTimeout (600s).
 	streamFirstByteTimeout time.Duration
 
 	stream bool
@@ -166,14 +166,13 @@ type AdapterOptions struct {
 	// StreamStallTimeout is how long the SSE scanner may go without
 	// receiving a single byte before the watchdog aborts the request.
 	// Zero falls through to the package default
-	// defaultStreamStallTimeout (120s). Surfaces in codrax.yaml as
-	// llm_stream_stall_timeout_seconds; cmd/root.go threads the
-	// resolved value here.
+	// defaultStreamStallTimeout (300s). The provider factory resolves
+	// providers.yaml :: stream_stall_timeout_seconds here.
 	StreamStallTimeout time.Duration
 
 	// StreamFirstByteTimeout is the no-upstream-bytes ceiling that
 	// applies BEFORE the first usable assistant progress chunk arrives.
-	// Zero falls through to defaultStreamFirstByteTimeout (180s).
+	// Zero falls through to defaultStreamFirstByteTimeout (600s).
 	// Distinct from StreamStallTimeout — see field doc on OpenAIAdapter.
 	StreamFirstByteTimeout time.Duration
 }
@@ -801,12 +800,10 @@ func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byt
 				return
 			case <-ticker.C:
 				idle := time.Since(time.Unix(0, lastReadNano.Load()))
-				// Two-threshold gate: pre-firstByte uses the SHORTER
-				// firstByteTimeout (typical 40s); post-firstByte
-				// switches to the LONGER stallTimeout (typical 120s).
-				// Keeps the dead-on-arrival "provider never speaks"
-				// case failing fast without compromising thinking-
-				// model mid-stream pauses.
+				// Before usable progress, allow the independently configured
+				// first-response silence; afterwards use mid-stream silence.
+				// Heartbeat bytes refresh either clock. Neither measures
+				// total request age or time without a visible final answer.
 				if !firstByteReceived.Load() {
 					if idle > firstByteTimeout {
 						logging.Warning("[llm/stream] no usable first SSE data for %v (firstByteTimeout=%v); aborting", idle, firstByteTimeout)
@@ -1016,9 +1013,8 @@ func isResponseHeaderTimeout(err error) bool {
 // supply a value and providers.yaml didn't tune the knob. Thinking
 // models pause for several seconds between content chunks, deep-
 // reasoning models routinely pause 60+ seconds between thinking
-// blocks, so anything below ~60 s false-positives on legitimate slow
-// upstreams. 120 s is the conservative middle ground; operators tune
-// per-provider via providers.yaml :: stream_stall_timeout_seconds.
+// blocks. The user-selected default is 300s (2026-09-11); operators
+// may tune per-provider via providers.yaml :: stream_stall_timeout_seconds.
 //
 // streamStallTickInterval is how often the watchdog goroutine polls
 // the idle counter. 5 s gives sub-default-cap reaction time without
@@ -1039,10 +1035,11 @@ func isResponseHeaderTimeout(err error) bool {
 // old fail-fast behaviour for non-reasoning models tune the knob down
 // per-provider. Keep-alive bytes now also reset this watchdog (see
 // parseSSEStreamTracked), so 180s measures true byte-silence, not
-// "no content yet".
+// "no content yet". On 2026-09-11 the user raised this default to
+// 600s; the original 180s advisory floor remains independent.
 const (
-	defaultStreamStallTimeout     = 120 * time.Second
-	defaultStreamFirstByteTimeout = 180 * time.Second
+	defaultStreamStallTimeout     = time.Duration(defaultStreamStallTimeoutSeconds) * time.Second
+	defaultStreamFirstByteTimeout = time.Duration(defaultStreamFirstByteTimeoutSeconds) * time.Second
 	streamStallTickInterval       = 5 * time.Second
 	// streamWatchdogMinTickInterval is the floor on the watchdog's
 	// poll interval when firstByteTimeout / 4 would otherwise drop

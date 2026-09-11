@@ -248,21 +248,19 @@ llm:
     #                          Used only if non-zero AND max_output_tokens
     #                          is zero.
     #   request_timeout_seconds:        non-streaming HTTP timeout.
-    #                                   Code default 240.
+    #                                   Code default 600.
     #   retry_max_attempts:             transient 429 / 5xx retry cap.
     #                                   Code default 6.
     #   stream_stall_timeout_seconds:   SSE no-bytes ceiling AFTER the
     #                                   first chunk (mid-stream pauses).
-    #                                   Default 120. Deep-thinking models
-    #                                   routinely pause 60+s between
-    #                                   thinking blocks — keep 90-120s on
-    #                                   those, lower (15-30s) on fast
-    #                                   small models.
+    #                                   Default 300. Tune down explicitly
+    #                                   when faster failure on byte silence
+    #                                   is preferred.
     #   stream_first_byte_timeout_seconds: ceiling that applies BEFORE the
     #                                   first received byte — catches "request
     #                                   accepted, server never speaks"
     #                                   (provider deadlock, middlebox,
-    #                                   model cold-start). Default 180:
+    #                                   model cold-start). Default 600:
     #                                   reasoning models behind gateways
     #                                   that don't stream reasoning hold
     #                                   ALL output until thinking ends.
@@ -277,15 +275,14 @@ llm:
     #                          大 emit 调用的流式截断)。
     #   max_output_fraction:   替代写法:比例 × context_window。仅当它非零且
     #                          max_output_tokens 为零时生效。
-    #   request_timeout_seconds:        非流式 HTTP 超时。代码默认 240。
+    #   request_timeout_seconds:        非流式 HTTP 超时。代码默认 600。
     #   retry_max_attempts:             429 / 5xx 瞬时重试上限。代码默认 6。
     #   stream_stall_timeout_seconds:   首个分片到达后的 SSE 无字节上限(应对
-    #                                   流中途停顿)。默认 120。深度思考模型
-    #                                   常在思考块之间停顿 60 秒以上 —— 这类
-    #                                   保持 90-120 秒,快速小模型可降到 15-30 秒。
+    #                                   流中途停顿)。默认 300。需要更快判定
+    #                                   字节静默时,可显式调低。
     #   stream_first_byte_timeout_seconds: 首个字节之前的上限 —— 捕捉
     #                                   "请求被接受、服务端始终不说话"(provider
-    #                                   死锁、中间盒干扰、模型冷启动卡住)。默认 180:
+    #                                   死锁、中间盒干扰、模型冷启动卡住)。默认 600:
     #                                   推理模型网关若不流式吐 reasoning,会把全部
     #                                   输出憋到思考结束;普通对话模型可调低
     #                                   (15-40 秒)求快速失败。
@@ -293,10 +290,16 @@ llm:
     # context_window: 200000
     # max_output_tokens: 0
     # max_output_fraction: 0.5
-    # request_timeout_seconds: 240
+    # EN  An active SSE stream has no 600s total deadline: content,
+    #     reasoning, tool-call and heartbeat bytes preserve liveness.
+    #     Explicit caller deadlines/cancellation and outer run budgets remain.
+    # 中文 活跃 SSE 流没有累计 600 秒上限;正文、推理、工具调用和心跳字节
+    #      都维持活性。显式调用者期限/取消及外层运行预算仍然有效。
+    #
+    # request_timeout_seconds: 600
     # retry_max_attempts: 6
-    # stream_stall_timeout_seconds: 120
-    # stream_first_byte_timeout_seconds: 180
+    # stream_stall_timeout_seconds: 300
+    # stream_first_byte_timeout_seconds: 600
 
   # --- Per-agent overrides  ·  按 agent 覆盖 -------------------------------
   # EN  Valid agent keys: analyzer, explorer, extractor, finalizer,

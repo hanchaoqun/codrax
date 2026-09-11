@@ -28,13 +28,14 @@ import (
 // (STREAM-WAIT §29.92) — reasoning models behind gateways that do not
 // stream reasoning deliver their first byte only after the whole
 // thinking phase, minutes on large prompts; 40s killed every live
-// request. Must stay equal to defaultStreamFirstByteTimeout in
-// openai.go (seconds form of the same default; pinned by test).
+// request. On 2026-09-11 the user raised first-response / non-streaming
+// waits to 600s and mid-stream silence to 300s. The duration defaults in
+// openai.go derive from these values; none is a streaming total-age cap.
 const (
-	defaultRequestTimeoutSeconds         = 240
+	defaultRequestTimeoutSeconds         = 600
 	defaultRetryMaxAttempts              = 6
-	defaultStreamStallTimeoutSeconds     = 120
-	defaultStreamFirstByteTimeoutSeconds = 180
+	defaultStreamStallTimeoutSeconds     = 300
+	defaultStreamFirstByteTimeoutSeconds = 600
 )
 
 // NewFromConfig creates an Adapter from a resolved provider config.

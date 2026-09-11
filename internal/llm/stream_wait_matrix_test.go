@@ -5,7 +5,7 @@ package llm
 // network.
 //
 //	形A "server never speaks": first-byte watchdog defaults sized for
-//	     reasoning models (180s) + keep-alive bytes count as liveness
+//	     reasoning models (now 600s) + keep-alive bytes count as liveness
 //	     (pinned in stream_first_byte_test.go) + zero extra backoff
 //	     before the retry (pinned in openai_test.go).
 //	形B "server refuses": empty-stream errors carry provider evidence
@@ -27,16 +27,15 @@ import (
 // a real credential.
 const testAPIKey = "sk-secret-test-key-123456"
 
-// TestStreamFirstByteDefaults_ReasoningModelSafe pins the §29.92
-// default raise 40s → 180s in BOTH homes (duration form in openai.go,
-// seconds form in factory.go) and their equality — the two constants
-// are the same default expressed twice and must never drift.
+// TestStreamFirstByteDefaults_ReasoningModelSafe pins the user-authorized
+// 2026-09-11 raise 180s → 600s, following §29.92's earlier 40s → 180s.
+// The adapter duration derives from the factory seconds, never a second value.
 func TestStreamFirstByteDefaults_ReasoningModelSafe(t *testing.T) {
-	if defaultStreamFirstByteTimeout != 180*time.Second {
-		t.Fatalf("defaultStreamFirstByteTimeout = %v, want 180s (§29.92 reasoning-model-safe default)", defaultStreamFirstByteTimeout)
+	if defaultStreamFirstByteTimeout != 600*time.Second {
+		t.Fatalf("defaultStreamFirstByteTimeout = %v, want user-selected 600s", defaultStreamFirstByteTimeout)
 	}
-	if defaultStreamFirstByteTimeoutSeconds != 180 {
-		t.Fatalf("defaultStreamFirstByteTimeoutSeconds = %d, want 180", defaultStreamFirstByteTimeoutSeconds)
+	if defaultStreamFirstByteTimeoutSeconds != 600 {
+		t.Fatalf("defaultStreamFirstByteTimeoutSeconds = %d, want 600", defaultStreamFirstByteTimeoutSeconds)
 	}
 	if time.Duration(defaultStreamFirstByteTimeoutSeconds)*time.Second != defaultStreamFirstByteTimeout {
 		t.Fatalf("factory seconds default (%d) and adapter duration default (%v) drifted apart",
