@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮新增§123.1759–1763：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束并以`2a3752bf9`推送审计：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。后续B1659通用runtime-work JSON教学和B1660累计字段误名已完成公开回归/count3/race/冷审及冻结86包全仓；本提交交付B1659，B1660为本地已验证的独立下一提交。保持模型已选receipt/正文及原计算，零新硬门，尚未新开live。其它高优先未闭债见§1761。
+本轮新增§123.1759–1763：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束并以`2a3752bf9`推送审计：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。后续B1659通用runtime-work JSON教学以`f6ed96720`独立提交，本提交交付B1660累计字段误名修复；两批已完成公开回归/count3/race/冷审及冻结86包全仓。保持模型已选receipt/正文及原计算，零新硬门，尚未新开live。其它高优先未闭债见§1761。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
 B1656及r1057审计已推 `369855605`；后置全仓首轮遇历史同名2秒超时针失败，保留原红并只加失败诊断，未改断言/超时/生产。相同 `go test ./...` 最终复验exit0、86包通过，见§1758；不据单跑/复跑绿宣称该旧针可靠性根因已解决。
 前轮 §123.1732–1751 保留历史收据：B54/B1652/B1651a/B1653已推，r1056 H1人工错误与读题超时仍是真实原始结果，不因本轮修复倒改。Gradle当前执行来源P1、Meson/Hvigor/历史JSON仍开放并优先于B1561新能力；本轮非Trace不代替显式窗/因果投影生产验收。
@@ -57395,9 +57395,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 3. 先真实BuildAgentContext→BuildPromptContext公开RED，再改这一显示字段与对应旧错误词面针；任意数值/状态/链及邻近/多查询、缺失与原同值silent、来源不变必须覆盖。只对累计字段的误名做负针，不在全prompt禁合法raw occupancy用语。
 
 4. 有效公共RED `20260911-b1660-public-red-valid.log`（context0.835s）只缺新的正确口径名称，缺失/同值及独立running旧行为先已绿。生产仅替换累计值的附加词面为 `cumulative impact Xms (not a substitute for state occupancy)` 并校正注释；一项旧错误词面针随之迁移，数值/排序/查询域/上限未动。新公共矩阵覆盖4种state×链上/邻近两通道且每格两个独立query，source JSON不变；另覆盖缺失/同值、独立真实running事实保留和8+4上限，不借独立running填累计字段。
-5. 新旧board/domain/requested-window/finite-scope/direction联合count3通过context0.818s（`20260911-b1660-final-count3.log`），同族race count3通过1.816s（`20260911-b1660-final-race-count3.log`）。独立只读冷审通过。新fixture为公开上下文发布路径，不是重新采集的scheduler实测或LLM回放；与B1659同时冻结后全仓 `20260911-r1058-post-teaching-full.log` exit0，86包通过，完整收据见§1762。本批代码本地已验证，独立提交前不称已进入main。
+5. 新旧board/domain/requested-window/finite-scope/direction联合count3通过context0.818s（`20260911-b1660-final-count3.log`），同族race count3通过1.816s（`20260911-b1660-final-race-count3.log`）。独立只读冷审通过。新fixture为公开上下文发布路径，不是重新采集的scheduler实测或LLM回放；与B1659同时冻结后全仓 `20260911-r1058-post-teaching-full.log` exit0，86包通过，完整收据见§1762。本批独立提交，附r1058人工审计binder真实入模位置补证，不修改原机器结果或模型答案。
 
-状态：`B1660=local-implemented/not-yet-committed/P2/display-only/public-red-green/count3+race+cold+full86-pass`；`effective-values/rank/Trace-root-scope/actual-occupancy-axis=unchanged`。
+状态：`B1660=implemented/P2/display-only/public-red-green/count3+race+cold+full86-pass/build-pending/no-new-live`；`effective-values/rank/Trace-root-scope/actual-occupancy-axis=unchanged`。
 
 ### §123.1762 B1659：运行时工作关系的结构教学同源化（2026-09-11）
 

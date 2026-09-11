@@ -31,7 +31,7 @@
 4. 模型解释错误独立于旧oracle：MD21折算公式不成立，把核能力与频率基准简化成仅最高频；MD27的0.476实际来自binder:496_9，keva-1没有已发布的原生ideal字段；MD37实测wall-clock列放折算1.248；MD29自身running缺口4.958/7.305约67.9%，不能说“几乎全部”。MD34/39/40把聚合IO称单请求/折算并暴露`fold=sum_disjoint`内部值。MD48又把keva线程io_wait席的sync_buffer_read_wi借给.ugc.aweme.lite的15.304ms IO家族；后者原row无blocked_reason_caller，不是同线程另席尚可混用。log2025/2033–39/2266及3004/3009已明确主体与口径隔离，typed发布未先混配，不靠系统改写答案解决。
 5. 首稿runtime_work_relation选择不符合当前typed选择域，产生1次精确拒绝；log3233局部patch选择原生二元组，3236兼容迁移误放的block_field_edits_v1到block_receipt_edits_v1后accepted。随后requested_dimensions展示advisory再触发一次同值patch，3297同样恢复后接受；停止原因是成功后重复调用防空转，不是活跃流超时或模型回答被删除。不能用模型thinking中的双前缀引文证明实际schema自冲突；实际单前缀已成功。
 6. **B1659教学可改善点，不是互斥合同。** log3131原summary只有observed_artifact_fact，缺runtime_work_relation facet；首patch只修receipt，没有补此归属。evaluator当前覆盖谓词要求双facet/external claim/bound receipt，所以展示提示有据；但16930的运行时工作关系提示只泛称facet/claim，未像邻接关系路径给精确JSON，还重复教模型选择已有效的receipt。本批先保留人工失败，下一小批将初始与retry教学同源为精确结构形，并明确已有绑定保持、只补缺的归属，不改schema/接受谓词，不自动选block/工作/结论，不按本trace内容写规则。
-7. 模型前端把一般“卡顿”自行选成frame_causality_requested及runtime_work_relation_requested（log577），而原教学338已区分generic stutter与明确帧问题；本轮不从原请求关键词反向改分类，不认作后端schema冲突。主短榜log2007–2016展示8/13并在2017指向其他测量，最终MD886也披露不完整；对“各线程running”仍漏binder等小项，需与完整query/其他入模人口分开审，不能说短榜本身已全给或报告已穷尽。旧raw occupancy/供给子集显示域的已记债保留，不借本批局部正确签双轴所有消费面闭环。
+7. 模型前端把一般“卡顿”自行选成frame_causality_requested及runtime_work_relation_requested（log577），而原教学338已区分generic stutter与明确帧问题；本轮不从原请求关键词反向改分类，不认作后端schema冲突。主短榜log2007–2016展示8/13并在2017指向其他测量，最终MD886也披露不完整。进一步核实binder并非仅存在可查blob：explorer completion1414、finalizer测量2640及精确事实卡2953/2960都给running1.409/缺口0.933/ideal0.476，所以“各线程running”遗漏binder是模型交付缺项，不能归短榜cap。旧raw/gated更大显示域债保留；本轮另以B1660仅修累计字段误名，不借此签所有供给子集原量已闭环。
 
 ## 流式保护、边界与后续
 

@@ -34,7 +34,7 @@ func TestTraceRootCauseBoardDomainsSeparateSameWindowParametersWithoutChoosingWi
 	for _, want := range []string{
 		"separate ordinal domains", "no single cross-board ranking", "params=`default`", "params=`depth48`",
 		"capture=`/capture/customer.systrace`", "target=`ui-100`", "query_window=`1.000000..2.000000`",
-		"49.623ms (effective attribution) · raw occupancy 55.001ms", "49.638ms (effective attribution)",
+		"49.623ms (effective attribution) · cumulative impact 55.001ms (not a substitute for state occupancy)", "49.638ms (effective attribution)",
 		"0.033ms (effective attribution)", "0.018ms (effective attribution)", "· 修向=频率与热治理 (frequency & thermal)",
 		"#1 adjacent seat — adjacent-candidate", "a distinct ordinal space",
 	} {
