@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮新增§123.1759：B1658公开发布/真实入模入口先复现后修，区分源码存在性与流程成员资格；不会替模型换成系统选定的阶段清单。B1657也已获得公共RED，独立施工，重点是精确来源跨代保留且新清理必须可选。新一轮live尚未开始，后续冻结后按两路各一次执行；阶段性的定向通过不冒充全仓或生产验收。
+本轮新增§123.1759–1760：B1658公开发布/真实入模入口先复现后修并推送 `fe1dccfac`，区分源码存在性与流程成员资格，不替模型换成系统选定的阶段清单。B1657已补精确来源跨代保留与可选清理，实际提示/schema/双Mutable接线一并修正，时序图及流程图公开回归、count3/race/独立冷审和冻结86包全仓均通过。新一轮live尚未开始，后续H9+隔离仓颉两路各一次；H8/H11旧断言债开跑前识别并避开，不改引擎迎合旧测试。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
 B1656及r1057审计已推 `369855605`；后置全仓首轮遇历史同名2秒超时针失败，保留原红并只加失败诊断，未改断言/超时/生产。相同 `go test ./...` 最终复验exit0、86包通过，见§1758；不据单跑/复跑绿宣称该旧针可靠性根因已解决。
 前轮 §123.1732–1751 保留历史收据：B54/B1652/B1651a/B1653已推，r1056 H1人工错误与读题超时仍是真实原始结果，不因本轮修复倒改。Gradle当前执行来源P1、Meson/Hvigor/历史JSON仍开放并优先于B1561新能力；本轮非Trace不代替显式窗/因果投影生产验收。
@@ -57388,6 +57388,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1760 B1657：已选删边后的元数据依赖与可选节点清理来源（2026-09-11）
+
+1. 原公共复现 `20260911-b1657-public-red-final.log`（tool1.174s）：真实ReadFile→EmitEvidence保留独立A→B；初始公开emit拒X→Y后，模型选中可见边remove。body确已删、两条无可见边的陈腐metadata仍留，原X/Y清理来源却随lease清空。无源旧孤立Z从未获得授权，metadata单独清理可直接接受并保持所有声明；这一正控必须保留，不能为了清图另造强制重试。
+2. 最小实现沿既有编辑后依赖闭包扩展，不扫描全图孤立节点。仅实际已选本代remove能力指向的边及其相关metadata复用普通typed mismatch检测；原候选拥有精确删除来源、新图已无可见incident且全部metadata发生都可定位时，才可保留私有receipt。receipt绑定完整图体/anchors及全部本代failure refs，partial清理后必须重新验证、重新绑定；角色/标签/顺序/基图或ref变化不得复用。旧reply依赖及旧必须处置名单维持原策略，Trace家族排除不变。
+3. 新receipt是系统内存来源，不接受模型JSON反造；只读输出 `decision_optional` 告知模型可省略。清metadata时模型可以同事务自选remove/retain，也可以不选，后者必须直接接受且不系统删除任何声明。保护参与者、仍连通节点、非名单节点、原始模型正文/已有正确关系继续守原边界。系统不选动作、不改向/补关系、不编业务标签。
+4. 独立冷审发现施工必须连同三个消费挂点：JSON读回再发不能丢只读optional显示；ctx/primary分离时要从实际匹配基图的已安装来源重验，而非固定取旧载体；动态工具schema必须真的发布新可选处置分支，不能仅Execute可用而模型不可见。各处只恢复已验证的精确能力，旧可见边阶段仍不要求模型提前预测孤立结果。实际installer/schema和异构flowchart公共测试补齐后才封版。
+
+5. 三挂点实际RED `20260911-b1657-dispatch-red.log`（agent1.198s）先固定再修：真实delta提示经JSON重读丢optional、当前Parameters无对应分支、ctx新/primary旧来源丢失。现在显示DTO只保留只读提示、不反造receipt；两个已安装来源分别对相同base/ref重验并去重，动作/标签冲突不采用first-wins；schema只开放私有receipt有效的精确optional子集，不开放旧预测型名单及无源Z。真实installer→提示→Parameters→Patch公共路径保持13条已有grounded调用、摘要和模型未选节点。
+6. 异构flowchart同族omit/remove/retain公开回归通过tool1.205s（`20260911-b1657-flow-first-green.log`），独立真实A→B与原引用保留；初稿空citation触发既有源码锚补充，是测试前提错误，不归本修复产品缺陷。补正原合法引用后仍钉图/摘要/原引用字节一致，未改production消除该误断。types JSON伪造、十种base/ref变化、setter/getter/carry深拷贝及无原来源负控已覆盖。
+7. 终版新族/旧B1655重复发生/PostEdit reply/orphan mandatory/Required与OptionalRelationRetry/lease/真实EmitValidator census联合count3通过types0.980s、tool3.082s、agent2.338s（`20260911-b1657-final-count3.log`）；同selector race count3通过types2.283s、tool39.710s、agent15.766s（`20260911-b1657-final-race-count3.log`）。末次独立只读冷审无阻断，复核三个消费挂点以及participant ID参与指纹。生产及tests冻结后启动全仓 `20260911-r1058-frozen-full.log`，结果独立补记。原序列公开RED和三挂点RED保留，不以中间编译错误或误断fixture充数。
+
+8. **冻结封版收据。** 原参数 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./...` exit0，86有测试包通过，未变包部分缓存。`20260911-r1058-frozen-full.log`：tool344.206s、agent87.166s、types50.868s、orchestrator32.182s、tracequery117.234s、tracediag15.292s、hitraceconv163.185s。原2秒超时审计针本轮未失败，既有间歇性问题仍不销账。新增教学专项只读复核确认optional只读输出无需回写、旧每行必选仅限orphan-only、schema无新required字段；本批不增加模型JSON心智负担。
+
+状态：`B1657=implemented/public-red-green/actual-dispatch+schema+sequence+flow/count3+race+cold+full86-pass`；`B1658=pushed-fe1dccfac/full86-pass`；`build+live=pending`。本批不宣称所有图家族/所有语义关系问题已闭环，也不强迫模型删空节点。
+
 ### §123.1759 B1658：流程成员资格与源码位置分离，统一上下文及系统补表消费面（2026-09-11）
 
 基线 `main=origin/main@86e88c33e`，本轮fetch后无远程差异。r1057的系统补表超域见§1757，不将模型正文质量问题混算为本修复已解决。
@@ -57397,11 +57412,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 3. **后备路线不复活义务。** 无独立聚合成员资格的workflow枚举fallback保留grounded evidence entries，但以enrichment-only提供，无一行对应一项的强制成员义务；已有accepted explicit symbol slate保持。真实流程provider的精确主序列/子范围及precedence≠call/data-flow边界照旧，系统不把模型七项替换成自己的四项。教学明确“坐标可以支持其事实，但不自动证明当前流程成员”，不把已读源码统称模型推断，也不声称任意客户仓都存在Codrax专用provider。
 4. **首批边界。** 一般源码流程未携带typed workflow维度时，本批不靠关键词猜补该维度；混合多维度但成员事实未绑定具体维度时，也不靠label分派。带系统验证的库存/关系集合继续按原证明处理；Runtime/Trace/VCS/MCP origin、scalar/count/negative事实保持既有通道，既有runtime-only不发布源码补表的独立策略不变。本批不宣称解决所有工作流发现/证明问题。
 5. **初步收据。** types有效RED `20260911-b1658-types-red-valid.log`（0.978s）涵盖十种语言文件坐标两入口及fallback；第一次错误Go枚举常量造成的编译红不是产品RED。types终版新族/邻族count3通过4.109s（`20260911-b1658-types-final-count3.log`）。公开发布/入模终版、竞态、独立冷审和冻结全仓稍后补齐，不提前签绿。
-6. **下一批选择。** 现有243例（read215/apply25/plan3）按客户影响、最近覆盖、跨语言/跨来源和当前变更风险排序：P0真实H8显式10ms窗，检验链上资格、语义工作关系凭证与实际占时/可消量分离、投影及旁路；P1隔离仓颉库存正控，检验普通源码集合/包名不受流程成员收窄影响。r1057刚覆盖JS写，下一轮不再追同一读图样例；Gradle来源P1与其它原生proof债保留，不因缺本机运行环境伪造验证。两路各一次、1200s、原case/oracle不变，源码冻结后才启动。
+6. **下一批选择（开跑前校正）。** 现有243例（read215/apply25/plan3）按客户影响、最近覆盖、跨语言/跨来源和当前变更风险排序：P0真实H9显式233.190ms窗，检验链上running单基准折算、混合贡献构成、投影及旁路；P1隔离仓颉库存正控，检验普通源码集合/包名不受流程成员收窄影响。H9最近r1049（20260909-054517，machine PASS361s/human partial），仓颉最近r1042；r1057刚覆盖JS写，下一轮不再追同一读图样例。原拟H8在启动前撤回：r1031/§29.88已确认合法pre-wakeup语义工作0.285ms，而旧oracle仍期待仅关系凭证/不计影响，不改引擎迎合旧断言。H11也有B1622计数口径变更后旧“共47段”词面债，本批不选；两项仍应独立审校测试契约，不能据此宣称能力回归。Gradle来源P1与其它原生proof债保留，不因缺本机运行环境伪造验证。两路各一次、1200s、原case/oracle不变，源码冻结后才启动。
 
 7. **本批定向封版。** 公共新族及PrincipalMemberSetContract/CurrentRunStageLaneAuthority/B1620字段来源/普通库存邻族count3通过：agent1.558s、tool2.157s（`20260911-b1658-final-targeted-count3.log`）；新族race通过agent3.070s、tool2.773s（`20260911-b1658-final-targeted-race.log`）。独立origin兼容overlay只回退新workflow资格，runtime两臂仍遵守原不补源码表策略，tool1.066s；不是扩大runtime权限。独立只读冷审无阻断，确认事实/显示集合/逐行引用OR两侧及后备义务同源；没有为architecture的空policy扩生产。活跃SSE/分帧字节/keepalive/真实停滞/取消及明确截止的既有回归count3通过34.344s（`20260911-active-stream-count3.log`），不是单条真实连接持续4分钟的live见证。
 
-状态：`B1658=implemented/public-red-green/count3+race/cold-review-pass/pending-frozen-full-and-live`；`B1657=public-red/implementation-in-progress`；`model-answer/member-choice/citations=preserved`；`Trace/window/on-chain-root/two-axes/auto-supplement=unchanged`；`active-stream=no-fixed-4ms-or-old-4m-degrade`。
+状态：`B1658=pushed-fe1dccfac/public-red-green/count3+race+cold+full86-pass/live-pending`；`B1657=implemented/see-1760`；`model-answer/member-choice/citations=preserved`；`Trace/window/on-chain-root/two-axes/auto-supplement=unchanged`；`active-stream=no-fixed-4ms-or-old-4m-degrade`。
 
 ### §123.1758 B1656：修补阶段短摘要复用本代精确孤立清单（2026-09-10）
 

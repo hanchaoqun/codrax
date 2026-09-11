@@ -752,6 +752,9 @@ type AnswerDiagramOrphanCleanupCandidate struct {
 	VisibleLabel               string                                 `json:"visible_label,omitempty"`
 	AllowedActions             []AnswerDiagramOrphanDispositionAction `json:"allowed_actions"`
 	DispositionBaseFingerprint string                                 `json:"-"`
+	// MetadataDependency is system-only provenance for optional cleanup after
+	// the model removed a visible relation. JSON cannot create this authority.
+	MetadataDependency *AnswerDiagramOrphanMetadataDependency `json:"-"`
 }
 
 func (c AnswerDiagramOrphanCleanupCandidate) AllowsAction(action string) bool {
@@ -1811,6 +1814,7 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 			out.OptionalOrphanCleanups[i].AllowedActions = append(
 				[]AnswerDiagramOrphanDispositionAction(nil), candidate.AllowedActions...,
 			)
+			out.OptionalOrphanCleanups[i].MetadataDependency = cloneAnswerDiagramOrphanMetadataDependency(candidate.MetadataDependency)
 		}
 	}
 	if len(in.Blocks) > 0 {

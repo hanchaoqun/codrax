@@ -604,8 +604,25 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	// only the complete typed orphan roster. Visibility refs from the old graph
 	// are re-evaluated instead of being carried across generations.
 	if !lease.OrphanDispositionOnly && edgeOK && len(branches) > 0 && len(lease.OptionalOrphanCleanups) > 0 {
-		delete(properties, "diagram_participant_edits")
-		if edgeEdits != nil {
+		// New metadata-derived choices already have an exact installed source;
+		// unlike the old predictive body-removal roster they may be selected
+		// now, and omission never creates a mandatory disposition phase.
+		metadataLease := *lease
+		metadataLease.OptionalOrphanCleanups = nil
+		metadataLease.ParticipantVisibilityFailures = nil
+		for _, candidate := range lease.OptionalOrphanCleanups {
+			if types.AnswerDiagramOrphanMetadataDependencyMatchesBase(prev, candidate, lease) {
+				metadataLease.OptionalOrphanCleanups = append(metadataLease.OptionalOrphanCleanups, candidate)
+			}
+		}
+		if len(metadataLease.OptionalOrphanCleanups) > 0 {
+			if !narrowLocalDiagramParticipantEditSchema(properties, &metadataLease) {
+				return raw
+			}
+		} else {
+			delete(properties, "diagram_participant_edits")
+		}
+		if edgeEdits != nil && len(metadataLease.OptionalOrphanCleanups) == 0 {
 			description, _ := edgeEdits["description"].(string)
 			edgeEdits["description"] = description + " Submit only relation edits in this phase. If they isolate a producer-listed declaration, the exact unpublished merged graph becomes the next retry base and the following dispatch publishes the complete remove/retain roster; do not predict participant dispositions in this call."
 		}
@@ -3065,11 +3082,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					// orphan roster. Publish the dependency generation first and let
 					// the model choose its relation action. No relation is removed,
 					// restored, redirected, or relabelled here.
-					if dependencyLease := newAtomicDiagramPostEditDependencyLease(prev, staged, lease, view); dependencyLease != nil {
+					if dependencyLease := newAtomicDiagramPostEditDependencyLease(prev, staged, lease, view, p.DiagramEdgeEdits); dependencyLease != nil {
 						stageAnswerDocumentPatchGeneration(ctx.Mutable, staged, dependencyLease, &stagedByThisCall)
 						repair := answerDiagramRelationRepairScopeRepair(dependencyLease, nil)
 						repair.Fields = []string{"diagram_edge_edits"}
-						repair.Hint = "The exact model-authored relation edits were applied to an unpublished retry base. One or more surviving sequence replies lost their preceding structural invocation in that exact graph. The old edge refs are consumed. Use only the new failure_ref/action branches to choose how each dependent relation should be repaired; do not replay old relation or participant operations. The system chooses no edge, action, direction, label, layout, or conclusion."
+						repair.Hint = atomicDiagramPostEditDependencyHint()
 						return failEmitWithRepair(t.Name(), now, repair,
 							"diagram relation phase staged; %d dependent relation carrier(s) require an explicit model choice", len(dependencyLease.Failures))
 					}
@@ -3130,11 +3147,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// anchors only; Trace diagrams are excluded by their semantic family.
 		if len(p.DiagramEdgeEdits) > 0 {
 			if staged, _, applyErr := buildAnswerDocumentPatchBase(prev, patch); applyErr == nil && staged != nil {
-				if dependencyLease := newAtomicDiagramPostEditDependencyLease(prev, staged, lease, view); dependencyLease != nil {
+				if dependencyLease := newAtomicDiagramPostEditDependencyLease(prev, staged, lease, view, p.DiagramEdgeEdits); dependencyLease != nil {
 					stageAnswerDocumentPatchGeneration(ctx.Mutable, staged, dependencyLease, &stagedByThisCall)
 					repair := answerDiagramRelationRepairScopeRepair(dependencyLease, nil)
 					repair.Fields = []string{"diagram_edge_edits"}
-					repair.Hint = "The exact model-authored relation edits were applied to an unpublished retry base. One or more surviving sequence replies lost their preceding structural invocation in that exact graph. The old edge refs are consumed. Use only the new failure_ref/action branches to choose how each dependent relation should be repaired; do not replay old relation or participant operations. The system chooses no edge, action, direction, label, layout, or conclusion."
+					repair.Hint = atomicDiagramPostEditDependencyHint()
 					return failEmitWithRepair(t.Name(), now, repair,
 						"diagram relation phase staged; %d dependent relation carrier(s) require an explicit model choice", len(dependencyLease.Failures))
 				}

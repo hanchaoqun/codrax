@@ -18820,7 +18820,7 @@ type answerDocDiagramRelationRepairVisibleDelta struct {
 	Failures               []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
 	PreserveUnlistedEdges  bool                                         `json:"preserve_unlisted_edges"`
 	AllowedAdditions       []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
-	OptionalOrphanCleanups []types.AnswerDiagramOrphanCleanupCandidate  `json:"optional_orphan_cleanups,omitempty"`
+	OptionalOrphanCleanups []answerDocOrphanCleanupVisibleCandidate     `json:"optional_orphan_cleanups,omitempty"`
 }
 
 func answerDocDiagramRelationRepairBranchTeaching(delta answerDocDiagramRelationRepairDelta) string {
@@ -18980,7 +18980,7 @@ func parseAnswerDocDiagramRelationRepairDelta(result *types.ToolResult) (answerD
 	visibleRaw, err := json.Marshal(answerDocDiagramRelationRepairVisibleDelta{
 		Version: delta.Version, Failures: delta.Failures,
 		PreserveUnlistedEdges: true, AllowedAdditions: delta.AllowedAdditions,
-		OptionalOrphanCleanups: delta.OptionalOrphanCleanups,
+		OptionalOrphanCleanups: answerDocOrphanCleanupVisibleRows([]byte(raw)),
 	})
 	if err != nil {
 		return answerDocDiagramRelationRepairDelta{}, nil, false
@@ -19396,6 +19396,10 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 		view = types.BuildAnswerSemanticViewForAgentContext(ctx)
 	}
 	delta.OptionalOrphanCleanups = answerDocDiagramOptionalOrphanCleanupCandidates(base, lease, view)
+	// B1657: only the installed producer-owned receipt can preserve optional
+	// metadata cleanup across dispatch. The decoded delta alone grants nothing;
+	// both the exact metadata generation and all incident refs must recheck.
+	delta.OptionalOrphanCleanups = append(delta.OptionalOrphanCleanups, answerDocCarryMetadataOrphanSources(base, lease, ctx, primary)...)
 	lease.OptionalOrphanCleanups = append(
 		[]types.AnswerDiagramOrphanCleanupCandidate(nil), delta.OptionalOrphanCleanups...,
 	)

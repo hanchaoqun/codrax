@@ -203,8 +203,8 @@ func newAtomicDiagramOrphanDispositionLease(
 }
 
 // newAtomicDiagramPostEditDependencyLease closes relation semantics that are
-// defined by another relation in the same model-authored diagram. Today the
-// precise dependency is a sequence reply: an unanchored -->> carrier is a
+// defined by another relation in the same model-authored diagram. One precise
+// dependency is a sequence reply: an unanchored -->> carrier is a
 // structural reply only while one preceding, still-unpaired forward invocation
 // exists. Removing that invocation can therefore invalidate a reply without
 // changing the reply line itself.
@@ -216,10 +216,14 @@ func newAtomicDiagramOrphanDispositionLease(
 // carrier itself falls through to the ordinary full validator instead of being
 // guessed into this local transaction. The returned lease authors no repair:
 // it merely lets the model select an allowed action on the exact staged graph.
+// Selected body removals also feed the existing typed stale-metadata detector;
+// only their original candidate provenance can produce optional declaration
+// cleanup. Those new choices do not enter the mandatory disposition census.
 func newAtomicDiagramPostEditDependencyLease(
 	previous, staged *types.AnswerDocumentV2,
 	source *types.AnswerDiagramRelationRepairLease,
 	view *types.AnswerSemanticView,
+	selectedEdits ...[]emitAnswerDiagramEdgeEdit,
 ) *types.AnswerDiagramRelationRepairLease {
 	if previous == nil || staged == nil || (view != nil && view.Family == types.QFRootCauseTrace) {
 		return nil
@@ -289,6 +293,11 @@ func newAtomicDiagramPostEditDependencyLease(
 			})
 		}
 	}
+	var edits []emitAnswerDiagramEdgeEdit
+	if len(selectedEdits) > 0 {
+		edits = selectedEdits[0]
+	}
+	failures = append(failures, atomicDiagramPostEditMetadataDependencies(previous, staged, source, view, edits)...)
 	if len(failures) == 0 {
 		return nil
 	}
@@ -297,6 +306,7 @@ func newAtomicDiagramPostEditDependencyLease(
 		return nil
 	}
 	lease.OptionalOrphanCleanups = atomicDiagramCarryPostEditOrphanCandidates(staged, source, lease)
+	lease.OptionalOrphanCleanups = append(lease.OptionalOrphanCleanups, atomicDiagramCarryMetadataOrphanCandidates(previous, staged, source, lease, edits)...)
 	return lease
 }
 
@@ -360,6 +370,9 @@ func atomicDiagramCarryPostEditOrphanCandidates(
 	seen := make(map[string]bool)
 	var out []types.AnswerDiagramOrphanCleanupCandidate
 	for _, candidate := range source.OptionalOrphanCleanups {
+		if candidate.MetadataDependency != nil {
+			continue // Optional metadata provenance is carried by its own exact validator.
+		}
 		blockID := strings.TrimSpace(candidate.BlockID)
 		participantID := strings.TrimSpace(candidate.ParticipantID)
 		index, exists := indexes[blockID]
@@ -1058,7 +1071,11 @@ func applyOneModelAuthoredDiagramParticipantEdit(
 	if atomicDiagramParticipantProtected(protected, participantID, baseDecl.Label) {
 		return fmt.Errorf("participant is protected by the typed requested-participant slate or an unproven boundary")
 	}
-	if lease.OrphanDispositionOnly {
+	if candidate.MetadataDependency != nil {
+		if !types.AnswerDiagramOrphanMetadataDependencyMatchesBase(&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}}, candidate, lease) {
+			return fmt.Errorf("optional metadata cleanup does not match the current base and complete incident refs")
+		}
+	} else if lease.OrphanDispositionOnly {
 		if strings.TrimSpace(candidate.DispositionBaseFingerprint) == "" ||
 			candidate.DispositionBaseFingerprint != types.AnswerDiagramParticipantVisibilityFingerprint(base) {
 			return fmt.Errorf("orphan-only decision does not match the staged diagram generation")
@@ -1257,6 +1274,15 @@ func validateAtomicDiagramParticipantDispositionRoster(
 			})
 			continue
 		}
+		if candidate.MetadataDependency != nil && !types.AnswerDiagramOrphanMetadataDependencyMatchesBase(
+			&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}}, candidate, lease,
+		) {
+			roster.Unexpected = append(roster.Unexpected, atomicDiagramParticipantDispositionRosterRow{
+				BlockID: blockID, ParticipantID: participantID, Issue: "stale_metadata_cleanup_source",
+				Detail: "the optional cleanup source does not match this exact metadata generation and complete incident refs",
+			})
+			continue
+		}
 		// This is a conditional disposition over a live, signed candidate. If
 		// other selected edits leave it connected or protected, the operation
 		// is an intentional no-op rather than an invalid topology prediction.
@@ -1267,6 +1293,9 @@ func validateAtomicDiagramParticipantDispositionRoster(
 		return roster
 	}
 	for _, candidate := range lease.OptionalOrphanCleanups {
+		if candidate.MetadataDependency != nil {
+			continue // Newly retained metadata cleanup is optional, never a retry obligation.
+		}
 		blockID := strings.TrimSpace(candidate.BlockID)
 		participantID := strings.TrimSpace(candidate.ParticipantID)
 		base, baseOK := previous[blockID]
@@ -1297,6 +1326,9 @@ func atomicDiagramParticipantDispositionIsRequired(
 	protectedParticipants []string,
 	lease *types.AnswerDiagramRelationRepairLease,
 ) bool {
+	// Legacy name: the executor also uses this as the eligibility predicate for
+	// an explicitly selected operation. MetadataDependency candidates are skipped
+	// by the missing-decision census above, so true here creates no obligation.
 	if current.Diagram == nil || base.Diagram == nil {
 		return false
 	}
@@ -1306,6 +1338,9 @@ func atomicDiagramParticipantDispositionIsRequired(
 	}
 	if atomicDiagramParticipantHasIncidentCarrier(current, participantID) {
 		return false
+	}
+	if candidate.MetadataDependency != nil {
+		return types.AnswerDiagramOrphanMetadataDependencyMatchesBase(&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}}, candidate, lease)
 	}
 	if lease != nil && (lease.OrphanDispositionOnly || strings.TrimSpace(candidate.DispositionBaseFingerprint) != "") {
 		return strings.TrimSpace(candidate.DispositionBaseFingerprint) != "" &&
