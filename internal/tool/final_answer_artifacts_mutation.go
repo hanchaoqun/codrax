@@ -80,6 +80,84 @@ func traceRootCausePatchHasUniqueObjectKeys(raw json.RawMessage) bool {
 	return decoder.Decode(&extra) == io.EOF
 }
 
+// unwrapSingletonTraceRootCauseReport accepts only one native report object
+// inside one array. Both report fields must already exist; the ordinary binder
+// still validates the version and every selection. This helper does not decode
+// strings or repair misplaced fields; existing parameter string coercion may
+// already have occurred upstream. Never reconstruct model-owned report bytes.
+func unwrapSingletonTraceRootCauseReport(raw json.RawMessage) (json.RawMessage, bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return raw, false
+	}
+	var elements []json.RawMessage
+	if json.Unmarshal(trimmed, &elements) != nil || len(elements) != 1 {
+		return raw, false
+	}
+	report := elements[0]
+	if len(report) == 0 || report[0] != '{' || !traceRootCauseReportHasUniqueNestedKeys(report) {
+		return raw, false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(report, &fields) != nil {
+		return raw, false
+	}
+	if _, exists := fields["schema_version"]; !exists {
+		return raw, false
+	}
+	causes := bytes.TrimSpace(fields["root_causes"])
+	if len(causes) == 0 || causes[0] != '[' {
+		return raw, false
+	}
+	return report, true
+}
+
+// Reuse the existing exact object-key check at every nested object. This
+// inspects only the submitted report, not the already-decoded outer envelope.
+func traceRootCauseReportHasUniqueNestedKeys(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return false
+	}
+	switch raw[0] {
+	case '{':
+		if !traceRootCausePatchHasUniqueObjectKeys(raw) {
+			return false
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil {
+			return false
+		}
+		// encoding/json also matches struct fields case-insensitively. A new
+		// recovery must not choose between competing spellings of one field.
+		keys := make([]string, 0, len(fields))
+		for key, value := range fields {
+			for _, prior := range keys {
+				if strings.EqualFold(prior, key) {
+					return false
+				}
+			}
+			keys = append(keys, key)
+			if !traceRootCauseReportHasUniqueNestedKeys(value) {
+				return false
+			}
+		}
+	case '[':
+		var elements []json.RawMessage
+		if json.Unmarshal(raw, &elements) != nil {
+			return false
+		}
+		for _, element := range elements {
+			if !traceRootCauseReportHasUniqueNestedKeys(element) {
+				return false
+			}
+		}
+	default:
+		return json.Valid(raw)
+	}
+	return true
+}
+
 // normalizeMisplacedTraceRootCauseSchemaVersion repairs one unambiguous
 // structural carrier drift seen in production tool calls: the model authors
 // the ordered candidate selections inside trace_root_causes but places the
@@ -255,6 +333,9 @@ func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.Ra
 		// rejected for answer-structure reasons; the accepted re-emit/patch
 		// that omits the selector inherits it.
 		return ctx.Mutable.PendingTraceRootCauseReport(), nil, nil
+	}
+	if report, ok := unwrapSingletonTraceRootCauseReport(submitted); ok {
+		submitted = report
 	}
 	var selection types.TraceRootCauseReportV2
 	if err := json.Unmarshal(submitted, &selection); err != nil {

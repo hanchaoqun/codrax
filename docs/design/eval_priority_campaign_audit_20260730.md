@@ -57386,6 +57386,17 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1755 B1654：完整根因报告多包单元素数组的无损兼容（2026-09-10）
+
+1. r1056 第一次裸候选数组缺少完整报告结构，不能猜补版本/结论；第二次模型已经完整提交带版本和有序选择的报告，仅外包单元素数组，属于可无损恢复的结构差异。共享 `resolveTraceRootCauseReportForEmit` 只在收到原生单元素数组、内对象显式包含schema_version及原生root_causes数组时取原始内对象字节；后续版本、候选资格、去重、顺序/描述与绑定仍全部走原校验。
+2. 不新增模型JSON字段、模板或版本猜补，不选择候选、不改正文；多元素、嵌套数组、空/非对象元素、缺字段、错误类型或截断不恢复。新恢复入口递归拒绝重复键及Go解码大小写等价的竞争键，避免“未知候选/版本”被后一个拼写覆盖。完整空root_causes仍是模型明确撤销，省略仍继承原已接受/暂存选择，错误旁路仍有结构化失败说明，不拒绝主体答案。
+3. 上游原有无损JSON字符串转换可能先把encoded array解成原生数组，本helper不新增字符串解码或字段搬移。公开full/patch五形分别验证此组合：完整报告阳性，嵌套、重复键、大小写竞争、缺版本阴性。已在上游解码时丢失的顶层canonical载体重复键不属本helper可判信息；普通native入口的既有重复/竞争键语义未在本批改动，不能宣称全部JSON入口已治理。
+4. 有效公开先红 `.codrax/tmp/20260910-b1654-public-red.log` tool1.363s；full/patch合法完整wrapper及无关主体错误后的pending路径同时复现。终版公开新族1.461s（`...-public-green-final.log`）。真实emit→暂存→无选择后续提交、已接受报告→无效替换、显式撤销、模型块保真、契约未开启、缺版本不借顶层值、原始字节均覆盖。独立冷审发现的大小写竞争键已修并复审无阻断；首绿遇到的既有string组合与预期冲突如实修正测试/注释，不隐瞒公开行为。
+
+5. 终版新旧RootCause/selector/pending/predecode-reject邻接count3 tool4.995s；race tool12.731s（`20260910-b1654-final-targeted-{count3,race}.log`）。仅共享resolver所在文件和一份新测试改变，旧针未改。冻结全仓另记，不以针对性测试冒称新Trace live命中。
+
+状态：`B1654=implemented/public-count3+race/frozen/pending-integration`；`model-selection/body/Trace-chain/projection/auto-supplement=unchanged`；B1655已推送`75e864f2a`。
+
 ### §123.1754 B1655：重复陈腐关系标记的精确修补定位（2026-09-10）
 
 1. r1056 同一端点对的两条旧 metadata 在可见消息已被模型移除后仍残留；旧诊断无法唯一选中一条，输出 unknown/actions空，而别处可添加关系继续保持局部修补限制。根因是诊断提供的修补定位不足，不是用业务词义猜同一关系；亦不能将当轮全部15次拒绝都归给此问题。
