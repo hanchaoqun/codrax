@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮新增§123.1759–1760：B1658公开发布/真实入模入口先复现后修并推送 `fe1dccfac`，区分源码存在性与流程成员资格，不替模型换成系统选定的阶段清单。B1657已补精确来源跨代保留与可选清理，实际提示/schema/双Mutable接线一并修正，时序图及流程图公开回归、count3/race/独立冷审和冻结86包全仓均通过。新一轮live尚未开始，后续H9+隔离仓颉两路各一次；H8/H11旧断言债开跑前识别并避开，不改引擎迎合旧测试。
+本轮新增§123.1759–1762：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。下一B1659仅改善通用runtime-work JSON结构教学，保持模型已选receipt/正文，零新硬门；其它高优先未闭债见§1761。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
 B1656及r1057审计已推 `369855605`；后置全仓首轮遇历史同名2秒超时针失败，保留原红并只加失败诊断，未改断言/超时/生产。相同 `go test ./...` 最终复验exit0、86包通过，见§1758；不据单跑/复跑绿宣称该旧针可靠性根因已解决。
 前轮 §123.1732–1751 保留历史收据：B54/B1652/B1651a/B1653已推，r1056 H1人工错误与读题超时仍是真实原始结果，不因本轮修复倒改。Gradle当前执行来源P1、Meson/Hvigor/历史JSON仍开放并优先于B1561新能力；本轮非Trace不代替显式窗/因果投影生产验收。
@@ -57387,6 +57387,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1762 B1659：运行时工作关系的结构教学同源化（2026-09-11，施工前登记）
+
+1. r1058 log3131/3233/3254证明：summary已有principal、external_observation及observed_artifact_fact，receipt修好并bound，但缺runtime_work_relation facet。原覆盖提示要求完整归属有据，不是“同声明必带必拒”；模型再次提交同receipt，未补实际缺项，最终成功重复调用止循环。
+2. 当前初始/覆盖提示只泛称“运行时关系与外部观测facet/claim”，邻接关系路径却给完整JSON；这属于通用typed carrier教学信息不精确，不需要以正文含哪些词来判。下一最小批先公开RED，再共享精确surface_role/facet_ids/claim_uses结构教学，已绑定工作行和结论保持。当前schema有add_facet_id才教精确局部操作，否则完整保真replace；不从提示补新操作分支、不由系统选择block/工作/关系/结论、不改原接受判据或schema。
+3. 必须覆盖Trace及非Trace运行时工作关系、已有receipt/缺facet、其他缺项、无该维度不注入、中英提示及原邻族。确认纯教学适用后独立提交推送；本节当前不签public RED/实施/测试已完成。
+
+状态：`B1659=confirmed/P2/teaching-only/public-red-pending`；`runtime-work-coverage-predicate/schema/answer-ownership=unchanged`。
+
+### §123.1761 r1058：显式窗能力保留，测试旧尺与模型误读分账（2026-09-11）
+
+工程基线和完整人审见 `eval/parallel_selected_summary_evalcampaign_h9_cangjie_r1058_20260911{,_manual_audit}.md`。已推B1658/B1657后clean make `f9e821966849`（built03:41:05Z），03:41:37Z–03:44:40Z严格exact2/各一次/1200s；无第三路、追跑、源文件或oracle中途变化。
+
+- **H9**：机器FAIL182s、人审partial。主查询与5次模型query、2.187s系统framebundle同17597/233.190ms明确用户窗；默认旁路9781字节、available五项模型选择，1份完整因果投影、实际占时与现规则可消、业务span、非链背景隔离保留。JIT2.388ms关系未证，不得拿作链上主因。
+- **旧数值断言**：现keva-3=1.319+2.286=3.605，旧oracle1.023/3.309未计B1636恢复的0.296ms。原wake13762.927735、局部窗13762.927752、切入运行13762.928048证明窗内后缀0.296，窗外0.017不变；旧日志同窗1.023与现JSON对照，未重跑旧二进制。预审没逐分量校正是审计不足，不回滚合法归账追绿。H8语义工作与H11记录数旧尺开跑前已识别，三案应独立校订测试契约；本轮原失败不改。
+- **模型错误**：H9错写供给折算公式/仅最高频机理、借binder的0.476给keva理想值、把缺口放实测列、将48成员IO聚合称单请求折算、跨线程借sync_buffer_read_wi；精确来源边界已给，不能系统代改正文。短榜8/13已披露，仍未完整回答所有小线程贡献，模型质量和显示人口债分别记账。一次runtime receipt精确拒绝后兼容局部patch正常接受，再因缺facet给展示提示，二次同值patch后正常结束；B1659改善教学，不宣称互斥合同。
+- **仓颉**：机器PASS68s，人审清单通过/摘要错误。1extend、1foreign、3public class以及package/五引用全部正确；模型首稿把extend Cart误说继承父类。实际入模note明确candidate/unclassified且不证明继承，非系统补写。B1658普通库存邻臂获正证，0成文拒绝/patch、一次blocks编码字符串安全恢复；无额外系统补表、无图，因此不把本轮签为B1657图修复live。
+- **活跃流**：H9最长单LLM39.366s，已有实际SSE/分帧/keepalive/真实stall+cancel+deadline count3通过34.344s；本轮并非单流>4分钟见证。没有因4ms/旧4m缺可见正文而降级。
+
+**剩余优先队列：** P1 B1651b Gradle当前执行来源（XML不能凭本轮exit授为本轮断言；仅清scope仍污染Passed，完全截断未绑定XML则会牺牲fresh正证，不暗中实施能力收缩；afterTest/native-cache矩阵仍需独立完成）→ P2 B1659精确结构教学 → H8/H9/H11 oracle语义校訂及已有raw/gated原量显示债 → Meson/Hvigor/历史已存证明JSON。Cangjie继承误读、Trace错误算式和跨席借值留人工失败/模型观察，不加prose硬门或再跑同题求绿。B1657新图清理生产自然触发仍待以后异构图轮转，公共序列/流程及全仓已有验收不抵销此边界。
+
+状态：`r1058=machine1/2,human-both-partial/audited`；`B1657=f9e821966/pushed/full86/no-live-activation`；`B1658=fe1dccfac/pushed/full86/plain-inventory-positive`；`Trace-window/projection/auto-supplement/root-sidecar=production-preserved`；`all-system-gaps=not-closed`。
 
 ### §123.1760 B1657：已选删边后的元数据依赖与可选节点清理来源（2026-09-11）
 
