@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮新增§123.1759–1762：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。下一B1659仅改善通用runtime-work JSON结构教学，保持模型已选receipt/正文，零新硬门；其它高优先未闭债见§1761。
+本轮新增§123.1759–1763：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束并以`2a3752bf9`推送审计：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。后续B1659通用runtime-work JSON教学和B1660累计字段误名已完成公开回归/count3/race/冷审及冻结86包全仓；本提交交付B1659，B1660为本地已验证的独立下一提交。保持模型已选receipt/正文及原计算，零新硬门，尚未新开live。其它高优先未闭债见§1761。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
 B1656及r1057审计已推 `369855605`；后置全仓首轮遇历史同名2秒超时针失败，保留原红并只加失败诊断，未改断言/超时/生产。相同 `go test ./...` 最终复验exit0、86包通过，见§1758；不据单跑/复跑绿宣称该旧针可靠性根因已解决。
 前轮 §123.1732–1751 保留历史收据：B54/B1652/B1651a/B1653已推，r1056 H1人工错误与读题超时仍是真实原始结果，不因本轮修复倒改。Gradle当前执行来源P1、Meson/Hvigor/历史JSON仍开放并优先于B1561新能力；本轮非Trace不代替显式窗/因果投影生产验收。
@@ -57388,13 +57388,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
-### §123.1762 B1659：运行时工作关系的结构教学同源化（2026-09-11，施工前登记）
+### §123.1763 B1660：短榜累计影响不得误标状态占时（2026-09-11）
+
+1. r1058仍有系统上下文旧债：`internal/context/trace_board_summary.go`把同条rank的cumulative_impact_ms直接追加为raw occupancy，主running候选遂显示171.505ms，独立已测running却是143.499ms；keva混态累计也不是单状态原时长。此问题有既有H9 raw/gated显示域账，不将其混归模型MD37自己填错列。
+2. 最小根修只纠正通用字段名称与口径说明，保留原累计数值、有效归因、查询域、排序、cap及所有source notes；不把另一个字段或另一席借来填raw，不推算gated子集，不引入新的原始时长算法。真正实际占时仍由既有独立状态/业务span事实卡提供，本批不声称解决gated原running载体缺口。
+3. 先真实BuildAgentContext→BuildPromptContext公开RED，再改这一显示字段与对应旧错误词面针；任意数值/状态/链及邻近/多查询、缺失与原同值silent、来源不变必须覆盖。只对累计字段的误名做负针，不在全prompt禁合法raw occupancy用语。
+
+4. 有效公共RED `20260911-b1660-public-red-valid.log`（context0.835s）只缺新的正确口径名称，缺失/同值及独立running旧行为先已绿。生产仅替换累计值的附加词面为 `cumulative impact Xms (not a substitute for state occupancy)` 并校正注释；一项旧错误词面针随之迁移，数值/排序/查询域/上限未动。新公共矩阵覆盖4种state×链上/邻近两通道且每格两个独立query，source JSON不变；另覆盖缺失/同值、独立真实running事实保留和8+4上限，不借独立running填累计字段。
+5. 新旧board/domain/requested-window/finite-scope/direction联合count3通过context0.818s（`20260911-b1660-final-count3.log`），同族race count3通过1.816s（`20260911-b1660-final-race-count3.log`）。独立只读冷审通过。新fixture为公开上下文发布路径，不是重新采集的scheduler实测或LLM回放；与B1659同时冻结后全仓 `20260911-r1058-post-teaching-full.log` exit0，86包通过，完整收据见§1762。本批代码本地已验证，独立提交前不称已进入main。
+
+状态：`B1660=local-implemented/not-yet-committed/P2/display-only/public-red-green/count3+race+cold+full86-pass`；`effective-values/rank/Trace-root-scope/actual-occupancy-axis=unchanged`。
+
+### §123.1762 B1659：运行时工作关系的结构教学同源化（2026-09-11）
 
 1. r1058 log3131/3233/3254证明：summary已有principal、external_observation及observed_artifact_fact，receipt修好并bound，但缺runtime_work_relation facet。原覆盖提示要求完整归属有据，不是“同声明必带必拒”；模型再次提交同receipt，未补实际缺项，最终成功重复调用止循环。
 2. 当前初始/覆盖提示只泛称“运行时关系与外部观测facet/claim”，邻接关系路径却给完整JSON；这属于通用typed carrier教学信息不精确，不需要以正文含哪些词来判。下一最小批先公开RED，再共享精确surface_role/facet_ids/claim_uses结构教学，已绑定工作行和结论保持。当前schema有add_facet_id才教精确局部操作，否则完整保真replace；不从提示补新操作分支、不由系统选择block/工作/关系/结论、不改原接受判据或schema。
-3. 必须覆盖Trace及非Trace运行时工作关系、已有receipt/缺facet、其他缺项、无该维度不注入、中英提示及原邻族。确认纯教学适用后独立提交推送；本节当前不签public RED/实施/测试已完成。
+3. 预定覆盖Trace及非Trace运行时工作关系、已有receipt/缺facet、其他缺项、无该维度不注入、中英提示及原邻族。实施只共享初始dimension/profile和已有post-emit coverage advisory的文字；明确可用的原有surface_role/facet_ids/claim_uses结构、已有绑定不需重选、当前schema真发布add_facet_id才用该分支，否则完整保真replace_blocks。系统不补字段、不选block、不改模型正文或receipt，不增新接受条件。
+4. 有效公开RED `20260911-b1659-public-red-confirmed.log`（agent0.921s）固定实际BuildInitialInstruction→公共BindRuntimeWorkRelationReceipt→Mutable接受稿→Evaluator.Observe的中英×dimension/profile四格；首轮测试误把claim-level facet已有合法形当缺项已撤回，保留为正控，不改变生产谓词。新测试同时钉其他缺项、system块不能代模型块、无typed维度不引入义务、原soft advisory预算/停止行为、模型JSON及私有BoundRow独立序列化快照均不变。
+5. 定向新族及TestRequested/TestDimensionAdvisory/TestPostEmitAdvisory、runtime-work profile邻族count3通过agent1.258s（`20260911-b1659-final-targeted-count3.log`）；conceptual-terminal/ParseOutput保真邻族补核count3通过0.885s（`20260911-b1659-neighbor-preservation-count3.log`）；新族race count3通过2.451s（`20260911-b1659-final-targeted-race.log`），独立只读冷审通过。新公开矩阵使用LogTriage typed上下文；联合旧TestRequestedRuntimeWorkRelationRequiresModelOwnedPrincipalObservationCarrier内的IntentTrace及相关prompt/profile针保留Trace邻臂，均不冒称本轮新Trace捕获回放。首绿尝试的英文Repair大小写误针不算产品RED。
+6. 三个源/测试文件冻结后并入根侧全仓 `20260911-r1058-post-teaching-full.log`，未在r1058原live二进制中存在；不把之前最终答案倒签为本修复生产有效。
+7. 冻结后原参数 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./...` exit0，86有测试包通过，未变包部分缓存：agent77.111s、context2.821s、tool323.200s、orchestrator20.009s、types44.173s、tracequery111.660s、tracediag11.704s、hitraceconv127.451s。全仓期间生产/tests无变化，没有放宽原超时针或原case断言；历史超时针本次绿不等于既有可靠性观察已根治。B1659/B1660分别提交，后置build单独记录；当前不签新live通过。
 
-状态：`B1659=confirmed/P2/teaching-only/public-red-pending`；`runtime-work-coverage-predicate/schema/answer-ownership=unchanged`。
+状态：`B1659=implemented/P2/teaching-only/public-red-green/count3+race+cold+full86-pass/build-pending/no-new-live`；`runtime-work-coverage-predicate/schema/answer-ownership=unchanged`。
 
 ### §123.1761 r1058：显式窗能力保留，测试旧尺与模型误读分账（2026-09-11）
 
