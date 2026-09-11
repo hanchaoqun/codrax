@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮续修以§123.1764–1766为准：基线`main=origin/main@e25f6e9c9`，fetch零差异。B1661公共报告诊断合并及多文件身份已完成public RED→GREEN、count3/race/冷审及冻结全仓86包通过，准备分批提交。B1651b再次确认旧Gradle XML会污染Passed/Score/证明，不能仅清scope；本机无JVM/Gradle，隔离工具链下载已向用户异步询问，尚未安装或签原生验收。Meson除错误flag还存在报告语义不足，B1662已落独立施工边界。重新构建后r1059只跑C++写与跨语言调用链读两例，不追旧题绿。
+本轮续修以§123.1764–1767为准：B1661已提交推送`f6e64a545`，完成public RED→GREEN、count3/race/冷审、冻结全仓86包及后置make。r1059严格两路各一次结束：跨语言读机器PASS481s/人工FAIL，C++写TIMEOUT1200s/人工FAIL；最终无图不能签渲染通过，最后双头Lf补丁的2352项独立后验1708失败，不回填原流程SDK27链接失败/failed证明。新确认B1663错误定位合法追加项，正在按同一资格遍历保留真实失败坐标修复，不扩权限。B1651b旧Gradle XML污染与B1662 Meson原生报告语义仍P1；本机无对应工具链，尚未安装或签原生验收；B1561能力感知恢复另续，不将可观测性修复冒称全runner来源闭环。
 本轮新增§123.1759–1763：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束并以`2a3752bf9`推送审计：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。后续B1659通用runtime-work JSON教学=`f6ed96720`、B1660累计字段误名=`22cc8ad54`均独立提交推送；两批公开回归/count3/race/冷审/冻结86包全仓及最终make全部通过。保持模型已选receipt/正文及原计算，零新硬门；这两批尚未新开live，不能倒签r1058。其它高优先未闭债见§1761。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
 B1656及r1057审计已推 `369855605`；后置全仓首轮遇历史同名2秒超时针失败，保留原红并只加失败诊断，未改断言/超时/生产。相同 `go test ./...` 最终复验exit0、86包通过，见§1758；不据单跑/复跑绿宣称该旧针可靠性根因已解决。
@@ -57389,7 +57389,15 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
-### §123.1766 r1059预排：C++真实编译写与跨语言关系读（2026-09-11，尚未开跑）
+### §123.1767 B1663：混合追加失败时把合法首项误报为违规项（2026-09-11，施工前登记）
+
+1. r1059跨语言读第2次patch同时追加缺失的s-summary及已有d-call-chain整图，局部关系修补拒绝信息却指向s-summary。已核运行二进制f6e64a545对应代码：missingRequiredAnswerBlockAdditionCapabilities与requiredAnswerBlockAdditionsAuthorized已允许同时补齐typed required block，并非“summary同时必带必拒”的无解合同；真正不减required deficit的是第二个整图，但localDiagramLeaseWholeBlockMutationViolations在整批bool=false后无条件选AddBlocks[0]。
+2. 这是确定的精确失败定位缺口，容易误导模型撤回正确摘要/反复错误操作；不能把错误提示当summary通道真的不存在，也不能替模型选择摘要或改图。下一最小修复将原同一deficit遍历返回实际失败项，bool资格查询和诊断共享，不另抄kind/facet规则、不增加JSON字段/硬门、不扩whole-block权限、保原子失败不staged及retry base字节。
+3. 公共先红后绿矩阵预定：仅补缺summary正控；合法summary+不缺kind/已有diagram两种顺序均拒且指向真实坏项；重复summary定位第二个；多个不同缺kind合法同批；无base/view/无缺项保持原拒；schema capability与原结果不变。登记时r1059 live仍在运行，产品/测试保持冻结；现两路终止后才施工。有效公共RED为 `20260911-b1663-public-red-effective.log`（tool0.663s）：仅3格合法summary在先时误指首项（第二项为existingdiagram/optionalcaveat/secondsummary）；倒序拒绝与合法summary+attach正控原先已绿。早先fixture声明清单误带principal_path_edge等装配失败不计产品RED。
+
+状态：`B1663=P2/public-red-confirmed/implementation-in-progress/diagnostic-only`；`missing-summary-capability=already-present`；`contradictory-hard-contract=not-confirmed`。
+
+### §123.1766 r1059：C++真实编译写与跨语言关系读（2026-09-11）
 
 1. 保留243例库存（215 read/25 apply/3 plan）。刚跑r1058 H9+仓颉、r1057读阶段图+JS写；本轮优先原生验证可用、最近覆盖较远和跨语言边界。主选 `github_issue_nlohmann_long_double_symptom`（上次r1044）与 `mr_poly_binding_chain`（上次r1016），严格并行2、各1次、1200s；代码提交/重新make/冻结后才启动。
 2. C++原case要求双发布头修复long double严格编译错误且不损普通浮点；本机clang++可用。原oracle仅查`%.*Lg`，原测试仅要求输出非空，不能冒称数值正确或正式行为合同已证。人审必须看两份头同步、告警选项不降低、原生执行和独立多类型/边界格式对照；额外验收仅在私有临时目录，不改原case/fixture/期待项。
@@ -57398,7 +57406,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 5. 活跃流保护原参数复核：`20260911-r1059-active-stream-count3.log`（llm48.448s）与`20260911-r1059-partial-frame-count3.log`（llm0.977s）均exit0/count3，覆盖持续推理/工具参数/heartbeat、分帧字节跨4ms、真正首字节及停滞、混合fallback预算、调用者取消与更短截止。当前没有产品改动；这些是受控流测试，不是声称本轮已有单条真实客户连接持续4分钟。
 6. C++独立基线有效RED：私有`r1059-nlohmann-audit.Zk7wDg/baseline-run.zA66WU`中原测试及新增行为审计均编译exit1，仅双头原`%.*lg`接long double的-Werror,-Wformat诊断；审计器自身未引入其它编译错误。待交付再以同脚本检查2352项（双头×两输入类型×14值×6精度×7缓冲/空指针组合），不改fixture/Make/期待项。Apple clang21 ARM64当前double/long double同为8字节/53位有效精度，成功也不能外推扩展精度平台。此处尚无交付GREEN或新live。
 
-状态：`r1059=planned/not-started`；`case/oracle/budget=unchanged`。
+7. B1661先提交推送`f6e64a545`，clean make exit0（`20260911-b1661-build.log`），binary revision=`f6e64a545d01`、built=`2026-09-11T06:53:46Z`。确认main与origin一致且Go/build输入clean后，按原PARALLEL=2/TIMEOUT=1200启动selected runner，输出`parallel_selected_summary_evalcampaign_cppwrite_polyread_r1059_20260911{,_manual_audit}.md`；本轮模型运行中源码和测试冻结，不追加第三路或追跑。
+8. C++过程中已确认两个独立边界（终态另记）：首稿Lg在受保护测试重规划后被模型主动换成`%.*g+static_cast<double>(x)`，运行日志实际emit此前的系统提示并未建议cast；后续durable goal回显源于模型计划，不能倒因为系统首倡。在long double更宽的平台上有精度/范围窄化风险，本机同ABI即使运行绿也不能签跨平台正确。实际make另外遇MacOSX27.0.tbd链接器不兼容；本轮live未设置此前Go/build用的SDKROOT26.5，是环境/跑批前提不足，不把该链接失败混成源码格式失败或B1661回归。
+9. B1561能力感知恢复旧债新增生产见证：inline probe仅支持其已声明语言，C++/Make当前只有aggregate运行结果，无native逐断言接口；泛称“加native test+PTO”或noop后“先跑typed planner probe再发空changes”未讲本轮可执行性，模型反复提交外编译包装/不支持语言/空计划。合法全局block出口已核存在：controller action枚举保留block，truth-ledger失败规范化不覆盖它；本轮模型选finish而非block，真实failed→replan保护正确，不能放宽accept_unverified来掩盖失败。当前教学只强调结构安全/预算block，环境与执行能力不足的软引导仍可改善；不是“整个工作流没有退出通路”。0 typed必需合同、planning-only计数与实际命令执行亦应分清，不因模型误读重写答案。
+
+10. **r1059终态：** 实际06:54:21Z–07:14:23Z，两例各一次、无第三路或追跑；读PASS481s（自身metrics479s），写TIMEOUT1200s/raw124，runner总体exit0不覆盖case失败。读5次成文拒绝/6patch/7finalizer轮；写12个planner阶段、31次emit（26拒/5接受）、3代真实apply，非成文器零拒绝即过程零拒。上下文55%/28%，不凭反复失败便增加预算。收据 `eval/parallel_selected_summary_evalcampaign_cppwrite_polyread_r1059_20260911{,_manual_audit}.md` 已完成人工填写。
+11. **读人工FAIL：** 最终 `.codrax/output/20260911-000220.757-57976.md` 主链/ImportError回退大体正确，但把PyModule参数类型写成导出模块身份、rank引用偏一行，末尾模型自选best_merge→ids.len作为概念终点与正文不一致。完整当前源码/注册≠调用/精确锚/两个wrapper子调用先后均已入模，不能把所有省略归于系统缺证。模型第5轮主动删d-call-chain，最终无Mermaid，修补计数只是草稿，图渲染N/A。B1663只修其中确证的“混合追加失败却指向合法summary”；后续summary-only已成功，未证summary无可达通道，也不能声称错误提示必然导致删图。系统没有替模型选终点或改正文。
+12. **写人工FAIL与独立后验：** 三次make check均遇同一SDK27链接失败；四次成功planner探针仅observation_only，真实proof保持failed。最后durable commit `2295b34358a0ac8bce7a0d6a00a1854b231b6b2a`（plan1789110580851920000-58246）与初始差异仅双头 `%.*lg→%.*Lf`，不是首代cast，原tests/Make/README不变；最后final.json仍in_progress/verify_failed/failed，未产生模型最终block或成功答。独立私有archive逐blob及前后SHA保真后，用SDK26.5和原严格告警运行：两编译及原非空测试exit0，2352项general-format对照644通过/1708失败（`r1059-nlohmann-audit.Zk7wDg/delivery-run.OvyiuX`）。如1e-12L应为1e-12却输出0.000000，precision3的1.25L变为1.250；最终格式回归已经本机实证，不依赖跨ABI猜测。此后验不改fixture/原结果，不回填TIMEOUT或正式proof。
+13. **边界收账：** B1561能力感知恢复新增见证，正式block出口可用且不被失败规范化覆盖；模型选择finish→replan不是无退出通路。后续只考虑基于现存adapter/probe能力事实的软引导，零自动block/模型答案改写/新必填字段；Make aggregate不冒充逐断言PTO。运行本身SDK选择不足单独记操作者环境前提。原case的1200秒外层预算非4ms/旧4分钟活跃SSE误降级；本轮非Trace不能代签显式窗/因果投影自然回放。B1651b/B1662未安装native前不得签已修全runner。
+14. **B1561下一最小批次的源码边界（只读，未施工）。** `finalizeVerifyFailureHandoff → BuildVerifyFailureHandoff`在重置前已有完整失败计划/报告，可复用；但现无完整统一的“原生逐断言adapter可用性”枚举，不能拿TestSurface候选、声明路径、target_execution或既有coverage猜补。优先将 `NativeProjectTestObservationRecoveryTeaching`、`WriteBehaviorContractObservationTeaching`和noop诊断的无条件“typed probe→空changes”指路统一加能力前提，并供planner/controller消费：本轮同一assertion身份可被adapter产出才可绑定，否则测试仍有价值但不承诺闭合同；真实failed、observation_only、typed runner_missing/parser_error各保原义，仅建议合法修复或现有block选择。不从TAPI原文硬分类：本例正式failure_kind仍tests_failed，不能扫描诊断词升级environment。公共验收应覆盖完整RunTests→handoff→入模、Make汇总正负、缺runtime、探针有无目标绑定、真断言失败、未知/跨计划/混合语言，守既有failed-finish及unbound-probe-nochange负针，不改模型JSON或接受权限。
+
+状态：`r1059=complete/exact2-once/machine-read-pass+write-timeout/human-both-fail`；`case/oracle/budget=unchanged`；`B1663=confirmed/public-red/in-progress`；`B1561=capability-guidance-open/block-exit-present`；`independent-native-postcheck=fail1708-of2352/not-runtime-proof-backfill`。
 
 ### §123.1765 B1651b续审与B1662 Meson报告语义边界（2026-09-11）
 
@@ -57423,7 +57441,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 8. 冻结后原命令`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./...` exit0，`20260911-b1661-full.log`共86有测试包通过（未变包部分缓存）：tool347.897s、agent82.935s、context8.123s、types49.572s、orchestrator30.670s、tracequery118.410s、tracediag15.944s、hitraceconv160.592s。没有改原测试时限/断言、没有边测边改；产品与测试五文件保持冻结，后置build/live另记。
 
-状态：`B1661=implemented/P2/public-red-green/count3+race+cold+full86-pass/commit-pending`；`test-outcome/proof/Trace/answer-ownership=unchanged`。
+9. 交付`f6e64a545`已正常push到origin/main，未强推/改历史；后置构建成功及r1059运行基线见§1766.7。本轮两题不是原生Gradle/Maven/CTest来源验证，不据其结果扩大B1661或B1651b验收范围。
+
+状态：`B1661=pushed-f6e64a545/P2/public-red-green/count3+race+cold+full86+build-pass`；`test-outcome/proof/Trace/answer-ownership=unchanged`。
 
 ### §123.1763 B1660：短榜累计影响不得误标状态占时（2026-09-11）
 
