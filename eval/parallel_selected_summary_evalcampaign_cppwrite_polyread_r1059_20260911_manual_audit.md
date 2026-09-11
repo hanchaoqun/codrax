@@ -25,6 +25,8 @@
 - 最终 **没有 Mermaid 图**。模型在成文第5轮 patch 删除 `d-call-chain`（4107）；最终仅保留用户请求的 text fence，图语法/渲染验收为 N/A。`mermaid_source_repair_applied=1` 是中间草稿收据，不可当最终图验收。机器宽关键词 oracle 因此仍 PASS；本批不改 oracle 追绿。
 - 5次成文拒绝、6次 patch、7次 finalizer 迭代；总上下文109710/200000（55%），未见预算耗尽。注册不是运行期调用的教学已在初始上下文（3646）；失败不能全归模型缺知识，也不能全归系统。
 
+**追加复核更正（B1664）：** 模块身份错误也被系统上下文放大。模型1441先提交 `py::PyModule → _fastlex` 注册关系；1693标grounded，1997/3179写verified，3294的Preferred anchors把PyModule列成lib.rs:46的安全function定义锚，3542/3561又产生binding segment/注册recipe。真实该行定义 `_fastlex`，PyModule只是参数类型。因此不能将最终这项错误全部归于成文波动；正确源码/教学在场不抵销错误权威信号。3294来自support-evidence派生的 `BuildVisibleAnchorWhitelist`，不是repo_map声明库存，尚无证据证明Rust解析器把参数提成函数。注册端点资格与引用角色放大分层追查，已登记统一台账§123.1768；此处未改代码或重跑，不以最后无图隐去这个系统问题。
+
 ### B1663：真实系统缺口是错误定位，不是摘要被合同禁止
 
 日志3968一次追加两块：首项是缺失的 `s-summary`，第二项是已有 `d-call-chain` 整图。原二进制已经允许补齐 required block，但整批资格失败后统一把 `AddBlocks[0]` 报为违规（3972），因而错误指向合法摘要。模型随后推断摘要无法追加（3999–4017）；后续单独摘要追加实际成功（4211），最终 patch 亦接受（4272）。

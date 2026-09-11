@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮续修以§123.1764–1767为准：B1661已提交推送`f6e64a545`，完成public RED→GREEN、count3/race/冷审、冻结全仓86包及后置make。r1059严格两路各一次结束：跨语言读机器PASS481s/人工FAIL，C++写TIMEOUT1200s/人工FAIL；最终无图不能签渲染通过，最后双头Lf补丁的2352项独立后验1708失败，不回填原流程SDK27链接失败/failed证明。新确认B1663错误定位合法追加项，正在按同一资格遍历保留真实失败坐标修复，不扩权限。B1651b旧Gradle XML污染与B1662 Meson原生报告语义仍P1；本机无对应工具链，尚未安装或签原生验收；B1561能力感知恢复另续，不将可观测性修复冒称全runner来源闭环。
+本轮续修以§123.1764–1768为准：B1661已提交推送`f6e64a545`。r1059严格两路各一次结束：跨语言读机器PASS481s/人工FAIL，C++写TIMEOUT1200s/人工FAIL，审计已推`d2fc1a602`；最终无图不能签渲染通过，最后双头Lf补丁的2352项独立后验1708失败，不回填原流程SDK27链接失败/failed证明。B1663已完成真实失败坐标修复、public RED→GREEN/count3/race/冷审/冻结全仓86包及make，不扩权限。追加复核发现PyModule错误也存在于系统verified关系/安全函数锚/recipe上下文，不能全归最终模型波动，B1664另案追源。B1651b旧Gradle XML污染与B1662 Meson原生报告语义仍P1；本机无对应工具链，尚未安装或签原生验收；B1561能力感知恢复另续，不将可观测性修复冒称全runner来源闭环。
 本轮新增§123.1759–1763：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束并以`2a3752bf9`推送审计：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。后续B1659通用runtime-work JSON教学=`f6ed96720`、B1660累计字段误名=`22cc8ad54`均独立提交推送；两批公开回归/count3/race/冷审/冻结86包全仓及最终make全部通过。保持模型已选receipt/正文及原计算，零新硬门；这两批尚未新开live，不能倒签r1058。其它高优先未闭债见§1761。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
 B1656及r1057审计已推 `369855605`；后置全仓首轮遇历史同名2秒超时针失败，保留原红并只加失败诊断，未改断言/超时/生产。相同 `go test ./...` 最终复验exit0、86包通过，见§1758；不据单跑/复跑绿宣称该旧针可靠性根因已解决。
@@ -57389,13 +57389,26 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1768 B1664：错误注册主体被放大为已验证关系及函数定义锚（2026-09-11，追加复核）
+
+1. 更正r1059首轮归因边界：最终把PyModule写成模块标识符确是错，但不只是最终成文模型波动。日志1441模型先提交`subject=py::PyModule,object=_fastlex,predicate=registers,anchor_symbol=_fastlex,@lib.rs:46`；系统1693标grounded，1997/3179呈现verified关系，3294把PyModule/py::PyModule列为“safe to cite”的function定义锚，3542/3561再投影binding segment及注册关系recipe。真实46行是`fn _fastlex(m: &Bound<'_, PyModule>) -> PyResult<()>`，PyModule是参数类型，不是该行定义的函数名。源码原文与正确注册教学同时在场，不能抵销错误的系统权威上下文。
+2. 目前已定位3294来自`BuildVisibleAnchorWhitelist`的support evidence派生，而不是repo_map声明库存；Rust提取器读function_item的name字段，尚无证据支持“生命周期/泛型把函数名提错”这一初始猜测，禁止先修错组件或随意bump版本。正继续核registration的角色/主体端点验证为何放行、所需来源证明以及安全锚投影如何将Subject/Object的引用范围扩成定义。应覆盖声明、参数类型、注册容器、实际binding、宏/装饰器等形状，不能一刀切禁止声明式注册或误改为运行期call。
+3. 本节是生产日志+源码追查，B1663冻结验收期间只读；未新增公共RED/代码，未签已修。后续分别守住“有源码坐标≠主体角色成立≠注册边已证≠函数定义锚”的单源边界，保真实注册/跨语言桥、未知范围软披露，不扫描用户/模型正文，不替模型选边、改答案或硬化预期词。
+
+状态：`B1664=P1/production-context-overclaim-confirmed/source-audit-in-progress/not-implemented`；`Rust-extractor-bug=not-confirmed`。r1059人工仍FAIL，但模块身份这部分增加系统证据放大责任，不能全归模型。
+
 ### §123.1767 B1663：混合追加失败时把合法首项误报为违规项（2026-09-11，施工前登记）
 
 1. r1059跨语言读第2次patch同时追加缺失的s-summary及已有d-call-chain整图，局部关系修补拒绝信息却指向s-summary。已核运行二进制f6e64a545对应代码：missingRequiredAnswerBlockAdditionCapabilities与requiredAnswerBlockAdditionsAuthorized已允许同时补齐typed required block，并非“summary同时必带必拒”的无解合同；真正不减required deficit的是第二个整图，但localDiagramLeaseWholeBlockMutationViolations在整批bool=false后无条件选AddBlocks[0]。
 2. 这是确定的精确失败定位缺口，容易误导模型撤回正确摘要/反复错误操作；不能把错误提示当summary通道真的不存在，也不能替模型选择摘要或改图。下一最小修复将原同一deficit遍历返回实际失败项，bool资格查询和诊断共享，不另抄kind/facet规则、不增加JSON字段/硬门、不扩whole-block权限、保原子失败不staged及retry base字节。
 3. 公共先红后绿矩阵预定：仅补缺summary正控；合法summary+不缺kind/已有diagram两种顺序均拒且指向真实坏项；重复summary定位第二个；多个不同缺kind合法同批；无base/view/无缺项保持原拒；schema capability与原结果不变。登记时r1059 live仍在运行，产品/测试保持冻结；现两路终止后才施工。有效公共RED为 `20260911-b1663-public-red-effective.log`（tool0.663s）：仅3格合法summary在先时误指首项（第二项为existingdiagram/optionalcaveat/secondsummary）；倒序拒绝与合法summary+attach正控原先已绿。早先fixture声明清单误带principal_path_edge等装配失败不计产品RED。
 
-状态：`B1663=P2/public-red-confirmed/implementation-in-progress/diagnostic-only`；`missing-summary-capability=already-present`；`contradictory-hard-contract=not-confirmed`。
+4. **最小实现及冻结。** `resolveRequiredAnswerBlockAdditionsAuthorization`保留原严格递减deficit和原candidate字段，只带回首个实际失败index；旧bool接口与失败诊断共用。nil base/view、空追加或初始无deficit仍拒，调用者只在非空追加时取失败坐标；成功仍走原后续完整结构/重复ID门，失败仍整批not_staged，绝不先应用合法前缀。仅修旧“add不可用/所有add失败全列”注释与现有能力不符之处；不另增语义规则、权限或模型JSON字段。
+5. 公共5格混合正倒序/重复summary、合法summary+exact attach、多required-kind双顺序及15格授权边界均通过；定向新族与原图表/emit-list-discipline邻族count3 tool2.602s，新族race count3 tool3.836s（`20260911-b1663-final-{count3,race}.log`）。公共负控对pending base、已接受model answer、lease及schema做逐字快照，正控保模型图/摘要和自行选择的追加顺序。独立只读末审无阻断，确认同ID异kind原资格检查职责未扩，后续原不同payload重复ID拒绝仍在；Trace旁路入口不变。07:28Z前完成产品/测试冻结，原参数全仓`20260911-b1663-full.log`正在执行，未提前签全仓绿。
+
+6. 冻结全仓原参数`SDKROOT=.../MacOSX26.5.sdk go test ./...` exit0，86有测试包通过（未变包部分缓存）：tool349.229s、agent76.350s、types50.473s、orchestrator20.038s、tracequery117.524s、tracediag16.163s、hitraceconv136.641s，REPL等缓存通过，日志`20260911-b1663-full.log`。同冻结工作树make exit0（`20260911-b1663-build-precommit.log`）；新发现B1664仅只读审计/文档，不混入此产品验收或签为已修。
+
+状态：`B1663=P2/implemented/public-red-green/count3+race+cold+full86+make-pass/diagnostic-only`；`missing-summary-capability=already-present`；`contradictory-hard-contract=not-confirmed`。r1059两例及人工收账已独立提交推送`d2fc1a602`，不把B1663事后修复倒签为live命中。
 
 ### §123.1766 r1059：C++真实编译写与跨语言关系读（2026-09-11）
 

@@ -2427,16 +2427,18 @@ type emitAnswerDiagramParticipantEdit struct {
 // well as the projected schema. Tool callers can bypass or lag the current
 // schema, but they still cannot widen a typed local diagram lease into roster
 // mutation outside the projected capabilities: unrelated exact replacement or
-// removal is preserved, additions are unavailable, and target removal is
-// limited to an exact optional target when explicitly granted. Atomic compiler-generated
-// ReplaceBlocks are not
+// removal is preserved, additions must reduce an existing required-block
+// deficit, and target removal is limited to an exact optional target when
+// explicitly granted. Atomic compiler-generated ReplaceBlocks are not
 // inspected here: this function runs on the model's decoded envelope before
 // atomic edits are compiled, so it distinguishes the authorized internal
 // carrier from a model-authored whole-block mutation without reading prose or
 // Mermaid labels.
 //
-// V2-4 (§40.51): every unauthorized whole-block operation is returned at once
-// (replace / add / field edit / receipt edit / remove, in operation order).
+// V2-4 (§40.51): independent violations are returned in operation order
+// (replace / add / field edit / receipt edit / remove). Additions retain their
+// ordered deficit check and report its first actual failing item, not every
+// later item whose authorization would depend on that failed prefix.
 func localDiagramLeaseWholeBlockMutationViolations(
 	p *emitAnswerDocumentPatchParams,
 	lease *types.AnswerDiagramRelationRepairLease,
@@ -2464,9 +2466,11 @@ func localDiagramLeaseWholeBlockMutationViolations(
 			violations = append(violations, types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_replace_not_authorized"})
 		}
 	}
-	if len(p.AddBlocks) > 0 && !requiredAnswerBlockAdditionsAuthorized(prev, view, p.AddBlocks) {
-		id := strings.TrimSpace(p.AddBlocks[0].ID)
-		violations = append(violations, types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_add_not_authorized"})
+	if len(p.AddBlocks) > 0 {
+		if authorized, failingIndex := resolveRequiredAnswerBlockAdditionsAuthorization(prev, view, p.AddBlocks); !authorized {
+			id := strings.TrimSpace(p.AddBlocks[failingIndex].ID)
+			violations = append(violations, types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_add_not_authorized"})
+		}
 	}
 	for _, edit := range p.BlockFieldEditsV1 {
 		if id := strings.TrimSpace(edit.BlockID); targetSet[id] {
@@ -2512,15 +2516,25 @@ func containsExactBlockID(ids []string, id string) bool {
 // into arbitrary roster growth while admitting a simultaneously missing
 // summary/list/table carrier.
 func requiredAnswerBlockAdditionsAuthorized(prev *types.AnswerDocumentV2, view *types.AnswerSemanticView, additions []emitAnswerBlockV2) bool {
+	authorized, _ := resolveRequiredAnswerBlockAdditionsAuthorization(prev, view, additions)
+	return authorized
+}
+
+// resolveRequiredAnswerBlockAdditionsAuthorization preserves the same ordered
+// deficit check while retaining its first failing coordinate for diagnostics.
+// On rejection, failingIndex identifies a submitted item when additions is
+// nonempty; unavailable prerequisites reject the first item. Success returns
+// -1. No prefix is applied: the caller still rejects the entire transaction.
+func resolveRequiredAnswerBlockAdditionsAuthorization(prev *types.AnswerDocumentV2, view *types.AnswerSemanticView, additions []emitAnswerBlockV2) (authorized bool, failingIndex int) {
 	if prev == nil || view == nil || len(additions) == 0 {
-		return false
+		return false, 0
 	}
 	working := append([]types.AnswerBlock(nil), prev.Blocks...)
 	deficit := requiredAnswerBlockDeficit(working, view)
 	if deficit <= 0 {
-		return false
+		return false, 0
 	}
-	for _, addition := range additions {
+	for i, addition := range additions {
 		candidate := types.AnswerBlock{
 			ID:          strings.TrimSpace(addition.ID),
 			Kind:        types.AnswerBlockKind(strings.TrimSpace(addition.Kind)),
@@ -2531,11 +2545,11 @@ func requiredAnswerBlockAdditionsAuthorized(prev *types.AnswerDocumentV2, view *
 		working = append(working, candidate)
 		next := requiredAnswerBlockDeficit(working, view)
 		if next >= deficit {
-			return false
+			return false, i
 		}
 		deficit = next
 	}
-	return true
+	return true, -1
 }
 
 func requiredAnswerBlockDeficit(blocks []types.AnswerBlock, view *types.AnswerSemanticView) int {
