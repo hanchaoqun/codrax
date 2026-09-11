@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-10）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-续修以 §123.1752 起的新收账为准：B193 整条正文比例推断评价已退役，独立有引用的事实对照保留；B1655 多陈腐锚的发生级定位与 B1646 等待范围提示在独立批次施工。尚未启动 r1057，不把单测当成新 live 通过。
+续修以 §123.1752 起的新收账为准：B193 整条正文比例推断评价已退役，独立有引用的事实对照保留；B1646 等待范围提示已推送；B1655 多陈腐锚已补系统发生级定位，B1654 单层根因报告包装兼容独立施工。尚未启动 r1057，不把单测当成新 live 通过。
 本轮以 §123.1732–1751 为准。四小批已推：B54 启发式诊断退出答案判定附注（264ab73b6）、B1652 区分策略未执行与退出成功（c3020f17f）、B1651a Maven/CTest 本轮报告来源（eecd6ebdd）、B1653 CTest 非执行状态范围（1d9ab6e49）。两轮冻结86包全仓及各批公共 count3/race 通过；不冒称 native Maven/CTest 验收或全部适配器闭环。r1056严格exact2结束：H1机器PASS273s、人工FAIL；读阶段图表外层TIMEOUT1200s、未交最终答案。显式窗/双轴/因果投影保留，但系统算术附注误把分母当分子，D/IO清单提示泛称所有等待；根因旁路因模型数组包装错误明确unavailable。读图重复陈腐锚点的局部清理可达性列最高后续核验，B193显示残余、B1646提示/旧footer及B1654无损对象解包逐项排期；Gradle来源P1和Meson/Hvigor/旧JSON继续开放，优先于B1561新能力。未以模型thinking认定n2同轮合同矛盾，不为追绿改问题/oracle/正文；见§1751及r1056 manual_audit。
 
 ## 1. 基线与目标
@@ -57385,6 +57385,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1754 B1655：重复陈腐关系标记的精确修补定位（2026-09-10）
+
+1. r1056 同一端点对的两条旧 metadata 在可见消息已被模型移除后仍残留；旧诊断无法唯一选中一条，输出 unknown/actions空，而别处可添加关系继续保持局部修补限制。根因是诊断提供的修补定位不足，不是用业务词义猜同一关系；亦不能将当轮全部15次拒绝都归给此问题。
+2. 仅对本块 `EdgeAnchors` 中可证明位置的 `typed_anchor_without_visible_edge` 与 `typed_anchor_reversed_against_visible_edge`，生产诊断携带1起始的系统位置。新failure ref绑定完整图及metadata的不透明快照；模型仍只选系统ref，不接受模型自填位置。执行前核对快照和原typed定位，先按块内倒序处理metadata删除，避免多个删除导致索引移动。可见图文、关系方向、label与结论一字不重写。
+3. 同对多条只获得指定metadata删除权限，不获得新增/替换关系的预算。唯一旧候选原remove/replace能力保留，旧无位置的歧义仍不放行。重复ref不增加删除预算，未选择的同对兄弟保留；新草稿重新发ref，旧ref、重排/改字/跨块/自填旧坐标均拒绝。无本块位置来源的合成候选仍走旧规则，不借列表索引冒充证据。
+4. 公共先红 `.codrax/tmp/20260910-b1655-formal-public-red.log` tool1.081s。回归从真实ReadFile→EmitEvidence→EmitAnswerDocument产生delta→lease→Patch，覆盖单条、两label、完全相同、数组/编辑次序变化、不同identity、仅删第二或第三条后跨代继续修补；反向陈腐标记清理后，无证据可见箭头仍受原关系门约束。序列化恢复的lease实际执行上述公共patch，不止helper通过。
+5. 最终count3 tool3.965s/types1.207s（`20260910-b1655-final-count3.log`）；race×3 types3.198s/tool23.274s（`...-final-wire-race-count3.log`）；真实 `TestEmitValidator*` census×3 tool1.943s（`...-validator-census-count3.log`），HotFile×3 orchestrator0.980s（`...-hotfile-count3.log`）。中途JSON回环测试的空slice经omitempty变nil是既有编码归一，修正为所有failures/blocks逐字段相等及完整重编码字节一致，未放宽生产校验。没有结构豁免、旧测试删改或关键词硬门；新live待后续冻结批。
+
+状态：`B1655=implemented/public-count3+race/metadata-only-model-selected-cleanup/pending-live`；`Trace/window/auto-supplement=unchanged`；前两批已推送 `1ba027f7d`、`10503dd33`。
 
 ### §123.1753 B1646余项：等待提示与覆盖附注明确各自统计范围（2026-09-10）
 

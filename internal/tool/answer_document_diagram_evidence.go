@@ -19,16 +19,17 @@ import (
 // Mermaid syntax. It never scans the raw request, model prose, edge-message
 // vocabulary, or rendered final text for hard-gate keywords.
 type DiagramCallEdgeEvidenceMismatch struct {
-	BlockID        string
-	Issue          string
-	FromNode       string
-	ToNode         string
-	FromSymbol     string
-	ToSymbol       string
-	FromNodeSymbol string
-	ToNodeSymbol   string
-	Relation       types.DiagramRelationKind
-	BodyOccurrence int
+	BlockID          string
+	Issue            string
+	FromNode         string
+	ToNode           string
+	FromSymbol       string
+	ToSymbol         string
+	FromNodeSymbol   string
+	ToNodeSymbol     string
+	Relation         types.DiagramRelationKind
+	BodyOccurrence   int
+	AnchorOccurrence int
 	// Same-pool call matcher receipts are repair navigation, not new evidence.
 	// Keep them internal: model-authored mismatches cannot supply these rows.
 	matchedCallEvidence []diagramCallRepairEvidence
@@ -378,7 +379,7 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				})
 			}
 		}
-		for _, anchor := range block.EdgeAnchors {
+		for anchorIndex, anchor := range block.EdgeAnchors {
 			fromSymbol, toSymbol := diagramEvidenceAnchorEndpointSymbols(anchor, labels, evidence)
 			if block.Kind != types.BlockDiagram && block.Diagram == nil &&
 				answerBlockCarriesStandaloneTypedRelations(*block) && !anchor.HasEndpointIdentityPair() {
@@ -412,9 +413,14 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				if diagramAnchorReversedAgainstUniqueVisibleEdge(anchor, visibleBodyEdgeKeys, visibleBodyPairCounts) {
 					issue = diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge
 				}
+				anchorOccurrence := 0
+				if types.AnswerDiagramRelationRepairIssueHasAnchorOccurrence(issue) {
+					anchorOccurrence = anchorIndex + 1
+				}
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
 					BlockID: block.ID, Issue: issue,
-					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+					AnchorOccurrence: anchorOccurrence,
+					FromNode:         strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
 					FromSymbol: fromSymbol,
 					ToSymbol:   toSymbol,
 					Relation:   diagramAnchorRelation(anchor),

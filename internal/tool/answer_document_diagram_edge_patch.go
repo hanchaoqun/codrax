@@ -550,6 +550,14 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			)
 		}
 		var err error
+		if failureRef != "" && lease != nil {
+			for _, failure := range lease.Failures {
+				if failure.FailureRef == failureRef && failure.AnchorOccurrence != 0 &&
+					!types.AnswerDiagramRelationRepairOccurrenceMatchesBase(prev, failure) {
+					return fmt.Errorf("diagram_edge_edits[%d]: failure_ref=%q has a stale metadata occurrence snapshot", i, failureRef)
+				}
+			}
+		}
 		edit, err = resolveAtomicDiagramFailureRef(edit, lease)
 		if err != nil {
 			return fmt.Errorf("diagram_edge_edits[%d]: %w", i, err)
@@ -621,6 +629,22 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			resolvedEdits[index] = members[i]
 		}
 	}
+	// Metadata positions belong to the immutable base array. Apply them first,
+	// highest index first within each block, so neither another removal nor a
+	// body-edit anchor mutation can shift the selected row underneath a ref.
+	sort.SliceStable(resolvedEdits, func(i, j int) bool {
+		a, b := resolvedEdits[i].edit, resolvedEdits[j].edit
+		if (a.anchorBaseOccurrence > 0) != (b.anchorBaseOccurrence > 0) {
+			return a.anchorBaseOccurrence > 0
+		}
+		if a.anchorBaseOccurrence > 0 {
+			if a.BlockID != b.BlockID {
+				return a.BlockID < b.BlockID
+			}
+			return a.anchorBaseOccurrence > b.anchorBaseOccurrence
+		}
+		return false
+	})
 	for _, resolved := range resolvedEdits {
 		if resolved.skip {
 			continue
@@ -1583,6 +1607,7 @@ func resolveAtomicDiagramFailureRef(
 	edit.Match = nil
 	edit.Occurrence = 0
 	edit.BodyOccurrence = 0
+	edit.anchorBaseOccurrence = 0
 	// Only carriers that own a visible Mermaid statement inherit the
 	// producer's body occurrence.  stale_anchor and prior_anchor_metadata
 	// select metadata that has no visible body edge by definition; copying a
@@ -1667,6 +1692,7 @@ func resolveAtomicDiagramFailureRef(
 	switch len(matches) {
 	case 1:
 		match := matches[0]
+		edit.anchorBaseOccurrence = failure.AnchorOccurrence
 		if action == string(types.AnswerDiagramRelationRepairActionReplace) && edit.Edge != nil {
 			relation := types.AnswerDiagramRelationRepairFailureEffectiveRelation(*failure)
 			fromIdentity := strings.TrimSpace(failure.FromIdentity)
@@ -1960,6 +1986,14 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		return err
 	}
 	anchorIndex, anchorPairOccurrence, anchorErr := findAtomicDiagramAnchor(block.EdgeAnchors, *edit.Match, occurrence)
+	if edit.anchorBaseOccurrence > 0 {
+		anchorIndex = edit.anchorBaseOccurrence - 1
+		if !edit.failureRefResolved || edit.failureRefCarrier != types.AnswerDiagramRelationRepairCarrierStaleAnchor ||
+			anchorIndex >= len(block.EdgeAnchors) || block.EdgeAnchors[anchorIndex] != *edit.Match {
+			return fmt.Errorf("failure_ref=%q no longer selects its exact metadata occurrence", edit.FailureRef)
+		}
+		anchorErr = nil
+	}
 	bodyOnly := false
 	if anchorErr != nil {
 		if action == "relabel" {
@@ -2546,6 +2580,7 @@ func atomicDiagramAnchorWithoutBodyFailureAuthorized(
 	}
 	for _, failure := range lease.Failures {
 		if failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierStaleAnchor ||
+			failure.AnchorOccurrence != 0 ||
 			strings.TrimSpace(failure.BlockID) != strings.TrimSpace(blockID) {
 			continue
 		}

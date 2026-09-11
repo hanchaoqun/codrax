@@ -43,6 +43,9 @@ type AnswerDiagramRelationRepairFailure struct {
 	AllowedActions []AnswerDiagramRelationRepairAction      `json:"allowed_actions,omitempty"`
 	RelatedIssues  []string                                 `json:"related_issues,omitempty"`
 	BodyOccurrence int                                      `json:"body_occurrence,omitempty"`
+	// AnchorOccurrence is a producer-owned, 1-based position in the rejected
+	// block's EdgeAnchors, not a visible-body occurrence or a model selector.
+	AnchorOccurrence int `json:"anchor_occurrence,omitempty"`
 }
 
 // AnswerDiagramRelationRepairTargetCarrier tells the retrying model which
@@ -136,9 +139,10 @@ func (f AnswerDiagramRelationRepairFailure) CanRemoveVisibleBodyOccurrence(
 // a retry selector: admission still requires membership in the live lease and
 // all ordinary relation/evidence checks continue to run after the edit. A
 // changed typed anchor snapshot therefore gets a different reference, while
-// repeated validation of the same rejected draft remains stable. Mermaid
-// source, visible labels, request text, reasoning, and answer prose are never
-// read into this selector.
+// repeated validation of the same rejected draft remains stable. New metadata
+// occurrences also bind opaque diagram/anchor bytes to reject reordered or
+// modified bases; those bytes are not interpreted as a locator or evidence.
+// Request text, reasoning, and answer prose stay outside this selector.
 func AssignAnswerDiagramRelationRepairFailureRefs(
 	base *AnswerDocumentV2,
 	failures []AnswerDiagramRelationRepairFailure,
@@ -197,6 +201,13 @@ func answerDiagramRelationRepairFailureCapabilities(
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	case "typed_anchor_without_visible_edge":
 		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
+			legacy := failure
+			legacy.AnchorOccurrence = 0
+			if failure.AnchorOccurrence > 0 && len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, legacy)) != 1 {
+				// Multiple metadata rows gain only exact cleanup, not permission
+				// to manufacture a visible edge or a replacement budget.
+				return AnswerDiagramRelationRepairCarrierStaleAnchor, []AnswerDiagramRelationRepairAction{AnswerDiagramRelationRepairActionRemove}
+			}
 			return AnswerDiagramRelationRepairCarrierStaleAnchor, []AnswerDiagramRelationRepairAction{
 				AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace,
 			}
@@ -482,6 +493,7 @@ func answerDiagramRelationRepairFailureCarrierKey(base *AnswerDocumentV2, failur
 	if candidates := answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure); len(candidates) == 1 {
 		return strings.Join([]string{
 			strings.TrimSpace(failure.BlockID), "anchor", answerDiagramRelationAnchorSemanticKey(candidates[0]),
+			fmt.Sprintf("%d", failure.AnchorOccurrence),
 		}, "\x00")
 	}
 	if failure.TargetCarrier == AnswerDiagramRelationRepairCarrierVisibleBodyEdge {
@@ -548,6 +560,17 @@ func answerDiagramRelationRepairFailureAnchorCandidates(
 	failure AnswerDiagramRelationRepairFailure,
 	anchors []DiagramEdgeAnchor,
 ) []DiagramEdgeAnchor {
+	if failure.AnchorOccurrence != 0 {
+		if failure.AnchorOccurrence < 1 || failure.AnchorOccurrence > len(anchors) ||
+			!AnswerDiagramRelationRepairIssueHasAnchorOccurrence(failure.Issue) || failure.BodyOccurrence != 0 {
+			return nil
+		}
+		anchor := anchors[failure.AnchorOccurrence-1]
+		failure.AnchorOccurrence = 0
+		// The ordinal narrows an existing typed locator; it cannot override a
+		// different node/relation. Resolved identities retain the old behavior.
+		return answerDiagramRelationRepairFailureAnchorCandidates(failure, []DiagramEdgeAnchor{anchor})
+	}
 	relation := AnswerDiagramRelationRepairFailureEffectiveRelation(failure)
 	fromNode, toNode := strings.TrimSpace(failure.FromNode), strings.TrimSpace(failure.ToNode)
 	fromIdentity, toIdentity := strings.TrimSpace(failure.FromIdentity), strings.TrimSpace(failure.ToIdentity)
@@ -647,16 +670,27 @@ func answerDiagramRelationRepairFailureRef(base *AnswerDocumentV2, failure Answe
 		return out
 	}
 	payload := struct {
-		Version        int                                `json:"version"`
-		Failure        AnswerDiagramRelationRepairFailure `json:"failure"`
-		Block          *refBlock                          `json:"block,omitempty"`
-		FallbackBlocks []refBlock                         `json:"fallback_blocks,omitempty"`
+		Version            int                                `json:"version"`
+		Failure            AnswerDiagramRelationRepairFailure `json:"failure"`
+		Block              *refBlock                          `json:"block,omitempty"`
+		FallbackBlocks     []refBlock                         `json:"fallback_blocks,omitempty"`
+		OccurrenceSnapshot string                             `json:"occurrence_snapshot,omitempty"`
 	}{
 		Version: 1, Failure: failure,
 	}
 	if selectedCount == 1 {
 		block := toRefBlock(*selected)
 		payload.Block = &block
+		if failure.AnchorOccurrence > 0 {
+			// Byte ownership only: labels and Mermaid are opaque snapshot data,
+			// never interpreted to select an anchor or authorize a relation.
+			raw, _ := json.Marshal(struct {
+				Diagram any
+				Anchors []DiagramEdgeAnchor
+			}{selected.Diagram, selected.EdgeAnchors})
+			sum := sha256.Sum256(raw)
+			payload.OccurrenceSnapshot = fmt.Sprintf("%x", sum)
+		}
 	} else {
 		// Compatibility/fail-closed fallback for a malformed diagnostic whose
 		// block id is absent or ambiguous in the base. The lease may still be
@@ -1509,6 +1543,9 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 			if failure.BlockID != blockID {
 				continue
 			}
+			if failure.AnchorOccurrence > 0 && !failure.AllowsAction(string(AnswerDiagramRelationRepairActionReplace)) {
+				continue // Exact cleanup is not permission to create a new relation.
+			}
 			budgetBase := base
 			switch failure.TargetCarrier {
 			case AnswerDiagramRelationRepairCarrierPriorAnchor,
@@ -1551,7 +1588,7 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 				continue
 			}
 			anchor, ok := answerDiagramRelationAnchorByKey(base, key)
-			if !ok || answerDiagramRelationAnchorMatchesAnyFailure(blockID, anchor, lease.Failures) {
+			if !ok || answerDiagramRelationOccurrenceRemovalAllowed(blockID, key, missing, base, lease.Failures) {
 				continue
 			}
 			violations = append(violations, AnswerDiagramRelationRepairScopeViolation{
@@ -1642,6 +1679,7 @@ func answerDiagramRelationRepairFailureKey(failure AnswerDiagramRelationRepairFa
 		strings.TrimSpace(failure.FromNode), strings.TrimSpace(failure.ToNode),
 		strings.TrimSpace(failure.FromIdentity), strings.TrimSpace(failure.ToIdentity),
 		fmt.Sprintf("%d", failure.BodyOccurrence),
+		fmt.Sprintf("%d", failure.AnchorOccurrence),
 	}, "\x00")
 }
 
@@ -1681,6 +1719,9 @@ func answerDiagramRelationFailureMatchesAnchor(failure AnswerDiagramRelationRepa
 
 func answerDiagramRelationAnchorMatchesAnyFailure(blockID string, anchor DiagramEdgeAnchor, failures []AnswerDiagramRelationRepairFailure) bool {
 	for _, failure := range failures {
+		if failure.AnchorOccurrence > 0 && !failure.AllowsAction(string(AnswerDiagramRelationRepairActionReplace)) {
+			continue
+		}
 		if failure.BlockID == blockID && answerDiagramRelationFailureMatchesAnchor(failure, anchor) {
 			return true
 		}

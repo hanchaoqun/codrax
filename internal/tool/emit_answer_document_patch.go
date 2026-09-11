@@ -2376,6 +2376,7 @@ type emitAnswerDiagramEdgeEdit struct {
 	failureRefResolved   bool
 	failureRefCarrier    types.AnswerDiagramRelationRepairTargetCarrier
 	failureIssue         string
+	anchorBaseOccurrence int // Set only by resolution of a live system failure_ref.
 	attachPairResolving  bool
 	additionCandidate    *types.AnswerDiagramRelationRepairCandidate
 	metadataAttach       bool
