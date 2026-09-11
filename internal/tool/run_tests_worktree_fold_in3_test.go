@@ -294,7 +294,10 @@ func TestRunTestsTimeoutExitDisclosesInfraDowngradedLockfileAndUntrackedOutput(t
 	if audit == nil || audit.Status != types.VerificationWorktreeAuditTrackedDriftDisclosed || len(audit.LockedReverify) != 1 ||
 		audit.LockedReverify[0].Outcome != types.VerificationLockedReverifySkippedSuiteInfraDowngraded ||
 		audit.LockedReverify[0].SuiteOutcome != types.ExecutedCommandOutcomeTimeout {
-		t.Fatalf("the infra outcome must be evaluated before any report-level check: %+v", audit)
+		lockfile, lockfileErr := os.ReadFile(filepath.Join(root, "Cargo.lock"))
+		untracked, untrackedErr := os.ReadFile(filepath.Join(root, "junk.out"))
+		t.Fatalf("the infra outcome must be evaluated before any report-level check: %+v; Cargo.lock=%q (read error=%v); junk.out=%q (read error=%v); executed commands=%+v; result summary=%q",
+			audit, lockfile, lockfileErr, untracked, untrackedErr, report.ExecutedCommands, result.Summary)
 	}
 	rows := fixedPointRowsByPath(audit)
 	if rows["Cargo.lock"].Disposition != types.VerificationWorktreeEffectDisclosed || rows["Cargo.lock"].LockfileFixedPoint != types.VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded {

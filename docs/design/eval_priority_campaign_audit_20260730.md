@@ -4,6 +4,7 @@
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
+B1656及r1057审计已推 `369855605`；后置全仓首轮遇历史同名2秒超时针失败，保留原红并只加失败诊断，未改断言/超时/生产。相同 `go test ./...` 最终复验exit0、86包通过，见§1758；不据单跑/复跑绿宣称该旧针可靠性根因已解决。
 前轮 §123.1732–1751 保留历史收据：B54/B1652/B1651a/B1653已推，r1056 H1人工错误与读题超时仍是真实原始结果，不因本轮修复倒改。Gradle当前执行来源P1、Meson/Hvigor/历史JSON仍开放并优先于B1561新能力；本轮非Trace不代替显式窗/因果投影生产验收。
 
 ## 1. 基线与目标
@@ -57396,6 +57397,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：`B1656=implemented/public-red-green/count3+race/cold-review-pass`；`permissions/model-answer/Trace/window/auto-supplement=unchanged`；`B1657/B1658=confirmed/pending-public-regression-and-fix`。
 
+**封版后测试可靠性追查（不新增产品修复声称）。** B1656及r1057审计已提交推送 `369855605`。原超时针独立同参数count3通过7.546s（`20260910-b1656-timeout-diagnostic-count3.log`）；原全仓红仍保留。源码核对：Unix supervisor只有外层shell成功Start后才返回本例Timeout，但不保证cargo脚本在2秒内已执行两个printf；Rust环境准备没有外部探测。超时出口经统一finishReport使用独立Background进行worktree审计，Git采集失败显式Unavailable，不是把取消/失败归为clean。尚未证实本次究竟停在何处，不宣称“已证负载”或“已证漏审”。仅在旧测试原异常分支附两个文件的实际内容/读取错误、ExecutedCommands及result摘要；全部原断言、2秒超时、8秒sleep及生产策略不变。原命令全仓复验收据另补；后续可靠性根修应分离确定性超时出口语义与真实进程截止针，不能为签绿放宽窗口。
+
+**最终冻结复验：** `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./...` 原参数exit0，`20260910-r1057-post-b1656-full-recheck.log`共86有测试包通过（未变包部分缓存）；tool322.495s、agent71.664s、orchestrator22.635s、tracequery110.258s、types45.607s，tracediag/hitraceconv等缓存通过。仅增加失败现场诊断，不改变测试时序、并行参数或oracle；测试/生产源码在复验期间冻结。首次红与最终绿分开保留；没有再开live或倒改r1057机器/人工结果。状态追加：`B1656=final-full-pass/pushed-369855605`；`legacy-timeout-probe=reliability-observation-open/diagnostics-strengthened/not-root-caused`。
+
 ### §123.1757 r1057结果与后续系统缺口：交付恢复不等于答案质量闭环（2026-09-10）
 
 机器/人工收据：`eval/parallel_selected_summary_evalcampaign_pipeline_jswrite_r1057_20260910{,_manual_audit}.md`。实际02:00:08Z–02:10:33Z（2026-09-11），两路各一次、无第三路/追跑/中途源码变化。机器读PASS625s、JS写FAIL120s；人工读FAIL、写代码及诚实交付PASS但程序证明仍unavailable。
@@ -57405,6 +57410,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 **人工作品仍失败。** main-stage表/正文混淆RequestModel→确定性IR、IR直接回写、文档持久化→evaluator渲染FinalAnswer几个职责；图有hash节点显示名、重复stage/agent及裸孤立O/BC，还自选了2条与主执行时序无关的StageBinding赋值。15条模型citation pool无item引用被既有规范化裁掉，最终只余3个前置stage引用。入模有准确的minimal-first/3条precedence/非call说明和真实dispatchStage→Execute，不以此单轮模型误读增新关键词门或替模型修正文。既有friendly-node-label字段已支持可读名称，模型未提交；不再硬加字段/词面要求。
 
 **B1658/P1：系统补表的成员范围放大，归并B183存在性≠执行成员族。** 原题明确analyze到finalizer；首稿3块（日志6674）后系统在6678追加缺失成员表，最终MD48–54“清单完整性补充”补出LogTriage/PerfTriage/MultiRepoFocus。前两者是起点之前的条件阶段，第三项连当前read topology都不包含。来源6157是已接受model_emitted/current_source七成员聚合，不是系统造符号；但真实定义位置不能证明其属于当前请求主时序。相同context5924–5929已给窄主4/条件2及“声明不得扩active membership”，成员行/完整性教学却继续消费宽7，出厂 `appendPrincipalEnumerationTypedSupplements` 又经 `CompileEnumerationDisplaySets → principalEnumerationDisplaySetAuthorizesSystemCarrier → missingRows` 放大。该出口虽不改模型块，仍会把未被证明的主集合当成系统完整性事实，不能只归模型波动。
+
+**B1658共享短路点与首批边界（只读设计，未施工）。** 本题是typed explain/mechanism+flow、逐成员表及必需stage_or_workflow维度；声明inventory在日志798已撤销，但表格使display-set继续编译。`PrincipalMemberSetRequiresTypedRelationAuthority`仅覆盖既有relation handoff/call-chain，故 `AnswerAggregateFactAuthorizesPrincipalContract` 的精确source-ref臂先授权；display-set入口又第一行继承，甚至无需后续逐行引用兜底。原 `completionStageRoleFactRows` 只对等长一一对应所选主阶段的集合核查，七项混合集跳过不等于已经验证。最小方案不是扩call-chain硬门或调整family，而是在共享来源资格中区分“定义可引用/当前流程成员已证/具体方向与状态读写已证”，让prompt权威成员、support lane、pre-emit principal refs及系统补表读同一个scope结果，避免 `factAuthority || setAuthority` 单边修改被绕过。
+
+可复用 `SourceInventoryLaneConflictsWithConceptualWorkflowDimension` 的语言无关typed判据、checkout验证的 `stageauthority.LoadReadMode → SelectRequiredReadModeWorkflow` 所选Main及来源，以及 `CompileEnumerationCitationSupportSets` 的原引用可达性。未证成员域保持支持材料，不删事实/成员/模型表，不把precedence当call或读写证明，既有Trace/runtime排除及链上合同不动。公共矩阵至少含：有坐标的宽七项；真实provider精选四项；explore→finalize子范围；错owner/文件/坐标或provider不可验证；普通Cangjie/ArkTS/其他语言声明inventory；流程+独立inventory双维度；full/patch/replay及中英一致性。**未解前提：** 普通aggregate尚无明确requested-dimension绑定，多集合不能按label分配维度，通用跨领域membership provider亦未验证。首批只退回不成立的自动升级并保已证正权限，不猜补集合或授新完整性硬义务。
 
 **JS写证明边界。** 补丁只改 `undefined ? 0 : Number(value)`，原测试逐字不变。真正缺失的是npm：runner实际`npm test --`退出127；只有Node可用并不表示npm可用。静态make检查没有被提为3项行为合同covered；最终`accept_unverified`及0/3证明如实。运行后独立Node跑原4断言和16合法+10非法输入、2格式检查全通过（`20260910-r1057-dayjs-{native-final,blackbox}.log`），不回填原程序证明、不以任意node直跑绕开npm生命周期。基线原测试首断言NaN失败为真实对照。
 
