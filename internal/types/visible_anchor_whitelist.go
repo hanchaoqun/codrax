@@ -245,10 +245,9 @@ func visibleAnchorEntryFromRequired(a AnswerRequiredAnchor) VisibleAnchorEntry {
 	}
 }
 
-// visibleAnchorEntriesFromSupport projects ONE support-lane entry to
-// at most three whitelist entries (AnchorSymbol + Subject + Object,
-// when distinct). SurfaceTerms are folded into each entry's
-// SurfaceForms when they identifier-shaped.
+// visibleAnchorEntriesFromSupport projects ONE support-lane entry to at most
+// three role-specific entries. A definition uses only its declared anchor;
+// other roles retain their existing endpoint and SurfaceTerms projections.
 func visibleAnchorEntriesFromSupport(raw AnswerSupportEntry, origin string) []VisibleAnchorEntry {
 	source := strings.TrimSpace(raw.Source)
 	line := raw.LineStart
@@ -256,6 +255,14 @@ func visibleAnchorEntriesFromSupport(raw AnswerSupportEntry, origin string) []Vi
 	kind := visibleAnchorKindFromAnchorKind(raw.AnchorKind)
 	candidates := visibleAnchorCandidateSurfaces(raw)
 	surfaceForms := visibleAnchorIdentifierSurfaceTerms(raw.SurfaceTerms)
+	if raw.AnchorKind == AnchorDefinition {
+		// A parameter, return type, or owner on the same source line is not
+		// another declaration or an alias of this one. Preserve only the
+		// original anchor and its existing bare projection, never infer an
+		// owner/qualification or parse free-form description text.
+		anchor := strings.TrimSpace(raw.AnchorSymbol)
+		surfaceForms = visibleAnchorIdentifierSurfaceTerms([]string{visibleAnchorBareSymbol(anchor), anchor})
+	}
 
 	out := make([]VisibleAnchorEntry, 0, len(candidates))
 	seen := make(map[string]bool, len(candidates))
@@ -287,8 +294,8 @@ func visibleAnchorEntriesFromSupport(raw AnswerSupportEntry, origin string) []Vi
 
 // visibleAnchorCandidateSurfaces returns the identity surfaces that are safe
 // to pair with raw.Source:raw.LineStart in the prompt-side anchor guide.
-// Definition evidence can expose the symbol and its owner surfaces. Non-
-// definition evidence must stay role-accurate: a call/condition/assignment
+// Definition evidence exposes only its AnchorSymbol, not every Subject/Object
+// sharing that coordinate. Non-definition evidence must stay role-accurate: a call/condition/assignment
 // line proves the visible target on that line, not the caller/owner's
 // definition. This prevents the guide from advertising "Foo @ call-site line"
 // as a definition anchor and sending the model into avoidable line repairs.
@@ -303,7 +310,9 @@ func visibleAnchorCandidateSurfaces(raw AnswerSupportEntry) []string {
 	}
 	var out []string
 	switch raw.AnchorKind {
-	case AnchorDefinition, "":
+	case AnchorDefinition:
+		push(&out, raw.AnchorSymbol)
+	case "":
 		push(&out, raw.AnchorSymbol, raw.Subject, raw.Object)
 	case AnchorCall:
 		push(&out, raw.AnchorSymbol, raw.Object)
@@ -396,7 +405,8 @@ func visibleAnchorKindFromContractTerm(k ContractTermKind) VisibleAnchorKind {
 func visibleAnchorKindFromAnchorKind(k AnchorKind) VisibleAnchorKind {
 	switch k {
 	case AnchorDefinition:
-		return VisibleAnchorKindFunction
+		// The carrier proves a declaration, not its function/type/category.
+		return VisibleAnchorKindSymbol
 	case AnchorCall:
 		return VisibleAnchorKindCallSite
 	case AnchorReturn:

@@ -3923,6 +3923,17 @@ func stabilizeRegistrationEndpointAuthority(it *types.EvidenceItem, gc *ground.C
 	if it.GroundingStatus != types.GroundingGrounded && it.GroundingStatus != types.GroundingRecovered {
 		return false
 	}
+	if parameter := registrationDefinitionParameterReference(*it, gc); parameter != "" {
+		it.Kind = types.EvidenceUnresolved
+		it.Confidence = 0
+		it.GroundingStatus = types.GroundingUngrounded
+		it.GroundingTier = ""
+		appendGroundingNoteOnce(it, fmt.Sprintf(
+			"registration subject %q is supported here only by parameter %q's declaration, not by a registry binding at %s:%d; the function definition proves %q, not this registration edge. Cite the actual receiver binding or attached registration declaration; keep the source explanation as an unresolved lead until that evidence is available",
+			it.Subject, parameter, it.Source, it.LineStart, it.AnchorSymbol,
+		))
+		return true
+	}
 	object := strings.TrimSpace(it.Object)
 	if object == "" {
 		return false // runtime shape validation rejects new sparse rows earlier

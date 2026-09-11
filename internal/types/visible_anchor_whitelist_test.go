@@ -46,9 +46,9 @@ func TestBuildVisibleAnchorWhitelist_RequiredPreservesOrder(t *testing.T) {
 }
 
 // TestBuildVisibleAnchorWhitelist_GroundablePopulatedFromSupportLanes
-// pins the support-lane projection: AnchorSymbol / Subject / Object
-// from each AnswerSupportEntry surface in the Groundable bucket,
-// deduped by (Symbol, SourceFile, SourceLine).
+// pins the definition projection: its declaration anchor retains the exact
+// source, while an owner on the same evidence row is not given that definition
+// coordinate. Other evidence roles retain their own endpoint projections.
 func TestBuildVisibleAnchorWhitelist_GroundablePopulatedFromSupportLanes(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Lanes: []AnswerSupportLane{
@@ -70,8 +70,8 @@ func TestBuildVisibleAnchorWhitelist_GroundablePopulatedFromSupportLanes(t *test
 		},
 	}
 	got := BuildVisibleAnchorWhitelist(plan, nil)
-	if len(got.Groundable) < 2 {
-		t.Fatalf("expected ≥2 groundable entries (anchor + subject); got %d (%+v)", len(got.Groundable), got.Groundable)
+	if len(got.Groundable) != 1 {
+		t.Fatalf("expected only the declared anchor, not its owner at the same source line; got %d (%+v)", len(got.Groundable), got.Groundable)
 	}
 	foundAnchor, foundSubject := false, false
 	for _, e := range got.Groundable {
@@ -80,13 +80,19 @@ func TestBuildVisibleAnchorWhitelist_GroundablePopulatedFromSupportLanes(t *test
 			if e.SourceFile != "internal/orchestrator/contract_check.go" || e.SourceLine != 115 {
 				t.Errorf("anchor entry source mismatch: %+v", e)
 			}
+			if e.Kind != VisibleAnchorKindSymbol || len(e.SurfaceForms) != 1 || e.SurfaceForms[0] != "runContractCheck" {
+				t.Errorf("declaration category or aliases must not be inferred from its support row: %+v", e)
+			}
 		}
 		if e.Symbol == "Orchestrator" {
 			foundSubject = true
 		}
 	}
-	if !foundAnchor || !foundSubject {
-		t.Errorf("expected both anchor and subject in groundable; got %+v", got.Groundable)
+	if !foundAnchor || foundSubject {
+		t.Errorf("expected declared anchor only; owner remains in the original support evidence: %+v", got.Groundable)
+	}
+	if entry := plan.Lanes[0].Entries[0]; entry.Subject != "Orchestrator" || strings.Join(entry.SurfaceTerms, ",") != "runContractCheck,run_contract_check" {
+		t.Errorf("guide projection changed the original support evidence: %+v", entry)
 	}
 }
 
