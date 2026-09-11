@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-11）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮续修以§123.1768.7之后及§123.1769为准：B1664参数声明冒注册主体及定义建议越权已完成公共先红后绿、泛化来源边界与原文保真测试；末审再根修超过四行/含空行的附着注解完整性，不用截断前文签矛盾。冻结count3/race/独立冷审、全仓86包与make全部通过，正在交付，尚未新开live。下一exact2选E1双独立窗归一Trace与memoclaw跨仓Python同步/异步写，原case/oracle/1200s不变；不重复r1059追绿，具体待交付后追加收据。
+本轮续修以§123.1768.7之后及§123.1769–1770为准：B1664参数声明冒注册主体及定义建议越权已完成公共先红后绿、泛化来源边界与原文保真测试；末审根修超过四行/含空行的附着注解完整性，不用截断前文签矛盾。count3/race/独立冷审、冻结全仓86包与前后置make全部通过，已推`e622c8264`。r1060严格exact2各一次完成：E1双窗Trace机器PASS157s/人工FAIL，Python跨仓写PASS177s/补丁正确但验证权威FAIL。B1626仍把两请求成员窗压成包络；B1575未关闭的执行粒度能力债新增生产见证——仅import+AST的探针被授target_behavior，不误归Make/PTO或披露丢失。Python48组独立真调用/await后验通过，不倒填正式proof。两项P1须各自完整来源闭环，不靠标签/教学补丁销账；原case/oracle/1200s及模型答案未改，不新增追跑。
 本轮续修以§123.1764–1768为准：B1661已提交推送`f6e64a545`。r1059严格两路各一次结束：跨语言读机器PASS481s/人工FAIL，C++写TIMEOUT1200s/人工FAIL，审计已推`d2fc1a602`；最终无图不能签渲染通过，最后双头Lf补丁的2352项独立后验1708失败，不回填原流程SDK27链接失败/failed证明。B1663真实失败坐标修复已推`928fdb14d`，public RED→GREEN/count3/race/冷审/冻结全仓86包及前后置make通过，不扩权限。B1664已钉源码和本次真实缓存：Rust符号正确，缺口是注册主体角色未证却被放大为verified关系/函数定义锚/recipe，不能全归最终模型波动；下一批先公共复现并保护合法附着注解/实际binding，不误改Rust解析器。B1651b旧Gradle XML污染与B1662 Meson原生报告语义仍P1；本机无对应工具链，尚未安装或签原生验收；B1561能力感知恢复另续，不将可观测性修复冒称全runner来源闭环。
 本轮新增§123.1759–1763：B1658=`fe1dccfac`、B1657=`f9e821966`已分批推送，公开回归/count3/race/独立冷审及冻结86包全仓通过。r1058 exact2已结束并以`2a3752bf9`推送审计：H9机器FAIL182s（旧1.023/3.309断言未计新归账0.296）、隔离仓颉PASS68s；两份答案人工均partial，模型解释错误不能被机器PASS或投影存在抵销。H9显式窗/完整投影/默认五项根因旁路/同窗自动补采保留。后续B1659通用runtime-work JSON教学=`f6ed96720`、B1660累计字段误名=`22cc8ad54`均独立提交推送；两批公开回归/count3/race/冷审/冻结86包全仓及最终make全部通过。保持模型已选receipt/正文及原计算，零新硬门；这两批尚未新开live，不能倒签r1058。其它高优先未闭债见§1761。
 本轮以 §123.1752–1758 为准。B193正文算术评价退役、B1646等待范围、B1655重复陈腐关系定位、B1654完整报告单层解包已分四批推送（1ba027f7d/10503dd33/75e864f2a/b33952a0e）；冻结86包全仓+构建通过。r1057严格两路各一次结束：读阶段图表机器PASS625s、人工FAIL，原图parse/render通过且B1655真实三重复标记清理成功；JS写机器FAIL120s因真实缺npm，交付诚实unverified，独立Node原测试4断言及26边界输入通过，不倒签程序proof。B1656已有精确孤立清单的短摘要已实现并独立count3/race通过；B1657依赖清理后的候选传递、B1658存在性清单被系统提升为执行成员补表均登记待修。没有第三路追绿或新prose硬门。
@@ -57390,14 +57390,53 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
-### §123.1769 r1060：独立双窗Trace与跨仓Python写（2026-09-11，排期）
+### §123.1770 r1060后优先批次：执行证明粒度与请求成员窗（2026-09-11）
+
+本节只冻结基于当前代码和真实日志的下一施工边界，未实现新协议，不声称两个P1已修。B1664先完成提交推送，随后r1060按原计划两路审计；不以机器2/2绕过人工发现，也不重复命名既有工单。
+
+| 顺序 / 工单 | ROI与精确缺口 | 完整最小批次 / 验收 | 当前状态 |
+|---|---|---|---|
+| 1 / B1575执行粒度能力债，兼挂B1561，P1 | 身份绑定被当执行/行为证明，可能影响全部同形内联探针、suite跳过与终验；r1060实证 | 运行器目标观测+共享权限消费同批；公开RunTests→报告→JSON→ledger/controller，AST-only负控、真同步/await正控及陈腐来源矩阵；行为合同须比“执行过目标”更强，不以refs非空签证明 | 已源码/生产双证，协议设计待施工；B1575披露修复仍关闭 |
+| 2 / B1626，P1 | 多个用户窗口被单对端点压成包络，补采/显示错授请求身份；r1040及r1060见证 | 单一typed请求成员域贯穿analyzer/schema/教学、关联、补采、上下文/展示；保护单窗和旧载体、非相邻/重叠/跨来源/目标及容量披露；不从用户原文扫数字 | 已确认未实施；不能只改“主/子范围”标签 |
+| 3 / B1651b、B1662，P1 | Gradle旧XML来源、Meson原生报告接口/结果语义；影响验证真实度 | 原生invocation来源闭包及准确结果枚举；缺工具链时不把协议mock签原生通过 | 仍待工具链前提，未自行安装 |
+| 后续 / B1561恢复教学与其它在账问题 | 环境/执行能力不足时的可执行恢复；其它图关系、范围与物理次数债 | 按现有能力事实软指导，不新增模型必填义务/无解合同；未覆盖语言及legacy关系不冒签已验证 | 原队列保留，模型独立措辞错误降观察 |
+
+#### 执行能力：现有收据不足，必须区分三层事实
+
+1. `types.VerificationProbeExecutionReceipt` v1只证明definition/invocation/executionID、目录、时间及argv；`run_tests_verification_probe.go`产生的TestResult是整段probe ID、scope为空，Python/inline status只含outcome/exception/exit。它们没有目标方法实际执行或逐断言观测。`verificationProbeHasExecutableFailureSignal`只识别失败机制在代码中存在，不能证明相应分支执行。ChangedPathCoverage/confidence是派生判断，禁止拿它们反证自己。
+2. 可复用B1616的实例/定义/工作树绑定及PTO“声明与精确执行结果分离”的join模式，但不能将项目test candidate收据硬套内联探针。第一片可用Python真实运行期事件产生版本化目标观测，绑定精确源文件/内容、代码身份和完整性；区分import/类体、真正方法执行、仅创建coroutine与真实await。缺失/截断/冲突/错目标为unknown，模型写status不能自行铸造观测。
+3. 目标执行至多授target_execution；“调用方法+另一处静态断言通过”仍不够证明行为合同。target_behavior还需具体调用/观察结果与断言结果绑定exact contract-ref。若该批承诺内联探针继续关闭hard runtime contracts，就必须同时交付这条正向通路；否则明确只完成目标执行层，逐合同能力另批。保留合法源码形状合同和模块初始化语义，不能将所有probe永久一刀切降级或拒绝。
+4. 共同消费点至少包括`run_tests_changed_path_coverage.go:338`、`run_tests.go:3435`的changed-symbol/contract confidence、`:1840/:1899`的suite选择、`verification_proof_profile.go`的profile/累计ledger/历史重放、controller impact/patch-review、HasTargetExecutionCoverage及无修改重规划资格。非空ContractRefs和import只能是声明/身份，不再单独给高层权威。原进程退出、真正失败和报告事实须保留，旧报告不可被新规则倒填为实测。
+5. 公开矩阵除了本轮AST-only与同步/await，还需仅构造对象/仅创建协程、执行错目标/未改方法、静态断言与调用不相关、缺失/截断观测、同probe ID换源码/工作树/定义、旧收据重放、精确项目assertion及源码形状合同正控。只测试私有枚举helper不足以封版；执行来源与三个消费面必须同批接受独立冷审。
+
+#### 多窗身份：成员是请求，包络只是派生参考
+
+1. 当前模型query虽能自行保留A/B，系统profile只有一对起止，后续只能将包络识别为请求范围。不能要求模型把所有query跑全后再让系统扫描结果猜哪些是用户窗；须模型在已有结构化意图入口明确成员，schema和教学同源，单窗旧入口保持兼容。
+2. 后续request correlation、deterministic supplementation与系统显示共享成员身份；成员应绑定来源、目标及边界语义。包络或探索下钻不能复用请求成员资格，重复/重叠/非相邻成员不互相覆盖。未知旧输入要诚实保留unknown，不能挑第一窗、把数值相同就视为同请求或从source_quote硬扫数字补协议。
+3. 状态比较不能因多窗而强开因果投影；真正显式根因需求继续保持各自原窗、探索+自动补齐、链上两轴/业务线索和旁路输出。最终正文/图仍由模型决定，系统只供事实和范围；不添加原文关键词硬门。
+4. **必须同批的消费闭包。** `RuntimeArtifactScopeProfile`增加有序成员集合并在CompileObservationLedger深拷；兼容单窗方法只在唯一成员时返回，不从集合选首窗/包络。`emit_analysis`的schema/参数解码/当前请求原句验证与analysis_contract教学同源；`ResolveTraceQueryWindowScope/ForWindow`按成员标记，匹配本身不授capture/target/完整性/可加权限。`trace_query_supplement.go:1369/1403`当前全局family检测+单窗替换需逐成员查缺，仍共享一次总deadline，只补既有需求家族；SystemTraceSupplement须逐员记执行/跳过，不把最后一次窗写成全批。
+5. **不能漏主账户和投影。** `trace_target_state_scope_authority.go:291`当前finite fallback key只有artifact+subject，再选TotalMS最大；仅把入口改“任一窗匹配”仍会让B覆盖A，须成员键及部分projection/剩余finite账户合并。`trace_causal_projection.go`的主窗/路径优先/折叠前排序及partition当前artifact域须逐成员检查，不能让全局一个席位替另一请求窗。finalizer过滤/handoff、短榜和覆盖窗均迁移同源身份；旧单窗/full-artifact/bounded-selector/未知载体保持可用，公开字段须同时审序列化和tracediag处置，不盲重钉hash。
+6. 公共RED优先实际EmitAnalysis→两次TraceQuery→ledger→BuildInitialInstruction→Apply/Render：A/B都是请求成员、包络仅补充，原数值与来源不改。仅A已有只补B、两者已有不补包络、B失败/预算耗尽单独披露；非相邻/重叠/嵌套/反序/重复名称、同时间异capture/target/行过滤/收据不互相满足；A已有因果投影而B只有state账户仍不得丢B。该矩阵本轮尚未运行，以上只读设计不是测试收据。
+
+状态：`B1575-disclosure=closed/5fecd1215+followups`；`B1575-execution-granularity=open/P1/r1060-witness`；`B1561=capability-aware-recovery-open`；`B1626=open/P1/typed-multi-member-domain-needed`；`new-protocol-implementation=not-started`。活跃SSE不得因4ms/旧4m无最终正文降级，真实停滞/取消/显式deadline保持。
+
+### §123.1769 r1060：独立双窗Trace与跨仓Python写（2026-09-11，已审计）
 
 1. 当前243例（215 read/25 apply/3 plan）。按客户影响、来源/范围权威风险、执行验证能力及近期覆盖老化排序，选 `real_trace_e1_dual_window_normalized`（上次r1040）和 `github_issue_memoclaw_text_search_multirepo_py`（上次r1026）；前两批刚覆盖H9/仓颉、C++写/跨语言读，不重复单题求绿。机器oracle较宽，必须人工复算/核验，不据机器PASS跳过过程审计。
 2. E1只问同一线程两个独立窗口的CPU获得情况：A2.992ms，running0/runnable0.014/sleep2.978；B30ms，running3.414/runnable0.780/sleep25.806。需原窗逐一归一化，不能用32.992ms包络替代，也不能由零基数说增长倍数。本题不要求帧根因或强制因果图；根因旁路必有，空合同须诚实说明，不把有限状态问题硬套全量投影合同。
 3. Python只写隔离的python-sdk，同步/异步都须遵守仓内API的POST `/v1/search` 与JSON query/limit/可选namespace。原make是AST/source检查，不能当运行时行为证明；独立后验将核真正await、恰一次transport、完整URL/JSON、结果透传和API/测试未改，且不回填产品proof或PTO。现有Python即可，无需安装JVM/Meson等工具链。
 4. 执行纪律：B1664冻结全仓/构建/提交推送后重建对应revision，再原runner `PARALLEL=2 TIMEOUT=1200` 两例各一次。开始前不运行第三路，不修改case/oracle/客户题目。日志、上下文、完整模型答案、默认根因旁路及写计划/实际测试范围分开审计；机器与人工判定分别落档。本节登记时尚未启动live。
 
-状态：`r1060=planned/not-started`；`B1664=full86+make-pass/delivery-next`；`oracle-change/answer-rewrite/new-prose-hard-gate=none`。
+5. B1664 `e622c8264` 已push main，HEAD/origin一致且工作树干净；提交后make成功，binary=`e622c82641ed`、built=08:16:52Z（`20260911-b1664-build.log`）。08:17:17Z原runner快照 `.codrax/tmp/codrax-selected-20260911-011717` 后同时启动两路，日志`20260911-r1060-runner.log`；完整机器汇总及人工审计预定 `eval/parallel_selected_summary_evalcampaign_dualtrace_pywrite_r1060_20260911{,_manual_audit}.md`。生产/测试持续冻结；本段只记启动，不预签任何PASS。
+
+6. **正式终态。** 08:17:17Z–08:20:14Z，原两路各一次结束，E1机器PASS157s、PythonPASS177s，runner exit0。完整机器及人工收据为`eval/parallel_selected_summary_evalcampaign_dualtrace_pywrite_r1060_20260911{,_manual_audit}.md`。Trace人工FAIL，写补丁PASS/验证权威FAIL，不能将机器2/2当交付全正确；无第三路或追跑。
+7. **E1已验证与系统缺口。** 本段Trace坐标来自原`run-1.logs/codrax-20260911-011718-000-80993.log`，非带额外文件头的合并日志。A/B运行/可运行/睡眠值及各自分母都正确，B按CPU1/2/3/5分配1.971/0.702/0.245/0.496ms=3.414ms。analyzer L634却把请求scope压成32.992ms包络；query L1239–1240正确A/B，补采L1798/成文L2440–2452仍认包络为requested。最终`20260911-011952.152-80993.md` L44标包络“请求主范围”、L46/48反标A/B“探索子范围”，B1626再次命中，不是数字账户串值。下一批共享typed多成员窗，不扫用户数字，不仅改标签。
+8. **E1模型边界。** 正文把0%→11.4%说“114倍”/“∞倍”，并由闭合Binder及D/IO为0扩大到无内核阻塞；真实未配对Binder A/B为1/10。原summary在emit2672与patch2728字节相同，系统未代写；不恢复B193算术评价或新prose硬门。`runtime_work_relation_requested=true`由模型选，已有“独立工作关系需求才启用”教学；本题最后多出未证关联VerifyClass0.285ms行，无助问题但未升级主因，留模型质量观察。初次必填predicates拒绝与schema一致，8次模型query为6成功+2路径失败，attached_trace指导后恢复；无代码读取、成文0拒/1patch，ctx37%。
+9. **Trace能力界限。** 本题只问状态归一化，不需要强套因果投影。默认131B `.root-causes.json`确已生成，schema2、空root_causes、unavailable/trace_root_cause_contract_not_active，非丢文件；不能伪造根因填充。最终无Mermaid，渲染N/A；此例不代签显式根因投影生产验收或新长时SSE。无4ms/旧4m活跃流年龄降级迹象。
+10. **Python补丁与后验。** durable `98166377b9e4e725562f7a65a6fbf976e9f7cd76`，plan1789114773208931000-81011，唯一`memoclaw/client.py`+8/-9；两方法均保签名/namespace条件/结果/await，改POST `/v1/search`+JSON并删urlencode。原测试/Make/API/TS文件SHA未变，工作树干净且未合主仓。根代理独立mock同步及真实await×尾斜杠×空/Unicode query×0/10 limit×None/空/Unicode namespace共48/48通过，核恰一次请求/完整URLJSON/结果身份；`.codrax/tmp/r1060-python-behavior-audit.json`标independent_post_run_not_product_proof，无网络，不回填正式proof。
+11. **Python系统P1。** 坐标来自原`run-1.logs/codrax-20260911-011718-000-81011.log`：第一AST-only探针L2331被拒，第二L2352加入客户端import+changed refs后仍只做AST/源码检查，无方法/transport/await执行，L2361接受；第二版也改了失败表达，不以“仅增加import”作逐字diff主张。应用日志`codrax-20260911-011933-000-81216.log` L710正式probe50.19ms通过，make明确suite_skipped。`change_plan_validate.go`只核import身份，而`run_tests_changed_path_coverage.go`按passed+非空ContractRefs给target_behavior，`run_tests.go`同样以身份耦合给soft refs covered/satisfied，正式report:104及终验消费该能力。原PTO missing、required typed0/planning_only9及B1575粒度披露仍在，不误记Make获PTO/九硬合同逐一执行/披露回归；final ledger的同ref probe协调是授权源头问题。B1575原本明确保留AST-only admission，本轮为其执行粒度未闭债新见证，兼挂B1561，不造重复B1665或只加教学签修复。
+
+状态：`r1060=complete/exact2-once/machine2/2/human-trace-fail+write-patch-pass-but-verification-authority-fail`；`B1664=pushed-e622c8264/full86+pre-post-make-pass/not-production-exercised-r1060`；`B1626/B1575-execution-capability=P1-open`；`independent-python-postcheck=48/48/not-product-proof`；`oracle-change/answer-rewrite/new-prose-hard-gate=none`。
 
 ### §123.1768 B1664：错误注册主体被放大为已验证关系及函数定义锚（2026-09-11，追加复核）
 
@@ -57418,7 +57457,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 12. 最终冻结race count3 tool3.511s/types2.207s/agent4.427s通过（`20260911-b1664-frozen-race.log`）。原参数 `SDKROOT=.../MacOSX26.5.sdk go test ./...` exit0，86有测试包通过，未变包部分使用Go缓存；tool347.688s、agent85.436s、types54.806s、orchestrator23.954s、tracequery124.014s、tracediag20.611s、hitraceconv161.991s、REPL74.992s（`20260911-b1664-full.log`）。同冻结树make exit0（`20260911-b1664-build-precommit.log`），提交后将重建可审计revision，未对测试时限/断言或原case降杆。
 
-状态：`B1664=P1/implemented/public-red-green/frozen-count3+race+cold+full86+make-pass/delivery-next`；`Rust-extractor/cache-cause=ruled-out-for-r1059`。r1059人工仍FAIL，事后修复不倒签成生产复放通过。下一轮按库存/ROI选双窗归一Trace与Python跨仓写，恰好2例、原1200s预算/原oracle，不用旧H8/H9/H11标尺追绿。
+状态：`B1664=P1/pushed-e622c8264/public-red-green/frozen-count3+race+cold+full86+pre-post-make-pass`；`Rust-extractor/cache-cause=ruled-out-for-r1059`。r1059人工仍FAIL，事后修复不倒签成生产复放通过。r1060按库存/ROI选双窗归一Trace与Python跨仓写，恰好2例、原1200s预算/原oracle，不用旧H8/H9/H11标尺追绿；不是原错误注册场景的生产重放，不预签B1664新增live命中。
 
 ### §123.1767 B1663：混合追加失败时把合法首项误报为违规项（2026-09-11，施工前登记）
 
