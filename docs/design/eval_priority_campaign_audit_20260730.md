@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-12）
 
-本轮最新§123.1783：B1626已推`4fed22871`、公共先红后绿/count3/race/冷审/最终冻结86包全测与同版本构建通过。r1064严格exact2各一次：E1双窗机器PASS109s但人工FAIL（模型scope填整trace、未自然触发新成员路径）；Python机器/人工FAIL424s、14拒绝13patch，确认B1647c系统端点恢复与修补范围比较自冲突，优先根修。B1618-P2b同TID账户丢来源/窗的旧gap新增附注见证，导航结束边界另记P2。原产物保留，不以机器过例替代链路闭环，不追第三例。
+本轮最新§123.1784：B1626已推`4fed22871`，r1064审计已推`cdede1402`。r1064严格exact2各一次：E1双窗机器PASS109s但人工FAIL（模型scope填整trace、未自然触发新成员路径）；Python机器/人工FAIL424s、14拒绝13patch，确认B1647c系统端点恢复与修补范围比较自冲突。本批B1647c已完成真实公共先红后绿、单侧/限定词与权限负控、count3/race/独立冷审/最终冻结86包全测和make，准备提交推送；退役第二套身份匹配，改用同次系统正规化私有收据，原可见答案与证据门不动。B1618-P2b同TID账户丢来源/窗的旧gap新增附注见证，完整来源批排下一顺位，导航结束边界另记P2。原产物保留，不以机器过例替代链路闭环，不追第三例。
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
 当前以§123.1778–1779为准：B1561累计证明处理次序已推`b6b5f1cf5`，公共RED→GREEN、count3/race/独立冷审、原四工件离线复核及冻结全仓86包/提交后make通过。r1063严格exact2各一次结束：dateutil症状写机器PASS257s/有限输入人工PASS；H1 Binder机器PASS243s/人工FAIL。写最终单计划零probe未触发累计顺序；Trace显式窗/两轴/投影/默认6项根因旁路仍在，但模型在精确供给下错算对端/泛化长睡眠，另确认系统B1666非墙钟残差附注。B1665四面Python编辑教学缺scope限定与B1666分别小批修复；B1626多请求成员窗仍未修，不由单窗PASS代销。
@@ -57399,6 +57399,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1784 B1647c：本次身份正规化收据与局部修补合同统一（2026-09-12）
+
+1. r1064审计已独立提交推送`cdede1402`；原两例输出与机器结论保留。只施工§1783.4的确定性合同自冲突，不顺带改B1618账户、导航提取、模型预算或原图。正式live recipe n3/n4与model RP/RES构成唯一typed拓扑映射，系统隐藏身份富化后被另一套node键匹配误判为模型删除/新增；retain/remove孤立节点两合法动作均无法通过。
+2. 首个有效公共RED=`20260912-b1647c-public-red-valid.log` tool1.154s：真实关系变更先stage，再由实际ParametersFor取得孤立节点only schema，公开Execute只提交当前retain/remove；8格中4个business IDs（含真实Read→Emit evidence两格）失败，4个同ID正控通过。首轮`...public-red.log`的ParametersFor参数类型编译失配不计产品RED，保留过程文件，不改名冒充。
+3. 实现已冻结：获取本次已有normalizer前后完整anchor occurrence的私有变化收据，仅非identity字段保持一致的真实系统补写才可用于lease比较；与未列baseline完整锚/出现次数精确相配后，暂恢复原隐藏身份用于原门比较。新选择或模型改动的关系继续用原lease和普通证据校验，最终正常pre-emit仍恢复并校验canonical identities。退役stabilizer第二套recipe-node推断，不添加标签猜测/原文扫描；同pair异label/claim/ref不串槽，原本合法的等价重排不加新硬门。收据不经模型JSON、不存Mutable、不跨retry；重复block ID及缺失/错配收据不能使用该协调路径。
+4. 有效公共RED后的首绿`...first-green.log` tool1.281s；新旧矩阵保留同ID/业务ID、retain/remove、真实Read→EmitEvidence、混合重复/重排及缺失收据/模型身份预改/标签或claim漂移/错block/重复出现负控。公共负控分别由原`edge_anchor_node_identity_conflict`和`call_edge_unproven`拒绝错误方法及缺调用证据，证明范围协调不授予事实权威。`...matrix-first.log`曾把错误方法应触发的较早身份门误期望成后续调用门，修正的是分支断言，不是新增产品RED或放宽原门。
+5. 补充公共正控`answer_document_receipt_forms_b1647c_test.go`含from-only/to-only/display-qualified三格：从明确标注的历史草稿开始，真实Read→EmitEvidence、两代公共Patch及实际动态schema，不手造第二代孤立lease或正规化收据。最终正常调用证据门通过，原正文/消息/引用保留、只执行模型选择的孤立处置，输入草稿和代次不被篡改。该文件`...receipt-forms-public.log` tool0.973s是修后增补GREEN，不倒签为修前RED；私有多重集测试另标white-box，不冒充公共E2E。
+6. 六个Go文件全部冻结后最终专项`20260912-b1647c-frozen-count3.log` tool1.850s、`...frozen-race.log` tool10.639s均exit0，包含新增三格公共正控；旧测试的负控与原断言保留，改为真实normalizer生成收据。主审及两名独立冷审（含新增三格尾差）均未发现阻断。全部源码/测试输入冻结后`SDKROOT=MacOSX26.5.sdk go test ./... -count=1`已exit0、86包通过（`...full-frozen.log`）：tool332.405s、agent69.753s、orchestrator25.707s、types44.644s、tracequery106.014s、tracediag12.896s、hitraceconv139.090s、llm28.475s；冻结make也exit0（`...build-frozen.log`）。远程fetch确认无新增差异，下一步原子提交代码和本节，再推送/提交后构建。本批不在r1064后追跑第三例；可见边、方向、业务词、引用、模型正文、Trace根因所有权与600/300/600s等待配置全部保持。
+7. 下一顺位仍是B1618-P2b完整来源账户：同TID多capture/多窗不能被byTID单槽覆盖，附注须携完整源及测量窗；只加端点文案不足以关案。导航EndLine与B1664注册摘要calls另排P2，B1561诊断去重/失败执行数及B1575逐合同实际执行能力继续开放。B1626新成员路径未在r1064自然触发，不以本批图修补或额外同题追绿代销。
+
+状态：`B1647c=implemented/public-red-green/count3-race+cold-review+frozen86packages+build-pass/pending-commit-push`；`r1064=audited-pushed-cdede1402/no-replay`；`other-gaps=separate-open`。
 
 ### §123.1783 r1064：双窗未自然采用、关系修补合同自冲突（2026-09-12）
 

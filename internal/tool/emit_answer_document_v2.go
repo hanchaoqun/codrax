@@ -1156,47 +1156,68 @@ func normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(
 	return fixed
 }
 
-// stabilizeUnlistedRelationLeaseAnchorIdentities keeps the local relation
-// lease scoped to model-authored topology when a later, system-owned recipe
-// pass enriches hidden endpoint identities on an otherwise untouched edge.
-//
-// The lease is minted from the rejected draft before every retry-only receipt
-// is necessarily available. The patch path must normalize newly selected
-// additions before the lease can validate their canonical tuple, but applying
-// that same normalizer to an inherited identity-less edge changes its lease
-// semantic key from (nodes, empty identities, relation) to (nodes, canonical
-// identities, relation). Without this reconciliation, one untouched edge is
-// reported as both removed and added.
-//
-// This function restores only the baseline identity metadata used by the
-// lease comparison. It requires one exact directed node pair/relation group,
-// equal base/result multiplicity, no failure on that group, an identity-less
-// baseline, and one unique exact recipe pair matching every enriched result
-// anchor. A staged baseline may also contain that same already-identified pair:
-// its exact non-identity anchor multiset and identified slots remain preserved.
-// Ambiguous groups and all visible topology changes remain fail-closed.
-// The ordinary pre-emit normalization runs again after the lease is consumed,
-// so the accepted document still receives and validates the canonical pair.
+// diagramAnchorIdentitySnapshot is private to one normalization call. It
+// records the exact model-selected anchors before system-only identity repair;
+// it is never decoded from model JSON or retained across retry generations.
+type diagramAnchorIdentitySnapshot map[string][]types.DiagramEdgeAnchor
+
+type diagramAnchorIdentityRepairReceipt struct {
+	before, after diagramAnchorIdentitySnapshot
+}
+
+func recordDiagramAnchorIdentityRepair(before diagramAnchorIdentitySnapshot, doc *types.AnswerDocumentV2) diagramAnchorIdentityRepairReceipt {
+	return diagramAnchorIdentityRepairReceipt{before: before, after: snapshotDiagramAnchorIdentities(doc)}
+}
+
+func snapshotDiagramAnchorIdentities(doc *types.AnswerDocumentV2) diagramAnchorIdentitySnapshot {
+	out := make(diagramAnchorIdentitySnapshot)
+	if doc == nil {
+		return out
+	}
+	ambiguous := make(map[string]bool)
+	for _, block := range doc.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" || ambiguous[id] {
+			continue
+		}
+		if _, exists := out[id]; exists {
+			delete(out, id)
+			ambiguous[id] = true
+			continue
+		}
+		out[id] = append([]types.DiagramEdgeAnchor(nil), block.EdgeAnchors...)
+	}
+	return out
+}
+
+// stabilizeUnlistedRelationLeaseAnchorIdentities reconciles only identity
+// changes observed across this single system normalizer invocation. It does
+// not re-resolve recipes or aliases. The before/after occurrence is a private
+// receipt: every other anchor field must remain exactly equal, and the full
+// pre-normalization anchor multiset must equal the unlisted lease group.
+// Thus model changes, extra/missing occurrences and label/claim reassignment
+// cannot borrow a normalization receipt. Equivalent model reorderings remain
+// subject to the original lease rules, with no new ordering gate.
+// Restored identities are only the lease-comparison form; ordinary pre-emit
+// normalization and evidence validation still run after this comparison.
 func stabilizeUnlistedRelationLeaseAnchorIdentities(
 	doc *types.AnswerDocumentV2,
 	lease *types.AnswerDiagramRelationRepairLease,
-	recipes []types.DiagramEdgeAnchor,
+	receipt diagramAnchorIdentityRepairReceipt,
 ) int {
-	if doc == nil || lease == nil || len(recipes) == 0 {
+	if doc == nil || lease == nil || len(receipt.before) == 0 {
 		return 0
 	}
 	type visibleKey struct {
-		blockID string
-		from    string
-		to      string
-		kind    types.DiagramRelationKind
+		from, to string
+		kind     types.DiagramRelationKind
 	}
-	type identityPair struct {
-		from string
-		to   string
+	keyOf := func(anchor types.DiagramEdgeAnchor) visibleKey {
+		return visibleKey{strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode), anchor.RelationKind}
 	}
-	trimPair := func(anchor types.DiagramEdgeAnchor) identityPair {
-		return identityPair{from: strings.TrimSpace(anchor.FromIdentity), to: strings.TrimSpace(anchor.ToIdentity)}
+	withoutIdentity := func(anchor types.DiagramEdgeAnchor) types.DiagramEdgeAnchor {
+		anchor.FromIdentity, anchor.ToIdentity = "", ""
+		return anchor
 	}
 	sameUnorderedPair := func(aFrom, aTo, bFrom, bTo string) bool {
 		aFrom, aTo = strings.TrimSpace(aFrom), strings.TrimSpace(aTo)
@@ -1208,160 +1229,68 @@ func stabilizeUnlistedRelationLeaseAnchorIdentities(
 			if strings.TrimSpace(failure.BlockID) != blockID {
 				continue
 			}
-			if sameUnorderedPair(failure.FromNode, failure.ToNode, anchor.FromNode, anchor.ToNode) {
-				return true
-			}
-			basePair := trimPair(anchor)
-			if basePair.from != "" && basePair.to != "" &&
-				sameUnorderedPair(failure.FromIdentity, failure.ToIdentity, basePair.from, basePair.to) {
+			if sameUnorderedPair(failure.FromNode, failure.ToNode, anchor.FromNode, anchor.ToNode) ||
+				(anchor.HasEndpointIdentityPair() && sameUnorderedPair(failure.FromIdentity, failure.ToIdentity, anchor.FromIdentity, anchor.ToIdentity)) {
 				return true
 			}
 		}
 		return false
 	}
-
-	recipePairs := make(map[visibleKey]map[identityPair]bool)
-	for _, recipe := range recipes {
-		pair := trimPair(recipe)
-		if strings.TrimSpace(recipe.FromNode) == "" || strings.TrimSpace(recipe.ToNode) == "" ||
-			!recipe.RelationKind.IsValid() || pair.from == "" || pair.to == "" {
-			continue
-		}
-		key := visibleKey{
-			from: strings.TrimSpace(recipe.FromNode), to: strings.TrimSpace(recipe.ToNode), kind: recipe.RelationKind,
-		}
-		if recipePairs[key] == nil {
-			recipePairs[key] = make(map[identityPair]bool)
-		}
-		recipePairs[key][pair] = true
-	}
-
-	resultBlocks := make(map[string]*types.AnswerBlock, len(doc.Blocks))
+	resultBlocks := make(map[string]*types.AnswerBlock)
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
-		if id := strings.TrimSpace(block.ID); id != "" {
+		id := strings.TrimSpace(block.ID)
+		if _, exists := resultBlocks[id]; exists {
+			resultBlocks[id] = nil // ambiguous block IDs cannot use a receipt
+		} else {
 			resultBlocks[id] = block
 		}
 	}
 	fixed := 0
 	for _, leaseBlock := range lease.Blocks {
 		blockID := strings.TrimSpace(leaseBlock.BlockID)
-		resultBlock := resultBlocks[blockID]
-		if blockID == "" || resultBlock == nil {
+		block := resultBlocks[blockID]
+		prior, found := receipt.before[blockID]
+		after, afterFound := receipt.after[blockID]
+		if block == nil || !found || !afterFound || len(prior) != len(block.EdgeAnchors) || len(after) != len(prior) {
 			continue
 		}
-		baseGroups := make(map[visibleKey][]types.DiagramEdgeAnchor)
+		groups := make(map[visibleKey][]types.DiagramEdgeAnchor)
 		for _, anchor := range leaseBlock.BaseAnchors {
-			if failureMatches(blockID, anchor) {
+			key := keyOf(anchor)
+			if key.from == "" || key.to == "" || !key.kind.IsValid() || failureMatches(blockID, anchor) {
 				continue
 			}
-			key := visibleKey{
-				blockID: blockID,
-				from:    strings.TrimSpace(anchor.FromNode),
-				to:      strings.TrimSpace(anchor.ToNode),
-				kind:    anchor.RelationKind,
-			}
-			if key.from == "" || key.to == "" || !key.kind.IsValid() {
-				continue
-			}
-			baseGroups[key] = append(baseGroups[key], anchor)
+			groups[key] = append(groups[key], anchor)
 		}
-		for key, baseAnchors := range baseGroups {
-			basePair := trimPair(baseAnchors[0])
-			baseUniform := true
-			for _, anchor := range baseAnchors[1:] {
-				if trimPair(anchor) != basePair {
-					baseUniform = false
-					break
-				}
+		for key, baseline := range groups {
+			counts := make(map[types.DiagramEdgeAnchor]int, len(baseline))
+			for _, anchor := range baseline {
+				counts[anchor]++
 			}
-			if baseUniform && (basePair.from != "" || basePair.to != "") {
-				continue
-			}
-			var resultIndexes []int
-			for i := range resultBlock.EdgeAnchors {
-				anchor := &resultBlock.EdgeAnchors[i]
-				if strings.TrimSpace(anchor.FromNode) == key.from && strings.TrimSpace(anchor.ToNode) == key.to &&
-					anchor.RelationKind == key.kind {
-					resultIndexes = append(resultIndexes, i)
-				}
-			}
-			if len(resultIndexes) != len(baseAnchors) || len(resultIndexes) == 0 {
-				continue
-			}
-			resultPair := trimPair(resultBlock.EdgeAnchors[resultIndexes[0]])
-			if resultPair.from == "" || resultPair.to == "" {
-				continue
-			}
-			resultUniform := true
-			for _, index := range resultIndexes[1:] {
-				if trimPair(resultBlock.EdgeAnchors[index]) != resultPair {
-					resultUniform = false
-					break
-				}
-			}
-			if !resultUniform {
-				continue
-			}
-			recipeKey := visibleKey{from: key.from, to: key.to, kind: key.kind}
-			pairs := recipePairs[recipeKey]
-			if len(pairs) != 1 || !pairs[resultPair] {
-				continue
-			}
-			if !baseUniform {
-				// B1647: phase one can add a model-selected typed edge beside an
-				// existing identity-less occurrence of that same visible relation.
-				// The orphan-only lease freezes both. Later recipe enrichment must
-				// not masquerade as a model removal/addition, nor may it move an
-				// identity to a differently labelled occurrence. Check the complete
-				// non-identity multiset before restoring only its original empty
-				// slots. Partial or different method pairs remain unmodified so the
-				// ordinary lease rejects them.
-				withoutIdentity := func(anchor types.DiagramEdgeAnchor) types.DiagramEdgeAnchor {
-					anchor.FromIdentity, anchor.ToIdentity = "", ""
-					return anchor
-				}
-				counts := make(map[types.DiagramEdgeAnchor]int, len(baseAnchors))
-				missing := make(map[types.DiagramEdgeAnchor]int, len(baseAnchors))
-				compatible := true
-				for _, anchor := range baseAnchors {
-					pair := trimPair(anchor)
-					if pair != (identityPair{}) && pair != resultPair {
-						compatible = false
-						break
-					}
-					plain := withoutIdentity(anchor)
-					counts[plain]++
-					if pair == (identityPair{}) {
-						missing[plain]++
-					}
-				}
-				for _, index := range resultIndexes {
-					plain := withoutIdentity(resultBlock.EdgeAnchors[index])
-					counts[plain]--
-					if counts[plain] < 0 {
-						compatible = false
-					}
-				}
-				if !compatible || len(missing) == 0 {
+			var indexes []int
+			compatible := true
+			for i, anchor := range prior {
+				if keyOf(anchor) != key {
 					continue
 				}
-				for _, index := range resultIndexes {
-					plain := withoutIdentity(resultBlock.EdgeAnchors[index])
-					if missing[plain] == 0 {
-						continue
-					}
-					resultBlock.EdgeAnchors[index].FromIdentity = ""
-					resultBlock.EdgeAnchors[index].ToIdentity = ""
-					missing[plain]--
-					fixed++
+				indexes = append(indexes, i)
+				counts[anchor]--
+				current := block.EdgeAnchors[i]
+				if counts[anchor] < 0 || current != after[i] || withoutIdentity(current) != withoutIdentity(anchor) ||
+					(current != anchor && !current.HasEndpointIdentityPair()) {
+					compatible = false
 				}
+			}
+			if !compatible || len(indexes) != len(baseline) {
 				continue
 			}
-			for _, index := range resultIndexes {
-				resultBlock.EdgeAnchors[index].FromIdentity = ""
-				resultBlock.EdgeAnchors[index].ToIdentity = ""
-				fixed++
+			for _, index := range indexes {
+				anchor := &block.EdgeAnchors[index]
+				if *anchor != prior[index] {
+					anchor.FromIdentity, anchor.ToIdentity = prior[index].FromIdentity, prior[index].ToIdentity
+					fixed++
+				}
 			}
 		}
 	}

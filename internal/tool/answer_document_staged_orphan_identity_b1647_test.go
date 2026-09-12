@@ -192,16 +192,18 @@ func TestB1647MixedIdentityStabilizationKeepsOccurrenceOwnership(t *testing.T) {
 			// Multiple inherited occurrences still retain their multiplicity.
 			lease.Blocks[0].BaseAnchors = append(lease.Blocks[0].BaseAnchors, lease.Blocks[0].BaseAnchors[0])
 			staged.Blocks[1].EdgeAnchors = append([]types.DiagramEdgeAnchor(nil), lease.Blocks[0].BaseAnchors...)
-			for i := range staged.Blocks[1].EdgeAnchors {
-				staged.Blocks[1].EdgeAnchors[i].FromIdentity, staged.Blocks[1].EdgeAnchors[i].ToIdentity = "Caller", "Callee"
-			}
 			if reverse {
 				lease.Blocks[0].BaseAnchors[0], lease.Blocks[0].BaseAnchors[1] = lease.Blocks[0].BaseAnchors[1], lease.Blocks[0].BaseAnchors[0]
 				staged.Blocks[1].EdgeAnchors[0], staged.Blocks[1].EdgeAnchors[1] = staged.Blocks[1].EdgeAnchors[1], staged.Blocks[1].EdgeAnchors[0]
 			}
+			// B1647c: retain the original mixed/reordered occurrences, but
+			// obtain comparison authority from this actual normalization only.
+			beforeIdentityRepair := snapshotDiagramAnchorIdentities(staged)
+			normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(staged, []types.DiagramEdgeAnchor{recipe})
+			receipt := recordDiagramAnchorIdentityRepair(beforeIdentityRepair, staged)
 			bodyBefore := staged.Blocks[1].Diagram.Body
 			leaseBefore, _ := json.Marshal(lease)
-			if n := stabilizeUnlistedRelationLeaseAnchorIdentities(staged, lease, []types.DiagramEdgeAnchor{recipe}); n != 2 {
+			if n := stabilizeUnlistedRelationLeaseAnchorIdentities(staged, lease, receipt); n != 2 {
 				t.Fatalf("want exactly two inherited identity slots, got %d", n)
 			}
 			for _, anchor := range staged.Blocks[1].EdgeAnchors {
@@ -226,9 +228,9 @@ func TestB1647MixedIdentityStabilizationDoesNotHideRealChanges(t *testing.T) {
 			bus, _, candidate, recipe := b1647StageOrphan(t, "mixed")
 			lease := bus.Mutable.AnswerDiagramRelationRepairLease()
 			recipes := []types.DiagramEdgeAnchor{recipe}
-			for i := range candidate.Blocks[1].EdgeAnchors {
-				candidate.Blocks[1].EdgeAnchors[i].FromIdentity, candidate.Blocks[1].EdgeAnchors[i].ToIdentity = "Caller", "Callee"
-			}
+			beforeIdentityRepair := snapshotDiagramAnchorIdentities(candidate)
+			normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(candidate, recipes)
+			receipt := recordDiagramAnchorIdentityRepair(beforeIdentityRepair, candidate)
 			anchors := &candidate.Blocks[1].EdgeAnchors
 			switch change {
 			case "add":
@@ -258,8 +260,20 @@ func TestB1647MixedIdentityStabilizationDoesNotHideRealChanges(t *testing.T) {
 			case "claim_form":
 				(*anchors)[0].ClaimForm = types.ClaimCallEdge
 			}
+			if change == "ambiguous_recipe" || change == "no_recipe" {
+				// Those recipes cannot produce the already populated candidate;
+				// verify that fact with the real normalizer and supply no forged
+				// before/after delta to the receipt consumer.
+				unrepaired := *candidate
+				unrepaired.Blocks = append([]types.AnswerBlock(nil), candidate.Blocks...)
+				unrepaired.Blocks[1].EdgeAnchors = append([]types.DiagramEdgeAnchor(nil), beforeIdentityRepair["diag"]...)
+				if n := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(&unrepaired, recipes); n != 0 {
+					t.Fatalf("ambiguous/absent recipe unexpectedly produced identity: %d", n)
+				}
+				receipt = recordDiagramAnchorIdentityRepair(beforeIdentityRepair, &unrepaired)
+			}
 			before, _ := json.Marshal(candidate)
-			if n := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, recipes); n != 0 {
+			if n := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, receipt); n != 0 {
 				t.Fatalf("ambiguous or real change must not be hidden: fixed=%d", n)
 			}
 			after, _ := json.Marshal(candidate)

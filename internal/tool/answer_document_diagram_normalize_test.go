@@ -1136,13 +1136,21 @@ func TestStabilizeUnlistedRelationLeaseAnchorIdentitiesKeepsTopologyStrict(t *te
 		RelationKind: types.DiagramRelCall,
 	}
 	merged := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
-		ID: "flow", Kind: types.BlockDiagram, EdgeAnchors: []types.DiagramEdgeAnchor{recipe},
+		ID: "flow", Kind: types.BlockDiagram, EdgeAnchors: []types.DiagramEdgeAnchor{retained},
+		Diagram: &types.AnswerDiagramBlock{Kind: "sequence", Language: "mermaid", Body: "sequenceDiagram\n Orch->>TP: retained\n"},
 	}}}
+	// B1647c: the same enriched comparison shape now carries a private
+	// before/after receipt from the actual normalizer, not inferred recipes.
+	beforeIdentityRepair := snapshotDiagramAnchorIdentities(merged)
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(merged, []types.DiagramEdgeAnchor{recipe}); fixed != 1 {
+		t.Fatalf("expected one real identity repair, got %d", fixed)
+	}
+	receipt := recordDiagramAnchorIdentityRepair(beforeIdentityRepair, merged)
 	before := types.ValidateAnswerDiagramRelationRepairLease(lease, merged)
 	if len(before) != 2 {
 		t.Fatalf("identity enrichment must reproduce the removed+added self-conflict before stabilization: %+v", before)
 	}
-	if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(merged, lease, []types.DiagramEdgeAnchor{recipe}); fixed != 1 {
+	if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(merged, lease, receipt); fixed != 1 {
 		t.Fatalf("expected one exact inherited identity stabilization, got %d doc=%+v", fixed, merged)
 	}
 	if got := types.ValidateAnswerDiagramRelationRepairLease(lease, merged); len(got) != 0 {
@@ -1158,7 +1166,12 @@ func TestStabilizeUnlistedRelationLeaseAnchorIdentitiesKeepsTopologyStrict(t *te
 		}}}
 		other := recipe
 		other.FromIdentity = "Other.Run"
-		if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, []types.DiagramEdgeAnchor{recipe, other}); fixed != 0 {
+		unrepaired := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "flow", Kind: types.BlockDiagram, Diagram: merged.Blocks[0].Diagram, EdgeAnchors: []types.DiagramEdgeAnchor{retained}}}}
+		beforeIdentityRepair := snapshotDiagramAnchorIdentities(unrepaired)
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(unrepaired, []types.DiagramEdgeAnchor{recipe, other}); fixed != 0 {
+			t.Fatalf("ambiguous recipe unexpectedly repaired identity: %d", fixed)
+		}
+		if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, recordDiagramAnchorIdentityRepair(beforeIdentityRepair, unrepaired)); fixed != 0 {
 			t.Fatalf("ambiguous receipt must not be normalized through the lease: fixed=%d", fixed)
 		}
 		if got := types.ValidateAnswerDiagramRelationRepairLease(lease, candidate); len(got) == 0 {
@@ -1168,7 +1181,9 @@ func TestStabilizeUnlistedRelationLeaseAnchorIdentitiesKeepsTopologyStrict(t *te
 
 	t.Run("real unlisted removal stays rejected", func(t *testing.T) {
 		candidate := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "flow", Kind: types.BlockDiagram}}}
-		if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, []types.DiagramEdgeAnchor{recipe}); fixed != 0 {
+		beforeIdentityRepair := snapshotDiagramAnchorIdentities(candidate)
+		normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(candidate, []types.DiagramEdgeAnchor{recipe})
+		if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, recordDiagramAnchorIdentityRepair(beforeIdentityRepair, candidate)); fixed != 0 {
 			t.Fatalf("a missing visible edge must never be reconstructed: fixed=%d", fixed)
 		}
 		got := types.ValidateAnswerDiagramRelationRepairLease(lease, candidate)
@@ -1180,15 +1195,18 @@ func TestStabilizeUnlistedRelationLeaseAnchorIdentitiesKeepsTopologyStrict(t *te
 	t.Run("real unlisted addition stays rejected", func(t *testing.T) {
 		candidate := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 			ID: "flow", Kind: types.BlockDiagram,
+			Diagram: merged.Blocks[0].Diagram,
 			EdgeAnchors: []types.DiagramEdgeAnchor{
-				recipe,
+				retained,
 				{
 					FromNode: "X", ToNode: "Y", FromIdentity: "X.run", ToIdentity: "Y.run",
 					RelationKind: types.DiagramRelCall,
 				},
 			},
 		}}}
-		if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, []types.DiagramEdgeAnchor{recipe}); fixed != 1 {
+		beforeIdentityRepair := snapshotDiagramAnchorIdentities(candidate)
+		normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(candidate, []types.DiagramEdgeAnchor{recipe})
+		if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, recordDiagramAnchorIdentityRepair(beforeIdentityRepair, candidate)); fixed != 1 {
 			t.Fatalf("only the inherited edge may be stabilized: fixed=%d", fixed)
 		}
 		got := types.ValidateAnswerDiagramRelationRepairLease(lease, candidate)

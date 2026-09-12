@@ -3199,10 +3199,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// create or choose a visible relation, and an unlisted/ambiguous edge is
 		// still rejected by the unchanged lease below.
 		if relationLease := ctx.Mutable.AnswerDiagramRelationRepairLease(); relationLease != nil {
-			recipes := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
-			recipes = append(recipes, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
+			beforeIdentityRepair := snapshotDiagramAnchorIdentities(merged)
 			normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(t.Name(), merged, ctx, preEmitCtx)
-			if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(merged, relationLease, recipes); fixed > 0 {
+			identityRepair := recordDiagramAnchorIdentityRepair(beforeIdentityRepair, merged)
+			if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(merged, relationLease, identityRepair); fixed > 0 {
 				logging.Warning("[%s] stabilized %d inherited relation anchor identity pair(s) for lease comparison", t.Name(), fixed)
 			}
 		}
