@@ -295,20 +295,23 @@ func TestBuildVerificationProofProfileSingleReportResolvesProbeMissingRefWithExa
 	report := &ChangeReport{
 		PlanID: plan.ID, Passed: true, VerificationStatus: VerificationStatusPassed,
 		TestResults: []TestResult{
-			{AssertionID: "project-case", Suite: "pkg/project", Passed: true},
-			{AssertionID: "probe-case", Suite: "verification_probe/python", Passed: true},
+			{AssertionID: "project-case", Suite: "pkg/project", ObservationScope: TestObservationScopeAssertion, Passed: true},
+			{AssertionID: "project-fallback", Suite: "pkg/fallback", ObservationScope: TestObservationScopeAssertion, Passed: true},
 		},
 		ExecutedCommands: []ExecutedCommand{
 			{Runner: "python", Suite: "pkg/project", Outcome: "executed", Source: "declared_coverage_test_surface"},
-			{Runner: "verification_probe", Suite: "verification_probe/python", Outcome: "executed", Source: "pre_suite_verification_probe"},
+			{Runner: "pytest", Framework: "pytest", Suite: "pkg/fallback", Outcome: "executed", Source: "declared_coverage_test_surface"},
 		},
 		VerificationConfidence: []VerificationConfidenceRecord{
 			{Source: "project_test_observation", Category: "project_test_contract_refs", Status: "satisfied",
 				ReasonCode: "project_test_contract_ref_observed", ContractRefs: []string{"outcome-project"}},
 			{Source: "verification_probe", Category: "probe_soft_contract_refs", Status: "missing",
 				ReasonCode: "verification_probe_missing_soft_contract_ref", ContractRefs: []string{"outcome-project"}},
-			{Source: "verification_probe", Category: "probe_soft_contract_refs", Status: "satisfied",
-				ReasonCode: "verification_probe_soft_contract_ref_covered", ContractRefs: []string{"outcome-probe"}},
+			// B1575: this test exercises same-report exact-ref reconciliation,
+			// not plain Python contract authority. A declared probe ref alone
+			// is no longer an assertion witness (covered by the B1575 negative).
+			{Source: "project_test_observation", Category: "project_test_contract_refs", Status: "satisfied",
+				ReasonCode: "project_test_contract_ref_observed", ContractRefs: []string{"outcome-probe"}, WitnessKind: WriteBehaviorWitnessProjectTest},
 		},
 	}
 
@@ -518,20 +521,25 @@ func TestBuildVerificationProofProfileUnavailable(t *testing.T) {
 }
 
 func TestBuildCumulativeVerificationProofProfileResolvesCoveredProbeContracts(t *testing.T) {
+	// B1575: exact native assertion witnesses resolve the cross-report probe
+	// missing-ref records. Plain Python aggregate passes no longer supply those
+	// witnesses; the original shape is a separate B1575 replay negative.
 	primaryReport := &ChangeReport{
 		PlanID:             "plan-proof",
 		Passed:             true,
 		VerificationStatus: VerificationStatusPassed,
 		TestResults: []TestResult{{
-			AssertionID: "probe/proof",
-			Suite:       "verification_probe/python",
-			Passed:      true,
+			AssertionID:      "test_proof",
+			Suite:            "tests/test_proof.py",
+			ObservationScope: TestObservationScopeAssertion,
+			Passed:           true,
 		}},
 		ExecutedCommands: []ExecutedCommand{{
-			Runner:  "verification_probe",
-			Suite:   "verification_probe/python",
-			Outcome: "executed",
-			Source:  "python_verification_probe",
+			Runner:    "pytest",
+			Framework: "pytest",
+			Suite:     "tests/test_proof.py",
+			Outcome:   "executed",
+			Source:    "declared_coverage_test_surface",
 		}},
 		VerificationConfidence: []VerificationConfidenceRecord{{
 			Source:       "verification_probe",
@@ -540,10 +548,11 @@ func TestBuildCumulativeVerificationProofProfileResolvesCoveredProbeContracts(t 
 			ReasonCode:   "verification_probe_missing_soft_contract_ref",
 			ContractRefs: []string{"outcome-3"},
 		}, {
-			Source:       "verification_probe",
-			Category:     "probe_soft_contract_refs",
+			Source:       "project_test_observation",
+			Category:     "project_test_contract_refs",
 			Status:       "satisfied",
-			ReasonCode:   "verification_probe_soft_contract_ref_covered",
+			ReasonCode:   "project_test_contract_ref_observed",
+			WitnessKind:  WriteBehaviorWitnessProjectTest,
 			ContractRefs: []string{"outcome-4"},
 		}},
 	}
@@ -552,21 +561,24 @@ func TestBuildCumulativeVerificationProofProfileResolvesCoveredProbeContracts(t 
 		Passed:             true,
 		VerificationStatus: VerificationStatusPassed,
 		TestResults: []TestResult{{
-			AssertionID: "probe/source",
-			Suite:       "verification_probe/python",
-			Passed:      true,
+			AssertionID:      "test_source",
+			Suite:            "tests/test_source.py",
+			ObservationScope: TestObservationScopeAssertion,
+			Passed:           true,
 		}},
 		ExecutedCommands: []ExecutedCommand{{
-			Runner:  "verification_probe",
-			Suite:   "verification_probe/python",
-			Outcome: "executed",
-			Source:  "python_verification_probe",
+			Runner:    "pytest",
+			Framework: "pytest",
+			Suite:     "tests/test_source.py",
+			Outcome:   "executed",
+			Source:    "declared_coverage_test_surface",
 		}},
 		VerificationConfidence: []VerificationConfidenceRecord{{
-			Source:       "verification_probe",
-			Category:     "probe_soft_contract_refs",
+			Source:       "project_test_observation",
+			Category:     "project_test_contract_refs",
 			Status:       "satisfied",
-			ReasonCode:   "verification_probe_soft_contract_ref_covered",
+			ReasonCode:   "project_test_contract_ref_observed",
+			WitnessKind:  WriteBehaviorWitnessProjectTest,
 			ContractRefs: []string{"outcome-3"},
 		}, {
 			Source:       "verification_probe",
@@ -581,8 +593,8 @@ func TestBuildCumulativeVerificationProofProfileResolvesCoveredProbeContracts(t 
 		Report: sourceReport,
 	}})
 
-	if got.Status != VerificationProofAdequate {
-		t.Fatalf("profile=%+v, want adequate after cumulative soft-contract coverage", got)
+	if got.Status != VerificationProofStrong {
+		t.Fatalf("profile=%+v, want strong after cumulative native assertion coverage", got)
 	}
 	if !got.Cumulative || got.ContributingReports != 2 {
 		t.Fatalf("profile cumulative metadata=%+v, want 2 reports", got)
@@ -590,8 +602,8 @@ func TestBuildCumulativeVerificationProofProfileResolvesCoveredProbeContracts(t 
 	if verificationProofHasReason(got, "verification_probe_missing_soft_contract_ref") {
 		t.Fatalf("resolved missing soft-contract reason should be removed: %+v", got.ReasonCodes)
 	}
-	if got.ProbeCommands != 2 || got.TestCount != 2 {
-		t.Fatalf("profile counts=%+v, want cumulative probe/test counts", got)
+	if got.ProjectRunnerCommands != 2 || got.ProbeCommands != 0 || got.TestCount != 2 {
+		t.Fatalf("profile counts=%+v, want cumulative native runner/test counts", got)
 	}
 }
 
@@ -726,7 +738,8 @@ func TestBuildCumulativeVerificationProofProfilePreservesUnavailablePrimary(t *t
 
 func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
 	plan := &ChangePlan{
-		ID: "plan-ledger",
+		ID:                "plan-ledger",
+		BehaviorContracts: []WriteBehaviorContract{{ID: "contract-render", Kind: WriteBehaviorObservable, Polarity: WriteBehaviorPolarityExpected, Operator: WriteBehaviorOpSatisfies, Expected: "render result", Required: true}},
 		PatchReview: &PatchReviewRecord{Findings: []PatchReviewFinding{{
 			Code:           "changed_symbol_without_probe_coverage",
 			Category:       PatchReviewCategorySemanticCoverage,
@@ -747,11 +760,16 @@ func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
 		PlanID:             "plan-ledger",
 		VerificationStatus: VerificationStatusPassed,
 		Passed:             true,
+		// B1575: the mixed ledger's covered contract has a native assertion
+		// witness; the existing unproved Python changed-symbol row stays.
+		TestResults: []TestResult{{AssertionID: "test_render", Suite: "tests/test_widget.py", ObservationScope: TestObservationScopeAssertion, Passed: true}},
 		ExecutedCommands: []ExecutedCommand{{
 			Runner:  "verification_probe",
 			Suite:   "verification_probe/python",
 			Outcome: "executed",
 			Source:  "python_verification_probe",
+		}, {
+			Runner: "pytest", Framework: "pytest", Suite: "tests/test_widget.py", Outcome: ExecutedCommandOutcomeExecuted, Source: "declared_coverage_test_surface",
 		}},
 		VerificationConfidence: []VerificationConfidenceRecord{{
 			Source:            "verification_probe",
@@ -760,10 +778,11 @@ func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
 			ReasonCode:        "verification_probe_missing_changed_symbol_ref",
 			ChangedSymbolRefs: []string{"Widget.render"},
 		}, {
-			Source:       "verification_probe",
-			Category:     "probe_contract_refs",
+			Source:       "project_test_observation",
+			Category:     "project_test_contract_refs",
 			Status:       "satisfied",
-			ReasonCode:   "verification_probe_contract_ref_covered",
+			ReasonCode:   "project_test_contract_ref_observed",
+			WitnessKind:  WriteBehaviorWitnessProjectTest,
 			ContractRefs: []string{"contract-render"},
 		}},
 	}
@@ -779,7 +798,7 @@ func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
 	if !verificationProofLedgerHasItem(got, "changed_symbol", VerificationProofLedgerItemMissing, "verification_probe_missing_changed_symbol_ref") {
 		t.Fatalf("ledger obligations=%+v missing changed-symbol gap", got.Obligations)
 	}
-	if !verificationProofLedgerHasItem(got, "behavior_contract", VerificationProofLedgerItemCovered, "verification_probe_contract_ref_covered") {
+	if !verificationProofLedgerHasItem(got, "behavior_contract", VerificationProofLedgerItemCovered, "project_test_contract_ref_observed") {
 		t.Fatalf("ledger obligations=%+v missing covered contract", got.Obligations)
 	}
 	if !verificationProofLedgerHasItem(got, "behavior_contract", VerificationProofLedgerItemUnavailable, "unavailable") {

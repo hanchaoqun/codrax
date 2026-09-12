@@ -1383,8 +1383,27 @@ func TestPersistWriteWorkflowRunTerminalAggregatesCompletedBatchProofReports(t *
 	if err != nil {
 		t.Fatalf("LoadWriteFinalReportFromFile(%s): %v", finalPath, err)
 	}
-	if final.Proof.Status != types.VerificationProofAdequate || !final.Proof.Cumulative {
-		t.Fatalf("final proof = %+v, want cumulative adequate", final.Proof)
+	if final.Proof.Status != types.VerificationProofWeak || !final.Proof.Cumulative {
+		t.Fatalf("legacy Python declarations must not close cumulative proof: %+v", final.Proof)
+	}
+	// Retain the old input as a negative; an assertion-scoped native receipt
+	// supplies the separate positive cumulative-resolution lane.
+	sourceReport.TestResults = []types.TestResult{{AssertionID: "test_outcome", Suite: "tests/test_outcome.py", ObservationScope: types.TestObservationScopeAssertion, Passed: true}}
+	sourceReport.ExecutedCommands = []types.ExecutedCommand{{Runner: "pytest", Framework: "pytest", Suite: "tests/test_outcome.py", Outcome: types.ExecutedCommandOutcomeExecuted, Source: "declared_coverage_test_surface"}}
+	sourceReport.VerificationConfidence = []types.VerificationConfidenceRecord{{
+		Source: "project_test_observation", Category: "project_test_contract_refs", Status: "satisfied",
+		ReasonCode: "project_test_contract_ref_observed", WitnessKind: types.WriteBehaviorWitnessProjectTest, ContractRefs: []string{"outcome-1"},
+	}}
+	if err := types.WriteChangeReportToFile(sourceReport, filepath.Join(tmp, "plans", "plan-source.report.json")); err != nil {
+		t.Fatal(err)
+	}
+	o.persistWriteWorkflowRun(run)
+	final, err = types.LoadWriteFinalReportFromFile(finalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Proof.Status != types.VerificationProofStrong || !final.Proof.Cumulative {
+		t.Fatalf("final proof = %+v, want cumulative native assertion proof", final.Proof)
 	}
 	if writeControllerFinalProofHasReason(final.Proof, "verification_probe_missing_soft_contract_ref") {
 		t.Fatalf("final proof reasons should not retain resolved missing contract: %+v", final.Proof.ReasonCodes)
@@ -7931,15 +7950,19 @@ func TestReconcileProofFollowupVerifyOutcome_RequiresClosedTypedProofLedger(t *t
 		},
 		VerificationProbes: []types.VerificationProbe{{ID: "required-probe", Language: "python", Code: "assert True",
 			ContractRefs: []string{"outcome-probe"}}},
+		ProjectTestObservations: []types.ProjectTestObservation{
+			{ID: "project-check", TestPath: "pkg/test_project.py", AssertionSuite: "pkg/test_project.py", AssertionID: "project-case", ContractRefs: []string{"outcome-project"}},
+			{ID: "fallback-check", TestPath: "pkg/test_project.py", AssertionSuite: "pkg/test_project.py", AssertionID: "fallback-case", ContractRefs: []string{"outcome-probe"}},
+		},
 	}
 	mixedReport := &types.ChangeReport{
 		PlanID: mixedPlan.ID, Passed: true, VerificationStatus: types.VerificationStatusPassed,
 		TestResults: []types.TestResult{
-			{Kind: types.TestResultKindUnit, AssertionID: "project-case", Suite: "pkg/project", Passed: true},
+			{Kind: types.TestResultKindUnit, ObservationScope: types.TestObservationScopeAssertion, AssertionID: "project-case", Suite: "pkg/test_project.py", Passed: true},
 			{Kind: types.TestResultKindUnit, AssertionID: "required-probe", Suite: "verification_probe/python", Passed: true},
 		},
 		ExecutedCommands: []types.ExecutedCommand{
-			{Runner: "python", Suite: "pkg/project", Outcome: "executed", Source: "declared_coverage_test_surface"},
+			{Runner: "python", Framework: "pytest", Suite: "pkg/test_project.py", Outcome: "executed", Source: "declared_coverage_test_surface"},
 			{Runner: "verification_probe", Framework: "python", Command: "python -c <verification_probe:required-probe>",
 				Outcome: "executed", Source: "pre_suite_verification_probe"},
 		},
@@ -7951,6 +7974,20 @@ func TestReconcileProofFollowupVerifyOutcome_RequiresClosedTypedProofLedger(t *t
 			{Source: "verification_probe", Category: "probe_soft_contract_refs", Status: "satisfied",
 				ReasonCode: "verification_probe_soft_contract_ref_covered", ContractRefs: []string{"outcome-probe"}},
 		},
+	}
+	// B1575: the historical Python declaration cannot close its own fallback
+	// contract. Retain this input as a negative before supplying the independent
+	// assertion that the original same-generation debt-resolution test needs.
+	if got := reconcileProofFollowupVerifyOutcome(proofRun, mixedPlan, mixedReport, passed); got.Kind != writeflow.VerifyOutcomeVerificationIncomplete {
+		t.Fatalf("plain Python refs closed an unobserved fallback contract: %+v", got)
+	}
+	mixedReport.TestResults = append(mixedReport.TestResults, types.TestResult{
+		Kind: types.TestResultKindUnit, ObservationScope: types.TestObservationScopeAssertion,
+		AssertionID: "fallback-case", Suite: "pkg/test_project.py", Passed: true,
+	})
+	mixedReport.VerificationConfidence[2] = types.VerificationConfidenceRecord{
+		Source: "project_test_observation", Category: "project_test_contract_refs", Status: "satisfied",
+		ReasonCode: "project_test_contract_ref_observed", ContractRefs: []string{"outcome-probe"}, WitnessKind: types.WriteBehaviorWitnessProjectTest,
 	}
 	if got := reconcileProofFollowupVerifyOutcome(proofRun, mixedPlan, mixedReport, passed); got != passed {
 		t.Fatalf("same-generation exact project receipt did not close mixed proof: got=%+v want=%+v", got, passed)

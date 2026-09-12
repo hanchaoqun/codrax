@@ -79,6 +79,7 @@ def missing_subprocess_executable(exc):
     return filename
 
 def write_result(outcome, exception="", exit_code=0, probe_top_level=False, missing_executable=""):
+    _codrax_target_observer.finish()
     if not result_path:
         return
     with open(result_path, "w", encoding="utf-8") as handle:
@@ -845,6 +846,8 @@ func createVerificationProbeTempDir(repoRoot, language string) (string, error) {
 }
 
 func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, id, wd, rel, source string) verificationProbeRunResult {
+	targetObservation := preparePythonTargetObservation(ctx, probe)
+	defer targetObservation.cleanup()
 	timeout := time.Duration(probe.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -861,11 +864,12 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	}
 	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(execCtx, interp, "-c", pythonVerificationProbeWrapper)
+	cmd := exec.CommandContext(execCtx, interp, "-c", pythonTargetExecutionObserver+"\n"+pythonVerificationProbeWrapper)
 	cmd.Dir = wd
 	cmd.Env = append(runnerExecutionEnv("python", ctx.RepoRoot, wd, ctx.MainRepoRoot),
 		"CODRAX_VERIFICATION_PROBE_CODE="+base64.StdEncoding.EncodeToString([]byte(probe.Code)),
 		"CODRAX_VERIFICATION_PROBE_RESULT="+statusPath,
+		targetObservation.environment(),
 	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -998,6 +1002,8 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 	logging.Info("[run_tests] verification_probe id=%s lang=python cwd=%s outcome=%s exit=%d duration=%v",
 		id, rel, outcome, exitCode, duration)
 	commandText := "python -c <verification_probe:" + id + ">"
+	executionReceipt := verificationProbeExecutionReceipt(ctx, probe, cmd, timeout, start, supRes.Err, verificationProbeInvocationRoles{})
+	targetObservation.finish(executionReceipt)
 	return verificationProbeRunResult{
 		Report: &types.ChangeReport{
 			TestResults: []types.TestResult{{
@@ -1025,7 +1031,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 			Source:         source,
 			Outcome:        outcome,
 			ReasonCode:     reasonCode,
-			ProbeExecution: verificationProbeExecutionReceipt(ctx, probe, cmd, timeout, start, supRes.Err, verificationProbeInvocationRoles{}),
+			ProbeExecution: executionReceipt,
 		}},
 	}
 }

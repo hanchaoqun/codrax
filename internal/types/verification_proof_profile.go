@@ -147,6 +147,7 @@ type VerificationProofArtifact struct {
 }
 
 func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) VerificationProofProfile {
+	report = EffectiveVerificationProbeReport(plan, report)
 	out := VerificationProofProfile{RunnerEvidence: VerificationProofRunnerNone}
 	addReason := func(code string) {
 		code = strings.TrimSpace(code)
@@ -324,6 +325,8 @@ func removeVerificationProofReason(reasons []string, remove string) []string {
 // sibling batch in the same workflow. It never reads logs, issue prose, model
 // rationale, or user text.
 func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryReport *ChangeReport, artifacts []VerificationProofArtifact) VerificationProofProfile {
+	primaryReport = EffectiveVerificationProbeReport(primaryPlan, primaryReport)
+	artifacts = effectiveVerificationProofArtifacts(artifacts)
 	base := BuildVerificationProofProfile(primaryPlan, primaryReport)
 	unique := verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts)
 	if len(unique) <= 1 {
@@ -404,6 +407,8 @@ func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryRep
 }
 
 func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *ChangeReport, artifacts []VerificationProofArtifact) VerificationProofLedger {
+	primaryReport = EffectiveVerificationProbeReport(primaryPlan, primaryReport)
+	artifacts = effectiveVerificationProofArtifacts(artifacts)
 	profile := BuildCumulativeVerificationProofProfile(primaryPlan, primaryReport, artifacts)
 	out := VerificationProofLedger{
 		ProfileStatus:      profile.Status,
@@ -1155,7 +1160,7 @@ func missingRequiredWriteBehaviorContractObservationIDs(plan *ChangePlan, report
 	}
 	covered := map[string]struct{}{}
 	if report != nil {
-		covered = CoveredWriteBehaviorContractIDs(contracts, report.VerificationConfidence)
+		covered = CoveredWriteBehaviorContractIDs(contracts, EffectiveVerificationConfidence(plan, report))
 	}
 	missing := make([]string, 0, len(required))
 	for id := range required {
@@ -1180,7 +1185,7 @@ func missingCumulativeRequiredWriteBehaviorContractObservationIDs(artifacts []Ve
 			}
 		}
 		if artifact.Report != nil {
-			records = append(records, artifact.Report.VerificationConfidence...)
+			records = append(records, EffectiveVerificationConfidence(artifact.Plan, artifact.Report)...)
 		}
 	}
 	covered := CoveredWriteBehaviorContractIDs(contracts, records)
@@ -1329,6 +1334,14 @@ func resolveVerificationProofLedgerObligations(in []VerificationProofLedgerItem)
 	}
 	out := make([]VerificationProofLedgerItem, 0, len(in))
 	for _, item := range in {
+		if item.Status == VerificationProofLedgerItemUnverified && verificationPythonProbeProjectedDebt(item.Source, item.Category, item.ReasonCode) {
+			// A separate admitted receipt may close the exact obligation, but
+			// it cannot turn the old Python observation into an assertion.
+			if (item.Kind == "behavior_contract" && item.ContractRef != "" && coveredContracts[item.ContractRef]) ||
+				(item.Kind == "changed_symbol" && item.Symbol != "" && coveredSymbols[item.Symbol]) {
+				item.Status = VerificationProofLedgerItemAdvisory
+			}
+		}
 		if item.Status == VerificationProofLedgerItemMissing {
 			switch item.Kind {
 			case "behavior_contract":
@@ -1706,6 +1719,9 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 		status := strings.TrimSpace(rec.Status)
 		category := strings.TrimSpace(rec.Category)
 		code := strings.TrimSpace(rec.ReasonCode)
+		if status == "unverified" && verificationPythonProbeProjectedDebt(rec.Source, category, code) {
+			status = "missing"
+		}
 		switch status {
 		case "satisfied":
 			switch category {
@@ -1847,7 +1863,8 @@ func verificationProofReasonCanBeResolvedByConfidence(code string) bool {
 		"verification_probe_missing_soft_contract_ref",
 		"verification_probe_missing_changed_symbol_ref",
 		VerificationProjectTestAssertionNotObservedReasonCode,
-		"project_test_observation_not_executed":
+		"project_test_observation_not_executed",
+		"python_plain_probe_assertion_witness_missing", "python_target_execution_unobserved":
 		return true
 	default:
 		return false
@@ -1948,6 +1965,22 @@ func verificationConfidenceRecordWeakensProof(rec VerificationConfidenceRecord) 
 	switch strings.TrimSpace(rec.Status) {
 	case "missing", "unavailable", "failed", "error":
 		return true
+	case "unverified":
+		return verificationPythonProbeProjectedDebt(rec.Source, rec.Category, rec.ReasonCode)
+	default:
+		return false
+	}
+}
+
+func verificationPythonProbeProjectedDebt(source, category, reason string) bool {
+	if source != "verification_probe" {
+		return false
+	}
+	switch category {
+	case "probe_contract_refs", "probe_soft_contract_refs", "probe_placement_refs":
+		return reason == "python_plain_probe_assertion_witness_missing"
+	case "probe_changed_symbol":
+		return reason == "python_target_execution_unobserved"
 	default:
 		return false
 	}

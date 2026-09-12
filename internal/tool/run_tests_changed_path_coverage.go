@@ -350,11 +350,18 @@ func changedPathCoverageFromPassedProbes(
 		if !passedIDs[strings.TrimSpace(probe.ID)] {
 			continue
 		}
+		observed := types.ResolveVerificationProbeTargetExecution(plan, probe, report)
 		capability := types.VerificationCapabilityTargetExecution
-		if len(probe.ContractRefs) > 0 {
+		if !observed.Applies && len(probe.ContractRefs) > 0 {
 			capability = types.VerificationCapabilityTargetBehavior
 		}
 		for _, path := range verificationProbeChangedTargetPaths(probe, targets, targetFamilies) {
+			// A declared target and a successful process are not a receipt of
+			// that target's execution. Missing/legacy Python observations stay
+			// unknown; even complete execution does not prove a runtime assertion.
+			if observed.Applies && !exactVerificationProbePathObserved(path, observed.Paths) {
+				continue
+			}
 			out[path] = changedPathCoverageEvidence{
 				caliber:    types.ChangedPathVerificationProbe,
 				capability: capability,
@@ -364,6 +371,15 @@ func changedPathCoverageFromPassedProbes(
 		}
 	}
 	return out
+}
+
+func exactVerificationProbePathObserved(path string, observed []string) bool {
+	for _, candidate := range observed {
+		if candidate == path {
+			return true
+		}
+	}
+	return false
 }
 
 func passedVerificationProbeIDs(report *types.ChangeReport) map[string]bool {

@@ -524,17 +524,22 @@ func TestBuildWriteFinalReportUsesCumulativeProofArtifacts(t *testing.T) {
 		PlanID:             "plan-source",
 		Passed:             true,
 		VerificationStatus: VerificationStatusPassed,
+		// B1575: cumulative closure is supplied by an actual native assertion
+		// receipt, not by the old Python aggregate-plus-reference shape.
+		TestResults: []TestResult{{AssertionID: "test_outcome", Suite: "tests/test_outcome.py", ObservationScope: TestObservationScopeAssertion, Passed: true}},
 		ExecutedCommands: []ExecutedCommand{{
-			Runner:  "verification_probe",
-			Suite:   "verification_probe/python",
-			Outcome: "executed",
-			Source:  "python_verification_probe",
+			Runner:    "pytest",
+			Framework: "pytest",
+			Suite:     "tests/test_outcome.py",
+			Outcome:   "executed",
+			Source:    "declared_coverage_test_surface",
 		}},
 		VerificationConfidence: []VerificationConfidenceRecord{{
-			Source:       "verification_probe",
-			Category:     "probe_soft_contract_refs",
+			Source:       "project_test_observation",
+			Category:     "project_test_contract_refs",
 			Status:       "satisfied",
-			ReasonCode:   "verification_probe_soft_contract_ref_covered",
+			ReasonCode:   "project_test_contract_ref_observed",
+			WitnessKind:  WriteBehaviorWitnessProjectTest,
 			ContractRefs: []string{"outcome-1"},
 		}},
 	}
@@ -553,8 +558,8 @@ func TestBuildWriteFinalReportUsesCumulativeProofArtifacts(t *testing.T) {
 		}},
 	})
 
-	if got.Proof.Status != VerificationProofAdequate || !got.Proof.Cumulative {
-		t.Fatalf("Proof=%+v, want cumulative adequate profile", got.Proof)
+	if got.Proof.Status != VerificationProofStrong || !got.Proof.Cumulative {
+		t.Fatalf("Proof=%+v, want cumulative native assertion profile", got.Proof)
 	}
 	if got.ProofLedger.State != VerificationProofLedgerVerified || !got.ProofLedger.Cumulative {
 		t.Fatalf("ProofLedger=%+v, want cumulative verified ledger", got.ProofLedger)

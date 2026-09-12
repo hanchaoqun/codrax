@@ -754,6 +754,9 @@ func TestRunTestsPassingReplanProbeGuidesNoChangeSentinel(t *testing.T) {
 		RepoRoot:      root,
 		MainRepoRoot:  root,
 	}
+	// B1575: this mechanism's positive precondition includes a real applied
+	// source mapping and execution, not refs standing in for either fact.
+	b1575BindAppliedPythonLines(t, ctx, mu.ChangePlan(), "widget.py", []int{1})
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"dry_run": true,
 		"verification_probe": map[string]any{
@@ -1010,7 +1013,7 @@ func TestRunTestsNoTestWorkUsesVerificationProbeVerdict(t *testing.T) {
 	}
 }
 
-func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenProbeComplete(t *testing.T) {
+func TestRunTestsVerificationProbeDeclaredRefsDoNotSkipRedProjectSuite(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
 	}
@@ -1057,6 +1060,9 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenProbeComplete(t *test
 		RepoRoot:      root,
 		MainRepoRoot:  root,
 	}
+	// B1575: this mechanism's positive precondition includes a real applied
+	// source mapping and execution, not refs standing in for either fact.
+	b1575BindAppliedPythonLines(t, ctx, mu.ChangePlan(), "widget.py", []int{1})
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"runner":    "python",
 		"framework": "unittest",
@@ -1064,49 +1070,57 @@ func TestRunTestsVerificationProbePassSkipsProjectSuiteWhenProbeComplete(t *test
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !result.Success {
-		t.Fatalf("passing verification_probe should pass without project-suite hard gate, got %+v", result)
+	if result.Success {
+		t.Fatalf("B1575: passing Python probe refs cannot suppress the red project suite, got %+v", result)
 	}
 	report := mu.ChangeReport()
 	if report == nil {
 		t.Fatal("run_tests should populate ChangeReport")
 	}
-	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", report.NormalizeVerificationStatus(), report)
+	if report.NormalizeVerificationStatus() != types.VerificationStatusFailed {
+		t.Fatalf("VerificationStatus = %q, want failed from the real project suite; report=%+v", report.NormalizeVerificationStatus(), report)
 	}
-	if len(report.TestResults) != 1 || report.TestResults[0].AssertionID != "value_contract" || !report.TestResults[0].Passed {
-		t.Fatalf("verification probe result missing or wrong: %+v", report.TestResults)
+	foundPassedProbe, foundFailedProject := false, false
+	for _, row := range report.TestResults {
+		foundPassedProbe = foundPassedProbe || (row.Suite == "verification_probe/python" && row.AssertionID == "value_contract" && row.Passed)
+		foundFailedProject = foundFailedProject || (row.AssertionID == "test_project_suite_would_fail" && !row.Passed)
+	}
+	if !foundPassedProbe || !foundFailedProject {
+		t.Fatalf("must retain both passed probe and failed native assertion: %+v", report.TestResults)
+	}
+	if !report.HasTargetExecutionCoverage() {
+		t.Fatal("independent suite failure must not discard actual changed-owner execution")
 	}
 	foundProbeCommand := false
-	foundSkippedSuite := false
+	foundExecutedSuite := false
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner == "verification_probe" && cmd.Source == "pre_suite_verification_probe" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 			foundProbeCommand = true
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "probe_primary_suite_skipped" && cmd.Outcome == types.ExecutedCommandOutcomeSuiteSkipped {
-			foundSkippedSuite = true
+			t.Fatalf("plain probe must not skip the project suite: %+v", report.ExecutedCommands)
 		}
 		if cmd.Runner == "python" && cmd.Framework == "unittest" && cmd.Source == "llm_choice" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
-			t.Fatalf("project unittest suite should not execute after passing bounded probe: %+v", report.ExecutedCommands)
+			foundExecutedSuite = cmd.ExitCode != 0
 		}
 	}
 	if !foundProbeCommand {
 		t.Fatalf("executed command evidence should include pre-suite verification_probe, got %+v", report.ExecutedCommands)
 	}
-	if !foundSkippedSuite {
-		t.Fatalf("executed command evidence should record skipped project suite, got %+v", report.ExecutedCommands)
+	if !foundExecutedSuite {
+		t.Fatalf("executed command evidence should retain failing project suite, got %+v", report.ExecutedCommands)
 	}
 	if report.TestSurface == nil || report.TestSurface.SelectedID == "" {
 		t.Fatalf("probe-primary report must retain test surface, got %+v", report.TestSurface)
 	}
-	if changeReportHasVerificationConfidence(report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
-		t.Fatalf("complete probe should not carry missing contract-ref downgrade: %+v", report.VerificationConfidence)
+	if !changeReportHasVerificationConfidence(report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("plain probe must retain missing contract proof: %+v", report.VerificationConfidence)
 	}
-	if !changeReportHasVerificationConfidence(report, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
-		t.Fatalf("complete probe should carry covered contract-ref evidence: %+v", report.VerificationConfidence)
+	if changeReportHasVerificationConfidence(report, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
+		t.Fatalf("plain probe must not manufacture covered contract evidence: %+v", report.VerificationConfidence)
 	}
-	if !strings.Contains(result.Summary, "verification_probes verdict=PASSED") {
-		t.Fatalf("summary should explain probe-primary verdict, got %q", result.Summary)
+	if !strings.Contains(result.Summary, "verdict=FAILED") {
+		t.Fatalf("summary must preserve native suite failure, got %q", result.Summary)
 	}
 }
 
@@ -1122,9 +1136,8 @@ func TestRunTestsVerificationProbeExpectedBaselineFailureUsesImmutableMainSnapsh
 	if err := os.WriteFile(filepath.Join(activeRoot, "widget.py"), []byte("VALUE = 2\n"), 0o644); err != nil {
 		t.Fatalf("write active source: %v", err)
 	}
-	// A detected suite is deliberately red. A complete differential probe may
-	// remain the bounded primary proof; this assertion also prevents the new
-	// baseline check from accidentally turning into a full-suite double run.
+	// B1575: the before-fail/after-pass observation remains valuable, but it is
+	// not a per-contract assertion receipt and cannot hide a detected red suite.
 	testBody := "import unittest\n\nclass ProjectSuite(unittest.TestCase):\n    def test_project_suite_would_fail(self):\n        self.assertTrue(False)\n"
 	if err := os.WriteFile(filepath.Join(activeRoot, "test_widget.py"), []byte(testBody), 0o644); err != nil {
 		t.Fatalf("write active test: %v", err)
@@ -1159,6 +1172,9 @@ func TestRunTestsVerificationProbeExpectedBaselineFailureUsesImmutableMainSnapsh
 		RepoRoot:      activeRoot,
 		MainRepoRoot:  mainRoot,
 	}
+	// B1575: this mechanism's positive precondition includes a real applied
+	// source mapping and execution, not refs standing in for either fact.
+	b1575BindAppliedPythonLines(t, ctx, mu.ChangePlan(), "widget.py", []int{1})
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"runner":    "python",
 		"framework": "unittest",
@@ -1166,8 +1182,8 @@ func TestRunTestsVerificationProbeExpectedBaselineFailureUsesImmutableMainSnapsh
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !result.Success {
-		t.Fatalf("before-fail/after-pass differential probe should pass, got %+v", result)
+	if result.Success {
+		t.Fatalf("differential process observation must not suppress the red suite, got %+v", result)
 	}
 	report := mu.ChangeReport()
 	if report == nil {
@@ -1192,8 +1208,24 @@ func TestRunTestsVerificationProbeExpectedBaselineFailureUsesImmutableMainSnapsh
 	if !foundBaseline {
 		t.Fatalf("typed main-snapshot baseline command missing: %+v", report.ExecutedCommands)
 	}
-	if foundSuiteExecution {
-		t.Fatalf("complete bounded differential must not force an unrelated full suite: %+v", report.ExecutedCommands)
+	if !foundSuiteExecution {
+		t.Fatalf("plain differential refs must preserve project-suite execution: %+v", report.ExecutedCommands)
+	}
+	if report.NormalizeVerificationStatus() != types.VerificationStatusFailed {
+		t.Fatalf("real red suite must remain failed: %+v", report)
+	}
+	foundPassedProbe := false
+	for _, row := range report.TestResults {
+		foundPassedProbe = foundPassedProbe || (row.Suite == "verification_probe/python" && row.AssertionID == "value_contract" && row.Passed)
+	}
+	if !foundPassedProbe {
+		t.Fatalf("after-pass process observation disappeared: %+v", report.TestResults)
+	}
+	if !report.HasTargetExecutionCoverage() {
+		t.Fatal("baseline and red suite must not erase the actual after-execution observation")
+	}
+	if len(types.CoveredWriteBehaviorContractIDs(mu.ChangePlan().BehaviorContracts, report.VerificationConfidence)) != 0 {
+		t.Fatal("differential Python process result signed a runtime contract")
 	}
 }
 
@@ -1275,6 +1307,9 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanContractRefMi
 		RepoRoot:      root,
 		MainRepoRoot:  root,
 	}
+	// B1575: this mechanism's positive precondition includes a real applied
+	// source mapping and execution, not refs standing in for either fact.
+	b1575BindAppliedPythonLines(t, ctx, mu.ChangePlan(), "widget.py", []int{1})
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"runner":    "python",
 		"framework": "unittest",
@@ -1360,6 +1395,9 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenGroundedContractM
 		RepoRoot:      root,
 		MainRepoRoot:  root,
 	}
+	// B1575: this mechanism's positive precondition includes a real applied
+	// source mapping and execution, not refs standing in for either fact.
+	b1575BindAppliedPythonLines(t, ctx, mu.ChangePlan(), "widget.py", []int{1})
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"runner":    "python",
 		"framework": "unittest",
@@ -1960,6 +1998,9 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteForCumulativeReplan(t
 		MainRepoRoot:  root,
 	}
 
+	// B1575: this mechanism's positive precondition includes a real applied
+	// source mapping and execution, not refs standing in for either fact.
+	b1575BindAppliedPythonLines(t, ctx, mu.ChangePlan(), "widget.py", []int{1})
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"runner": "make",
 	}))
@@ -2147,15 +2188,25 @@ func TestRunTestsVerificationProbeSubprocessInheritsWorktreeSrcRoot(t *testing.T
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !result.Success {
-		t.Fatalf("verification probe subprocess should inherit worktree src import root, got %+v", result)
+	if result.Success {
+		t.Fatalf("subprocess observation must not manufacture target coverage: %+v", result)
 	}
 	report := mu.ChangeReport()
 	if report == nil {
 		t.Fatal("run_tests should populate ChangeReport")
 	}
-	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", report.NormalizeVerificationStatus(), report)
+	// B1575: subprocess coverage is unsupported, while the original child
+	// stdout/import-root assertions below must still genuinely pass.
+	if report.NormalizeVerificationStatus() != types.VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unknown target coverage; report=%+v", report.NormalizeVerificationStatus(), report)
+	}
+	if report.HasTargetExecutionCoverage() {
+		t.Fatal("unobserved child execution acquired changed-target authority")
+	}
+	for _, row := range report.ChangedPathCoverage {
+		if row.Path == "src/probe_pkg/__init__.py" && row.Status != types.ChangedPathVerificationUncovered {
+			t.Fatalf("unsupported child observation is unknown, not static coverage: %+v", row)
+		}
 	}
 	if len(report.TestResults) != 1 || !report.TestResults[0].Passed {
 		t.Fatalf("verification probe result missing or failed: %+v", report.TestResults)
@@ -2893,15 +2944,32 @@ func TestRunTestsVerificationProbePythonPackageWorkingDirExecutesAtProjectRoot(t
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !result.Success {
-		t.Fatalf("verification_probe should execute at project root and pass, got %+v", result)
+	if result.Success {
+		t.Fatalf("stdlib-only probe must not cover the unexecuted target: %+v", result)
 	}
 	report := mu.ChangeReport()
 	if report == nil {
 		t.Fatal("run_tests should populate ChangeReport")
 	}
-	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-		t.Fatalf("VerificationStatus = %q, want passed; report=%+v", report.NormalizeVerificationStatus(), report)
+	// B1575: preserve the real stdlib/package-isolation pass, not a claim
+	// that the unrelated backend target was executed.
+	if report.NormalizeVerificationStatus() != types.VerificationStatusUnavailable {
+		t.Fatalf("VerificationStatus = %q, want unknown target coverage; report=%+v", report.NormalizeVerificationStatus(), report)
+	}
+	if report.HasTargetExecutionCoverage() {
+		t.Fatal("stdlib execution acquired unrelated changed-target authority")
+	}
+	for _, row := range report.ChangedPathCoverage {
+		if row.Path == "lib/matplotlib/backend_ps.py" && row.Status != types.ChangedPathVerificationUncovered {
+			t.Fatalf("absent target observation is unknown, not static coverage: %+v", row)
+		}
+	}
+	foundPassedProbe := false
+	for _, row := range report.TestResults {
+		foundPassedProbe = foundPassedProbe || (row.Suite == "verification_probe/python" && row.AssertionID == "stdlib_collections_visible" && row.Passed)
+	}
+	if !foundPassedProbe {
+		t.Fatalf("the actual project-root stdlib probe must still pass: %+v", report.TestResults)
 	}
 	foundProjectRootCWD := false
 	for _, cmd := range report.ExecutedCommands {
@@ -4068,14 +4136,16 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 	plan.VerificationProbes[0].ContractRefs = []string{"outcome-1"}
 	plan.VerificationProbes[0].ChangedSymbolRefs = []string{"widget.repr"}
 	records = verificationConfidenceRecordsFromReport(plan, report)
-	if verificationConfidenceContains(records, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
-		t.Fatalf("covered contract refs should not emit missing record: %+v", records)
+	// B1575: these are legacy plain-Python declarations, not executor-owned
+	// target or assertion observations. Preserve the actual passed result.
+	if !verificationConfidenceContains(records, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("declared contract refs must retain missing assertion evidence: %+v", records)
 	}
-	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
-		t.Fatalf("covered contract refs should emit satisfied record: %+v", records)
+	if verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
+		t.Fatalf("declared contract refs must not emit satisfied evidence: %+v", records)
 	}
-	if !verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
-		t.Fatalf("changed symbol coupling should emit satisfied record: %+v", records)
+	if !verificationConfidenceContains(records, "probe_changed_symbol", "missing", "verification_probe_target_execution_unobserved") {
+		t.Fatalf("identity coupling alone must not mint execution: %+v", records)
 	}
 	if !verificationConfidenceContains(records, "probe_placement_refs", "missing", "verification_probe_missing_required_placement_ref") {
 		t.Fatalf("global contract ref must not satisfy placement coverage: %+v", records)
@@ -4083,11 +4153,14 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 
 	plan.VerificationProbes[0].PlacementRefs = []string{"outcome-1"}
 	records = verificationConfidenceRecordsFromReport(plan, report)
-	if verificationConfidenceContains(records, "probe_placement_refs", "missing", "verification_probe_missing_required_placement_ref") {
-		t.Fatalf("placement refs should clear missing placement downgrade: %+v", records)
+	if !verificationConfidenceContains(records, "probe_placement_refs", "missing", "verification_probe_missing_required_placement_ref") {
+		t.Fatalf("placement refs must not clear missing placement proof: %+v", records)
 	}
-	if !verificationConfidenceContains(records, "probe_placement_refs", "satisfied", "verification_probe_placement_ref_covered") {
-		t.Fatalf("placement refs should emit satisfied placement evidence: %+v", records)
+	if verificationConfidenceContains(records, "probe_placement_refs", "satisfied", "verification_probe_placement_ref_covered") {
+		t.Fatalf("placement refs must not emit satisfied placement evidence: %+v", records)
+	}
+	if !report.Passed || !report.TestResults[0].Passed {
+		t.Fatal("authority projection must not rewrite the passed process observation")
 	}
 
 	report.TestResults[0].Suite = "verification_probe/javascript"
@@ -4191,9 +4264,14 @@ func TestRunPlanVerificationProbesAttachesConfidenceToProbeReport(t *testing.T) 
 	if !result.Report.Passed {
 		t.Fatalf("probe should pass: %+v", result.Report)
 	}
-	if !changeReportHasVerificationConfidence(result.Report, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") ||
-		!changeReportHasVerificationConfidence(result.Report, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
-		t.Fatalf("probe report should carry confidence before finishReport: %+v", result.Report.VerificationConfidence)
+	// B1575: confidence must already be honest before finishReport; a passed
+	// process plus refs is not an assertion or a changed-owner receipt.
+	if !changeReportHasVerificationConfidence(result.Report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") ||
+		!changeReportHasVerificationConfidence(result.Report, "probe_changed_symbol", "missing", "verification_probe_target_execution_unobserved") {
+		t.Fatalf("probe report should carry bounded confidence before finishReport: %+v", result.Report.VerificationConfidence)
+	}
+	if len(types.CoveredWriteBehaviorContractIDs(mu.ChangePlan().BehaviorContracts, result.Report.VerificationConfidence)) != 0 {
+		t.Fatal("plain probe refs acquired assertion authority before finishReport")
 	}
 }
 
@@ -4248,11 +4326,15 @@ func TestVerificationConfidenceRecordsFromProbeReportRecordsSoftContractRefsSepa
 	plan.VerificationProbes[0].ContractRefs = []string{"soft-outcome"}
 	plan.VerificationProbes[0].ChangedSymbolRefs = []string{"widget.render"}
 	records = verificationConfidenceRecordsFromReport(plan, report)
-	if verificationConfidenceContains(records, "probe_soft_contract_refs", "missing", "verification_probe_missing_soft_contract_ref") {
-		t.Fatalf("covered soft satisfies contract should not emit soft missing record: %+v", records)
+	// B1575: declaring even a soft ref cannot substitute for an assertion receipt.
+	if !verificationConfidenceContains(records, "probe_soft_contract_refs", "missing", "verification_probe_missing_soft_contract_ref") {
+		t.Fatalf("declared soft contract should retain soft missing evidence: %+v", records)
 	}
-	if !verificationConfidenceContains(records, "probe_soft_contract_refs", "satisfied", "verification_probe_soft_contract_ref_covered") {
-		t.Fatalf("covered soft satisfies contract should emit soft covered record: %+v", records)
+	if verificationConfidenceContains(records, "probe_soft_contract_refs", "satisfied", "verification_probe_soft_contract_ref_covered") {
+		t.Fatalf("declared soft contract must not emit covered evidence: %+v", records)
+	}
+	if !report.Passed || !report.TestResults[0].Passed {
+		t.Fatal("missing proof must preserve the passed process observation")
 	}
 }
 
@@ -4299,8 +4381,9 @@ func TestVerificationConfidenceRecordsFromProbeReportRecordsPartialMissingContra
 		}},
 	}
 	records := verificationConfidenceRecordsFromReport(plan, report)
-	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
-		t.Fatalf("partial coverage should still record covered contract refs: %+v", records)
+	// B1575: c1 is declared, c2 is undeclared, but neither has assertion proof.
+	if verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") {
+		t.Fatalf("partial declarations must not record covered contract refs: %+v", records)
 	}
 	var missing []string
 	for _, record := range records {
@@ -4310,8 +4393,11 @@ func TestVerificationConfidenceRecordsFromProbeReportRecordsPartialMissingContra
 			break
 		}
 	}
-	if len(missing) != 1 || missing[0] != "c2" {
-		t.Fatalf("missing contract refs = %+v, want [c2]; records=%+v", missing, records)
+	if len(missing) != 2 || missing[0] != "c1" || missing[1] != "c2" {
+		t.Fatalf("missing contract refs = %+v, want [c1 c2]; records=%+v", missing, records)
+	}
+	if !report.Passed || !report.TestResults[0].Passed {
+		t.Fatal("missing proof must preserve the passed process observation")
 	}
 }
 
@@ -4404,9 +4490,13 @@ func TestVerificationConfidenceIgnoresContractClaimsFromUnpassedProbe(t *testing
 			missing = record.ContractRefs
 		}
 	}
-	if len(covered) != 1 || covered[0] != "passed-contract" ||
-		len(missing) != 1 || missing[0] != "failed-contract" {
-		t.Fatalf("only actually passed probes may cover contracts: covered=%v missing=%v records=%+v", covered, missing, records)
+	// B1575: failure still cannot sign a contract; plain-Python process pass
+	// with refs alone cannot sign the other contract either.
+	if len(covered) != 0 || len(missing) != 2 || missing[0] != "failed-contract" || missing[1] != "passed-contract" {
+		t.Fatalf("unwitnessed Python contracts must stay missing: covered=%v missing=%v records=%+v", covered, missing, records)
+	}
+	if !report.TestResults[0].Passed || report.TestResults[1].Passed {
+		t.Fatal("proof projection changed the original passed/failed observations")
 	}
 }
 

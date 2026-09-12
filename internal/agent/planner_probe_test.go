@@ -51,18 +51,28 @@ func TestPlannerBuildInitialInstruction_ProbeHistorySection(t *testing.T) {
 
 func TestPlannerBuildInitialInstruction_ProbeHistoryNoChangeSentinel(t *testing.T) {
 	mu := types.NewMutableState("plan probe test")
+	// B1575: availability now uses the real tool/controller qualification;
+	// an aggregate pass without an applied plan or target authority is not it.
+	mu.SetChangePlan(&types.ChangePlan{
+		ID: "plan-applied", AppliedCommitSHA: "abc123", TargetPaths: []string{"routes.py"},
+	})
 	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
 		PlanID:  "plan-applied",
 		BatchID: "batch-1",
 		Attempt: 1,
 	})
 	mu.AppendPlanStageProbeReport(&types.ChangeReport{
+		PlanID:             "plan-applied",
 		Channel:            types.ChangeReportChannelPlannerProbe,
 		Passed:             true,
 		VerificationStatus: types.VerificationStatusPassed,
 		TestResults: []types.TestResult{
 			{AssertionID: "tests/test_routes.py::test_route_registration", Passed: true},
 		},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "routes.py", Status: types.ChangedPathVerificationCovered,
+			Capability: types.VerificationCapabilityTargetExecution,
+		}},
 	})
 	e := &plannerEvaluator{}
 	ctx := &types.AgentContext{Mutable: mu}

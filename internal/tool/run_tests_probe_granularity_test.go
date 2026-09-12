@@ -11,9 +11,9 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// No source-inspection rule can establish per-method execution. These two
-// successful probes therefore get the same honest display boundary despite
-// one exercising a method and the other only inspecting its definition.
+// Process success and declared refs cannot establish execution or assertion
+// ownership. These legacy (no applied-effect) probes retain their real process
+// outcome without acquiring contract proof, even through report projections.
 func TestRunTestsProbeGranularityActualExecutionAndProjection(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH")
@@ -83,15 +83,21 @@ func TestRunTestsProbeGranularityActualExecutionAndProjection(t *testing.T) {
 			}
 			const phrase = "not per-contract/method execution receipts or runtime coverage"
 			count := strings.Count(result.Summary, phrase)
-			if (tc.want && count != 1) || (!tc.want && count != 0) {
-				t.Errorf("actual run_tests exit disclosure count=%d want=%v: %s", count, tc.want, result.Summary)
+			if count != 0 {
+				t.Errorf("unadmitted Python refs must not retain a satisfied-ref disclosure: %s", result.Summary)
 			}
-			if tc.want && (!result.Success || !report.Passed) {
-				t.Fatalf("display limitation must not reject a passed probe: %+v", report)
+			if tc.want {
+				passed := false
+				for _, row := range report.TestResults {
+					passed = passed || (row.AssertionID == "value-probe" && row.Suite == "verification_probe/python" && row.Passed)
+				}
+				if !passed {
+					t.Fatalf("authority limitation rewrote original probe success: %+v", report)
+				}
 			}
 			covered := types.CoveredWriteBehaviorContractIDs(plan.BehaviorContracts, report.VerificationConfidence)
-			if (tc.want && len(covered) != 2) || (!tc.want && len(covered) != 0) {
-				t.Fatalf("proof granularity changed existing admission: covered=%v records=%+v", covered, report.VerificationConfidence)
+			if len(covered) != 0 {
+				t.Fatalf("declared refs minted assertion proof: covered=%v records=%+v", covered, report.VerificationConfidence)
 			}
 			before, _ := json.Marshal(report)
 			for _, record := range report.VerificationConfidence {
@@ -108,8 +114,11 @@ func TestRunTestsProbeGranularityActualExecutionAndProjection(t *testing.T) {
 			for _, item := range ledger.Obligations {
 				ledgerHas = ledgerHas || strings.Contains(item.Detail, phrase)
 			}
-			if packHas != tc.want || ledgerHas != tc.want {
-				t.Errorf("actual report dropped granularity on projection: context=%v ledger=%v want=%v", packHas, ledgerHas, tc.want)
+			if packHas || ledgerHas {
+				t.Errorf("projections revived withdrawn satisfied refs: context=%v ledger=%v", packHas, ledgerHas)
+			}
+			if ledger.State == types.VerificationProofLedgerVerified || ledger.UncoveredCount == 0 {
+				t.Errorf("plain probe closed required contract obligations: %+v", ledger)
 			}
 			after, _ := json.Marshal(report)
 			if !bytes.Equal(before, after) {

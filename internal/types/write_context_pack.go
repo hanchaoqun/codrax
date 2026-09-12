@@ -1530,7 +1530,7 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 		pack.Items[len(pack.Items)-1].ID = writeVerificationDiagnosticContextID(diag)
 	}
-	for _, confidence := range report.VerificationConfidence {
+	for _, confidence := range EffectiveVerificationConfidence(nil, report) {
 		text := renderVerificationConfidenceContext(confidence)
 		if text == "" {
 			continue

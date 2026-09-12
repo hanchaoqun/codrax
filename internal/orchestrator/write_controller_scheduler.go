@@ -3715,7 +3715,8 @@ func verifyCoverageProjectionFromReport(plan *types.ChangePlan, report *types.Ch
 // this soft projection. Refs naming no known contract keep the legacy
 // records-only reading.
 func verifyCoverageConfidenceFromReportForPlan(plan *types.ChangePlan, report *types.ChangeReport) verifyCoverageConfidence {
-	conf := verifyCoverageConfidenceFromReport(report)
+	report = types.EffectiveVerificationProbeReport(plan, report)
+	conf := verifyCoverageConfidenceFromEffectiveReport(report)
 	if plan == nil || report == nil {
 		return conf
 	}
@@ -3759,6 +3760,10 @@ func verifyCoverageConfidenceFromReportForPlan(plan *types.ChangePlan, report *t
 }
 
 func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCoverageConfidence {
+	return verifyCoverageConfidenceFromEffectiveReport(types.EffectiveVerificationProbeReport(nil, report))
+}
+
+func verifyCoverageConfidenceFromEffectiveReport(report *types.ChangeReport) verifyCoverageConfidence {
 	conf := verifyCoverageConfidence{
 		MissingContracts:    map[string]bool{},
 		CoveredSymbols:      map[string]bool{},
@@ -3795,9 +3800,9 @@ func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCovera
 		switch {
 		case status == "unavailable" && category == "probe_execution":
 			conf.ProbeUnavailable = true
-		case status == "missing" && category == "probe_changed_symbol":
+		case (status == "missing" || status == "unverified") && category == "probe_changed_symbol":
 			conf.MissingChangedSymbol = true
-		case status == "missing" && (category == "probe_contract_refs" || category == "source_contract_refs"):
+		case (status == "missing" || status == "unverified") && (category == "probe_contract_refs" || category == "source_contract_refs"):
 			for _, ref := range rec.ContractRefs {
 				if ref = strings.TrimSpace(ref); ref != "" {
 					conf.MissingContracts[ref] = true
@@ -8611,6 +8616,7 @@ func proofFollowupWouldRepeatStableStaticVerification(
 	batch *writeflow.WriteBatchPlan,
 	runtimeAvailable func(string) bool,
 ) bool {
+	report = types.EffectiveVerificationProbeReport(plan, report)
 	if plan == nil || report == nil || batch == nil ||
 		strings.TrimSpace(plan.ID) == "" || strings.TrimSpace(report.PlanID) != strings.TrimSpace(plan.ID) ||
 		report.Channel != types.ChangeReportChannelPostApplyVerify ||
@@ -8755,6 +8761,7 @@ func sourceStaticInlineProofRepairQueueItemsWithRuntimeAvailability(
 	report *types.ChangeReport,
 	runtimeAvailable func(string) bool,
 ) []impactRepairQueueItem {
+	report = types.EffectiveVerificationProbeReport(plan, report)
 	if plan == nil || report == nil || !report.Passed ||
 		report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
 		return nil
@@ -8991,6 +8998,7 @@ func filterPendingImpactRepairQueueItems(run *types.WriteWorkflowRun, items []im
 }
 
 func verificationConfidenceRepairQueueItems(plan *types.ChangePlan, report *types.ChangeReport) []impactRepairQueueItem {
+	report = types.EffectiveVerificationProbeReport(plan, report)
 	if plan == nil || report == nil || len(report.VerificationConfidence) == 0 {
 		return nil
 	}
@@ -9032,7 +9040,8 @@ func verificationConfidenceRepairQueueItems(plan *types.ChangePlan, report *type
 		}
 	}
 	for _, rec := range report.VerificationConfidence {
-		if strings.TrimSpace(rec.Status) != "missing" || strings.TrimSpace(rec.ReasonCode) == "" {
+		status := strings.TrimSpace(rec.Status)
+		if (status != "missing" && status != "unverified") || strings.TrimSpace(rec.ReasonCode) == "" {
 			continue
 		}
 		switch strings.TrimSpace(rec.Category) {

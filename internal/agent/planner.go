@@ -1007,7 +1007,7 @@ func (e *plannerEvaluator) buildProbeHistorySection(ctx *types.AgentContext) str
 	b.WriteString("## Probe results\n\n")
 	b.WriteString("Each entry is a run_tests(dry_run=true, verification_probe={...}) probe you fired earlier in this Run. First-plan probes describe small typed behavior checks before apply; verify-failure replan probes describe the current already-applied worktree. The rows are typed probe facts with pass/fail counts and bounded probe output.\n\n")
 	if plannerProbeHistorySupportsNoChangeSentinel(ctx.Mutable) {
-		b.WriteString("No-change sentinel available: the latest planner probe reports all scoped tests passing during a verify-failure replan. A bounded ChangePlan with `changes: []` records `no_change_required` when the current already-applied worktree satisfies the failure point, avoiding a duplicate edit against stale bytes.\n\n")
+		b.WriteString("No-change sentinel available: the current applied-plan probe satisfies the shared typed qualification, including target authority and remaining confidence checks. A bounded ChangePlan with `changes: []` records `no_change_required` when the current already-applied worktree satisfies the failure point, avoiding a duplicate edit against stale bytes. A probe pass alone is not this qualification.\n\n")
 	}
 	for i, r := range probes {
 		if r == nil {
@@ -1044,22 +1044,17 @@ func (e *plannerEvaluator) buildProbeHistorySection(ctx *types.AgentContext) str
 }
 
 func plannerProbeHistorySupportsNoChangeSentinel(mu *types.MutableState) bool {
-	if mu == nil || mu.VerifyFailureHandoff() == nil {
+	if mu == nil {
 		return false
 	}
-	probes := mu.PlanStageProbeReports()
-	for i := len(probes) - 1; i >= 0; i-- {
-		report := probes[i]
-		if report == nil || report.Channel != types.ChangeReportChannelPlannerProbe {
-			continue
-		}
-		if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-			return false
-		}
-		passed, total := report.Score()
-		return total > 0 && passed == total
-	}
-	return false
+	// Availability is presentation of the existing tool/controller decision,
+	// not a second qualification inferred from an aggregate passing score.
+	return writeflow.QualifyNoChangeReplanSentinel(writeflow.NoChangeReplanQualificationInput{
+		VerifyFailureHandoff: mu.VerifyFailureHandoff(),
+		PriorPlan:            mu.ChangePlan(),
+		PlannerProbeReports:  mu.PlanStageProbeReports(),
+		RequireAppliedWork:   true,
+	}).Allowed
 }
 
 // buildIterationHistorySection renders Module C's iteration ledger

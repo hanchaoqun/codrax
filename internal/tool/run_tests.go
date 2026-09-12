@@ -269,7 +269,7 @@ func (t *RunTests) Parameters() json.RawMessage {
         "code": {"type": "string", "description": "Inline probe code. Raise AssertionError or a non-zero SystemExit for an expected behaviour failure."},
         "timeout_seconds": {"type": "integer", "description": "Probe timeout in seconds, capped by the executor."},
         "expected_stdout": {"type": "array", "items": {"type": "string"}, "description": "Optional stdout fragments that must be present for the probe to pass."},
-        "contract_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional behavior contract ids covered by this probe."},
+        "contract_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional behavior contract ids this probe intends to check; declaration alone is not assertion proof."},
         "placement_refs": {"type": "array", "items": {"type": "string"}, "description": "` + types.WritePlacementRefsTeaching + `"},
         "changed_symbol_refs": {"type": "array", "items": {"type": "string"}, "description": "Optional changed identities exercised by this probe. Use a language-level symbol name for symbols and path:<repo-relative-file> for files/modules."}
       },
@@ -498,6 +498,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		probe := runSingleVerificationProbe(ctx, probes[0], "planner_probe_verification_probe")
 		executedCmds = append(executedCmds, probe.Commands...)
 		authorityPlan := plannerProbeAuthorityPlan(ctx.Mutable.ChangePlan(), probes[0])
+		// Bind this actual dispatch before its evidence is projected. The
+		// installation step is too late for receipt validation; never replace
+		// a nonempty (possibly mismatched) identity supplied by the producer.
+		if probe.Report != nil && probe.Report.PlanID == "" && authorityPlan != nil {
+			probe.Report.PlanID = authorityPlan.ID
+		}
 		report := finishReportForPlan(probe.Report, authorityPlan, false, true)
 		_, ref := StoreBlob(ctx, t.Name()+"-planner-verification-probe", probe.Output)
 		summary := installFinishedReport(report, renderPlannerVerificationProbeSummary(report, surface))
@@ -1872,7 +1878,7 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 	// an impossible follow-up that can only rerun the same bounded probe. Running
 	// the suite gives that obligation independent concrete coverage without
 	// promoting noisy fallback text into a hard validation gate.
-	if len(verificationProbeMissingRequiredIncludingFallbackContractRefs(plan)) > 0 {
+	if len(verificationProbeMissingObservedContractRefs(plan, probeReport)) > 0 {
 		return verificationProbeContinuationMissingPlanContractRef
 	}
 	if changePlanTouchesTestOrSpecPath(plan) {
@@ -2061,6 +2067,19 @@ func verificationProbeMissingRequiredIncludingFallbackContractRefs(plan *types.C
 	return sortedStringSet(subtractStringSet(required, covered))
 }
 
+// Suite continuation reads successful, admitted observations, not the plan's
+// list of intended checks. In particular, Python target execution cannot
+// substitute for per-contract assertions or suppress an available native suite.
+func verificationProbeMissingObservedContractRefs(plan *types.ChangePlan, report *types.ChangeReport) []string {
+	if plan == nil {
+		return nil
+	}
+	contracts := types.ChangePlanVerificationBehaviorContracts(plan)
+	required := types.RequiredWriteBehaviorContractIDs(contracts, true)
+	covered := types.CoveredWriteBehaviorContractIDs(contracts, verificationConfidenceRecordsFromReport(plan, report))
+	return sortedStringSet(subtractStringSet(required, covered))
+}
+
 func verificationProbeMissingChangedSymbolRefs(plan *types.ChangePlan) bool {
 	if plan == nil || len(types.HardRequiredWriteBehaviorContractIDs(types.ChangePlanVerificationBehaviorContracts(plan))) == 0 {
 		return false
@@ -2162,7 +2181,7 @@ func renderPlannerVerificationProbeSummary(report *types.ChangeReport, surface t
 	}
 	if status == types.VerificationStatusPassed {
 		if report.HasTargetExecutionCoverage() {
-			b.WriteString(" Typed authority: the probe is coupled to at least one compatible changed target; no-change eligibility still requires the remaining typed confidence checks.")
+			b.WriteString(" Typed authority: the executor reported execution/behavior coverage for at least one changed target; a pass does not independently prove each declared contract or no-change eligibility.")
 		} else {
 			b.WriteString(" Typed authority: observation_only; no compatible changed-target execution/behavior coverage was established, so this result cannot authorize changes: [].")
 		}
@@ -3065,6 +3084,7 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 		}
 		out.TestResults = append(out.TestResults, report.TestResults...)
 		out.VerificationDiagnostics = mergeVerificationDiagnostics(out.VerificationDiagnostics, report.VerificationDiagnostics)
+		out.VerificationConfidence = mergeVerificationConfidenceRecords(out.VerificationConfidence, report.VerificationConfidence)
 		if len(report.MetricDeltas) > 0 {
 			if out.MetricDeltas == nil {
 				out.MetricDeltas = make(map[string]types.MetricDelta, len(report.MetricDeltas))
@@ -3468,6 +3488,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 		placementCovered := map[string]struct{}{}
 		changed := map[string]struct{}{}
 		declaredChanged := map[string]struct{}{}
+		executionReceiptRequired := false
 		baselineExpected := false
 		for _, probe := range types.ChangePlanVerificationProbes(plan) {
 			if !passedIDs[strings.TrimSpace(probe.ID)] {
@@ -3482,10 +3503,23 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 			if probe.ExpectsBaselineFailure {
 				baselineExpected = true
 			}
-			// A contract label is a claim, not proof. Only a probe whose typed
-			// changed identity resolves to a compatible active source target may
-			// mint behavior- or placement-contract authority.
-			if len(verificationProbeChangedTargetPaths(probe, targets, targetFamilies)) == 0 {
+			boundPaths := verificationProbeChangedTargetPaths(probe, targets, targetFamilies)
+			if len(boundPaths) == 0 {
+				continue
+			}
+			observed := types.ResolveVerificationProbeTargetExecution(plan, probe, report)
+			if observed.Applies {
+				executionReceiptRequired = true
+				for _, path := range boundPaths {
+					if exactVerificationProbePathObserved(path, observed.Paths) {
+						changed["path:"+path] = struct{}{}
+					}
+				}
+				// The observer proves execution, not the relationship between
+				// a returned value and each declared assertion. Keep original
+				// contract/placement declarations in the plan without promoting
+				// them into satisfied observations. Native project tests and the
+				// separate source-text contract channel remain available.
 				continue
 			}
 			for _, ref := range probe.ContractRefs {
@@ -3518,7 +3552,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:     "warning",
 					ReasonCode:   "verification_probe_missing_required_contract_ref",
 					ContractRefs: missing,
-					Detail:       "passed verification probes did not reference every required behavior contract",
+					Detail:       "passed verification probes did not supply admissible observations for every required behavior contract; declared refs alone are not assertion evidence",
 				})
 			}
 			if len(matched) > 0 {
@@ -3543,6 +3577,10 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 				if len(declaredRefs) > 0 {
 					reasonCode = "verification_probe_changed_symbol_uncoupled"
 					detail = "passed verification probes named changed symbols but none resolved to a compatible active changed source target"
+				}
+				if executionReceiptRequired {
+					reasonCode = "verification_probe_target_execution_unobserved"
+					detail = "passed verification probes named changed targets but no complete current-invocation execution observation covered their changed code owners"
 				}
 				out = append(out, types.VerificationConfidenceRecord{
 					Source:            "verification_probe",
@@ -3576,7 +3614,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:     "warning",
 					ReasonCode:   "verification_probe_missing_required_placement_ref",
 					ContractRefs: missing,
-					Detail:       "passed verification probes did not bind every required rendered-text placement contract",
+					Detail:       "passed verification probes did not supply admissible observations for every required rendered-text placement contract",
 				})
 			}
 			if len(matched) > 0 {
@@ -3603,7 +3641,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:     "warning",
 					ReasonCode:   "verification_probe_missing_soft_contract_ref",
 					ContractRefs: missing,
-					Detail:       "passed verification probes did not reference every soft or fallback expected outcome",
+					Detail:       "passed verification probes did not supply admissible observations for every soft or fallback expected outcome",
 				})
 			}
 			if len(matched) > 0 {
@@ -4005,10 +4043,12 @@ func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.V
 // reportHasPassedVerificationProbeObservation is deliberately broader than
 // the former probe-only gate: an exact contract-ref receipt does not become
 // less authoritative merely because run_tests also executed an independent
-// project suite in the same report. It reads only typed command and TestResult
-// identities; runner output and model prose are not inspected.
+// project suite in the same report, even if that independent suite fails. This
+// retains bounded observations, not overall success: the report's failure and
+// the proof profile still control aggregate verification. It reads only typed
+// command and TestResult identities, never runner output or model prose.
 func reportHasPassedVerificationProbeObservation(report *types.ChangeReport) bool {
-	if report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+	if report == nil {
 		return false
 	}
 	passedResult := false

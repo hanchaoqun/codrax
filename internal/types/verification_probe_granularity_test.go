@@ -116,7 +116,7 @@ func TestVerificationProbeGranularityLedgerChangesOnlyDetail(t *testing.T) {
 	}
 }
 
-func TestVerificationProbeGranularityPreservesExactRefDischarge(t *testing.T) {
+func TestVerificationProbeGranularityPythonRefsDoNotDischargeWithoutAssertionReceipt(t *testing.T) {
 	for _, cumulative := range []bool{false, true} {
 		for _, complete := range []bool{false, true} {
 			plan, report := verificationProjectReasonFixture(VerificationProjectTestAssertionNotObservedReasonCode)
@@ -140,19 +140,18 @@ func TestVerificationProbeGranularityPreservesExactRefDischarge(t *testing.T) {
 			before, _ := json.Marshal([]any{plan, report, artifacts})
 			profile := BuildCumulativeVerificationProofProfile(plan, report, artifacts)
 			ledger := BuildVerificationProofLedger(plan, report, artifacts)
-			if complete {
-				if profile.Status != VerificationProofAdequate || ledger.UncoveredCount != 0 || ledger.State != VerificationProofLedgerVerified {
-					t.Fatalf("display note weakened exact-ref discharge: %+v %+v", profile, ledger)
-				}
-			} else if profile.Status != VerificationProofWeak || ledger.UncoveredCount == 0 || !verificationProofHasReason(profile, VerificationProjectTestAssertionNotObservedReasonCode) {
-				t.Fatalf("partial proof became sufficient: %+v %+v", profile, ledger)
+			// B1575: keep the original Python aggregate inputs, but neither a
+			// complete nor partial set of model refs is an assertion receipt.
+			// The display-only legacy note remains pinned in the tests above.
+			if profile.Status != VerificationProofWeak || ledger.UncoveredCount == 0 || ledger.State == VerificationProofLedgerVerified || !verificationProofHasReason(profile, VerificationProjectTestAssertionNotObservedReasonCode) {
+				t.Fatalf("plain Python refs became sufficient: %+v %+v", profile, ledger)
 			}
 			found := 0
 			for _, item := range ledger.Obligations {
 				if item.Category == "probe_contract_refs" {
 					found++
-					if !strings.Contains(item.Detail, probeGranularityTestPhrase) {
-						t.Errorf("cumulative=%v ledger dropped execution boundary: %+v", cumulative, item)
+					if item.Status != VerificationProofLedgerItemUnverified || item.ReasonCode != "python_plain_probe_assertion_witness_missing" || item.Detail != record.Detail {
+						t.Errorf("cumulative=%v ledger restored unobserved proof or rewrote history: %+v", cumulative, item)
 					}
 				}
 			}

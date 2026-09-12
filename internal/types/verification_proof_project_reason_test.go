@@ -35,9 +35,21 @@ func TestVerificationProofProjectReasonExactReceiptResolution(t *testing.T) {
 				}
 				t.Run(reason+"/"+lane+"/"+tc.name, func(t *testing.T) {
 					plan, report := verificationProjectReasonFixture(reason)
+					// B1575: exact-ref reconciliation uses a native assertion
+					// witness. Plain Python refs remain an explicit negative in
+					// the target-execution/granularity tests.
+					installNative := func(r *ChangeReport) {
+						r.ExecutedCommands = []ExecutedCommand{{Runner: "pytest", Framework: "pytest", Suite: "tests/test_values.py", Outcome: ExecutedCommandOutcomeExecuted, Source: "declared_coverage_test_surface"}}
+						r.TestResults = []TestResult{{AssertionID: "test_values", Suite: "tests/test_values.py", ObservationScope: TestObservationScopeAssertion, Passed: tc.status == "satisfied"}}
+					}
+					installNative(report)
+					kind := tc.witness
+					if kind == WriteBehaviorWitnessVerificationProbe {
+						kind = WriteBehaviorWitnessProjectTest
+					}
 					witness := VerificationConfidenceRecord{
-						Source: "verification_probe", Category: "probe_contract_refs", Status: tc.status,
-						ReasonCode: "verification_probe_contract_ref_covered", ContractRefs: tc.refs, WitnessKind: tc.witness,
+						Source: "project_test_observation", Category: "project_test_contract_refs", Status: tc.status,
+						ReasonCode: "project_test_contract_ref_observed", ContractRefs: tc.refs, WitnessKind: kind,
 					}
 					if tc.witness == WriteBehaviorWitnessSourceText {
 						witness.Source, witness.Category = "post_apply_source_observation", "source_contract_refs"
@@ -45,6 +57,7 @@ func TestVerificationProofProjectReasonExactReceiptResolution(t *testing.T) {
 					var artifacts []VerificationProofArtifact
 					if cumulative {
 						otherPlan, otherReport := verificationProjectReasonFixture(reason)
+						installNative(otherReport)
 						otherPlan.ID, otherReport.PlanID = "plan-related", "plan-related"
 						otherReport.VerificationConfidence = []VerificationConfidenceRecord{witness}
 						artifacts = []VerificationProofArtifact{{Plan: otherPlan, Report: otherReport}}
@@ -58,7 +71,7 @@ func TestVerificationProofProjectReasonExactReceiptResolution(t *testing.T) {
 					profile := BuildCumulativeVerificationProofProfile(plan, report, artifacts)
 					ledger := BuildVerificationProofLedger(plan, report, artifacts)
 					if tc.closed {
-						if profile.Status != VerificationProofAdequate || verificationProofHasReason(profile, reason) {
+						if profile.Status != VerificationProofStrong || verificationProofHasReason(profile, reason) {
 							t.Fatalf("exact admitted receipts left stale project debt: %+v", profile)
 						}
 						if ledger.State != VerificationProofLedgerVerified || ledger.UncoveredCount != 0 || ledger.UnavailableCount != 0 || ledger.FailedCount != 0 {

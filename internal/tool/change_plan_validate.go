@@ -664,7 +664,10 @@ func passingProbeProtectedAppliedPathSet(reports []*types.ChangeReport, applied 
 	if latest == nil {
 		return out
 	}
-	for _, coverage := range latest.ChangedPathCoverage {
+	// A qualifying native path must not lend its authority to another path's
+	// legacy Python probe label in the same report. One-off probes resolve from
+	// their report-local receipt, independently of prior-plan declarations.
+	for _, coverage := range types.EffectiveChangedPathVerificationCoverage(nil, latest) {
 		if coverage.Status != types.ChangedPathVerificationCovered {
 			continue
 		}
@@ -3364,7 +3367,7 @@ func enrichStructuredEditReplanDiagnostic(ctx *types.BusContext, msg string) str
 		if !hasNoOp && !(hasOldTextMismatch && structuredEditReplanProbePassed(ctx)) {
 			return msg
 		}
-		return msg + ". In a verify-failure replan, a no-op edit means the applied worktree may already contain the intended code. Run a typed planner probe with run_tests(dry_run=true, verification_probe={...}) against the scoped failure; if it passes, emit changes: [] to record the no_change_required sentinel. If it fails, re-read the current bytes and emit a real non-no-op edit."
+		return msg + ". In a verify-failure replan, a no-op edit means the applied worktree may already contain the intended code. Run a typed planner probe with run_tests(dry_run=true, verification_probe={...}) against the scoped failure. A successful process alone does not authorize changes: []; use no_change_required only when the current shared typed qualification confirms the required target and contract evidence. If it fails, re-read the current bytes and emit a real non-no-op edit. If the available verifier cannot supply the needed evidence, retain that limitation and use the existing recovery/block path rather than repeating the same unsupported check."
 	}
 	if _, ok := activeProofFollowupWorkflowBatch(ctx.Mutable.WriteWorkflowRun()); ok && hasNoOp {
 		return msg + ". In a proof-follow-up batch, a no-op edit means the already-applied worktree may already satisfy the proof target. Emit changes: [] with verification_probes[] that import or execute the current code and bind the typed proof criteria; do not add comments, whitespace, or full-file rewrites merely to satisfy changes[]."

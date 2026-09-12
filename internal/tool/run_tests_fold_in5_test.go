@@ -65,6 +65,9 @@ func TestRunTestsBaselineRowKeepsItsOwnReasonLaneWhenMainSnapshotLacksTheModule(
 		RepoRoot:      activeRoot,
 		MainRepoRoot:  mainRoot,
 	}
+	// Observe the actual changed module initialization in the active Git tree;
+	// mainRoot deliberately stays empty so the baseline lane is unchanged.
+	b1575BindAppliedPythonLines(t, ctx, plan, "widget.py", []int{1})
 	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
 		"runner":    "python",
 		"framework": "unittest",

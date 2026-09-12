@@ -74,6 +74,7 @@ var registeredOutcomeSwitches = []outcomeSwitchRegistration{
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandFailed"},
 	{dir: "internal/types", file: "verification_proof_profile.go", fn: "verificationProofCommandUnavailableReasonCode"},
 	{dir: "internal/types", file: "verification_proof_profile.go", fn: "verificationProofCommandClass"},
+	{dir: "internal/types", file: "verification_probe_target_execution.go", fn: "verificationProbeTargetBaselineCommand"},
 	{dir: "internal/tool", file: "run_tests.go", fn: "failureKindFromExecutedCommand"},
 	{dir: "internal/tool", file: "run_tests.go", fn: "verificationDiagnosticClass"},
 	{dir: "internal/tool", file: "run_tests.go", fn: "verificationProbeBaselineCommandCounts"},

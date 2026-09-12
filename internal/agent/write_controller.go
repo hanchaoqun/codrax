@@ -471,7 +471,7 @@ func writeControllerBehaviorContractCoverage(plan *types.ChangePlan, report *typ
 	// V5-1: coverage is the types-level contract-kind → witness-kind matrix
 	// (VerificationConfidenceRecordCoversContract); a source-text reading
 	// counts only for kinds that admit it.
-	coveredIDs := types.CoveredWriteBehaviorContractIDs(contracts, report.VerificationConfidence)
+	coveredIDs := types.CoveredWriteBehaviorContractIDs(contracts, types.EffectiveVerificationConfidence(plan, report))
 	for id := range hardIDs {
 		if _, ok := coveredIDs[id]; ok {
 			covered++
@@ -591,7 +591,8 @@ func authoritativeWriteControllerReport(ctx *types.AgentContext) *types.ChangeRe
 	if currentPlanID != "" && strings.TrimSpace(report.PlanID) != "" && strings.TrimSpace(report.PlanID) != currentPlanID {
 		return nil
 	}
-	return report
+	// Keep process history intact while presenting only current proof authority.
+	return types.EffectiveVerificationProbeReport(ctx.Mutable.ChangePlan(), report)
 }
 
 func renderWriteWorkflowDecisionStageReport(decision writeflow.WriteWorkflowDecision) string {

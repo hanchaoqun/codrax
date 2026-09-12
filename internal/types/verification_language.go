@@ -254,6 +254,9 @@ func VerificationLanguageFamiliesFromVerificationProbeSuite(suite string) []Veri
 // copies lets one stage accept a plan that the next stage deterministically
 // rejects.
 func VerificationProbeDirectSourceFamilies(language string) []VerificationLanguageFamily {
+	if VerificationProbeLanguageIsPython(language) {
+		return []VerificationLanguageFamily{VerificationLanguagePython}
+	}
 	families := VerificationLanguageFamiliesFromVerificationProbeSuite("verification_probe/" + strings.TrimSpace(language))
 	if normalizeVerificationLanguageFamily(VerificationLanguageFamily(language)) == VerificationLanguageJavaScript {
 		families = append(families, VerificationLanguageTypeScript)

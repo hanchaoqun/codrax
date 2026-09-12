@@ -530,7 +530,7 @@ func writeFinalVerificationSummary(report *ChangeReport) WriteFinalVerificationS
 		out.UntrackedEffectCount = report.WorktreeAudit.UntrackedEffectCount
 		out.WorktreeEffects = append([]VerificationWorktreeEffect(nil), report.WorktreeAudit.Effects...)
 	}
-	for _, rec := range report.VerificationConfidence {
+	for _, rec := range EffectiveVerificationConfidence(nil, report) {
 		if code := strings.TrimSpace(rec.ReasonCode); code != "" {
 			out.ConfidenceReasonCodes = append(out.ConfidenceReasonCodes, code)
 		}

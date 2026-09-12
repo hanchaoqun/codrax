@@ -148,7 +148,10 @@ func TestPlannerBehaviorDomainPreservation_RendersOnlyFromTypedContracts(t *test
 		"exact test_path, assertion_suite, assertion_id, and contract_refs",
 		"inspect the concrete assertion first",
 		"exact typed test-surface candidate",
-		"contract_refs names that exact id",
+		// B1575: refs declare intended scope; only the executor's compatible
+		// assertion witness, not a passing Python plain probe, proves it.
+		"Naming the contract in contract_refs and binding changed_symbol_refs alone do not supply that witness",
+		"a Python plain probe's changed-target execution is not per-contract assertion proof",
 		"natural-language acceptance test as if it were execution evidence",
 		"pre-edit true/false partition",
 		"negative/zero/positive",

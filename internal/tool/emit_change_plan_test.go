@@ -184,9 +184,9 @@ func TestEnrichVerificationProbeRefsUsesUniqueImportedChangedPath(t *testing.T) 
 			ExitCode: 0,
 		}},
 	})
-	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") ||
-		!verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
-		t.Fatalf("the passed uniquely coupled probe should retain contract and changed-target authority: %+v", records)
+	if len(types.CoveredWriteBehaviorContractIDs(plan.BehaviorContracts, records)) != 0 ||
+		!verificationConfidenceContains(records, "probe_changed_symbol", "missing", "verification_probe_target_execution_unobserved") {
+		t.Fatalf("import-derived identity must remain a declaration, not execution or behavior proof: %+v", records)
 	}
 }
 

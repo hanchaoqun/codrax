@@ -413,7 +413,7 @@ func TestChangedPathCoverageRejectsCrossLanguageClaimedSourceCheck(t *testing.T)
 	}
 }
 
-func TestChangedPathCoverageAcceptsPathBoundSameLanguageProbe(t *testing.T) {
+func TestChangedPathCoveragePathBoundPythonProbeNeedsExecutionReceipt(t *testing.T) {
 	ctx := changedPathCoverageTestContext([]string{"widget.py"})
 	plan := ctx.Mutable.ChangePlan()
 	plan.VerificationProbes = []types.VerificationProbe{{
@@ -433,15 +433,15 @@ func TestChangedPathCoverageAcceptsPathBoundSameLanguageProbe(t *testing.T) {
 
 	applyChangedPathVerificationCoverage(ctx, report)
 
-	if !report.Passed ||
+	if report.Passed ||
 		len(report.ChangedPathCoverage) != 1 ||
-		report.ChangedPathCoverage[0].Caliber != types.ChangedPathVerificationProbe ||
-		report.ChangedPathCoverage[0].Capability != types.VerificationCapabilityTargetExecution {
-		t.Fatalf("path-bound same-language probe should cover path: %+v", report)
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationUncovered ||
+		report.HasTargetExecutionCoverage() || !report.TestResults[0].Passed {
+		t.Fatalf("path identity alone must not mint execution; preserve the process result: %+v", report)
 	}
 }
 
-func TestChangedPathCoverageContractBoundProbeHasTargetBehaviorCapability(t *testing.T) {
+func TestChangedPathCoveragePythonContractRefsDoNotMintBehaviorCapability(t *testing.T) {
 	ctx := changedPathCoverageTestContext([]string{"widget.py"})
 	plan := ctx.Mutable.ChangePlan()
 	plan.VerificationProbes = []types.VerificationProbe{{
@@ -459,9 +459,10 @@ func TestChangedPathCoverageContractBoundProbeHasTargetBehaviorCapability(t *tes
 
 	applyChangedPathVerificationCoverage(ctx, report)
 
-	if !report.Passed || len(report.ChangedPathCoverage) != 1 ||
-		report.ChangedPathCoverage[0].Capability != types.VerificationCapabilityTargetBehavior {
-		t.Fatalf("contract-bound same-language probe must carry target behavior capability: %+v", report)
+	if report.Passed || len(report.ChangedPathCoverage) != 1 ||
+		report.ChangedPathCoverage[0].Status != types.ChangedPathVerificationUncovered ||
+		report.HasTargetExecutionCoverage() || !report.TestResults[0].Passed {
+		t.Fatalf("contract labels cannot raise Python process success to behavior proof: %+v", report)
 	}
 }
 

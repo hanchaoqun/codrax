@@ -198,7 +198,7 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 		}
 		h.Diagnostics = append(h.Diagnostics, diag)
 	}
-	for _, confidence := range report.VerificationConfidence {
+	for _, confidence := range EffectiveVerificationConfidence(nil, report) {
 		if len(h.Confidence) >= maxHandoffConfidence {
 			break
 		}

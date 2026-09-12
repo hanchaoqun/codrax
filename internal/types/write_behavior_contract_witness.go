@@ -181,5 +181,5 @@ func WriteBehaviorContractKindWitnessTeaching() string {
 	}
 	return "Choose kind by how the contract can be witnessed: " + strings.Join(sourceKinds, ", ") +
 		" describes what the repository must contain after the change (files, sections, declarations that must be present) and can be read from the changed files; " +
-		strings.Join(runtimeKinds, ", ") + " describe runtime facts that only an executed verification probe or project test can observe, so their expected value states the runtime outcome rather than the source text that produces it (citing the producing line in evidence_ref is fine)."
+		strings.Join(runtimeKinds, ", ") + " describe runtime facts that only an executed verification probe or project test can observe, so their expected value states the runtime outcome rather than the source text that produces it (citing the producing line in evidence_ref is fine). Execution alone does not prove a contract: the executor must supply a compatible assertion witness. A Python plain probe's changed-target execution observation is not a per-contract assertion witness; use an available native project assertion or disclose the unverified behavior boundary. Do not relabel a runtime requirement as file_layout merely to obtain a source-readable witness."
 }

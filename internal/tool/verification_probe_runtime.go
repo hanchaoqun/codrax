@@ -22,7 +22,7 @@ const defaultVerificationProbeLanguage = "python"
 // registry, so adding a runtime cannot leave the planner teaching a stale
 // workaround. A probe is source-level executable evidence, not a generic
 // command wrapper.
-const verificationProbeAuthoringBoundary = "Emit this optional field only when one listed runtime can directly import or execute the changed production behavior. If it cannot, omit verification_probes and put the native build/test command in acceptance_tests for project verification; do not launch an external compiler or test runner from a listed-runtime wrapper merely to bypass the language enum."
+const verificationProbeAuthoringBoundary = "Emit this optional field only when one listed runtime can directly import or execute the changed production behavior. If it cannot, omit verification_probes and put the native build/test command in acceptance_tests for project verification; do not launch an external compiler or test runner from a listed-runtime wrapper merely to bypass the language enum. " + types.PythonPlainProbeAuthorityTeaching
 
 type verificationProbeRuntimeSpec struct {
 	Language    string
@@ -128,10 +128,10 @@ func injectVerificationProbeLanguageSchema(schema string) json.RawMessage {
 }
 
 func normalizeVerificationProbeLanguage(raw string) (string, bool) {
-	key := strings.ToLower(strings.TrimSpace(raw))
-	if key == "" {
+	if types.VerificationProbeLanguageIsPython(raw) {
 		return defaultVerificationProbeLanguage, true
 	}
+	key := strings.ToLower(strings.TrimSpace(raw))
 	for _, spec := range verificationProbeRuntimeSpecs {
 		if key == spec.Language {
 			return spec.Language, true

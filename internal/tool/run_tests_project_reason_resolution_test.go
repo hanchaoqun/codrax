@@ -11,9 +11,9 @@ import (
 
 // Exercise the actual reason producer and report installation. Deliberately
 // declaring an assertion identity that the aggregate Make runner cannot mint
-// must remain visible in the report; an admitted same-ref probe can discharge
-// the contract debt without pretending that the project assertion executed.
-func TestRunTestsProjectReasonResolvesOnlyCompleteAdmittedProbeReceipts(t *testing.T) {
+// must remain visible in the report. Plain Python refs cannot discharge that
+// debt, regardless of whether the declared list is complete.
+func TestRunTestsProjectReasonRetainedForPlainPythonProbeDeclarations(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH")
 	}
@@ -60,21 +60,25 @@ func TestRunTestsProjectReasonResolvesOnlyCompleteAdmittedProbeReceipts(t *testi
 			mu := types.NewMutableState("project observation reason resolution")
 			mu.SetChangePlan(plan)
 			ctx := &types.BusContext{Mutable: mu, Mode: types.ModeApply, PipelineStage: types.StageVerify, RepoRoot: root, MainRepoRoot: root}
+			b1575BindAppliedPythonLines(t, ctx, plan, "widget.py", []int{2})
 			result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{"runner": "make"}))
-			if err != nil || !result.Success {
+			if err != nil {
 				t.Fatalf("local execution failed: result=%+v err=%v report=%+v", result, err, mu.ChangeReport())
 			}
 			report := mu.ChangeReport()
-			if report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-				t.Fatalf("passed execution report missing: %+v", report)
+			if report == nil {
+				t.Fatal("execution report missing")
+			}
+			if !report.HasTargetExecutionCoverage() {
+				t.Fatalf("real changed-function execution was not retained: %s", b1575TargetReceiptsJSON(report))
 			}
 			const reason = "project_test_assertion_not_observed"
 			if !verificationConfidenceContains(report.VerificationConfidence, "project_test_contract_refs", "missing", reason) {
 				t.Fatalf("producer must keep the unobserved project assertion as history: %+v", report.VerificationConfidence)
 			}
 			covered := types.CoveredWriteBehaviorContractIDs(types.ChangePlanVerificationBehaviorContracts(mu.ChangePlan()), report.VerificationConfidence)
-			if len(covered) != len(probeRefs) {
-				t.Fatalf("the actual probe produced no admitted contract receipt: %+v", report.VerificationConfidence)
+			if len(covered) != 0 {
+				t.Fatalf("plain probe declaration became an assertion receipt: %+v", report.VerificationConfidence)
 			}
 			profile := types.BuildVerificationProofProfile(mu.ChangePlan(), report)
 			ledger := types.BuildVerificationProofLedger(mu.ChangePlan(), report, nil)
@@ -82,21 +86,18 @@ func TestRunTestsProjectReasonResolvesOnlyCompleteAdmittedProbeReceipts(t *testi
 			for _, code := range profile.ReasonCodes {
 				retained = retained || code == reason
 			}
-			if complete {
-				if retained || (profile.Status != types.VerificationProofAdequate && profile.Status != types.VerificationProofStrong) || ledger.State != types.VerificationProofLedgerVerified || ledger.UncoveredCount != 0 {
-					t.Fatalf("complete exact probe receipts left stale project debt: profile=%+v ledger=%+v", profile, ledger)
-				}
-			} else {
-				if !retained || profile.Status != types.VerificationProofWeak || ledger.UncoveredCount == 0 {
-					t.Fatalf("partial probe coverage erased project debt: profile=%+v ledger=%+v", profile, ledger)
-				}
-				projectExecuted := false
-				for _, command := range report.ExecutedCommands {
-					projectExecuted = projectExecuted || (command.Runner == "make" && command.Outcome == types.ExecutedCommandOutcomeExecuted)
-				}
-				if !projectExecuted {
-					t.Fatalf("partial probe cannot waive the project suite: %+v", report.ExecutedCommands)
-				}
+			if !retained || profile.Status != types.VerificationProofWeak || ledger.UncoveredCount == 0 || ledger.State == types.VerificationProofLedgerVerified {
+				t.Fatalf("plain probe erased project assertion debt: profile=%+v ledger=%+v", profile, ledger)
+			}
+			projectExecuted, probePassed := false, false
+			for _, command := range report.ExecutedCommands {
+				projectExecuted = projectExecuted || (command.Runner == "make" && command.Outcome == types.ExecutedCommandOutcomeExecuted && command.ExitCode == 0)
+			}
+			for _, row := range report.TestResults {
+				probePassed = probePassed || (row.Suite == "verification_probe/python" && row.AssertionID == "increment-contracts" && row.Passed)
+			}
+			if !projectExecuted || !probePassed {
+				t.Fatalf("plain probe must not waive project tests or rewrite process success: %+v", report)
 			}
 		})
 	}

@@ -48,6 +48,10 @@ func QualifyNoChangeReplanSentinel(in NoChangeReplanQualificationInput) NoChange
 	if report == nil {
 		return noChangeReplanDenied("planner_probe_missing", "no typed planner probe report is available")
 	}
+	// A one-off planner probe need not be declared on the prior applied plan.
+	// Resolve its current report-local receipts before reading authority; retain
+	// the separate prior-plan target intersection below and never rewrite history.
+	report = types.EffectiveVerificationProbeReport(nil, report)
 	if report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
 		return noChangeReplanDenied("planner_probe_not_passed", "the latest typed planner probe did not pass")
 	}
@@ -264,7 +268,7 @@ func weakPlannerProbeConfidenceReason(records []types.VerificationConfidenceReco
 			continue
 		}
 		switch strings.TrimSpace(rec.Status) {
-		case "missing", "unavailable":
+		case "missing", "unavailable", "unverified":
 			if code := strings.TrimSpace(rec.ReasonCode); code != "" {
 				return code
 			}
