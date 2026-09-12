@@ -4,7 +4,7 @@
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
 当前以§123.1778–1779为准：B1561累计证明处理次序已推`b6b5f1cf5`，公共RED→GREEN、count3/race/独立冷审、原四工件离线复核及冻结全仓86包/提交后make通过。r1063严格exact2各一次结束：dateutil症状写机器PASS257s/有限输入人工PASS；H1 Binder机器PASS243s/人工FAIL。写最终单计划零probe未触发累计顺序；Trace显式窗/两轴/投影/默认6项根因旁路仍在，但模型在精确供给下错算对端/泛化长睡眠，另确认系统B1666非墙钟残差附注。B1665四面Python编辑教学缺scope限定与B1666分别小批修复；B1626多请求成员窗仍未修，不由单窗PASS代销。
-后续交付§123.1780：B1665四面共享468字节范围安全编辑教学，真实单发/分阶段repair与归一化JSON保真、count3/race及独立冷审完成；B1665+B1666冻结工作态全仓86包、make通过，按独立源码批提交。未新增live，不把r1063当后继修复生产验收。
+后续交付§123.1780–1781：B1665四面共享468字节范围安全编辑教学已推`912bba4e0`，真实单发/分阶段repair与归一化JSON保真、count3/race及独立冷审完成。B1666残差附注量纲修复取得40格真实发布正负回归、相邻count3/race及独立冷审；两批冻结工作态全仓86包、make通过，分开源码提交。未新增live，不把r1063当后继修复生产验收。
 最新显示后继§123.1777：r1062审计已推`d889fac49`；正常长引用与失败尾部的共享展示修复已推`f8e3d5551`，公共RED→GREEN、count3/race及独立冷审通过，原两份报告离线显示回放保字节且可定位完整输出。冻结全仓86包与提交后make通过，binary=`f8e3d55511c4`；未新增模型回放或修改r1062机器/人工结论。累计消解顺序已取得独立公开复现（§1777.7），从候选升确认P1、仍未修，不能因此清空旧真实失败或宣称整例应绿。
 本轮最新§123.1776：B1561源码已推`3aeecaca0`；r1062 exact2各一次完成，Python写机器FAIL263s（业务后验301/301通过，错误模型比较器未修、累计证明未闭），跨语言读机器PASS327s/人工FAIL。B1561原详情/落盘/传递真实生效，但正常221字节路径与错误尾部被显示预算遮蔽，已取得公共RED，另片修复；不改原r1062产物或放宽验证。B1626成员窗仍P1，B1561累计消解顺序候选待公共复现，B1664注册行软文案仍P2；最终无图，render=N/A。
 最新续修见§123.1775：B1561非权威失败观察供给已完成真实执行与消费接线先红后绿、count3/race、独立末审及冻结86包全测/make；失败检查的原始标识、摘录和独立输出引用贯通报告、恢复上下文与交付卡片，不改变项目测试结论或替模型判产品缺陷。源码交付后计划r1062跨语言读+Python症状写各一次/并行2。多失败外层诊断计数与continuation耦合原行为保留另审，B1626与逐合同执行能力等未销账。
@@ -57397,6 +57397,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1781 B1666：非墙钟IO指标不得进入等待残差毫秒说明（2026-09-12）
+
+1. r1063已推审计`8c95f8eaf`，B1665教学批已推`912bba4e0`。本片仅改`runtimeTraceProjOwnCaliberIOPrimaryRow`的consider共享入口：复用既有`runtimeTraceProjCaliberSideNode || runtimeTraceProjNonWallClockValueCaliber`，在选择残差说明值之前排除明确计数/综合评分。前者覆盖typed tier与registry，后者同时覆盖独立Unit=composite_score、clamped count_sum家族，不能只特判本次page_cache_churn。self/tree两条原选路共用；不改变原最大值/min(residual)算法、分母、分子、原值、排序或用户/模型正文。
+2. 40格实际Observation→ledger→projection→ApplyAndPersistMutation→Render：20已知非墙钟（count/composite registry，即使legacy Unit=ms；typed tier；显式composite unit；clamped count）×双语双lane，12真实wallclock io_wait/io_latency/io_burst正控，8混合count+较小合法IO与正反序选择。数量/原数值/E#、原输入与projection快照、模型正文所有权一并保留，不以整句全关或删计数行求绿。
+3. 唯一有效首红记`20260912-b1666-public-red-v4.log`0.922s：20非墙钟和8混合形在错误附注处红，12真实ms正控绿。前三轮包括夹具自身IO落入分子而缺正残差、另一agent在途新test编译错误，全部原样留痕、不计产品RED；修正的是夹具前提，不是旧回归断言。生产仅新增6行，首GREEN1.165s。新旧overlap/cap/no-own/chain-attached/scope count3 1.608s、race4.822s；进一步IOFold跨lane/IOFAM/Calside/V2P0/非墙钟邻族count3 2.037s、race8.379s；独立末审无阻断。
+4. 末版源码/test在09:51:44Z全仓启动前冻结。合并工作态`20260912-b1665-b1666-full-frozen.log` exit0、86包全绿，make预提交exit0；详见§1780.5。两独立源码批分开提交，原r1063及其模型错答未改，尚未进行新live或重渲染覆盖旧产物。共享过滤只用于系统附注的已知量纲反证，不是根因席位门，不新增prose扫描，也不自动修正模型结论。
+5. 边界：本片不把所有真实wallclock同主体记录自动升级为“物理时间已证重叠”；该旧说明是否具有充分区间凭证仍留独立审计。B1626完整请求成员窗、B1561能力/逐合同执行残余、B1651b/B1662原生runner与旧环境债保留，模型Binder计数/长睡眠/热控语义错误继续异构观察。下一live仍按两路各一次轮换，不为本例另加第三路。
+
+状态：`B1666=implemented/public-red-green/final-count3+race/independent-reviewed/frozen-full86+make-pass/delivered-with-this-commit/pending-new-live`；`B1665=912bba4e0/pushed`；`r1063=8c95f8eaf/pushed/original-preserved`；`B1626=P1-open`；`model-ownership/Trace-accounts-and-ranks/stream-liveness=unchanged`。
 
 ### §123.1780 B1665：结构编辑教学、schema与重试共用范围安全短句（2026-09-12）
 

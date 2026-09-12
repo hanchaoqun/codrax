@@ -17877,6 +17877,12 @@ func runtimeTraceProjResidualOwnCaliberNote(model runtimeTraceProjTreeModel, res
 func runtimeTraceProjOwnCaliberIOPrimaryRow(model runtimeTraceProjTreeModel) (float64, string, bool) {
 	best, tag, found := 0.0, "", false
 	consider := func(row runtimeTraceProjTreeRow) {
+		// IO-family membership does not make a count or composite score a
+		// duration. Reuse both existing typed caliber authorities before
+		// selecting a value that the residual note will express in ms.
+		if runtimeTraceProjCaliberSideNode(row.Node) || runtimeTraceProjNonWallClockValueCaliber(row.Node) {
+			return
+		}
 		v := runtimeTraceProjNodeDisplayImpact(row.Node)
 		if !found || v > best {
 			best, tag, found = v, strings.TrimSpace(row.EvidenceTag), true
