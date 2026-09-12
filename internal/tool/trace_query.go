@@ -867,6 +867,27 @@ func traceQueryPublicationScope(result tracequery.Result, payloadRef, rawRef, id
 	return fmt.Sprintf("%s:query=%x:query_lines=%d..%d", scope, queryDigest, q.LineStart, q.LineEnd)
 }
 
+// The effective result owns its analysis ruler; a recursive leaf's span or
+// local selected_window must not impersonate that parent query. The submitted
+// selector remains just a selector, including a name-only/unknown target.
+func traceQueryStampParentQuerySource(ref *types.ObservationSourceRef, result tracequery.Result, q tracequery.Query) {
+	if ref == nil || ref.QueryScopeID == "" {
+		return
+	}
+	if !math.IsInf(result.TimeStart, 0) && !math.IsInf(result.TimeEnd, 0) &&
+		types.TraceCausalProjectionWindowPresent(result.TimeStart, result.TimeEnd) {
+		ref.QueryWindowKnown = true
+		ref.QueryWindowStartTs, ref.QueryWindowEndTs = result.TimeStart, result.TimeEnd
+	}
+	ref.QueryTargetPID, ref.QueryTargetThread = q.PID, q.Thread
+	ref.QueryLineRangeKnown = true
+	ref.QueryLineStart, ref.QueryLineEnd = q.LineStart, q.LineEnd
+	ref.QueryTargetScope = strings.TrimSpace(q.TargetScope)
+	if ref.QueryTargetScope == "" {
+		ref.QueryTargetScope = "thread"
+	}
+}
+
 func traceQueryFrequencyLimitAuthorities(result tracequery.Result) []types.TraceFrequencyLimitAuthority {
 	if result.WindowStats == nil {
 		return nil
@@ -8746,6 +8767,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
 	if len(query) > 0 {
 		ref.QueryScopeID = traceQueryPublicationScope(result, payloadRef, rawRef, idScope, query[0])
+		traceQueryStampParentQuerySource(&ref, result, query[0])
 	}
 	scope := traceQueryObservationScope(result, payloadRef, rawRef)
 	if strings.TrimSpace(idScope) != "" {

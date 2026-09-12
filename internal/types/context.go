@@ -1426,6 +1426,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	}
 	if m.requestModel != nil {
 		cp := *m.requestModel
+		cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(m.requestModel.RuntimeArtifactScopeProfile)
 		out.requestModel = &cp
 	}
 	out.emittedEvidence = append([]EvidenceItem(nil), m.emittedEvidence...)
@@ -3095,6 +3096,7 @@ func (m *MutableState) RequestModel() *RequestModel {
 		return nil
 	}
 	cp := *m.requestModel
+	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(m.requestModel.RuntimeArtifactScopeProfile)
 	return &cp
 }
 
@@ -3109,6 +3111,7 @@ func (m *MutableState) SetRequestModel(rm RequestModel) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := rm
+	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(rm.RuntimeArtifactScopeProfile)
 	m.requestModel = &cp
 }
 

@@ -205,6 +205,9 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 	var states []types.TraceTargetStateScopeAuthority
 	if stateAllowed {
 		states = types.BuildTraceTargetStateScopeAuthorities(projectionSet)
+		if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 {
+			states = types.BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger)
+		}
 	}
 	targetStates := make([]types.TraceTargetStateScopeAuthority, 0, len(states))
 	for _, state := range states {
@@ -215,6 +218,9 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		}
 	}
 	states = targetStates
+	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 {
+		states = runtimeTraceMemberStateDisplayOrder(states)
+	}
 	var waits []types.TraceTargetWaitSummaryAuthority
 	if waitAllowed {
 		waits = types.BuildTraceTargetWaitSummaryAuthorities(ledger, authorityRM)
@@ -270,6 +276,13 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 			)
 		}
 		row += " (" + runtimeTraceSleepIOMarkerBoundary(zh) + ")"
+		if state.WindowScope.RequestedWindowCount > 1 {
+			lang := "en"
+			if zh {
+				lang = "zh"
+			}
+			row += " (" + state.WindowScope.Format(lang) + ")"
+		}
 		if state.CoverageStatus == "partial_unaccounted" {
 			if zh {
 				row += fmt.Sprintf(
@@ -346,6 +359,13 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 	if len(rows) == 0 {
 		return false
 	}
+	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 && len(states) > 4 {
+		if zh {
+			rows = append(rows, fmt.Sprintf("另有 %d 条独立范围的状态统计未在此展开；以上展示不表示所有时间窗均已完成分析。", len(states)-4))
+		} else {
+			rows = append(rows, fmt.Sprintf("%d additional independently scoped state accounts are not expanded here; this display does not establish complete analysis of all requested windows.", len(states)-4))
+		}
+	}
 	title := "目标线程状态与等待明细"
 	lead := "以下按各条记录自身的查询范围列出调度状态与等待；范围缺失时明确标为未明确，不能按零窗口或请求主范围使用。若存在请求主范围与探索子范围，请求主范围先列，探索子范围只用于下钻，不能替代主范围的次数、总量或清单。若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。D 状态、调度器标记的 IO 等待与带 IO 等待标记的可中断睡眠是分开的记录类型；内核等待原因记录数、IPC 传输延迟和线程状态墙钟也属于不同口径，不能互相替代。IO 等待标记未标记或未提供不表示排除了 IO 阻塞；内核调用点只标识等待位置，不单独证明资源对象或持有者。"
 	if !zh {
@@ -358,6 +378,25 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		Title: title,
 		Text:  lead + "\n\n" + strings.Join(rows, "\n\n"),
 	})
+}
+
+// Spend the existing display budget on distinct requested windows before
+// another result for A consumes B's slot. No state value/result is merged,
+// dropped, ranked by magnitude, or granted new coverage by this ordering.
+func runtimeTraceMemberStateDisplayOrder(states []types.TraceTargetStateScopeAuthority) []types.TraceTargetStateScopeAuthority {
+	seen := map[string]bool{}
+	var first, rest []types.TraceTargetStateScopeAuthority
+	for _, state := range states {
+		scope := state.WindowScope
+		key := fmt.Sprintf("%s\x00%s\x00%d", state.ArtifactKey, state.Subject, scope.RequestedWindowOrdinal)
+		if scope.Role == types.TraceQueryWindowScopeRequestedPrincipal && scope.RequestedWindowOrdinal > 0 && !seen[key] {
+			first = append(first, state)
+			seen[key] = true
+		} else {
+			rest = append(rest, state)
+		}
+	}
+	return append(first, rest...)
 }
 
 func runtimeTraceTargetStateCoverageLabel(status string, zh bool) string {

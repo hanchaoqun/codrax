@@ -609,7 +609,7 @@ func traceSupplementCursorTargetAllowed(ctx *types.BusContext) bool {
 		if rm == nil || allowed {
 			return
 		}
-		if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
+		if rm.RuntimeArtifactScopeProfile.HasExplicitTimeWindows() {
 			allowed = true
 			return
 		}
@@ -1366,6 +1366,12 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	preLedger := types.CompileObservationLedger(input)
 	requestedArtifactScope := traceSupplementRequestedArtifactScope(ctx)
 	target, targetSource, targetOK := traceSupplementDeriveTarget(ctx)
+	if requestedArtifactScope != nil && requestedArtifactScope.TimeWindows != nil && !requestedArtifactScope.HasExplicitTimeWindows() {
+		return skip(types.TraceSupplementReasonWindowInconsistent)
+	}
+	if members := requestedArtifactScope.ExplicitTimeWindows(); len(members) > 1 {
+		return runTraceSupplementMembers(execCtx, path, sourceLabel, input, preLedger, members, target, targetSource, targetOK, out)
+	}
 	families := traceSupplementFamiliesForRequestedScope(preLedger, requestedArtifactScope, target, targetOK)
 	frameFamily := traceSupplementVsyncFamilyHit(ctx)
 	views := traceSupplementViewsForRequest(ctx, families, frameFamily, traceSupplementFrameEvidencePresent(input))

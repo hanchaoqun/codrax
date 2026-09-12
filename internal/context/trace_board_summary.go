@@ -146,6 +146,19 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	if len(domains) == 0 {
 		return ""
 	}
+	// Multiple requested members do not create one global principal ruler.
+	// Keep each measured board visible with its own request/query relation;
+	// one member's populated board never conceals another's exploration.
+	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 {
+		for _, domain := range domains {
+			scope := types.ResolveTraceQueryWindowScope(ledger.RuntimeArtifactScopeProfile, 0, 0)
+			if domain.parentWindowKnown {
+				scope = types.ResolveTraceQueryWindowScope(ledger.RuntimeArtifactScopeProfile, domain.parentWindowStart, domain.parentWindowEnd).
+					ForWindow(domain.identity.WindowStartTs, domain.identity.WindowEndTs)
+			}
+			domain.requestedScopeText = scope.Format("en")
+		}
+	}
 	traceBoardSelectDomainRows(domains)
 	var b strings.Builder
 	// DISPHYG-3 件4 (FREQDIR-1 冷读 P3-1, 2026-07-20). EVOLUTION RECORD: the

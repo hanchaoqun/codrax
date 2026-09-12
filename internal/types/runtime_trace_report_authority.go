@@ -55,7 +55,7 @@ func RuntimeTraceReportShapeAuthority(rm *RequestModel) (decided bool, allowed b
 			return true, true
 		}
 	}
-	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
+	if rm.RuntimeArtifactScopeProfile.HasExplicitTimeWindows() {
 		return true, true
 	}
 	if NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqCallChain ||

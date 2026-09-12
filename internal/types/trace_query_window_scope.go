@@ -28,6 +28,10 @@ type TraceQueryWindowScope struct {
 	RequestedWindowEndTs   float64                   `json:"requested_window_end_ts,omitempty"`
 	QueryWindowStartTs     float64                   `json:"query_window_start_ts,omitempty"`
 	QueryWindowEndTs       float64                   `json:"query_window_end_ts,omitempty"`
+	// Ordinal is one-based and is set only for a uniquely bound member of a
+	// multi-window request. Count does not assert that all members were read.
+	RequestedWindowOrdinal int `json:"requested_window_ordinal,omitempty"`
+	RequestedWindowCount   int `json:"requested_window_count,omitempty"`
 }
 
 // ResolveTraceQueryWindowScope reads only the already-validated request
@@ -35,6 +39,15 @@ type TraceQueryWindowScope struct {
 // or an occurrence interval to recover a missing query window.
 func ResolveTraceQueryWindowScope(requested *RuntimeArtifactScopeProfile, start, end float64) TraceQueryWindowScope {
 	scope := TraceQueryWindowScope{}
+	if windows := requested.ExplicitTimeWindows(); len(windows) > 1 {
+		scope.RequestedWindowCount = len(windows)
+		if index, ok := requested.MatchExplicitTimeWindow(start, end); ok {
+			scope.RequestedWindowOrdinal = index + 1
+			scope.RequestedWindowKnown = true
+			scope.RequestedWindowStartTs, scope.RequestedWindowEndTs = *windows[index].TimeStart, *windows[index].TimeEnd
+		}
+		return scope.ForWindow(start, end)
+	}
 	if requestedStart, requestedEnd, ok := requested.ExplicitTimeWindow(); ok &&
 		traceQueryScopeWindowPresent(requestedStart, requestedEnd) {
 		scope.RequestedWindowKnown = true
@@ -52,6 +65,8 @@ func (scope TraceQueryWindowScope) ForWindow(start, end float64) TraceQueryWindo
 		RequestedWindowKnown:   scope.RequestedWindowKnown && traceQueryScopeWindowPresent(scope.RequestedWindowStartTs, scope.RequestedWindowEndTs),
 		RequestedWindowStartTs: scope.RequestedWindowStartTs,
 		RequestedWindowEndTs:   scope.RequestedWindowEndTs,
+		RequestedWindowOrdinal: scope.RequestedWindowOrdinal,
+		RequestedWindowCount:   scope.RequestedWindowCount,
 	}
 	if !out.RequestedWindowKnown {
 		out.RequestedWindowStartTs, out.RequestedWindowEndTs = 0, 0
@@ -61,6 +76,9 @@ func (scope TraceQueryWindowScope) ForWindow(start, end float64) TraceQueryWindo
 	}
 	out.QueryWindowStartTs, out.QueryWindowEndTs = start, end
 	out.Role = TraceQueryWindowScopeElectedQueryWindow
+	if out.RequestedWindowCount > 1 {
+		out.Role = TraceQueryWindowScopeSupportingExploration
+	}
 	if out.RequestedWindowKnown {
 		out.Role = TraceQueryWindowScopeSupportingExploration
 		if TraceCausalProjectionPrincipalValueSameWindow(out.RequestedWindowStartTs, out.RequestedWindowEndTs, start, end) {
@@ -87,6 +105,24 @@ func (scope TraceQueryWindowScope) Format(lang string) string {
 		return ""
 	}
 	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	if scope.RequestedWindowCount > 1 {
+		if scope.Role == TraceQueryWindowScopeRequestedPrincipal && scope.RequestedWindowOrdinal > 0 {
+			if zh {
+				return fmt.Sprintf("用户指定第 %d/%d 个时间窗 %.6f–%.6f 秒；查询范围 %.6f–%.6f 秒（与该时间窗一致，不表示其他时间窗已完成分析）", scope.RequestedWindowOrdinal, scope.RequestedWindowCount, scope.RequestedWindowStartTs, scope.RequestedWindowEndTs, scope.QueryWindowStartTs, scope.QueryWindowEndTs)
+			}
+			return fmt.Sprintf("requested window %d/%d %.6f–%.6f seconds; query window %.6f–%.6f seconds (matches this window; other requested windows are not thereby analyzed)", scope.RequestedWindowOrdinal, scope.RequestedWindowCount, scope.RequestedWindowStartTs, scope.RequestedWindowEndTs, scope.QueryWindowStartTs, scope.QueryWindowEndTs)
+		}
+		if scope.Role == TraceQueryWindowScopeUnknownQueryWindow {
+			if zh {
+				return fmt.Sprintf("用户指定 %d 个独立时间窗；实际查询范围未明确，无法对应唯一指定时间窗", scope.RequestedWindowCount)
+			}
+			return fmt.Sprintf("%d independent requested windows; actual query window is unknown and cannot be matched to one requested window", scope.RequestedWindowCount)
+		}
+		if zh {
+			return fmt.Sprintf("用户指定 %d 个独立时间窗；补充查询范围 %.6f–%.6f 秒；无法对应唯一指定时间窗，不能代替其独立统计", scope.RequestedWindowCount, scope.QueryWindowStartTs, scope.QueryWindowEndTs)
+		}
+		return fmt.Sprintf("%d independent requested windows; supplementary query window %.6f–%.6f seconds; no unique requested window is bound and this query cannot substitute for its independent statistics", scope.RequestedWindowCount, scope.QueryWindowStartTs, scope.QueryWindowEndTs)
+	}
 	if scope.Role == TraceQueryWindowScopeUnknownQueryWindow {
 		if scope.RequestedWindowKnown {
 			if zh {

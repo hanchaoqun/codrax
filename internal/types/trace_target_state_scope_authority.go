@@ -196,6 +196,9 @@ func BuildTraceTargetStateScopeAuthorities(set TraceCausalProjectionSet) []Trace
 			strings.TrimSpace(account.Subject),
 			strings.TrimSpace(account.EvidenceID),
 		}, "\x00")
+		if projection.WindowScope.RequestedWindowCount > 1 {
+			key += "\x00" + traceRequestedMemberAccountSourceKey(account)
+		}
 		if seen[key] {
 			continue
 		}
@@ -237,6 +240,9 @@ func BuildTraceTargetStateScopeAuthorities(set TraceCausalProjectionSet) []Trace
 // an already-observed state partition without manufacturing a causal
 // projection, guessing a target, or borrowing an exploration window.
 func BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger ObservationLedger) []TraceTargetStateScopeAuthority {
+	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 {
+		return traceRequestedMemberStateAuthorities(ledger)
+	}
 	set := CompileTraceCausalProjectionSet(ledger)
 	if authorities := BuildTraceTargetStateScopeAuthorities(set); len(authorities) > 0 {
 		return authorities
@@ -374,6 +380,12 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 	artifacts := map[string]traceRuntimeAuthorityArtifact{}
 	safeIDs := traceRuntimeAccountUnambiguousRecordIDs(ledger.Records)
 	rowIndex, coverageIndex := traceTargetWaitRecordIndexes(ledger.Records)
+	profile := traceRuntimeAccountRequestedProfile(ledger, rm)
+	multiWindow := len(profile.ExplicitTimeWindows()) > 1
+	var memberScopes map[string]TraceQueryWindowScope
+	if multiWindow {
+		memberScopes = traceRequestedMemberRecordScopes(ledger.Records, traceRequestedMemberEntitiesForRequest(rm), profile)
+	}
 	for position, aggregate := range ledger.Records {
 		if aggregate.Origin != AnswerEvidenceOriginRuntimeArtifact ||
 			!RuntimeObservationProducerIsDeterministicQuery(aggregate.Producer) ||
@@ -453,6 +465,14 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			Count:              count,
 			RecordID:           strings.TrimSpace(aggregate.ID),
 		}
+		if multiWindow {
+			parent := memberScopes[traceRequestedMemberResultKey(aggregate, position)]
+			authority.WindowScope = (traceRequestedMemberResult{start: parent.QueryWindowStartTs, end: parent.QueryWindowEndTs, principal: parent.Role == TraceQueryWindowScopeRequestedPrincipal}).scope(profile, accountScope.WindowStartTs, accountScope.WindowEndTs)
+			authority.RequestedScopeRole = TraceTargetWaitScopeSupportingExploration
+			if authority.WindowScope.Role == TraceQueryWindowScopeRequestedPrincipal {
+				authority.RequestedScopeRole = TraceTargetWaitScopeRequestedPrincipal
+			}
+		}
 		callers := map[string]bool{}
 		for ordinal := 1; ordinal <= count; ordinal++ {
 			row := rows[ordinal]
@@ -507,6 +527,9 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 		}
 		sort.Strings(authority.Callers)
 		key := traceRuntimeAccountScopeKey(accountScope, aggregate.ID, position)
+		if multiWindow {
+			key += "\x00" + traceRequestedMemberResultKey(aggregate, position)
+		}
 		fingerprint := fmt.Sprintf("%d|%s|%d|%d|%d|%d|%s",
 			authority.Count,
 			strconv.FormatFloat(authority.WallClockMS, 'g', -1, 64),
@@ -613,6 +636,10 @@ func traceTargetWaitRequestedScopeRole(
 		return TraceTargetWaitScopeUnclassified
 	}
 	profile := rm.RuntimeArtifactScopeProfile
+	if len(profile.ExplicitTimeWindows()) > 1 {
+		// The caller binds the complete result once for all multi-window rows.
+		return TraceTargetWaitScopeSupportingExploration
+	}
 	if start, end, ok := profile.ExplicitTimeWindow(); ok {
 		if TraceCausalProjectionPrincipalValueSameWindow(scope.WindowStartTs, scope.WindowEndTs, start, end) {
 			return TraceTargetWaitScopeRequestedPrincipal

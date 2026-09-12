@@ -195,6 +195,15 @@ func traceCausalProjectionSetFromObservationRecords(records []ObservationRecord,
 	}
 
 	if len(order) <= 1 {
+		if len(requestedScope.ExplicitTimeWindows()) > 1 {
+			projections := traceRequestedMemberProjections(records, anchorUserEntities, requestedScope)
+			for i := range projections {
+				if len(order) == 1 {
+					projections[i].ArtifactPath, projections[i].ArtifactLabel = order[0].path, order[0].label
+				}
+			}
+			return TraceCausalProjectionSet{Projections: projections}
+		}
 		// Single-artifact (or identity-less) ledger: compile ALL records exactly
 		// like the legacy entry — byte-identical output, no unattributed bucket.
 		projection := traceCausalProjectionFromObservationRecords(records, anchorUserEntities, requestedScope)
@@ -235,6 +244,14 @@ func traceCausalProjectionSetFromObservationRecords(records []ObservationRecord,
 		OmittedArtifactLabels:        omitted,
 	}
 	for _, p := range kept {
+		if len(requestedScope.ExplicitTimeWindows()) > 1 {
+			projections := traceRequestedMemberProjections(p.records, anchorUserEntities, requestedScope)
+			for i := range projections {
+				projections[i].ArtifactPath, projections[i].ArtifactLabel = p.path, p.label
+			}
+			out.Projections = append(out.Projections, projections...)
+			continue
+		}
 		projection := traceCausalProjectionFromObservationRecords(p.records, anchorUserEntities, requestedScope)
 		if !projection.Active() {
 			continue

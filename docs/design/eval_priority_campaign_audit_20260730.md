@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-12）
 
+本轮施工§123.1782：B1626同一已绑定Trace/目标的多请求时间窗纵切已完成公共端到端验证、专项count3/race/独立冷审和最终冻结全仓86包/make。首轮全测正确抓到新来源字段漏登记，补登记后重跑全仓通过，未弱化检查。基线`d50ed097d`，fetch无远端新差；待提交推送/同版本构建后跑E1双窗+Python注册分派exact2各一次。下列历史B1626-open保留当时事实，任意多源多目标等范围未提前销账。
+
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
 当前以§123.1778–1779为准：B1561累计证明处理次序已推`b6b5f1cf5`，公共RED→GREEN、count3/race/独立冷审、原四工件离线复核及冻结全仓86包/提交后make通过。r1063严格exact2各一次结束：dateutil症状写机器PASS257s/有限输入人工PASS；H1 Binder机器PASS243s/人工FAIL。写最终单计划零probe未触发累计顺序；Trace显式窗/两轴/投影/默认6项根因旁路仍在，但模型在精确供给下错算对端/泛化长睡眠，另确认系统B1666非墙钟残差附注。B1665四面Python编辑教学缺scope限定与B1666分别小批修复；B1626多请求成员窗仍未修，不由单窗PASS代销。
 后续交付§123.1780–1781：B1665四面共享468字节范围安全编辑教学已推`912bba4e0`，真实单发/分阶段repair与归一化JSON保真、count3/race及独立冷审完成。B1666残差附注量纲修复已推`10177842d`，取得40格真实发布正负回归、相邻count3/race及独立冷审；两批冻结工作态全仓86包、make通过，分开源码提交。提交后make通过，binary=`10177842dd20`（10:02:29Z，无dirty标记）；后继仅文档收账不改变受测源码。未新增live，不把r1063当后继修复生产验收。
@@ -57397,6 +57399,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1782 B1626：同一已绑定Trace、同一目标的多请求时间窗纵切（2026-09-12）
+
+1. 按§1775.11/§1778.9冻结方案，原问题不是单窗模型波动：旧RequestModel仅一对时间端点；多个请求窗容易被包络化，投影按capture折成一席，A有因果投影还会阻止B有限状态统计发布。当前只施工同一已绑定capture+typed目标的N个请求成员；不从用户/模型prose扫描提取窗口，不从第一个capture猜用户授权源。
+2. 批次任务：①请求侧增加互斥`time_windows`成员表、逐项有限数值与原文引用校验、完整深clone，保留scalar旧单窗；②一个latch/总deadline内按成员缺族补采，完整A留存，B失败/未开始独立说明；③producer发布父query窗口/target/line-filter来源，按完整result来源分组，递归行保留自身原生测量窗；④上下文、独立状态统计、投影标题/说明、候选绑定及真实成文发布纵切；⑤count3/race/独立冷审/冻结全仓/build/提交推送后，严格exact2各一次异构live并人审。当前①–④已完成，第⑤项本地验收通过、交付/live待续。
+3. 有效RED（均公共入口、可编译实断言）：`20260912-b1626-analyzer-public-red.log` types1.004/tool1.993（strict拒新表/schema缺成员/ledger丢成员）；`...supplement-public-red-effective.log` tool1.210（A抑制B/foreign或filtered错误借族/重复落wholetrace/取消缺成员）；`...members-public-red-isolated.log` types0.840（两窗折一投影/A吞B/包络和重复错误绑定）；`...agent-red.log` agent1.119（最终上下文收进跨窗间隙/无多窗discovery）；`...parent-source-red.log` tool1.203（生产父query身份未发布）；`...board-context-red.log` context0.851（多窗上下文无独立范围说明）；`...publication-red-effective.log` tool1.227（成员补采说明空白，包括A完成B未启动）。在途文件造成的编译失败或test装配字段错误均保留日志、不计产品RED。
+4. 设计边界：成员次序、重复、嵌套、重叠都原样留存；重复仅共享执行，不重复汇总完成视图；重复/近容差多命中不给唯一成员身份。不同capture/target/filter/result绝不凭同窗合并；原生partition及递归子窗不得改写父请求。缺父来源/未知line-filter仅补充证据，不升完整请求结果。每窗各自统计，不相加成端到端总耗时。原artifact cap4仍限capture，不能用来丢第5个请求窗；显示预算保留并明示余量，存储不截断。
+5. 来源与所有权：SourceRef新增父query scalar元数据，不改trace engine Result schema、原始行/模型正文/图/选择。scope教学只说明模型应如何独立推理；系统不代写结论、不将背景升链上，不修改JSON既有所有权tripwire。活跃流首响应600s/中途字节静默300s/非流600s及外层预算不变；不因4ms或旧4m没正文而降级。
+6. 收口边界：本片公共测试会覆盖selector进入实际成文后Mutable report；不以纯Bind helper或手开enabled冒充自然报告授权，也不将其冒称磁盘`.root-causes.json`完整命令回放。任意多capture×多target请求成员绑定、同成员多个不同view安全压缩与未覆盖provider能力仍需独立审计；不能拿本片或下一双例PASS代销。
+
+7. 末审修正：多窗读者按完整父result来源唯一匹配投影，不再同capture首席命中；父query窗口在递归WithinWindow/状态账户计算前安装，非事后改标题。成文的逐窗说明补齐同窗部分失败、调用者取消前尚未启动、重复零执行共用处理状态；展示最多8窗+准确余数，有限状态4条cap后也明示余数。原生board测量窗与父query窗另对齐，缺父收据不能拿局部坐标授请求成员。formatter新针不是模型prose扫描。
+8. 专项记录：analyzer新旧count3 types1.125/tool1.816/skill0.713，race types2.008/tool3.690/skill1.760；sidecar actual Emit count3 1.982s/race4.424s，真实选择B→A且两窗均有正impact，bounded无根因合同；types member/source/recursive新旧count3 .868s/race2.984s；root第一组合count3 agent2.118/context.448/tool6.306、agent/context race3.353/1.956。后继冷审微调须重新末版冻结复验，不把这些早绿冒称最终冻结绿。活跃流专项count3 `...active-stream-count3.log`12.761s通过，未改超时源码。
+9. Eval库存重新盘点243个case：215读、25apply、3plan。本批后首选E1双窗归一化（B1626真实来源闭环、时间窗/状态/比例风险最高）+Python注册分派读（decorator→registry→resolve→实例→executor关系，异构图表能力）；原case/既有oracle/1200s/CAP5不变，exact2各一次。写模式刚在r1063跑过，下轮继续轮换，不为模型波动加第三例追绿。机器结果只检查原oracle，另人工审计完整过程/最终答案/模型输入，图缺失不算渲染通过。
+
+10. 末版冷审均收口。新增context父窗错绑定公开RED .826s，缺/冲突（含被dedup行与8+4预算后行）均unknown；真实A/B与递归parent A/native B不串，末版count3 .902s/race1.842s。零起点reader只在新multi分支修复，legacy保持；agent末race2.621s。新旧补采+取消+共享deadline末race tool157.019s/types2.150s；实际显示8格count3 1.339s，新增重复状态显示保位及附注末count3 tool6.074s/race3.256s。10:49Z左右所有Go源码/test冻结后启动全仓`20260912-b1626-full-frozen.log`（count1）；不在全仓中途改代码或测试。
+11. 未闭范围细化：原冷冻候选合同的`Symptom`仍被最后projection的目标窗总量覆盖，无窗标签；目前静态全仓只发现定义/赋值，未发现读取`Symptom.Value`的生产消费者，实际报告binder和候选上下文走每候选facts。记P2摘要模型残余，不改schema，不宣称已经影响最终答案。非line过滤字段的完整性仍属于各view自己的覆盖协议；本片QueryScopeID全tuple只保证不同结果不串，时间窗归属不授全因果枚举完成。
+
+12. 首轮冻结全仓exit1，仅`TestInfoContractFieldCensus`报告新增`Projection.QuerySourceRef`未登记（tool337.129s），其余85个有测试包通过。保护测试正常，不能把专项绿写成全仓绿。字段由types的`TraceCausalProjectionMatchesRecordSource`精确消费、不直接显示，独立冷审确认登记`projection_gate`（不加NoScan/Token豁免），不更改测试检查规则。补一行登记后契约邻族count3为1.248s；全部Go输入再次冻结，重新运行`20260912-b1626-full-frozen-v2.log`及`...build-precommit-v2.log`，尚未据此预签通过。
+
+13. 最终冻结全仓`20260912-b1626-full-frozen-v2.log` exit0，86个有测试包全通过（count1，非缓存）：tool331.765s、types44.127s、agent63.462s、orchestrator22.797s、tracequery105.225s、tracediag12.611s、hitraceconv137.978s、llm28.896s。`...build-precommit-v2.log` make exit0；diff检查通过，末次fetch仍为`d50ed097d`、ahead/behind=0/0。请求API、生产来源、补采、编译、上下文、出版相互依赖，本片以完整纵切原子提交，避免将不兼容的中间接口推入主干；不把尚未启动的live签绿。
+
+状态：`B1626=source-frozen/public-red-green/final-count3-race-cold-pass/first-full-census-red-fixed/full86+make-pass/pending-push-live`；`r1063=original-preserved`；`new-live=none`。
 
 ### §123.1781 B1666：非墙钟IO指标不得进入等待残差毫秒说明（2026-09-12）
 

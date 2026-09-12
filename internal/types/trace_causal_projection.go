@@ -148,6 +148,10 @@ type TraceCausalProjection struct {
 	WindowStartTs float64               `json:"window_start_ts,omitempty"`
 	WindowEndTs   float64               `json:"window_end_ts,omitempty"`
 	WindowScope   TraceQueryWindowScope `json:"window_scope,omitempty"`
+	// QuerySourceRef is present only on multi-request-member projections. It
+	// binds the whole parent result (including recursive local windows), not
+	// a value identity or a new capture. Compiler outputs own this copy.
+	QuerySourceRef *ObservationSourceRef `json:"query_source_ref,omitempty"`
 	// ArtifactPath/ArtifactLabel is the typed artifact identity of the trace
 	// this projection was compiled from (CMP-1, customer compare audit
 	// 2026-07-03 §7.2): the canonicalised SourceRef.Path (shared canonicaliser,
@@ -1838,6 +1842,15 @@ func (n TraceCausalProjectionNode) IsEvidenceBoundaryRow() bool {
 }
 
 func CompileTraceCausalProjection(ledger ObservationLedger) TraceCausalProjection {
+	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 {
+		// A singular compatibility API cannot elect one of several request
+		// members. Production multi-window consumers use the projection set.
+		set := CompileTraceCausalProjectionSet(ledger)
+		if len(set.Projections) == 1 {
+			return set.Projections[0]
+		}
+		return TraceCausalProjection{}
+	}
 	return traceCausalProjectionFromObservationRecords(ledger.Records,
 		traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities),
 		ledger.RuntimeArtifactScopeProfile)
@@ -1866,6 +1879,13 @@ func TraceCausalProjectionFromObservationRecordsForUserEntities(records []Observ
 }
 
 func traceCausalProjectionFromObservationRecords(records []ObservationRecord, userEntities []traceCausalProjectionAnchorEntity, requestedScope *RuntimeArtifactScopeProfile) TraceCausalProjection {
+	return traceCausalProjectionFromParentResult(records, userEntities, requestedScope, nil)
+}
+
+// parentWindow is supplied only after multi-window result-source partitioning.
+// It must be installed before within-window and state-account attachment, not
+// patched onto the already-compiled board after those consumers used a leaf.
+func traceCausalProjectionFromParentResult(records []ObservationRecord, userEntities []traceCausalProjectionAnchorEntity, requestedScope *RuntimeArtifactScopeProfile, parentWindow *TraceCausalProjectionQueryWindow) TraceCausalProjection {
 	if len(records) == 0 {
 		return TraceCausalProjection{}
 	}
@@ -2374,7 +2394,11 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		node.MeasurementOrigins = CloneTraceSchedulerMeasurementOrigins(node.MeasurementOrigins)
 		out.PrimaryRootCause = &node
 	}
-	if anchorStart, anchorEnd, ok := traceCausalProjectionAnchorWindow(records, requestedScope); ok {
+	anchorStart, anchorEnd, anchorKnown := traceCausalProjectionAnchorWindow(records, requestedScope)
+	if parentWindow != nil && traceQueryScopeWindowPresent(parentWindow.StartTs, parentWindow.EndTs) {
+		anchorStart, anchorEnd, anchorKnown = parentWindow.StartTs, parentWindow.EndTs, true
+	}
+	if anchorKnown {
 		out.WindowStartTs, out.WindowEndTs = anchorStart, anchorEnd
 		traceCausalProjectionMarkWithinWindow(out.PrimaryRootCauses, anchorStart, anchorEnd)
 		traceCausalProjectionMarkWithinWindow(out.RankedSeats, anchorStart, anchorEnd)

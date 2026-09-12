@@ -16,7 +16,7 @@ func runtimeArtifactTraceDiscoveryInputsComplete(rm types.RequestModel) bool {
 		rm.RuntimeArtifactScopeProfile == nil {
 		return false
 	}
-	if _, _, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); !ok {
+	if !rm.RuntimeArtifactScopeProfile.HasExplicitTimeWindows() {
 		return false
 	}
 	for _, target := range rm.RuntimeTargets {

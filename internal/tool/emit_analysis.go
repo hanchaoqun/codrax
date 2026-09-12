@@ -290,12 +290,13 @@ type emitRuntimeArtifactValueProfileParam struct {
 }
 
 type emitRuntimeArtifactScopeProfileParam struct {
-	RequestedScope string   `json:"requested_scope"`
-	TimeStart      *float64 `json:"time_start,omitempty"`
-	TimeEnd        *float64 `json:"time_end,omitempty"`
-	SourceQuote    string   `json:"source_quote,omitempty"`
-	Confidence     *float64 `json:"confidence"`
-	Rationale      string   `json:"rationale,omitempty"`
+	RequestedScope string                            `json:"requested_scope"`
+	TimeStart      *float64                          `json:"time_start,omitempty"`
+	TimeEnd        *float64                          `json:"time_end,omitempty"`
+	TimeWindows    []types.RuntimeArtifactTimeWindow `json:"time_windows,omitempty"`
+	SourceQuote    string                            `json:"source_quote,omitempty"`
+	Confidence     *float64                          `json:"confidence"`
+	Rationale      string                            `json:"rationale,omitempty"`
 }
 
 type emitRuntimeTargetProfileParam struct {
@@ -726,14 +727,27 @@ func buildEmitAnalysisSchema() {
 			},
 			"runtime_artifact_scope_profile": map[string]any{
 				"type":        "object",
-				"description": "Required user-scope authority for runtime artifacts. This is NOT a trace_query/exploration window. Use not_applicable when no runtime artifact is attached or referenced. For an attached artifact, use full_artifact when the current request asks about the supplied artifact without a narrower user boundary (for example 'this trace' / '这份 trace'); use explicit_time_window only when the current request itself states exact trace time bounds, copying them to time_start/time_end; use bounded_selector when the current request names a narrower artifact selector such as a frame/span/event but does not state exact time bounds; use unspecified when the current request's artifact scope cannot be determined. A model-chosen query window never changes this field.",
+				"description": "Required user-scope authority for runtime artifacts. This is NOT a trace_query/exploration window. Use not_applicable when no runtime artifact is attached or referenced. For an attached artifact, use full_artifact when the current request asks about the supplied artifact without a narrower user boundary (for example 'this trace' / '这份 trace'); use explicit_time_window only when the current request itself states exact trace time bounds; use bounded_selector when the current request names a narrower artifact selector such as a frame/span/event but does not state exact time bounds; use unspecified when the current request's artifact scope cannot be determined. A model-chosen query window never changes this field. " + skill.AnalysisRuntimeWindowMembersTeaching,
 				"properties": map[string]any{
 					"requested_scope": map[string]any{"type": "string", "enum": runtimeArtifactRequestedScopeValues(), "description": "not_applicable, full_artifact, explicit_time_window, bounded_selector, or unspecified."},
-					"time_start":      map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace start in seconds; required only for explicit_time_window."},
-					"time_end":        map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace end in seconds; required only for explicit_time_window and greater than time_start."},
-					"source_quote":    map[string]any{"type": "string", "description": "Verbatim current-request phrase that establishes full_artifact, explicit_time_window, or bounded_selector scope. Do not copy model/tool prose."},
-					"confidence":      map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
-					"rationale":       map[string]any{"type": "string", "description": "Short audit rationale."},
+					"time_start":      map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace start in seconds for the legacy single-window form; do not combine with time_windows."},
+					"time_end":        map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace end in seconds for the legacy single-window form; greater than time_start and not combined with time_windows."},
+					"time_windows": map[string]any{
+						"type": "array", "minItems": 1,
+						"description": "All explicit requested windows in request order; never an envelope. Each member needs finite ordered endpoints and a verbatim current-request source_quote.",
+						"items": map[string]any{
+							"type": "object", "additionalProperties": false,
+							"properties": map[string]any{
+								"time_start":   map[string]any{"type": "number", "minimum": 0.0},
+								"time_end":     map[string]any{"type": "number", "minimum": 0.0},
+								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase supporting this member, not tool/model prose."},
+							},
+							"required": []string{"time_start", "time_end", "source_quote"},
+						},
+					},
+					"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that establishes full_artifact, explicit_time_window, or bounded_selector scope. Do not copy model/tool prose."},
+					"confidence":   map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
+					"rationale":    map[string]any{"type": "string", "description": "Short audit rationale."},
 				},
 				"required": []string{"requested_scope", "confidence"},
 			},
@@ -4976,6 +4990,35 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 		}, "", nil
 	}
 
+	if p.TimeWindows != nil {
+		if p.TimeStart != nil || p.TimeEnd != nil {
+			return nil, "runtime_artifact_scope_profile: time_windows and scalar time_start/time_end are mutually exclusive; preserve the requested members, not their envelope", nil
+		}
+		if scope != types.RuntimeArtifactScopeExplicitWindow && scope != types.RuntimeArtifactScopeBoundedSelector {
+			return nil, "runtime_artifact_scope_profile.time_windows requires explicit_time_window scope", nil
+		}
+		if len(p.TimeWindows) == 0 {
+			return nil, "runtime_artifact_scope_profile.time_windows must contain every requested member; an empty list is not an explicit window", nil
+		}
+		for i, member := range p.TimeWindows {
+			if !member.Valid() || !sourceQuotePresentInCurrentRequest(raw, member.SourceQuote) {
+				return nil, fmt.Sprintf("runtime_artifact_scope_profile.time_windows[%d] needs finite time_start>=0, time_end>time_start, and a verbatim current-request source_quote; correct the whole member list rather than dropping this member", i), nil
+			}
+		}
+		profile := types.CloneRuntimeArtifactScopeProfile(&types.RuntimeArtifactScopeProfile{
+			RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+			TimeWindows:    p.TimeWindows,
+			Confidence:     *p.Confidence,
+			Rationale:      strings.TrimSpace(p.Rationale),
+		})
+		if sourceQuotePresentInCurrentRequest(raw, p.SourceQuote) {
+			profile.SourceQuote = strings.TrimSpace(p.SourceQuote)
+		}
+		if scope == types.RuntimeArtifactScopeBoundedSelector {
+			return profile, "", []string{"runtime_artifact_scope_profile canonicalized bounded_selector with valid typed time_windows to explicit_time_window"}
+		}
+		return profile, "", nil
+	}
 	profile := &types.RuntimeArtifactScopeProfile{
 		RequestedScope: scope,
 		TimeStart:      p.TimeStart,
@@ -4986,6 +5029,7 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 	var warnings []string
 	quote := strings.TrimSpace(p.SourceQuote)
 	anchored := quote != "" && sourceQuotePresentInCurrentRequest(raw, quote)
+	typedWindowValid := (types.RuntimeArtifactTimeWindow{TimeStart: p.TimeStart, TimeEnd: p.TimeEnd, SourceQuote: quote}).Valid()
 	switch scope {
 	case types.RuntimeArtifactScopeFullArtifact:
 		if !anchored {
@@ -5004,8 +5048,7 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 			profile.TimeStart = nil
 			profile.TimeEnd = nil
 			warnings = append(warnings, "runtime_artifact_scope_profile auto-softened to unspecified because source_quote is not verbatim in the current request")
-		} else if p.TimeStart != nil && p.TimeEnd != nil &&
-			*p.TimeStart >= 0 && *p.TimeEnd > *p.TimeStart {
+		} else if typedWindowValid {
 			// A valid typed start/end pair is the structurally more precise
 			// subtype of bounded_selector. Analyzer models occasionally emit
 			// both shapes at once. Preserve the precise carrier instead of
@@ -5023,7 +5066,7 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 			profile.TimeEnd = nil
 		}
 	case types.RuntimeArtifactScopeExplicitWindow:
-		if !anchored || p.TimeStart == nil || p.TimeEnd == nil || *p.TimeStart < 0 || *p.TimeEnd <= *p.TimeStart {
+		if !anchored || !typedWindowValid {
 			profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
 			profile.TimeStart = nil
 			profile.TimeEnd = nil
@@ -7339,7 +7382,7 @@ func enumerationBoundaryDuplicatesExplicitRuntimeWindow(boundary *emitEnumeratio
 		return false
 	}
 	boundaryQuote := strings.TrimSpace(boundary.SourceQuote)
-	windowQuote := strings.TrimSpace(profile.SourceQuote)
+	windowQuote := strings.TrimSpace(profile.ExplicitTimeWindows()[0].SourceQuote)
 	return boundaryQuote != "" && boundaryQuote == windowQuote
 }
 

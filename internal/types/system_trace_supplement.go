@@ -49,6 +49,11 @@ type TraceQueryCallWindow struct {
 // engine work took. It feeds the single answer-side disclosure caveat and
 // the operator log line; it is never model-authored text.
 type SystemTraceSupplementMeta struct {
+	// MemberWindows preserves each requested member's own execution/disclosure
+	// account. Nonempty means scalar WindowStart/End are deliberately unset;
+	// target and total elapsed belong to this outer attempt. Exact duplicate
+	// members may share work but remain separate request members here.
+	MemberWindows []SystemTraceSupplementWindowMeta `json:"member_windows,omitempty"`
 	// Views are the canonical view names the supplement executed, in
 	// execution order.
 	Views []string `json:"views,omitempty"`
@@ -156,6 +161,37 @@ type SystemTraceSupplementMeta struct {
 	// DurationBudgetS echoes the duration budget for the cancellation
 	// disclosure wording (WindowBudgetS twin).
 	DurationBudgetS float64 `json:"duration_budget_s,omitempty"`
+}
+
+// SystemTraceSupplementWindowMeta is a leaf: one member's original bounds and
+// completed/skipped work, not another executable attempt or coverage authority.
+type SystemTraceSupplementWindowMeta struct {
+	WindowStart             float64                           `json:"window_start"`
+	WindowEnd               float64                           `json:"window_end"`
+	Views                   []string                          `json:"views,omitempty"`
+	ViewValueObservations   []int                             `json:"view_value_observations,omitempty"`
+	ViewObservationFamilies []TraceSupplementViewFamilyCensus `json:"view_observation_families,omitempty"`
+	SkipReason              string                            `json:"skip_reason,omitempty"`
+	SkippedViews            []string                          `json:"skipped_views,omitempty"`
+	CanceledViews           []string                          `json:"canceled_views,omitempty"`
+	WindowBudgetS           float64                           `json:"window_budget_s,omitempty"`
+	ElapsedMS               int64                             `json:"elapsed_ms,omitempty"`
+}
+
+func cloneSystemTraceSupplementMembers(in []SystemTraceSupplementWindowMeta) []SystemTraceSupplementWindowMeta {
+	if in == nil {
+		return nil
+	}
+	out := make([]SystemTraceSupplementWindowMeta, len(in))
+	for i, member := range in {
+		out[i] = member
+		out[i].Views = append([]string(nil), member.Views...)
+		out[i].ViewValueObservations = append([]int(nil), member.ViewValueObservations...)
+		out[i].ViewObservationFamilies = append([]TraceSupplementViewFamilyCensus(nil), member.ViewObservationFamilies...)
+		out[i].SkippedViews = append([]string(nil), member.SkippedViews...)
+		out[i].CanceledViews = append([]string(nil), member.CanceledViews...)
+	}
+	return out
 }
 
 // TraceSupplementViewFamilyCensus — AUD-02 (§14.3, 2026-07-25): one windowed
@@ -268,6 +304,9 @@ func (m *MutableState) SetSystemTraceSupplement(meta SystemTraceSupplementMeta, 
 	metaCopy.Views = append([]string(nil), meta.Views...)
 	metaCopy.SkippedViews = append([]string(nil), meta.SkippedViews...)
 	metaCopy.CanceledViews = append([]string(nil), meta.CanceledViews...)
+	metaCopy.ViewValueObservations = append([]int(nil), meta.ViewValueObservations...)
+	metaCopy.ViewObservationFamilies = append([]TraceSupplementViewFamilyCensus(nil), meta.ViewObservationFamilies...)
+	metaCopy.MemberWindows = cloneSystemTraceSupplementMembers(meta.MemberWindows)
 	m.systemTraceSupplementMeta = &metaCopy
 	m.systemTraceSupplementResults = append([]ToolResult(nil), results...)
 	m.bumpAnswerSurfaceRevisionLocked()
@@ -304,6 +343,9 @@ func (m *MutableState) SystemTraceSupplementMeta() *SystemTraceSupplementMeta {
 	out.Views = append([]string(nil), m.systemTraceSupplementMeta.Views...)
 	out.SkippedViews = append([]string(nil), m.systemTraceSupplementMeta.SkippedViews...)
 	out.CanceledViews = append([]string(nil), m.systemTraceSupplementMeta.CanceledViews...)
+	out.ViewValueObservations = append([]int(nil), m.systemTraceSupplementMeta.ViewValueObservations...)
+	out.ViewObservationFamilies = append([]TraceSupplementViewFamilyCensus(nil), m.systemTraceSupplementMeta.ViewObservationFamilies...)
+	out.MemberWindows = cloneSystemTraceSupplementMembers(m.systemTraceSupplementMeta.MemberWindows)
 	return &out
 }
 

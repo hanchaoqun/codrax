@@ -88,6 +88,20 @@ type ObservationSourceRef struct {
 	// (including query filters and auto-window children). It is not inferred
 	// from observation IDs, display labels, or model prose.
 	QueryScopeID string `json:"query_scope_id,omitempty"`
+	// Parent query coordinates belong to the producer result, not an
+	// individual recursive row's occurrence/selected window. These scalar
+	// receipts let independently requested windows stay separate while each
+	// result retains its native chain fragments. They do not prove coverage,
+	// identity resolution, or causality, and never replace artifact provenance.
+	QueryWindowKnown    bool    `json:"query_window_known,omitempty"`
+	QueryWindowStartTs  float64 `json:"query_window_start_ts,omitempty"`
+	QueryWindowEndTs    float64 `json:"query_window_end_ts,omitempty"`
+	QueryTargetPID      int     `json:"query_target_pid,omitempty"`
+	QueryTargetThread   string  `json:"query_target_thread,omitempty"`
+	QueryTargetScope    string  `json:"query_target_scope,omitempty"`
+	QueryLineRangeKnown bool    `json:"query_line_range_known,omitempty"`
+	QueryLineStart      int     `json:"query_line_start,omitempty"`
+	QueryLineEnd        int     `json:"query_line_end,omitempty"`
 }
 
 // ObservationSpan locates the observation inside SourceRef when that source has
@@ -691,16 +705,7 @@ func observationLedgerRuntimeArtifactScopeProfile(rm *RequestModel) *RuntimeArti
 	if rm == nil || rm.RuntimeArtifactScopeProfile == nil {
 		return nil
 	}
-	profile := *rm.RuntimeArtifactScopeProfile
-	if rm.RuntimeArtifactScopeProfile.TimeStart != nil {
-		start := *rm.RuntimeArtifactScopeProfile.TimeStart
-		profile.TimeStart = &start
-	}
-	if rm.RuntimeArtifactScopeProfile.TimeEnd != nil {
-		end := *rm.RuntimeArtifactScopeProfile.TimeEnd
-		profile.TimeEnd = &end
-	}
-	return &profile
+	return CloneRuntimeArtifactScopeProfile(rm.RuntimeArtifactScopeProfile)
 }
 
 // observationLedgerAnchorEntities projects the typed request-model target

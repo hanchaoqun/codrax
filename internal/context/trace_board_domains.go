@@ -11,6 +11,11 @@ import (
 
 type traceBoardDomain struct {
 	identity                  types.TraceRankBoardDisplayIdentity
+	requestedScopeText        string
+	parentWindowSeen          bool
+	parentWindowKnown         bool
+	parentWindowStart         float64
+	parentWindowEnd           float64
 	sourceRecord, sortKey     string
 	chain, adjacent           []traceBoardRow
 	shownChain, shownAdjacent int
@@ -41,6 +46,10 @@ func traceBoardAppendDomainRow(domains *[]*traceBoardDomain, byKey map[string]*t
 		}
 		*domains = append(*domains, domain)
 	}
+	// All contributing publications participate, even a duplicate row or one
+	// outside the display budget. Native board coordinates are not the parent
+	// query that selected a requested member.
+	domain.observeParentWindow(record.SourceRef)
 	rowKey := traceBoardRowIdentity(row)
 	if identity.Complete && domain.seenRows[rowKey] {
 		return
@@ -50,6 +59,25 @@ func traceBoardAppendDomainRow(domains *[]*traceBoardDomain, byKey map[string]*t
 		domain.adjacent = append(domain.adjacent, row)
 	} else {
 		domain.chain = append(domain.chain, row)
+	}
+}
+
+func (domain *traceBoardDomain) observeParentWindow(ref types.ObservationSourceRef) {
+	known := ref.Kind == types.ObservationSourceRuntimeArtifact && ref.QueryWindowKnown &&
+		types.ResolveTraceQueryWindowScope(nil, ref.QueryWindowStartTs, ref.QueryWindowEndTs).Role != types.TraceQueryWindowScopeUnknownQueryWindow
+	if !domain.parentWindowSeen {
+		domain.parentWindowSeen, domain.parentWindowKnown = true, known
+		if known {
+			domain.parentWindowStart, domain.parentWindowEnd = ref.QueryWindowStartTs, ref.QueryWindowEndTs
+		}
+		return
+	}
+	// Exact producer endpoint agreement is order-independent. Tolerant request
+	// matching happens later, only after this source tuple is unanimous; a
+	// near-but-different parent must not elect whichever row arrived first.
+	if !known || !domain.parentWindowKnown || domain.parentWindowStart != ref.QueryWindowStartTs || domain.parentWindowEnd != ref.QueryWindowEndTs {
+		domain.parentWindowKnown = false
+		domain.parentWindowStart, domain.parentWindowEnd = 0, 0
 	}
 }
 
@@ -116,6 +144,9 @@ func traceBoardWriteDomains(b *strings.Builder, domains []*traceBoardDomain, wri
 			i+1, sanitizeForInlineCode(firstNonEmptyBoardField(identity.ArtifactPath, identity.ArtifactLabel, "unavailable")),
 			sanitizeForInlineCode(firstNonEmptyBoardField(identity.BoardTarget, "unavailable")), window,
 			sanitizeForInlineCode(firstNonEmptyBoardField(identity.BoardParamsFingerprint, "unavailable")), identity.Complete)
+		if domain.requestedScopeText != "" {
+			fmt.Fprintf(b, "- %s\n", domain.requestedScopeText)
+		}
 		if !identity.Complete {
 			fmt.Fprintf(b, "- source_record=`%s`; incomplete board identity; retained separately, not merged by labels.\n", sanitizeForInlineCode(domain.sourceRecord))
 		}

@@ -24,6 +24,7 @@ type TraceWakeupEdgeRoleAuthority struct {
 	WakeeTargetCPU         string
 	CPURelation            string
 	SourceRecordID         string
+	WindowScope            TraceQueryWindowScope
 }
 
 // BuildTraceWakeupEdgeRoleAuthorities compiles target-bound endpoint roles
@@ -40,6 +41,11 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 		conflict    bool
 	}
 	requestedWindow := ""
+	multiWindow := len(rm.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1
+	var memberScopes map[string]TraceQueryWindowScope
+	if multiWindow {
+		memberScopes = traceRequestedMemberRecordScopes(ledger.Records, traceRequestedMemberEntitiesForRequest(rm), rm.RuntimeArtifactScopeProfile)
+	}
 	if start, end, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
 		requestedWindow = fmt.Sprintf("%.6f..%.6f", start, end)
 	}
@@ -91,6 +97,13 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 				continue
 			}
 		}
+		memberScope := TraceQueryWindowScope{}
+		if multiWindow {
+			memberScope = memberScopes[traceRequestedMemberResultKey(record, 0)]
+			if memberScope.Role != TraceQueryWindowScopeRequestedPrincipal {
+				continue
+			}
+		}
 		authority := TraceWakeupEdgeRoleAuthority{
 			ArtifactLabel:          traceTargetStateAuthorityArtifactLabel(record.SourceRef),
 			Scope:                  traceWakeupEdgeRoleScope(record.ID),
@@ -106,6 +119,7 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 			WakeeTargetCPU:         traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupWakeeTargetCPU),
 			CPURelation:            traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyWakeupCPURelation),
 			SourceRecordID:         strings.TrimSpace(record.ID),
+			WindowScope:            memberScope,
 		}
 		if authority.WakerPriority == "" && authority.WakeePriority == "" &&
 			authority.WakerCPU == "" && authority.WakeeTargetCPU == "" {
@@ -115,6 +129,9 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 			traceWakeupEdgeRoleArtifactIdentity(record.SourceRef), authority.Scope,
 			authority.Waker, authority.Wakee, authority.WakeupTimestamp,
 		}, "\x00")
+		if multiWindow {
+			key += "\x00" + traceRequestedMemberResultKey(record, 0)
+		}
 		fingerprint := strings.Join([]string{
 			authority.ArtifactLabel, authority.Scope, authority.Waker, authority.Wakee,
 			authority.WakeupTimestamp, authority.WakerPriority, authority.WakeePriority,

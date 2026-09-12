@@ -7608,10 +7608,11 @@ func answerDocSelectedWindowObservationRecords(ctx *types.AgentContext, records 
 		ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile == nil || len(records) == 0 {
 		return records, 0
 	}
-	requestedStart, requestedEnd, ok := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile.ExplicitTimeWindow()
-	if !ok {
+	requested := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
+	if !requested.HasExplicitTimeWindows() {
 		return records, 0
 	}
+	multi := len(requested.ExplicitTimeWindows()) > 1
 	out := make([]types.ObservationRecord, 0, len(records))
 	omitted := 0
 	for _, record := range records {
@@ -7621,13 +7622,14 @@ func answerDocSelectedWindowObservationRecords(ctx *types.AgentContext, records 
 			continue
 		}
 		start, end, present := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+		if multi && record.SourceRef.QueryWindowKnown {
+			start, end, present = record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs, true
+		}
 		if !present {
 			out = append(out, record)
 			continue
 		}
-		if !types.TraceCausalProjectionPrincipalValueWindowContains(
-			requestedStart, requestedEnd, start, end,
-		) {
+		if !requested.ContainsExplicitTimeWindow(start, end) {
 			omitted++
 			continue
 		}
@@ -14012,6 +14014,18 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			default:
 				if start, end, ok := profile.ExplicitTimeWindow(); ok {
 					fmt.Fprintf(&b, "- Runtime artifact scope authority: the current request explicitly bounds the artifact to `%.6f..%.6f`. Use that user window for completeness/count/total claims; a different model-authored trace_query window is exploration only and cannot narrow or broaden the requested scope.\n", start, end)
+				} else if windows := profile.ExplicitTimeWindows(); len(windows) > 1 {
+					b.WriteString("- The request names separate analysis windows, in this order:")
+					for i, window := range windows {
+						if i >= 8 {
+							break
+						}
+						fmt.Fprintf(&b, " `%.6f..%.6f`", *window.TimeStart, *window.TimeEnd)
+					}
+					if len(windows) > 8 {
+						fmt.Fprintf(&b, " (first 8 of %d; the remaining %d requested windows are not expanded in this reminder and must not be assumed covered)", len(windows), len(windows)-8)
+					}
+					b.WriteString(". Keep each window's target, state totals, causal evidence and uncertainty separate. A complete result for one window does not cover another; never replace these members with their enclosing interval or add overlapping windows. Form the diagnosis from each member's own evidence.\n")
 				}
 			}
 		}
@@ -23529,7 +23543,7 @@ func traceQueryObservationSameValueFoldNote(dups []traceQueryObservationSameValu
 // traceQueryObservationRequestedScopeNote only describes the producer's query
 // scope relative to an explicit request. It changes no observation admission.
 func traceQueryObservationRequestedScopeNote(record types.ObservationRecord, requested *types.RuntimeArtifactScopeProfile, lang string) string {
-	if _, _, ok := requested.ExplicitTimeWindow(); !ok ||
+	if !requested.HasExplicitTimeWindows() ||
 		record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
 		!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 		return ""
@@ -23537,6 +23551,12 @@ func traceQueryObservationRequestedScopeNote(record types.ObservationRecord, req
 	// An occurrence's Span is not its query window. Missing producer-owned
 	// query endpoints stay unknown even when the row has a precise event span.
 	start, end, _ := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+	if len(requested.ExplicitTimeWindows()) > 1 {
+		start, end = 0, 0
+		if record.SourceRef.QueryWindowKnown {
+			start, end = record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs
+		}
+	}
 	return types.ResolveTraceQueryWindowScope(requested, start, end).Format(lang)
 }
 
@@ -23571,6 +23591,11 @@ func traceQueryObservationProjectionWindow(record types.ObservationRecord, set t
 	validWindow := func(p types.TraceCausalProjection) bool {
 		return p.WindowStartTs > 0 && p.WindowEndTs > p.WindowStartTs
 	}
+	if projection, handled, ok := traceQueryObservationMemberProjection(record, set); handled {
+		return projection.WindowStartTs, projection.WindowEndTs, ok &&
+			!math.IsInf(projection.WindowStartTs, 0) && !math.IsInf(projection.WindowEndTs, 0) &&
+			types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs)
+	}
 	for _, projection := range set.Projections {
 		if !types.TraceCausalProjectionRecordMatchesArtifact(record, projection) {
 			continue
@@ -23585,6 +23610,25 @@ func traceQueryObservationProjectionWindow(record types.ObservationRecord, set t
 		return set.Projections[0].WindowStartTs, set.Projections[0].WindowEndTs, true
 	}
 	return 0, 0, false
+}
+
+// A single capture can have multiple requested windows and filtered results.
+// Join the exact parent result, never the first same-capture projection or a
+// recursive leaf's local interval. An ambiguous join lends no election/window.
+func traceQueryObservationMemberProjection(record types.ObservationRecord, set types.TraceCausalProjectionSet) (types.TraceCausalProjection, bool, bool) {
+	var found types.TraceCausalProjection
+	handled, count := false, 0
+	for _, projection := range set.Projections {
+		if projection.WindowScope.RequestedWindowCount <= 1 {
+			continue
+		}
+		handled = true
+		if types.TraceCausalProjectionMatchesRecordSource(projection, record) {
+			found = projection
+			count++
+		}
+	}
+	return found, handled, count == 1
 }
 
 func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
@@ -23671,6 +23715,9 @@ func traceQueryObservationElectedBranchPathHead(record types.ObservationRecord, 
 	}
 	if branch <= 0 {
 		return 0, false
+	}
+	if projection, handled, ok := traceQueryObservationMemberProjection(record, set); handled {
+		return branch, ok && projection.WakeupPathBranch == branch
 	}
 	for _, projection := range set.Projections {
 		if !types.TraceCausalProjectionRecordMatchesArtifact(record, projection) {

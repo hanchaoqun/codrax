@@ -256,7 +256,7 @@ func rootCauseCrossEventTransitionUnproven(ir *AnalysisIR) bool {
 	if ir == nil || ir.RequestModel.LogTriage == nil {
 		return false
 	}
-	if _, _, ok := ir.RequestModel.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
+	if ir.RequestModel.RuntimeArtifactScopeProfile.HasExplicitTimeWindows() {
 		return false
 	}
 	return ResolveLogOperationalRelationAuthority(ir.RequestModel.LogTriage.OperationalSemantics) ==

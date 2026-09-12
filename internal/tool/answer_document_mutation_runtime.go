@@ -4599,6 +4599,11 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 }
 
 func runtimeTraceCoverageAnalysisWindow(input types.ObservationLedgerInput, ledger types.ObservationLedger) (float64, float64, bool) {
+	if input.RequestModel != nil && len(input.RequestModel.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 {
+		// One published member cannot become the shared coverage ruler for
+		// an entire multi-window request, even when the other members failed.
+		return 0, 0, false
+	}
 	set := types.CompileTraceCausalProjectionSet(ledger)
 	if len(set.Projections) > 1 {
 		// Multi-artifact runs stay unknown: one shared window is not a
@@ -7406,6 +7411,9 @@ func runtimeTraceSupplementViewListWithCounts(views []string, counts []int, fami
 //     form's 「时长预算」 name two DIFFERENT budgets and deliberately stay
 //     distinct words.
 func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta, zh bool) string {
+	if meta != nil && len(meta.MemberWindows) > 0 {
+		return runtimeTraceSupplementMemberDisclosure(meta, zh)
+	}
 	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != types.TraceSupplementReasonWindowSpanExceeded && !meta.CensusLite && len(meta.CanceledViews) == 0) {
 		return ""
 	}
@@ -7570,7 +7578,9 @@ func materializeRuntimeTraceSupplementDisclosureCaveat(doc *types.AnswerDocument
 		return false
 	}
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
-	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != types.TraceSupplementReasonWindowSpanExceeded && !meta.CensusLite && len(meta.CanceledViews) == 0) {
+	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
+	text := runtimeTraceSupplementDisclosureText(meta, zh)
+	if text == "" {
 		return false
 	}
 	kept := doc.Caveats[:0]
@@ -7583,8 +7593,7 @@ func materializeRuntimeTraceSupplementDisclosureCaveat(doc *types.AnswerDocument
 		kept = append(kept, caveat)
 	}
 	doc.Caveats = kept
-	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
-	doc.Caveats = append(doc.Caveats, runtimeTraceSupplementDisclosureText(meta, zh))
+	doc.Caveats = append(doc.Caveats, text)
 	return true
 }
 
