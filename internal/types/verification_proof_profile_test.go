@@ -792,7 +792,9 @@ func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
 	if got.State != VerificationProofLedgerLowConfidence {
 		t.Fatalf("ledger state=%q, want low_confidence: %+v", got.State, got)
 	}
-	if got.ObligationCount == 0 || got.UncoveredCount == 0 || got.CoveredCount == 0 || got.UnavailableCount == 0 {
+	// B1575: the same-ref native assertion now closes the derived impact
+	// target; the independent missing/unverified changed-symbol rows remain.
+	if got.ObligationCount == 0 || got.UncoveredCount != 2 || got.CoveredCount == 0 || got.UnavailableCount != 0 {
 		t.Fatalf("ledger counts not projected: %+v", got)
 	}
 	if !verificationProofLedgerHasItem(got, "changed_symbol", VerificationProofLedgerItemMissing, "verification_probe_missing_changed_symbol_ref") {
@@ -801,8 +803,11 @@ func TestBuildVerificationProofLedgerProjectsCoverageObligations(t *testing.T) {
 	if !verificationProofLedgerHasItem(got, "behavior_contract", VerificationProofLedgerItemCovered, "project_test_contract_ref_observed") {
 		t.Fatalf("ledger obligations=%+v missing covered contract", got.Obligations)
 	}
-	if !verificationProofLedgerHasItem(got, "behavior_contract", VerificationProofLedgerItemUnavailable, "unavailable") {
-		t.Fatalf("ledger obligations=%+v missing unavailable impact target", got.Obligations)
+	if !verificationProofLedgerHasItem(got, "behavior_contract", VerificationProofLedgerItemCovered, "verified") {
+		t.Fatalf("ledger obligations=%+v missing native same-ref covered impact target", got.Obligations)
+	}
+	if !verificationProofLedgerHasItem(got, "changed_symbol", VerificationProofLedgerItemUnverified, "changed_symbol_without_probe_coverage") {
+		t.Fatalf("unrelated changed-symbol debt disappeared: %+v", got.Obligations)
 	}
 }
 

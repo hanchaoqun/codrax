@@ -7055,6 +7055,9 @@ func TestApplyVerifyCoverageToChangePlanRequiresTargetBehaviorForBehaviorContrac
 	newPlan := func() *types.ChangePlan {
 		return &types.ChangePlan{
 			ID: "plan-capability",
+			BehaviorContracts: []types.WriteBehaviorContract{{
+				ID: "widget-contract", Kind: types.WriteBehaviorObservable, Expected: "expected behavior",
+			}},
 			ImpactAnalysis: &types.ImpactAnalysisResult{VerificationTargets: []types.ImpactVerificationTarget{{
 				Kind: "behavior_contract", Path: "src/Widget.java", ContractRef: "widget-contract", CoverageStatus: "unverified",
 			}}},
@@ -7082,6 +7085,17 @@ func TestApplyVerifyCoverageToChangePlanRequiresTargetBehaviorForBehaviorContrac
 
 	behaviorPlan := newPlan()
 	applyVerifyCoverageToChangePlan(behaviorPlan, reportFor(types.VerificationCapabilityTargetBehavior), nil)
+	if behaviorPlan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "unverified" ||
+		behaviorPlan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageUnverified {
+		t.Fatalf("file-level target-behavior evidence promoted an unwitnessed contract: impact=%+v review=%+v", behaviorPlan.ImpactAnalysis, behaviorPlan.PatchReview)
+	}
+
+	exactReport := reportFor(types.VerificationCapabilityTargetBehavior)
+	exactReport.VerificationConfidence = []types.VerificationConfidenceRecord{{
+		Source: "project_test_observation", Category: "project_test_contract_refs", Status: "satisfied",
+		ContractRefs: []string{"widget-contract"}, WitnessKind: types.WriteBehaviorWitnessProjectTest,
+	}}
+	applyVerifyCoverageToChangePlan(behaviorPlan, exactReport, nil)
 	if behaviorPlan.ImpactAnalysis.VerificationTargets[0].CoverageStatus != "verified" ||
 		behaviorPlan.PatchReview.Findings[0].CoverageStatus != types.PatchReviewCoverageVerified {
 		t.Fatalf("target-behavior evidence did not verify behavior contract: impact=%+v review=%+v", behaviorPlan.ImpactAnalysis, behaviorPlan.PatchReview)

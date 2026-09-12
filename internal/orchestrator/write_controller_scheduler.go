@@ -3684,6 +3684,19 @@ func applyVerifyCoverageToChangePlan(plan *types.ChangePlan, report *types.Chang
 		review = types.NormalizePatchReviewRecord(review)
 		plan.PatchReview = &review
 	}
+	// File-level test success is not a witness for every contract on that
+	// file. Use the same current-plan/ref projection as persisted proof views;
+	// planning-only intent remains advisory rather than an observed success.
+	projectionReport := report
+	if err != nil {
+		// The shared artifact projection has no execution-error parameter.
+		// An externally failed verification must not regain a positive item
+		// from an otherwise passed partial report at this synchronization seam.
+		projectionReport = nil
+	}
+	effective := types.EffectiveBehaviorContractVerificationPlan(plan, projectionReport)
+	plan.ImpactAnalysis = effective.ImpactAnalysis
+	plan.PatchReview = effective.PatchReview
 }
 
 func verifyCoverageProjectionFromReport(plan *types.ChangePlan, report *types.ChangeReport, err error) (verifyCoverageProjection, bool) {
@@ -3712,37 +3725,16 @@ func verifyCoverageProjectionFromReport(plan *types.ChangePlan, report *types.Ch
 // (V5-1): a satisfied contract record covers a ref only when the contract's
 // kind admits the record's witness kind (types matrix), and a disclosed
 // source absence for a runtime-kind contract keeps the ref unverified in
-// this soft projection. Refs naming no known contract keep the legacy
-// records-only reading.
+// this soft projection. Unknown or planning-only refs cannot become verified
+// by absence of a negative record or by an unrelated file-level test pass.
 func verifyCoverageConfidenceFromReportForPlan(plan *types.ChangePlan, report *types.ChangeReport) verifyCoverageConfidence {
 	report = types.EffectiveVerificationProbeReport(plan, report)
 	conf := verifyCoverageConfidenceFromEffectiveReport(report)
 	if plan == nil || report == nil {
 		return conf
 	}
-	contractByID := map[string]types.WriteBehaviorContract{}
-	for _, contract := range types.ChangePlanVerificationBehaviorContracts(plan) {
-		if id := strings.TrimSpace(contract.ID); id != "" {
-			contractByID[id] = contract
-		}
-	}
 	for ref := range conf.CoveredContracts {
-		contract, known := contractByID[ref]
-		if !known {
-			continue
-		}
-		covered := false
-		for _, rec := range report.VerificationConfidence {
-			category := strings.TrimSpace(rec.Category)
-			if category != "probe_contract_refs" && category != "source_contract_refs" {
-				continue
-			}
-			if types.VerificationConfidenceRecordCoversContract(rec, contract) {
-				covered = true
-				break
-			}
-		}
-		if !covered {
+		if !types.BehaviorContractRefHasVerificationWitness(plan, report, ref) {
 			delete(conf.CoveredContracts, ref)
 		}
 	}
@@ -3802,7 +3794,7 @@ func verifyCoverageConfidenceFromEffectiveReport(report *types.ChangeReport) ver
 			conf.ProbeUnavailable = true
 		case (status == "missing" || status == "unverified") && category == "probe_changed_symbol":
 			conf.MissingChangedSymbol = true
-		case (status == "missing" || status == "unverified") && (category == "probe_contract_refs" || category == "source_contract_refs"):
+		case (status == "missing" || status == "unverified") && types.VerificationConfidenceRecordIsContractWitness(rec):
 			for _, ref := range rec.ContractRefs {
 				if ref = strings.TrimSpace(ref); ref != "" {
 					conf.MissingContracts[ref] = true
@@ -3814,7 +3806,7 @@ func verifyCoverageConfidenceFromEffectiveReport(report *types.ChangeReport) ver
 					conf.CoveredSymbols[ref] = true
 				}
 			}
-		case status == "satisfied" && (category == "probe_contract_refs" || category == "source_contract_refs"):
+		case status == "satisfied" && types.VerificationConfidenceRecordIsContractWitness(rec):
 			for _, ref := range rec.ContractRefs {
 				if ref = strings.TrimSpace(ref); ref != "" {
 					conf.CoveredContracts[ref] = true
@@ -3893,7 +3885,7 @@ func impactCoverageForTarget(target types.ImpactVerificationTarget, projection v
 			if ref == "" {
 				ref = strings.TrimSpace(target.EvidenceRef)
 			}
-			if ref != "" && projection.Confidence.MissingContracts[ref] && !projection.Confidence.CoveredContracts[ref] {
+			if ref == "" || !projection.Confidence.CoveredContracts[ref] {
 				return impactCoverageUnverified
 			}
 		}
@@ -3941,7 +3933,7 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 			if projection.Confidence.ProbeUnavailable && (ref == "" || !projection.Confidence.CoveredContracts[ref]) {
 				return types.PatchReviewCoverageUnverified
 			}
-			if ref != "" && projection.Confidence.MissingContracts[ref] && !projection.Confidence.CoveredContracts[ref] {
+			if ref == "" || !projection.Confidence.CoveredContracts[ref] {
 				return types.PatchReviewCoverageUnverified
 			}
 		case "dependent_surface_without_verify_coverage", "related_test_surface_unverified":
@@ -8689,6 +8681,7 @@ func selectImpactRepairQueueItems(plan *types.ChangePlan, report *types.ChangeRe
 	if plan == nil {
 		return nil
 	}
+	plan = types.EffectiveBehaviorContractVerificationPlan(plan, report)
 	seen := map[string]bool{}
 	var items []impactRepairQueueItem
 	add := func(item impactRepairQueueItem) {

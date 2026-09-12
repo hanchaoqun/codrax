@@ -148,6 +148,7 @@ type VerificationProofArtifact struct {
 
 func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) VerificationProofProfile {
 	report = EffectiveVerificationProbeReport(plan, report)
+	plan = EffectiveBehaviorContractVerificationPlan(plan, report)
 	out := VerificationProofProfile{RunnerEvidence: VerificationProofRunnerNone}
 	addReason := func(code string) {
 		code = strings.TrimSpace(code)
@@ -159,6 +160,9 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 		out.Status = VerificationProofUnknown
 		addReason("change_report_missing")
 		return NormalizeVerificationProofProfile(out)
+	}
+	if BehaviorContractVerificationStateConflict(plan, report) {
+		addReason("verification_plan_report_state_conflict")
 	}
 	status := report.NormalizeVerificationStatus()
 	out.VerificationStatus = status
@@ -222,6 +226,8 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 				switch strings.TrimSpace(target.CoverageStatus) {
 				case "verified":
 					out.ImpactVerifiedCount++
+				case "advisory":
+					// Planning support is neither measured coverage nor a debt.
 				case "", "unknown", "unverified", "unavailable":
 					out.ImpactUnverifiedCount++
 				default:
@@ -327,8 +333,11 @@ func removeVerificationProofReason(reasons []string, remove string) []string {
 func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryReport *ChangeReport, artifacts []VerificationProofArtifact) VerificationProofProfile {
 	primaryReport = EffectiveVerificationProbeReport(primaryPlan, primaryReport)
 	artifacts = effectiveVerificationProofArtifacts(artifacts)
-	base := BuildVerificationProofProfile(primaryPlan, primaryReport)
-	unique := verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts)
+	unique := effectiveCumulativeBehaviorContractArtifacts(verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts))
+	if (primaryPlan != nil || primaryReport != nil) && len(unique) > 0 {
+		primaryPlan = unique[0].Plan
+	}
+	base := cumulativeBehaviorContractDebtProfile(BuildVerificationProofProfile(primaryPlan, primaryReport), unique)
 	if len(unique) <= 1 {
 		return base
 	}
@@ -418,7 +427,7 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 		ReasonCodes:        append([]string(nil), profile.ReasonCodes...),
 		CoverageCounts:     map[string]int{},
 	}
-	unique := verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts)
+	unique := effectiveCumulativeBehaviorContractArtifacts(verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts))
 	if len(unique) == 0 {
 		out.State = verificationProofLedgerStateFromProfile(profile)
 		return NormalizeVerificationProofLedger(out)
@@ -1047,6 +1056,28 @@ func verificationConfidenceRecordsForPlanRequiredDomain(plan *ChangePlan, in []V
 			}
 			rec.ContractRefs = filtered
 		}
+		if VerificationConfidenceRecordIsContractWitness(rec) {
+			var planning, active []string
+			for _, ref := range rec.ContractRefs {
+				contract, known := contractByID[strings.TrimSpace(ref)]
+				if known && IsPlanningOnlyWriteBehaviorContract(contract) {
+					planning = append(planning, ref)
+				} else {
+					active = append(active, ref)
+				}
+			}
+			if len(planning) > 0 {
+				advisory := rec
+				advisory.ContractRefs = planning
+				advisory.Status, advisory.Severity = "advisory", "info"
+				advisory.ReasonCode = "planning_only_contract_reference"
+				out = append(out, advisory)
+				if len(active) == 0 {
+					continue
+				}
+				rec.ContractRefs = active
+			}
+		}
 		// V5-1 witness matrix choke point: a satisfied contract-lane record
 		// keeps only the refs whose contract kind admits its witness kind; the
 		// rest become an advisory disclosure that can never resolve an
@@ -1215,6 +1246,13 @@ func (ledger *VerificationProofLedger) addPatchReviewLedgerItems(plan *ChangePla
 		if review.HardBlock && status != VerificationProofLedgerItemCovered {
 			status = VerificationProofLedgerItemFailed
 		}
+		ref, reason := "", strings.TrimSpace(finding.Code)
+		if kind == "behavior_contract" && finding.Category == PatchReviewCategorySemanticCoverage {
+			ref = strings.TrimSpace(finding.EvidenceRef)
+			if status == VerificationProofLedgerItemUnverified {
+				reason = derivedBehaviorContractWitnessMissing
+			}
+		}
 		ledger.Obligations = append(ledger.Obligations, VerificationProofLedgerItem{
 			ID:          verificationProofLedgerStableID("patch_review", plan.ID, finding.Code, string(finding.CoverageStatus), finding.Path, finding.SubjectSymbol, finding.EvidenceRef),
 			Kind:        kind,
@@ -1223,7 +1261,8 @@ func (ledger *VerificationProofLedger) addPatchReviewLedgerItems(plan *ChangePla
 			PlanID:      strings.TrimSpace(plan.ID),
 			Category:    string(finding.Category),
 			Severity:    string(finding.Severity),
-			ReasonCode:  strings.TrimSpace(finding.Code),
+			ReasonCode:  reason,
+			ContractRef: ref,
 			Path:        strings.TrimSpace(finding.Path),
 			RelatedPath: strings.TrimSpace(finding.RelatedPath),
 			Symbol:      strings.TrimSpace(finding.SubjectSymbol),
@@ -1239,17 +1278,24 @@ func (ledger *VerificationProofLedger) addImpactLedgerItems(plan *ChangePlan) {
 	}
 	analysis := NormalizeImpactAnalysisResult(*plan.ImpactAnalysis)
 	for _, target := range analysis.VerificationTargets {
+		ref, reason := strings.TrimSpace(target.ContractRef), firstNonEmptyVerificationProof(target.CoverageStatus, "coverage_unknown")
+		if target.Kind == "behavior_contract" {
+			ref = firstNonEmptyVerificationProof(ref, target.EvidenceRef)
+			if target.CoverageStatus == "unverified" {
+				reason = derivedBehaviorContractWitnessMissing
+			}
+		}
 		ledger.Obligations = append(ledger.Obligations, VerificationProofLedgerItem{
 			ID:          verificationProofLedgerStableID("impact", plan.ID, target.ID, target.Kind, target.CoverageStatus, target.Path, target.RelatedPath, target.Symbol, target.ContractRef),
 			Kind:        firstNonEmptyVerificationProof(target.Kind, "impact_target"),
 			Status:      verificationProofLedgerStatusFromImpactCoverage(target.CoverageStatus),
 			Source:      firstNonEmptyVerificationProof(target.Source, "impact_analysis"),
 			PlanID:      strings.TrimSpace(plan.ID),
-			ReasonCode:  firstNonEmptyVerificationProof(target.CoverageStatus, "coverage_unknown"),
+			ReasonCode:  reason,
 			Path:        strings.TrimSpace(target.Path),
 			RelatedPath: strings.TrimSpace(target.RelatedPath),
 			Symbol:      strings.TrimSpace(target.Symbol),
-			ContractRef: strings.TrimSpace(target.ContractRef),
+			ContractRef: ref,
 			EvidenceRef: strings.TrimSpace(target.EvidenceRef),
 			Detail:      strings.TrimSpace(target.ProbeID),
 		})
@@ -1321,7 +1367,11 @@ func NormalizeVerificationProofProfile(in VerificationProofProfile) Verification
 func resolveVerificationProofLedgerObligations(in []VerificationProofLedgerItem) []VerificationProofLedgerItem {
 	coveredContracts := map[string]bool{}
 	coveredSymbols := map[string]bool{}
+	unresolvedDerivedContracts := map[string]bool{}
 	for _, item := range in {
+		if item.Kind == "behavior_contract" && item.Status == VerificationProofLedgerItemUnverified && item.ReasonCode == derivedBehaviorContractWitnessMissing {
+			unresolvedDerivedContracts[item.PlanID+"\x00"+item.ContractRef] = true
+		}
 		if item.Status != VerificationProofLedgerItemCovered {
 			continue
 		}
@@ -1345,7 +1395,7 @@ func resolveVerificationProofLedgerObligations(in []VerificationProofLedgerItem)
 		if item.Status == VerificationProofLedgerItemMissing {
 			switch item.Kind {
 			case "behavior_contract":
-				if item.ContractRef != "" && coveredContracts[item.ContractRef] {
+				if item.ContractRef != "" && coveredContracts[item.ContractRef] && !unresolvedDerivedContracts[item.PlanID+"\x00"+item.ContractRef] {
 					item.Status = VerificationProofLedgerItemCovered
 					if item.Detail == "" {
 						item.Detail = "resolved_by_cumulative_proof"
@@ -1559,6 +1609,8 @@ func verificationProofLedgerStatusFromPatchCoverage(status PatchReviewCoverageSt
 
 func verificationProofLedgerStatusFromImpactCoverage(status string) VerificationProofLedgerItemStatus {
 	switch strings.TrimSpace(status) {
+	case "advisory":
+		return VerificationProofLedgerItemAdvisory
 	case "verified", "covered", "passed":
 		return VerificationProofLedgerItemCovered
 	case "unavailable":

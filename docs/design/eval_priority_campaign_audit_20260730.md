@@ -3,6 +3,7 @@
 ## 最新进展导航（2026-09-12）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+最新续修见§123.1774：B1575/B1561逐合同验证消费闭包已完成公共先红后绿、原生精确断言正控、历史/累计身份和状态冲突九形、count3/race、独立冷审与末版冻结86包全测及make。文件级测试成功不再代替逐合同正证，规划项保留参考性质，旧缺证只由完整同义合同真实后证解除，独立验证错误不被累计汇总抹掉。此批不改模型答案/Trace/超时；r1061审计已推`215afd33e`，不追跑第三例。非权威失败详情供给已有完整丢失链定位，列下一片；B1626多窗及其它语言/逐合同执行协议仍开放，不能以本批替代。
 本轮以§123.1772–1773为准：B1575目标执行首片已推`7e74a205c`，专项count3/race、全仓86包及前后置make通过。r1061严格exact2各一次结束：Python跨仓写机器PASS242s/人工FAIL（单个换行被错误折叠），H7显式窗Trace机器PASS348s/人工FAIL（精确信息已给仍擅自加总/过称反转）。Trace两轴、因果投影、默认12项根因旁路及链上/背景分界保留，不把单窗通过当B1626双窗已修。Python新观察器诚实记录失败、不授行为；另确认impact/patch-review用路径级测试放大逐合同verified的消费旁路，以及非权威失败反例供给不足，优先根修，不将模型比较器默认升硬门。B1598 raw字段单位、B1402 Trace-only代码索引附注适用域另续；完整人工审计不改原答案/补丁/机器oracle，独立后验54项49过5败不倒填产品proof。
 用户随后明确授权延长配置及代码默认值，见§123.1771：非流HTTP600s、首响应600s、流中真实静默300s；本地providers及代码/样例/中英说明同步。公开工厂入口先红后绿、llm/config完整包、三包race count3及make通过；不新增活跃SSE总时长门、不改其它独立预算，不提交凭据。本小批不冒充B1575/B1626已施工，也不重跑r1060。
 本轮续修以§123.1768.7之后及§123.1769–1770为准：B1664参数声明冒注册主体及定义建议越权已完成公共先红后绿、泛化来源边界与原文保真测试；末审根修超过四行/含空行的附着注解完整性，不用截断前文签矛盾。count3/race/独立冷审、冻结全仓86包与前后置make全部通过，已推`e622c8264`。r1060严格exact2各一次完成：E1双窗Trace机器PASS157s/人工FAIL，Python跨仓写PASS177s/补丁正确但验证权威FAIL。B1626仍把两请求成员窗压成包络；B1575未关闭的执行粒度能力债新增生产见证——仅import+AST的探针被授target_behavior，不误归Make/PTO或披露丢失。Python48组独立真调用/await后验通过，不倒填正式proof。两项P1须各自完整来源闭环，不靠标签/教学补丁销账；原case/oracle/1200s及模型答案未改，不新增追跑。
@@ -57391,6 +57392,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1774 B1575/B1561后续：逐合同验证不得借文件级成功或历史派生标签自证（2026-09-12）
+
+1. r1061审计已独立提交推送`215afd33e`。本片只处理§1773.3的逐合同权限旁路，不同时修改比较器失败策略、超时、Trace或模型正文。非权威失败详情传递另片，B1626多窗仍P1排队。
+2. 公共有效RED `20260912-r1061-contract-authority-public-red-valid.log`（orchestrator1.418s）：真实RunTests的Make路径级成功、实际失败Python探针的三个ref、planning-only三个ref均错误进入3个impact+3个patch-review covered；原生unittest实际断言与exact PTO三个ref正控原本为绿。过程跨真实执行报告JSON→controller verify同步/持久化→公共final loader，非手造confidence正证。之前字段拼写编译失败不计RED。
+3. 历史/规划公共RED `20260912-b1575-impact-public-red.log`（types0.916s/writeflow1.357s）另证：无报告或错代次的历史verified派生行能重新关闭当前合同；planning-only probe/slice refs被铸成验证义务；旧soft-confidence也可重新把advisory变covered。不能只改最后标签或只过滤原始probe producer。
+4. 冻结实现：既有kind→witness矩阵、当前完整合同scope、非空精确plan/report身份和effective confidence同源解析逐ref正证；普通target_behavior文件覆盖不代替该ref正证。历史plan/report按只读projection重算impact/semantic review权限，不改原JSON、Score、命令或测试结果；planning-only仅advisory且不新增hard义务，未知ref不可从prose猜kind/事实。真实native PTO、合法file_layout/source_text及部分通过证据必须有正控；report整体失败/unavailable/原HardBlock不能被单项成功翻绿。
+5. 当前verify同步与profile/ledger/历史重放复用同一pure projection，补齐project_test_contract_refs消费，避免收窄后误拒真正原生断言；由planning-only的probe/slice声明不新铸硬验证项，旧载体留下advisory范围说明。JSON教学不增加模型必填字段，不扫描原问题/答案，不借“缺失negative记录”声称实测。
+6. 累计恢复不能永久挂住已补齐的同一合同，也不能只凭同名ref借证。仅当前工作流内独立绑定报告对完整规范化合同值一致（含Source/Expected/Subject/Placement及未来字段）的真实正证，才能把旧派生缺证行转为advisory历史；原行不伪造covered。错PlanID、同ref不同语义/来源、无报告、独立failed/error和原HardBlock仍保留。对应累计公共RED为`20260912-b1575-impact-cumulative-red.log`（types1.010s）。修复队列也消费相同投影，避免planning-only被旧unverified标签重新升级为必修项。
+7. 独立末审先补有derived行的状态冲突针，首次即绿（`20260912-b1575-pair-conflict-public-red.log`虽含red文件名，实际types0.871s为GREEN，不作先红证据）。随后新增“无derived行×冲突报告为primary/history×正常正控”的公共针，得到有效RED `20260912-b1575-pair-conflict-no-derived-public.log`（types1.040s）：仅history形让整体Strong/Verified。根因是累计检查只遍历派生缺证行，遗漏同PlanID下plan=verify_failed而保留report=passed的独立状态冲突。最小修向是在每份累计artifact检查现有typed状态冲突，不撤销实际通过的native单项事实、不改原报告或原模型答案，也不把普通report=failed中的部分通过证据抹掉。
+8. 末版针对性收据：真实runner→持久化公共7分支count3为2.962s、race count3为4.524s（`20260912-r1061-contract-authority-frozen-*`）；types/writeflow/impact邻族count3为1.400/0.733/0.341s、race为2.699/2.826/3.635s（`20260912-b1575-impact-final-*`）；独立冲突9形末版count3为0.703s、race count3为2.569s（`20260912-b1575-pair-conflict-final-v2-*`）。新增无derived针实际先红后绿，正常原生与真正部分通过均有正控；旧测试的路径级成功保留为负控，再加exact native正控，不通过删除旧输入追绿。
+9. 首轮全仓`20260912-b1575-impact-full-final.log` exit0，但启动早于最后无derived针和对应3行修复，不能当末版全测。已在全部源码/测试冻结后重新启动原参数`go test ./...`和make，日志为`20260912-b1575-impact-full-frozen.log`与`20260912-b1575-impact-build-frozen.log`，完成状态随后落账。r1061不追加或改写，新的失败详情供给片与B1626仍独立排队。
+10. 下一片只读准备补充（**未实施**）：正式r1061 report不含`failure_summary/failure_summary_blob_ref`，仅找到72字节run_tests摘要blob，不能假设原traceback随时可取。`run_tests_verification_probe.go:980–1017`已有AssertionID/FailureDetail，但`:321–337`诊断只保通用解释；`run_tests.go:1518–1535`丢弃StoreBlob内联返回，短输出低于32768阈值时不会得到ref。本轮无payload长度/落盘错误收据，不把实际无ref武断只归阈值，但短输出丢失路径已代码确认。controller只列exit/command，恢复与最终摘要没有这类非权威具体反例通道。施工应在系统持有的诊断载体中保有界分组详情/独立原输出引用，三面共用展示；不塞回成功suite的TestResults、不扫描expected/actual或正文裁结论。`run_tests.go:1973/2006–2027`用诊断条数/白名单决定continuation，`:3402`去重键不含Detail，故本片不得靠增加诊断外层行/改key改变执行决策；多失败计数自身的边界必须单独先复现，不能以展示修复名义偷改。
+11. 最终冻结`20260912-b1575-impact-full-frozen.log`已exit0，86个有测试包通过（未变包使用Go缓存），包含末加九形及累计状态修复；同树`20260912-b1575-impact-build-frozen.log`make exit0。独立冷审无阻断，gofmt/diff检查干净，fetch确认提交前HEAD与origin/main同为`215afd33e`。此前首轮全绿只保过程收据，末版才为本片验收。本次没有增加live或修改r1061原产物/机器判据；源码提交后重建，下一片仍先复现再施工。
+
+状态：`B1575-impact-per-ref-authority=implemented/public-red-to-green/count3+race+full86+build-pass/pending-next-production-replay`；`native-exact-ref-positive=preserved`；`cumulative-state-conflict=independent-overall-boundary/partial-facts-preserved`；`failure-detail-handoff/B1626=separate-open`；`Python-per-contract-protocol/other-languages=still-open`；`answer-rewrite/Trace-policy-change/new-live=none`。
 
 ### §123.1773 r1061：原生测试通过不等于需求已满足，显式窗投影保留（2026-09-12）
 

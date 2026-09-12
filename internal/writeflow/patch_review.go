@@ -176,6 +176,9 @@ func ReviewAppliedPatchSemantic(in SemanticPatchReviewInput) types.PatchReviewRe
 		obligations = plan.ImpactAnalysis.ObligationSet
 	}
 	for _, finding := range patchReviewSemanticCoverageFindings(obligations) {
+		if finding.ImpactKind == types.PatchReviewImpactKindBehaviorContract && types.BehaviorContractRefIsPlanningOnly(plan, finding.EvidenceRef) {
+			finding.CoverageStatus = types.PatchReviewCoverageAdvisory
+		}
 		record.Findings = append(record.Findings, finding)
 	}
 	for _, finding := range patchReviewConventionFindings(in.ConventionGraph, record.AppliedPaths, obligations) {

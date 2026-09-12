@@ -91,7 +91,7 @@ func ImpactObligationSetFromChangePlan(plan *ChangePlan) ImpactObligationSet {
 		probeID := strings.TrimSpace(probe.ID)
 		for _, ref := range probe.ContractRefs {
 			ref = strings.TrimSpace(ref)
-			if ref == "" {
+			if ref == "" || BehaviorContractRefIsPlanningOnly(plan, ref) {
 				continue
 			}
 			set.Obligations = append(set.Obligations, impactObligation(ImpactObligation{
@@ -118,7 +118,7 @@ func ImpactObligationSetFromChangePlan(plan *ChangePlan) ImpactObligationSet {
 	for _, slice := range plan.Slices {
 		for _, ref := range slice.ContractRefs {
 			ref = strings.TrimSpace(ref)
-			if ref == "" {
+			if ref == "" || BehaviorContractRefIsPlanningOnly(plan, ref) {
 				continue
 			}
 			set.Obligations = append(set.Obligations, impactObligation(ImpactObligation{
