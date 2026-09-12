@@ -3,6 +3,7 @@
 ## 最新进展导航（2026-09-12）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+本轮最新§123.1776：B1561源码已推`3aeecaca0`；r1062 exact2各一次完成，Python写机器FAIL263s（业务后验301/301通过，错误模型比较器未修、累计证明未闭），跨语言读机器PASS327s/人工FAIL。B1561原详情/落盘/传递真实生效，但正常221字节路径与错误尾部被显示预算遮蔽，已取得公共RED，另片修复；不改原r1062产物或放宽验证。B1626成员窗仍P1，B1561累计消解顺序候选待公共复现，B1664注册行软文案仍P2；最终无图，render=N/A。
 最新续修见§123.1775：B1561非权威失败观察供给已完成真实执行与消费接线先红后绿、count3/race、独立末审及冻结86包全测/make；失败检查的原始标识、摘录和独立输出引用贯通报告、恢复上下文与交付卡片，不改变项目测试结论或替模型判产品缺陷。源码交付后计划r1062跨语言读+Python症状写各一次/并行2。多失败外层诊断计数与continuation耦合原行为保留另审，B1626与逐合同执行能力等未销账。
 最新续修见§123.1774：B1575/B1561逐合同验证消费闭包已完成公共先红后绿、原生精确断言正控、历史/累计身份和状态冲突九形、count3/race、独立冷审与末版冻结86包全测及make。文件级测试成功不再代替逐合同正证，规划项保留参考性质，旧缺证只由完整同义合同真实后证解除，独立验证错误不被累计汇总抹掉。此批不改模型答案/Trace/超时；r1061审计已推`215afd33e`，不追跑第三例。非权威失败详情供给已有完整丢失链定位，列下一片；B1626多窗及其它语言/逐合同执行协议仍开放，不能以本批替代。
 本轮以§123.1772–1773为准：B1575目标执行首片已推`7e74a205c`，专项count3/race、全仓86包及前后置make通过。r1061严格exact2各一次结束：Python跨仓写机器PASS242s/人工FAIL（单个换行被错误折叠），H7显式窗Trace机器PASS348s/人工FAIL（精确信息已给仍擅自加总/过称反转）。Trace两轴、因果投影、默认12项根因旁路及链上/背景分界保留，不把单窗通过当B1626双窗已修。Python新观察器诚实记录失败、不授行为；另确认impact/patch-review用路径级测试放大逐合同verified的消费旁路，以及非权威失败反例供给不足，优先根修，不将模型比较器默认升硬门。B1598 raw字段单位、B1402 Trace-only代码索引附注适用域另续；完整人工审计不改原答案/补丁/机器oracle，独立后验54项49过5败不倒填产品proof。
@@ -57394,6 +57395,19 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1776 r1062：失败观察已保留，显示预算仍会遮蔽正常引用（2026-09-12）
+
+1. 源码`3aeecaca0502`、built08:42:17Z，08:42:47Z–08:48:14Z原并行runner exact2各一次，原1200s/CAP5/模型参数与oracle不变，SDK26.5显式继承、源码测试期间冻结。写FAIL263s（子目录261s），读PASS327s。完整原机器/人工审计为`eval/parallel_selected_summary_evalcampaign_pywrite_polyread_r1062_20260912{,_manual_audit}.md`；无第三例追跑。
+2. Python首稿`int | float`在真实3.9.6 import失败；planner取得旧failure_signal的完整TypeError后修`typing.Union`。最终交付源SHA=`ce72c9f4e37fa3362f0a2a04928d27280fc62daeb4eae3baa0be305513400313`；原4测试方法字节保留、新增3方法，独立原生7/7与301边界行为全过。后验明确not_product_proof，原代码/正式报告未变。模型normalize_probe将2020年+2年+12个月错期望2021（真实2023），最后仍AssertionError；业务补丁通过不等于本流程验证已闭，最终unverified保真。
+3. B1561新载体**生产命中**：首异常及后续比较器失败都完整保留ID/detail/ref，report/final/1646B原输出可读。应用日志`codrax-20260912-014503-000-96638.log`684–693完整首错误，controller864–867却无异常尾且221字节ref被隐藏；末out204–216甚至把AssertionError截成AssertionEr。根因是共享display把原子组也套每行240预算、路径阈值210，正常路径就失去可读入口；不是原JSON/落盘失败。planner1167既有signal救回原因，不能说系统全程没有错误信息。
+4. 后继最小方案已冻结并公共RED：长字符串仅按位置保开头/结尾、分别quoted、中间明确省略原始字节；短串逐字不变。引用独立约4KiB编码字节预算，超限完整省略但不伪造截短路径；maxShown4与总数/省略披露不变，整组已有keepsWholeText故不必强加240单行针。无异常名/业务词扫描、无改判/审批或模型答案改写。公开controller/planner指令与三卡×中英RED=`20260912-b1561-display-public-red.log`（agent1.903/orchestrator0.993s）；types真实pack/final RED=`20260912-b1561-long-display-types-red.log`（0.906s），短串正控原绿。修复只在两live结束后开始，最终验收另补。
+5. 独立验证候选：最终primary verified7/strong但ledger仍有3failed能力。`verification_proof_profile.go:460–462`先做非权威probe失败消解、再补累计changed-path；可能前者被后者才解决的旧缺证挡住。暂挂B1561/P1候选（代码+工件，**无公共RED**）；旧真实import失败的精确重跑政策另保留，不能只调整顺序就宣布整例应绿，更不能删旧失败追绿。
+6. 跨语言读最终`.codrax/output/20260912-014812.824-96424.md`保Python→_fastlex导出→PyO3 wrapper→Rust core及回退。人工FAIL：最大rank与源码最小相反、条件内list被排到guard前、导入成功被放大为编译成功，wrapper描述引用core注释。精确信息已有，多为模型总结/证据选择波动，不增加正文关键词门或系统改写。B1664没有再次污染PyModule，但模型本轮未再发错误主体，不能冒称撤证负臂live已验。
+7. 读有2拒绝/3patch，要求与schema一致，未见必带必拒；模型4016主动删call-diagram，最终只有两条关系列表，**Mermaid不存在/验收N/A**。独立软文案残余：evidence_surface_render.go:269按AnchorCall写calls而忽略registration kind（log3527），typed桥3553–3560仍非调用正确；挂B1664/P2显示同源后续，不裁成授权漏洞或断言它导致最终错误。源码fixture与run.parent保持一致。
+8. 当前顺序：先B1561显示预算快速闭环，再B1626成员窗完整来源链；累计消解顺序候选先公共否证、B1598单位/B1402附注域/B1664软文案及真实原生工具链能力债保留。JSON教学不加字段，本轮无Trace生产回放，不能借读写结果倒签显式窗投影/补采/两轴/旁路；600/300/600等待与活跃流不按4ms/旧4分钟降级不变。
+
+状态：`r1062=complete/exact2-once/machine1-pass1-fail/write-business-pass-proof-incomplete/read-human-fail`；`B1561-carrier=production-triggered`；`B1561-display=public-red/implementation-in-progress`；`B1561-resolution-order=candidate/no-public-red`；`B1626=open`；`new-final-mermaid=none`；`original-artifacts/oracles/model-answer=unchanged`。
+
 ### §123.1775 B1561非权威失败观察：保反例供给，不替模型决定结论（2026-09-12）
 
 1. 基线`d59f470cd`，fetch确认与origin/main一致、工作区干净。接续§1773–1774的r1061真实丢失链：失败probe被项目suite继续消费后，只有通用比较器warning，原AssertionID/FailureDetail及短输出引用没有后续通道。不是“所有断言失败都应证明产品缺陷”；模型比较器本身可能错，必须同时保留观察事实与未证边界。
@@ -57409,8 +57423,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 11. 下一片B1626只读施工图已复核，仍未取得新RED/未实施：分析scope/schema/教学增加有序请求成员→ledger深拷与成员资格→每成员查缺补采（共享一次总deadline）→主账户/因果partition→finalizer/出版/根因旁路同源。多成员不能让旧标量返回false后又退到LAST query包络；A有投影不能使B仅有限状态账户被提前return丢掉；候选输入先按成员精确收据域过滤，再审CandidateID，不能整桶复制多次或盲改hash。测试须含仅缺B、总预算/失败保A、异capture/目标/行过滤、重叠/嵌套/反序、A投影+B有限账户、状态比较不强开因果、旧单窗字节和clone/容量披露。复用G4补采、requested-window-authority、requested-scope-publication、selected-window-context及partition公共入口；E1原A2.992/B30ms/包络32.992ms为回放锚，不能将包络签成请求成员。
 
 12. 最终冻结全仓`20260912-b1561-full-frozen.log` exit0，86个有测试包通过（未变包有缓存）：tool340.612s、types46.524s、agent73.012s、orchestrator28.600s、tracequery108.246s、tracediag14.192s、hitraceconv145.740s、llm27.937s。`20260912-b1561-build-precommit.log` make exit0；独立只读末审无阻断，确认当前/历史范围、普通上下文无第二出口、三卡原内容/计数/模型正文不写。空scope/空PlanID沿旧兼容规则，不声称新增严格invocation绑定。diff检查通过，fetch仍与origin/main同为`d59f470cd`，源码/测试冻结等待提交；没有新live倒填。
+13. 源码已以`3aeecaca0`提交推送main；提交后`20260912-b1561-build-postcommit.log`make成功，binary revision=`3aeecaca0502`、built=`2026-09-12T08:42:17Z`，工作区干净、ahead/behind=0/0。r1062于08:42:47Z按原冻结两case并行各一次启动，统一SDKROOT26.5显式继承；日志`20260912-r1062-runner.log`，汇总`eval/parallel_selected_summary_evalcampaign_pywrite_polyread_r1062_20260912{,_manual_audit}.md`。目前仅记启动，源码/测试保持冻结，不预签机器或人工通过。
 
-状态：`B1561-failed-observation-handoff=implemented/public-red-green/count3+race+full86+build+cold-review-pass`；`outer-diagnostic-count-policy=unchanged/separate-audit`；`B1626=next/open`；`r1062=planned/not-started`；`model-answer/Trace/timeouts/JSON-required-fields=unchanged`。
+状态：`B1561-failed-observation-handoff=pushed-3aeecaca0/public-red-green/count3+race+full86+build+cold-review-pass`；`outer-diagnostic-count-policy=unchanged/separate-audit`；`B1626=next/open`；`r1062=complete/see-1776`；`model-answer/Trace/timeouts/JSON-required-fields=unchanged`。
 
 ### §123.1774 B1575/B1561后续：逐合同验证不得借文件级成功或历史派生标签自证（2026-09-12）
 
