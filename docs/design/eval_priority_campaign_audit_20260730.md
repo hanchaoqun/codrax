@@ -3,7 +3,7 @@
 ## 最新进展导航（2026-09-12）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-当前续修§123.1778：B1561累计证明处理次序已公共RED→GREEN、count3/race/独立冷审、原四工件离线复核及冻结全仓86包/make通过，待提交推送。本片仅把依赖“义务全部闭合”的非权威探针处置放在累计精确路径覆盖之后，不改变准入谓词或清除旧真实失败。提交后计划r1063恰好两例并行各一次：dateutil症状写+H1 Binder显式窗。B1626多请求成员窗仍未修，完整纵切边界已再审记档。
+当前以§123.1778–1779为准：B1561累计证明处理次序已推`b6b5f1cf5`，公共RED→GREEN、count3/race/独立冷审、原四工件离线复核及冻结全仓86包/提交后make通过。r1063严格exact2各一次结束：dateutil症状写机器PASS257s/有限输入人工PASS；H1 Binder机器PASS243s/人工FAIL。写最终单计划零probe未触发累计顺序；Trace显式窗/两轴/投影/默认6项根因旁路仍在，但模型在精确供给下错算对端/泛化长睡眠，另确认系统B1666非墙钟残差附注。B1665四面Python编辑教学缺scope限定与B1666分别小批修复；B1626多请求成员窗仍未修，不由单窗PASS代销。
 最新显示后继§123.1777：r1062审计已推`d889fac49`；正常长引用与失败尾部的共享展示修复已推`f8e3d5551`，公共RED→GREEN、count3/race及独立冷审通过，原两份报告离线显示回放保字节且可定位完整输出。冻结全仓86包与提交后make通过，binary=`f8e3d55511c4`；未新增模型回放或修改r1062机器/人工结论。累计消解顺序已取得独立公开复现（§1777.7），从候选升确认P1、仍未修，不能因此清空旧真实失败或宣称整例应绿。
 本轮最新§123.1776：B1561源码已推`3aeecaca0`；r1062 exact2各一次完成，Python写机器FAIL263s（业务后验301/301通过，错误模型比较器未修、累计证明未闭），跨语言读机器PASS327s/人工FAIL。B1561原详情/落盘/传递真实生效，但正常221字节路径与错误尾部被显示预算遮蔽，已取得公共RED，另片修复；不改原r1062产物或放宽验证。B1626成员窗仍P1，B1561累计消解顺序候选待公共复现，B1664注册行软文案仍P2；最终无图，render=N/A。
 最新续修见§123.1775：B1561非权威失败观察供给已完成真实执行与消费接线先红后绿、count3/race、独立末审及冻结86包全测/make；失败检查的原始标识、摘录和独立输出引用贯通报告、恢复上下文与交付卡片，不改变项目测试结论或替模型判产品缺陷。源码交付后计划r1062跨语言读+Python症状写各一次/并行2。多失败外层诊断计数与continuation耦合原行为保留另审，B1626与逐合同执行能力等未销账。
@@ -57397,6 +57397,19 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1779 r1063双例收账：写通过，Trace答案仍错；两个系统缺口分批修（2026-09-12）
+
+1. `b6b5f1cf5f92`固定构建，09:32:47Z→09:37:04Z，原两case/1200s/CAP5不变，exact2各一次，无第三例。机器2/2保原；人工dateutil有限输入PASS、H1整份FAIL。完整机器/人审见`eval/parallel_selected_summary_evalcampaign_pywrite_binder_r1063_20260912{,_manual_audit}.md`。没有运行中源码修改或新构建。
+2. 写最终`plan-1789205792567571000-23903`只改生产构造函数，原测试/README字节相同；原生unittest4/4、strong/verified，2路径covered+1advisory，未伪装逐合同执行。独立后验301项有限输入/构造/类型检查通过且9工件SHA不变；NaN/Inf异常类型差异另披露，不倒填产品proof。最后0probe/无已应用累计前代，故B1561显示与处理次序本次未自然触发；原r1062离线正负见证仍有效，不追跑刷覆盖。
+3. **B1665/P1教学冲突确认**：真实规划先重复路径、缺end_line、原测试保护重规划，再两次micro/modify拒；拒绝谓词本身一致。相邻教学一面禁micro覆盖，一面Python缩进块又建议full modify；defaults、emit_change_plan schema、emit_plan_change schema、structured_edit EOF retry共四面缺scope限定。最小方案单源说明局部整块可line-range replace/完整patch，只有非micro且确实整文件重写才用modify；不改hard gate，不新增用户/模型原文扫描。实际Parameters/skill/repair全出口及micro块patch、micro拒modify、broader仍允许须公开先红后绿。不能认定教学是本次模型选择的唯一原因。
+4. Trace五闭合Binder段1.409+0.924+0.068+0.120+0.573=3.094ms及三线程/两TGID在模型表与上下文均完整。正文却写“全10961/仅3次”，将app唤醒15.758ms泛化所有长睡眠为空闲并漏DetectViewRect14.302ms；另错写12145963完成时点、2.34GHz策略上限和反转等待。精确原事实/限定均已入模，归模型消费错误，不加答案关键词硬门或系统替写。根因表“列1…6”是模型完整重发丢columns、末patch只补Binder表，不是renderer删除字段。两analyzer拒+一空表成文拒后接受；version安全归位成功，答案未丢；无Mermaid，render=N/A。
+5. 能力保护：原233.190ms明确窗、157.248/5.604/70.338状态账户、真实占用与可回收两轴、单份因果投影、业务span、邻近/背景分栏均在。IO marker0不否定独立完成闭合S态IO；rootJSON available、6模型选择58.320/12.658/7.405/4.710/3.956/3.605ms且限定证据保留。不能以这些系统正证抵销正文错误，也不以H1单窗覆盖B1626。
+6. **B1666/P1系统非墙钟残差附注确认**：MD98把未归因30.697ms指向自身IO[E46]；MD655–666的E46其实page_cache_churn，member raw119.100计数当量、cap后81.616，非墙钟。typed result明确caliber_side/count_sum，registry亦count。`runtimeTraceProjOwnCaliberIOPrimaryRow`宽IO family未排caliber-side，随后ResidualOwnCaliberNote做min并发ms；三个覆盖句出口同源。最小修向是consider共享入口用已有typed caliber/registry排非墙钟，不删该行或改原值/等待账/排序；self/tree、中英、legacy Unit=ms、count/score与真实IO正控齐测。该面不同于已修B1439上下文单位和B1622次数，不重复销账；真实wallclock残差的完整相交证明另留审，不由本片声称全证。
+7. 主线活跃流保护专项count3 37.699s通过（`20260912-r1063-active-stream-count3.log`），真实日志采用首响应600s/字节静默300s/非流600s；4ms或旧4m未出正文不是降级依据，真正静默/调用者取消/显式外层预算仍有效。这次短调用不是>4m单活跃流的live见证。
+8. 顺序：先独立提交本轮审计，B1665教学四面统一与B1666残差量纲分别源代码/公共测试/独立复核/冻结回归后提交推送；随后继续B1626完整成员域纵切，不靠局部helper改名宣称多窗闭环。B1561能力与合同执行残余、B1651b/B1662环境/原生runner及其他旧债保留。
+
+状态：`r1063=machine2/2+human-write-pass/Trace-fail/audited`；`B1561-order=pushed/offline-positive/live-not-exercised`；`B1665=confirmed/implementing`；`B1666=confirmed/implementing`；`B1626=P1-open`；`original-artifacts/model-prose/selection/timeout=preserved`。
+
 ### §123.1778 B1561累计证明依赖顺序：先闭合精确义务，再处置非权威失败（2026-09-12）
 
 1. 基线`ad4ca7918`干净且fetch后与origin/main无差。§1777.7的原四工件公开复现已证明：同一次投影结束时全部义务已闭合，但前置非权威probe处置仍读到尚未补齐的旧changed_file义务。不是模型比较器本身正确，也不意味着旧真实import失败可被普通绿色套件抹掉。
@@ -57409,8 +57422,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 8. controller消费者race count3 4.529s通过。原r1062四冻结工件经新的`20260912-b1561-cumulative-order-replay.go/.log`公开Ledger+FinalReport离线投影：currentprobe advisory1/failed0、累计旧path covered5、未闭义务0，旧真实失败2与最终failed均保留；缺scope仍currentfailed1/未闭5，缺精确continuation仍currentfailed1。四文件核对旧SHA与前后原字节、内存输入字节均恒等，旧RED helper/log未覆盖；这是离线处置复核，不是新模型回放或为原r1062倒填通过。
 9. B1626只读再审补强§1775.11：最小完整纵切为同已绑定capture/typed target的有序N窗。旧`ExplicitTimeWindow`保持真实单窗语义，另提供明确member存在/匹配API，multi无匹配不得掉回LAST或包络；同步`trace_wakeup_edge_role_authority.go:43`、`trace_board_summary.go:81`与finalizer contained-window读者。补采必须一次attempt/一个总deadline内按成员查缺并汇合，不能N次调入口（one-shot latch只准首轮，SetSystemTraceSupplement会覆盖旧结果）；投影/有限账户键均保成员，A有投影不得吞B账户。分派基于result-owned selected_window+source/target，保同次query递归native小片，不能按局部MeasurementDomain机械拆链。`emit_analysis.go`两个单窗专属规则（子主题收束/重复枚举边界）不得改成任意member即true。候选旁路先修输入身份再审ID，不盲改hash。纵向公共RED必须跨真实EmitAnalysis→queryA→补采B→ledger/入模→emit/persist，及缺B/预算失败保A、重叠/反序、异capture/target/line-filter、bounded不强开因果、旧单窗字节/clone/capacity正负矩阵；本轮仍未实施或销账。
 10. 最终冻结`20260912-b1561-cumulative-order-full-frozen.log` exit0，86个有测试包通过（未变包使用缓存）：tool389.164s、types69.164s、agent110.429s、orchestrator30.802s、tracequery144.115s、tracediag21.926s、hitraceconv182.449s、llm缓存通过；`20260912-b1561-cumulative-order-build-precommit.log` make exit0。源码/测试自RED后最小修复起冻结，无漏跑末版；gofmt/diff检查干净，提交前fetch无远程新差。旧测试/模型schema/运行预算未改。源码交付后重建才启动原两case。
+11. 源码及测试/文档以`b6b5f1cf5`推送main；提交后make exit0（`20260912-b1561-cumulative-order-build-postcommit.log`），binary built=`2026-09-12T09:32:14Z`、revision=`b6b5f1cf5f92`、无dirty。09:32:47Z原selected runner以该固定snapshot开始r1063，原PARALLEL2/TIMEOUT1200/CAP5/case/oracle不变、每例一次，结果目录后缀`20260912-023247`。不在运行中改Go/build输入，不追跑第三例；机器/人审待完成另记。
 
-状态：`B1561-resolution-order=implemented/public-red-green/count3+race+cold-pass/frozen-full86+make-pass/pending-commit`；`B1626=P1-open`；`new-live=not-started`；`original-r1062/model-answer/Trace/timeout=unchanged`。
+状态：`B1561-resolution-order=pushed-b6b5f1cf5/public-red-green/count3+race+cold-pass/frozen-full86+postcommit-make-pass/live-not-exercised-r1063`；`B1626=P1-open`；`r1063=complete/exact2-once/audit-1779`；`original-r1062/model-answer/Trace/timeout=unchanged`。
 
 ### §123.1777 B1561显示后继：完整引用独立预算，长摘录保两端（2026-09-12）
 
