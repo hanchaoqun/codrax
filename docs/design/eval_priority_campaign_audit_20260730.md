@@ -4,6 +4,7 @@
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
 当前以§123.1778–1779为准：B1561累计证明处理次序已推`b6b5f1cf5`，公共RED→GREEN、count3/race/独立冷审、原四工件离线复核及冻结全仓86包/提交后make通过。r1063严格exact2各一次结束：dateutil症状写机器PASS257s/有限输入人工PASS；H1 Binder机器PASS243s/人工FAIL。写最终单计划零probe未触发累计顺序；Trace显式窗/两轴/投影/默认6项根因旁路仍在，但模型在精确供给下错算对端/泛化长睡眠，另确认系统B1666非墙钟残差附注。B1665四面Python编辑教学缺scope限定与B1666分别小批修复；B1626多请求成员窗仍未修，不由单窗PASS代销。
+后续交付§123.1780：B1665四面共享468字节范围安全编辑教学，真实单发/分阶段repair与归一化JSON保真、count3/race及独立冷审完成；B1665+B1666冻结工作态全仓86包、make通过，按独立源码批提交。未新增live，不把r1063当后继修复生产验收。
 最新显示后继§123.1777：r1062审计已推`d889fac49`；正常长引用与失败尾部的共享展示修复已推`f8e3d5551`，公共RED→GREEN、count3/race及独立冷审通过，原两份报告离线显示回放保字节且可定位完整输出。冻结全仓86包与提交后make通过，binary=`f8e3d55511c4`；未新增模型回放或修改r1062机器/人工结论。累计消解顺序已取得独立公开复现（§1777.7），从候选升确认P1、仍未修，不能因此清空旧真实失败或宣称整例应绿。
 本轮最新§123.1776：B1561源码已推`3aeecaca0`；r1062 exact2各一次完成，Python写机器FAIL263s（业务后验301/301通过，错误模型比较器未修、累计证明未闭），跨语言读机器PASS327s/人工FAIL。B1561原详情/落盘/传递真实生效，但正常221字节路径与错误尾部被显示预算遮蔽，已取得公共RED，另片修复；不改原r1062产物或放宽验证。B1626成员窗仍P1，B1561累计消解顺序候选待公共复现，B1664注册行软文案仍P2；最终无图，render=N/A。
 最新续修见§123.1775：B1561非权威失败观察供给已完成真实执行与消费接线先红后绿、count3/race、独立末审及冻结86包全测/make；失败检查的原始标识、摘录和独立输出引用贯通报告、恢复上下文与交付卡片，不改变项目测试结论或替模型判产品缺陷。源码交付后计划r1062跨语言读+Python症状写各一次/并行2。多失败外层诊断计数与continuation耦合原行为保留另审，B1626与逐合同执行能力等未销账。
@@ -57396,6 +57397,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1780 B1665：结构编辑教学、schema与重试共用范围安全短句（2026-09-12）
+
+1. r1063机器/人审已以`8c95f8eaf`推送。仅修四处不一致的Python编辑建议：planner skill、单发/分阶段plan schema、真实EOF错误的RetryInstruction。新增`types.StructuredEditPythonScopeTeaching`单源；局部缩进块用line-range replace或当前read_file锚定插入，已有文件micro仍patch，非micro且真正重写大部文件才建议modify。没有新schema字段/额外模型动作、没有变更原准入或解释用户原文。
+2. 有效公开RED `20260912-b1665-public-red.log` tool1.429s/skill1.799s：两Parameters、注册skill与真实EOF修复面缺scope-safe指导，原micro块patch/拒modify、broader/unknown正控绿。开发中新增测试的指针装配编译错误不是产品RED。第一绿色后独立冷审发现长提示会被NormalizePlanRepairPack的480字节cap截断，最终压成468字节，而非扩budget；完整Normalized→JSON→FromJSON字节相等针已覆盖单发和分阶段实际repair。
+3. 分阶段公共针由真实Skeleton→首create槽填充→第二Python EOF拒且partial保留→同槽合法patch完成；模型编辑及原/新文件不被发射过程应用，首已填槽保持。micro已有文件拒modify、broader/unknown不新增门，原micro create/delete/rename例外与Python末class/函数EOF边界、旧staged范围族一并回归。
+4. 最后冻结专项count3 tool3.416s/skill0.535s、race count3 tool3.893s/skill1.791s；独立末审无阻断。生产仅五文件（四接线+纯文字常量），两新test；B1666不同源码文件分批，不混提交。源码/tests最后修改早于全仓启动，合并工作态冻结86包回归中；结果与构建随后记本节，不提前签绿。
+5. 冻结全仓`20260912-b1665-b1666-full-frozen.log` exit0、86有测试包通过（未变包缓存）：tool373.767s、skill9.691s、agent90.153s、orchestrator32.036s、tracequery127.542s、tracediag17.663s、hitraceconv170.222s、types53.467s，llm缓存通过。B1666最后test修改09:51:27Z早于全仓启动09:51:44Z，两批Go输入都已冻结；`20260912-b1665-b1666-build-precommit.log` make exit0。全仓检验的是两独立改动的合并工作态，不冒称先独测某个提交才开始另一改动。远程fetch无新差，分批只stage自身源/test及记录；原r1063机器/人审不改。
+
+状态：`B1665=implemented/public-red-green/final-count3+race/independent-reviewed/frozen-full86+make-pass/delivered-with-this-commit`；`r1063=8c95f8eaf/pushed`；`new-live=none`；`scope-gates/model-edits/Trace/timeout=unchanged`。
 
 ### §123.1779 r1063双例收账：写通过，Trace答案仍错；两个系统缺口分批修（2026-09-12）
 

@@ -139,6 +139,7 @@ func (t *EmitChangePlan) Description() string {
 // Every object layer has additionalProperties:false so the LLM cannot
 // invent fields (kind enum locks to create|modify|delete|patch).
 func (t *EmitChangePlan) Parameters() json.RawMessage {
+	editContentDescription, _ := json.Marshal("Replacement or insertion bytes. Required for replace/insert; omit for delete. insert_before_final_brace is only for brace-language files with a final standalone closing brace. " + types.StructuredEditPythonScopeTeaching)
 	return injectVerificationProbeLanguageSchema(`{
   "type": "object",
   "additionalProperties": false,
@@ -185,7 +186,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
                 "kind": {"type": "string", "enum": ["replace", "delete", "insert_before", "insert_after", "insert_at_eof", "insert_before_final_brace"]},
                 "start_line": {"type": "integer", "minimum": 1, "description": "1-based. Required for replace/delete and for line-addressed insert_before/insert_after. Ignored for insert_at_eof and insert_before_final_brace."},
                 "end_line": {"type": "integer", "minimum": 1, "description": "1-based inclusive last line for replace/delete. Omit for a single-line edit — it defaults to start_line. Ignored for insert kinds."},
-                "content": {"type": "string", "description": "Replacement or insertion bytes. Required for replace/insert; omit for delete. insert_before_final_brace is only for brace-language files with a final standalone closing brace; do not use it for Python. For Python, use line-anchored insert_before/insert_after for indentation-sensitive additions, or full modify when the edit spans an indented block. insert_at_eof is safe only for top-level unindented Python additions and the specific EOF class-member case accepted by the tool."},
+                "content": {"type": "string", "description": ` + string(editContentDescription) + `},
                 "old_text": {"type": "string", "description": "Optional exact CURRENT bytes of the target range or insertion anchor line. Must match the file as it is now (re-read after any earlier edit); a missing or extra final newline is tolerated. On mismatch the error echoes the current bytes so you can correct without guessing."}
               },
               "required": ["kind"]

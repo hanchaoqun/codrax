@@ -1471,6 +1471,8 @@ planner 在 `BuildInitialInstruction` 消费一次 `Mutable.PlanningHint()`（ve
 
 planner 是单 emit ReAct loop——目标调一次 emit_change_plan / emit_plan_skeleton / emit_plan_change 完成。`emit_plan_change` 是流式多轮路径——大 plan 分多次 patch 进 Mutable.ChangePlan 直到完整。
 
+结构编辑教学的范围约束与重试同源：`types.StructuredEditPythonScopeTeaching` 被 planner skill、两个 plan schema 和 Python EOF 修复提示共同消费。Python 缩进块可用 `kind=patch` 的行范围替换或精确锚定插入，不因缩进建议整文件覆盖；已有文件的 micro 修改保持 patch，较大范围且确实重写大部分文件时才建议 modify。这是教学而非新的准入规则，原 create/delete/rename 及 scope 校验不变。共享提示完整落在既有 480 字节修复预算内；单发与分阶段真实 repair 的归一化/JSON 往返保留完整提示及其它已填槽，不通过增加预算维持关键约束。
+
 ### 8.5 emit_change_plan 校验链
 
 emit_change_plan 跑多步 pre-flight gate（任一失败 reject 全部并 re-prime schema reminder）：

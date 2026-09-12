@@ -415,7 +415,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 					Path:             path,
 					EditIndex:        i,
 					FileLineCount:    lineCount,
-					RetryInstruction: "Python indentation defines scope. Use insert_before/insert_after with a current read_file line anchor inside the intended function/class, or kind=modify with the full corrected file body. insert_at_eof is safe for unindented top-level Python additions and for appending a class member when the file's last top-level statement is a class.",
+					RetryInstruction: types.StructuredEditPythonScopeTeaching,
 					SafeEditKinds:    structuredEditSafeInsertKinds(path, lines),
 				})
 			}
