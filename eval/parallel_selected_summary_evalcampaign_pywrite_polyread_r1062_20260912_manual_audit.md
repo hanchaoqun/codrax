@@ -43,3 +43,7 @@
 - 首响应600s、真实静默300s、非流600s不变。连接持续推理/工具/心跳时不按4ms或旧4分钟降级；整例1200s、caller取消等独立限制仍保。此次两例均正常结束，无超时证据。
 
 状态：exact2-once；machine1-pass/1-fail；write-business-pass/proof-incomplete；read-human-fail；final-mermaid=absent/N-A；original-artifacts/oracles/model-answer=unchanged。
+
+## 4. 回放后独立公开复核（不改变原结论）
+
+累计消解顺序已由候选升确认P1。`.codrax/tmp/20260912-b1561-cumulative-order-public.go`调用公开`BuildVerificationProofLedger`，原四工件输入最终unresolved=0、late-resolved旧path=5，而当前非权威probe仍failed；仅省旧Plan、保完整旧Report的内存对照使当前转advisory，旧import两失败仍保留。缺累计scope与缺精确continuation负控均不放行，五组控制通过，四工件SHA前后不变，RED日志`20260912-b1561-cumulative-order-public-red.log`以预期未满足exit1收据结束。未修改生产、正式测试或原结果；调整该顺序也不意味着旧真实失败应被清空或整例应转绿。显示预算源码修复及验收另见统一文档§123.1777，未新增模型回放。

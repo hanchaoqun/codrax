@@ -3,6 +3,7 @@
 ## 最新进展导航（2026-09-12）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+最新显示后继§123.1777：r1062审计已推`d889fac49`；正常长引用与失败尾部的共享展示修复已公共RED→GREEN、count3/race及独立冷审通过，原两份报告离线显示回放保字节且可定位完整输出。冻结全仓86包与make通过，等待本片提交推送；未新增模型回放或修改r1062机器/人工结论。累计消解顺序已取得独立公开复现（§1777.7），从候选升确认P1、仍未修，不能因此清空旧真实失败或宣称整例应绿。
 本轮最新§123.1776：B1561源码已推`3aeecaca0`；r1062 exact2各一次完成，Python写机器FAIL263s（业务后验301/301通过，错误模型比较器未修、累计证明未闭），跨语言读机器PASS327s/人工FAIL。B1561原详情/落盘/传递真实生效，但正常221字节路径与错误尾部被显示预算遮蔽，已取得公共RED，另片修复；不改原r1062产物或放宽验证。B1626成员窗仍P1，B1561累计消解顺序候选待公共复现，B1664注册行软文案仍P2；最终无图，render=N/A。
 最新续修见§123.1775：B1561非权威失败观察供给已完成真实执行与消费接线先红后绿、count3/race、独立末审及冻结86包全测/make；失败检查的原始标识、摘录和独立输出引用贯通报告、恢复上下文与交付卡片，不改变项目测试结论或替模型判产品缺陷。源码交付后计划r1062跨语言读+Python症状写各一次/并行2。多失败外层诊断计数与continuation耦合原行为保留另审，B1626与逐合同执行能力等未销账。
 最新续修见§123.1774：B1575/B1561逐合同验证消费闭包已完成公共先红后绿、原生精确断言正控、历史/累计身份和状态冲突九形、count3/race、独立冷审与末版冻结86包全测及make。文件级测试成功不再代替逐合同正证，规划项保留参考性质，旧缺证只由完整同义合同真实后证解除，独立验证错误不被累计汇总抹掉。此批不改模型答案/Trace/超时；r1061审计已推`215afd33e`，不追跑第三例。非权威失败详情供给已有完整丢失链定位，列下一片；B1626多窗及其它语言/逐合同执行协议仍开放，不能以本批替代。
@@ -57394,6 +57395,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1777 B1561显示后继：完整引用独立预算，长摘录保两端（2026-09-12）
+
+1. r1062审计已独立提交推送`d889fac49`，机器/人工结论原样冻结。本片只修§1776.3–4的共享显示函数与测试，不修改producer、原始字段、外层诊断条数/key、continuation、suite结论、累计证明或模型正文。没有第三路追绿，没有为读侧错误补关键词门。
+2. 正常引用与普通prose分预算：OutputRef允许编码后的路径内容4096 bytes加两引号（总4098），超过才整体省略且明确编码长度，不输出貌似可寻址的截断路径；不是只按原始len忽略转义膨胀。maxShown4与原总数/省略数保持，整组最坏<24KiB（含四个不同长引用与多字节摘录）。旧每行240自设针改为准确整体预算+真实超限负控，不移除有界约束。
+3. 短字符串quoted字节不变；长串仅按位置取开头/结尾、分别quoted，明确中间省略原始字节数，不读异常名称、expected/actual、业务词或用户/模型原文来判断内容。原210摘录预算不加码，约1/3头、2/3尾；UTF8不拆有效字符、invalid byte保可逆Quote。该函数同时服务报告上下文和系统卡片，实际构造错误/断言尾部可見但不承诺展示全部错误文本，完整输出引用可继续读取。
+4. 公共RED收据见§1776.4：types真实pack/final0.906s，实际controller/planner指令agent1.903s与三卡×中英orchestrator0.993s。实现后types count3为3.238s、race count3为2.565s（`20260912-b1561-long-display-types-final-*`）；消费者/真实RunTests count3为agent1.091/orchestrator1.915/tool2.065s，race count3为3.383/2.183/4.928s（`20260912-b1561-display-consumers-*`）。覆盖221/4096边界、转义膨胀、真正超限、Unicode/invalidUTF8、重复引用、多项省略、原字段与原卡前缀保真。独立冷审无阻断，生产与测试已冻结。
+5. 原r1062两份report经公开renderer离线重放（`20260912-b1561-display-r1062-replay.log`），中英均含完整原221字节ref和TypeError/AssertionError尾部；report SHA前后相同。明确`display_replay_only/not_product_proof/no_new_model_call`，不覆盖原out/答案/评测结果、不回填证明。这验证显示修复，不宣称模型随后会自动修正错误比较器或最终完成工作流。
+6. 最终冻结全仓`20260912-b1561-display-full-frozen.log` exit0，86个有测试包通过（未变包使用Go缓存）：tool346.889s、types45.402s、agent74.763s、orchestrator19.442s、tracequery110.167s、tracediag13.281s、hitraceconv138.639s，llm缓存通过。make `20260912-b1561-display-build-precommit.log` exit0，gofmt/diff检查干净。B1561累计消解顺序另公共复现，旧真实失败精确重跑政策未改；B1626成员窗仍P1，B1664注册软文案等仍在§1776队列。
+7. B1561累计消解顺序从候选升确认P1：独立`.codrax/tmp/20260912-b1561-cumulative-order-public.go`与`20260912-b1561-cumulative-order-public-red.log`公开`BuildVerificationProofLedger`读取原四工件，实际终态义务0未闭、5条旧path后补covered，但当前非权威probe仍failed；仅省旧Plan、完整保留旧Report的内存对照使当前转advisory、旧真实失败仍2项。仅当前pair为verified；缺累计scope仍5路径未闭/current failed；缺精确continuation仍current failed。全部控制成立、输入与四文件SHA不变，最后期望未满足exit1为有效公共RED，不是编译失败/新live。根因仍是先消解probe后补累计路径的处理次序；下一独立源码片需泛化公共正负矩阵后调整依赖顺序，不把这个诊断投影修复扩成清掉旧import失败政策。该项不被当前display源码交付销账，也不证明r1062整体应自动verified。
+
+状态：`B1561-display=implemented/public-red-green/count3+race+cold-pass/real-report-display-replay-pass/full86+make-pass/pending-commit`；`B1561-resolution-order=P1-confirmed/public-red/not-fixed`；`B1626=P1-open`；`original-r1062=unchanged`；`new-live=none`；`verification-authority/Trace/timeout/model-answer=unchanged`。
 
 ### §123.1776 r1062：失败观察已保留，显示预算仍会遮蔽正常引用（2026-09-12）
 

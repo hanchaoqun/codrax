@@ -71,9 +71,10 @@ func verificationFailureObservationContextItems(report *ChangeReport) []WriteCon
 }
 
 // RenderVerificationFailureObservations is a bounded, advisory display shared
-// by prompts and final summaries. Each line fits the existing context item
-// budget; excerpt truncation is explicit and a long reference is omitted whole
-// rather than rendered as a different, apparently actionable path.
+// by prompts and final summaries. The atomic context item already preserves
+// whole text: prose excerpts and references therefore have separate budgets,
+// not the generic 240-character line cap. Four displayed observations bound
+// the group below 24 KiB even with four distinct maximum-length references.
 func RenderVerificationFailureObservations(observations []VerificationFailureObservation, chinese bool) string {
 	observations = MergeVerificationFailureObservations(observations)
 	if len(observations) == 0 {
@@ -106,10 +107,12 @@ func RenderVerificationFailureObservations(observations []VerificationFailureObs
 			if chinese {
 				ref = "不可用（未提供已落盘的完整输出引用）"
 			}
-		case utf8.RuneCountInString(ref) > 210:
-			ref = fmt.Sprintf("not shown (%d bytes exceed display budget; complete field remains in report JSON)", len(observation.OutputRef))
+		// Reserve 4 KiB for the encoded path plus its two quote delimiters.
+		// Count escaped UTF-8 bytes so control/quote expansion is bounded too.
+		case len(ref) > 4*1024+2:
+			ref = fmt.Sprintf("not shown (encoded reference %d bytes exceeds display budget; complete field remains in report JSON)", len(ref))
 			if chinese {
-				ref = fmt.Sprintf("未显示（%d字节超出展示预算；完整引用保留于原始报告）", len(observation.OutputRef))
+				ref = fmt.Sprintf("未显示（转义后的引用为%d字节，超出展示预算；完整引用保留于原始报告）", len(strconv.Quote(observation.OutputRef)))
 			}
 		}
 		lines = append(lines, outputLabel+ref)
@@ -123,15 +126,32 @@ func verificationFailureExcerpt(raw string, limit int, chinese bool) string {
 	if quoted := strconv.Quote(raw); utf8.RuneCountInString(quoted) <= limit {
 		return quoted
 	}
-	end := 0
+	// Preserve both ends by position only. The tail often contains a failure
+	// result, but no exception name, business token, or prose meaning is read.
+	// Reserve the longest possible omission count before allocating 1/3 of
+	// the remaining quoted budget to the head and 2/3 to the tail.
+	format := "head=%s [truncated; omitted %d bytes] tail=%s"
+	if chinese {
+		format = "开头=%s [已截断，中间省略%d字节] 结尾=%s"
+	}
+	available := limit - utf8.RuneCountInString(fmt.Sprintf(format, "", len(raw), ""))
+	headBudget := available / 3
+	tailBudget := available - headBudget
+	headEnd := 0
 	for offset := range raw {
-		if utf8.RuneCountInString(strconv.Quote(raw[:offset])) > limit-55 {
+		if utf8.RuneCountInString(strconv.Quote(raw[:offset])) > headBudget {
 			break
 		}
-		end = offset
+		headEnd = offset
 	}
-	if chinese {
-		return fmt.Sprintf("%s [已截断，省略%d字节]", strconv.Quote(raw[:end]), len(raw)-end)
+	tailStart := len(raw)
+	for tailStart > headEnd {
+		_, size := utf8.DecodeLastRuneInString(raw[:tailStart])
+		candidate := tailStart - size
+		if candidate < headEnd || utf8.RuneCountInString(strconv.Quote(raw[candidate:])) > tailBudget {
+			break
+		}
+		tailStart = candidate
 	}
-	return fmt.Sprintf("%s [truncated; omitted %d bytes]", strconv.Quote(raw[:end]), len(raw)-end)
+	return fmt.Sprintf(format, strconv.Quote(raw[:headEnd]), tailStart-headEnd, strconv.Quote(raw[tailStart:]))
 }

@@ -78,3 +78,22 @@ func TestFailureObservationPromptDoesNotReviveForeignOrSupersededContext(t *test
 		}
 	}
 }
+
+func TestFailureObservationPromptKeepsLongReferenceAndBothExcerptEnds(t *testing.T) {
+	ctx := failureObservationPromptContext(t)
+	observation := &ctx.Mutable.ChangeReport().VerificationDiagnostics[0].FailureObservations[0]
+	observation.OutputRef = "/outputs/" + strings.Repeat("ordinary-directory/", 12) + "result.txt"
+	observation.FailureDetail = "HEAD-OBS " + strings.Repeat("diagnostic context ", 100) + " TAIL-OBS"
+	before, _ := json.Marshal(ctx.Mutable.ChangeReport())
+	for _, got := range []string{(&writeControllerEvaluator{}).BuildInitialInstruction(ctx, nil), (&plannerEvaluator{}).BuildInitialInstruction(ctx, nil)} {
+		for _, want := range []string{observation.OutputRef, "HEAD-OBS", "TAIL-OBS", "does not prove a product defect"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("bounded instruction lost %q", want)
+			}
+		}
+	}
+	after, _ := json.Marshal(ctx.Mutable.ChangeReport())
+	if string(before) != string(after) {
+		t.Fatal("display changed original observation bytes")
+	}
+}

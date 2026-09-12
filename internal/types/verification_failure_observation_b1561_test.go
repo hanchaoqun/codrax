@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -74,17 +75,18 @@ func TestB1561FailureObservationCollectionUsesOnlyTypedDiagnosticLane(t *testing
 
 func TestB1561FailureObservationDisplayIsBoundedAndExplicit(t *testing.T) {
 	rows := []VerificationFailureObservation{{AssertionID: "exact  ID", Suite: "suite", FailureDetail: "actual\n  expected"},
-		{AssertionID: strings.Repeat("字\n", 500), Suite: strings.Repeat("suite", 300), FailureDetail: strings.Repeat("\t\n字  ", 400), OutputRef: strings.Repeat("/long  ref", 100)}}
+		{AssertionID: strings.Repeat("字\n", 500), Suite: strings.Repeat("suite", 300), FailureDetail: strings.Repeat("\t\n字  ", 400), OutputRef: strings.Repeat("/long  ref", 1000)}}
 	for i := 2; i < 6; i++ {
 		rows = append(rows, VerificationFailureObservation{AssertionID: fmt.Sprint(i), FailureDetail: "tail", OutputRef: "/outputs/ref"})
 	}
 	before := append([]VerificationFailureObservation(nil), rows...)
 	for _, chinese := range []bool{false, true} {
 		got := RenderVerificationFailureObservations(rows, chinese)
-		for _, line := range strings.Split(got, "\n") {
-			if !utf8.ValidString(line) || utf8.RuneCountInString(line) > writeContextPackTextLen {
-				t.Errorf("bounded line invalid or over budget (%d): %q", utf8.RuneCountInString(line), line)
-			}
+		// B1561 production witness: the atomic item does not use the old
+		// generic per-line cap. It must bound the group without hiding normal
+		// output paths; only genuinely over-budget references are omitted.
+		if !utf8.ValidString(got) || len(got) > 24*1024 {
+			t.Errorf("atomic group invalid or over budget (%d bytes)", len(got))
 		}
 		for _, want := range []string{`exact  ID`, `actual\n  expected`} {
 			if !strings.Contains(got, want) {
@@ -220,6 +222,128 @@ func TestB1561FailureHandoffClonesObservationWithoutChangingAuthority(t *testing
 	after, _ := json.Marshal(report)
 	if !bytes.Equal(before, after) {
 		t.Fatal("nested handoff slice aliased source report")
+	}
+}
+
+func TestB1561LongFailureDisplayKeepsBothEndsAndCompleteReference(t *testing.T) {
+	for _, referenceBytes := range []int{221, 4096} {
+		t.Run(fmt.Sprint(referenceBytes), func(t *testing.T) {
+			report := b1561FailureReport(t)
+			observation := &report.VerificationDiagnostics[0].FailureObservations[0]
+			observation.FailureDetail = "first-original-line\n" + strings.Repeat("intermediate frame\n", 100) + "last-original-line"
+			observation.OutputRef = "/" + strings.Repeat("p", referenceBytes-5) + ".txt"
+			before, _ := json.Marshal(report)
+			pack := WriteContextPackFromChangeReport(report).WithScope("batch", "slice")
+			for _, consumer := range []WriteContextConsumer{WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier} {
+				var body string
+				for _, item := range pack.ViewForScope(consumer, 100, "batch", "slice").Items {
+					if item.Kind == "verification_failure_observation" {
+						body = item.Text
+					}
+				}
+				for _, want := range []string{"first-original-line", "last-original-line", strconv.Quote(observation.OutputRef)} {
+					if !strings.Contains(body, want) {
+						t.Errorf("%s lost required observed bytes %q in bounded atomic group: %s", consumer, want, body)
+					}
+				}
+			}
+			final := BuildWriteFinalReport(WriteFinalReportInput{Report: report})
+			for _, chinese := range []bool{false, true} {
+				body := RenderVerificationFailureObservations(final.Verification.FailureObservations, chinese)
+				for _, want := range []string{"first-original-line", "last-original-line", strconv.Quote(observation.OutputRef)} {
+					if !strings.Contains(body, want) {
+						t.Errorf("final chinese=%v lost observed bytes %q: %s", chinese, want, body)
+					}
+				}
+			}
+			after, _ := json.Marshal(report)
+			if !bytes.Equal(before, after) || !final.Verification.Passed || final.Verification.PassedCount != 1 {
+				t.Error("display changed source report or real verdict")
+			}
+		})
+	}
+}
+
+func TestB1561ShortFailureExcerptRetainsExactQuotedBytes(t *testing.T) {
+	for _, raw := range []string{"", "first\n  last\t", "中文🙂\"\\"} {
+		for _, chinese := range []bool{false, true} {
+			if got := verificationFailureExcerpt(raw, 210, chinese); got != strconv.Quote(raw) {
+				t.Fatalf("short excerpt bytes changed: %q => %q", raw, got)
+			}
+		}
+	}
+}
+
+func TestB1561HeadTailExcerptPreservesBytesAndExactOmission(t *testing.T) {
+	for _, raw := range []string{
+		"HEAD\n" + strings.Repeat("frame\n", 100) + "TAIL",
+		"头🙂\"\n" + strings.Repeat("字🙂\t\\\"", 200) + "结尾🙂",
+		"first\xff" + strings.Repeat("\xff\n", 200) + "\xfelast",
+	} {
+		for _, chinese := range []bool{false, true} {
+			got := verificationFailureExcerpt(raw, 210, chinese)
+			headLabel, middle, tailLabel := "head=", " [truncated; omitted ", " bytes] tail="
+			if chinese {
+				headLabel, middle, tailLabel = "开头=", " [已截断，中间省略", "字节] 结尾="
+			}
+			headText, rest, ok := strings.Cut(got, middle)
+			countText, tailText, tailOK := strings.Cut(rest, tailLabel)
+			head, headErr := strconv.Unquote(strings.TrimPrefix(headText, headLabel))
+			tail, tailErr := strconv.Unquote(tailText)
+			omitted, countErr := strconv.Atoi(countText)
+			if !ok || !tailOK || headErr != nil || tailErr != nil || countErr != nil {
+				t.Fatalf("invalid quoted head/tail display: %q", got)
+			}
+			if !strings.HasPrefix(raw, head) || !strings.HasSuffix(raw, tail) || omitted != len(raw)-len(head)-len(tail) || omitted <= 0 || head == "" || tail == "" {
+				t.Fatalf("head/tail bytes or exact omission count changed: %q", got)
+			}
+			if !utf8.ValidString(got) || utf8.RuneCountInString(got) > 210 {
+				t.Fatalf("quoted excerpt broke UTF-8 or the original budget: %q", got)
+			}
+			if utf8.ValidString(raw) && (!utf8.ValidString(head) || !utf8.ValidString(tail)) {
+				t.Fatal("clipped a UTF-8 code point")
+			}
+		}
+	}
+}
+
+func TestB1561ReferenceBudgetCountsEscapingAndBoundsWholeGroup(t *testing.T) {
+	for _, tc := range []struct {
+		name, reference string
+		shown           bool
+	}{
+		{"normal-long", "/" + strings.Repeat("r", 220), true},
+		{"four-kib", "/" + strings.Repeat("r", 4095), true},
+		{"escaped-boundary", strings.Repeat("\\", 2048), true},
+		{"escaped-overflow", strings.Repeat("\\", 2049), false},
+		{"utf8-spaces", "/" + strings.Repeat("字🙂  ", 300), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var observations []VerificationFailureObservation
+			for i := 0; i < 4; i++ {
+				observations = append(observations, VerificationFailureObservation{AssertionID: fmt.Sprint(i) + strings.Repeat("🙂", 100), Suite: strings.Repeat("🙂", 100), FailureDetail: strings.Repeat("🙂", 300), OutputRef: tc.reference})
+			}
+			before := append([]VerificationFailureObservation(nil), observations...)
+			for _, chinese := range []bool{false, true} {
+				got := RenderVerificationFailureObservations(observations, chinese)
+				if !utf8.ValidString(got) || len(got) > 24*1024 {
+					t.Fatalf("whole display exceeded its derived byte budget: %d", len(got))
+				}
+				count := strings.Count(got, strconv.Quote(tc.reference))
+				if tc.shown && count != 4 {
+					t.Fatalf("distinct observations sharing a ref lost an exact reference: count=%d", count)
+				}
+				if !tc.shown && count != 0 {
+					t.Fatal("over-budget escaped reference was partially/fully emitted")
+				}
+				if !tc.shown && !strings.Contains(got, fmt.Sprint(len(strconv.Quote(tc.reference)))) {
+					t.Fatal("omission did not disclose actual encoded byte size")
+				}
+			}
+			if !reflect.DeepEqual(observations, before) {
+				t.Fatal("display mutated reference bytes")
+			}
+		})
 	}
 }
 
