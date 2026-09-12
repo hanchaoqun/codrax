@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-12）
 
-本轮施工§123.1782：B1626同一已绑定Trace/目标的多请求时间窗纵切已完成公共端到端验证、专项count3/race/独立冷审和最终冻结全仓86包/make。首轮全测正确抓到新来源字段漏登记，补登记后重跑全仓通过，未弱化检查。基线`d50ed097d`，fetch无远端新差；待提交推送/同版本构建后跑E1双窗+Python注册分派exact2各一次。下列历史B1626-open保留当时事实，任意多源多目标等范围未提前销账。
+本轮最新§123.1783：B1626已推`4fed22871`、公共先红后绿/count3/race/冷审/最终冻结86包全测与同版本构建通过。r1064严格exact2各一次：E1双窗机器PASS109s但人工FAIL（模型scope填整trace、未自然触发新成员路径）；Python机器/人工FAIL424s、14拒绝13patch，确认B1647c系统端点恢复与修补范围比较自冲突，优先根修。B1618-P2b同TID账户丢来源/窗的旧gap新增附注见证，导航结束边界另记P2。原产物保留，不以机器过例替代链路闭环，不追第三例。
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
 当前以§123.1778–1779为准：B1561累计证明处理次序已推`b6b5f1cf5`，公共RED→GREEN、count3/race/独立冷审、原四工件离线复核及冻结全仓86包/提交后make通过。r1063严格exact2各一次结束：dateutil症状写机器PASS257s/有限输入人工PASS；H1 Binder机器PASS243s/人工FAIL。写最终单计划零probe未触发累计顺序；Trace显式窗/两轴/投影/默认6项根因旁路仍在，但模型在精确供给下错算对端/泛化长睡眠，另确认系统B1666非墙钟残差附注。B1665四面Python编辑教学缺scope限定与B1666分别小批修复；B1626多请求成员窗仍未修，不由单窗PASS代销。
@@ -57400,6 +57400,17 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1783 r1064：双窗未自然采用、关系修补合同自冲突（2026-09-12）
+
+1. `4fed22871e80`提交推送后同revision构建，11:07:36Z–11:14:40Z原case/原oracle/CAP5/1200s并行2各一次：E1双窗机器PASS109s、Python注册分派机器FAIL424s（`degraded_answer_checks_skipped:1`），人工均不签完整通过。汇总与完整人工审计=`eval/parallel_selected_summary_evalcampaign_multiwindow_pyregistry_r1064_20260912{,_manual_audit}.md`；各结果目录`20260912-040736`。未增加第三例、改模型/门槛/原答案，runner自身exit0只表示跑批结束，不冒称2/2通过。
+2. E1真实数值和各自分母正确（A2.992ms/Running0/R.014/S2.978；B30ms/Running3.414/R.780/S25.806、11.38%），六次探索查询准确，0成文拒绝。原log331明确多窗教学；535模型仍选`full_artifact`，并非系统覆写合法成员表。2030按该typed输入真实补采整trace34579.450627..34579.595184/144.557ms，非32.992ms包络。本片新成员路径未自然触发，不用最终数字对注销B1626生产采用。bounded状态合同未被强开根因，默认131B旁路`contract_not_active`合理；无Mermaid，render=N/A。正文“纯睡眠”与R.014矛盾、raw等待增大推竞争/工作量增大与宽泛无IO属模型质量，不恢复关键词硬门/代写。
+3. **B1618-P2b原案新见证（P1排后续完整来源批）。** 最终`20260912-040923.566-75309.md:52–53`两条五态事实是同一个整trace账户，无源/端点，易与A/B正文混读。真实JSON与入模上下文保有完整测量窗；`proseWallClockAccount`只留窗长、`proseWallClockAccountsFromLedger`丢capture/window、`buildProseFactEvidence`byTID单槽再覆盖，两个formatter不披露端点。根修须保账户完整来源/多窗并置/中性坐标，不从正文猜A/B；只补词面不能关闭异capture/同TID覆盖。既有§1686案继续，非新造同根编号。
+4. **B1647c/P1确认并优先施工。** Python合法stage后只处理REG孤立节点，系统却补写无关RP→RES隐藏身份，再判该关系同时unlisted_removed/added。原单log3617–3621为retain_as_context，3941–3945为remove_if_isolated，两合法动作均被堵。根因是normalizer唯一typed拓扑允许recipe n3/n4→business RP/RES，但stabilizer仍只用recipe node key。方案：沿本次normalizer真实前后变化收据，按完整未修改baseline anchor及出现次数协调隐藏字段，不再复制第二套alias推理；原lease/普通证据门/模型visible边和正文不动。先真实公共RED、direct/business ID/混合occurrence/单侧/限定词及误改正反矩阵，再冷审/冻结全仓/提交推送。不关门、不自动删图、不通过同题追绿销账。
+5. Python关键源码已完整供给（runner/registry/plugins/base），初图确含未证关系，首次拒绝及其删除任务正当；第一次合法模型删除已stage后，第二步被上项系统矛盾拦住。后续stale-ref/整块覆盖/缺action是模型错误，不反向掩盖系统缺口。最终`20260912-041438.404-75311.md`如实恢复首稿及降级说明：核心查找/类注册/实例/线程池正文保留，图仍缺executor且有直接处理箭头，图文本分层未闭。原图用仓内Mermaid实际parse/render成功，sequence1/SVG23322bytes；语法通过≠关系正确。默认600s首响应/300s真实静默/600s非流未变，最终失败来自校验耗尽，不是活跃流4ms/旧4分钟降级。
+6. 独立导航P2：relation_map把`plugins.py:17 @register("json")`挂到14行已结束的CsvPlugin.content_type，`relationMapEnclosingSymbol`只判最近起点、不判EndLine；typed关系兄弟入口已判断结束边界。错边目前仅advisory导航，未证进入最终图；下一片先公共跨声明/缺EndLine/异语言矩阵，不夸大为typed边授权漏洞。B1664注册摘要calls措辞另保原案；B1561诊断去重数与失败执行数耦合、B1575逐合同原生执行能力继续开放。
+
+状态：`r1064=complete/machine1of2/human2fail/original-preserved`；`B1626=pushed/publicly-tested/live-member-path-not-exercised`；`B1647c=confirmed-P1/public-red-next`；`B1618-P2b=existing-open/new-production-witness`；`Mermaid=Python-parse-render-pass/Trace-N-A/not-semantic-pass`；`new-live=none-after-r1064`。
+
 ### §123.1782 B1626：同一已绑定Trace、同一目标的多请求时间窗纵切（2026-09-12）
 
 1. 按§1775.11/§1778.9冻结方案，原问题不是单窗模型波动：旧RequestModel仅一对时间端点；多个请求窗容易被包络化，投影按capture折成一席，A有因果投影还会阻止B有限状态统计发布。当前只施工同一已绑定capture+typed目标的N个请求成员；不从用户/模型prose扫描提取窗口，不从第一个capture猜用户授权源。
@@ -57420,7 +57431,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 13. 最终冻结全仓`20260912-b1626-full-frozen-v2.log` exit0，86个有测试包全通过（count1，非缓存）：tool331.765s、types44.127s、agent63.462s、orchestrator22.797s、tracequery105.225s、tracediag12.611s、hitraceconv137.978s、llm28.896s。`...build-precommit-v2.log` make exit0；diff检查通过，末次fetch仍为`d50ed097d`、ahead/behind=0/0。请求API、生产来源、补采、编译、上下文、出版相互依赖，本片以完整纵切原子提交，避免将不兼容的中间接口推入主干；不把尚未启动的live签绿。
 
-状态：`B1626=source-frozen/public-red-green/final-count3-race-cold-pass/first-full-census-red-fixed/full86+make-pass/pending-push-live`；`r1063=original-preserved`；`new-live=none`。
+14. 源码交付`4fed22871`已推main；提交后`20260912-b1626-build-postcommit.log`make exit0，binary revision=`4fed22871e80`、built=`2026-09-12T11:07:08Z`、无dirty标记。r1064于11:07:36Z严格按上述原两case/1200s/CAP5并行各一次启动（SDKROOT26.5）；runner=`20260912-r1064-runner.log`，汇总=`eval/parallel_selected_summary_evalcampaign_multiwindow_pyregistry_r1064_20260912{,_manual_audit}.md`，结果目录时间戳`20260912-040736`。源码与测试保持冻结，不提前签机器或人工通过。
+
+状态：`B1626=pushed-4fed22871/public-red-green/final-count3-race-cold-pass/first-full-census-red-fixed/full86+postcommit-make-pass`；`r1063=original-preserved`；`r1064=complete/see-1783`。
 
 ### §123.1781 B1666：非墙钟IO指标不得进入等待残差毫秒说明（2026-09-12）
 
