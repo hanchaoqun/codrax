@@ -119,6 +119,8 @@ type WriteFinalVerificationSummary struct {
 	TrackedEffectCount    int                             `json:"tracked_effect_count,omitempty"`
 	UntrackedEffectCount  int                             `json:"untracked_effect_count,omitempty"`
 	WorktreeEffects       []VerificationWorktreeEffect    `json:"worktree_effects,omitempty"`
+	// Independent observed model-probe failures do not change Passed or counts.
+	FailureObservations []VerificationFailureObservation `json:"failure_observations,omitempty"`
 }
 
 type WriteFinalDeliverySummary struct {
@@ -330,6 +332,7 @@ func NormalizeWriteFinalReport(in WriteFinalReport) WriteFinalReport {
 	in.Verification.RunnerFamilies = NormalizeVerificationLanguageFamilies(in.Verification.RunnerFamilies)
 	in.Verification.ConfidenceReasonCodes = dedupTrimWriteWorkflowRunStrings(in.Verification.ConfidenceReasonCodes)
 	in.Verification.NoTestsRunners = dedupTrimWriteWorkflowRunStrings(in.Verification.NoTestsRunners)
+	in.Verification.FailureObservations = MergeVerificationFailureObservations(in.Verification.FailureObservations)
 	in.Proof = NormalizeVerificationProofProfile(in.Proof)
 	in.ProofLedger = NormalizeVerificationProofLedger(in.ProofLedger)
 	in.Delivery = NormalizeWriteFinalDeliverySummary(in.Delivery)
@@ -512,17 +515,18 @@ func writeFinalVerificationSummary(report *ChangeReport) WriteFinalVerificationS
 		reportID = planID + ".report.json"
 	}
 	out := WriteFinalVerificationSummary{
-		ReportID:          reportID,
-		Status:            status,
-		Passed:            status == VerificationStatusPassed,
-		FailureKind:       report.FailureKind,
-		FailureReasonCode: strings.TrimSpace(report.FailureReasonCode),
-		TestCount:         total,
-		PassedCount:       passed,
-		FailedCount:       failed,
-		CommandCount:      len(report.ExecutedCommands),
-		RunnerFamilies:    VerificationLanguageFamiliesFromReport(report),
-		NoTestsRunners:    append([]string(nil), report.NoTestsRunners...),
+		ReportID:            reportID,
+		Status:              status,
+		Passed:              status == VerificationStatusPassed,
+		FailureKind:         report.FailureKind,
+		FailureReasonCode:   strings.TrimSpace(report.FailureReasonCode),
+		TestCount:           total,
+		PassedCount:         passed,
+		FailedCount:         failed,
+		CommandCount:        len(report.ExecutedCommands),
+		RunnerFamilies:      VerificationLanguageFamiliesFromReport(report),
+		NoTestsRunners:      append([]string(nil), report.NoTestsRunners...),
+		FailureObservations: CurrentReportFailureObservations(report),
 	}
 	if report.WorktreeAudit != nil {
 		out.WorktreeAuditStatus = report.WorktreeAudit.Status

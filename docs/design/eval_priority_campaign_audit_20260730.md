@@ -3,6 +3,7 @@
 ## 最新进展导航（2026-09-12）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+最新续修见§123.1775：B1561非权威失败观察供给已完成真实执行与消费接线先红后绿、count3/race、独立末审及冻结86包全测/make；失败检查的原始标识、摘录和独立输出引用贯通报告、恢复上下文与交付卡片，不改变项目测试结论或替模型判产品缺陷。源码交付后计划r1062跨语言读+Python症状写各一次/并行2。多失败外层诊断计数与continuation耦合原行为保留另审，B1626与逐合同执行能力等未销账。
 最新续修见§123.1774：B1575/B1561逐合同验证消费闭包已完成公共先红后绿、原生精确断言正控、历史/累计身份和状态冲突九形、count3/race、独立冷审与末版冻结86包全测及make。文件级测试成功不再代替逐合同正证，规划项保留参考性质，旧缺证只由完整同义合同真实后证解除，独立验证错误不被累计汇总抹掉。此批不改模型答案/Trace/超时；r1061审计已推`215afd33e`，不追跑第三例。非权威失败详情供给已有完整丢失链定位，列下一片；B1626多窗及其它语言/逐合同执行协议仍开放，不能以本批替代。
 本轮以§123.1772–1773为准：B1575目标执行首片已推`7e74a205c`，专项count3/race、全仓86包及前后置make通过。r1061严格exact2各一次结束：Python跨仓写机器PASS242s/人工FAIL（单个换行被错误折叠），H7显式窗Trace机器PASS348s/人工FAIL（精确信息已给仍擅自加总/过称反转）。Trace两轴、因果投影、默认12项根因旁路及链上/背景分界保留，不把单窗通过当B1626双窗已修。Python新观察器诚实记录失败、不授行为；另确认impact/patch-review用路径级测试放大逐合同verified的消费旁路，以及非权威失败反例供给不足，优先根修，不将模型比较器默认升硬门。B1598 raw字段单位、B1402 Trace-only代码索引附注适用域另续；完整人工审计不改原答案/补丁/机器oracle，独立后验54项49过5败不倒填产品proof。
 用户随后明确授权延长配置及代码默认值，见§123.1771：非流HTTP600s、首响应600s、流中真实静默300s；本地providers及代码/样例/中英说明同步。公开工厂入口先红后绿、llm/config完整包、三包race count3及make通过；不新增活跃SSE总时长门、不改其它独立预算，不提交凭据。本小批不冒充B1575/B1626已施工，也不重跑r1060。
@@ -57392,6 +57393,24 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1775 B1561非权威失败观察：保反例供给，不替模型决定结论（2026-09-12）
+
+1. 基线`d59f470cd`，fetch确认与origin/main一致、工作区干净。接续§1773–1774的r1061真实丢失链：失败probe被项目suite继续消费后，只有通用比较器warning，原AssertionID/FailureDetail及短输出引用没有后续通道。不是“所有断言失败都应证明产品缺陷”；模型比较器本身可能错，必须同时保留观察事实与未证边界。
+2. 系统所有的`VerificationDiagnostic`增加可选嵌套`FailureObservations`，每项仅原AssertionID、Suite、FailureDetail及工具落盘OutputRef。仍使用原category/reason/runner/outcome资格，不读原问题/答案文本推导失败。外层诊断数量、去重key、分类与continuation条件原样保留，重复外层项只稳定合并内部四字段精确值；不塞回成功suite的TestResults，不改原Score、Passed、confidence/proof或模型JSON必填字段。
+3. 工具强制保存既有probe组执行输出，不再以32768字节内联阈值决定是否有引用；实际ReadFile入口可读取短输出。保存失败仅使ref为空，不改变实际成功/失败，也不覆盖阻挡路径。所谓完整输出指既有执行输出render结果（stdout/stderr及原2000字符代码预览），不是宣称无限长完整probe源码；没有恢复本来未采集的字节。
+4. 报告JSON、最终摘要与失败handoff保原四字段并复制切片，公共共享展示最多4项、明确总数/省略数和摘录截断；来源字节quoted，不当指令。过长ref整体不显示并指向原报告，不伪造截短路径。中文卡片字段使用“检查/来源/错误摘录/完整输出”，附“这不等于已证实产品缺陷”；只向系统验证卡片追加事实，不更改任何模型正文或原卡结论。
+5. controller/planner前置同一有界区段，普通TopN不重复。当前报告复用现有plan/channel资格；当前零观察或不相干报告不回退复活旧观察。reset后的现有WriteContextPack以原PlanID及batch/slice限定，显式标为可能已被后验取代的历史，不能称当前失败或要求特定行动。分组原子携带避免14/16项视图、96项包及240字符裁切丢边界/引用；没有冒称PlanID可区分同计划的每次执行代次。
+6. 公共执行RED `20260912-b1561-failure-observation-public-red.log`（tool1.662s），只因观察缺失失败、native-only负控原绿；GREEN1.563s、count3为2.249s、race count3为4.316s。六形为单probe失败+Make成功、同框架双失败、项目suite失败、native-only及落盘失败的正/负结论不变；跨真实Python/Make→报告JSON→ReadFile，原源码/真实退出/聚合/TestResults/证明账均保。
+7. **独立遗留须保留**：同框架两失败去重成一条外层诊断，旧`diagnostic_count < failed_probe_count`仍不继续suite。此次两项详情完整保留且原决策已钉住；是否将诊断枚举当执行决策的问题另需策略与公共先红后绿，不能把展示修复当作授权暗改测试执行。Gradle/Meson环境、其它语言与Python逐合同断言协议等B1561能力债不由本片关闭。
+8. types公共RED0.928s；新增Outcome读口触发精确consumer census，登记为diagnostic域而非盲重签schema；最终types/context/final/handoff/census count3为3.312s、race count3为2.142s。controller/planner实际BuildInitialInstruction公共RED1.298s；三验证卡×中英RED1.215s。最终consumer count3为agent1.071s/orchestrator1.871s、race为3.298s/2.195s。首轮foreign-plan测试编辑了getter副本而未Set的夹具错误已更正，不记产品gap。冻结全仓`20260912-b1561-full-frozen.log`正在运行，完成后补确切收据。
+9. 后续r1062冻结：243例库存中选`github_issue_dateutil_relativedelta_float_symptom`（Python症状写，原生四断言、高判决力）与`mr_poly_binding_chain`（Python/pyo3/Rust跨仓读，B1664注册角色修复后的回放）；风险/覆盖/原生可执行性优于尚无新修复的重复双窗追绿。原case/oracle/CAP5/1200s、每例一次、并行2，源码提交推送和同revision重建后才启动。live可能不触发失败观察，不能凭2/2声称该路径生产验证；读侧没有图也不能签图渲染通过。
+10. Trace显式窗投影/自动补齐、链上根因各类机制与背景分界、两轴/业务线索本片不改；B1626多成员窗仍P1下一片。已批准首响应600s/真实中途静默300s/非流600s不变；活跃流无固定4ms或旧4分钟总年龄降级门，但caller取消/独立预算仍有效。不添加原文关键词硬门、不修改模型结论或原eval产物。
+11. 下一片B1626只读施工图已复核，仍未取得新RED/未实施：分析scope/schema/教学增加有序请求成员→ledger深拷与成员资格→每成员查缺补采（共享一次总deadline）→主账户/因果partition→finalizer/出版/根因旁路同源。多成员不能让旧标量返回false后又退到LAST query包络；A有投影不能使B仅有限状态账户被提前return丢掉；候选输入先按成员精确收据域过滤，再审CandidateID，不能整桶复制多次或盲改hash。测试须含仅缺B、总预算/失败保A、异capture/目标/行过滤、重叠/嵌套/反序、A投影+B有限账户、状态比较不强开因果、旧单窗字节和clone/容量披露。复用G4补采、requested-window-authority、requested-scope-publication、selected-window-context及partition公共入口；E1原A2.992/B30ms/包络32.992ms为回放锚，不能将包络签成请求成员。
+
+12. 最终冻结全仓`20260912-b1561-full-frozen.log` exit0，86个有测试包通过（未变包有缓存）：tool340.612s、types46.524s、agent73.012s、orchestrator28.600s、tracequery108.246s、tracediag14.192s、hitraceconv145.740s、llm27.937s。`20260912-b1561-build-precommit.log` make exit0；独立只读末审无阻断，确认当前/历史范围、普通上下文无第二出口、三卡原内容/计数/模型正文不写。空scope/空PlanID沿旧兼容规则，不声称新增严格invocation绑定。diff检查通过，fetch仍与origin/main同为`d59f470cd`，源码/测试冻结等待提交；没有新live倒填。
+
+状态：`B1561-failed-observation-handoff=implemented/public-red-green/count3+race+full86+build+cold-review-pass`；`outer-diagnostic-count-policy=unchanged/separate-audit`；`B1626=next/open`；`r1062=planned/not-started`；`model-answer/Trace/timeouts/JSON-required-fields=unchanged`。
 
 ### §123.1774 B1575/B1561后续：逐合同验证不得借文件级成功或历史派生标签自证（2026-09-12）
 

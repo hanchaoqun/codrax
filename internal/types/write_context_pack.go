@@ -1530,6 +1530,7 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 		pack.Items[len(pack.Items)-1].ID = writeVerificationDiagnosticContextID(diag)
 	}
+	pack.Items = append(pack.Items, verificationFailureObservationContextItems(report)...)
 	for _, confidence := range EffectiveVerificationConfidence(nil, report) {
 		text := renderVerificationConfidenceContext(confidence)
 		if text == "" {
@@ -1945,9 +1946,11 @@ func maxInt(a, b int) int {
 // and the lockfile fixed-point disclosure item exists precisely so the
 // phrase and the WHOLE path survive verbatim. Neither is ever trimmed with
 // "..." — a trim would land on a typed token or inside a path basename.
+// Failure-observation groups likewise use their own bounded shared renderer;
+// their boundary, quoted excerpt and independent reference remain atomic.
 func writeContextItemKindKeepsWholeText(kind string) bool {
 	switch kind {
-	case "verification_worktree_effect", "verification_lockfile_fixed_point":
+	case "verification_worktree_effect", "verification_lockfile_fixed_point", "verification_failure_observation":
 		return true
 	default:
 		return false
@@ -2374,6 +2377,9 @@ func writeContextBoundedPackItems(items []WriteContextItem, limit int) []WriteCo
 }
 
 func writeContextMustCarryInPack(item WriteContextItem) bool {
+	if item.Kind == "verification_failure_observation" {
+		return true
+	}
 	if item.Priority == WriteContextP0 {
 		return true
 	}

@@ -102,6 +102,9 @@ var registeredOutcomeSwitches = []outcomeSwitchRegistration{
 	// The diagnostic dedup key joins diag.Outcome into a composite string;
 	// the seen[key] lookups are Outcome-tainted map lookups.
 	{dir: "internal/tool", file: "run_tests.go", fn: "mergeVerificationDiagnostics", domain: outcomeDomainDiagnostic},
+	// B1561: exact diagnostic observed_failure selects advisory display only;
+	// it is not a new ExecutedCommand classification or assertion authority.
+	{dir: "internal/types", file: "verification_failure_observation.go", fn: "CurrentReportFailureObservations", domain: outcomeDomainDiagnostic},
 	// Pytest case outcome words (passed / skipped / PASSED / XFAIL …).
 	{dir: "internal/tool", file: "run_tests_parsers.go", fn: "parsePytestJSONReport", domain: outcomeDomainOther},
 	{dir: "internal/tool", file: "run_tests_parsers.go", fn: "parsePytestTextCaseRows", domain: outcomeDomainOther},

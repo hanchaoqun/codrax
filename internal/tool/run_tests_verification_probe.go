@@ -286,7 +286,19 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		}
 	}
 	if !passed && failureKind == types.FailureKindTestsFailed {
-		diags = append(diags, modelProbeComparatorDiagnostics(results, source)...)
+		observed := modelProbeComparatorDiagnostics(results, source)
+		// This is an auxiliary evidence artifact, not an inline-preview
+		// optimization. Small failures need a durable reference too, and a
+		// failed artifact write must never change the actual test verdict.
+		if len(observed) > 0 {
+			ref := StoreBlobArtifact(ctx.WorkDir, "run_tests", "verification-probe-failure-"+plan.ID+".txt", renderVerificationProbeOutput(probes, outputs))
+			for i := range observed {
+				for j := range observed[i].FailureObservations {
+					observed[i].FailureObservations[j].OutputRef = ref
+				}
+			}
+		}
+		diags = append(diags, observed...)
 	}
 	commands = append(commands, runExpectedFailureVerificationProbeBaselines(ctx, source)...)
 	summary := ""
@@ -333,6 +345,9 @@ func modelProbeComparatorDiagnostics(results []types.TestResult, source string) 
 			Framework:  strings.TrimPrefix(strings.TrimSpace(result.Suite), "verification_probe/"),
 			Outcome:    "observed_failure",
 			Detail:     "probe execution failure was observed; its model-authored expected comparator requires typed-contract or existing-test corroboration before it can prove a production defect",
+			FailureObservations: []types.VerificationFailureObservation{{
+				AssertionID: result.AssertionID, Suite: result.Suite, FailureDetail: result.FailureDetail,
+			}},
 		})
 	}
 	return out

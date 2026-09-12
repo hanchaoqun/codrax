@@ -38,7 +38,8 @@ import (
 // reason printed twice) + a 10-name list (which usually duplicated
 // names already in the summary) + a tip. Three sources of the same
 // reason in one block.
-func renderVerifyFailure(report *types.ChangeReport, agentError, lang string) string {
+func renderVerifyFailure(report *types.ChangeReport, agentError, lang string) (out string) {
+	defer func() { out += renderVerifyFailureObservationNote(report, lang) }()
 	zh := isLangZh(lang)
 	var b strings.Builder
 

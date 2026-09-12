@@ -162,7 +162,8 @@ func renderSessionAppliedRefsLine(refs []string, zh bool) string {
 // SAME vocabulary axis ("测试通过" ↔ "测试未通过"); previously this
 // function used "Verify PASSED" / "Verify 通过" which leaked the
 // internal stage name.
-func renderVerifySuccess(report *types.ChangeReport, lang string) string {
+func renderVerifySuccess(report *types.ChangeReport, lang string) (out string) {
+	defer func() { out += renderVerifyFailureObservationNote(report, lang) }()
 	zh := isLangZh(lang)
 	if report == nil {
 		if zh {
@@ -314,7 +315,8 @@ func executedMakeCommandTarget(cmdStr string) string {
 // <real error>" — the zod sessions told the user their environment
 // lacked a test runner while `make` and the `check` target both
 // existed and had simply never been tried with the right target.
-func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
+func renderVerifyUnverified(report *types.ChangeReport, lang string) (out string) {
+	defer func() { out += renderVerifyFailureObservationNote(report, lang) }()
 	zh := isLangZh(lang)
 	planID := ""
 	reasonZH := "本地验证器没有产出结构化验证报告"

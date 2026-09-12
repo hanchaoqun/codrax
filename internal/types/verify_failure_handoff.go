@@ -196,6 +196,7 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 		if len(h.Diagnostics) >= maxHandoffDiagnostics {
 			break
 		}
+		diag.FailureObservations = MergeVerificationFailureObservations(diag.FailureObservations)
 		h.Diagnostics = append(h.Diagnostics, diag)
 	}
 	for _, confidence := range EffectiveVerificationConfidence(nil, report) {

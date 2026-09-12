@@ -34,6 +34,9 @@ func (e *writeControllerEvaluator) BuildInitialInstruction(ctx *types.AgentConte
 	if artifacts := renderWriteControllerArtifactSection(ctx); artifacts != "" {
 		sections = append(sections, artifacts)
 	}
+	if observations := buildWriteFailureObservationSection(ctx, types.WriteConsumerController); observations != "" {
+		sections = append(sections, observations)
+	}
 	if pack := buildWriteContextPackPromptSection(ctx, types.WriteConsumerController, "Priority write context pack", 16); pack != "" {
 		sections = append(sections, pack)
 	}

@@ -231,6 +231,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if failure := e.buildVerifyFailureHandoffSection(ctx); failure != "" {
 		sections = append(sections, failure)
 	}
+	if observations := buildWriteFailureObservationSection(ctx, types.WriteConsumerPlanner); observations != "" {
+		sections = append(sections, observations)
+	}
 	if framing := e.buildTaskFramingSection(ctx); framing != "" {
 		sections = append(sections, framing)
 	}

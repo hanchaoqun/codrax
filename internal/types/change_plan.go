@@ -1280,6 +1280,9 @@ type VerificationDiagnostic struct {
 	Outcome    string `json:"outcome,omitempty"`
 	ExitCode   int    `json:"exit_code,omitempty"`
 	Detail     string `json:"detail,omitempty"`
+	// FailureObservations preserves secondary model-probe failures without
+	// changing this diagnostic's identity or the report's verification verdict.
+	FailureObservations []VerificationFailureObservation `json:"failure_observations,omitempty"`
 }
 
 type ChangedPathVerificationStatus string

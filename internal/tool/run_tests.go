@@ -3404,7 +3404,7 @@ func mergeVerificationDiagnostics(existing, next []types.VerificationDiagnostic)
 		return nil
 	}
 	out := make([]types.VerificationDiagnostic, 0, len(existing)+len(next))
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	add := func(diag types.VerificationDiagnostic) {
 		diag.Source = strings.TrimSpace(diag.Source)
 		diag.Category = strings.TrimSpace(diag.Category)
@@ -3434,10 +3434,15 @@ func mergeVerificationDiagnostics(existing, next []types.VerificationDiagnostic)
 		if receiptID := types.VerificationDiagnosticReceiptIdentity(diag); receiptID != "" {
 			key += "\x00" + receiptID
 		}
-		if seen[key] {
+		if index, ok := seen[key]; ok {
+			// Diagnostic count/classification participates in the existing
+			// suite-continuation decision. Merge only the nested observations;
+			// do not manufacture another diagnostic or widen its identity key.
+			out[index].FailureObservations = types.MergeVerificationFailureObservations(out[index].FailureObservations, diag.FailureObservations)
 			return
 		}
-		seen[key] = true
+		seen[key] = len(out)
+		diag.FailureObservations = types.MergeVerificationFailureObservations(diag.FailureObservations)
 		out = append(out, diag)
 	}
 	for _, diag := range existing {
