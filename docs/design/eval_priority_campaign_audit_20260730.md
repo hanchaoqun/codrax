@@ -1,9 +1,9 @@
 # Eval 多维优先级与泛化审计战役（2026-07-30）
 
-## 最新进展导航（2026-09-11）
+## 最新进展导航（2026-09-12）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
-本轮B1575执行粒度首片施工见§123.1772：从真实Python运行期观测区分目标执行与声明/导入，目标执行不代替逐合同断言；覆盖、suite继续、证明投影和实际no-change提示同源接线。公开九形原始RED及教学/资格RED已落，尚在实现与测试，不预签完成或live。
+本轮以§123.1772–1773为准：B1575目标执行首片已推`7e74a205c`，专项count3/race、全仓86包及前后置make通过。r1061严格exact2各一次结束：Python跨仓写机器PASS242s/人工FAIL（单个换行被错误折叠），H7显式窗Trace机器PASS348s/人工FAIL（精确信息已给仍擅自加总/过称反转）。Trace两轴、因果投影、默认12项根因旁路及链上/背景分界保留，不把单窗通过当B1626双窗已修。Python新观察器诚实记录失败、不授行为；另确认impact/patch-review用路径级测试放大逐合同verified的消费旁路，以及非权威失败反例供给不足，优先根修，不将模型比较器默认升硬门。B1598 raw字段单位、B1402 Trace-only代码索引附注适用域另续；完整人工审计不改原答案/补丁/机器oracle，独立后验54项49过5败不倒填产品proof。
 用户随后明确授权延长配置及代码默认值，见§123.1771：非流HTTP600s、首响应600s、流中真实静默300s；本地providers及代码/样例/中英说明同步。公开工厂入口先红后绿、llm/config完整包、三包race count3及make通过；不新增活跃SSE总时长门、不改其它独立预算，不提交凭据。本小批不冒充B1575/B1626已施工，也不重跑r1060。
 本轮续修以§123.1768.7之后及§123.1769–1770为准：B1664参数声明冒注册主体及定义建议越权已完成公共先红后绿、泛化来源边界与原文保真测试；末审根修超过四行/含空行的附着注解完整性，不用截断前文签矛盾。count3/race/独立冷审、冻结全仓86包与前后置make全部通过，已推`e622c8264`。r1060严格exact2各一次完成：E1双窗Trace机器PASS157s/人工FAIL，Python跨仓写PASS177s/补丁正确但验证权威FAIL。B1626仍把两请求成员窗压成包络；B1575未关闭的执行粒度能力债新增生产见证——仅import+AST的探针被授target_behavior，不误归Make/PTO或披露丢失。Python48组独立真调用/await后验通过，不倒填正式proof。两项P1须各自完整来源闭环，不靠标签/教学补丁销账；原case/oracle/1200s及模型答案未改，不新增追跑。
 本轮续修以§123.1764–1768为准：B1661已提交推送`f6e64a545`。r1059严格两路各一次结束：跨语言读机器PASS481s/人工FAIL，C++写TIMEOUT1200s/人工FAIL，审计已推`d2fc1a602`；最终无图不能签渲染通过，最后双头Lf补丁的2352项独立后验1708失败，不回填原流程SDK27链接失败/failed证明。B1663真实失败坐标修复已推`928fdb14d`，public RED→GREEN/count3/race/冷审/冻结全仓86包及前后置make通过，不扩权限。B1664已钉源码和本次真实缓存：Rust符号正确，缺口是注册主体角色未证却被放大为verified关系/函数定义锚/recipe，不能全归最终模型波动；下一批先公共复现并保护合法附着注解/实际binding，不误改Rust解析器。B1651b旧Gradle XML污染与B1662 Meson原生报告语义仍P1；本机无对应工具链，尚未安装或签原生验收；B1561能力感知恢复另续，不将可观测性修复冒称全runner来源闭环。
@@ -57392,6 +57392,20 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1773 r1061：原生测试通过不等于需求已满足，显式窗投影保留（2026-09-12）
+
+1. B1575首片推送并按同revision重建后，07:00:30Z–07:06:19Z运行243例库存中按风险/近期覆盖选出的两例，严格并行2/各一次/原1200s。Python跨仓tokenizers写PASS242s、H7全谱Trace PASS348s，runner exit0；人工两例均FAIL。完整收据`eval/parallel_selected_summary_evalcampaign_python_h7_r1061_20260912{,_manual_audit}.md`，原runner日志`.codrax/tmp/20260912-r1061-runner.log`，没有第三例追跑、修改oracle或换模型追绿。
+2. Python正式隔离提交`b2f668722cb50fb791bcf94d337f4e8b26f65e88`仍漏连续长度>=2条件，`a\nb`被折为`[97,300,98]`而非`[97,10,98]`。真实模型探针第三条原断言失败；B1575观察器完整绑定当前函数/源/commit/执行行且外层exit1，不授目标执行/行为。Make和原生两个unittest随后通过，最终3条passed来自这些项目检查；没有修改原测试/Makefile/native分支。独立Python3.9.6后验54项49过5败、原字节未动，只标not_product_proof，不回填正式receipt。
+3. **B1575/B1561逐合同权限残余P1确认。** `ImpactObligationSetFromChangePlan`对probe全部ContractRefs建behavior_contract obligation，不区分planning-only；`impactCoverageForTarget`和`patchReviewCoverageForFinding`在任何target_behavior path已覆盖且没有显式MissingContracts时，就标该ref verified；`addImpactLedgerItems`又将它原样转covered。本轮report无VerificationConfidence，仍把source=verification_probe的c1/c2/c3标covered。requiredtyped=0/planning-only=9说明没有漏算九条硬合同，**不说明这些规划意图已实测**。文件级项目测试不得代替逐ref正证；旧值复读/最终profile/ledger/修复队列必须同源校准，规划项保advisory，真实exact native/PTO与合法source-text正控不能丢失。本批先补公共RED再施工，不能只改显示词。
+4. **非权威失败信息供给P1确认，另片处理。** 持久report尚有通用`observed_failure`warning，controller也有裸exit1，所以不是完全静默。缺口是诊断不保原AssertionID/FailureDetail，失败probe被suite继续消费后不进入最终TestResults，审批/计划优先上下文cap又把泛化警告挤出；模型只能看3/0和verified，很难分析原反例。既有“模型比较器未经核实不能单独证明产品缺陷”红线保留，不把所有assert fail改hard reject。后续以有来源的非权威失败观察携具体反例/原始引用、同源有界前置到controller/恢复/交付，供模型判修代码还是修检查；不改模型结论和真实suitepass/fail。多失败诊断去重与continuation计数另须先复现，不能在扩字段时暗改决策。
+5. H7最终`20260912-000616.380-53939.md`保持目标CompThread_0-2955、13762.791708–13763.024898、233.190ms：running74.915、折算65.912、D36.757/11段/最长3.853，内核caller只为调用点；实际占时/链上业务span与规则可消除两轴并列。Trace因果投影存在，logd49.656拆锚定0.033与背景49.623，默认schema2根因旁路有模型选择12项。没有Mermaid，图解析/render验收N/A，不能泛称图表全通过。
+6. Trace人工FAIL来自原模型导语“同方向其余6.0ms”“七线程反转候选12.4ms”和表内“反转等待全额”：原finalizer context已明确频率方向不可加、仅#4/#5小计5.324、其他席分别列，且候选不证明反转。七值直接相加也为11.577而非12.4，但不因此获得可加权限。保模型质量观察，不恢复B193算术评价器、原文关键词硬门或系统重写正文。3次成文拒绝分别是table含summary字段、patch工具未开放、末轮缺summary，和schema一致；已接受的旧结构正文/投影未被抹掉。
+7. 上下文/附注继续归并旧案：B1598/P2的raw `blocked_delay=3213`缺字段单位（实际鸿蒙µs），explorer误读ms，后续统计/正文已纠正但早期供给仍待补；B1402/P2的Trace线程名被系统送去代码声明索引，最终附注无关，应按typed证据域资格发射而非名字白名单；B1263无columns/行label与cells重复造成“项目/列2”和重复序号，沿通用结构教学保advisory。不是本次单图case-by-case修补。
+8. 冻结后续顺序：先B1575/B1561逐合同正证消费闭包，再非权威失败反例传递，之后B1626请求多成员窗完整来源链；B1598/B1402随后。Python逐合同内联断言协议、其它语言执行能力及Gradle/Meson真实原生环境未验债继续开放，不能借当前patch或单窗回放销账。
+9. 活跃SSE专项count3为52.453s，首响应600s/中途真实静默300s/非流600s不变；无固定4ms/旧4分钟活跃连接总年龄降级门，独立caller取消/预算仍保。当前live不代替十分钟客户等待验收。源码修复不扫描原问题/答案，不更改Trace根因/补采规则、JSON权限或用户结论。
+
+状态：`r1061=complete/exact2-once/machine2-pass/human2-fail`；`B1575-target-execution=pushed-7e74a205c/full86+build-green`；`B1575-impact-per-ref-authority=P1-confirmed/public-red-next`；`B1561-failed-observation-handoff=P1-confirmed/design-next`；`B1626=P1-open`；`answer-rewrite/oracle-change/third-live=none`。
+
 ### §123.1772 B1575执行粒度首片：当前目标代码执行与行为断言分离（2026-09-11）
 
 1. 本轮从`f6bb1c73b`开始，fetch确认与origin/main一致，未覆盖其它工作。按§1770先处理会放大验证权威的B1575，再排B1626请求成员窗；不将旧B1575披露修复或B1664注册修复重新命名，也不把本批非Trace修改当作多窗修复。
@@ -57407,8 +57421,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 11. 新Python撤证债在profile和ledger均可见，但独立原生精确断言同ref补齐后可正常消解；同/跨报告×partial/full四格验证部分仍weak、全量Strong+Verified，旧Python行只降为advisory、绝不重签covered。types末版专项count3为2.983s、完整包34.645s、race count3为24.041s（`20260911-b1575-types-final-*`）。controller旧累计persist假正针保为负例，再用真实形状native断言补正例；baseline旧针保主快照缺模块、真实进程与baseline原因，只增加实际applied源码绑定。定向count3分别1.025s/2.029s。预检中的旧针不合新边界及红期并发结果不当最终验收；已冻结生产并启动独立全仓与make。
 12. 活跃流专项`20260911-b1575-active-stream-count3.log`通过52.453s，覆盖默认/显式等待、持续reasoning/tool/visible/keepalive与caller取消，旧累计年龄不触发降级；本批未改超时实现。首响应600s、中途静默300s、非流600s与显式调用方预算边界维持§1771，不把专项模拟当作客户十分钟真实回放。
 13. 最终冻结全仓`20260911-b1575-full-final.log` exit0（SDK26.5，原`go test ./...`参数，未变包部分使用Go缓存），同树`20260911-b1575-build-precommit.log` make exit0。预检失败已逐项核清为旧声明权威假正针、教学旧字面或并行补针红期，未降断言或隐藏失败。独立只读末审无阻断：原process fail/stdout缺失仍fail、unknown不授execution、完整execution不授behavior、原hooks/报告字节保留。源码/测试继续冻结，提交推送后重建才启动r1061。
+14. `7e74a205c`已提交推送main；最终全仓86有测试包通过，其中tool343.289s/agent69.770s/orchestrator17.379s/types41.763s/tracequery102.201s/hitraceconv143.722s。提交后make成功（`20260911-b1575-build-postcommit.log`），binary=`7e74a205c635`、built=2026-09-12T06:59:57Z。原双路runner r1061已启动，机器/人工收据为`eval/parallel_selected_summary_evalcampaign_python_h7_r1061_20260912{,_manual_audit}.md`，运行日志`20260912-r1061-runner.log`；此刻只记启动，不预签PASS。
 
-状态：`B1575-target-execution=code-frozen/targeted+full+build-green/pending-push`；`Python-per-contract-observation=separate-open-capability`；`B1626=queued/open`；`new-live=not-started`。
+状态：`B1575-target-execution=pushed-7e74a205c/targeted+full86+build-green`；`Python-per-contract-observation=separate-open-capability`；`B1626=queued/open`；`r1061=complete/exact2-once/see-1773`。
 
 ### §123.1771 用户授权：延长模型等待默认值（2026-09-11）
 
