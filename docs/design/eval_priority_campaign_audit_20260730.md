@@ -3,6 +3,7 @@
 ## 最新进展导航（2026-09-12）
 
 本文件保留历次审计时的事实与状态；早期“当前优先级”、旧输出合同及当轮pending字样不代表现在的主线。
+当前续修§123.1778：B1561累计证明处理次序已公共RED→GREEN、count3/race/独立冷审、原四工件离线复核及冻结全仓86包/make通过，待提交推送。本片仅把依赖“义务全部闭合”的非权威探针处置放在累计精确路径覆盖之后，不改变准入谓词或清除旧真实失败。提交后计划r1063恰好两例并行各一次：dateutil症状写+H1 Binder显式窗。B1626多请求成员窗仍未修，完整纵切边界已再审记档。
 最新显示后继§123.1777：r1062审计已推`d889fac49`；正常长引用与失败尾部的共享展示修复已推`f8e3d5551`，公共RED→GREEN、count3/race及独立冷审通过，原两份报告离线显示回放保字节且可定位完整输出。冻结全仓86包与提交后make通过，binary=`f8e3d55511c4`；未新增模型回放或修改r1062机器/人工结论。累计消解顺序已取得独立公开复现（§1777.7），从候选升确认P1、仍未修，不能因此清空旧真实失败或宣称整例应绿。
 本轮最新§123.1776：B1561源码已推`3aeecaca0`；r1062 exact2各一次完成，Python写机器FAIL263s（业务后验301/301通过，错误模型比较器未修、累计证明未闭），跨语言读机器PASS327s/人工FAIL。B1561原详情/落盘/传递真实生效，但正常221字节路径与错误尾部被显示预算遮蔽，已取得公共RED，另片修复；不改原r1062产物或放宽验证。B1626成员窗仍P1，B1561累计消解顺序候选待公共复现，B1664注册行软文案仍P2；最终无图，render=N/A。
 最新续修见§123.1775：B1561非权威失败观察供给已完成真实执行与消费接线先红后绿、count3/race、独立末审及冻结86包全测/make；失败检查的原始标识、摘录和独立输出引用贯通报告、恢复上下文与交付卡片，不改变项目测试结论或替模型判产品缺陷。源码交付后计划r1062跨语言读+Python症状写各一次/并行2。多失败外层诊断计数与continuation耦合原行为保留另审，B1626与逐合同执行能力等未销账。
@@ -57395,6 +57396,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1778 B1561累计证明依赖顺序：先闭合精确义务，再处置非权威失败（2026-09-12）
+
+1. 基线`ad4ca7918`干净且fetch后与origin/main无差。§1777.7的原四工件公开复现已证明：同一次投影结束时全部义务已闭合，但前置非权威probe处置仍读到尚未补齐的旧changed_file义务。不是模型比较器本身正确，也不意味着旧真实import失败可被普通绿色套件抹掉。
+2. 共享`BuildVerificationProofLedger`当前先HistoricalFailures、再NonAuthoritativeProbeFailures、再RunnerMissingEscalations、最后CumulativeChangedPathObligations。NonAuthoritative的唯一ledger前提是最终无未闭义务；另两项只改Capabilities，不构成反向依赖。最小修向是把NonAuthoritative移到累计精确路径消解之后、最终State/Normalize之前；不做反复迭代，不新增推断，不复制判断。
+3. 独立公共测试使用通用内存typed工件，禁止读取本机eval日期/目录或业务样例。正控钉当前失败行仍保留为advisory、旧真实失败仍在；负控钉缺累计scope/来源计划/精确路径、缺continuation、缺实际通过断言、当前项目失败或未闭逐合同义务均不获放行，并检查输入字节不变和既有单报告行为。源码待公共RED后修改。
+4. 不新增JSON字段/模型动作或额外教学负担；不解析请求、模型正文、错误字符串、图标签/消息；不修改任何模型答案或图。Trace显式窗、因果投影、自动补采、链上与背景分界、业务线索/两耗时轴均不变；首响应600s、真实字节静默300s、非流600s、活跃流不按4ms/4m降级及外层预算保持。
+5. 批次：本片公共RED→最小源码→专项count3/race→独立冷审→冻结全仓/build→提交推送；随后按风险与差异选r1063 exact2各一次，审计过程/上下文/答案再记录，不改旧r1062，不用一次PASS抵销人工错误。B1626另需请求成员完整来源闭环，不能凭本次验证销账。
+6. 243份`.case`清单复核为215读、25apply、3plan。本轮按“当前修复生产见证>高影响能力保护>最近覆盖间隔>环境可执行性”选dateutil症状写+H1 Binder显式窗：前者刚出现多代计划/当前非权威probe失败/累计义务后补组合，可测此次依赖修复；若新run未自然触发不强造或追加追绿。后者距r1056七轮，原233.190ms窗口、隔离stub_repo，可同时核链上等待与长睡眠背景、投影、补采和旁路。原H1只钉1.409/15.758等发生值，人工必须额外核5段3.094ms、三对端/TGID以及14.302ms不能等同pacing；原case/oracle不改。H9等已知旧pin债与本机缺工具链的其它原生能力不混入本轮。实际执行待源码交付与同revision构建后启动。
+7. 正式公共矩阵`verification_proof_cumulative_order_b1561_test.go`为14格×两工件顺序，逐格同时调用公开Ledger与FinalReport并钉JSON相同/原输入不变。初次测试类型声明编译错误及unclassified-source原分类前提已修正，仅最终`20260912-b1561-cumulative-order-generic-red-final.log`0.997s作为有效RED：10负格绿、4格只因晚闭路径后的currentprobe仍failed而红。生产只把一处调用后移并加依赖注释，不改其谓词；修后types新旧邻接回归count3 1.180s、race count3 3.741s，controller原累计/失败恢复消费count3 1.925s通过；独立末审无阻断。源码/正式测试冻结，完整全仓与make日志`20260912-b1561-cumulative-order-{full-frozen,build-precommit}.log`运行中，结果随后补。
+8. controller消费者race count3 4.529s通过。原r1062四冻结工件经新的`20260912-b1561-cumulative-order-replay.go/.log`公开Ledger+FinalReport离线投影：currentprobe advisory1/failed0、累计旧path covered5、未闭义务0，旧真实失败2与最终failed均保留；缺scope仍currentfailed1/未闭5，缺精确continuation仍currentfailed1。四文件核对旧SHA与前后原字节、内存输入字节均恒等，旧RED helper/log未覆盖；这是离线处置复核，不是新模型回放或为原r1062倒填通过。
+9. B1626只读再审补强§1775.11：最小完整纵切为同已绑定capture/typed target的有序N窗。旧`ExplicitTimeWindow`保持真实单窗语义，另提供明确member存在/匹配API，multi无匹配不得掉回LAST或包络；同步`trace_wakeup_edge_role_authority.go:43`、`trace_board_summary.go:81`与finalizer contained-window读者。补采必须一次attempt/一个总deadline内按成员查缺并汇合，不能N次调入口（one-shot latch只准首轮，SetSystemTraceSupplement会覆盖旧结果）；投影/有限账户键均保成员，A有投影不得吞B账户。分派基于result-owned selected_window+source/target，保同次query递归native小片，不能按局部MeasurementDomain机械拆链。`emit_analysis.go`两个单窗专属规则（子主题收束/重复枚举边界）不得改成任意member即true。候选旁路先修输入身份再审ID，不盲改hash。纵向公共RED必须跨真实EmitAnalysis→queryA→补采B→ledger/入模→emit/persist，及缺B/预算失败保A、重叠/反序、异capture/target/line-filter、bounded不强开因果、旧单窗字节/clone/capacity正负矩阵；本轮仍未实施或销账。
+10. 最终冻结`20260912-b1561-cumulative-order-full-frozen.log` exit0，86个有测试包通过（未变包使用缓存）：tool389.164s、types69.164s、agent110.429s、orchestrator30.802s、tracequery144.115s、tracediag21.926s、hitraceconv182.449s、llm缓存通过；`20260912-b1561-cumulative-order-build-precommit.log` make exit0。源码/测试自RED后最小修复起冻结，无漏跑末版；gofmt/diff检查干净，提交前fetch无远程新差。旧测试/模型schema/运行预算未改。源码交付后重建才启动原两case。
+
+状态：`B1561-resolution-order=implemented/public-red-green/count3+race+cold-pass/frozen-full86+make-pass/pending-commit`；`B1626=P1-open`；`new-live=not-started`；`original-r1062/model-answer/Trace/timeout=unchanged`。
 
 ### §123.1777 B1561显示后继：完整引用独立预算，长摘录保两端（2026-09-12）
 

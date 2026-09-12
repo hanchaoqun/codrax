@@ -457,9 +457,13 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 		out.addRequiredBehaviorContractLedgerItems(artifact.Plan)
 	}
 	out.resolveHistoricalVerificationFailures(primaryReport, unique)
-	out.resolveNonAuthoritativeProbeFailures(primaryReport)
 	out.resolveSuccessfulRunnerMissingEscalations(primaryReport)
 	out.resolveCumulativeChangedPathObligations(primaryPlan, primaryReport)
+	// Probe disposition depends on the final exact obligation state. Resolve
+	// controller-bound cumulative paths first; otherwise a retained path can
+	// block advisory disposition and then close too late in this same pass.
+	// Historical failures still require their separate exact-rerun receipts.
+	out.resolveNonAuthoritativeProbeFailures(primaryReport)
 	out.State = verificationProofLedgerStateFromProfile(profile)
 	return NormalizeVerificationProofLedger(out)
 }
