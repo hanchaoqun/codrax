@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1797：B1681嵌套schema参数包装完整性已公共先红后绿，真实BaseAgent/MCP调用前保护原始JSON，答案正文/可选根因选择保持独立所有权；1620路由、count3/race3、独立冷审及冻结86包全仓通过，随本条交付。图关系供给、原生runner协议普查仍开放。后继r1070计划逻辑视图读+dateutil原生Python写，恰好并行2各一次，尚未启动。
+当前续修§123.1798：B1681已13ee5e072推送。r1070严格并行2各一次，读/写机PASS666/192s；写补丁独立后验通过但原生套件未由产品执行；读图可渲染但缺主数据流且正文错，人工未通过。B1682收集就绪/完成提示冲突与B1683旧图教学矛盾分批修复中；B1684数据流取证/覆盖范围、B1685同站点别名recipe去重及原生runner普查按ROI后继，不以机PASS签闭环。
 
 已交付§123.1796：B1680外部工件来源交接教学`32a3287a5`已推送，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓和提交后清洁构建通过。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
 
@@ -57419,6 +57419,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1798 r1070：参与者接边不等于主数据流；两类教学自冲突优先修复（2026-09-14）
+
+1. **交付/跑批**：B1681已`13ee5e072d54`推送，清洁构建09:46:28Z，远程0/0后不可变快照严格exact2各一次，CAP5/PARALLEL2/TIMEOUT1200。逻辑视图读外层666s（case663s）、dateutil写192s，机PASS/PASS。完整审计在`eval/parallel_selected_summary_evalcampaign_logic_pywrite_r1070_20260914{,_manual_audit}.md`；未追加第三例。
+2. **读机绿人不通过**：原MD/HTML实际Mermaid parse/render绿（17755/18475字节SVG），6/6参与者接边却仅三顺序边、一共享指针投影、两预检参数边；匿名n10和四空分组，缺阶段产物生成/合并/消费。37探索轮/11成文轮/10拒/10patch。正文确定性编译错写非确定性、Explorer TurnAArtifacts错归Analyzer，原模型错误未被系统改写。语法/连通指标不代表完整需求。
+3. **B1682/P1公共复现**：来源/载体/ERM广度提示log1350称全部就绪，真实完成1396退回后1452/1548仍以旧latch催收束。六次退回分别3参与者/2接收方/1阶段职责，原门拒绝有依据。真实parser→ReadFile→EmitEvidence→Observe→complete两lane有效RED `20260914-b1682-overlay-qualified.log`1.210s；只修首次/backlog/escalated/closure-only四面软提示，保计数/时机/权限/完成门。此前overlay-first编译误写、premises夹具缺同线assignment不计有效RED。
+4. **B1683/P1教学冲突**：defaults.go旧411行、本轮log4587仍教角色箭头免约束、label内file:line给整label授证，与同轮关系/业务显示教学冲突。当前只退役错误承诺、复用canonical合同，不复制长合同或改图/关系门。
+5. **写正证及边界**：seed6869f326b987→applied168258e3e243，仅构造函数+11、原4测试和README未改；正式计划已自纠为date.replace的float类型问题。产品仅1条四断言动态探针、原生套件policy-skipped，8条planning_only未升权。独立后验原unittest4/4+809有限输入/既有行为检查全过，6非有限值仅观察；源/fixture/全部正式JSON前后SHA不变，不回填proof。
+6. **后继列账**：B1684/P1主数据流取证/覆盖范围——辅助检查技术连通不能冒充产物交接，尾卡同时说join已证/value handoff未证；先公共复现和跨仓operation供给审计。B1685/P1同站点短名/限定名recipe重复——只按精确source-site/唯一身份去重，不并不同调用。既有原生runner协议/逐合同断言覆盖仍开放。正文错误/匿名节点留P2质量观察，不扫描模型正文强制修稿。
+7. **保护边界**：B1681本轮未自然触发N/A，字符串数组兼容不冒充生产正证；本对无运行时根因题，不给Trace投影/自动补齐新签生产覆盖。600/300/600s及active-byte规则不改，不以4ms/旧4m无正文降级，eval1200s独立。原oracle/case/fixture/MD/HTML/正式报告不改。B1682/B1683后继测试/冷审/提交收据另补，不提前称完成。
+
+状态：`r1070=exact2-once/machine-pass2/human-read-fail+write-patch-pass/formal-native-suite-not-run`；`B1681=13ee5e072-pushed/production-not-exercised`；`B1682/B1683=confirmed-P1/in-progress`；`B1684/B1685=next-public-audit`；`model-prose/diagram/root-selection-ownership=preserved`。
 
 ### §123.1797 B1681：嵌套schema参数包装完整性（2026-09-14）
 
