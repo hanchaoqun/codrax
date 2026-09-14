@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-13）
 
-本轮施工§123.1787：基线`05210ed69`与origin/main一致。先修B1668/P1决策定位范围及恢复动作自冲突，再修B1669/P2附件身份；均公共先红后绿，先验收再分批提交。下一r1066仅H6显式Trace窗+C++ fmt写模式两例并行各一次，不改原case/oracle。r1065原机器/人工失败及B1122/B1561/B1575未闭能力债保留；不新增正文原文硬门、不改模型结论、不扩已完成批次写权限。
+本轮最新§123.1787–1788：B1669附件身份已推`1315520f0`，B1668定位及恢复动作已推`32b7c70e7`；公共先红后绿、count3/race、独立冷审、冻结86包全测及提交后清洁构建通过。r1066 exact2各一次结束：H6机器FAIL旧glyph/人工FAIL解释与合计，投影及可渲染图保留；C++机器FAIL未验证，最终代码与原测试/独立8016UBSan输入通过，累计证明仍缺。客户json_root_err已审：是从未提交根因选择，不是schema/磁盘/超时错误；本轮H6裸数组选择被拒是另一分支，沿B1548分别留账。B1122/B1561/B1575未闭债不代销，不新增正文原文硬门、不代选模型根因。
 
 本轮最新§123.1784：B1626已推`4fed22871`，r1064审计已推`cdede1402`。r1064严格exact2各一次：E1双窗机器PASS109s但人工FAIL（模型scope填整trace、未自然触发新成员路径）；Python机器/人工FAIL424s、14拒绝13patch，确认B1647c系统端点恢复与修补范围比较自冲突。本批B1647c已推`b36ca8936`，真实公共先红后绿、单侧/限定词与权限负控、count3/race/独立冷审/最终冻结86包全测和提交后make通过；退役第二套身份匹配，改用同次系统正规化私有收据，原可见答案与证据门不动。B1618-P2b同TID账户丢来源/窗的旧gap新增附注见证，完整来源批排下一顺位，导航结束边界另记P2。原产物保留，不以机器过例替代链路闭环，不追第三例。
 
@@ -57402,6 +57402,25 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1788 r1066与客户根因JSON不可用诊断（2026-09-13）
+
+1. r1066从`32b7c70e7fb1`清洁二进制快照，02:37:54Z–02:42:17Z严格H6+fmt C++并行2各一次。原243例库存/问题/oracle/read15/apply24/CAP5/1200s不变；中途用户追加日志没有重启、第三例或追绿。机器0/2：H6 FAIL189s仅旧`根因排序#1/❶`显示断言；C++ FAIL263s为`unverified:verification_proof_incomplete`。完整机器/人工审计=`eval/parallel_selected_summary_evalcampaign_h6_cppwrite_r1066_20260913{,_manual_audit}.md`。
+2. H6显式233.190ms窗、五次目标过滤查询和确定性补采、完整因果投影、真实占用/可消除两轴、链上业务族均保留；MD=`.codrax/output/20260913-194101.304-52663.md`。模型首稿却将IO12.658+3.602写为16.260ms方向主值，把真实两个互斥席12.115ms小计说成四席合计，把总65次唤醒都归IRQ，且“仅Binder有直接阻塞证明”与已供给IO完成4次≥4.384ms矛盾。12.115本值有两席互斥证据，不能错误否认该合法小计。此处不系统重算/替换正文，未证明随机波动，不为旧glyph oracle改物理计数或答案。
+3. H6图语法1次安全修复，最终原文用仓内Mermaid引擎真实parse/render通过：sequence1张、SVG31919B（`.codrax/tmp/20260913-r1066-h6-mermaid-render.json`）。重复APP→T和不同发生段聚合成连续时序仍需模型语义修正，语法成功不能当关系正确；不靠该图销B1647c其它读代码关系修补或B1626多窗自然采用。
+4. H6默认旁路130B实际为`schema_version=2,root_causes=[],status=unavailable,reason_code=model_root_cause_selection_rejected`。log3033第一emit明有5个有序candidate_id，但载体误写裸数组并将`schema_version:"2"`放外层；3034版本被隔离，3035对象解码拒绝可选载体，正文接受；下一patch仅修runtime_work_relation，未补选择。这个生产分支不是“从未尝试选择”，更不是文件没写。可评估泛化无损结构恢复：只在显式唯一版本及完整有序候选对象可无歧义搬运时恢复容器，冲突/重复/未知候选继续由原binder处理；不能从正文或排名表猜选项，尚未施工、不为裸数组直接开放宽松绕过。
+5. C++两次应用`da6d7e9→86db2b2`最终只改交付头文件两行（int64_t参数+加法前提升）；原test/Makefile保留，未合入主fixture。首次模型错误把宽值转回int，原生测试真实检出；replan读当前字节修正。主审独立原测试通过、8016输入UBSan全过（临时`/tmp/codrax-r1066-native.cQJYXN`），不回填正式proof。末态仍有累计行为/影响义务未闭、诚实accept_unverified；本次未重现B1668非法同批探索循环，但实际走既有verify-only后续完成通道，不冒称所有新臂已获自然正证。
+6. B1122复合Make摘要再次只给编译首行而使验证器误称编译失败；后续完整反例使planner修正。归已有供给债，按§1787.12任务设计后续修；B1561/B1575逐合同执行不因代码后验绿自动销账。int64_t未显式include<cstdint>在本机可编译，跨标准库自包含只记有限可移植性验收边界。
+7. **客户新增`/Users/han/opt/customlogs/json_root_err.txt`（66行）沿B1548追加生产见证，仅诊断不改策略。** 第15行唯一emit只有blocks/citations，无`trace_root_causes`；第32–33行明确accepted并存在11个候选；第36–37行立即evaluator stop；第65行repair used=0。调用正常1m47.414s结束，10m首响应/5m静默没有触发；没有JSON解码或文件错误记录。片段未包含落盘日志，不能仅凭片段证明磁盘成功，但所述reason_code准确对应模型未提供有效结构化选择，不是schema版本不兼容。候选存在≠模型已选择，系统不能将11项全装入旁路。
+8. 代码路径：`record_task_finalize.go:103`区分never-selected/rejected；`outputdump/root_cause_sidecar.go:23`在无报告时输出合法空数组及unavailable。消费者必须先读status：这里`[]`是结果不可用，不代表已证明无根因；模型在完整selector对象内明确提交`root_causes:[]`则是available空选择，两者不可混读。
+9. 补充机会现状：`final_answer_artifacts_mutation.go:485`的omitted提示只是Summary；`answer_document_evaluator.go:15573`接受答案后无其他建议即停止；`answer_document_post_emit_advisory.go`四项单表无根因选择项。因此“下一patch可补”在本片无实际下一轮。**同事审计§40.59已有明确合法省略/仅note/不额外续轮裁定，当前行为符合这个局部合同；可用性不足属于策略升级议题，不把旧pin说成代码错误删除。** 客户本次只问原因，未擅自改变可选/停止政策。
+10. 建议后续方案：将可选根因补充机会并入已有“单表/单锁存/最多一轮”软建议，不另开硬重试；仅读契约启用、可选候选、accepted/pending报告和显式撤销/拒绝状态，不扫正文或Summary。已有完整选择/显式空/无候选不续；继续省略或失败仍保已接受答案及真实unavailable/rejected，不代选、不强制非空。必须同步修改“所有项只是展示修订”的前言，统一初始教学中省略与显式空的不同含义；先真实emit→建议→patch→旁路E2E及原无续轮/所有权/预算负控，经明确策略升级后施工，不能只加一句无消费的提示。
+
+11. 两名独立人审追加精确收口：B1669在H6 log912–916/1759–1763自然命中单真实附件+format载体归一，Perf跳过未覆盖；补采frame_root_cause_bundle一次2.704s，B1618附注MD1071自然显示单源单窗，不能代销多源。C++最终no-overflow是required=true/invariant/satisfies；模型两代声明的suite/assertion身份均与make-test/check aggregate不等，正式无contract_refs正证。累计2report/weak/4missing，当前控制器2项属明确当前scope，不是漏账。
+12. **B1670-TRACEPROJECTIONBLOCKERSCOPE1/P1确认，另片施工。** H6 log2852 compact尾卡只检查projection的typed waiter/holder，却指示整个目标“没有已证direct blocker”；同上下文2472–2477/2494有IO完成与Binder闭合正证。`answer_document_final_decision_boundary.go:1732–1756`的输入只有projection，缺持有者对象关系不能否定其它精确等待证据。先真实finalizer上下文公共RED，再只收窄缺证范围/区分关系对象与等待闭合；保持positive holder/未知target/foreign source、全部链上根因资格、原模型正文与自动补齐，不新造IO升格门。不把此软指导过宽称为已证硬门冲突或模型错误唯一原因。
+13. **B1671-WRITEREQUIREDCONTRACTCOUNTCALIBER1/P2确认，独立小片施工。** `write_controller.go:459`只计HardRequired，却在:339显示required_typed_contracts=0；证明账含soft-required。r1066 apply log2457/2465模型误认soft-required可忽略，但后续门正确挡住。先BuildInitialInstruction公共RED，复用types已有required/coverage分类，明确hard/soft/planning义务及覆盖范围，不改proof门/合同Required属性或新增答案原文判断。两片各自验收后提交推送，不以本轮live提前签施工后生产正证；根因selector策略提案仍不施工。
+
+状态：`r1066=completed/exact2/machine0of2/Trace-human-fail/C++code-native-pass-proof-incomplete`；`B1668/B1669=pushed-and-regression-verified`；`B1548=mandatory-empty-artifact-working/customer-omitted-and-local-rejected-separated/optional-opportunity-upgrade-proposed-not-implemented`；`B1670/B1671=confirmed/public-red-next`；`B1122/B1561/B1575=open`；`model-answer-overwrite/auto-root-selection/third-live=none`；`active-stream-defaults=600/300/600s/no-4ms-or-old4m-degrade`。
+
 ### §123.1787 B1668/B1669：恢复动作闭合与附件身份消歧（2026-09-13）
 
 1. 基线`05210ed69`已fetch、与origin/main一致，无用户未提交变更。B1668继承r1065完成态两次finish→同批explore→kernel拒绝→重新派发生产见证；B1669继承H11单附件被格式提示拆成两项见证，不重新造同根工单。
@@ -57417,7 +57436,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 10. 七个B1668 Go输入冻结后的组合`SDKROOT=MacOSX26.5.sdk go test ./... -count=1`已exit0（`.codrax/tmp/20260913-b1668-b1669-full-final.log`），构建exit0（`...b1668-build-check.log`）；完整测试前后SHA256逐文件一致。B1669已推`1315520f0`，本节随B1668源码原子收账，随后提交后清洁构建再启r1066，不在受测期间改源码或用dirty binary回放。
 
-状态：`B1668=implemented/public-red-green/final-count3-race-independent-review-frozen-full-build-pass`；`B1669=pushed-1315520f0/two-public-red-green/types-full-downstream-race-pass`；`r1066=planned-exact2/not-started`；`B1122/B1561/B1575=open`；`model-answer-overwrite=none`。
+11. B1668源码及本节已提交推送`32b7c70e7`；提交后清洁构建revision=`32b7c70e7fb1`、built=`2026-09-14T02:37:28Z`，日志`...b1668-postcommit-build.log`。组合86包完整通过（tool366.797s、agent76.515s、orchestrator27.194s、types43.374s、tracequery108.384s、tracediag13.700s、hitraceconv152.693s、llm28.114s）。重新盘点243例=215读/25apply/3plan；按第6项选择r1066，02:37:54Z从该清洁binary快照启exact2，summary=`eval/parallel_selected_summary_evalcampaign_h6_cppwrite_r1066_20260913.md`，原预算与oracle未改。
+12. B1122后续只读复核：r1065真实219B Make失败含业务反例，但parseMakeOutput→tool摘要→controller均只供编译首行，完整反例直到replan才到达。下一小片采用非权威有界原文：短输出完整、长输出明确首尾与省略，不靠错误关键词重判失败阶段；Make只称目标执行失败，verifier/controller/replan共享原失败详情。不改退出码/Passed/aggregate范围或铸逐断言证明。先实际RunTests→报告→BuildInitialInstruction公共RED，含任意业务失败词/长尾/unittest/无输出/成功输出含error控制组；本轮只设计，尚未施工。B1561/B1575逐合同真实执行能力与此展示供给债分开收账。
+
+状态：`B1668=pushed-32b7c70e7/public-red-green/final-count3-race-independent-review-frozen86packages-postcommit-build-pass`；`B1669=pushed-1315520f0/two-public-red-green/types-full-downstream-race-pass`；`r1066=completed-exact2/see-1788`；`B1122/B1561/B1575=open`；`model-answer-overwrite=none`。
 
 ### §123.1786 r1065：修复交付、Trace原值保留与写完成态恢复自冲突（2026-09-13）
 
