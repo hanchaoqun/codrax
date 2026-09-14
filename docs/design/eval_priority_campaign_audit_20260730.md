@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1799：B1681已13ee5e072推送，r1070审计已521e564fe推送。B1682收集就绪/完成提示冲突与B1683旧图教学矛盾已完成公共先红后绿、独立冷审、重复/竞态测试及最终冻结全仓86包验收，随本条交付。r1070严格并行2各一次，读/写机PASS666/192s；写补丁独立后验通过但原生套件未由产品执行；读图可渲染但缺主数据流且正文错，人工未通过。B1684数据流取证/覆盖范围、B1685同站点别名recipe去重及原生runner普查按ROI后继，不以机PASS签闭环。
+当前续修§123.1800：B1682/B1683已768a3efef推送，最终86包、独立冷审、竞态与清洁构建通过。B1684参与者覆盖与产物交接范围披露、B1685同源码调用短名/全名重复正在公共复现；不改图关系门、不以模糊名字去重。r1070读/写机PASS666/192s但读完整人工未通过，原始结果保持。后继r1071按多维风险挑选exact2各一次，待本批闭环后启动；真实产物交接供给与原生runner执行证明仍独立开放。
 
 已交付§123.1796：B1680外部工件来源交接教学`32a3287a5`已推送，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓和提交后清洁构建通过。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
 
@@ -57419,6 +57419,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1800 B1684/B1685：图覆盖范围与源码调用身份（2026-09-14）
+
+1. **基线及范围**：清洁768a3efef续修，fetch后与origin/main为0/0。先修r1070已确认系统上下文问题，再轮转exact2；不扫描模型/用户散文作门，不生成模型图、结论或根因选择。600/300/600s等待默认、活跃字节存活、Trace显式窗/链上双轴/自动补齐/旁路均保持。
+2. **B1684/P1**：合法参与者身份桥可使覆盖完整，但不证明实际产物生产—消费完整；当前提示把前者说成完整requested-participant relation。精确端点分量状态也须明确仅限当前投影，不能当整个程序/所有证据的缺失结论。先以真实parser/ReadFile/EmitEvidence/共享覆盖/BuildInitialInstruction复现，不翻转原bool或扩用partial_unproven，不把合法映射判成无证边。真实数据交接供给仍另行审计。
+3. **B1685/P1**：r1070日志1885短名、1969全名先后接受（ev-b4102accfa49c2c0/ev-4cba1f3b8f3eb5cf），均extract_work.go:16的同一ac实参，5411/5412重复recipe。现grounding已从源码读出真实接收调用但只bool比较，丢弃解析所得身份；首个短名又被完成提示要求全名重交。拟从已验证调用站点的源码身份贯通修复，严禁只按尾名/相似度在终稿合边。当前仅源码及日志确认，公共RED/实现收据后补。
+4. **B1684公共验收**：`20260914-b1684-public-red.log`旧HEAD生产上exit1/1.369s；真实源码已证三条stage precedence、6参与者身份连通、候选可见映射且输入/权限不变，失败仅提示夸范围与无条件retarget禁止。真实Produce→payload→Consume、缺carrier partial与显式5..5.01 RootCauseTrace三反控当时已绿。只改evaluator五条文字，保status值/所有计算/候选/JSON门；完整参与者图不自动认证产物交接，跨分量仅指当前投影，默认group与候选已授权映射共存。联合旧AA3/Trace针count3=1.796s、加活跃流年龄保护race3=6.008s，独立冷审无阻断。暂不签全仓或生产提速，等待B1685联合冻结。
+5. **后继exact2排期**：r1071选`trace_query_donghu_real_frame_multicausal`（最近r943，旧外层1800s/214s）与`sr_cpp_virtual_chain`（最近r1051，1200s/389s、7次成文拒绝且人审未过）。本轮均现行read15步，PARALLEL2/TIMEOUT1200/CAP5（两例单仓不受CAP影响），各一次，未启动。上轮已轮转写模式，本轮偏显式窗链上多层两轴+异构工厂/虚调用。Trace旧PASS正文曾把累计23.748ms放进2.978ms代表窗，故重新对原始事件/当前typed口径审计，不能以旧答案为oracle；C++图非必选，无图记N/A而不增硬门。
+
+状态：`B1684=public-red/implementation+count3+race3+cold-pass/joint-full-pending`；`B1685=confirmed-source+log/public-red-next`；`r1071=planned-not-started`；`artifact-handoff-supply/native-runner=separate-open`。
 
 ### §123.1799 B1682/B1683：软提示与精确合同范围一致（2026-09-14）
 

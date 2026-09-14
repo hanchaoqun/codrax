@@ -1097,6 +1097,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 
 **图教学边界（B1683）**：角色名、业务名与引用位置是显示/定位层，不给箭头或整个标签授证；把 file:line 塞进标签、删掉标签或删掉关系元数据，都不能避开当轮 mandatory typed relation ownership。无标签/词汇推断兼容只在原本允许的 presentation-only 车道有效，其关系数量计数不是证据。四种语义图形与各语言统一复用 canonical 关系合同，JSON字段只依当轮schema；Runtime Trace 仍走独立的同capture/目标/时间窗因果权威，模型负责图、标签和结论。
 
+**覆盖口径（B1684）**：参与者经已证局部关系与精确身份映射连通，不等于产物生产—消费、端到端数据交接或执行顺序已完整证明。`requested_relation_scope`继续只披露原参与者覆盖范围；不能把它改成新的产物完整性判定。跨技术分量状态只描述当前紧凑端点投影，不否定其它独立证据。默认用group保留业务参与者和技术端点两层；已有typed候选明确允许某侧用参与者节点时，按候选映射显示，anchor里的技术身份不变。提示不得一边发布这种合法映射、一边无条件禁止它。
+
 ### 6.6 Validator 链 — 三层校验
 
 `internal/orchestrator/contract_check_block.go` 在 mutation 写入 Mutable 之前跑校验，HARD / Layer 2 / Layer 3 三层：
