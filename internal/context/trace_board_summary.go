@@ -62,6 +62,9 @@ type traceBoardRow struct {
 	// no fix_direction note or an unregistered token: an unstamped seat never
 	// wears a synthesized direction (absence stays absent, zero fabrication).
 	fixDirection string
+	// Same-row engine-family accounting, never a display-fold count or a
+	// blocking-view occurrence census from another record.
+	familyMeasurement string
 }
 
 // formatTraceRootCauseBoardFromLedger renders the typed board summary, or ""
@@ -118,6 +121,9 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 				notes[types.TraceNoteKeyOccurrenceWindows]),
 			fixDirection: traceBoardFixDirectionWord(notes[types.TraceNoteKeyFixDirection]),
 		}
+		familyCount, _ := strconv.Atoi(notes[types.TraceNoteKeyMemberCount])
+		familyMaximum, _ := strconv.ParseFloat(notes[types.TraceNoteKeyMemberMaxMS], 64)
+		row.familyMeasurement = types.FormatTraceFamilyMeasurement(familyCount, familyMaximum, notes[types.TraceNoteKeyMemberFoldCaliber], "en")
 		value, valueWord := traceBoardEffectiveValue(notes)
 		if value == "" {
 			continue // a seat without a published magnitude teaches nothing
@@ -184,7 +190,9 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 			line += " · tgid=" + row.tgid
 		}
 		line += " · " + row.effectiveMS
-		if row.caliber != "" {
+		if row.familyMeasurement != "" {
+			line += " · " + row.familyMeasurement
+		} else if row.caliber != "" {
 			line += " · fold=" + row.caliber
 		}
 		if row.tier != "" {
@@ -235,7 +243,7 @@ func traceBoardRowIdentity(row traceBoardRow) string {
 	return strings.Join([]string{
 		strconv.Itoa(row.rank), row.channel, row.subject, row.typeToken, row.tier,
 		row.effectiveMS, row.caliber, strconv.FormatFloat(row.confidence, 'f', -1, 64),
-		row.tgid, row.representativeWindow, row.fixDirection,
+		row.tgid, row.representativeWindow, row.fixDirection, row.familyMeasurement,
 	}, "\x00")
 }
 

@@ -153,7 +153,11 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 					fmt.Fprintf(&b, "; chain_total=%.3fms", node.CumulativeImpactMS)
 				}
 				if count, maxMS := traceDecisionNodeMultiplicity(node); count > 1 {
-					fmt.Fprintf(&b, "; occurrences=%d; member_max=%.3fms", count, maxMS)
+					if family := types.FormatTraceFamilyMeasurement(node.FamilyMemberCount, node.FamilyMemberMaxMS, node.FamilyFoldCaliber, "en"); family != "" {
+						fmt.Fprintf(&b, "; %s", family)
+					} else {
+						fmt.Fprintf(&b, "; occurrences=%d; member_max=%.3fms", count, maxMS)
+					}
 				}
 				if node.LineStart > 0 {
 					fmt.Fprintf(&b, "; lines=%d..%d", node.LineStart, maxInt(node.LineStart, node.LineEnd))
@@ -197,6 +201,9 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 			for _, node := range seats {
 				fmt.Fprintf(&b, "  - rank=#%d; subject=`%s`; kind=`%s`; effective_attribution=%.3fms",
 					node.Rank, strings.TrimSpace(node.Subject), traceDecisionEliminableSeatKind(node), node.EffectiveImpactMS)
+				if family := types.FormatTraceFamilyMeasurement(node.FamilyMemberCount, node.FamilyMemberMaxMS, node.FamilyFoldCaliber, "en"); family != "" {
+					fmt.Fprintf(&b, "; %s", family)
+				}
 				if relationRef := types.TraceAnswerRelationMemberRef(node); relationRef != "" {
 					fmt.Fprintf(&b, "; relation_member_ref=`%s`", relationRef)
 				}

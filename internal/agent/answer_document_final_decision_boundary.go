@@ -423,6 +423,9 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 					}
 				}
 				traceFinalReaderWriteCumulativeRole(&b, node, measured, zh)
+				if family := types.FormatTraceFamilyMeasurement(node.FamilyMemberCount, node.FamilyMemberMaxMS, node.FamilyFoldCaliber, lang); family != "" {
+					fmt.Fprintf(&b, "; %s", family)
+				}
 				if zh {
 					b.WriteString("。\n")
 				} else {
@@ -467,6 +470,9 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 						}
 					}
 					traceFinalReaderWriteCumulativeRole(&b, node, measured, zh)
+					if family := types.FormatTraceFamilyMeasurement(node.FamilyMemberCount, node.FamilyMemberMaxMS, node.FamilyFoldCaliber, lang); family != "" {
+						fmt.Fprintf(&b, "; %s", family)
+					}
 					if zh {
 						b.WriteString("。\n")
 					} else {

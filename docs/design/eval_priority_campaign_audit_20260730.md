@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-13）
 
+本轮续审§123.1792：基线`1758653c6`与远端同步。更正r1067交接审计：47条家族计量记录/成员最大0.782ms到过explorer，但finalizer同一12.658ms行未带该口径，旁边独立10段/7.408ms不能借配，B1674公共复现与只读供给修复施工中。B1675只评估/恢复严格非空纯选择数组，不拆多份报告、不代选；这是窄兼容策略升级，非旧拒绝逻辑违规。写保留行为缺测未证实系统硬堵，既有inspect-or-add原生测试教学与通道均存在，不重复堆提示。待两片验收后按异构exact2继续，未预签已修或回放成功。
+
 最新回放§123.1791：r1067恰好两路各一次完成，H1机审PASS221s、Python写PASS202s，但两份人审均FAIL；Trace完整5段/3.094ms与投影保留，后文仍错次数/业务身份和范围；写原测试不降杆但单LF回归。B1672真实一次模型重交恢复5项JSON且保正文，B1122真实失败反例供给生效。唯一required合同获真断言，未发现累计义务逃逸；通用显示计数B1673已修复并推送`0eb7b6d23`，公共RED→GREEN、count3/race、整个orchestrator套件及提交后清洁构建通过。不以机器PASS销清行为覆盖/模型解释债，不加单例关键词门。
 
 本轮续修§123.1790：B1122原生失败反例供给`92079e976`、B1672可选根因选择机会`731e06e99`已分别提交推送；公共先红后绿、独立count3/race/冷审、冻结86包全仓与提交后清洁构建均通过。B1672是对§40.59“合法省略不加轮”策略的显式升级：只复用已有共享一次机会，省略仍合法、可拒绝补充、已有答案保留，不代选、不改结论、不增加独立重试门。r1067按H1显式窗Trace与Python跨仓写严格并行2、各一次完成，机器与人工分列终局见§123.1791。
@@ -57407,6 +57409,17 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1792 B1674/B1675：计量成员口径交接与根因选择容器兼容（2026-09-13）
+
+1. **审计更正，不覆盖原产物**：§1791.3和r1067人工报告此前把“explorer收到47”扩大为“finalizer也收到47”。逐层核对首轮finalizer INIT（原日志1730–3220）后，12.658ms家族数值多面保留，但其`FamilyMemberCount=47`、`FamilyMemberMaxMS=0.782`没有随行进入成文上下文；独立10段/7.408ms清单另有明确数量，不能并账。故数量/单成员最大值误配有系统交接缺口，不仅是模型消费错误。对端次数、协议业务归属与长S泛化的精确事实仍已供给，继续独立保留，不将全部误述都归于这一缺口。
+2. **B1674/P1任务**：只读复用现有compiled `FamilyMember*`与fold载体，现有行就地补充“计量记录数/单记录最大值/合并口径”，公共BuildAgentContext→BuildInitialInstruction先红后绿，覆盖中英、异构状态、同名异窗/来源、缺计数、未知口径与独立等待账户。不能借`MergedCount`（展示层折叠）冒充引擎家族成员数，不能把成员数或最大值直接叫物理IO次数/最长IO等待。保持模型正文、资格、数值、排序、两轴、显式窗和自动补齐不变；不扩选择器wire、不加第二个大提示段或文本硬门。
+3. **B1675/B1548窄兼容任务**：既有单元素完整report解包保留；仅新增非空纯`candidate_id`加可选`description`数组的当前schema2容器恢复，顺序和值交原binder。裸`[]`继续不恢复，标准对象的显式空选择/撤销不变；任何内层report/version、未知键、重复/大小写竞争键、多报告或显式版本冲突均不猜修。r1067的array-of-wrapped-items仍交既有B1672一次模型机会，不拼接嵌套报告。模型继续只学标准对象，不增加选满要求或重试预算；这是对B1654 bare-array负针的明确窄策略升级，不称旧实现越权。
+4. **写模式否证与保留债**：r1067首plan日志1037/1148、replan1399已经同源教导inspect or add native project assertion，singleton教导也已出现；`change_plan_validate.go`允许绑定本计划新增测试文件。planning-only可计划/运行、真实失败仍失败，不自动晋升required是正确权限边界。因此不新增重复教学或newline专门门。原生逐断言/逐合同执行能力B1561/B1575仍开放，模型未建边界测试不能只凭一次回放确认为随机波动或某个系统合同问题。
+5. **回放排期（尚未开始）**：复核243例（215读、25apply、3plan），按影响/风险/异构/最近覆盖/本机可验证性选两个、各一次。读`read_combo_answer_document_tools`最近实际20260816-081841，覆盖明确图表、源码literal与full/patch关系；写`github_issue_memoclaw_text_search_multirepo_py`最近r1060/20260911-011717（机器PASS175s），覆盖sync/async检索行为与多仓reference写边界。dateutil已r1063、C已r1065、fmt已r1066，不能误称它们长期未覆盖；本机Java/Rust/JS原生runtime不可用。memoclaw原Make是AST检查，不是动态行为正证；原case不改，核模型是否自然建立真调用/await验证，另行后验不得回填程序proof。没有图的用例不算图闭环，机器通过与人工判定分列；活跃流保持600/300/600s默认，不能按无可见答案年龄4ms/旧4m降级。
+6. **B1674冻结收据**：有效公共RED=`.codrax/tmp/20260914-b1674-public-red-final.log`（0.976s，4个中英×IO/调度正例丢同源计数/最大值，4个边界负例通过）；先前编译态/错误fixture不算产品RED。末版专项count3 types/context/agent=0.999/1.693/2.682s，race3=2.971/1.844/5.389s；主审独立B1674 count3 types/agent=1.154/1.972s（context无同名测试，不冒称该包实际新覆盖）。同capture主窗选举不改；异capture双窗与同capture未选窗不借值、同board异计量信息不被去重、未知/计数当量口径不猜毫秒均有公入口正反针。冷审暂无阻断，独立补背景/展示fold共存负针后收口。
+7. **B1675工具层已绿，但不能以此签端到端**：工具公共有效RED8臂1.022s；最终count3=4.323s、race3=29.178s。主审首个实际BaseAgent动态schema矩阵12格通过后，加“另一个字段需要修复”的反针，真实抓到上游洗白：通用`toolparam.Normalize`修复blocks等字段时map重序列化，使重复version/candidate_id消失，native对象与bare数组都能被错误发布。扩展20格10红（full/patch各5），合法native/bare和显式错误版本负控绿，日志`...20260913-b1675-agent-repair-ambiguity-red.log`，1.165s。此为精确结构歧义被抹除的既有同根风险，不是模型随机波动；同批补参数边界保真，不能靠坏可选载体硬拒整篇正文。完成后重新冻结测全套，不先跑live。
+8. **B1674独立收口**：另加真实公共入口8格中英×adjacent/background×原/逆序，匹配同一subject的非链99条/8.125最大值仍只作背景，不进入原链47条/.782席；Family缺max与Merged98/9并存也不借用。独立count3=0.956s、race3=5.234s（`...20260914-b1674-independent-review-{count3,race3}.log`），主审冷读四生产文件与全部三份新测试无阻断。先以专项/race/独立公共审阅交付独立小批，联合全仓在B1675参数歧义修复冻结后执行；不把当前专项称成全仓或自然模型已验证。
 
 ### §123.1791 r1067/B1673：恢复通道自然生效，机器通过不等于业务正确（2026-09-13）
 
