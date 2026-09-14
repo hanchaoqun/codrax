@@ -1,7 +1,9 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -197,8 +199,15 @@ const proseWallClockMainThreadDesignator = "主线程"
 type proseWallClockAccount struct {
 	subject string
 	tid     string
-	dims    map[proseWallClockDimension]float64
-	sleepIO float64
+	// These are the elected account's measurement coordinates, not a span
+	// inferred from the model's prose or a parent query's event envelope.
+	scope              types.TraceRuntimeAccountScope
+	windowScope        types.TraceQueryWindowScope
+	source             types.ObservationRecord
+	sourceKnown        bool
+	observationOrdinal int // display ordinal only, never rank or authority
+	dims               map[proseWallClockDimension]float64
+	sleepIO            float64
 	// ioWait (修复轮 件4, 2026-07-13): the account's OWN io_wait lane — the
 	// target_window_states partition is really FIVE states (donghu 常态
 	// io_wait>0), so the partition-fact decomposition must list it or its Σ
@@ -450,13 +459,12 @@ func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWal
 			if subject == "" || tid == "" || authority.TotalMS <= 0 {
 				continue
 			}
-			windowMS := authority.WindowMS
-			if windowMS <= 0 {
-				windowMS = authority.TotalMS
-			}
-			out = append(out, proseWallClockAccount{
+			acc := proseWallClockAccount{
 				subject: subject,
 				tid:     tid,
+				scope: types.TraceRuntimeAccountScope{ArtifactKey: authority.ArtifactKey, ArtifactLabel: authority.ArtifactLabel, Subject: subject,
+					WindowStartTs: authority.WindowStartTs, WindowEndTs: authority.WindowEndTs, WindowKnown: authority.WindowEndTs > authority.WindowStartTs},
+				windowScope: authority.WindowScope,
 				dims: map[proseWallClockDimension]float64{
 					proseWallClockDimRunning:  authority.RunningMS,
 					proseWallClockDimRunnable: authority.RunnableMS,
@@ -466,16 +474,18 @@ func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWal
 				sleepIO:  authority.SleepIOWaitMS,
 				ioWait:   authority.IOWaitMS,
 				totalMS:  authority.TotalMS,
-				windowMS: windowMS,
-			})
+				windowMS: authority.WindowMS,
+			}
+			acc.source, acc.sourceKnown = proseWallClockAuthoritySource(acc, authority.SourceRecordIDs, ledger)
+			out = append(out, acc)
 		}
 		proseWallClockMarkMainThreads(out, ledger)
-		return out
+		return proseWallClockOrderedAccounts(out)
 	}
 
 	var out []proseWallClockAccount
 	for _, record := range ledger.Records {
-		if strings.TrimSpace(record.Predicate) != "target_window_states" {
+		if !proseWallClockAccountRecordEligible(record) {
 			continue
 		}
 		subject := strings.TrimSpace(record.Subject)
@@ -489,6 +499,8 @@ func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWal
 		acc := proseWallClockAccount{
 			subject: subject,
 			tid:     tid,
+			scope:   types.TraceRuntimeAccountRecordScope(record),
+			source:  record, sourceKnown: true,
 			dims: map[proseWallClockDimension]float64{
 				proseWallClockDimRunning:  proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyRunning),
 				proseWallClockDimRunnable: proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyRunnable),
@@ -503,27 +515,121 @@ func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWal
 		if acc.totalMS <= 0 {
 			continue
 		}
-		if acc.windowMS <= 0 {
-			acc.windowMS = acc.totalMS
-		}
-		// Legacy records have no selected-window authority. Keep, per thread,
-		// the largest observed window as the old conservative comparator.
-		replaced := false
-		for i := range out {
-			if out[i].tid == acc.tid {
-				replaced = true
-				if acc.windowMS > out[i].windowMS ||
-					(acc.windowMS == out[i].windowMS && acc.totalMS > out[i].totalMS) {
-					out[i] = acc
-				}
-				break
-			}
-		}
-		if !replaced {
-			out = append(out, acc)
-		}
+		acc.windowScope = types.ResolveTraceQueryWindowScope(ledger.RuntimeArtifactScopeProfile, acc.scope.WindowStartTs, acc.scope.WindowEndTs)
+		// Missing authority does not license a same-TID union or largest-window
+		// election. Each legacy result keeps its own facts and uncertainty.
+		out = append(out, acc)
 	}
 	proseWallClockMarkMainThreads(out, ledger)
+	return proseWallClockOrderedAccounts(out)
+}
+
+// Match the shared projection compiler's precise source qualification. A
+// model aggregate can repeat a query producer name, but that text does not
+// turn model inference or soft grounding into a measured runtime account.
+// Missing legacy coordinates are independent: they remain displayable when
+// this runtime/hard/query receipt is present, with their scope disclosed.
+func proseWallClockAccountRecordEligible(record types.ObservationRecord) bool {
+	return strings.TrimSpace(record.Predicate) == "target_window_states" &&
+		record.Origin == types.AnswerEvidenceOriginRuntimeArtifact &&
+		record.GroundingPolicy == types.ClaimGroundingHard &&
+		types.RuntimeObservationProducerIsDeterministicQuery(record.Producer)
+}
+
+// The authority already elected the measurement. This is only a provenance
+// lookup, never a second election. A colliding ID cannot borrow a different
+// capture, window, subject, or result; even two otherwise matching receipts
+// with distinct filters remain unresolved rather than picking the first one.
+func proseWallClockAuthoritySource(acc proseWallClockAccount, ids []string, ledger types.ObservationLedger) (types.ObservationRecord, bool) {
+	wanted := map[string]bool{}
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			wanted[id] = true
+		}
+	}
+	var found types.ObservationRecord
+	have := false
+	for _, record := range ledger.Records {
+		if !wanted[strings.TrimSpace(record.ID)] || !proseWallClockAccountRecordEligible(record) {
+			continue
+		}
+		scope := types.TraceRuntimeAccountRecordScope(record)
+		if scope.ArtifactKey == "" || scope.ArtifactKey != acc.scope.ArtifactKey || scope.Subject != acc.subject ||
+			scope.WindowKnown != acc.scope.WindowKnown || scope.WindowStartTs != acc.scope.WindowStartTs || scope.WindowEndTs != acc.scope.WindowEndTs {
+			continue
+		}
+		if proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyTotal) != acc.totalMS ||
+			proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyRunning) != acc.dims[proseWallClockDimRunning] ||
+			proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyRunnable) != acc.dims[proseWallClockDimRunnable] ||
+			proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeySleep) != acc.dims[proseWallClockDimSleep] ||
+			proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyDState) != acc.dims[proseWallClockDimDState] ||
+			proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyIOWait) != acc.ioWait ||
+			proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeySleepIOWait) != acc.sleepIO {
+			continue
+		}
+		if have && !reflect.DeepEqual(found, record) {
+			return types.ObservationRecord{}, false
+		}
+		found, have = record, true
+	}
+	return found, have
+}
+
+func proseWallClockOrderedAccounts(accounts []proseWallClockAccount) []proseWallClockAccount {
+	// Stable display order only. It confers neither authority nor selection.
+	key := func(a proseWallClockAccount) string {
+		encoded, _ := json.Marshal(struct {
+			Scope                        types.TraceRuntimeAccountScope
+			Window                       types.TraceQueryWindowScope
+			Source                       types.ObservationRecord
+			Subject                      string
+			Dims                         map[proseWallClockDimension]float64
+			IO, SleepIO, Total, WindowMS float64
+		}{
+			a.scope, a.windowScope, a.source, a.subject, a.dims, a.ioWait, a.sleepIO, a.totalMS, a.windowMS})
+		return string(encoded)
+	}
+	type keyedAccount struct {
+		account proseWallClockAccount
+		key     string
+	}
+	rows := make([]keyedAccount, 0, len(accounts))
+	seen := map[string]bool{}
+	for _, account := range accounts {
+		k := key(account)
+		// Only a complete, byte-equal original result can collapse repeated
+		// publication. Equal values or missing provenance never merge rows.
+		if account.sourceKnown && account.scope.Complete() && account.source.SourceRef.Kind == types.ObservationSourceRuntimeArtifact &&
+			strings.TrimSpace(account.source.SourceRef.Path) != "" && strings.TrimSpace(account.source.SourceRef.QueryScopeID) != "" &&
+			types.RuntimeArtifactCaptureIdentityPath(account.source.SourceRef) != "" && strings.TrimSpace(account.source.ObservedAt) != "" &&
+			types.TraceRuntimeAccountRecordsSameResult(account.source, account.source) {
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+		}
+		rows = append(rows, keyedAccount{account, k})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i].account.windowScope, rows[j].account.windowScope
+		// A single total-order tuple applies to every row, including mixed
+		// legacy and member records: bound membership, ordinal, stable source.
+		ab, bb := a.RequestedWindowCount > 1 && a.RequestedWindowOrdinal > 0, b.RequestedWindowCount > 1 && b.RequestedWindowOrdinal > 0
+		if ab != bb {
+			return ab
+		}
+		if ab && a.RequestedWindowOrdinal != b.RequestedWindowOrdinal {
+			return a.RequestedWindowOrdinal < b.RequestedWindowOrdinal
+		}
+		return rows[i].key < rows[j].key
+	})
+	out := make([]proseWallClockAccount, 0, len(rows))
+	for i, row := range rows {
+		if len(rows) > 1 {
+			row.account.observationOrdinal = i + 1
+		}
+		out = append(out, row.account)
+	}
 	return out
 }
 
@@ -533,7 +639,8 @@ func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWal
 func proseWallClockMarkMainThreads(out []proseWallClockAccount, ledger types.ObservationLedger) {
 	for i := range out {
 		for _, record := range ledger.Records {
-			if proseWallClockSubjectTID(strings.TrimSpace(record.Subject)) != out[i].tid {
+			if out[i].scope.ArtifactKey == "" || types.TraceCausalProjectionRecordArtifactIdentity(record) != out[i].scope.ArtifactKey ||
+				strings.TrimSpace(record.Subject) != out[i].subject {
 				continue
 			}
 			if tgid := strings.TrimSpace(proseWallClockNoteValue(record.RichNotes, types.TraceNoteKeyTGID)); tgid != "" {

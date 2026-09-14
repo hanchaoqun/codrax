@@ -120,7 +120,8 @@ type proseFactThreadFacts struct {
 
 	tgid string
 
-	account *proseWallClockAccount
+	account  *proseWallClockAccount // one-account fixtures; production uses accounts
+	accounts []*proseWallClockAccount
 
 	confidences []float64
 }
@@ -147,7 +148,7 @@ type proseFactSeat struct {
 
 func (f proseFactThreadFacts) richness() int {
 	score := 0
-	if f.account != nil {
+	if f.account != nil || len(f.accounts) > 0 {
 		score += 3
 	}
 	if len(f.seats) > 0 {
@@ -285,8 +286,11 @@ func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *t
 	// presence → the thread's typed state account with the mutual-exclusion
 	// partition fact (pure presence trigger + typed listing; the reader
 	// juxtaposes — no relation reading of the prose).
+	partitionShown := map[*proseWallClockAccount]bool{}
 	if statePrincipalAllowed {
-		for _, f := range proseFactStatePartitionFindings(prose, facts) {
+		partitionFacts, shown := proseFactStatePartitionFindingsAndAccounts(prose, facts)
+		partitionShown = shown
+		for _, f := range partitionFacts {
 			add(f)
 		}
 	}
@@ -300,13 +304,31 @@ func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *t
 			}
 			return present[i] < present[j]
 		})
-		for i, tid := range present {
+		var rows []proseScalarBindingFinding
+		for _, tid := range present {
+			// General thread facts retain their existing scope. Never copy
+			// callers, lock roles, ranks or tgid into an account's query domain.
+			general := *facts[tid]
+			general.account, general.accounts = nil, nil
+			if zh, en := proseFactThreadLine(&general); zh != "" {
+				rows = append(rows, proseScalarBindingFinding{entry: en, entryZH: zh})
+			}
+			for _, account := range proseFactAccounts(facts[tid]) {
+				if partitionShown[account] {
+					continue
+				}
+				zh, en := proseFactThreadLine(&proseFactThreadFacts{subject: account.subject, account: account})
+				rows = append(rows, proseScalarBindingFinding{entry: en, entryZH: zh})
+			}
+		}
+		for i, row := range rows {
 			if i >= proseFactThreadCap {
 				break
 			}
-			if zh, en := proseFactThreadLine(facts[tid]); zh != "" {
-				add(proseScalarBindingFinding{entry: en, entryZH: zh})
-			}
+			add(row)
+		}
+		if len(rows) > proseFactThreadCap {
+			add(proseFactOmittedAccounts(len(rows)-proseFactThreadCap, false))
 		}
 	}
 
@@ -462,12 +484,12 @@ func buildProseFactEvidence(ledger types.ObservationLedger) map[string]*proseFac
 	for i := range facts {
 		facts[i].boardExists = boardExists
 	}
-	// four-state accounts.
+	// A TID selects potentially relevant entities; it is not a capture/window
+	// join key. Each elected account retains its own subject and provenance.
 	accounts := proseWallClockAccountsFromLedger(ledger)
 	for i := range accounts {
 		if f := get(accounts[i].subject); f != nil {
-			acc := accounts[i]
-			f.account = &acc
+			f.accounts = append(f.accounts, &accounts[i])
 		}
 	}
 	return facts
@@ -479,17 +501,23 @@ func buildProseFactEvidence(ledger types.ObservationLedger) map[string]*proseFac
 func proseFactNameIndex(facts map[string]*proseFactThreadFacts) map[string]map[string]bool {
 	nameToTIDs := map[string]map[string]bool{}
 	for tid, f := range facts {
-		if dash := strings.LastIndexByte(f.subject, '-'); dash > 0 {
-			name := f.subject[:dash]
-			if nameToTIDs[name] == nil {
-				nameToTIDs[name] = map[string]bool{}
-			}
-			nameToTIDs[name][tid] = true
-			if trimmed := strings.TrimLeft(name, "."); trimmed != name && trimmed != "" {
-				if nameToTIDs[trimmed] == nil {
-					nameToTIDs[trimmed] = map[string]bool{}
+		subjects := []string{f.subject}
+		for _, account := range proseFactAccounts(f) {
+			subjects = append(subjects, account.subject)
+		}
+		for _, subject := range subjects {
+			if dash := strings.LastIndexByte(subject, '-'); dash > 0 {
+				name := subject[:dash]
+				if nameToTIDs[name] == nil {
+					nameToTIDs[name] = map[string]bool{}
 				}
-				nameToTIDs[trimmed][tid] = true
+				nameToTIDs[name][tid] = true
+				if trimmed := strings.TrimLeft(name, "."); trimmed != name && trimmed != "" {
+					if nameToTIDs[trimmed] == nil {
+						nameToTIDs[trimmed] = map[string]bool{}
+					}
+					nameToTIDs[trimmed][tid] = true
+				}
 			}
 		}
 	}
@@ -690,12 +718,13 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 		// §40.49 合流复核收编: the exclusive non-IO D lane label is the
 		// single-source customer-face word (byte-equal with the body
 		// wall-clock partition / wait-coverage / reconciliation faces).
-		zh = append(zh, fmt.Sprintf("窗内五态 running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms",
+		az, ae := proseFactAccountSource(f.account)
+		zh = append(zh, fmt.Sprintf("窗内五态 running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms · %s",
 			f.account.dims[proseWallClockDimRunning], f.account.dims[proseWallClockDimRunnable],
-			f.account.dims[proseWallClockDimSleep], tool.TraceStateNonIODStateWord(true), f.account.dims[proseWallClockDimDState], f.account.ioWait))
-		en = append(en, fmt.Sprintf("in-window five-state running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms",
+			f.account.dims[proseWallClockDimSleep], tool.TraceStateNonIODStateWord(true), f.account.dims[proseWallClockDimDState], f.account.ioWait, az))
+		en = append(en, fmt.Sprintf("in-window five-state running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms · %s",
 			f.account.dims[proseWallClockDimRunning], f.account.dims[proseWallClockDimRunnable],
-			f.account.dims[proseWallClockDimSleep], tool.TraceStateNonIODStateWord(false), f.account.dims[proseWallClockDimDState], f.account.ioWait))
+			f.account.dims[proseWallClockDimSleep], tool.TraceStateNonIODStateWord(false), f.account.dims[proseWallClockDimDState], f.account.ioWait, ae))
 	}
 	if f.tgid != "" {
 		zh = append(zh, "tgid="+f.tgid)
@@ -733,23 +762,25 @@ func proseFactRankBoardScope(board types.TraceRankBoardDisplayIdentity) (string,
 	if artifact == "" {
 		artifact = board.ArtifactLabel
 	}
-	// Quoted scalar data cannot introduce new lines or Markdown code fences.
-	quote := func(value string, zh bool) string {
-		const scalarRuneLimit = 160
-		runes := []rune(value)
-		suffix := ""
-		if len(runes) > scalarRuneLimit {
-			if zh {
-				suffix = fmt.Sprintf("（另%d字符未展示）", len(runes)-scalarRuneLimit)
-			} else {
-				suffix = fmt.Sprintf(" (%d characters omitted)", len(runes)-scalarRuneLimit)
-			}
-			value = string(runes[:scalarRuneLimit])
-		}
-		return strings.ReplaceAll(strconv.Quote(value), "`", "\\`") + suffix
-	}
+	quote := func(value string, zh bool) string { return proseFactQuoteScalar(value, zh, 160) }
 	return fmt.Sprintf("〔工件=%s；目标=%s；查询窗=%.6f..%.6f；参数=%s〕", quote(artifact, true), quote(board.BoardTarget, true), board.WindowStartTs, board.WindowEndTs, quote(board.BoardParamsFingerprint, true)),
 		fmt.Sprintf(" [artifact=%s; target=%s; query=%.6f..%.6f; params=%s]", quote(artifact, false), quote(board.BoardTarget, false), board.WindowStartTs, board.WindowEndTs, quote(board.BoardParamsFingerprint, false))
+}
+
+// Quoted scalar data cannot introduce new lines or Markdown code fences.
+// Truncation is a disclosed display limit, never an identity operation.
+func proseFactQuoteScalar(value string, zh bool, limit int) string {
+	runes := []rune(value)
+	suffix := ""
+	if len(runes) > limit {
+		if zh {
+			suffix = fmt.Sprintf("（另%d字符未展示）", len(runes)-limit)
+		} else {
+			suffix = fmt.Sprintf(" (%d characters omitted)", len(runes)-limit)
+		}
+		value = string(runes[:limit])
+	}
+	return strings.ReplaceAll(strconv.Quote(value), "`", "\\`") + suffix
 }
 
 // proseFactEquationFindings — C-2 假等式臂: the only verdict lane, pure
@@ -1084,13 +1115,30 @@ func proseFactImplicitSubtractionMatch(unit proseTextUnit, xs, ys, zs []proseFac
 // sum). §29.53.2 discipline: the system never reads WHAT relation the prose
 // claimed — listing the typed partition is harmless under correct prose.
 func proseFactStatePartitionFindings(prose []proseTextUnit, facts map[string]*proseFactThreadFacts) []proseScalarBindingFinding {
+	findings, _ := proseFactStatePartitionFindingsAndAccounts(prose, facts)
+	return findings
+}
+
+func proseFactAccounts(f *proseFactThreadFacts) []*proseWallClockAccount {
+	if f == nil {
+		return nil
+	}
+	if len(f.accounts) > 0 {
+		return f.accounts
+	}
+	if f.account != nil {
+		return []*proseWallClockAccount{f.account}
+	}
+	return nil
+}
+
+func proseFactStatePartitionFindingsAndAccounts(prose []proseTextUnit, facts map[string]*proseFactThreadFacts) ([]proseScalarBindingFinding, map[*proseWallClockAccount]bool) {
 	var out []proseScalarBindingFinding
 	nameToTIDs := proseFactNameIndex(facts)
 	emitted := map[string]bool{}
+	shown := map[*proseWallClockAccount]bool{}
+	omitted := 0
 	for _, unit := range prose {
-		if len(out) >= proseFactPartitionCap {
-			break
-		}
 		if len(proseFactUnitStateValueDims(unit)) < 2 {
 			continue
 		}
@@ -1100,18 +1148,35 @@ func proseFactStatePartitionFindings(prose []proseTextUnit, facts map[string]*pr
 		}
 		sort.Strings(tids)
 		for _, tid := range tids {
-			if emitted[tid] || len(out) >= proseFactPartitionCap {
-				continue
-			}
-			zh, en := proseFactPartitionFact(facts[tid])
-			if zh == "" {
+			if emitted[tid] {
 				continue
 			}
 			emitted[tid] = true
-			out = append(out, proseScalarBindingFinding{entry: en, entryZH: zh})
+			for _, account := range proseFactAccounts(facts[tid]) {
+				if len(out) >= proseFactPartitionCap {
+					omitted++
+					continue
+				}
+				zh, en := proseFactPartitionFact(&proseFactThreadFacts{subject: account.subject, account: account})
+				if zh == "" {
+					continue
+				}
+				shown[account] = true
+				out = append(out, proseScalarBindingFinding{entry: en, entryZH: zh})
+			}
 		}
 	}
-	return out
+	if omitted > 0 {
+		out = append(out, proseFactOmittedAccounts(omitted, true))
+	}
+	return out, shown
+}
+
+func proseFactOmittedAccounts(n int, partition bool) proseScalarBindingFinding {
+	if partition {
+		return proseScalarBindingFinding{entryZH: fmt.Sprintf("本分区栏另有 %d 条状态账户未逐条展示；不能据此认定其不存在或已被其他账户覆盖。", n), entry: fmt.Sprintf("%d additional state accounts are not expanded in this partition section; omission does not establish absence or coverage by another account.", n)}
+	}
+	return proseScalarBindingFinding{entryZH: fmt.Sprintf("本线程事实栏另省略 %d 条记录（含独立状态账户）；未展示不表示不存在。", n), entry: fmt.Sprintf("%d more thread-fact records (including independent state accounts) are omitted here; omission does not establish absence.", n)}
 }
 
 // proseFactUnitStateValueDims returns the DISTINCT scheduler-state
@@ -1158,6 +1223,10 @@ func proseFactPartitionFact(f *proseFactThreadFacts) (string, string) {
 		return "", ""
 	}
 	a := f.account
+	subject := a.subject
+	if subject == "" {
+		subject = f.subject
+	}
 	r := a.dims[proseWallClockDimRunning]
 	q := a.dims[proseWallClockDimRunnable]
 	s := a.dims[proseWallClockDimSleep]
@@ -1165,9 +1234,10 @@ func proseFactPartitionFact(f *proseFactThreadFacts) (string, string) {
 	io := a.ioWait
 	sum := r + q + s + d + io
 	head := fmt.Sprintf("事实对照：%s — 窗内五态账 running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms · 五态为互斥分区,同一时刻仅居一态,不存在包含关系",
-		f.subject, r, q, s, tool.TraceStateNonIODStateWord(true), d, io)
+		subject, r, q, s, tool.TraceStateNonIODStateWord(true), d, io)
 	headEN := fmt.Sprintf("Evidence reference: %s — in-window five-state account running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms · the five states are a mutually exclusive partition — one state at any instant, none contains another",
-		f.subject, r, q, s, tool.TraceStateNonIODStateWord(false), d, io)
+		subject, r, q, s, tool.TraceStateNonIODStateWord(false), d, io)
+	scopeZH, scopeEN := proseFactAccountSource(a)
 	diff := sum - a.windowMS
 	if diff < 0 {
 		diff = -diff
@@ -1180,13 +1250,95 @@ func proseFactPartitionFact(f *proseFactThreadFacts) (string, string) {
 			r, q, s, d, io, sum, a.windowMS)
 		en := headEN + fmt.Sprintf(" (Σ=%.3f+%.3f+%.3f+%.3f+%.3f=%.3fms, window %.3fms)",
 			r, q, s, d, io, sum, a.windowMS)
-		return zh, en
+		return zh + " · " + scopeZH, en + " · " + scopeEN
 	}
 	// Unbalanced (or windowless): list the actual Σ and the window side by
 	// side WITHOUT the identity claim (回退措辞 — the reader sees both).
+	if a.windowMS <= 0 {
+		return head + fmt.Sprintf("(Σ五态=%.3fms;窗长未明确)", sum) + " · " + scopeZH,
+			headEN + fmt.Sprintf(" (Σ five states=%.3fms; window duration not stated)", sum) + " · " + scopeEN
+	}
 	zh := head + fmt.Sprintf("(Σ五态=%.3fms;窗长 %.3fms)", sum, a.windowMS)
 	en := headEN + fmt.Sprintf(" (Σ five states=%.3fms; window %.3fms)", sum, a.windowMS)
-	return zh, en
+	return zh + " · " + scopeZH, en + " · " + scopeEN
+}
+
+// One source formatter for both account faces. All coordinates come from the
+// elected measurement and its exact producer receipt; absent data remains
+// explicit. Parent query filters are not inferred from an event span.
+func proseFactAccountSource(a *proseWallClockAccount) (string, string) {
+	ref := a.source.SourceRef
+	source := strings.TrimSpace(ref.Path)
+	if !a.sourceKnown {
+		source = ""
+	}
+	z, e := "来源未明确", "source not stated"
+	if source != "" {
+		z, e = "来源文件="+proseFactQuoteScalar(source, true, 320), "source file="+proseFactQuoteScalar(source, false, 320)
+	} else if a.scope.ArtifactLabel != "" {
+		z, e = "已知采集标识="+proseFactQuoteScalar(a.scope.ArtifactLabel, true, 320)+"（具体结果来源未明确）",
+			"known capture label="+proseFactQuoteScalar(a.scope.ArtifactLabel, false, 320)+" (specific result source not stated)"
+	}
+	if a.observationOrdinal > 0 {
+		z = fmt.Sprintf("测量记录 %d；", a.observationOrdinal) + z
+		e = fmt.Sprintf("measurement record %d; ", a.observationOrdinal) + e
+	}
+	if capture := strings.TrimSpace(ref.CaptureIdentityPath); a.sourceKnown && capture != "" && capture != source {
+		z += "；捕获来源=" + proseFactQuoteScalar(capture, true, 320)
+		e += "; capture source=" + proseFactQuoteScalar(capture, false, 320)
+	}
+	z += "；测量窗=" + types.FormatTraceRuntimeAccountWindow(a.scope.WindowStartTs, a.scope.WindowEndTs, "zh")
+	e += "; measurement window=" + types.FormatTraceRuntimeAccountWindow(a.scope.WindowStartTs, a.scope.WindowEndTs, "en")
+	if note := a.windowScope.Format("zh"); note != "" && (a.windowScope.RequestedWindowKnown || a.windowScope.RequestedWindowCount > 1) {
+		z += "；" + note
+		e += "; " + a.windowScope.Format("en")
+	}
+	if a.sourceKnown && ref.QueryWindowKnown && (ref.QueryWindowStartTs != a.scope.WindowStartTs || ref.QueryWindowEndTs != a.scope.WindowEndTs) {
+		z += "；查询时间范围=" + types.FormatTraceRuntimeAccountWindow(ref.QueryWindowStartTs, ref.QueryWindowEndTs, "zh")
+		e += "; query time range=" + types.FormatTraceRuntimeAccountWindow(ref.QueryWindowStartTs, ref.QueryWindowEndTs, "en")
+	}
+	if a.sourceKnown && (ref.QueryTargetPID > 0 || strings.TrimSpace(ref.QueryTargetThread) != "") {
+		z += "；筛选目标="
+		e += "; target filter="
+		if ref.QueryTargetPID > 0 {
+			z += fmt.Sprintf("tid/pid=%d", ref.QueryTargetPID)
+			e += fmt.Sprintf("tid/pid=%d", ref.QueryTargetPID)
+		}
+		if ref.QueryTargetThread != "" {
+			z += " 名称=" + proseFactQuoteScalar(ref.QueryTargetThread, true, 160)
+			e += " name=" + proseFactQuoteScalar(ref.QueryTargetThread, false, 160)
+		}
+		if ref.QueryTargetScope == "thread" {
+			z += "（线程）"
+			e += " (thread)"
+		} else if ref.QueryTargetScope == "process" {
+			z += "（进程）"
+			e += " (process)"
+		} else {
+			z += "（作用域未明确）"
+			e += " (scope not stated)"
+		}
+	} else {
+		z += "；筛选目标未明确"
+		e += "; target filter not stated"
+	}
+	if a.sourceKnown && ref.QueryLineRangeKnown {
+		if ref.QueryLineStart == 0 && ref.QueryLineEnd == 0 {
+			z += "；未施加行号过滤"
+			e += "; no line filter"
+		} else {
+			z += fmt.Sprintf("；行号过滤=%d..%d", ref.QueryLineStart, ref.QueryLineEnd)
+			e += fmt.Sprintf("; line filter=%d..%d", ref.QueryLineStart, ref.QueryLineEnd)
+		}
+	} else {
+		z += "；行号过滤未明确"
+		e += "; line filter not stated"
+	}
+	if !a.sourceKnown || (strings.TrimSpace(ref.PayloadRef) == "" && strings.TrimSpace(ref.RawRef) == "") {
+		z += "；查询结果来源未明确"
+		e += "; query result source not stated"
+	}
+	return z, e
 }
 
 // --- small helpers -------------------------------------------------------------

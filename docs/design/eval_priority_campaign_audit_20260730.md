@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-13）
 
-本轮施工§123.1785：已fetch核对main=`157bf64be`与远程一致、工作区干净；优先B1618-P2b完整来源账户（P1），并行复核B1667关系导航声明结束边界（P2，承接r1064原见证）。先公共入口复现、修复及正负回归，再独立冷审/全仓构建/分批提交推送。后续按当前case实盘多维排序，仅两例并行各一次，不改原oracle追绿。模型正文与JSON、图表关系、Trace链上/背景权限、自动补齐和活跃流等待不新增原文硬门。
+本轮施工§123.1785：B1667导航边界/类型选择修复已推`b05a595c6`；B1618-P2b完整来源账户及legacy测量资格均已公共先红后绿、专项count3/race和独立终审通过，最终冻结86包全仓+构建通过，按批交付。下一r1065仅H11 Trace与libgit2 C写两例并行各一次，不改原oracle追绿。模型正文与JSON、图表关系、Trace链上/背景权限、自动补齐和活跃流等待不新增原文硬门。
 
 本轮最新§123.1784：B1626已推`4fed22871`，r1064审计已推`cdede1402`。r1064严格exact2各一次：E1双窗机器PASS109s但人工FAIL（模型scope填整trace、未自然触发新成员路径）；Python机器/人工FAIL424s、14拒绝13patch，确认B1647c系统端点恢复与修补范围比较自冲突。本批B1647c已推`b36ca8936`，真实公共先红后绿、单侧/限定词与权限负控、count3/race/独立冷审/最终冻结86包全测和提交后make通过；退役第二套身份匹配，改用同次系统正规化私有收据，原可见答案与证据门不动。B1618-P2b同TID账户丢来源/窗的旧gap新增附注见证，完整来源批排下一顺位，导航结束边界另记P2。原产物保留，不以机器过例替代链路闭环，不追第三例。
 
@@ -57413,10 +57413,15 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. B1618-P2b公共RED=`20260913-b1618-public-red.log` orchestrator1.084s，实际TraceQuery→正常ledger/附注入口，多窗/同名双capture/行过滤×zh/en×反序12格失败；源路径/QueryScopeID/Payload在producer已存在，故不是客户trace缺数据。当前实现中，最终全仓及冷审待续，不预签通过。
 8. 实盘243个case：read215/apply25/plan3，其中62个read显式附Trace；下一批冻结r1065候选H11（sealed stub、233.190ms窗、47段完成闭合IO阻塞12.658ms与58.320ms供给、两轴/自动补采）+libgit2 C症状写（原生可执行、轮换近轮Python），exact2各一次，原case/oracle/CAP5/整例1200s不变。分别审补丁正确/原生执行/逐合同证明，不预期本批附注修复能关闭既存write证明债；不选H8旧词面oracle或临时改原case追绿。
 9. 活跃流专项本轮实际复跑count3=`20260913-active-stream-count3.log` llm24.606s、exit0：含默认600/300/600、活跃thinking/tool/正文、未成行原始字节跨4ms、keepalive跨旧总时长、真静默与调用者取消。未改超时实现或引入新总时长门。
-10. B1667所有repomap子包实测`20260913-b1667-repomap-all.log` exit0：repomap4.436s/index1.794s/multigraph1.958s/relation0.545s/render3.703s/retrieve3.256s/topology4.700s/types5.049s。只提交该消费者小差及测试、本轮台账，B1618进行中文件不混入；最终全仓及同版本make待B1618冻结后组合验收。
+10. B1667所有repomap子包实测`20260913-b1667-repomap-all.log` exit0：repomap4.436s/index1.794s/multigraph1.958s/relation0.545s/render3.703s/retrieve3.256s/topology4.700s/types5.049s。已独立提交推送`b05a595c6`，只含该消费者小差及测试、本轮台账，B1618进行中文件未混入；最终全仓及同版本make待B1618冻结后组合验收。
 11. JSON教学只读续审：r1064 log331实际收到共享多窗说明、535模型主动填full_artifact且无scalar/list；兼容仅补answer_role_profile，缺失scope才默认unspecified，没有系统清空该次合法成员表。共享教学在skill与emit schema同源，未发现本轮必带/必拒矛盾；“完整文件”例子靠前且53k上下文重复有软教学负担，不能称已证明随机波动。另记旧兼容观察：full_artifact+scalar会清端点、full_artifact+list会拒绝，尚无公开RED/本轮生产见证，不归因r1064；后续先三scope×两载体矩阵，不能自动重判模型scope或从prose猜窗，本批不扩大施工。
 
-状态：`B1618-P2b=public-red/implementation-matrix-in-progress`；`B1667=implemented/public-red-green/count3-race-cold-review-repomap-all-pass/pending-commit`；`live=not-started`；`stream-defaults=600/300/600s/no-active-total-age-degrade`。
+12. B1618-P2b来源主差已通过公开扩展矩阵和独立冷审：每个账户保留自己的完整subject/capture/测量窗/查询filter；仅按已选SourceRecordIDs及完整坐标/状态值重联原记录，碰撞明确未知，不另做选举。未知来源等值记录保持独立显示序号，只有完整来源完全相同可去重；请求多窗顺序优先于时间排序。分区栏与线程栏共享来源说明且不重复同一账户，预算维持并披露省略数；线程其他排名/锁角色/TGID不复制到各账户。原模型文档与工具结果逐字不变。真实Query矩阵后绿0.949s；独立identity矩阵count3=1.132s/race=2.291s；第一冻结组合count3=1.364s/race=3.908s，原日志保留，不把修后增补矩阵追称RED。
+13. 尾部冷审另确认并修复同路径旧债：公开AggregateFacts编译可保留模型自报Provenance=trace_query、runtime origin与target_window_states Members，但实际ClaimAuthority仍ModelInference、GroundingPolicy为soft/repairable；legacy消费者只看producer会把它发布成测量事实。独立公共RED经真实event_search→总开关→模型aggregate→正常ledger/附注复现4个中英失败臂，包1.040s（原工具回执68013，未另存日志）；普通aggregate负控与Hard legacy缺窗正控均绿。最小修复让fallback与原记录重联共用既有runtime origin+Hard+deterministic producer资格；不加强窗口/receipt完整性要求，不丢真实未知账户，不借本批改其他一般线程事实。公开先绿`20260913-b1618-authority-green.log`1.155s，独立复测0.998s；最终5文件组合`...final-qualified-count3.log`1.010s、`...final-qualified-race.log`4.012s，独立终审无阻断。此问题不是本批新引入，也没有新live见证；最后5个Go输入已冻结后启动全仓，期间零源码改动。
+
+14. 最终组合冻结验收通过：`20260913-b1618-b1667-full-final.log`记录`go test ./... -count=1` exit0、86个有测试包全部通过、0失败行；`20260913-b1618-b1667-build-check.log`记录make exit0。5个本批Go/test文件在全仓前后SHA256一致，过程中只更新文档。B1667也因此获得同一组合全仓验证；B1618本次提交包含2生产+3测试和台账。提交后再clean make，以该HEAD不可变快照跑r1065，不把本轮fixture直接当自然LLM采纳正证。
+
+状态：`B1618-P2b=implemented/public-red-green/count3-race-cold-review/frozen86packages-build-pass/pending-commit`；`B1667=pushed-b05a595c6/combined-full-pass`；`r1065=planned-exact2/not-started`；`stream-defaults=600/300/600s/no-active-total-age-degrade`。
 
 ### §123.1784 B1647c：本次身份正规化收据与局部修补合同统一（2026-09-12）
 
