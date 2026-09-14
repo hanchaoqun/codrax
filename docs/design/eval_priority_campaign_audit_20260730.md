@@ -1,6 +1,8 @@
 # Eval 多维优先级与泛化审计战役（2026-07-30）
 
-## 最新进展导航（2026-09-12）
+## 最新进展导航（2026-09-13）
+
+本轮施工§123.1785：已fetch核对main=`157bf64be`与远程一致、工作区干净；优先B1618-P2b完整来源账户（P1），并行复核B1667关系导航声明结束边界（P2，承接r1064原见证）。先公共入口复现、修复及正负回归，再独立冷审/全仓构建/分批提交推送。后续按当前case实盘多维排序，仅两例并行各一次，不改原oracle追绿。模型正文与JSON、图表关系、Trace链上/背景权限、自动补齐和活跃流等待不新增原文硬门。
 
 本轮最新§123.1784：B1626已推`4fed22871`，r1064审计已推`cdede1402`。r1064严格exact2各一次：E1双窗机器PASS109s但人工FAIL（模型scope填整trace、未自然触发新成员路径）；Python机器/人工FAIL424s、14拒绝13patch，确认B1647c系统端点恢复与修补范围比较自冲突。本批B1647c已推`b36ca8936`，真实公共先红后绿、单侧/限定词与权限负控、count3/race/独立冷审/最终冻结86包全测和提交后make通过；退役第二套身份匹配，改用同次系统正规化私有收据，原可见答案与证据门不动。B1618-P2b同TID账户丢来源/窗的旧gap新增附注见证，完整来源批排下一顺位，导航结束边界另记P2。原产物保留，不以机器过例替代链路闭环，不追第三例。
 
@@ -57399,6 +57401,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1785 B1618-P2b与B1667：来源账户和声明边界续修（2026-09-13）
+
+1. 基线`157bf64be`已fetch、与origin/main一致，无本地积压；上一轮B1647c已交付，不重新修改其证据门。B1618-P2b沿用原案，B1667承接§1783.6已记导航EndLine问题，不重复造同根工单。
+2. **B1618-P2b/P1任务**：先真实TraceQuery→ledger→附注公开路径复现同TID多capture/多窗来源丢失；保留来源、目标、测量窗和可用查询范围，不再由线程号单槽选一个账户；未知来源/边界诚实说明，禁止从正文猜A/B。矩阵包含独立capture同TID、同capture不同窗、反序、精确重复、legacy缺边界、zh/en、引用与模型正文所有权；保留可消除/占用两轴、链上根因和普通单窗路径。
+3. **B1667/P2任务**：关系导航使用符号开始行却未检查已知结束行，导致类方法结束后的注册调用被挂到已结束的方法；同函数服务call/inheritance/embedding/reference/type_usage，故采用共享边界规则而非注册语法特判。先GenerateViewData/RenderMarkdown公开层RED及所有语言载体、内部/终点/越界/嵌套/未知结束行正反矩阵；不修改提取器、缓存版本、模型图或提升导航为语义证据。
+4. 验收/交付顺序：公共RED→GREEN→专项count3/race→独立审阅→按批提交推送→组合输入冻结后全仓/make→清洁版本构建后exact2异构回放与人审。B1667独立小差先以全部repomap子包验收收住，不等待较大的B1618尾部矩阵；组合全仓完成前不预签全仓绿。若模型选错scope或自行推断错误，保留原产物和结果，不改模型答案、不新增关键词硬门、不以同例追绿抵销。
+5. B1667已取得公开导航层RED：`20260913-b1667-public-red.log` render0.944s，15语言×5关系种类×6边界形共450格，120个已知结束行越界/嵌套错误，另90个type_usage选择为空。后一问题是同层参数正规化先把下划线改为连字符、未回到原canonical enum，故本批一并修复。仅加已知EndLine排除及type-usage→type_usage映射；未知结束行维持原导航，关系不删除，回到正确外层或文件级位置。
+6. B1667新增默认/underscore/hyphen/大小写/重复/参考分类的类型使用选择正控。最终整个render包count3=`...render-final-count3.log` 0.975s，导航矩阵race count3=`...render-final-race.log` 2.365s，均exit0，独立只读冷审无阻断。首轮EndLine修后count3/race仍被90个类型选择问题阻断的原log保留；不把它改称全绿。此矩阵从parser-owned struct边界进GenerateViewData/RenderMarkdown，不冒称15种语言真实解析器全部E2E；提取器、缓存与typed关系证据门未变，same-start tie/未知EndLine旧近邻行为不在本批闭环范围。
+7. B1618-P2b公共RED=`20260913-b1618-public-red.log` orchestrator1.084s，实际TraceQuery→正常ledger/附注入口，多窗/同名双capture/行过滤×zh/en×反序12格失败；源路径/QueryScopeID/Payload在producer已存在，故不是客户trace缺数据。当前实现中，最终全仓及冷审待续，不预签通过。
+8. 实盘243个case：read215/apply25/plan3，其中62个read显式附Trace；下一批冻结r1065候选H11（sealed stub、233.190ms窗、47段完成闭合IO阻塞12.658ms与58.320ms供给、两轴/自动补采）+libgit2 C症状写（原生可执行、轮换近轮Python），exact2各一次，原case/oracle/CAP5/整例1200s不变。分别审补丁正确/原生执行/逐合同证明，不预期本批附注修复能关闭既存write证明债；不选H8旧词面oracle或临时改原case追绿。
+9. 活跃流专项本轮实际复跑count3=`20260913-active-stream-count3.log` llm24.606s、exit0：含默认600/300/600、活跃thinking/tool/正文、未成行原始字节跨4ms、keepalive跨旧总时长、真静默与调用者取消。未改超时实现或引入新总时长门。
+10. B1667所有repomap子包实测`20260913-b1667-repomap-all.log` exit0：repomap4.436s/index1.794s/multigraph1.958s/relation0.545s/render3.703s/retrieve3.256s/topology4.700s/types5.049s。只提交该消费者小差及测试、本轮台账，B1618进行中文件不混入；最终全仓及同版本make待B1618冻结后组合验收。
+11. JSON教学只读续审：r1064 log331实际收到共享多窗说明、535模型主动填full_artifact且无scalar/list；兼容仅补answer_role_profile，缺失scope才默认unspecified，没有系统清空该次合法成员表。共享教学在skill与emit schema同源，未发现本轮必带/必拒矛盾；“完整文件”例子靠前且53k上下文重复有软教学负担，不能称已证明随机波动。另记旧兼容观察：full_artifact+scalar会清端点、full_artifact+list会拒绝，尚无公开RED/本轮生产见证，不归因r1064；后续先三scope×两载体矩阵，不能自动重判模型scope或从prose猜窗，本批不扩大施工。
+
+状态：`B1618-P2b=public-red/implementation-matrix-in-progress`；`B1667=implemented/public-red-green/count3-race-cold-review-repomap-all-pass/pending-commit`；`live=not-started`；`stream-defaults=600/300/600s/no-active-total-age-degrade`。
 
 ### §123.1784 B1647c：本次身份正规化收据与局部修补合同统一（2026-09-12）
 

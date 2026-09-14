@@ -537,6 +537,8 @@ func normalizeRelationMapKinds(raw []string) []string {
 			item = "inheritance"
 		case "references":
 			item = "reference"
+		case "type-usage":
+			item = "type_usage"
 		}
 		if item == "" || seen[item] {
 			continue
@@ -1018,6 +1020,13 @@ func relationMapEnclosingSymbol(fi *types.FileInfo, line int) *types.Symbol {
 	for i := range fi.Symbols {
 		sym := &fi.Symbols[i]
 		if sym.Line <= 0 || sym.Line > line {
+			continue
+		}
+		// A known declaration extent is inclusive. A later observation cannot
+		// belong to an already-ended declaration; keep the containing outer
+		// declaration or the existing file-level fallback instead. Missing
+		// legacy extents retain advisory navigation, never call authority.
+		if sym.EndLine > 0 && line > sym.EndLine {
 			continue
 		}
 		if best == nil || sym.Line >= best.Line {
