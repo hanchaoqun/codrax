@@ -9453,10 +9453,11 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 	if !sig.BypassBudget {
 		t.Fatal("completion-ready hint should bypass ordinary mid-loop budget pressure")
 	}
-	if !strings.Contains(sig.Hint, "emit_investigation_complete") || !strings.Contains(sig.Hint, "close-ready") {
-		t.Fatalf("hint should direct immediate closure, got: %s", sig.Hint)
+	if !strings.Contains(sig.Hint, "emit_investigation_complete") || !strings.Contains(sig.Hint, "basic evidence-collection checks") ||
+		!strings.Contains(sig.Hint, "do not certify accepted completion") {
+		t.Fatalf("hint should suggest a completion attempt without certifying its contracts, got: %s", sig.Hint)
 	}
-	for _, want := range []string{"answer-ready faces", "tool sources", "file coverage", "answer evidence"} {
+	for _, want := range []string{"collection-check faces", "tool sources", "file coverage", "answer evidence"} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("completion-ready hint should record ready face %q, got: %s", want, sig.Hint)
 		}
@@ -10313,8 +10314,9 @@ func TestObserveMidLoop_CompletionReadyFiresForArchitectureNarrativeCarriers(t *
 	if sig.HintKey != "explorer.mid-loop.completion-ready" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
 	}
-	if !strings.Contains(sig.Hint, "architecture/mechanism explanation") {
-		t.Fatalf("hint should explain narrative carrier basis, got: %s", sig.Hint)
+	if !strings.Contains(sig.Hint, "grounded definition/mechanism carriers are collected") ||
+		!strings.Contains(sig.Hint, "do not prove the requested connections or value transfers") {
+		t.Fatalf("hint should state narrative carrier basis without certifying relations, got: %s", sig.Hint)
 	}
 }
 
@@ -11614,8 +11616,9 @@ func TestObserveMidLoop_ExactAbsenceClosureBacklogBeatsGenericReadWithoutEmit(t 
 	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.closure-ready-backlog.") {
 		t.Fatalf("HintKey = %q, want closure-ready-backlog prefix", sig.HintKey)
 	}
-	if !strings.Contains(sig.Hint, "exact-absence closure is already established") {
-		t.Fatalf("hint should preserve exact-absence closure framing, got: %s", sig.Hint)
+	if !strings.Contains(sig.Hint, "exact-absence check has established its bounded scope") ||
+		!strings.Contains(sig.Hint, "do not certify accepted completion") {
+		t.Fatalf("hint should preserve bounded exact absence without certifying all completion checks, got: %s", sig.Hint)
 	}
 }
 

@@ -174,7 +174,7 @@ type explorerEvaluator struct {
 	midLoopExecRedirectSent                 bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
 	midLoopExplanationAnchorSent            bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
 	midLoopCommandMeasurementPathSent       bool // one-shot: typed command measurement needs its post-explore carrier/compile path, not the analyzer lane
-	midLoopCompletionReadySent              bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
+	midLoopCompletionReadySent              bool // one-shot: advisory evidence-collection readiness hint already pushed this dispatch
 	midLoopCandidateUniverseSent            bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
 	midLoopCompletionReadyEscalated         bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
 	midLoopCompletionReadyClosureSent       bool // one-shot: post-ready navigation grace was already consumed without structured progress
@@ -6973,17 +6973,17 @@ func (e *explorerEvaluator) postClosureReadyBacklogSignal(obs LoopObservation) L
 	if navCount == 0 {
 		return LoopSignal{}
 	}
-	state := "the current branch is already closure-ready"
+	state := "the earlier basic evidence-collection checks suggested trying to finish the current branch"
 	if e.midLoopExactAbsenceSent && !e.midLoopCompletionReadySent {
-		state = "the exact-absence closure is already established"
+		state = "the exact-absence check has established its bounded scope"
 	}
+	hint := "Progress check: " + state + ", and this batch returned to navigation without a structured handoff. " +
+		"If the newly opened lines address a returned repair or change the answer, emit one grounded `emit_evidence(items=[...])` batch from those lines. " +
+		"Once the returned repairs are addressed, try `emit_investigation_complete(reason, confidence, result_kind)`. Keep further verification targeted instead of widening to neighboring files by default."
 	return LoopSignal{
-		HintRequested: true,
-		HintKey:       fmt.Sprintf("explorer.mid-loop.closure-ready-backlog.%d", obs.Iteration),
-		Hint: "Progress check: " + state + ", but this batch reopened navigation before finishing the answer. " +
-			"If the new lines you opened truly change the answer, emit exactly ONE grounded `emit_evidence(items=[...])` repair batch from those lines now. " +
-			"Otherwise stop and call `emit_investigation_complete(reason, confidence, result_kind)` immediately. " +
-			"Do NOT keep widening scope or opening more neighboring files from here.",
+		HintRequested:  true,
+		HintKey:        fmt.Sprintf("explorer.mid-loop.closure-ready-backlog.%d", obs.Iteration),
+		Hint:           e.scopeCollectionReadinessHint(obs, hint),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -8223,6 +8223,39 @@ func emitInvestigationCompleteSoftDowngrade(result *types.ToolResult, mutable *t
 	return !mutable.IsInvestigationComplete()
 }
 
+// scopeCollectionReadinessHint qualifies only advisory wording. Collection
+// counts and ERM breadth checks do not certify the completion/answer contracts.
+// The most recent actual completion result owns its feedback; neither prose
+// nor an OR over historical failures may create a new gate, permission, repair
+// debt, or completion state. New evidence can address a returned repair before
+// the next completion attempt, so do not claim that repair is still unresolved.
+func (e *explorerEvaluator) scopeCollectionReadinessHint(obs LoopObservation, hint string) string {
+	hint += " Basic evidence-collection checks do not certify accepted completion; required relation, value-consumer, coverage, and answer checks remain separate."
+	if e == nil || e.investigationComplete || (e.mutable != nil && e.mutable.IsInvestigationComplete()) {
+		return hint
+	}
+	latest := obs.LastToolResult
+	if latest == nil || latest.ToolName != "emit_investigation_complete" {
+		latest = nil
+		for i := len(obs.AllToolResults) - 1; i >= 0; i-- {
+			if obs.AllToolResults[i].ToolName == "emit_investigation_complete" {
+				latest = &obs.AllToolResults[i]
+				break
+			}
+		}
+	}
+	if latest == nil {
+		return hint
+	}
+	if emitInvestigationCompleteSoftDowngrade(latest, e.mutable) || (!latest.Success && latest.Repair != nil) {
+		return hint + " The most recent completion attempt was not accepted. Follow its returned typed repair targets with the available tools, then retry completion; if you have already supplied that repair evidence, retry for validation. The earlier collection hint does not override that feedback."
+	}
+	if !latest.Success {
+		return hint + " The most recent completion call failed. Correct the reported invocation problem before retrying; an earlier collection hint is not a successful completion receipt."
+	}
+	return hint
+}
+
 func (e *explorerEvaluator) postClosureRepairSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if e.midLoopClosureRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_investigation_complete" {
 		return LoopSignal{}
@@ -8922,11 +8955,11 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	e.midLoopCompletionReadySent = true
 	e.midLoopCompletionReadyIter = obs.Iteration
 	var b strings.Builder
-	b.WriteString("Progress check: the current structured evidence appears close-ready on the current branch. ")
-	b.WriteString("Prefer closing with `emit_investigation_complete(reason, confidence, result_kind)` instead of widening by default. Put the concise conclusion and any important boundary in `reason`. ")
+	b.WriteString("Progress check: the basic evidence-collection checks suggest trying to finish the current branch. ")
+	b.WriteString("Once any returned typed repairs are addressed, try `emit_investigation_complete(reason, confidence, result_kind)` instead of widening by default. Put your concise conclusion and any important boundary in `reason`. ")
 	b.WriteString("Use `result_kind=\"resolved\"` unless this is a genuine honest-zero / not-found answer.\n")
 	if len(e.ermRequirements) > 0 && readiness.ERMSatisfied {
-		b.WriteString("- all current evidence requirements are satisfied\n")
+		b.WriteString("- the current evidence-breadth guidance checks are satisfied\n")
 	}
 	if readiness.AuthoritativeClosure {
 		b.WriteString("- authoritative log frames already carry grounded call/mechanism anchors on the current branch\n")
@@ -8955,17 +8988,17 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		b.WriteString("- a grounded owner / definition anchor already identifies the requested literal and its source location\n")
 	}
 	if readiness.NarrativeCarrier {
-		b.WriteString("- architecture/mechanism explanation has enough grounded defining/mechanism carriers for the requested narrative shape\n")
+		b.WriteString("- grounded definition/mechanism carriers are collected; these alone do not prove the requested connections or value transfers\n")
 	}
 	if readiness.MixedRuntimeSourceCarrier {
-		b.WriteString("- mixed runtime/current-source evidence has enough grounded current-source mechanism carriers for the external-observation lane\n")
+		b.WriteString("- mixed runtime/current-source evidence has collected mechanism carriers for the external-observation lane, within their own evidence scope\n")
 	}
 	if readiness.ExplanationAnchorTotal > 0 {
 		fmt.Fprintf(&b, "- topic anchors ready: %d / %d\n",
 			readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
 	}
 	if len(readiness.ReadyFaces) > 0 {
-		fmt.Fprintf(&b, "- answer-ready faces: %s\n", strings.Join(readiness.ReadyFaces, ", "))
+		fmt.Fprintf(&b, "- collection-check faces: %s\n", strings.Join(readiness.ReadyFaces, ", "))
 	}
 	if e.needsStructuredMemberSetHandoff(nil) {
 		b.WriteString("- this answer needs a structured principal `member_set`; your successful close must include `aggregate_facts` with kind=`member_set`, numeric `value`, and every principal member in `members`\n")
@@ -8974,7 +9007,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.completion-ready",
-		Hint:           b.String(),
+		Hint:           e.scopeCollectionReadinessHint(obs, b.String()),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -9771,14 +9804,14 @@ func (e *explorerEvaluator) postCompletionReadyEscalationSignal(obs LoopObservat
 		return LoopSignal{}
 	}
 	e.midLoopCompletionReadyEscalated = true
-	hint := "Progress check: an earlier hint marked the structured state as close-ready. Avoid broad adjacent-file widening by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one concrete unresolved branch if that branch could still change the final answer."
+	hint := "Progress check: an earlier basic evidence-collection assessment suggested trying to finish. Avoid broad adjacent-file widening by default. Address any returned typed repairs or targeted evidence gap that could change the answer, then try `emit_investigation_complete(reason, confidence, result_kind)`."
 	if e.driftBoundedCompletionReadyMode() {
-		hint = "Progress check: an earlier hint marked the current checkout as close-ready for the grounded failure path. Avoid reopening upstream-caller or older-build-only branches by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one contradiction if it would change the grounded current-branch answer."
+		hint = "Progress check: the earlier evidence-collection assessment concerned the grounded failure path in the current checkout. Avoid reopening upstream-caller or older-build-only branches by default. Address returned typed repairs or a targeted contradiction that changes the current-branch answer, then try `emit_investigation_complete(reason, confidence, result_kind)`."
 	}
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.completion-ready-escalated",
-		Hint:           hint,
+		Hint:           e.scopeCollectionReadinessHint(obs, hint),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -9811,19 +9844,19 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 		e.midLoopCompletionReadyEscalated = true
 	}
 	e.midLoopCompletionReadyClosureSent = true
-	hint := "Progress check: the structured state was already marked close-ready, and this batch spent effort on navigation without structured progress. Before broadening further, either emit exactly one evidence batch for a concrete contradiction found in the lines you opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now. If you continue reading, keep it to one evidence-changing branch."
+	hint := "Progress check: this batch returned to navigation after an earlier evidence-collection readiness hint, without new structured evidence. Materialize any returned repair or evidence-changing finding from the opened lines, then try `emit_investigation_complete(reason, confidence, result_kind)`. Keep any further reading targeted to the missing evidence."
 	if driftFastTrack {
-		hint = "Progress check: the grounded current branch was already marked close-ready, and this batch reopened navigation. Avoid tracing upstream-provenance or older-build-only branches from here unless one concrete contradiction would change the current-branch answer. Either emit exactly one repair batch for such a contradiction from the lines you already opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
+		hint = "Progress check: this batch reopened navigation after the current-branch evidence-collection hint. Avoid tracing upstream-provenance or older-build-only branches unless a targeted contradiction changes the current-branch answer. Materialize returned repairs or such a contradiction from the opened lines, then try `emit_investigation_complete(reason, confidence, result_kind)`."
 		if reason := e.driftBoundedCompletionHintReason(); reason != "" {
 			hint += " Reuse this bounded `reason` surface (or a weaker one): " + reason
 		}
 	} else if verifyGraceUsed {
-		hint = "Progress check: the structured state was already marked close-ready, and this batch spent the verification turn on navigation without emitting new structured evidence. Treat that verification branch as consumed unless the opened lines reveal a concrete contradiction. Either emit exactly one evidence batch for that contradiction, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
+		hint = "Progress check: this verification turn returned to navigation without emitting new structured evidence. An earlier collection hint did not validate completion. Emit the evidence from the opened lines that addresses returned repairs or changes the answer, then try `emit_investigation_complete(reason, confidence, result_kind)`. Keep further verification bounded to the remaining evidence gap."
 	}
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.completion-ready-closure-only",
-		Hint:           hint,
+		Hint:           e.scopeCollectionReadinessHint(obs, hint),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -11761,7 +11794,8 @@ func (e *explorerEvaluator) observeMidLoopWithContext(ctx *types.AgentContext, o
 	if sig := e.postProactiveClosureTargetSignal(ctx, obs); sig.HintRequested {
 		return sig
 	}
-	// Completion-ready is a typed close signal. It must beat generic
+	// Collection readiness is advisory, not an accepted completion receipt.
+	// Keep its existing priority ahead of generic
 	// "read more / materialize backlog" nudges once repair-specific
 	// blockers above have had their chance; otherwise a run can keep
 	// widening scope even after the answer faces are already covered.

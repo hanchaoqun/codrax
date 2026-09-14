@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1798：B1681已13ee5e072推送。r1070严格并行2各一次，读/写机PASS666/192s；写补丁独立后验通过但原生套件未由产品执行；读图可渲染但缺主数据流且正文错，人工未通过。B1682收集就绪/完成提示冲突与B1683旧图教学矛盾分批修复中；B1684数据流取证/覆盖范围、B1685同站点别名recipe去重及原生runner普查按ROI后继，不以机PASS签闭环。
+当前续修§123.1799：B1681已13ee5e072推送，r1070审计已521e564fe推送。B1682收集就绪/完成提示冲突与B1683旧图教学矛盾已完成公共先红后绿、独立冷审、重复/竞态测试及最终冻结全仓86包验收，随本条交付。r1070严格并行2各一次，读/写机PASS666/192s；写补丁独立后验通过但原生套件未由产品执行；读图可渲染但缺主数据流且正文错，人工未通过。B1684数据流取证/覆盖范围、B1685同站点别名recipe去重及原生runner普查按ROI后继，不以机PASS签闭环。
 
 已交付§123.1796：B1680外部工件来源交接教学`32a3287a5`已推送，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓和提交后清洁构建通过。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
 
@@ -57419,6 +57419,20 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1799 B1682/B1683：软提示与精确合同范围一致（2026-09-14）
+
+1. **B1682最小实现**：只改首次、backlog、escalated、closure-only四面Hint及共用范围说明。来源/载体/ERM结果不再被说成全部合同通过；`scopeCollectionReadinessHint`只读最近真实完成ToolResult和当前完成旗，尊重typed退回/实际调用失败。明确“若已补证则重试验证”，不把历史一次失败OR成永久未完成，也不铸新修复债。原计数、latch、时机、HintKey、预算、工具表、完成门与accepted即停原样保留。
+2. **B1682公共边界**：真实parser/ReadFile/EmitEvidence/Observe/complete的participant与consumer两lane先红后绿；补实际同窗TraceQuery→runtime-only blob read→完成、普通读正控、补证后重验与accepted StopRequested。5格最新结果/伪造prose边界检查不变的上下文/完成态。独立最终count3=1.453s；新旧收束族count3=1.222s。首个target日志因旧测试要求无关的mixed-carrier短语而红，保回该短语并明确scope后v2绿；不是改证据/权限追绿。三处原全称就绪措辞针升级为收集范围正针，时机/预算原断言未删。
+3. **B1683最小实现**：defaults中一条旧长教学退役角色箭头免证、label路径给整label授证、所有CamelCase需模块级符号与重复fence教学；显示/定位/关系三层分开，JSON字段继续由当轮schema独占。相邻relation doc三段也收窄：legacy无标签/词汇例外仅在canonical mandatory ownership不适用且无显式typed claim的展示车道；显示关系计数不构成关系证据。现有两条canonical合同不再复制，业务标签与模型选边/结论所有权保留，validator/schema/补全均无改动。
+4. **B1683公共与权限针**：Registry→BuildPromptContext→ToMessages覆盖zh/en两种输出语言×四语义图8臂、Trace2臂、legacy2臂。旧误导有效RED `20260914-b1683-public-red.log`0.807s；相邻legacy误导RED `...legacy-public-red.log`0.842s。初版skill/context整包count3=1.110/1.665s，专项race3=1.853s；既有关系权限6项对照1.141s，包含typed7axes无owner拒、合法非call关系、普通展示与runtime独立正控。这不是每种提取语言重新live的承诺；收尾版本收据见第6/8点。
+5. **联合验收与边界**：同栈措辞收尾前的`20260914-b1682-b1683-joint-race3.log` agent5.377/skill1.778s通过；收尾后补B1683竞态和完整冻结验收，见第6/8点。本批只修系统教学，不改r1070原产物、不替模型纠正文案或补图，不凭两提示片宣称10次成文拒绝全消除。B1684主数据流供给/覆盖、B1685同站点alias去重、原生runner执行证明继续排期。600/300/600s、active-byte存活、Trace显式窗/链上双轴/补齐/root旁路未改。
+6. **独立冷审收尾**：B1682无阻断；B1683初版把log frames说成仅身份/顺序，否定了原panic/crash同栈caller/callee教学，被冷审拦下。追加真实LogBundle→公共prompt的zh/en×单栈/peer四臂，WIP有效RED `20260914-b1683-same-stack-public-red.log`0.813s；只将句子改为保留artifact已建立的同栈关系、不造跨栈延续。最终16臂，skill/context整包count3=0.921/1.514s、专项race3=1.861s（两份`...-v2.log`），同栈/peer/普通信号guard冷审无阻断。此为公开上下文装配，不冒充EmitLogTriage或LLM E2E。初版完整86包exit0（`...-full.log`，agent72.752/tool334.141s）不倒签收尾版本；最终独立冻结验收见第8点。
+7. **B1684范围澄清**：只读审计确认两状态不是同scope互斥：参与者完整bool来自技术端点分量经唯一参与者身份桥的覆盖；`cross_component_value_handoff_status`只看紧凑精确端点分量数。两者可合法并列，但提示`one complete requested-participant relation`过宽，不能等同主数据流完整；也不能凭局部投影说整个程序不存在交接。现`partial_unproven`只指必需参与者覆盖，不能翻转其bool或复用它表示任意产物缺口。下一批先公共证明合法连接仍成立，再只收窄覆盖说明，随后审跨仓typed owner/producer-consumer供给。不是已证无根据的边，更不把某一次模型坏答案单因归给该提示。
+
+8. **最终冻结验收**：`20260914-b1682-b1683-full-v2.log`完整`go test ./... -count=1`86包exit0，agent64.276/tool330.830/hitraceconv139.595/tracequery102.002/tracediag13.574/llm29.235/orchestrator25.376/types42.106/skill8.257s；全部internal/cmd Go源码与测试的`20260914-b1682-b1683-freeze-v2-{before,after}.sha`逐字相同。独立文档冷审确认上述范围无夸大，远程fetch后HEAD与origin/main为0/0。随后提交推送及清洁构建；本批未追加live，不宣称已有生产加速比例或剩余图关系闭环。
+
+状态：`B1682/B1683=public-red+implementation/local-count3+race3+cold-pass/final-frozen-full86-pass/delivery`；`r1070=521e564fe-audit-pushed/originals-unchanged`；`B1684/B1685/native-runner=separate-open`；`system-model-prose/diagram/root-selection-authorship=none`。
 
 ### §123.1798 r1070：参与者接边不等于主数据流；两类教学自冲突优先修复（2026-09-14）
 

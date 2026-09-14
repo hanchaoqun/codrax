@@ -1095,6 +1095,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 
 `DiagramFacetGraph`/`DiagramPlan` 描述请求的节点、边和关系面。`internal/orchestrator/contract_check_block.go` 仍保留旧标签词汇推断，用于关系覆盖和词面偏差的 **SOFT advisory**；它不能替代严格关系证据门，也不能把 `DiagramRelUnknown` 当成已证关系或合法的显式 relation enum。标签与 typed 声明不一致、关系最小数量不足的这类提示不应升级为重写或硬拒。真正的调用、回复、时序或逻辑关系是否合法，仍由结构化载体和对应证据合同决定，不靠扫描用户请求或模型正文定案。
 
+**图教学边界（B1683）**：角色名、业务名与引用位置是显示/定位层，不给箭头或整个标签授证；把 file:line 塞进标签、删掉标签或删掉关系元数据，都不能避开当轮 mandatory typed relation ownership。无标签/词汇推断兼容只在原本允许的 presentation-only 车道有效，其关系数量计数不是证据。四种语义图形与各语言统一复用 canonical 关系合同，JSON字段只依当轮schema；Runtime Trace 仍走独立的同capture/目标/时间窗因果权威，模型负责图、标签和结论。
+
 ### 6.6 Validator 链 — 三层校验
 
 `internal/orchestrator/contract_check_block.go` 在 mutation 写入 Mutable 之前跑校验，HARD / Layer 2 / Layer 3 三层：
@@ -1326,6 +1328,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 | 输出 | StageOutput.{EvidenceItems, AnswerChains, FlowFindings, StageReport} + MutableState.TurnAArtifacts |
 
 工作模式见 §5.4 / §5.5 / §5.6。`ParseOutput` 的确定性管线：`ensureStructuredEvidence` 合并 emit_evidence buffer + markdown fallback → `groundEvidenceItems` → `mergeEvidenceItems` → `rankEvidenceByRelevance` → `scrubSiblingEvidenceBlocks` → `identifyAnswerChains` → `SetTurnAArtifacts`。
+
+**收集就绪不等于完成已验证（B1682）**：来源数、证据载体和ERM广度只支持软性收束建议，不能宣称所有关系/值接收方/覆盖/成文合同通过。首次、升级、后续导航和backlog四面提示共用这个范围说明；最近一次真实完成工具被退回时，提示尊重其typed反馈，已补证可以重试验证，不把历史失败OR成永久未完成。此说明只改变提示文字，不改提示时机、latch、工具权限、修复债或完成状态，不扫描模型/用户原文；真正accepted completion仍立即停止探索。
 
 **证据排名**：`rankEvidenceByRelevance = entity overlap × kindWeight × sourceWeight × bridgeBonus × producerBoost`。LLM 通过 emit_evidence 提交且非 ungrounded 的获 1.5x producerBoost；EvidenceConcrete kindWeight=0.50；axis affinity 通过 `axis::Affinity(PredicateAxis, AnchorKind)` 调节。
 
