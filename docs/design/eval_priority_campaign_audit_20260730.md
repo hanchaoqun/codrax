@@ -1,8 +1,10 @@
 # Eval 多维优先级与泛化审计战役（2026-07-30）
 
-## 最新进展导航（2026-09-13）
+## 最新进展导航（2026-09-14）
 
-本轮续审§123.1792：基线`1758653c6`与远端同步。更正r1067交接审计：47条家族计量记录/成员最大0.782ms到过explorer，但finalizer同一12.658ms行未带该口径，旁边独立10段/7.408ms不能借配，B1674公共复现与只读供给修复施工中。B1675只评估/恢复严格非空纯选择数组，不拆多份报告、不代选；这是窄兼容策略升级，非旧拒绝逻辑违规。写保留行为缺测未证实系统硬堵，既有inspect-or-add原生测试教学与通道均存在，不重复堆提示。待两片验收后按异构exact2继续，未预签已修或回放成功。
+本轮交付§123.1792：B1674计量成员口径交接`9cb1b7ff2`、B1675安全选择兼容及原始冲突保真`d83b8c72f`、B1676可寻址草稿重试教学`40c1ec826`已分批推送；公共先红后绿、count3/race、独立冷审、联合冻结86包全仓与清洁构建通过。模型正文/选根因权属、Trace两轴、显式窗、因果投影及补齐不变；外层包装竞争B1677仍未修，不夸JSON恢复全闭。
+
+最新回放§123.1793：r1068 exact2各一次完成，读PASS423s、写PASS156s，但完整人工验收均FAIL。读图语法可解析却仅两孤立节点，7拒9patch后带缺关系披露；写补丁及独立8格真调用后验正确，却把同语言AST检查铸成target_behavior/strong，B1678新确认P1。B1679仅修源码四处陈旧注释，agent整包与原合同race3通过，不能代销图供给或验证能力缺口。下一片优先B1677/B1678公共闭环，不追加第三例追绿；默认600/300/600s原样，67次请求均attempt1，未发生固定4ms/旧4m无正文降级。
 
 最新回放§123.1791：r1067恰好两路各一次完成，H1机审PASS221s、Python写PASS202s，但两份人审均FAIL；Trace完整5段/3.094ms与投影保留，后文仍错次数/业务身份和范围；写原测试不降杆但单LF回归。B1672真实一次模型重交恢复5项JSON且保正文，B1122真实失败反例供给生效。唯一required合同获真断言，未发现累计义务逃逸；通用显示计数B1673已修复并推送`0eb7b6d23`，公共RED→GREEN、count3/race、整个orchestrator套件及提交后清洁构建通过。不以机器PASS销清行为覆盖/模型解释债，不加单例关键词门。
 
@@ -57410,6 +57412,19 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1793 r1068/B1678/B1679：图关系未闭、静态项目检查能力过授与源码说明纠正（2026-09-14）
+
+1. 清洁`40c1ec82617e`按§1792排期strict exact2各一次，读组合题PASS423s、Python跨仓写PASS156s，机器2/2但人工完整验收2/2 FAIL（写补丁本身PASS）。原汇总及人工审计在`eval/parallel_selected_summary_evalcampaign_readcombo_memoclaw_r1068_20260914{,_manual_audit}.md`。原case/oracle/输出/补丁/测试不改，未追加第三路追绿；源码在live结束前冻结。
+2. 读产物`.codrax/output/20260914-003025.105-13880.md`有两个正确Name literal与full完整重写说明，但图只剩两孤立节点，无法回答所求流程；原Mermaid经项目实际bundle parse/render成功、SVG6832字节，仅为语法正证。1full+9patch、7拒、2finalizer dispatch；首次无操作证据的抽象precedence、后续无证control_flow/call被正确拒，模型自行删边，最终零边合同在已有补证预算1/1耗尽后带caveat交付。不是JSON畸形/答案消失/旧稿恢复/流超时。模型整块replace漏标题正文造成局部缩水，不归系统代删。
+3. 真正关系供给仍未闭：先探索evaluator头/测试注释，回补又只读FilterToolSchemas注释与body开头；精确的WriteString提示写入与一个guard不能替代工具选择/执行/结果路径。已有通用操作教学本轮被送达，不再堆同文。后继先审查导航、有限读取与实际操作消费；尚未确认新的确定性误拒，不凭这一例修改图硬门或断言纯模型波动。最终调度表遗漏首次preferPatchNext，额外Description首句把常量名当文字，人工仍不通过。B1676自然只命中拒稿base/暂存/接受，no-base报错与四base优先级为公共测试覆盖而非本次自然全覆盖。
+4. 写只改`memoclaw/client.py`，sync/async均POST `/v1/search`+正确JSON，签名/默认/原namespace/await/返回链保留；API/Make/原AST测试blob与兄弟仓均未改，没有自然新增原生测试或probe。独立真实调用/await的两模式×四输入8/8通过、原码8/8失败，记录`...20260914-r1068-memoclaw-native.json`，不回填formal proof。正式唯一验证是Make调用read_text/ast检查：report准确记录1 aggregate，最终用户面“1条验证结果”和非逐项证明说明正确（B1673/B1671自然正证），但不能抵销能力标签过授。
+5. **B1678-PROJECTCHECKEXECUTIONCAPABILITY1/P1确认**：`run_tests_changed_path_coverage.go`成功非probe命令先授`target_behavior`，仅driver/target语言不相交才降`source_static`。本次Python静态检查Python，report42行因此授行为，final399/405/412变strong/一个行为路径/verified；源静态不能授权执行的下游门消费了错误标签。此为旧B47-CAPCAL1“同语言project runner即target_behavior”假设需收窄，不把旧EVAL-B46-XMAKE2的精确路径检查权一并退役，也不只算逐assertion B1561/B1575缺口。首批设计：分开成功命令、精确受检路径、真实目标执行、逐行为断言四轴；复用/补充runner-owned执行性质与目标绑定收据，缺来源保unknown，合法静态/语法结果保原层级；不能从命令、测试名称、模型正文关键词推动态，也不能全局禁Make。公共RED需覆盖同语言AST/no-op、跨语言静态、真实项目断言+目标执行、混合路径、陈腐/异计划、失败与零测试，并纵切profile/impact/no-change/终态披露，暂不宣称已施工。
+6. 写的0硬/0软/12规划合同未被程序降杆或补成12份proof；模型内部误读planning-only为covered未成为这批终稿结论。一次expected_outcomes形状拒绝由模型重发，未证系统JSON教学冲突；不为该单形继续加提示。B1677外层参数归属P1方案见§1792.16，先公共复现再与答案可选载体权限同批闭环，不能仅单点guard引入正文误拒。
+7. **B1679/P2源码说明已纠正，运行代码零变更**：FilterToolSchemas顶注现明确reserved forceFull→preferPatchNext→≥2streak优先级，两patch-first都需可寻址base且patch工具实际在场；不把reserved escape当普通已执行路径，不把两次失败当patch一般资格。字段说明区分特殊nudge与首次局部repair；Observe旧“一次性”改至模型调用patch才ack、可按预算重发；nudge的base注释不再要求先成功。旧switch测试头只描述特殊分支并无错，不修改测试来拟合答案。四处仅注释，独立冷审无阻断，agent整包count1=56.423s、原合同race3=3.112s（`...20260914-b1679-{agent-full,contract-race3}.log`），非注释差异零；不声称这已修复读答案或减少了本次7拒。
+8. 本批67次模型请求（读49/写18）全attempt1，无provider重试/超时。默认首响应600s/流中字节静默300s/非流600s，4ms或旧4m无可见正文不降级；自然长边界未覆盖。两例均无Trace附件，Trace显式窗/两轴/根因旁路/补齐自然验收N/A，前述公共回归和86包全仓单列§1792，不能借非Trace机审PASS代销。
+
+状态：`r1068=machine2pass/human-read-fail+write-proof-fail/patch-pass/original-preserved`；`B1674/B1675/B1676=pushed/full86+clean-build-pass`；`B1677=confirmed-source-audit/public-red-next`；`B1678=confirmed-live+source/public-red-next`；`B1679=comments-only/agent-full+race3+cold-pass/delivered-with-this-entry`；`diagram-operation-supply=still-open`。
+
 ### §123.1792 B1674/B1675/B1676：计量交接、选择保真与补丁教学（2026-09-13—14）
 
 1. **审计更正，不覆盖原产物**：§1791.3和r1067人工报告此前把“explorer收到47”扩大为“finalizer也收到47”。逐层核对首轮finalizer INIT（原日志1730–3220）后，12.658ms家族数值多面保留，但其`FamilyMemberCount=47`、`FamilyMemberMaxMS=0.782`没有随行进入成文上下文；独立10段/7.408ms清单另有明确数量，不能并账。故数量/单成员最大值误配有系统交接缺口，不仅是模型消费错误。对端次数、协议业务归属与长S泛化的精确事实仍已供给，继续独立保留，不将全部误述都归于这一缺口。
@@ -57427,6 +57442,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 13. B1675最终相邻工具count3=4.959s/race3=38.394s；toolparam整包count3=0.721s/race3=1.533s，均绿（`...20260913-b1675-tool-final-{count3-v2,race3}.log`与`...-toolparam-final-{count3,race}.log`）。新增per-call私有错误状态触发原ownership census，已通过明确接口演进：只许可两个精确直接方法调用及参数数目，getter仅返回error；method value存储/传递、字段读写、未知方法/参数等9个逃逸负针继续红，原唯一创建/铸造/结果出口义务全保。该census有效RED1.158s，误落源码fixture导致的编译失败不算产品红。主审冷读生产、同源解码重构与新增回归无未披露阻断；联合全仓待B1676预期RED修正后执行。
 14. **B1676已实现**：仅在真实base通过既有身份可寻址校验后，允许附加patch交易重试结果；无context/Mutable/草稿、重复block身份四种早退不再伪铸“重交完整patch”下一步。无base错误准确说明已有accepted/rejected/staged草稿可修、首次或无可用稿须完整提交；root选择解析/暂存/可选披露的原defer顺序全保，合法base的结构拒绝仍有not_staged收据、完整重写仍可用。公共有效RED四格1.178s（`...20260913-b1676-base-availability-red.log`），最终专项count3 tool/agent=6.606/1.112s，race3=51.551/4.094s（`...20260914-b1676-final-{count3,race3}.log`）；独立冷审及race1=23.870s通过，覆盖原选择早退矩阵与所有权census，无阻断。不改模型正文，不靠报错文字扫描决定分支。
 15. **三批联合冻结验收通过**：`go test ./... -count=1` exit0，86个有测试包全绿；tool347.000s、agent85.574s、types49.250s、tracequery113.130s、hitraceconv157.234s、tracediag13.722s、llm28.372s。日志`...20260914-b1674-b1676-full.log`，测试前后internal/cmd Go文件SHA清单一致，期间未改源。B1675已推`d83b8c72f`；B1676随后独立提交。活跃流专项count3=30.019s（`...20260913-b1674-active-stream-count3.log`）：持续字节/语义增长不因4ms/旧4m无正文而降级，默认600/300/600s与明确取消/外层deadline不变；受控测试不冒称自然等待10分钟已覆盖。r1068尚未开始，待清洁构建后恰好双路一次。
+16. **B1677只读复审与后继任务冻结**：风险是通用Normalize先map再解包时替模型选了最后一个被消费包装，不只root selector；可影响本地/MCP工具参数归属，但未证明绕过既有plan/approval权限。共享检查应与既有schema-owned字段/direct优先function/有限字符串解包规则同源，仅识别实际消费包装的唯一、精确等价重复、歧义三态；无关metadata重复和未消费function不误拒。普通工具在有副作用前拒绝真实归属歧义；答案owner需同步拆正文/可选选择：共同正文可保留而坏选择只披露，正文竞争不得代选/拼接，一致且有效的选择按原pending生命周期保留。不能只把Raw locator的false当保护，也不能把off/audit当本地默认repair的安全证明。需以公共入口先红后绿覆盖反序、转义重复键、一个坏值、三mode、动态schema/registry/假MCP、full/patch/已有稿/遗漏/null/显式空及执行次数。当前仅设计，未施工、未伪称已可执行复现；前置局部compat helper是否会洗白同类包装仍需具体fixture证明，不凭调用顺序扩红。
+17. **r1068启动收据**：B1676独立提交推送`40c1ec826`，清洁make exit0（`...20260914-b1676-clean-build.log`），binary=`40c1ec82617e`、build=`2026-09-14T07:22:47Z`、远端0/0。07:23:24Z开始上述exact2各一次，原case/oracle不变、TIMEOUT1200s/CAP5；结果目录后缀`20260914-002324`，汇总`eval/parallel_selected_summary_evalcampaign_readcombo_memoclaw_r1068_20260914{,_manual_audit}.md`，runner=`...20260914-r1068-runner.log`。Go/build输入继续冻结，未启动第三路或预签机器/人工绿。
 
 ### §123.1791 r1067/B1673：恢复通道自然生效，机器通过不等于业务正确（2026-09-13）
 

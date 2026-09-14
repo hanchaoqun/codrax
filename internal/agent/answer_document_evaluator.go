@@ -90,6 +90,8 @@ type answerDocumentEvaluator struct {
 	// for the next attempt. Reset on a successful emit OR a
 	// successful patch attempt (the LLM has accepted the
 	// switch and we don't need to keep nagging).
+	// This is the streak-based nudge, not the earliest patch path:
+	// a local first-reject repair can already set preferPatchNext.
 	emitFullDocFailStreak int
 
 	// emptyBlocksRejectStreak / emptyBlocksRejectFingerprint drive the
@@ -15414,40 +15416,24 @@ func (e *answerDocumentEvaluator) ShouldStop(resp llm.Response, iteration int) b
 	return false
 }
 
-// FilterToolSchemas implements ToolSchemaFilter. Once the LLM has
-// failed an emit_answer_document call twice within this dispatch AND
-// the answer-document carrier already holds a previous payload that
-// emit_answer_document_patch can operate against, drop the full-emit
-// tool from the schema list. This forces the LLM to use the patch
-// path on the next attempt — the same recommendation
-// emitSwitchToPatchSignal already injects as a hint, here promoted
-// to schema-level enforcement so the model cannot ignore it.
+// FilterToolSchemas projects the next attempt's available emit tools from
+// typed repair state; it does not determine whether either tool accepts a
+// payload. Branch priority is:
 //
-// 2026-05-17 T2 architectural fix for the finalize-loop pattern: a
-// per-iter full doc re-emit costs ~40k context tokens, accumulates
-// new errors in unchanged blocks roughly half the time, and is the
-// primary driver of the multi-session retry chain. The patch path
-// preserves every unchanged block byte-identical via
-// unchanged_block_ids, so the next iter's reject surface shrinks to
-// the actual repair instead of the entire document.
+//   - reserved forceFullEmitNext escape: when full emit is offered, hide patch
+//     for this schema pass (the reserved branch is not an ordinary retry rule);
+//   - preferPatchNext: a local first-reject repair may already prefer patch;
+//   - otherwise, two or more consecutive full-emit failures prefer patch.
 //
-// Pre-conditions for filtering — short-circuit early when ANY fails:
+// Both patch-first branches require an addressable structured draft and an
+// offered patch tool before hiding full emit. The shared base resolver accepts
+// pending, accepted, retry-snapshot, or rejected drafts; prior full-emit success
+// is not required. Neither two failures nor the streak nudge is a general
+// prerequisite for using patch. Without a qualifying branch, preserve the
+// incoming schema list, including the complete-rewrite route when offered.
 //
-//   - patch base is available (a previous emit_answer_document or
-//     emit_answer_document_patch already populated
-//     ctx.Mutable.AnswerDocumentV2() or rs.PrevEmitJSON);
-//   - this dispatch already saw ≥2 consecutive full-emit failures
-//     (emitFullDocFailStreak ≥ 2, the same threshold the
-//     emitSwitchToPatchSignal nudge uses).
-//
-// Filter behaviour: walk the schema list, drop entries named
-// "emit_answer_document", keep all others (emit_answer_document_patch
-// stays + any orthogonal tools the skill exposes). The base slice
-// is NOT mutated — a fresh slice is returned so subsequent iters
-// re-derive from the unmodified base.
-//
-// Telemetry: a debug log line names the dropped tool + the streak
-// value so operators can grep traces for adoption.
+// Filtering preserves orthogonal tools and never mutates the input slice.
+// Debug messages distinguish first-reject, streak, and reserved escape paths.
 func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
 	if e == nil {
 		return schemas
@@ -15586,13 +15572,11 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		if sig := e.unexpectedFinalizerToolSignal(obs); sig.HintRequested {
 			return sig
 		}
-		// P3 (2026-05-10): switch-to-patch nudge after ≥ 2
-		// consecutive emit_answer_document failures. Fires once
-		// per dispatch (one-shot via emitPatchNudgeFired) and
-		// returns BEFORE the field-specific reject signal so the
-		// strategic guidance reaches the LLM at the highest
-		// salience slot. The reject signal still fires on the
-		// next iter via emitAnswerDocumentRejectSignal.
+		// The streak nudge may re-fire after ≥2 full-emit failures until
+		// a patch call acknowledges it, within the shared hint budget.
+		// It precedes the field-specific reject signal on this observation;
+		// otherwise that signal may independently request a local patch,
+		// including after the first rejected full draft.
 		if sig := e.emptyBlocksRejectBreakerSignal(ctx, obs); sig.StopRequested {
 			return sig
 		}
@@ -17757,8 +17741,8 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 //   - LastToolResult is not emit_answer_document (a patch call
 //     latches the nudge; other tools are ignored)
 //   - LastToolResult succeeded (streak resets)
-//   - no previous successful answer-document payload exists for the
-//     patch tool to use as its base
+//   - no addressable structured draft exists for the patch tool's base
+//     (pending, accepted, retry-snapshot, or rejected; success not required)
 //   - streak < 2 (only fires after the second failure to give the
 //     LLM one fair chance with the simpler full-doc path)
 //   - emitPatchNudgeFired (LLM has switched to patch; no need to
