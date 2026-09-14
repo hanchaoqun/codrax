@@ -970,9 +970,9 @@ type ChangeReport struct {
 	FailureSummary string `json:"failure_summary,omitempty"`
 
 	// FailureSummaryBlobRef is the blob path produced by run_tests
-	// when the runner's full stderr exceeds the inline cap and got
-	// offloaded via tool.StoreBlob. Empty when the summary fit
-	// inline OR when no blob was created. The planner can call
+	// for complete runner output: large output is offloaded via
+	// tool.StoreBlob, and failed verification also persists short output.
+	// Empty when no blob was created. The planner can call
 	// read_file with this path to page the complete content via
 	// offset/limit — Module D's "feed complete error to model"
 	// guarantee. Never used as the FailureSummary itself; the

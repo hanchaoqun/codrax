@@ -393,6 +393,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	surfaceEscalations := 0
 	var executedCmds []types.ExecutedCommand
 	var carriedVerificationDiagnostics []types.VerificationDiagnostic
+	var combinedOutputs []string
 
 	// finishReport attaches the typed execution evidence (surface +
 	// command rows + timestamp) to an outgoing ChangeReport before it
@@ -469,8 +470,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// audit facts the aggregate exit does; the installed report already
 	// carried them, only the summary used to drop them.
 	installFinishedReport := func(report *types.ChangeReport, base string) string {
+		// Short output must remain recoverable too: StoreBlob returns it
+		// inline, but this tool builds its own summary. Persistence is advisory
+		// and never changes the report verdict if writing the artifact fails.
+		if report != nil && !report.Passed && report.FailureSummaryBlobRef == "" {
+			report.FailureSummaryBlobRef = StoreBlobArtifact(ctx.WorkDir, t.Name(), "run-tests-failure-output.txt", runTestsCombinedOutput(combinedOutputs))
+		}
 		installRunTestsReport(ctx, report, dryRunProbe)
-		return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)
+		return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report) + renderRunTestsFailureContextSummary(report)
 	}
 	// provisionalReport is the mid-loop changed-path ledger: same typed
 	// evidence, no worktree audit (see finishReportForPlan).
@@ -594,10 +601,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			len(plans), ctx.RepoRoot, preferredRunner, len(declaredCoveragePlans), len(impactPlans))
 	}
 
-	var (
-		projectReports  []*types.ChangeReport
-		combinedOutputs []string
-	)
+	var projectReports []*types.ChangeReport
 	var preSuiteProbe *verificationProbeRunResult
 	preSuiteProbeConsumed := false
 	preSuiteProbeNonAuthoritative := false
@@ -1526,6 +1530,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 	report = finishReport(report)
 	summary := installFinishedReport(report, finishedReportSummary(report, renderAggregateTestSummary(ctx.RepoRoot, plans, projectReports, report)))
+	if ref == "" {
+		ref = report.FailureSummaryBlobRef
+	}
 	success := report.Passed
 	logging.Info("[run_tests] projects=%d passed=%v total=%d failed=%d",
 		len(projectReports), report.Passed, len(report.TestResults), countFailed(report.TestResults))
@@ -7589,14 +7596,8 @@ func renderTestSummary(runner string, report *types.ChangeReport) string {
 				break
 			}
 			fmt.Fprintf(&b, "\n  - %s (%s)", r.AssertionID, r.Suite)
-			if r.FailureDetail != "" {
-				// Clip failure detail to first line + ≤160 chars.
-				line := strings.SplitN(r.FailureDetail, "\n", 2)[0]
-				if len(line) > 160 {
-					line = types.CutPrefixRuneSafe(line, 160) + "..."
-				}
-				fmt.Fprintf(&b, "\n    %s", line)
-			}
+			// Details are rendered once from the installed report by the
+			// shared, globally bounded failure observation view.
 		}
 	}
 	return b.String()

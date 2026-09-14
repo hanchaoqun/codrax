@@ -165,9 +165,9 @@ func installChokePointCensus(fset *token.FileSet, files []*ast.File, result *ins
 					result.violate(fset, ret, "the choke point returns exactly one summary")
 					return true
 				}
-				const expectedComposition = "the choke point must return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)"
+				const expectedComposition = "the choke point must return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report) + renderRunTestsFailureContextSummary(report)"
 				terms := chokePointSummaryTerms(ret.Results[0])
-				if len(terms) != 3 {
+				if len(terms) != 4 {
 					result.violate(fset, ret, expectedComposition)
 					return true
 				}
@@ -176,7 +176,7 @@ func installChokePointCensus(fset *token.FileSet, files []*ast.File, result *ins
 					result.violate(fset, ret, expectedComposition)
 					return true
 				}
-				for i, helper := range []string{"renderRunTestsWorktreeAuditSummary", "renderRunTestsProbeGranularitySummary"} {
+				for i, helper := range []string{"renderRunTestsWorktreeAuditSummary", "renderRunTestsProbeGranularitySummary", "renderRunTestsFailureContextSummary"} {
 					call, isRender := isCallTo(terms[i+1], helper)
 					if !isRender || len(call.Args) != 1 {
 						result.violate(fset, ret, expectedComposition)
@@ -616,12 +616,13 @@ import "github.com/hanchaoqun/codrax/internal/types"
 func installRunTestsReport(ctx *types.BusContext, report *types.ChangeReport, dryRunProbe bool) {}
 func renderRunTestsWorktreeAuditSummary(report *types.ChangeReport) string { return "" }
 func renderRunTestsProbeGranularitySummary(report *types.ChangeReport) string { return "" }
+func renderRunTestsFailureContextSummary(report *types.ChangeReport) string { return "" }
 `
 
 const chokePointDefinition = `
 	installFinishedReport := func(report *types.ChangeReport, base string) string {
 		installRunTestsReport(ctx, report, dryRunProbe)
-		return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)
+		return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report) + renderRunTestsFailureContextSummary(report)
 	}
 `
 
@@ -643,6 +644,16 @@ func TestRunTestsInstallChokePointCensusSelfRed(t *testing.T) {
 			t.Fatalf("shape %q escaped (want %q); violations=%v", shape, want, texts)
 		})
 	}
+	expect("choke_point_drops_failure_context", chokePointPrelude+`
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+strings.Replace(chokePointDefinition, " + renderRunTestsFailureContextSummary(report)", "", 1)+`
+	return types.ToolResult{Summary: installFinishedReport(report, base)}
+}
+`, "must return base + renderRunTestsWorktreeAuditSummary(report)")
+	expect("choke_point_uses_foreign_failure_report", chokePointPrelude+`
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+strings.Replace(chokePointDefinition, "renderRunTestsFailureContextSummary(report)", "renderRunTestsFailureContextSummary(other)", 1)+`
+	return types.ToolResult{Summary: installFinishedReport(report, base)}
+}
+`, "renderRunTestsFailureContextSummary must be rendered from the installed report")
 	expect("bare_call_then_summary_base", chokePointPrelude+`
 func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
 	installFinishedReport(report, base)

@@ -2,7 +2,7 @@ package tool
 
 import "testing"
 
-// The extra disclosure is an explicit third addend, never a replacement for
+// Granularity and failure context are explicit addends, never replacements for
 // the audit sentence or another report installation. Mutating any one of
 // these structural obligations must remain red independently of runtime tests.
 func TestRunTestsInstallChokePointGranularityCompositionMutation(t *testing.T) {
@@ -16,17 +16,19 @@ func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *type
 }`
 	}
 	const install = "installRunTestsReport(ctx, report, dryRunProbe)\n"
-	const expression = "base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)"
+	const failureAddend = " + renderRunTestsFailureContextSummary(report)"
+	const expression = "base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)" + failureAddend
 	for _, tc := range []struct {
 		name, body string
 		valid      bool
 	}{
-		{"both disclosures", install + "return " + expression, true},
-		{"grouped additions", install + "return (base + (renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)))", true},
-		{"missing audit", install + "return base + renderRunTestsProbeGranularitySummary(report)", false},
-		{"missing granularity", install + "return base + renderRunTestsWorktreeAuditSummary(report)", false},
-		{"wrong audit report", install + "return base + renderRunTestsWorktreeAuditSummary(other) + renderRunTestsProbeGranularitySummary(report)", false},
-		{"wrong granularity report", install + "return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(other)", false},
+		{"all disclosures", install + "return " + expression, true},
+		{"grouped additions", install + "return (base + (renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report))" + failureAddend + ")", true},
+		{"missing audit", install + "return base + renderRunTestsProbeGranularitySummary(report)" + failureAddend, false},
+		{"missing granularity", install + "return base + renderRunTestsWorktreeAuditSummary(report)" + failureAddend, false},
+		{"missing failure context", install + "return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report)", false},
+		{"wrong audit report", install + "return base + renderRunTestsWorktreeAuditSummary(other) + renderRunTestsProbeGranularitySummary(report)" + failureAddend, false},
+		{"wrong granularity report", install + "return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(other)" + failureAddend, false},
 		{"different installed report", "installRunTestsReport(ctx, other, dryRunProbe)\nreturn " + expression, false},
 		{"duplicate granularity", install + "return " + expression + " + renderRunTestsProbeGranularitySummary(report)", false},
 		{"unknown addend", install + "return " + expression + " + unrelated(report)", false},

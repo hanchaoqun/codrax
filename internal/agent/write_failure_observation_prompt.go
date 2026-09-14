@@ -20,10 +20,14 @@ func buildWriteFailureObservationSection(ctx *types.AgentContext, consumer types
 			return ""
 		}
 		body := types.RenderVerificationFailureObservations(types.CurrentReportFailureObservations(report), false)
-		if body == "" {
-			return ""
+		var sections []string
+		if body != "" {
+			sections = append(sections, fmt.Sprintf("## Supplementary check observations\n\nReport plan: %q. These observations do not change the project suite verdict.\n%s", report.PlanID, body))
 		}
-		return fmt.Sprintf("## Supplementary check observations\n\nReport plan: %q. These observations do not change the project suite verdict.\n%s", report.PlanID, body)
+		if failures := types.RenderVerificationRunnerFailures(report); failures != "" {
+			sections = append(sections, failures)
+		}
+		return strings.Join(sections, "\n\n")
 	}
 	pack := ctx.Mutable.WriteContextPack()
 	if pack == nil {
