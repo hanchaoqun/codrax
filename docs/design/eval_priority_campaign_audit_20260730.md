@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-13）
 
+最新续修§123.1789：B1670投影缺证范围与B1671写验证计数口径已实现，分别公共先红后绿、count3/race及独立冷审通过；主审组合count3、冻结全仓86包和构建通过，按片交付中。只修系统上下文的范围与命名，不改模型正文、证据资格、根因选择策略或证明门。客户json_root_err的原因与可选补充机会提案见§1788.7–10，未把提案冒充已实施。
+
 本轮最新§123.1787–1788：B1669附件身份已推`1315520f0`，B1668定位及恢复动作已推`32b7c70e7`；公共先红后绿、count3/race、独立冷审、冻结86包全测及提交后清洁构建通过。r1066 exact2各一次结束：H6机器FAIL旧glyph/人工FAIL解释与合计，投影及可渲染图保留；C++机器FAIL未验证，最终代码与原测试/独立8016UBSan输入通过，累计证明仍缺。客户json_root_err已审：是从未提交根因选择，不是schema/磁盘/超时错误；本轮H6裸数组选择被拒是另一分支，沿B1548分别留账。B1122/B1561/B1575未闭债不代销，不新增正文原文硬门、不代选模型根因。
 
 本轮最新§123.1784：B1626已推`4fed22871`，r1064审计已推`cdede1402`。r1064严格exact2各一次：E1双窗机器PASS109s但人工FAIL（模型scope填整trace、未自然触发新成员路径）；Python机器/人工FAIL424s、14拒绝13patch，确认B1647c系统端点恢复与修补范围比较自冲突。本批B1647c已推`b36ca8936`，真实公共先红后绿、单侧/限定词与权限负控、count3/race/独立冷审/最终冻结86包全测和提交后make通过；退役第二套身份匹配，改用同次系统正规化私有收据，原可见答案与证据门不动。B1618-P2b同TID账户丢来源/窗的旧gap新增附注见证，完整来源批排下一顺位，导航结束边界另记P2。原产物保留，不以机器过例替代链路闭环，不追第三例。
@@ -57401,6 +57403,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1789 B1670/B1671：投影缺证范围与必需验证项口径（2026-09-13）
+
+1. 本批只处理§1788.12–13已经确认的两处系统上下文问题，生产基线`bdced6c2a`；未新增第三个live，r1066的机器/人工FAIL保持原结果。B1670优先修“单个投影没有关系”被扩写为“目标没有等待证据”；B1671另片修只计hard-required却名为所有required的统计说明。两者是系统软指导的范围/口径问题，不把其扩大为已证硬门自冲突，也不把模型本次所有错误归给这两个原因。
+2. **B1670-TRACEPROJECTIONBLOCKERSCOPE1/P1已实现、待提交。** `answer_document_final_decision_boundary.go`的compact缺target、compact缺waiter/holder、leader mechanism三处同源提示都限定为本projection或本row与其关系面。独立证明的等待仍按自己的capture/target/window和关系语义使用，Binder/完成闭合IO只是including例子而非白名单；独立等待不自动授holder身份或链上根因资格。没有从邻近行猜目标、补造持有者，或扫描/改写模型答案。
+3. B1670有效公共RED=`.codrax/tmp/20260913-b1670-public-red-qualified.log`，1.143s。8个语言×独立等待组合先确认实际发出compact+leader提示及Binder/IO正证，再因旧全称否定失败；6个旧身份控制原本通过。更早`...public-red.log`夹具缺ClaimKey、未触发目标提示，明确不计产品RED。末版16个公共子例含中英×无独立等待/Binder/IO/两者、正关系/未知holder/异target/异capture/缺target/窗外、同TID双capture异窗及正反序；输入事实、请求窗、投影、等待账户和模型文档快照不变。这是typed producer记录经BuildAgentContext→BuildInitialInstruction，不冒称TraceQuery工具或自然模型回放E2E。
+4. B1670末版专项count3=`...b1670-final-count3.log` 1.568s；race count3=`...b1670-final-race-count3.log` 3.420s；独立冷审复测0.972s。旧两条测试只把过宽句式的expected收窄，原数值、正关系、身份门和非链上背景边界断言均保留。实际根因选举/发布/自动补齐/时间窗和JSON合同无改动。
+5. **B1671-WRITEREQUIREDCONTRACTCOUNTCALIBER1/P2已实现、待提交。** `write_controller.go`复用ChangePlanVerificationBehaviorContracts、RequiredWriteBehaviorContractIDs、HardRequiredWriteBehaviorContractIDs与EffectiveVerificationConfidence/CoveredWriteBehaviorContractIDs；hard/soft是互斥集合，soft是已有全部required减hard，并非另抄分类规则。分别显示hard/soft必需及对应见证覆盖、planning-only，明确soft仍须证明；覆盖数不代表完整证明或工作流完成。当前与保留累计合同去重、退役ID排除及原见证兼容矩阵继续生效；nil/陈腐/planner-probe报告不凭空发验证证明。
+6. B1671有效公共RED=`...b1671-public-red-verified.log` 1.057s，实际BuildInitialInstruction已经显示soft未闭义务但旧计数缺失该类。初轮误假定任务区从plan而非WriteAnalysis取合同的夹具断言已纠正，未计为产品缺陷。5组新增回归覆盖分类、见证兼容、当前/累计/退役与去重、无权威报告、soft-only真实正证及nil helper；计划/报告/模型合同文字/证明账序列化前后恒等。旧5文件仅同步hard字段名或helper访问，原数值不削弱。
+7. B1671末版组合count3=`...b1671-final-count3.log` 1.212s、race=`...b1671-final-race.log` 2.349s、独立冷审复测1.504s，均通过。主审两批联合专项count3=`.codrax/tmp/20260913-b1670-b1671-joined-count3.log` 1.128s通过；冻结10个Go/test输入SHA已留`...b1670-b1671-before.sha256`，`go test ./... -count=1`正在执行，未提前签全绿。最终全仓/构建及分别提交推送收据待追加。
+8. 客户根因JSON仅作诊断：默认旁路必须产生合法JSON，不等于系统可强迫或替模型选择根因；`schema_version=2`为格式版本，`status=unavailable`与空数组表示未取得可用选择，不能解释为“已证明没有根因”。本片模型没有提交选择，与r1066 H6提交裸数组被拒是两条不同原因码。可选一次软补充机会是已记档的策略升级，未加入新续轮、硬拒绝或自动选项；原600/300/600秒默认、活跃SSE不按4ms/旧4分钟总时长降级保持不变。
+
+9. 冻结组合全仓验收`20260913-b1670-b1671-full-final.log` exit0，86个有测试包通过；其中agent66.708s、tool334.940s、tracequery104.790s、tracediag12.199s、types42.962s。10个Go/test输入在运行前后SHA256一致；构建`...b1670-b1671-build-check.log` exit0，期间只补任务文档、未再改源码。此为两批组合工作态验证，不冒称未提交源码已获得清洁HEAD构建或自然live正证。B1670先作为独立片交付；B1671随后独立提交，最后补清洁HEAD构建收据。
+
+状态：`B1670/B1671=implemented/public-red-green/count3-race-independent-review-pass/frozen86packages-build-pass/batched-delivery-in-progress`；`r1066=completed-exact2/no-third-live`；`B1548=diagnosed/optional-opportunity-proposed-not-implemented`；`B1122/B1561/B1575=open`；`model-answer-rewrite/root-auto-selection/prose-hard-gate=none`。
 
 ### §123.1788 r1066与客户根因JSON不可用诊断（2026-09-13）
 

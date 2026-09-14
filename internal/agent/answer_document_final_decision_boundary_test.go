@@ -1274,7 +1274,7 @@ func TestTraceFinalCompactAuthorityLedgerSeparatesWakeupFromTypedBlockingAndDire
 	got = renderTraceFinalCompactAuthorityLedger(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}})
 	if !strings.Contains(got, "target_direct_blocking_authority=`not_provided_by_projection`") ||
 		!strings.Contains(got, "direct_blocking_decision=`not_established`") ||
-		!strings.Contains(got, "say that no typed direct blocker was established for this target") ||
+		!strings.Contains(got, "this projection provides no typed waiter/holder relation for this target") ||
 		!strings.Contains(got, "do not promote a wakeup peer, IRQ peer, kernel caller, adjacent row, or another thread's blocking interval") ||
 		!strings.Contains(got, "wakeup_path_blocking_authority=`not_implied`") {
 		t.Fatalf("wakeup path without typed blocking row must stay below blocker authority:\n%s", got)
@@ -1503,7 +1503,7 @@ func TestTraceFinalLeaderMechanismCeilingIsSalientWithoutTypedTargetBlocker(t *t
 		"final_answer_mechanism_scope artifact=`customer.systrace`",
 		"subject=`worker-200`; target=`app-100`",
 		"only as on-chain work overlapping the interval before the target wakeup",
-		"No typed target-blocking relation establishes that the target waited for this work, waited for its completion, or was directly blocked by it",
+		"That surface alone does not establish that the target waited for this work, waited for its completion, or was directly blocked by it",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("final leader mechanism ceiling missing %q:\n%s", want, got)

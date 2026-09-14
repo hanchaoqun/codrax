@@ -1747,9 +1747,9 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 		relations := traceFinalTargetBlockingRelations(projection, target)
 		switch {
 		case target == "":
-			fmt.Fprintf(&b, "- compact_authority artifact=`%s`: target_direct_blocking_authority=`unavailable_without_typed_target`; direct_blocking_decision=`not_established`; wakeup_path_blocking_authority=`not_implied`. If the question asks for a direct blocker, disclose that the typed target is unavailable instead of promoting a wakeup peer or adjacent blocking row.\n", label)
+			fmt.Fprintf(&b, "- compact_authority artifact=`%s`: target_direct_blocking_authority=`unavailable_without_typed_target`; direct_blocking_decision=`not_established`; wakeup_path_blocking_authority=`not_implied`. This projection provides no typed target for its waiter/holder relation check; do not infer one from a wakeup peer or adjacent blocking row. Independently proved waits retain their own capture, target, and window; their absence from this projection is not evidence that those waits did not occur.\n", label)
 		case len(relations) == 0:
-			fmt.Fprintf(&b, "- compact_authority artifact=`%s`: target=`%s`; target_direct_blocking_authority=`not_provided_by_projection`; direct_blocking_decision=`not_established`; wakeup_path_blocking_authority=`not_implied`. If the question asks for a direct blocker, say that no typed direct blocker was established for this target. Describe wakeup edges as wakeup/dependency relations; do not promote a wakeup peer, IRQ peer, kernel caller, adjacent row, or another thread's blocking interval into the target's direct blocker.\n", label, target)
+			fmt.Fprintf(&b, "- compact_authority artifact=`%s`: target=`%s`; target_direct_blocking_authority=`not_provided_by_projection`; direct_blocking_decision=`not_established`; wakeup_path_blocking_authority=`not_implied`. This absence means only that this projection provides no typed waiter/holder relation for this target. It does not negate independently proved waits, including Binder or completion-closed IO, in the same capture, target, and window; use each only for the relationship it actually proves. Those waits do not by themselves establish a holder relation or root-cause eligibility. Describe wakeup edges as wakeup/dependency relations; do not promote a wakeup peer, IRQ peer, kernel caller, adjacent row, or another thread's blocking interval into the target's direct blocker.\n", label, target)
 		default:
 			for _, relation := range relations {
 				fmt.Fprintf(&b, "- compact_authority artifact=`%s`: target=`%s`; target_direct_blocking_authority=`typed_waiter_holder`; direct_blocking_decision=`established_by_typed_relation`; waiter=`%s`; holder=`%s`; blocking_kind=`%s`; row_identity=`%s`.\n",
@@ -1871,8 +1871,10 @@ func renderTraceFinalSynthesisScope(set types.TraceCausalProjectionSet, frameEvi
 
 // renderTraceFinalLeaderMechanismCeiling gives the model one concise reminder
 // at the final synthesis tail when a published direction leader is upstream
-// work before the target wakeup but no typed target blocker exists. The
-// detailed per-row authority remains in the ledger above; this line only keeps
+// work before the target wakeup but the projection has no typed target
+// waiter/holder relation. Absence on that surface is not a verdict on
+// independently proved waits. Detailed per-row authority remains in the
+// ledger above; this line only keeps
 // that typed distinction salient after a long prompt. An exact target
 // waiter/holder relation suppresses the negative reminder so stronger typed
 // authority is never erased. No request or answer prose is inspected.
@@ -1916,11 +1918,11 @@ func renderTraceFinalLeaderMechanismCeiling(set types.TraceCausalProjectionSet) 
 			identity := types.TraceRankBoardDisplayIdentityFromNode(projection, node)
 			traceRankWriteDirectionDomain(&b, identity)
 			if identity.Complete {
-				b.WriteString(": describe this selected leader only as on-chain work overlapping the interval before the target wakeup. ")
+				b.WriteString(": From this row and the projection's waiter/holder surface alone, describe this selected leader only as on-chain work overlapping the interval before the target wakeup. ")
 			} else {
-				b.WriteString(": describe this independent observed row only as on-chain work overlapping the interval before the target wakeup, not as a shared direction leader. ")
+				b.WriteString(": From this row and the projection's waiter/holder surface alone, describe this independent observed row only as on-chain work overlapping the interval before the target wakeup, not as a shared direction leader. ")
 			}
-			b.WriteString("No typed target-blocking relation establishes that the target waited for this work, waited for its completion, or was directly blocked by it.\n")
+			b.WriteString("That surface alone does not establish that the target waited for this work, waited for its completion, or was directly blocked by it. It does not negate independently proved waits, including Binder or completion-closed IO, in the same capture, target, and window; use each only for the relationship it actually proves. Those waits do not by themselves establish a holder relation or root-cause eligibility.\n")
 		}
 		if len(candidates) > 0 || leaderTotal > leaderShown {
 			fmt.Fprintf(&b, "  - mechanism_scope_preview: emitted=%d; eligible_among_shown_leaders=%d; omitted_by_leader_preview=%d; omitted_by_mechanism_preview=%d. Query identities are authoring metadata, not answer wording; preview omission does not remove evidence or grant a cross-board leader.\n",
