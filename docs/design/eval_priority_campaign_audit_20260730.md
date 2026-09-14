@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-13）
 
-本轮最新§123.1786：B1667已推`b05a595c6`，B1618账户来源/legacy资格已推`95cf8b488`；公共先红后绿、count3/race/独立终审、最终冻结86包+make通过。r1065严格两例各一次：H11机器FAIL旧计数词形、正文另有模型求和/单位/独立性错误，投影与10项根因旁路保留；C机器PASS、两处代码及独立原生49格通过，但完成态被系统重派不合法探索。新增B1668/P1状态恢复合同、B1669/P2格式提示冒充第二附件；先前B1122/B1561/B1575继续开放。原答案/oracle不改，无第三例，无正文原文硬门或系统代写结论。
+本轮施工§123.1787：基线`05210ed69`与origin/main一致。先修B1668/P1决策定位范围及恢复动作自冲突，再修B1669/P2附件身份；均公共先红后绿，先验收再分批提交。下一r1066仅H6显式Trace窗+C++ fmt写模式两例并行各一次，不改原case/oracle。r1065原机器/人工失败及B1122/B1561/B1575未闭能力债保留；不新增正文原文硬门、不改模型结论、不扩已完成批次写权限。
 
 本轮最新§123.1784：B1626已推`4fed22871`，r1064审计已推`cdede1402`。r1064严格exact2各一次：E1双窗机器PASS109s但人工FAIL（模型scope填整trace、未自然触发新成员路径）；Python机器/人工FAIL424s、14拒绝13patch，确认B1647c系统端点恢复与修补范围比较自冲突。本批B1647c已推`b36ca8936`，真实公共先红后绿、单侧/限定词与权限负控、count3/race/独立冷审/最终冻结86包全测和提交后make通过；退役第二套身份匹配，改用同次系统正规化私有收据，原可见答案与证据门不动。B1618-P2b同TID账户丢来源/窗的旧gap新增附注见证，完整来源批排下一顺位，导航结束边界另记P2。原产物保留，不以机器过例替代链路闭环，不追第三例。
 
@@ -57401,6 +57401,19 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1787 B1668/B1669：恢复动作闭合与附件身份消歧（2026-09-13）
+
+1. 基线`05210ed69`已fetch、与origin/main一致，无用户未提交变更。B1668继承r1065完成态两次finish→同批explore→kernel拒绝→重新派发生产见证；B1669继承H11单附件被格式提示拆成两项见证，不重新造同根工单。
+2. B1668-a先解决确定性动作自冲突：truth推荐必须与同代状态内核相容；需要观察/定位时走内核合法前置，Complete的弱证据保留accept_unverified，Complete的真实失败明确Block，不擅自复开同批或铸造新批；既有NeedsReplan真实失败仍能修并携当前工作区收据。最终恢复经过正规化后重新derive state+graph完整验证，而非只验JSON形状。独立审计还找到内核推荐PlanBatch却落default Block的恢复缺臂，同批补齐；明确新批探索、审批、原证明/预算门不改变。
+3. 动作公共RED=`.codrax/tmp/20260913-b1668-public-red.log`，0.934s：normalize→enforce最终返回非法Explore，及helper邻接Complete→Replan/ObserveRequired→Replan。初版`...b1668-red.log`含两条测试自身误设finish_disposition，已修fixture并重取有效RED，不拿初版全数当产品失败。M4接线变异`...b1668-wiring-mutation-red.log`1.046s：删PlanBatch恢复映射两条失败，禁恢复后二次状态校验一条失败，源码已恢复。专项count3/独立终审/全仓结果待补。
+4. B1668-b修决策的定位义务域：精确当前plan/batch+controller累计交付scope作为范围，ExpectedPaths与显式scope锚等真实义务保留；纯read observed邻近路径仍是上下文而非新增owner义务。历史应用身份未被完整覆盖时保守，不用最终plan的supported盖过旧缺口。公共View RED=`...b1668-localization-public-red.log`0.538s，9条失败含纯观察误升义务、实际Changes/rename/累计路径漏纳；未知历史等负控原本通过。此处只承诺决策视图范围根修；无active plan输入的run-only events/localizer/REPL投影仍是旧保守观察域，不冒称全显示面已同口径。
+5. B1669仅从typed唯一addressable Trace附件身份绑定已知format/attached载体；显式异path、真实多附件、同basename异path、inline未知、未来未知token不可猜同源。ctx/mutable预处理Perf来源是工具/格式不是文件，可走同一附件通道；RequestModel的任意独立Perf对象不可凭相同值认亲。selection公开RED=`...20260914-b1669-selection-public-red.log`0.990s（36格单附件+1混合请求失败，9个歧义/未知负控通过）；Perf扩展另取RED。输入请求窗、正文、因果权限零改写。
+6. 下一r1066按用户影响/新鲜度/语言/模式/本机可执行性选H6（最近r1053，显式233.190ms窗根因树，保护投影/补齐/业务线索）+fmt C++ tm_year溢出写（最近r1054，真实原生编译/头文件边界，异构于刚跑C），各一次、并行2。原read15/apply24/CAP5/1200s不变、传本机SDK26.5；旧显示词形oracle仍可能失败，独立人工审计，不为绿改题。JSON教学若无可执行矛盾不叠加措辞；活跃流600/300/600s默认及无总时长降级边界不改。
+
+7. B1669两文件独立实现+主审冷读通过，正式交付：selection主面先红后绿0.990/0.896s；Perf扩展独立RED后合并GREEN1.204s；types全包count1 33.998s；context/tool逻辑来源回归0.872/1.060s；专项race×3 2.017s，日志均在`.codrax/tmp/20260914-b1669-*.log`。真实请求引用的第二文件不被归并；未知未来工具名可绑定运行时唯一附件，但未知future AttachedHitraceSource联合字段仍不猜同源；同值不同对象的模型Perf不认亲。没有扩展tool物理来源映射，也没有改Policy本身规则。
+
+状态：`B1668=implementation/qualified-public-red-green/final-validation-pending`；`B1669=delivered/two-public-red-green/types-full-downstream-race-pass`；`r1066=planned-exact2/not-started`；`B1122/B1561/B1575=open`；`model-answer-overwrite=none`。
 
 ### §123.1786 r1065：修复交付、Trace原值保留与写完成态恢复自冲突（2026-09-13）
 

@@ -55,26 +55,39 @@ func RuntimeArtifactSelectionViewFromAgentContext(ctx *AgentContext) RuntimeArti
 	}
 	builder := runtimeArtifactSelectionBuilder{items: map[string]RuntimeArtifactSelectionItem{}}
 	builder.addPreflight(ctx.RuntimeArtifactPreflight)
+	attachedCapture := runtimeArtifactSelectionUniqueAttachedSource(ctx.RuntimeArtifactPreflight)
+	attachedHint := firstNonEmptyRuntimeArtifactSelectionString(ctx.AttachedHitraceSource, "attached_trace")
+	if !runtimeArtifactSelectionAttachedFormat(attachedHint) && !runtimeArtifactSelectionSameSource(attachedHint, attachedCapture) {
+		// An explicit conflicting path/inline marker or an unrecognized union
+		// value cannot identify the one preflight attachment, including for
+		// a structured perf view produced through that attached channel.
+		attachedCapture = ""
+	}
 	if strings.TrimSpace(ctx.AttachedLog) != "" {
 		builder.add("log", "attached_log", "attached_log", 1.0)
 	}
 	if strings.TrimSpace(ctx.AttachedHitrace) != "" || strings.TrimSpace(ctx.AttachedHitraceSource) != "" {
-		source := firstNonEmptyRuntimeArtifactSelectionString(ctx.AttachedHitraceSource, "attached_trace")
+		source := attachedHint
+		if runtimeArtifactSelectionAttachedFormat(source) && attachedCapture != "" {
+			source = attachedCapture
+		}
 		builder.add("trace", source, "attached_trace", 1.0)
 	}
+	runtimePerf := ctx.PerfTrace
 	if ctx.PerfTrace != nil {
-		builder.add("trace", runtimeArtifactSelectionPerfSource(ctx.PerfTrace), "perf_trace", 1.0)
+		builder.add("trace", runtimeArtifactSelectionBoundPerfSource(ctx.PerfTrace, attachedCapture), "perf_trace", 1.0)
 	}
 	if ctx.Mutable != nil {
 		if perf := ctx.Mutable.PerfTrace(); perf != nil && ctx.PerfTrace == nil {
-			builder.add("trace", runtimeArtifactSelectionPerfSource(perf), "mutable_perf_trace", 1.0)
+			runtimePerf = perf
+			builder.add("trace", runtimeArtifactSelectionBoundPerfSource(perf, attachedCapture), "mutable_perf_trace", 1.0)
 		}
 		if log := ctx.Mutable.LogTriage(); log != nil && strings.TrimSpace(ctx.AttachedLog) == "" {
 			builder.add("log", "log_triage", "mutable_log_triage", 1.0)
 		}
 	}
 	if ctx.AnalysisIR != nil {
-		builder.addRequestModel(ctx.AnalysisIR.RequestModel)
+		builder.addRequestModel(ctx.AnalysisIR.RequestModel, runtimePerf, attachedCapture)
 	}
 	view := builder.view()
 	rm := (*RequestModel)(nil)
@@ -83,6 +96,47 @@ func RuntimeArtifactSelectionViewFromAgentContext(ctx *AgentContext) RuntimeArti
 	}
 	view.Policy = deriveRuntimeArtifactAnalysisPolicy(view, rm, ctx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo())
 	return view
+}
+
+// AttachedHitraceSource is a legacy union of a capture path and a format hint.
+// Only established format/attached-channel tokens may borrow the run-entry
+// attachment identity. An explicit path, inline marker, or future unknown
+// token must not be guessed to name that capture.
+func runtimeArtifactSelectionAttachedFormat(source string) bool {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "attached_trace", "harmony_hitrace", "android_atrace", "generic_ftrace":
+		return true
+	default:
+		return false
+	}
+}
+
+// This is a channel binding, not a path detector or same-basename join. Keep
+// the original preflight spelling so the selection ID and all existing path
+// consumers remain unchanged. Unknown/inline attachments participate in the
+// census and prevent binding; ignoring them would falsely make a named file
+// the unique attachment. Merely request-referenced files provide no binding.
+func runtimeArtifactSelectionUniqueAttachedSource(profile RuntimeArtifactPreflightProfile) string {
+	var source string
+	for _, artifact := range NormalizeRuntimeArtifactPreflightProfile(profile).Artifacts {
+		if !strings.EqualFold(artifact.Carrier, "attachment") || artifact.RuntimeArtifactKind() != "trace" {
+			continue
+		}
+		if !runtimeArtifactAttachmentSourceIsAddressable(artifact.Source) {
+			return ""
+		}
+		if source != "" && !runtimeArtifactSelectionSameSource(source, artifact.Source) {
+			return ""
+		}
+		if source == "" {
+			source = artifact.Source
+		}
+	}
+	return source
+}
+
+func runtimeArtifactSelectionSameSource(a, b string) bool {
+	return a == b || runtime.GOOS == "windows" && strings.EqualFold(a, b)
 }
 
 func (view RuntimeArtifactSelectionView) ShouldRender() bool {
@@ -173,9 +227,16 @@ func (b *runtimeArtifactSelectionBuilder) addPreflight(profile RuntimeArtifactPr
 	}
 }
 
-func (b *runtimeArtifactSelectionBuilder) addRequestModel(rm RequestModel) {
+func (b *runtimeArtifactSelectionBuilder) addRequestModel(rm RequestModel, runtimePerf *PerfBundle, attachedCapture string) {
 	if rm.PerfTrace != nil {
-		b.add("trace", runtimeArtifactSelectionPerfSource(rm.PerfTrace), "request_model_perf_trace", 1.0)
+		source := runtimeArtifactSelectionPerfSource(rm.PerfTrace)
+		// emit_analysis mirrors the validated runtime bundle by pointer. Only
+		// that exact object retains the channel binding; equal metadata or a
+		// model-authored copy cannot establish shared capture provenance.
+		if rm.PerfTrace == runtimePerf {
+			source = runtimeArtifactSelectionBoundPerfSource(rm.PerfTrace, attachedCapture)
+		}
+		b.add("trace", source, "request_model_perf_trace", 1.0)
 	}
 	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
 		kind := RuntimeArtifactPathKind(hint.Path)
@@ -284,6 +345,16 @@ func runtimeArtifactSelectionPerfSource(perf *PerfBundle) string {
 		return "perf_trace"
 	}
 	return fmt.Sprintf("perf_trace:%s", source)
+}
+
+func runtimeArtifactSelectionBoundPerfSource(perf *PerfBundle, attachedCapture string) string {
+	// PerfMeta.Source is the capture tool's name, not a second file. The
+	// binding comes from the runtime channel and unique attachment census,
+	// never from the spelling (or a future extension) of that tool name.
+	if attachedCapture != "" {
+		return attachedCapture
+	}
+	return runtimeArtifactSelectionPerfSource(perf)
 }
 
 func firstNonEmptyRuntimeArtifactSelectionString(values ...string) string {
