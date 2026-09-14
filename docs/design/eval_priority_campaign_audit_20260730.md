@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1800：B1684覆盖范围提示已16982b5a2推送；B1685同源码调用短名/全名重复公共RED、最小实现、独立冷审与联合count3/race3通过。B1684旧中性措辞兼容收尾后联合冻结全仓86包通过，未改旧针放行。r1070读/写机PASS666/192s但读完整人工未通过，原始结果保持。后继r1071按多维风险挑选exact2各一次，待提交后清洁构建启动；真实产物交接供给与原生runner执行证明仍独立开放。
+当前续修§123.1801：B1684/B1685已16982b5a2/47ae1ed50推送，最终冻结86包通过并清洁构建。r1071严格exact2各一次，Trace/C++机PASS213/273s但两例完整人审均未通过。优先B1687纯图拓扑自铸错误端点身份（公共Emit/Patch已RED），同批B1688系统把多次发生包络说成单次片段、B1686初始Trace手读分流陈旧提示。原答案/fixtures/oracle不改，不靠追跑或代写结论闭环；模型说明准确性、代表片段供给、主数据流导航与原生runner执行证明仍独立开放。
 
 已交付§123.1796：B1680外部工件来源交接教学`32a3287a5`已推送，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓和提交后清洁构建通过。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
 
@@ -57419,6 +57419,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1801 r1071：机器双绿不等于图关系与统计口径正确（2026-09-14）
+
+1. **交付/基线**：B1684 16982b5a2、B1685与中性措辞兼容47ae1ed5079b均推送，最终86包、独立冷审、专项及联合竞态通过，清洁构建11:54:58Z，远程0/0。04:55:23以不可变二进制运行CAP5/PARALLEL2/TIMEOUT1200/read15的exact2各一次，未追跑。完整机审与人审在`eval/parallel_selected_summary_evalcampaign_trace_cpp_r1071_20260914{,_manual_audit}.md`。
+2. **Trace机PASS213s/人FAIL**：1bundle+4派生JSON读+2grep，无源码/emit_evidence；自动补采bundle+vsync2次814ms。显式114.940ms/59566、26.946/3.636/84.358ms状态、主唤醒链、两轴/IO/供给/VerifyClass .285ms/Trace投影和frame未证限定保留。正文跨席借caller、把全Runnable称同核重叠、代表窗误称不重叠加总、T7时段错移。多数正确typed信息与禁止混口径提示已给，不扫描原文硬门或系统改结论。sidecar v2 available四项的结构/冻结数值正确，但模型description同样有caller/上下游错误，不能把JSON可解析签为自由说明正确。
+3. **C++机PASS273s/人FAIL**：4次read已完整供源码、未读旧README，9探索/7成文轮、6拒/6patch。最终普通log不再误走formatter，但仍虚构Logger构造时调用make_sink装配、漏Error/继承空flush，生成身份泄漏。原MD/HTML Mermaid parse/render及真实HTML页绿（SVG20255/20075/20588B、无页面错误），图删至两节点两Note/零消息边；本例图非必选，不增图硬门，也不把格式PASS当关系正确。
+4. **B1687/P1优先**：原C→F=ConsoleSink::write→std::fputs，模型两端identity空；删其它坏边后，系统以当前pool完整组件拓扑唯一误补make_sink→SinkRegistry.create，再用所补身份拒原图。公共Emit+Patch旧生产8臂+四图种负针有效RED1.210s，先证明原图在原validator合法。通用修向是恢复必须有明确节点选择见证，纯拓扑唯一不能铸语义；不是只增加子图匹配特判。保exact-node/已给明确identity/lease及其它安全恢复，两条旧“纯业务别名拓扑正针”有说明地演进为不越权负针。
+5. **B1688/P1**：系统代表窗表把RankedSeats的StartTs/EndTs起止包络固定说成“一处发生”。rank1真实多段却显示.472865–.572194；节点没有独立occurrence列表，先准确标为多次发生可能跨间隙/可重叠的定位包络，不反推持续或单次、不挪计量数值。公共TraceQuery→EmitAnswerDocument复现与反控施工中；真正代表性片段供给另列后继。
+6. **B1686/P1**：初始explorer3837仍教手读raw trace用emit_evidence，与raw/query blob的外部skip合同矛盾；本轮未自然触发，不能归因为本次重试。真实Read/Emit/BuildInitialInstruction原trace/派生×因果/事实×zh/en8臂有效RED1.094s；只复用已有共享分流说明，当前count3=1.045s/race3=3.048s，原权限/状态/请求不变，联合验收待后补。
+7. **否证/红线**：Trace optionalpatch提示明确“若发布add_facet_id，否则replace_blocks”，模型选未发布分支，未证合同矛盾；current-source exclude quote漏填也已有schema教学，均不以关键词补门。一次可选patch失败后保已accepted首稿，不是active-stream降级。600/300/600s默认、4ms/旧4m无正文不能杀活跃字节规则、Trace链上限定和自动补齐不改。原结果/case/fixture SHA保持；本对只读不冒称新的write回归。
+
+状态：`B1684/B1685=47ae1ed50-delivered`；`r1071=exact2-once/machine-pass2/human-fail2`；`B1687=public-red/implementation-next`；`B1688=confirmed/public-red-next`；`B1686=public-red/minimal-implementation+count3+race3/joint-pending`；`prose/root-description-quality/occurrence-supply=separate-open`。
 
 ### §123.1800 B1684/B1685：图覆盖范围与源码调用身份（2026-09-14）
 
