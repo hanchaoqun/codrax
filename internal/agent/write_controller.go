@@ -336,9 +336,10 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- verification_evidence: status=%s passed_results=%d failed_results=%d total_results=%d\n",
 			report.NormalizeVerificationStatus(), passedResults, failedResults, len(report.TestResults))
 		if plan := ctx.Mutable.ChangePlan(); plan != nil {
-			hard, covered, planningOnly := writeControllerBehaviorContractCoverage(plan, report)
-			fmt.Fprintf(&b, "- verification_behavior_witness_scope: required_typed_contracts=%d covered_required_typed_contracts=%d planning_only_contracts=%d natural_language_acceptance_items=%d acceptance_items_authority=planning_guidance_only\n",
-				hard, covered, planningOnly, len(plan.AcceptanceTests))
+			coverage := writeControllerBehaviorContractCoverage(plan, report)
+			fmt.Fprintf(&b, "- verification_behavior_witness_scope: hard_required_typed_contracts=%d covered_hard_required_typed_contracts=%d soft_required_typed_contracts=%d covered_soft_required_typed_contracts=%d planning_only_contracts=%d natural_language_acceptance_items=%d acceptance_items_authority=planning_guidance_only\n",
+				coverage.hard, coverage.coveredHard, coverage.soft, coverage.coveredSoft, coverage.planningOnly, len(plan.AcceptanceTests))
+			b.WriteString("- verification_behavior_witness_boundary: counts include the active plan and retained verification contracts, excluding retired IDs; hard-required and soft-required are disjoint, and soft-required contracts remain required proof obligations, not optional guidance. Planning-only contracts are guidance, not required proof obligations. Covered counts use compatible typed witnesses for each class, not complete proof or workflow completion.\n")
 		}
 		b.WriteString("- verification_witness_boundary: behavior-contract witness coverage is not complete proof or workflow completion; placement, impact, execution and cumulative obligations remain separate. all_verified requires every applied batch to pass its latest verification and every required typed proof obligation to be closed; the current ratio or report passed alone is insufficient.\n")
 		b.WriteString(renderWriteControllerProofScope(ctx.Mutable.ChangePlan(), report))
@@ -451,36 +452,53 @@ func renderWriteControllerProofScope(plan *types.ChangePlan, report *types.Chang
 	return b.String()
 }
 
+type writeControllerBehaviorCoverage struct {
+	hard, coveredHard, soft, coveredSoft, planningOnly int
+}
+
 // writeControllerBehaviorContractCoverage summarizes only structured plan and
 // verifier records. It deliberately does not compare acceptance prose with
 // commands, tests, or model output. The proof ledger remains the completion
 // authority; this compact row keeps the controller from overstating what the
 // all_verified enum means.
-func writeControllerBehaviorContractCoverage(plan *types.ChangePlan, report *types.ChangeReport) (hard, covered, planningOnly int) {
+func writeControllerBehaviorContractCoverage(plan *types.ChangePlan, report *types.ChangeReport) (coverage writeControllerBehaviorCoverage) {
 	if plan == nil {
-		return 0, 0, 0
+		return coverage
 	}
 	contracts := types.ChangePlanVerificationBehaviorContracts(plan)
 	hardIDs := types.HardRequiredWriteBehaviorContractIDs(contracts)
-	hard = len(hardIDs)
-	for _, contract := range contracts {
-		if types.IsPlanningOnlyWriteBehaviorContract(contract) {
-			planningOnly++
+	requiredIDs := types.RequiredWriteBehaviorContractIDs(contracts, true)
+	coverage.hard = len(hardIDs)
+	// Use the proof ledger's required set and the shared hard-required subset;
+	// the remainder is still required, not an optional/planning-only contract.
+	for id := range requiredIDs {
+		if _, hard := hardIDs[id]; !hard {
+			coverage.soft++
 		}
 	}
-	if report == nil || hard == 0 {
-		return hard, 0, planningOnly
+	for _, contract := range contracts {
+		if types.IsPlanningOnlyWriteBehaviorContract(contract) {
+			coverage.planningOnly++
+		}
+	}
+	if report == nil || len(requiredIDs) == 0 {
+		return coverage
 	}
 	// V5-1: coverage is the types-level contract-kind → witness-kind matrix
 	// (VerificationConfidenceRecordCoversContract); a source-text reading
 	// counts only for kinds that admit it.
 	coveredIDs := types.CoveredWriteBehaviorContractIDs(contracts, types.EffectiveVerificationConfidence(plan, report))
-	for id := range hardIDs {
-		if _, ok := coveredIDs[id]; ok {
-			covered++
+	for id := range requiredIDs {
+		if _, ok := coveredIDs[id]; !ok {
+			continue
+		}
+		if _, hard := hardIDs[id]; hard {
+			coverage.coveredHard++
+		} else {
+			coverage.coveredSoft++
 		}
 	}
-	return hard, covered, planningOnly
+	return coverage
 }
 
 // writeControllerOrderedWorktreeEffects orders the audit's effect rows for

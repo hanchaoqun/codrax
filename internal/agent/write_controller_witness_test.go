@@ -20,15 +20,15 @@ func TestWriteControllerBehaviorContractCoverageIgnoresSourceWitnessForBehaviorK
 		Source: "post_apply_source_observation", Category: "source_contract_refs", Status: "satisfied",
 		ContractRefs: []string{"obs", "layout"}, WitnessKind: types.WriteBehaviorWitnessSourceText,
 	}}}
-	hard, covered, _ := writeControllerBehaviorContractCoverage(plan, report)
-	if hard != 2 || covered != 1 {
-		t.Fatalf("source witness must cover file_layout only: hard=%d covered=%d", hard, covered)
+	coverage := writeControllerBehaviorContractCoverage(plan, report)
+	if coverage.hard != 2 || coverage.coveredHard != 1 {
+		t.Fatalf("source witness must cover file_layout only: hard=%d covered=%d", coverage.hard, coverage.coveredHard)
 	}
 	report.VerificationConfidence = append(report.VerificationConfidence, types.VerificationConfidenceRecord{
 		Source: "verification_probe", Category: "probe_contract_refs", Status: "satisfied",
 		ContractRefs: []string{"obs"}, WitnessKind: types.WriteBehaviorWitnessVerificationProbe,
 	})
-	if _, covered, _ = writeControllerBehaviorContractCoverage(plan, report); covered != 2 {
-		t.Fatalf("an executed probe covers the observable contract: covered=%d", covered)
+	if coverage = writeControllerBehaviorContractCoverage(plan, report); coverage.coveredHard != 2 {
+		t.Fatalf("an executed probe covers the observable contract: covered=%d", coverage.coveredHard)
 	}
 }

@@ -58,7 +58,7 @@ func TestB1634ControllerProofScopeSurvivesContextPackCap(t *testing.T) {
 	beforePack, _ := json.Marshal(ctx.Mutable.WriteContextPack())
 	got := (&writeControllerEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"verification_behavior_witness_scope: required_typed_contracts=1 covered_required_typed_contracts=1",
+		"verification_behavior_witness_scope: hard_required_typed_contracts=1 covered_hard_required_typed_contracts=1",
 		"not complete proof or workflow completion",
 		"verification_proof_scope: source=current_plan_report",
 		"kind=rendered_text_placement_contract", "status=missing", "category=probe_placement_refs",

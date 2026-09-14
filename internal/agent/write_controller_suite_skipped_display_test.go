@@ -43,7 +43,7 @@ func TestSuiteSkippedControllerInstructionPreservesVerificationScope(t *testing.
 	}
 	for _, want := range []string{
 		`verification_command: runner=verification_probe cwd=. suite= outcome=executed exit_code=0 source=pre_suite_verification_probe command="python -c <bounded>"`,
-		"required_typed_contracts=0 covered_required_typed_contracts=0",
+		"hard_required_typed_contracts=0 covered_hard_required_typed_contracts=0",
 		"axis=capability kind=executed_command status=unavailable category=unavailable reason_code=suite_skipped",
 		"all_verified requires every applied batch to pass its latest verification",
 	} {

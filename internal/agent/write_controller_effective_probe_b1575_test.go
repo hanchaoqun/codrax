@@ -56,7 +56,7 @@ func TestB1575ControllerActualPromptUsesEffectiveProbeAuthority(t *testing.T) {
 			ctx := &types.AgentContext{Mutable: mu, Mode: types.ModeApply}
 			got := (&writeControllerEvaluator{}).BuildInitialInstruction(ctx, nil)
 			for _, want := range []string{
-				fmt.Sprintf("required_typed_contracts=%d covered_required_typed_contracts=%d", len(plan.BehaviorContracts), covered),
+				fmt.Sprintf("hard_required_typed_contracts=%d covered_hard_required_typed_contracts=%d", len(plan.BehaviorContracts), covered),
 				"changed_path_verification: path=pkg/client.py status=uncovered caliber=verification_probe capability=unknown",
 				"verification_evidence: status=passed passed_results=1 failed_results=0 total_results=1",
 			} {
@@ -66,8 +66,8 @@ func TestB1575ControllerActualPromptUsesEffectiveProbeAuthority(t *testing.T) {
 			}
 			// Direct consumers of this compact counter use the same projection,
 			// even when the selected report was not projected by prompt rendering.
-			if hard, count, _ := writeControllerBehaviorContractCoverage(plan, report); hard != len(plan.BehaviorContracts) || count != covered {
-				t.Errorf("direct counter hard=%d covered=%d; want %d/%d", hard, count, len(plan.BehaviorContracts), covered)
+			if scope := writeControllerBehaviorContractCoverage(plan, report); scope.hard != len(plan.BehaviorContracts) || scope.coveredHard != covered {
+				t.Errorf("direct counter hard=%d covered=%d; want %d/%d", scope.hard, scope.coveredHard, len(plan.BehaviorContracts), covered)
 			}
 			if next := (&writeControllerEvaluator{}).BuildInitialInstruction(ctx, nil); next != got {
 				t.Error("effective prompt is not replay-stable")
