@@ -57410,7 +57410,7 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
-### §123.1792 B1674/B1675：计量成员口径交接与根因选择容器兼容（2026-09-13）
+### §123.1792 B1674/B1675/B1676：计量交接、选择保真与补丁教学（2026-09-13—14）
 
 1. **审计更正，不覆盖原产物**：§1791.3和r1067人工报告此前把“explorer收到47”扩大为“finalizer也收到47”。逐层核对首轮finalizer INIT（原日志1730–3220）后，12.658ms家族数值多面保留，但其`FamilyMemberCount=47`、`FamilyMemberMaxMS=0.782`没有随行进入成文上下文；独立10段/7.408ms清单另有明确数量，不能并账。故数量/单成员最大值误配有系统交接缺口，不仅是模型消费错误。对端次数、协议业务归属与长S泛化的精确事实仍已供给，继续独立保留，不将全部误述都归于这一缺口。
 2. **B1674/P1任务**：只读复用现有compiled `FamilyMember*`与fold载体，现有行就地补充“计量记录数/单记录最大值/合并口径”，公共BuildAgentContext→BuildInitialInstruction先红后绿，覆盖中英、异构状态、同名异窗/来源、缺计数、未知口径与独立等待账户。不能借`MergedCount`（展示层折叠）冒充引擎家族成员数，不能把成员数或最大值直接叫物理IO次数/最长IO等待。保持模型正文、资格、数值、排序、两轴、显式窗和自动补齐不变；不扩选择器wire、不加第二个大提示段或文本硬门。
@@ -57425,6 +57425,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 11. **B1675有限兼容末审**：通用解码候选顺序/语法修复/字符串层数上限不变，只共享其原始JSON候选，确定载体内有歧义的选择字段临时隔离后逐原字段wire恢复，最终由本次调用私有ledger记录原始歧义并走原可选披露。坏full不凭空继承旧报告、坏patch保旧选择、坏输入不暂存；合法显式空仍可撤销；正文、候选清单、顺序和数值不由系统改写。主审实际BaseAgent124格count3=3.817s/race3=33.186s（`...20260913-b1675-final-agent-{count3-v2,race3}.log`），覆盖direct/function包装、仅重复无关metadata、现规则优先direct+function metadata、double/triple encoded、whole-string+arguments组合；off/audit不会获得repair模式的字符串解码许可。初版将off/audit合法字符串错误要求可恢复的12格属于测试权限前提错误，已纠正并保留初日志，不计产品RED。
 12. **明确未闭边界：B1677/P1外层参数载体归属歧义**。如果同一`arguments`（或被消费的`function`）包装键本身重复，目前通用Normalize仍可能先map解码last-wins；B1675原始定位器只接受唯一确定载体，不据此证明整个工具参数已无歧义。该债在根因原生报告与其它工具上也可能存在，下一片需在通用归一化边界保留原参数来源/竞争事实，不能通过假版本、私塞JSON标记、系统代选或所有正文一律硬拒掩盖。当前只保证确定载体中的选择字段不被洗白，不声称所有畸形JSON恢复完成。格式内修复与整个载体归属是两个不同授权问题，禁止把本条当绿。
 13. B1675最终相邻工具count3=4.959s/race3=38.394s；toolparam整包count3=0.721s/race3=1.533s，均绿（`...20260913-b1675-tool-final-{count3-v2,race3}.log`与`...-toolparam-final-{count3,race}.log`）。新增per-call私有错误状态触发原ownership census，已通过明确接口演进：只许可两个精确直接方法调用及参数数目，getter仅返回error；method value存储/传递、字段读写、未知方法/参数等9个逃逸负针继续红，原唯一创建/铸造/结果出口义务全保。该census有效RED1.158s，误落源码fixture导致的编译失败不算产品红。主审冷读生产、同源解码重构与新增回归无未披露阻断；联合全仓待B1676预期RED修正后执行。
+14. **B1676已实现**：仅在真实base通过既有身份可寻址校验后，允许附加patch交易重试结果；无context/Mutable/草稿、重复block身份四种早退不再伪铸“重交完整patch”下一步。无base错误准确说明已有accepted/rejected/staged草稿可修、首次或无可用稿须完整提交；root选择解析/暂存/可选披露的原defer顺序全保，合法base的结构拒绝仍有not_staged收据、完整重写仍可用。公共有效RED四格1.178s（`...20260913-b1676-base-availability-red.log`），最终专项count3 tool/agent=6.606/1.112s，race3=51.551/4.094s（`...20260914-b1676-final-{count3,race3}.log`）；独立冷审及race1=23.870s通过，覆盖原选择早退矩阵与所有权census，无阻断。不改模型正文，不靠报错文字扫描决定分支。
+15. **三批联合冻结验收通过**：`go test ./... -count=1` exit0，86个有测试包全绿；tool347.000s、agent85.574s、types49.250s、tracequery113.130s、hitraceconv157.234s、tracediag13.722s、llm28.372s。日志`...20260914-b1674-b1676-full.log`，测试前后internal/cmd Go文件SHA清单一致，期间未改源。B1675已推`d83b8c72f`；B1676随后独立提交。活跃流专项count3=30.019s（`...20260913-b1674-active-stream-count3.log`）：持续字节/语义增长不因4ms/旧4m无正文而降级，默认600/300/600s与明确取消/外层deadline不变；受控测试不冒称自然等待10分钟已覆盖。r1068尚未开始，待清洁构建后恰好双路一次。
 
 ### §123.1791 r1067/B1673：恢复通道自然生效，机器通过不等于业务正确（2026-09-13）
 

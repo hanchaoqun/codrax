@@ -2790,6 +2790,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	carriers.captureTraceRootCauseParamIntegrity(params)
 	now := time.Now()
 	stagedByThisCall := false
+	addressablePatchBase := false
 	// The selector commit tail runs on every exit after the selector was
 	// resolved (zero-value selection before that = no-op): an accepted
 	// persist stores the report, ANY rejected exit stages a validly bound
@@ -2798,7 +2799,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	var rootCauseSelection traceRootCauseSelection
 	defer func() { commitTraceRootCauseSelection(ctx, result, err, rootCauseSelection) }()
 	defer func() {
-		result = annotateAnswerDocumentPatchFailureOutcome(result, stagedByThisCall)
+		// Transaction retry instructions require an actual, addressable base.
+		// Before that point the model must establish a full structured draft,
+		// not resubmit a patch that still has nowhere to apply.
+		if addressablePatchBase {
+			result = annotateAnswerDocumentPatchFailureOutcome(result, stagedByThisCall)
+		}
 	}()
 	if ctx == nil || ctx.Mutable == nil {
 		return failEmit(t.Name(), now,
@@ -2834,12 +2840,13 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// the zero value.
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
 		return failEmit(t.Name(), now,
-			"emit_answer_document_patch: no previous emit found. The patch tool is only valid on retry paths after a successful emit_answer_document call. First dispatches must use emit_answer_document.")
+			"emit_answer_document_patch: no previous emit found. A patch requires an addressable previous structured draft (accepted, rejected, or staged for retry). First dispatches and retries without a usable draft must use emit_answer_document to submit a complete answer.")
 	}
 	if err := types.ValidateAnswerDocumentPatchBaseIdentity(prev); err != nil {
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
 		return failEmit(t.Name(), now, "emit_answer_document_patch: unaddressable current draft: %s", err)
 	}
+	addressablePatchBase = true
 	if answerDocumentHasTopLevelField(params, "relation_claims") {
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
 		return failEmit(t.Name(), now,
