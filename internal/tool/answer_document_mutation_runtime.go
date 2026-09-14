@@ -2701,16 +2701,16 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 const runtimeTraceCausalProjectionRepresentativeWindowLimit = 3
 
 // runtimeTraceCausalProjectionRepresentativeWindowsBlock publishes a compact
-// occurrence-window surface from the projection's typed ranked seats. The
-// projection already carries these intervals independently of model prose;
-// rendering them here prevents a one-block finalizer draft from hiding the
-// concrete episodes behind the lossless detail/evidence tail.
+// start/end-envelope surface from the projection's typed ranked seats. A
+// seat can aggregate several separated occurrences; its published bounds
+// alone do not identify one occurrence or establish continuous occupancy.
+// The projection carries these bounds independently of model prose.
 //
 // This is deliberately unconditional once ranked causal seats expose valid
 // intervals. It does not inspect RawRequest, requested-dimension labels, model
 // reasoning, or final-answer text, and it never gates completion. The row
-// caliber also keeps a representative occurrence distinct from the seat's
-// whole-query aggregate value.
+// caliber keeps each envelope distinct from the seat's whole-query aggregate
+// value and warns that different rows can overlap rather than sum.
 func runtimeTraceCausalProjectionRepresentativeWindowsBlock(
 	projection types.TraceCausalProjection,
 	zh bool,
@@ -2742,9 +2742,9 @@ func runtimeTraceCausalProjectionRepresentativeWindowsBlock(
 			seat += " / " + cause
 		}
 		window := fmt.Sprintf("%.6f..%.6f", node.StartTs, node.EndTs)
-		caliber := "该窗是此排序项目的一处代表性发生片段；项目数值按完整查询窗聚合，不能把它当作此单窗时长。"
+		caliber := "此范围为该项目已发布发生记录的起止包络，不证明持续占用或仅发生一次；不同项目的范围可能重叠，不可相加。项目数值按完整查询窗聚合，不能把它当作此单窗时长。"
 		if !zh {
-			caliber = "This is one representative occurrence for the ranked item; its value aggregates over the full query window and is not this single-window duration."
+			caliber = "This is the start/end envelope of the item's published occurrence records; it does not establish continuous occupancy or a single occurrence. Different items' envelopes may overlap and must not be summed. The item's value aggregates over the full query window and is not this single-window duration."
 		}
 		items = append(items, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("%s_rep_%d", idPrefix, i+1),

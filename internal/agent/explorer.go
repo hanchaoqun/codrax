@@ -3834,7 +3834,7 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	} else {
 		b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the declared fact families or requested relation/overview fields and their evidence ceiling are covered; do not widen closure to an unrequested root-cause roster.\n")
 	}
-	b.WriteString("- Preserve any additional model-authored synthesis through `emit_investigation_complete.reason` and, when useful, `aggregate_facts`. Use `emit_evidence` only for load-bearing trace line gutters you manually read outside trace_query, and never turn trace rows into current-source citations.\n")
+	b.WriteString("- " + explorerReadHandoffGuidance() + "\n")
 	b.WriteString("- If you later need current-code proof because the question truly asks for it, read source files separately and keep that source evidence in a separate lane.\n\n")
 	if ctx != nil {
 		b.WriteString("**User question:** ")

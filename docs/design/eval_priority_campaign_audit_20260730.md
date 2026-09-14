@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1801：B1684/B1685已16982b5a2/47ae1ed50推送，最终冻结86包通过并清洁构建。r1071严格exact2各一次，Trace/C++机PASS213/273s但两例完整人审均未通过。优先B1687纯图拓扑自铸错误端点身份（公共Emit/Patch已RED），同批B1688系统把多次发生包络说成单次片段、B1686初始Trace手读分流陈旧提示。原答案/fixtures/oracle不改，不靠追跑或代写结论闭环；模型说明准确性、代表片段供给、主数据流导航与原生runner执行证明仍独立开放。
+当前交付§123.1802：r1071完整人审已9192d2bab单独推送，exact2各一次机PASS但人审均FAIL。B1686初始Trace外部观测交接、B1687纯拓扑误补端点身份、B1688多次发生包络误称单次均已公共先红后绿、count3/race3及独立冷审，最终冻结全仓86个有测试包通过（57本次执行/29有效缓存）。图有明确身份时的安全补齐继续保留，原模型正文、关系与根因选择不改。模型说明准确性、真实代表片段供给、主数据流导航与原生runner执行证明仍独立开放，不追跑原样例求绿。
 
 已交付§123.1796：B1680外部工件来源交接教学`32a3287a5`已推送，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓和提交后清洁构建通过。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
 
@@ -57419,6 +57419,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1802 B1686–B1688：交接教学、端点选择与时间范围的权限边界（2026-09-14）
+
+1. **顺序与范围**：r1071机审与逐条人审先独立9192d2bab推送；随后处理三项确证P1，不再启动新live。本轮相邻B1684/B1685已47ae1ed50交付。原case/oracle/fixtures/MD/HTML/root-causes不改；模型正文及旁路自由说明错误仍留账，不由系统删除、代写或扫关键词作门。
+2. **B1686最小教学修复**：初始Trace路径只将旧“手读trace行用emit_evidence”一句替换为已有 `explorerReadHandoffGuidance`，与后续交接单源。真实ReadFile外部来源→EmitEvidence外部skip→公共BuildInitialInstruction，raw/query派生×因果/事实×zh/en共8臂；有效旧生产RED1.094s。实际权限、请求IR、观测、完成状态和原因果/事实分流均不变；count3=1.045s、race3=3.048s。语言臂指请求语言，不冒称提示已翻译或经过LLM。该陈旧分支本轮live未触发，不能作为r1071失败的已证原因。
+3. **B1687根修**：旧唯一完整组件拓扑会把合法局部Console.write→fputs补成无关make_sink→create，再拒原图。否决“只扩子图候选减少碰撞”方案：扩大候选宇宙仍不能让形状选择语义。当前仅允许同图完整且当前recipe支持的明确端点身份绑定作为恢复前提，拓扑只佐证已有选择；快照不级联，竞争身份/缺可见边/关系或方向不符/异图不传播。原exact-node、单侧精确identity、lease/fused/orphan安全恢复保留，不新增门，不读标签或散文定身份，普通调用证据门不变。
+4. **B1687公共与反控**：有效旧生产RED1.210s含8臂真实Emit/Patch与4图种；patch先真实接受完整双出口图，再由模型替换成单出口，先证原边合法。修后25格=8误配公共入口+2三角已选端点安全补齐公共入口+2模型显式unsupported仍拒公共入口+9身份归属矩阵+4图种纯形状不补。公开receipt不冒充可执行调用证据。两条旧“纯业务别名拓扑必补”针及B1647c的unselected bad-recipe臂有说明地演进为不污染合法原边；B1647c缺真实证据臂继续拒绝，新增两个显式坏身份公共负控接续原证明责任。其余旧同族、16K搜索预算和下游关系门在组合验证内；count3=2.567s、race3=17.541s。首轮新增断言遇既有Mermaid标签补引号，最终用规范引号输入仍整块序列化恒等，不放宽模型正文所有权。
+5. **B1688真实统计边界**：公共TraceQuery从现有真实fixture产出同榜项5段不连续occurrence，再实际EmitAnswerDocument两种语言。旧系统词“单次片段”有效RED2.248s；先前漏principal/caliber的夹具失败另存 `...b1688-fixture-first.log`，不算有效RED。生产仅两条显示说明与注释改成最早/最晚包络、不证明连续/单次、跨项目可能重叠不可相加；时间值、排名、两轴、typed结果/投影序列化与模型正文不变。裸单区间也不凭空铸发生次数；邻近/背景/未分类仍不进链上表。旧针无改；新公共针及代表窗/Tieba两窗旧守卫count3=7.391s、race3=58.297s。真实独立片段供给没有借措辞修复冒称完成。
+6. **验收及保留项**：B1686/B1687独立冷审无阻断；主审复读三处生产与全部新增测试、旧针差异，最终冻结联合验收见第7点。专项日志均在 `.codrax/tmp/20260914-b1686-*`、`...-b1687-*`、`...-b1688-*`。新增回归不是新LLM回放；旧r1071机PASS/人FAIL不倒签修后通过。600/300/600s、active-byte存活、Trace显式窗/链上IO与各类供给/语义业务线索/投影补齐/root旁路保持。后继仍按风险与异构读/写覆盖选exact2各一次，优先精确上下文缺口，不用单次模型错误生成新硬合同。
+7. **最终冻结全仓**：`20260914-b1686-b1688-full.log` 的 `go test ./...` exit0；共99包=86有测试（57本次运行/29有效缓存）+13无测试文件，不冒称这轮86包全部强制重跑。关键实际运行：agent71.726/tool346.384/hitraceconv134.449/tracequery105.680/tracediag13.288/llm28.866/orchestrator25.312/types45.231s。全部Go源码、测试、go.mod/go.sum/AGENTS/Makefile的 `...freeze-{before,after}.sha`完全一致；gofmt检查、diff检查、r1071五份原产物及两case/Trace/C++ fixture SHA核验通过。提交前fetch与origin/main为0/0；提交后清洁构建日志固定为 `20260914-b1686-b1688-build.log`，不更改原eval二进制快照或重跑原例。
+
+状态：`B1686/B1687/B1688=public-red+minimal-fix/count3+race3+cold-pass/final-frozen-full-pass/delivery`；`r1071=9192d2bab-audit-pushed/originals-preserved/no-rerun`；`prose/root-description-quality/occurrence-supply/artifact-handoff/native-runner=separate-open`。
 
 ### §123.1801 r1071：机器双绿不等于图关系与统计口径正确（2026-09-14）
 

@@ -809,6 +809,8 @@ Grounding 落地后,`internal/authority::BackfillEvidenceProjector` 把每条 Ev
 - **Phase 0 → Phase 1 质量门**：必须同时满足 (1) 用过 grep，(2) 用过 repo_map 或 list_files，(3) 发现 ≥3 个文件。任一未满足返回一次补救 prompt（最多触发一次）。早期证据退出：`ContinuationsUsed == 0` 且 history 中任何 `confidence > 0.5` 的成功 tool 结果存在 → 跳过质量门直接接受停止（覆盖 exec_command / grep-only / read_file-only / list_files-only 等单工具即可回答的场景）。
 - **Phase 1 Depth Read + Evidence Collection**：LLM 按清单 `read_file`，每读一个文件调 `emit_evidence(items=[...])`。大文件（>500 行）强制先 grep 后 slice read；行号必须来自 read_file gutter。
 
+**源码与外部观测交接（B1680/B1686）**：上述源码发射流程不适用于原始 Trace、查询结果或其它运行时工件；有行号不等于当前源码凭证。初始显式 Trace 路径与后续探索提示共用 `explorerReadHandoffGuidance`：已读源码的有效锚走 `emit_evidence`，外部观测及模型综合说明走 `emit_investigation_complete.reason` / `aggregate_facts`。不再教学“手读 Trace 行交源码发射器”。这只统一提示，不增减工具权限、提前完成条件或因果/事实查询范围。
+
 ### 5.5 ERM — Evidence Requirement Model
 
 > *像家里办喜事的备菜清单：清单上列着"凉菜 4 份、热菜 6 份、汤 2 份、主食够 10 人"。每备好一道菜就打勾，全部打勾 = 可以开席（停止采买）。少一道菜就接着去买。ERM 就是把"够不够答案 = 够不够证据"翻译成 typed 清单，让停的时机不靠 LLM 自我感觉良好。*
@@ -1101,6 +1103,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 
 **源码实参接收端身份（B1685）**：`emit_evidence`在最终行号恢复/grounding之后、owner与receiver绑定之前，保留当前已读源码唯一调用站点解析出的完整接收表达式。只处理已grounded的line/argument证据；同站点同实参的短名与限定名由已有ID/去重链自然归一，不改模型predicate、summary或原参数。不同文件、行、实参、精确接收端仍独立；多调用、部分表达式、不可引用或无当前读取凭证时不猜测，不迁移历史无源码证据，不从图显示消息反推身份。
 
+**图端点恢复权限（B1687）**：纯图形唯一匹配不能选择业务别名的语义身份，模型可能只展示另一组件的局部。拓扑恢复仅补两端已由同图完整、同方向同关系且匹配当前 recipe 的明确身份锚唯一绑定的缺失字段；冲突、局部身份或其它图的锚不授权传播，修复前快照不随本次补齐级联扩权。原 exact-node、明确单侧身份、同代 lease 等安全恢复继续有效；可见节点、边、标签和模型正文不改。recipe 与恢复收据均不是调用证据，普通关系凭证校验仍独立执行。
+
 ### 6.6 Validator 链 — 三层校验
 
 `internal/orchestrator/contract_check_block.go` 在 mutation 写入 Mutable 之前跑校验，HARD / Layer 2 / Layer 3 三层：
@@ -1288,6 +1292,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 - **投影汇总（`TraceCausalProjection` + `materializeRuntimeTraceCausalProjectionBlock`）**：Turn A 全部 trace_query 观测按 chain_relevance 聚合成 primary/on_chain/adjacent/background/semantic 桶，在**每次** `emit_answer_document(_patch)` 持久化时**无条件**自动注入 `runtime_trace_causal_projection` 区块（不依赖 LLM 主动引用）。当存在 `frame_target_resolution`（`window_source=query_window`）精确 anchor 时，节点按是否落在用户请求窗口内标注 `WithinRequestedWindow`。
 
 **窗口纪律**：用户显式给出 `time_start`/`time_end` 时严格透传不误缩（三处窗口推导入口都以 `.Set()` typed 布尔为精确开关）；帧信息 + 显式窗口同时给出时用 `unionTimeWindows` 取并集（纯几何 min/max，显式 0 起点也保留）。
+
+**榜项时间范围口径（B1688）**：系统代表窗表当前消费 `TraceCausalProjectionNode.StartTs/EndTs`，它们可为多段发生记录的最早/最晚起止包络，不是某次独立发生凭证。显示须明确不证明连续占用或仅发生一次、不同榜项范围可能重叠且不可相加；全查询窗累计数值不得挪称为这段范围的持续时间。该表继续只展示精确链上项目，既有时间值、排名、两轴及模型选择不变。真正独立代表性片段的载体供给另行建设，不能由包络猜造。
 
 **逻辑附件 ID 兼容**：`RuntimeArtifactSelectionItem.ID`（`runtime_artifact:<16hex>`）是选择账本里的逻辑身份，不是文件路径。模型误把该 ID 填进 `source=path/path` 时，`trace_query` 先在当前 typed selection 中精确匹配 kind=trace 的唯一 item，再把它的 typed carriers stat-核验为唯一物理 trace；只有零歧义时才确定性改写成 `source="attached_trace"`（无 path）或 item.source 对应的 `source="path"`。未知 ID、log kind、无物理 carrier、一个 item/producer alias 对应多份物理 trace 均 fail-closed，逻辑 ID 永不进入 filesystem resolver。成功结果头会回写 `auto_resolved=true`、解析后的 source 和 `canonical_next_call`，同时上下文/工具 schema 直接教模型使用 item.source，避免把兼容层变成长期心智负担。
 

@@ -494,7 +494,7 @@ func TestNormalizeDisplayQualifiedEdgeAnchorIdentitiesDoesNotStripFunctionSignat
 	}
 }
 
-func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesMapsUniqueBusinessTopology(t *testing.T) {
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesPreservesUnselectedBusinessTopology(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "business-topology", Kind: types.BlockDiagram,
 		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
@@ -521,13 +521,14 @@ func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesMapsUniqueBusinessT
 		{FromNode: "n7", ToNode: "n8", FromIdentity: "out.AnalysisIR", ToIdentity: "o.busCtx.AnalysisIR", RelationKind: types.DiagramRelDataFlow},
 	}
 	originalBody := doc.Blocks[0].Diagram.Body
-	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 5 {
-		t.Fatalf("fixed=%d, want all five identities restored by unique typed topology", fixed)
+	// B1687: these business aliases selected no endpoint identity. The former
+	// five-repair expectation mistook a unique graph shape for model intent.
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 0 {
+		t.Fatalf("fixed=%d, topology alone must not select endpoint identities", fixed)
 	}
-	for i, want := range recipes {
-		got := doc.Blocks[0].EdgeAnchors[i]
-		if got.FromIdentity != want.FromIdentity || got.ToIdentity != want.ToIdentity {
-			t.Fatalf("anchor[%d]=%+v, want identity pair %q -> %q", i, got, want.FromIdentity, want.ToIdentity)
+	for i, got := range doc.Blocks[0].EdgeAnchors {
+		if got.FromIdentity != "" || got.ToIdentity != "" {
+			t.Fatalf("anchor[%d]=%+v, unselected identities must stay absent", i, got)
 		}
 	}
 	if doc.Blocks[0].Diagram.Body != originalBody {
@@ -771,7 +772,7 @@ func TestNormalizeAnswerDocumentForPreEmitWiresStandaloneSemanticHandoffIdentity
 	}
 }
 
-func TestNormalizeAnswerDocumentForPreEmitWiresUniqueTopologyAfterMermaidAliasRepair(t *testing.T) {
+func TestNormalizeAnswerDocumentForPreEmitPreservesUnselectedTopologyAfterMermaidAliasRepair(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("render a business-facing architecture diagram")}
 	recipes := []types.DiagramEdgeAnchor{
 		{FromNode: "n5", ToNode: "n6", FromIdentity: "Orchestrator.Run", ToIdentity: "Orchestrator.runAnalyzePhase", RelationKind: types.DiagramRelCall},
@@ -791,17 +792,22 @@ func TestNormalizeAnswerDocumentForPreEmitWiresUniqueTopologyAfterMermaidAliasRe
 			{FromNode: "result", ToNode: "codraxNode1", RelationKind: types.DiagramRelDataFlow},
 		},
 	}}}
+	originalBody := doc.Blocks[0].Diagram.Body
 	pctx := newPreEmitCheckContext(bus)
 	normalizeAnswerDocumentForPreEmit("emit_answer_document_patch", doc,
 		&types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}, bus, pctx)
-	for i, want := range recipes {
-		got := doc.Blocks[0].EdgeAnchors[i]
-		if got.FromIdentity != want.FromIdentity || got.ToIdentity != want.ToIdentity {
-			t.Fatalf("production topology receipt anchor[%d]=%+v, want %q -> %q", i, got, want.FromIdentity, want.ToIdentity)
+	// B1687: neither alias pair selected a typed endpoint. Normalization must
+	// not reinterpret the unchanged business graph through a unique shape.
+	for i, got := range doc.Blocks[0].EdgeAnchors {
+		if got.FromIdentity != "" || got.ToIdentity != "" {
+			t.Fatalf("production selected an unbound topology endpoint[%d]=%+v", i, got)
 		}
 	}
-	if pctx.repairCounts["normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes"] != 2 {
+	if pctx.repairCounts["normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes"] != 0 {
 		t.Fatalf("production topology repair accounting missing: %+v", pctx.repairCounts)
+	}
+	if doc.Blocks[0].Diagram.Body != originalBody {
+		t.Fatal("unselected topology must preserve the visible diagram")
 	}
 }
 

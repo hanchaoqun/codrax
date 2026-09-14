@@ -177,7 +177,7 @@ func TestB1647cIdentityReceiptCannotHideModelOrReceiptDrift(t *testing.T) {
 func TestB1647cPublicOrphanReceiptDoesNotGrantCallEvidence(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		t.Run(fmt.Sprintf("missing_evidence=%t", missing), func(t *testing.T) {
-			bus, accepted, _, recipe := b1647StageOrphan(t, "legacy_only_with_evidence")
+			bus, accepted, staged, recipe := b1647StageOrphan(t, "legacy_only_with_evidence")
 			recipe.FromNode, recipe.ToNode = "n3", "n4"
 			if missing {
 				bus.EvidenceItems = nil
@@ -187,6 +187,23 @@ func TestB1647cPublicOrphanReceiptDoesNotGrantCallEvidence(t *testing.T) {
 			bus.Mutable.SetFinalizerTypedRelationRecipeAnchors([]types.DiagramEdgeAnchor{recipe})
 			raw := json.RawMessage(`{"diagram_participant_edits":[{"action":"remove_if_isolated","block_id":"diag","participant_id":"D"}]}`)
 			result, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+			if !missing {
+				// B1687: the model selected neither endpoint of this unrelated
+				// recipe. Previously the test expected topology to inject its
+				// unsupported identity and then reject a valid Caller -> Callee.
+				// Preserve that real source-backed edge instead. Explicit model
+				// selection of UnprovenMethod is a separate public negative.
+				if err != nil || !result.Success {
+					t.Fatalf("unselected recipe must not contaminate a proved model edge: err=%v result=%+v", err, result)
+				}
+				got := bus.Mutable.AnswerDocumentV2()
+				if got == nil || !reflect.DeepEqual(got.Blocks[0], accepted.Blocks[0]) ||
+					b1647MessageLines(got.Blocks[1].Diagram.Body) != b1647MessageLines(staged.Blocks[1].Diagram.Body) ||
+					len(got.Blocks[1].EdgeAnchors) != 1 || got.Blocks[1].EdgeAnchors[0].HasEndpointIdentityPair() {
+					t.Fatalf("source-backed model edge changed: %+v", got)
+				}
+				return
+			}
 			if err != nil || result.Success {
 				t.Fatalf("a normalization receipt is not executable-call evidence: err=%v result=%+v", err, result)
 			}

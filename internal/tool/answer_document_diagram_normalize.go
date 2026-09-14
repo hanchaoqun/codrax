@@ -290,8 +290,8 @@ func normalizeDiagramEdgeAnchorNodeRefsByUniqueOneSidedBodyEdge(block *types.Ans
 // recipe. The model must already have authored the visible edge and an anchor
 // with the same direction and relation kind. The fast path uses the recipe's
 // stable node IDs directly. A second path permits business-facing node IDs only
-// when the complete model-authored connected component has a unique
-// relation-labelled graph mapping onto one typed recipe component. A
+// when both endpoints already have unique same-diagram recipe-backed identity
+// selections and the complete component has a consistent typed graph mapping. A
 // one-sided pair is completed only when its populated side exactly selects one
 // typed recipe and no second model anchor competes for that same receipt.
 // Ambiguity, conflicting partial metadata, or any topology/relation mismatch
@@ -822,11 +822,13 @@ type diagramIdentityPair struct{ from, to string }
 const diagramComponentIsomorphismVisitBudget = 16384
 
 // normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology is the alias-safe
-// continuation of the exact-node fast path above. It reads only model-authored
-// edge anchors plus parsed visible edge topology and the dispatch-scoped typed
-// receipt. Visible labels, request prose, answer prose, citations, and source
-// locations are deliberately absent from the decision. It therefore cannot
-// turn display similarity into authority.
+// continuation of the exact-node fast path above. Both nodes of a repaired
+// edge must already have unique identity selections in complete, recipe-backed
+// anchors in the same diagram. Topology can corroborate those selections, but
+// even a unique whole-component match cannot select an identity for an
+// unbound business alias: a model may show only part of another component.
+// Visible labels, request prose, answer prose, citations, and source locations
+// are deliberately absent from this metadata-only decision.
 func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.AnswerDocumentV2, recipes []types.DiagramEdgeAnchor) int {
 	recipeEdges := diagramTypedRecipeEdges(recipes)
 	if len(recipeEdges) == 0 {
@@ -855,10 +857,12 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 				relation: anchor.RelationKind, anchor: anchor,
 			})
 		}
+		selectedNodes := diagramRecipeBackedSelectedNodeIdentities(modelEdges, recipeEdges)
 		for _, component := range diagramModelAnchorComponents(modelEdges) {
 			// One-sided identity is a model-authored conflict, not an omission.
 			partial := false
 			needsRepair := false
+			hasSelectedRepair := false
 			for _, edgeIndex := range component.edgeIndex {
 				anchor := modelEdges[edgeIndex].anchor
 				fromSet := strings.TrimSpace(anchor.FromIdentity) != ""
@@ -869,12 +873,14 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 				}
 				if !fromSet {
 					needsRepair = true
+					edge := modelEdges[edgeIndex]
+					hasSelectedRepair = hasSelectedRepair || (selectedNodes[edge.from] != "" && selectedNodes[edge.to] != "")
 				}
 			}
 			// Fully identified components have nothing for this normalizer to do.
 			// In particular, do not enumerate their topology merely to rediscover
 			// endpoint identities that the model already supplied.
-			if partial || !needsRepair {
+			if partial || !needsRepair || !hasSelectedRepair {
 				continue
 			}
 			candidates := make(map[int]map[diagramIdentityPair]bool)
@@ -921,6 +927,10 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 					continue
 				}
 				for pair := range candidates[edgeIndex] {
+					edge := modelEdges[edgeIndex]
+					if selectedNodes[edge.from] != pair.from || selectedNodes[edge.to] != pair.to {
+						continue
+					}
 					anchor.FromIdentity = pair.from
 					anchor.ToIdentity = pair.to
 					fixed++
@@ -929,6 +939,48 @@ func normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc *types.Answer
 		}
 	}
 	return fixed
+}
+
+// Bind only identities already selected by complete typed anchors on visible
+// edges in this diagram. A matching recipe proves the selected pair; topology
+// alone never supplies either endpoint. Any competing explicit identity on a
+// node (including a partial or unsupported pair) prevents propagation from
+// that node. The snapshot is not extended by repairs performed later in the
+// pass, so one optional recovery cannot authorize another.
+func diagramRecipeBackedSelectedNodeIdentities(modelEdges []diagramModelAnchorEdge, recipeEdges []diagramTypedRecipeEdge) map[string]string {
+	selected := make(map[string]map[string]bool)
+	backed := make(map[string]bool)
+	for _, edge := range modelEdges {
+		anchor := edge.anchor
+		from, to := strings.TrimSpace(anchor.FromIdentity), strings.TrimSpace(anchor.ToIdentity)
+		for _, endpoint := range [][2]string{{edge.from, from}, {edge.to, to}} {
+			if endpoint[1] == "" {
+				continue
+			}
+			if selected[endpoint[0]] == nil {
+				selected[endpoint[0]] = make(map[string]bool)
+			}
+			selected[endpoint[0]][endpoint[1]] = true
+		}
+		if from == "" || to == "" {
+			continue
+		}
+		for _, recipe := range recipeEdges {
+			if edge.relation == recipe.relation && from == recipe.fromIdentity && to == recipe.toIdentity {
+				backed[edge.from], backed[edge.to] = true, true
+				break
+			}
+		}
+	}
+	out := make(map[string]string)
+	for node, identities := range selected {
+		if backed[node] && len(identities) == 1 {
+			for identity := range identities {
+				out[node] = identity
+			}
+		}
+	}
+	return out
 }
 
 // diagramTypedRecipeComponentDemand counts how many disconnected model
