@@ -24,7 +24,8 @@ func applyStructuredPayloadCompat(toolName string, raw json.RawMessage, schema j
 	if len(bytes.TrimSpace(raw)) == 0 || len(bytes.TrimSpace(schema)) == 0 {
 		return raw
 	}
-	if toolparam.InspectRawToolArgumentEnvelope(raw, schema).Status == toolparam.RawToolArgumentEnvelopeAmbiguous {
+	if toolparam.InspectRawToolArgumentEnvelope(raw, schema).Status == toolparam.RawToolArgumentEnvelopeAmbiguous ||
+		toolparam.InspectSchemaConsumedArgumentEnvelopes(raw, schema).HasAmbiguity() {
 		return raw
 	}
 	if repaired, ok := repairRedundantToolNameTypeField(toolName, raw, schema); ok {

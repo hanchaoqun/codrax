@@ -30,6 +30,8 @@ type Report struct {
 	// Independent of compatibility mode: ambiguous argument ownership must
 	// remain visible even when audit/off forbids changing the original JSON.
 	EnvelopeIntegrity *RawToolArgumentEnvelopeInspection
+	// Kept separate: nested candidates are not whole tool argument objects.
+	NestedEnvelopeIntegrity *SchemaConsumedArgumentEnvelopeInspection
 }
 
 func (r Report) Changed() bool { return len(r.Repairs) > 0 }
@@ -98,6 +100,11 @@ func Normalize(raw json.RawMessage, schema json.RawMessage, cfg types.ToolParamC
 	if inspection.Status == RawToolArgumentEnvelopeAmbiguous {
 		// Do not let any unrelated repair force a map round-trip before an
 		// owning caller has resolved the competing argument containers.
+		return raw, report
+	}
+	nested := InspectSchemaConsumedArgumentEnvelopes(raw, schema)
+	if nested.HasAmbiguity() {
+		report.NestedEnvelopeIntegrity = &nested
 		return raw, report
 	}
 	mode := cfg.NormalizedMode()
@@ -201,11 +208,24 @@ func coalesceDuplicateSchemaArrayProperties(raw json.RawMessage, schema json.Raw
 		if !valid {
 			continue
 		}
-		encoded, err := json.Marshal(merged)
-		if err != nil {
-			continue
+		// Do not marshal RawMessages here: its HTML escaping can make two
+		// differently spelled original carrier objects appear byte-identical
+		// before the integrity check. Merge only the array delimiters, keeping
+		// each admitted item's wire bytes and the existing nil-array result.
+		var encoded bytes.Buffer
+		if merged == nil {
+			encoded.WriteString("null")
+		} else {
+			encoded.WriteByte('[')
+			for index, item := range merged {
+				if index > 0 {
+					encoded.WriteByte(',')
+				}
+				encoded.Write(item)
+			}
+			encoded.WriteByte(']')
 		}
-		mergedByKey[key] = encoded
+		mergedByKey[key] = encoded.Bytes()
 		repairs = append(repairs, repair(
 			propertyPath("$", key),
 			"duplicate_array_property_concat",
@@ -1200,6 +1220,17 @@ func decodeJSONStringAs(s string, want string) (any, string, bool) {
 }
 
 func decodeJSONStringArrayWithSchema(s string, node schemaNode) (any, string, bool) {
+	raw, rule, ok := decodeJSONStringArrayWithSchemaRaw(s, node)
+	if !ok {
+		return nil, "", false
+	}
+	decoded, ok := decodeJSONValue(raw)
+	return decoded, rule, ok
+}
+
+// Share the exact admitted raw fragment-repair candidate with the integrity
+// inspector, before ordinary decoding can discard duplicate item wrappers.
+func decodeJSONStringArrayWithSchemaRaw(s string, node schemaNode) (json.RawMessage, string, bool) {
 	keys := arrayObjectItemPropertyKeys(node)
 	if len(keys) == 0 {
 		return nil, "", false
@@ -1216,7 +1247,7 @@ func decodeJSONStringArrayWithSchema(s string, node schemaNode) (any, string, bo
 		if _, ok := decoded.([]any); !ok {
 			continue
 		}
-		return decoded, "json_string_array_object_fragments", true
+		return json.RawMessage(repaired), "json_string_array_object_fragments", true
 	}
 	return nil, "", false
 }

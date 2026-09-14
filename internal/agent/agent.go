@@ -4043,7 +4043,8 @@ func (b *BaseAgent) normalizeToolCallParamsWithContext(ctx *types.AgentContext, 
 func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.RawMessage, cfg types.ToolParamCompatConfig) (llm.ToolCall, bool) {
 	// Keep the original alternatives for the execution/answer owner. Even a
 	// local metadata/default repair must not map-decode away this ambiguity.
-	if toolparam.InspectRawToolArgumentEnvelope(call.Params, schema).Status == toolparam.RawToolArgumentEnvelopeAmbiguous {
+	if toolparam.InspectRawToolArgumentEnvelope(call.Params, schema).Status == toolparam.RawToolArgumentEnvelopeAmbiguous ||
+		toolparam.InspectSchemaConsumedArgumentEnvelopes(call.Params, schema).HasAmbiguity() {
 		return call, false
 	}
 	mode := cfg.NormalizedMode()

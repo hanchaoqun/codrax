@@ -17,10 +17,34 @@ func ToolArgumentEnvelopeIntegrityError(name string, raw, schema json.RawMessage
 		return nil
 	}
 	inspection := toolparam.InspectRawToolArgumentEnvelope(raw, schema)
-	if inspection.Status != toolparam.RawToolArgumentEnvelopeAmbiguous {
-		return nil
+	if inspection.Status == toolparam.RawToolArgumentEnvelopeAmbiguous {
+		return fmt.Errorf("ambiguous tool argument envelope at %s: resend one arguments object; no alternative was executed", inspection.ConflictPath)
 	}
-	return fmt.Errorf("ambiguous tool argument envelope at %s: resend one arguments object; no alternative was executed", inspection.ConflictPath)
+	nested := toolparam.InspectSchemaConsumedArgumentEnvelopes(raw, schema)
+	if nested.HasAmbiguity() {
+		return fmt.Errorf("ambiguous nested tool arguments at %s: resend one object at each affected location; no alternative was executed", nestedArgumentEnvelopePaths(nested))
+	}
+	return nil
+}
+
+// Display only schema coordinates, never competing values or model prose.
+func nestedArgumentEnvelopePaths(inspection toolparam.SchemaConsumedArgumentEnvelopeInspection) string {
+	paths := make([]string, 0, len(inspection.Ambiguities)+1)
+	for _, ambiguity := range inspection.Ambiguities {
+		path := "$"
+		for _, component := range ambiguity.Path {
+			if strings.HasPrefix(component, "[") {
+				path += component
+			} else {
+				path += "." + component
+			}
+		}
+		paths = append(paths, path)
+	}
+	if inspection.Truncated {
+		paths = append(paths, "additional locations beyond the comparison limit")
+	}
+	return strings.Join(paths, ", ")
 }
 
 // An incomplete comparison cannot establish that the model omitted a selector.
@@ -39,6 +63,39 @@ func answerEnvelopeSelectionUnobserved(err error) bool {
 // returns only a common selector for the existing rejected-emit staging lane;
 // a selector conflict returns only the common body and a per-call ledger error.
 func prepareAnswerArgumentEnvelope(raw, schema json.RawMessage) (json.RawMessage, error, error) {
+	prepared, bodyErr, selectorErr := prepareRootAnswerArgumentEnvelope(raw, schema)
+	// Resolve only the proven root transport path before inspecting the body.
+	// Nested candidates are blocks/items, never competing whole documents.
+	effective := prepared
+	if inner, _, ok := toolparam.RawToolArgumentEnvelope(prepared, schema); ok {
+		effective = inner
+	}
+	properties, ok := traceRootCauseRawProperties(effective)
+	if !ok {
+		return prepared, bodyErr, selectorErr
+	}
+	var body, selector []traceRootCauseRawProperty
+	for _, property := range properties {
+		if traceRootCauseReservedParam(property.key) {
+			selector = append(selector, property)
+		} else {
+			body = append(body, property)
+		}
+	}
+	// The optional selector retains its existing raw-key integrity owner. A
+	// body conflict cannot discard its independently valid submission, nor
+	// can it clear an existing answer/patch lease before the normal reject tail.
+	nested := toolparam.InspectSchemaConsumedArgumentEnvelopes(traceRootCausePropertyObject(body), schema)
+	if nested.HasAmbiguity() {
+		if bodyErr == nil {
+			bodyErr = fmt.Errorf("ambiguous nested answer arguments at %s: resend one object at each affected location; the previous answer is unchanged", nestedArgumentEnvelopePaths(nested))
+		}
+		return traceRootCausePropertyObject(selector), bodyErr, selectorErr
+	}
+	return prepared, bodyErr, selectorErr
+}
+
+func prepareRootAnswerArgumentEnvelope(raw, schema json.RawMessage) (json.RawMessage, error, error) {
 	inspection := toolparam.InspectRawToolArgumentEnvelope(raw, schema)
 	if inspection.Status == toolparam.RawToolArgumentEnvelopeEquivalent && len(inspection.Candidates) > 0 {
 		return inspection.Candidates[0].Object, nil, nil

@@ -2,7 +2,9 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1796：B1680外部工件来源交接教学已公共先红后绿，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓通过，Go文件前后SHA一致，随本条交付。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
+当前续修§123.1797：B1681嵌套schema参数包装完整性已公共先红后绿，真实BaseAgent/MCP调用前保护原始JSON，答案正文/可选根因选择保持独立所有权；1620路由、count3/race3、独立冷审及冻结86包全仓通过，随本条交付。图关系供给、原生runner协议普查仍开放。后继r1070计划逻辑视图读+dateutil原生Python写，恰好并行2各一次，尚未启动。
+
+已交付§123.1796：B1680外部工件来源交接教学`32a3287a5`已推送，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓和提交后清洁构建通过。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
 
 最新回放§123.1795：r1069审计`118cb63a6`已推送，清洁45e0ad488恰好H3显式窗IO+C++双头写两路各一次，机器0/2。IO关键两墙钟及≥4/4.384ms保留，但模型将展示范围当总体、术语/范围仍有P2；C++补丁当前ABI独立7056后验通过，正式Make聚合凭证保unknown，未虚报全验证。三路误交21条外部观测确认B1680，未追跑第三例，不改原模型答案或oracle。
 
@@ -57417,6 +57419,20 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1797 B1681：嵌套schema参数包装完整性（2026-09-14）
+
+1. **基线/顺位**：清洁`32a3287a5`已推送、fetch后远程0/0，提交后构建revision=32a3287a5572（08:48:01Z）。优先关闭B1677明确保留的嵌套object/array-item原始归属P1；不重跑已审r1069，不用随机live替代确定性公共复现。
+2. **公共RED**：`20260914-b1681-agent-public-red.log`真实BaseAgent.Execute→本轮schema→Registry调用，在repair模式将requests[i]内竞争arguments/function直接变成后一path；off/audit也未阻止调用，匹配schema指纹亦不构成原始完整性凭证。当前先记录发现，修复/冷审/全仓收据后补，不宣称闭环。
+3. **架构边界**：根级RawToolArgumentEnvelope的Candidates继续只表示整工具参数对象，不将嵌套block冒充整篇答案。新增检查仅随schema已消费的属性/items及已有字符串兼容路径；未知/opaque正文不递归寻意图。普通工具不得执行竞争参数；答案body与可选selector由原owner分开处置，复用既有拒绝出口和selector暂存/提交生命周期，不接管模型结论、不全篇连坐。
+4. **后继exact2预案**：r1070逻辑视图读`qf_logic_view_read_pipeline`+原生Python写`github_issue_dateutil_relativedelta_float_symptom`，CAP5/PARALLEL2/TIMEOUT1200，read15/apply24，各一次。CAP仅约束多仓，本对单仓不受额外收缩；读例历史r920是1800s，不能声称完全同预算。优先审真实数据流关系供给与目标执行/行为断言分轴。B1681未自然触发时记N/A，原oracle/fixtures/答案不改。
+
+5. **最小实现及独立反证**：schema路径检查独立于原根包装API，Normalize、agent兼容前、普通工具调用前、shared compat前共同守住原始歧义。full/patch owner仅对body检查，复用既有bodyErr出口，合法selector经原resolve/defer进入pending；不新增executor早退点或修改出口census。完整HEAD overlay独立复现12个正文失败分支，`20260914-b1681-independent-original-overlay-v2.log`（agent1.365/tool1.185s），且report/item/string-report/string-item的32格selector隔离旧版已绿，故没有为了本片扩selector协议。
+6. **共享前处理精确性**：WIP额外反针`20260914-b1681-array-wire-red.log`0.641s证明top-level重复数组并项的json.Marshal会把`<tag>`与Unicode转义改为同wire，洗白严格raw一致性；现仅拼原RawMessage成员和数组分隔符，顺序、内容、大整数、引号/HTML字节保留，concat资格/invalid拒并/nil旧政策均不变。这是本次冷审派生RED，不冒充最早HEAD复现。
+7. **局部验收与范围**：toolparam新增9项顶层测试含1620路由组合，整包count3=1.298s/race3=9.369s（`20260914-b1681-final-{count3,race3}.log`）；独立owner/agent count3=1.516/2.302s、race3=6.586/12.841s，两个冷审无阻断。联合旧B1672/B1675/B1677及本片race3 agent93.179/tool56.841s通过。首个direct正针误要求静态patch原本不支持的包装（initial-green日志中失败）已按旧版事实收窄，不改生产协议追绿。64是候选/冲突收集界限，不是树访问界限；普通重复schema属性、opaque/$ref未支持shape不在本片闭环声明内。
+8. **冻结验收**：`20260914-b1681-full.log`完整`go test ./... -count=1`86包exit0，agent87.691/tool372.338/hitraceconv152.951/tracequery117.754/tracediag14.267/llm29.712/orchestrator26.618/types51.615s。全部Go源码/测试前后SHA（`20260914-b1681-freeze-{before,after}.sha`）一致。现有600/300/600s默认及活跃SSE规则未改，联合三轮请求预算/Trace显式窗投影针通过，不以4ms或旧4m无可见答案作降级依据。随后提交推送与清洁构建，再启动r1070。
+
+状态：`B1681=public-red/local-count3+race3+cold-pass/full86-pass/delivery`；`r1070=planned-not-started`；`model-answer-and-selector-ownership=preserved-in-public-tests`。
 
 ### §123.1796 B1680：真实工件标记与九面交接教学同源（2026-09-14）
 
