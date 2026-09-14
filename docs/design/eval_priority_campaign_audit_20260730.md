@@ -2,7 +2,9 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1794：B1677根参数包装竞争与答案/选择独立归属、B1678聚合项目检查能力边界已公共先红后绿，含本地/MCP真实入口、历史真实native证据恢复及中英文披露。相关count3/race3、独立冷审及联合冻结86包全仓通过，源码前后SHA一致，正分批提交。本批不宣称schema-owned嵌套包装或所有原生runner审计完成。后续冻结H3显式窗IO + nlohmann C++写exact2各一次，当前未启动。
+当前续修§123.1795：r1069清洁45e0ad488恰好H3显式窗IO+C++双头写两路各一次，机器0/2。IO关键两墙钟及≥4/4.384ms保留，但模型将展示范围当总体、术语/范围仍有P2；C++补丁当前ABI独立7056后验通过，正式Make聚合凭证保unknown，未虚报全验证。三路被通用提示诱导误交21条外部观测后全跳过，B1680来源交接教学自冲突确认为P1、下一独立片施工。无第三例追绿、无正文改写/关键词硬门。
+
+已交付§123.1794：B1677根参数包装完整性`0fb162a76`、B1678聚合项目检查能力边界`45e0ad488`已分批推送；公共先红后绿、count3/race3、独立冷审及冻结86包全仓、清洁构建通过。schema-owned嵌套包装、图操作/关系供给与所有原生runner审计未全闭；r1069真实正证不代销这些边界。
 
 本轮交付§123.1792：B1674计量成员口径交接`9cb1b7ff2`、B1675安全选择兼容及原始冲突保真`d83b8c72f`、B1676可寻址草稿重试教学`40c1ec826`已分批推送；公共先红后绿、count3/race、独立冷审、联合冻结86包全仓与清洁构建通过。模型正文/选根因权属、Trace两轴、显式窗、因果投影及补齐不变；外层包装竞争B1677仍未修，不夸JSON恢复全闭。
 
@@ -57414,6 +57416,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1795 r1069：IO口径、C++验证真实性与B1680交接教学冲突（2026-09-14）
+
+1. **批次纪律**：清洁`45e0ad488247`及冻结二进制于08:17:33Z启动，243例库存按影响/权限风险/异构/最近覆盖/本机可执行性选H3（上次r1052）+nlohmann C++（上次r1059）。严格并行2、各1次、CAP5、外层1200s不变，334/174s完成；机审FAIL/FAIL，未再跑第三例。完整记录在`eval/parallel_selected_summary_evalcampaign_io_cppwrite_r1069_20260914{,_manual_audit}.md`。
+2. **H3核心正证与机器边界**：原`.codrax/output/20260914-012304.799-48935.md`保1.347ms请求墙钟≠1.337ms线程S阻塞，四段≥4.384ms下界，未将调度标记IO=0当无IO。198全局/8展示、41.329未展示request·ms非墙钟未变为目标线程总量。机审旧regex不识别“单次 IO 请求/单个请求”，不改原case/oracle；原机器FAIL保留。
+3. **H3完整人审仍FAIL**：已返回6条目标样本0.865–1.347ms被汇总成无样本限定的范围；原trace987/1017的同目标同设备请求仅0.209ms，直接证伪。模型还将精确隐藏190条之和称估算、展示cap称链遍历裁剪、泄漏request_residence。皆在原模型发射，准确工具和finalizer上下文已给齐；保P2质量观察，不加正文扫描硬门、不系统纠正文案。有限事实题未激活根因合同，旁路确实生成schema2空数组+trace_root_cause_contract_not_active；无因果投影不是根因分析能力回归。
+4. **B1680/P1新增确定性系统gap**：H3 log1600/1688/2563提示要求当前事实emit_evidence；1726/1794/2834分别跳4/7/10条外部观测，随后三个complete均接受。read_file真实RuntimeArtifactRead与source ReadCoverage互斥，hint消费者只读后者；来源合同只看analyzer，大Trace预分析跳过后漏当前typed工件。旧header文案另误教“有真实行号即可emit”。先做真实ReadFile→Observe→EmitEvidence公共RED，再统一仅软提示的typed来源/范围交接；不改source coverage、工具权限、完成门、派生ref许可或模型结论。此处记录发现，不冒充已修；后继施工收据另条。
+5. **C++补丁与正式凭证分开验**：seed a5deba74ef→applied e4075553b4仅两header `%.*lg`→`%.*Lg`，无窄化cast、原测试/Makefile不改。真实make check 1336ms exit0，仅一条aggregate make-test；两路径能力unknown，七合同planning_only。模型要求all_verified，终态正确accept_unverified/proof_weak，没有为凑证明replan/retest。B1678获自然正证，不能恢复旧虚高标签来追PASS。
+6. **C++独立后验**：精确applied树的C/de_DE/fr_FR各2352格、合计7056检查全过，原测试严格编译运行通过；大小/极值/小buffer/返回值和两头一致性覆盖。原源树及formal/final报告SHA前后相同，不回填proof。收据`20260914-r1069-cpp-{format,locale}-audit.log`；当前double/long double均8字节53位，不签其它ABI，也不将printf包装locale一致性当完整JSON locale政策。
+7. **等待与下一顺位**：读24+写20请求均attempt1，600/300/600s默认有效；没有固定4ms/旧4分钟无正文降级，eval1200s独立。本轮无畸形JSON或图render自然覆盖。先闭B1680通用交接自冲突，再按风险推进嵌套包装、图操作供给、原生目标执行协议；模型样本范围误述不挤占已证确定性P1。
+
+状态：`r1069=exact2-once/machine2fail/human-IO-core-pass+full-fail/CPP-patch-current-ABI-pass+formal-unverified`；`B1677/B1678=pushed/full86+clean-build-pass`；`B1680=confirmed-live+source/public-red-next`；`original-artifacts-and-oracles=unchanged`。
+
 ### §123.1794 B1677/B1678：根参数包装完整性与项目检查能力边界（2026-09-14）
 
 1. **优先级与基线**：从已推送且清洁的`c656a554f`继续，远程核验0/0。先闭r1068确认的两项P1，再跑异构exact2，不追加第三例追绿。此次不改用户/模型正文关键词门、模型结论/选根因权属、Trace显式窗、链上根因两轴、自动补齐、图关系或超时预算。
@@ -57428,9 +57442,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 9. **披露及既有测试演进**：unknown不能称“只有静态证据/行为未执行”。执行继续提示、控制器理由、终态中英文统一为“尚未建立目标执行证据”，原reason ID及门不动。原失败handoff成功三臂现在实际继续原生unittest，由单条Make改为精确两条（Make aggregate + native assertion），针定来源`execution_capability_escalation`及真实断言，非放宽len或删除原测试。最终B1678相关count3 types1.354/tool59.080/orchestrator1.855s，race3 types5.234/tool62.208/orchestrator4.128s；`20260914-b1678-final-{count3,race3}.log`。
 10. **联合冻结验收**：`go test ./... -count=1`日志`20260914-b1677-b1678-full.log`86包exit0；tool365.417s、agent82.202s、types48.086s、orchestrator32.651s、hitraceconv157.734s、tracequery113.128s、tracediag13.422s、llm28.735s。全部Go源码/测试SHA `20260914-b1677-b1678-freeze-{before,after}.sha`逐字一致。B1677出口自检最后按身份定位替代硬索引，最终完整census 1.389s；此前race日志的该自检失败保留，不伪称旧日志全绿。原600/300/600s等待默认、活跃流规则不变；本批不新增绝对无正文时限。
 
-交付分片：B1677为`0fb162a76`；B1678随本条文档更新独立提交，未改前片测试/代码。提交后再做清洁构建，exact2不跑dirty二进制。
+交付分片：B1677为`0fb162a76`、B1678为`45e0ad488`，均已推送；未改前片测试/代码。提交后清洁构建通过，binary revision=45e0ad488247（2026-09-14T08:17:08Z）；后继exact2见§1795，非dirty二进制。
 
-状态：`B1677=public-red/implementation+independent-tail-pass/full86-pass/committed`；`B1678=public-red/historical-native-red/count3+race3+cold-pass/full86-pass/delivered-with-this-entry`；`next-live=not-started`。
+状态：`B1677=public-red/implementation+independent-tail-pass/full86-pass/pushed`；`B1678=public-red/historical-native-red/count3+race3+cold-pass/full86-pass/pushed`；`next-live=r1069-completed-see-1795`。
 
 ### §123.1793 r1068/B1678/B1679：图关系未闭、静态项目检查能力过授与源码说明纠正（2026-09-14）
 
