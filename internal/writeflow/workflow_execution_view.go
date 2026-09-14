@@ -102,8 +102,12 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 	view.BatchAttempt = DeriveBatchAttemptState(batch)
 	view.ExploreAttempts, view.LatestExploreStatus, view.LatestExploreReason = workflowExecutionExploreAttempts(batch)
 	activePlan := workflowExecutionActivePlan(batch, plan)
-	review := loopkernel.LocalizationReviewFromWriteWorkflowRun(run, view.BatchID)
-	if activePlan != nil && activePlan.LocalizationReview != nil {
+	historyCovered := activePlan == nil || loopkernel.WorkflowLocalizationAppliedHistoryCovered(run, activePlan)
+	review, deliveryBound := loopkernel.LocalizationReviewFromWriteWorkflowPlan(run, view.BatchID, activePlan)
+	if !deliveryBound {
+		review = loopkernel.LocalizationReviewFromWriteWorkflowRun(run, view.BatchID)
+	}
+	if !deliveryBound && historyCovered && activePlan != nil && activePlan.LocalizationReview != nil {
 		usePlanReview := review == nil
 		if review != nil {
 			switch loopkernel.DeriveLocalizationAuthority(review).State {
@@ -118,6 +122,17 @@ func DeriveWorkflowExecutionView(mode types.PipelineMode, run types.WriteWorkflo
 	if review != nil {
 		view.Localization = loopkernel.DeriveLocalizationAuthority(review)
 		view.LocalizationGateEligible = workflowExecutionLocalizationGateEligible(*review)
+	}
+	if !historyCovered {
+		// Keep known path/owner evidence visible, but do not claim it covers a
+		// prior applied generation whose delivery paths are unavailable here.
+		view.Localization.State = loopkernel.LocalizationAuthorityUnknown
+		view.Localization.ReasonCode = "localization_applied_history_unknown"
+		view.Localization.RecommendedAction = loopkernel.LoopActionLocalize
+		view.Localization.RequiresMoreContext = true
+		// An uncovered applied generation is a real delivery obligation even
+		// when its context pack is absent; it cannot take the no-context bypass.
+		view.LocalizationGateEligible = true
 	}
 	view.Navigation = types.RepoMapNavigationCoverageFromWriteContextPacks(run.ContextPacks, types.WriteConsumerController, view.BatchID, view.ActiveSliceID)
 	if latestVerify := latestAttemptOfKind(batch, "verify"); latestVerify != nil {

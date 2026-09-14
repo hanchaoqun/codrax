@@ -106,7 +106,7 @@ func TestCaptureReplanCurrentWorktreeReceiptRejectsMismatchedPatchEffectPlan(t *
 	}
 }
 
-func TestTruthLedgerReplanFromNominalPassInstallsCurrentWorktreeReceipt(t *testing.T) {
+func TestTruthLedgerFailedFromNominalPassCannotReopenCompleteBatch(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "fix.py"), []byte("def fixed():\n    return True\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -124,8 +124,8 @@ func TestTruthLedgerReplanFromNominalPassInstallsCurrentWorktreeReceipt(t *testi
 		},
 		// A typed hard patch finding is used here to exercise the generic
 		// nominal-report-pass truth override. The production r506 trigger was a
-		// failed cumulative proof obligation; both enter the same truth replan
-		// producer and neither creates VerifyFailureHandoff.
+		// failed cumulative proof obligation. A nominal pass does not authorize
+		// reopening a completed batch; both failures must remain visible.
 		PatchReview: &types.PatchReviewRecord{HardBlock: true, Findings: []types.PatchReviewFinding{{
 			Code: "typed_patch_truth_failed", Severity: types.PatchReviewSeverityError, Path: "fix.py",
 		}}},
@@ -147,11 +147,25 @@ func TestTruthLedgerReplanFromNominalPassInstallsCurrentWorktreeReceipt(t *testi
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorktreePath: root, Mode: types.ModeApply}}
 
 	decision := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish}, run)
-	if decision.Action != writeflow.ActionReplanBatch || decision.ReasonCode != "truth_ledger_failed_requires_repair" {
-		t.Fatalf("nominal report pass with failed typed truth must replan, got %+v", decision)
+	decision = o.enforceControllerWorkflowTransition(decision, run)
+	if decision.Action != writeflow.ActionBlock || decision.ReasonCode != "truth_ledger_failed_no_legal_repair" {
+		t.Fatalf("nominal report pass must neither reopen complete batch nor hide failed truth, got %+v", decision)
 	}
 	if mu.VerifyFailureHandoff() != nil {
 		t.Fatal("nominally passing report must not manufacture a VerifyFailureHandoff")
+	}
+	if mu.ReplanCurrentWorktreeReceipt() != nil {
+		t.Fatal("blocked same-batch repair must not mint a replan receipt")
+	}
+	// A real failed observation makes same-batch repair legal. Keep the
+	// current-byte receipt pin on that executable path, not on an impossible
+	// Complete -> Replan transition.
+	run.Batches[0].Status = types.WriteWorkflowBatchReadyToPlan
+	run.Batches[0].Attempts[1].Status = "failed"
+	run.Batches[0].Attempts[1].FailureReasonCode = "tests_failed"
+	decision = o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish}, run)
+	if decision.Action != writeflow.ActionReplanBatch {
+		t.Fatalf("failed observation must still allow bounded replan: %+v", decision)
 	}
 	receipt := mu.ReplanCurrentWorktreeReceipt()
 	if receipt == nil || receipt.SourcePlanID != plan.ID || receipt.TriggerReasonCode != "truth_ledger_failed_requires_repair" || len(receipt.Paths) != 1 {

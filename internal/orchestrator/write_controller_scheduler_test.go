@@ -9308,7 +9308,7 @@ func TestControllerTruthLedgerFailedFinishRequiresReplan(t *testing.T) {
 	got, ok := controllerTruthLedgerDecisionFromView(
 		writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "done"},
 		writeflow.WorkflowExecutionView{
-			State:   writeflow.WorkflowExecutionComplete,
+			State:   writeflow.WorkflowExecutionNeedsReplan,
 			BatchID: "batch-1",
 		},
 		types.TruthLedger{

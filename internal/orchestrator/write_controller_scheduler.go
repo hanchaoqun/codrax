@@ -7007,14 +7007,50 @@ func (o *Orchestrator) resolveVerifiedProofFollowupDependencies(run *types.Write
 func controllerTruthLedgerDecisionFromView(decision writeflow.WriteWorkflowDecision, view writeflow.WorkflowExecutionView, ledger types.TruthLedger, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
 	decision = writeflow.NormalizeWriteWorkflowDecision(decision)
 	ledger = types.NormalizeTruthLedger(ledger)
+	var next writeflow.WriteWorkflowDecision
+	var changed bool
 	switch ledger.State {
 	case types.TruthLedgerFailed:
-		return controllerTruthLedgerFailedDecision(decision, view, ledger, run)
+		next, changed = controllerTruthLedgerFailedDecision(decision, view, ledger, run)
 	case types.TruthLedgerWeak:
-		return controllerTruthLedgerWeakDecision(decision, view, ledger, run)
+		next, changed = controllerTruthLedgerWeakDecision(decision, view, ledger, run)
 	default:
 		return writeflow.WriteWorkflowDecision{}, false
 	}
+	if !changed {
+		return next, false
+	}
+	validation := writeflow.ValidateWorkflowTransition(view, next)
+	if validation.Allowed {
+		return next, true
+	}
+	// Truth and transition authority must agree on the same typed snapshot.
+	// In particular, a complete batch cannot reopen itself for localization or
+	// repair. Missing evidence remains missing; it is not a license to invent
+	// another batch or turn a failed verdict into all_verified.
+	if validation.RecommendedAction == writeflow.ActionFinish {
+		if ledger.State == types.TruthLedgerWeak {
+			return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+				Action: writeflow.ActionFinish, FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+				ReasonCode: "truth_ledger_weak_accept_unverified",
+				Reason:     "typed truth ledger remains weak (" + firstNonEmptyController(ledger.ReasonCode, "truth_weak") + "); the completed batch has no legal same-batch recovery action",
+			}), true
+		}
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action: writeflow.ActionBlock, ReasonCode: "truth_ledger_failed_no_legal_repair",
+			Reason: "typed truth ledger is failed (" + firstNonEmptyController(ledger.ReasonCode, "truth_failed") + "); recovery requires an explicitly authorized new batch",
+		}), true
+	}
+	// Use the kernel's actual prerequisite (e.g. observe before repair, or
+	// localize before planning), not a second hand-written state allow-list.
+	next = writeflow.NormalizeWriteWorkflowDecision(controllerDecisionFromWorkflowTransitionValidation(view, validation, next, run))
+	if check := writeflow.ValidateWorkflowTransition(view, next); !check.Allowed {
+		next = writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action: writeflow.ActionBlock, ReasonCode: "truth_ledger_recovery_conflict",
+			Reason: "typed truth recovery has no legal transition: " + check.ReasonCode,
+		})
+	}
+	return next, true
 }
 
 func controllerTruthLedgerFailedDecision(decision writeflow.WriteWorkflowDecision, view writeflow.WorkflowExecutionView, ledger types.TruthLedger, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
@@ -7187,6 +7223,18 @@ func (o *Orchestrator) enforceControllerWorkflowTransition(decision writeflow.Wr
 			Reason:     firstNonEmptyController(validation.Reason, "controller decision rejected by typed workflow state"),
 		})
 	}
+	// Authority normalization may update durable completion/proof state. Check
+	// the resulting state and graph again before any recovered action executes;
+	// schema validity alone does not make a transition executable.
+	recoveredView := writeflow.DeriveWorkflowExecutionViewWithReport(o.busCtx.Mode, *run, o.busCtx.Mutable.ChangePlan(), o.busCtx.Mutable.ChangeReport())
+	recoveredGraph := reasoninggraph.AuditSummaryFromEvents(reasoninggraph.EventsFromWriteWorkflowRun(*run), "write_controller", 32)
+	if check := writeflow.ValidateWorkflowTransitionWithGraph(recoveredView, next, recoveredGraph); !check.Allowed {
+		appendControllerProgress(run, batchID, "workflow_transition_recovery_conflict", check.ReasonCode)
+		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+			Action: writeflow.ActionBlock, ReasonCode: "workflow_transition_recovery_conflict",
+			Reason: "typed recovery remains non-executable: " + check.ReasonCode,
+		})
+	}
 	if next.Action != decision.Action || strings.TrimSpace(next.ReasonCode) != strings.TrimSpace(decision.ReasonCode) {
 		appendControllerProgress(run, batchID, "workflow_transition_overridden",
 			fmt.Sprintf("%s -> %s via %s", decision.Action, next.Action, validation.ReasonCode))
@@ -7223,10 +7271,10 @@ func controllerDecisionFromWorkflowTransitionValidation(view writeflow.WorkflowE
 			ReasonCode: reasonCode,
 			Reason:     reason,
 		}
-	case writeflow.ActionReplanBatch:
+	case writeflow.ActionPlanBatch, writeflow.ActionReplanBatch:
 		batchID := firstNonEmptyController(view.BatchID, controllerDecisionBatchID(prior, run), "batch-1")
 		return writeflow.WriteWorkflowDecision{
-			Action:     writeflow.ActionReplanBatch,
+			Action:     validation.RecommendedAction,
 			ReasonCode: reasonCode,
 			Reason:     reason,
 			Batch: &writeflow.WriteBatchPlan{
