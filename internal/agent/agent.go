@@ -4041,6 +4041,11 @@ func (b *BaseAgent) normalizeToolCallParamsWithContext(ctx *types.AgentContext, 
 }
 
 func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.RawMessage, cfg types.ToolParamCompatConfig) (llm.ToolCall, bool) {
+	// Keep the original alternatives for the execution/answer owner. Even a
+	// local metadata/default repair must not map-decode away this ambiguity.
+	if toolparam.InspectRawToolArgumentEnvelope(call.Params, schema).Status == toolparam.RawToolArgumentEnvelopeAmbiguous {
+		return call, false
+	}
 	mode := cfg.NormalizedMode()
 	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
 		return call, false
@@ -4759,6 +4764,13 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 		b.observeSchemaRejected(ctx, tc, "tool_params_markup_sentinel", "tool_param_integrity")
 		b.observeToolRejected(ctx, tc, "tool_params_markup_sentinel", "tool_param_integrity")
 		return toolParamsMarkupSentinelResult(tc, sentinel), nil
+	}
+	if schema, ok := b.toolParamSchemaFromRegistry(tc.Name); ok {
+		if err := tool.ToolArgumentEnvelopeIntegrityError(tc.Name, tc.Params, schema); err != nil {
+			b.observeSchemaRejected(ctx, tc, "tool_params_schema_rejected", "ambiguous_argument_envelope")
+			b.observeToolRejected(ctx, tc, "tool_params_schema_rejected", "ambiguous_argument_envelope")
+			return toolParamsSchemaInvalidResult(tc, err.Error()), nil
+		}
 	}
 	if normalized, ok := b.normalizeToolCallParamsFromRegistry(tc); ok {
 		b.observeToolParamsNormalized(ctx, tc, tc.Params, normalized.Params, "tool_param_schema_normalized")

@@ -48,6 +48,9 @@ func TestB1675RawArgumentEnvelopeMatchesExistingAdmission(t *testing.T) {
 		`{"arguments":` + inner + `,"function":{"name":"emit_answer_document"}}`,
 		`{"id":"first","id":"second","arguments":` + inner + `}`,
 		`{"function":{"name":"first","name":"second","arguments":` + inner + `}}`,
+		// B1677: identical repeated wrappers have one argument value. The
+		// inner duplicate selector fields must still reach their owner intact.
+		`{"arguments":` + inner + `,"arguments":` + inner + `}`,
 	} {
 		got, _, ok := RawToolArgumentEnvelope(json.RawMessage(raw), schema)
 		if !ok || string(got) != inner {
@@ -83,7 +86,6 @@ func TestB1675RawArgumentEnvelopeMatchesExistingAdmission(t *testing.T) {
 		inner,
 		`{"blocks":[],"arguments":` + inner + `}`,
 		`{"arguments":` + inner + `,"params":` + inner + `}`,
-		`{"arguments":` + inner + `,"arguments":` + inner + `}`,
 		`{"arguments":` + inner + `,"unknown":true}`,
 		`{"arguments":{"arguments":` + inner + `}}`,
 		`{"arbitrary":{"arguments":` + inner + `}}`,

@@ -121,6 +121,9 @@ func (r *Registry) Execute(ctx *types.BusContext, name string, params json.RawMe
 	if err != nil {
 		return types.ToolResult{ToolName: name, Success: false, Summary: err.Error()}, err
 	}
+	if err := ToolArgumentEnvelopeIntegrityError(name, params, t.Parameters()); err != nil {
+		return types.ToolResult{ToolName: name, Success: false, Summary: err.Error()}, nil
+	}
 	return t.Execute(ctx, params)
 }
 

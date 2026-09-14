@@ -24,6 +24,9 @@ func applyStructuredPayloadCompat(toolName string, raw json.RawMessage, schema j
 	if len(bytes.TrimSpace(raw)) == 0 || len(bytes.TrimSpace(schema)) == 0 {
 		return raw
 	}
+	if toolparam.InspectRawToolArgumentEnvelope(raw, schema).Status == toolparam.RawToolArgumentEnvelopeAmbiguous {
+		return raw
+	}
 	if repaired, ok := repairRedundantToolNameTypeField(toolName, raw, schema); ok {
 		logging.Warning("[structured_payload_compat] tool=%s redundant top-level type field removed before schema normalization", toolName)
 		raw = repaired

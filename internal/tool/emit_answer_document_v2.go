@@ -146,6 +146,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// executor's reject exits.
 	var rootCauseSelection traceRootCauseSelection
 	defer func() { commitTraceRootCauseSelection(ctx, result, err, rootCauseSelection) }()
+	prepared, bodyErr, _ := prepareAnswerArgumentEnvelope(raw, (&EmitAnswerDocument{}).Parameters())
+	raw = prepared
+	if bodyErr != nil {
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, raw, false)
+		return failEmit(toolName, now, "argument envelope rejected: %s", bodyErr)
+	}
 	var recovery answerDocumentRecoveryReport
 	// First pass: detect retired top-level fields (shape / steps /
 	// symbols / value / boolean / summary / symbols_completeness).

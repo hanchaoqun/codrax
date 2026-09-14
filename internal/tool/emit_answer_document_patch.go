@@ -2810,6 +2810,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		return failEmit(t.Name(), now,
 			"emit_answer_document_patch requires a writable context")
 	}
+	prepared, bodyErr, _ := prepareAnswerArgumentEnvelope(params, t.Parameters())
+	params = prepared
+	if bodyErr != nil {
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
+		return failEmit(t.Name(), now, "argument envelope rejected: %s", bodyErr)
+	}
 
 	// Locate the previous emit. Prefer the retry-local staged patch when one
 	// exists: it is the exact model-authored merged candidate that produced the

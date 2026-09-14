@@ -27,6 +27,9 @@ type Repair struct {
 // Report is returned for both audit and repair modes.
 type Report struct {
 	Repairs []Repair
+	// Independent of compatibility mode: ambiguous argument ownership must
+	// remain visible even when audit/off forbids changing the original JSON.
+	EnvelopeIntegrity *RawToolArgumentEnvelopeInspection
 }
 
 func (r Report) Changed() bool { return len(r.Repairs) > 0 }
@@ -87,9 +90,19 @@ var envelopeCarrierKeyOrder = []string{
 // reads prose, or drops unknown tool-parameter keys. Empty/off policy returns
 // raw unchanged.
 func Normalize(raw json.RawMessage, schema json.RawMessage, cfg types.ToolParamCompatConfig) (json.RawMessage, Report) {
+	report := Report{}
+	inspection := InspectRawToolArgumentEnvelope(raw, schema)
+	if inspection.Status != RawToolArgumentEnvelopeNone {
+		report.EnvelopeIntegrity = &inspection
+	}
+	if inspection.Status == RawToolArgumentEnvelopeAmbiguous {
+		// Do not let any unrelated repair force a map round-trip before an
+		// owning caller has resolved the competing argument containers.
+		return raw, report
+	}
 	mode := cfg.NormalizedMode()
 	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
-		return raw, Report{}
+		return raw, report
 	}
 	// A JSON object may legally reach encoding/json with the same property
 	// name more than once. The standard decoder keeps only the last value,
@@ -118,20 +131,21 @@ func Normalize(raw json.RawMessage, schema json.RawMessage, cfg types.ToolParamC
 		}
 	}
 	if !ok {
-		return raw, Report{}
+		return raw, report
 	}
 	normalized, repairs := normalizeValue(value, schema, "$", cfg)
 	repairs = append(syntaxRepairs, repairs...)
 	if len(repairs) == 0 {
-		return raw, Report{}
+		return raw, report
 	}
-	report := Report{Repairs: repairs}
+	report.Repairs = repairs
 	if mode == types.ToolParamCompatAudit {
 		return raw, report
 	}
 	encoded, err := json.Marshal(normalized)
 	if err != nil || !json.Valid(encoded) {
-		return raw, Report{}
+		report.Repairs = nil
+		return raw, report
 	}
 	return json.RawMessage(encoded), report
 }

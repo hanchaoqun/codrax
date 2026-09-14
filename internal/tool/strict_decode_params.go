@@ -12,6 +12,10 @@ import (
 )
 
 func decodeStrictToolParams(name string, raw json.RawMessage, schema json.RawMessage, dst any, hints []MisplacedFieldHint) (json.RawMessage, *types.ToolResult, error) {
+	if err := ToolArgumentEnvelopeIntegrityError(name, raw, schema); err != nil {
+		result := types.ToolResult{ToolName: name, Summary: err.Error(), Timestamp: time.Now()}
+		return raw, &result, nil
+	}
 	normalized := applyStructuredPayloadCompat(name, raw, schema)
 	dec := json.NewDecoder(strings.NewReader(string(normalized)))
 	dec.DisallowUnknownFields()

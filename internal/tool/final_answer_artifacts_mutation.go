@@ -504,6 +504,12 @@ func resolveTraceRootCauseSelectionForEmit(ctx *types.BusContext, carriers *opti
 	var report *types.TraceRootCauseReportV2
 	var advisories []tracefinding.RootCauseSelectionAdvisory
 	err := carriers.traceRootCauseParamIntegrityError()
+	if answerEnvelopeSelectionUnobserved(err) {
+		// The bounded wrapper comparison did not establish submission or
+		// omission. Its enclosing emit is rejected; do not fabricate a field
+		// outcome, omission note or pending selection from a retained prefix.
+		return traceRootCauseSelection{}
+	}
 	if err == nil {
 		report, advisories, err = resolveTraceRootCauseReportForEmit(ctx, submitted, patch)
 	} else if patch && ctx != nil && ctx.Mutable != nil {

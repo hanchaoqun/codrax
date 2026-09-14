@@ -31,6 +31,12 @@ func PrepareTraceRootCauseParamsForCompatibility(toolName string, raw, schema js
 	if restore != nil {
 		return prepared, restore
 	}
+	inspection := toolparam.InspectRawToolArgumentEnvelope(raw, schema)
+	if inspection.Status == toolparam.RawToolArgumentEnvelopeEquivalent && len(inspection.Candidates) > 0 {
+		// Every admitted wrapper has this exact object. Detach once from the
+		// common object, not from just the first occurrence of its raw path.
+		return prepareDirectTraceRootCauseParams(inspection.Candidates[0].Object)
+	}
 	if inner, path, ok := toolparam.RawToolArgumentEnvelope(raw, schema); ok {
 		preparedInner, restoreInner := prepareDirectTraceRootCauseParams(inner)
 		if restoreInner != nil {
@@ -83,6 +89,21 @@ func (l *optionalCarrierLedger) captureTraceRootCauseParamIntegrity(raw json.Raw
 		schema = (&EmitAnswerDocument{}).Parameters()
 	case "emit_answer_document_patch":
 		schema = (&EmitAnswerDocumentPatch{}).Parameters()
+	}
+	prepared, bodyErr, envelopeErr := prepareAnswerArgumentEnvelope(raw, schema)
+	if answerEnvelopeSelectionUnobserved(bodyErr) {
+		l.traceRootCauseParamAmbiguity = bodyErr
+		return
+	}
+	if envelopeErr != nil {
+		l.traceRootCauseParamAmbiguity = envelopeErr
+		return
+	}
+	if !bytes.Equal(prepared, raw) {
+		if properties, ok := traceRootCauseRawProperties(prepared); ok {
+			l.traceRootCauseParamAmbiguity = traceRootCausePropertiesAmbiguity(properties)
+		}
+		return
 	}
 	if inner, _, ok := toolparam.RawToolArgumentEnvelope(raw, schema); ok {
 		if properties, valid := traceRootCauseRawProperties(inner); valid {

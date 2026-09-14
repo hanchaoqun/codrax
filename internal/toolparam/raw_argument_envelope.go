@@ -5,91 +5,215 @@ import (
 	"encoding/json"
 )
 
-// RawToolArgumentEnvelope locates the original object behind the same unique
-// envelope that Normalize already accepts. It does not unwrap or normalize the
-// input. Consumers preserving opaque parameter fields can use this bounded
-// path without repeating the envelope whitelist or re-marshaling its object.
-func RawToolArgumentEnvelope(raw, schema json.RawMessage) (json.RawMessage, []string, bool) {
-	value, ok := decodeJSONValue(raw)
-	if !ok {
-		return nil, nil, false
-	}
+// RawToolArgumentEnvelopeStatus describes ownership of the argument object,
+// not whether that object's tool-specific fields or optional carriers are valid.
+type RawToolArgumentEnvelopeStatus string
+
+const (
+	RawToolArgumentEnvelopeNone       RawToolArgumentEnvelopeStatus = "none"
+	RawToolArgumentEnvelopeUnique     RawToolArgumentEnvelopeStatus = "unique"
+	RawToolArgumentEnvelopeEquivalent RawToolArgumentEnvelopeStatus = "equivalent"
+	RawToolArgumentEnvelopeAmbiguous  RawToolArgumentEnvelopeStatus = "ambiguous"
+)
+
+// RawToolArgumentEnvelopeCandidate retains one original consumed carrier.
+// Object is the exact candidate selected by the existing bounded string decoder
+// (or the native object), before map decoding can erase duplicate properties.
+// A nil Object means this alternative could not be admitted as an argument
+// object; callers must not drop it when comparing competing alternatives.
+type RawToolArgumentEnvelopeCandidate struct {
+	Raw    json.RawMessage
+	Object json.RawMessage
+	Path   []string
+}
+
+// RawToolArgumentEnvelopeInspection is an out-of-band integrity result. It is
+// never added to model-authored JSON. Truncated always implies Ambiguous: the
+// retained prefix cannot establish agreement among all original alternatives.
+type RawToolArgumentEnvelopeInspection struct {
+	Status       RawToolArgumentEnvelopeStatus
+	ConflictPath string
+	Candidates   []RawToolArgumentEnvelopeCandidate
+	Truncated    bool
+}
+
+const rawToolArgumentEnvelopeCandidateLimit = 64
+
+// InspectRawToolArgumentEnvelope checks only the argument wrapper path already
+// consumed by Normalize: one direct carrier, or a function carrier when the
+// direct arm is not selected. Schema-owned properties inhibit envelope use;
+// unrelated repeated metadata and an unconsumed function are not conflicts.
+// The map view is used only for the existing admission/precedence predicates.
+// Every consumed occurrence is read from raw JSON before any last-wins value
+// can gain repair authority. This inspection is independent of repair mode.
+func InspectRawToolArgumentEnvelope(raw, schema json.RawMessage) RawToolArgumentEnvelopeInspection {
+	none := RawToolArgumentEnvelopeInspection{Status: RawToolArgumentEnvelopeNone}
 	node, ok := parseSchema(schema)
-	if !ok || !schemaExpectsObject(node) {
-		return nil, nil, false
+	if !ok || !schemaExpectsObject(node) || len(node.Properties) == 0 {
+		return none
 	}
-	// Follow the same bounded string-decoding candidate used by Normalize.
+	input := raw
+	value, ok := decodeJSONValue(input)
+	if !ok {
+		// The ordinary top-level normalizer has this same single syntax arm.
+		// Keep its raw candidate so repeated wrapper keys survive the repair.
+		if repaired, changed := RemoveTrailingCommasBeforeJSONClosers(string(input)); changed {
+			input = json.RawMessage(repaired)
+			value, ok = decodeJSONValue(input)
+		}
+	}
+	if !ok {
+		return none
+	}
 	if encoded, isString := value.(string); isString && !typeAllows(node.Type, "string") {
 		inner, _, decoded := DecodeJSONStringAsRaw(encoded, "object")
 		if !decoded {
-			return nil, nil, false
+			return none
 		}
-		// Agent and tool boundaries may perform successive normalizations.
-		// The decoded value is now a native object, so this second lookup is
-		// bounded to the existing one direct/function envelope, not a walk.
-		if nested, path, wrapped := RawToolArgumentEnvelope(inner, schema); wrapped {
-			return nested, path, true
+		// Existing successive agent/tool compatibility passes permit a whole
+		// object string followed by one native direct/function envelope. This
+		// is not a recursive search through arbitrary JSON descendants.
+		if nested := inspectNativeToolArgumentEnvelope(inner, node); nested.Status != RawToolArgumentEnvelopeNone {
+			return nested
 		}
-		return inner, nil, true
+		return RawToolArgumentEnvelopeInspection{Status: RawToolArgumentEnvelopeUnique,
+			Candidates: []RawToolArgumentEnvelopeCandidate{{Raw: append(json.RawMessage(nil), raw...), Object: inner}}}
 	}
-	object, ok := value.(map[string]any)
-	if !ok {
-		return nil, nil, false
-	}
-	if _, _, admitted := unwrapToolArgumentEnvelope(object, node); !admitted {
-		return nil, nil, false
-	}
-	key, _, direct := singleEnvelopeCarrier(object)
-	path := []string{}
-	container := raw
-	if !direct {
-		fn, ok := object["function"].(map[string]any)
-		if !ok {
-			return nil, nil, false
-		}
-		container, ok = uniqueRawEnvelopeField(raw, "function")
-		if !ok {
-			return nil, nil, false
-		}
-		key, _, ok = singleEnvelopeCarrier(fn)
-		if !ok {
-			return nil, nil, false
-		}
-		path = append(path, "function")
-	}
-	inner, ok := uniqueRawEnvelopeField(container, key)
-	if !ok {
-		return nil, nil, false
-	}
-	inner = bytes.TrimSpace(inner)
-	var encoded string
-	if json.Unmarshal(inner, &encoded) == nil {
-		var decoded bool
-		inner, _, decoded = DecodeJSONStringAsRaw(encoded, "object")
-		if !decoded {
-			return nil, nil, false
-		}
-	}
-	if len(inner) == 0 || inner[0] != '{' || !json.Valid(inner) {
-		return nil, nil, false
-	}
-	return inner, append(path, key), true
+	return inspectNativeToolArgumentEnvelope(input, node)
 }
 
-func uniqueRawEnvelopeField(raw json.RawMessage, key string) (json.RawMessage, bool) {
+func inspectNativeToolArgumentEnvelope(raw json.RawMessage, node schemaNode) RawToolArgumentEnvelopeInspection {
+	none := RawToolArgumentEnvelopeInspection{Status: RawToolArgumentEnvelopeNone}
+	value, ok := decodeJSONValue(raw)
+	object, isObject := value.(map[string]any)
+	if !ok || !isObject || hasSchemaPropertyAtEnvelope(object, node) || !envelopeHasOnlyKnownKeys(object) {
+		return none
+	}
 	properties, ok := decodeRawObjectProperties(raw)
 	if !ok {
-		return nil, false
+		return none
 	}
-	var found json.RawMessage
+	inspection := none
+	if key, _, direct := singleEnvelopeCarrier(object); direct {
+		for _, property := range properties {
+			if property.key == key {
+				appendRawEnvelopeCandidate(&inspection, rawEnvelopeCandidate(property.value, []string{key}, node))
+			}
+		}
+		return finalizeRawEnvelopeInspection(inspection, propertyPath("$", key))
+	}
+	// The existing direct arm takes precedence even when function metadata is
+	// also present. Only the fallback arm consumes function, including each
+	// repeated function property's own bounded argument path.
+	functionCount := 0
+	conflictPath := "$.function"
 	for _, property := range properties {
-		if property.key != key {
+		if property.key != "function" {
 			continue
 		}
-		if found != nil {
-			return nil, false
+		functionCount++
+		fnValue, valid := decodeJSONValue(property.value)
+		fn, nativeObject := fnValue.(map[string]any)
+		if !valid || !nativeObject || hasSchemaPropertyAtEnvelope(fn, node) || !envelopeHasOnlyKnownKeys(fn) {
+			appendRawEnvelopeCandidate(&inspection, RawToolArgumentEnvelopeCandidate{Raw: property.value, Path: []string{"function"}})
+			continue
 		}
-		found = property.value
+		key, _, selected := singleEnvelopeCarrier(fn)
+		fnProperties, rawOK := decodeRawObjectProperties(property.value)
+		if !selected || !rawOK {
+			appendRawEnvelopeCandidate(&inspection, RawToolArgumentEnvelopeCandidate{Raw: property.value, Path: []string{"function"}})
+			continue
+		}
+		conflictPath = propertyPath("$.function", key)
+		for _, field := range fnProperties {
+			if field.key == key {
+				appendRawEnvelopeCandidate(&inspection, rawEnvelopeCandidate(field.value, []string{"function", key}, node))
+			}
+		}
 	}
-	return found, found != nil
+	if functionCount > 1 {
+		conflictPath = "$.function"
+	}
+	return finalizeRawEnvelopeInspection(inspection, conflictPath)
+}
+
+func rawEnvelopeCandidate(raw json.RawMessage, path []string, node schemaNode) RawToolArgumentEnvelopeCandidate {
+	candidate := RawToolArgumentEnvelopeCandidate{Raw: raw, Path: path}
+	value, ok := decodeJSONValue(raw)
+	if !ok {
+		return candidate
+	}
+	object := bytes.TrimSpace(raw)
+	if encoded, isString := value.(string); isString {
+		var decoded bool
+		object, _, decoded = DecodeJSONStringAsRaw(encoded, "object")
+		if !decoded {
+			return candidate
+		}
+		value, ok = decodeJSONValue(object)
+	}
+	fields, isObject := value.(map[string]any)
+	if ok && isObject && schemaPropertyHitCount(fields, node) > 0 {
+		candidate.Object = object
+	}
+	return candidate
+}
+
+func appendRawEnvelopeCandidate(inspection *RawToolArgumentEnvelopeInspection, candidate RawToolArgumentEnvelopeCandidate) {
+	if len(inspection.Candidates) >= rawToolArgumentEnvelopeCandidateLimit {
+		inspection.Truncated = true
+		return
+	}
+	inspection.Candidates = append(inspection.Candidates, candidate)
+}
+
+func finalizeRawEnvelopeInspection(inspection RawToolArgumentEnvelopeInspection, conflictPath string) RawToolArgumentEnvelopeInspection {
+	if inspection.Truncated {
+		inspection.Status, inspection.ConflictPath = RawToolArgumentEnvelopeAmbiguous, conflictPath
+		return inspection
+	}
+	valid := 0
+	for _, candidate := range inspection.Candidates {
+		if candidate.Object != nil {
+			valid++
+		}
+	}
+	if valid == 0 {
+		return RawToolArgumentEnvelopeInspection{Status: RawToolArgumentEnvelopeNone}
+	}
+	if len(inspection.Candidates) == 1 {
+		inspection.Status = RawToolArgumentEnvelopeUnique
+		return inspection
+	}
+	inspection.Status, inspection.ConflictPath = RawToolArgumentEnvelopeAmbiguous, conflictPath
+	if valid != len(inspection.Candidates) {
+		return inspection
+	}
+	// Whitespace outside JSON values is transport syntax. Do not use maps,
+	// float coercion, sorted fields, or decoded schema values for agreement:
+	// those could erase competing inner keys, numeric identities or prose.
+	var first bytes.Buffer
+	if json.Compact(&first, inspection.Candidates[0].Object) != nil {
+		return inspection
+	}
+	for _, candidate := range inspection.Candidates[1:] {
+		var next bytes.Buffer
+		if json.Compact(&next, candidate.Object) != nil || !bytes.Equal(first.Bytes(), next.Bytes()) {
+			return inspection
+		}
+	}
+	inspection.Status, inspection.ConflictPath = RawToolArgumentEnvelopeEquivalent, ""
+	return inspection
+}
+
+// RawToolArgumentEnvelope is the compatibility facade for callers needing one
+// proven argument value. Equivalent repetitions contain exactly the same raw
+// object facts; consumers needing every original carrier use the inspection.
+func RawToolArgumentEnvelope(raw, schema json.RawMessage) (json.RawMessage, []string, bool) {
+	inspection := InspectRawToolArgumentEnvelope(raw, schema)
+	if inspection.Status != RawToolArgumentEnvelopeUnique && inspection.Status != RawToolArgumentEnvelopeEquivalent {
+		return nil, nil, false
+	}
+	candidate := inspection.Candidates[0]
+	return candidate.Object, candidate.Path, true
 }

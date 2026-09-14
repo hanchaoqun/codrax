@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-14）
 
+当前续修§123.1794：B1677根参数包装竞争与答案/选择独立归属、B1678聚合项目检查能力边界已公共先红后绿，含本地/MCP真实入口、历史真实native证据恢复及中英文披露。相关count3/race3、独立冷审及联合冻结86包全仓通过，源码前后SHA一致，正分批提交。本批不宣称schema-owned嵌套包装或所有原生runner审计完成。后续冻结H3显式窗IO + nlohmann C++写exact2各一次，当前未启动。
+
 本轮交付§123.1792：B1674计量成员口径交接`9cb1b7ff2`、B1675安全选择兼容及原始冲突保真`d83b8c72f`、B1676可寻址草稿重试教学`40c1ec826`已分批推送；公共先红后绿、count3/race、独立冷审、联合冻结86包全仓与清洁构建通过。模型正文/选根因权属、Trace两轴、显式窗、因果投影及补齐不变；外层包装竞争B1677仍未修，不夸JSON恢复全闭。
 
 最新回放§123.1793：r1068 exact2各一次完成，读PASS423s、写PASS156s，但完整人工验收均FAIL。读图语法可解析却仅两孤立节点，7拒9patch后带缺关系披露；写补丁及独立8格真调用后验正确，却把同语言AST检查铸成target_behavior/strong，B1678新确认P1。B1679仅修源码四处陈旧注释，agent整包与原合同race3通过，不能代销图供给或验证能力缺口。下一片优先B1677/B1678公共闭环，不追加第三例追绿；默认600/300/600s原样，67次请求均attempt1，未发生固定4ms/旧4m无正文降级。
@@ -57411,6 +57413,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1794 B1677/B1678：根参数包装完整性与项目检查能力边界（2026-09-14）
+
+1. **优先级与基线**：从已推送且清洁的`c656a554f`继续，远程核验0/0。先闭r1068确认的两项P1，再跑异构exact2，不追加第三例追绿。此次不改用户/模型正文关键词门、模型结论/选根因权属、Trace显式窗、链上根因两轴、自动补齐、图关系或超时预算。
+2. **B1677公共RED**：`.codrax/tmp/20260914-b1677-toolparam-public-red.log`公开Normalize下108 repair格证实重复的被消费`arguments/function`包装last-wins；audit也报告可修。owner/agent有效RED见`20260914-b1677-owner-agent-public-red.log`；独立`20260914-b1677-agent-routes-red.log`22格11负红/11正绿，含真实BaseAgent.Execute、MCP、已匹配schema指纹、analyzer grep自动补位前的竞争载体。并非只推断调用顺序，更不声称绕过写模式plan/approval授权。
+3. **B1677施工**：共享schema准入/direct优先/function/有界字符串规则，读取原始各包装值；精确相同重复可保留，竞争值或超限不代选。ordinary工具在调用前拒；full/patch答案owner独立比较共同正文和共同根因选择，坏选择单独披露，正文冲突保旧稿，一致有效选择仍经原pending生命周期。原始选择重复键不被map修复洗白；不私塞JSON标记、不系统补选、不增重试预算。模式off/audit及schema指纹不豁免完整性。首轮owner/agent局部已绿，待冷审、完整生命周期及联合冻结全仓验收，尚未交付。
+4. **B1678公共RED**：`20260914-b1678-public-qualified-red.log`真实Make四臂证明：同语言AST检查、真实调用但无执行收据、import-only probe、真实目标probe均被aggregate Make虚高标签覆盖；原生unittest目标调用+exact assertion正控通过。首轮另一日志因fixture缺suite未进入目标权限车道，不算产品复现。收窄旧B47-CAPCAL1假设：process exit成功、声明路径检查、目标执行、行为断言分轴；Make目前只提供聚合进程收据，无目标凭证保unknown，不推断“仅静态”或“未运行”。真实执行收据保留；旧报告只读能力投影纠正，不改原报告、命令成功及精确声明路径覆盖。首轮专属绿，待联合验收。
+5. **已知范围**：B1677本批是工具参数根包装（包括已许可function/whole-string），不是任意schema-owned嵌套object/array-item包装完整性；后者独立保留P1审计，不把blocks内包装冒充全document。B1678首批限当前仅聚合退出信息的Make适配协议；不能宣称所有原生runner已普查无误授。图操作/关系供给仍open，r1068读图0边未被本批修复。
+6. **后继exact2优先候选**：`real_trace_h3_iofam_one_seat`（最近r1052）审显式窗S型IO闭合/等待与驻留口径；`github_issue_nlohmann_long_double_symptom`（最近r1059）审双头变更、原生C++验证和格式语义，固定SDK26.5。保原oracle/CAP5，每例一次、并行2，当前尚未启动。
+
+7. **冷审补全**：B1677候选超限而已读前缀无selector时，无法证明合法省略；用私有typed完整性状态沿原ledger/resolve返回，不铸omitted note、虚假字段拒绝或pending。第65项才有选择的full/patch公共针通过，sidecar仍可诚实为`valid_model_root_cause_selection_unavailable`；不存在有效选择的程序化成功假象。新早拒精确登记统一出口raw lane，原自检按声明身份替代位置索引定位，非新增豁免。独立尾针+完整出口count1 1.209s，`20260914-b1677-tail-independent-fixed-count1.log`。
+8. **历史正证据不丢**：B1678冷审发现default同时预排Make + impact原生unittest时，旧同rank first-Make会遮住真原生检查。`20260914-b1678-historical-native-red.log`真实RunTests先红；现共享精确CoveredPaths/工作目录/已执行exit0/已知原生协议与目标语言资格供producer及旧报告只读恢复，当前/空/异plan共42格防越权；原report字节不动、未知runner不能借framework、普通probe不能借原生协议。真Python目标receipt只授execution，逐合同断言继续独立核，不抬成behavior。
+9. **披露及既有测试演进**：unknown不能称“只有静态证据/行为未执行”。执行继续提示、控制器理由、终态中英文统一为“尚未建立目标执行证据”，原reason ID及门不动。原失败handoff成功三臂现在实际继续原生unittest，由单条Make改为精确两条（Make aggregate + native assertion），针定来源`execution_capability_escalation`及真实断言，非放宽len或删除原测试。最终B1678相关count3 types1.354/tool59.080/orchestrator1.855s，race3 types5.234/tool62.208/orchestrator4.128s；`20260914-b1678-final-{count3,race3}.log`。
+10. **联合冻结验收**：`go test ./... -count=1`日志`20260914-b1677-b1678-full.log`86包exit0；tool365.417s、agent82.202s、types48.086s、orchestrator32.651s、hitraceconv157.734s、tracequery113.128s、tracediag13.422s、llm28.735s。全部Go源码/测试SHA `20260914-b1677-b1678-freeze-{before,after}.sha`逐字一致。B1677出口自检最后按身份定位替代硬索引，最终完整census 1.389s；此前race日志的该自检失败保留，不伪称旧日志全绿。原600/300/600s等待默认、活跃流规则不变；本批不新增绝对无正文时限。
+
+状态：`B1677=public-red/implementation+independent-tail-pass/full86-pass/committing`；`B1678=public-red/historical-native-red/count3+race3+cold-pass/full86-pass/committing`；`next-live=not-started`。
 
 ### §123.1793 r1068/B1678/B1679：图关系未闭、静态项目检查能力过授与源码说明纠正（2026-09-14）
 

@@ -139,6 +139,10 @@ type rejectExitRow struct {
 // rejectExitRoster is the exact registered roster per file, in source order.
 var rejectExitRoster = map[string][]rejectExitRow{
 	"emit_answer_document_v2.go": {
+		// B1677: a competing body still resolves its independently common
+		// selector. An uninspected bounded tail is handled inside that same
+		// resolver, never by skipping the ownership/exit census.
+		{"failEmit", "argument envelope rejected: %s", rejectExitLaneRaw},
 		{"failEmit", "top-level field %q is not accepted; the answer is expressed through blocks[] only", rejectExitLaneRaw},
 		{"failEmit", "top-level field %q is not accepted; place the exact typed claim object(s) under blocks[i].relation_claims", rejectExitLaneRaw},
 		{"failEmitWithRepair", "answer_document carrier contains serialized JSON boundary text", rejectExitLaneRaw},
@@ -147,6 +151,7 @@ var rejectExitRoster = map[string][]rejectExitRow{
 	},
 	"emit_answer_document_patch.go": {
 		{"failEmit", "emit_answer_document_patch requires a writable context", rejectExitLaneCarveOut},
+		{"failEmit", "argument envelope rejected: %s", rejectExitLaneRaw},
 		{"failEmit", "emit_answer_document_patch: no previous emit found", rejectExitLaneRaw},
 		// B1565: the identity guard resolves the optional selector before
 		// rejecting the unaddressable draft, just like the missing-base lane.
@@ -1175,7 +1180,18 @@ func TestAnswerDocumentRejectExitsResolveTheSelectorCensus(t *testing.T) {
 		for k, v := range rejectExitRoster {
 			roster[k] = append([]rejectExitRow{}, v...)
 		}
-		roster["emit_answer_document_v2.go"][1] = rejectExitRow{"failTopLevelRelationClaims", "", rejectExitLaneRaw}
+		// Address the declared exit identity, not its ordinal: new audited
+		// early exits must not silently change this self-test's mutation target.
+		updated := false
+		for i, row := range roster["emit_answer_document_v2.go"] {
+			if strings.Contains(row.message, "under blocks[i].relation_claims") {
+				roster["emit_answer_document_v2.go"][i] = rejectExitRow{"failTopLevelRelationClaims", "", rejectExitLaneRaw}
+				updated = true
+			}
+		}
+		if !updated {
+			t.Fatal("relation-claims reject exit is absent from the roster")
+		}
 		expectGreen(t, rejectExitCensusOverTables(t, src, roster, rejectExitPassthroughs, callees), "emit_answer_document_v2.go")
 	})
 	t.Run("self_red_extracted_fail_helper_unregistered", func(t *testing.T) {
