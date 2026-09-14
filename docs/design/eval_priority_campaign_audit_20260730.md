@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-13）
 
-本轮施工§123.1785：B1667导航边界/类型选择修复已推`b05a595c6`；B1618-P2b完整来源账户及legacy测量资格均已公共先红后绿、专项count3/race和独立终审通过，最终冻结86包全仓+构建通过，按批交付。下一r1065仅H11 Trace与libgit2 C写两例并行各一次，不改原oracle追绿。模型正文与JSON、图表关系、Trace链上/背景权限、自动补齐和活跃流等待不新增原文硬门。
+本轮最新§123.1786：B1667已推`b05a595c6`，B1618账户来源/legacy资格已推`95cf8b488`；公共先红后绿、count3/race/独立终审、最终冻结86包+make通过。r1065严格两例各一次：H11机器FAIL旧计数词形、正文另有模型求和/单位/独立性错误，投影与10项根因旁路保留；C机器PASS、两处代码及独立原生49格通过，但完成态被系统重派不合法探索。新增B1668/P1状态恢复合同、B1669/P2格式提示冒充第二附件；先前B1122/B1561/B1575继续开放。原答案/oracle不改，无第三例，无正文原文硬门或系统代写结论。
 
 本轮最新§123.1784：B1626已推`4fed22871`，r1064审计已推`cdede1402`。r1064严格exact2各一次：E1双窗机器PASS109s但人工FAIL（模型scope填整trace、未自然触发新成员路径）；Python机器/人工FAIL424s、14拒绝13patch，确认B1647c系统端点恢复与修补范围比较自冲突。本批B1647c已推`b36ca8936`，真实公共先红后绿、单侧/限定词与权限负控、count3/race/独立冷审/最终冻结86包全测和提交后make通过；退役第二套身份匹配，改用同次系统正规化私有收据，原可见答案与证据门不动。B1618-P2b同TID账户丢来源/窗的旧gap新增附注见证，完整来源批排下一顺位，导航结束边界另记P2。原产物保留，不以机器过例替代链路闭环，不追第三例。
 
@@ -57402,6 +57402,21 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1786 r1065：修复交付、Trace原值保留与写完成态恢复自冲突（2026-09-13）
+
+1. B1618-P2b已提交推送`95cf8b488`，B1667已推`b05a595c6`。最终冻结5个Go文件的86包全仓、专项count3/race、独立终审和构建通过；提交后clean make revision=`95cf8b48883f`，built=`2026-09-14T01:32:08Z`。r1065从该版本不可变快照严格exact2各一次，H11+libgit2 C，read15/apply24/CAP5/1200s原预算不变，无第三例/重刷。
+2. 机器1/2：H11 FAIL164s，仅旧oracle要求“共47段”，实际12.658ms/IO阻塞/共47条记录完整；C PASS222s。原机器汇总与人工审计分别在`eval/parallel_selected_summary_evalcampaign_h11_cwrite_r1065_20260913.md`及`..._manual_audit.md`。沿B1622计数语义迁移记oracle维护债，本轮不为旧词形退回物理次数承诺、不改oracle抵销失败。
+3. H11正文独立人工FAIL：模型将两条IO值擅自加为16.260ms，括号又加入其他线程值；将558000kHz写成558kHz；把未知关系称为方向独立/机制正交、最大单席误称方向上界。精确原值、单位、IO单席/额外成员与未证关系边界已入模，错误在首稿即存在，patch未删除/替换原文。不能归新JSON兼容错误，亦不足以证明随机波动；不加正文关键词硬门，不让系统补算收益或重写结论。
+4. 明确233.190ms窗、157.248/5.604/70.338/0ms目标状态、58.320ms供给折算、12.658ms完成闭合响应阻塞均保留，完整投影1份、真实占用/规则收益双轴、绘制/提交fence/traversal/measure业务族和JIT关系未证边界仍在。IO标记为零不排除完成独立证明的阻塞。根因旁路15,697B、available、10项来自模型有效选择，未被正文错误合计污染。本轮无Mermaid，图语法N/A；不能声称B1667所有语言真实解析器已live覆盖。
+5. B1618逐源账户本轮未获得最终可见live正证：附注预算8项被旧投影对账、拓扑与一般线程事实占满，另5项省略；没有本批来源行，不扩cap凑样例。真实Query公开多窗/双capture/行筛选/unknown来源/authority正反矩阵与代码交付不撤销，但自然采纳仍待异构命中。B1647c图修补、B1626多请求窗亦不借本轮单窗无图销账。
+6. C两次应用最终仅repository.c两行，回调比较`!=0`与lookup比较`<0`均先赋值再比较；原test/Makefile不变，保留worktree clean，未合入主fixture。第一轮仅修callback，真实lookup断言失败推动replan第二行。最终系统make check通过，主审另链接正式实现执行原4断言及7×7状态矩阵49/49全过（工具回执0.988s，未回填正式proof）。正式verified/strong对应当时required义务为空、7条行为条款均planning_only，只有aggregate项目测试；不是B1561/B1575逐合同执行证据已完成。UI保留自然语言验收不等于逐项独立证明的边界。
+7. **B1668-WRITECOMPLETEDLOCALIZATIONRECOVERY1/P1确认。** C终验通过后，两次模型finish被正规化为`truth_ledger_weak_requires_localization`的explore_code（apply log3137/3364）；持久进度明确complete态不允许explore、随后又重复派发至探索预算耗尽，第三次finish才结束。终态events可复算workflow定位范围含实现及读过的测试文件、支持1/2（conflicted），而active-plan定位只含实现1/1（supported）；范围不同，不能说同一数据自相矛盾，也不冒称当时完整view已记录。`write_controller_scheduler.go:7045–7074`允许Complete→Explore，与转换内核及恢复重正规化不闭合。最优修向为统一当前/累计交付与纯导航观察的typed定位义务域，并让同代正规化/恢复消费同一合法动作集，恢复后重校验。先公共controller+transition RED，保真缺定位/旧批未闭/预算耗尽/合法后续批；不能粗暴跳过weak或强行verified，不按测试文件名/语言特判。
+8. **B1669-TRACEATTACHMENTFLAVORIDENTITY1/P2确认。** H11仅一份附件，analyzer日志438–443将真实path与harmony_hitrace格式提示列为两项并要求保留歧义。模型本次仍用attached_trace分析正确范围，未产生跨文件错误，不把它说成正文失败根因。`runtime_artifact_selection.go:61–63`将AttachedHitraceSource直接当身份，而该字段允许格式hint；既有附件来源addressable/唯一preflight绑定已有可复用边界。后续仅凭typed唯一附件身份归并格式载体，保真实双文件/同basename异path/inline未知负臂，不从用户或模型prose猜同源；公共RED/实现待续。
+9. **B1122摘要旧债再现**：真实lookup测试失败被make首行编译命令摘要掩盖，controller误称编译失败；完整FailureDetail随后帮助planner修正。归并原有复合runner摘要保真义务，不另立同根编号。B1561本轮language=c探针仍不可用，project-test逐断言receipt没有获得；末计划错绑callback-positive到success_path_returns_zero因为无执行收据未形成伪覆盖。保留能力缺口，不按最终aggregate通过推定每条模型合同均正确。
+10. 下一任务表：先B1668/P1定位/完成态合同 → B1669/P2附件身份 → B1561/B1575逐合同实际执行能力与B1122失败摘要，B1622 oracle维护另批保原失败。JSON教学本轮未见新的必带/必拒冲突；Trace scope、自动补齐、链上/背景边界与模型正文所有权未改变。首响应/真实静默/非流式默认600/300/600s且专项count3通过；分析terminal另有明确3m阶段预算，两例短于4m，不冒称活跃长流live已验证，也未按短时无答案降级。
+
+状态：`r1065=completed/exact2/machine1of2/Trace-human-fail/C-code-native-pass`；`B1618-P2b=account-consumer-pushed/public-tests-full-pass/visible-live-not-exercised`；`B1667=pushed/full-pass`；`B1668=confirmed-P1/design-public-red-next`；`B1669=confirmed-P2/public-red-next`；`B1122/B1561/B1575=open`；`model-answer-overwrite=none`；`Trace-projection+root-sidecar=preserved`；`third-live=none`。
+
 ### §123.1785 B1618-P2b与B1667：来源账户和声明边界续修（2026-09-13）
 
 1. 基线`157bf64be`已fetch、与origin/main一致，无本地积压；上一轮B1647c已交付，不重新修改其证据门。B1618-P2b沿用原案，B1667承接§1783.6已记导航EndLine问题，不重复造同根工单。
@@ -57421,7 +57436,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 14. 最终组合冻结验收通过：`20260913-b1618-b1667-full-final.log`记录`go test ./... -count=1` exit0、86个有测试包全部通过、0失败行；`20260913-b1618-b1667-build-check.log`记录make exit0。5个本批Go/test文件在全仓前后SHA256一致，过程中只更新文档。B1667也因此获得同一组合全仓验证；B1618本次提交包含2生产+3测试和台账。提交后再clean make，以该HEAD不可变快照跑r1065，不把本轮fixture直接当自然LLM采纳正证。
 
-状态：`B1618-P2b=implemented/public-red-green/count3-race-cold-review/frozen86packages-build-pass/pending-commit`；`B1667=pushed-b05a595c6/combined-full-pass`；`r1065=planned-exact2/not-started`；`stream-defaults=600/300/600s/no-active-total-age-degrade`。
+状态（后续收账见§1786）：`B1618-P2b=pushed-95cf8b488/public-red-green/count3-race-cold-review/frozen86packages-build-pass`；`B1667=pushed-b05a595c6/combined-full-pass`；`r1065=completed-exact2/see1786`；`stream-defaults=600/300/600s/no-active-total-age-degrade`。
 
 ### §123.1784 B1647c：本次身份正规化收据与局部修补合同统一（2026-09-12）
 
