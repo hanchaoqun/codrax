@@ -2,7 +2,9 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1795：r1069清洁45e0ad488恰好H3显式窗IO+C++双头写两路各一次，机器0/2。IO关键两墙钟及≥4/4.384ms保留，但模型将展示范围当总体、术语/范围仍有P2；C++补丁当前ABI独立7056后验通过，正式Make聚合凭证保unknown，未虚报全验证。三路被通用提示诱导误交21条外部观测后全跳过，B1680来源交接教学自冲突确认为P1、下一独立片施工。无第三例追绿、无正文改写/关键词硬门。
+当前续修§123.1796：B1680外部工件来源交接教学已公共先红后绿，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓通过，Go文件前后SHA一致，随本条交付。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
+
+最新回放§123.1795：r1069审计`118cb63a6`已推送，清洁45e0ad488恰好H3显式窗IO+C++双头写两路各一次，机器0/2。IO关键两墙钟及≥4/4.384ms保留，但模型将展示范围当总体、术语/范围仍有P2；C++补丁当前ABI独立7056后验通过，正式Make聚合凭证保unknown，未虚报全验证。三路误交21条外部观测确认B1680，未追跑第三例，不改原模型答案或oracle。
 
 已交付§123.1794：B1677根参数包装完整性`0fb162a76`、B1678聚合项目检查能力边界`45e0ad488`已分批推送；公共先红后绿、count3/race3、独立冷审及冻结86包全仓、清洁构建通过。schema-owned嵌套包装、图操作/关系供给与所有原生runner审计未全闭；r1069真实正证不代销这些边界。
 
@@ -57415,6 +57417,19 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1796 B1680：真实工件标记与九面交接教学同源（2026-09-14）
+
+1. **公共先红**：`20260914-b1680-public-red.log` agent1.072s，在真实ReadFile生产的RuntimeArtifactRead（ReadCoverage=nil）下，已登记TXT/JSON basename/无扩展blob、普通trace/log共5种×MidLoop/SoftStop两臂，旧提示误教source-only。真实EmitEvidence反端仍0source+external-observation typed repair，表明该修教学而非放宽证据资格。旧日志另含单大段读未早触发观察，这一部分经权限冷审保留原行为，不把整份早期RED所有断言都宣称产品修复。
+2. **最小生产改动**：`runtimeArtifactReadWindowFromResult`只供既有backlog提示读取producer的精确路径/行范围/总行数；RuntimeArtifactRead优先、坐标无效不恢复，Summary伪banner不可授来源。TraceQueryBlob或typed Kind=trace指导原trace_query，未知/通用blob不凭可疑文件名借该导航。保旧typed source snapshot的路径兼容，仅供软文字；不生成/改写ReadCoverage、不登记新blob、不扩派生ref许可。
+3. **教学单源**：full/compact/runtime-header/runtime-compact/runtime-only/exec-redirect/escalation/closure-only两臂，共9处调用同一528字节ASCII说明，softstop复用原full/runtime-only。真实current-source锚走emit_evidence、精确行号引用；logs/traces/VCS/command/search/index/external资源走已有reason/aggregate_facts。未知或混合来源也明确两路，不再说“所有未emit事实不可见”或“外部有行号即可作源码”。首轮仍解释source义务，compact保更短正针；不增加输出格式合同/关键词硬门、不删模型结论。
+4. **独立实路正反针**：真实TraceQuery→原始blob两窗→BaseAgent→Observe后，源码coverage仍空、原ref可读而派生ref精确拒绝、待补源码义务/历史结果/观测数/工具schema均不变；同仓真实source+log保source覆盖。另单120行runtime read→两次真实grep→escalation序列不新设催交接状态、不提前收窄schema。3项独立count3=1.116s、race3=2.407s，`20260914-b1680-independent-{count3,race3}.log`，冷审无阻断。此序列在收窄设计后首次即绿，不伪称取得旧HEAD执行RED。
+5. **原测试演进与范围**：原3处提示断言改为同等明确的源码义务/非源码交接/绝对措辞禁止，compact长度条件保留；没有减citation/coverage门或删除功能针。新增emptyIR与source-exclude+preflight但无triage正控；后者原有external-observation-sufficient优先级保留，不能为提示字节一致而抹掉原闭合提示。首个count3日志因夹具误要求此处两hint完全相等而失败（`20260914-b1680-target-count3.log`），保留真实失败；更正为原优先级正控后`...target-count3-v2.log`1.248s通过。不是生产改规则追绿。
+6. **冷审收窄/开放债**：初案曾让单次120行runtime读触发早提醒，但旧midLoopNoEmitPushSent→escalation→restrictedToolSurface会使“早提示”间接改变后续权限。已撤销这项stats/trigger改动，既有两读时机不变；reader只纠正原触发后的提示路径。后续须将来源明确的软提醒状态与source义务收束分开设计/公共复现，不随手扩大originSpecificObservationLaneActive（也用于工具门）。本片不宣称整个探查/完成提示宇宙或所有来源权限均已审清。
+7. **最终冻结验收**：`20260914-b1680-full.log`全仓`go test ./... -count=1`86包exit0；agent75.707s、tool346.222s、hitraceconv144.849s、tracequery106.601s、tracediag12.621s、llm29.699s、orchestrator24.808s、types43.379s。所有internal/cmd Go文件SHA `20260914-b1680-freeze-{before,after}.sha`逐字相同；新旧提示族联合race3=2.957s（`20260914-b1680-joint-race3.log`）。主审确认9调用/528字节、各硬门/Trace/等待实现无差异。r1069原答案/机审/测试不改，提示修复不倒签模型范围误述或减少耗时的生产验收；提交后再做清洁构建。
+8. **下一顺位**：先用离线公共入口审schema-owned嵌套object/array-item包装归属P1，再轮转`eval/cases/qf_logic_view_read_pipeline.case`（最近r920，20260828-203948，机PASS455s但人审partial/7拒/孤立数据流节点）与`eval/cases/github_issue_dateutil_relativedelta_float_symptom.case`（最近r1063，20260912-023247，机PASS254s/有限输入人审过、Python原生unittest）exact2各一次。保持当前CAP5/1200s/read15与apply24步，r920历史1800s须如实区分；本机Python3.9.6和fixture可用。此为排期，尚未启动。图关系方向/操作供给、执行与逐合同断言分轴仍独立审，不以语法绿或后验回填proof。
+
+状态：`B1680=public-red/implementation+count3+independent-and-joint-race3+cold-pass/full86-pass/delivered-with-this-entry`；`read-signal-to-tool-surface-coupling=separate-open-debt`；`r1069-audit=118cb63a6-pushed`；`next-exact2=planned-not-started`。
 
 ### §123.1795 r1069：IO口径、C++验证真实性与B1680交接教学冲突（2026-09-14）
 

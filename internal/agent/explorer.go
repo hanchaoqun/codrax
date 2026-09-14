@@ -5505,6 +5505,8 @@ type runtimeArtifactReadWindow struct {
 	end         int
 	total       int
 	broadHeader bool
+	traceQuery  bool
+	typed       bool
 }
 
 const (
@@ -5549,17 +5551,10 @@ func runtimeArtifactReadWindowSince(results []types.ToolResult, prevLen int) (ru
 		if !r.Success || r.ToolName != "read_file" {
 			continue
 		}
-		path, rng, total, ok := readCoverageFromToolResult(r, "")
-		if !ok || !tool.LooksLikeRuntimeArtifactPath(path) {
+		win, ok := runtimeArtifactReadWindowFromResult(r)
+		if !ok {
 			nonRuntimeRead = true
 			continue
-		}
-		win := runtimeArtifactReadWindow{
-			path:        path,
-			start:       rng.Start,
-			end:         rng.End,
-			total:       total,
-			broadHeader: runtimeArtifactReadLooksLikeBroadHeader(rng, total),
 		}
 		if win.broadHeader {
 			fallback = win
@@ -5573,6 +5568,40 @@ func runtimeArtifactReadWindowSince(results []types.ToolResult, prevLen int) (ru
 		return runtimeArtifactReadWindow{}, false
 	}
 	return fallback, fallback.path != ""
+}
+
+// runtimeArtifactReadWindowFromResult is a guidance-only read projection. Real
+// runtime reads deliberately suppress ReadCoverage; their producer marker is
+// authoritative here too, including registered blobs named by basename. Never
+// copy these coordinates into source coverage or recover them from Summary.
+func runtimeArtifactReadWindowFromResult(r types.ToolResult) (runtimeArtifactReadWindow, bool) {
+	if !r.Success || r.ToolName != "read_file" {
+		return runtimeArtifactReadWindow{}, false
+	}
+	if marker := r.RuntimeArtifactRead; marker != nil {
+		if strings.TrimSpace(marker.RequestedPath) == "" || marker.LineStart <= 0 ||
+			marker.LineEnd < marker.LineStart || marker.TotalLines < 0 ||
+			(marker.TotalLines > 0 && marker.LineEnd > marker.TotalLines) {
+			return runtimeArtifactReadWindow{}, false
+		}
+		return runtimeArtifactReadWindow{
+			path: marker.RequestedPath, start: marker.LineStart, end: marker.LineEnd, total: marker.TotalLines,
+			broadHeader: runtimeArtifactReadLooksLikeBroadHeader(types.LineRange{Start: marker.LineStart, End: marker.LineEnd}, marker.TotalLines),
+			traceQuery:  marker.TraceQueryBlob || marker.Kind == "trace",
+			typed:       true,
+		}, true
+	}
+	// Retain compatibility with old typed read snapshots. This path selects
+	// advisory wording only; it does not grant artifact or source authority.
+	path, rng, total, ok := readCoverageFromToolResult(r, "")
+	if !ok || !tool.LooksLikeRuntimeArtifactPath(path) {
+		return runtimeArtifactReadWindow{}, false
+	}
+	return runtimeArtifactReadWindow{
+		path: path, start: rng.Start, end: rng.End, total: total,
+		broadHeader: runtimeArtifactReadLooksLikeBroadHeader(rng, total),
+		traceQuery:  types.RuntimeArtifactPathKind(path) == "trace",
+	}, true
 }
 
 func runtimeArtifactReadLooksLikeBroadHeader(rng types.LineRange, total int) bool {
@@ -6339,32 +6368,27 @@ func (e *explorerEvaluator) nextReadWithoutEmitFamilyHintCount() int {
 func (e *explorerEvaluator) renderReadWithoutEmitHint(prefixFormat string, reads int, scope, recording string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, prefixFormat, reads, scope, recording)
-	if e.originSpecificObservationLaneActive() {
-		b.WriteString("Current-checkout source claims left only in prose notes are not recorded as citeable evidence. ")
-		b.WriteString("For the files you just read, emit `emit_evidence(items=[...])` only for real current-source anchors that the final answer must cite, using exact line numbers from the `read_file` gutter. ")
-		b.WriteString("Non-current-source observations are first-class evidence in their own lane: VCS history/diff, logs/traces, command output, negative searches, repo-index facts, external documents, web pages, MCP resources, and connector data must be preserved through `emit_investigation_complete.reason` plus `aggregate_facts` when a count, list, scalar, absence, grouping, or commit set must survive. ")
-		b.WriteString("Do not re-anchor those origin-specific observations to source/doc lines that merely mention the same topic. ")
-		b.WriteString("After the source evidence batch succeeds, or if no current-source claim needs a file:line citation, call `emit_investigation_complete(reason, confidence, result_kind)` with the origin-specific findings preserved there.")
-		return b.String()
-	}
-	b.WriteString("Facts left only in your prose notes are NOT recorded — anything that is not passed through `emit_evidence(items=[...])` is unavailable to later answer steps (concrete value, definition, call-site, or condition). ")
-	b.WriteString("Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). ")
-	b.WriteString("After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.")
+	b.WriteString("Current-source claims left only in prose notes are not citeable evidence. Keep concrete values, definitions, call sites, and conditions tied to their observed anchors. ")
+	b.WriteString(explorerReadHandoffGuidance())
 	return b.String()
+}
+
+// One source boundary for every backlog hint, including mixed/unknown origins.
+// This is teaching only: neither an artifact read nor this sentence waives an
+// independently required source claim, changes tool admission, or completes a
+// task. Do not use originSpecificObservationLaneActive to choose these words:
+// its request-only profile may lag real tool observations and also gates tools.
+func explorerReadHandoffGuidance() string {
+	return "Emit one `emit_evidence(items=[...])` batch only for real current-source anchors the answer must cite, using exact `read_file` line gutters. " +
+		"Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources) through `emit_investigation_complete.reason` plus `aggregate_facts`; artifact line numbers do not make them current-source citations. " +
+		"When the question is answered and any required current-source evidence has landed, call `emit_investigation_complete(reason, confidence, result_kind)`."
 }
 
 func (e *explorerEvaluator) renderCompactReadWithoutEmitHint(prefixFormat string, reads int, scope, recording string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, prefixFormat, reads, scope, recording)
-	b.WriteString("This repeats the same read-without-emit hint family in a new backlog window, so keep the next step narrow. ")
-	if e.originSpecificObservationLaneActive() {
-		b.WriteString("If the lines contain answer-critical current-source claims, emit one grounded `emit_evidence(items=[...])` batch from the current read window. ")
-		b.WriteString("If the remaining facts are log/trace/VCS/command/external observations, close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve them in `reason` / `aggregate_facts`. ")
-		b.WriteString("Do not reopen broad navigation before choosing one of those two actions.")
-		return b.String()
-	}
-	b.WriteString("Emit one grounded `emit_evidence(items=[...])` batch from the current read window, then either continue on one answer-changing branch or call `emit_investigation_complete(reason, confidence, result_kind)`. ")
-	b.WriteString("Do not reopen broad navigation before recording the current evidence backlog.")
+	b.WriteString("This repeats the same read-without-emit hint family. ")
+	b.WriteString(explorerReadHandoffGuidance())
 	return b.String()
 }
 
@@ -6382,7 +6406,7 @@ func renderRuntimeArtifactHeaderReadHint(win runtimeArtifactReadWindow) string {
 	} else {
 		fmt.Fprintf(&b, "For plain runtime text that has no typed query view, narrow first with `grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)` or a deterministic `grep -n`/awk filter that preserves original line numbers; then `read_file` around the selected line window. ", win.path)
 	}
-	b.WriteString("Preserve runtime findings through `emit_investigation_complete.reason` plus `aggregate_facts`, or use `emit_evidence` only after the target line gutters are visible and load-bearing.")
+	b.WriteString(explorerReadHandoffGuidance())
 	return b.String()
 }
 
@@ -6394,10 +6418,11 @@ func renderCompactRuntimeArtifactReadHint(win runtimeArtifactReadWindow) string 
 	}
 	b.WriteString(". This repeats the same read-without-emit hint family; do not re-read from the artifact head or convert artifact rows into current-source citations. ")
 	if runtimeArtifactReadPrefersTraceQuery(win) {
-		b.WriteString("Use `trace_query` with explicit window/target/view parameters if the runtime slice is incomplete; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve artifact facts in `reason` / `aggregate_facts`.")
+		b.WriteString("Use `trace_query` with explicit window/target/view parameters if the runtime slice is incomplete. ")
 	} else {
-		b.WriteString("Use one targeted `grep` / `read_file` window only if the runtime text slice is incomplete; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve artifact facts in `reason` / `aggregate_facts`.")
+		b.WriteString("Use one targeted `grep` / `read_file` window only if the runtime text slice is incomplete. ")
 	}
+	b.WriteString(explorerReadHandoffGuidance())
 	return b.String()
 }
 
@@ -6410,15 +6435,19 @@ func renderRuntimeArtifactReadOnlyHint(win runtimeArtifactReadWindow) string {
 	b.WriteString(". This is an artifact-only read backlog, not current-source code evidence. ")
 	b.WriteString("Do not convert trace/log rows into current-source `emit_evidence` citations. ")
 	if runtimeArtifactReadPrefersTraceQuery(win) {
-		b.WriteString("If these rows answer the runtime question, preserve the findings through `emit_investigation_complete.reason` plus `aggregate_facts` with artifact line numbers; if the window is still incomplete, continue with `trace_query` using explicit window/target/view parameters. ")
+		b.WriteString("If the window is still incomplete, continue with `trace_query` using explicit window/target/view parameters. ")
 	} else {
-		b.WriteString("If these rows answer the runtime question, preserve the findings through `emit_investigation_complete.reason` plus `aggregate_facts` with artifact line numbers; if the window is still incomplete, use one targeted `grep`/`read_file` line window on the same artifact. ")
+		b.WriteString("If the window is still incomplete, use one targeted `grep`/`read_file` line window on the same artifact. ")
 	}
-	b.WriteString("If a later step also needs current-code proof, read that source separately and emit source evidence only for those current-code lines.")
+	b.WriteString(explorerReadHandoffGuidance())
+	b.WriteString(" If a later step also needs current-code proof, read that source separately.")
 	return b.String()
 }
 
 func runtimeArtifactReadPrefersTraceQuery(win runtimeArtifactReadWindow) bool {
+	if win.typed {
+		return win.traceQuery
+	}
 	return types.RuntimeArtifactPathKind(win.path) == "trace"
 }
 
@@ -6470,8 +6499,8 @@ func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation
 		HintRequested: true,
 		HintKey:       e.emitBacklogWindowHintKey("explorer.mid-loop.exec-redirect-before-emit"),
 		Hint: "Progress check: you are still browsing with `exec_command` before recording the current structured-evidence backlog. " +
-			"For repository investigation, switch back to the built-in `grep` / `read_file` tools so paths stay stable across OSes and line gutters remain machine-readable. " +
-			"Use the lines you already read to call `emit_evidence(items=[...])` now; reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.",
+			"For current-source repository investigation, switch back to the built-in `grep` / `read_file` tools so paths stay stable across OSes and line gutters remain machine-readable; reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly. " +
+			explorerReadHandoffGuidance(),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -6531,15 +6560,8 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 }
 
 func (e *explorerEvaluator) renderReadWithoutEmitEscalationHint(backlogScope string) string {
-	if e.originSpecificObservationLaneActive() {
-		return "Progress check: the earlier current-source evidence nudge was not resolved and the investigation includes origin-specific observations. " +
-			"Do not force VCS history/diff, logs/traces, command output, negative searches, repo-index facts, external documents, web pages, MCP resources, or connector data into `emit_evidence`. " +
-			"If the lines already read contain a real current-checkout source claim that the answer must cite, emit one `emit_evidence(items=[...])` batch for those line anchors now. " +
-			"If the remaining load-bearing facts are origin-specific observations, close with `emit_investigation_complete(reason, confidence, result_kind)` and carry them in `reason` / `aggregate_facts` instead of re-anchoring them to source or doc lines."
-	}
-	return "Progress check: the earlier `emit_evidence` nudge was ignored and you still have an unrecorded evidence backlog " + backlogScope + ". " +
-		"Stop expanding with more navigation for the moment. Use the grounded lines you have already read to emit ONE batch of `emit_evidence(items=[...])` now. " +
-		"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question."
+	return "Progress check: the earlier evidence handoff nudge was not resolved and you still have an unrecorded evidence backlog " + backlogScope + ". " +
+		"Stop expanding with more navigation for the moment. " + explorerReadHandoffGuidance()
 }
 
 func renderBoundedTraceEndpointBacklogHint(missing []string) string {
@@ -6805,14 +6827,14 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       "explorer.mid-loop.read-without-emit-closure-only",
-			Hint: "Progress check: this mixed-origin investigation still has an unresolved current-source evidence nudge, but origin-specific facts must not be forced into file:line evidence. " +
-				"If the current batch found a real current-checkout source claim, emit that source evidence now; otherwise stop navigating and close with `emit_investigation_complete(reason, confidence, result_kind)`, preserving VCS/log/trace/command/external findings in `reason` / `aggregate_facts`.",
+			Hint: "Progress check: the earlier evidence handoff nudge is unresolved. Stop broad navigation and hand off the observations already collected. " +
+				explorerReadHandoffGuidance(),
 			Progress:       true,
 			BypassThrottle: true,
 			BypassBudget:   true,
 		}
 	}
-	hint := "Progress check: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have." + e.authoritativeLogDriftReminder(obs.AllToolResults)
+	hint := "Progress check: the current batch still spent effort on navigation tools without recording the current backlog. Do not keep expanding before handing off the observations already collected. " + explorerReadHandoffGuidance() + e.authoritativeLogDriftReminder(obs.AllToolResults)
 	if lensHint := explorerSourceInventoryDiscoveryAfterEvidenceHint(obs.AllToolResults); lensHint != "" {
 		hint += lensHint
 	}
@@ -20734,9 +20756,9 @@ func isValidFilePath(p string) bool {
 }
 
 // readCoverageFromToolResult extracts the typed read_file coverage carrier.
-// It is the only authority for path/window/total facts used by explorer
-// coverage and mid-loop guidance. The rendered read_file Summary remains
-// transparent context for users/models, not a coverage signal.
+// It is the authority for current-source path/window/total coverage. Runtime
+// backlog guidance separately consumes RuntimeArtifactRead without granting
+// source coverage. The rendered Summary is context, not a coverage signal.
 func readCoverageFromToolResult(r types.ToolResult, repoRoot string) (path string, rng types.LineRange, totalLines int, ok bool) {
 	if !r.Success || r.ToolName != "read_file" || r.ReadCoverage == nil {
 		return "", types.LineRange{}, 0, false

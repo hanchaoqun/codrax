@@ -8207,8 +8207,10 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		if strings.Contains(sig.Hint, "broad/header page of a runtime/log/trace artifact") {
 			t.Fatalf("mixed code/runtime reads should not suppress source-evidence guidance:\n%s", sig.Hint)
 		}
-		if !strings.Contains(sig.Hint, "Facts left only in your prose notes are NOT recorded") {
-			t.Fatalf("mixed code/runtime reads should keep normal source-evidence wording:\n%s", sig.Hint)
+		for _, want := range []string{"batch only for real current-source anchors", "Preserve non-source observations", "`emit_investigation_complete.reason` plus `aggregate_facts`"} {
+			if !strings.Contains(sig.Hint, want) {
+				t.Fatalf("mixed code/runtime reads must retain source proof and separate observation handoff, missing %q:\n%s", want, sig.Hint)
+			}
 		}
 	})
 
@@ -8300,15 +8302,15 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			t.Fatalf("expected origin-aware read-without-emit nudge, got %+v", sig)
 		}
 		for _, want := range []string{
-			"Non-current-source observations are first-class evidence",
+			"Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources)",
 			"`emit_investigation_complete.reason` plus `aggregate_facts`",
-			"Do not re-anchor those origin-specific observations",
+			"artifact line numbers do not make them current-source citations",
 		} {
 			if !strings.Contains(sig.Hint, want) {
 				t.Fatalf("origin-aware hint missing %q:\n%s", want, sig.Hint)
 			}
 		}
-		if strings.Contains(sig.Hint, "anything that is not passed through `emit_evidence(items=[...])` is invisible") {
+		if strings.Contains(sig.Hint, "anything that is not passed through `emit_evidence(items=[...])`") {
 			t.Fatalf("origin-aware hint must not use source-only absolute wording:\n%s", sig.Hint)
 		}
 	})
@@ -8995,7 +8997,9 @@ func TestObserveMidLoop_ReadWithoutEmitRepeatedFamilyUsesCompactHint(t *testing.
 	if !first.HintRequested || first.HintKey != "explorer.mid-loop.read-without-emit" {
 		t.Fatalf("expected first full read-without-emit hint, got %+v", first)
 	}
-	if !strings.Contains(first.Hint, "Facts left only in your prose notes") {
+	if !strings.Contains(first.Hint, "Current-source claims left only in prose notes are not citeable evidence") ||
+		!strings.Contains(first.Hint, "batch only for real current-source anchors") ||
+		!strings.Contains(first.Hint, "`emit_investigation_complete.reason` plus `aggregate_facts`") {
 		t.Fatalf("first hint should remain full guidance, got: %s", first.Hint)
 	}
 
@@ -9020,8 +9024,12 @@ func TestObserveMidLoop_ReadWithoutEmitRepeatedFamilyUsesCompactHint(t *testing.
 	if !strings.Contains(second.Hint, "same read-without-emit hint family") {
 		t.Fatalf("second same-family hint should explain compaction, got: %s", second.Hint)
 	}
-	if strings.Contains(second.Hint, "Facts left only in your prose notes") {
+	if strings.Contains(second.Hint, "Current-source claims left only in prose notes") {
 		t.Fatalf("second same-family hint should not repeat full template:\n%s", second.Hint)
+	}
+	if !strings.Contains(second.Hint, "batch only for real current-source anchors") ||
+		!strings.Contains(second.Hint, "`emit_investigation_complete.reason` plus `aggregate_facts`") {
+		t.Fatalf("compact hint must retain both source obligations and observation handoff:\n%s", second.Hint)
 	}
 	if len(second.Hint) >= len(first.Hint) {
 		t.Fatalf("second same-family hint should be compact, first=%d second=%d", len(first.Hint), len(second.Hint))
