@@ -36,6 +36,8 @@ type optionalCarrierLedger struct {
 	minted    []types.OptionalCarrierOutcome
 	notes     []string
 	finalized bool
+	// Captured before any map-based argument repair; scoped to this call only.
+	traceRootCauseParamAmbiguity error
 }
 
 // newOptionalCarrierLedger opens the registry for one tool call. The ONLY

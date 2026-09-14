@@ -28,6 +28,7 @@ import (
 //      newOptionalCarrierLedger (no literal, new(), or zero-value var).
 //   3. NO ESCAPE — a ledger identifier (creator binding or *optionalCarrierLedger
 //      parameter) is only ever the receiver of ignored/mint/finalize/toolName
+//      or a direct call to the two scalar parameter-integrity operations
 //      or an argument passed down a call; it is never stored, returned or
 //      captured elsewhere, so a per-call registry stays per-call.
 //   4. DATA-FLOW TOTALITY — every function that mints (calls .ignored/.mint on a
@@ -431,7 +432,7 @@ func parentIsAssignRHS(body *ast.BlockStmt, target *ast.CallExpr) bool {
 
 // ledgerEscapes flags every use of a ledger identifier that is not one of:
 // the `:=` binding itself, the receiver of ignored/mint/finalize/toolName, or
-// an argument passed to a call.
+// a direct scalar integrity operation, or an argument passed to a call.
 func ledgerEscapes(fset *token.FileSet, fn *censusFunc, idents map[string]bool, label string) []string {
 	var out []string
 	sanctioned := map[ast.Node]bool{}
@@ -451,6 +452,17 @@ func ledgerEscapes(fset *token.FileSet, fn *censusFunc, idents map[string]bool, 
 				}
 			}
 		case *ast.CallExpr:
+			// These per-call operations never return the ledger. Permit only
+			// immediate invocation, not a stored/passed method value or direct
+			// field access; the rest of the no-escape contract stays unchanged.
+			if sel, ok := node.Fun.(*ast.SelectorExpr); ok {
+				if recv, ok := sel.X.(*ast.Ident); ok && idents[recv.Name] {
+					if (sel.Sel.Name == "captureTraceRootCauseParamIntegrity" && len(node.Args) == 1) ||
+						(sel.Sel.Name == "traceRootCauseParamIntegrityError" && len(node.Args) == 0) {
+						sanctioned[recv] = true
+					}
+				}
+			}
 			for _, arg := range node.Args {
 				if ident, ok := arg.(*ast.Ident); ok && idents[ident.Name] {
 					sanctioned[ident] = true

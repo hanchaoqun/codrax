@@ -1208,6 +1208,22 @@ func decodeJSONStringArrayWithSchema(s string, node schemaNode) (any, string, bo
 }
 
 func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, bool) {
+	raw, rule, ok := decodeJSONStringAsDepthRaw(s, want, depth)
+	if !ok {
+		return nil, "", false
+	}
+	value, ok := decodeJSONValue(raw)
+	return value, rule, ok
+}
+
+// DecodeJSONStringAsRaw exposes the exact JSON candidate selected by the
+// existing bounded string decoder, before map decoding can erase duplicate
+// fields. It adds no decoding or syntax-repair policy of its own.
+func DecodeJSONStringAsRaw(s string, want string) (json.RawMessage, string, bool) {
+	return decodeJSONStringAsDepthRaw(s, want, 0)
+}
+
+func decodeJSONStringAsDepthRaw(s string, want string, depth int) (json.RawMessage, string, bool) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
 		return nil, "", false
@@ -1221,7 +1237,7 @@ func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, boo
 		if !ok {
 			return nil, "", false
 		}
-		value, rule, ok := decodeJSONStringAsDepth(inner, want, depth+1)
+		value, rule, ok := decodeJSONStringAsDepthRaw(inner, want, depth+1)
 		if !ok {
 			return nil, "", false
 		}
@@ -1239,38 +1255,38 @@ func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, boo
 	default:
 		return nil, "", false
 	}
-	if decoded, ok := decodeJSONValue(json.RawMessage(trimmed)); ok {
-		return decoded, "json_string_" + want, true
+	if _, ok := decodeJSONValue(json.RawMessage(trimmed)); ok {
+		return json.RawMessage(trimmed), "json_string_" + want, true
 	}
 	if repaired, changed := RemoveTrailingCommasBeforeJSONClosers(trimmed); changed {
-		if decoded, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
-			return decoded, "json_string_" + want + "_trailing_comma", true
+		if _, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
+			return json.RawMessage(repaired), "json_string_" + want + "_trailing_comma", true
 		}
 	}
 	if repaired, changed := NormalizeControlCharsInJSONStrings(trimmed); changed {
-		if decoded, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
-			return decoded, "json_string_" + want + "_control_chars", true
+		if _, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
+			return json.RawMessage(repaired), "json_string_" + want + "_control_chars", true
 		}
 	}
 	if repaired, changed := RepairMissingTrailingJSONClosers(trimmed); changed {
-		if decoded, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
-			return decoded, "json_string_" + want + "_missing_closer", true
+		if _, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
+			return json.RawMessage(repaired), "json_string_" + want + "_missing_closer", true
 		}
 	}
 	if repaired, changed := RepairUnescapedQuotesInJSONStringLiterals(trimmed); changed {
-		if decoded, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
-			return decoded, "json_string_" + want + "_quote_escape", true
+		if _, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
+			return json.RawMessage(repaired), "json_string_" + want + "_quote_escape", true
 		}
 	}
 	for _, candidate := range JSONRepairCandidates(trimmed) {
 		if candidate == trimmed {
 			continue
 		}
-		decoded, ok := decodeJSONValue(json.RawMessage(candidate))
+		_, ok := decodeJSONValue(json.RawMessage(candidate))
 		if !ok {
 			continue
 		}
-		return decoded, "json_string_" + want + "_syntax", true
+		return json.RawMessage(candidate), "json_string_" + want + "_syntax", true
 	}
 	return nil, "", false
 }

@@ -120,7 +120,9 @@ func TestB1654SingletonReportDoesNotInventOrOverride(t *testing.T) {
 		{"missing causes", `[{"schema_version":2}]`},
 		{"null causes", `[{"schema_version":2,"root_causes":null}]`},
 		{"object causes", `[{"schema_version":2,"root_causes":{"candidate_id":"candidate-sched"}}]`},
-		{"bare candidate array", `[{"candidate_id":"candidate-sched"}]`},
+		// B1675 now recovers a pure bare selection; unknown item fields still
+		// forbid that new branch and cannot be mistaken for a report wrapper.
+		{"bare candidate array with unknown field", `[{"candidate_id":"candidate-sched","extra":true}]`},
 		{"duplicate version key", `[{"schema_version":3,"schema_version":2,"root_causes":[{"candidate_id":"candidate-sched"}]}]`},
 		{"duplicate causes key", `[{"schema_version":2,"root_causes":[],"root_causes":[{"candidate_id":"candidate-sched"}]}]`},
 		{"duplicate candidate key", `[{"schema_version":2,"root_causes":[{"candidate_id":"unknown","candidate_id":"candidate-sched"}]}]`},

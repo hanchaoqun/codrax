@@ -4045,12 +4045,12 @@ func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.Ra
 	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
 		return call, false
 	}
-	current := call.Params
+	current, restoreRootCauseParams := tool.PrepareTraceRootCauseParamsForCompatibility(call.Name, call.Params, schema)
 	var changed bool
 	var summaries []string
 	var schemaReport toolparam.Report
 	if len(schema) > 0 {
-		normalized, report := toolparam.Normalize(call.Params, schema, cfg)
+		normalized, report := toolparam.Normalize(current, schema, cfg)
 		if report.Changed() {
 			if mode == types.ToolParamCompatAudit {
 				logging.Info("[tool_param_compat] agent=%s tool=%s audit repairable: %s",
@@ -4078,6 +4078,9 @@ func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.Ra
 	if err := toolparam.ValidateRepairs(current, schema, schemaReport); err != nil {
 		out.ParamSchemaFingerprint = ""
 		out.ParamSchemaValidationError = err.Error()
+	}
+	if restoreRootCauseParams != nil {
+		out.Params = restoreRootCauseParams(current)
 	}
 	logging.Warning("[tool_param_compat] agent=%s tool=%s params normalized: %s",
 		b.name, call.Name, strings.Join(summaries, "; "))

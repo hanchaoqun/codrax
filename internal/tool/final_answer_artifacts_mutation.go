@@ -158,6 +158,84 @@ func traceRootCauseReportHasUniqueNestedKeys(raw json.RawMessage) bool {
 	return true
 }
 
+// normalizeBareTraceRootCauseSelectionCarrier supplies only the current
+// selector's container around a nonempty, model-authored ordered selection.
+// Like the existing top-level selection lift, a missing fixed version is not
+// a candidate choice. An explicit version must agree, however, and competing
+// carriers or item/report mixtures are never combined. Run this on the raw
+// envelope before generic field quarantine can discard a conflicting version.
+// The ordinary binder still owns all candidate qualifications and advisories.
+func normalizeBareTraceRootCauseSelectionCarrier(raw json.RawMessage, reportField string) (json.RawMessage, bool) {
+	if reportField != "trace_root_causes" && reportField != "replace_trace_root_causes" {
+		return raw, false
+	}
+	var root map[string]json.RawMessage
+	if json.Unmarshal(raw, &root) != nil {
+		return raw, false
+	}
+	selection := bytes.TrimSpace(root[reportField])
+	if len(selection) == 0 || selection[0] != '[' {
+		return raw, false
+	}
+	var items []map[string]json.RawMessage
+	if json.Unmarshal(selection, &items) != nil || len(items) == 0 {
+		// A bare [] could be an empty report wrapper, not an explicit empty
+		// selection. Withdrawal continues to require the complete object.
+		return raw, false
+	}
+	if !traceRootCauseReportHasUniqueNestedKeys(raw) {
+		return raw, false
+	}
+	otherField := "replace_trace_root_causes"
+	if reportField == otherField {
+		otherField = "trace_root_causes"
+	}
+	if _, exists := root[otherField]; exists {
+		return raw, false
+	}
+	if _, exists := root["root_causes"]; exists {
+		return raw, false
+	}
+	if version, exists := root["schema_version"]; exists && !isExactTraceRootCauseSchemaVersion(version) {
+		return raw, false
+	}
+	// A lone case-variant key is also not an instruction to discard a version
+	// or another carrier. The recursive check above catches competing pairs.
+	for key := range root {
+		for _, reserved := range []string{"trace_root_causes", "replace_trace_root_causes", "root_causes", "schema_version"} {
+			if key != reserved && strings.EqualFold(key, reserved) {
+				return raw, false
+			}
+		}
+	}
+	for _, item := range items {
+		var id string
+		if json.Unmarshal(item["candidate_id"], &id) != nil || strings.TrimSpace(id) == "" {
+			return raw, false
+		}
+		for key, value := range item {
+			switch key {
+			case "candidate_id":
+			case "description":
+				value = bytes.TrimSpace(value)
+				if len(value) == 0 || value[0] != '"' {
+					return raw, false
+				}
+			default:
+				return raw, false
+			}
+		}
+	}
+	report := append(json.RawMessage(fmt.Sprintf(`{"schema_version":%d,"root_causes":`, types.TraceRootCauseReportSchemaVersion)), selection...)
+	root[reportField] = append(report, '}')
+	delete(root, "schema_version")
+	repaired, err := json.Marshal(root)
+	if err != nil {
+		return raw, false
+	}
+	return repaired, true
+}
+
 // normalizeMisplacedTraceRootCauseSchemaVersion repairs one unambiguous
 // structural carrier drift seen in production tool calls: the model authors
 // the ordered candidate selections inside trace_root_causes but places the
@@ -404,6 +482,9 @@ func resolveTraceRootCauseSelectionFromRawParams(ctx *types.BusContext, carriers
 	if repaired, ok := normalizeMisplacedTraceRootCauseSchemaVersion(params, field); ok {
 		params = repaired
 	}
+	if repaired, ok := normalizeBareTraceRootCauseSelectionCarrier(params, field); ok {
+		params = repaired
+	}
 	var root map[string]json.RawMessage
 	if json.Unmarshal(params, &root) != nil {
 		return traceRootCauseSelection{}
@@ -420,10 +501,17 @@ func resolveTraceRootCauseSelectionForEmit(ctx *types.BusContext, carriers *opti
 	if patch {
 		carrier = "replace_trace_root_causes"
 	}
-	report, advisories, err := resolveTraceRootCauseReportForEmit(ctx, submitted, patch)
+	var report *types.TraceRootCauseReportV2
+	var advisories []tracefinding.RootCauseSelectionAdvisory
+	err := carriers.traceRootCauseParamIntegrityError()
+	if err == nil {
+		report, advisories, err = resolveTraceRootCauseReportForEmit(ctx, submitted, patch)
+	} else if patch && ctx != nil && ctx.Mutable != nil {
+		report = ctx.Mutable.TraceRootCauseReport()
+	}
 	selection := traceRootCauseSelection{report: report}
 	if err != nil {
-		selection.rejected = traceRootCauseSelectorSubmitted(submitted)
+		selection.rejected = traceRootCauseSelectorSubmitted(submitted) || carriers.traceRootCauseParamIntegrityError() != nil
 		carriers.mint(traceRootCauseIgnoredOutcome(ctx, carrier, err, patch), "detail="+strconv.Quote(err.Error()))
 	} else if traceRootCauseSelectorSubmitted(submitted) {
 		selection.boundFromSubmit = report != nil

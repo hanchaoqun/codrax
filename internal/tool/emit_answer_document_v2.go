@@ -137,6 +137,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// carriers of this call (the root-cause selector).
 	carriers := newOptionalCarrierLedger(toolName)
 	defer func() { result = carriers.finalize(result) }()
+	carriers.captureTraceRootCauseParamIntegrity(raw)
 	// §40.44 G-emit-faces fold-in #1: the selector commit tail runs on EVERY
 	// exit after the selector was resolved (zero-value selection before that
 	// = no-op) — the pre-emit hard-hint reject remembers the rejected draft
@@ -191,6 +192,10 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	}
 	if repaired, ok := normalizeMisplacedTraceRootCauseSchemaVersion(raw, "trace_root_causes"); ok {
 		logging.Warning("[emit_answer_document] re-homed exact root-cause schema_version into trace_root_causes via local-model JSON tolerance")
+		raw = repaired
+	}
+	if repaired, ok := normalizeBareTraceRootCauseSelectionCarrier(raw, "trace_root_causes"); ok {
+		logging.Warning("[emit_answer_document] wrapped a pure ordered root-cause selection in its current report container")
 		raw = repaired
 	}
 

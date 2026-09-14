@@ -2787,6 +2787,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// result this call returns, including the two pre-persist rejects.
 	carriers := newOptionalCarrierLedger(t.Name())
 	defer func() { result = carriers.finalize(result) }()
+	carriers.captureTraceRootCauseParamIntegrity(params)
 	now := time.Now()
 	stagedByThisCall := false
 	// The selector commit tail runs on every exit after the selector was
@@ -2861,6 +2862,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 	if repaired, ok := normalizeMisplacedTraceRootCauseSchemaVersion(params, "replace_trace_root_causes"); ok {
 		logging.Warning("[emit_answer_document_patch] re-homed exact root-cause schema_version into replace_trace_root_causes via local-model JSON tolerance")
+		params = repaired
+	}
+	if repaired, ok := normalizeBareTraceRootCauseSelectionCarrier(params, "replace_trace_root_causes"); ok {
+		logging.Warning("[emit_answer_document_patch] wrapped a pure ordered root-cause selection in its current report container")
 		params = repaired
 	}
 
