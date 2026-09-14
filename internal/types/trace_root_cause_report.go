@@ -178,9 +178,10 @@ func TraceRootCauseDescriptionTeaching() string {
 // selector's failure contract (V2-3, colleague_merge_audit §40.19): the
 // schema property description and the selector context render it verbatim,
 // so the model is never promised silence — an invalid selector is dropped,
-// the tool result names the precise reason, and the fix rides the next patch.
+// the tool result names the precise reason, and a later patch may optionally
+// replace the selection without making that replacement a delivery gate.
 func TraceRootCauseSelectorOutcomeTeaching() string {
-	return "Optional model-owned ordered selection for a separate JSON report. Omitting it never rejects the full answer. Omitting it while selectable candidates exist is accepted as your choice, and the tool result then notes that the report will carry no model selection. An invalid selection (wrong schema_version, unknown or duplicate candidate_id) never rejects the full answer either: it is dropped, the tool result names the exact reason, and you fix it with replace_trace_root_causes in the next emit_answer_document_patch."
+	return "Optional model-owned ordered selection for a separate JSON report. Omitting it never rejects the full answer and preserves an already accepted or staged selection. With no accepted or staged selection, omission is accepted as your choice and the tool result notes that the report will carry no model selection. To record an explicit empty choice or withdraw the previous selection, submit the complete object {\"schema_version\":2,\"root_causes\":[]}; omission does not mean an explicit empty choice. An invalid selection (wrong schema_version, unknown or duplicate candidate_id) never rejects the full answer either: it is dropped and the tool result names the exact reason. When no valid selection is retained, the accepted answer may receive one optional follow-up combined with other suggestions; you may supply replace_trace_root_causes in emit_answer_document_patch or keep omitting it. The answer is retained if the opportunity is declined, fails or cannot run within the existing limits."
 }
 
 // TraceImpactCaliber values carried on the public sidecar — closed set. The

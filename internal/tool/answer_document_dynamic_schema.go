@@ -262,7 +262,7 @@ func traceRootCauseReportJSONSchema(selectable []types.TraceFindingCandidateV1) 
 			"schema_version": map[string]any{"type": "integer", "enum": []int{types.TraceRootCauseReportSchemaVersion}},
 			"root_causes": map[string]any{
 				"type": "array", "items": item,
-				"description": "Evidence-sized root-cause list ordered strongest to weakest. Emit every independently supported cause with a positive trace-grounded impact, or [] when none exists. Runtime assigns contiguous rank values from this order.",
+				"description": "Evidence-sized root-cause list ordered strongest to weakest. If you provide a selection, include the complete ordered set you endorse with a positive trace-grounded impact, not every offered candidate. [] records an explicit empty choice or withdrawal. Runtime assigns contiguous rank values from this order.",
 			},
 		},
 		"required": []string{"schema_version", "root_causes"},

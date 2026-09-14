@@ -134,7 +134,7 @@ func TestEmitAnswerDocumentOmittedSelectorNoteNegativeArms(t *testing.T) {
 // implements must be promised there too, so the model is never surprised.
 func TestTraceRootCauseSelectorTeachingPromisesTheOmissionNote(t *testing.T) {
 	teaching := types.TraceRootCauseSelectorOutcomeTeaching()
-	if !strings.Contains(teaching, "Omitting it while selectable candidates exist is accepted as your choice, and the tool result then notes that the report will carry no model selection.") {
+	if !strings.Contains(teaching, "With no accepted or staged selection, omission is accepted as your choice and the tool result notes that the report will carry no model selection.") {
 		t.Fatalf("selector teaching must promise the omission note: %q", teaching)
 	}
 }
