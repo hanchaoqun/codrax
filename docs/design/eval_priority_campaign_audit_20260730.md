@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1800：B1682/B1683已768a3efef推送，最终86包、独立冷审、竞态与清洁构建通过。B1684参与者覆盖与产物交接范围披露、B1685同源码调用短名/全名重复正在公共复现；不改图关系门、不以模糊名字去重。r1070读/写机PASS666/192s但读完整人工未通过，原始结果保持。后继r1071按多维风险挑选exact2各一次，待本批闭环后启动；真实产物交接供给与原生runner执行证明仍独立开放。
+当前续修§123.1800：B1684覆盖范围提示已16982b5a2推送；B1685同源码调用短名/全名重复公共RED、最小实现、独立冷审与联合count3/race3通过。B1684旧中性措辞兼容收尾后联合冻结全仓86包通过，未改旧针放行。r1070读/写机PASS666/192s但读完整人工未通过，原始结果保持。后继r1071按多维风险挑选exact2各一次，待提交后清洁构建启动；真实产物交接供给与原生runner执行证明仍独立开放。
 
 已交付§123.1796：B1680外部工件来源交接教学`32a3287a5`已推送，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓和提交后清洁构建通过。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
 
@@ -57424,11 +57424,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 1. **基线及范围**：清洁768a3efef续修，fetch后与origin/main为0/0。先修r1070已确认系统上下文问题，再轮转exact2；不扫描模型/用户散文作门，不生成模型图、结论或根因选择。600/300/600s等待默认、活跃字节存活、Trace显式窗/链上双轴/自动补齐/旁路均保持。
 2. **B1684/P1**：合法参与者身份桥可使覆盖完整，但不证明实际产物生产—消费完整；当前提示把前者说成完整requested-participant relation。精确端点分量状态也须明确仅限当前投影，不能当整个程序/所有证据的缺失结论。先以真实parser/ReadFile/EmitEvidence/共享覆盖/BuildInitialInstruction复现，不翻转原bool或扩用partial_unproven，不把合法映射判成无证边。真实数据交接供给仍另行审计。
-3. **B1685/P1**：r1070日志1885短名、1969全名先后接受（ev-b4102accfa49c2c0/ev-4cba1f3b8f3eb5cf），均extract_work.go:16的同一ac实参，5411/5412重复recipe。现grounding已从源码读出真实接收调用但只bool比较，丢弃解析所得身份；首个短名又被完成提示要求全名重交。拟从已验证调用站点的源码身份贯通修复，严禁只按尾名/相似度在终稿合边。当前仅源码及日志确认，公共RED/实现收据后补。
-4. **B1684公共验收**：`20260914-b1684-public-red.log`旧HEAD生产上exit1/1.369s；真实源码已证三条stage precedence、6参与者身份连通、候选可见映射且输入/权限不变，失败仅提示夸范围与无条件retarget禁止。真实Produce→payload→Consume、缺carrier partial与显式5..5.01 RootCauseTrace三反控当时已绿。只改evaluator五条文字，保status值/所有计算/候选/JSON门；完整参与者图不自动认证产物交接，跨分量仅指当前投影，默认group与候选已授权映射共存。联合旧AA3/Trace针count3=1.796s、加活跃流年龄保护race3=6.008s，独立冷审无阻断。暂不签全仓或生产提速，等待B1685联合冻结。
+3. **B1685/P1**：r1070日志1885短名、1969全名先后接受（ev-b4102accfa49c2c0/ev-4cba1f3b8f3eb5cf），均extract_work.go:16的同一ac实参，5411/5412重复recipe。grounding已从源码读出真实接收调用但只bool比较，丢弃解析所得身份；首个短名又被完成提示要求全名重交。公共RED `20260914-b1685-public-tool-red.log`1.254s/32重复行臂、`...public-agent-red.log`0.967s/4重复recipe臂确认。最小实现为31行helper+emit的3行接点，仅从最终已读、已grounded的唯一调用和完整实参保留接收身份，放在坐标恢复后、绑定及已有ID/去重前；原model字段除Object与审计note均不动。不以尾名/相似度终稿合边、不升级证据资格。
+4. **B1684公共验收**：`20260914-b1684-public-red.log`旧HEAD生产上exit1/1.369s；真实源码已证三条stage precedence、6参与者身份连通、候选可见映射且输入/权限不变，失败仅提示夸范围与无条件retarget禁止。真实Produce→payload→Consume、缺carrier partial与显式5..5.01 RootCauseTrace三反控当时已绿。只改evaluator五条文字，保status值/所有计算/候选/JSON门；完整参与者图不自动认证产物交接，跨分量仅指当前投影，默认group与候选已授权映射共存。专项count3=1.796s、加活跃流年龄保护race3=6.008s，独立冷审无阻断后16982b5a2单独推送；此过滤并未包含所有AA3旧针，不能冒称全AA3通过。联合full-v1的agent包报2个旧措辞断言失败（83.467s），整体由主审停止、不签完整通过；恢复大小写和独立片段中性短语，并将原retarget限制明确限定为“without that candidate-declared mapping”，不恢复无条件禁令、不改旧针。随后joint-target-v2-count3 agent2.921/tool2.021/llm8.489s通过，联合race与完整v2收据后补。
 5. **后继exact2排期**：r1071选`trace_query_donghu_real_frame_multicausal`（最近r943，旧外层1800s/214s）与`sr_cpp_virtual_chain`（最近r1051，1200s/389s、7次成文拒绝且人审未过）。本轮均现行read15步，PARALLEL2/TIMEOUT1200/CAP5（两例单仓不受CAP影响），各一次，未启动。上轮已轮转写模式，本轮偏显式窗链上多层两轴+异构工厂/虚调用。Trace旧PASS正文曾把累计23.748ms放进2.978ms代表窗，故重新对原始事件/当前typed口径审计，不能以旧答案为oracle；C++图非必选，无图记N/A而不增硬门。
 
-状态：`B1684=public-red/implementation+count3+race3+cold-pass/joint-full-pending`；`B1685=confirmed-source+log/public-red-next`；`r1071=planned-not-started`；`artifact-handoff-supply/native-runner=separate-open`。
+6. **B1685验收边界**：74格覆盖8种源码形状×批次/顺序、独立坐标/实参/接收方、歧义与部分表达式、只读及资格反控、真实Read/Emit到finalizer四臂。完成补证导航以受控index+真实Read/Emit/Complete验证精确债消退和4项不同身份反控；另有真实Scan/Parse/BuildGraph/Read/Emit的Go行号恢复与声明receiver绑定，不能将全部矩阵冒称各语言完整parser。最终专项count3 tool1.656/agent2.206s、race3 tool8.039/agent3.987s。首版新测试曾把ID与授予Origin/Authority之后重算的值相比而错红（`...first-green.log`）；改为独立实际全名发射器产出的ID比较，未改既有通用ID/权限策略。相邻ground/tool通过；agent旧B1684文字针失败如第4点记录。
+7. **主数据流供给仍开放**：r1070实际读取orchestrator.go仅1–424/701–800/2166–2245/2401–2520，7190+无accepted证据，实际7232/7543/7626的Build→Execute→apply窗口未读未交。系统导航log1396先指extract_work辅助检查，模型其后把局部路径当完整交接；不是已接收主链被下游删除。task_map日志截断不能证明完整map缺条目。动态阶段参数的真实dispatch可能被字面标签辅助probe排在后面，目前仅P2排序假设，须公共Parse/Read/Emit/Complete反例才能晋级；不凭一次答案全局改ranker或增完整流硬门。
+
+8. **最终冻结验收**：`20260914-b1684-b1685-joint-target-v2-race3.log` agent6.132/tool10.265/llm9.794s通过；`20260914-b1684-b1685-full-v2.log`完整`go test ./... -count=1`86包exit0，agent67.261/hitraceconv138.145/tracequery102.868/tracediag12.396/llm27.672/orchestrator22.630/types42.002s。所有internal/cmd源码与测试的`...freeze-v2-{before,after}.sha`逐字相同。旧full-v1保留失败及中止事实，不覆盖日志。最终独立冷审无阻断，gofmt与diff检查通过；fetch后与origin/main仍0/0，随后提交推送、清洁构建再启动r1071。
+9. **排序假设的否证边界**：旧针含同字面标签双候选、动态参数对local观察，尚无两者竞争组合；但未证runtime参数等于请求阶段时，literal probe优先可合理。后续跨仓四格更名/重排只先记录公共导航，不pin必须选dispatch；以已选实际产物的精确consumer补证是否被遗漏为缺陷判据，避免新造主流全覆盖硬门。当前未执行此实验、不晋级P1。
+
+状态：`B1684=16982b5a2-pushed/neutral-phrase-followup-full86-pass`；`B1685=public-red+implementation/count3+race3+cold-pass/final-frozen-full86-pass/delivery`；`r1071=planned-not-started`；`artifact-handoff-supply/native-runner=separate-open`。
 
 ### §123.1799 B1682/B1683：软提示与精确合同范围一致（2026-09-14）
 

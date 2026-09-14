@@ -1099,6 +1099,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 
 **覆盖口径（B1684）**：参与者经已证局部关系与精确身份映射连通，不等于产物生产—消费、端到端数据交接或执行顺序已完整证明。`requested_relation_scope`继续只披露原参与者覆盖范围；不能把它改成新的产物完整性判定。跨技术分量状态只描述当前紧凑端点投影，不否定其它独立证据。默认用group保留业务参与者和技术端点两层；已有typed候选明确允许某侧用参与者节点时，按候选映射显示，anchor里的技术身份不变。提示不得一边发布这种合法映射、一边无条件禁止它。
 
+**源码实参接收端身份（B1685）**：`emit_evidence`在最终行号恢复/grounding之后、owner与receiver绑定之前，保留当前已读源码唯一调用站点解析出的完整接收表达式。只处理已grounded的line/argument证据；同站点同实参的短名与限定名由已有ID/去重链自然归一，不改模型predicate、summary或原参数。不同文件、行、实参、精确接收端仍独立；多调用、部分表达式、不可引用或无当前读取凭证时不猜测，不迁移历史无源码证据，不从图显示消息反推身份。
+
 ### 6.6 Validator 链 — 三层校验
 
 `internal/orchestrator/contract_check_block.go` 在 mutation 写入 Mutable 之前跑校验，HARD / Layer 2 / Layer 3 三层：

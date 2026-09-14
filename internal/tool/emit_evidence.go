@@ -897,6 +897,9 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 				r.Note = built[i].GroundingNote
 			}
 		}
+		if normalizeArgumentFlowEvidenceReceiver(&built[i], gc) {
+			r.Note = built[i].GroundingNote
+		}
 		if stampEvidenceOwnerSymbol(&built[i], gc) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
