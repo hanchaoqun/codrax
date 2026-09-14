@@ -6659,7 +6659,7 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
 			Action:            writeflow.ActionFinish,
 			ReasonCode:        reasonCode,
-			Reason:            "the patch was applied and static checks passed, but changed production behavior was not executed locally",
+			Reason:            "the patch was applied and local checks passed, but target execution has not been established for every changed production path",
 			FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
 		})
 	}

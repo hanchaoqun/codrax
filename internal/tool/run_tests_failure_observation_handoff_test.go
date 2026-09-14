@@ -105,6 +105,10 @@ func TestRunTestsFailureObservationPublicHandoff(t *testing.T) {
 			wantRows := 1
 			if !wantSuite {
 				wantRows = tc.failedProbes
+			} else if wantPass {
+				// B1678: a successful opaque Make aggregate no longer
+				// suppresses the already-discovered native assertion suite.
+				wantRows = 2
 			}
 			if len(report.TestResults) != wantRows || countFailed(report.TestResults) != map[bool]int{true: 0, false: wantRows}[wantPass] {
 				t.Fatalf("original aggregate/probe counts changed: %+v", report.TestResults)
@@ -112,7 +116,7 @@ func TestRunTestsFailureObservationPublicHandoff(t *testing.T) {
 			if wantSuite && report.TestResults[0].ObservationScope != types.TestObservationScopeAggregate {
 				t.Errorf("Make aggregate row was promoted to an assertion: %+v", report.TestResults)
 			}
-			suiteRan, continued, failedCommands := false, false, 0
+			suiteRan, continued, nativeExecuted, failedCommands := false, false, false, 0
 			for _, cmd := range report.ExecutedCommands {
 				if cmd.Runner == "make" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted {
 					suiteRan = true
@@ -126,9 +130,18 @@ func TestRunTestsFailureObservationPublicHandoff(t *testing.T) {
 				if cmd.Runner == "verification_probe" && cmd.ExitCode != 0 {
 					failedCommands++
 				}
+				if cmd.Runner == "python" && cmd.Framework == pythonFrameworkUnittest && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.Source == "execution_capability_escalation" && cmd.ExitCode == 0 {
+					nativeExecuted = true
+				}
 			}
 			if suiteRan != wantSuite || continued != (tc.failedProbes == 1) || failedCommands != tc.failedProbes {
 				t.Fatalf("old continuation/real failures changed: suite=%t continuation=%t failedProbes=%d commands=%+v", suiteRan, continued, failedCommands, report.ExecutedCommands)
+			}
+			if nativeExecuted != wantPass {
+				t.Fatalf("native capability continuation=%t want=%t: %+v", nativeExecuted, wantPass, report.ExecutedCommands)
+			}
+			if wantPass && (report.TestResults[1].ObservationScope != types.TestObservationScopeAssertion || report.TestResults[1].AssertionID != "test_value" || report.TestResults[1].Suite != "tests.test_value.ValueTest" || !report.TestResults[1].Passed) {
+				t.Fatalf("additional result must be the actual native assertion: %+v", report.TestResults[1])
 			}
 			var observations []types.VerificationFailureObservation
 			comparatorRows := 0

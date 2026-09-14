@@ -57428,7 +57428,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 9. **披露及既有测试演进**：unknown不能称“只有静态证据/行为未执行”。执行继续提示、控制器理由、终态中英文统一为“尚未建立目标执行证据”，原reason ID及门不动。原失败handoff成功三臂现在实际继续原生unittest，由单条Make改为精确两条（Make aggregate + native assertion），针定来源`execution_capability_escalation`及真实断言，非放宽len或删除原测试。最终B1678相关count3 types1.354/tool59.080/orchestrator1.855s，race3 types5.234/tool62.208/orchestrator4.128s；`20260914-b1678-final-{count3,race3}.log`。
 10. **联合冻结验收**：`go test ./... -count=1`日志`20260914-b1677-b1678-full.log`86包exit0；tool365.417s、agent82.202s、types48.086s、orchestrator32.651s、hitraceconv157.734s、tracequery113.128s、tracediag13.422s、llm28.735s。全部Go源码/测试SHA `20260914-b1677-b1678-freeze-{before,after}.sha`逐字一致。B1677出口自检最后按身份定位替代硬索引，最终完整census 1.389s；此前race日志的该自检失败保留，不伪称旧日志全绿。原600/300/600s等待默认、活跃流规则不变；本批不新增绝对无正文时限。
 
-状态：`B1677=public-red/implementation+independent-tail-pass/full86-pass/committing`；`B1678=public-red/historical-native-red/count3+race3+cold-pass/full86-pass/committing`；`next-live=not-started`。
+交付分片：B1677为`0fb162a76`；B1678随本条文档更新独立提交，未改前片测试/代码。提交后再做清洁构建，exact2不跑dirty二进制。
+
+状态：`B1677=public-red/implementation+independent-tail-pass/full86-pass/committed`；`B1678=public-red/historical-native-red/count3+race3+cold-pass/full86-pass/delivered-with-this-entry`；`next-live=not-started`。
 
 ### §123.1793 r1068/B1678/B1679：图关系未闭、静态项目检查能力过授与源码说明纠正（2026-09-14）
 

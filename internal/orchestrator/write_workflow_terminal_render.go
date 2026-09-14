@@ -97,7 +97,7 @@ func writeWorkflowTerminalReasonLabel(reasonCode string, zh bool) string {
 	if zh {
 		switch code {
 		case "production_verification_source_static_only":
-			return "生产验证目前只有静态证据"
+			return "尚无生产目标已执行的验证凭证"
 		case "verification_proof_incomplete":
 			return "行为或影响证明尚未闭合"
 		case "runner_missing":
@@ -116,7 +116,7 @@ func writeWorkflowTerminalReasonLabel(reasonCode string, zh bool) string {
 	}
 	switch code {
 	case "production_verification_source_static_only":
-		return "production verification currently has static evidence only"
+		return "execution of the production target has not been established"
 	case "verification_proof_incomplete":
 		return "behavior or impact proof remains incomplete"
 	case "runner_missing":

@@ -1,11 +1,16 @@
 package types
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // EffectiveChangedPathVerificationCoverage is a read-only projection. Stored
 // Python plain-probe labels cannot stand in for a current target receipt, and
-// even a valid receipt grants execution, never behavior. Other typed runners
-// keep their existing authority; this is not a migration of stored reports.
+// even a valid receipt grants execution, never behavior. The aggregate-only
+// Make adapter likewise cannot grant target execution from a stored label;
+// an independently attached current receipt may still establish it. Native
+// typed runners keep their existing authority. Stored reports are not migrated.
 func EffectiveChangedPathVerificationCoverage(plan *ChangePlan, report *ChangeReport) []ChangedPathVerificationCoverage {
 	if report == nil {
 		return nil
@@ -15,6 +20,52 @@ func EffectiveChangedPathVerificationCoverage(plan *ChangePlan, report *ChangeRe
 	for i := range out {
 		row := &out[i]
 		row.LanguageFamilies = append([]VerificationLanguageFamily(nil), row.LanguageFamilies...)
+		if row.Status == ChangedPathVerificationCovered &&
+			ProjectRunnerChangedPathCapability(row.Runner) == VerificationCapabilityUnknown &&
+			(row.Capability == VerificationCapabilityTargetBehavior || row.Capability == VerificationCapabilityTargetExecution || row.Capability == VerificationCapabilityUnknown || row.Capability == "") {
+			row.Capability = VerificationCapabilityUnknown
+			row.ReasonCode = "aggregate_project_target_execution_unobserved"
+			// Make could also mask an equally ranked native suite that had
+			// already been independently scheduled. Only its recorded exact
+			// executor scope can restore the original native-runner authority.
+			if plan == nil || plan.ID == report.PlanID {
+				for _, command := range report.ExecutedCommands {
+					if NativeProjectCommandCoversChangedPath(command, row.Path) {
+						row.Capability = VerificationCapabilityTargetBehavior
+						row.Caliber = ChangedPathVerificationProjectRunner
+						row.Runner, row.Source = command.Runner, command.Source
+						row.ReasonCode = ""
+						break
+					}
+				}
+			}
+			if row.Capability == VerificationCapabilityTargetBehavior {
+				continue
+			}
+			// Old reports could choose Make's inflated behavior label over an
+			// actual probe receipt. Reuse the same exact receipt resolver; never
+			// infer execution from matching language, command or source text.
+			ids := make([]string, 0, len(probes))
+			for id := range probes {
+				ids = append(ids, id)
+			}
+			sort.Strings(ids)
+			for _, id := range ids {
+				resolution := ResolveVerificationProbeTargetExecution(plan, probes[id], report)
+				for _, path := range resolution.Paths {
+					if path == row.Path {
+						row.Capability = VerificationCapabilityTargetExecution
+						row.Caliber = ChangedPathVerificationProbe
+						row.Runner, row.Source = "verification_probe", id
+						row.ReasonCode = "python_changed_owners_executed"
+						break
+					}
+				}
+				if row.Capability == VerificationCapabilityTargetExecution {
+					break
+				}
+			}
+		}
 		if row.Caliber != ChangedPathVerificationProbe && row.Runner != "verification_probe" {
 			continue
 		}

@@ -19,7 +19,8 @@ type changedPathCoverageEvidence struct {
 }
 
 // changeReportHasExecutionCapabilityDebt reports whether a successful typed
-// changed-path ledger still proves only syntax/static properties for at least
+// changed-path ledger still proves only syntax/static properties, or has no
+// execution-capability receipt, for at least
 // one production target. It deliberately ignores prose, runner output and
 // commands; callers may use it to continue to another already-discovered test
 // surface, never to declare success by itself.
@@ -32,7 +33,7 @@ func changeReportHasExecutionCapabilityDebt(report *types.ChangeReport) bool {
 			continue
 		}
 		switch row.Capability {
-		case types.VerificationCapabilitySyntaxOnly, types.VerificationCapabilitySourceStatic:
+		case "", types.VerificationCapabilityUnknown, types.VerificationCapabilitySyntaxOnly, types.VerificationCapabilitySourceStatic:
 			return true
 		}
 	}
@@ -230,7 +231,7 @@ func changedPathCoverageFromCommands(
 				continue
 			}
 			caliber = types.ChangedPathVerificationProjectRunner
-			capability = types.VerificationCapabilityTargetBehavior
+			capability = types.ProjectRunnerChangedPathCapability(cmd.Runner)
 		case types.ExecutedCommandOutcomeSyntaxCheckFallback, types.ExecutedCommandOutcomeSyntaxPreflight:
 			if cmd.ExitCode != 0 {
 				continue
@@ -263,6 +264,10 @@ func changedPathCoverageFromCommands(
 				!verificationLanguageFamiliesIntersect(targetFamilies[canonical], runnerFamilies) {
 				pathCaliber = types.ChangedPathVerificationDeclaredProjectCheck
 				pathCapability = types.VerificationCapabilitySourceStatic
+			}
+			if pathCapability == types.VerificationCapabilityTargetBehavior &&
+				!types.NativeProjectCommandCoversChangedPath(cmd, canonical) {
+				continue
 			}
 			next := changedPathCoverageEvidence{
 				caliber:    pathCaliber,

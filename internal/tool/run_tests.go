@@ -1494,7 +1494,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if changeReportHasExecutionCapabilityDebt(provisional) {
 			if next := escalateToSurfaceCandidate("execution_capability_escalation", plan); next != nil {
 				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
-					fmt.Sprintf("[run_tests: %s] typed changed-path coverage is static/syntax-only; continuing with independent %s behavior surface",
+					fmt.Sprintf("[run_tests: %s] target execution has not been established by current changed-path evidence; continuing with independent %s verification surface",
 						runnerPlanLabel(ctx.RepoRoot, plan), runnerPlanLabel(ctx.RepoRoot, *next))))
 				plans = append(plans, *next)
 			}

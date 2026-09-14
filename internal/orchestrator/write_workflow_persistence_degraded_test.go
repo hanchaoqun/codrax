@@ -441,8 +441,8 @@ func TestRenderWriteWorkflowTerminalStatusLocalizesReasonCodesWithoutLeakingProt
 		lang string
 		want string
 	}{
-		{lang: "zh", want: "生产验证目前只有静态证据"},
-		{lang: "en", want: "production verification currently has static evidence only"},
+		{lang: "zh", want: "尚无生产目标已执行的验证凭证"},
+		{lang: "en", want: "execution of the production target has not been established"},
 	} {
 		got := renderWriteWorkflowTerminalStatus(run, tc.lang)
 		if !strings.Contains(got, tc.want) {
