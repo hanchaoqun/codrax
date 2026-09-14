@@ -2,7 +2,9 @@
 
 ## 最新进展导航（2026-09-13）
 
-本轮续修§123.1790：B1122原生失败反例供给已提交`92079e976`，B1672可选根因选择机会另片交付；公共先红后绿、独立count3/race/冷审、冻结86包全仓与构建均通过，尚未新开live。B1672是对§40.59“合法省略不加轮”策略的显式升级：只复用已有共享一次机会，省略仍合法、可拒绝补充、已有答案保留，不代选、不改结论、不增加独立重试门。后续r1067计划H1显式窗Trace与Python跨仓写，严格并行2、各一次。
+最新回放§123.1791：r1067恰好两路各一次完成，H1机审PASS221s、Python写PASS202s，但两份人审均FAIL；Trace完整5段/3.094ms与投影保留，后文仍错次数/业务身份和范围；写原测试不降杆但单LF回归。B1672真实一次模型重交恢复5项JSON且保正文，B1122真实失败反例供给生效。唯一required合同获真断言，未发现累计义务逃逸；通用显示计数B1673已确认为1汇总+2断言误称3测试，独立小批修复中。不以机器PASS销清行为覆盖/模型解释债，不加单例关键词门。
+
+本轮续修§123.1790：B1122原生失败反例供给`92079e976`、B1672可选根因选择机会`731e06e99`已分别提交推送；公共先红后绿、独立count3/race/冷审、冻结86包全仓与提交后清洁构建均通过。B1672是对§40.59“合法省略不加轮”策略的显式升级：只复用已有共享一次机会，省略仍合法、可拒绝补充、已有答案保留，不代选、不改结论、不增加独立重试门。r1067按H1显式窗Trace与Python跨仓写严格并行2、各一次启动，结果待人审。
 
 最新续修§123.1789：B1670投影缺证范围已独立推送`746c6b429`，B1671写验证计数口径已独立推送`549966d5a`；分别公共先红后绿、count3/race及独立冷审通过，主审组合count3、冻结全仓86包和提交后清洁构建通过。只修系统上下文的范围与命名，不改模型正文、证据资格、根因选择策略或证明门。客户json_root_err的原因与可选补充机会提案见§1788.7–10，未把提案冒充已实施。
 
@@ -57406,6 +57408,16 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1791 r1067/B1673：恢复通道自然生效，机器通过不等于业务正确（2026-09-13）
+
+1. r1067从已推清洁`731e06e99eb9`启动，exact2各一次，H1=PASS221s，Python跨仓写=PASS202s；原机审汇总和完整人工审计分别在`eval/parallel_selected_summary_evalcampaign_h1_tokenizer_r1067_20260913.md`及`..._manual_audit.md`。两例人工均FAIL；没有第三路追绿、没有在live中改源/原答案/补丁/oracle。无Mermaid故本轮图语法及跨语言关系恢复=N/A，不冒称全覆盖。
+2. **B1672真实正证**：H1首稿正文已接受，根因选择是错误array-of-wrapped-items（并非JSON文本语法错，也不是客户日志的从未提交）。一次共享建议同时带维度归属和可选选择；模型16.669s后用正确对象重交原来相同5个ID/顺序，真实旁路`.codrax/output/20260913-210053.841-87841.root-causes.json`=schema2/statusavailable/7906B。s1正文1764B恒等，s2–s6 unchanged，元数据由模型自己补；不代选、不删图/正文、不三轮追问。首次never-submitted与其它安全容器恢复仍按独立测试/旧账，不由本次一形代销。
+3. H1完整5段Binder=3.094ms与3peer明细正确，但模型后文把#1/#2/#4写成4次、错误统一事务业务归属，12.658ms/47聚合记录误称10次完成等待，且把其余长S扩大成非Binder/普通睡眠。对应精确库存、IPC字段、47记录与unassociated边界均已在上下文，B1670投影范围限定也已送达；目前是模型消费错误，不再加重复教学或正文扫描门。两轴、业务线索、显式窗233.190ms、因果投影及背景隔离保留。
+4. **B1122真实正证**：写首轮真实测试失败，原数组反例与完整3973B ref进入verifier/controller；controller新增段2277B且只有一份。replanner走既有typed failure_signal+ref，最终纠正首轮多余10；不能称本次自然覆盖所有planner hook。最终生成代码仍把单LF折为rank，原五换行/普通hi测试字节不变且2/2通过。独立后验16定点11过5败；7×1093=7651矩阵3916过3735败，仅为有限单LF族见证，未回填程序proof。已有singleton边界教学，故不以新增一模一样提示或改客户fixture当根修。
+5. 唯一hard-required `existing-regression-input`首终不变，由真实精确unittest断言覆盖；普通merge/newline语义自首plan即planning-only，未在replan为过绿降格。累计11条proof是8covered+3advisory，不是11行为；原hard missing被终同义真证消解，退休仅旧planning fallback。暂未确认新累计门旁路。下个高ROI审计任务是“任务保留行为→可执行测试选择→已验证范围披露”，沿B1561/B1575推进，而不是针对newline/rank给新硬门；模型计划未建负边界与业务回归诚实留账。
+6. **B1673-VERIFYRESULTCOUNTCALIBER1/P2确认并施工**：`renderVerifySuccess`把`len(report.TestResults)`说成独立test数，r1067实为1个Make aggregate+2个unittest assertion，却在最终写“3个测试通过”。这是系统句非模型句。最小修向只统一中英为验证结果记录数，不猜独立测试数、不重分scope、不改verdict/proof/报告路径/相邻worktree审计。公共RED已得（`.codrax/tmp/20260913-b1673-public-render-red.log`1.077s），中英×混合/纯断言/汇总/旧无scope/未知scope/零行均只因旧计数句失败，nil通过；另钉报告/plan/proof字节及相邻披露不变。待该小批专项、orchestrator全套、独立冷审、提交推送后收账。
+7. 38次实际模型请求全attempt1，无重试/超时/活跃SSE降级。最长60.390s有持续semantic/transport增长；600/300/600s默认原样，4/10分钟/5分钟极限自然覆盖=N/A，不拿一分钟成功当极限正证。H1上下文峰59%、写28%，一次3536B共享建议未见无界累积。B1626自然多窗、B1647c异构图恢复、B1548其它selector容器及原生逐合同执行广度继续开放。
+
 ### §123.1790 B1122/B1672：失败反例供给与可选根因补充（2026-09-13）
 
 1. 基线`138b4498a`，本轮fetch后与远端0/0，无遗留用户改动。先收§1788已证gap，再选异构eval；不重复r1066追绿。B1122/P1针对Make/Python真实失败尾部被summary首行和上下文预算遮蔽；B1672/P1针对客户日志的“从未提交选择”与本地“提交无效选择”分别提供准确的可选引导。不是schema_version错误或磁盘失败的统一归因。
@@ -57416,6 +57428,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 6. 不变量：Trace链上候选资格、已选顺序/数据绑定、显式窗/自动补齐、占用与可消除两轴、背景不晋升根因均不改；模型正文/图/结论不被系统改写。活跃SSE无4ms或4m答案年龄降级；600s首响应、300s真实静默、600s非流式默认与外层取消/预算原边界保留并复测。B1561/B1575逐合同原生证明、B1626自然双窗、B1647c异语言自然回放等旧债不代销。
 7. 冻结专项收据：B1122 count3 types/tool/agent=1.106/3.547/3.004s，race=2.494/4.993/3.975s，全绿（`...20260914-b1122-final-{count3,race}.log`）。短Make含unittest原字节、长unittest原失败块、真实公开read_file读取短rawref、落盘拒绝不假造ref、8KiB UTF-8全局预算及当前计划/read/探测负控均覆盖；新增展示成为同一installed-report的第4加项，旧审计/粒度/14出口AST义务不减，新增丢失/异报告负针。B1672独立真实循环与旧advisory count3=1.589s、race3=7.619s，实时full/patch schema与实际messages共用教学，选择不必选满；冷审无阻断。活跃流式专项count3 llm/agent=12.773/1.316s，默认值/覆盖优先级count3=0.374s，全部通过；短受控用例不是自然>4分钟生产回放。
 8. 最终冻结`go test ./... -count=1` exit0，86个有测试包通过（`.codrax/tmp/20260913-b1122-b1672-full.log`），前后全部改动Go输入SHA一致，构建通过。B1122独立只读冷审无阻断，额外专项types/tool/agent=1.005/2.763/2.253s；8KiB仅新增runner披露段，不是整个历史prompt。独立planner dry-run与其rawref不在本批post-apply完整引用闭环，early exit通过Summary/JSON回读、aggregate出口另补RawRef，范围不夸大。全部旧机审/人审失败保持，不新增硬门或自动代选。
+9. 交付：B1122=`92079e976`、B1672=`731e06e99`分别推送origin/main成功，提交后干净构建revision=`731e06e99eb9`、build=`2026-09-14T03:56:50Z`。r1067从该版本一次快照，于03:57:15Z同时启动两例，1200s外层超时、CAP5沿用。机审/人工终局未完成前不预签生产正证；不会在live中变更Go/build输入或修改原回答。
 
 ### §123.1789 B1670/B1671：投影缺证范围与必需验证项口径（2026-09-13）
 
