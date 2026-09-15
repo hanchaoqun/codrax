@@ -5498,7 +5498,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			))
 		}
 		localCandidates := preEmitStandaloneRelationRepairCandidateGuidance(standaloneMismatches, evidence, 6)
-		expectedShape := "a principal structured relation list/table may carry edge_anchors without a Mermaid block, but every row must preserve the exact typed relation and include both from_identity and to_identity from one citable recipe. Keep from_node/to_node as stable local presentation ids; correct/remove only unsupported rows. No diagram is required. Mismatches: " + strings.Join(parts, "; ")
+		expectedShape := "a principal structured relation list/table may carry edge_anchors without a Mermaid block, but every row must preserve the exact typed relation and include both from_identity and to_identity from one citable recipe. " + types.AnswerDocumentStandaloneRelationLabelTeaching + " Correct/remove only unsupported rows. No diagram is required. Mismatches: " + strings.Join(parts, "; ")
 		if localCandidates != "" {
 			expectedShape += ". Exact citable relation alternatives for the same endpoint pair(s), supplied only as optional local repair choices: " + localCandidates + ". Select a row only when it expresses the relation you intend; otherwise remove the unsupported anchor."
 		}
@@ -7082,7 +7082,7 @@ func diagramRelationRepairDeltaJSON(
 	raw, err := json.Marshal(diagramRelationRepairDelta{
 		Version:  types.AnswerDiagramRelationRepairDeltaVersion,
 		Failures: failures, PreserveUnlistedEdges: true,
-		AllowedAdditions:      allowedAdditions,
+		AllowedAdditions:      standaloneRelationRepairReaderCandidates(doc, allowedAdditions),
 		CandidateAlternatives: strings.TrimSpace(candidates),
 	})
 	if err != nil || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {

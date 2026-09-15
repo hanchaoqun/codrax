@@ -931,7 +931,7 @@ func localDiagramLeaseExecutableEdgeBranches(
 		if attachedToExistingBody {
 			continue
 		}
-		if answerDocumentStandaloneRelationAdditionCandidateSelected(prev, candidate) {
+		if answerDocumentRelationEndpointsAreReaderLabels(prev, candidate.BlockID) {
 			branches = append(branches, exactLocalStandaloneRelationMetadataAddBranch(ref))
 			continue
 		}
@@ -944,7 +944,8 @@ func localDiagramLeaseExecutableEdgeBranches(
 }
 
 // exactLocalStandaloneRelationMetadataAddBranch appends one relation anchor to
-// a list/table whose claim and item already selected the same evidence id.
+// an already-admitted list/table candidate. Display-domain classification is
+// independent of the existing claim/item and prior-anchor admission paths.
 // Its endpoints and label are model-authored reader text, not Mermaid node ids.
 // Exact identities come only from the selected ref; no body mutation is possible.
 func exactLocalStandaloneRelationMetadataAddBranch(additionRef string) map[string]any {

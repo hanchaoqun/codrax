@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-14）
 
+当前续修§123.1803：清洁b4791971f、远程0/0后，B1689逐段附注口径丢失及B1690非图关系修补显示合同分叉已公共先红后绿、重复及竞态通过，最终冻结全仓v3的86测试包强制重跑全绿。完整逐次区间库存分为“查询→账本来源保真”和“账本→投影分源贯通”两批，未实施、不以显示修复代销。递归库存243例=215读/25apply/3plan；下一对r1072计划Go精确写+Rust跨模块读，各一次、并行2，尚未启动。
+
 当前交付§123.1802：r1071完整人审已9192d2bab单独推送，exact2各一次机PASS但人审均FAIL。B1686初始Trace外部观测交接、B1687纯拓扑误补端点身份、B1688多次发生包络误称单次均已公共先红后绿、count3/race3及独立冷审，最终冻结全仓86个有测试包通过（57本次执行/29有效缓存）。图有明确身份时的安全补齐继续保留，原模型正文、关系与根因选择不改。模型说明准确性、真实代表片段供给、主数据流导航与原生runner执行证明仍独立开放，不追跑原样例求绿。
 
 已交付§123.1796：B1680外部工件来源交接教学`32a3287a5`已推送，9个提示调用点共享528字节分流说明；真实ReadFile/TraceQuery/BaseAgent边界、未知/混合来源、源码义务与派生ref拒绝均有正反针。count3、独立及联合race3/冷审、最终冻结86包全仓和提交后清洁构建通过。单次大段runtime读未新增提前提示，避免间接扩大旧工具收束；提示状态与权限分型另记开放债。
@@ -57419,6 +57421,29 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1803 B1689/B1690：逐段统计附注与非图关系修补合同（2026-09-14）
+
+1. **顺序/范围**：从已推送清洁b4791971f继续，fresh fetch与origin/main为0/0。不重复r1071、不把机PASS代替人审；先闭两个确定性供给/显示缺口，再轮转异构读写。原case/oracle/fixture/模型产物不改，不扩正文硬门、不系统代选根因或图关系。默认首响应600s/真实字节静默300s/非流600s及调用者独立取消保持；活跃SSE不能仅因4ms或旧4m无可见正文降级。
+2. **B1689/P1：附注丢失单段统计口径**。原始TraceQuery结果/工具摘要已有每段五态及projected/actual影响和总时长，RichNotes compact也保留这些字段；最终 `traceQueryObservationSupplementOccurrenceWindows` 却仅留下state与total。r1071系统附注首段2.978ms未给runnable2.377ms，容易误读为纯调度等待。本函数是最终附注，不是模型输入，不能反向认定它导致模型答错。修复仅保留compact实际存在的字段与原顺序/原cap，区分主导状态、总占时、五态及查询/原始状态窗；显式零保留、缺失不补零、不借累计、不重算。projected/actual impact在D/IO时可为组合，不能统一称单一主导状态，更不能称可消除量；未限定物理来源的lines不公开。公共TraceQuery→EmitAnswerDocument→ParseOutput双语及原稿/账本/初始输入不变针先行。
+3. **B1690/P1：非图修补教学与字段消费分叉**。r1071模型将系统生成的 `SinkRegistryCreate_af1c9eb7c200871d` 填进ordered_list的可见端点；原始patch可证这一选择。已有坏anchor的generic候选无条件绑定图语法alias，提示要求stable local presentation ids；相邻缺整个anchor车道已用读者标签且不发布alias。ParametersFor又以旧块anchor为空作为非图显示分支前提，坏anchor的remove+add遂进入图schema，但实际非图执行器不消费分开的visible_label字段，渲染器忠实输出from_node。历史完整schema/hint未落盘，不宣称读到当轮逐字wire；当前源码与真实拒绝/patch共同确认分叉。修向仅按唯一目标块Kind+Diagram统一显示域，资格准入仍独立；所有实际Mermaid键、证据门、合法技术名称与模型语义保留，不扫哈希或替模型换词。真实Emit→Observe→ParametersFor→remove+add Patch→Render及图正控先行。
+4. **完整区间库存A：逐次区间来源保真（查询→账本），确认/未实施**。Result每组至多发布8段，RichNotes仅前4；rank没有完整次数而aggregate有OccurrenceCount，不能len(list)冒充总体。当前impact→occurrence还丢每段MeasurementSources。后继保存每段原值/顺序、原生凭证、逐段ResolveArtifactSpans物理行映射、完整次数known/unknown及发布/显示截断；时间已在索引统一时钟，禁止再次应用父来源偏移。最终账本绑定完整查询/参数/目标/窗/行筛选/采集身份并深复制，不能把聚合来源并集反分给每段。真实TraceQuery→CompileObservationLedger必须覆盖5段、超过8段、异源同TID、异目标/行筛选、已校准多源、未知来源/合法零起点，且去掉新库存后原排名/计量/资格不变。本批不改Node或模型schema，交付须是真实可读取库存而非空struct。
+5. **完整区间库存B：逐次区间分源贯通（账本→投影→统一展示），设计/未实施**。后续在所有clone、peer alias absorber、同类并置、重复发布、semantic-physical absorber、one-seat及subjectless overflow通道保留每份库存独立owner，禁止溢出首成员替其它段署名。共享reader和代表窗展示逐段/遗漏计数；legacy继续诚实外包窗，段内仍可混状态、有间隙，不把持续时长当可消除量。现W-13明确豁免完整occurrence投影，应显式升级合同，不能倒称旧系统承诺全量。A/B与B1688/B1689独立排账，本轮不靠提示或显示修正签其完成。
+6. **r1072优先计划，尚未启动**：递归case库存243=215read/25apply/3plan。选 `patch_go_typo`（apply24，本机原生Go可执行，最近r1050机器FAIL/补丁人审正确但末尾proof-only计划覆盖oracle尚开放）与 `sr_rust_cross_module_chain`（read15，最近r1044机PASS/人工有匹配能力与递归顺序误述）。分别检验原生行为证明/计划工件和异语言跨模块调用/业务解释，避免近期C++/Trace重复追绿。保CAP5/PARALLEL2/TIMEOUT1200、各一次；Rust读不需安装Cargo，当前npm/Java/Rust编译链缺失不作为这对阻塞。图非必选，无图不能造硬门；审输入与最终语义，源码在live期间冻结。
+
+7. **B1689专项验收**：真实fixture的首段实际是running0.483/sleep0.118/runnable2.377/total2.978ms，首次夹具误估running0.601的失败独存 `20260914-b1689-fixture-first.log`，不计公共RED。修正前提后有效公共RED3.012s，首次GREEN2.821s；最后未知非空state改中性“未识别状态”、空仍省略，最终新旧同族count3=6.539s/race3=39.818s（`20260914-b1689-final-{count3,race3}.log`）。真实Query→Emit→Parse双语保原稿/ledger/投影/默认sidecar状态/result/初始输入字节不变，整条附注前4段原序且第五不额外恢复；不同窗、D+IO组合、缺失/显式零另有受控矩阵。三文件最小改动，旧针无修改，独立冷审含未知尾差无阻断；尚待联合冻结全仓，不冒充新LLM生产回放。
+
+8. **库存A的版本义务**：新增Result/nested occurrence字段需显式schema处置与相关pin、深复制及旧JSON缺字段unknown兼容。初盘点已见全局Index LRU、单Run chain/rank memo与payload/ToolResult持久化重读，尚未证有独立磁盘Result cache；施工前继续核checkpoint与真实缓存边界，测试warm/cold一致，不机械全bump，更不能让旧缺凭证库存借父来源并集冒充完整。本条仅审计排期，无版本或缓存代码改动。
+
+9. **B1690最小实现及公共验收**：旧生产有效RED为 `20260914-b1690-public-red-v4.log`1.155s，三类wrong-relation确证alias/schema冲突，missing原正控仍绿。此前partial-call可合法attach、missing-guard未触发原门及B1689文件落地窗口的编译失败分别保留，不冒充有效产品RED。生产新增纯显示分类/候选copy helper，仅在generic delta发布前清非图alias数组并用同分类选择既有add schema；relation/evidence/source/identity、真正candidate admission、执行器和renderer无改。共享教学明确非图reader标签与真图node ID不同域；agent两句全称diagram改为carrier局部修补，不改可选图处置权。首绿1.268s；最终矩阵count1 agent2.164/tool0.970s通过。20公共臂=双语×三块种×缺/错12、flow/sequence混合2、真实异源/反向拒绝6；27白盒臂分离显示/准入并保合法代码/类似哈希的身份。混合flow夹具初期被既有inline声明规范化拆行，诊断后仅改为同样三条规范输入，仍严格保body字节、未放宽保真针。独立末审无阻断，全部源码/测试冻结；专项count3/race3及无缓存全仓运行中，旧针无改。
+
+10. **联合首轮真实失败及处理**：B1690 final-count3 agent2.065/tool3.525/types0.987s、final-race3 agent12.618/tool12.957/types2.191s均exit0；但随后完整无缓存 `20260914-b1689-b1690-full.log` exit1，仅旧 `TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority` 报重试提示6279B超过既有6000B上限。源码/测试/build输入before/after SHA一致，不把专项通过冒充全仓通过。修向是压缩局部capsule与紧随共享教学的重复说明，保原字节上限和所有字段、权限、引用代次/下一阶段时序语义；旧测试阈值不改、不增加模型心智。等待文本收尾后重新冻结全仓，不能倒签首轮。等待保护专项count3=4.494s/race3=5.735s也保留；非流/首响应600s、真实静默300s、活跃隐藏思考及显式取消边界不变。
+
+11. **教学收尾过程保真**：去重版旧6000针count1已通过；扩至相邻finalizer整族后又发现旧 `TestRelationRepairScopeRejectStaysOnCompactDeltaLane` 精确要求“do not add any other relation”，压缩同义句触发它。保原句，不改旧针；当时已提前启动的full-v2由主审定向停止，exit143，不算完整验收，其前后源码SHA仍一致。最终相邻427测试及新旧专项的 `20260914-b1690-compact-final-v2-count3.log` 三包exit0（agent13.900/tool31.839/types16.953s）；race3三包exit0（agent123.394/tool275.950/types139.917s），旧6000上限、精确权限句和全部旧针不变。独立最终整体冷审无阻断，之后重新冻结启动full-v3；v1失败、v2主动中止及中间夹具/措辞失败日志均保留。压缩不增新显示分类条件或硬门，共享说明继续单份承接隐藏字段/参与者操作规则，局部保同代引用、精确后续孤立清单、用户文字所有权与来源隔离。
+
+12. **最终冻结全仓及交付**：`20260914-b1689-b1690-full-v3.log` 的 `go test ./... -count=1` exit0；99包=86有测试全部强制重跑+13无测试文件，零失败。关键运行agent70.124/tool344.901/hitraceconv140.972/tracequery103.162/tracediag11.769/llm29.544/orchestrator24.387/types44.008s。全部Go源码/测试/build输入 `...freeze-v3-{before,after}.sha`完全一致；gofmt与diff检查、r1071五份原产物及其case/fixtures、r1072两case和9fixture文件SHA核验通过。提交前fresh fetch仍0/0；该完整结果替代待验收状态，不抹除v1真实失败和v2主动终止。提交后清洁构建再启动下一对live，不更改旧二进制快照与旧回放。
+
+状态：`B1689=public-red+minimal-fix/count3+race3+cold-pass/final-frozen-full-v3-pass/delivery`；`B1690=public-red+minimal-fix/public-matrix-pass+cold-pass/full-v1-fail+v2-terminated/teaching-dedup-count3+race3-pass/final-frozen-full-v3-pass/delivery`；`occurrence-inventory-A/B=separately-planned/not-implemented`；`r1072=planned-not-started`；`r1071-originals=preserved/no-rerun`。
 
 ### §123.1802 B1686–B1688：交接教学、端点选择与时间范围的权限边界（2026-09-14）
 

@@ -19132,10 +19132,10 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	if len(delta.Failures) == 0 {
 		b.WriteString(". The patch executor has returned the complete current additions-only typed capability roster. Use the reported patch transaction state to determine which earlier operations are already in the live retry base. ")
 	} else {
-		b.WriteString(" by a local typed source-diagram relation mismatch. ")
+		b.WriteString(" by a local typed source relation mismatch. ")
 	}
 	b.WriteString(action)
-	b.WriteString("; use `diagram_edge_edits` instead of re-emitting the whole diagram. ")
+	b.WriteString("; use `diagram_edge_edits` for schema-published local repairs; preserve the rest. ")
 	b.WriteString(answerDocDiagramRelationRepairBranchTeaching(delta))
 	if answerDocumentRejectOnlyGroundedMissingCallAnchors(result) {
 		b.WriteString("The listed edges are already grounded; only their anchor metadata is missing. Prefer keeping every such edge, its endpoints, operator, order, and visible label: use a schema-published attach pair, or a permitted replace with the same visible content. Missing metadata does not make an edge unsupported. ")
@@ -19143,7 +19143,7 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	if answerDocRelationRepairHasOrdinaryValidationBlocks(result) {
 		b.WriteString("For any exact non-diagram id also published by the live `replace_blocks` schema, submit one complete replacement of that block to repair its row-local evidence and relation metadata together; do not also submit a `diagram_edge_edits` operation for the same block. The ordinary merged-document evidence and relation validators remain authoritative. ")
 	}
-	b.WriteString("For ref-selected branches, omit block_id, match, occurrence, and body_occurrence; also omit hidden identities and relation kinds. The allowed rows are permissions, not required edges; do not add any other relation. Preserve sibling blocks/citations and every unlisted edge/anchor because `preserve_unlisted_edges=true`. Use `diagram_participant_edits` only when the current schema publishes it. If absent, submit relation edits only; the next schema publishes the exact post-edit orphan roster. Do not predict that roster. Protections are rechecked. You still author every visible node id, label, business wording, order, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording. ")
+	b.WriteString("For ref-selected branches, omit block_id, match, occurrence, and body_occurrence. The allowed rows are permissions, not required edges; do not add any other relation. Preserve siblings/citations and unlisted edges/anchors (`preserve_unlisted_edges=true`). If participant edits are absent, the next schema publishes the exact post-edit orphan roster. Do not predict that roster. Protections are rechecked. You author endpoint ids, labels, order and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording. ")
 	if diagramRequired {
 		b.WriteString("The diagram is required, so keep its block and repair only with the published local capabilities. ")
 	} else {
@@ -24655,50 +24655,7 @@ func traceQueryObservationSupplementPriorityRelation(value string, zh bool) stri
 }
 
 func traceQueryObservationSupplementOccurrenceWindows(value string, zh bool) string {
-	clauses := strings.Split(value, ";")
-	out := make([]string, 0, len(clauses))
-	for _, clause := range clauses {
-		parts := strings.Split(clause, ",")
-		if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
-			continue
-		}
-		window := strings.TrimSpace(parts[0])
-		var details []string
-		for _, part := range parts[1:] {
-			key, raw, ok := strings.Cut(strings.TrimSpace(part), "=")
-			if !ok {
-				continue
-			}
-			switch strings.TrimSpace(key) {
-			case "state":
-				if label := traceQueryObservationSupplementEntityLabel(raw, zh); label != "" {
-					if zh {
-						details = append(details, "状态："+label)
-					} else {
-						details = append(details, "state: "+label)
-					}
-				}
-			case "total":
-				if zh {
-					details = append(details, "合计："+strings.TrimSpace(raw))
-				} else {
-					details = append(details, "total: "+strings.TrimSpace(raw))
-				}
-			}
-		}
-		if len(details) > 0 {
-			if zh {
-				window += "（" + strings.Join(details, "，") + "）"
-			} else {
-				window += " (" + strings.Join(details, ", ") + ")"
-			}
-		}
-		out = append(out, window)
-	}
-	if zh {
-		return strings.Join(out, "；")
-	}
-	return strings.Join(out, "; ")
+	return renderTraceOccurrenceMeasurements(value, zh)
 }
 
 func traceQueryObservationSupplementSource(value string, zh bool) string {

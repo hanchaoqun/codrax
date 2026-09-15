@@ -1105,6 +1105,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 
 **图端点恢复权限（B1687）**：纯图形唯一匹配不能选择业务别名的语义身份，模型可能只展示另一组件的局部。拓扑恢复仅补两端已由同图完整、同方向同关系且匹配当前 recipe 的明确身份锚唯一绑定的缺失字段；冲突、局部身份或其它图的锚不授权传播，修复前快照不随本次补齐级联扩权。原 exact-node、明确单侧身份、同代 lease 等安全恢复继续有效；可见节点、边、标签和模型正文不改。recipe 与恢复收据均不是调用证据，普通关系凭证校验仍独立执行。
 
+**非图关系显示合同（B1690）**：列表/表格的 `edge_anchors.from_node/to_node` 是模型撰写的读者标签，不是 Mermaid 节点键；确切技术身份由当前已选关系凭证独立提供。缺整个锚与坏锚的 remove+add 修补都须按唯一目标块的真实显示类型发布同一合同，不能拿旧锚是否为空代替块类型，也不能向非图候选推荐生成的图语法别名。显示分类不授予关系添加权限；claim/item 的同证据选择、当前租约及普通合并后校验继续独立执行。实际 Mermaid 的 ID 与显示名分离能力不变，不扫描标签特征或代模型改写可见文字。
+
 ### 6.6 Validator 链 — 三层校验
 
 `internal/orchestrator/contract_check_block.go` 在 mutation 写入 Mutable 之前跑校验，HARD / Layer 2 / Layer 3 三层：
@@ -1294,6 +1296,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **窗口纪律**：用户显式给出 `time_start`/`time_end` 时严格透传不误缩（三处窗口推导入口都以 `.Set()` typed 布尔为精确开关）；帧信息 + 显式窗口同时给出时用 `unionTimeWindows` 取并集（纯几何 min/max，显式 0 起点也保留）。
 
 **榜项时间范围口径（B1688）**：系统代表窗表当前消费 `TraceCausalProjectionNode.StartTs/EndTs`，它们可为多段发生记录的最早/最晚起止包络，不是某次独立发生凭证。显示须明确不证明连续占用或仅发生一次、不同榜项范围可能重叠且不可相加；全查询窗累计数值不得挪称为这段范围的持续时间。该表继续只展示精确链上项目，既有时间值、排名、两轴及模型选择不变。真正独立代表性片段的载体供给另行建设，不能由包络猜造。
+
+**逐段测量附注（B1689）**：最终附注对已有 compact 区间逐字段显示主导状态/耗时、总占时、五态及查询窗/原始状态窗的测量，不以总时长代替某个状态，也不把影响时长改称可消除量。缺字段不补零，显式零保留，原数值、顺序和展示数量上限不变；原始状态窗也不保证连续。未限定物理文件的虚拟行范围不公开。该附注不是模型输入；完整已发布区间、每段来源和次数/截断库存仍须另行贯通查询、账本与投影，不能由摘要或外包窗反推。
 
 **逻辑附件 ID 兼容**：`RuntimeArtifactSelectionItem.ID`（`runtime_artifact:<16hex>`）是选择账本里的逻辑身份，不是文件路径。模型误把该 ID 填进 `source=path/path` 时，`trace_query` 先在当前 typed selection 中精确匹配 kind=trace 的唯一 item，再把它的 typed carriers stat-核验为唯一物理 trace；只有零歧义时才确定性改写成 `source="attached_trace"`（无 path）或 item.source 对应的 `source="path"`。未知 ID、log kind、无物理 carrier、一个 item/producer alias 对应多份物理 trace 均 fail-closed，逻辑 ID 永不进入 filesystem resolver。成功结果头会回写 `auto_resolved=true`、解析后的 source 和 `canonical_next_call`，同时上下文/工具 schema 直接教模型使用 item.source，避免把兼容层变成长期心智负担。
 
