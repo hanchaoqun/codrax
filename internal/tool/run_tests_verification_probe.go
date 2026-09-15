@@ -129,8 +129,12 @@ else:
 `
 
 const javascriptVerificationProbeWrapper = `
+(() => {
 const fs = require("fs");
 const vm = require("vm");
+// Keep runner bindings private, including globals used after the probe runs.
+// The probe still executes as a script and may declare these same names.
+const { Buffer, console, process, JSON, Number, String } = globalThis;
 
 const resultPath = process.env.CODRAX_VERIFICATION_PROBE_RESULT || "";
 const encoded = process.env.CODRAX_VERIFICATION_PROBE_CODE || "";
@@ -168,18 +172,26 @@ try {
   }
   process.exit(1);
 }
+})();
 `
 
 const rubyVerificationProbeWrapper = `
+# Runner locals and its writer stay private; probe code keeps the main binding.
+-> do
 require "base64"
 require "json"
 
 result_path = ENV.fetch("CODRAX_VERIFICATION_PROBE_RESULT", "")
 encoded = ENV.fetch("CODRAX_VERIFICATION_PROBE_CODE", "")
+write_file = File.method(:write)
+encode_json = JSON.method(:generate)
+report_warning = Kernel.method(:warn)
+exit_runner = Kernel.method(:exit)
+reraise = Kernel.method(:raise)
 
-def write_result(path, outcome, exception="", exit_code=0)
-  return if path.empty?
-  File.write(path, JSON.generate({
+write_result = ->(outcome, exception="", exit_code=0) do
+  next if result_path.empty?
+  write_file.call(result_path, encode_json.call({
     "outcome" => outcome.to_s,
     "exception" => exception.to_s,
     "exit_code" => exit_code.to_i,
@@ -190,24 +202,25 @@ begin
   source = Base64.decode64(encoded)
   eval(source, TOPLEVEL_BINDING, "<codrax_verification_probe>")
 rescue SystemExit => e
-  write_result(result_path, e.status.to_i == 0 ? "passed" : "system_exit", e.class.name, e.status.to_i)
-  raise
+  write_result.call(e.status.to_i == 0 ? "passed" : "system_exit", e.class.name, e.status.to_i)
+  reraise.call(e)
 rescue SyntaxError => e
-  warn e.full_message
-  write_result(result_path, "syntax_error", e.class.name, 1)
-  exit 1
+  report_warning.call(e.full_message)
+  write_result.call("syntax_error", e.class.name, 1)
+  exit_runner.call(1)
 rescue LoadError => e
-  warn e.full_message
-  write_result(result_path, "import_error", e.class.name, 1)
-  exit 1
+  report_warning.call(e.full_message)
+  write_result.call("import_error", e.class.name, 1)
+  exit_runner.call(1)
 rescue Exception => e
-  warn e.full_message
+  report_warning.call(e.full_message)
   outcome = e.class.name == "AssertionError" ? "assertion_failed" : "exception"
-  write_result(result_path, outcome, e.class.name, 1)
-  exit 1
+  write_result.call(outcome, e.class.name, 1)
+  exit_runner.call(1)
 else
-  write_result(result_path, "passed", "", 0)
+  write_result.call("passed", "", 0)
 end
+end.call
 `
 
 func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificationProbeRunResult, bool) {

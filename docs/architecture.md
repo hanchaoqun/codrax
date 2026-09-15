@@ -1473,6 +1473,8 @@ controller 是唯一公开写模式调度器。它通过 typed `emit_write_workf
 - **Structured edit 加固**：replace/delete 省略 `end_line` 默认 `start_line`；`old_text` 失配错误回显当前字节（有界）+ 重读指引；匹配唯一的字节级容差是末尾换行。`insert_at_eof` 对 Python 缩进内容默认拒绝，但当当前文件最后一个顶层语句是 `class ...:` 且插入首个非空行是 4 空格缩进的类成员（`def` / `async def` / decorator）时允许，用于无行号算术地追加 final-class 方法；随后仍走 `py_compile` 和 PatchReview。validator 与 apply 侧 recompile 共用同一 seam。
 - **Micro-scope 短路径**：analyzer 分类 `scope=micro` 且带 typed scope anchors 时,seed batch 直接 `ready_to_plan`（跳过默认探索轮）。同一 controller DAG、同一 action schema——`explore_code` 仍在动作集中,controller 可自行选择回到探索；只有 typed 起始状态不同。
 
+内联探测的包装实现不得占用模型代码的普通名字：JavaScript 将包装变量和其使用的内建引用放在私有闭包，仍以原脚本语义执行；Ruby 将包装变量和结果写入器放在私有闭包，模型代码仍使用 `TOPLEVEL_BINDING`；Python 原有独立 namespace 保持。隔离不改探测源码、cwd、模块加载、argv、真实退出/异常分类或证明规则，也不要求模型避开常用变量名。这不是任意全局对象修改的安全沙箱；TypeScript 加载能力、异步完成协议、原生执行及逐合同断言权限仍是独立能力。
+
 ### 8.3 write_analyzer — 写模式专属请求分类
 
 读模式 analyzer 跑完后，写模式额外跑一次独立 `write_analyzer` 阶段，用 `emit_write_analysis` 写 `WriteAnalysisIR`：

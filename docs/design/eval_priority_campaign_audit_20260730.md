@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-15）
 
-当前交付§123.1813–1814：B1699 `0995bf36d`、B1700 `fefbcfbef` 已推送，最终冻结86测试包全绿+13无测试包；不改模型答案/已选引用。§123.1815 r1076清洁构建后真实双窗Trace read与多仓TS apply恰好两路各一次，机器1PASS/1FAIL。Trace测量和主对比正确、解释错误；TS实际交付原生后验6/6通过但正式proof未闭。新B1701包装器词法污染/B1702失败probe诊断丢失均P1，先根修、不追绿重跑。Trace状态重复/错域枚举提示并入B1626/EVAL-B36-SYSAUTH1；B1694、完整图表达与写验证债继续开放。
+当前交付§123.1813–1814：B1699 `0995bf36d`、B1700 `fefbcfbef` 已推送，不改模型答案/已选引用。§123.1815 r1076恰好两路各一次，机器1PASS/1FAIL：Trace测量正确、解释错误；TS实际交付原生后验6/6通过但正式proof未闭，审计`fd5fed5a9`已推送。§123.1816 B1701统一隔离JavaScript/Ruby包装变量及报告/退出方法，27格公共回归、重复/race与末版冻结86包全仓通过；客户原probe离线旧红新绿，未改原机评。B1702失败probe诊断丢失已完成独立设计、待施工；Trace状态重复/错域枚举提示归B1626/EVAL-B36-SYSAUTH1，B1694、完整图表达与写验证债继续开放。
 
 最新回放§123.1812：B1698 `477025af9` / B1697 `6859fe811` 均已推送，联合冻结86包全仓通过后清洁构建。r1075严格混合Trace/源码read与C++ plan-only两路各一次，机器1PASS/1FAIL；人审计划核心PASS但未应用/编译，混合读数值及五维正确、当前实现与来源资格FAIL。新B1699同一soft-required源码义务被误教optional并反复拒绝收束、B1700混合member_set获源码清单资格及无引用runtime条目被补错来源均P1，下一片先公共复现，不归JSON畸形或模型波动。B1697/B1698实际通道及图在本对N/A；原结果/夹具/机评不改，无第三例追绿。
 
@@ -57431,6 +57431,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1816 B1701：探测包装实现与模型代码作用域隔离（2026-09-15，完整回归通过，随本批交付）
+
+r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执行收据保持不变。当前先处理确定性包装器自冲突，不通过教学禁用fs等常用名字。方案仅隔离系统自身词法绑定，保持模型顶层代码、require解析、cwd/argv、真实退出状态、异常分类和执行收据。公共RunTests.Execute需覆盖多个碰撞名及组合、真实源码调用、真SyntaxError/AssertionError负控、源文件与原计划不变。代码与测试收据待完成后补录，不宣称仅修一处已解决全部语言包装边界。
+
+1. **JavaScript原红与实现**：有效公共RED `.codrax/tmp/20260915-b1701-public-red-v2.log` 8碰撞叶红/普通执行和真实语法、断言3正控绿。更早`20260915-javascript-wrapper-public-red.log`受测试time.Time JSON roundtrip monotonic差异影响，只是夹具中间失败，不作有效RED。匿名闭包隔离所有包装局部变量，并提前保存其后续使用的Buffer/console/process/JSON/Number/String；vm.runInThisContext及模型原始代码不变。11格公共count3 1.917s、与原JS邻接count3 2.086s/race3 3.715s均通过，对应`20260915-b1701-public-green-count3.log`、`js-adjacent-count3.log`、`js-adjacent-race3.log`（后两同20260915-b1701前缀）。
+2. **客户原代码离线对照**：`20260915-b1701-customer-wrapper-replay.{mjs,log}`直接读取r1076原plan、原probe.code和实际交付源码。旧包装器exit1报fs重复，新包装器exit0；plan/source/report/verdict的SHA前后相同，未写正式RESULT收据。该probe本身只扫描源码，离线通过不等于业务行为证明，更不能将原机FAIL改PASS，也不是另开一次LLM eval。
+3. **Ruby同根不是单语言补洞**：原13格公共`b1701-ruby-public-red.log`10红，暴露result_path=nil导致合法本体后NoMethodError、empty或no-op helper丢status、同名write_result参数冲突及真实exit7变1。匿名lambda隔离系统locals，结果writer改私有闭包，probe仍TOPLEVEL_BINDING。中间13格`b1701-ruby-public-green-count3.log`2.486s、`b1701-ruby-final-count3.log`2.480s通过，均先于下一补审，不能冒充末版联合验收。
+4. **报告/退出同名路径同批闭环**：root补审发现合法顶层warn/exit/raise方法仍会影响包装器错误处理。追加`b1701-ruby-reporting-methods-red.log`1.264s三针真红，分别吞原错误、把异常实际退出变0、把SystemExit7变0。现在只为wrapper提前捕获Kernel.warn/exit/raise及File.write/JSON.generate的绑定方法；probe自身同名方法照常可调用，wrapper不再被覆盖。全部16格加原Ruby/结构诊断/schema邻接count3最终2.873s、narrow race3.055s通过（`b1701-ruby-final-v2-count3.log`、`-race.log`）。原测试和原模型代码/计划/源文件断言未修改。
+5. **边界及冻结**：Python原有独立ns保持，旁路原常量实测同名变量、writer和成功/断言/异常/SystemExit0的收据不受影响；早期cwd字符串因/tmp与/private/tmp不同产生的夹具错不作产品问题。JS/Ruby均检查真实子cwd/模块导入/argv/终态execution receipt/JSON往返；Ruby另保self/filename/顶层local binding。这不是安全沙箱，不承诺防任意全局对象/内建猴补丁，亦未增加TypeScript loader、异步完成或原生逐合同证明能力。所有Go/build输入已冻结`20260915-b1701-freeze.sha`，联合`go test ./... -count=1`运行中，收据`20260915-b1701-full.log`；源码/Trace/流式策略不变。B1702仍独立待施工。
+
+6. **末版完整验收**：上述联合全仓完整exit0，86测试包通过+13无测试包，零失败；冻结SHA前后全一致（`20260915-b1701-freeze-verify.log`），diff检查通过。环境Go1.26.3/darwin-arm64、SDK MacOSX26.5、Node24.19.0、Ruby2.6.10；不据此扩称所有运行时版本皆已实测。两解释器27格公共场景及相关旧针均已重复/race通过；没有改任何旧失败断言、源码fixture或case/oracle，没有新增live或重跑r1076追PASS。原Trace因果投影/补齐/链上根因/JSON成文/600-300-600秒默认及活跃流续期均未改；全仓通过不等于开放债全闭。
+
+状态：`B1701=JS+Ruby/public-red-to-green/count3+race-pass/final-frozen-86-package-pass/delivery`；`r1076-original-verdict=preserved`；`B1702=confirmed+design-reviewed/pending-implementation`；`B1626/EVAL-B36-SYSAUTH1/B1694=OPEN`。本片代码、测试、架构说明和状态随同一提交交付。
+
+### §123.1817 B1702：失败探测的非权威上下文保全（2026-09-15，设计已核，待独立施工）
+
+同一真实probe已捕获完整错误，却在fallback项目检查通过后丢失，属于信息供给缺口，不应重插失败TestResult使项目结果变红。最小设计是在现有VerificationDiagnostic内追加可选ProbeExecutionObservations：保存PlanID/ProbeID/实际ExecutionID/DefinitionSHA256/InvocationSHA256及按位置有界的OutputExcerpt/完整OutputRef。父诊断原category/outcome/reason保留；合并只合嵌套观察，不增加诊断条数、不改变现有continuation/proof/Passed语义。仅实际返回的同次执行收据可以绑定观察；缺票据不虚构或借其他命令，同名探测改定义或重跑不得混为同次执行。短输出也独立落盘，失败只标未保存，不能改验证判定。
+
+供给面必须同批贯通：run_tests唯一安装出口；controller/planner/verifier当前权威报告选择；batch/slice绑定、可压缩/reset/replay的原子上下文项；VerifyFailureHandoff嵌套深拷贝；WriteFinalReport JSON独立投影和复制；系统验证卡中性附注。共享collector/renderer独立于比较器FailureObservations和B1122失败结果展示，不放宽两者既有合同。新当前报告为空时不可复活旧观察，历史恢复须明确非当前；输出引用独立预算并转义，错误文本标为不可信数据而非指令。不会新增模型必填JSON字段、替模型诊断产品缺陷或编写答案。
+
+回归须含：真实unavailable probe+项目通过公共正控；原失败/不可用/比较器continuation和proof/changed-path coverage逐项不变；两次执行/改定义/错误plan/错误execution/缺票据/落盘失败；短长输出、Unicode/控制字符；JSON/上下文压缩和恢复/最终卡一致。保持B1122/B1561/B1616/B1661/B1673原针，新增Outcome消费者需显式登记consumer census，禁止降杆。当前仅根因与设计确认，无实现或通过声称。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
