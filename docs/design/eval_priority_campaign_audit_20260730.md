@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-15）
 
+当前交付§123.1813–1814：B1699 已 `0995bf36d` 推送；B1700 收口成员来源、自动引用与符号补齐资格，保模型原文/已选引用和真实补齐能力。公共先红后绿、专项 count/race、两处真回归保原针；最终冻结 `go test ./... -count=1` 86测试包全绿+13无测试包，Go/build SHA一致。中间全仓失败、旧夹具的来源前提修订、真实来源正控与既存2秒进程时序观察分别留档，不假造 Grounded、不放宽时限。下一§123.1815 r1076选择真实双窗Trace read与多仓TS apply，各一次/PARALLEL2；提交后清洁构建才启动。B1694、完整图表达与写验证债仍分别开放。
+
 最新回放§123.1812：B1698 `477025af9` / B1697 `6859fe811` 均已推送，联合冻结86包全仓通过后清洁构建。r1075严格混合Trace/源码read与C++ plan-only两路各一次，机器1PASS/1FAIL；人审计划核心PASS但未应用/编译，混合读数值及五维正确、当前实现与来源资格FAIL。新B1699同一soft-required源码义务被误教optional并反复拒绝收束、B1700混合member_set获源码清单资格及无引用runtime条目被补错来源均P1，下一片先公共复现，不归JSON畸形或模型波动。B1697/B1698实际通道及图在本对N/A；原结果/夹具/机评不改，无第三例追绿。
 
 最新交付§123.1811：B1698已477025af9推送，B1697原始Trace有界回读已公共先红后绿、最终count3/race/两轮独立复审及冻结全仓86包通过；中间6项回归全部修正，旧断言保留。凭据与持久化事实分离，agent新escape有界、原生读取分页兼容、原始数据仍runtime-only。下一r1075按混合Trace/源码read与C++ plan-only恰好两路各一次，提交后清洁构建才启动；B1694/模型解释/完整图表达与写验证债不代销。
@@ -57429,6 +57431,50 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，待冻结交付后启动）
+
+243 例按215 read/25 apply/3 plan清点后，按来源隔离、时间窗精度、模式稀疏性、旧验证薄弱性与最近覆盖排序。本批选择 `real_trace_e1_dual_window_normalized`（真实同线程两种窗宽，read15步，源码排除）与 `github_issue_memoclaw_text_search_multirepo_ts`（仅 TypeScript SDK 的多仓 apply24步）；不重复刚跑的混合读与 C++ plan-only。CAP5/PARALLEL2/TIMEOUT1200、各一次；提交/推送后由清洁 HEAD 构建，原 case/fixture/oracle 不改，绝不第三例或追绿重跑。
+
+前者需逐窗核 2.992ms 与30ms、running 0 与3.414ms、归一化口径；不从零 Running 直接推导 IO/算力/帧因果。后者以仓内 API reference 为准，检查 POST 路径、JSON query/数值limit/可选namespace、写根隔离、实际交付归属与返回/异常保留。原 Makefile/package test 仅 Python 文本扫描，不等于 TypeScript 编译或执行；本机 Node24.19.0 的类型转换也不等于类型检查。如做人审后验执行，单列收据，不能回填成正式计划已经具备的验证证明。
+
+启动前哈希见 `.codrax/tmp/20260915-r1076-cases-trace-before.sha`、`20260915-r1076-repo-fixtures-before.sha`，均已核一致。当前 `live-r1076=not-started`；图与各专项是否实际触发须待本次日志判定，不能以无图或无候选当作已验证图/全因果。
+
+### §123.1813 B1699：外部观测充分性必须标明适用范围（2026-09-15，已推送）
+
+r1075 的同一 typed `soft/required/unsatisfied` 状态已通过真实 `TraceQuery.Execute → AppendDispatchToolResult → BuildInitialInstruction/Observe` 公共路径复现：源码义务仍在，启动/中途提示却把它教为 optional 并建议 resolved。语义红收据为 `.codrax/tmp/b1699/red-public.log`。修复将外部观测可用性与整题源码义务分开，范围及义务精度由同一个 typed 请求判据编译；保留历史 `RuntimeOnlySufficient` 的外部载体可用含义，避免 MCP 或已满足源码的混合场景被误关。提示允许已接地源码、聚焦补读以及既有 soft waiver/caveat，不把 soft 硬化，不删除源码问题，不新增模型 JSON 必填项。
+
+兼容回归已补：原“纯外部”测试没有显式 optional，实际走默认 soft-required，现补显式 optional 正控并保留原 payload 的 required 反控；不是扫描原始中文问题改路由。真实 TraceQuery 加真实 ReadFile 验证源码已满足的混合场景，真实 completion 验证 typed waiver 保留。额外 `.codrax/tmp/b1699/red-waiver-handoff.log` 复现接受引用数量豁免后 EmitEvidence 回执误教整题不需源码，现依据同一 authority 限定豁免范围；不变准入。末版扩大三包 count20 与 B1699 race 通过（`green-final-focused-count20.log`、`green-final-race.log`，均在 `.codrax/tmp/b1699/`）。旧 `HasEnoughFacts` 外部准备度不在本片改成整题完成门。
+
+联合全仓首轮 `.codrax/tmp/20260915-b1699-b1700-full-v1.log` 只作中间部分失败收集：启动后有两句提示完整性修正，原输入哈希发现 explorer.go 不一致；root 对已失去冻结一致性的 runner 发过 INT，最终 exit1、其余包输出不完整，不能作完整全仓结论或最终冻结 PASS。会对最终代码重新冻结全测。中间 `green-related-packages.log` 被主动中断，不能算 PASS。两句修正保留旧 `typed external observations` 与明确 `emit_investigation_complete.reason` 工具教学，不恢复 optional/直接 resolved。当前不宣称生产回放通过。
+
+独立七文件修复已 `0995bf36d` 提交并推送 main。交付依据为公共 RED→GREEN、三包 count20/race；联合 v2 全仓仍有§1814所记的旧裸引用夹具及既存进程时序针失败，不能称该联合全仓已绿。下一片源码资格修复留在独立提交；共同最终验收与 r1076 另记。
+
+状态：`B1699=0995bf36d-pushed/public-red-to-green/focused-count20+race-pass/final-joint-full-v3-pass`；`model-answer-owner=preserved`；`new-hard-gate/required-model-field/raw-prose-scan=none`。
+
+### §123.1814 B1700：源码坐标不等于成员证明，正文匹配不应创造引用（2026-09-15，施工中）
+
+1. **聚合资格**：真实 parser/read/emit_evidence/ledger/finalizer 公共红见 `.codrax/tmp/b1700-aggregate-public-red.log`。两个不同语义的未观察成员借已读定义行号获得独立已证/源码主项资格；不是数值格式或单个 type 问题。普通 `member_set` 将以已有接地证据的精确成员身份及坐标见证核验，原模型聚合/解释/坐标原样保留；不凭 prose、数值形状、摘要猜资格。系统已核验关系/库存及显式外部主项保留各自通道，外部主项许可不等于整份模型聚合独立已证。
+2. **上下文边界仍在校准**：真实生产入口需同一来源上下文；低层手构显示计划的兼容性不应变成生产漏授信。上下文仅作瞬时、非序列化的证据身份快照，不在模型事实或持久引用 JSON 上新增布尔票据。最初把未交接的 emitted 证据直接补进通用 Bus ledger 改变了原观测账来源，已否决该宽改；只为成员资格交接完整已接受证据，并补 Agent/Bus 一致性正控。旧合法枚举失败不能靠放宽错误事实资格求绿。
+3. **引用子通道已公共红转绿**：`.codrax/tmp/20260915-b1700-citation-public-red-v2.log` 保留 12 个真实 full/replace-patch/unchanged-patch 失败。前一个同前缀 `public-red.log` 是 fixture 编译错误，不计语义红。修复仅限制反引号辅助匹配：条目没有任何模型结构化引用时，不从正文新建绑定；已有主/附加引用可按旧规则修正，精确 evidence ID 可正常扩充引用池，旁边未绑定文字保持未绑定。无论 origin 未填、外部、混合或仅注解源码均相同；不扫描正文决定来源。初步 green/count3/race3 收据保留，待与聚合实现共同冻结再验证。
+
+4. **全仓发现与修订边界**：首轮 agent 12 个顶层失败中，3 个真实库存正控（含 Cangjie/ArkTS）表明新资格快照漏收已有 `SourceInventoryObservation`，必须补 observed 名字/坐标见证并保持旧断言；不能伪造 EvidenceItem 或 Grounded。1 个旧“等价位置”只有实际定义 46 行却把模型未读的 887 行当任取等价，转为不得误授信负控。其余 8 个旧 model-only/support-ref-only 用例与新来源边界直接冲突：保原候选、注释及事实载荷，但不再要求 MUST/系统源码表；已有真正 definition/call 正控保持。提取阶段仅由 member_set 形状称其为 authoritative 的提示也是同类冲突，限定为候选、实际资格见同源事实段，不改变工具义务或名字去重。冷审还发现快照丢 Producer/Predicate 会把真实 branch-effect 错派为 call，须保原 ClaimForm 的依赖字段并补负控。本片不靠 RepoRoot 为空识别测试或开生产后门。
+5. **公共与并发收据的准确范围**：`.codrax/tmp/b1700-aggregate-final-count3.log` 与 `final-race.log` 三包初步通过；旧 HEAD 的同一公共测试 overlay 收据 `b1700-aggregate-final-head-overlay-red.log` 为实际源码读取/证据 emit 后 4 变体的资格及提示 RED，非编译错误。该 fixture 本就显示成员，因此不宣称 overlay 直接复现增补表；最新版 full 的不新增表/不增错误引用、原模型正文/ID/kind/原引文位置保留是成文所有权正控。旧正常 enclosing-function 引用增强不算新引用，引用数量/位置/原文与条目绑定单独检查。上述局部收据先于库存/branch/旧测试迁移，最终仍需重新冻结验证。
+6. **输出类型不能被证明不足改写**：后续冷审拦住 files/sites 未证聚合被间接新增 `emit_answer_symbol` 义务的回归。抽取已有 active ChangeImpact 的精确 files/sites 形状判据，由 agent 与 tool 共用，保原显式 anchor/bounded 优先规则；unknown/symbols/inactive 不扩域，不恢复错误 principal，不将“无需符号名单”误教为“已有充分源码证明”。有效公共红收据为 `b1700-source-location-shape-public-red-v2.log`；更早 file-output/shape 首版含夹具 bootstrap 或空 unknown 合同预期错误，不作有效语义红。修复后的 `b1700-aggregate-final-v2-count3.log`、`-race.log` 三包均通过，此时尚未包含下一项。
+7. **同根符号补齐漏口仍需收口**：独立复核发现 `sourceInventoryAggregateAnswerSymbolFallback` 能将仅模型完整 member_set＋可解析引用物化为完整源码 symbol slate，绕过普通逐项 grounding；后置 AuthorityUnknown 不会撤销 slate。本片继续补公开 Execute 先红后绿：实际待物化符号必须有同一上下文的精确名字＋坐标见证；外部 principal、仅 model provenance、单纯 read coverage 均不能铸源码符号身份。保真实 native inventory 及 Read→Emit 正控，不凭此工具级路径宣称最终答案所有校验皆可绕过。
+8. **符号补齐已公共闭环，范围不夸大**：`b1700-symbol-fallback-red.log` 的 functions/types × unknown/complete × untyped/runtime/MCP/mixed 共16格为空 `items` 真正铸错 slate，非 files/sites no-op。窄入口仅接实际输出名字和定义起始行（或真实 observed 库存坐标），整份 fact 所有成员通过才追加；call-site/range 内非定义行、其他文件/owner、空上下文、source-excluded 不授权，native 非标识符锚保留。真实 RepoMapV2、真实 Read→Emit 各两正控及原两 bare fixture 负控迁移 count20 通过（`b1700-symbol-fallback-green-count20.log`）；最终 scoped count3/race 见 `b1700-symbol-final-scoped-{count3,race}.log`。模型 unknown 不再由无见证 fallback 升 complete；调用方自行提交空 complete 的既有合同未改，不宣称已证明全体成员种类或集合穷尽。
+9. **自动引用旁路也纳入同源资格**：独立公共 `20260915-b1700-aggregate-candidate-pool-red.log`（1.342s）证明 Ghost 借真实 Other 定义，在空引用池和已有但未选引用池两臂 full/replace/unchanged 六处被系统补引，隔离 candidate binder 同红；显式选择与真实成员正控绿。为自动候选派生同次 emit 的私有缓存视图，仅保真实成员＋坐标；原聚合缓存、模型已选引用的保留/对齐规则均不改。label/new-candidate/content-bearing 与 principal citation-only 四通道同用资格，不能只挡新增引用池而让已有未选池自授信。root 中间 `automatic-citation-green-v1/v2.log` 仍红，揭示 citation-only 兄弟入口遗漏；第三版 `20260915-b1700-automatic-citation-green-v3.log` 公共/quote/cache count3 PASS（1.786s），含真实 call/returned-literal 位置、原文/fact/source 不变及跨 patch 缓存隔离。公共早期 v2 因并行施工 API 尚未齐全编译失败不算语义红；操作正控早期未接完整 exact-call 证据不算产品红。
+10. **旧合同审计不是改断言追绿**：`20260915-b1700-related-citation-contracts.log` 扩大套件出现19项失败。其中2项为真回归，原断言保留：未证聚合数值不能因此被自动改绑到无关同值源码；明确 files/sites 的清单不能因此继承默认调用边角色。其余17项逐条核实源池：大部分只有模型 refs；少数真实定义不能证明复合描述、另一个未读行、definition Object 所冒充的 package、Snippet 中的返回字符串身份。仅这些错误授信期望迁为明确负控，保原事实、源码文件、Evidence与模型选引；真实定义仍独立可引用，实际 call/return 公开正控保留。9针及7个原 observed/origin 正反控、enum-label6针、supporting2针分别 count3 通过，收据 `b1700-preemit-nine-fixture-migration-count3.log`、`b1700-preemit-observed-and-origin-orthogonal-count3.log`、`20260915-b1700-enum-label-migration-count3.log`、`20260915-b1700-supporting-fixture-migration.log`。自动引用独立 race3 PASS（7.050s），B1699+B1700 联合新针 count3 三包通过；尚不能代替两项真回归修正后的最终冻结全仓。
+
+11. **两项真回归保原针修正**：仅将派生值的“保留已有选择”与来源授权分开，并由 active files/sites 形状决定不继承默认调用边角色；显式 ClaimUses/path facet 继续校验，不授予源码证明或新增引用。原两测试函数与 HEAD 字节恒等，见 `b1700-source-shape-retention-original-test-identity.log`，真实 RED 见 `b1700-source-shape-retention-original-red.log`。新独立反控含错误文件/位置、未知/非激活形状、显式 call/path 与定义正控；最终 `b1700-source-shape-retention-final-v2-count3.log`（1.604s）、`-race.log`（3.614s）均通过。扩大 Aggregate/Citation/PreEmit/PrincipalEnumeration/AnswerSymbol 套件最终 `20260915-b1700-related-citation-contracts-final.log` PASS（1.772s）。所有 Go/build 输入已停止改动后启动 `20260915-b1699-b1700-full-v2.log`，以 `20260915-b1699-b1700-freeze-v2.sha` 校验冻结。
+
+12. **冻结全仓 v2 仍非通过**：完整 exit1，85测试包通过/1包失败/13无测试，冻结输入SHA一致。tool393.063s两项失败：一项所有权矩阵的旧成员补齐正控仅有模型 SupportRefs、没有源池，不能为保旧补齐授错权；将补真实 Read→Emit 正控并保原缺见证反控，不撤单次追加/明确标记/原文不变断言。另一项既存2秒真实进程超时针（§1758已有可靠性观察）现场 Cargo.lock仍v1、junk.out不存在、命令2002ms timeout；本次证据支持预期写入未发生，不支持“漏审已发生的写入”。原测试及生产超时代码未改，同参数count3另通过，见 `20260915-b1699-b1700-timeout-unchanged-count3.log`；不能据一次独立通过关闭时序可靠性债，也不调大原测试时限追绿。保全仓原失败，下一最终全仓仍用原参数强制重跑。
+
+13. **追加所有权正控来源补齐**：仅 `answer_document_redline_matrix_test.go` 的原 bare fixture 改为同名同path:15/36的真实源码 ReadFile→Dispatch→EmitEvidence，全部原单次追加/marker/禁止重复/summary不改断言保留；原 payload＋文件在盘但未观察的新反控要求整份模型文档及聚合不变、零系统补表/引用。有效原 RED `b1700-redline-missing-member-original-red.log`，RedlineMatrix 整组最终 `b1700-redline-matrix-final-count3.log`1.348s、`-race.log`2.394s通过；不改任何生产接口或超时。全部 Go/build 再冻结为 `20260915-b1699-b1700-freeze-v3.sha`，最终强制全仓收据 `20260915-b1699-b1700-full-v3.log`运行中。
+
+14. **最终冻结通过**：`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./... -count=1` 的 v3 完整 exit0，86测试包强制重跑+13无测试包，零失败；agent89.049/tool373.863/types48.369/tracequery112.846/tracediag13.248/hitraceconv151.213/llm29.443/orchestrator29.834s。冻结 Go/build SHA前后全一致，diff检查通过，fresh fetch 后 main/origin=0/0。原2秒/8秒时序针在完整套件本次通过，不据此关闭其既存可靠性观察；B1694精确已知缺口仍保留SKIP，不宣称全系统零跳过/全图矩阵闭环。流活跃专项 `20260915-b1699-b1700-active-stream.log` count3 PASS12.821s（心跳首响应/中途续活及隐藏推理超过旧请求预算后正常完成），代码600/300/600s默认不变。
+
+状态：`B1700=public-red-to-green/source-members+automatic-citation+retention+ownership-scoped-pass/final-frozen-full-v3-pass/delivery`；`live-r1076=pending-clean-build`；`model-prose/graphs/aggregate-payload=preserved`；`B1694=OPEN`。r1075 原日志、答案、机器判定及夹具均不改，不用旧答案重写冒充修复效果。
 
 ### §123.1812 r1075：混合来源不能用源码格式教学证明实测事实（2026-09-15）
 

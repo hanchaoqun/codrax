@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -265,7 +266,7 @@ func TestNormalizePrincipalAggregateItemCitationRefs_PreservesMoreSpecificTypedC
 	}
 }
 
-func TestNormalizeContentBearingAggregateItemCitationRefs_UsesSupportingCoverageExactRows(t *testing.T) {
+func TestNormalizeContentBearingAggregateItemCitationRefs_DoesNotUseUnobservedSupportingRows(t *testing.T) {
 	mu := types.NewMutableState("supporting aggregate citation")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
 		{
@@ -302,23 +303,18 @@ func TestNormalizeContentBearingAggregateItemCitationRefs_UsesSupportingCoverage
 	}
 
 	pctx := newPreEmitCheckContext(ctx)
-	if fixed := normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWithContext(doc, ctx, pctx); fixed != 2 {
-		t.Fatalf("fixed=%d, want two exact supporting rows only: blocks=%+v citations=%+v", fixed, doc.Blocks, doc.Citations)
+	before, _ := json.Marshal(doc)
+	factsBefore, _ := json.Marshal(mu.StableInvestigationAggregateFacts())
+	if fixed := normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWithContext(doc, ctx, pctx); fixed != 0 {
+		t.Fatalf("fixed=%d, model support_refs alone must not select new source citations", fixed)
 	}
-	want := []types.Citation{{File: "src/logger.cpp", Line: 36}, {File: "src/registry.cpp", Line: 30}}
-	for i, expected := range want {
-		item := doc.Blocks[0].Items[i]
-		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) || doc.Citations[item.CitationRef] != expected {
-			t.Fatalf("item[%d]=%+v citation_pool=%+v want=%+v", i, item, doc.Citations, expected)
-		}
-	}
-	// A label that adds an unproved constructor-injection assertion is not the
-	// exact `Logger` member, and audit-ledger rows never grant visible citation
-	// authority. Both retain the model-selected citation for later validation.
-	for _, idx := range []int{2, 3} {
-		if got := doc.Blocks[0].Items[idx].CitationRef; got != 0 {
-			t.Fatalf("item[%d] unexpectedly rebound through non-exact/audit authority: %+v", idx, doc.Blocks[0].Items[idx])
-		}
+	// This fixture contains no observed source member. Retain all model-selected
+	// citations and content, including the expanded label and audit-only item;
+	// do not turn the aggregate's own coordinates into independent proof.
+	after, _ := json.Marshal(doc)
+	factsAfter, _ := json.Marshal(mu.StableInvestigationAggregateFacts())
+	if string(before) != string(after) || string(factsBefore) != string(factsAfter) {
+		t.Fatal("unobserved supporting candidates changed model content or references")
 	}
 }
 

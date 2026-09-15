@@ -55,17 +55,34 @@ func TestB1620FinalizerNoteTeachingPreservesCandidateWithoutMandatoryCopy(t *tes
 				t.Fatal(err)
 			}
 			prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-			for _, want := range []string{
-				"## Principal Enumeration Rows", "Dispatch executes every branch and owns the worker",
-				"row_id=", "location=`src/dispatch.go:12`", "citation_key=`src/dispatch.go:12`",
-				"A non-empty `note` is retained candidate explanation, not an extra output requirement or proof",
-				"When `summary` or another typed explanatory dimension is requested",
-				"explain the supported portion on the same row",
-				"declaration/operation evidence", "does not prove the entire note",
-				`origin="aggregate_member_note"`, `explanation=candidate`,
-			} {
-				if !strings.Contains(prompt, want) {
-					t.Errorf("missing teaching %q:\n%s", want, prompt)
+			if tc.anchor == "" {
+				// B1700: with no independent member witness, retain the exact
+				// candidate note but do not turn its own support_ref into a
+				// principal source row. The three grounded cases below retain
+				// all original B1620 field-attribution/teaching assertions.
+				for _, want := range []string{"Dispatch executes every branch and owns the worker", "Advisory Model-Inferred Member Sets", "fact_authority=`advisory_model_inference`", "principal_contract=`not_authorized`"} {
+					if !strings.Contains(prompt, want) {
+						t.Errorf("unwitnessed candidate note lost its advisory boundary (%q):\n%s", want, prompt)
+					}
+				}
+				for _, forbidden := range []string{"## Principal Enumeration Rows", "row_id=", "citation_key=`src/dispatch.go:12`", "members_rendered_in=authoritative_principal_member_rows"} {
+					if strings.Contains(prompt, forbidden) {
+						t.Errorf("unwitnessed note minted principal/source authority (%q):\n%s", forbidden, prompt)
+					}
+				}
+			} else {
+				for _, want := range []string{
+					"## Principal Enumeration Rows", "Dispatch executes every branch and owns the worker",
+					"row_id=", "location=`src/dispatch.go:12`", "citation_key=`src/dispatch.go:12`",
+					"A non-empty `note` is retained candidate explanation, not an extra output requirement or proof",
+					"When `summary` or another typed explanatory dimension is requested",
+					"explain the supported portion on the same row",
+					"declaration/operation evidence", "does not prove the entire note",
+					`origin="aggregate_member_note"`, `explanation=candidate`,
+				} {
+					if !strings.Contains(prompt, want) {
+						t.Errorf("missing teaching %q:\n%s", want, prompt)
+					}
 				}
 			}
 			if tc.anchor != "" {

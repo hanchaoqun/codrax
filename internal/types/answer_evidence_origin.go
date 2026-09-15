@@ -2,6 +2,22 @@ package types
 
 import "strings"
 
+// AnswerAggregateSourceContextFromBusContext gathers the complete accepted
+// source proof pool for claim admission, not the curated observation display.
+// In particular, this must not add direct observations to the general ledger
+// merely because an emitted source row is available for member qualification.
+func AnswerAggregateSourceContextFromBusContext(ctx *BusContext) ObservationLedgerInput {
+	source := ObservationLedgerInputFromBusContext(ctx, 0)
+	if ctx != nil && ctx.Mutable != nil {
+		source.EvidenceItems = appendObservationLedgerEvidence(source.EvidenceItems, 0, ctx.Mutable.EmittedEvidence()...)
+	}
+	return source
+}
+
+func AnswerAggregateSourceContextFromAgentContext(ctx *AgentContext) ObservationLedgerInput {
+	return ObservationLedgerInputFromAgentContext(ctx, 0)
+}
+
 // AnswerAggregateFactEvidenceOrigins projects a model-authored aggregate fact
 // onto the unified evidence-origin enum. The projection is compatibility glue:
 // it consumes structured dimensions and narrow tool-provenance tokens, not
@@ -144,8 +160,21 @@ func AnswerAggregateFactPrimaryEvidenceOrigin(fact AnswerAggregateFact, rm *Requ
 // structured matching; accepting them here preserves exact typed-relation and
 // source-inventory row contracts without deriving authority from prose.
 func AnswerAggregateFactAuthorizesPrincipalContract(fact AnswerAggregateFact, rm *RequestModel) bool {
-	if AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) ||
-		strings.Contains(fact.Provenance, SourceInventoryPrincipalRowSetAggregateProvenance) {
+	return answerAggregateFactAuthorizesPrincipalContract(fact, rm, nil)
+}
+
+// AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext is the
+// production admission path. A source coordinate witnesses the cited source,
+// not an arbitrary member written beside it. The context-free API above is
+// retained for callers classifying a fact before observations are available;
+// it must not authorize a rendered principal contract in the live pipeline.
+func AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(fact AnswerAggregateFact, rm *RequestModel, source ObservationLedgerInput) bool {
+	context := compileAggregateSourceClaimContext(source)
+	return answerAggregateFactAuthorizesPrincipalContract(fact, rm, context)
+}
+
+func answerAggregateFactAuthorizesPrincipalContract(fact AnswerAggregateFact, rm *RequestModel, source *aggregateSourceClaimContext) bool {
+	if aggregateSourceMemberSystemAuthority(fact) {
 		return true
 	}
 	// In a relation/call-chain request, individually true nodes and locations
@@ -156,6 +185,16 @@ func AnswerAggregateFactAuthorizesPrincipalContract(fact AnswerAggregateFact, rm
 		return false
 	}
 	if AnswerAggregateFactRequiresWorkflowMembershipEvidence(fact, rm) {
+		return false
+	}
+	if source != nil && !answerAggregateFactSourceMembersObserved(fact, source) {
+		// Explicit external support owns its separate principal lane; it does
+		// not turn an unrelated source coordinate into independent source proof.
+		for _, origin := range answerAggregateFactExplicitEvidenceOrigins(fact) {
+			if AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+				return true
+			}
+		}
 		return false
 	}
 	// Exact file:line support is itself the precise current-source witness. Some
@@ -190,6 +229,221 @@ func AnswerAggregateFactAuthorizesPrincipalContract(fact AnswerAggregateFact, rm
 		}
 	}
 	return false
+}
+
+func aggregateSourceMemberSystemAuthority(fact AnswerAggregateFact) bool {
+	return AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) ||
+		strings.Contains(fact.Provenance, SourceInventoryPrincipalRowSetAggregateProvenance)
+}
+
+// AnswerAggregateFactAuthorizesSourceMemberCarrier keeps principal external
+// support separate from permission to publish a source-member carrier.
+func AnswerAggregateFactAuthorizesSourceMemberCarrier(fact AnswerAggregateFact, rm *RequestModel, source ObservationLedgerInput) bool {
+	context := compileAggregateSourceClaimContext(source)
+	if !answerAggregateFactAuthorizesPrincipalContract(fact, rm, context) {
+		return false
+	}
+	return aggregateSourceMemberSystemAuthority(fact) || AnswerEvidenceOriginsAreOriginSpecificOnly(AnswerAggregateFactEvidenceOrigins(fact, rm)) ||
+		!answerAggregateFactHasExactCurrentSourceSupportRef(fact) ||
+		answerAggregateFactSourceMembersObserved(fact, context)
+}
+
+// answerAggregateFactSourceMembersObserved checks exact typed member identity,
+// never summaries, source snippets, numeric shapes, or decorated prose. A
+// declaration/operation endpoint proves that member exists at that coordinate;
+// model member notes remain model-owned even when membership is admitted.
+type aggregateSourceClaimContext struct {
+	coordinates currentSourceSupportWitnessIndex
+	items       []EvidenceItem
+	inventory   []aggregateSourceInventoryMemberWitness
+}
+
+type aggregateSourceInventoryMemberWitness struct {
+	name string
+	path string
+	line int
+}
+
+func compileAggregateSourceClaimContext(source ObservationLedgerInput) *aggregateSourceClaimContext {
+	if source.aggregateSourceClaims != nil {
+		return source.aggregateSourceClaims
+	}
+	out := &aggregateSourceClaimContext{coordinates: compileCurrentSourceSupportWitnessIndex(source.EvidenceItems, source.ToolResults)}
+	for _, item := range source.EvidenceItems {
+		if !currentSourceSupportGroundingAccepted(item.GroundingStatus) || EvidenceIsDerivationCandidate(item) ||
+			evidenceItemObservationOrigin(item) != AnswerEvidenceOriginCurrentSource || item.Source == "" || item.LineStart <= 0 {
+			continue
+		}
+		// Retain only scalar typed fields read by the matcher. No raw text,
+		// mutable tool carriers, or model-authored explanations are cached.
+		out.items = append(out.items, EvidenceItem{Source: item.Source, LineStart: item.LineStart, LineEnd: item.LineEnd,
+			Subject: item.Subject, AnchorSymbol: item.AnchorSymbol, Object: item.Object,
+			AnchorKind: item.AnchorKind, Kind: item.Kind, Scope: item.Scope, DiagramRole: item.DiagramRole,
+			Producer: item.Producer, Predicate: item.Predicate})
+	}
+	// The native inventory is an independent typed member witness, not a
+	// synthesized EvidenceItem or a model provenance token. Attributes, notes,
+	// unobserved candidates and ambiguous coverage cannot declare members here.
+	appendInventory := func(inventory SourceInventoryObservation) {
+		if !inventory.Active {
+			return
+		}
+		for _, set := range inventory.Sets {
+			for _, member := range set.Members {
+				name, path := strings.TrimSpace(member.Name), strings.TrimSpace(member.File)
+				if member.CoverageState != SourceInventoryCoverageObserved || name == "" || path == "" || member.Line <= 0 {
+					continue
+				}
+				out.inventory = append(out.inventory, aggregateSourceInventoryMemberWitness{name: name, path: path, line: member.Line})
+				out.coordinates.append(currentSourceSupportWitness{path: path, lineStart: member.Line, lineEnd: member.Line,
+					status: sourceInventoryObservationGrounding(member.CoverageState)})
+			}
+		}
+	}
+	appendInventory(source.SourceInventoryObservation)
+	for _, result := range source.ToolResults {
+		if result.Success && result.SourceInventory != nil {
+			appendInventory(*result.SourceInventory)
+		}
+	}
+	return out
+}
+
+// AnswerSourceSymbolDefinitionObserved is the narrow admission path for
+// materializing a source symbol. It requires the actual output name and line
+// to match a current-source definition or an observed native inventory row.
+// Unlike aggregate principal authority, no external origin or system marker
+// can substitute for that identity witness. Native inventory anchors retain
+// non-identifier names too; this does not infer symbol kind or completeness.
+func AnswerSourceSymbolDefinitionObserved(name, file string, line int, source ObservationLedgerInput) bool {
+	if source.RequestModel != nil && source.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	name, file = strings.TrimSpace(name), strings.TrimSpace(file)
+	if name == "" || file == "" || line <= 0 {
+		return false
+	}
+	context := compileAggregateSourceClaimContext(source)
+	coordinate, ok := context.coordinates.bindLocation(AnswerSourceLocationSurface{File: file, LineStart: line})
+	if !ok {
+		return false
+	}
+	path := normalizeAnswerLocationFile(coordinate.path)
+	for _, item := range context.items {
+		if item.LineStart == coordinate.lineStart && normalizeAnswerLocationFile(item.Source) == path &&
+			ClaimFormOf(item) == ClaimDefinitionFact && aggregateSourceClaimNamesMember(item, name) {
+			return true
+		}
+	}
+	for _, member := range context.inventory {
+		if member.name == name && member.line == coordinate.lineStart && normalizeAnswerLocationFile(member.path) == path {
+			return true
+		}
+	}
+	return false
+}
+
+// AnswerAggregateFactHasObservedSourceMembers qualifies only source member
+// identity and coordinates for automatic source-citation candidates. It is not
+// principal, relation, workflow, or completeness authority; external origins
+// and model/system provenance tokens cannot stand in for observed members.
+func AnswerAggregateFactHasObservedSourceMembers(fact AnswerAggregateFact, source ObservationLedgerInput) bool {
+	if source.RequestModel != nil && source.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	return fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 &&
+		answerAggregateFactSourceMembersObserved(fact, compileAggregateSourceClaimContext(source))
+}
+
+func answerAggregateFactSourceMembersObserved(fact AnswerAggregateFact, source *aggregateSourceClaimContext) bool {
+	if fact.Kind != AnswerAggregateMemberSet {
+		return true
+	}
+	if len(fact.Members) == 0 {
+		return false
+	}
+	index := source.coordinates
+	if answerAggregateFactHasExactCurrentSourceSupportRef(fact) {
+		if _, ok := index.bindFact(fact); !ok {
+			return false
+		}
+	}
+	for memberIndex, member := range fact.Members {
+		member = strings.TrimSpace(member)
+		path, line, _ := aggregateMemberStructuredLocation(fact, memberIndex, member)
+		var coordinate currentSourceSupportBinding
+		if path != "" && line > 0 {
+			var ok bool
+			coordinate, ok = index.bindLocation(AnswerSourceLocationSurface{File: path, LineStart: line})
+			if !ok {
+				return false
+			}
+		}
+		if location, ok := ParseAnswerSourceLocationSurface(member); ok {
+			if _, witnessed := index.bindLocation(location); !witnessed {
+				return false
+			}
+			continue
+		}
+		if file, ok := ParseAnswerFilePathSurface(member); ok {
+			if coordinate.path == "" || normalizeAnswerLocationFile(file) != normalizeAnswerLocationFile(coordinate.path) {
+				return false
+			}
+			continue
+		}
+		if label, _, ok := ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+			member = strings.TrimSpace(label)
+		}
+		matched := map[string]bool{}
+		for _, item := range source.items {
+			if !aggregateSourceClaimNamesMember(item, member) {
+				continue
+			}
+			itemEnd := item.LineEnd
+			if itemEnd < item.LineStart {
+				itemEnd = item.LineStart
+			}
+			if coordinate.path != "" && (normalizeAnswerLocationFile(coordinate.path) != normalizeAnswerLocationFile(item.Source) ||
+				coordinate.lineStart < item.LineStart || coordinate.lineStart > itemEnd) {
+				continue
+			}
+			matched[aggregateSupportLocationKeyForDisplay(item.Source, item.LineStart)] = true
+		}
+		for _, item := range source.inventory {
+			if member != item.name || coordinate.path != "" &&
+				(normalizeAnswerLocationFile(coordinate.path) != normalizeAnswerLocationFile(item.path) || coordinate.lineStart != item.line) {
+				continue
+			}
+			matched[aggregateSupportLocationKeyForDisplay(item.path, item.line)] = true
+		}
+		if len(matched) != 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateSourceClaimNamesMember(item EvidenceItem, member string) bool {
+	subject, anchor, object := strings.TrimSpace(item.Subject), strings.TrimSpace(item.AnchorSymbol), strings.TrimSpace(item.Object)
+	switch ClaimFormOf(item) {
+	case ClaimDefinitionFact:
+		// The definition anchor owns identity. A model's unrelated Subject or
+		// Object beside a valid declaration must not become another member.
+		if anchor == "" {
+			return member == subject
+		}
+		if member == anchor {
+			return true
+		}
+		return member == subject && (strings.HasSuffix(subject, "."+anchor) || strings.HasSuffix(subject, "::"+anchor))
+	case ClaimCallEdge, ClaimCallbackHandoff, ClaimArgumentFlow, ClaimImportEdge,
+		ClaimAssignmentFact, ClaimReturnFact, ClaimLiteralValueFact:
+		return member == anchor && anchor != "" || member == subject && subject != "" || member == object && object != ""
+	default:
+		// In particular, text-reference/precedence/guard/branch prose can
+		// document an operation without declaring its labels as source members.
+		return false
+	}
 }
 
 // AnswerAggregateFactRequiresWorkflowMembershipEvidence distinguishes a cited

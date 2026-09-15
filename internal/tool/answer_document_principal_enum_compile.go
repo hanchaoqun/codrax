@@ -277,7 +277,7 @@ func principalEnumerationDisplaySetAuthorizesSystemCarrier(ctx *types.BusContext
 	if ctx.AnalysisIR != nil {
 		rm = &ctx.AnalysisIR.RequestModel
 	}
-	return types.EnumerationDisplaySetAuthorizesPrincipalContract(rm, facts[set.FactIndex], set)
+	return types.EnumerationDisplaySetAuthorizesPrincipalContractWithSourceContext(rm, facts[set.FactIndex], set, types.AnswerAggregateSourceContextFromBusContext(ctx))
 }
 
 // appendOrMergePrincipalEnumerationMissingSupplement makes the append-only
@@ -1668,6 +1668,18 @@ func normalizePrincipalAggregateItemCitationRefsWithContext(doc *types.AnswerDoc
 		return 0
 	}
 	sets := types.CompileEnumerationCitationSupportSets(&ctx.AnalysisIR.RequestModel, plan)
+	// Citation reachability preserves model-submitted references elsewhere.
+	// This normalizer selects a new binding, so an aggregate's own source
+	// coordinate cannot stand in for observing the named member there.
+	source := types.AnswerAggregateSourceContextFromBusContext(ctx)
+	qualified := make([]types.EnumerationDisplaySet, 0, len(sets))
+	for _, set := range sets {
+		if set.FactIndex >= 0 && set.FactIndex < len(plan.StableAggregateFacts) &&
+			types.AnswerAggregateFactHasObservedSourceMembers(plan.StableAggregateFacts[set.FactIndex], source) {
+			qualified = append(qualified, set)
+		}
+	}
+	sets = qualified
 	if len(sets) == 0 {
 		return 0
 	}

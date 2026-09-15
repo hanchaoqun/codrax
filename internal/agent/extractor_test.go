@@ -803,21 +803,23 @@ func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *t
 	if contains(prompt, "HelperThatShouldStaySoft") {
 		t.Fatalf("analyzer soft guidance names must not be expanded once member_set is accepted:\n%s", prompt)
 	}
-	if !contains(prompt, "members_rendered_in=authoritative_principal_member_rows") {
-		t.Fatalf("structured aggregate metadata should compact duplicate member rows:\n%s", prompt)
+	// This fixture retains a model set, not source observations. Keep its
+	// identity and provenance without promoting it into a mandatory slate.
+	for _, want := range []string{"proposed structured set", "principal_contract=`not_authorized`", "members=[`Intent`, `Scenario`]",
+		"Intent: internal/types/analysis_ir.go:847", "Scenario: internal/types/analysis_ir.go:867"} {
+		if !contains(prompt, want) {
+			t.Fatalf("unwitnessed set lost advisory metadata %q:\n%s", want, prompt)
+		}
 	}
-	if !contains(prompt, "principal aggregate member_set obligations") ||
-		!contains(prompt, "copy every member below into the answer-symbol slate") ||
-		!contains(prompt, "`Intent` @ internal/types/analysis_ir.go:847") ||
-		!contains(prompt, "`Scenario` @ internal/types/analysis_ir.go:867") {
-		t.Fatalf("accepted principal member_set should be rendered as an explicit extractor slate obligation:\n%s", prompt)
+	for _, forbidden := range []string{"members_rendered_in=authoritative_principal_member_rows", "principal aggregate member_set obligations", "copy every member below into the answer-symbol slate", "already carries the authoritative principal set"} {
+		if contains(prompt, forbidden) {
+			t.Fatalf("unwitnessed set acquired principal authority %q:\n%s", forbidden, prompt)
+		}
 	}
 	if contains(prompt, "defaultExternalArtifactFloor") {
 		t.Fatalf("principal member_set prompt should not project unstructured closure prose candidates:\n%s", prompt)
 	}
-	if !contains(prompt, "model-authored closure set-level summary") ||
-		!contains(prompt, "[excluded candidate omitted]") ||
-		!contains(prompt, "typed `aggregate_facts.member_set` rows/counts below remain the authoritative member carrier") {
+	if !contains(prompt, "model-authored closure reason") || !contains(prompt, "[excluded candidate omitted]") {
 		t.Fatalf("prompt should preserve sanitized tool-call closure prose as set-level advisory context:\n%s", prompt)
 	}
 }
@@ -1881,15 +1883,74 @@ func TestExtractor_BuildPrompt_ChangeImpactAggregateMemberSetSkipsAnswerSymbol(t
 	if !viewNeedsEnumerationSlate(ctx) {
 		t.Fatal("fixture must remain enumeration-shaped")
 	}
-	if !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx) {
-		t.Fatal("model-emitted aggregate member_set should render through typed support lanes")
+	if enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx) {
+		t.Fatal("a ReadFiles name without a line witness must not authorize a source principal lane")
 	}
 	if needsAnswerSymbols(ctx) {
-		t.Fatal("aggregate-backed file enumeration must not force emit_answer_symbol")
+		t.Fatal("an unproved file-output set must not introduce a symbol-shaped tool obligation")
 	}
 	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
-		t.Fatalf("prompt should disable answer-symbol slate when aggregate member_set carries non-symbol members:\n%s", prompt)
+	for _, want := range []string{"internal/agent/analyzer.go:1935-1949", "principal_contract=`not_authorized`", "does NOT require `emit_answer_symbol`"} {
+		if !contains(prompt, want) {
+			t.Fatalf("unwitnessed affected-file set lost metadata or existing tool obligation %q:\n%s", want, prompt)
+		}
+	}
+	if contains(prompt, "principal aggregate member_set obligations") {
+		t.Fatalf("unwitnessed file set became a mandatory source member roster:\n%s", prompt)
+	}
+}
+
+func TestB1700FileOutputToolShapeDoesNotDependOnMemberAuthority(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		edit        func(*types.RequestModel)
+		wantSymbols bool
+	}{
+		{"files", nil, false},
+		{"sites", func(rm *types.RequestModel) { rm.ChangeImpactProfile.RequestedOutput = types.ImpactOutputSites }, false},
+		{"inactive-files", func(rm *types.RequestModel) { rm.ChangeImpactProfile.IsChangeImpact = false }, true},
+		{"symbols", func(rm *types.RequestModel) { rm.ChangeImpactProfile.RequestedOutput = types.ImpactOutputSymbols }, true},
+		{"unknown", func(rm *types.RequestModel) { rm.ChangeImpactProfile.RequestedOutput = types.ImpactOutputUnknown }, true},
+		{"bounded", func(rm *types.RequestModel) {
+			rm.EnumerationBoundary = &types.RequestedEnumerationBoundary{DeclaredCount: 1, SourceQuote: "one member"}
+			rm.AnalyzerHints.ExactTargets = []string{"Worker"}
+		}, true},
+		{"multi-topic", func(rm *types.RequestModel) {
+			rm.Intent, rm.AnalyzerHints, rm.Predicates = "", types.AnalyzerHints{}, types.SemanticPredicates{}
+			rm.SubTopics = []types.SubTopic{{Summary: "first", Entities: []string{"First"}}, {Summary: "second", Entities: []string{"Second"}}}
+		}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rm := types.RequestModel{Intent: types.IntentEnumerate, AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+				Predicates:          types.SemanticPredicates{IsCategoryEnumeration: true},
+				ChangeImpactProfile: &types.ChangeImpactProfile{IsChangeImpact: true, RequestedOutput: types.ImpactOutputFiles}}
+			if test.edit != nil {
+				test.edit(&rm)
+			}
+			mu := types.NewMutableState("file-output shape")
+			mu.SetTurnAArtifacts(types.TurnAArtifacts{})
+			mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{Kind: types.AnswerAggregateMemberSet,
+				Role: types.AnswerAggregateRolePrincipalAnswer, Label: "proposed files", Value: "1",
+				Members: []string{"src/worker.go:12"}, SupportRefs: []string{"src/worker.go:12"}}})
+			mu.SetInvestigationComplete("model-proposed file set")
+			ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}, Mutable: mu}
+			if test.name == "bounded" && !viewNeedsBoundedPrincipalList(ctx) || test.name == "multi-topic" && !requiresMultiTopicAnchorSkeleton(ctx) {
+				t.Fatal("fixture did not retain the existing explicit symbol-shaped obligation")
+			}
+			if enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx) {
+				t.Fatal("tool shape granted unobserved source member authority")
+			}
+			prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+			if got := needsAnswerSymbols(ctx); got != test.wantSymbols {
+				t.Errorf("symbol tool obligation=%v want=%v", got, test.wantSymbols)
+			}
+			if !contains(prompt, "principal_contract=`not_authorized`") || contains(prompt, "principal aggregate member_set obligations") {
+				t.Errorf("tool selection changed model member qualification:\n%s", prompt)
+			}
+			if got := contains(prompt, "does NOT require `emit_answer_symbol`"); got == test.wantSymbols {
+				t.Errorf("public prompt symbol-tool advice does not match typed output shape:\n%s", prompt)
+			}
+		})
 	}
 }
 
@@ -2180,8 +2241,15 @@ func TestExtractor_BuildPrompt_SourceInventoryAggregateSkipsAnswerSymbol(t *test
 	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
 		t.Fatalf("prompt should disable answer-symbol slate for grounded source inventory aggregates:\n%s", prompt)
 	}
-	if !contains(prompt, "Intent: 2 member(s)") && !contains(prompt, "internal/types public string enum types: 2 member(s)") {
-		t.Fatalf("prompt should still carry the structured aggregate handoff:\n%s", prompt)
+	for _, want := range []string{"members=[`Intent`, `Scenario`]", "principal_contract=`not_authorized`",
+		"Intent describes the top-level request purpose.", "Scenario describes the answer workflow family.",
+		"Intent: internal/types/analysis_ir.go:847", "Scenario: internal/types/analysis_ir.go:867"} {
+		if !contains(prompt, want) {
+			t.Fatalf("model source-inventory proposal lost advisory metadata %q:\n%s", want, prompt)
+		}
+	}
+	if contains(prompt, "principal aggregate member_set obligations") || contains(prompt, "members_rendered_in=authoritative_principal_member_rows") {
+		t.Fatalf("a source-inventory label without a native observed roster acquired principal authority:\n%s", prompt)
 	}
 }
 

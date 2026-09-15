@@ -10,7 +10,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestEmitAnswerDocumentV2_SupportingAggregateExactMemberCitationIsWired(t *testing.T) {
+func TestEmitAnswerDocumentV2_PreservesSelectedCitationWithoutObservedSupportingMember(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {
 		t.Fatalf("mkdir src: %v", err)
@@ -60,7 +60,14 @@ func TestEmitAnswerDocumentV2_SupportingAggregateExactMemberCitationIsWired(t *t
 		t.Fatalf("exact supporting citation was not retained: item=%+v citations=%+v", item, doc.Citations)
 	}
 	cit := doc.Citations[item.CitationRef]
-	if cit.File != "src/logger.cpp" || cit.Line != 36 {
-		t.Fatalf("supporting member citation=%+v, want src/logger.cpp:36", cit)
+	// The source file exists, but no read/typed observation established this
+	// member. A model aggregate cannot relocate the model-selected citation.
+	// Actual Read -> Emit operation-site binding is covered by B1700's public
+	// call/return positive matrix, without manufacturing Grounded here.
+	if cit.File != "src/registry.cpp" || cit.Line != 15 || len(doc.Citations) != 1 {
+		t.Fatalf("unobserved supporting member rewrote selected citation: %+v", doc.Citations)
+	}
+	if item.Label != "sink_->write" || item.Text != "virtual dispatch call" || !item.CitationRefsModelSubmitted {
+		t.Fatalf("model content/selection ownership changed: %+v", item)
 	}
 }

@@ -34,16 +34,16 @@ func (s AnswerPrincipalMemberSurface) IsSymbolLike() bool {
 // override a definition-like evidence item into a source-location member.
 // No raw request text or keyword scoring is consulted.
 func PrincipalMemberSurfaceForRequest(rm RequestModel, item EvidenceItem, peers []EvidenceItem) AnswerPrincipalMemberSurface {
-	if requestWantsSourceLocationMemberSurface(rm, item) {
+	if strings.TrimSpace(item.Source) != "" && RequestWantsSourceLocationMemberSurface(rm) {
 		return PrincipalMemberSurfaceSourceLocation
 	}
 	return PrincipalMemberSurfaceForEvidenceSet(item, peers)
 }
 
-func requestWantsSourceLocationMemberSurface(rm RequestModel, item EvidenceItem) bool {
-	if strings.TrimSpace(item.Source) == "" {
-		return false
-	}
+// RequestWantsSourceLocationMemberSurface identifies the explicit file/site
+// output shape, independently of whether any proposed member is source-proven.
+// It selects a presentation/tool shape; it never grants evidence authority.
+func RequestWantsSourceLocationMemberSurface(rm RequestModel) bool {
 	if rm.ChangeImpactProfile == nil || !rm.ChangeImpactProfile.Active() {
 		return false
 	}

@@ -1954,7 +1954,32 @@ func TestPreCheckAggregateScalarValueCoverage_MixedNegativeSearchAndCurrentSourc
 	}
 }
 
-func TestPreCheckAggregateMemberSetCoverage_RequiresVisibleModelAuthoredMembers(t *testing.T) {
+func b1700RequireUnwitnessedAggregateSource(t *testing.T, ctx *types.BusContext) func() {
+	t.Helper()
+	before := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(before) == 0 {
+		t.Fatal("negative control must retain its original model aggregate facts")
+	}
+	var rm *types.RequestModel
+	if ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	source := types.AnswerAggregateSourceContextFromBusContext(ctx)
+	for _, fact := range before {
+		if types.AnswerAggregateFactHasObservedSourceMembers(fact, source) ||
+			types.AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(fact, rm, source) {
+			t.Fatalf("model references without member witnesses gained source authority: %+v", fact)
+		}
+	}
+	return func() {
+		t.Helper()
+		if !reflect.DeepEqual(before, ctx.Mutable.StableInvestigationAggregateFacts()) {
+			t.Fatal("source admission must preserve the original model facts, members and references")
+		}
+	}
+}
+
+func TestPreCheckAggregateMemberSetCoverage_UnwitnessedModelMembersDoNotCreateMustRows(t *testing.T) {
 	mu := types.NewMutableState("enum aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -1994,27 +2019,11 @@ func TestPreCheckAggregateMemberSetCoverage_RequiresVisibleModelAuthoredMembers(
 		}},
 	}
 
-	hints := preCheckAggregateMemberSetCoverage(doc, ctx)
-	if len(hints) != 1 {
-		t.Fatalf("missing member_set value should produce one hint, got %+v", hints)
-	}
-	if !strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] set_label="public enum types" member="QuestionFamily"`) {
-		t.Fatalf("hint should name the omitted model-authored member as missing, got %+v", hints[0])
-	}
-	// XGAP-FIX ② semantics: present members now appear in the hint too —
-	// as ✓ roster rows, never as missing. The presence judgment itself
-	// (visible display prefix satisfies the entry) is unchanged.
-	if strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] set_label="public enum types" member="Scenario`) {
-		t.Fatalf("visible display prefix should satisfy member entry, got %+v", hints[0])
-	}
-	if !strings.Contains(hints[0].ExpectedShape, `[✓ present] set_label="public enum types" member="Scenario`) {
-		t.Fatalf("hint should mark the visible member as present (full obligation roster), got %+v", hints[0])
-	}
-	if !strings.Contains(hints[0].ExpectedShape, "do NOT replace") {
-		t.Fatalf("hint must carry the add-verbatim-do-not-replace instruction, got %+v", hints[0])
-	}
-	if strings.TrimSpace(hints[0].SameCauseFingerprint) == "" {
-		t.Fatalf("member-set coverage hint must carry the F8-T4 same-cause fingerprint, got %+v", hints[0])
+	defer b1700RequireUnwitnessedAggregateSource(t, ctx)()
+	// Exhaustiveness is still required, but a model roster alone cannot
+	// decide which source members that obligation must render.
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("unwitnessed model members must not become mandatory source rows: %+v", hints)
 	}
 
 	doc.Blocks[0].Items = append(doc.Blocks[0].Items, types.AnswerBlockItem{ID: "family", Label: "QuestionFamily"})
@@ -2122,7 +2131,7 @@ func TestPreCheckAggregateCardinalityConsistency_ExplanationScalarDoesNotBorrowM
 	}
 }
 
-func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStructuredRows(t *testing.T) {
+func TestPreCheckAggregateMemberSetCoverage_UnwitnessedSourceInventoryCannotRequireStructuredRows(t *testing.T) {
 	mu := types.NewMutableState("source inventory structured carrier")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateMemberSet,
@@ -2165,19 +2174,10 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStruc
 		Text:        "KindA, KindB, KindC are all listed here in free-form prose.",
 	}}}
 
-	hints := preCheckAggregateMemberSetCoverage(doc, ctx)
-	if len(hints) != 1 || !hints[0].ForceHard {
-		t.Fatalf("free-form prose must not satisfy the typed source-inventory hard gate: %+v", hints)
-	}
-	if hints[0].Field != "blocks[].surface_role/facet_ids/claim_uses + blocks[].items[].label/cells/citation_ref" ||
-		!strings.Contains(hints[0].ExpectedShape, `surface_role="principal"`) ||
-		!strings.Contains(hints[0].ExpectedShape, `facet_ids includes "enumeration_item"`) ||
-		!strings.Contains(hints[0].ExpectedShape, "claim_uses contains a contract-allowed claim_form") ||
-		!strings.Contains(hints[0].ExpectedShape, "item.text never selects row identity") ||
-		!strings.Contains(hints[0].ExpectedShape, "roster set_label is the row's visible aggregate/category value") ||
-		!strings.Contains(hints[0].ExpectedShape, "citation_ref to the same member's compatible citation") ||
-		!strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] set_label="Kind constants" member="KindA"`) {
-		t.Fatalf("repair must name the structured carrier contract, got %+v", hints[0])
+	defer b1700RequireUnwitnessedAggregateSource(t, ctx)()
+	// A requested inventory profile is not an observed source inventory.
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("unwitnessed source refs must not impose a structured-row contract: %+v", hints)
 	}
 
 	doc.Blocks[0].Items = []types.AnswerBlockItem{
@@ -2186,11 +2186,11 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStruc
 		{ID: "c", Label: "KindC", Text: "explanation remains model-owned"},
 	}
 	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
-		t.Fatalf("structured labels/cells should satisfy the same typed contract: %+v", got)
+		t.Fatalf("changing model presentation must not manufacture source authority: %+v", got)
 	}
 }
 
-func TestPreCheckAggregateMemberSetCoverage_SourceInventoryRepairRecipeNamesPrincipalCarrier(t *testing.T) {
+func TestPreCheckAggregateMemberSetCoverage_UnwitnessedSourceInventoryCannotMintPrincipalRepairRecipe(t *testing.T) {
 	mu := types.NewMutableState("source inventory principal carrier repair")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:        types.AnswerAggregateMemberSet,
@@ -2239,47 +2239,21 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryRepairRecipeNamesPrin
 		},
 	}
 
-	hints := preCheckAggregateMemberSetCoverage(doc, ctx)
-	if len(hints) != 1 || !hints[0].ForceHard {
-		t.Fatalf("missing principal surface must produce one actionable hard hint: %+v", hints)
-	}
-	for _, want := range []string{
-		`surface_role="principal"`,
-		`facet_ids includes "enumeration_item"`,
-		"claim_uses contains a contract-allowed claim_form",
-		"source_inventory_row_id is present, expose its exact roster member",
-		"category-first row may keep the member in its dedicated member/symbol cell",
-		"set_label is the row's visible aggregate/category value",
-		"copy it to a separate structured value with a matching column",
-		"citation_ref to the same member's compatible citation",
-		`[✗ MISSING] set_label="opaque category" member="Alpha"`,
-	} {
-		if !strings.Contains(hints[0].ExpectedShape, want) {
-			t.Fatalf("repair recipe omitted %q: %+v", want, hints[0])
-		}
-	}
-	if strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] label=`) {
-		t.Fatalf("aggregate label must not masquerade as item label: %+v", hints[0])
+	defer b1700RequireUnwitnessedAggregateSource(t, ctx)()
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("model citations and claim-use metadata must not mint a source-row repair recipe: %+v", hints)
 	}
 	wired := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
-	wiredRecipe := false
 	for _, hint := range wired {
-		if hint.Kind == types.ViolExhaustiveMemberSetCoverageDrift &&
-			strings.Contains(hint.ExpectedShape, `surface_role="principal"`) &&
-			strings.Contains(hint.ExpectedShape, `set_label="opaque category" member="Alpha"`) {
-			wiredRecipe = true
-			break
+		if hint.Kind == types.ViolExhaustiveMemberSetCoverageDrift {
+			t.Fatalf("production dispatcher must not require unwitnessed source members: %+v", wired)
 		}
 	}
-	if !wiredRecipe {
-		t.Fatalf("production pre-emit dispatcher dropped the actionable recipe: %+v", wired)
-	}
 
-	// Apply the only missing typed field from the recipe. Existing facets,
-	// claim-use, member identities, and row-local citations stay untouched.
+	// Adding a model-owned surface role is presentation, not a source witness.
 	doc.Blocks[0].SurfaceRole = types.SurfacePrincipal
 	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
-		t.Fatalf("one recipe-guided repair should satisfy the same gate: %+v", got)
+		t.Fatalf("principal surface must not promote the same unwitnessed model refs: %+v", got)
 	}
 }
 
@@ -2791,7 +2765,7 @@ func TestRunPreEmitChecks_ExplicitPrincipalMemberSetHardForScalarCompression(t *
 	}
 }
 
-func TestNormalizeAggregateMemberSetCarriers_DoesNotAuthorComparisonMembers(t *testing.T) {
+func TestNormalizeAggregateMemberSetCarriers_UnwitnessedComparisonDescriptionsDoNotCreateMustRows(t *testing.T) {
 	mu := types.NewMutableState("comparison aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateMemberSet,
@@ -2858,8 +2832,19 @@ func TestNormalizeAggregateMemberSetCarriers_DoesNotAuthorComparisonMembers(t *t
 		Kind: types.BlockSummary,
 		Text: "codrax 和 opencode 的防幻觉设计差异很大。",
 	}}}
-	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) == 0 {
-		t.Fatal("test setup should miss every aggregate member")
+	defer b1700RequireUnwitnessedAggregateSource(t, ctx)()
+	// The declarations witness their names, not the model's composite
+	// descriptions (classification counts, roles, or text-reference claims).
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("unwitnessed comparison descriptions must not become mandatory members: %+v", hints)
+	}
+	for name, location := range map[string]string{
+		"EvidenceKind":     "codrax/internal/types/evidence.go:11",
+		"ViolKindRegistry": "codrax/internal/types/violation_registry.go:1",
+	} {
+		if candidates := preEmitCandidateCitationLocationsForLabel(ctx, name, 4); len(candidates) != 1 || candidates[0] != location {
+			t.Fatalf("independent definition %s must remain citable: %v", name, candidates)
+		}
 	}
 
 	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
@@ -2871,8 +2856,8 @@ func TestNormalizeAggregateMemberSetCarriers_DoesNotAuthorComparisonMembers(t *t
 	if len(doc.Citations) != 0 {
 		t.Fatalf("normalizer must not append citations for system-authored members: %+v", doc.Citations)
 	}
-	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) == 0 {
-		t.Fatal("coverage checker should remain responsible for missing aggregate members")
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("normalization must not promote the same unwitnessed descriptions: %+v", hints)
 	}
 }
 
@@ -2977,7 +2962,7 @@ func TestNormalizeAggregateMemberSetCarriers_CurrentSourceDiagnosticDoesNotCompe
 	}
 }
 
-func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRows(t *testing.T) {
+func TestNormalizeAggregateMemberSetCarriers_UnwitnessedExhaustiveMembersDoNotMaterializeRows(t *testing.T) {
 	mu := types.NewMutableState("exhaustive aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -3011,31 +2996,16 @@ func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRo
 		Text: "KindA、KindB、KindC。",
 	}}}
 
-	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 3 {
-		t.Fatalf("fixed=%d, want 3", fixed)
+	defer b1700RequireUnwitnessedAggregateSource(t, ctx)()
+	before, _ := json.Marshal(doc)
+	for i := 0; i < 2; i++ {
+		if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+			t.Fatalf("unwitnessed source members must not become system-owned rows or citations, fixed=%d", fixed)
+		}
 	}
-	if len(doc.Blocks) != 2 {
-		t.Fatalf("expected appended carrier block, got %+v", doc.Blocks)
-	}
-	block := doc.Blocks[1]
-	if block.Kind != types.BlockOrderedList || block.SurfaceRole != types.SurfacePrincipal || len(block.Items) != 3 {
-		t.Fatalf("unexpected materialized block: %+v", block)
-	}
-	if block.SystemGeneratedKind != types.AnswerSystemGeneratedPrincipalEnumerationRows {
-		t.Fatalf("typed member-set supplement lacks system ownership marker: %+v", block)
-	}
-	if block.Items[0].Label != "KindA" || block.Items[0].CitationRef < 0 || len(doc.Citations) != 3 {
-		t.Fatalf("items should preserve member labels and cite support_refs: block=%+v citations=%+v", block, doc.Citations)
-	}
-	if !strings.Contains(block.Title, "成员清单补充") ||
-		!strings.Contains(block.Text, "结构化调查清单") {
-		t.Fatalf("zh system supplement should be clearly marked and localized: %+v", block)
-	}
-	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
-		t.Fatalf("aggregate carrier normalization must be idempotent across pre-emit and persist, fixed=%d doc=%+v", fixed, doc.Blocks)
-	}
-	if len(doc.Blocks) != 2 {
-		t.Fatalf("idempotent normalization appended a duplicate carrier: %+v", doc.Blocks)
+	after, _ := json.Marshal(doc)
+	if string(before) != string(after) {
+		t.Fatalf("exhaustiveness does not authorize rewriting the model answer without member witnesses: %+v", doc)
 	}
 }
 
@@ -3349,7 +3319,7 @@ func TestNormalizeAggregateMemberSetCarriers_IncompletePrincipalMarkdownTableSti
 	}
 }
 
-func TestNormalizeAggregateMemberSetCarriers_LocalizesEnglishSystemSupplement(t *testing.T) {
+func TestNormalizeAggregateMemberSetCarriers_UnwitnessedEnglishMembersDoNotCreateSupplement(t *testing.T) {
 	mu := types.NewMutableState("exhaustive aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -3383,16 +3353,14 @@ func TestNormalizeAggregateMemberSetCarriers_LocalizesEnglishSystemSupplement(t 
 		Text: "KindA and KindB are present.",
 	}}}
 
-	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 2 {
-		t.Fatalf("fixed=%d, want 2", fixed)
+	defer b1700RequireUnwitnessedAggregateSource(t, ctx)()
+	before, _ := json.Marshal(doc)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("language selection must not bypass source eligibility, fixed=%d", fixed)
 	}
-	block := doc.Blocks[1]
-	if !strings.Contains(block.Title, "Member list supplement") ||
-		!strings.Contains(block.Text, "accepted structured investigation checklist") {
-		t.Fatalf("English system supplement should be clearly marked and localized: %+v", block)
-	}
-	if strings.Contains(block.Title+block.Text, "系统") || strings.Contains(block.Title+block.Text, "结构化调查") {
-		t.Fatalf("English system supplement should not leak zh copy: %+v", block)
+	after, _ := json.Marshal(doc)
+	if string(before) != string(after) {
+		t.Fatalf("unwitnessed English members must not create a system supplement or citations: %+v", doc)
 	}
 }
 
@@ -3823,7 +3791,7 @@ func TestNormalizeAggregateMemberSetCarriers_KeepsEvidenceSummaryAsModelGuidance
 	}
 }
 
-func TestRunPreEmitChecks_AggregateMemberSetCoverageHardForExhaustiveEnumeration(t *testing.T) {
+func TestRunPreEmitChecks_UnwitnessedAggregateMembersDoNotCreateExhaustiveCoverageGate(t *testing.T) {
 	mu := types.NewMutableState("exhaustive aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateMemberSet,
@@ -3854,12 +3822,9 @@ func TestRunPreEmitChecks_AggregateMemberSetCoverageHardForExhaustiveEnumeration
 		Kind: types.BlockSummary,
 		Text: "HandleA is present.",
 	}}}
-	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
-	if len(hints) == 0 {
-		t.Fatal("exhaustive enumeration member_set coverage should remain hard at emit-time")
-	}
-	if !strings.Contains(hints[0].ExpectedShape, "HandleB") {
-		t.Fatalf("hint should name the missing member, got %+v", hints)
+	defer b1700RequireUnwitnessedAggregateSource(t, ctx)()
+	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx); len(hints) != 0 {
+		t.Fatalf("an exhaustive request cannot make model-only source membership mandatory: %+v", hints)
 	}
 }
 
@@ -7768,7 +7733,7 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsDecoratorListSplitRelation(t 
 	}
 }
 
-func TestPreEmitAggregateMemberSupportRefMember_CitesLabelAtLocation(t *testing.T) {
+func TestPreEmitAggregateMemberSupportRefMember_PreservesSelectionWithoutSuggestingUnwitnessedLocation(t *testing.T) {
 	mu := types.NewMutableState("implementer aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -7805,13 +7770,19 @@ func TestPreEmitAggregateMemberSupportRefMember_CitesLabelAtLocation(t *testing.
 	if !preEmitCitationSupportsAggregateItem(ctx, item.Label, item.Text, types.Citation{File: "internal/agent/explorer.go", Line: 12}) {
 		t.Fatal("typed definition citation for the same aggregate member should also satisfy support-ref aggregate member")
 	}
+	defer b1700RequireUnwitnessedAggregateSource(t, ctx)()
+	// Keep explicit model selection handling above. Automatic source
+	// candidates must not treat model line 30 as equivalent to definition 12.
 	got := preEmitCandidateCitationLocationsForAggregateItem(ctx, item.Label, item.Text, 4)
-	if len(got) != 2 || got[0] != "internal/agent/explorer.go:30" || got[1] != "internal/agent/explorer.go:12" {
-		t.Fatalf("support-ref aggregate member should suggest support and definition anchors, got %v", got)
+	if len(got) != 0 {
+		t.Fatalf("unwitnessed aggregate coordinate must not authorize automatic candidates, got %v", got)
+	}
+	if exact := preEmitCandidateCitationLocationsForLabel(ctx, item.Label, 4); len(exact) != 1 || exact[0] != "internal/agent/explorer.go:12" {
+		t.Fatalf("the independent exact definition must remain available, without model line 30: %v", exact)
 	}
 }
 
-func TestPreEmitAggregateMemberGenericSupportRef_CitesMemberLocation(t *testing.T) {
+func TestPreEmitAggregateMemberGenericSupportRef_PreservesSelectionWithoutInferringReturnedIdentity(t *testing.T) {
 	mu := types.NewMutableState("default subagent aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:        types.AnswerAggregateMemberSet,
@@ -7845,9 +7816,15 @@ func TestPreEmitAggregateMemberGenericSupportRef_CitesMemberLocation(t *testing.
 	if !preEmitCitationSupportsAggregateItem(ctx, item.Label, item.Text, types.Citation{File: "internal/agent/sub_explorer.go", Line: 31}) {
 		t.Fatal("generic Member support_ref should let the final answer cite the member's support location")
 	}
+	defer b1700RequireUnwitnessedAggregateSource(t, ctx)()
+	// Name's declaration is a real witness, but a return string inside its
+	// snippet is not a typed return/literal proof of the aggregate identity.
 	got := preEmitCandidateCitationLocationsForAggregateItem(ctx, item.Label, item.Text, 4)
-	if len(got) == 0 || got[0] != "internal/agent/sub_explorer.go:31" {
-		t.Fatalf("generic support-ref aggregate member should suggest the citable support anchor, got %v", got)
+	if len(got) != 0 {
+		t.Fatalf("definition snippets must not mint automatic returned-name candidates, got %v", got)
+	}
+	if exact := preEmitCandidateCitationLocationsForLabel(ctx, "Name", 4); len(exact) != 1 || exact[0] != "internal/agent/sub_explorer.go:31" {
+		t.Fatalf("the actual Name definition must remain independently citable: %v", exact)
 	}
 }
 

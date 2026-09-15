@@ -1954,17 +1954,18 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalMemberSetSuppr
 	if strings.Contains(prompt, "defaultExternalArtifactFloor") {
 		t.Fatalf("finalizer prompt should not project unstructured closure prose candidates when principal member_set exists:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "model-authored closure set-level summary") ||
-		!strings.Contains(prompt, "[excluded candidate omitted]") ||
-		!strings.Contains(prompt, "typed `aggregate_facts.member_set` rows/counts below remain the authoritative member carrier") {
-		t.Fatalf("finalizer prompt should preserve sanitized tool-call closure prose as set-level advisory context:\n%s", prompt)
+	// B1700: a model support_ref has no independent source witness here.
+	// Preserve the proposed member and the exclusion boundary, not a mandatory
+	// roster or an assertion that closure prose made the source authoritative.
+	for _, want := range []string{"Advisory Model-Inferred Member Sets", "members=[`Eval`]", "principal_contract=`not_authorized`", "fact_authority=`advisory_model_inference`"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("unwitnessed member must remain visible as advisory context (%q):\n%s", want, prompt)
+		}
 	}
-	if !strings.Contains(prompt, "member=`Eval`") ||
-		!strings.Contains(prompt, "members_rendered_in=authoritative_principal_member_rows") {
-		t.Fatalf("principal member_set should render once as authoritative rows with compact metadata:\n%s", prompt)
-	}
-	if strings.Contains(prompt, "members=[`Eval`]") {
-		t.Fatalf("structured aggregate metadata must not duplicate principal member rows:\n%s", prompt)
+	for _, forbidden := range []string{"## Principal Enumeration Rows", "members_rendered_in=authoritative_principal_member_rows", "typed `aggregate_facts.member_set` rows/counts below remain the authoritative member carrier"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("model closure/support refs minted a source roster (%q):\n%s", forbidden, prompt)
+		}
 	}
 }
 
@@ -4277,12 +4278,9 @@ func TestRenderAnswerDocFacetCoverage_NoEvidenceAvailableWhenNoEvidence(t *testi
 	}
 }
 
-// TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList
-// pins P1A (2026-05-17): when the investigator hands off a principal
-// member_set fact with decorated members, the new prompt section MUST
-// surface those members verbatim under a "MUST appear verbatim" contract
-// statement so the LLM does not paraphrase them away into iter=0 failure.
-func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *testing.T) {
+// B1700 preserves the original model slate without allowing its own decorated
+// coordinates to manufacture P1A's mandatory source-member contract.
+func TestRenderAnswerDocPrincipalMemberSetContract_UnwitnessedMembersStayAdvisory(t *testing.T) {
 	mut := types.NewMutableState("compare codrax and opencode")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateMemberSet,
@@ -4324,24 +4322,11 @@ func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *te
 
 	got := renderAnswerDocPrincipalMemberSetContract(ctx)
 	if got == "" {
-		t.Fatal("expected non-empty contract section for principal member_set with non-path members")
+		t.Fatal("expected non-empty advisory section for retained model members")
 	}
 
-	// (1) Section header MUST be present.
-	if !strings.Contains(got, "## Required Principal Member Set") {
-		t.Errorf("section header missing; got\n%s", got)
-	}
-
-	// (2) MUST-appear-verbatim contract MUST appear.
-	if !strings.Contains(got, "MUST appear verbatim") {
-		t.Errorf("contract clause missing; got\n%s", got)
-	}
-
-	// (3) The contract must point at the single rich principal row list
-	// instead of duplicating the member body here.
-	if !strings.Contains(got, "Principal Enumeration Rows") ||
-		!strings.Contains(got, "Every `row.member` there MUST appear verbatim") {
-		t.Errorf("compact principal-row contract missing; got\n%s", got)
+	if !strings.Contains(got, "## Advisory Model-Inferred Member Sets") || !strings.Contains(got, `advisory set "codrax 四层"`) {
+		t.Errorf("retained model slate must remain advisory; got\n%s", got)
 	}
 	for _, member := range []string{
 		"`SelfConsistencyReviewer`",
@@ -4349,20 +4334,14 @@ func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *te
 		"`gate.Run (9 checks)`",
 		"`contract_check (violRegistry)`",
 	} {
-		if strings.Contains(got, member) {
-			t.Errorf("contract should not duplicate member %s when principal rows exist; got\n%s", member, got)
+		if !strings.Contains(got, member) {
+			t.Errorf("advisory projection must preserve original candidate %s; got\n%s", member, got)
 		}
 	}
-
-	// (4) Label header MUST appear so the LLM knows which set the
-	// members belong to.
-	if !strings.Contains(got, `principal set "codrax 四层"`) {
-		t.Errorf("missing principal set label; got\n%s", got)
-	}
-
-	// (5) The no-dup contract still makes the oracle behavior explicit.
-	if !strings.Contains(got, "do not paraphrase or abbreviate") {
-		t.Errorf("missing paraphrase guard; got\n%s", got)
+	for _, forbidden := range []string{"## Required Principal Member Set", "Principal Enumeration Rows", "MUST appear verbatim", "do not paraphrase or abbreviate"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("unwitnessed coordinates must not create a mandatory contract (%q); got\n%s", forbidden, got)
+		}
 	}
 }
 
@@ -4419,9 +4398,13 @@ func TestRenderAnswerDocAggregateFacts_SourceOperationSiteCitationGuidance(t *te
 	}
 
 	contract := renderAnswerDocPrincipalMemberSetContract(ctx)
-	if !strings.Contains(contract, "source member/site set") ||
-		!strings.Contains(contract, "must not replace the citation for the function/call/write site") {
-		t.Fatalf("source operation-site principal contract missing citation guidance:\n%s", contract)
+	// B1700: requested operation sites and model-authored source coordinates
+	// alone do not establish that either member is an observed write/call site.
+	if !strings.Contains(contract, "Advisory Model-Inferred Member Sets") ||
+		!strings.Contains(contract, "SetPidToCgroup @ awarecpu/aware_cpuctl.c:131") ||
+		!strings.Contains(contract, "SetCgroup dispatch @ awarecpu/aware_cpuctl.c:822") ||
+		strings.Contains(contract, "## Required Principal Member Set") {
+		t.Fatalf("unwitnessed operation-site members must remain candidates:\n%s", contract)
 	}
 	prompt := renderAnswerDocAggregateFacts(ctx)
 	if !strings.Contains(prompt, "source member/site set") ||
@@ -5322,7 +5305,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_FileImpactObligationsUs
 	}
 }
 
-func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersEquivalentPrincipalAnchors(t *testing.T) {
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RejectsUnwitnessedEquivalentPrincipalAnchor(t *testing.T) {
 	mut := types.NewMutableState("all implementers")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -5363,18 +5346,19 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersEquivalentPrinci
 	}
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	for _, want := range []string{
-		"equivalent typed anchors",
-		"internal/agent/analyzer.go:887",
-		"internal/agent/analyzer.go:46",
-		"one of internal/agent/analyzer.go:887, internal/agent/analyzer.go:46",
-		"Anchors are equivalent only for the visible claims they both actually prove",
-		"prefer one grounded proof anchor that carries both the member endpoint and that visible second axis",
-		"a definition-only line is not equivalent for that two-axis row",
-		"Do not churn the selected stable row/evidence carrier",
-	} {
+	// B1700: keep the original model coordinate 887 as a candidate, but only
+	// line 46 has independent definition proof. Same symbol does not make an
+	// unread coordinate an equivalent citation or prove its implements relation.
+	for _, want := range []string{"analyzerEvaluator (internal/agent/analyzer.go:887)",
+		"principal_contract=`not_authorized`", "Advisory Model-Inferred Member Sets",
+		"citation_key=internal/agent/analyzer.go:46", "evidence_id=analyzer-definition"} {
 		if !strings.Contains(prompt, want) {
-			t.Fatalf("principal equivalent-anchor prompt missing %q:\n%s", want, prompt)
+			t.Fatalf("candidate/independent grounded-anchor boundary missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{"one of internal/agent/analyzer.go:887", "citation_key=internal/agent/analyzer.go:887", "citation_key=`internal/agent/analyzer.go:887`"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("unwitnessed coordinate became an authoritative equivalent (%q):\n%s", forbidden, prompt)
 		}
 	}
 }
@@ -5608,11 +5592,14 @@ func TestRenderAnswerDocSourceInventoryRowGuidance_LocationIsVisibleRowField(t *
 		}
 	}
 	contract := renderAnswerDocPrincipalMemberSetContract(ctx)
-	if !strings.Contains(contract, "exact `display_label`") ||
-		!strings.Contains(contract, "exact base `Index`") ||
+	// The requested visible location field remains useful guidance, but an
+	// aggregate-only location cannot supply an authoritative row/citation ID.
+	if !strings.Contains(contract, "Advisory Model-Inferred Member Sets") ||
+		!strings.Contains(contract, "`Index (struct)`") ||
+		strings.Contains(contract, "exact `display_label`") ||
 		strings.Contains(contract, "Every `row.member` there MUST appear verbatim") ||
 		strings.Contains(contract, "do not paraphrase or abbreviate any row member") {
-		t.Fatalf("source-inventory member contract did not publish its row-id/display split:\n%s", contract)
+		t.Fatalf("unwitnessed source-inventory candidate acquired a principal row contract:\n%s", contract)
 	}
 }
 

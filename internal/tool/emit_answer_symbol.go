@@ -205,7 +205,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   true,
-			Summary:   "emit_answer_symbol ignored: this dispatch's typed principal support lanes render the answer without an answer-symbol slate",
+			Summary:   "emit_answer_symbol ignored: this dispatch's typed output does not use an answer-symbol slate; source eligibility is checked separately",
 			Timestamp: now,
 		}, nil
 	}
@@ -396,6 +396,9 @@ func emitAnswerSymbolSlateExpected(ctx *types.BusContext) bool {
 	}
 	if emitAnswerSymbolNeedsBoundedPrincipalList(rm, view) {
 		return true
+	}
+	if types.RequestWantsSourceLocationMemberSurface(rm) {
+		return false
 	}
 	if emitAnswerSymbolRelationMemberSetRendersWithoutSlate(ctx, rm) {
 		return false
@@ -724,6 +727,7 @@ func sourceInventoryAggregateAnswerSymbolFallback(ctx *types.BusContext) []types
 	if len(refs) == 0 {
 		return nil
 	}
+	source := types.AnswerAggregateSourceContextFromBusContext(ctx)
 	seen := map[string]bool{}
 	var out []types.AnswerSymbol
 	for _, ref := range refs {
@@ -734,6 +738,15 @@ func sourceInventoryAggregateAnswerSymbolFallback(ctx *types.BusContext) []types
 			continue
 		}
 		syms, ok := sourceInventoryAnswerSymbolsFromAggregateFact(fact, kind, sourceInventoryFallbackRationale(ctx))
+		if !ok {
+			continue
+		}
+		for _, sym := range syms {
+			if !types.AnswerSourceSymbolDefinitionObserved(sym.Name, sym.File, sym.Line, source) {
+				ok = false
+				break
+			}
+		}
 		if !ok {
 			continue
 		}

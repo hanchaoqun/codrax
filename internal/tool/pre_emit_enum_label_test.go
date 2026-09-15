@@ -12,6 +12,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -563,7 +564,7 @@ func TestPreCheckEnumLabel_QualifiedIdentitySkipsQualifierOracle(t *testing.T) {
 	}
 }
 
-func TestPreCheckEnumLabel_AggregateMemberSetPackageLabelNoOracle(t *testing.T) {
+func TestPreCheckEnumLabel_UnobservedAggregatePackageLabelRemainsAdvisory(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	mut := types.NewMutableState("package label from aggregate member set")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -592,12 +593,18 @@ func TestPreCheckEnumLabel_AggregateMemberSetPackageLabelNoOracle(t *testing.T) 
 			}},
 		}},
 	}
-	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); hints != nil {
-		t.Fatalf("typed aggregate package labels should not be forced through symbol oracle; got %v", hints)
+	// A model-authored support_ref is not an observed package identity.
+	hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "findings_validator") {
+		t.Fatalf("unobserved aggregate package label must retain its grounding advisory, got %v", hints)
+	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolEnumerationLabelHallucinated, hints))
+	if len(hard) != 0 || len(advisory) != 1 || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("grounding advisory must not reject or erase the model citation: hard=%+v advisory=%+v", hard, advisory)
 	}
 }
 
-func TestPreCheckEnumLabel_AggregateMemberSetColonPackageLabelNoOracle(t *testing.T) {
+func TestPreCheckEnumLabel_UnobservedAggregateColonPackageLabelRemainsAdvisory(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	mut := types.NewMutableState("package colon label from aggregate member set")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -622,8 +629,13 @@ func TestPreCheckEnumLabel_AggregateMemberSetColonPackageLabelNoOracle(t *testin
 			}},
 		}},
 	}
-	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); hints != nil {
-		t.Fatalf("typed aggregate colon package labels should not be forced through symbol oracle; got %v", hints)
+	hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "counterfactual") {
+		t.Fatalf("colon display spelling cannot qualify an unobserved package, got %v", hints)
+	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolEnumerationLabelHallucinated, hints))
+	if len(hard) != 0 || len(advisory) != 1 || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("grounding advisory must not reject or erase the model citation: hard=%+v advisory=%+v", hard, advisory)
 	}
 }
 
@@ -682,19 +694,24 @@ func TestPreCheckItemCitationAlignment_AggregateMemberSetPackageLabelRejectsCita
 		t.Fatalf("citation drift should still fail aggregate package-label citation alignment, got %v", hints)
 	}
 	if !strings.Contains(hints[0].ExpectedShape, "findings_validator") ||
-		!strings.Contains(hints[0].ExpectedShape, "internal/analysis/findings_validator/validator.go:70") {
-		t.Fatalf("hint should name the drifting label, got %+v", hints[0])
+		!strings.Contains(hints[0].ExpectedShape, "current_citation=internal/analysis/gate/gate.go:128") ||
+		!strings.Contains(hints[0].ExpectedShape, "candidate_citations=[] candidate_evidence=[]") ||
+		strings.Contains(hints[0].ExpectedShape, "internal/analysis/findings_validator/validator.go:70") {
+		t.Fatalf("hint must name the drift without promoting an unobserved model support_ref to a candidate, got %+v", hints[0])
 	}
 	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
 	if len(hard) != 0 || len(advisory) != 1 {
 		t.Fatalf("principal item citation drift should be presentation-layer advisory at pre-emit, hard=%+v advisory=%+v", hard, advisory)
 	}
-	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); hints != nil {
-		t.Fatalf("label grounding should not misclassify typed aggregate display labels as fabricated, got %v", hints)
+	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); len(hints) != 1 {
+		t.Fatalf("model aggregate alone must not suppress the package grounding advisory, got %v", hints)
+	}
+	if doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatal("advisory checks must not alter the model citation")
 	}
 }
 
-func TestPreCheckItemCitationAlignment_AggregateMemberSetColonUsesTypedEvidenceCandidate(t *testing.T) {
+func TestPreCheckItemCitationAlignment_DefinitionObjectDoesNotAuthorizeAggregatePackageAlias(t *testing.T) {
 	mut := types.NewMutableState("colon aggregate package label citation drift")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:        types.AnswerAggregateMemberSet,
@@ -731,11 +748,22 @@ func TestPreCheckItemCitationAlignment_AggregateMemberSetColonUsesTypedEvidenceC
 	if len(hints) != 1 {
 		t.Fatalf("aggregate relation member with wrong citation should get one citation hint, got %v", hints)
 	}
-	if !strings.Contains(hints[0].ExpectedShape, "internal/analysis/counterfactual/expander.go:59") {
-		t.Fatalf("hint should point at typed evidence candidate, got %+v", hints[0])
+	// The declaration witnesses Expand, not the unrelated package token in
+	// Object or the model's compound member label "counterfactual: Expand".
+	if !strings.Contains(hints[0].ExpectedShape, "candidate_citations=[] candidate_evidence=[]") ||
+		strings.Contains(hints[0].ExpectedShape, "internal/analysis/counterfactual/expander.go:59") {
+		t.Fatalf("definition Object must not mint a package citation candidate, got %+v", hints[0])
 	}
-	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); hints != nil {
-		t.Fatalf("label grounding should not fight aggregate citation repair, got %v", hints)
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
+	if len(hard) != 0 || len(advisory) != 1 || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("alias mismatch stays advisory and preserves the submitted citation: hard=%+v advisory=%+v", hard, advisory)
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); len(hints) != 1 {
+		t.Fatalf("unobserved package alias still needs source grounding, got %v", hints)
+	}
+	if !types.AnswerSourceSymbolDefinitionObserved("Expand", "internal/analysis/counterfactual/expander.go", 59,
+		types.AnswerAggregateSourceContextFromBusContext(ctx)) {
+		t.Fatal("the original typed Expand definition must remain qualified")
 	}
 }
 
@@ -1919,7 +1947,7 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_AppendsUniqueEvidenceCan
 	}
 }
 
-func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsAggregateItemCandidate(t *testing.T) {
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_DoesNotRebindUnobservedAggregateItem(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			ID:   "mechanisms",
@@ -1948,15 +1976,25 @@ func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsAggregateItemC
 	mut.RetainInvestigationAggregateFacts()
 	ctx := &types.BusContext{Mutable: mut}
 
+	before, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx))
-	if fixed != 1 {
-		t.Fatalf("expected one aggregate candidate citation_ref repair, got %d", fixed)
+	if fixed != 0 {
+		t.Fatalf("model aggregate support_ref must not select a new source citation, got %d repairs", fixed)
 	}
-	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
-		t.Fatalf("citation_ref = %d, want unique candidate index 1", got)
+	after, err := json.Marshal(doc)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("unobserved candidate must not change the original citation pool/body: err=%v doc=%+v", err, doc)
 	}
-	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
-		t.Fatalf("unique aggregate candidate repair should satisfy citation alignment, got %+v", hints)
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "candidate_citations=[] candidate_evidence=[]") {
+		t.Fatalf("unobserved aggregate should leave an honest citation advisory without an invented target, got %+v", hints)
+	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
+	if len(hard) != 0 || len(advisory) != 1 {
+		t.Fatalf("unresolved citation remains advisory, hard=%+v advisory=%+v", hard, advisory)
 	}
 }
 
@@ -2002,7 +2040,7 @@ func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_DoesNotGuessAmbiguous
 	}
 }
 
-func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsTableCellCandidate(t *testing.T) {
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_DoesNotRebindUnobservedTableCell(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			ID:      "mechanisms",
@@ -2031,12 +2069,17 @@ func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsTableCellCandi
 	mut.RetainInvestigationAggregateFacts()
 	ctx := &types.BusContext{Mutable: mut}
 
-	fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx))
-	if fixed != 1 {
-		t.Fatalf("expected one table-cell candidate citation_ref repair, got %d", fixed)
+	before, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
-		t.Fatalf("citation_ref = %d, want unique table-cell candidate index 1", got)
+	fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx))
+	if fixed != 0 {
+		t.Fatalf("unobserved table-cell support_ref must not select a new source citation, got %d repairs", fixed)
+	}
+	after, err := json.Marshal(doc)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("unobserved table candidate must preserve original pool/cells/reference: err=%v doc=%+v", err, doc)
 	}
 }
 

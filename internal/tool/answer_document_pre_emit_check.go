@@ -87,18 +87,20 @@ func preEmitOracleFromCtx(ctx *types.BusContext) types.SymbolOracle {
 }
 
 type preEmitCheckContext struct {
-	ctx                         *types.BusContext
-	groundCtx                   *ground.Context
-	evidence                    *preEmitEvidenceIndex
-	sourceInventoryAuthority    *SourceInventoryAnswerPreEmitAuthority
-	surfacePlan                 *types.AnswerSurfacePlan
-	surfacePlanBuilt            bool
-	stableAggregateFacts        []types.AnswerAggregateFact
-	stableAggregateFactsBuilt   bool
-	stableFactsExcluded         bool
-	principalAggregateRefs      []types.AnswerAggregateFactRef
-	principalAggregateRefsBuilt bool
-	derivedBuilds               preEmitDerivedBuildCounts
+	ctx                          *types.BusContext
+	groundCtx                    *ground.Context
+	evidence                     *preEmitEvidenceIndex
+	sourceInventoryAuthority     *SourceInventoryAnswerPreEmitAuthority
+	surfacePlan                  *types.AnswerSurfacePlan
+	surfacePlanBuilt             bool
+	stableAggregateFacts         []types.AnswerAggregateFact
+	stableAggregateFactsBuilt    bool
+	stableFactsExcluded          bool
+	principalAggregateRefs       []types.AnswerAggregateFactRef
+	principalAggregateRefsBuilt  bool
+	automaticCitationContext     *preEmitCheckContext
+	sourceQualifiedAggregateRefs bool
+	derivedBuilds                preEmitDerivedBuildCounts
 	// repairCounts collects per-pass mechanical-repair counts from the
 	// pre-emit normalize chain (F3-4): one structured summary line per
 	// emit replaces scattered warnings as the telemetry surface, so
@@ -2233,11 +2235,11 @@ func preEmitScalarLiteralIsPrincipalAggregateValue(pctx *preEmitCheckContext, va
 		if !preEmitAggregateFactRequiresVisibleValue(pctx.ctx, facts, idx, effectiveFact) {
 			continue
 		}
-		if fact.Kind == types.AnswerAggregateMemberSet {
-			if !types.AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
-				continue
-			}
-		}
+		// This is a retention boundary, not principal-contract admission. An
+		// unproved derived value is still not a source literal: withholding
+		// source authority must not rebind its model-selected citation to an
+		// unrelated line containing the same value. Aggregate validators retain
+		// responsibility for the proposed value and its evidence.
 		return true
 	}
 	return false
@@ -4172,18 +4174,22 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 			if preEmitEndpointOnlyCitationRoleAmbiguous(pctx, label, text, preEmitBlockCitationRoleForms(*block, view)) {
 				continue
 			}
+			// Existing model selections above retain their compatibility rules.
+			// Selecting a new source citation cannot use a model aggregate's
+			// own support_ref as proof of the member written beside it.
+			autoCtx := pctx.forAutomaticSourceCitation()
 			match := preEmitUniqueCitationIndex(doc.Citations, item.CitationRef, func(cit types.Citation) bool {
 				if preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) {
 					return true
 				}
-				return preEmitItemCitationStrictlyAlignedWithContext(pctx, label, text, cit)
+				return preEmitItemCitationStrictlyAlignedWithContext(autoCtx, label, text, cit)
 			})
 			if match < 0 {
 				match = preEmitUniqueCitationIndex(doc.Citations, item.CitationRef, func(cit types.Citation) bool {
 					if preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) {
 						return true
 					}
-					return preEmitItemCitationAlignedWithContext(pctx, label, text, cit)
+					return preEmitItemCitationAlignedWithContext(autoCtx, label, text, cit)
 				})
 			}
 			if match >= 0 {
@@ -4191,7 +4197,7 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				fixed++
 				continue
 			}
-			if cit, ok := preEmitUniqueCandidateCitationForItemWithContext(pctx, label, text); ok {
+			if cit, ok := preEmitUniqueCandidateCitationForItemWithContext(autoCtx, label, text); ok {
 				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
 				fixed++
 			}
@@ -4325,7 +4331,7 @@ func normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc *types.Ans
 				preEmitItemCitationAlreadyAlignedForAnySurface(pctx, *block, surfaces, doc.Citations[item.CitationRef]) {
 				continue
 			}
-			cit, ok := preEmitUniqueCandidateCitationForItemSurfacesWithContext(pctx, surfaces)
+			cit, ok := preEmitUniqueCandidateCitationForItemSurfacesWithContext(pctx.forAutomaticSourceCitation(), surfaces)
 			if !ok {
 				continue
 			}
@@ -5313,7 +5319,7 @@ func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocu
 			if !hasCitation {
 				continue
 			}
-			if preEmitItemMatchesSourceLocationPrincipalMember(ctx, item, cit) {
+			if preEmitItemUsesRequestedSourceLocationShape(ctx, b, item, cit) {
 				continue
 			}
 			expected, ok := preEmitClaimRoleMentionedByItemSurface(item, forms, allEvidence, cited)
@@ -7651,7 +7657,7 @@ func preEmitAggregateMemberSetCanAuthorizeSystemCarrier(ctx *types.BusContext, f
 	if ctx != nil && ctx.AnalysisIR != nil {
 		rm = &ctx.AnalysisIR.RequestModel
 	}
-	return types.AnswerAggregateFactAuthorizesPrincipalContract(fact, rm)
+	return types.AnswerAggregateFactAuthorizesSourceMemberCarrier(fact, rm, types.AnswerAggregateSourceContextFromBusContext(ctx))
 }
 
 // preEmitPrimaryMemberCarrierIndex returns one model-authored primary block
@@ -9132,7 +9138,7 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 			if ctxOpt[0].AnalysisIR != nil {
 				rm = &ctxOpt[0].AnalysisIR.RequestModel
 			}
-			if !types.AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
+			if !types.AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(fact, rm, types.AnswerAggregateSourceContextFromBusContext(ctxOpt[0])) {
 				continue
 			}
 		}
@@ -9953,10 +9959,11 @@ func preEmitTypedSourceInventoryPrincipalMemberSetFactRefs(ctx *types.BusContext
 		if set.FactIndex < 0 || set.FactIndex >= len(plan.StableAggregateFacts) {
 			continue
 		}
-		if types.EnumerationDisplaySetAuthorizesPrincipalContract(
+		if types.EnumerationDisplaySetAuthorizesPrincipalContractWithSourceContext(
 			&ctx.AnalysisIR.RequestModel,
 			plan.StableAggregateFacts[set.FactIndex],
 			set,
+			types.AnswerAggregateSourceContextFromBusContext(ctx),
 		) {
 			principalSets = append(principalSets, set)
 		}
@@ -10943,6 +10950,7 @@ func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []t
 }
 
 func preEmitAuthoritativePrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	source := types.AnswerAggregateSourceContextFromBusContext(ctx)
 	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
 	if len(refs) == 0 {
 		return nil
@@ -10959,8 +10967,8 @@ func preEmitAuthoritativePrincipalAggregateMemberSetFactRefs(ctx *types.BusConte
 	}
 	out := make([]types.AnswerAggregateFactRef, 0, len(refs))
 	for _, ref := range refs {
-		if types.AnswerAggregateFactAuthorizesPrincipalContract(ref.Fact, rm) ||
-			types.EnumerationDisplaySetAuthorizesPrincipalContract(rm, ref.Fact, sets[ref.Index]) {
+		if types.AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(ref.Fact, rm, source) ||
+			types.EnumerationDisplaySetAuthorizesPrincipalContractWithSourceContext(rm, ref.Fact, sets[ref.Index], source) {
 			out = append(out, ref)
 		}
 	}
@@ -11200,7 +11208,7 @@ func preEmitPrincipalRelationShapeMemberSetFactRefs(ctx *types.BusContext, facts
 	}
 	out := refs[:0]
 	for _, ref := range refs {
-		if types.AnswerAggregateFactAuthorizesPrincipalContract(ref.Fact, rm) {
+		if types.AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(ref.Fact, rm, types.AnswerAggregateSourceContextFromBusContext(ctx)) {
 			out = append(out, ref)
 		}
 	}
@@ -12784,74 +12792,28 @@ func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemant
 	return types.SelectedCitationRoleClaimForms(b.ClaimUses, forms)
 }
 
-func preEmitItemMatchesSourceLocationPrincipalMember(ctx *types.BusContext, item types.AnswerBlockItem, cit types.Citation) bool {
-	if ctx == nil {
+func preEmitItemUsesRequestedSourceLocationShape(ctx *types.BusContext, block types.AnswerBlock, item types.AnswerBlockItem, cit types.Citation) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	plan := types.BuildAnswerSupportPlanForBusContext(ctx)
-	if plan == nil || plan.ChangeImpactProfile == nil || !plan.ChangeImpactProfile.Active() {
+	// Only inherited view roles can be skipped for a file/site-shaped row.
+	// Explicit block claim forms and path facets still select their own role
+	// validation, independently of whether the file member has source proof.
+	if len(block.ClaimUses) > 0 || containsBlockFacet(block, types.FacetPrincipalPathEdge) || containsBlockFacet(block, types.FacetCurrentCodePath) {
 		return false
 	}
-	label := strings.TrimSpace(item.Label)
-	if label == "" {
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.RequestWantsSourceLocationMemberSurface(rm) {
 		return false
 	}
-	switch plan.ChangeImpactProfile.RequestedOutput {
+	switch rm.ChangeImpactProfile.RequestedOutput {
 	case types.ImpactOutputFiles:
-		if !types.AnswerFilePathLabelMatchesCitation(label, cit) {
-			return false
-		}
+		return types.AnswerFilePathLabelMatchesCitation(item.Label, cit)
 	case types.ImpactOutputSites:
-		if !types.AnswerSourceLocationLabelMatchesCitation(label, cit) {
-			return false
-		}
+		return types.AnswerSourceLocationLabelMatchesCitation(item.Label, cit)
 	default:
 		return false
 	}
-	for _, ob := range types.PrincipalSupportMemberObligations(plan) {
-		if preEmitSourcePrincipalObligationMatchesItem(ob, label, cit, plan.ChangeImpactProfile.RequestedOutput) {
-			return true
-		}
-	}
-	return false
-}
-
-func preEmitSourcePrincipalObligationMatchesItem(ob types.AnswerSupportMemberObligation, label string, cit types.Citation, output types.ImpactRequestedOutput) bool {
-	switch output {
-	case types.ImpactOutputFiles:
-		labelFile, ok := types.ParseAnswerFilePathSurface(label)
-		if !ok {
-			return false
-		}
-		if !preEmitPathMatches(ob.Source, labelFile) {
-			return false
-		}
-		return preEmitPathMatches(cit.File, labelFile)
-	case types.ImpactOutputSites:
-		surface, ok := types.ParseAnswerSourceLocationSurface(label)
-		if !ok || !preEmitCitationMatchesSourceLocation(cit, surface) {
-			return false
-		}
-		return preEmitSupportObligationHasCitation(ob, cit)
-	default:
-		return false
-	}
-}
-
-func preEmitSupportObligationHasCitation(ob types.AnswerSupportMemberObligation, cit types.Citation) bool {
-	want := preEmitCitationLocationKey(cit)
-	if want == "" {
-		return false
-	}
-	if preEmitNormalizeLocation(ob.Location) == want || preEmitLocationMatchesCitation(ob.Location, cit) {
-		return true
-	}
-	for _, loc := range ob.EquivalentLocations {
-		if preEmitNormalizeLocation(loc) == want || preEmitLocationMatchesCitation(loc, cit) {
-			return true
-		}
-	}
-	return false
 }
 
 func preEmitCitationLocationKey(cit types.Citation) string {
@@ -12983,6 +12945,14 @@ func normalizeItemCitationRefsByUniqueBacktickCitationQuoteWithContext(doc *type
 		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
+			// A prose/quote match can help repair an existing citation, but
+			// cannot establish one. Source examples and external observations
+			// often share literal protocol text; that overlap does not select
+			// source evidence for this item. Exact evidence-ID/row-ID binders
+			// remain independent and may attach the model's typed selections.
+			if len(types.AnswerBlockItemCitationRefs(*item)) == 0 {
+				continue
+			}
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
 				preEmitCitationOwnsUniqueTypedDefinitionForLabel(pctx, item.Label, doc.Citations[item.CitationRef]) {
 				continue
@@ -13549,6 +13519,7 @@ func preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx *preEmitC
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return nil
 	}
+	pctx = pctx.forAutomaticSourceCitation()
 	if limit <= 0 {
 		limit = 4
 	}
@@ -15284,7 +15255,7 @@ func normalizeContentBearingAggregateItemCitationRefsByUniqueExplicitSupportWith
 			if preEmitSourceInventoryItemCitationSelectsExactRow(doc, ctx, *block, *item) {
 				continue
 			}
-			target, ok := preEmitUniqueExplicitContentBearingAggregateMemberCitation(pctx, label)
+			target, ok := preEmitUniqueExplicitContentBearingAggregateMemberCitation(pctx.forAutomaticSourceCitation(), label)
 			if !ok {
 				continue
 			}

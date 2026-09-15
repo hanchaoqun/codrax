@@ -104,7 +104,7 @@ func compileChangeImpactAggregateMemberSupportLane(rm RequestModel, plan *Answer
 		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
 			continue
 		}
-		if !AnswerAggregateFactAuthorizesPrincipalContract(fact, &rm) {
+		if !answerAggregateFactAuthorizesPrincipalContract(fact, &rm, plan.aggregateSourceClaims) {
 			continue
 		}
 		for memberIdx, member := range fact.Members {
@@ -149,7 +149,7 @@ func compileGenericAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfa
 	seen := map[string]bool{}
 	for _, set := range CompileEnumerationDisplaySets(&rm, plan) {
 		if set.FactIndex < 0 || set.FactIndex >= len(plan.StableAggregateFacts) ||
-			!EnumerationDisplaySetAuthorizesPrincipalContract(&rm, plan.StableAggregateFacts[set.FactIndex], set) {
+			!enumerationDisplaySetAuthorizesPrincipalContract(&rm, plan.StableAggregateFacts[set.FactIndex], set, plan.aggregateSourceClaims) {
 			continue
 		}
 		for _, row := range set.Rows {

@@ -558,6 +558,9 @@ func firstObservationRecordIndexForOrigin(records []ObservationRecord, selected 
 // ledger compiler. The compiler is intentionally side-effect free and must not
 // inspect raw user prose or model free text to classify facts.
 type ObservationLedgerInput struct {
+	// Full, ephemeral aggregate qualification context captured before the
+	// display evidence limit. It never adds direct records to the ledger.
+	aggregateSourceClaims      *aggregateSourceClaimContext
 	EvidenceItems              []EvidenceItem
 	AggregateFacts             []AnswerAggregateFact
 	SourceInventoryObservation SourceInventoryObservation
@@ -649,7 +652,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
 	answerAggregateFacts := ProjectLogPeerRelationAnswerAuthority(input.AggregateFacts, input.LogBundle)
-	compileAggregateFactObservations(answerAggregateFacts, input.RequestModel, input.RowSetWriter, currentSourceSupport, add)
+	compileAggregateFactObservations(answerAggregateFacts, input.RequestModel, input.RowSetWriter, currentSourceSupport, input, add)
 	compileSourceInventoryObservationObservations(input.SourceInventoryObservation, input.RowSetWriter, add)
 	// SUPP-CORE: supplement results compile through the SAME tool-result
 	// path (single value source — identical record shapes to model-
@@ -1366,11 +1369,12 @@ func runtimeArtifactKindForEvidenceItem(ev EvidenceItem) string {
 	return "runtime_artifact"
 }
 
-func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestModel, rowSetWriter ObservationRowSetWriter, currentSourceSupport currentSourceSupportWitnessIndex, add func(ObservationRecord)) {
+func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestModel, rowSetWriter ObservationRowSetWriter, currentSourceSupport currentSourceSupportWitnessIndex, source ObservationLedgerInput, add func(ObservationRecord)) {
+	sourceClaims := compileAggregateSourceClaimContext(source)
 	for i, fact := range facts {
 		role := AnswerAggregateFactRoleForRequest(fact, rm)
 		claimAuthority := ObservationClaimAuthorityModelInference
-		if aggregateFactHasIndependentTypedAuthority(fact, rm) {
+		if aggregateFactHasIndependentTypedAuthorityInContext(fact, rm, sourceClaims) {
 			claimAuthority = ObservationClaimAuthorityIndependentlyProven
 		}
 		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)

@@ -89,7 +89,7 @@ func TestEmitAnswerSymbol_StructuredPayloadCompatRepairsStringItemsAndCount(t *t
 	}
 }
 
-func TestEmitAnswerSymbol_MaterializesSourceInventoryAggregateSlate(t *testing.T) {
+func TestEmitAnswerSymbol_UnwitnessedInventoryAggregateDoesNotMaterializeSlate(t *testing.T) {
 	tool := &EmitAnswerSymbol{}
 	ctx := newAnswerSymbolCtx()
 	ctx.Language = "zh"
@@ -129,20 +129,18 @@ func TestEmitAnswerSymbol_MaterializesSourceInventoryAggregateSlate(t *testing.T
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("expected deterministic materialization success, got: %s", res.Summary)
+		t.Fatalf("empty unknown slate should remain valid, got: %s", res.Summary)
 	}
-	got, claim := ctx.Mutable.EmittedAnswerSymbols()
-	if claim != types.CompletenessComplete {
-		t.Fatalf("claim = %q, want complete", claim)
+	// B1700: keep this original model payload as a negative control. A
+	// provenance string and model-supplied coordinates are not a native
+	// inventory observation. Real inventory/Read->Emit positives live in the
+	// independent public fallback tests; do not manufacture Grounded here.
+	got, claim, origin := ctx.Mutable.EmittedAnswerSymbolsWithOrigin()
+	if len(got) != 0 || claim != types.CompletenessUnknown || origin != types.AnswerSymbolSelectionUnknown {
+		t.Fatalf("unwitnessed model inventory minted a complete source slate: %+v %s %s", got, claim, origin)
 	}
-	if len(got) != 2 {
-		t.Fatalf("want 2 materialized symbols, got %+v", got)
-	}
-	if got[0].Name != "Intent" || got[0].File != "internal/types/analysis_ir.go" || got[0].Line != 847 || got[0].Kind != types.KindType {
-		t.Fatalf("first materialized symbol mismatch: %+v", got[0])
-	}
-	if !strings.Contains(res.Summary, "materialized 2 answer-symbol") {
-		t.Fatalf("summary should disclose deterministic materialization, got: %s", res.Summary)
+	if strings.Contains(res.Summary, "materialized 2 answer-symbol") {
+		t.Fatalf("summary must not claim deterministic source materialization: %s", res.Summary)
 	}
 }
 

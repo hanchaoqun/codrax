@@ -65,3 +65,40 @@ func (c *preEmitCheckContext) principalAggregateMemberSetFactRefsForCheck() []ty
 	}
 	return c.principalAggregateRefs
 }
+
+// forAutomaticSourceCitation is a request-local candidate view, not a new
+// answer contract. Model-selected citations still use the original context.
+// Share immutable evidence caches, but allocate a distinct refs slice so
+// filtering automatic candidates cannot erase retained model aggregates.
+func (c *preEmitCheckContext) forAutomaticSourceCitation() *preEmitCheckContext {
+	if c == nil || c.ctx == nil || c.sourceQualifiedAggregateRefs {
+		return c
+	}
+	if c.automaticCitationContext != nil {
+		return c.automaticCitationContext
+	}
+	refs := c.principalAggregateMemberSetFactRefsForCheck()
+	source := types.AnswerAggregateSourceContextFromBusContext(c.ctx)
+	qualified := make([]types.AnswerAggregateFactRef, 0, len(refs))
+	for _, ref := range refs {
+		if types.AnswerAggregateFactHasObservedSourceMembers(ref.Fact, source) {
+			qualified = append(qualified, ref)
+		}
+	}
+	facts := c.stableAggregateFactsForCheck()
+	qualifiedFacts := make([]types.AnswerAggregateFact, 0, len(facts))
+	for _, fact := range facts {
+		if types.AnswerAggregateFactHasObservedSourceMembers(fact, source) {
+			qualifiedFacts = append(qualifiedFacts, fact)
+		}
+	}
+	auto := *c
+	auto.stableAggregateFacts = qualifiedFacts
+	auto.stableAggregateFactsBuilt = true
+	auto.principalAggregateRefs = qualified
+	auto.principalAggregateRefsBuilt = true
+	auto.sourceQualifiedAggregateRefs = true
+	auto.automaticCitationContext = nil
+	c.automaticCitationContext = &auto
+	return c.automaticCitationContext
+}

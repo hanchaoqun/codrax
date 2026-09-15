@@ -33,6 +33,7 @@ func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []t
 		principalContractIndexes:  structuredAggregatePrincipalContractIndexes(ctx, facts),
 		requestModel:              aggregateFactRenderRequestModel(ctx),
 		supportEvidence:           aggregateFactRenderSupportEvidence(ctx),
+		sourceContext:             types.AnswerAggregateSourceContextFromAgentContext(ctx),
 	})
 }
 
@@ -174,6 +175,7 @@ type aggregateFactRenderOptions struct {
 	principalContractIndexes  map[int]bool
 	requestModel              *types.RequestModel
 	supportEvidence           []types.EvidenceItem
+	sourceContext             types.ObservationLedgerInput
 }
 
 func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact, maxFacts int, refs []types.AnswerAggregateFactRef, opts aggregateFactRenderOptions) string {
@@ -252,7 +254,7 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		}
 		if types.AnswerAggregateFactRoleForRequest(fact, opts.requestModel).IsPrincipal() &&
 			!opts.principalContractIndexes[i] &&
-			!types.AnswerAggregateFactAuthorizesPrincipalContract(fact, opts.requestModel) {
+			!types.AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(fact, opts.requestModel, opts.sourceContext) {
 			if types.AnswerAggregateFactRequiresWorkflowMembershipEvidence(fact, opts.requestModel) {
 				fmt.Fprintf(&b, ", fact_authority=`workflow_membership_unproven`, principal_contract=`not_authorized`")
 			} else {
@@ -856,12 +858,13 @@ func structuredAggregateCompactPrincipalMemberSetIndexes(ctx *types.AgentContext
 
 func structuredAggregatePrincipalContractIndexes(ctx *types.AgentContext, facts []types.AnswerAggregateFact) map[int]bool {
 	out := map[int]bool{}
+	source := types.AnswerAggregateSourceContextFromAgentContext(ctx)
 	var rm *types.RequestModel
 	if ctx != nil && ctx.AnalysisIR != nil {
 		rm = &ctx.AnalysisIR.RequestModel
 	}
 	for idx, fact := range facts {
-		if types.AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
+		if types.AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(fact, rm, source) {
 			out[idx] = true
 		}
 	}
@@ -876,7 +879,7 @@ func structuredAggregatePrincipalContractIndexes(ctx *types.AgentContext, facts 
 		if set.FactIndex < 0 || set.FactIndex >= len(facts) {
 			continue
 		}
-		if types.EnumerationDisplaySetAuthorizesPrincipalContract(rm, facts[set.FactIndex], set) {
+		if types.EnumerationDisplaySetAuthorizesPrincipalContractWithSourceContext(rm, facts[set.FactIndex], set, source) {
 			out[set.FactIndex] = true
 		}
 	}

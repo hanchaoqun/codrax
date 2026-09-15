@@ -113,8 +113,31 @@ type EnumerationDisplayRowAttribute struct {
 // Relation/call-chain requests are deliberately excluded: individually cited
 // nodes still do not prove their relation, direction, order, or bridge.
 func EnumerationDisplaySetAuthorizesPrincipalContract(rm *RequestModel, fact AnswerAggregateFact, set EnumerationDisplaySet) bool {
-	if AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) {
+	return enumerationDisplaySetAuthorizesPrincipalContract(rm, fact, set, nil)
+}
+
+// EnumerationDisplaySetAuthorizesPrincipalContractWithSourceContext applies
+// the same observed-member qualification to both the fact and row fallback.
+func EnumerationDisplaySetAuthorizesPrincipalContractWithSourceContext(rm *RequestModel, fact AnswerAggregateFact, set EnumerationDisplaySet, source ObservationLedgerInput) bool {
+	return enumerationDisplaySetAuthorizesPrincipalContract(rm, fact, set, compileAggregateSourceClaimContext(source))
+}
+
+func enumerationDisplaySetAuthorizesPrincipalContract(rm *RequestModel, fact AnswerAggregateFact, set EnumerationDisplaySet, source *aggregateSourceClaimContext) bool {
+	if source != nil && !AnswerEvidenceOriginsAreOriginSpecificOnly(set.EvidenceOrigins) &&
+		!aggregateSourceMemberSystemAuthority(fact) && !answerAggregateFactSourceMembersObserved(fact, source) {
+		for _, row := range set.Rows {
+			if row.HasCitation && row.Source != "" && row.LineStart > 0 {
+				// External principal support does not authorize unrelated source
+				// columns or citations for that same model member.
+				return false
+			}
+		}
+	}
+	if answerAggregateFactAuthorizesPrincipalContract(fact, rm, source) {
 		return true
+	}
+	if source != nil && !answerAggregateFactSourceMembersObserved(fact, source) {
+		return false
 	}
 	if rm != nil && PrincipalMemberSetRequiresTypedRelationAuthority(*rm) {
 		return false

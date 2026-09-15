@@ -1,6 +1,9 @@
 package tool
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -224,7 +227,18 @@ func TestAnswerDocumentRedlineMatrix_FullPreEmitKeepsOriginSpecificAbsenceExtern
 	}
 }
 
-func TestAnswerDocumentRedlineMatrix_MissingMemberSupplementIsSingleMarkedAppendOnly(t *testing.T) {
+func redlineMatrixMissingMemberFixture(t *testing.T) (*types.BusContext, *types.AnswerDocumentV2) {
+	t.Helper()
+	root := t.TempDir()
+	path := filepath.Join(root, "internal/analysis/criterion/eval.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	lines := make([]string, 36)
+	lines[0], lines[14], lines[35] = "package criterion", "func Eval() {}", "func EvalAll() {}"
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	mu := types.NewMutableState("列出完整公开函数")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -243,7 +257,9 @@ func TestAnswerDocumentRedlineMatrix_MissingMemberSupplementIsSingleMarkedAppend
 	}})
 	mu.RetainInvestigationAggregateFacts()
 	ctx := &types.BusContext{
-		Mutable: mu,
+		RepoRoot: root,
+		WorkDir:  filepath.Join(root, ".codrax"),
+		Mutable:  mu,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentEnumerate,
 			Language: "zh",
@@ -258,8 +274,47 @@ func TestAnswerDocumentRedlineMatrix_MissingMemberSupplementIsSingleMarkedAppend
 		Kind: types.BlockSummary,
 		Text: "模型先给出了整体说明，但没有列出完整成员。",
 	}}}
+	return ctx, doc
+}
+
+func TestAnswerDocumentRedlineMatrix_MissingMemberSupplementIsSingleMarkedAppendOnly(t *testing.T) {
+	ctx, doc := redlineMatrixMissingMemberFixture(t)
+	read, err := (&ReadFile{}).Execute(ctx, json.RawMessage(`{"path":"internal/analysis/criterion/eval.go","limit":64}`))
+	if err != nil || !read.Success || read.ReadCoverage == nil {
+		t.Fatalf("public source read failed: %v %+v", err, read)
+	}
+	ctx.Mutable.AppendDispatchToolResult(read)
+	var items []map[string]any
+	for _, member := range []struct {
+		name string
+		line int
+	}{{"Eval", 15}, {"EvalAll", 36}} {
+		items = append(items, map[string]any{
+			"evidence_kind": "direct", "scope": "line", "source": "internal/analysis/criterion/eval.go",
+			"line_start": member.line, "anchor_kind": "definition", "anchor_symbol": member.name,
+			"subject": member.name, "summary": "defines this source function",
+		})
+	}
+	payload, err := json.Marshal(map[string]any{"items": items})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emitted, err := (&EmitEvidence{}).Execute(ctx, payload)
+	if err != nil || !emitted.Success || len(ctx.Mutable.EmittedEvidence()) != 2 {
+		t.Fatalf("public definition evidence emission failed: %v %+v", err, emitted)
+	}
+	for _, evidence := range ctx.Mutable.EmittedEvidence() {
+		if evidence.GroundingStatus != types.GroundingGrounded && evidence.GroundingStatus != types.GroundingRecovered {
+			t.Fatalf("source producer did not establish the definition witness: %+v", evidence)
+		}
+	}
+	beforeFacts, _ := json.Marshal(ctx.Mutable.StableInvestigationAggregateFacts())
 	view := &types.AnswerSemanticView{}
 	normalizeAnswerDocumentForPreEmit("redline_matrix", doc, view, ctx, newPreEmitCheckContext(ctx))
+	afterFacts, _ := json.Marshal(ctx.Mutable.StableInvestigationAggregateFacts())
+	if string(beforeFacts) != string(afterFacts) {
+		t.Fatal("source witness must not rewrite the retained model members, notes or support refs")
+	}
 
 	if doc.Blocks[0].Text != "模型先给出了整体说明，但没有列出完整成员。" {
 		t.Fatalf("append-only supplement must not rewrite model-authored summary: %q", doc.Blocks[0].Text)
@@ -278,6 +333,24 @@ func TestAnswerDocumentRedlineMatrix_MissingMemberSupplementIsSingleMarkedAppend
 	}
 	if markedSupplements != 1 {
 		t.Fatalf("expected exactly one clearly marked missing-member supplement, got %d: %+v", markedSupplements, doc.Blocks)
+	}
+}
+
+func TestAnswerDocumentRedlineMatrix_MissingMemberBareRefsDoNotAuthorizeSupplement(t *testing.T) {
+	// Exactly the same model proposal and on-disk definitions are available;
+	// no ReadFile/EmitEvidence observation has admitted those source members.
+	ctx, doc := redlineMatrixMissingMemberFixture(t)
+	beforeDoc, _ := json.Marshal(doc)
+	beforeFacts, _ := json.Marshal(ctx.Mutable.StableInvestigationAggregateFacts())
+	view := &types.AnswerSemanticView{}
+	normalizeAnswerDocumentForPreEmit("redline_matrix", doc, view, ctx, newPreEmitCheckContext(ctx))
+	afterDoc, _ := json.Marshal(doc)
+	afterFacts, _ := json.Marshal(ctx.Mutable.StableInvestigationAggregateFacts())
+	if string(beforeDoc) != string(afterDoc) || string(beforeFacts) != string(afterFacts) {
+		t.Fatalf("unobserved source references must preserve the model proposal without system additions: %+v", doc)
+	}
+	if len(doc.Blocks) != 1 || len(doc.Citations) != 0 || doc.Blocks[0].SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown {
+		t.Fatalf("bare model refs minted a system member carrier or source citation: %+v", doc)
 	}
 }
 

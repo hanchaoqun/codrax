@@ -195,6 +195,13 @@ func cloneAnswerSurfacePlan(in *AnswerSurfacePlan) *AnswerSurfacePlan {
 		return nil
 	}
 	out := *in
+	if in.aggregateSourceClaims != nil {
+		context := *in.aggregateSourceClaims
+		context.items = append([]EvidenceItem(nil), context.items...)
+		context.inventory = append([]aggregateSourceInventoryMemberWitness(nil), context.inventory...)
+		context.coordinates.witnesses = append([]currentSourceSupportWitness(nil), context.coordinates.witnesses...)
+		out.aggregateSourceClaims = &context
+	}
 	out.StepBackbone = append([]StepSurfaceAnchor(nil), in.StepBackbone...)
 	out.ExplanationAnchorBackbone = append([]StepSurfaceAnchor(nil), in.ExplanationAnchorBackbone...)
 	out.ExplanationAnchorMissingTopics = append([]string(nil), in.ExplanationAnchorMissingTopics...)

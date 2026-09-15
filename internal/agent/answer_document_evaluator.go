@@ -8549,7 +8549,7 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 		return ""
 	}
 	sets := answerDocPrincipalEnumerationSets(ctx, plan)
-	refs, advisoryRefs := answerDocPartitionPrincipalMemberSetRefs(allRefs, &rm, sets)
+	refs, advisoryRefs := answerDocPartitionPrincipalMemberSetRefs(allRefs, &rm, sets, types.AnswerAggregateSourceContextFromAgentContext(ctx))
 	if len(refs) == 0 {
 		return renderAnswerDocAdvisoryPrincipalMemberSets(advisoryRefs, &rm)
 	}
@@ -8640,13 +8640,13 @@ func answerDocDistinctPrincipalMembers(raw []string) []string {
 	return members
 }
 
-func answerDocPartitionPrincipalMemberSetRefs(refs []types.AnswerAggregateFactRef, rm *types.RequestModel, sets []types.EnumerationDisplaySet) (authoritative, advisory []types.AnswerAggregateFactRef) {
+func answerDocPartitionPrincipalMemberSetRefs(refs []types.AnswerAggregateFactRef, rm *types.RequestModel, sets []types.EnumerationDisplaySet, source types.ObservationLedgerInput) (authoritative, advisory []types.AnswerAggregateFactRef) {
 	setAuthority := make(map[int]bool, len(sets))
 	for _, set := range sets {
 		setAuthority[set.FactIndex] = true
 	}
 	for _, ref := range refs {
-		if setAuthority[ref.Index] || types.AnswerAggregateFactAuthorizesPrincipalContract(ref.Fact, rm) {
+		if setAuthority[ref.Index] || types.AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(ref.Fact, rm, source) {
 			authoritative = append(authoritative, ref)
 		} else {
 			advisory = append(advisory, ref)
@@ -8913,7 +8913,7 @@ func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
 	// validator consumer so this advisory handoff cannot call a soft model
 	// inference "required" after the structured aggregate section rejected that
 	// upgrade.
-	relationRefs, _ = answerDocPartitionPrincipalMemberSetRefs(relationRefs, &rm, nil)
+	relationRefs, _ = answerDocPartitionPrincipalMemberSetRefs(relationRefs, &rm, nil, types.AnswerAggregateSourceContextFromAgentContext(ctx))
 	if !answerDocShouldRenderRelationSurfaceHandoff(rm, rows, relationRefs) {
 		return ""
 	}
@@ -11407,12 +11407,13 @@ func answerDocPrincipalEnumerationSets(ctx *types.AgentContext, plan *types.Answ
 		return nil
 	}
 	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	source := types.AnswerAggregateSourceContextFromAgentContext(ctx)
 	out := sets[:0]
 	for _, set := range sets {
 		if set.FactIndex < 0 || set.FactIndex >= len(plan.StableAggregateFacts) {
 			continue
 		}
-		if types.EnumerationDisplaySetAuthorizesPrincipalContract(&ctx.AnalysisIR.RequestModel, plan.StableAggregateFacts[set.FactIndex], set) {
+		if types.EnumerationDisplaySetAuthorizesPrincipalContractWithSourceContext(&ctx.AnalysisIR.RequestModel, plan.StableAggregateFacts[set.FactIndex], set, source) {
 			out = append(out, set)
 		}
 	}
@@ -11659,6 +11660,7 @@ func renderAnswerDocSourceInventoryRowGuidance(ctx *types.AgentContext) string {
 }
 
 func answerDocPrincipalRelationMemberSetRefs(ctx *types.AgentContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	source := types.AnswerAggregateSourceContextFromAgentContext(ctx)
 	var rm *types.RequestModel
 	var refs []types.AnswerAggregateFactRef
 	if ctx == nil || ctx.AnalysisIR == nil {
@@ -11669,7 +11671,7 @@ func answerDocPrincipalRelationMemberSetRefs(ctx *types.AgentContext, facts []ty
 	}
 	out := refs[:0]
 	for _, ref := range refs {
-		if types.AnswerAggregateFactAuthorizesPrincipalContract(ref.Fact, rm) {
+		if types.AnswerAggregateFactAuthorizesPrincipalContractWithSourceContext(ref.Fact, rm, source) {
 			out = append(out, ref)
 		}
 	}

@@ -421,7 +421,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 				fmt.Fprintf(&b, "- **Analyzer required-name count:** %d name(s)", len(must))
 				if len(must) > 0 {
 					if extractorHasAcceptedMemberSet(ta) {
-						b.WriteString(" — names omitted because accepted `aggregate_facts.member_set` already carries the authoritative principal set")
+						b.WriteString(" — names omitted because accepted `aggregate_facts.member_set` already carries the proposed structured set; its actual principal authority is stated with the evidence qualification below")
 					} else {
 						fmt.Fprintf(&b, " — %s", extractorSoftGuidanceNamePreview(must))
 					}
@@ -3383,6 +3383,9 @@ func needsAnswerSymbols(ctx *types.AgentContext) bool {
 	}
 	if requiresMultiTopicAnchorSkeleton(ctx) || viewNeedsBoundedPrincipalList(ctx) {
 		return true
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && types.RequestWantsSourceLocationMemberSurface(ctx.AnalysisIR.RequestModel) {
+		return false
 	}
 	if viewNeedsEnumerationSlate(ctx) {
 		return !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx)

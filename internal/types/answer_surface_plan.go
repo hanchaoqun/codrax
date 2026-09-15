@@ -57,6 +57,10 @@ type AnswerSurfacePlan struct {
 	SourceInventoryObservation    SourceInventoryObservation
 
 	SurfaceEvidence []EvidenceItem
+	// Ephemeral full observed-source context, distinct from facet/display
+	// selection. Every real builder initializes it, including an empty proof
+	// context. Nil is reserved for trusted context-free low-level display plans.
+	aggregateSourceClaims *aggregateSourceClaimContext `json:"-"`
 
 	AllowedExactContextItems       []EvidenceItem
 	CitationGradeExactContextItems []EvidenceItem
@@ -1717,6 +1721,9 @@ func BuildAnswerSurfacePlan(
 	plan := &AnswerSurfacePlan{
 		RequestedEnumerationBoundary: ir.RequestModel.EnumerationBoundary,
 		ChangeImpactProfile:          ir.RequestModel.ChangeImpactProfile,
+		aggregateSourceClaims: compileAggregateSourceClaimContext(AnswerAggregateSourceContextFromBusContext(&BusContext{
+			AnalysisIR: ir, Mutable: mutable, EvidenceItems: evidence,
+		})),
 	}
 	if ir.RequestModel.RequestedAnswerDimensions != nil && ir.RequestModel.RequestedAnswerDimensions.Active() {
 		plan.RequestedAnswerDimensions = append([]RequestedAnswerDimension(nil), ir.RequestModel.RequestedAnswerDimensions.Dimensions...)
@@ -2035,6 +2042,7 @@ func BuildAnswerSurfacePlanForAgentContext(ctx *AgentContext) *AnswerSurfacePlan
 		ctx.EvidenceItems,
 	)
 	if plan != nil {
+		plan.aggregateSourceClaims = compileAggregateSourceClaimContext(AnswerAggregateSourceContextFromAgentContext(ctx))
 		plan.SubRepoNames = subRepoNamesFrom(ctx.MultiGraph)
 		ledger := CompileObservationLedger(ObservationLedgerInputFromAgentContext(ctx, 64))
 		attachedRuntimeArtifact := RuntimeArtifactContextActiveFromAgent(ctx)
@@ -2074,6 +2082,7 @@ func BuildAnswerSurfacePlanForBusContext(ctx *BusContext) *AnswerSurfacePlan {
 		ctx.EvidenceItems,
 	)
 	if plan != nil {
+		plan.aggregateSourceClaims = compileAggregateSourceClaimContext(AnswerAggregateSourceContextFromBusContext(ctx))
 		plan.SubRepoNames = subRepoNamesFrom(ctx.MultiGraph)
 		ledger := CompileObservationLedger(ObservationLedgerInputFromBusContext(ctx, 64))
 		attachedRuntimeArtifact := RuntimeArtifactContextActiveFromBus(ctx)

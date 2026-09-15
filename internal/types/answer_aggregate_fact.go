@@ -2928,6 +2928,14 @@ func aggregateFactHasTypedSupportRef(fact AnswerAggregateFact) bool {
 // current-source contract can elevate the aggregate as a whole. Producer-owned
 // runtime observations remain separate ObservationRecords.
 func aggregateFactHasIndependentTypedAuthority(fact AnswerAggregateFact, rm *RequestModel) bool {
+	return aggregateFactHasIndependentTypedAuthorityInContext(fact, rm, nil)
+}
+
+func aggregateFactHasIndependentTypedAuthorityWithSourceContext(fact AnswerAggregateFact, rm *RequestModel, source ObservationLedgerInput) bool {
+	return aggregateFactHasIndependentTypedAuthorityInContext(fact, rm, compileAggregateSourceClaimContext(source))
+}
+
+func aggregateFactHasIndependentTypedAuthorityInContext(fact AnswerAggregateFact, rm *RequestModel, source *aggregateSourceClaimContext) bool {
 	if AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) ||
 		strings.Contains(fact.Provenance, SourceInventoryPrincipalRowSetAggregateProvenance) {
 		return true
@@ -2940,7 +2948,10 @@ func aggregateFactHasIndependentTypedAuthority(fact AnswerAggregateFact, rm *Req
 	// Keep the exact-source requirement above: principal contracts also admit
 	// explicit external support, which does not certify a model aggregate as
 	// independently proven. Producer-owned runtime rows retain their own lane.
-	return AnswerAggregateFactAuthorizesPrincipalContract(fact, rm)
+	if source != nil && !answerAggregateFactSourceMembersObserved(fact, source) {
+		return false
+	}
+	return answerAggregateFactAuthorizesPrincipalContract(fact, rm, source)
 }
 
 func runtimeObservationMemberSetIsAdvisory(rm *RequestModel, fact AnswerAggregateFact) bool {

@@ -39,6 +39,7 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		perfBundle = ctx.AnalysisIR.RequestModel.PerfTrace
 	}
 	evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ctx.EvidenceItems...)
+	aggregateSourceEvidence := appendObservationLedgerEvidence(nil, 0, ctx.EvidenceItems...)
 	if ctx.Mutable != nil {
 		aggregateFacts = ctx.Mutable.StableInvestigationAggregateFacts()
 		sourceInventory = ctx.Mutable.SourceInventoryObservation()
@@ -53,6 +54,7 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 			aggregateFacts = MergeAnswerAggregateFacts(aggregateFacts,
 				SupersedeOrdinalMemberSetFactsByLabel(ta.AcceptedAggregateFacts, aggregateFacts))
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ta.EvidenceItems...)
+			aggregateSourceEvidence = appendObservationLedgerEvidence(aggregateSourceEvidence, 0, ta.EvidenceItems...)
 			toolResults = append([]ToolResult(nil), ta.ToolResults...)
 			if len(ctx.MCPResponses) == 0 {
 				mcpResponses = append([]MCPResponse(nil), ta.MCPResponses...)
@@ -60,11 +62,13 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
 		toolResults = mergeObservationLedgerToolResults(toolResults, ctx.Mutable.DispatchToolResults())
+		aggregateSourceEvidence = appendObservationLedgerEvidence(aggregateSourceEvidence, 0, ctx.Mutable.EmittedEvidence()...)
 		if len(evidenceItems) < normalizedObservationLedgerEvidenceLimit(evidenceLimit) || evidenceLimit <= 0 {
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ctx.Mutable.EmittedEvidence()...)
 		}
 	}
 	return ObservationLedgerInput{
+		aggregateSourceClaims:      compileAggregateSourceClaimContext(ObservationLedgerInput{EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
 		EvidenceItems:              evidenceItems,
 		AggregateFacts:             aggregateFacts,
 		SourceInventoryObservation: sourceInventory,
@@ -111,6 +115,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		perfBundle = bus.AnalysisIR.RequestModel.PerfTrace
 	}
 	evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, bus.EvidenceItems...)
+	aggregateSourceEvidence := appendObservationLedgerEvidence(nil, 0, bus.EvidenceItems...)
 	toolResults = append([]ToolResult(nil), bus.ToolResults...)
 	mcpResponses = append([]MCPResponse(nil), bus.MCPResponses...)
 	if bus.Mutable != nil {
@@ -127,6 +132,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 			aggregateFacts = MergeAnswerAggregateFacts(aggregateFacts,
 				SupersedeOrdinalMemberSetFactsByLabel(ta.AcceptedAggregateFacts, aggregateFacts))
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ta.EvidenceItems...)
+			aggregateSourceEvidence = appendObservationLedgerEvidence(aggregateSourceEvidence, 0, ta.EvidenceItems...)
 			if len(ta.ToolResults) > 0 {
 				toolResults = append([]ToolResult(nil), ta.ToolResults...)
 			}
@@ -136,6 +142,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
 		toolResults = mergeObservationLedgerToolResults(toolResults, bus.Mutable.DispatchToolResults())
+		aggregateSourceEvidence = appendObservationLedgerEvidence(aggregateSourceEvidence, 0, bus.Mutable.EmittedEvidence()...)
 	}
 	var supplementResults []ToolResult
 	if bus.Mutable != nil {
@@ -144,6 +151,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		supplementResults = bus.Mutable.SystemTraceSupplementResults()
 	}
 	return ObservationLedgerInput{
+		aggregateSourceClaims:        compileAggregateSourceClaimContext(ObservationLedgerInput{EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
 		EvidenceItems:                evidenceItems,
 		AggregateFacts:               aggregateFacts,
 		SourceInventoryObservation:   sourceInventory,
