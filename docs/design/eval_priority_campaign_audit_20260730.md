@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-15）
 
+最新回放§123.1812：B1698 `477025af9` / B1697 `6859fe811` 均已推送，联合冻结86包全仓通过后清洁构建。r1075严格混合Trace/源码read与C++ plan-only两路各一次，机器1PASS/1FAIL；人审计划核心PASS但未应用/编译，混合读数值及五维正确、当前实现与来源资格FAIL。新B1699同一soft-required源码义务被误教optional并反复拒绝收束、B1700混合member_set获源码清单资格及无引用runtime条目被补错来源均P1，下一片先公共复现，不归JSON畸形或模型波动。B1697/B1698实际通道及图在本对N/A；原结果/夹具/机评不改，无第三例追绿。
+
 最新交付§123.1811：B1698已477025af9推送，B1697原始Trace有界回读已公共先红后绿、最终count3/race/两轮独立复审及冻结全仓86包通过；中间6项回归全部修正，旧断言保留。凭据与持久化事实分离，agent新escape有界、原生读取分页兼容、原始数据仍runtime-only。下一r1075按混合Trace/源码read与C++ plan-only恰好两路各一次，提交后清洁构建才启动；B1694/模型解释/完整图表达与写验证债不代销。
 
 当前交付§123.1810：r1074已f1987454a单独收账推送；B1698完整注释范围及合法范围引用交接已公共先红后绿、count3/race3，联合最终冻结全仓86包通过。原同标签点引用抢占范围的新见证并入B1694，保留精确已知缺口测试，不作全范围闭环宣称。B1697单物理Trace有界回读的同批兼容回归已修、旧断言未改，亦通过最终专项/冷审/全仓；两片分开交付。原模型单位/事件类型/IO文字错误不由系统代改答案。
@@ -57427,6 +57429,19 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1812 r1075：混合来源不能用源码格式教学证明实测事实（2026-09-15）
+
+1. **已交付与冻结回放**：B1698 `477025af9`、B1697 `6859fe811` 均已推送origin/main；联合最终86包强制全测/race/冷审见§1810–1811，中间失败及B1694精确已知缺口SKIP保留。清洁make为`0.1.20260915 / 6859fe81192c / 2026-09-15T08:09:07Z`，随后CAP5/PARALLEL2/TIMEOUT1200、原15步，混合read与C++ plan-only各一次。243例中215read/25apply/3plan；按来源跨度、模式稀疏性、上次回放时间排序，不重复r1074纯Trace/Java或r1073 C apply。runner退出0只代表完成，机器实际1PASS/1FAIL。汇总`eval/parallel_selected_summary_evalcampaign_mixed_plan_r1075_20260915.md`原样保留，同名前缀`_manual_audit.md`为完整人工证据链。
+2. **计划核心PASS，证明范围不扩**：C++63s/ctx28%，读2/列1；`main.cpp:19`的retrun→return在patch与结构化edit一致。正式计划保planned/pending_approval，patch/verification为空、proof unknown/runner none，没有apply/编译/执行；原夹具与scratch源码SHA一致。日志P=`eval/results/patch_cpp_typo-20260915-011014/run-1.logs/codrax-20260915-011016-000-52290.log`：953已教不用Python包装CPP证明，1152模型首稿仍包装、1160精确拒绝、1193纠正后成功，不是成文JSON重试。P2保留placement expected=return但line_local_not_contains矛盾（已planning_only_ungrounded）与Alice验收缺参数；不是系统验证签绿，不加prose硬门。运行时辅助.gitignore未跟踪不冒称全scratch零变化。
+3. **混合读FAIL，但测量正证保留**：274s/ctx33%，read1/trace3，5调查/6中途检查、成文拒绝1/patch1。291B两条B/E明确1000.100000..1000.186111s=86.111ms>50ms，五用户维度完整；机器失败为当前实现路径正则不匹配，人工另有独立失败依据。日志L=`eval/results/read_combo_trace_current_code_dimensions-20260915-011014/run-1.logs/codrax-20260915-011016-000-52275.log`，A=`.codrax/output/20260915-011446.411-52275.md`：3290仅读defaults.go教学而非实际实现；A21唯一相关/无实现超出证据，A27完整measure/layout/Drawing全流程未证，A18把B/E扩称帧边界、覆盖1.00扩成无解析残余。query真实有4行未解析头部，不能混用覆盖口径或反称缺事件。A30/40设备源码边界正确仍不能补当前实现；A38英文系统单位事实与内部lane/validator术语列P2，不系统改原答案。
+4. **B1699新P1：源码义务的提示与完成判据自冲突**。L48 current_source=required；L1019/1475/1929/2408/2838连续req=soft:lane=required:required=true:satisfied=false，却在1383/1853/2284/3199提示源码optional/优先收束，1477等又以missing_origin_lanes=current_source重派。`external_observation_sufficiency.go:81–85`只阻required&&precise；`runtime_source_answer_authority_view.go:145–158`保required；explorer每次传当前IR/hint，非已证陈旧IR。下一片公共先红后绿，统一范围化充分性与同源义务指导，不将soft一刀硬化/删除源码义务，不扫描用户原文判门。
+5. **B1700新P1：普通混合member_set的源码资格不足**。L3387模型将86.111ms>50ms包装member_set并引用defaults1238/1239；L4182系统提升current_source/independently_proven，4266编成带源码location的清单行。原模型emit4437只有summary/ordered_list/caveat、没有表或citation池；4441系统补表，A42–46变成“符号名称86.111ms 50ms／定义位置defaults.go:1238”。不是系统凭空造数，也不能归纯模型波动。实际不是scalar_value；B1695两consumer仍复用同资格，没有回归为两套判据，缺在普通非关系/工作流聚合的精确source支持未证明成员/主张。需结构化claim/source资格公共针，不用数值/散文形状硬门，不代写结论。
+6. **同B1700引用子通道与JSON边界**：4444起正确拒绝runtime ID进入current-source evidence_ids，4511模型只删ID/保原字；4514–4516系统按反引号B|<pid>|<tag>匹配格式quote给空引用实测条目新增源码引用（A32）。旧EVAL-B21-CIT2/B657保护已有正确绑定，本例“空runtime条目新增错误来源”不能冒称旧修回归，归同源full/patch自动引用审计、不另建单例编号。一次拒绝不是畸形JSON或无答案降级；初始root_cause/bounded_effect_verdict不一致后模型改causal_diagnosis列路由教学观察，尚不据此宣称因果投影丢失。
+7. **文件/链/图边界**：root-causes.json真实必出schema2空数组、unavailable/no_selectable_typed_on_chain_candidates；两条span不能推出IO/供给/调度/链上或帧截止因果，没有候选不是文件遗漏。B1697原capture回读、B1698注释范围与图均本对N/A，不代销专项或完整语言/关系/时序/逻辑矩阵。模型保正文/图/根因选择；链上双轴与所有原因种类、背景支撑隔离、显式窗/自动补齐不变。600/300/600s默认与实际字节续活未改，活跃心跳/推理/工具流不因4ms/旧4m无正文降级；显式cancel/deadline与eval外层1200s独立。
+8. **封存与后续ROI**：`.codrax/tmp/20260915-r1075-case-fixtures-before.sha`、`results-audit.sha`、`answer-audit.sha`（后两同20260915-r1075前缀）核原case/夹具、收据所列18个结果文件与MD/HTML/侧车未变；不将此清单冒称所有嵌套运行缓存的完整快照。原机汇总SHA256=3c91607bd7c2858e1e397c8abde679ad4399949fb20ab24ea119207769131525。无重跑/第三例/改oracle。下一先B1699公共复现统一源码义务，再B1700聚合与引用资格，之后B1694范围/同坐标异语义；B1693/B1319/B1561/B1696、模型解释与图矩阵/原生验证债继续OPEN。此节只交付审计，不冒称新两P1已实现。
+
+状态：`B1698=477025af9-pushed`；`B1697=6859fe811-pushed`；`r1075=exact2-once/runner-1pass-1fail/human-plan-core-pass+mixed-read-fail`；`B1699=P1-production+code-confirmed/public-regression-next`；`B1700=P1-production-ownership-confirmed/source-qualification+new-citation/public-regression-next`；`B1694=OPEN`；`original-model-artifacts/oracles/cases=preserved`。
 
 ### §123.1811 B1697：原始Trace证据回查与源码权限分离（2026-09-15）
 
