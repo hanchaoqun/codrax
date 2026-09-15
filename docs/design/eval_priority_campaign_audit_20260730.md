@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-15）
 
-当前交付§123.1813–1814：B1699 `0995bf36d`、B1700 `fefbcfbef` 已推送，不改模型答案/已选引用。§123.1815 r1076恰好两路各一次，机器1PASS/1FAIL：Trace测量正确、解释错误；TS实际交付原生后验6/6通过但正式proof未闭，审计`fd5fed5a9`已推送。§123.1816 B1701 `c47cfbc5a`已推送；§123.1817 B1702已完成实现，含晚生成诊断、输出归属与原子上下文，正在末版联合验收，尚未宣称完成。下一r1077选择NAPI生成加载器apply与pipeline图read各一次；Trace状态重复/错域枚举提示归B1626/EVAL-B36-SYSAUTH1，B1694、完整图表达与写验证债继续开放。
+当前交付§123.1817：B1702 `03ddd7e2d`已推送，四包count3/race及全仓86有测试包通过，保失败探测输出而不改证明/判定。§123.1818 r1077恰好两路各一次，机器1PASS/1FAIL：pipeline图核心关系完整、浏览器视觉未验证；NAPI实际补丁原生后验36/36但正式proof未闭，原机评不改。新P1 B1703子阶段错误占据最终状态、B1704 source-free修复教学指向禁止操作，正在分片修复；B1705图形类型隐含关系最低要求为P2。B1702自然生产触发本轮N/A。B1694、B1626/EVAL-B36-SYSAUTH1、完整图表达与原生写证明债继续开放。
 
 最新回放§123.1812：B1698 `477025af9` / B1697 `6859fe811` 均已推送，联合冻结86包全仓通过后清洁构建。r1075严格混合Trace/源码read与C++ plan-only两路各一次，机器1PASS/1FAIL；人审计划核心PASS但未应用/编译，混合读数值及五维正确、当前实现与来源资格FAIL。新B1699同一soft-required源码义务被误教optional并反复拒绝收束、B1700混合member_set获源码清单资格及无引用runtime条目被补错来源均P1，下一片先公共复现，不归JSON畸形或模型波动。B1697/B1698实际通道及图在本对N/A；原结果/夹具/机评不改，无第三例追绿。
 
@@ -57460,17 +57460,39 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 2. **不同生成时机同根补齐**：冷审发现Python NameError/SyntaxError和Java编译诊断晚于原采集点，`20260915-b1702-late-diagnostic-public-red.log`两叶真实RED。现在每个probe先按实际输出所属执行保存临时观察；四条runPlan入口（pre-suite/no-tests/runner-missing/parser-error）及有active plan的planner dry-run携入局部slice，finish在原诊断生成后仅附nested，不提前增加diag。无active plan/无完整receipt不铸身份。Java编译失败保留compileOutput原文而原TestResult.detail限制不变；编译后运行失败的输出由生产者OutputCommandIndex明确指向java，不冒挂成功javac，亦不按错误文本或exit0猜归属。
 3. **上下文预算不是词面拟合**：初实现Ruby约507字节错误因400rune截取丢中部，`20260915-b1702-tool-public-green-count3.log`留三次真红；独立`b1702-types-short-output-red.log`覆盖500–1000转义字节。新执行摘录用1000 encoded bytes，短输出原样、长输出只按位置保两端；完整日志另有独立引用预算。旧B1561 rune预算不动。中文系统卡用计划/探测/执行标识及原错误/日志，不显示内部digest字段；英文模型上下文仍精确，不改模型正文。
 4. **中间通过不代替末版**：types公共JSON RED `b1702-types-public-red.log`；精确receipt消费者RED `20260915-b1702-consumer-receipt-red.log`。types末版局部count3/race 3.315s/2.477s（`b1702-types-short-output-final-{count3,race}.log`）；consumer先前count3 agent4.016s/orchestrator2.119s。tool v3 6.119s及v6 20.625s通过仅是其时版本，不冒充后续输出归属修订全测。新的Java编译长日志/先编译后运行测试是实际子进程协议夹具，本机无JDK，不能声称真javac语言验证。所有中间编译/夹具失败收据原样保留。
-5. **末版待联合验收**：`20260915-b1702-final-focused.log`跑四包新针+旧B1122/B1561/B1616/B1661/B1673及Go/JS/Ruby/Java旧协议邻接count3；`20260915-b1702-final-race.log`跑四包B1702 race。当前9格真实语言公共路径、16格producer/merge边界、2格Java协议，既有diagnostic数/分类、Passed、confidence/proof、源文件及原计划不变。types19类错误身份/票据正反控、JSON/三消费者原子压缩和历史恢复、final/handoff复制、双语总预算、当前空报告不复活旧记录均随片交付。未新增模型JSON必填项或关键词硬门，Trace/600-300-600秒与活跃流策略不变。
+5. **末版联合验收范围**：`20260915-b1702-final-focused.log`跑四包新针+旧B1122/B1561/B1616/B1661/B1673及Go/JS/Ruby/Java旧协议邻接count3；`20260915-b1702-final-race.log`跑四包B1702 race。当前9格真实语言公共路径、16格producer/merge边界、2格Java协议，既有diagnostic数/分类、Passed、confidence/proof、源文件及原计划不变。types19类错误身份/票据正反控、JSON/三消费者原子压缩和历史恢复、final/handoff复制、双语总预算、当前空报告不复活旧记录均随片交付。未新增模型JSON必填项或关键词硬门，Trace/600-300-600秒与活跃流策略不变。
 
 6. **最终验收完成**：末版四包count3通过：tool58.916s/types2.348s/agent4.156s/orchestrator3.968s；race通过：tool6.900s/types4.508s/agent5.587s/orchestrator2.228s。随后冻结全量Go/build输入`20260915-b1702-freeze.sha`，`go test ./... -count=1`完整exit0、86有测试包PASS+13无测试包、零FAIL（`20260915-b1702-full.log`），结束后SHA全一致（`-freeze-verify.log`），diff检查通过。该结论不覆盖本机缺失的真实JDK，也不等于开放写证明/图表达/Trace解释债全部闭合。独立冷审指出的晚诊断和Java复合进程输出归属均在同片解决；没有通过改旧断言或case/oracle获取PASS。代码/测试/架构及本状态同片提交，下一live保持两路一次。
 
 状态：`B1702=implemented/public-red-to-green/precise-execution-output-origin/current+historical-context-scoped/count3+race+full-86-package-pass`；`model-answer/diag-classification/continuation/proof=unchanged`；`missing-plan-or-native-receipt=no-forged-observation`；`r1077=next-exact2-once`；`B1694/B1626/EVAL-B36-SYSAUTH1=OPEN`。
 
-### §123.1818 r1077：生成加载器写修复与读模式流水线图（2026-09-15，待清洁构建后启动）
+### §123.1818 r1077：生成加载器写修复与读模式流水线图（2026-09-15，双路一次审计完成）
 
 库存243例（215 read/25 apply/3 plan）按用户影响、验证权限风险、未覆盖模式/表达、最近回放时间和成本排序。本对选`github_issue_napi_force_wasi_env_symptom.case`（apply24步，最近r947/08-30；环境变量语义及生成JS真实执行，高验证ROI）与`qf_diagram_pipeline.case`（read15步，最近r999/08-31；最近r1073–1076无自然Mermaid，补图/职责/顺序覆盖）。CAP5/PARALLEL2/TIMEOUT1200、各一次，保持原case/fixture/oracle，不重跑r1076追PASS。启动前哈希`20260915-r1077-cases-before.sha`/`-fixture-before.sha`已留，B1702提交推送及清洁构建后才启动。
 
 写模式需审false/0/空/未设置不强制WASI，true/error保强制语义，native不可用仍正常fallback；补丁作用于生成loader且测试期望不被改宽。原Make仅Python静态扫描不能签JS行为证明，如做人审独立原生后验另列收据，不回填正式证明。若自然产生unavailable probe，逐plan/execution核B1702上下文、完整日志引用、后续推理和验证结论；未触发记N/A，不能为了覆盖诱发错误。读模式核四stage主顺序、每阶段职责、引用范围和真实渲染；流水线连接不能冒称Agent间直接代码调用，系统只安全修复图语法，不改变模型关系或结论。本对不含Trace，显式窗/全因果等live覆盖记N/A而不是冒称通过；完整回归守旧能力。
+
+实际结果：B1702 `03ddd7e2defd`推送后清洁构建（12:00:48Z），12:01:17Z启动。读模式机器PASS196s/指标194s，四节点三precedence边完整，首次成文0拒绝/0patch，系统只把标签字面量反斜杠n转为HTML换行，摘要/正文/关系均保留。上下文准确区分阶段顺序与函数调用；答案仍有“阶段均执行/Analyzer不接触源码”的绝对化与术语偏多，记P2质量观察，非全文无瑕。浏览器file URL被访问策略拒绝，未绕过，实际视觉校验不可用。
+
+写模式机器FAIL499s/进程496s，`unverified:plan_batch_followup_unverified`。实际交付`d304f66425cf`只改模板一行，原Make/TS/Python测试保留；源主仓seed不动、隔离工作树清理、applied-tree保全。独立Node24完整生成JS后验36格全通过（原夹具26通过/10失败），收据`20260915-r1077-napi-{original-red,delivery-postcheck}.log`，不回填正式proof。正式Make只具source-static证明，保留unverified正确；但后续规划提示自冲突并发布错误终态正文，不能判完整交付通过。B1702自然触发N/A：5次实际planner probe的3个JS失败/2个Python静态成功都无active PlanID，不铸假身份；没有post-apply probe通道。原case/fixture SHA逐项未变，未重跑。
+
+机评与完整人工审计分别为`eval/parallel_selected_summary_evalcampaign_trace_write_r1077_20260915.md`及同名前缀`_manual_audit.md`。本对Trace live为N/A；完整回归守旧能力。日志内600/300/600秒与活跃流续期不变，读日志3039的4ms是成功提交后的解析耗时，不是降级时限。
+
+### §123.1819 B1703：后续验证规划失败占据整次交付状态（2026-09-15，P1确认/施工中）
+
+**B1703-PROOFFOLLOWUPSTATUSOWNERSHIP1**：r1077 apply日志3244/3252–3259，系统`planPostHook`在后续planner未安装新plan时写入“本轮没生成改动方案/请把目标说具体”。外层`completeInterruptedFollowupIfSourceComplete`正确保已应用主批且结束为unverified，发布器按所有权约束保留已有Result，于是错误子阶段状态与正确终态卡并列。这是系统状态生产者错域，不是模型波动，也不能改发布器扫描/删除已有正文。
+
+最小根修：只有当前controller的StagePlan调用栈scope与Mutable/run/batch精确一致、上游已完成且确有applied attempt、当前可选proof/impact后续没有apply/failed-verify/handoff，才在nil-plan错误处不写全任务通用建议，继续原错误/重试/终态通道。原模型/verify卡逐字保留；空结果由既有终态事实回退负责。初次plan、plan-only、错误run/batch、真实失败修复不借此分支；不改计划/证明/Passed/批次结束资格，不加持久化或模型字段。先公共Orchestrator.Run RED，再最小实现/联测。
+
+### §123.1820 B1704：修复提示必须符合当前计划可用操作（2026-09-15，P1确认/施工中）
+
+**B1704-PROOFFOLLOWUPRECOVERYTEACHINGSCOPE1**：r1077同上下文1129明确proof-only不能编辑测试，1495/2323明确source-free不能携project_test_observations，1547/2404却由语言不匹配修复包无条件推荐“include test file + project_test_observations”。模型确有导入/语法错误及静态替代倾向，但这条修复教学自冲突是系统确定性缺口，增加无效拒绝。
+
+保持验证门不动，以已成功构造的typed sentinel分支选源自由专用软指引，full/skeleton同源；常规source/test计划保持native项目测试通道，always-on教学把编辑建议条件化到当前typed权限。源自由计划不能为通过而增文件、移入历史声明或空plan；无兼容assertion witness时保留未闭合边界，由既有controller决定终态。新增公共full/skeleton×纯/混合probe RED与兼容/空/禁止声明/禁止文件/普通计划正反控；不扫用户或模型prose判资格。
+
+### §123.1821 B1705：图形类型不应隐含业务关系最低数量（2026-09-15，P2开放）
+
+**B1705-DIAGRAMKINDRELATIONMINIMUM1**：`DefaultEdgeRelationsForKind`当前把flow映射guard Min1、sequence映射call Min1，纯precedence顺序图不应因此被建议补条件或调用。`contract_check_block.go`该分支为telemetry-only advisory，本次没有硬拒/重写；r1077读日志3105的一条diagram_edges没有完整detail，具体对应关系仍是源码推定，不冒充已观测细节。后续统一从typed关系意图决定语义最低要求，保持每条关系证据门，不用图类型、可见label或用例名单推断业务边。不为了这个P2扩大当前P1修复批。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
