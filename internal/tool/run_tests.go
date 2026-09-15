@@ -393,6 +393,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	surfaceEscalations := 0
 	var executedCmds []types.ExecutedCommand
 	var carriedVerificationDiagnostics []types.VerificationDiagnostic
+	var carriedProbeExecutionObservations []types.VerificationProbeExecutionObservation
 	var combinedOutputs []string
 
 	// finishReport attaches the typed execution evidence (surface +
@@ -428,6 +429,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			report.VerificationDiagnostics,
 			verificationDiagnosticsFromExecutedCommands(report.ExecutedCommands),
 		)
+		attachVerificationProbeExecutionObservations(report, carriedProbeExecutionObservations)
 		report.VerificationConfidence = mergeVerificationConfidenceRecords(
 			report.VerificationConfidence,
 			verificationConfidenceRecordsFromReport(authorityPlan, report),
@@ -505,6 +507,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		probe := runSingleVerificationProbe(ctx, probes[0], "planner_probe_verification_probe")
 		executedCmds = append(executedCmds, probe.Commands...)
 		authorityPlan := plannerProbeAuthorityPlan(ctx.Mutable.ChangePlan(), probes[0])
+		if authorityPlan != nil {
+			retainVerificationProbeExecutionOutput(ctx, authorityPlan.ID, probes[0], &probe)
+			carriedProbeExecutionObservations = types.MergeVerificationProbeExecutionObservations(carriedProbeExecutionObservations, probe.ExecutionObservations)
+		}
 		// Bind this actual dispatch before its evidence is projected. The
 		// installation step is too late for receipt validation; never replace
 		// a nonempty (possibly mismatched) identity supplied by the producer.
@@ -610,6 +616,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if probe, ok := runPlanVerificationProbes(ctx, "pre_suite_verification_probe"); ok {
 			preSuiteProbe = probe
 			carryVerificationDiagnostics(probe.Report)
+			carriedProbeExecutionObservations = types.MergeVerificationProbeExecutionObservations(carriedProbeExecutionObservations, probe.ExecutionObservations)
 			executedCmds = append(executedCmds, probe.Commands...)
 			if strings.TrimSpace(probe.Output) != "" {
 				combinedOutputs = append(combinedOutputs, probe.Output)
@@ -900,6 +907,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if !preSuiteProbeNonAuthoritative {
 				if probe, ok := runPlanVerificationProbes(ctx, "no_tests_verification_probe"); ok {
 					carryVerificationDiagnostics(probe.Report)
+					carriedProbeExecutionObservations = types.MergeVerificationProbeExecutionObservations(carriedProbeExecutionObservations, probe.ExecutionObservations)
 					executedCmds = append(executedCmds, probe.Commands...)
 					projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
 					combinedOutputs = append(combinedOutputs, probe.Output)
@@ -1287,6 +1295,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 			if probe, ok := runPlanVerificationProbes(ctx, "runner_missing_verification_probe"); ok {
 				carryVerificationDiagnostics(probe.Report)
+				carriedProbeExecutionObservations = types.MergeVerificationProbeExecutionObservations(carriedProbeExecutionObservations, probe.ExecutionObservations)
 				executedCmds = append(executedCmds, probe.Commands...)
 				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
 				combinedOutputs = append(combinedOutputs, probe.Output)
@@ -1424,6 +1433,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 			if probe, ok := runPlanVerificationProbes(ctx, "parser_error_verification_probe"); ok {
 				carryVerificationDiagnostics(probe.Report)
+				carriedProbeExecutionObservations = types.MergeVerificationProbeExecutionObservations(carriedProbeExecutionObservations, probe.ExecutionObservations)
 				executedCmds = append(executedCmds, probe.Commands...)
 				projectReports = append(projectReports, qualifyChangeReport(probe.Report, plan, ctx.RepoRoot))
 				combinedOutputs = append(combinedOutputs, probe.Output)
@@ -3446,10 +3456,12 @@ func mergeVerificationDiagnostics(existing, next []types.VerificationDiagnostic)
 			// suite-continuation decision. Merge only the nested observations;
 			// do not manufacture another diagnostic or widen its identity key.
 			out[index].FailureObservations = types.MergeVerificationFailureObservations(out[index].FailureObservations, diag.FailureObservations)
+			out[index].ProbeExecutionObservations = types.MergeVerificationProbeExecutionObservations(out[index].ProbeExecutionObservations, diag.ProbeExecutionObservations)
 			return
 		}
 		seen[key] = len(out)
 		diag.FailureObservations = types.MergeVerificationFailureObservations(diag.FailureObservations)
+		diag.ProbeExecutionObservations = types.MergeVerificationProbeExecutionObservations(diag.ProbeExecutionObservations)
 		out = append(out, diag)
 	}
 	for _, diag := range existing {

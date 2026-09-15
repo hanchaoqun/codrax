@@ -124,6 +124,11 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		"  - Do NOT read files or shell out to construct a diff — the plan is already applied.\n" +
 		"  - Do NOT re-run tests to chase flakiness — verify is fail-loud.\n")
 
+	if observations := buildWriteProbeExecutionObservationSection(ctx, types.WriteConsumerVerifier); observations != "" {
+		s.WriteString("\n")
+		s.WriteString(observations)
+		s.WriteString("\n")
+	}
 	if pack := buildWriteContextPackPromptSection(ctx, types.WriteConsumerVerifier, "Priority write context pack", 10); pack != "" {
 		s.WriteString("\n")
 		s.WriteString(pack)

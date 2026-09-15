@@ -9,10 +9,14 @@ import (
 const runnerFailureDetailMaxBytes = 8 * 1024
 
 func renderRunTestsFailureContextSummary(report *types.ChangeReport) string {
+	var summary string
 	if failures := types.RenderVerificationRunnerFailures(report); failures != "" {
-		return "\n\n" + failures
+		summary = "\n\n" + failures
 	}
-	return ""
+	if observations := types.RenderVerificationProbeExecutionObservations(types.CurrentReportProbeExecutionObservations(report), false); observations != "" {
+		summary += "\n\n" + observations
+	}
+	return summary
 }
 
 // boundedRunnerFailureDetail preserves short output exactly. A composite

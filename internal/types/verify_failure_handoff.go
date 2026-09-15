@@ -197,6 +197,7 @@ func BuildVerifyFailureHandoff(report *ChangeReport, batchID string, attempt int
 			break
 		}
 		diag.FailureObservations = MergeVerificationFailureObservations(diag.FailureObservations)
+		diag.ProbeExecutionObservations = MergeVerificationProbeExecutionObservations(diag.ProbeExecutionObservations)
 		h.Diagnostics = append(h.Diagnostics, diag)
 	}
 	for _, confidence := range EffectiveVerificationConfidence(nil, report) {

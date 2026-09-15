@@ -23,6 +23,12 @@ type verificationProbeRunResult struct {
 	Report   *types.ChangeReport
 	Output   string
 	Commands []types.ExecutedCommand
+	// Producer-owned output origin. Single-process results use index zero;
+	// composed runners adjust it when adding prerequisite command receipts.
+	OutputCommandIndex int
+	// Private, per-invocation carry until the existing diagnostic producer
+	// has run; never adds a diagnostic or changes a continuation decision.
+	ExecutionObservations []types.VerificationProbeExecutionObservation
 }
 
 type pythonVerificationProbeStatus struct {
@@ -233,16 +239,19 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		return nil, false
 	}
 	var (
-		results  []types.TestResult
-		outputs  []string
-		commands []types.ExecutedCommand
-		diags    []types.VerificationDiagnostic
+		results      []types.TestResult
+		outputs      []string
+		commands     []types.ExecutedCommand
+		diags        []types.VerificationDiagnostic
+		observations []types.VerificationProbeExecutionObservation
 	)
 	for _, probe := range probes {
 		res, mismatch := verificationProbeLanguageTargetMismatchResult(ctx, plan, probe, source)
 		if !mismatch {
 			res = runSingleVerificationProbe(ctx, probe, source)
 		}
+		retainVerificationProbeExecutionOutput(ctx, plan.ID, probe, &res)
+		observations = types.MergeVerificationProbeExecutionObservations(observations, res.ExecutionObservations)
 		results = append(results, res.Report.TestResults...)
 		diags = append(diags, res.Report.VerificationDiagnostics...)
 		if strings.TrimSpace(res.Output) != "" {
@@ -337,9 +346,10 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		verificationConfidenceRecordsFromReport(plan, report),
 	)
 	return &verificationProbeRunResult{
-		Report:   report,
-		Output:   renderVerificationProbeOutput(probes, outputs),
-		Commands: commands,
+		Report:                report,
+		Output:                renderVerificationProbeOutput(probes, outputs),
+		Commands:              commands,
+		ExecutionObservations: observations,
 	}, true
 }
 
@@ -663,7 +673,7 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 				FailureReasonCode: reasonCode,
 				FailureSummary:    detail,
 			},
-			Output: detail,
+			Output: compileOutput,
 			Commands: []types.ExecutedCommand{{
 				Runner:         "verification_probe",
 				Framework:      "java",
@@ -703,6 +713,7 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 		Outcome:        types.ExecutedCommandOutcomeExecuted,
 		ProbeExecution: compileReceipt,
 	}}, res.Commands...)
+	res.OutputCommandIndex++ // Output still belongs to java, not the prepended javac.
 	return res
 }
 

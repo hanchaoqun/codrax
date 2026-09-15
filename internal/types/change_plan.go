@@ -1283,6 +1283,9 @@ type VerificationDiagnostic struct {
 	// FailureObservations preserves secondary model-probe failures without
 	// changing this diagnostic's identity or the report's verification verdict.
 	FailureObservations []VerificationFailureObservation `json:"failure_observations,omitempty"`
+	// ProbeExecutionObservations carries independent execution output without
+	// changing diagnostic identity, verdict, or comparator authority.
+	ProbeExecutionObservations []VerificationProbeExecutionObservation `json:"probe_execution_observations,omitempty"`
 }
 
 type ChangedPathVerificationStatus string

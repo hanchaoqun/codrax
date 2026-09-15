@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-15）
 
-当前交付§123.1813–1814：B1699 `0995bf36d`、B1700 `fefbcfbef` 已推送，不改模型答案/已选引用。§123.1815 r1076恰好两路各一次，机器1PASS/1FAIL：Trace测量正确、解释错误；TS实际交付原生后验6/6通过但正式proof未闭，审计`fd5fed5a9`已推送。§123.1816 B1701统一隔离JavaScript/Ruby包装变量及报告/退出方法，27格公共回归、重复/race与末版冻结86包全仓通过；客户原probe离线旧红新绿，未改原机评。B1702失败probe诊断丢失已完成独立设计、待施工；Trace状态重复/错域枚举提示归B1626/EVAL-B36-SYSAUTH1，B1694、完整图表达与写验证债继续开放。
+当前交付§123.1813–1814：B1699 `0995bf36d`、B1700 `fefbcfbef` 已推送，不改模型答案/已选引用。§123.1815 r1076恰好两路各一次，机器1PASS/1FAIL：Trace测量正确、解释错误；TS实际交付原生后验6/6通过但正式proof未闭，审计`fd5fed5a9`已推送。§123.1816 B1701 `c47cfbc5a`已推送；§123.1817 B1702已完成实现，含晚生成诊断、输出归属与原子上下文，正在末版联合验收，尚未宣称完成。下一r1077选择NAPI生成加载器apply与pipeline图read各一次；Trace状态重复/错域枚举提示归B1626/EVAL-B36-SYSAUTH1，B1694、完整图表达与写验证债继续开放。
 
 最新回放§123.1812：B1698 `477025af9` / B1697 `6859fe811` 均已推送，联合冻结86包全仓通过后清洁构建。r1075严格混合Trace/源码read与C++ plan-only两路各一次，机器1PASS/1FAIL；人审计划核心PASS但未应用/编译，混合读数值及五维正确、当前实现与来源资格FAIL。新B1699同一soft-required源码义务被误教optional并反复拒绝收束、B1700混合member_set获源码清单资格及无引用runtime条目被补错来源均P1，下一片先公共复现，不归JSON畸形或模型波动。B1697/B1698实际通道及图在本对N/A；原结果/夹具/机评不改，无第三例追绿。
 
@@ -57446,13 +57446,31 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 
 状态：`B1701=JS+Ruby/public-red-to-green/count3+race-pass/final-frozen-86-package-pass/delivery`；`r1076-original-verdict=preserved`；`B1702=confirmed+design-reviewed/pending-implementation`；`B1626/EVAL-B36-SYSAUTH1/B1694=OPEN`。本片代码、测试、架构说明和状态随同一提交交付。
 
-### §123.1817 B1702：失败探测的非权威上下文保全（2026-09-15，设计已核，待独立施工）
+### §123.1817 B1702：失败探测的非权威上下文保全（2026-09-15，末版全仓通过，随本片交付）
 
 同一真实probe已捕获完整错误，却在fallback项目检查通过后丢失，属于信息供给缺口，不应重插失败TestResult使项目结果变红。最小设计是在现有VerificationDiagnostic内追加可选ProbeExecutionObservations：保存PlanID/ProbeID/实际ExecutionID/DefinitionSHA256/InvocationSHA256及按位置有界的OutputExcerpt/完整OutputRef。父诊断原category/outcome/reason保留；合并只合嵌套观察，不增加诊断条数、不改变现有continuation/proof/Passed语义。仅实际返回的同次执行收据可以绑定观察；缺票据不虚构或借其他命令，同名探测改定义或重跑不得混为同次执行。短输出也独立落盘，失败只标未保存，不能改验证判定。
 
 供给面必须同批贯通：run_tests唯一安装出口；controller/planner/verifier当前权威报告选择；batch/slice绑定、可压缩/reset/replay的原子上下文项；VerifyFailureHandoff嵌套深拷贝；WriteFinalReport JSON独立投影和复制；系统验证卡中性附注。共享collector/renderer独立于比较器FailureObservations和B1122失败结果展示，不放宽两者既有合同。新当前报告为空时不可复活旧观察，历史恢复须明确非当前；输出引用独立预算并转义，错误文本标为不可信数据而非指令。不会新增模型必填JSON字段、替模型诊断产品缺陷或编写答案。
 
-回归须含：真实unavailable probe+项目通过公共正控；原失败/不可用/比较器continuation和proof/changed-path coverage逐项不变；两次执行/改定义/错误plan/错误execution/缺票据/落盘失败；短长输出、Unicode/控制字符；JSON/上下文压缩和恢复/最终卡一致。保持B1122/B1561/B1616/B1661/B1673原针，新增Outcome消费者需显式登记consumer census，禁止降杆。当前仅根因与设计确认，无实现或通过声称。
+回归须含：真实unavailable probe+项目通过公共正控；原失败/不可用/比较器continuation和proof/changed-path coverage逐项不变；两次执行/改定义/错误plan/错误execution/缺票据/落盘失败；短长输出、Unicode/控制字符；JSON/上下文压缩和恢复/最终卡一致。保持B1122/B1561/B1616/B1661/B1673原针，新增Outcome消费者需显式登记consumer census，禁止降杆。已并行施工生产者/typed承载/消费者，尚未验收；公共JSON/上下文/验证卡的原实现RED先行保全。通用执行票据没有ProbeID，故ProbeID由持有当前probe的生产者绑定；消费者不扫描命令反解，而以当前PlanID加完整真实执行票据的ExecutionID/DefinitionSHA256/InvocationSHA256精确关联。不扩大执行票据协议，不混用旧比较器观察。
+
+实现与分层收据：
+
+1. **有效公共RED**：`20260915-b1702-tool-public-red-v5.log`七叶在原实际诊断缺失处失败：JS ReferenceError/SyntaxError、Python import、Ruby LoadError、日志路径不可写、项目检查失败、原生Python套件通过。前v1是夹具编译错、v2–v4含对聚合检查/changed-path覆盖或native runner的错误假设，保留日志但不当有效RED。新代码没有改变旧检查结果断言；静态Make通过仍整体unavailable，native断言通过仍passed。
+2. **不同生成时机同根补齐**：冷审发现Python NameError/SyntaxError和Java编译诊断晚于原采集点，`20260915-b1702-late-diagnostic-public-red.log`两叶真实RED。现在每个probe先按实际输出所属执行保存临时观察；四条runPlan入口（pre-suite/no-tests/runner-missing/parser-error）及有active plan的planner dry-run携入局部slice，finish在原诊断生成后仅附nested，不提前增加diag。无active plan/无完整receipt不铸身份。Java编译失败保留compileOutput原文而原TestResult.detail限制不变；编译后运行失败的输出由生产者OutputCommandIndex明确指向java，不冒挂成功javac，亦不按错误文本或exit0猜归属。
+3. **上下文预算不是词面拟合**：初实现Ruby约507字节错误因400rune截取丢中部，`20260915-b1702-tool-public-green-count3.log`留三次真红；独立`b1702-types-short-output-red.log`覆盖500–1000转义字节。新执行摘录用1000 encoded bytes，短输出原样、长输出只按位置保两端；完整日志另有独立引用预算。旧B1561 rune预算不动。中文系统卡用计划/探测/执行标识及原错误/日志，不显示内部digest字段；英文模型上下文仍精确，不改模型正文。
+4. **中间通过不代替末版**：types公共JSON RED `b1702-types-public-red.log`；精确receipt消费者RED `20260915-b1702-consumer-receipt-red.log`。types末版局部count3/race 3.315s/2.477s（`b1702-types-short-output-final-{count3,race}.log`）；consumer先前count3 agent4.016s/orchestrator2.119s。tool v3 6.119s及v6 20.625s通过仅是其时版本，不冒充后续输出归属修订全测。新的Java编译长日志/先编译后运行测试是实际子进程协议夹具，本机无JDK，不能声称真javac语言验证。所有中间编译/夹具失败收据原样保留。
+5. **末版待联合验收**：`20260915-b1702-final-focused.log`跑四包新针+旧B1122/B1561/B1616/B1661/B1673及Go/JS/Ruby/Java旧协议邻接count3；`20260915-b1702-final-race.log`跑四包B1702 race。当前9格真实语言公共路径、16格producer/merge边界、2格Java协议，既有diagnostic数/分类、Passed、confidence/proof、源文件及原计划不变。types19类错误身份/票据正反控、JSON/三消费者原子压缩和历史恢复、final/handoff复制、双语总预算、当前空报告不复活旧记录均随片交付。未新增模型JSON必填项或关键词硬门，Trace/600-300-600秒与活跃流策略不变。
+
+6. **最终验收完成**：末版四包count3通过：tool58.916s/types2.348s/agent4.156s/orchestrator3.968s；race通过：tool6.900s/types4.508s/agent5.587s/orchestrator2.228s。随后冻结全量Go/build输入`20260915-b1702-freeze.sha`，`go test ./... -count=1`完整exit0、86有测试包PASS+13无测试包、零FAIL（`20260915-b1702-full.log`），结束后SHA全一致（`-freeze-verify.log`），diff检查通过。该结论不覆盖本机缺失的真实JDK，也不等于开放写证明/图表达/Trace解释债全部闭合。独立冷审指出的晚诊断和Java复合进程输出归属均在同片解决；没有通过改旧断言或case/oracle获取PASS。代码/测试/架构及本状态同片提交，下一live保持两路一次。
+
+状态：`B1702=implemented/public-red-to-green/precise-execution-output-origin/current+historical-context-scoped/count3+race+full-86-package-pass`；`model-answer/diag-classification/continuation/proof=unchanged`；`missing-plan-or-native-receipt=no-forged-observation`；`r1077=next-exact2-once`；`B1694/B1626/EVAL-B36-SYSAUTH1=OPEN`。
+
+### §123.1818 r1077：生成加载器写修复与读模式流水线图（2026-09-15，待清洁构建后启动）
+
+库存243例（215 read/25 apply/3 plan）按用户影响、验证权限风险、未覆盖模式/表达、最近回放时间和成本排序。本对选`github_issue_napi_force_wasi_env_symptom.case`（apply24步，最近r947/08-30；环境变量语义及生成JS真实执行，高验证ROI）与`qf_diagram_pipeline.case`（read15步，最近r999/08-31；最近r1073–1076无自然Mermaid，补图/职责/顺序覆盖）。CAP5/PARALLEL2/TIMEOUT1200、各一次，保持原case/fixture/oracle，不重跑r1076追PASS。启动前哈希`20260915-r1077-cases-before.sha`/`-fixture-before.sha`已留，B1702提交推送及清洁构建后才启动。
+
+写模式需审false/0/空/未设置不强制WASI，true/error保强制语义，native不可用仍正常fallback；补丁作用于生成loader且测试期望不被改宽。原Make仅Python静态扫描不能签JS行为证明，如做人审独立原生后验另列收据，不回填正式证明。若自然产生unavailable probe，逐plan/execution核B1702上下文、完整日志引用、后续推理和验证结论；未触发记N/A，不能为了覆盖诱发错误。读模式核四stage主顺序、每阶段职责、引用范围和真实渲染；流水线连接不能冒称Agent间直接代码调用，系统只安全修复图语法，不改变模型关系或结论。本对不含Trace，显式窗/全因果等live覆盖记N/A而不是冒称通过；完整回归守旧能力。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

@@ -15,16 +15,18 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 	if pack == nil {
 		return ""
 	}
-	if consumer == types.WriteConsumerController || consumer == types.WriteConsumerPlanner {
+	if consumer == types.WriteConsumerController || consumer == types.WriteConsumerPlanner || consumer == types.WriteConsumerVerifier {
 		// These observations have a separately bounded, plan-bound section.
 		// Do not duplicate it or revive superseded/foreign observations in
 		// the ordinary top-N view. The stored pack remains unchanged.
 		filtered := *pack
 		filtered.Items = nil
 		for _, item := range pack.Items {
-			if item.Kind != "verification_failure_observation" {
-				filtered.Items = append(filtered.Items, item)
+			if item.Kind == "verification_probe_execution_observation" ||
+				(item.Kind == "verification_failure_observation" && consumer != types.WriteConsumerVerifier) {
+				continue
 			}
+			filtered.Items = append(filtered.Items, item)
 		}
 		pack = &filtered
 	}

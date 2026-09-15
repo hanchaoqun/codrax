@@ -1531,6 +1531,7 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 		pack.Items[len(pack.Items)-1].ID = writeVerificationDiagnosticContextID(diag)
 	}
 	pack.Items = append(pack.Items, verificationFailureObservationContextItems(report)...)
+	pack.Items = append(pack.Items, verificationProbeExecutionObservationContextItems(report)...)
 	for _, confidence := range EffectiveVerificationConfidence(nil, report) {
 		text := renderVerificationConfidenceContext(confidence)
 		if text == "" {
@@ -1950,7 +1951,7 @@ func maxInt(a, b int) int {
 // their boundary, quoted excerpt and independent reference remain atomic.
 func writeContextItemKindKeepsWholeText(kind string) bool {
 	switch kind {
-	case "verification_worktree_effect", "verification_lockfile_fixed_point", "verification_failure_observation":
+	case "verification_worktree_effect", "verification_lockfile_fixed_point", "verification_failure_observation", "verification_probe_execution_observation":
 		return true
 	default:
 		return false
@@ -2377,7 +2378,7 @@ func writeContextBoundedPackItems(items []WriteContextItem, limit int) []WriteCo
 }
 
 func writeContextMustCarryInPack(item WriteContextItem) bool {
-	if item.Kind == "verification_failure_observation" {
+	if item.Kind == "verification_failure_observation" || item.Kind == "verification_probe_execution_observation" {
 		return true
 	}
 	if item.Priority == WriteContextP0 {
