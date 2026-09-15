@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前交付§123.1808：B1695已完成真实公共先红后绿、count3/race3、独立生产边界冷审与冻结全仓86个有测试包通过。源码模型聚合的“独立已证”复用既有主张资格；系统关系/源码库存标记、真实返回和原生Trace观测保留，不增加JSON字段或正文门。提交后清洁构建，下一exact2为H4显式窗供给+Java实现/路由集合，各一次；B1693/B1694/B1319/B1561/B1696及原开放项不代销。
+当前交付/回放§123.1808–1809：B1695已推送de15d5c78，公共RED/count3/race3/冷审/冻结全仓86包通过、提交后清洁构建。r1074严格H4供给+Java实现/路径两路各一次，机器2PASS；人审Java核心pass/引用P2，Trace因单位/事件类别/IO与Binder混账FAIL，不改机评。实际聚合两处资格一致，CPU3“漏频率”初审疑点被原始同scope数据否证；新B1697原始Trace有界回查误拒P1、B1698文档注释range缺失P2进入公共复现。B1693/B1694/B1319/B1561/B1696及原开放项不代销。
 
 最新交付/回放§123.1806–1807：B1634c已推送57c915939，B1692已推送cd83d996c；返回事实parser→agent/dataflow→模型上下文同源、公共RED/count3/race/冷审及冻结全仓86个有测试包通过，提交后清洁构建。r1073恰好read注册名+C typo两路各一次：机器1PASS/1FAIL；读核心事实正确但引用/标题partial，C补丁及独立编译/四组输入通过但正式逐合同证明未闭，原判不改。新B1695聚合事实两处模型供给资格不一致列下一P1公共复现；B1696内部维度编号教学P2、B1319/B1561继承验证债留账。B1693同秒物化XFAIL、B1694同坐标异语义合并、完整occurrence库存A/B和自递归仍独立OPEN，不以单个返回正证或无图冒称全面闭环。
 
@@ -57423,6 +57423,19 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1809 r1074：机评全绿不替代人审；原始Trace回查与源码引用范围（2026-09-15）
+
+1. **收住交付**：B1695 `de15d5c78` 已推送origin/main；其冻结全仓86个有测试包PASS、公共RED/count3/race3/冷审见§1808。clean make=`0.1.20260915 / de15d5c7848b / 2026-09-15T07:08:58Z`。严格 `CAP5/PARALLEL2/TIMEOUT1200` 执行H4供给事实与Java实现/路由两case各一次，没有第三路/重跑/放宽oracle。机器汇总 `eval/parallel_selected_summary_evalcampaign_supply_java_r1074_20260914.md` 原样保留，人工证据链在同名前缀 `_manual_audit.md`。文件后缀保留预案日期，实际执行09-15。
+2. **排序与实况**：243case=215read/25apply/3plan；前批C写已覆盖，本对兼顾H4上次09-09与Java上次09-08的原生Trace/源码来源跨度，不冒称新增write生产正证。机器Java PASS100s（内部98s）、Trace PASS340s；实际均full+一次成功局部patch/零成文拒绝。Trace摘要exp0不是无探索：真实三路子调查、24次trace_query，上下文51%；Java读5次，上下文29%。
+3. **Java人审核心pass/引用P2**：Echo/Upper/Stats三个实现分别`/echo`、`/upper`、`/stats`，与真实注解7/9/13、定义8/10/14一致。原始日志1245模型聚合仅有定义行，1977ledger为model_inference、2069聚合供给advisory_model_inference/not_authorized，两consumer实际一致，是B1695负向保护生产证据；系统marker正控本轮没有触发，仍以公共回归为证。路径引用不闭合源于explorer1114/1176没把注解选入可引用池，不能只归finalizer漏引。
+4. **Trace人审FAIL，不归渲染改坏**：157.248/5.604/70.338/0ms四状态与8CPU运行累计正确；但模型原始emit3575已把558000/920000kHz写成558/920kHz、把cpu_frequency_limits称clock_set_rate、将独立IO至少4次/4.384ms与Binder5次/3.094ms混为“IO闭合至少5次Binder”。原finalizer3321/3526两口径分开，3431/3434频率单位正确；不虚报生产测量混账，不以此加输出词门或系统换答案。无CPU表columns导致“列2/列3…”、内部authority枚举、模型分类臆加DRM/Hwcomposer/Legacy均列教学/模型观察，非新确定性事实门。
+5. **主动否证/范围边界**：CPU3目标桶在5份真实target_window_states均无代表频率，finalizer忠实absent；目标段结束13762.793929，后续840000/920000样本在13762.798126/13762.798984，其他线程CPU3的920000也不能借。初审“CPU3漏已有数据”疑点撤销。H4为bounded_fact_set、非帧/根因合同，root-causes.json实际必出schema2空结果+trace_root_cause_contract_not_active；不强加投影，不把无根因合同当投影回归。CPU4策略记录不证明实际限频影响，CPU0只背景；状态D/窄IO0不否定已有S状态闭合IO。
+6. **B1697-TRACESOURCEFOLLOWUP1/P1，新确认/公共RED下一片**：模型按witness原始行17113/8048使用source+time+line回查，缺CPU-global event_types时默认继承17267并过滤策略emitter4776；随后明确read_file当前attached_trace的8045/17110附近limit10/6，被2058–2068当source fallback拒。原始行存在，没有错索引；gate只开放query发布payload/raw而不识别被查询原始capture。不是完全无逃逸（既有typed全局事件查询可用），也不证明它造成模型单位错误。根修应把native查询发布的精确原始source身份、有界read与runtime分类接同一能力，保turn/fork/admission/文件身份，不用Summary或basename授予、不改目标继承/扩大窗/接管根因。
+7. **B1698-DOCQUOTERANGE1/P2，实际佐证/公共RED下一片**：Java Stats自动documents companion读取完整多行摘要，却仅存首行，最终引用为`/**`；producer在autoPairRoleDescriptionEvidence，提取器已有注释范围但交接丢失。最小共享range API保旧摘要/资格，只有已读完整区间可存source snippet，未知/未闭合不可铸完整范围；不从模型摘要推行号，不自动补其它事实或替模型选证。
+8. **保护和原始收据**：15case/fixture SHA回放前后一致，原答案/HTML/sidecar/日志/指标/verdict的审计SHA保存在`20260915-r1074-{results,answer}-audit.sha`；本片仅审计，不改原结果。无必需图，无图不替全语言关系/时序/逻辑闭环验收。600s首响应/300s真实字节静默/600s非流仍实际生效；活跃heartbeat/reasoning/tool不因4ms/旧4m无正文降级，显式预算/取消独立。Trace链上占时/可消双轴、业务线索、显式窗、自动补齐与背景限权不变，模型正文始终保所有权。
+
+状态：`B1695=de15d5c78-pushed/full86-pass/actual-negative-qualification-positive`；`r1074=exact2-once/machine2-pass/human-java-core-pass+P2/trace-fail`；`B1697=P1-confirmed/public-red-next`；`B1698=P2-source-confirmed/public-red-next`；`CPU3-known-frequency-loss=disproved`；`model-unit/event/IO-wording-errors=no-prose-hard-gate-or-answer-rewrite`；`B1693/B1694/B1319/B1561/B1696/complete-diagram-matrix=separate-open`。
 
 ### §123.1808 B1695：源码聚合证明资格同源，不混淆外部支持与独立事实（2026-09-14）
 
