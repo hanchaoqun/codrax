@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1806：B1634c评测源码计划归属已公共RED→27变体/旧三套shell通过，先单独交付；r1072只读重放证实能正确定位源码owner，原FAIL不改。B1692返回事实的parser→agent/dataflow→模型上下文同源修复施工中，含source/owner/缓存代次；不改模型答案或emit JSON。新B1693同秒提交的交付树物化错误已有独立预期失败针，明确未修；occurrence来源库存A/B、自递归仍独立开放。下一对选read子代理注册职责+apply C typo，待产品修复冻结交付后exact2各一次。
+最新交付/回放§123.1806–1807：B1634c已推送57c915939，B1692已推送cd83d996c；返回事实parser→agent/dataflow→模型上下文同源、公共RED/count3/race/冷审及冻结全仓86个有测试包通过，提交后清洁构建。r1073恰好read注册名+C typo两路各一次：机器1PASS/1FAIL；读核心事实正确但引用/标题partial，C补丁及独立编译/四组输入通过但正式逐合同证明未闭，原判不改。新B1695聚合事实两处模型供给资格不一致列下一P1公共复现；B1696内部维度编号教学P2、B1319/B1561继承验证债留账。B1693同秒物化XFAIL、B1694同坐标异语义合并、完整occurrence库存A/B和自递归仍独立OPEN，不以单个返回正证或无图冒称全面闭环。
 
 当前交付§123.1802：r1071完整人审已9192d2bab单独推送，exact2各一次机PASS但人审均FAIL。B1686初始Trace外部观测交接、B1687纯拓扑误补端点身份、B1688多次发生包络误称单次均已公共先红后绿、count3/race3及独立冷审，最终冻结全仓86个有测试包通过（57本次执行/29有效缓存）。图有明确身份时的安全补齐继续保留，原模型正文、关系与根因选择不改。模型说明准确性、真实代表片段供给、主数据流导航与原生runner执行证明仍独立开放，不追跑原样例求绿。
 
@@ -57422,6 +57422,20 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1807 r1073：两种模式实际回放与剩余证据资格/验证债（2026-09-14）
+
+1. **交付后严格双路一次**：B1634c `57c915939`、B1692 `cd83d996c`均已推送。clean make=`cd83d996cbb5`，构建时间2026-09-15T03:39:55Z；CAP5/PARALLEL2/TIMEOUT1200启动 `qf_relation_subagent_registry` + `patch_c_typo`，没有第三路或失败追跑。按243现有case（215read/25apply/3plan）的用户价值、确定性风险、新鲜度、语言/模式跨度及本机能力选这对，读例上次08-15、C例上次09-09；不是只挑易绿题。机器汇总 `eval/parallel_selected_summary_evalcampaign_registry_c_r1073_20260914.md` 原样保留，完整人工审计见同名前缀 `_manual_audit.md`。
+2. **实际成绩分轴**：机器read PASS102s、C FAIL103s（各自内部wall100s）。读成员`{explorer}`/总数1/注册与Name机制正确，不混普通Agent注册表；但引用只展示Name定义行32而非已提供返回行33，标题出现“第4维”，整题人审partial。C仅main.c19 `retrun→return`，交付f0734f44b34eab139dd3f28553c9b4baf578e66a/正式owner/ref/树字节和100644权限一致；Makefile/tests不改。新temp独立严格cc编译+默认/命名/空/双参数四组精确输出PASS，正式逐合同证明仍unverified，人审补丁pass/完整验证partial，不能倒签原FAIL。
+3. **返回值与整题形状实际供给**：既有typed关系正规化移除模型错误source-inventory分类但保整题非scalar成员/总数；独立文档冷审纠正早先归因：本例intent=enumerate/HasPerMemberTable=true在原roleBindingScalarShapeEligible已不适用，未进入B1691新增分支，不能签其生产正证。B1692在真实finalizer输入提供 `SubExplorer.Name returns "explorer"` 与第33行精确证据。一次局部patch补总数、零成文拒绝/重写/不可用/剪枝，上下文30%。模型最终选择定义行32引用，不能将该选择再归为返回事实缺失；P2先独立审引用绑定与模型选择，不系统代选。两例无必需图，无图不是关系丢失证据，图语法/关系修补新生产覆盖N/A。
+4. **B1695-AGGREGATEAUTHORITYPARITY1/P1，已见实发矛盾、待公共复现/未修**：读日志 `run-1.logs/codrax-20260914-204029-000-79443.log:2285` 的同一aggregate在ledger为 `principal_answer/hard/independently_proven`，2385聚合供给却为 `advisory_model_inference/not_authorized`。其support_ref仅Name定义行32，未携typed relation标记。`answer_aggregate_fact.go:2930` 的独立资格接受exact source坐标，`answer_evidence_origin.go:146` 的主合同资格另要求关系/工作流成员证明，分别被ledger和aggregate renderer消费；不是模型自由叙述波动。下一片公共 `CompileObservationLedger→两处模型上下文` RED后统一字段/主张证明资格，保typed relation/source inventory及合法源码值、Trace独立观察正控，不能把两面全部签绿或抹去精确事实。本例答案正确，尚不宣称该矛盾导致错误成员或已形成完整公共RED。
+5. **B1696-DIMENSIONLABELTEACHING1/P2，未修**：初始和修订提示一面称只列用户标签，另一面把“第N维/Dimension N”索引混在同一行，生产答案照抄“第4维：总数”。来源 `answer_document_evaluator.go:8050/8081/16903/16913` 与读日志2556–2560。后续两语言/两提示面分离内部索引和用户label，保原维度身份、顺序、归属与局部patch能力；不扫描或替换模型标题，不新增正文硬门。返回引用精度P2另记观察，不冒充该提示修复会自动选对证据。
+6. **C不是B1634c回归**：本轮只有普通源码计划79456，没有proof-only尾计划或多owner，所以B1634c新proof分支与B1693同秒分支未自然触发。首计划Python probe被 `verification_probe_target_language_mismatch` 精确拒绝一次，提示原生断言/project_test_observations；模型移除probe只留下acceptance声明，非JSON畸形或成文重试。两次run_tests均只有Make聚合成功，末卡明确“未完全验证”，机器据 `verification_proof_incomplete` 拒绿符合边界。
+7. **B1319/B1561继承债新增见证，不重复造号**：B1319旧§123.1363已有相同C替换行案例（施工§123.1364），后继§40.10/35只认原行存续精确映射。本轮旧行被替换，`removed_by_patch`→`post_apply_source_contract_line_unresolved`诚实不借新行；计划虽有准确新旧字节，却缺合同明确选择的改后目标/代次/替换绑定。更重要no-typo.expected实际为整句“main.c 第 19 行不存在字符串 retrun”，非精确literal；只放行新行会使not_contains整句误绿。须模型明确literal并与同代源码目标绑定，不从说明抽词、不改旧行存续语义。compile-fixed仍须B1561原生命令/断言与contract_ref及交付版本绑定，重复Make不生成该凭证，系统不得把aggregate成功升级为所有合同已证。
+8. **收据/下批**：`.codrax/tmp/r1073-c-native.oI73tu/probe.log`记录独立检查，正式plan/report/final/out/log/verdict六工件前后SHA一致，两case两fixture同原SHA；原MD/HTML、机评/oracle不改。本片仅审计记录，产品Go源码保持cd83d996c冻结验收状态。按ROI先B1695共享资格公共复现，再B1693正式全owner+seed+拓扑物化、B1694同坐标不同claim、B1319/B1561验证能力；B1696和选证精度P2、完整occurrence A/B/自递归依原账排期，不一页宣称全部解决。
+9. **红线与覆盖限制**：不改JSON协议/模型成文/图关系/根因选择；Trace链上占时与规则可消双轴、IO/D/算力/语义及业务线索、显式窗、投影和自动补齐不变，背景仍只支持。冻结全仓相关包已有确定性保护，本次非Trace回放不另签生产覆盖。600s首响应/300s真实字节静默/600s非流不变；活跃reasoning/tool/heartbeat不因4ms/旧4m无正文降级，显式预算/取消独立。两例100s不能冒充旧4m长连接专项，§1806.13真实SSE回归收据仍有效。
+
+状态：`B1634c=57c915939-pushed`；`B1692=cd83d996c-pushed/full86-pass/clean-build/read-return-production-positive`；`r1073=exact2-once/machine1-pass1-fail/human-both-partial-distinct-reasons`；`B1695=P1-actual-dual-context-confirmed/public-red-next/not-implemented`；`B1696=P2-teaching-label-open`；`B1693/B1694/B1319/B1561/occurrence/recursive=separate-open`；`original-results/model-answer-ownership=preserved`。
+
 ### §123.1806 B1692/B1634c：返回事实来源与源码计划评测归属（2026-09-14）
 
 1. **基线/优先级**：从清洁b84c3f92a继续，二进制同revision，fresh fetch=0/0。优先处理实发模型上下文中的错误事实（B1692/P1）和重复导致写模式机器误判的工件选择（B1634c/P1）；相比同题追跑或追加JSON教学，这两条分别纠正事实供给和验收归属，收益跨语言/跨计划。模型最终散文算法误述不直接归因于这两条，不以修复它们签自由说明质量全闭。
@@ -57446,7 +57460,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 17. **最终全仓/冻结交付**：`20260914-b1692-full.log` 的 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./... -count=1` exit0，99包=86有测试强制重跑+13无测试包，零失败；agent76.862/tool337.081/dataflow22.783/hitraceconv140.806/tracequery103.376/tracediag13.362/llm28.959/orchestrator22.178/types38.137s。Go源码/测试/build输入before/after SHA一致；gofmt/diff检查和r1073两case/两fixture SHA通过，fresh fetch=0/0。agent最终独立整包73.861s及最终来源资格/多行冷审也通过。本批仅3个旧测试文件的fixture来源加强，所有旧断言保留；ScopeLine审计误报、中间RED/夹具失败不删除。B1694更精确边界是同线返回文本并入definition.summary、独立concrete_values载体消失，dataflow返回仍在，不能称全系统值丢失。本片不改合并器，相关库存/递归/同秒物化债继续单独OPEN。提交推送后清洁构建再启动r1073，不将本批确定性回归冒称新LLM生产回放。
 
-状态：`B1692=public-red/parser+agent+dataflow-single-source/final-count3+race3+cold-pass/final-frozen-full-pass/delivery`；`B1634c=57c915939-pushed/eval-only-delivery`；`B1693=deterministic-same-second-materialization-open/xfail-retained`；`B1694=same-coordinate-distinct-claim-merge-open`；`r1073=planned-not-started`；`occurrence/recursive=separate-open`。
+状态（§1807回放后更新）：`B1692=cd83d996c-pushed/public-red/parser+agent+dataflow-single-source/final-count3+race3+cold-pass/final-frozen-full-pass`；`B1634c=57c915939-pushed/eval-only-delivery`；`B1693=deterministic-same-second-materialization-open/xfail-retained`；`B1694=same-coordinate-distinct-claim-merge-open`；`r1073=exact2-once/audited-in-1807`；`occurrence/recursive=separate-open`。
 
 ### §123.1805 B1691：单项类别不能覆盖整题形状（2026-09-14）
 
