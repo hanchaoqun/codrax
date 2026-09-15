@@ -417,6 +417,8 @@ analyzer 阶段分两个 phase：
 
 ### 4.3 RequestModel — 一份完整的"工作单"
 
+**整题形状优先于答案项类别（B1691）**：单个 `required_candidate_role` 只说明答案项类别，不能把已声明的非单值调用链、必答关系/解释/工作流、多项主值，或非单值的显式时间窗/运行时关系与因果等问题改成单个源码字面值。角色定位正规化只在既有已校验请求载荷不要求这些范围时补齐；同一值的来源位置、引用、边界等属性不按维度总数误当多结论。真正单值角色定位继续补齐，原明确 scalar 的时间窗事实查询也不得扩大成因果报告。保护仅保留原 predicates/subject/subtopics，不新增拒绝、不扫描原问或模型散文、不修改模型答案；探索和成文共同消费恢复后的同一 RequestModel。
+
 LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/analysis_ir.go`）包含以下核心 typed lanes：
 
 | 类别 | 字段 | 含义 |

@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1804：B1689/B1690已385bcfc3e推送，冻结全仓86包强制重跑通过；r1072 Go写/Rust读已exact2各一次，机器Go失败/Rust通过，人审Go本请求交付通过/Rust算法说明失败。优先B1691：单个角色profile不应覆盖准确整题call-chain/多维形状，导致探索与成文互相冲突的scalar教学。完整occurrence来源库存A/B未实施；B1634c末尾证明计划oracle再现及自递归/赋值误作返回的供给候选独立留账，不以本次局部修复代销。
+当前续修§123.1805：B1689/B1690已385bcfc3e推送，r1072机审/人审已6b994f90a独立推送、原结果不追跑。B1691整题被单role误缩为scalar已最小修复；40整题形状+13合法单值正控、真实Emit→IR→探索/成文提示、联合count3/race3及冻结全仓86测试包全部通过，本批交付。完整occurrence来源库存A/B未实施；B1634c末尾证明计划oracle再现，自递归供给与分支赋值误作returns已追生产源，仍需各自公共复现/独立施工。
 
 当前交付§123.1802：r1071完整人审已9192d2bab单独推送，exact2各一次机PASS但人审均FAIL。B1686初始Trace外部观测交接、B1687纯拓扑误补端点身份、B1688多次发生包络误称单次均已公共先红后绿、count3/race3及独立冷审，最终冻结全仓86个有测试包通过（57本次执行/29有效缓存）。图有明确身份时的安全补齐继续保留，原模型正文、关系与根因选择不改。模型说明准确性、真实代表片段供给、主数据流导航与原生runner执行证明仍独立开放，不追跑原样例求绿。
 
@@ -57421,6 +57421,20 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1805 B1691：单项类别不能覆盖整题形状（2026-09-14）
+
+1. **已证原因/范围**：r1072原call_chain、非scalar及两必答维度准确；错误单agent角色profile触发旧正规化，扩大成全请求单值/角色定位，随后探索和成文同时发错提示。这是系统源头覆盖过宽，不仅是模型role误分类。已有 `analysis_contract.go:451` 与 `emit_analysis.go:834` 教学已区分类别选择和职责属性，本批不再叠重复例子或新JSON字段，也不改答案。真正单名字问题的既有补齐保留。
+2. **公共RED**：`20260914-b1691-public-red-v1.log`1.470s，32格=8整题形×2中性入口名×2角色（agent/function），成功公共EmitAnalysis后只因scalar/subject/整题形被覆盖而失败，非夹具/schema拒绝；4合法角色function/config_key/type/agent×已scalar/待补齐两形共8正控绿。范围涵盖无维度call_chain、关系+职责、机制关系/工作流、独立职责+分支、当前源码机制解释、两显式Trace窗事实及因果。只测发射与typed请求，不冒称解析器或LLM回放。
+3. **最小实现/边界**：仅在角色正规化前消费既有已校验整题载荷；非scalar call_chain、必答关系/解释/工作流等维度、多项主值、当前源码解释及非scalar运行时范围阻止错误收窄。同一单值的位置/引用/属性不按维度总数误当多结论，可选/被原provenance丢弃的维度不扩大保护。原明确scalar运行时查询不顺带翻成全因果，真正role lookup继续补齐。不加新JSON字段、硬拒或原问/正文扫描；未改探索/成文提示文本、图门、Trace生产查询/补齐/答案渲染及模型所有权。
+4. **下一批独立债，未实施**：完整occurrence来源A/B仍照§1803排期；B1634c须按最终delivery的真实源码归属选择机评工件，不能任取最早计划/任一包含patch就签绿，旧case结果继续保留。自递归缺口是B924/b8ef2f1b12有意保守政策（caller==callee skip及cap24），需真实ParseFiles→ReadFile→Emit证明原生解析器已经给正确自调用，再恢复精确自身份，不撤原collect_files→walk不得偷换walk→walk的负针。分支赋值误returns已定位explorer.extractConcreteValues的无语言/owner `=>`扫描→AnchorReturn→ledger independently_proven→value_or_factory_flow胶囊；根修需表达式/返回语法/所属callable三层区分、覆盖Rust match与真JS/TS/ArkTS箭头及嵌套闭包。仅标candidate不够，胶囊现只看IsCitable仍能说证明returns，须连消费边界核验。两项另需公共RED与反控，不把r1072最终算法误述直接归因于它们。
+
+5. **扩大公共矩阵及真实下游**：工具终版10整题形×2中性入口名×2角色=40保护臂，13正控=4合法角色×原scalar/待补齐8臂+单值附属属性/可选维度/未锚维度/仅源码定位4臂+明确runtime scalar1臂。旧码终版RED留在 `20260914-b1691-public-red-final.log`；首绿仅未锚正控的夹具前提不成立（既有provenance接受quote或label任一匹配，夹具只移除quote锚），同步改新夹具label并断言profile确实被丢弃，未改生产provenance。修正后工具首绿v2=1.410s。agent公共EmitAnalysis→生产buildAnalysisIR→真实ReadFile→post-primary提示→finalizer，两种整题/单值对照，保IR字节不变；既有调用链提示与必答维度保留，错误单值提示不再发，真单值教学仍发。初期新测试误要求explorer逐字维度标签/非scalar必有即时nudge，修正这些无合同依据的夹具断言；原码有效下游RED四项保留在 `...downstream-current.log`，新码count3=1.604s。未强改生产流程来满足新测试，也未修改任何旧测试。
+6. **联合专项/冻结**：`20260914-b1691-final-count3.log` exit0：tool4.706/agent1.476s；`...final-race3.log` exit0：tool38.042/agent5.253s。范围含新公共矩阵/真实下游，以及旧EmitAnalysisHardArmCensus、NormalizeRoleBindingScalarShape、ReconcileSetValuedRoleLocatePredicates、B1626Public和Role/Scalar/Runtime/Window/CallChain/CurrentSource/RequestedAnswerDimension相关公共发射针。独立冷审无阻断；gofmt/diff检查通过后冻结全部Go源码/测试/build输入，启动 `20260914-b1691-full.log` 强制无缓存全仓。此处专项通过不冒充全仓或新LLM回放通过。
+
+7. **最终全仓/交付**：`20260914-b1691-full.log` 的 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./... -count=1` exit0，86测试包全部强制重跑+13无测试包，零失败。关键agent75.564/tool360.259/hitraceconv140.925/tracequery104.625/tracediag13.224/llm28.944/orchestrator24.145/types42.689s。`...freeze-{before,after}.sha`一致；gofmt/diff检查及r1072 case、9fixture、Rust原MD/HTML和正式计划/报告/日志SHA全通过，最新fetch与main为0/0。文档冷审进一步收窄“运行时问题”措辞为代码实际保护的非scalar显式时间窗/关系因果等范围，不改代码增加额外权限。所有旧针未改；不启动额外live追绿，r1072旧FAIL和人工语义失败保持原样。清洁构建在本提交后验证，不将本批公共回归冒称B1691已新LLM生产回放。
+
+状态：`B1691=public-red/minimal-typed-shape-fix/downstream-public-pass/count3+race3+cold-pass/final-frozen-full-pass/delivery`；`r1072=6b994f90a-audit-pushed/no-rerun`；`occurrence/recursive/returns/runner=separate-open`。
 
 ### §123.1804 r1072：异构读写验收与整题形状冲突（2026-09-14）
 

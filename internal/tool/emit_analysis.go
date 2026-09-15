@@ -1998,6 +1998,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		answerRoleProfile,
 		answerSubject,
 		subTopics,
+		roleBindingScalarRequestContext{
+			Dimensions: requestedAnswerDimensions, CurrentSource: currentSourceExplanation,
+			RuntimeScope: runtimeArtifactScopeProfile, RuntimeQuestion: runtimeQuestionProfile,
+		},
 	); warning != "" {
 		predicates = normalizedPreds
 		answerSubject = normalizedSubject
@@ -6783,6 +6787,17 @@ func normalizeRuntimeArtifactScalarIntent(artifactOnlyRuntime bool, intent types
 	}
 }
 
+// roleBindingScalarRequestContext contains already parsed current-request
+// declarations, not evidence, raw quotes, or a second classification. The
+// optional private argument keeps legacy callers without these declarations
+// on their existing single-name completion path.
+type roleBindingScalarRequestContext struct {
+	Dimensions      *types.RequestedAnswerDimensionProfile
+	CurrentSource   *types.CurrentSourceExplanationProfile
+	RuntimeScope    *types.RuntimeArtifactScopeProfile
+	RuntimeQuestion *types.RuntimeQuestionProfile
+}
+
 func normalizeRoleBindingScalarShape(
 	intent types.Intent,
 	kind string,
@@ -6791,9 +6806,21 @@ func normalizeRoleBindingScalarShape(
 	profile *types.AnswerRoleProfile,
 	answerSubject types.AnswerSubject,
 	subTopics []types.SubTopic,
+	requestContexts ...roleBindingScalarRequestContext,
 ) (types.SemanticPredicates, types.AnswerSubject, []types.SubTopic, string) {
 	if !roleBindingScalarShapeEligible(intent, predicates, profile, subTopics) {
 		return predicates, answerSubject, subTopics, ""
+	}
+	// A single candidate category does not mean the entire answer is a
+	// single value. Preserve an independently declared path, explanation, or
+	// runtime request instead of turning its ancillary role into its shape.
+	if !predicates.IsScalarAnswer && types.NormalizeRequirementKind(kind) == types.ReqCallChain {
+		return predicates, answerSubject, subTopics, ""
+	}
+	for _, shape := range requestContexts {
+		if shape.preservesWholeAnswer(predicates) {
+			return predicates, answerSubject, subTopics, ""
+		}
 	}
 	role := profile.RequiredCandidateRoles[0]
 	var reasons []string
@@ -6830,6 +6857,73 @@ func normalizeRoleBindingScalarShape(
 		return predicates, answerSubject, subTopics, ""
 	}
 	return predicates, answerSubject, subTopics, strings.Join(reasons, "; ")
+}
+
+func (shape roleBindingScalarRequestContext) preservesWholeAnswer(predicates types.SemanticPredicates) bool {
+	if shape.Dimensions.Active() {
+		principalValues := 0
+		for _, dimension := range shape.Dimensions.Dimensions {
+			if !dimension.Required {
+				continue
+			}
+			switch dimension.Role {
+			case types.RequestedAnswerDimensionRelationPath,
+				types.RequestedAnswerDimensionStageWorkflow,
+				types.RequestedAnswerDimensionFunctionOrPurpose,
+				types.RequestedAnswerDimensionBranchBehavior,
+				types.RequestedAnswerDimensionDiffClue,
+				types.RequestedAnswerDimensionCurrentKeyCode,
+				types.RequestedAnswerDimensionImpact,
+				types.RequestedAnswerDimensionComparisonAxis,
+				types.RequestedAnswerDimensionMemberSet,
+				types.RequestedAnswerDimensionDiagram,
+				types.RequestedAnswerDimensionRuntimeWorkRelation,
+				types.RequestedAnswerDimensionConceptualTerminalResolution,
+				types.RequestedAnswerDimensionTargetEffectVerdict,
+				types.RequestedAnswerDimensionCausalAttribution,
+				types.RequestedAnswerDimensionCausalContributorSet:
+				return true
+			case types.RequestedAnswerDimensionObservedValue, types.RequestedAnswerDimensionCount:
+				principalValues++
+			}
+		}
+		// Location, evidence, boundary, and source attributes can describe
+		// the same one value; dimension count alone is not answer arity.
+		if principalValues > 1 {
+			return true
+		}
+	}
+	if shape.CurrentSource.Active() {
+		for _, mode := range shape.CurrentSource.Modes {
+			switch mode {
+			case types.CurrentSourceExplanationExplainCurrentMechanism,
+				types.CurrentSourceExplanationTraceCurrentFlow,
+				types.CurrentSourceExplanationCompareWithCurrent,
+				types.CurrentSourceExplanationAssessCurrentImpact,
+				types.CurrentSourceExplanationVerifyCurrentStatus:
+				return true
+			}
+		}
+	}
+	// A window constrains evidence, not answer arity. Keep already-declared
+	// scalar runtime lookups intact, but never infer scalarity from a role
+	// after the model explicitly chose a non-scalar bounded/runtime shape.
+	if !predicates.IsScalarAnswer {
+		if shape.RuntimeScope.HasExplicitTimeWindows() {
+			return true
+		}
+		if profile := shape.RuntimeQuestion; profile != nil {
+			if profile.RequestsRuntimeWorkRelation() || profile.RequestsFrameCausality() {
+				return true
+			}
+			switch profile.Scope {
+			case types.RuntimeQuestionScopeRelationAnalysis, types.RuntimeQuestionScopeCausalDiagnosis,
+				types.RuntimeQuestionScopeBoundedEffectVerdict, types.RuntimeQuestionScopeSystemOverview:
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func roleBindingScalarShapeEligible(
