@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-15）
 
-当前交付§123.1813–1814：B1699 已 `0995bf36d` 推送；B1700 收口成员来源、自动引用与符号补齐资格，保模型原文/已选引用和真实补齐能力。公共先红后绿、专项 count/race、两处真回归保原针；最终冻结 `go test ./... -count=1` 86测试包全绿+13无测试包，Go/build SHA一致。中间全仓失败、旧夹具的来源前提修订、真实来源正控与既存2秒进程时序观察分别留档，不假造 Grounded、不放宽时限。下一§123.1815 r1076选择真实双窗Trace read与多仓TS apply，各一次/PARALLEL2；提交后清洁构建才启动。B1694、完整图表达与写验证债仍分别开放。
+当前交付§123.1813–1814：B1699 `0995bf36d`、B1700 `fefbcfbef` 已推送，最终冻结86测试包全绿+13无测试包；不改模型答案/已选引用。§123.1815 r1076清洁构建后真实双窗Trace read与多仓TS apply恰好两路各一次，机器1PASS/1FAIL。Trace测量和主对比正确、解释错误；TS实际交付原生后验6/6通过但正式proof未闭。新B1701包装器词法污染/B1702失败probe诊断丢失均P1，先根修、不追绿重跑。Trace状态重复/错域枚举提示并入B1626/EVAL-B36-SYSAUTH1；B1694、完整图表达与写验证债继续开放。
 
 最新回放§123.1812：B1698 `477025af9` / B1697 `6859fe811` 均已推送，联合冻结86包全仓通过后清洁构建。r1075严格混合Trace/源码read与C++ plan-only两路各一次，机器1PASS/1FAIL；人审计划核心PASS但未应用/编译，混合读数值及五维正确、当前实现与来源资格FAIL。新B1699同一soft-required源码义务被误教optional并反复拒绝收束、B1700混合member_set获源码清单资格及无引用runtime条目被补错来源均P1，下一片先公共复现，不归JSON畸形或模型波动。B1697/B1698实际通道及图在本对N/A；原结果/夹具/机评不改，无第三例追绿。
 
@@ -57432,13 +57432,23 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
-### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，待冻结交付后启动）
+### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
 243 例按215 read/25 apply/3 plan清点后，按来源隔离、时间窗精度、模式稀疏性、旧验证薄弱性与最近覆盖排序。本批选择 `real_trace_e1_dual_window_normalized`（真实同线程两种窗宽，read15步，源码排除）与 `github_issue_memoclaw_text_search_multirepo_ts`（仅 TypeScript SDK 的多仓 apply24步）；不重复刚跑的混合读与 C++ plan-only。CAP5/PARALLEL2/TIMEOUT1200、各一次；提交/推送后由清洁 HEAD 构建，原 case/fixture/oracle 不改，绝不第三例或追绿重跑。
 
 前者需逐窗核 2.992ms 与30ms、running 0 与3.414ms、归一化口径；不从零 Running 直接推导 IO/算力/帧因果。后者以仓内 API reference 为准，检查 POST 路径、JSON query/数值limit/可选namespace、写根隔离、实际交付归属与返回/异常保留。原 Makefile/package test 仅 Python 文本扫描，不等于 TypeScript 编译或执行；本机 Node24.19.0 的类型转换也不等于类型检查。如做人审后验执行，单列收据，不能回填成正式计划已经具备的验证证明。
 
-启动前哈希见 `.codrax/tmp/20260915-r1076-cases-trace-before.sha`、`20260915-r1076-repo-fixtures-before.sha`，均已核一致。当前 `live-r1076=not-started`；图与各专项是否实际触发须待本次日志判定，不能以无图或无候选当作已验证图/全因果。
+启动前哈希见 `.codrax/tmp/20260915-r1076-cases-trace-before.sha`、`20260915-r1076-repo-fixtures-before.sha`，均已核一致。B1699 `0995bf36d`、B1700 `fefbcfbef` 均已推送 main；清洁构建 `0.1.20260915 / fefbcfbef374 / 2026-09-15T10:04:39Z`。10:05:07Z启动恰好两路，runner收据 `.codrax/tmp/20260915-r1076-runner.log`，机评 `eval/parallel_selected_summary_evalcampaign_trace_write_r1076_20260915.md`；运行中不改 Go/源码/case/fixture。图与各专项是否实际触发须待最终日志判定，不能以无图或无候选当作已验证图/全因果。独立原始 sched_switch 裁窗核得 A=2992µs/Running0，B=30000µs/Running3414µs=11.38%/19片；原 SDK 的隔离 Node 人工后验负基线4请求失败/2异常传播通过，脚本与结果在 `.codrax/tmp/20260915-memoclaw-ts-native-{postcheck.mjs,original-red.log}`，不发送模型、不回填正式证明。
+
+终局：runner完整exit0，机器1PASS/1FAIL，原汇总不动；逐日志/上下文/最终答案和独立后验见同名前缀`_manual_audit.md`。Trace231s/39%上下文，Running等实测及两窗归一主对比正确，但模型“完全睡眠”忽略14µs Runnable，零基准∞倍无效；首次成文0拒绝/0patch/无JSON降级。本题bounded_fact_set不请求帧因果，无投影不是丢失；目标状态补齐、CPU位置及必有schema2空侧车均在。最终第二次分析确为源码excluded，不能把首个失败stage的optional当最终来源状态。本对未覆盖完整链双轴或图。
+
+TypeScript309s（工件内305s）/28%上下文，交付HEAD `bf3e6ea24e4c5caf94a36b5734dfdf14b58d4137`，只src/client.ts修改，两个后继计划仅验证。人工直接导入真实TS检查6/6通过，原fixture负基线2/6通过；不等于类型检查、不写回proof。正式3次Make仅Python源码扫描，2次probe unavailable，原不存在的test_search未获权限，累计义务仍在，最终诚实unverified/verification_proof_incomplete。故机器FAIL保留，不因后验通过伪称正式验证闭环。
+
+新P1 **B1701-JSPROBEWRAPPERLEXICALISOLATION1**：原probe收据只读重放确认第二次合法JS顶层const fs与系统wrapper同名绑定冲突（vm.runInThisContext）。须隔离所有包装实现变量，而非禁用名字/单独改名；保原cwd/require/argv/执行及收据，补公共正反控。第一probe实际是Node strip-only不支持TS parameter property，并非业务补丁错。新P1 **B1702-PROBEUNAVAILABLECONTEXTRETENTION1**：完整stderr曾捕获，但fallback静态套件passed后unavailable结果详细错误未保留，短输出也无durable ref；模型只见SyntaxError。须本次plan/probe/invocation绑定的非权威诊断贯穿tool/controller/planner/verifier，保有界原文与可回读引用，绝不改变Passed/分类/proof。两次重放收据`.codrax/tmp/20260915-r1076-typescript-probe-receipt-native-replay.log`保全；不是模型波动或B1122旧native失败lane已修成果回归。
+
+Trace P2并入既有债，不另开重复编号：B1626 §1782.6同成员不同来源的显示压缩，本轮同view因pid与pid+thread QueryScopeID不同在最终上下文和状态补充各重复；保真实来源隔离，仅考虑已证等价显示合并。EVAL-B36-SYSAUTH1源码枚举提示错域：A/B两个bucket经HasAnyObligation取得比较资格，又被误借给仓库声明oracle，accounted_total遂被系统质疑；必须按typed源码请求/来源授权核对，不删整份状态补齐、不改模型表。JSON多字段和实体组合质量门另作教学负担观察，不据一次失误新设关键词硬门。
+
+状态：`r1076=exact2-once/runner-1pass-1fail/human-trace-explanation-fail+write-delivery-postcheck-pass-formal-unverified`；`B1701=P1-confirmed/implementation-next`；`B1702=P1-confirmed/design-next`；`B1694/B1626/EVAL-B36-SYSAUTH1=OPEN`；`cases/fixtures/oracles/original-answers=preserved`。600/300/600s默认和活跃流续期未改，不因4ms/旧4m无正文降级。
 
 ### §123.1813 B1699：外部观测充分性必须标明适用范围（2026-09-15，已推送）
 
@@ -57452,7 +57462,7 @@ r1075 的同一 typed `soft/required/unsatisfied` 状态已通过真实 `TraceQu
 
 状态：`B1699=0995bf36d-pushed/public-red-to-green/focused-count20+race-pass/final-joint-full-v3-pass`；`model-answer-owner=preserved`；`new-hard-gate/required-model-field/raw-prose-scan=none`。
 
-### §123.1814 B1700：源码坐标不等于成员证明，正文匹配不应创造引用（2026-09-15，施工中）
+### §123.1814 B1700：源码坐标不等于成员证明，正文匹配不应创造引用（2026-09-15，已推送）
 
 1. **聚合资格**：真实 parser/read/emit_evidence/ledger/finalizer 公共红见 `.codrax/tmp/b1700-aggregate-public-red.log`。两个不同语义的未观察成员借已读定义行号获得独立已证/源码主项资格；不是数值格式或单个 type 问题。普通 `member_set` 将以已有接地证据的精确成员身份及坐标见证核验，原模型聚合/解释/坐标原样保留；不凭 prose、数值形状、摘要猜资格。系统已核验关系/库存及显式外部主项保留各自通道，外部主项许可不等于整份模型聚合独立已证。
 2. **上下文边界仍在校准**：真实生产入口需同一来源上下文；低层手构显示计划的兼容性不应变成生产漏授信。上下文仅作瞬时、非序列化的证据身份快照，不在模型事实或持久引用 JSON 上新增布尔票据。最初把未交接的 emitted 证据直接补进通用 Bus ledger 改变了原观测账来源，已否决该宽改；只为成员资格交接完整已接受证据，并补 Agent/Bus 一致性正控。旧合法枚举失败不能靠放宽错误事实资格求绿。
@@ -57474,7 +57484,7 @@ r1075 的同一 typed `soft/required/unsatisfied` 状态已通过真实 `TraceQu
 
 14. **最终冻结通过**：`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./... -count=1` 的 v3 完整 exit0，86测试包强制重跑+13无测试包，零失败；agent89.049/tool373.863/types48.369/tracequery112.846/tracediag13.248/hitraceconv151.213/llm29.443/orchestrator29.834s。冻结 Go/build SHA前后全一致，diff检查通过，fresh fetch 后 main/origin=0/0。原2秒/8秒时序针在完整套件本次通过，不据此关闭其既存可靠性观察；B1694精确已知缺口仍保留SKIP，不宣称全系统零跳过/全图矩阵闭环。流活跃专项 `20260915-b1699-b1700-active-stream.log` count3 PASS12.821s（心跳首响应/中途续活及隐藏推理超过旧请求预算后正常完成），代码600/300/600s默认不变。
 
-状态：`B1700=public-red-to-green/source-members+automatic-citation+retention+ownership-scoped-pass/final-frozen-full-v3-pass/delivery`；`live-r1076=pending-clean-build`；`model-prose/graphs/aggregate-payload=preserved`；`B1694=OPEN`。r1075 原日志、答案、机器判定及夹具均不改，不用旧答案重写冒充修复效果。
+状态：`B1700=fefbcfbef-pushed/public-red-to-green/source-members+automatic-citation+retention+ownership-scoped-pass/final-frozen-full-v3-pass`；`live-r1076=complete/see-1815`；`model-prose/graphs/aggregate-payload=preserved`；`B1694=OPEN`。r1075 原日志、答案、机器判定及夹具均不改，不用旧答案重写冒充修复效果。
 
 ### §123.1812 r1075：混合来源不能用源码格式教学证明实测事实（2026-09-15）
 
