@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1803：清洁b4791971f、远程0/0后，B1689逐段附注口径丢失及B1690非图关系修补显示合同分叉已公共先红后绿、重复及竞态通过，最终冻结全仓v3的86测试包强制重跑全绿。完整逐次区间库存分为“查询→账本来源保真”和“账本→投影分源贯通”两批，未实施、不以显示修复代销。递归库存243例=215读/25apply/3plan；下一对r1072计划Go精确写+Rust跨模块读，各一次、并行2，尚未启动。
+当前续修§123.1804：B1689/B1690已385bcfc3e推送，冻结全仓86包强制重跑通过；r1072 Go写/Rust读已exact2各一次，机器Go失败/Rust通过，人审Go本请求交付通过/Rust算法说明失败。优先B1691：单个角色profile不应覆盖准确整题call-chain/多维形状，导致探索与成文互相冲突的scalar教学。完整occurrence来源库存A/B未实施；B1634c末尾证明计划oracle再现及自递归/赋值误作返回的供给候选独立留账，不以本次局部修复代销。
 
 当前交付§123.1802：r1071完整人审已9192d2bab单独推送，exact2各一次机PASS但人审均FAIL。B1686初始Trace外部观测交接、B1687纯拓扑误补端点身份、B1688多次发生包络误称单次均已公共先红后绿、count3/race3及独立冷审，最终冻结全仓86个有测试包通过（57本次执行/29有效缓存）。图有明确身份时的安全补齐继续保留，原模型正文、关系与根因选择不改。模型说明准确性、真实代表片段供给、主数据流导航与原生runner执行证明仍独立开放，不追跑原样例求绿。
 
@@ -57421,6 +57421,17 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1804 r1072：异构读写验收与整题形状冲突（2026-09-14）
+
+1. **交付/顺序**：B1689/B1690已385bcfc3e推送，新二进制385bcfc3ebfb构建02:13:26Z，清洁源码快照19:13:45开始CAP5/PARALLEL2/TIMEOUT1200的Go apply24+Rust read15，各一次，不追绿。详细机评/人审见 `eval/parallel_selected_summary_evalcampaign_go_rust_r1072_20260914{,_manual_audit}.md`；原输出、fixture、case及正式计划/报告/日志SHA均保留。
+2. **Go机器FAIL156s/人审本请求交付PASS**：primary plan5751实际patch仅main.go:25 retrun→return，交付commit/durable/worktree/applied-tree一致bbe6c3b94ad9e5cb2ed7df3ea70d537452203aa2，其余3文件不变。末代plan5885 proof-only的delivery准确指回原源码计划。Go同包overlay的TestReturnSpelling真实读当前第25行验有return/无retrun，exit0/903ms；原TestGreet另跑，3输入不称3独立测试，独立交付树原测试后验0.699s通过未回填report。累计必需c1未删/降格；旧假PTO仍missing、旧行仍advisory，同c1后继probe闭合。3次项目runner+1次probe，末代2结果；profile的probe_count6不是6次执行。case154s不同outer156s。B1634c机FAIL只检查末尾proof-only plan的patch-kind，再现但不改oracle倒签；B1561通用逐合同强度仍另账，B1122本轮无失败runner触发。
+3. **Rust机器PASS124s/人FAIL**：完整读3源码，1repo_map，1完整成文+3patch、2成文拒绝、最大81046/200000。主路径及walker收集后返回run处理、trait逐行动态分派保留，4条结构化关系有证；无Mermaid且非强制，真实renderer计数0记N/A，不认格式成功或缺图失败。模型首稿起自行误说简化RegexLikeMatcher支持`*`/`?`；源实际仅字面`.*`分段顺序find，完整输入已供。walker过滤所有目录项而不只是目录的区别及trait称继承也未准确表达。不扫描原答案硬门，不由系统代写，不证明误算法是下一条错提示直接导致。
+4. **B1691/P1确定，高ROI下一批**：模型emit_analysis原call_chain/call、scalar=false、required relation_path+function_or_purpose；错误角色profile单agent被normalizeRoleBindingScalarShape无条件抬成全题scalar/rolelocate，再清cross_component。实发explorer1225、finalizer2434–2442的“单个源字面值/不要walkthrough”与同轮caller→callee教学冲突。role类别不能替代整题形状；使用已验证的关系/多维/解释/runtime载荷约束补齐资格，保真正单值角色定位自动补齐，不按Rust/原问关键词/模型散文特判，不加emit拒绝。公共EmitAnalysis RED与原合法function/config/type正控先行，未据日志直接签实现。
+5. **B1690本轮边界及供给候选**：新提示在2548正确区分非图标签/身份，2579允许完整块修补，4条关系第一patch已过；下一拒仅未删多余summary。模型未选局部add分支，不声称全部分支生产闭环。两被删初始锚缺identity且类型≠方法；真实pool已有LiteralMatcher.is_match→line.contains，无完整正确typed边被拒删证据。独立待复现候选：自动补齐相同caller/callee过滤可能丢walk→walk（emit_evidence4224）；日志1318–1322/1994将分支赋值`rest = &rest[i + t.len()..],`发布成returns。各自追producer与公共RED，不混作模型波动，也不未验就扩本批。
+6. **边界保持**：首响应600s/真实静默300s/非流600s实见日志；无活跃流4ms或旧4m无正文降级、无JSON格式失败，不改客户原回答或机器FAIL。该对无Trace，不冒称新Trace生产回放；链上双轴/IO/业务线索/明确窗/补齐由前批公共及全仓守卫保，完整occurrence来源库存A/B、B1634c和自由说明质量独立开放。递归库存243=215read/25apply/3plan，优先精确系统供给/教学冲突而非重复同case求绿。
+
+状态：`B1689/B1690=385bcfc3e-pushed/full-frozen-pass`；`r1072=exact2-once/machine-pass1-fail1/human-Go-pass-Rust-fail/originals-preserved`；`B1691=confirmed/typed-shape-public-red-next`；`occurrence-inventory-A/B=not-implemented`；`B1634c=reproduced-open`；`recursive/return-supply=separate-public-reproduction-pending`。
 
 ### §123.1803 B1689/B1690：逐段统计附注与非图关系修补合同（2026-09-14）
 
