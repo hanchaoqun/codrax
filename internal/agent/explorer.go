@@ -3943,12 +3943,22 @@ func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *typ
 
 func (e *explorerEvaluator) buildExternalObservationFirstStartInstruction(ctx *types.AgentContext) string {
 	var b strings.Builder
+	authority := runtimeSourceAnswerAuthorityForExplorer(ctx)
 	b.WriteString("## External Observation First Start\n\n")
-	b.WriteString("This turn is typed as external-observation-first and current-source evidence is optional. Start from MCP/provider/runtime/log/trace observations and keep them in their own evidence lane.\n\n")
+	if authority.CurrentSourceRequired {
+		b.WriteString("Start from typed external observations from MCP/provider/runtime/log/trace in the external observation lane. A separate typed current-source obligation remains; external-first ordering does not make it optional.\n\n")
+	} else {
+		b.WriteString("This turn is typed as external-observation-first and current-source evidence is optional. Start from MCP/provider/runtime/log/trace observations and keep them in their own evidence lane.\n\n")
+	}
 	b.WriteString(renderExplorerPeerErrorFactScope(ctx))
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Use external observation tools/resources first. Typed rows with line, row, selector, JSON pointer, page, or time-window addresses are valid external observations; do not convert them into current-source citations.\n")
-	b.WriteString("- If the typed external observations answer the user's requested entity, selector, row/line, scalar/count, or conclusion, call `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")`. Preserve the exact external origin and addressable facts in `reason` and, for counts/lists/scalars, `aggregate_facts`.\n")
+	if authority.CurrentSourceRequired {
+		b.WriteString(explorerExternalObservationRequiredSourceGuidance(authority.CurrentSourceRequirement))
+		b.WriteString("- Preserve the exact external origin and addressable facts in `emit_investigation_complete.reason` and, for counts/lists/scalars, `aggregate_facts`; this does not supply current-source proof.\n")
+	} else {
+		b.WriteString("- If the typed external observations answer the user's requested entity, selector, row/line, scalar/count, or conclusion, call `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")`. Preserve the exact external origin and addressable facts in `reason` and, for counts/lists/scalars, `aggregate_facts`.\n")
+	}
 	b.WriteString("- Do not run repository breadth search (`repo_map`, repo-wide `grep`, `list_files`) just to collect source sidecars. Current-source exploration remains available only when a current-source question is still unresolved or a contradiction would materially change the answer.\n")
 	b.WriteString("- If you do need current source, make it a focused follow-up and keep the lanes separate: external observations establish what the external artifact/tool reported; current-source evidence establishes implementation behavior.\n")
 	b.WriteString("- A zero or absence from an external observation lane should be recorded as `negative_observation`, not as a fake source `file:0` row.\n\n")
@@ -3956,6 +3966,15 @@ func (e *explorerEvaluator) buildExternalObservationFirstStartInstruction(ctx *t
 		b.WriteString("**User question:** ")
 		b.WriteString(types.StripConversationPrefix(ctx.Objective))
 		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func explorerExternalObservationRequiredSourceGuidance(precision types.RuntimeSourceRequirementPrecision) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "- The current-source lane remains required (%s); external-lane sufficiency is not whole-question sufficiency or an accepted waiver. Use relevant grounded source evidence, or a focused source read for still-missing implementation facts. Keep source proof separate from runtime observations.\n", precision)
+	if precision == types.RuntimeSourceRequirementSoft {
+		b.WriteString("- If source proof cannot be established, preserve that unresolved boundary in the completion reason and use the existing typed waiver/caveat path when applicable. A soft obligation does not create a new hard gate, but a citation-count waiver alone does not erase a separately requested source question. Do not claim missing implementation facts as verified.\n")
 	}
 	return b.String()
 }
@@ -10054,8 +10073,13 @@ func (e *explorerEvaluator) postExternalObservationSufficiencySignal(obs LoopObs
 	e.midLoopCompletionReadySent = true
 	e.midLoopCompletionReadyIter = obs.Iteration
 	var b strings.Builder
-	b.WriteString("Progress check: typed external observations already form a small addressable answer surface, and the current-source lane is optional for this turn. ")
-	b.WriteString("Prefer closing with `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")` instead of reading current-source sidecars by default.\n")
+	if sufficiency.Scope == types.ExternalObservationSufficiencyScopeExternalLane {
+		b.WriteString("Progress check: typed observations already form a small addressable answer surface for the external observation lane. This does not by itself complete the current-source part of the question.\n")
+		b.WriteString(explorerExternalObservationRequiredSourceGuidance(sufficiency.CurrentSourceRequirement))
+	} else {
+		b.WriteString("Progress check: typed external observations already form a small addressable answer surface, and the current-source lane is optional for this turn. ")
+		b.WriteString("Prefer closing with `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")` instead of reading current-source sidecars by default.\n")
+	}
 	fmt.Fprintf(&b, "- external observation rows: %d\n", sufficiency.RecordCount)
 	if origins := externalObservationSufficiencyOriginLabels(sufficiency.Origins); origins != "" {
 		fmt.Fprintf(&b, "- origins: %s\n", origins)

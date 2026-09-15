@@ -1121,9 +1121,10 @@ func TestExplorer_ObserveExternalObservationSufficiencyHintsCompletion(t *testin
 	ctx := parseOutputCtx("", "")
 	ctx.Objective = question
 	ctx.TurnRouteHint = types.TurnRouteHint{
-		Route:      "repo",
-		Source:     "external_tool",
-		Confidence: 0.9,
+		Route:                     "repo",
+		Source:                    "external_tool",
+		Confidence:                0.9,
+		CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
 	}
 	ctx.Mutable = types.NewMutableState(question)
 

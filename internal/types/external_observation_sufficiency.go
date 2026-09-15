@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-// ExternalObservationSufficiencyStatus is the typed verdict for whether
-// non-current-source observations are enough to answer without source sidecar
-// reads. It consumes only structured routing/request/ledger fields.
+// ExternalObservationSufficiencyStatus is the typed verdict for a small,
+// answer-grade external observation surface. Sufficient does not discharge a
+// separate soft current-source obligation; Scope describes that boundary.
 type ExternalObservationSufficiencyStatus string
 
 const (
@@ -21,67 +21,75 @@ func (s ExternalObservationSufficiencyStatus) Sufficient() bool {
 	return s == ExternalObservationSufficiencySufficientForAnswer
 }
 
+type ExternalObservationSufficiencyScope string
+
+const (
+	ExternalObservationSufficiencyScopeUnknown              ExternalObservationSufficiencyScope = ""
+	ExternalObservationSufficiencyScopeExternalLane         ExternalObservationSufficiencyScope = "external_observation_lane"
+	ExternalObservationSufficiencyScopeSourceOptionalAnswer ExternalObservationSufficiencyScope = "source_optional_answer"
+)
+
 // ExternalObservationSufficiency summarizes a small, addressable external
 // observation set. It is intentionally diagnostic: callers may use Status as
-// the precise signal and render the rest as advisory context.
+// an external-lane readiness signal, not a whole-task completion or waiver.
+// CurrentSourceRequirement is compiled once from the shared typed request
+// policy, including on insufficient/precise-blocked assessments.
 type ExternalObservationSufficiency struct {
-	Status           ExternalObservationSufficiencyStatus `json:"status,omitempty"`
-	Reason           string                               `json:"reason,omitempty"`
-	RecordCount      int                                  `json:"record_count,omitempty"`
-	AddressableCount int                                  `json:"addressable_count,omitempty"`
-	Origins          []AnswerEvidenceOrigin               `json:"origins,omitempty"`
-	SourceKinds      []ObservationSourceKind              `json:"source_kinds,omitempty"`
+	Status                   ExternalObservationSufficiencyStatus `json:"status,omitempty"`
+	Scope                    ExternalObservationSufficiencyScope  `json:"scope,omitempty"`
+	CurrentSourceRequirement RuntimeSourceRequirementPrecision    `json:"current_source_requirement,omitempty"`
+	Reason                   string                               `json:"reason,omitempty"`
+	RecordCount              int                                  `json:"record_count,omitempty"`
+	AddressableCount         int                                  `json:"addressable_count,omitempty"`
+	Origins                  []AnswerEvidenceOrigin               `json:"origins,omitempty"`
+	SourceKinds              []ObservationSourceKind              `json:"source_kinds,omitempty"`
 }
 
 const externalObservationSufficiencyMaxDirectRecords = 8
 
 // AssessExternalObservationSufficiency reports when typed external
-// observations are already an answer-grade surface and current-source evidence
-// is optional. It must not inspect raw user prose or model-authored free text.
+// observations are already an answer-grade surface, separately from whether
+// current-source evidence is requested. It must not inspect raw user prose or
+// model-authored free text, and does not grant a completion waiver.
 func AssessExternalObservationSufficiency(records []ObservationRecord, rm *RequestModel, hint TurnRouteHint) ExternalObservationSufficiency {
-	if externalObservationSufficiencyCurrentSourceRequired(rm, hint) {
-		return ExternalObservationSufficiency{
-			Status: ExternalObservationSufficiencyBlockedByCurrentSource,
-			Reason: "typed current-source lane is required",
-		}
+	required := runtimeSourceAuthorityRequestCurrentSourceRequired(rm, hint)
+	out := ExternalObservationSufficiency{
+		CurrentSourceRequirement: runtimeSourceAuthorityRequirementPrecision(rm, hint, required),
+	}
+	if out.CurrentSourceRequirement == RuntimeSourceRequirementPrecise {
+		out.Status = ExternalObservationSufficiencyBlockedByCurrentSource
+		out.Reason = "typed precise current-source lane is required"
+		return out
 	}
 	if !externalObservationSufficiencyRouteEligible(rm, hint) {
-		return ExternalObservationSufficiency{
-			Status: ExternalObservationSufficiencyInsufficient,
-			Reason: "turn is not typed as external-observation-first",
-		}
+		out.Status = ExternalObservationSufficiencyInsufficient
+		out.Reason = "turn is not typed as external-observation-first"
+		return out
 	}
 	candidates := externalObservationSufficiencyCandidates(records)
 	if len(candidates) == 0 {
-		return ExternalObservationSufficiency{
-			Status: ExternalObservationSufficiencyInsufficient,
-			Reason: "no small addressable external observations",
-		}
+		out.Status = ExternalObservationSufficiencyInsufficient
+		out.Reason = "no small addressable external observations"
+		return out
 	}
+	out.RecordCount = len(candidates)
+	out.AddressableCount = len(candidates)
+	out.Origins = externalObservationSufficiencyOrigins(candidates)
+	out.SourceKinds = externalObservationSufficiencySourceKinds(candidates)
 	if len(candidates) > externalObservationSufficiencyMaxDirectRecords {
-		return ExternalObservationSufficiency{
-			Status:           ExternalObservationSufficiencyInsufficient,
-			Reason:           "external observation set is broad; continue normal investigation",
-			RecordCount:      len(candidates),
-			AddressableCount: len(candidates),
-			Origins:          externalObservationSufficiencyOrigins(candidates),
-			SourceKinds:      externalObservationSufficiencySourceKinds(candidates),
-		}
+		out.Status = ExternalObservationSufficiencyInsufficient
+		out.Reason = "external observation set is broad; continue normal investigation"
+		return out
 	}
-	return ExternalObservationSufficiency{
-		Status:           ExternalObservationSufficiencySufficientForAnswer,
-		Reason:           "small typed external observation set is addressable and current-source evidence is optional",
-		RecordCount:      len(candidates),
-		AddressableCount: len(candidates),
-		Origins:          externalObservationSufficiencyOrigins(candidates),
-		SourceKinds:      externalObservationSufficiencySourceKinds(candidates),
+	out.Status = ExternalObservationSufficiencySufficientForAnswer
+	if required {
+		out.Scope = ExternalObservationSufficiencyScopeExternalLane
+		out.Reason = "small typed external observation set is addressable; the soft current-source obligation remains separate"
+	} else {
+		out.Scope = ExternalObservationSufficiencyScopeSourceOptionalAnswer
+		out.Reason = "small typed external observation set is addressable and current-source evidence is optional"
 	}
-}
-
-func externalObservationSufficiencyCurrentSourceRequired(rm *RequestModel, hint TurnRouteHint) bool {
-	required := runtimeSourceAuthorityRequestCurrentSourceRequired(rm, hint)
-	return required &&
-		runtimeSourceAuthorityRequirementPrecision(rm, hint, required) == RuntimeSourceRequirementPrecise
+	return out
 }
 
 // RouteBackedExternalObservationRequiresCurrentSource reports that the

@@ -9,6 +9,7 @@ type RuntimeSourceAnswerAuthoritySnapshot struct {
 	CurrentSourceLane              CurrentSourceLaneDecision            `json:"current_source_lane,omitempty"`
 	CurrentSourceRequirement       RuntimeSourceRequirementPrecision    `json:"current_source_requirement,omitempty"`
 	ExternalObservationSufficiency ExternalObservationSufficiencyStatus `json:"external_observation_sufficiency,omitempty"`
+	ExternalObservationScope       ExternalObservationSufficiencyScope  `json:"external_observation_scope,omitempty"`
 	RuntimeObservationCount        int                                  `json:"runtime_observation_count,omitempty"`
 	AddressableRuntimeCount        int                                  `json:"addressable_runtime_count,omitempty"`
 	DeterministicRuntimeQueryCount int                                  `json:"deterministic_runtime_query_count,omitempty"`
@@ -144,8 +145,13 @@ func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityIn
 	rm := in.RequestModel
 	suff := AssessExternalObservationSufficiency(in.Ledger.Records, rm, in.RouteHint)
 	out.ExternalObservationSufficiency = suff.Status
+	out.ExternalObservationScope = suff.Scope
+	// Historical external-surface availability bit, also used by MCP and
+	// caveat consumers. Scope (not this bit) distinguishes source optionality;
+	// an external-lane surface cannot discharge a separate source obligation.
 	out.RuntimeOnlySufficient = suff.Status.Sufficient()
-	out.CurrentSourceRequired = runtimeSourceAuthorityCurrentSourceRequired(rm, in.RouteHint, suff)
+	out.CurrentSourceRequirement = suff.CurrentSourceRequirement
+	out.CurrentSourceRequired = suff.CurrentSourceRequirement != RuntimeSourceRequirementNone
 	switch {
 	case rm != nil && rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource():
 		out.CurrentSourceLane = CurrentSourceLaneExcluded
@@ -154,7 +160,6 @@ func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityIn
 	default:
 		out.CurrentSourceLane = CurrentSourceLaneAllowedOptional
 	}
-	out.CurrentSourceRequirement = runtimeSourceAuthorityRequirementPrecision(rm, in.RouteHint, out.CurrentSourceRequired)
 	out.RuntimeCitationPolicy = runtimeSourceAuthorityCitationPolicy(in.AnswerSurfacePlan)
 
 	for _, record := range in.Ledger.Records {
@@ -337,7 +342,7 @@ func RuntimeSourceAuthorityRequestCarrierActive(hint TurnRouteHint, rm *RequestM
 // answer-contract builders that run before an ObservationLedger exists; runtime
 // observations and completion gates should use BuildRuntimeSourceAnswerAuthoritySnapshot.
 func RuntimeSourceRequestCurrentSourceRequirementPrecision(rm *RequestModel, hint TurnRouteHint) RuntimeSourceRequirementPrecision {
-	required := runtimeSourceAuthorityCurrentSourceRequired(rm, hint, ExternalObservationSufficiency{})
+	required := runtimeSourceAuthorityRequestCurrentSourceRequired(rm, hint)
 	return runtimeSourceAuthorityRequirementPrecision(rm, hint, required)
 }
 
@@ -387,13 +392,6 @@ func runtimeSourceRequestHasExternalObservationCarrier(rm *RequestModel, hint Tu
 		rm.HasRuntimeArtifactPathReference() ||
 		rm.LogTriage != nil ||
 		rm.PerfTrace != nil
-}
-
-func runtimeSourceAuthorityCurrentSourceRequired(rm *RequestModel, hint TurnRouteHint, suff ExternalObservationSufficiency) bool {
-	if suff.Status == ExternalObservationSufficiencyBlockedByCurrentSource {
-		return true
-	}
-	return runtimeSourceAuthorityRequestCurrentSourceRequired(rm, hint)
 }
 
 // runtimeSourceAuthorityRequestCurrentSourceRequired is the single request-side
