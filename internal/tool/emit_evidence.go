@@ -8687,9 +8687,13 @@ func autoPairRoleDescriptionEvidence(built []types.EvidenceItem, gc *ground.Cont
 		if manualMech[key] || seen[key] {
 			continue
 		}
-		text, commentLine := extractDocCommentForGroundedItem(gc, it.Source, it.LineStart)
+		text, commentLine, commentEnd, snippet := extractDocCommentRangeForGroundedItem(gc, it.Source, it.LineStart)
 		if text == "" {
 			continue
+		}
+		commentScope := types.ScopeLine
+		if commentEnd > commentLine {
+			commentScope = types.ScopeLineRange
 		}
 		seen[key] = true
 		mech := types.EvidenceItem{
@@ -8700,10 +8704,12 @@ func autoPairRoleDescriptionEvidence(built []types.EvidenceItem, gc *ground.Cont
 			Summary:         text,
 			Source:          it.Source,
 			LineStart:       commentLine,
+			LineEnd:         commentEnd,
+			Snippet:         snippet,
 			AnchorKind:      types.AnchorDefinition,
 			AnchorSymbol:    it.AnchorSymbol,
 			OwnerSymbol:     it.OwnerSymbol,
-			Scope:           types.ScopeLine,
+			Scope:           commentScope,
 			Confidence:      it.Confidence,
 			DerivedFrom:     []string{it.ID},
 			Producer:        types.EvidenceProducerAutoPairRoleDescription,
@@ -8723,12 +8729,17 @@ func autoPairRoleDescriptionEvidence(built []types.EvidenceItem, gc *ground.Cont
 // above lineStart were not in the read_file history (no false-pair
 // risk from unread regions).
 func extractDocCommentForGroundedItem(gc *ground.Context, source string, lineStart int) (string, int) {
+	text, start, _, _ := extractDocCommentRangeForGroundedItem(gc, source, lineStart)
+	return text, start
+}
+
+func extractDocCommentRangeForGroundedItem(gc *ground.Context, source string, lineStart int) (string, int, int, string) {
 	if gc == nil || gc.LineIndex == nil {
-		return "", 0
+		return "", 0, 0, ""
 	}
 	idx := gc.LineIndex[source]
 	if len(idx) == 0 {
-		return "", 0
+		return "", 0, 0, ""
 	}
 	// Require the line immediately above to be in the gutter — this
 	// is where any leading comment block would start its tail. If the
@@ -8738,7 +8749,7 @@ func extractDocCommentForGroundedItem(gc *ground.Context, source string, lineSta
 		// have a Python docstring on the line(s) below; we still need
 		// SOME context. For Python, require lineStart+1 instead.
 		if _, okBelow := idx[lineStart+1]; !okBelow {
-			return "", 0
+			return "", 0, 0, ""
 		}
 	}
 	// Build a 1-based contiguous string from the LineIndex map. Find
@@ -8754,7 +8765,22 @@ func extractDocCommentForGroundedItem(gc *ground.Context, source string, lineSta
 		parts[i-1] = idx[i]
 	}
 	content := []byte(strings.Join(parts, "\n"))
-	return types.ExtractLeadingDocComment(content, lineStart, source)
+	text, start, end := types.ExtractLeadingDocCommentRange(content, lineStart, source)
+	if text == "" || start <= 0 || end < start {
+		return text, start, 0, ""
+	}
+	// Missing rows in the reconstructed view are padding, not observed blank
+	// source lines. Preserve the legacy summary, but never certify a complete
+	// range or quote unless every line was actually read.
+	raw := make([]string, 0, end-start+1)
+	for line := start; line <= end; line++ {
+		value, read := idx[line]
+		if !read {
+			return text, start, 0, ""
+		}
+		raw = append(raw, value)
+	}
+	return text, start, end, strings.Join(raw, "\n")
 }
 
 func normalizeEvidenceSurfaceTerms(in []string) []string {

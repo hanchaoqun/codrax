@@ -900,6 +900,8 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 
 **聚合事实证明资格（B1695）**：观察记录与聚合提示必须复用同一主张的源码准入资格。精确源码定义坐标证明该位置存在，并不证明模型据此提出的关系成员、顺序或跨组件连接；没有对应资格时，保留原聚合、坐标与解释，但不将整份聚合标为独立已证。系统核验的关系/源码库存标记仍优先，真实返回值、赋值及原生 Trace 观测继续走各自证据通道。显式运行时/外部引用可保留既有主答案支持许可，但该许可不等于整份模型聚合及解释获独立证明；不得把两个权限一概合并。
 
+**源码注释引用范围（B1698）**：自动配对的职责说明保留既有摘要、发现规则和证据资格；共享提取器额外返回实际注释起止行。只有该区间每行都存在于真实读取记录，才携带完整原文和范围；缺行、未闭合不得根据摘要推造完整引用。已可引用的 `line_range` 在证据到引用转换中保持范围，单行及 section 原有处理不变，不覆盖模型已有引用。相同起始行的点/范围引用合并仍属 B1694 独立缺口，不能据此宣称所有引用场景已闭环。
+
 **AnswerSupportPlan**（按 question family 编译的 support lane 合同）：
 - `SupportLaneObservedArtifact`：log/perf 观察到的事实（**不是**当前代码 mechanism）
 - `SupportLanePrincipalEvidence`：config / role lookup / enumeration / architecture / comparison / generic 等普通题型的主线证据；由 facet source candidates 筛选，不从 raw evidence pool 随机捞上下文

@@ -1,6 +1,8 @@
 # Eval 多维优先级与泛化审计战役（2026-07-30）
 
-## 最新进展导航（2026-09-14）
+## 最新进展导航（2026-09-15）
+
+当前交付§123.1810：r1074已f1987454a单独收账推送；B1698完整注释范围及合法范围引用交接已公共先红后绿、count3/race3，联合最终冻结全仓86包通过。原同标签点引用抢占范围的新见证并入B1694，保留精确已知缺口测试，不作全范围闭环宣称。B1697单物理Trace有界回读的同批兼容回归已修、旧断言未改，亦通过最终专项/冷审/全仓；两片分开交付。原模型单位/事件类型/IO文字错误不由系统代改答案。
 
 当前交付/回放§123.1808–1809：B1695已推送de15d5c78，公共RED/count3/race3/冷审/冻结全仓86包通过、提交后清洁构建。r1074严格H4供给+Java实现/路径两路各一次，机器2PASS；人审Java核心pass/引用P2，Trace因单位/事件类别/IO与Binder混账FAIL，不改机评。实际聚合两处资格一致，CPU3“漏频率”初审疑点被原始同scope数据否证；新B1697原始Trace有界回查误拒P1、B1698文档注释range缺失P2进入公共复现。B1693/B1694/B1319/B1561/B1696及原开放项不代销。
 
@@ -57423,6 +57425,22 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1810 B1698：完整注释原文与已选证据范围贯通（2026-09-15）
+
+1. **真实缺口与范围**：r1074 Java Stats的职责摘要来自已读多行注释，最终却只引用开头`/**`。修复共享注释提取器、autoPairRoleDescriptionEvidence与证据到引用转换，不添加模型JSON字段或要求重述固定术语；不改变模型选择、正文、关系、主张资格或摘要发现规则。
+2. **最小实现**：旧ExtractLeadingDocComment委托同源range API并保持返回摘要字节。四种既有注释样式返回词法上已知终点，自动伴随证据只在真实LineIndex每行均存在时携带完整Snippet/LineEnd；缺失行不是已读空行，未闭合Python只保旧摘要、不铸完整范围。合法且已可引用的ScopeLineRange在preEmitCitationForItemEvidence保留Scope；单行和section旧处理不变，没有全量复制Scope或扩大引用权限。
+3. **公共先红后绿**：真实ReadFile→Append→EmitEvidence六个旧生产失败见`20260915-b1698-public-red.log`；完整证据经明确模型evidence_ids选择→EmitAnswerDocument→中英Render的第二处范围失落见`20260915-b1698-scope-path.log`。当前完整Java原文及Worker.java:2-5正常渲染，源文件、模型正文与证据输入保字节，重复ID不增引用。Java/Go/Rust/Python及既有C/C++/ArkTS/Cangjie注释样式覆盖的是共享提取/交接，不冒称新增所有语言parser能力；12行/800字节发现及300字符/6行摘要上限、手工mechanism抑制、幂等、未读/缺行/未闭合负控保留。
+4. **B1694新增见证，仍OPEN**：普通Worker标签会先产生worker.go:2点引用，再处理模型明确选择的2-4范围；既有file+start去重抢占后者。原失败夹具保留，只有精确旧点形才SKIP，其它失败仍报错；专门`20260915-b1698-point-range-known-gap.log`显示中性标签范围与已有模型引用不覆盖正控PASS、原Worker形SKIP。此批不改全局身份去重或覆盖已有引用，不将改变标签的正控冒充原问题已修；纳入原同坐标异语义合并B1694下一类修复。
+5. **专项收据与边界**：最终`20260915-b1698-final-v2-count3.log`tool1.468/types1.025s，`final-v2-race3.log`tool6.910/types4.476s通过，diff检查通过。中间夹具过长/Scope预期错误的失败保留，不作产品RED。联合冻结全仓待收据；本轮没有新live，r1074仅作为修复前生产佐证。图关系/时序/逻辑全矩阵、B1693/B1694/B1319/B1561/B1696继续独立开放。
+
+6. **联合验收未过，不提前交付**：`20260915-b1697-b1698-full.log`实际退出1，83包PASS、agent/tool/types三包失败：两项census真实依赖闭包缺filegeneration、B1631频率SourceRef的JSON往返被私有字段污染、两项原始文件默认读取兼容、producer家族判据重复。仅补census一行真实导入后原两针count3=86.255s通过；`full-v2.log`仍退出1，剩余tool/types四针失败（tool336.093/types45.662s）。这些是本次B1697合并引入的回归，不归模型波动、不删旧测试；两份失败日志保留，B1698专项通过不等于联合全仓通过。最终收据在B1697后继交付节更新。
+
+7. **B1694下一片设计边界（未施工）**：冷审另确认patch的answerDocumentPatchCitationIndex同样按起点复用，只改full发射顺序不算全闭。传入/继承/来源不明citation池行均应受保护；item的CitationRefsModelSubmitted旗不证明池行权属，顶层模型citation没有item ref也不得覆盖。可先研究仅对本次系统新补点与明确已验证evidence_ids选择的范围作独立传递，不原地扩宽其他条目的点、不改全局SameLocation；需原Worker、跨item/范围/scope/quote、实际patch/连续正规化、混合非法ID和模型顶层引用保护公共针。这里只记录方案，尚无实现或新通过收据。
+
+8. **最终联合冻结通过**：B1697将物理读取资格移回私有ToolResult票据、恢复原生直接读取分页并复用来源单源判据后，`20260915-b1697-b1698-full-v3.log`的`go test ./... -count=1`退出0，86个有测试包全部重跑PASS、13个无测试包；`freeze-v3.sha`全部Go/构建输入前后指纹一致，diff检查通过。此前v1/v2失败及B1694的明确已知缺口均保留；不冒称零SKIP或B1698单独完整快照回放。该最终组合分别提交，提交后重新构建再开始下一exact2。
+
+状态：`B1698=public-red-green/final-count3+race3/joint-final-frozen-full86-pass/ready-to-commit`；`B1694=additional-public-point-range-witness/known-gap-skip/open`；`model-answer-and-citation-ownership=unchanged`。
 
 ### §123.1809 r1074：机评全绿不替代人审；原始Trace回查与源码引用范围（2026-09-15）
 

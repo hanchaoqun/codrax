@@ -2713,6 +2713,9 @@ func preEmitCitationForItemEvidence(ev types.EvidenceItem, pctx *preEmitCheckCon
 		LineEnd: ev.LineEnd,
 		Quote:   strings.TrimSpace(ev.Snippet),
 	}
+	if ev.Scope == types.ScopeLineRange && ev.LineEnd > ev.LineStart {
+		cit.Scope = types.ScopeLineRange
+	}
 	if pctx != nil {
 		cit = pctx.canonicalCitation(cit)
 	}

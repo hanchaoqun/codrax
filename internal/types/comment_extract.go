@@ -115,18 +115,28 @@ const (
 //     style. Stop at first non-comment line.
 //  4. Reverse to reading order, strip prefixes, apply length filter.
 func ExtractLeadingDocComment(content []byte, lineStart int, path string) (text string, startLine int) {
+	text, startLine, _ = ExtractLeadingDocCommentRange(content, lineStart, path)
+	return text, startLine
+}
+
+// ExtractLeadingDocCommentRange returns the same bounded summary as
+// ExtractLeadingDocComment together with the complete source-line extent of
+// the selected comment. The summary may be shortened; the range is not inferred
+// from that summary. A zero endLine means the legacy extractor found text but
+// did not establish a closing boundary (an unterminated Python docstring).
+func ExtractLeadingDocCommentRange(content []byte, lineStart int, path string) (text string, startLine, endLine int) {
 	if lineStart <= 0 || len(content) == 0 {
-		return "", 0
+		return "", 0, 0
 	}
 	lines := strings.Split(string(content), "\n")
 	if lineStart > len(lines) {
-		return "", 0
+		return "", 0, 0
 	}
 	ext := strings.ToLower(filepath.Ext(path))
 
 	if isPython(ext) {
-		if t, l := extractPythonDocstring(lines, lineStart); t != "" {
-			return t, l
+		if t, l, end := extractPythonDocstring(lines, lineStart); t != "" {
+			return t, l, end
 		}
 		// fall through to # comment fallback below
 	}
@@ -140,14 +150,14 @@ func ExtractLeadingDocComment(content []byte, lineStart int, path string) (text 
 		return extractAboveLinePrefix(lines, commentAnchorLine, "#")
 	case commentStyleBlock:
 		// Java: try /** ... */ first; fall back to // if block absent.
-		if t, l := extractBlockCommentAbove(lines, commentAnchorLine); t != "" {
-			return t, l
+		if t, l, end := extractBlockCommentAbove(lines, commentAnchorLine); t != "" {
+			return t, l, end
 		}
 		return extractAboveLinePrefix(lines, commentAnchorLine, "//")
 	case commentStyleHTML:
 		return extractHTMLBlockAbove(lines, commentAnchorLine)
 	}
-	return "", 0
+	return "", 0, 0
 }
 
 // docCommentAnchorLine returns the line that a leading documentation
@@ -205,14 +215,15 @@ func isMetadataLineAboveDefinition(trimmed string) bool {
 // collecting contiguous lines whose trimmed-left form starts with
 // prefix. A single blank line is tolerated (skipped); a second
 // blank or a non-comment line ends the walk.
-func extractAboveLinePrefix(lines []string, lineStart int, prefix string) (string, int) {
+func extractAboveLinePrefix(lines []string, lineStart int, prefix string) (string, int, int) {
 	idx := lineStart - 2 // 0-based line above the definition
 	if idx < 0 {
-		return "", 0
+		return "", 0, 0
 	}
 	collected := make([]string, 0, maxInLines+1)
 	blankBudget := 1
 	firstLine := 0
+	lastLine := 0
 	for ; idx >= 0; idx-- {
 		raw := lines[idx]
 		trimmed := strings.TrimSpace(raw)
@@ -227,6 +238,9 @@ func extractAboveLinePrefix(lines []string, lineStart int, prefix string) (strin
 			break
 		}
 		collected = append(collected, raw)
+		if lastLine == 0 {
+			lastLine = idx + 1
+		}
 		firstLine = idx + 1 // convert back to 1-based
 		// reset blank budget after seeing a comment line so
 		// "comment / blank / comment" counts as one block via the
@@ -234,29 +248,33 @@ func extractAboveLinePrefix(lines []string, lineStart int, prefix string) (strin
 		blankBudget = 1
 	}
 	if len(collected) == 0 {
-		return "", 0
+		return "", 0, 0
 	}
 	if len(collected) > maxInLines {
-		return "", 0
+		return "", 0, 0
 	}
 	// Reverse to reading order.
 	for i, j := 0, len(collected)-1; i < j; i, j = i+1, j-1 {
 		collected[i], collected[j] = collected[j], collected[i]
 	}
-	return finalizeCommentBlock(collected, prefix, firstLine)
+	text, start := finalizeCommentBlock(collected, prefix, firstLine)
+	if text == "" {
+		return "", 0, 0
+	}
+	return text, start, lastLine
 }
 
 // extractBlockCommentAbove parses a /** ... */ block (Javadoc /
 // JSDoc style) immediately above lineStart. Returns the inner
 // content with leading * stripped.
-func extractBlockCommentAbove(lines []string, lineStart int) (string, int) {
+func extractBlockCommentAbove(lines []string, lineStart int) (string, int, int) {
 	idx := lineStart - 2
 	// Skip up to 1 blank line.
 	if idx >= 0 && strings.TrimSpace(lines[idx]) == "" {
 		idx--
 	}
 	if idx < 0 || !strings.HasSuffix(strings.TrimSpace(lines[idx]), "*/") {
-		return "", 0
+		return "", 0, 0
 	}
 	// Walk upward to find /**.
 	end := idx
@@ -268,27 +286,31 @@ func extractBlockCommentAbove(lines []string, lineStart int) (string, int) {
 			break
 		}
 		if end-j+1 > maxInLines {
-			return "", 0
+			return "", 0, 0
 		}
 	}
 	if start < 0 {
-		return "", 0
+		return "", 0, 0
 	}
 	collected := make([]string, 0, end-start+1)
 	for j := start; j <= end; j++ {
 		collected = append(collected, lines[j])
 	}
-	return finalizeBlockComment(collected, start+1)
+	text, first := finalizeBlockComment(collected, start+1)
+	if text == "" {
+		return "", 0, 0
+	}
+	return text, first, end + 1
 }
 
 // extractHTMLBlockAbove parses a <!-- ... --> block above lineStart.
-func extractHTMLBlockAbove(lines []string, lineStart int) (string, int) {
+func extractHTMLBlockAbove(lines []string, lineStart int) (string, int, int) {
 	idx := lineStart - 2
 	if idx >= 0 && strings.TrimSpace(lines[idx]) == "" {
 		idx--
 	}
 	if idx < 0 || !strings.HasSuffix(strings.TrimSpace(lines[idx]), "-->") {
-		return "", 0
+		return "", 0, 0
 	}
 	end := idx
 	start := -1
@@ -298,11 +320,11 @@ func extractHTMLBlockAbove(lines []string, lineStart int) (string, int) {
 			break
 		}
 		if end-j+1 > maxInLines {
-			return "", 0
+			return "", 0, 0
 		}
 	}
 	if start < 0 {
-		return "", 0
+		return "", 0, 0
 	}
 	collected := make([]string, 0, end-start+1)
 	for j := start; j <= end; j++ {
@@ -313,21 +335,21 @@ func extractHTMLBlockAbove(lines []string, lineStart int) (string, int) {
 	joined = strings.ReplaceAll(joined, "-->", "")
 	joined = strings.TrimSpace(joined)
 	if joined == "" {
-		return "", 0
+		return "", 0, 0
 	}
-	return clipText(joined), start + 1
+	return clipText(joined), start + 1, end + 1
 }
 
 // extractPythonDocstring attempts to read a Python triple-quoted
 // docstring on the line(s) immediately following lineStart. Handles
-// single-line ("""text""") and multi-line forms. Returns ("", 0)
+// single-line ("""text""") and multi-line forms. Returns ("", 0, 0)
 // when no docstring or when the body's first statement is not a
 // string.
-func extractPythonDocstring(lines []string, lineStart int) (string, int) {
+func extractPythonDocstring(lines []string, lineStart int) (string, int, int) {
 	// Body starts at lineStart (the def line) + 1.
 	idx := lineStart // 0-based index of the line after def
 	if idx >= len(lines) {
-		return "", 0
+		return "", 0, 0
 	}
 	// Scan forward through blank / decorator / continuation up to
 	// 4 lines to find first non-empty statement.
@@ -345,38 +367,40 @@ func extractPythonDocstring(lines []string, lineStart int) (string, int) {
 		case strings.HasPrefix(raw, `'''`):
 			quote = `'''`
 		default:
-			return "", 0
+			return "", 0, 0
 		}
 		stripped := strings.TrimPrefix(raw, quote)
 		// Single-line: `"""text"""`.
 		if endIdx := strings.Index(stripped, quote); endIdx >= 0 {
 			text := strings.TrimSpace(stripped[:endIdx])
 			if text == "" {
-				return "", 0
+				return "", 0, 0
 			}
-			return clipText(text), idx + 1
+			return clipText(text), idx + 1, idx + 1
 		}
 		// Multi-line: collect up to maxInLines.
 		collected := []string{stripped}
+		endLine := 0
 		for j := idx + 1; j < len(lines); j++ {
 			line := lines[j]
 			if k := strings.Index(line, quote); k >= 0 {
 				collected = append(collected, line[:k])
+				endLine = j + 1
 				break
 			}
 			collected = append(collected, line)
 			if len(collected) > maxInLines {
-				return "", 0
+				return "", 0, 0
 			}
 		}
 		joined := strings.TrimSpace(strings.Join(collected, " "))
 		joined = strings.Join(strings.Fields(joined), " ")
 		if joined == "" {
-			return "", 0
+			return "", 0, 0
 		}
-		return clipText(joined), idx + 1
+		return clipText(joined), idx + 1, endLine
 	}
-	return "", 0
+	return "", 0, 0
 }
 
 // finalizeCommentBlock strips prefix from each line, joins, applies
