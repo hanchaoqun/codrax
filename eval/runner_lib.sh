@@ -1269,6 +1269,15 @@ eval_find_write_final_report_path() {
   return 1
 }
 
+eval_resolve_write_plan_oracle_source() {
+  local plan_path="$1" outdir="$2" scratch="$3" apply_source="$4" run_id="$5"
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
+  python3 "$script_dir/write_plan_oracle.py" \
+    --plan "$plan_path" --outdir "$outdir" --scratch "$scratch" --apply-source "$apply_source" \
+    --receipt "$outdir/run-$run_id.plan-oracle.json" --snapshot "$outdir/run-$run_id.source-plans.json"
+}
+
 eval_materialize_write_apply_source() {
   # Durable-delivery-first (eval-audit 20260719 GAP-2): EXPECT must judge
   # the bytes a /merge-by-ref or cherry-pick would actually land — the

@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-14）
 
-当前续修§123.1805：B1689/B1690已385bcfc3e推送，r1072机审/人审已6b994f90a独立推送、原结果不追跑。B1691整题被单role误缩为scalar已最小修复；40整题形状+13合法单值正控、真实Emit→IR→探索/成文提示、联合count3/race3及冻结全仓86测试包全部通过，本批交付。完整occurrence来源库存A/B未实施；B1634c末尾证明计划oracle再现，自递归供给与分支赋值误作returns已追生产源，仍需各自公共复现/独立施工。
+当前续修§123.1806：B1634c评测源码计划归属已公共RED→27变体/旧三套shell通过，先单独交付；r1072只读重放证实能正确定位源码owner，原FAIL不改。B1692返回事实的parser→agent/dataflow→模型上下文同源修复施工中，含source/owner/缓存代次；不改模型答案或emit JSON。新B1693同秒提交的交付树物化错误已有独立预期失败针，明确未修；occurrence来源库存A/B、自递归仍独立开放。下一对选read子代理注册职责+apply C typo，待产品修复冻结交付后exact2各一次。
 
 当前交付§123.1802：r1071完整人审已9192d2bab单独推送，exact2各一次机PASS但人审均FAIL。B1686初始Trace外部观测交接、B1687纯拓扑误补端点身份、B1688多次发生包络误称单次均已公共先红后绿、count3/race3及独立冷审，最终冻结全仓86个有测试包通过（57本次执行/29有效缓存）。图有明确身份时的安全补齐继续保留，原模型正文、关系与根因选择不改。模型说明准确性、真实代表片段供给、主数据流导航与原生runner执行证明仍独立开放，不追跑原样例求绿。
 
@@ -57421,6 +57421,20 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1806 B1692/B1634c：返回事实来源与源码计划评测归属（2026-09-14）
+
+1. **基线/优先级**：从清洁b84c3f92a继续，二进制同revision，fresh fetch=0/0。优先处理实发模型上下文中的错误事实（B1692/P1）和重复导致写模式机器误判的工件选择（B1634c/P1）；相比同题追跑或追加JSON教学，这两条分别纠正事实供给和验收归属，收益跨语言/跨计划。模型最终散文算法误述不直接归因于这两条，不以修复它们签自由说明质量全闭。
+2. **B1692公共复现/施工边界**：`extractConcreteValues` 的通用 `=>` 分支把Rust match赋值体抽为returns，`concreteValueReturnExpression`仅证明表达式边界，callable owner存在也不证明语句是该函数的返回；后续AnchorReturn/账本/动态关系胶囊会把它发布成已证值流。先走真实parser/read/探索输出→ledger→finalizer胶囊公共RED；复用精确语法/同文件同callable归属，核JS/TS/ArkTS箭头、Rust尾表达式/显式return、嵌套闭包、注释/字符串/多行及无parser情形。unknown只作源码线索；仅标candidate而让胶囊仍宣称证明returns不算修复。不得按语言样例名称、原问或答案散文关键词作门；不改模型答案、不强造图。
+3. **B1634c公共复现/施工边界**：当前 `PLAN_EXPECT_REGEX` 一律读末plan，proof-only尾计划虽正确指回源码owner仍被当无patch。修复只按末代plan/report/final.delivery精确归属选择源码工件，验证owner ID、源码路径、已apply凭证及实际交付一致性；不得找最早计划或任意历史patch就签绿。保普通plan/apply原路径，末代verify/exit/report仍验末代，缺失或矛盾归属不能回退猜选；多owner须保持各自归属与并集范围。真实fakeCLI→run.sh公共正反针先行；旧case正则和r1072原FAIL不改。
+4. **边界与独立债**：不改Trace窗口/自动补齐/链上根因资格/双轴计量/IO与业务线索，背景不能升级主因；不加JSON字段或成文负担。默认首响应600s/真实字节静默300s/非流600s保持，活跃SSE不以4ms或旧4m无正文降级，显式取消保持。完整occurrence库存A/B、自递归parser事实恢复按§1803/1805独立排期，不与本片混销。下轮case按风险、近期覆盖、语言/模式与本机可验收性排序，修复提交前不启动live。
+
+5. **B1634c交付与原结果保真**：真实run.sh+fakeCLI产生git checkpoint/正式plan/report/final，公共RED3.161s仅旧末proof计划no_plan_regex；首绿2.498s。最终27正常/负向runner变体（3测试方法）57.927s全绿，`20260914-b1634c-final-matrix-v2.log`；旧runner_lib/post_apply_scope/napi_post_apply_scope三套shell均exit0，syntax/py_compile/diff检查通过。只在typed proof_probe_only尾计划中按正式delivery owner IDs选源码计划，并核applied SHA、ref/checkpoint/path、最终交付树bytes/mode；同路径多owner按commit祖先后继而非ID列表序择最终版本，不可比或错bytes拒绝。普通计划原字节不变，末代终验/报告/退出码继续独立校验，正则不改。r1072只读历史工件回放解析5751→bbe6c3b94ad9e5cb2ed7df3ea70d537452203aa2/main.go，原正则在来源快照通过；仅输出 `.codrax/tmp/b1634c-replay.x1XGDd/{receipt,source-plans}.json`，不修改原run verdict/plan/report，不能记成新的LLM机器PASS。
+6. **B1693/P1确认/独立未修**：新多owner正控发现旧 `eval_materialize_write_apply_source` 按committerdate秒级+refname排序；同秒后继plan-second先导出，祖先plan-source再覆盖main.go，旧bytes复活。首轮矩阵59.516s线性两正控因此红，原log保留；普通线性正控明确递增提交时间后验B1634c归属算法，另将原同秒形保留独立保护PASS（新resolver拒错bytes）+正确后继内容expected failure，6.227s `20260914-b1693-same-second-witness.log`。不把XFAIL算已修；下一片应按真实commit祖先拓扑物化，同路径不可比须有明确工作流次序或冲突处理，不能时间猜序。原materializer本片未改。
+7. **B1692公共RED/必要跨层范围**：agent有效v4真实ParseFiles→ReadFile→EmitEvidence→Explorer.ParseOutput→ledger→finalizer三面RED1.113s；早期invalid discovery-mode/编译夹具失败分别保留不算三面RED。parser真实ParseFiles矩阵14语言显式返回+11表达式/尾值/owner正控缺carrier、2非返回负控绿（0.857s），因此不能以粗LineFeatures或body范围代替表达式owner。新增repomap内部返回源记录与同AST生产、一次source generation校验的reader，不新增emit工具或Evidence wire字段；agent与dataflow共同消费。dataflow真实Rust discarded match/JS nested arrow另复现已证返回污染；Go正控初次因旧inline末空格亦失败，改为独立行有效对照，v2两错误臂RED、Go正控绿0.787s。新读范围/缓存代次/候选consumer边界施工中，尚未签全仓或所有隐式语法完整。
+8. **r1073计划/尚未启动**：243实际case=215read/25apply/3plan。选 `qf_relation_subagent_registry`（最近20260815-132321，多成员名/数量/注册关系/职责，交叉保护B1691与返回供给）+ `patch_c_typo`（最近20260909-010657，C编译及程序运行，检正式计划/交付归属），替代刚跑Go/Rust，且本机cc/c++/python3可用。C机器Make聚合结果仍不冒充逐合同行为证明；两例各一次，不追绿，预算CAP5/PARALLEL2/TIMEOUT1200。模型语义准确性、图是否必要/关系与真实JSON修补过程仍人工审计。
+
+状态：`B1692=public-red/parser+agent+dataflow-single-source-in-progress`；`B1634c=public-red+27-variants+legacy-shell-pass/eval-only-delivery`；`B1693=deterministic-same-second-materialization-open/xfail-retained`；`r1073=planned-not-started`；`occurrence/recursive=separate-open`。
 
 ### §123.1805 B1691：单项类别不能覆盖整题形状（2026-09-14）
 

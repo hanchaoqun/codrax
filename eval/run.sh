@@ -1657,17 +1657,30 @@ run_one() {
       ;;
   esac
 
-  # PLAN_EXPECT_REGEX always runs against plan.json when MODE is
-  # plan|apply. Newline-separated ERE patterns; ALL must match.
+  # PLAN_EXPECT_REGEX keeps the terminal plan for ordinary plan/apply runs.
+  # A terminal proof-only plan may delegate this content oracle only to the
+  # formal final delivery's validated applied source-owner plans. Verification
+  # above still belongs to the terminal plan; never substitute an older report.
+  # Newline-separated ERE patterns are unchanged; ALL must match.
   if [[ -n "$MODE" && "$MODE" != "read" && -n "$PLAN_EXPECT_REGEX" ]]; then
     if [[ ! -f "$plan" ]]; then
       extra_reasons+=("no_plan_file")
     else
+      local plan_oracle="$plan"
+      if [[ "$MODE" == "apply" ]]; then
+        if ! plan_oracle="$(eval_resolve_write_plan_oracle_source "$plan" "$OUTDIR" "$apply_scratch" "$apply_source" "$i")"; then
+          local plan_oracle_reason
+          plan_oracle_reason="$(eval_json_top_string_field "$OUTDIR/run-$i.plan-oracle.json" reason || true)"
+          extra_reasons+=("plan_oracle_source_invalid:${plan_oracle_reason:-resolution_failed}")
+          plan_oracle=""
+        fi
+      fi
       local old_ifs="$IFS"
       IFS=$'\n'
       for rx in $PLAN_EXPECT_REGEX; do
         [[ -z "$rx" ]] && continue
-        if ! grep -Eq -- "$rx" "$plan"; then
+        [[ -n "$plan_oracle" ]] || continue
+        if ! grep -Eq -- "$rx" "$plan_oracle"; then
           extra_reasons+=("no_plan_regex:${rx}")
         fi
       done
