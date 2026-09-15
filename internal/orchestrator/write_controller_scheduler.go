@@ -1277,6 +1277,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return fmt.Errorf("write controller plan batch missing context")
 	}
+	resultScope := newControllerPlanResultScope(o.busCtx.Mutable, batch)
 	if batch != nil {
 		o.seedControllerBatchPlanningHint(*batch)
 		o.seedControllerBatchExplorationContext(*batch)
@@ -1295,7 +1296,7 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	for {
 		priorPlan := o.busCtx.Mutable.ChangePlan()
 		o.prepareControllerPlanningState()
-		_, err := o.runControllerWriteStage(types.StagePlan, stepsUsed)
+		_, err := o.runControllerPlanStageInResultScope(resultScope, stepsUsed)
 		if err != nil && (errors.Is(err, ErrCanceled) || errors.Is(err, context.Canceled)) && changePlanHasAppliedWork(priorPlan) {
 			o.busCtx.Mutable.SetChangePlan(priorPlan)
 			return err

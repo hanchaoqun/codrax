@@ -74,7 +74,11 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// and their applied-path collector into a dedicated concern file.
 		// Tighten 8451→8339; identity preservation adds two lines in the
 		// extracted implementation, not new capacity in this hot file.
-		{path: "orchestrator.go", maxLines: 8339},
+		// Tightened 8339→8265 after B1703 moved the complete plan-summary
+		// renderer and its godoc into write_change_plan_summary.go.
+		// The private follow-up dispatch scope adds no reusable headroom.
+		{path: "orchestrator.go", maxLines: 8265},
+		{path: "write_change_plan_summary.go", maxLines: 85},
 		{path: "change_plan_status_persistence.go", maxLines: 122},
 		// §40.52: the "[CGEC] summary" operator log (96 lines moved); small
 		// round headroom like the sibling concern-file rows.

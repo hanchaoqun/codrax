@@ -502,6 +502,23 @@ func validateVerificationProbeTargetLanguageCompatibility(changes []types.FileCh
 // independent from changes[] prevents an unrelated probe runtime from entering
 // execution merely because the proof batch is edit-free.
 func validateVerificationProbeTargetPathLanguageCompatibility(paths []string, probes []types.VerificationProbe) string {
+	return validateVerificationProbeTargetPathLanguageCompatibilityForShape(paths, probes, verificationProbeRecoverySourcePlan)
+}
+
+type verificationProbeRecoveryPlanShape uint8
+
+const (
+	verificationProbeRecoverySourcePlan verificationProbeRecoveryPlanShape = iota
+	verificationProbeRecoverySourceFreePlan
+)
+
+// The caller has already constructed a typed source-free proof sentinel.
+// Only its repair wording differs; target-language admission remains shared.
+func validateSourceFreeProofProbeTargetLanguageCompatibility(paths []string, probes []types.VerificationProbe) string {
+	return validateVerificationProbeTargetPathLanguageCompatibilityForShape(paths, probes, verificationProbeRecoverySourceFreePlan)
+}
+
+func validateVerificationProbeTargetPathLanguageCompatibilityForShape(paths []string, probes []types.VerificationProbe, shape verificationProbeRecoveryPlanShape) string {
 	if len(paths) == 0 || len(probes) == 0 {
 		return ""
 	}
@@ -530,9 +547,13 @@ func validateVerificationProbeTargetPathLanguageCompatibility(paths []string, pr
 		if compatible {
 			continue
 		}
+		recovery := types.NativeProjectTestObservationRecoveryTeaching
+		if shape == verificationProbeRecoverySourceFreePlan {
+			recovery = types.SourceFreeProofProbeRecoveryTeaching
+		}
 		return fmt.Sprintf(
 			"verification_probes[%d].language=%q cannot directly execute any changed source target %s (changed language families: %s). Inline verification probes are source-level programs, not command wrappers: %s",
-			i, language, strings.Join(targets, ", "), verificationLanguageFamilyList(allFamilies), types.NativeProjectTestObservationRecoveryTeaching)
+			i, language, strings.Join(targets, ", "), verificationLanguageFamilyList(allFamilies), recovery)
 	}
 	return ""
 }

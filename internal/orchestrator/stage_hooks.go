@@ -122,7 +122,14 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		// contains identifier-shaped tokens (`/mode auto` etc.)
 		// that chroma's tokenizer would otherwise fragment.
 		msg := plannerProseFallbackMessage(o.busCtx)
-		o.busCtx.Mutable.SetResultPlain(msg)
+		// A controller-owned optional follow-up can fail to produce a new
+		// plan after source work was already delivered. Keep this dispatch's
+		// error/retry unchanged, but do not overwrite the prior answer/card
+		// with advice intended for a first planning attempt. The existing
+		// terminal publisher owns the final typed completion disclosure.
+		if !o.deferOptionalFollowupPlanErrorResult() {
+			o.busCtx.Mutable.SetResultPlain(msg)
+		}
 		return fmt.Errorf("%s", msg)
 	}
 	// Multi-repo write contract gate (P4.G design §4.5.5). Fail-loud

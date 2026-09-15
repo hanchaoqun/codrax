@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-15）
 
-当前交付§123.1817：B1702 `03ddd7e2d`已推送，四包count3/race及全仓86有测试包通过，保失败探测输出而不改证明/判定。§123.1818 r1077恰好两路各一次，机器1PASS/1FAIL：pipeline图核心关系完整、浏览器视觉未验证；NAPI实际补丁原生后验36/36但正式proof未闭，原机评不改。新P1 B1703子阶段错误占据最终状态、B1704 source-free修复教学指向禁止操作，正在分片修复；B1705图形类型隐含关系最低要求为P2。B1702自然生产触发本轮N/A。B1694、B1626/EVAL-B36-SYSAUTH1、完整图表达与原生写证明债继续开放。
+当前交付§123.1817：B1702 `03ddd7e2d`已推送，四包count3/race及全仓86有测试包通过，保失败探测输出而不改证明/判定。§123.1818 r1077恰好两路各一次，机器1PASS/1FAIL：pipeline图核心关系完整、浏览器视觉未验证；NAPI实际补丁原生后验36/36但正式proof未闭，原机评不改。§123.1819–1820的P1 B1703子阶段状态归属、B1704 source-free修复教学冲突已修复：公共RED→GREEN、count3/race、末版全仓86包通过，随本片交付；首轮LOC失败与纯迁移纠正收据保留。B1702/3/4不借本次eval宣称自然生产正证；B1705图形类型隐含关系最低要求为P2开放。B1694、B1626/EVAL-B36-SYSAUTH1、完整图表达与原生写证明债继续开放。
 
 最新回放§123.1812：B1698 `477025af9` / B1697 `6859fe811` 均已推送，联合冻结86包全仓通过后清洁构建。r1075严格混合Trace/源码read与C++ plan-only两路各一次，机器1PASS/1FAIL；人审计划核心PASS但未应用/编译，混合读数值及五维正确、当前实现与来源资格FAIL。新B1699同一soft-required源码义务被误教optional并反复拒绝收束、B1700混合member_set获源码清单资格及无引用runtime条目被补错来源均P1，下一片先公共复现，不归JSON畸形或模型波动。B1697/B1698实际通道及图在本对N/A；原结果/夹具/机评不改，无第三例追绿。
 
@@ -57478,21 +57478,35 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 
 机评与完整人工审计分别为`eval/parallel_selected_summary_evalcampaign_trace_write_r1077_20260915.md`及同名前缀`_manual_audit.md`。本对Trace live为N/A；完整回归守旧能力。日志内600/300/600秒与活跃流续期不变，读日志3039的4ms是成功提交后的解析耗时，不是降级时限。
 
-### §123.1819 B1703：后续验证规划失败占据整次交付状态（2026-09-15，P1确认/施工中）
+### §123.1819 B1703：后续验证规划失败占据整次交付状态（2026-09-15，P1修复/末版全仓通过，随本片交付）
 
 **B1703-PROOFFOLLOWUPSTATUSOWNERSHIP1**：r1077 apply日志3244/3252–3259，系统`planPostHook`在后续planner未安装新plan时写入“本轮没生成改动方案/请把目标说具体”。外层`completeInterruptedFollowupIfSourceComplete`正确保已应用主批且结束为unverified，发布器按所有权约束保留已有Result，于是错误子阶段状态与正确终态卡并列。这是系统状态生产者错域，不是模型波动，也不能改发布器扫描/删除已有正文。
 
 最小根修：只有当前controller的StagePlan调用栈scope与Mutable/run/batch精确一致、上游已完成且确有applied attempt、当前可选proof/impact后续没有apply/failed-verify/handoff，才在nil-plan错误处不写全任务通用建议，继续原错误/重试/终态通道。原模型/verify卡逐字保留；空结果由既有终态事实回退负责。初次plan、plan-only、错误run/batch、真实失败修复不借此分支；不改计划/证明/Passed/批次结束资格，不加持久化或模型字段。先公共Orchestrator.Run RED，再最小实现/联测。
 
-### §123.1820 B1704：修复提示必须符合当前计划可用操作（2026-09-15，P1确认/施工中）
+已按上述边界实现：`controllerPlanResultScope`为orchestrator私有调用栈上下文，在batch入口捕获原Mutable/run/batch，只包实际StagePlan dispatch并defer恢复，panic也恢复。`planPostHook`仅在完整资格成立时不写首次规划建议，原错误逐字/non-nil不变，publisher不改、不扫描旧Result。公共真实Run测试恢复实际git提交及落盘计划/报告，模型/verify卡/空结果3格原实现RED见`b1703-public-run-red.log`，实现后通过；30格边界正反控和ambient snapshot/call结束/panic负控同时核workflow逐字段不变。count3 8.217s、race 5.537s（`b1703-final-{count3,race}.log`），相邻初次无plan/审批/失败verify修复/后续结束旧针保持。后续纯迁移末版及联合全仓验收见§123.1820，未宣称生产回放正证。
+
+### §123.1820 B1704：修复提示必须符合当前计划可用操作（2026-09-15，P1修复/末版全仓通过，随本片交付）
 
 **B1704-PROOFFOLLOWUPRECOVERYTEACHINGSCOPE1**：r1077同上下文1129明确proof-only不能编辑测试，1495/2323明确source-free不能携project_test_observations，1547/2404却由语言不匹配修复包无条件推荐“include test file + project_test_observations”。模型确有导入/语法错误及静态替代倾向，但这条修复教学自冲突是系统确定性缺口，增加无效拒绝。
 
 保持验证门不动，以已成功构造的typed sentinel分支选源自由专用软指引，full/skeleton同源；常规source/test计划保持native项目测试通道，always-on教学把编辑建议条件化到当前typed权限。源自由计划不能为通过而增文件、移入历史声明或空plan；无兼容assertion witness时保留未闭合边界，由既有controller决定终态。新增公共full/skeleton×纯/混合probe RED与兼容/空/禁止声明/禁止文件/普通计划正反控；不扫用户或模型prose判资格。
 
+已按上述边界实现：私有plan-shape enum仅选择语言不匹配后的修复文本，语言资格检查完全共用原循环。两个入口只有既有source-free sentinel构造成功后才选专用教学；明确保`changes: []`、不得省必要probe，不增文件/测试观察声明，不将target execution加contract refs误称逐合同断言。always-on文本在建议编辑测试前先限定当前typed权限，普通source计划原native恢复文案保留。公共full/skeleton×纯/混合4格有效RED见`20260915-b1704-public-red-v2.log`；v1一格空patch先被合法拒绝是夹具错误，保留但不算产品RED。原资格8格正反控、普通source公共恢复、原JSON/文件/workflow/schema不变针全部通过。末版四包count3：tool52.146s/types1.357s/agent3.595s/skill1.788s（`20260915-b1704-final-focused-count3.log`），race及冻结全仓收据见下。
+
+本轮3个JS失败另外分因：extensionless require缺模块不等于Node无法处理所有TS；后两把仅Python适用的framework传成tsx且在CJS中写ESM import，schema已明确且parser原错已给模型，不属于B1702上下文丢失。不因此新增语言名单/原文扫描硬门或扩展执行器权限。
+
+联合验收第一轮（`20260915-b1703-b1704-full.log`）exit1：B1703为orchestrator struct增加3行，触发既有`TestIRDeliveryHotFileLineRatchet`的8342>8339，其余功能针未失败。这是本片工程遗漏，不标环境波动、不涨上限/压注释/删空行。按架构§11.8把完整计划摘要展示函数及godoc逐字迁到单独concern文件，旧上限收到实际行数、新文件独立钉限；迁移前后核字节一致并重新全仓验收。首轮红收据保留，不用后续局部PASS冒充该轮通过。B1704末版race3已通过：tool55.955s/types4.682s/agent8.173s/skill4.215s（`20260915-b1704-final-focused-race3.log`）。
+
+工程约束修正已完成并独立冷审：原`renderChangePlanSummary`连godoc共76行逐字迁移，原文/新文件片段SHA256同为`33b1be35c08469a575d675762678bfd01a6d5723b1b6be2220dadfa36f7ccc3e`（`b1703-ratchet-move-proof.log`），没有修文案或控制流。热文件8339+3−77=8265，上限收紧到8265；新concern文件85行独立钉85，零新增余量。末版相关+B1703+ratchet count3 2.951s、race 3.098s、orchestrator全包14.322s均通过（`b1703-ratchet-{final-count3,final-race,orchestrator-suite}.log`）。最终Go/build输入已重新冻结`20260915-b1703-b1704-freeze-v2.sha`，第二轮全仓使用独立`20260915-b1703-b1704-full-v2.log`验收，不覆盖首轮红收据。
+
+末版联合`go test ./... -count=1` **exit0，86个有测试包全部通过、13个包无测试**；包括orchestrator24.984s、llm29.614s、hitraceconv147.896s、tracediag12.855s、tracequery108.479s。结束后Go/build SHA逐项一致（`20260915-b1703-b1704-freeze-verify-v2.log`）。B1703/B1704及纯迁移均独立冷审无阻断；旧eval case/fixture/oracle/答案不改，读模式主体、Trace补齐/链上归因、模型正文所有权、schema/验证门和600/300/600秒活跃流策略不变。`r1077-original-verdict=preserved`；`B1703/B1704=implemented/public-red-to-green/count3+race+full-86-package-pass`；`native-production-replay=not-claimed`；`B1705/B1694/B1626/EVAL-B36-SYSAUTH1=OPEN`。
+
 ### §123.1821 B1705：图形类型不应隐含业务关系最低数量（2026-09-15，P2开放）
 
 **B1705-DIAGRAMKINDRELATIONMINIMUM1**：`DefaultEdgeRelationsForKind`当前把flow映射guard Min1、sequence映射call Min1，纯precedence顺序图不应因此被建议补条件或调用。`contract_check_block.go`该分支为telemetry-only advisory，本次没有硬拒/重写；r1077读日志3105的一条diagram_edges没有完整detail，具体对应关系仍是源码推定，不冒充已观测细节。后续统一从typed关系意图决定语义最低要求，保持每条关系证据门，不用图类型、可见label或用例名单推断业务边。不为了这个P2扩大当前P1修复批。
+
+下一对只读排期（尚未运行）：优先`real_trace_h10_spantop_member_subrows`，再配`read_combo_criterion_rich_functions`。前者最近保留回放r387/2026-08-12机器PASS约193s，但模型漏逐段值/行范围而靠附录补齐；这次需审显式窗、成员/累计/包络区分和17284线程JIT不能仅凭同窗升为2955根因。后者在现存results/selected summaries未检出该ID，不等于历史从未运行；补完整公开函数枚举、职责解释与返回语义引用，尤其UnknownKind/failed及只兼容存值的阈值入口。两例按原15步、PARALLEL2且各一次执行，runner显式次数1覆盖H10的N_DEFAULT2，不改case。当前先交付已验收P1，不重复r1077追PASS，也不因B1705 advisory制造不存在的图边。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
