@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-14）
 
+当前交付§123.1808：B1695已完成真实公共先红后绿、count3/race3、独立生产边界冷审与冻结全仓86个有测试包通过。源码模型聚合的“独立已证”复用既有主张资格；系统关系/源码库存标记、真实返回和原生Trace观测保留，不增加JSON字段或正文门。提交后清洁构建，下一exact2为H4显式窗供给+Java实现/路由集合，各一次；B1693/B1694/B1319/B1561/B1696及原开放项不代销。
+
 最新交付/回放§123.1806–1807：B1634c已推送57c915939，B1692已推送cd83d996c；返回事实parser→agent/dataflow→模型上下文同源、公共RED/count3/race/冷审及冻结全仓86个有测试包通过，提交后清洁构建。r1073恰好read注册名+C typo两路各一次：机器1PASS/1FAIL；读核心事实正确但引用/标题partial，C补丁及独立编译/四组输入通过但正式逐合同证明未闭，原判不改。新B1695聚合事实两处模型供给资格不一致列下一P1公共复现；B1696内部维度编号教学P2、B1319/B1561继承验证债留账。B1693同秒物化XFAIL、B1694同坐标异语义合并、完整occurrence库存A/B和自递归仍独立OPEN，不以单个返回正证或无图冒称全面闭环。
 
 当前交付§123.1802：r1071完整人审已9192d2bab单独推送，exact2各一次机PASS但人审均FAIL。B1686初始Trace外部观测交接、B1687纯拓扑误补端点身份、B1688多次发生包络误称单次均已公共先红后绿、count3/race3及独立冷审，最终冻结全仓86个有测试包通过（57本次执行/29有效缓存）。图有明确身份时的安全补齐继续保留，原模型正文、关系与根因选择不改。模型说明准确性、真实代表片段供给、主数据流导航与原生runner执行证明仍独立开放，不追跑原样例求绿。
@@ -57421,6 +57423,19 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1808 B1695：源码聚合证明资格同源，不混淆外部支持与独立事实（2026-09-14）
+
+1. **基线与排序**：清洁1de2660cc，fresh fetch远程0/0。优先修r1073实际finalizer输入的证据资格矛盾，而不是对正确成员答案追加字词硬门。`aggregateFactHasIndependentTypedAuthority`只核file:line与源码排除，漏掉既有关系/流程成员资格；ledger因此将聚合整体称已证，另一提示却正确保未授权。独立审计核两consumer：CompileObservationLedger与ProjectDirectRuntimeAggregateFacts；原生源码EvidenceItem不走这个模型聚合判据。
+2. **公共先红/准确范围**：新增agent测试真实ParseFiles→ReadFile→EmitEvidence提供Name定义；聚合通过Normalize+Set/Retain注入接受输入夹具，明确不是完整completion门成功。zh/en×有无refs四臂，两个有refs在真实ledger与实际finalizer ledger行均错误independently_proven，无refs两臂绿；`20260914-b1695-agent-public-red.log`1.154s。主审types新增3种请求×9源码扩展的27个CompileObservationLedger形与source资格组合；首RED中的external正控误用IntentTrace而触发既有source-callchain分类，runtime正控直接构造未正规化ledger未获得direct前提，两者属夹具误设而非产品RED。改用明确runtime root-cause形和公共ledger编译，旧HEAD overlay有效RED `20260914-b1695-types-original-red-v2.log`0.952s；原失败不删除。
+3. **最小实现**：系统typed relation/source inventory标记优先不变，其余仍必须exact current-source support，再调用既有 `AnswerAggregateFactAuthorizesPrincipalContract`。不再手抄第二份relation/workflow规则，不改主合同判定本身；纯外部坐标没有exact source前提，继续不能把整份模型聚合抬权。定义/返回/赋值的真实独立证据、合法普通源码值、nil兼容、已有workflow scalar及原生Trace路径保留；校验只改aggregate整体资格，不删原记录、改role/grounding、接管模型答案/关系/根因或重写JSON。
+4. **反证边界**：principal contract许可与whole-aggregate独立证明故意不是同一个概念。旧 `AnswerAggregateFactAuthorizesPrincipalContract_RequestInferredRuntimeOriginIsAdvisory`保显式Trace引用的支持许可，而旧ledger/runtime-restatement针要求同一模型聚合仍非独立事实；两者必须同时通过。source-callchain中的模型scalar原principal也不获授权，本片随现有资格只降整行聚合；真实返回值EvidenceItem仍独立保留，不为未经证明的假设另造kind特例。同场真实ReadFile/EmitEvidence定义→Explorer.ParseOutput补齐返回行→ledger/实际finalizer证明返回值不被聚合资格连带降级；实际Java parser/graph implements→exact matcher→ledger与实际repo_map库存→完整行集投影分别作系统标记正控，未手铸marker或把candidate改成grounded。真实TraceQuery event_search前后原生ledger记录逐字节不变，模型聚合仍可保留而不能借原生证明。
+5. **最终专项收据与夹具边界（09-15续收）**：`20260914-b1695-final-count3.log` agent2.422s/types0.920s均PASS；同一最终公共负控在旧HEAD overlay仍RED（`final-original-red.log`1.168s）。冷审指出external-only正控的SourceQuotes缺失，已补显式前提断言；最终types旧版RED-v3 0.847s、当前count3 0.975s。中间agent测试曾错误期待未资格化bridge candidate获独立权限、裸IntentTrace作为runtime、忽略完整库存SourceQuote条件、以及把原生数值存在误等同必须复述模型restatement；这些是测试前提错误，原失败日志保留，不作为新产品RED或通过修改产品放权解决。最终改用真实Java精确关系、明确runtime请求形、完整库存请求形和原生记录不变断言；已有bridge candidate限权/返回值保护不变。最终联合race3通过（agent4.925s/types2.210s）；冻结全仓仍在执行，不提前称全测绿。
+6. **后继r1074预案，未启动**：243case=215read/25apply/3plan，选 `eval/cases/real_traces/real_trace_h4_supply_thermal_witness.case`（最近r1045/09-09，原生233.190ms窗状态/CPU频率与策略边界）+ `eval/cases/sr_java_handler_impls.case`（最近r1043/09-08，真实typed relation成员与注解路由）。刚覆盖C写，本对用两种来源正控验本片，不冒称新增write证明覆盖；CAP5/PARALLEL2/TIMEOUT1200/read15，各一次不追绿。H4为有限事实题，非帧根因强合同，须独立审状态墙钟与CPU4策略记录是否被误称实际瓶颈；旧case注释有过时状态值，不能以注释代替trace复算。Java三个实现/路由须各自准确，定义/实现/注解/方法效果分证据，旧机器文件名要求与用户问题分列。模型无需为此增加JSON字段，图必要性/关系/语法另审，未触发记N/A。
+
+7. **冻结验收**：`20260914-b1695-full.log`退出0，`go test ./... -count=1`实际86个有测试包全部PASS、13个无测试包，非缓存冒验收；`20260914-b1695-freeze.sha`受测源码/构建输入前后SHA全一致。源码只改共享资格函数，新增测试不改旧case/oracle/模型结果；`git diff --check`通过。模型JSON教学未增字段、重试合同和渲染路径不动；原600/300/600s及活跃SSE/显式取消/Trace投影保护在完整套件内通过。后继live须提交后清洁构建才启动。
+
+状态：`B1695=public-red-green/count3+race3/cold-review/full86-pass/source-frozen/ready-to-commit`；`r1074=planned-not-started`；`original-results/model-answer-ownership/Trace-chain-only-roots+explicit-window+auto-supplement/600-300-600-timeouts=unchanged`。
 
 ### §123.1807 r1073：两种模式实际回放与剩余证据资格/验证债（2026-09-14）
 

@@ -2935,7 +2935,12 @@ func aggregateFactHasIndependentTypedAuthority(fact AnswerAggregateFact, rm *Req
 	if !answerAggregateFactHasExactCurrentSourceSupportRef(fact) {
 		return false
 	}
-	return rm == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource()
+	// Reuse the principal claim's current-source qualification: a real
+	// definition does not by itself prove membership, order, or a bridge.
+	// Keep the exact-source requirement above: principal contracts also admit
+	// explicit external support, which does not certify a model aggregate as
+	// independently proven. Producer-owned runtime rows retain their own lane.
+	return AnswerAggregateFactAuthorizesPrincipalContract(fact, rm)
 }
 
 func runtimeObservationMemberSetIsAdvisory(rm *RequestModel, fact AnswerAggregateFact) bool {

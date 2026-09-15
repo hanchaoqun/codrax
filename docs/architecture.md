@@ -898,6 +898,8 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 - `SummarySurfaceMode`：渲染派发提示（如 `AnswerSummarySurfaceDriftBoundedRootCause`）
 - `StableAggregateFacts`：explorer 通过 `emit_investigation_complete.aggregate_facts` 成功提交并通过结构校验的聚合事实，finalizer 只读取这份 stable projection
 
+**聚合事实证明资格（B1695）**：观察记录与聚合提示必须复用同一主张的源码准入资格。精确源码定义坐标证明该位置存在，并不证明模型据此提出的关系成员、顺序或跨组件连接；没有对应资格时，保留原聚合、坐标与解释，但不将整份聚合标为独立已证。系统核验的关系/源码库存标记仍优先，真实返回值、赋值及原生 Trace 观测继续走各自证据通道。显式运行时/外部引用可保留既有主答案支持许可，但该许可不等于整份模型聚合及解释获独立证明；不得把两个权限一概合并。
+
 **AnswerSupportPlan**（按 question family 编译的 support lane 合同）：
 - `SupportLaneObservedArtifact`：log/perf 观察到的事实（**不是**当前代码 mechanism）
 - `SupportLanePrincipalEvidence`：config / role lookup / enumeration / architecture / comparison / generic 等普通题型的主线证据；由 facet source candidates 筛选，不从 raw evidence pool 随机捞上下文
