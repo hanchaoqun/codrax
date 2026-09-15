@@ -63,8 +63,13 @@ func extractArkTSWithLineFeatures(src []byte, file string) (pkg string, syms []t
 // while parseOneFile receives the same parser-owned control-flow carrier as
 // ordinary TypeScript without parsing the file twice.
 func extractArkTSWithStructuralFeatures(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, lineFeatures map[int][]types.LineFeature, memberBindings map[int][]types.MemberInitializerBinding, branches []types.ControlFlowBranch, tier int) {
+	pkg, syms, imps, rels, lineFeatures, memberBindings, branches, _, tier = extractArkTSWithCallableReturns(src, file)
+	return
+}
+
+func extractArkTSWithCallableReturns(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, lineFeatures map[int][]types.LineFeature, memberBindings map[int][]types.MemberInitializerBinding, branches []types.ControlFlowBranch, returns []types.CallableReturnExpression, tier int) {
 	// Phase 1: try TS grammar.
-	tsSyms, tsImps, tsRels, tsFeatures, tsMemberBindings, tsBranches, tsOK := tryTSGrammarForArkTS(src, file)
+	tsSyms, tsImps, tsRels, tsFeatures, tsMemberBindings, tsBranches, tsReturns, tsOK := tryTSGrammarForArkTS(src, file)
 
 	// Phase 2: ArkTS regex post-pass — ALWAYS runs (Tier 1 augments,
 	// Tier 2 stands alone). The post-pass is responsible for the
@@ -79,6 +84,16 @@ func extractArkTSWithStructuralFeatures(src []byte, file string) (pkg string, sy
 		lineFeatures = tsFeatures
 		memberBindings = tsMemberBindings
 		branches = tsBranches
+		// ArkTS replacement may change a declaration's identity or extent.
+		// Keep only rows whose original TS-owned declaration still matches.
+		for _, r := range tsReturns {
+			for _, s := range syms {
+				if r.MatchesCallable(s) {
+					returns = append(returns, r)
+					break
+				}
+			}
+		}
 		tier = 1
 		return
 	}
@@ -99,10 +114,10 @@ func extractArkTSWithStructuralFeatures(src []byte, file string) (pkg string, sy
 // tryTSGrammarForArkTS calls extractJS with the TS parser. Returns
 // (symbols, imports, relations, ok). ok=false when the TS grammar
 // fails to produce a usable root, signalling fallback to Tier 2.
-func tryTSGrammarForArkTS(src []byte, file string) ([]types.Symbol, []types.Import, []types.Relation, map[int][]types.LineFeature, map[int][]types.MemberInitializerBinding, []types.ControlFlowBranch, bool) {
+func tryTSGrammarForArkTS(src []byte, file string) ([]types.Symbol, []types.Import, []types.Relation, map[int][]types.LineFeature, map[int][]types.MemberInitializerBinding, []types.ControlFlowBranch, []types.CallableReturnExpression, bool) {
 	root, ok := parseTreeSitterIfPossible(types.LangTypeScript, src)
 	if !ok {
-		return nil, nil, nil, nil, nil, nil, false
+		return nil, nil, nil, nil, nil, nil, nil, false
 	}
 	// extractJS owns its own walk; we throw away `pkg` (ArkTS has
 	// no package keyword) and pass isTS=true.
@@ -111,7 +126,7 @@ func tryTSGrammarForArkTS(src []byte, file string) ([]types.Symbol, []types.Impo
 	backfillCallableBodyPresence(root, src, types.LangArkTS, syms)
 	return syms, imps, rels, extractLineFeatures(root, src),
 		extractMemberInitializerBindings(root, src, types.LangArkTS),
-		extractControlFlowBranches(root, src), true
+		extractControlFlowBranches(root, src), extractCallableReturnExpressions(root, src, types.LangArkTS, syms), true
 }
 
 // ArkTS strict-mode decorator whitelist. 21 decorators total —

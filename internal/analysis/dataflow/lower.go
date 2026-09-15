@@ -29,6 +29,7 @@ func (l genericLowerer) LowerFile(repoRoot string, file *repomap.FileInfo, sourc
 	for _, rel := range file.Relations {
 		relsByLine[rel.Line] = append(relsByLine[rel.Line], rel)
 	}
+	returnReader := rmtypes.NewCallableReturnReader(file, []byte(strings.Join(source, "\n")))
 
 	for idx := range file.Symbols {
 		if idx%32 == 0 && dataflowCanceled(opts) {
@@ -53,7 +54,7 @@ func (l genericLowerer) LowerFile(repoRoot string, file *repomap.FileInfo, sourc
 			}
 		}
 		snippet := source[start-1 : end]
-		summary := l.lowerSymbol(file, sym, snippet, relsByLine)
+		summary := l.lowerSymbol(file, sym, snippet, relsByLine, returnReader.For(sym))
 		lowered.NodeCount += len(snippet)
 		lowered.Summaries = append(lowered.Summaries, summary)
 		lowered.Evidence = append(lowered.Evidence, summary.ProducerEvidence...)
@@ -193,7 +194,7 @@ func applyEvidenceRelevanceGate(evidence []types.EvidenceItem, tokens []string, 
 	return out
 }
 
-func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, snippet []string, relsByLine map[int][]repomap.Relation) FunctionSummary {
+func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, snippet []string, relsByLine map[int][]repomap.Relation, returns []rmtypes.CallableReturnExpression) FunctionSummary {
 	symbolKey := repomap.SymbolKey(&sym)
 	summary := FunctionSummary{
 		SymbolKey:  symbolKey,
@@ -203,6 +204,14 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 		LineStart:  sym.Line,
 		LineEnd:    sym.EndLine,
 		CallSites:  make(map[string]int),
+	}
+	returnsByLine := make(map[int][]rmtypes.CallableReturnExpression)
+	for _, expression := range returns {
+		// Parsing proves syntax, not that the entire expression was inside
+		// this bounded lowering pass. Never publish a truncated expression.
+		if expression.LineStart >= sym.Line && expression.LineEnd < sym.Line+len(snippet) {
+			returnsByLine[expression.LineStart] = append(returnsByLine[expression.LineStart], expression)
+		}
 	}
 
 	for i, rawLine := range snippet {
@@ -237,13 +246,14 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 			))
 		}
 
-		for _, lit := range detectReturnValues(line) {
+		for _, expression := range returnsByLine[lineNo] {
+			lit := expression.Expression
 			if !contains(summary.Returns, lit) {
 				summary.Returns = append(summary.Returns, lit)
 			}
 			if isConcreteValue(lit) && !contains(summary.Literals, lit) {
 				summary.Literals = append(summary.Literals, lit)
-				summary.ProducerEvidence = append(summary.ProducerEvidence, newEvidenceItem(
+				item := newEvidenceItem(
 					types.EvidenceConcrete,
 					symbolKey,
 					"returns",
@@ -252,13 +262,20 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 					file.RelPath,
 					"",
 					lineNo,
-					lineNo,
+					expression.LineEnd,
 					0.92,
 					"dataflow.lowerer."+file.Language,
 					fmt.Sprintf("`%s` line %d returns %s", symbolKey, lineNo, lit),
 					types.AnchorReturn,
 					firstIdentifier(lit),
-				))
+				)
+				if expression.LineEnd > lineNo {
+					item.Scope = types.ScopeLineRange
+				}
+				item.OwnerSymbol = symbolKey
+				item.Snippet = expression.Expression
+				item.ID = types.StableEvidenceID(item)
+				summary.ProducerEvidence = append(summary.ProducerEvidence, item)
 			}
 		}
 
@@ -577,28 +594,6 @@ func detectGuard(file *repomap.FileInfo, lineNo int, line string) string {
 	}
 	trimmed := strings.TrimSpace(line)
 	return strings.TrimSpace(strings.TrimSuffix(trimmed, "{"))
-}
-
-func detectReturnValues(line string) []string {
-	var values []string
-	if idx := strings.Index(line, "return "); idx >= 0 {
-		value := strings.TrimSpace(line[idx+len("return "):])
-		value = strings.TrimSuffix(value, ";")
-		value = strings.TrimSuffix(value, "}")
-		if value != "" {
-			values = append(values, value)
-		}
-	}
-	if strings.Contains(line, "=>") {
-		parts := strings.SplitN(line, "=>", 2)
-		value := strings.TrimSpace(parts[1])
-		value = strings.TrimSuffix(value, ";")
-		value = strings.TrimSuffix(value, "{")
-		if value != "" {
-			values = append(values, value)
-		}
-	}
-	return values
 }
 
 func detectConfigKeys(line string) []string {

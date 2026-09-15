@@ -323,7 +323,7 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 	// and the build log surfaces degradations (red line L-Fallback-1).
 	switch entry.Language {
 	case types.LangArkTS:
-		pkg, syms, imps, rels, lineFeatures, memberBindings, branches, tier := extractArkTSWithStructuralFeatures(source, entry.RelPath)
+		pkg, syms, imps, rels, lineFeatures, memberBindings, branches, returns, tier := extractArkTSWithCallableReturns(source, entry.RelPath)
 		fi.Package = pkg
 		fi.Symbols = syms
 		fi.Imports = imps
@@ -331,6 +331,7 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		fi.LineFeatures = lineFeatures
 		fi.MemberInitializerBindings = memberBindings
 		fi.ControlFlowBranches = branches
+		fi.CallableReturnExpressions = returns
 		if tier > 1 {
 			recordFallback(fi, 1, canonicalChainTier(tier), "arkts extractor downgraded")
 		} else {
@@ -338,13 +339,14 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		}
 		return fi
 	case types.LangCangjie:
-		pkg, syms, imps, rels, lineFeatures, branches, tier := extractCangjieWithStructuralFeatures(source, entry.RelPath)
+		pkg, syms, imps, rels, lineFeatures, branches, returns, tier := extractCangjieWithCallableReturns(source, entry.RelPath)
 		fi.Package = pkg
 		fi.Symbols = syms
 		fi.Imports = imps
 		fi.Relations = rels
 		fi.LineFeatures = lineFeatures
 		fi.ControlFlowBranches = branches
+		fi.CallableReturnExpressions = returns
 		if tier > 1 {
 			recordFallback(fi, 1, canonicalChainTier(tier), "cangjie extractor downgraded")
 		} else {
@@ -425,6 +427,7 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 	backfillReturnTypeNames(root, source, fi.Symbols)
 	backfillCallableParameterBindings(root, source, fi.Symbols)
 	backfillCallableBodyPresence(root, source, entry.Language, fi.Symbols)
+	fi.CallableReturnExpressions = extractCallableReturnExpressions(root, source, entry.Language, fi.Symbols)
 
 	return fi
 }

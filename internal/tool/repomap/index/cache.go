@@ -221,7 +221,8 @@ const (
 	// Parser-owned callable body presence is persisted with each symbol. Old
 	// caches cannot establish the new body prerequisite; rebuild rather than
 	// silently serving mixed old/new completion authority.
-	cacheSchemaVersion = 7
+	// v8 adds source-generation-bound callable return-expression receipts.
+	cacheSchemaVersion = 8
 )
 
 const cacheFileInfosChunkSize = 1024
@@ -700,6 +701,20 @@ func validateCachedFileInfos(files []*types.FileInfo) CacheRejectReason {
 					effect.LineStart <= 0 || effect.LineEnd < effect.LineStart {
 					return CacheRejectCorrupt
 				}
+			}
+		}
+		for _, r := range fi.CallableReturnExpressions {
+			if !r.IsValid() {
+				return CacheRejectCorrupt
+			}
+			owners := 0
+			for _, s := range fi.Symbols {
+				if s.File == fi.RelPath && r.MatchesCallable(s) {
+					owners++
+				}
+			}
+			if owners != 1 {
+				return CacheRejectCorrupt
 			}
 		}
 	}

@@ -940,14 +940,11 @@ func TestGetConcreteValuesCached_RebuildsWhenTypedReturnOwnerAppears(t *testing.
 	if err := os.WriteFile(abs, []byte("class Registry:\n    def resolve(self, key):\n        cls = REGISTRY[key]\n        return cls()\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	file := &repotypes.FileInfo{
-		RelPath:  rel,
-		Language: repotypes.LangPython,
-		Symbols: []repotypes.Symbol{{
-			Name: "resolve", Kind: "method", Parent: "Registry", File: rel, Line: 2, EndLine: 4,
-		}},
+	entries, err := repomap.ScanFiles(repoRoot)
+	if err != nil {
+		t.Fatalf("scan owner/source fixture: %v", err)
 	}
-	graph := repomap.BuildGraph(repoRoot, []*repotypes.FileInfo{file})
+	graph := repomap.BuildGraph(repoRoot, repomap.ParseFiles(entries, repoRoot))
 	eval := runtimeTargetRelationEvaluator(graph)
 	readSet := map[string]bool{rel: true}
 

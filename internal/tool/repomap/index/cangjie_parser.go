@@ -29,16 +29,23 @@ import (
 // (pkg, symbols, imports, relations). Mirrors the signature the
 // top-level extractCangjie wrapper expects.
 func parseCangjie(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation) {
-	toks := lexCangjie(src)
-	p := &cangjieParser{toks: toks, file: file}
+	pkg, syms, imps, rels, _ = parseCangjieWithReturns(src, file)
+	return
+}
+
+func parseCangjieWithReturns(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, returns []types.CallableReturnExpression) {
+	toks := lexCangjieMode(src, true)
+	p := &cangjieParser{toks: toks, file: file, source: src}
 	p.run()
-	return p.pkg, p.syms, p.imps, p.rels
+	return p.pkg, p.syms, p.imps, p.rels, p.returns
 }
 
 type cangjieParser struct {
-	toks []cangjieToken
-	pos  int
-	file string
+	toks    []cangjieToken
+	pos     int
+	file    string
+	source  []byte
+	returns []types.CallableReturnExpression
 
 	pkg  string
 	syms []types.Symbol
@@ -542,6 +549,7 @@ func (p *cangjieParser) finishCallableBody(idx, paramsStart, paramsEnd int, allo
 			p.syms[idx].BodyPresence = types.CallableBodyPresent
 			p.syms[idx].BodyStartLine = p.toks[bodyStart].Line
 			p.syms[idx].BodyEndLine = p.syms[idx].EndLine
+			p.returns = append(p.returns, cangjieCallableReturns(p.source, p.toks[bodyStart:p.pos], p.syms[idx])...)
 		}
 	} else if headerIntact && allowAbsent && (p.cur().Kind == cjTokSemicolon || p.cur().Kind == cjTokRBrace) {
 		p.syms[idx].BodyPresence = types.CallableBodyAbsent

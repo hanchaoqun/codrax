@@ -384,8 +384,12 @@ type FileInfo struct {
 	// ownership. It is absent when the parser cannot prove branch structure;
 	// consumers must not reconstruct it from line proximity or source words.
 	ControlFlowBranches []ControlFlowBranch `json:"control_flow_branches,omitempty"`
-	IsSpecial           bool                `json:"is_special,omitempty"`
-	SpecialType         string              `json:"special_type,omitempty"` // build_config, dockerfile, ci, etc.
+	// CallableReturnExpressions contains only syntax-proved value expressions
+	// owned by one exact callable declaration. Absence means no published
+	// receipt, not proof that the callable has no return. It is not a call edge.
+	CallableReturnExpressions []CallableReturnExpression `json:"callable_return_expressions,omitempty"`
+	IsSpecial                 bool                       `json:"is_special,omitempty"`
+	SpecialType               string                     `json:"special_type,omitempty"` // build_config, dockerfile, ci, etc.
 
 	// ParseTier records which fallback tier produced this FileInfo's
 	// symbols. 1 = primary grammar (best; for ArkTS the TS grammar

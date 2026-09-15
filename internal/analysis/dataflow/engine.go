@@ -15,7 +15,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const lowererVersion = "v2"
+// v3 removes guessed return expressions from summaries and published facts.
+// Previously cached literal/arrow scans must not survive the parser-owned lane.
+const lowererVersion = "v3"
 
 // Analyze builds bounded, cross-language dataflow evidence from the
 // existing repo_map graph plus direct file/config scans.
@@ -61,7 +63,7 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 		}
 		// Apply the subject-aware relevance gate and the per-file
 		// evidence cap here — AFTER the cache round-trip. The on-disk
-		// lowerer cache is keyed on file path + hash only; stashing
+		// lowerer cache contains source/parser facts, not request bias; stashing
 		// the post-gate slice would mean a second question with
 		// different EntityBias would read the first question's
 		// filtered result. Mutating the in-memory return value is
@@ -267,17 +269,19 @@ func loadOrLowerFile(opts Options, fi *repomap.FileInfo, lines []string, lowerer
 	if lowerer == nil {
 		return LoweredFile{}
 	}
-	if cached, ok := loadLoweredFileFromCache(opts, fi); ok {
+	cacheFile := loweredCacheFile(opts, fi, lines)
+	if cached, ok := loadLoweredFileFromCache(cacheFile, fi.Hash); ok {
 		return cached
 	}
 	lowered := lowerer.LowerFile(opts.RepoRoot, fi, lines, opts)
-	saveLoweredFileCache(opts, fi, lowered)
-	saveSummaryCache(opts, fi, lowered.Summaries)
+	if !dataflowCanceled(opts) {
+		saveLoweredFileCache(cacheFile, lowered)
+		saveSummaryCache(opts, fi, lowered.Summaries)
+	}
 	return lowered
 }
 
-func loadLoweredFileFromCache(opts Options, fi *repomap.FileInfo) (LoweredFile, bool) {
-	cacheFile := loweredCacheFile(opts, fi)
+func loadLoweredFileFromCache(cacheFile, fileHash string) (LoweredFile, bool) {
 	if cacheFile == "" {
 		return LoweredFile{}, false
 	}
@@ -289,11 +293,10 @@ func loadLoweredFileFromCache(opts Options, fi *repomap.FileInfo) (LoweredFile, 
 	if err := json.Unmarshal(data, &lowered); err != nil {
 		return LoweredFile{}, false
 	}
-	return lowered, lowered.Hash == fi.Hash
+	return lowered, lowered.Hash == fileHash
 }
 
-func saveLoweredFileCache(opts Options, fi *repomap.FileInfo, lowered LoweredFile) {
-	cacheFile := loweredCacheFile(opts, fi)
+func saveLoweredFileCache(cacheFile string, lowered LoweredFile) {
 	if cacheFile == "" {
 		return
 	}
@@ -321,13 +324,29 @@ func saveSummaryCache(opts Options, fi *repomap.FileInfo, summaries []FunctionSu
 	}
 }
 
-func loweredCacheFile(opts Options, fi *repomap.FileInfo) string {
+func loweredCacheFile(opts Options, fi *repomap.FileInfo, lines []string) string {
 	if opts.WorkDir == "" || fi == nil {
 		return ""
 	}
 	base := filepath.Join(opts.WorkDir, "dataflow-cache", "lowered")
-	sum := sha256.Sum256([]byte(fi.RelPath + ":" + fi.Hash + ":" + lowererVersion))
-	return filepath.Join(base, hex.EncodeToString(sum[:8])+".json")
+	// Source bytes and the actual parser facts are both inputs. A stale
+	// FileInfo hash or missing owner receipts must not revive an older proved
+	// return through the warm cache. Bounded lowering also depends on its cap.
+	hash := sha256.New()
+	if err := json.NewEncoder(hash).Encode(struct {
+		Version         string
+		File            *repomap.FileInfo
+		MaxNodesPerFunc int
+	}{lowererVersion, fi, opts.MaxNodesPerFunc}); err != nil {
+		return ""
+	}
+	for i, line := range lines {
+		if i > 0 {
+			_, _ = hash.Write([]byte{'\n'})
+		}
+		_, _ = hash.Write([]byte(line))
+	}
+	return filepath.Join(base, hex.EncodeToString(hash.Sum(nil)[:16])+".json")
 }
 
 func summaryCacheDir(opts Options) string {

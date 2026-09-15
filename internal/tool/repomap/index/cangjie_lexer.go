@@ -44,6 +44,7 @@ const (
 	cjTokEq    // `=`
 	cjTokAssignInit
 	cjTokOther
+	cjTokLiteral // optional exact, closed string/rune for callable-return receipts
 	cjTokEOF
 )
 
@@ -96,6 +97,10 @@ var cangjieKeywords = map[string]bool{
 // invariant of the rest of the repomap: partial extraction is
 // always better than a hard failure.
 func lexCangjie(src []byte) []cangjieToken {
+	return lexCangjieMode(src, false)
+}
+
+func lexCangjieMode(src []byte, keepLiterals bool) []cangjieToken {
 	toks := make([]cangjieToken, 0, len(src)/8)
 	n := len(src)
 	i := 0
@@ -137,6 +142,7 @@ func lexCangjie(src []byte) []cangjieToken {
 		case c == '"':
 			// Skip string body; track newlines but do not emit a
 			// token — the parser never looks at string content.
+			start, startLine := i, line
 			i++
 			for i < n && src[i] != '"' {
 				if src[i] == '\\' && i+1 < n {
@@ -150,9 +156,13 @@ func lexCangjie(src []byte) []cangjieToken {
 			}
 			if i < n {
 				i++
+				if keepLiterals {
+					toks = append(toks, cangjieToken{Kind: cjTokLiteral, Offset: start, Line: startLine, Text: string(src[start:i])})
+				}
 			}
 		case c == '\'':
 			// Rune literal.
+			start, startLine := i, line
 			i++
 			for i < n && src[i] != '\'' {
 				if src[i] == '\\' && i+1 < n {
@@ -163,6 +173,9 @@ func lexCangjie(src []byte) []cangjieToken {
 			}
 			if i < n {
 				i++
+				if keepLiterals {
+					toks = append(toks, cangjieToken{Kind: cjTokLiteral, Offset: start, Line: startLine, Text: string(src[start:i])})
+				}
 			}
 		case c == '{':
 			emit(cjTokLBrace, i, "{")

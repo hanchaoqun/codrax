@@ -505,6 +505,8 @@ LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/a
 
 **可调用声明不等于实现体（B1592）**：repomap `Symbol.BodyPresence` 与 `BodyStartLine/BodyEndLine` 由语法解析器提供，分别表达明确有本地实现、明确无本地实现和未知。完成合同先解析精确实体，再仅对合法 `present` 范围建立实现体检查义务；多行参数不算 body，接口不因无体而被迫绑定任意实现。未知/fallback 只给有界软指导，不证明行为、调用或执行。AST 精确名称与声明范围唯一匹配、Cangjie 配对 token 范围为来源；缓存 schema v7 与受影响语言 epoch 同步失效，旧缓存不可制造此新权限。15 语言含 Proto 的正负矩阵不等于每一种语法构造都能分类，未可靠识别者继续 unknown。
 
+**返回表达式必须有精确归属（B1692）**：`FileInfo.CallableReturnExpressions` 从同一次解析产生，绑定文件版本、唯一函数声明及表达式字节/行范围；共享 `CallableReturnReader` 每文件验证原始源码，闭包或相邻声明不能借外层身份。它只证明源码中的返回表达式归属，不证明已执行、恒定值或唯一返回路径。explorer 的直接返回、桥接字面量、动态选择器返回和 dataflow 统一消费此来源；读范围必须覆盖完整表达式。文本抽取的未知形保留为源码线索，不进入已证值流胶囊，不增加模型 JSON 字段或改写答案。repomap 缓存 schema v8、dataflow v3 使旧猜测结果失效；数据流缓存另绑定实际源码/解析结果/每函数预算，探索缓存校验实际来源快照，取消后的部分结果不落缓存。显式返回基线覆盖14种可执行语言，JS/TS/ArkTS 表达式箭头及 Rust 尾表达式另有支持；缺少记录表示未提供证明，不能解释成函数没有返回，也不宣称已覆盖所有语言的全部隐式语法。
+
 **ArtifactObservationProfile** 是 log / trace / no-attachment diagnostic 共用的观察 lane：字段包括 `observation_kind`、`symptom_summary`、`evidence_snippets`、`subject_candidates`、`has_retry_loop`、`has_line_mismatch`、`has_completion_rewrite`、`diagnostic_confidence`。构建顺序刻意放在 diagnostic reconcile 与 entity expansion 之后，避免无附件问题只记录代词化 RawRequest 而丢掉后处理补齐的诊断类型和 subject。`current_version_check` 不单独创建这个 profile；只有 `is_diagnostic` / `current_risk` / `historical_regression`（或 reconciled `is_diagnostic_question`）确认用户要的是 still-present / fixed / not-enough-evidence 当前状态诊断时，才走观察 lane 和 current-status contract。
 
 ### 4.5 跨信号 coherence 闸门

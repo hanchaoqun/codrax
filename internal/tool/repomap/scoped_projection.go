@@ -211,6 +211,7 @@ func cloneFileInfoForScope(fi *FileInfo, scopeRel string) (*FileInfo, bool) {
 	cloned.Symbols = cloneSymbolsForScope(fi.Symbols, scopeRel)
 	cloned.Imports = cloneImportsForScope(fi.Imports, scopeRel)
 	cloned.Relations = cloneRelationsForScope(fi.Relations, scopeRel)
+	cloned.CallableReturnExpressions = append([]rmtypes.CallableReturnExpression(nil), fi.CallableReturnExpressions...)
 	if fi.ControlFlowBranches != nil {
 		cloned.ControlFlowBranches = make([]rmtypes.ControlFlowBranch, len(fi.ControlFlowBranches))
 		for i, branch := range fi.ControlFlowBranches {

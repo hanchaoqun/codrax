@@ -14,11 +14,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// buildFakeGraph constructs an in-memory repomap.Graph pointing at
-// real files written into a temp dir. We only populate the fields
-// extractBridgeLiteralChains actually consults: graph.Files with
-// file symbols that carry Name/Kind/Receiver/Line/EndLine. It avoids
-// the real tree-sitter extractor so tests are deterministic.
+// buildFakeGraph retains controlled graph/relationship fixtures while using
+// the actual parser for source-generation, callable-body and return receipts.
+// A manually declared symbol alone cannot prove a returned value. The supplied
+// symbol order is retained for tests that install precise relation identities.
 func buildFakeGraph(t *testing.T, files map[string][]repomap.Symbol, contents map[string]string) (*repomap.Graph, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -31,6 +30,14 @@ func buildFakeGraph(t *testing.T, files map[string][]repomap.Symbol, contents ma
 			t.Fatalf("write %s: %v", rel, err)
 		}
 	}
+	entries, err := repomap.ScanFiles(root)
+	if err != nil {
+		t.Fatalf("scan return-source fixture: %v", err)
+	}
+	parsed := make(map[string]*repomap.FileInfo)
+	for _, fi := range repomap.ParseFiles(entries, root) {
+		parsed[fi.RelPath] = fi
+	}
 	g := &repomap.Graph{
 		Root:       root,
 		FileIndex:  make(map[string]*repomap.FileInfo),
@@ -38,6 +45,18 @@ func buildFakeGraph(t *testing.T, files map[string][]repomap.Symbol, contents ma
 	}
 	for rel, syms := range files {
 		fi := &repomap.FileInfo{RelPath: rel, Symbols: syms}
+		if source := parsed[rel]; source != nil {
+			fi.Hash, fi.Language = source.Hash, source.Language
+			fi.CallableReturnExpressions = source.CallableReturnExpressions
+			for i := range fi.Symbols {
+				sym := &fi.Symbols[i]
+				for _, actual := range source.Symbols {
+					if actual.Name == sym.Name && actual.Receiver == sym.Receiver && actual.Parent == sym.Parent && actual.Line == sym.Line && actual.EndLine == sym.EndLine {
+						sym.BodyPresence, sym.BodyStartLine, sym.BodyEndLine = actual.BodyPresence, actual.BodyStartLine, actual.BodyEndLine
+					}
+				}
+			}
+		}
 		g.Files = append(g.Files, fi)
 		g.FileIndex[rel] = fi
 		for i := range fi.Symbols {

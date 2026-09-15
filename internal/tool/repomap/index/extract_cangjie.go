@@ -38,8 +38,13 @@ func extractCangjieWithLineFeatures(src []byte, file string) (pkg string, syms [
 }
 
 func extractCangjieWithStructuralFeatures(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, lineFeatures map[int][]types.LineFeature, branches []types.ControlFlowBranch, tier int) {
+	pkg, syms, imps, rels, lineFeatures, branches, _, tier = extractCangjieWithCallableReturns(src, file)
+	return
+}
+
+func extractCangjieWithCallableReturns(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, lineFeatures map[int][]types.LineFeature, branches []types.ControlFlowBranch, returns []types.CallableReturnExpression, tier int) {
 	// Phase 1: tokeniser + recursive-descent parser (D5/M1 upgrade).
-	pkg, syms, imps, rels = parseCangjie(src, file)
+	pkg, syms, imps, rels, returns = parseCangjieWithReturns(src, file)
 	rels = append(rels, cangjieExtractCalls(src, file)...)
 	lineFeatures = cangjieExtractLineFeatures(src, rels)
 	branches = cangjieExtractControlFlowBranches(src, rels)
@@ -51,6 +56,7 @@ func extractCangjieWithStructuralFeatures(src []byte, file string) (pkg string, 
 	// Phase 2: legacy regex salvage — covers pathological sources
 	// where the tokeniser bailed out (nested decorator sequences
 	// that confuse the state machine, or truncated / partial files).
+	returns = nil
 	cleaned := stripCangjieCommentsAndStrings(string(src))
 	pkg = findCangjiePackage(cleaned)
 	syms = scanCangjieDecls(cleaned, src, file, pkg)

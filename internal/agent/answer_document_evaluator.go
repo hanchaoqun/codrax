@@ -3531,6 +3531,14 @@ func renderAnswerDocRuntimeTargetRelationCapsule(ctx *types.AgentContext) string
 			structural = append(structural, row)
 		case (item.Producer == "concrete_values" || item.Producer == "bridge_literal") &&
 			(types.ClaimFormOf(item) == types.ClaimReturnFact || types.ClaimFormOf(item) == types.ClaimAssignmentFact):
+			// A citable source location is not proof of a candidate's extracted
+			// operation. Keep the original row available in the ordinary source
+			// context, but never publish it under this capsule's proved value-flow
+			// contract. The shared merger preserves this limit across same-ID
+			// corrections, so a richer sibling cannot lend it return authority.
+			if types.EvidenceIsDerivationCandidate(item) {
+				continue
+			}
 			row.family = "value_or_factory_flow"
 			valueFlowCandidates = append(valueFlowCandidates, row)
 		case item.Producer == types.EvidenceProducerRepoMapCooperativeCall && types.ClaimFormOf(item) == types.ClaimCallEdge:

@@ -69,9 +69,26 @@ func setupTestRepo(t *testing.T, files []testFile) (string, *repomap.Graph) {
 		}
 		graph.FileIndex[tf.relPath] = fi
 		graph.Files = append(graph.Files, fi)
+	}
+	// Return authority is now parser-owned. Keep the scenarios' synthetic
+	// relation/line-feature inputs, but derive callable bodies, source hashes,
+	// and return expressions from the real source rather than hand-certifying
+	// a lexical return. Existing behavioral assertions below remain unchanged.
+	entries, err := repomap.ScanFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, parsed := range repomap.ParseFiles(entries, root) {
+		if fi := graph.FileIndex[parsed.RelPath]; fi != nil && len(fi.Symbols) > 0 {
+			fi.Hash = parsed.Hash
+			fi.Symbols = parsed.Symbols
+			fi.CallableReturnExpressions = parsed.CallableReturnExpressions
+		}
+	}
+	for _, fi := range graph.Files {
 		for idx := range fi.Symbols {
 			sym := &fi.Symbols[idx]
-			sym.File = tf.relPath
+			sym.File = fi.RelPath
 			graph.SymbolDefs[sym.Name] = append(graph.SymbolDefs[sym.Name], sym)
 		}
 	}

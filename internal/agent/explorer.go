@@ -124,12 +124,14 @@ type explorerEvaluator struct {
 	flowFindings                    []types.FlowFindingDigest
 	ermRequirements                 []EvidenceRequirement // evidence requirement model
 	cachedConcreteValues            *concreteValuesResult // T1.1: reused while its exact read-coverage key is unchanged
-	cachedConcreteValuesCoverageKey string                // file + line-range authority used by read-gated deterministic producers
-	midLoopLastResultsLen           int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
-	midLoopSerialStreak             int                   // #34: consecutive iters observed as single-call rounds
-	midLoopParallelInjected         bool                  // #34: parallel-batching hint already pushed this dispatch
-	midLoopSymbolRefInjected        bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
-	midLoopPostPrimaryInjected      bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
+	cachedConcreteReturnSources     concreteReturnSourceSnapshots
+	cachedConcreteReturnGeneration  string
+	cachedConcreteValuesCoverageKey string // file + line-range authority used by read-gated deterministic producers
+	midLoopLastResultsLen           int    // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
+	midLoopSerialStreak             int    // #34: consecutive iters observed as single-call rounds
+	midLoopParallelInjected         bool   // #34: parallel-batching hint already pushed this dispatch
+	midLoopSymbolRefInjected        bool   // T3b: cross-file-symbol-reference hint already pushed this dispatch
+	midLoopPostPrimaryInjected      bool   // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
 	// midLoopBudgetExhaustedSent (2026-05-10 Fix B) tracks the
 	// per-tool one-shot budget-exhausted nudge. The 2026-05-10 sweep
 	// digest forensic on s5b iter=2 exposed the waste: a 6-call
@@ -791,6 +793,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil
+	e.cachedConcreteReturnSources = nil
+	e.cachedConcreteReturnGeneration = ""
 	e.cachedConcreteValuesCoverageKey = ""
 	e.primaryEntitiesRegistrationShape = false
 	e.requiredFileHints = nil
@@ -15368,6 +15372,7 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 	closure *types.EvidenceClosure,
 	selectorApplications []types.EvidenceItem,
 	loadFileLines func(string) []string,
+	returnSources ...concreteReturnSourceSnapshots,
 ) concreteValuesResult {
 	if e == nil || graph == nil || len(selectorApplications) == 0 || loadFileLines == nil ||
 		!e.runtimeTargetStructuralRelationsActive() {
@@ -15487,13 +15492,10 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 		}
 	}
 
-	// A return row is admitted only at a parser-owned return node inside a
-	// callable whose exact body already yielded the retained indexed lookup.
-	// The source-line extractor recovers the expression, but the parser feature
-	// is the authority that the line is a return statement. Ambiguous or
-	// multi-line expressions stay absent and the downstream compiler fails
-	// closed. This producer preserves ClaimReturnFact and never turns the
-	// invocation into a direct-call or runtime-selection assertion.
+	// A return row belongs to the exact parser-owned callable and expression,
+	// not merely a line containing some return node. The retained indexed lookup
+	// selects the owner, while the shared source receipt excludes nested callable
+	// returns and preserves complete multi-line expressions without guessing.
 	if len(lookupOwners) > 0 {
 		for _, file := range files {
 			fi := graph.FileIndex[file]
@@ -15508,64 +15510,55 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 			if len(lines) == 0 {
 				continue
 			}
-			featureLines := make([]int, 0, len(fi.LineFeatures))
-			for line, features := range fi.LineFeatures {
-				if runtimeTargetHasLineFeature(features, repotypes.LineFeatureReturnStmt) {
-					featureLines = append(featureLines, line)
-				}
+			var snapshots concreteReturnSourceSnapshots
+			if len(returnSources) > 0 {
+				snapshots = returnSources[0]
 			}
-			sort.Ints(featureLines)
-			for _, line := range featureLines {
-				if line <= 0 || line > len(lines) ||
-					!runtimeTargetReadOrExactEvidenceLineAllowed(source, line, readSet, closure, structuredEvidence) {
-					continue
-				}
-				callable := runtimeTargetEnclosingCallable(fi, line)
-				if callable == nil {
-					continue
-				}
-				owner := runtimeTargetQualifiedCallable(*callable)
+			returnSource := snapshots.read(repoRoot, fi.RelPath)
+			returnReader := repotypes.NewCallableReturnReader(fi, returnSource)
+			for _, callable := range fi.Symbols {
+				owner := runtimeTargetQualifiedCallable(callable)
 				if owner == "" || !dynamicSelectorOwnerMatchesAny(owner, lookupOwners) {
 					continue
 				}
-				raw := strings.TrimSpace(lines[line-1])
-				expression, ok := runtimeTargetExactReturnExpression(raw, fi.Language)
-				if !ok {
-					continue
+				for _, returned := range concreteCallableReturnValues(fi, callable, returnReader, readSet, closure, structuredEvidence) {
+					line, endLine, expression := returned.line, returned.endLine, returned.value
+					if line < 1 || endLine > len(lines) {
+						continue
+					}
+					raw := strings.TrimSpace(strings.Join(lines[line-1:endLine], "\n"))
+					item := types.EvidenceItem{
+						Kind:         types.EvidenceConcrete,
+						Subject:      owner,
+						Predicate:    "returns",
+						Object:       expression,
+						Source:       source,
+						LineStart:    line,
+						LineEnd:      endLine,
+						Confidence:   repotypes.ConfidenceAST,
+						Producer:     types.EvidenceProducerRepoMapDynamicSelectorReturn,
+						Summary:      fmt.Sprintf("parser-authored exact return in `%s`: `%s`", owner, expression),
+						Scope:        types.ScopeLine,
+						AnchorKind:   types.AnchorReturn,
+						AnchorSymbol: owner,
+						OwnerSymbol:  owner,
+						Snippet:      raw,
+						// The parser proved the exact owner and expression; every source
+						// line was admitted by the read/evidence closure. Stamp before
+						// merging so a reader-facing paraphrase at the same coordinate
+						// cannot erase the exact typed expression needed downstream.
+						GroundingStatus: types.GroundingGrounded,
+						GroundingTier:   types.TierLineText,
+						GroundingNote:   "parser-owned return expression verified at an exact admitted source span",
+					}
+					item.ID = types.StableEvidenceID(item)
+					key := item.ID + "\x00" + source + "\x00" + strconv.Itoa(line)
+					if _, duplicate := seen[key]; duplicate {
+						continue
+					}
+					seen[key] = struct{}{}
+					rows = append(rows, row{item: item, role: "lookup return"})
 				}
-				item := types.EvidenceItem{
-					Kind:         types.EvidenceConcrete,
-					Subject:      owner,
-					Predicate:    "returns",
-					Object:       expression,
-					Source:       source,
-					LineStart:    line,
-					LineEnd:      line,
-					Confidence:   repotypes.ConfidenceAST,
-					Producer:     types.EvidenceProducerRepoMapDynamicSelectorReturn,
-					Summary:      fmt.Sprintf("parser-authored exact return in `%s`: `%s`", owner, expression),
-					Scope:        types.ScopeLine,
-					AnchorKind:   types.AnchorReturn,
-					AnchorSymbol: owner,
-					OwnerSymbol:  owner,
-					Snippet:      raw,
-					// This row is not an ungrounded model assertion: the parser
-					// proved the return node, the exact source line was admitted by
-					// the read/evidence closure above, and the expression was
-					// extracted from that same line. Stamp that authority before
-					// merging so a reader-facing paraphrase at the same coordinate
-					// cannot erase the exact typed expression needed downstream.
-					GroundingStatus: types.GroundingGrounded,
-					GroundingTier:   types.TierLineText,
-					GroundingNote:   "parser-owned return expression verified at an exact admitted source line",
-				}
-				item.ID = types.StableEvidenceID(item)
-				key := item.ID + "\x00" + source + "\x00" + strconv.Itoa(line)
-				if _, duplicate := seen[key]; duplicate {
-					continue
-				}
-				seen[key] = struct{}{}
-				rows = append(rows, row{item: item, role: "lookup return"})
 			}
 		}
 	}
@@ -15765,10 +15758,7 @@ func runtimeTargetReadOrExactEvidenceLineAllowed(
 		return false
 	}
 	for _, item := range evidence {
-		if !item.IsCitable() || canonicalExplorerPath(item.Source) != source || item.LineStart != line {
-			continue
-		}
-		if item.LineEnd == 0 || item.LineEnd == line {
+		if file, evidenceLine, ok := concreteExactEvidenceCoordinate(item); ok && file == source && evidenceLine == line {
 			return true
 		}
 	}
@@ -16134,14 +16124,23 @@ func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoo
 	}
 	coverageKey := concreteValuesReadCoverageKey(readSet, closure) +
 		concreteReturnOwnerAuthorityCoverageKey(e.currentStructuredEvidence()) +
+		concreteExactEvidenceCoverageKey(e.currentStructuredEvidence()) +
 		"\x00scope=" + e.deterministicEnrichmentScopeKey()
-	if e.cachedConcreteValues == nil || e.cachedConcreteValuesCoverageKey != coverageKey {
-		r := e.buildConcreteValuesSection(ctx, repoRoot, readSet, closure)
+	var previousSources concreteReturnSourceSnapshots
+	if e.cachedConcreteValues != nil {
+		previousSources = e.cachedConcreteReturnSources
+	}
+	returnSources := refreshedConcreteReturnSources(repoRoot, previousSources)
+	returnGeneration := concreteReturnInputGenerationKey(e.searchGraph(), returnSources)
+	if e.cachedConcreteValues == nil || e.cachedConcreteValuesCoverageKey != coverageKey || e.cachedConcreteReturnGeneration != returnGeneration {
+		r := e.buildConcreteValuesSection(ctx, repoRoot, readSet, closure, returnSources)
 		if ctx.Err() != nil {
 			return r
 		}
 		e.cachedConcreteValues = &r
 		e.cachedConcreteValuesCoverageKey = coverageKey
+		e.cachedConcreteReturnSources = returnSources
+		e.cachedConcreteReturnGeneration = concreteReturnInputGenerationKey(e.searchGraph(), returnSources)
 	}
 	if closure == nil {
 		return *e.cachedConcreteValues
@@ -16703,7 +16702,7 @@ func (e *explorerEvaluator) filterConcreteValueScanFiles(files map[string]bool) 
 	return filtered
 }
 
-func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
+func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure, sourceSnapshots ...concreteReturnSourceSnapshots) concreteValuesResult {
 	if ctx == nil {
 		ctx = context.TODO()
 	}
@@ -16711,6 +16710,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		return concreteValuesResult{}
 	}
 	graph := e.searchResult.Graph
+	returnSources := make(concreteReturnSourceSnapshots)
+	if len(sourceSnapshots) > 0 && sourceSnapshots[0] != nil {
+		returnSources = sourceSnapshots[0]
+	}
 	notesJoined := strings.Join(e.investigationNotes, "\n")
 
 	var allValues []concreteValue
@@ -16786,7 +16789,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	}
 	dynamicSelectorFlows := e.buildRuntimeTargetDynamicSelectorFlows(
 		graph, repoRoot, structuralRelationFiles, readSet, closure,
-		decoratorApplications.evidence, loadFileLines,
+		decoratorApplications.evidence, loadFileLines, returnSources,
 	)
 
 	// Extract concrete values from executable symbols. Three tiers:
@@ -16832,6 +16835,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			continue
 		}
 		st.symTotal = len(fi.Symbols)
+		// A parser receipt belongs to one complete source snapshot. Keep the
+		// bytes intact (including CRLF) for the shared hash/span verifier.
+		var returnReader *repotypes.CallableReturnReader
+		returnReaderAttempted := false
 		for _, sym := range fi.Symbols {
 			if ctx.Err() != nil {
 				return concreteValuesResult{}
@@ -16886,6 +16893,15 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			if owner != "" {
 				qualName = owner + "." + sym.Name
 			}
+			var provenReturns []concreteValue
+			if isShort || isMediumFunc {
+				if !returnReaderAttempted {
+					returnReaderAttempted = true
+					returnReader = repotypes.NewCallableReturnReader(fi, returnSources.read(repoRoot, fi.RelPath))
+				}
+				provenReturns = concreteCallableReturnValues(fi, sym, returnReader, readSet, closure, e.currentStructuredEvidence())
+				allValues = append(allValues, provenReturns...)
+			}
 
 			if isMediumFunc {
 				// Local line scan: extract only lines matching evidence
@@ -16924,6 +16940,11 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 					}
 					snippet := strings.Join(allLines[ctxStart:ctxEnd], "\n")
 					for _, cv := range extractConcreteValues(snippet, fi.Language) {
+						var keep bool
+						cv, keep = concreteUnprovedReturnLead(cv, snippet, ctxStart+1, provenReturns)
+						if !keep {
+							continue
+						}
 						allValues = append(allValues, concreteValue{
 							file:      file,
 							receiver:  owner,
@@ -16943,6 +16964,11 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 				continue
 			}
 			for _, cv := range extractConcreteValues(src, fi.Language) {
+				var keep bool
+				cv, keep = concreteUnprovedReturnLead(cv, src, sym.Line, provenReturns)
+				if !keep {
+					continue
+				}
 				// For longer functions, only keep binding/registration/map
 				// values and cross-component call targets. Bulk "returns"
 				// / "assigns" entries would flood the synthesis prompt,
@@ -17102,7 +17128,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			if i%1024 == 0 && ctx.Err() != nil {
 				return concreteValuesResult{}
 			}
-			if !isProseLikeConcreteValue(v.value) {
+			if concreteValueIsBoundedSourceFact(v) {
 				clean = append(clean, v)
 			}
 		}
@@ -17141,6 +17167,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		if isBindingShapeKind(v.kind) {
 			relevant = append(relevant, v)
 			cntA++
+			continue
+		}
+		if v.kind == concreteValueSourceExpression && readSetContains(readSet, v.file) {
+			relevant = append(relevant, v)
 			continue
 		}
 		if v.kind == "returns" {
@@ -17385,6 +17415,11 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		}
 		if v.candidate {
 			fact = "Candidate derivation: " + fact
+		}
+		// A complete parser expression can span source lines; escape only its
+		// table presentation, never the evidence Object or source coordinates.
+		if v.endLine > v.line {
+			fact = strings.ReplaceAll(strings.ReplaceAll(fact, "\r\n", "\\n"), "\n", "\\n")
 		}
 		fmt.Fprintf(&b, "| %s:%d | `%s()` | %s |\n",
 			v.file, v.line, v.method, fact)
@@ -17781,7 +17816,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		// calls) leaked into the extractor/finalizer evidence set
 		// and drowned the real signal. This was the #4 root cause
 		// in the "有几个agent可以调用subagent" failure log.
-		if isProseLikeConcreteValue(v.value) {
+		if !concreteValueIsBoundedSourceFact(v) {
 			continue
 		}
 		kind := types.EvidenceConcrete
@@ -17793,7 +17828,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			Object:              v.value,
 			Source:              v.file,
 			LineStart:           v.line,
-			LineEnd:             v.line,
+			LineEnd:             concreteValueLastLine(v),
 			Confidence:          0.95,
 			Producer:            "concrete_values",
 			Summary:             fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
@@ -17827,6 +17862,14 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			// idempotent guard (Origin != Unknown skips backfill),
 			// breaking log-frame matching on concrete_values items
 			// that anchor on attached-log file:line locations.
+		}
+		if predicate == concreteValueSourceExpression {
+			// The line is an inspection lead, not a proved result of the
+			// enclosing callable. Preserve its source scope without borrowing
+			// that owner (or its limited per-owner factual display slots).
+			cvItem.Subject = ""
+			cvItem.Snippet = v.value
+			cvItem.Summary = fmt.Sprintf("Source inspection lead at %s:%d: %s", v.file, v.line, v.value)
 		}
 		cvItem.ID = types.StableEvidenceID(cvItem)
 		cvEvidence = append(cvEvidence, cvItem)
@@ -17878,7 +17921,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			closure.SetScannedSet(scanned)
 		}
 	}
-	bridgeEvidence := extractBridgeLiteralEvidence(graph, repoRoot, bridgeConsumerValues)
+	bridgeEvidence := extractBridgeLiteralEvidence(graph, repoRoot, bridgeConsumerValues, returnSources)
 	bridgeTerminalItems := filterEvidenceItemsByFileSet(bridgeEvidence.terminalReturns, filesToScan)
 	if len(bridgeTerminalItems) > 0 {
 		logging.Debug("[explorer] bridge literal terminal returns: %d items", len(bridgeTerminalItems))
@@ -18644,6 +18687,7 @@ type concreteValue struct {
 	kind      string // "returns", "binds", "assigns", etc.
 	value     string
 	line      int
+	endLine   int  // exact parser expression extent; zero retains legacy single-line shape
 	candidate bool // system-owned limit on a heuristic or incomplete derivation
 }
 
@@ -19038,7 +19082,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 	return extractBridgeLiteralEvidence(graph, repoRoot, consumerValues).chains
 }
 
-func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consumerValues []concreteValue) bridgeLiteralEvidence {
+func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consumerValues []concreteValue, sourceSnapshots ...concreteReturnSourceSnapshots) bridgeLiteralEvidence {
 	if graph == nil {
 		return bridgeLiteralEvidence{}
 	}
@@ -19202,6 +19246,8 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 		if fi == nil {
 			continue
 		}
+		var returnReader *repotypes.CallableReturnReader
+		returnReaderAttempted := false
 		for i := range fi.Symbols {
 			sym := &fi.Symbols[i]
 			if sym.Kind != "function" && sym.Kind != "method" {
@@ -19220,10 +19266,15 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 				isIdentityMethod(sym.Name) && bodyLen <= 10 {
 				body := loadBody(fi.RelPath, sym.Line, sym.EndLine)
 				if body != "" {
-					for _, cv := range extractConcreteValues(body, fi.Language) {
-						if cv.kind != "returns" {
-							continue
+					if !returnReaderAttempted {
+						returnReaderAttempted = true
+						var snapshots concreteReturnSourceSnapshots
+						if len(sourceSnapshots) > 0 {
+							snapshots = sourceSnapshots[0]
 						}
+						returnReader = repotypes.NewCallableReturnReader(fi, snapshots.read(repoRoot, fi.RelPath))
+					}
+					for _, cv := range concreteParserCallableReturnValues(fi, *sym, returnReader) {
 						if len(cv.value) < 2 {
 							continue
 						}
@@ -19239,7 +19290,7 @@ func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consume
 							method:  sym.Name,
 							literal: lit,
 							file:    fi.RelPath,
-							line:    concreteValueAbsoluteLine(sym.Line, cv.lineOffset),
+							line:    cv.line,
 						})
 						break // first literal wins per method
 					}
