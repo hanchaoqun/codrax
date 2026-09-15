@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-15）
 
+最新交付§123.1811：B1698已477025af9推送，B1697原始Trace有界回读已公共先红后绿、最终count3/race/两轮独立复审及冻结全仓86包通过；中间6项回归全部修正，旧断言保留。凭据与持久化事实分离，agent新escape有界、原生读取分页兼容、原始数据仍runtime-only。下一r1075按混合Trace/源码read与C++ plan-only恰好两路各一次，提交后清洁构建才启动；B1694/模型解释/完整图表达与写验证债不代销。
+
 当前交付§123.1810：r1074已f1987454a单独收账推送；B1698完整注释范围及合法范围引用交接已公共先红后绿、count3/race3，联合最终冻结全仓86包通过。原同标签点引用抢占范围的新见证并入B1694，保留精确已知缺口测试，不作全范围闭环宣称。B1697单物理Trace有界回读的同批兼容回归已修、旧断言未改，亦通过最终专项/冷审/全仓；两片分开交付。原模型单位/事件类型/IO文字错误不由系统代改答案。
 
 当前交付/回放§123.1808–1809：B1695已推送de15d5c78，公共RED/count3/race3/冷审/冻结全仓86包通过、提交后清洁构建。r1074严格H4供给+Java实现/路径两路各一次，机器2PASS；人审Java核心pass/引用P2，Trace因单位/事件类别/IO与Binder混账FAIL，不改机评。实际聚合两处资格一致，CPU3“漏频率”初审疑点被原始同scope数据否证；新B1697原始Trace有界回查误拒P1、B1698文档注释range缺失P2进入公共复现。B1693/B1694/B1319/B1561/B1696及原开放项不代销。
@@ -57425,6 +57427,18 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
+### §123.1811 B1697：原始Trace证据回查与源码权限分离（2026-09-15）
+
+1. **公共复现与修向**：r1074原始策略witness行存在，但原capture读取被当源码fallback拒绝；真实TraceQuery→AppendDispatch→BaseAgent.executeTool(ReadFile)在.txt及capture.go两臂复现，初始输出摘录归档`b1697-initial-public-red.md`，明确不是后来重新生成的baseline日志。查询保pid17267，回读可看到emitter4776的策略原行；不删目标继承、不扩大时间窗、不替模型得出限频影响或根因。
+2. **授权链**：在已有单物理capture native结果出口，由TraceArtifacts的唯一源/零虚拟行基址生成私有candidate；与查询前强文件身份、当前代次、同源hard观测共同签成opaque票据，仅在Append时注册。八个native出口共用判据，多候选必须同物理源；单/多bundle虚拟坐标不借此读manifest。派生raw/payload、basename相似、Summary、模型JSON均不授予原capture权限。已有Q5-A已发布结果解析优先保持，fork只复制注册表/共享本轮代次，dispatch reset保留、turn reset撤销、迟到fork和历史JSON不可恢复权限。
+3. **实际读取边界**：agent读取前持有本次票据，跨工具门与reader传递；读取以filegeneration安全非阻塞regular open持有同一descriptor，前后核完整身份/路径与代次，覆盖同大小恢复mtime重写、原子替换、symlink改指、FIFO、reset及memo旧结果。失效票据拒绝，绝不落回普通源码读取。新escape仅read_file且显式正limit≤既有页上限，零offset不偷偷扩成全文；原生直接ReadFile保旧默认页/小文件展开，二者保整文件字节壁，不额外全文件SHA或宣称加密快照。原始读取发布RuntimeArtifactRead且非TraceQueryBlob，无ReadCoverage/源码Observations/机制证明；过大文件只建议同capture有界trace_query，不误教新获准grep。
+4. **全仓暴露并纠正的回归**：v1/v2完整失败收据见§1810.6，不能以定向绿/冷审取代整仓检查。census真实type importer新增filegeneration一项，原self-RED与类型错误fail-loud不变；初版将PhysicalTraceLines放共享ObservationSourceRef导致FrequencySource JSON往返差异，现彻底移回opaque ToolResult，observation_ledger.go相对基线零diff。原生无limit读取误受新escape限制已按held-ticket/直接调用拆分；producer复用RuntimeObservationProducerIsDeterministicQuery而不另写字面判据，保run-suffixed正控。旧四针及全部原断言不改。
+5. **最终收据**：旧四失败针+全部B1697测试`b1697-tailfix-count3.log`types1.957/tool2.133/agent1.145s，race为4.716/3.754/2.400s；census原两针count3=86.255s。最终冻结`20260915-b1697-b1698-full-v3.log`退出0，86测试包全部-count=1重跑PASS+13无测试，agent79.615/tool350.176/types45.787/tracequery105.160/tracediag13.128/llm29.163s。`freeze-v3.sha`全部Go与构建输入前后相同；独立末审确认持久化JSON/原分页兼容/私有权限不污染事实。B1698先以477025af9独立推送，本片随后提交；联合测试不冒称两个孤立快照各跑一次全仓。
+6. **下一r1075预案（本节记录时未启动）**：243例=215read/25apply/3plan。选`read_combo_trace_current_code_dimensions.case`（最近20260604-204422、无r号）与`patch_cpp_typo.case`（最近r528/20260815-133146、85s），CAP5/PARALLEL2/TIMEOUT1200/既有15步，各一次；新二进制必须匹配提交且构建输入清洁。混合题固定86.111ms>50ms，只两条B/E不能推出IO/调度/供给/设备源码根因；当前工具实现不是设备RenderService实现，五个用户维度与来源需分明。C++仅main.cpp:19的retrun→return计划，不能冒称执行/编译/合并；旧“无g++”注释不当现机器事实。B1697/B1698仅实际触发才记生产正证，无图记N/A；不代销B1693/B1694/B1319/B1561/B1696、全部图关系/时序/逻辑矩阵或原生runner证明债。
+7. **红线不变**：不扫描用户/模型散文做硬门，不改模型JSON教学或加必填字段，保模型正文/图/根因选择权属。Trace显式窗、链上占时/可消双轴、优先级/调度/算力/IO/D/语义与业务线索、自动补齐均不改；背景事件只支持，不因开放原文读取获根因身份。600/300/600s默认及活跃心跳/推理/工具字节保护在最终llm套件通过；4ms/旧4m无正文不能杀活跃流，调用方显式deadline/cancel仍独立。
+
+状态：`B1698=477025af9-pushed`；`B1697=public-red-green/tailfix-old-contracts-preserved/final-count3+race+cold-review/frozen-full86-pass/ready-to-commit`；`r1075=planned-not-started`；`model-answer/Trace-chain-only-roots/active-stream-ownership=unchanged`。
 
 ### §123.1810 B1698：完整注释原文与已选证据范围贯通（2026-09-15）
 

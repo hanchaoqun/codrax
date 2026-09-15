@@ -4813,7 +4813,11 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 		b.observeToolRejected(ctx, tc, "explorer_tool_boundary", "stage_tool_policy")
 		return violation, nil
 	}
-	if violation := validateExplorerTraceQueryFirstToolCall(ctx, tc, traceQueryFirstSurfaceAllowsTraceQuery(currentToolSurface)); violation != nil {
+	var traceSourceRead types.TraceQuerySourceReadRef
+	if types.CanonicalToolName(tc.Name) == "read_file" {
+		traceSourceRead = tool.PrepareBoundedTraceQuerySourceRead(b.buildToolBusContext(ctx), tc.Params)
+	}
+	if violation := validateExplorerTraceQueryFirstToolCallWithSourceRead(ctx, tc, traceQueryFirstSurfaceAllowsTraceQuery(currentToolSurface), traceSourceRead); violation != nil {
 		b.observeToolRejected(ctx, tc, "explorer_trace_query_first_tool_policy", "stage_tool_policy")
 		return violation, nil
 	}
@@ -4886,6 +4890,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 			// BusContext fields stay zero-valued, so tools cannot
 			// mutate stage-output state.
 			busCtx := b.buildToolBusContext(ctx)
+			tool.BindTraceQuerySourceRead(busCtx, traceSourceRead)
 			toolStart := time.Now()
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
 			if ctx != nil && ctx.Mutable != nil && ctx.Mutable.ArmTraceInputAdmissionTerminal(ctx.Stage, result) {
@@ -6506,13 +6511,17 @@ func rejectExplorerSourceInventoryLensToolWithCode(ctx *types.AgentContext, tc l
 }
 
 func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool) *types.ToolResult {
+	return validateExplorerTraceQueryFirstToolCallWithSourceRead(ctx, tc, traceQueryInCurrentSurface)
+}
+
+func validateExplorerTraceQueryFirstToolCallWithSourceRead(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool, sourceRead ...types.TraceQuerySourceReadRef) *types.ToolResult {
 	if violation := validateExplorerTraceQueryTerminalAdmissionRepair(ctx, tc); violation != nil {
 		return violation
 	}
-	if violation := validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx, tc, traceQueryInCurrentSurface); violation != nil {
+	if violation := validateExplorerTraceQueryRuntimeEvidenceBoundaryWithSourceRead(ctx, tc, traceQueryInCurrentSurface, sourceRead...); violation != nil {
 		return violation
 	}
-	if violation := validateExplorerTraceOnlyExactArtifactToolCall(ctx, tc, traceQueryInCurrentSurface); violation != nil {
+	if violation := validateExplorerTraceOnlyExactArtifactToolCallWithSourceRead(ctx, tc, traceQueryInCurrentSurface, sourceRead...); violation != nil {
 		return violation
 	}
 	phase := runtimeSourceNavigationPhaseForExplorer(ctx, traceQueryInCurrentSurface)
@@ -6530,7 +6539,7 @@ func validateExplorerTraceQueryFirstToolCall(ctx *types.AgentContext, tc llm.Too
 	// typed escape lane through here (after a dispatch reset the earlier
 	// runtime observations no longer show, but the blob registry
 	// survives to the turn boundary).
-	if explorerTraceQueryBlobRefEscape(ctx, canonical, tc) {
+	if explorerTraceQueryBlobRefEscape(ctx, canonical, tc) || explorerTraceQuerySourceReadEscape(ctx, canonical, tc, sourceRead...) {
 		return nil
 	}
 	reason := fmt.Sprintf(
@@ -6613,6 +6622,10 @@ func validateExplorerTraceQueryTerminalAdmissionRepair(ctx *types.AgentContext, 
 }
 
 func validateExplorerTraceOnlyExactArtifactToolCall(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool) *types.ToolResult {
+	return validateExplorerTraceOnlyExactArtifactToolCallWithSourceRead(ctx, tc, traceQueryInCurrentSurface)
+}
+
+func validateExplorerTraceOnlyExactArtifactToolCallWithSourceRead(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool, sourceRead ...types.TraceQuerySourceReadRef) *types.ToolResult {
 	if ctx == nil || ctx.Stage != types.StageExplore || !traceQueryInCurrentSurface {
 		return nil
 	}
@@ -6634,7 +6647,7 @@ func validateExplorerTraceOnlyExactArtifactToolCall(ctx *types.AgentContext, tc 
 	if !explorerTraceQuerySourceFallbackTool(canonical) {
 		return nil
 	}
-	if explorerTraceQueryBlobRefEscape(ctx, canonical, tc) {
+	if explorerTraceQueryBlobRefEscape(ctx, canonical, tc) || explorerTraceQuerySourceReadEscape(ctx, canonical, tc, sourceRead...) {
 		return nil
 	}
 	reason := fmt.Sprintf(
@@ -6663,6 +6676,10 @@ func validateExplorerTraceOnlyExactArtifactToolCall(ctx *types.AgentContext, tc 
 }
 
 func validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool) *types.ToolResult {
+	return validateExplorerTraceQueryRuntimeEvidenceBoundaryWithSourceRead(ctx, tc, traceQueryInCurrentSurface)
+}
+
+func validateExplorerTraceQueryRuntimeEvidenceBoundaryWithSourceRead(ctx *types.AgentContext, tc llm.ToolCall, traceQueryInCurrentSurface bool, sourceRead ...types.TraceQuerySourceReadRef) *types.ToolResult {
 	if ctx == nil || ctx.Stage != types.StageExplore || !traceQueryInCurrentSurface {
 		return nil
 	}
@@ -6677,7 +6694,7 @@ func validateExplorerTraceQueryRuntimeEvidenceBoundary(ctx *types.AgentContext, 
 	if !explorerTraceQuerySourceFallbackTool(canonical) {
 		return nil
 	}
-	if explorerTraceQueryBlobRefEscape(ctx, canonical, tc) {
+	if explorerTraceQueryBlobRefEscape(ctx, canonical, tc) || explorerTraceQuerySourceReadEscape(ctx, canonical, tc, sourceRead...) {
 		return nil
 	}
 	reason := fmt.Sprintf(
@@ -6759,6 +6776,16 @@ func explorerTraceQueryBlobRefEscape(ctx *types.AgentContext, canonical string, 
 		logging.Debug("[explorer] trace_query blob ref escape lane: %s path=%q allowed by published-ref registry", canonical, requested)
 	}
 	return ok
+}
+
+func explorerTraceQuerySourceReadEscape(ctx *types.AgentContext, canonical string, tc llm.ToolCall, sourceRead ...types.TraceQuerySourceReadRef) bool {
+	if canonical != "read_file" || ctx == nil {
+		return false
+	}
+	if len(sourceRead) > 0 {
+		return sourceRead[0].Path() != ""
+	}
+	return tool.TraceQuerySourceReadAllowed(types.ToolBusContext(ctx, types.AgentExplorer), tc.Params)
 }
 
 func explorerTraceQueryFirstRequired(ctx *types.AgentContext, traceQueryInCurrentSurface bool) bool {

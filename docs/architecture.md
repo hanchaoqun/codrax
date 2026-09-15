@@ -1288,6 +1288,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 ### 7.2.1 trace_query — 深度分层根因下钻引擎
 
+**原始证据有界回读（B1697）**：native查询实际发布单物理capture的硬观测后，本轮explorer可用显式有限页`read_file`核对该原文件；不授予grep、其它文件、bundle虚拟行或派生结果以相同权限。单物理资格与读取凭据仅存于不序列化的ToolResult私有票据，不改变观测/频率事实JSON。票据绑定查询前后的强文件身份和本轮代次，穿过工具门直到持有文件句柄的读取完成；替换、链接改指、跨轮、终止状态及历史JSON/memo均不能重授或降为普通源码读取。dispatch/fork仅在同代次继承，Q5-A已发布结果别名优先保持。新escape要求显式页上限，原生直接ReadFile保原分页/展开策略；二者均保整文件字节上限，原文件回读仍是运行时资料，不生成源码覆盖/机制证明。此能力不更改PID/时间窗继承、不补因果结论；超大capture仍使用同文件有界trace_query，无额外整文件哈希，也不是密码学内容快照。
+
 > perf_triage 是**前置轻量分诊**（§7.2）；`trace_query`（`internal/tracequery/` ~22000 行 + `internal/tool/trace_query.go` 工具外壳）是 explore 阶段 explorer agent 在**调查期**用的确定性查询引擎，承载大体量 ftrace/systrace/hitrace 的分层丢帧根因分析。完整方法论、逐条满足度和历次修复见 `docs/design/trace_layered_root_cause_methodology_audit_20260701.md`；此处只给纲要，避免新人重复发明或无意破坏。
 
 **设计定位**：trace_query 不是"返回原始数据、全靠 LLM 分层推理"的工具——"哪个状态优先看 / 要不要递归 / 用哪个 view"这些决策以确定性 Go 代码算好，通过 typed 结构（`StateDrilldownStep` / `RootCauseRankItem.Tier` / `TraceCausalProjection`）+ 可被 `observation_ledger.go` 回解析的文本行喂给 LLM 和下游 finalizer。这与 §1 "精确信号做硬门、噪声信号做软引导"红线一致：状态排序/tier 是精确计算，推荐 view / significant 标记是软引导。

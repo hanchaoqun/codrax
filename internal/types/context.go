@@ -401,6 +401,10 @@ type MutableState struct {
 	// explorer can audit a payload blob one dispatch after the
 	// trace_query call that produced it.
 	traceQueryPublishedBlobRefs map[string]string
+	// Original capture permissions are distinct from published query blobs.
+	// Survive dispatch reset; isolated forks share the epoch, not the map.
+	traceSourceReadGeneration *traceSourceReadGeneration
+	traceQuerySourceReads     map[string]TraceQuerySourceReadRef
 	// Separate, soft-only derived-result navigation. Never consulted by the
 	// published-ref read permission registry or observation/grounding paths.
 	artifactReadNavigationGeneration *artifactReadNavigationGeneration
@@ -1368,6 +1372,7 @@ func NewMutableState(objective string) *MutableState {
 		objective:                        objective,
 		traceInputAdmissionTerminal:      &traceInputAdmissionTerminalLatch{},
 		artifactReadNavigationGeneration: &artifactReadNavigationGeneration{},
+		traceSourceReadGeneration:        &traceSourceReadGeneration{},
 	}
 }
 
@@ -1416,6 +1421,8 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceQueryRuntimeObservationCount:           m.traceQueryRuntimeObservationCount,
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
+		traceSourceReadGeneration:                   m.traceSourceReadGeneration,
+		traceQuerySourceReads:                       cloneTraceQuerySourceReads(m.traceQuerySourceReads),
 		artifactReadNavigationGeneration:            m.artifactReadNavigationGeneration,
 		artifactReadNavigationPublished:             cloneStringStringMap(m.artifactReadNavigationPublished),
 		artifactReadNavigation:                      cloneArtifactReadNavigationIndex(m.artifactReadNavigation),
@@ -1517,6 +1524,8 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	exactContextRequiredFiles := append([]string(nil), fork.exactContextRequiredFiles...)
 	traceQueryRuntimeObservationDelta := fork.traceQueryRuntimeObservationCount - fork.exploreForkTraceQueryRuntimeObservationBase
 	traceQueryBlobRefs := cloneStringStringMap(fork.traceQueryPublishedBlobRefs)
+	traceSourceGeneration := fork.traceSourceReadGeneration
+	traceSourceReads := cloneTraceQuerySourceReads(fork.traceQuerySourceReads)
 	artifactNavigationGeneration := fork.artifactReadNavigationGeneration
 	artifactNavigationPublished := cloneStringStringMap(fork.artifactReadNavigationPublished)
 	artifactNavigation := cloneArtifactReadNavigationIndex(fork.artifactReadNavigation)
@@ -1658,6 +1667,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 			m.traceQueryPublishedBlobRefs[canonKey] = verbatim
 		}
 	}
+	m.mergeTraceQuerySourceReadsLocked(traceSourceGeneration, traceSourceReads)
 	m.mergeArtifactReadNavigationLocked(artifactNavigationGeneration, artifactNavigationPublished, artifactNavigation)
 	// Pure-tool memo union: first-writer-wins (the memo is an economy
 	// optimization, not a correctness contract — concurrent forks that
@@ -2620,6 +2630,7 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 		m.registerTraceQueryBlobRefLocked(ref)
 	}
 	m.registerArtifactReadNavigationResultLocked(r)
+	m.registerTraceQuerySourceReadLocked(r)
 }
 
 // traceQueryBlobRefPathSegment is the mandatory path segment every
@@ -5476,6 +5487,8 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.traceQueryRuntimeObservationCount = 0
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.traceQueryPublishedBlobRefs = nil
+	m.traceSourceReadGeneration = &traceSourceReadGeneration{}
+	m.traceQuerySourceReads = nil
 	m.artifactReadNavigationGeneration = &artifactReadNavigationGeneration{}
 	m.artifactReadNavigationPublished = nil
 	m.artifactReadNavigation = nil
@@ -7926,6 +7939,8 @@ type ToolResult struct {
 	// Run-local producer navigation only. Historical JSON/replay snapshots
 	// intentionally lose this ticket rather than reconstructing authority.
 	ArtifactReadNavigation ToolArtifactReadNavigation `json:"-"`
+	// Native trace_query receipt; omitted from JSON and all model schemas.
+	TraceQuerySourceRead TraceQuerySourceReadRef `json:"-"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

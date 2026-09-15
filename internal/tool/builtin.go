@@ -4874,6 +4874,17 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	if reject != nil {
 		return *reject, nil
 	}
+	sourceRead, originalTraceRead, boundedTraceRead := traceQuerySourceReadForInvocation(ctx, p.Path)
+	if originalTraceRead {
+		if (boundedTraceRead && !traceQuerySourceReadBounds(p)) || traceQuerySourceReadTerminal(ctx) {
+			return traceQuerySourceReadRefusal(), nil
+		}
+		current, ok := traceQuerySourceReadTarget(ctx, p.Path)
+		if !ok || current.Path() != sourceRead.Path() {
+			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "original trace read permission expired or its resolved source changed; query the trace again", Timestamp: time.Now()}, nil
+		}
+		fsPath = sourceRead.Path()
+	}
 	// SEC #26 hard gate (precise path signal): the active providers/settings
 	// config and providers credential files are never readable. Generic
 	// refusal, zero path echo; testdata fixtures pass (typed escape lane).
@@ -4883,13 +4894,21 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	navigation = prepareArtifactReadNavigation(ctx, fsPath)
 	// Whole-read wall (customer OOM 2026-07-03): read_file pages AFTER
 	// slurping, so a GiB-scale artifact must be refused before allocation.
-	data, err := width.ReadFileBounded(fsPath, width.Current().ReadFile.MaxWholeReadBytes)
+	var data []byte
+	if originalTraceRead {
+		data, err = readTraceQuerySourceFile(ctx, sourceRead)
+	} else {
+		data, err = width.ReadFileBounded(fsPath, width.Current().ReadFile.MaxWholeReadBytes)
+	}
 	if err != nil {
 		var oversized *width.ErrSourceReadOversized
 		if errors.As(err, &oversized) {
 			nextRead := "Use grep (pattern + path) to locate the lines you need, or trace_query for runtime trace artifacts."
 			repairHint := "This file exceeds the whole-file read bound. Locate the needed lines with grep (it streams and returns file:line anchors), then cite those lines directly; for runtime trace artifacts use trace_query views instead of raw reads."
-			if traceQueryResultReadTarget(ctx, p.Path, fsPath) {
+			if originalTraceRead {
+				nextRead = "Use trace_query on this same original capture with a bounded time/line window and explicit event_types for event-family lookup."
+				repairHint = "This original capture exceeds the whole-file read bound. Continue with trace_query on the same capture and bounded time/line coordinates; read_file pagination still loads the file and does not bypass this byte limit."
+			} else if traceQueryResultReadTarget(ctx, p.Path, fsPath) {
 				nextRead = "Use grep (pattern + path) to search this published query result; it is not the original trace capture."
 				repairHint = "This query result exceeds the whole-file read bound. Use grep with the same result path and a narrow pattern or line window; paging read_file still requires loading the whole file. Result lines remain result references, not current repository source."
 			}
@@ -4957,7 +4976,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	sliceEnd := totalLines
 	overrode := false
 	if lineOffset > 0 || limit > 0 {
-		isLazyDefault := lineOffset == 0 &&
+		isLazyDefault := !boundedTraceRead && lineOffset == 0 &&
 			limit > 0 &&
 			ReadFileSmallLimitThreshold > 0 &&
 			limit <= ReadFileSmallLimitThreshold &&
@@ -5074,18 +5093,22 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	}
 	now := time.Now()
 	result := types.ToolResult{
-		ToolName:            t.Name(),
-		Success:             true,
-		Summary:             summary,
-		RawRef:              ref,
-		Refinement:          readFileResultRefinement(ctx, p.Path, fsPath, sliceStart+1, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
-		ReadCoverage:        readFileTypedCoverage(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines),
-		RuntimeArtifactRead: readFileRuntimeArtifactMarker(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines),
+		ToolName:   t.Name(),
+		Success:    true,
+		Summary:    summary,
+		RawRef:     ref,
+		Refinement: readFileResultRefinement(ctx, p.Path, fsPath, sliceStart+1, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
 		EnumerationAuthority: readFileEnumerationAuthority(
 			p.Path, sliceStart+1, sliceEnd, totalLines, clampedByInlineBudget,
 		),
-		Observations: readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now),
-		Timestamp:    now,
+		Timestamp: now,
+	}
+	if originalTraceRead {
+		stampTraceQuerySourceReadResult(&result, p.Path, sliceStart+1, sliceEnd, totalLines)
+	} else {
+		result.ReadCoverage = readFileTypedCoverage(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines)
+		result.RuntimeArtifactRead = readFileRuntimeArtifactMarker(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines)
+		result.Observations = readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now)
 	}
 	recordSuccessfulRepositoryRead(ctx, sourceRepoRoot, fsPath, result)
 	recordCompletionReadCoverage(ctx, fsPath, result)

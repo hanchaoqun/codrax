@@ -266,8 +266,12 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
 	var sourceAdaptation *traceQuerySourceAdaptation
+	var sourceRead types.TraceQuerySourceReadRef
 	defer func() {
 		traceQueryAnnotateSourceAdaptation(&out, sourceAdaptation)
+		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.StampTraceQuerySourceRead(sourceRead, &out)
+		}
 	}()
 
 	schema := t.Parameters()
@@ -366,6 +370,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		return traceQueryInputAdmissionFailure("", err), nil
 	}
 	path, sourceLabel, reject := resolveTraceQuerySource(ctx, p)
+	if reject == nil && ctx != nil && ctx.Mutable != nil {
+		sourceRead = ctx.Mutable.PrepareTraceQuerySourceRead(path)
+	}
 	if reject != nil {
 		return *reject, nil
 	}
@@ -521,6 +528,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			RawRef:                 rawRef,
 			Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
 			Observations:           observations,
+			TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
 			TraceViewCancellation:  traceQueryToolViewCancellation(result),
 			TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 			EnumerationAuthority:   traceQueryEnumerationAuthority(result),
@@ -1236,13 +1244,14 @@ func (t *TraceQuery) traceQueryIndexLimitResult(ctx *types.BusContext, p traceQu
 		}
 		now := time.Now()
 		return types.ToolResult{
-			ToolName:     t.Name(),
-			Success:      true,
-			Summary:      preview,
-			RawRef:       rawRef,
-			Refinement:   traceQueryIndexLimitRefinement(ctx, p, sourceLabel, path),
-			Observations: traceQueryTypedObservations(cluster, sourceLabel, payloadRef, rawRef, "stream_state_cluster", now, q),
-			Timestamp:    now,
+			ToolName:             t.Name(),
+			Success:              true,
+			Summary:              preview,
+			RawRef:               rawRef,
+			Refinement:           traceQueryIndexLimitRefinement(ctx, p, sourceLabel, path),
+			Observations:         traceQueryTypedObservations(cluster, sourceLabel, payloadRef, rawRef, "stream_state_cluster", now, q),
+			TraceQuerySourceRead: traceQuerySourceReadCandidate(cluster),
+			Timestamp:            now,
 		}, true
 	} else if clusterErr != nil {
 		summary += fmt.Sprintf("stream_state_cluster_unavailable=%s\n", sanitizeForBanner(clusterErr.Error()))
@@ -1528,6 +1537,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 			RawRef:                 rawRef,
 			Refinement:             traceQueryRefinement(searchResult, searchQ, searchP, sourceLabel),
 			Observations:           traceQueryTypedObservations(searchResult, sourceLabel, payloadRef, rawRef, "", now, searchQ),
+			TraceQuerySourceRead:   traceQuerySourceReadCandidate(searchResult),
 			TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(searchResult, sourceLabel, payloadRef, rawRef, "", now, searchQ),
 			EnumerationAuthority:   traceQueryEnumerationAuthority(searchResult),
 			Timestamp:              now,
@@ -1592,6 +1602,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 		RawRef:                 rawRef,
 		Refinement:             traceQueryRefinement(result, q, boundedP, sourceLabel),
 		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
+		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
 		TraceViewCancellation:  traceQueryToolViewCancellation(result),
 		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
@@ -1681,6 +1692,7 @@ func (t *TraceQuery) maybeStreamSpanLocate(ctx *types.BusContext, p traceQueryPa
 		ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef,
 		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
 		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
+		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
 		TraceViewCancellation:  traceQueryToolViewCancellation(result),
 		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
@@ -1941,10 +1953,12 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 	}
 	now := time.Now()
 	var observations []types.ObservationRecord
+	var sourceResults []tracequery.Result
 	for _, child := range children {
 		if child.Error != "" {
 			continue
 		}
+		sourceResults = append(sourceResults, child.Result)
 		observations = append(observations, traceQueryTypedObservations(
 			child.Result, sourceLabel, payloadRef, rawRef,
 			fmt.Sprintf("w%d", child.Candidate.Rank), now, child.Query)...)
@@ -1956,6 +1970,7 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 		RawRef:                 rawRef,
 		Refinement:             traceQueryAutoWindowCandidatesRefinement(ctx, p, sourceLabel, path, children),
 		Observations:           observations,
+		TraceQuerySourceRead:   traceQuerySourceReadCandidate(sourceResults...),
 		TraceEvidenceAuthority: traceQueryAutoWindowEvidenceAuthority(children, traceQueryAuthorityPublication{sourceLabel, payloadRef, rawRef, now}),
 		EnumerationAuthority:   traceQueryAutoWindowEnumerationAuthority(children),
 		Timestamp:              now,
@@ -2198,6 +2213,7 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 		RawRef:                 rawRef,
 		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
 		Observations:           observations,
+		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
 		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
 		Timestamp:              now,
@@ -2250,6 +2266,7 @@ func (t *TraceQuery) maybeStreamWindowSweep(ctx *types.BusContext, p traceQueryP
 		RawRef:                 rawRef,
 		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
 		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
+		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
 		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
 		Timestamp:              now,
