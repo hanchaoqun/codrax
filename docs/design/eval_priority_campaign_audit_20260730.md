@@ -1,8 +1,8 @@
 # Eval 多维优先级与泛化审计战役（2026-07-30）
 
-## 最新进展导航（2026-09-15）
+## 最新进展导航（2026-09-16）
 
-当前续修§123.1829–1831：EVAL-B36-SYSAUTH1来源诊断`653d99056`、B1678未知执行说明`91e7467e3`已分批推送，公共先红后绿/count3/race3/冷审/最终冻结86包通过。清洁r1081恰好H7 Trace+C++ read两路各一次，机2PASS、人审均FAIL；投影/补齐/12项旁路保留，模型误用和图N/A不销账。C++13次拒绝未证新P1合同自冲突；新确认B1707完整非图关系row教学漏必需visible_label，§123.1832公开复现与小修进行中。有界8项候选/完整当前锚回供继续P2观察，不改原答案和机评。
+当前续修§123.1829–1832：EVAL-B36-SYSAUTH1来源诊断`653d99056`、B1678未知执行说明`91e7467e3`已分批推送，公共先红后绿/count3/race3/冷审/最终冻结86包通过。清洁r1081恰好H7 Trace+C++ read两路各一次，机2PASS、人审均FAIL；投影/补齐/12项旁路保留，模型误用和图N/A不销账，完整审计已`fc7820934`推送。C++13次拒绝未证新P1合同自冲突；独立B1707非图关系完整row的Action漏必需visible_label已最小修复，公共先红后绿、标签豁免/证据反针、count3/race3/冷审及本片末版冻结86包通过，随§1832源码提交。有界8项候选/完整当前锚回供继续P2；下一优先B1693完整交付物化P1，不改原答案和机评。
 
 续修§123.1826：B1694点/范围引用已`7a4858e88`提交推送，公共先红后绿、count3/race3、冷审及末版冻结全仓86测试包通过。§123.1827 r1080清洁构建后恰好Java read/Python write两路各一次，机器2PASS；人审核心均PASS，Java完整范围引用获full生产正证（patch仅公共测试），Python真实原生4测试及独立572/572后验通过。模型HTTP措辞、图/Trace解释与跨语言原生证明债不代销。新B1678诊断P2“已覆盖仍写缺少观测”已在§123.1828以`fb362358c`修复推送，末版count3/race3/types及调度器全包、活跃流专项通过，不改变证明资格；原答案/报告/机评保持不动。
 
@@ -57623,7 +57623,7 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 
 最终所有Go/build输入冻结后`go test ./... -count=1`完整exit0、86个有测试包通过，收据`.codrax/tmp/20260916-r1081-repair-full-suite.log`；`20260916-r1081-repair-{frozen-inputs.sha,freeze-verify.log}`验证前后输入一致。活跃字节/心跳、首响应、静默及默认值专项count3为43.405s（`20260916-active-stream-boundary-count3-r1081.log`），600/300/600s与调用方独立预算不变，不按4ms/旧4m无正文强降级。
 
-状态：`source-oracle-scope=653d99056-pushed/public-red-green/count3/race3/cold-review/frozen-full-86-pass`；`model-answer/Trace-projection/autosupplement/typed-relation-authority=unchanged`；`live=r1081-pending`。
+状态：`source-oracle-scope=653d99056-pushed/public-red-green/count3/race3/cold-review/frozen-full-86-pass`；`model-answer/Trace-projection/autosupplement/typed-relation-authority=unchanged`；`live=r1081-complete/excluded-lane-not-exercised/see-1831`。
 
 ### §123.1830 B1678续修：未知执行能力不是已证静态检查（2026-09-16）
 
@@ -57655,13 +57655,21 @@ C++主干多态/工厂分支部分正确，13个引用摘录与真实源码行�
 
 状态：`r1081=exact2-once/machine2PASS/human2FAIL`；`Trace-projection/autosupplement/root-sidecar=preserved`；`excluded-oracle-branch-live/not-required-final-diagram/write-live=N/A`；`B1707=P2-confirmed/next-section`；`original-model-artifacts/oracles=unchanged`。默认600/300/600s不变，本对attempt1且无传输超时；长流保证来自单独公开测试，不以短请求冒称10分钟实测。
 
-### §123.1832 B1707：非图关系“完整记录”教学必须列全必需字段（2026-09-16，施工中）
+### §123.1832 B1707：非图关系“完整记录”教学必须列全必需字段（2026-09-16，修复验收完成）
 
-独立合同审计定位`answer_document_pre_emit_check.go`普通full-replace fallback：称“complete same-direction typed recipe”，只列from_node/to_node/relation_kind/from_identity/to_identity，遗漏后续校验确实必需的visible_label。共享schema和原子add已有正确字段，普通记录指引却不完整。这是跨语言/非图list与table的教学问题，不是降低关系证据门的理由，也不能把本轮全部13次模型错误归因此。
+独立合同审计定位`answer_document_pre_emit_check.go`普通full-replace fallback：Action称“complete same-direction typed recipe”，只列from_node/to_node/relation_kind/from_identity/to_identity，遗漏后续校验确实必需的visible_label。同一公开结果的Why已引用共享关系合同并正确教visible_label，schema和原子add也已有正确字段。因此这是Action自称完整但漏项、迫使模型跨段拼合同的局部教学不一致，不能宣称模型从未收到标签要求。跨语言/非图list与table共用该路径；r1081首轮实际进入原子修补分支，不能把全部13次重试归给这个普通fallback缺口。
 
-拟仅修模型侧完整记录说明，并用实际公开emit路径先红后绿核验：原五字段被拒、精确六字段在已有证据时可用；无证边不放行，文本和图不由系统生成。不会自动填关系标签、替换模型答案、改变关系资格或新增JSON必填项。有界候选8项覆盖诊断、不同身份方言占槽及缺label时完整锚回供另留P2观察，未经公共复现不冒称本片闭环。
+生产仅补齐该Action的六字段清单，并明确独立显示的关系标签由模型用答案语言/业务短语表达、不授关系权威；没有修改共享schema、验证器、原子修补权限或任何答案。公共emit→patch使用独立Java夹具，覆盖旧五字段因缺标签被拒、同证据六字段可接受，以及不支持端点/未接地证据/无证图边仍拒绝、普通图标签仍可省略和可见内容保真。没有自动填标签、替换答案或新增JSON必填项。有界候选8项覆盖诊断、不同身份方言占槽及缺label时完整锚回供另留P2观察，未经公共复现不冒称本片闭环。
 
-状态：`B1707=P2-confirmed/public-regression-in-progress`；`authority/validator/model-ownership=unchanged`；`r1081=pre-fix-receipt/not-rerun`。
+公共RED收据为`/tmp/codrax-b1707-receipts.bOPJuV/red-public.log`（明确标为捕获输出摘录，不冒充原始完整日志），失败仅两条Action教学断言；旧五字段拒绝、六字段接受与证据反针当时已通过。独立冷审无阻断后，补强为只检查对应Action行（Why正确不能遮蔽），并加入standalone标签为空、同一sibling图已渲染该边的公共接受针，末次独立复审无阻断。末版专项及相邻修补合同count3为1.807s、race3为9.309s，收据同目录`final-green-neighbors-count3.log`与`final-race-neighbors-count3.log`，gofmt/diff-check通过。
+
+本片最终冻结输入后`SDKROOT=MacOSX26.5.sdk go test ./... -count=1`完整exit0、86个有测试包通过，原始日志`.codrax/tmp/20260916-b1707-full-suite.log`；tool354.099s、tracediag12.749s、tracequery107.611s、types46.495s。`20260916-b1707-frozen-inputs.sha`及`freeze-verify.log`核列明Go/build输入前后相同，不以§1829早先的全测抵充此次末版验收。无新live，本片不倒签r1081或声明所有图关系/JSON教学已闭环。
+
+状态：`B1707=P2-implemented/public-red-green/count3/race3/cold-review/frozen-full-86-pass/commit-with-this-section`；`authority/validator/model-ownership=unchanged`；`r1081=pre-fix-receipt/not-rerun`；`post-fix-live=not-yet-exercised`。
+
+后续排期（尚未施工/未启动live）：先处理确认P1 B1693同秒后继交付物化顺序，不能只把时间排序替换成拓扑排序便签闭环。末次只读核验`runner_lib.sh:1317/1344`仍扫描全部applied refs、以首个owner完整树起步；`write_plan_oracle_b1634c_test.py:223/231`保留陈腐树拒绝正控与后继正确内容XFAIL。应恢复本次明确授权的全部交付owner/commit/path，从模型启动前固定seed应用所选delta，同路径按真实祖先关系择唯一后继，不可比重叠/file-child冲突须明确处置；删除、重命名、执行位及symlink保真。现有源码owner清单不代表覆盖历史test-only owner，事后oracle不代替正确物化；沿§1806.16完整施工，不改保护针求绿。B1561/B1678目标执行与逐断言凭证、Gradle/Meson原生来源仍独立OPEN。
+
+之后候选下一对为`github_issue_memoclaw_text_search_multirepo_py`（apply24步，最近r1068，真实接口及多仓/sync/async/原生证明）和`qf_sequence_analyzer_gate`（read15步，最近r1054，明确请求时序图，补r1081最终无图空白），仍CAP5/PARALLEL2/TIMEOUT1200、各一次；不为本对追绿或冒称教学分支必定自然触发。Trace及C++的准确上下文已供给但最终误用留模型质量债，单次结果不足以证明“纯随机波动”。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

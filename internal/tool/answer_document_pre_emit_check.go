@@ -6494,7 +6494,7 @@ func preCheckStandaloneCallChainRelationAnchorPresence(
 			)
 		} else {
 			expectedShape = fmt.Sprintf(
-				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation and copy at least one complete same-direction typed recipe into edge_anchors with from_node, to_node, relation_kind, from_identity, and to_identity. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
+				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation and copy at least one complete same-direction typed recipe into edge_anchors with from_node, to_node, relation_kind, from_identity, to_identity, and visible_label. When no sibling diagram renders that edge, visible_label must be a concise model-authored business phrase for the relation described by the list/table content, in the answer language; the renderer shows it beside from_node -> to_node. The wording grants no relation authority. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
 				block.ID, strings.Join(relationForms, ", "),
 			)
 		}
