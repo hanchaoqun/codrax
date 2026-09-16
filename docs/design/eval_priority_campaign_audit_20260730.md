@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-当前续修§123.1829–1832：EVAL-B36-SYSAUTH1来源诊断`653d99056`、B1678未知执行说明`91e7467e3`已分批推送，公共先红后绿/count3/race3/冷审/最终冻结86包通过。清洁r1081恰好H7 Trace+C++ read两路各一次，机2PASS、人审均FAIL；投影/补齐/12项旁路保留，模型误用和图N/A不销账，完整审计已`fc7820934`推送。C++13次拒绝未证新P1合同自冲突；独立B1707非图关系完整row的Action漏必需visible_label已最小修复，公共先红后绿、标签豁免/证据反针、count3/race3/冷审及本片末版冻结86包通过，随§1832源码提交。有界8项候选/完整当前锚回供继续P2；下一优先B1693完整交付物化P1，不改原答案和机评。
+当前续修§123.1829–1832：EVAL-B36-SYSAUTH1来源诊断`653d99056`、B1678未知执行说明`91e7467e3`已分批推送，公共先红后绿/count3/race3/冷审/最终冻结86包通过。清洁r1081恰好H7 Trace+C++ read两路各一次，机2PASS、人审均FAIL；投影/补齐/12项旁路保留，模型误用和图N/A不销账，完整审计已`fc7820934`推送。C++13次拒绝未证新P1合同自冲突；独立B1707非图关系完整row的Action漏必需visible_label已`779a04ac8`推送，公共先红后绿、标签豁免/证据反针、count3/race3/冷审、本片末版冻结86包及提交后清洁构建通过。有界8项候选/完整当前锚回供继续P2；下一优先B1693完整交付物化P1，不改原答案和机评。
 
 续修§123.1826：B1694点/范围引用已`7a4858e88`提交推送，公共先红后绿、count3/race3、冷审及末版冻结全仓86测试包通过。§123.1827 r1080清洁构建后恰好Java read/Python write两路各一次，机器2PASS；人审核心均PASS，Java完整范围引用获full生产正证（patch仅公共测试），Python真实原生4测试及独立572/572后验通过。模型HTTP措辞、图/Trace解释与跨语言原生证明债不代销。新B1678诊断P2“已覆盖仍写缺少观测”已在§123.1828以`fb362358c`修复推送，末版count3/race3/types及调度器全包、活跃流专项通过，不改变证明资格；原答案/报告/机评保持不动。
 
@@ -57665,7 +57665,9 @@ C++主干多态/工厂分支部分正确，13个引用摘录与真实源码行�
 
 本片最终冻结输入后`SDKROOT=MacOSX26.5.sdk go test ./... -count=1`完整exit0、86个有测试包通过，原始日志`.codrax/tmp/20260916-b1707-full-suite.log`；tool354.099s、tracediag12.749s、tracequery107.611s、types46.495s。`20260916-b1707-frozen-inputs.sha`及`freeze-verify.log`核列明Go/build输入前后相同，不以§1829早先的全测抵充此次末版验收。无新live，本片不倒签r1081或声明所有图关系/JSON教学已闭环。
 
-状态：`B1707=P2-implemented/public-red-green/count3/race3/cold-review/frozen-full-86-pass/commit-with-this-section`；`authority/validator/model-ownership=unchanged`；`r1081=pre-fix-receipt/not-rerun`；`post-fix-live=not-yet-exercised`。
+交付：`779a04ac8`已正常推送origin/main；提交后清洁`make`通过，binary=`0.1.20260916/779a04ac8216/2026-09-16T07:07:31Z`，无dirty标记，构建收据`.codrax/tmp/20260916-b1707-clean-build.log`。后继只回填本节交付收据，没有新增代码或第三路模型回放。
+
+状态：`B1707=779a04ac8-pushed/public-red-green/count3/race3/cold-review/frozen-full-86-pass/clean-build-pass`；`authority/validator/model-ownership=unchanged`；`r1081=pre-fix-receipt/not-rerun`；`post-fix-live=not-yet-exercised`。
 
 后续排期（尚未施工/未启动live）：先处理确认P1 B1693同秒后继交付物化顺序，不能只把时间排序替换成拓扑排序便签闭环。末次只读核验`runner_lib.sh:1317/1344`仍扫描全部applied refs、以首个owner完整树起步；`write_plan_oracle_b1634c_test.py:223/231`保留陈腐树拒绝正控与后继正确内容XFAIL。应恢复本次明确授权的全部交付owner/commit/path，从模型启动前固定seed应用所选delta，同路径按真实祖先关系择唯一后继，不可比重叠/file-child冲突须明确处置；删除、重命名、执行位及symlink保真。现有源码owner清单不代表覆盖历史test-only owner，事后oracle不代替正确物化；沿§1806.16完整施工，不改保护针求绿。B1561/B1678目标执行与逐断言凭证、Gradle/Meson原生来源仍独立OPEN。
 
