@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-当前续修§123.1833：B1693完整交付物化P1已按固定seed/精确本run候选及恢复根/Git祖先与父镜像闭合根修，真实公共RED→GREEN，29项消费者测试及Go公共落盘count3/race3通过；独立冷审树外symlink与大小写落地保真问题已修。末版冻结全仓86包和完整runner套件通过，准备提交推送，未启动r1082。已交付§1829–1832来源诊断653d99056、未知执行说明91e7467e3、非图完整row教学779a04ac8；r1081机2PASS/人2FAIL不改判，完整原始审计fc7820934保留。Trace链上边界/投影/补齐、模型答案所有权、600/300/600s及活跃流不按正文缺失降级均不变。
+当前交付/人审§123.1833–1835：B1693完整交付物化P1已推送e02a24760，固定seed/本run收据/真实祖先闭包/逐path字节保真，29项消费者、Go公共落盘count3/race3、冻结全仓86包及完整runner套件通过。r1082恰好Python多仓apply+显式sequence read各一次，机器1PASS/1FAIL；Python补丁独立执行160/160通过但正式验证仍未闭，sequence语法通过但时序/职责人审FAIL。新B1708同轮呈现域/参与者候选冲突P1已公共RED连续3次复现、尚未修复，原子补边时序与identity租约分别留边界，不伪称所有错误属模型波动。已交付来源诊断653d99056、未知执行说明91e7467e3、非图完整row教学779a04ac8；旧r1081判定不改。Trace链上边界/投影/补齐、模型答案所有权、600/300/600s及活跃流不按正文缺失降级均不变。
 
 续修§123.1826：B1694点/范围引用已`7a4858e88`提交推送，公共先红后绿、count3/race3、冷审及末版冻结全仓86测试包通过。§123.1827 r1080清洁构建后恰好Java read/Python write两路各一次，机器2PASS；人审核心均PASS，Java完整范围引用获full生产正证（patch仅公共测试），Python真实原生4测试及独立572/572后验通过。模型HTTP措辞、图/Trace解释与跨语言原生证明债不代销。新B1678诊断P2“已覆盖仍写缺少观测”已在§123.1828以`fb362358c`修复推送，末版count3/race3/types及调度器全包、活跃流专项通过，不改变证明资格；原答案/报告/机评保持不动。
 
@@ -57673,7 +57673,7 @@ C++主干多态/工厂分支部分正确，13个引用摘录与真实源码行�
 
 之后候选下一对为`github_issue_memoclaw_text_search_multirepo_py`（apply24步，最近r1068，真实接口及多仓/sync/async/原生证明）和`qf_sequence_analyzer_gate`（read15步，最近r1054，明确请求时序图，补r1081最终无图空白），仍CAP5/PARALLEL2/TIMEOUT1200、各一次；不为本对追绿或冒称教学分支必定自然触发。Trace及C++的准确上下文已供给但最终误用留模型质量债，单次结果不足以证明“纯随机波动”。
 
-### §123.1833 B1693：完整交付物化必须基于固定 seed 与本轮持久化收据（2026-09-16，验收中）
+### §123.1833 B1693：完整交付物化必须基于固定 seed 与本轮持久化收据（2026-09-16，已推送）
 
 本片承接§1832排期，不追加模型请求。更新远程后main/origin均为`395308516`，工作区原先清洁。先从真实公共runner复现同秒后继丢失：`.codrax/tmp/20260916-b1693-public-red.log`中旧逐路径拒绝保护通过，要求真实后继字节的原XFAIL显式运行失败。独立公共shell入口再得三项语义RED：同秒first覆盖second、无关ref污染、删除目标从scratch复活；日志`20260916-b1693-materialize-public-red.log`，3针0.984s、均非fixture/setup错误。
 
@@ -57689,7 +57689,43 @@ C++主干多态/工厂分支部分正确，13个引用摘录与真实源码行�
 
 完整runner末版`20260916-b1693-runner-lib-fixtures-final-v2.log`已通过（含两套scope/NAPI子套件），原所有业务判据保留；root再次跑29项8.410s通过`20260916-b1693-materialize-root-final.log`，eval冻结8文件SHA前后相同。所有中间失败保留，不覆盖旧机评/旧答案；未运行第三路模型回放。
 
-状态：`B1693=implemented/public-red-green/count3/race3/cold-review-fixed/frozen-full86-pass/full-runner-pass/ready-to-commit`；`next-live-pair=not-started`。原§1832“尚未施工”是当时排期，本节为当前进展。
+交付：`e02a24760`已推送origin/main，清洁make=`0.1.20260916/e02a247604bf/2026-09-16T07:36:23Z`，日志`20260916-b1693-clean-build.log`。随后启动r1082恰好Python多仓apply与qf sequence read两路各一次，runner`20260916-r1082-runner.log`，不改case/fixture/代码；本节不预判生产自然触发的owner分支或人工结论。
+
+状态：`B1693=e02a24760-pushed/public-red-green/count3/race3/cold-review-fixed/frozen-full86-pass/full-runner-pass/clean-build-pass`；`r1082=exact2-once-completed/audited-below`。原§1832“尚未施工”是当时排期，本节为当前进展；本次自然覆盖单源码owner+proof-only尾计划，不冒称多owner/restore/同秒生产覆盖。
+
+### §123.1834 r1082：Python 多仓写修复与明确时序图读分析（2026-09-16，审计完成）
+
+243 case按215 read/25 apply/3 plan清点，综合真实用户影响、稀疏模式、图明确要求、最近回放与oracle可靠性排序；选`github_issue_memoclaw_text_search_multirepo_py`（最近r1068，先plan15再apply24）与`qf_sequence_analyzer_gate`（最近r1054，read15）。前者核sync/async API、兄弟仓隔离及真实目标执行资格；后者补r1081最终无图空白，必须核实际中间调用时序，不能只凭两端点regex。模型数值/职责/图内容仍归模型，不加prose扫描硬门。
+
+从已推送清洁`e02a24760`构建，07:36:48Z启动恰好两例各一次、PARALLEL2/TIMEOUT1200，CAP5环境未命中本对的read-multirepo车道。原case与全部multi-repo fixture SHA见`.codrax/tmp/20260916-r1082-{cases,fixtures}-before.sha`，run日志`20260916-r1082-runner.log`；汇总`eval/parallel_selected_summary_evalcampaign_memoclaw_sequence_r1082_20260916.md`，完整人审待终局。不重跑追绿、不提前签生产正证；多owner/恢复若未自然命中仍N/A。
+
+独立后验执行器只在tmp，不送模型、不改正式plan/proof：`20260916-r1082-memoclaw-native/check_text_search.py`，依据仓内reference调用真实sync/async方法、mock transport；原fixture请求契约160/160 RED，返回identity152/152、异常identity8/8、真实await80/80通过，执行/导入错误0，见`original-red.json`。该负基线证明旧请求错误，不提前宣称新交付正确，也不把source AST检查冒称target behavior。
+
+终局07:44:36Z（本地00:44:36）完成：**机器1PASS/1FAIL**，人审Python源码核心pass/正式验证partial、sequence FAIL，原机评不改。完整逐轮审计 `eval/parallel_selected_summary_evalcampaign_memoclaw_sequence_r1082_20260916_manual_audit.md`；本节启动/负基线段为当时进展，最终以如下收据为准。
+
+1. **Python交付已保真**：281s/28%context（metric277s），新materialization从固定seed `fd414621f0f4b19125aae667d0cdab680c38bc53` 精确选源码计划29744/commit `053f13ceaea65893627d2456b97fa66c55dbffe2`，最终29945是proof-only，无源码尾计划未清空已交付修改。只改memoclaw/client.py，POST `/v1/search` 与JSON query/limit/非空namespace、sync return/async await保留。B1693本次自然正证仅单owner+proof尾，多owner/restore/同秒N/A。
+2. **正式未验证与独立行为通过分开**：最终三条检查passed，但整体`unverified/verification_proof_incomplete`，原因是目标执行/逐合同凭证缺口，原Make及模型尾probe仍做AST/文本检查，未调用text_search；自行打印VERIFIED不授证明。独立tmp后验真实调用新源码160/160通过，return identity152/152、exception identity8/8、await80/80、执行错误0；`after-delivery.json`。原fixture请求0/160为负基线，原件/源码SHA前后相同。不得回填正式结果或把unknown runner资格冒称精确static；B1561/B1678继续开放。
+3. **sequence机器绿但人审红**：468s/42%（metric465s），read8/repo_map1，无工具裁剪。原MD `.codrax/output/20260916-004434.521-29704.md` 用仓内Mermaid实际parse/render成功、SVG22334bytes，图后清单和`buildAnalysisIR→RunWith←Run`方向正确；但MD15先画L2725调用，MD17再画L1921同caller早期helper，时序倒置。Amplify职责写成扩实体亦违已供源码/Handoff；主要阶段未进图不能只归模型，见B1708。无source→gate.Run路径的边界判定正确，不能倒置Run→RunWith。
+4. **重试分因**：finalizer10拒/9patch，最后一次是接受后的advisory数组field-edit错误，旧有效答案保留，非答案消失。三次s2 whole+atomic混用、错helper目标是模型错误；双编码中有内层损坏，安全拒有损恢复合理。B1707完整六字段含visible_label在原Q3678–3686自然供给。当前公布n3→n2 add后又报同边removed/expanded（Q3820–3826）仍为identity/租约疑点，未公开复现不签系统根因；带位置修饰成员refs诊断亦独立观察。
+5. **保护与封存**：原case/全部本multi-repo fixture、Go/build及eval冻结SHA复核通过；`20260916-r1082-results-audit.sha`封存16项结果，`answer-audit.sha`封存MD/HTML，不冒称全部缓存快照。机器汇总SHA `9eebe21901676176f1272bc64196f521ead9bd9fc91de44813e7438b199a0887`。本对无Trace附件，投影/IO/链上全因果N/A；不改原文、oracle、结果或提交用户fixture。600/300/600s默认及活跃流六族count3保持，不因4ms/旧4m无正文降级，显式取消/独立预算另管。
+
+状态：`r1082=exact2-once/machine1-pass1-fail/human-python-core-pass+formal-proof-partial/sequence-fail`；`B1693=e02a24760-pushed/production-single-owner-proof-tail-positive`；`B1708=P1-context-contract-confirmed/public-red-count3/not-fixed`；`B1561/B1678/complete-diagram-matrix=separate-open`；`code/cases/fixtures/original-answers=not-modified-during-live`。
+
+### §123.1835 B1708：端点边界不能收窄全部可呈现调用，同时要求相反候选（2026-09-16，P1确认，未修）
+
+原Q2993要求显式sequence仅exact endpoint-boundary subgraph，Q3291声明57条其余已证关系不属principal diagram，模板只给两条共同callee边；但同轮Q3298从全量evidence选buildAnalysisIR首两项helper并要求incident participant择一。两个独立读者与root核对同轮指令/源码，确认不是模型逆方向或上下文满，而是系统供给域不一致。
+
+根源三面：`types/answer_semantic_view_compile.go::projectCallChainEndpointBoundaryFacetAuthority`把principal成员边界扩成diagram唯一呈现域；`agent/answer_document_evaluator.go::renderAnswerDocMechanismRelationAuthority`只给边界模板；`agent/answer_document_flow_participant_coverage.go`候选仍读取全量evidence。精确边界合法，但不能推出其他同caller已证调用一律不可画。第二supporting图在facet域计数上理论可用，当前exactly1教学未解释，不能靠模型猜隐藏出口。
+
+最小泛化方案：初稿/修补同源区分必需端点边界与可选独立有证调用；preserve principal_path_edge成员严格边界，保持原caller、方向及无source→sink结论。模型可选择有证源码位点表达静态阅读顺序，但必须区分分支/入口，不授运行时共执行/并发/callee串联。不要全局放宽图数量，不用用户/模型原文关键词硬门，也不由系统代写图/排序/结论。公共BuildInitialInstruction针采用两个端点+早期helperA/helperB+共享callee，初稿/修补选择域必须一致；sibling不得进入principal_path_edge负控、真实原caller边正控与反转/伪callee串联拒绝需保留。
+
+**原子补边时序须收窄定性**：独立公开patch探针证明active diagram lease下无插入位置且同图whole replacement被拒，add把早期Prepare固定追加到Finish后；该图义务解决、只剩列表租约后，schema及公开Execute恢复完整body替换，接受模型自写Prepare-before-Finish且原样保存。因此目前是局部表达摩擦与教学问题，不能声称全程无出口，也不能替模型自动排序；本次后期s1不再是目标，模型选择unchanged s1。租约identity同边removed/expanded另待复现，不与此混合根因。
+
+公共RED已实测：`.codrax/tmp/20260916-b1708-repro_test.go`通过Go overlay映射公开BuildInitialInstruction测试，`20260916-b1708-public-red-v3.log`为有效首次RED1.171s，`20260916-b1708-overlay-red-count3.log`连续3次相同域交集为空RED、0.936s；无路径及原方向保护3次PASS。更早两次夹具不匹配失败原样保留但不算产品RED。复现命令：`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -overlay=.codrax/tmp/20260916-b1708-overlay.json ./internal/agent -run '^TestB1708BuildInitialInstruction' -count=3 -v`。原始patch `20260916-b1708-repro.patch`留档，失败针不进入正常suite，仓内临时文件已移出；无产品或原case修改。该针钉的是公共教学一致性，不冒称覆盖所有emit硬门或修补车道。
+
+原子时序公开探针在 `/tmp/codrax-r1082-sequence-audit/`，receipt.txt保存ParametersFor+Execute三阶段命令/结果，1.130s PASS；它是精确协议状态探针，不是新live。独立验证整图恢复通道存在之后，维持局部摩擦而非全程封死的定性。
+
+状态：`B1708=P1-confirmed/public-red-count3/not-implemented`；`sequence-insertion=local-lease-friction/full-body-recovery-exists`；`same-edge-lease-identity=observation-unconfirmed`。本批先保留B1693交付与r1082原始审计，下一批从公共RED修同源范围，不能凭一份图就宣称全语言/全图关系时序逻辑闭环。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
