@@ -1079,7 +1079,7 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 - `Family`：8 种 `QuestionFamily` enum——`QFRootCauseTrace` / `QFConfigPrecedence` / `QFRoleLookup` / `QFCallChain` / `QFEnumeration` / `QFArchitecture` / `QFComparison` / `QFGeneric`。由 `ResolveQuestionFamily` 从 typed 信号推导（Intent / Scenario / SemanticPredicates / SubTopics / Buckets），不读关键词。
 - `RequiredBlocks[] BlockRequirement`：Kind / MinCount / MaxCount(0=不限) / Required / FacetIDs / ClaimForms / Rationale（LLM-natural prose）
 - `OptionalBlocks[]`：可选块（增加丰富度）
-- `DiagramPlan`：family 期望 diagram 时载明（Required / Kind / NodeFacets / EdgeFacets / EdgeRelations 数组）
+- `DiagramPlan`：family 期望 diagram 时载明（Required / Kind / RequireStructuralEdge / NodeFacets / EdgeFacets / 显式 EdgeRelations 数组）
 - `ExactResolution`：精确解析 status=resolved/absent/unknown 合同
 - `MissingRequestedRoles`：config-precedence absent 答案的用户请求层（CLI / config / env / runtime）零 grounded coverage 列表，渲染时显式打"该层未找到"
 - `SummaryMode`：风格提示（普通 vs drift-bounded root-cause）
@@ -1108,6 +1108,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 **DiagramEdgeAnchor**（`AnswerBlock.EdgeAnchors[]`）把模型选择的可见端点与 typed 关系证据绑定。发射阶段依据当前 schema/candidate 发布的端点身份、relation_kind 和凭证校验；展示别名必须能唯一对应证据身份。用户未请求图时不能仅因 call-chain 家族强制新增图；断开的证据段应保留断开，不由系统补桥。旧 `claim_form` 兼容元数据不是要求模型为同一关系重复填写的第二份判定依据，具体可写字段以当轮工具 schema 为准。
 
 `DiagramFacetGraph`/`DiagramPlan` 描述请求的节点、边和关系面。`internal/orchestrator/contract_check_block.go` 仍保留旧标签词汇推断，用于关系覆盖和词面偏差的 **SOFT advisory**；它不能替代严格关系证据门，也不能把 `DiagramRelUnknown` 当成已证关系或合法的显式 relation enum。标签与 typed 声明不一致、关系最小数量不足的这类提示不应升级为重写或硬拒。真正的调用、回复、时序或逻辑关系是否合法，仍由结构化载体和对应证据合同决定，不靠扫描用户请求或模型正文定案。
+
+**图形与语义分离（B1705）**：flow/sequence/call_dag 的视觉形式不生成 guard/call 最低数，切换图形也不改写调用方明确给出的 `EdgeRelations`。内部 `RequireStructuralEdge` 单独保留必选源码图的已有非空边义务，手工显式正数关系最低数仍兼容；原 typed 未证出口、runtime Trace 独立权限与 architecture 可无边语义保留，optional 图不增加硬门。reviewer 只读取显式关系合同，不另外复制依赖 runtime 上下文的空图判定。此拆分不放宽任何实际边的来源/方向/身份凭证，也不替模型补边或选择措辞。
 
 **图教学边界（B1683）**：角色名、业务名与引用位置是显示/定位层，不给箭头或整个标签授证；把 file:line 塞进标签、删掉标签或删掉关系元数据，都不能避开当轮 mandatory typed relation ownership。无标签/词汇推断兼容只在原本允许的 presentation-only 车道有效，其关系数量计数不是证据。四种语义图形与各语言统一复用 canonical 关系合同，JSON字段只依当轮schema；Runtime Trace 仍走独立的同capture/目标/时间窗因果权威，模型负责图、标签和结论。
 
@@ -1304,8 +1306,10 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 - **状态优先 Top-N（`buildStateDrilldownPlan`）**：窗口内各状态（sleep / runnable / running / D-state·IO-wait）按时长排 Top-N，每步带 `WindowProportion`（占窗口比例）+ `Significant`（top 状态恒真；低 rank 需过 5% floor 或 25% top-ratio）软引导 LLM 优先下钻哪些状态。碎片化状态聚类（`state_churn`）是独立第二维度，"单次最长"与"频繁切换聚类累计后最长"都不丢失。
 - **on-chain 递归（`expandChain`，MaxDepth=10 + 环检测）**：只对 Sleep→Wakeup 边做多跳图遍历递归；Runnable/Running/D-state/IO 是终止节点，它们的"下一跳"根因（优先级反转 `applyRunnableTopPriorityInversion`、算力供给 `computeSupplyVerdict`、聚类 inode `file_io_hot_inode`）由 `buildRootCauseRankFrom` 的**并行独立候选流 + on-chain 线程集合过滤**承接，不走图遍历。鸿蒙/东湖 vs Android 优先级语义由 `dependencyPriorityRelation` 分流。
-- **语义 span 独立通道（`traceSpanSemanticWorkClass` → `traceQueryTypedSemanticTraceSpanObservations`）**：JIT/VerifyClass/shader/runtime 编译 span 走一条完全独立于 root_cause 排名的 typed observation 通道，`computeTraceMarks` 用 `boundTraceMarkSpans` 给语义 span 单独留名额（不与普通 span 抢时长排名），最终以"确定性优化点"区块强制 handoff——占比再低也不被淘汰。私有 ROM/应用 trace_mark 命名漂移可通过 `codrax.yaml :: trace_semantic_span_patterns` 追加到同一分类器；配置只消费管理员结构化 YAML + typed span 名，不读取用户/模型散文，也不作为 hard gate。
-- **投影汇总（`TraceCausalProjection` + `materializeRuntimeTraceCausalProjectionBlock`）**：Turn A 全部 trace_query 观测按 chain_relevance 聚合成 primary/on_chain/adjacent/background/semantic 桶，在**每次** `emit_answer_document(_patch)` 持久化时**无条件**自动注入 `runtime_trace_causal_projection` 区块（不依赖 LLM 主动引用）。当存在 `frame_target_resolution`（`window_source=query_window`）精确 anchor 时，节点按是否落在用户请求窗口内标注 `WithinRequestedWindow`。
+- **语义 span 独立通道（`traceSpanSemanticWorkClass` → `traceQueryTypedSemanticTraceSpanObservations`）**：JIT/VerifyClass/shader/runtime 编译 span 走一条独立于 root_cause 排名的 typed observation 通道，`computeTraceMarks` 用 `boundTraceMarkSpans` 给语义 span 单独留名额（不与普通 span 抢时长排名）。完整报告的 decision handoff 保留这些线索；有界事实查询另见下述 B1706，不把排名无语义根因误解为窗口没有语义工作。私有 ROM/应用 trace_mark 命名漂移可通过 `codrax.yaml :: trace_semantic_span_patterns` 追加到同一分类器；配置只消费管理员结构化 YAML + typed span 名，不读取用户/模型散文，也不作为 hard gate。
+- **投影汇总（`TraceCausalProjection` + `materializeRuntimeTraceCausalProjectionBlock`）**：Turn A 的 trace_query 观测按 chain_relevance 聚合成 primary/on_chain/adjacent/background/semantic 桶；在 typed 请求/证据允许完整报告时，`emit_answer_document(_patch)` 持久化自动附加 `runtime_trace_causal_projection`（不依赖 LLM 主动引用）。有界事实/状态查询不因此自动取得完整因果报告权限。当存在 `frame_target_resolution`（`window_source=query_window`）精确 anchor 时，节点按是否落在用户请求窗口内标注 `WithinRequestedWindow`。
+
+**有界语义事实交接（B1706）**：完整因果报告权限关闭，不等于模型不需要已测得的窗口成员事实。对请求计数/时长或发生时间、具有明确窗口与用户目标的查询，agent 从未裁剪 ledger 选择当前唯一 Trace 附件、同窗/同查询目标的原生 hard semantic span，仅以 prompt 提供原业务名、宿主线程、耗时及物理成员行范围。物理来源须有当次成功单文件查询的私有票据；bundle 虚拟坐标与历史无票据记录不进入新增车道，原完整报告不受影响。数量/字节有界并披露省略，标签作为不可信数据转义，不声称全窗 complete。另一线程的语义工作只能按已有链凭证说明参与关系，缺证保持背景/关系未知；目标线程本身有工作也不直接证明阻塞因果，时长不等于可消除量。此车道不生成系统答案表、排名、修向或根因选择，不改变 JSON/schema、侧车状态、报告权限或原始回读权限。
 
 **窗口纪律**：用户显式给出 `time_start`/`time_end` 时严格透传不误缩（三处窗口推导入口都以 `.Set()` typed 布尔为精确开关）；帧信息 + 显式窗口同时给出时用 `unionTimeWindows` 取并集（纯几何 min/max，显式 0 起点也保留）。
 

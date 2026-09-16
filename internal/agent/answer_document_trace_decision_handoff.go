@@ -43,7 +43,7 @@ func renderAnswerDocTraceDecisionHandoff(ctx *types.AgentContext) string {
 	// causal synthesis merely because exploration happened to collect a causal
 	// row; explicit typed windows and causal/relation scopes remain authorized.
 	if !types.RuntimeTraceReportMaterializationAllowed(requestModel, set) {
-		return findingContract
+		return strings.TrimSpace(renderAnswerDocBoundedSemanticFacts(ctx, ledger) + findingContract)
 	}
 	var claims []types.AnswerRelationClaim
 	if ctx.Mutable != nil {
