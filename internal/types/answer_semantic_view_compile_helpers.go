@@ -74,10 +74,6 @@ func resolvedDiagramKindForPlan(plan *AnswerSurfacePlan, familyDefault DiagramKi
 	return DiagramNone
 }
 
-func defaultEdgeRelationsForPlan(plan *AnswerSurfacePlan, familyDefault DiagramKind) []DiagramEdgeRelationContract {
-	return DefaultEdgeRelationsForKind(resolvedDiagramKindForPlan(plan, familyDefault))
-}
-
 func runtimeObservationOnly(plan *AnswerSurfacePlan) bool {
 	return plan != nil &&
 		plan.RuntimeGroundingDisposition.IsActive() &&
@@ -101,9 +97,9 @@ func diagramRequirementRationale(plan *AnswerSurfacePlan, familyDefault DiagramK
 	case DiagramSequence:
 		return "A sequence diagram showing the grounded interaction order visually — actor-to-actor edges matching the cited sequence. Use Mermaid sequenceDiagram form."
 	case DiagramFlow:
-		return "A flowchart showing the grounded processing or decision flow. Use Mermaid flowchart form and keep guards / branches tied to cited evidence."
+		return "A flowchart showing the grounded processing or decision flow. Use Mermaid flowchart form and cite evidence for each relation; any guards or branches must be proved, not added to fill the visual form."
 	case DiagramCallDAG:
-		return "A call graph diagram showing grounded call relationships. Use Mermaid flowchart form and keep edges tied to cited call evidence."
+		return "A call graph diagram showing grounded calls and handoffs. Use Mermaid flowchart form and cite evidence for each authored relation. Callback or registration handoffs are not themselves proof of a direct call."
 	case DiagramArchitecture:
 		if strings.TrimSpace(fallback) != "" {
 			return strings.TrimSpace(fallback)
@@ -236,84 +232,25 @@ func diagramPlanFor(plan *AnswerSurfacePlan, kind DiagramKind, nodeFacets []stri
 		return nil
 	}
 	resolvedKind := resolvedDiagramKindForPlan(plan, kind)
-	resolvedEdgeRelations := edgeRelationsForResolvedDiagramKind(kind, resolvedKind, edgeRelations)
 	return &DiagramFacetGraph{
-		Required:      contract.Required,
-		Kind:          resolvedKind,
-		NodeFacets:    nodeFacets,
-		EdgeFacets:    edgeFacets,
-		EdgeRelations: resolvedEdgeRelations,
+		Required:              contract.Required,
+		RequireStructuralEdge: contract.Required && diagramKindRequiresStructuralEdge(resolvedKind),
+		Kind:                  resolvedKind,
+		NodeFacets:            nodeFacets,
+		EdgeFacets:            edgeFacets,
+		EdgeRelations:         append([]DiagramEdgeRelationContract(nil), edgeRelations...),
 	}
 }
 
-func edgeRelationsForResolvedDiagramKind(familyDefault DiagramKind, resolvedKind DiagramKind, edgeRelations []DiagramEdgeRelationContract) []DiagramEdgeRelationContract {
-	if resolvedKind == DiagramNone {
-		return append([]DiagramEdgeRelationContract(nil), edgeRelations...)
-	}
-	if len(edgeRelations) == 0 {
-		return DefaultEdgeRelationsForKind(resolvedKind)
-	}
-	if familyDefault == resolvedKind {
-		return append([]DiagramEdgeRelationContract(nil), edgeRelations...)
-	}
-	familyDefaultRelations := DefaultEdgeRelationsForKind(familyDefault)
-	if len(familyDefaultRelations) == 0 {
-		return append([]DiagramEdgeRelationContract(nil), edgeRelations...)
-	}
-	if !diagramEdgeRelationPrefixEqual(edgeRelations, familyDefaultRelations) {
-		return append([]DiagramEdgeRelationContract(nil), edgeRelations...)
-	}
-	out := DefaultEdgeRelationsForKind(resolvedKind)
-	out = append(out, edgeRelations[len(familyDefaultRelations):]...)
-	return out
-}
-
-func diagramEdgeRelationPrefixEqual(got []DiagramEdgeRelationContract, want []DiagramEdgeRelationContract) bool {
-	if len(got) < len(want) {
-		return false
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// DefaultEdgeRelationsForKind returns the canonical typed relation
-// contract for the SST diagram-kind mapping. Families that do not
-// need a specialised contract should pass the result of this helper
-// to diagramPlanFor; families with extra typed expectations should
-// extend the returned slice rather than build from scratch.
-//
-// Mapping (Phase 3-C4 §6.2.4):
-//   - DiagramFlow         → guard (Min:1, ClaimGuardCondition)
-//   - DiagramSequence     → call  (Min:1, ClaimCallEdge)
-//   - DiagramCallDAG      → call  (Min:1, ClaimCallEdge)
-//   - DiagramArchitecture → contain (Min:0, ClaimUnknown — block-level)
-//   - DiagramNone         → nil
-//
-// The function returns a fresh slice so callers may safely append.
-func DefaultEdgeRelationsForKind(kind DiagramKind) []DiagramEdgeRelationContract {
+// diagramKindRequiresStructuralEdge preserves the existing source-graph
+// nonempty-edge obligation without inventing guard/call/contain semantics.
+// The typed unproven exit and runtime Trace owner remain separate.
+func diagramKindRequiresStructuralEdge(kind DiagramKind) bool {
 	switch kind {
-	case DiagramFlow:
-		return []DiagramEdgeRelationContract{
-			{Kind: DiagramRelGuard, Min: 1, ClaimForm: ClaimGuardCondition},
-		}
-	case DiagramSequence:
-		return []DiagramEdgeRelationContract{
-			{Kind: DiagramRelCall, Min: 1, ClaimForm: ClaimCallEdge},
-		}
-	case DiagramCallDAG:
-		return []DiagramEdgeRelationContract{
-			{Kind: DiagramRelCall, Min: 1, ClaimForm: ClaimCallEdge},
-		}
-	case DiagramArchitecture:
-		return []DiagramEdgeRelationContract{
-			{Kind: DiagramRelContain, Min: 0, ClaimForm: ClaimUnknown},
-		}
+	case DiagramFlow, DiagramSequence, DiagramCallDAG:
+		return true
 	}
-	return nil
+	return false
 }
 
 // uncertaintyRuleForObservedArtifact returns the canonical "log /

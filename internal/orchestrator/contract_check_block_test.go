@@ -3127,11 +3127,10 @@ func TestSplitMermaidEdgeLine_SignatureCarriesLabelAndOperator(t *testing.T) {
 
 // ── Phase 3-C5: validateDiagramRelationLegality (Layer 2) ─────────
 
-// callChainViewWithDiagram returns a sequence-family view that
-// requires a diagram (so EdgeRelations is populated to
-// [{call, Min:1, ClaimCallEdge}]).
+// callChainViewWithDiagram supplies an explicit semantic minimum for the
+// relation-minimum consumer tests. A presentation kind no longer invents it.
 func callChainViewWithDiagram() *types.AnswerSemanticView {
-	return types.BuildAnswerSemanticView(
+	view := types.BuildAnswerSemanticView(
 		&types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				Intent:   types.IntentTrace,
@@ -3140,6 +3139,10 @@ func callChainViewWithDiagram() *types.AnswerSemanticView {
 		},
 		&types.AnswerSurfacePlan{Diagram: &types.DiagramContract{Required: true}},
 	)
+	view.DiagramPlan.EdgeRelations = []types.DiagramEdgeRelationContract{{
+		Kind: types.DiagramRelCall, Min: 1, ClaimForm: types.ClaimCallEdge,
+	}}
+	return view
 }
 
 // docWithDiagramBody constructs a minimal V2 doc holding a diagram

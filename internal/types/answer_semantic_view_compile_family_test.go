@@ -1436,60 +1436,34 @@ func TestCompileComparison_NoRequiredDiagram(t *testing.T) {
 
 // ── Phase 3-C4: EdgeRelations contract per family (8 family lock) ───
 
-// TestDefaultEdgeRelationsForKind_AllKinds locks the SST mapping
-// from DiagramKind to default typed edge contracts. New diagram
-// kinds MUST extend this switch — the test catches drift.
-func TestDefaultEdgeRelationsForKind_AllKinds(t *testing.T) {
+// A visual form can require a connected diagram without proving any
+// particular relation kind. B1705 replaces the old guard/call default pin.
+func TestCompileDiagramStructuralObligation_AllKinds(t *testing.T) {
 	cases := []struct {
 		kind     DiagramKind
-		wantLen  int
-		wantKind DiagramRelationKind // first entry's relation kind
-		wantMin  int                 // first entry's Min
-		wantCF   ClaimForm           // first entry's expected ClaimForm
+		wantEdge bool
 	}{
-		{DiagramFlow, 1, DiagramRelGuard, 1, ClaimGuardCondition},
-		{DiagramSequence, 1, DiagramRelCall, 1, ClaimCallEdge},
-		{DiagramCallDAG, 1, DiagramRelCall, 1, ClaimCallEdge},
-		{DiagramArchitecture, 1, DiagramRelContain, 0, ClaimUnknown},
-		{DiagramNone, 0, DiagramRelUnknown, 0, ClaimUnknown},
+		{DiagramFlow, true},
+		{DiagramSequence, true},
+		{DiagramCallDAG, true},
+		{DiagramArchitecture, false},
 	}
 	for _, c := range cases {
-		got := DefaultEdgeRelationsForKind(c.kind)
-		if len(got) != c.wantLen {
-			t.Errorf("DefaultEdgeRelationsForKind(%q) len=%d, want %d (got %+v)",
-				c.kind, len(got), c.wantLen, got)
-			continue
-		}
-		if c.wantLen == 0 {
-			continue
-		}
-		if got[0].Kind != c.wantKind {
-			t.Errorf("DefaultEdgeRelationsForKind(%q)[0].Kind = %q, want %q",
-				c.kind, got[0].Kind, c.wantKind)
-		}
-		if got[0].Min != c.wantMin {
-			t.Errorf("DefaultEdgeRelationsForKind(%q)[0].Min = %d, want %d",
-				c.kind, got[0].Min, c.wantMin)
-		}
-		if got[0].ClaimForm != c.wantCF {
-			t.Errorf("DefaultEdgeRelationsForKind(%q)[0].ClaimForm = %q, want %q",
-				c.kind, got[0].ClaimForm, c.wantCF)
+		view := BuildAnswerSemanticView(irForGeneric(), planRequiringDiagramKind(c.kind))
+		if got := view.DiagramPlan; got == nil || got.RequireStructuralEdge != c.wantEdge || len(got.EdgeRelations) != 0 {
+			t.Errorf("kind=%q structural contract=%+v, want edge=%t and no invented relation", c.kind, got, c.wantEdge)
 		}
 	}
 }
 
-// TestDefaultEdgeRelationsForKind_DefensiveCopy ensures callers can
-// mutate the returned slice (e.g. append observe contract for
-// root-cause-trace) without affecting subsequent calls.
-func TestDefaultEdgeRelationsForKind_DefensiveCopy(t *testing.T) {
-	a := DefaultEdgeRelationsForKind(DiagramSequence)
-	a = append(a, DiagramEdgeRelationContract{Kind: DiagramRelObserve, Min: 0, ClaimForm: ClaimExternalObservation})
-	if len(a) != 2 {
-		t.Fatalf("local append failed: %d", len(a))
-	}
-	b := DefaultEdgeRelationsForKind(DiagramSequence)
-	if len(b) != 1 {
-		t.Errorf("subsequent call should yield 1 entry; got %d (defensive copy regression)", len(b))
+func TestCompileDiagramStructuralObligation_CacheCloneIndependent(t *testing.T) {
+	view := BuildAnswerSemanticView(irForGeneric(), planRequiringDiagramKind(DiagramSequence))
+	view.DiagramPlan.EdgeRelations = []DiagramEdgeRelationContract{{Kind: DiagramRelCallback, Min: 2, ClaimForm: ClaimCallbackHandoff}}
+	clone := cloneAnswerSemanticView(view)
+	view.DiagramPlan.RequireStructuralEdge = false
+	view.DiagramPlan.EdgeRelations[0].Min = 99
+	if !clone.DiagramPlan.RequireStructuralEdge || clone.DiagramPlan.EdgeRelations[0].Min != 2 {
+		t.Fatalf("cache clone lost structural flag or aliased semantic contract: %+v", clone.DiagramPlan)
 	}
 }
 
@@ -1522,32 +1496,24 @@ func TestCompileDiagramPlan_HonorsRequiredDiagramKindAcrossFamilies(t *testing.T
 		name          string
 		ir            *AnalysisIR
 		kind          DiagramKind
-		wantRelation  DiagramRelationKind
-		wantClaim     ClaimForm
 		wantRationale string
 	}{
 		{
 			name:          "architecture keeps explicit sequence",
 			ir:            irForArchitecture(),
 			kind:          DiagramSequence,
-			wantRelation:  DiagramRelCall,
-			wantClaim:     ClaimCallEdge,
 			wantRationale: "sequenceDiagram",
 		},
 		{
 			name:          "call-chain keeps explicit flow",
 			ir:            irForCallChain(),
 			kind:          DiagramFlow,
-			wantRelation:  DiagramRelGuard,
-			wantClaim:     ClaimGuardCondition,
 			wantRationale: "flowchart",
 		},
 		{
 			name:          "root-cause keeps explicit flow",
 			ir:            irForRootCauseTrace(),
 			kind:          DiagramFlow,
-			wantRelation:  DiagramRelGuard,
-			wantClaim:     ClaimGuardCondition,
 			wantRationale: "flowchart",
 		},
 	}
@@ -1560,12 +1526,10 @@ func TestCompileDiagramPlan_HonorsRequiredDiagramKindAcrossFamilies(t *testing.T
 			if view.DiagramPlan.Kind != c.kind {
 				t.Fatalf("DiagramPlan.Kind=%q, want %q", view.DiagramPlan.Kind, c.kind)
 			}
-			if len(view.DiagramPlan.EdgeRelations) == 0 {
-				t.Fatalf("DiagramPlan.EdgeRelations empty")
-			}
-			got := view.DiagramPlan.EdgeRelations[0]
-			if got.Kind != c.wantRelation || got.ClaimForm != c.wantClaim {
-				t.Fatalf("first edge relation=%+v, want kind=%q claim=%q", got, c.wantRelation, c.wantClaim)
+			for _, relation := range view.DiagramPlan.EdgeRelations {
+				if view.Family != QFRootCauseTrace || relation.Kind != DiagramRelObserve || relation.Min != 0 {
+					t.Fatalf("layout must not generate a semantic relation: %+v", relation)
+				}
 			}
 			req := requiredDiagramRequirement(view)
 			if req == nil {
@@ -1612,9 +1576,8 @@ func TestCompileCallChain_DiagramEdgeRelationsContract(t *testing.T) {
 		t.Fatal("call_chain must produce a DiagramPlan")
 	}
 	got := view.DiagramPlan.EdgeRelations
-	if len(got) != 1 || got[0].Kind != DiagramRelCall ||
-		got[0].Min != 1 || got[0].ClaimForm != ClaimCallEdge {
-		t.Errorf("call_chain EdgeRelations = %+v, want [{call 1 call_edge}]", got)
+	if len(got) != 0 || !view.DiagramPlan.RequireStructuralEdge {
+		t.Errorf("call_chain must require structure, not a direct-call relation: %+v", view.DiagramPlan)
 	}
 }
 
@@ -1624,9 +1587,8 @@ func TestCompileArchitecture_DiagramEdgeRelationsContract(t *testing.T) {
 		t.Fatal("architecture must produce a DiagramPlan")
 	}
 	got := view.DiagramPlan.EdgeRelations
-	if len(got) != 1 || got[0].Kind != DiagramRelContain ||
-		got[0].Min != 0 || got[0].ClaimForm != ClaimUnknown {
-		t.Errorf("architecture EdgeRelations = %+v, want [{contain 0 (unknown)}]", got)
+	if len(got) != 0 || view.DiagramPlan.RequireStructuralEdge {
+		t.Errorf("architecture must allow node-only ownership grouping without manufactured relations: %+v", view.DiagramPlan)
 	}
 }
 
@@ -1636,14 +1598,11 @@ func TestCompileRootCauseTrace_DiagramEdgeRelationsContract(t *testing.T) {
 		t.Fatal("root_cause_trace must produce a DiagramPlan")
 	}
 	got := view.DiagramPlan.EdgeRelations
-	if len(got) != 2 {
-		t.Fatalf("root_cause_trace EdgeRelations len=%d, want 2 (sequence default + observe)", len(got))
+	if len(got) != 1 || view.DiagramPlan.RequireStructuralEdge {
+		t.Fatalf("root_cause_trace must retain its independent observed relation contract: %+v", view.DiagramPlan)
 	}
-	if got[0].Kind != DiagramRelCall || got[0].Min != 1 || got[0].ClaimForm != ClaimCallEdge {
-		t.Errorf("root_cause_trace EdgeRelations[0] = %+v, want {call 1 call_edge}", got[0])
-	}
-	if got[1].Kind != DiagramRelObserve || got[1].Min != 0 || got[1].ClaimForm != ClaimExternalObservation {
-		t.Errorf("root_cause_trace EdgeRelations[1] = %+v, want {observe 0 external_observation}", got[1])
+	if got[0].Kind != DiagramRelObserve || got[0].Min != 0 || got[0].ClaimForm != ClaimExternalObservation {
+		t.Errorf("root_cause_trace EdgeRelations[0] = %+v, want {observe 0 external_observation}", got[0])
 	}
 }
 

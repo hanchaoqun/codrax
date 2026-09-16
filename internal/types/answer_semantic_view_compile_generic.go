@@ -160,8 +160,7 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 		})
 	}
 	if plan != nil && plan.Diagram != nil {
-		view.DiagramPlan = diagramPlanFor(plan, genericDiagramKind(plan), nil, nil,
-			DefaultEdgeRelationsForKind(genericDiagramKind(plan)))
+		view.DiagramPlan = diagramPlanFor(plan, genericDiagramKind(plan), nil, nil, nil)
 	}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
 	return view

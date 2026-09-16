@@ -101,11 +101,9 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 	}
 	diagramNodeFacets := []string{string(FacetCurrentCodePath)}
 	diagramEdgeFacets := []string{string(FacetPrincipalPathEdge)}
-	diagramRelations := append(defaultEdgeRelationsForPlan(plan, DiagramSequence),
-		DiagramEdgeRelationContract{
-			Kind: DiagramRelObserve, Min: 0, ClaimForm: ClaimExternalObservation,
-		},
-	)
+	diagramRelations := []DiagramEdgeRelationContract{
+		{Kind: DiagramRelObserve, Min: 0, ClaimForm: ClaimExternalObservation},
+	}
 	if runtimeObservationOnly(plan) {
 		diagramNodeFacets = []string{string(FacetObservedArtifactFact)}
 		diagramEdgeFacets = []string{string(FacetObservedArtifactFact)}
@@ -123,6 +121,9 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 		diagramEdgeFacets,
 		diagramRelations,
 	)
+	if view.DiagramPlan != nil {
+		view.DiagramPlan.RequireStructuralEdge = false // Runtime causal evidence owns Trace relations.
+	}
 	view.UncertaintyRules = []UncertaintyRule{uncertaintyRuleForObservedArtifact()}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
 	// v3 B2 — root-cause-trace answers benefit from branch_guard +

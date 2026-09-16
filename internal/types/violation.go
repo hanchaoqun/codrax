@@ -419,8 +419,8 @@ const (
 	ViolDiagramEdgeUnsupported ViolationKind = "diagram_edge_unsupported"
 
 	// ViolRequiredDiagramEdgeAbsent fires when a non-runtime-trace answer has
-	// a REQUIRED diagram contract whose typed EdgeRelations contain a positive
-	// minimum, but the emitted Mermaid body contains zero structural edges.
+	// a REQUIRED diagram contract has RequireStructuralEdge or an explicit
+	// positive semantic minimum, but the Mermaid body has zero structural edges.
 	// A nodes-only flow/sequence/call-DAG cannot satisfy a relation contract.
 	// The one typed exception is a required AxisFlow diagram after the bounded
 	// flow-operation lane has converged with an explicit completion caveat: the

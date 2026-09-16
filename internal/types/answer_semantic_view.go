@@ -351,19 +351,19 @@ type BlockRequirement struct {
 // is represented as a Mermaid node, (c) every EdgeFacet is
 // represented as a Mermaid edge connecting the right pair of nodes.
 //
-// EdgeRelations adds a per-relation-kind expectation: for each
-// contract entry (Kind, Min, ClaimForm), the validator confirms the
-// diagram body has at least Min labelled edges resolving to Kind via
-// InferRelationFromLabel — and (Phase 3-C5) that each such edge is
-// supported by a claim_use whose ClaimForm matches and whose
-// FromNode/ToNode anchor the edge endpoints. Min=0 entries make the
-// relation expected-when-present rather than required.
+// RequireStructuralEdge is a source-diagram presentation obligation, not
+// a statement that any particular relation is proven. The runtime-aware
+// validator preserves the typed unproven exit. EdgeRelations carries only
+// explicit semantic expectations, never a relation inferred from Kind.
+// Actual visible edges remain subject to their independent typed evidence
+// validators. Min=0 entries describe relations when present, not minimums.
 type DiagramFacetGraph struct {
-	Required      bool
-	Kind          DiagramKind                   // flow / sequence / architecture / call_dag
-	NodeFacets    []string                      // FacetIDs that must appear as diagram nodes
-	EdgeFacets    []string                      // FacetIDs that must appear as diagram edges
-	EdgeRelations []DiagramEdgeRelationContract // typed relations the family expects on edges
+	Required              bool
+	RequireStructuralEdge bool                          // internal; does not prescribe a relation kind
+	Kind                  DiagramKind                   // flow / sequence / architecture / call_dag
+	NodeFacets            []string                      // FacetIDs that must appear as diagram nodes
+	EdgeFacets            []string                      // FacetIDs that must appear as diagram edges
+	EdgeRelations         []DiagramEdgeRelationContract // explicit typed semantic expectations
 }
 
 // DiagramEdgeRelationContract names a single (relation, min count,

@@ -653,7 +653,8 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 		}
 	}
 	if in.DiagramContract != nil && in.DiagramContract.Required {
-		b.WriteString("\n## DIAGRAM CONTRACT (typed edge minimums)\n")
+		b.WriteString("\n## DIAGRAM CONTRACT (explicit semantic requirements)\n")
+		b.WriteString("Only listed relation rows prescribe semantic minimums. Visual form does not imply a relation kind: a flowchart need not contain a guard, and a sequence or call graph need not contain a direct call. Do not invent missing relation requirements from layout or labels. Separate checks handle whether a diagram needs any arrow and whether explicitly unproven relationships may remain disconnected.\n")
 		fmt.Fprintf(&b, "Diagram block present in answer: %t. Body length (post-trim): %d.\n", in.DiagramContract.BlockPresent, in.DiagramContract.BodyTrimmedLen)
 		if strings.TrimSpace(in.DiagramContract.BodyExcerpt) != "" {
 			fmt.Fprintf(&b, "Body excerpt:\n```\n%s\n```\n", in.DiagramContract.BodyExcerpt)

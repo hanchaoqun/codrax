@@ -326,7 +326,7 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 		return []types.Violation{{
 			Kind: types.ViolRequiredDiagramEdgeAbsent,
 			Detail: fmt.Sprintf(
-				"required diagram block id=%q has zero structural Mermaid edges while its typed relation contract requires at least one",
+				"required diagram block id=%q has zero structural Mermaid edges while its diagram contract requires at least one",
 				diagramBlock.ID),
 			Repair:     types.FlowOperationEvidenceEmissionGuide,
 			ClusterKey: blockClusterKey(diagramBlock.ID, "required_diagram_edges"),
@@ -386,7 +386,7 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 }
 
 // validateDiagramEdgeSupportWithRuntimeContext keeps the generic source
-// diagram plan (including its preferred guard/call relation minima) away from
+// diagram plan (including its structural-edge obligation) away from
 // blocks whose exact typed owner is runtime frame-temporal evidence. Sibling
 // source diagrams remain in the cloned document and retain the old validator.
 func validateDiagramEdgeSupportWithRuntimeContext(
@@ -506,6 +506,11 @@ func diagramPlanRequiresStructuralEdge(plan *types.DiagramFacetGraph) bool {
 	if plan == nil {
 		return false
 	}
+	if plan.RequireStructuralEdge {
+		return true
+	}
+	// Preserve explicit/manual semantic minimum contracts. Presentation kind
+	// alone never adds or rewrites a relation kind in those contracts.
 	for _, relation := range plan.EdgeRelations {
 		if relation.Min > 0 {
 			return true

@@ -227,13 +227,12 @@ func applyPresentationContract(view *AnswerSemanticView, ir *AnalysisIR, plan *A
 	}
 	if view.DiagramPlan == nil {
 		kind := view.Presentation.DiagramKind
-		view.DiagramPlan = diagramPlanFor(plan, kind, nil, nil, DefaultEdgeRelationsForKind(kind))
+		view.DiagramPlan = diagramPlanFor(plan, kind, nil, nil, nil)
 	}
 	if view.DiagramPlan == nil {
 		view.DiagramPlan = &DiagramFacetGraph{
-			Required:      true,
-			Kind:          view.Presentation.DiagramKind,
-			EdgeRelations: DefaultEdgeRelationsForKind(view.Presentation.DiagramKind),
+			Required: true,
+			Kind:     view.Presentation.DiagramKind,
 		}
 	} else {
 		view.DiagramPlan.Required = true
@@ -241,6 +240,8 @@ func applyPresentationContract(view *AnswerSemanticView, ir *AnalysisIR, plan *A
 			view.DiagramPlan.Kind = view.Presentation.DiagramKind
 		}
 	}
+	view.DiagramPlan.RequireStructuralEdge = view.Family != QFRootCauseTrace &&
+		diagramKindRequiresStructuralEdge(view.DiagramPlan.Kind)
 	ensureRequiredPresentationDiagramBlock(view, plan)
 }
 
