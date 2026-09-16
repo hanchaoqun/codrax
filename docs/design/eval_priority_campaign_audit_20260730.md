@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53推送，B1710全窗资源误附线程等待已bd7e8e1d2推送，B1711修补删错锚已940f4cdf7推送。B1712静态位点数冒充动态次数已修：七形公共RED→GREEN、相邻count3/race3、初稿/修补教学一致及独立冷审通过，末版冻结全仓86测试包/13无测试包/零失败。中间census失败与宽选race源码普查超时保留，不冒充通过；末版三包精确race3已绿。不按重试关键词放行，不系统补画图；Trace投影/补齐/链上根因及活跃流保护不改。下一r1084仓颉read/C apply严格两路各一次，当前尚未启动。
+本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53推送，B1710全窗资源误附线程等待已bd7e8e1d2推送，B1711修补删错锚已940f4cdf7推送，B1712静态位点数冒充动态次数已8cb0cc740推送。七形公共RED→GREEN、相邻count3/race3、初稿/修补教学一致及独立冷审通过，末版冻结全仓86测试包/13无测试包/零失败。中间census失败与宽选race源码普查超时保留，不冒充通过；末版三包精确race3已绿。不按重试关键词放行，不系统补画图；Trace投影/补齐/链上根因及活跃流保护不改。r1084仓颉read/C apply严格两路各一次已完成人审（§123.1842）：机器与人工均1PASS/1FAIL，写题未接受计划/未应用/未正式验证。B1431有界定位携带及B1586c调度冗余留观察，不误报合同无出口或签本批生产图/Trace验收。
 
 当前交付/人审§123.1836–1837：B1708端点主链与图呈现分域已473a1669e推送，公共初稿/Observe及emit/patch正反控、三包race/count3、冻结全仓86包通过。r1083恰好TS read/真实A5短窗Trace两路各一次，机器2PASS但人审均FAIL；B1708未自然触发，生产N/A。新增B1709合法comm括号漏IO配对P1、B1710全窗inode误附线程等待P1、B1711重复body删除误删合法anchorP2，进入公共先红后绿分批修复。模型重试次数/状态解释错误另记，不加原文硬门。Trace链上边界/投影/补齐、模型所有权、600/300/600s及活跃流不按正文缺失降级不变；旧图/原生证明债不代销。
 
@@ -57813,13 +57813,27 @@ B1711三组测试同步迁为明确synthetic v1历史typed lease：公共lease�
 
 最终验收：`20260916-b1712-full-suite-final.log`全仓无缓存退出0，86包通过、13包无测试、零失败；4764个Go/build输入前后SHA一致，格式/diff检查通过。三包race3及前述公共红绿/冷审共同覆盖本片，先前失败日志不删除。原r1083报告/图/机评及case/fixture未改；新source关系重复不再被误拒，不代表循环语义/运行次数已由系统证明。fresh fetch与origin/main 0/0，B1712本片独立提交推送后清洁构建才开启r1084。
 
-### §123.1842 r1084：仓颉复合声明读取与C错误码传播写修复（2026-09-16，排期，尚未启动）
+### §123.1842 r1084：仓颉复合声明读取与C错误码传播写修复（2026-09-16，人工审计完成）
 
 243例仍按用户影响、模式/语言异构性、最近覆盖及本机原生验收能力排序。本对选`harmony/cangjie_repomap.case`全仓read15（08-31以来未跑全仓版，区别09-10/11的isolated fixture）与`github_issue_libgit2_foreach_worktree_symptom.case`apply24（最近r1065，真实cc编译执行可用；可能split/replan的source owner/proof-only尾代自然触发情况须实审，不预签）。上批TS+Trace双read，本批补稀疏语言及write；候补ArkTS留后续，不能通过调整旧oracle消掉已知分组差异。PATH未提供可运行JDK/Rust工具链，只说明本机当前调用环境，不声称其他位置绝无SDK。
 
-人工基线：仓颉2 extend/2 foreign func/8 public class及12行，package只能来自声明，runOnMainThread是callback参数不是foreign声明，extend不是继承，跨目录同名native_add各有归属。C必须callback任意非零原样返回且优先于lookup，lookup仅负数为错；原Make编译执行4断言，但不足覆盖全部正负/边界组合。另离线49格后验与正式plan/proof分列，绝不回填。两题原case/fixture/oracle不改；本对不自然要求图/Trace时，B1712/1709/10生产覆盖记N/A。
+人工基线：仓颉2 extend/2 foreign func/8 public class及12行，package只能来自声明，runOnMainThread是接受callback参数的普通public func、不是foreign声明，extend不是继承，跨目录同名native_add各有归属。C必须callback任意非零原样返回且优先于lookup，lookup仅负数为错；原Make编译执行4断言，但不足覆盖全部正负/边界组合。另离线49格后验与正式plan/proof分列，绝不回填。两题原case/fixture/oracle不改；本对不自然要求图/Trace时，B1712/1709/10生产覆盖记N/A。
 
 20项case/fixture/源码语料/runner哈希封存`20260916-r1084-cases-fixtures-runner-before.sha`。待B1712最终全仓完成并提交推送、清洁构建后，严格CAP5/PARALLEL2/TIMEOUT1200，各一次，无第三例追绿。
+
+B1712已`8cb0cc740`提交推送，清洁构建`0.1.20260916 / 8cb0cc7402e5 / 2026-09-16T10:01:09Z`。10:01:34Z恰好两路启动，runner=`20260916-r1084-runner.log`，机评`eval/parallel_selected_summary_evalcampaign_cangjie_write_r1084_20260916.md`，人工审计另同前缀`_manual_audit.md`。live期间Go/build/case/fixture冻结，原C独立49格baseline=11过38败，原4断言=1过3败（`r1084-libgit2/baseline_receipt.txt`）；该探针不提供模型、不作正式proof。
+
+10:05:50Z两路结束，机器及人工均1PASS/1FAIL，无第三例/追绿重跑。仓颉外层255s（case252s）、C外层232s（case230s），分别context29%/28%。原机评与两份原始结果不改，详细来源/行锚/复算见`eval/parallel_selected_summary_evalcampaign_cangjie_write_r1084_20260916_manual_audit.md`。
+
+仓颉人工PASS：11个受管`.cj`文件中8个含所问声明，完整2 extend/2 foreign func/8 public class与12条路径、行号、package及逐字引用全对；同名native_add保文件轴，sealed/abstract纳入class，不误收其它类型。首次成文零拒零patch，系统仅补既有精确位置的空quote，不代写正文。主日志实际仅一次调查收束拒绝（模型value9/members8，后改8）；脚手架聚合inv4/2不能认作两次独立缺陷。三次dispatch后两轮重复已有清单，给B1586c P2新增见证，不因机械题就全局跳过后续窗口；模型自写fixture/thirdparty措辞留低优先观察。
+
+C人工FAIL：三次fresh planner各三次计划拒绝，没有accepted plan/apply/verify/owner，正式proof为未运行/N/A。第六草稿两源行正确但测试虚构，整plan原子拒绝，不能算已交付业务修复。实际repo仍seed`bd1fc27550ed7b5a57242c8ba3bd81afdebd36c2`、三文件SHA同baseline；原4断言1过3败，独立49格11过38败，均是审计后验非正式proof。CLI退出0不抹掉明确机评FAIL。
+
+上下文主因区分：完整文件读取属于write_analyzer，planner从未成功read_file；controller自填错路径与正确scope并存，第二轮repo_map已供正确root路径/签名，模型仍重读错路径并用尽独立failure2预算。一条随后纠正的精确read被关是真实policy后果，但下一次结构化emit拒绝已重开8工具、已有公共恢复针，模型没有使用。因此不是B1431旧混计数回归、不是已证无出口自冲突P1。第三fresh dispatch仅携latest测试repair却重供陈腐候选，列B1431后续有界定位/当前字节携带观察，须公共复现与新鲜度/歧义/跨批负控后再决定施工；不放宽字节匹配、全局预算或proof门。原始收据`20260916-r1084-libgit2/post_delivery_audit.txt`保留。
+
+本对无图/Trace、无写apply，B1709–1712及累计写证明生产验收均N/A，不代销旧债。等待配置600/300/600s，写题结束因计划结构拒绝耗尽，非流超时；活跃流不因4ms/旧4min无可见正文降级。下批优先公共复现B1431有界事实延续，其次B1586c调度冗余；原图/Trace/原生证明开放项继续留账。
+
+收账校验：审计后20项case/fixture/runner、4764项Go/build、21项原结果、3项答案/机评SHA全部一致（`20260916-r1084-*-after-audit.log`），diff检查通过。两侧独立冷审完成；纠正排期段把runOnMainThread误记成callback参数的文档笔误，不改原源码/模型答案。本片仅统一账本与原机评/人工审计三文档提交，源码仍为受测8cb0cc740；原全仓结果与失败探针收据均保留。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
