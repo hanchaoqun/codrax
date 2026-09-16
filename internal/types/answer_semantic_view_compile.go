@@ -594,7 +594,7 @@ func applyCallChainEndpointBoundary(view *AnswerSemanticView, ir *AnalysisIR, mu
 
 // CallChainEndpointBoundaryPrincipalEdges returns only direction-preserving
 // call edges that explain the exact requested endpoint boundary. It is the
-// single authority shared by support lanes, facet counts, relation recipes,
+// single authority shared by principal support lanes and facet counts,
 // and first-pass diagram seeds.
 //
 // An unresolved or ambiguous endpoint deliberately returns no edge. Arbitrary
@@ -626,9 +626,27 @@ func CallChainEndpointBoundaryPrincipalEdges(capsule *CallChainEndpointEvidenceC
 	return out
 }
 
+// CallChainEndpointBoundaryAllowsDiagramSupport separates a requested source
+// diagram's presentation domain from principal endpoint-path membership. The
+// diagram can explain independently grounded local calls without claiming a
+// source-to-sink path. This is presentation guidance, never edge authority.
+func CallChainEndpointBoundaryAllowsDiagramSupport(view *AnswerSemanticView, boundary *CallChainEndpointBoundary) bool {
+	if view == nil || view.Family == QFRootCauseTrace || boundary == nil ||
+		!boundary.Active() || boundary.Disposition != CallChainEndpointNoDirectedPath ||
+		boundary.EvidenceCapsule == nil || boundary.EvidenceCapsule.Status == CallChainEndpointEvidenceDirectedPathPresent {
+		return false
+	}
+	for _, block := range view.RequiredBlocks {
+		if block.Kind == BlockDiagram && block.Required {
+			return true
+		}
+	}
+	return false
+}
+
 // projectCallChainEndpointBoundaryFacetAuthority keeps hard presentation
-// obligations (for example an explicitly requested sequence diagram) while
-// narrowing their evidence count to the exact endpoint-boundary subgraph.
+// obligations while narrowing only principal path membership to the exact
+// endpoint-boundary subgraph. Diagram presentation is not path membership.
 // This changes neither the model's conclusion nor the raw evidence ledger.
 func projectCallChainEndpointBoundaryFacetAuthority(view *AnswerSemanticView, boundary *CallChainEndpointBoundary) {
 	if view == nil || boundary == nil || !boundary.Active() ||
@@ -636,6 +654,7 @@ func projectCallChainEndpointBoundaryFacetAuthority(view *AnswerSemanticView, bo
 		return
 	}
 	allowed := make(map[string]bool)
+	diagramSupport := CallChainEndpointBoundaryAllowsDiagramSupport(view, boundary)
 	for _, edge := range CallChainEndpointBoundaryPrincipalEdges(boundary.EvidenceCapsule) {
 		if id := strings.TrimSpace(edge.EvidenceID); id != "" {
 			allowed[id] = true
@@ -644,7 +663,11 @@ func projectCallChainEndpointBoundaryFacetAuthority(view *AnswerSemanticView, bo
 	filter := func(reqs []FacetRequirement) {
 		for i := range reqs {
 			switch reqs[i].Kind {
-			case FacetPrincipalPathEdge, FacetDiagramSpine:
+			case FacetPrincipalPathEdge:
+			case FacetDiagramSpine:
+				if diagramSupport {
+					continue
+				}
 			default:
 				continue
 			}
@@ -668,7 +691,11 @@ func projectCallChainEndpointBoundaryFacetAuthority(view *AnswerSemanticView, bo
 		case BlockOrderedList:
 			view.RequiredBlocks[i].Rationale = "The typed investigation established a no-directed-path endpoint boundary. List only exact directed segments that explain that boundary. If no endpoint-boundary edge is available, state that no intermediate hop is proven; do not list other calls from the same caller as intermediates."
 		case BlockDiagram:
-			view.RequiredBlocks[i].Rationale = "Keep the explicitly requested diagram, but draw only the exact endpoint-boundary subgraph. When no endpoint-boundary edge is available, show the two grounded endpoints as disconnected participants and explain the unproven boundary without inventing an arrow."
+			if diagramSupport {
+				view.RequiredBlocks[i].Rationale = "Keep the explicitly requested diagram and the exact endpoint-boundary directions. Independently grounded local calls may also appear in this same diagram as supporting operations, not as principal intermediate hops or proof of source-to-sink reachability. Preserve each supporting call's original caller; keep only endpoints without incident evidence disconnected. Never invent a connecting arrow. For a sequence, same-caller source locations guide static reading order only: preserve conditional branches and separate entrypoints, without claiming runtime coexecution, parallelism, or callee-to-callee calls."
+			} else {
+				view.RequiredBlocks[i].Rationale = "Keep the explicitly requested diagram, but draw only the exact endpoint-boundary subgraph. When no endpoint-boundary edge is available, show the two grounded endpoints as disconnected participants and explain the unproven boundary without inventing an arrow."
+			}
 		}
 	}
 }

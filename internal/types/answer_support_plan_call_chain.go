@@ -37,7 +37,7 @@ func compileCallChainCurrentPathSupportLane(rm RequestModel, plan *AnswerSurface
 		Kind:          SupportLaneCurrentCodePath,
 		Title:         "Current grounded call chain",
 		AllowedBlocks: []string{"summary", "ordered_list", "diagram"},
-		Guidance: "Use this lane for the principal directed relations and any sequence diagram. " +
+		Guidance: "Use this lane for the principal directed relations, including their depiction in a sequence diagram. It is not the complete inventory of independently grounded operations available for supporting presentation. " +
 			"Preserve every proved edge direction. Treat two entries as consecutive hops only when the first edge's callee is the second edge's caller; " +
 			"multiple calls owned by the same caller are sibling call sites, not a callee-to-callee path. Source-line order may organize those call sites for reading, " +
 			"but does not by itself prove that every branch executed or that values flowed between the callees. Do not add nearby helpers, " +
@@ -105,7 +105,8 @@ func projectCallChainEndpointBoundarySupportPlan(plan *AnswerSupportPlan, bounda
 		lane.Entries = filtered
 		lane.Guidance = "This exact endpoint investigation established a no-directed-path boundary. " +
 			"This lane contains only the grounded call edges that explain that boundary. " +
-			"Keep each edge in its real direction and keep the requested sink separate; do not promote other same-caller calls into intermediate hops."
+			"Keep each edge in its real direction and keep the requested sink separate; do not promote other same-caller calls into intermediate hops. " +
+			"This principal lane is not a ceiling on diagram presentation: when the diagram contract allows supporting operations, independently grounded calls may appear in that same diagram with their original callers and directions, without becoming members of this principal path."
 		lanes = append(lanes, lane)
 	}
 	plan.Lanes = lanes

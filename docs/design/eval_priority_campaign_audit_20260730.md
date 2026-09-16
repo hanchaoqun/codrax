@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-当前交付/人审§123.1833–1835：B1693完整交付物化P1已推送e02a24760，固定seed/本run收据/真实祖先闭包/逐path字节保真，29项消费者、Go公共落盘count3/race3、冻结全仓86包及完整runner套件通过。r1082恰好Python多仓apply+显式sequence read各一次，机器1PASS/1FAIL；Python补丁独立执行160/160通过但正式验证仍未闭，sequence语法通过但时序/职责人审FAIL。新B1708同轮呈现域/参与者候选冲突P1已公共RED连续3次复现、尚未修复，原子补边时序与identity租约分别留边界，不伪称所有错误属模型波动。已交付来源诊断653d99056、未知执行说明91e7467e3、非图完整row教学779a04ac8；旧r1081判定不改。Trace链上边界/投影/补齐、模型答案所有权、600/300/600s及活跃流不按正文缺失降级均不变。
+当前交付/人审§123.1833–1836：B1693完整交付物化已推送e02a24760；r1082机器1PASS/1FAIL，Python核心行为160/160通过但正式验证未闭，sequence语法通过但时序/职责人审FAIL。B1708端点主链与图呈现域冲突已实施共享typed投影；公共初稿/Observe及emit/patch正反控、三包race/count3、冻结全仓86包通过，待本批生产回放，不签未触发能力正证。原子补边时序和identity租约独立保留，不归并成已修。Trace链上边界/投影/补齐、模型答案所有权、600/300/600s及活跃流不按正文缺失降级均不变。
 
 续修§123.1826：B1694点/范围引用已`7a4858e88`提交推送，公共先红后绿、count3/race3、冷审及末版冻结全仓86测试包通过。§123.1827 r1080清洁构建后恰好Java read/Python write两路各一次，机器2PASS；人审核心均PASS，Java完整范围引用获full生产正证（patch仅公共测试），Python真实原生4测试及独立572/572后验通过。模型HTTP措辞、图/Trace解释与跨语言原生证明债不代销。新B1678诊断P2“已覆盖仍写缺少观测”已在§123.1828以`fb362358c`修复推送，末版count3/race3/types及调度器全包、活跃流专项通过，不改变证明资格；原答案/报告/机评保持不动。
 
@@ -57726,6 +57726,20 @@ C++主干多态/工厂分支部分正确，13个引用摘录与真实源码行�
 原子时序公开探针在 `/tmp/codrax-r1082-sequence-audit/`，receipt.txt保存ParametersFor+Execute三阶段命令/结果，1.130s PASS；它是精确协议状态探针，不是新live。独立验证整图恢复通道存在之后，维持局部摩擦而非全程封死的定性。
 
 状态：`B1708=P1-confirmed/public-red-count3/not-implemented`；`sequence-insertion=local-lease-friction/full-body-recovery-exists`；`same-edge-lease-identity=observation-unconfirmed`。本批先保留B1693交付与r1082原始审计，下一批从公共RED修同源范围，不能凭一份图就宣称全语言/全图关系时序逻辑闭环。
+
+### §123.1836 B1708：主链成员与图呈现分域，初稿/修补共享有证候选（2026-09-16，修复验证通过）
+
+1. 基线`be52bc8e9`公共BuildInitialInstruction重新实测RED1.153s（`20260916-b1708-be52bc8e9-public-red.log`）；保留§1835原始三次RED。修复从结构化端点边界及required diagram义务派生，不扫请求、模型正文、业务label或图消息关键词。
+2. `principal_path_edge`仍只允许精确端点边界边；有明确图义务时`diagram_spine`及初稿/修补authoring capsule可供模型选择其他独立已证源码调用。保每条原caller、方向、出处与anchor，不授source→sink可达、callee串联、分支必执行、运行时共执行/并发或新根因。主链分类另外核source/line/证据ID，不让跨文件同名借权。无显式图义务保持旧的窄呈现，不新增图要求；Trace专属域不进入此策略。
+3. support lane明确自己是主链成员表、不是全部可画证据；fallback端点seed保最小诚实边界，并按同一策略明确它不是完整图范围。主体copy-ready教学须允许模型选择支持子集而非强迫全抄：被选关系须保identity/方向/配套anchor，必需图及端点义务仍在。模型拥有可见标签、分组、顺序、关系选择和答案；系统没有改写或排序最终图。
+4. 独立公共初稿/Observe full+patch、候选逆序、无证据排除、无显式图基线已count3及race3通过。公共`emit_answer_document`/patch验证带真实recipe receipt：同图支持边接受；主列表借支持边、伪造边、反向边均拒绝，接受态/输入/证据不变。工具针count3 1.513s、race3 5.575s。原公开Observe针是producer-shaped无lease教学车道，不冒称替代硬门针；租约插入位置和同边identity问题继续单列。
+5. 根补definition-only sink零主链但有效支持调用不丢、跨文件同名不升主链、最小seed非天花板；完成后冻结组合/全仓与活跃流保护。早期组合因更新提示措辞但旧针仍匹配`disconnected participants`而失败，已将针改为更精确的“仅无incident证据端点断开＋原caller保留”，不降低事实门。
+6. 后续r1083候选按真实影响、异构性、最近覆盖、oracle可信度选TS workspace读调用链/别名与Trace A5过界短窗各一次；上批已有Python apply、本批不追加第三例。Trace原片段已见完整本次issue/complete/D→wake局部见证，不能沿用旧摘要误称只有一条blocked_reason；应分别核99µs请求、91µs阻塞、88µsRunnable、367µs已观测Running及0.556ms全片覆盖，不能将100ms请求窗补成实测。无图或未进入no-path边界时B1708生产覆盖记N/A。
+
+7. 冷审补出同类两处教学矛盾并同批修复：模板强制全抄与模型选支持子集冲突；“只有下方列出的关系有权威”又把有界模板冒充完整证据域。初稿/copy-ready/required-repair共享子集教学，仍保必需图和端点义务；只按typed scope分支，其他图车道不改。selection-teaching独立公共针先RED（.994s）后GREEN；根追加限定说明后又由公开Observe检测到修补payload截取掉前段说明，最终将限定放入共享教学，不削弱测试。
+8. 最终冻结4758个Go/build输入（含新测试），`20260916-b1708-build-inputs-closed.sha`及check收据一致。最终三包race/count3：agent5.924s/types5.214s/tool13.285s，`20260916-b1708-frozen-race-count3.log`；全部B1708普通count3 12.262s，`teaching-complete-count3.log`；全仓`go test ./... -count=1`退出0，86包通过/13无测试/零失败，`20260916-b1708-full-suite-closed.log`。早期两个被新教学修补取代的全仓run终止143，原日志保留，**不算完整通过**。first/idle/nonstream默认及活跃字节/心跳/隐藏推理/工具参数/显式取消等保护count3 32.607s通过，`stream-protection-count3.log`。收据统一位于`.codrax/tmp/`，代码/用例在接下来live期间冻结。
+
+状态：`B1708=implemented/public-green/frozen-full86+race3-pass/live-not-yet-run`；`principal-authority=unchanged-strict`；`model-visible-answer=not-rewritten`；`active-stream/Trace=unchanged`。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

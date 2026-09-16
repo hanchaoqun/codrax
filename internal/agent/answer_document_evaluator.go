@@ -4156,6 +4156,9 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView, la
 		} else {
 			b.WriteString("- A structured list/table block that declares `principal_path_edge` is reserved for the endpoint-boundary edges above. Put other grounded local calls in a separate supporting block without that facet; do not mix sibling calls into the principal endpoint carrier.\n")
 		}
+		if types.CallChainEndpointBoundaryAllowsDiagramSupport(view, boundary) {
+			b.WriteString("- The required diagram has a broader presentation role than the principal_path_edge list: it may include selected independently grounded local operations alongside this boundary, using their original caller and exact direction. Such supporting arrows are not principal intermediate hops. A shared callee does not join the entrypoints into one execution; source-line display order alone proves neither branch execution nor runtime timing. Keep any endpoint without incident evidence visibly disconnected.\n")
+		}
 		b.WriteString("- The graph finding describes only resolution inside the grounded call-edge graph. Endpoint existence is separate evidence, and a definition-only endpoint may legitimately be absent from that graph.\n")
 	}
 	b.WriteString("\n")
@@ -9030,7 +9033,8 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		return ""
 	}
 	evidence, allEdges, acceptedFacts, callsiteFacts := answerDocCurrentSourceMechanismRelations(ctx)
-	edges := answerDocMechanismEndpointBoundaryEdges(ctx, allEdges)
+	presentation := answerDocMechanismPresentationRelations(ctx, allEdges)
+	edges := presentation.diagram
 	unaryAnnotations := answerDocMechanismUnaryAnnotations(evidence)
 	semanticHandoffs := answerDocRegisteredExportHandoffsForContext(ctx)
 	if acceptedFacts == 0 {
@@ -9050,8 +9054,11 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	fmt.Fprintf(&b,
 		"- accepted_grounded_source_facts=%d; grounded_callsite_facts=%d; explicit_typed_directed_relations=%d; typed_unary_annotations=%d; ordered_path_authority=`%s`.\n",
 		acceptedFacts, callsiteFacts, len(edges), len(unaryAnnotations), status)
-	if len(edges) < len(allEdges) {
-		fmt.Fprintf(&b, "- principal_relation_scope=`typed_endpoint_boundary`; supporting_directed_relations_outside_boundary=`%d`. The omitted relations remain grounded support facts, but they are not principal intermediate hops or principal diagram edges for this exact endpoint answer.\n", len(allEdges)-len(edges))
+	if len(presentation.principal) < len(allEdges) {
+		fmt.Fprintf(&b, "- principal_relation_scope=`typed_endpoint_boundary`; supporting_directed_relations_outside_boundary=`%d`. These independent relations remain grounded support facts, not principal intermediate hops.\n", len(allEdges)-len(presentation.principal))
+		if presentation.supportingDiagram {
+			b.WriteString("- Diagram presentation and principal path membership are separate. The participant choices and authoring capsule below may include those supporting operations in the same requested diagram. Preserve their original sender, direction, and evidence; do not connect sibling callees or reinterpret them as a source-to-sink path. The bounded template is not the complete allowed evidence inventory. The model selects useful operations and authors all visible wording, grouping, and order.\n")
+		}
 	}
 	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx, edges, evidence)
 	participantCoverage := answerDocResolveFlowParticipantCoverage(
@@ -9072,9 +9079,19 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		b.WriteString("- These topology fields describe only the shape of grounded directed relations. `fan_out_present` means one node has multiple outgoing typed relations; `weak_components` and `disconnected_present` describe graph connectivity. None of them proves concurrent/parallel execution, temporal order, a join, or runtime convergence. State those semantics only when separate typed control-flow, concurrency, or runtime evidence establishes them.\n")
 	}
 	b.WriteString("- A grounded definition, enum constant, classifier branch, return, or assignment proves that local fact only. Several true nodes do not by themselves prove call order, data flow, or a complete mechanism chain.\n")
-	b.WriteString("- Only the explicit typed relations and supported typed flow paths listed below carry their stated authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
+	if presentation.supportingDiagram {
+		b.WriteString("- Every selected diagram edge must have current explicit typed relation authority. The bounded recipes below are only a presentation subset: omission from this template does not revoke an independently grounded relation or a published typed participant candidate. Unsupported adjacency remains unproven; do not create a connecting edge or promote supporting operations into principal intermediate hops.\n")
+	} else {
+		b.WriteString("- Only the explicit typed relations and supported typed flow paths listed below carry their stated authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
+	}
 	b.WriteString("- The relation recipes are advisory, source-derived authoring aids. They do not choose the answer, require a diagram, or create a synthetic bridge. If you draw one, reuse its node aliases in the diagram body and copy its native JSON anchor unchanged; omit unsupported bridges instead of changing their relation kind to `call`.\n")
-	b.WriteString("- When a user-facing component or participant is broader than a typed callable endpoint, preserve both layers. By default, place the exact endpoint node inside that component's Mermaid subgraph/group and draw the copied relation between exact endpoint nodes. If a published typed participant candidate explicitly permits a participant node on a declared endpoint side, that candidate-authorized visible mapping is also valid: follow its declared side and keep the technical from_identity/to_identity unchanged in the edge anchor. Do not retarget the relation to an abstract component node without that candidate-declared mapping; a role label alone cannot authorize retargeting. Do not delete an already-typed relation merely to simplify the diagram. This layered form is language-neutral.\n")
+	b.WriteString("- When a user-facing component or participant is broader than a typed callable endpoint, preserve both layers. By default, place the exact endpoint node inside that component's Mermaid subgraph/group and draw the copied relation between exact endpoint nodes. If a published typed participant candidate explicitly permits a participant node on a declared endpoint side, that candidate-authorized visible mapping is also valid: follow its declared side and keep the technical from_identity/to_identity unchanged in the edge anchor. Do not retarget the relation to an abstract component node without that candidate-declared mapping; a role label alone cannot authorize retargeting. ")
+	if presentation.supportingDiagram {
+		b.WriteString("Omitting an unselected supporting operation from the diagram does not revoke its evidence; preserve required endpoint and participant coverage. ")
+	} else {
+		b.WriteString("Do not delete an already-typed relation merely to simplify the diagram. ")
+	}
+	b.WriteString("This layered form is language-neutral.\n")
 	if len(edges) == 0 {
 		b.WriteString("- No citable typed directed relation is available. `principal_path_edge` may carry an uncertainty boundary or independent fact list, but it must not claim an ordered/complete current-source chain.\n")
 		if ctx.Mutable != nil &&
@@ -9092,6 +9109,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			answerDocMechanismCopyReadyDiagramKind(ctx, edges, semanticHandoffs),
 			answerDocMechanismRequestedDiagramKind(ctx, edges),
 			participantCoverage.requestScopedRelationComplete,
+			presentation.supportingDiagram,
 		)
 		// A complete dynamic-selection candidate may carry precise non-call
 		// hops that the general grounded-mechanism inventory intentionally does
@@ -9146,11 +9164,45 @@ func renderAnswerDocDiagramParticipantBoundaryCarrier(
 	fmt.Fprintf(b, "- diagram_participant_boundaries_json=`%s`; copy this exact array into the `participant_boundaries` sibling field of the one model-authored diagram that presents the requested relation. Select `edge_anchors` only for the typed candidate/recipe edges you actually choose to draw; do not copy the full relation-authority inventory merely because these boundary rows are required. The boundary rows constrain only the still-unproved requested relation, while independently selected proved arrows keep their own exact anchors. Do not display this JSON, boundary status, or validator vocabulary in reader-facing prose.\n", payload)
 }
 
-// answerDocMechanismEndpointBoundaryEdges narrows the copy-ready relation
-// carrier to the exact typed endpoint boundary after a no-directed-path
-// closure. Broad source evidence remains available elsewhere, but it must not
-// become a system-suggested principal path merely because it shares the source
-// caller. The predicate is schema/edge based and language-neutral.
+type answerDocMechanismPresentation struct {
+	principal         []answerDocMechanismRelationEdge
+	diagram           []answerDocMechanismRelationEdge
+	supportingDiagram bool
+}
+
+// The same source projection feeds initial authoring and relation repair.
+// Keep the endpoint-boundary members first before compacting the optional
+// diagram input, then retain independent source relations as support. Neither
+// this ordering nor diagram membership assigns principal ownership or runtime
+// order; ordinary evidence gates still validate every model-selected edge.
+func answerDocMechanismPresentationRelations(ctx *types.AgentContext, all []answerDocMechanismRelationEdge) answerDocMechanismPresentation {
+	principal := answerDocMechanismEndpointBoundaryEdges(ctx, all)
+	result := answerDocMechanismPresentation{principal: principal, diagram: principal}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || !types.CallChainEndpointBoundaryAllowsDiagramSupport(view, view.CallChainEndpointBoundary) {
+		return result
+	}
+	result.supportingDiagram = true
+	result.diagram = append([]answerDocMechanismRelationEdge(nil), principal...)
+	for _, edge := range all {
+		found := false
+		for _, selected := range principal {
+			if edge.from == selected.from && edge.to == selected.to &&
+				edge.relation == selected.relation && edge.loc == selected.loc {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result.diagram = append(result.diagram, edge)
+		}
+	}
+	return result
+}
+
+// answerDocMechanismEndpointBoundaryEdges narrows principal membership only.
+// Diagram presentation is independently projected above; sharing a caller
+// never promotes a support relation into the exact endpoint path.
 func answerDocMechanismEndpointBoundaryEdges(ctx *types.AgentContext, edges []answerDocMechanismRelationEdge) []answerDocMechanismRelationEdge {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	if view == nil || view.CallChainEndpointBoundary == nil ||
@@ -9167,7 +9219,11 @@ func answerDocMechanismEndpointBoundaryEdges(ctx *types.AgentContext, edges []an
 		}
 		for _, boundaryEdge := range allowed {
 			if types.AnswerCodeIdentitySurfacesEquivalent(edge.from, boundaryEdge.From) &&
-				types.AnswerCodeIdentitySurfacesEquivalent(edge.to, boundaryEdge.To) {
+				types.AnswerCodeIdentitySurfacesEquivalent(edge.to, boundaryEdge.To) &&
+				edge.sourceItem.Source == boundaryEdge.Source &&
+				edge.sourceItem.LineStart == boundaryEdge.LineStart &&
+				(boundaryEdge.EvidenceID == "" || boundaryEdge.EvidenceID == edge.sourceItem.ID ||
+					boundaryEdge.EvidenceID == edge.sourceItem.EvidenceRef) {
 				out = append(out, edge)
 				break
 			}
@@ -9435,10 +9491,14 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	copyReadyKind types.DiagramKind,
 	requestedKind types.DiagramKind,
 	requestScopedRelationComplete bool,
+	supportingDiagram ...bool,
 ) answerDocMechanismAuthoringReceipts {
 	if b == nil || len(edges)+len(unaryAnnotations) == 0 || limit <= 0 {
 		return answerDocMechanismAuthoringReceipts{}
 	}
+	// Older unscoped callers keep their exact topology teaching. The production
+	// caller supplies the shared typed presentation policy explicitly.
+	allowSupportingSelection := len(supportingDiagram) > 0 && supportingDiagram[0]
 	// Source authority and visual authority have different cardinalities. Two
 	// grounded call sites may prove the same directed endpoint relation; they
 	// remain distinct in the source-fact counters above, but a diagram has one
@@ -9550,7 +9610,12 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 				i+1, row.from, row.to, answerDocCallChainInline(row.handoff.callTarget), answerDocCallChainInline(row.handoff.registeredCallable))
 		}
 	} else {
-		b.WriteString("- A validator-aligned typed topology template and identity anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. This is authoring input, not an acceptance-ready answer: every directed arrow carries the literal syntax-safe placeholder `AUTHOR_BUSINESS_ACTION`, and its anchor omits `visible_label`. Sequence diagrams keep non-message typed facts as unanchored Notes when possible; flow-family diagrams may keep reviewed unary facts as standalone unanchored fact nodes. Neither carrier is an edge or can satisfy call/callback authority. Relations that the selected family cannot carry remain valid sibling facts in the full capsule above. If you include the optional diagram, preserve its node IDs, exact edge topology, annotation carriers, and anchor identity fields; replace each placeholder with one concise business/domain action and copy it byte-identically into both the Mermaid message and matching anchor `visible_label`. Do not emit the template unchanged or compose a different story graph.\n")
+		b.WriteString("- A validator-aligned typed topology template and identity anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. This is authoring input, not an acceptance-ready answer: every directed arrow carries the literal syntax-safe placeholder `AUTHOR_BUSINESS_ACTION`, and its anchor omits `visible_label`. Sequence diagrams keep non-message typed facts as unanchored Notes when possible; flow-family diagrams may keep reviewed unary facts as standalone unanchored fact nodes. Neither carrier is an edge or can satisfy call/callback authority. Relations that the selected family cannot carry remain valid sibling facts in the full capsule above. ")
+		if allowSupportingSelection {
+			b.WriteString("The requested diagram remains required, but this template is candidate input: choose useful supporting operations under the per-edge preservation contract below. Replace each selected placeholder with one model-authored business action and copy it byte-identically into the matching anchor's visible_label. Do not emit the template unchanged or invent a connecting edge.\n")
+		} else {
+			b.WriteString("If you include the optional diagram, preserve its node IDs, exact edge topology, annotation carriers, and anchor identity fields; replace each placeholder with one concise business/domain action and copy it byte-identically into both the Mermaid message and matching anchor `visible_label`. Do not emit the template unchanged or compose a different story graph.\n")
+		}
 		for i, row := range unaryRows {
 			fmt.Fprintf(b, "- unary_note_recipe[%d]=`%s`; participant=`%s`; relation_kind=`%s`; detail=`%s`",
 				i+1, row.participant, row.annotation.participant, row.annotation.relation, row.annotation.detail)
@@ -9559,7 +9624,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 			}
 			b.WriteString("\n")
 		}
-		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, unaryRows, handoffRows, copyReadyKind)
+		renderAnswerDocMechanismCopyReadyDiagram(b, aliases, recipes, unaryRows, handoffRows, copyReadyKind, allowSupportingSelection)
 	}
 	if collapsedVisualDuplicates > 0 {
 		fmt.Fprintf(b, "- source_relation_duplicates_collapsed_for_visual=%d; source facts remain counted above, while the diagram keeps one arrow per exact typed endpoint relation.\n", collapsedVisualDuplicates)
@@ -10305,6 +10370,7 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	unaryAnnotations []answerDocMechanismUnaryAnnotationRow,
 	semanticHandoffs []answerDocMechanismSemanticHandoffRow,
 	kind types.DiagramKind,
+	allowSupportingSelection bool,
 ) {
 	if b == nil || len(aliases) == 0 || len(recipes)+len(unaryAnnotations) == 0 {
 		return
@@ -10381,7 +10447,12 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 	}
 
 	b.WriteString("\n" + answerDocMechanismTypedTopologyTemplateHeading + "\n\n")
-	b.WriteString("- This optional evidence template contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored annotation carriers, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Every directed template edge carries the literal syntax-safe placeholder `AUTHOR_BUSINESS_ACTION`, while every matching anchor intentionally omits `visible_label`: before emitting an answer, replace each placeholder with one concise business/domain action and copy that exact wording into both the Mermaid edge/message and its anchor `visible_label`. Do not emit this template unchanged. Notes and fact-node text are also authoring placeholders. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Non-edge annotations preserve already-typed facts but are not arrows and MUST NOT receive `edge_anchors` rows. ")
+	if allowSupportingSelection {
+		b.WriteString("- This candidate evidence template contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. " + answerDocSupportingDiagramSelectionTeaching() + " ")
+	} else {
+		b.WriteString("- This optional evidence template contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored annotation carriers, and complete `edge_anchors_json` together, or omit the diagram. ")
+	}
+	b.WriteString("`from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Every directed template edge carries the literal syntax-safe placeholder `AUTHOR_BUSINESS_ACTION`, while every matching anchor intentionally omits `visible_label`: before emitting an answer, replace each placeholder with one concise business/domain action and copy that exact wording into both the Mermaid edge/message and its anchor `visible_label`. Do not emit this template unchanged. Notes and fact-node text are also authoring placeholders. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Non-edge annotations preserve already-typed facts but are not arrows and MUST NOT receive `edge_anchors` rows. ")
 	if len(semanticHandoffs) == 0 {
 		b.WriteString("Keep disconnected components disconnected; do not invent story/actor bridges.\n")
 	} else {
@@ -18712,7 +18783,7 @@ func (e *answerDocumentEvaluator) repeatedTypedUnprovenFlowRepairHint(ctx *types
 		return "", false
 	}
 	_, allEdges, _, _ := answerDocCurrentSourceMechanismRelations(ctx)
-	if len(answerDocMechanismEndpointBoundaryEdges(ctx, allEdges)) != 0 {
+	if len(answerDocMechanismPresentationRelations(ctx, allEdges).diagram) != 0 {
 		return "", false
 	}
 	prefix := "The same typed diagram endpoint pair has now failed relation authority more than once. Use `emit_answer_document_patch`"
@@ -18771,6 +18842,12 @@ func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 	return hint + " Do not write free-form prose outside the tool call."
 }
 
+// Shared initial/repair teaching for the typed boundary-plus-support scope.
+// Selecting a visible subset does not change relation or principal authority.
+func answerDocSupportingDiagramSelectionTeaching() string {
+	return "The required diagram may select a useful subset of the independently grounded supporting operations; the template is candidate authoring input, not a requirement to draw every supplied edge. The recipes are bounded: omission from this template does not revoke an independently grounded relation or a published typed participant candidate. Every selected edge still needs current explicit typed relation authority. Keep the required diagram and its exact endpoint boundary, participant coverage, and unproven boundaries. For each selected edge, preserve its original caller, exact node IDs, direction, endpoint identities, relation kind, and matching edge anchor as one unit; omit unselected support arrows together with their anchors. Do not reconnect selected edges, promote supporting calls into principal hops, or infer runtime order. Author visible wording and grouping yourself."
+}
+
 func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyPatching bool) (string, bool) {
 	dynamicCandidatePayload := answerDocDynamicSelectorRelationRepairPayload(ctx)
 	payload := answerDocMechanismCopyReadyRepairPayload(ctx)
@@ -18789,7 +18866,12 @@ func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 	if dynamicCandidatePayload != "" {
 		hint += "A request-scoped typed dynamic-selection carrier is available below. It contains every complete candidate group but selects none: use only the group your existing grounded argument/runtime reasoning makes relevant, do not combine groups, and prefer these request-shaped relations over unrelated helper, exception, or constructor calls. Preserve each selected recipe's exact local node IDs, endpoint identities, direction, relation kind, and source occurrence; keep selector application as a Note/table fact rather than an arrow. Author the diagram kind, topology subset, and visible business wording yourself:\n\n" + dynamicCandidatePayload
 	} else {
-		hint += "Preserve the following typed topology template's exact node IDs, edge topology, and complete identity fields in `edge_anchors_json` as one unit; it is derived from the same typed evidence consumed by the validator. The template is intentionally not acceptance-ready: replace every literal `AUTHOR_BUSINESS_ACTION` placeholder with one concise business/domain action and copy it byte-identically into the Mermaid message and matching anchor `visible_label`; do not emit the template unchanged:\n\n" + payload
+		view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+		if view != nil && types.CallChainEndpointBoundaryAllowsDiagramSupport(view, view.CallChainEndpointBoundary) {
+			hint += answerDocSupportingDiagramSelectionTeaching() + " The selected edge/anchor pairs remain derived from the same typed evidence consumed by the validator. Replace each selected literal `AUTHOR_BUSINESS_ACTION` placeholder with one concise business/domain action and copy it byte-identically into the Mermaid message and matching anchor `visible_label`; do not emit the template unchanged:\n\n" + payload
+		} else {
+			hint += "Preserve the following typed topology template's exact node IDs, edge topology, and complete identity fields in `edge_anchors_json` as one unit; it is derived from the same typed evidence consumed by the validator. The template is intentionally not acceptance-ready: replace every literal `AUTHOR_BUSINESS_ACTION` placeholder with one concise business/domain action and copy it byte-identically into the Mermaid message and matching anchor `visible_label`; do not emit the template unchanged:\n\n" + payload
+		}
 	}
 	hint += "\n\nFollow the projected patch tool schema's native field types; the Mermaid body is a string, `edge_anchors` is an array of objects, and neither may be wrapped in an additional JSON string. " +
 		answerDocDiagramBusinessDisplayRepairGuidance()
@@ -20364,6 +20446,10 @@ func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext, repair *ty
 	if seed == "" {
 		return hint
 	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view != nil && types.CallChainEndpointBoundaryAllowsDiagramSupport(view, view.CallChainEndpointBoundary) {
+		hint += " The endpoint-boundary seed is a minimal boundary reference, not the diagram's complete evidence scope. You may choose independent supporting operations from the same typed relation-authority and participant candidates supplied for initial authoring. Preserve each operation's original caller and direction; keep endpoints without incident evidence disconnected. Such support does not become a principal intermediate hop, prove runtime order, or authorize a connecting arrow."
+	}
 	// Reframed alongside the First-Pass Diagram Reference: the
 	// seed is a grounded FLOOR, not a paste-only ceiling. Pre-fix
 	// said "copy this seeded fenced diagram verbatim ... do not
@@ -20674,8 +20760,11 @@ func retryFlowFindingNodes(ff types.FlowFindingDigest) []string {
 
 // buildRetryCallChainEndpointBoundarySeed projects the exact typed endpoint
 // boundary before any broad support-lane or flow seed. It never scans request
-// or answer prose. When endpoint incidence is unavailable, the honest seed is
-// a disconnected node set, not an arbitrary sample of the source's siblings.
+// or answer prose. This seed is the minimal boundary reference, not the whole
+// diagram presentation domain; appendRetryDiagramSeedHint explicitly allows
+// independent typed supporting operations when that presentation is required.
+// When endpoint incidence is unavailable, the boundary seed is a disconnected
+// node set, not an arbitrary sample of the source's siblings.
 func buildRetryCallChainEndpointBoundarySeed(ctx *types.AgentContext, kind types.DiagramKind) retryDiagramSeed {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 	if view == nil || view.CallChainEndpointBoundary == nil ||

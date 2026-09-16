@@ -301,12 +301,19 @@ func TestProjectCallChainEndpointBoundaryFacetAuthority_NarrowsCandidatesAndKeep
 	}
 	projectCallChainEndpointBoundaryFacetAuthority(view, boundary)
 	for _, req := range view.FacetCoverage.Required {
-		if !reflect.DeepEqual(req.SourceCandidate, []string{"source", "sink"}) {
-			t.Fatalf("facet %s candidates=%v, want exact boundary pair", req.Kind, req.SourceCandidate)
+		want := []string{"source", "sink"}
+		if req.Kind == FacetDiagramSpine {
+			// Diagram presentation is not principal-path membership. A sibling
+			// retains its own evidence without proving source-to-sink reachability.
+			want = append(want, "sibling")
+		}
+		if !reflect.DeepEqual(req.SourceCandidate, want) {
+			t.Fatalf("facet %s candidates=%v, want %v", req.Kind, req.SourceCandidate, want)
 		}
 	}
 	if !strings.Contains(view.RequiredBlocks[0].Rationale, "do not list other calls from the same caller") ||
-		!strings.Contains(view.RequiredBlocks[1].Rationale, "disconnected participants") {
+		!strings.Contains(view.RequiredBlocks[1].Rationale, "keep only endpoints without incident evidence disconnected") ||
+		!strings.Contains(view.RequiredBlocks[1].Rationale, "Preserve each supporting call's original caller") {
 		t.Fatalf("no-path shape guidance was not projected: %+v", view.RequiredBlocks)
 	}
 }
