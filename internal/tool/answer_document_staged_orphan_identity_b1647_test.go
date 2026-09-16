@@ -334,8 +334,8 @@ func TestB1647RecipeAliasCollisionDoesNotPolluteOrdinaryPreEmit(t *testing.T) {
 	if issues := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(issues) != 0 {
 		t.Fatalf("the unchanged current diagram must still pass its own exact evidence: %+v", issues)
 	}
-	if issues := DiagramCallEdgeEvidenceMismatches(doc, view, evidence[:1]); len(issues) != 1 || issues[0].Issue != "call_edge_occurrence_unproven" {
-		t.Fatalf("one actual call must not authorize two model messages: %+v", issues)
+	if issues := DiagramCallEdgeEvidenceMismatches(doc, view, evidence[:1]); len(issues) != 0 {
+		t.Fatalf("one actual call site proves the relation reused by both messages, not a runtime occurrence cap: %+v", issues)
 	}
 	// A typed model pair only prevents a conflicting weak repair. It is not
 	// evidence, and the unchanged evidence gate still rejects a wrong method.

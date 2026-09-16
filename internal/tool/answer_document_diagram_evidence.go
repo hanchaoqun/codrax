@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"sort"
 	"strconv"
 	"strings"
 
@@ -58,21 +57,23 @@ const (
 	diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge = "typed_anchor_reversed_against_visible_edge"
 	diagramStandaloneRelationIdentityMissing             = "standalone_relation_endpoint_identity_missing"
 	diagramCallEdgeIssueNoEvidence                       = "call_edge_unproven"
-	diagramCallEdgeIssueOccurrenceUnproven               = "call_edge_occurrence_unproven"
-	diagramTypedRelationTupleEndpointReused              = "typed_relation_tuple_reused_across_visible_endpoints"
-	diagramCallEdgeIssueReplyOperatorConflict            = "call_reply_operator_conflict"
-	diagramSequenceRelationReplyConflict                 = "sequence_relation_reply_operator_conflict"
-	diagramRegistrationEdgeIssueNoEvidence               = "registration_edge_unproven"
-	diagramTypeRelationEdgeIssueNoEvidence               = "type_relation_edge_unproven"
-	diagramAssignmentEdgeIssueNoEvidence                 = "assignment_edge_unproven"
-	diagramDataFlowEdgeIssueNoEvidence                   = "data_flow_edge_unproven"
-	diagramReturnEdgeIssueNoEvidence                     = "return_edge_unproven"
-	diagramCallbackEdgeIssueNoEvidence                   = "callback_handoff_unproven"
-	diagramArgumentFlowEdgeIssueNoEvidence               = "argument_flow_unproven"
-	diagramTypedEndpointsCollapsedToSelfEdge             = "typed_endpoints_collapsed_to_self_edge"
-	diagramEdgeAnchorNodeIdentityConflict                = "edge_anchor_node_identity_conflict"
-	diagramSemanticRelationIssueNoEvidence               = "semantic_relation_edge_unproven"
-	diagramRequestedStageSpineIncomplete                 = "requested_stage_precedence_spine_incomplete"
+	// Reserved for persisted repair leases from older versions. Static call
+	// sites never authorize a runtime occurrence budget; no current gate emits it.
+	diagramCallEdgeIssueOccurrenceUnproven    = "call_edge_occurrence_unproven"
+	diagramTypedRelationTupleEndpointReused   = "typed_relation_tuple_reused_across_visible_endpoints"
+	diagramCallEdgeIssueReplyOperatorConflict = "call_reply_operator_conflict"
+	diagramSequenceRelationReplyConflict      = "sequence_relation_reply_operator_conflict"
+	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
+	diagramTypeRelationEdgeIssueNoEvidence    = "type_relation_edge_unproven"
+	diagramAssignmentEdgeIssueNoEvidence      = "assignment_edge_unproven"
+	diagramDataFlowEdgeIssueNoEvidence        = "data_flow_edge_unproven"
+	diagramReturnEdgeIssueNoEvidence          = "return_edge_unproven"
+	diagramCallbackEdgeIssueNoEvidence        = "callback_handoff_unproven"
+	diagramArgumentFlowEdgeIssueNoEvidence    = "argument_flow_unproven"
+	diagramTypedEndpointsCollapsedToSelfEdge  = "typed_endpoints_collapsed_to_self_edge"
+	diagramEdgeAnchorNodeIdentityConflict     = "edge_anchor_node_identity_conflict"
+	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
+	diagramRequestedStageSpineIncomplete      = "requested_stage_precedence_spine_incomplete"
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -208,8 +209,7 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				visibleBodyPairCounts[diagramEvidenceUnorderedEdgeKey(edge.From, edge.To)]++
 			}
 			// A typed endpoint tuple describes one exact relation. It may own
-			// repeated occurrences on the same visible actor pair (whose separate
-			// occurrence budget is checked below), but it cannot be cloned onto
+			// repeated presentations on the same visible actor pair, but it cannot be cloned onto
 			// several different reader-visible endpoint pairs. Otherwise one
 			// o.busCtx -> BuildAgentContext fact can be displayed as BusContext
 			// feeding Analyzer, Explorer, Extractor, and Finalizer at once. This
@@ -239,7 +239,6 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 			}
 			callAnchorKeys := diagramCallAnchorKeySet(effectiveAnchors)
 			structuralReplies := diagramSequenceStructuralReplyIndexSet(block.Diagram.Kind, parsedEdges, typedAnchorRelations)
-			callOccurrenceUse := make(map[string]int)
 			bodyPairOccurrence := make(map[string]int)
 			for edgeIndex, edge := range parsedEdges {
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
@@ -347,25 +346,11 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 					continue
 				}
 				if hasTypedCallEvidence {
-					// One static call-site row proves one concrete visible call
-					// occurrence. It must not silently authorize the same arrow
-					// four times with four different message payloads. Distinct
-					// grounded call sites increase the budget; duplicated evidence
-					// records do not. This is a structural Mermaid-occurrence vs
-					// typed-evidence comparison and never reads the edge label,
-					// model prose, or request text as authority.
-					occurrenceKey, occurrenceBudget := diagramCallEdgeTypedEvidenceOccurrenceAuthority(
-						evidence, requiredAnchors, fromSymbol, toSymbol, edge.Label,
-					)
-					callOccurrenceUse[occurrenceKey]++
-					if callOccurrenceUse[occurrenceKey] > occurrenceBudget {
-						out = append(out, DiagramCallEdgeEvidenceMismatch{
-							BlockID: block.ID, Issue: diagramCallEdgeIssueOccurrenceUnproven,
-							FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
-							FromSymbol: fromSymbol, ToSymbol: toSymbol,
-							Relation: types.DiagramRelCall, BodyOccurrence: occurrence + 1,
-						})
-					}
+					// A source call site proves this directed relation, not an
+					// execution count. Repeated presentations (including loop or
+					// alternative branches) retain the same relation authority.
+					// Runtime count/path claims require their own evidence; this
+					// source-only gate must not infer them from evidence row count.
 					continue
 				}
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -2027,80 +2012,6 @@ func diagramCallEdgeHasTypedEvidence(evidence []types.EvidenceItem, requiredAnch
 		candidates[subject+"\x00"+object+"\x00"+anchor] = true
 	}
 	return len(candidates) == 1
-}
-
-// diagramCallEdgeTypedEvidenceOccurrenceAuthority returns a stable group key
-// and budget for one already-proven visible call. Exact endpoint rows win. For
-// class/actor participants, the existing exact message-operation resolver may
-// select a different call row for each operation; those rows receive distinct
-// keys. A bridge that needs definition/owner context but cannot be attributed
-// to one exact row retains a conservative one-occurrence budget.
-func diagramCallEdgeTypedEvidenceOccurrenceAuthority(
-	evidence []types.EvidenceItem,
-	requiredAnchors []types.AnswerRequiredAnchor,
-	fromSymbol, toSymbol, edgeLabel string,
-) (string, int) {
-	if !diagramCallEdgeHasTypedEvidence(evidence, requiredAnchors, fromSymbol, toSymbol, edgeLabel) {
-		return "unproven", 0
-	}
-	seen := make(map[string]struct{})
-	add := func(ev types.EvidenceItem) {
-		identity := types.StableEvidenceID(ev)
-		if strings.TrimSpace(identity) == "" {
-			identity = ev.Source + "\x00" + strconv.Itoa(ev.LineStart) + "\x00" + strconv.Itoa(ev.LineEnd) +
-				"\x00" + ev.Subject + "\x00" + ev.Object + "\x00" + ev.AnchorSymbol
-		}
-		seen[identity] = struct{}{}
-	}
-	for _, ev := range evidence {
-		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge {
-			continue
-		}
-		fromMatches := diagramCallEvidenceEndpointMatches(ev, ev.Subject, fromSymbol) ||
-			types.AnswerCodeIdentitySurfacesCompatible(ev.Subject, fromSymbol)
-		toMatches := diagramCallEvidenceEndpointMatches(ev, ev.Object, toSymbol) ||
-			diagramCallEvidenceEndpointMatches(ev, ev.AnchorSymbol, toSymbol) ||
-			types.AnswerCodeIdentitySurfacesCompatible(ev.Object, toSymbol) ||
-			types.AnswerCodeIdentitySurfacesCompatible(ev.AnchorSymbol, toSymbol)
-		if !fromMatches || !toMatches {
-			continue
-		}
-		add(ev)
-	}
-	// Class/actor participant labels are not method endpoints. When exact
-	// endpoint matching found no row, reuse the same exact operation projection
-	// that made the edge valid above. The structured message is only an identity
-	// discriminator here; it does not create relation authority.
-	if len(seen) == 0 {
-		operation := diagramEvidenceCallLabelOperation(edgeLabel)
-		if operation != "" {
-			for _, ev := range evidence {
-				if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
-					!diagramEvidenceEndpointMatchesQualifiedOwner(fromSymbol, strings.TrimSpace(ev.Subject)) ||
-					!diagramEvidenceEndpointMatchesQualifiedOwner(toSymbol, strings.TrimSpace(ev.Object)) {
-					continue
-				}
-				anchor := strings.TrimSpace(ev.AnchorSymbol)
-				if anchor == "" {
-					anchor = diagramEvidenceQualifiedOperation(strings.TrimSpace(ev.Object))
-				}
-				if diagramEvidenceQualifiedOperation(anchor) == operation {
-					add(ev)
-				}
-			}
-		}
-	}
-	if len(seen) == 0 {
-		key := "bridge\x00" + strings.ToLower(strings.TrimSpace(fromSymbol)) + "\x00" +
-			strings.ToLower(strings.TrimSpace(toSymbol))
-		return key, 1
-	}
-	keys := make([]string, 0, len(seen))
-	for key := range seen {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return "evidence\x00" + strings.Join(keys, "\x01"), len(keys)
 }
 
 func diagramCallEvidenceEndpointMatches(item types.EvidenceItem, raw, surface string) bool {

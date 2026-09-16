@@ -186,10 +186,10 @@ func answerDiagramRelationRepairFailureCapabilities(
 	}
 	switch issue {
 	case "call_edge_occurrence_unproven":
-		// This precise failure belongs to a visible invocation beyond the
-		// proved call-site occurrence budget. A unique matching anchor can
-		// still belong to an earlier legal invocation; it is not this excess
-		// statement's carrier merely because the endpoint tuple is equal.
+		// Compatibility for historical occurrence-failure checkpoints: keep
+		// their exact visible-body removal locator without reviving the old
+		// static-call-site count gate. A matching anchor can belong to an
+		// earlier retained invocation, not this selected body statement.
 		if failure.BodyOccurrence > 0 &&
 			strings.TrimSpace(failure.FromNode) != "" && strings.TrimSpace(failure.ToNode) != "" {
 			return AnswerDiagramRelationRepairCarrierVisibleBodyEdge, []AnswerDiagramRelationRepairAction{
@@ -502,9 +502,9 @@ func answerDiagramRelationRepairNormalizeSharedBodyCapabilities(
 }
 
 func answerDiagramRelationRepairFailureCarrierKey(base *AnswerDocumentV2, failure AnswerDiagramRelationRepairFailure) string {
-	// Excess invocations are independent body carriers, not repeated failures
-	// of the one legal anchor. Coalescing them by that anchor would invalidate
-	// all but one of the already-published occurrence-specific removal refs.
+	// Historical occurrence-failure refs select independent body carriers,
+	// not repeated failures of one retained anchor. Keep those existing refs
+	// distinct without asserting that static sites bound dynamic invocations.
 	excessBody := failure.TargetCarrier == AnswerDiagramRelationRepairCarrierVisibleBodyEdge &&
 		strings.TrimSpace(failure.Issue) == "call_edge_occurrence_unproven"
 	if !excessBody {

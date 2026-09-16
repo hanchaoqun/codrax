@@ -10,18 +10,49 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// A repeated visible invocation exceeds one proved call site's occurrence
-// budget, but removing that excess body statement must not consume the unique
-// anchor still owned by the first, legal invocation. Exercise the producer's
-// actual public repair ref; do not handcraft a private failure or candidate.
-func TestB1711PublicRemoveExcessBodyPreservesLegalAnchorAndSiblings(t *testing.T) {
+// Restore a synthetic version-1 checkpoint fixture containing historical
+// occurrence failures. This does not call today's producer or endorse the old
+// static-call-site count gate: static sites do not bound dynamic invocations.
+// The public lease compiler and JSON round trip exercise compatibility, then
+// the real patch tool must preserve ownership and run all current validators.
+func b1711RestoreLegacyOccurrenceLease(t *testing.T, bus *types.BusContext, doc *types.AnswerDocumentV2, historical []types.AnswerDiagramRelationRepairFailure) (*types.AnswerDocumentV2, *types.AnswerDiagramRelationRepairLease) {
+	t.Helper()
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, historical, nil)
+	if lease == nil || lease.Version != 1 || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
+		t.Fatalf("historical fixture must compile into an executable version-1 lease: %+v", lease)
+	}
+	raw, err := json.Marshal(lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored types.AnswerDiagramRelationRepairLease
+	if err := json.Unmarshal(raw, &restored); err != nil {
+		t.Fatal(err)
+	}
+	bus.Mutable.SetLastRejectedAnswerDocumentV2(doc)
+	bus.Mutable.SetAnswerDiagramRelationRepairLease(&restored)
+	if bus.Mutable.AnswerDocumentV2() != nil || bus.Mutable.PendingAnswerDocumentPatchBase() != nil {
+		t.Fatal("historical rejected fixture must not be installed as accepted or staged output")
+	}
+	return bus.Mutable.LastRejectedAnswerDocumentV2(), bus.Mutable.AnswerDiagramRelationRepairLease()
+}
+
+func b1711LegacyOccurrenceFailure(anchor types.DiagramEdgeAnchor, occurrence int) types.AnswerDiagramRelationRepairFailure {
+	return types.AnswerDiagramRelationRepairFailure{
+		BlockID: "sequence", Issue: "call_edge_occurrence_unproven", RelationKind: types.DiagramRelCall,
+		FromNode: anchor.FromNode, ToNode: anchor.ToNode,
+		FromIdentity: anchor.FromIdentity, ToIdentity: anchor.ToIdentity, BodyOccurrence: occurrence,
+	}
+}
+
+func TestB1711LegacyOccurrenceLeaseRemovePreservesAnchorAndSiblings(t *testing.T) {
 	bus, doc, anchor := standaloneCompleteRowFixture(t)
 	anchor.ClaimForm = types.ClaimCallEdge
 	doc.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{anchor}
 	diagramAnchor := anchor
 	diagramAnchor.FromNode, diagramAnchor.ToNode = "A", "B"
 	const first = "  A->>B: delegates appointment scheduling"
-	const excess = "  A->>B: repeats an unproved invocation"
+	const excess = "  A->>B: repeated appointment scheduling"
 	doc.Blocks = append(doc.Blocks,
 		types.AnswerBlock{ID: "sequence", Kind: types.BlockDiagram,
 			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid",
@@ -38,49 +69,33 @@ func TestB1711PublicRemoveExcessBodyPreservesLegalAnchorAndSiblings(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := standaloneCompleteRowExecute(t, bus, doc, false)
-	if result.Success || result.Repair == nil {
-		t.Fatalf("the unsupported second visible occurrence must be rejected: %+v", result)
+	base, lease := b1711RestoreLegacyOccurrenceLease(t, bus, doc,
+		[]types.AnswerDiagramRelationRepairFailure{b1711LegacyOccurrenceFailure(diagramAnchor, 2)})
+	if len(lease.Failures) != 1 {
+		t.Fatalf("historical fixture must retain its one selected occurrence: %+v", lease.Failures)
 	}
-	var delta types.AnswerDiagramRelationRepairDelta
-	if err := json.Unmarshal([]byte(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]), &delta); err != nil {
-		t.Fatalf("public emit must publish the exact repair delta: %v; result=%+v", err, result)
-	}
-	if len(delta.Failures) != 1 {
-		t.Fatalf("only the excess second occurrence should fail, not the legal anchor or sibling carriers: %+v", delta.Failures)
-	}
-	failure := delta.Failures[0]
+	failure := lease.Failures[0]
 	if failure.BlockID != "sequence" || failure.Issue != "call_edge_occurrence_unproven" ||
 		failure.BodyOccurrence != 2 || failure.FromNode != "A" || failure.ToNode != "B" ||
 		failure.FailureRef == "" || !failure.AllowsAction("remove") {
-		t.Fatalf("public repair must select only the second visible call: %+v", failure)
-	}
-	base := bus.Mutable.LastRejectedAnswerDocumentV2()
-	if base == nil || bus.Mutable.AnswerDocumentV2() != nil {
-		t.Fatal("first rejection must retain a repair base without publishing the invalid document")
+		t.Fatalf("historical repair must select only the second visible call: %+v", failure)
 	}
 	baseSequence := blockByID(t, base, "sequence")
 	if len(baseSequence.EdgeAnchors) != 1 || strings.Count(baseSequence.Diagram.Body, "A->>B:") != 2 {
 		t.Fatalf("precondition lost the unique anchor or duplicate visible invocation: %+v", baseSequence)
 	}
-	// Match the normal agent-side handoff using only the public emit's delta.
-	lease := types.NewAnswerDiagramRelationRepairLease(base, delta.Failures, delta.AllowedAdditions)
-	if lease == nil {
-		t.Fatal("public repair delta did not create a live repair lease")
-	}
-	bus.Mutable.SetAnswerDiagramRelationRepairLease(lease)
 	patch := map[string]any{
 		"diagram_edge_edits":  []any{map[string]any{"action": "remove", "failure_ref": failure.FailureRef}},
 		"unchanged_block_ids": []string{"summary", "path", "other-diagram"},
 	}
-	result = standaloneCompleteRowExecute(t, bus, patch, true)
+	result := standaloneCompleteRowExecute(t, bus, patch, true)
 	if !result.Success {
 		pending := bus.Mutable.PendingAnswerDocumentPatchBase()
 		var remaining []types.DiagramEdgeAnchor
 		if pending != nil {
 			remaining = blockByID(t, pending, "sequence").EdgeAnchors
 		}
-		t.Fatalf("removing only excess body occurrence 2 must accept in one patch while retaining occurrence 1's unique anchor; remaining_anchors=%+v result=%+v", remaining, result)
+		t.Fatalf("removing only historical selection 2 must accept in one patch while retaining occurrence 1's unique anchor; remaining_anchors=%+v result=%+v", remaining, result)
 	}
 	got := bus.Mutable.AnswerDocumentV2()
 	if got == nil {
@@ -106,23 +121,23 @@ func TestB1711PublicRemoveExcessBodyPreservesLegalAnchorAndSiblings(t *testing.T
 	}
 }
 
-func TestB1711PublicMultipleExcessBodiesHaveIndependentRemovalRefs(t *testing.T) {
+func TestB1711LegacyOccurrenceLeaseMultipleBodiesHaveIndependentRemovalRefs(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
-		callSites int
+		keepCalls int
 		anchors   int
 		reverse   bool
 		reply     bool
 	}{
-		{name: "one_anchor_ascending", callSites: 1, anchors: 1},
-		{name: "one_anchor_descending_with_reply", callSites: 1, anchors: 1, reverse: true, reply: true},
-		{name: "duplicate_anchors_ascending", callSites: 1, anchors: 3},
-		{name: "duplicate_anchors_descending_with_reply", callSites: 1, anchors: 3, reverse: true, reply: true},
-		{name: "two_proved_sites_keep_both_anchors", callSites: 2, anchors: 2},
+		{name: "one_anchor_ascending", keepCalls: 1, anchors: 1},
+		{name: "one_anchor_descending_with_reply", keepCalls: 1, anchors: 1, reverse: true, reply: true},
+		{name: "duplicate_anchors_ascending", keepCalls: 1, anchors: 3},
+		{name: "duplicate_anchors_descending_with_reply", keepCalls: 1, anchors: 3, reverse: true, reply: true},
+		{name: "two_retained_invocations_keep_both_anchors", keepCalls: 2, anchors: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bus, doc, anchor := standaloneCompleteRowFixture(t)
-			if tc.callSites == 2 {
+			if tc.keepCalls == 2 {
 				calls, repo := b1647TwoCallOccurrences(t)
 				bus.RepoRoot = repo
 				bus.Mutable = types.NewMutableState("Explain both source-proved invocations")
@@ -138,11 +153,11 @@ func TestB1711PublicMultipleExcessBodiesHaveIndependentRemovalRefs(t *testing.T)
 			header := fmt.Sprintf("sequenceDiagram\n  participant A as %q\n  participant B as %q", anchor.FromIdentity, anchor.ToIdentity)
 			body, wantBody := header, header
 			var anchors []types.DiagramEdgeAnchor
-			for i := 1; i <= tc.callSites+2; i++ {
+			for i := 1; i <= tc.keepCalls+2; i++ {
 				label := fmt.Sprintf("invocation %d", i)
 				line := "\n  A->>B: " + label
 				body += line
-				if i <= tc.callSites {
+				if i <= tc.keepCalls {
 					wantBody += line
 				}
 				if tc.reply && i == 1 {
@@ -158,63 +173,55 @@ func TestB1711PublicMultipleExcessBodiesHaveIndependentRemovalRefs(t *testing.T)
 			}
 			doc.Blocks = append(doc.Blocks, types.AnswerBlock{ID: "sequence", Kind: types.BlockDiagram,
 				Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: body}, EdgeAnchors: anchors})
-			result := standaloneCompleteRowExecute(t, bus, doc, false)
-			if result.Success || result.Repair == nil {
-				t.Fatalf("two unsupported visible occurrences must be rejected: %+v", result)
-			}
-			var delta types.AnswerDiagramRelationRepairDelta
-			if err := json.Unmarshal([]byte(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]), &delta); err != nil {
-				t.Fatal(err)
-			}
-			if len(delta.Failures) != 2 {
-				t.Fatalf("each excess body needs its own public removal capability, even when both share one legal anchor: %+v", delta.Failures)
+			base, lease := b1711RestoreLegacyOccurrenceLease(t, bus, doc, []types.AnswerDiagramRelationRepairFailure{
+				b1711LegacyOccurrenceFailure(anchor, tc.keepCalls+1), b1711LegacyOccurrenceFailure(anchor, tc.keepCalls+2),
+			})
+			if len(lease.Failures) != 2 {
+				t.Fatalf("historical body selections need independent removal capabilities even when they share one retained anchor: %+v", lease.Failures)
 			}
 			refs, occurrences := map[string]bool{}, map[int]bool{}
-			for _, failure := range delta.Failures {
+			for _, failure := range lease.Failures {
 				if failure.Issue != "call_edge_occurrence_unproven" || failure.BlockID != "sequence" ||
 					failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
 					failure.FailureRef == "" || refs[failure.FailureRef] ||
-					failure.BodyOccurrence <= tc.callSites || failure.BodyOccurrence > tc.callSites+2 ||
+					failure.BodyOccurrence <= tc.keepCalls || failure.BodyOccurrence > tc.keepCalls+2 ||
 					occurrences[failure.BodyOccurrence] || len(failure.AllowedActions) != 1 || !failure.AllowsAction("remove") {
-					t.Fatalf("excess invocation did not retain its exact independent remove-only capability: %+v", failure)
+					t.Fatalf("historical selection lost its exact independent remove-only capability: %+v", failure)
 				}
 				refs[failure.FailureRef], occurrences[failure.BodyOccurrence] = true, true
 			}
-			base := bus.Mutable.LastRejectedAnswerDocumentV2()
-			lease := types.NewAnswerDiagramRelationRepairLease(base, delta.Failures, delta.AllowedAdditions)
-			bus.Mutable.SetAnswerDiagramRelationRepairLease(lease)
-			// The visible-body classification must not mint replacement authority
-			// for a source-unproved repetition. Refusal must leave the lease/base live.
+			// Restoring an old remove-only capability must not mint replacement
+			// authority. Refusal must leave the historical lease and base live.
 			leaseBefore, _ := json.Marshal(bus.Mutable.AnswerDiagramRelationRepairLease())
 			bad := map[string]any{"diagram_edge_edits": []any{map[string]any{
-				"action": "replace", "failure_ref": delta.Failures[0].FailureRef,
+				"action": "replace", "failure_ref": lease.Failures[0].FailureRef,
 				"edge": map[string]any{"from_node": "A", "to_node": "B", "visible_label": "renamed excess call"},
 			}}, "unchanged_block_ids": []string{"summary", "path"}}
-			result = standaloneCompleteRowExecute(t, bus, bad, true)
+			result := standaloneCompleteRowExecute(t, bus, bad, true)
 			leaseAfter, _ := json.Marshal(bus.Mutable.AnswerDiagramRelationRepairLease())
 			if result.Success || !strings.Contains(result.Summary, "does not allow action=replace") ||
 				string(leaseBefore) != string(leaseAfter) || bus.Mutable.AnswerDocumentV2() != nil ||
 				!reflect.DeepEqual(base, bus.Mutable.LastRejectedAnswerDocumentV2()) {
-				t.Fatalf("unproved occurrence gained replacement authority or changed the live base: %+v", result)
+				t.Fatalf("historical occurrence gained replacement authority or changed the live base: %+v", result)
 			}
 			var edits []any
-			for i := range delta.Failures {
+			for i := range lease.Failures {
 				if tc.reverse {
-					i = len(delta.Failures) - 1 - i
+					i = len(lease.Failures) - 1 - i
 				}
-				edits = append(edits, map[string]any{"action": "remove", "failure_ref": delta.Failures[i].FailureRef})
+				edits = append(edits, map[string]any{"action": "remove", "failure_ref": lease.Failures[i].FailureRef})
 			}
 			result = standaloneCompleteRowExecute(t, bus, map[string]any{
 				"diagram_edge_edits": edits, "unchanged_block_ids": []string{"summary", "path"},
 			}, true)
 			if !result.Success {
-				t.Fatalf("both independently selected excess occurrences must close in one patch, regardless of declared edit order: %+v", result)
+				t.Fatalf("both historical selections must close in one patch, regardless of declared edit order: %+v", result)
 			}
 			got := bus.Mutable.AnswerDocumentV2()
 			sequence := blockByID(t, got, "sequence")
 			keep := tc.anchors
-			if keep > tc.callSites {
-				keep = tc.callSites
+			if keep > tc.keepCalls {
+				keep = tc.keepCalls
 			}
 			if sequence.Diagram.Body != wantBody || !reflect.DeepEqual(sequence.EdgeAnchors, anchors[:keep]) {
 				t.Fatalf("cleanup did not preserve exactly the legal calls, reply, and their original anchors: anchors=%+v body=%s", sequence.EdgeAnchors, sequence.Diagram.Body)
@@ -228,7 +235,7 @@ func TestB1711PublicMultipleExcessBodiesHaveIndependentRemovalRefs(t *testing.T)
 	}
 }
 
-func TestB1711PublicExcessBodyCleanupPreservesDistinctAnchorOwnership(t *testing.T) {
+func TestB1711LegacyOccurrenceLeaseCleanupPreservesDistinctAnchorOwnership(t *testing.T) {
 	for _, mode := range []string{"shared_unproved_return", "equivalent_identity_spelling"} {
 		t.Run(mode, func(t *testing.T) {
 			bus, doc, anchor := standaloneCompleteRowFixture(t)
@@ -236,7 +243,7 @@ func TestB1711PublicExcessBodyCleanupPreservesDistinctAnchorOwnership(t *testing
 			doc.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{anchor}
 			anchor.FromNode, anchor.ToNode = "A", "B"
 			second := anchor
-			second.VisibleLabel = "unproved second invocation"
+			second.VisibleLabel = "repeated appointment scheduling"
 			switch mode {
 			case "shared_unproved_return":
 				second.RelationKind = types.DiagramRelReturn
@@ -245,50 +252,46 @@ func TestB1711PublicExcessBodyCleanupPreservesDistinctAnchorOwnership(t *testing
 				second.FromIdentity = "VisitController::create"
 				second.ToIdentity = "VisitService::schedule"
 			}
-			const legalBody = "sequenceDiagram\n  participant A as VisitController.create\n  participant B as VisitService.schedule\n  A->>B: delegates appointment scheduling"
+			const legalBody = "sequenceDiagram\n  participant A as \"VisitController.create\"\n  participant B as \"VisitService.schedule\"\n  A->>B: delegates appointment scheduling"
+			const selectedLine = "\n  A->>B: repeated appointment scheduling"
 			doc.Blocks = append(doc.Blocks, types.AnswerBlock{ID: "sequence", Kind: types.BlockDiagram,
-				Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: legalBody + "\n  A->>B: unproved second invocation"},
+				Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: legalBody + selectedLine},
 				EdgeAnchors: []types.DiagramEdgeAnchor{anchor, second}})
-			result := standaloneCompleteRowExecute(t, bus, doc, false)
-			if result.Success || result.Repair == nil {
-				t.Fatalf("the excess invocation must be rejected: %+v", result)
-			}
-			var delta types.AnswerDiagramRelationRepairDelta
-			if err := json.Unmarshal([]byte(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]), &delta); err != nil {
-				t.Fatal(err)
-			}
+			historical := []types.AnswerDiagramRelationRepairFailure{b1711LegacyOccurrenceFailure(second, 2)}
 			wantFailures := 1
 			if mode == "shared_unproved_return" {
 				wantFailures = 2
+				historical = append(historical, types.AnswerDiagramRelationRepairFailure{
+					BlockID: "sequence", Issue: "return_edge_unproven", RelationKind: types.DiagramRelReturn,
+					FromNode: second.FromNode, ToNode: second.ToNode,
+					FromIdentity: second.FromIdentity, ToIdentity: second.ToIdentity, BodyOccurrence: 2,
+				})
 			}
-			if len(delta.Failures) != wantFailures {
-				t.Fatalf("fixture must fail only the selected excess body/anchor: %+v", delta.Failures)
+			base, lease := b1711RestoreLegacyOccurrenceLease(t, bus, doc, historical)
+			if len(lease.Failures) != wantFailures {
+				t.Fatalf("historical fixture must retain only its selected body/anchor capabilities: %+v", lease.Failures)
 			}
 			var edits []any
 			occurrenceFailure := false
-			for _, failure := range delta.Failures {
+			for _, failure := range lease.Failures {
 				if failure.BlockID != "sequence" || failure.BodyOccurrence != 2 || !failure.AllowsAction("remove") ||
 					(failure.Issue != "call_edge_occurrence_unproven" && failure.Issue != "return_edge_unproven") {
-					t.Fatalf("fixture must not publish a removal of the legal first occurrence: %+v", failure)
+					t.Fatalf("historical fixture must not permit removal of the retained first occurrence: %+v", failure)
 				}
 				occurrenceFailure = occurrenceFailure || failure.Issue == "call_edge_occurrence_unproven"
 				edits = append(edits, map[string]any{"action": "remove", "failure_ref": failure.FailureRef})
 			}
 			if !occurrenceFailure {
-				t.Fatalf("fixture did not reach the occurrence budget boundary: %+v", delta.Failures)
+				t.Fatalf("fixture lost the historical occurrence failure: %+v", lease.Failures)
 			}
-			base := bus.Mutable.LastRejectedAnswerDocumentV2()
 			baseSequence := blockByID(t, base, "sequence")
-			const excessLine = "\n  A->>B: unproved second invocation"
-			if strings.Count(baseSequence.Diagram.Body, excessLine) != 1 || len(baseSequence.EdgeAnchors) != 2 {
-				t.Fatalf("rejected base lost the exact excess statement or either anchor: %+v", baseSequence)
+			if strings.Count(baseSequence.Diagram.Body, selectedLine) != 1 || len(baseSequence.EdgeAnchors) != 2 {
+				t.Fatalf("restored base lost the exact selected statement or either anchor: %+v", baseSequence)
 			}
-			// The public emitter normalizes participant quoting before publishing
-			// the rejected base. The patch may remove only this one statement;
-			// every other byte must remain exactly as in that actual live base.
-			wantBody := strings.Replace(baseSequence.Diagram.Body, excessLine, "", 1)
-			bus.Mutable.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(base, delta.Failures, delta.AllowedAdditions))
-			result = standaloneCompleteRowExecute(t, bus, map[string]any{
+			// The historical base already contains normalized participant quoting.
+			// Only the selected statement may change; all other bytes must survive.
+			wantBody := strings.Replace(baseSequence.Diagram.Body, selectedLine, "", 1)
+			result := standaloneCompleteRowExecute(t, bus, map[string]any{
 				"diagram_edge_edits": edits, "unchanged_block_ids": []string{"summary", "path"},
 			}, true)
 			if !result.Success {
@@ -297,7 +300,7 @@ func TestB1711PublicExcessBodyCleanupPreservesDistinctAnchorOwnership(t *testing
 				if pending != nil {
 					remaining = blockByID(t, pending, "sequence").EdgeAnchors
 				}
-				t.Fatalf("removing the excess body and its own failed anchor must preserve the first legal anchor; remaining=%+v result=%+v", remaining, result)
+				t.Fatalf("removing the historical selection and its own anchor must preserve the first retained anchor; remaining=%+v result=%+v", remaining, result)
 			}
 			got := bus.Mutable.AnswerDocumentV2()
 			sequence := blockByID(t, got, "sequence")

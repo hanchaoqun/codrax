@@ -291,7 +291,7 @@ func TestB1649SharedMatcherPreservesBooleanAndExactEarlyReturn(t *testing.T) {
 	}
 }
 
-func TestB1649ActualDistinctCallSitesKeepOriginalOccurrenceBudget(t *testing.T) {
+func TestB1649ActualDistinctCallSitesPreserveSourceIdentityWithoutOccurrenceBudget(t *testing.T) {
 	for _, count := range []int{1, 2} {
 		t.Run(fmt.Sprintf("source_sites_%d", count), func(t *testing.T) {
 			bus := b1649ActualCalls(t, count)
@@ -336,25 +336,37 @@ func TestB1649ActualDistinctCallSitesKeepOriginalOccurrenceBudget(t *testing.T) 
 					"addition_ref": lease.AllowedAdditions[i%count].AdditionRef,
 					"edge":         map[string]string{"from_node": "A", "to_node": "B", "visible_label": label}})
 			}
+			beforeEvidence, err := json.Marshal(bus.Mutable.EmittedEvidence())
+			if err != nil {
+				t.Fatal(err)
+			}
 			if count == 1 {
 				params, _ := json.Marshal(map[string]any{"unchanged_block_ids": []string{"summary"}, "diagram_edge_edits": edits})
 				result, err := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
 				if err != nil || result.Success || !strings.Contains(result.Summary, "each live allowed addition may be selected at most once") {
-					t.Fatalf("one source choice was reused for two messages: err=%v result=%+v", err, result)
+					t.Fatalf("one opaque addition capability must not be consumed twice in a patch: err=%v result=%+v", err, result)
 				}
-			} else {
-				// One exact pair anchor owns the pair; the FULL evidence pool
-				// still has to supply both static call-site occurrences. A second
-				// redundant attach is not needed to express this same-method case.
-				params, _ := json.Marshal(map[string]any{"unchanged_block_ids": []string{"summary"}, "diagram_edge_edits": edits[:1]})
-				result, err := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
-				if err != nil || !result.Success {
-					t.Fatalf("two-site pair must be repairable with one exact pair anchor: err=%v result=%+v", err, result)
-				}
-				got := bus.Mutable.AnswerDocumentV2()
-				if got.Blocks[1].Diagram.Body != doc.Blocks[1].Diagram.Body || len(got.Blocks[1].EdgeAnchors) != 1 {
-					t.Fatalf("single selected attach lost either model message: %+v", got.Blocks[1])
-				}
+			}
+			// One exact pair anchor owns the proved relation in both body
+			// presentations, even with one source row and two failure refs.
+			// Distinct source rows remain distinct repair choices, not a
+			// runtime occurrence budget or extra attach duty.
+			params, _ := json.Marshal(map[string]any{"unchanged_block_ids": []string{"summary"}, "diagram_edge_edits": edits[:1]})
+			result, err := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
+			if err != nil || !result.Success {
+				t.Fatalf("%d-site pair must be repairable with one exact pair anchor: err=%v result=%+v", count, err, result)
+			}
+			got := bus.Mutable.AnswerDocumentV2()
+			if got == nil || len(got.Blocks) < 2 || got.Blocks[1].Diagram == nil {
+				t.Fatal("single selected attach did not publish the diagram")
+			}
+			if got.Blocks[1].Diagram.Body != doc.Blocks[1].Diagram.Body ||
+				strings.Count(got.Blocks[1].Diagram.Body, "A->>B:") != 2 || len(got.Blocks[1].EdgeAnchors) != 1 {
+				t.Fatalf("single selected attach lost either model message: %+v", got.Blocks[1])
+			}
+			afterEvidence, err := json.Marshal(bus.Mutable.EmittedEvidence())
+			if err != nil || string(beforeEvidence) != string(afterEvidence) {
+				t.Fatalf("one pair repair must preserve every original evidence row without minting execution counts: err=%v", err)
 			}
 			// Independently test the original ordinary gate, without treating
 			// the existing pair-level multi-attach executor as a new capability.
@@ -370,11 +382,8 @@ func TestB1649ActualDistinctCallSitesKeepOriginalOccurrenceBudget(t *testing.T) 
 					RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge})
 			}
 			issues = DiagramCallEdgeEvidenceMismatches(&authored, &types.AnswerSemanticView{Family: types.QFCallChain}, bus.EvidenceItems)
-			if count == 1 && (len(issues) != 1 || issues[0].Issue != diagramCallEdgeIssueOccurrenceUnproven) {
-				t.Fatalf("one source site must not authorize two calls: %+v", issues)
-			}
-			if count == 2 && len(issues) != 0 {
-				t.Fatalf("two actual source sites must retain ordinary authority: %+v", issues)
+			if len(issues) != 0 {
+				t.Fatalf("%d source sites prove the relation, not an upper bound on its presentations: %+v", count, issues)
 			}
 		})
 	}

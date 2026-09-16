@@ -34,6 +34,9 @@ import (
 //
 // Fail loud (§40.50): a case label or const value in a shape the walker does
 // not recognise is an offender, never a skip.
+// Reserved constants explicitly retained for persisted repair leases are part
+// of this compatibility vocabulary too. Membership does not assert that the
+// current producer still emits a retired failure (such as static call counts).
 
 var diagramIssueVocabularyProducerFiles = []string{
 	"answer_document_diagram_evidence.go",

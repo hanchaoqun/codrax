@@ -204,7 +204,7 @@ func TestDiagramStagePrecedenceAuthorityBindsVisibleAndAnchorAliasesWithinOneVer
 	}
 }
 
-func TestDiagramCallEdgeEvidenceMismatchesRepeatedCallOccurrenceNeedsDistinctCallSites(t *testing.T) {
+func TestDiagramCallEdgeEvidenceMismatchesRepeatedPresentationsDoNotConsumeStaticCallSites(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,
 		Diagram: &types.AnswerDiagramBlock{
@@ -225,22 +225,31 @@ func TestDiagramCallEdgeEvidenceMismatchesRepeatedCallOccurrenceNeedsDistinctCal
 		GroundingStatus: types.GroundingGrounded,
 	}
 
-	got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call})
-	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueOccurrenceUnproven {
-		t.Fatalf("one call site must own only one visible occurrence, got %+v", got)
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call}); len(got) != 0 {
+		t.Fatalf("one static call proves its relation, not a cap on repeated presentations, got %+v", got)
 	}
 
 	second := call
 	second.ID = "call-2"
 	second.LineStart = 2498
 	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call, second}); len(got) != 0 {
-		t.Fatalf("two distinct call sites may own two visible occurrences, got %+v", got)
+		t.Fatalf("additional static sites retain the same proved relation, got %+v", got)
 	}
 
 	duplicate := call
 	duplicate.ID = "duplicate-copy"
-	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call, duplicate}); len(got) != 1 || got[0].Issue != diagramCallEdgeIssueOccurrenceUnproven {
-		t.Fatalf("a duplicated evidence row must not increase occurrence authority, got %+v", got)
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, []types.EvidenceItem{call, duplicate}); len(got) != 0 {
+		t.Fatalf("duplicate evidence must neither change relation validity nor mint execution counts, got %+v", got)
+	}
+	// Reusing a proved relation does not turn a missing or reversed source
+	// fact into authority for either visible presentation.
+	reverse := call
+	reverse.Subject, reverse.Object = call.Object, call.Subject
+	reverse.AnchorSymbol = "runAnalyzePhase"
+	for _, evidence := range [][]types.EvidenceItem{nil, {reverse}} {
+		if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) == 0 {
+			t.Fatalf("absent or reverse-only call evidence must still reject both forward messages: %+v", evidence)
+		}
 	}
 }
 

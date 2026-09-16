@@ -9085,6 +9085,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		b.WriteString("- Only the explicit typed relations and supported typed flow paths listed below carry their stated authority. Unlisted adjacency remains unproven. Describe other grounded nodes as independent mechanism facts; do not join them into a path merely because the answer contract asks for `principal_path_edge`.\n")
 	}
 	b.WriteString("- The relation recipes are advisory, source-derived authoring aids. They do not choose the answer, require a diagram, or create a synthetic bridge. If you draw one, reuse its node aliases in the diagram body and copy its native JSON anchor unchanged; omit unsupported bridges instead of changing their relation kind to `call`.\n")
+	b.WriteString("- " + answerDocStaticRelationOccurrenceTeaching() + "\n")
 	b.WriteString("- When a user-facing component or participant is broader than a typed callable endpoint, preserve both layers. By default, place the exact endpoint node inside that component's Mermaid subgraph/group and draw the copied relation between exact endpoint nodes. If a published typed participant candidate explicitly permits a participant node on a declared endpoint side, that candidate-authorized visible mapping is also valid: follow its declared side and keep the technical from_identity/to_identity unchanged in the edge anchor. Do not retarget the relation to an abstract component node without that candidate-declared mapping; a role label alone cannot authorize retargeting. ")
 	if presentation.supportingDiagram {
 		b.WriteString("Omitting an unselected supporting operation from the diagram does not revoke its evidence; preserve required endpoint and participant coverage. ")
@@ -18824,7 +18825,7 @@ func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 	case copyReadyPayload != "":
 		hint += "A typed topology authoring template is available below. It is not acceptance-ready because its directed arrows carry the literal placeholder `AUTHOR_BUSINESS_ACTION` and its anchors omit `visible_label`. When it carries useful verified relationship structure, prefer replacing only the rejected diagram with the template's exact node IDs, edge topology, unanchored annotations, and complete identity fields in `edge_anchors_json`; then replace each placeholder with one business/domain action and copy it into both the Mermaid message and anchor `visible_label`. Do not emit the template unchanged or compose a third graph. "
 	case boundaryPayload != "":
-		hint += "A whole-diagram skeleton is intentionally unavailable because the existing typed relations do not prove one complete source-flow story. A bounded exact relation boundary is repeated below instead. Prefer repairing the diagram to a faithful subset of those recipes: keep each chosen recipe's node aliases, direction, relation kind, and `edge_anchor_json` together, use a recipe at most once, and keep separate components disconnected. Do not join the recipes into a longer path or compose a third story graph. "
+		hint += "A whole-diagram skeleton is intentionally unavailable because the existing typed relations do not prove one complete source-flow story. A bounded exact relation boundary is repeated below instead. Prefer repairing the diagram to a faithful subset of those recipes: keep each chosen recipe's node aliases, direction, relation kind, and `edge_anchor_json` together, and keep separate components disconnected. Do not join the recipes into a longer path or compose a third story graph. " + answerDocStaticRelationOccurrenceTeaching() + " "
 	default:
 		hint += "No typed topology template is available. Keep only visible edges already supported by the accepted typed evidence, or remove the optional diagram; do not reconstruct a new story graph. "
 	}
@@ -19644,9 +19645,9 @@ func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, 
 		action = "Keep using `emit_answer_document_patch`"
 	}
 	structuralPayload := renderAnswerDocDiagramStructuralCompositionHandoff(ctx)
-	hint := prefix + " because the REQUIRED source diagram contains visible relations or repeated occurrences beyond the currently accepted typed relation evidence. " +
+	hint := prefix + " because the REQUIRED source diagram contains visible relations beyond the currently accepted typed relation evidence. " +
 		action + "; repair only the rejected diagram carrier, retain every unrelated sibling block through `unchanged_block_ids`, and preserve the inherited citations. " +
-		"Keep the required diagram, but use each exact relation recipe below at most once unless another distinct grounded call-site row proves another occurrence. Do not connect recipes into a longer path, relabel them, or infer missing bridges. Requested participants without a proven directed incident relation must retain an unproven boundary. They may remain without directed edges, but an independently proved no-arrow ownership/grouping relation must not be flattened into unrelated peer nodes merely because its directed bridge is unproved. "
+		"Keep the required diagram and preserve each chosen relation recipe's exact endpoints, direction, relation kind, and matching anchor. " + answerDocStaticRelationOccurrenceTeaching() + " Do not connect recipes into a longer path, relabel them, or infer missing bridges. Requested participants without a proven directed incident relation must retain an unproven boundary. They may remain without directed edges, but an independently proved no-arrow ownership/grouping relation must not be flattened into unrelated peer nodes merely because its directed bridge is unproved. "
 	if principalOnly {
 		hint += "A request-scoped typed provider already proves the complete principal relation spine, so this repair intentionally repeats only that compact spine. Grounded sibling relations outside it remain valid supporting facts, but do not insert them into, replace, or truncate this principal diagram. "
 	} else if dynamicCandidateOnly {
@@ -19664,6 +19665,13 @@ func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, 
 		hint += "\n\nThe exact structural composition lane below is independent of the directed edge boundary above. Preserve its no-arrow ownership/grouping when repairing participant visibility; it adds no edge and does not close any `unproven` directed-relation boundary:\n\n" + structuralPayload
 	}
 	return hint + "\n\nFollow the projected patch schema's native JSON field types. The system is repeating precise evidence only; it does not rewrite the model's prose, ordering, or conclusion. Do not write free-form prose outside the tool call.", true
+}
+
+// Shared initial/repair source-diagram guidance. Static relation inventory is
+// not a runtime counter; model-owned control-flow presentation remains separate
+// from relation authority and from Trace's event/time-window evidence.
+func answerDocStaticRelationOccurrenceTeaching() string {
+	return "Static call-site evidence proves a relation, not its runtime execution count. You may represent repetition according to control flow already read, while preserving exact endpoints, direction, relation kind, and matching anchors. Do not infer execution counts, branch outcomes, or runtime argument values from evidence-row counts. Repetition does not authorize a new edge or path."
 }
 
 // answerDocDiagramBusinessDisplayRepairGuidance keeps exact evidence identity

@@ -5643,9 +5643,6 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			if mismatch.Issue == diagramCallEdgeIssueAnchorReversedAgainstVisibleEdge {
 				reversedAnchorBoundary = diagramReversedAnchorBoundaryTeaching
 			}
-			if mismatch.Issue == diagramCallEdgeIssueOccurrenceUnproven {
-				occurrenceBoundary = " Repeated visible call occurrences consume distinct grounded call-site rows; one typed call row cannot be replayed as several arrows. Collapse repeated endpoint pairs to one arrow, or provide one distinct citable call-site EvidenceItem per retained occurrence."
-			}
 			if mismatch.Issue == diagramTypedRelationTupleEndpointReused {
 				occurrenceBoundary = " One exact typed relation tuple may map to only one distinct reader-visible endpoint pair inside a diagram. If that tuple has independent evidence, keep at most one existing mapping; otherwise remove it. Other visible edges need genuinely different typed endpoint identities. Do not clone one tuple across several business/component destinations."
 			}

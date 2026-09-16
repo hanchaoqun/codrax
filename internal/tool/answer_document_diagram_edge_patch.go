@@ -2739,11 +2739,11 @@ func atomicDiagramAnchorSameTuple(left, right types.DiagramEdgeAnchor) bool {
 		left.RelationKind == right.RelationKind
 }
 
-// An excess visible invocation owns only metadata at the producer's same-pair
-// body position. The body ordinal is not an exact-tuple ordinal: two anchors
-// may spell equivalent identities differently, or the only matching anchor
-// may still belong to an earlier legal invocation. Single and shared removals
-// must use the same locator before deciding whether an edit is body-only.
+// A historical occurrence-failure ref owns only metadata at its saved same-pair
+// body position; this compatibility path does not revive the old static-count
+// gate. The body ordinal is not an exact-tuple ordinal: equivalent identities
+// may use different spellings, or a matching anchor may belong to an earlier
+// retained invocation. Single and shared removals must use the same locator.
 func findAtomicDiagramEditAnchor(anchors []types.DiagramEdgeAnchor, edit emitAnswerDiagramEdgeEdit) (int, int, error) {
 	if edit.failureRefResolved && edit.failureRefCarrier == types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge &&
 		edit.failureIssue == "call_edge_occurrence_unproven" && edit.BodyOccurrence > 0 {

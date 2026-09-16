@@ -900,7 +900,7 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredFlowUsesTypedRelationBoundaryW
 	}
 	for _, want := range []string{
 		"REQUIRED source diagram",
-		"use each exact relation recipe below at most once",
+		"Static call-site evidence proves a relation, not its runtime execution count",
 		"node_alias[n1]=`Orchestrator.runAnalyzePhase`",
 		"edge_recipe[1]=`n1 -> n2`",
 		`edge_anchor_json=` + "`" + `{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}` + "`",

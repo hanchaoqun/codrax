@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53提交，B1710全窗资源误附线程等待已bd7e8e1d2提交；B1711修补删错锚同步收账。冻结全仓85测试包通过、tool包仅一项权限登记重复失败，已修并专项count3通过；不得称原全仓全绿。宽选race中types源码正则普查超10分钟，明确记失败，精确lease专项race3另行通过。B1712静态位点数冒充动态次数已取得七形公共RED/count3，列当前最高优先级；不按重试关键词放行，不系统补画图。下批live尚未启动。
+本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53推送，B1710全窗资源误附线程等待已bd7e8e1d2推送，B1711修补删错锚已940f4cdf7推送。B1712静态位点数冒充动态次数已修：七形公共RED→GREEN、相邻count3/race3、初稿/修补教学一致及独立冷审通过，末版冻结全仓86测试包/13无测试包/零失败。中间census失败与宽选race源码普查超时保留，不冒充通过；末版三包精确race3已绿。不按重试关键词放行，不系统补画图；Trace投影/补齐/链上根因及活跃流保护不改。下一r1084仓颉read/C apply严格两路各一次，当前尚未启动。
 
 当前交付/人审§123.1836–1837：B1708端点主链与图呈现分域已473a1669e推送，公共初稿/Observe及emit/patch正反控、三包race/count3、冻结全仓86包通过。r1083恰好TS read/真实A5短窗Trace两路各一次，机器2PASS但人审均FAIL；B1708未自然触发，生产N/A。新增B1709合法comm括号漏IO配对P1、B1710全窗inode误附线程等待P1、B1711重复body删除误删合法anchorP2，进入公共先红后绿分批修复。模型重试次数/状态解释错误另记，不加原文硬门。Trace链上边界/投影/补齐、模型所有权、600/300/600s及活跃流不按正文缺失降级不变；旧图/原生证明债不代销。
 
@@ -57755,13 +57755,13 @@ C++主干多态/工厂分支部分正确，13个引用摘录与真实源码行�
 
 系统P1 **B1709**：原`block_rq_issue`尾部comm含`[[GT]ColdPool#6]`，解析器错误禁止内部`]`导致canonical identity失败，99µs请求驻留证据被排除；同型BIO/legacy按不参与键的opaque comm泛化修，保源/dev/op/sector/len/status严格。独立公共RED已有RQ/BIO×S/D普通名正控、内部括号8正针失败及跨源/错键/溢出等负控。**B1710**：computeIOBurstEpisodes把全窗TopInode/churn复制到线程等待，payload及finalizer object=inode制造未证资源归属；不能把此项全算模型幻觉。保留全窗背景，逐线程身份需独立证明，另立公共针。wakeup_chain的zero evidence来自默认1ms过滤，exact_tid和3段546µs仍在，不为本例改阈值。
 
-TS274s（内272s）/32%，主链及alias正确，终稿将总3次尝试写成3次重试，且过泛化sleep条件；完整源码/注释/条件已供给。原Mermaid parse/render成功（SVG28443bytes），空opt是语义空壳，不是语法失败。4拒绝/4patch中前3次分别为无证self-call/重复call-site、删有效列表边、原子修图同时整块覆盖，拒绝合理；第4次是新P2 **B1711**：发布remove ref删除第二重复body时连唯一合法anchor也删，保留第一边因此再次拒绝，attach后通过。需区分body occurrence与anchor所有权，不能靠放松证据门或系统补写图解决。
+TS274s（内272s）/32%，主链及alias正确，终稿将总3次尝试写成3次重试，且过泛化sleep条件；完整源码/注释/条件已供给。原Mermaid parse/render成功（SVG28443bytes），空opt是语义空壳，不是语法失败。4拒绝/4patch中首次无证self-call子项合理，但重复call-site子项属P1 **B1712**误拒（§1841更正初判）；后两次删有效列表边、原子修图同时整块覆盖的拒绝合理。第4次是新P2 **B1711**：发布remove ref删除第二重复body时连唯一合法anchor也删，保留第一边因此再次拒绝，attach后通过。修补目标保全与上游静态/动态合同须分别修，不系统补写图。
 
 23项case/fixture/runner、构建输入前后check通过，原结果`r1083-results-original.sha`及两MD/HTML/Tracejson/机器汇总六项`original-answers-summary.sha`封存。无第三例、无追绿重跑、无改原工件。两例均未自然进入B1708显式图无路径域，生产覆盖N/A；不能用机器绿宣称全图/全链根因验证闭环。
 
 状态：`r1083=exact2-once/machine2-pass/human2-fail`；`B1708=473a1669e-pushed/public-green/production-N-A`；`B1709=P1-public-red/repair-in-progress`；`B1710=P1-context-identity-confirmed/public-repro-next`；`B1711=P2-extra-repair-confirmed/public-repro-next`。600/300/600s及活跃字节/心跳/隐藏推理/工具参数续期不改，不因4ms或旧4m无正文降级。
 
-### §123.1838 B1709：块事件任务名是非身份文本，内含括号不能丢配对（2026-09-16，实施验证中）
+### §123.1838 B1709：块事件任务名是非身份文本，内含括号不能丢配对（2026-09-16，84ec52b53已推送）
 
 RQ issue、BIO queue、legacy insert/getrq三个尾槽从“comm不得包含]”改为单行opaque正文，保外层括号与前方dev/op/数字结构；completion status仍严格有符号数字及原范围校验。字段值不按线程名特判，任务名不参与配对键。跨物理来源、错dev/op/sector/len、溢出、无外层闭合、新行和非法completion status负控保留。legacy仍只能计inventory，不凭complete升为latency。ParserVersion从v40升v41，旧三代际pin同步并增加真实cache admitted正控/旧代不复用负控，避免暖缓存静默丢请求。
 
@@ -57769,7 +57769,7 @@ RQ issue、BIO queue、legacy insert/getrq三个尾槽从“comm不得包含]”
 
 原A5仅离线公共查询（不重跑LLM、不改原eval）已恢复issue L53→complete L67的99µs请求、91µs完成闭合线程阻塞；初次收据`20260916-b1709-a5-offline-replay.log`，B1710摘要完善后`20260916-b1709-b1710-a5-offline-final.log`再次PASS0.646s，线程等待不再附inode或伪零资源字段。请求驻留与线程阻塞两套口径独立，S/D通道都有公共保全针，未把异步全部请求时长升成根因，不能据离线结果改r1083人审FAIL。扩大IO/cache race/count3通过176.188s（`20260916-b1709-io-cache-race-count3.log`）。
 
-### §123.1839 B1710：线程等待不继承全窗IO资源；背景与精确资源各归其位（2026-09-16，实施验证中）
+### §123.1839 B1710：线程等待不继承全窗IO资源；背景与精确资源各归其位（2026-09-16，bd7e8e1d2已推送）
 
 公共有效RED为`20260916-b1710-public-red3.log`（0.595s），D普通等待及标IO等待两针均借另一线程inode0xaa、4096bytes、3churn、0.300ms maxima，EvidenceFact.Object也错误绑定；red/red2是夹具口径校准，不作有效收据。S/D原始状态、90µs链上完成闭合、全窗三inode/两请求和真实inode-storage正控保持。
 
@@ -57777,7 +57777,7 @@ RQ issue、BIO queue、legacy insert/getrq三个尾槽从“comm不得包含]”
 
 文本针先RED，后count3（tracequery0.721s/tool1.358s）、race3（2.079s/3.030s）均过；收据`20260916-b1710-text-{red,count3,race3}.log`。两次别的并行测试遇到helper与调用方跨文件落盘中间态undefined，作为无效编译收据保留，不算产品RED；最终冻结后统一重跑。
 
-### §123.1840 B1711：越额图边按可见发生定位，不消耗保留边的合法锚（2026-09-16，实施验证中）
+### §123.1840 B1711：历史越额图边修补不消耗保留边的合法锚（2026-09-16，940f4cdf7已推送）
 
 真实公共emit先报第二同向call-site occurrence超额，经正常delta→lease交接、模型仅remove该ref，原实现却删除唯一合法anchor并再报首边缺锚。新增公共针保另一独立图、principal列表、summary和证据不变；最小修将精确call_edge_occurrence_unproven按parser BodyOccurrence编译visible body/remove-only。既有无证边门仍拒绝、不给replace权限，不改模型标签或补写图。
 
@@ -57787,7 +57787,7 @@ RQ issue、BIO queue、legacy insert/getrq三个尾槽从“comm不得包含]”
 
 本项仅闭合修补目标/删除保全；用户随后指出本次最终空opt，root回看初稿发现原有“再次调用”被次数门要求删除。静态call-site数量是否可用作运行次数上限另列B1712审计，**撤回将首次拒绝中每个子项都视为正确的整体判断**：两个self-call无证拒绝仍有效，但重复调用子项不能未审先判合理。B1711不代销这项上游合同，也不宣称图时序/逻辑全闭环。
 
-### §123.1841 B1712：静态调用点数不是运行调用次数上限（2026-09-16，P1确认，公共复现中）
+### §123.1841 B1712：静态调用点数不是运行调用次数上限（2026-09-16，P1已复现，修复验证中）
 
 用户点名`20260916-021011.654-68753.md`图奇怪后回查：原始first emit的opt中有Transport→Once“再次调用”；源码transport.ts:22的for确实包住:23 dispatchOnce，FixedDelay(200,3)允许重试。`answer_document_diagram_evidence.go`用去重静态EvidenceID数作budget，对可见同向call箭头计数，超过即call_edge_occurrence_unproven；没有循环/分支frame或执行次数证据。原始工具回执`tool-call_function_f7n19yj6q2iu_1-emit_answer_document-result-de2f45b1.txt:4`明确教一条call row不能replay。模型按提示删除第二次调用，最终L44–45仅剩空opt。
 
@@ -57800,6 +57800,26 @@ RQ issue、BIO queue、legacy insert/getrq三个尾槽从“comm不得包含]”
 B1709/10/11本批验收补记：4781个Go/build输入前后SHA一致；`20260916-b1709-b1711-full-suite.log`全仓退出1，85测试包通过，tool包唯一失败为issue census仍把已显式授remove权限的occurrence标签登记在默认分支。删除重复默认登记后，census+B1711公共针count3=2.546s通过，不削减生产词汇覆盖。宽选race/count3的tracequery24.266s、tool46.236s通过，types601.140s超默认10分钟，栈为既有`TestInfoContractNoteKeyCarrierTruth`大源码正则扫描，不是race告警；保留失败收据，不记全组三绿。另精确lease/failure专项race3=2.946s通过，活跃流/default专项count3=51.160s通过。B1712退役后重新冻结全仓，当前不宣称最终全仓全绿。原r1083机器/答案/fixture保持不动。
 
 B1712独立有效先RED：临时overlay `20260916-b1712-overlay/red-final-count3.log`每轮七个重复展示正例精确因occurrence门失败，单边对照及五个无据/反向/错关系/孤立或多余回复负控全过，count3=1.451s一致。覆盖普通sequence、opt、loop、alt、成对回复、flow、DAG；中性操作标签，无“重试”字样授权。初次调试裸participant经过既有安全引用正规化，及return负控由独立return门拒绝的期望已校准，早期日志不算有效完整RED。
+
+实施：删除source关系门的静态EvidenceID预算、计数与dead helper，删除pre-emit要求“每箭头消耗一个不同callsite”的错误修补提示。保每条关系的已证方向、精确identity、typed owner、body绑定、operator/reply配对及不同可见端点不得克隆同tuple等门。旧issue常量明确仅作持久化repair lease兼容，census继续覆盖它，不声称当前会再发该误判。运行Trace域入口仍提前隔离，显式时间窗/事件次数及因果投影、补齐不改。系统不扫描原问/模型散文关键词、不作者loop/opt/参数或新图，不把重复呈现自动签为已观测运行次数。
+
+初稿与required/optional两条repair共享简短source指导：静态调用证据证明关系而非执行次数；模型可按已读控制流呈现重复，不能从证据行数推执行次数、分支结果或运行参数，不借重复接新边/新路径。公开BuildInitialInstruction/Observe的必选/可选×full/patch四形、显式窗Trace隔离及模型草稿字节保全先RED后GREEN；教学count3=1.201s/race3=3.666s。无新JSON字段或必填负担，原opaque addition_ref单事务不可重复消费仍保留，这与同关系可多次展示不是同一概念。
+
+B1711三组测试同步迁为明确synthetic v1历史typed lease：公共lease编译→JSON round-trip→仅安装LastRejected+lease→真实patch→当前全量重验。八场景保留独立ref、禁止replace、精确删选中body/anchor及siblings/证据保全，不再用新emit产生错误次数拒绝；count3=1.300s/race3=4.039s。三个旧次数断言改为真实静态关系复用，并补无据/反向负控。广邻接143个顶层测试×3=429/429通过，末版普通3.023s/race18.557s（`20260916-b1712-adjacent-final2-{count3,race3}.log`）。B1649额外证明单callsite、两个missing-body ref时，仅一次精确attach即可保两条模型body、1锚及证据原字节；复用opaque ref两次仍拒，不存在“必须逐failure分别消费”的已确认教学矛盾，未扩生产修补权限。
+
+最终Go/build输入冻结在`20260916-b1712-final-build-inputs.sha`，全仓无缓存和精确三包race/count3运行中；旧r1083 case/fixture/runner及答案/HTML/侧车/机器汇总哈希检查一致。中间宽选race源码普查超时、全仓旧census失败原收据保留；当前仍等最终完整测试结果，不提前签绿。B1709/10/11已三提交推送，B1712待最终验证后独立提交；新live未开始。
+
+独立只读冷审无阻断，tool1.894s/agent0.869s定向再验通过。明确局限：公共loop/alt/opt正控使用单直线调用源码，只证明静态关系可重复呈现而不被错拒，不能替代循环/分支/参数语义的源码人审。新共享指导覆盖初稿及typed relation-boundary两修补分支，其他copy-ready/dynamic/原子ref分支未必重复该句；全仓生产文案检索已无旧at-most-once静态次数指导，不夸称所有repair路径都新增同句。精确三包最终race/count3已通过agent6.575s/tool26.684s/types5.133s，`20260916-b1712-combined-race-final.log`，避免宽选源码普查超时被误计作相关race失败。
+
+最终验收：`20260916-b1712-full-suite-final.log`全仓无缓存退出0，86包通过、13包无测试、零失败；4764个Go/build输入前后SHA一致，格式/diff检查通过。三包race3及前述公共红绿/冷审共同覆盖本片，先前失败日志不删除。原r1083报告/图/机评及case/fixture未改；新source关系重复不再被误拒，不代表循环语义/运行次数已由系统证明。fresh fetch与origin/main 0/0，B1712本片独立提交推送后清洁构建才开启r1084。
+
+### §123.1842 r1084：仓颉复合声明读取与C错误码传播写修复（2026-09-16，排期，尚未启动）
+
+243例仍按用户影响、模式/语言异构性、最近覆盖及本机原生验收能力排序。本对选`harmony/cangjie_repomap.case`全仓read15（08-31以来未跑全仓版，区别09-10/11的isolated fixture）与`github_issue_libgit2_foreach_worktree_symptom.case`apply24（最近r1065，真实cc编译执行可用；可能split/replan的source owner/proof-only尾代自然触发情况须实审，不预签）。上批TS+Trace双read，本批补稀疏语言及write；候补ArkTS留后续，不能通过调整旧oracle消掉已知分组差异。PATH未提供可运行JDK/Rust工具链，只说明本机当前调用环境，不声称其他位置绝无SDK。
+
+人工基线：仓颉2 extend/2 foreign func/8 public class及12行，package只能来自声明，runOnMainThread是callback参数不是foreign声明，extend不是继承，跨目录同名native_add各有归属。C必须callback任意非零原样返回且优先于lookup，lookup仅负数为错；原Make编译执行4断言，但不足覆盖全部正负/边界组合。另离线49格后验与正式plan/proof分列，绝不回填。两题原case/fixture/oracle不改；本对不自然要求图/Trace时，B1712/1709/10生产覆盖记N/A。
+
+20项case/fixture/源码语料/runner哈希封存`20260916-r1084-cases-fixtures-runner-before.sha`。待B1712最终全仓完成并提交推送、清洁构建后，严格CAP5/PARALLEL2/TIMEOUT1200，各一次，无第三例追绿。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
