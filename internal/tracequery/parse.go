@@ -39,15 +39,18 @@ var (
 	// must still follow a non-empty canonical-length comm.
 	ftraceLooseMissingPIDTailRE = regexp.MustCompile(`^\[([^\[\]\r\n]+?)\]?\s+\S+\s+([^\s:]+):\s+([^\s:]+):\s*(.*)$`)
 	kvRE                        = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^ ]+)`)
-	blockRQIssueRE              = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
-	blockRQCompleteRE           = regexp.MustCompile(`^(\S+)\s+(\S+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
-	blockBioQueueRE             = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
-	blockBioCompleteRE          = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
-	blockSimpleLegacyRE         = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
-	blockRQRemapRE              = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s+(\d+)\s*$`)
-	blockBioRemapRE             = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
-	blockRemapLegacyRE          = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
-	blockErrorRE                = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
+	// Task names are opaque text, not pairing keys, and may themselves contain
+	// brackets. Keep the outer envelope and typed numeric fields strict; do not
+	// apply this task-name grammar to completion status fields.
+	blockRQIssueRE      = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n]*\]\s*$`)
+	blockRQCompleteRE   = regexp.MustCompile(`^(\S+)\s+(\S+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
+	blockBioQueueRE     = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n]*\]\s*$`)
+	blockBioCompleteRE  = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
+	blockSimpleLegacyRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n]*\]\s*$`)
+	blockRQRemapRE      = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s+(\d+)\s*$`)
+	blockBioRemapRE     = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
+	blockRemapLegacyRE  = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
+	blockErrorRE        = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
 )
 
 var spaceKVKeys = map[string]struct{}{
