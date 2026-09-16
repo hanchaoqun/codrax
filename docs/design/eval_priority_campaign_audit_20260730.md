@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-15）
 
-本轮§123.1824已验收B1694同坐标异声明修复：五语言真实工具→账本→模型上下文先红后绿，统一精确身份优先、跨ID兼容且唯一的匹配器；合法元数据/端点补齐正控保留，另修等grounding稀疏重放撤销端点的同根问题。旧伪“同ID”针原输入保留并纠正验收含义，新增真实同ID公共正控，不为旧误并恢复跨Kind吞并。专项count3/race、独立冷审及冻结全仓86包通过；点/范围引用支线继续OPEN。r1079预选C++症状写修复+Python/PyO3/Rust跨语言读，修复交付后恰好两路各一次，尚未启动；不冒称完整图/Trace解释/写证明闭环。
+本轮§123.1824的B1694同坐标异声明修复已推`285f08729`：公共五语先红后绿、count3/race、独立冷审及冻结全仓86包通过。精确身份优先，跨ID兼容且唯一才合修订；合法元数据/端点补齐保留，等grounding稀疏重放不撤销完整端点。§123.1825 r1079清洁构建后恰好C++症状写与Python/PyO3/Rust读两路各一次：机器1PASS/1FAIL；写业务后验336/336+UBSan通过但正式proof仍弱，读图语法通过但语义/关系人审失败。没有确认新的系统P1/自冲突，也没有B1694自然命中；点/范围引用、原生证明、完整图/Trace解释债仍OPEN，不代写模型答案或追加追绿。
 
 本轮§123.1821–1823已验收：r1078审计`f8cade07a`已推送，清洁`aa52ef41eb0d`恰好H10语义成员Trace与criterion公开函数read两路各一次，机器1PASS/1FAIL；人审函数核心PASS，Trace遗漏两段1.781/0.607ms及范围并混用等待口径，FAIL不改。B1705图样式错误推导关系最低数、B1706有界语义事实上下文缺失均已修复：公共先红后绿、count3/race、独立冷审及冻结全仓86包通过，随本批分提交交付。不接管模型正文，不强开完整因果报告或代选根因，旧必选空图/未证出口/实际关系证据门保留。B1694两支及图/Trace解释/写证明余债继续OPEN；本对无图或写执行，不冒称其生产闭环，修复后live尚未回放。
 
@@ -57558,7 +57558,19 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 
 9. **最终冻结验收**：`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./... -count=1`完整exit0，86个有测试包重跑通过、13个无测试包，收据`20260915-b1694-full.log`；所有Go/build输入`20260915-b1694-freeze.sha`前后逐项一致，diff检查及r1079两case/两fixture前置SHA验证通过。最后types/agent专项race3为3.163/5.065s，独立公共五语末版count3/race1.174/2.595s，工具专项race3 3.423s；冷审确认无阻断。工具更早整包431.159s仅作邻接收据，不代替最终集成。唯一生产之外变化为stream旧注释澄清；无测试跳过新增，不将既有point/range known-gap SKIP说成已通过。
 
-状态：`B1694-claim-identity=implemented/public-red-green/count3+race+cold-pass/frozen-full86-pass`；`B1694-point-range=OPEN`；`r1079=planned/not-started`；`model-answer/root-selection/Trace-report/auto-supplement=preserved`。
+状态（r1079后更新）：`B1694-claim-identity=285f08729-pushed/public-red-green/count3+race+cold-pass/frozen-full86-pass`；`B1694-point-range=OPEN`；`r1079=complete/audit-1825/natural-claim-collision-N-A`；`model-answer/root-selection/Trace-report/auto-supplement=preserved`。
+
+### §123.1825 r1079：C++ 症状修复与 Python/PyO3/Rust 调用链（2026-09-15，双路一次审计完成）
+
+1. **冻结交付与回放**：B1694 `285f08729e12`已推main，清洁make=`0.1.20260916`、built=`2026-09-16T02:59:09Z`。02:59:46Z启动CAP5/PARALLEL2/TIMEOUT1200、read15/apply24原预算，两路各一次，03:01:47Z完整结束；无第三例/重跑/改oracle。机汇总`eval/parallel_selected_summary_evalcampaign_cppwrite_polyread_r1079_20260915.md`原样，完整过程/上下文/答案人审在同名前缀`_manual_audit.md`。
+2. **机器和业务证明分判**：写机FAIL120s、读机PASS121s（case自身分别118/119s）。C++最终只改头文件3行：加法前升long long、跨render_year保宽，原测试/Makefile/README未改。durable交付`fa90c76d2bf57dd548bff23c718255078cee0c69`与保留交付树/工作树四源文件一致，scratch主HEAD不动；原测试及独立336项、UBSan全部通过，基线原实现239过97败。私有收据`.codrax/tmp/r1079-cpp-posthoc.PUn4Ru/DELIVERY_RESULT.md`，后验不供模型、不回填正式proof，不冒称跨平台全证。
+3. **正式写侧低置信原因**：确有make check编译并执行、exit0、880.549ms；但只录aggregate make-test/check，目标执行身份capability=unknown。五个contract均planning-only，hard/soft required为0，不是丢失五个必需合同或旧累计失败未清。系统未采信模型all_verified，最终明确“未完全验证”，没有假绿。B1319/B1561/B1575及B1678原生runner能力债继续OPEN，不以命令/输出关键词或后验代授能力。另B1678/P2诊断边界：unknown亦发source_static_only原因，资格保守正确、名字却将“未见目标执行凭证”说窄为“只有静态”；后续应typed区分，不改变proof门。
+4. **读答案仍FAIL**：正式`20260915-200145.423-46797.md`保主链正文、注册与回退，但将list(data)也说成传给bytes回退，把encode放入仅原生的alt分支，并把独立best_merge错误解释为非跨函数调用。源码顺序与真实call已有精确上下文，不是这些事实缺供给。图Wrap/Core孤立，中间桥接未完整表达；回退算法未展开，merge.rs本轮未读。仓内Mermaid引擎真parse/render PASS、1图/SVG27130B，记录`20260915-r1079-read-mermaid-render.json`；语法可用不能代销逻辑/关系错误，未做完整浏览器视觉验收。
+5. **3拒3patch逐条审计**：首稿缺principal endpoints与全部edge_anchors；第二次attach缺嵌套edge；随后成功补丁明确由模型提交三remove及五unproven，非系统擅删。最后错误选择definition ID作terminal-operation，而同上下文已有准确operation候选，拒绝成立、保留之前成功稿。registration非法anchor有已有明确教学，本次不足以确认独立parser绑定车道断路；不能把text_reference自动升为call权威。没有确认同一个合法声明必带/必拒，不因单例低质答案新增prose/业务词硬门或替写模型结论。
+6. **B1694 live为N/A**：本轮实际扫描3文件/提取concrete值0，仅独立branch_effect，无同坐标definition/concrete-return竞争。metrics `concrete_values=2`仅日志命中计数，不是两条恢复正证。B1694闭合的是确定性公共五语言/多returns/逆序重放/全入口及全仓回归，本对不冒称自然触发；完整图表达和模型采用行为仍开放，不以一次输出证明波动概率。
+7. **保全/下一ROI**：原MD/HTML、机汇总及所列out/日志/verdict/metrics/正式JSON前后指纹清单为`20260915-r1079-{output,formal}-before-audit.sha`，原case/两fixture核一致。下一先B1694点/范围引用（full+patch、模型池原样、精确选择范围），再原生执行证明；上述P2诊断不丢账。其它语言/图时序/逻辑仍用异构回放，不重复本题求绿。本对无Trace，显式窗投影/自动补齐/IO供给语义业务两轴及root旁路不代销。默认600/300/600s、活跃字节续期未变，无4ms/旧4m无正文降级；显式caller deadline仍有效。
+
+状态：`r1079=exact2-once/machine1PASS1FAIL`；`write-business-local-pass/formal-unverified`；`read-human-fail/mermaid-parse-render-pass/semantic-fail`；`new-system-P1=not-confirmed`；`B1694-point-range+native-proof+diagram-model-quality=OPEN`；`original-model-artifacts/oracles=preserved`。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
