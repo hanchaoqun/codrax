@@ -46,9 +46,7 @@ def fake_cli():
     git(repo, "add", "main.go")
     git(repo, "-c", "user.email=eval@codrax", "-c", "user.name=eval", "commit", "-qm", "source checkpoint")
     sha = git(repo, "rev-parse", "HEAD")
-    # The pre-existing tree materializer orders checkpoints by whole-second
-    # committer time. Keep this fixture's chronology unambiguous; same-second
-    # ref-name ordering is a separate materializer issue, not owner selection.
+    # Deliberately vary commit clocks; ancestry, never timestamps, owns bytes.
     next_commit_env = {**os.environ, "GIT_COMMITTER_DATE": str(int(git(repo, "show", "-s", "--format=%ct", sha)) + 1) + " +0000"}
     git(repo, "update-ref", "refs/codrax/applied/plan-source", sha)
     source.update(status="applied", applied_commit_sha=sha, applied_paths=["main.go"], worktree_path=str(repo),
@@ -123,8 +121,16 @@ def fake_cli():
     if variant == "wrong_report":
         report["plan_id"] = "plan-wrong"
     dump(out / (final_id + ".report.json"), report)
-    final = {"kind": "final_report", "run_status": "complete", "completion": {"verdict": "verified", "reason_code": "all_batches_verified"},
+    checkpoint_plans = [("plan-source", source)]
+    if (out / "plan-second.json").is_file():
+        checkpoint_plans.append(("plan-second", json.loads((out / "plan-second.json").read_text())))
+    materialization = {"schema_version": 1, "status": "available", "run_id": "wf-b1634c", "final_plan_id": final_id,
+                       "retained_plan_ids": [plan_id for plan_id, _ in checkpoint_plans],
+                       "owners": [{"plan_id": plan_id, "commit_sha": value["applied_commit_sha"],
+                                   "paths": value["apply_checkpoint"]["committed_paths"]} for plan_id, value in checkpoint_plans]}
+    final = {"kind": "final_report", "run_id": "wf-b1634c", "run_status": "complete", "completion": {"verdict": "verified", "reason_code": "all_batches_verified"},
              "plan": {"id": final_id}, "delivery": {"status": "coherent", "relation": "source_plan_owns_final_delivery",
+             "materialization": materialization,
              "final_plan_id": final_id, "report_plan_id": final_id, "primary_source_plan_id": owners[0],
              "source_owner_plan_ids": owners, "source_paths": paths}}
     if variant == "missing_delivery":
@@ -202,9 +208,7 @@ class WritePlanOracleB1634cTest(unittest.TestCase):
             "wrong_ref": "source_ref_mismatch:plan-source",
             "wrong_checkpoint_paths": "source_checkpoint_paths_mismatch:plan-source",
             "multi_missing_owner": "delivery_source_paths_not_owned",
-            "tree_mismatch": "applied_tree_mismatch:main.go",
             "overlap_fork": "source_path_owner_ambiguous:main.go",
-            "overlap_wrong_tree": "applied_tree_mismatch:main.go",
             "wrong_report": "report_plan_mismatch",
         }
         for variant in [*invalid, "unrelated_patch", "report_failed", "terminal_unverified"]:
@@ -220,27 +224,32 @@ class WritePlanOracleB1634cTest(unittest.TestCase):
                 if variant == "terminal_unverified":
                     self.assertIn("write_final_verdict:unverified", verdict)
 
-    def test_same_second_stale_materialization_is_not_greenlit(self):
+    def test_tampered_delivered_bytes_are_not_greenlit(self):
+        from write_plan_oracle import InvalidDelivery, verify_delivered_paths
         verdict, result = self.run_case("overlap_same_second")
-        self.assertIn("plan_oracle_source_invalid:applied_tree_mismatch:main.go", verdict)
+        self.assertEqual(verdict, "PASS")
         second = json.loads((result / "plan-second.json").read_text())
-        source = git(result / "run-1.repo", "show", second["applied_commit_sha"] + ":main.go")
-        self.assertIn("second source owner", source)
-        self.assertNotIn("second source owner", (result / "run-1.applied-tree/main.go").read_text())
+        source = json.loads((result / "plan-source.json").read_text())
+        delivered = result / "run-1.applied-tree"
+        (delivered / "main.go").write_text("stale or corrupted bytes\n")
+        owners = [{"commit": plan["applied_commit_sha"], "paths": {"main.go"}} for plan in (source, second)]
+        with self.assertRaisesRegex(InvalidDelivery, "applied_tree_mismatch:main.go"):
+            verify_delivered_paths(result / "run-1.repo", delivered, owners, {"main.go"})
 
-    @unittest.expectedFailure
     def test_b1693_same_second_materializer_should_keep_descendant_bytes(self):
-        """Independent open B1693 witness; never weaken B1634c's guard above.
-
-        Run this named test alone to reproduce the pre-existing ref-name tie:
-        runner_lib.sh materializes plan-second before its parent plan-source,
-        despite the git ancestry. A future ancestry-order repair should turn
-        this into an unexpected success until this explicit debt marker closes.
-        """
-        _, result = self.run_case("overlap_same_second")
+        """The original public RED now requires the actual descendant bytes."""
+        verdict, result = self.run_case("overlap_same_second")
+        self.assertEqual(verdict, "PASS")
         second = json.loads((result / "plan-second.json").read_text())
         expected = git(result / "run-1.repo", "show", second["applied_commit_sha"] + ":main.go")
         self.assertEqual((result / "run-1.applied-tree/main.go").read_text().strip(), expected)
+
+    def test_unselected_refs_do_not_contaminate_delivered_bytes(self):
+        for variant in ("tree_mismatch", "overlap_wrong_tree"):
+            with self.subTest(variant=variant):
+                verdict, result = self.run_case(variant)
+                self.assertEqual(verdict, "PASS")
+                self.assertNotIn("unrelated later modification", (result / "run-1.applied-tree/main.go").read_text())
 
 
 if __name__ == "__main__":

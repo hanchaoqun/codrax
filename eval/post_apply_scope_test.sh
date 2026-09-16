@@ -63,6 +63,35 @@ git -C "$repo" reset --hard -q HEAD~1
 printf '{"id":"plan-scope","status":"applied","applied_commit_sha":"%s","worktree_path":"%s/discarded","changes":[{"path":"%s","kind":"patch"},{"path":"%s","kind":"patch"}]}\n' "$sha" "$plan_dir" "$first" "$second" >"$plan_file"
 printf '{\n  "plan_id": "plan-scope",\n  "channel": "post_apply_verify",\n  "passed": true,\n  "executed_commands": []\n}\n' >"$plan_dir/plan-scope.report.json"
 printf '{"kind":"final_report","run_status":"complete","completion":{"verdict":"verified","reason_code":"all_batches_verified"},"plan":{"id":"plan-scope"}}\n' >"$plan_dir/plan-scope.final.json"
+# Bind the fake system receipt to the real post-seed checkpoint, including
+# deletion, space-name and symlink variants rather than just planned headers.
+python3 - "$repo" "$sha" "$plan_file" <<'PY'
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+repo, sha, raw_plan = sys.argv[1:]
+plan_path = Path(raw_plan)
+plan = json.loads(plan_path.read_text())
+raw_paths = subprocess.check_output(["git", "-C", repo, "diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", sha])
+paths = [path.decode() for path in raw_paths.split(b"\0") if path]
+declared = {change["path"] for change in plan["changes"]}
+plan["changes"].extend({"path": path, "kind": "patch"} for path in paths if path not in declared)
+plan["applied_paths"] = paths
+plan["apply_checkpoint"] = {"commit_sha": sha, "recovery_ref": "refs/codrax/applied/" + plan["id"], "committed_paths": paths}
+plan_path.write_text(json.dumps(plan))
+(plan_path.parent / (plan["id"] + ".json")).write_text(json.dumps(plan))
+final_path = plan_path.parent / (plan["id"] + ".final.json")
+final = json.loads(final_path.read_text())
+final["run_id"] = "wf-scope"
+final["delivery"] = {"materialization": {
+    "schema_version": 1, "status": "available", "reason_code": "applied_checkpoint_candidates",
+    "run_id": final["run_id"], "final_plan_id": plan["id"], "retained_plan_ids": [plan["id"]],
+    "owners": [{"plan_id": plan["id"], "commit_sha": sha, "paths": paths}],
+}}
+final_path.write_text(json.dumps(final))
+PY
 echo applied
 FAKE
 chmod +x "$fake"

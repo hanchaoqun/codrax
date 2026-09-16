@@ -4751,7 +4751,7 @@ func writeWorkflowRunHasAuditableFinalReportState(run *types.WriteWorkflowRun, p
 }
 
 func (o *Orchestrator) writeFinalReportDeliverySummary(run *types.WriteWorkflowRun, finalPlan *types.ChangePlan, report *types.ChangeReport) types.WriteFinalDeliverySummary {
-	out := types.WriteFinalDeliverySummary{}
+	out := types.WriteFinalDeliverySummary{Materialization: o.writeFinalReportMaterialization(run, finalPlan)}
 	if run == nil && finalPlan == nil {
 		return out
 	}

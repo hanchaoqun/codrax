@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-当前续修§123.1829–1832：EVAL-B36-SYSAUTH1来源诊断`653d99056`、B1678未知执行说明`91e7467e3`已分批推送，公共先红后绿/count3/race3/冷审/最终冻结86包通过。清洁r1081恰好H7 Trace+C++ read两路各一次，机2PASS、人审均FAIL；投影/补齐/12项旁路保留，模型误用和图N/A不销账，完整审计已`fc7820934`推送。C++13次拒绝未证新P1合同自冲突；独立B1707非图关系完整row的Action漏必需visible_label已`779a04ac8`推送，公共先红后绿、标签豁免/证据反针、count3/race3/冷审、本片末版冻结86包及提交后清洁构建通过。有界8项候选/完整当前锚回供继续P2；下一优先B1693完整交付物化P1，不改原答案和机评。
+当前续修§123.1833：B1693完整交付物化P1已按固定seed/精确本run候选及恢复根/Git祖先与父镜像闭合根修，真实公共RED→GREEN，29项消费者测试及Go公共落盘count3/race3通过；独立冷审树外symlink与大小写落地保真问题已修。末版冻结全仓86包和完整runner套件通过，准备提交推送，未启动r1082。已交付§1829–1832来源诊断653d99056、未知执行说明91e7467e3、非图完整row教学779a04ac8；r1081机2PASS/人2FAIL不改判，完整原始审计fc7820934保留。Trace链上边界/投影/补齐、模型答案所有权、600/300/600s及活跃流不按正文缺失降级均不变。
 
 续修§123.1826：B1694点/范围引用已`7a4858e88`提交推送，公共先红后绿、count3/race3、冷审及末版冻结全仓86测试包通过。§123.1827 r1080清洁构建后恰好Java read/Python write两路各一次，机器2PASS；人审核心均PASS，Java完整范围引用获full生产正证（patch仅公共测试），Python真实原生4测试及独立572/572后验通过。模型HTTP措辞、图/Trace解释与跨语言原生证明债不代销。新B1678诊断P2“已覆盖仍写缺少观测”已在§123.1828以`fb362358c`修复推送，末版count3/race3/types及调度器全包、活跃流专项通过，不改变证明资格；原答案/报告/机评保持不动。
 
@@ -57672,6 +57672,24 @@ C++主干多态/工厂分支部分正确，13个引用摘录与真实源码行�
 后续排期（尚未施工/未启动live）：先处理确认P1 B1693同秒后继交付物化顺序，不能只把时间排序替换成拓扑排序便签闭环。末次只读核验`runner_lib.sh:1317/1344`仍扫描全部applied refs、以首个owner完整树起步；`write_plan_oracle_b1634c_test.py:223/231`保留陈腐树拒绝正控与后继正确内容XFAIL。应恢复本次明确授权的全部交付owner/commit/path，从模型启动前固定seed应用所选delta，同路径按真实祖先关系择唯一后继，不可比重叠/file-child冲突须明确处置；删除、重命名、执行位及symlink保真。现有源码owner清单不代表覆盖历史test-only owner，事后oracle不代替正确物化；沿§1806.16完整施工，不改保护针求绿。B1561/B1678目标执行与逐断言凭证、Gradle/Meson原生来源仍独立OPEN。
 
 之后候选下一对为`github_issue_memoclaw_text_search_multirepo_py`（apply24步，最近r1068，真实接口及多仓/sync/async/原生证明）和`qf_sequence_analyzer_gate`（read15步，最近r1054，明确请求时序图，补r1081最终无图空白），仍CAP5/PARALLEL2/TIMEOUT1200、各一次；不为本对追绿或冒称教学分支必定自然触发。Trace及C++的准确上下文已供给但最终误用留模型质量债，单次结果不足以证明“纯随机波动”。
+
+### §123.1833 B1693：完整交付物化必须基于固定 seed 与本轮持久化收据（2026-09-16，验收中）
+
+本片承接§1832排期，不追加模型请求。更新远程后main/origin均为`395308516`，工作区原先清洁。先从真实公共runner复现同秒后继丢失：`.codrax/tmp/20260916-b1693-public-red.log`中旧逐路径拒绝保护通过，要求真实后继字节的原XFAIL显式运行失败。独立公共shell入口再得三项语义RED：同秒first覆盖second、无关ref污染、删除目标从scratch复活；日志`20260916-b1693-materialize-public-red.log`，3针0.984s、均非fixture/setup错误。
+
+根修分两层，均不增加模型必填字段或修改模型答案：系统final.delivery新增独立`materialization`收据，记录本run全部typed apply/applied历史checkpoint候选及restore-aware保留根；source_owner清单继续只管原源码oracle，不冒充历史test/config全量交付。消费者在首次模型调用前独立固定repo/commit/tree seed，从精确候选计划及checkpoint核SHA/ref/实际delta授权，以真实Git祖先闭包保留A→B→restoreB中的A、排除废弃后继C。缺工件/部分checkpoint/不可比重叠或file-child冲突/未授权父镜像均明确invalid，不按时间/裸ref清单猜答案。verify_failed/unverified不擦除已提交字节；物化available/resolved也不授验证PASS。
+
+从seed逐path合成最终tree，以原始blob写出，保删除、rename两端、执行位、symlink字节，不用会应用export-ignore/export-subst的archive。真实allow-empty checkpoint允许空路径（Go omitempty省略亦可），但非空delta仍必须被checkpoint路径完整覆盖。已物化缺文件或缺物化工件时，summary不再回退初始目录。冷审另真实复现单文件oracle跟随树外symlink和APFS大小写折叠假成功：单/复数oracle统一精确包含边界；发布前对实际文件系统逐项核literal路径集合/type/mode/blob/链接目标，无法保真明确拒绝，不猜平台大小写规则。
+
+阶段性验证：首次17项独立公共物化测试PASS7.185s；扩展26项PASS10.154s，仍在补冷审反例。原B1634c公共run.sh六方法/含原各variant PASS74.820s：原同秒XFAIL已变真实字节正控，无关ref污染样例变排除正控，同时独立篡改已物化字节继续被原逐路径oracle拒绝，不删保护求绿。Go producer公共.persist→.final.json的原RED是缺materialization，首轮GREEN1.236s；count3/race3及末版全仓待验收。原r1081机评/人审/产物、case/fixture、PLAN_EXPECT与正式verify判据不改。本片未修改Trace/图/JSON教学/超时默认值；流活跃不因4ms或旧4m无可见正文而降级的边界保持。
+
+追加验收：Go producer收据`/tmp/codrax-b1693-producer-receipts.lSOcLp/`公共RED→GREEN，专项及final-report邻居count3（types1.030/orchestrator2.170s）、race3（3.364/3.437s）通过。消费者末版29方法10.595s通过，收据`20260916-b1693-materialize-public-final-green.log`；原B1634c六方法最终57.521s通过`20260916-b1693-source-oracle-final.log`，含独立篡改字节拒绝，非仅换旧XFAIL断言。完整runner首轮旧假CLI缺新系统收据按失败保留；只补真实Git checkpoint/全路径收据、不改原业务oracle。后续真实TMPDIR双斜线规范化误拒已按目录身份修正，不改fixture路径绕过。嵌套scope/NAPI原README-mask、双目标、删除/链接及兄弟隔离断言均保留，完整套件最终待收据。
+
+全部Go/build输入冻结后全仓`go test ./... -count=1` exit0、86测试包/13无测试包，日志`20260916-b1693-full-suite.log`；tool364.167s/agent105.950/types57.694/tracequery122.535/tracediag16.557/hitraceconv164.873/llm29.159/orchestrator31.258s。冻结SHA前后相同；额外active stream六类边界count3 PASS22.507s、TimeoutDefaults config/factory/override count3通过，默认600/300/600秒未改，不冒称等了真实十分钟。两例live尚未启动，CAP5环境保留但本对无read-multirepo，不把它当真实active-cap覆盖。
+
+完整runner末版`20260916-b1693-runner-lib-fixtures-final-v2.log`已通过（含两套scope/NAPI子套件），原所有业务判据保留；root再次跑29项8.410s通过`20260916-b1693-materialize-root-final.log`，eval冻结8文件SHA前后相同。所有中间失败保留，不覆盖旧机评/旧答案；未运行第三路模型回放。
+
+状态：`B1693=implemented/public-red-green/count3/race3/cold-review-fixed/frozen-full86-pass/full-runner-pass/ready-to-commit`；`next-live-pair=not-started`。原§1832“尚未施工”是当时排期，本节为当前进展。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

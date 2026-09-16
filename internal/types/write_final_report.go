@@ -126,6 +126,8 @@ type WriteFinalVerificationSummary struct {
 }
 
 type WriteFinalDeliverySummary struct {
+	Materialization *WriteFinalMaterializationReceipt `json:"materialization,omitempty"`
+
 	Status                  string   `json:"status,omitempty"`
 	Relation                string   `json:"relation,omitempty"`
 	ReasonCode              string   `json:"reason_code,omitempty"`
@@ -391,6 +393,7 @@ func WriteFinalReportToFile(report *WriteFinalReport, path string) error {
 }
 
 func NormalizeWriteFinalDeliverySummary(in WriteFinalDeliverySummary) WriteFinalDeliverySummary {
+	in.Materialization = cloneWriteFinalMaterializationReceipt(in.Materialization)
 	in.Status = strings.TrimSpace(in.Status)
 	in.Relation = strings.TrimSpace(in.Relation)
 	in.ReasonCode = strings.TrimSpace(in.ReasonCode)

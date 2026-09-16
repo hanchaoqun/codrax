@@ -120,11 +120,29 @@ git -C "$proof_scratch" config user.name eval
 printf 'base\n' >"$proof_scratch/value.txt"
 git -C "$proof_scratch" add value.txt
 git -C "$proof_scratch" commit -q -m base
+python3 "$ROOT/eval/write_delivery_materialize.py" capture --repo "$proof_scratch" --seed "$proof_out/run-1.delivery-seed.json"
+python3 "$ROOT/eval/write_delivery_materialize.py" capture --repo "$proof_scratch" --seed "$proof_out/run-2.delivery-seed.json"
 printf 'durable fix\n' >"$proof_scratch/value.txt"
 git -C "$proof_scratch" add value.txt
 git -C "$proof_scratch" commit -q -m applied
 git -C "$proof_scratch" update-ref refs/codrax/applied/plan-implementation "$(git -C "$proof_scratch" rev-parse HEAD)"
 git -C "$proof_scratch" reset --hard -q HEAD~1
+python3 - "$proof_out" "$proof_scratch" <<'PY'
+import json, pathlib, subprocess, sys
+out, repo = map(pathlib.Path, sys.argv[1:])
+sha = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "refs/codrax/applied/plan-implementation"], text=True).strip()
+owner = {"plan_id": "plan-implementation", "commit_sha": sha, "paths": ["value.txt"]}
+(out / "plan-implementation.json").write_text(json.dumps({
+    "id": owner["plan_id"], "status": "applied", "applied_commit_sha": sha,
+    "apply_checkpoint": {"commit_sha": sha, "recovery_ref": "refs/codrax/applied/plan-implementation", "committed_paths": ["value.txt"]},
+}))
+for plan_id in ("plan-proof-only", "plan-proof-only-null-changes"):
+    (out / (plan_id + ".final.json")).write_text(json.dumps({
+        "kind": "final_report", "run_id": "wf-shell", "plan": {"id": plan_id},
+        "delivery": {"materialization": {"schema_version": 1, "status": "available", "run_id": "wf-shell", "final_plan_id": plan_id,
+            "retained_plan_ids": [owner["plan_id"]], "owners": [owner]}},
+    }))
+PY
 cat >"$tmp/proof-only-plan.json" <<'JSON'
 {
   "id": "plan-proof-only",
@@ -1480,18 +1498,20 @@ JSON
 fi
 if [[ -n "$plan_file" ]]; then
   plan_dir="$(dirname "$plan_file")"
+  early_sha=""
   if [[ "${FAKE_WRITE_CLEANUP:-0}" == "1" ]]; then
     worktree="$plan_dir/fake-worktree-discarded"
     if [[ "${FAKE_WRITE_MULTIREF:-0}" == "1" ]]; then
       # Cold-discard multi-plan session (rework P2-1): an EARLIER plan's
       # checkpoint pinned as a SIBLING commit (branched from base, NOT
       # chained under the final plan's checkpoint). The complete delivery
-      # is the in-order union of both refs; materializing only the newest
-      # ref loses early.py.
+      # is the union of both explicitly authorized, disjoint checkpoints;
+      # materializing only the newest ref loses early.py.
       printf 'early plan marker\n' >"$repo/early.py"
       git -C "$repo" -c user.email=eval@codrax -c user.name=eval add early.py
       GIT_COMMITTER_DATE='2026-01-01T00:00:00 +0000' git -C "$repo" -c user.email=eval@codrax -c user.name=eval commit -q -m "fake applied early plan"
-      git -C "$repo" update-ref refs/codrax/applied/plan-fake-write-early "$(git -C "$repo" rev-parse HEAD)"
+      early_sha="$(git -C "$repo" rev-parse HEAD)"
+      git -C "$repo" update-ref refs/codrax/applied/plan-fake-write-early "$early_sha"
       git -C "$repo" reset --hard -q HEAD~1
     fi
     sed 's/retrun/return/' "$repo/main.py" >"$repo/main.py.tmp"
@@ -1579,6 +1599,50 @@ JSON
 }
 JSON
   fi
+  # The fake CLI emits the same system-owned delivery contract as production.
+  # Every owner SHA above is a real commit made after the runner's frozen seed;
+  # a live-only fixture deliberately has no checkpoint and stays unavailable.
+  python3 - "$plan_file" "$applied_sha" "$early_sha" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+plan_path = Path(sys.argv[1])
+plan = json.loads(plan_path.read_text())
+owners = []
+
+def persist_owner(owner, sha, paths):
+    owner["applied_commit_sha"] = sha
+    owner["applied_paths"] = paths
+    owner["apply_checkpoint"] = {
+        "commit_sha": sha,
+        "recovery_ref": "refs/codrax/applied/" + owner["id"],
+        "committed_paths": paths,
+    }
+    (plan_path.parent / (owner["id"] + ".json")).write_text(json.dumps(owner))
+    owners.append({"plan_id": owner["id"], "commit_sha": sha, "paths": paths})
+
+if sys.argv[3]:
+    persist_owner({"id": "plan-fake-write-early", "status": "applied",
+                   "changes": [{"path": "early.py", "kind": "create"}]},
+                  sys.argv[3], ["early.py"])
+if sys.argv[2]:
+    persist_owner(plan, sys.argv[2], ["main.py"])
+plan_path.write_text(json.dumps(plan))
+
+final_path = plan_path.parent / (plan["id"] + ".final.json")
+if final_path.exists():
+    final = json.loads(final_path.read_text())
+    final["run_id"] = "wf-fake-write"
+    final["delivery"] = {"materialization": {
+        "schema_version": 1,
+        "status": "available" if sys.argv[2] else "unavailable",
+        "reason_code": "applied_checkpoint_candidates" if sys.argv[2] else "apply_checkpoint_missing",
+        "run_id": final["run_id"], "final_plan_id": plan["id"],
+        "retained_plan_ids": [owner["plan_id"] for owner in owners], "owners": owners,
+    }}
+    final_path.write_text(json.dumps(final))
+PY
   printf 'applied\n'
   exit 0
 fi
@@ -1683,8 +1747,8 @@ assert_eq "$(cat "$write_ref_tree_dir/run-1.verdict")" "PASS" "write apply repor
 
 # Cold-discard multi-plan union (rework P2-1): the session pinned TWO
 # sibling (non-chained) applied refs and the worktree is gone. EXPECT
-# needs bytes from BOTH plans — the materializer must union the refs in
-# apply order; newest-ref-only materialization loses the early plan's
+# needs bytes from BOTH plans — the materializer must union the authorized
+# disjoint checkpoints; newest-ref-only materialization loses the early plan's
 # bytes and would flunk a complete delivery.
 write_multiref_case="$tmp/runner_write_apply_multi_ref_union.case"
 cat >"$write_multiref_case" <<'CASE'
@@ -1712,9 +1776,8 @@ fi
 # Durable-delivery-first pins (eval-audit 20260719 GAP-2 eval infra):
 # EXPECT must judge the recovery-ref bytes, not the live worktree.
 
-# 1. Worktree present but NO durable ref → fail loud with
-#    durable_apply_ref_missing instead of silently passing off the
-#    worktree bytes.
+# 1. Worktree present but NO durable checkpoint/ref → fail loud with a typed
+#    unavailable materialization receipt, never silently using worktree bytes.
 write_noref_case="$tmp/runner_write_apply_no_durable_ref.case"
 cat >"$write_noref_case" <<'CASE'
 ID=runner_write_apply_no_durable_ref
@@ -1732,9 +1795,15 @@ if [[ -z "$write_noref_dir" ]]; then
 fi
 write_noref_verdict="$(cat "$write_noref_dir/run-1.verdict")"
 case "$write_noref_verdict" in
-  FAIL*durable_apply_ref_missing*) ;;
-  *) fail "worktree-only apply must fail loud with durable_apply_ref_missing; got: $write_noref_verdict" ;;
+  FAIL*delivery_materialization_invalid:materialization_unavailable:apply_checkpoint_missing*) ;;
+  *) fail "worktree-only apply must fail loud with an unavailable checkpoint receipt; got: $write_noref_verdict" ;;
 esac
+if [[ -d "$write_noref_dir/run-1.applied-tree" ]]; then
+  fail "worktree-only apply must not publish a durable tree"
+fi
+if ! grep -q "return f" "$write_noref_dir/fake-worktree/main.py"; then
+  fail "worktree-only fixture must retain the tempting live fix bytes"
+fi
 
 # 2. Zod run-1 mask shape: worktree carries the fix, the durable ref does
 #    NOT. EXPECT must read the ref bytes and go red — the live worktree

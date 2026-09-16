@@ -1362,6 +1362,13 @@ run_one() {
         fi
         apply_scratch="$scratch"
       fi
+      # Freeze the delivery base before ANY model call or applied checkpoint.
+      # Resume-time HEAD and ref timestamps are not seed authorities.
+      if ! python3 "$ROOT/eval/write_delivery_materialize.py" capture --repo "$apply_scratch" --seed "$OUTDIR/run-$i.delivery-seed.json"; then
+        echo "FAIL delivery_seed_capture_failed" >"$verdict"
+        echo "run $i: FAIL delivery_seed_capture_failed" >&2
+        return
+      fi
       # write_enabled is yaml-only (no CLI flag). Export the fixture
       # yaml only for the write steps; unset on exit so a subsequent
       # read-mode run in the same process would not inherit the gate.
@@ -1533,28 +1540,20 @@ run_one() {
       # pipeline_keep_worktree_on_success: true in the yaml (which
       # eval/fixtures/write_enabled.yaml sets).
       #
-      # Strategy (durable-delivery-first, eval-audit 20260719 GAP-2):
-      #   1. Materialize the durable refs/codrax/applied/<plan-id> commit
-      #      (or applied_commit_sha) into an eval-local tree and run the
-      #      oracle checks there — that is the byte set /merge-by-ref or
-      #      cherry-pick would actually deliver.
-      #   2. Fall back to the live worktree_path only when no durable
-      #      commit resolves, and record that as a verdict reason: a live
-      #      worktree can carry uncommitted applied bytes that MASK a
-      #      broken durable chain (zod run-1 witness).
-      #   3. Only fall back to scratch as a last resort, and record the
-      #      missing durable apply source as a verdict reason so pre-apply
-      #      fixture bytes cannot silently satisfy post-apply assertions.
+      # Reconstruct only the final workflow receipt's retained checkpoints
+      # against the pre-model seed. No timestamp ordering, arbitrary refs, or
+      # live-worktree fallback can establish durable delivery. Missing proof
+      # is always a verdict failure; scratch is diagnostic input only then.
       apply_source="$(eval_materialize_write_apply_source "$plan" "$OUTDIR" "$apply_scratch" "$i" || true)"
       if [[ -z "$apply_source" ]]; then
         apply_source="$apply_scratch"
         if [[ -f "$plan" ]]; then
           extra_reasons+=("worktree_discarded_or_missing")
+          extra_reasons+=("delivery_materialization_invalid:$(eval_json_top_string_field "$OUTDIR/run-$i.materialization.json" reason_code || true)")
         fi
-      elif [[ "$apply_source" != "$OUTDIR/run-${i}.applied-tree" && "$ALLOW_UNVERIFIED_APPLY" != "1" && -f "$plan" ]]; then
-        # EXPECT is about to read live-worktree bytes because the durable
-        # delivery chain did not resolve — fail loud instead of letting
-        # the worktree mask a broken/absent recovery ref.
+      elif [[ ! "$apply_source" -ef "$OUTDIR/run-${i}.applied-tree" && -f "$plan" ]]; then
+        # Exact directory identity, not spelling (TMPDIR can contain //).
+        # An unexpected non-durable source is never accepted as delivery.
         extra_reasons+=("durable_apply_ref_missing")
       fi
       if [[ -n "$POST_APPLY_FILES" ]]; then
@@ -1562,8 +1561,9 @@ run_one() {
         # Do not build an all-files/README carrier for the plural oracle.
         cleaned=""
       elif [[ -n "$POST_APPLY_FILE" ]]; then
-        if [[ -f "$apply_source/$POST_APPLY_FILE" ]]; then
-          cleaned="$(cat "$apply_source/$POST_APPLY_FILE")"
+        local single_apply_file=""
+        if single_apply_file="$(eval_post_apply_scope_source_file "$apply_source" "$POST_APPLY_FILE")"; then
+          cleaned="$(cat "$single_apply_file")"
         else
           extra_reasons+=("post_apply_file_missing:$POST_APPLY_FILE")
         fi
@@ -1953,10 +1953,10 @@ PYEOF
             fi
             plan_path="$OUTDIR/run-$i.plan.json"
             summary_scratch="$OUTDIR/run-$i.repo"
+            if [[ -n "$MULTIREPO" ]]; then
+              summary_scratch="$OUTDIR/run-$i.parent/$MULTIREPO_WRITE_ROOT"
+            fi
             if [[ -n "$POST_APPLY_FILES" ]]; then
-              if [[ -n "$MULTIREPO" ]]; then
-                summary_scratch="$OUTDIR/run-$i.parent/$MULTIREPO_WRITE_ROOT"
-              fi
               summary_source="$(eval_materialize_write_apply_source "$plan_path" "$OUTDIR" "$summary_scratch" "$i" || true)"
               src=""
               if [[ -n "$summary_source" ]]; then
