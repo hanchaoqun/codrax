@@ -51,7 +51,6 @@ var diagramIssueDefaultLaneDecisions = map[string]string{
 	"duplicate_participant_identity":                       "alias declaration defect; no single anchor carrier — default arm publishes nothing executable by design",
 	"standalone_relation_endpoint_identity_missing":        "list/table anchor lacks identities; prior_anchor remove-only",
 	"call_edge_unproven":                                   "evidence-negative; remove-only",
-	"call_edge_occurrence_unproven":                        "evidence-negative occurrence; remove-only",
 	"typed_relation_tuple_reused_across_visible_endpoints": "structural clone; remove-only on the exact prior anchor",
 	"registration_edge_unproven":                           "evidence-negative; remove-only",
 	"type_relation_edge_unproven":                          "evidence-negative; remove-only",

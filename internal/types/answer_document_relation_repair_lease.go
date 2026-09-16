@@ -185,6 +185,18 @@ func answerDiagramRelationRepairFailureCapabilities(
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	}
 	switch issue {
+	case "call_edge_occurrence_unproven":
+		// This precise failure belongs to a visible invocation beyond the
+		// proved call-site occurrence budget. A unique matching anchor can
+		// still belong to an earlier legal invocation; it is not this excess
+		// statement's carrier merely because the endpoint tuple is equal.
+		if failure.BodyOccurrence > 0 &&
+			strings.TrimSpace(failure.FromNode) != "" && strings.TrimSpace(failure.ToNode) != "" {
+			return AnswerDiagramRelationRepairCarrierVisibleBodyEdge, []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionRemove,
+			}
+		}
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	case "missing_call_anchor", DiagramRelationFailureMissingGroundedCallAnchor, "missing_relation_anchor":
 		if strings.TrimSpace(failure.FromNode) != "" && strings.TrimSpace(failure.ToNode) != "" {
 			actions := []AnswerDiagramRelationRepairAction{AnswerDiagramRelationRepairActionRemove}
@@ -490,11 +502,18 @@ func answerDiagramRelationRepairNormalizeSharedBodyCapabilities(
 }
 
 func answerDiagramRelationRepairFailureCarrierKey(base *AnswerDocumentV2, failure AnswerDiagramRelationRepairFailure) string {
-	if candidates := answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure); len(candidates) == 1 {
-		return strings.Join([]string{
-			strings.TrimSpace(failure.BlockID), "anchor", answerDiagramRelationAnchorSemanticKey(candidates[0]),
-			fmt.Sprintf("%d", failure.AnchorOccurrence),
-		}, "\x00")
+	// Excess invocations are independent body carriers, not repeated failures
+	// of the one legal anchor. Coalescing them by that anchor would invalidate
+	// all but one of the already-published occurrence-specific removal refs.
+	excessBody := failure.TargetCarrier == AnswerDiagramRelationRepairCarrierVisibleBodyEdge &&
+		strings.TrimSpace(failure.Issue) == "call_edge_occurrence_unproven"
+	if !excessBody {
+		if candidates := answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure); len(candidates) == 1 {
+			return strings.Join([]string{
+				strings.TrimSpace(failure.BlockID), "anchor", answerDiagramRelationAnchorSemanticKey(candidates[0]),
+				fmt.Sprintf("%d", failure.AnchorOccurrence),
+			}, "\x00")
+		}
 	}
 	if failure.TargetCarrier == AnswerDiagramRelationRepairCarrierVisibleBodyEdge {
 		return strings.Join([]string{

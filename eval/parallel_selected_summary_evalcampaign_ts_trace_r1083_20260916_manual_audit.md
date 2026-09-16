@@ -48,7 +48,7 @@ wakeup_chain用exact_tid正确选中36644；实际输出一个节点、三段状
 
 四次成文拒绝、四次patch分别归因：
 
-1. L3757→3770–3832：模型无证self-call、重复绘制同一静态call-site，拒绝合理。
+1. L3757→3770–3832：两个无证self-call拒绝合理；**后续B1712复审纠正**：不能将其中重复call-site子项也判合理。源码for循环允许同一调用点重复运行；系统把静态证据行数硬当调用次数上限，要求删掉opt里的“再次调用”，最终空框由此形成。整稿仍因self-call需要修正，但这个子项是系统误拒。
 2. L3886→3891：模型删除列表已证明maxAttempts/sleep，违反局部保全。
 3. L3937→3941：同时原子修图和整块替换受保护图，权限拒绝合理。
 4. **B1711 / P2**，L3973→3982–4000：模型只执行三个发布remove refs；删除第二个重复Transport→Once body时，系统连带删唯一合法anchor，使保留第一条箭头被拒。L4029 attach后L4044接受。这是确定性额外重试，不能算模型第四错。lease按pair唯一anchor分类，未区分越额body occurrence；执行器随body一起删anchor。需公共emit→opaque ref→remove回归及精确保全修复，不放松原无证边门。
@@ -59,4 +59,6 @@ wakeup_chain用exact_tid正确选中36644；实际输出一个节点、三段状
 
 23项case/fixture/runner的before.sha与after-check一致，构建输入after-check一致；结果目录原文件以`20260916-r1083-results-original.sha`封存；两MD/HTML、Trace侧车及机器汇总六项以`20260916-r1083-original-answers-summary.sha`封存，均在`.codrax/tmp/`。原稿、fixture、oracle、机评不改。
 
-B1708本对未自然触发required-diagram/no-directed-path边界，生产N/A，不借此关闭全图矩阵。上一批已有Python apply，本批read/read不代表写能力全面通过。600/300/600s及活跃流续期未改；不因4ms或旧4分钟无正文降级，显式取消和独立预算另行管理。
+B1708本对未自然触发required-diagram/no-directed-path边界，生产N/A，不借此关闭全图矩阵。B1711只处理修补定位，不代表上游B1712静态次数门已修；其原始首拒全文见`.codrax/blob/20260916-020541-000-68753/tool-call_function_f7n19yj6q2iu_1-emit_answer_document-result-de2f45b1.txt:4`。循环/条件框的语义不可凭“重试”关键词硬放行，应取消源码关系错误的次数推断，保真实关系/方向与Trace事件计数权威。
+
+上一批已有Python apply，本批read/read不代表写能力全面通过。600/300/600s及活跃流续期未改；不因4ms或旧4分钟无正文降级，显式取消和独立预算另行管理。

@@ -1535,7 +1535,7 @@ func applyAtomicSharedBodyRemove(block *types.AnswerBlock, edits []emitAnswerDia
 	}
 	anchorIndexes := make(map[int]bool, len(edits))
 	for _, edit := range edits {
-		anchorIndex, _, anchorErr := findAtomicDiagramAnchor(block.EdgeAnchors, *edit.Match, 1)
+		anchorIndex, _, anchorErr := findAtomicDiagramEditAnchor(block.EdgeAnchors, edit)
 		if anchorErr != nil {
 			if edit.failureRefCarrier == types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge {
 				continue
@@ -2020,7 +2020,7 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	if err := validateAtomicDiagramAnchor(edit.Match, "match"); err != nil && !edit.failureRefResolved {
 		return err
 	}
-	anchorIndex, anchorPairOccurrence, anchorErr := findAtomicDiagramAnchor(block.EdgeAnchors, *edit.Match, occurrence)
+	anchorIndex, anchorPairOccurrence, anchorErr := findAtomicDiagramEditAnchor(block.EdgeAnchors, edit)
 	if edit.anchorBaseOccurrence > 0 {
 		anchorIndex = edit.anchorBaseOccurrence - 1
 		if !edit.failureRefResolved || edit.failureRefCarrier != types.AnswerDiagramRelationRepairCarrierStaleAnchor ||
@@ -2737,6 +2737,37 @@ func atomicDiagramAnchorSameTuple(left, right types.DiagramEdgeAnchor) bool {
 		strings.TrimSpace(left.FromIdentity) == strings.TrimSpace(right.FromIdentity) &&
 		strings.TrimSpace(left.ToIdentity) == strings.TrimSpace(right.ToIdentity) &&
 		left.RelationKind == right.RelationKind
+}
+
+// An excess visible invocation owns only metadata at the producer's same-pair
+// body position. The body ordinal is not an exact-tuple ordinal: two anchors
+// may spell equivalent identities differently, or the only matching anchor
+// may still belong to an earlier legal invocation. Single and shared removals
+// must use the same locator before deciding whether an edit is body-only.
+func findAtomicDiagramEditAnchor(anchors []types.DiagramEdgeAnchor, edit emitAnswerDiagramEdgeEdit) (int, int, error) {
+	if edit.failureRefResolved && edit.failureRefCarrier == types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge &&
+		edit.failureIssue == "call_edge_occurrence_unproven" && edit.BodyOccurrence > 0 {
+		pairSeen := 0
+		for i, anchor := range anchors {
+			if strings.TrimSpace(anchor.FromNode) != strings.TrimSpace(edit.Match.FromNode) ||
+				strings.TrimSpace(anchor.ToNode) != strings.TrimSpace(edit.Match.ToNode) {
+				continue
+			}
+			pairSeen++
+			if pairSeen == edit.BodyOccurrence {
+				if atomicDiagramAnchorSameTuple(anchor, *edit.Match) {
+					return i, pairSeen, nil
+				}
+				break
+			}
+		}
+		return -1, 0, fmt.Errorf("excess body occurrence %d does not own a matching prior anchor", edit.BodyOccurrence)
+	}
+	occurrence := edit.Occurrence
+	if occurrence == 0 {
+		occurrence = 1
+	}
+	return findAtomicDiagramAnchor(anchors, *edit.Match, occurrence)
 }
 
 func findAtomicDiagramAnchor(anchors []types.DiagramEdgeAnchor, match types.DiagramEdgeAnchor, occurrence int) (int, int, error) {

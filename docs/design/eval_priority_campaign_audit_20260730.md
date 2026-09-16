@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-16）
 
+本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53提交，B1710全窗资源误附线程等待已bd7e8e1d2提交；B1711修补删错锚同步收账。冻结全仓85测试包通过、tool包仅一项权限登记重复失败，已修并专项count3通过；不得称原全仓全绿。宽选race中types源码正则普查超10分钟，明确记失败，精确lease专项race3另行通过。B1712静态位点数冒充动态次数已取得七形公共RED/count3，列当前最高优先级；不按重试关键词放行，不系统补画图。下批live尚未启动。
+
 当前交付/人审§123.1836–1837：B1708端点主链与图呈现分域已473a1669e推送，公共初稿/Observe及emit/patch正反控、三包race/count3、冻结全仓86包通过。r1083恰好TS read/真实A5短窗Trace两路各一次，机器2PASS但人审均FAIL；B1708未自然触发，生产N/A。新增B1709合法comm括号漏IO配对P1、B1710全窗inode误附线程等待P1、B1711重复body删除误删合法anchorP2，进入公共先红后绿分批修复。模型重试次数/状态解释错误另记，不加原文硬门。Trace链上边界/投影/补齐、模型所有权、600/300/600s及活跃流不按正文缺失降级不变；旧图/原生证明债不代销。
 
 续修§123.1826：B1694点/范围引用已`7a4858e88`提交推送，公共先红后绿、count3/race3、冷审及末版冻结全仓86测试包通过。§123.1827 r1080清洁构建后恰好Java read/Python write两路各一次，机器2PASS；人审核心均PASS，Java完整范围引用获full生产正证（patch仅公共测试），Python真实原生4测试及独立572/572后验通过。模型HTTP措辞、图/Trace解释与跨语言原生证明债不代销。新B1678诊断P2“已覆盖仍写缺少观测”已在§123.1828以`fb362358c`修复推送，末版count3/race3/types及调度器全包、活跃流专项通过，不改变证明资格；原答案/报告/机评保持不动。
@@ -57758,6 +57760,46 @@ TS274s（内272s）/32%，主链及alias正确，终稿将总3次尝试写成3�
 23项case/fixture/runner、构建输入前后check通过，原结果`r1083-results-original.sha`及两MD/HTML/Tracejson/机器汇总六项`original-answers-summary.sha`封存。无第三例、无追绿重跑、无改原工件。两例均未自然进入B1708显式图无路径域，生产覆盖N/A；不能用机器绿宣称全图/全链根因验证闭环。
 
 状态：`r1083=exact2-once/machine2-pass/human2-fail`；`B1708=473a1669e-pushed/public-green/production-N-A`；`B1709=P1-public-red/repair-in-progress`；`B1710=P1-context-identity-confirmed/public-repro-next`；`B1711=P2-extra-repair-confirmed/public-repro-next`。600/300/600s及活跃字节/心跳/隐藏推理/工具参数续期不改，不因4ms或旧4m无正文降级。
+
+### §123.1838 B1709：块事件任务名是非身份文本，内含括号不能丢配对（2026-09-16，实施验证中）
+
+RQ issue、BIO queue、legacy insert/getrq三个尾槽从“comm不得包含]”改为单行opaque正文，保外层括号与前方dev/op/数字结构；completion status仍严格有符号数字及原范围校验。字段值不按线程名特判，任务名不参与配对键。跨物理来源、错dev/op/sector/len、溢出、无外层闭合、新行和非法completion status负控保留。legacy仍只能计inventory，不凭complete升为latency。ParserVersion从v40升v41，旧三代际pin同步并增加真实cache admitted正控/旧代不复用负控，避免暖缓存静默丢请求。
+
+公共BuildIndex→Run基线473有效RED：`.codrax/tmp/20260916-b1709-public-red.log`，普通comm的RQ/BIO×S/D四正控通过，含括号八正针丢IO、legacy两针丢身份。新针加内括号未配平/空格等opaque变体，不要求comm文本自身平衡。首版cache针存空Index成本0未获准入，故正控失败，不算产品失败；补真实event后验证代际隔离。联合定向count3已过，扩大IO/cache/race待完成。
+
+原A5仅离线公共查询（不重跑LLM、不改原eval）已恢复issue L53→complete L67的99µs请求、91µs完成闭合线程阻塞；初次收据`20260916-b1709-a5-offline-replay.log`，B1710摘要完善后`20260916-b1709-b1710-a5-offline-final.log`再次PASS0.646s，线程等待不再附inode或伪零资源字段。请求驻留与线程阻塞两套口径独立，S/D通道都有公共保全针，未把异步全部请求时长升成根因，不能据离线结果改r1083人审FAIL。扩大IO/cache race/count3通过176.188s（`20260916-b1709-io-cache-race-count3.log`）。
+
+### §123.1839 B1710：线程等待不继承全窗IO资源；背景与精确资源各归其位（2026-09-16，实施验证中）
+
+公共有效RED为`20260916-b1710-public-red3.log`（0.595s），D普通等待及标IO等待两针均借另一线程inode0xaa、4096bytes、3churn、0.300ms maxima，EvidenceFact.Object也错误绑定；red/red2是夹具口径校准，不作有效收据。S/D原始状态、90µs链上完成闭合、全窗三inode/两请求和真实inode-storage正控保持。
+
+源头去掉DStateTop/IOWaitTop对全窗七字段继承：BlockMaxLatencyMs/StorageMaxLatencyMs/FileIOBytes/PageCacheChurn/TopInode/TopDev/TopEntryName。逐等待保线程/时段/时长/资格；IOPressureSummary背景及BlockIOByInode精确资源分支不删。避免Object、摘要、notes、有限事实target_owned投影及排序混装；“context-only”根因资格不能替代事实本身的身份准确性。新增单源资源suffix供引擎摘要/普通tool/bundle三出口共用，仅显示自身非空/正值字段，不把未归属写成伪零或inode=unknown；逐字段sanitize保留。typed notes本已省零，新增正反控确认、不改其生产逻辑。等待与真正关联资源共存，不加原文关键词门或新模型必填字段。
+
+文本针先RED，后count3（tracequery0.721s/tool1.358s）、race3（2.079s/3.030s）均过；收据`20260916-b1710-text-{red,count3,race3}.log`。两次别的并行测试遇到helper与调用方跨文件落盘中间态undefined，作为无效编译收据保留，不算产品RED；最终冻结后统一重跑。
+
+### §123.1840 B1711：越额图边按可见发生定位，不消耗保留边的合法锚（2026-09-16，实施验证中）
+
+真实公共emit先报第二同向call-site occurrence超额，经正常delta→lease交接、模型仅remove该ref，原实现却删除唯一合法anchor并再报首边缺锚。新增公共针保另一独立图、principal列表、summary和证据不变；最小修将精确call_edge_occurrence_unproven按parser BodyOccurrence编译visible body/remove-only。既有无证边门仍拒绝、不给replace权限，不改模型标签或补写图。
+
+冷审补出并修复同域两处：多个越额body被同一合法anchor合并成一个lease目标，发布ref再变stale；body序号又被误作exact-tuple anchor序号，等价点/双冒号身份留下多余metadata，共享body删除还会误删首合法锚。carrier key仅对精确超额body按发生位置分开，其他label/证据共同anchor能力交集保旧；single/shared执行共用same-pair body位置+exact tuple定位，没有该位置匹配就只删body、不借早先anchor。
+
+八场景公共正反控含多body、多anchor、两个真实call-sites、正逆batch、合法反向reply、replace拒绝、同body多关系及等价身份；count3 1.550s、race3 6.494s全过，独立冷审无本片blocker。两份额外RED以真实终端摘录固化`20260916-b1711-{multiple-body,distinct-anchor}-red-receipt.txt`，不冒充重跑历史版本；最后两针的字节期望从原裸participant改为真实rejected base仅删选中行，明确差异是已有安全quote normalization，不放宽保全。最终三Go输入SHA和验收在`20260916-b1711-final-green-receipt.txt`。
+
+本项仅闭合修补目标/删除保全；用户随后指出本次最终空opt，root回看初稿发现原有“再次调用”被次数门要求删除。静态call-site数量是否可用作运行次数上限另列B1712审计，**撤回将首次拒绝中每个子项都视为正确的整体判断**：两个self-call无证拒绝仍有效，但重复调用子项不能未审先判合理。B1711不代销这项上游合同，也不宣称图时序/逻辑全闭环。
+
+### §123.1841 B1712：静态调用点数不是运行调用次数上限（2026-09-16，P1确认，公共复现中）
+
+用户点名`20260916-021011.654-68753.md`图奇怪后回查：原始first emit的opt中有Transport→Once“再次调用”；源码transport.ts:22的for确实包住:23 dispatchOnce，FixedDelay(200,3)允许重试。`answer_document_diagram_evidence.go`用去重静态EvidenceID数作budget，对可见同向call箭头计数，超过即call_edge_occurrence_unproven；没有循环/分支frame或执行次数证据。原始工具回执`tool-call_function_f7n19yj6q2iu_1-emit_answer_document-result-de2f45b1.txt:4`明确教一条call row不能replay。模型按提示删除第二次调用，最终L44–45仅剩空opt。
+
+因此修正§1837/人工审计的初始整体判断：两个send→send self-call无证拒绝仍合理，但有源码循环支持的再次调用被误拒；不是纯模型波动、Mermaid语法错，也不是B1711误删锚能独自解决。现有typed ControlFlowBranch仅if/switch/match arms，Mermaid解析跳过loop/opt/alt容器而不保scope；“让模型改用loop”是可选表达，不是已有精确合同出口的证据。
+
+泛化修向：源码结构关系只硬验存在、方向、身份及正文锚绑定，静态位点数量不能冒充动态次数上限；这类上限应取消或降纯建议。保持无据/反向/错关系/孤回复拒绝，保持Trace实际事件次数与显式窗权威，不读用户/模型原文关键词放行，不自动写loop或替模型删图。若将来硬验具体执行次数，须独立parser-owned循环/路径/实际执行语义，不能复用静态证据行数。
+
+本项优先独立批次；B1709/10/11已修片先冻结全测收账，B1712公共针通过临时overlay准备，不修改正在测试的Go输入或原评测。B1711当前次数门兼容针验证的是发布修补的保全，不能反过来论证错误的次数门正确；退休该门时必须同步迁移/更正这些旧生产断言，保留有效方向/身份/修补所有权负控。
+
+B1709/10/11本批验收补记：4781个Go/build输入前后SHA一致；`20260916-b1709-b1711-full-suite.log`全仓退出1，85测试包通过，tool包唯一失败为issue census仍把已显式授remove权限的occurrence标签登记在默认分支。删除重复默认登记后，census+B1711公共针count3=2.546s通过，不削减生产词汇覆盖。宽选race/count3的tracequery24.266s、tool46.236s通过，types601.140s超默认10分钟，栈为既有`TestInfoContractNoteKeyCarrierTruth`大源码正则扫描，不是race告警；保留失败收据，不记全组三绿。另精确lease/failure专项race3=2.946s通过，活跃流/default专项count3=51.160s通过。B1712退役后重新冻结全仓，当前不宣称最终全仓全绿。原r1083机器/答案/fixture保持不动。
+
+B1712独立有效先RED：临时overlay `20260916-b1712-overlay/red-final-count3.log`每轮七个重复展示正例精确因occurrence门失败，单边对照及五个无据/反向/错关系/孤立或多余回复负控全过，count3=1.451s一致。覆盖普通sequence、opt、loop、alt、成对回复、flow、DAG；中性操作标签，无“重试”字样授权。初次调试裸participant经过既有安全引用正规化，及return负控由独立return门拒绝的期望已校准，早期日志不算有效完整RED。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
