@@ -293,25 +293,21 @@ func evidenceMergeNoop(existing, incoming []types.EvidenceItem) bool {
 	if len(existing) == 0 {
 		return false
 	}
-	byID := make(map[string]types.EvidenceItem, len(existing))
-	byRevision := make(map[string]types.EvidenceItem, len(existing))
 	for _, item := range existing {
 		if item.ID == "" {
 			return false
 		}
-		byID[types.EvidenceStableMergeKey(item)] = item
-		if key := types.EvidenceRevisionKey(item); key != "" {
-			byRevision[key] = item
-		}
 	}
+	index := types.NewEvidenceMatchIndex(existing)
 	for _, item := range incoming {
-		existingItem, ok := byID[types.EvidenceStableMergeKey(item)]
+		i, ok := index.Find(item)
 		if !ok {
-			if key := types.EvidenceRevisionKey(item); key != "" {
-				existingItem, ok = byRevision[key]
-			}
+			return false
 		}
-		if !ok || evidenceMergeWouldChange(existingItem, item) {
+		existingItem := index.Item(i)
+		// Cross-ID amendments can enrich typed endpoints without changing any
+		// display metadata. Let the canonical atomic merger decide that case.
+		if types.EvidenceStableMergeKey(existingItem) != types.EvidenceStableMergeKey(item) || evidenceMergeWouldChange(existingItem, item) {
 			return false
 		}
 	}
@@ -319,6 +315,13 @@ func evidenceMergeNoop(existing, incoming []types.EvidenceItem) bool {
 }
 
 func evidenceMergeWouldChange(existing, incoming types.EvidenceItem) bool {
+	if existing.Kind != incoming.Kind || existing.Scope != incoming.Scope ||
+		strings.TrimSpace(existing.Subject) != strings.TrimSpace(incoming.Subject) ||
+		strings.TrimSpace(existing.Predicate) != strings.TrimSpace(incoming.Predicate) ||
+		strings.TrimSpace(existing.Object) != strings.TrimSpace(incoming.Object) ||
+		strings.TrimSpace(existing.Condition) != strings.TrimSpace(incoming.Condition) {
+		return true
+	}
 	if existing.Summary == "" && incoming.Summary != "" {
 		return true
 	}
@@ -354,27 +357,16 @@ func evidenceMergeWouldChange(existing, incoming types.EvidenceItem) bool {
 }
 
 func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
-	merged := make(map[string]types.EvidenceItem)
-	revisionToID := make(map[string]string)
-	revisionToMergeKey := make(map[string]string)
+	result := make([]types.EvidenceItem, 0)
+	index := types.NewEvidenceMatchIndex(nil)
 	for _, group := range groups {
 		for _, item := range group {
 			if item.ID == "" {
 				item.ID = types.StableEvidenceID(item)
 			}
-			id := item.ID
-			revisionKey := types.EvidenceRevisionKey(item)
-			mergeKey := types.EvidenceStableMergeKey(item)
-			if revisionKey != "" {
-				if existingKey, ok := revisionToMergeKey[revisionKey]; ok && existingKey != "" {
-					mergeKey = existingKey
-				}
-				if existingID, ok := revisionToID[revisionKey]; ok && existingID != "" {
-					id = existingID
-					item.ID = existingID
-				}
-			}
-			if existing, ok := merged[mergeKey]; ok {
+			if i, ok := index.Find(item); ok {
+				existing := result[i]
+				item.ID = existing.ID
 				existing = types.MergeEvidenceItemByStableID(existing, item)
 				// Merge Producer too: when two producers contribute to the
 				// same item, prefer the question-relevant one (non-dataflow)
@@ -385,20 +377,14 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 				if evidenceSortRank(existing) > evidenceSortRank(item) {
 					existing.Producer = item.Producer
 				}
-				merged[mergeKey] = existing
+				result[i] = existing
+				index.Set(i, existing)
 				continue
 			}
 			item.DerivedFrom = mergeStrings(item.DerivedFrom, nil)
-			merged[mergeKey] = item
-			if revisionKey != "" {
-				revisionToID[revisionKey] = id
-				revisionToMergeKey[revisionKey] = mergeKey
-			}
+			index.Set(len(result), item)
+			result = append(result, item)
 		}
-	}
-	result := make([]types.EvidenceItem, 0, len(merged))
-	for _, item := range merged {
-		result = append(result, item)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		// Rank first: question-relevant items (LLM emit_evidence,

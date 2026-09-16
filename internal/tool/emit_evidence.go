@@ -5891,19 +5891,8 @@ func filterNoopDuplicateEmitEvidence(existing, items []types.EvidenceItem, repor
 	if len(existing) == 0 || len(items) == 0 {
 		return items, reports, nil
 	}
-	seen := make(map[string]types.EvidenceItem, len(existing)+len(items))
-	seenRevision := make(map[string]types.EvidenceItem, len(existing)+len(items))
-	for _, item := range existing {
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			id = types.StableEvidenceID(item)
-			item.ID = id
-		}
-		seen[types.EvidenceStableMergeKey(item)] = item
-		if key := types.EvidenceRevisionKey(item); key != "" {
-			seenRevision[key] = item
-		}
-	}
+	seen := types.NewEvidenceMatchIndex(existing)
+	nextIndex := len(existing)
 	kept := make([]types.EvidenceItem, 0, len(items))
 	keptReports := make([]ground.Report, 0, len(reports))
 	duplicates := make([]types.EvidenceItem, 0)
@@ -5913,11 +5902,10 @@ func filterNoopDuplicateEmitEvidence(existing, items []types.EvidenceItem, repor
 			id = types.StableEvidenceID(item)
 			item.ID = id
 		}
-		prior, ok := seen[types.EvidenceStableMergeKey(item)]
-		if !ok {
-			if key := types.EvidenceRevisionKey(item); key != "" {
-				prior, ok = seenRevision[key]
-			}
+		index, ok := seen.Find(item)
+		var prior types.EvidenceItem
+		if ok {
+			prior = seen.Item(index)
 		}
 		if ok && emitEvidenceNoopDuplicate(prior, item) {
 			duplicates = append(duplicates, item)
@@ -5936,9 +5924,11 @@ func filterNoopDuplicateEmitEvidence(existing, items []types.EvidenceItem, repor
 				Note:         item.GroundingNote,
 			})
 		}
-		seen[types.EvidenceStableMergeKey(item)] = item
-		if key := types.EvidenceRevisionKey(item); key != "" {
-			seenRevision[key] = item
+		if ok {
+			seen.Set(index, types.MergeEvidenceItemByStableID(prior, item))
+		} else {
+			seen.Set(nextIndex, item)
+			nextIndex++
 		}
 	}
 	return kept, keptReports, duplicates
@@ -5948,29 +5938,11 @@ func emitEvidenceAmendedItems(existing, items []types.EvidenceItem) []types.Evid
 	if len(existing) == 0 || len(items) == 0 {
 		return nil
 	}
-	seen := make(map[string]types.EvidenceItem, len(existing))
-	seenRevision := make(map[string]types.EvidenceItem, len(existing))
-	for _, item := range existing {
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			id = types.StableEvidenceID(item)
-		}
-		if id != "" {
-			seen[types.EvidenceStableMergeKey(item)] = item
-		}
-		if key := types.EvidenceRevisionKey(item); key != "" {
-			seenRevision[key] = item
-		}
-	}
+	seen := types.NewEvidenceMatchIndex(existing)
 	var amended []types.EvidenceItem
 	for _, item := range items {
-		prior, ok := seen[types.EvidenceStableMergeKey(item)]
-		if !ok {
-			if key := types.EvidenceRevisionKey(item); key != "" {
-				prior, ok = seenRevision[key]
-			}
-		}
-		if ok && !emitEvidenceNoopDuplicate(prior, item) {
+		index, ok := seen.Find(item)
+		if ok && !emitEvidenceNoopDuplicate(seen.Item(index), item) {
 			amended = append(amended, item)
 		}
 	}
@@ -5978,20 +5950,9 @@ func emitEvidenceAmendedItems(existing, items []types.EvidenceItem) []types.Evid
 }
 
 func emitEvidenceNoopDuplicate(existing, incoming types.EvidenceItem) bool {
-	existingID := strings.TrimSpace(existing.ID)
-	if existingID == "" {
-		existingID = types.StableEvidenceID(existing)
-	}
-	incomingID := strings.TrimSpace(incoming.ID)
-	if incomingID == "" {
-		incomingID = types.StableEvidenceID(incoming)
-	}
-	if existingID == "" || existingID != incomingID {
-		existingRevision := types.EvidenceRevisionKey(existing)
-		incomingRevision := types.EvidenceRevisionKey(incoming)
-		if existingRevision == "" || existingRevision != incomingRevision {
-			return false
-		}
+	if types.EvidenceStableMergeKey(existing) != types.EvidenceStableMergeKey(incoming) &&
+		!types.EvidenceRevisionCompatible(existing, incoming) {
+		return false
 	}
 	if existing.AnchorKind != incoming.AnchorKind ||
 		strings.TrimSpace(existing.AnchorSymbol) != strings.TrimSpace(incoming.AnchorSymbol) ||
@@ -6298,23 +6259,12 @@ func emitEvidenceOperationAdvisoryItems(built, duplicates, all []types.EvidenceI
 	if len(duplicates) == 0 {
 		return built
 	}
-	byStable := make(map[string]types.EvidenceItem, len(all))
-	byRevision := make(map[string]types.EvidenceItem, len(all))
-	for _, item := range all {
-		byStable[types.EvidenceStableMergeKey(item)] = item
-		if key := types.EvidenceRevisionKey(item); key != "" {
-			byRevision[key] = item
-		}
-	}
+	seen := types.NewEvidenceMatchIndex(all)
 	current := make([]types.EvidenceItem, 0, len(built)+len(duplicates))
 	current = append(current, built...)
 	for _, item := range duplicates {
-		stored, ok := byStable[types.EvidenceStableMergeKey(item)]
-		if !ok {
-			stored, ok = byRevision[types.EvidenceRevisionKey(item)]
-		}
-		if ok {
-			current = append(current, stored)
+		if index, ok := seen.Find(item); ok {
+			current = append(current, seen.Item(index))
 		}
 	}
 	return current

@@ -659,7 +659,7 @@ func TestEmitEvidence_DuplicateBatchIsNoProgress(t *testing.T) {
 	}
 }
 
-func TestEmitEvidence_SameStableIDMetadataCorrectionUpdatesSnapshot(t *testing.T) {
+func TestEmitEvidence_NormalizedCallAndDefinitionRemainDistinctClaims(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
 	first := json.RawMessage(`{
@@ -685,25 +685,25 @@ func TestEmitEvidence_SameStableIDMetadataCorrectionUpdatesSnapshot(t *testing.T
 	if res.Repair != nil && res.Repair.Code == EmitEvidenceDuplicateNoopCode {
 		t.Fatalf("metadata correction must not be treated as no-progress duplicate: %+v", res.Repair)
 	}
-	if !strings.Contains(res.Summary, "Updated 1 existing evidence item") {
-		raw, total := ctx.Mutable.EmittedEvidenceSince(0)
-		t.Fatalf("correction summary should tell model the row was amended, total=%d raw=%+v got: %s", total, raw, res.Summary)
+	raw, total := ctx.Mutable.EmittedEvidenceSince(0)
+	if total != 2 || len(raw) != 2 || raw[0].ID == raw[1].ID || raw[0].Kind != types.EvidenceMechanism || raw[1].Kind != types.EvidenceDirect {
+		t.Fatalf("unproved call normalization and definition have different typed identities: total=%d raw=%+v", total, raw)
 	}
-	if !strings.Contains(res.Summary, "amendment direct") || strings.Contains(res.Summary, "duplicate direct") {
-		t.Fatalf("amendment feedback must not contradict acceptance by labelling the row duplicate: %s", res.Summary)
+	if strings.Contains(res.Summary, "Updated 1 existing evidence item") || strings.Contains(res.Summary, "amendment direct") || strings.Contains(res.Summary, "duplicate direct") {
+		t.Fatalf("independent definition must not be reported as amendment or duplicate: %s", res.Summary)
 	}
 	got := ctx.Mutable.EmittedEvidence()
-	if len(got) != 1 {
-		t.Fatalf("same-ID correction should compact to one answer-grade row, got %d: %+v", len(got), got)
+	if len(got) != 2 || got[0].ID != raw[0].ID || got[1].ID != raw[1].ID {
+		t.Fatalf("different claims must retain both original identities, got %d: %+v", len(got), got)
 	}
-	if got[0].AnchorKind != types.AnchorDefinition {
-		t.Fatalf("anchor kind = %q, want %q", got[0].AnchorKind, types.AnchorDefinition)
+	if got[0].AnchorKind != types.AnchorTextReference || got[1].AnchorKind != types.AnchorDefinition {
+		t.Fatalf("normalized call and definition carriers must remain separate: %+v", got)
 	}
-	if !strings.Contains(got[0].Summary, "auth transport") || !strings.Contains(got[0].Summary, "auth.set") {
-		t.Fatalf("correction merge should preserve rich summaries, got %q", got[0].Summary)
+	if got[0].Summary != "ProviderAuth.api participates in auth transport" || got[1].Summary != "ProviderAuth.api is the transport-facing definition used by auth.set" {
+		t.Fatalf("independent model summaries must not be mixed: %+v", got)
 	}
-	if got[0].Snippet != "class ProviderAuth { api() {} }" {
-		t.Fatalf("corrected snippet not merged: %q", got[0].Snippet)
+	if got[0].Snippet != "" || got[1].Snippet != "class ProviderAuth { api() {} }" {
+		t.Fatalf("definition snippet must not be borrowed by the unproved call: %+v", got)
 	}
 	tail, total := ctx.Mutable.EmittedEvidenceSince(1)
 	if total != 2 || len(tail) != 1 || tail[0].AnchorKind != types.AnchorDefinition {

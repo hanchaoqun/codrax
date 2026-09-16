@@ -1436,6 +1436,11 @@ func evidenceCarrierMayReplace(dst, src EvidenceItem) bool {
 	if evidenceTypedRelationEndpointPromotion(dst, src) {
 		return true
 	}
+	// Replaying the sparse version at the same grounding authority must not
+	// undo endpoint completion merely because it carried an optional condition.
+	if srcRank == dstRank && evidenceTypedRelationEndpointPromotion(src, dst) {
+		return false
+	}
 	dstCoherent := evidenceClaimCarrierCoherent(dst)
 	srcCoherent := evidenceClaimCarrierCoherent(src)
 	if dstCoherent && !srcCoherent {

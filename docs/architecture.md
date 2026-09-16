@@ -906,6 +906,8 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 
 **源码注释引用范围（B1698）**：自动配对的职责说明保留既有摘要、发现规则和证据资格；共享提取器额外返回实际注释起止行。只有该区间每行都存在于真实读取记录，才携带完整原文和范围；缺行、未闭合不得根据摘要推造完整引用。已可引用的 `line_range` 在证据到引用转换中保持范围，单行及 section 原有处理不变，不覆盖模型已有引用。相同起始行的点/范围引用合并仍属 B1694 独立缺口，不能据此宣称所有引用场景已闭环。
 
+**同位置独立声明与修订（B1694）**：agent 全量/增量、Mutable 及 emit 去重/修订反馈/本轮操作归属查找共用 `EvidenceMatchIndex`。完整 `EvidenceStableMergeKey` 优先；源码坐标及 token 只构成候选桶，跨 ID 必须 typed claim 兼容且唯一才可修订，定义、不同返回值及不同关系不得因同坐标互相覆盖。已知来源/权威、owner、条件、selector 身份冲突分别保留；不从摘要猜身份。合法元数据回填与既有窄范围端点补齐继续成立，等 grounding 的稀疏旧版本重放不得撤销已补齐端点。更新槽位后清理旧索引，歧义不擅自选一个兄弟记录。稳定 ID/修订键格式、答案及引用所有权不变；点引用抢占同起点范围仍单独开放。
+
 **AnswerSupportPlan**（按 question family 编译的 support lane 合同）：
 - `SupportLaneObservedArtifact`：log/perf 观察到的事实（**不是**当前代码 mechanism）
 - `SupportLanePrincipalEvidence`：config / role lookup / enumeration / architecture / comparison / generic 等普通题型的主线证据；由 facet source candidates 筛选，不从 raw evidence pool 随机捞上下文

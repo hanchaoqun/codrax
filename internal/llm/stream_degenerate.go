@@ -10,8 +10,8 @@ import "unicode/utf8"
 // server-side length ceiling finally fired). Every transport watchdog
 // stays silent in that state because bytes AND visible deltas keep
 // flowing. The breaker watches only the accumulated assistant content
-// (reasoning-only and tool-call runaway are bounded by the visible-
-// output and total-wall-clock watchdogs) and fires ONLY on a precise
+// (reasoning and tool-call bytes renew transport liveness; there is no
+// no-visible-output or total-age watchdog) and fires ONLY on a precise
 // verbatim signal: the entire recent tail window is exactly periodic
 // with a short byte period. On fire the stream is truncated in place
 // (prefix + two periods kept as evidence of what the model repeated),

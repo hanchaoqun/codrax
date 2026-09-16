@@ -5682,41 +5682,27 @@ func clampMergeSliceBase(base, n int) int {
 
 func mergeEvidenceByStableID(existing, incoming []EvidenceItem) []EvidenceItem {
 	out := append([]EvidenceItem(nil), existing...)
-	seen := make(map[string]int, len(out)+len(incoming))
-	seenRevision := make(map[string]int, len(out)+len(incoming))
 	for i := range out {
 		id := out[i].ID
 		if id == "" {
 			id = StableEvidenceID(out[i])
 			out[i].ID = id
 		}
-		seen[EvidenceStableMergeKey(out[i])] = i
-		if key := EvidenceRevisionKey(out[i]); key != "" {
-			seenRevision[key] = i
-		}
 	}
+	index := NewEvidenceMatchIndex(out)
 	for _, item := range incoming {
 		id := item.ID
 		if id == "" {
 			id = StableEvidenceID(item)
 			item.ID = id
 		}
-		mergeKey := EvidenceStableMergeKey(item)
-		if idx, ok := seen[mergeKey]; ok {
+		if idx, ok := index.Find(item); ok {
+			item.ID = out[idx].ID
 			out[idx] = mergeEvidenceByStableIDItem(out[idx], item)
+			index.Set(idx, out[idx])
 			continue
 		}
-		if key := EvidenceRevisionKey(item); key != "" {
-			if idx, ok := seenRevision[key]; ok {
-				item.ID = out[idx].ID
-				out[idx] = mergeEvidenceByStableIDItem(out[idx], item)
-				continue
-			}
-		}
-		seen[mergeKey] = len(out)
-		if key := EvidenceRevisionKey(item); key != "" {
-			seenRevision[key] = len(out)
-		}
+		index.Set(len(out), item)
 		out = append(out, item)
 	}
 	return out

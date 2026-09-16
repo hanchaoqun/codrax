@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-15）
 
+本轮§123.1824已验收B1694同坐标异声明修复：五语言真实工具→账本→模型上下文先红后绿，统一精确身份优先、跨ID兼容且唯一的匹配器；合法元数据/端点补齐正控保留，另修等grounding稀疏重放撤销端点的同根问题。旧伪“同ID”针原输入保留并纠正验收含义，新增真实同ID公共正控，不为旧误并恢复跨Kind吞并。专项count3/race、独立冷审及冻结全仓86包通过；点/范围引用支线继续OPEN。r1079预选C++症状写修复+Python/PyO3/Rust跨语言读，修复交付后恰好两路各一次，尚未启动；不冒称完整图/Trace解释/写证明闭环。
+
 本轮§123.1821–1823已验收：r1078审计`f8cade07a`已推送，清洁`aa52ef41eb0d`恰好H10语义成员Trace与criterion公开函数read两路各一次，机器1PASS/1FAIL；人审函数核心PASS，Trace遗漏两段1.781/0.607ms及范围并混用等待口径，FAIL不改。B1705图样式错误推导关系最低数、B1706有界语义事实上下文缺失均已修复：公共先红后绿、count3/race、独立冷审及冻结全仓86包通过，随本批分提交交付。不接管模型正文，不强开完整因果报告或代选根因，旧必选空图/未证出口/实际关系证据门保留。B1694两支及图/Trace解释/写证明余债继续OPEN；本对无图或写执行，不冒称其生产闭环，修复后live尚未回放。
 
 当前交付§123.1817：B1702 `03ddd7e2d`已推送，四包count3/race及全仓86有测试包通过，保失败探测输出而不改证明/判定。§123.1818 r1077恰好两路各一次，机器1PASS/1FAIL：pipeline图核心关系完整、浏览器视觉未验证；NAPI实际补丁原生后验36/36但正式proof未闭，原机评不改。§123.1819–1820的P1 B1703子阶段状态归属、B1704 source-free修复教学冲突已修复：公共RED→GREEN、count3/race、末版全仓86包通过，随本片交付；首轮LOC失败与纯迁移纠正收据保留。B1702/3/4不借本次eval宣称自然生产正证；B1705图形类型隐含关系最低要求为P2开放。B1694、B1626/EVAL-B36-SYSAUTH1、完整图表达与原生写证明债继续开放。
@@ -57542,6 +57544,21 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 **最终验收**：`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./... -count=1`完整exit0，86有测试包PASS、13无测试包、零FAIL；agent85.335/tool364.839/types44.309/orchestrator28.771/tracequery106.749/tracediag13.224/hitraceconv153.402/llm28.162s。正式完整日志`20260915-b1705-b1706-full.log`，冻结SHA逐项一致见`-freeze-verify.log`。两项独立冷审无阻断，主审补过可见术语指南、成员有限数/物理范围边界；没有改旧安全断言/名单豁免或从模型原文铸硬门。原两case、donghu fixture及criterion源码SHA一致；原MD/HTML/Trace侧车、两个verdict与机汇总均与`20260915-r1078-artifacts-before-fix.sha`相同。本次不声称全系统零SKIP或完整图/多文件Trace/模型解释/原生逐合同证明全闭。状态：`B1705/B1706=implemented/public-red-to-green/count3+race+cold-review/frozen-full86-pass`；`r1078=original-machine1PASS1FAIL-preserved`；`post-fix-live=not-run`；`model-answer/selection/full-report-authority=preserved`。
 
 后继顺位B1694/P1继续独立OPEN：StableEvidenceID本含语义元组，问题在revision回退把同坐标异claim改成旧ID；需将坐标降为候选索引，兼容且唯一才合修订，保不同returns/definition，并统一agent增量/全量、Mutable与Emit入口。不能只加AnchorKind破合法元数据更正，也不从summary猜身份。已有跨语言旧RED不是本次HEAD新复现。另full/patch的点引用先占同起点范围是独立支线，需保模型引用池原样、传精确已选证据范围；现有known-gap SKIP不算通过。此批不混入上述广域身份改动，以免扩大已复现两项的交付风险。
+
+### §123.1824 B1694：同坐标独立事实不应被当成元数据修订（2026-09-15，P1修复/冻结全仓通过）
+
+1. **本轮基线与新复现**：起点`35476be85365`，fresh fetch重试成功且main/origin=0/0。生产改动前保存`b1694-public-red-v3.log`、`20260915-b1694-types-red.log`与`20260915-b1694-tool-public-red-v2.log`。真实Parse/Read/Emit→Explorer→观察账本→finalizer在JS/TS/ArkTS/Rust/Go均确认同坐标definition与concrete returns的原独立ID被合并；多返回值、逆序及重复提交同样红。定义摘要仍含返回文本，独立dataflow仍在，不能夸大为全系统返回值消失。工具首版缺AnalysisIR的panic是夹具错误，保留但不算产品RED。
+2. **根因与统一方案**：StableEvidenceID已经含语义元组，错误在多消费者把仅表坐标的EvidenceRevisionKey用作唯一事实键。新增共享`EvidenceMatchIndex`：精确StableMergeKey优先（非bare ID），坐标仅索引候选；不同Kind/typed tuple、已知origin/authority/owner/condition/selector冲突不跨ID归并；稀疏端点只按既有窄promotion合同兼容且唯一才合并。歧义独立保留，更新槽位同步退役旧键；无prose关键词、ranker或展示频次参与资格。
+3. **入口范围**：agent全量/增量、Mutable、emit同批去重、修订反馈和本轮操作归属恢复共用判据，防单入口修复后又被另一入口吞掉。增量捷径显式比较typed carrier，并将跨ID修订交给canonical merger，避免仅端点变化被误当no-op。原summary/set合并、source资格、稳定ID/修订键格式、producer排名与展示cap均不改；既有模型正文、图、root selection及引用池不改。
+4. **同根重放问题**：新正向针发现稀疏旧版本带Condition时可按旧完整度分数压回已补齐端点，独立冷审亦以公开Mutable复现。仅在相同grounding等级、反向满足既有typed endpoint promotion时保留完整carrier；更高grounding的既有策略不改，不逐字段拼出从未接受的claim。中间`types-agent-count3.log`原红保留，修复后`types-agent-v2-count3.log`types1.953/agent1.490s通过。
+5. **旧针前提纠正，而非降低门槛**：`TestEmitEvidence_SameStableIDMetadataCorrectionUpdatesSnapshot`原首条无read的call被原安全归一化为mechanism/空triple/text_reference，第二条是direct/defines，实际不同ID。保留两段输入逐字不动，重命名为异claim保全负针，要求两行/两ID/各自summary不串/不误报amend。另有真实Read→两次grounded同ID、补SurfaceTerms/summary的公共正控，singleton+Updated1仍成立；原同IDanchor修订、candidate隔离及稀疏补齐针继续保留。
+6. **验收与未闭边界**：新五语言公共针count3/race、工具新族/邻接count3/race已通过；最终冻结全仓待收据。B1694同起点点引用抢范围是另一支，旧known-gap针仍保留，不在本片代销。完整图关系/时序/逻辑矩阵、occurrence库存、B1693同秒物化、Trace模型解释/逐合同原生证明仍依原账OPEN，不以本轮确定性恢复假称全面闭环。
+7. **r1079排序与计划**：243例=215read/25apply/3plan，按客户影响、机制跨度、历史失败、oracle判决力、近期覆盖和成本排序。主选`github_issue_fmt_tm_year_overflow_symptom`（apply24步，r1066补丁后验通过但正式proof未闭）+`mr_poly_binding_chain`（read15步，r1062机器PASS但人工FAIL，分支/rank/桥接与删图风险）。CAP5/PARALLEL2/TIMEOUT1200、各一次，提交后清洁构建才运行，保case/fixture/oracle原样；备用dateutil写、C++虚调用读不同时启动。主对属于异构保全回归，只有实际出现同坐标竞争才记B1694生产命中，无图或没有触发的新分支记N/A。
+8. **活跃流复核**：llm/config/agent现行默认600/300/600s，stream HTTP总Timeout=0，底层有字节即刷新；隐藏推理、工具参数、心跳、partial frame均续活，无4ms或旧4m无正文降级。显式caller deadline/取消、真字节静默/上游断开及精确重复保护仍成立；analyzer terminal非流式独立180s默认未混同provider默认。仅纠正`stream_degenerate.go`一处还声称旧visible/total watchdog有效的注释，不改运行时；不宣称已启动客户进程配置被重载。
+
+9. **最终冻结验收**：`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./... -count=1`完整exit0，86个有测试包重跑通过、13个无测试包，收据`20260915-b1694-full.log`；所有Go/build输入`20260915-b1694-freeze.sha`前后逐项一致，diff检查及r1079两case/两fixture前置SHA验证通过。最后types/agent专项race3为3.163/5.065s，独立公共五语末版count3/race1.174/2.595s，工具专项race3 3.423s；冷审确认无阻断。工具更早整包431.159s仅作邻接收据，不代替最终集成。唯一生产之外变化为stream旧注释澄清；无测试跳过新增，不将既有point/range known-gap SKIP说成已通过。
+
+状态：`B1694-claim-identity=implemented/public-red-green/count3+race+cold-pass/frozen-full86-pass`；`B1694-point-range=OPEN`；`r1079=planned/not-started`；`model-answer/root-selection/Trace-report/auto-supplement=preserved`。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
