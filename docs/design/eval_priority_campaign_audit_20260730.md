@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-15）
 
+本轮§123.1822：r1078从清洁`aa52ef41eb0d`恰好H10语义成员Trace与criterion公开函数read两路各一次，机器1PASS/1FAIL；人审函数核心PASS，Trace遗漏实际两段1.781/0.607ms及范围并混用等待口径，FAIL不改。B1706/P1确认有界事实上下文被完整因果报告权限一并挡掉，正在独立补事实交接，不强开投影/代选根因；B1705已公共复现并修图样式错误推导关系最低数，保必选空图/未证出口与真实边证据门，待最终联合验收。B1694同坐标异声明与引用范围两支继续OPEN；本对不含图或写执行，不冒称其生产闭环。
+
 当前交付§123.1817：B1702 `03ddd7e2d`已推送，四包count3/race及全仓86有测试包通过，保失败探测输出而不改证明/判定。§123.1818 r1077恰好两路各一次，机器1PASS/1FAIL：pipeline图核心关系完整、浏览器视觉未验证；NAPI实际补丁原生后验36/36但正式proof未闭，原机评不改。§123.1819–1820的P1 B1703子阶段状态归属、B1704 source-free修复教学冲突已修复：公共RED→GREEN、count3/race、末版全仓86包通过，随本片交付；首轮LOC失败与纯迁移纠正收据保留。B1702/3/4不借本次eval宣称自然生产正证；B1705图形类型隐含关系最低要求为P2开放。B1694、B1626/EVAL-B36-SYSAUTH1、完整图表达与原生写证明债继续开放。
 
 最新回放§123.1812：B1698 `477025af9` / B1697 `6859fe811` 均已推送，联合冻结86包全仓通过后清洁构建。r1075严格混合Trace/源码read与C++ plan-only两路各一次，机器1PASS/1FAIL；人审计划核心PASS但未应用/编译，混合读数值及五维正确、当前实现与来源资格FAIL。新B1699同一soft-required源码义务被误教optional并反复拒绝收束、B1700混合member_set获源码清单资格及无引用runtime条目被补错来源均P1，下一片先公共复现，不归JSON畸形或模型波动。B1697/B1698实际通道及图在本对N/A；原结果/夹具/机评不改，无第三例追绿。
@@ -57502,11 +57504,36 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 
 末版联合`go test ./... -count=1` **exit0，86个有测试包全部通过、13个包无测试**；包括orchestrator24.984s、llm29.614s、hitraceconv147.896s、tracediag12.855s、tracequery108.479s。结束后Go/build SHA逐项一致（`20260915-b1703-b1704-freeze-verify-v2.log`）。B1703/B1704及纯迁移均独立冷审无阻断；旧eval case/fixture/oracle/答案不改，读模式主体、Trace补齐/链上归因、模型正文所有权、schema/验证门和600/300/600秒活跃流策略不变。`r1077-original-verdict=preserved`；`B1703/B1704=implemented/public-red-to-green/count3+race+full-86-package-pass`；`native-production-replay=not-claimed`；`B1705/B1694/B1626/EVAL-B36-SYSAUTH1=OPEN`。
 
-### §123.1821 B1705：图形类型不应隐含业务关系最低数量（2026-09-15，P2开放）
+### §123.1821 B1705：图形类型不应隐含业务关系最低数量（2026-09-15，公共复现后实施，待最终验收）
 
 **B1705-DIAGRAMKINDRELATIONMINIMUM1**：`DefaultEdgeRelationsForKind`当前把flow映射guard Min1、sequence映射call Min1，纯precedence顺序图不应因此被建议补条件或调用。`contract_check_block.go`该分支为telemetry-only advisory，本次没有硬拒/重写；r1077读日志3105的一条diagram_edges没有完整detail，具体对应关系仍是源码推定，不冒充已观测细节。后续统一从typed关系意图决定语义最低要求，保持每条关系证据门，不用图类型、可见label或用例名单推断业务边。不为了这个P2扩大当前P1修复批。
 
 下一对只读排期（尚未运行）：优先`real_trace_h10_spantop_member_subrows`，再配`read_combo_criterion_rich_functions`。前者最近保留回放r387/2026-08-12机器PASS约193s，但模型漏逐段值/行范围而靠附录补齐；这次需审显式窗、成员/累计/包络区分和17284线程JIT不能仅凭同窗升为2955根因。后者在现存results/selected summaries未检出该ID，不等于历史从未运行；补完整公开函数枚举、职责解释与返回语义引用，尤其UnknownKind/failed及只兼容存值的阈值入口。两例按原15步、PARALLEL2且各一次执行，runner显式次数1覆盖H10的N_DEFAULT2，不改case。当前先交付已验收P1，不重复r1077追PASS，也不因B1705 advisory制造不存在的图边。
+
+后续复审与实施（上述排期已实际完成，见§1822）：关系最低数本身是advisory，但`diagramPlanRequiresStructuralEdge`也借`Min>0`决定必选空图的硬门；不能简单清空默认关系而连结构存在检查一起删掉。另`semantic_quality_reviewer`将该错误最低数投影为模型评审指导，公共复现已证三类合法关系被宣告缺guard/call，r1077 reviewer实际0次仍不冒称生产重试原因。
+
+最小泛化修复将内部`RequireStructuralEdge`与显式`EdgeRelations`分离：必选flow/sequence/call_dag保已有非空边义务；architecture原可无边、optional不添硬门、Trace原独立权限不混用。关系最低数只来自调用方显式语义，切换图样式不再按旧前缀替换；手工/旧显式Min合同仍可要求有边。reviewer只看显式语义，不复制依赖runtime caveat的第二份结构义务。实际边的tool证据门、模型图/正文JSON不动，没有根据label/message/prose猜关系。
+
+有效公共RED含8家族×4kind、显式call/observe随换图被改写、compiler→contract→reviewer的precedence-flow/callback-sequence/register-sequence；结构空图/未证出口/缺图/optional/无证据边负控原已绿。首轮局部count3通过；整包发现新reviewer教学含内部术语，被既有lint拒绝，改自然语言而不改lint/白名单，首轮失败保留。最终两片联合全仓、冷审与交付收据待补，不将当前局部绿写成已全测。
+
+### §123.1822 r1078：窗口语义成员遗漏与公开函数职责（2026-09-15，双路一次审计完成）
+
+1. **排序与执行**：243例=215read/25apply/3plan，按用户影响、机制覆盖、久未覆盖与诊断价值选H10语义成员（最近r387/08-12）和criterion公开职责（留存汇总未见ID，不等于从未跑）。清洁`aa52ef41eb0d`二进制，原15步/CAP5/PARALLEL2/TIMEOUT1200、两路各一次，09-16 00:43:44Z启动。批次结束才开始新源码修复；原case/fixture SHA已核不变，没有第三例或重跑。
+2. **原机评与人工分列**：117s Trace FAIL，294s read PASS；完整机汇总与人工审计分别为`eval/parallel_selected_summary_evalcampaign_trace_read_r1078_20260915.md`和同名前缀`_manual_audit.md`。Trace人工亦FAIL，不仅旧regex词面问题；公开函数核心人工PASS/过程效率P2。原答案、日志、verdict与oracle不改。
+3. **H10实质遗漏**：`Jit thread pool-17284`窗口内两段1.781/0.607ms、Σ2.388ms已在query完整结果及observation ledger，最终却反复称窗口语义span不存在。原fixture行5968–6113/12610–12663；attached_trace首行来源注释使实际公共坐标为5969–6114/12611–12664，此偏移不是bug。目标是2955，零ranked语义根因不能推出零窗口span；无链证据只能背景。B1706见下一节。
+4. **口径和权限**：12条blocked_reason Σdelay39.157ms不同于D墙钟36.757ms，系统已有披露但模型仍混账，属既有解释债，不扫描/重写正文补救。typed bounded_fact_set不激活完整报告，默认schema2空root-causes旁路存在且reason为trace_root_cause_contract_not_active，不是无效模型选择。新补成员事实不改变根因/投影权限。5query/0源码读、38%上下文、0成文拒绝/1patch/0JSON恢复。
+5. **criterion答案正确**：Eval15/EvalAll36/SetExternalArtifactFloor1126、grammar的IsRegistered110/RegisteredKinds116五个公开函数齐全，UnknownKind/failed/兼容配置/无序列表说明正确。11read/3repo_map/3source_lens、32%上下文；10midloop及两次completion DOWNGRADED后支持齐全。机器inv reject=0不等于零过程修补。首稿缺summary拒一次，模型patch只加summary保表，位置仅soft提醒；机械引用修复未改职责。私有helpers探索偏多记P2，未证新矛盾硬合同。
+6. **保护与余债**：本对无Mermaid/无write执行，图渲染和B1702/3/4生产正证N/A；B1694本例不同坐标不能销账。600/300/600s默认、活跃字节续期未改，无固定4ms/旧4分钟无正文降级；1200s是另设eval外层上限，两例未到。原结果人工FAIL不因后续修复通过而改判。
+
+### §123.1823 B1706：有界语义事实不应依赖完整因果报告权限（2026-09-15，P1确认/实施中）
+
+**B1706-BOUNDEDSEMANTICFACTHANDOFF1**：H10最终INIT缺两成员名称/值/范围，而原生query的`window_stats.trace_spans`与完整ledger已有。`renderAnswerDocTraceDecisionHandoff`以完整报告权限提前返回，把非因果窗口事实也挡住；系统答案表有同样完整报告保护，但本批不启用该表接管答案。
+
+最小根修为独立agent prompt concern：typed bounded事实维度+明确时间窗/目标，取未裁剪ledger，只接本次原生成功query产生的hard semantic span，并核当前capture、精确QueryWindow/QueryTarget和可回查物理路径。窗口中span所属线程可以不同于查询目标，必须保原身份，未有链证不晋升根因。复用原projection解析现存结构事实，不解析用户/模型prose猜意图；不造排名/AxisB/可消除量/修向/selection。成员数量、总字节与UTF-8预算明确，省略不宣称complete，不可信业务名作为数据引用。
+
+物理来源只复用成功query的非序列化单文件回读票据，不扩大读权限。bundle manifest和历史无票据不进入本新增车道，旧完整因果报告路径完全不变。原输出/侧车/schema和JSON必填项不增。有效公共RED `.codrax/tmp/b1706-public-valid-window-red.log` 已经真实TraceQuery→AppendDispatch→BuildAgentContext确认两类span、物理票据、已验证窗都存在而原handoff缺失；更早遗漏SourceQuote的夹具失败保留但不作产品RED。实现/正反针及最终冻结验收待补。
+
+后继顺位B1694/P1继续独立OPEN：StableEvidenceID本含语义元组，问题在revision回退把同坐标异claim改成旧ID；需将坐标降为候选索引，兼容且唯一才合修订，保不同returns/definition，并统一agent增量/全量、Mutable与Emit入口。不能只加AnchorKind破合法元数据更正，也不从summary猜身份。已有跨语言旧RED不是本次HEAD新复现。另full/patch的点引用先占同起点范围是独立支线，需保模型引用池原样、传精确已选证据范围；现有known-gap SKIP不算通过。此批不混入上述广域身份改动，以免扩大已复现两项的交付风险。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
