@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-15）
 
-当前续修§123.1829–1830：EVAL-B36-SYSAUTH1外部指标被源码名称诊断质疑、B1678未知执行能力被称作“仅静态”两项已公共先红后绿、count3/race3、独立冷审及最终冻结全仓86包通过，分片提交交付。后续r1081从243例按来源风险、Trace链上/背景分界与图关系质量选H7真实Trace和C++虚调用read，严格并行2、各一次；上一批已覆盖Python apply。本次不修改原case、oracle、模型答案或验证资格，尚未宣称本批生产回放闭环。
+当前续修§123.1829–1831：EVAL-B36-SYSAUTH1来源诊断`653d99056`、B1678未知执行说明`91e7467e3`已分批推送，公共先红后绿/count3/race3/冷审/最终冻结86包通过。清洁r1081恰好H7 Trace+C++ read两路各一次，机2PASS、人审均FAIL；投影/补齐/12项旁路保留，模型误用和图N/A不销账。C++13次拒绝未证新P1合同自冲突；新确认B1707完整非图关系row教学漏必需visible_label，§123.1832公开复现与小修进行中。有界8项候选/完整当前锚回供继续P2观察，不改原答案和机评。
 
 续修§123.1826：B1694点/范围引用已`7a4858e88`提交推送，公共先红后绿、count3/race3、冷审及末版冻结全仓86测试包通过。§123.1827 r1080清洁构建后恰好Java read/Python write两路各一次，机器2PASS；人审核心均PASS，Java完整范围引用获full生产正证（patch仅公共测试），Python真实原生4测试及独立572/572后验通过。模型HTTP措辞、图/Trace解释与跨语言原生证明债不代销。新B1678诊断P2“已覆盖仍写缺少观测”已在§123.1828以`fb362358c`修复推送，末版count3/race3/types及调度器全包、活跃流专项通过，不改变证明资格；原答案/报告/机评保持不动。
 
@@ -57623,7 +57623,7 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 
 最终所有Go/build输入冻结后`go test ./... -count=1`完整exit0、86个有测试包通过，收据`.codrax/tmp/20260916-r1081-repair-full-suite.log`；`20260916-r1081-repair-{frozen-inputs.sha,freeze-verify.log}`验证前后输入一致。活跃字节/心跳、首响应、静默及默认值专项count3为43.405s（`20260916-active-stream-boundary-count3-r1081.log`），600/300/600s与调用方独立预算不变，不按4ms/旧4m无正文强降级。
 
-状态：`source-oracle-scope=public-red-green/count3/race3/cold-review/frozen-full-86-pass`；`model-answer/Trace-projection/autosupplement/typed-relation-authority=unchanged`；`live=not-run`。
+状态：`source-oracle-scope=653d99056-pushed/public-red-green/count3/race3/cold-review/frozen-full-86-pass`；`model-answer/Trace-projection/autosupplement/typed-relation-authority=unchanged`；`live=r1081-pending`。
 
 ### §123.1830 B1678续修：未知执行能力不是已证静态检查（2026-09-16）
 
@@ -57635,9 +57635,9 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 
 独立冷审无阻断：同路径强证明仍允许finish/all_verified，不增加后续批；共享文本的“这些观察本身不足以证明”不否认其它独立强证据。联合最终冻结全仓86包通过，收据同§1829，不借旧全测抵充本片。
 
-状态：`B1678-unknown-static=public-red-green/count3/race3/cold-review/frozen-full-86-pass`；`proof-selection/authority=unchanged`；`probe-count-naming=OPEN`。
+状态：`B1678-unknown-static=91e7467e3-pushed/public-red-green/count3/race3/cold-review/frozen-full-86-pass`；`proof-selection/authority=unchanged`；`probe-count-naming=OPEN`；`write-live=this-pair-N/A`。
 
-### §123.1831 r1081：真实 Trace 全谱与 C++ 虚调用（2026-09-16，待回放）
+### §123.1831 r1081：真实 Trace 全谱与 C++ 虚调用（2026-09-16，审计完成）
 
 243例（215 read/25 apply/3 plan）按来源边界/严重度、稀疏模式、Trace证据质量、图关系与最近覆盖排序。本批选`real_trace_h7_self_seat_full_spectrum`与`sr_cpp_virtual_chain`，均read15步、CAP5/PARALLEL2/TIMEOUT1200，各一次。上批r1080已覆盖Python apply，之后继续轮转写/计划模式；本批不加第三例、不修改题目/夹具/机器oracle。启动前原件SHA在`.codrax/tmp/20260916-r1081-cases-trace-before.sha`及`20260916-r1081-fixtures-before.sha`。
 
@@ -57645,7 +57645,23 @@ H7核明确233.190ms窗、running74.915/折算65.912两轴、D36.757ms/11段、c
 
 C++核null/level过滤、prefix到virtual write/ConsoleSink/stderr、Error才flush且Console继承空实现；工厂三分支和unknown nullptr与构造器接收/移动对象区分。README把普通log误写经过format_value的旧描述不能压倒实现（仅log_latency使用它）；不存在的装配调用站点不能猜造成调用边。题目未强制图，有图才审原始模型/正规化/最终关系与实际解析，无图记N/A而非图层PASS。
 
-状态：`r1081=planned/exact2-once-after-clean-build`；`machine/human/render=not-run`。
+干净构建`0.1.20260916/91e7467e32ba/2026-09-16T06:32:31Z`，06:32:55Z同时启动恰好两路。runner日志`.codrax/tmp/20260916-r1081-runner.log`，机评`eval/parallel_selected_summary_evalcampaign_trace_cpp_r1081_20260916.md`；运行期间Go/build输入不变。启动前case/trace指纹再次一致；全部原始输出与机评先保全再人审，不追跑第三例。
+
+终局：runner exit0、机器2PASS，H7 210s/55%上下文、C++460s/53%，完整人工验收均FAIL；详见`eval/parallel_selected_summary_evalcampaign_trace_cpp_r1081_20260916_manual_audit.md`。原件MD/HTML/JSON、out/log及机器summary已SHA保全，不改原判、不追加追跑。
+
+H7保留明确窗完整状态账、running74.915/折算65.912两轴、D36.757/11段/最长3.853、logd49.656=链上0.033+背景49.623、微项披露和系统critical_blocking_calls补采，schema2/available/12项根因旁路成功。模型仍将单席3.077说成双席5.324、完整11段后虚构4条溢出、误称完整枚举、错idle计数/Binder人口，并在侧车description对调第9/10主体和值；准确事实此前全部已入模，系统ID绑定未错。源码排除quote两次误填在另一字段，实际接受default/external_only，零源码读取不等于新excluded臂获live正证。0成文拒绝/1patch，图N/A。
+
+C++主干多态/工厂分支部分正确，13个引用摘录与真实源码行逐字一致，但模型虚构时间戳、漏null/level过滤、把nullptr返回升为调用方实际loud fail；引用准确不等于所有解释受支持。首图由模型主动删除，最终只有8条模型关系文本投影，图N/A，不能用被弃首稿的1次Mermaid修复指标签最终渲染。1full+13patch/13拒绝主要来自互斥操作、引用角色误用、whole replacement丢元数据；当前有效授权名单外的旧ref被拒，无“底稿未提交却偷偷变代”的证据。独立发现普通fallback完整row教学漏字段B1707，另片修复；有界名单覆盖/当前锚回供改善仍P2，不把全部13次拒绝归一个缺口。
+
+状态：`r1081=exact2-once/machine2PASS/human2FAIL`；`Trace-projection/autosupplement/root-sidecar=preserved`；`excluded-oracle-branch-live/not-required-final-diagram/write-live=N/A`；`B1707=P2-confirmed/next-section`；`original-model-artifacts/oracles=unchanged`。默认600/300/600s不变，本对attempt1且无传输超时；长流保证来自单独公开测试，不以短请求冒称10分钟实测。
+
+### §123.1832 B1707：非图关系“完整记录”教学必须列全必需字段（2026-09-16，施工中）
+
+独立合同审计定位`answer_document_pre_emit_check.go`普通full-replace fallback：称“complete same-direction typed recipe”，只列from_node/to_node/relation_kind/from_identity/to_identity，遗漏后续校验确实必需的visible_label。共享schema和原子add已有正确字段，普通记录指引却不完整。这是跨语言/非图list与table的教学问题，不是降低关系证据门的理由，也不能把本轮全部13次模型错误归因此。
+
+拟仅修模型侧完整记录说明，并用实际公开emit路径先红后绿核验：原五字段被拒、精确六字段在已有证据时可用；无证边不放行，文本和图不由系统生成。不会自动填关系标签、替换模型答案、改变关系资格或新增JSON必填项。有界候选8项覆盖诊断、不同身份方言占槽及缺label时完整锚回供另留P2观察，未经公共复现不冒称本片闭环。
+
+状态：`B1707=P2-confirmed/public-regression-in-progress`；`authority/validator/model-ownership=unchanged`；`r1081=pre-fix-receipt/not-rerun`。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
