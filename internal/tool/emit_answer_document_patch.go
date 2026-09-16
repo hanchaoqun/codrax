@@ -4879,12 +4879,7 @@ func answerDocumentPatchEffectiveCitationPool(prev *types.AnswerDocumentV2, patc
 }
 
 func answerDocumentPatchCitationIndex(pool []types.Citation, cit types.Citation) int {
-	for i, existing := range pool {
-		if equivalentAnswerCitation(existing, cit) || preEmitCitationSameLocation(existing, cit) {
-			return i
-		}
-	}
-	return -1
+	return findPreEmitCitation(pool, cit)
 }
 
 func preEmitPatchCitationCandidateForItem(pctx *preEmitCheckContext, label, text string, patchCitations []types.Citation, forms []types.ClaimForm) (types.Citation, bool) {

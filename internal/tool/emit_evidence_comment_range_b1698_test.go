@@ -313,11 +313,10 @@ func TestB1698OrdinarySourceRangeAndExistingCitationSelection(t *testing.T) {
 	for _, tc := range []struct {
 		name, label      string
 		explicitCitation bool
-		knownPointReuse  bool
 	}{
 		{name: "new_selected_range_neutral_label", label: "Selected source range"},
 		{name: "existing_model_citation", label: "Worker", explicitCitation: true},
-		{name: "known_B1694_worker_label_point_reuses_range", label: "Worker", knownPointReuse: true},
+		{name: "B1694_worker_label_preserves_selected_range", label: "Worker"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bus := b1698ReadCommentSource(t, "worker.go", source, 0, 100)
@@ -359,16 +358,6 @@ func TestB1698OrdinarySourceRangeAndExistingCitationSelection(t *testing.T) {
 					t.Fatalf("existing model-authored citation was overwritten: got %+v want %+v", doc.Citations[0], originalCitation)
 				}
 			} else if doc.Citations[0].Scope != types.ScopeLineRange || !strings.Contains(render.RenderAnswerDocument(doc, "en"), "worker.go:2-4") {
-				// Keep the actual failing public fixture, not just a synthetic
-				// location-key assertion. B1694 is separate: a label-derived point
-				// enters before the explicitly selected range and is reused at the
-				// same start coordinate. Do not overwrite existing model citations
-				// or widen global citation identity policy to close B1698.
-				if tc.knownPointReuse && doc.Citations[0].File == "worker.go" &&
-					doc.Citations[0].Line == 2 && doc.Citations[0].LineEnd == 0 &&
-					doc.Citations[0].Scope == "" && doc.Citations[0].Quote == "func Worker() int {" {
-					t.Skipf("B1694 known point/range identity collision: explicit evidence %s retains worker.go:2-4, but earlier label citation is reused: %+v", evidence[0].ID, doc.Citations[0])
-				}
 				t.Fatalf("ordinary source range was not transported to the renderer: %+v", doc.Citations[0])
 			}
 		})

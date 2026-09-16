@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-15）
 
+续修§123.1826：B1694点/范围引用已统一full/patch复用和旧引用→证据ID转换的范围判据。公共先红后绿、相邻count3/race3、独立冷审及末版冻结全仓86测试包通过；模型引用池/原文不覆盖、不扩大证据资格。下一r1080计划Java源码说明read与Python症状write，恰好两路各一次，尚未启动。
+
 本轮§123.1824的B1694同坐标异声明修复已推`285f08729`：公共五语先红后绿、count3/race、独立冷审及冻结全仓86包通过。精确身份优先，跨ID兼容且唯一才合修订；合法元数据/端点补齐保留，等grounding稀疏重放不撤销完整端点。§123.1825 r1079清洁构建后恰好C++症状写与Python/PyO3/Rust读两路各一次：机器1PASS/1FAIL；写业务后验336/336+UBSan通过但正式proof仍弱，读图语法通过但语义/关系人审失败。没有确认新的系统P1/自冲突，也没有B1694自然命中；点/范围引用、原生证明、完整图/Trace解释债仍OPEN，不代写模型答案或追加追绿。
 
 本轮§123.1821–1823已验收：r1078审计`f8cade07a`已推送，清洁`aa52ef41eb0d`恰好H10语义成员Trace与criterion公开函数read两路各一次，机器1PASS/1FAIL；人审函数核心PASS，Trace遗漏两段1.781/0.607ms及范围并混用等待口径，FAIL不改。B1705图样式错误推导关系最低数、B1706有界语义事实上下文缺失均已修复：公共先红后绿、count3/race、独立冷审及冻结全仓86包通过，随本批分提交交付。不接管模型正文，不强开完整因果报告或代选根因，旧必选空图/未证出口/实际关系证据门保留。B1694两支及图/Trace解释/写证明余债继续OPEN；本对无图或写执行，不冒称其生产闭环，修复后live尚未回放。
@@ -57571,6 +57573,19 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 7. **保全/下一ROI**：原MD/HTML、机汇总及所列out/日志/verdict/metrics/正式JSON前后指纹清单为`20260915-r1079-{output,formal}-before-audit.sha`，原case/两fixture核一致。下一先B1694点/范围引用（full+patch、模型池原样、精确选择范围），再原生执行证明；上述P2诊断不丢账。其它语言/图时序/逻辑仍用异构回放，不重复本题求绿。本对无Trace，显式窗投影/自动补齐/IO供给语义业务两轴及root旁路不代销。默认600/300/600s、活跃字节续期未变，无4ms/旧4m无正文降级；显式caller deadline仍有效。
 
 状态：`r1079=exact2-once/machine1PASS1FAIL`；`write-business-local-pass/formal-unverified`；`read-human-fail/mermaid-parse-render-pass/semantic-fail`；`new-system-P1=not-confirmed`；`B1694-point-range+native-proof+diagram-model-quality=OPEN`；`original-model-artifacts/oracles=preserved`。
+
+### §123.1826 B1694：显式引用范围保全（2026-09-16，验收通过）
+
+1. 基线`08c41afb8`、fresh fetch后远程无新增、清洁main。公共Read/EmitEvidence/EmitAnswerDocument确认：Worker标签先产生单行引用，随后模型明确选择2–5行的证据仍按文件/起始行复用成单行。这不是模型波动；同坐标异声明修复`285f08729`与本范围分支分别记账。
+2. full与patch共用范围复用器：line/line_range/旧空scope按有效起止范围一致才可复用，非行scope及限定字段不串。优先精确路径，旧路径别名只允许唯一来源，歧义不擅选。仅追加缺失引用并绑定模型明确选定的证据，不改已有池项、索引、quote或模型措辞；原全池严格等价函数、全局坐标对齐键/资格保持原样。
+3. 强引用先绑定，最终再复核，避免弱label修复先铸无用点引用。旧模型citation_ref转换为evidence_ids也需范围一致，只有包含/同起点不再足以制造稳定ID义务或自动扩大选择；无新增JSON必填字段、正文扫描硬门、重试预算或模型答案代写。
+4. 中间相邻测试暴露支持成员编译器将Source规范化小写，严格case-sensitive复用会重复已有点引用；保留既有路径别名方言，仅新增精确路径优先/跨来源歧义保护。原旧测试未改断言。其它start-only候选定位/候选消歧不在本次明确选择的transport修复范围，仍需独立审计，不能宣称全部引用策略关闭。
+5. 公共full/patch、双序、同起点不同end、旧scope同范围、无权扩选正反控通过；旧B1698 known-gap SKIP已升为正常正针，输入保留不降杆。相邻count3为3.216s，初版race3为24.188s。冷审补证已有精确文件但范围不同仍可误借suffix同名文件，已禁止该fallback并加负针，末版race3为34.094s。原全仓`20260916-b1694-range-full.log`在发现此末审问题后终止，exit143，只作中间收据；末版冻结清单/全仓收据使用`20260916-b1694-range-final-{freeze.sha,full.log}`，待终局，不拿中间运行冒称完整PASS。
+6. 下一r1080按243例215read/25apply/3plan，优先`sr_java_handler_impls`（原多行注释引用生产见证）+`github_issue_dateutil_relativedelta_float_symptom`（本机Python可执行、症状修复与正式证明），不重复r1079，不选已知oracle陈腐的H9。CAP5/PARALLEL2/TIMEOUT1200、原15/24步各一次；提交后清洁构建才启动，原case/fixture/oracle不改。前置指纹`20260916-r1080-{cases,fixtures}-before.sha`。
+
+7. **末版收据**：`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test ./... -count=1`完整exit0，86个有测试包及13个无测试包；末版冻结Go/build输入前后完全一致。工具相邻race count3 34.094s、公共原样full/patch全部通过，独立复审确认精确路径边界修正后无本次范围内阻断。无新增SKIP，旧known-gap升正针，不改JSON教学合同/Trace两轴计算/投影自动补齐/模型根因选择/活跃流行为。
+
+状态：`B1694-point-range=public-red-green/count3+race3/cold-review/frozen-full86-pass`；`r1080=planned/not-started`；`model-prose/graph/root-selection=unchanged`；`Trace explicit-window/projection/auto-supplement=unchanged`；`active-stream-600/300/600s/no-4ms-or-old4m-prose-age-fallback=unchanged`。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

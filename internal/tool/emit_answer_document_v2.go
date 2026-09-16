@@ -926,6 +926,13 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		}
 	}
 	normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(toolName, doc, ctx, pctx)
+	// Bind the model's explicit evidence selection before weaker label/role
+	// repairs can create an unnecessary point citation at the same start line.
+	// The final binding pass still runs after all repairs; both use exact extent
+	// identity and leave existing model pool entries and visible text unchanged.
+	if fixed := normalizeItemCitationRefsByEvidenceIDWithContext(doc, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByEvidenceID.initial", fixed)
+	}
 	// Capture an exact model-selected Principal Enumeration Row before any
 	// weaker candidate or aggregate citation repair can move its citation. The
 	// row-id binder applies equally to source inventories and conceptual member

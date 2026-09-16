@@ -156,7 +156,8 @@ func markModelSubmittedItemCitationRefs(doc *types.AnswerDocumentV2) {
 // markModelSubmittedItemEvidenceIDAdoptionRequired freezes B1224's adoption
 // decision before the general citation-normalization chain runs. A model-owned
 // citation set is eligible only when every submitted pool index already names
-// at least one accepted, citable current-source evidence row. Consequently an
+// at least one accepted, citable current-source evidence row with the same
+// extent (overlap alone does not authorize a different source selection). Consequently an
 // out-of-range/aggregate/source-inventory legacy carrier keeps its existing
 // dedicated repair lane, while a later system-added or rebound citation can
 // never manufacture a new evidence-ID obligation.
@@ -200,7 +201,8 @@ func markModelSubmittedItemEvidenceIDAdoptionRequired(doc *types.AnswerDocumentV
 					if id == "" {
 						continue
 					}
-					if _, ok := preEmitCitationForItemEvidence(ev, pctx); ok {
+					if selected, ok := preEmitCitationForItemEvidence(ev, pctx); ok &&
+						preEmitCitationSameExtent(pctx.canonicalCitation(citation), selected) {
 						citable = true
 						break
 					}
@@ -218,7 +220,7 @@ func markModelSubmittedItemEvidenceIDAdoptionRequired(doc *types.AnswerDocumentV
 // normalizeUniqueModelCitationRefsToEvidenceIDs removes one avoidable retry
 // from the stable current-source evidence lane. The model has already selected
 // each citation pool entry. When, and only when, every selected entry resolves
-// to exactly one accepted citable evidence identity, this pass records that
+// to exactly one accepted citable evidence identity with the same extent, this pass records that
 // same identity in evidence_ids so later binding is stable across pool edits.
 //
 // This is a transport normalization, not evidence selection: ambiguous source
@@ -256,7 +258,8 @@ func normalizeUniqueModelCitationRefsToEvidenceIDs(doc *types.AnswerDocumentV2, 
 				unique := ""
 				ambiguous := false
 				for _, ev := range matches {
-					if _, ok := preEmitCitationForItemEvidence(ev, pctx); !ok {
+					if selected, ok := preEmitCitationForItemEvidence(ev, pctx); !ok ||
+						!preEmitCitationSameExtent(pctx.canonicalCitation(citation), selected) {
 						continue
 					}
 					id := strings.TrimSpace(ev.ID)
@@ -5172,11 +5175,8 @@ func appendOrReusePreEmitCitation(doc *types.AnswerDocumentV2, cit types.Citatio
 	if doc == nil {
 		return -1
 	}
-	want := preEmitCitationLocationKey(cit)
-	for i, existing := range doc.Citations {
-		if preEmitCitationLocationKey(existing) == want || preEmitCitationSameLocation(existing, cit) {
-			return i
-		}
+	if ref := findPreEmitCitation(doc.Citations, cit); ref >= 0 {
+		return ref
 	}
 	doc.Citations = append(doc.Citations, cit)
 	return len(doc.Citations) - 1
