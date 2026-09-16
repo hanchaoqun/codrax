@@ -5355,9 +5355,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			writeTraceIOPressure(&b, *result.WindowStats.IOPressureSummary)
 		}
 		for _, episode := range result.WindowStats.IOBurstEpisodes {
-			fmt.Fprintf(&b, "- io_burst_episode %s chain_relevance=%s root_cause_eligibility=%s signal=%s duration=%.3fms d_state=%.3fms io_wait=%.3fms block_max=%.3fms storage_max=%.3fms inode=%s dev=%s name=%s file_bytes=%d page_cache_churn=%d overlap=%.3fms nearest_chain=%s lines=%d-%d confidence=%.2f — %s\n",
-				traceThreadLabel(episode.Thread), sanitizeForBanner(episode.ChainRelevance), sanitizeForBanner(episode.RootCauseEligibility), sanitizeForBanner(episode.DominantSignal), episode.DurationMs, episode.DStateMs, episode.IOWaitMs, episode.BlockMaxLatencyMs, episode.StorageMaxLatencyMs,
-				sanitizeForBanner(episode.TopInode), sanitizeForBanner(episode.TopDev), sanitizeForBanner(episode.TopEntryName), episode.FileIOBytes, episode.PageCacheChurn, episode.OverlapMs, traceThreadLabel(episode.NearestChainThread), episode.LineStart, episode.LineEnd, episode.Confidence, sanitizeForBanner(episode.Summary))
+			fmt.Fprintf(&b, "- io_burst_episode %s chain_relevance=%s root_cause_eligibility=%s signal=%s duration=%.3fms d_state=%.3fms io_wait=%.3fms%s overlap=%.3fms nearest_chain=%s lines=%d-%d confidence=%.2f — %s\n",
+				traceThreadLabel(episode.Thread), sanitizeForBanner(episode.ChainRelevance), sanitizeForBanner(episode.RootCauseEligibility), sanitizeForBanner(episode.DominantSignal), episode.DurationMs, episode.DStateMs, episode.IOWaitMs,
+				traceIOBurstResourceSummarySuffix(episode), episode.OverlapMs, traceThreadLabel(episode.NearestChainThread), episode.LineStart, episode.LineEnd, episode.Confidence, sanitizeForBanner(episode.Summary))
 		}
 		for _, inode := range result.WindowStats.BlockIOByInode {
 			fmt.Fprintf(&b, "- block_io_by_inode inode=%s dev=%s name=%s thread=%s block_dev=%s op=%s relation_status=%s file_bytes=%d page_cache_churn=%d block_max=%.3fms storage_max=%.3fms nearest_block_thread=%s line=%d-%d confidence=%.2f — %s\n",
@@ -5626,6 +5626,15 @@ func traceQueryArtifactID(sourceLabel string) string {
 	return "trace_query"
 }
 
+func traceIOBurstResourceSummarySuffix(episode tracequery.IOBurstEpisodeSummary) string {
+	// Keep the existing per-field banner sanitization; a long filename must
+	// not consume a shared truncation budget and hide the numeric fields.
+	episode.TopInode = sanitizeForBanner(episode.TopInode)
+	episode.TopDev = sanitizeForBanner(episode.TopDev)
+	episode.TopEntryName = sanitizeForBanner(episode.TopEntryName)
+	return tracequery.IOBurstResourceSummarySuffix(episode)
+}
+
 func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequery.FrameRootCauseBundle) {
 	if b == nil || bundle == nil {
 		return
@@ -5685,8 +5694,8 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 	writeTracePerfContextRole(b, "bundle_binder_peer_perf", bundle.BinderPeerPerf)
 	writeTracePerfContextRole(b, "bundle_same_cpu_competitor_perf", bundle.SameCPUCompetitorPerf)
 	for _, episode := range bundle.IOBurstEpisodes {
-		fmt.Fprintf(b, "- bundle_io_burst %s chain_relevance=%s signal=%s duration=%.3fms inode=%s overlap=%.3fms nearest_chain=%s — %s\n",
-			traceThreadLabel(episode.Thread), sanitizeForBanner(episode.ChainRelevance), sanitizeForBanner(episode.DominantSignal), episode.DurationMs, sanitizeForBanner(episode.TopInode), episode.OverlapMs, traceThreadLabel(episode.NearestChainThread), sanitizeForBanner(episode.Summary))
+		fmt.Fprintf(b, "- bundle_io_burst %s chain_relevance=%s signal=%s duration=%.3fms%s overlap=%.3fms nearest_chain=%s — %s\n",
+			traceThreadLabel(episode.Thread), sanitizeForBanner(episode.ChainRelevance), sanitizeForBanner(episode.DominantSignal), episode.DurationMs, traceIOBurstResourceSummarySuffix(episode), episode.OverlapMs, traceThreadLabel(episode.NearestChainThread), sanitizeForBanner(episode.Summary))
 	}
 	if bundle.SupplyPressureSummary != nil {
 		fmt.Fprintf(b, "- bundle_supply signal=%s cpu_pressure=%.3fms low_freq_cpus=%v — %s\n",

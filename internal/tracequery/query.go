@@ -13586,6 +13586,32 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 	return out
 }
 
+// IOBurstResourceSummarySuffix renders only resource fields actually carried
+// by this episode. Their zero values mean absent attribution, not a measured
+// absence of IO; scheduler-only episodes therefore have no resource suffix.
+// The leading spaces let all text consumers append the same optional fields.
+func IOBurstResourceSummarySuffix(item IOBurstEpisodeSummary) string {
+	var b strings.Builder
+	if item.BlockMaxLatencyMs > 0 {
+		fmt.Fprintf(&b, " block_max=%.3fms", item.BlockMaxLatencyMs)
+	}
+	if item.StorageMaxLatencyMs > 0 {
+		fmt.Fprintf(&b, " storage_max=%.3fms", item.StorageMaxLatencyMs)
+	}
+	for _, field := range [][2]string{{"inode", item.TopInode}, {"dev", item.TopDev}, {"name", item.TopEntryName}} {
+		if strings.TrimSpace(field[1]) != "" {
+			fmt.Fprintf(&b, " %s=%s", field[0], field[1])
+		}
+	}
+	if item.FileIOBytes > 0 {
+		fmt.Fprintf(&b, " file_bytes=%d", item.FileIOBytes)
+	}
+	if item.PageCacheChurn > 0 {
+		fmt.Fprintf(&b, " page_cache_churn=%d", item.PageCacheChurn)
+	}
+	return b.String()
+}
+
 func computeIOBurstEpisodes(stats WindowStats, max int) []IOBurstEpisodeSummary {
 	var out []IOBurstEpisodeSummary
 	add := func(item IOBurstEpisodeSummary) {
@@ -13601,11 +13627,13 @@ func computeIOBurstEpisodes(stats WindowStats, max int) []IOBurstEpisodeSummary 
 		if item.Confidence <= 0 {
 			item.Confidence = 0.68
 		}
-		item.Summary = fmt.Sprintf("%s io_burst signal=%s duration=%.3fms d_state=%.3fms io_wait=%.3fms block_max=%.3fms storage_max=%.3fms inode=%s file_bytes=%d page_cache_churn=%d",
-			threadLabel(item.Thread), firstNonEmpty(item.DominantSignal, "io_activity"), item.DurationMs, item.DStateMs, item.IOWaitMs, item.BlockMaxLatencyMs, item.StorageMaxLatencyMs, firstNonEmpty(item.TopInode, "unknown"), item.FileIOBytes, item.PageCacheChurn)
+		item.Summary = fmt.Sprintf("%s io_burst signal=%s duration=%.3fms d_state=%.3fms io_wait=%.3fms%s",
+			threadLabel(item.Thread), firstNonEmpty(item.DominantSignal, "io_activity"), item.DurationMs, item.DStateMs, item.IOWaitMs, IOBurstResourceSummarySuffix(item))
 		out = append(out, item)
 	}
-	topIO := stats.IOPressureSummary
+	// Scheduler waits prove a thread's state and duration, not the resource
+	// behind the wait. Whole-window pressure remains separate background;
+	// only the independently joined inode/storage branch below owns resources.
 	for _, td := range stats.DStateTop {
 		item := IOBurstEpisodeSummary{
 			Thread:         td.Thread,
@@ -13617,15 +13645,6 @@ func computeIOBurstEpisodes(stats WindowStats, max int) []IOBurstEpisodeSummary 
 			LineStart:      td.LineStart,
 			LineEnd:        td.LineEnd,
 			Confidence:     0.74,
-		}
-		if topIO != nil {
-			item.BlockMaxLatencyMs = topIO.BlockMaxLatencyMs
-			item.StorageMaxLatencyMs = topIO.StorageMaxLatencyMs
-			item.FileIOBytes = topIO.FileIOBytes
-			item.PageCacheChurn = topIO.PageCacheChurn
-			item.TopInode = topIO.TopInode
-			item.TopDev = topIO.TopDev
-			item.TopEntryName = topIO.TopEntryName
 		}
 		add(item)
 	}
@@ -13640,15 +13659,6 @@ func computeIOBurstEpisodes(stats WindowStats, max int) []IOBurstEpisodeSummary 
 			LineStart:      td.LineStart,
 			LineEnd:        td.LineEnd,
 			Confidence:     0.82,
-		}
-		if topIO != nil {
-			item.BlockMaxLatencyMs = topIO.BlockMaxLatencyMs
-			item.StorageMaxLatencyMs = topIO.StorageMaxLatencyMs
-			item.FileIOBytes = topIO.FileIOBytes
-			item.PageCacheChurn = topIO.PageCacheChurn
-			item.TopInode = topIO.TopInode
-			item.TopDev = topIO.TopDev
-			item.TopEntryName = topIO.TopEntryName
 		}
 		add(item)
 	}
