@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-15）
 
+当前续修§123.1829–1830：EVAL-B36-SYSAUTH1外部指标被源码名称诊断质疑、B1678未知执行能力被称作“仅静态”两项已公共先红后绿、count3/race3、独立冷审及最终冻结全仓86包通过，分片提交交付。后续r1081从243例按来源风险、Trace链上/背景分界与图关系质量选H7真实Trace和C++虚调用read，严格并行2、各一次；上一批已覆盖Python apply。本次不修改原case、oracle、模型答案或验证资格，尚未宣称本批生产回放闭环。
+
 续修§123.1826：B1694点/范围引用已`7a4858e88`提交推送，公共先红后绿、count3/race3、冷审及末版冻结全仓86测试包通过。§123.1827 r1080清洁构建后恰好Java read/Python write两路各一次，机器2PASS；人审核心均PASS，Java完整范围引用获full生产正证（patch仅公共测试），Python真实原生4测试及独立572/572后验通过。模型HTTP措辞、图/Trace解释与跨语言原生证明债不代销。新B1678诊断P2“已覆盖仍写缺少观测”已在§123.1828以`fb362358c`修复推送，末版count3/race3/types及调度器全包、活跃流专项通过，不改变证明资格；原答案/报告/机评保持不动。
 
 本轮§123.1824的B1694同坐标异声明修复已推`285f08729`：公共五语先红后绿、count3/race、独立冷审及冻结全仓86包通过。精确身份优先，跨ID兼容且唯一才合修订；合法元数据/端点补齐保留，等grounding稀疏重放不撤销完整端点。§123.1825 r1079清洁构建后恰好C++症状写与Python/PyO3/Rust读两路各一次：机器1PASS/1FAIL；写业务后验336/336+UBSan通过但正式proof仍弱，读图语法通过但语义/关系人审失败。没有确认新的系统P1/自冲突，也没有B1694自然命中；点/范围引用、原生证明、完整图/Trace解释债仍OPEN，不代写模型答案或追加追绿。
@@ -57610,6 +57612,40 @@ r1076审计已`fd5fed5a9`提交推送；原机评、模型答案、交付和执�
 修复独立提交推送`fb362358c`，r1080机器与人工审计单独收账；原模型答案、正式报告、测试题/夹具/机评全部核对指纹一致。无新增JSON字段、raw prose硬门、答案替换或图/根因选择。
 
 状态：`B1678-diagnostic=fb362358c-pushed/public-red-green/final-count3+race3/types+orchestrator-pass/cold-review`；`proof-eligibility/predicates/IDs/verdict=unchanged`；`probe-count-naming/unknown-static-diagnostic=OPEN`；`historical-eval-artifacts=not-rewritten`。
+
+### §123.1829 EVAL-B36-SYSAUTH1：源码名称诊断不得越过外部观测来源边界（2026-09-16）
+
+确认见证为r1076的`.codrax/output/20260915-030856.319-8831.md:85–87`：纯Trace显式排除源码的双窗比较中，系统另附“枚举标签核对”，质疑`accounted_total`是否在当前仓库声明。比较bucket资格不是源码名称资格。不是模型JSON畸形或波动，也不应删去模型表格或Trace状态补齐。
+
+同构审计发现五类源码软诊断分散消费：枚举接地、提炼清单对照、枚举名称存在性、图端点名称存在性、行内标识符存在性。生产统一调用`answerBlockUsesCurrentSourceSymbolOracle`，只读已有`CurrentSourceLaneDecision`有效排除及external-only claim结构；普通源码、混合请求/块、无效排除凭证仍检查。历史advisory仅在当前适用块补充显示，不清空历史。图关系/调用凭证、参与者、引用和Trace根因资格独立执行，模型文档不变。
+
+公共`runV2BlockOraclesWithOracleContext`与实际附注出口先红后绿，换用任意新指标名、不白名单客户字符串。原语义RED为`.codrax/tmp/20260916-source-oracle-red-public.log`；较早`red.log`是测试枚举拼写编译错误，不能充当语义复现。基础末版`20260916-source-oracle-final-count3.log`为1.176s；覆盖五类诊断正控、外部/普通/混合/无效来源、陈腐附注及文档字节保真。独立冷审无阻断，建议的混合兄弟块/中英附注隔离与严格关系独立性针均已补齐，连同既有runtime temporal专项count3 0.709s通过。最终扩大邻域race3收据`20260916-source-oracle-final-race3.log`为3.174s；未证源码兄弟边仍报原关系错误，合法Trace时序保持。完整冻结回归/提交/live尚待记录，不倒签原r1076为修复后PASS。
+
+最终所有Go/build输入冻结后`go test ./... -count=1`完整exit0、86个有测试包通过，收据`.codrax/tmp/20260916-r1081-repair-full-suite.log`；`20260916-r1081-repair-{frozen-inputs.sha,freeze-verify.log}`验证前后输入一致。活跃字节/心跳、首响应、静默及默认值专项count3为43.405s（`20260916-active-stream-boundary-count3-r1081.log`），600/300/600s与调用方独立预算不变，不按4ms/旧4m无正文强降级。
+
+状态：`source-oracle-scope=public-red-green/count3/race3/cold-review/frozen-full-86-pass`；`model-answer/Trace-projection/autosupplement/typed-relation-authority=unchanged`；`live=not-run`。
+
+### §123.1830 B1678续修：未知执行能力不是已证静态检查（2026-09-16）
+
+已确认另一处系统事实供给不精确：控制器既有弱证明后续队列包含`covered+unknown`，但规划目标笼统称“当前只有source-static覆盖”；controller启动说明也只解释source_static/syntax_only。检查确实运行且测试可能通过，并不自动证明目标执行；反过来，能力未知也不能当成“已证仅静态”或“从未运行”。
+
+本片仅将两处模型侧说明汇入共享中性文本：静态/语法检查仅证明源码形态，unknown尚不能确定检查实际触及什么，这些观察本身均不足以证明目标执行/行为。后续批选择、legacy原因码、成功条件、路径/计划身份、证明谓词和终验结果原样保留。原有终态中英文说明已经是未确立目标执行，不重写模型结论。`probe_count`当前计置信记录而非实际调用次数的诊断命名债单独OPEN，需先审执行身份来源，不能借本片改名冒充修复。
+
+真实`BuildInitialInstruction`及`normalizeControllerTypedStateDecision→seedControllerBatchPlanningHint`公共针覆盖static/syntax/unknown、target_execution/target_behavior、同路径强弱并存和辅助路径，固定原计划/报告/Profile/Ledger字节及后续批身份与完整条件。公共RED、初版GREEN、末版count3/race3分别保存在`/tmp/codrax-b1678-execution-boundary-{public-red,public-green,count3,race3}.log`；末版agent/orchestrator count3为2.051s/1.049s，race3为3.344s/2.318s。本片无新JSON必填字段、无raw prose触发硬门、无验证提权。
+
+独立冷审无阻断：同路径强证明仍允许finish/all_verified，不增加后续批；共享文本的“这些观察本身不足以证明”不否认其它独立强证据。联合最终冻结全仓86包通过，收据同§1829，不借旧全测抵充本片。
+
+状态：`B1678-unknown-static=public-red-green/count3/race3/cold-review/frozen-full-86-pass`；`proof-selection/authority=unchanged`；`probe-count-naming=OPEN`。
+
+### §123.1831 r1081：真实 Trace 全谱与 C++ 虚调用（2026-09-16，待回放）
+
+243例（215 read/25 apply/3 plan）按来源边界/严重度、稀疏模式、Trace证据质量、图关系与最近覆盖排序。本批选`real_trace_h7_self_seat_full_spectrum`与`sr_cpp_virtual_chain`，均read15步、CAP5/PARALLEL2/TIMEOUT1200，各一次。上批r1080已覆盖Python apply，之后继续轮转写/计划模式；本批不加第三例、不修改题目/夹具/机器oracle。启动前原件SHA在`.codrax/tmp/20260916-r1081-cases-trace-before.sha`及`20260916-r1081-fixtures-before.sha`。
+
+H7核明确233.190ms窗、running74.915/折算65.912两轴、D36.757ms/11段、caller不是资源持有者、logd49.656=链上0.033+背景49.623及微项枚举披露；未知1.356ms不补零，不将展示子集当完整状态账。模型根因选择、系统事实投影/自动补齐、旁路JSON和源码排除分别验收；有投影不等于解释正确，不以当前完整因果题替代B1706有界事实通道正证。
+
+C++核null/level过滤、prefix到virtual write/ConsoleSink/stderr、Error才flush且Console继承空实现；工厂三分支和unknown nullptr与构造器接收/移动对象区分。README把普通log误写经过format_value的旧描述不能压倒实现（仅log_latency使用它）；不存在的装配调用站点不能猜造成调用边。题目未强制图，有图才审原始模型/正规化/最终关系与实际解析，无图记N/A而非图层PASS。
+
+状态：`r1081=planned/exact2-once-after-clean-build`；`machine/human/render=not-run`。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

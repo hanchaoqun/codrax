@@ -2519,7 +2519,7 @@ func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDo
 	if !appendIfLive(func() []types.Violation { return validateEnumerationItemLabelHallucination(doc, oracle, denials, mut) }) {
 		return out
 	}
-	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeEndpointHallucination(doc, oracle, denials) }) {
+	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeEndpointHallucination(doc, oracle, denials, mut) }) {
 		return out
 	}
 	appendIfLive(func() []types.Violation { return validateInlineIdentifierHallucination(doc, oracle, denials, mut) })
@@ -2897,7 +2897,7 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
 			continue
 		}
-		if answerBlockHasOnlyExternalObservationClaimUses(b) {
+		if !answerBlockUsesCurrentSourceSymbolOracle(b, mut) {
 			continue
 		}
 		var blockUngrounded []ungroundedItem
@@ -3569,6 +3569,9 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 		if len(b.Items) < 3 {
 			continue
 		}
+		if !answerBlockUsesCurrentSourceSymbolOracle(b, mut) {
+			continue
+		}
 		matched := 0
 		blockDrifts := make([]drifted, 0, len(b.Items))
 		for _, it := range b.Items {
@@ -4072,7 +4075,7 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList && b.Kind != types.BlockTable {
 			continue
 		}
-		if answerBlockHasOnlyExternalObservationClaimUses(b) {
+		if !answerBlockUsesCurrentSourceSymbolOracle(b, mut) {
 			continue
 		}
 		var blockHits []hallucinated
@@ -4242,9 +4245,13 @@ func isCodeContextDiagramKind(k types.DiagramKind) bool {
 // Default classification: Medium severity, retry-eligible
 // finalizer-only. Operators promote via
 // pipeline_contract_strict_kinds.
-func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, denials *types.TypedDenialSet) []types.Violation {
+func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, denials *types.TypedDenialSet, mutOpt ...*types.MutableState) []types.Violation {
 	if doc == nil || oracle == nil {
 		return nil
+	}
+	var mut *types.MutableState
+	if len(mutOpt) > 0 {
+		mut = mutOpt[0]
 	}
 	type hallucinated struct {
 		endpoint string
@@ -4254,6 +4261,9 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 	for i := range doc.Blocks {
 		b := &doc.Blocks[i]
 		if b.Kind != types.BlockDiagram || b.Diagram == nil {
+			continue
+		}
+		if !answerBlockUsesCurrentSourceSymbolOracle(*b, mut) {
 			continue
 		}
 		body := strings.TrimSpace(b.Diagram.Body)
@@ -4477,6 +4487,9 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 			types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
 			// supported — every block kind that carries prose text
 		default:
+			continue
+		}
+		if !answerBlockUsesCurrentSourceSymbolOracle(*b, mut) {
 			continue
 		}
 		seen := make(map[string]struct{})

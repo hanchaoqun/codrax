@@ -1663,6 +1663,9 @@ func advisoryEnumerationLabelIdentsInCurrentDoc(ctx *types.BusContext) []string 
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList && b.Kind != types.BlockTable {
 			continue
 		}
+		if !answerBlockUsesCurrentSourceSymbolOracle(b, ctx.Mutable) {
+			continue
+		}
 		for _, it := range b.Items {
 			ident := labelLeadingSymbolIdentifier(strings.TrimSpace(it.Label))
 			if ident == "" || !tokenSet[ident] || seen[ident] {
