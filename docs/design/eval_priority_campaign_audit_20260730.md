@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-当前交付/人审§123.1833–1836：B1693完整交付物化已推送e02a24760；r1082机器1PASS/1FAIL，Python核心行为160/160通过但正式验证未闭，sequence语法通过但时序/职责人审FAIL。B1708端点主链与图呈现域冲突已实施共享typed投影；公共初稿/Observe及emit/patch正反控、三包race/count3、冻结全仓86包通过，待本批生产回放，不签未触发能力正证。原子补边时序和identity租约独立保留，不归并成已修。Trace链上边界/投影/补齐、模型答案所有权、600/300/600s及活跃流不按正文缺失降级均不变。
+当前交付/人审§123.1836–1837：B1708端点主链与图呈现分域已473a1669e推送，公共初稿/Observe及emit/patch正反控、三包race/count3、冻结全仓86包通过。r1083恰好TS read/真实A5短窗Trace两路各一次，机器2PASS但人审均FAIL；B1708未自然触发，生产N/A。新增B1709合法comm括号漏IO配对P1、B1710全窗inode误附线程等待P1、B1711重复body删除误删合法anchorP2，进入公共先红后绿分批修复。模型重试次数/状态解释错误另记，不加原文硬门。Trace链上边界/投影/补齐、模型所有权、600/300/600s及活跃流不按正文缺失降级不变；旧图/原生证明债不代销。
 
 续修§123.1826：B1694点/范围引用已`7a4858e88`提交推送，公共先红后绿、count3/race3、冷审及末版冻结全仓86测试包通过。§123.1827 r1080清洁构建后恰好Java read/Python write两路各一次，机器2PASS；人审核心均PASS，Java完整范围引用获full生产正证（patch仅公共测试），Python真实原生4测试及独立572/572后验通过。模型HTTP措辞、图/Trace解释与跨语言原生证明债不代销。新B1678诊断P2“已覆盖仍写缺少观测”已在§123.1828以`fb362358c`修复推送，末版count3/race3/types及调度器全包、活跃流专项通过，不改变证明资格；原答案/报告/机评保持不动。
 
@@ -57740,6 +57740,24 @@ C++主干多态/工厂分支部分正确，13个引用摘录与真实源码行�
 8. 最终冻结4758个Go/build输入（含新测试），`20260916-b1708-build-inputs-closed.sha`及check收据一致。最终三包race/count3：agent5.924s/types5.214s/tool13.285s，`20260916-b1708-frozen-race-count3.log`；全部B1708普通count3 12.262s，`teaching-complete-count3.log`；全仓`go test ./... -count=1`退出0，86包通过/13无测试/零失败，`20260916-b1708-full-suite-closed.log`。早期两个被新教学修补取代的全仓run终止143，原日志保留，**不算完整通过**。first/idle/nonstream默认及活跃字节/心跳/隐藏推理/工具参数/显式取消等保护count3 32.607s通过，`stream-protection-count3.log`。收据统一位于`.codrax/tmp/`，代码/用例在接下来live期间冻结。
 
 状态：`B1708=implemented/public-green/frozen-full86+race3-pass/live-not-yet-run`；`principal-authority=unchanged-strict`；`model-visible-answer=not-rewritten`；`active-stream/Trace=unchanged`。
+
+### §123.1837 r1083：TS跨包调用链与过界短窗Trace，精确时间/证据边界（2026-09-16，审计完成）
+
+当前243例（215 read/25 apply/3 plan）按用户影响、模式/语言异构性、最近覆盖与oracle可信度排序。本批选择`sr_ts_workspace_chain`（最近r1047，路径别名及条件重试链）与`real_trace_a5_excerpt_degenerate_window`（老真实短片，要求100ms但仅556µs覆盖）；上批已跑Python多仓apply与显式sequence，本批不重复该写模式，不加第三例。两例原read15步、CAP5未用于本对，不提高问题预算或改oracle。
+
+从已推送清洁`473a1669e`构建`0.1.20260916 / 473a1669efc0 / 2026-09-16T09:02:26Z`，09:05:39Z启动PARALLEL2/TIMEOUT1200，各一次。23项case/fixture/runner哈希封存`20260916-r1083-cases-fixtures-runner-before.sha`，preflight一致；run日志`20260916-r1083-runner.log`；机器汇总`eval/parallel_selected_summary_evalcampaign_ts_trace_r1083_20260916.md`，另有`_manual_audit.md`。本次不改源码/原题/fixture/原始答案，不重跑追绿。
+
+人工基线先读源码/原trace，不把历史摘要当事实：TS原call-sites及FixedDelay(200,3)、有条件sleep、没有网络异常retry；`@app/core`在tsconfig.base.json paths指向core barrel，不能虚构运行时自动alias改写。A5原L53/L67同dev/op/sector/长度闭合99µs请求；D阻塞91µs、Runnable88µs、已观测Running367µs、开头10µs状态未知；99与91重叠不能相加。两个switch-in为CPU008，wakeup target_cpu000并非实际上核运行。业务AssetManager切片可保留，不能仅凭邻近推出块请求必属于该文件。
+
+09:10:13Z完整结束，机器2PASS，**人审均FAIL**；原机评不动。逐日志/上下文/原稿/独立图解析见同前缀`_manual_audit.md`。Trace123s（内121s）/30%上下文，6模型查询+1自动window_stats/121事实，终稿0拒绝/0patch。数值Running367µs/IO91µs/Runnable88µs虽在，却写“两段”、把Runnable嵌IO并从互斥桶D=0反推无磁盘阻塞；原始D及91µs不可中断等待已供给。目标未归账99.454ms≠采集外99.444ms，另10µs目标未知。属于模型解释缺陷，不新增关键词硬门。无根因投影请求/无图记N/A；必选schema2空侧车准确为contract_not_active，不是漏文件。
+
+系统P1 **B1709**：原`block_rq_issue`尾部comm含`[[GT]ColdPool#6]`，解析器错误禁止内部`]`导致canonical identity失败，99µs请求驻留证据被排除；同型BIO/legacy按不参与键的opaque comm泛化修，保源/dev/op/sector/len/status严格。独立公共RED已有RQ/BIO×S/D普通名正控、内部括号8正针失败及跨源/错键/溢出等负控。**B1710**：computeIOBurstEpisodes把全窗TopInode/churn复制到线程等待，payload及finalizer object=inode制造未证资源归属；不能把此项全算模型幻觉。保留全窗背景，逐线程身份需独立证明，另立公共针。wakeup_chain的zero evidence来自默认1ms过滤，exact_tid和3段546µs仍在，不为本例改阈值。
+
+TS274s（内272s）/32%，主链及alias正确，终稿将总3次尝试写成3次重试，且过泛化sleep条件；完整源码/注释/条件已供给。原Mermaid parse/render成功（SVG28443bytes），空opt是语义空壳，不是语法失败。4拒绝/4patch中前3次分别为无证self-call/重复call-site、删有效列表边、原子修图同时整块覆盖，拒绝合理；第4次是新P2 **B1711**：发布remove ref删除第二重复body时连唯一合法anchor也删，保留第一边因此再次拒绝，attach后通过。需区分body occurrence与anchor所有权，不能靠放松证据门或系统补写图解决。
+
+23项case/fixture/runner、构建输入前后check通过，原结果`r1083-results-original.sha`及两MD/HTML/Tracejson/机器汇总六项`original-answers-summary.sha`封存。无第三例、无追绿重跑、无改原工件。两例均未自然进入B1708显式图无路径域，生产覆盖N/A；不能用机器绿宣称全图/全链根因验证闭环。
+
+状态：`r1083=exact2-once/machine2-pass/human2-fail`；`B1708=473a1669e-pushed/public-green/production-N-A`；`B1709=P1-public-red/repair-in-progress`；`B1710=P1-context-identity-confirmed/public-repro-next`；`B1711=P2-extra-repair-confirmed/public-repro-next`。600/300/600s及活跃字节/心跳/隐藏推理/工具参数续期不改，不因4ms或旧4m无正文降级。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
