@@ -8475,11 +8475,11 @@ func newImpactRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatchID, id
 		SuccessCriteria:      impactRepairSuccessCriteria(items),
 	}
 	if sourceStaticInlineProofItemsOnly(items) {
-		// Static-only capability is already the completed observation. Repeating
-		// the same project check in a verify-only batch cannot strengthen it;
-		// route directly to one bounded probe-authoring plan instead.
+		// The completed check has not supplied target-execution proof. Keep
+		// the existing bounded probe-authoring lane without describing unknown
+		// capability as an observation of static-only work.
 		batch.ExecutionMode = ""
-		batch.Goal = "Author bounded direct-runtime verification probes for changed production paths that currently have source-static coverage only; execute the already-applied behavior without modifying source unless the typed probe itself proves a remaining defect."
+		batch.Goal = "Author bounded direct-runtime verification probes for changed production paths without established target-execution proof. Evidence boundary: " + types.VerificationTargetExecutionEvidenceBoundary + ". Execute the already-applied behavior without modifying source unless the typed probe itself proves a remaining defect."
 	}
 	return batch
 }

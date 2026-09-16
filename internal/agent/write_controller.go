@@ -399,7 +399,7 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 			}
 		}
 		if writeControllerHasProductionSourceStaticOnlyCoverage(report.ChangedPathCoverage) {
-			b.WriteString("- changed_path_verification_boundary: source_static/syntax_only coverage proves source shape only; it is not target execution or target behavior, so do not select all_verified from report passed status alone\n")
+			b.WriteString("- changed_path_verification_boundary: " + types.VerificationTargetExecutionEvidenceBoundary + "\n")
 		}
 		if passedResults > 0 && report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
 			b.WriteString("- verification_evidence_boundary: passed_results are retained partial evidence; the non-passed verification status means required verification remains incomplete and must not be described as zero checks or as fully verified\n")
