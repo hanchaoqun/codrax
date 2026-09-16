@@ -1401,16 +1401,17 @@ func resolveVerificationProofLedgerObligations(in []VerificationProofLedgerItem)
 			case "behavior_contract":
 				if item.ContractRef != "" && coveredContracts[item.ContractRef] && !unresolvedDerivedContracts[item.PlanID+"\x00"+item.ContractRef] {
 					item.Status = VerificationProofLedgerItemCovered
-					if item.Detail == "" {
-						item.Detail = "resolved_by_cumulative_proof"
-					}
+					// This is the resolved obligation placeholder, not the original
+					// observation. Its diagnostic must follow the existing state
+					// transition without copying witness prose or changing authority.
+					item.ReasonCode = "resolved_by_cumulative_proof"
+					item.Detail = "behavior contract is covered by cumulative proof carrying the exact contract_ref"
 				}
 			case "changed_symbol":
 				if item.Symbol != "" && coveredSymbols[item.Symbol] {
 					item.Status = VerificationProofLedgerItemCovered
-					if item.Detail == "" {
-						item.Detail = "resolved_by_cumulative_proof"
-					}
+					item.ReasonCode = "resolved_by_cumulative_proof"
+					item.Detail = "changed symbol is covered by cumulative proof carrying the exact symbol ref"
 				}
 			}
 		}
