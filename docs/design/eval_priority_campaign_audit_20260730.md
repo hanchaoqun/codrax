@@ -57989,6 +57989,8 @@ analyzer一次fact_families/causal_diagnosis结构冲突被明确提示修复，
 
 **最终验收**：`20260916-b1717-compatibility-closed-race3.log` PASS20.291s；`20260916-b1717-closed-full.log`完整exit0，86个有测试包PASS、13无测试包、零FAIL（tool359.972s、agent78.287s、tracequery106.096s、types45.380s、tracediag12.682s、llm29.328s）。4818项Go/build从启动/中途/结束均SHA相同（`closed-{start,mid,end}-check.log`），65项原结果与3项答案再次核对未改（`closed-{results,answer}-check.log`）。本片无新live或第三例，r1087机器2PASS/人工partial状态保留；600/300/600s及活跃流保护不改。修复范围限明确background的正值原生状态发布；旧未归因字段、缺测、模型解释/词面、B1716与B1561仍保待办。
 
+已提交推送main `0f7dd098e`，清洁make成功：version `0.1.20260917`、revision `0f7dd098e934`、built `2026-09-17T05:23:33Z`，收据`20260916-b1717-build-postcommit.log`与`b1717-binary{.sha,-version.txt}`。末次独立只读审查无阻断：unattributed进入背景，主决策仍需精确on_chain资格，旧Effective150单独不能升权；但全量RankedSeats可保背景旧Rank/Effective元数据，未宣称全部历史消费者已审尽。此后的收尾提交仅文档，不改变已测源码。
+
 ### §123.1848 B1561：原生验证能力分期边界复核（2026-09-16，设计待办未实施）
 
 不能只把c/cpp加入语言enum再以compile/run exit0签合同。现目标执行resolver只用于Python；新非Python会进入旧passed＋refs分支（run_tests.go）及changed_path_coverage授target_behavior。新native语言必须receipt-required、无票据unknown，registry/schema/兼容性/coverage/confidence/累计resolver同批接线。第一阶段仅实现当前树编译/执行及安全票据，不签逐合同行为；第二阶段再以具名case结构化结果与精确目标运行观察联结闭合对应子域。保持目标运行、单case通过、各合同证明三个不同事实。
