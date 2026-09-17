@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-本片新增 §123.1845 B1659b：无业务工作候选时，schema不发布receipt而教学仍要求选择的供需冲突已修；统一typed请求与缺证说明出口，保有候选严格绑定、不造观测，公共红绿/count3/race3/独立审阅及冻结全仓86包通过。r1086预登记jank清单read＋C++双头apply，各一次并发2，尚未启动。B1713/B1714及r1085原裁决见§123.1843–1844，不倒签live绿，IO模型过述和根因JSON选择债保留。
+本片新增 §123.1845 B1659b（48ef7affe已推）：无业务工作候选时，schema不发布receipt而教学仍要求选择的供需冲突已修；统一typed请求与缺证说明出口，保有候选严格绑定、不造观测，公共红绿/count3/race3/独立审阅及冻结全仓86包通过。§123.1846 r1086恰好两例各一次，机评1PASS/1FAIL：jank清单3条/7、4、2/大整数与时长恢复，解释层身份/来源/内部词仍partial；C++双头补丁及独立7056项本机检查通过，正式aggregate证明不足、FAIL保留。B1659b本对未触发不签live绿；B1713/B1714及r1085原裁决见§123.1843–1844，IO模型过述和根因JSON选择债保留。
 
 本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53推送，B1710全窗资源误附线程等待已bd7e8e1d2推送，B1711修补删错锚已940f4cdf7推送，B1712静态位点数冒充动态次数已8cb0cc740推送。七形公共RED→GREEN、相邻count3/race3、初稿/修补教学一致及独立冷审通过，末版冻结全仓86测试包/13无测试包/零失败。中间census失败与宽选race源码普查超时保留，不冒充通过；末版三包精确race3已绿。不按重试关键词放行，不系统补画图；Trace投影/补齐/链上根因及活跃流保护不改。r1084仓颉read/C apply严格两路各一次已完成人审（§123.1842）：机器与人工均1PASS/1FAIL，写题未接受计划/未应用/未正式验证。B1431有界定位携带及B1586c调度冗余留观察，不误报合同无出口或签本批生产图/Trace验收。
 
@@ -57898,6 +57898,24 @@ Trace显式窗、自动补齐、链上根因及非链背景隔离不改；active
 r1086预检：8项fixture、5项case/runner已冻结；C++原test与独立2352格matrix均严格compile RED（两头L10 `%lg` / long double不匹配，非环境失败），7项输入前后SHA一致。收据目录`20260916-r1086-nlohmann-audit.Ft8q2y`。本机clang21＋SDK26.5，double/long double均8字节53位；后验只签当前ABI，不冒称扩展精度平台验证。
 
 冻结全仓自然退出0：`20260916-b1659b-full-suite.log` **86有测试包无缓存全部通过、13无测试包、零失败**；4800项Go/build前后SHA一致（`build-freeze-check.log`）。fresh fetch与origin/main=0/0；B1659b系统合同修复可收口为implemented/公共验收通过，live尚未验证，不抹除r1085原答案或旁路缺选事实。后续从提交后的清洁二进制启动预登记两例。
+
+`48ef7affe7dc`已推main，清洁构建`0.1.20260917 / built2026-09-17T03:12:27Z`；03:12:53Z两例同时启动，快照`codrax-selected-20260916-201253`、runner收据`20260916-r1086-runner.log`。启动前fixture8/case+runner5项SHA均未变；运行中Go/build/case/oracle保持冻结，结果自然完成后逐份审计。
+
+### §123.1846 r1086：卡顿清单与 C++ 双头修复（2026-09-16，审计完成）
+
+预登记两例从清洁`48ef7affe7dc`各跑一次，CAP5/PARALLEL2/TIMEOUT1200，03:12:53Z→03:15:47Z，原runner exit0；**机器1PASS/1FAIL，人审两例均partial**。原机评及完整逐项人审见`eval/parallel_selected_summary_evalcampaign_jank_cppwrite_r1086_20260916{,_manual_audit}.md`；不跑第三例、不追绿、不改oracle或回填正式proof。
+
+**read/PASS，B1714核心交接实际正证**：174s/ctx32%/trace_query5，最终3条、7/4/2降序、六个原始大整数与70/40/20ms全部正确；frames1/错appid/相似标签/坏数字未误入。finalizer收到独立query绑定清单：筛后3、宽域4、相似标签1及各自原始行，未被explorer临时错误计数污染，未再要求UTC日历映射。`20260916-201544.658-99444.md` L25仍把派生duration称为记录自带，L35泄漏系统时钟枚举，L37把marker PID201混同emitter TGID101，未披露坏字段1条排除；日志L3195–3205已供给全部正确身份/来源/边界。故剩余是成文解释债，不能把机器PASS当整份答案无误，也不能单轮认定纯模型随机波动。继续异构观察，不加raw prose硬门/系统答案代写。
+
+一次count展示软提示后patch补“匹配条数”，无成文硬拒；count现有scalar/可见标签两条出口都合法。模型称无add_blocks与无租约代码/公共测试不符；日志未保完整wire schema，不冒称实见参数面，未确认新的矛盾权限合同。最终typed请求runtime_work_relation/frame_causality均false：**B1659b live N/A**，没有根因投影不是丢失，必有schema2空侧车如实标trace_root_cause_contract_not_active。无图/无JSON降级/无长静默，本对不验证完整因果或Mermaid；600/300/600s及活跃流保护由本片单测覆盖，不冒称长等待live证明。
+
+**apply/FAIL，补丁正、人审后验正、正式proof不足**：131s/ctx28%，仅两头`%.*lg→%.*Lg`，owner`4cccfd7`直系继承seed`95fdb3`，5交付文件与owner精确一致、scratch仍seed。原严格编译RED；交付原test编译/执行PASS，C/德语/法语locale各2352项、共7056项通过。收据`20260916-r1086-nlohmann-delivery.hSEURh`，30项后验输入及原baseline7项均不变。仅当前arm64（double/long double同8字节53位）；不冒称扩展精度平台或薄fixture不存在的独立double serializer已执行。
+
+正式make check确有编译/运行（945ms、exit0），但只有aggregate/check/make-test，两个生产路径capability unknown。模型long_double_format/main绑定五outcome只是声明，非五个实测断言。系统已供给low_confidence/unknown仍被模型提交all_verified，确定性终验正确降accept_unverified；终稿诚实“测试通过但未完全验证”。保留原FAIL及既有**B1561/P1原生C/C++精确行为凭证能力债**，不降验证杆；`production_verification_source_static_only`用于unknown的既有命名债不应解释成本轮没执行。先前Go探针误用于C++被合法拒绝后撤回，5次读取用尽后的两次拒绝也不构成新合同冲突。
+
+后续按模式稀疏性优先plan与实际触发空供给的异构read，各一次恰好两例；本轮有充分事实供给的解释失误先留观察，不以堆教学或逐词禁令追绿。Trace显式窗、自动补齐、链上根因/链外背景、必有侧车、活动流等待不变；既有IO与模型根因选择债未销。
+
+审后4800项Go/build、8项fixture、5项case/runner、33项原结果文件、3项md/html/root-causes答案共4849项SHA全部一致；收据`20260916-{b1659b-build,r1086-fixtures,r1086-cases,r1086-results,r1086-answer}-after-audit.log`。fresh fetch后HEAD与origin/main=0/0。本次仅落机评/人审与账本，不改代码、不重写原结果。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 
