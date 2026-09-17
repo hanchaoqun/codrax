@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-本片新增 §123.1843 B1713：客户 `jank_event_sync` 打点的原文保真、精确数值组合查询与脚本镜像。公共红绿/转换保真/时钟身份边界/真实两文件双入口与CLI均通过；最终冻结全仓86包通过，r1085两题自然语言回放另记实际结果，不提前签绿。
+本片新增 §123.1843 B1713（363e83ce0已推）：客户 `jank_event_sync` 打点原文保真、精确数值组合查询与脚本镜像，公共红绿/转换保真/时钟身份边界/真实两文件双入口与CLI通过，冻结全仓86包通过。r1085严格2例各一次机器1PASS/1FAIL、人审jank fail/IO partial；新查询正确3条但终稿错数/倒序，§123.1844 B1714修producer-owned查询条件/总数/字段成文交接，公共RED→GREEN及count3/race3、独立冷审、末版冻结全仓86包通过。不修原产物、不倒签live绿；IO空候选receipt教学与模型过述保留OPEN。
 
 本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53推送，B1710全窗资源误附线程等待已bd7e8e1d2推送，B1711修补删错锚已940f4cdf7推送，B1712静态位点数冒充动态次数已8cb0cc740推送。七形公共RED→GREEN、相邻count3/race3、初稿/修补教学一致及独立冷审通过，末版冻结全仓86测试包/13无测试包/零失败。中间census失败与宽选race源码普查超时保留，不冒充通过；末版三包精确race3已绿。不按重试关键词放行，不系统补画图；Trace投影/补齐/链上根因及活跃流保护不改。r1084仓颉read/C apply严格两路各一次已完成人审（§123.1842）：机器与人工均1PASS/1FAIL，写题未接受计划/未应用/未正式验证。B1431有界定位携带及B1586c调度冗余留观察，不误报合同无出口或签本批生产图/Trace验收。
 
@@ -57858,6 +57858,28 @@ C人工FAIL：三次fresh planner各三次计划拒绝，没有accepted plan/app
 新增示例已由真实CLI `go run . --tracediag examples/tracediag/collect_jank_events.yaml --trace .../xxx_all.systrace --out ...` 验证，`20260916-b1713-example-cli.log`退出0、同前缀`example-report.txt`保精确四字段与总数1、来源15592。该离线二进制标记dev，不冒称提交后清洁生产构建；未调用模型。新增eval独立冷审确认排序/时长/数据隔离正确，无阻塞；机评不能排除额外行/邻行数字偶合/时长错配，最终仍必须人审，且单用例不代替其它ops/分页/转换入口的单测。
 
 最终冻结v2完整退出0，86测试包无缓存通过、13无测试包、零失败；4790项Go/build输入SHA前后完全一致，格式/diff检查通过，fresh fetch main/origin=0/0。收据`20260916-b1713-full-suite-final-v2.log`及`20260916-b1713-full-v2-freeze-check.log`。原全仓v1/局部失败保留，不改旧测试标准、不删失败记录；修复+测试+架构/示例+新eval一次提交，待清洁构建后跑预注册双题。
+
+B1713已`363e83ce0`提交推送，清洁make=`0.1.20260917 / 363e83ce064c / 2026-09-17T01:40:47Z`。r1085于01:41:26Z恰好两路启动，CAP5/PARALLEL2/TIMEOUT1200、各一次，runner=`20260916-r1085-runner.log`，机评和人工审计为`eval/parallel_selected_summary_evalcampaign_jank_iochain_r1085_20260916{,_manual_audit}.md`。运行中不改Go/build/原case/fixture；结果等待完成，不把新数值查询单测通过代替自然语言端到端验收。
+
+r1085自然完成：机器1PASS/1FAIL，人工jank **fail**、IO **partial**。新jank数值query准确返回3条、exact ns保真，但终稿写4并把降序写成2/4/7；公共成文供给缺少后次query的过滤条件/完整计数/字段钟边界，开B1714根修。IO旧显式窗及11ms主席和投影保留，正文仍有唤醒→阻塞原因、caller→缓存机制的模型过述；唯一可选patch因conclusion自由中文而合法拒绝，整次未暂存，root-causes侧车仍unavailable，不算选择成功。另留runtime_work_relation空候选教学与schema供给不闭合项，待公共针，不放宽scheduler→semantic权限。原case/fixture/runner7项SHA一致、10项原产物封存；详见本对人工审计。未重跑，未修原答案或oracle，不把代码修复倒签成live通过。
+
+### §123.1844 B1714：事件查询清单与计数的成文交接（2026-09-16，修复验证完成）
+
+r1085证实宽查7条后数值过滤3条，工具/explorer有正确事实，finalizer却仅得宽查top5和截断banner；旧聚合扣留逻辑正确，不该将model aggregate抬为authority。通用修向：每次event_search带独立producer-owned typed清单，SourceRef.QueryScopeID绑定query所有条件、范围/完整性、匹配总数与展示行、原生字段和原样caveat；不同查询不得拼计数，零结果也保留。成文另有预算清晰的只读视图，缩减只能披露omitted，不能改变matched_total或把展示数称总数；无原文硬门、不代写答案、不改变时钟/目标/因果权限。原生钟→trace钟映射与UTC/墙上时钟区分，用一般性教学澄清。
+
+公共RED：真实TraceQuery Execute宽查→过滤→CompileObservationLedger→BuildInitialInstruction丢条件/计数/边界；另零结果与limit1两臂均红，收据`20260916-b1714-handoff-red.log`。修复及相邻保护验证尚待回填，不宣称E2E闭环。
+
+施工完成：ObservationRecord新增可选typed pointer，在Compile账本入口深拷贝；source/query身份、版本、producer/role/policy/lineage、计数和行完整性按单源校验，只决定该typed回执是否可作为成文供给，不拒绝模型答案。所有event_search一致受益，不用jank关键词分流。生产40行/raw4096、prompt4query×8行/raw512，两层省略显式分账；完整engine Coverage保持原值，prompt的RowsComplete随实际显示子集变更，避免自造“已完整却缺行”合同。精确ns始终字符串，无效值caveat原样保留，绝不反解caveat造typed计数。旧queryless遗留调用不铸新回执，正常执行均传真实q；同payload但不同零结果筛选仍保不同QueryScopeID。
+
+冷审修正三项后收口无阻断：原文回读不可用不借FieldText冒充；trace/canonical秒与source物理秒分列，clock_inverse_unsafe精确信号使source_time_known=false、源秒不显示（正常identity时ClockAligned=false不误拒）；finalizer缺完整行只教诚实partial，不承诺本阶段再查。jank时钟教学由typed字段激活，与schema/explore共享“同一已证trace钟不要求UTC/日历时间”；不修改请求/模型文本/图、既有Trace投影与补齐。
+
+验证：producer公共RED `20260916-b1714-inventory-producer-red.log`；末版types/tool count3=0.835/1.120s，race3=2.287/3.816s。根集成count3 agent/tool/types=1.891/3.576/2.320s（skill筛选无测试不冒称）；冻结后精确race3 agent4.168/tool6.178/types4.426/llm13.515s全部PASS，含600/300/600默认与活跃可见/隐藏流续传保护。覆盖宽7/窄3、同payload不同zero、limit1、55→40→8预算、物理行窗、坏字段、native大整数、source/模型伪装负控、不可用原行、UTF8截断、深拷贝、无因果晋升。末版Go/build已冻结`20260916-b1714-final-build-inputs.sha`，全仓`20260916-b1714-full-suite.log`运行中；不新增live或回填r1085成功。
+
+下一有界修向记作 **B1659b/P2/OPEN**（不另开重复战役）：无semantic-work候选时schema删除receipt，初稿/补充维度教学仍调用同源runtimeWorkRelationMetadataTeaching，覆盖又只收bound receipt。r1085已见可选一次修补尝试，实际拒绝是自由中文conclusion非法，不能混称membership错拒或系统代选失败。后续以“无候选schema↔教学↔缺证回答出口”的公共正反针先复现，再统一修空供给教学；保有候选receipt/枚举/结论上限，不将scheduler状态强转语义工作。本次不改该合同，亦不销根因JSON选择及IO正文解释遗留。
+
+全仓首轮退出1：85包通过、types唯一失败为`TestProducerPrecedenceNotReimplementedInline`，新资格校验在已用公共chokepoint之后又冗余比较producer base。公共函数内部当前唯一deterministic producer就是trace_query，已删除冗余比较，仅走统一入口；旧结构针/负控不改。原失败`20260916-b1714-full-suite.log`保留，4797项Go/build SHA前后相同；修后public+chokepoint count3 types2.095/agent1.419/tool1.769s通过。再冻结为`20260916-b1714-final-v2-build-inputs.sha`后重跑全仓v2，待自然完成，不把旧runtime通过与structural失败混称全绿。
+
+末版v2全仓自然退出0：**86测试包无缓存通过、13无测试包、零失败**，types46.481s；4797项Go/build SHA完全一致，`20260916-b1714-v2-full-freeze-check.log`。同版race3 agent4.108/tool8.233/types10.852/llm12.530s全部通过（`20260916-b1714-final-v2-race3.log`），含公共producer chokepoint，不豁免旧结构针。提交前fresh fetch与origin/main=0/0；case/fixture/runner7项、原答案/JSON/HTML/log/out10项全部SHA未变，收据`20260916-r1085-{cases,original-artifacts}-after-audit.log`。本片源码/测试/架构与r1085机器原裁决及人审一并交付；B1714系统交接已公共验收，修后自然语言live未重跑，模型错数/排序/解释债不得因此销账。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

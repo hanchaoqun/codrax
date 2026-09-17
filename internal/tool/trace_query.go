@@ -8820,6 +8820,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 	at := observedAt.Format("2006-01-02T15:04:05Z07:00")
 	var out []types.ObservationRecord
+	out = append(out, traceQueryEventSearchInventoryObservation(result, ref, at, query)...)
 	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {
 		integrity := stats.WakeupTargetCPUIntegrity
 		if integrity.Status == tracequery.WakeupTargetCPUIntegritySuspectedDegradedAllZero &&

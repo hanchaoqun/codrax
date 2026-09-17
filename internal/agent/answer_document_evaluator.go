@@ -5821,6 +5821,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if coverage := renderAnswerDocTraceObservationCoverage(promptLedger); coverage != "" {
 		b.WriteString(coverage)
 	}
+	if inventory := renderAnswerDocTraceEventInventories(promptLedger); inventory != "" {
+		b.WriteString(inventory)
+	}
 	if authority := renderAnswerDocTraceValueOccurrenceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
