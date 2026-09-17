@@ -5,15 +5,16 @@ package tool
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"sync/atomic"
 	"syscall"
 )
 
-// supervisedRunPlatform is the Unix implementation: Setpgid=true so
-// every child + grandchild lives in the supervisor-owned process
-// group, then on cancel we deliver SIGKILL to the negative pgid
-// which the kernel translates into "every member of the group, no
-// matter how nested".
+// supervisedRunUnixOneShot establishes a private process group and sends a
+// group-wide cancellation signal on Unix platforms other than Darwin.
+// Descendants that leave the group or race the group snapshot are not proven
+// terminated. Darwin uses a separately held group lease for repeated cleanup.
 //
 // Why this is the root-cause fix: exec.CommandContext's default
 // cancel behaviour calls cmd.Process.Kill, which only SIGKILLs the
@@ -22,40 +23,86 @@ import (
 // when sh dies — reparented to PID 1, still alive, still allocating.
 // The 9-hour 2.47-GiB pytest in the OOM event is the textbook
 // instance of this leak.
-func supervisedRunPlatform(ctx context.Context, cmd *exec.Cmd, opts SupervisedRunOptions) SupervisedResult {
+func supervisedRunUnixOneShot(ctx context.Context, cmd *exec.Cmd, opts SupervisedRunOptions) SupervisedResult {
+	if err := ctx.Err(); err != nil {
+		return SupervisedResult{ExitKind: supervisedUnixContextExitKind(err), Err: err}
+	}
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Setpgid = true
+	// Own a private group whose ID is the child PID, never a caller's group.
+	cmd.SysProcAttr.Pgid = 0
+	var commandContextInterrupted atomic.Bool
+	if cmd.Cancel != nil {
+		// CommandContext may carry a different context from the supervisor.
+		// Keep its watcher, but make either cancellation path tear down the
+		// same group instead of letting the default callback kill only the
+		// launcher. Plain Command must keep Cancel nil (os/exec requires it).
+		cmd.Cancel = func() error {
+			commandContextInterrupted.Store(true)
+			return killSupervisedUnixProcessGroup(cmd)
+		}
+	}
 
 	if err := cmd.Start(); err != nil {
 		return SupervisedResult{ExitKind: SupervisedExitNormal, Err: err}
 	}
-	pgid := cmd.Process.Pid
-
 	waitErr := make(chan error, 1)
 	go func() { waitErr <- cmd.Wait() }()
 
 	select {
 	case <-ctx.Done():
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		_ = killSupervisedUnixProcessGroup(cmd)
 		// Wait on the SAME goroutine that already runs
 		// cmd.Wait. Spawning a second cmd.Wait() raced (Go's
 		// "Wait may not be called concurrently" rule); the fix
 		// is to share the existing waitErr channel through
 		// waitForExistingWait.
 		err := waitForExistingWait(waitErr)
-		kind := SupervisedExitTimeout
-		if errors.Is(ctx.Err(), context.Canceled) {
-			// Caller cancelled (not a deadline) — preserve as Normal
-			// so verify doesn't misclassify a graceful shutdown.
-			kind = SupervisedExitNormal
-		}
-		return SupervisedResult{ExitKind: kind, Err: err}
+		return supervisedUnixInterruptedResult(ctx.Err(), err)
 	case err := <-waitErr:
+		// Both channels can become ready together. Preserve cancellation
+		// classification, but do not signal a bare PGID after Wait reaped its
+		// original leader: this implementation has no surviving group lease.
+		if contextErr := ctx.Err(); contextErr != nil {
+			return supervisedUnixInterruptedResult(contextErr, err)
+		}
+		if commandContextInterrupted.Load() {
+			// Cmd's private context has no public error accessor. Its callback
+			// proves interruption, not OOM, but cannot distinguish cancel from
+			// deadline. Normal is a non-resource classification, not a pass.
+			if err == nil {
+				err = errors.New("supervisor: command context interrupted execution")
+			}
+			return SupervisedResult{ExitKind: SupervisedExitNormal, Err: err}
+		}
 		kind := classifyUnixExit(err)
 		return SupervisedResult{ExitKind: kind, Err: err}
 	}
+}
+
+func killSupervisedUnixProcessGroup(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil || cmd.Process.Pid <= 0 {
+		return os.ErrProcessDone
+	}
+	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if errors.Is(err, syscall.ESRCH) {
+		return os.ErrProcessDone
+	}
+	return err
+}
+
+func supervisedUnixContextExitKind(err error) SupervisedExitKind {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return SupervisedExitTimeout
+	}
+	// Caller cancellation is not a resource-exhaustion/product diagnosis.
+	return SupervisedExitNormal
+}
+
+func supervisedUnixInterruptedResult(contextErr, waitErr error) SupervisedResult {
+	return SupervisedResult{ExitKind: supervisedUnixContextExitKind(contextErr), Err: errors.Join(contextErr, waitErr)}
 }
 
 // classifyUnixExit maps an exec.Cmd.Wait error onto a

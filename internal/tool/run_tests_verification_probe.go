@@ -340,6 +340,9 @@ func runPlanVerificationProbes(ctx *types.BusContext, source string) (*verificat
 		ExecutedCommands:        append([]types.ExecutedCommand(nil), commands...),
 		VerificationDiagnostics: append([]types.VerificationDiagnostic(nil), diags...),
 	}
+	// Canceled probes have no completed assertion row. Do not turn an empty
+	// (or previously successful) aggregate into a new passing verification.
+	markVerificationInterrupted(ctx.Context().Err(), report)
 	report.EnsureVerificationStatus()
 	report.VerificationConfidence = mergeVerificationConfidenceRecords(
 		report.VerificationConfidence,
@@ -486,7 +489,24 @@ func verificationProbeLanguageTargetMismatchResult(
 	}, true
 }
 
-func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, source string) verificationProbeRunResult {
+func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationProbe, source string) (result verificationProbeRunResult) {
+	defer func() {
+		if err := ctx.Context().Err(); err != nil {
+			if result.Report == nil {
+				result.Report = &types.ChangeReport{}
+			}
+			// This invocation did not complete under an active caller. Preserve
+			// actual process receipts/output, but do not mint an assertion or a
+			// baseline defect witness from interruption (including a canceled
+			// process whose wrapper had already written a partial status file).
+			result.Report.TestResults = nil
+			markVerificationInterrupted(err, result.Report)
+			result.Report.EnsureVerificationStatus()
+		}
+	}()
+	if ctx.Context().Err() != nil {
+		return result
+	}
 	id := strings.TrimSpace(probe.ID)
 	if id == "" {
 		id = "probe"
@@ -559,6 +579,24 @@ func runSingleVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 				Outcome:    types.ExecutedCommandOutcomeProbeConfigError,
 			}},
 		}
+	}
+}
+
+// The caller context is a typed execution boundary, not a diagnosis of the
+// product. Existing unavailable/timeout categories suffice; no new assertion,
+// command outcome, or model-authored field is introduced.
+func markVerificationInterrupted(err error, report *types.ChangeReport) {
+	if err == nil || report == nil {
+		return
+	}
+	report.Passed = false
+	report.FailureKind = types.FailureKindVerificationIncomplete
+	report.FailureReasonCode = "verification_canceled"
+	report.FailureSummary = "Verification was canceled by its caller; the interrupted execution establishes neither a successful check nor a reproduced product defect."
+	if errors.Is(err, context.DeadlineExceeded) {
+		report.FailureKind = types.FailureKindTimeout
+		report.FailureReasonCode = "verification_deadline_exceeded"
+		report.FailureSummary = "The caller deadline interrupted verification before a complete result was available."
 	}
 }
 
@@ -901,7 +939,7 @@ func runPythonVerificationProbe(ctx *types.BusContext, probe types.VerificationP
 		_ = f.Close()
 		defer os.Remove(statusPath)
 	}
-	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	execCtx, cancel := context.WithTimeout(ctx.Context(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(execCtx, interp, "-c", pythonTargetExecutionObserver+"\n"+pythonVerificationProbeWrapper)
 	cmd.Dir = wd
@@ -1100,7 +1138,7 @@ func newVerificationProbeStatusPath() string {
 
 func newVerificationProbeCommand(binary string, args []string, wd, runner string, ctx *types.BusContext, probe types.VerificationProbe, statusPath string) (context.Context, *exec.Cmd, time.Duration, context.CancelFunc) {
 	timeout := verificationProbeTimeout(probe)
-	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	execCtx, cancel := context.WithTimeout(ctx.Context(), timeout)
 	cmd := exec.CommandContext(execCtx, binary, args...)
 	cmd.Dir = wd
 	env := runnerExecutionEnv(runner, ctx.RepoRoot, wd, ctx.MainRepoRoot)

@@ -55,19 +55,19 @@ func verificationProbeSyntaxError(ctx *types.BusContext, language, code string) 
 		if !verificationProbeSyntaxExecutableAvailable(binary) {
 			return ""
 		}
-		return runVerificationProbeSyntaxCommand(binary, []string{
+		return runVerificationProbeSyntaxCommand(ctx.Context(), binary, []string{
 			"-I", "-c", "import ast, sys; ast.parse(sys.stdin.read(), filename='<codrax_verification_probe>', mode='exec')",
 		}, code, []string{"SyntaxError"})
 	case "javascript":
 		if !verificationProbeSyntaxExecutableAvailable("node") {
 			return ""
 		}
-		return runVerificationProbeSyntaxCommand("node", []string{"--check", "-"}, code, []string{"SyntaxError"})
+		return runVerificationProbeSyntaxCommand(ctx.Context(), "node", []string{"--check", "-"}, code, []string{"SyntaxError"})
 	case "ruby":
 		if !verificationProbeSyntaxExecutableAvailable("ruby") {
 			return ""
 		}
-		return runVerificationProbeSyntaxCommand("ruby", []string{"-c"}, code, []string{"syntax error", "unterminated"})
+		return runVerificationProbeSyntaxCommand(ctx.Context(), "ruby", []string{"-c"}, code, []string{"syntax error", "unterminated"})
 	case "java":
 		return javaVerificationProbeSyntaxError(ctx, code)
 	default:
@@ -95,16 +95,16 @@ func verificationProbeSyntaxExecutableAvailable(binary string) bool {
 	return err == nil
 }
 
-func runVerificationProbeSyntaxCommand(binary string, args []string, source string, syntaxMarkers []string) string {
-	execCtx, cancel := context.WithTimeout(context.Background(), verificationProbeSyntaxTimeout)
+func runVerificationProbeSyntaxCommand(parent context.Context, binary string, args []string, source string, syntaxMarkers []string) string {
+	execCtx, cancel := context.WithTimeout(parent, verificationProbeSyntaxTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(execCtx, binary, args...)
 	cmd.Stdin = strings.NewReader(source)
 	var stderr bytes.Buffer
 	cmd.Stdout = &stderr
 	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err == nil || execCtx.Err() != nil {
+	result := SupervisedRun(execCtx, cmd, SupervisedRunOptions{})
+	if result.Err == nil || execCtx.Err() != nil {
 		return ""
 	}
 	output := stderr.String()
@@ -135,7 +135,7 @@ func javaVerificationProbeSyntaxError(ctx *types.BusContext, code string) string
 	if err := os.WriteFile(sourcePath, []byte(javaVerificationProbeSource(code)), 0o600); err != nil {
 		return ""
 	}
-	execCtx, cancel := context.WithTimeout(context.Background(), verificationProbeSyntaxTimeout)
+	execCtx, cancel := context.WithTimeout(ctx.Context(), verificationProbeSyntaxTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(execCtx, "javac",
 		"-J-Duser.language=en", "-J-Duser.country=US",
@@ -144,7 +144,7 @@ func javaVerificationProbeSyntaxError(ctx *types.BusContext, code string) string
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
-	if err := cmd.Run(); err == nil || execCtx.Err() != nil {
+	if result := SupervisedRun(execCtx, cmd, SupervisedRunOptions{}); result.Err == nil || execCtx.Err() != nil {
 		return ""
 	}
 	detail := output.String()

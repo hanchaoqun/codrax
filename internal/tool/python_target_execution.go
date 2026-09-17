@@ -61,7 +61,7 @@ func preparePythonTargetObservation(ctx *types.BusContext, probe types.Verificat
 	}
 	out.receipt.PatchEffectID, out.receipt.DiffFingerprint, out.receipt.HeadRef = effect.RecordID, effect.DiffFingerprint, effect.HeadRef
 	out.effectHash = verificationProbeExecutionDigest(effect)
-	prepareCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	prepareCtx, cancel := context.WithTimeout(ctx.Context(), 5*time.Second)
 	defer cancel()
 	commit, err := pythonTargetAppliedCommit(prepareCtx, root, effect)
 	if err != nil {

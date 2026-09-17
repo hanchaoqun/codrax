@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1427,7 +1428,7 @@ func dryBuildGo(ctx *types.BusContext, changes []types.FileChange) string {
 // require). Skips when no python3 binary is available or no .py
 // change is present. Symmetric to the Go path.
 func dryBuildPython(ctx *types.BusContext, changes []types.FileChange) string {
-	pyRunner, ok := resolvePythonDryBuildRunner()
+	pyRunner, ok := resolvePythonDryBuildRunnerWithContext(ctx.Context())
 	if !ok {
 		logging.Debug("[emit_change_plan] V2 Python dry-build skipped: no working python interpreter available")
 		return ""
@@ -1666,6 +1667,13 @@ type pythonDryBuildRunner struct {
 }
 
 func resolvePythonDryBuildRunner() (pythonDryBuildRunner, bool) {
+	return resolvePythonDryBuildRunnerWithContext(context.Background())
+}
+
+func resolvePythonDryBuildRunnerWithContext(parent context.Context) (pythonDryBuildRunner, bool) {
+	if parent == nil {
+		parent = context.Background()
+	}
 	candidates := []pythonDryBuildRunner{
 		{DisplayArgs: []string{"python3"}},
 		{DisplayArgs: []string{"python"}},
@@ -1678,6 +1686,9 @@ func resolvePythonDryBuildRunner() (pythonDryBuildRunner, bool) {
 		}
 	}
 	for _, candidate := range candidates {
+		if parent.Err() != nil {
+			return pythonDryBuildRunner{}, false
+		}
 		if len(candidate.DisplayArgs) == 0 {
 			continue
 		}
@@ -1686,7 +1697,7 @@ func resolvePythonDryBuildRunner() (pythonDryBuildRunner, bool) {
 			continue
 		}
 		candidate.ExePath = exePath
-		if probePythonDryBuildRunner(candidate) {
+		if probePythonDryBuildRunnerWithContext(parent, candidate) && parent.Err() == nil {
 			return candidate, true
 		}
 	}
@@ -1694,15 +1705,25 @@ func resolvePythonDryBuildRunner() (pythonDryBuildRunner, bool) {
 }
 
 func probePythonDryBuildRunner(runner pythonDryBuildRunner) bool {
-	if strings.TrimSpace(runner.ExePath) == "" {
+	return probePythonDryBuildRunnerWithContext(context.Background(), runner)
+}
+
+func probePythonDryBuildRunnerWithContext(parent context.Context, runner pythonDryBuildRunner) bool {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if strings.TrimSpace(runner.ExePath) == "" || parent.Err() != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	args := append(append([]string{}, runner.FixedArgs...), "-c", "import sys")
 	cmd := exec.CommandContext(ctx, runner.ExePath, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		logging.Debug("[emit_change_plan] V2 Python dry-build probe failed for %q: %v (out=%q)", strings.Join(runner.DisplayArgs, " "), err, strings.TrimSpace(string(out)))
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	result := SupervisedRun(ctx, cmd, SupervisedRunOptions{})
+	if result.Err != nil || ctx.Err() != nil {
+		logging.Debug("[emit_change_plan] V2 Python dry-build probe failed for %q: %v (out=%q)", strings.Join(runner.DisplayArgs, " "), result.Err, strings.TrimSpace(out.String()))
 		return false
 	}
 	return true

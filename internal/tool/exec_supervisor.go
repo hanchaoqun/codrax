@@ -10,8 +10,9 @@ import (
 // SupervisedRunOptions controls the resource caps applied to a
 // supervised exec. Zero/empty values mean "no limit at this layer"
 // — the supervisor still installs the process-group / JobObject
-// boundary so context cancel reliably kills the entire descendant
-// tree, even when no rlimit is asked for.
+// boundary for cancellation cleanup, even when no rlimit is asked for.
+// This is not a proof that every descendant terminated: Unix descendants may
+// escape the group or be unobservable during creation.
 type SupervisedRunOptions struct {
 	// MemoryLimitBytes caps total resident + virtual memory across
 	// every process in the supervised tree. On Unix this maps to
@@ -33,9 +34,9 @@ type SupervisedRunOptions struct {
 type SupervisedExitKind int
 
 const (
-	// SupervisedExitNormal — process exited on its own with whatever
-	// exit code its framework chose. err is whatever exec.Cmd.Wait
-	// returned (nil for code 0, *exec.ExitError otherwise).
+	// SupervisedExitNormal — no resource-exhaustion attribution. Err may
+	// still describe a nonzero exit, caller cancellation, or incomplete
+	// cleanup; this classification does not mean successful execution.
 	SupervisedExitNormal SupervisedExitKind = iota
 
 	// SupervisedExitTimeout — wall-clock context deadline fired
@@ -67,7 +68,9 @@ type SupervisedResult struct {
 }
 
 // SupervisedRun runs cmd under a process-group / JobObject boundary
-// so context cancel reliably kills every descendant. The platform
+// for context-driven cleanup. It does not certify that every descendant
+// terminated, including Unix processes that escape the group or are not yet
+// visible to native process-list interfaces. The platform
 // implementation lives in exec_supervisor_unix.go (Setpgid + kill
 // -pgid) and exec_supervisor_windows.go (CreateJobObject +
 // AssignProcessToJobObject + TerminateJobObject).
@@ -82,7 +85,7 @@ type SupervisedResult struct {
 //     applyUnixResourceCaps in run_tests.go's command builder).
 //
 // On context.DeadlineExceeded the supervisor SIGKILLs the entire
-// tree and returns ExitKind=SupervisedExitTimeout. On a Linux OOM
+// group / JobObject and returns ExitKind=SupervisedExitTimeout. On a Linux OOM
 // kill (exit code 137 for the root + the cgroup memory pressure
 // witnessed via /proc/self/stat) the supervisor returns
 // ExitKind=SupervisedExitOOM. Windows JobObject memory-limit
@@ -118,15 +121,29 @@ const killWaitTimeout = 10 * time.Second
 // existing wait channel through this helper so a single cmd.Wait
 // is in flight at a time.
 //
-// Returns the Wait error if the process exited within
-// killWaitTimeout, else nil (and the cmd's resources may leak —
-// accepted because we've already SIGKILLed the tree and cgroup
-// cleanup will handle it).
+// Returns the Wait error if it completed within killWaitTimeout, otherwise
+// an explicit incomplete-cleanup error. A timeout cannot be a success receipt.
 func waitForExistingWait(waitCh <-chan error) error {
+	return waitForExistingWaitWithin(waitCh, killWaitTimeout)
+}
+
+var errSupervisedWaitIncomplete = errors.New("supervisor: cleanup incomplete: command wait did not finish within the cleanup budget")
+
+func waitForExistingWaitWithin(waitCh <-chan error, budget time.Duration) error {
+	if budget <= 0 {
+		select {
+		case err := <-waitCh:
+			return err
+		default:
+			return errSupervisedWaitIncomplete
+		}
+	}
+	timer := time.NewTimer(budget)
+	defer timer.Stop()
 	select {
 	case err := <-waitCh:
 		return err
-	case <-time.After(killWaitTimeout):
-		return nil
+	case <-timer.C:
+		return errSupervisedWaitIncomplete
 	}
 }

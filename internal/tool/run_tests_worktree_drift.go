@@ -32,6 +32,17 @@ type verificationWorktreeDriftInput struct {
 	mainRoot string
 	caps     SupervisedRunOptions
 	timeout  time.Duration
+	// New verification/formatter executions inherit the caller lifecycle.
+	// Cleanup snapshots remain independently bounded so interrupted runs still
+	// disclose their retained effects. Nil preserves legacy direct callers.
+	executionContext context.Context
+}
+
+func verificationDriftExecutionContext(in verificationWorktreeDriftInput) context.Context {
+	if in.executionContext != nil {
+		return in.executionContext
+	}
+	return context.Background()
 }
 
 type verificationLockedReverifyRequest struct {
@@ -306,10 +317,11 @@ func verificationDriftCommandSuiteInfraOutcome(cmd types.ExecutedCommand) string
 // environment, so project formatter configuration and venv-local binaries
 // apply exactly as they do for the runner.
 func verificationDriftFormatterFixedPoint(in verificationWorktreeDriftInput, auditRoot, rel string, entry verificationDriftRosterEntry, formatter []string) bool {
-	if len(formatter) == 0 {
+	parent := verificationDriftExecutionContext(in)
+	if len(formatter) == 0 || parent.Err() != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	show := exec.CommandContext(ctx, "git", "show", "HEAD:"+rel)
 	show.Dir = auditRoot
@@ -327,18 +339,28 @@ func verificationDriftFormatterFixedPoint(in verificationWorktreeDriftInput, aud
 		fileDir := filepath.Join(auditRoot, filepath.FromSlash(path.Dir(rel)))
 		env := runnerExecutionEnv(entry.runner, in.repoRoot, workDir, in.mainRoot)
 		format = func(argv []string, input []byte) ([]byte, bool) {
-			return verificationDriftRunFormatter(argv, input, fileDir, env)
+			return verificationDriftRunFormatterWithContext(parent, argv, input, fileDir, env)
 		}
 	}
+	if parent.Err() != nil {
+		return false
+	}
 	formatted, ok := format(formatter, pre)
-	return ok && bytes.Equal(formatted, current)
+	return parent.Err() == nil && ok && bytes.Equal(formatted, current)
 }
 
 func verificationDriftRunFormatter(argv []string, input []byte, dir string, env []string) ([]byte, bool) {
-	if len(argv) == 0 {
+	return verificationDriftRunFormatterWithContext(context.Background(), argv, input, dir, env)
+}
+
+func verificationDriftRunFormatterWithContext(parent context.Context, argv []string, input []byte, dir string, env []string) ([]byte, bool) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if len(argv) == 0 || parent.Err() != nil {
 		return nil, false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
 	// Resolve the binary BEFORE constructing the command: exec.CommandContext
 	// stamps cmd.Err=ErrNotFound when the bare name is absent from the codrax
@@ -367,7 +389,8 @@ func verificationDriftRunFormatter(argv []string, input []byte, dir string, env 
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
-	if err := cmd.Run(); err != nil {
+	result := SupervisedRun(ctx, cmd, SupervisedRunOptions{})
+	if result.Err != nil || ctx.Err() != nil {
 		return nil, false
 	}
 	return out.Bytes(), true
@@ -378,6 +401,12 @@ func verificationDriftRunFormatter(argv []string, input []byte, dir string, env 
 // fixed point (exit 0 and no tracked drift).
 func runVerificationLockedReverify(in verificationWorktreeDriftInput, auditRoot string, entry verificationDriftRosterEntry) types.VerificationLockedReverify {
 	record := types.VerificationLockedReverify{Runner: entry.runner, Framework: entry.framework, WorkingDir: entry.dirRel}
+	parent := verificationDriftExecutionContext(in)
+	if parent.Err() != nil {
+		record.Outcome = types.VerificationLockedReverifyUnavailable
+		record.ReasonCode = types.VerificationLockedReverifyFailedReason
+		return record
+	}
 	cmd, env, ok := buildLockedRunCommand(entry.runner, entry.framework, entry.suite, in.repoRoot, in.mainRoot)
 	if !ok {
 		record.Outcome = types.VerificationLockedReverifyUnavailable
@@ -391,11 +420,16 @@ func runVerificationLockedReverify(in verificationWorktreeDriftInput, auditRoot 
 	if run == nil {
 		run = verificationDriftExecuteLocked(in)
 	}
+	if parent.Err() != nil {
+		record.Outcome = types.VerificationLockedReverifyUnavailable
+		record.ReasonCode = types.VerificationLockedReverifyFailedReason
+		return record
+	}
 	result := run(req)
 	record.ExitCode = result.ExitCode
 	record.DriftedPaths = result.DriftedPaths
 	switch {
-	case result.Unavailable:
+	case parent.Err() != nil || result.Unavailable:
 		record.Outcome = types.VerificationLockedReverifyUnavailable
 		record.ReasonCode = types.VerificationLockedReverifyFailedReason
 	case result.ExitCode != 0:
@@ -451,16 +485,20 @@ func verificationLockedReverifyRecordForOwner(in verificationWorktreeDriftInput,
 
 func verificationDriftExecuteLocked(in verificationWorktreeDriftInput) func(req verificationLockedReverifyRequest) verificationLockedReverifyResult {
 	return func(req verificationLockedReverifyRequest) verificationLockedReverifyResult {
+		parent := verificationDriftExecutionContext(in)
+		if parent.Err() != nil {
+			return verificationLockedReverifyResult{Unavailable: true}
+		}
 		workDir := filepath.Join(req.AuditRoot, filepath.FromSlash(req.WorkingDir))
 		before := captureVerificationWorktreeSnapshot(context.Background(), req.AuditRoot)
-		if !before.applicable || before.unavailable {
+		if !before.applicable || before.unavailable || parent.Err() != nil {
 			return verificationLockedReverifyResult{Unavailable: true}
 		}
 		timeout := req.Timeout
 		if timeout <= 0 {
 			timeout = runTestsDefaultTimeout()
 		}
-		execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		execCtx, cancel := context.WithTimeout(parent, timeout)
 		defer cancel()
 		cmd := NewShellCommandContext(execCtx, wrapShellCommandWithCaps(req.Command, req.Caps))
 		cmd.Dir = workDir
@@ -483,7 +521,7 @@ func verificationDriftExecuteLocked(in verificationWorktreeDriftInput) func(req 
 			}
 		}
 		sort.Strings(drifted)
-		return verificationLockedReverifyResult{ExitCode: exitCode, DriftedPaths: drifted}
+		return verificationLockedReverifyResult{ExitCode: exitCode, DriftedPaths: drifted, Unavailable: parent.Err() != nil}
 	}
 }
 

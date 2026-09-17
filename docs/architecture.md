@@ -1596,6 +1596,12 @@ coder 是 "dumb marshaller"：每次 apply_patch 工具的 schema 仅 `{path, ki
 
 **Syntax fallback diagnostics**：无测试基础设施时，plan-touched Python / Node / Ruby 文件会走语法预检兜底。Python 产出 `py_compile` / `python_static_name_check` 行；Node `node --check` 与 Ruby `ruby -wc` 的失败输出会被解析为 `BuildErrors[]` 并带稳定 `FailureReasonCode`，因此 P2 verify-failure handoff 消费的是 file/line/message typed rows，而不是 runner stdout 或模型 narrative。
 
+**Verification cancellation authority (B1715)**：probe、源码准备、语法预检、项目 suite/fallback 与 manifestless Java 执行继承 `BusContext.Context()`，保持各自原超时预算。调用方取消不是产品测试失败：中断 probe 不生成断言证明，baseline 不能把取消铸成 expected failure；项目命令在读取部分测试结果前检查父 context，取消后不继续测试队列或借此前 probe 的通过降格为成功。源码检查家族共享执行入口，Python 解释器准备也继承父 context，取消后不继续候选；source_compile 成功凭证还要求该检查命令实际 exit 0。统一收尾保留实际命令、输出和此前已完成的独立观察，但整批报告取消为 verification_incomplete、调用方 deadline 为 timeout。文件变动快照/审计仍可收尾；会新启动程序的 locked reverify/formatter 则服从调用方 context。该边界不改变 LLM 的首响应/静默/非流式 600/300/600 秒默认值，活跃流无正文不因此降级。
+
+**Source-check receipt limitation (B1716, open)**：上面的 exit 0 是成功资格的必要条件，尚非执行证明；旧缺工具 provider 仍会从 Passed 合成 0，错误留下 syntax-only 路径覆盖，虽然整体 verification/proof 仍 unavailable。后续须由 provider 携带实际执行与逐路径成功收据，不能从 warning 文本或 NoTestsRunners 猜测可用性。
+
+**Darwin cancellation cleanup (B1715)**：目标 `Start` 后、唯一 `Wait` 前建立同组 guardian；guardian 未回收期间保留原进程组身份，取消入口只锁存意图，由同一生命周期控制器在既有 10 秒收尾预算内重复清组。释放 guardian 后不得再给旧 PGID 发信号。正常命令不清组，目标输出及退出码不变；`SupervisedExitNormal` 仅表示不归因为资源耗尽，不等于成功。原生 published-member 快照使用 C ABI，截断/不支持（含无 CGO）明确不可用；快照不包含所有正在出生或已离组的子进程，不能把空表当全树清空证明。取消始终携带非空错误和 cleanup-incomplete 诊断；这里只增强尽力清理，不承诺任意后代均已终止。等待收尾预算耗尽亦返回非空错误。其它 Unix 保持单次组信号，Windows 的 JobObject 不在本片重新实现或冒称本机运行验证。
+
 ### 8.8 Write Closure — W1 / W1b 不变量
 
 > *像装修白名单：(W1) 工人只能改业主签字"允许动"的房间（TargetPaths），动其他房间立刻拦下；(W1b) 一道工序有前置依赖（"贴砖前必须先做防水"），前置没过验收就开工的话立刻拦下。LLM 连撞 3 次拦截还要改同一个不在白名单的房间——不是工人手抖，是设计图（plan）漏了那个房间，需要回去重画图。*

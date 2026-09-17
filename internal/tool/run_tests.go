@@ -413,6 +413,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return nil
 		}
 		report = scopeBuildFailureReportToChangedLines(ctx, report)
+		markVerificationInterrupted(ctx.Context().Err(), report)
 		// Attach the exact filesystem-derived surface before changed-path
 		// coverage is evaluated. Its declared-input roster remains selection
 		// and audit context; it cannot promote a meta runner across language
@@ -434,7 +435,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			report.VerificationConfidence,
 			verificationConfidenceRecordsFromReport(authorityPlan, report),
 		)
-		if !dryRunProbe {
+		if !dryRunProbe && ctx.Context().Err() == nil {
 			report.VerificationConfidence = mergeVerificationConfidenceRecords(
 				report.VerificationConfidence,
 				postApplySourceContractConfidenceRecords(ctx.RepoRoot, ctx.WorktreeBaseSHA, ctx.WorktreeBaseDirtyPaths, authorityPlan),
@@ -450,12 +451,15 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			// the default in its locked re-run.
 			attachVerificationWorktreeAudit(context.Background(), report, worktreeAuditBaseline, ctx.RepoRoot, verificationWorktreeDriftInput{
 				plan: authorityPlan, executed: report.ExecutedCommands, repoRoot: ctx.RepoRoot, mainRoot: ctx.MainRepoRoot,
-				caps: verifyResourceCaps(), timeout: timeout,
+				caps: verifyResourceCaps(), timeout: timeout, executionContext: ctx.Context(),
 			})
 		}
 		if report.GeneratedAt.IsZero() {
 			report.GeneratedAt = time.Now()
 		}
+		// Audit remains unconditional, but cannot turn a caller interruption
+		// into a product failure or restore an earlier partial green verdict.
+		markVerificationInterrupted(ctx.Context().Err(), report)
 		report.EnsureVerificationStatus()
 		return report
 	}
@@ -753,6 +757,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 	}
 	probePrimarySuiteInfraReport := func(kind types.FailureKind, detail string) (*types.ChangeReport, bool) {
+		if ctx.Context().Err() != nil {
+			return nil, false
+		}
 		if preSuiteProbe == nil || preSuiteProbe.Report == nil {
 			return nil, false
 		}
@@ -838,6 +845,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 	syntaxPreflightDone := map[string]bool{}
 	for planIdx := 0; planIdx < len(plans); planIdx++ {
+		if ctx.Context().Err() != nil {
+			break
+		}
 		plan := plans[planIdx]
 		runnerRoot := plan.Root
 		runner := plan.Runner
@@ -1078,7 +1088,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// invocation is in the log.
 		logging.Info("[run_tests] %s exec: %s (cwd=%s timeout=%v)",
 			runnerPlanLabel(ctx.RepoRoot, plan), cmdStr, runnerRoot, timeout)
-		execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		execCtx, cancel := context.WithTimeout(ctx.Context(), timeout)
 		cmd := NewShellCommandContext(execCtx, wrappedCmd)
 		cmd.Dir = runnerRoot
 		cmd.Env = runnerExecutionEnv(runner, ctx.RepoRoot, runnerRoot, ctx.MainRepoRoot)
@@ -1121,6 +1131,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if reasonCode != "" && len(executedCmds) > 0 {
 				executedCmds[len(executedCmds)-1].ReasonCode = reasonCode
 			}
+		}
+		// A caller cancellation/deadline is not a suite verdict. Stop before
+		// parsing partial green output or borrowing an earlier probe's pass.
+		// Actual command/output receipts above remain available for audit.
+		if err := ctx.Context().Err(); err != nil {
+			interrupted := &types.ChangeReport{}
+			markVerificationInterrupted(err, interrupted)
+			setLastExecReasonCode(interrupted.FailureReasonCode)
+			projectReports = append(projectReports, qualifyChangeReport(interrupted, plan, ctx.RepoRoot))
+			break
 		}
 
 		// Resource-exhaustion exits get classified explicitly so the
@@ -2462,7 +2482,7 @@ func runPytestTextFallbackCommand(ctx *types.BusContext, plan runnerPlan, timeou
 		logging.Info("[run_tests] %s parser_error fallback exec: %s (cwd=%s timeout=%v)",
 			label, cmdStr, plan.Root, timeout)
 	}
-	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	execCtx, cancel := context.WithTimeout(ctx.Context(), timeout)
 	defer cancel()
 	cmd := NewShellCommandContext(execCtx, wrapShellCommandWithCaps(cmdStr, caps))
 	cmd.Dir = plan.Root
@@ -2478,6 +2498,11 @@ func runPytestTextFallbackCommand(ctx *types.BusContext, plan runnerPlan, timeou
 	logging.Info("[run_tests] %s parser_error fallback exit=%d duration=%v output_bytes=%d excerpt=%q",
 		label, exitCode, duration, len(output), truncateForLog(output, 300))
 	report, parseErr := parsePytestTextOutput(output, cmdStr, supRes.Err)
+	if err := ctx.Context().Err(); err != nil {
+		report = &types.ChangeReport{}
+		markVerificationInterrupted(err, report)
+		parseErr = nil
+	}
 	return &pytestTextFallbackResult{
 		Report:   report,
 		ParseErr: parseErr,
@@ -4016,7 +4041,7 @@ func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.V
 	runner := strings.TrimSpace(cmd.Runner)
 	reason := strings.TrimSpace(cmd.ReasonCode)
 	var out []types.VerificationConfidenceRecord
-	if outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback && status != types.VerificationStatusFailed {
+	if outcome == types.ExecutedCommandOutcomeSyntaxCheckFallback && cmd.ExitCode == 0 && status != types.VerificationStatusFailed {
 		out = append(out, types.VerificationConfidenceRecord{
 			Source:     firstNonEmptyRunTests(strings.TrimSpace(cmd.Source), "syntax_preflight"),
 			Category:   "source_compile",
@@ -5286,6 +5311,41 @@ func runSyntaxCheckFallback(ctx *types.BusContext, label, runnerRoot, runner str
 	return report, output, true
 }
 
+// Source checks share the caller's execution lifetime, without changing their
+// parser arguments, environment, or existing timeout/resource policy. Cleanup
+// and worktree audit remain separate from this new-process boundary.
+func runSourceCheckCommand(ctx *types.BusContext, dir string, env []string, binary string, args ...string) ([]byte, error) {
+	parent := ctx.Context()
+	if err := parent.Err(); err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(parent, binary, args...)
+	cmd.Dir, cmd.Env = dir, env
+	var output bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	result := SupervisedRun(parent, cmd, SupervisedRunOptions{})
+	if err := parent.Err(); err != nil {
+		return output.Bytes(), err
+	}
+	return output.Bytes(), result.Err
+}
+
+// Retain earlier completed observations, but do not parse an interrupted
+// command's partial output into a new source error or compile-success witness.
+func interruptedSourceCheckReport(ctx *types.BusContext, completed ...*types.ChangeReport) *types.ChangeReport {
+	if err := ctx.Context().Err(); err != nil {
+		report := mergeChangeReports(completed)
+		markVerificationInterrupted(err, report)
+		report.EnsureVerificationStatus()
+		return report
+	}
+	return nil
+}
+
+func sourceCheckCompletedFailures(failures []types.TestResult) *types.ChangeReport {
+	return &types.ChangeReport{TestResults: failures, BuildFailed: len(failures) > 0}
+}
+
 func runSyntaxPreflightForPlan(ctx *types.BusContext, label, runnerRoot, runner string, done map[string]bool) (*types.ChangeReport, string, bool) {
 	exts := syntaxCheckExtensions(runner)
 	if len(exts) == 0 {
@@ -5330,6 +5390,9 @@ func runSyntaxPreflightForPlan(ctx *types.BusContext, label, runnerRoot, runner 
 // sources when the repo has no Jest/Vitest-style test work. JavaScript uses
 // `node --check`; TypeScript uses `tsc --noEmit --pretty false` when available.
 func runNodeCheckFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		return report, ""
+	}
 	lang := ""
 	if ctx != nil {
 		lang = ctx.Language
@@ -5352,9 +5415,11 @@ func runNodeCheckFallback(ctx *types.BusContext, label, runnerRoot string, files
 			output.WriteString(fmt.Sprintf("  skip  node --check: node binary not on PATH (%d JS file(s))\n", len(jsFiles)))
 		} else {
 			for _, f := range jsFiles {
-				cmd := exec.Command("node", "--check", f)
-				cmd.Dir = runnerRoot
-				out, err := cmd.CombinedOutput()
+				out, err := runSourceCheckCommand(ctx, runnerRoot, nil, "node", "--check", f)
+				if report := interruptedSourceCheckReport(ctx, sourceCheckCompletedFailures(failures)); report != nil {
+					output.Write(out)
+					return report, output.String()
+				}
 				rel, relErr := filepath.Rel(runnerRoot, f)
 				if relErr != nil {
 					rel = f
@@ -5386,6 +5451,9 @@ func runNodeCheckFallback(ctx *types.BusContext, label, runnerRoot string, files
 		} else if tsReport != nil && strings.TrimSpace(tsReport.FailureSummary) != "" {
 			warningSummaries = append(warningSummaries, tsReport.FailureSummary)
 		}
+	}
+	if report := interruptedSourceCheckReport(ctx, sourceCheckCompletedFailures(failures)); report != nil {
+		return report, output.String()
 	}
 
 	if len(failures) == 0 {
@@ -5437,6 +5505,9 @@ func splitNodeSourceCheckFiles(files []string) (jsFiles, tsFiles []string) {
 }
 
 func runTypeScriptCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		return report, ""
+	}
 	lang := ""
 	if ctx != nil {
 		lang = ctx.Language
@@ -5462,9 +5533,11 @@ func runTypeScriptCompileFallback(ctx *types.BusContext, label, runnerRoot strin
 	if !runTestsFileExists(filepath.Join(runnerRoot, "tsconfig.json")) {
 		args = append(args, files...)
 	}
-	cmd := exec.Command(tsc, args...)
-	cmd.Dir = runnerRoot
-	out, err := cmd.CombinedOutput()
+	out, err := runSourceCheckCommand(ctx, runnerRoot, nil, tsc, args...)
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		output.Write(out)
+		return report, output.String()
+	}
 	detail := strings.TrimSpace(string(out))
 	if err == nil {
 		output.WriteString("  ok    TypeScript compile check\n")
@@ -5531,6 +5604,9 @@ func stringSliceSet(values []string) map[string]bool {
 // exists but the plan added .rb sources, the meaningful
 // verification is "does this Ruby parse" — that's what -c does.
 func runRubyCheckFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		return report, ""
+	}
 	lang := ""
 	if ctx != nil {
 		lang = ctx.Language
@@ -5556,9 +5632,11 @@ func runRubyCheckFallback(ctx *types.BusContext, label, runnerRoot string, files
 	)
 	output.WriteString(fmt.Sprintf("[run_tests: %s] ruby -wc fallback (no ruby test infrastructure detected; runner not invoked)\n", label))
 	for _, f := range files {
-		cmd := exec.Command(bin, "-wc", f)
-		cmd.Dir = runnerRoot
-		out, err := cmd.CombinedOutput()
+		out, err := runSourceCheckCommand(ctx, runnerRoot, nil, bin, "-wc", f)
+		if report := interruptedSourceCheckReport(ctx, sourceCheckCompletedFailures(failures)); report != nil {
+			output.Write(out)
+			return report, output.String()
+		}
 		rel, relErr := filepath.Rel(runnerRoot, f)
 		if relErr != nil {
 			rel = f
@@ -5608,6 +5686,9 @@ func runRubyCheckFallback(ctx *types.BusContext, label, runnerRoot string, files
 // compiles packages in this case, so this is the smallest reliable proof that
 // a no-test Go change builds.
 func runGoCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		return report, ""
+	}
 	lang := ""
 	if ctx != nil {
 		lang = ctx.Language
@@ -5642,9 +5723,11 @@ func runGoCompileFallback(ctx *types.BusContext, label, runnerRoot string, files
 			rel = dir
 		}
 		rel = filepath.ToSlash(rel)
-		cmd := exec.Command("go", "test", "-json")
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
+		out, err := runSourceCheckCommand(ctx, dir, nil, "go", "test", "-json")
+		if report := interruptedSourceCheckReport(ctx, reports...); report != nil {
+			output.Write(out)
+			return report, output.String()
+		}
 		text := string(out)
 		report, parseErr := parseGoTestJSONLines(text)
 		if parseErr != nil {
@@ -5689,6 +5772,9 @@ func runGoCompileFallback(ctx *types.BusContext, label, runnerRoot string, files
 }
 
 func runJavaCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		return report, ""
+	}
 	lang := ""
 	if ctx != nil {
 		lang = ctx.Language
@@ -5702,10 +5788,16 @@ func runJavaCompileFallback(ctx *types.BusContext, label, runnerRoot string, fil
 		reports = append(reports, report)
 		output.WriteString(section)
 	}
+	if report := interruptedSourceCheckReport(ctx, reports...); report != nil {
+		return report, output.String()
+	}
 	if len(kotlinFiles) > 0 {
 		report, section := runKotlinFileCompileFallback(ctx, label, runnerRoot, kotlinFiles)
 		reports = append(reports, report)
 		output.WriteString(section)
+	}
+	if report := interruptedSourceCheckReport(ctx, reports...); report != nil {
+		return report, output.String()
 	}
 	if len(reports) == 0 {
 		return &types.ChangeReport{Passed: true, NoTestsRunners: []string{"java"}}, output.String()
@@ -5741,6 +5833,9 @@ func splitJavaSourceCheckFiles(files []string) (javaFiles, kotlinFiles []string)
 }
 
 func runJavaProjectCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		return report, ""
+	}
 	lang := ""
 	if ctx != nil {
 		lang = ctx.Language
@@ -5753,9 +5848,11 @@ func runJavaProjectCompileFallback(ctx *types.BusContext, label, runnerRoot stri
 		output.WriteString("  skip  Java compile fallback: " + unavailableOrDefault(unavailable, "no Maven/Gradle manifest detected") + "\n")
 		return sourceCompileWarningReport("java", summary), output.String()
 	}
-	cmd := exec.Command(spec.Name, spec.Args...)
-	cmd.Dir = runnerRoot
-	out, err := cmd.CombinedOutput()
+	out, err := runSourceCheckCommand(ctx, runnerRoot, nil, spec.Name, spec.Args...)
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		output.Write(out)
+		return report, output.String()
+	}
 	detail := strings.TrimSpace(string(out))
 	if err == nil {
 		output.WriteString("  ok    " + spec.Label + "\n")
@@ -5774,6 +5871,9 @@ func runJavaProjectCompileFallback(ctx *types.BusContext, label, runnerRoot stri
 }
 
 func runKotlinFileCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		return report, ""
+	}
 	lang := ""
 	if ctx != nil {
 		lang = ctx.Language
@@ -5794,9 +5894,11 @@ func runKotlinFileCompileFallback(ctx *types.BusContext, label, runnerRoot strin
 	defer os.RemoveAll(outDir)
 	var failures []types.TestResult
 	for _, file := range files {
-		cmd := exec.Command("kotlinc", "-d", outDir, "-nowarn", file)
-		cmd.Dir = runnerRoot
-		out, err := cmd.CombinedOutput()
+		out, err := runSourceCheckCommand(ctx, runnerRoot, nil, "kotlinc", "-d", outDir, "-nowarn", file)
+		if report := interruptedSourceCheckReport(ctx, sourceCheckCompletedFailures(failures)); report != nil {
+			output.Write(out)
+			return report, output.String()
+		}
 		rel, relErr := filepath.Rel(runnerRoot, file)
 		if relErr != nil {
 			rel = file
@@ -5837,6 +5939,9 @@ func runKotlinFileCompileFallback(ctx *types.BusContext, label, runnerRoot strin
 }
 
 func runSwiftCompileFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		return report, ""
+	}
 	lang := ""
 	if ctx != nil {
 		lang = ctx.Language
@@ -5853,9 +5958,11 @@ func runSwiftCompileFallback(ctx *types.BusContext, label, runnerRoot string, fi
 		output.WriteString("  skip  swift build: binary not on PATH\n")
 		return sourceCompileWarningReport("swift", summary), output.String()
 	}
-	cmd := exec.Command("swift", "build", "--skip-build")
-	cmd.Dir = runnerRoot
-	out, err := cmd.CombinedOutput()
+	out, err := runSourceCheckCommand(ctx, runnerRoot, nil, "swift", "build", "--skip-build")
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		output.Write(out)
+		return report, output.String()
+	}
 	detail := strings.TrimSpace(string(out))
 	if err == nil {
 		output.WriteString(fmt.Sprintf("  ok    swift build --skip-build (%d Swift file(s))\n", len(files)))
@@ -5965,6 +6072,9 @@ func goCompilePackageDirs(runnerRoot string, files []string) []string {
 // order applies here too — the operator's main-repo .venv with pytest
 // installed will also have py_compile (every venv does).
 func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFiles []string) (*types.ChangeReport, string) {
+	if report := interruptedSourceCheckReport(ctx); report != nil {
+		return report, ""
+	}
 	mainRoot := ""
 	lang := ""
 	if ctx != nil {
@@ -5979,7 +6089,7 @@ func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFil
 		// won the pythonInterpreter probe; keep it so py_compile runs in the
 		// same environment as the repo's tests would.
 		exePath = interp
-	} else if runner, ok := resolvePythonDryBuildRunner(); ok {
+	} else if runner, ok := resolvePythonDryBuildRunnerWithContext(ctx.Context()); ok {
 		// Reuse the dry-build probe so Windows PATH shims like
 		// WindowsApps/python3 don't get mistaken for a usable interpreter.
 		exePath = runner.ExePath
@@ -6001,16 +6111,21 @@ func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFil
 		label))
 	for _, f := range pyFiles {
 		args := append(append([]string{}, fixedArgs...), "-m", "py_compile", f)
-		cmd := exec.Command(exePath, args...)
-		cmd.Dir = runnerRoot
-		cmd.Env = pythonPreflightEnv()
-		out, err := cmd.CombinedOutput()
+		out, err := runSourceCheckCommand(ctx, runnerRoot, pythonPreflightEnv(), exePath, args...)
+		if report := interruptedSourceCheckReport(ctx, sourceCheckCompletedFailures(failures)); report != nil {
+			output.Write(out)
+			return report, output.String()
+		}
 		rel, relErr := filepath.Rel(runnerRoot, f)
 		if relErr != nil {
 			rel = f
 		}
 		if err == nil {
 			staticDetail, staticOK := runPythonStaticNameCheck(ctx, exePath, fixedArgs, runnerRoot, f)
+			if report := interruptedSourceCheckReport(ctx, sourceCheckCompletedFailures(failures)); report != nil {
+				output.WriteString(staticDetail)
+				return report, output.String()
+			}
 			if staticOK {
 				output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
 				continue
@@ -6172,11 +6287,11 @@ if issues:
 
 func runPythonStaticNameCheck(ctx *types.BusContext, exePath string, fixedArgs []string, runnerRoot, file string) (string, bool) {
 	args := append(append([]string{}, fixedArgs...), "-c", pythonStaticNameCheckScript, file)
-	cmd := exec.Command(exePath, args...)
-	cmd.Dir = runnerRoot
-	cmd.Env = pythonPreflightEnv()
-	out, err := cmd.CombinedOutput()
+	out, err := runSourceCheckCommand(ctx, runnerRoot, pythonPreflightEnv(), exePath, args...)
 	detail := strings.TrimSpace(string(out))
+	if ctx.Context().Err() != nil {
+		return detail, false
+	}
 	if err == nil {
 		return detail, true
 	}

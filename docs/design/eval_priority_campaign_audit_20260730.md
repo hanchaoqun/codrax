@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-16）
 
+续修 §123.1847 B1715：取消后的探针/基线假证明、项目partial-green、源码检查与后续复验执行边界同批修复；Darwin同组guardian保住组身份后有限重复清理，原5秒fork-window针count20通过，末版count3/race3及冻结全仓86测试包通过。原FAIL均保留，不承诺不可观察的任意后代全清。§123.1849 B1716另获公共RED：工具缺失仍授语法成功/路径覆盖，但整体仍unavailable；独立待修，不混称本批成果。§123.1848仅落B1561原生C/C++精确行为验证分期设计。下一对r1087已预登记Python plan＋链外D/IO背景隔离Trace，各一次恰好两例，提交后清洁构建启动。
+
 本片新增 §123.1845 B1659b（48ef7affe已推）：无业务工作候选时，schema不发布receipt而教学仍要求选择的供需冲突已修；统一typed请求与缺证说明出口，保有候选严格绑定、不造观测，公共红绿/count3/race3/独立审阅及冻结全仓86包通过。§123.1846 r1086恰好两例各一次，机评1PASS/1FAIL：jank清单3条/7、4、2/大整数与时长恢复，解释层身份/来源/内部词仍partial；C++双头补丁及独立7056项本机检查通过，正式aggregate证明不足、FAIL保留。B1659b本对未触发不签live绿；B1713/B1714及r1085原裁决见§123.1843–1844，IO模型过述和根因JSON选择债保留。
 
 本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53推送，B1710全窗资源误附线程等待已bd7e8e1d2推送，B1711修补删错锚已940f4cdf7推送，B1712静态位点数冒充动态次数已8cb0cc740推送。七形公共RED→GREEN、相邻count3/race3、初稿/修补教学一致及独立冷审通过，末版冻结全仓86测试包/13无测试包/零失败。中间census失败与宽选race源码普查超时保留，不冒充通过；末版三包精确race3已绿。不按重试关键词放行，不系统补画图；Trace投影/补齐/链上根因及活跃流保护不改。r1084仓颉read/C apply严格两路各一次已完成人审（§123.1842）：机器与人工均1PASS/1FAIL，写题未接受计划/未应用/未正式验证。B1431有界定位携带及B1586c调度冗余留观察，不误报合同无出口或签本批生产图/Trace验收。
@@ -57916,6 +57918,48 @@ r1086预检：8项fixture、5项case/runner已冻结；C++原test与独立2352�
 后续按模式稀疏性优先plan与实际触发空供给的异构read，各一次恰好两例；本轮有充分事实供给的解释失误先留观察，不以堆教学或逐词禁令追绿。Trace显式窗、自动补齐、链上根因/链外背景、必有侧车、活动流等待不变；既有IO与模型根因选择债未销。
 
 审后4800项Go/build、8项fixture、5项case/runner、33项原结果文件、3项md/html/root-causes答案共4849项SHA全部一致；收据`20260916-{b1659b-build,r1086-fixtures,r1086-cases,r1086-results,r1086-answer}-after-audit.log`。fresh fetch后HEAD与origin/main=0/0。本次仅落机评/人审与账本，不改代码、不重写原结果。
+
+### §123.1847 B1715：探针取消权威与中断不冒充缺陷复现（2026-09-16，最终验收通过）
+
+从B1561原生验证能力复核中确认更直接的跨语言基础缺口：Python执行、共享外部probe命令、通用syntax parser、Java syntax和Python目标源码准备均从Background派生超时，未继承已有BusContext.Ctx。取消由用户/调用方提供，是精确信号，不是“流式长时间无正文”；本片不得改LLM 600/300/600s、probe原10/30s或syntax5s预算。审计/清理快照的独立Background不作机械替换。
+
+接通取消还需处理证明语义：现supervisor将用户cancel与deadline分开，cancel保持Normal；原probe可能因此落tests_failed，baseline再把它当expected_failure_observed。中断不能证明产品缺陷或行为成功；使用既有verification_incomplete边界，保实际命令/输出供审计，预取消不启动，不制造运行receipt，baseline必须保持unavailable。公共执行与四语言语法面先红后绿，完整验收完成前不签收。Unix direct probe资源cap实际安装、无界输出、Java多phase总budget分别留账，不借本片泛称全验证基础设施已闭。
+
+冷审发现并同类根修：仅项目suite接父context仍会把取消前Go/Jest/pytest JSON局部绿色输出汇成PASS；caller deadline还可借“前probe通过、后suite基础设施失败”恢复绿色。现队列入口、命令返回解析前、基础设施降级臂及统一报告收尾读同一个parent.Err，取消不续队列/签整体成功；fallback及manifestless Java亦接父context，Java只保此前真正完成main的断言。锁文件owner A已成功而后owner B取消时，收尾Background审计原来仍可能重跑A；新增独立executionContext给locked reverify/formatter，调用前后及实际子进程均服从取消，git前后快照仍独立收尾，不机械替换所有Background。中断报告使用既有unavailable/timeout和既有closed command outcome，不新增模型JSON枚举或判定关键词。
+
+验收中间记录（不算终验通过）：公共Go suite在临时`5dadd841b`仅补parent连接一行的中间态，两cancel格仍签PASS且queued格记第二条dispatch；当前四格（含ready后可控deadline/正常两suite）已绿。两路真实Python/Node当前＋baseline执行、四语言syntax pre-cancel、双owner及真实launcher子树均保留RED；Java本机无JDK，用受控真实子进程验证生命周期，不宣称真实Java语义。新增syntax/formatter接既有supervisor后，宽选count3/race3并行全仓时出现启动3s未ready及总调用5s超过4s断言，未出现末尾副作用成功；原`final-count3`/`final-race3`日志FAIL保留。该计时含启动/准备，不足以判定killpg竞态；后续需按实际cancel→return计时、启动等待单列，不降低4s取消完成要求或副作用断言，产品各预算不变。完整源冻结4805项，未完成下一轮验收前不得签收/启动live。
+
+**下一对r1087预登记**：244例=216read/25apply/3plan，按模式稀疏性、历史新鲜度、修复观测价值排序：`patch_python_typo`（最近保留08-28，plan15，精准一行retrun→return，保CLI/strip/world，计划不冒充应用/执行）＋`trace_query_wakeup_background_demotion`（最近保留08-09，read15，链上D/IO11ms＋runnable1ms与CPU5无链logger D19.5ms隔离）。app于2.020000唤醒、2.020020才切入Running，后者已窗外。没有semantic span，只有本轮typed工作关系请求真正开启才记B1659b空供给命中，否则N/A；不得靠误分类签绿。原Trace case默认self-repo，应查是否误读case/oracle。源码冻结、修复提交清洁构建后CAP5/PARALLEL2/TIMEOUT1200、各一次恰好两路；CAP只影响多仓活跃数，不改变两例15步。机评/人审独立保留。
+
+精确计时复核继续发现真未闭：隔离count10的Java launcher实际cancel→return=5.012808041s，无末尾sentinel；串行race3通过不能覆盖该FAIL（`20260917-b1715-actual-cancel-{count10,race3}.log`）。本机Go源码确认CommandContext默认Cancel只杀根进程、WaitDelay=0会等子进程持有的管道EOF；Unix supervisor另走killpg，现有公共针仅用plain Command，未覆盖双context。并发fork窗口可能让sleep继续持管道，5s现象不能仅凭猜测定唯一根因。下一片统一既有Cmd.Cancel与supervisor的进程组终止，并保plain Command和不同context的取消语义、wait-ready时的取消分类；原fork-window针不撤、不改产品等待预算。Windows取消owner及历史waitForExistingWait防御超时返回nil分别保留审计债，不宣称跨平台全清。
+
+后续真实收据：Unix仅cmd私有context取消的公共树针先RED（活跃supervisor context下留持管道子进程），pre-canceled plain Command仍Start先RED，私有取消误归OOM另针先RED；共用组终止callback、启动前typed取消检查、callback精确发生信号避免资源误归后，`20260916-b1715-supervisor-final3-{count3,race3}.log`分别2.048/3.764s通过。但保留现场`20260916-b1715-fork-window-unified-exact-count20.log`仍FAIL：formatter cancel→return=5.008958917s，不能记整个退出问题已闭。先前误选正则的`fork-window-unified-count20.log`未命中测试，不算任何通过收据。Apple XNU的pgrp_iterate使用组成员PID快照、proc_find不取NEW进程，提供晚出生子代漏过一次killpg的机制解释，尚非失败当次PID轨迹证明。后续若重复清组，必须先持有原组身份，不能在根已reap后盲发裸PGID信号；Darwin未reap组成员仍保留pgrp的源码证据用于设计guardian租约，不将该实现扩展到未经验证的平台。
+
+冷审另获公共源码fallback RED：`20260917-b1715-source-syntax-public-red-v2.log`（13.156s）仅取消/可控deadline两臂失败，正常检查和真实parser诊断正控通过。原Node源码检查无context，取消后仍出现finished/later文件；整批虽被收尾降为unavailable，`SyntaxCheckFallback && status!=Failed`却漏看ExitCode而授source_compile_ok。这不是模型波动，也不是新增JSON义务。施工统一source checker父context/进程监督/队列停止，并把成功资格与已有coverage同样限定exit0；此前已完成的独立合法检查仍保留。Python/Node/TypeScript/Ruby/Go/Java/Kotlin/Swift同族执行口一起检查，不只特判当前Node例。
+
+**末版收口**：Python解释器准备另获公共RED（`20260917-b1715-source-python-prepare-red.log`，7.045s）：实际取消后5.444s才返回且继续第二候选；共享WithContext准备入口已修，原3s预算不变。源码族统一执行、取消与ExitCode资格回归count3通过，保留此前已完成的独立诊断。缺工具却伪造exit0是独立B1716，不能说仅加exit0就解决所有source_compile资格。
+
+Darwin目标Start→同组guardian→唯一目标Wait，guardian未reap保留PGID身份；Cmd.Cancel只锁存意图，由生命周期owner在原10秒预算内重复清组。release先撤销组信号权限再关pipe/杀精确guardian PID/唯一Wait，绝不向已释放旧PGID继续发信号。正常命令不清组、输出及exit0/7保留。published成员原生快照采用C ABI，截断/无CGO明确不可用；NEW/已离组后代不可据空快照宣称全清，取消始终带非空错误与cleanup-unproven告警。`waitForExistingWait`历史防御超时nil已改明确非空错误，不能签成功。非Darwin Unix保单次组信号，Windows未重构。
+
+**最终冻结验收**：`20260916-b1715-guardian-fork-window-count20.log`通过26.697s，未放宽实际cancel→return 4s针，另含已ready且关闭stdio后代精确PID消失/无末尾副作用针；`acceptance-count3.log`36.120s、`acceptance-race3.log`57.471s均PASS。最终`20260916-b1715-final-full.log`完整exit0，86个测试包PASS、13无测试包、零FAIL；4816项Go/build输入前后SHA全一致（`final-all-build-inputs.sha` / `final-full-end-check.log`）。独立LLM/Trace保护包通过，不改600/300/600s、活跃字节续期、显式窗/补齐/链上根因。Linux/Windows仅supervisor文件子集交叉编译，未执行；Darwin无CGO仅不可用快照与等待预算针执行，不夸大整包跨平台运行。原中间FAIL/误选no-tests收据保留，均未当最终证据。
+
+状态：`B1715=public-red-green/final-count3+race3/fork-window-count20/full86-pass/frozen4816/ready-to-commit`；`Darwin-arbitrary-descendant-clearance=not-proven/explicit-warning`；`Windows-runtime/direct-resource-caps/output-bounds/native-proof=separate-open`；`r1087=exact2-once-preregistered-not-started`。
+
+### §123.1849 B1716：缺失源码检查工具不能获得语法证明（2026-09-16，P1已复现待修）
+
+独立detached `5dadd841b`工作树`/tmp/codrax-b1716-source-skip.I72akO/worktree`，唯一新增公共测试`run_tests_source_check_missing_b1716_test.go`；缺Node、无测试suite、一个plan.js，真实RunTests.Execute仅调用一次。`public-red.log` exit1/package1.214s：L18–24错误source_compile_ok；L31–42虚拟exit0及全部CoveredPaths；L44–55语法路径covered。L5–8/L75–89同时证明整体verification/proof仍unavailable，不能夸成整体行为验证假通过；两精确假语法/覆盖断言RED，unavailable正断言通过。测试SHA `68237ef6f1ff6ffd4dc8193adc471bfd032ca48b2241bc6f303c7eb1fdf160a6`，原日志SHA `8ad1b51e59daaea9eb3ea05eac4bbb712186b05cab3209b9accd6fe730e7273d`。
+
+根因：provider把不可执行仅放warning且Passed=true，caller从Passed合成exit0并把请求文件全当成功检查路径；B1715的exit0必要条件不能分辨这个伪0。设计为producer-owned可用性/实际执行/逐路径成功收据，共享投影confidence与coverage；混合JS/TS/Java/Kotlin缺一工具不抹另一真实成功，缺工具也不得借兄弟检查覆盖。不得读warning关键词、NoTestsRunners或模型prose猜是否执行，不增加模型JSON负担。主树未施工，不混入B1715冻结验收；完整交接在临时树同级`B1716-candidate-audit.md`，保留原RED供下一批复核。
+
+### §123.1848 B1561：原生验证能力分期边界复核（2026-09-16，设计待办未实施）
+
+不能只把c/cpp加入语言enum再以compile/run exit0签合同。现目标执行resolver只用于Python；新非Python会进入旧passed＋refs分支（run_tests.go）及changed_path_coverage授target_behavior。新native语言必须receipt-required、无票据unknown，registry/schema/兼容性/coverage/confidence/累计resolver同批接线。第一阶段仅实现当前树编译/执行及安全票据，不签逐合同行为；第二阶段再以具名case结构化结果与精确目标运行观察联结闭合对应子域。保持目标运行、单case通过、各合同证明三个不同事实。
+
+可复用外层definition/invocation/instance收据；需原生compile输入清单哈希、binary哈希、当前commit/tree/patch、实际编译/运行实例和私有结果文件绑定。首版一probe一具名case，有限源清单/标准闭集，禁自由shell/任意flags/模型输出路径。include/符号存在/成功打印不是运行证据；宏、模板、未实例化、删除行、运行映射不完整保持unknown，不能源码词扫描补齐。原有5probe×8KiB约束与有界预算不弱化。
+
+另一条项目框架路线：CTest已有invocation私有JUnit与XML摘要、disabled/notrun排除，但PTO有意拒绝cmake/meson，因为缺test_path→注册case→实际binary的精确来源关系，而且只跑既有构建目录不能证明二进制对应当前树。可选提供真实case/source元数据的框架分期接入；不得按basename、-R或Make stdout的PASS猜断言/来源。
+
+上线前公共矩阵须覆盖C/C++、头文件/独立单元、真实红绿、no-op/仅include/死分支、外部/冲突路径、源或binary变更、旧树/旧实例、重复/截断/缺结果、编译失败不启动运行、取消/超时/资源耗尽不授证、其它合同不连带covered。Unix direct argv当前未实际套shell resource caps，output buffer无界，多phase不能每阶段重领总budget；这些是新增native lane阻断条件。B1715只先处理取消，不声称B1561原生逐断言能力已实现。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

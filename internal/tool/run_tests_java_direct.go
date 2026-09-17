@@ -225,6 +225,11 @@ func manifestlessJavaHasTopLevelMain(src []byte, className string) bool {
 }
 
 func runManifestlessJavaMainTests(ctx *types.BusContext, plan runnerPlan, source string) verificationProbeRunResult {
+	if err := ctx.Context().Err(); err != nil {
+		report := &types.ChangeReport{}
+		markVerificationInterrupted(err, report)
+		return verificationProbeRunResult{Report: report}
+	}
 	surface := discoverManifestlessJavaMainSurface(plan.Root)
 	if len(surface.SourcePaths) == 0 || len(surface.TestMainClasses) == 0 {
 		return verificationProbeRunResult{Report: &types.ChangeReport{
@@ -263,6 +268,14 @@ func runManifestlessJavaMainTests(ctx *types.BusContext, plan runnerPlan, source
 	}}
 	if compileErr != nil {
 		commands[0].Outcome = compileOutcome
+	}
+	if err := ctx.Context().Err(); err != nil {
+		report := &types.ChangeReport{}
+		markVerificationInterrupted(err, report)
+		commands[0].ReasonCode = report.FailureReasonCode
+		return verificationProbeRunResult{Report: report, Output: compileOutput, Commands: commands}
+	}
+	if compileErr != nil {
 		detail := manifestlessJavaFailureDetail(compileOutput, compileErr, compileText)
 		report := &types.ChangeReport{
 			Passed:         false,
@@ -280,6 +293,10 @@ func runManifestlessJavaMainTests(ctx *types.BusContext, plan runnerPlan, source
 	}
 	report := &types.ChangeReport{Passed: true}
 	for _, mainClass := range surface.TestMainClasses {
+		if err := ctx.Context().Err(); err != nil {
+			markVerificationInterrupted(err, report)
+			break
+		}
 		commandText := "java -ea " + mainClass
 		runOutput, runExit, runDuration, runExitKind, runErr := runManifestlessJavaCommand(
 			ctx, plan.Root, "java", []string{"-ea", "-cp", tmpDir, mainClass},
@@ -297,6 +314,11 @@ func runManifestlessJavaMainTests(ctx *types.BusContext, plan runnerPlan, source
 		})
 		if strings.TrimSpace(runOutput) != "" {
 			fmt.Fprintf(&output, "[%s]\n%s\n", mainClass, strings.TrimSpace(runOutput))
+		}
+		if err := ctx.Context().Err(); err != nil {
+			markVerificationInterrupted(err, report)
+			commands[len(commands)-1].ReasonCode = report.FailureReasonCode
+			break
 		}
 		passed := runErr == nil
 		result := types.TestResult{
@@ -321,7 +343,7 @@ func runManifestlessJavaMainTests(ctx *types.BusContext, plan runnerPlan, source
 
 func runManifestlessJavaCommand(ctx *types.BusContext, wd, binary string, args []string) (string, int, time.Duration, SupervisedExitKind, error) {
 	timeout := 2 * time.Minute
-	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	execCtx, cancel := context.WithTimeout(ctx.Context(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(execCtx, binary, args...)
 	cmd.Dir = wd
