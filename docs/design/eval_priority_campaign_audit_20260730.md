@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-续修 §123.1847 B1715：取消后的探针/基线假证明、项目partial-green、源码检查与后续复验执行边界同批修复；Darwin同组guardian保住组身份后有限重复清理，原5秒fork-window针count20通过，末版count3/race3及冻结全仓86测试包通过。原FAIL均保留，不承诺不可观察的任意后代全清。§123.1849 B1716另获公共RED：工具缺失仍授语法成功/路径覆盖，但整体仍unavailable；独立待修，不混称本批成果。§123.1848仅落B1561原生C/C++精确行为验证分期设计。下一对r1087已预登记Python plan＋链外D/IO背景隔离Trace，各一次恰好两例，提交后清洁构建启动。
+续修 §123.1847 B1715 已a4aab7344推送，取消证明与进程收尾公共红绿/count3/race3/fork-window count20、冻结全仓86包通过，不承诺不可观察的任意后代全清。§123.1850 r1087严格两路各一次完成：Python计划/Trace均机器PASS，人审均partial；计划一行补丁正但模型observed合同写反，Trace主因/背景边界及投影/侧车保留；实测19.5ms被背景排序上限7ms替代并误称实测等待，为新系统gap。§123.1851 B1717已修此共享发布口，公共红绿、全部新旧边界count3/race3、末版冻结全仓86包通过；保原异值镜像旧针及真实同值双查询单席/证据完整新针，不改根因资格或原r1087答案，修后live待下批。§123.1849 B1716缺工具假语法覆盖待修；§123.1848 B1561仅分期设计，未冒称实现。
 
 本片新增 §123.1845 B1659b（48ef7affe已推）：无业务工作候选时，schema不发布receipt而教学仍要求选择的供需冲突已修；统一typed请求与缺证说明出口，保有候选严格绑定、不造观测，公共红绿/count3/race3/独立审阅及冻结全仓86包通过。§123.1846 r1086恰好两例各一次，机评1PASS/1FAIL：jank清单3条/7、4、2/大整数与时长恢复，解释层身份/来源/内部词仍partial；C++双头补丁及独立7056项本机检查通过，正式aggregate证明不足、FAIL保留。B1659b本对未触发不签live绿；B1713/B1714及r1085原裁决见§123.1843–1844，IO模型过述和根因JSON选择债保留。
 
@@ -57945,11 +57945,49 @@ Darwin目标Start→同组guardian→唯一目标Wait，guardian未reap保留PGI
 
 状态：`B1715=public-red-green/final-count3+race3/fork-window-count20/full86-pass/frozen4816/ready-to-commit`；`Darwin-arbitrary-descendant-clearance=not-proven/explicit-warning`；`Windows-runtime/direct-resource-caps/output-bounds/native-proof=separate-open`；`r1087=exact2-once-preregistered-not-started`。
 
+随后a4aab7344已提交并推送main；清洁make构建revision a4aab7344d0a / 0.1.20260917 / 2026-09-17T04:47:16Z。r1087于本地21:47:48启动两路，结果见§123.1850；上句保留作为验收时状态快照，不把旧ready-to-commit当当前未提交。
+
 ### §123.1849 B1716：缺失源码检查工具不能获得语法证明（2026-09-16，P1已复现待修）
 
 独立detached `5dadd841b`工作树`/tmp/codrax-b1716-source-skip.I72akO/worktree`，唯一新增公共测试`run_tests_source_check_missing_b1716_test.go`；缺Node、无测试suite、一个plan.js，真实RunTests.Execute仅调用一次。`public-red.log` exit1/package1.214s：L18–24错误source_compile_ok；L31–42虚拟exit0及全部CoveredPaths；L44–55语法路径covered。L5–8/L75–89同时证明整体verification/proof仍unavailable，不能夸成整体行为验证假通过；两精确假语法/覆盖断言RED，unavailable正断言通过。测试SHA `68237ef6f1ff6ffd4dc8193adc471bfd032ca48b2241bc6f303c7eb1fdf160a6`，原日志SHA `8ad1b51e59daaea9eb3ea05eac4bbb712186b05cab3209b9accd6fe730e7273d`。
 
 根因：provider把不可执行仅放warning且Passed=true，caller从Passed合成exit0并把请求文件全当成功检查路径；B1715的exit0必要条件不能分辨这个伪0。设计为producer-owned可用性/实际执行/逐路径成功收据，共享投影confidence与coverage；混合JS/TS/Java/Kotlin缺一工具不抹另一真实成功，缺工具也不得借兄弟检查覆盖。不得读warning关键词、NoTestsRunners或模型prose猜是否执行，不增加模型JSON负担。主树未施工，不混入B1715冻结验收；完整交接在临时树同级`B1716-candidate-audit.md`，保留原RED供下一批复核。
+
+本轮收尾只读复核a4aab7344：切点为`runSyntaxCheckFallback`/preflight返回通道→`run_tests.go`933–949及997–1011两处命令/路径投影。不能只把receipt塞进子report.ExecutedCommands：mergeChangeReports未累计该字段，finishReport:424又会以局部executedCmds覆写。Kotlin真实非零退出但无可解析BuildErrors仍continue，Java/Swift也存在失败仅warning形；必须区分真实执行完成/exit与诊断文本能否被解析，不靠“没解析到错误”授语法证明。混合语种保此前独立成功子域；这只是下一片实施切点，不算B1716已修。
+
+另两项范围针：新receipt不改成普通`Outcome=executed`，防coverage按目录/语言再次扩权；tsc有tsconfig时未显式传请求文件，exit0不能自动覆盖所有changed paths，须证明真实编译输入范围。验收需覆盖fallback/preflight、双向JS/TS和Java/Kotlin可用性、无可解析诊断的真实非零退出、前成功后取消，以及proof/profile只保真实成功子域。
+
+### §123.1850 r1087：Python 精准计划与 Trace 链外等待隔离（2026-09-16，审计完成）
+
+按模式稀疏性/历史新鲜度/主因误升风险选择patch_python_typo(plan)与trace_query_wakeup_background_demotion(read)，CAP5/PARALLEL2/TIMEOUT1200、原15步，各一次恰好两例。两例机器PASS；原汇总不改，人工审计在 `eval/parallel_selected_summary_evalcampaign_pythonplan_traceempty_r1087_20260916_manual_audit.md`。未因为机器通过就签整份报告无误。
+
+Python49s/ctx28%，仅main.py:20 retrun→return，diff与structured edit一致，scope/CLI/strip/world保留。plan-1789620516282630000-54576只有batch-1/slice-001，pending_approval/planned，无已应用修改，formal proof unknown/runner none。dry-build通过不是计划中probe已执行。模型原emit_write_analysis把已读源码含retrun写成observed/not_contains retrun，继续供给planner；此合同非required，probe不引用且无expects_baseline_failure，故未铸baseline权限。记录精准计划PASS＋模型合同语义partial，不推测将来apply后果，不加源码/模型prose词门。
+
+Trace174s/ctx45%，模型trace_query2次、系统补采root_cause_rank与critical_blocking_calls；源码工具0，未见case/oracle污染。最终20260916-215041.073-54558.md保留20ms窗、threadpool11ms链上IO、三个1ms低优先级供给候选、完整唤醒链与Trace因果投影；logger19.5ms虽更长仍背景。schema2根因侧车available4项、精确窗与候选限定均在，没有selection_unavailable。实际runtime_work_relation_requested=true导致B1659b空供给出口命中，caveat可合法通过而不伪造业务观测；但true是模型对仅调度/唤醒题的过度分类，原教学L530明确独立业务子问，不签分类正确/有业务span能力已验。
+
+analyzer一次fact_families/causal_diagnosis结构冲突被明确提示修复，不是必带必拒。首次成文硬拒0，一次覆盖软建议后patch补principal/facet；模型多余schema_version隔离不重试、遗漏claim_uses仍软提示，没有答案降级。原文把2.020唤醒写成切入CPU（实际2.020020窗外），将CPU4上的唤醒写CPU3（投递目标CPU），准确原生供给已经在，属模型解释错。channel/schema/runtime_work_relation仍漏入正文，同状态重复和内部词面列既有P2，不采用字词硬拒或系统代写。
+
+新P1 **B1717背景排序/测量串义**：logger同一原生状态19.5ms被排序cap降至7ms后，Value和impact/projected notes公开成“measured ms”。实际finalizer L2090同一行7ms与d_state19.5并存，L2510–2511再次并列；答案背景树/指标/正文读到7ms。不是perf模型伪造，也没误升主因。共享发布口根修见§123.1851。
+
+4816Go/build＋5case/runner＋1fixture运行前后SHA一致，65项原结果/3项md-html-json工件冻结；日志 `.codrax/tmp/20260916-r1087-{build,cases,fixtures}-after.log`及`{results,answer}-audit.sha`。600/300/600s有效，持续语义输出仍等待，不因4ms/旧4m无正文降级；本轮非10分钟live耐久测试，无Mermaid不当全图能力验收。本次原答案不回写、不重跑，后续B1717变化不冒充r1087已由新版本产出。
+
+### §123.1851 B1717：背景排序量与原始状态测量分开发布（2026-09-16，最终验收通过）
+
+原生`backgroundImpactMs`使用选窗×0.35为排序cap，off_cpu_sweep仍保正确DState/IOWait等专用状态账。已有publication清Effective为0却漏Impact/Projected，导致wire JSON、typed Observation、RichNotes和投影都把7ms称实际等待。真实公共TraceQuery.Execute（由原始事件经BuildIndex/Run）、D/IO/runnable三形，实测19.5与内部cap7；短D2.5正控通过。首RED1.145s与三面RED1.180s保存在`20260916-b1717-background-measurement-{red,wire-red}.log`，不是手铸7值或模型复述。
+
+最小实现只在现有background wire副本入口：闭集纯Running/Runnable/Sleep/D/IO状态拥有正值原始账时，Impact/Projected使用该账；D/IO仅取同一partition两分量。原engine对象、Score、Rank、资格、Cumulative和链上/邻近收益不改；JSON/notes/Observation/投影同源，不只修Value留RichNotes第二漏口。不读Summary或用户/模型原文，不增加模型字段，不凭时间包络或累计总量猜状态。旧background测试的Runnable7与已有Impact/Cumulative19.5互相矛盾，现只将fixture原始Runnable改19.5，原期望19.5及Effective0全部不变，未降测试杆。
+
+边界：legacy/interval_union无正状态分量保旧发布，未宣称缺测已解决；语义工作、设备IO、低频、复合指数、未知type不借DominantState变纯状态。冷审确认sum_disjoint折叠状态分量随同求和，strongest-member fallback只保该成员状态，D/IO unproven-overlap也先清分量后保最强，不能恢复rawΣ。既有PublishedStateOccupancy不用于把所有fold一刀排除。新增五态及碎片同族、混合D/IO、短量、零/负/NaN/Inf/溢出、未知与复合、幂等/不改原对象、链上与邻近保留针。
+
+当前公共GREEN及末版count3/race3已通过；4818Go/build冻结后全仓运行中，未提前签全仓或修后live。本片不改原r1087结果，B1716/原生C++能力债保持待办；输出中模型CPU/时间/内部词错误与重复状态展示债不因本片测量修复而销账。
+
+首轮冻结全仓 `20260916-b1717-full.log` 实际退出1：85个有测试包通过，tool359.543s仅`TestISPGAPUnionFullMergeSameSegmentMirror`失败，4818输入全程未变。150ms单席和不超窗断言仍通过，但要求异值镜像口径说明的旧针失败。正在复核：原样例借52.5排序cap与150实测构成异值镜像；校准后两次发布均150，可能应进入既有同值去重（只合证据、不伪称两次发生），不能为维持旧测试场景反改真实计量或重启已退役的词形。本失败原样保留，不以85包通过代替最终验收。
+
+复核结论：旧针的异值前提被本次真实测量修正消除，并非生产合并丢量。V4/CR2P5既有规则要求同值同段先合引用、一段一席，而非硬发异值镜像词。原针明确迁移为legacy结果副本：先断言原native D150/Impact52.5，再仅在副本清指定背景行D/IO原账，保持52.5/150旧异值与原全部单席/不超窗/原始和/同段镜像不可相加断言。新针通过两个独立BusCtx的真实TraceQuery.Execute和正式CompileObservationLedger，验证两次150、支持证据角色、显式background有效归因0、投影单席150、无SUM计数、两个证据来源与显示引用、无链上/主因晋升；原native结果不改。完整ledger还可能在V4前按已存在的state-account同值路径收敛，不能硬要求DuplicatePublications=2。未归因旧行的Effective字段可保原150，但角色/根因资格仍为背景；本批只校准显式background纯状态，不宣称所有历史未归因载体的数值字段都为0。
+
+新增双查询针的初始选择器曾漏掉unattributed行/误收无值evidence_fact，又错误预设完整ledger必经V4并保显式background为幸存项；这些测试构造失败日志均保留，不计新产品RED。纠正为真实公开合同后，新旧ISPGAP/CR2P5/B1717联合count3通过3.011s（`20260916-b1717-compatibility-closed-count3.log`），生产聚合零改动、旧断言未删。最终4818Go/build清单`20260916-b1717-closed-build-inputs.sha`重新冻结，race与全仓`20260916-b1717-closed-full.log`验收中；此前失败不覆盖，也不借前一版局部绿替代本版全仓。
+
+**最终验收**：`20260916-b1717-compatibility-closed-race3.log` PASS20.291s；`20260916-b1717-closed-full.log`完整exit0，86个有测试包PASS、13无测试包、零FAIL（tool359.972s、agent78.287s、tracequery106.096s、types45.380s、tracediag12.682s、llm29.328s）。4818项Go/build从启动/中途/结束均SHA相同（`closed-{start,mid,end}-check.log`），65项原结果与3项答案再次核对未改（`closed-{results,answer}-check.log`）。本片无新live或第三例，r1087机器2PASS/人工partial状态保留；600/300/600s及活跃流保护不改。修复范围限明确background的正值原生状态发布；旧未归因字段、缺测、模型解释/词面、B1716与B1561仍保待办。
 
 ### §123.1848 B1561：原生验证能力分期边界复核（2026-09-16，设计待办未实施）
 

@@ -46,7 +46,7 @@ func TestTraceQueryBackgroundOrderingValueDoesNotPublishAsEffectiveAttribution(t
 				{
 					Rank: 1, Tier: "secondary", Type: "runnable_wait",
 					Thread:     tracequery.ThreadRef{Comm: "logger", PID: 900},
-					RunnableMs: 7, ImpactMs: 19.5, CumulativeImpactMs: 19.5, EffectiveImpactMs: 7,
+					RunnableMs: 19.5, ImpactMs: 19.5, CumulativeImpactMs: 19.5, EffectiveImpactMs: 7,
 					Score: 5, ChainRelevance: "background", Causality: "background", Source: "window_stats",
 				},
 				{

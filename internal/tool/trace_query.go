@@ -15704,8 +15704,46 @@ func traceQueryRootCauseRankWireItemForPublicationInUniverse(item tracequery.Roo
 	item = traceQueryRootCauseForPublicationInUniverse(item, universe)
 	if traceQueryRootCauseItemRelevance(item) == "background" {
 		item.EffectiveImpactMs = 0
+		if measured, ok := traceQueryBackgroundStateMeasurement(item); ok {
+			// The engine caps background impact for ordering, not measurement.
+			// Repair only the publication copy so JSON, notes, observations and
+			// the projection share the original state account. Score and the
+			// engine-owned item remain untouched; this grants no causal credit.
+			item.ImpactMs, item.ProjectedImpactMs = measured, measured
+		}
 	}
 	return item
+}
+
+// traceQueryBackgroundStateMeasurement reads a closed, pure scheduler-state
+// lane's own account. A dominant state on a composite/semantic/IO-device row,
+// cumulative chain amount, interval envelope, or description is not a source
+// of this measurement. Legacy rows without a positive state account retain
+// their existing publication; absent measurements are not manufactured zeros.
+func traceQueryBackgroundStateMeasurement(item tracequery.RootCauseRankItem) (float64, bool) {
+	var measured float64
+	switch strings.TrimSpace(item.Type) {
+	case "running", "fragmented_running":
+		measured = item.RunningMs
+	case "runnable", "runnable_wait", "fragmented_runnable_wait", "scheduler_latency":
+		measured = item.RunnableMs
+	case "sleep", "s_sleep", "sleep_wait", "fragmented_sleep_wait":
+		measured = item.SleepMs
+	case "d", "d_sleep", "d_state":
+		measured = item.DStateMs
+	case "io_wait":
+		measured = item.IOWaitMs
+	case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
+		// This typed producer partitions one account into mutually exclusive
+		// D and IO components (including the strongest-member fallback).
+		if item.DStateMs < 0 || item.IOWaitMs < 0 {
+			return 0, false
+		}
+		measured = item.DStateMs + item.IOWaitMs
+	default:
+		return 0, false
+	}
+	return measured, measured > 0 && !math.IsNaN(measured) && !math.IsInf(measured, 0)
 }
 
 func traceQueryPriorityCausalImpactForPublication(impact tracequery.WakeupCausalImpact) tracequery.WakeupCausalImpact {

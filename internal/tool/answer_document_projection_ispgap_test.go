@@ -482,6 +482,10 @@ func TestISPGAPMirrorExemptChainedBoardByteIdentical(t *testing.T) {
 // (independent payload refs — the reviewer's c5/c6 ID-collision caveat) must
 // seat the daemon ONCE at ≤ 100% of the window under the 同段镜像 caliber —
 // never the 52.500+150.000=202.500ms(135%) SUM.
+// B1717: retain this unequal-value mirror pin with an explicit legacy result
+// missing its native state account. Current native publication is 150+150,
+// which legitimately uses V4 duplicate-publication dedup before R2; its
+// unmodified public-query pin is TestB1717CalibratedBackgroundQueriesKeepOnePhysicalMeasurement.
 func TestISPGAPUnionFullMergeSameSegmentMirror(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ispgap_union_full.systrace")
 	if err := os.WriteFile(path, []byte(ispgapChainlessDTrace), 0o644); err != nil {
@@ -493,9 +497,33 @@ func TestISPGAPUnionFullMergeSameSegmentMirror(t *testing.T) {
 	}
 	q := tracequery.Query{View: "root_cause_rank", PID: 100, TimeStart: 1.0, TimeEnd: 1.15, MinDurationMs: 0.05}
 	targeted := tracequery.Run(idx, q)
+	if targeted.RootCauseRank == nil {
+		t.Fatal("fixture produced no native rank")
+	}
+	legacy := targeted
+	legacyRank := *targeted.RootCauseRank
+	legacyRank.Items = append([]tracequery.RootCauseRankItem(nil), targeted.RootCauseRank.Items...)
+	legacy.RootCauseRank = &legacyRank
+	legacyRows := 0
+	for i := range legacyRank.Items {
+		item := &legacyRank.Items[i]
+		if item.Thread.PID != 1300 || item.ChainRelevance != "background" || item.Type != "d_state_or_io_wait" {
+			continue
+		}
+		if item.DStateMs < 149.999 || item.DStateMs > 150.001 || item.ImpactMs < 52.499 || item.ImpactMs > 52.501 {
+			t.Fatalf("native premise drifted before explicit legacy simulation: %+v", item)
+		}
+		// Simulate only the historical missing-account shape; do not change
+		// the native producer, measurements, old value or mirror assertions.
+		item.DStateMs, item.IOWaitMs = 0, 0
+		legacyRows++
+	}
+	if legacyRows != 1 {
+		t.Fatalf("expected one explicit legacy background row, got %d", legacyRows)
+	}
 	// B1638b3 EVOLUTION: keep each original query on its own publication,
 	// matching Execute without weakening the existing same-segment assertions.
-	targetedRecords := traceQueryTypedObservations(targeted, "ispgap_union_full.systrace", "payload-ref", "raw-ref", "", time.Unix(1753100000, 0).UTC(), q)
+	targetedRecords := traceQueryTypedObservations(legacy, "ispgap_union_full.systrace", "payload-ref", "raw-ref", "", time.Unix(1753100000, 0).UTC(), q)
 	q2 := tracequery.Query{View: "root_cause_rank", TimeStart: 1.0, TimeEnd: 1.15, MinDurationMs: 0.05}
 	chainless := tracequery.Run(idx, q2)
 	chainlessRecords := traceQueryTypedObservations(chainless, "ispgap_union_full.systrace", "payload-ref-2", "raw-ref-2", "", time.Unix(1753100060, 0).UTC(), q2)

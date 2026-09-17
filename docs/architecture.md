@@ -1312,6 +1312,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **设计定位**：trace_query 不是"返回原始数据、全靠 LLM 分层推理"的工具——"哪个状态优先看 / 要不要递归 / 用哪个 view"这些决策以确定性 Go 代码算好，通过 typed 结构（`StateDrilldownStep` / `RootCauseRankItem.Tier` / `TraceCausalProjection`）+ 可被 `observation_ledger.go` 回解析的文本行喂给 LLM 和下游 finalizer。这与 §1 "精确信号做硬门、噪声信号做软引导"红线一致：状态排序/tier 是精确计算，推荐 view / significant 标记是软引导。
 
+**背景排序与状态测量分离（B1717）**：引擎对链外背景项使用的窗口比例封顶只用于排序，不能称为实测等待。对显式 `background` 且具有正值、有限原生状态账本的纯状态行，工具在公开副本统一以对应 Running/Runnable/Sleep/D/IO 分量发布 `ImpactMs/ProjectedImpactMs`，使 JSON、观测值、notes 与投影同源；组合 D/IO 只合并该生产者已分割的互斥分量。原引擎对象、Score、排名及链上量不改，该公开副本有效归因仍为零，不因此获得根因资格。不从累计量、时间包络、dominant state 或文字猜测状态测量；缺测、未知/复合/语义/设备类及旧未归因行保留原发布行为，未宣称这些旧车道的口径问题全部解决。
+
 **per-view 截断阈值单源**：`internal/tracequery/view_capacity.go` 是全部 20 个 view 的容量表（DefaultLimit/MaxLimit/heavy/relation-scoped/FallbackView；数值由 TestViewCapacityTablePinsCurrentBehavior 字节 pin），engine 截断点同时发布 typed `Result.Compactions` 记录；tool 侧 refinement 据此给出具体收窄建议（limit=min(Total,MaxLimit) 或按 LastEmittedTs 的首段拆窗+next_segment），composite bundle 的 widen-vs-split 判定读截断子 view 行。index 预算（250K/512MiB 阶梯）不入该表，归 C3/Gap3 阶梯所有。改任何 view 阈值先读该文件,不要再挖 query.go。
 
 **四个核心机制**：
