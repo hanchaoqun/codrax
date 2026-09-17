@@ -6,6 +6,26 @@ import (
 	"strings"
 )
 
+// RuntimeWorkRelationRequested reads only the analyzer's typed request
+// carriers. The dedicated profile flag and an active, required legacy answer
+// dimension express the same presentation obligation. Neither carrier grants
+// runtime evidence authority or selects a work row or conclusion.
+func RuntimeWorkRelationRequested(requestModel RequestModel) bool {
+	if requestModel.RuntimeQuestionProfile.RequestsRuntimeWorkRelation() {
+		return true
+	}
+	dimensions := requestModel.RequestedAnswerDimensions
+	if !dimensions.Active() {
+		return false
+	}
+	for _, dimension := range dimensions.Dimensions {
+		if dimension.Required && dimension.Role == RequestedAnswerDimensionRuntimeWorkRelation {
+			return true
+		}
+	}
+	return false
+}
+
 // RuntimeWorkRelationConclusion is the model-selected conclusion for one
 // exact typed runtime-work observation.  The system publishes the available
 // rows and evidence ceiling, but never selects this value from request or

@@ -1075,6 +1075,8 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 
 ### 6.4 AnswerSemanticView — 把问题家族编译成"答案合同"
 
+运行时工作关系的请求由 `RuntimeWorkRelationRequested` 统一读取 typed profile 或 active required展示维度，Agent/Bus/schema/教学不得各认一套。有精确业务工作行时保留模型自选的 `runtime_work_relation` 回执及原证据上限；无候选时schema不发布回执，模型可用可见principal `caveat`＋`runtime_work_relation/uncertainty_boundary` facets说明缺证。该形只承载展示边界，不生成观测或因果结论，不把调度/IO状态变成业务工作，也不否定已有链上证据。初稿、覆盖提示和维度位置识别共享此供给分支；系统不从正文判断是否确实缺证或替模型编写说明。
+
 > *像考研政治的答题模板：问"分析 X 现象"→ 模板规定"必须有：(1) 现象描述 (2) 原因分析 (3) 对策 (4) 总结"，问"列出 X 的特征"→ 模板规定"必须有：(1) 引言 (2) 5 条特征列表 + 每条引用资料"。view 就是按问题家族（QuestionFamily）匹配出的"该题的答题骨架"，规定哪些 block 必填、各自配多少 facet。*
 
 `AnswerSemanticView`（`internal/types/answer_semantic_view.go`）是连接 analyzer 与下游 prompt / validator / renderer 的 typed bridge。它显式声明**这次 dispatch 的答案必须包含什么、blocks 怎么排**。

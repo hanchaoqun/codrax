@@ -797,6 +797,7 @@ func TestRequestedRuntimeWorkRelationPromptAndRepairKeepModelConclusionOwnership
 			SourceQuotes:      []string{"trace only"}, Confidence: 1,
 		},
 	}}}
+	b1659AddWorkSupply(ctx)
 	for surface, got := range map[string]string{
 		"prompt": renderAnswerDocRequestedAnswerDimensions(ctx),
 		"repair": requestedAnswerDimensionCoverageHint(ctx, []types.RequestedAnswerDimension{dimension}, "zh"),
@@ -819,6 +820,7 @@ func TestRuntimeQuestionProfileWorkRelationDemandCannotBeLostWithoutPresentation
 			RuntimeWorkRelationRequested: true,
 		},
 	}}}
+	b1659AddWorkSupply(ctx)
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "ranking", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal,
 		Text: "NetworkService is the leading typed chain contributor.",

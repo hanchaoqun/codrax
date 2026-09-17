@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-16）
 
-本片新增 §123.1843 B1713（363e83ce0已推）：客户 `jank_event_sync` 打点原文保真、精确数值组合查询与脚本镜像，公共红绿/转换保真/时钟身份边界/真实两文件双入口与CLI通过，冻结全仓86包通过。r1085严格2例各一次机器1PASS/1FAIL、人审jank fail/IO partial；新查询正确3条但终稿错数/倒序，§123.1844 B1714修producer-owned查询条件/总数/字段成文交接，公共RED→GREEN及count3/race3、独立冷审、末版冻结全仓86包通过。不修原产物、不倒签live绿；IO空候选receipt教学与模型过述保留OPEN。
+本片新增 §123.1845 B1659b：无业务工作候选时，schema不发布receipt而教学仍要求选择的供需冲突已修；统一typed请求与缺证说明出口，保有候选严格绑定、不造观测，公共红绿/count3/race3/独立审阅及冻结全仓86包通过。r1086预登记jank清单read＋C++双头apply，各一次并发2，尚未启动。B1713/B1714及r1085原裁决见§123.1843–1844，不倒签live绿，IO模型过述和根因JSON选择债保留。
 
 本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53推送，B1710全窗资源误附线程等待已bd7e8e1d2推送，B1711修补删错锚已940f4cdf7推送，B1712静态位点数冒充动态次数已8cb0cc740推送。七形公共RED→GREEN、相邻count3/race3、初稿/修补教学一致及独立冷审通过，末版冻结全仓86测试包/13无测试包/零失败。中间census失败与宽选race源码普查超时保留，不冒充通过；末版三包精确race3已绿。不按重试关键词放行，不系统补画图；Trace投影/补齐/链上根因及活跃流保护不改。r1084仓颉read/C apply严格两路各一次已完成人审（§123.1842）：机器与人工均1PASS/1FAIL，写题未接受计划/未应用/未正式验证。B1431有界定位携带及B1586c调度冗余留观察，不误报合同无出口或签本批生产图/Trace验收。
 
@@ -57880,6 +57880,24 @@ r1085证实宽查7条后数值过滤3条，工具/explorer有正确事实，fina
 全仓首轮退出1：85包通过、types唯一失败为`TestProducerPrecedenceNotReimplementedInline`，新资格校验在已用公共chokepoint之后又冗余比较producer base。公共函数内部当前唯一deterministic producer就是trace_query，已删除冗余比较，仅走统一入口；旧结构针/负控不改。原失败`20260916-b1714-full-suite.log`保留，4797项Go/build SHA前后相同；修后public+chokepoint count3 types2.095/agent1.419/tool1.769s通过。再冻结为`20260916-b1714-final-v2-build-inputs.sha`后重跑全仓v2，待自然完成，不把旧runtime通过与structural失败混称全绿。
 
 末版v2全仓自然退出0：**86测试包无缓存通过、13无测试包、零失败**，types46.481s；4797项Go/build SHA完全一致，`20260916-b1714-v2-full-freeze-check.log`。同版race3 agent4.108/tool8.233/types10.852/llm12.530s全部通过（`20260916-b1714-final-v2-race3.log`），含公共producer chokepoint，不豁免旧结构针。提交前fresh fetch与origin/main=0/0；case/fixture/runner7项、原答案/JSON/HTML/log/out10项全部SHA未变，收据`20260916-r1085-{cases,original-artifacts}-after-audit.log`。本片源码/测试/架构与r1085机器原裁决及人审一并交付；B1714系统交接已公共验收，修后自然语言live未重跑，模型错数/排序/解释债不得因此销账。
+
+### §123.1845 B1659b：工作关系空供给与缺证说明出口（2026-09-16）
+
+r1085暴露的系统缺口已两路公共RED确认：`20260916-b1659b-agent-red.log` 为真实动态schema隐藏receipt，但初稿/修补要求选择，模型自写缺证边界仍触发额外advisory；`20260916-b1659b-request-compile-red.log` 为同一typed语义记录，legacy required维度可触发教学，却未触发Agent/Bus候选编译。模型r1085自由中文conclusion仍属合法拒绝，本片不改枚举、不代填选择。
+
+修向：typed profile与active required展示维度通过types单源请求谓词统一；教学和覆盖消费与schema相同的候选集。有候选仍用原精确工作行/允许结论/归属元数据；无候选时模型自行写可见principal caveat，以runtime_work_relation＋uncertainty_boundary声明该子问的缺证说明，省略receipt，不伪造观测claim。该形仅结束展示缺口，不证明关系、没有系统代写结论或改写答案，也不否定已有调度/IO因果链。payload覆盖与维度位置owner共用同一谓词；其它schema/receipt binder/renderer不放宽。
+
+旧B1659正控fixture补齐原来缺失的真实typed语义供给，原断言保留；另独立空供给中英×dimension/profile四格，模型文本/metadata保持、无额外重试、无该请求不注入、仅文字/错facet/背景块/系统块/空可见面/伪receipt负控，以及实际TraceQuery有工作行时缺证形不得代替精确选择；空→有→空供给切换不得sticky。types公共两面、tool实际full→patch提交均通过，两个入口伪receipt仍拒且接受稿字节不变。独立冷审无blocker；缺证metadata只证明模型声明了展示归属，不从正文保证其语义正确，不能为此增加prose gate。
+
+验证收据：`20260916-b1659b-targeted-count3.log` agent1.588/types2.015/tool1.976/llm43.459s；`final-race3.log` agent4.841/types5.128/tool6.016/llm20.752s全部通过；独立新增tool针count3=1.442/race3=3.465s。覆盖旧receipt binding/拒绝反馈、默认等待、活跃hidden/tool/visible/keepalive进度。4800项Go/build冻结`20260916-b1659b-build-inputs.sha`，全仓无缓存运行中，不提前签全绿。
+
+**r1086预登记**：现244个case＝216 read/25 apply/3 plan。按用户新需求与修复验证价值、模式稀疏性、真实验证能力、最近覆盖排序：① `trace_query_jank_field_inventory`（read15，验证B1714修后总数3/顺序7、4、2/原始纳秒、时钟身份边界）；② `github_issue_nlohmann_long_double_symptom`（apply24，双头同步、原严格编译/非空测试、原生格式后验与正式proof分别审）。备选Python plan排第三不启动；IO空供给本批不保证触发，N/A不能写成生产通过。修复提交清洁构建后CAP5/PARALLEL2/TIMEOUT1200恰好两路、各一次；先冻结cases/fixtures/runner/build，不改oracle或原结果、不追绿。机评/人审将写 `eval/parallel_selected_summary_evalcampaign_jank_cppwrite_r1086_20260916{,_manual_audit}.md`。
+
+Trace显式窗、自动补齐、链上根因及非链背景隔离不改；active stream的可见/隐藏/tool/keepalive进度不因4ms或旧4min无正文而降级；600/300/600s等待默认维持并回归验证。
+
+r1086预检：8项fixture、5项case/runner已冻结；C++原test与独立2352格matrix均严格compile RED（两头L10 `%lg` / long double不匹配，非环境失败），7项输入前后SHA一致。收据目录`20260916-r1086-nlohmann-audit.Ft8q2y`。本机clang21＋SDK26.5，double/long double均8字节53位；后验只签当前ABI，不冒称扩展精度平台验证。
+
+冻结全仓自然退出0：`20260916-b1659b-full-suite.log` **86有测试包无缓存全部通过、13无测试包、零失败**；4800项Go/build前后SHA一致（`build-freeze-check.log`）。fresh fetch与origin/main=0/0；B1659b系统合同修复可收口为implemented/公共验收通过，live尚未验证，不抹除r1085原答案或旁路缺选事实。后续从提交后的清洁二进制启动预登记两例。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

@@ -8127,7 +8127,7 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 			}
 		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
-			b.WriteString(runtimeWorkRelationMetadataTeaching(lang))
+			b.WriteString(runtimeWorkRelationTeachingForContext(ctx, lang))
 		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
 			if lang == "zh" {
@@ -8164,7 +8164,7 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		} else {
 			b.WriteString("- The typed runtime profile independently declares a runtime work/span/operation-to-target subquestion.\n")
 		}
-		b.WriteString(runtimeWorkRelationMetadataTeaching(lang))
+		b.WriteString(runtimeWorkRelationTeachingForContext(ctx, lang))
 	}
 	if conceptualTerminalResolutionRequested && !hasConceptualTerminalResolutionDimension {
 		if lang == "zh" {
@@ -8186,17 +8186,7 @@ func answerDocTypedRuntimeWorkRelationRequested(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	rm := &ctx.AnalysisIR.RequestModel
-	if rm.RuntimeQuestionProfile != nil && rm.RuntimeQuestionProfile.RequestsRuntimeWorkRelation() {
-		return true
-	}
-	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
-		return false
-	}
-	return answerDocHasRequiredDimensionRole(
-		rm.RequestedAnswerDimensions.Dimensions,
-		types.RequestedAnswerDimensionRuntimeWorkRelation,
-	)
+	return types.RuntimeWorkRelationRequested(ctx.AnalysisIR.RequestModel)
 }
 
 func answerDocTypedConceptualTerminalResolutionRequested(ctx *types.AgentContext) bool {
@@ -15875,11 +15865,7 @@ func requestedAnswerDimensionRoleOwnedByBlock(ctx *types.AgentContext, role type
 		}
 		return false
 	case types.RequestedAnswerDimensionRuntimeWorkRelation:
-		return visible && block.SurfaceRole == types.SurfacePrincipal &&
-			answerBlockHasFacet(block, string(types.RequestedAnswerDimensionRuntimeWorkRelation)) &&
-			answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
-			answerBlockHasClaimForm(block, types.ClaimExternalObservation) &&
-			block.RuntimeWorkRelation != nil && block.RuntimeWorkRelation.IsBound()
+		return runtimeWorkRelationBlockOwnsCoverage(ctx, block)
 	case types.RequestedAnswerDimensionConceptualTerminalResolution:
 		return visible && block.SurfaceRole == types.SurfacePrincipal &&
 			answerBlockHasFacet(block, string(types.RequestedAnswerDimensionConceptualTerminalResolution)) &&
@@ -15990,23 +15976,15 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 
 // answerDocumentHasRuntimeWorkRelationPayload recognizes only a visible,
 // model-authored principal block with an exact, contract-bound runtime-work
-// row receipt. The model selects both row and evidence-bounded conclusion; no
-// request/final prose is inspected and system-generated projection blocks
-// cannot satisfy the obligation.
+// row receipt, or an explicitly owned evidence-boundary caveat when the
+// compiled supply has no work rows. Neither branch inspects request/final
+// prose; system-generated projection blocks cannot satisfy the obligation.
 func answerDocumentHasRuntimeWorkRelationPayload(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
 	if ctx == nil || doc == nil {
 		return false
 	}
 	for _, block := range doc.Blocks {
-		if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
-			block.SurfaceRole != types.SurfacePrincipal ||
-			strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" {
-			continue
-		}
-		if answerBlockHasFacet(block, string(types.RequestedAnswerDimensionRuntimeWorkRelation)) &&
-			answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
-			answerBlockHasClaimForm(block, types.ClaimExternalObservation) &&
-			block.RuntimeWorkRelation != nil && block.RuntimeWorkRelation.IsBound() {
+		if runtimeWorkRelationBlockOwnsCoverage(ctx, block) {
 			return true
 		}
 	}
@@ -17007,7 +16985,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 				}
 			}
 			if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
-				b.WriteString(runtimeWorkRelationMetadataTeaching(lang))
+				b.WriteString(runtimeWorkRelationTeachingForContext(ctx, lang))
 			}
 			if dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
 				b.WriteString("  - 请在模型成文、可见的主结论块上设置 `surface_role:\"principal\"`、`facet_ids:[\"conceptual_terminal_resolution\"]`，并从当前 schema 选择一个精确 `conceptual_terminal_resolution:{evidence_id?,conclusion}`。模型选择终点操作和结论；系统只绑定并显示 typed 操作，不扫描或改写正文，也不替模型判断概念目标是否达到。可见正文不要复述机器枚举 token。\n")
@@ -17049,7 +17027,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			}
 		}
 		if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
-			b.WriteString(runtimeWorkRelationMetadataTeaching(lang))
+			b.WriteString(runtimeWorkRelationTeachingForContext(ctx, lang))
 		}
 		if dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
 			b.WriteString("  - On a model-authored visible principal conclusion block set `surface_role:\"principal\"`, `facet_ids:[\"conceptual_terminal_resolution\"]`, and select one exact `conceptual_terminal_resolution:{evidence_id?,conclusion}` choice from the current schema. The model chooses the terminal operation and conclusion; the system only binds and displays the typed operation without scanning or rewriting prose or deciding whether the conceptual destination was reached. Do not repeat machine enum tokens in visible prose.\n")

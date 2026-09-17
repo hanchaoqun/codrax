@@ -1,6 +1,47 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// Teaching and coverage inspect the same compiled supply used by the tool
+// schema. An empty supply is not a measured work row or a causal verdict.
+func runtimeWorkRelationTeachingForContext(ctx *types.AgentContext, lang string) string {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view != nil && view.RuntimeWorkRelationContract.Active() {
+		return runtimeWorkRelationMetadataTeaching(lang)
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		return "  - 当前证据没有可选择的精确业务工作耗时记录，schema 未发布 `runtime_work_relation` 回执；省略该字段，不要编造 observation_id 或把调度/IO 状态当作业务工作。请自行解释能确认的事实与仍缺的业务关系证据，在可见的主边界块用 `kind:\"caveat\"`、`surface_role:\"principal\"`、`facet_ids:[\"runtime_work_relation\",\"uncertainty_boundary\"]` 标明此子问的缺证说明。无需添加伪观测 claim 或复述内部枚举。该结构只标识你已说明边界，不表示已经证明关系；也不否定已有的链上调度/IO 证据。\n" +
+			"  - 如果现有块已经说明此边界，只补确实缺少的归属；保留正文、图和引用。只有当前 schema 发布精确 `add_facet_id` 时才使用它，否则以 `replace_blocks` 提交完整目标块而非字段片段。系统不选择关系、不扫描或改写正文。\n"
+	}
+	return "  - Current evidence supplies no exact measured business-work row, so the schema does not publish a `runtime_work_relation` receipt. Omit that field; do not invent observation_id or turn scheduler/IO states into business work. Explain the established facts and missing work-to-target evidence yourself in a visible principal boundary block with `kind:\"caveat\"`, `surface_role:\"principal\"`, and `facet_ids:[\"runtime_work_relation\",\"uncertainty_boundary\"]`. Do not add a fabricated observation claim or repeat internal enums. This metadata only identifies your evidence-boundary explanation; it does not prove a relation or invalidate existing on-chain scheduler/IO evidence.\n" +
+		"  - If an existing block already explains this boundary, repair only missing ownership and preserve prose, diagrams, and citations. Use an exact `add_facet_id` only when the current schema publishes it; otherwise submit the COMPLETE target block through `replace_blocks`, not a field fragment. The system does not choose a relation or scan or rewrite prose.\n"
+}
+
+func runtimeWorkRelationBlockOwnsCoverage(ctx *types.AgentContext, block types.AnswerBlock) bool {
+	if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
+		block.SurfaceRole != types.SurfacePrincipal ||
+		strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" ||
+		!answerBlockHasFacet(block, string(types.RequestedAnswerDimensionRuntimeWorkRelation)) {
+		return false
+	}
+	if block.RuntimeWorkRelation != nil {
+		return block.RuntimeWorkRelation.IsBound() &&
+			answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
+			answerBlockHasClaimForm(block, types.ClaimExternalObservation)
+	}
+	// This is only a presentation owner for a model-authored lack-of-evidence
+	// disclosure. It never mints an observation, receipt, root cause or claim.
+	if !answerDocTypedRuntimeWorkRelationRequested(ctx) || block.Kind != types.BlockCaveat ||
+		!answerBlockHasFacet(block, string(types.FacetUncertaintyBoundary)) {
+		return false
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	return view != nil && !view.RuntimeWorkRelationContract.Active()
+}
 
 // runtimeWorkRelationMetadataTeaching is shared by the initial dimension /
 // profile instructions and the existing post-emit coverage advisory. It is

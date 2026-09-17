@@ -24,7 +24,23 @@ func b1659RuntimeWorkContext(lang string, profileOnly bool) *types.AgentContext 
 			}},
 		}
 	}
-	return &types.AgentContext{Language: lang, Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	ctx := &types.AgentContext{Language: lang, Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	b1659AddWorkSupply(ctx)
+	return ctx
+}
+
+// Metadata-repair fixtures must supply the row they teach the model to choose.
+// Empty-supply behavior is tested independently through the public schema.
+func b1659AddWorkSupply(ctx *types.AgentContext) {
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{ToolName: "trace_query", Success: true,
+		Observations: []types.ObservationRecord{{
+			ID: "runtime-result#operation:7", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "/traces/work.ftrace", ArtifactKind: "trace"},
+			Predicate: "trace_semantic_span", Subject: "worker-17", Object: "class_verification", Value: "2.375", Unit: "ms",
+			RichNotes: []string{"span_name=Observed operation", "semantic_class=class_verification", "chain_relevance=on_chain", "causality=on_wakeup_chain", "on_chain_basis=" + types.TraceCausalOnChainBasisHostWakeupEdgeSpan},
+		}},
+	})
 }
 
 func b1659BoundRuntimeWorkDocument(t *testing.T) *types.AnswerDocumentV2 {

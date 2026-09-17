@@ -444,8 +444,7 @@ func applyRuntimeWorkRelationContractForAgent(view *AnswerSemanticView, ctx *Age
 	if view == nil || ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return
 	}
-	requested := ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile != nil &&
-		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.RequestsRuntimeWorkRelation()
+	requested := RuntimeWorkRelationRequested(ctx.AnalysisIR.RequestModel)
 	view.RuntimeWorkRelationContract = BuildRuntimeWorkRelationContract(
 		ObservationLedgerInputFromAgentContext(ctx, ObservationPromptRecordLimit), requested)
 }
@@ -454,8 +453,7 @@ func applyRuntimeWorkRelationContractForBus(view *AnswerSemanticView, ctx *BusCo
 	if view == nil || ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return
 	}
-	requested := ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile != nil &&
-		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.RequestsRuntimeWorkRelation()
+	requested := RuntimeWorkRelationRequested(ctx.AnalysisIR.RequestModel)
 	view.RuntimeWorkRelationContract = BuildRuntimeWorkRelationContract(
 		ObservationLedgerInputFromBusContext(ctx, ObservationPromptRecordLimit), requested)
 }
