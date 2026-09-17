@@ -789,6 +789,14 @@ func renderStringSet(values map[string]bool, limit int) string {
 // duplication and bulk-lane semantics are reviewed instead of inheriting an
 // accidental declaration-order default.
 var nonEventPrioritySchemaPins = map[reflect.Type]string{
+	// B1713: JankEvent is a sparse PluginFields leaf, so the Event/Result
+	// containing type names and existing top-level hashes do not change.
+	// event_search uses JankEventSummary before the bounded raw row; exact
+	// native ns, reported duration, appid and unverified clock are inventory,
+	// never scheduler identity/causal authority. Pin both new leaf objects so
+	// future fields require an explicit renderer disposition.
+	reflect.TypeOf(tracequery.JankEventFields{}): "dcfa5ce102f0e9a97041fa27121d81ab6b099f61aba40922b5937e109b4ec120",
+	reflect.TypeOf(tracequery.JankEventValues{}): "02e3192ad72c2788fc6b069aadfddd92092384af92b88ae1ce9359558af91538",
 	// B1633a (2026-09-09): RunningByCPU gained the nested optional
 	// RepresentativeFrequency pointer; Result/bundle pointer fingerprints do
 	// not change. Generic detail preserves the positive frequency, fixed
@@ -1496,13 +1504,22 @@ var stepParamSchemaPins = map[reflect.Type]string{
 	// validateStep (tracequery.NormalizeEventSearchPatterns, view gate on the
 	// trimmed view), architecture.md §13.7 and the internal/tool cross-face
 	// census mirror table.
-	reflect.TypeOf(Step{}):            "77f2f21c1f75a0e0babddb8f9981850ba79bbfbb17f278e1a88fb94eb23ca54e",
-	reflect.TypeOf(Defaults{}):        "1cf3b00340b41b2e5137fda6b2cc806e3cfc58bde5b06c888cf4f7aa8f0f855b",
-	reflect.TypeOf(WindowsFrom{}):     "822eda7621c7cef2de0aa53b2cd950f54bd42f265105136447a88edebb6c1fdb",
-	reflect.TypeOf(WindowDiscovery{}): "e0737069032cdc77329f87cc155e680d438264a1f0e6cb9349d3810b69acce5e",
-	reflect.TypeOf(ScriptInputs{}):    "82fed7a6e9be48c9374459516a65fb5f8432f7c82f9810115f76c2508ef7224e",
-	reflect.TypeOf(V2Limits{}):        "5693e5cceda83a1485609c17064fe45d56f51b93f97d211ab4d5095620b3b212",
-	reflect.TypeOf(Script{}):          "b46187f3ef4fc8e058388c461c1435f865b4c85b0ed03ea5dcd23525a0e14db2",
+	// B1713: event_field_filters is a closed AND predicate list. stepQuery
+	// maps each local DTO into a fresh engine DTO; stepParamsEcho emits exact
+	// JSON string integers; decode hint lists the field; validateStep shares
+	// ValidateEventFieldFilters (event_search only). Architecture §13.7 and
+	// tool-side cross-face census are updated in the same batch.
+	reflect.TypeOf(Step{}): "3a2226dce1c90957446776935bb0cd509033278156a990b932430e76a2c6b948",
+	// B1713 boundary review: only Value's Go type moved from the engine scalar
+	// to tracediag.EventFieldValue. The same field/op/value wire and engine
+	// semantic validation remain; YAML Node/tag admission belongs to scripts.
+	reflect.TypeOf(EventFieldFilter{}): "deb79b2e476e94cdb41d38c25f7ad36fe6b36079eba4849aa6147d30f1eb209c",
+	reflect.TypeOf(Defaults{}):         "1cf3b00340b41b2e5137fda6b2cc806e3cfc58bde5b06c888cf4f7aa8f0f855b",
+	reflect.TypeOf(WindowsFrom{}):      "822eda7621c7cef2de0aa53b2cd950f54bd42f265105136447a88edebb6c1fdb",
+	reflect.TypeOf(WindowDiscovery{}):  "e0737069032cdc77329f87cc155e680d438264a1f0e6cb9349d3810b69acce5e",
+	reflect.TypeOf(ScriptInputs{}):     "82fed7a6e9be48c9374459516a65fb5f8432f7c82f9810115f76c2508ef7224e",
+	reflect.TypeOf(V2Limits{}):         "5693e5cceda83a1485609c17064fe45d56f51b93f97d211ab4d5095620b3b212",
+	reflect.TypeOf(Script{}):           "b46187f3ef4fc8e058388c461c1435f865b4c85b0ed03ea5dcd23525a0e14db2",
 }
 
 // YAMLFieldKey reports the key yaml.v3 decodes a struct field under and

@@ -1,0 +1,16 @@
+# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+       writer-101   (  101) [001] .... 5.010000: tracing_mark_write: B|201|jank_event_sync: start_ts=9007199254740993, end_ts=9007199274740993, jank_frames=2, appid=620
+       writer-101   (  101) [001] .... 5.010010: tracing_mark_write: E|201
+       writer-101   (  101) [001] .... 5.020000: tracing_mark_write: B|201|jank_event_sync: start_ts=9007199254840993, end_ts=9007199264840993, jank_frames=1, appid=620
+       writer-101   (  101) [001] .... 5.020010: tracing_mark_write: E|201
+       writer-101   (  101) [001] .... 5.030000: tracing_mark_write: B|201|jank_event_sync: start_ts=9007199254940993, end_ts=9007199344940993, jank_frames=9, appid=621
+       writer-101   (  101) [001] .... 5.030010: tracing_mark_write: E|201
+       writer-101   (  101) [001] .... 5.040000: tracing_mark_write: B|201|jank_event_sync: start_ts=9007199255740993, end_ts=9007199325740993, jank_frames=7, appid=620
+       writer-101   (  101) [001] .... 5.040010: tracing_mark_write: E|201
+       writer-101   (  101) [001] .... 5.050000: tracing_mark_write: B|201|jank_event_sync: start_ts=9007199256740993, end_ts=9007199296740993, jank_frames=4, appid=620
+       writer-101   (  101) [001] .... 5.050010: tracing_mark_write: E|201
+       writer-101   (  101) [001] .... 5.060000: tracing_mark_write: B|201|other jank_event_sync: start_ts=9007199257740993, end_ts=9007199347740993, jank_frames=99, appid=620
+       writer-101   (  101) [001] .... 5.060010: tracing_mark_write: E|201
+       writer-101   (  101) [001] .... 5.070000: tracing_mark_write: B|201|jank_event_sync: start_ts=9007199258740993, end_ts=9007199268740993, jank_frames=invalid, appid=620
+       writer-101   (  101) [001] .... 5.070010: tracing_mark_write: E|201

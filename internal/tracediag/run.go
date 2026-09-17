@@ -283,7 +283,8 @@ func stepQuery(step *Step, flavorHint tracequery.TraceFlavor) tracequery.Query {
 		Pattern:     step.Pattern,
 		// Validated + normalized by Script.Validate; copied so v2 fan-out
 		// instances (Step copied by value) never alias one backing array.
-		Patterns: append([]string(nil), step.Patterns...),
+		Patterns:          append([]string(nil), step.Patterns...),
+		EventFieldFilters: stepEventFieldFilters(step),
 	}
 	if start, end, ok := step.WindowBounds(); ok {
 		q.TimeStart, q.TimeEnd = start, end

@@ -2,6 +2,8 @@
 
 ## 最新进展导航（2026-09-16）
 
+本片新增 §123.1843 B1713：客户 `jank_event_sync` 打点的原文保真、精确数值组合查询与脚本镜像。公共红绿/转换保真/时钟身份边界/真实两文件双入口与CLI均通过；最终冻结全仓86包通过，r1085两题自然语言回放另记实际结果，不提前签绿。
+
 本轮续修§123.1838–1841：B1709任务名括号漏IO已84ec52b53推送，B1710全窗资源误附线程等待已bd7e8e1d2推送，B1711修补删错锚已940f4cdf7推送，B1712静态位点数冒充动态次数已8cb0cc740推送。七形公共RED→GREEN、相邻count3/race3、初稿/修补教学一致及独立冷审通过，末版冻结全仓86测试包/13无测试包/零失败。中间census失败与宽选race源码普查超时保留，不冒充通过；末版三包精确race3已绿。不按重试关键词放行，不系统补画图；Trace投影/补齐/链上根因及活跃流保护不改。r1084仓颉read/C apply严格两路各一次已完成人审（§123.1842）：机器与人工均1PASS/1FAIL，写题未接受计划/未应用/未正式验证。B1431有界定位携带及B1586c调度冗余留观察，不误报合同无出口或签本批生产图/Trace验收。
 
 当前交付/人审§123.1836–1837：B1708端点主链与图呈现分域已473a1669e推送，公共初稿/Observe及emit/patch正反控、三包race/count3、冻结全仓86包通过。r1083恰好TS read/真实A5短窗Trace两路各一次，机器2PASS但人审均FAIL；B1708未自然触发，生产N/A。新增B1709合法comm括号漏IO配对P1、B1710全窗inode误附线程等待P1、B1711重复body删除误删合法anchorP2，进入公共先红后绿分批修复。模型重试次数/状态解释错误另记，不加原文硬门。Trace链上边界/投影/补齐、模型所有权、600/300/600s及活跃流不按正文缺失降级不变；旧图/原生证明债不代销。
@@ -57834,6 +57836,28 @@ C人工FAIL：三次fresh planner各三次计划拒绝，没有accepted plan/app
 本对无图/Trace、无写apply，B1709–1712及累计写证明生产验收均N/A，不代销旧债。等待配置600/300/600s，写题结束因计划结构拒绝耗尽，非流超时；活跃流不因4ms/旧4min无可见正文降级。下批优先公共复现B1431有界事实延续，其次B1586c调度冗余；原图/Trace/原生证明开放项继续留账。
 
 收账校验：审计后20项case/fixture/runner、4764项Go/build、21项原结果、3项答案/机评SHA全部一致（`20260916-r1084-*-after-audit.log`），diff检查通过。两侧独立冷审完成；纠正排期段把runOnMainThread误记成callback参数的文档笔误，不改原源码/模型答案。本片仅统一账本与原机评/人工审计三文档提交，源码仍为受测8cb0cc740；原全仓结果与失败探针收据均保留。
+
+### §123.1843 B1713：卡顿打点数值查询及原生时钟边界（2026-09-16）
+
+客户新增需求：保留并导出 `jank_event_sync: start_ts=25175823383662, end_ts=25175970920781, jank_frames=8, appid=27599`，支持“两帧及以上”等数值泛化问题，而不是只按字面匹配。真实文件 `donghu.ftrace:20479` 与 `xxx_all.systrace:15592` 的打点均在合法 `print: B|...|` 信封中；后者外层34579.594371s与原生29822.991976856..29823.127398574s明显不同域，appid/B载荷PID/发出线程也不得互相冒充。
+
+**审计与实现边界**：RMQ4四profile、structured profiler、SQL callstack直出及public ConvertFile adapter fixture合计7路原已保留四字段和外层亚微秒时间，本片增加保真回归，不虚构转换器生产缺陷或无意义bump。实质缺口是查询只有文本搜索、不能表达阈值。本片在既有event_search增加`event_field_filters`闭合AND谓词，四字段×eq/ne/gt/gte/lt/lte，至多16项，值为精确十进制int64，JSON整数/字符串都不经float；不同问题复用阈值/范围/身份组合，不扫描用户原文选择硬门。原pattern/patterns仍OR后与数值条件AND。流式/索引/全量计数共享谓词，展示cap与匹配总数分离，续查保条件；tracediag YAML同步接口与校验、回显及schema pin。
+
+**资格与兼容**：原标记不改写，稀疏PluginFields挂原生四字段、报告时长与未对齐状态；B/E测得时长不被payload区间替换。四个核心键可重排/加空格，额外键只保原文；缺失/重复/坏整数/越界/倒序保留inventory并披露，不补零、不参与ne=0。纳秒条件不借外层秒窗口转换，appid不铸TID，数字条件清单不继承隐式目标线程；显式pid保持发出TID过滤、thread保旧name/text匹配且教学不把它当身份凭证。symptom≠cause，只有独立时钟/目标证据后可下钻，显式窗、Trace补齐及链上根因矩阵未改。ParserVersion v41→v42避暖缓存静默漏字段，核心Event尺寸不变，稀疏分配计入内存预算。
+
+**先红后绿与独立否证**：引擎公共gte2+appid旧结果4行而应1行、坏值ne0旧4行而应0行，收据`20260916-jank-event-fields-red.log`；工具旧unknown parameter真红`20260916-jank-tool-red.log`。转换首次即绿，不冒充红转绿。冷审拦住新数值lane继续走raw-literal预筛导致pattern=trace_mark/encoded marker漏计，已改为解析后共享typed matcher并补混合原文/encoded正针。教学“pid/thread只筛发出线程”与legacy name宽查不符，已校准共享文案并钉公共legacy行为，不改全局thread语义。初轮全tracequery包另因新YAML依赖/稀疏promotion tripwire失败，原失败保留；不削弱结构针，改显式PluginFields访问并将YAML scalar解码归属脚本边界。
+
+初轮工具公共count3通过1.255s，`20260916-b1713-tool-count3.log`；tracediag整包count3/race3、转换count3/race3及引擎28顶层相邻count3/race3收据均在`.codrax/tmp/20260916-*jank*`/`*b1713*`。首版工具“错误解码必须err=nil”测试假设已更正，生产拒绝仍精确带字段名；不把测试预期错误算产品缺陷。最终冻结全仓、真实样例离线查询及自然语言live范围待后续回填；示例脚本`examples/tracediag/collect_jank_events.yaml`和architecture§7.2.1/§13.7同步说明，尚不宣称所有旧债已关。
+
+真实样例离线复核完成：两个公共入口BuildIndex+Run/StreamEventSearch，对donghu.ftrace及xxx_all.systrace各匹配1条，行20479/15592、四字段、外层时间及raw逐项一致，完整扫描27845/15623行；源文件前后SHA一致，收据`20260916-b1713-real-query.log`。后者原生29822秒与外层34579秒确实不同，仍不铸映射/TID/因果。最终引擎+脚本定向count3/race3通过（含原promotion-ban），以及tool8.358s/llm12.730s保护组race3通过；保护组覆盖既有目标继承、显式PID、Trace投影不收背景、活跃可见/隐藏推理续流和默认600/300/600s，skill在该保护筛选没有匹配测试不冒称race覆盖。
+
+第一次冻结全仓`20260916-b1713-full-suite-final.log`完整退出1：85包通过、1包skill失败、13无测试，4790个Go/build输入前后SHA一致。唯一失败是新条目插在原Trace前五项之前，旧位置pin未看到PERF指导；实际通用TierB渲染不是五项上限，不能误报运行时丢掉该指导。保旧测试原字节，仅将新条目移到原五项之后，`20260916-b1713-teaching-order-count3.log` skill0.779s/tool1.191s通过。重新冻结为`20260916-b1713-final-v2-build-inputs.sha`后启动最终全仓v2，原失败保留；期间不再改Go/build。
+
+下一pair预注册r1085：新增通用合成`trace_query_jank_field_inventory.case`＋既有`trace_query_wakeup_causal_io_chain.case`。244例中按当前客户需求、数值语义边界与旧显式窗IO投影回归优先，上一批仓颉read+C apply，本对双Trace read；不宣称覆盖write/图。新case只给自然语言和独立合成trace，分析repo为sealed stub，不泄露工具解法/case oracle；2/4/7帧、异appid9帧、同名干扰99帧、1帧、坏字段、>2^53 ns和不同钟/身份，独立真值3条排序7/4/2及70/40/20ms。机器约束只在terminal PRIMARY正文检验，人工另查字段关联/上下文/权限；旧IO题及oracle不改。开跑前7项case/fixture/runner哈希已封存`20260916-r1085-cases-fixtures-runner-before.sha`，待v2全仓完成、提交推送并清洁构建后恰好两例各一次，无追绿第三例。
+
+新增示例已由真实CLI `go run . --tracediag examples/tracediag/collect_jank_events.yaml --trace .../xxx_all.systrace --out ...` 验证，`20260916-b1713-example-cli.log`退出0、同前缀`example-report.txt`保精确四字段与总数1、来源15592。该离线二进制标记dev，不冒称提交后清洁生产构建；未调用模型。新增eval独立冷审确认排序/时长/数据隔离正确，无阻塞；机评不能排除额外行/邻行数字偶合/时长错配，最终仍必须人审，且单用例不代替其它ops/分页/转换入口的单测。
+
+最终冻结v2完整退出0，86测试包无缓存通过、13无测试包、零失败；4790项Go/build输入SHA前后完全一致，格式/diff检查通过，fresh fetch main/origin=0/0。收据`20260916-b1713-full-suite-final-v2.log`及`20260916-b1713-full-v2-freeze-check.log`。原全仓v1/局部失败保留，不改旧测试标准、不删失败记录；修复+测试+架构/示例+新eval一次提交，待清洁构建后跑预注册双题。
 
 ### §123.1815 r1076：双窗 Trace 与多仓 TypeScript 写修复（2026-09-15，审计完成）
 

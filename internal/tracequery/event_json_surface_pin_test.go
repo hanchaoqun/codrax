@@ -30,7 +30,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 202
+const eventSerializableLeafCount = 209
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -270,6 +270,17 @@ const eventJSONGoldenFull = `{
   "plugin_value": "plugin_value",
   "plugin_category": "plugin_category",
   "span_track": "span_track",
+  "jank_event": {
+    "values": {
+      "start_ts_ns": 9403,
+      "end_ts_ns": 1055,
+      "jank_frames": 8978,
+      "appid": 1843,
+      "reported_duration_ns": 4012
+    },
+    "issue_reason": "issue_reason",
+    "time_domain_status": "time_domain_status"
+  },
   "trace_marker_cpu_status": "trace_marker_cpu_status",
   "trace_marker_cpu_reason": "trace_marker_cpu_reason",
   "scheduler_emitter_cpu_status": "scheduler_emitter_cpu_status",
@@ -496,6 +507,17 @@ const eventJSONGoldenView = `{
   "plugin_value": "plugin_value",
   "plugin_category": "plugin_category",
   "span_track": "span_track",
+  "jank_event": {
+    "values": {
+      "start_ts_ns": 9403,
+      "end_ts_ns": 1055,
+      "jank_frames": 8978,
+      "appid": 1843,
+      "reported_duration_ns": 4012
+    },
+    "issue_reason": "issue_reason",
+    "time_domain_status": "time_domain_status"
+  },
   "trace_marker_cpu_status": "trace_marker_cpu_status",
   "trace_marker_cpu_reason": "trace_marker_cpu_reason",
   "scheduler_emitter_cpu_status": "scheduler_emitter_cpu_status",

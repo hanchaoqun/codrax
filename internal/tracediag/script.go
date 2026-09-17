@@ -215,7 +215,7 @@ type ScriptOverrides struct {
 //
 // The static event_search filter fields mirror the LLM trace_query tool's
 // parameter face one-for-one (pid/thread/window/line_*/pattern/patterns/
-// event_types/trace_mark_actions/max_lines) so a customer script can replay
+// event_types/trace_mark_actions/event_field_filters/max_lines) so a customer script can replay
 // any LLM-lane event_search deterministically. That mirror is pinned in both
 // directions: internal/tool's cross-face census walks the tool schema against
 // these yaml tags, and stepParamSchemaPins (render_key_first.go) fingerprints
@@ -223,20 +223,21 @@ type ScriptOverrides struct {
 // / the decoder hint / docs before it lands (V11-2, colleague_merge_audit
 // §40.58).
 type Step struct {
-	Label            string       `yaml:"label"`
-	View             string       `yaml:"view"`
-	PID              int          `yaml:"pid"`
-	PIDFrom          string       `yaml:"pid_from"`
-	Thread           string       `yaml:"thread"`
-	Window           string       `yaml:"window"`
-	LineStart        int          `yaml:"line_start"`
-	LineEnd          int          `yaml:"line_end"`
-	Pattern          string       `yaml:"pattern"`
-	Patterns         []string     `yaml:"patterns"`
-	EventTypes       []string     `yaml:"event_types"`
-	TraceMarkActions []string     `yaml:"trace_mark_actions"`
-	MaxLines         int          `yaml:"max_lines"`
-	WindowsFrom      *WindowsFrom `yaml:"windows_from"`
+	Label             string             `yaml:"label"`
+	View              string             `yaml:"view"`
+	PID               int                `yaml:"pid"`
+	PIDFrom           string             `yaml:"pid_from"`
+	Thread            string             `yaml:"thread"`
+	Window            string             `yaml:"window"`
+	LineStart         int                `yaml:"line_start"`
+	LineEnd           int                `yaml:"line_end"`
+	Pattern           string             `yaml:"pattern"`
+	Patterns          []string           `yaml:"patterns"`
+	EventTypes        []string           `yaml:"event_types"`
+	TraceMarkActions  []string           `yaml:"trace_mark_actions"`
+	EventFieldFilters []EventFieldFilter `yaml:"event_field_filters"`
+	MaxLines          int                `yaml:"max_lines"`
+	WindowsFrom       *WindowsFrom       `yaml:"windows_from"`
 
 	// Resolved fields (populated by Validate; not part of the YAML schema).
 	windowStart     float64
@@ -248,6 +249,41 @@ type Step struct {
 	requestedMaxRaw int
 	windowOrigin    *WindowProvenance
 	pidFromResolved bool
+}
+
+// EventFieldFilter mirrors the engine's closed predicate DTO locally so every
+// script-reachable YAML object retains a tracediag parameter-face fingerprint.
+// YAML kind admission lives at this script boundary; decimal integer validation
+// stays engine-owned. Native nanosecond values never pass through float64.
+type EventFieldFilter struct {
+	Field string          `yaml:"field" json:"field"`
+	Op    string          `yaml:"op" json:"op"`
+	Value EventFieldValue `yaml:"value" json:"value"`
+}
+
+type EventFieldValue string
+
+func (v *EventFieldValue) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.ScalarNode || (node.Tag != "!!str" && node.Tag != "!!int") {
+		return fmt.Errorf("event_field_filters value: must be a decimal int64 string or integer")
+	}
+	var value tracequery.EventFieldValue
+	if err := value.UnmarshalJSON([]byte(strconv.Quote(node.Value))); err != nil {
+		return err
+	}
+	*v = EventFieldValue(value)
+	return nil
+}
+
+func stepEventFieldFilters(step *Step) []tracequery.EventFieldFilter {
+	if len(step.EventFieldFilters) == 0 {
+		return nil
+	}
+	filters := make([]tracequery.EventFieldFilter, len(step.EventFieldFilters))
+	for i, filter := range step.EventFieldFilters {
+		filters[i] = tracequery.EventFieldFilter{Field: filter.Field, Op: filter.Op, Value: tracequery.EventFieldValue(filter.Value)}
+	}
+	return filters
 }
 
 type WindowProvenance struct {
@@ -315,7 +351,7 @@ func parseScript(data []byte, overrides ScriptOverrides) (*Script, error) {
 	dec.KnownFields(true)
 	var script Script
 	if err := dec.Decode(&script); err != nil {
-		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; step fields include pattern/patterns/event_types/trace_mark_actions; v2 adds inputs/limits/discoveries/windows_from/pid_from): %w", err)
+		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; step fields include pattern/patterns/event_types/trace_mark_actions/event_field_filters; v2 adds inputs/limits/discoveries/windows_from/pid_from): %w", err)
 	}
 	if override := strings.TrimSpace(overrides.Window); override != "" {
 		script.Defaults.Window = override
@@ -579,6 +615,9 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveri
 		return fmt.Errorf("%s (%s): patterns: %w", at, step.Label, err)
 	}
 	step.Patterns = patterns
+	if err := tracequery.ValidateEventFieldFilters(step.View, stepEventFieldFilters(step)); err != nil {
+		return fmt.Errorf("%s (%s): %w", at, step.Label, err)
+	}
 	if step.View == tracequery.FallbackViewEventSearch && (step.PID > 0 || step.Thread != "") {
 		if global := tracequery.CPUGlobalEventSearchTypes(eventTypes); len(global) > 0 {
 			parts := make([]string, 0, len(global))

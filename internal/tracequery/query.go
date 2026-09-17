@@ -153,6 +153,9 @@ func Run(idx *Index, q Query) Result {
 		strings.TrimSpace(q.ThreadInput) != "" ||
 		len(q.EventTypes) > 0
 	q = normalizeQuery(idx, q)
+	if err := ValidateEventFieldFilters(q.View, q.EventFieldFilters); err != nil {
+		return eventFieldFilterInvalidResult(idx, q, err)
+	}
 	if err := ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions); err != nil {
 		return traceMarkActionFilterInvalidResult(idx, q, err)
 	}
@@ -884,9 +887,12 @@ func Run(idx *Index, q Query) Result {
 		// independent from the exhaustive accounting pass. The latter runs
 		// after both censuses so a cooperative cancellation cannot retroactively
 		// discard a display face that was already complete.
-		matchedEvents, matchedTimeStart, matchedTimeEnd := eventSearchMatchAccounting(idx, q)
+		matchedEvents, matchedTimeStart, matchedTimeEnd, invalidJankFields := eventSearchMatchAccounting(idx, q)
 		if faceCanceled("event_search_accounting") {
 			break
+		}
+		if invalidJankFields > 0 {
+			res.Caveats = append(res.Caveats, jankEventIntegrityCaveat(invalidJankFields))
 		}
 		scopeKind, scopeTimeStart, scopeTimeEnd := eventSearchScopeAccounting(idx, q, explicitTimeStart, explicitTimeEnd)
 		res.EventSearchCoverage = &EventSearchCoverage{
@@ -1570,6 +1576,9 @@ func eventSearchIndexed(idx *Index, q Query) ([]EventView, string) {
 	if idx == nil {
 		return nil, ""
 	}
+	if err := ValidateEventFieldFilters(q.View, q.EventFieldFilters); err != nil {
+		return nil, "event_field_filters_invalid=true; " + err.Error()
+	}
 	if err := ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions); err != nil {
 		return nil, ""
 	}
@@ -1619,9 +1628,9 @@ func eventSearchIndexed(idx *Index, q Query) ([]EventView, string) {
 // eventSearchMatchAccounting is the indexed twin of the streaming match
 // account. The display face is built first by eventSearchIndexed; this later
 // pass counts the complete filtered set without allocating another row slice.
-func eventSearchMatchAccounting(idx *Index, q Query) (int, float64, float64) {
-	if idx == nil || ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions) != nil {
-		return 0, 0, 0
+func eventSearchMatchAccounting(idx *Index, q Query) (int, float64, float64, int) {
+	if idx == nil || ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions) != nil || ValidateEventFieldFilters(q.View, q.EventFieldFilters) != nil {
+		return 0, 0, 0, 0
 	}
 	q = ensureQueryFlavor(idx, q)
 	typeSet := make(map[EventType]bool, len(q.EventTypes))
@@ -1635,17 +1644,21 @@ func eventSearchMatchAccounting(idx *Index, q Query) (int, float64, float64) {
 	var guard perfEventSearchIdentityGuard
 	if _, active := perfTimelineThreadSelector(q); active {
 		if q.runCancel.sample() {
-			return 0, 0, 0
+			return 0, 0, 0, 0
 		}
 		ledger = ensurePerfIdentityLedger(idx)
 		guard = buildPerfEventSearchIdentityGuard(idx, q, typeSet, actionSet, ledger)
 	}
 	matched := 0
+	invalidJankFields := 0
 	matchedTimeStart := 0.0
 	matchedTimeEnd := 0.0
 	for ordinal, event := range idx.Events {
 		if q.runCancel.tick() {
 			break
+		}
+		if jankEventInvalidInQuery(event, q, typeSet, actionSet) {
+			invalidJankFields++
 		}
 		if !indexedEventInQuery(ordinal, event, q, typeSet, actionSet, ledger, guard) {
 			continue
@@ -1658,7 +1671,7 @@ func eventSearchMatchAccounting(idx *Index, q Query) (int, float64, float64) {
 			matchedTimeEnd = event.Ts
 		}
 	}
-	return matched, matchedTimeStart, matchedTimeEnd
+	return matched, matchedTimeStart, matchedTimeEnd, invalidJankFields
 }
 
 func insertEventChronological(events []Event, candidate Event, limit int) []Event {
@@ -1709,7 +1722,7 @@ func eventInQueryBase(ev Event, q Query, typeSet map[EventType]bool, actionSet m
 	if eventSearchHasLiteralPatterns(q) && !eventMatchesQueryPatterns(ev, q) {
 		return false
 	}
-	return true
+	return eventMatchesFieldFilters(ev, q.EventFieldFilters)
 }
 
 // eventSearchLiteralPatterns returns the stable, de-duplicated OR set used by

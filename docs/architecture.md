@@ -1298,6 +1298,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 ### 7.2.1 trace_query — 深度分层根因下钻引擎
 
+**卡顿打点数值查询（B1713）**：`print`/`tracing_mark_write` 等既有合法 B 标记信封中的 `jank_event_sync: start_ts=..., end_ts=..., jank_frames=..., appid=...` 保留原文，并挂接稀疏 `JankEventFields`（不增加事件类型、不替换 B/E span 时长）。四字段顺序/键值空白可变，额外字段只保留原文；缺项、重复核心键、非整数、越界或反向时间保留原文并披露，不补零。`event_search.event_field_filters` 是至多16项的 AND 列表：`field=start_ts|end_ts|jank_frames|appid`，`op=eq|ne|gt|gte|lt|lte`，`value` 为精确十进制 int64 字符串或 JSON 整数（建议纳秒用字符串，不经 float64）；其它视图拒绝。流式/索引/计数同一谓词，原有 `pattern/patterns` OR 集与数值条件 AND，续查保条件；完整匹配数与展示上限分别披露。原生 start/end 纳秒与外层 trace 秒分域，`appid` 不铸 scheduler TID；字段查询跳过隐式目标线程继承，显式 pid 保持 emitter TID 过滤，thread 沿既有 name/text 语义，不作为身份凭证。打点只有症状清单权限，因果下钻前仍须独立建立目标线程与时钟映射，不改显式窗/自动补齐/链上根因资格。tool schema 与 explore 的 typed Trace 教学同源；ParserVersion v42 使暖缓存重解析。已核 RMQ4/structured/SQL 既有转换路径原已保留四字段，本片仅新增转换保真回归，不臆造转换修复。
+
 **源码名称诊断的来源边界（EVAL-B36-SYSAUTH1）**：枚举名称接地、提炼清单对照、名称存在性、图端点名称及行内标识符这五类源码诊断共用块级适用域：有效的 `CurrentSourceLaneExcluded`，或该块仅声明外部观测时，不借当前仓库的符号表质疑运行时指标。没有有效排除凭证、普通源码及混合来源块仍保留原检查。历史 advisory 的补充显示也使用同一边界，记录本身不删除。此规则只控制源码名称诊断，不跳过 Trace 关系凭证、源码调用边、引用、参与者或根因资格检查，不改模型正文和图。
 
 **原始证据有界回读（B1697）**：native查询实际发布单物理capture的硬观测后，本轮explorer可用显式有限页`read_file`核对该原文件；不授予grep、其它文件、bundle虚拟行或派生结果以相同权限。单物理资格与读取凭据仅存于不序列化的ToolResult私有票据，不改变观测/频率事实JSON。票据绑定查询前后的强文件身份和本轮代次，穿过工具门直到持有文件句柄的读取完成；替换、链接改指、跨轮、终止状态及历史JSON/memo均不能重授或降为普通源码读取。dispatch/fork仅在同代次继承，Q5-A已发布结果别名优先保持。新escape要求显式页上限，原生直接ReadFile保原分页/展开策略；二者均保整文件字节上限，原文件回读仍是运行时资料，不生成源码覆盖/机制证明。此能力不更改PID/时间窗继承、不补因果结论；超大capture仍使用同文件有界trace_query，无额外整文件哈希，也不是密码学内容快照。
@@ -2680,6 +2682,8 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.observation.v1"` 或 `application/vnd.codrax.observation+json` 的 JSON envelope，Codrax 会把其中 `resource_uri` / `line_start` / `line_end` / `row` / `json_pointer` / `selector` 投影成一条或多条 `mcp_resource` observation。普通文本和普通 JSON 不会被正则猜行号，避免把外部散文误当行证据。
 
 ### 13.7 internal/tracediag — `--tracediag` 零 LLM 确定性收集模式
+
+**B1713 数值条件镜像**：静态 Step 同样接受 `event_field_filters`，经本地闭合 YAML DTO 映射到引擎共享验证/谓词，参数回显使用精确字符串整数。新 Step/DTO 字段和输出叶子逐项渲染处置后重钉，工具→脚本跨面 census 同批更新。示例 `examples/tracediag/collect_jank_events.yaml` 查询 `jank_frames >= 2`；可组合帧数范围、appid、原生纳秒条件及原有外层时间/物理行范围。不支持把原生时钟猜成调度时间，也不从清单自动加冕根因。
 
 客户回访取证命令簇（裁定=campaign 账本 §28.12/§28.13，自动补采窗演化=§29.30）：
 

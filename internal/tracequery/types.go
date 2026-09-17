@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v41"
+const ParserVersion = "tracequery-v42"
 
 type EventType string
 
@@ -453,6 +453,7 @@ type PluginFields struct {
 	Category  string              `json:"plugin_category,omitempty"`
 	SpanTrack string              `json:"span_track,omitempty"`
 	Counter   *TraceCounterFields `json:"-"`
+	JankEvent *JankEventFields    `json:"jank_event,omitempty"`
 	// TraceMarkerCPUStatus/Reason are set only for converter-authored
 	// versioned marker records which deliberately have no physical CPU
 	// envelope. They never backfill Event.CPU.
@@ -1086,6 +1087,7 @@ type Query struct {
 	// literals. Pattern remains the backward-compatible single literal and,
 	// when both are present, joins this set. Neither field has regex semantics.
 	Patterns               []string
+	EventFieldFilters      []EventFieldFilter
 	SpanName               string
 	FrameWindowAutoDerived bool
 	InteractionDirection   string

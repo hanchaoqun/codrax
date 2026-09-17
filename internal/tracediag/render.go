@@ -3,6 +3,7 @@ package tracediag
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -155,6 +156,12 @@ func stepParamsEcho(step *Step) string {
 	}
 	if len(step.TraceMarkActions) > 0 {
 		parts = append(parts, fmt.Sprintf("trace_mark_actions=[%s]", strings.Join(step.TraceMarkActions, ",")))
+	}
+	if len(step.EventFieldFilters) > 0 {
+		// The closed DTO contains strings only; marshaling cannot lose native
+		// int64 precision or fail on an unsupported dynamic value.
+		filters, _ := json.Marshal(step.EventFieldFilters)
+		parts = append(parts, "event_field_filters="+string(filters))
 	}
 	parts = append(parts, fmt.Sprintf("max_lines=%d", step.EffectiveMaxLines()))
 	if len(parts) == 0 {
@@ -562,7 +569,14 @@ func renderEventRow(ev tracequery.EventView) string {
 	if raw == "" {
 		raw = ev.FieldText
 	}
-	return fmt.Sprintf("- line=%d ts=%s type=%s | %s", ev.Line, formatSecondsToken(ev.Ts), string(ev.Type), clampToken(raw))
+	metadata := ""
+	if summary := tracequery.JankEventSummary(ev.Event); summary != "" {
+		// Native marker fields are separately typed inventory. Render before
+		// the bounded raw tail so long comm names cannot hide exact integers;
+		// neither the header clock nor physical/emitter identities are changed.
+		metadata = " " + summary
+	}
+	return fmt.Sprintf("- line=%d ts=%s type=%s%s | %s", ev.Line, formatSecondsToken(ev.Ts), string(ev.Type), metadata, clampToken(raw))
 }
 
 // renderEvidenceFact renders one engine evidence fact in the 系统补充

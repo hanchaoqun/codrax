@@ -128,6 +128,12 @@ func eventSideTableBytes(ev *Event) int64 {
 		if ev.PluginFields.Counter != nil {
 			n += int64(unsafe.Sizeof(TraceCounterFields{}))
 		}
+		if ev.PluginFields.JankEvent != nil {
+			n += int64(unsafe.Sizeof(JankEventFields{}))
+			if ev.PluginFields.JankEvent.Values != nil {
+				n += int64(unsafe.Sizeof(JankEventValues{}))
+			}
+		}
 		if ev.PluginFields.FrameMap != nil {
 			n += int64(unsafe.Sizeof(FrameMapFields{}))
 		}
@@ -4318,10 +4324,14 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	lineNo := s.lineNo
 	if mark, ok := parseExactTraceMark(s.line); ok {
-		return exactTraceMarkEvent(lineNo, mark, intern), true
+		ev := exactTraceMarkEvent(lineNo, mark, intern)
+		attachJankEventFields(&ev)
+		return ev, true
 	}
 	if mark, ok := parseCPUUnavailableTraceMark(s.line); ok {
-		return cpuUnavailableTraceMarkEvent(lineNo, mark, intern), true
+		ev := cpuUnavailableTraceMarkEvent(lineNo, mark, intern)
+		attachJankEventFields(&ev)
+		return ev, true
 	}
 	if wakeup, ok := parseCPUUnavailableWakeup(s.line); ok {
 		return cpuUnavailableWakeupEvent(lineNo, wakeup, intern), true
@@ -4556,6 +4566,7 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 				NumericValid: counter.numericValid, IdentityValid: counter.identityOK,
 			}
 		}
+		attachJankEventFields(&ev)
 	case EventBlockIssue, EventBlockComplete:
 		dev, op, sector, length, identityValid := parseBlockRequestValidated(rawType, fields)
 		bf := &BlockIOFields{

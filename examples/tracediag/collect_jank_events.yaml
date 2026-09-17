@@ -1,0 +1,20 @@
+# 查询所有报告卡顿达到两帧的标记；零 LLM、只读，不需要模型凭据。
+# codrax --tracediag examples/tracediag/collect_jank_events.yaml --trace <trace.systrace> --out jank_events.txt
+# 匹配总数与展示条数分别报告；超过展示上限时不要把样本当成全量清单。
+# 可用 line_start/line_end 分页，保留相同 event_field_filters 条件。
+# appid 是打点中的应用标识，不是事件发出线程的 TID，不默认添加 pid。
+# window 使用外层 trace 的秒时间；start_ts/end_ts 条件使用原生纳秒。
+# 两个时钟未经独立证据对齐，不可用原生区间直接替换调度查询窗口。
+# 卡顿标记是症状定位信息，不直接证明根因。
+version: 1
+description: "查询两帧及以上的卡顿标记，保留原始时间、应用标识和来源行"
+steps:
+  - label: jank_at_least_two_frames
+    view: event_search
+    event_field_filters:
+      - {field: jank_frames, op: gte, value: "2"}
+      # 可选：只看某个应用。
+      # - {field: appid, op: eq, value: "27599"}
+      # 可选：限制到 2..8 帧，条件之间为 AND。
+      # - {field: jank_frames, op: lte, value: "8"}
+    max_lines: 160

@@ -35,34 +35,35 @@ type TraceQuery struct {
 const traceQueryFrameCrossThreadScopeContract = "In frame_timeline/frame_flow, a thread-scope pid/thread selector chooses the anchor but member enumeration remains selected-window cross-thread; explicit target_scope=process remains a proven process-membership filter."
 
 type traceQueryParams struct {
-	Source               string           `json:"source,omitempty"`
-	Path                 string           `json:"path,omitempty"`
-	View                 string           `json:"view,omitempty"`
-	Thread               string           `json:"thread,omitempty"`
-	PID                  FlexInt          `json:"pid,omitempty"`
-	TargetScope          string           `json:"target_scope,omitempty"`
-	TimeStart            TraceSecond      `json:"time_start,omitempty"`
-	TimeEnd              TraceSecond      `json:"time_end,omitempty"`
-	LineStart            FlexInt          `json:"line_start,omitempty"`
-	LineEnd              FlexInt          `json:"line_end,omitempty"`
-	EventTypes           TraceEventTypes  `json:"event_types,omitempty"`
-	TraceMarkActions     TraceMarkActions `json:"trace_mark_actions,omitempty"`
-	Pattern              string           `json:"pattern,omitempty"`
-	Patterns             []string         `json:"patterns,omitempty"`
-	SpanName             string           `json:"span_name,omitempty"`
-	InteractionDirection string           `json:"interaction_direction,omitempty"`
-	RecipeName           string           `json:"recipe_name,omitempty"`
-	MaxDepth             FlexInt          `json:"max_depth,omitempty"`
-	MaxBranches          FlexInt          `json:"max_branches,omitempty"`
-	MaxChainNodes        FlexInt          `json:"max_chain_nodes,omitempty"`
-	ViaThread            string           `json:"via_thread,omitempty"`
-	MinDurationMs        FlexFloat        `json:"min_duration_ms,omitempty"`
-	IncludeWindowStats   *FlexBool        `json:"include_window_stats,omitempty"`
-	Limit                FlexInt          `json:"limit,omitempty"`
-	BucketMs             FlexFloat        `json:"bucket_ms,omitempty"`
-	CoreTopology         string           `json:"core_topology,omitempty"`
-	TraceFlavor          string           `json:"trace_flavor,omitempty"`
-	Platform             string           `json:"platform,omitempty"`
+	Source               string                        `json:"source,omitempty"`
+	Path                 string                        `json:"path,omitempty"`
+	View                 string                        `json:"view,omitempty"`
+	Thread               string                        `json:"thread,omitempty"`
+	PID                  FlexInt                       `json:"pid,omitempty"`
+	TargetScope          string                        `json:"target_scope,omitempty"`
+	TimeStart            TraceSecond                   `json:"time_start,omitempty"`
+	TimeEnd              TraceSecond                   `json:"time_end,omitempty"`
+	LineStart            FlexInt                       `json:"line_start,omitempty"`
+	LineEnd              FlexInt                       `json:"line_end,omitempty"`
+	EventTypes           TraceEventTypes               `json:"event_types,omitempty"`
+	TraceMarkActions     TraceMarkActions              `json:"trace_mark_actions,omitempty"`
+	Pattern              string                        `json:"pattern,omitempty"`
+	Patterns             []string                      `json:"patterns,omitempty"`
+	EventFieldFilters    []tracequery.EventFieldFilter `json:"event_field_filters,omitempty"`
+	SpanName             string                        `json:"span_name,omitempty"`
+	InteractionDirection string                        `json:"interaction_direction,omitempty"`
+	RecipeName           string                        `json:"recipe_name,omitempty"`
+	MaxDepth             FlexInt                       `json:"max_depth,omitempty"`
+	MaxBranches          FlexInt                       `json:"max_branches,omitempty"`
+	MaxChainNodes        FlexInt                       `json:"max_chain_nodes,omitempty"`
+	ViaThread            string                        `json:"via_thread,omitempty"`
+	MinDurationMs        FlexFloat                     `json:"min_duration_ms,omitempty"`
+	IncludeWindowStats   *FlexBool                     `json:"include_window_stats,omitempty"`
+	Limit                FlexInt                       `json:"limit,omitempty"`
+	BucketMs             FlexFloat                     `json:"bucket_ms,omitempty"`
+	CoreTopology         string                        `json:"core_topology,omitempty"`
+	TraceFlavor          string                        `json:"trace_flavor,omitempty"`
+	Platform             string                        `json:"platform,omitempty"`
 }
 
 // traceQueryScopedIndexMaxBytes is the in-memory byte budget for a single,
@@ -216,6 +217,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema := `{
   "type": "object",
   "properties": {
+	    "event_field_filters": __EVENT_FIELD_FILTER_SCHEMA__,
 	    "source": {"type":"string","enum":["path","attached_trace"],"x-codrax-enum-style-alias":true,"description":"Use attached_trace for the current --htrace/--atrace blob; use path for an explicit workspace/repo file."},
 	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path. Use the typed artifact item's source value, not its runtime_artifact:<id>. For compatibility, a copied logical id is auto-resolved only when it names a current typed trace item that maps to exactly one physical artifact; the result reports the repair and canonical next-call form. Accepts ftrace-compatible text such as .ftrace/.trace/.systrace/.htrace/.atrace, text .perftrace, and .tracebundle.json. A recognized binary/non-text prefix is rejected before any physical trace parser; try codrax trace convert --input <binary-trace-path> for supported capture inputs, while compressed/archive/database containers must first be unpacked or exported as text. A converted .systrace or raw .ftrace text is sufficient for core event queries and may already contain SQL-primary perf_sample rows; .tracebundle.json adds provider/coverage/clock/caveat provenance. When a sibling .tracebundle.json exists, or a sibling .systrace/.perftrace pair exists, trace_query builds a provenance-aware composite index. Same-domain artifacts merge directly; different domains merge only through an explicit calibrated finite affine map, otherwise the incompatible artifact is isolated and disclosed. Pass the .perftrace path explicitly to query an isolated perf clock on its own."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics: 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw; only ohos_rt enters high-priority pressure and raw system/kernel tokens remain a separate typed bucket. Use android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
@@ -259,6 +261,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	// The typed OR-set cap is the engine's single source (validation, this
 	// schema and the tracediag script validator all read it — V11-2 §40.58).
 	schema = strings.ReplaceAll(schema, "__EVENT_SEARCH_PATTERN_LIMIT__", strconv.Itoa(tracequery.EventSearchPatternLimit))
+	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
 	return json.RawMessage(schema)
@@ -290,6 +293,10 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// below): the tracediag script validates `patterns` through the identical
 	// function, so the two faces cannot drift (V11-2 §40.58).
 	var patternErr error
+	if err := tracequery.ValidateEventFieldFilters(p.View, p.EventFieldFilters); err != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false,
+			Summary: "trace_query rejected event_field_filters: " + err.Error(), Timestamp: time.Now()}, nil
+	}
 	p.Patterns, patternErr = tracequery.NormalizeEventSearchPatterns(p.View, p.Patterns)
 	if patternErr != nil {
 		return types.ToolResult{
@@ -1438,6 +1445,7 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 		TraceMarkActions:     parseTraceQueryMarkActions(p.TraceMarkActions.Strings()),
 		Pattern:              p.Pattern,
 		Patterns:             append([]string(nil), p.Patterns...),
+		EventFieldFilters:    append([]tracequery.EventFieldFilter(nil), p.EventFieldFilters...),
 		SpanName:             p.SpanName,
 		InteractionDirection: p.InteractionDirection,
 		RecipeName:           p.RecipeName,
@@ -2172,13 +2180,15 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 		logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s failed elapsed=%s err=%v; falling back to the indexed event_search path", q.View, path, time.Since(streamStart), err)
 		return types.ToolResult{}, false
 	}
-	if len(result.Events) == 0 {
+	if len(result.Events) == 0 && len(q.EventFieldFilters) == 0 {
 		// The streaming prefilter matches the RAW line text; the indexed
 		// path additionally matches typed/normalized fields (e.g. the
 		// canonical event type name). A zero-match stream therefore falls
 		// back to the indexed search so type-only patterns keep working —
 		// on budget-capped traces that path still returns the typed
 		// recovery caveat instead of a silently truncated zero match.
+		// Field-filter queries already bypass that raw prefilter and share
+		// the indexed typed matcher, so their complete zero needs no replay.
 		logging.Debug("[trace_query] phase=stream_event_search view=%s path=%s zero raw-text matches elapsed=%s; falling back to the indexed event_search path for typed-field matching", q.View, path, time.Since(streamStart))
 		return types.ToolResult{}, false
 	}
@@ -2352,6 +2362,9 @@ func traceQueryNarrowingSuggestions(q tracequery.Query, reasonCode string) []typ
 			Suggested:  actions,
 			ReasonCode: reasonCode,
 		})
+	}
+	if filters := traceQueryEventFieldFiltersJSON(q.EventFieldFilters); filters != "" {
+		out = append(out, types.ToolParamNarrowingSuggestion{Param: "event_field_filters", Priority: 3, Suggested: filters, ReasonCode: reasonCode})
 	}
 	eventTypes := traceQueryEventTypesParamString(q.EventTypes)
 	if eventTypes == "" {
@@ -2564,6 +2577,9 @@ func traceQueryRefinementPreferredParams(result tracequery.Result, q tracequery.
 		encoded, _ := json.Marshal(q.Patterns)
 		params["patterns"] = string(encoded)
 	}
+	if filters := traceQueryEventFieldFiltersJSON(q.EventFieldFilters); filters != "" {
+		params["event_field_filters"] = filters
+	}
 	if span := strings.TrimSpace(q.SpanName); span != "" {
 		params["span_name"] = span
 	}
@@ -2675,10 +2691,10 @@ func traceQueryRefinementRequiredFields(result tracequery.Result, q tracequery.Q
 	var fields []string
 	view := traceQueryCanonicalView(result, q)
 	if view == "event_search" {
-		if strings.TrimSpace(q.Pattern) == "" && len(q.Patterns) == 0 && len(q.TraceMarkActions) == 0 {
+		if strings.TrimSpace(q.Pattern) == "" && len(q.Patterns) == 0 && len(q.TraceMarkActions) == 0 && len(q.EventFieldFilters) == 0 {
 			fields = append(fields, "pattern")
 		}
-		if len(q.EventTypes) == 0 && len(q.TraceMarkActions) == 0 {
+		if len(q.EventTypes) == 0 && len(q.TraceMarkActions) == 0 && len(q.EventFieldFilters) == 0 {
 			fields = append(fields, "event_types")
 		}
 	}
@@ -4622,6 +4638,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		sanitizeForBanner(payloadRef),
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
+	if filters := traceQueryEventFieldFiltersJSON(p.EventFieldFilters); filters != "" {
+		fmt.Fprintf(&b, "event_field_filters=%s\n", filters)
+	}
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
 	if coverage := result.EventSearchCoverage; coverage != nil {
 		scopeDurationMs := 0.0
@@ -5574,7 +5593,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				traceEventProvenanceDetail(ev),
 				traceEventPriorityDetail(ev),
 				traceEventSchedulerDetail(ev),
-				traceEventResourceDetail(ev),
+				traceEventResourceDetail(ev)+traceQueryJankEventDetail(ev.Event),
 				raw,
 			)
 		}
@@ -16126,6 +16145,12 @@ const traceQueryMaxInheritedPID = types.RuntimeTargetMaxPID
 func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams) (traceQueryParams, string) {
 	if p.PID.Int() > 0 || strings.TrimSpace(p.Thread) != "" {
 		return p, ""
+	}
+	if tracequery.CanonicalViewName(p.View) == tracequery.FallbackViewEventSearch && len(p.EventFieldFilters) > 0 {
+		// A payload-field inventory is not an emitter-TID query. Inheriting a
+		// prior analysis target would silently hide markers for other emitters.
+		// Explicit PID/thread above remains an intentional AND filter.
+		return p, "trace_query_target_inheritance_skipped=event_field_filters; payload application identity does not imply emitter TID ownership"
 	}
 	if globalTypes := traceQueryCPUGlobalEventSearchTypes(p); len(globalTypes) > 0 {
 		// CPU frequency/idle/control rows describe a CPU-global state lane. The

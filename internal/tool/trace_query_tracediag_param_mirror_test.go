@@ -29,18 +29,20 @@ import (
 // time_start/time_end collapse into the script's single `window` token and
 // the tool's inline row cap `limit` is the script's `max_lines` body cap.
 var traceQueryTraceDiagStepMirror = map[string]string{
-	"view":               "view",
-	"pid":                "pid",
-	"thread":             "thread",
-	"time_start":         "window",
-	"time_end":           "window",
-	"line_start":         "line_start",
-	"line_end":           "line_end",
-	"pattern":            "pattern",
-	"patterns":           "patterns",
-	"event_types":        "event_types",
-	"trace_mark_actions": "trace_mark_actions",
-	"limit":              "max_lines",
+	"view":       "view",
+	"pid":        "pid",
+	"thread":     "thread",
+	"time_start": "window",
+	"time_end":   "window",
+	"line_start": "line_start",
+	"line_end":   "line_end",
+	"pattern":    "pattern",
+	"patterns":   "patterns",
+	// B1713: shared numeric event predicates also replay through tracediag.
+	"event_field_filters": "event_field_filters",
+	"event_types":         "event_types",
+	"trace_mark_actions":  "trace_mark_actions",
+	"limit":               "max_lines",
 }
 
 // traceQueryToolOnlyParams: schema properties that by design have no script

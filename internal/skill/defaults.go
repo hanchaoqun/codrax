@@ -220,6 +220,7 @@ func RegisterDefaults(r *Registry) {
 				Body:      "PERF SAMPLE PROVENANCE: preserve trace_query perf sample `source` and `symbolization_status` in final markdown/html reports. `raw_perfdata_fallback` / `unsymbolized` rows are useful for time/thread/DSO/IP correlation but lower confidence than official hiperf/simpleperf symbolized output.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
+			{Body: TraceJankQueryContract, AppliesTo: AppliesToFilter{RequiresTrace: true}},
 			{
 				// Soft semantic boundary only. A caller name is useful navigation,
 				// but its morphology cannot mint a resource/mechanism/fix claim.

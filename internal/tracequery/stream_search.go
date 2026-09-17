@@ -24,6 +24,9 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	if err := ValidateEventFieldFilters(q.View, q.EventFieldFilters); err != nil {
+		return Result{}, fmt.Errorf("stream_event_search: %w", err)
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return Result{}, fmt.Errorf("trace path is empty")
@@ -125,6 +128,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	seenTimeWindow := false
 	limit := ViewCapacityFor(q.View).ClampLimit(q.Limit)
 	matchedTotal := 0
+	invalidJankFields := 0
 	scopeTimestampRows := 0
 	scopeTimeStart := 0.0
 	scopeTimeEnd := 0.0
@@ -284,6 +288,9 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			}
 			flavor.observeEvent(ev)
 			platformVote.observe(ev)
+			if jankEventInvalidInQuery(ev, q, typeSet, actionSet) {
+				invalidJankFields++
+			}
 			if identityAddressed && ev.Type == EventPerfSample {
 				// The base gates prove that this row belonged to the requested
 				// inventory/window/pattern, but streaming has no stable ordinal or
@@ -451,6 +458,9 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	attachEvidenceFactProvenance(res.EvidencePack, res.TraceArtifacts)
 	res.Caveats = append(res.Caveats,
 		fmt.Sprintf("streamed_event_search=true; scanned %d line(s) without building or caching a full trace index", idx.ScannedLineCount))
+	if invalidJankFields > 0 {
+		res.Caveats = append(res.Caveats, jankEventIntegrityCaveat(invalidJankFields))
+	}
 	if perfIdentityRowsWithheld {
 		res.Caveats = append(res.Caveats, "perf_thread_selector_withheld=true; reason=streaming_event_search_has_no_generation_ledger; perf_rows_withheld=true; retry with event_types=[perf_sample] to use the indexed typed identity authority")
 	}
@@ -1532,6 +1542,13 @@ func streamStateClusterFilterLabel(q Query) string {
 }
 
 func streamEventSearchRawCandidate(line string, lineNo int, q Query) bool {
+	// Numeric predicates consume parsed marker metadata, including lossless
+	// converter envelopes whose name is encoded on the physical line. A raw
+	// literal prefilter must not suppress such a row before the shared typed
+	// pattern/field AND matcher gets to inspect it.
+	if len(q.EventFieldFilters) > 0 {
+		return true
+	}
 	if !eventSearchHasLiteralPatterns(q) {
 		return true
 	}
