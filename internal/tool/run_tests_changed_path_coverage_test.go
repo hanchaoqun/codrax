@@ -376,10 +376,11 @@ func TestChangedPathCoverageAcceptsExactSameLanguageSourceCheck(t *testing.T) {
 	report := &types.ChangeReport{
 		Passed: true,
 		ExecutedCommands: []types.ExecutedCommand{{
-			Runner:       "python",
-			Outcome:      "syntax_check_fallback",
-			ExitCode:     0,
-			CoveredPaths: []string{"pkg/client.py"},
+			Runner:               "python",
+			Outcome:              "syntax_check_fallback",
+			ExitCode:             0,
+			CoveredPaths:         []string{"pkg/client.py"},
+			SourceCheckExecution: &types.SourceCheckExecutionReceipt{Version: types.SourceCheckExecutionReceiptVersion, Started: true, Completed: true, ExitCodeKnown: true, CheckedPaths: []string{"pkg/client.py"}},
 		}},
 	}
 
@@ -399,10 +400,11 @@ func TestChangedPathCoverageRejectsCrossLanguageClaimedSourceCheck(t *testing.T)
 	report := &types.ChangeReport{
 		Passed: true,
 		ExecutedCommands: []types.ExecutedCommand{{
-			Runner:       "python",
-			Outcome:      "syntax_check_fallback",
-			ExitCode:     0,
-			CoveredPaths: []string{"src/Widget.java"},
+			Runner:               "python",
+			Outcome:              "syntax_check_fallback",
+			ExitCode:             0,
+			CoveredPaths:         []string{"src/Widget.java"},
+			SourceCheckExecution: &types.SourceCheckExecutionReceipt{Version: types.SourceCheckExecutionReceiptVersion, Started: true, Completed: true, ExitCodeKnown: true, CheckedPaths: []string{"src/Widget.java"}},
 		}},
 	}
 

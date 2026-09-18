@@ -50,9 +50,16 @@ func TestBuildVerificationProofLedgerCumulativeProbeDispositionB1561(t *testing.
 		{name: "unclassified_probe_source", mutate: func(f *b1561CumulativeOrderFixture) { f.Report.ExecutedCommands[0].Source = "another_execution_lane" }, wantOldFailed: 2, wantPath: VerificationProofLedgerItemCovered, wantState: VerificationProofLedgerFailed},
 		{name: "source_static_remains_weak_after_advisory", mutate: func(f *b1561CumulativeOrderFixture) {
 			f.clearOldFailure()
-			f.Report.ChangedPathCoverage[0].Caliber = ChangedPathVerificationSourceCheck
+			// This fixture is an independent project source-shape check, not
+			// an unreceipted compiler/syntax claim (B1716).
+			f.Report.ChangedPathCoverage[0].Caliber = ChangedPathVerificationDeclaredProjectCheck
 			f.Report.ChangedPathCoverage[0].Capability = VerificationCapabilitySourceStatic
 		}, wantAdvisory: true, wantPath: VerificationProofLedgerItemCovered, wantState: VerificationProofLedgerLowConfidence, wantWeak: true},
+		{name: "unreceipted_syntax_cannot_close_cumulative_path", mutate: func(f *b1561CumulativeOrderFixture) {
+			f.clearOldFailure()
+			f.Report.ChangedPathCoverage[0].Caliber = ChangedPathVerificationSourceCheck
+			f.Report.ChangedPathCoverage[0].Capability = VerificationCapabilitySyntaxOnly
+		}, wantPath: VerificationProofLedgerItemUnverified, wantState: VerificationProofLedgerFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, currentFirst := range []bool{false, true} {

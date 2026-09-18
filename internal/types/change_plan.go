@@ -1675,7 +1675,17 @@ func executedCommandUnavailableReasonCode(cmd ExecutedCommand) string {
 			return code
 		}
 		return string(FailureKindNoTests)
-	case "", ExecutedCommandOutcomeExecuted, ExecutedCommandOutcomeSyntaxCheckFallback, ExecutedCommandOutcomeSyntaxPreflight,
+	case ExecutedCommandOutcomeSyntaxCheckFallback, ExecutedCommandOutcomeSyntaxPreflight:
+		if code := firstVerificationUnavailableReasonCode(cmd.ReasonCode); code != "" {
+			return code
+		}
+		if cmd.SourceCheckExecution != nil && !sourceCheckCommandExecutionCompleted(cmd) {
+			return string(FailureKindVerificationIncomplete)
+		}
+		// Legacy negative diagnostics remain historical failures; missing
+		// receipts never grant positive source-check authority elsewhere.
+		return ""
+	case "", ExecutedCommandOutcomeExecuted,
 		ExecutedCommandOutcomeSuiteSkipped, ExecutedCommandOutcomeSuiteContinued, ExecutedCommandOutcomeTimeout,
 		ExecutedCommandOutcomeOOM, ExecutedCommandOutcomeCPULimit, ExecutedCommandOutcomeParserError,
 		ExecutedCommandOutcomeProbeConfigError, ExecutedCommandOutcomeExpectedStdoutMissing:
@@ -1713,7 +1723,14 @@ func ExecutedCommandUnavailableReasonCode(cmd ExecutedCommand) string {
 // an unknown label stays conservatively failed.
 func executedCommandFailed(cmd ExecutedCommand) bool {
 	switch strings.TrimSpace(cmd.Outcome) {
-	case "", ExecutedCommandOutcomeExecuted, ExecutedCommandOutcomeSyntaxPreflight, ExecutedCommandOutcomeSyntaxCheckFallback,
+	case ExecutedCommandOutcomeSyntaxPreflight, ExecutedCommandOutcomeSyntaxCheckFallback:
+		if cmd.SourceCheckExecution != nil && !sourceCheckCommandExecutionCompleted(cmd) {
+			return false
+		}
+		// A nil legacy receipt retains negative diagnostics, not proof of
+		// execution. An explicit unstarted/incomplete receipt is unavailable.
+		return cmd.ExitCode != 0
+	case "", ExecutedCommandOutcomeExecuted,
 		ExecutedCommandOutcomeSuiteContinued, ExecutedCommandOutcomeSuiteSkipped:
 		return cmd.ExitCode != 0
 	case ExecutedCommandOutcomeSyntheticNoTests, ExecutedCommandOutcomeZeroTests:

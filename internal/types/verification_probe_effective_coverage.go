@@ -10,7 +10,8 @@ import (
 // even a valid receipt grants execution, never behavior. The aggregate-only
 // Make adapter likewise cannot grant target execution from a stored label;
 // an independently attached current receipt may still establish it. Native
-// typed runners keep their existing authority. Stored reports are not migrated.
+// typed runners keep their existing authority. Source-check-owned claims require
+// an exact successful source execution receipt. Stored reports are not migrated.
 func EffectiveChangedPathVerificationCoverage(plan *ChangePlan, report *ChangeReport) []ChangedPathVerificationCoverage {
 	if report == nil {
 		return nil
@@ -20,6 +21,7 @@ func EffectiveChangedPathVerificationCoverage(plan *ChangePlan, report *ChangeRe
 	for i := range out {
 		row := &out[i]
 		row.LanguageFamilies = append([]VerificationLanguageFamily(nil), row.LanguageFamilies...)
+		*row = effectiveSourceCheckCoverage(plan, report, *row)
 		if row.Status == ChangedPathVerificationCovered &&
 			ProjectRunnerChangedPathCapability(row.Runner) == VerificationCapabilityUnknown &&
 			(row.Capability == VerificationCapabilityTargetBehavior || row.Capability == VerificationCapabilityTargetExecution || row.Capability == VerificationCapabilityUnknown || row.Capability == "") {
@@ -100,6 +102,8 @@ func EffectiveChangedPathVerificationCoverage(plan *ChangePlan, report *ChangeRe
 // assertion receipts. Exact native project-test and source-text witnesses are
 // deliberately outside this lane. Mixed legacy records retain only refs also
 // backed by an explicitly declared passing non-Python probe in this plan.
+// Source-compile claims independently require a successful exact-path receipt;
+// that local observation may survive a failed or unavailable aggregate report.
 func EffectiveVerificationConfidence(plan *ChangePlan, report *ChangeReport) []VerificationConfidenceRecord {
 	if report == nil {
 		return nil
@@ -108,6 +112,7 @@ func EffectiveVerificationConfidence(plan *ChangePlan, report *ChangeReport) []V
 	for i := range out {
 		out[i].ContractRefs = append([]string(nil), out[i].ContractRefs...)
 		out[i].ChangedSymbolRefs = append([]string(nil), out[i].ChangedSymbolRefs...)
+		out[i] = effectiveSourceCheckConfidence(plan, report, out[i])
 	}
 	python := pythonReportProbes(plan, report)
 	if len(python) == 0 {

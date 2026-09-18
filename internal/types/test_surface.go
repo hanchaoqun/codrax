@@ -107,6 +107,11 @@ type ExecutedCommand struct {
 	// for probes and must never substitute for this identity.
 	ProbeExecution *VerificationProbeExecutionReceipt `json:"probe_execution,omitempty"`
 
+	// SourceCheckExecution is the source-check executor's receipt, separate
+	// from synthetic aggregate verdicts. Missing/legacy receipts cannot prove
+	// that any source path was checked. It is not part of planner input.
+	SourceCheckExecution *SourceCheckExecutionReceipt `json:"source_check_execution,omitempty"`
+
 	// CoveredPaths names the repo-relative changed source paths this
 	// successful command authoritatively exercised. Ordinary project runners
 	// derive it from the runner's typed language family plus WorkingDir. A

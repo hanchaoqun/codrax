@@ -233,7 +233,7 @@ func changedPathCoverageFromCommands(
 			caliber = types.ChangedPathVerificationProjectRunner
 			capability = types.ProjectRunnerChangedPathCapability(cmd.Runner)
 		case types.ExecutedCommandOutcomeSyntaxCheckFallback, types.ExecutedCommandOutcomeSyntaxPreflight:
-			if cmd.ExitCode != 0 {
+			if !types.SourceCheckCommandSucceeded(cmd) {
 				continue
 			}
 			caliber = types.ChangedPathVerificationSourceCheck
@@ -581,13 +581,6 @@ func changedPathVerificationFailureSummary(uncovered []string) string {
 		strings.Join(shown, ", "),
 		suffix,
 	)
-}
-
-func syntaxCheckReportExitCode(report *types.ChangeReport) int {
-	if report != nil && report.Passed {
-		return 0
-	}
-	return 1
 }
 
 // finishedReportSummary rewrites the base wording of an exit whose report

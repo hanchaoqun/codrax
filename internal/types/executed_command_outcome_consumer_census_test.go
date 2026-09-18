@@ -118,9 +118,6 @@ var registeredOutcomeSwitches = []outcomeSwitchRegistration{
 	{dir: "internal/hitraceconv", file: "profiler_container_diagnostics.go", fn: "observeAcceptedContext", domain: outcomeDomainOther},
 	{dir: "internal/hitraceconv", file: "profiler_container_diagnostics.go", fn: "materialize", domain: outcomeDomainOther},
 	{dir: "internal/hitraceconv", file: "profiler_container_diagnostics.go", fn: "profilerPluginBucketSkippedSummary", domain: outcomeDomainOther},
-	// Proof-ledger stable item IDs embed cmd.Outcome; the target lookup is
-	// an Outcome-tainted map read, not an outcome decision.
-	{dir: "internal/types", file: "verification_proof_profile.go", fn: "resolveSuccessfulRunnerMissingEscalations", domain: outcomeDomainOther},
 	// Behavior-contract expected-outcome strings (range local named outcome).
 	{dir: "internal/types", file: "write_behavior_contract.go", fn: "normalizeWriteBehaviorContractsReserving", domain: outcomeDomainOther},
 }

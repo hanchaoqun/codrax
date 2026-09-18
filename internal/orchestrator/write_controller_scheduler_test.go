@@ -7303,6 +7303,18 @@ func TestProofFollowupWouldRepeatStableStaticVerificationRequiresClosedTypedShap
 	}}
 	jsBatch := *batch
 	jsBatch.ExpectedPaths = []string{"src/widget.ts"}
+	if proofFollowupWouldRepeatStableStaticVerification(plan, &jsReport, &jsBatch, func(string) bool { return false }) {
+		t.Fatal("a legacy syntax label without an execution receipt cannot suppress verification")
+	}
+	jsReport.ChangedPathCoverage[0].Caliber = types.ChangedPathVerificationSourceCheck
+	jsReport.ChangedPathCoverage[0].Runner = "node"
+	jsReport.ChangedPathCoverage[0].Source = "source_fixture"
+	jsReport.ExecutedCommands = append(append([]types.ExecutedCommand(nil), report.ExecutedCommands...), types.ExecutedCommand{
+		Runner: "node", Source: "source_fixture", Outcome: types.ExecutedCommandOutcomeSyntaxPreflight,
+		CoveredPaths: []string{"src/widget.ts"},
+		SourceCheckExecution: &types.SourceCheckExecutionReceipt{Version: types.SourceCheckExecutionReceiptVersion,
+			Started: true, Completed: true, ExitCodeKnown: true, CheckedPaths: []string{"src/widget.ts"}},
+	})
 	if proofFollowupWouldRepeatStableStaticVerification(plan, &jsReport, &jsBatch, func(language string) bool { return language == "javascript" }) {
 		t.Fatal("an available direct runtime must retain the bounded probe-authoring route")
 	}

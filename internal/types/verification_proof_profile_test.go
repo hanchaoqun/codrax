@@ -1067,6 +1067,45 @@ func TestBuildVerificationProofLedgerResolvesExactRunnerMissingEscalation(t *tes
 		!verificationProofLedgerHasCapability(differentTarget, "executed_command", VerificationProofLedgerItemUnavailable, string(FailureKindRunnerMissing)) {
 		t.Fatalf("different-suite pass laundered unavailable runner candidate: %+v", differentTarget)
 	}
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*ExecutedCommand)
+	}{
+		{name: "other_working_directory", mutate: func(cmd *ExecutedCommand) { cmd.WorkingDir = "other-package" }},
+		{name: "other_runner", mutate: func(cmd *ExecutedCommand) { cmd.Runner = "other-runner" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := newReport("tests/test_tokenizer.py")
+			// Same source/suite/outcome/command must still produce two distinct
+			// unavailable targets. The passing fallback can resolve only one.
+			other := report.ExecutedCommands[0]
+			tc.mutate(&other)
+			report.ExecutedCommands = append(report.ExecutedCommands, other)
+			ledger := BuildVerificationProofLedger(nil, report, nil)
+			resolved, unresolved := 0, 0
+			for _, item := range ledger.Capabilities {
+				if item.Kind != "executed_command" || item.Source != "impact_test_surface" {
+					continue
+				}
+				switch item.Status {
+				case VerificationProofLedgerItemAdvisory:
+					if item.ReasonCode != "superseded_by_exact_runner_missing_escalation" || item.EvidenceRef != verificationProofCommandIdentity(report.ExecutedCommands[0]) {
+						t.Fatalf("wrong unavailable target resolved: %+v", item)
+					}
+					resolved++
+				case VerificationProofLedgerItemUnavailable:
+					if item.ReasonCode != string(FailureKindRunnerMissing) || item.EvidenceRef != verificationProofCommandIdentity(other) {
+						t.Fatalf("exact replacement did not resolve its target: %+v", item)
+					}
+					unresolved++
+				}
+			}
+			if resolved != 1 || unresolved != 1 || ledger.CapabilityUnavailableCount != 1 {
+				t.Fatalf("target identities lost or cross-resolved: resolved=%d unresolved=%d ledger=%+v", resolved, unresolved, ledger)
+			}
+		})
+	}
 }
 
 func verificationProofHasReason(profile VerificationProofProfile, code string) bool {

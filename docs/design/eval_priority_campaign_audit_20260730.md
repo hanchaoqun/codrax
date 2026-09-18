@@ -1,6 +1,8 @@
 # Eval 多维优先级与泛化审计战役（2026-07-30）
 
-## 最新进展导航（2026-09-16）
+## 最新进展导航（2026-09-17）
+
+本轮先收住B1716：缺工具不再铸语法证明/路径覆盖，真实执行收据与精确范围贯通双入口及旧报告有效视图；跨包命令身份与缺工具升级结果同源核对。最终全仓85包通过，唯一types旧census注册失败在该包修正后完整复跑通过70.223s（非“全仓命令exit0”）；构建、真实Node定向及此前count3/race3通过，详见§123.1849。用户新排期为当前修改提交推送后，先全面对照本地HarmonyOS_PerfMcpServer工具与skills；r1088尚未运行。
 
 续修 §123.1847 B1715 已a4aab7344推送，取消证明与进程收尾公共红绿/count3/race3/fork-window count20、冻结全仓86包通过，不承诺不可观察的任意后代全清。§123.1850 r1087严格两路各一次完成：Python计划/Trace均机器PASS，人审均partial；计划一行补丁正但模型observed合同写反，Trace主因/背景边界及投影/侧车保留；实测19.5ms被背景排序上限7ms替代并误称实测等待，为新系统gap。§123.1851 B1717已修此共享发布口，公共红绿、全部新旧边界count3/race3、末版冻结全仓86包通过；保原异值镜像旧针及真实同值双查询单席/证据完整新针，不改根因资格或原r1087答案，修后live待下批。§123.1849 B1716缺工具假语法覆盖待修；§123.1848 B1561仅分期设计，未冒称实现。
 
@@ -57956,6 +57958,20 @@ Darwin目标Start→同组guardian→唯一目标Wait，guardian未reap保留PGI
 本轮收尾只读复核a4aab7344：切点为`runSyntaxCheckFallback`/preflight返回通道→`run_tests.go`933–949及997–1011两处命令/路径投影。不能只把receipt塞进子report.ExecutedCommands：mergeChangeReports未累计该字段，finishReport:424又会以局部executedCmds覆写。Kotlin真实非零退出但无可解析BuildErrors仍continue，Java/Swift也存在失败仅warning形；必须区分真实执行完成/exit与诊断文本能否被解析，不靠“没解析到错误”授语法证明。混合语种保此前独立成功子域；这只是下一片实施切点，不算B1716已修。
 
 另两项范围针：新receipt不改成普通`Outcome=executed`，防coverage按目录/语言再次扩权；tsc有tsconfig时未显式传请求文件，exit0不能自动覆盖所有changed paths，须证明真实编译输入范围。验收需覆盖fallback/preflight、双向JS/TS和Java/Kotlin可用性、无可解析诊断的真实非零退出、前成功后取消，以及proof/profile只保真实成功子域。
+
+2026-09-17续批：fresh fetch确认main=`d17dc7d4b`且远程0/0，开始B1716施工。采用每条实际检查命令的版本化执行收据，缺工具/准备失败不合成exit0，逐精确输入路径授语法观察；调用点共享投影，持久化旧报告的无收据语法权限只读撤回。项目编译无真实输入名册时保留执行事实但不按整个计划扩覆盖；此前独立成功路径不因兄弟失败/取消而丢失，整体failed/unavailable不变。无新增模型JSON必填字段、无warning/模型prose词门，Trace/图表/600-300-600s流式策略不改。验收完成前仍为`in-progress`。
+
+下一批r1088预注册（尚未运行）：从244例（216read/25apply/3plan）按风险、异构覆盖、近期轮换与成本，选`qf_type_relation_loop_controller`(read)+`github_issue_dayjs_duration_nan_symptom`(apply)，PARALLEL2/CAP5/TIMEOUT1200、原预算各一次。图例核关系方向/来源与修补保留；JS写例区分真实源码检查、静态Make检查、实际行为断言和正式证明，缺工具不得新注入Node冒充原运行环境。
+
+2026-09-17收口细节：两入口不再从聚合Passed推导exit0或计划全路径；真实子进程收据携带启动/完成/退出码/精确输入，JS、Ruby、Python、Kotlin及无tsconfig的显式tsc输入才可授对应语法范围。Go/Java/Swift项目构建、tsconfig构建没有输入名册时只保留执行事实，不升为行为证明。缺工具、准备失败、中断不铸成功；真实非零退出而没有可解析编译诊断时明确不可用。Swift历史非法`build --skip-build`实机exit64已复现，改成真实`build`，不扩大路径权限。成功兄弟检查可保留自己的语法观察，不洗白整批失败/取消；缺npm的早退报告亦绑定真实PlanID。旧持久化报告仅在有效视图撤回无凭据语法权限，不重写原报告。
+
+独立公共红绿覆盖真实Node、混合JS/TS及Java/Kotlin双向缺工具、配置驱动输入边界、无可解析诊断非零退出、取消后不启动后续检查。Java/Kotlin/TS矩阵中的协议替身只验证进程/收据合同，不冒称真实编译器语言验收。跨Go包相同命令文本曾在证明账本合并，已将运行器/框架/真实目录纳入共用命令身份；全仓回归随后发现“缺工具升级成功”读端仍手抄旧身份，按同源身份修复而不放宽精确目标匹配。
+
+中间证据保留：`.codrax/tmp/20260917-b1716-public-red-node.log`公共先红；`matrix-2.log`新矩阵通过；`final-count3-recheck.log`tool43.694s/types0.621s通过，`final-race3.log`tool74.281s/types3.225s通过。前一次count3有Python准备测试未等到启动标记，原失败保留，未放宽超时；不把复跑通过当作已证明环境波动。两次中间全仓日志`full-1.log`/`full-final.log`均有失败，不充作全绿证据；后者同时包含编译时尚未更新的累计验证fixture与上述升级身份回归。旧正例增加真实收据/正确独立静态检查来源，并新增无凭据负例，未删原语义边界。
+
+用户本轮调整顺序：先闭环当前未提交B1716，再审计本地HarmonyOS_PerfMcpServer工具/skills并分批实现；r1088维持预注册未运行，不在参考仓工作前自动抢跑。
+
+最终验证：`20260917-b1716-closure-full.log`其余85测试包通过（13无测试包），唯一types失败是编译时旧census仍登记已不直接读取Outcome的升级函数；只删除该条陈腐注册，普查规则不改。修正后的types全包`types-final-complete-green.log`exit0/70.223s，含census/升级身份/全部B1716/B1561的count3为14.012s。全仓命令原exit1保留，不伪报单条全绿命令；组合收据覆盖全部86包。`closure-inputs-check.log`核实唯一晚于启动变更为此测试注册文件，生产文件全部一致。最终真实Node定向`closure-targeted.log`tool12.399s/types0.765s通过；`closure-build.log`make通过；无在线eval生产正证。状态：`B1716=implemented/tests-covered-86/build-pass/pending-live`，没有把语法观察提升为行为验证、没有新增模型JSON要求或原文词门，Trace/图/600-300-600s保持。
 
 ### §123.1850 r1087：Python 精准计划与 Trace 链外等待隔离（2026-09-16，审计完成）
 

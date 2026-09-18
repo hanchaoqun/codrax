@@ -771,7 +771,9 @@ func (ledger *VerificationProofLedger) resolveSuccessfulRunnerMissingEscalations
 			passedTargets[target] = true
 		}
 		if unavailable == string(FailureKindRunnerMissing) {
-			itemID := verificationProofLedgerStableID("command", primary.PlanID, cmd.Source, cmd.Suite, cmd.Outcome, cmd.Command)
+			// Resolve the exact item emitted by addVerificationReportLedgerItems;
+			// never duplicate its identity recipe at this read-side join.
+			itemID := verificationProofCommandLedgerID(primary.PlanID, cmd)
 			unavailableTargetsByItem[itemID] = target
 		}
 	}
@@ -869,7 +871,11 @@ func verificationProofCommandIdentity(cmd ExecutedCommand) string {
 }
 
 func verificationProofCommandLedgerID(planID string, cmd ExecutedCommand) string {
-	id := verificationProofLedgerStableID("command", planID, cmd.Source, cmd.Suite, cmd.Outcome, cmd.Command)
+	// Normalization deduplicates by this ID, not EvidenceRef. Keep the typed
+	// executor scope here too so identical command text in different packages
+	// or runners cannot merge outcomes. Labels retain empty field positions.
+	id := verificationProofLedgerStableID("command", planID, cmd.Source, cmd.Suite, cmd.Outcome, cmd.Command,
+		"runner:"+cmd.Runner, "framework:"+cmd.Framework, "working_dir:"+cmd.WorkingDir)
 	if verificationProofCommandUsesProbeIdentity(cmd) && cmd.ProbeExecution != nil {
 		return verificationProofLedgerStableID(id, cmd.ProbeExecution.ExecutionID)
 	}
@@ -920,6 +926,9 @@ func verificationProofCommandUnavailableReasonCode(cmd ExecutedCommand, class Ve
 	}
 	outcome := strings.TrimSpace(cmd.Outcome)
 	if class == VerificationProofRunnerUnavailable {
+		if outcome == ExecutedCommandOutcomeSyntaxCheckFallback || outcome == ExecutedCommandOutcomeSyntaxPreflight {
+			return string(FailureKindVerificationIncomplete)
+		}
 		return firstNonEmptyVerificationProof(outcome, string(FailureKindParserError))
 	}
 	// Total over the closed ExecutedCommandOutcome set (consumer census).
@@ -1967,8 +1976,11 @@ func verificationProofCommandClass(cmd ExecutedCommand) VerificationProofRunnerE
 	source := strings.TrimSpace(cmd.Source)
 	suite := strings.TrimSpace(cmd.Suite)
 	outcome := strings.TrimSpace(cmd.Outcome)
-	if outcome == ExecutedCommandOutcomeSyntaxCheckFallback {
-		return VerificationProofRunnerSyntaxFallback
+	if outcome == ExecutedCommandOutcomeSyntaxCheckFallback || outcome == ExecutedCommandOutcomeSyntaxPreflight {
+		if sourceCheckCommandExecutionCompleted(cmd) {
+			return VerificationProofRunnerSyntaxFallback
+		}
+		return VerificationProofRunnerUnavailable
 	}
 	if strings.Contains(source, "verification_probe") ||
 		strings.HasPrefix(suite, "verification_probe/") {

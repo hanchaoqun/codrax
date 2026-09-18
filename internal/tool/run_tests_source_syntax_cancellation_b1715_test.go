@@ -111,12 +111,21 @@ func TestB1715SourceSyntaxFallbackCancellationPublic(t *testing.T) {
 				}
 				for _, confidence := range report.VerificationConfidence {
 					if confidence.Category == "source_compile" && confidence.Status == "satisfied" {
-						t.Errorf("interrupted source fallback minted compile proof: %+v", confidence)
+						if tc.priorFail || len(confidence.ChangedSymbolRefs) != 1 || confidence.ChangedSymbolRefs[0] != "path:a-completed.js" {
+							t.Errorf("interrupted source fallback minted compile proof outside prior completed file: %+v", confidence)
+						}
 					}
+				}
+				if got := verificationConfidenceContains(report.VerificationConfidence, "source_compile", "satisfied", "source_compile_ok"); got == tc.priorFail {
+					t.Errorf("earlier independently completed parser observation not preserved: %+v", report.VerificationConfidence)
 				}
 				for _, coverage := range report.ChangedPathCoverage {
 					if coverage.Caliber == types.ChangedPathVerificationSourceCheck {
-						t.Errorf("interrupted source fallback minted path coverage: %+v", coverage)
+						if tc.priorFail || coverage.Path != "a-completed.js" || coverage.Capability != types.VerificationCapabilitySyntaxOnly {
+							t.Errorf("interrupted source fallback minted coverage outside prior completed file: %+v", coverage)
+						}
+					} else if coverage.Path == "a-completed.js" && !tc.priorFail {
+						t.Errorf("earlier independently completed parser path was erased: %+v", coverage)
 					}
 				}
 			} else {
@@ -222,7 +231,9 @@ func TestB1715SourceCompileConfidenceRequiresCompletedCleanCommand(t *testing.T)
 		{"interrupted_or_failed_command", 1, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			report := &types.ChangeReport{FailureKind: types.FailureKindVerificationIncomplete, FailureReasonCode: "verification_canceled", ExecutedCommands: []types.ExecutedCommand{{Runner: "node", Outcome: types.ExecutedCommandOutcomeSyntaxCheckFallback, ExitCode: tc.exit}}}
+			report := &types.ChangeReport{FailureKind: types.FailureKindVerificationIncomplete, FailureReasonCode: "verification_canceled", ExecutedCommands: []types.ExecutedCommand{{Runner: "node", Outcome: types.ExecutedCommandOutcomeSyntaxCheckFallback, ExitCode: tc.exit,
+				CoveredPaths: []string{"completed.js"}, SourceCheckExecution: &types.SourceCheckExecutionReceipt{Version: types.SourceCheckExecutionReceiptVersion, Started: true, Completed: true, ExitCodeKnown: true, ExitCode: tc.exit, CheckedPaths: []string{"completed.js"}},
+			}}}
 			got := verificationConfidenceContains(verificationConfidenceRecordsFromReport(nil, report), "source_compile", "satisfied", "source_compile_ok")
 			if got != tc.want {
 				t.Errorf("source compile confidence=%v, want %v for exit %d", got, tc.want, tc.exit)

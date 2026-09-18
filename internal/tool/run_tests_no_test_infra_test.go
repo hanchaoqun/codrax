@@ -4519,9 +4519,11 @@ func TestVerificationConfidenceRecordsFromUnavailableAndSyntaxFallback(t *testin
 			Passed:      true,
 		}},
 		ExecutedCommands: []types.ExecutedCommand{{
-			Runner:  "python",
-			Source:  "auto_detect",
-			Outcome: "syntax_check_fallback",
+			Runner:               "python",
+			Source:               "auto_detect",
+			Outcome:              "syntax_check_fallback",
+			CoveredPaths:         []string{"source.py"},
+			SourceCheckExecution: &types.SourceCheckExecutionReceipt{Version: types.SourceCheckExecutionReceiptVersion, Started: true, Completed: true, ExitCodeKnown: true, CheckedPaths: []string{"source.py"}},
 		}},
 	}
 	records = verificationConfidenceRecordsFromReport(nil, syntax)
