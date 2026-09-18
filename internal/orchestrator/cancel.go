@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 )
@@ -337,6 +338,14 @@ func (o *Orchestrator) endRunCancellation(token *CancelToken) {
 	r.mu.Lock()
 	o.cancelTokenPtr.CompareAndSwap(token, nil)
 	r.mu.Unlock()
+}
+
+// writeDeadlineCancel captures the token and deadline value, not a reusable
+// orchestrator. A timer already admitted when Stop runs may finish late.
+func (t *CancelToken) writeDeadlineCancel(seconds int) func() {
+	return func() {
+		t.CancelWithSource(fmt.Sprintf("write mode wall-time exceeded (%ds)", seconds), CancelSourceWriteDeadline)
+	}
 }
 
 // IsCanceled reports whether a Run is in flight AND has been canceled.

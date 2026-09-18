@@ -329,3 +329,7 @@ h2已保11段D/36.757ms与12条原因记录/Σ39.157ms两种口径，但这不�
 本片初版编译错误（info方法参数）已纠正，未当行为RED。定向count3通过repl5.363s/orchestrator1.232s；含TTY相邻保护的race×3通过44.626s/2.252s。首次两包整包repl50.904s通过，orchestrator被热文件行数门拦下（8246>8242）；未抬门限或删注释，整组取消检查helper原样迁入已有`cancel.go`，原文件收紧为8203行。同批完整验收收据待追加。17.4的Prepare事务、TTY取消、附件失败后的待确认问题恢复、真实RMQ双入口和无LLM/用量变化仍开放；父任务交付数仍11/79。
 
 合入前冷审再补“提前取消必须消费本轮临时展示/阶段字段”公开反例：旧位置在重置前返回，会把取消请求的展示指令遗留给下一轮，RED为`/tmp/hmc17-cancel-metadata-red-20260918.log`（1.212s）。现把提前退出移到已有逐轮字段重置之后，仍早于附件准入/模型/工作树操作；普通非预留Run的context完成语义保持原样。末版定向race×3通过repl6.370s/orchestrator3.473s，orchestrator完整包18.789s通过（`/tmp/hmc17-script-input-cold-review-{race,package}-20260918.log`）。全仓命令启动于这条冷审修正之前，其收据与增量验证分列，不能把它冒称最后每一行的冻结回放。
+
+输入所有权主体提交`f48e8d119`。上述全仓命令最终exit0：87个测试包（71个缓存）、13个无测试包，tool379.813s、agent70.652s、repl51.089s、orchestrator16.462s、tracequery96.957s、hitraceconv117.617s；日志`/tmp/hmc17-script-input-full-final-20260918.log`。本收据不包含后续附件教学与下述定时器增量，分别验收。
+
+同类生命周期冷审另发现写模式墙钟timer闭包持有可复用orchestrator：`Stop`无法撤回已经获准执行的回调，迟到回调可能取消下一次Run。改为捕获本轮token和当轮秒数，保持typed写期限来源，时长与读模式不变；不是修改600/300/600秒模型网络等待。确定性模拟旧回调在新Run开始后执行，验证只取消旧token并保600秒原值，另pin真实timer绑定；未伪称有先红收据。完整orchestrator通过18.704s，取消/写期限相邻race×3通过2.732s（`/tmp/hmc17-deadline-binding-{package,race}-20260918.log`）。热文件门随净减两行收紧至8201，不增加余量。

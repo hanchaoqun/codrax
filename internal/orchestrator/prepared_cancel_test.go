@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"errors"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -88,5 +90,31 @@ func TestPreparedRunCancellationDoesNotChangeUnreservedRun(t *testing.T) {
 	o.endRunCancellation(a)
 	if o.cancelTokenLoad() != b {
 		t.Fatal("stale cleanup cleared active token")
+	}
+}
+
+func TestPreparedRunCancellationLateDeadlineCannotCancelNextRun(t *testing.T) {
+	o := &Orchestrator{}
+	a := o.beginRunCancellation()
+	callback := a.writeDeadlineCancel(600)
+	o.endRunCancellation(a)
+	b := o.beginRunCancellation()
+	defer o.endRunCancellation(b)
+	// Deterministically model a callback admitted before timer.Stop which
+	// only finishes after the next Run starts; no scheduler sleeps required.
+	callback()
+	if b.IsCanceled() || b.Context().Err() != nil {
+		t.Fatal("old deadline canceled the next Run")
+	}
+	if !a.IsCanceled() || a.Source() != CancelSourceWriteDeadline || a.Reason() != "write mode wall-time exceeded (600s)" {
+		t.Fatal("deadline lost its token, value or typed source")
+	}
+	// Pin the real timer's binding, not only the isolated callback helper.
+	source, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), "time.AfterFunc(deadline, cancelToken.writeDeadlineCancel(o.writeMaxSeconds))") {
+		t.Fatal("Run timer no longer binds its own token")
 	}
 }

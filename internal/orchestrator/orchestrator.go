@@ -1566,9 +1566,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// best-effort: a fired timer is a no-op.
 	if o.writeMaxSeconds > 0 && o.mode != types.ModeRead && o.mode != "" {
 		deadline := time.Duration(o.writeMaxSeconds) * time.Second
-		timer := time.AfterFunc(deadline, func() {
-			o.cancelWithSource(fmt.Sprintf("write mode wall-time exceeded (%ds)", o.writeMaxSeconds), CancelSourceWriteDeadline)
-		})
+		timer := time.AfterFunc(deadline, cancelToken.writeDeadlineCancel(o.writeMaxSeconds))
 		defer timer.Stop()
 	}
 
