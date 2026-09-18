@@ -56,7 +56,7 @@ func prepare(ctx context.Context, opts Options, convert converter) (*attachment.
 	return pending.Commit(ctx)
 }
 
-// retain, when non-nil, receives ownership only after all preparation and
+// retain must be non-nil. It receives ownership only after all preparation and
 // source-close checks succeed. The caller must then commit or discard it.
 func prepareWithOwnership(ctx context.Context, opts Options, convert converter, retain func(*managedDirectory)) (material *attachment.TraceMaterial, err error) {
 	if ctx == nil {

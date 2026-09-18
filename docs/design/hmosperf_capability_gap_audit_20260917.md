@@ -342,6 +342,8 @@ h2已保11段D/36.757ms与12条原因记录/Σ39.157ms两种口径，但这不�
 
 本片关闭E2-1的已确认教学冲突，不等于已实测模型不再误调工具；h2/h3原机器与人工FAIL保持。E2-2未标记D桶名称、E2-3 IO完成/唤醒/总体展示及E2-4术语仍开放，01.3/16.4父项不整体销账。没有新原文扫描、输出替换、硬门、重试或系统根因代写；既有链上根因、明确时间窗及自动补齐不变。
 
+E2-2后续只读核实（未施工）：`query.go`的`offCPUDStateVerdictForQuery`仅在`io=true`时进入iowait桶，其他分支（含未标记/歧义）进入dstate桶；`markDStateCoverage`另记每段显式标记，`DStateAllNonIOProvenGroup`才检查整组一致性。通用`DStateTop`摘要和五态词源没有这个前提。后续应统一“D状态（不含调度器标记的IO等待）”这类分区词，不改精确已证席的选举/收益，不把缺标记写成IO不存在；需同时覆盖工具摘要、typed事实、提示定义及答案对账四面，不能只改h2答案或全仓替换non-IO字符串。
+
 §16主体`f48e8d119`、写期限绑定`bbd4de906`及本节`5db77d8f7`均已推送main，远端复核0/0；构建通过（`/tmp/hmc-teaching-input-build-20260918.log`）。这是已交付的三个小批，不代表17.4全部完工。
 
 ## 18. 完整材料的提交/撤销交接（HMC-17.1生命周期增强 / 17.4第二片）
@@ -355,3 +357,7 @@ h2已保11段D/36.757ms与12条原因记录/Σ39.157ms两种口径，但这不�
 新增公共Begin/Commit真RMQ验收：提交后40个完整事件和尾部pid139可查询、原件字节不变；准备后两种ctx取消、源/派生改写、普通文本撤销、重复终态、并发提交/撤销和目录替换/ABA负控。首次新增能力回归通过，不冒称先红。共享服务整包race×3通过2.634s；公共Prepare切换后四包定向race×3通过traceinput2.907s/cmd6.105s/repl2.856s/tool4.987s，覆盖CLI真实二进制、SIGINT回滚、CLI种子REPL与显式窗IO/业务查询（`/tmp/hmc17-preparation-public-race-20260918.log`）。cmd/repl/traceinput整包分别11.924s/53.126s/0.979s通过（`/tmp/hmc17-preparation-packages-20260918.log`）；末版全仓收据待追加。
 
 冷审收去测试转换器注入的旧即时释放分支：公开Begin、公开Prepare和注入converter的回归全部经过同一begin→提交/撤销实现，不维护第二套成功清理路径。增量四包race×3通过3.034s/7.200s/3.070s/5.253s，含真实CLI失败/取消发布负控；traceinput/cmd完整包0.951s/11.810s通过（`/tmp/hmc17-preparation-unified-{race,packages}-20260918.log`）。构建通过（`unified-build`同前缀）。全仓命令启动于这条内部路径同源化之前，范围与增量收据分列，不冒称一个冻结命令涵盖后来的源代码。
+
+完整全仓命令`go test -p 2 ./...`最终exit0，无run/skip：87个测试包（64个缓存）、13个无测试包；agent68.643s、tool363.308s、hitraceconv110.597s、orchestrator16.184s、tracequery97.132s、tracediag5.684s（`/tmp/hmc17-preparation-final-full-20260918.log`）。后段go测试驱动短时尚未返回，尝试只读采样时进程已自然退出；未终止测试，不把过程等待算成失败或网络超时。增量同源化以上节四包race及整包收据补足，未运行新live eval。
+
+本片代码与任务/架构说明以`7e13b0fdd`提交并推送main。17.4仍为部分实施：共享事务已经可供REPL接线，但本地非LLM取消目标、TTY命令/粘贴区分、失败后排队问题确认、真二进制双别名公共Loop验收均未销账。79个任务编号保持稳定，11项已交付/68项开放，未因本片基础增强虚增完成数。
