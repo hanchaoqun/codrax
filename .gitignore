@@ -27,6 +27,8 @@
 # question verbatim — committing them would also re-introduce the
 # keyword-search contamination that ExcludeDirs already guards against.
 /eval/results/
+# Named results roots used by bounded selected sweeps; keep summaries/audits.
+/eval/results_*/
 
 # Sweep artifacts produced by eval/parallel_all.sh — regenerated on
 # every sweep, never useful to commit.

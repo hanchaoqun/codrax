@@ -613,7 +613,8 @@ type Orchestrator struct {
 	// pipeline polls IsCanceled() at well-known checkpoints
 	// (dispatchStage front, agent loop top, before tool exec) and
 	// unwinds with a CanceledError.
-	cancelTokenPtr atomic.Pointer[CancelToken] // per-run token; see cancel.go (REGFIX-A #2)
+	cancelTokenPtr       atomic.Pointer[CancelToken] // per-run token; see cancel.go (REGFIX-A #2)
+	preparedCancellation runCancellationReservation
 }
 
 // New creates a new Orchestrator.
@@ -842,49 +843,6 @@ func (o *Orchestrator) SetMultiRepoSnapshotProvider(provider func() ([]types.Sub
 // once at orchestrator construction with the clamped yaml value.
 func (o *Orchestrator) SetMultiRepoInactivePreviewCount(n int) {
 	o.multiRepoInactivePreviewCount = n
-}
-
-func (o *Orchestrator) cancelWithSource(reason string, source CancelSource) {
-	tok := o.cancelTokenLoad()
-	if tok == nil {
-		return
-	}
-	tok.CancelWithSource(reason, source)
-}
-
-// checkCanceled is the internal hot-path helper. Returns a populated
-// CanceledError when the current Run has been canceled, else nil.
-// Used by dispatchStage / runTaskGraph / agent loop checkpoints.
-func (o *Orchestrator) checkCanceled(stage string, iter int) error {
-	tok := o.cancelTokenLoad()
-	if tok == nil || !tok.IsCanceled() {
-		return nil
-	}
-	return &CanceledError{
-		Reason:  tok.Reason(),
-		AtStage: stage,
-		Iter:    iter,
-	}
-}
-
-// CancelChecker returns the cancel-probe callback wired into agent
-// Dependencies.CancelChecker. The agent loop polls it at iteration
-// boundaries and tool dispatches; a non-nil return unwinds the loop
-// with the same CanceledError shape dispatchStage emits, so the
-// REPL's "✗ canceled" rendering path is uniform regardless of which
-// checkpoint detected the cancel.
-//
-// Stage label is "agent_loop" because the agent layer doesn't know
-// which pipeline stage owns its dispatch — orchestrator-level
-// checkpoints (dispatchStage) carry the precise stage. The user-
-// facing message picks the most specific label observed.
-func (o *Orchestrator) CancelChecker() func() error {
-	if o == nil {
-		return nil
-	}
-	return func() error {
-		return o.checkCanceled("agent_loop", 0)
-	}
 }
 
 // SetAttachedLog stores a runtime log excerpt (panic, exception stack,
@@ -1566,8 +1524,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// the public Cancel() method to drive Ctrl+C / `/cancel`. Cleared
 	// in the defer below so idle Orchestrators (between Runs) cannot
 	// leak a stale "canceled" state into the next Run.
-	o.cancelTokenPtr.Store(NewCancelToken())
-	defer func() { o.cancelTokenPtr.Store(nil) }()
+	cancelToken := o.beginRunCancellation()
+	defer o.endRunCancellation(cancelToken)
 	// Defensive reset of cross-Run sticky slots. The Orchestrator
 	// instance is reused across Runs in the REPL, so any field
 	// that was set during a previous multi-phase Run must be
@@ -1589,6 +1547,9 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.presentationDiagramRequired = false
 	turnRouteHint := o.turnRouteHint
 	o.turnRouteHint = types.TurnRouteHint{}
+	if cancelToken.IsCanceled() {
+		return nil, &CanceledError{Reason: cancelToken.Reason()}
+	}
 	// Explicit attachment admission must happen before the live-preview defer,
 	// pipeline-start event, every conditional pre-stage, and analyzer dispatch.
 	// Natural-language paths are admitted later from typed analyzer policy;

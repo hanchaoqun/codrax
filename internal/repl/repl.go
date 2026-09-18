@@ -81,6 +81,10 @@ type runnerCanceller interface {
 	IsCanceled() bool
 }
 
+type runnerScopedCancellation interface {
+	PrepareRunCancellation() (cancel func(string), release func(), err error)
+}
+
 // attachedLogSetter is the optional capability the REPL probes on
 // its Runner to propagate a sticky /log attachment before dispatch.
 // Real orchestrators implement SetAttachedLog; test stubs that omit
@@ -606,8 +610,8 @@ type REPL struct {
 	headerPrinted       bool
 	modelListLine       string
 	modelSummaryLine    string
-	scanner             *bufio.Scanner // lazy-init for line-oriented mode
-	pasteFoldMinChars   int            // per-session paste-fold threshold (runes)
+	scriptInput         *scriptInputOwner // single lifetime reader in line-oriented mode
+	pasteFoldMinChars   int               // per-session paste-fold threshold (runes)
 	version             string
 	buildTime           string
 	language            string
@@ -6229,8 +6233,23 @@ func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.Bus
 	defer r.warnRootCauseOutputFailure()
 	r.installCancelSignalHandler()
 	canceller, _ := r.runner.(runnerCanceller)
-	listener := startCancelListenerForREPL(r.in, r.interactive(), canceller, r.warn)
-	defer listener.stop() // nil-safe
+	var scriptLease *scriptInputLease
+	if !r.interactive() && canceller != nil {
+		cancel := canceller.Cancel
+		if scoped, ok := r.runner.(runnerScopedCancellation); ok {
+			boundCancel, release, err := scoped.PrepareRunCancellation()
+			if err != nil {
+				return nil, err
+			}
+			defer release()
+			cancel = boundCancel
+		}
+		var err error
+		scriptLease, err = r.scriptedInputOwner().beginRuntime(cancel, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// TTY-2: while the Run is in flight the run-input window queues
 	// typed lines for post-Run replay (converging on the same
 	// pendingFollowUps path the non-TTY listener feeds), routes raw
@@ -6239,13 +6258,18 @@ func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.Bus
 	// borrow failure (non-tty stdin, MakeRaw failure) silently skips.
 	runWindow := r.armRunInputWindow(canceller)
 	defer r.drainRunInputWindow(runWindow)
-	// PIB-2 v1: lines the listener queued while the Run was in flight
-	// replay as follow-up turns — drained here so the Loop's next
-	// read sees them before touching stdin. Nil-safe (TTY runs have
-	// no listener and the queue stays empty).
+	// Revoke before reading the queue. No blocked read or late cancellation
+	// callback can consume input on behalf of this operation after the handoff.
 	defer func() {
-		for _, line := range listener.queuedLines() {
+		receipt := scriptLease.stopAndDrain()
+		for _, line := range receipt.lines {
 			r.pendingFollowUps = append(r.pendingFollowUps, pendingFollowUp{Text: line})
+		}
+		if len(receipt.lines) > 0 {
+			r.info(fmt.Sprintf("[repl] queued %d follow-up input line(s) during Run", len(receipt.lines)))
+		}
+		if receipt.dropped > 0 {
+			r.warn("[repl] follow-up queue full (%d lines / %d bytes): dropped %d input line(s); /cancel remained available\n", cancelListenerQueueCap, receipt.byteCap, receipt.dropped)
 		}
 	}()
 	r.runInFlight.Store(true)
@@ -6439,6 +6463,7 @@ func (r *REPL) buildTurnMemoryContext(label, line string, kind memory.Kind) stri
 }
 
 func (r *REPL) Loop() error {
+	defer func() { r.scriptInput.close() }()
 	r.banner()
 	memNudgeShown := false
 	for {
@@ -6514,6 +6539,9 @@ func (r *REPL) Loop() error {
 		line, display, err := r.readInputPair(tag + "❯❯")
 		if err != nil {
 			r.restoreTTYForExit()
+			if !errors.Is(err, io.EOF) {
+				return fmt.Errorf("read REPL input: %w", err)
+			}
 			fmt.Fprintln(r.out)
 			fmt.Fprintln(r.out, "  Goodbye!")
 			return nil
@@ -6936,28 +6964,8 @@ func (r *REPL) readInputInteractive(prompt string) (string, string, error) {
 	}
 }
 
-// scriptedScanner returns the single long-lived bufio.Scanner that
-// reads from r.in in scripted mode. Two callers share it:
-// readInputLines for normal lines and handle{Log,Paste}Cmd for the
-// multi-line capture loops. Creating a fresh Scanner inside the
-// capture helpers would conflict with readInputLines' prior read-
-// ahead buffering (the capture's Scan() would see EOF because the
-// outer scanner has already consumed bytes into its internal buffer).
-// Caller must check r.in != nil first.
-func (r *REPL) scriptedScanner() *bufio.Scanner {
-	if r.scanner == nil {
-		r.scanner = bufio.NewScanner(r.in)
-		// Lift the token cap from bufio's 64 KiB default so a single
-		// long pasted line (a minified JSON blob, a flattened stack
-		// trace) doesn't silently truncate — matches the paste/log
-		// capture ceiling enforced elsewhere.
-		r.scanner.Buffer(make([]byte, 64*1024), r.attachedLogMaxBytes+1)
-	}
-	return r.scanner
-}
-
-// captureScanner is the bufio.Scanner used by /log paste and /paste
-// for multi-line capture. In scripted mode it reuses r.scanner so
+// captureScanner is the line reader used by /log paste and /paste
+// for multi-line capture. In scripted mode it borrows the single input owner so
 // reads pick up where readInputLines left off (a second scanner would
 // miss any bytes the first has already buffered ahead). In
 // interactive mode the Bubble Tea session has already quit and
@@ -6965,7 +6973,7 @@ func (r *REPL) scriptedScanner() *bufio.Scanner {
 // else is reading from stdin during capture.
 func (r *REPL) captureScanner() (captureLineScanner, func()) {
 	if r.in != nil {
-		return r.scriptedScanner(), func() {}
+		return r.scriptedInputOwner().borrowLines()
 	}
 	// TTY-1: the interactive capture window borrows the shared cooked
 	// line reader from the stdin owner — a fresh bufio.Scanner here
@@ -6993,7 +7001,8 @@ func (r *REPL) captureScanner() (captureLineScanner, func()) {
 // the static r.prompt so confirmation callers that print their own
 // title and just need a basic input echo keep working unchanged.
 func (r *REPL) readInputLines(prompt string) (string, error) {
-	r.scriptedScanner()
+	scanner, release := r.scriptedInputOwner().borrowLines()
+	defer release()
 	if prompt == "" {
 		prompt = r.prompt
 	}
@@ -7001,8 +7010,8 @@ func (r *REPL) readInputLines(prompt string) (string, error) {
 		fmt.Fprint(r.out, prompt)
 	}
 	var parts []string
-	for r.scanner.Scan() {
-		line := r.scanner.Text()
+	for scanner.Scan() {
+		line := scanner.Text()
 		if strings.HasSuffix(line, "\\") {
 			parts = append(parts, strings.TrimSuffix(line, "\\"))
 			// Print continuation prompt.
@@ -7014,7 +7023,7 @@ func (r *REPL) readInputLines(prompt string) (string, error) {
 		parts = append(parts, line)
 		return strings.TrimSpace(strings.Join(parts, "\n")), nil
 	}
-	if err := r.scanner.Err(); err != nil {
+	if err := scanner.Err(); err != nil {
 		return "", err
 	}
 	return "", io.EOF

@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 )
 
@@ -244,6 +245,98 @@ func (o *Orchestrator) Cancel(reason string) {
 		return
 	}
 	tok.Cancel(reason)
+}
+
+func (o *Orchestrator) cancelWithSource(reason string, source CancelSource) {
+	tok := o.cancelTokenLoad()
+	if tok == nil {
+		return
+	}
+	tok.CancelWithSource(reason, source)
+}
+
+// checkCanceled is the internal hot-path helper. Returns a populated
+// CanceledError when the current Run has been canceled, else nil.
+// Used by dispatchStage / runTaskGraph / agent loop checkpoints.
+func (o *Orchestrator) checkCanceled(stage string, iter int) error {
+	tok := o.cancelTokenLoad()
+	if tok == nil || !tok.IsCanceled() {
+		return nil
+	}
+	return &CanceledError{
+		Reason:  tok.Reason(),
+		AtStage: stage,
+		Iter:    iter,
+	}
+}
+
+// CancelChecker returns the cancel-probe callback wired into agent
+// Dependencies.CancelChecker. The agent loop polls it at iteration
+// boundaries and tool dispatches; a non-nil return unwinds the loop
+// with the same CanceledError shape dispatchStage emits, so the
+// REPL's "✗ canceled" rendering path is uniform regardless of which
+// checkpoint detected the cancel.
+//
+// Stage label is "agent_loop" because the agent layer doesn't know
+// which pipeline stage owns its dispatch — orchestrator-level
+// checkpoints (dispatchStage) carry the precise stage. The user-
+// facing message picks the most specific label observed.
+func (o *Orchestrator) CancelChecker() func() error {
+	if o == nil {
+		return nil
+	}
+	return func() error {
+		return o.checkCanceled("agent_loop", 0)
+	}
+}
+
+type runCancellationReservation struct {
+	mu    sync.Mutex
+	token *CancelToken
+}
+
+// PrepareRunCancellation binds a callback to exactly the next Run. The caller
+// must serialize Prepare -> Run (or abandon) -> release on this orchestrator.
+// Unlike Cancel, the callback also works before Run enters and can never target
+// a later Run. This is used by prefetched scripted input, not as a new timeout.
+// release must run after Run/abandonment; it never clears another reservation.
+func (o *Orchestrator) PrepareRunCancellation() (func(string), func(), error) {
+	r := &o.preparedCancellation
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.token != nil || o.cancelTokenLoad() != nil {
+		return nil, nil, errors.New("run cancellation already reserved or active")
+	}
+	token := NewCancelToken()
+	r.token = token
+	return token.Cancel, func() {
+		r.mu.Lock()
+		if r.token == token {
+			r.token = nil
+		}
+		r.mu.Unlock()
+		token.cancel()
+	}, nil
+}
+
+func (o *Orchestrator) beginRunCancellation() *CancelToken {
+	r := &o.preparedCancellation
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	token := r.token
+	if token == nil {
+		token = NewCancelToken()
+	}
+	r.token = nil
+	o.cancelTokenPtr.Store(token)
+	return token
+}
+
+func (o *Orchestrator) endRunCancellation(token *CancelToken) {
+	r := &o.preparedCancellation
+	r.mu.Lock()
+	o.cancelTokenPtr.CompareAndSwap(token, nil)
+	r.mu.Unlock()
 }
 
 // IsCanceled reports whether a Run is in flight AND has been canceled.
