@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -48,6 +49,9 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger) string
 	if traceEventInventoryHasJankFields(records) {
 		b.WriteString("- For jank markers, native start/end nanoseconds and their reported duration are distinct from header seconds and B/E span duration. An unverified native-to-trace clock mapping cannot be inferred from proximity. " + skill.TraceJankClockContract + " The emitter TID, marker PID and appid are distinct identities, not proof of the affected target thread. A jank marker reports a symptom; only independently supported chain evidence can establish its cause.\n")
 	}
+	if traceEventInventoryHasResourceMarkers(records) {
+		b.WriteString("- " + skill.TraceResourceObservationContract + "\n")
+	}
 	for _, record := range records {
 		inventory := types.CloneTraceEventSearchInventory(record.EventSearchInventory)
 		if len(inventory.Rows) > traceEventInventoryPromptRowLimit {
@@ -84,6 +88,31 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger) string
 	}
 	b.WriteByte('\n')
 	return b.String()
+}
+
+// Inventory rows currently retain marker action/name only in the producer's
+// source line. Reuse the trace parser rather than interpreting query keywords
+// or user/model prose. This selects soft teaching only: it never changes a row,
+// count, query scope, resource meaning, or causal authority.
+func traceEventInventoryHasResourceMarkers(records []types.ObservationRecord) bool {
+	for _, record := range records {
+		for _, row := range record.EventSearchInventory.Rows {
+			if row.EventType != "trace_mark" || row.RawTruncated || row.Raw == "" {
+				continue
+			}
+			event, ok := tracequery.ParseLine(row.Line, row.Raw, nil)
+			if !ok || event.Type != "trace_mark" {
+				continue
+			}
+			if event.SpanAction == "I" && strings.HasPrefix(event.SpanName, "NativeHook:") {
+				return true
+			}
+			if event.SpanAction == "C" && (event.SpanName == "HeapSize" || event.SpanName == "MmapSize") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func traceEventInventoryHasJankFields(records []types.ObservationRecord) bool {

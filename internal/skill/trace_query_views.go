@@ -26,7 +26,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		{
 			View:   "event_search",
 			Params: "`pattern` as a literal substring (not a regex)",
-			When:   "structured row lookup of exact frame/jank ids, span or marker labels, B/E/C/S/F trace_mark rows, inode tokens, entry_name values, perf sample symbols/DSOs/callchains, timestamps, or event labels; NativeHook instants may expose source_heap_size (resource-dependent units), source_callchain_id (unresolved source key), and resource_end_ts_ns (NULL/0 do not prove release): resource lifetime is not execution time",
+			When:   "structured row lookup of exact frame/jank ids, span or marker labels, B/E/C/S/F trace_mark rows, inode tokens, entry_name values, perf sample symbols/DSOs/callchains, timestamps, or event labels. " + TraceResourceObservationContract,
 		},
 		{
 			View:   "window_sweep",
