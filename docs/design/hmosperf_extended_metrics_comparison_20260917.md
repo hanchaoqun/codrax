@@ -2,7 +2,7 @@
 
 日期：2026-09-17。Codrax 审计起点：`93bf1a42d`；参考目录 `/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main` 不含 Git 元数据，不能推定它对应远端某个提交。本篇负责 memory、network、video、sampling 及 `core/extensions`，其他指标和工具/skills 总表由配套审计文档覆盖。
 
-状态：**静态实现对照完成，新增能力仍待分批实施/验证**。本篇未启动参考服务、未发送遥测、未执行参考工作流、未运行模型 eval。测试文件用于核对已有断言，不把“有测试文件”当成运行通过。参考仓只读。
+状态：**静态实现对照完成；EXT-1 第一批资源元信息实现/确定性回归/构建已闭环，生产 eval 待验，其余能力仍待分批实施/验证**。本篇未启动参考服务、未发送遥测、未执行参考工作流、未运行模型 eval。原静态审计不把“有测试文件”当成运行通过；本批实际执行收据见[主账本 §7](hmosperf_capability_gap_audit_20260917.md#7-hmc-03--ext-1-第一批实施收据)。参考仓只读。
 
 ## 1. 口径与总体结论
 
@@ -21,7 +21,7 @@
 
 | 编号 | 实际实现与可用能力 | 不能据此宣称的能力 |
 |---|---|---|
-| C1 | [native_hook 导出](../../internal/hitraceconv/streamerdb_export_native_hook.go)：事件瞬时点 + 活跃资源计数；精确 owner、发射线程生命周期、Running CPU 见证；资源 `end_ts/dur` 不铸造 B/E | 尚无堆分配栈榜、地址代次配对、泄漏证明。首次审计时语义 SELECT 未取 `heap_size/addr/callchain_id`，原始值仍由全表保真保存 |
+| C1 | [native_hook 导出](../../internal/hitraceconv/streamerdb_export_native_hook.go)：事件瞬时点 + 活跃资源计数；精确 owner、发射线程生命周期、Running CPU 见证；资源 `end_ts/dur` 不铸造 B/E；EXT-1 已补 `source_heap_size/source_callchain_id/resource_end_ts_ns` 可查询事实 | 尚无堆分配栈榜、地址代次配对、泄漏证明。首次审计时语义 SELECT 未取 `heap_size/addr/callchain_id`；现已补前者与来源栈键，地址仍仅由全表保真保存，不能称栈已解析 |
 | C2 | [process_measure/live_process/network/log 导出](../../internal/hitraceconv/streamerdb_export_extended.go)：进程计数、PSS、网络收发速率、已入库 HiLog/HiSysEvent 文本；[事件查询/窗口统计](../../internal/tracequery/query.go) | 网络速率不等于丢包/RTT/TTFB；PSS 计数不等于低内存快照状态机；能搜原始日志不等于已经计算视频或杀进程指标 |
 | C3 | [perf 语义导出](../../internal/hitraceconv/streamerdb_export_perf.go) + [PerfContext/PerfTimeline 类型](../../internal/tracequery/types.go)：符号、库、调用栈、线程榜、时间桶；采样来源、符号化、时钟、on/off CPU 质量；多 event/unit 分组 | 不把所有硬件事件共享一个权重分母，不把样本数比例自动换成真实执行 ms；树形展示和专门并行改造分析仍有扩展空间 |
 | C4 | [raw perf.data](../../internal/hitraceconv/raw_perfdata.go)：可跳过并盘点 branch-stack 等扩展字段，保留基础采样；`BranchStackCount` 读取后跳过分支记录 | 不是已支持 BRBE 基本块/分支预测分析或 SPE 地址级内存访存分析 |
@@ -36,7 +36,7 @@
 
 | 指标 | 参考实现细节 | Codrax 对照、gap 与安全移植方向 | 优先级 |
 |---|---|---|---|
-| `heap_timeline` | heap.yaml:77；事件后 `all_heap_size` 曲线，`heap_size` 为事件大小；malloc/mmap/process/ipid 过滤 | **部分** C1/C2：已有活跃量计数。缺易用的资源事件字段/专门分配曲线；先补语义可见元信息，不称“原始丢失” | P1 |
+| `heap_timeline` | heap.yaml:77；事件后 `all_heap_size` 曲线，`heap_size` 为事件大小；malloc/mmap/process/ipid 过滤 | **部分** C1/C2：已有活跃量计数，EXT-1 已补可查询资源事件元信息。专门分配曲线/聚合仍待补，不称“原始丢失” | P1 |
 | `heap_alloc_summary` | heap.yaml:152；`native_hook_statistic` 按 callchain/type 热点，字典查叶子库/符号 | **缺失语义聚合** C1：统计表原始保存，但无分配热点 API；参考 SELECT 非聚合 apply/release 列后 GROUP BY，不能照抄为多行求和 | P2 |
 | `heap_leak_candidates` | heap.yaml:274；alloc LEFT JOIN free，addr+ipid+事件类型，窗口内没配上释放则计候选 | **缺失**。需进程代次+地址分配代次、先后顺序/捕获边界；参考无 `free >= alloc`，地址重用可错配。窗口末未释放不是泄漏证明 | P2 |
 | `heap_thread_summary` | heap.yaml:376；itid 分组 count/SUM heap_size，分 malloc/free/mmap/munmap | **部分** C1：发射线程身份已严格限定，缺四类资源量聚合；资源存活与发生于窗口内的事件计数必须分开 | P2 |
@@ -59,7 +59,7 @@
 
 参考 [heap.yaml:36](/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main/config/indicators/memory/heap.yaml:36) 给出的语义：`start_ts` 是事件时间，`end_ts/dur` 是释放/活跃寿命；`heap_size` 为本次大小，`all_heap_size` 为事件后总量；`callchain_id` 引用栈，`addr` 为地址。
 
-- 在既有安全瞬时事件上补可选资源元信息，已有 I/C 字节/计数逻辑保持兼容；它是可查询性增强，不是新的因果边。
+- 在既有安全瞬时事件上补可选资源元信息，已有 I/C 类型/数量及计数值保持兼容（I 标签追加字段，因此输出字节摘要有显式演进）；它是可查询性增强，不是新的因果边。
 - 缺列、NULL、显式 0、坏类型必须区分；坏可选字段只撤回该字段，不能连带丢掉已有合法瞬时点/计数。
 - `heap_size` 不因 Free 自动改成负号，释放方向由事件类型承载。FD/THREAD/handle 族不能套用字节单位。
 - `end_ts` 的 NULL/0 与有效 end 保留差异；已知正 end 也绝不转成线程执行 span。
@@ -171,7 +171,7 @@
 
 | 批次/跟踪项 | 有界交付 | 验收与禁止事项 | 当前状态 |
 |---|---|---|---|
-| EXT-1 native-hook 可见元信息 | 第一批仅原整数大小、来源栈键与nullable资源end；地址位型/栈解析后续另批，原始保真已保留 | 缺列/NULL/0/坏storage/超大整数/跨owner/同ts稳定顺序；非字节族不误标bytes；坏可选字段不吞合法I/C；资源end绝不变B/E | 主审评估实施中；本篇不报已完成 |
+| EXT-1 native-hook 可见元信息 | 第一批仅原整数大小、来源栈键与nullable资源end；地址位型/栈解析后续另批，原始保真已保留 | 缺列/NULL/0/坏storage/超大整数/跨owner/同ts稳定顺序；非字节族不误标bytes；坏可选字段不吞合法I/C；资源end绝不变B/E | 第一批公共红绿/count3/race3、四包回归、独立复核及构建通过；生产 eval 未跑，见主账本 §7 |
 | EXT-2 共用日志事件输入 | 统一source-file/line、clock、PID代次、instance、原文引用、完整性；先kill/OOM或视频中一个小族 | 多文件时钟/时区/重启、缺字段、部分捕获；空窗口不全量升级；source日志词法解析允许，用户/模型散文硬门禁止 | 待实施 |
 | EXT-3 PMU 描述与聚合 | 明确capture delta_mapping/单位/CPU事件域；一次底座供summary/timeline/process/thread | 未知映射不猜；整型计数、零分母、缺列、事件域分隔、复用TID、部分交叠估计披露 | 待实施 |
 | EXT-4 无损调用树展示 | C3已有样本→前缀树、展开/折叠与业务解释，保留全部原始栈/来源 | 原始图关系与显示标签分离；不从折叠父子直接铸call；不删除系统/编译/GC等根因线索；不拿样本比例装精确ms | 待实施 |

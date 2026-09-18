@@ -115,3 +115,18 @@ func TestExploreSkill_TraceQueryViewListRendersFromSharedTable(t *testing.T) {
 		t.Fatalf("explore-skill should embed the shared trace_query view matrix verbatim:\n%s", corpus)
 	}
 }
+
+func TestTraceQueryNativeResourceTeachingKeepsObservationBoundary(t *testing.T) {
+	for _, row := range TraceQueryViewTeachings() {
+		if row.View != "event_search" {
+			continue
+		}
+		for _, fact := range []string{"source_heap_size (resource-dependent units)", "source_callchain_id (unresolved source key)", "resource_end_ts_ns (NULL/0 do not prove release)", "resource lifetime is not execution time"} {
+			if !strings.Contains(row.When, fact) {
+				t.Errorf("resource teaching lost %q", fact)
+			}
+		}
+		return
+	}
+	t.Fatal("event_search teaching missing")
+}

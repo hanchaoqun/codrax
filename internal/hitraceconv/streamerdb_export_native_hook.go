@@ -35,11 +35,12 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 ) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "resource", "native_hook", []string{"start_ts", "end_ts", "event_type", "all_heap_size", "itid", "ipid"})
 	coverage.FieldSources = map[string]string{
-		"event_semantics": "start_ts is the only emitter lifecycle point; nullable end_ts and any upstream dur derived from it are resource metadata and never enter thread lifecycle or CPU admission",
-		"event_type":      "closed OpenHarmony TraceStreamer 260b028b resource event registry plus exact legacy aliases malloc/free/mmap/munmap",
-		"cpu":             "shared lifecycle-filtered typed Running witness covering exact start_ts",
-		"identity":        "canonical native_hook.itid/ipid joined to an exact positive owner; emitter origin passes the shared thread+process point gate",
-		"row_order":       "signed-int32 native_hook.id row identity when present; otherwise a provable SQLite hidden rowid",
+		"event_semantics":   "start_ts is the only emitter lifecycle point; nullable end_ts and any upstream dur derived from it are resource metadata and never enter thread lifecycle or CPU admission",
+		"event_type":        "closed OpenHarmony TraceStreamer 260b028b resource event registry plus exact legacy aliases malloc/free/mmap/munmap",
+		"cpu":               "shared lifecycle-filtered typed Running witness covering exact start_ts",
+		"identity":          "canonical native_hook.itid/ipid joined to an exact positive owner; emitter origin passes the shared thread+process point gate",
+		"row_order":         "signed-int32 native_hook.id row identity when present; otherwise a provable SQLite hidden rowid",
+		"resource_metadata": "instant-only resource metadata, not execution: resource_end_ts_ns preserves nullable end_ts (NULL/0 do not prove release); source_heap_size preserves nonnegative INTEGER heap_size without negating free events or assuming all resource families use bytes; source_callchain_id is an opaque source INTEGER, not a resolved stack or causal edge; absent optional columns stay absent",
 	}
 	fail := func(cause error) (TraceDBCoverage, error) {
 		if cause != nil {
@@ -78,11 +79,35 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		stableOrderExpr = stableExpr
 	}
 	coverage.FieldSources["row_order"] = stableSource + "; same-timestamp rows retain stable source order"
+	// Optional resource observations must not become admission requirements for
+	// an otherwise valid instant/counter. The exact all-table fidelity lane also
+	// preserves unsupported address/storage forms without interpreting them.
+	metadataColumns := []struct {
+		column, label string
+		nonnegative   bool
+		present       bool
+	}{
+		{column: "heap_size", label: "source_heap_size", nonnegative: true},
+		{column: "callchain_id", label: "source_callchain_id"},
+	}
+	metadataSQL := []string{"NULL", "NULL"}
+	for i := range metadataColumns {
+		field := &metadataColumns[i]
+		field.present, err = tdb.columnExists(ctx, "native_hook", field.column)
+		if err != nil {
+			return fail(err)
+		}
+		if field.present {
+			metadataSQL[i] = quoteSQLiteIdent(field.column)
+			coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, field.column)
+		}
+	}
+	sort.Strings(coverage.ColumnsPresent)
 	query := fmt.Sprintf(`
-		SELECT %s, start_ts, end_ts, event_type, all_heap_size, itid, ipid
+		SELECT %s, start_ts, end_ts, event_type, all_heap_size, itid, ipid, %s
 		FROM native_hook
 		ORDER BY %s
-	`, stableExpr, stableOrderExpr)
+	`, stableExpr, strings.Join(metadataSQL, ", "), stableOrderExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
 		return fail(err)
@@ -94,7 +119,8 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			return fail(err)
 		}
 		var stableRaw, startRaw, endRaw, eventTypeRaw, heapRaw, itidRaw, ipidRaw any
-		if err := rows.Scan(&stableRaw, &startRaw, &endRaw, &eventTypeRaw, &heapRaw, &itidRaw, &ipidRaw); err != nil {
+		var metadataRaw [2]any
+		if err := rows.Scan(&stableRaw, &startRaw, &endRaw, &eventTypeRaw, &heapRaw, &itidRaw, &ipidRaw, &metadataRaw[0], &metadataRaw[1]); err != nil {
 			return fail(err)
 		}
 		event, reason := prepareTraceDBNativeHookEvent(authority, running, hasSourceID, duplicateSourceIDs,
@@ -103,7 +129,26 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			skipped[reason]++
 			continue
 		}
-		instantName := "NativeHook:" + event.EventType
+		endText := "null"
+		if endRaw != nil {
+			endText = strconv.FormatInt(event.End, 10)
+		}
+		instantName := "NativeHook:" + event.EventType + " resource_end_ts_ns=" + endText
+		for i, field := range metadataColumns {
+			if !field.present {
+				continue
+			}
+			value := "null"
+			if metadataRaw[i] != nil {
+				integer, valid := traceDBStrictSQLiteInt(metadataRaw[i])
+				if !valid || (field.nonnegative && integer < 0) {
+					skipped["invalid_optional_"+field.column]++
+					continue
+				}
+				value = strconv.FormatInt(integer, 10)
+			}
+			instantName += " " + field.label + "=" + value
+		}
 		if err := addTraceDBInstantRow(sink, event.TS, event.Task, event.TID, event.TGID, event.CPU,
 			fmt.Sprintf("tracing_mark_write: I|%d|%s", event.TGID, instantName)); err != nil {
 			return fail(err)

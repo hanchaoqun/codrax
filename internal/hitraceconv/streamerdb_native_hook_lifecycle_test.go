@@ -378,7 +378,7 @@ func TestTraceDBNativeHookB2SignedStableIDOrderAndDuplicates(t *testing.T) {
 			"INSERT INTO native_hook VALUES (-2, 10, 0, 'MmapEvent', 80, 1, 1)",
 			"INSERT INTO native_hook VALUES (-1, 10, 0, 'MunmapEvent', 70, 1, 1)",
 		}
-		want := []string{"AllocEvent", "FreeEvent", "MmapEvent", "MunmapEvent"}
+		want := []string{"AllocEvent resource_end_ts_ns=0", "FreeEvent resource_end_ts_ns=0", "MmapEvent resource_end_ts_ns=0", "MunmapEvent resource_end_ts_ns=0"}
 		var baseline string
 		for _, reverse := range []bool{false, true} {
 			ordered := append([]string(nil), rows...)
@@ -419,7 +419,7 @@ func TestTraceDBNativeHookB2SignedStableIDOrderAndDuplicates(t *testing.T) {
 					[]string{"INSERT INTO thread_state VALUES (1, 0, 100, 1, 'Running', 501, 500)"}, ordered),
 				traceDBLifecycleIndex{}, true)
 			if coverage.RowsEmitted != 2 || coverage.Skipped != "duplicate_row_identity=2" ||
-				!reflect.DeepEqual(traceDBNativeHookB2InstantNames(body), []string{"MmapEvent"}) {
+				!reflect.DeepEqual(traceDBNativeHookB2InstantNames(body), []string{"MmapEvent resource_end_ts_ns=0"}) {
 				t.Fatalf("signed duplicate cohort or valid sibling changed with row order: coverage=%+v\n%s", coverage, body)
 			}
 		}
