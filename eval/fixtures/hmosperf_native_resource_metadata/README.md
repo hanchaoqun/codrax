@@ -11,17 +11,21 @@ so this oracle and the case file are not available as answer evidence.
 
 Independent facts for the explicit 0.0005–0.0035 second window:
 
-| Occurrence | Event | Source quantity | Source stack key | Source resource end (ns) | Heap counter |
+| Occurrence | Event | Source quantity | Source stack key | Source resource end (ns) | Counter observation |
 |---|---|---:|---:|---|---:|
-| 0.001 s | AllocEvent | 9007199254740993 | 9007199254740995 | 9223372036854775807 | 8192 |
-| 0.002 s | FreeEvent | 0 | -1 | 0 | 4096 |
-| 0.003 s | MmapEvent | NULL | NULL | NULL | 4096 |
+| 0.001 s | AllocEvent | 9007199254740993 | 9007199254740995 | 9223372036854775807 | HeapSize=8192 |
+| 0.002 s | FreeEvent | 0 | -1 | 0 | HeapSize=4096 |
+| 0.003 s | MmapEvent | NULL | NULL | NULL | MmapSize=4096 |
 
 - Exactly three resource observations are in the requested window. FD_Open_Event
   at 0.004 s is outside it, even though its resource end is later.
 - The source quantity is independent of the cumulative HeapSize counter. Do not
   reconstruct one from the other, negate FreeEvent's reported zero, or round the
   integers through floating point.
+- The public exporter maps AllocEvent/FreeEvent to HeapSize and MmapEvent to
+  MmapSize. HeapSize has two observations (8192 then 4096); MmapSize=4096 is a
+  separate resource-family observation, not a third heap sample or an amount
+  to add to the heap series.
 - NULL means no value, not zero; end=0 does not independently prove a release.
 - A stack key is an unresolved source identifier, not a resolved function.
 - All NativeHook events are instants. Their source resource end is not an

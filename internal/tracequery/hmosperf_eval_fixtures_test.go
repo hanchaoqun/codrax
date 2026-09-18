@@ -38,13 +38,18 @@ func TestHmosperfNativeResourceEvalFixtureFactsAndScope(t *testing.T) {
 		}
 	}
 	counters := Run(idx, Query{View: "event_search", Pattern: "HeapSize", TimeStart: q.TimeStart, TimeEnd: q.TimeEnd, Limit: 32})
-	if len(counters.Events) != 3 {
-		t.Fatalf("want three independent heap counter observations: %+v", counters.Events)
+	if len(counters.Events) != 2 {
+		t.Fatalf("want two independent heap counter observations: %+v", counters.Events)
 	}
-	for i, wantValue := range []string{"8192", "4096", "4096"} {
+	for i, wantValue := range []string{"8192", "4096"} {
 		if counters.Events[i].SpanAction != "C" || counters.Events[i].SpanValue != wantValue {
 			t.Fatalf("counter %d changed source value: %+v", i, counters.Events[i])
 		}
+	}
+	// The public exporter keeps mapped memory separate from the heap family.
+	mmap := Run(idx, Query{View: "event_search", Pattern: "MmapSize", TimeStart: q.TimeStart, TimeEnd: q.TimeEnd, Limit: 32})
+	if len(mmap.Events) != 1 || mmap.Events[0].SpanAction != "C" || mmap.Events[0].SpanValue != "4096" {
+		t.Fatalf("mapped-memory counter lost its independent source family: %+v", mmap.Events)
 	}
 	q.PID = 100
 	rank := BuildRootCauseRank(idx, q)

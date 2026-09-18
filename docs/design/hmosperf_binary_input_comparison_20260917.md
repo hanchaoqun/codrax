@@ -150,3 +150,14 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 9. Windows argv/中文空格路径，macOS缺内嵌但发现外部工具，Linux默认内嵌，slim build外部依赖分别验证；未验证平台必须明确列为待回放。
 
 **收口标准：**默认CLI+REPL文件入口先独立闭环并提交；path/in-memory/新容器格式按实际完成面逐项更新，不能用convert已有测试全绿代替默认入口端到端验收。HMC-17 当前状态仍为“已确认、待实现”。
+
+## 8. 实施前独立复核补充
+
+第二席进一步落实到真实公共入口，仍为设计而非完成声明：
+
+- `hitraceconv.QueryReadySystracePath(Result)` 只认 `Result.OutputPath` 对应唯一主件的就绪收据，采样侧另有 `QueryReadyPerfTracePath`；复用它们，不能用文件存在或 `EventsWritten>0` 代替权限判定。
+- `resolveAttachedTraceQueryPath` 当前优先工作目录的 `attached_trace.txt`，否则把 `AttachedHitrace` 字符串物化。仅把转换后预览存回字符串会继续截断完整查询能力；新的 typed 准备载体必须贯通 CLI/REPL → Orchestrator → BusContext → 附件查询路径，同时处理 clear/替换/会话恢复。`# codrax-source` 注释不是完整源路径的权威。
+- CLI 的既有 `worktree.InstallSignalHandler` 在 SIGINT 后清理并退出。只给 converter 传 `cmd.Context()` 不能证明收到 Ctrl+C 后转换事务能完成回滚；需协调单一取消/退出所有者，不再注册竞态退出处理。REPL 可使用 `startTurn/runInFlight/endTurn` 的非 LLM 包装，不借会重置 usage 的 DirectLLM 车道。
+- 真实二进制回归可复用 `syntheticBinaryHitrace`（RMQ）、`syntheticProfilerTraceFile`（OHOSPROF）、`trace_archive_zip_test.go` 的 ZIP 以及 `input_authority_route_release_contract_test.go` 的取消/回滚夹具。独立前置复跑4项通过1.178s；是合成真实二进制字节，不是客户各版本真实输入均已回放。
+
+最小交付仍必须包括“预览截断之后的尾部事件能通过 attached_trace 查询”的端到端正例，以及转换失败/取消时旧附件不被替换的反例。该完整接入比多加一个 convert 调用范围大，单独立批，不混入已验收的搜索覆盖修复。
