@@ -8092,7 +8092,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePrio
 		"separately labelled chain cumulative account",
 		"occurrence windows",
 		"representative repeated windows",
-		"compare same-chain primary rows by their typed cumulative account before score",
+		"compare authorized positive contenders by effective_impact_ms before score",
+		"Only rank #1 is primary on the elected causal ladder",
 		"any published next-step guidance visibly",
 		"prefer the bounded `trace_query` facts",
 	} {

@@ -193,6 +193,31 @@ package tool
 // tieba sentinel double-seat consistency pin (runnable + VerifyClass under one
 // rule) plus the R3 acceptance pins re-pinned to priced values.
 //
+// EVOLUTION RECORD (HMC-01.2 / HMC-16.4 teaching seam, 2026-09-18): TWO
+// deliberate Description deltas, audited against the preceding golden:
+//  1. After the opening capability list, add the shared short frame_flow
+//     contract: existing edges are temporal adjacency; latency_ms is the
+//     nonnegative inter-span gap (overlap may report zero), not communication
+//     latency; stage labels do not establish thread roles; a causal claim
+//     needs an explicit typed connector. The tool's rendered frame_flow rows
+//     already expose causal_conclusion=unproven. This is a recorded
+//     Description-slot exception to §29.64: it corrects an existing view's
+//     evidence ceiling, not new note-key teaching. It is nevertheless a
+//     mid-Description insertion with real dispatch-variance risk.
+//  2. Replace only the closed-matrix contract's positional-rank sentence
+//     with the shared short ordering contract: retain emitted channel,
+//     chain_relevance and tier, compare eligible positive effective impact
+//     before score, do not crown adjacent rank=1 or raw/context-only rows.
+//     The matrix's pricing arms and every other Description byte stay intact.
+// No new view, engine rule, wire field, hard gate or prose classifier is
+// introduced. The permanent actual-adapter-message tests cover explorer
+// system/dynamic messages, the finalizer handoff and both public tool faces;
+// these deterministic tests do NOT establish live dispatch equivalence.
+// Required live-eval debt: baseline-vs-updated h2/h3 A/B under matched model,
+// input and settings, plus the r229 frame case and one heterogeneous case
+// for the new frame teaching. None was run in this local-only batch;
+// the byte-golden update records the intentional delta, not live-eval closure.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

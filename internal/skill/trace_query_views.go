@@ -52,7 +52,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "frame_flow",
-			When: "cross-thread frame flow edges linking one frame's UI/RS/GPU segments with per-hop latency",
+			When: TraceFrameFlowEvidenceTeaching,
 		},
 		{
 			View: "thread_timeline",
@@ -89,7 +89,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "root_cause_rank",
-			When: "deterministic primary/secondary/tertiary cause candidates ordered by chain relevance and same-chain cumulative_impact_ms, including dominant_state state totals, candidate-level perf_context plus role-aware perf_contexts for running/CPU-pressure/compute-supply code-execution support, occurrence_windows for aggregate common dependency paths, co-primary on-chain runnable/running/compute-supply/semantic span-work/D-state/IO dependency causes, fragmented state-churn causes, aggregated wakeup-chain causes, and inode-level IO causes",
+			When: "deterministic primary/secondary/tertiary cause candidates with dominant_state state totals, candidate-level perf_context plus role-aware perf_contexts for running/CPU-pressure/compute-supply code-execution support, occurrence_windows for aggregate common dependency paths, closed-matrix state_churn candidates, positive-effective on-chain semantic span-work candidates, aggregated wakeup-chain causes, and inode-level IO causes. " + TraceRootCauseRankOrderTeaching + " Preserve cumulative_impact_ms, running/runnable/sleep/d_state/io_wait totals, and significant unpriced business/semantic work as a separate raw occupancy dimension and follow-up leads",
 		},
 		{
 			View: "frame_root_cause_bundle",

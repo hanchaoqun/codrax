@@ -263,10 +263,24 @@
 
 本批未运行真实模型eval，不更改第一对生产FAIL结论。HMC-17.4/17.5、格式/平台矩阵、现存DB及二进制stdin仍开放；HMC-18.3的CLI/REPL真实模型端到端验收另列。链上根因选择、Trace显式窗投影/自动补齐、root-causes旁路及600/300/600秒活跃流保护均未修改。
 
-## 14. 目录对照发现的排序教学漂移（HMC-01.2 / HMC-16.4，P1待复现修复）
+## 14. 目录对照发现的排序教学漂移（第六批，HMC-01.2 / HMC-16.4子缺陷，P1）
 
 2026-09-18在第五批最终全仓验收期间只读发现：`skill.TraceQueryViewTeachings`的`root_cause_rank`行仍教按same-chain cumulative_impact_ms排序及co-primary；`explorerEvaluator.buildExplicitRuntimeTracePathStartInstruction`另有同形直写。公开工具Description/Parameters却已应用closed matrix，要求按effective_impact_ms严格唯一首位。explorer的compose只拼接，`buildInitialMessages`→`AppendDynamicInstruction`将该动态提示原样追加，没有工具侧的后置替换；旧测试甚至pin着累计排序短语。
 
-这是系统控制的教学源不一致，不能归为模型波动；永久“实际模型消息”红→绿回归和修复安排在第五批提交后的小批，不混入已冻结验收。方案必须修正共享词源及直写消费者，不增加一轮字符串补丁掩盖旧源；累计占用仍是重要业务/优化线索，但不能替代可消除量的排序口径。共享矩阵的`frame_flow`行也需明确时序关系与已证因果的区别，不能因为名字含flow就让模型把相邻区间当因果边。参数目录全部同源化仍是更大任务，本缺陷闭合不整体销HMC-01.2/16.4。
+第五批提交推送后，永久回归通过真实`NewExplorerAgent.Execute`和`NewFinalizerAgent.Execute`截取首次adapter请求（本地测试适配器，无远程模型），分别检查system、动态user以及实际提供的工具Description/Parameters。explorer两种typed scope都先红；finalizer必须加入typed `PerfObservation.Kind=root_cause_rank`且不带`TraceEvidenceAuthority`才能触发旧legacy提示，仅有Frames不足以覆盖。两组红收据为`/tmp/hmc01-trace-teaching-red-20260918.log`（1.109s）及`/tmp/hmc01-trace-teaching-red-full-20260918.log`（0.983s），均为行为断言失败，不是编译红。
 
-参数对照另记待验证项：工具映射保留`include_window_stats:false`，引擎`normalizeQuery`对`wakeup_chain`却重设为true。需要先核实该参数的公开承诺、默认值与内部必需计算是否不同，再做公开调用反例；不在教学批顺带改归一化器。该项仍归HMC-01.2的参数一致性，不以静态布尔赋值差异直接宣布用户行为故障。
+确认漏消费者还包括默认explore skill的自身running参赛句、finalizer的layering与handoff两条独立提示；实际工具Description也缺少Parameters已带的frame-flow未证边界。这是系统控制的教学源不一致，不能归为模型波动。方案直接修正共享词源及所有已确认直写消费者，不增加一轮输出字符串补丁；不重复整段长闭矩阵。先保typed链/邻近通道，再按已发布effective量及已有tier解释，不能仅凭独立adjacent通道也可能出现的`rank=1`冠主因。累计占用、状态分解、重复窗、fragment count/max/p95与next-step仍是有效业务/优化线索；零计价不抹掉真实占用，也不宣称闭矩阵以外永无有限累计回退。
+
+共享矩阵的`frame_flow`行同时明确时序关系与已证因果的区别：当前相邻完整片段给出`temporal_sequence`及`sorted_span_adjacency`，时间间隔不是已证通信延迟，阶段名不是线程角色凭证；帧因果仍需明确typed connector。链上规则和图表能力不改。参数目录全部同源化仍是更大任务，本缺陷闭合不整体销HMC-01.2/16.4。
+
+本批没有增加输出正文替换或硬门。共享短排序合同在每个实际模型消息面恰好一次；长闭矩阵仍只在工具面。第一次相邻整包检查拦下共享视图行遗漏原有`semantic span-work`能力词，已补回“正有效量且链上”的语义优化候选提示，原保护测试未放宽。末版skill/agent整包通过0.871s/72.431s；三包定向race×3通过skill2.049s、agent2.430s、tool2.423s；工具旧字面pin换为完整共享合同与邻近通道边界后count3/race×3通过1.157s/2.485s。原邻包FAIL保留`/tmp/hmc01-trace-teaching-neighbor-full-20260918.log`，最终绿为`neighbor-final`及`race-final`同前缀日志。
+
+工具首次整包exit1（358.714s，`/tmp/hmos-teaching-tool-full-20260918.log`）保留三个失败：源码census在并行编辑时读到测试文件中间态的非法转义、上述旧字面pin、以及真正遗漏的Description字节快照更新。停止源码编辑后，前两项与IO/业务保护定向count3通过2.285s（`/tmp/hmos-teaching-tool-neighbor-corrected-20260918.log`）。Description按原UPDATE RITUAL核对：仅新增frame-flow短合同与替换既有闭矩阵排序句两处，30887→31616字节；其余字节不变，旧门保留，演进记录明确说明中段插入的调度波动风险。正常非UPDATE的golden/schema/closed-matrix/replace-arms/census count3通过2.909s；最终冻结版tool整包无筛选通过362.779s（`/tmp/hmos-teaching-tool-full-final-20260918.log`）。本批确定性验收完成。
+
+引擎保护另通过：有效量/优先级/排名域与板身份定向count3为1.121s；frame-flow/显式窗定向count3为0.503s；tracediag完整包5.259s。`make`通过。无真实模型eval，不声称live dispatch等价；h2/h3匹配基线A/B、r229与异构帧例仍在HMC-18验收队列，按每批2例执行，不能以教学单元测试替代。
+
+### 14.1 参数一致性续批：显式关闭窗口统计被默认值覆盖
+
+2026-09-18公开`TraceQuery.Execute`已确认反例（`/tmp/hmos-params-stats-probe-20260918.log`）：同一完整5.000–5.007s调度夹具，参数省略/false/true三次都返回`WindowStats`，三次均非memo命中且均保留唤醒链。公开schema说明此参数控制附带窗口统计、默认true，工具映射也保留false，但引擎`normalizeQuery`将false重设为true。不是内部计算必需而仅在模型前隐藏：最终JSON亦包含显式要求关闭的整份统计。
+
+本项归HMC-01.2参数一致性，安排在教学批之后独立修复：保留“省略即true”兼容，用明确设置状态区分false与省略；仅改变`wakeup_chain`统计发布，不更改链构建、根因排行及自动补齐默认行为。永久回归需覆盖省略/true/false、重复归一化、冷/暖memo顺序、公开JSON/观察及链字节恒等。根因所需内部统计不能因该显示参数被关掉，显式窗和板身份也必须保持；当前尚未实施，不计入交付数量。
