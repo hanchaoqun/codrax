@@ -1,0 +1,22 @@
+# HMC-03: model-visible metadata, not binary admission or leak diagnosis.
+ID="trace_query_native_resource_metadata"
+NAME="trace query — native resource facts without invented execution or leak"
+QUESTION="只分析附加 trace 中 0.0005s 到 0.0035s 的资源记录，不分析代码。请列出这段窗口里每次资源操作的发生时间（秒）、本次上报资源量、来源栈编号和原始资源结束纳秒值，保持大整数精确，并区分 0 与缺值；说明共有多少次资源操作，另说明累计堆量如何变化。仅凭这些记录，能否判断某个函数执行很久、资源已经释放或存在内存泄漏？请说明证据边界。"
+HTRACE_FILE="eval/fixtures/hmosperf_native_resource_metadata/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+
+EXPECT_PRIMARY_CONTAINS="9007199254740993 9007199254740995 9223372036854775807 8192 4096"
+EXPECT_PRIMARY_MATCHES_REGEX="(AllocEvent|分配)
+(FreeEvent|释放)
+(MmapEvent|映射)
+(^|[^0-9])0[.]0010*([^0-9]|$)
+(^|[^0-9])0[.]0020*([^0-9]|$)
+(^|[^0-9])0[.]0030*([^0-9]|$)
+(NULL|null|缺值|缺失|未提供|未记录|未知)
+(^|[^0-9])-1([^0-9]|$)"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="((共|总计|合计|共有|总数).{0,60}(3|三)[[:space:]*]*(次|条|个)|(3|三)[[:space:]*]*(次|条|个).{0,60}(资源|操作|记录))
+((FreeEvent|释放).{0,180}(^|[^0-9])0([^0-9]|$)|(^|[^0-9])0([^0-9]|$).{0,180}(FreeEvent|释放))
+((MmapEvent|映射).{0,180}(NULL|null|缺值|缺失|未提供|未记录|未知)|(NULL|null|缺值|缺失|未提供|未记录|未知).{0,180}(MmapEvent|映射))
+((不能|不足|无法|不代表|不等于|未证|未能).{0,120}(执行|函数|泄漏)|(执行|函数|泄漏).{0,120}(不能|不足|无法|不代表|不等于|未证|未能))"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -1,0 +1,18 @@
+# HMC-02/08: discover the business interval, then explain its causal IO wait.
+ID="trace_query_business_marker_io_chain"
+NAME="trace query — business response discovery with S-state IO and background separation"
+QUESTION="只分析附加的 trace，不分析代码。用户点击打开文档感觉慢：请先找出 OpenDocument 这次操作的完整响应窗口，再解释时间主要花在哪里、哪条依赖真正拖住了响应，并保留链上的业务线索以便后续排查。这里既有文档读取也有后台备份，能否把耗时较长的 IO 直接当成这次操作的根因？请用毫秒区分请求本身的耗时、线程实际等待和唤醒后等待调度的时间，不要重复相加。"
+HTRACE_FILE="eval/fixtures/hmosperf_business_io_chain/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+
+EXPECT_PRIMARY_CONTAINS="OpenDocument LoadDocumentIndex"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])50([.]0+)?[[:space:]*]*(ms|毫秒)
+(^|[^0-9])35([.]0+)?[[:space:]*]*(ms|毫秒)
+(^|[^0-9])31([.]0+)?[[:space:]*]*(ms|毫秒)
+(^|[^0-9])1([.]0+)?[[:space:]*]*(ms|毫秒)"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="((document-worker|worker|文档.{0,10}线程|(^|[^0-9])200([^0-9]|$)).{0,160}(IO|I/O|I／O|读取|存储|磁盘)|(IO|I/O|I／O|读取|存储|磁盘).{0,160}(document-worker|worker|文档.{0,10}线程|(^|[^0-9])200([^0-9]|$)))
+((backup|备份|(^|[^0-9])900([^0-9]|$)).{0,180}(背景|不构成|不支持|不能|未证|无.{0,15}(因果|依赖|链))|(背景|不构成|不支持|不能|未证|无.{0,15}(因果|依赖|链)).{0,180}(backup|备份|(^|[^0-9])900([^0-9]|$)))
+((不可|不能|不应|不要|不再|避免).{0,60}(相加|叠加|重复)|(相加|叠加|重复).{0,60}(不可|不能|不应|不要|避免))"
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

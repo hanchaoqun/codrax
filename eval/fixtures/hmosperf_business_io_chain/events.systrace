@@ -1,0 +1,20 @@
+# tracer: nop
+# Authored synthetic business response with independent background IO.
+app-main-100 (100) [001] .... 0.999000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app-main next_pid=100 next_prio=53
+app-main-100 (100) [001] .... 1.000000: tracing_mark_write: B|100|OpenDocument
+app-main-100 (100) [001] .... 1.001000: sched_switch: prev_comm=app-main prev_pid=100 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+backup-900 (900) [003] .... 1.002000: block_rq_issue: 12,80 W 65536 () 800000 + 128 [backup]
+document-worker-200 (100) [002] .... 1.004000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=document-worker next_pid=200 next_prio=120
+document-worker-200 (100) [002] .... 1.004500: tracing_mark_write: B|100|LoadDocumentIndex
+document-worker-200 (100) [002] .... 1.005000: block_rq_issue: 12,80 R 32768 () 923339752 + 64 [document-worker]
+document-worker-200 (100) [002] .... 1.009010: sched_switch: prev_comm=document-worker prev_pid=200 prev_prio=120 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+storage-irq-80 (2) [002] .... 1.040000: block_rq_complete: 12,80 R () 923339752 + 64 [0]
+storage-irq-80 (2) [002] .... 1.040010: sched_wakeup: comm=document-worker pid=200 prio=120 target_cpu=002
+document-worker-200 (100) [002] .... 1.041010: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=document-worker next_pid=200 next_prio=120
+document-worker-200 (100) [002] .... 1.044500: tracing_mark_write: E|100
+document-worker-200 (100) [002] .... 1.045000: sched_wakeup: comm=app-main pid=100 prio=53 target_cpu=001
+document-worker-200 (100) [002] .... 1.045500: sched_switch: prev_comm=document-worker prev_pid=200 prev_prio=120 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+app-main-100 (100) [001] .... 1.046000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app-main next_pid=100 next_prio=53
+backup-irq-81 (2) [003] .... 1.049000: block_rq_complete: 12,80 W () 800000 + 128 [0]
+app-main-100 (100) [001] .... 1.050000: tracing_mark_write: E|100
+app-main-100 (100) [001] .... 1.051000: sched_switch: prev_comm=app-main prev_pid=100 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120

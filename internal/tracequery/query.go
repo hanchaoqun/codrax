@@ -703,11 +703,8 @@ func Run(idx *Index, q Query) Result {
 			}
 			locate.EventTypes = nil
 			if strings.TrimSpace(locate.Pattern) != "" {
-				events := EventSearch(idx, locate)
-				if !faceCanceled("event_search") {
-					res.Events = events
-					res.EvidencePack = append(res.EvidencePack, evidenceFromEvents(res.Events)...)
-				}
+				locate.View = "event_search"
+				publishIndexedEventSearch(&res, idx, locate, explicitTimeStart, explicitTimeEnd, faceCanceled)
 			}
 		}
 		if recipeHasView(recipe, "span_window") {
@@ -851,74 +848,7 @@ func Run(idx *Index, q Query) Result {
 		}
 	default:
 		res.View = "event_search"
-		searchEvents, perfIdentityCaveat := eventSearchIndexed(idx, q)
-		if faceCanceled("event_search") {
-			break
-		}
-		res.Events = searchEvents
-		if perfIdentityCaveat != "" {
-			res.Caveats = append(res.Caveats, perfIdentityCaveat)
-		}
-		res.EvidencePack = evidenceFromEvents(res.Events)
-		// RFC #71 (§8.2 c4): pre-truncation frequency tier census — nil
-		// unless the chronological display cap actually hid matched
-		// cpu_frequency rows (non-truncated results stay byte-identical).
-		// SUPP-CANCEL 复核件1 (P3-A): the discard gate runs FIRST — a fire
-		// inside the census scan makes the builder tick-abort and return
-		// nil, and the old `census != nil &&` short-circuit swallowed the
-		// discard record (caveat claimed "discarded: none" while two faces
-		// were abandoned). Post-fire the gate conservatively books the face
-		// as cancellation-suppressed even when it would have been nil
-		// anyway — under a fire nobody can prove absence (claim-of-absence
-		// discipline). Unfired path byte-identical (gate is a pure read).
-		if census := ComputeCPUFrequencyCensus(idx, q, res.Events); !faceCanceled("cpu_frequency_census") && census != nil {
-			res.CPUFrequencyCensus = census
-			res.EvidencePack = append([]EvidenceFact{census.EvidenceFact()}, res.EvidencePack...)
-		}
-		// SA-F2 (DISPATCH-IND 批4, 2026-07-14): matched-rows generator census
-		// (indexed twin of the streaming inline accumulation).
-		if vsyncCensus := ComputeVsyncGeneratorSearchCensus(idx, q); !faceCanceled("vsync_generator_census") && vsyncCensus != nil {
-			res.VsyncGeneratorCensus = vsyncCensus
-		}
-		if cancel.fired() {
-			break
-		}
-		// B5-T2: keep the already-complete bounded Events/census faces
-		// independent from the exhaustive accounting pass. The latter runs
-		// after both censuses so a cooperative cancellation cannot retroactively
-		// discard a display face that was already complete.
-		matchedEvents, matchedTimeStart, matchedTimeEnd, invalidJankFields := eventSearchMatchAccounting(idx, q)
-		if faceCanceled("event_search_accounting") {
-			break
-		}
-		if invalidJankFields > 0 {
-			res.Caveats = append(res.Caveats, jankEventIntegrityCaveat(invalidJankFields))
-		}
-		scopeKind, scopeTimeStart, scopeTimeEnd := eventSearchScopeAccounting(idx, q, explicitTimeStart, explicitTimeEnd)
-		res.EventSearchCoverage = &EventSearchCoverage{
-			ScopeKind:           scopeKind,
-			ScopeTimeStart:      scopeTimeStart,
-			ScopeTimeEnd:        scopeTimeEnd,
-			ScopeComplete:       true,
-			MatchedTimeStart:    matchedTimeStart,
-			MatchedTimeEnd:      matchedTimeEnd,
-			MatchedTotal:        matchedEvents,
-			Emitted:             len(searchEvents),
-			EnumerationComplete: true,
-		}
-		if matchedEvents > len(res.Events) {
-			last := res.Events[len(res.Events)-1]
-			res.Compactions = append(res.Compactions, ViewCompaction{
-				View:            FallbackViewEventSearch,
-				Dimension:       CompactionDimensionEvents,
-				Total:           matchedEvents,
-				Emitted:         len(res.Events),
-				LastEmittedTs:   last.Ts,
-				LastEmittedLine: last.Line,
-			})
-			res.Caveats = append(res.Caveats,
-				fmt.Sprintf("event_search_index_compacted=true; matched %d row(s) but returned the first %d chronological match(es) only; omitted rows may contain later trace-mark actions, so do not infer absence without narrowing the query", matchedEvents, len(res.Events)))
-		}
+		publishIndexedEventSearch(&res, idx, q, explicitTimeStart, explicitTimeEnd, faceCanceled)
 	}
 	// G1 跨车道对账 (§27.2, 2026-07-09): every view shape that carries BOTH
 	// lanes in one result envelope (recipe with rank+blocking, the frame
@@ -1020,7 +950,12 @@ func eventSearchScopeAccounting(idx *Index, q Query, explicitTimeStart, explicit
 		return EventSearchScopeArtifact, 0, 0
 	}
 	lineBounded := q.LineStart > 0 || q.LineEnd > 0
-	timeBounded := !lineBounded && (explicitTimeStart || explicitTimeEnd)
+	// A unique span can narrow the effective query after the caller's explicit
+	// flags were captured. Report the domain actually scanned, not the original
+	// argument shape; a default full-index envelope remains artifact-scoped.
+	effectiveTimeBounded := q.TimeStart > 0 && q.TimeStart > idx.FirstTs ||
+		q.TimeEnd > 0 && q.TimeEnd < idx.LastTs
+	timeBounded := !lineBounded && (explicitTimeStart || explicitTimeEnd || effectiveTimeBounded)
 	if !idx.Windowed && !lineBounded && !timeBounded {
 		return EventSearchScopeArtifact, idx.FirstTs, idx.LastTs
 	}
@@ -1099,10 +1034,12 @@ func collectResultCompactions(res *Result, q Query) {
 	if res.IPCGraph != nil {
 		res.Compactions = append(res.Compactions, res.IPCGraph.Compactions...)
 	}
-	// Legacy indexed event_search stops scanning at the cap, so its true total
-	// is unknown (Total=0). Exact trace-mark action search installs its counted
-	// compaction before this fallback; never publish a conflicting second ruler.
-	if res.View == "event_search" && q.Limit > 0 && len(res.Events) >= q.Limit && !hasEventSearchCompaction(res.Compactions) {
+	// Legacy results without a complete census cannot prove whether the cap
+	// omitted a row. A completed census can: exactly Limit matches is not
+	// truncation and must not acquire a spurious unknown-total refinement.
+	completeSearchCensus := res.EventSearchCoverage != nil && res.EventSearchCoverage.EnumerationComplete
+	hasSearchFace := res.View == "event_search" || res.Recipe != nil && recipeHasView(*res.Recipe, "event_search")
+	if hasSearchFace && !completeSearchCensus && q.Limit > 0 && len(res.Events) >= q.Limit && !hasEventSearchCompaction(res.Compactions) {
 		last := res.Events[len(res.Events)-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
 			View:            "event_search",
