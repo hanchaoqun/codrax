@@ -5830,6 +5830,12 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocBoundedRuntimeFactAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
+	if facts := renderAnswerDocBusinessSpanFacts(ctx, promptLedger); facts != "" {
+		b.WriteString(facts)
+	}
+	if measurements := renderAnswerDocCausalIOMeasurements(ctx, promptLedger); measurements != "" {
+		b.WriteString(measurements)
+	}
 	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -6556,6 +6562,13 @@ func renderAnswerDocIOMeasurementRelationBridge(
 }
 
 func answerDocBoundedRuntimeFactAuthorityRows(records []types.ObservationRecord, family types.RuntimeQuestionFactFamily, rm *types.RequestModel) []types.ObservationRecord {
+	return answerDocRuntimeFactAuthorityRowsByKey(records, family, rm, answerDocBoundedRuntimeFactPhysicalKey)
+}
+
+// Selection budgets and priorities are shared; each presentation lane owns
+// its exact deduplication identity. The finite-fact lane keeps its existing
+// physical key, while causal comparisons must also preserve query scope.
+func answerDocRuntimeFactAuthorityRowsByKey(records []types.ObservationRecord, family types.RuntimeQuestionFactFamily, rm *types.RequestModel, identity func(types.ObservationRecord) string) []types.ObservationRecord {
 	const familyCap = 10
 	// Requested-family ranking is typed and stable. It keeps target-owned
 	// values ahead of context rows while ResultCount set/coverage records stay
@@ -6567,7 +6580,7 @@ func answerDocBoundedRuntimeFactAuthorityRows(records []types.ObservationRecord,
 		if len(selected) >= familyCap {
 			return
 		}
-		key := answerDocBoundedRuntimeFactPhysicalKey(record)
+		key := identity(record)
 		if seenPhysical[key] {
 			return
 		}

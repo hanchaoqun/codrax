@@ -3,8 +3,17 @@ package types
 import (
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+// TraceBusinessSpanPredicate is the deterministic trace reader's factual
+// ordinary-work interval lane. It deliberately is not a semantic/rank lane.
+const TraceBusinessSpanPredicate = "trace_business_span"
+
+// TraceBusinessSpanFactLimit is shared by the visible fact handoff and the
+// ordinary-span choice list: never publish an unidentifiable hidden choice.
+const TraceBusinessSpanFactLimit = 16
 
 // RuntimeWorkRelationRequested reads only the analyzer's typed request
 // carriers. The dedicated profile flag and an active, required legacy answer
@@ -75,7 +84,8 @@ type RuntimeWorkRelationRow struct {
 
 // RuntimeWorkRelationContract is active only when the analyzer explicitly
 // declared the independent work/span-to-target subquestion and the ledger has
-// at least one exact semantic-work row.
+// at least one exact measured-work row. Ordinary spans retain an unproven
+// work-to-target relation, independent of semantic optimization credentials.
 type RuntimeWorkRelationContract struct {
 	Rows []RuntimeWorkRelationRow
 }
@@ -114,14 +124,15 @@ func BindRuntimeWorkRelationReceipt(r *AnswerRuntimeWorkRelationReceipt, contrac
 	return false
 }
 
-// BuildRuntimeWorkRelationContract compiles only exact typed semantic-work
-// rows.  It does not inspect the request or answer prose.  requested comes
+// BuildRuntimeWorkRelationContract compiles exact typed measured-work rows.
+// It does not inspect the request or answer prose. requested comes
 // from RuntimeQuestionProfile.RuntimeWorkRelationRequested.
 func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bool) *RuntimeWorkRelationContract {
 	if !requested {
 		return nil
 	}
-	set := CompileTraceCausalProjectionSet(CompileObservationLedger(input))
+	ledger := CompileObservationLedger(input)
+	set := CompileTraceCausalProjectionSet(ledger)
 	frameQuestion := FrameCausalityQualifierApplicable(input.RequestModel)
 	seen := map[string]bool{}
 	var rows []RuntimeWorkRelationRow
@@ -141,11 +152,128 @@ func BuildRuntimeWorkRelationContract(input ObservationLedgerInput, requested bo
 			rows = append(rows, row)
 		}
 	}
+	for i, record := range TraceBusinessSpanFacts(ledger, input.RequestModel) {
+		if i >= TraceBusinessSpanFactLimit {
+			break
+		}
+		row, ok := runtimeWorkRelationRowFromBusinessSpan(record)
+		if !ok || seen[row.ObservationID] {
+			continue
+		}
+		row.FrameCausalityApplicable = frameQuestion
+		seen[row.ObservationID] = true
+		rows = append(rows, row)
+	}
 	if len(rows) == 0 {
 		return nil
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ObservationID < rows[j].ObservationID })
 	return &RuntimeWorkRelationContract{Rows: rows}
+}
+
+// TraceBusinessSpanFacts exposes the same factual supply to receipt and prompt
+// consumers. Repeated queries of one exact source/window/span do not multiply
+// the work, while distinct artifacts or selected windows never collapse.
+// Callers may supply a window-filtered ledger; this reader never broadens it.
+func TraceBusinessSpanFacts(ledger ObservationLedger, requestModel *RequestModel) []ObservationRecord {
+	type factKey struct {
+		path, artifact, timeDomain, canonicalTimeDomain       string
+		window, actualWindow, actualMS, subject, label, value string
+		span                                                  ObservationSpan
+		queryWindowKnown                                      bool
+		queryStart, queryEnd                                  float64
+		clockAlignment                                        string
+		clockCalibrated                                       bool
+		clockOffset, clockSlope                               string
+	}
+	seen := map[factKey]bool{}
+	var facts []ObservationRecord
+	for _, record := range ledger.Records {
+		if _, ok := runtimeWorkRelationRowFromBusinessSpan(record); !ok {
+			continue
+		}
+		if requested := ledger.RuntimeArtifactScopeProfile; requested.HasExplicitTimeWindows() {
+			start, end, _ := TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+			if len(requested.ExplicitTimeWindows()) > 1 && record.SourceRef.QueryWindowKnown {
+				start, end = record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs
+			}
+			if !requested.ContainsExplicitTimeWindow(start, end) {
+				continue
+			}
+		}
+		// Mirror the ordinary-fact named-target prompt lane. Causal diagnosis
+		// deliberately keeps dependency-thread work; finite target-only lookup
+		// must not publish a receipt for work its prompt has filtered away.
+		if requestModel != nil && requestModel.RuntimeQuestionProfile.CarriesBoundedFactFamilies() &&
+			!requestModel.RuntimeQuestionProfile.RequestsFactFamily(RuntimeQuestionFactOtherObservedValue) {
+			named := false
+			for _, target := range requestModel.RuntimeTargets {
+				if !RuntimeTargetIsExplorationCursorSource(target.Source) &&
+					((target.PID > 0 && target.PID <= RuntimeTargetMaxPID) || strings.TrimSpace(target.Thread) != "") {
+					named = true
+					break
+				}
+			}
+			if named && !ObservationRecordMatchesUserRuntimeTarget(record, requestModel) {
+				continue
+			}
+		}
+		key := factKey{
+			path: record.SourceRef.Path, artifact: record.SourceRef.ArtifactID,
+			timeDomain: record.SourceRef.TimeDomain, canonicalTimeDomain: record.SourceRef.CanonicalTimeDomain,
+			window:       traceObservationRichNoteValue(record.RichNotes, TraceNoteKeySelectedWindow),
+			actualWindow: traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyActualWindow),
+			actualMS:     traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyActualImpactMS),
+			subject:      record.Subject, label: record.Object, value: record.Value, span: record.Span,
+			queryWindowKnown: record.SourceRef.QueryWindowKnown,
+			queryStart:       record.SourceRef.QueryWindowStartTs, queryEnd: record.SourceRef.QueryWindowEndTs,
+			clockAlignment: record.SourceRef.ClockAlignment, clockCalibrated: record.SourceRef.ClockCalibrated,
+		}
+		if record.SourceRef.ClockOffsetSec != nil {
+			key.clockOffset = strconv.FormatFloat(*record.SourceRef.ClockOffsetSec, 'g', -1, 64)
+		}
+		if record.SourceRef.ClockSlope != nil {
+			key.clockSlope = strconv.FormatFloat(*record.SourceRef.ClockSlope, 'g', -1, 64)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		facts = append(facts, record)
+	}
+	return facts
+}
+
+// A paired ordinary business interval proves only its name, owner and elapsed
+// time. Never reinterpret its duration as CPU time, removable time or a chain
+// contribution, even if its thread also occurs in a wakeup-chain projection.
+func runtimeWorkRelationRowFromBusinessSpan(record ObservationRecord) (RuntimeWorkRelationRow, bool) {
+	if record.Predicate != TraceBusinessSpanPredicate || !RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+		record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
+		record.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
+		record.ProvenanceLane != ObservationProvenanceArtifactSpan ||
+		record.GroundingPolicy != ClaimGroundingHard || record.Unit != "ms" ||
+		strings.TrimSpace(record.ID) == "" || strings.TrimSpace(record.Subject) == "" ||
+		strings.TrimSpace(record.Object) == "" || strings.TrimSpace(record.SourceRef.Path) == "" ||
+		record.Span.LineStart <= 0 || record.Span.LineEnd < record.Span.LineStart ||
+		!TraceCausalProjectionWindowPresent(record.Span.StartTs, record.Span.EndTs) {
+		return RuntimeWorkRelationRow{}, false
+	}
+	start, end, windowOK := TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+	ms, err := strconv.ParseFloat(record.Value, 64)
+	// selected_window is a producer-formatted microsecond receipt. Allow only
+	// that fixed formatting half-unit, not an inferred timing relationship.
+	if !windowOK || record.Span.StartTs < start-0.000000501 || record.Span.EndTs > end+0.000000501 ||
+		err != nil || ms <= 0 || math.IsNaN(ms) || math.IsInf(ms, 0) ||
+		math.Abs(ms-(record.Span.EndTs-record.Span.StartTs)*1000) > 0.000501 {
+		return RuntimeWorkRelationRow{}, false
+	}
+	return RuntimeWorkRelationRow{
+		ObservationID: record.ID, WorkLabel: record.Object, Subject: record.Subject,
+		MeasuredDurationMS: ms,
+		AllowedConclusions: []RuntimeWorkRelationConclusion{RuntimeWorkRelationConclusionRelationUnproven},
+		Credential:         "none", Boundary: "work_to_target_relation_unproven",
+	}, true
 }
 
 func runtimeWorkRelationRowFromNode(id, label string, node TraceCausalProjectionNode) RuntimeWorkRelationRow {

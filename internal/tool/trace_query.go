@@ -10055,6 +10055,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	if result.WindowStats != nil {
 		out = append(out, traceQueryTypedWindowStatsObservations(*result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedSemanticTraceSpanObservations(result, *result.WindowStats, ref, scope, at)...)
+		out = append(out, traceQueryTypedBusinessSpanObservations(*result.WindowStats, ref, scope, at)...)
 	}
 
 	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the event_search-side generator
