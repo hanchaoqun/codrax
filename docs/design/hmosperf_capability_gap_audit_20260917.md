@@ -341,3 +341,17 @@ h2已保11段D/36.757ms与12条原因记录/Σ39.157ms两种口径，但这不�
 公开BuildPromptContext阶段矩阵和实际NewAnalyzerAgent.Execute首次模型请求均先RED（`/tmp/hmc-attachment-teaching-red-20260918.log`，context0.914s、agent1.090s）；不是仅测试私有短句。修后定向count3通过0.895s/1.631s，race×3通过2.128s/2.325s；context/agent完整包通过0.545s/65.709s（同前缀`green/race/packages`日志）。工具prepared-material、显式窗自动补齐、帧补齐、参数真假、Description/schema与因果来源相邻count3通过1.981s（`/tmp/hmc-attachment-teaching-tool-neighbor-20260918.log`）。未改工具schema/Description，无需重钉其字节快照。
 
 本片关闭E2-1的已确认教学冲突，不等于已实测模型不再误调工具；h2/h3原机器与人工FAIL保持。E2-2未标记D桶名称、E2-3 IO完成/唤醒/总体展示及E2-4术语仍开放，01.3/16.4父项不整体销账。没有新原文扫描、输出替换、硬门、重试或系统根因代写；既有链上根因、明确时间窗及自动补齐不变。
+
+§16主体`f48e8d119`、写期限绑定`bbd4de906`及本节`5db77d8f7`均已推送main，远端复核0/0；构建通过（`/tmp/hmc-teaching-input-build-20260918.log`）。这是已交付的三个小批，不代表17.4全部完工。
+
+## 18. 完整材料的提交/撤销交接（HMC-17.1生命周期增强 / 17.4第二片）
+
+再次只读核对参考`server.py:547 convert_hitrace_to_sqlite`：转换完成后直接返回邻接DB路径，异常靠局部cleanup函数收尾；没有“准备完成但尚未发布给交互会话”的持有状态。复用其准备→分析组合思想，但本项目不能在取消后以原件或派生路径直接删除，也不能释放目录句柄后再尝试夺回清理权限。此接缝是REPL接入前置增强，不伪称参考仓已经解决。
+
+新增`traceinput.Begin`返回尚未发布的`Preparation`，只能`Commit/Discard`，没有可提前拿到查询凭证的公开getter。准备阶段最后的源身份、context和源文件关闭全部成功后，才交接既有受管理目录权限；文件读取/转换/完整材料生产仍是原有单一实现。`Commit`再次检查原件、收据和所有派生/成员代次，释放目录权限后才交出材料；原准备ctx或提交ctx取消、源/输出替换均不能发布。`Discard`只使用持有权限，文本原件不在删除域；提交后撤销不删已发布文件，失败清理冻结为终态，ABA恢复路径不能重获权限。提交/撤销用同一锁，至多一个终态。
+
+原有`Prepare`公共入口现在直接使用Begin→Commit，CLI已经消费同一状态机；需要在转换后先做交互决策的调用者可使用两阶段API。调用方仍必须在自己的操作取消/发布边界串行提交，提交点之后的取消不追撤已经发布的附件。尚未接上REPL默认路径，不能把新API计为17.4交付，也不新增独立差距编号。
+
+新增公共Begin/Commit真RMQ验收：提交后40个完整事件和尾部pid139可查询、原件字节不变；准备后两种ctx取消、源/派生改写、普通文本撤销、重复终态、并发提交/撤销和目录替换/ABA负控。首次新增能力回归通过，不冒称先红。共享服务整包race×3通过2.634s；公共Prepare切换后四包定向race×3通过traceinput2.907s/cmd6.105s/repl2.856s/tool4.987s，覆盖CLI真实二进制、SIGINT回滚、CLI种子REPL与显式窗IO/业务查询（`/tmp/hmc17-preparation-public-race-20260918.log`）。cmd/repl/traceinput整包分别11.924s/53.126s/0.979s通过（`/tmp/hmc17-preparation-packages-20260918.log`）；末版全仓收据待追加。
+
+冷审收去测试转换器注入的旧即时释放分支：公开Begin、公开Prepare和注入converter的回归全部经过同一begin→提交/撤销实现，不维护第二套成功清理路径。增量四包race×3通过3.034s/7.200s/3.070s/5.253s，含真实CLI失败/取消发布负控；traceinput/cmd完整包0.951s/11.810s通过（`/tmp/hmc17-preparation-unified-{race,packages}-20260918.log`）。构建通过（`unified-build`同前缀）。全仓命令启动于这条内部路径同源化之前，范围与增量收据分列，不冒称一个冻结命令涵盖后来的源代码。

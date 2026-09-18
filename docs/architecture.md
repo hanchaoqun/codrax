@@ -1295,6 +1295,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **默认文件准备（HMC-17.1–17.3）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验，SQLite、未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。inline/stdin仍是有界文本入口；REPL新文件加载和未准备的任意`source=path`尚未自动转换，分别归17.4/17.5。
 
+**准备的提交边界（HMC-17.4前置）**：`traceinput.Begin`持有尚未发布的完整材料及受管理目录权限，调用者必须Commit或Discard；公开`Prepare`复用Begin→Commit。提交再次验证全部源代次，失败/取消沿持有权限撤销，原件不在清理域；提交后Discard不得删除已发布输出，清理失败不能按路径重试夺回权限。交互调用方须串行化自己的操作取消/发布点，不能把这层事务当作REPL输入/确认策略。查询凭证仍不进入JSON，也不增加因果权限。
+
 `attachment.TraceMaterial`是不序列化的进程内载体，绑定原件、完整查询文件、bundle成员及收据的文件代次，贯通CLI→Orchestrator→Agent/子agent→tool。查询前后验证；普通字符串替换/clear撤销旧载体；原件与派生产物只在当前有效载体下归为同一来源，独立文件不合并。提示明确预览行号不是物理证据坐标，优先`source=attached_trace`查询完整材料；纯采样材料不获得调度、唤醒或帧因果权限。CLI启动REPL时保留载体；持久化/导出不序列化查询权限，截断/派生/多成员材料用schema2重附加标记，旧版本也不能把预览当完整采集恢复；经准备器确认自包含的完整普通文本保留schema1恢复。取消保持typed cancellation而不是“文件不可用”，不新增LLM或活跃流超时。
 
 **下游消费**：analyzer 同时读 LogTriage 和 PerfTrace —— `MergeEntities` 把 perf entities (trigger spans / stall symbols) union 进 AnalyzerHints.Entities；`analyzerRequiredFiles` 把 perf 的 ResolvedFiles 与 log 的 ResolvedFiles 取并集（cap 10）。

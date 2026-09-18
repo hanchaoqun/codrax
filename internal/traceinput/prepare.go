@@ -48,7 +48,17 @@ func Prepare(ctx context.Context, opts Options) (*attachment.TraceMaterial, erro
 	return prepare(ctx, opts, hitraceconv.ConvertFile)
 }
 
-func prepare(ctx context.Context, opts Options, convert converter) (material *attachment.TraceMaterial, err error) {
+func prepare(ctx context.Context, opts Options, convert converter) (*attachment.TraceMaterial, error) {
+	pending, err := begin(ctx, opts, convert)
+	if err != nil {
+		return nil, err
+	}
+	return pending.Commit(ctx)
+}
+
+// retain, when non-nil, receives ownership only after all preparation and
+// source-close checks succeed. The caller must then commit or discard it.
+func prepareWithOwnership(ctx context.Context, opts Options, convert converter, retain func(*managedDirectory)) (material *attachment.TraceMaterial, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -80,17 +90,13 @@ func prepare(ctx context.Context, opts Options, convert converter) (material *at
 			err = identityErr
 		}
 		err = errors.Join(err, ctx.Err(), held.Close())
-		if err == nil && owned != nil {
-			// Successful publications outlive preparation, but their directory
-			// handles do not. A failed validation retains cleanup authority;
-			// a failed handle release is terminal and cannot delete by path.
-			err = owned.close()
+		if err == nil {
+			retain(owned)
+			return
 		}
-		if err != nil {
-			material = nil
-			if owned != nil {
-				err = errors.Join(err, owned.cleanup())
-			}
+		material = nil
+		if owned != nil {
+			err = errors.Join(err, owned.cleanup())
 		}
 	}()
 	probeSize := original.Size()
