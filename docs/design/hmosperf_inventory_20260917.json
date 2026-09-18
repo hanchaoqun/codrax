@@ -1,0 +1,824 @@
+{
+  "codrax_baseline": "93bf1a42d",
+  "counts": {
+    "indicators": 109,
+    "pipelines": 5,
+    "skills": 24
+  },
+  "entries": {
+    "indicators": [
+      {
+        "name": "animation_interval",
+        "file": "config/indicators/marker/animation_interval.yaml",
+        "type": "atomic",
+        "sha256": "9fb1f7348c48d02a29b77570870fc71ffece80155ebc8451698e4194c0355c51"
+      },
+      {
+        "name": "cold_launch_calltree",
+        "file": "config/indicators/sampling/hiperf/cold_launch_calltree.yaml",
+        "type": "atomic",
+        "sha256": "2bc67b1865f2a4715d2f7b2f036357bcc9ff07a4a01141925bd1db93e93fb33b"
+      },
+      {
+        "name": "cold_launch_hitrace_calltree",
+        "file": "config/indicators/sampling/hiperf/cold_launch_hitrace_calltree.yaml",
+        "type": "atomic",
+        "sha256": "1dcd2c4e9e37e8ef9a57fc2bb742df06e4a1d2a68d096f0739d6003a469c2764"
+      },
+      {
+        "name": "concurrent_parallelism",
+        "file": "config/indicators/sched/parallelism.yaml",
+        "type": "atomic",
+        "sha256": "6b7f6108b86c8707aa32c82d671f4706c747129bb539180196762f54f42f15d6"
+      },
+      {
+        "name": "cpu_freq",
+        "file": "config/indicators/cpu/freq.yaml",
+        "type": "atomic",
+        "sha256": "79619e9b71e8070c6b595d389fb6990b73de2b67f976b4625f65db8772870f67"
+      },
+      {
+        "name": "cpu_freq_breakdown",
+        "file": "config/indicators/cpu/freq_breakdown.yaml",
+        "type": "atomic",
+        "sha256": "ce2eecd96a26fe9ee9715f877160a68199d1cdb1438bd40728a02b2ed697af28"
+      },
+      {
+        "name": "cpu_freq_compute_load",
+        "file": "config/indicators/cpu/freq_compute_load.yaml",
+        "type": "atomic",
+        "sha256": "ae34d9ec0fce03b646ad508211ea553435ca03e33541ef5f6b88538341e6946d"
+      },
+      {
+        "name": "cpu_freq_compute_load_by_process",
+        "file": "config/indicators/cpu/freq_compute_load_by_process.yaml",
+        "type": "atomic",
+        "sha256": "b57825dc925e4d93c8ccb47838600d7ccc0de952685e40baf4e014abba25e4fb"
+      },
+      {
+        "name": "cpu_freq_compute_load_by_thread",
+        "file": "config/indicators/cpu/freq_compute_load_by_thread.yaml",
+        "type": "atomic",
+        "sha256": "bc7412486a17e0cb3bc59c4e5824b29412461b207333eb9b17116fd282a88879"
+      },
+      {
+        "name": "cpu_freq_func_samples",
+        "file": "config/indicators/cpu/freq_func_samples.yaml",
+        "type": "atomic",
+        "sha256": "e0d977c3036a4b338084914693933e0ec717ed50ea26c28cd906d4c1a343c193"
+      },
+      {
+        "name": "cpu_freq_merge_breakdown",
+        "file": "config/indicators/cpu/freq_merge_breakdown.yaml",
+        "type": "atomic",
+        "sha256": "61d151a367b14d55078fb7c921439f10ea0f5d9ee940baf99a9633748dd637fe"
+      },
+      {
+        "name": "cpu_freq_occupancy",
+        "file": "config/indicators/cpu/freq_occupancy.yaml",
+        "type": "atomic",
+        "sha256": "9ba955c39b88d02dad016c3e9c4b29555ad7099cc4557744e961f813f74e7070"
+      },
+      {
+        "name": "cpu_freq_throttle",
+        "file": "config/indicators/cpu/throttle.yaml",
+        "type": "atomic",
+        "sha256": "7e3feb68c1885ba89e73d880a90202b7cdef22f10c31aa4d7e510f4fa89cd09d"
+      },
+      {
+        "name": "cpu_load",
+        "file": "config/indicators/cpu/load.yaml",
+        "type": "atomic",
+        "sha256": "1d3b7a31db7b5fa57f0a869c6f9cafab6831411fc4d160e1b0c437cb2e131077"
+      },
+      {
+        "name": "cpu_state_freq",
+        "file": "config/indicators/cpu/state_freq.yaml",
+        "type": "atomic",
+        "sha256": "172d5c0c9a9aabf49c25ba7cfca668077cd9b622d9884f8aa3b4645cda701d2c"
+      },
+      {
+        "name": "dstate_io_by_priority",
+        "file": "config/indicators/io/io_priority.yaml",
+        "type": "atomic",
+        "sha256": "f69b7a2a8dcef39fd89a99c6f43c5449294c0149019e7a5b12ef9b7c9971187b"
+      },
+      {
+        "name": "flutter_frame_ts",
+        "file": "config/indicators/rendering/flutter_frame_ts.yaml",
+        "type": "atomic",
+        "sha256": "61ac3d5385fc14850306b24d0b38db5b285e8a360e7449d47abc4eae64927e56"
+      },
+      {
+        "name": "frame_drops_to_file",
+        "file": "config/indicators/sampling/sendable/frame_drops_to_file.yaml",
+        "type": "atomic",
+        "sha256": "355706765513812a0a326e12e1a1f2c0f833742ec06e6073a4c66f14caab66a7"
+      },
+      {
+        "name": "frame_rate_votes",
+        "file": "config/indicators/rendering/frame_rate_votes.yaml",
+        "type": "atomic",
+        "sha256": "aab26534dd0ac5b700f62cf703e4c40950baf3b2b3733817dffe8c0961c71a47"
+      },
+      {
+        "name": "frame_summary",
+        "file": "config/indicators/rendering/frame_summary.yaml",
+        "type": "atomic",
+        "sha256": "7f90e844030223732a464c0fa14aeb04c29314f1b332c3dcf6ec9d57c3634038"
+      },
+      {
+        "name": "frame_ts",
+        "file": "config/indicators/rendering/frame_ts.yaml",
+        "type": "atomic",
+        "sha256": "b59d6930d64a14458ff3b8c85936e2c3591132b1a0e3493aa6bce83f108c8ce8"
+      },
+      {
+        "name": "game_experience",
+        "file": "config/indicators/game/game_experience.yaml",
+        "type": "atomic",
+        "sha256": "6bedd1fd742ee6e3c778b90322eb0504f3d2980d7049431415831edc6b6657b4"
+      },
+      {
+        "name": "game_frame_ts",
+        "file": "config/indicators/rendering/game_frame_ts.yaml",
+        "type": "atomic",
+        "sha256": "238c25157adba4fb62a34dbefc35faef368f6430edd254bcf601ace94d12ffe6"
+      },
+      {
+        "name": "game_launch_essentials",
+        "file": "config/indicators/groups/game_launch.yaml",
+        "type": "group",
+        "sha256": "bdb241c5960b9126365b3cd7db36321c86f710ee788c67a1e7f28b4544c4981d"
+      },
+      {
+        "name": "game_launch_phases",
+        "file": "config/indicators/game/game_launch_phases.yaml",
+        "type": "atomic",
+        "sha256": "c143f62eec61102e1089ff0e2c168b47948fce8293de4a67c77e0623e295922e"
+      },
+      {
+        "name": "game_thread_sched",
+        "file": "config/indicators/game/game_thread_sched.yaml",
+        "type": "atomic",
+        "sha256": "b7cde603f71228e845c3e0dd04892f8edf42d4024645533fd14029baa0a8f398"
+      },
+      {
+        "name": "gpu_freq",
+        "file": "config/indicators/gpu/freq.yaml",
+        "type": "atomic",
+        "sha256": "328d8ba4446d35f9af5464b904b83020d909f69ec7ba146d1e20c21cd658cb42"
+      },
+      {
+        "name": "gpu_freq_ts",
+        "file": "config/indicators/gpu/freq.yaml",
+        "type": "atomic",
+        "sha256": "328d8ba4446d35f9af5464b904b83020d909f69ec7ba146d1e20c21cd658cb42"
+      },
+      {
+        "name": "gpu_pipeline_analysis",
+        "file": "config/indicators/rendering/gpu_pipeline_analysis.yaml",
+        "type": "atomic",
+        "sha256": "f78ca744172d50680698235856c4a8cf421818fd62ae78740955c4e9720e8009"
+      },
+      {
+        "name": "heap_alloc_summary",
+        "file": "config/indicators/memory/heap.yaml",
+        "type": "atomic",
+        "sha256": "19c1f598e597e21985c136f547c83e2c0fa4c1af32a86e7d2d69676073344315"
+      },
+      {
+        "name": "heap_callchain_expand",
+        "file": "config/indicators/memory/heap.yaml",
+        "type": "atomic",
+        "sha256": "19c1f598e597e21985c136f547c83e2c0fa4c1af32a86e7d2d69676073344315"
+      },
+      {
+        "name": "heap_leak_candidates",
+        "file": "config/indicators/memory/heap.yaml",
+        "type": "atomic",
+        "sha256": "19c1f598e597e21985c136f547c83e2c0fa4c1af32a86e7d2d69676073344315"
+      },
+      {
+        "name": "heap_mmap_subtype",
+        "file": "config/indicators/memory/heap.yaml",
+        "type": "atomic",
+        "sha256": "19c1f598e597e21985c136f547c83e2c0fa4c1af32a86e7d2d69676073344315"
+      },
+      {
+        "name": "heap_thread_summary",
+        "file": "config/indicators/memory/heap.yaml",
+        "type": "atomic",
+        "sha256": "19c1f598e597e21985c136f547c83e2c0fa4c1af32a86e7d2d69676073344315"
+      },
+      {
+        "name": "heap_timeline",
+        "file": "config/indicators/memory/heap.yaml",
+        "type": "atomic",
+        "sha256": "19c1f598e597e21985c136f547c83e2c0fa4c1af32a86e7d2d69676073344315"
+      },
+      {
+        "name": "heap_type_summary",
+        "file": "config/indicators/memory/heap.yaml",
+        "type": "atomic",
+        "sha256": "19c1f598e597e21985c136f547c83e2c0fa4c1af32a86e7d2d69676073344315"
+      },
+      {
+        "name": "hiperf_branch_mispredict",
+        "file": "config/indicators/sampling/hiperf/branch_mispredict.yaml",
+        "type": "atomic",
+        "sha256": "6cdbae6668845b9c8818372399679ff45d5d1d218dce312fe8986d3fcefb8420"
+      },
+      {
+        "name": "hiperf_brbe_func",
+        "file": "config/indicators/sampling/hiperf/brbe_func.yaml",
+        "type": "atomic",
+        "sha256": "fb0fd301b5ade9ad5065e9fdfe4533cf86a07d96a23f99de479f28e13871cf41"
+      },
+      {
+        "name": "hiperf_brbe_inst",
+        "file": "config/indicators/sampling/hiperf/brbe_inst.yaml",
+        "type": "atomic",
+        "sha256": "79b494fee13d56b4f778dfe7ef6723d9a354c194bfa1dfb00945b879bd366037"
+      },
+      {
+        "name": "hiperf_hot_function",
+        "file": "config/indicators/sampling/hiperf/hot_function.yaml",
+        "type": "atomic",
+        "sha256": "cb713c0af8c6cfc9517cc575b5ad607b8fb5f12dce0fd56c1c6b68117210d8e8"
+      },
+      {
+        "name": "hiperf_spe_miss",
+        "file": "config/indicators/sampling/hiperf/spe_miss.yaml",
+        "type": "atomic",
+        "sha256": "77cffb5015e3c440715cc2a818a282ff09a3760fdf6715b65293a008c7bae6d5"
+      },
+      {
+        "name": "hiperf_thread_hotpath",
+        "file": "config/indicators/sampling/hiperf/thread_hotpath.yaml",
+        "type": "atomic",
+        "sha256": "968c39d70afe126879e4a9bbe06b2be2925af8c36462e29efa2d36a51cf6c8ee"
+      },
+      {
+        "name": "hot_file_cache",
+        "file": "config/indicators/io/io_page_cache.yaml",
+        "type": "atomic",
+        "sha256": "a7a74a0d7b3b727762d682b75e60ad3b2f9ff632633699f9a815b39b19c93661"
+      },
+      {
+        "name": "io_bandwidth",
+        "file": "config/indicators/io/io_block.yaml",
+        "type": "atomic",
+        "sha256": "b2c1e0e0803b3273fce2f077d7159e66ed80ea47e6e6b7d1a99ca033ce41d88d"
+      },
+      {
+        "name": "io_by_priority",
+        "file": "config/indicators/io/io_priority.yaml",
+        "type": "atomic",
+        "sha256": "f69b7a2a8dcef39fd89a99c6f43c5449294c0149019e7a5b12ef9b7c9971187b"
+      },
+      {
+        "name": "io_concurrency",
+        "file": "config/indicators/io/io_latency.yaml",
+        "type": "atomic",
+        "sha256": "a062b172d70a651dda7a904ded3684761bf1316c03ba24970e63e13da2387e8b"
+      },
+      {
+        "name": "io_iops",
+        "file": "config/indicators/io/io_block.yaml",
+        "type": "atomic",
+        "sha256": "b2c1e0e0803b3273fce2f077d7159e66ed80ea47e6e6b7d1a99ca033ce41d88d"
+      },
+      {
+        "name": "io_latency",
+        "file": "config/indicators/io/io_latency.yaml",
+        "type": "atomic",
+        "sha256": "a062b172d70a651dda7a904ded3684761bf1316c03ba24970e63e13da2387e8b"
+      },
+      {
+        "name": "io_latency_by_priority",
+        "file": "config/indicators/io/io_priority.yaml",
+        "type": "atomic",
+        "sha256": "f69b7a2a8dcef39fd89a99c6f43c5449294c0149019e7a5b12ef9b7c9971187b"
+      },
+      {
+        "name": "io_latency_percentile",
+        "file": "config/indicators/io/io_latency.yaml",
+        "type": "atomic",
+        "sha256": "a062b172d70a651dda7a904ded3684761bf1316c03ba24970e63e13da2387e8b"
+      },
+      {
+        "name": "io_read_write_ratio",
+        "file": "config/indicators/io/io_block.yaml",
+        "type": "atomic",
+        "sha256": "b2c1e0e0803b3273fce2f077d7159e66ed80ea47e6e6b7d1a99ca033ce41d88d"
+      },
+      {
+        "name": "io_size_distribution",
+        "file": "config/indicators/io/io_size.yaml",
+        "type": "atomic",
+        "sha256": "9c0689c149c23824f005832dad302f13cfc0892e2d24c8e905e9acb2496418ce"
+      },
+      {
+        "name": "jank_deep",
+        "file": "config/indicators/groups/jank.yaml",
+        "type": "group",
+        "sha256": "835c96eb6f0d2bc520918230014c819b0dcd9c42315e73103479c7d331d87a40"
+      },
+      {
+        "name": "jank_essentials",
+        "file": "config/indicators/groups/jank.yaml",
+        "type": "group",
+        "sha256": "835c96eb6f0d2bc520918230014c819b0dcd9c42315e73103479c7d331d87a40"
+      },
+      {
+        "name": "jank_intervals",
+        "file": "config/indicators/rendering/jank_intervals.yaml",
+        "type": "atomic",
+        "sha256": "023d2f1976267a52795b541e46d5dadb37f2207b1452010c7149a97fc4fdf170"
+      },
+      {
+        "name": "kill_candidates",
+        "file": "config/indicators/memory/kill.yaml",
+        "type": "atomic",
+        "sha256": "4ea076548a066aa5f380647ecf380c77faf848c116e17eb417613dcc0fd1b3aa"
+      },
+      {
+        "name": "kill_efficiency",
+        "file": "config/indicators/memory/oom_kill.yaml",
+        "type": "atomic",
+        "sha256": "38bd60020954bbf0a75b9d5350fe14d998eaa26ad48d3427d673e70e369da044"
+      },
+      {
+        "name": "kill_events",
+        "file": "config/indicators/memory/kill.yaml",
+        "type": "atomic",
+        "sha256": "4ea076548a066aa5f380647ecf380c77faf848c116e17eb417613dcc0fd1b3aa"
+      },
+      {
+        "name": "kill_reason_summary",
+        "file": "config/indicators/memory/kill.yaml",
+        "type": "atomic",
+        "sha256": "4ea076548a066aa5f380647ecf380c77faf848c116e17eb417613dcc0fd1b3aa"
+      },
+      {
+        "name": "l1_budget",
+        "file": "config/indicators/l1_budget.yaml",
+        "type": "atomic",
+        "sha256": "a0645bdc07a31e53c4992342027484b9a2eb5279d2844302e60a8bb5d6afc525"
+      },
+      {
+        "name": "launch_essentials",
+        "file": "config/indicators/groups/launch.yaml",
+        "type": "group",
+        "sha256": "7a69718e01fbb97d931639a8ace066f20f716ab47266e4db7c637c865f92a61f"
+      },
+      {
+        "name": "launch_phase_breakdown",
+        "file": "config/indicators/startup/phases.yaml",
+        "type": "atomic",
+        "sha256": "7f46fcd50bea4df0eacb130f2742d7dc9c9245ca7f62c2ad8463a523dc1f6abd"
+      },
+      {
+        "name": "low_memory_anomaly",
+        "file": "config/indicators/memory/low_memory.yaml",
+        "type": "atomic",
+        "sha256": "39556d2a60b62da48e9326509d7cd07ec3afd4e8e715b8b881bb75a12161cb88"
+      },
+      {
+        "name": "low_memory_process_rss",
+        "file": "config/indicators/memory/low_memory.yaml",
+        "type": "atomic",
+        "sha256": "39556d2a60b62da48e9326509d7cd07ec3afd4e8e715b8b881bb75a12161cb88"
+      },
+      {
+        "name": "low_memory_snapshot",
+        "file": "config/indicators/memory/low_memory.yaml",
+        "type": "atomic",
+        "sha256": "39556d2a60b62da48e9326509d7cd07ec3afd4e8e715b8b881bb75a12161cb88"
+      },
+      {
+        "name": "low_memory_total_pss",
+        "file": "config/indicators/memory/low_memory.yaml",
+        "type": "atomic",
+        "sha256": "39556d2a60b62da48e9326509d7cd07ec3afd4e8e715b8b881bb75a12161cb88"
+      },
+      {
+        "name": "memory_comprehensive",
+        "file": "config/indicators/groups/memory.yaml",
+        "type": "group",
+        "sha256": "f87131dcc27583792c99cf2c1550c704f914143a54896bdc29fb2b2e24da0ca4"
+      },
+      {
+        "name": "network_pcap_quality",
+        "file": "config/indicators/network/network_pcap_quality.yaml",
+        "type": "atomic",
+        "sha256": "ce8ca489622f4ff1477f65e55aff9229096afbb5a73edd76fa6e309e628abb7f"
+      },
+      {
+        "name": "network_quality",
+        "file": "config/indicators/network/network_quality.yaml",
+        "type": "atomic",
+        "sha256": "d4a74e9e4631a3cf556840e8ecc80364f7b4b646c1e38923f1513b9e70b69410"
+      },
+      {
+        "name": "oom_kill_events",
+        "file": "config/indicators/memory/oom_kill.yaml",
+        "type": "atomic",
+        "sha256": "38bd60020954bbf0a75b9d5350fe14d998eaa26ad48d3427d673e70e369da044"
+      },
+      {
+        "name": "page_cache_add_rate",
+        "file": "config/indicators/io/io_page_cache.yaml",
+        "type": "atomic",
+        "sha256": "a7a74a0d7b3b727762d682b75e60ad3b2f9ff632633699f9a815b39b19c93661"
+      },
+      {
+        "name": "page_cache_evict",
+        "file": "config/indicators/io/io_page_cache.yaml",
+        "type": "atomic",
+        "sha256": "a7a74a0d7b3b727762d682b75e60ad3b2f9ff632633699f9a815b39b19c93661"
+      },
+      {
+        "name": "perf_calltree_in_interval",
+        "file": "config/indicators/sampling/hiperf/perf_calltree_in_interval.yaml",
+        "type": "atomic",
+        "sha256": "35b556d85b527b3fa307b778f6e1528849becf3ec89b7b294aa19d12e659b78d"
+      },
+      {
+        "name": "pmu_by_process",
+        "file": "config/indicators/sampling/pmu/pmu_by_process.yaml",
+        "type": "atomic",
+        "sha256": "7afa168e870c6f973f0075a9512962ff5f1a742d31af1be83696687a4a3bb66c"
+      },
+      {
+        "name": "pmu_by_thread",
+        "file": "config/indicators/sampling/pmu/pmu_by_thread.yaml",
+        "type": "atomic",
+        "sha256": "1204d3f7a819dc05bb17c8ec5f55de052d3fc4a5a2763bf53cb229ad5fd66637"
+      },
+      {
+        "name": "pmu_summary",
+        "file": "config/indicators/sampling/pmu/pmu_summary.yaml",
+        "type": "atomic",
+        "sha256": "c09320f02f0782e767b6ab45b5ffdb9dc974e5fef03b246e40019d8fe1d2c8ca"
+      },
+      {
+        "name": "pmu_timeline",
+        "file": "config/indicators/sampling/pmu/pmu_timeline.yaml",
+        "type": "atomic",
+        "sha256": "b98fcbb6575b6e606dd8e98db97c2dd7937e21449ddb8e8b224eadeb7d15049e"
+      },
+      {
+        "name": "preferred_frame_rate",
+        "file": "config/indicators/rendering/preferred_frame_rate.yaml",
+        "type": "atomic",
+        "sha256": "59b8a6ce483d8daff6906044c46c4a86c1213021aacca947714490217dd35c5e"
+      },
+      {
+        "name": "process_disappearances",
+        "file": "config/indicators/memory/lifecycle.yaml",
+        "type": "atomic",
+        "sha256": "4b32f4040f67525dadf185c497833842542be78d715a77f2d1b316ffc5622070"
+      },
+      {
+        "name": "process_lifecycle",
+        "file": "config/indicators/memory/lifecycle.yaml",
+        "type": "atomic",
+        "sha256": "4b32f4040f67525dadf185c497833842542be78d715a77f2d1b316ffc5622070"
+      },
+      {
+        "name": "process_profile",
+        "file": "config/indicators/process/profile.yaml",
+        "type": "atomic",
+        "sha256": "ba6f270eaae5992e81514a7be061beed3704e2e1f7fe89452370ca29c50b2f2e"
+      },
+      {
+        "name": "rs_frame_ts",
+        "file": "config/indicators/rendering/rs_frame_ts.yaml",
+        "type": "atomic",
+        "sha256": "874ea7b2ac76df8a96a58b8db352177c43ba8e716eb3369b51c11a09c7e6e698"
+      },
+      {
+        "name": "rt_thread_io_block",
+        "file": "config/indicators/io/io_priority.yaml",
+        "type": "atomic",
+        "sha256": "f69b7a2a8dcef39fd89a99c6f43c5449294c0149019e7a5b12ef9b7c9971187b"
+      },
+      {
+        "name": "sched_affinity",
+        "file": "config/indicators/sched/runtime.yaml",
+        "type": "atomic",
+        "sha256": "9dfe04493d3c38fc59584c8f31e7befe4a09e716f7ad0e203b58cea40646c884"
+      },
+      {
+        "name": "sched_cgroup",
+        "file": "config/indicators/sched/runtime.yaml",
+        "type": "atomic",
+        "sha256": "9dfe04493d3c38fc59584c8f31e7befe4a09e716f7ad0e203b58cea40646c884"
+      },
+      {
+        "name": "sched_comprehensive",
+        "file": "config/indicators/groups/sched.yaml",
+        "type": "group",
+        "sha256": "3b1fad895a99fb4b44d005489fb7e7884c55b0f9fedae05c90c82a47d3726df9"
+      },
+      {
+        "name": "sched_runnable_queue_depth",
+        "file": "config/indicators/sched/runnable_queue_depth.yaml",
+        "type": "atomic",
+        "sha256": "77a214a2ee9b8d26fbe613498f038d67690723d1e76c803df9ec30e26e15bed7"
+      },
+      {
+        "name": "sched_wakeup_latency",
+        "file": "config/indicators/sched/latency.yaml",
+        "type": "atomic",
+        "sha256": "b9118057641bd903294e2e71ce6e6c9e12d9a078138f85ffde2094cd5deb0abc"
+      },
+      {
+        "name": "sendable_class_graph",
+        "file": "config/indicators/sampling/sendable/class_graph.yaml",
+        "type": "atomic",
+        "sha256": "ba70d058db8bfdbe90a6928c98bbd3e45a1509c5782d9ffd2a48f2ca44f96bfb"
+      },
+      {
+        "name": "sendable_class_guide",
+        "file": "config/indicators/sampling/sendable/class_guide.yaml",
+        "type": "atomic",
+        "sha256": "8615e842a8cf8ed0333d36cdf03e7b4f80147c4eab7da9ba9d9a0c51a63d9439"
+      },
+      {
+        "name": "sendable_function_analysis",
+        "file": "config/indicators/sampling/sendable/function_analysis.yaml",
+        "type": "atomic",
+        "sha256": "f7f71ba25395a0b9a27bf67b44f95801e93c93bc94f3b87b2a4770ff1320dca4"
+      },
+      {
+        "name": "sendable_sample_config",
+        "file": "config/indicators/sampling/sendable/sample_config.yaml",
+        "type": "atomic",
+        "sha256": "e02b0adbddbedf68e6bceb63d141b1f33ce2a2accf3180e539faa1613cf2c5da"
+      },
+      {
+        "name": "sendable_task_plan",
+        "file": "config/indicators/sampling/sendable/task_plan.yaml",
+        "type": "atomic",
+        "sha256": "b34872da42ad682dbb91e1f35cc4718e7f4d3c2d7103ad3122512a1899c477f7"
+      },
+      {
+        "name": "so_load_stats",
+        "file": "config/indicators/marker/so_load_stats.yaml",
+        "type": "atomic",
+        "sha256": "285f9cbd85291da8b5da2dc8172accb4f3055971e34028c4f6545cfef6f30867"
+      },
+      {
+        "name": "thread_runtime",
+        "file": "config/indicators/sched/runtime_agg.yaml",
+        "type": "atomic",
+        "sha256": "0acc1ec33508ffefd03f754989d007c53b08a886302a04628a8559cc3c0eaa5c"
+      },
+      {
+        "name": "thread_sched_analysis",
+        "file": "config/indicators/sched/thread_sched.yaml",
+        "type": "atomic",
+        "sha256": "6600e5d6e65b36a77be580b84bbf5ec1cc52a183a1047a3ac00c441f1fd3be69"
+      },
+      {
+        "name": "thread_sleep_summary",
+        "file": "config/indicators/sleep/thread_sleep_summary.yaml",
+        "type": "atomic",
+        "sha256": "b512d8a98aad27aca522a2277a697f80de2b863d3df4ed8cb5fbeb9be7af7560"
+      },
+      {
+        "name": "thread_state_durations",
+        "file": "config/indicators/sched/runtime.yaml",
+        "type": "atomic",
+        "sha256": "9dfe04493d3c38fc59584c8f31e7befe4a09e716f7ad0e203b58cea40646c884"
+      },
+      {
+        "name": "trace_marker_hotpath",
+        "file": "config/indicators/marker/trace_hotpath.yaml",
+        "type": "atomic",
+        "sha256": "b605fa6693f34f36a6162f697aace2f1a1157525f22b17b389671a09696a9c5e"
+      },
+      {
+        "name": "ui_frame_ts",
+        "file": "config/indicators/rendering/ui_frame_ts.yaml",
+        "type": "atomic",
+        "sha256": "5e59f51d4a50ff9a8edc2f8ec42a9e0a035a3053b41da4e19aaf5dc85717f797"
+      },
+      {
+        "name": "uninterruptible_dstate",
+        "file": "config/indicators/uninterruptible/uninterruptible_dstate.yaml",
+        "type": "atomic",
+        "sha256": "0dba1a9a38b97b535a2e2c27c0a57910ec174947f164606d2b287ede3fde6c4b"
+      },
+      {
+        "name": "video_audio_chain",
+        "file": "config/indicators/video/video_audio_chain.yaml",
+        "type": "atomic",
+        "sha256": "8c4c2af482302653c693325c314ad8005ec7bcdc2fcd978996c7bf973d9979be"
+      },
+      {
+        "name": "video_buffer_rotation",
+        "file": "config/indicators/video/video_buffer_rotation.yaml",
+        "type": "atomic",
+        "sha256": "8a4991fc16e468e14e7a32cd4dd85093bb3173f3c6861153c04b573539646b4c"
+      },
+      {
+        "name": "video_decoder_lifecycle",
+        "file": "config/indicators/video/video_decoder_lifecycle.yaml",
+        "type": "atomic",
+        "sha256": "700b52caa2fefd5b7469d6183137769639c2f58b9f982b8b5cd91d5a7377892f"
+      },
+      {
+        "name": "video_error_events",
+        "file": "config/indicators/video/video_error_events.yaml",
+        "type": "atomic",
+        "sha256": "0d2de9c69a9a18aced3dd7696dffec91ba24339c24b37cba8d7256f2d6529a3b"
+      },
+      {
+        "name": "video_first_frame",
+        "file": "config/indicators/video/video_first_frame.yaml",
+        "type": "atomic",
+        "sha256": "a51c2a7c75bae4ae031e215d688b1bd9f1e5ae71d099ea7320415707349155a9"
+      },
+      {
+        "name": "video_phase_timing",
+        "file": "config/indicators/video/video_phase_timing.yaml",
+        "type": "atomic",
+        "sha256": "463a41745df58dfb3c9e004d4268ec1c53dc00d3f738939c6070f6df8fe29c2d"
+      },
+      {
+        "name": "video_render_chain",
+        "file": "config/indicators/video/video_render_chain.yaml",
+        "type": "atomic",
+        "sha256": "893a4628f068bceba7959c9510bad7d411a7b40b1f4ac53c1088e55d9ecfe962"
+      },
+      {
+        "name": "web_frame_ts",
+        "file": "config/indicators/rendering/web_frame_ts.yaml",
+        "type": "atomic",
+        "sha256": "4048a90c793dc5f3c83cdbf2afbbe965dd60d7abdd1bb9452ee9e6d59c3b3d38"
+      }
+    ],
+    "pipelines": [
+      {
+        "name": "pipeline_harmony_arkui_render",
+        "file": "config/pipelines/harmony_arkui_render.skill.yaml",
+        "type": "pipeline_definition",
+        "sha256": "c6efb3b0ce0d6cb12719eadc1e7df4ff6e3f1f817ff5917d94b53604b9d1b443"
+      },
+      {
+        "name": "pipeline_harmony_flutter",
+        "file": "config/pipelines/harmony_flutter.skill.yaml",
+        "type": "pipeline_definition",
+        "sha256": "a04c85b8afe0273824cc6c82b06857d4dbc2fbbc76e7fce31470f5d45f4f992c"
+      },
+      {
+        "name": "pipeline_harmony_kmp_render",
+        "file": "config/pipelines/harmony_kmp_render.skill.yaml",
+        "type": "pipeline_definition",
+        "sha256": "b4e74bc40444d761f8a878ac7b76e65351bbf4e75f2850770f2bd8f5aed63a6f"
+      },
+      {
+        "name": "pipeline_harmony_rn_render",
+        "file": "config/pipelines/harmony_rn_render.skill.yaml",
+        "type": "pipeline_definition",
+        "sha256": "a6dceb5154d4e0b7526cd4d6ce5a6ad32dc7f572fcccb31cc044a6a6c8dfd22a"
+      },
+      {
+        "name": "pipeline_harmony_web_pipeline",
+        "file": "config/pipelines/harmony_web_pipeline.skill.yaml",
+        "type": "pipeline_definition",
+        "sha256": "5e0cda1c697e47baca03cb7446d46dfba13914ab0354217b57804afc0d13b7ab"
+      }
+    ],
+    "skills": [
+      {
+        "name": "CPU 频点拆解分析",
+        "file": "config/skills/cpu_freq_analysis.yaml",
+        "sha256": "4da0676a0b3b9fa7fcf27c5088f1ab84a15110ac6d49f6cb0ea2c56ccdbd431d"
+      },
+      {
+        "name": "HiPerf BRBE 采样分析",
+        "file": "config/skills/hiperf_sampling_analysis.yaml",
+        "sha256": "3a308f55a076eca5f60b71b1324fc2d1c92b7ce3813c10110ab4c1a9f7d8581a"
+      },
+      {
+        "name": "IO性能分析",
+        "file": "config/skills/io_analysis.yaml",
+        "sha256": "ab0d82230e724fd39d30dcd3b47461626f2fb49bfc69ad8028b9cab44736b138"
+      },
+      {
+        "name": "Sendable 并行化机会点分析",
+        "file": "config/skills/sendable_parallel_analysis.yaml",
+        "sha256": "0c42368ecf207b6d1dfbe4d733c4ebef947ac83373692eb43e7e4a7755b442ef"
+      },
+      {
+        "name": "Tag 指令数分析",
+        "file": "config/skills/tag_instruction_analysis.yaml",
+        "sha256": "d5e5c86617e61bd0b88dac63fd8c662d6776f837d778f6c08a65789dc264565f"
+      },
+      {
+        "name": "丢帧分析",
+        "file": "config/skills/frame_drop.yaml",
+        "sha256": "d71fbe09949d62e9e2d2e4878750f18c0ccddec66a0f8c3d3abed6cd5c977fa6"
+      },
+      {
+        "name": "丢帧卡顿并行化机会点分析",
+        "file": "config/skills/frame_drop_parallel_analysis.yaml",
+        "sha256": "43af157c434285133eb82ce98346bd5e8eee254650c923f9a530fd6bcb83bbd5"
+      },
+      {
+        "name": "低内存拆解",
+        "file": "config/skills/low_memory.yaml",
+        "sha256": "9f0f5f0de890e0afef83f7cb1c374acda601e396ecc0de22a7750a5d0b6ebbae"
+      },
+      {
+        "name": "冷启动L3级拆解",
+        "file": "config/skills/cold_launch_l3_breakdown.yaml",
+        "sha256": "99e77f114e927cc4237a7073b7759339fc829f386c71012b94a4e27439805bdd"
+      },
+      {
+        "name": "冷启动并行化机会点分析 v2（山形扫描）",
+        "file": "config/skills/cold_launch_parallel_v2.yaml",
+        "sha256": "fa65eef154bbff6b6a25c5735b07d8d19ec04e7842cede37428e02d55eb0e7d2"
+      },
+      {
+        "name": "双trace负载功耗对比",
+        "file": "config/skills/load_compare.yaml",
+        "sha256": "2de642326df21f52c532f793e5a0526f496c2bbccf09b929a5928832e0ca98cc"
+      },
+      {
+        "name": "启动并行化机会分析",
+        "file": "config/skills/parallelism_analysis.yaml",
+        "sha256": "f31521080b6b1c900e47203d13acd6ee4364d1f9212442b70d7e98dbb5b85556"
+      },
+      {
+        "name": "启动性能分析",
+        "file": "config/skills/launch_perf.yaml",
+        "sha256": "882a79534a7fea230e36c360819f57210c20c85447488708872b60669255a4a9"
+      },
+      {
+        "name": "整机频点分布分析",
+        "file": "config/skills/freq_distribution.yaml",
+        "sha256": "933b8e61bf4bc39779e238735a1407d2c66c7d215a32ca7e7aa70e31ea0b4da4"
+      },
+      {
+        "name": "查杀分析",
+        "file": "config/skills/kill_analysis.yaml",
+        "sha256": "a969ab3685e01d641e3df3f37b4f09107fd7a7348006448c4e344402762eba7a"
+      },
+      {
+        "name": "渲染管线检测",
+        "file": "config/skills/detect_rendering_pipeline.yaml",
+        "sha256": "cace96c9bfb3a9db33c021aaec14ffb77d05d73c240772d7f49af3551586f2f5"
+      },
+      {
+        "name": "游戏关键线程调度分析",
+        "file": "config/skills/game_sched.yaml",
+        "sha256": "d184664396f515ecad45278747dfc478fcef91ad3f3a60e379c8b6c7679e4da6"
+      },
+      {
+        "name": "游戏启动性能分析",
+        "file": "config/skills/game_launch.yaml",
+        "sha256": "90faece67274af541bb810b12a65e7cb78b53947128c65212a16160e09aaaa1c"
+      },
+      {
+        "name": "游戏性能分析",
+        "file": "config/skills/game_performance.yaml",
+        "sha256": "ef12d06072c48381d5e3ef228d1eacfa6ab363ab8fe5b302ccce55ecef13483f"
+      },
+      {
+        "name": "簇代表样本深度分析",
+        "file": "config/skills/cluster_analysis.yaml",
+        "sha256": "f83940d0900e9d246e3c556198c52295bb3c8dfd2f7513e8ae85df6173d2d0f6"
+      },
+      {
+        "name": "视频播放故障分析",
+        "file": "config/skills/video_playback.yaml",
+        "sha256": "3dea9e18c8e82e1d7b061e694671971cfda2a7649ae13edec9f976dfd1f392e1"
+      },
+      {
+        "name": "调度分析",
+        "file": "config/skills/sched_analysis.yaml",
+        "sha256": "907607fc8d3fbfd313e5b514ae03cf41b59d983c8b1643f332d4f28a717b555a"
+      },
+      {
+        "name": "跨App冷启动并行化共性综合",
+        "file": "config/skills/cold_launch_cross_app.yaml",
+        "sha256": "99982021114e6ffea0966d8748fd4185f2d60a557a91e47695a7ff7e1acbc024"
+      },
+      {
+        "name": "通用指标探索",
+        "file": "config/skills/ad_hoc_exploration.yaml",
+        "sha256": "e1ec05464781264af03f3a928ce67f16e9ce33621a57cbc81d4f0e207e3c6dd0"
+      }
+    ]
+  },
+  "reference_root": "/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main",
+  "source_file_count": 509,
+  "source_manifest_algorithm": "SHA256 of sorted relative path + NUL + file SHA256 + LF; .py/.yaml/.yml/LICENSE, excluding .git/__pycache__/.venv",
+  "source_manifest_sha256": "808fe7e22dd17a64dd823db3d4c2660bd5abb9a0fa36e8031a72b5bbeb16d016"
+}
