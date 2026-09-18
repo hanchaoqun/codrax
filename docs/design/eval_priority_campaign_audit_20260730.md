@@ -2,7 +2,7 @@
 
 ## 最新进展导航（2026-09-17）
 
-HarmonyOS对照前三批见[主账本§8–§11](hmosperf_capability_gap_audit_20260917.md)：第二批组合搜索覆盖/取消及IO精确关联教学已`24d82316f`推送，末版五包全测通过；fixture纠正`42159453f`后清洁构建，首对生产eval严格2路各一次完成，机评与人审均FAIL，原结果保留。新增第三批修复预阶段“禁止手算却要求计量”及residue-only错误出口，并把资源语义同源传到预阶段/查询/最终成文；公共红绿、count3/race及分包回归通过，修后live未跑。生产业务span/IO事实交接缺口已分别公共复现，第四批施工中，不归模型波动。默认二进制附件仍是独立HMC-17待实现项，格式/平台/入口/来源与有界预览设计见[二进制附录](hmosperf_binary_input_comparison_20260917.md)，不以手动转换或已转换文本替代验收。
+HarmonyOS施工状态入口：[18类差距/79项任务清单](hmosperf_implementation_tasks_20260917.md)，含工具、skills、指标与实际管线逐名反查，8项实现交付/71项开放。第四批业务span/IO事实交接及双窗身份以`a784bc439`提交推送，公共红绿/count3/race×3、末版无skip全仓86包通过及构建完成；首次全仓来源单源门失败保留，合法`trace_query:run2`漏识别已复现修正。普通业务事实不获链上资格、窗口背景不晋升主因，原投影/补齐/超时保护不变。第三批`857920fa7`修复预阶段无工具却要求计量及residue-only错误教学，同源资源说明贯穿三阶段。首对生产eval严格2路各一次，机评/人审均FAIL，原结果保留；后续修复没有重跑live或代签通过。详情见[主账本§8–§12](hmosperf_capability_gap_audit_20260917.md)。下一批HMC-17.1–17.3默认二进制CLI附件，REPL/path入口独立验收；[二进制附录](hmosperf_binary_input_comparison_20260917.md)中的格式/平台/完整材料与预览边界不以手动转换或已转换文本替代。
 
 用户新排期已执行：B1716先以`93bf1a42d`提交推送，然后完成本地HarmonyOS_PerfMcpServer静态对照。源码实盘13个MCP工具、22个executor工具、24个skills、5个pipeline定义、109个指标；[主审计与统一施工账本](hmosperf_capability_gap_audit_20260917.md)及三份逐项附录/带SHA清单已以`7f20cdea0`推送。第一批HMC-03以`055bd749d`交付native_hook资源元信息查询可见性，公共红绿/count3/race3、四包回归、独立复核及构建通过；原始SQL全表保真原本已有，不把资源寿命/邻近/采样占比变因果。地址语义/栈解析/泄漏聚合仍未实施，r1088未运行，HarmonyOS本批使用独立编号hmos_gap_batch1_20260917，参考仓保持只读。
 

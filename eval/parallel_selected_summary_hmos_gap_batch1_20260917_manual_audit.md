@@ -41,4 +41,4 @@
 
 同源资源教学与预阶段无工具计量冲突已以`857920fa7`推送。业务片段、因果诊断IO计量交接已从真实`TraceQuery.Execute`到完整最终提示构建先红后绿；测试必须保留typed PerfTrace载体，不能用非紧凑上下文假绿。冷审另外发现并修正同一物理IO请求跨两个明确窗口被去重吞一窗的问题；重复同窗仍去重，不将双窗见证当两次请求。
 
-这些都是修后确定性数据流回归，不是第二次live eval。本批仍为机器FAIL 2/2、人工FAIL 2/2；业务窗自主定位、最终模型解释及其它领域能力仍须后续异构生产回放。详细实施、测试状态及剩余范围统一见[主账本§11](../docs/design/hmosperf_capability_gap_audit_20260917.md)。
+业务/IO交接以`a784bc439`提交推送，公共红绿/count3/race×3、末版全仓86包及构建通过。这些都是修后确定性数据流回归，不是第二次live eval。本批仍为机器FAIL 2/2、人工FAIL 2/2；业务窗自主定位、最终模型解释及其它领域能力仍须后续异构生产回放。详细实施、测试状态及剩余范围统一见[主账本§11](../docs/design/hmosperf_capability_gap_audit_20260917.md)及[子任务清单](../docs/design/hmosperf_implementation_tasks_20260917.md)。
