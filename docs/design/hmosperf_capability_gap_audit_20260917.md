@@ -333,3 +333,11 @@ h2已保11段D/36.757ms与12条原因记录/Σ39.157ms两种口径，但这不�
 输入所有权主体提交`f48e8d119`。上述全仓命令最终exit0：87个测试包（71个缓存）、13个无测试包，tool379.813s、agent70.652s、repl51.089s、orchestrator16.462s、tracequery96.957s、hitraceconv117.617s；日志`/tmp/hmc17-script-input-full-final-20260918.log`。本收据不包含后续附件教学与下述定时器增量，分别验收。
 
 同类生命周期冷审另发现写模式墙钟timer闭包持有可复用orchestrator：`Stop`无法撤回已经获准执行的回调，迟到回调可能取消下一次Run。改为捕获本轮token和当轮秒数，保持typed写期限来源，时长与读模式不变；不是修改600/300/600秒模型网络等待。确定性模拟旧回调在新Run开始后执行，验证只取消旧token并保600秒原值，另pin真实timer绑定；未伪称有先红收据。完整orchestrator通过18.704s，取消/写期限相邻race×3通过2.732s（`/tmp/hmc17-deadline-binding-{package,race}-20260918.log`）。热文件门随净减两行收紧至8201，不增加余量。
+
+## 17. 附件观察与测量教学分离（HMC-E2-1，HMC-01.3/16.4子缺陷）
+
+沿参考工具先查询再统计的职责划分，修本项目`attachedTracePreamble`共享源：原始片段只提供字面字段、单位和导航锚，不能仅凭有限预览推导总体量、热点排序、因果链或不存在性；测量需对完整材料、明确窗口和覆盖范围使用确定性查询。当前阶段没提供查询工具则留给后续有能力的阶段，不要求analyzer调用不存在的工具。预分诊仍产结构摘要，但不再要求凭原始预览铸造热点/卡顿结论。纯采样专用提示、已结构化摘要的模型候选边界、explorer查询导航均保留。
+
+公开BuildPromptContext阶段矩阵和实际NewAnalyzerAgent.Execute首次模型请求均先RED（`/tmp/hmc-attachment-teaching-red-20260918.log`，context0.914s、agent1.090s）；不是仅测试私有短句。修后定向count3通过0.895s/1.631s，race×3通过2.128s/2.325s；context/agent完整包通过0.545s/65.709s（同前缀`green/race/packages`日志）。工具prepared-material、显式窗自动补齐、帧补齐、参数真假、Description/schema与因果来源相邻count3通过1.981s（`/tmp/hmc-attachment-teaching-tool-neighbor-20260918.log`）。未改工具schema/Description，无需重钉其字节快照。
+
+本片关闭E2-1的已确认教学冲突，不等于已实测模型不再误调工具；h2/h3原机器与人工FAIL保持。E2-2未标记D桶名称、E2-3 IO完成/唤醒/总体展示及E2-4术语仍开放，01.3/16.4父项不整体销账。没有新原文扫描、输出替换、硬门、重试或系统根因代写；既有链上根因、明确时间窗及自动补齐不变。

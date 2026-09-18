@@ -3717,10 +3717,13 @@ func attachedTracePreamble(state attachedRuntimeTriageState, options ...attached
 	if opts.SampleOnly {
 		return "The attached material is sample-only: it provides performance samples, not a scheduling trace. It does not provide scheduling intervals, wakeup edges or frame-causal evidence. Preserve sample identity, stack and weight semantics; do not infer wall-clock execution duration or a blocking chain from sample counts. Any pre-triage candidate is navigation only; use deterministic queries for measured sample facts. " + lineNote
 	}
+	lineNote = "Preserve literal event fields and their units as observations; names and candidate anchors are navigation, not mechanism proof. " +
+		"Do not derive measured totals, hotspot rankings, causal chains, or absence from a bounded preview. Use deterministic queries over complete material with explicit window and coverage for measurements. " +
+		"If this stage has no query tool, leave measurement to a later capable stage; use only tools actually offered here.\n\n" + lineNote
 	switch state {
 	case attachedTriageProducer:
 		return "The user attached the performance trace below alongside their question. " +
-			"Prepare a structured summary for this raw trace, capturing hotspots, stalls, frame spans, and startup or jank envelopes. " +
+			"Prepare a structured summary for this raw trace, preserving literal event fields and candidate navigation anchors. " +
 			lineNote
 	case attachedTriageStructured:
 		return "The user attached the performance trace below alongside their question. " +
@@ -3728,7 +3731,7 @@ func attachedTracePreamble(state attachedRuntimeTriageState, options ...attached
 			lineNote
 	default:
 		return "The user attached the performance trace below alongside their question. " +
-			"No structured performance summary is available in this prompt. Treat this raw trace as unparsed input: derive hotspots, stalls, timestamps, and thread/event anchors yourself before relying on them later. " +
+			"No structured performance summary is available in this prompt. Treat this raw trace as observations and navigation, not a precomputed performance report. " +
 			lineNote
 	}
 }
