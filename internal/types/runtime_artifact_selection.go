@@ -1,7 +1,9 @@
 package types
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -53,10 +55,20 @@ func RuntimeArtifactSelectionViewFromAgentContext(ctx *AgentContext) RuntimeArti
 	if ctx == nil {
 		return RuntimeArtifactSelectionView{Policy: RuntimeArtifactAnalysisPolicy{ReasonCode: runtimeArtifactSelectionReasonNoArtifact}}
 	}
-	builder := runtimeArtifactSelectionBuilder{items: map[string]RuntimeArtifactSelectionItem{}}
+	builder := runtimeArtifactSelectionBuilder{
+		items:           map[string]RuntimeArtifactSelectionItem{},
+		preparedAliases: runtimeArtifactSelectionPreparedAliases(ctx),
+	}
 	builder.addPreflight(ctx.RuntimeArtifactPreflight)
 	attachedCapture := runtimeArtifactSelectionUniqueAttachedSource(ctx.RuntimeArtifactPreflight)
 	attachedHint := firstNonEmptyRuntimeArtifactSelectionString(ctx.AttachedHitraceSource, "attached_trace")
+	attachedCapture = builder.traceSource(attachedCapture)
+	attachedHint = builder.traceSource(attachedHint)
+	if len(builder.preparedAliases) > 0 && attachedCapture == "" && runtimeArtifactSelectionAttachedFormat(attachedHint) {
+		// A valid in-process receipt proves the current attachment's exact
+		// complete material even when no run-entry census was supplied.
+		attachedCapture = ctx.AttachedTraceMaterial.QueryPath()
+	}
 	if !runtimeArtifactSelectionAttachedFormat(attachedHint) && !runtimeArtifactSelectionSameSource(attachedHint, attachedCapture) {
 		// An explicit conflicting path/inline marker or an unrecognized union
 		// value cannot identify the one preflight attachment, including for
@@ -213,7 +225,57 @@ func deriveRuntimeArtifactAnalysisPolicy(view RuntimeArtifactSelectionView, rm *
 }
 
 type runtimeArtifactSelectionBuilder struct {
-	items map[string]RuntimeArtifactSelectionItem
+	items           map[string]RuntimeArtifactSelectionItem
+	preparedAliases map[string]string
+}
+
+// Alias only the two physical roles named by a currently valid preparation
+// receipt. Other files, bundle children, basenames and request prose do not
+// become this capture. Canonical spellings of those exact files are included
+// because run-entry inventory may already have resolved a user symlink.
+func runtimeArtifactSelectionPreparedAliases(ctx *AgentContext) map[string]string {
+	material := ctx.AttachedTraceMaterial
+	if material == nil || material.Validate(context.Background(), ctx.AttachedHitrace) != nil {
+		return nil
+	}
+	aliases := make(map[string]string, 4)
+	for _, path := range []string{material.SourcePath(), material.QueryPath()} {
+		for _, candidate := range []string{path, runtimeArtifactSelectionCanonicalPath(path)} {
+			if !filepath.IsAbs(candidate) || filepath.Clean(candidate) != candidate {
+				continue
+			}
+			if runtime.GOOS == "windows" {
+				candidate = strings.ToLower(candidate)
+			}
+			aliases[candidate] = material.QueryPath()
+		}
+	}
+	if material.Validate(context.Background(), ctx.AttachedHitrace) != nil {
+		return nil
+	}
+	return aliases
+}
+
+func runtimeArtifactSelectionCanonicalPath(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return ""
+	}
+	return filepath.Clean(resolved)
+}
+
+func (b *runtimeArtifactSelectionBuilder) traceSource(source string) string {
+	if !filepath.IsAbs(source) || filepath.Clean(source) != source {
+		return source
+	}
+	key := source
+	if runtime.GOOS == "windows" {
+		key = strings.ToLower(key)
+	}
+	if query, ok := b.preparedAliases[key]; ok {
+		return query
+	}
+	return source
 }
 
 func (b *runtimeArtifactSelectionBuilder) addPreflight(profile RuntimeArtifactPreflightProfile) {
@@ -267,6 +329,9 @@ func (b *runtimeArtifactSelectionBuilder) add(kind, source, carrier string, conf
 	carrier = strings.TrimSpace(carrier)
 	if kind != "trace" && kind != "log" {
 		return
+	}
+	if kind == "trace" {
+		source = b.traceSource(source)
 	}
 	if source == "" {
 		source = kind

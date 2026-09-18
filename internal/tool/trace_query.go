@@ -270,7 +270,14 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
 	var sourceAdaptation *traceQuerySourceAdaptation
 	var sourceRead types.TraceQuerySourceReadRef
+	var preparedPath string
+	var preparedView string
 	defer func() {
+		if preparedPath != "" {
+			if err := ctx.AttachedTraceMaterial.Validate(contextFromBus(ctx), ctx.AttachedHitrace); err != nil {
+				out = traceQueryPreparedMaterialFailure(preparedPath, preparedView, err)
+			}
+		}
 		traceQueryAnnotateSourceAdaptation(&out, sourceAdaptation)
 		if ctx != nil && ctx.Mutable != nil {
 			ctx.Mutable.StampTraceQuerySourceRead(sourceRead, &out)
@@ -374,9 +381,16 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		return *sourceReject, nil
 	}
 	if err := traceQueryValidateAttachedInputBeforeMaterialization(ctx, p); err != nil {
+		if traceQueryIsCancellation(err) {
+			return traceQueryCancellationResult(p.View, "attached_trace", err), nil
+		}
 		return traceQueryInputAdmissionFailure("", err), nil
 	}
 	path, sourceLabel, reject := resolveTraceQuerySource(ctx, p)
+	if reject == nil && sourceLabel == "attached_trace" && ctx != nil && ctx.AttachedTraceMaterial != nil {
+		preparedPath = path
+		preparedView = p.View
+	}
 	if reject == nil && ctx != nil && ctx.Mutable != nil {
 		sourceRead = ctx.Mutable.PrepareTraceQuerySourceRead(path)
 	}
@@ -470,21 +484,8 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			// canceled-view accounting — read the SAME typed in-presence signal on
 			// the parse-fire lane they read on the in-view lane, instead of the
 			// ambient dctx.Err() whose expiry can race an ordinary engine reject.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				reason := "canceled"
-				if errors.Is(err, context.DeadlineExceeded) {
-					reason = "deadline_exceeded"
-				}
-				return types.ToolResult{
-					ToolName: t.Name(),
-					Success:  false,
-					Summary:  fmt.Sprintf("trace_query run on %s was canceled before completion (%v); no partial results were published — narrow the time window or reduce the scope and re-run", path, err),
-					TraceViewCancellation: &types.TraceViewCancellation{
-						View:   tracequery.CanonicalViewName(p.View),
-						Reason: reason,
-					},
-					Timestamp: time.Now(),
-				}, nil
+			if traceQueryIsCancellation(err) {
+				return traceQueryCancellationResult(p.View, path, err), nil
 			}
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -700,7 +701,13 @@ func traceQueryInputAdmissionFailure(path string, err error) types.ToolResult {
 // persist it as attached_trace.txt. Ordinary explicit source=path calls do not
 // inspect an unrelated sticky attachment.
 func traceQueryValidateAttachedInputBeforeMaterialization(ctx *types.BusContext, p traceQueryParams) error {
-	if ctx == nil || strings.TrimSpace(ctx.AttachedHitrace) == "" || !traceQueryCallMayMaterializeAttached(ctx, p) {
+	if ctx == nil || !traceQueryCallMayMaterializeAttached(ctx, p) {
+		return nil
+	}
+	if ctx.AttachedTraceMaterial != nil {
+		return traceQueryPreparedMaterialError(ctx.AttachedTraceMaterial.Validate(contextFromBus(ctx), ctx.AttachedHitrace))
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) == "" {
 		return nil
 	}
 	if strings.TrimSpace(ctx.WorkDir) != "" {
@@ -3262,6 +3269,7 @@ func traceQueryRuntimeArtifactSelectionView(ctx *types.BusContext) types.Runtime
 		RuntimeArtifactPreflight: ctx.RuntimeArtifactPreflight,
 		AttachedLog:              ctx.AttachedLog,
 		AttachedHitrace:          ctx.AttachedHitrace,
+		AttachedTraceMaterial:    ctx.AttachedTraceMaterial,
 		AttachedHitraceSource:    ctx.AttachedHitraceSource,
 		AnalysisIR:               ctx.AnalysisIR,
 		PerfTrace:                perf,
@@ -3591,6 +3599,9 @@ func traceQueryNamedPipePathReject(path string) *types.ToolResult {
 }
 
 func resolveAttachedTraceQueryPath(ctx *types.BusContext) (string, bool) {
+	if ctx != nil && ctx.AttachedTraceMaterial != nil {
+		return ctx.AttachedTraceMaterial.QueryPath(), true
+	}
 	if ctx != nil && strings.TrimSpace(ctx.WorkDir) != "" {
 		blob := filepath.Join(ctx.WorkDir, promptctx.AttachedTraceBlobName)
 		if _, err := os.Stat(blob); err == nil {
@@ -3715,6 +3726,12 @@ func traceQueryPathDefaultsToAttachedTrace(ctx *types.BusContext, rawPath string
 	if !filepath.IsAbs(resolved) {
 		if abs, err := filepath.Abs(resolved); err == nil {
 			resolved = filepath.Clean(abs)
+		}
+	}
+	if ctx != nil && ctx.AttachedTraceMaterial != nil {
+		m := ctx.AttachedTraceMaterial
+		if m.MatchesPath(resolved) {
+			return true
 		}
 	}
 	// The prompt exposes the current session's immutable attachment snapshot

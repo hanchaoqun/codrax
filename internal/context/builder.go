@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
@@ -85,6 +86,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		AttachedLog:           bus.AttachedLog,
 		UserPinnedFiles:       bus.UserPinnedFiles,
 		AttachedHitrace:       bus.AttachedHitrace,
+		AttachedTraceMaterial: bus.AttachedTraceMaterial,
 		AttachedHitraceSource: bus.AttachedHitraceSource,
 		// Mirror BusContext.Mode onto the agent view so the analyzer
 		// can route mode-conditional behaviour (read-mode quality
@@ -887,6 +889,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// caller-provenance claims.
 	if !shouldSuppressAttachedRuntimeTrace(ac) {
 		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir, attachedTraceTriageState(ac), preStageDegradationSummaryFor(ac, types.StagePerfTriage), attachedTraceRenderOptions{
+			Material:          ac.AttachedTraceMaterial,
 			PreferTraceQuery:  attachedTraceQueryPreferredForAgentContext(ac) && availableTools["trace_query"],
 			ReadFileAvailable: availableTools["read_file"],
 		}); section != "" {
@@ -3619,6 +3622,8 @@ const (
 type attachedTraceRenderOptions struct {
 	PreferTraceQuery  bool
 	ReadFileAvailable bool
+	Material          *attachment.TraceMaterial
+	SampleOnly        bool // Prepared bundle metadata; guidance only, not query permission.
 }
 
 type attachedArtifactRenderOptions struct {
@@ -3699,13 +3704,18 @@ func attachedTracePreamble(state attachedRuntimeTriageState, options ...attached
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	lineNote := "Every line in the fenced block carries an artifact-local gutter `N│`; " +
-		"use that N only as the attached-trace line number / event row, not as a repository source citation. " +
-		"Trace timestamps, span names, and source-frame tokens remain the literal text after the gutter. " +
+	lineNote := "Every line in the fenced block carries an artifact-local gutter `N│`; use that N only as the attached-trace line number / event row, not as a repository source citation. "
+	if opts.Material != nil {
+		lineNote = "Every gutter `N│` below is a preview-local line, not a physical event coordinate or repository source citation. Establish event coordinates from queries of the complete material. "
+	}
+	lineNote += "Trace timestamps, span names, and source-frame tokens remain the literal text after the gutter. " +
 		"For perf_sample rows, fields such as `period`, `sample_period`, `event_count`, `sample_weight`, or `period_weight` are event/sample weights, not elapsed time; do not render them as ms/us/ns unless an explicit duration field says so. " +
 		"When a perf_sample row has `cpu=-1`, `cpu_known=false`, or `sample_kind=off_cpu`, its sample CPU/core is unavailable or off-CPU; any ftrace `[NNN]` or nearby sched_switch CPU is the scheduler event row CPU, not the perf sample CPU location.\n\n"
-	if opts.PreferTraceQuery {
+	if opts.PreferTraceQuery && !opts.SampleOnly {
 		lineNote += "This stage has a typed runtime-trace carrier. Prefer `trace_query` for scheduler state, wakeup chains, root-cause ranking, resource pressure, and artifact-local line/time anchors; use raw `read_file` on the trace blob only if trace_query reports unsupported/incomplete coverage or the user specifically needs a verbatim raw excerpt.\n\n"
+	}
+	if opts.SampleOnly {
+		return "The attached material is sample-only: it provides performance samples, not a scheduling trace. It does not provide scheduling intervals, wakeup edges or frame-causal evidence. Preserve sample identity, stack and weight semantics; do not infer wall-clock execution duration or a blocking chain from sample counts. Any pre-triage candidate is navigation only; use deterministic queries for measured sample facts. " + lineNote
 	}
 	switch state {
 	case attachedTriageProducer:
@@ -4076,6 +4086,9 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 	var opts attachedTraceRenderOptions
 	if len(options) > 0 {
 		opts = options[0]
+	}
+	if opts.Material != nil {
+		return formatPreparedTrace(raw, state, degradedSummary, opts)
 	}
 	raw = normalizeAttachedArtifactText(raw)
 	bundleInfo := attachedTraceBundlePromptInfoForRaw(raw)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"reflect"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/attachment"
 )
 
 // TestBusContextProjection_AllTypedSignalsPropagated_ToolBusContext
@@ -272,6 +274,12 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.PresentationDirective = "typed current-turn diagram request"
 	case "PresentationDiagramRequired":
 		ac.PresentationDiagramRequired = true
+	case "AttachedTraceMaterial":
+		ac.AttachedTraceMaterial = &attachment.TraceMaterial{}
+	case "AttachedHitrace":
+		ac.AttachedHitrace = "trace preview"
+	case "AttachedHitraceSource":
+		ac.AttachedHitraceSource = "harmony_hitrace"
 	default:
 		return false
 	}
@@ -332,6 +340,12 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.PresentationDirective = "typed current-turn diagram request"
 	case "PresentationDiagramRequired":
 		bc.PresentationDiagramRequired = true
+	case "AttachedTraceMaterial":
+		bc.AttachedTraceMaterial = &attachment.TraceMaterial{}
+	case "AttachedHitrace":
+		bc.AttachedHitrace = "trace preview"
+	case "AttachedHitraceSource":
+		bc.AttachedHitraceSource = "harmony_hitrace"
 	default:
 		return false
 	}

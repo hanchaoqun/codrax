@@ -77,7 +77,8 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// Tightened 8339→8265 after B1703 moved the complete plan-summary
 		// renderer and its godoc into write_change_plan_summary.go.
 		// The private follow-up dispatch scope adds no reusable headroom.
-		{path: "orchestrator.go", maxLines: 8265},
+		// HMC-17 moves attachment lifetime/validation into attached_trace_material.go.
+		{path: "orchestrator.go", maxLines: 8242},
 		{path: "write_change_plan_summary.go", maxLines: 85},
 		{path: "change_plan_status_persistence.go", maxLines: 122},
 		// §40.52: the "[CGEC] summary" operator log (96 lines moved); small

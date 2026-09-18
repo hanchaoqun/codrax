@@ -108,7 +108,10 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, pla
 		result.Caveats = append(result.Caveats, caveat)
 		result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "official simpleperf adapter did not produce .perftrace")
 	}
-	if err := finalizeResultTraceBundleWithLedger(ctx, input.displayPath, "", &result, ledger); err != nil {
+	// There is no primary systrace on this route, but the caller's selected
+	// output base still owns every derived publication, including the bundle.
+	// Passing an empty base placed the manifest beside the original capture.
+	if err := finalizeResultTraceBundleWithLedger(ctx, input.displayPath, outputPath, &result, ledger); err != nil {
 		return Result{}, true, err
 	}
 	return result, true, nil

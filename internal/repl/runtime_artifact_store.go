@@ -20,6 +20,7 @@ import (
 )
 
 const runtimeArtifactStoreSchemaVersion = 1
+const runtimeArtifactPreparedSchemaVersion = 2
 
 // latest.json is control-plane metadata, not an artifact payload. Keep its
 // admission ceiling deliberately small so a corrupt or attacker-controlled
@@ -29,14 +30,17 @@ const runtimeArtifactStoreSchemaVersion = 1
 const runtimeArtifactLatestMaxBytes int64 = 64 << 10
 
 type RuntimeArtifactRef struct {
-	SchemaVersion int       `json:"schema_version"`
-	ID            string    `json:"id"`
-	Kind          string    `json:"kind"`
-	Path          string    `json:"path"`
-	Bytes         int       `json:"bytes"`
-	SHA256        string    `json:"sha256"`
-	Source        string    `json:"source,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	SchemaVersion int    `json:"schema_version"`
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	Path          string `json:"path"`
+	Bytes         int    `json:"bytes"`
+	SHA256        string `json:"sha256"`
+	Source        string `json:"source,omitempty"`
+	// This marker is a restore restriction, never serialized query authority.
+	TraceRequiresReattach bool      `json:"trace_requires_reattach,omitempty"`
+	TraceOriginalPath     string    `json:"trace_original_path,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
 }
 
 type RuntimeArtifactSnapshot struct {
@@ -62,6 +66,10 @@ func NewRuntimeArtifactStore(root string) *RuntimeArtifactStore {
 }
 
 func (s *RuntimeArtifactStore) Put(kind, payload, source string) (RuntimeArtifactRef, error) {
+	return s.put(kind, payload, source, false, "")
+}
+
+func (s *RuntimeArtifactStore) put(kind, payload, source string, tracePreview bool, originalPath string) (RuntimeArtifactRef, error) {
 	if s == nil || strings.TrimSpace(s.dir) == "" {
 		return RuntimeArtifactRef{}, fmt.Errorf("runtime artifact store disabled")
 	}
@@ -69,9 +77,17 @@ func (s *RuntimeArtifactStore) Put(kind, payload, source string) (RuntimeArtifac
 	if kind == "" || strings.TrimSpace(payload) == "" {
 		return RuntimeArtifactRef{}, fmt.Errorf("runtime artifact: empty kind or payload")
 	}
+	if tracePreview && (kind != "trace" || strings.TrimSpace(originalPath) == "") {
+		return RuntimeArtifactRef{}, fmt.Errorf("prepared trace preview requires trace kind and original source path")
+	}
 	sum := sha256.Sum256([]byte(payload))
 	sha := hex.EncodeToString(sum[:])
 	id := fmt.Sprintf("%s-%s", kind, sha[:16])
+	schemaVersion := runtimeArtifactStoreSchemaVersion
+	if tracePreview {
+		id = fmt.Sprintf("trace-preview-%s", sha[:16])
+		schemaVersion = runtimeArtifactPreparedSchemaVersion
+	}
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return RuntimeArtifactRef{}, err
 	}
@@ -80,14 +96,16 @@ func (s *RuntimeArtifactStore) Put(kind, payload, source string) (RuntimeArtifac
 		return RuntimeArtifactRef{}, err
 	}
 	ref := RuntimeArtifactRef{
-		SchemaVersion: runtimeArtifactStoreSchemaVersion,
-		ID:            id,
-		Kind:          kind,
-		Path:          path,
-		Bytes:         len(payload),
-		SHA256:        sha,
-		Source:        strings.TrimSpace(source),
-		CreatedAt:     time.Now(),
+		SchemaVersion:         schemaVersion,
+		ID:                    id,
+		Kind:                  kind,
+		Path:                  path,
+		Bytes:                 len(payload),
+		SHA256:                sha,
+		Source:                strings.TrimSpace(source),
+		TraceRequiresReattach: tracePreview,
+		TraceOriginalPath:     originalPath,
+		CreatedAt:             time.Now(),
 	}
 	data, err := json.MarshalIndent(ref, "", "  ")
 	if err != nil {
@@ -107,6 +125,9 @@ func (s *RuntimeArtifactStore) SaveLatest(snapshot RuntimeArtifactSnapshot) erro
 		return nil
 	}
 	snapshot.SchemaVersion = runtimeArtifactStoreSchemaVersion
+	if snapshot.Trace.TraceRequiresReattach {
+		snapshot.SchemaVersion = runtimeArtifactPreparedSchemaVersion
+	}
 	if snapshot.UpdatedAt.IsZero() {
 		snapshot.UpdatedAt = time.Now()
 	}
@@ -204,7 +225,11 @@ func decodeRuntimeArtifactSnapshot(data []byte, snapshot *RuntimeArtifactSnapsho
 }
 
 func validateRuntimeArtifactSnapshot(snapshot RuntimeArtifactSnapshot) error {
-	if snapshot.SchemaVersion != runtimeArtifactStoreSchemaVersion {
+	expectedSchema := runtimeArtifactStoreSchemaVersion
+	if snapshot.Trace.TraceRequiresReattach {
+		expectedSchema = runtimeArtifactPreparedSchemaVersion
+	}
+	if snapshot.SchemaVersion != expectedSchema {
 		return fmt.Errorf("unsupported runtime artifact snapshot schema %d", snapshot.SchemaVersion)
 	}
 	if snapshot.UpdatedAt.IsZero() {
@@ -225,7 +250,14 @@ func validateRuntimeArtifactSnapshot(snapshot RuntimeArtifactSnapshot) error {
 		if !candidate.ref.Valid() {
 			return fmt.Errorf("runtime artifact snapshot has invalid %s ref", candidate.lane)
 		}
-		if candidate.ref.SchemaVersion != runtimeArtifactStoreSchemaVersion {
+		refSchema := runtimeArtifactStoreSchemaVersion
+		if candidate.ref.TraceRequiresReattach {
+			if candidate.kind != "trace" || strings.TrimSpace(candidate.ref.TraceOriginalPath) == "" {
+				return fmt.Errorf("runtime artifact snapshot has invalid prepared trace restore restriction")
+			}
+			refSchema = runtimeArtifactPreparedSchemaVersion
+		}
+		if candidate.ref.SchemaVersion != refSchema {
 			return fmt.Errorf(
 				"unsupported runtime artifact snapshot %s ref schema %d",
 				candidate.lane, candidate.ref.SchemaVersion,
@@ -256,6 +288,9 @@ func validateRuntimeArtifactSnapshot(snapshot RuntimeArtifactSnapshot) error {
 }
 
 func (s *RuntimeArtifactStore) Load(ref RuntimeArtifactRef, maxBytes int) (payload string, err error) {
+	if ref.TraceRequiresReattach {
+		return "", fmt.Errorf("prepared trace preview cannot be restored as complete material; reattach original source %q", ref.TraceOriginalPath)
+	}
 	if s == nil || strings.TrimSpace(s.dir) == "" {
 		return "", fmt.Errorf("runtime artifact store disabled")
 	}

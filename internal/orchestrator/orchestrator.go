@@ -20,6 +20,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/stopcond"
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/config"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/env"
@@ -63,6 +64,7 @@ type Orchestrator struct {
 	steering              steeringIntake           // TTY-3 mid-run steering notes (steering_notes.go)
 	attachedHitrace       string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
 	attachedHitraceSource string                   // advisory trace flavor/source hint from --htrace/--atrace spelling
+	attachedTraceMaterial *attachment.TraceMaterial
 	// presentationDirective is a per-run typed display requirement
 	// from the REPL turn policy. It is intentionally not concatenated
 	// into the objective string, because the objective feeds status
@@ -899,32 +901,6 @@ func (o *Orchestrator) SetAttachedLog(log string) {
 	o.attachedLog = log
 }
 
-// SetAttachedHitrace stores a HarmonyOS HiTrace / Android systrace
-// excerpt that every subsequent Run() attaches to
-// BusContext.AttachedHitrace. The StagePerfTriage pre-stage reads it
-// and dispatches perf_triager to extract a PerfBundle (jank spans,
-// main-thread stalls, cold-start timing).
-//
-// Sticky lifetime is identical to SetAttachedLog: CLI sets once from
-// --htrace / --htrace-text before Run(); REPL /htrace can carry it
-// across turns until /htrace clear. Empty string clears.
-func (o *Orchestrator) SetAttachedHitrace(trace string) {
-	o.attachedHitrace = trace
-}
-
-// AttachedHitrace returns the current attached-trace payload.
-func (o *Orchestrator) AttachedHitrace() string {
-	return o.attachedHitrace
-}
-
-func (o *Orchestrator) SetAttachedHitraceSource(source string) {
-	o.attachedHitraceSource = source
-}
-
-func (o *Orchestrator) AttachedHitraceSource() string {
-	return o.attachedHitraceSource
-}
-
 // SetPresentationDirective installs the current turn's typed display
 // requirement for the next Run. Unlike /log and /htrace this is not
 // sticky: Run consumes and clears it at entry, and REPL dispatch calls
@@ -1617,7 +1593,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// pipeline-start event, every conditional pre-stage, and analyzer dispatch.
 	// Natural-language paths are admitted later from typed analyzer policy;
 	// raw request prose/path shape is never an intent hard gate.
-	if err := validateRuntimeTraceInputsBeforeInvestigation(o.cancelTokenLoad().Context(), o.attachedHitrace); err != nil {
+	if err := o.validateAttachedTraceInputs(o.cancelTokenLoad().Context()); err != nil {
 		return nil, fmt.Errorf("orchestrator: trace input admission: %w", err)
 	}
 	// Wall-clock deadline for write-mode Runs. The timer fires at
@@ -2008,6 +1984,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.steering.openIntake() // TTY-3 (steering_notes.go)
 	defer o.steering.closeIntake()
 	o.busCtx.AttachedHitrace = o.attachedHitrace
+	o.busCtx.AttachedTraceMaterial = o.attachedTraceMaterial
 	o.busCtx.AttachedHitraceSource = o.attachedHitraceSource
 
 	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)

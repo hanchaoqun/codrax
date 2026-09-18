@@ -634,6 +634,7 @@ type REPL struct {
 	// the perf_triage pre-stage can pick it up.
 	attachedHitrace       string
 	attachedHitraceSource string
+	attachedTraceMaterial *attachment.TraceMaterial
 	pendingHitraceSource  string
 
 	// attachedLogAutoRouted marks attachedLog as installed by the
@@ -1025,12 +1026,7 @@ func New(cfg Config) *REPL {
 	if getter, ok := cfg.Runner.(interface{ AttachedLog() string }); ok {
 		r.attachedLog = getter.AttachedLog()
 	}
-	if getter, ok := cfg.Runner.(attachedHitraceGetter); ok {
-		r.attachedHitrace = getter.AttachedHitrace()
-	}
-	if getter, ok := cfg.Runner.(attachedHitraceSourceGetter); ok {
-		r.attachedHitraceSource = getter.AttachedHitraceSource()
-	}
+	r.seedAttachedTraceFromRunner()
 	return r
 }
 
@@ -1294,9 +1290,11 @@ func (r *REPL) maybeRestoreRuntimeArtifactForPolicy(policy TurnPolicy) {
 		body, err := r.runtimeArtifactStore.Load(snapshot.Trace, r.attachedTraceMaxBytes)
 		if err != nil {
 			logging.Warning("[repl/runtime_artifact] restore trace %s failed: %v", snapshot.Trace.ID, err)
+			if snapshot.Trace.TraceRequiresReattach {
+				r.warn("%s\n", preparedTraceReattachMessage(r.language, snapshot.Trace.TraceOriginalPath))
+			}
 		} else if strings.TrimSpace(body) != "" {
-			r.attachedHitrace = body
-			r.attachedHitraceSource = strings.TrimSpace(snapshot.Trace.Source)
+			r.replaceAttachedTraceText(body, strings.TrimSpace(snapshot.Trace.Source))
 			r.attachedHitraceAutoRestored = true
 			restored = true
 		}
@@ -1327,7 +1325,7 @@ func (r *REPL) persistCurrentRuntimeArtifactSnapshot() RuntimeArtifactSnapshot {
 		if source == "" {
 			source = runtimeArtifactSourceFromAttachment("trace", body)
 		}
-		ref, err := r.runtimeArtifactStore.Put("trace", body, source)
+		ref, err := r.persistTraceRuntimeArtifact(body, source)
 		if err != nil {
 			logging.Warning("[repl/runtime_artifact] persist trace failed: %v", err)
 		} else {
@@ -7109,15 +7107,7 @@ func (r *REPL) dispatch(line, display string) {
 			}
 		}
 		if r.attachedHitraceAutoRestored {
-			r.attachedHitrace = ""
-			r.attachedHitraceSource = ""
-			r.attachedHitraceAutoRestored = false
-			if setter, ok := r.runner.(attachedHitraceSetter); ok {
-				setter.SetAttachedHitrace("")
-			}
-			if setter, ok := r.runner.(attachedHitraceSourceSetter); ok {
-				setter.SetAttachedHitraceSource("")
-			}
+			r.clearAttachedTrace()
 		}
 	}()
 	r.currentTurnRuntimeArtifactKind = r.runtimeArtifactKindForCurrentTurn()
@@ -7425,11 +7415,9 @@ func (r *REPL) dispatch(line, display string) {
 		}
 	}
 	// Same propagation for the perf channel.
-	if setter, ok := r.runner.(attachedHitraceSetter); ok {
-		setter.SetAttachedHitrace(r.attachedHitrace)
-	}
-	if setter, ok := r.runner.(attachedHitraceSourceSetter); ok {
-		setter.SetAttachedHitraceSource(r.attachedHitraceSource)
+	if err := r.propagateAttachedTrace(); err != nil {
+		r.errorf("trace attachment: %v\n", err)
+		return
 	}
 
 	// Propagate sticky pipeline mode. Runners without SetMode
@@ -11639,15 +11627,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 			r.info(noTraceAttached(r.language))
 			return
 		}
-		r.attachedHitrace = ""
-		r.attachedHitraceSource = ""
-		r.attachedHitraceAutoRestored = false
-		if setter, ok := r.runner.(attachedHitraceSetter); ok {
-			setter.SetAttachedHitrace("")
-		}
-		if setter, ok := r.runner.(attachedHitraceSourceSetter); ok {
-			setter.SetAttachedHitraceSource("")
-		}
+		r.clearAttachedTrace()
 		r.success(attachedTraceClearedMsg(r.language))
 	case rest == "show":
 		if r.attachedHitrace == "" {
@@ -11688,9 +11668,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 			r.warn("hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
 		}
 		body := header + string(data)
-		r.attachedHitrace = body
-		r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
-		r.attachedHitraceAutoRestored = false
+		r.replaceAttachedTraceText(body, mergeTraceSourceHints("", r.currentTraceSourceHint(rest)))
 		r.success(attachedHitraceLoadedMsg(r.language, rest, len(data)))
 	}
 }

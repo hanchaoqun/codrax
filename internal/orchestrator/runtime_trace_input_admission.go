@@ -75,6 +75,12 @@ func validateTypedNamedTraceInputsBeforeExploration(ctx context.Context, bus *ty
 		return err
 	}
 	for index, path := range paths {
+		if m := bus.AttachedTraceMaterial; m != nil && typedNamedTraceAdmissionPathKey(path) == typedNamedTraceAdmissionPathKey(resolveTypedNamedTraceSource(m.SourcePath(), bus.RepoRoot)) {
+			if err := m.Validate(ctx, bus.AttachedHitrace); err != nil {
+				return err
+			}
+			path = m.QueryPath()
+		}
 		if err := tracequery.ValidateTraceInputPath(ctx, path); err != nil {
 			return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), path, err)
 		}

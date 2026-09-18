@@ -78,6 +78,9 @@ var projectionTypedSignalFields = []string{
 	"TurnRouteHint",
 	"PresentationDirective",
 	"PresentationDiagramRequired",
+	"AttachedTraceMaterial",
+	"AttachedHitrace",
+	"AttachedHitraceSource",
 }
 
 // ProjectionTypedSignalFields returns a copy of the typed-signal
@@ -132,6 +135,7 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		AttachedLog:            ctx.AttachedLog,
 		UserPinnedFiles:        ctx.UserPinnedFiles,
 		AttachedHitrace:        ctx.AttachedHitrace,
+		AttachedTraceMaterial:  ctx.AttachedTraceMaterial,
 		AttachedHitraceSource:  ctx.AttachedHitraceSource,
 		Language:               ctx.Language,
 		Preferences:            ctx.Preferences,
@@ -230,7 +234,10 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		Language: bus.Language,
 		// Preferences rides with Language (A4): the other half of the same
 		// one-sided-fold omission.
-		Preferences: bus.Preferences,
+		Preferences:           bus.Preferences,
+		AttachedTraceMaterial: bus.AttachedTraceMaterial,
+		AttachedHitrace:       bus.AttachedHitrace,
+		AttachedHitraceSource: bus.AttachedHitraceSource,
 
 		// Typed signals — every entry in projectionTypedSignalFields
 		// must appear here. Adding a new typed signal to BusContext

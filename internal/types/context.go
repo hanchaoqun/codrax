@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/canonpath"
 )
 
@@ -8380,6 +8381,8 @@ type BusContext struct {
 	// can run independently and contribute orthogonal hints — a single
 	// Run may carry both a panic log and a jank trace.
 	AttachedHitrace string `json:"attached_hitrace,omitempty"`
+	// In-process complete-file binding; a persisted preview cannot mint it.
+	AttachedTraceMaterial *attachment.TraceMaterial `json:"-"`
 
 	// AttachedHitraceSource preserves the user's attachment spelling or
 	// source hint for the perf trace channel. Values are advisory
@@ -9003,6 +9006,8 @@ type AgentContext struct {
 	// field today; other stages rely on the structured PerfTrace
 	// pointer below to avoid flooding prompts with raw ftrace text.
 	AttachedHitrace string `json:"attached_hitrace,omitempty"`
+	// Read-only preparation receipt for honest preview/full-material display.
+	AttachedTraceMaterial *attachment.TraceMaterial `json:"-"`
 
 	// AttachedHitraceSource mirrors BusContext.AttachedHitraceSource
 	// for tools that need producer/flavor hints without inspecting

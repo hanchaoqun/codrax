@@ -22,6 +22,10 @@ import (
 
 const exportBundleSchemaVersion = 1
 
+// Older readers must reject a prepared-preview export instead of ignoring its
+// reattachment restriction and treating trace.txt as the complete capture.
+const exportPreparedTraceSchemaVersion = 2
+
 type exportBundleManifest struct {
 	SchemaVersion int       `json:"schema_version"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -30,12 +34,14 @@ type exportBundleManifest struct {
 	Language      string    `json:"language,omitempty"`
 	TurnID        string    `json:"turn_id,omitempty"`
 	// Attachment integrity: sha256 of the payload files as written.
-	LogSHA256    string `json:"log_sha256,omitempty"`
-	TraceSHA256  string `json:"trace_sha256,omitempty"`
-	TraceSource  string `json:"trace_source,omitempty"`
-	HasRequest   bool   `json:"has_request,omitempty"`
-	HasAnswer    bool   `json:"has_answer,omitempty"`
-	CodraxOrigin string `json:"codrax_origin,omitempty"`
+	LogSHA256             string `json:"log_sha256,omitempty"`
+	TraceSHA256           string `json:"trace_sha256,omitempty"`
+	TraceSource           string `json:"trace_source,omitempty"`
+	TraceRequiresReattach bool   `json:"trace_requires_reattach,omitempty"`
+	TraceOriginalPath     string `json:"trace_original_path,omitempty"`
+	HasRequest            bool   `json:"has_request,omitempty"`
+	HasAnswer             bool   `json:"has_answer,omitempty"`
+	CodraxOrigin          string `json:"codrax_origin,omitempty"`
 }
 
 // handleExportCmd bundles a turn + attachments into
@@ -105,6 +111,11 @@ func (r *REPL) handleExportCmd(line string) {
 	if strings.TrimSpace(r.attachedHitrace) != "" {
 		manifest.TraceSHA256 = sha256Hex(r.attachedHitrace)
 		manifest.TraceSource = r.attachedHitraceSource
+		if r.attachedTraceMaterial != nil && !r.attachedTraceMaterial.SelfContainedText() {
+			manifest.SchemaVersion = exportPreparedTraceSchemaVersion
+			manifest.TraceRequiresReattach = true
+			manifest.TraceOriginalPath = r.attachedTraceMaterial.SourcePath()
+		}
 		if !write("trace.txt", r.attachedHitrace) {
 			return
 		}
@@ -202,7 +213,8 @@ func (r *REPL) handleImportCmd(line string) {
 		r.errorf("import manifest: %v\n", err)
 		return
 	}
-	if manifest.SchemaVersion != exportBundleSchemaVersion {
+	if manifest.SchemaVersion != exportBundleSchemaVersion &&
+		(manifest.SchemaVersion != exportPreparedTraceSchemaVersion || !manifest.TraceRequiresReattach) {
 		r.errorf("import: unsupported bundle schema %d (this codrax reads %d)\n", manifest.SchemaVersion, exportBundleSchemaVersion)
 		return
 	}
@@ -260,13 +272,16 @@ func (r *REPL) handleImportCmd(line string) {
 			return
 		}
 	}
+	if manifest.TraceRequiresReattach {
+		r.errorf("import: %s\n", preparedTraceReattachMessage(r.language, manifest.TraceOriginalPath))
+		return
+	}
 	// Every payload verified — only now do the sticky lanes change.
 	if logPayload != "" {
 		r.attachedLog = logPayload
 	}
 	if tracePayload != "" {
-		r.attachedHitrace = tracePayload
-		r.attachedHitraceSource = manifest.TraceSource
+		r.replaceAttachedTraceText(tracePayload, manifest.TraceSource)
 	}
 	request := readOpt("request.txt")
 	answer := readOpt("answer.md")
