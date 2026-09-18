@@ -1464,11 +1464,13 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 		Limit:                p.Limit.Int(),
 		BucketMs:             p.BucketMs.Float64(),
 		CoreTopology:         p.CoreTopology,
-		IncludeWindowStats:   p.IncludeWindowStats != nil && p.IncludeWindowStats.Bool(),
 	}
 	q.TracePlatformHint, q.TracePlatformSource = tracePlatformHintForQuery(ctx, p, sourceLabel, path)
 	q.TraceFlavorHint, q.TraceFlavorHintSource = traceFlavorHintForQuery(ctx, p, sourceLabel, path, q.TracePlatformHint, q.TracePlatformSource)
-	if p.IncludeWindowStats == nil && strings.TrimSpace(p.View) == "wakeup_chain" {
+	if p.IncludeWindowStats != nil {
+		q = q.WithWindowStats(p.IncludeWindowStats.Bool())
+	} else if strings.TrimSpace(p.View) == "wakeup_chain" {
+		// Keep the effective default on the pre-Run publication query too.
 		q.IncludeWindowStats = true
 	}
 	// tool_width_trace_query_event_search_limit: the operator override for the

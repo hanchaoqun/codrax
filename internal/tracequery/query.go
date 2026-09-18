@@ -1382,7 +1382,7 @@ func normalizeQuery(idx *Index, q Query) Query {
 	if q.TimeEnd == 0 && !q.TimeEndSet && q.LineEnd == 0 && idx != nil {
 		q.TimeEnd = idx.LastTs
 	}
-	if q.View == "wakeup_chain" && !q.IncludeWindowStats {
+	if q.View == "wakeup_chain" && !q.windowStatsSpecified {
 		q.IncludeWindowStats = true
 	}
 	if q.TraceFlavor == "" {

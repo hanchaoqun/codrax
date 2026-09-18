@@ -1119,7 +1119,11 @@ type Query struct {
 	// (per-hop pre-wakeup wait) or only a scheduling-contention neighbor.
 	ViaThread          string
 	IncludeWindowStats bool
-	Limit              int
+	// windowStatsSpecified distinguishes an explicit false from the legacy
+	// zero-value default for wakeup_chain. Set through WithWindowStats; copied
+	// with Query, never serialized or included in causal board identity.
+	windowStatsSpecified bool
+	Limit                int
 	// BucketMs is the view=window_sweep coverage bucket width in
 	// milliseconds; StreamWindowSweep clamps it via ClampWindowSweepBucketMs
 	// (default 100, allowed 50..500). Ignored by every other view.

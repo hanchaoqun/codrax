@@ -265,6 +265,8 @@
 
 ## 14. 目录对照发现的排序教学漂移（第六批，HMC-01.2 / HMC-16.4子缺陷，P1）
 
+本批已以`af2e2548d`提交推送，实际模型回放不随代码验收自动销账。
+
 2026-09-18在第五批最终全仓验收期间只读发现：`skill.TraceQueryViewTeachings`的`root_cause_rank`行仍教按same-chain cumulative_impact_ms排序及co-primary；`explorerEvaluator.buildExplicitRuntimeTracePathStartInstruction`另有同形直写。公开工具Description/Parameters却已应用closed matrix，要求按effective_impact_ms严格唯一首位。explorer的compose只拼接，`buildInitialMessages`→`AppendDynamicInstruction`将该动态提示原样追加，没有工具侧的后置替换；旧测试甚至pin着累计排序短语。
 
 第五批提交推送后，永久回归通过真实`NewExplorerAgent.Execute`和`NewFinalizerAgent.Execute`截取首次adapter请求（本地测试适配器，无远程模型），分别检查system、动态user以及实际提供的工具Description/Parameters。explorer两种typed scope都先红；finalizer必须加入typed `PerfObservation.Kind=root_cause_rank`且不带`TraceEvidenceAuthority`才能触发旧legacy提示，仅有Frames不足以覆盖。两组红收据为`/tmp/hmc01-trace-teaching-red-20260918.log`（1.109s）及`/tmp/hmc01-trace-teaching-red-full-20260918.log`（0.983s），均为行为断言失败，不是编译红。
@@ -283,4 +285,14 @@
 
 2026-09-18公开`TraceQuery.Execute`已确认反例（`/tmp/hmos-params-stats-probe-20260918.log`）：同一完整5.000–5.007s调度夹具，参数省略/false/true三次都返回`WindowStats`，三次均非memo命中且均保留唤醒链。公开schema说明此参数控制附带窗口统计、默认true，工具映射也保留false，但引擎`normalizeQuery`将false重设为true。不是内部计算必需而仅在模型前隐藏：最终JSON亦包含显式要求关闭的整份统计。
 
-本项归HMC-01.2参数一致性，安排在教学批之后独立修复：保留“省略即true”兼容，用明确设置状态区分false与省略；仅改变`wakeup_chain`统计发布，不更改链构建、根因排行及自动补齐默认行为。永久回归需覆盖省略/true/false、重复归一化、冷/暖memo顺序、公开JSON/观察及链字节恒等。根因所需内部统计不能因该显示参数被关掉，显式窗和板身份也必须保持；当前尚未实施，不计入交付数量。
+本项归HMC-01.2参数一致性，在教学批推送后独立施工。对照参考`core/query_engine.py::build_query`，可取的是按键存在性合并默认值、保留显式false；不搬其base_params最后覆盖所有调用参数的规则，也不另建SQL内核。
+
+永久公开测试先红（`/tmp/hmc01-window-stats-public-red-final-20260918.log`，1.368s）：普通/缓存/别名及单窗、多窗子查询均忽略false。早期自动窗测试夹具先误把worker上的marker配target PID，后又误认为大文件窗口默认会裁剪关系；已分别按真实目标marker和“完整索引优先、超预算才关系裁剪”的生产合同修正，原日志保留，不把夹具错误算成生产gap。
+
+新增值拷贝方法`Query.WithWindowStats(bool)`和私有presence标志：省略继续默认true，显式false不会被normalize覆盖；不新增模型参数/公开JSON字段，也不改变rank board指纹。工具工厂仍在调用Run前写明有效默认值，避免发布身份依赖Run内部副本；只控制wakeup_chain附带统计。默认自动补齐、root_cause_rank/frame_root_cause_bundle/jank recipe等所需统计继续计算并发布。
+
+初验已通过（tracequery0.600s、tool1.292s）：省略/true/false和冷热memo交错、causal_impact别名/字符串布尔、统计/业务/语义/频率附加项、完整及关系裁剪索引、单/多自动窗、归一化幂等、Query副本与取消方法组合、链字节恒等、非空榜单与板身份保护。仅显式关闭的统计附加项撤下，不回收已有链证据。定向race×3通过tracequery2.278s、tool4.697s（`/tmp/hmc01-window-stats-race-20260918.log`），包含显式窗35/31ms IO、普通业务片段与帧自动补齐保护；构建通过。
+
+冻结生产代码后，全仓无skip的`go test -p 2 ./...`整条命令exit0，87个有测试包通过（49个缓存命中）、13个无测试包，包括tool360.067s、tracequery95.073s、agent71.639s、hitraceconv121.914s、repl49.627s、tracediag5.657s。收据`/tmp/hmc01-window-stats-full-20260918.log`；等待期间测试驱动暂未收尾，保留了非破坏性系统采样，最后自然退出，不将等待过程误报为测试失败。
+
+冷审再补独立发布身份pin：固定完全相同的Result及payload/raw引用，直接消费Run之前的工具工厂Query，验证省略参数与显式true身份相同、false不同；防止Run内部副本掩盖工厂默认值漂移。全仓命令在这条纯增量测试加入之前完成；增量测试与全部公开参数测试另count3/race×3通过1.508s/3.908s（`/tmp/hmc01-window-stats-publication-{,race-}final-20260918.log`），工具Description字节golden另count3通过0.797s。本批确定性验收完成，不整体销HMC-01.2；下一对live只验修后行为，不冒称已完成匹配基线A/B。
