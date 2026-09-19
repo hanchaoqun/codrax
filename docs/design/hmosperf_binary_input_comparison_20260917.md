@@ -190,7 +190,7 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 
 ### 9.1 首片实施与退出边界
 
-主账本§21记录本片代码、完整收据与提交状态。默认Prepare新增gzip文本运输，公开查询和系统自动补齐复用同一完整材料；不新增parser或模型原文硬门。参考上述真实`.sys.gz`已只读通过默认准备、全量SHA核对及StreamScan：54,122,686字节、429,756事件、429,766行；现有250000事件BuildIndex内存上限不改，也不把流式解析成功写成模型答案通过。该本地真实采集验收按环境变量显式启用，不把私人文件纳入仓内夹具。
+本片已以`01a378349`推送；全仓87包及完整收据见主账本§21。默认Prepare新增gzip文本运输，公开查询和系统自动补齐复用同一完整材料；不新增parser或模型原文硬门。参考上述真实`.sys.gz`已只读通过默认准备、全量SHA核对及StreamScan：54,122,686字节、429,756事件、429,766行；现有250000事件BuildIndex内存上限不改，也不把流式解析成功写成模型答案通过。该本地真实采集验收按环境变量显式启用，不把私人文件纳入仓内夹具。
 
 新增公共格式矩阵有7条阳性：OHOSPROF bytrace、PERFILE2、SIMPLEPERF、无bytrace根的HIPERF gzip、bytrace＋HIPERF gzip、唯一ZIP/OHOSPROF和ZIP/RMQ；3条阴性：未知插件库存、无样本PERFILE2库存、多候选ZIP。全部走真实Coordinator→TraceQuery.Execute，不使用converter stub代替生产路径；合成合法格式字节与实机采集仍分列。能力收据、样本与调度时钟隔离、单次准备/暖复用、原件不变和受管目录均有断言。
 
