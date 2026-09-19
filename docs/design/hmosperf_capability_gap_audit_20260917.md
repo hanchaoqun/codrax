@@ -400,7 +400,7 @@ E2-2后续只读核实（未施工）：`query.go`的`offCPUDStateVerdictForQuer
 
 末端独立公开反例又复现：A、alias→A、B均已准备后，alias改指B；候选枚举提前把alias覆盖成B的queryPath，导致省略source的查询及冷自动补齐都绕过首次绑定，成功发布B的证据。保留实际所选路径直到准备检查，派生坐标只参与去重，两个反例RED→GREEN；对应正常去重/补齐阳性及负控race×3通过3.338s，收据`/tmp/hmc175-named-alias-{red,green,race}.log`。最终全仓收据待补。
 
-工具Description与Parameters共享一条准备能力说明，退役“所有二进制必须手工转换”的过时教学；另校准同处既有来源说明：只有经验证bundle的成员可组合，裸邻接`.perftrace`不自动合并。此行为原已由引擎实行，本批只纠正文案而非修改来源选择。字节golden按演进记录显式更新，因果排序、计量和帧合同不改。未运行新live eval，§15 h2/h3机器与人工FAIL以及匹配基线A/B债仍保留；不能用上述确定性通过倒签模型答案。17.5当前验收中，17.6格式/平台矩阵、17.7现存SQLite和17.8二进制流式输入仍开放。
+工具Description与Parameters共享一条准备能力说明，退役“所有二进制必须手工转换”的过时教学；另校准同处既有来源说明：只有经验证bundle的成员可组合，裸邻接`.perftrace`不自动合并。此行为原已由引擎实行，本批只纠正文案而非修改来源选择。字节golden按演进记录显式更新，因果排序、计量和帧合同不改。未运行新live eval，§15 h2/h3机器与人工FAIL以及匹配基线A/B债仍保留；不能用上述确定性通过倒签模型答案。此时17.5尚在验收，最终交付收据见本节末；17.6格式/平台矩阵、17.7现存SQLite和17.8二进制流式输入仍开放。
 
 首轮全仓`/tmp/hmc175-full-20260919.log`exit1，仅tool包的`TestTraceQueryDescriptionReplaceArmsAllFire`仍钉旧的无条件`.systrace+.perftrace`措辞。已同步为“validated sibling bundle / only admitted members / unbound sibling不自动合并”三个正pin，保留原退役词负pin与物理来源/时钟pin；不是删除漂移测试或降低来源门。其他86个测试包通过；此轮不是末版绿收据。
 
@@ -408,4 +408,6 @@ E2-2后续只读核实（未施工）：`query.go`的`offCPUDStateVerdictForQuer
 
 最终20组Coordinator与4组新增模型视图/大小写公开测试race×3分别通过14.458s/7.856s（`/tmp/codrax-hmc17-logical-id.5mheN8/final-case-and-view-race.log`）；case-alias真RED及logical-ID真RED在同目录分留。普通可列举只读目录、不同名hardlink独立、search-only父目录明确权限错误在本机真实PASS，0.772s详细收据`platform-permission-pins.log`；当前APFS不能创建大小写相异的两个独立entry，对应两项明确Skip，不冒称已有case-sensitive卷运行证据。Windows/amd64仅CGO=0测试二进制交叉构建成功，未原生执行。已知新增适用边界：父目录可search但不可列举时协调器保守拒绝源身份确认，不更改权限，不回退仅词面身份、不称格式损坏；该更低权限路径的能力增强仍在17.6矩阵。
 
-生产代码和测试冻结后的最终完整命令`go test -p 2 ./...`exit0：87个测试包（69个缓存）、13个无测试包，tool346.122s、orchestrator16.292s、repl48.586s、tracediag5.476s、traceinput2.519s、tracequery90.424s、types32.232s；收据`/tmp/hmc175-full-final-20260919.log`。未使用run/skip筛选，包内平台条件Skip仍按上一段保留。末版七包定向race×3均实际匹配并通过：tool16.595s、traceinput13.725s、orchestrator5.021s、context2.475s、repl2.932s、types4.155s、tracequery3.196s（`/tmp/hmc175-acceptance-final-race-20260919.log`）。构建通过（`/tmp/hmc175-acceptance-final-build-20260919.log`）；Linux/amd64的traceinput CGO=0交叉构建通过（`/tmp/hmc175-linux-build-20260919.log`），不冒称Linux或Windows原生验收。此前旧措辞pin的两条失败收据保留，不覆盖为绿；未追加模型eval。17.5验证完成，交付状态待本批提交推送收据确认后更新。
+生产代码和测试冻结后的最终完整命令`go test -p 2 ./...`exit0：87个测试包（69个缓存）、13个无测试包，tool346.122s、orchestrator16.292s、repl48.586s、tracediag5.476s、traceinput2.519s、tracequery90.424s、types32.232s；收据`/tmp/hmc175-full-final-20260919.log`。未使用run/skip筛选，包内平台条件Skip仍按上一段保留。末版七包定向race×3均实际匹配并通过：tool16.595s、traceinput13.725s、orchestrator5.021s、context2.475s、repl2.932s、types4.155s、tracequery3.196s（`/tmp/hmc175-acceptance-final-race-20260919.log`）。构建通过（`/tmp/hmc175-acceptance-final-build-20260919.log`）；Linux/amd64的traceinput CGO=0交叉构建通过（`/tmp/hmc175-linux-build-20260919.log`），不冒称Linux或Windows原生验收。此前旧措辞pin的两条失败收据保留，不覆盖为绿；未追加模型eval。
+
+本批代码与文档已以`ff4f62eef`提交推送main，远端复核0/0、工作树干净后更新交付清单。17.5关闭，累计13/79项实现已交付、66项开放；17.6按格式/权限/平台分别推进，不因本批来源协调已交付而提前销账。REPL17.4与命名路径17.5分两批交付，未合并掩盖各自验收边界。
