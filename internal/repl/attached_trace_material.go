@@ -83,7 +83,7 @@ func (r *REPL) persistTraceRuntimeArtifact(body, source string) (RuntimeArtifact
 
 func preparedTraceReattachMessage(lang, originalPath string) string {
 	if isZh(lang) {
-		return fmt.Sprintf("已保存的 trace 仅为预览，不能恢复为完整附件。请重新附加原始文件 %q；二进制文件目前请通过 CLI --htrace 接入。", originalPath)
+		return fmt.Sprintf("已保存的 trace 仅为预览，不能恢复为完整附件。请用 /htrace %s 重新附加原始文件（二进制文件会自动准备）。", originalPath)
 	}
-	return fmt.Sprintf("The saved trace is a preview, not a complete attachment. Reattach original file %q; use CLI --htrace for binary files until REPL preparation is available.", originalPath)
+	return fmt.Sprintf("The saved trace is a preview, not a complete attachment. Reattach the original with /htrace %s (binary files are prepared automatically).", originalPath)
 }

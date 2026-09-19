@@ -163,7 +163,7 @@ func TestREPL_HandleHitraceLoad_HonorsCapWithSourceHeader(t *testing.T) {
 	if !strings.HasPrefix(r.attachedHitrace, "# codrax-source: "+path+"\n") {
 		t.Fatalf("trace header missing: %q", r.attachedHitrace[:min(len(r.attachedHitrace), 80)])
 	}
-	if !strings.Contains(out.String(), "hitrace truncated") {
+	if !strings.Contains(out.String(), "查询仍使用完整文件") || !strings.Contains(r.attachedHitrace, "# codrax-preview: truncated") || r.attachedTraceMaterial == nil || r.attachedTraceMaterial.QueryPath() != path {
 		t.Errorf("expected truncation warning in output, got: %q", out.String())
 	}
 }
@@ -227,7 +227,7 @@ func TestREPL_HandleHitraceLoad_RejectsHeaderOnlyCapWithoutMutation(t *testing.T
 	if r.attachedHitrace != "existing trace\n" || r.attachedHitraceSource != "existing-source" {
 		t.Fatalf("header-only load mutated sticky state: trace=%q source=%q", r.attachedHitrace, r.attachedHitraceSource)
 	}
-	if !strings.Contains(out.String(), "at least 1 content byte") {
+	if !strings.Contains(out.String(), "cannot fit provenance headers and trace content") || !r.traceAttachmentFailed {
 		t.Fatalf("header-cap rejection missing: %s", out.String())
 	}
 }
@@ -240,7 +240,7 @@ func TestREPL_HandleHitraceLoad_SafetyProbeIndependentOfHeaderCap(t *testing.T) 
 	}
 	header := "# codrax-source: " + path + "\n"
 	out := &bytes.Buffer{}
-	r := New(Config{In: strings.NewReader(""), Out: out, AttachedTraceMaxBytes: len(header) + 1})
+	r := New(Config{In: strings.NewReader(""), Out: out, AttachedTraceMaxBytes: len(header) + 1, RuntimeAnchor: t.TempDir()})
 	r.attachedHitrace = "existing trace\n"
 	r.attachedHitraceSource = "existing-source"
 
@@ -249,7 +249,7 @@ func TestREPL_HandleHitraceLoad_SafetyProbeIndependentOfHeaderCap(t *testing.T) 
 	if r.attachedHitrace != "existing trace\n" || r.attachedHitraceSource != "existing-source" {
 		t.Fatalf("small publish cap admitted binary: trace=%q source=%q", r.attachedHitrace, r.attachedHitraceSource)
 	}
-	if !strings.Contains(out.String(), "/htrace convert") {
+	if !strings.Contains(out.String(), "no_query_ready_material") || !r.traceAttachmentFailed || r.attachedTraceMaterial != nil {
 		t.Fatalf("binary small-cap rejection lacks recovery: %s", out.String())
 	}
 }

@@ -220,7 +220,7 @@
 
 ## 12. 子任务拆解与防遗漏索引
 
-按用户追加要求，18类差距细分为79项稳定编号任务，列明依赖、可验证的退出条件、状态和交付提交，见[实施任务清单](hmosperf_implementation_tasks_20260917.md)。当前11项已实现并推送，68项仍开放，包含持续验收而非全是故障。工具/指标/skill/管线不会因其中一个子项通过而整体销账。
+按用户追加要求，18类差距细分为79项稳定编号任务，列明依赖、可验证的退出条件、状态和交付提交，见[实施任务清单](hmosperf_implementation_tasks_20260917.md)。截至2026-09-19的§19批次，12项实现已交付，67项仍开放，包含持续验收而非全是故障。工具/指标/skill/管线不会因其中一个子项通过而整体销账。
 
 对照机器清单及本报告工具表逐名核验：109/109指标、24/24 skills、5/5实际管线、24/24不同工具名均有任务归属，零漏项、零重复名称；79个任务ID唯一，18个父类齐全。24个不同工具名由13个MCP工具与11个非MCP工具构成，executor仍为22，不将重叠工具重复计缺陷。HMC-17.1–17.3已交付；§14排序/参数子缺陷已收尾，§15保留修后模型回放的失败，§16先收REPL输入所有权，再恢复默认准备和path入口独立验收。
 
@@ -361,3 +361,25 @@ E2-2后续只读核实（未施工）：`query.go`的`offCPUDStateVerdictForQuer
 完整全仓命令`go test -p 2 ./...`最终exit0，无run/skip：87个测试包（64个缓存）、13个无测试包；agent68.643s、tool363.308s、hitraceconv110.597s、orchestrator16.184s、tracequery97.132s、tracediag5.684s（`/tmp/hmc17-preparation-final-full-20260918.log`）。后段go测试驱动短时尚未返回，尝试只读采样时进程已自然退出；未终止测试，不把过程等待算成失败或网络超时。增量同源化以上节四包race及整包收据补足，未运行新live eval。
 
 本片代码与任务/架构说明以`7e13b0fdd`提交并推送main。17.4仍为部分实施：共享事务已经可供REPL接线，但本地非LLM取消目标、TTY命令/粘贴区分、失败后排队问题确认、真二进制双别名公共Loop验收均未销账。79个任务编号保持稳定，11项已交付/68项开放，未因本片基础增强虚增完成数。
+
+## 19. REPL默认二进制准备与失败恢复（HMC-17.4，2026-09-19）
+
+本轮开始工作树干净，`8f912dd8e`与重新获取的远端main相同，没有待提交旧工作混入。再次逐行核对参考`server.py:133 get_hitrace_path`与`:547 convert_hitrace_to_sqlite`：直接原件接入和工具组合是要补的能力；后缀准入、目录首文件选择、相邻DB写入/mtime缓存、固定300秒转换时限不复制。本批仅关闭REPL明确文件入口；目录发现、现存SQLite和typed path查询协调仍按原任务各自开放。
+
+公开`New/Loop`真实RMQ回归先得到RED：`/htrace`与`/atrace`仍把二进制拒为非文本；完整/截断文本及IO业务fixture到Run没有完整材料收据。接线后五组公共入口回归通过，binary预览外尾部通过真实`attached_trace`工具可查询；复用既有IO业务fixture验证明确窗口31ms完成闭环IO根因和业务span，不把PID900背景IO晋升链上。原件字节不变，派生物仅在受管runtime根，schema1/2恢复限制保持。
+
+实现分三条边界：
+
+1. 新`tracePreparationOperation`只持本地ctx和一次性提交权；前置核对runner完整材料能力，Begin成功后取消与Commit+tuple发布同锁，失败Discard只用持有目录权限，重复/迟到回调不碰下一Run。
+2. 共用终身脚本reader和TTY owner，准备期不连接旧pipeline steering、不调用LLM或用量重置。TTY显式命令回调只处理键入`/cancel`，不扫描paste数据；原有流水线TTY逻辑保持。WSL runtime备用根从cmd原逻辑提取共享helper，平台/宿主事实测试无更改用户HOME。
+3. 失败/取消锁存明确附件状态，保留旧tuple但暂存随后输入；成功重试、`/htrace keep`或`/htrace clear`才恢复，`show/help/exit/cancel`可立即使用。包括未进入运行期队列、错误已打印后才到达的pipe问题；直接Run恢复不能绕过。暂存32条/8MiB，溢出明确披露，paste命令形在恢复后仍为数据。
+
+确定性验收：公共二进制/文本/窗口组GREEN（1.158s），合并实际信号组count3通过2.158s；预读`/cancel`＋前后两问题公开Loop count10通过1.714s，未调用旧runner取消/steering且原件和旧材料不变。失败→保持/清空/重试、迟到pipe、直接Run拒绝和命令形paste的公共回归通过1.611s。旧测试按新能力调整：文本产生自己的新材料，不再断言nil；失败恢复须先keep，不再允许旧附件被隐式使用；预览截断与原始完整查询分开断言，不降安全门。
+
+独立子进程真实SIGINT/SIGTERM测试持有真实Begin的RMQ未发布材料，用pipe握手暂停回滚，证明取消不提前关闭done、Discard完成后才退出；不是converter stub，也不冒称它等于无seam公共Loop的精确转换时序。相邻整包repl50.592s/cmd11.099s/traceinput2.863s通过（`/tmp/hmc17-repl-preparation-packages-20260919.log`）。冷审又发现单向done允许Loop在信号退出前抢跑，已补准备期专属双向退出barrier：请求终止与finish同锁，若终止先获准，finish在回滚/输入交接后通知signal owner，再等进程退出而不返回Loop。已发布材料不因晚到终止撤销，finish先完成则已离开该本地退出域。新增真实二次SIGINT退出130、SIGTERM退出143；测试移除人为select阻塞，finish若意外返回必须FAIL。信号count3和race通过1.376s/3.649s。
+
+末版生命周期/输入相邻race×3通过repl54.457s、cmd3.650s、hitraceconv1.904s（`/tmp/hmc17-repl-preparation-race-20260919.log`）；该筛选在traceinput无匹配，不冒称覆盖，另补Begin/CLI准入/取消/真实二进制、末版信号和用量边界的race×3，traceinput2.145s/cmd5.739s/repl6.848s通过（`/tmp/hmc17-repl-preparation-final-increment-race-20260919.log`）。`make`构建通过（`/tmp/hmc17-repl-preparation-build-20260919.log`）。
+
+本批没有新模型eval，§15原机器/人工FAIL保留。未改根因选择、图表语义、Trace投影/自动补齐、root-causes旁路、600/300/600秒默认或活跃流保护；没有新增用户/答案关键词硬门、系统代写答案或按照模型分数调整阈值。
+
+全仓`go test -p 2 ./...`最终exit0：87个测试包（56个缓存）、13个无测试包，agent72.408s、hitraceconv123.328s、orchestrator15.600s、repl54.541s、tool360.541s、tracediag6.752s、traceinput0.761s、tracequery96.508s、types33.772s；收据`/tmp/hmc17-repl-preparation-full-20260919.log`。命令在生产接线/退出屏障冻结后启动；后加纯测试的信号加强和用量边界由上面的末版增量race单列补足，不混写覆盖时间。17.4本批关闭，累计12/79项实现交付、67项开放；17.5普通命名path与17.6格式/平台矩阵继续开放。

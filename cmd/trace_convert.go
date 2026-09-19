@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -274,36 +273,11 @@ func configureTraceConvertUtilityRuntime(command *cobra.Command) (traceConvertUt
 }
 
 func traceConvertWSLRuntimeAnchorFallback(primary string) string {
-	if runtime.GOOS != "linux" {
-		return ""
-	}
-	release, _ := os.ReadFile("/proc/sys/kernel/osrelease")
-	return traceConvertWSLRuntimeAnchorFallbackFor(
-		runtime.GOOS,
-		string(release),
-		os.Getenv("WSL_DISTRO_NAME") != "" || os.Getenv("WSL_INTEROP") != "",
-		primary,
-	)
+	return hitraceconv.RuntimeAnchorFallback(primary)
 }
 
 func traceConvertWSLRuntimeAnchorFallbackFor(goos, kernelRelease string, wslEnvironment bool, primary string) string {
-	release := strings.ToLower(strings.TrimSpace(kernelRelease))
-	if goos != "linux" || (!wslEnvironment && !strings.Contains(release, "microsoft") && !strings.Contains(release, "wsl")) {
-		return ""
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" {
-		return ""
-	}
-	fallback, err := filepath.Abs(filepath.Join(home, runtimeAnchorDir))
-	if err != nil {
-		return ""
-	}
-	primaryAbs, err := filepath.Abs(filepath.Clean(primary))
-	if err == nil && primaryAbs == fallback {
-		return ""
-	}
-	return fallback
+	return hitraceconv.RuntimeAnchorFallbackFor(goos, kernelRelease, wslEnvironment, primary)
 }
 
 func loadTraceConvertUtilitySettings(location runtimeSettingsLocation) (*traceConvertUtilitySettings, error) {

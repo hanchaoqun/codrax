@@ -116,7 +116,7 @@ func TestPreparedTraceREPLTextReplacementClearAndFailureLifetimes(t *testing.T) 
 		t.Fatal(err)
 	}
 	r.handleHitraceCmd("/htrace " + path)
-	if r.attachedTraceMaterial != nil || runner.material != nil || !strings.Contains(r.attachedHitrace, "replacement") {
+	if r.attachedTraceMaterial == nil || r.attachedTraceMaterial == material || runner.material != r.attachedTraceMaterial || r.attachedTraceMaterial.SourcePath() != path || !strings.Contains(r.attachedHitrace, "replacement") {
 		t.Fatal("new text inherited old material receipt")
 	}
 	r.attachedHitrace, r.attachedTraceMaterial, runner.material = material.Preview(), material, material
@@ -150,6 +150,10 @@ func TestPreparedTraceREPLReplacementPublishesBeforeDirectReadResume(t *testing.
 				}
 				wantBody, wantSource, wantMaterial = "# codrax-source: "+path+"\n"+body, "android_atrace", nil
 				r.handleSlash("/htrace " + path)
+				wantMaterial = r.attachedTraceMaterial
+				if wantMaterial == nil || wantMaterial == material || wantMaterial.SourcePath() != path {
+					t.Fatal("replacement must carry its own complete receipt")
+				}
 			case "import", "failed import":
 				bundle := t.TempDir()
 				body := "imported replacement trace\n"
@@ -178,6 +182,9 @@ func TestPreparedTraceREPLReplacementPublishesBeforeDirectReadResume(t *testing.
 			if !strings.HasPrefix(action, "failed ") {
 				wantOrder = "raw,source,material:nil"
 			}
+			if action == "load" {
+				wantOrder += ",material:prepared"
+			}
 			if got := strings.Join(runner.publishOrder, ","); got != wantOrder {
 				t.Fatalf("publication order=%q want=%q", got, wantOrder)
 			}
@@ -190,6 +197,13 @@ func TestPreparedTraceREPLReplacementPublishesBeforeDirectReadResume(t *testing.
 			// propagation. It must see the replacement, never old preview+nil.
 			if r.handleSlash("/read-runs resume receipt-replacement") {
 				t.Fatal("read resume requested exit")
+			}
+			if action == "failed load" {
+				if len(runner.seenTraces) != 0 || !r.traceAttachmentFailed {
+					t.Fatal("failed replacement must not silently resume with old attachment")
+				}
+				r.handleSlash("/htrace keep")
+				r.handleSlash("/read-runs resume receipt-replacement")
 			}
 			if len(runner.seenTraces) != 1 || runner.seenTraces[0] != wantBody || runner.seenSources[0] != wantSource || runner.seenMaterials[0] != wantMaterial {
 				t.Fatalf("direct Run observed stale attachment: traces=%q sources=%q materials=%v out=%s", runner.seenTraces, runner.seenSources, runner.seenMaterials, out.String())
@@ -220,7 +234,7 @@ func TestPreparedTraceREPLDurablePreviewRequiresReattachment(t *testing.T) {
 	freshOut := &bytes.Buffer{}
 	fresh := New(Config{In: strings.NewReader(""), Out: freshOut, Language: "en", RuntimeArtifactStore: r.runtimeArtifactStore})
 	fresh.maybeRestoreRuntimeArtifactForPolicy(TurnPolicy{Route: RouteRepo, Source: "prior_context"})
-	if fresh.attachedHitrace != "" || fresh.attachedTraceMaterial != nil || !strings.Contains(freshOut.String(), "Reattach original file") {
+	if fresh.attachedHitrace != "" || fresh.attachedTraceMaterial != nil || !strings.Contains(freshOut.String(), "Reattach the original with /htrace") {
 		t.Fatalf("unsafe durable restoration: trace=%q out=%s", fresh.attachedHitrace, freshOut.String())
 	}
 }
@@ -250,7 +264,7 @@ func TestPreparedTraceREPLExportCannotImportPreviewAsCompleteCapture(t *testing.
 	importer, runner, out := newMaterialREPL(t, material)
 	importer.attachedLog = "existing log"
 	importer.handleImportCmd("/import " + bundle)
-	if importer.attachedHitrace != material.Preview() || importer.attachedTraceMaterial != material || runner.material != material || importer.attachedLog != "existing log" || !strings.Contains(out.String(), "Reattach original file") {
+	if importer.attachedHitrace != material.Preview() || importer.attachedTraceMaterial != material || runner.material != material || importer.attachedLog != "existing log" || !strings.Contains(out.String(), "Reattach the original with /htrace") {
 		t.Fatalf("preview-only import changed attachments: trace=%q log=%q out=%s", importer.attachedHitrace, importer.attachedLog, out.String())
 	}
 }

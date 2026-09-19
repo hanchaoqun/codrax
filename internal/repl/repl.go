@@ -640,6 +640,10 @@ type REPL struct {
 	attachedHitraceSource string
 	attachedTraceMaterial *attachment.TraceMaterial
 	pendingHitraceSource  string
+	tracePreparation      atomic.Pointer[tracePreparationOperation]
+	traceAttachmentFailed bool
+	heldTraceInputs       []pendingFollowUp
+	heldTraceInputBytes   int
 
 	// attachedLogAutoRouted marks attachedLog as installed by the
 	// splitPastedLog auto-routing path (pasted log body detected
@@ -6096,7 +6100,9 @@ func (r *REPL) currentFocusSlice() []string {
 //     operator can press once more to confirm OR keep using REPL.
 //
 //   - Second signal within the window: escalate to clean exit
-//     regardless of state. Drive worktree cleanup ourselves since
+//     regardless of state. During local trace preparation, first wait
+//     for owned unpublished files to roll back; this is not a timed
+//     force-kill. Drive worktree cleanup ourselves since
 //     the package handler is suppressed; print "Goodbye!" and
 //     os.Exit(130). Two consecutive Ctrl+C presses (within 2 s) are
 //     the universal "I really want out" signal.
@@ -6111,7 +6117,7 @@ func (r *REPL) currentFocusSlice() []string {
 // to drop replays we cannot service in real time.
 func (r *REPL) installCancelSignalHandler() {
 	canceller, ok := r.runner.(runnerCanceller)
-	if !ok {
+	if !ok && r.tracePreparation.Load() == nil {
 		return // test stub or single-shot Runner — Ctrl+C keeps default semantics
 	}
 	r.cancelSigOnce.Do(func() {
@@ -6122,13 +6128,20 @@ func (r *REPL) installCancelSignalHandler() {
 		worktree.SetSignalHandlerSuppressed(true)
 
 		ch := make(chan os.Signal, 4)
-		signal.Notify(ch, syscall.SIGINT)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
-			for range ch {
+			for sig := range ch {
 				now := time.Now().UnixNano()
 				prev := r.lastCancelSig.Swap(now)
 				doubleTap := prev > 0 && time.Duration(now-prev) < doubleSigCancelWindow
-				if doubleTap {
+				if doubleTap || sig == syscall.SIGTERM {
+					// A locally prepared output is unpublished owned data.
+					// Wait for its rollback before process exit skips defers.
+					if op := r.tracePreparation.Load(); op != nil {
+						if op.requestShutdown() {
+							<-op.done
+						}
+					}
 					// Second signal within the window — escalate to
 					// clean exit, regardless of in-Run / idle state.
 					// Drive cleanup ourselves since the package handler is
@@ -6146,11 +6159,22 @@ func (r *REPL) installCancelSignalHandler() {
 					}
 					r.restoreTTYForExit()
 					fmt.Fprintln(r.out, "  Goodbye!")
+					if sig == syscall.SIGTERM {
+						os.Exit(143)
+					}
 					os.Exit(130)
+				}
+				if op := r.tracePreparation.Load(); op != nil {
+					if op.cancelActive("Ctrl+C") {
+						r.warn("%s\n", cancelInProgressMsg(r.language))
+					}
+					continue
 				}
 				if r.runInFlight.Load() {
 					// First signal during Run: cancel pipeline.
-					canceller.Cancel("Ctrl+C")
+					if canceller != nil {
+						canceller.Cancel("Ctrl+C")
+					}
 					// Also cancel any in-flight chitchat turn ctx —
 					// chitchat runs on the REPL goroutine outside
 					// runInFlightWrap, so orchestrator's Cancel
@@ -6230,6 +6254,9 @@ func (r *REPL) cancelTurn() {
 //     during prompts and a concurrent reader would race with the
 //     next bubbletea iteration. TTY operators rely on Ctrl+C.
 func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.BusContext, error) {
+	if r.traceAttachmentFailed {
+		return nil, errors.New(traceAttachmentRecoveryMsg(r.language))
+	}
 	defer r.warnRootCauseOutputFailure()
 	r.installCancelSignalHandler()
 	canceller, _ := r.runner.(runnerCanceller)
@@ -6495,6 +6522,9 @@ func (r *REPL) Loop() error {
 			r.usageBoundaryPending = true // round-3 R10: replayed entry = new user turn
 			entry := r.pendingFollowUps[0]
 			r.pendingFollowUps = r.pendingFollowUps[1:]
+			if r.holdInputAfterTraceFailure(entry) {
+				continue
+			}
 			queued := entry.Text
 			display := followUpDisplayText(r.language, entry)
 			r.info(followUpReplayMsg(r.language, display))
@@ -6548,6 +6578,9 @@ func (r *REPL) Loop() error {
 		}
 		line = strings.TrimSpace(line)
 		if line == "" {
+			continue
+		}
+		if r.holdInputAfterTraceFailure(pendingFollowUp{Text: line}) {
 			continue
 		}
 		r.usageBoundaryPending = true // round-3 R10: typed line = new user turn
@@ -7064,6 +7097,9 @@ func (r *REPL) setRendererTotalStagesForCurrentMode() {
 // prior-conversation blocks in future turns stay compact regardless of
 // paste size.
 func (r *REPL) dispatch(line, display string) {
+	if r.holdInputAfterTraceFailure(pendingFollowUp{Text: line, Verbatim: true}) {
+		return
+	}
 	// T1.1: auto-route pasted log content into AttachedLog so the
 	// log_triage pre-stage parses it with the LLM instead of letting
 	// the analyzer's TermGraph / keyword_search be poisoned by log
@@ -11633,11 +11669,19 @@ func (r *REPL) handleHitraceCmd(line string) {
 		r.info(htraceUsage(r.language))
 	case rest == "clear":
 		if r.attachedHitrace == "" {
+			r.resolveTraceAttachmentFailure()
 			r.info(noTraceAttached(r.language))
 			return
 		}
 		r.clearAttachedTrace()
+		r.resolveTraceAttachmentFailure()
 		r.success(attachedTraceClearedMsg(r.language))
+	case rest == "keep":
+		if err := r.propagateAttachedTrace(); err != nil {
+			r.errorf("%v\n", err)
+			return
+		}
+		r.resolveTraceAttachmentFailure()
 	case rest == "show":
 		if r.attachedHitrace == "" {
 			r.info(noTraceAttached(r.language))
@@ -11655,30 +11699,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 	case rest == "tools-status" || strings.HasPrefix(rest, "tools-status "):
 		r.handleHitraceToolsStatus(strings.TrimSpace(strings.TrimPrefix(rest, "tools-status")))
 	default:
-		// Single-path load also gets the source header so the LLM
-		// sees a consistent boundary marker shape regardless of
-		// how the trace got attached (REPL / CLI).
-		if err := attachment.ValidateSourceLabel(rest); err != nil {
-			r.errorf("load hitrace: %v\n", err)
-			return
-		}
-		header := "# codrax-source: " + rest + "\n"
-		remaining := r.attachedTraceMaxBytes - len(header)
-		if remaining < 1 {
-			r.errorf("load hitrace: attachment cap %d cannot fit source header plus at least 1 content byte for %q\n", r.attachedTraceMaxBytes, rest)
-			return
-		}
-		data, truncated, err := attachment.ReadTextFileLimited(attachment.KindTrace, rest, remaining)
-		if err != nil {
-			r.reportAttachmentTextIssue(err)
-			return
-		}
-		if truncated {
-			r.warn("hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
-		}
-		body := header + string(data)
-		r.replaceAttachedTraceText(body, mergeTraceSourceHints("", r.currentTraceSourceHint(rest)))
-		r.success(attachedHitraceLoadedMsg(r.language, rest, len(data)))
+		r.prepareAttachedTrace(rest)
 	}
 }
 

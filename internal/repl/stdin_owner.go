@@ -276,10 +276,12 @@ type runInputWindowCallbacks struct {
 	// trySteer offers the line to the running pipeline FIRST (TTY-3):
 	// true = consumed as a mid-run steering note (not queued);
 	// false/nil = the line queues for post-Run replay.
-	trySteer  func(line string) bool
-	onSteered func(line string)
-	onCtrlC   func()
-	onEsc     func()
+	// Typed command lane only; bracketed paste never invokes this callback.
+	consumeCommand func(line string) bool
+	trySteer       func(line string) bool
+	onSteered      func(line string)
+	onCtrlC        func()
+	onEsc          func()
 }
 
 type runInputWindow struct {
@@ -624,6 +626,9 @@ func (w *runInputWindow) commitLine(cb runInputWindowCallbacks) {
 	if line == "" {
 		return
 	}
+	if cb.consumeCommand != nil && cb.consumeCommand(line) {
+		return
+	}
 	if cb.trySteer != nil && cb.trySteer(line) {
 		if cb.onSteered != nil {
 			cb.onSteered(line)
@@ -752,6 +757,13 @@ func (r *REPL) armRunInputWindow(canceller runnerCanceller) *runInputWindow {
 			canceller.Cancel("esc")
 			r.cancelTurn()
 		},
+	}
+	return r.armInputWindow(cb)
+}
+
+func (r *REPL) armInputWindow(cb runInputWindowCallbacks) *runInputWindow {
+	if !r.interactive() || !term.IsTerminal(int(os.Stdin.Fd())) || os.Getenv("CODRAX_DISABLE_RUN_INPUT") != "" {
+		return nil
 	}
 	w, err := r.ttyStdinOwnerInstance().borrowRunInput(cb, nil)
 	if err == nil {

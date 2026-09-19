@@ -3331,9 +3331,9 @@ func attachedTraceClearedMsg(lang string) string {
 
 func htraceUsage(lang string) string {
 	if isZh(lang) {
-		return "/htrace <path> | convert [opts] <binary> [out.systrace] | tools-status [opts] | clear | show — 附加或转换单份 trace；多 trace 请在问题中分别点名路径或使用 tracebundle"
+		return "/htrace <path> | convert [opts] <binary> [out.systrace] | tools-status [opts] | clear | show | keep — 默认自动准备受支持的二进制 trace（/cancel 或 Ctrl+C 可取消）；keep 在加载失败后确认沿用旧附件。多 trace 请在问题中分别点名路径或使用 tracebundle"
 	}
-	return "/htrace <path> | convert [opts] <binary> [out.systrace] | tools-status [opts] | clear | show — attach or convert one trace; name paths separately or use a tracebundle for multi-trace comparison"
+	return "/htrace <path> | convert [opts] <binary> [out.systrace] | tools-status [opts] | clear | show | keep — supported binaries are prepared automatically (/cancel or Ctrl+C cancels); keep confirms the old attachment after a failed load. Name paths separately or use a tracebundle for multi-trace comparison"
 }
 
 func htraceConvertUsage(lang string) string {
