@@ -65,6 +65,7 @@ type Orchestrator struct {
 	attachedHitrace       string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
 	attachedHitraceSource string                   // advisory trace flavor/source hint from --htrace/--atrace spelling
 	attachedTraceMaterial *attachment.TraceMaterial
+	traceRuntimeAnchor    string // stable derived trace root; never the temporary WorkDir
 	// presentationDirective is a per-run typed display requirement
 	// from the REPL turn policy. It is intentionally not concatenated
 	// into the objective string, because the objective feeds status
@@ -630,6 +631,7 @@ func New(settings types.PipelineSettings, agents *agent.Registry, skills *skill.
 		subRuntime:          subRuntime,
 		emit:                render.NopEmitter,
 		writeApprovalPolicy: writeflow.ApprovalPolicyAutoSafe,
+		traceRuntimeAnchor:  absoluteTraceRuntimeAnchor(""),
 	}
 }
 
@@ -843,20 +845,6 @@ func (o *Orchestrator) SetMultiRepoSnapshotProvider(provider func() ([]types.Sub
 // once at orchestrator construction with the clamped yaml value.
 func (o *Orchestrator) SetMultiRepoInactivePreviewCount(n int) {
 	o.multiRepoInactivePreviewCount = n
-}
-
-// SetAttachedLog stores a runtime log excerpt (panic, exception stack,
-// sanitizer diagnostic, traceback) that every subsequent Run() should
-// attach to BusContext.AttachedLog so the log_triage pre-stage
-// can extract stack-frame anchors.
-//
-// REPL sticky lifetime: the REPL's /log command sets this once and it
-// persists across turns until the REPL's /log clear command passes
-// an empty string to reset it. CLI single-shot mode calls it at most
-// once with the --log / --log-text payload before the single Run().
-// Empty string clears any previously attached log.
-func (o *Orchestrator) SetAttachedLog(log string) {
-	o.attachedLog = log
 }
 
 // SetPresentationDirective installs the current turn's typed display
@@ -1610,6 +1598,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		PresentationDirective:       presentationDirective,
 		PresentationDiagramRequired: presentationDiagramRequired,
 		TurnRouteHint:               turnRouteHint,
+		// Fresh per Run, shared by all agents/tools inside this Run only.
+		TraceInputPreparer: o.newTraceInputPreparer(),
 		RuntimeArtifactPreflight: runtimeArtifactPreflightProfileForRun(
 			request,
 			repoRoot,

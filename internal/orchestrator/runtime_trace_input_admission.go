@@ -75,14 +75,40 @@ func validateTypedNamedTraceInputsBeforeExploration(ctx context.Context, bus *ty
 		return err
 	}
 	for index, path := range paths {
+		originalPath := path
+		var preparedMaterial *attachment.TraceMaterial
+		var preparedPreview string
+		var namedPrepared bool
 		if m := bus.AttachedTraceMaterial; m != nil && typedNamedTraceAdmissionPathKey(path) == typedNamedTraceAdmissionPathKey(resolveTypedNamedTraceSource(m.SourcePath(), bus.RepoRoot)) {
 			if err := m.Validate(ctx, bus.AttachedHitrace); err != nil {
 				return err
 			}
 			path = m.QueryPath()
+			preparedMaterial, preparedPreview = m, bus.AttachedHitrace
+		} else if bus.TraceInputPreparer != nil {
+			material, err := bus.TraceInputPreparer.Prepare(ctx, path)
+			if err != nil {
+				return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), originalPath, err)
+			}
+			if material == nil {
+				return fmt.Errorf("named trace input %d/%d %q: preparation returned no complete material", index+1, len(paths), originalPath)
+			}
+			path = material.QueryPath()
+			namedPrepared = true
 		}
 		if err := tracequery.ValidateTraceInputPath(ctx, path); err != nil {
-			return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), path, err)
+			return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), originalPath, err)
+		}
+		// The complete-query admission read must remain in the same original,
+		// derived-output and bundle-member generation as preparation itself.
+		if namedPrepared {
+			if _, err := bus.TraceInputPreparer.Prepare(ctx, originalPath); err != nil {
+				return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), originalPath, err)
+			}
+		} else if preparedMaterial != nil {
+			if err := preparedMaterial.Validate(ctx, preparedPreview); err != nil {
+				return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), originalPath, err)
+			}
 		}
 	}
 	return ctx.Err()

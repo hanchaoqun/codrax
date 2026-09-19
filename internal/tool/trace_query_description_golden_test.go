@@ -218,6 +218,20 @@ package tool
 // for the new frame teaching. None was run in this local-only batch;
 // the byte-golden update records the intentional delta, not live-eval closure.
 //
+// EVOLUTION RECORD (2026-09-19, HMC-17.5): append the shared file-preparation
+// teaching to Description, and replace the obsolete manual-only binary path
+// sentence in Parameters with that same source. Normal-run preparation now
+// admits supported captures before querying; readable evidence coordinates,
+// immutable originals, complete query material and unsupported input limits
+// are explicit. No new view, scoring rule or root-cause authority is added.
+// This is an input capability update, not note-key instruction.
+// The same audit corrects stale bare-sibling discovery teaching: only an
+// admitted explicit/promoted bundle supplies composite members; a nearby
+// unbound .perftrace is not auto-merged. The existing engine remains unchanged.
+// This is covered by the existing no-sibling-discovery engine regression.
+// Binary tool/supplement tests validate behavior; no new matched live A/B was
+// run and the existing h2/h3 live-eval debt remains open.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

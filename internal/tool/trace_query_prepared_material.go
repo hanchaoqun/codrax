@@ -21,7 +21,18 @@ func traceQueryPreparedMaterialFailure(path, view string, err error) types.ToolR
 	if traceQueryIsCancellation(err) {
 		return traceQueryCancellationResult(view, path, err)
 	}
-	return traceQueryInputAdmissionFailure(path, traceQueryPreparedMaterialError(err))
+	result := traceQueryInputAdmissionFailure(path, traceQueryPreparedMaterialError(err))
+	// The low-level text admission error says conversion was not attempted.
+	// That is not a fact at this upper boundary: conversion may have completed
+	// before the source/derived generation or publication check failed.
+	reason := err.Error()
+	var admission *tracequery.TraceInputAdmissionError
+	if errors.As(err, &admission) {
+		reason = admission.Reason
+	}
+	result.Summary = fmt.Sprintf("trace_query could not prepare or validate the selected trace %q: %s; no query evidence was published. Retry with a stable supported capture or its readable export.", path, reason)
+	result.Repair.Hint = result.Summary
+	return result
 }
 
 func traceQueryIsCancellation(err error) bool {

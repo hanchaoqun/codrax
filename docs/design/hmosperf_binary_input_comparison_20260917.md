@@ -4,6 +4,8 @@
 
 **2026-09-18实施更新**：HMC-17.1–17.3已以`482bfa856`提交推送，最终无skip全仓87包及构建通过。CLI文件附件已接共享准备服务，完整查询材料与模型预览分离；真实RMQ和SIMPLEPERF二进制回归已覆盖。REPL当前只安全承接CLI准备好的附件，`/htrace path`默认转换、未准备typed path、SQLite、二进制stdin及跨平台矩阵仍开放。最终验证/交付收据见主账本§13。以下§1–8保留2026-09-17审计基线，不应将其中“当前未实现”理解为施工后状态；完成状态只以实施任务清单为准。
 
+**2026-09-19实施更新**：17.4默认REPL接入已以`eb2ddd446`推送，17.5普通命名路径协调正在最终验收，见主账本§19–20；SQLite、二进制stdin及格式/平台矩阵仍开放。本记录中的“真实二进制”指测试构造的合法格式字节进入真实转换/查询路径，并不等同于实机捕获；17.6所需代表采集与平台覆盖的重新核实见§9。全仓未使用`-skip`不代表包内不存在条件Skip。
+
 关联主审计 **HMC-17**。本次只读核验基于 Codrax `055bd749d` 及 `/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`；未修改生产代码、未运行远程模型、未启动参考服务器。
 
 **当前尚未实现“直接附加原始二进制 trace，默认自动转换后分析”。** 已实现的是独立转换入口的 `trace-engine=auto`，两者不是同一能力：
@@ -163,3 +165,25 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 - 真实二进制回归可复用 `syntheticBinaryHitrace`（RMQ）、`syntheticProfilerTraceFile`（OHOSPROF）、`trace_archive_zip_test.go` 的 ZIP 以及 `input_authority_route_release_contract_test.go` 的取消/回滚夹具。独立前置复跑4项通过1.178s；是合成真实二进制字节，不是客户各版本真实输入均已回放。
 
 最小交付仍必须包括“预览截断之后的尾部事件能通过 attached_trace 查询”的端到端正例，以及转换失败/取消时旧附件不被替换的反例。该完整接入比多加一个 convert 调用范围大，单独立批，不混入已验收的搜索覆盖修复。
+
+## 9. 格式/平台矩阵复核与后续拆分（2026-09-19，HMC-17.6仍开放）
+
+以下是源码及本地材料只读清点，不是新增运行验收。此前默认入口的合成格式字节回归和转换器单测不能倒签实机代表性。`internal/hitraceconv/representative_sys_fixture_test.go::TestRepresentativeSysTraceFixtures`在没有代表性manifest时明确Skip；目前对应目录仅README，实机RMQ/OHOSPROF覆盖仍缺。
+
+| 家族 | 现有证据 | 尚需补足 |
+|---|---|---|
+| RMQ version1/file_type1 | 生成的合法页格式已经过CLI/REPL/Prepare/named-path完整公开路径 | 实机代表样本；未知version/file_type及缺TS的默认入口失败矩阵 |
+| OHOSPROF | 转换器有容器/插件/资源限制/未知插件回归 | Prepare→公开查询正负例；未知插件库存不能变成查询就绪 |
+| PERFILE2 | 转换器多attr、质量计数、样本及符号回归 | 默认入口收据与sample-only验收；参考实机采集本地专项 |
+| SIMPLEPERF protobuf | Prepare→查询已保sample-only与CPU未知 | CLI/REPL格式面及实机导出样本，不倒签全部protobuf |
+| ZIP | converter有成员身份、单/多成员、ZIP64、CRC/大小/比例保护 | 共享入口到完整查询及多成员失败；只自动选择现有`.sys/.htrace`候选 |
+| gzip-perf | 现有封闭profile只接受解压PERFILE2，保来源变换身份 | 默认入口/完整性/取消；不代表gzip文本或RMQ已支持 |
+| 其他raw/proto | 部分需外部TS，没有独立默认入口实机证明 | 按版本/工具可用性验收，不能据magic或TS路径存在签支持 |
+
+参考`tests/fixtures/hiperf_brbe_001/test_brbe.data`是PERFILE2采集，可在本地只读专项中复核样本/cohort/质量；不擅自把私人采集拷入仓，基础sample可查不等于BRBE/SPE语义交付（另HMC-09）。参考`tests/fixtures/logandtrace/record_trace_20260821095539@6YF0126116-5955.sys.gz`解压头是`# tracer: nop`文本，非RMQ；参考测试先解压，因此不证明其生产工具原生支持gzip。将安全gzip文本运输作为17.6的单独能力片：完整性、解压上限、来源代次和受管发布先成立，不放宽成任意gzip/protobuf。
+
+当前主机darwin/arm64运行回归；Linux/Windows跨编译与内嵌载荷检查不等于原生运行。参考目录当前`trace_streamer_mac`实际是Git LFS pointer，不是可执行工具；不能以文件存在推定macOS支持。该本地快照观察与§4.1历史资产来源是不同对象/时间，保留两者而不据此下载或替换工具。
+
+17.6按原ID逐片推进：先统一OHOSPROF/PERFILE2/ZIP/gzip-perf默认入口矩阵，再补gzip文本运输；实机样本、真实外部TS和原生平台运行分别登记。新样本须明确可使用范围，尚未取得的材料/环境保持未覆盖，不把仅增加用例或交付一个格式算17.6整体完成。
+
+本地专项追加（本机当前构建，非模型eval、非默认入口验收）：上述两份参考采集均通过显式`trace convert`指定独立`/tmp/codrax-hmc176-local.PNKHgE/`输出，未写参考目录。PERFILE2转换exit0，raw fallback保留12000条样本，产生perftrace/bundle而不生成systrace；转换器交叉检查为12000行，参考实际测试断言也是12000，其文件头18009的旧注释不采信。已查看原始产物的`branch_stack`跳过披露，未将基础采样成功写成BRBE能力完成；未运行额外查询或模型回答，引用/答案能力不由本次转换倒签。gzip文本转换exit1，当前darwin/arm64无TS，回退最终给出RMQ invalid_magic；本例保守拒绝正确，但诊断没有把“已压缩文本尚未支持”与RMQ格式错误清楚分开。该可行动诊断与安全gzip文本运输同归17.6下一片，不让模型反复重试。两份bounded诊断与运行日志留在上述本地目录，原始私人采集及派生内容不提交。

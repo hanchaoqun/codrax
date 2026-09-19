@@ -250,10 +250,12 @@ func TestResolveTraceQuerySourceMissingPathWithoutAttachedTraceRemainsTerminalAd
 }
 
 func TestTraceQuerySchemaSaysBinaryConversionPrecedesInvestigation(t *testing.T) {
-	schema := string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"recognized binary/non-text prefix is rejected before any physical trace parser", "codrax trace convert --input <binary-trace-path>"} {
-		if !strings.Contains(schema, want) {
-			t.Fatalf("trace_query schema missing %q", want)
+	for _, surface := range []string{string((&TraceQuery{}).Parameters()), (&TraceQuery{}).Description()} {
+		if !strings.Contains(surface, traceQueryInputPreparationTeaching) {
+			t.Fatal("trace_query public input teaching must share the preparation contract")
+		}
+		if strings.Contains(surface, "recognized binary/non-text prefix is rejected before any physical trace parser") {
+			t.Fatal("old manual-only binary input teaching contradicts normal-run preparation")
 		}
 	}
 }

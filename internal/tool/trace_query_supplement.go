@@ -1342,7 +1342,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	}
 	// Attached-trace gate: reuse the tool's own source resolution (attached
 	// blob or the exactly-one request-referenced trace artifact — Q3 gate).
-	path, sourceLabel, reject := resolveTraceQuerySource(ctx, traceQueryParams{})
+	path, sourceLabel, _, reject := resolveReadyTraceQuerySource(ctx, traceQueryParams{})
 	if reject != nil || strings.TrimSpace(path) == "" {
 		return skip(types.TraceSupplementReasonNoAttachedTrace)
 	}

@@ -59,17 +59,30 @@ type TraceSourceVersion struct {
 }
 
 func CaptureTraceSourceVersion(path string) (TraceSourceVersion, error) {
+	return CaptureTraceSourceVersionContext(context.Background(), path)
+}
+
+// CaptureTraceSourceVersionContext uses the same frozen source selection as
+// BuildIndex while honoring the caller's cancellation during bundle/member
+// validation. It neither converts nor rewrites any input.
+func CaptureTraceSourceVersionContext(ctx context.Context, path string) (TraceSourceVersion, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return TraceSourceVersion{}, err
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return TraceSourceVersion{}, fmt.Errorf("trace source version: path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
-	selection, err := resolveTraceIndexSelection(context.Background(), path)
+	selection, err := resolveTraceIndexSelection(ctx, path)
 	if err != nil {
 		return TraceSourceVersion{}, fmt.Errorf("trace source version: %w", err)
 	}
 	bytes, token := selection.universe.totalBytes, selection.universe.cacheToken
-	if err := selection.validate(context.Background()); err != nil {
+	if err := selection.validate(ctx); err != nil {
 		return TraceSourceVersion{}, fmt.Errorf("trace source version: %w", selection.closeAfter(err))
 	}
 	if err := selection.close(); err != nil {
@@ -89,10 +102,22 @@ func CaptureTraceSourceVersion(path string) (TraceSourceVersion, error) {
 // path even if that path currently aliases identical bytes: provenance is part
 // of the run contract.
 func (v TraceSourceVersion) Validate(path string) error {
+	return v.ValidateContext(context.Background(), path)
+}
+
+// ValidateContext is the cancellable counterpart of Validate and preserves
+// the same exact-path plus complete selected-universe generation contract.
+func (v TraceSourceVersion) ValidateContext(ctx context.Context, path string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if v.path == "" || v.token == "" {
 		return fmt.Errorf("trace source version is uninitialized")
 	}
-	current, err := CaptureTraceSourceVersion(path)
+	current, err := CaptureTraceSourceVersionContext(ctx, path)
 	if err != nil {
 		return err
 	}

@@ -80,7 +80,10 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// HMC-17 moves attachment lifetime/validation into attached_trace_material.go.
 		// Tightened 8242→8203 after HMC-17.4 moved cancellation helpers into cancel.go.
 		// Tightened 8203→8201 when the write deadline callback joined that concern.
-		{path: "orchestrator.go", maxLines: 8201},
+		// HMC-17.5 moves the complete sticky log setter and godoc into its
+		// attachment concern file while wiring the Run-scoped preparer.
+		{path: "orchestrator.go", maxLines: 8191},
+		{path: "attached_log.go", maxLines: 15},
 		{path: "write_change_plan_summary.go", maxLines: 85},
 		{path: "change_plan_status_persistence.go", maxLines: 122},
 		// §40.52: the "[CGEC] summary" operator log (96 lines moved); small

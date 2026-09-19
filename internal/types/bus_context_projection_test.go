@@ -276,6 +276,8 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.PresentationDiagramRequired = true
 	case "AttachedTraceMaterial":
 		ac.AttachedTraceMaterial = &attachment.TraceMaterial{}
+	case "TraceInputPreparer":
+		ac.TraceInputPreparer = &sentinelTraceInputPreparer{}
 	case "AttachedHitrace":
 		ac.AttachedHitrace = "trace preview"
 	case "AttachedHitraceSource":
@@ -342,6 +344,8 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.PresentationDiagramRequired = true
 	case "AttachedTraceMaterial":
 		bc.AttachedTraceMaterial = &attachment.TraceMaterial{}
+	case "TraceInputPreparer":
+		bc.TraceInputPreparer = &sentinelTraceInputPreparer{}
 	case "AttachedHitrace":
 		bc.AttachedHitrace = "trace preview"
 	case "AttachedHitraceSource":

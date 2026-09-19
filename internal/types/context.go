@@ -8383,6 +8383,9 @@ type BusContext struct {
 	AttachedHitrace string `json:"attached_hitrace,omitempty"`
 	// In-process complete-file binding; a persisted preview cannot mint it.
 	AttachedTraceMaterial *attachment.TraceMaterial `json:"-"`
+	// Run-scoped preparation for explicitly selected physical trace paths.
+	// This in-process service is not persisted or exposed in model JSON.
+	TraceInputPreparer TraceInputPreparer `json:"-"`
 
 	// AttachedHitraceSource preserves the user's attachment spelling or
 	// source hint for the perf trace channel. Values are advisory
@@ -9008,6 +9011,8 @@ type AgentContext struct {
 	AttachedHitrace string `json:"attached_hitrace,omitempty"`
 	// Read-only preparation receipt for honest preview/full-material display.
 	AttachedTraceMaterial *attachment.TraceMaterial `json:"-"`
+	// Same Run-owned handle as BusContext; never serialized into prompts.
+	TraceInputPreparer TraceInputPreparer `json:"-"`
 
 	// AttachedHitraceSource mirrors BusContext.AttachedHitraceSource
 	// for tools that need producer/flavor hints without inspecting

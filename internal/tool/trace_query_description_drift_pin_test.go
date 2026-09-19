@@ -25,8 +25,11 @@ func TestTraceQueryDescriptionReplaceArmsAllFire(t *testing.T) {
 		// tracebundle caveat-expansion arm.
 		"role=resolver_index means the DB table was consumed for joins/indexes",
 		"tracebundle_trace_db_coverage",
-		// provenance-aware composite arm (previously unpinned).
-		"builds a provenance-aware .systrace+.perftrace composite",
+		// HMC-17.5 aligns this arm with the engine's admitted member set;
+		// a bare sibling is not proof of a shared capture or clock.
+		"promotes a validated sibling .tracebundle.json",
+		"builds a provenance-aware composite only from its admitted members",
+		"an unbound sibling .perftrace is not automatically merged",
 		"resolves to a physical source artifact, local line, and time domain",
 		// state_drilldown extension arm (previously unpinned).
 		"The state_drilldown rows are the state-first handoff",

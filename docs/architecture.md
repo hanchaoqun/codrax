@@ -1293,7 +1293,11 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一个物理 capture。REPL `/htrace <path>` / `/atrace <path>` 同形态；历史 `/htrace append` 入口 fail-close 且不改变 sticky attachment。多个独立 trace 不得拼接成一个时钟/因果宇宙：应在问题中分别点名路径（整组原子准入），或附加/点名一个保留 child provenance 的 tracebundle。
 
-**默认文件准备（HMC-17.1–17.3）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验，SQLite、未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。inline/stdin仍是有界文本入口；REPL新文件加载和未准备的任意`source=path`尚未自动转换，分别归17.4/17.5。
+**默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验，SQLite、未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline/stdin仍是有界文本入口。
+
+**命名路径准备（HMC-17.5）**：每次Run创建独立`traceinput.Coordinator`，经`types.TraceInputPreparer`句柄贯通BusContext、AgentContext及子agent，不序列化、不写入sticky附件。typed准入、公开`trace_query`、系统补齐共享成功材料和同路径并发准备；选择器仍无转换副作用，底层BuildIndex/流式parser仍只接收准入文本或bundle。cmd/REPL绑定稳定runtime锚，不能用Run结束时删除的WorkDir。原件、派生查询路径只凭有效进程内收据归一，同名/同字节独立采集不合并；准备失败不借其他源。正缓存每次验证原件、派生物及引擎实际选中的完整源集合，查询后再验证，防止同轮成员换代混证。取消等待者不取消持有者；持有者取消先回滚再允许存活等待者重试，失败不跨调用负缓存。完整文本沿原查询路径工作，二进制预览不替代查询材料。自动补齐按query-ready路径计算预算；已准备的`.sys`或无后缀路径只凭完整typed载体与收据识别，不扫描用户/答案原文判定Trace。
+
+路径共享使用实际目录项拼写与文件对象身份，精确目录项优先；目录分页读取并检查取消，不把全局小写或大小写相似当来源证明。原始选择坐标保留到准备校验，派生坐标只用于去重。祖先目录可搜索但不可列举时，此协调入口目前明确拒绝无法确认的目录项身份；不修改权限、不声称原件格式损坏，也不回退弱别名。这一额外权限边界及跨平台原生运行继续列入17.6矩阵；正常可列举只读目录仍可使用。
 
 **准备的提交边界（HMC-17.4前置）**：`traceinput.Begin`持有尚未发布的完整材料及受管理目录权限，调用者必须Commit或Discard；公开`Prepare`复用Begin→Commit。提交再次验证全部源代次，失败/取消沿持有权限撤销，原件不在清理域；提交后Discard不得删除已发布输出，清理失败不能按路径重试夺回权限。交互调用方须串行化自己的操作取消/发布点，不能把这层事务当作REPL输入/确认策略。查询凭证仍不进入JSON，也不增加因果权限。
 

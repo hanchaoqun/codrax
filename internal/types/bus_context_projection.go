@@ -79,6 +79,7 @@ var projectionTypedSignalFields = []string{
 	"PresentationDirective",
 	"PresentationDiagramRequired",
 	"AttachedTraceMaterial",
+	"TraceInputPreparer",
 	"AttachedHitrace",
 	"AttachedHitraceSource",
 }
@@ -136,6 +137,7 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		UserPinnedFiles:        ctx.UserPinnedFiles,
 		AttachedHitrace:        ctx.AttachedHitrace,
 		AttachedTraceMaterial:  ctx.AttachedTraceMaterial,
+		TraceInputPreparer:     ctx.TraceInputPreparer,
 		AttachedHitraceSource:  ctx.AttachedHitraceSource,
 		Language:               ctx.Language,
 		Preferences:            ctx.Preferences,
@@ -236,6 +238,7 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		// one-sided-fold omission.
 		Preferences:           bus.Preferences,
 		AttachedTraceMaterial: bus.AttachedTraceMaterial,
+		TraceInputPreparer:    bus.TraceInputPreparer,
 		AttachedHitrace:       bus.AttachedHitrace,
 		AttachedHitraceSource: bus.AttachedHitraceSource,
 

@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/attachment"
 )
 
 const (
@@ -64,7 +66,7 @@ func RuntimeArtifactSelectionViewFromAgentContext(ctx *AgentContext) RuntimeArti
 	attachedHint := firstNonEmptyRuntimeArtifactSelectionString(ctx.AttachedHitraceSource, "attached_trace")
 	attachedCapture = builder.traceSource(attachedCapture)
 	attachedHint = builder.traceSource(attachedHint)
-	if len(builder.preparedAliases) > 0 && attachedCapture == "" && runtimeArtifactSelectionAttachedFormat(attachedHint) {
+	if ctx.AttachedTraceMaterial != nil && ctx.AttachedTraceMaterial.Validate(context.Background(), ctx.AttachedHitrace) == nil && attachedCapture == "" && runtimeArtifactSelectionAttachedFormat(attachedHint) {
 		// A valid in-process receipt proves the current attachment's exact
 		// complete material even when no run-entry census was supplied.
 		attachedCapture = ctx.AttachedTraceMaterial.QueryPath()
@@ -234,8 +236,40 @@ type runtimeArtifactSelectionBuilder struct {
 // become this capture. Canonical spellings of those exact files are included
 // because run-entry inventory may already have resolved a user symlink.
 func runtimeArtifactSelectionPreparedAliases(ctx *AgentContext) map[string]string {
-	material := ctx.AttachedTraceMaterial
-	if material == nil || material.Validate(context.Background(), ctx.AttachedHitrace) != nil {
+	if ctx == nil {
+		return nil
+	}
+	aliases := runtimeArtifactSelectionMaterialAliases(ctx.AttachedTraceMaterial, ctx.AttachedHitrace)
+	if aliases == nil {
+		aliases = make(map[string]string)
+	}
+	conflicts := make(map[string]bool)
+	if ctx.TraceInputPreparer != nil {
+		for _, material := range ctx.TraceInputPreparer.PreparedMaterials() {
+			if material == nil {
+				continue
+			}
+			for source, query := range runtimeArtifactSelectionMaterialAliases(material, material.Preview()) {
+				if conflicts[source] {
+					continue
+				}
+				if prior, exists := aliases[source]; exists && !runtimeArtifactSelectionSameSource(prior, query) {
+					// Two valid receipts disagree about the same physical role.
+					// Do not pick a winner or turn a conflict into false single-
+					// capture certainty. The independent query paths stay visible.
+					delete(aliases, source)
+					conflicts[source] = true
+					continue
+				}
+				aliases[source] = query
+			}
+		}
+	}
+	return aliases
+}
+
+func runtimeArtifactSelectionMaterialAliases(material *attachment.TraceMaterial, preview string) map[string]string {
+	if material == nil || material.Validate(context.Background(), preview) != nil {
 		return nil
 	}
 	aliases := make(map[string]string, 4)
@@ -250,7 +284,7 @@ func runtimeArtifactSelectionPreparedAliases(ctx *AgentContext) map[string]strin
 			aliases[candidate] = material.QueryPath()
 		}
 	}
-	if material.Validate(context.Background(), ctx.AttachedHitrace) != nil {
+	if material.Validate(context.Background(), preview) != nil {
 		return nil
 	}
 	return aliases

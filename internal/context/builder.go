@@ -87,6 +87,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		UserPinnedFiles:       bus.UserPinnedFiles,
 		AttachedHitrace:       bus.AttachedHitrace,
 		AttachedTraceMaterial: bus.AttachedTraceMaterial,
+		TraceInputPreparer:    bus.TraceInputPreparer,
 		AttachedHitraceSource: bus.AttachedHitraceSource,
 		// Mirror BusContext.Mode onto the agent view so the analyzer
 		// can route mode-conditional behaviour (read-mode quality

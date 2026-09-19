@@ -4260,6 +4260,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	orch.SetLanguage(flagLang)
 	orch.SetEmitter(renderer.Emitter())
 	orch.SetBlobSessionDir(blobSessionDir)
+	orch.SetTraceRuntimeAnchor(runtimeAnchor)
 	orch.SetOutputDump(outputDumpDir, outputMaxFiles)
 	// B2.3 verify→plan retry cap. Zero keeps B1 fail-loud semantics.
 	orch.SetWriteRetryBudget(pipelineSettings.WriteRetryBudget)

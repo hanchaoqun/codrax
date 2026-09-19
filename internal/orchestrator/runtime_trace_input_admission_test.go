@@ -13,7 +13,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
-	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/traceinput"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -260,12 +260,12 @@ func TestRunRejectsNaturalLanguageNamedBinarySysAfterTypedClassificationBeforeEx
 	if err == nil || bus == nil {
 		t.Fatalf("named binary .sys was admitted: bus=%+v err=%v", bus, err)
 	}
-	var admission *tracequery.TraceInputAdmissionError
+	var admission attachment.TextIssue
 	canonicalPath, canonicalErr := filepath.EvalSymlinks(path)
 	if canonicalErr != nil {
 		canonicalPath = path
 	}
-	if !errors.As(err, &admission) || admission.Code != tracequery.TraceInputAdmissionCodeConversionRequired || admission.Path != canonicalPath {
+	if !errors.As(err, &admission) || admission.Kind != attachment.KindTrace || admission.Path != canonicalPath {
 		t.Fatalf("named binary verdict=%+v err=%v", admission, err)
 	}
 	if analyzerCalls != 1 || otherCalls != 0 || hasTraceAdmissionEventKind(events, render.EventAnalysisReady) {
@@ -335,16 +335,17 @@ func TestRunNamedMultiTraceAdmissionIsAtomic(t *testing.T) {
 	analyzerCalls, otherCalls := 0, 0
 	var events []render.Event
 	o := newTypedNamedTraceAdmissionTestOrchestrator([]string{good, bad}, &analyzerCalls, &otherCalls, &events)
+	o.SetTraceRuntimeAnchor(filepath.Join(t.TempDir(), "runtime"))
 	bus, err := o.Run("对比 trace "+good+" 和 "+bad+" 的调度差异", repo, "main")
 	if err == nil || bus == nil {
 		t.Fatalf("mixed multi-trace set was admitted: bus=%+v err=%v", bus, err)
 	}
-	var admission *tracequery.TraceInputAdmissionError
+	var admission *traceinput.Error
 	canonicalBad, canonicalErr := filepath.EvalSymlinks(bad)
 	if canonicalErr != nil {
 		canonicalBad = bad
 	}
-	if !errors.As(err, &admission) || admission.Path != canonicalBad || admission.Code != tracequery.TraceInputAdmissionCodeTextExportRequired {
+	if !errors.As(err, &admission) || admission.Path != canonicalBad || admission.Code != "conversion_failed" {
 		t.Fatalf("mixed multi-trace verdict=%+v err=%v", admission, err)
 	}
 	if analyzerCalls != 1 || otherCalls != 0 || hasTraceAdmissionEventKind(events, render.EventAnalysisReady) {

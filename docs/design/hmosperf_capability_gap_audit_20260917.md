@@ -383,3 +383,29 @@ E2-2后续只读核实（未施工）：`query.go`的`offCPUDStateVerdictForQuer
 本批没有新模型eval，§15原机器/人工FAIL保留。未改根因选择、图表语义、Trace投影/自动补齐、root-causes旁路、600/300/600秒默认或活跃流保护；没有新增用户/答案关键词硬门、系统代写答案或按照模型分数调整阈值。
 
 全仓`go test -p 2 ./...`最终exit0：87个测试包（56个缓存）、13个无测试包，agent72.408s、hitraceconv123.328s、orchestrator15.600s、repl54.541s、tool360.541s、tracediag6.752s、traceinput0.761s、tracequery96.508s、types33.772s；收据`/tmp/hmc17-repl-preparation-full-20260919.log`。命令在生产接线/退出屏障冻结后启动；后加纯测试的信号加强和用量边界由上面的末版增量race单列补足，不混写覆盖时间。17.4本批关闭，累计12/79项实现交付、67项开放；17.5普通命名path与17.6格式/平台矩阵继续开放。
+
+本批代码与文档已以`eb2ddd446`提交并推送main；随后才进入17.5，没有将REPL未提交工作与下一批混合。
+
+## 20. 普通命名路径的同轮完整材料协调（HMC-17.5，2026-09-19）
+
+参考`server.py::get_hitrace_path/convert_hitrace_to_sqlite`的选择→准备→查询组合入口，补本项目三处同源接线：typed探索前准入、公开`TraceQuery.Execute`、系统自动补齐。只改公开工具会留下探索前拒绝二进制以及补齐按原始二进制计算读取预算两个接缝。原底层BuildIndex/流式parser保持只读文本/bundle，不启动转换器；来源选择函数保持无转换副作用。目录首文件、后缀作为格式证明、mtime缓存、相邻DB写入和固定300秒时限仍不移植。
+
+每次Run独享协调器，经BusContext→AgentContext→子agent共用一个不序列化句柄，cmd/REPL传稳定runtime锚而非临时WorkDir。成功材料才缓存，准备与并发等待共享；等待者取消不取消持有者，持有者取消先回滚，存活等待者随后可重试，其他失败不跨调用负缓存。原始路径/typed目标/窗口不被改写成sticky附件，原件不改；完整查询材料和有界预览继续分开。原件、派生物和引擎实际选中的完整源集合在命中和查询后验证，普通文本自动提升的有效sibling bundle及其成员也在同轮冻结域，不能读到另一代后继续发布旧/新混合证据。新context版本校验API复用原引擎选择，不改变其来源、时钟或缓存合同。
+
+公开真RMQ测试发现确定性故障：`.sys`已经准备成功，但自动补齐沿扩展名枚举把它丢掉，返回`no_attached_trace`。原红收据保留在`/tmp/hmc17-named-path-public-green-20260919.log`（文件名中的green不是verdict）；修复仅让已发布材料收据识别整个typed路径载体，不增加用户/答案关键词判定。冷预算测试同时保证预算按更小的完整query-ready材料而非原件，保持明确时间窗且多视图只转换一次。wakeup-only二进制夹具没有睡眠前驱，故不能要求已证阻塞链边；其尾部由真实event_search验事件，链因果由独立IO/业务夹具验31ms闭合等待，PID900背景IO不能晋升根因。没有把缺链证据当实现缺陷或补造链。
+
+公开六项验收覆盖二进制多视图/预览外尾部、原件不变/不覆盖附件、原件与派生换代撤回观察、明确缺路径不借其他源、原始/派生去重与独立采集隔离、冷预算与明确窗IO/业务自动补齐。末版race×3通过3.873s（`/tmp/hmc17-named-path-public-accepted-race-20260919.log`），冷补齐加强pin单独通过1.411s。Bus/context/REPL接线及typed准入相邻race×3通过，最后准入读后再次验证源集合及冲突别名pin的race×3为types2.985s/orchestrator2.610s（`/tmp/hmc175-admission-final-race.log`）。热文件门首次拦下新增接线，整组SetAttachedLog及完整godoc迁到专门小文件，门限8201→8191，没有抬上限或删说明避门。
+
+冷审再得到canonical/符号链接双向RED：同一原件通过另一种精确路径访问会再次转换，可能混入同轮不同代次。协调器现以精确EvalSymlinks路径共享成功材料与并发准备，并记住已见路径首次所指对象；新别名不能绕过变代，旧别名改指或等待期间改指均拒绝。13组协调器回归race×3通过3.453s，traceinput整包1.198s通过。不同canonical的hardlink仍按独立输入处理，不加字节/文件名近似合并。
+
+末端独立公开反例又复现：A、alias→A、B均已准备后，alias改指B；候选枚举提前把alias覆盖成B的queryPath，导致省略source的查询及冷自动补齐都绕过首次绑定，成功发布B的证据。保留实际所选路径直到准备检查，派生坐标只参与去重，两个反例RED→GREEN；对应正常去重/补齐阳性及负控race×3通过3.338s，收据`/tmp/hmc175-named-alias-{red,green,race}.log`。最终全仓收据待补。
+
+工具Description与Parameters共享一条准备能力说明，退役“所有二进制必须手工转换”的过时教学；另校准同处既有来源说明：只有经验证bundle的成员可组合，裸邻接`.perftrace`不自动合并。此行为原已由引擎实行，本批只纠正文案而非修改来源选择。字节golden按演进记录显式更新，因果排序、计量和帧合同不改。未运行新live eval，§15 h2/h3机器与人工FAIL以及匹配基线A/B债仍保留；不能用上述确定性通过倒签模型答案。17.5当前验收中，17.6格式/平台矩阵、17.7现存SQLite和17.8二进制流式输入仍开放。
+
+首轮全仓`/tmp/hmc175-full-20260919.log`exit1，仅tool包的`TestTraceQueryDescriptionReplaceArmsAllFire`仍钉旧的无条件`.systrace+.perftrace`措辞。已同步为“validated sibling bundle / only admitted members / unbound sibling不自动合并”三个正pin，保留原退役词负pin与物理来源/时钟pin；不是删除漂移测试或降低来源门。其他86个测试包通过；此轮不是末版绿收据。
+
+最后JSON-facing接缝冷审：模型侧按有效准备收据生成query路径的logical ID，但`traceQueryRuntimeArtifactSelectionView`手建AgentContext漏传协调句柄，工具侧重建为原路径ID，系统自己教出的ID被拒`trace_query_runtime_artifact_id_unknown`。从真实Agent视图经JSON roundtrip再Execute得到RED，补同一字段后回归；另要求模型/工具完整source view一致，原始/派生只占一个capture，两个独立capture仍为两个，不固化某个hash。随后本机APFS复现大小写别名变代绕过：原件成功准备→同文件内容更改→大写路径重新转换并发布新证据。已改为逐层实际目录entry身份：每次最多128项、取消可见、精确entry优先、大小写仅筛候选、最终SameFile证明；不全局小写macOS或Windows路径。Windows只规范drive letter，UNC变体保持保守，不声称已获跨网络同源证明。
+
+最终20组Coordinator与4组新增模型视图/大小写公开测试race×3分别通过14.458s/7.856s（`/tmp/codrax-hmc17-logical-id.5mheN8/final-case-and-view-race.log`）；case-alias真RED及logical-ID真RED在同目录分留。普通可列举只读目录、不同名hardlink独立、search-only父目录明确权限错误在本机真实PASS，0.772s详细收据`platform-permission-pins.log`；当前APFS不能创建大小写相异的两个独立entry，对应两项明确Skip，不冒称已有case-sensitive卷运行证据。Windows/amd64仅CGO=0测试二进制交叉构建成功，未原生执行。已知新增适用边界：父目录可search但不可列举时协调器保守拒绝源身份确认，不更改权限，不回退仅词面身份、不称格式损坏；该更低权限路径的能力增强仍在17.6矩阵。
+
+生产代码和测试冻结后的最终完整命令`go test -p 2 ./...`exit0：87个测试包（69个缓存）、13个无测试包，tool346.122s、orchestrator16.292s、repl48.586s、tracediag5.476s、traceinput2.519s、tracequery90.424s、types32.232s；收据`/tmp/hmc175-full-final-20260919.log`。未使用run/skip筛选，包内平台条件Skip仍按上一段保留。末版七包定向race×3均实际匹配并通过：tool16.595s、traceinput13.725s、orchestrator5.021s、context2.475s、repl2.932s、types4.155s、tracequery3.196s（`/tmp/hmc175-acceptance-final-race-20260919.log`）。构建通过（`/tmp/hmc175-acceptance-final-build-20260919.log`）；Linux/amd64的traceinput CGO=0交叉构建通过（`/tmp/hmc175-linux-build-20260919.log`），不冒称Linux或Windows原生验收。此前旧措辞pin的两条失败收据保留，不覆盖为绿；未追加模型eval。17.5验证完成，交付状态待本批提交推送收据确认后更新。

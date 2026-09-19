@@ -980,6 +980,9 @@ func New(cfg Config) *REPL {
 		settingsPath:              cfg.SettingsPath,
 	}
 	r.applyPtermColorMode()
+	if runner, ok := r.runner.(interface{ SetTraceRuntimeAnchor(string) }); ok {
+		runner.SetTraceRuntimeAnchor(r.runtimeAnchor)
+	}
 	if r.hitraceConvert == nil {
 		r.hitraceConvert = hitraceconv.ConvertFile
 	}

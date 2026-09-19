@@ -227,6 +227,8 @@ func sentinelValue(ft reflect.Type, name string) (reflect.Value, bool) {
 			return reflect.ValueOf(context.WithValue(context.Background(), ctxCloneSentinelKey{}, name)), true
 		case reflect.TypeOf((*MemoryReader)(nil)).Elem():
 			return reflect.ValueOf(nopMemoryReader{}).Convert(ft), true
+		case reflect.TypeOf((*TraceInputPreparer)(nil)).Elem():
+			return reflect.ValueOf(&sentinelTraceInputPreparer{}).Convert(ft), true
 		}
 		if ft.NumMethod() == 0 { // any
 			return reflect.ValueOf("sentinel-any-" + name), true
