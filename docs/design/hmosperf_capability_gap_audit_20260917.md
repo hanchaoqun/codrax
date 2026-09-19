@@ -31,7 +31,7 @@
 | `get_hitrace_path` | 文件/目录扫描，最多五层，在首个有结果深度停止 | `internal/types/runtime_artifact_selection.go`、运行时附件/转换入口 | 已有显式工件选择；可补多工件清单体验，不复制“目录第一份 trace”或首层命中即完整的假设 |
 | `get_log_path` | hilog/kmsg 目录与 gz/txt 选择 | log attachment、log triage | 尚无同等 hilog/kmsg 语义归并及 trace 时钟对齐；列 HMC-05 |
 | `get_pcap_path` | pcap 发现、同目录/父目录回退、多来源拒绝猜测 | 通用工件/文件读取 | 没有专用 pcap 流/协议指标适配器；HMC-06，不能静默扩搜父目录 |
-| `convert_hitrace_to_sqlite` | TS→DB；mtime 缓存；附加日志/媒体表；传入 DB 时可能修改它 | `cmd/trace_convert.go`、`internal/hitraceconv`、`internal/traceinput` | 显式转换/归档/文本保真已有且输入保护更严；CLI文件附件默认准备已`482bfa856`交付，完整材料/有限预览分离；REPL默认转换及未准备查询路径仍开放（HMC-17）。附加领域表语义解释另列，不引入可变输入或 mtime 充当内容证明 |
+| `convert_hitrace_to_sqlite` | TS→DB；mtime 缓存；附加日志/媒体表；传入 DB 时可能修改它 | `cmd/trace_convert.go`、`internal/hitraceconv`、`internal/traceinput` | 显式转换/归档/文本保真已有且输入保护更严；CLI、REPL文件附件及typed命名查询路径默认准备已17.1–17.5交付，完整材料/有限预览分离；17.6格式/平台矩阵、现存DB与二进制stdin仍开放。附加领域表语义解释另列，不引入可变输入或 mtime 充当内容证明 |
 | `convert_hiperf_data` | TS 采样+符号；额外 BRBE/SPE 扩展 | `internal/hitraceconv` 的 perf 适配器、`trace_perf_bundle` | 普通采样/栈已有；BRBE/SPE/PMU 新数据合同待补。参考扩展器与消费者有列名断裂，见扩展附录 |
 | `analyze_frame_drops` | 帧扫描、渲染阶段、投票/偏好帧率与诊断窗口 | `frame_window/frame_timeline/frame_flow/frame_root_cause_bundle` | 不是整体缺失；待补偏好帧率解释及特定业务管线适配。只能准确 ID/同一对象证明连边 |
 | `analyze_video_phases` | hilog 规则识别视频故障窗口，再查线程/媒体链 | Trace 通用 marker/窗口/链及日志分析 | 视频会话阶段、解码器/网络跨源证据链缺专用适配；HMC-07 |
@@ -82,7 +82,7 @@
 | HMC-14 | P2 | heap/低内存/进程退出语义聚合 | 原始表已保留；补 owner 生命周期、地址代次、栈解析、缺失/截断，再做分配/释放/候选泄漏 | 待设计 |
 | HMC-15 | P2 | Sendable/并行化分析到写方案 | 仓库代码/数据依赖/副作用验证与正常 write approval/worktree/verify；无采样热度直接改写 | 待设计 |
 | HMC-16 | P1 | 教学一致性与能力声明验收 | 每一教学调用都过真实 schema/执行入口；减少重复 prompt，单位单源，缺数据有明确出口 | IO陈腐教学已24d82316f修复；预检计量/残留文本出口冲突、资源多阶段同源教学已实现验收（§10.1），修后live未回放 |
-| HMC-17 | P1 | 原始二进制默认自动接入 | 内容精确认型→共享转换准备→query-ready 派生产物；CLI/REPL/显式查询路径一致，原始来源与完整查询载体并存，不把截断预览当完整源 | 17.1–17.3已`482bfa856`推送，CLI公开路径及全仓验收通过（§13）；REPL默认转换/未准备typed path/平台格式矩阵/DB/stdin继续独立推进 |
+| HMC-17 | P1 | 原始二进制默认自动接入 | 内容精确认型→共享转换准备→query-ready 派生产物；CLI/REPL/显式查询路径一致，原始来源与完整查询载体并存，不把截断预览当完整源 | 17.1–17.5已分批推送，CLI/REPL/typed命名路径及全仓验收见§13/19/20；17.6格式首片见§21，格式/权限/平台矩阵、DB及stdin继续独立推进 |
 | HMC-18 | P1 | 入口/多工具组合/格式细节的 eval 覆盖 | 真二进制入口与已转换文本分开；业务问题不硬编码 view 顺序；正反身份/时钟/窗口/背景反例，公共确定性 fixture + 两例并行生产人审 | 首对2例各1次已完成，机评/人审均FAIL（§10）；覆盖扩展待续，不宣称默认二进制已支持 |
 
 优先序以数据可靠性/泛化覆盖/现有基础/实现风险四维决定：HMC-03 首批已收口；用户新增默认二进制接入要求后，HMC-17 升下一批首位，HMC-18 贯穿验证，再推进 HMC-01/02 与 HMC-08。启动/渲染业务适配依赖精确身份；日志/网络/媒体与 PMU 先立跨源合同，不为追求条目覆盖造假支持。
@@ -411,3 +411,29 @@ E2-2后续只读核实（未施工）：`query.go`的`offCPUDStateVerdictForQuer
 生产代码和测试冻结后的最终完整命令`go test -p 2 ./...`exit0：87个测试包（69个缓存）、13个无测试包，tool346.122s、orchestrator16.292s、repl48.586s、tracediag5.476s、traceinput2.519s、tracequery90.424s、types32.232s；收据`/tmp/hmc175-full-final-20260919.log`。未使用run/skip筛选，包内平台条件Skip仍按上一段保留。末版七包定向race×3均实际匹配并通过：tool16.595s、traceinput13.725s、orchestrator5.021s、context2.475s、repl2.932s、types4.155s、tracequery3.196s（`/tmp/hmc175-acceptance-final-race-20260919.log`）。构建通过（`/tmp/hmc175-acceptance-final-build-20260919.log`）；Linux/amd64的traceinput CGO=0交叉构建通过（`/tmp/hmc175-linux-build-20260919.log`），不冒称Linux或Windows原生验收。此前旧措辞pin的两条失败收据保留，不覆盖为绿；未追加模型eval。
 
 本批代码与文档已以`ff4f62eef`提交推送main，远端复核0/0、工作树干净后更新交付清单。17.5关闭，累计13/79项实现已交付、66项开放；17.6按格式/权限/平台分别推进，不因本批来源协调已交付而提前销账。REPL17.4与命名路径17.5分两批交付，未合并掩盖各自验收边界。
+
+## 21. 格式矩阵首片：gzip文本与独立输出位置（HMC-17.6，2026-09-19）
+
+本轮开始`7a84edc36`工作树干净，与重新获取的远端main一致。参考`tests/test_log_fusion_fixture.py::_load_fixture`先将`.sys.gz`解压为原始`.sys`再调用服务，故这是字节运输而非新的事件生产者/时钟关系。真实样本当前为3,602,086字节压缩、54,122,686字节解压，参考测试68MB/5.7MB注释已经陈旧，不当能力依据。原始私人采集与派生内容不提交。
+
+默认公开Prepare的合成合法gzip文本先确定性失败：未发现外部TS后走RMQ并报`invalid_magic 0x8b1f`（`/tmp/hmc176-gzip-default-functional-red.log`）。之前两次测试编写中的字段名编译错误只属测试施工，不当产品RED。实现新增独立`gzip_trace_text_v1`运输收据：单member、完整CRC/ISIZE及尾部检查、有界头/大小/解压比例、全量文本验证；字节、行号和时间戳不变，不以gzip时间元数据推导trace时钟、不伪造systrace生产者凭证。发布仍经过原私有目录/封存文件/精确无覆盖提交；来源与解压文件都绑定强代次，父级在全量哈希前即执行压缩体积上限。取消、源/输出换代、读写与清理错误不得保留二进制fallback资格。
+
+默认文件准备接此运输层，保持完整查询与有界预览分离、压缩原件不变、不写原件目录、不取得自包含文本快照权。完整gzip中有精确已知二进制签名时，仅以typed格式结果保留旧转换器路径；坏CRC、嵌套gzip、SQLite、晚到NUL/坏UTF-8不借RMQ重试。公开query＋系统补齐首次通过1.187s，显式1.000..1.050窗口、链上31ms闭合IO及LoadDocumentIndex业务线索保留，PID900背景不晋升（`/tmp/hmc176-gzip-public-first-green.log`）。公开Prepare/提交/暖缓存/取消首轮通过1.014s（`/tmp/hmc176-gzip-default-first-green.log`）；末版收据待追加。
+
+代表采集实际通过默认Prepare、完整字节SHA核对和现有流式解析：54,122,686字节、429,756事件、429,766行、1024字节预览，2.707s（`/tmp/hmc176-gzip-real-stream-green-20260919.log`）。最初用无界BuildIndex触发既有250000事件内存上限，收据`/tmp/hmc176-gzip-real-default-20260919.log`保留；未升阈值或关门，验收改用本就用于全采集扫描的StreamScan。这证明本机这份真实文本采集的运输/解析，不代签模型答案、所有事件语义或多平台覆盖。
+
+格式矩阵另外亲验两类独立问题：①无systrace的OHOSPROF inventory/采样车道用空`Result.OutputPath`作为物理清单发布基址，退回原件旁写bundle；默认Prepare虽诚实拒绝inventory-only，已提交的清单却逃出受管准备目录，重试再报已存在。②同根导致位于运行目录的独立HIPERF成员不能生成合法bundle-relative路径。已区分“没有主systrace”与“指定输出目录”：3个调用方修物理发布基址，结果/清单的systrace字段仍保持空，不放松成员身份或时钟隔离。独立直接converter回归真RED→GREEN（1.199s），含只读原件父目录、显式输出目录、既有bundle不覆盖、retained-DB无行路径；原RED保留工具运行记录，未另存磁盘日志。公开矩阵7阳性/3阴性随后通过2.307s、race×3通过9.685s，不删失败车道换绿。
+
+新确认开放范围：顶层gzip-PERFILE2与其解压后PERFILE2在同一默认入口不等价，前者仍落TS/RMQ，而OHOSPROF内部HIPERF gzip已有专用decoder；这是路由缺口，不能记模型波动或把失败pin成期望成功。显式`trace convert`尚未接文本运输helper，当前增强仅默认文件准备；二者后续需明确同源能力契约。17.6仍开放，累计13/79交付数不因一个格式首片而增加。未运行新live eval；原§15机器/人工FAIL及跨模式验收债保持。
+
+生产冻结后的三包定向race×3全过：hitraceconv13.165s、traceinput3.615s、tool12.071s（`/tmp/hmc176-final-focused-race-20260919.log`），覆盖运输/提交/缓存/公开窗口IO补齐/格式矩阵及无systrace发布位置。代表采集末版重跑仍完全一致，测试自身2.77s、包4.315s（`/tmp/hmc176-real-final-20260919.log`）。原生构建通过（`/tmp/hmc176-final-build-20260919.log`）；traceinput测试二进制Linux/amd64和Windows/amd64的CGO=0交叉编译均通过（`/tmp/hmc176-{linux,windows}-cross-20260919.log`），不代表两个系统原生运行。
+
+末版全仓`go test -p 2 ./...`exit0：87个测试包（61个缓存）、13个无测试包；cmd11.228s、hitraceconv114.280s、orchestrator14.996s、repl51.073s、tool344.194s、tracediag5.604s、traceinput2.755s、tracequery91.213s、types32.896s（`/tmp/hmc176-full-final-20260919.log`）。未加run/skip筛选；未将环境变量控制的实机用例或平台条件Skip计成默认测试已运行。工作树只包含本批16个文件，提交前重新fetch确认与远端0/0，代码/测试/文档一批收口，交付收据随后追加。
+
+### 21.1 下一片已核实边界（仍未实施）
+
+顶层gzip二进制根因不是某个PERFILE2字段缺失：当前运输层完整验证后对二进制返回typed结果并撤销解压代次，Prepare再把压缩原件交ConvertFile；direct-perf路由只接受裸PERFILE2/SIMPLEPERF，因而落TS/RMQ。该公开RED只有工具记录，没有另存文件日志，不能借用早先gzip文本失败日志代签。参考`core/hiperf_converter.py`仍是`.data`→TS，不能说参考已有可复制的gzip生产路由。
+
+后续最小泛化方案是共用一次有界解压、持有内层输入视图，再由原语义provider分型；借鉴现有ZIP的外层来源/内层解析视图，而非递归ConvertFile后手改路径。通用运输收据独立于文本运输及既有`gzip_perf_data_v1`的Standalone专属凭证；不得给顶层gzip伪造Standalone，或把外层路径和内层字节数混成`perf_data`源。默认KeepTraceDB也应按内层语义路线决定，不再按“凡gzip即directPerf”推断。回归覆盖PERFILE2/SIMPLEPERF/RMQ/OHOSPROF及嵌入gzip-perf、坏CRC/源换代/取消、输出碰撞、sample-only时钟隔离、公开查询与自动补齐；不新增未知protobuf/递归容器能力。
+
+search-only不可列举父目录另经只读复核：目录列举用于真实目录项身份，不能仅凭相同inode合并不同hardlink、全路径小写或退回词面比较。暂无已验证跨平台替代；Darwin单目录项原生属性仅是研究候选，需独立平台/文件系统能力及竞态验收。本轮保持明确权限失败，低于上述可复现路由缺口的实施优先级，未暗中放宽来源门。

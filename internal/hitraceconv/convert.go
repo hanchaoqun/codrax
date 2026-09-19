@@ -400,7 +400,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 				TraceDBCoverage: append([]TraceDBCoverage(nil), initialTraceDBCoverage...),
 				TraceCoverage:   append([]TraceDBCoverage(nil), initialTraceCoverage...),
 			}
-			if bundleErr := finalizeResultTraceBundleWithLedger(ctx, input, "", &result, ledger); bundleErr != nil {
+			if bundleErr := finalizeResultTraceBundleWithLedger(ctx, input, output, &result, ledger); bundleErr != nil {
 				return Result{}, wrapFallbackFailure(errors.Join(err, bundleErr))
 			}
 			return commit(result, nil)

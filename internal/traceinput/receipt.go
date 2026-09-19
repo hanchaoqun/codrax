@@ -15,15 +15,16 @@ import (
 )
 
 type preparationReceipt struct {
-	Version          string             `json:"version"`
-	SourcePath       string             `json:"source_path"`
-	SourceKind       string             `json:"source_kind"`
-	SourceBytes      int64              `json:"source_bytes"`
-	SourceSHA256     string             `json:"source_sha256"`
-	SourceGeneration string             `json:"source_generation"`
-	QueryPath        string             `json:"query_path"`
-	PreviewPath      string             `json:"preview_path"`
-	Conversion       hitraceconv.Result `json:"conversion"`
+	Version          string                               `json:"version"`
+	SourcePath       string                               `json:"source_path"`
+	SourceKind       string                               `json:"source_kind"`
+	SourceBytes      int64                                `json:"source_bytes"`
+	SourceSHA256     string                               `json:"source_sha256"`
+	SourceGeneration string                               `json:"source_generation"`
+	QueryPath        string                               `json:"query_path"`
+	PreviewPath      string                               `json:"preview_path"`
+	Conversion       *hitraceconv.Result                  `json:"conversion,omitempty"`
+	Transport        *hitraceconv.GzipTextTransportResult `json:"transport,omitempty"`
 }
 
 func writeReceipt(ctx context.Context, path string, receipt preparationReceipt, bindings map[string]filegeneration.Identity) error {
@@ -47,10 +48,16 @@ func writeReceipt(ctx context.Context, path string, receipt preparationReceipt, 
 	return ctx.Err()
 }
 
-func bindArtifact(ctx context.Context, artifact hitraceconv.Artifact, bindings map[string]filegeneration.Identity) (err error) {
-	path := artifact.Path
+func bindArtifact(ctx context.Context, artifact hitraceconv.Artifact, bindings map[string]filegeneration.Identity) error {
+	return bindMeasuredFile(ctx, artifact.Path, artifact.Bytes, artifact.SHA256, bindings)
+}
+
+// A byte-preserving transport has a measured file, not a semantic converter
+// artifact. Both share exact generation/digest binding without granting any
+// new event, clock or causal capability to the transported bytes.
+func bindMeasuredFile(ctx context.Context, path string, size int64, digest string, bindings map[string]filegeneration.Identity) (err error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return fmt.Errorf("converter artifact has no clean absolute path: %q", path)
+		return fmt.Errorf("prepared file has no clean absolute path: %q", path)
 	}
 	file, opened, err := filegeneration.OpenRegularReadOnly(path)
 	if err != nil {
@@ -61,14 +68,14 @@ func bindArtifact(ctx context.Context, artifact hitraceconv.Artifact, bindings m
 	if err != nil {
 		return err
 	}
-	if !opened.SameVersion(measured) || count != artifact.Bytes || artifact.SHA256 != "" && artifact.SHA256 != sha {
-		return fmt.Errorf("converter artifact no longer matches its receipt: %q", path)
+	if !opened.SameVersion(measured) || count != size || digest != "" && digest != sha {
+		return fmt.Errorf("prepared file no longer matches its receipt: %q", path)
 	}
 	if err := validateHeld(path, file, opened); err != nil {
 		return err
 	}
 	if prior, ok := bindings[path]; ok && !prior.SameVersion(opened) {
-		return fmt.Errorf("converter artifact changed: %q", path)
+		return fmt.Errorf("prepared file changed: %q", path)
 	}
 	bindings[path] = opened
 	return nil

@@ -168,7 +168,7 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 
 ## 9. 格式/平台矩阵复核与后续拆分（2026-09-19，HMC-17.6仍开放）
 
-以下是源码及本地材料只读清点，不是新增运行验收。此前默认入口的合成格式字节回归和转换器单测不能倒签实机代表性。`internal/hitraceconv/representative_sys_fixture_test.go::TestRepresentativeSysTraceFixtures`在没有代表性manifest时明确Skip；目前对应目录仅README，实机RMQ/OHOSPROF覆盖仍缺。
+以下表格为源码及本地材料只读清点的基线；本节末另记首片实际运行验收，不能混同。此前默认入口的合成格式字节回归和转换器单测不能倒签实机代表性。`internal/hitraceconv/representative_sys_fixture_test.go::TestRepresentativeSysTraceFixtures`在没有代表性manifest时明确Skip；目前对应目录仅README，实机RMQ/OHOSPROF覆盖仍缺。
 
 | 家族 | 现有证据 | 尚需补足 |
 |---|---|---|
@@ -187,3 +187,13 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 17.6按原ID逐片推进：先统一OHOSPROF/PERFILE2/ZIP/gzip-perf默认入口矩阵，再补gzip文本运输；实机样本、真实外部TS和原生平台运行分别登记。新样本须明确可使用范围，尚未取得的材料/环境保持未覆盖，不把仅增加用例或交付一个格式算17.6整体完成。
 
 本地专项追加（本机当前构建，非模型eval、非默认入口验收）：上述两份参考采集均通过显式`trace convert`指定独立`/tmp/codrax-hmc176-local.PNKHgE/`输出，未写参考目录。PERFILE2转换exit0，raw fallback保留12000条样本，产生perftrace/bundle而不生成systrace；转换器交叉检查为12000行，参考实际测试断言也是12000，其文件头18009的旧注释不采信。已查看原始产物的`branch_stack`跳过披露，未将基础采样成功写成BRBE能力完成；未运行额外查询或模型回答，引用/答案能力不由本次转换倒签。gzip文本转换exit1，当前darwin/arm64无TS，回退最终给出RMQ invalid_magic；本例保守拒绝正确，但诊断没有把“已压缩文本尚未支持”与RMQ格式错误清楚分开。该可行动诊断与安全gzip文本运输同归17.6下一片，不让模型反复重试。两份bounded诊断与运行日志留在上述本地目录，原始私人采集及派生内容不提交。
+
+### 9.1 首片实施与退出边界
+
+主账本§21记录本片代码、完整收据与提交状态。默认Prepare新增gzip文本运输，公开查询和系统自动补齐复用同一完整材料；不新增parser或模型原文硬门。参考上述真实`.sys.gz`已只读通过默认准备、全量SHA核对及StreamScan：54,122,686字节、429,756事件、429,766行；现有250000事件BuildIndex内存上限不改，也不把流式解析成功写成模型答案通过。该本地真实采集验收按环境变量显式启用，不把私人文件纳入仓内夹具。
+
+新增公共格式矩阵有7条阳性：OHOSPROF bytrace、PERFILE2、SIMPLEPERF、无bytrace根的HIPERF gzip、bytrace＋HIPERF gzip、唯一ZIP/OHOSPROF和ZIP/RMQ；3条阴性：未知插件库存、无样本PERFILE2库存、多候选ZIP。全部走真实Coordinator→TraceQuery.Execute，不使用converter stub代替生产路径；合成合法格式字节与实机采集仍分列。能力收据、样本与调度时钟隔离、单次准备/暖复用、原件不变和受管目录均有断言。
+
+矩阵发现并修复同根发布位置错误：无主systrace时，3个converter调用方把“空语义产物路径”误用为“未指定物理输出位置”。bundle现遵从显式输出位置，systrace结果字段仍空；独立输出目录/只读原件父目录、inventory重试清理、rootless采样相对路径、既有输出不覆盖及retained-DB无行路径已红转绿。
+
+仍开放：顶层gzip-PERFILE2的内层分型路由（现仍TS/RMQ失败）、显式convert的gzip文本入口、search-only不可列举父目录、更多实机格式/版本、真实外部TS和原生Linux/Windows验收。已有嵌入HIPERF gzip阳性不能代签顶层gzip，更不能宣称任意压缩或protobuf均可解。17.6继续保持开放，任务总数仍13项交付/66项开放。

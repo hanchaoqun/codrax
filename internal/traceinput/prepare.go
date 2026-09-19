@@ -127,6 +127,14 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		}
 		return bind(ctx, source, source, preview, bindings, complete)
 	}
+	// Reject an oversized gzip before hashing the entire original. The
+	// transport enforces the same bound again on its own held source.
+	if kind == string(attachment.BinaryTraceFormatGZIP) && original.Size() > hitraceconv.MaxGzipTraceInputBytes {
+		return nil, &Error{Code: "gzip_transport_failed", Path: source, Err: &hitraceconv.GzipTextTransportError{
+			Code:  hitraceconv.GzipTextCodeResourceLimit,
+			Cause: fmt.Errorf("compressed trace exceeds %d-byte input budget", hitraceconv.MaxGzipTraceInputBytes),
+		}}
+	}
 	_, sourceSHA, measured, err := tracebundle.MeasureFile(ctx, held)
 	if err != nil {
 		return nil, err
@@ -153,7 +161,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	result, err := convert(ctx, hitraceconv.Options{
+	convertOptions := hitraceconv.Options{
 		InputPath: source, OutputPath: filepath.Join(owned.path, "capture.systrace"),
 		TraceEngine: "auto",
 		// DB retention is a trace-only option; direct perf families have no
@@ -161,9 +169,44 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		KeepTraceDB:   !directPerf,
 		RuntimeAnchor: opts.RuntimeAnchor, RuntimeAnchorFallback: opts.RuntimeAnchorFallback,
 		Progress: opts.Progress,
-	})
-	if err != nil {
-		return nil, &Error{Code: "conversion_failed", Path: source, Err: err}
+	}
+	var transport *hitraceconv.GzipTextTransportResult
+	var binaryGzipFormat string
+	if kind == string(attachment.BinaryTraceFormatGZIP) {
+		decoded, decodeErr := hitraceconv.PrepareGzipTraceText(ctx, convertOptions)
+		if decodeErr != nil {
+			var binaryErr *hitraceconv.GzipTextTransportError
+			if !errors.As(decodeErr, &binaryErr) || binaryErr.Code != hitraceconv.GzipTextCodeDecodedBinary {
+				return nil, &Error{Code: "gzip_transport_failed", Path: source, Err: decodeErr}
+			}
+			// A typed, integrity-checked binary payload may retain the old
+			// semantic converter route. Neither arbitrary text failure nor an
+			// error string can authorize fallback to another decoder.
+			if binaryErr.SourceGeneration != original.CacheToken() || binaryErr.SourceBytes != original.Size() || binaryErr.SourceSHA256 != sourceSHA {
+				return nil, fmt.Errorf("gzip transport opened a different source generation: %q", source)
+			}
+			binaryGzipFormat = binaryErr.DecodedFormat
+		} else {
+			if decoded.SourceGeneration != original.CacheToken() || decoded.SourceBytes != original.Size() || decoded.SourceSHA256 != sourceSHA || decoded.DecodedPath != convertOptions.OutputPath {
+				return nil, fmt.Errorf("gzip transport receipt does not match the held source/output: %q", source)
+			}
+			transport = &decoded
+		}
+		if err := validateHeld(source, held, original); err != nil {
+			return nil, err
+		}
+	}
+	var result hitraceconv.Result
+	var conversion *hitraceconv.Result
+	if transport == nil {
+		result, err = convert(ctx, convertOptions)
+		if err != nil {
+			if binaryGzipFormat != "" {
+				err = fmt.Errorf("gzip payload %s could not be converted: %w", binaryGzipFormat, err)
+			}
+			return nil, &Error{Code: "conversion_failed", Path: source, Err: err}
+		}
+		conversion = &result
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -172,6 +215,15 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		return nil, err
 	}
 	previewPath := hitraceconv.QueryReadySystracePath(result)
+	if transport != nil {
+		previewPath = transport.DecodedPath
+		if err := bindMeasuredFile(ctx, previewPath, transport.DecodedBytes, transport.DecodedSHA256, bindings); err != nil {
+			return nil, err
+		}
+		if transport.DecodedGeneration == "" || bindings[previewPath].CacheToken() != transport.DecodedGeneration {
+			return nil, fmt.Errorf("gzip decoded generation changed before preparation binding: %q", previewPath)
+		}
+	}
 	if previewPath == "" {
 		previewPath = hitraceconv.QueryReadyPerfTracePath(result.Artifacts)
 	}
@@ -195,13 +247,13 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		return nil, err
 	}
 	if _, ok := bindings[queryPath]; !ok {
-		return nil, fmt.Errorf("query material has no converter artifact binding: %q", queryPath)
+		return nil, fmt.Errorf("query material has no prepared file binding: %q", queryPath)
 	}
 	receiptPath := filepath.Join(owned.path, "preparation.json")
 	if err := writeReceipt(ctx, receiptPath, preparationReceipt{
 		Version: "traceinput-v1", SourcePath: source, SourceKind: kind,
 		SourceBytes: original.Size(), SourceSHA256: sourceSHA, SourceGeneration: original.CacheToken(),
-		QueryPath: queryPath, PreviewPath: previewPath, Conversion: result,
+		QueryPath: queryPath, PreviewPath: previewPath, Conversion: conversion, Transport: transport,
 	}, bindings); err != nil {
 		return nil, err
 	}

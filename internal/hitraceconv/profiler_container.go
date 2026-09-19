@@ -1294,7 +1294,9 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, in
 	if publishableRows == 0 {
 		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(sink.stats))
 	}
-	if err := finalizeResultTraceBundleWithLedger(ctx, opts.InputPath, result.OutputPath, &result, ledger); err != nil {
+	// An absent primary systrace does not revoke the caller's output location.
+	// Inventory and sidecar-only bundles remain beside the requested output.
+	if err := finalizeResultTraceBundleWithLedger(ctx, opts.InputPath, firstNonEmpty(result.OutputPath, output), &result, ledger); err != nil {
 		return Result{}, true, err
 	}
 	return result, true, nil

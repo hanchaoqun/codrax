@@ -129,7 +129,7 @@ func TestPrepareTrueRMQAutoConvertsAndQueriesTail(t *testing.T) {
 	if err := json.Unmarshal(data, &receipt); err != nil {
 		t.Fatal(err)
 	}
-	if receipt.SourcePath != input || receipt.SourceSHA256 == "" || receipt.SourceBytes != int64(len(body)) || len(receipt.Conversion.TraceDecisions) == 0 || len(receipt.Conversion.TraceCoverage) == 0 {
+	if receipt.SourcePath != input || receipt.SourceSHA256 == "" || receipt.SourceBytes != int64(len(body)) || receipt.Conversion == nil || len(receipt.Conversion.TraceDecisions) == 0 || len(receipt.Conversion.TraceCoverage) == 0 {
 		t.Fatalf("conversion provenance/decisions/coverage missing: %+v", receipt)
 	}
 	if got, err := os.ReadFile(input); err != nil || !bytes.Equal(got, body) {
@@ -224,7 +224,7 @@ func TestPrepareTrueSimpleperfIsSampleOnly(t *testing.T) {
 	if err := json.Unmarshal(data, &receipt); err != nil {
 		t.Fatal(err)
 	}
-	if hitraceconv.QueryReadySystracePath(receipt.Conversion) != "" || hitraceconv.QueryReadyPerfTracePath(receipt.Conversion.Artifacts) == "" {
+	if receipt.Conversion == nil || hitraceconv.QueryReadySystracePath(*receipt.Conversion) != "" || hitraceconv.QueryReadyPerfTracePath(receipt.Conversion.Artifacts) == "" {
 		t.Fatalf("sample-only conversion gained scheduling capability: %+v", receipt)
 	}
 	canonicalAnchor, err := filepath.EvalSymlinks(filepath.Join(dir, "runtime"))

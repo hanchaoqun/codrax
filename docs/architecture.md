@@ -1295,6 +1295,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验，SQLite、未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline/stdin仍是有界文本入口。
 
+**gzip文本运输（HMC-17.6首片）**：默认文件准备按内容识别gzip，经`PrepareGzipTraceText`校验单member、CRC/ISIZE、尾部、大小/压缩比和全量文本后，无覆盖发布完整解压文本。`gzip_trace_text_v1`是独立字节运输收据，不是事件生产者/时钟/因果凭证；原件与派生物均绑定摘要和强代次，行号只属于解压材料，预览不替代完整查询。只有完整性已验证且具有精确已知二进制签名的typed结果可保留既有converter路径；坏压缩、取消、源/输出换代及清理失败均不能借此重试。该首片不宣称顶层gzip-PERFILE2或显式`trace convert`已等价支持gzip文本。无主systrace的inventory、sample-only及retained-DB结果仍保持空systrace字段，但物理bundle位置必须遵从指定输出目录，不回退原件旁。
+
 **命名路径准备（HMC-17.5）**：每次Run创建独立`traceinput.Coordinator`，经`types.TraceInputPreparer`句柄贯通BusContext、AgentContext及子agent，不序列化、不写入sticky附件。typed准入、公开`trace_query`、系统补齐共享成功材料和同路径并发准备；选择器仍无转换副作用，底层BuildIndex/流式parser仍只接收准入文本或bundle。cmd/REPL绑定稳定runtime锚，不能用Run结束时删除的WorkDir。原件、派生查询路径只凭有效进程内收据归一，同名/同字节独立采集不合并；准备失败不借其他源。正缓存每次验证原件、派生物及引擎实际选中的完整源集合，查询后再验证，防止同轮成员换代混证。取消等待者不取消持有者；持有者取消先回滚再允许存活等待者重试，失败不跨调用负缓存。完整文本沿原查询路径工作，二进制预览不替代查询材料。自动补齐按query-ready路径计算预算；已准备的`.sys`或无后缀路径只凭完整typed载体与收据识别，不扫描用户/答案原文判定Trace。
 
 路径共享使用实际目录项拼写与文件对象身份，精确目录项优先；目录分页读取并检查取消，不把全局小写或大小写相似当来源证明。原始选择坐标保留到准备校验，派生坐标只用于去重。祖先目录可搜索但不可列举时，此协调入口目前明确拒绝无法确认的目录项身份；不修改权限、不声称原件格式损坏，也不回退弱别名。这一额外权限边界及跨平台原生运行继续列入17.6矩阵；正常可列举只读目录仍可使用。
