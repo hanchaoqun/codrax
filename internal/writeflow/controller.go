@@ -36,6 +36,13 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 	// different purpose (for example, a proof-only probe batch into a normal
 	// change batch). Resolve this before batchIDAndGoalFromBatch and
 	// updateWorkflowBatch consume the echoed metadata.
+	if decision.Action == ActionPlanBatch {
+		if pending := PendingControllerProofPlanBatch(&run); pending != nil {
+			// plan_batch continues the active controller-owned proof task; a
+			// model-proposed replacement ID must not mint an ordinary batch.
+			decision.Batch = pending
+		}
+	}
 	decision.Batch = preserveControllerOwnedBatchPlan(run, decision.Batch)
 	decision.Batch = preserveExistingReplanBatchGoal(run, decision.Action, decision.Batch)
 
@@ -299,6 +306,47 @@ func applyWorkflowBatchPlanMetadata(run *types.WriteWorkflowRun, id string, batc
 		run.Batches[i].UpdatedAt = time.Now()
 		return
 	}
+}
+
+// PendingControllerProofPlanBatch returns the exact plan envelope promised by
+// a controller-owned proof follow-up after bounded exploration. Both scheduling
+// (including planner context) and durable transitions consume this single rule.
+// SuccessCriteria tokens below are controller-minted metadata, not user/model
+// prose. Ordinary batches, already-created plans and verify-only work are not
+// captured. Returned slices do not alias the durable run.
+func PendingControllerProofPlanBatch(run *types.WriteWorkflowRun) *WriteBatchPlan {
+	if run == nil || strings.TrimSpace(run.ActiveBatchID) == "" {
+		return nil
+	}
+	for _, batch := range run.Batches {
+		if strings.TrimSpace(batch.ID) != strings.TrimSpace(run.ActiveBatchID) {
+			continue
+		}
+		if batch.Status != types.WriteWorkflowBatchReadyToPlan || batch.ExecutionMode != "" ||
+			strings.TrimSpace(batch.PlanID) != "" || !controllerOwnsFollowupBatch(*run, batch) {
+			return nil
+		}
+		switch strings.TrimSpace(batch.Purpose) {
+		case "verification_proof_followup", "impact_and_verification_proof_followup":
+		default:
+			return nil
+		}
+		for _, criterion := range batch.SuccessCriteria {
+			for _, field := range strings.Fields(criterion) {
+				if field == "verification_probe_required=true" {
+					return &WriteBatchPlan{
+						ID: batch.ID, Goal: batch.Goal, Purpose: batch.Purpose,
+						ExecutionMode: batch.ExecutionMode, Status: BatchReadyForChangePlan,
+						ExpectedPaths:   append([]string(nil), batch.ExpectedPaths...),
+						SuccessCriteria: append([]string(nil), batch.SuccessCriteria...),
+						DependsOn:       append([]string(nil), batch.DependsOn...),
+					}
+				}
+			}
+		}
+		return nil
+	}
+	return nil
 }
 
 func preserveControllerOwnedBatchPlan(run types.WriteWorkflowRun, batch *WriteBatchPlan) *WriteBatchPlan {

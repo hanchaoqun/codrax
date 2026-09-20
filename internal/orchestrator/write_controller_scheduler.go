@@ -6716,47 +6716,22 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 // requested. The discriminator is entirely controller-owned: an active
 // proof-followup batch, ready_to_plan after bounded exploration, with no plan
 // artifact and at least one typed verification_probe_required criterion.
+// A plan_batch echo cannot replace that pending batch with a new ID or scope.
 // It does not inspect model rationale, commands, source, request, or answer
 // text, and it still permits an explicit block rather than fabricating proof.
 func controllerPendingProofPlanDecision(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
-	if decision.Action != writeflow.ActionFinish || run == nil {
+	if decision.Action != writeflow.ActionFinish && decision.Action != writeflow.ActionPlanBatch {
 		return writeflow.WriteWorkflowDecision{}, false
 	}
-	batch, ok := activeWorkflowBatch(run)
-	if !ok || batch.Status != types.WriteWorkflowBatchReadyToPlan ||
-		batch.ExecutionMode != "" || !proofFollowupPurpose(batch.Purpose) ||
-		strings.TrimSpace(batch.PlanID) != "" {
-		return writeflow.WriteWorkflowDecision{}, false
-	}
-	proofRequired := false
-	for _, criterion := range batch.SuccessCriteria {
-		for _, field := range strings.Fields(criterion) {
-			if field == "verification_probe_required=true" {
-				proofRequired = true
-				break
-			}
-		}
-		if proofRequired {
-			break
-		}
-	}
-	if !proofRequired {
+	batch := writeflow.PendingControllerProofPlanBatch(run)
+	if batch == nil {
 		return writeflow.WriteWorkflowDecision{}, false
 	}
 	return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
 		Action:     writeflow.ActionPlanBatch,
 		ReasonCode: "verification_proof_probe_plan_pending",
 		Reason:     "the controller-owned proof batch completed bounded exploration and still requires one typed probe-only ChangePlan before a terminal verdict",
-		Batch: &writeflow.WriteBatchPlan{
-			ID:              batch.ID,
-			Goal:            batch.Goal,
-			Purpose:         batch.Purpose,
-			ExecutionMode:   batch.ExecutionMode,
-			Status:          writeflow.BatchReadyForChangePlan,
-			ExpectedPaths:   append([]string(nil), batch.ExpectedPaths...),
-			SuccessCriteria: append([]string(nil), batch.SuccessCriteria...),
-			DependsOn:       append([]string(nil), batch.DependsOn...),
-		},
+		Batch:      batch,
 	}), true
 }
 

@@ -819,9 +819,17 @@ LLM等待保护定向回归通过17.992s（`/tmp/hmc-stream-wait-preservation-20
 
 写例初次补丁正确将整数值float正规化为int，原有4个测试与plain Python probe均绿，原始回归测试未修改。但`contract_refs`只说明探针意图、不授逐合同断言凭证；规划器收到明确教学后仍漏交已有原生测试的`project_test_observations`，故`float_type_check`缺证保护合法。已应用补丁保留于eval临时仓的`refs/codrax/applied/plan-1789900623764734000-91719`，最终流程blocked，不能以局部测试绿签完整交付。
 
-- [ ] **WRITE-PROOF-IDENTITY（P1，确定性系统缺陷，施工中）**：已就绪的controller补证批允许下一次`plan_batch`换ID，既有元数据保真只保同ID；新ID成为普通批，PTO-only先被拒，保留了probes的空changes仍因补证身份丢失被拒。随后模型被引向重复改动已正确源码，直到重复路径拒绝。根修是在调度及持久化两层消费同一待补证批判断，保原ID/目的/范围/依赖，不放宽空计划门或通过原文推权限。两种purpose的直接Apply和公开normalizer→Apply→emit计划链已行为先红（`/tmp/hmc-proof-identity-red-20260920.log`）；待正反/相邻验收与提交。
+- [x] **WRITE-PROOF-IDENTITY（P1，确定性子缺陷已修，非整例销账）**：已就绪的controller补证批允许下一次`plan_batch`换ID，既有元数据保真只保同ID；新ID成为普通批，PTO-only先被拒，保留了probes的空changes仍因补证身份丢失被拒。随后模型被引向重复改动已正确源码，直到重复路径拒绝。调度及持久化两层现消费同一`PendingControllerProofPlanBatch`，保原ID/目的/范围/依赖，不放宽空计划门或通过原文推权限。两种purpose的直接Apply和公开normalizer→Apply→emit计划链行为先红后绿，详见§30.4；能力不匹配仍是独立开放项。
 - [ ] **WRITE-PROOF-CAPABILITY（P1，独立系统缺陷，设计已核，未实施）**：即便保住ID，当前补证桥只查解释器存在，却要求plain Python probe解决缺失的逐合同行为证明；执行器不能产该证明，旧source-free sentinel又合法禁止补PTO。因此身份修复不能代销能力路由。下一片须按typed obligation与实际执行器能力分流：已有精确凭证复用、已有声明缺执行则精确重跑、缺声明但有原生断言则只读绑定后重跑、仅plain probe只补目标执行不承诺合同证明。
 
 能力补证设计：优先复用既有PTO精确文件/suite/assertion执行器，新增与`proof_probe_only`平行的只读原生断言补证形，不修改旧source plan/审批fingerprint/历史报告。controller授权须绑定run/batch、已应用source plan、工作树快照及active required合同；只收已存在测试、精确PTO，无任何文件编辑，不强制再造probe。系统读取并绑定测试字节哈希，执行前后复核，计划/报告独立留存，不能给历史aggregate pass补签。未授权/跨仓跨批/退役合同/文件改变/skip/错误suite或assertion/非零执行均不授证。累计scope/resume/JSON往返和同快照同绑定不重复回圈为必测边界。该设计尚未实施，不提前宣称写模式闭环。
 
 另记低优先级合同教学问题：`raises.expected`被写成复合中文，精确异常值在comparator；不是本次缺证直接原因。应通过同源原子化教学让异常合同保`ValueError`、转换结果另列，不从散文自动拆合同或松凭证门。
+
+### 30.4 WRITE-PROOF-IDENTITY实施收据
+
+`writeflow.PendingControllerProofPlanBatch`以当前活动批、ready_to_plan、空PlanID、非verify_only、已有补证进度记录、精确补证purpose与required标志为条件，返回独立复制的原批计划封装。scheduler在finish和plan_batch使用，持久化Apply仅在plan_batch使用；两者单源，防止运行状态保住但planner仍收到错误范围。直接新增/拆分/重规划动作、已完成/已建计划/普通批不被劫持，不授新文件编辑或新行为凭证。
+
+两种purpose×异/同/空ID回显、11项边界、独立拷贝、append/split/replan/block及公开成文计划入口已验证；planner提示仍限原路径，公开probe-only计划保来源范围且没有凭空生成验证报告。测试fixture修正了既有正规化对空切片、CreatedAt的合法初始化，未改变生产时间戳或正规化逻辑。RED为`/tmp/hmc-proof-identity-red-20260920.log`，GREEN为`/tmp/hmc-proof-identity-green-20260920.log`（writeflow0.697s、orchestrator0.898s）；两完整包通过0.425s/17.319s（`/tmp/hmc-proof-identity-packages-20260920.log`）；新路径及相邻proof/planner回归race×3通过1.623s/2.439s（`/tmp/hmc-proof-identity-race-20260920.log`）。独立审查未发现生产放权或既有正常路由回退。本片没有另起live回放：已知能力缺口未修完，不能只修ID便以同例追绿。
+
+授权边界说明：本片复用既有run级`verification_proof_followup_requested`记录判断，并未新建绑定到批次血缘/工作树代次的授权凭证；不得宣称逐批精确授权已闭环。§30.3下一片既有原生断言补证需另建绑定run/batch/快照的授权，避免把历史同run记录当新补证权限。稳定任务总数仍13/79交付、66开放，WRITE-PROOF-IDENTITY只是HMC-18.5中的一个子缺陷。
