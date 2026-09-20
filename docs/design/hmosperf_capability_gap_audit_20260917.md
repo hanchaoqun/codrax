@@ -597,3 +597,7 @@ HMC-02.4先拆本切片（仍属于原79项，不新计已交付数）：
 ### 25.3 后续优先级（未运行，不当验收）
 
 下一修复先补§24.3原子实例绑定与组合意图的正反验收，再单独审运行时图/源码图边的凭证范围；不把这三类问题混成统一豁免。生产批仍固定2并行×1：本批两个Trace原失败已完整审计，下一异构保护对候选为`read_combo_trace_current_source_explanation.case`（显式需要源码，防本批optional修复外溢）＋`github_issue_dateutil_relativedelta_float_symptom.case`（Python写apply/回归测试，防长期只跑Trace）。两例现有定义已核对；排序依据为受改动影响的合同强度、跨模式风险和已有覆盖，未伪称已逐一重跑全部cases或写模式已由本批live覆盖。
+
+### 25.4 交付收据
+
+本批六个文件以`989fd23ec`提交推送main，推送后工作树干净、HEAD/远端0/0；干净构建通过`/tmp/hmc-repair-capability-build-clean-20260920.log`，buildRevision=`989fd23ec667`。仅提示/修补通道和保护测试发生变化，成员集有效性硬门、源码权限、显式窗口、根因链资格、Trace自动补齐、旁路及600/300/600秒配置均未修改。稳定清单仍13/79已交付、66开放；§24回放人工0/2仍成立，两批新修复的live复验单独开放。
