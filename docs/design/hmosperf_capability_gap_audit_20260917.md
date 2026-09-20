@@ -923,14 +923,15 @@ Python只改源文件，保原4测试，独立复测及类型/负值/零值/非�
 
 新增真实公开materializer/user/soft/hard-cap residual及tracked重放测试，中英文别名、nil上下文、typed trace-only和源码场景共用模板，正文逐字保留；空违规不追加、仅遥测不展示、精确facet不降成通用提醒。RED见`/tmp/hmc-source-neutral-caveat-red-20260920.log`；GREEN types1.172s/orchestrator1.079s，完整两包45.811s/21.197s、定向race×3 3.219s/2.948s均退出0（同前缀green/packages/race日志）。本片没有另跑live第三例，不修改§31.3原报告或人工FAIL。代码3aa5972d6及审计63a6fc6a2已推送main。
 
-## 32. HMC-02.4：已接受业务实例的补齐范围（2026-09-20，实现完成、验收中）
+## 32. HMC-02.4：已接受业务实例的补齐范围（2026-09-20，实现358f47f4c，旧FAIL保留）
 
 继续§27/§29旧业务答案FAIL，不重新定义通过标准。旧查询引用只提供导航，不是最终选择；同名多实例、探索试窗或并行失败分支的已完成工具结果，都不能替模型选择答案范围。参考仓按对象下钻的组织方式仍沿本仓原子来源/TID/完整实例窗实现，不移植近邻/最长片段猜选。
 
 - [x] **接受与执行成功分离**：completion顶层可选`business_span_ref`只收本轮已发布原物理引用。所有原准入之后同锁记录pending决定与completion代次；无选择明确清旧。worker成功、有效output、无错误且父上下文未取消后，独立hook才允许消费。系统收敛completion、失败后保留closure、工具事实保留都不自动获得新焦点权限。
 - [x] **生命周期及并行**：Reset/reopen撤销；JSON/TurnA/散文不还原权限。传统fork合并不携新焦点；成功败方仅可对不同实例保守否决，不授选择，失败败方也不能用无选择状态否决。相同物理实例的不同随机token可等价，不同实例或明确无选择冲突时不按数组/完成顺序胜出。
 - [x] **补齐原子消费**：没有用户范围/目标覆盖时只通过`{view,business_span_ref}`查询；预算和披露读取同一实例。明确用户单窗/多窗/全域、不同目标及目标冲突保持既有优先。已有家族必须来自同物理捕获代次、相同TID及完整实例窗，连±0.5/1微秒的真实邻窗也不能冒充，旧51ms不得抑制50ms补齐。源级census仍是独立全域库存，不冒充实例内因果证据。
-- [ ] **公开回归与生产验收**：schema、真实adapter消息、公开completion、串并行成功/错误/取消/冲突、显式用户窗、来源变更、统计与根因边界、零语义猜测；完整回归后固定两例各一次，人工审查旧FAIL是否真正消除。
+- [x] **公开确定性回归**：schema、真实adapter消息、公开completion、串并行成功/错误/取消/冲突、显式用户窗、来源变更、统计与根因边界、零语义猜测；末版全仓退出0，见§32.3。
+- [ ] **生产验收**：固定两例各一次，机器1/2、人工0/2；业务例未调用实例定位或提交选择，新焦点路径未命中，旧FAIL仍开放，见§32.2。
 
 前置失败已留：completion schema缺字段的公共capability RED（`/tmp/hmc-business-focus-completion-red-20260920.log`）；types新能力的可编译scaffold行为RED（`/tmp/hmc-accepted-focus-types-red-20260920.log`，不伪称已发生生产事故）；原supplement对已接受引用仍no_attached_trace、陈腐/失败选择会沿旧探索窗执行的公开RED（`/tmp/hmc-business-focus-supplement-red-20260920.log`）。初版门保留fixture误用runtime源的pending-read旧合法豁免，已改成精确member_set义务反例，不据此报告新准入漏洞。未收完整live收据，不勾父任务，清单13/79与66开放保持。
 
@@ -943,3 +944,21 @@ Python只改源文件，保原4测试，独立复测及类型/负值/零值/非�
 公开completion/schema/消息定向通过1.120s，tool/agent race×3分别4.825s/3.823s（`/tmp/hmc-business-focus-completion-green2-20260920.log`、`/tmp/hmc-business-focus-completion-message-race-20260920.log`）。types/orchestrator完整包48.010s/22.389s、最后本片+census race×3为2.185s/35.590s（`/tmp/hmc-accepted-focus-types-orchestrator-full-final-20260920.log`、`/tmp/hmc-accepted-focus-own-race-final-20260920.log`）。supplement公开矩阵1.659s，相关旧新回归6.124s、race×3 11.489s（`/tmp/hmc-business-focus-supplement-regression-20260920.log`、`/tmp/hmc-business-focus-supplement-race-20260920.log`）。独立复审确认上述微窗/仅TID/失败兄弟三边界修复，原closure恢复、重开保护和L1一致性仍通过。
 
 中间失败保留：假worker没有构造真实TurnA导致测试nil访问；代理同时施工期间新test的`meta.Members`字段编译失败；均已修正测试，不把这些说成生产系统新增事故或首跑全绿。最终回归期间另核教学：query本身不接受焦点的旧否定句与新completion能力没有严格逻辑矛盾，但有孤立阅读歧义；补最小同源桥句，明确需另走顶层completion字段并等待接受与worker成功，不增加模型必填义务。
+
+### 32.2 固定双例收据与未销账问题
+
+固定358f47f4c011，2并行×1，业务367秒/42%上下文、明确窗187秒/45%；[机器摘要](../../eval/parallel_selected_summary_hmc_business_focus_20260920.md)1/2，[人工逐案审计](../../eval/parallel_selected_summary_hmc_business_focus_20260920_manual_audit.md)0/2，没有第三例追绿。业务仍缺35ms请求正文，投影仍53ms探索窗；本次未调用业务实例定位、completion未提交引用，自动补齐no_typed_target，所以不能宣称新接缝live验收完成。原生35/31/47数值到达finalizer，不是容量截断。明确20ms窗、11ms链上IO和链400→300→200→100保持，但可见答案仍有列表丢字和跨CPU/等待主体/请求口径误述。
+
+优先修复的确定性系统项（归原HMC-02.4/18.4，不新增父项计数）：
+
+- [ ] **背景排序量冒充实测**：47ms背景IO被内部排序限为53×35%=18.55ms；publication只修纯调度状态，资源行遗漏，handoff还将其称为measured，系统图与表也用18.55。保留排序/Score/因果隔离，按原生typed测量恢复发布口径；不得把累计、区间包络、count/index混算为实测。不能记模型波动。
+- [ ] **结构化列表正文静默丢失**：合法字符串放在section.items[].cells，最终两组列表仅编号。审计解码/规范化/渲染一致性，只保留已有内容，不补造语义、不加原文关键词硬门。
+- [ ] **正文边界遵循**：同核首跳被概括为全部跨核，依赖方自身1ms被说成下游runnable，11ms调度IO-wait被说成缓存页加载。正确typed信息已存在，先核教学/共享上下文，不用一次模型错答扩硬门。
+
+analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际日志留档，不能以机器ana=1当零重试；未发现同字段必带必拒的新证据。mandatory根因旁路、Trace投影及600/300/600秒等待保持，本轮没有活跃流因短暂未成文而提前降级。
+
+### 32.3 冻结实现回归
+
+原生构建`/tmp/hmc-business-focus-build-20260920.log`退出0，版本358f47f4c011。最终同源桥句补完后的全仓`/tmp/hmc-business-focus-final2-full-20260920.log`退出0：87包通过（72缓存/15实际）、13包无测试、零FAIL；agent71.656s、tool350.882s、tracequery90.893s、types30.074s、orchestrator18.217s。第一轮全仓也退出0（87通过、17缓存/70实际），但最终交付采用第二轮。schema真实消息桥定向agent1.178s/tool2.328s，日志`/tmp/hmc-business-focus-bridge-green-20260920.log`。
+
+本片收住的是接受权限、生命周期与原子补齐接缝，不是旧答案FAIL。父任务不勾，13/79已交付、66开放不变；后续先根修§32.2确定性系统缺口，再做新固定版本双例回放。
