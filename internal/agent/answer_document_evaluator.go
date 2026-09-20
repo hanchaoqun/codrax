@@ -6500,7 +6500,18 @@ func renderAnswerDocIOMeasurementRelationBridge(
 				// Do not choose a first/more complete one for this joint sentence.
 				if coverage.Subject != ioRecords[i].Subject || coverage.Object != ioRecords[i].Object ||
 					coverage.Value != ioRecords[i].Value || coverage.Unit != ioRecords[i].Unit ||
-					!slices.Equal(coverage.RichNotes, ioRecords[i].RichNotes) {
+					!slices.Equal(coverage.RichNotes, ioRecords[i].RichNotes) ||
+					!types.TraceRuntimeAccountRecordsSameResult(*coverage, ioRecords[i]) ||
+					coverage.SourceRef.QueryScopeID == "" ||
+					coverage.SourceRef.QueryWindowKnown != ioRecords[i].SourceRef.QueryWindowKnown ||
+					coverage.SourceRef.QueryWindowStartTs != ioRecords[i].SourceRef.QueryWindowStartTs ||
+					coverage.SourceRef.QueryWindowEndTs != ioRecords[i].SourceRef.QueryWindowEndTs ||
+					coverage.SourceRef.QueryLineRangeKnown != ioRecords[i].SourceRef.QueryLineRangeKnown ||
+					coverage.SourceRef.QueryLineStart != ioRecords[i].SourceRef.QueryLineStart ||
+					coverage.SourceRef.QueryLineEnd != ioRecords[i].SourceRef.QueryLineEnd ||
+					coverage.SourceRef.QueryTargetPID != ioRecords[i].SourceRef.QueryTargetPID ||
+					coverage.SourceRef.QueryTargetThread != ioRecords[i].SourceRef.QueryTargetThread ||
+					coverage.SourceRef.QueryTargetScope != ioRecords[i].SourceRef.QueryTargetScope {
 					coverage = nil
 					break
 				}
@@ -6545,15 +6556,10 @@ func renderAnswerDocIOMeasurementRelationBridge(
 		)
 	}
 	if coverage != nil {
-		emitted := traceQueryObservationSupplementNoteValue(*coverage, types.TraceNoteKeyIOCoverageEmitted)
-		total := traceQueryObservationSupplementNoteValue(*coverage, types.TraceNoteKeyTotal)
-		overflow := traceQueryObservationSupplementNoteValue(*coverage, types.TraceNoteKeyIOOverflowPairs)
 		overflowMS := traceQueryObservationSupplementNoteValue(*coverage, types.TraceNoteKeyIOOverflowRequestMS)
 		fmt.Fprintf(&b,
-			"    - Global selected-window block-request coverage: emitted=%s, total=%s, hidden=%s. The hidden-request duration sum is %s request·ms; this aggregate IS non-wall-clock and non-additive, is not a target request count, and cannot be added to either wall-clock ruler above.\n",
-			firstNonEmptyAnswerDocString(emitted, "unknown"),
-			firstNonEmptyAnswerDocString(total, "unknown"),
-			firstNonEmptyAnswerDocString(overflow, "unknown"),
+			"    - Block-request detail selection for source record `%s` only: %s The hidden-request duration sum is %s request·ms; this aggregate IS non-wall-clock and non-additive, is not a target request count, and cannot be added to either wall-clock ruler above.\n",
+			coverage.ID, types.TraceIODetailCoverageFromObservation(*coverage).PromptMeaning(),
 			firstNonEmptyAnswerDocString(overflowMS, "unknown"),
 		)
 	}
@@ -6667,8 +6673,32 @@ func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm 
 	if value := strings.TrimSpace(record.Value); value != "" {
 		parts = append(parts, fmt.Sprintf("value=`%s%s`", value, strings.TrimSpace(record.Unit)))
 	}
+	intervalLabel := "interval"
+	switch predicate {
+	case "io_latency", "io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode":
+		// Query receipts belong to the producer result. A pair or group's
+		// observed event envelope cannot recover missing query coordinates.
+		intervalLabel = "observed_interval"
+		ref := record.SourceRef
+		if ref.QueryScopeID != "" {
+			parts = append(parts, fmt.Sprintf("query_scope=`%s`", ref.QueryScopeID))
+		}
+		queryWindow := "unknown"
+		if ref.QueryWindowKnown && ref.QueryWindowEndTs > ref.QueryWindowStartTs &&
+			!math.IsInf(ref.QueryWindowStartTs, 0) && !math.IsInf(ref.QueryWindowEndTs, 0) {
+			queryWindow = fmt.Sprintf("%.6f..%.6f", ref.QueryWindowStartTs, ref.QueryWindowEndTs)
+		}
+		parts = append(parts, fmt.Sprintf("query_window=`%s`", queryWindow))
+		if ref.QueryLineRangeKnown {
+			if ref.QueryLineStart == 0 && ref.QueryLineEnd == 0 {
+				parts = append(parts, "query_lines=`unrestricted`")
+			} else {
+				parts = append(parts, fmt.Sprintf("query_lines=`%d..%d`", ref.QueryLineStart, ref.QueryLineEnd))
+			}
+		}
+	}
 	if record.Span.EndTs > record.Span.StartTs {
-		parts = append(parts, fmt.Sprintf("interval=`%.6f..%.6f`", record.Span.StartTs, record.Span.EndTs))
+		parts = append(parts, fmt.Sprintf("%s=`%.6f..%.6f`", intervalLabel, record.Span.StartTs, record.Span.EndTs))
 	}
 	appendNote := func(label, key string) {
 		if value := traceQueryObservationSupplementNoteValue(record, key); value != "" {
@@ -6696,6 +6726,7 @@ func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm 
 		appendNote("overflow_pairs", types.TraceNoteKeyIOOverflowPairs)
 		appendNote("overflow_request_ms", types.TraceNoteKeyIOOverflowRequestMS)
 		appendNote("overflow_sum_caliber", types.TraceNoteKeyIOOverflowSumCaliber)
+		parts = append(parts, types.TraceIODetailCoverageFromObservation(record).CompactMeaning())
 	} else {
 		for _, key := range []string{
 			types.TraceNoteKeyDev, types.TraceNoteKeyInode,

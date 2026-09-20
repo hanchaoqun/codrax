@@ -5300,6 +5300,11 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- io_latency_overflow pairs=%d request_ms_sum=%.3frequest·ms (non-wall-clock; requests may overlap; beyond the display cap; target/chain ranking and blocking recover strict completion-to-issuer wake requests from the full census; generic evidence and other requests remain bounded context)\n",
 				result.WindowStats.IOLatencyOverflowCount, result.WindowStats.IOLatencyOverflowRequestMs)
 		}
+		if selected, beyond := len(result.WindowStats.IOLatencies), result.WindowStats.IOLatencyOverflowCount; selected > 0 || beyond > 0 {
+			total := selected + beyond
+			coverage := types.TraceIODetailCoverage{AcceptedPairs: &total, SelectedDetails: &selected, BeyondDetailCap: &beyond}
+			fmt.Fprintf(&b, "- io_request_detail_scope: %s\n", coverage.PromptMeaning())
+		}
 		for _, limit := range result.WindowStats.CPUFrequencyLimits {
 			fmt.Fprintf(&b, "- cpu_frequency_limit cpu=%d min=%dkHz max=%dkHz count=%d line=%d ts=%.6f %s\n",
 				limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count, limit.Line, limit.Ts, traceQueryFrequencyPolicyCountCaliber(limit.MaxFrequency))
@@ -13386,6 +13391,8 @@ func traceQueryTypedIOLatencyObservations(stats tracequery.WindowStats, ref type
 			status = "capacity_truncated"
 		}
 		count := total
+		selected, beyond := len(stats.IOLatencies), stats.IOLatencyOverflowCount
+		detailCoverage := types.TraceIODetailCoverage{AcceptedPairs: &total, SelectedDetails: &selected, BeyondDetailCap: &beyond}
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#io_latency_coverage", scope),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -13401,14 +13408,14 @@ func traceQueryTypedIOLatencyObservations(stats tracequery.WindowStats, ref type
 			Value:           strconv.Itoa(total),
 			Unit:            "requests",
 			ResultCount:     &count,
-			Summary: fmt.Sprintf("io latency exact-pair coverage emitted=%d total=%d status=%s; overflow request residence sum=%.3f request·ms is non-wall-clock and non-additive because requests may overlap",
-				len(stats.IOLatencies), total, status, stats.IOLatencyOverflowRequestMs),
+			Summary: detailCoverage.PromptMeaning() + fmt.Sprintf(" Overflow request residence sum=%.3f request·ms is non-wall-clock and non-additive because requests may overlap; native detail status=%s",
+				stats.IOLatencyOverflowRequestMs, status),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{types.TraceNoteKeyIOCoverageEmitted, strconv.Itoa(len(stats.IOLatencies))},
 				{types.TraceNoteKeyTotal, strconv.Itoa(total)},
 				{types.TraceNoteKeyIOCoverageComplete, strconv.FormatBool(complete)},
 				{types.TraceNoteKeyIOCoverageStatus, status},
-				{types.TraceNoteKeyIOOverflowPairs, traceQueryTypedCount(stats.IOLatencyOverflowCount)},
+				{types.TraceNoteKeyIOOverflowPairs, strconv.Itoa(stats.IOLatencyOverflowCount)},
 				{types.TraceNoteKeyIOOverflowRequestMS, traceQueryObservationMSValue(stats.IOLatencyOverflowRequestMs)},
 				{types.TraceNoteKeyIOOverflowSumCaliber, "request_ms_non_wall_clock_non_additive"},
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},

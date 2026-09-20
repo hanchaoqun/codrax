@@ -668,10 +668,11 @@ type runtimeTraceProjBranchTwinFoldPeer struct {
 }
 
 // runtimeTraceProjIOFoldPeer is one folded same-segment IO caliber: the raw
-// typed token, its display impact and its registered evidence tag.
+// typed token, its display impact WITH ruler, and its registered evidence tag.
 type runtimeTraceProjIOFoldPeer struct {
 	Token       string
 	ImpactMS    float64
+	Caliber     runtimeTraceProjIOFoldCaliber
 	EvidenceTag string
 }
 
@@ -1979,7 +1980,7 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `composite, see the detail blocks` = the value is a multi-component composite (runnable in full + discounted running), not one single caliber; per-component calibers and the split live on the row's attribution breakdown line or its detail block."},
 		{runtimeTraceProjMarkIOCaliberNote, runtimeTraceProjLegendGroupCaliber,
 			"- `同段IO另有…等口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因;席行数值=最大墙钟成员自值(下界),家族总量见成员行。",
-			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted; the seat value is the largest wall-clock member's own value (a lower bound) — the family total lives on the member lines."},
+			"- `same-segment IO also measured …` / `same-segment IO also reports …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted; ranking impact is not measured request duration; the seat value is the largest wall-clock member's own value (a lower bound) — the family total lives on the member lines."},
 		{runtimeTraceProjMarkPeriodicSource, runtimeTraceProjLegendGroupCaliber,
 			"- `周期性信号源` = 该行是固定周期的信号发生器,期内睡眠(或 D 态定时等待,行内标注 caller)为正常节拍;有效归因只计 runnable 与信号迟到量,窗口投影保留原始值;消除杠杆=让周期源准时触发/完成(迟到量)与其就绪等待的调度(runnable),非泛指修 IO/依赖。",
 			"- `periodic signal source` = this row is a fixed-period signal generator; in-period sleep (or a D-state timer wait — the row names its caller) is normal cadence. Attribution counts only runnable plus signal lateness; the window projection keeps the raw value. Elimination lever = make the periodic source fire/complete ON TIME (the lateness) plus the ready-wait's scheduling (the runnable) — not a generic IO/dependency fix."},
@@ -3959,11 +3960,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		attach := func(rows []runtimeTraceProjTreeRow) {
 			for i := range rows {
 				for _, peer := range ioFoldPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
-					rows[i].IOFoldPeers = append(rows[i].IOFoldPeers, runtimeTraceProjIOFoldPeer{
-						Token:       strings.TrimSpace(peer.TypeToken),
-						ImpactMS:    runtimeTraceProjNodeDisplayImpact(peer),
-						EvidenceTag: runtimeTraceProjEvidenceTag(peer, evidence, zh),
-					})
+					rows[i].IOFoldPeers = append(rows[i].IOFoldPeers, runtimeTraceProjNewIOFoldPeer(peer, evidence, zh))
 				}
 			}
 		}
@@ -4212,11 +4209,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 					continue // chain/self faces attached above
 				}
 				for _, peer := range ioFoldPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
-					rows[i].IOFoldPeers = append(rows[i].IOFoldPeers, runtimeTraceProjIOFoldPeer{
-						Token:       strings.TrimSpace(peer.TypeToken),
-						ImpactMS:    runtimeTraceProjNodeDisplayImpact(peer),
-						EvidenceTag: runtimeTraceProjEvidenceTag(peer, evidence, zh),
-					})
+					rows[i].IOFoldPeers = append(rows[i].IOFoldPeers, runtimeTraceProjNewIOFoldPeer(peer, evidence, zh))
 				}
 			}
 		}
@@ -6301,20 +6294,24 @@ func runtimeTraceProjIOOverlapComponents(nodes []types.TraceCausalProjectionNode
 // note is the folded rows' only remaining display carrier, so callers must
 // treat it as load-bearing (never elided).
 func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool) string {
+	type groupKey struct {
+		token   string
+		caliber runtimeTraceProjIOFoldCaliber
+	}
 	type tokenGroup struct {
-		token  string
+		groupKey
 		values []string
 	}
 	var groups []tokenGroup
-	index := map[string]int{}
+	index := map[groupKey]int{}
 	var tags []string
 	for _, peer := range peers {
-		token := strings.TrimSpace(peer.Token)
-		i, ok := index[token]
+		key := groupKey{strings.TrimSpace(peer.Token), peer.Caliber}
+		i, ok := index[key]
 		if !ok {
 			i = len(groups)
-			index[token] = i
-			groups = append(groups, tokenGroup{token: token})
+			index[key] = i
+			groups = append(groups, tokenGroup{groupKey: key})
 		}
 		groups[i].values = append(groups[i].values, fmt.Sprintf("%.3f", peer.ImpactMS))
 		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
@@ -6341,7 +6338,7 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 		// composite score wears 「(综合评分,非墙钟)」 (微词面① 2026-07-12:
 		// 「分数」首读 fraction 歧义), the count facet wears the
 		// 计数当量 family word (both from the SHARED registry caliber arm).
-		if layer := runtimeTraceProjIOFacetLayerWord(g.token, zh); layer != "" {
+		if layer := runtimeTraceProjIOFoldLayerWord(g.token, g.caliber, zh); layer != "" {
 			token = layer + "·" + token
 		}
 		values := strings.Join(g.values, "/")
@@ -6361,7 +6358,15 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 			}
 			continue
 		}
-		parts = append(parts, strings.TrimSpace(token+" "+values+"ms"))
+		suffix := "ms"
+		if g.caliber == runtimeTraceProjIOFoldRankImpact {
+			if zh {
+				suffix += "（非实测耗时）"
+			} else {
+				suffix += " (not measured duration)"
+			}
+		}
+		parts = append(parts, strings.TrimSpace(token+" "+values+suffix))
 	}
 	// Catalog B12 (DISPLAY-HYG 二轮, §29.104.18.1, 2026-07-17): the evidence
 	// pointer tail wears the document-wide bracket style ([E33]、[E35(+1)])
@@ -6383,7 +6388,14 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 		}
 		return text
 	}
-	text := "same-segment IO also measured " + strings.Join(parts, ", ")
+	leader := "same-segment IO also measured "
+	for _, peer := range peers {
+		if peer.Caliber == runtimeTraceProjIOFoldRankImpact {
+			leader = "same-segment IO also reports "
+			break
+		}
+	}
+	text := leader + strings.Join(parts, ", ")
 	if len(refs) > 0 {
 		text += "; evidence " + strings.Join(refs, ", ")
 	}
