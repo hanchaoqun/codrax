@@ -21,6 +21,7 @@ type conversionFileLedger struct {
 	created   []createdConversionFile
 	byPath    map[string]int
 	archive   *TraceArchiveProvenance
+	gzip      *tracebundle.GzipInputProvenance
 	// stagingRoot is the one runtime-owned namespace for private conversion
 	// files. Product entrypoints bind it to <CWD>/.codrax.
 	stagingRoot string

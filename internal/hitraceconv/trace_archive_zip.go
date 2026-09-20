@@ -85,12 +85,16 @@ func traceArchiveFailure(code, member string, cause error) error {
 }
 
 type traceConversionInput struct {
-	archive    *conversionInputAuthority
-	input      conversionInputView
-	member     *traceArchiveMemberInput
-	staging    *privateConversionDir
-	provenance *TraceArchiveProvenance
-	namespace  string
+	archive        *conversionInputAuthority
+	input          conversionInputView
+	member         *traceArchiveMemberInput
+	staging        *privateConversionDir
+	provenance     *TraceArchiveProvenance
+	namespace      string
+	gzip           *gzipBinaryInput
+	gzipReceipt    gzipInputReceipt
+	gzipProvenance *tracebundle.GzipInputProvenance
+	gzipText       bool
 }
 
 func newTraceConversionInput(authority *conversionInputAuthority) *traceConversionInput {
@@ -106,6 +110,10 @@ func (route *traceConversionInput) Close() error {
 		return nil
 	}
 	var err error
+	if route.gzip != nil {
+		err = traceDBJoinPreservingSingle(err, route.gzip.Close())
+		route.gzip = nil
+	}
 	if route.member != nil {
 		err = traceDBJoinPreservingSingle(err, route.member.Close())
 		route.member = nil
@@ -133,6 +141,12 @@ func (route *traceConversionInput) finalize(ctx context.Context) error {
 		}
 		route.member = nil
 	}
+	if route.gzip != nil {
+		if err := route.gzip.Close(); err != nil {
+			return err
+		}
+		route.gzip = nil
+	}
 	if route.staging != nil {
 		if err := route.staging.FinalizeCleanup(); err != nil {
 			return err
@@ -152,19 +166,23 @@ func (route *traceConversionInput) decorate(result *Result) {
 	result.InputPath = route.archive.DisplayPath()
 	result.InputBytes = route.archive.Size()
 	result.ArchiveProvenance = cloneTraceArchiveProvenance(route.provenance)
+	result.GzipInputProvenance = tracebundle.CloneGzipInputProvenance(route.gzipProvenance)
 }
 
 func (route *traceConversionInput) bindLedger(ledger *conversionFileLedger) error {
 	if route == nil || ledger == nil {
 		return conversionInputFailure(ConversionInputCodeInternalContract, conversionInputStageRoute, "", errors.New("trace archive ledger binding is incomplete"))
 	}
-	if route.provenance == nil {
-		return nil
+	if route.provenance != nil {
+		if err := validateTraceArchiveProvenance(route.provenance); err != nil {
+			return err
+		}
+		ledger.archive = cloneTraceArchiveProvenance(route.provenance)
 	}
-	if err := validateTraceArchiveProvenance(route.provenance); err != nil {
+	if err := tracebundle.ValidateGzipInputProvenance(route.gzipProvenance); err != nil {
 		return err
 	}
-	ledger.archive = cloneTraceArchiveProvenance(route.provenance)
+	ledger.gzip = tracebundle.CloneGzipInputProvenance(route.gzipProvenance)
 	return nil
 }
 
@@ -173,6 +191,9 @@ func prepareTraceConversionInput(ctx context.Context, opts Options, authority *c
 	if !traceArchiveZIPMagic(outerProbe) {
 		if opts.ArchiveMember != "" {
 			return route, traceArchiveFailure(traceArchiveCodeExplicitMember, "", errors.New("--archive-member is valid only for a ZIP input selected by content magic"))
+		}
+		if hasPrefixBytes(outerProbe, []byte{0x1f, 0x8b}) {
+			return prepareTraceGzipInput(ctx, opts, route)
 		}
 		return route, nil
 	}

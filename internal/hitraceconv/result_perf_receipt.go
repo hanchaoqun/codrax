@@ -91,6 +91,7 @@ func reconcileResultOwnedPerfReceipts(result *Result, ledger *conversionFileLedg
 	if ledger.archive != nil {
 		result.ArchiveProvenance = cloneTraceArchiveProvenance(ledger.archive)
 	}
+	result.GzipInputProvenance = tracebundle.CloneGzipInputProvenance(ledger.gzip)
 	claims := make(map[string]resultOwnedPerfClaim)
 	claimOrder := make([]string, 0)
 	for _, artifact := range result.Artifacts {

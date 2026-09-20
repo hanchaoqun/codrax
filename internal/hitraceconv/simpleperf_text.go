@@ -75,18 +75,10 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, pla
 		return Result{}, true, err
 	}
 	result := Result{
-		InputPath:   input.displayPath,
-		InputBytes:  input.inputSize,
-		OutputPath:  "",
-		OutputBytes: 0,
-		Artifacts: []Artifact{{
-			Type:      ArtifactPerfData,
-			Path:      input.displayPath,
-			Bytes:     input.inputSize,
-			Converter: "external",
-			Perf:      perfCapabilityForRawPerfDataArtifact(input.inputFormat),
-			Caveats:   []string{"input perf.data preserved; normalized .perftrace readiness is bound to its validation receipt"},
-		}},
+		InputPath:         input.displayPath,
+		InputBytes:        input.inputSize,
+		OutputPath:        "",
+		OutputBytes:       0,
 		ProviderDecisions: decisions,
 		TraceDecisions: []TraceProviderDecision{
 			traceProviderSkipped(
@@ -97,16 +89,35 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, pla
 			),
 		},
 	}
+	// A container's display path names the encoded source, not the private
+	// decoded perf bytes. Keep container provenance at the Result/bundle
+	// level; never publish an outer path with an inner byte count or a
+	// temporary decoded path as if it were a retained raw capture.
+	retainedRaw := ledger == nil || ledger.archive == nil && ledger.gzip == nil
+	if retainedRaw {
+		result.Artifacts = append(result.Artifacts, Artifact{
+			Type: ArtifactPerfData, Path: input.displayPath, Bytes: input.inputSize,
+			Converter: "external", Perf: perfCapabilityForRawPerfDataArtifact(input.inputFormat),
+			Caveats: []string{"input perf.data preserved; normalized .perftrace readiness is bound to its validation receipt"},
+		})
+	}
+	addSourceCaveat := func(message string) {
+		if retainedRaw {
+			result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, message)
+		} else {
+			result.Caveats = append(result.Caveats, message)
+		}
+	}
 	if perfTrace.Path != "" {
 		result.Artifacts = append(result.Artifacts, perfTrace)
 		if perfTrace.Perf != nil && perfTrace.Perf.TraceQueryReady {
-			result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "query-ready normalized .perftrace is the trace_query CPU-sample artifact")
+			addSourceCaveat("query-ready normalized .perftrace is the trace_query CPU-sample artifact")
 		} else {
-			result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "normalized .perftrace is capture-quality inventory only; no queryable CPU samples were accepted")
+			addSourceCaveat("normalized .perftrace is capture-quality inventory only; no queryable CPU samples were accepted")
 		}
 	} else if caveat != "" {
 		result.Caveats = append(result.Caveats, caveat)
-		result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "official simpleperf adapter did not produce .perftrace")
+		addSourceCaveat("official simpleperf adapter did not produce .perftrace")
 	}
 	// There is no primary systrace on this route, but the caller's selected
 	// output base still owns every derived publication, including the bundle.

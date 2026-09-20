@@ -120,8 +120,9 @@ func (row traceDBStoredRow) profilerProvenance() profilerPairRowProvenance {
 	return row.provenance
 }
 
-// ConvertFile converts a binary Harmony/OpenHarmony HiTrace capture to a
-// ftrace/systrace-compatible text file. It never overwrites the output path.
+// ConvertFile prepares a supported Harmony/OpenHarmony trace or perf capture.
+// Top-level gzip is decoded before semantic routing; gzip text is preserved
+// without a semantic conversion claim. It never overwrites an output path.
 func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -178,11 +179,14 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	}
 	inputView := route.input
 	inputFormat := detectPerfInputFormatProbe(probe)
-	if route.member != nil {
+	if route.member != nil || route.gzip != nil {
 		inputFormat, err = detectPerfInputFormatFromView(ctx, inputView, conversionInputStageRoute)
 		if err != nil {
 			return Result{}, err
 		}
+	}
+	if opts.prepareInputDefaults {
+		opts.KeepTraceDB = !simpleperfDirectRequested(inputFormat) && !route.gzipText
 	}
 	directPerf, err := validateOptionsForInput(opts, authority, inputFormat)
 	if err != nil {
@@ -233,6 +237,25 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			committed = true
 		}
 		return completed, completionErr
+	}
+	if route.gzipText {
+		if err := validateGzipTextOptions(opts); err != nil {
+			return Result{}, err
+		}
+		// Transported text is not a converter-produced systrace claim. It
+		// retains its own byte/generation receipt and never enters a bundle
+		// as a fabricated semantic producer.
+		textOpts := opts
+		textOpts.OutputPath = output
+		transport, transportErr := publishGzipInputText(ctx, textOpts, route.gzip, route.gzipReceipt, ledger)
+		if transportErr != nil {
+			return Result{}, transportErr
+		}
+		transport.SourceGeneration = authority.identity.CacheToken()
+		return commit(Result{
+			InputPath: input, InputBytes: inputBytes, OutputPath: transport.DecodedPath,
+			OutputBytes: transport.DecodedBytes, TextTransport: &transport,
+		}, nil)
 	}
 	mode := requestedTraceEngineMode(opts.TraceEngine)
 	if directPerf {

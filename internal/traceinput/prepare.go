@@ -45,7 +45,7 @@ type converter func(context.Context, hitraceconv.Options) (hitraceconv.Result, e
 // Prepare never truncates conversion or query material. PreviewBytes is a cap
 // on the entire model envelope, including its source and truncation headers.
 func Prepare(ctx context.Context, opts Options) (*attachment.TraceMaterial, error) {
-	return prepare(ctx, opts, hitraceconv.ConvertFile)
+	return prepare(ctx, opts, hitraceconv.PrepareFile)
 }
 
 func prepare(ctx context.Context, opts Options, convert converter) (*attachment.TraceMaterial, error) {
@@ -149,8 +149,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if err != nil {
 		return nil, err
 	}
-	directPerf := kind == string(attachment.BinaryTraceFormatLinuxPerf) ||
-		kind == string(attachment.BinaryTraceFormatGZIP) || kind == "simpleperf_report_sample_proto"
+	directPerf := kind == string(attachment.BinaryTraceFormatLinuxPerf) || kind == "simpleperf_report_sample_proto"
 	if opts.Progress != nil {
 		opts.Progress(hitraceconv.ProgressEvent{
 			Stage: "trace_prepare", Status: hitraceconv.ProgressStatusStarted,
@@ -164,49 +163,35 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	convertOptions := hitraceconv.Options{
 		InputPath: source, OutputPath: filepath.Join(owned.path, "capture.systrace"),
 		TraceEngine: "auto",
-		// DB retention is a trace-only option; direct perf families have no
-		// scheduling DB and the converter correctly refuses that combination.
-		KeepTraceDB:   !directPerf,
+		// PrepareFile resolves container policy after decoding. Gzip alone
+		// proves neither a scheduling body nor a direct-sample capture.
+		KeepTraceDB:   !directPerf && kind != string(attachment.BinaryTraceFormatGZIP),
 		RuntimeAnchor: opts.RuntimeAnchor, RuntimeAnchorFallback: opts.RuntimeAnchorFallback,
 		Progress: opts.Progress,
 	}
-	var transport *hitraceconv.GzipTextTransportResult
-	var binaryGzipFormat string
-	if kind == string(attachment.BinaryTraceFormatGZIP) {
-		decoded, decodeErr := hitraceconv.PrepareGzipTraceText(ctx, convertOptions)
-		if decodeErr != nil {
-			var binaryErr *hitraceconv.GzipTextTransportError
-			if !errors.As(decodeErr, &binaryErr) || binaryErr.Code != hitraceconv.GzipTextCodeDecodedBinary {
-				return nil, &Error{Code: "gzip_transport_failed", Path: source, Err: decodeErr}
-			}
-			// A typed, integrity-checked binary payload may retain the old
-			// semantic converter route. Neither arbitrary text failure nor an
-			// error string can authorize fallback to another decoder.
-			if binaryErr.SourceGeneration != original.CacheToken() || binaryErr.SourceBytes != original.Size() || binaryErr.SourceSHA256 != sourceSHA {
-				return nil, fmt.Errorf("gzip transport opened a different source generation: %q", source)
-			}
-			binaryGzipFormat = binaryErr.DecodedFormat
-		} else {
-			if decoded.SourceGeneration != original.CacheToken() || decoded.SourceBytes != original.Size() || decoded.SourceSHA256 != sourceSHA || decoded.DecodedPath != convertOptions.OutputPath {
-				return nil, fmt.Errorf("gzip transport receipt does not match the held source/output: %q", source)
-			}
-			transport = &decoded
-		}
-		if err := validateHeld(source, held, original); err != nil {
-			return nil, err
-		}
+	result, err := convert(ctx, convertOptions)
+	if err != nil {
+		return nil, &Error{Code: "conversion_failed", Path: source, Err: err}
 	}
-	var result hitraceconv.Result
-	var conversion *hitraceconv.Result
-	if transport == nil {
-		result, err = convert(ctx, convertOptions)
-		if err != nil {
-			if binaryGzipFormat != "" {
-				err = fmt.Errorf("gzip payload %s could not be converted: %w", binaryGzipFormat, err)
-			}
-			return nil, &Error{Code: "conversion_failed", Path: source, Err: err}
+	transport := result.TextTransport
+	conversion := &result
+	if kind == string(attachment.BinaryTraceFormatGZIP) && (transport != nil) == (result.GzipInputProvenance != nil) {
+		return nil, fmt.Errorf("gzip preparation requires exactly one text or binary transport receipt: %q", source)
+	}
+	if transport != nil {
+		if kind != string(attachment.BinaryTraceFormatGZIP) || transport.Profile != hitraceconv.GzipTextTransportProfile ||
+			transport.SourceGeneration != original.CacheToken() || transport.SourceBytes != original.Size() || transport.SourceSHA256 != sourceSHA ||
+			transport.SourcePath != source || transport.DecodedPath != convertOptions.OutputPath ||
+			result.GzipInputProvenance != nil || result.BundlePath != "" || len(result.Artifacts) != 0 {
+			return nil, fmt.Errorf("gzip text transport receipt does not match the held source/output: %q", source)
 		}
-		conversion = &result
+		conversion = nil
+	}
+	if gzip := result.GzipInputProvenance; gzip != nil {
+		if kind != string(attachment.BinaryTraceFormatGZIP) || tracebundle.ValidateGzipInputProvenance(gzip) != nil ||
+			gzip.SourceGeneration != original.CacheToken() || gzip.SourceBytes != original.Size() || gzip.SourceSHA256 != sourceSHA {
+			return nil, fmt.Errorf("gzip binary transport receipt does not match the held source: %q", source)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

@@ -1,6 +1,10 @@
 package hitraceconv
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/hanchaoqun/codrax/internal/tracebundle"
+)
 
 const (
 	defaultOutputSuffix = ".systrace"
@@ -15,7 +19,7 @@ const (
 	ArtifactTraceBundle = "tracebundle"
 )
 
-// Options controls one explicit binary HiTrace conversion.
+// Options controls one explicit trace/perf conversion or gzip text transport.
 type Options struct {
 	InputPath              string
 	OutputPath             string
@@ -45,6 +49,9 @@ type Options struct {
 	// report every directory as 0777 despite a successful chmod.
 	RuntimeAnchorFallback string
 	Progress              ProgressFunc
+	// Set only by PrepareFile. Default attachment preparation keeps a DB
+	// for trace bodies after container decoding, never for direct samples.
+	prepareInputDefaults bool
 }
 
 type Artifact struct {
@@ -331,23 +338,25 @@ type PerfClockAlignment struct {
 
 // Result summarizes a completed conversion.
 type Result struct {
-	InputPath          string
-	ArchiveProvenance  *TraceArchiveProvenance
-	OutputPath         string
-	BundlePath         string
-	Artifacts          []Artifact
-	ProviderDecisions  []PerfProviderDecision
-	TraceDecisions     []TraceProviderDecision
-	TraceDBCoverage    []TraceDBCoverage
-	TraceCoverage      []TraceDBCoverage
-	InputBytes         int64
-	OutputBytes        int64
-	EventsWritten      int
-	MissingFormatCount int
-	UnknownEventCount  int
-	FirstTimestampSec  float64
-	LastTimestampSec   float64
-	Caveats            []string
+	InputPath           string
+	ArchiveProvenance   *TraceArchiveProvenance
+	GzipInputProvenance *tracebundle.GzipInputProvenance
+	TextTransport       *GzipTextTransportResult
+	OutputPath          string
+	BundlePath          string
+	Artifacts           []Artifact
+	ProviderDecisions   []PerfProviderDecision
+	TraceDecisions      []TraceProviderDecision
+	TraceDBCoverage     []TraceDBCoverage
+	TraceCoverage       []TraceDBCoverage
+	InputBytes          int64
+	OutputBytes         int64
+	EventsWritten       int
+	MissingFormatCount  int
+	UnknownEventCount   int
+	FirstTimestampSec   float64
+	LastTimestampSec    float64
+	Caveats             []string
 }
 
 // DefaultOutputPath appends the fixed text-trace suffix to the source path.

@@ -197,3 +197,11 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 矩阵发现并修复同根发布位置错误：无主systrace时，3个converter调用方把“空语义产物路径”误用为“未指定物理输出位置”。bundle现遵从显式输出位置，systrace结果字段仍空；独立输出目录/只读原件父目录、inventory重试清理、rootless采样相对路径、既有输出不覆盖及retained-DB无行路径已红转绿。
 
 仍开放：顶层gzip-PERFILE2的内层分型路由（现仍TS/RMQ失败）、显式convert的gzip文本入口、search-only不可列举父目录、更多实机格式/版本、真实外部TS和原生Linux/Windows验收。已有嵌入HIPERF gzip阳性不能代签顶层gzip，更不能宣称任意压缩或protobuf均可解。17.6继续保持开放，任务总数仍13项交付/66项开放。
+
+### 9.2 第二片：顶层gzip路由与文本显式入口
+
+§9.1末尾的前两项在本片实施，整体验收/提交见主账本§22。默认准备与显式转换共用一次完整解压和持有输入视图；内层精确格式交回原decoder，gzip头Name/MTIME不作路径或时钟依据。`gzip_input_v1`只表明外内字节关系，不替代文本运输或嵌入HIPERF的专属凭证，不给sample-only调度因果权限。默认保DB策略改为内层分型后决定；显式选项仍由原冲突合同裁定。
+
+公开基线五类正例先红后绿；正反矩阵包括gzip包裹RMQ/OHOSPROF/PERFILE2/SIMPLEPERF、内嵌gzip采样、多member/嵌套/CRC、库存无能力与暖代次。显式文本路线仅完整解压且如实提示事件未统计，不发假语义产物。ZIP/PERFILE2同根假raw路径同时去除，容器原件身份仍保留。尚缺的search-only目录、实机RMQ/OHOSPROF更多版本、真实外部TS和原生Linux/Windows保持开放；本机合成二进制测试不能充当这些验收。
+
+真实PERFILE2专项补证：参考`test_brbe.data`只读作裸输入及临时gzip包装的共同原件，两者经默认准备和公开`perf_stats`均保留12,000样本、总权重43,037,682及相同热点/时间范围。环境变量控制的用例和详细运行日志见主账本§22；真实外部provider未由此验证，BRBE名只是采集文件名，不是本批语义能力声明。

@@ -270,7 +270,7 @@ func TestGzipPreparationOversizedSourceRejectedBeforeHash(t *testing.T) {
 	}
 }
 
-func TestGzipPreparationBinaryFallbackRequiresCompleteIntegrity(t *testing.T) {
+func TestGzipPreparationBinaryRoutingRequiresCompleteIntegrity(t *testing.T) {
 	for _, corrupt := range []bool{false, true} {
 		t.Run(map[bool]string{false: "intact", true: "corrupt_crc"}[corrupt], func(t *testing.T) {
 			dir := t.TempDir()
@@ -282,24 +282,29 @@ func TestGzipPreparationBinaryFallbackRequiresCompleteIntegrity(t *testing.T) {
 			}
 			writeTestFile(t, input, compressed)
 			calls := 0
-			sentinel := errors.New("existing semantic converter still owns binary capability")
-			material, err := prepare(context.Background(), Options{InputPath: input, RuntimeAnchor: filepath.Join(dir, "runtime")}, func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
+			material, err := prepare(context.Background(), Options{InputPath: input, RuntimeAnchor: filepath.Join(dir, "runtime")}, func(ctx context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
 				calls++
 				if opts.InputPath != input {
-					t.Fatal("binary fallback replaced compressed source")
+					t.Fatal("binary preparation replaced compressed source identity")
 				}
-				return hitraceconv.Result{}, sentinel
+				// The shared converter now owns the one complete inflate, integrity
+				// check and semantic routing. A stub here cannot stand in for it.
+				opts.DisablePerfAdapter = true
+				return hitraceconv.PrepareFile(ctx, opts)
 			})
 			if material != nil || err == nil {
 				t.Fatal("binary payload became plain text")
 			}
 			if corrupt {
 				var rejected *hitraceconv.GzipTextTransportError
-				if calls != 0 || !errors.As(err, &rejected) || rejected.Code != hitraceconv.GzipTextCodeIntegrity {
-					t.Fatalf("corrupt binary escaped text transport: calls=%d err=%v", calls, err)
+				if calls != 1 || !errors.As(err, &rejected) || rejected.Code != hitraceconv.GzipTextCodeIntegrity {
+					t.Fatalf("corrupt binary escaped shared transport: calls=%d err=%v", calls, err)
 				}
-			} else if calls != 1 || !errors.Is(err, sentinel) {
-				t.Fatalf("existing binary route not preserved: calls=%d err=%v", calls, err)
+			} else {
+				var rejected *hitraceconv.GzipTextTransportError
+				if calls != 1 || errors.As(err, &rejected) {
+					t.Fatalf("intact binary failed transport rather than semantic capability admission: calls=%d err=%v", calls, err)
+				}
 			}
 		})
 	}

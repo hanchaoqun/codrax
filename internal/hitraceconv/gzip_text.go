@@ -1,11 +1,7 @@
 package hitraceconv
 
 import (
-	"bufio"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -175,14 +171,7 @@ func PrepareGzipTraceText(ctx context.Context, opts Options) (result GzipTextTra
 		return result, err
 	}
 	checked := &gzipTextCheckedInput{conversionInputView: input}
-	if err := preflightHiperfGzipHeader(checked); err != nil {
-		if checked.readErr != nil {
-			return result, checked.readErr
-		}
-		var rejected *HiperfGzipError
-		if errors.As(err, &rejected) {
-			return result, gzipTextFailure(rejected.Code, rejected.Cause)
-		}
+	if err := preflightGzipInput(checked); err != nil {
 		return result, err
 	}
 	target, err = prepareSealedConversionPublicationTargetWithLedger(opts.OutputPath, ".codrax-gzip-text-*", ledger)
@@ -283,78 +272,17 @@ func (input *gzipTextCheckedInput) ReadAt(buffer []byte, offset int64) (int, err
 }
 
 func inflateGzipTraceText(ctx context.Context, opts Options, input *gzipTextCheckedInput, target sealedConversionPublicationTarget, started time.Time) (result GzipTextTransportResult, generation filegeneration.Identity, resultErr error) {
-	sourceHash := sha256.New()
-	counted := &countingWriter{writer: sourceHash}
-	buffered := bufio.NewReaderSize(io.TeeReader(io.NewSectionReader(input, 0, input.Size()), counted), 64<<10)
-	reader, err := gzip.NewReader(buffered)
-	if err != nil {
-		if input.readErr != nil {
-			return result, generation, input.readErr
-		}
-		return result, generation, gzipTextFailure(GzipTextCodeInvalidHeader, err)
+	if err := preflightGzipInput(input); err != nil {
+		return result, generation, err
 	}
-	reader.Multistream(false)
-	defer func() { resultErr = gzipTextHardFailure(resultErr, reader.Close()) }()
 	out, err := createExternalToolInputSnapshotFile(target.stagingDir, target.finalLeaf)
 	if err != nil {
 		return result, generation, err
 	}
 	defer func() { resultErr = gzipTextHardFailure(resultErr, out.Close()) }()
-	decodedHash := sha256.New()
-	destination := io.MultiWriter(out, decodedHash)
-	limit := hiperfGzipMaxDecodedBytes
-	if ratio := input.Size() * hiperfGzipMaxCompressionRatio; ratio < limit {
-		limit = ratio
-	}
-	var decodedBytes int64
-	lastProgress := started
-	buffer := make([]byte, 64<<10)
-	for {
-		if err := ctx.Err(); err != nil {
-			return result, generation, err
-		}
-		n, readErr := reader.Read(buffer)
-		if input.readErr != nil {
-			return result, generation, input.readErr
-		}
-		if n > 0 {
-			if int64(n) > limit-decodedBytes {
-				return result, generation, gzipTextFailure(GzipTextCodeResourceLimit, fmt.Errorf("decoded capture exceeds %d-byte size/ratio budget", limit))
-			}
-			written, err := destination.Write(buffer[:n])
-			if err != nil {
-				return result, generation, err
-			}
-			if written != n {
-				return result, generation, io.ErrShortWrite
-			}
-			decodedBytes += int64(n)
-			if now := time.Now(); now.Sub(lastProgress) >= progressHeartbeatInterval {
-				lastProgress = now
-				emitProgress(opts, ProgressEvent{Stage: "gzip_text_decompress", Status: ProgressStatusProgress, Message: "decoding complete gzip trace text", Path: input.DisplayPath(), OutputPath: opts.OutputPath, BytesDone: decodedBytes})
-			}
-		}
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			return result, generation, gzipTextFailure(GzipTextCodeIntegrity, readErr)
-		}
-		if n == 0 {
-			return result, generation, gzipTextFailure(GzipTextCodeIntegrity, io.ErrNoProgress)
-		}
-	}
-	if _, err := buffered.Peek(1); err != io.EOF {
-		if input.readErr != nil {
-			return result, generation, input.readErr
-		}
-		if err == nil {
-			err = errors.New("concatenated gzip member or trailing bytes are unsupported")
-		}
-		return result, generation, gzipTextFailure(GzipTextCodeTrailingData, err)
-	}
-	if counted.count != input.Size() {
-		return result, generation, errors.New("gzip compressed byte count differs from held source size")
+	receipt, err := inflateGzipToWriter(ctx, opts, input, out, "gzip_text_decompress", started)
+	if err != nil {
+		return result, generation, err
 	}
 	if err := out.Sync(); err != nil {
 		return result, generation, err
@@ -363,12 +291,12 @@ func inflateGzipTraceText(ctx context.Context, opts Options, input *gzipTextChec
 	if err != nil {
 		return result, generation, err
 	}
-	if !generation.Strong() || generation.Size() != decodedBytes {
+	if !generation.Strong() || generation.Size() != receipt.DecodedBytes {
 		return result, generation, errors.New("decoded gzip writer generation is unavailable or changed")
 	}
 	return GzipTextTransportResult{
-		Profile: GzipTextTransportProfile, SourcePath: input.DisplayPath(), SourceBytes: input.Size(), SourceSHA256: hex.EncodeToString(sourceHash.Sum(nil)),
-		DecodedPath: target.finalBindingPath, DecodedBytes: decodedBytes, DecodedSHA256: hex.EncodeToString(decodedHash.Sum(nil)),
+		Profile: GzipTextTransportProfile, SourcePath: input.DisplayPath(), SourceBytes: receipt.SourceBytes, SourceSHA256: receipt.SourceSHA256,
+		DecodedPath: target.finalBindingPath, DecodedBytes: receipt.DecodedBytes, DecodedSHA256: receipt.DecodedSHA256,
 	}, generation, nil
 }
 

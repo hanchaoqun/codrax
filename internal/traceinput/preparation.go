@@ -25,7 +25,7 @@ type Preparation struct {
 }
 
 func Begin(ctx context.Context, opts Options) (*Preparation, error) {
-	return begin(ctx, opts, hitraceconv.ConvertFile)
+	return begin(ctx, opts, hitraceconv.PrepareFile)
 }
 
 func begin(ctx context.Context, opts Options, convert converter) (*Preparation, error) {

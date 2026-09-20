@@ -153,20 +153,21 @@ func (inventory standaloneSegmentInventory) profilerTraceBodyEnd() (int64, bool)
 }
 
 type traceBundleMetadata struct {
-	Schema              string                  `json:"schema"`
-	CaptureID           string                  `json:"capture_id"`
-	Version             string                  `json:"version"`
-	InputPath           string                  `json:"input_path"`
-	ArchiveProvenance   *TraceArchiveProvenance `json:"archive_provenance,omitempty"`
-	Systrace            string                  `json:"systrace,omitempty"`
-	Artifacts           []Artifact              `json:"artifacts,omitempty"`
-	ProviderDecisions   []PerfProviderDecision  `json:"provider_decisions,omitempty"`
-	TraceDecisions      []TraceProviderDecision `json:"trace_provider_decisions,omitempty"`
-	TraceDBCoverage     []TraceDBCoverage       `json:"trace_db_coverage,omitempty"`
-	TraceCoverage       []TraceDBCoverage       `json:"trace_coverage,omitempty"`
-	TraceToolGates      []TraceToolGateStatus   `json:"trace_tool_gates,omitempty"`
-	PerfClockAlignments []PerfClockAlignment    `json:"perf_clock_alignments,omitempty"`
-	Caveats             []string                `json:"caveats,omitempty"`
+	Schema              string                           `json:"schema"`
+	CaptureID           string                           `json:"capture_id"`
+	Version             string                           `json:"version"`
+	InputPath           string                           `json:"input_path"`
+	ArchiveProvenance   *TraceArchiveProvenance          `json:"archive_provenance,omitempty"`
+	GzipInputProvenance *tracebundle.GzipInputProvenance `json:"gzip_input_provenance,omitempty"`
+	Systrace            string                           `json:"systrace,omitempty"`
+	Artifacts           []Artifact                       `json:"artifacts,omitempty"`
+	ProviderDecisions   []PerfProviderDecision           `json:"provider_decisions,omitempty"`
+	TraceDecisions      []TraceProviderDecision          `json:"trace_provider_decisions,omitempty"`
+	TraceDBCoverage     []TraceDBCoverage                `json:"trace_db_coverage,omitempty"`
+	TraceCoverage       []TraceDBCoverage                `json:"trace_coverage,omitempty"`
+	TraceToolGates      []TraceToolGateStatus            `json:"trace_tool_gates,omitempty"`
+	PerfClockAlignments []PerfClockAlignment             `json:"perf_clock_alignments,omitempty"`
+	Caveats             []string                         `json:"caveats,omitempty"`
 }
 
 type standaloneExtractOptions struct {
@@ -1070,6 +1071,7 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 		Version:             converterVersion,
 		InputPath:           input,
 		ArchiveProvenance:   cloneTraceArchiveProvenance(ledger.archive),
+		GzipInputProvenance: tracebundle.CloneGzipInputProvenance(ledger.gzip),
 		Systrace:            manifestSystrace,
 		Artifacts:           manifestArtifacts,
 		ProviderDecisions:   manifestDecisions,
@@ -1079,6 +1081,9 @@ func writeTraceBundleWithAllCoverageAndGatesAndLedgerOps(ctx context.Context, in
 		TraceToolGates:      traceToolGates,
 		PerfClockAlignments: perfClockAlignmentsForArtifacts(manifestArtifacts, manifestSystrace),
 		Caveats:             caveats,
+	}
+	if err := tracebundle.ValidateGzipInputProvenance(meta.GzipInputProvenance); err != nil {
+		return Artifact{}, fmt.Errorf("validate gzip input provenance before publication: %w", err)
 	}
 	body, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {

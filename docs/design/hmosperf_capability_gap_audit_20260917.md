@@ -432,10 +432,30 @@ E2-2后续只读核实（未施工）：`query.go`的`offCPUDStateVerdictForQuer
 
 本片以`01a378349`提交推送main；推送后工作树干净、HEAD/远端0/0。17.6仅首片交付，仍保留开放复选框；稳定账本实数核对13项已交付、66项开放、合计79，未因矩阵子例数量重复销账。后续按§21.1推进，生产eval另归18，不以本片确定性回归覆盖旧FAIL。
 
-### 21.1 下一片已核实边界（仍未实施）
+### 21.1 下一片实施前已核实边界（历史基线，后续见§22）
 
 顶层gzip二进制根因不是某个PERFILE2字段缺失：当前运输层完整验证后对二进制返回typed结果并撤销解压代次，Prepare再把压缩原件交ConvertFile；direct-perf路由只接受裸PERFILE2/SIMPLEPERF，因而落TS/RMQ。该公开RED只有工具记录，没有另存文件日志，不能借用早先gzip文本失败日志代签。参考`core/hiperf_converter.py`仍是`.data`→TS，不能说参考已有可复制的gzip生产路由。
 
 后续最小泛化方案是共用一次有界解压、持有内层输入视图，再由原语义provider分型；借鉴现有ZIP的外层来源/内层解析视图，而非递归ConvertFile后手改路径。通用运输收据独立于文本运输及既有`gzip_perf_data_v1`的Standalone专属凭证；不得给顶层gzip伪造Standalone，或把外层路径和内层字节数混成`perf_data`源。默认KeepTraceDB也应按内层语义路线决定，不再按“凡gzip即directPerf”推断。回归覆盖PERFILE2/SIMPLEPERF/RMQ/OHOSPROF及嵌入gzip-perf、坏CRC/源换代/取消、输出碰撞、sample-only时钟隔离、公开查询与自动补齐；不新增未知protobuf/递归容器能力。
 
 search-only不可列举父目录另经只读复核：目录列举用于真实目录项身份，不能仅凭相同inode合并不同hardlink、全路径小写或退回词面比较。暂无已验证跨平台替代；Darwin单目录项原生属性仅是研究候选，需独立平台/文件系统能力及竞态验收。本轮保持明确权限失败，低于上述可复现路由缺口的实施优先级，未暗中放宽来源门。
+
+## 22. 顶层gzip统一路由与显式文本转换（HMC-17.6第二片，2026-09-19）
+
+起点`37fbfda80`干净且重新fetch与远端一致。独立基线快照`/tmp/codrax-hmc176b-red.BY18tm`使用同一公开测试，五个gzip二进制正例（PERFILE2、SIMPLEPERF、RMQ、OHOSPROF、OHOSPROF含嵌入gzip采样）均确定性失败于RMQ `invalid_magic 0x8b1f`，两种库存路线也误路由；真RED留于`/tmp/hmc176b-public-red-20260919.log`。早期并行接线时缺类型的编译失败不是产品RED，未冒充功能证据。
+
+根修是解压运输与语义解析分层：`ConvertFile`先完整校验并只解压一次，冻结内层视图贯穿已有decoder/provider、发布与最终源验证；不递归调用ConvertFile、不重新打开私有路径。`PrepareFile`只为默认准备选择内层DB策略，显式转换的用户选项仍受原合同约束。新增独立`gzip_input_v1`外内字节/代次收据；生产发布前及query消费均验证格式闭集、摘要、上限与代次字段，该字段不改变capture_id、子产物摘要、物理来源集合或时钟授权。文本走已有独立运输收据及全量文本验证，CLI/REPL显式转换同样可用；显示“完整解压、事件尚未统计”，不声称转换出0事件或因果已证。
+
+同类来源错误一并处理：ZIP及gzip的direct-perf不能再发出“外层路径＋内层字节数”的假raw artifact，也不暴露待清理私有路径。容器来源保留在顶层provenance，真实归一化采样仍需原校验收据；OHOSPROF内部真实raw child的Standalone和派生perftrace的PerfTransform保持原职能，二者不能互换。未知binary、SQLite、嵌套gzip/ZIP、多member、坏CRC与尾随数据仍拒绝；不放宽任意压缩/protobuf，不扫描用户或模型原文。
+
+首轮公开矩阵修后全绿2.267s（`/tmp/hmc176b-public-green-20260919.log`），含暖复用/来源替换/库存拒绝及ZIP direct-perf对照；该矩阵是合成合法格式字节，不冒称客户实机全格式。集成第二轮traceinput/hitraceconv/tool通过0.739s/4.815s/4.374s（`/tmp/hmc176b-integration2-20260919.log`）。此前集成两条红分别是旧双层解压的stub调用次数断言，以及错误要求派生perftrace拥有Standalone；已按原权限合同纠正测试，不放宽结构门。schema/query新增与相邻race×3通过1.267s/1.858s。末版全仓、构建和提交收据后续追加；HMC-17.6暂不整体销账，总数仍13交付/66开放。
+
+参考再次核对`core/hiperf_converter.py:91`仍只收`.data`，`server.py:632`无gzip后缀入口，`tests/test_log_fusion_fixture.py:36–39`先自行解压。因此借鉴的是“统一准备再组合查询”，而非复制并不存在的参考gzip生产能力；本片不修改LLM教学/超时，不运行新live eval，原机器/人工FAIL不代销。
+
+独立复核补充：默认准备现在精确要求gzip成功结果恰有一种运输收据；真实converter成功后再删/混收据的4条反例均撤销所有本轮材料，既有产物和原件不变，race×3通过1.929s。converter集成7组正反面包含SQL provider实际消费内层字节、默认保DB与显式不保DB、文本/采样参数冲突、取消及无覆盖，末版race×3通过6.755s。CLI/REPL显示及帮助同时说明gzip文本的字节运输边界；末版相关测试通过5.464s/1.403s（`/tmp/hmc176b-cli-repl-final-20260919.log`）。
+
+两份参考真实采集只读专项均通过，内容不纳入仓：gzip文本仍为54,122,686完整字节、429,756事件、429,766行，3.197s（`/tmp/hmc176b-real-text-20260919.log`）。30,062,585字节PERFILE2在临时目录完整gzip后，与裸原件分别走真实Coordinator→公开`perf_stats`：均12,000样本、12,000事件、1 cohort、总权重43,037,682，热点及时间边界完全相同，末版12.306s（`/tmp/hmc176b-real-perf-20260919.log`）。参考原件字节/代次/权限/mtime及旁目录均不变；仅证明采样事实等价，未声称BRBE/SPE或调度因果新增支持。该专项由`CODRAX_TEST_GZIP_PERF_SOURCE`显式开启，默认Skip，不拿默认全仓绿代签私人样本。
+
+冻结生产代码的定向五包race×3全过：hitraceconv13.193s、traceinput4.746s、tool27.592s、tracebundle2.081s、tracequery2.943s（`/tmp/hmc176b-focused-race-final-20260919.log`），覆盖旧文本运输及公开显式窗IO/业务/自动补齐保护；无关键词硬门、无新因果选举逻辑。Linux/amd64及Windows/amd64的traceinput测试二进制CGO=0交叉编译成功（`/tmp/hmc176b-{linux,windows}-cross-20260919.log`），只记编译，不记原生平台验收。
+
+全仓`go test -p 2 ./...`exit0：87个测试包（54个缓存）、13个无测试包、零FAIL；hitraceconv135.570s、tool392.753s、tracequery104.873s、traceinput3.596s、agent73.732s、tracediag6.147s（`/tmp/hmc176b-full-20260919.log`），未加run/skip过滤。帮助文案最后修订另有cmd/repl末版整包通过13.165s/59.875s（`/tmp/hmc176b-ui-full-final-20260919.log`）；后加收据缺漏反例与可选实样测试分别以上述独立race/实样收据覆盖，不虚称它们在全仓启动前已冻结。原生make构建通过（`/tmp/hmc176b-build-20260919.log`），提交后再更新本地构建身份。提交前再次fetch main仍0/0，33个变动文件均为本批代码/测试/文档。

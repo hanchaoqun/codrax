@@ -54,8 +54,8 @@ built-in decoder only as a disclosed fallback.`,
 }
 
 var traceConvertCmd = &cobra.Command{
-	Use:   "convert --input <binary-hitrace-or-zip> [--output <text.systrace>]",
-	Short: "Convert a binary Harmony/OpenHarmony HiTrace file or official ZIP to text systrace",
+	Use:   "convert --input <trace-or-perf-capture> [--output <text.systrace>]",
+	Short: "Prepare a Harmony/OpenHarmony trace or perf capture, including supported ZIP/gzip inputs",
 	Long: `Convert a binary Harmony/OpenHarmony HiTrace capture to an
 ftrace/systrace-compatible text file plus tracebundle metadata that Codrax can
 later analyze with --htrace, /htrace, and trace_query. When perf sidecars are
@@ -79,6 +79,14 @@ exact canonical member name; archive and selected-member hashes are preserved
 in the tracebundle. Tar, 7z, encrypted, multi-disk, and nested archives are not
 accepted by this command.
 
+Top-level gzip is fully verified and decoded once before routing its payload.
+Supported binary payloads use the same semantic decoders as uncompressed input.
+Valid text is preserved byte-for-byte without claiming event counts or producing
+a semantic tracebundle; attach that text for analysis. Explicit database or
+trace_streamer options cannot be applied to this text-only transport. Gzip Name
+and modification time never supply an output path or trace clock. Nested gzip,
+concatenated members, embedded ZIP/SQLite and unknown binary payloads are rejected.
+
 Perf sidecar conversion independently prefers official OpenHarmony hiperf or
 Android simpleperf adapters for symbolized output, then uses the built-in raw
 perf.data fallback when possible. The status flags report the preflight
@@ -97,6 +105,9 @@ are never overwritten; delete the file first or choose another output path.`,
   # Official Hiview ZIP; use --archive-member only when multiple traces exist
   codrax trace convert --input capture.sys.zip
   codrax trace convert --input capture.zip --archive-member traces/frame.htrace
+
+  # Compressed text or supported binary capture; inner bytes determine the route
+  codrax trace convert --input capture.sys.gz --output capture.systrace
 
   # Advanced explicit providers (no cross-engine fallback)
   codrax trace convert --input capture.sys --trace-engine=trace_streamer --trace-streamer /opt/trace_streamer
@@ -965,6 +976,12 @@ func traceConvertPerfMessageZh(message string) string {
 }
 
 func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
+	if transport := result.TextTransport; transport != nil && transport.Profile == hitraceconv.GzipTextTransportProfile {
+		if traceConvertUseZh(lang) {
+			return []string{fmt.Sprintf("已完整解压文本 trace：%s", result.InputPath), fmt.Sprintf("输出：%s（%d 字节，原文保持不变；事件尚未统计）", transport.DecodedPath, transport.DecodedBytes)}
+		}
+		return []string{fmt.Sprintf("decompressed complete trace text: %s", result.InputPath), fmt.Sprintf("output: %s (%d bytes, text preserved unchanged; events not yet counted)", transport.DecodedPath, transport.DecodedBytes)}
+	}
 	if traceConvertUseZh(lang) {
 		lines := []string{
 			fmt.Sprintf("已转换二进制 hitrace：%s", result.InputPath),
@@ -1480,6 +1497,12 @@ func traceConvertNextLine(lang string, result hitraceconv.Result) string {
 }
 
 func traceConvertNextLineBase(lang string, result hitraceconv.Result) string {
+	if transport := result.TextTransport; transport != nil && transport.Profile == hitraceconv.GzipTextTransportProfile {
+		if traceConvertUseZh(lang) {
+			return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>；分析时再识别文本中的事件和证据，解压本身不代表因果已证", transport.DecodedPath)
+		}
+		return fmt.Sprintf("next: codrax --htrace %q --request <question>; analysis will identify events and evidence in the text; decompression alone does not prove causality", transport.DecodedPath)
+	}
 	inventorySystracePath := hitraceconv.SystraceInventoryPath(result)
 	readySystracePath := hitraceconv.QueryReadySystracePath(result)
 	hasSystraceInventory := inventorySystracePath != ""
@@ -1777,7 +1800,7 @@ func traceConvertProgressMessageZh(message string) string {
 }
 
 func init() {
-	traceConvertCmd.Flags().StringVar(&traceConvertInput, "input", "", "binary Harmony/OpenHarmony HiTrace input path")
+	traceConvertCmd.Flags().StringVar(&traceConvertInput, "input", "", "Harmony/OpenHarmony trace or perf capture path, including supported ZIP/gzip containers")
 	traceConvertCmd.Flags().StringVar(&traceConvertOutput, "output", "", "text systrace output path; default is <input>.systrace")
 	traceConvertCmd.Flags().StringVar(&traceConvertArchiveMember, "archive-member", "", "exact canonical .sys/.htrace member to select when a ZIP contains multiple trace candidates")
 	traceConvertCmd.Flags().StringVar(&traceConvertFlavor, "flavor", "harmony_hitrace", "trace flavor metadata for operator audit; default harmony_hitrace")

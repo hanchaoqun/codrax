@@ -46,7 +46,7 @@ type coordinatedMaterial struct {
 }
 
 func NewCoordinator(opts Options) *Coordinator {
-	return newCoordinator(opts, hitraceconv.ConvertFile)
+	return newCoordinator(opts, hitraceconv.PrepareFile)
 }
 
 func newCoordinator(opts Options, convert converter) *Coordinator {

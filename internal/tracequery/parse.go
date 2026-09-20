@@ -2186,20 +2186,21 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 }
 
 type traceBundleFile struct {
-	Schema              string                          `json:"schema"`
-	CaptureID           string                          `json:"capture_id"`
-	Version             string                          `json:"version"`
-	InputPath           string                          `json:"input_path"`
-	ArchiveProvenance   *traceBundleArchiveProvenance   `json:"archive_provenance,omitempty"`
-	Systrace            string                          `json:"systrace"`
-	Artifacts           []traceBundleArtifact           `json:"artifacts"`
-	ProviderDecisions   []traceBundleProviderDecision   `json:"provider_decisions"`
-	TraceDecisions      []traceBundleTraceDecision      `json:"trace_provider_decisions"`
-	TraceDBCoverage     []traceBundleCoverage           `json:"trace_db_coverage"`
-	TraceCoverage       []traceBundleCoverage           `json:"trace_coverage"`
-	TraceToolGates      []traceBundleTraceToolGate      `json:"trace_tool_gates"`
-	PerfClockAlignments []traceBundlePerfClockAlignment `json:"perf_clock_alignments"`
-	Caveats             []string                        `json:"caveats"`
+	Schema              string                           `json:"schema"`
+	CaptureID           string                           `json:"capture_id"`
+	Version             string                           `json:"version"`
+	InputPath           string                           `json:"input_path"`
+	ArchiveProvenance   *traceBundleArchiveProvenance    `json:"archive_provenance,omitempty"`
+	GzipInputProvenance *tracebundle.GzipInputProvenance `json:"gzip_input_provenance,omitempty"`
+	Systrace            string                           `json:"systrace"`
+	Artifacts           []traceBundleArtifact            `json:"artifacts"`
+	ProviderDecisions   []traceBundleProviderDecision    `json:"provider_decisions"`
+	TraceDecisions      []traceBundleTraceDecision       `json:"trace_provider_decisions"`
+	TraceDBCoverage     []traceBundleCoverage            `json:"trace_db_coverage"`
+	TraceCoverage       []traceBundleCoverage            `json:"trace_coverage"`
+	TraceToolGates      []traceBundleTraceToolGate       `json:"trace_tool_gates"`
+	PerfClockAlignments []traceBundlePerfClockAlignment  `json:"perf_clock_alignments"`
+	Caveats             []string                         `json:"caveats"`
 
 	// schemaMode is derived exactly once from the held manifest bytes. It is
 	// never decoded from JSON and prevents later path/spec helpers from

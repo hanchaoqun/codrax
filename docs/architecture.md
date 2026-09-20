@@ -1295,7 +1295,9 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验，SQLite、未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline/stdin仍是有界文本入口。
 
-**gzip文本运输（HMC-17.6首片）**：默认文件准备按内容识别gzip，经`PrepareGzipTraceText`校验单member、CRC/ISIZE、尾部、大小/压缩比和全量文本后，无覆盖发布完整解压文本。`gzip_trace_text_v1`是独立字节运输收据，不是事件生产者/时钟/因果凭证；原件与派生物均绑定摘要和强代次，行号只属于解压材料，预览不替代完整查询。只有完整性已验证且具有精确已知二进制签名的typed结果可保留既有converter路径；坏压缩、取消、源/输出换代及清理失败均不能借此重试。该首片不宣称顶层gzip-PERFILE2或显式`trace convert`已等价支持gzip文本。无主systrace的inventory、sample-only及retained-DB结果仍保持空systrace字段，但物理bundle位置必须遵从指定输出目录，不回退原件旁。
+**gzip统一输入运输（HMC-17.6）**：默认准备经`hitraceconv.PrepareFile`与显式`ConvertFile`共用一次有界完整解压，持有冻结的内层视图，再由原provider解析。单member、CRC/ISIZE、尾部、大小/压缩比、源与解压代次全部验证；坏压缩、取消、源/输出换代及清理失败不作语义fallback。已知RMQ/OHOSPROF/PERFILE2/SIMPLEPERF/OpenHarmony raw按内层精确格式选路，嵌套容器、SQLite及未知二进制不递归猜解。`gzip_input_v1`只记录外层/内层字节摘要和代次，不进入capture_id、时钟映射或因果授权，不能代替嵌入HIPERF的Standalone/PerfTransform凭证。默认DB保留策略在内层分型后决定，显式ConvertFile选项不被重写。
+
+完整UTF-8文本经全量验证，无覆盖发布原文字节，返回独立`gzip_trace_text_v1`运输收据；不铸systrace生产者、事件数或因果凭证，不伪造bundle。CLI/REPL明确显示完整解压及事件尚未统计，附加分析再识别事件；显式DB/trace_streamer选项不静默忽略。行号只属于完整解压材料，预览不替代完整查询。独立`PrepareGzipTraceText`兼容入口复用同一解压原语。无主systrace的inventory、sample-only及retained-DB结果仍保持空systrace字段，物理bundle遵从指定输出目录；ZIP/gzip的外层路径不能伪装成内层raw perf文件，原始容器来源在独立provenance中保留。
 
 **命名路径准备（HMC-17.5）**：每次Run创建独立`traceinput.Coordinator`，经`types.TraceInputPreparer`句柄贯通BusContext、AgentContext及子agent，不序列化、不写入sticky附件。typed准入、公开`trace_query`、系统补齐共享成功材料和同路径并发准备；选择器仍无转换副作用，底层BuildIndex/流式parser仍只接收准入文本或bundle。cmd/REPL绑定稳定runtime锚，不能用Run结束时删除的WorkDir。原件、派生查询路径只凭有效进程内收据归一，同名/同字节独立采集不合并；准备失败不借其他源。正缓存每次验证原件、派生物及引擎实际选中的完整源集合，查询后再验证，防止同轮成员换代混证。取消等待者不取消持有者；持有者取消先回滚再允许存活等待者重试，失败不跨调用负缓存。完整文本沿原查询路径工作，二进制预览不替代查询材料。自动补齐按query-ready路径计算预算；已准备的`.sys`或无后缀路径只凭完整typed载体与收据识别，不扫描用户/答案原文判定Trace。
 

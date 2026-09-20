@@ -11769,7 +11769,7 @@ func (r *REPL) handleHitraceConvert(args string) {
 		r.errorf("%s\n", htraceConvertFailedMsg(r.language, err))
 		return
 	}
-	r.success(htraceConvertSuccess(r.language, result.OutputPath, result.EventsWritten))
+	r.success(htraceConvertResultSuccess(r.language, result))
 	for _, artifact := range result.Artifacts {
 		r.info(htraceConvertArtifactMsg(r.language, artifact.Type, artifact.Path, hitraceConvertArtifactDetail(r.language, artifact)))
 	}

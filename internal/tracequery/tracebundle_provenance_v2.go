@@ -34,6 +34,9 @@ func classifyTraceBundleSchema(bundlePath string, bundle *traceBundleFile) error
 	if err := validateTraceBundleArchiveProvenance(bundlePath, bundle.ArchiveProvenance); err != nil {
 		return err
 	}
+	if err := tracebundle.ValidateGzipInputProvenance(bundle.GzipInputProvenance); err != nil {
+		return fmt.Errorf("trace bundle %s gzip_input_provenance: %w", bundlePath, err)
+	}
 	if err := validateTraceBundlePerfInputTransforms(bundlePath, bundle.Artifacts); err != nil {
 		return err
 	}
@@ -119,7 +122,7 @@ func classifyTraceBundleSchema(bundlePath string, bundle *traceBundleFile) error
 }
 
 func traceBundleHasV2OnlyChildField(bundle traceBundleFile) bool {
-	if bundle.ArchiveProvenance != nil {
+	if bundle.ArchiveProvenance != nil || bundle.GzipInputProvenance != nil {
 		return true
 	}
 	for _, artifact := range bundle.Artifacts {

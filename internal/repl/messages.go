@@ -3339,6 +3339,11 @@ func htraceUsage(lang string) string {
 func htraceConvertUsage(lang string) string {
 	header := "/htrace " + htraceConvertSubcommandSyntax
 	if isZh(lang) {
+		header += "\n支持顶层单成员 gzip：先完整校验解压，再按内层格式处理；纯文本保持原文字节、不声称事件数且不生成语义 tracebundle，不能组合 DB/trace_streamer 选项。gzip 名称和修改时间不作为路径或 trace 时钟；嵌套容器、多成员及未知二进制保持拒绝。下述转换引擎说明适用于二进制 trace。"
+	} else {
+		header += "\nTop-level single-member gzip is fully verified before routing its decoded content. Text is preserved byte-for-byte without event counts or a semantic tracebundle and cannot use database/trace_streamer options. Gzip names and timestamps do not supply paths or trace clocks; nested containers, multiple members and unknown binary payloads remain rejected. Engine details below apply to binary traces."
+	}
+	if isZh(lang) {
 		return header + "\nopts: --trace-engine=trace_streamer|builtin|auto；--trace-streamer <path>；--trace-streamer-so-dir <path>（可重复或逗号分隔）；--keep-trace-db；--trace-db-output <path>。\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。默认 auto 始终优先尝试 bundled/configured trace_streamer SQL，再把内置 raw trace 解析作为有披露的 fallback。显式 trace_streamer 或 builtin 模式不会退化到另一个引擎；builtin 不能与 DB 保留选项组合。普通受支持平台构建内置匹配平台的 trace_streamer；默认 Linux/amd64 `make static` 也会保持 Codrax 父程序 fully-static 并内嵌独立子工具，但该子工具自身仍要求 glibc >= 2.34 及其共享库。显式 static-slim 和不支持的平台需要外部 trace_streamer。Windows 或 Linux 路径含空格时请加引号，例如 --trace-streamer \"C:\\Program Files\\Trace Tools\\trace_streamer.exe\" 或 --trace-streamer \"/opt/trace tools/trace_streamer\"。trace_streamer 的 SQLite DB 与 .ohos.ts 时间 companion 默认作为临时文件清理；--keep-trace-db 按派生 sidecar 路径保留二者，--trace-db-output <path> 按显式路径保留。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需一条命令看完整转换工具状态，运行 codrax trace convert --perf-tools-status，它会同时列出 trace_streamer/trace engine、官方 perf 工具与 raw fallback。"
 	}
 	return header + "\nopts: --trace-engine=trace_streamer|builtin|auto; --trace-streamer <path>; --trace-streamer-so-dir <path> (repeat or comma-separate); --keep-trace-db; --trace-db-output <path>.\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Auto always attempts bundled/configured trace_streamer SQL first and keeps the built-in raw decoder as a disclosed fallback. Explicit trace_streamer or builtin modes do not degrade to another engine; builtin cannot be combined with DB-retention options. Normal supported-platform builds bundle a platform-matched trace_streamer. The default Linux/amd64 `make static` also keeps the Codrax parent fully static while bundling the independent child, but that child still requires glibc >= 2.34 and its own shared libraries. Explicit static-slim and unsupported-platform builds require an external trace_streamer. Quote Windows or Linux paths containing spaces, for example --trace-streamer \"C:\\Program Files\\Trace Tools\\trace_streamer.exe\" or --trace-streamer \"/opt/trace tools/trace_streamer\". The trace_streamer SQLite DB and .ohos.ts timestamp companion are temporary by default; --keep-trace-db retains both at the derived sidecar path, while --trace-db-output <path> retains them at the explicit path. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Run codrax trace convert --perf-tools-status for the full conversion toolchain status: trace_streamer/trace engine plus official perf adapters and raw fallback."
@@ -3616,6 +3621,16 @@ func htraceToolsMessageZh(message string) string {
 	default:
 		return trimmed
 	}
+}
+
+func htraceConvertResultSuccess(lang string, result hitraceconv.Result) string {
+	if transport := result.TextTransport; transport != nil && transport.Profile == hitraceconv.GzipTextTransportProfile {
+		if isZh(lang) {
+			return formatN(lang, "已完整解压文本 trace：%s（%d 字节，原文保持不变；事件尚未统计）", transport.DecodedPath, transport.DecodedBytes)
+		}
+		return formatN(lang, "decompressed complete trace text: %s (%d bytes, text preserved unchanged; events not yet counted)", transport.DecodedPath, transport.DecodedBytes)
+	}
+	return htraceConvertSuccess(lang, result.OutputPath, result.EventsWritten)
 }
 
 func htraceConvertSuccess(lang, outputPath string, events int) string {
@@ -4183,6 +4198,12 @@ func htraceConvertNextMsg(lang string, result hitraceconv.Result) string {
 }
 
 func htraceConvertNextMsgBase(lang string, result hitraceconv.Result) string {
+	if transport := result.TextTransport; transport != nil && transport.Profile == hitraceconv.GzipTextTransportProfile {
+		if isZh(lang) {
+			return formatN(lang, "下一步：/htrace %s；分析时再识别文本中的事件和证据，解压本身不代表因果已证", transport.DecodedPath)
+		}
+		return formatN(lang, "next: /htrace %s; analysis will identify events and evidence in the text; decompression alone does not prove causality", transport.DecodedPath)
+	}
 	inventorySystracePath := hitraceconv.SystraceInventoryPath(result)
 	readySystracePath := hitraceconv.QueryReadySystracePath(result)
 	hasSystraceInventory := inventorySystracePath != ""
