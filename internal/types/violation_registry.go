@@ -481,8 +481,8 @@ func init() {
 	// reality that retry exhausted but the answer is still shipped.
 	RegisterCaveatFamily(CaveatFamilyTemplate{
 		ID: CaveatFamilyAnswerCoverage,
-		ZH: "答案在某些维度的覆盖度可能不充分，建议结合源码进一步核对相关组件。",
-		EN: "Coverage on some dimensions of the answer may be incomplete; cross-check with source for the affected components.",
+		ZH: "答案在某些维度的覆盖度可能不充分，建议结合相关证据进一步核对。",
+		EN: "Coverage on some dimensions of the answer may be incomplete; cross-check the relevant evidence.",
 	})
 	RegisterCaveatFamily(CaveatFamilyTemplate{
 		ID: CaveatFamilyDiagramFidelity,
