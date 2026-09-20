@@ -1,6 +1,7 @@
 package tracequery
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -377,6 +378,16 @@ func CanonicalViewName(view string) string {
 		return "frame_root_cause_bundle"
 	}
 	return view
+}
+
+// ValidateViewName checks the execution boundary against the same closed view
+// universe as capacity lookup. Defaults and established engine aliases remain
+// valid; an unknown name must not silently select another query operation.
+func ValidateViewName(view string) error {
+	if _, ok := viewCapacityTable[CanonicalViewName(view)]; ok {
+		return nil
+	}
+	return fmt.Errorf("unsupported view %q; valid views: %s", strings.TrimSpace(view), strings.Join(CanonicalViewNames(), ", "))
 }
 
 // ViewCapacityFor returns the capacity row for a (possibly aliased) view.

@@ -232,6 +232,20 @@ package tool
 // Binary tool/supplement tests validate behavior; no new matched live A/B was
 // run and the existing h2/h3 live-eval debt remains open.
 //
+// EVOLUTION RECORD (2026-09-20, HMC-01.1/01.2 and IO replay §31): append
+// the existing shared IO distribution teaching at the terminal contract slot.
+// Its opening now names the callable window_stats view and distinguishes the
+// storage_latency_by_layer output section from a view. The live failure used
+// that output key as a view and the old engine silently searched events; the
+// execution boundary now rejects unknown views using the existing registry.
+// This is an explicit view-selection/capability correction, not a new view or
+// note-key hard gate. All preceding Description bytes remain identical.
+// Skill and direct tool/schema surfaces use one source; the data remains the
+// measurement authority. Public rejection/default/alias/window/supplement
+// tests cover the deterministic change. The exact-two IO/cross-mode replay
+// weighs this batch; matched h2/h3 A/B debt remains open and is not claimed
+// satisfied by the byte-golden update or the IO case alone.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

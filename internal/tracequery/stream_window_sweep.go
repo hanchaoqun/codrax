@@ -155,6 +155,9 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	if err := ValidateViewName(q.View); err != nil {
+		return Result{}, fmt.Errorf("stream_window_sweep: %w", err)
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return Result{}, fmt.Errorf("trace path is empty")

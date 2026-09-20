@@ -213,6 +213,7 @@ func (t *TraceQuery) Description() string {
 	description = traceQueryApplyRootCauseClosedMatrixContract(description)
 	description += " " + traceQueryRootCauseClosedMatrixContract
 	description += " " + traceQueryInputPreparationTeaching
+	description += " " + skill.TraceIORequestLatencyDistributionTeaching
 	return description
 }
 
@@ -254,6 +255,9 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 }`
 	lineScope, _ := json.Marshal(types.TraceQueryInputLineScopeGuidance)
 	schema = strings.ReplaceAll(schema, "__TRACE_QUERY_INPUT_LINE_SCOPE__", string(lineScope[1:len(lineScope)-1]))
+	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching)
+	schema = strings.Replace(schema, "The deterministic trace view to compute.",
+		"The deterministic trace view to compute. "+string(ioTeaching[1:len(ioTeaching)-1]), 1)
 	schema = strings.Replace(schema,
 		"semantic span-work candidates for JIT/class verification/shader/runtime compilation hidden cost (tier=deterministic_optimization when on-chain, background_rank position when not)",
 		"semantic span-work candidates for JIT/class verification/shader/runtime compilation, texture upload, and explicit GC pauses (ordinary primary/secondary/tertiary election by positive target-self attribution, by the priced pre-edge share of a host_wakeup_edge_pre_span seat, or by the exact semantic_chain_interval_relation intersection; background_rank only when off-chain)", 1)
@@ -311,6 +315,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		// here) is rejected WITH the real parameter list reflected from this
 		// tool's schema, so the retry re-aims instead of re-guessing.
 		return failStrictDecodeWithErrorSchema(t.Name(), time.Now(), err, nil, params, schema)
+	}
+	if err := tracequery.ValidateViewName(p.View); err != nil {
+		return traceQueryUnknownViewRejection(p.View, err), nil
 	}
 	var businessReject *types.ToolResult
 	p, businessRef, businessReject = traceQueryApplyBusinessRef(ctx, p)

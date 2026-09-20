@@ -132,6 +132,12 @@ func traceMarkActionFilterInvalidResult(idx *Index, q Query, validationErr error
 }
 
 func Run(idx *Index, q Query) Result {
+	if err := ValidateViewName(q.View); err != nil {
+		return queryViewInvalidResult(idx, q, err)
+	}
+	if CanonicalViewName(q.View) == ViewWindowSweep {
+		return queryViewInvalidResult(idx, q, fmt.Errorf("view %q is streaming-only; use StreamWindowSweep", ViewWindowSweep))
+	}
 	explicitTimeStart := queryExplicitTimeStart(q)
 	explicitTimeEnd := queryExplicitTimeEnd(q)
 	if !explicitTimeStart && !explicitTimeEnd && strings.TrimSpace(q.Pattern) != "" {
@@ -846,9 +852,10 @@ func Run(idx *Index, q Query) Result {
 		if !faceCanceled("frame_root_cause_bundle") {
 			res.FrameRootCauseBundle = &bundle
 		}
-	default:
-		res.View = "event_search"
+	case FallbackViewEventSearch:
 		publishIndexedEventSearch(&res, idx, q, explicitTimeStart, explicitTimeEnd, faceCanceled)
+	default:
+		return queryViewInvalidResult(idx, q, fmt.Errorf("view %q is not supported by the indexed Run entry point", q.View))
 	}
 	// G1 跨车道对账 (§27.2, 2026-07-09): every view shape that carries BOTH
 	// lanes in one result envelope (recipe with rank+blocking, the frame
