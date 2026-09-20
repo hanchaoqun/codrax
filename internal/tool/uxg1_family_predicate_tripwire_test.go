@@ -117,9 +117,15 @@ var uxg1AggregateAllowedClusters = map[string]int{
 	// Per-token zh label table (distinct labels). Second cluster (RULE3-1
 	// 件8, §29.182②): the EN verdict-word table — same word-table shape.
 	"answer_document_mutation_runtime_typelabels.go": 2,
-	// Per-token typed observation producer calls (each token feeds its own
-	// stats slice).
-	"trace_query.go": 1,
+	// Two source-distinct dispatch sites: typed observation producer calls
+	// (each token feeds its own stats slice), and the native-duration exact
+	// Type -> Source mapping. The latter is NOT the aggregate family: it
+	// admits three per-thread families while rejecting irq_burst and the
+	// aggregate pressure/supply families. A broad family predicate would
+	// wrongly authorize those producers. TestNativeTimingProducerMappingClosedPairs
+	// pins all registered tokens against every admitted source and wrong-source
+	// variants; the getter's fold/value checks remain independently pinned.
+	"trace_query.go": 2,
 	// NKR registry rows: family COLUMN values ("supply_pressure",
 	// "compute_supply" as note families), not row-token enumeration.
 	"trace_note_keys.go": 1,

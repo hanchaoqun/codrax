@@ -973,7 +973,7 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 
 实现及上述文档以`8a8ca1813`推送main。此片没有改变JSON接受条件或模型事实；最终联合全仓及新的固定双例收据归下一节，不冒称旧报告已经修好。
 
-## 34. 背景原生计时与内部排序值分离（2026-09-20，验收中）
+## 34. 背景原生计时与内部排序值分离（2026-09-20，子缺陷验收完成）
 
 继续§32业务FAIL中确定性系统缺口：引擎为背景排序把47ms请求封顶为53×35%=18.55ms。B1717只恢复纯调度状态，资源行仍把排序量传到JSON、观察、系统投影和最终模型上下文，后者直接称measured。§29修了折叠文案不应冒称端到端，但没有恢复该发布量；本批补齐原生计时的传递，保留旧加权量的“排序影响”回退，不倒签历史FAIL。
 
@@ -998,3 +998,15 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 活跃流/默认首响应与中途静默、请求预算隔离保护定向通过8.735s（`/tmp/hmc-native-duration-stream-preservation-20260920.log`），没有恢复4ms或请求总年龄降级。全部生产冻结后开始完整全仓及末版race×3，退出收据另补，不用前序成功覆盖末版验证。
 
 旧业务/明确窗人工FAIL、accepted焦点live未命中及跨模式补证B2–B6继续开放；主清单仍13/79交付、66开放。下一固定版本恰好两个生产用例各一次，不重跑358版本第三例、不修改旧case/oracle追绿。
+
+### 34.3 固定双例结果与末版登记补正
+
+生产代码00be02cac73e原生构建退出0（`/tmp/hmc-native-duration-build-20260920.log`），末版三包race×3通过agent5.539s/tool10.343s/types5.764s（`/tmp/hmc-native-duration-final2-race-20260920.log`）。固定该二进制2并行×1：[机器摘要](../../eval/parallel_selected_summary_hmc_native_duration_20260920.md)2/2，[人工审计](../../eval/parallel_selected_summary_hmc_native_duration_20260920_manual_audit.md)0/2，业务384秒/41%上下文，明确窗171秒/45%。没有第三例追绿。
+
+本批取得了有限而真实的生产正针：47ms独立备份IO已在正文、系统树/总览/表及背景观测中恢复，不再冒充18.55/17.85ms，未进入链上根因JSON；35ms请求正文也出现。其余FAIL未销：50ms业务窗仍套51ms查询账，31ms睡眠又被写成请求端到端，同一答案含正确35ms而前后矛盾；可见控制枚举仍泄漏。明确20ms窗和11ms链上IO保留，但模型把14/17ms睡眠与自身1ms就绪等待混说，且把窗末唤醒写成立即运行。此次明确窗列表没有使用cells，不能冒称§33的新分支已live命中；旧跨CPU概括错误本例已经改善，不能重用旧FAIL理由。
+
+不能据日志搜不到引用就判本轮未发：window_stats真实对象有完整sync实例，工具日志仅打印Summary前2000字节，而原消息有约28k字节。同参数真实Explorer→下一次LLM消息的确定性回放已通过0.839s（`/tmp/codrax-33537-ref-audit.OIiApc/actual-message-normalized.log`）；四条消息扣除临时路径长度后与live日志字节数完全相同，各含2个当前可解析的完整实例引用，位置在约26KB后，焦点仍未选择。这不是原live完整消息历史抓包，不能拿旧358仅rank受视图白名单的漏发原因套本次。两次completion均未提交选择、supplement no_typed_target是已见事实。analyzer4次emit/3拒绝后有合法出口，finalizer缺summary一次拒绝后patch成功；未证明新“同字段必带必拒”。完整答案、投影、schema2 mandatory旁路及600/300/600秒传输保护均保留。
+
+末版第一次全仓`/tmp/hmc-native-duration-final-full-20260920.log`退出1，tool357.519s，仅两条结构登记失败，不用上述定向/race绿覆盖：新Node.RankValueCaliber未登记字段处置，新增五族精确Type→Source映射未登记枚举审计点。按原协议登记displayed及真实消费文件；第二映射不能换成更宽aggregate谓词（该谓词会误收irq_burst/压力族，且漏per-thread三族），依既有distinct producer dispatch规则说明独立映射，并新增完整CausalTokenUniverse×五源/错误源/空白大小写的闭集交叉pin，恰五个合法组合。未更改生产、扫描算法、排序或豁免字段。两条RED1.232s、登记及相关回归GREEN1.337s（`/tmp/codrax-native-tripwire-fJ6Lr1/red.log`、`green.log`）；再次全仓在跑，正式推送及退出收据另补。
+
+末版登记补齐后全仓`/tmp/hmc-native-duration-final2-full-20260920.log`退出0：87包通过（76缓存、11实际）、13包无测试、零FAIL；agent66.690s/tool366.542s/tracequery95.045s/types34.068s/cmd11.125s。新增登记闭集race×3亦退出0，tool6.345s（`/tmp/hmc-native-duration-registration-race-20260920.log`）。末段等待核实是Go测试缓存记录，而非模型响应或测试超时，没有终止或放宽任何测试。生产00be02及登记/文档将同批推送；本片只关闭五族计时发布和多成员口径交接，旧人工FAIL与父任务不勾。
