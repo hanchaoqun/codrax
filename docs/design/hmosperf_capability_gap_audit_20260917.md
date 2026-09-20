@@ -878,25 +878,47 @@ IO本轮profile确有io_latency，但工具接纳未知`view=storage_latency_by_
 
 C++只改main.cpp一行，实际patch应用检查通过，原仓HEAD/源码不变；零修补，普通计划没被补证批身份锁劫持。没有执行apply/verify，不能据此验收B1实际触发或B2–B6原生断言能力。其验收散文未写空输入world回退的P2观察仍保留。稳定任务总数仍13/79交付、66开放。
 
-## 31. 继续IO旧FAIL：未知视图静默成功与重复测量教学（2026-09-20，验收中）
+## 31. 继续IO旧FAIL：未知视图静默成功与重复测量教学（2026-09-20，实现已交付，答案留债）
 
-- [ ] **HMC-01.1/01.2、08.1子缺陷：未知查询视图**。真实日志1306传入storage_latency_by_layer、1312工具success，payload却是event_search。沿CanonicalViewNames/CanonicalViewName现有注册表做同源明确校验及可修补指引，不新增样例别名，不扫用户或答案原文。公开工具/engine先红后绿，stream及tracediag入口、合法alias、空默认、显式窗和自动补齐同批核对；禁止未知值偷偷落到默认事件搜索。
-- [ ] **HMC-01.2/16.4子缺陷：重复原生测量的容量教学**。公开3组×8值→无aggregate重复抄写的completion本来就能通过且原生数据不变，故证伪“24值必须逐项塞cap16”的硬合同互斥。但cap拒绝声称删除任一条目都会永久丢值、初始描述泛称测量都入aggregate，容易引导重复。只修同源条件教学：已有原生同范围测量不需重复复制；唯一主事实仍不可丢或改audit角色绕cap，bounded上下文不保证全量显示。cap16、类型、normalizer与准入不改。公开教学RED已留`/tmp/hmc-native-measurement-teaching-red-20260920.log`，验收收据另补。
+- [x] **HMC-01.1/01.2、08.1子缺陷：未知查询视图**。真实日志1306传入storage_latency_by_layer、1312工具success，payload却是event_search。沿CanonicalViewNames/CanonicalViewName现有注册表做同源明确校验及可修补指引，不新增样例别名，不扫用户或答案原文。公开工具/engine先红后绿，stream及tracediag入口、合法alias、空默认、显式窗和自动补齐同批核对；禁止未知值偷偷落到默认事件搜索。实现`99556ae4b3da`已推送。
+- [x] **HMC-01.2/16.4子缺陷：重复原生测量的容量教学**。公开3组×8值→无aggregate重复抄写的completion本来就能通过且原生数据不变，故证伪“24值必须逐项塞cap16”的硬合同互斥。但cap拒绝声称删除任一条目都会永久丢值、初始描述泛称测量都入aggregate，容易引导重复。只修同源条件教学：已有原生同范围测量不需重复复制；唯一主事实仍不可丢或改audit角色绕cap，bounded上下文不保证全量显示。cap16、类型、normalizer与准入不改。公开教学RED已留`/tmp/hmc-native-measurement-teaching-red-20260920.log`，完整收据见§31.4；实现`62a285926`已推送。
 
-这两处不替代B2–B6、accepted业务焦点或IO跨层完整总体能力。§30.6没触发cap超量拒绝，不作为教学修复live命中证据。施工完成前不提前销账。
+这两处不替代B2–B6、accepted业务焦点或IO跨层完整总体能力。§30.6没触发cap超量拒绝，不作为教学修复live命中证据。仅上述两个确定性子缺陷验收，不替父任务或旧答案销账。
 
-### 31.1 未知视图的执行边界及教学（实现冻结，完整回归中）
+### 31.1 未知视图的执行边界及教学（实现99556ae4b3da，已推送）
 
 公开工具在既有JSON/alias正规化之后、业务引用解析/材料准备/窗口及目标登记/memo之前，从现有capacity注册表校验view。未知值返回精确可修补参数错误、完整合法值和保持显式窗/业务引用的提示；不执行替代查询、不发布原生观察、覆盖凭证或补齐种子。`Run`及三个stream入口也使用同一闭集；直接对indexed `Run`调用仅流式支持的window_sweep不再掉到搜索，而是明确要求对应stream入口。公共window_sweep仍走原流式分派，合法heavy-view容量降级不变。没有把storage_latency_by_layer补成新别名，也没有增加用户/答案散文硬门。
 
-默认空白、全部schema aliases、显式时间窗、业务原子引用、自动补齐和取消矩阵通过。三个stream入口的实际生产调用无未登记私有view；tracediag脚本已有闭集，未重复改动。unknown-view公开/engine RED为`/tmp/hmc-unknown-view-red-20260920.log`，GREEN矩阵为`/tmp/hmc-unknown-view-matrix-20260920.log`（tool3.119s/tracequery0.564s/tracediag0.826s）。另有公开副作用隔离反例：不存在来源、过期引用或重复请求都不得先准备材料或登记目标。engine保留显式零起点；tool零起点的历史表示问题未借本批宣称修好。
+默认空白、全部schema aliases、显式时间窗、业务原子引用、自动补齐和取消矩阵通过。三个stream入口的实际生产调用无未登记私有view；tracediag脚本已有闭集，未重复改动。unknown-view公开/engine RED为`/tmp/hmc-unknown-view-red-20260920.log`，GREEN矩阵为`/tmp/hmc-unknown-view-matrix-20260920.log`（tool3.119s/tracequery0.564s/tracediag0.826s）。另有公开副作用隔离反例：不存在来源、过期引用或重复请求都不得先准备材料或登记目标。engine保留显式零起点；初步看到的tool零值省略仅限短banner。新增公开decoder→event_search原生inventory/window_stats原生窗口正例确认0..14仍保显式Set与范围（`/tmp/hmc-public-zero-window-check-20260920.log`，1.711s），证伪“执行窗口丢了零起点”；没有据此修改数值内核或把显示省略报成已修执行缺陷。
 
 IO统计教学也有独立入口缺口：原常量只进入skill表、没有进入直接工具面，且只写输出字段未直说父view。现在同一常量明确先调用`view="window_stats"`，再读取`window_stats.storage_latency_by_layer[].request_latency_distribution`，输出字段不是view；skill表、工具Description和view参数说明共同消费，后两面各一次。教学RED→GREEN见`/tmp/hmc-io-parent-view-teaching-red-20260920.log`、`/tmp/hmc-io-parent-view-teaching-green-20260920.log`（0.865s）；直接工具面测试通过`/tmp/hmc-unknown-view-tool-teaching-20260920.log`（1.119s）。仅追加Description末端合同，原前缀字节恒等；按既有演进规则保留先红的字节pin、记录意图后更新golden，不改任何排序/因果数值。h2/h3匹配A/B验收债仍开放，不由本批IO例替代。
 
-### 31.2 原生测量与摘要唯一事实分开（实现62a285926，整体回归中）
+### 31.2 原生测量与摘要唯一事实分开（实现62a285926，已推送）
 
 真实公开window_stats给出3组×8值，completion不再复制aggregate仍通过的路径，在修复前已绿；因此不是必须承载24项却cap16的硬互斥。此次仅修改共享教学和唯一事实丢失披露：同源/查询收据/目标窗/测量身份/数值单位的原生数据无需重复抄写，原始散文、推算或其它范围不能代替；唯一principal事实/member_sets仍应交接，不得改audit角色绕cap，bounded展示不承诺全部可见。
 
 新公开测试确认原生24值及TurnA字节不变、不自动伪造aggregate；17个唯一principal事实仍精确拒绝。原有cap16、类型、正常化和准入逻辑均未动。初版race发现旧EMITBURN披露词针不合，保留既有测试，修补条件教学并保留唯一丢失时的`name the dropped entry in reason`要求。末版race×3通过tool4.593s/agent3.933s（`/tmp/hmc-native-measurement-teaching-race-final-20260920.log`）。全部>16唯一模型派生标量如何承载不是本片已解决的问题，不能把去重教学当无上限保证。
 
-独立复审未发现新硬门误伤合法补齐或明确窗口；完整回归及新版本固定双例收据另补。稳定79项清单仍13已交付、66开放，历史人工FAIL不倒签。
+独立复审未发现新硬门误伤合法补齐或明确窗口；完整回归及新版本固定双例收据见§31.3/31.4。稳定79项清单仍13已交付、66开放，历史人工FAIL不倒签。
+
+### 31.3 新版本固定双例：机器2/2，人工1/2
+
+固定干净实现`99556ae4b3da`（含重复测量教学`62a285926`），原生构建`/tmp/hmc-unknown-view-build-20260920.log`，2并行×1、每例1800秒。IO272秒/30%上下文，Python写153秒/28%；[机器摘要](../../eval/parallel_selected_summary_hmc_unknown_view_io_write_20260920.md)2/2 PASS，[人工审计](../../eval/parallel_selected_summary_hmc_unknown_view_io_write_20260920_manual_audit.md)1/2 PASS，没有追加第三例或改oracle。
+
+IO这次正确调用window_stats，三组24值及主窗全部正确，未知view修补未触发；原生17准入/8明细/9超明细、完整分布与RQ/BIO端点限制均到达finalizer。答案仍把明细/另一次宽窗搜索截断当统计不足，并将RQ issue→complete扩成应用提交全路径、BIO queue→complete扩成调度器内部排队。正确上下文未遵循，不记系统数据丢失，也不为这类语义错答另造散文扫描门。completion三次中一次缺成员集降格，最终安全JSON恢复后一次成文；cap拒绝分支没命中。schema2空根因旁路正常，无根因合同不等于应有投影丢失。
+
+Python只改源文件，保原4测试，独立复测及类型/负值/零值/非整数扩展检查均过；应用提交可恢复、原仓HEAD未变，普通apply交付人工PASS。但本轮12个行为合同均planning_only_ungrounded、required=0，且初始已有4个PTO声明，没有旧FAIL的active required补证债，不能借此关闭B1 live命中或B2–B6。首个计划有空path条目被精确拒绝后一次修复，机器reject=0不是零规划拒绝。
+
+新确定性小缺口另批处理：报告70行系统通用覆盖提醒向明确“不分析代码”的请求追加“结合源码进一步核对相关组件”；不是模型blocks，属于共享模板无依据指定来源。仅需将通用提醒改为“相关证据”，中英同源，不按原文关键词分流、不改变覆盖义务/拒绝/重试/精确facet提示。该修复不替IO解释FAIL销账。
+
+### 31.4 末版验收与交付收据
+
+冻结实现99556ae4b3da的第二轮完整回归`/tmp/hmc-unknown-view-final2-full-20260920.log`退出0：87个测试包通过（61缓存、26实际重跑）、13个无测试包、零FAIL；tool363.296s、tracequery99.234s、types34.100s。未用筛选跳过失败测试；平台条件skip不当实机覆盖。第一轮完整回归亦87包通过，但跨用户续办后运行会话不可恢复，采用本次可确认退出的第二轮为交付收据。
+
+闭集视图、业务引用、显式窗、取消、自动补齐及原生测量定向race×3通过skill2.080s/tool50.726s/tracequery3.795s（`/tmp/hmc-unknown-view-final-race-20260920.log`）。工具字节pin先红在byte32363，仅追加末段教学；按既有更新入口重钉后原prefix/排序替换臂与同源教学测试通过1.006s（`/tmp/hmc-unknown-view-description-pin-green-20260920.log`）。新增零起点公共正例另通过，未据此改生产窗口。远程main已确认包含62a285926及99556ae4b，未知视图和重复原生测量教学两片收住；§31.3 IO人工FAIL、B2–B6及h2/h3 A/B继续开放。
+
+### 31.5 来源中性的通用覆盖提醒（局部修复已验收）
+
+仅修改`CaveatFamilyAnswerCoverage`注册表两句：中文“建议结合相关证据进一步核对”，英文“cross-check the relevant evidence”。未新增source分类分支，不扫描输入或答案，也不修改覆盖义务、门限、重试、统计值或根因资格。精确current-code facet仍保留对应的代码路径提示；改的是没有具体来源凭证的通用模板。
+
+新增真实公开materializer/user/soft/hard-cap residual及tracked重放测试，中英文别名、nil上下文、typed trace-only和源码场景共用模板，正文逐字保留；空违规不追加、仅遥测不展示、精确facet不降成通用提醒。RED见`/tmp/hmc-source-neutral-caveat-red-20260920.log`；GREEN types1.172s/orchestrator1.079s，完整两包45.811s/21.197s、定向race×3 3.219s/2.948s均退出0（同前缀green/packages/race日志）。本片没有另跑live第三例，不修改§31.3原报告或人工FAIL；提交推送与本次收据一起办理。
