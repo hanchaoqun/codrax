@@ -6619,6 +6619,8 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 	if ok && len(relationGaps) == 0 && len(scopeViolations) == 0 {
 		return ""
 	}
+	originSpecificHandoff := len(relationGaps) == 0 && len(scopeViolations) == 0 &&
+		relationMemberSetHasIndependentExternalSupport(ctx)
 	if closure != nil {
 		files := completionMaterializationReadFiles(closure)
 		for _, gap := range relationGaps {
@@ -6627,13 +6629,25 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 		for _, violation := range scopeViolations {
 			files = append(files, violation.File)
 		}
-		closure.AddRepair(types.RepairDirective{
+		repair := types.RepairDirective{
 			Kind:      types.RepairEmitEvidence,
 			Files:     dedupStringsPreserveOrder(files),
 			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, types.StructuralRelationScopeCandidates(rm)...), append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...)),
 			Rationale: "relation lookup needs a typed principal member_set so finalization answers with qualifying members before mechanism explanation",
 			Origin:    "pre_complete.relation_member_set",
-		})
+		}
+		if originSpecificHandoff {
+			repair.Kind = types.RepairStructuredHandoff
+			repair.Files = nil
+			repair.Keywords = nil
+			repair.Tools = []string{"emit_investigation_complete"}
+			repair.Subject = "Repair aggregate_facts.member_set from the existing origin-specific external observations."
+			repair.Rationale = "relation lookup still requires a principal_answer member_set with exact members, matching count, and external origin/provenance; artifact rows must not be re-emitted as current-source evidence"
+			// This remains principal-answer debt, not advisory completion-form
+			// debt. Only its materialization lane changes; acceptance is above.
+			repair.Origin = "pre_complete.relation_member_set.origin_specific"
+		}
+		closure.AddRepair(repair)
 	}
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — relation member-set handoff is missing.\n\n")
@@ -6647,8 +6661,46 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 	if len(scopeViolations) > 0 {
 		fmt.Fprintf(&b, "The current principal `member_set` promotes exact typed relation rows outside the classified source scope: %s. Keep the principal set scoped. If those rows need audit visibility, emit a separate non-empty `member_set` with `role=\"supporting_coverage\"`, the exact auxiliary `members[]`, matching `value`, and their `support_refs`; an excluded-only empty aggregate is invalid. Do not count auxiliary rows in the principal relation set unless `SourceScopeProfile` selects that role.\n\n", relationScopeViolationSummary(scopeViolations))
 	}
-	b.WriteString("Emit `aggregate_facts` with kind=`member_set`, value equal to the exact qualifying-member count, and members containing the verified relation answer set. For relation rows you may use compact surfaces such as `caller → callee`, `package: entry`, `module/import`, or a plain qualifying member when the relation target is already clear from the request and evidence. Each member must be backed by typed evidence or member-specific support_refs. Then re-call `emit_investigation_complete`.")
+	if originSpecificHandoff {
+		b.WriteString("Repair `aggregate_facts` with kind=`member_set`, role=`principal_answer`, value equal to the exact qualifying-member count, and members containing the verified relation answer set from the existing external observations. Preserve structured origin/provenance such as origin, artifact_id/artifact_kind, payload_ref/row_set_ref, or the external observation producer. Do not call `emit_evidence` for runtime/log/trace/resource rows, and do not invent current-source file:line support_refs for artifact-local members. Keep artifact-local line/row/time coordinates in the external provenance or member notes. Missing or unsupported members remain an unresolved handoff requirement; do not manufacture a set to close. Then re-call `emit_investigation_complete`.")
+	} else {
+		b.WriteString("Emit `aggregate_facts` with kind=`member_set`, value equal to the exact qualifying-member count, and members containing the verified relation answer set. For relation rows you may use compact surfaces such as `caller → callee`, `package: entry`, `module/import`, or a plain qualifying member when the relation target is already clear from the request and evidence. Each member must be backed by typed evidence or member-specific support_refs. Then re-call `emit_investigation_complete`.")
+	}
 	return b.String()
+}
+
+// relationMemberSetHasIndependentExternalSupport selects repair teaching, not
+// completion authority. Use the existing ledger-backed runtime/source view so
+// a missing member_set (or scalar-only draft) can still take the external
+// handoff lane. A model-authored fact, citation waiver, or artifact attachment
+// alone is not evidence that this lane is available. Any required or landed
+// current-source carrier retains the existing source-materialization repair.
+func relationMemberSetHasIndependentExternalSupport(ctx *types.BusContext) bool {
+	if runtimeSourceCompletionContractRequiresCurrentSourceProof(ctx) {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit))
+	if ledger.Empty() {
+		return false
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, ledger)
+	if authority.HasCurrentSourceCarrier() || !authority.AllowsRuntimeEvidenceWithoutCurrentSource() {
+		return false
+	}
+	if ledger.HasDirectRuntimeObservation() {
+		return true
+	}
+	// The full ledger above preserves every source carrier, including retained
+	// facts. Only producer-owned observations can establish this repair lane;
+	// an older model aggregate with runtime provenance cannot witness itself.
+	var direct []types.ObservationRecord
+	for _, record := range ledger.Records {
+		if record.ClaimAuthority == types.ObservationClaimAuthorityDirectObservation {
+			direct = append(direct, record)
+		}
+	}
+	return types.AssessExternalObservationSufficiency(direct,
+		types.RuntimeSourceAuthorityRequestModelFromBusContext(ctx), ctx.TurnRouteHint).Status.Sufficient()
 }
 
 type relationCoverageGap struct {

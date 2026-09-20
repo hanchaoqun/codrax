@@ -8067,19 +8067,68 @@ func renderRepairLineRangeList(ranges []types.LineRange, max int) string {
 }
 
 func renderClosureRepairHint(repairs []types.RepairDirective, landingOnly ...bool) string {
+	return renderClosureRepairHintWithToolSurface(repairs, len(landingOnly) > 0 && landingOnly[0], LoopObservation{})
+}
+
+// Tool capability affects guidance only. A missing tool must not become a
+// source waiver, a completed repair, or permission to open another tool lane.
+// Unknown surfaces retain legacy guidance; known surfaces come from the exact
+// schemas exposed in this iteration, not from attachment or question heuristics.
+func renderClosureRepairHintWithToolSurface(repairs []types.RepairDirective, completionLandingOnly bool, obs LoopObservation) string {
 	if len(repairs) == 0 {
 		return ""
 	}
 	repairs = mergeClosureRepairsForHint(repairs)
-	completionLandingOnly := len(landingOnly) > 0 && landingOnly[0]
 	var b strings.Builder
-	b.WriteString("Progress check: the last completion attempt already queued structured closure repairs. Finish the blocking repair first instead of returning to generic navigation.\n\n")
+	advisoryOnly := true
+	for _, repair := range repairs {
+		if types.ClassifyRepairDirective(repair) != types.RepairDebtAdvisory {
+			advisoryOnly = false
+			break
+		}
+	}
+	if obs.ToolSurfaceKnown && advisoryOnly {
+		b.WriteString("Progress check: queued repair guidance is advisory; it does not add a completion requirement.\n\n")
+	} else {
+		b.WriteString("Progress check: the last completion attempt already queued structured closure repairs. Finish the blocking repair first instead of returning to generic navigation.\n\n")
+	}
 	limit := len(repairs)
 	if limit > 2 {
 		limit = 2
 	}
 	suppressedNonLanding := false
+	capabilityLimited := false
 	for i := 0; i < limit; i++ {
+		var unavailable []string
+		for _, name := range closureRepairHintToolNeeds(repairs[i]) {
+			if !obs.ToolAvailable(name) {
+				unavailable = append(unavailable, name)
+			}
+		}
+		if len(unavailable) > 0 {
+			capabilityLimited = true
+			b.WriteString("## Repair Capability Limit\n")
+			fmt.Fprintf(&b, "The queued repair requires tool(s) not available in this turn: %s. Do not call these tools.\n", strings.Join(unavailable, ", "))
+			if subject := strings.TrimSpace(repairs[i].Subject); subject != "" {
+				fmt.Fprintf(&b, "Unresolved repair subject: %s.\n", subject)
+			}
+			for j, file := range repairs[i].Files {
+				if j == 2 {
+					fmt.Fprintf(&b, "- ... and %d more scoped file(s)\n", len(repairs[i].Files)-j)
+					break
+				}
+				fmt.Fprintf(&b, "- `%s`\n", file)
+			}
+			// The producer rationale may itself demand the unavailable action.
+			// Keep it stored for a capable dispatch; do not rewrite its prose or
+			// repeat contradictory instructions on the present tool surface.
+			if types.ClassifyRepairDirective(repairs[i]) == types.RepairDebtAdvisory {
+				b.WriteString("This is advisory guidance only; an unavailable action does not create a completion blocker.\n\n")
+			} else {
+				b.WriteString("The required facts and evidence remain unresolved; missing capability does not waive them or authorize completion. Report the limitation if it cannot be resolved with the tools actually available.\n\n")
+			}
+			continue
+		}
 		if completionLandingOnly && !closureRepairCanRenderInCompletionLanding(repairs[i]) {
 			suppressedNonLanding = true
 			continue
@@ -8098,12 +8147,28 @@ func renderClosureRepairHint(repairs []types.RepairDirective, landingOnly ...boo
 	if len(repairs) > limit {
 		fmt.Fprintf(&b, "... and %d more queued repair(s).\n\n", len(repairs)-limit)
 	}
-	if completionLandingOnly || closureRepairsAreStructuredHandoffOnly(repairs[:limit]) {
+	if capabilityLimited || !obs.ToolAvailable("emit_investigation_complete") {
+		b.WriteString("Use only available tools for actionable repairs. Preserve unresolved requirements; do not substitute runtime observations for required source evidence or treat a missing tool as a successful completion receipt.")
+	} else if completionLandingOnly || closureRepairsAreStructuredHandoffOnly(repairs[:limit]) {
 		b.WriteString("After one structured handoff repair succeeds, retry `emit_investigation_complete(reason, confidence, result_kind)` using the existing evidence/context pack. Do not call tools that are not present in the current turn.")
+	} else if !obs.ToolAvailable("emit_evidence") {
+		b.WriteString("After an actionable repair succeeds using the available tools, retry `emit_investigation_complete(reason, confidence, result_kind)`. Existing evidence requirements remain unchanged; do not call tools that are not present in the current turn.")
 	} else {
 		b.WriteString("After one repair succeeds, re-emit grounded evidence if needed, then retry `emit_investigation_complete(reason, confidence, result_kind)`.")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// Scheduling requirements deliberately omit advisory tools and let explicit
+// tool rosters override kind defaults. Display guidance must also account for
+// the action rendered by the kind itself, without changing that scheduling
+// contract or parsing the producer's rationale.
+func closureRepairHintToolNeeds(repair types.RepairDirective) []string {
+	// Ignore advisory status only for display capability checking. The
+	// original status still owns scheduling, completion, and the hint's tone.
+	repair.Advisory = false
+	return dedupMergeStrings(types.RepairDirectiveRequiredTools(repair),
+		types.RepairDirectiveRequiredTools(types.RepairDirective{Kind: repair.Kind}))
 }
 
 func closureRepairCanRenderInCompletionLanding(repair types.RepairDirective) bool {
@@ -8187,6 +8252,9 @@ func mergeClosureRepairsForHint(repairs []types.RepairDirective) []types.RepairD
 		}
 		cur.Files = dedupMergeStrings(cur.Files, repair.Files)
 		cur.Keywords = dedupMergeStrings(cur.Keywords, repair.Keywords)
+		// Preserve both explicit and kind-derived tool needs in this display
+		// projection. Merging hints must not hide an unavailable action.
+		cur.Tools = dedupMergeStrings(closureRepairHintToolNeeds(cur), closureRepairHintToolNeeds(repair))
 		if strings.TrimSpace(cur.Rationale) == "" {
 			cur.Rationale = repair.Rationale
 		}
@@ -8299,7 +8367,7 @@ func (e *explorerEvaluator) postClosureRepairSignal(ctx *types.AgentContext, obs
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.closure-repair",
-		Hint:           renderClosureRepairHint(repairs, e.closureRepairHintCompletionLandingOnly(ctx)),
+		Hint:           renderClosureRepairHintWithToolSurface(repairs, e.closureRepairHintCompletionLandingOnly(ctx), obs),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -8333,7 +8401,7 @@ func (e *explorerEvaluator) postProactiveClosureTargetSignal(ctx *types.AgentCon
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.proactive-closure-target",
-		Hint:           renderClosureRepairHint(repairs, e.closureRepairHintCompletionLandingOnly(ctx)),
+		Hint:           renderClosureRepairHintWithToolSurface(repairs, e.closureRepairHintCompletionLandingOnly(ctx), obs),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -8366,6 +8434,15 @@ func (e *explorerEvaluator) postClosureRepairClosureOnlySignal(obs LoopObservati
 		if repair.Kind == types.RepairEmitEvidence {
 			message = "Progress check: the last completion attempt already identified an evidence-materialization repair on files you have already read. Do NOT read neighboring files yet. Stay on the queued repair target, emit a corrected grounded evidence batch from that existing anchor, then retry `emit_investigation_complete(...)`."
 			break
+		}
+	}
+	if obs.ToolSurfaceKnown {
+		// Follow-up guidance must share the same exact capability view as the
+		// first repair hint, or a navigation step can resurrect a tool action
+		// that the current dispatch never exposed.
+		message = renderClosureRepairHintWithToolSurface(repairs, false, obs)
+		if message == "" {
+			return LoopSignal{}
 		}
 	}
 	e.midLoopClosureRepairClosureOnlySent = true

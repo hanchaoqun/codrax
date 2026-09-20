@@ -553,6 +553,8 @@ search-only不可列举父目录另经只读复核：目录列举用于真实目
 
 独立末审确认没有放宽已有源码义务，另留一条非新增回归边缘：结构化ExactTargets为`capture.tracebundle.json:9`时，共享精确位置解析器会因`.json`将其保守视为源码约束，本批新增豁免仍不能覆盖它。后续只能在本地检查解析后文件的既有runtime/blob身份，并补source/config反例；不因该边缘改动全局位置解析器或源码权威。该边缘与本轮真实IO例无关，不冒充本批已修。
 
+本批代码、双例回放收据及剩余项以`744751c60`提交推送main；推送后工作树干净、HEAD/远端0/0，干净构建通过`/tmp/hmc-runtime-operation-build-clean-20260920.log`，buildRevision=`744751c60ca1`。该修复是HMC-01/16横切子缺陷收尾，不把整个能力目录或教学同源任务销账；稳定任务数仍13/79交付、66开放。
+
 ### 24.3 业务实例绑定实施清单（设计已核实，尚未施工）
 
 参考仓`server.py:959`的launch服务与`core/preprocess/launch_ops.py:736`生成逐实例thread_queries，`config/skills/launch_perf.yaml:64`用同一item的start_ms/end_ms/tid组合调用，值得吸收的是原子范围绑定；不照搬按时长Top3定瓶颈、first-instance-wins或`thread_query_ops.py:562`包过滤无命中回全量。本仓已有TraceSpanSummary/ObservationSourceRef的真实端点/线程/来源，不需另建解析器或根因排序器。
@@ -566,10 +568,32 @@ HMC-02.4先拆本切片（仍属于原79项，不新计已交付数）：
 
 无明确焦点、冲突或不完整收据仍披露跳过；若后续需要自动从业务名称选择，再独立设计有来源引文的typed selector，不将entities或最长span变硬门。HMC-04.3完整启动实例/阶段远大于此切片，不能一并销账。
 
-### 24.4 成员集修补指引后续切片（只读定位，尚未施工）
+### 24.4 成员集修补指引后续切片（初始只读设计，后续施工见§25）
 
 独立核查定位到`emit_investigation_complete.go::relationMemberSetHandoffDowngrade`固定发`RepairEmitEvidence`，`explorer.go::renderCompactClosureRepairSection`据此要求已读源码；observation-only阶段本来就不提供`emit_evidence`，不应为了满足错误提示开放它。现有completion-only保护不适用于仍提供`trace_query`的本轮。后续拆为：
 
 - 证据来源分支使用共享runtime/source权威＋ledger，已有独立外部证据且无必需/已落地源码压力时，使用既有`RepairStructuredHandoff`要求补members/count/origin/provenance；仍保留principal-blocking普通origin，不使用会降成advisory的completion-form前缀。初次仅scalar facts时也要覆盖，不能借用“已有member_set”才成立的穷举帮助函数。
 - 通用提示读取`LoopObservation.ToolSurfaceKnown/AvailableToolNames`精确工具集合；确知`emit_evidence`未暴露时停止要求调用它。未知集合保持原行为；不改stored repair，不把缺工具当源码豁免，不开放工具或放行缺失成员集。
 - 验收runtime scalar/无成员集、supporting-only/数量错仍拒，合法成员集才完成；普通源码、精确mixed、已落地源码保持旧债务。覆盖trace_query仍可用但emit_evidence不可用、后者可用、集合未知及mixed缺工具，不扫模型原文判来源。
+
+## 25. 运行时成员集修补与当轮工具能力一致性（2026-09-20）
+
+第一批`744751c60`推送并干净构建后，继续处理§24.1实际暴露的提示错配。此批不改变“关系查询必须交付有效成员集”的门、不更改问题分类，不将“无图”或runtime_work_relation=false当作免检信号；也不为错误提示开放源码工具。§24两个live原verdict保留，本修复另用公开确定性回归验收，不增加第三例追绿。
+
+### 25.1 生产者给出正确修补通道
+
+`relationMemberSetHandoffDowngrade`原本不区分证据来源，一律发`RepairEmitEvidence`。本批仅修改其修补类型与说明：共享runtime/source权威没有独立源码义务/载体，且确有独立外部观察时，发已有`RepairStructuredHandoff`，要求原成员、精确数量、principal角色及来源凭证，工具明确为`emit_investigation_complete`。没有member_set和仅scalar的初态都覆盖；修补保持principal-blocking，不使用completion-form advisory前缀。验证成员集的原条件不改，错误数量/支持性集合/未支持成员仍不完成；普通源码、精确mixed与已落地源码继续原通道。
+
+父席复核又发现旧模型aggregate可进入共享ledger，不能凭自填`trace_query`来源冒称独立证据。最终完整ledger仍负责保留所有源码要求；外部前提单独复用`HasDirectRuntimeObservation`，资源类仅让`DirectObservation`记录参与既有充分性判断。仅附件、citation waiver、保留的模型scalar/provenance均不能自证；真实addressable MCP resource也有正例，非仅IO/Trace专用。公开RED两初态及retained-model负例来自独立实施席原始工具回执，未重定向为磁盘日志；不伪造对应`/tmp`文件。最后扩展`Relation|MemberSet`通过7.280s，并验证合法修补接受后ActiveRepairs为空。
+
+### 25.2 通用提示核对实际工具集合
+
+初次修补、主动修补、后续closure-only三处共用显示层能力判断，读取该轮真正交给模型的`LoopObservation.ToolSurfaceKnown/AvailableToolNames`。未知集合沿旧行为；已知缺工具时披露所缺工具与原债务范围，停止重复不可执行的producer指令。缺工具不代表证据已满足、不清空repair、不增加工具权限、不设置完成/停止信号。
+
+显示层复用`RepairDirectiveRequiredTools`及类型默认动作的并集，覆盖显式工具覆盖默认、多个修补合并以及advisory三种形态。为检查advisory动作可用性，仅在值副本上忽略advisory标志；原调度/存储分类不动，提示明确“建议不新增完成阻碍”。同时避免后续closure-only在一次导航后重新发不可用的源码提交要求。
+
+公开首轮反例`/tmp/hmc-repair-tool-surface-final-red-20260920.log`及独立末审新增反例`/tmp/hmc-repair-tool-surface-review-red-20260920.log`已保留；定向末版通过`/tmp/hmc-repair-tool-surface-final-focused-v2-20260920.log`。第一轮绿色验收曾因read repair规范化本来清空Subject而触发测试期望错误，已改为校验实际存储的subject及scope，不更改生产规范化。末版三包race×3通过types2.392s/tool3.577s/agent7.184s，收据`/tmp/hmc-repair-capability-race-20260920.log`，含第一批源码适用域、关系门以及显式窗IO/分布交接保护；原生构建通过`/tmp/hmc-repair-capability-build-20260920.log`。随后只把新增首次/后续提示测试提升到真实observeMidLoop观察循环，生产未动；增量race×3通过2.880s（`/tmp/hmc-repair-capability-observe-race-final-20260920.log`），agent完整包另通过82.536s（`/tmp/hmc-repair-capability-agent-final-20260920.log`）。生产冻结后的全仓87个有测试包全部通过（64缓存、23实际重跑；tool387.553s、types38.034s、tracequery102.264s、tracediag5.838s），收据`/tmp/hmc-repair-capability-full-20260920.log`。末版提交前diff检查及fetch main 0/0；提交/推送收据另补。
+
+### 25.3 后续优先级（未运行，不当验收）
+
+下一修复先补§24.3原子实例绑定与组合意图的正反验收，再单独审运行时图/源码图边的凭证范围；不把这三类问题混成统一豁免。生产批仍固定2并行×1：本批两个Trace原失败已完整审计，下一异构保护对候选为`read_combo_trace_current_source_explanation.case`（显式需要源码，防本批optional修复外溢）＋`github_issue_dateutil_relativedelta_float_symptom.case`（Python写apply/回归测试，防长期只跑Trace）。两例现有定义已核对；排序依据为受改动影响的合同强度、跨模式风险和已有覆盖，未伪称已逐一重跑全部cases或写模式已由本批live覆盖。
