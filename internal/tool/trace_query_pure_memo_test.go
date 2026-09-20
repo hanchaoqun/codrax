@@ -225,10 +225,7 @@ func TestTraceQueryRunMemo_PlatformFlavorProvenanceSplitsKeys(t *testing.T) {
 // process remains a different membership contract.
 func TestTraceQueryRunMemo_DefaultThreadScopeReusesAndProcessSplits(t *testing.T) {
 	ctx, tracePath := pureMemoFixtureCtx(t)
-	// Exercise identity normalization on a memoized view. Discovery views
-	// now issue native run-local business references and deliberately bypass
-	// pure-result memo; their fresh-read behavior has a separate public pin.
-	pDefault := traceQueryParams{View: "root_cause_rank", PID: FlexInt(100)}
+	pDefault := traceQueryParams{View: "window_stats", PID: FlexInt(100)}
 	pThread := pDefault
 	pThread.TargetScope = "thread"
 	pProcess := pDefault

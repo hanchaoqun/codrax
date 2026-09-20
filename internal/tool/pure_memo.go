@@ -66,10 +66,18 @@ func PureToolMemoReuseDisclosure(toolName string) string {
 // typed authority fields are preserved byte-for-byte.
 func RunPureToolMemo(ctx *types.BusContext, toolName, memoKey string,
 	compute func() (types.ToolResult, error)) (types.ToolResult, error) {
+	return runPureToolMemoWithPolicy(ctx, toolName, memoKey, compute, nil)
+}
+
+// A native producer may publish run-local navigation in addition to pure
+// facts. Its precise result fields decide memo eligibility; ordinary empty or
+// fact-only results retain the existing reuse contract.
+func runPureToolMemoWithPolicy(ctx *types.BusContext, toolName, memoKey string,
+	compute func() (types.ToolResult, error), eligible func(types.ToolResult) bool) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return compute()
 	}
-	if cached, ok := ctx.Mutable.ToolResultMemo(toolName, memoKey); ok {
+	if cached, ok := ctx.Mutable.ToolResultMemo(toolName, memoKey); ok && (eligible == nil || eligible(cached)) {
 		out := cached
 		out.ReusedFromRunMemo = true
 		if strings.TrimSpace(out.Summary) == "" {
@@ -81,7 +89,7 @@ func RunPureToolMemo(ctx *types.BusContext, toolName, memoKey string,
 		return out, nil
 	}
 	result, err := compute()
-	if err == nil && result.Success {
+	if err == nil && result.Success && (eligible == nil || eligible(result)) {
 		ctx.Mutable.StoreToolResultMemo(toolName, memoKey, result)
 	}
 	return result, err

@@ -579,7 +579,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}, nil
 	}
 	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel, callCaveat); ok {
-		return RunPureToolMemo(ctx, t.Name(), key, runPureTraceQueryCore)
+		return runPureToolMemoWithPolicy(ctx, t.Name(), key, runPureTraceQueryCore, func(result types.ToolResult) bool {
+			return len(result.TraceBusinessSpanCandidates) == 0
+		})
 	}
 	return runPureTraceQueryCore()
 }
@@ -616,10 +618,10 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 // The purity premise (identical input ⇒ identical typed output) is
 // pinned by DET-1.
 func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, callCaveat string) (string, bool) {
-	// Issuing and consuming instance references require a current native read,
-	// stronger than the size/mtime pure-result memo. Keep the engine index;
-	// unrelated views retain their existing verbatim result-reuse contract.
-	if p.BusinessSpanRef != "" || traceQueryBusinessRefDiscovery(p) {
+	// Consuming an instance reference requires a current native read, stronger
+	// than the size/mtime pure-result memo. Results that issue references are
+	// excluded separately by their native candidate field, not just view name.
+	if p.BusinessSpanRef != "" {
 		return "", false
 	}
 	if !PureToolMemoEnabled() {
