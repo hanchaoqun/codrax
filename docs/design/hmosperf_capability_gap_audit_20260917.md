@@ -684,12 +684,12 @@ HMC-02.4从“待实施”改为“部分实施”：本片完成§24.3第1项�
 
 本切片归HMC-08.1/16.4，不新增已交付计数。已定位而非只凭答案猜因：`trace_query.go::traceQueryTypedStorageLatencySummary`及`writeTraceStorageLatency`无条件显示代表线程；`blockPairingAccumulatorFor`实际按source/family/dev/op聚合，Thread只保留首记录。现有`traceQueryStorageGroupFields`已经声明block issuers=all，应该共用，而非再堆prompt。
 
-- [ ] 先补公开真实RED：扩展`TestHMC081PublicBlockGroupIncludesMultipleIssuersWithoutSinglePIDClaim`，分别验证工具Summary、普通及EvidencePack observation、压缩摘要，不再把summary＋notes全局拼接后只找一个issuers=all。block总体不得同时带暗示单线程范围的thread；非block的inode/PID身份保持。
-- [ ] 首层展示共用既有组字段；若保留Thread，明确命名为representative_thread，不抹掉原数据，不改变组键或发起者总体。
-- [ ] 聚合行增加可选精确请求驻留口径，由已准入RQ/BIO生产者调用`blockIORequestResidenceCaliber`，不在工具层按名字再推断；generic/未知不得调用其默认RQ分支。沿显式schema处置、key-first渲染及哈希pin流程同步，不只bump哈希。
-- [ ] 工具、普通/EvidencePack observation及前部scope notes同源展示端点；finalizer/reviewer支持说明条数分别受10/6约束，不把关键口径追加在尾部。新显示字段不得授链上资格或根因权。
-- [ ] Count仍保原数值与各层语义：block孤立完成也计数，generic完整pair可能两端各计一次；缺开始/缺完成/歧义组/受抑制操作分列。RQ/BIO/generic/未知、孤立完成、1组2请求、nil/真实零值、Top8外组及跨窗都有正反例。
-- [ ] 扩展`TestPublishedIOGroupDistributionsReachFinalizer`，逐条真实上下文记录绑定同组的身份/端点/数值，不靠整段任意位置搜token；继续保留来源/窗口隔离及ledger字节不变。修后另安排固定双例验收，旧人工FAIL不倒签。
+- [x] 先补公开真实RED：扩展`TestHMC081PublicBlockGroupIncludesMultipleIssuersWithoutSinglePIDClaim`，分别验证工具Summary、普通及EvidencePack observation、压缩摘要，不再把summary＋notes全局拼接后只找一个issuers=all。block总体不得同时带暗示单线程范围的thread；非block的inode/PID身份保持。
+- [x] 首层展示共用既有组字段；若保留Thread，明确命名为representative_thread，不抹掉原数据，不改变组键或发起者总体。
+- [x] 聚合行增加可选精确请求驻留口径，由已准入RQ/BIO生产者调用`blockIORequestResidenceCaliber`，不在工具层按名字再推断；generic/未知不得调用其默认RQ分支。沿显式schema处置、key-first渲染及哈希pin流程同步，不只bump哈希。
+- [x] 工具、普通/EvidencePack observation及前部scope notes同源展示端点；finalizer/reviewer原设计按10/6条说明考虑，实际finalizer最短仅3条，§28改为第一条同时保组身份/端点。新显示字段不得授链上资格或根因权。
+- [x] Count仍保原数值与各层语义：block孤立完成也计数，generic完整pair可能两端各计一次；缺开始/缺完成/歧义组/受抑制操作分列。RQ/BIO/generic/未知、孤立完成、1组2请求、nil/真实零值、Top8外组及跨窗都有正反例。
+- [x] 扩展`TestPublishedIOGroupDistributionsReachFinalizer`，逐条真实上下文记录绑定同组的身份/端点/数值，不靠整段任意位置搜token；继续保留来源/窗口隔离及ledger字节不变。固定双例已运行，人工仍FAIL，见§28.3；这是实施/运行完成，不代表答案验收通过，旧人工FAIL不倒签。
 
 参考仓再次对照：可借`core/preprocess/io_ops.py:67`的分布组织，不搬`config/indicators/io/io_latency.yaml:35`与`io_ops.py:879`的LIMIT后算分位数或start_time BETWEEN漏carry-in，也不搬`io_ops.py:448`以CFS累计阻塞大于RT直接判优先级反转。该路径读取已经形成的filesystem_io记录，并非本仓原始RQ/BIO端点/缺端计数的权威来源。
 
@@ -704,7 +704,7 @@ HMC-02.4从“待实施”改为“部分实施”：本片完成§24.3第1项�
 - [x] 真正的finalizer路径可能只保留3条说明，不总是10条。将端点与组身份放在第一条，来源/选择窗随后；不提高全局预算、不依赖Top8请求或第四条说明，semantic仍6条。逐组逐Observation ID核验原生query→TurnA→BuildInitialInstruction，同时保住八个数值与原ledger字节。
 - [x] schema显式处置：有口径但无配对的组也进入精确渲染，披露端点但不造零样本；未知口径只说未说明，不泄漏枚举。新增字段及原分布字段剔除后仍匹配此前schema，加性针/结构指纹同步审查；未带新口径的legacy nil组原字节针不动。
 - [x] 请求计数与时长不改：孤立完成、缺完成、1个歧义组包含2个被抑制请求、generic两端计数、真实0、跨窗完整驻留及Top8之外样本都有保护；不将Count统称issue数，也不把驻留耗时等同响应阻塞。
-- [ ] 最终全仓/race、固定构建及2并行×1回放收据待本批完成后补入；不预签live或替旧FAIL销账。
+- [x] 最终全仓/race、固定构建及2并行×1回放均完成，收据见§28.3/28.5；机器2/2、人工0/2，不替旧FAIL销账。
 
 前置行为RED：`/tmp/hmc-io-caliber-red-20260920.log`（RQ/BIO十一臂缺组级口径）；`/tmp/hmc-io-group-context-red-v2-20260920.log`（同一模型记录缺端点、裸thread歧义）；独立末审再补`/tmp/hmc-io-group-raw-notes-red-20260920.log`（三组×两scope共6处原始RichNotes残留裸thread）。修后真实上下文及相邻IO测试首次通过`/tmp/hmc-io-group-context-{green,neighbors}-20260920.log`；后续末版收据单独记录。
 
@@ -717,3 +717,31 @@ HMC-02.4从“待实施”改为“部分实施”：本片完成§24.3第1项�
 独立复核旧Summary-only fallback：只有typed Observations和ToolCarrier均缺失时才进入；其产物被强制audit_ledger/display_only、置信度≤0.2、not_answer_grade。它仍不能完整理解新block组端点/全部提交者说明，作为旧无结构化结果的审计视图限制留账；正常TraceQuery、memo、fork、TurnA都有typed载体，不为这个旧fallback扩张prose解析或授因果权。非block恢复原thread显示以保既有兼容。
 
 稳定清单仍13/79交付、66开放。HMC-08.1只是组级统计/上下文切片，未完成跨层总体上卷；HMC-02.4 accepted焦点/原子补齐仍需根修。业务旧FAIL以及分布答案的缺端含义、歧义计数/分位数解释是否遵循，须由新回放独立验收；旧机器/人工结果不回写。后续mixed-source读＋Python写apply固定双例继续保留，不借本批Trace回放声称跨模式已验收。
+
+### 28.3 固定双例仍未通过人工验收，不误销账
+
+`04f4103bf3ad`干净原生构建（`/tmp/hmc-io-group-build-20260920.log`）运行2并行×1，每例1800秒。业务269秒/43%上下文、IO分布329秒/31%上下文；[机器摘要](../../eval/parallel_selected_summary_hmc_io_group_scope_replay_20260920.md)2/2 PASS，[人工审计](../../eval/parallel_selected_summary_hmc_io_group_scope_replay_20260920_manual_audit.md)0/2 PASS。没有第三次追绿、不改case/oracle、不回写历史FAIL。
+
+业务本轮保住自动补齐、Trace因果投影、链上IO31ms/两处调度各1ms/47ms背景及schema2三项根因旁路；不能沿用上一批`no_typed_target`描述本轮。仍未消费原子业务实例引用：50ms操作已经找到，主分析及补齐仍用51ms探索窗，未给出50ms的5+1+44ms账户；另有完成/唤醒时刻与IO/调度修向混淆。业务实例accepted焦点缺口不销账，也不因这次自动补齐成功就关闭原子范围绑定。
+
+IO最终三组八项数字及RQ/BIO起止事件正确，组设备/全部提交者/选择窗已进入真实finalizer消息，确认本批系统交接修复到达。正文仍将17条已配对请求仅展开8条误说成仅8条配对成功、9条缺端或歧义；将事件分布区间误作查询选择窗并声称RQ/BIO窗口不重叠，另有设备遗漏、歧义组/请求数量和硬件阶段误述。关系桥接仍使用泛称coverage/emitted/hidden、通用window标签，存在系统展示可澄清空间，不能全归模型波动。
+
+JSON恢复没有丢答案：业务正文先接受，再单独补可选schema2根因选择；IO的blocks字符串数组被既有安全修复接受。机器repair=0与completion拒绝计数有观测口径限制，人工按真实事件核对，未发现本批新增“必带又必拒”合同。Explorer仍收到预处理错误推算的软建议，但finalizer已抑制该自由文字并由确定性测量替代；不误报为最终测量权威仍被预处理污染。
+
+独立末审新确认确定性展示缺口：业务报告154/288行的系统投影把背景IO的17.850ms加权impact标为“完成端到端·IO延迟”。原生blob `trace-query-result-6dc5183a.json:2268–2307` 中physical/projected/cumulative均为47ms，仅impact_ms为17.85；`runtimeTraceProjIOFoldNoteText`按类型命名却只取peer.ImpactMS。这不是模型波动，应按HMC-16.4/16.5另批先红后绿修量尺交接，覆盖节点/折叠/证据索引；本批不改排序/权重来拟合47ms，也不因背景没有当主因就忽略错标。
+
+### 28.4 下一批高ROI退出条件（未实施）
+
+1. **HMC-02.4 accepted业务焦点**：按已接受模型选择引用消费同一物理来源/代次/TID/完整窗口，不从探索ANY、首项或最长自动选择；取消/失败分支不提交焦点。保护显式用户窗及现有无引用自动补齐。
+2. **HMC-08.1/16.4覆盖语义五分离**：已接纳完整配对总体、明细展开上限、捕获/扫描完整度、查询选择窗、事件首末区间分开。复用原typed计数与QueryScope；工具生产者和finalizer关系桥接同源解释，不修改配对引擎/数值、不造全量捕获声明。任意E<N、E=N、零/缺失/歧义、短事件区间及不同来源/窗/代次均需正反回归，缺端只取Unpaired*等精确字段，不能以N-E反推。
+3. **HMC-16.4/16.5与HMC-18**：优先为IO折叠说明的影响值/端到端耗时错标补公开红针，统一量尺载体后修复，不改因果选举或把所有影响值换成物理时长。正确证据已到达后的方向/端点/枚举误述继续观察，不以一次回放宣布稳定模型波动；Explorer残留软建议另审。mixed-source读＋Python写apply双例仍排队，本次两个Trace读例不替代。
+
+以上归原稳定ID及既有66开放项，不把新增分析记录当作额外交付数，也不依赖扫描用户/答案原文修文或增加硬门。
+
+### 28.5 最终验证收据
+
+生产实现固定提交`04f4103bf3ad`。末版定向兼容测试通过tool1.627s/types1.994s（`/tmp/hmc-io-group-compat-final-20260920.log`），真实上下文测试通过agent0.993s（`/tmp/hmc-io-group-context-final-green-20260920.log`）。末版tool/agent/types定向race×3通过6.127s/4.029s/3.059s（`/tmp/hmc-io-group-final-race-20260920.log`）；配对引擎与诊断渲染在未受最后非block显示兼容影响的生产版本也完成race×3，收据`/tmp/hmc-io-group-race-20260920.log`，不混称所有包都在最后增量后重跑。
+
+首轮全仓`/tmp/hmc-io-group-full-20260920.log`已exit0，但启动早于最后非block线程标签兼容修正，因此另跑最终`go test -p 2 ./...`，`/tmp/hmc-io-group-final-full-20260920.log`返回exit0：87个测试包通过（76缓存、11实际重跑）、13个无测试包、零FAIL；tool355.713s/types33.740s/repl52.222s。未加run/skip筛选；既有平台条件skip不冒充实机验证。原生干净构建和恰好双例生产回放均基于同一`04f4103bf3ad`代码，末版之后本批只有文档改动。
+
+实现已提交，人工审计/任务状态随本批文档一起提交推送；不以全仓绿代替尚未通过的模型答案验收。
