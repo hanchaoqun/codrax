@@ -1337,6 +1337,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **背景排序与状态测量分离（B1717）**：引擎对链外背景项使用的窗口比例封顶只用于排序，不能称为实测等待。对显式 `background` 且具有正值、有限原生状态账本的纯状态行，工具在公开副本统一以对应 Running/Runnable/Sleep/D/IO 分量发布 `ImpactMs/ProjectedImpactMs`，使 JSON、观测值、notes 与投影同源；组合 D/IO 只合并该生产者已分割的互斥分量。原引擎对象、Score、排名及链上量不改，该公开副本有效归因仍为零，不因此获得根因资格。不从累计量、时间包络、dominant state 或文字猜测状态测量；缺测、未知/复合/语义/设备类及旧未归因行保留原发布行为，未宣称这些旧车道的口径问题全部解决。
 
+**背景原生资源计时发布（HMC-16.5）**：在上述纯状态之外，仅对精确生产者匹配的 IO 请求、IRQ/IPI 配对活动、workqueue 执行及 DMA fence 等待五族，读取其封顶前的原生计时账。单成员不得携带矛盾的折叠口径，多成员只接既有互斥求和、区间并集或最大记录回退；后者保持重叠未消解的下界，不改成包络或成员原始和。工具公开副本恢复计时，原生排序、Score、链上选举及背景有效归因零保持。只读的 `rank_value_caliber=native_duration` 标记随观测→投影→成文上下文/折叠说明传递，解决同值异尺误标，不进入硬门。成文上下文保留原家族记录数、最大值及折叠口径，不把记录数称物理次数；未标定的旧毫秒量只称已发布值，不能仅凭单位说成实测。未知生产者、组合指数、计数、算力供给权重、文件 IO 建议、blocking 包络等不走此恢复车道，原问题留账，不以这一闭集证明所有背景指标都是实测。
+
 **per-view 截断阈值单源**：`internal/tracequery/view_capacity.go` 是全部 20 个 view 的容量表（DefaultLimit/MaxLimit/heavy/relation-scoped/FallbackView；数值由 TestViewCapacityTablePinsCurrentBehavior 字节 pin），engine 截断点同时发布 typed `Result.Compactions` 记录；tool 侧 refinement 据此给出具体收窄建议（limit=min(Total,MaxLimit) 或按 LastEmittedTs 的首段拆窗+next_segment），composite bundle 的 widen-vs-split 判定读截断子 view 行。index 预算（250K/512MiB 阶梯）不入该表，归 C3/Gap3 阶梯所有。改任何 view 阈值先读该文件,不要再挖 query.go。
 
 **四个核心机制**：

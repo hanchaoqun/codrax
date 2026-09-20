@@ -536,6 +536,8 @@ var traceNoteKeyGoldenRows = []string{
 	// weight (§7.30 S1 witness) joins the score vocabulary with its JSON tag
 	// (rank_impact_ms → rank_impact_score); zero parsers, zero-compat rename.
 	"rank_impact_score|impact|display_only",
+	// Native duration publication, not a causal/ranking credential.
+	"rank_value_caliber|impact|hard_consumer",
 	"reads|io|display_only",
 	"recommended_sections|causal_rank|display_only",
 	"recommended_views|causal_rank|soft_consumer",

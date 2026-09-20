@@ -674,6 +674,11 @@ type runtimeTraceProjIOFoldPeer struct {
 	ImpactMS    float64
 	Caliber     runtimeTraceProjIOFoldCaliber
 	EvidenceTag string
+	// Engine family measurements are a separate population from this display
+	// fold. Their ruler must survive when the peer loses its independent row.
+	FamilyMemberCount int
+	FamilyMemberMaxMS float64
+	FamilyFoldCaliber string
 }
 
 // runtimeTraceProjAbsorbedChainPeer is one engine-absorbed chain-lane
@@ -6295,8 +6300,9 @@ func runtimeTraceProjIOOverlapComponents(nodes []types.TraceCausalProjectionNode
 // treat it as load-bearing (never elided).
 func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool) string {
 	type groupKey struct {
-		token   string
-		caliber runtimeTraceProjIOFoldCaliber
+		token             string
+		caliber           runtimeTraceProjIOFoldCaliber
+		familyMeasurement string
 	}
 	type tokenGroup struct {
 		groupKey
@@ -6305,8 +6311,18 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 	var groups []tokenGroup
 	index := map[groupKey]int{}
 	var tags []string
+	lang := "en"
+	if zh {
+		lang = "zh"
+	}
 	for _, peer := range peers {
-		key := groupKey{strings.TrimSpace(peer.Token), peer.Caliber}
+		// A native duration can still be a union or a conservative maximum.
+		// Do not collapse these distinct rulers into one slash-separated value
+		// group. The shared formatter leaves single-record output unchanged.
+		key := groupKey{
+			token: strings.TrimSpace(peer.Token), caliber: peer.Caliber,
+			familyMeasurement: types.FormatTraceFamilyMeasurement(peer.FamilyMemberCount, peer.FamilyMemberMaxMS, peer.FamilyFoldCaliber, lang),
+		}
 		i, ok := index[key]
 		if !ok {
 			i = len(groups)
@@ -6320,6 +6336,12 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 	}
 	parts := make([]string, 0, len(groups))
 	for _, g := range groups {
+		appendPart := func(part string) {
+			if g.familyMeasurement != "" {
+				part += " (" + g.familyMeasurement + ")"
+			}
+			parts = append(parts, part)
+		}
 		token := g.token
 		if zh {
 			// PTV5 C09/C16 (#68): the zh tree face speaks the D4 combined form
@@ -6345,16 +6367,16 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 		switch tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(strings.ToLower(g.token))) {
 		case tracequery.CausalCaliberSideCompositeScore:
 			if zh {
-				parts = append(parts, strings.TrimSpace(token+" "+values+"(综合评分,非墙钟)"))
+				appendPart(strings.TrimSpace(token + " " + values + "(综合评分,非墙钟)"))
 			} else {
-				parts = append(parts, strings.TrimSpace(token+" "+values+" (score, not wall clock)"))
+				appendPart(strings.TrimSpace(token + " " + values + " (score, not wall clock)"))
 			}
 			continue
 		case tracequery.CausalCaliberSideCount:
 			if zh {
-				parts = append(parts, strings.TrimSpace(token+" 计数当量"+values+"(非墙钟)"))
+				appendPart(strings.TrimSpace(token + " 计数当量" + values + "(非墙钟)"))
 			} else {
-				parts = append(parts, strings.TrimSpace(token+" 计数当量"+values+" (count-equivalent, not wall clock)"))
+				appendPart(strings.TrimSpace(token + " 计数当量" + values + " (count-equivalent, not wall clock)"))
 			}
 			continue
 		}
@@ -6366,7 +6388,7 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 				suffix += " (not measured duration)"
 			}
 		}
-		parts = append(parts, strings.TrimSpace(token+" "+values+suffix))
+		appendPart(strings.TrimSpace(token + " " + values + suffix))
 	}
 	// Catalog B12 (DISPLAY-HYG 二轮, §29.104.18.1, 2026-07-17): the evidence
 	// pointer tail wears the document-wide bracket style ([E33]、[E35(+1)])

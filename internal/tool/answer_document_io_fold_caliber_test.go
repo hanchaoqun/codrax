@@ -11,7 +11,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestHMCIOFoldPublicRankImpactIsNotRequestResidence(t *testing.T) {
+func TestHMCIOFoldPublicNativeDurationIsNotRankingImpact(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("..", "..", "eval", "fixtures", "hmosperf_business_io_chain", "events.systrace"))
 	if err != nil {
 		t.Fatal(err)
@@ -32,40 +32,53 @@ func TestHMCIOFoldPublicRankImpactIsNotRequestResidence(t *testing.T) {
 			}
 		}
 	}
-	if rankValue == "" || rankValue == "47.000" {
-		t.Fatalf("public rank lane must publish an independently priced background impact, got %q", rankValue)
+	// Native ordering remains capped inside the engine; the public copy now
+	// carries a producer-identified measurement rather than that private cap.
+	if rankValue != "47.000" {
+		t.Fatalf("public background lane must retain the native measurement, got %q", rankValue)
 	}
 	ledger := types.ObservationLedger{Records: records}
 	before, _ := json.Marshal(ledger)
 	projection := types.CompileTraceCausalProjection(ledger)
 	for _, zh := range []bool{true, false} {
 		model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
-		folded := false
+		found, folded := false, false
 		for _, row := range model.Background {
 			if row.Node.Subject == "backup-900" {
+				found = true
+				if row.Node.ImpactMS != 47 {
+					t.Errorf("background display lost the measured request: %.3f", row.Node.ImpactMS)
+				}
 				for _, peer := range row.IOFoldPeers {
 					folded = folded || fmt.Sprintf("%.3f", peer.ImpactMS) == rankValue
+					if peer.Caliber == runtimeTraceProjIOFoldRankImpact {
+						t.Fatalf("calibrated native duration retained the legacy ranking label: %+v", peer)
+					}
 				}
 			}
 		}
-		if !folded {
-			t.Fatalf("public query set did not reproduce the folded rank peer: background=%+v", model.Background)
+		if !found {
+			t.Fatal("public query set lost the background request")
 		}
+		// Equal original/rank measurements may now deduplicate before the IO
+		// fold. Do not require a second visible instance of one physical fact.
 		for name, rendered := range map[string]string{
 			"tree":   runtimeTraceProjTreeFence(model, zh),
 			"detail": runtimeTraceProjDetailFullText(model, zh),
 		} {
-			if (name == "tree" && !strings.Contains(rendered, "47.000")) || !strings.Contains(rendered, rankValue) {
-				t.Fatalf("%s must retain physical and ranking quantities without rewriting either: %s", name, rendered)
+			// Detail descriptions omit the primary duration unless they carry a
+			// fold note; the tree always carries the primary measurement.
+			if (name == "tree" || folded) && !strings.Contains(rendered, rankValue) {
+				t.Fatalf("%s lost the measured background request: %s", name, rendered)
 			}
-			bad := "end-to-end·io_latency " + rankValue + "ms"
-			want := "ranking impact"
+			bad := "ranking impact·io_latency " + rankValue + "ms"
+			want := "observed duration"
 			if zh {
-				bad = "完成端到端·IO延迟（io_latency） " + rankValue + "ms"
-				want = "排序影响"
+				bad = "排序影响·IO延迟（io_latency） " + rankValue + "ms"
+				want = "观测计时"
 			}
-			if strings.Contains(rendered, bad) || !strings.Contains(rendered, want) {
-				t.Errorf("%s mislabeled rank impact as a second request measurement (zh=%t): %s", name, zh, rendered)
+			if strings.Contains(rendered, bad) || (folded && !strings.Contains(rendered, want)) {
+				t.Errorf("%s lost the producer's measurement caliber (zh=%t): %s", name, zh, rendered)
 			}
 		}
 	}
@@ -84,11 +97,14 @@ func TestHMCIOFoldCarriesSelectedValueSource(t *testing.T) {
 	}{
 		{"request", types.TraceCausalProjectionNode{Predicate: "io_latency", TypeToken: "io_latency", ImpactMS: 47, CumulativeImpactMS: 90}, 47, runtimeTraceProjIOFoldFamilyCaliber},
 		{"rank", types.TraceCausalProjectionNode{Predicate: "root_cause_background", TypeToken: "io_latency", ImpactMS: 17.85, CumulativeImpactMS: 47}, 17.85, runtimeTraceProjIOFoldRankImpact},
+		{"native_rank_duration", types.TraceCausalProjectionNode{Predicate: "root_cause_background", TypeToken: "io_latency", ImpactMS: 47, CumulativeImpactMS: 47, RankValueCaliber: types.TraceRankValueCaliberNativeDuration}, 47, runtimeTraceProjIOFoldNativeDuration},
+		{"unknown_rank_caliber", types.TraceCausalProjectionNode{Predicate: "root_cause_background", TypeToken: "io_latency", ImpactMS: 17.85, RankValueCaliber: "guessed_duration"}, 17.85, runtimeTraceProjIOFoldRankImpact},
 		{"cumulative", types.TraceCausalProjectionNode{Predicate: "root_cause_adjacent", TypeToken: "io_latency", CumulativeImpactMS: 47, EffectiveImpactMS: 31, ActualImpactMS: 12}, 47, runtimeTraceProjIOFoldCumulative},
 		{"effective", types.TraceCausalProjectionNode{Predicate: "root_cause_primary", TypeToken: "io_wait", EffectiveImpactMS: 31, ActualImpactMS: 12}, 31, runtimeTraceProjIOFoldEffective},
 		{"actual", types.TraceCausalProjectionNode{Predicate: "root_cause_primary", TypeToken: "io_wait", ActualImpactMS: 12}, 12, runtimeTraceProjIOFoldActual},
 		{"composite", types.TraceCausalProjectionNode{Predicate: "root_cause_primary", TypeToken: "block_io_by_inode", ImpactMS: 9}, 9, runtimeTraceProjIOFoldFamilyCaliber},
 		{"count", types.TraceCausalProjectionNode{Predicate: "root_cause_background", TypeToken: "page_cache_churn", ImpactMS: 7}, 7, runtimeTraceProjIOFoldFamilyCaliber},
+		{"count_ignores_duration_marker", types.TraceCausalProjectionNode{Predicate: "root_cause_background", TypeToken: "page_cache_churn", ImpactMS: 7, RankValueCaliber: types.TraceRankValueCaliberNativeDuration}, 7, runtimeTraceProjIOFoldFamilyCaliber},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, zh := range []bool{true, false} {
@@ -101,13 +117,19 @@ func TestHMCIOFoldCarriesSelectedValueSource(t *testing.T) {
 				if !strings.Contains(note, "[E9]") || !strings.Contains(note, fmt.Sprintf("%.3f", tc.value)) {
 					t.Fatalf("lost value/evidence: %s", note)
 				}
-				if tc.name == "composite" || tc.name == "count" {
+				if tc.name == "composite" || strings.HasPrefix(tc.name, "count") {
 					if strings.Contains(note, "ms") || !strings.Contains(note, map[bool]string{true: "非墙钟", false: "not wall clock"}[zh]) {
 						t.Fatalf("non-duration family relabeled as duration: %s", note)
 					}
 				}
 				if tc.caliber == runtimeTraceProjIOFoldRankImpact && !zh && strings.Contains(note, "also measured") {
 					t.Fatalf("ranking impact is not another measurement: %s", note)
+				}
+				if tc.caliber == runtimeTraceProjIOFoldNativeDuration {
+					want := map[bool]string{true: "观测计时", false: "observed duration"}[zh]
+					if !strings.Contains(note, want) || strings.Contains(note, "非实测") || strings.Contains(note, "not measured") {
+						t.Fatalf("producer-calibrated duration has contradictory wording: %s", note)
+					}
 				}
 			}
 		})

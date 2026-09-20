@@ -19,13 +19,17 @@ const (
 	runtimeTraceProjIOFoldCumulative
 	runtimeTraceProjIOFoldEffective
 	runtimeTraceProjIOFoldActual
+	runtimeTraceProjIOFoldNativeDuration
 )
 
 func runtimeTraceProjNewIOFoldPeer(node types.TraceCausalProjectionNode, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) runtimeTraceProjIOFoldPeer {
 	value, source := runtimeTraceProjNodeDisplayImpactSource(node)
 	peer := runtimeTraceProjIOFoldPeer{
 		Token: strings.TrimSpace(node.TypeToken), ImpactMS: value,
-		EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
+		EvidenceTag:       runtimeTraceProjEvidenceTag(node, evidence, zh),
+		FamilyMemberCount: node.FamilyMemberCount,
+		FamilyMemberMaxMS: node.FamilyMemberMaxMS,
+		FamilyFoldCaliber: node.FamilyFoldCaliber,
 	}
 	// Existing score/count family disclosures remain authoritative and must
 	// not be replaced by a millisecond label, even for rank publications.
@@ -35,10 +39,14 @@ func runtimeTraceProjNewIOFoldPeer(node types.TraceCausalProjectionNode, evidenc
 	switch source {
 	case runtimeTraceProjImpactSourceWindow:
 		// This is the producer's typed predicate family, not raw model prose.
-		// A rank impact is not a fresh physical-duration measurement even if
-		// its numeric value happens to equal another observation's duration.
+		// Legacy rank impact is not a fresh physical-duration measurement.
+		// Only the publisher's explicit native-duration marker changes that
+		// wording; numeric equality with another observation proves nothing.
 		if strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_") {
 			peer.Caliber = runtimeTraceProjIOFoldRankImpact
+			if node.RankValueCaliber == types.TraceRankValueCaliberNativeDuration {
+				peer.Caliber = runtimeTraceProjIOFoldNativeDuration
+			}
 		}
 	case runtimeTraceProjImpactSourceCumulative:
 		peer.Caliber = runtimeTraceProjIOFoldCumulative
@@ -52,6 +60,11 @@ func runtimeTraceProjNewIOFoldPeer(node types.TraceCausalProjectionNode, evidenc
 
 func runtimeTraceProjIOFoldLayerWord(token string, caliber runtimeTraceProjIOFoldCaliber, zh bool) string {
 	switch caliber {
+	case runtimeTraceProjIOFoldNativeDuration:
+		if zh {
+			return "观测计时"
+		}
+		return "observed duration"
 	case runtimeTraceProjIOFoldRankImpact:
 		if zh {
 			return "排序影响"

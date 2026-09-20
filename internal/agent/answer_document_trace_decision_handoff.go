@@ -1266,9 +1266,18 @@ func traceDecisionContextValuePresentation(node types.TraceCausalProjectionNode)
 	if unit == "" {
 		unit = "ms"
 	}
-	calibration := "measured in the stated unit; adjacent/background context only, not target-causal or recoverable time"
+	// A unit alone does not establish the scalar's ruler: legacy rank values
+	// may still contain a policy cap. Keep such values without upgrading them
+	// to measurements. The publication-owned marker is display-only evidence.
+	calibration := "published in the stated unit; adjacent/background context only, not target-causal or recoverable time"
 	if node.IsAggregateMetric() {
-		calibration = "window-level background measurement in the stated unit; not target-causal or recoverable time"
+		calibration = "window-level background value in the stated unit; not target-causal or recoverable time"
+	}
+	if node.RankValueCaliber == types.TraceRankValueCaliberNativeDuration {
+		calibration = "measured in the stated unit; adjacent/background context only, not target-causal or recoverable time"
+		if family := types.FormatTraceFamilyMeasurement(node.FamilyMemberCount, node.FamilyMemberMaxMS, node.FamilyFoldCaliber, "en"); family != "" {
+			calibration += "; " + family
+		}
 	}
 	return fmt.Sprintf("%.3f%s", node.ImpactMS, unit), calibration
 }

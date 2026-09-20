@@ -1215,7 +1215,15 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 }
 
 func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
-	records := traceQueryTypedObservations(traceNoteKeysEmitFixtureResult(), "full.systrace", "payload-ref", "raw-ref", "", time.Unix(1751600000, 0).UTC())
+	fixture := traceNoteKeysEmitFixtureResult()
+	// A pure native background request exercises the publication-caliber
+	// marker without changing the composite/count family fixtures above.
+	fixture.RootCauseRank.Items = append(fixture.RootCauseRank.Items, tracequery.RootCauseRankItem{
+		Type: "io_latency", Source: "window_stats", Thread: tracequery.ThreadRef{PID: 901, Comm: "backup"},
+		ChainRelevance: "background", Causality: "background", ImpactMs: 17.5, ProjectedImpactMs: 47, CumulativeImpactMs: 47,
+		LineStart: 1, LineEnd: 2, StartTs: 1.002, EndTs: 1.049,
+	})
+	records := traceQueryTypedObservations(fixture, "full.systrace", "payload-ref", "raw-ref", "", time.Unix(1751600000, 0).UTC())
 	if len(records) == 0 {
 		t.Fatal("fixture produced no observation records — the emit pin is checking nothing")
 	}

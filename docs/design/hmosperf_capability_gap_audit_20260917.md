@@ -933,7 +933,7 @@ Python只改源文件，保原4测试，独立复测及类型/负值/零值/非�
 - [x] **公开确定性回归**：schema、真实adapter消息、公开completion、串并行成功/错误/取消/冲突、显式用户窗、来源变更、统计与根因边界、零语义猜测；末版全仓退出0，见§32.3。
 - [ ] **生产验收**：固定两例各一次，机器1/2、人工0/2；业务例未调用实例定位或提交选择，新焦点路径未命中，旧FAIL仍开放，见§32.2。
 
-前置失败已留：completion schema缺字段的公共capability RED（`/tmp/hmc-business-focus-completion-red-20260920.log`）；types新能力的可编译scaffold行为RED（`/tmp/hmc-accepted-focus-types-red-20260920.log`，不伪称已发生生产事故）；原supplement对已接受引用仍no_attached_trace、陈腐/失败选择会沿旧探索窗执行的公开RED（`/tmp/hmc-business-focus-supplement-red-20260920.log`）。初版门保留fixture误用runtime源的pending-read旧合法豁免，已改成精确member_set义务反例，不据此报告新准入漏洞。未收完整live收据，不勾父任务，清单13/79与66开放保持。
+前置失败已留：completion schema缺字段的公共capability RED（`/tmp/hmc-business-focus-completion-red-20260920.log`）；types新能力的可编译scaffold行为RED（`/tmp/hmc-accepted-focus-types-red-20260920.log`，不伪称已发生生产事故）；原supplement对已接受引用仍no_attached_trace、陈腐/失败选择会沿旧探索窗执行的公开RED（`/tmp/hmc-business-focus-supplement-red-20260920.log`）。初版门保留fixture误用runtime源的pending-read旧合法豁免，已改成精确member_set义务反例，不据此报告新准入漏洞。后续完整live收据见§32.2，未达人工通过，不勾父任务，清单13/79与66开放保持。
 
 ### 32.1 实现和定向收据
 
@@ -970,3 +970,31 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 不新增JSON必填、不改教学/schema/解码器，也不猜cells列名或把散文扫描作硬门。原full-only单字符串包装与stringified string-array恢复保持，数字/布尔/对象/嵌套数组仍拒绝；meaningful item碎片不静默丢弃，失败patch不覆盖原稿。表格等非列表分支不改。
 
 真实full/patch→persist→render及三列表形RED见`/tmp/codrax-list-cells-MdNFud/red-confirmed.log`（render0.675s/tool1.169s），GREEN0.717s/1.148s，既有相关回归0.540s/1.999s（同目录green/regression）。主席独立整包render1.102s、render/tool race×3为1.756s/7.735s，`/tmp/hmc-list-cells-render-full-20260920.log`、`/tmp/hmc-list-cells-race-20260920.log`均退出0。接下来的全仓与新固定双例共同覆盖下一批发布修复；不回写旧报告、不把明确窗原人工FAIL改PASS。
+
+实现及上述文档以`8a8ca1813`推送main。此片没有改变JSON接受条件或模型事实；最终联合全仓及新的固定双例收据归下一节，不冒称旧报告已经修好。
+
+## 34. 背景原生计时与内部排序值分离（2026-09-20，验收中）
+
+继续§32业务FAIL中确定性系统缺口：引擎为背景排序把47ms请求封顶为53×35%=18.55ms。B1717只恢复纯调度状态，资源行仍把排序量传到JSON、观察、系统投影和最终模型上下文，后者直接称measured。§29修了折叠文案不应冒称端到端，但没有恢复该发布量；本批补齐原生计时的传递，保留旧加权量的“排序影响”回退，不倒签历史FAIL。
+
+### 34.1 精确生产者与口径边界
+
+只读取五族原生封顶前的计时账：`io_latency/window_stats`、`irq_activity/window_stats.irq_activity`、`ipi_activity/window_stats.ipi_activity`、`workqueue_activity/window_stats.workqueue_activity`、`dma_fence_activity/window_stats.dma_fence_activity`。原生family键已包含type/producer/物理文件/线程/车道/查询窗，只有有限正值、合法单成员或已知多成员时间折叠可以恢复；多成员保持Σ互斥、去重并集或最大记录回退，不以区间包络或任意cumulative猜测。`window_stats.io_facet_family`等其它生产者不借名通过。
+
+恢复只发生在background公开副本，`ImpactMs/ProjectedImpactMs`与原生计时一致、effective仍零；原引擎对象、Score、排序、链上31ms、请求35ms、用户明确窗及根因资格不变。计数、混合指数、CPU压力/供给权重、sched_stat、低频/亲和性、文件IO建议和blocking包络等没有直接可恢复的同类见证，继续原路径，不能宣称全域实测口径已修完。
+
+新增注册表内展示标记`rank_value_caliber=native_duration`，仅精确闭集值从root-cause观察传入投影。未知值/非榜项不授标定，标记不参加排名或硬拒绝。IO折叠改称“观测计时”，不统一说“完整请求端到端”；count/index分类仍优先，旧未标定榜量继续称排序影响。最终模型上下文不再仅因unit=ms说measured，多记录计时复用既有单源家族说明，明确记录数不等于发生次数、最大记录回退尚未消解重叠。没有新增JSON必填、答案词扫描或系统代写结论。
+
+### 34.2 已取得与待取得收据
+
+公开原生RED：`/tmp/hmc-native-timing-red-20260920.log`，47→18.55、裁窗38→13.3、互斥67→35.35均复现。五族×三个真实榜项视图、同记录banner/wire/Observation、IO裁窗及无封顶、互斥/并集、真实workqueue交错包络的最大记录回退已绿；后者原生23ms/成员原始和45ms/排序18.55，发布23ms而非45ms或包络。最终定向及原B1717回归1.583s，`/tmp/hmc-native-timing-green-20260920.log`。IRQ/IPI初版fixture被原生sidecap挤掉，并非计时恢复失败；改为独立有完整调度的小fixture后实际公开正针通过，没有改变生产容量。
+
+真实公开查询→TurnA→ledger→projection→BuildInitialInstruction分别覆盖53ms探索窗和50ms业务窗；background47ms、chain31ms及request35ms各保原尺、不相加。该路径RED见`/tmp/hmc-background-duration-finalizer-red-20260920.log`。初版registry/golden未登记和旧公开折叠测试预期17.85的失败均已保留；按字段演进协议补注册及真实producer发射针，不豁免测试。相同47ms原始/榜项记录可按既有规则提前去重，普通detail本来不显示主时长，测试据此检查树值及存在折叠时的附注，不为追第二条重复事实改生产折叠。
+
+三包集成末版前序通过agent1.384s/types0.646s/tool1.412s（`/tmp/hmc-background-duration-integration-green3-20260920.log`）；registry0.982s通过。三包前序race×3为agent5.453s/tool11.523s/types4.056s（`/tmp/hmc-native-duration-final-race-20260920.log`），不冒称覆盖其后补的多成员交接。多成员在高显著性背景行丢口径另先红，`/tmp/hmc-native-duration-family-handoff-red-20260920.log`，现复用`FormatTraceFamilyMeasurement`，新绿/末版全仓/最终race及live另补，未取得前不勾交付。
+
+独立复核进一步确认，IO family背景行也可能被既有同段展示折叠吸收：peer载体原来丢弃`FamilyMember*`，于是最大记录回退、并集与互斥和被拼成一个斜线数值组。现只透传三字段、复用同源家族说明区分显示组并附注；不改折入条件、排序、主行数值或窗口。真实背景树行→最终note/tree/detail中英三面RED1.149s（`/tmp/codrax-iofold-family-5CRBga/red.log`），GREEN及既有有界回归1.237s（同目录`green-regression.log`）；单成员0/1逐字保持，原projection不变。首次green仅既有软换行使整串测试假失败，修测试空白比较，未改生产wrap。模型上下文多成员三口径GREEN1.137s（`/tmp/hmc-native-duration-family-handoff-green-20260920.log`）。
+
+活跃流/默认首响应与中途静默、请求预算隔离保护定向通过8.735s（`/tmp/hmc-native-duration-stream-preservation-20260920.log`），没有恢复4ms或请求总年龄降级。全部生产冻结后开始完整全仓及末版race×3，退出收据另补，不用前序成功覆盖末版验证。
+
+旧业务/明确窗人工FAIL、accepted焦点live未命中及跨模式补证B2–B6继续开放；主清单仍13/79交付、66开放。下一固定版本恰好两个生产用例各一次，不重跑358版本第三例、不修改旧case/oracle追绿。

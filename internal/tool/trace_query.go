@@ -9370,6 +9370,13 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			} else {
 				notes = append(notes, traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, item.ProjectedImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)...)
 			}
+			if traceQueryRootCauseItemRelevance(item) == "background" {
+				if _, measured := traceQueryBackgroundPublishedMeasurement(item); measured {
+					// Display-only provenance of the published value, not a new
+					// causal credential or permission to add it to the target wait.
+					notes = append(notes, types.TraceNoteKeyRankValueCaliber+"="+types.TraceRankValueCaliberNativeDuration)
+				}
+			}
 			if item.BackgroundRank > 0 && traceQueryRootCauseItemIsSemanticSpanWork(item.Type) {
 				// DCS E6 double gate (ledger §23.1 ruling ③, 2026-07-08): a
 				// NON-CHAIN semantic compile span row publishes its typed
@@ -15940,15 +15947,63 @@ func traceQueryRootCauseRankWireItemForPublicationInUniverse(item tracequery.Roo
 	item = traceQueryRootCauseForPublicationInUniverse(item, universe)
 	if traceQueryRootCauseItemRelevance(item) == "background" {
 		item.EffectiveImpactMs = 0
-		if measured, ok := traceQueryBackgroundStateMeasurement(item); ok {
+		if measured, ok := traceQueryBackgroundPublishedMeasurement(item); ok {
 			// The engine caps background impact for ordering, not measurement.
 			// Repair only the publication copy so JSON, notes, observations and
-			// the projection share the original state account. Score and the
+			// the projection share the original native account. Score and the
 			// engine-owned item remain untouched; this grants no causal credit.
 			item.ImpactMs, item.ProjectedImpactMs = measured, measured
 		}
 	}
 	return item
+}
+
+func traceQueryBackgroundPublishedMeasurement(item tracequery.RootCauseRankItem) (float64, bool) {
+	if measured, ok := traceQueryBackgroundStateMeasurement(item); ok {
+		return measured, true
+	}
+	return traceQueryBackgroundNativeDurationMeasurement(item)
+}
+
+// These exact native producers preserve their own timing account before the
+// background ordering cap. The family folder keys on type, producer, physical
+// source, thread, lane and query window; its three timing calibers preserve a
+// disjoint sum, interval union or strongest measured member (a lower bound).
+// Neither a different producer nor an arbitrary cumulative/envelope channel is
+// evidence of elapsed time. In particular this excludes count/index, weighted
+// supply/accounting, file-IO advisory and blocking-span envelope families.
+func traceQueryBackgroundNativeDurationMeasurement(item tracequery.RootCauseRankItem) (float64, bool) {
+	var source string
+	switch item.Type {
+	case "io_latency":
+		source = "window_stats"
+	case "irq_activity":
+		source = "window_stats.irq_activity"
+	case "ipi_activity":
+		source = "window_stats.ipi_activity"
+	case "workqueue_activity":
+		source = "window_stats.workqueue_activity"
+	case "dma_fence_activity":
+		source = "window_stats.dma_fence_activity"
+	default:
+		return 0, false
+	}
+	if item.Source != source || item.MemberCount < 0 {
+		return 0, false
+	}
+	if item.MemberCount > 1 {
+		switch item.MemberFoldCaliber {
+		case tracequery.RootCauseMemberFoldCaliberSumDisjoint,
+			tracequery.RootCauseMemberFoldCaliberIntervalUnion,
+			tracequery.RootCauseMemberFoldCaliberMaxOverlapFallback:
+		default:
+			return 0, false
+		}
+	} else if item.MemberFoldCaliber != "" {
+		return 0, false
+	}
+	measured := item.CumulativeImpactMs
+	return measured, measured > 0 && !math.IsNaN(measured) && !math.IsInf(measured, 0)
 }
 
 // traceQueryBackgroundStateMeasurement reads a closed, pure scheduler-state

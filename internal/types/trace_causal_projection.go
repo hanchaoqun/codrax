@@ -528,15 +528,18 @@ type TraceCausalProjectionNode struct {
 	Object             string                            `json:"object,omitempty"`
 	Value              string                            `json:"value,omitempty"`
 	Unit               string                            `json:"unit,omitempty"`
-	Summary            string                            `json:"summary,omitempty"`
-	SupportRefs        []string                          `json:"support_refs,omitempty"`
-	LineStart          int                               `json:"line_start,omitempty"`
-	LineEnd            int                               `json:"line_end,omitempty"`
-	Rank               int                               `json:"rank,omitempty"`
-	Tier               string                            `json:"tier,omitempty"`
-	Causality          string                            `json:"causality,omitempty"`
-	ChainRelevance     string                            `json:"chain_relevance,omitempty"`
-	ChainDepth         int                               `json:"chain_depth,omitempty"`
+	// RankValueCaliber follows the producer's displayed scalar through the
+	// projection. It grants no causal credit and never participates in ranking.
+	RankValueCaliber string   `json:"rank_value_caliber,omitempty"`
+	Summary          string   `json:"summary,omitempty"`
+	SupportRefs      []string `json:"support_refs,omitempty"`
+	LineStart        int      `json:"line_start,omitempty"`
+	LineEnd          int      `json:"line_end,omitempty"`
+	Rank             int      `json:"rank,omitempty"`
+	Tier             string   `json:"tier,omitempty"`
+	Causality        string   `json:"causality,omitempty"`
+	ChainRelevance   string   `json:"chain_relevance,omitempty"`
+	ChainDepth       int      `json:"chain_depth,omitempty"`
 	// TraceGapKind mirrors the producer's typed trace_gap_kind rich note (G2
 	// 显示半场, §27.2/§28.1 user ruling 2026-07-09,
 	// real_trace_campaign_20260705.md): the PRECISE blind-spot criterion of a
@@ -4063,6 +4066,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// 件5 (SC-F1): typed provenance carry — the audit face's
 		// origin=system_supplement token reads this, never re-derives.
 		SystemSupplement: record.SystemSupplement,
+	}
+	if strings.HasPrefix(node.Predicate, "root_cause_") &&
+		traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyRankValueCaliber) == TraceRankValueCaliberNativeDuration {
+		node.RankValueCaliber = TraceRankValueCaliberNativeDuration
 	}
 	// RANKDIS-EXT A3 (§29.104.16.1 M15, 2026-07-16): the causal `rank` note
 	// parses into Node.Rank ONLY for rank-board records — the root_cause_*

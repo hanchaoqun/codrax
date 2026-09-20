@@ -139,7 +139,7 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"source_lane=`deterministic_system_supplement`",
 		"cross_row_additivity=`not_authorized_without_exact_pair_carrier`",
 		"contextual_noncausal_rows",
-		"lane=`background`; subject=`scheduler-demand`; kind=`supply_pressure`; value=3.500ms; reader_calibration=`window-level background measurement in the stated unit; not target-causal or recoverable time`",
+		"lane=`background`; subject=`scheduler-demand`; kind=`supply_pressure`; value=3.500ms; reader_calibration=`window-level background value in the stated unit; not target-causal or recoverable time`",
 		"target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; source_lane=`deterministic_system_supplement`",
 		"relation_authority=`typed_pair_only`",
 		"closed engine-state partition",
@@ -596,7 +596,7 @@ func TestTraceDecisionContextCapKeepsTypedBackgroundLane(t *testing.T) {
 	)
 	for _, want := range []string{
 		"lane=`background`; subject=`supply_pressure`; kind=`supply_pressure`; value=604.528cpu·ms",
-		"reader_calibration=`window-level background measurement in the stated unit; not target-causal or recoverable time`",
+		"reader_calibration=`window-level background value in the stated unit; not target-causal or recoverable time`",
 		"target_causal_authority=`not_provided`",
 		"cross_axis_addition=`forbidden`",
 	} {
@@ -769,7 +769,7 @@ func TestTraceDecisionContextUsesSharedNonWallClockCaliber(t *testing.T) {
 	for _, want := range []string{
 		"kind=`page_cache_churn`; value=7.200; reader_calibration=`count-derived observation (not elapsed time)`",
 		"kind=`io_pressure`; value=551.600; reader_calibration=`mixed-unit activity index (not elapsed time or a recoverable amount; absolute high/low is undefined)`",
-		"kind=`supply_pressure`; value=3.500cpu·ms; reader_calibration=`window-level background measurement in the stated unit; not target-causal or recoverable time`",
+		"kind=`supply_pressure`; value=3.500cpu·ms; reader_calibration=`window-level background value in the stated unit; not target-causal or recoverable time`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("non-wall-clock context missing %q:\n%s", want, got)

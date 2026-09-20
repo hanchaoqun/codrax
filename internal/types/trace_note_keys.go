@@ -519,6 +519,10 @@ const (
 	// TraceCausalProjectionNode.ActualCaliberNote and the detail stanza's
 	// 实际口径 line keys on it. Neither value is judged or edited (不猜哪个对).
 	TraceNoteKeyActualCaliberNote = "actual_caliber_note"
+	// RankValueCaliber describes the publication copy's displayed scalar,
+	// not the engine's sorting weight or a causal/eligibility credential.
+	TraceNoteKeyRankValueCaliber        = "rank_value_caliber"
+	TraceRankValueCaliberNativeDuration = "native_duration"
 	// TraceNoteKeyTargetImpactMS / TraceNoteKeyTargetImpact carry the engine's
 	// TargetBlockedMs caliber — how much of the 🎯 target's own blocked wall
 	// clock THIS row's chain actually explains (rank lane emits
@@ -1684,6 +1688,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// actual_caliber_note (DIAG A2): typed two-caliber divergence disclosure —
 	// node-field read-in; the detail stanza's 实际口径 line keys on it.
 	{TraceNoteKeyActualCaliberNote, "impact", TraceNoteCarrierHardConsumer},
+	// Parsed into a projection field (the registry's hard-consumer category),
+	// but used only for value wording; never a root/answer admission gate.
+	{TraceNoteKeyRankValueCaliber, "impact", TraceNoteCarrierHardConsumer},
 	// EVOLUTION RECORD (审计 #5/#62, 2026-07-10): projected_impact promoted
 	// display_only → hard_consumer — the on-chain semantic family record's
 	// exact intersection participation (SemanticChainProjectedMS; see
