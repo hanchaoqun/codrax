@@ -803,6 +803,25 @@ B1640b原修复只覆盖`aggregate_facts`初始schema：要求scalar保持scalar
 
 表格列名已有明确教学：结构化多列表必须提供columns及一致的cells，只有真正两列才用无columns回退。本例模型未遵循已到达教学，当前不叠加另一条规则、不根据数值位置猜表头，也不为此引入成文拒绝循环。容量承载所有主事实的上限设计和member_set成员粒度教学另留账，不因本片提示一致就声称全部修补债清零。
 
-### 30.2 已查询IO测量释义的纯展示补位（施工中）
+### 30.2 已查询IO测量释义的纯展示补位（实现冻结，验收中）
 
-§29分布例接受的profile只有count_or_duration，原生三组统计已到达，但受family选择控制的专用明细范围释义没有到达。仅在已有原生IO观察上补说明，不替模型新增io_latency请求，不修改共享family匹配函数或借新说明触发补齐/根因硬门；不调用可跨族联合状态账的完整bridge。已有IO专用/causal车道继续原处理，避免重复。退出条件：公开查询→TurnA→最终上下文先红后绿，逐条保留物理来源、查询窗/行窗、事件实际区间和计数未知性；旧车道、显式窗外、非原生来源及多个独立收据均有反例。整仓、竞态及发布收据待本片冻结后记录。
+§29分布例接受的profile只有count_or_duration，原生三组统计已到达，但受family选择控制的专用明细范围释义没有到达。仅在已有原生IO观察上补说明，不替模型新增io_latency请求，不修改共享family匹配函数或借新说明触发补齐/根因硬门；不调用可跨族联合状态账的完整bridge。已有IO专用/causal车道继续原处理，避免重复。公开查询→TurnA→最终上下文已先红后绿，逐条保留物理来源、查询窗/行窗、目标、结果收据、事件实际区间及计数未知性；来源/结果代次/窗口/行范围/目标不同，即使record ID相同也不合并其总体。未新增字段schema或第二个统计内核。
+
+7个顶层测试覆盖公开消息、请求/观察字节不变、伪producer/非原生来源、已有IO及causal车道无重复、显式窗外不回流、7类收据区分、未知/矛盾计数、RQ/BIO端点、已证S态31ms与请求35ms分列、未知来源/查询不从散文推断。测试初版的显式范围缺SourceQuote，按既有合同并未生效，补全fixture后验证，不以其失败另报生产范围漏洞。实现固定`02cea94edaa4`，干净构建通过`/tmp/hmc-teaching-rulers-build-20260920.log`。末版新IO及相邻路径/活跃SSE的agent race×3通过4.786s（`/tmp/hmc-queried-io-final-race-20260920.log`）；cap race×3通过3.259s（`/tmp/hmc-cap-teaching-race-20260920.log`）。独立审查cap三文件确认仅消息单源化，准入与normalizer分支未变。
+
+LLM等待保护定向回归通过17.992s（`/tmp/hmc-stream-wait-preservation-20260920.log`），包括默认600/300/600秒及活跃字节/思考/工具参数流不按请求年龄提前降级。末版全仓`/tmp/hmc-teaching-rulers-final-full-20260920.log` exit0：87个测试包通过（64缓存、23实际重跑），13个无测试包，零FAIL；agent86.867s/tool381.335s/types31.684s/tracequery106.995s/tracediag7.060s/orchestrator20.241s。tool/types/tracequery/tracediag完整包另测通过（`/tmp/hmc-teaching-rulers-packages-20260920.log`）。实现`02cea94edaa4`已推送main。
+
+同一干净02cea构建的异构固定2并行×1已结束（结果根`eval/results/hmc_context_teaching_crossmode_20260920`）：Trace＋当前源码解释383秒机器PASS/人工FAIL，Python症状驱动写apply576秒机器FAIL/人工FAIL。两者均未触发本批IO展示补位或容量超量拒绝，不能当成这两处的live命中证明；此前人工FAIL与66项开放不变。详见[逐例收据](../../eval/parallel_selected_summary_hmc_context_teaching_crossmode_20260920_manual_audit.md)。
+
+### 30.3 跨模式回放新增接缝（开放，先修系统补证路由）
+
+读例正确交付86.111ms与实际端点、来源和线程；无已证链候选时必选根因旁路生成schema2空结果正确，无图、零成文重试。人工FAIL是把普通marker入口与精确注释旁路拼成串行路径、将时序校验误说成配对/时长生产，并以解析器存在推当前业务仍有历史风险。相应禁止混接和不足以判断出口已到达模型，不记成新合同互斥，不加散文关键词硬门。60fps只是条件参照，不能升级为trace已证刷新率；最终没有直接肯定掉帧，不夸大故障。源码来源和生产者路径的准确解释仍待异构验证。
+
+写例初次补丁正确将整数值float正规化为int，原有4个测试与plain Python probe均绿，原始回归测试未修改。但`contract_refs`只说明探针意图、不授逐合同断言凭证；规划器收到明确教学后仍漏交已有原生测试的`project_test_observations`，故`float_type_check`缺证保护合法。已应用补丁保留于eval临时仓的`refs/codrax/applied/plan-1789900623764734000-91719`，最终流程blocked，不能以局部测试绿签完整交付。
+
+- [ ] **WRITE-PROOF-IDENTITY（P1，确定性系统缺陷，施工中）**：已就绪的controller补证批允许下一次`plan_batch`换ID，既有元数据保真只保同ID；新ID成为普通批，PTO-only先被拒，保留了probes的空changes仍因补证身份丢失被拒。随后模型被引向重复改动已正确源码，直到重复路径拒绝。根修是在调度及持久化两层消费同一待补证批判断，保原ID/目的/范围/依赖，不放宽空计划门或通过原文推权限。两种purpose的直接Apply和公开normalizer→Apply→emit计划链已行为先红（`/tmp/hmc-proof-identity-red-20260920.log`）；待正反/相邻验收与提交。
+- [ ] **WRITE-PROOF-CAPABILITY（P1，独立系统缺陷，设计已核，未实施）**：即便保住ID，当前补证桥只查解释器存在，却要求plain Python probe解决缺失的逐合同行为证明；执行器不能产该证明，旧source-free sentinel又合法禁止补PTO。因此身份修复不能代销能力路由。下一片须按typed obligation与实际执行器能力分流：已有精确凭证复用、已有声明缺执行则精确重跑、缺声明但有原生断言则只读绑定后重跑、仅plain probe只补目标执行不承诺合同证明。
+
+能力补证设计：优先复用既有PTO精确文件/suite/assertion执行器，新增与`proof_probe_only`平行的只读原生断言补证形，不修改旧source plan/审批fingerprint/历史报告。controller授权须绑定run/batch、已应用source plan、工作树快照及active required合同；只收已存在测试、精确PTO，无任何文件编辑，不强制再造probe。系统读取并绑定测试字节哈希，执行前后复核，计划/报告独立留存，不能给历史aggregate pass补签。未授权/跨仓跨批/退役合同/文件改变/skip/错误suite或assertion/非零执行均不授证。累计scope/resume/JSON往返和同快照同绑定不重复回圈为必测边界。该设计尚未实施，不提前宣称写模式闭环。
+
+另记低优先级合同教学问题：`raises.expected`被写成复合中文，精确异常值在comparator；不是本次缺证直接原因。应通过同源原子化教学让异常合同保`ValueError`、转换结果另列，不从散文自动拆合同或松凭证门。
