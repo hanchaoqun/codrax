@@ -368,6 +368,9 @@ func (m *MutableState) ResetSystemTraceSupplementForExploreReopen() bool {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// A reopened investigation cannot retain a previous completion's target,
+	// even when no supplement ran before the reopen.
+	m.resetTraceBusinessFocusLocked()
 	if !m.systemTraceSupplementAttempted &&
 		m.systemTraceSupplementMeta == nil &&
 		len(m.systemTraceSupplementResults) == 0 {

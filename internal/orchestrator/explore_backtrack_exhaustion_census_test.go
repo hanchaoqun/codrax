@@ -104,10 +104,11 @@ func TestHardArmMutableCarrierCensus_CompletionGenerationWritersAreRegisteredDec
 // chains only), itself defined exactly once as the completion-generation
 // comparison (no shadowing, no reassignment).
 var hardArmRetainedClosureWriters = map[string]bool{
-	"MutableState.SetInvestigationComplete":   true,
-	"MutableState.SetInvestigationResultKind": true,
-	"MutableState.SetAbsenceJustification":    true,
-	"MutableState.MergeExploreFork":           true,
+	"MutableState.SetInvestigationComplete":                       true,
+	"MutableState.AcceptInvestigationCompleteWithBusinessSpanRef": true,
+	"MutableState.SetInvestigationResultKind":                     true,
+	"MutableState.SetAbsenceJustification":                        true,
+	"MutableState.MergeExploreFork":                               true,
 	// Accepted-completion promotion of the two collection lanes (§40.43
 	// round-six #3; wording corrected round-seven #7): called from
 	// emit_investigation_complete's accepted paths AND — via the exported

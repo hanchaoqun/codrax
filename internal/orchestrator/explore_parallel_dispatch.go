@@ -46,6 +46,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallelWithHintKind(
 	if parallelism <= 1 {
 		return nil, fmt.Errorf("parallel explorer dispatch called with parallelism=%d", parallelism)
 	}
+	focusTicket := o.busCtx.Mutable.BeginTraceBusinessFocusDispatch()
 	o.busCtx.PipelineStage = types.StageExplore
 	o.busCtx.ActiveAgent = types.AgentExplorer
 	o.busCtx.TaskState.Stage = types.StageExplore
@@ -198,8 +199,13 @@ func (o *Orchestrator) dispatchExploreWindowsParallelWithHintKind(
 		SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
 	}
 	var firstErr error
+	var focusEligible, focusSuccessful []*types.MutableState
 	for i := range results {
 		res := results[i]
+		// The fork's private settled decision proves worker success. All
+		// successful siblings may veto a conflicting choice, but only the
+		// ordinary winner/required set below can grant it.
+		focusSuccessful = append(focusSuccessful, res.fork)
 		if earlyConverged && winningConvergedIndex >= 0 && res.index != winningConvergedIndex {
 			o.preserveExploreSiblingPublishedTools(res.fork, merged)
 			if res.err != nil {
@@ -226,6 +232,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallelWithHintKind(
 				exploreDispatchKeyForWindow(res.window))
 			continue
 		}
+		focusEligible = append(focusEligible, res.fork)
 		afterArtifacts := captureExploreNodeArtifactProjectionSnapshot(nil, res.fork)
 		if res.fork != nil {
 			o.busCtx.Mutable.MergeExploreFork(res.fork)
@@ -252,6 +259,11 @@ func (o *Orchestrator) dispatchExploreWindowsParallelWithHintKind(
 		merged.SignalUpdates.HasEnoughFacts = true
 		merged.MissingPiece = types.MissingNone
 	}
+	// Internal early-convergence cancellation is expected here; only the
+	// parent cancellation contexts invalidate the finished group. Each fork
+	// already checked its own worker context at its return boundary.
+	o.busCtx.Mutable.SettleParallelTraceBusinessFocusDispatch(focusTicket, focusEligible, focusSuccessful,
+		traceBusinessFocusWorkerSucceeded(merged, firstErr, o.CancelContext(), o.busCtx.Context()))
 	if firstErr != nil {
 		return merged, firstErr
 	}
@@ -276,7 +288,12 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	req StageExecutionRequest,
 	parallelGroupID string,
 	lanePlan types.ExploreLanePlan,
-) StageExecutionResult {
+) (result StageExecutionResult) {
+	focusTicket := mut.BeginTraceBusinessFocusDispatch()
+	defer func() {
+		mut.SettleTraceBusinessFocusDispatch(focusTicket,
+			traceBusinessFocusWorkerSucceeded(result.Output, result.Err, runCtx, o.CancelContext(), o.busCtx.Context()))
+	}()
 	start := time.Now()
 	stage := req.Stage
 	if stage == "" {

@@ -11,6 +11,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// Discovery and query navigation do not accept a focus. Keep the separate
+// completion-selection lane identical in the query schema and tool message.
+const traceQueryBusinessRefCompletionTeaching = "Using this reference in trace_query is navigation only; it does not accept a completion focus or prove a root cause. To select that exact instance for automatic supplementation, separately copy the published token into the optional top-level emit_investigation_complete.business_span_ref field. Selection takes effect only after the completion is accepted and its exploration dispatch succeeds."
+
 // These are navigation candidates, not causal or model-selected focus facts.
 // The publication tail binds them to the actual successful native read. Never
 // reconstruct coordinates from observation summaries, labels or rich notes.
@@ -108,6 +112,8 @@ func traceQueryAppendBusinessRefs(result *types.ToolResult) {
 	}
 	var b strings.Builder
 	b.WriteString("\n## Exact synchronous business-instance query references\nChoose the task-relevant instance, not the first or longest. These returned pairs are not a complete inventory, a causal proof or an accepted completion focus. Follow up with {\"view\":\"window_stats\",\"business_span_ref\":\"<returned reference>\"} (or a scheduler/causal view); omit copied source, thread and window fields. Explicit requested windows still govern.\n")
+	b.WriteString(traceQueryBusinessRefCompletionTeaching)
+	b.WriteByte('\n')
 	for _, ref := range result.TraceBusinessSpanRefs {
 		d := ref.Data()
 		fmt.Fprintf(&b, "- business_span_ref=%q work=%q thread=%q tid=%d source=%q lines=%d-%d complete_window=%.9f..%.9f seconds\n", ref.Token(), d.Name, d.Thread, d.TID, d.Path, d.StartLine, d.EndLine, d.StartTs, d.EndTs)

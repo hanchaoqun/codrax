@@ -917,8 +917,29 @@ Python只改源文件，保原4测试，独立复测及类型/负值/零值/非�
 
 闭集视图、业务引用、显式窗、取消、自动补齐及原生测量定向race×3通过skill2.080s/tool50.726s/tracequery3.795s（`/tmp/hmc-unknown-view-final-race-20260920.log`）。工具字节pin先红在byte32363，仅追加末段教学；按既有更新入口重钉后原prefix/排序替换臂与同源教学测试通过1.006s（`/tmp/hmc-unknown-view-description-pin-green-20260920.log`）。新增零起点公共正例另通过，未据此改生产窗口。远程main已确认包含62a285926及99556ae4b，未知视图和重复原生测量教学两片收住；§31.3 IO人工FAIL、B2–B6及h2/h3 A/B继续开放。
 
-### 31.5 来源中性的通用覆盖提醒（局部修复已验收）
+### 31.5 来源中性的通用覆盖提醒（3aa5972d6已推送）
 
 仅修改`CaveatFamilyAnswerCoverage`注册表两句：中文“建议结合相关证据进一步核对”，英文“cross-check the relevant evidence”。未新增source分类分支，不扫描输入或答案，也不修改覆盖义务、门限、重试、统计值或根因资格。精确current-code facet仍保留对应的代码路径提示；改的是没有具体来源凭证的通用模板。
 
-新增真实公开materializer/user/soft/hard-cap residual及tracked重放测试，中英文别名、nil上下文、typed trace-only和源码场景共用模板，正文逐字保留；空违规不追加、仅遥测不展示、精确facet不降成通用提醒。RED见`/tmp/hmc-source-neutral-caveat-red-20260920.log`；GREEN types1.172s/orchestrator1.079s，完整两包45.811s/21.197s、定向race×3 3.219s/2.948s均退出0（同前缀green/packages/race日志）。本片没有另跑live第三例，不修改§31.3原报告或人工FAIL；提交推送与本次收据一起办理。
+新增真实公开materializer/user/soft/hard-cap residual及tracked重放测试，中英文别名、nil上下文、typed trace-only和源码场景共用模板，正文逐字保留；空违规不追加、仅遥测不展示、精确facet不降成通用提醒。RED见`/tmp/hmc-source-neutral-caveat-red-20260920.log`；GREEN types1.172s/orchestrator1.079s，完整两包45.811s/21.197s、定向race×3 3.219s/2.948s均退出0（同前缀green/packages/race日志）。本片没有另跑live第三例，不修改§31.3原报告或人工FAIL。代码3aa5972d6及审计63a6fc6a2已推送main。
+
+## 32. HMC-02.4：已接受业务实例的补齐范围（2026-09-20，实现完成、验收中）
+
+继续§27/§29旧业务答案FAIL，不重新定义通过标准。旧查询引用只提供导航，不是最终选择；同名多实例、探索试窗或并行失败分支的已完成工具结果，都不能替模型选择答案范围。参考仓按对象下钻的组织方式仍沿本仓原子来源/TID/完整实例窗实现，不移植近邻/最长片段猜选。
+
+- [x] **接受与执行成功分离**：completion顶层可选`business_span_ref`只收本轮已发布原物理引用。所有原准入之后同锁记录pending决定与completion代次；无选择明确清旧。worker成功、有效output、无错误且父上下文未取消后，独立hook才允许消费。系统收敛completion、失败后保留closure、工具事实保留都不自动获得新焦点权限。
+- [x] **生命周期及并行**：Reset/reopen撤销；JSON/TurnA/散文不还原权限。传统fork合并不携新焦点；成功败方仅可对不同实例保守否决，不授选择，失败败方也不能用无选择状态否决。相同物理实例的不同随机token可等价，不同实例或明确无选择冲突时不按数组/完成顺序胜出。
+- [x] **补齐原子消费**：没有用户范围/目标覆盖时只通过`{view,business_span_ref}`查询；预算和披露读取同一实例。明确用户单窗/多窗/全域、不同目标及目标冲突保持既有优先。已有家族必须来自同物理捕获代次、相同TID及完整实例窗，连±0.5/1微秒的真实邻窗也不能冒充，旧51ms不得抑制50ms补齐。源级census仍是独立全域库存，不冒充实例内因果证据。
+- [ ] **公开回归与生产验收**：schema、真实adapter消息、公开completion、串并行成功/错误/取消/冲突、显式用户窗、来源变更、统计与根因边界、零语义猜测；完整回归后固定两例各一次，人工审查旧FAIL是否真正消除。
+
+前置失败已留：completion schema缺字段的公共capability RED（`/tmp/hmc-business-focus-completion-red-20260920.log`）；types新能力的可编译scaffold行为RED（`/tmp/hmc-accepted-focus-types-red-20260920.log`，不伪称已发生生产事故）；原supplement对已接受引用仍no_attached_trace、陈腐/失败选择会沿旧探索窗执行的公开RED（`/tmp/hmc-business-focus-supplement-red-20260920.log`）。初版门保留fixture误用runtime源的pending-read旧合法豁免，已改成精确member_set义务反例，不据此报告新准入漏洞。未收完整live收据，不勾父任务，清单13/79与66开放保持。
+
+### 32.1 实现和定向收据
+
+新增权限只存私有状态：不把模型字段、JSON、旧closure或普通工具事实当执行成功证明。串行hook在字节保护read loop之外；并行的内部早收敛取消与用户/父上下文取消分开。仅TID没有时间窗时不能绕过Invalid/Conflict回退旧窗；有明确用户时间范围时仍按原用户通道。开始补齐后选择撤销，后续core与census停止，已成功的原生查询事实保留，沿原部分结果语义披露，不抹除已读事实。
+
+实际最终链路`CompileObservationLedger → CompileTraceCausalProjectionSet → renderer`正针：先跑51/52ms探索窗，再接受完整50ms实例，最后账户仍50ms；原生ledger保35ms请求、31ms S睡眠阻塞及不可相加标记，投影链上IO为31ms，47ms独立备份仍在背景。不是只测参数窗或强行把请求35ms加进根因图。日志`/tmp/hmc-business-focus-final-projection-20260920.log`；最终断言在`TestTraceSupplementBusinessFocusFinalProjectionUsesAcceptedInstance`。
+
+公开completion/schema/消息定向通过1.120s，tool/agent race×3分别4.825s/3.823s（`/tmp/hmc-business-focus-completion-green2-20260920.log`、`/tmp/hmc-business-focus-completion-message-race-20260920.log`）。types/orchestrator完整包48.010s/22.389s、最后本片+census race×3为2.185s/35.590s（`/tmp/hmc-accepted-focus-types-orchestrator-full-final-20260920.log`、`/tmp/hmc-accepted-focus-own-race-final-20260920.log`）。supplement公开矩阵1.659s，相关旧新回归6.124s、race×3 11.489s（`/tmp/hmc-business-focus-supplement-regression-20260920.log`、`/tmp/hmc-business-focus-supplement-race-20260920.log`）。独立复审确认上述微窗/仅TID/失败兄弟三边界修复，原closure恢复、重开保护和L1一致性仍通过。
+
+中间失败保留：假worker没有构造真实TurnA导致测试nil访问；代理同时施工期间新test的`meta.Members`字段编译失败；均已修正测试，不把这些说成生产系统新增事故或首跑全绿。最终回归期间另核教学：query本身不接受焦点的旧否定句与新completion能力没有严格逻辑矛盾，但有孤立阅读歧义；补最小同源桥句，明确需另走顶层completion字段并等待接受与worker成功，不增加模型必填义务。

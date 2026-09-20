@@ -66,7 +66,7 @@ func TestTraceQueryBusinessRefActualExplorerSchema(t *testing.T) {
 			"this run", "never pick the first/longest", "original physical capture generation",
 			"scheduler TID", "complete paired time interval",
 			"omit source/path/pid/thread/target_scope/time_start/time_end/line_start/line_end/span_name",
-			"navigation only", "not evidence of a root cause or a completion focus",
+			"navigation only", "does not accept a completion focus or prove a root cause",
 			"Explicit requested time windows remain authoritative",
 			"ordinary explicit parameters for the requested clipped window",
 			"Async/track rows without an executing-thread proof", "composite captures", "stale/replayed references",
@@ -75,6 +75,7 @@ func TestTraceQueryBusinessRefActualExplorerSchema(t *testing.T) {
 				t.Errorf("actual adapter reference teaching lost boundary %q", want)
 			}
 		}
+		assertTraceBusinessRefCompletionBridge(t, ref.Description)
 		return
 	}
 	t.Fatal("actual explorer request did not offer trace_query")
@@ -149,11 +150,14 @@ func TestTraceQueryBusinessRefActualExplorerToolMessage(t *testing.T) {
 		`work="LoadReport"`, `thread="worker"`, "tid=200", fmt.Sprintf("source=%q", physical),
 		"lines=2-3", "complete_window=1.000000000..1.050000000 seconds",
 		"not a complete inventory, a causal proof or an accepted completion focus",
+		"not the first or longest", "omit copied source, thread and window fields",
+		"Explicit requested windows still govern",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("actual model tool message lost exact instance field or boundary %q", want)
 		}
 	}
+	assertTraceBusinessRefCompletionBridge(t, content)
 	ref, ok := ctx.Mutable.ResolveTraceBusinessSpanRef(match[1])
 	if !ok {
 		t.Fatal("reference shown to the model was not registered for this run")
@@ -164,4 +168,12 @@ func TestTraceQueryBusinessRefActualExplorerToolMessage(t *testing.T) {
 		t.Fatalf("model-visible token resolves to a different physical instance: %+v", d)
 	}
 	t.Logf("actual tool message bytes=%d; native reference byte offset=%d; registered tuple preserved", len(content), strings.Index(content, match[0]))
+}
+
+func assertTraceBusinessRefCompletionBridge(t *testing.T, surface string) {
+	t.Helper()
+	const want = "Using this reference in trace_query is navigation only; it does not accept a completion focus or prove a root cause. To select that exact instance for automatic supplementation, separately copy the published token into the optional top-level emit_investigation_complete.business_span_ref field. Selection takes effect only after the completion is accepted and its exploration dispatch succeeds."
+	if got := strings.Count(surface, want); got != 1 {
+		t.Errorf("actual adapter surface must carry the shared query-to-completion teaching exactly once; got %d", got)
+	}
 }

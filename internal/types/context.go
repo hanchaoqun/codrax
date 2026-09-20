@@ -407,6 +407,9 @@ type MutableState struct {
 	traceSourceReadGeneration *traceSourceReadGeneration
 	traceQuerySourceReads     map[string]TraceQuerySourceReadRef
 	traceBusinessSpanRefs     map[string]TraceBusinessSpanRef
+	// Private completion/worker-success authority; never reconstructed from
+	// TurnA, ToolResults, retained closure prose, or serialized output.
+	traceBusinessFocus traceBusinessFocusState
 	// Separate, soft-only derived-result navigation. Never consulted by the
 	// published-ref read permission registry or observation/grounding paths.
 	artifactReadNavigationGeneration *artifactReadNavigationGeneration
@@ -1426,6 +1429,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceSourceReadGeneration:                   m.traceSourceReadGeneration,
 		traceQuerySourceReads:                       cloneTraceQuerySourceReads(m.traceQuerySourceReads),
 		traceBusinessSpanRefs:                       cloneTraceBusinessSpanRefs(m.traceBusinessSpanRefs),
+		traceBusinessFocus:                          traceBusinessFocusState{epoch: m.traceBusinessFocus.epoch, lineage: m.traceBusinessFocus.ticket},
 		artifactReadNavigationGeneration:            m.artifactReadNavigationGeneration,
 		artifactReadNavigationPublished:             cloneStringStringMap(m.artifactReadNavigationPublished),
 		artifactReadNavigation:                      cloneArtifactReadNavigationIndex(m.artifactReadNavigation),
@@ -4545,6 +4549,7 @@ func (m *MutableState) bindRetryStateToExploreBacktrack() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.exploreBacktrackEpoch++
+	m.resetTraceBusinessFocusLocked()
 	if m.retryState == nil {
 		return
 	}
@@ -5494,6 +5499,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.traceSourceReadGeneration = &traceSourceReadGeneration{}
 	m.traceQuerySourceReads = nil
 	m.traceBusinessSpanRefs = nil
+	m.resetTraceBusinessFocusLocked()
 	m.artifactReadNavigationGeneration = &artifactReadNavigationGeneration{}
 	m.artifactReadNavigationPublished = nil
 	m.artifactReadNavigation = nil
@@ -6572,6 +6578,7 @@ func (m *MutableState) RecordExploreBacktrackExhausted(reason string) ExploreBac
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.resetTraceBusinessFocusLocked()
 	d := ExploreBacktrackExhaustedDecision{
 		Epoch:            m.exploreBacktrackEpoch,
 		GenerationBefore: m.investigationCompleteGeneration,
@@ -6646,7 +6653,8 @@ func (m *MutableState) RepairExecutionPlan() any {
 }
 
 // SetInvestigationComplete marks the investigation as complete with
-// the given reason. Called by emit_investigation_complete tool.
+// the given reason for legacy/system closure paths. The model tool's accepted
+// tail uses AcceptInvestigationCompleteWithBusinessSpanRef instead.
 func (m *MutableState) SetInvestigationComplete(reason string) {
 	if m == nil {
 		return
@@ -6664,6 +6672,10 @@ func (m *MutableState) SetInvestigationComplete(reason string) {
 	// convergence-stall force-complete — advances the generation the
 	// explore-backtrack veto is bound against (§40.14 V7-2).
 	m.investigationCompleteGeneration++
+	// System/legacy closure is not a model-selected business instance. Keep
+	// ordinary closure recovery unchanged while retiring any earlier focus.
+	m.resetTraceBusinessFocusLocked()
+	m.traceBusinessFocus.status = TraceBusinessFocusCleared
 	m.bumpAnswerSurfaceRevisionLocked()
 }
 
@@ -7071,6 +7083,7 @@ func (m *MutableState) ResetInvestigationComplete() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.investigationComplete = false
+	m.resetTraceBusinessFocusLocked()
 	m.investigationCompleteReason = ""
 	m.absenceJustification = ""
 	m.investigationResultKind = ""

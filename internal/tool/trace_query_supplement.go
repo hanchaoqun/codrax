@@ -1005,6 +1005,7 @@ func traceSupplementMarshalWindowlessFallbackParams(view string, target traceQue
 type traceSupplementCensusLiteParams struct {
 	View         string `json:"view"`
 	Pattern      string `json:"pattern"`
+	Path         string `json:"path,omitempty"`
 	TraceFlavor  string `json:"trace_flavor,omitempty"`
 	CoreTopology string `json:"core_topology,omitempty"`
 	Platform     string `json:"platform,omitempty"`
@@ -1206,7 +1207,14 @@ func traceSupplementResultsCarryVsyncCensus(results []types.ToolResult) bool {
 // absence: an unmatched scan is data coverage, not device behavior) — returns
 // ok=false and the caller's lane stands unchanged. The caller owns the
 // Begin/End execution bracket and the meta/results bookkeeping.
-func traceSupplementExecuteCensusLite(ctx *types.BusContext, path, laneReason string) (types.ToolResult, time.Duration, bool) {
+func traceSupplementExecuteCensusLite(ctx *types.BusContext, path, laneReason string, focus ...*types.TraceBusinessSpanRef) (types.ToolResult, time.Duration, bool) {
+	var businessFocus *types.TraceBusinessSpanRef
+	if len(focus) > 0 {
+		businessFocus = focus[0]
+	}
+	if !traceSupplementBusinessFocusCurrent(ctx, businessFocus) {
+		return types.ToolResult{}, 0, false
+	}
 	// The pass is one streaming scan over the trace file; the cold byte
 	// budget bounds it the same way it bounds the full supplement's cold
 	// lane.
@@ -1218,6 +1226,9 @@ func traceSupplementExecuteCensusLite(ctx *types.BusContext, path, laneReason st
 		View:    "event_search",
 		Pattern: traceSupplementCensusLitePattern,
 	}
+	if businessFocus != nil {
+		params.Path = businessFocus.Data().Path
+	}
 	raw, err := json.Marshal(params)
 	if err != nil {
 		logging.Warning("[trace_supplement] census-lite params marshal failed: %v", err)
@@ -1226,6 +1237,9 @@ func traceSupplementExecuteCensusLite(ctx *types.BusContext, path, laneReason st
 	start := time.Now()
 	result, execErr := (&TraceQuery{}).Execute(ctx, raw)
 	elapsed := time.Since(start)
+	if !traceSupplementBusinessFocusCurrent(ctx, businessFocus) || businessFocus != nil && !types.TraceBusinessSpanResultSourceMatches(*businessFocus, result) {
+		return types.ToolResult{}, elapsed, false
+	}
 	if execErr != nil {
 		logging.Warning("[trace_supplement] census-lite view=event_search failed elapsed=%s err=%v", elapsed.Round(time.Millisecond), execErr)
 		return types.ToolResult{}, elapsed, false
@@ -1251,10 +1265,10 @@ func traceSupplementExecuteCensusLite(ctx *types.BusContext, path, laneReason st
 // (vsync-family keywords hit ∧ census family absent from the compiled ledger)
 // is the CALLER's censusLiteWanted signal; this helper runs the pass and
 // stores a lite-only supplement (meta.Views empty — no windowed view ran).
-func runTraceSupplementCensusLite(ctx *types.BusContext, path, sourceLabel, laneReason string, out *TraceQuerySupplementOutcome) bool {
+func runTraceSupplementCensusLite(ctx *types.BusContext, path, sourceLabel, laneReason string, out *TraceQuerySupplementOutcome, focus ...*types.TraceBusinessSpanRef) bool {
 	ctx.Mutable.BeginSystemTraceSupplementExecution()
 	defer ctx.Mutable.EndSystemTraceSupplementExecution()
-	result, elapsed, ok := traceSupplementExecuteCensusLite(ctx, path, laneReason)
+	result, elapsed, ok := traceSupplementExecuteCensusLite(ctx, path, laneReason, focus...)
 	if !ok {
 		return false
 	}
@@ -1342,9 +1356,19 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	}
 	// Attached-trace gate: reuse the tool's own source resolution (attached
 	// blob or the exactly-one request-referenced trace artifact — Q3 gate).
-	path, sourceLabel, _, reject := resolveReadyTraceQuerySource(ctx, traceQueryParams{})
-	if reject != nil || strings.TrimSpace(path) == "" {
-		return skip(types.TraceSupplementReasonNoAttachedTrace)
+	businessFocus, focusSkip := traceSupplementAcceptedBusinessFocus(ctx)
+	if focusSkip != "" {
+		return skip(focusSkip)
+	}
+	var path, sourceLabel string
+	if businessFocus != nil {
+		path, sourceLabel = businessFocus.Data().Path, "accepted_business_instance"
+	} else {
+		var reject *types.ToolResult
+		path, sourceLabel, _, reject = resolveReadyTraceQuerySource(ctx, traceQueryParams{})
+		if reject != nil || strings.TrimSpace(path) == "" {
+			return skip(types.TraceSupplementReasonNoAttachedTrace)
+		}
 	}
 	// SUPP-CANCEL (2026-07-14): ONE wall-clock duration budget per supplement
 	// attempt — the same trace_supplement_max_duration_ms knob that drives
@@ -1363,9 +1387,22 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	// Family detection runs on the SAME compiled ledger the renderer
 	// consumes (single value source for presence/absence).
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
+	warmResults := input.ToolResults
 	preLedger := types.CompileObservationLedger(input)
+	sourceLedger := preLedger
+	if businessFocus != nil {
+		sourceInput := traceSupplementBusinessFocusInput(input, *businessFocus, false)
+		warmResults = sourceInput.ToolResults
+		sourceLedger = types.CompileObservationLedger(sourceInput)
+		input = traceSupplementBusinessFocusInput(input, *businessFocus, true)
+		preLedger = types.CompileObservationLedger(input)
+	}
 	requestedArtifactScope := traceSupplementRequestedArtifactScope(ctx)
 	target, targetSource, targetOK := traceSupplementDeriveTarget(ctx)
+	if businessFocus != nil {
+		d := businessFocus.Data()
+		target, targetSource, targetOK = traceQueryRequestTarget{PID: d.TID, Thread: d.Thread, TargetScope: "thread"}, "accepted_business_instance", true
+	}
 	if requestedArtifactScope != nil && requestedArtifactScope.TimeWindows != nil && !requestedArtifactScope.HasExplicitTimeWindows() {
 		return skip(types.TraceSupplementReasonWindowInconsistent)
 	}
@@ -1373,6 +1410,12 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		return runTraceSupplementMembers(execCtx, path, sourceLabel, input, preLedger, members, target, targetSource, targetOK, out)
 	}
 	families := traceSupplementFamiliesForRequestedScope(preLedger, requestedArtifactScope, target, targetOK)
+	if businessFocus != nil {
+		// The native parent receipts already bound every retained row to the
+		// exact source, thread and full instance; do not re-infer the target
+		// from display labels or require a second target-state row.
+		families = traceSupplementFamilies(preLedger)
+	}
 	frameFamily := traceSupplementVsyncFamilyHit(ctx)
 	views := traceSupplementViewsForRequest(ctx, families, frameFamily, traceSupplementFrameEvidencePresent(input))
 	// SA-F2 批4 C-lite trigger gate (修复轮 件2 扩形, 2026-07-14): vsync/frame
@@ -1386,9 +1429,9 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	// views did not mint the census. A ledger that already carries the
 	// census keeps every lane byte-identical.
 	censusLiteWanted := traceSupplementVsyncFamilyHit(ctx) &&
-		!traceSupplementObservationsCarryVsyncCensus(preLedger.Records)
+		!traceSupplementObservationsCarryVsyncCensus(sourceLedger.Records)
 	if len(views) == 0 {
-		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, types.TraceSupplementReasonFamiliesPresent, &out) {
+		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, types.TraceSupplementReasonFamiliesPresent, &out, businessFocus) {
 			return out
 		}
 		return skip(types.TraceSupplementReasonFamiliesPresent)
@@ -1398,13 +1441,17 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		// target / no window / inconsistent windows) — a full re-run is
 		// impossible, but a single-pass generator census needs neither
 		// target nor window.
-		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, types.TraceSupplementReasonNoTypedTarget, &out) {
+		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, types.TraceSupplementReasonNoTypedTarget, &out, businessFocus) {
 			return out
 		}
 		return skip(types.TraceSupplementReasonNoTypedTarget)
 	}
 	callWindows := ctx.Mutable.TraceQueryCallWindows()
 	window, ok := traceSupplementDeriveWindow(callWindows)
+	if businessFocus != nil {
+		d := businessFocus.Data()
+		window, ok = types.TraceQueryCallWindow{View: "accepted_business_instance", TimeStart: d.StartTs, TimeEnd: d.EndTs}, true
+	}
 	requestedFullArtifact := requestedArtifactScope.FullArtifact() && traceSupplementNarrowDStateQuestion(ctx)
 	if start, end, explicit := requestedArtifactScope.ExplicitTimeWindow(); explicit {
 		window = types.TraceQueryCallWindow{
@@ -1455,7 +1502,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 			if frameBundleSelected {
 				logging.Info("[trace_supplement] skip reason=%s (frame bundle selected; a windowless generic fallback may not substitute for the frame investigation)", reason)
 			}
-			if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, reason, &out) {
+			if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, reason, &out, businessFocus) {
 				return out
 			}
 			return skip(reason)
@@ -1490,7 +1537,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		// would otherwise stay absent for this run.
 		if censusLiteWanted {
 			ctx.Mutable.BeginSystemTraceSupplementExecution()
-			result, elapsed, ok := traceSupplementExecuteCensusLite(execCtx, path, types.TraceSupplementReasonWindowSpanExceeded)
+			result, elapsed, ok := traceSupplementExecuteCensusLite(execCtx, path, types.TraceSupplementReasonWindowSpanExceeded, businessFocus)
 			ctx.Mutable.EndSystemTraceSupplementExecution()
 			if ok {
 				meta.CensusLite = true
@@ -1507,7 +1554,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		return out
 	}
 	warm := false
-	for _, result := range input.ToolResults {
+	for _, result := range warmResults {
 		if result.Success && strings.EqualFold(strings.TrimSpace(result.ToolName), "trace_query") {
 			warm = true
 			break
@@ -1533,6 +1580,9 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	ctx.Mutable.BeginSystemTraceSupplementExecution()
 	defer ctx.Mutable.EndSystemTraceSupplementExecution()
 	for i, view := range views {
+		if !traceSupplementBusinessFocusCurrent(execCtx, businessFocus) {
+			break
+		}
 		// P1 between-view deadline: after a completed view, an over-deadline
 		// supplement skips the REMAINING views only — completed views'
 		// observations are already-recorded deterministic facts and are
@@ -1548,7 +1598,12 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		}
 		var raw []byte
 		var err error
-		if windowlessFallback || requestedFullArtifact {
+		if businessFocus != nil {
+			raw, err = traceSupplementBusinessFocusParams(view, *businessFocus)
+			if err == nil && traceSupplementBusinessFocusParamsHook != nil {
+				traceSupplementBusinessFocusParamsHook(raw)
+			}
+		} else if windowlessFallback || requestedFullArtifact {
 			raw, err = traceSupplementMarshalWindowlessFallbackParams(view, target, callWindows)
 			if err == nil && traceSupplementFallbackParamsHook != nil {
 				traceSupplementFallbackParamsHook(raw)
@@ -1573,6 +1628,9 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		callStart := time.Now()
 		result, execErr := (&TraceQuery{}).Execute(execCtx, raw)
 		callElapsed := time.Since(callStart)
+		if !traceSupplementBusinessFocusCurrent(execCtx, businessFocus) {
+			continue
+		}
 		if execErr != nil {
 			logging.Warning("[trace_supplement] view=%s failed elapsed=%s err=%v", view, callElapsed.Round(time.Millisecond), execErr)
 			continue
@@ -1687,7 +1745,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		// 修复轮 件2: engine-rejected windowed views leave the census family
 		// absent too — the standalone lite arm salvages the generator
 		// account (its own meta; nothing else was stored).
-		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, types.TraceSupplementReasonExecutionFailed, &out) {
+		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, types.TraceSupplementReasonExecutionFailed, &out, businessFocus) {
 			return out
 		}
 		return skip(types.TraceSupplementReasonExecutionFailed)
@@ -1709,7 +1767,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		if windowlessFallback {
 			liteLane = windowlessReason
 		}
-		if result, _, ok := traceSupplementExecuteCensusLite(execCtx, path, liteLane); ok {
+		if result, _, ok := traceSupplementExecuteCensusLite(execCtx, path, liteLane, businessFocus); ok {
 			results = append(results, result)
 			censusLiteRan = true
 			executed = append(executed, "event_search")

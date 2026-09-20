@@ -7042,7 +7042,7 @@ func draftConcernSummary(lang string, concerns []types.Violation, rewritten bool
 // fields like FinalAnswer that are useful for per-stage reactions
 // (runTaskGraph uses this to write the finalizer's answer onto the
 // task's Result).
-func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOutput, error) {
+func (o *Orchestrator) dispatchStageCore(stage types.PipelineStage) (*agent.StageOutput, error) {
 	// Cancel checkpoint: between two stage dispatches the user's Ctrl+C
 	// / `/cancel` lands here first. We bail out before touching the
 	// agent registry / skill registry / per-stage hooks so partial
@@ -7479,7 +7479,7 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stage))
 
 	stageErr := ""
-	if output.Error != "" {
+	if output != nil && output.Error != "" {
 		stageErr = output.Error
 	}
 	o.emit(render.Event{

@@ -71,9 +71,10 @@ var hardArmMutableCarriers = []hardArmMutableCarrier{
 // folding a fork's own decisions back, and the scheduler's typed
 // exhaustion decision. A reset is not a decision and never appears here.
 var hardArmCompletionGenerationDecisions = map[string]bool{
-	"SetInvestigationComplete":        true,
-	"MergeExploreFork":                true,
-	"RecordExploreBacktrackExhausted": true,
+	"SetInvestigationComplete":                       true,
+	"AcceptInvestigationCompleteWithBusinessSpanRef": true,
+	"MergeExploreFork":                               true,
+	"RecordExploreBacktrackExhausted":                true,
 }
 
 const hardArmRetryAuthorityFile = "accepted_closure_retry_authority.go"

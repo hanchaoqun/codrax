@@ -94,6 +94,10 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 		).Replace(`{
 		"type": "object",
 		"properties": {
+			"business_span_ref": {
+				"type": "string",
+				"description": "OPTIONAL. Select one currently published business-span token from trace_query when the final investigation concerns that exact complete business instance. Its physical source, thread and full time window travel together for automatic supplementation only after this completion and its exploration dispatch succeed. This selection does not prove a causal relation or elect a root cause; explicit user scope and target remain authoritative. Copy only the published token into this top-level field, never reconstruct it from prose or repeat its coordinates. Omit when no single instance is selected; a new accepted completion without this field clears any previous selection."
+			},
 			"reason": {
 				"type": "string",
 				"description": "Concise completion conclusion for later answer writing: state what the investigation found, why it is complete, and any important scope boundary, no-hit/exclusion finding, cross-repository or cross-component distinction, or caveat that should not be lost. Do not leave the conclusion only in free-form text before the tool call. Keep required complete member lists and model-derived counts/per-bucket facts in aggregate_facts; already accepted native typed query measurements may use their existing observation carrier under the scoped reuse rules in aggregate_facts. Use absence_justification for a genuine zero or not-found result. This field is preserved as context, not as a citation. For external runtime/log/trace artifacts, keep direct observations separate from inferred upstream causes: the artifact can directly prove the error message, observed operation/property, frame/span, signal, duration, and trace order. It does not by itself prove which variable/parameter/caller supplied the bad value or how upstream data was constructed; put that as a possible upstream investigation direction unless the artifact text or separately grounded current-source evidence proves it."
@@ -277,6 +281,7 @@ func joinPrincipalSpanWaiverReasons() string {
 }
 
 type emitInvestigationCompleteParams struct {
+	BusinessSpanRef          string                                  `json:"business_span_ref,omitempty"`
 	Reason                   string                                  `json:"reason"`
 	Confidence               string                                  `json:"confidence"`
 	ResultKind               string                                  `json:"result_kind"`
@@ -290,6 +295,7 @@ type emitInvestigationCompleteParams struct {
 }
 
 type emitInvestigationCompleteRawParams struct {
+	BusinessSpanRef          string                                  `json:"business_span_ref,omitempty"`
 	Reason                   string                                  `json:"reason"`
 	Confidence               string                                  `json:"confidence"`
 	ResultKind               string                                  `json:"result_kind"`
@@ -308,6 +314,13 @@ func (p *emitInvestigationCompleteParams) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	return p.loadFromRaw(raw)
+}
+
+func completionBusinessSpanRefRejected(toolName string) types.ToolResult {
+	return types.ToolResult{
+		ToolName: toolName, Success: false, Timestamp: time.Now(),
+		Summary: "emit_investigation_complete rejected: business_span_ref must be a currently published instance reference from this run and physical capture. Discover the instance again, or omit this optional field if no single instance is selected. Preserve explicit user scope; do not reconstruct a reference from prose or copied coordinates.",
+	}
 }
 
 func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompleteRawParams) error {
@@ -353,6 +366,9 @@ func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompl
 		raw.AbsenceJustification = decodeMisplacedStringField(misplaced, "absence_justification")
 	}
 	*p = emitInvestigationCompleteParams{
+		// Execution focus is selected only by the top-level typed field.
+		// The prose/string-tail compatibility lane must never mint it.
+		BusinessSpanRef:          raw.BusinessSpanRef,
 		Reason:                   raw.Reason,
 		Confidence:               raw.Confidence,
 		ResultKind:               raw.ResultKind,
@@ -3119,11 +3135,24 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	recordToolRuntimeTiming(&runtimeTimings, "pre_complete_gate_chain", preCompleteStart, len(preflight.Evidence))
 
 	stateWriteStart := time.Now()
+	var businessRef *types.TraceBusinessSpanRef
+	if p.BusinessSpanRef != "" {
+		ref, current := ctx.Mutable.ResolveTraceBusinessSpanRef(p.BusinessSpanRef)
+		if !current {
+			return completionBusinessSpanRefRejected(t.Name()), nil
+		}
+		businessRef = &ref
+	}
 	reason = normalizeLogSourceDriftCompletionReason(ctx, reason)
+	// This writes a pending decision with the completion generation, not
+	// executable focus. Only successful exploration dispatch can promote it.
+	// Recheck the physical receipt before any accepted handoff is published.
+	if !ctx.Mutable.AcceptInvestigationCompleteWithBusinessSpanRef(reason, businessRef) {
+		return completionBusinessSpanRefRejected(t.Name()), nil
+	}
 	ctx.Mutable.SetInvestigationAggregateFacts(effectiveAggregateFacts)
 	ctx.Mutable.SetInvestigationRelationClaims(relationClaims)
 	appendPrincipalSpanWaiverCompletionNote(ctx)
-	ctx.Mutable.SetInvestigationComplete(reason)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
 	ctx.Mutable.RetainInvestigationAggregateFacts()
 	ctx.Mutable.RetainInvestigationRelationClaims()
