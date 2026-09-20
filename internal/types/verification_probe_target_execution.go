@@ -106,7 +106,7 @@ func VerificationProbeTargetInvocationSHA256(receipt *VerificationProbeExecution
 // target_behavior. With no plan it validates report-local provenance only;
 // callers transferring proof to a plan must provide that plan.
 func ResolveVerificationProbeTargetExecution(plan *ChangePlan, probe VerificationProbe, report *ChangeReport) VerificationProbeTargetExecutionResolution {
-	out := VerificationProbeTargetExecutionResolution{Applies: VerificationProbeLanguageIsPython(probe.Language)}
+	out := VerificationProbeTargetExecutionResolution{Applies: VerificationProbeUsesExecutionOnlyWitness(probe.Language)}
 	if !out.Applies {
 		return out
 	}

@@ -820,7 +820,7 @@ LLM等待保护定向回归通过17.992s（`/tmp/hmc-stream-wait-preservation-20
 写例初次补丁正确将整数值float正规化为int，原有4个测试与plain Python probe均绿，原始回归测试未修改。但`contract_refs`只说明探针意图、不授逐合同断言凭证；规划器收到明确教学后仍漏交已有原生测试的`project_test_observations`，故`float_type_check`缺证保护合法。已应用补丁保留于eval临时仓的`refs/codrax/applied/plan-1789900623764734000-91719`，最终流程blocked，不能以局部测试绿签完整交付。
 
 - [x] **WRITE-PROOF-IDENTITY（P1，确定性子缺陷已修，非整例销账）**：已就绪的controller补证批允许下一次`plan_batch`换ID，既有元数据保真只保同ID；新ID成为普通批，PTO-only先被拒，保留了probes的空changes仍因补证身份丢失被拒。随后模型被引向重复改动已正确源码，直到重复路径拒绝。调度及持久化两层现消费同一`PendingControllerProofPlanBatch`，保原ID/目的/范围/依赖，不放宽空计划门或通过原文推权限。两种purpose的直接Apply和公开normalizer→Apply→emit计划链行为先红后绿，详见§30.4；能力不匹配仍是独立开放项。
-- [ ] **WRITE-PROOF-CAPABILITY（P1，独立系统缺陷，设计已核，未实施）**：即便保住ID，当前补证桥只查解释器存在，却要求plain Python probe解决缺失的逐合同行为证明；执行器不能产该证明，旧source-free sentinel又合法禁止补PTO。因此身份修复不能代销能力路由。下一片须按typed obligation与实际执行器能力分流：已有精确凭证复用、已有声明缺执行则精确重跑、缺声明但有原生断言则只读绑定后重跑、仅plain probe只补目标执行不承诺合同证明。
+- [ ] **WRITE-PROOF-CAPABILITY（P1，独立系统缺陷，部分实施）**：即便保住ID，原补证桥只查解释器存在，却要求plain Python probe解决缺失的逐合同行为证明；执行器不能产该证明，旧source-free sentinel又合法禁止补PTO。因此身份修复不能代销能力路由。§30.5先阻止确定不可产证明的派发，自动补登记既有断言仍开放：已有精确凭证复用、已有声明缺执行则精确重跑、缺声明但有原生断言则只读绑定后重跑、仅plain probe只补目标执行不承诺合同证明。
 
 能力补证设计：优先复用既有PTO精确文件/suite/assertion执行器，新增与`proof_probe_only`平行的只读原生断言补证形，不修改旧source plan/审批fingerprint/历史报告。controller授权须绑定run/batch、已应用source plan、工作树快照及active required合同；只收已存在测试、精确PTO，无任何文件编辑，不强制再造probe。系统读取并绑定测试字节哈希，执行前后复核，计划/报告独立留存，不能给历史aggregate pass补签。未授权/跨仓跨批/退役合同/文件改变/skip/错误suite或assertion/非零执行均不授证。累计scope/resume/JSON往返和同快照同绑定不重复回圈为必测边界。该设计尚未实施，不提前宣称写模式闭环。
 
@@ -833,3 +833,22 @@ LLM等待保护定向回归通过17.992s（`/tmp/hmc-stream-wait-preservation-20
 两种purpose×异/同/空ID回显、11项边界、独立拷贝、append/split/replan/block及公开成文计划入口已验证；planner提示仍限原路径，公开probe-only计划保来源范围且没有凭空生成验证报告。测试fixture修正了既有正规化对空切片、CreatedAt的合法初始化，未改变生产时间戳或正规化逻辑。RED为`/tmp/hmc-proof-identity-red-20260920.log`，GREEN为`/tmp/hmc-proof-identity-green-20260920.log`（writeflow0.697s、orchestrator0.898s）；两完整包通过0.425s/17.319s（`/tmp/hmc-proof-identity-packages-20260920.log`）；新路径及相邻proof/planner回归race×3通过1.623s/2.439s（`/tmp/hmc-proof-identity-race-20260920.log`）。独立审查未发现生产放权或既有正常路由回退。本片没有另起live回放：已知能力缺口未修完，不能只修ID便以同例追绿。
 
 授权边界说明：本片复用既有run级`verification_proof_followup_requested`记录判断，并未新建绑定到批次血缘/工作树代次的授权凭证；不得宣称逐批精确授权已闭环。§30.3下一片既有原生断言补证需另建绑定run/batch/快照的授权，避免把历史同run记录当新补证权限。稳定任务总数仍13/79交付、66开放，WRITE-PROOF-IDENTITY只是HMC-18.5中的一个子缺陷。
+
+### 30.5 WRITE-PROOF-CAPABILITY第一片：不派无法产出所需证明的探测（验收中）
+
+身份修复已以`ff94da1a7`推送。继续将“解释器存在”与“能产逐合同见证”分开：`VerificationProbeUsesExecutionOnlyWitness`由实际执行收据解析、有效凭证投影及派发共同消费，保持原证明权威不变。现有execution-only运行器当前是Python plain probe；这是生产者能力事实，不按客户问题、类名、源码/输出字符串或某个eval症状决定。
+
+桥接仅当剩余待补全部是已知active required运行时behavior/placement断言、没有对应既有原生断言声明、所有目标可用inline运行器都只有执行证明时，不再强制额外probe计划。changed-target执行债、混合债、已有/累计原生PTO、非execution-only运行器、file_layout独立源码见证、未知合同/目标/运行器均保原路。此函数不写plan、report或账本；仍缺的合同仍缺，后续沿既有accept_unverified车道披露，不误签all_verified。并非把FAIL改PASS，也不是把任意source-free计划放开。
+
+真实bridge入口回归先红（`/tmp/hmc-proof-witness-bridge-red-20260920.log`）：项目测试通过、目标覆盖已有、只有一个异常合同无绑定时仍派mandatory probe。修后入口GREEN（`/tmp/hmc-proof-witness-bridge-green-20260920.log`，0.931s），并验证真实normalizer不会在后续分支重新派发、不把缺证账本升级；已有PTO继续保留原恢复路径。另有20个路由矩阵案例及运行器能力/收据一致性测试；单元早期修正file_layout与未知合同过度抑制，未将未知当确定不支持。
+
+完整orchestrator包随后发现既有`TestVerificationProofProbePlanningRebindsOnlyNonAuthoritativeFailedProbe`失败（`/tmp/hmc-proof-routing-orchestrator-20260920.log`）：新守卫只看待补obligation，忽略了非权威探测自身的failed capability仍可被修正。没有改旧测试或豁免断言；收窄为FailedCount/CapabilityFailedCount为零才可能抑制。保留失败探测修正能力，成功后仍剩不可产断言时才止损。末版完整orchestrator包通过18.430s（`/tmp/hmc-proof-routing-orchestrator-final-20260920.log`）；含该旧反例的新/邻接路径race×3通过types2.290s/orchestrator2.916s（`/tmp/hmc-proof-routing-final-race-20260920.log`）。第一轮全仓有此已定位失败，不充作绿收据；末版全仓待收。
+
+独立开放施工表（不因止损已修而整体打勾）：
+
+- [ ] B1（实现冻结、验收中）：派发与实际执行器权威单源，精确不可能的assertion-only探测不再强制派发；缺证不销账，待末版全仓及推送收据。
+- [ ] B2：controller-only原生断言补登记授权，绑定run/batch/已应用计划与当前工作树快照，替换run级历史记录可复用的弱授权。
+- [ ] B3：平行于probe-only的新只读补证计划；仅接已读、已存在测试的exact PTO，系统哈希锁定字节，不准改源或改测试oracle，模型不得自填执行收据。
+- [ ] B4：直接进入verify-only，复用精确test_path/suite/assertion执行器，新报告独立留存；原plan/approval fingerprint/旧report不改，失败、skip、身份错配都不授证。
+- [ ] B5：累计scope/JSON往返/resume及快照改变失效；相同快照/合同/绑定/证明方式不原样无限重试，有新精确证据才允许修正绑定。
+- [ ] B6：公开流程红绿及固定两例生产回放；本次4原生测试＋plain probe绿仍缺证为负臂，补正确原生绑定＋重新执行才可绿，其他失败不能被覆盖抹掉。

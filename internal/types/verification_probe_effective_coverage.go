@@ -141,7 +141,7 @@ func EffectiveVerificationConfidence(plan *ChangePlan, report *ChangeReport) []V
 			if !passed {
 				continue
 			}
-			if VerificationProbeLanguageIsPython(probe.Language) {
+			if VerificationProbeUsesExecutionOnlyWitness(probe.Language) {
 				resolution := ResolveVerificationProbeTargetExecution(plan, probe, report)
 				for _, ref := range probe.ChangedSymbolRefs {
 					for _, path := range resolution.Paths {

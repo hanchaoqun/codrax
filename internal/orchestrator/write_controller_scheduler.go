@@ -9225,6 +9225,12 @@ func verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
 		ledger.UncoveredCount <= ledger.UnavailableCount {
 		return nil, false
 	}
+	if proofPlanningAssertionWitnessUnavailable(plan, ledger, active.ExpectedPaths, runtimeAvailable) {
+		// Runtime presence alone cannot satisfy per-contract assertion debt.
+		// Keep the uncovered ledger unchanged and let the existing unverified
+		// terminal path disclose it instead of forcing an impossible probe.
+		return nil, false
+	}
 
 	// SuccessCriteria is minted by impactRepairSuccessCriteria. The exact
 	// verification_probe_required=true token is therefore a controller-owned
