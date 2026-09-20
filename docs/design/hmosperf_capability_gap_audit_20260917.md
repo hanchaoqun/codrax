@@ -952,7 +952,7 @@ Python只改源文件，保原4测试，独立复测及类型/负值/零值/非�
 优先修复的确定性系统项（归原HMC-02.4/18.4，不新增父项计数）：
 
 - [ ] **背景排序量冒充实测**：47ms背景IO被内部排序限为53×35%=18.55ms；publication只修纯调度状态，资源行遗漏，handoff还将其称为measured，系统图与表也用18.55。保留排序/Score/因果隔离，按原生typed测量恢复发布口径；不得把累计、区间包络、count/index混算为实测。不能记模型波动。
-- [ ] **结构化列表正文静默丢失**：合法字符串放在section.items[].cells，最终两组列表仅编号。审计解码/规范化/渲染一致性，只保留已有内容，不补造语义、不加原文关键词硬门。
+- [x] **结构化列表正文静默丢失（确定性修复）**：合法字符串放在section.items[].cells，最终两组列表仅编号；共享渲染器已修，见§33。旧live报告与整份答案FAIL不倒签。
 - [ ] **正文边界遵循**：同核首跳被概括为全部跨核，依赖方自身1ms被说成下游runnable，11ms调度IO-wait被说成缓存页加载。正确typed信息已存在，先核教学/共享上下文，不用一次模型错答扩硬门。
 
 analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际日志留档，不能以机器ana=1当零重试；未发现同字段必带必拒的新证据。mandatory根因旁路、Trace投影及600/300/600秒等待保持，本轮没有活跃流因短暂未成文而提前降级。
@@ -962,3 +962,11 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 原生构建`/tmp/hmc-business-focus-build-20260920.log`退出0，版本358f47f4c011。最终同源桥句补完后的全仓`/tmp/hmc-business-focus-final2-full-20260920.log`退出0：87包通过（72缓存/15实际）、13包无测试、零FAIL；agent71.656s、tool350.882s、tracequery90.893s、types30.074s、orchestrator18.217s。第一轮全仓也退出0（87通过、17缓存/70实际），但最终交付采用第二轮。schema真实消息桥定向agent1.178s/tool2.328s，日志`/tmp/hmc-business-focus-bridge-green-20260920.log`。
 
 本片收住的是接受权限、生命周期与原子补齐接缝，不是旧答案FAIL。父任务不勾，13/79已交付、66开放不变；后续先根修§32.2确定性系统缺口，再做新固定版本双例回放。
+
+## 33. 列表多个内容载体同时存在时不丢正文（2026-09-20）
+
+§32明确窗报告的两组空列表已确定不是模型没写：模型给了label及cells，full/patch解码和持久化均完整，`renderV2BlockItem`却只在没有label/text时才显示cells。只改共享section/ordered_list/bullet_list渲染器这一条件，按原次序以中性分隔符追加已有字符串；重复不去重、空白不制造内容、引用仍在尾部，原结构不变。
+
+不新增JSON必填、不改教学/schema/解码器，也不猜cells列名或把散文扫描作硬门。原full-only单字符串包装与stringified string-array恢复保持，数字/布尔/对象/嵌套数组仍拒绝；meaningful item碎片不静默丢弃，失败patch不覆盖原稿。表格等非列表分支不改。
+
+真实full/patch→persist→render及三列表形RED见`/tmp/codrax-list-cells-MdNFud/red-confirmed.log`（render0.675s/tool1.169s），GREEN0.717s/1.148s，既有相关回归0.540s/1.999s（同目录green/regression）。主席独立整包render1.102s、render/tool race×3为1.756s/7.735s，`/tmp/hmc-list-cells-render-full-20260920.log`、`/tmp/hmc-list-cells-race-20260920.log`均退出0。接下来的全仓与新固定双例共同覆盖下一批发布修复；不回写旧报告、不把明确窗原人工FAIL改PASS。

@@ -1784,8 +1784,8 @@ func renderV2BlockCaveat(b *strings.Builder, blk types.AnswerBlock, _ answerDocL
 }
 
 // renderV2BlockItem returns the inline string for one item: Label
-// + optional Text + optional citation marker. Used by ordered /
-// bullet / section lists.
+// + optional Text + optional Cells + optional citation marker. Used by
+// ordered / bullet / section lists.
 func renderV2BlockItem(it types.AnswerBlockItem, doc *types.AnswerDocumentV2, _ answerDocLang) string {
 	parts := make([]string, 0, 3)
 	if l := renderUserSurfaceText(it.Label); l != "" {
@@ -1794,7 +1794,7 @@ func renderV2BlockItem(it types.AnswerBlockItem, doc *types.AnswerDocumentV2, _ 
 	if t := renderUserSurfaceProseText(it.Text); t != "" {
 		parts = append(parts, t)
 	}
-	if len(parts) == 0 && len(it.Cells) > 0 {
+	if len(it.Cells) > 0 {
 		cells := make([]string, 0, len(it.Cells))
 		for _, cell := range it.Cells {
 			if visible := renderUserSurfaceText(cell); visible != "" {
@@ -1802,10 +1802,10 @@ func renderV2BlockItem(it types.AnswerBlockItem, doc *types.AnswerDocumentV2, _ 
 			}
 		}
 		if len(cells) > 0 {
-			// Section/list schemas accept structured cells, so a cell-only item
-			// must not disappear merely because the model omitted Label/Text.
+			// Accepted section/list cells remain visible alongside Label/Text;
+			// a row label or prose body must not hide the other authored values.
 			// The renderer contributes only a neutral delimiter; every visible
-			// value remains model-authored and in original order.
+			// value remains model-authored and in original order, even repeats.
 			parts = append(parts, strings.Join(cells, " | "))
 		}
 	}
