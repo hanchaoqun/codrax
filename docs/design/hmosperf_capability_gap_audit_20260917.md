@@ -870,6 +870,17 @@ B2独立复核补充（设计边界，不是已实现）：现有请求事件实
 
 追加正反矩阵：同run其它批、其它run同名批、source plan替换/恢复剔除、同HEAD/status但字节改变、快照不可读时禁改门仍生效、JSON/同快照resume/worktree重建、旧verify-only及普通impact路径，以及模型改ID/purpose/criteria或提交grant字段不得扩权。以上仍归原B2–B6，不新增“已交付”计数。
 
-### 30.6 下一批固定双例（进行中）
+### 30.6 固定双例结束：普通计划通过，IO入口缺陷仍失败
 
-干净构建`bc90f5aaae0b`，固定快照`.codrax/tmp/codrax-selected-20260920-042031`，2并行×1、每例1800秒：`trace_query_io_request_latency_distribution`＋`patch_cpp_typo`。结果根`eval/results/hmc_witness_routing_io_plan_20260920`。IO旧FAIL之后已有02cea计量上下文修复，本次优先查实际profile与消息是否命中，再核三组八值、完整总体/明细上限及两层端点；C++仅验窄改计划及不自动apply，不冒称运行时/原生断言验证。B2–B6尚未实施，不立即重跑dateutil求完整绿。批次结果与人工审计待收，不预填PASS。
+干净构建`bc90f5aaae0b`，固定快照`.codrax/tmp/codrax-selected-20260920-042031`，2并行×1、每例1800秒：`trace_query_io_request_latency_distribution`＋`patch_cpp_typo`。结果根`eval/results/hmc_witness_routing_io_plan_20260920`。[机器摘要](../../eval/parallel_selected_summary_hmc_witness_routing_io_plan_20260920.md)1/2、[人工审计](../../eval/parallel_selected_summary_hmc_witness_routing_io_plan_20260920_manual_audit.md)1/2。IO382秒/30%上下文FAIL；C++52秒/28%上下文PASS（只计划）。不回写旧结果，不追加第三例。
+
+IO本轮profile确有io_latency，但工具接纳未知`view=storage_latency_by_layer`后静默执行为event_search，没有真正算分布；宽分类helper不会进入，专用桥接也无原生分布可消费。因此不是02cea纯展示说明已到达后仍失败。答案误写8/8/0、零缺端/歧义及两层包含关系；最终一次成文、无JSON恢复或活跃流降级，必选schema2空根因旁路正常。先修§31明确入口缺陷，不把所有错误都归模型波动。
+
+C++只改main.cpp一行，实际patch应用检查通过，原仓HEAD/源码不变；零修补，普通计划没被补证批身份锁劫持。没有执行apply/verify，不能据此验收B1实际触发或B2–B6原生断言能力。其验收散文未写空输入world回退的P2观察仍保留。稳定任务总数仍13/79交付、66开放。
+
+## 31. 继续IO旧FAIL：未知视图静默成功与重复测量教学（2026-09-20，施工中）
+
+- [ ] **HMC-01.1/01.2、08.1子缺陷：未知查询视图**。真实日志1306传入storage_latency_by_layer、1312工具success，payload却是event_search。沿CanonicalViewNames/CanonicalViewName现有注册表做同源明确校验及可修补指引，不新增样例别名，不扫用户或答案原文。公开工具/engine先红后绿，stream及tracediag入口、合法alias、空默认、显式窗和自动补齐同批核对；禁止未知值偷偷落到默认事件搜索。
+- [ ] **HMC-01.2/16.4子缺陷：重复原生测量的容量教学**。公开3组×8值→无aggregate重复抄写的completion本来就能通过且原生数据不变，故证伪“24值必须逐项塞cap16”的硬合同互斥。但cap拒绝声称删除任一条目都会永久丢值、初始描述泛称测量都入aggregate，容易引导重复。只修同源条件教学：已有原生同范围测量不需重复复制；唯一主事实仍不可丢或改audit角色绕cap，bounded上下文不保证全量显示。cap16、类型、normalizer与准入不改。公开教学RED已留`/tmp/hmc-native-measurement-teaching-red-20260920.log`，验收收据另补。
+
+这两处不替代B2–B6、accepted业务焦点或IO跨层完整总体能力。§30.6没触发cap超量拒绝，不作为教学修复live命中证据。施工完成前不提前销账。
