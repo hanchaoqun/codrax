@@ -2330,6 +2330,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"io_request_latency_caliber", "io_request_distribution", TraceNoteCarrierDisplayOnly},
 	{"storage_source_path", "io_request_distribution", TraceNoteCarrierDisplayOnly},
 	{"storage_request_group", "io_request_distribution", TraceNoteCarrierDisplayOnly},
+	// A block group's first observed thread is a representative, not its
+	// population. No coverage/causal consumer may use this as a target.
+	{"representative_thread", "io_request_distribution", TraceNoteCarrierDisplayOnly},
 	{"io_request_scope", "io_request_distribution", TraceNoteCarrierDisplayOnly},
 	{"storage_group_coverage", "io_request_distribution", TraceNoteCarrierDisplayOnly},
 	{"storage_group_inode", "io_request_distribution", TraceNoteCarrierDisplayOnly},

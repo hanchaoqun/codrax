@@ -6745,14 +6745,9 @@ func writeTraceStorageLatency(b *strings.Builder, item tracequery.StorageLatency
 	if item.RequestLatencyDistribution != nil {
 		detail = traceQueryIORequestLatencySummary(item.RequestLatencyDistribution)
 	}
-	fmt.Fprintf(b, "- storage_latency layer=%s event=%s dev=%s inode=%s name=%s op=%s thread=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d ambiguous_cohorts=%d pairing_suppressed=%d max_latency=%.3fms avg_latency=%.3fms bytes=%d example=%s source=%s lines=%d-%d — %s\n",
-		sanitizeForBanner(item.Layer),
-		sanitizeForBanner(item.Event),
-		sanitizeForBanner(firstNonEmptyTraceString(item.Dev, "unknown")),
-		sanitizeForBanner(item.Inode),
+	fmt.Fprintf(b, "- storage_latency %s name=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d ambiguous_cohorts=%d pairing_suppressed=%d max_latency=%.3fms avg_latency=%.3fms bytes=%d example=%s source=%s lines=%d-%d — %s\n",
+		traceQueryStorageGroupDisplay(item),
 		sanitizeForBanner(item.EntryName),
-		sanitizeForBanner(item.Operation),
-		traceThreadLabel(item.Thread),
 		item.Count,
 		item.PairedCount,
 		item.UnpairedStartCount,
@@ -6814,6 +6809,25 @@ func traceQueryStorageGroupFields(item tracequery.StorageLatencySummary) [][2]st
 	return append(fields, [2]string{"inode", item.Inode}, [2]string{"pid", strconv.Itoa(item.Thread.PID)})
 }
 
+// Display and claim identity deliberately differ: endpoints describe the
+// measurement, not a new group key. All model-facing group surfaces share this
+// projection, so a representative block thread cannot become a group filter.
+func traceQueryStorageGroupDisplay(item tracequery.StorageLatencySummary) string {
+	var parts []string
+	for _, field := range traceQueryStorageGroupFields(item) {
+		parts = append(parts, field[0]+"="+sanitizeForBanner(field[1]))
+	}
+	if item.Layer != "block" {
+		// Generic storage groups remain PID-scoped. Preserve the established
+		// human thread label for legacy summary-only observation consumers.
+		parts = append(parts, "thread="+traceThreadLabel(item.Thread))
+	}
+	if start, done := tracequery.IORequestResidenceEndpoints(item.RequestResidenceCaliber); start != "" {
+		parts = append(parts, start+"→"+done)
+	}
+	return strings.Join(parts, " ")
+}
+
 func traceQueryStorageGroupClaim(item tracequery.StorageLatencySummary) string {
 	legacy := "storage_latency:" + firstNonEmptyTraceString(item.Layer, item.Event)
 	if item.RequestLatencyDistribution == nil {
@@ -6828,21 +6842,17 @@ func traceQueryStorageGroupClaim(item tracequery.StorageLatencySummary) string {
 }
 
 func traceQueryStorageDistributionNotes(item tracequery.StorageLatencySummary, stats tracequery.WindowStats) []string {
-	if item.RequestLatencyDistribution == nil && stats.StorageLatencyOverflowGroups == 0 {
+	if item.RequestLatencyDistribution == nil && item.RequestResidenceCaliber == "" && stats.StorageLatencyOverflowGroups == 0 {
 		return nil
 	}
-	var group []string
-	for _, field := range traceQueryStorageGroupFields(item) {
-		group = append(group, field[0]+"="+field[1])
-	}
-	// These five compact notes precede individual statistics and examples so
-	// both finalizer (10 notes) and semantic review (6) retain measurement scope.
+	// Group identity AND endpoints lead the first three notes. Some mixed-source
+	// finalizer contexts retain only three notes, semantic review retains six.
 	// selected_window cannot grant an anchor to this supporting predicate.
 	notes := traceQueryTypedKVNotes([][2]string{
-		{"storage_request_group", strings.Join(group, " ")},
+		{"storage_request_group", traceQueryStorageGroupDisplay(item)},
 		{"storage_source_path", item.SourcePath},
 		{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
-		{"io_request_scope", "本组完整配对请求与查询窗相交；耗时未裁窗，毫秒，线性插值；不是目标阻塞时长或因果证明；勿平均各组分位数"},
+		{"io_request_scope", "仅统计本组完整配对请求，且须与查询窗相交；耗时未裁窗，毫秒，线性插值；不是目标阻塞时长或因果证明；勿平均各组分位数"},
 		{"storage_group_coverage", fmt.Sprintf("omitted_groups=%d omitted_complete_pairs=%d; displayed groups only", stats.StorageLatencyOverflowGroups, stats.StorageLatencyOverflowPairedCount)},
 	})
 	notes = append(notes, traceQueryTypedKVNotes(traceQueryIORequestLatencyFields(item.RequestLatencyDistribution))...)
@@ -6874,7 +6884,7 @@ func traceQueryStorageGroupForFact(result tracequery.Result, fact tracequery.Evi
 		}
 		match = row
 	}
-	if match == nil || match.RequestLatencyDistribution == nil || match.SourcePath == "" {
+	if match == nil || (match.RequestLatencyDistribution == nil && match.RequestResidenceCaliber == "") || match.SourcePath == "" {
 		return nil
 	}
 	if len(fact.SourceSpans) == 0 {
@@ -13977,6 +13987,10 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			continue
 		}
 		distributionNotes := traceQueryStorageDistributionNotes(storage, stats)
+		threadKey := "thread"
+		if storage.Layer == "block" {
+			threadKey = "representative_thread"
+		}
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#storage_latency:%d", scope, i+1),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -13998,7 +14012,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"event", storage.Event},
 				{"dev", storage.Dev},
 				{"op", storage.Operation},
-				{"thread", traceThreadLabel(storage.Thread)},
+				{threadKey, traceThreadLabel(storage.Thread)},
 				{"count", traceQueryTypedCount(storage.Count)},
 				{"paired", traceQueryTypedCount(storage.PairedCount)},
 				{"unpaired_start", traceQueryTypedCount(storage.UnpairedStartCount)},
@@ -15237,12 +15251,8 @@ func traceQueryTypedStorageLatencySummary(item tracequery.StorageLatencySummary)
 		// while independent rich notes retain every field and group identity.
 		parts = []string{traceQueryIORequestLatencySummary(item.RequestLatencyDistribution), "storage_latency_by_layer"}
 	}
+	parts = append(parts, traceQueryStorageGroupDisplay(item))
 	for _, kv := range [][2]string{
-		{"layer", item.Layer},
-		{"event", item.Event},
-		{"dev", item.Dev},
-		{"op", item.Operation},
-		{"thread", traceThreadLabel(item.Thread)},
 		{"count", traceQueryTypedCount(item.Count)},
 		{"paired", traceQueryTypedCount(item.PairedCount)},
 		{"unpaired_start", traceQueryTypedCount(item.UnpairedStartCount)},

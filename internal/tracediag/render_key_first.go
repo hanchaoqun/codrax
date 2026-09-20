@@ -959,9 +959,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// renderer keeps source/family/device/operation/inode/thread cues before
 	// values and renders pairing fields/coordinates/example directly; its
 	// engine-owned Summary is not repeated because it duplicates the same
-	// numbers. No prose scanning and no legacy-nil rendering change.
+	// numbers. RequestResidenceCaliber is an optional group-local ruler:
+	// a closed endpoint mapping is displayed even if no pair was measured;
+	// unknown values stay unspecified and never leak the raw enum. A nonempty
+	// ruler opts into this exact-type lane, without manufacturing zero samples.
+	// No prose scanning; legacy nil groups without a ruler remain byte-identical.
 	// Pin the nested eleven-field schema separately.
-	reflect.TypeOf(tracequery.StorageLatencySummary{}):        "7e5bb9ee0e9d6c9eb21982d0ca7b31fb336c1c014470b528838fa98c3f0e5af1",
+	reflect.TypeOf(tracequery.StorageLatencySummary{}):        "612479b873f805366538e6c83bcd29c4b8148e60f527d1cb29ac2e69a88027e3",
 	reflect.TypeOf(tracequery.IORequestLatencyDistribution{}): "5bb041618ee8da96adf50a9cf9636fa6920e2d5d7d32ea10f94c54d18bff32ba",
 	reflect.TypeOf(tracequery.InterruptActivity{}):            "697433793ee39e4a426d249ed9b1559ea6a11d1ca76a569bb30fe9159f45617f",
 	reflect.TypeOf(tracequery.WorkqueueActivity{}):            "ed0cdfade0931978ac0def62cbd7c55d226ec943a4e33a43154e3d09a6e3bb70",

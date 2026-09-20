@@ -680,7 +680,7 @@ HMC-02.4从“待实施”改为“部分实施”：本片完成§24.3第1项�
 
 真实本轮业务报告固定内容，计数先0后1；收据`/tmp/hmc185-projection-real-{red,green}-20260920.log`。20个标题正例及负例在完整runner脚本先红（`/tmp/hmc185-runner-red-20260920.log`），修后全过（`/tmp/hmc185-runner-green-20260920.log`，含原post-apply/NAPI scope合同测试）；shell语法与diff检查通过。脚本中的预期FAIL负例不等于脚本失败，最终exit0。此修复已单独提交`3d7f9a690`，不回写本批或旧批机器FAIL，更不改变人工0/2结论；HMC-18.5为持续执行项，保持开放。
 
-### 27.2 下批IO组身份/口径的施工清单（只读设计，尚未实现）
+### 27.2 IO组身份/口径的施工清单（原只读设计；实施见§28）
 
 本切片归HMC-08.1/16.4，不新增已交付计数。已定位而非只凭答案猜因：`trace_query.go::traceQueryTypedStorageLatencySummary`及`writeTraceStorageLatency`无条件显示代表线程；`blockPairingAccumulatorFor`实际按source/family/dev/op聚合，Thread只保留首记录。现有`traceQueryStorageGroupFields`已经声明block issuers=all，应该共用，而非再堆prompt。
 
@@ -692,3 +692,28 @@ HMC-02.4从“待实施”改为“部分实施”：本片完成§24.3第1项�
 - [ ] 扩展`TestPublishedIOGroupDistributionsReachFinalizer`，逐条真实上下文记录绑定同组的身份/端点/数值，不靠整段任意位置搜token；继续保留来源/窗口隔离及ledger字节不变。修后另安排固定双例验收，旧人工FAIL不倒签。
 
 参考仓再次对照：可借`core/preprocess/io_ops.py:67`的分布组织，不搬`config/indicators/io/io_latency.yaml:35`与`io_ops.py:879`的LIMIT后算分位数或start_time BETWEEN漏carry-in，也不搬`io_ops.py:448`以CFS累计阻塞大于RT直接判优先级反转。该路径读取已经形成的filesystem_io记录，并非本仓原始RQ/BIO端点/缺端计数的权威来源。
+
+## 28. 旧FAIL先修：IO统计组身份与起止事件同源交接（2026-09-20）
+
+起点`3d1bc834a`，fetch后与origin/main一致、无遗留改动。本批优先闭环§27.2可执行复现的系统上下文矛盾；accepted业务实例焦点仍单独开放，不将查询引用等同于已接受因果目标。参考实现仅借用“全样本分布与Top-N展示分开”的组织，不移植其取样限制、分位数定义或根因判据。
+
+### 28.1 实施范围与红针
+
+- [x] RQ/BIO聚合行新增可选`request_residence_caliber`，只由已准入端点族生产者调用原口径函数。一个闭集解码提供RQ发起→完成、BIO入队→完成的原始事件名，工具和诊断渲染共用；空/未知值不从事件名称反推。generic仍不冒用RQ尺。新字段不参与配对、统计、选举或根因资格。
+- [x] 工具首层、普通/EvidencePack观察和紧凑说明共用原组身份字段。block保持source/family/dev/op下全部提交者，不再无条件发`thread=`；原Thread载体不删除，原始说明另标`representative_thread`且注册为display-only。非block保留inode/PID与原thread显示，兼容旧摘要审计视图。原claim digest的字段/顺序不变。
+- [x] 真正的finalizer路径可能只保留3条说明，不总是10条。将端点与组身份放在第一条，来源/选择窗随后；不提高全局预算、不依赖Top8请求或第四条说明，semantic仍6条。逐组逐Observation ID核验原生query→TurnA→BuildInitialInstruction，同时保住八个数值与原ledger字节。
+- [x] schema显式处置：有口径但无配对的组也进入精确渲染，披露端点但不造零样本；未知口径只说未说明，不泄漏枚举。新增字段及原分布字段剔除后仍匹配此前schema，加性针/结构指纹同步审查；未带新口径的legacy nil组原字节针不动。
+- [x] 请求计数与时长不改：孤立完成、缺完成、1个歧义组包含2个被抑制请求、generic两端计数、真实0、跨窗完整驻留及Top8之外样本都有保护；不将Count统称issue数，也不把驻留耗时等同响应阻塞。
+- [ ] 最终全仓/race、固定构建及2并行×1回放收据待本批完成后补入；不预签live或替旧FAIL销账。
+
+前置行为RED：`/tmp/hmc-io-caliber-red-20260920.log`（RQ/BIO十一臂缺组级口径）；`/tmp/hmc-io-group-context-red-v2-20260920.log`（同一模型记录缺端点、裸thread歧义）；独立末审再补`/tmp/hmc-io-group-raw-notes-red-20260920.log`（三组×两scope共6处原始RichNotes残留裸thread）。修后真实上下文及相邻IO测试首次通过`/tmp/hmc-io-group-context-{green,neighbors}-20260920.log`；后续末版收据单独记录。
+
+初次组合回归有一条旧措辞pin失败：把说明改成“仅统计与查询窗相交的完整配对请求”后，原“本组完整配对请求”片段不再出现。最终用条件句“仅统计本组完整配对请求，且须与查询窗相交”，保留原针且避免无配对时误称已存在样本；不删除断言。schema指纹红针亦先保留实测再按上述字段处置重钉。
+
+### 28.2 不扩权与仍开放边界
+
+没有改变JSON教学/工具权限、显式用户窗口、自动补齐调度、链上根因资格、35ms请求驻留与31ms阻塞的区分、`.root-causes.json`必选旁路或600/300/600秒等待配置。无正文短间隔不是本批的降级条件，未加原文关键词门。
+
+独立复核旧Summary-only fallback：只有typed Observations和ToolCarrier均缺失时才进入；其产物被强制audit_ledger/display_only、置信度≤0.2、not_answer_grade。它仍不能完整理解新block组端点/全部提交者说明，作为旧无结构化结果的审计视图限制留账；正常TraceQuery、memo、fork、TurnA都有typed载体，不为这个旧fallback扩张prose解析或授因果权。非block恢复原thread显示以保既有兼容。
+
+稳定清单仍13/79交付、66开放。HMC-08.1只是组级统计/上下文切片，未完成跨层总体上卷；HMC-02.4 accepted焦点/原子补齐仍需根修。业务旧FAIL以及分布答案的缺端含义、歧义计数/分位数解释是否遵循，须由新回放独立验收；旧机器/人工结果不回写。后续mixed-source读＋Python写apply固定双例继续保留，不借本批Trace回放声称跨模式已验收。

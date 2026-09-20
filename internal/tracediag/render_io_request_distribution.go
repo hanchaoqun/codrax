@@ -7,10 +7,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-// Only measured groups enter this exact-type lane. The engine Summary already
+// Measured groups or groups with explicit endpoint metadata enter this lane.
+// The engine Summary already
 // duplicates the numeric distribution, so this owner renders its typed fields
 // once instead of stripping or interpreting summary prose. Legacy nil groups
-// continue through the unchanged generic renderer. Identity always precedes
+// without endpoint metadata continue through the unchanged generic renderer. Identity always precedes
 // values so a line cap cannot leave an unbound percentile behind.
 func renderStorageLatencyDistributionGroup(group tracequery.StorageLatencySummary, path string, emit func(string)) {
 	label := func(value string) string {
@@ -32,10 +33,20 @@ func renderStorageLatencyDistributionGroup(group tracequery.StorageLatencySummar
 	emit(fmt.Sprintf("- %s: IO请求组 来源=%s 层=%s 事件族=%s 设备=%s 操作=%s inode=%s 名称=%s %s",
 		path, source, label(group.Layer), label(group.Event), label(group.Dev), label(group.Operation), label(group.Inode), label(group.EntryName),
 		thread))
+	if group.RequestResidenceCaliber != "" {
+		start, done := tracequery.IORequestResidenceEndpoints(group.RequestResidenceCaliber)
+		if start == "" {
+			emit("  请求起止事件: 未说明；不据事件族推定耗时口径。")
+		} else {
+			emit(fmt.Sprintf("  请求起止事件: %s → %s；完整配对才有耗时，不等于线程阻塞时长。", start, done))
+		}
+	}
 	emit(fmt.Sprintf("  配对记录: 观测计数=%d 已配对=%d 未配对起始=%d 未配对完成=%d 歧义组=%d 暂停配对=%d 字节统计=%d 原组最大耗时=%.3f ms 原组平均耗时=%.3f ms lines=%d-%d ts=%s..%s",
 		group.Count, group.PairedCount, group.UnpairedStartCount, group.UnpairedDoneCount, group.AmbiguousCohortCount, group.PairingSuppressedCount,
 		group.Bytes, group.MaxLatencyMs, group.AvgLatencyMs, group.LineStart, group.LineEnd, formatSecondsToken(group.StartTs), formatSecondsToken(group.EndTs)))
-	renderIORequestLatencyDistributionDetail(*group.RequestLatencyDistribution, path+".request_latency_distribution", emit)
+	if group.RequestLatencyDistribution != nil {
+		renderIORequestLatencyDistributionDetail(*group.RequestLatencyDistribution, path+".request_latency_distribution", emit)
+	}
 	if group.Example != "" {
 		emit(fmt.Sprintf("  原始示例: %s", clampToken(group.Example)))
 	}

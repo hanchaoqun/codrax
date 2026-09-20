@@ -709,8 +709,27 @@ func blockPairingAccumulatorFor(accs map[string]*blockPairingAccumulator, source
 		EndTs:      ev.Ts,
 		Example:    clampString(ev.FieldText, 160),
 	}}
+	// Only admitted endpoint families own this ruler. Unknown/generic groups
+	// must not inherit the legacy helper's RQ default.
+	switch family {
+	case blockEndpointFamilyRQ, blockEndpointFamilyBIO:
+		acc.item.RequestResidenceCaliber = blockIORequestResidenceCaliber(family)
+	}
 	accs[key] = acc
 	return acc
+}
+
+// IORequestResidenceEndpoints decodes measured endpoint metadata for display.
+// It does not infer a ruler from labels, pair events, or grant causal authority.
+func IORequestResidenceEndpoints(caliber string) (start, done string) {
+	switch caliber {
+	case BlockIOWaitCaliberIssueToComplete:
+		return "block_rq_issue", "block_rq_complete"
+	case BlockIOWaitCaliberBIOQueueToComplete:
+		return "block_bio_queue", "block_bio_complete"
+	default:
+		return "", ""
+	}
 }
 
 func observeBlockPairingEnvelope(acc *blockPairingAccumulator, first, last Event) {

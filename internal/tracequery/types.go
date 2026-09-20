@@ -3043,6 +3043,9 @@ type StorageLatencySummary struct {
 	EntryName  string    `json:"entry_name,omitempty"`
 	Operation  string    `json:"operation,omitempty"`
 	Thread     ThreadRef `json:"thread,omitempty"`
+	// Endpoint ruler of this group, independent of whether a complete pair
+	// was measured. Empty means unspecified; it never establishes causal wait.
+	RequestResidenceCaliber string `json:"request_residence_caliber,omitempty"`
 	// All admitted pairs in this existing source/layer/identity group, not
 	// the Top-N request display and not a cross-group or causal aggregate.
 	RequestLatencyDistribution *IORequestLatencyDistribution `json:"request_latency_distribution,omitempty"`

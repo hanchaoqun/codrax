@@ -540,6 +540,7 @@ var traceNoteKeyGoldenRows = []string{
 	"recommended_sections|causal_rank|display_only",
 	"recommended_views|causal_rank|soft_consumer",
 	"recursive|causal_rank|soft_consumer",
+	"representative_thread|io_request_distribution|display_only",
 	"request_residence|io_latency|soft_consumer",
 	"request_residence_caliber|io_latency|soft_consumer",
 	"request_residence_clock_scope|io_latency|soft_consumer",

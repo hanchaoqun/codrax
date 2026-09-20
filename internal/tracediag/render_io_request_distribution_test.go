@@ -43,7 +43,7 @@ func TestIORequestDistributionFieldDisposition(t *testing.T) {
 	}
 }
 
-// Removing only the three reviewed additive fields must reproduce the prior
+// Removing only the reviewed additive fields must reproduce the prior
 // schema fingerprints. Nested distribution fields get their own explicit pin.
 func TestIORequestDistributionSchemaEvolutionIsAdditive(t *testing.T) {
 	for _, tc := range []struct {
@@ -57,6 +57,7 @@ func TestIORequestDistributionSchemaEvolutionIsAdditive(t *testing.T) {
 		}},
 		{reflect.TypeOf(tracequery.StorageLatencySummary{}), "0dd6c71d18f36308bc3771f2dd87270d3c02a194f0b3051ceaffc36a961a7559", map[string]bool{
 			"RequestLatencyDistribution|*tracequery.IORequestLatencyDistribution|request_latency_distribution,omitempty": true,
+			"RequestResidenceCaliber|string|request_residence_caliber,omitempty":                                         true,
 		}},
 	} {
 		t.Run(tc.typ.Name(), func(t *testing.T) {
@@ -78,6 +79,45 @@ func TestIORequestDistributionSchemaEvolutionIsAdditive(t *testing.T) {
 				t.Fatalf("unreviewed schema change: got=%s want=%s", got, tc.previous)
 			}
 		})
+	}
+}
+
+func TestStorageRequestResidenceCaliberRenderDisposition(t *testing.T) {
+	field, ok := reflect.TypeOf(tracequery.StorageLatencySummary{}).FieldByName("RequestResidenceCaliber")
+	if !ok || field.Type.Kind() != reflect.String || field.Tag.Get("json") != "request_residence_caliber,omitempty" {
+		t.Fatalf("endpoint ruler needs explicit optional scalar disposition: %+v", field)
+	}
+	if policySkipsDetailField(&nonEventDetailPolicy, reflect.TypeOf(tracequery.StorageLatencySummary{}), field.Name) {
+		t.Fatal("endpoint ruler belongs to the group detail, not the key-first aggregate")
+	}
+	for _, tc := range []struct{ caliber, endpoints string }{
+		{tracequery.BlockIOWaitCaliberIssueToComplete, "block_rq_issue → block_rq_complete"},
+		{tracequery.BlockIOWaitCaliberBIOQueueToComplete, "block_bio_queue → block_bio_complete"},
+		{"future_caliber", "未说明；不据事件族推定耗时口径"},
+	} {
+		for _, measured := range []bool{false, true} {
+			group := tracequery.StorageLatencySummary{Layer: "block", Event: "block_rq", RequestResidenceCaliber: tc.caliber, UnpairedDoneCount: 1}
+			if measured {
+				group.RequestLatencyDistribution = &tracequery.IORequestLatencyDistribution{SampleCount: 1}
+			}
+			r := tracequery.Result{WindowStats: &tracequery.WindowStats{StorageLatencyByLayer: []tracequery.StorageLatencySummary{group}}}
+			before, _ := json.Marshal(r)
+			for _, policy := range []*detailRenderPolicy{nil, &nonEventDetailPolicy} {
+				var lines []string
+				renderResultDetailWithPolicy(&r, func(s string) { lines = append(lines, s) }, policy)
+				out := strings.Join(lines, "\n")
+				if !strings.Contains(out, tc.endpoints) || strings.Count(out, "请求起止事件:") != 1 || strings.Contains(out, tc.caliber) {
+					t.Errorf("ruler lost, duplicated or internal enum leaked: %s", out)
+				}
+				if strings.Contains(out, "P99=") != measured {
+					t.Errorf("nil/real zero distribution conflated: %s", out)
+				}
+			}
+			after, _ := json.Marshal(r)
+			if !bytes.Equal(before, after) {
+				t.Fatal("endpoint rendering mutated measurement")
+			}
+		}
 	}
 }
 

@@ -728,7 +728,7 @@ func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string),
 	}
 	if t == reflect.TypeOf(tracequery.StorageLatencySummary{}) {
 		group := v.Interface().(tracequery.StorageLatencySummary)
-		if group.RequestLatencyDistribution != nil {
+		if group.RequestLatencyDistribution != nil || group.RequestResidenceCaliber != "" {
 			renderStorageLatencyDistributionGroup(group, path, emit)
 			return
 		}

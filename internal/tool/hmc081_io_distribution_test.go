@@ -291,7 +291,7 @@ func TestHMC081DistributionDiscreteNotesAreRegisteredDisplayOnlyAndKeepZeroIdent
 				t.Fatalf("measurement note %q gained a parser/gate or is unregistered: %+v", key, registered)
 			}
 		}
-		if notes["selected_window"] != "1.000000..2.000000" || notes["layer"] != "f2fs" || notes["event"] != "f2fs_direct_io" || notes["dev"] != "12,80" || notes["op"] != "R" {
+		if notes["selected_window"] != "1.000000..2.000000" || notes["layer"] != "f2fs" || notes["event"] != "f2fs_direct_io" || notes["dev"] != "12,80" || notes["op"] != "R" || notes["thread"] != "reader-40" || !strings.Contains(row.Summary, "thread=reader-40") {
 			t.Fatalf("request distribution lost exact group/query identity: %+v", notes)
 		}
 		if row.Role != types.AnswerAggregateRoleSupportingCoverage || row.Confidence != .72 || row.Unit != "ms" {
@@ -322,9 +322,24 @@ func TestHMC081PublicBlockGroupIncludesMultipleIssuersWithoutSinglePIDClaim(t *t
 	if payload.WindowStats == nil || len(payload.WindowStats.StorageLatencyByLayer) != 1 || payload.WindowStats.StorageLatencyByLayer[0].RequestLatencyDistribution.SampleCount != 2 {
 		t.Fatalf("block group did not retain both issuers: %+v", payload.WindowStats)
 	}
+	var summary strings.Builder
+	writeTraceStorageLatency(&summary, payload.WindowStats.StorageLatencyByLayer[0])
+	for _, want := range []string{"issuers=all", "block_rq_issue→block_rq_complete", "samples=2", "p99=9.920"} {
+		if !strings.Contains(summary.String(), want) {
+			t.Errorf("tool group summary lost %q: %s", want, summary.String())
+		}
+	}
+	if strings.Contains(summary.String(), "thread=") {
+		t.Fatalf("tool group summary minted a single-thread population: %s", summary.String())
+	}
+	seen := 0
 	for _, row := range result.Observations {
 		if row.Predicate != "storage_latency_by_layer" {
 			continue
+		}
+		seen++
+		if strings.Contains(row.Summary, "thread=") || !strings.Contains(row.Summary, "issuers=all") {
+			t.Errorf("observation contradicts group population: %+v", row)
 		}
 		for _, note := range row.RichNotes {
 			if strings.HasPrefix(note, "storage_group_pid=") || strings.HasPrefix(note, "storage_group_inode=") {
@@ -334,12 +349,38 @@ func TestHMC081PublicBlockGroupIncludesMultipleIssuersWithoutSinglePIDClaim(t *t
 		for _, opts := range []types.ObservationPromptProjectionOptions{types.DefaultObservationPromptProjectionOptions(1), types.SemanticReviewObservationPromptProjectionOptions(1)} {
 			projected := types.ProjectObservationPromptRecords([]types.ObservationRecord{row}, nil, nil, opts)
 			context := projected[0].Summary + "\n" + strings.Join(projected[0].Notes, "\n")
-			for _, want := range []string{"samples=2", "p99=9.920", "issuers=all", "dev=8,0", "event=block_rq", "op=R"} {
+			for _, want := range []string{"samples=2", "p99=9.920", "issuers=all", "dev=8,0", "event=block_rq", "op=R", "block_rq_issue→block_rq_complete"} {
 				if !strings.Contains(context, want) {
 					t.Fatalf("compact context lost cross-issuer group %q: %+v", want, projected)
 				}
 			}
 		}
+	}
+	if seen == 0 {
+		t.Fatal("no public group observations")
+	}
+}
+
+func TestHMC081StorageEndpointDisplayDoesNotInferFromEvent(t *testing.T) {
+	for _, caliber := range []string{"", "future_caliber"} {
+		group := tracequery.StorageLatencySummary{Layer: "block", Event: "block_rq", RequestResidenceCaliber: caliber,
+			RequestLatencyDistribution: &tracequery.IORequestLatencyDistribution{SampleCount: 1}}
+		var summary strings.Builder
+		writeTraceStorageLatency(&summary, group)
+		for _, surface := range []string{summary.String(), traceQueryTypedStorageLatencySummary(group), strings.Join(traceQueryStorageDistributionNotes(group, tracequery.WindowStats{}), "\n")} {
+			for _, absent := range []string{"block_rq_issue", "block_rq_complete", "future_caliber", "thread="} {
+				if strings.Contains(surface, absent) {
+					t.Errorf("display inferred endpoint or population from event: %s", surface)
+				}
+			}
+			if !strings.Contains(surface, "issuers=all") {
+				t.Errorf("unknown endpoint ruler erased known group identity: %s", surface)
+			}
+		}
+	}
+	key, ok := types.TraceNoteKeyLookup("representative_thread")
+	if !ok || key.Carrier != types.TraceNoteCarrierDisplayOnly {
+		t.Fatalf("representative gained authority: %+v", key)
 	}
 }
 
