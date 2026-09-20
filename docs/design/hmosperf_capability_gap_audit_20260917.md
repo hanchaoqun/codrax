@@ -770,4 +770,23 @@ finalizer明细行将原QueryScope中的选择窗/行范围与事件实际出现
 
 ### 29.3 验收与剩余范围
 
-末版整仓、race、独立复核、固定构建及恰好2并行×1生产回放收据待补；定向绿不预签这些验收。下一批优先级仍为已接受业务焦点/原子补齐，随后恢复mixed-source读＋Python写apply；不能用本批Trace双例代替跨模式验证。此批不动显式用户窗、链上业务线索、S/D实际IO阻塞、根因旁路、活跃流及600/300/600秒等待。稳定清单仍13/79交付、66开放；本批仅属于HMC-08.1/16.4/16.5中的子缺陷，不替整个父任务销账。
+实现固定为`49f971733a05`，独立复核未发现必修遗漏。coverage末版三包定向通过（types1.127s、agent2.144s、tool1.673s，`/tmp/hmc-io-detail-context-green-final-20260920.log`），race×3通过2.744s/3.573s/4.169s（`/tmp/hmc-io-detail-context-race-20260920.log`）；fold及相邻IO路径race×3通过tool6.460s（`/tmp/hmc-io-rulers-fold-race-20260920.log`）。coverage有效行为RED另留`/tmp/hmc-io-detail-context-red-20260920.log`。干净构建通过`/tmp/hmc-io-rulers-build-20260920.log`，版本实测`49f971733a05`、无dirty。
+
+末版全仓`/tmp/hmc-io-rulers-final-full-20260920.log`exit0：87个测试包通过（41缓存、46实际重跑）、13个无测试包、零FAIL；agent76.631s/tool370.318s/types45.054s/tracequery96.641s/tracediag5.669s。未加run/skip筛选，平台条件skip不冒充实机验证。恰好2并行×1生产回放已结束，固定构建、未改case/oracle，结果根`eval/results/hmc_io_rulers_replay_20260920`：机器0/2、人工0/2。业务328秒、分布671秒；[逐例审计](../../eval/parallel_selected_summary_hmc_io_rulers_replay_20260920_manual_audit.md)保留全部失败原因及过程。实现49f971733已推送main，不以代码回归绿代销答案FAIL。
+
+业务仍把52ms全段账户套入50ms业务窗口，缺35ms请求时长和因果投影；分布三组八值正确，但结构表缺columns、RQ/BIO端点解释及跨层/总体判断错误。业务本轮无折叠投影，两例profile均无io_latency，专门IO范围桥接未进入最终上下文，因此本批live不充作两条新显示路径的命中证明。分布实际8次completion＝5次硬拒绝＋1次DOWNGRADED＋2次接受，日志重复计数10不当10次硬拒绝；第二dispatch错误手算999ms早于后续修补，最终数表仍取原生正确值。两份必选旁路都正常生成schema2空结果，纯事实合同未激活不等于文件丢失。
+
+下一批先补宽泛count_or_duration分类下已查询IO事实的计量上下文，再推进已接受业务焦点/原子补齐，随后恢复mixed-source读＋Python写apply；不能修改family硬门或自动铸造因果意图，不能用本批Trace双例代替跨模式验证。另留P1观察：预处理模型提取的MetaDuration/Frame时长被下游描述为直接定量观测，当前例子数值恰好正确，未取得错答因果复现，不宣称已修。本批不动显式用户窗、链上业务线索、S/D实际IO阻塞、根因旁路、活跃流及600/300/600秒等待。稳定清单仍13/79交付、66开放；本批仅属于HMC-08.1/16.4/16.5中的子缺陷，不替整个父任务销账。
+
+### 29.4 下一批HMC-02.4实施接缝（只读设计，未实施）
+
+为避免下一轮重查，独立审计并核对真实代码，细分退出条件：
+
+- [ ] completion新增可选业务实例引用，只收已发布token，不接受来源/TID/窗口的独立副本；复用`TraceBusinessSpanRefCurrent`的原物理收据及本轮代次。没有选择不自动取首个/最长，不从completion散文推选择。
+- [ ] `EmitInvestigationComplete.Execute`全部拒绝/降级之后，才将pending焦点与accepted generation同锁写入；`Success=true`还可能是DOWNGRADED，不能当成功准入。后续accepted completion没有选择时，明确清掉旧焦点，不能借retained reason复活。
+- [ ] 并行分支的工具保留与焦点准入分开。`MergeExploreForkPublishedTools`允许保留已完成事实和导航票据，不可保留败方/取消方执行焦点。特别是现有完整`MergeExploreFork`发生在检查worker错误之前，不能仅凭发生了该merge就签焦点成功：须有本fork新接受的completion、worker成功、有效输出且父上下文未取消。此为新接线必须保护的边界，不把现有closure行为未经复现另记成事故。
+- [ ] ResetTurnA、ResetInvestigationComplete、explore重新打开时使旧选择失效；序列化/TurnA可有展示镜像，但不可从它还原执行权限。多个成功分支给出不同实例时明确冲突，不按数组顺序或最后写入静默胜出。
+- [ ] `RunTraceQuerySystemSupplement`目前分三处选source/target/window；有有效accepted引用时使用`{view,business_span_ref}`原子消费，复用公开查询前后来源校验。无选择沿旧通道，显式用户范围/目标仍优先，不能拼接一半引用一半用户窗口，也不自动新增因果意图。
+- [ ] 家族缺失检测须限同物理来源代次、TID及完整实例窗，不能让旧51ms结果抑制50ms业务窗补齐。保留现有view选择、预算、补齐结果专槽和编排hook，L1读调度字节红线不动。
+
+实施正反矩阵必须包括串行接受/拒绝/降级、接受后worker失败/取消、并行败方工具可见而焦点不可见、不同成功选择冲突、缺选择清除、旧代次/换inode/JSON重放、用户显式窄窗/多窗/全域约束、不同源和旧窗结果不能满足本实例家族、无引用旧路径不变。以上均是下一批任务，不是本批已实现的功能。
