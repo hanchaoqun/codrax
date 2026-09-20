@@ -468,7 +468,7 @@ search-only不可列举父目录另经只读复核：目录列举用于真实目
 
 后续验收从来源/family/dev/op分组的完整请求总体入手，空总体与真实0ms区分，11条请求及Top8之外变化必须影响分位数；缺端点/歧义/跨来源/跨层不能进入样本，RQ/BIO/file不混成双份总体。请求驻留分布只作观测；链上响应影响仍遵守`query.go:6766`的completion→issuer wake及真实S/D阻塞证明，大分位值、后台IO不晋升主因。本节只是源码审计/施工前置，未改代码、未跑新live、不标08.1已实现。
 
-## 23. HMC-08.1首片：精确组内IO请求耗时分布（施工与验收中）
+## 23. HMC-08.1首片：精确组内IO请求耗时分布（实现已推送，生产回放单记）
 
 接续§22.1，参考只读核对`core/preprocess/io_ops.py:30–104`：全DataFrame合格latency列先统计，Top-N仅明细；采用`p*(n-1)`线性插值。`config/indicators/io/io_latency.yaml:123`的start-in-window取样没有照搬，保持本项目既有相交完整请求与行窗优先合同。也未复用/改变其它统计的离散`percentileFloat64`。
 
@@ -488,8 +488,41 @@ search-only不可列举父目录另经只读复核：目录列举用于真实目
 
 冻结末版全仓`go test -p 2 ./...`exit0：87个测试包（77个缓存）、13个无测试包、零FAIL；agent70.071s、tool358.052s、types31.641s（`/tmp/hmc081-full-final-20260920.log`）。代码/测试未加run或skip过滤。初轮`/tmp/hmc081-full-20260920.log`唯一失败为上述多窗回退；其余86包通过，包含tracequery93.986s、tracediag6.133s、hitraceconv129.727s。修复后的末版不覆盖原失败日志。
 
-本片只覆盖既有精确行组（generic仍含inode/PID），不声称全层跨线程上卷或全采集完整性；这些仍需合格原始样本与采集覆盖，不可二次聚合已发布分位数。提交推送、2并行×1生产回放收据后续追加；未运行/未完成的验收不标绿。任务总数保持13交付/66开放。
+主体`2887fb8ae`已提交推送main（25文件），对应干净原生构建通过（`/tmp/hmc081-build-clean-20260920.log`）。2并行×1回放于2026-09-20T02:57:02Z启动，固定该构建快照，批次外层上限1800秒/例；未更改产品600/300/600秒超时或活跃流策略。回放逐例收据见后续§23.2，不预先声明PASS。
+
+本片只覆盖既有精确行组（generic仍含inode/PID），不声称全层跨线程上卷或全采集完整性；这些仍需合格原始样本与采集覆盖，不可二次聚合已发布分位数。任务总数保持13交付/66开放。
 
 ### 23.1 后续08.2/08.3只读前置
 
 再次逐行检查参考`core/preprocess/io_ops.py:111–240`，不能直接移植其名字对应的语义：`compute_io_concurrency`统计与每个20ms桶相交的请求数，不是瞬时在途深度；同桶内先后发生的0..1ms、2..3ms两个请求，桶计数为2，但最大在途深度只有1。后续08.3应从同源同层合格起止构建半开区间sweep，独立披露峰值、时间加权均值及未闭合/歧义边界，原桶触达数可作为另一个指标而非换名冒用。`compute_io_size_distribution`以64KB阈值命名random/sequential，也只能借鉴尺寸分桶，不能据请求大小推断地址访问顺序。08.2必须分别声明请求/实际字节、发起/完成计数与窗口墙钟分母；本节仅施工前置，未据此宣称新增能力或销账。
+
+### 23.2 生产两例回放：机器1/2、人工0/2通过
+
+固定`2887fb8ae324`构建，2并行×1，分布485秒、业务272秒；无第三例追绿，无原答案/oracle改写。自动结果见[原始summary](../../eval/parallel_selected_summary_hmc081_io_distribution_20260920.md)，逐例过程/上下文/答案/图/旁路见[人工审计](../../eval/parallel_selected_summary_hmc081_io_distribution_20260920_manual_audit.md)。结果日志根`eval/results/hmc081_io_distribution_20260920`；文件在本机保留，不把私有运行原文纳入仓库。
+
+| 追踪项 | 已核实证据 | 处置/剩余范围 |
+|---|---|---|
+| 23-R1 / HMC-02、18：并行丢证，P1 | 第二路`window_stats`已发表正确RQ读/写、BIO三组完整统计；别路完成取消该路后，ParseOutput未写快照，且非胜出分支整个被合并器跳过。finalizer没有这份查询。不是模型波动 | §23.3只保留完成的producer数据，保留取消/完成合同；确定性回归通过，修后live仍待验证 |
+| 23-N1：成文丢分位数嫌疑已否证 | 真实公开`TraceQuery → TurnA → BuildInitialInstruction`旧generic/priority行已有三组全部八项指标、身份/窗/非阻塞边界；`p99=`与内部`io_request_p99_ms=`是等价显示，不是丢字段 | 撤回试验性重复提示段；仅加正向回归。不得把要求新键形的失败测试算系统红转绿 |
+| 23-R2 / HMC-04.3、02.4：业务实例绑定，P1 | 业务回答有Trace投影、35ms请求/31ms S态等待/1ms调度/47ms后台；但仅查询宽窗，自动补齐因`no_typed_target`跳过，root-rank查询0次 | 需通用业务实例→目标/窗口结构绑定；探索PID不能静默升级为用户目标。原有硬门不撤 |
+| 23-R3 / HMC-16、18：业务量纲/结论，P1 | 1..1.050的50ms业务区间被说成1..1.051；把56ms查询窗的52ms状态账户套入业务窗；CPU执行叫请求耗时，字节叫扇区，以“等worker”症状替代链上瓶颈 | 模型已有正确span证据，不能改parser迎合错答；继续异构验收，系统只保留准确上下文，不代写主因 |
+| 23-R4 / HMC-01.2、16.4：修补形式，P2 | 两例都把`facet_ids`当原子edit名；当前教学已明示精确`add_facet_id`或完整`replace_blocks`，业务例还有同块重复操作 | 未发现必带/必拒合同冲突；不自动改名、不开放任意edit、不加重试。可按本轮schema生成动作提示；实际wire schema日志尚不完整，不冒称抓包核验 |
+| 23-R5 / HMC-18：探索误配对/统计故事，P1 | 模型把歧义同扇区请求猜FIFO；最终RQ17/BIO5、P99=2/8且丢写组。第一路重发时已从正确/部分正确值漂移，系统低增量完成又先结束该路 | 首先补R1证据交接；错误早收敛属于另一层，不能以保留工具结果冒称全部解决，也不能硬扫描正文修数 |
+
+业务机器PASS只是烟测命中，人工FAIL；分布机器/人工均FAIL。两份`.root-causes.json`都生成，schema2空数组及`no_selectable_typed_on_chain_candidates`，不是格式/落盘错误。分布样本没有链证据，空旁路符合证据边界；业务例还需目标/查询组合，不能因此凭空铸候选。分布未请求图，表格“列1…8”仍缺指标/组身份，人工不通过；业务Trace文本投影存在，本批不宣称Mermaid验收。
+
+### 23.3 已完成并行工具结果的独立保留（确定性验收通过，修后live待验）
+
+修复范围是通用并行生命周期，不为IO例子特判。原`explore_parallel_dispatch.go`在单路提前完成和多路共同完成两条路径整体跳过非胜出分支；正在生成中的分支被取消后，`ParseOutput`还可能在第一处取消检查退出。工具成功发表并不等于其模型任务已完成，也不应被一起丢掉。
+
+新增数据专用合并从已完成分支快照的增量及派发工具缓冲中读取，只接纳成功的确定性运行时观测、命令测量、历史记录、读取覆盖、工件读取和来源清单等producer-owned typed载体。裸stdout、只有RawRef、失败工具及模型emit回执不进入该通道；不合并败方的完成声明、聚合结论、探索笔记、修复请求和执行信号。精确重复结果去重，沿用现有结果容量/截断说明及同代次原生读取收据注册，取消后不再跑推理式ParseOutput。不动readloop、root-cause选举、窗口/链资格、JSON硬门或活跃流超时。
+
+新并行公开回归覆盖正常/取消×winner先后合并4组合，基线均因成功工具缺失确定性失败；修后保留原10.9 typed值和独立命令计数，失败/裸文本/模型结论不进入，winner信号及已接受完成理由不变。另覆盖collective收敛、容量内重复merge不重入、原生来源读取收据保留及该读取收据旧代次不能复活。不是全工具全代次隔离证明；仍受320条/2MiB快照上限约束，不宣称无限保留。
+
+独立复核发现派生交接索引未同步：winner先合并时，后保留的工具虽进入ToolResults，extractor读取的HandoffCarriers却缺ObservationRefs。四组合测试中仅两条winner-first确定性RED，已从保留工具、父已接受证据及父已有载体重建镜像；不复制败方显式载体，不合并败方EvidenceClosure。真实RED/GREEN/race收据分别为`/tmp/codrax-parallel-handoff-review.DQH26v/carrier-mirror-{red,green,race}.log`，末版race覆盖types与orchestrator，通过2.033s/2.283s。首轮工具缺失RED仅保留工具运行回执，未另存日志，不借用镜像RED代签。
+
+公开最终指令回归`TestPublishedIOGroupDistributionsReachFinalizer`在因果/有限事实两种scope验证八项统计、RQ/BIO/读写身份、歧义/缺完成披露与宽窗不进入窄窗ledger，且原ledger字节不变；连同既有业务/S态IO/双窗保护race×3通过6.516s（`/tmp/hmc081-existing-finalizer-context-20260920.log`）。这是既有显示能力的正向保护，不是第二个显示缺口修复。§23.2的原始生产FAIL保持不变，修后live尚未运行。
+
+全仓`go test -p 2 ./...`exit0：87个测试包（37个缓存）、13个无测试包、零FAIL；agent70.628s、orchestrator19.088s、repl63.843s、tool390.853s、tracequery101.547s、types33.882s（`/tmp/hmc081-sibling-handoff-full-20260920.log`）。该轮启动在最后镜像修订之前，不冒称末版冻结后的全仓结果；修订冻结后三个受影响包以`-count=1`完整重跑，通过types45.514s、orchestrator19.347s、agent69.544s（`/tmp/hmc081-sibling-handoff-affected-final-20260920.log`），另有上述镜像末版race。未加run/skip筛选到这两轮整包命令；环境/平台条件Skip不视为实机已验。
+
+末版原生构建通过（`/tmp/hmc081-sibling-handoff-build-20260920.log`）。提交前重新fetch main为0/0；本批11个文件包含数据交接/保护测试及本次双例生产审计，不提交私人完整日志或原始采集。稳定任务清单仍13/79交付、66开放，未把横切生命周期修复当成HMC-02/18整类关闭。后续先验证已完成工具能进入实际成文，再分别处理业务实例绑定与错误早收敛，不把模型数值错误归零。

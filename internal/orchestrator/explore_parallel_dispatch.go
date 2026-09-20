@@ -201,6 +201,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallelWithHintKind(
 	for i := range results {
 		res := results[i]
 		if earlyConverged && winningConvergedIndex >= 0 && res.index != winningConvergedIndex {
+			o.preserveExploreSiblingPublishedTools(res.fork, merged)
 			if res.err != nil {
 				if errors.Is(res.err, context.Canceled) {
 					continue
@@ -213,6 +214,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallelWithHintKind(
 			continue
 		}
 		if collectiveConverged && !collectiveConvergedIndexes[res.index] {
+			o.preserveExploreSiblingPublishedTools(res.fork, merged)
 			if res.err != nil {
 				if errors.Is(res.err, context.Canceled) {
 					continue
@@ -254,6 +256,18 @@ func (o *Orchestrator) dispatchExploreWindowsParallelWithHintKind(
 		return merged, firstErr
 	}
 	return merged, nil
+}
+
+func (o *Orchestrator) preserveExploreSiblingPublishedTools(fork *types.MutableState, merged *agent.StageOutput) {
+	results := o.busCtx.Mutable.MergeExploreForkPublishedTools(fork)
+	if len(results) == 0 {
+		return
+	}
+	// Do not apply the losing StageOutput: it can contain model conclusions,
+	// repairs and signals. Only the successful producer payloads cross here.
+	o.busCtx.ToolResults = append(o.busCtx.ToolResults, results...)
+	merged.ToolResults = append(merged.ToolResults, results...)
+	logging.Debug("[orchestrator] retained %d completed typed tool result(s) from non-winning explore sibling", len(results))
 }
 
 func (o *Orchestrator) runExploreAgentOnFork(

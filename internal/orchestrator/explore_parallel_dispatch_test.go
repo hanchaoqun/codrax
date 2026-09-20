@@ -837,6 +837,10 @@ func TestDispatchExploreWindowsParallel_CollectiveLaneConvergenceCancelsSupportS
 					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
 				}, nil
 			case "n1_evidence_t2":
+				ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+					ToolName: "exec_command", Success: true,
+					CommandMeasurement: &types.ToolCommandMeasurement{Kind: types.ToolCommandMeasurementKindCount, Value: 7, Origin: types.AnswerEvidenceOriginCommandMeasurement},
+				})
 				supportStarted.Do(func() { close(supportStartedCh) })
 				<-ctx.Context().Done()
 				atomic.StoreInt32(&supportCanceled, 1)
@@ -901,6 +905,9 @@ func TestDispatchExploreWindowsParallel_CollectiveLaneConvergenceCancelsSupportS
 	got := []string{o.busCtx.StageReports[0].Findings, o.busCtx.StageReports[1].Findings}
 	if strings.Join(got, "|") != "vcs owner report|source owner report" {
 		t.Fatalf("stage reports = %+v, want owner reports only", got)
+	}
+	if ta := o.busCtx.Mutable.TurnAArtifacts(); ta == nil || len(ta.ToolResults) != 1 || ta.ToolResults[0].CommandMeasurement.Value != 7 {
+		t.Fatalf("collective convergence lost completed support tool: %+v", ta)
 	}
 }
 

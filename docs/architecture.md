@@ -132,6 +132,7 @@ analyzer 一次性产出整张 `TaskGraph`（DAG），编排器（`internal/orch
 
 1. **就绪窗口收集**：扫描所有 pending / requeued 节点，对每个节点的 `EntryConditions`（`[]Criterion`）调用 `criterion.Eval` 判断是否满足；满足的非 finalize 节点合并成**一次** explorer dispatch。
 2. **窗口分派**：explorer 在一次 ReAct 循环里同时为窗口内所有节点收集证据，结束后系统把节点状态推进。
+   并行探索提前收敛会取消不再需要的分支，但不丢弃它们此前已成功发表的确定性工具数据：合并器独立保留producer-owned typed观测/测量/读取覆盖及原生来源收据，沿用现有容量与代次检查。未完成分支的模型结论、聚合、笔记、修复请求和执行信号不随数据合入；取消后也不再为挽救数据重跑推理式解析。
 3. **Shape-guard 短路**：编排器记录每次 pure-read 检查的 `envShape`（八维 int 指纹：Evidence / AnswerSymbols / AnswerChains / ToolResults / ReadSet / PendingReads / DecidedHypotheses / PrescanBytes 计数）。新一轮检查时若 shape 未变，直接跳过——避免"同一组输入反复触发同一个 predicate" 的死循环。
 4. **success criterion 评估**：分派完成后，每个窗口节点的 `SuccessCriteria` 用 `criterion.Eval` 判定。通过 → done；不通过 → requeued，沿 `EdgeValidationFeedback` 边只 requeue 必要的上游 evidence 节点（精细回溯，不重启整个窗口）。
 5. **Stuck 逃生**：validate 节点的 SC 失败时，系统记录 envShape；如果下次失败时 shape 与上次相同（重新调查没带来新证据），系统判定"此路不通"，给所有还是 HypUnknown 的假设注入诚实的 `HypInconclusive` verdict + stuck rationale，标 done 不再 requeue。
