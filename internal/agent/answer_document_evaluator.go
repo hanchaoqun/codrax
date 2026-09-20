@@ -6599,6 +6599,19 @@ func answerDocRuntimeFactAuthorityRowsByKey(records []types.ObservationRecord, f
 				}
 			}
 		}
+		// Causal interpretation needs individual request/closed-wait rulers,
+		// not just storage aggregates. Richer supporting aggregates must not
+		// consume every remaining slot before those witnesses reach the model.
+		// Keep the existing coverage reservations, cap, target preference and
+		// scoped deduplication; this is display selection, not causal authority.
+		// Finite-fact requests retain their existing family selection policy.
+		if rm != nil && rm.RuntimeQuestionProfile != nil && rm.RuntimeQuestionProfile.Scope == types.RuntimeQuestionScopeCausalDiagnosis {
+			for _, record := range prioritized {
+				if record.Predicate == "io_latency" {
+					add(record)
+				}
+			}
+		}
 	}
 	for _, record := range prioritized {
 		add(record)

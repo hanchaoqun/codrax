@@ -27,6 +27,7 @@ var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[stri
 	},
 	reflect.TypeOf(tracequery.WindowStats{}): {
 		"SchedulerHeadCoverage": true, "WakeupTargetCPUIntegrity": true, "Caveats": true,
+		"StorageLatencyOverflowGroups": true, "StorageLatencyOverflowPairedCount": true,
 	},
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): {
 		"Rows": true, "ValidIdentityRows": true, "NumericRows": true,
@@ -488,6 +489,10 @@ func renderNonEventKeyFirstSummaries(res *tracequery.Result, emit func(string)) 
 			stats.WorkqueueActivity, stats.DMAFenceActivity); line != "" {
 			emit(line)
 		}
+		if stats.StorageLatencyOverflowGroups > 0 || stats.StorageLatencyOverflowPairedCount > 0 {
+			emit(fmt.Sprintf("- IO请求统计展示范围: 已展示分组=%d 未展示分组=%d 未展示已配对请求=%d；各组分布按完整配对总体计算，请求耗时不等于线程阻塞或响应耗时。",
+				len(stats.StorageLatencyByLayer), stats.StorageLatencyOverflowGroups, stats.StorageLatencyOverflowPairedCount))
+		}
 	}
 	if bundle := res.FrameRootCauseBundle; bundle != nil {
 		if line := windowPairingSummary("frame_root_cause_bundle", nil,
@@ -918,7 +923,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// EVOLUTION RECORD (2026-09-03, colleague_merge_audit §40.42 ④b): WindowStats
 	// gained legacy_carrier_row_count (original-name visibility carriers of an
 	// artifact converted before V6-2); the fingerprint moves with it.
-	reflect.TypeOf(tracequery.WindowStats{}): "99190b281118d0e07633db78707e85c985fc5014c7e793fc53a886583467a63b",
+	// HMC-08.1 (2026-09-19): StorageLatencyOverflowGroups and
+	// StorageLatencyOverflowPairedCount disclose omitted storage groups/pairs
+	// before bulk detail. They have one key-first display-range owner and are
+	// skipped in reflective detail; they neither combine groups' distributions
+	// nor establish scheduler wait or causal authority. The evolution witness
+	// proves these are the only WindowStats schema additions.
+	reflect.TypeOf(tracequery.WindowStats{}): "ba9df90dfb29d8ec606633961a517d5553522d7d2d620b2ce07b11b4eb6338f1",
 	// B1638b1 (2026-09-09): TimelineResult adds optional MeasurementDomain.
 	// It describes a constructed scheduler partition, NOT capture completeness
 	// or causal authority. Its nine scalar fields stay in original detail;
@@ -936,11 +947,25 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// WeightStatus discloses whether value counts share an exact cohort
 	// denominator or are sample-count-only after mixed/overflow withdrawal.
 	// It is a scalar key-first quality field; no bulk/duplication lane changes.
-	reflect.TypeOf(tracequery.PerfQualitySummary{}):    "fdb13dffd367d3977d395372c51005ddb537109a7a264fb11bc9d27bde1c50b9",
-	reflect.TypeOf(tracequery.StorageLatencySummary{}): "0dd6c71d18f36308bc3771f2dd87270d3c02a194f0b3051ceaffc36a961a7559",
-	reflect.TypeOf(tracequery.InterruptActivity{}):     "697433793ee39e4a426d249ed9b1559ea6a11d1ca76a569bb30fe9159f45617f",
-	reflect.TypeOf(tracequery.WorkqueueActivity{}):     "ed0cdfade0931978ac0def62cbd7c55d226ec943a4e33a43154e3d09a6e3bb70",
-	reflect.TypeOf(tracequery.DMAFenceActivity{}):      "c1094517e8c9f158eee1c47dceb51d7a20d6f686a4c07a839d5854e165ed1c1e",
+	reflect.TypeOf(tracequery.PerfQualitySummary{}): "fdb13dffd367d3977d395372c51005ddb537109a7a264fb11bc9d27bde1c50b9",
+	// HMC-08.1: RequestLatencyDistribution is optional and follows its
+	// source/family/device/operation/thread identity before bulk children. No skip or
+	// separate distribution owner is added. The exact-type child renderer
+	// explicitly retains SampleCount and seven duration fields even at zero,
+	// uses fixed-point milliseconds, and renders QuantileMethod, SamplePolicy
+	// and LatencyCaliber as readable scope labels. Unknown labels stay unknown;
+	// nil is absent. These are request-residence statistics, not response time
+	// or a root-cause election. For nonnil distributions only, a typed group
+	// renderer keeps source/family/device/operation/inode/thread cues before
+	// values and renders pairing fields/coordinates/example directly; its
+	// engine-owned Summary is not repeated because it duplicates the same
+	// numbers. No prose scanning and no legacy-nil rendering change.
+	// Pin the nested eleven-field schema separately.
+	reflect.TypeOf(tracequery.StorageLatencySummary{}):        "7e5bb9ee0e9d6c9eb21982d0ca7b31fb336c1c014470b528838fa98c3f0e5af1",
+	reflect.TypeOf(tracequery.IORequestLatencyDistribution{}): "5bb041618ee8da96adf50a9cf9636fa6920e2d5d7d32ea10f94c54d18bff32ba",
+	reflect.TypeOf(tracequery.InterruptActivity{}):            "697433793ee39e4a426d249ed9b1559ea6a11d1ca76a569bb30fe9159f45617f",
+	reflect.TypeOf(tracequery.WorkqueueActivity{}):            "ed0cdfade0931978ac0def62cbd7c55d226ec943a4e33a43154e3d09a6e3bb70",
+	reflect.TypeOf(tracequery.DMAFenceActivity{}):             "c1094517e8c9f158eee1c47dceb51d7a20d6f686a4c07a839d5854e165ed1c1e",
 	// XLANE-3 件1 (§29.104.2 定谳③, 2026-07-16) schema review (R2' 第 7 处):
 	// RootCauseRankResult gained BoardParamsFingerprint (string, the rank
 	// BOARD identity triple's params half — 8-hex sha256 over the normalized

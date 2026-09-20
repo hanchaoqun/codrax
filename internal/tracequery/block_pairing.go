@@ -331,8 +331,9 @@ type blockPairingLane struct {
 }
 
 type blockPairingAccumulator struct {
-	item           StorageLatencySummary
-	totalLatencyMs float64
+	item               StorageLatencySummary
+	totalLatencyMs     float64
+	requestLatenciesMs []float64
 }
 
 type blockPairingResult struct {
@@ -662,6 +663,7 @@ func computeBlockIOLatencies(idx *Index, q Query, max int, providedIntegrity ...
 		if acc.item.PairedCount > 0 {
 			acc.item.AvgLatencyMs = acc.totalLatencyMs / float64(acc.item.PairedCount)
 		}
+		acc.item.RequestLatencyDistribution = requestLatencyDistribution(acc.requestLatenciesMs)
 		acc.item.Summary = storageLatencySummaryText(acc.item)
 		ambiguous += acc.item.AmbiguousCohortCount
 		suppressed += acc.item.PairingSuppressedCount
@@ -779,6 +781,7 @@ func accountBlockPairingTransition(out *blockPairingResult, accs map[string]*blo
 	})
 	acc.item.PairedCount++
 	acc.totalLatencyMs += durationMs
+	acc.requestLatenciesMs = append(acc.requestLatenciesMs, durationMs)
 	if durationMs > acc.item.MaxLatencyMs {
 		acc.item.MaxLatencyMs = durationMs
 	}
@@ -817,8 +820,13 @@ func pairingOpenCohortIntersectsIndex(first Event, idx *Index, q Query) bool {
 }
 
 func storageLatencySummaryText(item StorageLatencySummary) string {
-	return fmt.Sprintf("layer=%s event=%s dev=%s op=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d ambiguous_cohorts=%d pairing_suppressed=%d max_latency=%.3fms",
+	summary := fmt.Sprintf("layer=%s event=%s dev=%s op=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d ambiguous_cohorts=%d pairing_suppressed=%d max_latency=%.3fms",
 		item.Layer, item.Event, item.Dev, item.Operation, item.Count, item.PairedCount,
 		item.UnpairedStartCount, item.UnpairedDoneCount, item.AmbiguousCohortCount,
 		item.PairingSuppressedCount, item.MaxLatencyMs)
+	if d := item.RequestLatencyDistribution; d != nil {
+		summary += fmt.Sprintf("; request latency in this group (ms): samples=%d min=%.3f mean=%.3f max=%.3f p50=%.3f p90=%.3f p95=%.3f p99=%.3f; complete intersecting pairs, linear interpolation; not target blocking time",
+			d.SampleCount, d.MinMs, d.MeanMs, d.MaxMs, d.P50Ms, d.P90Ms, d.P95Ms, d.P99Ms)
+	}
+	return summary
 }

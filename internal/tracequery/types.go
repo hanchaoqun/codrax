@@ -1765,23 +1765,27 @@ type WindowStats struct {
 	// evidence.
 	TopIOInodes           *TopIOInodeStats        `json:"top_io_inodes,omitempty"`
 	StorageLatencyByLayer []StorageLatencySummary `json:"storage_latency_by_layer,omitempty"`
-	IOPressureSummary     *IOPressureSummary      `json:"io_pressure_summary,omitempty"`
-	IOBurstEpisodes       []IOBurstEpisodeSummary `json:"io_burst_episodes,omitempty"`
-	BlockIOByInode        []BlockIOByInodeSummary `json:"block_io_by_inode,omitempty"`
-	IRQActivity           []InterruptActivity     `json:"irq_activity,omitempty"`
-	SoftIRQActivity       []InterruptActivity     `json:"softirq_activity,omitempty"`
-	IPIActivity           []InterruptActivity     `json:"ipi_activity,omitempty"`
-	WorkqueueActivity     []WorkqueueActivity     `json:"workqueue_activity,omitempty"`
-	DMAFenceActivity      []DMAFenceActivity      `json:"dma_fence_activity,omitempty"`
-	SchedStatAccounting   []SchedStatSummary      `json:"sched_stat_accounting,omitempty"`
-	SupplyPressureSummary *SupplyPressureSummary  `json:"supply_pressure_summary,omitempty"`
-	TraceMarkCategories   []TraceMarkCategory     `json:"trace_mark_categories,omitempty"`
-	AsyncFileWork         []AsyncFileWorkSummary  `json:"async_file_work,omitempty"`
-	AbilityEvents         []TracePluginSummary    `json:"ability_events,omitempty"`
-	XPowerEvents          []TracePluginSummary    `json:"xpower_events,omitempty"`
-	HiSystemEvents        []TracePluginSummary    `json:"hi_sysevent_events,omitempty"`
-	ThreadDrifts          []ThreadDriftSummary    `json:"thread_drifts,omitempty"`
-	ComputeSupply         []ComputeSupplySummary  `json:"compute_supply,omitempty"`
+	// Group display overflow is separate from per-group sample population.
+	// Unpaired-only groups contribute to Groups, never to PairedCount.
+	StorageLatencyOverflowGroups      int                     `json:"storage_latency_overflow_groups,omitempty"`
+	StorageLatencyOverflowPairedCount int                     `json:"storage_latency_overflow_paired_count,omitempty"`
+	IOPressureSummary                 *IOPressureSummary      `json:"io_pressure_summary,omitempty"`
+	IOBurstEpisodes                   []IOBurstEpisodeSummary `json:"io_burst_episodes,omitempty"`
+	BlockIOByInode                    []BlockIOByInodeSummary `json:"block_io_by_inode,omitempty"`
+	IRQActivity                       []InterruptActivity     `json:"irq_activity,omitempty"`
+	SoftIRQActivity                   []InterruptActivity     `json:"softirq_activity,omitempty"`
+	IPIActivity                       []InterruptActivity     `json:"ipi_activity,omitempty"`
+	WorkqueueActivity                 []WorkqueueActivity     `json:"workqueue_activity,omitempty"`
+	DMAFenceActivity                  []DMAFenceActivity      `json:"dma_fence_activity,omitempty"`
+	SchedStatAccounting               []SchedStatSummary      `json:"sched_stat_accounting,omitempty"`
+	SupplyPressureSummary             *SupplyPressureSummary  `json:"supply_pressure_summary,omitempty"`
+	TraceMarkCategories               []TraceMarkCategory     `json:"trace_mark_categories,omitempty"`
+	AsyncFileWork                     []AsyncFileWorkSummary  `json:"async_file_work,omitempty"`
+	AbilityEvents                     []TracePluginSummary    `json:"ability_events,omitempty"`
+	XPowerEvents                      []TracePluginSummary    `json:"xpower_events,omitempty"`
+	HiSystemEvents                    []TracePluginSummary    `json:"hi_sysevent_events,omitempty"`
+	ThreadDrifts                      []ThreadDriftSummary    `json:"thread_drifts,omitempty"`
+	ComputeSupply                     []ComputeSupplySummary  `json:"compute_supply,omitempty"`
 	// CPUOccupancy is the CMP-8 (§7.1) occupancy-side decomposition of the
 	// selected window: who actually consumed the CPUs (top running threads,
 	// per-process running rollup, per-CPU top occupiers, priority-band
@@ -3031,18 +3035,21 @@ type PageCacheSummary struct {
 }
 
 type StorageLatencySummary struct {
-	SourcePath         string    `json:"source_path,omitempty"`
-	Layer              string    `json:"layer,omitempty"`
-	Event              string    `json:"event,omitempty"`
-	Dev                string    `json:"dev,omitempty"`
-	Inode              string    `json:"inode,omitempty"`
-	EntryName          string    `json:"entry_name,omitempty"`
-	Operation          string    `json:"operation,omitempty"`
-	Thread             ThreadRef `json:"thread,omitempty"`
-	Count              int       `json:"count,omitempty"`
-	PairedCount        int       `json:"paired_count,omitempty"`
-	UnpairedStartCount int       `json:"unpaired_start_count,omitempty"`
-	UnpairedDoneCount  int       `json:"unpaired_done_count,omitempty"`
+	SourcePath string    `json:"source_path,omitempty"`
+	Layer      string    `json:"layer,omitempty"`
+	Event      string    `json:"event,omitempty"`
+	Dev        string    `json:"dev,omitempty"`
+	Inode      string    `json:"inode,omitempty"`
+	EntryName  string    `json:"entry_name,omitempty"`
+	Operation  string    `json:"operation,omitempty"`
+	Thread     ThreadRef `json:"thread,omitempty"`
+	// All admitted pairs in this existing source/layer/identity group, not
+	// the Top-N request display and not a cross-group or causal aggregate.
+	RequestLatencyDistribution *IORequestLatencyDistribution `json:"request_latency_distribution,omitempty"`
+	Count                      int                           `json:"count,omitempty"`
+	PairedCount                int                           `json:"paired_count,omitempty"`
+	UnpairedStartCount         int                           `json:"unpaired_start_count,omitempty"`
+	UnpairedDoneCount          int                           `json:"unpaired_done_count,omitempty"`
 	// AmbiguousCohortCount counts exact coarse-key cohorts whose concurrent
 	// depth exceeded one. PairingSuppressedCount is the number of operations
 	// deliberately withheld rather than FIFO-guessed inside those cohorts.

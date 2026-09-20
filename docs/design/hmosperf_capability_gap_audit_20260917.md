@@ -467,3 +467,29 @@ search-only不可列举父目录另经只读复核：目录列举用于真实目
 参考`core/preprocess/io_ops.py:30/50`用线性插值计算IO延迟分位数，`config/indicators/io/io_latency.yaml:123`按请求开始时间选样。当前`block_pairing.go:655`已有Top8之前的完整精确配对census，缺的是完整总体分布，不应另造第二配对器或对截断展示算P99。`pairing_cohort.go:105`现有口径是与窗口相交的完整请求寿命，含carry-in/out；不可悄悄改为参考的start-in-window或窗口交集时长。`query.go:6659`既有分位数函数并非线性插值，新增分布须声明算法而不更改其他统计的既有口径。
 
 后续验收从来源/family/dev/op分组的完整请求总体入手，空总体与真实0ms区分，11条请求及Top8之外变化必须影响分位数；缺端点/歧义/跨来源/跨层不能进入样本，RQ/BIO/file不混成双份总体。请求驻留分布只作观测；链上响应影响仍遵守`query.go:6766`的completion→issuer wake及真实S/D阻塞证明，大分位值、后台IO不晋升主因。本节只是源码审计/施工前置，未改代码、未跑新live、不标08.1已实现。
+
+## 23. HMC-08.1首片：精确组内IO请求耗时分布（施工与验收中）
+
+接续§22.1，参考只读核对`core/preprocess/io_ops.py:30–104`：全DataFrame合格latency列先统计，Top-N仅明细；采用`p*(n-1)`线性插值。`config/indicators/io/io_latency.yaml:123`的start-in-window取样没有照搬，保持本项目既有相交完整请求与行窗优先合同。也未复用/改变其它统计的离散`percentileFloat64`。
+
+公开基线在`67365764d`隔离快照`/tmp/codrax-hmc081-red.ujKiTa`运行：同组PairedCount=11且Top8正常，但不存在分布字段，两条参数化反例确定性RED（`/tmp/hmc081-red-20260920.log`），不是编译失败。实现只在block与generic既有成功配对闭合分支保留私有float64样本，按原组一次汇总；不另建配对、不过滤坏值后伪装完整总体、不把FileIOByInode汇总当请求样本。可选typed分布的八个数值保留显式零，空总体nil；组展示仍Top8，遗漏组数/合格配对数独立披露，并列组稳定排序。
+
+新增公开查询矩阵覆盖11样本且低尾改变不影响Top8、RQ/BIO/SCSI/F2FS/MMC、nil与真实0、未配/歧义/恢复、跨源/操作/设备隔离、carry-in/out、point/显式零窗/行优先、11组66配对与遗漏3组6配对；专项race×3通过1.531s（`/tmp/hmc081-public-race-20260920.log`）。独立渲染加入零值/固定点及口径中文映射、父级与嵌套schema演进见证，旧字段与因果资格不变。
+
+实际工具交接又抓到第二个确定性缺口：把新分布附在长Summary尾部，机器JSON正确但Observation摘要截断后样本数/P99消失；仅引擎绿不足以宣布模型能用。已将八个测量值集中到短摘要，并把组身份、物理来源、查询窗、请求口径及遗漏覆盖放入前五条说明；不抬高默认10条/语义复核6条的预算。同提交者异设备/读写仍独立，block的首个线程只作代表，不冒称单线程总体；完整物理来源参与组身份摘要，显示路径被截断也不串组。EvidencePack重复发表面仅在层/事件族/完整行时边界唯一匹配且物理来源一致时共享同一测量说明，零匹配、歧义或跨源保留原事实，角色/置信度/Value/Unit不改。19个新增说明键全部仅展示，不新增因果解析权限。
+
+工具公开调用与默认/语义复核实际上下文投影均验收，包括原业务fixture的显式宽/窄窗、35ms请求、31ms链上S态IO阻塞、后台47ms不晋升、自动补齐及LoadDocumentIndex线索。tool/types/skill专项race×3通过8.133s/3.687s/1.922s（`/tmp/hmc081-tool-handoff-race-final-20260920.log`）；后加同提交者三组上下文隔离专项race×3通过2.620s（`/tmp/hmc081-same-issuer-compact-race-20260920.log`）。tracediag整包5.285s及专项race×3 2.306s通过，组身份先于数值，真实0保留、未知口径不猜、不输出内部枚举，nil旧摘要字节不变。tracequery整包87.863s、引擎末版race×3 2.617s通过（`/tmp/hmc081-tracequery-full-20260920.log`、`/tmp/hmc081-engine-race-final-20260920.log`）。
+
+共享view教学说明单位、样本范围、相交完整请求、不可跨层相加/不可平均P99及非因果权限。无原始问题/答案关键词硬门，原请求窗/补齐/链上IO与业务线索/600-300-600超时不改。新增自制合成eval覆盖RQ读11条、BIO读3条、RQ写3条及歧义/未完成/窗外负样本；只读确定性输出与独立expected.json一致（`/tmp/hmc081-eval-fixture-validation-20260920.log`），不冒称实机采集。生产回放按“新增能力数值正确性×既有链上/业务保护”的优先级选择新分布case及既有business_marker_io_chain，各跑一次、并发2；不改旧case的断言，也不以合成引擎绿代销旧live失败。
+
+首轮全仓发现既有`TestCausalIOHandoffColdReviewKeepsDistinctExplicitWindows`回退：两个显式查询窗都已发表IO记录，但新增统计说明使EvidencePack汇总行也获得原有“具备注释”显示优先级，在10行因果IO展示预算内挤掉第二窗的请求。公开原测试×3确定性RED（`/tmp/hmc081-window-regression-red-20260920.log`）；另加20组汇总增长反例，旧选择结果为1条覆盖+9条汇总、0条请求（`/tmp/hmc081-aggregate-budget-red-20260920.log`）。这不是模型波动，不能放宽旧多窗断言。
+
+根修仅限因果解释的展示选择：保留既有覆盖/层级预留与10行上限，余量先显示经原作用域去重的单请求/已证等待，再填汇总；既有目标偏好、显式窗过滤、重复查询去重、角色和因果权限不变，有限事实车道不变。原双窗/重复/窗外公开测试及新增长反例、RQ/BIO闭环正反面、S态和业务线索专项race×3通过10.277s（`/tmp/hmc081-causal-window-handoff-green-20260920.log`）。未用原文扫描或提高全局容量掩盖回退；末版全仓已重新启动，保留首轮FAIL收据。
+
+冻结末版全仓`go test -p 2 ./...`exit0：87个测试包（77个缓存）、13个无测试包、零FAIL；agent70.071s、tool358.052s、types31.641s（`/tmp/hmc081-full-final-20260920.log`）。代码/测试未加run或skip过滤。初轮`/tmp/hmc081-full-20260920.log`唯一失败为上述多窗回退；其余86包通过，包含tracequery93.986s、tracediag6.133s、hitraceconv129.727s。修复后的末版不覆盖原失败日志。
+
+本片只覆盖既有精确行组（generic仍含inode/PID），不声称全层跨线程上卷或全采集完整性；这些仍需合格原始样本与采集覆盖，不可二次聚合已发布分位数。提交推送、2并行×1生产回放收据后续追加；未运行/未完成的验收不标绿。任务总数保持13交付/66开放。
+
+### 23.1 后续08.2/08.3只读前置
+
+再次逐行检查参考`core/preprocess/io_ops.py:111–240`，不能直接移植其名字对应的语义：`compute_io_concurrency`统计与每个20ms桶相交的请求数，不是瞬时在途深度；同桶内先后发生的0..1ms、2..3ms两个请求，桶计数为2，但最大在途深度只有1。后续08.3应从同源同层合格起止构建半开区间sweep，独立披露峰值、时间加权均值及未闭合/歧义边界，原桶触达数可作为另一个指标而非换名冒用。`compute_io_size_distribution`以64KB阈值命名random/sequential，也只能借鉴尺寸分桶，不能据请求大小推断地址访问顺序。08.2必须分别声明请求/实际字节、发起/完成计数与窗口墙钟分母；本节仅施工前置，未据此宣称新增能力或销账。

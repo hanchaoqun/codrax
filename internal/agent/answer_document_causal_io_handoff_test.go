@@ -2,12 +2,57 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func TestCausalIOHandoffRequestWitnessesSurviveAggregateGrowth(t *testing.T) {
+	rm := &types.RequestModel{RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis}}
+	var records []types.ObservationRecord
+	for i := 0; i < 20; i++ {
+		records = append(records, types.ObservationRecord{
+			ID: fmt.Sprintf("aggregate-%d", i), Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard, Predicate: "storage_latency_by_layer", Subject: "block",
+			Summary: "IO request distribution", RichNotes: []string{"dev=8,0"},
+		})
+	}
+	coverage := records[0]
+	coverage.ID, coverage.Predicate = "coverage", "io_latency_coverage"
+	records = append(records, coverage)
+	for i := 0; i < 2; i++ {
+		request := records[0]
+		request.ID, request.Predicate, request.Subject = fmt.Sprintf("request-window-%d", i), "io_latency", "worker-200"
+		request.Summary = "A source-bound request, not a causal election"
+		request.SourceRef.QueryWindowKnown = true
+		request.SourceRef.QueryWindowStartTs = float64(i + 1)
+		request.SourceRef.QueryWindowEndTs = float64(i + 2)
+		records = append(records, request)
+	}
+	before, _ := json.Marshal(records)
+	selected := answerDocRuntimeFactAuthorityRowsByKey(records, types.RuntimeQuestionFactIOLatency, rm, answerDocCausalIOScopedKey)
+	if len(selected) != 10 {
+		t.Fatalf("context budget changed: %d", len(selected))
+	}
+	counts := map[string]int{}
+	for _, row := range selected {
+		counts[row.Predicate]++
+		if row.Role != types.AnswerAggregateRoleSupportingCoverage {
+			t.Fatalf("display selection promoted a measurement: %+v", row)
+		}
+	}
+	if counts["io_latency"] != 2 || counts["io_latency_coverage"] != 1 || counts["storage_latency_by_layer"] == 0 {
+		t.Fatalf("aggregate growth crowded out requests or their coverage: %+v", counts)
+	}
+	after, _ := json.Marshal(records)
+	if string(before) != string(after) {
+		t.Fatal("display selection mutated source facts")
+	}
+}
 
 func causalIOInstructionContext(ctx *types.AgentContext) {
 	ctx.AgentName, ctx.Stage = types.AgentFinalizer, types.StageFinalize

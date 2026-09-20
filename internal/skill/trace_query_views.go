@@ -2,6 +2,10 @@ package skill
 
 import "strings"
 
+// One explanation at every view-selection site; no duplicate request fields
+// or output-prose validation contract is introduced for this observation.
+const TraceIORequestLatencyDistributionTeaching = "For IO percentiles use storage_latency_by_layer[].request_latency_distribution: sample_count, min_ms, mean_ms, max_ms, p50_ms, p90_ms, p95_ms, p99_ms cover all admitted pairs in that row's group, not Top-N requests. Block rows group all issuers by source/family/device/operation; their representative thread is not a population filter. Generic storage rows also retain inode/PID identity. Respect capture/index coverage; admitted pairs do not prove complete capture. Linear interpolation uses complete request durations intersecting the query (line bounds take precedence), including carry-in/out, without clipping. Absent means no qualified samples; measured zero is valid. storage_latency_overflow_groups/storage_latency_overflow_paired_count disclose omitted groups/pairs. Never average group percentiles into a whole-layer percentile or add RQ/BIO/filesystem measurements of the same work. Request duration is not target blocking time or causal proof; response impact still requires wakeup-chain and blocked-interval evidence. Use business wording (IO请求耗时、样本数、中位数、P99耗时) with group/window scope in answers, not internal policy enums."
+
 // TraceQueryViewTeaching is one row of the shared trace_query view-teaching
 // table: which deterministic view to pick, when it is the right lens, and the
 // key parameters that make the call bounded. This table is the single source
@@ -60,7 +64,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "window_stats",
-			When: "same-window CPU/IO/binder/IRQ/frequency, compute-supply, `state_churn` context, perf_samples top symbols/DSOs/callchains, file_io_by_inode, page_cache_by_inode, storage_latency_by_layer, io_pressure_summary context, and ranked/enumeration IO questions (which inodes/files see the most frequent IO) via the `top_io_inodes` section — whole-window per-(dev,inode) totals ordered by event count with the total group count disclosed; its latency figures are the largest single event plus per-thread totals, never cross-thread latency sums",
+			When: "same-window CPU/IO/binder/IRQ/frequency, compute-supply, `state_churn` context, perf_samples top symbols/DSOs/callchains, file_io_by_inode, page_cache_by_inode, storage_latency_by_layer, io_pressure_summary context, and ranked/enumeration IO questions (which inodes/files see the most frequent IO) via the `top_io_inodes` section — whole-window per-(dev,inode) totals ordered by event count with the total group count disclosed; its latency figures are the largest single event plus per-thread totals, never cross-thread latency sums. " + TraceIORequestLatencyDistributionTeaching,
 		},
 		{
 			View:   "perf_stats",

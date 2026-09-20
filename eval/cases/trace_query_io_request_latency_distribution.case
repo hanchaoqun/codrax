@@ -1,0 +1,26 @@
+# HMC-08.1: complete request populations, separate layers, no causal promotion.
+ID="trace_query_io_request_latency_distribution"
+NAME="trace query — complete IO latency distributions without Top-N bias"
+QUESTION="只分析附加 trace 的 1.000s 到 14.000s 窗口，不分析代码。请按请求级（RQ）和 BIO 级、设备、读写操作分别统计完整可配对 IO 请求的样本数、最短、最长、平均耗时，以及 P50、P90、P95、P99，统一用毫秒。请基于完整请求总体，不要只统计最慢的几条；说明未完成和无法唯一配对的记录怎样处理，以及不同层的样本能不能合并。仅凭这些分位数能判断哪个线程拖慢了用户响应吗？请说明证据边界，不需要画图。"
+HTRACE_FILE="eval/fixtures/hmosperf_io_request_latency_distribution/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+
+# These are answer-presence smoke oracles, not a substitute for auditing the
+# row-to-group association against expected.json and the README below.
+EXPECT_PRIMARY_CONTAINS="P50 P90 P95 P99"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])11([^0-9]|$)
+(^|[^0-9])10[.]50*([^0-9]|$)
+(^|[^0-9])10[.]90*([^0-9]|$)
+(^|[^0-9])5[.]60*([^0-9]|$)
+(^|[^0-9])5[.]80*([^0-9]|$)
+(^|[^0-9])5[.]960*([^0-9]|$)
+(^|[^0-9])23([.]0+)?([^0-9]|$)
+(^|[^0-9])24([.]0+)?([^0-9]|$)
+(^|[^0-9])24[.]80*([^0-9]|$)
+(BIO|bio)
+(未完成|未配对|缺.{0,10}(完成|端点)|没有.{0,10}完成)
+(歧义|无法唯一|不能唯一|并发.{0,30}(排除|剔除|不计|无法|不能))"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="((不能|不足|无法|不支持|不代表|不等于|未证).{0,120}(根因|因果|响应|拖慢)|(根因|因果|响应|拖慢).{0,120}(不能|不足|无法|不支持|不代表|不等于|未证))
+((不能|不应|不宜|不可|不直接|不要).{0,80}(合并|混合|相加|叠加)|(分开|分别|独立).{0,80}(统计|总体|层|样本))"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

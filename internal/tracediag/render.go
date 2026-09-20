@@ -726,6 +726,17 @@ func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string),
 		renderTargetBinderWaitInventoryDetail(v.Interface().(tracequery.TargetWindowBinderWaitInventory), path, emit, depth, policy)
 		return
 	}
+	if t == reflect.TypeOf(tracequery.StorageLatencySummary{}) {
+		group := v.Interface().(tracequery.StorageLatencySummary)
+		if group.RequestLatencyDistribution != nil {
+			renderStorageLatencyDistributionGroup(group, path, emit)
+			return
+		}
+	}
+	if t == reflect.TypeOf(tracequery.IORequestLatencyDistribution{}) {
+		renderIORequestLatencyDistributionDetail(v.Interface().(tracequery.IORequestLatencyDistribution), path, emit)
+		return
+	}
 	// Inline token types render as one token, never as a line family.
 	if t == reflect.TypeOf(tracequery.ThreadRef{}) || t == reflect.TypeOf(tracequery.TimeWindow{}) {
 		if token := formatInlineStruct(v); token != "" {

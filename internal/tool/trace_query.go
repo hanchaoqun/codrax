@@ -5389,6 +5389,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, storage := range result.WindowStats.StorageLatencyByLayer {
 			writeTraceStorageLatency(&b, storage)
 		}
+		if stats := result.WindowStats; stats.StorageLatencyOverflowGroups > 0 {
+			fmt.Fprintf(&b, "- storage_latency_groups shown=%d omitted=%d omitted_complete_pairs=%d; each shown distribution covers only its own group, not all groups\n",
+				len(stats.StorageLatencyByLayer), stats.StorageLatencyOverflowGroups, stats.StorageLatencyOverflowPairedCount)
+		}
 		if result.WindowStats.IOPressureSummary != nil {
 			writeTraceIOPressure(&b, *result.WindowStats.IOPressureSummary)
 		}
@@ -6690,6 +6694,10 @@ func writeTracePageCache(b *strings.Builder, item tracequery.PageCacheSummary) {
 }
 
 func writeTraceStorageLatency(b *strings.Builder, item tracequery.StorageLatencySummary) {
+	detail := item.Summary
+	if item.RequestLatencyDistribution != nil {
+		detail = traceQueryIORequestLatencySummary(item.RequestLatencyDistribution)
+	}
 	fmt.Fprintf(b, "- storage_latency layer=%s event=%s dev=%s inode=%s name=%s op=%s thread=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d ambiguous_cohorts=%d pairing_suppressed=%d max_latency=%.3fms avg_latency=%.3fms bytes=%d example=%s source=%s lines=%d-%d — %s\n",
 		sanitizeForBanner(item.Layer),
 		sanitizeForBanner(item.Event),
@@ -6711,8 +6719,129 @@ func writeTraceStorageLatency(b *strings.Builder, item tracequery.StorageLatency
 		traceQuerySourceBasename(item.SourcePath),
 		item.LineStart,
 		item.LineEnd,
-		sanitizeForBanner(item.Summary),
+		sanitizeForBanner(detail),
 	)
+}
+
+// This is the single numeric projection for the storage row's model-facing
+// summary and discrete rich notes. Values are already measured by tracequery;
+// nothing here pairs events, elects a cause, or interprets prose as authority.
+func traceQueryIORequestLatencyFields(d *tracequery.IORequestLatencyDistribution) [][2]string {
+	if d == nil {
+		return nil
+	}
+	return [][2]string{
+		{"io_request_samples", strconv.Itoa(d.SampleCount)},
+		{"io_request_min_ms", fmt.Sprintf("%.3f", d.MinMs)},
+		{"io_request_mean_ms", fmt.Sprintf("%.3f", d.MeanMs)},
+		{"io_request_max_ms", fmt.Sprintf("%.3f", d.MaxMs)},
+		{"io_request_p50_ms", fmt.Sprintf("%.3f", d.P50Ms)},
+		{"io_request_p90_ms", fmt.Sprintf("%.3f", d.P90Ms)},
+		{"io_request_p95_ms", fmt.Sprintf("%.3f", d.P95Ms)},
+		{"io_request_p99_ms", fmt.Sprintf("%.3f", d.P99Ms)},
+		{"io_request_quantile_method", d.QuantileMethod},
+		{"io_request_sample_policy", d.SamplePolicy},
+		{"io_request_latency_caliber", d.LatencyCaliber},
+	}
+}
+
+func traceQueryIORequestLatencySummary(d *tracequery.IORequestLatencyDistribution) string {
+	fields := traceQueryIORequestLatencyFields(d)
+	if len(fields) == 0 {
+		return ""
+	}
+	parts := []string{"IO请求耗时(ms):"}
+	for _, field := range fields[:8] {
+		label := strings.TrimSuffix(strings.TrimPrefix(field[0], "io_request_"), "_ms")
+		parts = append(parts, label+"="+field[1])
+	}
+	return strings.Join(parts, " ") + "; not target blocking time"
+}
+
+func traceQueryStorageGroupFields(item tracequery.StorageLatencySummary) [][2]string {
+	fields := [][2]string{{"layer", item.Layer}, {"event", item.Event}, {"dev", item.Dev}, {"op", item.Operation}}
+	if item.Layer == "block" {
+		// Block pairing aggregates all issuers; Thread is only a representative.
+		return append(fields, [2]string{"issuers", "all"})
+	}
+	return append(fields, [2]string{"inode", item.Inode}, [2]string{"pid", strconv.Itoa(item.Thread.PID)})
+}
+
+func traceQueryStorageGroupClaim(item tracequery.StorageLatencySummary) string {
+	legacy := "storage_latency:" + firstNonEmptyTraceString(item.Layer, item.Event)
+	if item.RequestLatencyDistribution == nil {
+		return legacy
+	}
+	// Keep exact physical source in the identity even when a long display path
+	// is visibly truncated by prompt compaction. The digest grants no authority.
+	fields := append([][2]string{{"source", item.SourcePath}}, traceQueryStorageGroupFields(item)...)
+	encoded, _ := json.Marshal(fields)
+	digest := sha256.Sum256(encoded)
+	return legacy + ":" + hex.EncodeToString(digest[:])
+}
+
+func traceQueryStorageDistributionNotes(item tracequery.StorageLatencySummary, stats tracequery.WindowStats) []string {
+	if item.RequestLatencyDistribution == nil && stats.StorageLatencyOverflowGroups == 0 {
+		return nil
+	}
+	var group []string
+	for _, field := range traceQueryStorageGroupFields(item) {
+		group = append(group, field[0]+"="+field[1])
+	}
+	// These five compact notes precede individual statistics and examples so
+	// both finalizer (10 notes) and semantic review (6) retain measurement scope.
+	// selected_window cannot grant an anchor to this supporting predicate.
+	notes := traceQueryTypedKVNotes([][2]string{
+		{"storage_request_group", strings.Join(group, " ")},
+		{"storage_source_path", item.SourcePath},
+		{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
+		{"io_request_scope", "本组完整配对请求与查询窗相交；耗时未裁窗，毫秒，线性插值；不是目标阻塞时长或因果证明；勿平均各组分位数"},
+		{"storage_group_coverage", fmt.Sprintf("omitted_groups=%d omitted_complete_pairs=%d; displayed groups only", stats.StorageLatencyOverflowGroups, stats.StorageLatencyOverflowPairedCount)},
+	})
+	notes = append(notes, traceQueryTypedKVNotes(traceQueryIORequestLatencyFields(item.RequestLatencyDistribution))...)
+	identity := [][2]string{
+		{"storage_latency_overflow_groups", strconv.Itoa(stats.StorageLatencyOverflowGroups)},
+		{"storage_latency_overflow_paired_count", strconv.Itoa(stats.StorageLatencyOverflowPairedCount)},
+	}
+	if item.Layer != "block" {
+		identity = append(identity, [2]string{"storage_group_inode", item.Inode}, [2]string{"storage_group_pid", strconv.Itoa(item.Thread.PID)})
+	}
+	return append(notes, traceQueryTypedKVNotes(identity)...)
+}
+
+// An EvidencePack row is another publication of the same typed measurement,
+// not permission to borrow a nearby group's statistics. Require one exact
+// line/time/semantic match and an independently matching physical source.
+func traceQueryStorageGroupForFact(result tracequery.Result, fact tracequery.EvidenceFact) *tracequery.StorageLatencySummary {
+	if result.WindowStats == nil || fact.Predicate != "storage_latency_by_layer" {
+		return nil
+	}
+	var match *tracequery.StorageLatencySummary
+	for i := range result.WindowStats.StorageLatencyByLayer {
+		row := &result.WindowStats.StorageLatencyByLayer[i]
+		if row.Layer != fact.Subject || row.Event != fact.Object || row.LineStart != fact.LineStart || row.LineEnd != fact.LineEnd || row.StartTs != fact.StartTs || row.EndTs != fact.EndTs {
+			continue
+		}
+		if match != nil {
+			return nil
+		}
+		match = row
+	}
+	if match == nil || match.RequestLatencyDistribution == nil || match.SourcePath == "" {
+		return nil
+	}
+	if len(fact.SourceSpans) == 0 {
+		if match.SourcePath != result.SourcePath {
+			return nil
+		}
+	} else {
+		for _, span := range fact.SourceSpans {
+			if span.SourcePath != match.SourcePath {
+				return nil
+			}
+		}
+	}
+	return match
 }
 
 func traceQuerySourceBasename(path string) string {
@@ -9565,6 +9694,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		if strings.TrimSpace(fact.Subject) == "" && strings.TrimSpace(fact.Summary) == "" {
 			continue
 		}
+		summary := fact.Summary
+		claim := "evidence_fact:" + firstNonEmptyTraceString(fact.Predicate, fact.Subject)
+		var notes []string
+		if storage := traceQueryStorageGroupForFact(result, fact); storage != nil {
+			summary = traceQueryTypedStorageLatencySummary(*storage)
+			claim += ":" + traceQueryStorageGroupClaim(*storage)
+			notes = traceQueryStorageDistributionNotes(*storage, *result.WindowStats)
+		}
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#evidence_fact:%d", scope, i+1),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -9579,11 +9716,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				StartTs:   fact.StartTs,
 				EndTs:     fact.EndTs,
 			},
-			ClaimKey:    "evidence_fact:" + firstNonEmptyTraceString(fact.Predicate, fact.Subject),
+			ClaimKey:    claim,
 			Subject:     fact.Subject,
 			Predicate:   fact.Predicate,
 			Object:      fact.Object,
-			Summary:     fact.Summary,
+			Summary:     summary,
+			RichNotes:   notes,
 			SupportRefs: traceQueryObservationSupportRefs(ref, fact.LineStart, fact.LineEnd),
 			ObservedAt:  at,
 			Confidence:  fact.Confidence,
@@ -13791,6 +13929,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		if strings.TrimSpace(storage.Layer) == "" && strings.TrimSpace(storage.Summary) == "" {
 			continue
 		}
+		distributionNotes := traceQueryStorageDistributionNotes(storage, stats)
 		out = append(out, types.ObservationRecord{
 			ID:              fmt.Sprintf("trace_query:%s#storage_latency:%d", scope, i+1),
 			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -13800,14 +13939,14 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
 			SourceRef:       ref,
 			Span:            types.ObservationSpan{LineStart: storage.LineStart, LineEnd: storage.LineEnd, StartTs: storage.StartTs, EndTs: storage.EndTs},
-			ClaimKey:        "storage_latency:" + firstNonEmptyTraceString(storage.Layer, storage.Event),
+			ClaimKey:        traceQueryStorageGroupClaim(storage),
 			Subject:         storage.Layer,
 			Predicate:       "storage_latency_by_layer",
 			Object:          storage.Event,
 			Value:           traceQueryObservationMSValue(storage.MaxLatencyMs),
 			Unit:            "ms",
 			Summary:         traceQueryTypedStorageLatencySummary(storage),
-			RichNotes: traceQueryTypedKVNotes([][2]string{
+			RichNotes: append(distributionNotes, traceQueryTypedKVNotes([][2]string{
 				{"layer", storage.Layer},
 				{"event", storage.Event},
 				{"dev", storage.Dev},
@@ -13823,7 +13962,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"avg_latency", traceQueryObservationMSValue(storage.AvgLatencyMs)},
 				{"bytes", traceQueryTypedInt64(storage.Bytes)},
 				{"example", storage.Example},
-			}),
+			})...),
 			SupportRefs: traceQueryObservationSupportRefs(ref, storage.LineStart, storage.LineEnd),
 			ObservedAt:  at,
 			Confidence:  0.72,
@@ -15045,6 +15184,12 @@ func traceQueryTypedFileIOSummary(item tracequery.FileIOSummary) string {
 
 func traceQueryTypedStorageLatencySummary(item tracequery.StorageLatencySummary) string {
 	parts := []string{"storage_latency_by_layer"}
+	if item.RequestLatencyDistribution != nil {
+		// The compact prompt's summary budget is intentionally small. Publish
+		// the complete compact numeric snapshot before the example/detail,
+		// while independent rich notes retain every field and group identity.
+		parts = []string{traceQueryIORequestLatencySummary(item.RequestLatencyDistribution), "storage_latency_by_layer"}
+	}
 	for _, kv := range [][2]string{
 		{"layer", item.Layer},
 		{"event", item.Event},

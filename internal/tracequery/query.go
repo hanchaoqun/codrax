@@ -3440,7 +3440,15 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.TopIOInodes = computeTopIOInodes(fileIO, pageCache, topIOInodeGroupLimit)
 		stats.FileIOByInode = sortedFileIOSummaries(fileIO, 8)
 		stats.PageCacheByInode = sortedPageCacheSummaries(pageCache, 8)
-		storageLatencies, storagePairingCaveats := computeStorageLatencyByLayer(idx, q, blockPairing.summaries, 8, durationPairingIntegrities[durationOrderStorage])
+		storageLatencies, storagePairingCaveats := computeStorageLatencyByLayer(idx, q, blockPairing.summaries, 0, durationPairingIntegrities[durationOrderStorage])
+		if len(storageLatencies) > 8 {
+			stats.StorageLatencyOverflowGroups = len(storageLatencies) - 8
+			for _, omitted := range storageLatencies[8:] {
+				stats.StorageLatencyOverflowPairedCount += omitted.PairedCount
+			}
+			storageLatencies = storageLatencies[:8]
+			stats.Caveats = append(stats.Caveats, fmt.Sprintf("storage latency display omits %d group(s) containing %d complete pair(s); each shown request latency distribution uses all admitted pairs in that group, not all storage groups", stats.StorageLatencyOverflowGroups, stats.StorageLatencyOverflowPairedCount))
+		}
 		stats.StorageLatencyByLayer = append(stats.StorageLatencyByLayer, storageLatencies...)
 		stats.Caveats = append(stats.Caveats, storagePairingCaveats...)
 	} else {
@@ -12943,8 +12951,9 @@ func computeTopIOInodes(fileIO map[string]*FileIOSummary, pageCache map[string]*
 }
 
 type storageLatencyAcc struct {
-	item           StorageLatencySummary
-	totalLatencyMs float64
+	item               StorageLatencySummary
+	totalLatencyMs     float64
+	requestLatenciesMs []float64
 }
 
 type storageLatencyLane struct {
@@ -13103,6 +13112,7 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 		if acc.item.PairedCount > 0 {
 			acc.item.AvgLatencyMs = acc.totalLatencyMs / float64(acc.item.PairedCount)
 		}
+		acc.item.RequestLatencyDistribution = requestLatencyDistribution(acc.requestLatenciesMs)
 		acc.item.Summary = storageLatencySummaryText(acc.item)
 		ambiguous += acc.item.AmbiguousCohortCount
 		suppressed += acc.item.PairingSuppressedCount
@@ -13120,7 +13130,10 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 		if out[i].Count != out[j].Count {
 			return out[i].Count > out[j].Count
 		}
-		return out[i].LineStart < out[j].LineStart
+		if out[i].LineStart != out[j].LineStart {
+			return out[i].LineStart < out[j].LineStart
+		}
+		return storageLatencyGroupSortKey(out[i]) < storageLatencyGroupSortKey(out[j])
 	})
 	if max > 0 && len(out) > max {
 		out = out[:max]
@@ -13245,6 +13258,7 @@ func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *s
 	dur := (transition.last.Ts - transition.pairStart.Ts) * 1000
 	acc.item.PairedCount++
 	acc.totalLatencyMs += dur
+	acc.requestLatenciesMs = append(acc.requestLatenciesMs, dur)
 	if dur > acc.item.MaxLatencyMs {
 		acc.item.MaxLatencyMs = dur
 	}

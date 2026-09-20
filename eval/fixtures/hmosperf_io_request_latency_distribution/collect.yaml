@@ -1,0 +1,8 @@
+# Deterministic fixture check; no LLM or model credentials are used.
+version: 1
+description: "IO request distribution fixture evidence"
+steps:
+  - label: io_request_distributions
+    view: window_stats
+    window: "1.000..14.000"
+    max_lines: 800
