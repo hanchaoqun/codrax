@@ -641,3 +641,52 @@ HMC-02.4从“待实施”改为“部分实施”：本片完成§24.3第1项�
 继续审memo调用方发现：B1697等既有无span的window_stats查询仍需正常缓存，不应按整个view禁用。末版进一步收窄为原生结果的精确字段策略：只有带`TraceBusinessSpanCandidates`的发行结果不进纯结果memo；消费引用仍绕过弱memo；无候选的window_stats及其它普通结果保留原缓存合同。复用原memo核心，未改变cache key，也不从摘要关键词判定。scope规范化测试已恢复原window_stats输入，B1697旧pin保持不改；包含所有Memo命名测试的组合通过1.483s（`/tmp/hmc-business-ref-memo-policy-green-20260920.log`），末版另跑v3全仓与race，不用v2回放替这次增量签live。
 
 真实两轮Explorer→adapter测试也已补：第一轮实际执行物理sync B/E查询，第二轮模型消息保留token、完整实例tuple且注册表可解析（3474字节，引用首字节offset3141）。它解释了2000字节工具日志预览可能搜不到引用，不能据截断日志断言模型没收到；此测试不代替某条live消息的完整录制。新增测试只改变测试文件，生产不变。
+
+### 26.5 末版回归收据（最终全仓通过，早期失败保留）
+
+`d0e69c2cd`固定末版结果级memo策略，三包定向race×3通过types4.854s/tool9.004s/agent4.863s（`/tmp/hmc-business-ref-final-race-v3-20260920.log`），原生构建通过（`/tmp/hmc-business-ref-build-final-v3-20260920.log`）。构建启动时尚有未提交改动，其版本标记含dirty，不冒称干净发布构建。v2整仓最终返回非零：`TestB1631FrequencySourceMemoJSONAndLegacyBoundary`、`TestB1697MemoHitCannotGrantReplacedCapture`两条无span缓存合同失败（tool383.614s），都已由末版收窄策略覆盖，原断言未改。
+
+末版v3全仓（`/tmp/hmc-business-ref-final-full-v3-20260920.log`）仍返回非零，唯一失败为既有写模式 `TestRunTestsTimeoutExitDisclosesInfraDowngradedLockfileAndUntrackedOutput`：2秒超时前未产生脚本预期的Cargo.lock修改和junk.out，tool370.601s，其它86个测试包通过。随后单独核查启动边界/环境波动，不凭不相关路径就撤针，不将定向race签成全仓绿。
+
+独立只读核查确认相同现场在主账本`eval_priority_campaign_audit_20260730.md`的2026-09-15记录已经出现；`86e88c33e`更早于9月10日专门增加现有诊断。测试假定新shell在2秒内先改两份文件再sleep8，但预算在进程启动前即开始，未设进入脚本的就绪见证。现场两份文件未变化，审计返回clean符合实情，不是“漏审已经发生的写入”。本轮原参数定向count3均通过、每次2.16s（`/tmp/hmc-timeout-audit-targeted-3x-20260920.log`）；仅支持既存启动/时序可靠性债，不足以确定卡在哪个启动阶段，也不称修复。生产与测试的2秒/8秒及断言都不改；整仓v4独立复跑收据另列。
+
+最终同一生产代码冻结后的`go test -p 2 ./...` v4返回exit0：87个测试包通过（77缓存、10实际重跑）、13个无测试包、零FAIL；tool374.380s、types33.615s、hitraceconv108.812s、orchestrator16.053s（`/tmp/hmc-business-ref-final-full-v4-20260920.log`）。未添加run/skip筛选，既有平台/环境条件skip不当作实机验证；没有因v3失败改变产品或fixture超时。v4通过不消除既存间歇测试债，也不能代替两条live人工验收。eval测量器另以§27.1完整脚本收据验收；本批不改read scheduler、因果准入、系统补齐时限或流式等待默认值。
+
+## 27. 业务实例首片后两例回放：保留人工FAIL，分清答案错误与测量器缺口（2026-09-20）
+
+固定`17df3e7d9fcf`构建，2并行×1，业务332秒/分布371秒，机器1/2、人工0/2通过。结果为[自动summary](../../eval/parallel_selected_summary_hmc_business_instance_replay_20260920.md)及[逐例人工审计](../../eval/parallel_selected_summary_hmc_business_instance_replay_20260920_manual_audit.md)，私有完整结果根`eval/results/hmc_business_instance_replay_20260920`。不启动第三例追绿，不改已有case与结果；末版`d0e69c2cd`缓存增量没有本批live签收，三包确定性与race另列§26.5。
+
+| 开放项 | 本轮实际证据 | 收口范围与下一步 |
+|---|---|---|
+| HMC-02.4 / 04.3 业务实例焦点，P1 | 正确50ms span已经查出，后续仍把51ms状态账户套入业务响应；补齐明确`no_typed_target`，root-cause-rank未执行，后续查询未消费实例引用 | 首片查询能力不能代替accepted completion选择与supplement原子消费；按§24.3第2/3项继续。无选择不自动挑首个/最长实例，取消败方不能提交焦点，用户显式窗/目标优先 |
+| HMC-16.4 组合意图，观察 | 本轮最终恢复causal_diagnosis＋工作关系，但5次分析发射间仍在因果/有限效果变动，附件窗还被当成用户显式窗；已有教学已到达 | 不新叠提示或用原文关键词硬改分类；真实足够上下文上的模型未遵循保持观察，不统称合同冲突 |
+| HMC-08.1 / 16.4 IO计量口径，P1 | 三组八项统计真实进入finalizer且数表正确；正文仍把缺完成说成缺发起、BIO队列驻留说成设备物理延迟、线性分位数说成最大值、all issuers说成reader40 | 数值内核不拟合错答。组级补充引擎单源端点口径，独立保护未知/歧义；保留正文事实错误，不能靠数值烟测签PASS |
+| HMC-18.5 投影评测计数，P2 | 业务Markdown75行有`Trace 因果投影（补充查询范围）`，98行typed text围栏，日志3387物化；机器只认裸标题/破折号后缀，误记0 | 按生产精确标题语法修计数并补围栏伪标题反例；旧机器FAIL不重写，人工仍因跨窗及context-only关系升主因而FAIL |
+| HMC-01.2 / 16.4 修补与不可用工具，P2观察 | 业务patch继续误用field=facet_ids，正确schema为add_facet_id；分布仍误调当轮不可用emit_evidence一次，之后两次completion均接受 | 暂未确认新的必带/必拒合同矛盾，不开放任意patch、不增重试、不把后续正常dispatch误算为拒绝循环 |
+
+两份root-causes.json均正常生成schema2空结果：业务为`no_selectable_typed_on_chain_candidates`，分布为`trace_root_cause_contract_not_active`。前者仍需因果组合取证，后者是纯事实请求的正确边界；都不是旁路落盘失败。业务文本投影真实存在，不冒称Mermaid通过；两例仍是Trace读模式，不冒充写模式验收。没有改变显式时间窗、链上资格、35ms请求/31ms实际S态IO阻塞/1ms调度/47ms背景区分或600/300/600秒等待策略。
+
+只读回溯上一批分布上下文补充一个精确范围：`hmc_parallel_handoff_replay_20260920`的finalizer没有BIO queue端点口径，Top8明细被较长RQ占满，确有组级计量口径不依赖Top8的交付空间；三组数值和issuers=all则已到达，不能泛称信息全丢。应复用`blockIORequestResidenceCaliber`等引擎语义，不能在工具层按名字复制第二套推断；`Count`还会计入孤立完成，不得全部重命名为issue数或用Count-Paired推缺完成数。
+
+独立末审追加HMC-08.1/16.4同批后续边界：本批finalizer3516行首层摘要把RQ读组标为`thread=reader-40`，3534行notes却是`issuers=all`，实际fixture还含reader41。故单线程错误归属不能全部写成模型凭空编造，组级身份展示需要与统计总体同源；只改提示词不够。另记录答案将歧义组数与受抑制请求数混为可加数量：3个未合格请求是1缺完成＋2受抑制，1个歧义组不是第4个请求；不改配对引擎去适配这句错误。
+
+稳定清单保持13/79已交付、66开放。顺序：收本批查询引用与测量器修复 → accepted实例焦点/补齐 → 聚合组IO端点口径 → 恢复mixed-source读/Python写apply固定双例；业务完整启动阶段、全层总体分位数和其它66开放项不据此代销。
+
+### 27.1 投影计数的确定性修复（3d7f9a690）
+
+仅修改eval测量器与其测试，不修改产品渲染、case/oracle期望或已存结果。依据`tracefence.SectionProjectionZH/EN`与`runtimeTraceQueryScopeTitleSuffix`，识别生产已发射的中英文标题、工件后缀、单窗补充范围、多窗第i/n窗、未知窗及具体补充窗；不接受任意括注新词形。新增Markdown围栏状态处理，反引号/波浪线、0–3空格、长围栏中的短围栏均有反例；普通正文、比较/覆盖边界章节与围栏内伪标题不算发布投影，同块的typed text围栏不另加一次。
+
+真实本轮业务报告固定内容，计数先0后1；收据`/tmp/hmc185-projection-real-{red,green}-20260920.log`。20个标题正例及负例在完整runner脚本先红（`/tmp/hmc185-runner-red-20260920.log`），修后全过（`/tmp/hmc185-runner-green-20260920.log`，含原post-apply/NAPI scope合同测试）；shell语法与diff检查通过。脚本中的预期FAIL负例不等于脚本失败，最终exit0。此修复已单独提交`3d7f9a690`，不回写本批或旧批机器FAIL，更不改变人工0/2结论；HMC-18.5为持续执行项，保持开放。
+
+### 27.2 下批IO组身份/口径的施工清单（只读设计，尚未实现）
+
+本切片归HMC-08.1/16.4，不新增已交付计数。已定位而非只凭答案猜因：`trace_query.go::traceQueryTypedStorageLatencySummary`及`writeTraceStorageLatency`无条件显示代表线程；`blockPairingAccumulatorFor`实际按source/family/dev/op聚合，Thread只保留首记录。现有`traceQueryStorageGroupFields`已经声明block issuers=all，应该共用，而非再堆prompt。
+
+- [ ] 先补公开真实RED：扩展`TestHMC081PublicBlockGroupIncludesMultipleIssuersWithoutSinglePIDClaim`，分别验证工具Summary、普通及EvidencePack observation、压缩摘要，不再把summary＋notes全局拼接后只找一个issuers=all。block总体不得同时带暗示单线程范围的thread；非block的inode/PID身份保持。
+- [ ] 首层展示共用既有组字段；若保留Thread，明确命名为representative_thread，不抹掉原数据，不改变组键或发起者总体。
+- [ ] 聚合行增加可选精确请求驻留口径，由已准入RQ/BIO生产者调用`blockIORequestResidenceCaliber`，不在工具层按名字再推断；generic/未知不得调用其默认RQ分支。沿显式schema处置、key-first渲染及哈希pin流程同步，不只bump哈希。
+- [ ] 工具、普通/EvidencePack observation及前部scope notes同源展示端点；finalizer/reviewer支持说明条数分别受10/6约束，不把关键口径追加在尾部。新显示字段不得授链上资格或根因权。
+- [ ] Count仍保原数值与各层语义：block孤立完成也计数，generic完整pair可能两端各计一次；缺开始/缺完成/歧义组/受抑制操作分列。RQ/BIO/generic/未知、孤立完成、1组2请求、nil/真实零值、Top8外组及跨窗都有正反例。
+- [ ] 扩展`TestPublishedIOGroupDistributionsReachFinalizer`，逐条真实上下文记录绑定同组的身份/端点/数值，不靠整段任意位置搜token；继续保留来源/窗口隔离及ledger字节不变。修后另安排固定双例验收，旧人工FAIL不倒签。
+
+参考仓再次对照：可借`core/preprocess/io_ops.py:67`的分布组织，不搬`config/indicators/io/io_latency.yaml:35`与`io_ops.py:879`的LIMIT后算分位数或start_time BETWEEN漏carry-in，也不搬`io_ops.py:448`以CFS累计阻塞大于RT直接判优先级反转。该路径读取已经形成的filesystem_io记录，并非本仓原始RQ/BIO端点/缺端计数的权威来源。
