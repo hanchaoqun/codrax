@@ -803,7 +803,7 @@ B1640b原修复只覆盖`aggregate_facts`初始schema：要求scalar保持scalar
 
 表格列名已有明确教学：结构化多列表必须提供columns及一致的cells，只有真正两列才用无columns回退。本例模型未遵循已到达教学，当前不叠加另一条规则、不根据数值位置猜表头，也不为此引入成文拒绝循环。容量承载所有主事实的上限设计和member_set成员粒度教学另留账，不因本片提示一致就声称全部修补债清零。
 
-### 30.2 已查询IO测量释义的纯展示补位（实现冻结，验收中）
+### 30.2 已查询IO测量释义的纯展示补位（实现已交付，live命中待验）
 
 §29分布例接受的profile只有count_or_duration，原生三组统计已到达，但受family选择控制的专用明细范围释义没有到达。仅在已有原生IO观察上补说明，不替模型新增io_latency请求，不修改共享family匹配函数或借新说明触发补齐/根因硬门；不调用可跨族联合状态账的完整bridge。已有IO专用/causal车道继续原处理，避免重复。公开查询→TurnA→最终上下文已先红后绿，逐条保留物理来源、查询窗/行窗、目标、结果收据、事件实际区间及计数未知性；来源/结果代次/窗口/行范围/目标不同，即使record ID相同也不合并其总体。未新增字段schema或第二个统计内核。
 
@@ -834,7 +834,7 @@ LLM等待保护定向回归通过17.992s（`/tmp/hmc-stream-wait-preservation-20
 
 授权边界说明：本片复用既有run级`verification_proof_followup_requested`记录判断，并未新建绑定到批次血缘/工作树代次的授权凭证；不得宣称逐批精确授权已闭环。§30.3下一片既有原生断言补证需另建绑定run/batch/快照的授权，避免把历史同run记录当新补证权限。稳定任务总数仍13/79交付、66开放，WRITE-PROOF-IDENTITY只是HMC-18.5中的一个子缺陷。
 
-### 30.5 WRITE-PROOF-CAPABILITY第一片：不派无法产出所需证明的探测（验收中）
+### 30.5 WRITE-PROOF-CAPABILITY第一片：不派无法产出所需证明的探测（已交付，父项仍开放）
 
 身份修复已以`ff94da1a7`推送。继续将“解释器存在”与“能产逐合同见证”分开：`VerificationProbeUsesExecutionOnlyWitness`由实际执行收据解析、有效凭证投影及派发共同消费，保持原证明权威不变。现有execution-only运行器当前是Python plain probe；这是生产者能力事实，不按客户问题、类名、源码/输出字符串或某个eval症状决定。
 
@@ -842,13 +842,34 @@ LLM等待保护定向回归通过17.992s（`/tmp/hmc-stream-wait-preservation-20
 
 真实bridge入口回归先红（`/tmp/hmc-proof-witness-bridge-red-20260920.log`）：项目测试通过、目标覆盖已有、只有一个异常合同无绑定时仍派mandatory probe。修后入口GREEN（`/tmp/hmc-proof-witness-bridge-green-20260920.log`，0.931s），并验证真实normalizer不会在后续分支重新派发、不把缺证账本升级；已有PTO继续保留原恢复路径。另有20个路由矩阵案例及运行器能力/收据一致性测试；单元早期修正file_layout与未知合同过度抑制，未将未知当确定不支持。
 
-完整orchestrator包随后发现既有`TestVerificationProofProbePlanningRebindsOnlyNonAuthoritativeFailedProbe`失败（`/tmp/hmc-proof-routing-orchestrator-20260920.log`）：新守卫只看待补obligation，忽略了非权威探测自身的failed capability仍可被修正。没有改旧测试或豁免断言；收窄为FailedCount/CapabilityFailedCount为零才可能抑制。保留失败探测修正能力，成功后仍剩不可产断言时才止损。末版完整orchestrator包通过18.430s（`/tmp/hmc-proof-routing-orchestrator-final-20260920.log`）；含该旧反例的新/邻接路径race×3通过types2.290s/orchestrator2.916s（`/tmp/hmc-proof-routing-final-race-20260920.log`）。第一轮全仓有此已定位失败，不充作绿收据；末版全仓待收。
+完整orchestrator包随后发现既有`TestVerificationProofProbePlanningRebindsOnlyNonAuthoritativeFailedProbe`失败（`/tmp/hmc-proof-routing-orchestrator-20260920.log`）：新守卫只看待补obligation，忽略了非权威探测自身的failed capability仍可被修正。没有改旧测试或豁免断言；收窄为FailedCount/CapabilityFailedCount为零才可能抑制。保留失败探测修正能力，成功后仍剩不可产断言时才止损。末版完整orchestrator包通过18.430s（`/tmp/hmc-proof-routing-orchestrator-final-20260920.log`）；含该旧反例的新/邻接路径race×3通过types2.290s/orchestrator2.916s（`/tmp/hmc-proof-routing-final-race-20260920.log`）。第一轮全仓`/tmp/hmc-proof-routing-final-full-20260920.log`有此已定位失败，保留exit1，不充作绿收据。
+
+修正后冻结生产提交`bc90f5aaae0b`，干净构建通过`/tmp/hmc-proof-routing-build-20260920.log`，实测二进制revision相同且无dirty。末版全仓`/tmp/hmc-proof-routing-final2-full-20260920.log` exit0：87个测试包通过（71缓存、16实际重跑）、13个无测试包、零FAIL；agent63.814s/orchestrator15.449s/tool345.249s/types32.406s/tracequery93.080s/tracediag5.505s。未加run/skip筛选，平台条件skip不作实机验收。代码`bc90f5aaa`已推送main；此次只交付B1，不补签此前Python写例。
 
 独立开放施工表（不因止损已修而整体打勾）：
 
-- [ ] B1（实现冻结、验收中）：派发与实际执行器权威单源，精确不可能的assertion-only探测不再强制派发；缺证不销账，待末版全仓及推送收据。
+- [x] B1（实现已交付）：派发与实际执行器权威单源，精确不可能的assertion-only探测不再强制派发；缺证不销账，末版全仓/race/干净构建通过，`bc90f5aaa`已推送。
 - [ ] B2：controller-only原生断言补登记授权，绑定run/batch/已应用计划与当前工作树快照，替换run级历史记录可复用的弱授权。
 - [ ] B3：平行于probe-only的新只读补证计划；仅接已读、已存在测试的exact PTO，系统哈希锁定字节，不准改源或改测试oracle，模型不得自填执行收据。
 - [ ] B4：直接进入verify-only，复用精确test_path/suite/assertion执行器，新报告独立留存；原plan/approval fingerprint/旧report不改，失败、skip、身份错配都不授证。
 - [ ] B5：累计scope/JSON往返/resume及快照改变失效；相同快照/合同/绑定/证明方式不原样无限重试，有新精确证据才允许修正绑定。
 - [ ] B6：公开流程红绿及固定两例生产回放；本次4原生测试＋plain probe绿仍缺证为负臂，补正确原生绑定＋重新执行才可绿，其他失败不能被覆盖抹掉。
+
+下一片代码接点已只读核实（尚未实施）：
+
+1. 发射面须同时覆盖`tool/emit_change_plan.go`与`emit_plan_skeleton.go`的空changes分支，复用PTO正规化及合同ref校验；旧probe sentinel仍不能携带PTO。
+2. `types/change_plan.go`的WritePlanToFile、WriteBestPlanReportPair、LoadBestPlanReportPair、LoadChangePlanFromFile及UpdatePlanStatusOnDiskWithApplied共同保留新只读计划身份；加载不得拒载或重算成空TargetPaths。REPL PlanStore.Load/Settle、编排状态持久化入口同批覆盖。
+3. scheduler的runControllerPlanBatch、proof-only→verify-only提升、pending verify、dispatch失败恢复、probe required提示和PendingControllerProofPlanBatch按typed证明方法分流，不能只补发射工具而漏恢复通道。
+4. 跳过批准/应用而直接验证的新形必须有精确controller授权；stage_hooks的空changes不可apply红线保持，无修改计划绝不靠伪造source commit完成。
+5. 原生执行继续复用test_surface的精确文件路由、run_tests的projectTestObservationConfidenceRecords及projectTestObservationExecutionMatches；不得从声明直接产通过凭证。
+6. 累计scope目前主要汇总仍贡献源码的applied plans。新只读补证计划不伪装成已应用源码，但其PTO和独立回执须在后续轮次、final report、artifact load与最终materialization保住；writeFinalMaterializationStrictProofOnly及syncMutablePlanStatusAfterVerify要认识平行新形。这些边界缺一项都不能关闭B2–B6。
+
+B2独立复核补充（设计边界，不是已实现）：现有请求事件实际写在来源批次，probe-planning bridge还借用了更早的run级记录，不能机械改成`event.BatchID == activeBatch.ID`。新的controller-only grant需要在普通post-verify、cumulative及bridge三处单源铸造，绑定目标批次与实际仍贡献源码的source plan集合；不能以synthetic cumulative plan代替。防循环的run级计数仍是预算，不与授权合并。
+
+必须拆分持久批次归属和当前可消费授权：归属锁定purpose、范围及禁止无失败源码改动的边界；snapshot过期只禁止新补证声明/ref扩充，不能使`activeProofFollowupWorkflowBatch`返回“普通批次”而跳过`validatePureProofFollowupChanges`。快照应由生产者读取仓库身份、HEAD及绑定源码字节/缺失/文件类型；现有read-mode HEAD＋status摘要无法识别同dirty路径字节变化，现有verification snapshot也缺HEAD和untracked字节，二者均不能原样升级成该硬授权。旧只读verify可继续；旧grant缺失或快照改变必须重新观察后mint，显式resume令牌不直接补签。新增PTO的测试文件字节由后续B3/B4另绑，B2不冒称已覆盖。
+
+追加正反矩阵：同run其它批、其它run同名批、source plan替换/恢复剔除、同HEAD/status但字节改变、快照不可读时禁改门仍生效、JSON/同快照resume/worktree重建、旧verify-only及普通impact路径，以及模型改ID/purpose/criteria或提交grant字段不得扩权。以上仍归原B2–B6，不新增“已交付”计数。
+
+### 30.6 下一批固定双例（进行中）
+
+干净构建`bc90f5aaae0b`，固定快照`.codrax/tmp/codrax-selected-20260920-042031`，2并行×1、每例1800秒：`trace_query_io_request_latency_distribution`＋`patch_cpp_typo`。结果根`eval/results/hmc_witness_routing_io_plan_20260920`。IO旧FAIL之后已有02cea计量上下文修复，本次优先查实际profile与消息是否命中，再核三组八值、完整总体/明细上限及两层端点；C++仅验窄改计划及不自动apply，不冒称运行时/原生断言验证。B2–B6尚未实施，不立即重跑dateutil求完整绿。批次结果与人工审计待收，不预填PASS。
