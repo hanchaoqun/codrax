@@ -528,3 +528,48 @@ search-only不可列举父目录另经只读复核：目录列举用于真实目
 末版原生构建通过（`/tmp/hmc081-sibling-handoff-build-20260920.log`）。提交前重新fetch main为0/0；本批11个文件包含数据交接/保护测试及本次双例生产审计，不提交私人完整日志或原始采集。稳定任务清单仍13/79交付、66开放，未把横切生命周期修复当成HMC-02/18整类关闭。后续先验证已完成工具能进入实际成文，再分别处理业务实例绑定与错误早收敛，不把模型数值错误归零。
 
 代码与审计已以`7539cac18`提交推送main，工作树干净且HEAD/远端0/0。该提交干净原生构建通过（`/tmp/hmc081-sibling-handoff-build-clean-20260920.log`，buildRevision=`7539cac18c28`）。独立只读末审另纠正§23.2业务范围描述：模型确实取得50ms业务span，缺口是未把线程状态统计/目标补齐绑定到该业务实例，不是完全没查询业务窗。修后live仍开放，不因此将两个原人工FAIL改为PASS。
+
+## 24. 并行交接修后回放与运行时/源码合同复核（2026-09-20）
+
+起点`04a6cd0a0a28`工作树干净，重新fetch与远端main一致。按“已修可复现P1复验×既有因果/业务保护”优先级，以该干净构建固定2并行×1运行分布与业务IO两例；不改旧case断言或oracle。结果根`eval/results/hmc_parallel_handoff_replay_20260920`，summary及人工审计同名另存，不覆盖§23原FAIL。此批仍是读模式Trace，不冒充写模式/关系图覆盖；600/300/600秒与活跃流策略未改。
+
+在回放期间独立复核§23-R5旧日志，发现比“低增量提前结束”更前置的合同冲突：原分布例1493、1683、1720行要求两个`function_or_purpose`维度提供current-source operation；同流程又不允许把外部trace观察作为源码证据。分析缺少有效源码排除引文后按既有规则回落default，本身不意味着有独立源码义务；classifier仍明确external_tool/optional，已有运行时观察且无精确源码路径/绑定。`RequestedExplanationOperationNeedsForAuthority`此前只识别明确exclude，没有消费其余组件共用的运行时/源码权威判断；通用解释角色被错误扩成源码硬需求。先补真实复现，再收窄到单源精确适用域；不补扫用户原文，不代铸排除引文、不修改角色，不修改低增量阈值或用更多重试掩盖冲突。原模型FIFO误配、量纲与数字错误仍独立保留，不能全部归责于这处门。
+
+业务实例绑定继续只读设计：原回放已取得OpenDocument和LoadDocumentIndex两个各自唯一span，探索游标同时包含app-main/document-worker两个线程名；无已接受principal实例选择，因此不能把任一唯一span或最后一次查询自动升级为全局目标。需要源身份＋实例/线程＋精确端点的联合选择，不是单独填PID或把宽窗换成最短窗；本批不悄悄扩大系统代选权限。具体参考实现与后续任务见§24.3。
+
+### 24.1 修后两例真实结果与本批边界
+
+机器1/2、人工0/2通过，收据为[自动结果](../../eval/parallel_selected_summary_hmc_parallel_handoff_replay_20260920.md)及[人工审计](../../eval/parallel_selected_summary_hmc_parallel_handoff_replay_20260920_manual_audit.md)。分布367秒，业务332秒；无第三例追绿。分布日志3000真实执行“保留非胜出分支4份完成工具结果”，最终上下文和表格都保住三组全部八项值，这是§23.3的生产路径见证；不是匹配基线A/B或证明模型错误全消失。分布正文仍将读组当全RQ、1缺完成+2歧义当3无完成、请求驻留当设备物理延迟、压力背景当已证竞争，人工FAIL。
+
+本轮业务与上轮失效路径不同：分析只引用计量子句，将请求分类为有限事实，诊断/工作关系false，故补齐`families_present`、旁路`trace_root_cause_contract_not_active`，不是`no_typed_target`。正确50ms span与51ms查询账户混用；目标44ms睡眠被写作completion_closed，背景没有已证唤醒被写成没有唤醒。完整Trace投影为0；模型另画的时序图被源码call关系门拒绝，模型patch整图删除。图含无证派发边，因此不能整体免责保图；运行时事实图类型与源码门适用域继续审计。35/31/1/47及不相加文字真实存在，机器词形匹配存在假阴性，但不足以改变人工FAIL。
+
+分布另出现relation member-set修补提示要求当轮不可用的`emit_evidence`。其分析确有required member_set和category/relational声明，不能因不画图或runtime_work_relation=false就撤成员集门；后续模型只补runtime成员集即通过。已确认的缺口是错误的源码修补指引，不是成员集门必然误拒。与本批源码operation适用域修复分开，防止借一个样本整体放松关系证据合同。
+
+### 24.2 本批根修与不扩张边界
+
+源码operation复现跨types单源权威、公开完成Execute和真实explorer初始提示三层，最终原RED收据`/tmp/codrax-runtime-dimension-ownership-final-red-20260920.log`；初版测试收据也保留。第一次修订过宽，触发原“仅附件/triage不能豁免”及精确target反例，失败保留`/tmp/codrax-runtime-dimension-ownership-green-20260920.log`（文件名不代表通过）。没有删除旧pin改绿。
+
+最终新增豁免仅限：共享权威明确源码optional，已有确定性runtime query观察，无任何源码义务/已落地源码载体，无精确文件维度绑定和精确source target。明确source exclusion仍走原有优先级；缺引文不铸排除权，附件或triage、broad runtime sufficiency、citation policy/waiver单独均不够。任意精确binding保留完整维度图，避免prompt与门各自删席；文件位置使用现有精确解析器，不扫描问题/答案原文。四个现有消费者继续共用一个projection，不新造prompt规则，不改低增量/重试/因果资格/时间窗/超时。三包焦点首次全过1.083s/1.183s/2.105s（`/tmp/hmc-runtime-operation-focused-20260920.log`）；末版三包定向race×3通过2.217s/2.802s/7.411s（`/tmp/hmc-runtime-operation-race-20260920.log`），含原源码适用域、显式窗IO交接与最终分布可见性保护。生产代码冻结后的全仓87个有测试包通过（71缓存、16实际重跑，`/tmp/hmc-runtime-operation-full-20260920.log`；tool381.566s、types34.893s、tracediag5.796s、tracequery97.442s），原生构建通过`/tmp/hmc-runtime-operation-build-20260920.log`。上面的生产回放固定旧快照，不冒充本修复live验收。
+
+独立末审确认没有放宽已有源码义务，另留一条非新增回归边缘：结构化ExactTargets为`capture.tracebundle.json:9`时，共享精确位置解析器会因`.json`将其保守视为源码约束，本批新增豁免仍不能覆盖它。后续只能在本地检查解析后文件的既有runtime/blob身份，并补source/config反例；不因该边缘改动全局位置解析器或源码权威。该边缘与本轮真实IO例无关，不冒充本批已修。
+
+### 24.3 业务实例绑定实施清单（设计已核实，尚未施工）
+
+参考仓`server.py:959`的launch服务与`core/preprocess/launch_ops.py:736`生成逐实例thread_queries，`config/skills/launch_perf.yaml:64`用同一item的start_ms/end_ms/tid组合调用，值得吸收的是原子范围绑定；不照搬按时长Top3定瓶颈、first-instance-wins或`thread_query_ops.py:562`包过滤无命中回全量。本仓已有TraceSpanSummary/ObservationSourceRef的真实端点/线程/来源，不需另建解析器或根因排序器。
+
+HMC-02.4先拆本切片（仍属于原79项，不新计已交付数）：
+
+1. 发布可寻址实例收据：源/有效代次、端点行、精确TID、完整区间、配对与覆盖/截断；键不取名字或数组序号。
+2. 已接受完成分支显式选择已发布的实例ID；系统回查数值，不接受模型自填PID/时间，不改user_explicit/profile，不接纳取消败方焦点。
+3. 补齐原子消费(source,generation,tid,start,end)，重跑既有状态/链/rank组合；显式用户身份和窗口最高优先，完整业务区间与用户窄窗分别保留。
+4. 正反验收：两个各自唯一span不自动择一；同名/嵌套/异步TID-vs-TGID/截断/缺E/伪造ID/旧代次/跨源均保守；调换工具顺序/并行顺序身份不变。35ms请求/31msS态阻塞/1ms调度、47ms背景不晋升和业务线索分别保护。
+
+无明确焦点、冲突或不完整收据仍披露跳过；若后续需要自动从业务名称选择，再独立设计有来源引文的typed selector，不将entities或最长span变硬门。HMC-04.3完整启动实例/阶段远大于此切片，不能一并销账。
+
+### 24.4 成员集修补指引后续切片（只读定位，尚未施工）
+
+独立核查定位到`emit_investigation_complete.go::relationMemberSetHandoffDowngrade`固定发`RepairEmitEvidence`，`explorer.go::renderCompactClosureRepairSection`据此要求已读源码；observation-only阶段本来就不提供`emit_evidence`，不应为了满足错误提示开放它。现有completion-only保护不适用于仍提供`trace_query`的本轮。后续拆为：
+
+- 证据来源分支使用共享runtime/source权威＋ledger，已有独立外部证据且无必需/已落地源码压力时，使用既有`RepairStructuredHandoff`要求补members/count/origin/provenance；仍保留principal-blocking普通origin，不使用会降成advisory的completion-form前缀。初次仅scalar facts时也要覆盖，不能借用“已有member_set”才成立的穷举帮助函数。
+- 通用提示读取`LoopObservation.ToolSurfaceKnown/AvailableToolNames`精确工具集合；确知`emit_evidence`未暴露时停止要求调用它。未知集合保持原行为；不改stored repair，不把缺工具当源码豁免，不开放工具或放行缺失成员集。
+- 验收runtime scalar/无成员集、supporting-only/数量错仍拒，合法成员集才完成；普通源码、精确mixed、已落地源码保持旧债务。覆盖trace_query仍可用但emit_evidence不可用、后者可用、集合未知及mixed缺工具，不扫模型原文判来源。

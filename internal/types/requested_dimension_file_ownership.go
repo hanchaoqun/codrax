@@ -21,12 +21,39 @@ type RequestedExplanationOperationNeed struct {
 // of current source. Callers provide the existing agent/bus authority snapshot,
 // preserving its policy precedence instead of re-deriving source applicability.
 // Merely having an attached trace or an optional source lane does not waive
-// operation seats. Requested roles, requiredness and file bindings never change.
+// operation seats. A deterministic runtime-query observation can discharge
+// unscoped source-operation pressure only when the same authority says no
+// source lane is required or present. Roles, requiredness and bindings never change.
 func RequestedExplanationOperationNeedsForAuthority(rm *RequestModel, authority RuntimeSourceAnswerAuthoritySnapshot) []RequestedExplanationOperationNeed {
 	if rm == nil || authority.CurrentSourceLane == CurrentSourceLaneExcluded {
 		return nil
 	}
-	return RequestedExplanationOperationNeeds(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints)
+	needs := RequestedExplanationOperationNeeds(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints)
+	// An exact file binding is an independent ownership contract, including
+	// paths such as Makefile that need not look like ordinary source suffixes.
+	// Preserve the whole mixed-source map so guidance and completion continue
+	// to describe identical seats rather than partially waiving dimensions.
+	for _, need := range needs {
+		if need.Source != "" {
+			return needs
+		}
+	}
+	// An exact source location in the analyzer's target roster also retains
+	// the existing contract. Use the shared precise-anchor parser (including
+	// file:line), never entity names or request/model prose.
+	for _, target := range rm.AnalyzerHints.ExactTargets {
+		if textHasPreciseCurrentSourceAnchor(target) {
+			return needs
+		}
+	}
+	if authority.CurrentSourceLane == CurrentSourceLaneAllowedOptional &&
+		authority.RuntimeObservationCount > 0 &&
+		authority.DeterministicRuntimeQueryCount > 0 &&
+		!authority.HasCurrentSourceCarrier() &&
+		authority.AllowsRuntimeEvidenceWithoutCurrentSource() {
+		return nil
+	}
+	return needs
 }
 
 // RequestedExplanationOperationNeeds compiles the typed ownership contract.

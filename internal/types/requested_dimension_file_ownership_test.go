@@ -20,6 +20,8 @@ func TestRequestedExplanationOperationNeedsConsumesSharedSourceAuthorityOnly(t *
 		{},
 		{CurrentSourceLane: CurrentSourceLaneRequired, CurrentSourceRequirement: RuntimeSourceRequirementPrecise},
 		{CurrentSourceLane: CurrentSourceLaneAllowedOptional, RuntimeObservationCount: 2, RuntimeOnlySufficient: true},
+		{Active: true, CurrentSourceLane: CurrentSourceLaneRequired, CurrentSourceRequirement: RuntimeSourceRequirementPrecise, RuntimeObservationCount: 2, RuntimeOnlySufficient: true},
+		{Active: true, CurrentSourceLane: CurrentSourceLaneAllowedOptional, RuntimeOnlySufficient: true},
 		{CurrentSourceLane: CurrentSourceLaneSatisfiedAbsent},
 	} {
 		if got := RequestedExplanationOperationNeedsForAuthority(rm, authority); !reflect.DeepEqual(got, want) {
@@ -31,6 +33,93 @@ func TestRequestedExplanationOperationNeedsConsumesSharedSourceAuthorityOnly(t *
 	}
 	if got := RequestedExplanationOperationNeedsForAuthority(nil, RuntimeSourceAnswerAuthoritySnapshot{}); len(got) != 0 {
 		t.Fatalf("nil request produced operation seats: %+v", got)
+	}
+}
+
+func TestRequestedExplanationOperationNeedsRuntimeOptionalAuthority(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		adjust     func(*RequestModel, *RuntimeSourceAnswerAuthorityInput)
+		wantSource bool
+	}{
+		{name: "default runtime optional"},
+		{name: "invalid exclusion has no authority", adjust: func(rm *RequestModel, _ *RuntimeSourceAnswerAuthorityInput) {
+			rm.ExternalObservationPolicy = &ExternalObservationPolicy{CurrentSourceMode: ExternalObservationCurrentSourceExclude, ExclusionKind: ExternalObservationSourceExclusionExplicitUserBoundary}
+		}},
+		{name: "attachment without observation", wantSource: true, adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) { in.Ledger = ObservationLedger{} }},
+		{name: "required route", wantSource: true, adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
+			in.RouteHint.CurrentSourceEvidenceMode = TurnRouteCurrentSourceEvidenceRequired
+		}},
+		{name: "mixed required route", wantSource: true, adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
+			in.RouteHint.Source = "mixed"
+			in.RouteHint.CurrentSourceEvidenceMode = TurnRouteCurrentSourceEvidenceRequired
+		}},
+		{name: "precise target", wantSource: true, adjust: func(rm *RequestModel, _ *RuntimeSourceAnswerAuthorityInput) {
+			rm.AnalyzerHints.ExactTargets = []string{"worker.go:9"}
+		}},
+		{name: "one exact file binding retains whole contract", wantSource: true, adjust: func(rm *RequestModel, _ *RuntimeSourceAnswerAuthorityInput) {
+			rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{Path: "worker.go", Confidence: 1, RequestedDimensionIndices: []int{3}}}
+		}},
+		{name: "extensionless exact binding retains whole contract", wantSource: true, adjust: func(rm *RequestModel, _ *RuntimeSourceAnswerAuthorityInput) {
+			rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{Path: "Makefile", Confidence: 1, RequestedDimensionIndices: []int{3}}}
+		}},
+		{name: "landed source proof", wantSource: true, adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
+			in.Ledger.Records = append(in.Ledger.Records, ObservationRecord{ID: "source:worker", Origin: AnswerEvidenceOriginCurrentSource, SourceRef: ObservationSourceRef{Kind: ObservationSourceCurrentSource, Path: "worker.go"}, Span: ObservationSpan{LineStart: 9}})
+		}},
+		{name: "ordinary source", wantSource: true, adjust: func(rm *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
+			rm.PerfTrace = nil
+			in.RouteHint = TurnRouteHint{}
+			in.Ledger = ObservationLedger{}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rm := &RequestModel{RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []RequestedAnswerDimension{
+				{Index: 3, Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+				{Index: 4, Role: RequestedAnswerDimensionBranchBehavior, Required: true},
+			}}, PerfTrace: &PerfBundle{}}
+			in := RuntimeSourceAnswerAuthorityInput{RequestModel: rm, RouteHint: TurnRouteHint{Route: "repo", Source: "external_tool", NeedsRepoAccess: true, CurrentSourceEvidenceMode: TurnRouteCurrentSourceEvidenceOptional}, Ledger: ObservationLedger{Records: []ObservationRecord{runtimeSourceTraceRecord("trace:distribution", "trace_query")}}}
+			if tc.adjust != nil {
+				tc.adjust(rm, &in)
+			}
+			authority := BuildRuntimeSourceAnswerAuthoritySnapshot(in)
+			want := RequestedExplanationOperationNeeds(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints)
+			if !tc.wantSource {
+				if authority.CurrentSourceLane != CurrentSourceLaneAllowedOptional || authority.CurrentSourceRequired || authority.RuntimeObservationCount == 0 {
+					t.Fatalf("fixture must exercise source optionality, not exclusion: %+v", authority)
+				}
+				want = nil
+			}
+			if got := RequestedExplanationOperationNeedsForAuthority(rm, authority); !reflect.DeepEqual(got, want) {
+				t.Fatalf("source applicability contradicts shared authority: authority=%+v got=%+v want=%+v", authority, got, want)
+			}
+		})
+	}
+}
+
+func TestRequestedExplanationOperationNeedsDoesNotWaiveFromBroadBits(t *testing.T) {
+	rm := &RequestModel{RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true, Dimensions: []RequestedAnswerDimension{
+			{Index: 1, Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+			{Index: 2, Role: RequestedAnswerDimensionBranchBehavior, Required: true},
+		},
+	}}
+	want := RequestedExplanationOperationNeeds(rm.RequestedAnswerDimensions, nil)
+	for _, tc := range []struct {
+		name      string
+		authority RuntimeSourceAnswerAuthoritySnapshot
+	}{
+		{"broad runtime sufficiency alone", RuntimeSourceAnswerAuthoritySnapshot{Active: true, CurrentSourceLane: CurrentSourceLaneAllowedOptional, RuntimeOnlySufficient: true}},
+		{"citation policy alone", RuntimeSourceAnswerAuthoritySnapshot{Active: true, CurrentSourceLane: CurrentSourceLaneAllowedOptional, RuntimeCitationPolicy: RuntimeGroundingCitationRuntimeObservation}},
+		{"triage observation without deterministic query", RuntimeSourceAnswerAuthoritySnapshot{Active: true, CurrentSourceLane: CurrentSourceLaneAllowedOptional, RuntimeObservationCount: 1, RuntimeOnlySufficient: true}},
+		{"inactive authority", RuntimeSourceAnswerAuthoritySnapshot{CurrentSourceLane: CurrentSourceLaneAllowedOptional, RuntimeObservationCount: 1, DeterministicRuntimeQueryCount: 1, RuntimeOnlySufficient: true}},
+		{"precise source wins over runtime sufficiency", RuntimeSourceAnswerAuthoritySnapshot{Active: true, CurrentSourceLane: CurrentSourceLaneRequired, RuntimeObservationCount: 1, DeterministicRuntimeQueryCount: 1, RuntimeOnlySufficient: true, CurrentSourceRequirement: RuntimeSourceRequirementPrecise}},
+		{"landed source remains load bearing", RuntimeSourceAnswerAuthoritySnapshot{Active: true, CurrentSourceLane: CurrentSourceLaneAllowedOptional, RuntimeObservationCount: 1, DeterministicRuntimeQueryCount: 1, RuntimeOnlySufficient: true, CurrentSourceSatisfied: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RequestedExplanationOperationNeedsForAuthority(rm, tc.authority); !reflect.DeepEqual(got, want) {
+				t.Fatalf("non-authoritative runtime signal waived source ownership: got=%+v authority=%+v", got, tc.authority)
+			}
+		})
 	}
 }
 

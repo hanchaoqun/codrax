@@ -144,3 +144,49 @@ func TestEmitEvidenceDimensionSourcePromiseDoesNotConflateFloorWithOperationOwne
 		t.Fatalf("the hint must distinguish the waived floor from operation ownership: %s", got)
 	}
 }
+
+func TestEmitInvestigationCompleteRuntimeOptionalDimensionsCloseWithoutConvergence(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+	for _, invalidExclusion := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "missing exclusion quote"}[invalidExclusion], func(t *testing.T) {
+			ctx := runtimeDimensionSourceContext()
+			ctx.AnalysisIR.RequestModel.PerfTrace = nil
+			ctx.AnalysisIR.RequestModel.ExternalObservationPolicy = nil
+			if invalidExclusion {
+				ctx.AnalysisIR.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{CurrentSourceMode: types.ExternalObservationCurrentSourceExclude, ExclusionKind: types.ExternalObservationSourceExclusionExplicitUserBoundary}
+			}
+			ctx.TurnRouteHint = types.TurnRouteHint{Route: "repo", Source: "external_tool", NeedsRepoAccess: true, CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional}
+			ctx.Mutable.AppendDispatchToolResult(types.ToolResult{ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{{
+				ID: "trace:distribution", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Role: types.AnswerAggregateRolePrincipalAnswer,
+				SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "events.systrace", ArtifactID: "attached_trace", ArtifactKind: "trace", PayloadRef: "blob://trace-query"},
+				Span:      types.ObservationSpan{LineStart: 5, LineEnd: 26}, Summary: "producer-owned complete request distribution",
+			}}})
+			authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+			if authority.CurrentSourceLane != types.CurrentSourceLaneAllowedOptional || authority.CurrentSourceRequired || authority.RuntimeObservationCount == 0 {
+				t.Fatalf("fixture is not a runtime optional authority: %+v", authority)
+			}
+			before, _ := json.Marshal(ctx.AnalysisIR.RequestModel)
+			// The external-row hint promises a waived citation floor only for
+			// aggregate-independent carriers, such as the triager's external
+			// bundle. This is not a model-declared waiver or source exclusion.
+			ctx.Mutable.SetPerfTrace(&types.PerfBundle{Observations: []types.PerfObservation{{Kind: "window_stats", Subject: "device-1", LineStart: 5, LineEnd: 26}}})
+			skip := renderEmitEvidenceExternalObservationSoftSkipSummary(ctx, []string{"runtime trace row"})
+			if !strings.Contains(skip, "call emit_investigation_complete directly") || strings.Contains(skip, "operation evidence is still required") {
+				t.Errorf("external-observation handoff must share source applicability: %s", skip)
+			}
+			res, err := (&EmitInvestigationComplete{}).Execute(ctx, json.RawMessage(`{"reason":"The published distribution answers the runtime measurements; no application blocking relationship is established.","confidence":"high","result_kind":"resolved"}`))
+			if err != nil || !res.Success || strings.Contains(res.Summary, "DOWNGRADED") || ctx.Mutable.InvestigationCompleteReason() == "" {
+				t.Fatalf("runtime optional roles must complete on the first attempt: err=%v result=%+v", err, res)
+			}
+			if ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneContractChain) {
+				t.Fatal("normal runtime completion must not depend on the convergence escape")
+			}
+			after, _ := json.Marshal(ctx.AnalysisIR.RequestModel)
+			if string(before) != string(after) {
+				t.Fatal("completion must not rewrite roles or mint source exclusion")
+			}
+		})
+	}
+}
