@@ -18,9 +18,9 @@ func (m *MutableState) MergeExploreForkPublishedTools(fork *MutableState) []Tool
 	var candidates []ToolResult
 	if fork.turnAArtifacts != nil {
 		results := fork.turnAArtifacts.ToolResults
-		candidates = append(candidates, results[clampMergeSliceBase(fork.exploreForkTurnABaseToolLen, len(results)):]...)
+		candidates = append(candidates, cloneTraceBusinessSpanToolResults(results[clampMergeSliceBase(fork.exploreForkTurnABaseToolLen, len(results)):])...)
 	}
-	candidates = append(candidates, fork.dispatchToolResults...)
+	candidates = append(candidates, cloneTraceBusinessSpanToolResults(fork.dispatchToolResults)...)
 	fork.mu.RUnlock()
 
 	m.mu.Lock()
@@ -45,6 +45,7 @@ func (m *MutableState) MergeExploreForkPublishedTools(fork *MutableState) []Tool
 		}
 		m.registerArtifactReadNavigationResultLocked(result)
 		m.registerTraceQuerySourceReadLocked(result)
+		m.registerTraceBusinessSpanRefsLocked(result)
 	}
 	if len(added) == 0 {
 		return nil
@@ -64,7 +65,7 @@ func (m *MutableState) MergeExploreForkPublishedTools(fork *MutableState) []Tool
 	m.cachedLabelSupport = nil
 	m.cachedLabelSupportSource = nil
 	m.bumpAnswerSurfaceRevisionLocked()
-	return added
+	return cloneTraceBusinessSpanToolResults(added)
 }
 
 // These carriers are published by deterministic tool implementations, not by

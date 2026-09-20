@@ -406,6 +406,7 @@ type MutableState struct {
 	// Survive dispatch reset; isolated forks share the epoch, not the map.
 	traceSourceReadGeneration *traceSourceReadGeneration
 	traceQuerySourceReads     map[string]TraceQuerySourceReadRef
+	traceBusinessSpanRefs     map[string]TraceBusinessSpanRef
 	// Separate, soft-only derived-result navigation. Never consulted by the
 	// published-ref read permission registry or observation/grounding paths.
 	artifactReadNavigationGeneration *artifactReadNavigationGeneration
@@ -1424,6 +1425,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
 		traceSourceReadGeneration:                   m.traceSourceReadGeneration,
 		traceQuerySourceReads:                       cloneTraceQuerySourceReads(m.traceQuerySourceReads),
+		traceBusinessSpanRefs:                       cloneTraceBusinessSpanRefs(m.traceBusinessSpanRefs),
 		artifactReadNavigationGeneration:            m.artifactReadNavigationGeneration,
 		artifactReadNavigationPublished:             cloneStringStringMap(m.artifactReadNavigationPublished),
 		artifactReadNavigation:                      cloneArtifactReadNavigationIndex(m.artifactReadNavigation),
@@ -1527,6 +1529,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	traceQueryBlobRefs := cloneStringStringMap(fork.traceQueryPublishedBlobRefs)
 	traceSourceGeneration := fork.traceSourceReadGeneration
 	traceSourceReads := cloneTraceQuerySourceReads(fork.traceQuerySourceReads)
+	traceBusinessSpans := cloneTraceBusinessSpanRefs(fork.traceBusinessSpanRefs)
 	artifactNavigationGeneration := fork.artifactReadNavigationGeneration
 	artifactNavigationPublished := cloneStringStringMap(fork.artifactReadNavigationPublished)
 	artifactNavigation := cloneArtifactReadNavigationIndex(fork.artifactReadNavigation)
@@ -1669,6 +1672,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		}
 	}
 	m.mergeTraceQuerySourceReadsLocked(traceSourceGeneration, traceSourceReads)
+	m.mergeTraceBusinessSpanRefsLocked(traceSourceGeneration, traceBusinessSpans)
 	m.mergeArtifactReadNavigationLocked(artifactNavigationGeneration, artifactNavigationPublished, artifactNavigation)
 	// Pure-tool memo union: first-writer-wins (the memo is an economy
 	// optimization, not a correctness contract — concurrent forks that
@@ -2617,7 +2621,7 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	if m == nil {
 		return
 	}
-	r = AttachToolHandoffCarrier(r)
+	r = cloneTraceBusinessSpanToolResult(AttachToolHandoffCarrier(r))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dispatchToolResults = append(m.dispatchToolResults, r)
@@ -2632,6 +2636,7 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	}
 	m.registerArtifactReadNavigationResultLocked(r)
 	m.registerTraceQuerySourceReadLocked(r)
+	m.registerTraceBusinessSpanRefsLocked(r)
 }
 
 // traceQueryBlobRefPathSegment is the mandatory path segment every
@@ -2890,7 +2895,7 @@ func (m *MutableState) ToolResultMemo(tool, key string) (ToolResult, bool) {
 		return ToolResult{}, false
 	}
 	r, ok := m.toolResultMemo[toolResultMemoKey(tool, key)]
-	return r, ok
+	return cloneTraceBusinessSpanToolResult(r), ok
 }
 
 // StoreToolResultMemo records one Success=true pure-tool result under the
@@ -2908,7 +2913,7 @@ func (m *MutableState) StoreToolResultMemo(tool, key string, r ToolResult) {
 	}
 	full := toolResultMemoKey(tool, key)
 	if _, exists := m.toolResultMemo[full]; !exists {
-		m.toolResultMemo[full] = r
+		m.toolResultMemo[full] = cloneTraceBusinessSpanToolResult(r)
 	}
 }
 
@@ -2918,7 +2923,7 @@ func cloneToolResultMemoMap(in map[string]ToolResult) map[string]ToolResult {
 	}
 	out := make(map[string]ToolResult, len(in))
 	for k, v := range in {
-		out[k] = v
+		out[k] = cloneTraceBusinessSpanToolResult(v)
 	}
 	return out
 }
@@ -2935,9 +2940,7 @@ func (m *MutableState) DispatchToolResults() []ToolResult {
 	if len(m.dispatchToolResults) == 0 {
 		return nil
 	}
-	out := make([]ToolResult, len(m.dispatchToolResults))
-	copy(out, m.dispatchToolResults)
-	return out
+	return cloneTraceBusinessSpanToolResults(m.dispatchToolResults)
 }
 
 // ResetDispatchToolResults clears the per-dispatch running buffer.
@@ -5376,7 +5379,7 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	}
 	snap.SourceLocalization = CloneSourceLocalizationReviewPtr(a.SourceLocalization)
 	if a.ToolResults != nil {
-		snap.ToolResults = append([]ToolResult(nil), a.ToolResults...)
+		snap.ToolResults = cloneTraceBusinessSpanToolResults(a.ToolResults)
 	}
 	if a.HandoffCarriers != nil {
 		snap.HandoffCarriers = append([]ToolHandoffCarrier(nil), a.HandoffCarriers...)
@@ -5442,7 +5445,7 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 	}
 	out.SourceLocalization = CloneSourceLocalizationReviewPtr(m.turnAArtifacts.SourceLocalization)
 	if m.turnAArtifacts.ToolResults != nil {
-		out.ToolResults = append([]ToolResult(nil), m.turnAArtifacts.ToolResults...)
+		out.ToolResults = cloneTraceBusinessSpanToolResults(m.turnAArtifacts.ToolResults)
 	}
 	if m.turnAArtifacts.HandoffCarriers != nil {
 		out.HandoffCarriers = append([]ToolHandoffCarrier(nil), m.turnAArtifacts.HandoffCarriers...)
@@ -5490,6 +5493,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.traceQueryPublishedBlobRefs = nil
 	m.traceSourceReadGeneration = &traceSourceReadGeneration{}
 	m.traceQuerySourceReads = nil
+	m.traceBusinessSpanRefs = nil
 	m.artifactReadNavigationGeneration = &artifactReadNavigationGeneration{}
 	m.artifactReadNavigationPublished = nil
 	m.artifactReadNavigation = nil
@@ -5528,7 +5532,7 @@ func (m *MutableState) GroundingContextSnapshot() (turnA *TurnAArtifacts, dispat
 	defer m.mu.RUnlock()
 	turnA = cloneTurnAArtifactsPtr(m.turnAArtifacts)
 	if len(m.dispatchToolResults) > 0 {
-		dispatch = append([]ToolResult(nil), m.dispatchToolResults...)
+		dispatch = cloneTraceBusinessSpanToolResults(m.dispatchToolResults)
 	}
 	preReadSourceLines = clonePreReadSourceLines(m.preReadSourceLines)
 	return turnA, dispatch, m.searchGraph, preReadSourceLines, m.turnAArtifactsRevision, m.dispatchToolResultsRevision, m.searchGraphRevision, m.preReadSourceRevision
@@ -5543,7 +5547,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	out.ValidationBoundaryNotes = append([]string(nil), in.ValidationBoundaryNotes...)
 	out.ReadFiles = append([]string(nil), in.ReadFiles...)
 	out.SourceLocalization = CloneSourceLocalizationReviewPtr(in.SourceLocalization)
-	out.ToolResults = append([]ToolResult(nil), in.ToolResults...)
+	out.ToolResults = cloneTraceBusinessSpanToolResults(in.ToolResults)
 	out.ToolResultTruncation = CloneToolResultTruncationSummary(in.ToolResultTruncation)
 	out.HandoffCarriers = append([]ToolHandoffCarrier(nil), in.HandoffCarriers...)
 	out.MCPResponses = append([]MCPResponse(nil), in.MCPResponses...)
@@ -5597,8 +5601,8 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 	merged.ReadFiles = mergeStringsForMutable(prior.ReadFiles, current.ReadFiles)
 	merged.SourceLocalization = MergeSourceLocalizationReviews(prior.SourceLocalization, current.SourceLocalization)
 	merged.ToolResults = append(
-		append([]ToolResult(nil), prior.ToolResults...),
-		current.ToolResults[clampMergeSliceBase(base.ToolLen, len(current.ToolResults)):]...,
+		cloneTraceBusinessSpanToolResults(prior.ToolResults),
+		cloneTraceBusinessSpanToolResults(current.ToolResults[clampMergeSliceBase(base.ToolLen, len(current.ToolResults)):])...,
 	)
 	var mergeTruncation *ToolResultTruncationSummary
 	merged.ToolResults, mergeTruncation = BoundTurnAToolResultsWithTruncation(
@@ -7928,6 +7932,9 @@ type ToolResult struct {
 	ArtifactReadNavigation ToolArtifactReadNavigation `json:"-"`
 	// Native trace_query receipt; omitted from JSON and all model schemas.
 	TraceQuerySourceRead TraceQuerySourceReadRef `json:"-"`
+	// Producer-only complete business instances and run-local navigation receipts.
+	TraceBusinessSpanCandidates []TraceBusinessSpanCandidate `json:"-"`
+	TraceBusinessSpanRefs       []TraceBusinessSpanRef       `json:"-"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

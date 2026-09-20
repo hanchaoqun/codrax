@@ -52,6 +52,7 @@ type traceQueryParams struct {
 	Patterns             []string                      `json:"patterns,omitempty"`
 	EventFieldFilters    []tracequery.EventFieldFilter `json:"event_field_filters,omitempty"`
 	SpanName             string                        `json:"span_name,omitempty"`
+	BusinessSpanRef      string                        `json:"business_span_ref,omitempty"`
 	InteractionDirection string                        `json:"interaction_direction,omitempty"`
 	RecipeName           string                        `json:"recipe_name,omitempty"`
 	MaxDepth             FlexInt                       `json:"max_depth,omitempty"`
@@ -219,6 +220,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema := `{
   "type": "object",
   "properties": {
+	    "business_span_ref": {"type":"string","description":"Optional exact synchronous business-instance reference returned by a successful span_window, span_locate or window_stats query in this run. Select the instance that answers the task; never pick the first/longest merely because it was listed. It binds the original physical capture generation, scheduler TID and complete paired time interval together for follow-up scheduler, IO or causal views; omit source/path/pid/thread/target_scope/time_start/time_end/line_start/line_end/span_name. It is navigation only, not evidence of a root cause or a completion focus. Explicit requested time windows remain authoritative: if the full instance is outside them, use ordinary explicit parameters for the requested clipped window instead. Async/track rows without an executing-thread proof, composite captures and stale/replayed references do not offer this shortcut; their existing explicit queries remain supported."},
 	    "event_field_filters": __EVENT_FIELD_FILTER_SCHEMA__,
 	    "source": {"type":"string","enum":["path","attached_trace"],"x-codrax-enum-style-alias":true,"description":"Use attached_trace for the current --htrace/--atrace blob; use path for an explicit workspace/repo file."},
 	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path. Use the typed artifact item's source value, not its runtime_artifact:<id>. For compatibility, a copied logical id is auto-resolved only when it names a current typed trace item that maps to exactly one physical artifact; the result reports the repair and canonical next-call form. Accepts ftrace-compatible text such as .ftrace/.trace/.systrace/.htrace/.atrace, text .perftrace, and .tracebundle.json. ` + traceQueryInputPreparationTeaching + ` A converted .systrace or raw .ftrace text is sufficient for core event queries and may already contain SQL-primary perf_sample rows; .tracebundle.json adds provider/coverage/clock/caveat provenance. A validated .tracebundle.json (explicit or promoted sibling) supplies the admitted members for a provenance-aware composite index; an unbound sibling .perftrace is not automatically merged. Same-domain artifacts merge directly; different domains merge only through an explicit calibrated finite affine map, otherwise the incompatible artifact is isolated and disclosed. Pass the .perftrace path explicitly to query an isolated perf clock on its own."},
@@ -273,15 +275,28 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	var sourceRead types.TraceQuerySourceReadRef
 	var preparedMaterial *attachment.TraceMaterial
 	var preparedView string
+	var businessRef types.TraceBusinessSpanRef
+	var recordBusinessQuery func()
 	defer func() {
 		if preparedMaterial != nil {
 			if err := traceQueryValidateReadyMaterial(ctx, preparedMaterial); err != nil {
 				out = traceQueryPreparedMaterialFailure(preparedMaterial.QueryPath(), preparedView, err)
 			}
 		}
+		if businessRef.Token() != "" && (ctx == nil || ctx.Mutable == nil || !ctx.Mutable.TraceBusinessSpanRefCurrent(businessRef)) {
+			out = traceQueryBusinessRefFailure("the selected business instance expired or its capture changed during querying; discover the instance again")
+		}
+		if businessRef.Token() != "" && out.Success && !types.TraceBusinessSpanQuerySourceMatches(businessRef, sourceRead, out) {
+			out = traceQueryBusinessRefFailure("the query no longer addresses the selected single physical capture; discover the instance again in the current material")
+		}
+		if executeErr == nil && out.Success && recordBusinessQuery != nil {
+			recordBusinessQuery()
+		}
 		traceQueryAnnotateSourceAdaptation(&out, sourceAdaptation)
 		if ctx != nil && ctx.Mutable != nil {
 			ctx.Mutable.StampTraceQuerySourceRead(sourceRead, &out)
+			ctx.Mutable.StampTraceBusinessSpanRefs(&out)
+			traceQueryAppendBusinessRefs(&out)
 		}
 	}()
 
@@ -296,6 +311,11 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		// here) is rejected WITH the real parameter list reflected from this
 		// tool's schema, so the retry re-aims instead of re-guessing.
 		return failStrictDecodeWithErrorSchema(t.Name(), time.Now(), err, nil, params, schema)
+	}
+	var businessReject *types.ToolResult
+	p, businessRef, businessReject = traceQueryApplyBusinessRef(ctx, p)
+	if businessReject != nil {
+		return *businessReject, nil
 	}
 	// Shared engine boundary (same discipline as ValidateTraceMarkActionFilter
 	// below): the tracediag script validates `patterns` through the identical
@@ -395,6 +415,12 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if reject != nil {
 		return *reject, nil
 	}
+	if businessRef.Token() != "" {
+		physical, err := filepath.EvalSymlinks(path)
+		if err != nil || filepath.Clean(physical) != filepath.Clean(businessRef.Data().Path) {
+			return traceQueryBusinessRefFailure("source preparation changed the selected physical capture; discover the instance again in the new material"), nil
+		}
+	}
 	runCtx := contextFromBus(ctx)
 	if err := tracequery.ValidateTraceInputPath(runCtx, path); err != nil {
 		// Preserve the established cancellation contract: a warm canceled call
@@ -410,7 +436,6 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// rejected binary/empty inputs must not mint an exploration-cursor target or
 	// a supplement window that a later healthy trace call could accidentally
 	// consume.
-	traceQueryRecordExplicitRuntimeTarget(ctx, explicitTargetParams)
 	window := normalizedTraceQueryWindow(p)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
 	// typed window on the run-scoped registry so the post-explore
@@ -423,7 +448,18 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// never seed the supplement's window election. Both legs are pinned
 	// (TestTraceQueryCallWindowRegistrationRequiresBothExplicitBounds /
 	// TestTraceQueryBoundedScopeKeepsHeavyGuardOut).
-	traceQueryRecordCallWindow(ctx, p, window)
+	recordQuery := func() {
+		traceQueryRecordExplicitRuntimeTarget(ctx, explicitTargetParams)
+		traceQueryRecordCallWindow(ctx, p, window)
+	}
+	if businessRef.Token() == "" {
+		recordQuery()
+	} else {
+		// A navigation receipt can expire or resolve into a composite source
+		// during the engine call. Record only after the publication-tail checks;
+		// rejected navigation must not seed a later automatic supplement.
+		recordBusinessQuery = recordQuery
+	}
 	callCaveat := traceQueryJoinCallCaveats(window.NormalizationCaveat, targetCaveat)
 	if auto, ok := t.maybeLargeRecipeAutoWindow(ctx, p, path, sourceLabel, callCaveat); ok {
 		return auto, nil
@@ -528,17 +564,18 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			observations = append(observations, coverage)
 		}
 		return types.ToolResult{
-			ToolName:               t.Name(),
-			Success:                true,
-			Summary:                preview,
-			RawRef:                 rawRef,
-			Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
-			Observations:           observations,
-			TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
-			TraceViewCancellation:  traceQueryToolViewCancellation(result),
-			TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
-			EnumerationAuthority:   traceQueryEnumerationAuthority(result),
-			Timestamp:              now,
+			ToolName:                    t.Name(),
+			Success:                     true,
+			Summary:                     preview,
+			RawRef:                      rawRef,
+			Refinement:                  traceQueryRefinement(result, q, p, sourceLabel),
+			Observations:                observations,
+			TraceQuerySourceRead:        traceQuerySourceReadCandidate(result),
+			TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(result),
+			TraceViewCancellation:       traceQueryToolViewCancellation(result),
+			TraceEvidenceAuthority:      traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
+			EnumerationAuthority:        traceQueryEnumerationAuthority(result),
+			Timestamp:                   now,
 		}, nil
 	}
 	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel, callCaveat); ok {
@@ -579,6 +616,11 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 // The purity premise (identical input ⇒ identical typed output) is
 // pinned by DET-1.
 func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, callCaveat string) (string, bool) {
+	// Instance references retain a stronger physical-generation receipt than
+	// the size/mtime memo key. Reuse the engine index, never a weaker run memo.
+	if p.BusinessSpanRef != "" {
+		return "", false
+	}
 	if !PureToolMemoEnabled() {
 		return "", false
 	}
@@ -1611,17 +1653,18 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 	now := time.Now()
 	return types.ToolResult{
-		ToolName:               t.Name(),
-		Success:                true,
-		Summary:                preview,
-		RawRef:                 rawRef,
-		Refinement:             traceQueryRefinement(result, q, boundedP, sourceLabel),
-		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
-		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
-		TraceViewCancellation:  traceQueryToolViewCancellation(result),
-		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
-		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
-		Timestamp:              now,
+		ToolName:                    t.Name(),
+		Success:                     true,
+		Summary:                     preview,
+		RawRef:                      rawRef,
+		Refinement:                  traceQueryRefinement(result, q, boundedP, sourceLabel),
+		Observations:                traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
+		TraceQuerySourceRead:        traceQuerySourceReadCandidate(result),
+		TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(result),
+		TraceViewCancellation:       traceQueryToolViewCancellation(result),
+		TraceEvidenceAuthority:      traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
+		EnumerationAuthority:        traceQueryEnumerationAuthority(result),
+		Timestamp:                   now,
 	}, true
 }
 
@@ -1705,13 +1748,14 @@ func (t *TraceQuery) maybeStreamSpanLocate(ctx *types.BusContext, p traceQueryPa
 	now := time.Now()
 	return types.ToolResult{
 		ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef,
-		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
-		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
-		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
-		TraceViewCancellation:  traceQueryToolViewCancellation(result),
-		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
-		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
-		Timestamp:              now,
+		Refinement:                  traceQueryRefinement(result, q, p, sourceLabel),
+		Observations:                traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
+		TraceQuerySourceRead:        traceQuerySourceReadCandidate(result),
+		TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(result),
+		TraceViewCancellation:       traceQueryToolViewCancellation(result),
+		TraceEvidenceAuthority:      traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
+		EnumerationAuthority:        traceQueryEnumerationAuthority(result),
+		Timestamp:                   now,
 	}, true
 }
 

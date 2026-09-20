@@ -3,6 +3,7 @@ package types
 import (
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
@@ -18,7 +19,9 @@ type TraceQuerySourceReadRef struct {
 	physicalSource string
 }
 
-type traceSourceReadGeneration struct{ identity byte }
+type traceSourceReadGeneration struct {
+	businessSpanIssued atomic.Uint32
+}
 
 func (r TraceQuerySourceReadRef) Path() string { return r.path }
 

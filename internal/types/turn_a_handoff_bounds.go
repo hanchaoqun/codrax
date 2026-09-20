@@ -20,6 +20,7 @@ type MCPResponsePreserveFunc func(MCPResponse) bool
 // marshaling for an exact figure.
 func TurnAToolResultBytes(r ToolResult) int {
 	n := len(r.ToolName) + len(r.Summary) + len(r.RawRef) + 64
+	n += traceBusinessSpanToolResultBytes(r)
 	if r.Handoff != nil {
 		n += ToolHandoffCarrierBytes(*r.Handoff)
 	}
