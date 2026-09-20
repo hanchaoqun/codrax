@@ -14,8 +14,13 @@ import (
 // These are navigation candidates, not causal or model-selected focus facts.
 // The publication tail binds them to the actual successful native read. Never
 // reconstruct coordinates from observation summaries, labels or rich notes.
-func traceQueryBusinessSpanCandidates(result tracequery.Result) []types.TraceBusinessSpanCandidate {
-	if len(result.TraceArtifacts) != 1 || result.TraceArtifacts[0].VirtualLineBase != 0 ||
+func traceQueryBusinessRefDiscovery(p traceQueryParams) bool {
+	view := tracequery.CanonicalViewName(p.View)
+	return view == "span_window" || view == "window_stats" || traceQuerySpanLocateRecipe(p)
+}
+
+func traceQueryBusinessSpanCandidates(p traceQueryParams, result tracequery.Result) []types.TraceBusinessSpanCandidate {
+	if !traceQueryBusinessRefDiscovery(p) || len(result.TraceArtifacts) != 1 || result.TraceArtifacts[0].VirtualLineBase != 0 ||
 		filepath.Clean(result.TraceArtifacts[0].SourcePath) != filepath.Clean(result.SourcePath) ||
 		traceQueryToolViewCancellation(result) != nil || len(result.LifecycleSuppressions) != 0 {
 		return nil

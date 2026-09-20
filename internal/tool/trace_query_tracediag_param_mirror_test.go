@@ -51,6 +51,10 @@ var traceQueryTraceDiagStepMirror = map[string]string{
 // frame discovery scope, wakeup budgets, recipe/interaction selectors,
 // window_sweep bucketing, compute-supply topology).
 var traceQueryToolOnlyParams = map[string]bool{
+	// Native run-local registry tokens bind a published discovery's original
+	// capture generation. They cannot be replayed by a separate tracediag
+	// process or persisted as script coordinates; scripts use explicit scope.
+	"business_span_ref":     true,
 	"source":                true,
 	"path":                  true,
 	"trace_flavor":          true,

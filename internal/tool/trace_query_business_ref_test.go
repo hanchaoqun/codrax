@@ -202,13 +202,32 @@ func TestTraceQueryBusinessRefKeepsFullPairAndCompositeBoundary(t *testing.T) {
 	r := tracequery.Result{SourcePath: path, TraceArtifacts: []tracequery.TraceArtifactSource{{SourcePath: path}}, WindowStats: &tracequery.WindowStats{
 		TraceSpans: []tracequery.TraceSpanSummary{{SourcePath: path, Kind: "sync", Thread: tracequery.ThreadRef{Comm: "worker", PID: 200}, Name: "Work", StartLine: 2, EndLine: 7, StartTs: 1.01, EndTs: 1.04, ActualStartTs: 1, ActualEndTs: 1.05}},
 	}}
-	got := traceQueryBusinessSpanCandidates(r)
+	p := traceQueryParams{View: "window_stats"}
+	got := traceQueryBusinessSpanCandidates(p, r)
 	if len(got) != 1 || got[0].StartTs != 1 || got[0].EndTs != 1.05 {
 		t.Fatalf("clipped window relabeled as complete pair: %+v", got)
 	}
 	r.TraceArtifacts[0].VirtualLineBase = 10
-	if len(traceQueryBusinessSpanCandidates(r)) != 0 {
+	if len(traceQueryBusinessSpanCandidates(p, r)) != 0 {
 		t.Fatal("virtual composite coordinates granted physical-instance authority")
+	}
+}
+
+func TestTraceQueryBusinessRefDiscoveryDoesNotMintFromMemo(t *testing.T) {
+	ctx, path := businessRefTestContext(t, "# tracer: nop\nworker-200 (100) [001] .... 1.000000: tracing_mark_write: B|100|Work\nworker-200 (100) [001] .... 1.050000: tracing_mark_write: E|100\n")
+	for _, params := range []map[string]any{
+		{"path": path, "view": "span_window", "span_name": "Work"},
+		{"path": path, "view": "window_stats", "pid": 200, "time_start": 1, "time_end": 1.05},
+		{"path": path, "view": "recipe", "recipe_name": "span_locate", "span_name": "Work"},
+	} {
+		first := businessRefTestQuery(t, ctx, params)
+		second := businessRefTestQuery(t, ctx, params)
+		if !first.Success || !second.Success || second.ReusedFromRunMemo || len(first.TraceBusinessSpanRefs) != 1 || len(second.TraceBusinessSpanRefs) != 1 {
+			t.Fatalf("discovery must perform a fresh source read: firstRefs=%d secondRefs=%d memo=%t %s", len(first.TraceBusinessSpanRefs), len(second.TraceBusinessSpanRefs), second.ReusedFromRunMemo, second.Summary)
+		}
+		if first.TraceBusinessSpanRefs[0].Token() == second.TraceBusinessSpanRefs[0].Token() {
+			t.Fatal("navigation token was replayed from pure-result memo")
+		}
 	}
 }
 

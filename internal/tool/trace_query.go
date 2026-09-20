@@ -571,7 +571,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			Refinement:                  traceQueryRefinement(result, q, p, sourceLabel),
 			Observations:                observations,
 			TraceQuerySourceRead:        traceQuerySourceReadCandidate(result),
-			TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(result),
+			TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(p, result),
 			TraceViewCancellation:       traceQueryToolViewCancellation(result),
 			TraceEvidenceAuthority:      traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 			EnumerationAuthority:        traceQueryEnumerationAuthority(result),
@@ -616,9 +616,10 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 // The purity premise (identical input ⇒ identical typed output) is
 // pinned by DET-1.
 func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, callCaveat string) (string, bool) {
-	// Instance references retain a stronger physical-generation receipt than
-	// the size/mtime memo key. Reuse the engine index, never a weaker run memo.
-	if p.BusinessSpanRef != "" {
+	// Issuing and consuming instance references require a current native read,
+	// stronger than the size/mtime pure-result memo. Keep the engine index;
+	// unrelated views retain their existing verbatim result-reuse contract.
+	if p.BusinessSpanRef != "" || traceQueryBusinessRefDiscovery(p) {
 		return "", false
 	}
 	if !PureToolMemoEnabled() {
@@ -1660,7 +1661,7 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 		Refinement:                  traceQueryRefinement(result, q, boundedP, sourceLabel),
 		Observations:                traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		TraceQuerySourceRead:        traceQuerySourceReadCandidate(result),
-		TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(result),
+		TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(p, result),
 		TraceViewCancellation:       traceQueryToolViewCancellation(result),
 		TraceEvidenceAuthority:      traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:        traceQueryEnumerationAuthority(result),
@@ -1751,7 +1752,7 @@ func (t *TraceQuery) maybeStreamSpanLocate(ctx *types.BusContext, p traceQueryPa
 		Refinement:                  traceQueryRefinement(result, q, p, sourceLabel),
 		Observations:                traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		TraceQuerySourceRead:        traceQuerySourceReadCandidate(result),
-		TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(result),
+		TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(p, result),
 		TraceViewCancellation:       traceQueryToolViewCancellation(result),
 		TraceEvidenceAuthority:      traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:        traceQueryEnumerationAuthority(result),

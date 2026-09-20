@@ -629,3 +629,11 @@ HMC-02.4先拆本切片（仍属于原79项，不新计已交付数）：
 末版生产冻结后，三包定向race×3再次通过（types4.735s、tool5.454s、agent4.656s），收据`/tmp/hmc-business-ref-final-race-20260920.log`，真实Explorer消息测试也验证引用schema确实到达。原公开行为修后通过`/tmp/hmc-business-ref-green-20260920.log`，扩展组通过`/tmp/hmc-business-ref-focused-20260920.log`。末审前已启动的全仓回归不冒充最终版本，末版另跑全仓`/tmp/hmc-business-ref-final-full-20260920.log`；整包、原生构建和2并行×1生产回放收据另补，不以当前局部测试预签全仓或live。
 
 HMC-02.4从“待实施”改为“部分实施”：本片完成§24.3第1项与显式查询消费接缝，第2项accepted completion选择和第3项supplement原子消费仍未完成；HMC-04.3完整启动阶段不销账。业务因果意图遵循、运行时图/source-call凭证适用域、分布组/总体及缺失/歧义等答案错误仍分别保留。稳定清单仍13/79交付、66开放。
+
+### 26.4 全仓反例与兼容收口（不跳过红针）
+
+实现先提交`799a30d34`以固定构建输入，尚未推送；首轮全仓`/tmp/hmc-business-ref-full-20260920.log`返回非零，tool383.423s有三条失败：pure memo首轮Summary后追加令牌而缓存未含同一尾部，破坏逐字复用；参数镜像census未显式处置新字段及其self-red派生失败。其它包通过不能覆盖这三条红针。
+
+修正发布范围为schema已承诺的`span_window`、`window_stats`及明确`span_locate`配方（复用既有别名解析）；其它rank/bundle等普通视图不顺带发票。发行与消费两端都绕过弱纯结果memo，仍使用引擎索引缓存；因此普通root_cause_rank的逐字复用原断言不变。新增三种发行面的公开双次调用验证：原生重读、不同本轮token、不可memo铸票。旧memo scope规范化测试仅将输入视图从已不参与memo的window_stats改到root_cause_rank，保留default==thread、process!=thread三项原断言，另由新公开测试验证发行车道，非删针放行。tracediag roster明确本字段tool-only：本轮注册表令牌不能变成跨进程脚本的持久坐标，诊断脚本仍用显式范围。
+
+组合定向回归通过1.427s（`/tmp/hmc-business-ref-compat-final-green-20260920.log`）。此前启动的第二轮全仓`/tmp/hmc-business-ref-final-full-20260920.log`同样早于这次兼容修正，不充作最终收据；末版另跑v2全仓、race与干净构建，随后才启两例生产回放。
