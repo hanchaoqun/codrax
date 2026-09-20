@@ -63,3 +63,15 @@ func TestHtraceConvertGzipTextDisplayRequiresExactTypedProfile(t *testing.T) {
 		}
 	}
 }
+
+func TestHtraceConvertGzipProgressUsesReadableLabels(t *testing.T) {
+	for _, stage := range []string{"gzip_input_decompress", "gzip_text_decompress"} {
+		for _, message := range []string{"decoding complete gzip capture", "decoding complete gzip trace text", "gzip capture decode complete", "gzip trace text decode complete", "gzip capture decode failed", "gzip trace text decode failed"} {
+			event := hitraceconv.ProgressEvent{Stage: stage, Status: hitraceconv.ProgressStatusProgress, Message: message}
+			zh, en := htraceConvertProgressMsg("zh", event), htraceConvertProgressMsg("en", event)
+			if !strings.Contains(zh, "完整解压trace") || !strings.Contains(zh, "校验") || strings.Contains(zh, message) || strings.Contains(zh+en, stage) || !strings.Contains(en, "gzip decompression") {
+				t.Fatalf("internal progress labels leaked: zh=%s en=%s", zh, en)
+			}
+		}
+	}
+}

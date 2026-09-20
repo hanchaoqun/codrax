@@ -3865,6 +3865,9 @@ func htraceConvertProgressPartsZh(event hitraceconv.ProgressEvent) []string {
 
 func htraceConvertProgressStageEn(stage string) string {
 	stage = strings.TrimSpace(stage)
+	if stage == "gzip_input_decompress" || stage == "gzip_text_decompress" {
+		return "gzip decompression"
+	}
 	if stage == "" {
 		return "unknown"
 	}
@@ -3873,6 +3876,8 @@ func htraceConvertProgressStageEn(stage string) string {
 
 func htraceConvertProgressStageZh(stage string) string {
 	switch strings.TrimSpace(stage) {
+	case "gzip_input_decompress", "gzip_text_decompress":
+		return "完整解压trace"
 	case "trace_streamer_input_snapshot":
 		return "准备trace_streamer输入快照"
 	case "simpleperf_input_snapshot":
@@ -3921,6 +3926,12 @@ func htraceConvertProgressStatusZh(status string) string {
 
 func htraceConvertProgressMessageZh(message string) string {
 	switch strings.TrimSpace(message) {
+	case "decoding complete gzip capture", "decoding complete gzip trace text":
+		return "正在完整解压并校验gzip数据"
+	case "gzip capture decode complete", "gzip trace text decode complete":
+		return "gzip数据解压与校验完成"
+	case "gzip capture decode failed", "gzip trace text decode failed":
+		return "gzip数据解压或校验失败"
 	case "preparing immutable trace_streamer input":
 		return "正在准备不可变的 trace_streamer 输入快照"
 	case "copying immutable trace_streamer input":

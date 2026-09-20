@@ -200,7 +200,7 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 
 ### 9.2 第二片：顶层gzip路由与文本显式入口
 
-§9.1末尾的前两项在本片实施，整体验收/提交见主账本§22。默认准备与显式转换共用一次完整解压和持有输入视图；内层精确格式交回原decoder，gzip头Name/MTIME不作路径或时钟依据。`gzip_input_v1`只表明外内字节关系，不替代文本运输或嵌入HIPERF的专属凭证，不给sample-only调度因果权限。默认保DB策略改为内层分型后决定；显式选项仍由原冲突合同裁定。
+§9.1末尾的前两项已在本片以`7a09856c2`推送，整体验收见主账本§22。默认准备与显式转换共用一次完整解压和持有输入视图；内层精确格式交回原decoder，gzip头Name/MTIME不作路径或时钟依据。`gzip_input_v1`只表明外内字节关系，不替代文本运输或嵌入HIPERF的专属凭证，不给sample-only调度因果权限。默认保DB策略改为内层分型后决定；显式选项仍由原冲突合同裁定。
 
 公开基线五类正例先红后绿；正反矩阵包括gzip包裹RMQ/OHOSPROF/PERFILE2/SIMPLEPERF、内嵌gzip采样、多member/嵌套/CRC、库存无能力与暖代次。显式文本路线仅完整解压且如实提示事件未统计，不发假语义产物。ZIP/PERFILE2同根假raw路径同时去除，容器原件身份仍保留。尚缺的search-only目录、实机RMQ/OHOSPROF更多版本、真实外部TS和原生Linux/Windows保持开放；本机合成二进制测试不能充当这些验收。
 
