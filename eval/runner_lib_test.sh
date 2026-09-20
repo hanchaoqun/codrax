@@ -1391,6 +1391,84 @@ Trace Causal Projection
 OUT
 assert_eq "$(eval_count_trace_query_final_projection_blocks "$projection_metric_fixture")" "2" "trace projection metric counts only exact answer headings"
 
+# HMC-18.5: the lead title is the shared tracefence ZH/EN title, optional
+# artifact label, then runtimeTraceQueryScopeTitleSuffix. Pin every emitted
+# scope form; the typed tree fence belongs to that same block, not a second one.
+while IFS= read -r projection_heading; do
+  printf '## %s\n\n```text trace-causal-projection\nprojection tree\n```\n' "$projection_heading" >"$projection_metric_fixture"
+  assert_eq "$(eval_count_trace_query_final_projection_blocks "$projection_metric_fixture")" "1" \
+    "trace projection metric recognizes generated heading: $projection_heading"
+done <<'HEADINGS'
+Trace 因果投影（补充查询范围）
+Trace Causal Projection (Supplementary query window)
+Trace 因果投影（第 1/2 个时间窗 1.000000–2.000000 秒）
+Trace Causal Projection (Window 1/2 1.000000–2.000000 seconds)
+Trace 因果投影（查询范围未明确）
+Trace Causal Projection (Query window unknown)
+Trace 因果投影（补充查询 1.000000–2.000000 秒）
+Trace Causal Projection (Supplementary query 1.000000–2.000000 seconds)
+Trace 因果投影
+Trace Causal Projection
+Trace 因果投影 — capture.systrace（补充查询范围）
+Trace Causal Projection — capture.systrace (Supplementary query window)
+Trace 因果投影 — capture.systrace（第 2/3 个时间窗 0.000000–2.000000 秒）
+Trace Causal Projection — capture.systrace (Window 2/3 0.000000–2.000000 seconds)
+Trace 因果投影 — capture.systrace（查询范围未明确）
+Trace Causal Projection — capture.systrace (Query window unknown)
+Trace 因果投影 — capture.systrace（补充查询 1.000000–2.000000 秒）
+Trace Causal Projection — capture.systrace (Supplementary query 1.000000–2.000000 seconds)
+Trace 因果投影 — capture.systrace
+Trace Causal Projection — capture.systrace
+HEADINGS
+
+cat >"$projection_metric_fixture" <<'OUT'
+ordinary prose mentions Trace 因果投影（补充查询范围）
+<title>Trace 因果投影（补充查询范围）</title>
+> ## Trace 因果投影
+    ## Trace Causal Projection
+### Trace 因果投影
+## Trace 因果投影解读
+## Trace 因果投影对比总览
+## Trace 因果投影分区边界
+## Trace 因果投影覆盖边界
+## Trace Causal Projection Comparison Overview
+## Trace Causal Projection Partition Boundary
+## Trace Causal Projection Coverage Boundary
+## Trace 因果投影（任意说明）
+## Trace 因果投影（补充查询范围）另有说明
+## Trace 因果投影（第 1/2 个时间窗 1–2 秒）
+## Trace Causal Projection (manual)
+## Trace Causal Projection (Supplementary query window plus commentary)
+## Trace Causal Projection (Window first/second 1.000000–2.000000 seconds)
+## Trace Causal Projection (Supplementary query NaN–2.000000 seconds)
+```text
+## Trace 因果投影
+## Trace Causal Projection (Supplementary query window)
+```
+~~~markdown
+## Trace 因果投影（补充查询范围）
+~~~
+````markdown
+```text trace-causal-projection
+## Trace Causal Projection
+```
+## Trace 因果投影
+````
+   ~~~~markdown
+## Trace 因果投影
+~~~
+## Trace Causal Projection
+   ~~~~
+```text trace-causal-projection
+projection tree without a published lead heading is not a second metric lane
+```
+OUT
+assert_eq "$(eval_count_trace_query_final_projection_blocks "$projection_metric_fixture")" "0" \
+  "trace projection metric rejects lookalike titles, prose and fenced examples"
+printf '\n## Trace 因果投影（补充查询范围）\n' >>"$projection_metric_fixture"
+assert_eq "$(eval_count_trace_query_final_projection_blocks "$projection_metric_fixture")" "1" \
+  "trace projection metric resumes after matching long fence close"
+
 fake_efficiency="$tmp/fake-codrax-efficiency-budget"
 cat >"$fake_efficiency" <<'FAKE'
 #!/usr/bin/env bash

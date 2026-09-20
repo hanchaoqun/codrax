@@ -1921,8 +1921,48 @@ eval_count_trace_query_final_projection_blocks() {
   # Operation/data answers can legitimately quote manuals, HTML titles, or
   # model progress containing the same words; treating those as a published
   # trace projection contaminates cross-mode audits.
+  # The title grammar mirrors tracefence.SectionProjectionZH/EN plus the
+  # producer-owned runtimeTraceQueryScopeTitleSuffix (artifact label first).
+  # Do not accept arbitrary parenthetical titles, or count the block's own
+  # `text trace-causal-projection` fence again as another projection.
   awk '
-    /^##[[:space:]]+(Trace 因果投影|Trace Causal Projection)([[:space:]]+—.*)?[[:space:]]*$/ { n++ }
+    BEGIN {
+      seconds = "-?[0-9]+[.][0-9][0-9][0-9][0-9][0-9][0-9]"
+      window = seconds "–" seconds
+      ordinal = "[1-9][0-9]*/[1-9][0-9]*"
+      artifact = "([[:space:]]+—[[:space:]]+[^[:space:]].*)?"
+      zh_scope = "(（补充查询范围）|（查询范围未明确）|（第 " ordinal " 个时间窗 " window " 秒）|（补充查询 " window " 秒）)?"
+      en_scope = "( [(]Supplementary query window[)]| [(]Query window unknown[)]| [(]Window " ordinal " " window " seconds[)]| [(]Supplementary query " window " seconds[)])?"
+      heading = "^##[[:space:]]+(Trace 因果投影" artifact zh_scope "|Trace Causal Projection" artifact en_scope ")[[:space:]]*$"
+    }
+    # Markdown code examples are not answer headings. Honor both fence
+    # characters, 0..3-space indentation, and matching-or-longer close runs;
+    # a triple fence inside a quadruple example must not expose its headings.
+    function fence_line(line, indent, body, marker, count, rest) {
+      match(line, /^ */)
+      indent = RLENGTH
+      if (indent > 3) return 0
+      body = substr(line, indent + 1)
+      marker = substr(body, 1, 1)
+      if (marker != "`" && marker != "~") return 0
+      count = 0
+      while (substr(body, count + 1, 1) == marker) count++
+      if (count < 3) return 0
+      rest = substr(body, count + 1)
+      if (in_fence) {
+        if (marker == fence_marker && count >= fence_length && rest ~ /^[[:space:]]*$/) in_fence = 0
+      } else {
+        if (marker == "`" && index(rest, "`") > 0) return 0
+        in_fence = 1
+        fence_marker = marker
+        fence_length = count
+      }
+      return 1
+    }
+    {
+      if (fence_line($0)) next
+      if (!in_fence && $0 ~ heading) n++
+    }
     END { print n + 0 }
   ' "$file"
 }
