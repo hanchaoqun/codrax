@@ -79,7 +79,7 @@ var (
 // Initial schema, rejected retries, and optional-compaction disclosures share
 // the same value-kind advice. Capacity pressure never authorizes converting
 // scalar measurements or categorical conclusions into integer counts.
-const completionAggregateFactsCapTeaching = "When approaching the cap, use grouped_count with members only for already-verified non-negative integer counts, never for scalar measurements or categorical outcomes. Keep measurements in scalar_value and preserve categorical kinds; do not change a fact's kind merely to fit the cap. Prioritize currently verified facts within the cap, and keep audit-only bookkeeping details in reason instead of separate audit_ledger entries."
+const completionAggregateFactsCapTeaching = "When approaching the cap, use grouped_count with members only for already-verified non-negative integer counts, never for scalar measurements or categorical outcomes. Keep measurements in scalar_value and preserve categorical kinds; do not change a fact's kind merely to fit the cap. Prioritize currently verified facts within the cap, and keep audit-only bookkeeping details in reason instead of separate audit_ledger entries. Measurements already carried by accepted native typed query observations do not need a duplicate aggregate_facts entry. Omit only a duplicate handoff after confirming the same source, query receipt, target/window scope, measurement identity, value and unit in an accepted observation; raw prose, inferred values, and another scope are not substitutes. Preserve unique principal facts and required member-set handoffs; do not relabel them as audit_ledger to evade the cap. This does not guarantee that bounded observation views display every measurement."
 
 func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 	emitInvestigationCompleteParametersOnce.Do(func() {
@@ -96,7 +96,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 		"properties": {
 			"reason": {
 				"type": "string",
-				"description": "Concise completion conclusion for later answer writing: state what the investigation found, why it is complete, and any important scope boundary, no-hit/exclusion finding, cross-repository or cross-component distinction, or caveat that should not be lost. Do not leave the conclusion only in free-form text before the tool call. Keep counts, complete member lists, and per-bucket facts in aggregate_facts; use absence_justification for a genuine zero or not-found result. This field is preserved as context, not as a citation. For external runtime/log/trace artifacts, keep direct observations separate from inferred upstream causes: the artifact can directly prove the error message, observed operation/property, frame/span, signal, duration, and trace order. It does not by itself prove which variable/parameter/caller supplied the bad value or how upstream data was constructed; put that as a possible upstream investigation direction unless the artifact text or separately grounded current-source evidence proves it."
+				"description": "Concise completion conclusion for later answer writing: state what the investigation found, why it is complete, and any important scope boundary, no-hit/exclusion finding, cross-repository or cross-component distinction, or caveat that should not be lost. Do not leave the conclusion only in free-form text before the tool call. Keep required complete member lists and model-derived counts/per-bucket facts in aggregate_facts; already accepted native typed query measurements may use their existing observation carrier under the scoped reuse rules in aggregate_facts. Use absence_justification for a genuine zero or not-found result. This field is preserved as context, not as a citation. For external runtime/log/trace artifacts, keep direct observations separate from inferred upstream causes: the artifact can directly prove the error message, observed operation/property, frame/span, signal, duration, and trace order. It does not by itself prove which variable/parameter/caller supplied the bad value or how upstream data was constructed; put that as a possible upstream investigation direction unless the artifact text or separately grounded current-source evidence proves it."
 			},
 			"confidence": {
 				"type": "string",
@@ -2002,11 +2002,11 @@ func aggregateFactsEntrySchemaFields(schema json.RawMessage) []string {
 }
 
 // completionAggregateFactsFixNotDeleteSentence is the anti-deletion teaching
-// appended to every aggregate_facts reject (EMITBURN-1 件4, §29.173): a
-// rejected payload retains nothing, so deleting entries silently loses their
-// typed values from the answer pipeline. Fix-first is the taught path;
-// deletion is a named, reasoned last resort.
-const completionAggregateFactsFixNotDeleteSentence = " Fix the failing entries in place rather than deleting them — rejected payloads retain nothing, so a deleted entry's typed value leaves the answer permanently; if an entry truly cannot be fixed, dropping it is a last resort and you must name the dropped entry in reason with one line on why."
+// appended to every aggregate_facts reject (EMITBURN-1 件4, §29.173). Rejected
+// aggregate entries are not published, but independent accepted observations
+// survive. Fix-first protects unique principal facts; the schema's scoped
+// reuse rule permits omitting only a duplicate native-measurement handoff.
+const completionAggregateFactsFixNotDeleteSentence = " Fix the failing entries in place rather than deleting them when they are the only structured handoff for a principal fact — rejected entries are not retained as aggregate facts. Independently accepted native observations remain available; only a duplicate meeting the schema's scoped reuse rule may be omitted. Do not drop unique principal facts or required member sets, or relabel them as audit_ledger to evade the cap. If a unique fact truly cannot be fixed, name the dropped entry in reason with one line on why."
 
 // completionAggregateFactsCollectViolations runs the same emit-side pre-pass
 // the accept path runs (negative-observation auto-fill, compat normalization)
