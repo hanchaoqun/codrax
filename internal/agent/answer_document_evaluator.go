@@ -5830,6 +5830,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocBoundedRuntimeFactAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
+	if meanings := renderAnswerDocQueriedIOMeasurementSemantics(ctx, promptLedger); meanings != "" {
+		b.WriteString(meanings)
+	}
 	if facts := renderAnswerDocBusinessSpanFacts(ctx, promptLedger); facts != "" {
 		b.WriteString(facts)
 	}

@@ -76,13 +76,22 @@ var (
 	emitInvestigationCompleteParametersCached json.RawMessage
 )
 
+// Initial schema, rejected retries, and optional-compaction disclosures share
+// the same value-kind advice. Capacity pressure never authorizes converting
+// scalar measurements or categorical conclusions into integer counts.
+const completionAggregateFactsCapTeaching = "When approaching the cap, use grouped_count with members only for already-verified non-negative integer counts, never for scalar measurements or categorical outcomes. Keep measurements in scalar_value and preserve categorical kinds; do not change a fact's kind merely to fit the cap. Prioritize currently verified facts within the cap, and keep audit-only bookkeeping details in reason instead of separate audit_ledger entries."
+
 func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 	emitInvestigationCompleteParametersOnce.Do(func() {
 		// §21 EMIT-2 / 维度C④: the aggregate_facts cap is single-sourced from
 		// types.MaxAnswerAggregateFacts via the __AGG_FACTS_CAP__ placeholder
 		// (both the maxItems constraint and the description pre-announcement),
 		// so the schema promise can never drift from the validator.
-		emitInvestigationCompleteParametersCached = json.RawMessage(strings.ReplaceAll(`{
+		capTeachingJSON, _ := json.Marshal(completionAggregateFactsCapTeaching)
+		emitInvestigationCompleteParametersCached = json.RawMessage(strings.NewReplacer(
+			"__AGG_FACTS_CAP__", strconv.Itoa(types.MaxAnswerAggregateFacts),
+			"__AGG_FACTS_CAP_TEACHING__", string(capTeachingJSON[1:len(capTeachingJSON)-1]),
+		).Replace(`{
 		"type": "object",
 		"properties": {
 			"reason": {
@@ -106,7 +115,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			"aggregate_facts": {
 				"type": "array",
 				"maxItems": __AGG_FACTS_CAP__,
-				"description": "OPTIONAL but expected for derived scalar/count answers, categorical behavior verdicts, exhaustive member enumerations, and named-mechanism comparisons. HARD CAP: at most __AGG_FACTS_CAP__ entries per call — budget them toward the highest-value facts. When approaching the cap, use grouped_count with members only for already-verified non-negative integer counts, never for scalar measurements or categorical outcomes. Keep measurements in scalar_value and preserve categorical kinds; do not change a fact's kind merely to fit the cap. Prioritize currently verified facts within the cap, and keep audit-only bookkeeping details in reason instead of separate audit_ledger entries. A named-mechanism comparison is different: use ONE principal member_set with one mechanism per members[] entry, its own index-aligned member_notes[] control-path description, and its own index-aligned support_refs[] evidence location. Do not place a compared mechanism only in grouped_count dimensions: dimensions have no member-specific evidence mapping, so that shape cannot prove both sides independently. A carrier-only enum, constant, type, schema, or event-name declaration proves identity only; behavioral member_notes require the actual producer/callsite and consumer/handler control path. For an attached runtime event, a source predicate proves the rule exists but not that this instance satisfied it: bind every load-bearing runtime operand or mark the rule uninstantiated. A payload over the cap is truncated by role priority (principal_answer kept first, audit_ledger dropped first) when the principal_answer facts themselves fit the cap, and rejected otherwise. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, scalar durations/latencies/frequencies, behavior outcomes, and excluded-candidate counts. Use this instead of burying aggregates, verdicts, or complete member lists only in reason prose. Count values must be non-negative integer strings with units kept in unit. Durations such as 119.227 ms, latency, percentage, frequency, and other non-integer measurements must use kind=scalar_value, not total_count. behavior_outcome/error_granularity_verdict values are stable category strings. For kind=member_set, value may be omitted when members contains a non-empty complete set; a verified empty set uses value=\"0\" and members=[]. When value is an explicit valid integer, it MUST equal len(members): a numeric mismatch is rejected because it means either the count or the purported exact roster is wrong. Schema-adjacent non-integer value text such as \"1+\" may still be repaired from exact members. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
+				"description": "OPTIONAL but expected for derived scalar/count answers, categorical behavior verdicts, exhaustive member enumerations, and named-mechanism comparisons. HARD CAP: at most __AGG_FACTS_CAP__ entries per call — budget them toward the highest-value facts. __AGG_FACTS_CAP_TEACHING__ A named-mechanism comparison is different: use ONE principal member_set with one mechanism per members[] entry, its own index-aligned member_notes[] control-path description, and its own index-aligned support_refs[] evidence location. Do not place a compared mechanism only in grouped_count dimensions: dimensions have no member-specific evidence mapping, so that shape cannot prove both sides independently. A carrier-only enum, constant, type, schema, or event-name declaration proves identity only; behavioral member_notes require the actual producer/callsite and consumer/handler control path. For an attached runtime event, a source predicate proves the rule exists but not that this instance satisfied it: bind every load-bearing runtime operand or mark the rule uninstantiated. A payload over the cap is truncated by role priority (principal_answer kept first, audit_ledger dropped first) when the principal_answer facts themselves fit the cap, and rejected otherwise. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, scalar durations/latencies/frequencies, behavior outcomes, and excluded-candidate counts. Use this instead of burying aggregates, verdicts, or complete member lists only in reason prose. Count values must be non-negative integer strings with units kept in unit. Durations such as 119.227 ms, latency, percentage, frequency, and other non-integer measurements must use kind=scalar_value, not total_count. behavior_outcome/error_granularity_verdict values are stable category strings. For kind=member_set, value may be omitted when members contains a non-empty complete set; a verified empty set uses value=\"0\" and members=[]. When value is an explicit valid integer, it MUST equal len(members): a numeric mismatch is rejected because it means either the count or the purported exact roster is wrong. Schema-adjacent non-integer value text such as \"1+\" may still be repaired from exact members. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
 				"items": {
 					"type": "object",
 					"properties": {
@@ -230,7 +239,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			}
 			},
 			"required": ["reason", "confidence", "result_kind"]
-		}`, "__AGG_FACTS_CAP__", strconv.Itoa(types.MaxAnswerAggregateFacts)))
+		}`))
 	})
 	return cloneJSONRawMessage(emitInvestigationCompleteParametersCached)
 }
@@ -1001,7 +1010,7 @@ func normalizeCompletionAggregateFacts(
 		if errors.As(mergeErr, &capErr) {
 			compacted := compactCompletionAggregateFactsForRuntime(out, types.MaxAnswerAggregateFacts)
 			if remerged, remergeErr := types.NormalizeAnswerAggregateFacts(compacted); remergeErr == nil {
-				notes = append(notes, fmt.Sprintf("aggregate_facts payload had %d entries over the %d-entry cap; kept %d by role priority (principal_answer first, audit_ledger last) instead of discarding the payload — merge same-family facts into one grouped_count or move detail into reason to avoid truncation", len(out), types.MaxAnswerAggregateFacts, len(remerged)))
+				notes = append(notes, fmt.Sprintf("aggregate_facts payload had %d entries over the %d-entry cap; kept %d by role priority (principal_answer first, audit_ledger last) instead of discarding the payload. %s", len(out), types.MaxAnswerAggregateFacts, len(remerged), completionAggregateFactsCapTeaching))
 				merged, mergeErr = remerged, nil
 			}
 		}
@@ -1307,7 +1316,7 @@ func completionAggregateFactsWithinPrincipalBudget(facts []types.AnswerAggregate
 // completionAggregateFactsCapRejectRouting builds the operation routing that
 // rides an aggregate_facts cap rejection (§21 EMIT-2 / 维度C②, NUM 根因2
 // 孪生): the current count, the per-role tally, and the three concrete edits
-// (merge same-family facts / move detail to reason / trim lowest-value roles).
+// (preserve kinds / move audit detail to reason / prioritize within the cap).
 // LLM-facing text: it names only schema-visible concepts (roles, kinds,
 // reason), never internal mechanisms.
 func completionAggregateFactsCapRejectRouting(facts []types.AnswerAggregateFact) string {
@@ -1326,8 +1335,8 @@ func completionAggregateFactsCapRejectRouting(facts []types.AnswerAggregateFact)
 	appendRole("audit_ledger", types.AnswerAggregateRoleAuditLedger)
 	appendRole("unspecified_role", types.AnswerAggregateRoleUnknown)
 	return fmt.Sprintf(
-		"You sent %d facts (role tally: %s); the budget is %d entries. Keep the highest-value facts: merge same-family per-group scalars into ONE grouped_count fact with members (one fact per metric family, not one per group or per trace side), move audit-only details into reason, and drop the lowest-value audit_ledger entries first. Do not drop principal_answer facts — consolidate them into fewer aggregate rows instead.",
-		len(facts), strings.Join(tally, ", "), types.MaxAnswerAggregateFacts)
+		"You sent %d facts (role tally: %s); the budget is %d entries. %s",
+		len(facts), strings.Join(tally, ", "), types.MaxAnswerAggregateFacts, completionAggregateFactsCapTeaching)
 }
 
 func completionAggregateFactValueRepairableFromMembers(fact types.AnswerAggregateFact) bool {

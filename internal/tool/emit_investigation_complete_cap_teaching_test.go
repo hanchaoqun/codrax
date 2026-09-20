@@ -92,3 +92,74 @@ func TestB1640BCompletionCapExamplesUseExistingNormalizer(t *testing.T) {
 		})
 	}
 }
+
+// The public retry and optional-compaction responses must not undo the
+// kind-preserving advice in the initial schema. This exercises both responses,
+// not only a helper or a source-text match.
+func TestCompletionCapRuntimeTeachingAgreesWithPublishedSchema(t *testing.T) {
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal((&EmitInvestigationComplete{}).Parameters(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	description := schema.Properties["aggregate_facts"].Description
+	start := strings.Index(description, "When approaching the cap,")
+	end := strings.Index(description, " A named-mechanism comparison is different:")
+	if start < 0 || end <= start {
+		t.Fatal("published schema lost the cap guidance paragraph")
+	}
+	guidance := description[start:end]
+	for _, optional := range []bool{false, true} {
+		name := "rejected_principal_overflow"
+		if optional {
+			name = "optional_compaction_disclosure"
+		}
+		t.Run(name, func(t *testing.T) {
+			mut := types.NewMutableState("test aggregate capacity without changing value kinds")
+			ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{}}
+			if optional {
+				ctx.AnalysisIR.RequestModel.Intent = types.IntentRootCause
+				ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioRootCause
+				ctx.AnalysisIR.RequestModel.LogTriage = &types.LogBundle{Errors: []types.LogError{{Type: "runtime trace"}}}
+			}
+			count := types.MaxAnswerAggregateFacts + 1
+			facts := emit2AggregateFacts(count, count)
+			// All are scalars, including integral and decimal values. The cap
+			// must never be escaped by changing them to grouped integer counts.
+			facts[0]["value"] = "12.5"
+			params, err := json.Marshal(map[string]any{"result_kind": "resolved", "confidence": "high", "reason": "verified measurements", "aggregate_facts": facts})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := (&EmitInvestigationComplete{}).Execute(ctx, params)
+			if err != nil || result.Success != optional {
+				t.Fatalf("existing admission boundary changed: optional=%v result=%+v err=%v", optional, result, err)
+			}
+			if !strings.Contains(result.Summary, guidance) {
+				t.Errorf("runtime response contradicts/omits the published kind-preserving guidance:\n%s", result.Summary)
+			}
+			for _, unsafe := range []string{"merge same-family per-group scalars into ONE grouped_count", "merge same-family facts into one grouped_count"} {
+				if strings.Contains(result.Summary, unsafe) {
+					t.Errorf("runtime response reintroduces invalid conversion %q", unsafe)
+				}
+			}
+			retained := mut.StableInvestigationAggregateFacts()
+			if !optional && len(retained) != 0 {
+				t.Fatalf("hard rejection published an aggregate handoff: %+v", retained)
+			}
+			if optional {
+				if len(retained) != types.MaxAnswerAggregateFacts || retained[0].Value != "12.5" || retained[0].Unit != "ms" {
+					t.Fatalf("existing disclosed compaction lost value or ruler: %+v", retained)
+				}
+				for _, fact := range retained {
+					if fact.Kind != types.AnswerAggregateScalar {
+						t.Fatalf("cap changed measurement kind: %+v", fact)
+					}
+				}
+			}
+		})
+	}
+}

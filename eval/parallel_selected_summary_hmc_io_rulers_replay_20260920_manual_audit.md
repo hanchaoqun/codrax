@@ -34,6 +34,6 @@
 1. HMC-02.4：已接受业务实例焦点与自动补齐原子消费；仍需取消/败方/旧代次/显式用户窗保护，不能自动挑最长span。
 2. HMC-08.1/16.4：已查询的typed IO测量在宽泛count_or_duration分类下仍应交付自身端点和统计范围；仅做证据说明，不修改请求意图或扩大硬门，先补公开红针。
 3. 表格缺语义列名、正确证据到达后的错述继续留账，不猜列名、不扩成文重试、不按客户原文打补丁。
-4. 独立P1观察：预处理的模型提取时长被下游称为“direct quantitative observation”。业务本次50ms恰好吻合原生span，尚无错答归因复现；核实 `context/builder.go` 的MetaDuration与 `renderAnswerDocPerfFrameVerdictAuthority` 来源声明，不能当已修复或确定事故。
+4. 独立P1观察：预处理的模型提取时长被下游称为“direct quantitative observation”。业务本次50ms恰好吻合原生span，尚无错答归因复现；核实 `context/builder.go` 的MetaDuration与 `renderAnswerDocPerfThresholdProvenanceAuthority` 来源声明，不能当已修复或确定事故。
 
 稳定清单仍13/79交付、66开放。混合源码读＋Python写apply固定异构双例仍排队，不能以这两条Trace读例替代。活跃流没有因4ms总年龄降级的变更，默认首响应/静默/非流式仍600/300/600秒。

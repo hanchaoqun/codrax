@@ -166,8 +166,8 @@ func TestEmitInvestigationComplete_AggregateFactsCapRejectCarriesRouting(t *test
 		fmt.Sprintf("role tally: principal_answer=%d", overCap),
 		fmt.Sprintf("the budget is %d entries", types.MaxAnswerAggregateFacts),
 		"grouped_count",
-		"move audit-only details into reason",
-		"consolidate them into fewer aggregate rows",
+		"keep audit-only bookkeeping details in reason",
+		"do not change a fact's kind merely to fit the cap",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("cap rejection must carry operation routing; missing %q in: %s", want, res.Summary)
