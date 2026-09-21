@@ -1902,7 +1902,7 @@ H4 170秒保明确13762.791708–13763.024898窗、四态157.248/5.604/70.338/0m
 
 - [ ] 后续上下文精简小批先把现有“业务窗/查询窗”和“请求驻留/闭合阻塞”在同一成文卡紧邻呈现、削减重复摘要，保来源/线程/窗口/覆盖限制；先做公开消息接缝回归再固定双例人审。此项目前是呈现风险设计，不是已证新P1或已修系统缺陷，禁止追加同义教学堆叠、正文扫描硬门、模型结论代写或根因资格扩展。旧业务FAIL、H4两尺遗漏都继续开放。
 
-## 89. 原生断言身份教学与当前持有报告交接（2026-09-21，实施验收中）
+## 89. 原生断言身份教学与当前持有报告交接（2026-09-21，子片验收完成，父项留债）
 
 从干净的`6647135b9`继续，远程核对无落后。本批落实§88前五项，后续Trace同卡分尺/B2–B6不混入本片，也不以展示成功抵销旧人工FAIL。两路施工分别负责实际计划schema的单源身份说明、当前报告PASS身份的有界只读展示；根席独立补真实公开ReadFile→EmitChangePlan→ApplyPatch→RunTests→JSON往返→planner/controller消息回归，包含根目录零发现、非根原生PASS、错PTO仍proof_weak、混合原生FAIL。
 
@@ -1917,3 +1917,19 @@ H4 170秒保明确13762.791708–13763.024898窗、四态157.248/5.604/70.338/0m
 有效schema RED=session42327 exit1/tool1.171s，`/tmp/hmc-native-identity-teaching.BihPFp/RED-schema-valid.log`，只缺教学的两个schema失败，24协议scope格正常；首次GREEN=session16251 exit0/tool1.329s。身份末版定向`/tmp/hmc-native-identity-focused-final-20260921.jsonl`（session90844正式exit0）13顶层/96子项、0FAIL/skip，types0.825/agent2.994/tool1.100秒，包含根席两真实runner公开链及原安装出口census。前轮v2 WorkingDir测试装配编译错误已更正为Root，记录保留且不算产品RED。8项超时默认/活跃流保护`/tmp/hmc-native-identity-active-stream-20260921.log`（session38195正式exit0，llm5.499秒）通过，含4ms阈值连续部分帧场景；并未改timeout代码。
 
 统一末版全仓`/tmp/hmc-native-identity-full-20260921.log`（session17118）和独立race仍运行。随后只跑固定`nested_python_increment`＋`trace_query_business_marker_io_chain`，2并行×1：按已复现写模式身份缺口/跨模式保护选例，Trace保旧50/35/31/两段1ms与业务线索的人工检查；不强迫模型采用新分支，不为追绿追加第三例。全部正式收据齐备前保持验收中。
+
+末版race已齐：身份展示session64220正式exit0，同13顶层/96子项（types2.046/agent3.940/tool2.919秒）；教学相邻四包60顶层/0skip，focused55496正式exit0、race35530正式exit0，日志`/tmp/hmc-native-identity-teaching.BihPFp/GREEN-{focused,race}-final.log`，含旧既有测试公开五枝和非根scope四枝。教学末版schema/protocol97692也正式exit0。干净构建session61807正式exit0，revision=`68730664c8cb`、buildTime=`2026-09-21T11:47:55Z`。固定双例runner40831已按2并行×1开始，结果根`eval/results/hmc_native_identity_crossmode_20260921`，尚未终签。
+
+live进行中确认的新相邻P1上下文缺口单列待修：实际完整原生pair已到工具/controller消息，但既有`WriteContextPackFromChangePlan`的PTO摘要只留id/test_path/contract_refs，未交付声明的suite/id。模型把“有PTO+原生PASS”误当系统映射故障，首次申请all_verified被既有校验正确改为verify_batch；未误放行。下一小批应让当前声明pair与当前观测pair并置并保源身份，不做系统推定匹配或自动改绑。普通pack文本上限240字符会截断，不能简单拼字段进去制造可复制的残缺身份；需完整JSON条目、独立有界展示与当前来源检查。此发现不是B2权限已开放，也不为尚在运行的本例签最终FAIL/PASS。
+
+末版全仓session17118现已正式exit0：87测试包、13无测试包、零FAIL，tool432.783/agent122.240/tracequery143.528秒。独立只读审查PASS。§88前五项子清单由本节实现/公开消息、schema、协议、race和全仓收据完成；不把持有快照当同工作树代次证明，不代销B2–B6。最早运行中记录保留，以此正式退出更新状态。
+
+## 90. 687306固定双例：完整人工0/2，实体提及越权选根优先修（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_native_identity_crossmode_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_native_identity_crossmode_20260921_manual_audit.md)：runner40831正式exit0，2并行×1，机器1/2、完整人工0/2，无第三次追绿。Python237秒真实3次×3条断言PASS，原测试/配置不改，唯一源码修复正确；当前身份交接实达工具/controller共7区块21完整身份。3个required仍0/3，声明与真实限定suite/id不匹配；source-free未授权补登记，最终诚实unverified。当前声明pair缺展示是下一独立接缝，不能放宽matcher清债。
+
+Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+44套进50ms业务、8与9.5ms混尺，且把入睡起点当请求起点、完成事件执行者当被唤醒者。最后输入有完整正确分尺，原始测量/上下文可用；不增加正文关键词硬门。保因果投影、schema2旁路三项31/1/1与背景47隔离，旁路模型description亦须独立审计。
+
+两席独立确认更高ROI系统P1：唯一wakeup查询目标app-main，原生路径storage-irq→worker→app；analyzer明确`no_named_target`，通用Entities却把worker排在app-main前。`observationLedgerAnchorEntities`无条件收通用实体，路径选举按首次命中截到worker并标用户选举；renderer继承后称worker为“用户关注线程/自身”，与app-main状态账矛盾。不是合法导航游标改变，也不能只换图头掩盖截链。修复应从typed用户目标授权单源收口，并同步显示的明确无目标状态；保完整原生路径、真正named目标、同tid别名、cursor排除与旧nil-profile兼容。不强制业务实例覆盖full-artifact，不改物理数值/根因资格或由原文扫描重新选目标。
+
+后续任务顺序：上述目标授权P1→声明/观测完整pair并置→业务/查询与请求/阻塞同卡分尺→B2–B6和其余HMC开放项。旧人工FAIL不回写，父账13/79交付、66开放不变。
