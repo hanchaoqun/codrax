@@ -1889,7 +1889,7 @@ func renderTraceFinalSynthesisScope(set types.TraceCausalProjectionSet, frameEvi
 
 // renderTraceFinalLeaderMechanismCeiling gives the model one concise reminder
 // at the final synthesis tail when a published direction leader is upstream
-// work before the target wakeup but the projection has no typed target
+// dependency observation before the target wakeup but the projection has no typed target
 // waiter/holder relation. Absence on that surface is not a verdict on
 // independently proved waits. Detailed per-row authority remains in the
 // ledger above; this line only keeps
@@ -1936,11 +1936,11 @@ func renderTraceFinalLeaderMechanismCeiling(set types.TraceCausalProjectionSet) 
 			identity := types.TraceRankBoardDisplayIdentityFromNode(projection, node)
 			traceRankWriteDirectionDomain(&b, identity)
 			if identity.Complete {
-				b.WriteString(": From this row and the projection's waiter/holder surface alone, describe this selected leader only as on-chain work overlapping the interval before the target wakeup. ")
+				b.WriteString(": From this row and the projection's waiter/holder surface alone, describe this selected leader only as an on-chain dependency observation overlapping the interval before the target wakeup. ")
 			} else {
-				b.WriteString(": From this row and the projection's waiter/holder surface alone, describe this independent observed row only as on-chain work overlapping the interval before the target wakeup, not as a shared direction leader. ")
+				b.WriteString(": From this row and the projection's waiter/holder surface alone, describe this independent observed row only as an on-chain dependency observation overlapping the interval before the target wakeup, not as a shared direction leader. ")
 			}
-			b.WriteString("That surface alone does not establish that the target waited for this work, waited for its completion, or was directly blocked by it. It does not negate independently proved waits, including Binder or completion-closed IO, in the same capture, target, and window; use each only for the relationship it actually proves. Those waits do not by themselves establish a holder relation or root-cause eligibility.\n")
+			b.WriteString("That surface alone does not establish a target wait, completion dependency, or direct blocking of the target. It does not negate independently proved waits, including Binder or completion-closed IO, in the same capture, target, and window; use each only for the relationship it actually proves. Those waits do not by themselves establish a holder relation or root-cause eligibility.\n")
 		}
 		if len(candidates) > 0 || leaderTotal > leaderShown {
 			fmt.Fprintf(&b, "  - mechanism_scope_preview: emitted=%d; eligible_among_shown_leaders=%d; omitted_by_leader_preview=%d; omitted_by_mechanism_preview=%d. Query identities are authoring metadata, not answer wording; preview omission does not remove evidence or grant a cross-board leader.\n",

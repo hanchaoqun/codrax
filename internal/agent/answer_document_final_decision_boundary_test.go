@@ -1315,7 +1315,7 @@ func TestTraceFinalDecisionLedgerPrefersRequestedWindowBoardAndCarriesPreWakeupP
 		"query_window=`10.000000..10.100000`",
 		"window_role=`requested_scope_principal`",
 		"impact_phase=`pre_wakeup_dependency`",
-		"mechanism_ceiling=`on_chain_prewakeup_work_candidate_only`",
+		"mechanism_ceiling=`on_chain_prewakeup_observation_candidate_only`",
 		"target_wait_for_work_authority=`not_provided_by_this_seat`",
 		"work_completion_dependency_authority=`not_provided_by_this_seat`",
 		"direct_blocking_authority=`not_provided_by_this_seat`",
@@ -1503,8 +1503,8 @@ func TestTraceFinalLeaderMechanismCeilingIsSalientWithoutTypedTargetBlocker(t *t
 	for _, want := range []string{
 		"final_answer_mechanism_scope artifact=`customer.systrace`",
 		"subject=`worker-200`; target=`app-100`",
-		"only as on-chain work overlapping the interval before the target wakeup",
-		"That surface alone does not establish that the target waited for this work, waited for its completion, or was directly blocked by it",
+		"only as an on-chain dependency observation overlapping the interval before the target wakeup",
+		"That surface alone does not establish a target wait, completion dependency, or direct blocking of the target",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("final leader mechanism ceiling missing %q:\n%s", want, got)

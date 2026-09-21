@@ -20513,10 +20513,12 @@ func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh, flat bo
 		}
 		return "own state"
 	case runtimeTraceProjTreeRowAdjacent:
+		// Display placement limits this row's attribution role; it says
+		// nothing about independently published wakeup edges for its thread.
 		if zh {
-			return "邻近支撑(无直接唤醒边)"
+			return "邻近支撑(不计入链上影响)"
 		}
-		return "adjacent support (no direct wake edge)"
+		return "adjacent support (not counted as on-chain impact)"
 	case runtimeTraceProjTreeRowBackground:
 		if zh {
 			return "背景支撑"
