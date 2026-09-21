@@ -1512,7 +1512,7 @@ XERR只读追查进一步明确待验证机制：payloadless阻塞值取span∩w
 
 原业务/明确窗FAIL和13/79已交付、66开放不变。模型直接错误explicit来源、真实成员集关系/镜像去重、上下文成本与读者词汇、B2–B6均继续留账，不因本轮机器PASS或局部代码交付整体打勾。
 
-## 63. Java验证程序不能依赖隐藏固定类名（2026-09-20，已确认，施工中）
+## 63. Java验证程序不能依赖隐藏固定类名（2026-09-20，子片已交付；9月21日收据见§67）
 
 §62 live揭示两项独立问题：非法`import Main;`不能由系统默认修文；完整`public class ProbeMain`却也是schema所称source-level program，执行器仅因不叫`CodraxVerificationProbe`就把它整个嵌进main，是确定性合同缺口。`run_tests_verification_probe.go`源准备/临时文件/启动主类，以及`verification_probe_syntax.go`预检文件名均硬编码该内部类名；公开schema与实际模型教学未声明这种限制。不应为内部装载限制强迫模型记忆名字，也不把合法源码改坏后的编译错误归给模型。
 
@@ -1554,7 +1554,7 @@ XERR只读追查进一步明确待验证机制：payloadless阻塞值取span∩w
 
 验收反例优先复用公开normalizer→Apply→Emit链：合法产补证批后，保持HEAD/status但改变同dirty路径字节；不得新增绑定，仍必须拒源码改动，且旧报告和普通verify-only不能被抹掉。连同跨run/batch、restore剔除计划、工作树重建、不可读快照与JSON/resume逐项验收；这里只读列出待运行矩阵，不伪称已执行或完成B2。总账仍13/79交付、66开放。
 
-## 66. IO跨窗公开测试须稳定覆盖不同原生口径（2026-09-21，测试修复验收中）
+## 66. IO跨窗公开测试须稳定覆盖不同原生口径（2026-09-21，测试修复已交付）
 
 §63首次全仓唯一失败为`TestIOFoldScopePublicQueriesKeepPeerRanges`的尾覆盖断言：没有构造出查询窗与组主席不同的折叠成员。独立席在原版连续30次精准复现25 PASS/5 FAIL，`/tmp/codrax-iofold-audit-20260921.Mjvz3F/count30.log`正式exit1（session61710，tool26.238s）；5次均只失败于旧119行，改名子例、实际数值/证据/定位范围/查询范围配对及输入不变性均通过。不是通过放宽断言抹去生产回退。
 
@@ -1565,3 +1565,11 @@ XERR只读追查进一步明确待验证机制：payloadless阻塞值取span∩w
 末版一文件冻结并经主线及独立只读复核。`/tmp/codrax-iofold-fixture.dtITy4/GREEN-count30.log`正式exit0（tool7.529s，30/30）；相邻13项`GREEN-focused.log`exit0（2.909s）、同13项`GREEN-race.log`exit0（4.089s）。原值/证据/范围/观测字节不变与所有旧断言保留。叠加冻结Java四文件后的统一全仓为`/tmp/hmc-java-source-unit-io-fixture-full-20260921.log`，当前执行中，尚无正式退出；不能提前签绿或销HMC父任务。
 
 测试修复已单独提交`b380060de`并正式推送main（e2→b380，session33496 exit0），不是仅暂存；本次未修改任何生产IO行为或旧live答案verdict。
+
+## 67. Java源单元与IO测试末版统一交付收据（2026-09-21）
+
+叠加§63冻结四文件与§66末版测试后，`/tmp/hmc-java-source-unit-io-fixture-full-20260921.log`正式exit0（session20120）：87测试包通过、13无测试包、零FAIL；agent96.512s、tool408.234s、orchestrator26.059s、tracequery129.084s、types49.224s。测试运行期间只有git提交/文档操作，源与测试末版哈希保持；这是新一轮完整回归，不把首次失败日志改绿，也不借早版通过结果。
+
+干净工作区构建`/tmp/hmc-java-source-unit-clean-build-20260921.log`正式exit0（session55334），`./codrax --version`实测为0.1.20260921、revision `b32a10d98a34`、buildTime `2026-09-21T07:19:22Z`。`f21aaa747`代码与`b32a10d98`文档已正式推送main（b380→b32，session19947 exit0）。没有再跑同例追绿或用plan-only代替真实编译；缺JDK、首轮取消针的未定原因以及旧Java计划非法import仍按§63保留。源码搬运修复不修写错的模型源码、不松changed-code耦合与原生证明门，也不要求新JSON字段或内部类名。
+
+Trace选窗、因果投影、链上根因资格、背景隔离和自动补齐均未改变；600/300/600秒超时默认值及活跃流保护未动。旧业务/明确窗/卡顿清单的人工FAIL、明确窗来源权威和B2–B6继续开放，HMC父账仍13/79已交付、66开放。本片是确定性子缺陷与测试可靠性的收尾，不是所有开放项已完成。
