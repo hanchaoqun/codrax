@@ -1972,7 +1972,7 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 
 §91–92随`af64dc340`推送main，session71034正式exit0，origin从cb2f3679b前进至af64dc340，本地/远端相等、工作区干净后再开下一片。
 
-## 93. 空壳目标恢复教学与准入规则一致（2026-09-21，验收中）
+## 93. 空壳目标恢复教学与准入规则一致（2026-09-21，子片验收完成）
 
 §92实测no_named_target+空壳targets的提示会把模型引向另一个门：列表先拒并命令不得省略，profile下一步却要求无targets。本批仅修条件式恢复教学，不改parser签名、校验顺序、reject条件、schema必填/enum、错误census或当前请求原文quote校验。真正named空列表的“不能省略”拒绝保留；missing/invalid profile不被默认为no_named，null仅保既有兼容不鼓励生产。不会把空壳自动变成无目标，更不会从工具/工件造身份。
 
@@ -1994,3 +1994,19 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 - [ ] 旁路验收：补齐只交候选事实，不替模型选根因；合法链上候选可选、无合法选择仍诚实空旁路分别验证。不得将强制非空作为通过条件。
 
 本节只是可施工任务拆分，未改生产、未计新增交付，父账13/79、66开放不变。
+
+## 95. 309be8末版验收与C2独占状态桶误述（2026-09-21）
+
+§93实现`8880c6f60`，记录`309be8dd1`，两个生产文件只改教学、两个新测试文件，准入条件不变。末版root race3079正式exit0，13顶层14子项/tool8.289秒；独立兼容focused97440正式exit0/tool1.230秒、race82628正式exit0/tool3.880秒，3顶层17子项。首轮兼容fixture装配错误不记产品RED。统一全仓21288现已正式exit0，日志`/tmp/hmc-target-roster-teaching-full-20260921.log`，87测试包、13无测试包、零FAIL。独立生产复核PASS。
+
+干净构建8595正式exit0，revision309be8dd13b5/buildTime2026-09-21T12:36:03Z。默认值/活跃流82595正式exit0/llm18.908秒、8项；实际agent direct/nested活跃SSE回归91206正式exit0/agent1.137秒，4ms evaluator预算不取消活跃连接。600/300/600秒不变；日志里的3分钟analyzer终止教学预算不是流式请求取消期限，不据此另立超时故障。
+
+[固定双例机器结果](../../eval/parallel_selected_summary_hmc_target_roster_recovery_crossmode_20260921.md)和[完整人审](../../eval/parallel_selected_summary_hmc_target_roster_recovery_crossmode_20260921_manual_audit.md)：runner82068正式exit0，2并行×1，机器2/2、完整人工1/2，不加第三例。Go真实一行修复、原测试完整执行、非runtime首轮分类成功，全部三项合同planning_only，不能代销B2。C2全工件自动补齐、三段IO等待0.635ms、有限问题空旁路成立，但错误宣称未进入D，不能人工签PASS。两例未命中空壳恢复现场，该子片由公开RED/GREEN及兼容矩阵验收。
+
+确定新P1：原始D状态经scheduler iowait标记分入独占io_wait桶；既有`TraceUninterruptibleWaitMS`和target_window_state_account说明均要求D展示折回DStateMS+IOWaitMS。最终教学却说io_wait在d_state_occurrences=0时不得称D，实际输入1802和模型1906均见此矛盾。探索阶段968也已误读，不能称仅finalizer导致。优先按既有producer合同统一教学/展示，不变任何桶、时长、排名、范围、根因权限；S+iowait、独立IO请求/完成闭合等待不因名字含IO而晋升D。逐段PrevStateRaw在account occurrence省略可留载体完整化，但此已证矛盾不必先扩schema。
+
+- [ ] D/IO分类与原生D展示教学纠正，真实producer→最终上下文公开红绿；保G12 S+IO零D、sleep非加项、三面计量census、容量/范围/冲突边界。仅迁移既有错误文案pin，数值断言不降。
+- [ ] §94已接受业务实例局部补齐六项；不造全工件覆盖。
+- [ ] §89声明/观测完整pair并置、业务/查询同卡分尺、§91历史authority消费回放；B2–B6及其余父项仍开放。
+
+旧人工FAIL保留；父账13/79、66开放不变。
