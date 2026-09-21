@@ -40,13 +40,44 @@ func TestIOFoldScopePublicQueriesKeepPeerRanges(t *testing.T) {
 			path := hmc081WriteTrace(t, trace)
 			bus, _, _ := hmc17NamedPathContext(t)
 			var records []types.ObservationRecord
-			for _, window := range [][2]float64{{1, 1.051}, {1.004, 1.05}} {
-				for _, view := range []string{"window_stats", "wakeup_chain", "root_cause_rank", "critical_blocking_calls"} {
-					result := hmc17NamedQuery(t, bus, map[string]any{"source": "path", "path": path, "view": view, "pid": 100, "time_start": window[0], "time_end": window[1]})
-					if !result.Success {
-						t.Fatalf("public %s query: %s", view, result.Summary)
+			issuer := "backup-900"
+			completer := "backup-irq-81"
+			if renamed {
+				issuer = "archiver-900"
+				completer = "archiver-irq-81"
+			}
+			// Each real query contributes a different native measurement:
+			// the full request residence (47ms) and its query-clipped rank
+			// publication (45ms). Repeating every view in both windows instead
+			// created equal-value twins whose legitimate same-fact survivor
+			// depended on content-hashed EvidenceID ordering (including the
+			// temporary source path). Select these typed families unchanged;
+			// do not edit their values, identities, ranges or query notes.
+			for _, query := range []struct {
+				view, predicate, object, value string
+				start, end, spanStart          float64
+			}{
+				{"critical_blocking_calls", "critical_blocking", completer, "47.000", 1, 1.051, 1.002},
+				{"root_cause_rank", "root_cause_background", "io_latency", "45.000", 1.004, 1.05, 1.004},
+			} {
+				result := hmc17NamedQuery(t, bus, map[string]any{"source": "path", "path": path, "view": query.view, "pid": 100, "time_start": query.start, "time_end": query.end})
+				if !result.Success {
+					t.Fatalf("public %s query: %s", query.view, result.Summary)
+				}
+				matched := 0
+				for _, record := range result.Observations {
+					if record.Subject != issuer || record.Predicate != query.predicate || record.Object != query.object {
+						continue
 					}
-					records = append(records, result.Observations...)
+					qs, qe, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+					if !ok || qs != query.start || qe != query.end || record.Value != query.value || record.Unit != "ms" || record.Span.StartTs != query.spanStart || record.Span.EndTs != 1.049 {
+						t.Fatalf("public %s did not publish the intended native measurement: %+v", query.view, record)
+					}
+					records = append(records, record)
+					matched++
+				}
+				if matched != 1 {
+					t.Fatalf("public %s must publish exactly one %s %s record, got %d", query.view, issuer, query.predicate, matched)
 				}
 			}
 			before, _ := json.Marshal(records)
@@ -107,6 +138,9 @@ func TestIOFoldScopePublicQueriesKeepPeerRanges(t *testing.T) {
 				sawDifferentQuery = sawDifferentQuery || otherQuery
 				if checked == 0 {
 					t.Fatal("fixture must pair at least one native folded record by exact evidence identity")
+				}
+				if !otherQuery {
+					t.Fatalf("each renamed/language public fixture must retain a cross-query native fold (%s)", lang)
 				}
 			}
 			after, _ := json.Marshal(records)
