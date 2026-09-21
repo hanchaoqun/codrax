@@ -2010,3 +2010,19 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 - [ ] §89声明/观测完整pair并置、业务/查询同卡分尺、§91历史authority消费回放；B2–B6及其余父项仍开放。
 
 旧人工FAIL保留；父账13/79、66开放不变。
+
+## 96. D/IO分类与D总量教学的同类接缝统一修复（2026-09-21，实施中）
+
+上一批§93/95三笔随`39ebdd72d`已推送main，session35559正式exit0，远端af64dc340→39ebdd72d；本地/远端相等、tracked工作区干净后开始本片。不把上批全仓收据套用新代码。
+
+主席直接对照参考`core/preprocess/sleep_ops.py:225–255`：按窗口半开交集计量，Running/R/R+/S与原生D分别记账，state.startswith(D)归D。参考没有本仓D侧IO子桶及S侧IO overlay的全套权限/根因账，不直接移植其算法；本仓既有`TraceUninterruptibleWaitMS`/`FormatTargetStateAccountCaliber`才是当前计量单源。本片不扩schema、不将独立IO完成闭合等待重分类、不改物理统计。
+
+独立审计发现需同批处理的相同语义问题：final recap禁止io_wait称D；finite与state-duration教学把未带IO标记的D也说成IO字段；业务片段/关联线程/当前线程的raw DStateMs显示为整个不可中断等待。计划统一计数/桶教学，raw D只限定为非IO子桶，不手算新的折算值或改全局D词根。持有源状态的完整化另留，当前精确producer已足以修正错误，不从原文猜状态。
+
+根席公开RED session59881正式exit1/agent1.703s，日志`/tmp/hmc-d-io-public-red-20260921.log`：实际TraceQuery(C2真实三段、D+iowait、D无IO、S+iowait)→当前Bus→BuildAgentContext→最终BuildInitialInstruction，1顶层/4父场景/8语言子项。全部原生分类、次数、端点、墙钟值、上下文单源口径先通过，仅旧相反教学失败；数据/投影/模型正文前后字节仍同。独立矩阵RED session49802正式exit1/agent1.126s，1顶层8子项，同样有效。生产尚未终签，新增同类展示面的RED/GREEN、census/race/全仓、固定双例另记。
+
+冻结后固定C2全工件清单＋trace_query_wakeup_causal_io_chain明确20ms窗：按已确认错误及异构因果/优先级/四节点关系保护选例，2并行×1。前批Go真实写模式PASS仍保留，但不冒称本片再次live覆盖写模式或B2。机器和完整人工分账，不为追绿追加第三例。
+
+core已落：`TraceSchedulerWaitPartitionTeaching`单源区分互斥桶/原生D/睡眠内IO细分/独立请求与闭合等待，recap复用既有caliber，唯一AL旧错误文本pin精确迁移，原0/3计数和排序/清单数针不改。root公开首次GREEN18591正式exit0/agent1.238s、race58040正式exit0/agent7.609s；独立focused51153正式exit0，共34顶层，含原生G12、状态折算及formatter census/self-red（agent32.331/types0.968/tracequery1.718秒）。追加根席工具面RED21862正式exit1/agent1.705s，仅四实际query的早期preview缺同源说明；随后工具既有preview一行投递，GREEN2849正式exit0/agent1.672s。公开正针追加于此前初始RED之后，按实际批次记录，不伪记均先红。末版统一race/全仓另验。
+
+默认值/活跃流37837正式exit0/llm3.253s，8项，保600/300/600秒及4ms连续部分帧、隐式推理/tool-call活跃流。未修改超时实现。

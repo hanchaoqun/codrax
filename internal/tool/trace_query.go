@@ -8902,6 +8902,7 @@ func writeTraceTargetWaitOccurrencePreview(b *strings.Builder, account *traceque
 			dState, ioWait, sleepIOWait, other, sumMS)
 	}
 	b.WriteString(" basis=single_thread_non_overlapping_typed_intervals includes=D|io_wait|S_with_iowait_1 excludes=ordinary_S_and_other_wait_mechanisms\n")
+	b.WriteString(types.TraceSchedulerWaitPartitionTeaching + "\n")
 	for i := 0; i < visible; i++ {
 		occurrence := account.WaitOccurrences[i]
 		iowait := "unknown"

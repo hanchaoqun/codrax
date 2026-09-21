@@ -171,7 +171,7 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityKeepsRequestedScopePrincipal
 		"principal_occurrence=`#3 state=io_wait",
 		"scope_role=`supporting_exploration`",
 		"supporting exploration window only",
-		"Do not rename an `io_wait` row to D-state",
+		types.TraceSchedulerWaitPartitionTeaching,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("requested-scope recap missing %q:\n%s", want, got)
