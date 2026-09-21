@@ -1584,7 +1584,7 @@ Trace选窗、因果投影、链上根因资格、背景隔离和自动补齐均
 
 设计收窄：未来B2精确快照授权仍是开放原生只读登记能力的前置条件；现有“重新读取当前源码并运行新probe”与“接受/复用某个旧证明”必须分离，不能新增一个把安全重新验证也冻结的过期快照硬门。永久禁源码修改身份、旧报告独立归属及最终required合同缺证保护继续保留。§30.5的B2–B6均未销账，不能把这次反证PASS说成旧Python补登记FAIL已修。
 
-## 69. 普通写计划引用已有测试不必制造测试改动（2026-09-21，子片验收中）
+## 69. 普通写计划引用已有测试不必制造测试改动（2026-09-21，子片验收完成）
 
 ROI调整：在B2–B6新增原生只读登记之前，先修首轮就能使用的合法通道教学。`normalizeProjectTestObservations`早已允许不在`changes[]`中的既存测试，`test_surface`也按该声明选择精确文件执行；但共享行为合同说明及普通语言错配修复都要求“include that test file in the bounded plan”。这与同页`MUTATIONS ONLY`的实际修改集合说明形成歧义，会增加模型决策负担。它是可复现的上下文教学缺口，不是新发现的运行时准入故障。
 
@@ -1597,3 +1597,15 @@ ROI调整：在B2–B6新增原生只读登记之前，先修首轮就能使用�
 验收记录：先改实际skill、planner初始消息和公开普通修复针，`/tmp/hmc-existing-test-binding-red-20260921.log`正式exit1（5针失败）；修共享说明后，同组加相邻证明权限回归`/tmp/hmc-existing-test-binding-green-20260921.log`四包正式exit0。公开Emit→Apply→RunTests已有测试字节保护、错标识/失败/skip反例及末版全仓/race待完成，不借此前收据签当前片。后续固定干净版本双例优先旧Python ordinary apply与明确窗多跳D/IO只读保护；旧人工FAIL和B2–B6未销，父账仍13/79已交付、66开放。
 
 公开运行时补针已完成：`project_test_observation_existing_file_test.go`五场景（full正例、skeleton→change→finalize正例、错assertion ID、真实断言失败、skip）均走真实临时git仓的Emit→ApplyPatch→Python unittest RunTests，不手工设置Applied或构造报告；只有两个精确正例获得合同证明，三负例不获证明，测试字节及git diff证实始终只改源码。`/tmp/codrax-existing-pto.zGA1hF/GREEN-final.log`正式exit0，tool 2.276s，无SKIP。此链路本来合法，不能称为运行时RED→GREEN；红点是上面的教学针。共享说明及相邻权限四包race `/tmp/hmc-existing-test-binding-race-20260921.log`正式exit0；新增公开针race及末版全仓另记。
+
+末版新增公开五针race `/tmp/codrax-existing-pto.zGA1hF/GREEN-race.log`正式exit0（tool3.619s，无SKIP）。统一全仓`/tmp/hmc-existing-test-binding-full-20260921.log`正式exit0（session21982）：87测试包、13无测试包、零FAIL，tool398.057s、agent96.138s、orchestrator25.580s、tracequery120.744s。代码已提交`504883389`；干净构建`/tmp/hmc-existing-test-binding-build-20260921.log`exit0，revision50488338970c、buildTime2026-09-21T07:45:56Z。本全仓签本片冻结源码，不用于签后续planner预算及Trace文案改动。
+
+## 70. 504883389双例：功能改善与完整人审分账（2026-09-21）
+
+固定同一干净新二进制，2并行×1，runner正式exit0：Python普通apply235秒、明确窗多跳IO192秒，机器2/2、完整人工0/2。详细[人工审计](../../eval/parallel_selected_summary_hmc_existing_test_binding_20260921_manual_audit.md)与[机器摘要](../../eval/parallel_selected_summary_hmc_existing_test_binding_20260921.md)保留原始结果，不重写旧FAIL或追加第三例追绿。
+
+Python最终仅改源码，4条原生测试及probe真实PASS、交付树resolved，模型正确声明未改测试的4条PTO；但本次合同全为planning-only，VerificationConfidence只有source_compile_ok，不能代销旧required合同或B2–B6。实际过程5次emit/4拒绝，机器成文reject=0不代表规划零拒绝。确认普通planner一批两项错路径失败就耗尽2/2预算，下一步refinement推荐的repo_map不可用；已有emit-repair/rollover最终恢复，不能写成永久死锁。按失败观察轮而非并行失败调用计费是最窄泛化修复，成功读取及source-free补证限额不变。另有分析器规划合同输入12与预期1个月结果错配，未获得行为权威，继续留账不代写合同。
+
+Trace明确窗/IO11ms/三条用户线程有向边/优先级候选边界/必选根因侧车均正确；D/IO根停递归不是漏掉已知IRQ，Harmony来源也有真实入口依据。但系统投影把状态覆盖20ms写成原因全解释，且把sleep未计价方向统一叫自身工作量，是两项确定性文案语义缺口；正文睡眠称工作贡献与内部字段泄漏另留账。此次不把已有正确主IO/投影删除或改成背景，也不额外收窄用户明确窗。先修两个typed生成点，保所有原数值、根因资格和补齐路径。
+
+ROI据实重排：普通预算失败批计数与Trace覆盖/等待方向并行施工，各自红绿后收据再销子缺陷；B2–B6及其源快照授权仍继续排队，不借本轮功能成功跳过权限前置。HMC父账13/79已交付、66开放不变。
