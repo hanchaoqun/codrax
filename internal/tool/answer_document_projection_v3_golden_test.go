@@ -171,12 +171,47 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		// PTV5 C02 (#68): the stanza header speaks the legend's own noun.
 		"◇ 邻近区段",
 		"▒ 背景压力",
-		"▒▒▒░░░░░░░",
 		" 60%",
 		" 33%",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("berlin golden missing tree surface %q:\n%s", want, md)
+		}
+	}
+	// §76: these three observations have no selected/query window. The
+	// global 64ms anchor must not manufacture a denominator for them. Keep
+	// the source records unchanged and bind each value/ref and absent ruler
+	// assertion to its own rendered tree stanza (not the separate overview).
+	_, treeFence, ok := strings.Cut(md, tracefence.Opener+"\n")
+	if !ok {
+		t.Fatalf("berlin golden missing its tree fence:\n%s", md)
+	}
+	treeFence, _, _ = strings.Cut(treeFence, "```")
+	treeLines := strings.Split(treeFence, "\n")
+	for _, contextRow := range []struct{ subject, value, evidence string }{
+		{"HeapTaskDaemon-42610", "3.900ms", "[E6]"},
+		{"CodecLooper-17604", "18.000ms", "[E7]"},
+		{"kswapd0-87", "7.300ms", "[E8]"},
+	} {
+		found := false
+		for i, line := range treeLines {
+			if !strings.Contains(line, contextRow.subject) {
+				continue
+			}
+			found = true
+			if !strings.Contains(line, contextRow.value) || !strings.Contains(line, contextRow.evidence) || strings.ContainsAny(line, "%█▒░") {
+				t.Fatalf("query-less context row must retain value/E# without a borrowed bar/share:\n%s", line)
+			}
+			stanza := line
+			for j := i + 1; j < len(treeLines) && strings.HasPrefix(strings.TrimSpace(treeLines[j]), "·"); j++ {
+				stanza += "\n" + treeLines[j]
+			}
+			if !strings.Contains(stanza, "本行不显示时长条/占比:无单一已知查询窗投影口径") || strings.ContainsAny(stanza, "%█▒░") {
+				t.Fatalf("query-less context stanza must disclose its absent ruler without a borrowed bar/share:\n%s", stanza)
+			}
+		}
+		if !found {
+			t.Fatalf("berlin golden lost context row %s:\n%s", contextRow.subject, treeFence)
 		}
 	}
 	if strings.Contains(md, " · … · ") {

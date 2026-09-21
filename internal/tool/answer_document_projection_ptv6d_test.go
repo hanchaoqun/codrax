@@ -397,7 +397,11 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// (cb-03/08/11/12/14) collided on the exact-identity dedupe key and
 			// were silently deleted before; they now ride their survivors'
 			// rosters as (+N) 同类观测 — ordinals, lines and inventory unchanged.
-			lines: 30, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
+			// §76 (2026-09-21): +1 packed line for row-local ruler disclosure.
+			// The six native critical-blocking rows retain their recorded query;
+			// the two IRQ rows and cross-thread fold retain no usable ruler.
+			// No source observation, member, value or evidence tag is changed.
+			lines: 31, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5(+1)]", "[E6]", "[E7(+2)]", "[E8(+4)]", "[E9(+1)]", "[E10(+1)]"},
 			inventory: []string{
 				"runnable", "链上L1", "2次同值", "有效归因 1.661ms(全额)",
@@ -419,6 +423,8 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				// the fold's MAX member with its value (成员最大 线程·状态·值 form;
 				// this fold's max member carries no typed state — thread·value).
 				"成员最大 sysevent_store-47924 1.302ms · 其余 4 项见明细",
+				"本行满格/占比基于查询窗 34579.472865~34579.475857s",
+				"本行不显示时长条/占比:无单一已知查询窗投影口径",
 			},
 		},
 		{
@@ -435,6 +441,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				"影响点 优先级反转候选·同核可运行重叠",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)",
+				"本行满格/占比基于查询窗 34579.472865~34579.475857s",
 			},
 		},
 	}

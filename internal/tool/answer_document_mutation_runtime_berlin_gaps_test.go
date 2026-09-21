@@ -452,6 +452,9 @@ func TestRuntimeTraceProjOverWindowPercentAnnotated(t *testing.T) {
 		Node: types.TraceCausalProjectionNode{
 			Subject: "irq/151-dpu", Object: "irq_burst", ImpactMS: 204.382,
 			ChainRelevance: "background",
+			// This synthetic share pin measures against its own 101ms query,
+			// not a denominator borrowed from the tree header (§76).
+			QueryWindowStartTs: 1, QueryWindowEndTs: 1.101,
 		},
 	}
 	marks := &runtimeTraceProjMarkSet{}
@@ -476,6 +479,15 @@ func TestRuntimeTraceProjOverWindowPercentAnnotated(t *testing.T) {
 	}
 	if inMarks.has(runtimeTraceProjMarkOverWindowShare) {
 		t.Fatalf("in-window share must not record the over-window mark")
+	}
+	// The same value without its query identity is not a >100% claim.
+	unknown := row
+	unknown.Node.QueryWindowStartTs, unknown.Node.QueryWindowEndTs = 0, 0
+	unknown.marks = &runtimeTraceProjMarkSet{}
+	unknownLine := runtimeTraceProjStanzaRowLine(unknown, runtimeTraceProjTreeLabelWidth, 101.0, true, true)
+	if !strings.Contains(unknownLine, "204.382ms") || !strings.Contains(unknownLine, "无单一已知查询窗") ||
+		strings.ContainsAny(unknownLine, "%█▒░") || unknown.marks.has(runtimeTraceProjMarkOverWindowShare) {
+		t.Fatalf("unknown query must retain the value without borrowing a bar/share or over-window mark:\n%s", unknownLine)
 	}
 }
 

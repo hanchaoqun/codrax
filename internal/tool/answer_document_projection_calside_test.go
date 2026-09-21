@@ -87,6 +87,11 @@ func TestCalside1CaliberRowsNoWindowShareNoBar(t *testing.T) {
 	// rows ride the caliber-side tier; the io_latency sibling stays a
 	// wall-clock rank row.
 	for i := range projection.AdjacentCauses {
+		// §76: all three synthetic peers share this fixture's 200ms query.
+		// Giving the non-wall-clock controls the same valid query ensures
+		// their absent bars are still due to caliber, not missing identity.
+		projection.AdjacentCauses[i].QueryWindowStartTs = 2942.100
+		projection.AdjacentCauses[i].QueryWindowEndTs = 2942.300
 		switch projection.AdjacentCauses[i].EvidenceID {
 		case "E-blk", "E-pgc":
 			projection.AdjacentCauses[i].Tier = types.TraceCausalTierCaliberSide

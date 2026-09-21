@@ -679,19 +679,29 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 	// NEW-10: the 44-cell label budget may B1-truncate the NAME (that ellipsis
 	// is fine — the detail table keeps the full name); the TAG segment must
 	// still render complete, with no elision. PTV6-C #12: the truncated cause
-	// word re-renders WHOLE as the first subordinate slot (全词保障), and the
-	// main line keeps E#.
+	// word re-renders WHOLE in the first available tag slot (全词保障), and
+	// the main line keeps E#.
 	if shortMain := strings.Split(shortLine, "\n")[0]; !strings.Contains(shortMain, "[E32]") {
 		t.Fatalf("lean row must keep E# on the main line:\n%s", shortLine)
 	}
-	for _, want := range []string{"· background_io_pressure", "· running"} {
-		if !strings.Contains(shortLine, want) {
+	// §76: a query-less row has no bar/share, so its full cause can fit on
+	// the main line. Preserve both whole tags and their order, not the
+	// separator belonging to their former subordinate position.
+	for _, want := range []string{"background_io_pressure", "running"} {
+		if strings.Count(shortLine, want) != 1 {
 			t.Fatalf("lean-tag rows must render their full tag set without elision (%q):\n%s", want, shortLine)
 		}
 	}
-	if shortLines := strings.Split(shortLine, "\n"); len(shortLines) > 1 &&
-		!strings.Contains(shortLines[1], "background_io_pressure") {
-		t.Fatalf("#12 cause full word must lead the subordinate slots:\n%s", shortLine)
+	if strings.Index(shortLine, "background_io_pressure") > strings.Index(shortLine, "running") {
+		t.Fatalf("#12 cause full word must precede the state tag:\n%s", shortLine)
+	}
+	for _, shortPart := range strings.Split(shortLine, "\n") {
+		if w := runewidth.StringWidth(shortPart); w > runtimeTraceProjTreeRowMaxWidth {
+			t.Fatalf("lean row line width %d exceeds the %d cap:\n%s", w, runtimeTraceProjTreeRowMaxWidth, shortPart)
+		}
+	}
+	if !strings.Contains(shortLine, "76.476ms") || !strings.Contains(shortLine, "无单一已知查询窗") || strings.ContainsAny(shortLine, "%█▒░") {
+		t.Fatalf("query-less lean row must keep its value and disclose the absent ruler without a bar/share:\n%s", shortLine)
 	}
 
 	// Typed ⚠/⊘ markers are T1 Keep 记号: they sit on the MAIN line with their
