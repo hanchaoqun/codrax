@@ -1371,3 +1371,15 @@ C仅一行源码更正，真实make test通过、隔离和原仓保护正确；r
 下一批排序：业务发现/因果组合旧FAIL优先（用户影响高且直接覆盖范围限定），明确时间窗D/IO多跳因果例并列（保护显式窗、各状态族、链资格与图关系）；固定一个干净新二进制恰好2并行×1。C native-command与Python补证已有精确能力缺口，在B2–B6修前不靠重复同样运行求绿。新例仍逐一人工读正文/过程/系统图/mandatory旁路，原审计不回写。
 
 末版定向`GREEN-focused-final.log`正式exit0（types1.246s/render2.383s），末版race `GREEN-race-final.log`正式exit0（types4.293s/render2.991s，17个顶层测试）；同目录较早`GREEN-packages.log`两完整包exit0（types41.389s/render2.041s），但早于相等actual保守排除及补充非法字段针，不借其签末改整包。相等完整/片段口径不生成矛盾的“非查询内量”第二说明。末版全仓正在独立执行，生产已冻结。
+
+§51末版已独立提交`7f29399e3`；只读复审通过：普通业务来源/精确id绑定未变、私有测量载体仅由确定性生产者写入、同record完整范围须自洽、不扩大关系资格、模型schema不变。全仓`/tmp/hmc-business-receipt-final-full-20260920.log`正式exit0（87包、13无测试包、零FAIL；agent83.221s/tool380.726s/types49.861s/render11.034s/skill11.786s/tracequery113.027s），覆盖§50及§51末改。干净构建exit0，`codrax 0.1.20260921`、revision `7f29399e38e2`；不借早版全仓收据。
+
+## 52. 7f固定双例：机器1/2、人工0/2，组合合同与范围供给继续修（2026-09-20）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_business_receipt_scope_20260920.md)、[逐项人工单](../../eval/parallel_selected_summary_hmc_business_receipt_scope_20260920_manual_audit.md)。固定干净`7f29399e38e2`，2并行×1；runner正式exit0。业务329秒/38%上下文，明确窗198秒/43%。两例都有最终答案和mandatory根因文件，无活跃流截断；同版不跑第三例追绿。机器PASS不能抵消下述人工FAIL。
+
+- 业务完整50ms及5/44/1ms首次正确，但子业务40ms仍配更宽窗的9.5ms运行量（实际本实例8ms）；将未证完成唤醒写成“未触发任何线程唤醒”、内部字段漏到正文。正确8/1/31及false不是否定证明已在实际成文输入2424/2414行，不能谎报未供给。Trace投影为0、旁路`trace_root_cause_contract_not_active`；本轮模型关runtime_work_relation，也未选择结构工作回执，故不能把这次live当§51分支已命中。
+- 分类器6次emit、5次拒绝。第4次（iter3，业务log931/936）真实携带`causal_diagnosis`、required `causal_contributor_set`与独立required `target_effect_verdict`、无fact_families，却被“一律禁止target_effect_verdict”规则硬拒。之后bounded_effect被root_cause标签拒，最后模型删去因果role并改explain才过。不是仅根据模型推理猜系统矛盾：两个要求的结构组合本来不可表达，确证高优先系统缺口。修复只允许独立已声明的因果维度与有限子判断并存，纯有限子判断不能自行取得因果权威；不从问题/答案关键词扩域，不撤有限事实保护。
+- 明确窗仍保原2..2.020和完整系统因果投影/4个链上根因，但正文把2.020唤醒当sched-in（真实2.020020），把IO11ms说成整链最长阻塞，cookie17/network14套错区间。独立审计找到供给共因：`answer_document_final_decision_boundary.go`两处裸写`occurrence_interval`，把node统计/依赖定位包络命名为实际发生区间；系统图和旁路已经中性化，最后成文handoff未同步。本片另做公开红绿，不改时长、选窗、排名或根因资格。
+
+问题优先级调整：先修这两个可复现、影响重试和答案事实的通用结构/供给缺口，再回到§47.1 IO fold、XERR及HMC开放能力。前轮presence兼容疑点暂不加门：本轮dimensions已显式存在，硬加必填不能解决混合合同。参考仓再次对照`launch_perf.yaml:55–130`与`io_analysis.yaml:73–105,202–234`：选定范围后仍组合各资源条件判断与整体瓶颈分析；不移植其概率Top3、阈值或推测性竞争裁定。总账13/79交付、66开放及旧FAIL均不变。
