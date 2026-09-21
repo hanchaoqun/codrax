@@ -1224,3 +1224,9 @@ db明确窗报告把network累计14ms睡眠配到递归查询域2.001..2.018，�
 首次把摘要放trace_span尾部，wakeup/window_stats已绿但root_cause_rank仍被blob预览裁到中间，真实exit1保留`/tmp/hmc-marker-explorer-summary-green-20260920.log`（文件名不是通过证明）。末版移到全窗账紧邻、长榜前；复用现有状态摘要容量，超过明确披露数量和原生payload续读，不调大预算或复制到尾部。最终定向tool1.998s/agent1.235s exit0（`/tmp/hmc-marker-explorer-summary-final3-green-20260920.log`），原公开RED为`red`同前缀日志。新完整全仓与六包race×3进行中。
 
 40.1末版定向与race正式exit0：`/tmp/codrax-state-window.PrFzO8/GREEN-final.log`（tracefinding0.489s/tool2.631s/agent1.132s/skill1.390s/types3.632s），`GREEN-race.log`（1.557/4.812/6.116/1.990/7.432s）；公开分段、skill旧教学、三pin及sidecar的RED分文件保留。仍不宣称dispatch-sensitive h2/h3匹配A/B已做。
+
+上述代码与519双例人工记录已提交`85300eccf`，暂未推送。六包race×3正式exit0（`/tmp/hmc-measurement-ownership-final-race-20260920.log`）：tool12.403s、agent17.445s、context6.804s、types6.299s、tracequery9.950s、tracefinding6.937s。全仓退出另记，不用race代签。独立复审另发现marker长名称可挤满blob头部预览；正在仅对显示副本复用既有banner长度保护，原生名称、来源身份及状态账不得截断，真实StoreBlob边界须先红后绿。该末改不由前述race收据覆盖。
+
+### 42.3 长名称不能挤掉相邻证据预览
+
+两个任意20KB级业务名称经真实公开root_cause_rank→StoreBlob，169221字节原始摘要在既有头尾预览中丢失marker状态与rank头/首行，公开RED exit1。仅在完整Matches之后将显示名称/显示owner复用既有`sanitizeForBanner`；source basename原已使用该保护。未改预算、原生名称、typed note、source/owner匹配或任何查询能力。UTF-8/换行、同显示名不同完整owner、完整/部分/不可用状态及原三视图覆盖同时通过。收据`/tmp/codrax-marker-preview-width.vaF4BR/RED-public.log`、`GREEN-focused.log`（tool1.476s，exit0）；更早RED.log为测试编译错误，不当功能反例。末改全仓、增量race和干净版本双例继续单独验收。

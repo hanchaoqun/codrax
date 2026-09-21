@@ -88,7 +88,10 @@ func traceQueryBusinessSpanSchedulerSummary(span tracequery.TraceSpanSummary) st
 	if span.Kind != "sync" || !states.Matches(span.SourcePath, traceThreadLabel(span.Thread), span.StartTs, span.EndTs) {
 		return ""
 	}
-	prefix := fmt.Sprintf("marker_state_account %q owner=%s interval=%.6f..%.6f", span.Name, traceThreadLabel(span.Thread), span.StartTs, span.EndTs)
+	// Bound display values only after the full ownership check. Long marker
+	// names must not push the adjacent rank preview out of StoreBlob's head;
+	// the native payload and typed notes retain their original identities.
+	prefix := fmt.Sprintf("marker_state_account %q owner=%s interval=%.6f..%.6f", sanitizeForBanner(span.Name), sanitizeForBanner(traceThreadLabel(span.Thread)), span.StartTs, span.EndTs)
 	if states.Coverage == "unavailable" {
 		return prefix + " scheduler states unavailable, not zero; do not substitute wider-query totals"
 	}
