@@ -79,9 +79,12 @@ const (
 	RequestedAnswerDimensionConceptualTerminalResolution RequestedAnswerDimensionRole = "conceptual_terminal_resolution"
 	// RequestedAnswerDimensionTargetEffectVerdict identifies one finite visible
 	// verdict about whether a specified condition constrained, bound, caused, or
-	// materially affected one specified target/outcome. It is paired with
-	// RuntimeQuestionScopeBoundedEffectVerdict and must not authorize root-cause
+	// materially affected one specified target/outcome. Alone it pairs with
+	// RuntimeQuestionScopeBoundedEffectVerdict and cannot authorize root-cause
 	// discovery, a wakeup-chain investigation, or a full Trace causal projection.
+	// It may coexist with an independently required causal role under
+	// RuntimeQuestionScopeCausalDiagnosis; only that scope plus the required
+	// causal role grants causal breadth, never this finite sub-verdict.
 	RequestedAnswerDimensionTargetEffectVerdict RequestedAnswerDimensionRole = "target_effect_verdict"
 	// RequestedAnswerDimensionCausalAttribution identifies a current-request
 	// demand for one overall root-cause/mechanism conclusion discovered by a

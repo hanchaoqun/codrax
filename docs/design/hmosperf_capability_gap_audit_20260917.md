@@ -1402,6 +1402,8 @@ C仅一行源码更正，真实make test通过、隔离和原仓保护正确；r
 
 修复边界：required因果角色与causal_diagnosis共同声明整体因果宽度，独立required有限子判断可并存且不得删除；有限判断本身仍不能授因果投影权威。optional因果角色、单纯有限判断或显式短窗均不能扩大有限范围。重试只修结构冲突，保全部维度及work/frame决策；不新增presence硬门、不扫描问题/答案关键词、不代模型改分类或写结论。共享教学与实际tool schema一起验收。生产末版/全仓/live收据待补，不提前签绿。
 
+末版生产已冻结并经独立只读复审通过：执行器只收窄verdict互斥条件、让required因果维度优先保宽度；bounded+因果的修复提示同步保全独立维度和两个布尔。`/tmp/codrax-mixed-runtime.DGS9u1/GREEN-focused.log`正式exit0（tool1.927s/skill0.655s），覆盖新28格及结构重试收敛、旧有限/别名/诊断边界和local/missing-dim兼容。真实模型消息8例`/tmp/hmc-mixed-runtime-messages-green-20260920.log`正式exit0（agent1.156s），同例race正式exit0（agent2.421s）；schema/workflow各一次共享组合说明，旧互斥句负pin保留。统一全仓正在执行，未改role基数门、presence或任何结论生产者。
+
 下一批以用户影响、确定性自冲突、跨范围保护和新增证据价值排序：旧失败业务完整响应/IO链例 + 真实donghu有限CPU频率影响例，恰好2并行×1、同一干净新二进制。后者用于防混合修复把纯有限问题误扩大；不更改case/oracle追绿。当前业务/明确窗旧人工FAIL均保留，HMC仍13/79交付、66开放。
 
 ## 55. 根因板代表窗口不冒充连续状态段（2026-09-20，子片实现）

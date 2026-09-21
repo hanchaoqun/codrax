@@ -15,8 +15,9 @@ import (
 // same existing decision table must reach the model without minting intent.
 func TestAnalyzerRuntimeCompositionTeachingReachesActualModelMessages(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		request string
+		name     string
+		request  string
+		language string
 	}{
 		{
 			name: "measurements plus causal and work relation questions",
@@ -48,10 +49,26 @@ func TestAnalyzerRuntimeCompositionTeachingReachesActualModelMessages(t *testing
 			name:    "same short window asks only for measurements",
 			request: "仅统计附加trace中2.010到2.040秒这一次保存操作的运行、可运行和等待时长，不分析根因。",
 		},
+		{
+			name: "cause discovery with an independent condition verdict",
+			request: "From the attached trace, determine what delayed the response. " +
+				"Also assess whether the frequency ceiling constrained the worker, even if another cause dominates.",
+			language: "en",
+		},
+		{
+			name: "ranked causes with an independent IO verdict",
+			request: "只分析附加trace：列出拖慢保存操作的主要原因及排序，并单独判断后台写盘是否影响保存线程；" +
+				"即使不是主因也保留该判断及证据不足的边界。",
+			language: "zh",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			language := tc.language
+			if language == "" {
+				language = "en"
+			}
 			ctx := &types.AgentContext{
-				Stage: types.StageAnalyze, Objective: tc.request, Language: "en",
+				Stage: types.StageAnalyze, Objective: tc.request, Language: language,
 				Mutable:         types.NewMutableState(tc.request),
 				AttachedHitrace: "worker-42 (42) [000] .... 1.000000: tracing_mark_write: B|42|LoadReport\n",
 			}
@@ -75,6 +92,7 @@ func TestAnalyzerRuntimeCompositionTeachingReachesActualModelMessages(t *testing
 			for _, teaching := range []string{
 				skill.AnalysisRuntimeCausalAttributionTeaching,
 				skill.AnalysisRuntimeScopeFromDimensionTeaching,
+				skill.AnalysisRuntimeMixedCausalVerdictTeaching,
 			} {
 				if strings.Count(system.String(), teaching) != 1 {
 					t.Fatal("complete shared runtime composition teaching must reach the model exactly once")
@@ -102,6 +120,20 @@ func TestAnalyzerRuntimeCompositionTeachingReachesActualModelMessages(t *testing
 				t.Fatalf("expected the actual analyzer classification tool: %+v", capture.tools)
 			}
 			parameters := string(capture.tools[0].Parameters)
+			if strings.Count(parameters, skill.AnalysisRuntimeMixedCausalVerdictTeaching) != 1 {
+				t.Fatal("actual schema must teach independent causal/verdict composition exactly once")
+			}
+			for _, surface := range []string{system.String(), parameters} {
+				for _, forbidden := range []string{
+					"and no target_effect_verdict",
+					"+ no target_effect_verdict",
+					"`target_effect_verdict` is forbidden in this full scope",
+				} {
+					if strings.Contains(surface, forbidden) {
+						t.Errorf("actual model teaching forbids independently requested dimensions from coexisting: %q", forbidden)
+					}
+				}
+			}
 			for _, want := range []string{
 				"Runtime scope describes the requested conclusion, not the duration or number of windows or operations",
 				"Locating one business interval is navigation, not a bounded-fact decision",

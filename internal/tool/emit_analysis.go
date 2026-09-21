@@ -5282,10 +5282,9 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 			!requestedAnswerDimensionsRequireCausalDimension(dimensions):
 			target := runtimeQuestionProfileFieldTarget(types.RuntimeQuestionScopeBoundedEffectVerdict, profile.FactFamilies)
 			return nil, "runtime_question_profile.fact_families conflicts with the non-bounded scope, while the already-typed required target_effect_verdict uniquely selects the finite target-effect tuple. Preserve that dimension and all observed families; do not widen because state/duration/frequency/evidence dimensions are also present. bounded_effect_verdict_canonical_field_target=" + target + "; apply only these runtime_question_profile fields to the next COMPLETE model-owned object; no automatic rewrite or acceptance occurs for this rejected object", nil
-		case requestedAnswerDimensionsRequireCausalDimension(dimensions) &&
-			!requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions):
+		case requestedAnswerDimensionsRequireCausalDimension(dimensions):
 			target := runtimeQuestionProfileFieldTarget(types.RuntimeQuestionScopeCausalDiagnosis, nil)
-			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with causal_diagnosis, while the already-typed required causal dimension uniquely preserves full causal breadth. causal_diagnosis_canonical_field_target=%s; repair only runtime_question_profile.fact_families by omitting it. runtime_question_profile.runtime_work_relation_requested is an independent model decision and must remain exactly %t on this structural retry unless the model deliberately reclassifies the current request itself; runtime_question_profile.frame_causality_requested is likewise an independent model decision and must remain exactly %t; preserve every required causal_attribution/causal_contributor_set dimension in the next COMPLETE model-owned object; no automatic rewrite or acceptance occurs for this rejected object", target, profile.RuntimeWorkRelationRequested, profile.FrameCausalityRequested), nil
+			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with causal_diagnosis, while the already-typed required causal dimension uniquely preserves full causal breadth. causal_diagnosis_canonical_field_target=%s; repair only runtime_question_profile.fact_families by omitting it. runtime_question_profile.runtime_work_relation_requested is an independent model decision and must remain exactly %t on this structural retry unless the model deliberately reclassifies the current request itself; runtime_question_profile.frame_causality_requested is likewise an independent model decision and must remain exactly %t; preserve every required causal_attribution/causal_contributor_set dimension and preserve every requested dimension, including any independently requested target_effect_verdict, in the next COMPLETE model-owned object; no automatic rewrite or acceptance occurs for this rejected object", target, profile.RuntimeWorkRelationRequested, profile.FrameCausalityRequested), nil
 		default:
 			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required target_effect_verdict dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension. The causal scope plus that required typed dimension is the breadth authority; preserve both on retry instead of demoting the requested causal answer. runtime_question_profile.runtime_work_relation_requested is an independent model decision; keep the submitted value exactly %t during this structural repair unless the model deliberately reclassifies the current request itself; keep runtime_question_profile.frame_causality_requested exactly %t likewise. Re-emit the complete object without asking the system to rewrite the model-owned scope", profile.RuntimeWorkRelationRequested, profile.FrameCausalityRequested), nil
 		}
@@ -5365,7 +5364,7 @@ func validateRuntimeQuestionProfileConsistency(
 			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with required requested_answer_dimensions role=causal_contributor_set. A bounded effect is one finite target-effect verdict and must not suppress a requested ranked/competing contributor roster. Preserve the causal contributor role and use causal_diagnosis with fact_families omitted. " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
 		}
 		if requestedAnswerDimensionsRequireCausalAttribution(dimensions) {
-			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with required requested_answer_dimensions role=causal_attribution. causal_attribution owns a full discovered root-cause/mechanism conclusion; for this finite scope change that model-owned dimension role to target_effect_verdict, or deliberately choose the full causal_diagnosis tuple. The system will not reinterpret one role as the other"
+			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with required requested_answer_dimensions role=causal_attribution. causal_attribution owns a full discovered root-cause/mechanism conclusion; preserve that required role and any independently requested target_effect_verdict under the full causal_diagnosis tuple. Only deliberately reclassifying the current request as finite may change the model-owned causal role to target_effect_verdict. The system will not reinterpret one role as the other. " + runtimeQuestionFullDiagnosisRepairTarget(scenario)
 		}
 		if !requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions) {
 			return "runtime_question_profile.scope=bounded_effect_verdict requires a required requested_answer_dimensions role=target_effect_verdict; use bounded_fact_set for finite observations without a target-effect verdict, or preserve the verdict dimension"
@@ -5386,7 +5385,8 @@ func validateRuntimeQuestionProfileConsistency(
 	if profile.Scope != types.RuntimeQuestionScopeCausalDiagnosis {
 		return ""
 	}
-	if requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions) {
+	if requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions) &&
+		!requestedAnswerDimensionsRequireCausalDimension(dimensions) {
 		return "runtime_question_profile.scope=causal_diagnosis conflicts with required requested_answer_dimensions role=target_effect_verdict. That role is a finite condition-to-target verdict and cannot authorize cause discovery or full Trace causal projection. Keep target_effect_verdict with bounded_effect_verdict plus fact_families, or deliberately change the model-owned role to causal_attribution/causal_contributor_set only when the current request asks for full root-cause diagnosis"
 	}
 	if !requestedAnswerDimensionsRequireCausalDimension(dimensions) {
@@ -5396,7 +5396,9 @@ func validateRuntimeQuestionProfileConsistency(
 	// runtime breadth authority. Intent/scenario/diagnostic fields remain useful
 	// classifiers, but requiring the model to repeat the same choice in four
 	// places created contradictory retry contracts and let a local repair erase
-	// Trace causal projection. This branch consumes only validated typed fields.
+	// Trace causal projection. An independently requested finite sub-verdict
+	// neither grants nor revokes that causal breadth. This branch consumes only
+	// validated typed fields.
 	return ""
 }
 
@@ -5479,7 +5481,7 @@ func runtimeQuestionFullDiagnosisRepairTarget(_ types.Scenario) string {
 	if err != nil {
 		return ""
 	}
-	return "causal_diagnosis_canonical_field_target=" + string(payload) + "; fact_families must be omitted and every required causal_attribution/causal_contributor_set dimension preserved. Intent/scenario/diagnostic fields do not need to duplicate this breadth choice; do not demote the causal role merely to satisfy legacy labels"
+	return "causal_diagnosis_canonical_field_target=" + string(payload) + "; fact_families must be omitted and every required causal_attribution/causal_contributor_set dimension preserved. Preserve every requested dimension, including any independent target_effect_verdict, and keep runtime_work_relation_requested and frame_causality_requested unchanged on this structural retry. Intent/scenario/diagnostic fields do not need to duplicate this breadth choice; do not demote the causal role merely to satisfy legacy labels"
 }
 
 func requestedAnswerDimensionsRequireCausalDimension(profile *types.RequestedAnswerDimensionProfile) bool {
