@@ -14375,7 +14375,7 @@ func renderAnswerDocRuntimeFiniteTargetStateCaliberHint(ctx *types.AgentContext)
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("- Runtime finite target-state caliber hint: the selected `target_window_states` account is the principal authority for the requested target-thread state partition. Copy its published running/runnable/sleep/D-state/scheduler-marked-IO-wait/total values at their displayed precision instead of reconstructing them from rounded prose, subtraction, another window, or a blocked-reason count. Its IO-wait fields cover only D/explicit io_wait plus S carrying a paired iowait=1 marker. Describe a zero as `no scheduler-marked D/IO-wait match in this target and window` in the answer's language. Never broaden it to `IO wait is zero`, `no disk IO`, or `no IO blocking`: when a separate completion-closed issuer-blocked IO ruler is absent from this finite question, that mechanism is not assessed by the state partition; when present, state both measurements separately. Sleep proves only interruptible scheduler S-state; without an exact typed interval join, it does not prove voluntary yield, idleness, preemption, IO, a lock, or another mechanism; a blocked-reason caller/census is a separately typed record inventory and, unless an explicit typed interval join is published, has no authority to attribute any Sleep/D-state/IO-wait segment or duration to that caller. CPU-frequency records are CPU-owned; without a typed target-running-slice-to-CPU/frequency overlap, say that target binding is unproven rather than describing a frequency field as an absent property of the thread. This is evidence-caliber guidance only; the bounded conclusion remains model-owned.\n")
+	b.WriteString("- Runtime finite target-state caliber hint: the selected `target_window_states` account is the principal authority for the requested target-thread state partition. Copy its published running/runnable/sleep/D-state/scheduler-marked-IO-wait/total values at their displayed precision instead of reconstructing them from rounded prose, subtraction, another window, or a blocked-reason count. " + types.TraceSchedulerWaitPartitionTeaching + " Interpret each zero only within its named bucket for this target and window. Never broaden it to `IO wait is zero`, `no disk IO`, or `no IO blocking`: when a separate completion-closed issuer-blocked IO ruler is absent from this finite question, that mechanism is not assessed by the state partition; when present, state both measurements separately. Sleep proves only interruptible scheduler S-state; without an exact typed interval join, it does not prove voluntary yield, idleness, preemption, IO, a lock, or another mechanism; a blocked-reason caller/census is a separately typed record inventory and, unless an explicit typed interval join is published, has no authority to attribute any Sleep/D-state/IO-wait segment or duration to that caller. CPU-frequency records are CPU-owned; without a typed target-running-slice-to-CPU/frequency overlap, say that target binding is unproven rather than describing a frequency field as an absent property of the thread. This is evidence-caliber guidance only; the bounded conclusion remains model-owned.\n")
 	b.WriteString(renderAnswerDocRuntimeFiniteBlockedReasonAttributionBoundary(ctx))
 	return b.String()
 }
@@ -24717,7 +24717,7 @@ func traceQueryObservationSupplementNoteDisplay(note string, zh bool) (string, b
 	case types.TraceNoteKeySleep:
 		return line("睡眠等待", "sleep wait", value)
 	case types.TraceNoteKeyDState:
-		return line(traceStateLaneWord(tracefence.StateLaneDState, true), traceStateLaneWord(tracefence.StateLaneDState, false), value)
+		return line(tool.TraceStateNonIODStateWord(true), tool.TraceStateNonIODStateWord(false), value)
 	case types.TraceNoteKeyIOWait:
 		return line(traceStateLaneWord(tracefence.StateLaneIOWait, true), traceStateLaneWord(tracefence.StateLaneIOWait, false), value)
 	case "peer_state_dominant":
@@ -24731,7 +24731,7 @@ func traceQueryObservationSupplementNoteDisplay(note string, zh bool) (string, b
 	case "peer_state_sleep":
 		return line("关联线程睡眠等待", "related-thread sleep wait", value)
 	case "peer_state_d_state":
-		return line("关联线程不可中断等待", "related-thread uninterruptible wait", value)
+		return line("关联线程"+tool.TraceStateNonIODStateWord(true), "related-thread "+tool.TraceStateNonIODStateWord(false), value)
 	case "peer_state_io_wait":
 		return line("关联线程 IO 等待", "related-thread IO wait", value)
 	case "peer_state_fragments":
@@ -24747,7 +24747,7 @@ func traceQueryObservationSupplementNoteDisplay(note string, zh bool) (string, b
 	case "subject_state_sleep":
 		return line("当前线程睡眠等待", "current-thread sleep wait", value)
 	case "subject_state_d_state":
-		return line("当前线程不可中断等待", "current-thread uninterruptible wait", value)
+		return line("当前线程"+tool.TraceStateNonIODStateWord(true), "current-thread "+tool.TraceStateNonIODStateWord(false), value)
 	case "subject_state_io_wait":
 		return line("当前线程 IO 等待", "current-thread IO wait", value)
 	case "subject_state_fragments":
