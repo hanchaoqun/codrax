@@ -1127,3 +1127,26 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 不增加 JSON 必填字段、用户或模型原文扫描，不改显式时间窗和自动补齐，不取消优先级/算力/D/IO/语义优化/业务线索。仍归 HMC-02.4/18.4 内部子缺陷，父项和总数不改。
 
 复审补强：windowed index 的头状态只在原查询起点有快照，直接把子查询起点改到 marker 会丢掉 padding 外的已证状态。真实构建已复现 OuterWork 应运行40/总80ms却显示20/60、InnerWork应20/60却显示10/50，修正与末版验证进行中；不得凭全窗总数按比例分摊。诊断显示另补嵌套字段处置：原 WindowStats 指纹只看切片类型，未漂移不等于新字段可免审。确切字段列表、原来源隐私与大时间定点、测量零/未知区别已有新 pin；保持一个片段 detail owner、不升成根因 key-first。通用 walker 丢零的真实 RED0.516s→精确 typed 显示 GREEN0.825s（`/tmp/hmc-marker-scheduler-diag-{red,green}-20260920.log`），不重钉无关哈希。
+
+### 38.1 冻结小批与末版回放入口
+
+两笔本地提交：`8bec1875d` 正文归属、`db0596794` marker-local 状态账。后者包括 windowed 子窗补正：复用原 owner 的已证 timeline 后逐状态区间求交、重新生成子窗计量域，不裁总数、不修改共享头快照；未知头与完整性失败保持原保守路径。窗口专测0.578s、含既有 carry-in 的 race×3 1.822s。普通 B 起点在 retained padding 之外导致整段不返回，是独立既有开放项，归 HMC-02.4/18.4，未由本片覆盖。
+
+RichNote 新 key 已回归 types 单源登记/soft-consumer/golden，真实 emitter 覆盖先红后绿；agent AST pin 恰核 SpanKind 与新 key 两个合法常量。没有把 tracequery 私有新常量当作登记替代，也没有扩扫描豁免。中间组合日志 consumer pin 曾误计既有 SpanKind，修后单独GREEN1.308s，原日志保留。Python 最终16项通过，新增默认 mkdir/Markdown 写失败屏障，不受 HTML 或显式副本错误影响。
+
+首轮全仓正式退出0：87包通过（35缓存/52实际）、13无测试，早于上述末改，仅作前序收据（`/tmp/hmc-surfaces-marker-final-full-20260920.log`）。末版八包 race×3正式退出0，render1.757s/outputdump2.647s/types3.227s/agent6.494s/orchestrator3.639s/tool14.691s/tracequery14.029s/tracediag14.831s（`/tmp/hmc-surfaces-marker-final2-race-20260920.log`）。600/300/600默认、活跃字节/心跳与请求预算隔离定向9.815s通过；末版完整 runner 已全部通过（`/tmp/hmc-answer-surfaces-runner-final4-20260920.log`，退出收据待收取）。
+
+db0596794c36 原生构建退出0并核版本（`/tmp/hmc-surfaces-marker-build-20260920.log`）。固定该二进制两个旧FAIL各一次、并行2，不改原case/oracle；按影响与复发排序先业务窗混账，再明确窗链和机理边界，后续跨模式B2–B6仍留队。后续真实退出与人工审计见§38.2，不注销旧FAIL。
+
+### 38.2 固定回放的失败收据与小批补正
+
+固定db双例已结束：[机器](../../eval/parallel_selected_summary_hmc_marker_local_surfaces_20260920.md)1/2，[人工](../../eval/parallel_selected_summary_hmc_marker_local_surfaces_20260920_manual_audit.md)0/2，业务279秒/39%上下文、明确窗158秒/39%。同版没有第三次追绿。
+
+- 两份答案归属收据都写出却为unavailable：正常发布链最后的`appendRuntimeDispatchAdvisoriesToAnswer`即使无advisory也TrimSpace，归属快照只允许旧原字节/caveat回放，漏了这个已有展示变换。真实recordTaskFinalize+发布helper红针两条失败（`/tmp/hmc-answer-final-trim-red-20260920.log`）→仅允许精确外层trim的GREEN1.126s；正文内改字、未知附录仍拒绝，不从后来文档猜所有权。客户答案不改、旧回放不倒签。明确窗case只有全答案oracle故仍机器PASS，业务primary oracle正确fail-closed。
+- 业务自己的5/1/44ms已到真实finalizer消息（日志2748），正文仍写5–7ms后又写5ms，40ms LoadDocumentIndex与35ms请求窗口混用、把真实IRQ waker说成非链上。35ms请求/31ms线程等待与47ms后台排除有所改善，但不足以人工通过。模型未采用实例引用，投影保持其查询0.999..1.052；不偷改焦点。schema2必产但无可选候选，不以文件存在冒充有效选择。
+- 明确窗保持20/11ms、2.016/2.018/2.020唤醒时刻且保留投影，旧时刻错述改善；仍将network14ms睡眠写成2.001..2.018（真实2.002..2.016），系统表也同错。已定位递归`WakeupCausalImpact.Window`统计域被通用ObservationSpan/表误当发生窗；ActualWindow也含多个状态，不能直接替换为睡眠段。独立下一小批分清统计域与物理段，金额/因果资格不动。
+- 真实analyzer上下文还有“一次成功可修正”与“严格只调一次”、`every field REQUIRED`并存；业务4次拒绝1次成功却告警5次写入。工具schema/profile校验未证明有错，不能用宽松校验消重试；下一小批统一实际教学与成功写入计数，保留总attempt遥测。
+
+末版完整runner正式退出0；全仓final2实际退出1，仅`TestThreadStateComparisonConsumerCoverage`要求登记新windowed-head分支的`StateUnknown`精确排除。已逐字段审计：该比较禁止未知物理状态升级为恢复头，只控制coverage，不新分类；增加该唯一消费点golden，定向GREEN0.898s。完整日志`/tmp/hmc-surfaces-marker-final2-full-20260920.log`保留，不把早版全绿冒充末版。后续完整复测、trim race及下一教学/窗口小批分记收据。
+
+参考仓再次核对`marker_ops.py:576–640`的每线程缓存/逐节点状态交集与`trace_data_cache.py:294–313`先完整配对再相交：本片吸收前者；后者启示的远端B/E丢片段仍独立开放，不扩大padding或将发现候选池冒充完整清单。所有工作仍为稳定79项内修复，13已交付/66开放不变。

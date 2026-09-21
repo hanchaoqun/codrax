@@ -781,6 +781,10 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"supply_fold.go:applyGovernanceCapDisclosure":               "running#1",
 	"supply_fold.go:supplyFoldRunningIntervals":                 "running#1",
 	"thread_state_universe.go:stateChurnWakeupReopenIneligible": "running,runnable#2",
+	// Marker-local clipping may inherit a proven physical state at its head,
+	// but must never upgrade an unclassified interval to a recovered head.
+	// This exact unknown-state exclusion affects coverage, not state membership.
+	"trace_span_scheduler.go:traceSpanSchedulerTimeline": "unknown#1",
 }
 
 func TestThreadStateComparisonConsumerCoverage(t *testing.T) {
