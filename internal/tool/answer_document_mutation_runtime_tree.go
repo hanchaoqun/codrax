@@ -11,9 +11,11 @@ package tool
 //   3. a file-grouped evidence index.
 // The tree is anchored at the user-focused thread (🎯 root = last wakeup-path
 // node); six edge kinds only (下钻 / 唤醒 / 语义 / 成因 / 自身 /
-// 链上·深度未解析); bars are scaled to the requested window when the precise
-// anchor exists and deterministically fall back to the batch max otherwise
-// (never a fabricated window).
+// 链上·深度未解析); bars normally use the requested window when the precise
+// anchor exists and fall back to the batch max otherwise. Background/adjacent
+// query projections use their own disclosed query ruler in window mode;
+// missing/mixed query identities never borrow the main window. Without an
+// analysis window the legacy relative-max bar remains, with no window share.
 
 import (
 	"fmt"
@@ -1851,8 +1853,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// 尺度」抽象 + 未采集回退分支在已采集报告里纯属噪声 → 两分支各自成条,
 		// 按 ScaleNote 分支出场(BarScaleFallback 为回退臂新 mark).
 		{runtimeTraceProjMarkBarScale, runtimeTraceProjLegendGroupCaliber,
-			"- 时长条:满格 = 树头标注的长度(本报告为分析窗全长);多窗合并行的时长条只作相对量级(见其专项条目)。",
-			"- Bars: full scale = the length noted in the tree header (the full analysis window in this report); multi-window merged rows' bars are relative scale only (see their dedicated entry)."},
+			"- 时长条:默认满格 = 树头标注的分析窗全长;背景/邻近行标注「本行满格/占比」时以该查询窗为尺,标注「本行不显示」者不画条;其它多窗合并行的时长条只作相对量级(见其专项条目)。",
+			"- Bars: default full scale = the analysis window in the tree header; background/adjacent rows marked 'row bar/share base' use that query window, while 'no row bar/share' means no bar; other multi-window merged rows' bars are relative scale only (see their dedicated entry)."},
 		{runtimeTraceProjMarkBarScaleFallback, runtimeTraceProjLegendGroupCaliber,
 			"- 时长条:窗口未采集,满格 = 本报告最大时长(不显示占窗百分比);多窗合并行的时长条只作相对量级(见其专项条目)。",
 			"- Bars: no window captured — full scale = this report's largest duration (no window percentages); multi-window merged rows' bars are relative scale only (see their dedicated entry)."},
@@ -1961,8 +1963,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// PTV5 C10 (#68): the trigger is ≥99% (≤100.1%) on BACKGROUND rows only
 		// — the entry states its own bounds instead of "整个窗口" 过宽.
 		{runtimeTraceProjMarkWholeWindowIdle, runtimeTraceProjLegendGroupCaliber,
-			"- `整窗等待` = 该行几乎覆盖整个窗口(≥99%),多为空闲或常驻等待线程,仅作背景参考。",
-			"- `whole-window wait` = the row covers nearly the whole window (≥99%); usually an idle or resident waiting thread, background reference only."},
+			"- `整窗等待` = 该背景行的查询窗内等待量几乎覆盖其自身查询窗(≥99%),不指本树分析窗,仅作背景参考。",
+			"- `whole-window wait` = this background row's in-query waiting amount covers nearly its own query window (≥99%), not the tree's analysis window; background reference only."},
 		{runtimeTraceProjMarkInheritedAttribution, runtimeTraceProjLegendGroupCaliber,
 			"- `承自归因` = 该行有效归因承自其所在等待区间,非本行实测。",
 			"- `inherited attribution` = the row's effective attribution is inherited from its enclosing wait interval, not measured on this row."},
@@ -13968,6 +13970,13 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		valueSlot = 11
 	}
 	impact, impactSource := runtimeTraceProjNodeDisplayImpactSource(node)
+	contextRow := runtimeTraceProjContextWindowRow(row)
+	contextBase, contextBaseKnown := runtimeTraceProjContextQueryWindowBaseMS(row)
+	contextRuler := contextRow && windowMode && contextBaseKnown
+	barDenom := denom
+	if contextRuler {
+		barDenom = contextBase
+	}
 	var b strings.Builder
 	crossThread := runtimeTraceProjCrossThreadAggregateType(node)
 	compositeValue := runtimeTraceProjCompositeValueCaliber(node)
@@ -13984,6 +13993,10 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	noValue := !crossThread && impact <= 0 &&
 		(runtimeTraceProjDiagnosticLaneNode(node) || runtimeTraceProjAllZeroFoldRow(node))
 	switch {
+	case contextRow && windowMode && !contextRuler:
+		// A context row cannot borrow the tree's ruler when its own query
+		// is missing/mixed or the displayed value is not a query projection.
+		b.WriteString(strings.Repeat(" ", runtimeTraceProjTreeBarWidth))
 	case crossThread:
 		// CMP-3: a cross-thread cumulative aggregate draws NO bar — its cpu·ms
 		// value is not on the wall-clock scale the bar column encodes, so any
@@ -14000,12 +14013,14 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// carries the magnitude semantics instead.
 		b.WriteString(strings.Repeat(" ", runtimeTraceProjTreeBarWidth))
 	default:
-		b.WriteString(runtimeTraceProjBar(impact, denom, row.Kind == runtimeTraceProjTreeRowBackground))
+		b.WriteString(runtimeTraceProjBar(impact, barDenom, row.Kind == runtimeTraceProjTreeRowBackground))
 	}
 	if !crossThread && !noValue && !nonWallClockValue {
 		// PTV4 T7 口径组: the bar-scale caliber legend line is gated on a bar
 		// actually rendering (cross-thread aggregates and no-value rows draw
-		// no bar). PTV8-RCR-B (UXA 域A #13): the windowed and the no-window
+		// no bar), or a context row retaining the header's default window
+		// ruler but declining to draw a bar without its own query base. The
+		// legend also explains that row-local exception. PTV8-RCR-B (UXA 域A #13): the windowed and the no-window
 		// fallback scales are separate on-demand entries — the same
 		// windowMode branch the ScaleNote renders on picks which is taught.
 		if windowMode {
@@ -14095,7 +14110,14 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// windows are disclosed on the lossless block's 窗来源 lane. Rows
 		// whose roster resolves to ≤1 known window keep the legacy share
 		// byte-identically (绝不跨窗分子÷单锚窗分母打 %).
-		if runtimeTraceProjMultiWindowMergedRow(node) {
+		if contextRow {
+			if contextRuler {
+				b.WriteString(runtimeTraceProjBarShareText(impact / contextBase * 100))
+				if impact > contextBase*1.001 {
+					row.marks.mark(runtimeTraceProjMarkOverWindowShare)
+				}
+			}
+		} else if runtimeTraceProjMultiWindowMergedRow(node) {
 			row.marks.mark(runtimeTraceProjMarkMergedMultiWindowNoShare)
 		} else if base, ok := runtimeTraceProjSemanticSourceWindowShareBaseMS(row, denom); ok {
 			// DCS E5 (ledger §23/§23.1 H2): the semantic row carries a typed
@@ -14123,6 +14145,9 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 	}
 	var tags []runtimeTraceProjTag
+	if contextRow && windowMode && !crossThread && !nonWallClockValue && !noValue {
+		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjContextQueryWindowRulerText(row, zh), Seg: 31})
+	}
 	// R9 (§29.93.2, 2026-07-15): the fold row's line 2 — member preview +
 	// 榜位 pointer sink (line 1 keeps the bare counted label; see the name
 	// mints in runtimeTraceProjRowNameBase).
@@ -14302,12 +14327,8 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 11})
 	}
-	// V3 (customer revisit 2026-07-03): a background row whose projection covers
-	// ≥99% of the window — without exceeding it — waited out the whole window.
-	// Over-window values (H8 tolerance) are the multi-CPU cumulative shape — an
-	// ACTIVE burst, never tagged idle. F3: the full judgment lives in the
-	// shared helper; the detail blocks mirror the same call. PTV4 T4: the
-	// "(疑似空闲)" semantics moved to the legend's 整窗等待 entry.
+	// Both faces compare the query projection with the row's own query
+	// window, never the tree denominator or actual state extent.
 	if windowMode && runtimeTraceProjWholeWindowIdleRow(row, denom) {
 		row.marks.mark(runtimeTraceProjMarkWholeWindowIdle)
 		text := "整窗等待"
@@ -18215,8 +18236,9 @@ func runtimeTraceProjSymptomDenominatorCensus(projection types.TraceCausalProjec
 // "整窗等待(疑似空闲)" annotation — the tree stanza tag and the detail-table
 // mirror both call it (F3: two hand-synced copies were the drift risk). True
 // only for a background row in the wait family AND whose projection covers
-// ≥99% of the window without exceeding it (H8 tolerance: over-window
-// cumulative rows are the multi-CPU ACTIVE shape, never idle). A whole-window
+// ≥99% of its own known query window without exceeding it (H8 tolerance).
+// A missing/mixed query identity or a fallback actual/cumulative value cannot
+// make this claim, even if its duration equals the main window. A whole-window
 // running CPU hog or a stateless cpu·ms aggregate row that happens to ≈ the
 // window never takes the tag.
 //
@@ -18236,8 +18258,54 @@ func runtimeTraceProjWholeWindowIdleRow(row runtimeTraceProjTreeRow, windowMS fl
 		!runtimeTraceProjWaitFamilyTypeTokenOnly(row.Node) {
 		return false
 	}
+	base, ok := runtimeTraceProjContextQueryWindowBaseMS(row)
+	if !ok {
+		return false
+	}
 	impact := runtimeTraceProjNodeDisplayImpact(row.Node)
-	return impact >= windowMS*0.99 && impact <= windowMS*1.001
+	return impact >= base*0.99 && impact <= base*1.001
+}
+
+// Context rows retain their original measurements. Only their own scalar
+// query window can supply a ruler: rank-board windows and actual state extents
+// are different domains, and a known-member roster is not proof that every
+// merged member had the same window. The producer clears the scalar pair when
+// any member's identity is absent or differs; never reconstruct it here.
+func runtimeTraceProjContextWindowRow(row runtimeTraceProjTreeRow) bool {
+	// Semantic spans already have their own source-window display contract,
+	// including when seated in an adjacent/background stanza. Leave it intact.
+	return (row.Kind == runtimeTraceProjTreeRowBackground || row.Kind == runtimeTraceProjTreeRowAdjacent) &&
+		!runtimeTraceCausalProjectionSemanticSpanRow(row.Node)
+}
+
+func runtimeTraceProjContextQueryWindowBaseMS(row runtimeTraceProjTreeRow) (float64, bool) {
+	if !runtimeTraceProjContextWindowRow(row) || runtimeTraceProjMultiWindowMergedRow(row.Node) ||
+		runtimeTraceProjCrossThreadAggregateType(row.Node) || runtimeTraceProjNonWallClockValueCaliber(row.Node) {
+		return 0, false
+	}
+	impact, source := runtimeTraceProjNodeDisplayImpactSource(row.Node)
+	if source != runtimeTraceProjImpactSourceWindow || math.IsInf(impact, 0) || math.IsNaN(impact) {
+		return 0, false
+	}
+	start, end := row.Node.QueryWindowStartTs, row.Node.QueryWindowEndTs
+	if !types.TraceCausalProjectionWindowPresent(start, end) || math.IsInf(start, 0) || math.IsInf(end, 0) {
+		return 0, false
+	}
+	base := (end - start) * 1000
+	return base, !math.IsInf(base, 0)
+}
+
+func runtimeTraceProjContextQueryWindowRulerText(row runtimeTraceProjTreeRow, zh bool) string {
+	if _, ok := runtimeTraceProjContextQueryWindowBaseMS(row); ok {
+		if zh {
+			return fmt.Sprintf("本行满格/占比基于查询窗 %.6f~%.6fs", row.Node.QueryWindowStartTs, row.Node.QueryWindowEndTs)
+		}
+		return fmt.Sprintf("row bar/share base: query window %.6f~%.6fs", row.Node.QueryWindowStartTs, row.Node.QueryWindowEndTs)
+	}
+	if zh {
+		return "本行不显示时长条/占比:无单一已知查询窗投影口径"
+	}
+	return "no row bar/share: no single known query-window projection base"
 }
 
 // runtimeTraceProjWaitFamilyTypeTokenOnly is the RN-8 stateless lane of the
@@ -19491,6 +19559,10 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		// terminal); each field is its own keyed line and the relation speaks
 		// a full clause (word tables in runtimeTraceProjDetailRelationCell).
 		add("关系", "relation", runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjDetailRelationCell(row, zh, flat)))
+		if model.WindowMS > 0 && runtimeTraceProjContextWindowRow(row) &&
+			!runtimeTraceProjCrossThreadAggregateType(node) && !runtimeTraceProjNonWallClockValueCaliber(node) {
+			add("时长条/占比口径", "bar/share ruler", runtimeTraceProjContextQueryWindowRulerText(row, zh))
+		}
 		add("直接上游唤醒点", "direct upstream wakeup point",
 			runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjDetailWakeupPoint(node, zh)))
 		if len(node.SecondaryObjects) > 0 {

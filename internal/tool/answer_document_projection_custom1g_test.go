@@ -206,6 +206,7 @@ func TestRuntimeTraceProjBackgroundWholeWindowIdleAnnotation(t *testing.T) {
 			Node: types.TraceCausalProjectionNode{
 				Subject: "audio_server-77", Object: "unknown-thread",
 				ImpactMS: impact, ChainRelevance: "background",
+				QueryWindowStartTs: 10, QueryWindowEndTs: 10.101,
 				// F3: the idle annotation is gated on the typed wait-family
 				// StateKind (running/stateless whole-window rows are pinned as
 				// UNTAGGED in the F-round tests).
@@ -258,6 +259,7 @@ func custom1gFoldNode() types.TraceCausalProjectionNode {
 		EvidenceID: "E16", Object: "unknown-thread", ChainRelevance: "background",
 		MergedCount: 6, MergedMinMS: 99.500, MergedMaxMS: 101.000,
 		ImpactMS: 101.000, CumulativeImpactMS: 101.000, // member max since V3
+		QueryWindowStartTs: 10, QueryWindowEndTs: 10.101,
 		MergedSubjects: []string{"a-1", "b-2", "c-3", "d-4"},
 		// Unanimous member state propagated by the R3 fold since F3 — the idle
 		// annotation is gated on the typed wait family, so a stateless fold
@@ -351,7 +353,7 @@ func TestRuntimeTraceProjCustom1gEndToEndFoldAndDedup(t *testing.T) {
 			// The producer's Q2 whole-window-sleeper signal: since F3 the idle
 			// annotation requires this typed dominant state (the R3 fold row
 			// inherits it by strict member unanimity).
-			"dominant_state=s_sleep")
+			"dominant_state=s_sleep", "selected_window=6793222.700000..6793222.801000")
 	}
 	mkIRQ := func(id string, lineStart, lineEnd int) types.ObservationRecord {
 		return projV3Obs(id, "root_cause_context", "root_cause_context:"+id,

@@ -118,6 +118,7 @@ func TestRuntimeTraceProjIdleAnnotationRequiresWaitFamilyStateKind(t *testing.T)
 			Node: types.TraceCausalProjectionNode{
 				Subject: "hog-9", Object: "unknown-thread",
 				ImpactMS: 101.0, ChainRelevance: "background", StateKind: state,
+				QueryWindowStartTs: 10, QueryWindowEndTs: 10.101,
 			},
 		}
 	}

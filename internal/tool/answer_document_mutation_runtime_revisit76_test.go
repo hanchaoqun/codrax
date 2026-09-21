@@ -1200,11 +1200,13 @@ func revisit76PTV4BadgeMergeProjection() types.TraceCausalProjection {
 		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "ptv4-idle",
 		Subject: "idler-4", Object: "sleep_wait", StateKind: "s_sleep",
 		ChainRelevance: "background", ImpactMS: 99.8, Confidence: 0.8,
+		QueryWindowStartTs: 100, QueryWindowEndTs: 100.1,
 	}
 	over := types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "ptv4-over",
 		Subject: "irq/151-dpu", Object: "irq_burst",
 		ChainRelevance: "background", ImpactMS: 250.0, Confidence: 0.8,
+		QueryWindowStartTs: 100, QueryWindowEndTs: 100.1,
 	}
 	maxFold := types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "ptv4-maxfold",

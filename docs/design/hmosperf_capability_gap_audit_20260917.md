@@ -1689,3 +1689,23 @@ Trace中性phase/最终上限、邻近角色与准确wake并列均真实命中�
 JS仅改一行缺失值默认0，原回归测试与检查脚本字节保持，真实apply及隔离交付resolved。make check的Python静态检查通过，npm/node在当前验证环境缺失，最终诚实unverified；不能把它签为JS断言执行成功。模型为顶层assert脚本起了并不存在的具名assertion_id，npm_script_exit_status也没有逐断言生产者，安装运行器不自动使该PTO合格；本例合同全planning-only，不代销B2–B6。一次畸形双编码workflow JSON被精确拒绝后恢复原生对象，未确认新的系统教学互斥。
 
 ROI：先完成上述明确显示口径缺陷，再恢复B2的controller源快照授权前置；模型语义误用、运行器缺失、无原生断言身份及oracle词面限制分别留账，不用反复同版回放追绿。任务总数仍13/79交付、66开放。
+
+§74实现及§75审计已随`427eb229b`推送main（session36989正式exit0，95112→427eb）。下面的新生产片独立验证，不复用本次全仓签收。
+
+## 76. 背景/邻近行必须使用自身查询尺（2026-09-21，施工中）
+
+§75的原生数值并无错误：logger在补充查询2.000–2.025里20ms，在请求查询2.000–2.020里19.5ms。缺口在显示把前者除主树20ms并据此授“整窗等待”，不是需要改解析、裁掉原段或取消系统补采。旧语义行source-window helper只覆盖semantic且只比长度；rank query与真实状态Start/End也不等于该值的查询分母，不能直接借用。
+
+方案限定背景/邻近展示行：有单一已知QueryWindow时，bar与占比使用该行自己的查询长度，并就地解释本行尺；同长异位也明示范围。缺查询窗或多窗合并时保原ms/E#/定位/查询成员信息，不回退主窗、rank窗或实际状态段伪造占比。整窗标签两面消费同一尺，且只接窗口投影值，不以实际状态fallback近似主窗长推整窗。链上贡献、加冕、排名、所有原始观测/时间窗及自动补齐不改。
+
+参考`core/preprocess/sleep_ops.py:581–622`按当前递归窗口统计并逐S/D段裁剪，启示是分母归属必须跟统计对象一起流转，不是将一组窗口长度应用于所有节点。本片为本仓多查询汇集展示接缝的修复，不声称参考仓直接实现了相同显示结构。验收须包括真实公开窄/宽查询、中英/改名、同长异位/缺窗/多窗、状态extent不等于query、typed非等待与非window值反例；旧手造正针补有效query前提而非删除原断言。
+
+正式公开RED `/tmp/hmc-context-window-ruler-red-public-20260921.log`（session52730，exit1）已取得：真实fixture经四次TraceQuery、明确2.000–2.020请求窗及user_explicit app-100，再走ApplyAndPersistMutation和最终renderer；中英/改名/查询结果顺序反转均复现20ms扩窗行错误100%及整窗等待。初版harness未绑定主窗且误含overview无bar行的失败不作为产品RED。当前生产仅改显示，正在完善跨单位、无主窗、合并MAX和既有语义行保护；GREEN及统一全仓未取得前不销账。
+
+本版干净构建后的固定双例计划选真实采集`real_trace_e1_dual_window_normalized`（两个不同长度的明确窗，CPU获得量归一化，保护查询组合与范围表达）和`patch_go_typo`（Go真实apply及已有TestGreet三组输入）。每例一次、并行2；不选本机缺Node/JDK的重复环境失败，也不把双窗比较自动算成本缺陷的live命中。公开回归已强制命中宽/窄背景并存，真实LLM回放是否生成相同显示分支须另看实际工件。B2–B6仍独立开放。
+
+邻近回归发现一个范围边界，不能为新规则误删旧能力：全树没有查询窗口时，旧树头明确说满格是“本报告最大时长”，是合法相对量级而非查询窗占比。初版将这种context条也留空，导致全context树仍有相对尺头却无条（`/tmp/hmc-context-window-ruler-final2-focused-20260921.log`真实FAIL保留）。裁定最窄保留无窗模式的旧相对bar、头和图例，但两面仍无百分比/自身查询尺宣称/整窗标签；只有有主窗模式才适用本片背景行独立查询尺及缺窗留空规则。先前“无主窗一律空bar”的预审不算最终签收。
+
+末版7个tool文件冻结（1生产、1新回归、5旧测试前提/图例迁移），32项顶层定向`/tmp/hmc-context-window-ruler-final-focused-20260921-v6.log`正式exit0（session5155，tool2.987s）。公开矩阵同时保护20/25=80%八格、等长异位2.000500–2.020500=100%十格及同一行/明细上的微秒范围，改名/双语/结果反序均保明确主窗与原始观察字节；typed缺窗、多窗、actual回退、跨单位和无窗模式另有正反针。既有semantic source-window通道不改。为保全图例双向覆盖，最后补两个旧手造over/idle记录的合法QueryWindow前提，99.8/250数值和原断言不变，不以删除图例覆盖要求换绿。
+
+独立只读复核通过生产边界及图例最终增量。末版统一全仓`/tmp/hmc-context-window-ruler-final-full-20260921.log`（session91076）与相同32项race `...-final-race-20260921.log`（session61898）执行中，尚不签全仓或整份live答案通过。

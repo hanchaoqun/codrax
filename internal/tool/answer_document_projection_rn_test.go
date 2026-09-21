@@ -296,6 +296,7 @@ func TestRNWholeWindowIdleAcceptsStatelessWaitTypeToken(t *testing.T) {
 			Node: types.TraceCausalProjectionNode{
 				Subject: "jbd2/loop3-8-390", Object: "unknown-thread",
 				ImpactMS: 101.0, ChainRelevance: "background",
+				QueryWindowStartTs: 10, QueryWindowEndTs: 10.101,
 				StateKind: state, TypeToken: typeToken, Predicate: predicate,
 			},
 		}
