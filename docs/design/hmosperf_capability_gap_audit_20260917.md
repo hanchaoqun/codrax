@@ -1258,3 +1258,13 @@ eff3上一片完整全仓正式exit0：`/tmp/hmc-measurement-teaching-census-fin
 明确窗own等待17/14/11ms不再错位，统计域也未改写成假状态端点，片段新账真实进入探索；但业务正文仍50ms窗口套6/1/44、漏LoadDocumentIndex和不相加口径。35ms请求/31ms线程等待与后台47ms写已分清，尾部仍误称storage完成唤醒不完整。明确窗旁路编造再睡/再唤醒时序，正文将fscache调用点推为特定资源/后端机理，均继续FAIL。详细行号与归属见人工单，不以新代码绿倒签。
 
 两份正文归属收据available；两份mandatory根因旁路都生成，其中明确窗available但描述语义FAIL，业务因本轮未运行root_cause_rank且无可选typed席为unavailable空数组。Trace投影两份均在，不能把旁路存在误报成内容通过，也不能把候选空等同文件丢失。系统投影另有S与runnable“物理重叠”说明疑点，正在独立只读核对生成身份，优先于新能力扩面。13/79、66开放不变，不同版补跑第三例追绿。
+
+## 44. 同来源行号不能证明同状态的物理重叠（2026-09-20）
+
+§43系统图疑点已确定复现，不是模型波动。`runtimeTraceProjMarkAccountRelations` class(1) 只按线程+来源行号范围配对，漏核对计量的状态族与查询窗。公开root_cause_rank→Observation→Trace投影把cookie17ms/network14ms睡眠和各自1ms优先级反转可运行分量配成“同线程同状态族·物理时间重叠”；两种状态实际互斥。参考仓`core/preprocess/sleep_ops.py:198–260`逐段裁窗后以互斥state分支累计，行号包络/相同累计值都不是状态同一性证明。
+
+本片仅修该显示关系臂：相同非空计量状态族、既有查询窗兼容性、无明确区间不相交反证，方继续原配对；限制置于等值镜像与差值账目两路之前。PIC的完整显示量含运行算力缺口或成分未知时，不能借其中Runnable份额或周围dominant S冒充单状态；已知纯Runnable仍允许原同族关系。只不发错误关系说明，所有候选/排名/时长/区间/链边保持。未改共享TwinKey、RSPA同源二分、其它关系臂、根因门或模型答案。
+
+公开改名×中英先红后绿；同族正针、纯Runnable PIC正针、等值异状态、异查询窗、明确不相交、混合/仅running/未知PIC与原生投影不变均覆盖。正式RED `/tmp/hmc-account-state-final-red-20260920.log` exit1；较早red日志还含测试自身空ref查表噪声，不把噪声当产品问题。邻近SMR1/RSPA/CR2/状态窗口 GREEN `/tmp/hmc-account-state-green-20260920.log` exit0（tool5.975s）；末增纯Runnable正针、race、全仓和干净双例另外签收。独立只读审计提出并纳入等值早退、明确不相交及PIC复合计量反例。
+
+边界留债：窗口缺失仍只是不否决，不是同窗证明；同族同行包络本身也不等于完整的物理发生集合身份。其它遗留关系臂的严格同源/发生集合证明与原始占用镜像去重继续开放，本片不能冒充全图关系已审完。`39becadd4`至`19568569c`已推送main；上轮人工0/2不倒签。

@@ -120,6 +120,21 @@ func runtimeTraceProjRSPAOwnedStateAccount(node types.TraceCausalProjectionNode)
 	return family, value, family != "" && value > 0
 }
 
+// Same-line account annotations describe an entire displayed state measure,
+// not a sub-component. A PIC row can include both runnable time and a running
+// compute deficit; its dependency's dominant state is only context. Reuse
+// the typed family registry, but do not call a composite/unknown PIC scalar
+// a single scheduler-state account. This changes annotation only.
+func runtimeTraceProjSMR1WholeStateFamily(node types.TraceCausalProjectionNode) string {
+	token := firstNonEmptyAnswerString(node.TypeToken, node.Object)
+	if runtimeTracePriorityInversionCandidateType(runtimeTraceCausalProjectionCanonicalNode(token)) &&
+		(node.GatedRunnableMS <= 0 || node.GatedRunningDeficitMS > 0 ||
+			!runtimeTraceProjSMR1ValuesEqual(node.GatedRunnableMS, runtimeTraceProjNodeDisplayImpact(node))) {
+		return ""
+	}
+	return runtimeTraceProjSMR1StateFamily(node)
+}
+
 // runtimeTraceProjSMR1HullsDisjointProven (修复轮三 R2-F2) reports whether
 // two rows' typed occurrence hulls are PROVABLY disjoint: both carry valid
 // [StartTs,EndTs] and the intervals do not intersect. Hull disjointness ⇒
@@ -952,6 +967,17 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		// 两把尺: ⌗ caliber-side rows never enter a wall-clock account pair
 		// (96717 复放实锤: a composite-score row grew a nonsense sentence).
 		if !runtimeTraceProjSMR1WallClockRow(a.Node) || !runtimeTraceProjSMR1WallClockRow(b.Node) {
+			continue
+		}
+		// Source line envelopes can contain mutually exclusive states and
+		// cover distinct measurements. They cannot override typed differences
+		// in state ownership, query windows or disjoint occurrence hulls.
+		// Apply before BOTH the equal-value mirror and account-relation arms;
+		// keep every row/value/candidate, omitting only the false relation.
+		family := runtimeTraceProjSMR1WholeStateFamily(a.Node)
+		if family == "" || family != runtimeTraceProjSMR1WholeStateFamily(b.Node) ||
+			!runtimeTraceProjSMR1WindowsCompatible(a.Node, b.Node) ||
+			runtimeTraceProjSMR1HullsDisjointProven(a.Node, b.Node) {
 			continue
 		}
 		// 96717 复放复核: FAMILY seats route through pair class (2) only —
