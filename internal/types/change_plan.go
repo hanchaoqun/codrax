@@ -26,7 +26,15 @@ const AcceptanceTestsPlanningTeaching = "Optional natural-language planning chec
 // existing test input from the plan's actual file mutations. Both ordinary
 // authoring and language-repair guidance use this rule; source-free proof
 // sentinels retain their separate, probe-only contract.
-const NativeProjectTestObservationBindingTeaching = "Prefer an existing native project-test assertion that you have inspected. An unchanged test file may be referenced by project_test_observations[].test_path without adding it to changes[]. Add or edit a test only if the needed assertion is missing and the edit is authorized; include only actual file changes in changes[]. Emit one project_test_observations[] row per concrete assertion with its exact test_path, assertion_suite, assertion_id, and contract_refs."
+const NativeProjectTestObservationBindingTeaching = "Prefer an existing native project-test assertion that you have inspected. An unchanged test file may be referenced by project_test_observations[].test_path without adding it to changes[]. Add or edit a test only if the needed assertion is missing and the edit is authorized; include only actual file changes in changes[]. Emit one project_test_observations[] row per concrete assertion with its exact test_path, assertion_suite, assertion_id, and contract_refs. " + NativeProjectTestObservationIdentityTeaching
+
+// Identity spelling is shared by ordinary authoring and both plan schemas.
+// It describes existing parser/qualifier output, not a new permission or join.
+const NativeProjectTestObservationIdentityTeaching = "Use the exact TestResult.suite and TestResult.assertion_id pair from the current held report when available. A first plan without a report remains valid: derive expected identities from inspected tests and the selected runner protocol; authoring does not require running tests first. For a non-root project, both fields carry the runner[/framework]@working_dir:: prefix, where working_dir is repo-relative and only Python/Java include a nonempty framework. Preserve the whole published pair; do not strip, duplicate, or invent a scope prefix. A displayed identity is not proof or authorization."
+
+const NativeProjectTestObservationSuiteTeaching = "Exact TestResult.suite emitted by the project runner. Native forms: Go = go test -json Package (the import path, not the source package clause); unittest = the parenthesized containing class/module; pytest = nodeid before its last ::; Jest = testResults[].name; Cargo = cargo; JUnit = testsuite.name; RSpec = examples[].file_path; Swift = XCTest class. Do not append the test method unless that protocol includes it in the suite. Preserve the non-root project prefix when present."
+
+const NativeProjectTestObservationAssertionIDTeaching = "Exact TestResult.assertion_id emitted by the project runner, not source assertion code, an expected-value expression, or explanatory prose. Native forms: Go = Test including /subtest; unittest = test method name; pytest = nodeid after its last :: including parameters; Jest = ancestor titles and test title joined by \" > \" (spaces included); Cargo = full test path; JUnit = classname#name, or name when classname is absent; RSpec = full_description; Swift = XCTest method. Preserve separators, parameter values and any non-root project prefix exactly."
 
 // WriteBehaviorContractObservationTeaching is the single authoring contract
 // shared by the always-on change-plan skill and the typed-contract planner
@@ -1985,16 +1993,18 @@ type TestResult struct {
 	// obligation; a skipped row can remain Passed=true for suite-level reporting.
 	ObservationScope TestObservationScope `json:"observation_scope,omitempty"`
 
-	// AssertionID is the canonical identifier used for matching
-	// against ChangePlan.AcceptanceTests. Format is framework-
-	// specific ("TestFoo", "test_module.TestClass.test_method").
+	// AssertionID is the runner-reported identity matched exactly by
+	// ProjectTestObservation.AssertionID. AcceptanceTests is planning prose,
+	// not this identity join. Native spelling is framework-specific and a
+	// non-root project result preserves the executor's scope prefix.
 	// For build-error entries, conventionally "<file>:<line>" of
 	// the first error or empty when unparseable.
 	AssertionID string `json:"assertion_id"`
 
-	// Suite groups related assertions (Go package path, pytest
-	// module, etc.). Same suite on all tests from one
-	// run_tests invocation. "build" for build-error entries.
+	// Suite groups related assertions (Go import path, pytest module/class,
+	// JUnit testsuite, etc.). One run_tests invocation may emit multiple suites.
+	// A non-root result preserves the same project prefix as AssertionID.
+	// "build" is conventional for build-error entries.
 	Suite string `json:"suite"`
 
 	// Passed is true when the framework reported success. Always

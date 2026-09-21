@@ -122,6 +122,12 @@ func verificationProbeLanguageEnumJSON() string {
 func injectVerificationProbeLanguageSchema(schema string) json.RawMessage {
 	checklist, _ := json.Marshal(types.AcceptanceTestsPlanningTeaching)
 	schema = strings.ReplaceAll(schema, "__ACCEPTANCE_TESTS_PLANNING_DESCRIPTION__", string(checklist))
+	bindings, _ := json.Marshal("Optional exact bindings from one concrete project-test assertion to behavior_contract ids. Authority requires a successful exact test-surface candidate plus the same passed assertion_suite/assertion_id from an assertion-scoped runner result; aggregate runner rows do not qualify. " + types.NativeProjectTestObservationBindingTeaching)
+	suite, _ := json.Marshal(types.NativeProjectTestObservationSuiteTeaching)
+	assertionID, _ := json.Marshal(types.NativeProjectTestObservationAssertionIDTeaching)
+	schema = strings.ReplaceAll(schema, "__NATIVE_PROJECT_TEST_OBSERVATION_BINDING_DESCRIPTION__", string(bindings))
+	schema = strings.ReplaceAll(schema, "__NATIVE_PROJECT_TEST_OBSERVATION_SUITE_DESCRIPTION__", string(suite))
+	schema = strings.ReplaceAll(schema, "__NATIVE_PROJECT_TEST_OBSERVATION_ID_DESCRIPTION__", string(assertionID))
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_ENUM__", verificationProbeLanguageEnumJSON())
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__", supportedVerificationProbeRuntimeDescription())
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_AUTHORING_BOUNDARY__", verificationProbeAuthoringBoundary)

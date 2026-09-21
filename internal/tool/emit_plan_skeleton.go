@@ -127,15 +127,15 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	    },
 	    "project_test_observations": {
 	      "type": "array",
-	      "description": "Optional exact bindings from one concrete project-test assertion to behavior_contract ids. Authority requires a successful exact test-surface candidate plus the same passed assertion_suite/assertion_id from an assertion-scoped runner result; aggregate runner rows do not qualify.",
+	      "description": __NATIVE_PROJECT_TEST_OBSERVATION_BINDING_DESCRIPTION__,
 	      "items": {
 	        "type": "object",
 	        "additionalProperties": false,
 	        "properties": {
 	          "id": {"type": "string"},
 	          "test_path": {"type": "string"},
-	          "assertion_suite": {"type": "string", "description": "Exact containing suite/class/module/file identity expected in TestResult.suite from the project runner. Do not append the individual test method unless that runner itself includes it in the suite field (for Python unittest, use the containing class/module such as ValueTest or tests.test_value.ValueTest)."},
-	          "assertion_id": {"type": "string", "description": "Exact TestResult.assertion_id expected from the project runner: normally the framework-reported test function, method, case, or example identity (for example test_value), never source assertion code such as assertEqual(...), an expected-value expression, or explanatory prose."},
+	          "assertion_suite": {"type": "string", "description": __NATIVE_PROJECT_TEST_OBSERVATION_SUITE_DESCRIPTION__},
+	          "assertion_id": {"type": "string", "description": __NATIVE_PROJECT_TEST_OBSERVATION_ID_DESCRIPTION__},
 	          "contract_refs": {"type": "array", "items": {"type": "string"}}
 	        },
 	        "required": ["id", "test_path", "assertion_suite", "assertion_id", "contract_refs"]
