@@ -2011,7 +2011,7 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 
 旧人工FAIL保留；父账13/79、66开放不变。
 
-## 96. D/IO分类与D总量教学的同类接缝统一修复（2026-09-21，末版复验中）
+## 96. D/IO分类与D总量教学的同类接缝统一修复（2026-09-21，窄子片验收完成）
 
 上一批§93/95三笔随`39ebdd72d`已推送main，session35559正式exit0，远端af64dc340→39ebdd72d；本地/远端相等、tracked工作区干净后开始本片。不把上批全仓收据套用新代码。
 
@@ -2047,3 +2047,7 @@ core已落：`TraceSchedulerWaitPartitionTeaching`单源区分互斥桶/原生D/
 - [ ] §94已接受业务实例局部补齐、声明/观测pair、业务同卡分尺、历史authority回放、B2–B6及其余HMC任务继续开放，父账13/79交付、66开放不变。
 
 两份schema2旁路均实际生成；C2有限清单的空数组合理，因果例`trace_root_cause_contract_not_active`是上游合同/交接问题而非落盘失败。模型主文还将CFS threadpool称RT、从network/cookie名称虚构业务职责，附录正确数值不抵销主文缺失。本片修正事实解释，不改变任何窗口/值/排名/源身份/根因资格、JSON准入/所有权或600/300/600秒与活跃流保护。
+
+§97因果项进一步审计限定：本例接受的typed tuple本身是自洽的finite＋target_effect_verdict，既无required causal_attribution也非root intent/diagnostic；relation_path只给展示要求，不能独自授因果权。因此“11ms未到最终输入”是事实，但尚不能判定现有finite过滤器违反已授合同；优先核分类教学与同一真实fixture下coherent causal/finite两套公开交接。没有证实正确causal授权也会丢事实前，不下游强开投影/恢复自由reason或根据已查询root结果升级用户要求。模型误分类与确定性交接故障分账，保持有限问题原有保护。
+
+§96末版收据闭环：普查排序修复`63e55b0a0`，记录`3fd1326f6`。75036正式exit0/tool8.430s，85814最终实际query→成文race正式exit0/agent7.673s。末版全仓77783正式exit0，`/tmp/hmc-d-io-vsync-final-full-20260921.log`共87测试包、13无测试包、零FAIL；首轮10053失败保留。干净构建12468正式exit0，revision3fd1326f6bf7/buildTime2026-09-21T13:16:46Z。独立只读末审PASS，旧普查原针及event_search/位置针不改；状态/窗口/源身份/模型正文不变。仅窄实现验收，§97完整人工0/2和后续开放项不代销。

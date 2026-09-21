@@ -27,6 +27,8 @@ JSON过程另留：2911首次emit已带`facet_ids:["member_set"]`，展示覆盖
 
 原始trace及wakeup census有irq→threadpool边，因果展开本身止于终端IO节点；没有证据说明本批图解析器删边，主文却称threadpool为整条链起点，表述越界。最终系统附录保有部分11ms等事实，不抵销主文遗漏及投影0/1。旁路`.codrax/output/20260921-060454.579-7822.root-causes.json`存在但schema2空数组、`trace_root_cause_contract_not_active`；文件必产正常，因果合同未激活的上游原因继续开放。展示归属patch成功，但新增了内部回执术语。
 
+进一步源码审查限定：接受的finite＋target_effect_verdict tuple内部自洽，relation_path并不授因果权限；所以不能仅据缺11ms就删除finite过滤器或定性它违反已授合同。先用同一fixture对照coherent causal与finite两套真实交接，区分分析模型误分类和系统实现故障；不存在合法因果授权时不能从查询结果/自由说明强造授权。本次用户需求仍未满足，但“系统确定性丢弃合法causal事实”尚未证实。
+
 ## 处置顺序与不可倒签
 
 1. 窄教学/原始桶标签修复独立验收；模型答案的D错误继续留债。
