@@ -1383,3 +1383,15 @@ C仅一行源码更正，真实make test通过、隔离和原仓保护正确；r
 - 明确窗仍保原2..2.020和完整系统因果投影/4个链上根因，但正文把2.020唤醒当sched-in（真实2.020020），把IO11ms说成整链最长阻塞，cookie17/network14套错区间。独立审计找到供给共因：`answer_document_final_decision_boundary.go`两处裸写`occurrence_interval`，把node统计/依赖定位包络命名为实际发生区间；系统图和旁路已经中性化，最后成文handoff未同步。本片另做公开红绿，不改时长、选窗、排名或根因资格。
 
 问题优先级调整：先修这两个可复现、影响重试和答案事实的通用结构/供给缺口，再回到§47.1 IO fold、XERR及HMC开放能力。前轮presence兼容疑点暂不加门：本轮dimensions已显式存在，硬加必填不能解决混合合同。参考仓再次对照`launch_perf.yaml:55–130`与`io_analysis.yaml:73–105,202–234`：选定范围后仍组合各资源条件判断与整体瓶颈分析；不移植其概率Top3、阈值或推测性竞争裁定。总账13/79交付、66开放及旧FAIL均不变。
+
+## 53. 成文末尾范围标签与原生计量语义对齐（2026-09-20，子片实现）
+
+§52明确窗真实输入两处`occurrence_interval`确认是系统供给错误；不以模型已经收到其它正确限定句为由忽略矛盾。参考仓`sleep_ops.py:558–622`先在依赖分析范围统计状态，再单独找实际S/D片段；`marker_ops.py:560–612`和`window_utils.py:22–29`区分批量检索范围与逐行交集。本仓同样不能把投影node的Start/End直接称某状态一次发生。
+
+两处末端权威行现统一写中性`locator_range`。仅唯一精确证据ID、同predicate/subject/端点、同MeasurementOrigins及有效运行时来源齐备时，复用已有`TraceObservationMeasurementWindowDisplayRole`补充“依赖分析窗口/累计状态范围”角色；缺身份、重复ID、异捕获、合并来源、变形端点保留中性范围，不借首个同名record解释。即使累计时长等于包络宽度，也不铸单次发生；真实thread_timeline单段时间仍在原输入中。无新增public schema/note key/硬门，不改原时长、定位端点、显式窗、排行、链资格、旁路或自动补齐。
+
+真实公开TraceQuery→Observation→BuildAgentContext/BuildPromptContext+最终BuildInitialInstruction在中英×改名4组先红：`/tmp/codrax-final-window-handoff.tzomSN/RED-public-final.log`正式exit1，非编译失败。补相邻边界后`GREEN-focused-final.log`正式exit0（agent1.493s，60顶层测试）；真实timeline的14ms、2.002..2.016保留，17/14/11实测与1ms有效量仍分开，源观察序列化前后不变。主线只读复核通过；race/全仓末版结果另补，不能倒签7f人工FAIL。
+
+活跃流保护独立复验：`/tmp/hmc-active-stream-protection-20260920.log`正式exit0（agent1.166s/llm1.969s）；真实SSE持续输出在4ms普通/evaluator预算下仍完整完成、不触发备用模型，包含嵌套telemetry/fallback。此次不改600/300/600默认值，也不把日志中的非流式阶段预算误说成活跃SSE截止线。
+
+范围子片末版race同60项正式exit0（agent4.822s，`/tmp/codrax-final-window-handoff.tzomSN/GREEN-race-final.log`），生产冻结。横向仍继续核context根因板`representative_window`的“单次发生”教学是否与其实际producer语义相符；本轮明确窗未发布该字段，不冒称该句直接导致本次错误，也不说所有范围消费者已排除风险。

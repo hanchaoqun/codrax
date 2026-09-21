@@ -827,7 +827,8 @@ func TestTraceFinalStateValueAuthoritySeparatesMeasuredOccupancyFromEffectiveAtt
 		"chain_cumulative=19.500ms",
 		"chain_cumulative_role=`node_or_subchain_account_not_state_occupancy`",
 		"relation=`distinct_do_not_substitute`",
-		"occurrence_interval=`2.000500..2.020000`",
+		"locator_range=`2.000500..2.020000`",
+		"record range (single occurrence unproven)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("state-value authority missing %q:\n%s", want, got)

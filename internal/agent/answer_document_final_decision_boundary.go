@@ -190,7 +190,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking/eliminable value; never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
 	b.WriteString(renderTraceFinalWakeupCPUTopologyAuthority(ledger, wakeupTargetCPUIntegrity))
 	b.WriteString(renderTraceFinalSemanticRelationOnlyAuthority(set))
-	b.WriteString(renderTraceFinalStateValueAuthority(set))
+	b.WriteString(renderTraceFinalStateValueAuthority(set, ledger.Records...))
 	b.WriteString(renderTraceFinalSupplyFoldValueAuthority(set))
 	switch {
 	case hasActual && hasEliminable:
@@ -202,7 +202,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	default:
 		b.WriteString("- available_axes=`none`: stay within the target-state, path, and evidence-boundary facts; do not invent a ranked cause.\n")
 	}
-	b.WriteString(renderTraceFinalCompactAuthorityLedger(set))
+	b.WriteString(renderTraceFinalCompactAuthorityLedger(set, ledger.Records...))
 	b.WriteString(renderTraceFinalAggregateScaleAuthority(traceDecisionTypedAggregateFacts(ledger.Records)))
 	b.WriteString("- compact_unknowns: evidence_absence_implication=`unknown_not_false`; target_direct_blocking_not_established_does_not_prove_no_external_blocking=`true`; cross_direction_physical_relation=`unresolved_unless_an_exact_pair_row_says_otherwise`; absent_overlap_record_proves_independence=`false`; cause_decomposition_status=`not_closed_by_state_partition_or_ranked_seat_roster`; exhaustive_cause_wording=`requires_one_exact_typed_additive_cause_partition`. An unestablished typed mechanism is unknown, not physically absent; missing relation evidence authorizes neither `independent` nor `no overlap`; a target state partition closes only what state the target experienced, not why it experienced it.\n")
 	b.WriteString("- cross_row_addition=`not_authorized_without_exact_typed_relation`: a row-local state breakdown applies only to that row. Do not merge, decompose, compare as one subtotal, or add values from different rows/threads/fix directions unless one exact typed relation/fold carrier names those members and authorizes that operation.\n")
@@ -1747,8 +1747,9 @@ func renderTraceFinalAggregateScaleAuthority(facts []traceDecisionAggregateFact)
 // decisions to the final prompt tail: whether the selected target has an exact
 // typed waiter/holder row, and which single seat leads each typed fix
 // direction. It does not choose a diagnosis or calculate a direction subtotal.
-// Inputs are projection fields only; user/model/final prose never participates.
-func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) string {
+// Inputs are projection fields and exactly matched observation metadata;
+// user/model/final prose never participates.
+func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet, records ...types.ObservationRecord) string {
 	if len(set.Projections) == 0 {
 		return ""
 	}
@@ -1833,9 +1834,7 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 				} else if strings.TrimSpace(node.StateKind) != "" {
 					fmt.Fprintf(&b, "; %s_measured_state_occupancy=`unavailable`", role)
 				}
-				if node.StartTs > 0 && node.EndTs > node.StartTs {
-					fmt.Fprintf(&b, "; occurrence_interval=`%.6f..%.6f`", node.StartTs, node.EndTs)
-				}
+				traceDecisionWriteMeasurementLocator(&b, node, records)
 				start, end, queryWindowKnown := traceDecisionNodeQueryWindow(node)
 				if queryWindowKnown {
 					fmt.Fprintf(&b, "; query_window=`%.6f..%.6f`", start, end)
@@ -1957,7 +1956,7 @@ func renderTraceFinalLeaderMechanismCeiling(set types.TraceCausalProjectionSet) 
 // prompt-only: it gives the model exact caliber without inspecting or
 // rewriting its prose. Rows are bounded and deduped by typed identity so
 // exploratory duplicates cannot flood the tail.
-func renderTraceFinalStateValueAuthority(set types.TraceCausalProjectionSet) string {
+func renderTraceFinalStateValueAuthority(set types.TraceCausalProjectionSet, records ...types.ObservationRecord) string {
 	var b strings.Builder
 	for index, projection := range set.Projections {
 		label := strings.TrimSpace(projection.ArtifactLabel)
@@ -1998,9 +1997,7 @@ func renderTraceFinalStateValueAuthority(set types.TraceCausalProjectionSet) str
 			if cumulative > 0 {
 				fmt.Fprintf(&b, "; chain_cumulative=%.3fms; chain_cumulative_role=`node_or_subchain_account_not_state_occupancy`", cumulative)
 			}
-			if node.StartTs > 0 && node.EndTs > node.StartTs {
-				fmt.Fprintf(&b, "; occurrence_interval=`%.6f..%.6f`", node.StartTs, node.EndTs)
-			}
+			traceDecisionWriteMeasurementLocator(&b, node, records)
 			b.WriteString("\n")
 			emitted++
 			if emitted >= 8 {
@@ -2009,6 +2006,44 @@ func renderTraceFinalStateValueAuthority(set types.TraceCausalProjectionSet) str
 		}
 	}
 	return b.String()
+}
+
+// Projection coordinates can be recursive dependency domains, cumulative
+// state envelopes, or ranges of merged records. They do not independently
+// prove one occurrence, even when their width equals the published duration.
+// A precise one-record binding can recover the existing display classification;
+// ambiguity, transformed bounds, and merged origins keep a neutral locator.
+// This is prompt-only: no timestamps, values, or causal credentials change.
+func traceDecisionWriteMeasurementLocator(b *strings.Builder, node types.TraceCausalProjectionNode, records []types.ObservationRecord) {
+	if !types.TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) ||
+		math.IsNaN(node.StartTs) || math.IsNaN(node.EndTs) || math.IsInf(node.StartTs, 0) || math.IsInf(node.EndTs, 0) {
+		return
+	}
+	role := "record range (single occurrence unproven)"
+	var matched *types.ObservationRecord
+	if id := strings.TrimSpace(node.EvidenceID); id != "" {
+		for i := range records {
+			if strings.TrimSpace(records[i].ID) != id {
+				continue
+			}
+			if matched != nil {
+				matched = nil // A repeated ID is not a unique source receipt.
+				break
+			}
+			matched = &records[i]
+		}
+	}
+	if matched != nil && matched.SourceRef.Kind == types.ObservationSourceRuntimeArtifact &&
+		(strings.TrimSpace(matched.SourceRef.Path) != "" || strings.TrimSpace(matched.SourceRef.ArtifactID) != "") &&
+		strings.TrimSpace(matched.Predicate) == strings.TrimSpace(node.Predicate) &&
+		strings.TrimSpace(matched.Subject) == strings.TrimSpace(node.Subject) &&
+		matched.Span.StartTs == node.StartTs && matched.Span.EndTs == node.EndTs &&
+		reflect.DeepEqual(node.MeasurementOrigins, types.TraceSchedulerMeasurementOriginsFromRecord(*matched)) {
+		if classified := types.TraceObservationMeasurementWindowDisplayRole(*matched, false); classified != "" {
+			role = classified + " (not a continuous state interval)"
+		}
+	}
+	fmt.Fprintf(b, "; locator_range=`%.6f..%.6f`; locator_role=%q", node.StartTs, node.EndTs, role)
 }
 
 // renderTraceFinalSupplyFoldValueAuthority publishes the exact role equation
