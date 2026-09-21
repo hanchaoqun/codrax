@@ -1266,7 +1266,7 @@ func validateVerificationProbeCouplingForProvider(repoRoot string, changes []typ
 		for ref := range refs {
 			refsSeen[ref] = struct{}{}
 		}
-		if probeRefsCoverAnyTarget(refs, targets, provider.Covers) {
+		if probeRefsCoverAnyTarget(refs, verificationProbeCouplingTargets(repoRoot, changes, probe, provider), provider.Covers) {
 			return ""
 		}
 	}
@@ -3664,7 +3664,7 @@ func enrichVerificationProbeChangedTargetRefsFromCoupling(repoRoot string, chang
 			if path == "" || strings.TrimSpace(change.Kind) == "delete" || types.LooksLikeTestFilePath(path) {
 				continue
 			}
-			targets := provider.TargetProducer(repoRoot, []types.FileChange{change})
+			targets := verificationProbeCouplingTargets(repoRoot, []types.FileChange{change}, out[i], *provider)
 			covered := probeRefsCoverAnyTarget(refs, targets, provider.Covers)
 			if language == "go" && !covered {
 				covered = goSamePackageTestProbeCoversChangedPackage(repoRoot, []types.FileChange{change}, out[i])
