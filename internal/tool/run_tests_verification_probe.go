@@ -647,10 +647,11 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 		return verificationProbeConfigError(id, "java", rel, source, detail)
 	}
 	defer os.RemoveAll(tmpDir)
-	sourcePath := filepath.Join(tmpDir, "CodraxVerificationProbe.java")
-	sourceCode := javaVerificationProbeSource(probe.Code)
+	unit := prepareJavaProbeSourceUnit(ctx.Context(), probe.Code)
+	sourcePath := filepath.Join(tmpDir, unit.FileName)
+	sourceCode := unit.Source
 	generatedSourceDigest := verificationProbeExecutionDigest(sourceCode)
-	mainClass := javaVerificationProbeMainClass(sourceCode)
+	mainClass := unit.MainClass
 	if err := os.WriteFile(sourcePath, []byte(sourceCode), 0o600); err != nil {
 		detail := fmt.Sprintf("verification probe %q could not write temp Java source: %v", id, err)
 		return verificationProbeConfigError(id, "java", rel, source, detail)
@@ -727,6 +728,19 @@ func runJavaVerificationProbe(ctx *types.BusContext, probe types.VerificationPro
 		}
 	}
 
+	if mainClass == "" {
+		// javac owns compilation validity; entry-point ambiguity is a separate
+		// execution configuration observation, never an emit-time syntax gate.
+		res := verificationProbeConfigError(id, "java", rel, source, unit.Issue)
+		res.Commands = append([]types.ExecutedCommand{{
+			Runner: "verification_probe", Framework: "java", WorkingDir: rel,
+			Command: "javac <verification_probe:" + id + ">", ExitCode: compileExit,
+			DurationMS: compileDuration.Milliseconds(), Source: source,
+			Outcome: types.ExecutedCommandOutcomeExecuted, ProbeExecution: compileReceipt,
+		}}, res.Commands...)
+		res.OutputCommandIndex++
+		return res
+	}
 	runCtx, runCmd, timeout, runCancel := newVerificationProbeCommand("java", []string{"-ea", "-cp", classPath, mainClass}, wd, "java", ctx, probe, "")
 	defer runCancel()
 	res := runExternalVerificationProbe(ctx, probe, externalVerificationProbeInput{
@@ -1379,53 +1393,7 @@ func verificationProbeRunnerMissing(binary string, runErr error, output string) 
 }
 
 func javaVerificationProbeSource(code string) string {
-	code = strings.TrimSpace(code)
-	if code == "" {
-		return "public final class CodraxVerificationProbe { public static void main(String[] args) {} }\n"
-	}
-	if strings.Contains(code, "class CodraxVerificationProbe") {
-		return code + "\n"
-	}
-	var imports []string
-	var body []string
-	seenBody := false
-	for _, line := range strings.Split(code, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if !seenBody && (trimmed == "" || strings.HasPrefix(trimmed, "import ")) {
-			if trimmed != "" {
-				imports = append(imports, line)
-			}
-			continue
-		}
-		seenBody = true
-		body = append(body, line)
-	}
-	var b strings.Builder
-	for _, line := range imports {
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	b.WriteString("public final class CodraxVerificationProbe {\n")
-	b.WriteString("  public static void main(String[] args) throws Exception {\n")
-	for _, line := range body {
-		if strings.TrimSpace(line) == "" {
-			b.WriteByte('\n')
-			continue
-		}
-		b.WriteString("    ")
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	b.WriteString("  }\n")
-	b.WriteString("}\n")
-	return b.String()
-}
-
-func javaVerificationProbeMainClass(source string) string {
-	if pkg := javaPackageDeclaration(source); pkg != "" {
-		return pkg + ".CodraxVerificationProbe"
-	}
-	return "CodraxVerificationProbe"
+	return prepareJavaProbeSourceUnit(context.Background(), code).Source
 }
 
 func javaVerificationProbeClassPath(repoRoot, wd, tmpDir string) string {

@@ -131,8 +131,9 @@ func javaVerificationProbeSyntaxError(ctx *types.BusContext, code string) string
 		return ""
 	}
 	defer os.RemoveAll(tmpDir)
-	sourcePath := filepath.Join(tmpDir, "CodraxVerificationProbe.java")
-	if err := os.WriteFile(sourcePath, []byte(javaVerificationProbeSource(code)), 0o600); err != nil {
+	unit := prepareJavaProbeSourceUnit(ctx.Context(), code)
+	sourcePath := filepath.Join(tmpDir, unit.FileName)
+	if err := os.WriteFile(sourcePath, []byte(unit.Source), 0o600); err != nil {
 		return ""
 	}
 	execCtx, cancel := context.WithTimeout(ctx.Context(), verificationProbeSyntaxTimeout)
