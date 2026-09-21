@@ -214,6 +214,7 @@ func (t *TraceQuery) Description() string {
 	description += " " + traceQueryRootCauseClosedMatrixContract
 	description += " " + traceQueryInputPreparationTeaching
 	description += " " + skill.TraceIORequestLatencyDistributionTeaching
+	description += " " + types.TraceStateDrilldownWindowGuidance
 	return description
 }
 
@@ -4749,6 +4750,11 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.FrameRootCauseBundle == nil || result.FrameRootCauseBundle.TargetWindowStates == nil {
 		writeTraceTargetWindowStateAccount(&b, traceQueryTargetWindowStatesAccount(result))
 	}
+	// Keep each marker's own ruler next to the selected-window account and
+	// before long rank/resource detail can fall into the blob preview gap.
+	if result.WindowStats != nil {
+		writeTraceBusinessSpanSchedulerPreview(&b, result.WindowStats.TraceSpans, payloadRef)
+	}
 	// B33-WAITPREVIEW (2026-08-01): target wait occurrences already have a
 	// complete typed account, but the ordinary thread_timeline preview lists
 	// only its first 12 scheduler intervals. A small wait rowset can therefore
@@ -4914,6 +4920,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		if via := result.WakeupChain.ViaThread; via != nil {
 			fmt.Fprintf(&b, "- %s\n", sanitizeForBanner(via.Summary))
 		}
+		if len(result.WakeupChain.Edges) > 0 {
+			b.WriteString("- " + types.TraceWakeupPreWaitGuidance + "\n")
+		}
 		for _, edge := range result.WakeupChain.Edges {
 			edge = traceQueryWakeupEdgeLatencyForPublication(edge)
 			priorityProof := ""
@@ -4936,8 +4945,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if edge.PriorityRelationCaliber != "" {
 				priorityProof += " priority_relation_caliber=" + sanitizeForBanner(edge.PriorityRelationCaliber)
 			}
-			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (pre_wakeup_wait %.3fms latency_caliber=%s)%s waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t\n",
-				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine, edge.LatencyMs,
+			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (%s latency_caliber=%s)%s waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t\n",
+				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine,
+				types.TraceWakeupPreWaitDisplay(traceThreadLabel(edge.Wakee), fmt.Sprintf("%.3f", edge.LatencyMs)),
 				sanitizeForBanner(edge.LatencyCaliber),
 				cpuProof,
 				edge.WakerPriority, sanitizeForBanner(edge.WakerPriorityClass), edge.WakeePriority, sanitizeForBanner(edge.WakeePriorityClass),
@@ -7016,6 +7026,9 @@ func traceCPUConstraintEpochStatus(item tracequery.CPUConstraintSummary) string 
 }
 
 func writeTraceStateDrilldownSummary(b *strings.Builder, steps []tracequery.StateDrilldownStep, idleFold *tracequery.IdleWholeWindowSleeperFold) {
+	if len(steps) > 0 {
+		b.WriteString("- " + types.TraceStateDrilldownWindowGuidance + "\n")
+	}
 	summaryCap := traceQueryWidthStateDrilldownSummaryCap()
 	for i, step := range steps {
 		if i >= summaryCap {
@@ -12807,7 +12820,7 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 		parts = append(parts, fmt.Sprintf("segment_ordinal=%d", edge.SegmentOrdinal))
 	}
 	if edge.LatencyMs > 0 {
-		parts = append(parts, fmt.Sprintf("pre_wakeup_wait=%.3fms", edge.LatencyMs), "latency_caliber="+edge.LatencyCaliber)
+		parts = append(parts, types.TraceWakeupPreWaitDisplay(traceThreadLabel(edge.Wakee), fmt.Sprintf("%.3f", edge.LatencyMs)), "latency_caliber="+edge.LatencyCaliber)
 	}
 	if edge.WakerCPUKnown {
 		parts = append(parts, fmt.Sprintf("waker_cpu=%d", edge.WakerCPU))
@@ -13853,9 +13866,9 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"window_proportion", strconv.FormatFloat(step.WindowProportion, 'f', 4, 64)},
 				{types.TraceNoteKeySignificant, strconv.FormatBool(step.Significant)},
 				{types.TraceNoteKeyWindow, traceQueryWindowValue(step.StartTs, step.EndTs)},
-				// NEW-8 (账本 §7.6): the step's own `window` above is the state
-				// segment; the selected QUERY window travels via the same typed
-				// note as every other selected-window family.
+				// The step's own `window` bounds its cumulative state records;
+				// it is not a single state occurrence. The selected QUERY
+				// window travels separately through the existing typed note.
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, step.LineStart, step.LineEnd),

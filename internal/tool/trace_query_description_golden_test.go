@@ -246,6 +246,20 @@ package tool
 // weighs this batch; matched h2/h3 A/B debt remains open and is not claimed
 // satisfied by the byte-golden update or the IO case alone.
 //
+// EVOLUTION RECORD (2026-09-20, dependency/state measurement windows):
+// Correct the existing actual_window sentence from a single scheduler-state
+// segment to the all-state inventory envelope (b50fb08a0), then append the
+// shared state_drilldown scope contract at the terminal teaching slot. The
+// public two-sleep trace proves that 8ms of cumulative sleep can have a 12ms
+// endpoint hull; a drilldown is not occurrence proof. Exact thread_timeline
+// intervals remain the occurrence authority. These are corrections to the
+// meaning of existing fields, not new note-key teaching, view dispatch,
+// numerical attribution, or causal eligibility. The public query, assembled
+// model handoff, reader and sidecar pins weigh the deterministic meaning.
+// No matched h2/h3 live A/B was run in this local batch; the ongoing fixed-
+// version pair predates this follow-up and must not be counted as its weigh.
+// The dispatch-sensitivity debt remains open after regenerating this golden.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

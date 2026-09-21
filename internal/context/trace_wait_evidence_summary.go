@@ -1123,7 +1123,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 		}
 	}
 	if len(selectedEdges) > 0 {
-		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay). A healthy cross-CPU tag proves only that the recorded waker CPU and wakee target CPU differ; it does not prove NUMA placement, migration, inter-core communication cost, direct CPU competition, or the cause of any delay:\n")
+		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay). " + types.TraceWakeupPreWaitGuidance + " A healthy cross-CPU tag proves only that the recorded waker CPU and wakee target CPU differ; it does not prove NUMA placement, migration, inter-core communication cost, direct CPU competition, or the cause of any delay:\n")
 		degradedPlacement := false
 		for _, edge := range selectedEdges {
 			if edge.targetCPUPlacementDegraded {
@@ -1140,7 +1140,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 				line += " at " + edge.ts
 			}
 			if edge.latency != "" {
-				line += " (pre-wakeup wait: sleep/blocking start → sched_wakeup " + edge.latency + "ms; latency_caliber=" + edge.latencyCaliber + ")"
+				line += " (" + types.TraceWakeupPreWaitDisplay(edge.wakee, edge.latency) + "; latency_caliber=" + edge.latencyCaliber + ")"
 			}
 			if edge.wakerCPU != "" || (!edge.targetCPUPlacementDegraded && (edge.wakeeTargetCPU != "" || edge.cpuRelation != "")) {
 				var topology []string

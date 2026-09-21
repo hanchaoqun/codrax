@@ -254,7 +254,7 @@ func TestTwoDimOccupancyJoinsKeyedAndUnkeyedExactStatePublication(t *testing.T) 
 		TreeRows: []runtimeTraceProjTreeRow{{Node: keyed, Kind: runtimeTraceProjTreeRowChain, HasData: true}},
 		SelfRows: []runtimeTraceProjTreeRow{{Node: unkeyed, Kind: runtimeTraceProjTreeRowSelf, HasData: true}},
 	}, nil, true)
-	if len(rows) != 1 || rows[0].totalMS != 20 || rows[0].location != "2.000000..2.020000；行 3–15" {
+	if len(rows) != 1 || rows[0].totalMS != 20 || rows[0].location != "统计范围 2.000000..2.020000；行 3–15（非单段状态起止）" {
 		t.Fatalf("one keyed/unkeyed publication of the exact sleep interval must render once: %+v", rows)
 	}
 }

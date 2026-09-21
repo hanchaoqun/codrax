@@ -124,3 +124,80 @@ func TestTraceDependencyWindowToolTeachingDoesNotClaimSingleState(t *testing.T) 
 		t.Fatal("tool JSON teaching must distinguish state-inventory envelopes from one state's occurrence")
 	}
 }
+
+func TestTraceStateDrilldownPublicDisjointMeasurementScope(t *testing.T) {
+	trace, err := os.ReadFile("testdata/state_drilldown_disjoint.ftrace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "states.ftrace")
+	if err := os.WriteFile(path, trace, 0600); err != nil {
+		t.Fatal(err)
+	}
+	query := func(view string) types.ToolResult {
+		params, _ := json.Marshal(map[string]any{"source": "path", "path": path, "view": view, "pid": 100, "time_start": 1, "time_end": 1.020, "trace_flavor": "harmony_hitrace"})
+		result, err := (&TraceQuery{}).Execute(&types.BusContext{RepoRoot: dir, WorkDir: dir}, params)
+		if err != nil || !result.Success {
+			t.Fatalf("%s: %v %s", view, err, result.Summary)
+		}
+		return result
+	}
+	result := query("window_stats")
+	before, _ := json.Marshal(result.Observations)
+	for _, want := range []struct {
+		state, value string
+		start, end   float64
+	}{{"s_sleep", "8.000", 1, 1.012}, {"running", "8.000", 0, 0}, {"runnable", "4.000", 1.006, 1.018}} {
+		found := false
+		for _, record := range result.Observations {
+			if record.Predicate != "state_drilldown" || record.Object != want.state || record.Subject != "worker-100" {
+				continue
+			}
+			found = true
+			if record.Value != want.value || record.Span.StartTs != want.start || record.Span.EndTs != want.end {
+				t.Fatalf("cumulative %s or its envelope changed: %+v", want.state, record)
+			}
+		}
+		if !found {
+			t.Fatalf("no public state drilldown for %s: %+v", want.state, result.Observations)
+		}
+	}
+	if !strings.Contains(result.Summary, "cumulative state measurement scope") || !strings.Contains(result.Summary, "not a continuous state interval") {
+		t.Error("public drilldown handoff does not distinguish cumulative state scopes from occurrences")
+	}
+	for _, old := range []string{"precise state occurrences come from state_drilldown/thread_timeline", "use the same-source state_drilldown or thread_timeline occurrence"} {
+		if strings.Contains((&TraceQuery{}).Description(), old) || strings.Contains(types.TraceDependencyAnalysisWindowGuidance, old) {
+			t.Errorf("teaching still treats every drilldown as an occurrence: %q", old)
+		}
+	}
+	// The occurrence authority remains the actual timeline interval, not the
+	// drilldown's cumulative 8ms paired with its 12ms hull.
+	timeline := query("thread_timeline")
+	for _, want := range []string{"s_sleep 1.000000..1.006000 6.000ms", "s_sleep 1.010000..1.012000 2.000ms"} {
+		if !strings.Contains(timeline.Summary, want) {
+			t.Errorf("exact timeline occurrence changed or absent: %s\n%s", want, timeline.Summary)
+		}
+	}
+	after, _ := json.Marshal(result.Observations)
+	if string(before) != string(after) {
+		t.Fatal("display changed cumulative observations")
+	}
+}
+
+func TestTraceStateDrilldownLocationNeverInfersOccurrenceFromEqualWidth(t *testing.T) {
+	for _, width := range []float64{0.008, 0.012} {
+		node := types.TraceCausalProjectionNode{Subject: "worker-100", Predicate: "state_drilldown", Object: "s_sleep", StateKind: "s_sleep", ImpactMS: 8, StartTs: 1, EndTs: 1 + width}
+		for _, zh := range []bool{true, false} {
+			got := runtimeTraceOccupancyPathLocation(node, node, false, zh)
+			if !strings.Contains(got, "统计范围") && !strings.Contains(got, "measurement scope") {
+				t.Errorf("width=%v must not certify a drilldown occurrence: %s", width, got)
+			}
+		}
+	}
+	// Exact timeline occurrences are a different typed producer family.
+	node := types.TraceCausalProjectionNode{Subject: "worker-100", Predicate: "thread_timeline", Object: "s_sleep", StateKind: "s_sleep", ImpactMS: 6, StartTs: 1, EndTs: 1.006}
+	if got := runtimeTraceOccupancyPathLocation(node, node, false, true); got != "1.000000..1.006000" {
+		t.Fatalf("exact timeline interval was relabelled: %s", got)
+	}
+}

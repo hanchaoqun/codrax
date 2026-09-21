@@ -5876,9 +5876,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		}
 	}
 	queryScopes := make(map[string]string)
-	dependencyWindows := make(map[string]bool)
+	measurementWindows := make(map[string]string)
 	for _, record := range promptLedger.Records {
-		dependencyWindows[record.ID] = types.TraceObservationUsesDependencyAnalysisWindow(record)
+		measurementWindows[record.ID] = types.TraceObservationMeasurementWindowDisplayRole(record, false)
 		if scope := traceQueryObservationRequestedScopeNote(record, promptLedger.RuntimeArtifactScopeProfile, extractAnswerDocLang(ctx)); scope != "" {
 			queryScopes[record.ID] = scope
 		}
@@ -5901,8 +5901,8 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		}
 		if span := strings.TrimSpace(record.Span); span != "" {
 			fmt.Fprintf(&b, "; span=%s", span)
-			if dependencyWindows[record.ID] {
-				b.WriteString("; span_role=dependency analysis window (not a continuous state interval)")
+			if role := measurementWindows[record.ID]; role != "" {
+				fmt.Fprintf(&b, "; span_role=%s (not a continuous state interval)", role)
 			}
 		}
 		if scope := queryScopes[record.ID]; scope != "" {
@@ -6141,6 +6141,12 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 			break
 		}
 	}
+	for _, record := range ledger.Records {
+		if types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) && record.Predicate == "state_drilldown" {
+			b.WriteString("- " + types.TraceStateDrilldownWindowGuidance + "\n")
+			break
+		}
+	}
 	fmt.Fprintf(&b, "- trace_query_calls=%d; trace_observations=%d", coverage.QueryCount, coverage.TotalRecords)
 	if len(coverage.Windows) > 0 {
 		fmt.Fprintf(&b, "; windows=`%s`", strings.Join(coverage.Windows, "`, `"))
@@ -6227,6 +6233,8 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 		if obs.Window != "" {
 			if types.TraceUsesDependencyAnalysisWindow(obs.Predicate, obs.DrilldownSource) {
 				fmt.Fprintf(&b, "; analysis_window=%s (not a continuous state interval)", obs.Window)
+			} else if types.TraceMeasurementWindowDisplayRole(obs.Predicate, obs.DrilldownSource, false) != "" {
+				fmt.Fprintf(&b, "; measurement_window=%s (not a continuous state interval)", obs.Window)
 			} else {
 				fmt.Fprintf(&b, "; window=%s", obs.Window)
 			}
@@ -23941,11 +23949,11 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 		parts = append(parts, value)
 	}
 	if loc := traceQueryObservationLocation(record); loc != "" {
-		if types.TraceObservationUsesDependencyAnalysisWindow(record) && types.TraceCausalProjectionWindowPresent(record.Span.StartTs, record.Span.EndTs) {
+		if role := types.TraceObservationMeasurementWindowDisplayRole(record, zh); role != "" {
 			if zh {
-				loc = "依赖分析窗口（非单段状态起止）：" + loc
+				loc = role + "（非单段状态起止）：" + loc
 			} else {
-				loc = "dependency analysis window (not a continuous state interval): " + loc
+				loc = role + " (not a continuous state interval): " + loc
 			}
 		}
 		parts = append(parts, loc)
@@ -24836,10 +24844,12 @@ func traceQueryObservationSupplementOccurrenceWindows(value string, zh bool) str
 
 func traceQueryObservationSupplementSource(value string, zh bool) string {
 	labels := map[string][2]string{
-		"top_sleep":       {"主要睡眠段", "top sleep interval"},
-		"top_runnable":    {"主要调度等待段", "top runnable interval"},
-		"top_d_state":     {"主要不可中断等待段", "top uninterruptible interval"},
-		"state_churn":     {"状态频繁切换", "state churn"},
+		"top_sleep":       {"累计睡眠统计", "cumulative sleep statistics"},
+		"top_runnable":    {"累计调度等待统计", "cumulative runnable statistics"},
+		"top_running":     {"累计运行统计", "cumulative running statistics"},
+		"top_io_wait":     {"累计 IO 等待统计", "cumulative IO-wait statistics"},
+		"top_d_state":     {"累计不可中断等待统计", "cumulative uninterruptible statistics"},
+		"state_churn":     {"累计状态切换统计", "cumulative state-churn statistics"},
 		"window_stats":    {"窗口统计", "window statistics"},
 		"wakeup_chain":    {"唤醒链", "wakeup chain"},
 		"query_window":    {"查询窗口", "query window"},

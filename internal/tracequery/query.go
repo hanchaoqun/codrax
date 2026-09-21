@@ -14055,7 +14055,7 @@ func attachChainViaThreadReport(viaRaw string, res *ChainResult) {
 	report.Depth = depth
 	hopParts := make([]string, 0, len(report.Hops))
 	for _, hop := range report.Hops {
-		hopParts = append(hopParts, fmt.Sprintf("%s->%s=%.3fms[%s]", threadLabel(hop.Waker), threadLabel(hop.Wakee), hop.LatencyMs, hop.LatencyCaliber))
+		hopParts = append(hopParts, fmt.Sprintf("%s->%s (%s)[%s]", threadLabel(hop.Waker), threadLabel(hop.Wakee), types.TraceWakeupPreWaitDisplay(threadLabel(hop.Wakee), fmt.Sprintf("%.3f", hop.LatencyMs)), hop.LatencyCaliber))
 	}
 	perHop := "n/a"
 	if len(hopParts) > 0 {

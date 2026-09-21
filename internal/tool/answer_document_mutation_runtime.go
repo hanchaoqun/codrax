@@ -2593,7 +2593,7 @@ func runtimeTraceOccupancyPathLocation(node, measured types.TraceCausalProjectio
 		!types.TraceCausalProjectionWindowPresent(node.ActualWindowStartTs, node.ActualWindowEndTs)) {
 		return location
 	}
-	if types.TraceUsesDependencyAnalysisWindow(node.Predicate, "") ||
+	if types.TraceMeasurementWindowDisplayRole(node.Predicate, "", zh) != "" ||
 		(independentState && runtimeTraceOccupancyExactStateEnvelopeKey(measured) == "") {
 		if zh {
 			return "统计范围 " + location + "（非单段状态起止）"

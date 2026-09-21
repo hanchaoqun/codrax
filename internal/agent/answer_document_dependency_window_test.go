@@ -62,3 +62,57 @@ func TestTraceDependencyWindowPublicModelHandoff(t *testing.T) {
 		t.Fatal("handoff changed ledger or query scope")
 	}
 }
+
+func TestTraceStateDrilldownPublicDisjointModelHandoff(t *testing.T) {
+	trace, err := os.ReadFile("../tool/testdata/state_drilldown_disjoint.ftrace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "states.ftrace")
+	if err := os.WriteFile(path, trace, 0600); err != nil {
+		t.Fatal(err)
+	}
+	params, _ := json.Marshal(map[string]any{"source": "path", "path": path, "view": "window_stats", "pid": 100, "time_start": 1, "time_end": 1.020, "trace_flavor": "harmony_hitrace"})
+	result, err := (&tool.TraceQuery{}).Execute(&types.BusContext{RepoRoot: dir, WorkDir: dir}, params)
+	if err != nil || !result.Success {
+		t.Fatalf("query: %v %s", err, result.Summary)
+	}
+	ctx := tracePrincipalValueAuthorityTestContext("worker-100", 100, result.Observations)
+	start, end := 1.0, 1.020
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeExplicitWindow, TimeStart: &start, TimeEnd: &end, SourceQuote: "1..1.020"}
+	ctx.Mutable.SetRequestModel(ctx.AnalysisIR.RequestModel)
+	before, _ := json.Marshal(answerDocObservationLedger(ctx))
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{"cumulative state measurement scope", "not a continuous state interval", "measurement_window=1.000000..1.012000"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("assembled model handoff missing %q", want)
+		}
+	}
+	found := false
+	for _, record := range result.Observations {
+		if record.Subject != "worker-100" || record.Predicate != "state_drilldown" || record.Object != "s_sleep" {
+			continue
+		}
+		found = true
+		if record.Value != "8.000" || record.Span.StartTs != 1 || record.Span.EndTs != 1.012 {
+			t.Fatalf("public cumulative sleep changed: %+v", record)
+		}
+		for _, zh := range []bool{true, false} {
+			line := traceQueryObservationSupplementText(record, zh)
+			if !strings.Contains(line, "累计状态统计范围") && !strings.Contains(line, "cumulative state measurement scope") {
+				t.Errorf("reader presents accumulated sleep as one interval: %s", line)
+			}
+			if strings.Contains(line, "主要睡眠段") || strings.Contains(line, "top sleep interval") {
+				t.Errorf("typed source label still claims one occurrence: %s", line)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("public cumulative sleep missing")
+	}
+	after, _ := json.Marshal(answerDocObservationLedger(ctx))
+	if string(before) != string(after) {
+		t.Fatal("model or reader handoff changed ledger or explicit scope")
+	}
+}

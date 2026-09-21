@@ -46,7 +46,7 @@ func TestBoundRootCauseEvidenceRendersTypedFactsWithoutInternalReferences(t *tes
 		// B1562: unproven frame flow can coexist with present frames; the
 		// common qualifier cannot state that frame records are missing.
 		"机理与边界：状态=running", "修向=调度供给", "帧因果未证：本席位的证据尚未证明帧因果",
-		"trace 定位：附件 trace 第 2892–13060 行，发生 34579.480100–34579.521000 s，分析窗 34579.472865–34579.587805 s",
+		"trace 定位：附件 trace 第 2892–13060 行，定位范围 34579.480100–34579.521000 s（可能为统计域或记录包络，不据此推定连续状态），分析窗 34579.472865–34579.587805 s",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("typed fact missing %q in:\n%s", want, joined)
@@ -65,6 +65,35 @@ func TestBoundRootCauseEvidenceRendersTypedFactsWithoutInternalReferences(t *tes
 	if !reflect.DeepEqual(candidate.Decision.EvidenceRefs, before) || item.CandidateID != "" ||
 		item.Category != types.TraceRootCauseComputeSupplyShortage || *item.ImpactSeconds != .05832 {
 		t.Fatalf("rendering changed source or semantics: %+v", item)
+	}
+}
+
+func TestRootCauseEvidenceLocatorDoesNotCertifySeatOccurrence(t *testing.T) {
+	for _, tc := range []struct {
+		name, state string
+		start, end  float64
+	}{
+		{"dependency composite", "s_sleep", 2, 2.020},
+		{"exact IO interval", "io_wait", 2.003, 2.014},
+		{"exact D interval", "d_sleep", 2.006, 2.008},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			facts := types.TraceCauseEvidenceFacts{ArtifactLabel: "capture.ftrace", SeatStartTs: tc.start, SeatEndTs: tc.end,
+				WindowStartTs: 2, WindowEndTs: 2.020, LineStart: 4, LineEnd: 13, StateKind: tc.state, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"}
+			before := facts
+			got := rootCauseEvidenceLocatorSentence(&facts)
+			for _, want := range []string{fmt.Sprintf("定位范围 %.6f–%.6f s", tc.start, tc.end), "可能为统计域或记录包络", "不据此推定连续状态", "分析窗 2.000000–2.020000 s"} {
+				if !strings.Contains(got, want) {
+					t.Errorf("locator lost conservative meaning or original coordinates %q: %s", want, got)
+				}
+			}
+			if strings.Contains(got, "发生 ") || strings.Contains(got, "发生段") {
+				t.Errorf("seat endpoints are not single-occurrence authority: %s", got)
+			}
+			if !reflect.DeepEqual(facts, before) {
+				t.Fatal("display changed evidence facts")
+			}
+		})
 	}
 }
 

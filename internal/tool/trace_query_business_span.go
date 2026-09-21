@@ -79,3 +79,42 @@ func traceQueryBusinessSpanSchedulerNote(span tracequery.TraceSpanSummary) strin
 	}
 	return string(data)
 }
+
+// Expose the same native account to the investigator that the finalizer
+// receives via the typed note. A late-stage fact card alone cannot prevent
+// exploration from substituting the wider query's totals for a marker.
+func traceQueryBusinessSpanSchedulerSummary(span tracequery.TraceSpanSummary) string {
+	states := span.SchedulerStates
+	if span.Kind != "sync" || !states.Matches(span.SourcePath, traceThreadLabel(span.Thread), span.StartTs, span.EndTs) {
+		return ""
+	}
+	prefix := fmt.Sprintf("marker_state_account %q owner=%s interval=%.6f..%.6f", span.Name, traceThreadLabel(span.Thread), span.StartTs, span.EndTs)
+	if states.Coverage == "unavailable" {
+		return prefix + " scheduler states unavailable, not zero; do not substitute wider-query totals"
+	}
+	coverage := "complete coverage"
+	if states.Coverage == "partial" {
+		coverage = "partial coverage; unobserved or unclassified time is not zero"
+	}
+	return prefix + fmt.Sprintf(" running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms scheduler_marked_io_wait=%.3fms accounted=%.3fms (%s); sleep_iowait=%.3fms is included in sleep, not an addend; marker-local states, not wider-query totals; states do not prove a wait mechanism",
+		states.RunningMs, states.RunnableMs, states.SleepMs, states.DStateMs, states.IOWaitMs, states.AccountedMs, coverage, states.SleepIOWaitMs)
+}
+
+func writeTraceBusinessSpanSchedulerPreview(b *strings.Builder, spans []tracequery.TraceSpanSummary, payloadRef string) {
+	count, emitted := 0, 0
+	for _, span := range spans {
+		line := traceQueryBusinessSpanSchedulerSummary(span)
+		if line == "" {
+			continue
+		}
+		count++
+		if emitted >= traceQueryWidthStateDrilldownSummaryCap() {
+			continue
+		}
+		fmt.Fprintf(b, "- %s source=%s lines=%d-%d\n", line, traceQuerySourceBasename(span.SourcePath), span.StartLine, span.EndLine)
+		emitted++
+	}
+	if count > emitted {
+		fmt.Fprintf(b, "- marker-local state preview: %d of %d returned accounts shown; remaining accounts are in payload_ref=%s (not an all-trace inventory)\n", emitted, count, sanitizeForBanner(payloadRef))
+	}
+}

@@ -1,0 +1,11 @@
+# tracer: nop
+# Same thread: sleep 6+2ms, running 3+3+2ms, runnable 1+1+2ms.
+  worker-100 (100) [001] .... 1.000000: sched_switch: prev_comm=worker prev_pid=100 prev_prio=20 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     irq-2 (2) [001] .... 1.006000: sched_wakeup: comm=worker pid=100 prio=20 target_cpu=001
+  worker-100 (100) [001] .... 1.007000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=100 next_prio=20
+  worker-100 (100) [001] .... 1.010000: sched_switch: prev_comm=worker prev_pid=100 prev_prio=20 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     irq-2 (2) [001] .... 1.012000: sched_wakeup: comm=worker pid=100 prio=20 target_cpu=001
+  worker-100 (100) [001] .... 1.013000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=100 next_prio=20
+  worker-100 (100) [001] .... 1.016000: sched_switch: prev_comm=worker prev_pid=100 prev_prio=20 prev_state=R ==> next_comm=idle/1 next_pid=0 next_prio=120
+  worker-100 (100) [001] .... 1.018000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=100 next_prio=20
+  worker-100 (100) [001] .... 1.020000: sched_switch: prev_comm=worker prev_pid=100 prev_prio=20 prev_state=R ==> next_comm=idle/1 next_pid=0 next_prio=120

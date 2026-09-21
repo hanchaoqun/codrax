@@ -619,7 +619,11 @@ func rootCauseEvidenceLocatorSentence(facts *types.TraceCauseEvidenceFacts) stri
 		}
 	}
 	if facts.SeatEndTs > facts.SeatStartTs {
-		parts = append(parts, fmt.Sprintf("发生 %.6f–%.6f s", facts.SeatStartTs, facts.SeatEndTs))
+		// The frozen facts currently retain seat coordinates but not the
+		// original observation predicate/source. Do not reconstruct occurrence
+		// authority from StateKind, a duration, or chain membership. Keep the
+		// same locator even for an exact interval, with a neutral scope label.
+		parts = append(parts, fmt.Sprintf("定位范围 %.6f–%.6f s（可能为统计域或记录包络，不据此推定连续状态）", facts.SeatStartTs, facts.SeatEndTs))
 	}
 	if facts.WindowEndTs > facts.WindowStartTs {
 		label := "分析窗"

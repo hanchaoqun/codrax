@@ -225,7 +225,7 @@ func TestTraceWaitEvidence_WakeupEdges(t *testing.T) {
 			t.Fatalf("cross-CPU authority boundary missing %q:\n%s", want, summary)
 		}
 	}
-	want := "- gpu-token-id4-2931 → CompThread_0-2955 at 13762.801234 (pre-wakeup wait: sleep/blocking start → sched_wakeup 0.123ms; latency_caliber=sleep_start_to_sched_wakeup) [waker_cpu=2; wakee_target_cpu=1; cpu_relation=cross_cpu; same_cpu_occupancy_or_direct_competition_authority=not_provided]"
+	want := "- gpu-token-id4-2931 → CompThread_0-2955 at 13762.801234 (wakee=CompThread_0-2955 pre_wakeup_wait=0.123ms; latency_caliber=sleep_start_to_sched_wakeup) [waker_cpu=2; wakee_target_cpu=1; cpu_relation=cross_cpu; same_cpu_occupancy_or_direct_competition_authority=not_provided]"
 	if got := strings.Count(summary, want); got != 1 {
 		t.Fatalf("identical edge republications must collapse to one row (got %d):\n%s", got, summary)
 	}

@@ -13741,13 +13741,13 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplemen
 		"已转换为读者语言",
 		"线程状态下钻：main-1 -> 睡眠等待；值=21.000ms",
 		"值=21.000ms",
-		"下钻来源：主要睡眠段",
+		"下钻来源：累计睡眠统计",
 		"建议继续核对：唤醒链、根因排序",
 		"需要沿依赖链核对：是",
 		"需要继续向上追溯：是",
 		"线程状态下钻：main-1 -> 睡眠等待；值=18.000ms",
 		"值=18.000ms",
-		"下钻来源：状态频繁切换",
+		"下钻来源：累计状态切换统计",
 		"建议继续核对：线程时间线、线程交互统计、窗口统计",
 		"需要沿依赖链核对：否",
 		"需要继续向上追溯：否",
@@ -13836,13 +13836,13 @@ func TestTraceQueryObservationSupplementReaderProjectionHidesWireEnums(t *testin
 			}
 		}
 		if zh {
-			for _, want := range []string{"首要根因观测", "调度延迟", "因果位置：链上", "线程状态下钻", "下钻来源：主要睡眠段"} {
+			for _, want := range []string{"首要根因观测", "调度延迟", "因果位置：链上", "线程状态下钻", "下钻来源：累计睡眠统计"} {
 				if !strings.Contains(face, want) {
 					t.Fatalf("ZH reader projection missing %q: %s", want, face)
 				}
 			}
 		} else {
-			for _, want := range []string{"primary root-cause observation", "scheduling latency", "causal position: on the proved chain", "thread-state drilldown", "drilldown source: top sleep interval"} {
+			for _, want := range []string{"primary root-cause observation", "scheduling latency", "causal position: on the proved chain", "thread-state drilldown", "drilldown source: cumulative sleep statistics"} {
 				if !strings.Contains(face, want) {
 					t.Fatalf("EN reader projection missing %q: %s", want, face)
 				}

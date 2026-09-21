@@ -65,6 +65,9 @@ func TestWakeupChainViaThread_OnPathReportsDepthAndPerHopLatency(t *testing.T) {
 		if hop.LatencyMs <= 0 || hop.LatencyCaliber != WakeupEdgeLatencyCaliberSleepStartToSchedWakeup || hop.WakeupLine == 0 {
 			t.Fatalf("hop %d must carry phase-qualified per-hop pre-wakeup wait and line anchor, got %+v", i, hop)
 		}
+		if !strings.Contains(via.Summary, "wakee="+threadLabel(hop.Wakee)+" pre_wakeup_wait=") {
+			t.Errorf("hop %d wait lost its wakee owner: %s", i, via.Summary)
+		}
 	}
 	if !strings.Contains(via.Summary, "ON wakeup path: depth=2") || !strings.Contains(via.Summary, "per-hop pre-wakeup wait") || strings.Contains(via.Summary, "per-hop latency") {
 		t.Fatalf("on-path summary must state depth and phase-qualified per-hop pre-wakeup wait, got %q", via.Summary)

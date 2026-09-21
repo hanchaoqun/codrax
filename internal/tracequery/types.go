@@ -5984,6 +5984,7 @@ type ChainViaThreadReport struct {
 }
 
 // ChainViaHop is one waker→wakee hop on the via thread's path to the target.
+// LatencyMs belongs to the Wakee, not the Waker's own scheduler state account.
 type ChainViaHop struct {
 	Waker     ThreadRef `json:"waker"`
 	Wakee     ThreadRef `json:"wakee"`
@@ -6131,8 +6132,9 @@ type WakeupEdge struct {
 	CPURelation         string  `json:"cpu_relation,omitempty"`
 	WakeupTs            float64 `json:"wakeup_ts"`
 	WakeupLine          int     `json:"wakeup_line"`
-	// LatencyMs is the pre-wakeup wait measured from the selected sleep or
-	// blocking segment start to this sched_wakeup row. It is NOT the runnable
+	// LatencyMs is the Wakee's pre-wakeup wait measured from its selected sleep
+	// or blocking segment start to this sched_wakeup row, not the Waker's own
+	// state duration or an attributed delay caused by it. It is NOT the runnable
 	// scheduling delay from sched_wakeup to the later switch-in. The legacy
 	// JSON key is retained for wire compatibility; LatencyCaliber makes the
 	// phase boundary explicit for every consumer.

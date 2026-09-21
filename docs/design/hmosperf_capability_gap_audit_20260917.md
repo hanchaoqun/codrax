@@ -1181,3 +1181,46 @@ db明确窗报告把network累计14ms睡眠配到递归查询域2.001..2.018，�
 对照参考仓的节点状态交集和缓存区间筛选，保留其区间/统计域区分思路，不照搬全节点耗时到用户窄窗。远端B/E漏片段、模型采用业务实例、跨模式B2–B6及其它HMC任务继续开放；13/79、66开放不变。
 
 实现b50fb08a0已提交。原窗口RED/GREEN为工具输出收据，非重定向日志：转录`/tmp/codrax_dependency_window_display_receipts_20260920.txt`注明原session/chunk与exit；邻近B1596/RequestedScope/ValueOccurrence/StateAccountKey正式exit0，tool4.101s/agent2.462s/types4.219s/skill2.780s。首次构建因同批skill教学测试尚未入提交标作b50fb08a0207-dirty；未用于live，补入测试后重新干净构建，不能把dirty构建说成固定提交版。全仓正在包含该测试的工作树执行；源码冻结不变。
+
+### 40.1 多段累计状态和旁路定位：反例扩展，尚在收尾
+
+独立复审否证了本节初版“state_drilldown可提供精确状态发生端点”的泛化表述：单段fixture恰好相等，但`accumulateThreadDuration`汇总同线程/CPU多段状态，再由`buildStateDrilldownPlanForTarget`复制最早/最晚包络。所有top_sleep/top_runnable/top_running/top_io_wait/top_d_state及state_churn均不能凭起止推定连续状态。这是本批自身教学缺口，不能留给模型承担。
+
+补强沿同一typed显示分类：这些行标累计状态统计范围，缺/未知source保守显示未证明单次发生；精确端点只来自同源thread_timeline的单独interval。两段睡眠、三段runnable真实公开查询→Observation→成文ledger/附录先红；全族/改名/原生数值不变及run后缀测试同补。不新造JSON必填字段，不用数值等于包络宽度签连续性，不改变recommended_views/chain_required/recursive或原窗口。
+
+旁路复核：`TraceCauseEvidenceFacts`已只留seat坐标，原predicate/source没进入冻结事实，不能凭StateKind恢复精确发生资格。因此本片仅将root-causes定位句统一为中性“定位范围”，注明可能是统计域/记录包络；真实D/IO坐标也原样保留，不扩schema、不补造来源。未来精确来源贯通仍留债，不能以中性措辞称该信息已补齐。
+
+519全仓正式exit1（`/tmp/hmc-submission-window-final-full-20260920.log`）：占用表位置新增统计限定后的旧字节pin、Description byte golden、Producer硬等于trace_query遗漏run后缀三项。位置pin保数量/数值/时间不变仅改正确限定；Description按本文件演进仪式核对确切增量，h2/h3匹配基线A/B仍开放；Producer用既有家族函数根修，不放宽结构lint。最终绿色另补，不以旧绿覆红。
+
+## 41. 519固定双例：测量器恢复，人工仍0/2（2026-09-20）
+
+干净`519c997ef88e`构建正式exit0（`/tmp/hmc-submission-window-clean-build-20260920.log`），固定二进制2并行×1，未改case/oracle：[机器](../../eval/parallel_selected_summary_hmc_submission_window_20260920.md)2/2，[人工](../../eval/parallel_selected_summary_hmc_submission_window_20260920_manual_audit.md)0/2。业务247秒/44%，明确窗212秒/43%。两份渲染归属收据available且经摘要绑定，正文已可独立审计；两份schema2根因旁路available，不能据此注销答案FAIL。Trace投影及自动补齐均保留，无活跃流强制超时/空答案。
+
+- 业务自身5/1/44ms确到finalizer日志2495，但摘要仍套51ms查询窗6/1/44到50ms业务窗；explorer completion已先混写，说明“补证可见”不是“模型采用”。摘要31ms错当请求生命周期，后文又正确35ms；三个不重叠时间段被说成部分重叠；后台W错称读。保为人工FAIL，不增加散文数值硬门。
+- 明确窗改用测量窗口描述依赖域，旧端点误述有改善；但每条边右端wakee的14/17/20ms睡眠被移给左端waker。复核实际不是TargetBlockedMs问题，而是WakeupEdge.LatencyMs与边context只写pre-wakeup wait，未在数值旁写等待归属。安排下一只读展示/上下文小批从已有wakee字段明确角色，不改账。
+- 同源原始占用镜像仍cookie17/network14各重复一行。StateAccountKey兼有rank↔chain one-seat计价吸收职责，不能直接复制Sleep键到1ms PIC。后续另立仅展示的原始状态身份，须基于同源完整精确interval清单；MeasurementOrigins/来源清单自身不能当数值身份。此项未施工，不误销。
+- analyzer不再把失败attempt当多次成功写入，但业务仍5次尝试、明确窗2次。真实profile不一致没有因计数/教学修复自动消失；不放松合同、不宣称减少重试已验收。
+
+39/40首片五包定向race×3正式exit0（`/tmp/hmc-submission-window-final-race-20260920.log`）：agent3.714s/tool4.565s/types5.357s/skill3.424s/orchestrator6.410s；早于40.1补强，不能充当末改验证。同版不追加第三次追绿。HMC总账13/79已交付、66开放；显式窗、链上各根因家族和业务线索、mandatory旁路、600/300/600及L1均不改。
+
+## 42. 等待归属与探索期片段状态供给（2026-09-20，末版验收中）
+
+沿§41人工FAIL修两个证据供给共因；与40.1同属测量对象/窗口语义，不添加答案扫描门或新必填结构。
+
+### 42.1 唤醒边的等待量归右端被唤醒线程
+
+原始边数值正确。新增只读共享formatter/教学，将每条数值紧邻原生Wakee身份；工具banner、Observation摘要、真实context.BuildPromptContext的TraceWaitEvidence及via-thread摘要同源。说明该量不属唤醒者自己的睡眠/运行、不是唤醒后调度等待，也不等于证明唤醒者造成该耗时。未知owner不借左端补齐。字段/时长/时间/路径完整性/计价和TargetBlockedMs均未变。
+
+参考仓再次亲读`core/preprocess/sleep_ops.py:558–650`：先以blocked_tid找直接waker，再单独统计waker自身状态；child.block_ms反而由父方的阻塞段时长赋值。本仓借鉴前两者的角色区分，不能直接将其child.block_ms复制成waker自身耗时。`marker_ops.py:548–642`仍按owner逐段交集，不拿父窗总量当子marker状态。
+
+公开TraceQuery→Observation→BuildAgentContext→BuildInitialInstruction/BuildPromptContext六变体（改名×S/D/IO）RED→GREEN，右端14/17/20与自身11ms、原2..2.020窗及完整链均钉；via先红后绿。收据`/tmp/codrax_wakeup_wait_owner_{red,via_red,green,nearby}_20260920.log`，最终邻近context0.855s/tool1.088s/types2.373s/tracequery1.596s/agent3.530s正式exit0；独立只读复审无阻断发现。末版全仓/race及live另记，519人工FAIL不倒签。
+
+### 42.2 已有业务片段状态账须在探索期可见
+
+继续核对519日志：真实explorer TOOLRESULT第1497行先给1..1.051全窗6/1/44；业务trace_span摘要只给duration，新增scheduler_states仅在原生JSON/typednote/最终成文事实卡可见。探索completion先产生6+1+44对50ms的错账，后续再给正确5/1/44不足以保证模型重解。这是确定性供给遗漏，不代表该次所有语义错误均由它导致。
+
+公开wakeup_chain/root_cause_rank/window_stats三路先红；补只读marker-local状态摘要，复用已有Matches核对source/线程/区间及计量域。完整/部分/不可计量区别、S内IO包含项和不证明等待机理同步提供；异源/异owner/异窗/async/缺测/坏账拒绝发射该附加事实而不影响原查询。业务名任意，不扫描问题/答案，不自动选择实例。
+
+首次把摘要放trace_span尾部，wakeup/window_stats已绿但root_cause_rank仍被blob预览裁到中间，真实exit1保留`/tmp/hmc-marker-explorer-summary-green-20260920.log`（文件名不是通过证明）。末版移到全窗账紧邻、长榜前；复用现有状态摘要容量，超过明确披露数量和原生payload续读，不调大预算或复制到尾部。最终定向tool1.998s/agent1.235s exit0（`/tmp/hmc-marker-explorer-summary-final3-green-20260920.log`），原公开RED为`red`同前缀日志。新完整全仓与六包race×3进行中。
+
+40.1末版定向与race正式exit0：`/tmp/codrax-state-window.PrFzO8/GREEN-final.log`（tracefinding0.489s/tool2.631s/agent1.132s/skill1.390s/types3.632s），`GREEN-race.log`（1.557/4.812/6.116/1.990/7.432s）；公开分段、skill旧教学、三pin及sidecar的RED分文件保留。仍不宣称dispatch-sensitive h2/h3匹配A/B已做。
