@@ -11,16 +11,18 @@
 # EXPECT_MATCHES_REGEX (ERE, ALL must match — useful for numeric
 # scalar answers like "at least 4 digits somewhere in the answer"),
 # EXPECT_PRIMARY_{CONTAINS,NOT_CONTAINS,MATCHES_REGEX,MATCHES_TEXT_REGEX}
-# optionally scopes assertions to the terminal primary answer body, excluding
-# renderer-owned citation/recovery appendices and Trace projection supplements.
+# optionally scopes assertions to the render-time model-owned primary body,
+# excluding system-owned blocks, mixed-ownership document caveats/role
+# disclosures and citation/recovery appendices. The
+# bound .answer-surfaces.json receipt is mandatory for these scoped oracles.
 # EXPECT_SECTIONS (space-sep tokens, ALL must appear as literal
 # substrings — useful for comparison questions that require both
 # sides of "A vs B" to be mentioned), EXPECT_MATCHES_TEXT_REGEX
 # (newline-separated ERE over whitespace-folded answer text, useful for
 # rich multi-section answers where related signals may land on adjacent
 # lines), optional EXPECT_PRINCIPAL_{CONTAINS,NOT_CONTAINS,
-# MATCHES_REGEX,MATCHES_TEXT_REGEX} over the model-authored answer before
-# deterministic trace projection supplements, EXPECT_INVENTORY_ROWSETS plus
+# MATCHES_REGEX,MATCHES_TEXT_REGEX} over model-owned blocks plus the document
+# citation/snippet appendix (never recovery attachments), EXPECT_INVENTORY_ROWSETS plus
 # typed row/count declarations; optional per-rowset
 # EXPECT_INVENTORY_SECTION_LABEL_<ROWSET> names the preferred visible section;
 # optional EXPECT_INVENTORY_ROW_MARKER_<ROWSET> is the stable group
@@ -459,37 +461,8 @@ scope_stdout() {
   printf '%s' "$cleaned"
 }
 
-# scope_principal_stdout <out-file> → prints the model-authored visible
-# answer, excluding deterministic Trace Causal Projection blocks appended
-# after answer-document acceptance. This is intentionally a separate,
-# opt-in eval surface: the historical full-answer oracles continue to see
-# supplements, while principal oracles can prove that a correct system
-# footer did not mask an incorrect answer body.
-scope_principal_stdout() {
-  local out="$1"
-  scope_stdout "$out" | LC_ALL=C awk '
-    /^## (Trace 因果投影|Trace Causal Projection)( — .*)?[[:space:]]*$/ { exit }
-    { print }
-  '
-}
-
-# scope_primary_stdout <out-file> → prints only the terminal primary answer
-# body. Unlike scope_stdout, renderer-owned citations and degraded-recovery raw
-# model text cannot satisfy a correctness oracle merely by repeating symbols
-# that the conclusion omitted. Unlike a prose classifier, this consumes only
-# stable renderer section boundaries. It is opt-in so historical full-answer
-# cases keep their existing contract until deliberately migrated.
-scope_primary_stdout() {
-  local out="$1"
-  scope_stdout "$out" | LC_ALL=C awk '
-    /^## (Trace 因果投影|Trace Causal Projection)( — .*)?[[:space:]]*$/ { exit }
-    $0 == "**引用**：" || $0 == "**Citations:**" { exit }
-    $0 == "**关键代码**：" || $0 == "**Key snippets:**" { exit }
-    $0 == "> **系统保留内容**" || $0 == "> **System-preserved content**" { exit }
-    $0 == "**模型最后一轮原文：**" || $0 == "**Raw final model text:**" { exit }
-    { print }
-  '
-}
+# Scoped answer oracles consume final render ownership, not a list of headings.
+# Full-answer oracles retain their historical stdout surface.
 
 json_string_field() {
   local file="$1" field="$2"
@@ -1144,7 +1117,7 @@ write_verdict() {
   # EVAL-B51-ORACLE1: an opt-in terminal primary-body oracle. Source-symbols
   # repeated only in citations, recovery diagnostics, or raw rejected model
   # text cannot green-light an incorrect conclusion. This is an eval-only
-  # scope over stable renderer boundaries; it never influences product routing.
+  # scope from private render ownership; it never influences product routing.
   if [[ -n "$EXPECT_PRIMARY_CONTAINS$EXPECT_PRIMARY_NOT_CONTAINS$EXPECT_PRIMARY_MATCHES_REGEX$EXPECT_PRIMARY_MATCHES_TEXT_REGEX" ]]; then
     if [[ -n "$MODE" && "$MODE" != "read" ]]; then
       pass=0
@@ -1618,8 +1591,13 @@ run_one() {
       ;;
     *)
       cleaned="$(scope_stdout "$out")"
-      principal_cleaned="$(scope_principal_stdout "$out")"
-      primary_cleaned="$(scope_primary_stdout "$out")"
+      local surface_reason
+      if surface_reason="$(eval_load_answer_surfaces "$log" "$OUTDIR/run-$i")"; then
+        principal_cleaned="$(cat "$OUTDIR/run-$i.principal.md")"
+        primary_cleaned="$(cat "$OUTDIR/run-$i.primary.md")"
+      elif eval_requires_answer_surfaces; then
+        extra_reasons+=("${surface_reason:-answer_surface_receipt_unreadable}")
+      fi
       if (( rc != 0 )); then
         extra_reasons+=("read_exit:$rc")
       fi

@@ -25,6 +25,33 @@ assert_eq() {
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/codrax-eval-runner-test.XXXXXX")" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
+# Fake binaries declare their render-time surfaces explicitly. Do not derive
+# these fixtures by scanning their stdout headings (the former bug).
+fixture_answer_surfaces() {
+  local primary="$1" principal="$2" logdir=""
+  shift 2
+  while (( $# )); do
+    if [[ "$1" == "--log-dir" && $# -ge 2 ]]; then logdir="$2"; break; fi
+    shift
+  done
+  [[ -n "$logdir" ]] || return 1
+  python3 - "$logdir" "$primary" "$principal" <<'PY'
+import hashlib, json, pathlib, sys
+p = pathlib.Path(sys.argv[1]).resolve()
+p.mkdir(parents=True, exist_ok=True)
+body = sys.argv[3].encode()
+md = p / "fixture.md"
+md.write_bytes(body)
+receipt = p / "fixture.answer-surfaces.json"
+receipt.write_text(json.dumps({"schema_version": 1, "status": "available",
+    "markdown_sha256": hashlib.sha256(body).hexdigest(), "answer_sha256": hashlib.sha256(body).hexdigest(),
+    "primary": sys.argv[2], "principal": sys.argv[3]}))
+(p / "codrax-fixture.log").write_text("2026-09-20T00:00:00.000 INFO [output_dump] wrote " + str(md) + " (" + str(len(body)) + " bytes)\n" +
+    "2026-09-20T00:00:00.001 INFO [output_dump] answer surfaces path=" + str(receipt) + " sha256=" + hashlib.sha256(receipt.read_bytes()).hexdigest() + "\n")
+PY
+}
+export -f fixture_answer_surfaces
+
 assert_eq "$(eval_missing_required_executables "sh codrax_runtime_that_must_not_exist_6f13")" \
   "codrax_runtime_that_must_not_exist_6f13" "runtime prerequisite inventory"
 invalid_required="$(eval_missing_required_executables "bad/name")"
@@ -343,6 +370,7 @@ assert_eq "$(eval_case_oracle_surface "$tmp/missing.case")" "unknown" "case orac
 # projection. A correct footer cannot mask a wrong principal answer.
 cat >"$tmp/fake-codrax-principal-scope" <<'SH'
 #!/usr/bin/env bash
+fixture_answer_surfaces $'required-principal first row\nsecond principal row' $'required-principal first row\nsecond principal row' "$@"
 echo 'thinking stream contains correct-footer but is before the separator'
 echo '━━━'
 echo 'required-principal first row'
@@ -418,6 +446,7 @@ esac
 # pre-separator progress, renderer-owned citations, or raw fallback reasoning.
 cat >"$tmp/fake-codrax-primary-scope" <<'SH'
 #!/usr/bin/env bash
+fixture_answer_surfaces 'primary-hop-A is the terminal conclusion' $'primary-hop-A is the terminal conclusion\n**引用**：\ncitation-only-symbol' "$@"
 echo 'draft-only-symbol before terminal separator'
 echo '━━━'
 echo 'primary-hop-A is the terminal conclusion'
@@ -466,6 +495,7 @@ esac
 # right. They must stay excluded even when no citation footer precedes them.
 cat >"$tmp/fake-codrax-primary-tail-domains" <<'SH'
 #!/usr/bin/env bash
+fixture_answer_surfaces 'primary-only-symbol is the conclusion' $'primary-only-symbol is the conclusion\n**关键代码**：\nsnippet-only-symbol' "$@"
 echo '━━━'
 echo 'primary-only-symbol is the conclusion'
 echo '**关键代码**：'
@@ -488,11 +518,71 @@ primary_tail_dir="$(eval_latest_result_dir "$tmp/primary-results" primary_tail_d
 [[ -n "$primary_tail_dir" ]] || fail "primary tail domains result dir missing"
 assert_eq "$(cat "$primary_tail_dir/run-1.verdict")" "PASS" "primary scope should independently exclude snippet and recovery tails"
 
+# HMC-18.5: system tables before/among model blocks and a model-owned heading
+# identical to the old stop marker must not change ownership.
+cat >"$tmp/fake-codrax-interleaved-scope" <<'SH'
+#!/usr/bin/env bash
+fixture_answer_surfaces $'model-before\n## Trace 因果投影\nmodel-after' $'model-before\n## Trace 因果投影\nmodel-after' "$@"
+echo '━━━'
+echo '## Renamed system observations'
+echo 'system-front-only'
+echo 'model-before'
+echo 'system-middle-only'
+echo '## Trace 因果投影'
+echo 'model-after'
+SH
+chmod +x "$tmp/fake-codrax-interleaved-scope"
+cat >"$tmp/interleaved-scope.case" <<'CASE'
+ID="interleaved_scope"
+NAME="interleaved rendered ownership"
+QUESTION="ownership test"
+MIN_OUTPUT_CHARS=1
+EXPECT_CONTAINS="system-front-only"
+EXPECT_PRIMARY_CONTAINS="model-before model-after"
+EXPECT_PRIMARY_NOT_CONTAINS="system-front-only system-middle-only"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-interleaved-scope" EVAL_RESULTS_ROOT="$tmp/ownership-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/interleaved-scope.case" 1 >/dev/null || fail "interleaved ownership runner failed"
+ownership_dir="$(eval_latest_result_dir "$tmp/ownership-results" interleaved_scope 00000000-000000 || true)"
+assert_eq "$(cat "$ownership_dir/run-1.verdict")" "PASS" "ownership is independent of block position and heading"
+cat >"$tmp/system-only-scope.case" <<'CASE'
+ID="system_only_scope"
+NAME="system facts do not satisfy model scope"
+QUESTION="ownership test"
+MIN_OUTPUT_CHARS=1
+EXPECT_PRIMARY_CONTAINS="system-front-only"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-interleaved-scope" EVAL_RESULTS_ROOT="$tmp/ownership-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/system-only-scope.case" 1 >/dev/null || fail "system-only ownership runner failed"
+ownership_dir="$(eval_latest_result_dir "$tmp/ownership-results" system_only_scope 00000000-000000 || true)"
+assert_eq "$(cat "$ownership_dir/run-1.verdict")" "FAIL missing_primary:system-front-only" "system table cannot satisfy model oracle"
+cat >"$tmp/fake-codrax-missing-scope" <<'SH'
+#!/usr/bin/env bash
+echo '━━━'
+echo 'model body exists but ownership receipt was not produced'
+SH
+chmod +x "$tmp/fake-codrax-missing-scope"
+cat >"$tmp/missing-scope.case" <<'CASE'
+ID="missing_scope"
+NAME="missing rendered ownership fails closed"
+QUESTION="ownership test"
+MIN_OUTPUT_CHARS=1
+EXPECT_PRIMARY_NOT_CONTAINS="forbidden"
+CASE
+CODRAX_BIN="$tmp/fake-codrax-missing-scope" EVAL_RESULTS_ROOT="$tmp/ownership-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/missing-scope.case" 1 >/dev/null || fail "missing ownership runner failed"
+ownership_dir="$(eval_latest_result_dir "$tmp/ownership-results" missing_scope 00000000-000000 || true)"
+case "$(cat "$ownership_dir/run-1.verdict")" in
+  "FAIL answer_surface_"*) ;;
+  *) fail "negative-only oracle cannot PASS on unknown ownership" ;;
+esac
+
 # EVAL-B1-E2: a Markdown table may carry a unit once in its column header.
 # The oracle composition keeps the header and every exact row mandatory while
 # avoiding a false failure merely because cells do not repeat the unit.
 cat >"$tmp/fake-codrax-principal-table" <<'SH'
 #!/usr/bin/env bash
+fixture_answer_surfaces $'| start | duration（ms） |\n| 1.001 | 0.138 |\n| 1.002 | 0.147 |\n2 rows total 0.285 ms' $'| start | duration（ms） |\n| 1.001 | 0.138 |\n| 1.002 | 0.147 |\n2 rows total 0.285 ms' "$@"
 echo '━━━'
 echo '| start | duration（ms） |'
 echo '| 1.001 | 0.138 |'
@@ -531,6 +621,7 @@ CASE
 
 cat >"$tmp/fake-codrax-principal-unit-list" <<'SH'
 #!/usr/bin/env bash
+fixture_answer_surfaces $'- 1.001: 0.138 ms\n- 1.002: 0.147 milliseconds\n2 rows total 0.285 ms' $'- 1.001: 0.138 ms\n- 1.002: 0.147 milliseconds\n2 rows total 0.285 ms' "$@"
 echo '━━━'
 echo '- 1.001: 0.138 ms'
 echo '- 1.002: 0.147 milliseconds'
@@ -545,6 +636,7 @@ assert_eq "$(cat "$principal_unit_list_dir/run-1.verdict")" "PASS" "per-row unit
 
 cat >"$tmp/fake-codrax-principal-unitless-list" <<'SH'
 #!/usr/bin/env bash
+fixture_answer_surfaces $'- 1.001: 0.138\n- 1.002: 0.147\n2 rows total 0.285 ms' $'- 1.001: 0.138\n- 1.002: 0.147\n2 rows total 0.285 ms' "$@"
 echo '━━━'
 echo '- 1.001: 0.138'
 echo '- 1.002: 0.147'
@@ -2205,6 +2297,7 @@ unset EXPECT_DYNAMIC_SCALAR_BINDING_REGEX_GO_RECURSIVE
 
 cat >"$tmp/fake-codrax-dynamic-scalar" <<'SH'
 #!/usr/bin/env bash
+fixture_answer_surfaces 'recursive files: 1' 'recursive files: 1' "$@"
 echo '━━━'
 echo 'recursive files: 1'
 SH

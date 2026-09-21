@@ -1136,6 +1136,27 @@ PY
   LC_ALL=C sed -nE 's/^  "'"$field"'"[[:space:]]*:[[:space:]]*"([^"]*)",?$/\1/p' "$file" | head -1
 }
 
+# Missing/changed ownership is unavailable, never a title-scanned substitute.
+eval_load_answer_surfaces() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '%s\n' answer_surface_python_unavailable
+    return 1
+  fi
+  python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/answer_surfaces.py" "$1" "$2"
+}
+
+eval_requires_answer_surfaces() {
+  [[ -n "${EXPECT_PRIMARY_CONTAINS:-}${EXPECT_PRIMARY_NOT_CONTAINS:-}${EXPECT_PRIMARY_MATCHES_REGEX:-}${EXPECT_PRIMARY_MATCHES_TEXT_REGEX:-}${EXPECT_PRINCIPAL_CONTAINS:-}${EXPECT_PRINCIPAL_NOT_CONTAINS:-}${EXPECT_PRINCIPAL_MATCHES_REGEX:-}${EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX:-}" ]] && return 0
+  local id key var surface
+  for id in ${EXPECT_DYNAMIC_SCALARS:-}; do
+    key="$(printf '%s' "$id" | LC_ALL=C tr '[:lower:]-' '[:upper:]_')"
+    var="EXPECT_DYNAMIC_SCALAR_SURFACE_${key}"
+    surface="${!var:-}"
+    case "$surface" in primary|primary_text|principal|principal_text) return 0 ;; esac
+  done
+  return 1
+}
+
 eval_json_top_array_count() {
   local file="$1"
   local field="$2"

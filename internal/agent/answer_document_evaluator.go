@@ -21211,8 +21211,8 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			attachments = tool.FilterAcceptedAnswerDisplayAttachments(doc, attachments)
 			ctx.Mutable.SetAnswerDisplayAttachments(attachments)
 		}
-		prose := strings.TrimSpace(e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments))
-		prose = render.SanitizeDegradedMermaidBlocks(prose, e.language)
+		prose := e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments)
+		prose = sanitizeRecoveredAnswerSurfaces(ctx, prose, e.language, true)
 		if prose != "" {
 			// The last assistant turn in this lane is a failed repair attempt,
 			// not a second answer carrier. Appending it previously exposed
@@ -21823,7 +21823,7 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 		attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
 	}
 	prose := e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments)
-	prose = render.SanitizeDegradedMermaidBlocks(prose, e.language)
+	prose = sanitizeRecoveredAnswerSurfaces(ctx, prose, e.language, false)
 	if strings.TrimSpace(prose) == "" {
 		return out, false
 	}
@@ -22121,7 +22121,8 @@ func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *
 }
 
 func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ctx *types.AgentContext, doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment) string {
-	prose := render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language)
+	surfaces := render.RenderAnswerDocumentWithAttachmentSurfaces(doc, attachments, e.language)
+	prose := surfaces.Answer
 	prose = appendAnswerSupplementDeduped(prose, renderRuntimeAggregateMetricCompactSupplement(ctx, doc, e.language), e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderTraceQueryObservationSupplement(ctx, doc, e.language), e.language)
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementLocalizationAuthority); supplementDoc != nil {
@@ -22143,7 +22144,12 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	// helper returns "" and this append is a byte-for-byte no-op. The
 	// doc is threaded so self-disclosed-lane suppression reads the
 	// document actually being rendered (R7-1).
-	return appendAnswerSupplementDeduped(prose, renderDegradationDisclosureFooter(ctx, doc, e.language), e.language)
+	prose = appendAnswerSupplementDeduped(prose, renderDegradationDisclosureFooter(ctx, doc, e.language), e.language)
+	if ctx != nil && ctx.Mutable != nil && doc != nil {
+		surfaces.Answer = prose
+		ctx.Mutable.SetAnswerRenderedSurfaces(surfaces)
+	}
+	return prose
 }
 
 // answerSupplementDuplicateMinLines is the CR-3 件④ P12 duplicate-block

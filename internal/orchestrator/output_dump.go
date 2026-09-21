@@ -17,6 +17,7 @@ type dumpFinalOutputArgs struct {
 	language                   string
 	request                    string
 	answer                     string
+	answerSurfaces             *types.AnswerRenderedSurfaces
 	hasLog                     bool
 	logBytes                   int
 	hasTrace                   bool
@@ -36,6 +37,7 @@ func (a dumpFinalOutputArgs) outputDumpArgs() outputdump.Args {
 		Language:                   a.language,
 		Request:                    a.request,
 		Answer:                     a.answer,
+		AnswerSurfaces:             a.answerSurfaces,
 		HasLog:                     a.hasLog,
 		LogBytes:                   a.logBytes,
 		HasTrace:                   a.hasTrace,

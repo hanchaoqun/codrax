@@ -27,18 +27,31 @@ import (
 //   - Caveat / surface_role / claim_uses are read for display
 //     decoration but never modified.
 func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
+	return RenderAnswerDocumentSurfaces(doc, lang).Answer
+}
+
+// RenderAnswerDocumentSurfaces captures ownership while rendering, without
+// changing the customer answer. Primary excludes system-owned blocks and the
+// citation/snippet appendix; Principal also retains that document appendix.
+// Unattributed document-level caveats/role disclosures can mix model and system
+// additions, so neither surface can use them as proof of model explanation.
+// Neither surface includes recovered attachments or last-mile supplements.
+func RenderAnswerDocumentSurfaces(doc *types.AnswerDocumentV2, lang string) types.AnswerRenderedSurfaces {
 	if doc == nil {
-		return ""
+		return types.AnswerRenderedSurfaces{}
 	}
 	docLang := normalizeAnswerDocLang(lang)
 	structuredDiagramBodies := answerDocumentStructuredDiagramBodyKeys(doc)
 	duplicatedSectionItems := answerDocumentDuplicatedSectionItemBlocks(doc)
 	var b strings.Builder
+	var primary strings.Builder
 
 	renderAnswerDocV2ExactResolution(&b, doc.ExactResolution, docLang)
+	primary.WriteString(b.String())
 	renderedScopeDisclosures := map[types.ScopeDisclosureKind]bool{}
 	var renderedConceptualReceipts []*types.AnswerConceptualTerminalResolutionReceipt
 	for _, blk := range doc.Blocks {
+		start := b.Len()
 		blk = stripDuplicateStructuredDiagramFencesFromBlock(blk, structuredDiagramBodies)
 		if duplicatedSectionItems[strings.TrimSpace(blk.ID)] {
 			blk.Items = nil
@@ -46,6 +59,9 @@ func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 		renderAnswerDocV2Block(&b, blk, doc, docLang)
 		renderedConceptualReceipts = renderV2ConceptualTerminalResolutionReceiptOnce(&b, blk, docLang, renderedConceptualReceipts)
 		renderAnswerDocV2ScopeDisclosure(&b, blk.ScopeDisclosure, docLang, renderedScopeDisclosures)
+		if blk.SystemGeneratedKind == types.AnswerSystemGeneratedBlockUnknown {
+			primary.WriteString(b.String()[start:])
+		}
 	}
 
 	if len(doc.MissingRequestedRoles) > 0 {
@@ -55,6 +71,7 @@ func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 	if len(doc.Caveats) > 0 {
 		renderAnswerDocV2Caveats(&b, doc.Caveats, docLang)
 	}
+	appendixStart := b.Len()
 
 	// Reuse V1's citation pool + snippet renderers; both already
 	// take their input by Citation / CodeSnippet slice — they don't
@@ -66,7 +83,12 @@ func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 		renderAnswerDocV2Snippets(&b, doc.Snippets, docLang)
 	}
 
-	return strings.TrimRight(b.String(), "\n") + "\n"
+	primaryText := strings.TrimRight(primary.String(), "\n")
+	principalText := strings.TrimRight(primary.String()+b.String()[appendixStart:], "\n")
+	return types.AnswerRenderedSurfaces{
+		Answer:  strings.TrimRight(b.String(), "\n") + "\n",
+		Primary: primaryText, Principal: principalText,
+	}
 }
 
 func answerDocumentDuplicatedSectionItemBlocks(doc *types.AnswerDocumentV2) map[string]bool {
@@ -139,15 +161,22 @@ func answerDocumentVisibleItemKey(it types.AnswerBlockItem) string {
 // never masquerade as citation-checked blocks, but model-authored
 // content that would otherwise be lost remains inspectable.
 func RenderAnswerDocumentWithAttachments(doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment, lang string) string {
-	base := RenderAnswerDocument(doc, lang)
+	return RenderAnswerDocumentWithAttachmentSurfaces(doc, attachments, lang).Answer
+}
+
+func RenderAnswerDocumentWithAttachmentSurfaces(doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment, lang string) types.AnswerRenderedSurfaces {
+	s := RenderAnswerDocumentSurfaces(doc, lang)
+	base := s.Answer
 	extra := renderAnswerDisplayAttachments(doc, attachments, normalizeAnswerDocLang(lang))
 	if strings.TrimSpace(extra) == "" {
-		return base
+		return s
 	}
 	if strings.TrimSpace(base) == "" {
-		return extra
+		s.Answer = extra
+		return s
 	}
-	return strings.TrimRight(base, "\n") + "\n\n" + extra
+	s.Answer = strings.TrimRight(base, "\n") + "\n\n" + extra
+	return s
 }
 
 // renderAnswerDocV2Block dispatches on block.Kind. Unknown / empty

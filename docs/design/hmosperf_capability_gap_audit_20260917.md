@@ -1095,3 +1095,35 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 补正只在断言失败时保留已发生的caller取消原因，复用原`traceQueryCancellationResult`，不改等待时长、不重试取消、不签观察或新引用。最后定向tool3.539s/agent1.231s通过（`/tmp/hmc-business-ref-cancel-final-green-20260920.log`），覆盖所有实例引用/逻辑ID/准备材料及completion消息。再次完整全仓与增量race退出收据待补；未以更早的绿覆盖此末改。
 
 最终收据：生产`f68737ec02b0`原生构建退出0（`/tmp/hmc-business-ref-cancel-final-build-20260920.log`，版本命令核实同SHA），取消/逻辑解析增量race×3 tool4.639s退出0；最终全仓`/tmp/hmc-business-ref-cancel-final-full-20260920.log`实际退出0，87包通过（71缓存、16实际）、13包无测试、零FAIL，agent94.206s/tool404.497s/tracequery123.226s/types51.253s。补正前e5独立全仓也实际退出0（同87/71/13，agent95.109s/tool454.069s/tracequery120.027s/types49.965s），但不拿它代替末版验证。`93858fb94`、`e5c2d8186`、`f68737ec0`与本收据分层提交，同批推送；938固定双例未命中新引用支，e5/f687无新增live，不能把这些边界单测说成生产命中。13/79已交付、66开放不变，下一优先§35.3正文验收所有权，再继续旧答案与跨模式留债。
+
+## 37. 最终渲染归属收据替代正文标题截断（2026-09-20，验证中）
+
+承接§35.3，修的是测量器误 PASS，不是替模型改答案。系统表前置、交错、改标题后，旧终止标题仍可把系统事实当作模型解释；反之模型自己使用相同标题又会误截真正正文。历史机器收据不倒签，人工 FAIL 不注销。
+
+- [x] 渲染同一遍记录最终实际发射片段，按私有 `AnswerBlock.SystemGeneratedKind` 分离模型正文；保原去重，禁止过滤文档后重新渲染而复活原本未显示的内容。primary 不含引用/片段附录，principal 含文档引用/片段；两者均不含系统块、恢复附件和末端系统补充。文档级 caveats/缺失层披露混有系统增补、没有独立所有权，保守不作为模型解释验收；真正模型 caveat block 仍保留，客户报告不删。JSON 同名键不能铸私有所有权。
+- [x] 保存渲染时快照，不回读后来变化的文档猜版本。最终落盘须与实际答案逐字相同（仅允许已有系统 caveat 注册回放）；结构稿恢复复用原本的去空白/不合法图降级操作，纯散文回退或陈旧快照提供 unavailable，不能借旧稿签绿。
+- [x] 默认输出新增只读 `.answer-surfaces.json`，与完整 Markdown 及最终答案摘要绑定，系统日志另绑定收据内容摘要。写失败不影响客户答案/mandatory 根因旁路。eval 保存核验后的收据、完整报告、两个正文面；缺少或不匹配时，声明正文 oracle 的用例失败，包含只有负面断言的情况，不回退标题猜测。
+- [x] 确定性覆盖前置/交错/标题改变、模型同名标题、patch 后追加摘要、恢复稿/原始散文、附录、实际去重与最终发布路径；Python 覆盖收据和 Markdown 篡改、最新 unavailable 不借旧成功、schema 类型和空正文。
+- [ ] 完整 runner、全仓、末版 race、固定两例以及人工审计收据待退出，不先勾整片交付。全答案 stdout oracle 未改；其它独立 inventory 验收器不在本片迁移范围内。
+
+初次五包集成通过（`/tmp/hmc-answer-surfaces-integration-20260920.log`）；实际 ParseOutput/finalize 落盘回归 agent1.806s/orchestrator0.827s（`/tmp/hmc-answer-surfaces-actual2-20260920.log`）。中间测试装配失败诚实保留：新 fixture 误写不存在的 AnswerDiagram 类型；并行测试编辑中的解引用编译错误；runner 新三例缺 NAME。均修测试，不改产品门限。一次 runner 在编辑期间读取文件造成 EOF，已改为冻结脚本后重跑；不将其称为产品事故或首轮全绿。
+
+本片不新增模型 schema、提示要求或答案准入硬门，不改客户答案字节、因果资格、窗口、排序、超时和自动补齐。HMC-18.5 父项及 13/79、66 开放总账不变。
+
+独立复审补正：新 Markdown 已写、收据失败时旧版成功收据仍可能留在合并日志，不能只挑最后成功收据。现绑定最后一次默认 Markdown 写出、其后的同 stem 收据、字节数及两份 SHA；同路径重写、旧收据晚到、仅有收据无写出、HTML/explicit report 干扰均覆盖。Python 真实 RED 5失败→GREEN 14通过，见 `/tmp/codrax-marker-local-tests.7ljYMk/{RED,GREEN}-answer-surfaces-write-binding.log`。混合文档级 caveat 亦先红后绿（`/tmp/hmc-answer-surfaces-mixed-caveat-red2-20260920.log`、`green`）；前一次类型装配编译错误单独保留。首版完整 runner 已退出0，末版绑定后冻结重跑中，不用首版结果替代末版。
+
+## 38. 业务片段自身的调度时间账（2026-09-20，验证中）
+
+§36 的业务报告有 OpenDocument 50ms 与查询窗52ms，但将后者7ms运行写成前者状态；工具确有完整业务打点，却只提供业务耗时，没有同一片段的线程状态账。这一供给缺口是系统问题，不能全记模型波动；仍不保证补证后模型一定使用。
+
+及时复核参考仓 `core/preprocess/marker_ops.py::compute_node_thread_states`（约628–642行）：按节点所属线程，将每条状态与每个 marker 做精确区间交集。借鉴实例归属和裁窗测量，复用本仓已有 timeline 分区、头部未知、调度生命周期与 S-IO 包含项逻辑；不移植参考技能的关键词路由、首文件/缺窗全量回退或按最大状态裁主因。
+
+- [x] 公开工具及真实 BuildInitialInstruction 先红：业务50ms/嵌套40ms有完整 marker，缺自己的5ms/8ms运行账，外围7ms/52ms账仍存在。原 RED 为工具输出转录而非原始重定向日志，保存 `/tmp/codrax-marker-local-tests.7ljYMk/RED-transcript.txt`，不虚报文件来源。
+- [x] 仅对已发布、有完整同步 B/E、同一物理因果源、明确 header TID 的普通业务片段附加只读原生 `scheduler_states`；使用查询裁剪后的该片段区间，不将 payload PID 当线程，不赋予焦点、链边或根因资格。全量内部清单、语义优化与 async 分支不改。
+- [x] 原生对象→观察→末端业务事实卡传递同一账户；完整/部分/不可计量区别保留，未知不作零，S 中标记 IO 是包含项不再加，睡眠状态不解释成 IO 请求或等待机理。中文卡使用自然语言，不直接发射 coverage 枚举。
+- [x] 公开正负针覆盖重命名嵌套、owner TID≠payload PID、裁窗、未知头部/无调度、async、错源/复合源、原榜排序恒等和清单不变；工具/agent/tracequery/tracediag focused 已绿（`/tmp/codrax-marker-local-tests.7ljYMk/GREEN-focused.log`）。
+- [ ] 全仓、schema 显式字段处置复核、末版 race、构建和新固定双例待收据。35ms请求与31ms线程等待的旧口径矛盾、明确窗唤醒时刻/机理错述仍开放；没有从全局35ms猜接某条31ms。
+
+不增加 JSON 必填字段、用户或模型原文扫描，不改显式时间窗和自动补齐，不取消优先级/算力/D/IO/语义优化/业务线索。仍归 HMC-02.4/18.4 内部子缺陷，父项和总数不改。
+
+复审补强：windowed index 的头状态只在原查询起点有快照，直接把子查询起点改到 marker 会丢掉 padding 外的已证状态。真实构建已复现 OuterWork 应运行40/总80ms却显示20/60、InnerWork应20/60却显示10/50，修正与末版验证进行中；不得凭全窗总数按比例分摊。诊断显示另补嵌套字段处置：原 WindowStats 指纹只看切片类型，未漂移不等于新字段可免审。确切字段列表、原来源隐私与大时间定点、测量零/未知区别已有新 pin；保持一个片段 detail owner、不升成根因 key-first。通用 walker 丢零的真实 RED0.516s→精确 typed 显示 GREEN0.825s（`/tmp/hmc-marker-scheduler-diag-{red,green}-20260920.log`），不重钉无关哈希。

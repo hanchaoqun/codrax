@@ -489,6 +489,7 @@ type MutableState struct {
 	// after AnswerDocumentV2 but are not part of the structured answer
 	// contract, citation pool, or validator surface.
 	answerDisplayAttachments []AnswerDisplayAttachment
+	answerRenderedSurfaces   *AnswerRenderedSurfaces
 
 	// finalizerNoToolAnswerDrafts preserves answer-document-shaped
 	// assistant text that the finalizer produced without using the
@@ -4212,6 +4213,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
+	m.answerRenderedSurfaces = nil
 	m.traceFindingContract = nil
 	m.traceRootCauseReport = nil
 	m.pendingTraceRootCauseReport = nil
@@ -4240,6 +4242,7 @@ func (m *MutableState) ResetActiveAnswerDocumentV2ForFinalizeDispatch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
+	m.answerRenderedSurfaces = nil
 	m.traceRootCauseReport = nil
 	m.pendingTraceRootCauseReport = nil
 	m.traceRootCauseSelectorRejected = false

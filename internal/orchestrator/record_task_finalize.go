@@ -61,15 +61,16 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 		dumpRequest := o.outputTranscriptRequestForDump()
 		rootCauses := o.busCtx.Mutable.TraceRootCauseReport()
 		result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
-			dir:      o.outputDumpDir,
-			max:      o.outputDumpMax,
-			language: o.language,
-			request:  dumpRequest,
-			answer:   answer,
-			hasLog:   o.attachedLog != "",
-			logBytes: len(o.attachedLog),
-			hasTrace: o.attachedHitrace != "",
-			traceB:   len(o.attachedHitrace),
+			dir:            o.outputDumpDir,
+			max:            o.outputDumpMax,
+			language:       o.language,
+			request:        dumpRequest,
+			answer:         answer,
+			answerSurfaces: o.finalAnswerRenderedSurfaces(answer),
+			hasLog:         o.attachedLog != "",
+			logBytes:       len(o.attachedLog),
+			hasTrace:       o.attachedHitrace != "",
+			traceB:         len(o.attachedHitrace),
 			artifacts: outputdump.MergeRuntimeArtifacts(
 				outputdump.RuntimeArtifactsFromRequest(dumpRequest),
 				outputdump.RuntimeArtifactsFromAttachment("log", o.attachedLog),

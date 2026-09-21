@@ -49,6 +49,7 @@ type Args struct {
 	Language         string
 	Request          string
 	Answer           string
+	AnswerSurfaces   *types.AnswerRenderedSurfaces
 	HasLog           bool
 	LogBytes         int
 	HasTrace         bool
@@ -174,6 +175,7 @@ func writeDefaultDump(a Args, body string) Result {
 	}
 	logging.Info("[output_dump] wrote %s (%d bytes)", path, len(body))
 	result.MarkdownPath = path
+	writeAnswerSurfaces(a, path, body)
 	htmlPath := HTMLPathForMarkdown(path)
 	if htmlPath == "" {
 		return result
@@ -1307,6 +1309,11 @@ func PruneDir(dir string, max int) {
 		if jsonPath != "" {
 			if err := os.Remove(jsonPath); err != nil && !os.IsNotExist(err) {
 				logging.Warning("[output_dump] prune %s failed: %v", jsonPath, err)
+			}
+		}
+		if auditPath := AnswerSurfacesPathForMarkdown(files[i].path); auditPath != "" {
+			if err := os.Remove(auditPath); err != nil && !os.IsNotExist(err) {
+				logging.Warning("[output_dump] prune %s failed: %v", auditPath, err)
 			}
 		}
 	}
