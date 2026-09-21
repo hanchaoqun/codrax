@@ -1626,7 +1626,7 @@ ROI据实重排：普通预算失败批计数与Trace覆盖/等待方向并行�
 
 本片`640447004`已正式提交推送main（1b17→640，session77790 exit0）。统一全仓将在下面Trace显示/教学末版冻结后执行。
 
-## 72. Trace链路覆盖与状态专属排查方向（2026-09-21，子片施工中）
+## 72. Trace链路覆盖与状态专属排查方向（2026-09-21，子片验收中）
 
 §70两个确定系统缺口同批收口：窗口覆盖的分子、分母、跨窗/抖动/缺失分支保持，用“链路覆盖/未覆盖”代替“已归因/已解释”，明确这不表示原因全部查明；不借完整状态分区或满值给系统添加诊断权。未计价真实占用继续展示原行数/最大值/证据，但方向按已发布typed状态分别限定：sleep沿唤醒/阻塞依赖排查；执行/语义工作保自身工作量及业务方向；未知态不给默认机理。混合组不把一类方向借给其它状态，不改变根因排名、已量化可消除量或加冕词形。
 
@@ -1641,3 +1641,7 @@ ROI据实重排：普通预算失败批计数与Trace覆盖/等待方向并行�
 末版28个代码/测试/快照文件冻结（`/tmp/codrax-projection-coverage-20260921.HP2oC8/frozen-files.sha256`），主线及独立只读复核无阻塞。公开原生链及中英文RED=`RED.log`，实际工具双面RED=`RED-teaching.log`均正式exit1；旧词面迁移过程`GREEN-focused.log`仍exit1的两处遗漏保留，不改写收据。末版29个相关测试文件的284项顶层精确集合`GREEN-final-focused.log`正式exit0（tool30.484s），额外5项agent工具面/提示快照`GREEN-tool-surfaces.log`exit0（agent1.318s）。完整选择来源/regex/命令在`selection.txt`。共享Description golden先按旧快照正式RED，再依既有仪式更新；`golden-delta-check.log`确认只替换一条获准合同说明（285→556字节），其它字节不动。没有字段/schema/排序/数值改动。
 
 公开新针保20/17/14/11/1ms原生值、改名等价、观察/投影字节不变；nil/partial/full状态账不铸原因闭合；sleep/running/unknown及三类混合组分别限定，最长混合英文在最终图中完整保留方向、41.500ms/E#且每行不超过100显示格。相同集合race及叠加§71的统一全仓`/tmp/hmc-coverage-planner-final-full-20260921.log`正在执行，正式收据另补。
+
+284项相同集合race现已正式exit0（session63803，`GREEN-final-race.log`，tool319.788s）；额外5项工具/提示面race也exit0（session71053，`GREEN-tool-surfaces-race.log`，agent4.416s），不以数量较少的集合替代原集合。实现提交`47babb574`；冻结28文件hash逐项OK，干净构建`/tmp/hmc-coverage-planner-clean-build-20260921.log`正式exit0（session27421），实测revision47babb574d4f、buildTime2026-09-21T08:18:32Z。统一全仓尚在执行，未提前签绿。已用该固定二进制启动上述两例，结果根为`eval/results/hmc_coverage_state_crossmode_20260921`，每例一次、并行2；过程/答案审计待正式结束，不增加第三例追绿。
+
+首次统一全仓现已正式exit1（session61825，tool435.175s）：仅`p0a2_coverage_test.go`和`rnb_leadsem_test.go`四项旧词面针漏迁移；其实际输出已为正确“覆盖数值”，覆盖行提取器仍查“已归因”导致空串。最小修正只改两份测试，保计数/MAX/2.770与28.717ms/112.223分子及零分子披露断言；同步迁移未失败的反面针，避免空针。覆盖行选取精确`- 链路覆盖 `而非新解释句，折叠前后非空与整行字节相等仍强制。独立只读复核通过。58项完整P0A2/RNB/LeadSem集合定向`/tmp/hmc-coverage-pin-migration-green-20260921.log`exit0（session76955，tool3.317s）及同集合race `...-race-20260921.log`exit0（session15149，tool19.622s）。末版统一全仓改记`/tmp/hmc-coverage-planner-final2-full-20260921.log`（session17074）执行中；首轮失败不抹，不据定向绿签全仓。

@@ -129,13 +129,15 @@ func TestP0A2DisclosureCountsUnresolvedSelfRow(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: disclosure sentence
 	// "另有 N 项未计入的链上行(…)未纳入本覆盖分子。" → own-bullet
 	// "另有 N 条链上行未计入上句已归因数值(单项最大 X;墙钟不可加和,详见明细/树)。".
-	if !strings.Contains(line, "另有 1 条链上行未计入上句已归因数值(单项最大 2.770ms;墙钟不可加和,详见明细/树)。") {
+	// HMC §72 (2026-09-21): coverage is not causal completeness; migrate
+	// the reader-facing term only, preserving count, MAX and zero-row pins.
+	if !strings.Contains(line, "另有 1 条链上行未计入上句覆盖数值(单项最大 2.770ms;墙钟不可加和,详见明细/树)。") {
 		t.Fatalf("zh disclosure sentence missing/incorrect:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
 	// EN mirror of the same restructure (own bullet, "not counted in the
 	// attributed figure above").
-	if !strings.Contains(en, "A further 1 on-chain row(s) are not counted in the attributed figure above (single largest 2.770ms; wall clock not summable, see the detail blocks/tree).") {
+	if !strings.Contains(en, "A further 1 on-chain row(s) are not counted in the coverage figure above (single largest 2.770ms; wall clock not summable, see the detail blocks/tree).") {
 		t.Fatalf("EN disclosure sentence missing/incorrect:\n%s", en)
 	}
 	// F8 wording: no internal 行话 ("深度未解析/降背景") on the panel.
@@ -165,7 +167,7 @@ func TestP0A2DisclosureFiresEvenWhenNumeratorZero(t *testing.T) {
 	line := runtimeTraceProjWindowLine(projection, model, true)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: disclosure head
 	// "另有 1 项未计入的链上行" → "另有 1 条链上行未计入上句已归因数值".
-	if !strings.Contains(line, "另有 1 条链上行未计入上句已归因数值") {
+	if !strings.Contains(line, "另有 1 条链上行未计入上句覆盖数值") {
 		t.Fatalf("disclosure must fire even with a zero numerator (F7):\n%s", line)
 	}
 }
@@ -242,7 +244,8 @@ func TestP0A2DisclosureAbsentForP0A1Witness(t *testing.T) {
 	line := runtimeTraceProjWindowLine(p0a1Projection, model, true)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: negative pin migrates
 	// to the new disclosure wording 未计入上句已归因数值.
-	if strings.Contains(line, "未计入上句已归因数值") {
+	// Follow the live wording so this negative pin cannot become vacuous.
+	if strings.Contains(line, "未计入上句覆盖数值") {
 		t.Fatalf("no disclosure may appear for a fully-countable P0-A1 coverage line:\n%s", line)
 	}
 	if got := runtimeTraceProjDepth1Cumulative(model); got != 112.223 {

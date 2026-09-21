@@ -171,7 +171,9 @@ func TestRNBSameSegmentTwinFoldKeepsLeadAndCoverageInvariant(t *testing.T) {
 	// the headline words follow the rendered face while subject, seat and the
 	// 链上累计 magnitude stay identical and no SUM ever publishes.
 	{
-		foldedLine, controlLine := pick(folded, "已归因"), pick(control, "已归因")
+		// HMC §72 (2026-09-21): select the numeric coverage row, not the
+		// adjacent "链路覆盖不等于原因已全部查明" explanation.
+		foldedLine, controlLine := pick(folded, "- 链路覆盖 "), pick(control, "- 链路覆盖 ")
 		if foldedLine == "" || foldedLine != controlLine {
 			t.Fatalf("coverage line must be byte-identical across fold/no-fold (覆盖分子红线):\nfolded: %q\ncontrol: %q", foldedLine, controlLine)
 		}
@@ -766,7 +768,7 @@ func TestRNBDepthlessFoldKeepsUnadmittedDisclosureMax(t *testing.T) {
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 另有 N 项未计入的
 	// 链上行 → 另有 N 条链上行未计入上句已归因数值 (归因族 disclosure bullet).
-	if !strings.Contains(md, "另有 1 条链上行未计入上句已归因数值(单项最大 28.717ms") {
+	if !strings.Contains(md, "另有 1 条链上行未计入上句覆盖数值(单项最大 28.717ms") {
 		t.Fatalf("the disclosure MAX must keep the folded rank row's magnitude (count = rendered rows):\n%s", md)
 	}
 }
