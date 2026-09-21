@@ -1457,3 +1457,28 @@ C仅一行源码更正，真实make test通过、隔离和原仓保护正确；r
 末版新增公开/传递包络/私有范围/源深拷贝/跨采集/40成员容量针`/tmp/codrax-io-fold-scope.pEObiN/GREEN-final-public.log`正式exit0（tool3.061s）；三节点原始RED为同目录`RED-transitive.log`。真实公开输出按原生record.ID映射引用，期望值/定位/查询均取原始record而非新增peer自证；中英×改名各形保tuple，整组确有peer与主行不同查询窗的见证。40成员为明确标注的合成projection→tree/完整明细→最终Markdown容量针，不冒称公开工具端到端。原47ms原生请求口径、复合评分非墙钟、分家族计量、链车道和rank席保护仍单列回归。主线逐行复审通过；生产冻结并启动覆盖§57–58的统一末版全仓。
 
 下一固定双例优先两份旧人工FAIL：业务完整响应/IO链 + 明确2.000..2.020窗的多跳D/IO。前者检验组合/各把尺/业务线索，后者保护精确窗口/真正唤醒端点/所有链上状态/投影和必选旁路；一个干净新二进制2并行×1，不以机器regex替代人审，不改案例/oracle。
+
+已提交`5adad7181`；末版邻近定向`GREEN-neighbors.log`正式exit0（tool2.750s），`RACE-focused.log`正式exit0（tool8.386s），覆盖NativeTiming/HMC、SMR1、SelfAll、IOFAM、New10、PTV6D行数与DispW1容量。干净构建`/tmp/hmc-io-group-clean-build-20260920.log`正式exit0，revision `5adad718155c`，buildTime `2026-09-21T06:07:47Z`。23:08:21以固定snapshot `.codrax/tmp/codrax-selected-20260920-230820`启动双例，results=`eval/results/hmc_io_group_scope_20260920`；统一全仓`/tmp/hmc-io-group-final-full-20260920.log`仍执行中，未提前销账。
+
+XERR只读追查进一步明确待验证机制：payloadless阻塞值取span∩window的真实ThreadTimeline；另一sleep席可能来自按(thread,CPU)分桶再top8的SleepTop，并非完整sleep集合，包络包含未必证明成员包含。已在独立detached诊断工作树`/tmp/codrax-xerr1-public.YBNM4G`设计同capture同窗公开反例，不污染本批冻结源码；尚无可执行RED时不记为已确认或已修。反向说明将整个S+D+IO等待集说成落在sleep席，也列同批待证。
+
+## 59. 5ad固定双例及统一验收（2026-09-20，机器1/2、人工0/2）
+
+§57–58末版统一`go test ./...`已正式exit0：87测试包、13无测试包、零FAIL，收据`/tmp/hmc-io-group-final-full-20260920.log`（agent95.019s/tool407.871s/render8.272s/types55.056s/tracequery126.488s）。不是借85ca的早版结果。干净binary与固定snapshot见§58。
+
+23:08:21–23:14:01恰好2并行×1，runner正式exit0；[机器摘要](../../eval/parallel_selected_summary_hmc_io_group_scope_20260920.md)、[人工审计](../../eval/parallel_selected_summary_hmc_io_group_scope_20260920_manual_audit.md)。业务340秒/43%上下文、明确窗169秒/45%；均有最终正文、系统投影和mandatory schema2旁路，无活跃流截断或空答案。两例未出现新IO证据组组头，不能用此次live签§58新分组分支命中；其公开端到端回归与live答案验收分开。
+
+- 业务仍FAIL：50/40ms业务、31ms闭合S态IO及唤醒链保留，但35ms请求自身驻留仍遗漏，查询52ms的7ms运行被用来回答业务50ms内的请求耗时；又把31+2+7的残差12ms臆解为worker执行及切换间隙。最后实际输入已提供业务自身5/1/44、子业务8/1/31、请求35与等待31，也禁止残差编造，不能归为未供给。未证backup完成唤醒仍被正文说成没有唤醒/没有因果关联。机器FAIL虽只报缺35，人审不局限于regex。
+- 明确窗仍FAIL：精确2..2.020、20/17/14/11ms测量及11/1/1/1排序显示保住，未再混唤醒和窗外sched-in；但模型断言S是被动而非主动等待、把opaque调用点说成页面IO完成导致整条链、漏最上游irq唤醒，并将wakee等待归成上游等待。原始调用点与机制未证教学已到最后输入，不能把正确IO状态直接升级为已知具体等待对象。
+- 独立窗口来源债：本轮analyzer主动将trace中0.999..1.051配上业务问题原文quote并声明`explicit_time_window`，系统只检查quote存在与数值形状，最终各面均称用户指定。不是默认capture/query自动回填。另查到`bounded_selector`带数值也被系统主动晋升explicit，这是独立的可确定结构合同问题；必须分别处理，不以修后者宣称前者已修，不扫描用户原文数字/关键词加门。
+
+旧FAIL不回写，父任务仍13/79交付、66开放。下一片先修公开反证成立的XERR错误物理关系，再处理业务选择器越权升级；上下文重复/缺身份压缩及模型过强推断仍留账，不以反复追加同义教学或同版第三次回放追绿。
+
+## 60. 睡眠账目互指不能凭包络声明物理包含（2026-09-20，已确认，施工中）
+
+§47.1/§58的静态疑点已由公开入口有效反证，优先级提升为P1系统显示错误。独立工作树`/tmp/codrax-xerr1-public.YBNM4G`（5f7b827a9），`RED-public4.log`正式exit1（tool1.336s）：两种原始调度文本均经`TraceQuery.Execute(recipe=io_wait,pid=100)`和独立`thread_timeline`核真实成员，再经原生观测→投影→`ApplyAndPersistMutation`→最终中英文renderer，非手造投影或编译失败。
+
+- 带洞形：同线程CPU0前后两段S共20ms被SleepTop保留；中间CPU1的5ms S因全局Top8未列入该席。实际两集合不交，20ms席的首尾包络却包含marker内5ms，旧文案仍称同段物理时间。
+- 混合形：marker内阻塞等待9ms来自S4+D5；sleep席为24ms。旧反向说明把整个9ms等待称落入sleep，连分量口径也越权。
+
+参考`core/preprocess/sleep_ops.py:558–622`先统计依赖分析窗、再找实际S/D段逐段裁剪；`window_utils.py:22–29`提供单段求交，不用累计量首尾包络替代成员证明。本仓当前XERR链仅有标量/包络，来源身份也不是集合包含凭证。最窄修复保所有数值、引用、链资格及原配对导航，只将专属互指/图例改成同线程等待账目对照、实际睡眠分量关系未证、不能直接相加；不凭时长等于包络补造确证正枝，已有精确状态集合等值去重/分割关系不动。末版公开红绿、相邻/race/全仓收据完成后另补，不提前销账。
