@@ -2033,16 +2033,17 @@ func (t *TraceQuery) runAutoWindowCandidates(ctx *types.BusContext, p traceQuery
 			fmt.Sprintf("w%d", child.Candidate.Rank), now, child.Query)...)
 	}
 	return types.ToolResult{
-		ToolName:               t.Name(),
-		Success:                true,
-		Summary:                preview,
-		RawRef:                 rawRef,
-		Refinement:             traceQueryAutoWindowCandidatesRefinement(ctx, p, sourceLabel, path, children),
-		Observations:           observations,
-		TraceQuerySourceRead:   traceQuerySourceReadCandidate(sourceResults...),
-		TraceEvidenceAuthority: traceQueryAutoWindowEvidenceAuthority(children, traceQueryAuthorityPublication{sourceLabel, payloadRef, rawRef, now}),
-		EnumerationAuthority:   traceQueryAutoWindowEnumerationAuthority(children),
-		Timestamp:              now,
+		ToolName:                    t.Name(),
+		Success:                     true,
+		Summary:                     preview,
+		RawRef:                      rawRef,
+		Refinement:                  traceQueryAutoWindowCandidatesRefinement(ctx, p, sourceLabel, path, children),
+		Observations:                observations,
+		TraceQuerySourceRead:        traceQuerySourceReadCandidate(sourceResults...),
+		TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(p, sourceResults...),
+		TraceEvidenceAuthority:      traceQueryAutoWindowEvidenceAuthority(children, traceQueryAuthorityPublication{sourceLabel, payloadRef, rawRef, now}),
+		EnumerationAuthority:        traceQueryAutoWindowEnumerationAuthority(children),
+		Timestamp:                   now,
 	}
 }
 

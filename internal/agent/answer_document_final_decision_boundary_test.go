@@ -184,7 +184,7 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 		"另有链上累计 9.000 毫秒，这是不同的链路累计口径，不能改称为该状态的实测占用",
 		"compiler-300：JIT编译，已测 4.500 毫秒；未证位于依赖链上，只能作为耗时与优化线索，不能作为主因",
 		"按现有规则可消除的影响（用于修复优先级，不等同于实测等待时长）",
-		"第 1 位，worker-200：优先级反转候选；可消除影响 8.300 毫秒；另有链上累计 9.000 毫秒",
+		"第 1 位，worker-200：优先级反转候选；可消除影响 8.300 毫秒；低优先级依赖方的调度/算力供给候选，未证明反转已发生或存在锁阻塞；另有链上累计 9.000 毫秒",
 		"证据允许的表述：只有每条记录的链路位置和依赖凭证确认其在链上时，才陈述证据行实际计入的低优先级依赖方贡献",
 		"尚未证明：候选标签或唤醒先后本身不证明该线程持有 CPU、锁或资源",
 		"背景与邻近信息（只能支撑额外排查方向，不得升级为链上主因或参与根因序数）",
@@ -240,7 +240,7 @@ func TestTraceFinalReaderDecisionCardUsesEnglishReaderLabels(t *testing.T) {
 		"Measured time concentrations",
 		"storage-worker: IO wait, measured 7.000 ms",
 		"Impact eliminable under existing rules",
-		"Rank 1, storage-worker: D-state/iowait; eliminable impact 6.000 ms, with 7.000 ms measured state occupancy",
+		"Rank 1, storage-worker: D-state/iowait; eliminable impact 6.000 ms; separate measured state account (IO wait): 7.000 ms",
 		"address both measured time concentration and impact eliminable under existing rules",
 	} {
 		if !strings.Contains(got, want) {

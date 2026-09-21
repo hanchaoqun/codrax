@@ -42,6 +42,7 @@ func windowStatsOptionPayloadBytes(t *testing.T, result types.ToolResult) []byte
 func TestTraceQueryWindowStatsOptionPublicAndMemo(t *testing.T) {
 	ctx, _ := pureMemoFixtureCtx(t)
 	var baseline *tracequery.ChainResult
+	seenRefs := map[string]bool{}
 	for _, tc := range []struct {
 		name      string
 		value     any
@@ -52,8 +53,8 @@ func TestTraceQueryWindowStatsOptionPublicAndMemo(t *testing.T) {
 		{"false", false, false, false},
 		{"true", true, true, false},
 		{"false_cached", false, false, true},
-		{"true_cached", true, true, true},
-		{"omitted_cached", nil, true, true},
+		{"true_fresh_navigation", true, true, false},
+		{"omitted_fresh_navigation", nil, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			overrides := map[string]any{"view": "wakeup_chain"}
@@ -64,12 +65,34 @@ func TestTraceQueryWindowStatsOptionPublicAndMemo(t *testing.T) {
 			if err != nil || !result.Success {
 				t.Fatalf("query failed: %v %s", err, result.Summary)
 			}
+			ctx.Mutable.AppendDispatchToolResult(result)
 			if result.ReusedFromRunMemo != tc.wantMemo {
 				t.Errorf("memo hit=%v, want %v", result.ReusedFromRunMemo, tc.wantMemo)
 			}
 			payload := windowStatsOptionPayload(t, result)
 			if (payload.WindowStats != nil) != tc.wantStats {
 				t.Errorf("WindowStats present=%v, want %v", payload.WindowStats != nil, tc.wantStats)
+			}
+			// Actual complete sync pairs require current read-bound references;
+			// no-stats results remain cacheable without changing causal content.
+			wantRefs := 0
+			if tc.wantStats {
+				wantRefs = 1
+				if len(payload.WindowStats.TraceSpans) != wantRefs {
+					t.Fatal("fixture must exercise one native complete pair")
+				}
+			}
+			if len(result.TraceBusinessSpanRefs) != wantRefs {
+				t.Fatalf("navigation refs=%d want=%d", len(result.TraceBusinessSpanRefs), wantRefs)
+			}
+			for _, ref := range result.TraceBusinessSpanRefs {
+				if seenRefs[ref.Token()] {
+					t.Fatal("fresh native read reused an old navigation token")
+				}
+				seenRefs[ref.Token()] = true
+				if _, ok := ctx.Mutable.ResolveTraceBusinessSpanRef(ref.Token()); !ok {
+					t.Fatal("published navigation token is not current")
+				}
 			}
 			if strings.Contains(result.Summary, "## Window stats") != tc.wantStats {
 				t.Errorf("window statistics summary does not respect the optional output flag")

@@ -16,44 +16,42 @@ import (
 const traceQueryBusinessRefCompletionTeaching = "Using this reference in trace_query is navigation only; it does not accept a completion focus or prove a root cause. To select that exact instance for automatic supplementation, separately copy the published token into the optional top-level emit_investigation_complete.business_span_ref field. Selection takes effect only after the completion is accepted and its exploration dispatch succeeds."
 
 // These are navigation candidates, not causal or model-selected focus facts.
-// The publication tail binds them to the actual successful native read. Never
-// reconstruct coordinates from observation summaries, labels or rich notes.
-func traceQueryBusinessRefDiscovery(p traceQueryParams) bool {
-	view := tracequery.CanonicalViewName(p.View)
-	return view == "span_window" || view == "window_stats" || traceQuerySpanLocateRecipe(p)
-}
-
-func traceQueryBusinessSpanCandidates(p traceQueryParams, result tracequery.Result) []types.TraceBusinessSpanCandidate {
-	if !traceQueryBusinessRefDiscovery(p) || len(result.TraceArtifacts) != 1 || result.TraceArtifacts[0].VirtualLineBase != 0 ||
-		filepath.Clean(result.TraceArtifacts[0].SourcePath) != filepath.Clean(result.SourcePath) ||
-		traceQueryToolViewCancellation(result) != nil || len(result.LifecycleSuppressions) != 0 {
-		return nil
-	}
-	spans := append([]tracequery.TraceSpanSummary(nil), result.SpanWindows...)
-	if result.WindowStats != nil {
-		spans = append(spans, result.WindowStats.TraceSpans...)
-	}
+// Only returned native complete pairs can supply coordinates. The view name
+// does not grant or remove a pair; frame summaries and ranking prose cannot
+// reconstruct one. Publication still requires the successful read receipt.
+func traceQueryBusinessSpanCandidates(_ traceQueryParams, results ...tracequery.Result) []types.TraceBusinessSpanCandidate {
 	var out []types.TraceBusinessSpanCandidate
 	seen := make(map[types.TraceBusinessSpanCandidate]bool)
-	for _, span := range spans {
-		if span.Kind != "sync" || span.Thread.PID <= 0 || span.EndLine <= span.StartLine ||
-			filepath.Clean(span.SourcePath) != filepath.Clean(result.SourcePath) {
+	for _, result := range results {
+		if len(result.TraceArtifacts) != 1 || result.TraceArtifacts[0].VirtualLineBase != 0 ||
+			filepath.Clean(result.TraceArtifacts[0].SourcePath) != filepath.Clean(result.SourcePath) ||
+			traceQueryToolViewCancellation(result) != nil || len(result.LifecycleSuppressions) != 0 {
 			continue
 		}
-		start, end := span.StartTs, span.EndTs
-		if span.ActualEndTs > span.ActualStartTs {
-			start, end = span.ActualStartTs, span.ActualEndTs
+		spans := append([]tracequery.TraceSpanSummary(nil), result.SpanWindows...)
+		if result.WindowStats != nil {
+			spans = append(spans, result.WindowStats.TraceSpans...)
 		}
-		if start < 0 || end <= start || math.IsNaN(start) || math.IsNaN(end) || math.IsInf(start, 0) || math.IsInf(end, 0) {
-			continue
-		}
-		candidate := types.TraceBusinessSpanCandidate{
-			Path: result.SourcePath, TID: span.Thread.PID, Thread: span.Thread.Comm, Name: span.Name, Kind: span.Kind,
-			StartLine: span.StartLine, EndLine: span.EndLine, StartTs: start, EndTs: end,
-		}
-		if !seen[candidate] {
-			seen[candidate] = true
-			out = append(out, candidate)
+		for _, span := range spans {
+			if span.Kind != "sync" || span.Thread.PID <= 0 || span.EndLine <= span.StartLine ||
+				filepath.Clean(span.SourcePath) != filepath.Clean(result.SourcePath) {
+				continue
+			}
+			start, end := span.StartTs, span.EndTs
+			if span.ActualEndTs > span.ActualStartTs {
+				start, end = span.ActualStartTs, span.ActualEndTs
+			}
+			if start < 0 || end <= start || math.IsNaN(start) || math.IsNaN(end) || math.IsInf(start, 0) || math.IsInf(end, 0) {
+				continue
+			}
+			candidate := types.TraceBusinessSpanCandidate{
+				Path: result.SourcePath, TID: span.Thread.PID, Thread: span.Thread.Comm, Name: span.Name, Kind: span.Kind,
+				StartLine: span.StartLine, EndLine: span.EndLine, StartTs: start, EndTs: end,
+			}
+			if !seen[candidate] {
+				seen[candidate] = true
+				out = append(out, candidate)
+			}
 		}
 	}
 	return out

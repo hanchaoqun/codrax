@@ -1010,3 +1010,50 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 末版第一次全仓`/tmp/hmc-native-duration-final-full-20260920.log`退出1，tool357.519s，仅两条结构登记失败，不用上述定向/race绿覆盖：新Node.RankValueCaliber未登记字段处置，新增五族精确Type→Source映射未登记枚举审计点。按原协议登记displayed及真实消费文件；第二映射不能换成更宽aggregate谓词（该谓词会误收irq_burst/压力族，且漏per-thread三族），依既有distinct producer dispatch规则说明独立映射，并新增完整CausalTokenUniverse×五源/错误源/空白大小写的闭集交叉pin，恰五个合法组合。未更改生产、扫描算法、排序或豁免字段。两条RED1.232s、登记及相关回归GREEN1.337s（`/tmp/codrax-native-tripwire-fJ6Lr1/red.log`、`green.log`）；再次全仓在跑，正式推送及退出收据另补。
 
 末版登记补齐后全仓`/tmp/hmc-native-duration-final2-full-20260920.log`退出0：87包通过（76缓存、11实际）、13包无测试、零FAIL；agent66.690s/tool366.542s/tracequery95.045s/types34.068s/cmd11.125s。新增登记闭集race×3亦退出0，tool6.345s（`/tmp/hmc-native-duration-registration-race-20260920.log`）。末段等待核实是Go测试缓存记录，而非模型响应或测试超时，没有终止或放宽任何测试。生产00be02及登记/文档将同批推送；本片只关闭五族计时发布和多成员口径交接，旧人工FAIL与父任务不勾。
+
+推送收据：`00be02cac`、`911518ebd`已一并推送main，远程从8a8ca1813快进至911518ebd；推送后工作树干净。下一片从该基线开始，不把未提交改动混入本片验收。
+
+## 35. 跨视图业务实例导航与末尾事实卡口径（2026-09-20，施工中）
+
+这两项分别对应§32旧业务失败和§34当前明确窗失败，不能混为一个根因。两者都基于现有精确对象/字段，不用用户或模型散文扫描驱动硬门，也不赋予系统替模型选焦点或改写结论的权限。
+
+### 35.1 同一完整实例在不同原生结果载体中可导航
+
+旧358业务只查rank而未查统计/定位；rank的原生WindowStats.TraceSpans已有完整OpenDocument与LoadDocumentIndex，但导航发现以view白名单开关，仅span_window/window_stats/span_locate能发布。同一对象因工具组合不同而丢能力，违背HMC-02.4灵活组合目标。参考仓`ad_hoc_exploration.yaml`按问题组合指标、`marker_ops.build_marker_tree/compute_node_thread_states`按实例身份与区间组织事实；吸收对象驱动组织方式，不移植其缺窗全量回退、词名优先级或线程名模糊关联。
+
+- [x] 先红：真实公开工具先验证确有完整native carrier，再检查引用；rank/两bundle/perf_stats/evidence_pack/两recipe/wakeup含stats/带真实span_name时间线等10臂失败；无carrier、wakeup=false、内部rank而未发布stats、async/缺端点、synthetic frame及真复合源负例通过。`/tmp/codrax-business-ref-carriers.NAUkj4/public-carrier-red.log`。
+- [ ] 用完整sync原生对象及既有来源/生命周期见证替代视图名白名单；引用只是导航，完整源+TID+B/E全tuple、私有代次、显式用户窗优先不变。
+- [ ] 多窗wrapper从成功child实际对象去重，不能按rank选第一窗或取端点并集；父物理源收据仍整体把关，失败/取消/复合源不能借兄弟授证。两独立窗有2个对象却0引用、重叠发现窗重复4条应去重为2的公开RED见`public-multiwindow-red.log`1.165s。
+- [ ] 公开多视图/多实例/裁窗完整pair/无效输入/来源变更/数量上限/私有焦点不变及真实Explorer消息回归，取得末版全仓、提交、推送和固定双例收据后才勾本片。
+
+当前33537统计视图已有引用供给却未选择；本修复不能替该行为销账，不强制某一工具顺序或补造自动选择。
+
+### 35.2 同一个候选的归因组成与状态占用明确另账
+
+33526末尾`renderTraceFinalReaderDecisionCards`把node的有效值1ms和`PublishedStateOccupancy`给出的14/17ms sleep连写为“对应已测状态占用”。没有跨记录错join，但省略了前文selector已有的精确值组成，造成最近一层上下文语义容易误解。单源`tracefinding.RootCauseValueDescription`已校验1ms=自身runnable全额1+running缺口0，旧公共旁路也保此组成；这不是底层缺数。
+
+- [x] /tmp overlay红针：两候选各自sleep17/14ms保持，但末尾各卡缺其已验证composition，`/tmp/codrax-reader-value-binding-e4KdAk/red.log`1.088s；不能说已发生必带必拒合同冲突。
+- [ ] 只读projection+node描述适配，复用原candidate编译及值说明，不由agent手组组件或按subject/rank跨窗匹配；同卡保原状态原值并标明另账，增其自己的已验证值组成。
+- [ ] 中英共用语义及校验，中文旧selector/sidecar字节、candidate identity/registry/selection wire不变；错和/缺值/负数/非有限/错误口径不造组成，running供给、D/I/O拆分遵守各自旧规则。
+- [ ] IO卡没有精确请求身份时不能从全局35ms猜接31ms，当前IO正文前后矛盾仍开放。补实际finalizer消息回归、全仓/race、固定双例后再评，不用新增泛型大段教学代替。
+
+### 35.3 独立待补：eval正文边界被新系统板穿透（HMC-18.5）
+
+33537正文没有LoadDocumentIndex，机器`EXPECT_PRIMARY_CONTAINS`仍通过；该名字只在新“主要时间占用/关键路径候选”系统表及后续系统板出现。`eval/run.sh::scope_primary_stdout/scope_principal_stdout`仍以之后的“Trace因果投影”标题为终点，所以前置系统表被当正文。此项与生产答案修复分开，历史机器收据不倒签；人工已判FAIL，没有误销账。
+
+- [ ] 应从已存在的私有`AnswerBlock.SystemGeneratedKind`及最终文档导出正文验收面，而不是继续追加一串中英文标题猜所有权；JSON同名字段不能铸该私有权限。核清最终文档出口和eval可读收据后另批实现，标准只能变准确，不能把正确系统脚注当模型已解释的证明。
+- [ ] 回归系统块前置/交错/标题变化、模型同名标题、patch后追加summary、恢复原稿/引用附录；不作用产品路由、答案准入或模型原文，不因修评测回写原报告。
+
+出口预查：`agent.parseOutputV2`在防御性副本应用hedging后渲染，后面仍有orchestrator修复/降级出口；不能只在一次emit保存就当最终答案。`record_task_finalize.go`最终落盘接缝目前只把成文字符串交给`outputdump.Args`，私有块所有权不在旁路里；`MutableState.ShippedAnswerDocumentV2()`可回读正常或降级结构稿，但必须再核与实际发射版本一致（不能拿被拒草稿或纯prose回退冒充）。下一片应在最终渲染/发布版本绑定处提供只读验收收据；暂不加另一套中英文标题终止列表。
+
+全部仍归稳定79项子任务内部明细；13项已交付、66项开放不变，跨模式B2–B6及其它领域队列不遗失。
+
+### 35.4 本片实现与回归收据（末版验证中）
+
+生产只改两组：导航取消view白名单，复用原完整sync/原源资格，并把多窗成功child实际结果接入同一发现器；末尾事实卡用只读候选适配复用已有组成验证，将原状态记作另账，增加英文等义词面。没有改source-read签发、接受焦点选举、显式用户窗、原生查询和排序，也没有增加JSON必填/模型散文硬门。已有三条单结果出口天然复用同一函数，不复制视图清单；多窗不合并实例。
+
+公开carrier全矩阵及旧引用回归曾通过1.955s（`/tmp/codrax-business-ref-carriers.NAUkj4/public-carrier-complete-green.log`）。随后邻接旧memo测试失败真实保留：两条复用正针与含stats的两个重复查询现在有完整实例，原候选安全策略要求fresh read，旧期望已不再代表缓存车道。没有放宽生产缓存策略；为缓存专项加入独立无导航但非空因果参数（wakeup_chain+stats=false），保原共享rank fixture，容量变化、目标来源与轮次重置增加真实warm-hit对照；含stats四次公开查询则验证各自产生新的当前引用，无stats重复仍缓存且因果链逐字段恒等。
+
+主席初次联合定向`/tmp/hmc-native-carrier-value-green-20260920.log`退出1：新context-only负针错用Predicate而非生产Tier，公开token可解析针漏走dispatch发布步骤；两项为测试装配问题，已分别改为既有typed Tier及实际AppendDispatchToolResult，未借此扩生产权限。修正后`/tmp/hmc-native-carrier-value-green2-20260920.log`退出0：tracefinding0.616s、agent0.974s、tool1.997s。中英旧字节、组件错和/缺失/负值/非有限/错误口径、链外/无证/窗外、同主体同rank异窗不借值及实际BuildInitialInstruction均覆盖。全仓、末版race与固定双例仍待退出收据，不先勾整片交付。
+
+新增真实Explorer→工具执行→下一次模型消息覆盖span_window、无span_name的rank及bundle三臂，包含当轮可解析token与完整tuple，不用预造ToolResult替代；公开GREEN1.136s、与事实卡消息race×3为3.746s（`/tmp/hmc-native-carrier-message-green-20260920.log`、`message-race-20260920.log`）。四包定向race×3通过tracefinding1.769s/agent8.531s/tool26.234s/types7.289s（`/tmp/hmc-native-carrier-value-race-20260920.log`）。首轮全仓agent报告两条旧固定文案预期失败：新候选限定注插入导致旧连续子串变化，以及“对应占用”改为另账；按本片设计更新精确期待，原数值/背景隔离/自然语言负针不动，定向GREEN1.447s（`/tmp/hmc-native-carrier-reader-oldpins-green-20260920.log`）。全仓退出及补正后重测另记，不宣称首轮全绿。

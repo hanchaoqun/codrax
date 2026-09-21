@@ -100,6 +100,13 @@ func (l *traceBusinessRefRoundTripLLM) Chat(_ context.Context, messages []llm.Me
 // not a prebuilt ToolResult: debug-log truncation must not hide a published
 // navigation receipt from the model's actual tool message.
 func TestTraceQueryBusinessRefActualExplorerToolMessage(t *testing.T) {
+	for _, view := range []string{"span_window", "root_cause_rank", "trace_perf_bundle"} {
+		t.Run(view, func(t *testing.T) { traceQueryBusinessRefActualExplorerToolMessage(t, view) })
+	}
+}
+
+func traceQueryBusinessRefActualExplorerToolMessage(t *testing.T, view string) {
+	t.Helper()
 	root := t.TempDir()
 	path := filepath.Join(root, "business.systrace")
 	trace := "# tracer: nop\n" +
@@ -116,9 +123,15 @@ func TestTraceQueryBusinessRefActualExplorerToolMessage(t *testing.T) {
 	ctx.Objective = "Locate the complete LoadReport instance in the attached trace."
 	ctx.Mutable = types.NewMutableState(ctx.Objective)
 	ctx.RepoRoot, ctx.WorkDir, ctx.AttachedHitrace = root, root, path
-	params, err := json.Marshal(map[string]any{
-		"view": "span_window", "source": "path", "path": path, "span_name": "LoadReport",
-	})
+	p := map[string]any{"view": view, "source": "path", "path": path}
+	if view == "span_window" {
+		p["span_name"] = "LoadReport"
+	} else {
+		// No span-name side output: the native rank/bundle stats alone
+		// must carry the complete pair into the actual next model message.
+		p["time_start"], p["time_end"] = 1, 1.051
+	}
+	params, err := json.Marshal(p)
 	if err != nil {
 		t.Fatal(err)
 	}

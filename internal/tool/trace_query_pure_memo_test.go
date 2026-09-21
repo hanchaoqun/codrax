@@ -69,12 +69,25 @@ func pureMemoFixtureParams(t *testing.T, overrides map[string]any) json.RawMessa
 	return raw
 }
 
+// Exercise the cache itself on a nonempty causal result without complete span
+// navigation. Rank/stats carriers now deliberately require a fresh source read
+// to mint run-local business references; using them here would make cache
+// exclusion pins vacuous. Keep the shared root-rank fixture for other suites.
+func pureMemoReusableParams(t *testing.T, overrides map[string]any) json.RawMessage {
+	t.Helper()
+	params := map[string]any{"view": "wakeup_chain", "include_window_stats": false}
+	for key, value := range overrides {
+		params[key] = value
+	}
+	return pureMemoFixtureParams(t, params)
+}
+
 // Pin 1 (spec 类2 §7.1): an identical second call is served from the run
 // memo — typed ReusedFromRunMemo, verbatim refs/Observations, and the
 // Summary-tail disclosure line.
 func TestTraceQueryRunMemo_IdenticalCallReusesVerbatimRefs(t *testing.T) {
 	ctx, _ := pureMemoFixtureCtx(t)
-	params := pureMemoFixtureParams(t, nil)
+	params := pureMemoReusableParams(t, nil)
 
 	res1, err := (&TraceQuery{}).Execute(ctx, params)
 	if err != nil || !res1.Success {
@@ -115,11 +128,11 @@ func TestTraceQueryRunMemo_IdenticalCallReusesVerbatimRefs(t *testing.T) {
 // new key — no memo hit, real execution.
 func TestTraceQueryRunMemo_ParamVariationExecutesFresh(t *testing.T) {
 	ctx, _ := pureMemoFixtureCtx(t)
-	if res, err := (&TraceQuery{}).Execute(ctx, pureMemoFixtureParams(t, nil)); err != nil || !res.Success {
+	if res, err := (&TraceQuery{}).Execute(ctx, pureMemoReusableParams(t, nil)); err != nil || !res.Success {
 		t.Fatalf("seed call: err=%v success=%v", err, res.Success)
 	}
 
-	varied, err := (&TraceQuery{}).Execute(ctx, pureMemoFixtureParams(t, map[string]any{"time_end": 5.006}))
+	varied, err := (&TraceQuery{}).Execute(ctx, pureMemoReusableParams(t, map[string]any{"time_end": 5.006}))
 	if err != nil || !varied.Success {
 		t.Fatalf("varied call: err=%v success=%v summary=%s", err, varied.Success, varied.Summary)
 	}
@@ -138,7 +151,7 @@ func TestTraceQueryRunMemo_ParamVariationExecutesFresh(t *testing.T) {
 		"    app-100   (  100) [001] .... 5.008000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	other, err := (&TraceQuery{}).Execute(ctx, pureMemoFixtureParams(t, map[string]any{"path": "pure-memo-2.systrace"}))
+	other, err := (&TraceQuery{}).Execute(ctx, pureMemoReusableParams(t, map[string]any{"path": "pure-memo-2.systrace"}))
 	if err != nil || !other.Success {
 		t.Fatalf("other-artifact call: err=%v success=%v summary=%s", err, other.Success, other.Summary)
 	}
@@ -154,14 +167,14 @@ func TestTraceQueryRunMemo_EffectivePlatformFlavorAliasesReuse(t *testing.T) {
 	ctx, _ := pureMemoFixtureCtx(t)
 	tool := &TraceQuery{}
 
-	first, err := tool.Execute(ctx, pureMemoFixtureParams(t, map[string]any{
+	first, err := tool.Execute(ctx, pureMemoReusableParams(t, map[string]any{
 		"platform":     "harmony_hitrace",
 		"trace_flavor": "harmony_hitrace",
 	}))
 	if err != nil || !first.Success || first.ReusedFromRunMemo {
 		t.Fatalf("seed: err=%v success=%v reused=%v", err, first.Success, first.ReusedFromRunMemo)
 	}
-	second, err := tool.Execute(ctx, pureMemoFixtureParams(t, map[string]any{
+	second, err := tool.Execute(ctx, pureMemoReusableParams(t, map[string]any{
 		"platform": "harmony",
 	}))
 	if err != nil || !second.Success || !second.ReusedFromRunMemo {
@@ -179,18 +192,21 @@ func TestTraceQueryRunMemo_EffectivePlatformFlavorAliasesReuse(t *testing.T) {
 func TestTraceQueryRunMemo_WakeupCapacityVariationStaysFresh(t *testing.T) {
 	ctx, _ := pureMemoFixtureCtx(t)
 	tool := &TraceQuery{}
-	firstParams := pureMemoFixtureParams(t, map[string]any{
+	firstParams := pureMemoReusableParams(t, map[string]any{
 		"view":                 "wakeup_chain",
 		"platform":             "harmony_hitrace",
 		"trace_flavor":         "harmony_hitrace",
 		"max_branches":         8,
 		"max_chain_nodes":      32,
-		"include_window_stats": true,
+		"include_window_stats": false,
 	})
 	if first, err := tool.Execute(ctx, firstParams); err != nil || !first.Success || first.ReusedFromRunMemo {
 		t.Fatalf("seed: err=%v success=%v reused=%v", err, first.Success, first.ReusedFromRunMemo)
 	}
-	second, err := tool.Execute(ctx, pureMemoFixtureParams(t, map[string]any{
+	if warm, err := tool.Execute(ctx, firstParams); err != nil || !warm.Success || !warm.ReusedFromRunMemo {
+		t.Fatalf("capacity seed must be cacheable: err=%v success=%v reused=%v", err, warm.Success, warm.ReusedFromRunMemo)
+	}
+	second, err := tool.Execute(ctx, pureMemoReusableParams(t, map[string]any{
 		"view":     "wakeup_chain",
 		"platform": "harmony",
 	}))
@@ -251,7 +267,7 @@ func TestTraceQueryRunMemo_DefaultThreadScopeReusesAndProcessSplits(t *testing.T
 // deterministic tiebreak"), hit or miss.
 func TestTraceQueryRunMemo_SideEffectRegistriesIdentical(t *testing.T) {
 	ctx, _ := pureMemoFixtureCtx(t)
-	params := pureMemoFixtureParams(t, nil)
+	params := pureMemoReusableParams(t, nil)
 	for i := 0; i < 2; i++ {
 		if res, err := (&TraceQuery{}).Execute(ctx, params); err != nil || !res.Success {
 			t.Fatalf("call %d: err=%v success=%v", i+1, err, res.Success)
@@ -272,7 +288,7 @@ func TestTraceQueryRunMemo_ExclusionLanes(t *testing.T) {
 		SetPureToolMemoEnabled(false)
 
 		ctx, _ := pureMemoFixtureCtx(t)
-		params := pureMemoFixtureParams(t, nil)
+		params := pureMemoReusableParams(t, nil)
 		if res, err := (&TraceQuery{}).Execute(ctx, params); err != nil || !res.Success {
 			t.Fatalf("seed: err=%v success=%v", err, res.Success)
 		}
@@ -294,7 +310,7 @@ func TestTraceQueryRunMemo_ExclusionLanes(t *testing.T) {
 		ctx, _ := pureMemoFixtureCtx(t)
 		ctx.Mutable.BeginSystemTraceSupplementExecution()
 		defer ctx.Mutable.EndSystemTraceSupplementExecution()
-		params := pureMemoFixtureParams(t, nil)
+		params := pureMemoReusableParams(t, nil)
 		if res, err := (&TraceQuery{}).Execute(ctx, params); err != nil || !res.Success {
 			t.Fatalf("seed: err=%v success=%v", err, res.Success)
 		}
@@ -343,9 +359,12 @@ func TestTraceQueryRunMemo_ExclusionLanes(t *testing.T) {
 // ResetTurnAArtifacts the same call executes for real.
 func TestTraceQueryRunMemo_ClearedAtTurnBoundary(t *testing.T) {
 	ctx, _ := pureMemoFixtureCtx(t)
-	params := pureMemoFixtureParams(t, nil)
+	params := pureMemoReusableParams(t, nil)
 	if res, err := (&TraceQuery{}).Execute(ctx, params); err != nil || !res.Success {
 		t.Fatalf("seed: err=%v success=%v", err, res.Success)
+	}
+	if warm, err := (&TraceQuery{}).Execute(ctx, params); err != nil || !warm.Success || !warm.ReusedFromRunMemo {
+		t.Fatalf("pre-reset must hit cache: err=%v success=%v reused=%v", err, warm.Success, warm.ReusedFromRunMemo)
 	}
 	ctx.Mutable.ResetTurnAArtifacts()
 	res2, err := (&TraceQuery{}).Execute(ctx, params)
@@ -372,12 +391,15 @@ func TestTraceQueryRunMemo_TargetProvenanceSplitsKeys(t *testing.T) {
 		PID: 100, Thread: "app-100", Source: "analyzer", Confidence: 1,
 	}}})
 
-	explicit, err := (&TraceQuery{}).Execute(ctx, pureMemoFixtureParams(t, nil))
+	explicit, err := (&TraceQuery{}).Execute(ctx, pureMemoReusableParams(t, nil))
 	if err != nil || !explicit.Success {
 		t.Fatalf("explicit-target call: err=%v success=%v summary=%s", err, explicit.Success, explicit.Summary)
 	}
 	if explicit.ReusedFromRunMemo {
 		t.Fatal("explicit-target seed call must be a real execution")
+	}
+	if warm, err := (&TraceQuery{}).Execute(ctx, pureMemoReusableParams(t, nil)); err != nil || !warm.Success || !warm.ReusedFromRunMemo {
+		t.Fatalf("explicit provenance must be cacheable: err=%v success=%v reused=%v", err, warm.Success, warm.ReusedFromRunMemo)
 	}
 
 	// Same call with pid/thread OMITTED: the request-model target is
@@ -385,7 +407,7 @@ func TestTraceQueryRunMemo_TargetProvenanceSplitsKeys(t *testing.T) {
 	// call's published caveat face differs (inheritance disclosure).
 	inheritedParams, err := json.Marshal(map[string]any{
 		"source": "path", "path": "pure-memo.systrace",
-		"view":       "root_cause_rank",
+		"view": "wakeup_chain", "include_window_stats": false,
 		"time_start": 5.000, "time_end": 5.007,
 	})
 	if err != nil {
@@ -397,6 +419,9 @@ func TestTraceQueryRunMemo_TargetProvenanceSplitsKeys(t *testing.T) {
 	}
 	if inherited.ReusedFromRunMemo {
 		t.Fatal("a target-inheriting call must NOT be served from the explicit-target memo entry — its published target-provenance caveat differs")
+	}
+	if warm, err := (&TraceQuery{}).Execute(ctx, inheritedParams); err != nil || !warm.Success || !warm.ReusedFromRunMemo {
+		t.Fatalf("same inherited provenance must be cacheable: err=%v success=%v reused=%v", err, warm.Success, warm.ReusedFromRunMemo)
 	}
 
 	// Key-level: the caveat is a key input — identical params with
@@ -419,7 +444,7 @@ func TestTraceQueryRunMemo_TargetProvenanceSplitsKeys(t *testing.T) {
 // to the compile input must not grow the ledger by even one record.
 func TestObservationLedger_DuplicateQueryCollapsesToOneRecord(t *testing.T) {
 	ctx, _ := pureMemoFixtureCtx(t)
-	params := pureMemoFixtureParams(t, nil)
+	params := pureMemoReusableParams(t, nil)
 	res1, err := (&TraceQuery{}).Execute(ctx, params)
 	if err != nil || !res1.Success {
 		t.Fatalf("first: err=%v success=%v", err, res1.Success)

@@ -323,45 +323,92 @@ func rootCauseUsesRunningSupplyDeficit(decision types.TraceCauseDecision) bool {
 // evidence so the model is told the same precise value meaning we publish.
 // It does not select/rank causes or rewrite the answer document.
 func RootCauseValueDescription(decision types.TraceCauseDecision) string {
+	return RootCauseValueDescriptionForLanguage(decision, "zh")
+}
+
+// RootCauseValueDescriptionForLanguage localizes the same typed value ruler.
+// The legacy entry point deliberately keeps its original Chinese bytes for
+// selector/sidecar consumers. Language changes neither the value nor its
+// composition validation; non-Chinese reader cards use the English lexicon.
+func RootCauseValueDescriptionForLanguage(decision types.TraceCauseDecision, language string) string {
 	if decision.Magnitude == nil {
 		return ""
 	}
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(language)), "zh")
 	if decision.MechanismQualifier == types.TraceMechanismLowerPriorityDependencyCandidate {
 		description := "低优先级依赖方的调度/算力供给候选，未证明反转已发生或存在锁阻塞"
+		if !zh {
+			description = "lower-priority dependency scheduling/compute-supply candidate; an actual inversion or lock blocking is not proved"
+		}
 		if split := rootCauseImpactBreakdown(decision); split != nil {
-			description += fmt.Sprintf("；组成：就绪等待全额 %.3f ms + 运行供给折算缺口 %.3f ms", split.RunnableSeconds*1000, split.RunningDeficitSeconds*1000)
+			if zh {
+				description += fmt.Sprintf("；组成：就绪等待全额 %.3f ms + 运行供给折算缺口 %.3f ms", split.RunnableSeconds*1000, split.RunningDeficitSeconds*1000)
+			} else {
+				description += fmt.Sprintf("; composition: runnable wait counted in full %.3f ms + folded running-supply deficit %.3f ms", split.RunnableSeconds*1000, split.RunningDeficitSeconds*1000)
+			}
 			switch split.CapabilitySource {
 			case "default_table":
-				description += "（运行缺口按默认算力比估算）"
+				if zh {
+					description += "（运行缺口按默认算力比估算）"
+				} else {
+					description += " (running deficit estimated using default capability ratios)"
+				}
 			case "freq_only":
-				description += "（运行缺口仅按频率比折算）"
+				if zh {
+					description += "（运行缺口仅按频率比折算）"
+				} else {
+					description += " (running deficit folded using frequency ratios only)"
+				}
 			case "evidence_table":
-				description += "（运行缺口采用证据支持的算力比）"
+				if zh {
+					description += "（运行缺口采用证据支持的算力比）"
+				} else {
+					description += " (running deficit uses evidence-supported capability ratios)"
+				}
 			}
-		} else if amount := rootCauseNonGatedValueDescription(decision); amount != "" {
+		} else if amount := rootCauseNonGatedValueDescription(decision, zh); amount != "" {
 			// A node may carry the candidacy flag alongside another measured
 			// state family. Keep that family's original supply/D-I/O ruler.
-			description += "；" + amount
+			if zh {
+				description += "；" + amount
+			} else {
+				description += "; " + amount
+			}
 		}
 		return description
 	}
-	return rootCauseNonGatedValueDescription(decision)
+	return rootCauseNonGatedValueDescription(decision, zh)
 }
 
-func rootCauseNonGatedValueDescription(decision types.TraceCauseDecision) string {
+func rootCauseNonGatedValueDescription(decision types.TraceCauseDecision, zh bool) string {
 	parts := decision.Magnitude.Components
 	if rootCauseUsesRunningSupplyDeficit(decision) {
 		// Table ③c caliber words (折算 / 下界) are read from tracefence, never
 		// hand-typed inside the sentence (V1-1 §40.25 单源).
 		description := fmt.Sprintf("供给%s缺口（估算%s，非全部运行耗时）；频率已知 %.3f ms，未知 %.3f ms",
 			tracefence.CaliberWordFoldedZH, tracefence.CaliberWordLowerBoundZH, parts.SupplyFoldKnownMS, parts.SupplyFoldUnknownMS)
+		if !zh {
+			description = fmt.Sprintf("folded supply deficit (estimated lower bound, not total running time); frequency known for %.3f ms, unknown for %.3f ms", parts.SupplyFoldKnownMS, parts.SupplyFoldUnknownMS)
+		}
 		switch parts.SupplyFoldCapabilitySource {
 		case "default_table":
-			description += "；采用默认算力比"
+			if zh {
+				description += "；采用默认算力比"
+			} else {
+				description += "; uses default capability ratios"
+			}
 		case "freq_only":
-			description += "；仅按频率比" + tracefence.CaliberWordFoldedZH
+			if zh {
+				description += "；仅按频率比" + tracefence.CaliberWordFoldedZH
+			} else {
+				description += "; folded using frequency ratios only"
+			}
 		case "evidence_table":
-			description += "；采用证据支持的算力比"
+			if zh {
+				description += "；采用证据支持的算力比"
+			} else {
+				description += "; uses evidence-supported capability ratios"
+			}
 		}
 		return description
 	}
@@ -369,11 +416,20 @@ func rootCauseNonGatedValueDescription(decision types.TraceCauseDecision) string
 	case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
 		if parts != nil {
 			if parts.DStateRefinedNonIO && parts.IOWaitMS == 0 {
+				if !zh {
+					return "D-state wait with non-I/O evidence"
+				}
 				return "D 状态等待，已有非 I/O 证据"
 			}
 			if parts.DStateMS > 0 || parts.IOWaitMS > 0 {
+				if !zh {
+					return fmt.Sprintf("wait composition: D-state %.3f ms, I/O wait %.3f ms; not a promise of directly eliminable time", parts.DStateMS, parts.IOWaitMS)
+				}
 				return fmt.Sprintf("等待组成：D 状态 %.3f ms，I/O 等待 %.3f ms；不是可直接消除的承诺", parts.DStateMS, parts.IOWaitMS)
 			}
+		}
+		if !zh {
+			return "combined D-state and I/O-wait caliber; not all of it can be treated as I/O"
 		}
 		return "D 状态与 I/O 等待的合并口径，不能全部视为 I/O"
 	}

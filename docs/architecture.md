@@ -1319,7 +1319,11 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **已接受业务实例→自动补齐**：模型可在`emit_investigation_complete`顶层可选字段`business_span_ref`明确选择上述本轮原生引用；普通准入全部通过后，仅同锁记录与completion代次绑定的pending选择。只有探索worker成功返回有效output、无错误且未取消，独立dispatch hook才晋升为补齐焦点；工具成功但worker失败时保留既有partial closure/事实，不授新选择。新接受声明省略字段即清旧；系统强制收敛、JSON/TurnA/散文不能授焦点。reset/reopen撤销旧dispatch epoch，传统fork合并不复制权限。并行只允许正常winner/required分支授选择，成功兄弟的不同选择或明确清除形成冲突，失败兄弟不授予也不否决；同物理实例的不同token可等价。失效/冲突不回退任意探索窗。
 
+实例导航从实际返回的`SpanWindows`或`WindowStats.TraceSpans`完整sync对象发现，不以视图名白名单授权：rank/bundle/recipe等真实载体复用同一资格函数，没有实际pair的视图不补造。多窗wrapper逐成功child过滤来源/取消/生命周期，再按完整物理实例tuple去重；父源收据仍须单物理同代次，不选首窗或合并窗。含导航候选的结果沿既有策略重新读取并签发新引用，不复用纯工具memo；无候选的因果结果保原缓存和字节复用，原生索引缓存不变。
+
 焦点消费只发`{view,business_span_ref}`；实例原子范围用于目标、窗口及预算披露。用户明确单窗/多窗/全域或不同目标仍走原显式通道；仅同一明确线程TID可与实例引用兼容。既有家族是否已覆盖，要求原生私有来源代次、TID及完整窗口端点精确相同，邻窗或序列化重放不能抑制补齐。源级census库存独立编译，不冒充实例内因果证据；补齐前后检查选择仍有效。不增加因果意图、不改原视图/预算/链上选举；35ms请求、31ms阻塞等重叠口径仍分开。更广业务清单、异步/复合实例与live答案验收继续按任务账本记录，不能由此小片统一销账。
+
+末尾成文事实卡以当前projection+node只读复用候选编译与`RootCauseValueDescription`同源数值口径，中英文共用相同组件校验；14/17ms睡眠等原状态占用另账保留，不暗示它折算为1ms。有效值的就绪全额/运行供给缺口仅来自该候选已校验的组成，不从同名/同rank的其它窗借值，也不从全局IO请求时长补配。旧中文selector/sidecar词面、候选标识、排名与JSON结构不变；描述只帮助模型理解，不代写最终诊断或增加硬拒绝。
 
 **IO请求耗时分布（HMC-08.1首片）**：`window_stats.storage_latency_by_layer[].request_latency_distribution`从现有block/generic配对的成功闭合分支采样，统计该行来源、层级、设备、操作及既有身份组的完整合格总体，不使用Top8请求明细或均值反算。`sample_count`及`min_ms/mean_ms/max_ms/p50_ms/p90_ms/p95_ms/p99_ms`为毫秒，分位数固定按`p*(n-1)`线性插值；真实0值保留，零合格样本为nil。沿原“与查询域相交的完整请求”口径，含carry-in/out、显式零时间、行窗优先，不能把全请求时长当作裁窗等待。组明细仍Top8，`storage_latency_overflow_groups/storage_latency_overflow_paired_count`另行披露被省略的组/合格请求数；RQ/BIO/文件系统及物理来源分开，不平均各组P99生成全层P99。原配对完整性、线程代次及来源校验不变，新统计只作支持观察，不进入因果选举或可消除量计算。全层跨身份上卷与生产模型答案验收另列，不由组内通过代销。
 

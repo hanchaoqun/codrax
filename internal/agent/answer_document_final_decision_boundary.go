@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -457,16 +458,27 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 						fmt.Fprintf(&b, "  - Rank %d, %s: %s; eliminable impact %.3f ms", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
 					}
 					if measuredOK && math.Abs(measured-node.EffectiveImpactMS) > 0.0005 {
+						state := traceFinalReaderStateLabel(node.StateKind, zh)
+						if state == "" {
+							state = traceFinalReaderActualCauseLabel(node, zh)
+						}
 						if zh {
-							fmt.Fprintf(&b, "，对应已测状态占用 %.3f 毫秒", measured)
+							fmt.Fprintf(&b, "；另账：%s，实测占用 %.3f 毫秒", state, measured)
 						} else {
-							fmt.Fprintf(&b, ", with %.3f ms measured state occupancy", measured)
+							fmt.Fprintf(&b, "; separate measured state account (%s): %.3f ms", state, measured)
 						}
 					} else if !measuredOK && strings.TrimSpace(node.StateKind) != "" {
 						if zh {
 							b.WriteString("，原始状态占用未提供")
 						} else {
 							b.WriteString(", original state occupancy not provided")
+						}
+					}
+					if description := tracefinding.RootCauseNodeValueDescription(projection, node, lang); description != "" {
+						if zh {
+							fmt.Fprintf(&b, "；%s", description)
+						} else {
+							fmt.Fprintf(&b, "; %s", description)
 						}
 					}
 					traceFinalReaderWriteCumulativeRole(&b, node, measured, zh)
