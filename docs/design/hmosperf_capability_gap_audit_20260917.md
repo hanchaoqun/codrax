@@ -1936,7 +1936,7 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 
 §89–90实现与全仓/人工收据已随`cb2f3679b`推送main，session55235正式exit0，远端6647135b9→cb2f3679b，本地/远程HEAD相等。下一片不复用该全仓签新代码。
 
-## 91. 用户目标身份授权与原生唤醒路径分离（2026-09-21，实施验收中）
+## 91. 用户目标身份授权与原生唤醒路径分离（2026-09-21，子片验收完成）
 
 先修§90确定系统P1，不仅针对单个no_named枚举补丁：现有emit契约已要求named_target有当前原文quote、有效RuntimeTarget且source=user_explicit；no_named/unspecified不准同时携带targets。消费端却忽略整个profile，把generic/Exact实体重新提升用户身份。因而unspecified，以及named目标不在当前路径时由generic其它线程代选，都是同一类越权，不应逐case补。
 
@@ -1947,3 +1947,25 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 对照参考`core/preprocess/sleep_ops.py:931–932,1077`从已选线程行取tid后递归、558附近按该阻塞段查直接waker；其639–642树根是阻塞者而非本仓被分析目标，也无用户关注chip。只借鉴查询目标与递归节点分离，不复制参考根语义、丢中断waker策略或最大状态桶机制归因。现有状态裁窗/IO请求35与线程阻塞31/业务50及40/背景47、语义优化和供给证据通道保持。
 
 冻结后固定双例预选业务IO旧FAIL与`real_trace_h4_supply_thermal_witness`，2并行×1：前者验证无指定线程、完整路径/分尺/旁路；后者保护真实named线程和明确时间窗下的有限判断、不擅自扩因果投影。写模式前批真实执行/未绑定分账保留，不以两读例宣称写模式本片live覆盖。
+
+实施已提交`0d339165f`（8文件，4生产/4新测试，旧测试不改）。共享`RuntimeUserTargetAnchorEntities`区分profile缺失与明确空授权，present只列有效named/user_explicit身份；ledger与renderer共用，原Entities时间显示/软候选保留。renderer不能让旧elected标记越过当前授权。根席末审再找出typed显示形跨端接缝：原compiler支持`worker-200 [200]`/`worker [200]`/`worker-200 (200)`，旧renderer不支持，取消旧短路后会自相矛盾。有效RED `/tmp/hmc-user-target-typed-face-red-20260921.log`（27054正式exit1/tool1.241s）三枝成立；present-only比较现复用原typed matcher，nil旧比较不变，不把通用文本升级成typed。根席两顶层七子项GREEN9203正式exit0/tool1.397s；identity census81714正式exit0/tool0.971s，无需改任何旧登记。
+
+另一公开入口RED-v2 `/tmp/hmc-no-named-anchor-public-red-valid-20260921.log`（80067正式exit1/tool1.425s）2顶层13子项，8问题枝红、5named/alias/cursor/legacy对照绿；第一轮业务predicate装配错误日志保留，不作有效产品RED。扩unspecified×改名及链外named后，GREEN91197正式exit0/tool1.965s、race66186正式exit0/tool4.828s，2顶层16子项。后来三枝首次GREEN，不伪记RED。root最终公开集合race68340正式exit0/tool8.455s，共4顶层23子项，完整路径、worker非自身、各物理量与原工具记录保全。
+
+4生产hash冻结：profile=`23d00843d0f62cc249c2b36ee6347856be1bbf2034cb33aa8866f035ede62e42`，ledger=`5595fd92e567035a81cc83720bc2d827a4dc818000e6909a4e7ea037784cf39a`，runtime=`679977aba7373a4fa20327ff677692a51004d1414eddf274d6f2750f3ffb324f`，tree=`46537f87e7ec7b2b81e99529dd4179b1e3e55b3eac2e985669131e411f328065`。独立只读末审无阻碍。文档提交`819dc5b91`后干净构建28837正式exit0，revision819dc5b91f74/buildTime2026-09-21T12:16:26Z；56014活跃流/默认8项正式exit0/llm7.144s，600/300/600秒及4ms连续部分帧保护不改。统一全仓93049、旧针race80995仍运行；固定双例65962在05:16:56同时开始，未签live结果。
+
+相邻陈腐状态边界单列开放：`observationRecordMatchesUserRuntimeTarget`仍不读profile，除了软排名也被`trace_value_occurrence_authority`/`trace_blocking_wall_clock_authority`/`target_wait_occurrence_authority`使用。fresh no_named/unspecified已有targets为空的emit前提，此轮未见合法producer触达旧矛盾状态，故不冒称第二个本次生产P1；后续应有真正authority消费者的历史输入正反回放再统一present分支，不只加prompt排名单测。当前不借此扩大本片已冻结源码，也不宣称全系统无同类入口。
+
+最终收据已齐：统一全仓93049正式exit0，`/tmp/hmc-user-target-authority-full-20260921.log`共87测试包、13无测试包、零FAIL。旧针race80995正式exit0，47顶层/36子项、零FAIL/skip（types1.908/tool15.214s）。B1790最终矩阵25298正式exit0（types7.717/tool8.305s）、race35660正式exit0（types2.246/tool3.440s），4顶层54子项，日志`/tmp/hmc-user-target-authority-matrix-final-{green,race}-20260921.log`。加上上述公开RED/GREEN、当前Bus→最终渲染、独立只读审计，本节窄目标授权子片完成；以下live完整失败不抵销也不误销父项。
+
+## 92. 819dc5固定双例：完整人工仍0/2，补齐与恢复指引分别留债（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_user_target_authority_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_user_target_authority_20260921_manual_audit.md)：runner65962正式exit0，2并行×1，机器0/2、完整人工0/2，未重跑第三例。业务261秒、H4 156秒。业务投影保完整irq→worker→app并正确称“分析锚点”；成功分析仅业务名/backup实体、未出现旧worker/app弱实体排列，因此本轮不冒称反事实命中旧截链，公开回归覆盖该性质。H4明确目标/时间窗下有限事实回答没有强添因果图，核心结论通过；机器频率上限检查未识别范围写法保原FAIL，独立IO等待遗漏/内部枚举使完整人工继续FAIL。
+
+业务最终输入完整提供50=5+1+44、40=8+1+31、本轮宽query53（归账52=7+1+44，未归账1），以及请求35/阻塞31、completion与wakeup两时间；模型仍混尺、误称发起者、把未证唤醒写成否定，并泄漏内部词。H4至少四段闭合IO等待并集4.384ms仍未完整披露。不是上下文缺数字，不增原始正文关键词硬门，不代写模型结论；继续按同卡分尺/减重复与独立披露接缝推进，不凭旧教学已在就销人工FAIL。
+
+新确认系统接缝及排序：
+
+- [ ] 高ROI窄恢复教学：业务成功前一次已声明no_named_target却留空壳targets，`parseRuntimeTargets`先拒并命令“修身份、不要省略”，与下一profile门要求空targets冲突。模型后来自行清空恢复，非无解硬门；应按已有typed profile给一致修复路线，保named真实身份/quote、无profile/invalidprofile/非运行时兼容，不放宽准入。
+- [ ] 自动补齐设计：本轮六query漏rank/critical；接受business_span_ref后，既有full_artifact分支不允许业务focus缩窗，而app/worker混PID cursor无法单选，最终skip=no_typed_target，旁路schema2正常空数组/no_selectable_typed_on_chain_candidates。是既有组合边界，非本节四生产回归；对照参考sleep_ops选定blocked_tid→直接waker，参考无此权限组合的可直接移植方案。必须区分用户范围与已接受实例，不能删full-artifact旧pin、系统代选app或把cursor升级用户身份。
+- [ ] 当前声明与当前观测完整原生pair并置（§89）；业务/查询及请求/阻塞同卡分尺（§88）；相邻历史authority消费者回放（§91），各自最小验收，B2–B6与父账13/79、66开放不变。
