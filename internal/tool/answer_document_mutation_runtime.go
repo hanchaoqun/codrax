@@ -4266,16 +4266,21 @@ func runtimeTraceProjPartitionCaveatBlock(set types.TraceCausalProjectionSet, zh
 }
 
 // runtimeTraceProjUserFocusFromBusContext extracts the typed analyzer entity
-// context for the R2 root-label comparison: AnalyzerHints.Entities ∪
-// ExactTargets verbatim (never RawRequest — the typed lanes are the only
-// permitted carriers). Nil context / IR → empty focus → every consumer fails
-// open to legacy behavior.
+// context for the R2 root-label comparison. A present target profile uses the
+// same user-identity resolver as the ledger; generic Entities/ExactTargets stay
+// available separately for legacy window display and soft candidate selection.
+// Nil context / IR / profile keeps the original legacy comparison behavior.
 func runtimeTraceProjUserFocusFromBusContext(ctx *types.BusContext) runtimeTraceProjUserFocus {
 	var focus runtimeTraceProjUserFocus
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return focus
 	}
 	hints := ctx.AnalysisIR.RequestModel.AnalyzerHints
+	identities, present := types.RuntimeUserTargetAnchorEntities(&ctx.AnalysisIR.RequestModel)
+	focus.ProfilePresent = present
+	for _, identity := range identities {
+		focus.AuthorizedEntities = append(focus.AuthorizedEntities, identity.Value)
+	}
 	seen := map[string]bool{}
 	for _, entity := range append(append([]string(nil), hints.Entities...), hints.ExactTargets...) {
 		entity = strings.TrimSpace(entity)
@@ -9494,7 +9499,7 @@ func runtimeTraceNextStepUndrilledHeadlineText(lead types.TraceCausalProjectionN
 // projection is flat-mismatched; identical rosters dedupe to one row.
 func runtimeTraceNextStepFlatAnchorRecoveryHints(ctx *types.BusContext, ledger types.ObservationLedger, zh bool) []string {
 	focus := runtimeTraceProjUserFocusFromBusContext(ctx)
-	if len(focus.Entities) == 0 {
+	if len(focus.userTargetEntities()) == 0 {
 		return nil
 	}
 	var out []string

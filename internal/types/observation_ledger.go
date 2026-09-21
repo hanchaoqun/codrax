@@ -734,9 +734,14 @@ func observationLedgerRuntimeArtifactScopeProfile(rm *RequestModel) *RuntimeArti
 // the anchor election and the 🎯 root label comparison read the same user
 // entities; the RuntimeTargets lane is the ADDITIONAL typed handle the tool
 // side gets separately through the pinned-focus channel.
+// Present RuntimeTargetProfile declarations supersede these legacy fallbacks:
+// only the shared resolver's authorized typed targets may elect a user root.
 func observationLedgerAnchorEntities(rm *RequestModel) []AnchorUserEntity {
 	if rm == nil {
 		return nil
+	}
+	if entities, present := RuntimeUserTargetAnchorEntities(rm); present {
+		return entities
 	}
 	var out []AnchorUserEntity
 	seen := map[string]bool{}

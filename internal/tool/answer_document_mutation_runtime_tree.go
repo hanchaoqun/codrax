@@ -8959,20 +8959,60 @@ func runtimeTraceProjStampTargetStateEvidence(
 // projection renderer may compare the 🎯 root against (R2, customer audit
 // 2026-07-03 C4a). Entities is AnalyzerHints.Entities ∪ ExactTargets verbatim —
 // never RawRequest, never model prose. An empty list means the comparison
-// cannot run and every consumer fails open to legacy behavior.
+// cannot run and keeps legacy behavior only when no target profile was supplied.
+// ProfilePresent distinguishes an explicit empty authorization from that old
+// empty-context lane. AuthorizedEntities comes from the ledger's shared resolver;
+// Entities remains separate for time-window display and soft context selection.
 type runtimeTraceProjUserFocus struct {
-	Entities []string
+	Entities           []string
+	ProfilePresent     bool
+	AuthorizedEntities []string
+}
+
+func (focus runtimeTraceProjUserFocus) userTargetEntities() []string {
+	if focus.ProfilePresent {
+		return focus.AuthorizedEntities
+	}
+	return focus.Entities
+}
+
+func (focus runtimeTraceProjUserFocus) matchesUserTarget(target string) bool {
+	if !focus.ProfilePresent {
+		return runtimeTraceProjTargetMatchesUserEntities(target, focus.Entities)
+	}
+	for _, entity := range focus.AuthorizedEntities {
+		if types.RuntimeUserTargetAnchorMatchesEntity(target, entity) {
+			return true
+		}
+	}
+	return false
 }
 
 // runtimeTraceProjApplyUserFocus runs the precise root-vs-entity comparison and
 // the display-only user-window derivation on a built model. No typed entity
 // context → the model keeps its zero values (legacy label, no relation line).
 func runtimeTraceProjApplyUserFocus(model *runtimeTraceProjTreeModel, focus runtimeTraceProjUserFocus) {
-	if model == nil || len(focus.Entities) == 0 {
+	if model == nil {
 		return
 	}
 	if start, end, ok := runtimeTraceProjUserWindowFromEntities(focus.Entities); ok {
 		model.UserWindowStart, model.UserWindowEnd = start, end
+	}
+	entities := focus.userTargetEntities()
+	if focus.ProfilePresent {
+		// Current explicit authority wins over a stale election/display flag.
+		// An analysis anchor is still useful, but is not thereby user-named.
+		model.RootFocusAnchorOnly = false
+		model.RootFocusUserEntities = nil
+		model.TargetUserAliasEntity = ""
+		model.FlatAnchorMismatch = false
+		model.FlatAnchorThread = ""
+		if len(entities) == 0 {
+			model.RootFocusAnchorOnly = strings.TrimSpace(model.Target) != ""
+			return
+		}
+	} else if len(entities) == 0 {
+		return
 	}
 	target := strings.TrimSpace(model.Target)
 	if target == "" {
@@ -8985,19 +9025,19 @@ func runtimeTraceProjApplyUserFocus(model *runtimeTraceProjTreeModel, focus runt
 		if anchor == "" || runtimeTraceCausalProjectionUnknownSentinel(anchor) {
 			return
 		}
-		if runtimeTraceProjTargetMatchesUserEntities(anchor, focus.Entities) {
+		if focus.matchesUserTarget(anchor) {
 			return
 		}
-		entities := runtimeTraceProjThreadOrPidEntities(focus.Entities)
-		if len(entities) == 0 {
+		threadEntities := runtimeTraceProjThreadOrPidEntities(entities)
+		if len(threadEntities) == 0 {
 			return
 		}
 		model.FlatAnchorMismatch = true
 		model.FlatAnchorThread = anchor
-		model.RootFocusUserEntities = entities
+		model.RootFocusUserEntities = threadEntities
 		return
 	}
-	if model.TargetUserElected {
+	if model.TargetUserElected && !focus.ProfilePresent {
 		// B1 (§12.3 裁定3): the anchor path was ELECTED by a typed user-entity
 		// match at compile time — the root IS the user's thread even when the
 		// renderer-side entity list is starved or divergent (compile-side
@@ -9005,19 +9045,19 @@ func runtimeTraceProjApplyUserFocus(model *runtimeTraceProjTreeModel, focus runt
 		// ‹用户关注线程›; a disclaimer here would contradict the election.
 		// §24.12 C11: an elected root under a different display name than the
 		// user's entity still declares the dual-name normalization.
-		model.TargetUserAliasEntity = runtimeTraceProjTargetUserEntityAlias(target, focus.Entities)
+		model.TargetUserAliasEntity = runtimeTraceProjTargetUserEntityAlias(target, entities)
 		return
 	}
-	if runtimeTraceProjTargetMatchesUserEntities(target, focus.Entities) {
+	if focus.matchesUserTarget(target) {
 		// 🎯 root really is a user-named thread — keep ‹用户关注线程›. §24.12
 		// C11 (同 tid 双名归一声明): a tid-decided match whose display names
 		// differ declares the pair explicitly (the reader typed one name and
 		// reads the other).
-		model.TargetUserAliasEntity = runtimeTraceProjTargetUserEntityAlias(target, focus.Entities)
+		model.TargetUserAliasEntity = runtimeTraceProjTargetUserEntityAlias(target, entities)
 		return
 	}
 	model.RootFocusAnchorOnly = true
-	model.RootFocusUserEntities = runtimeTraceProjThreadOrPidEntities(focus.Entities)
+	model.RootFocusUserEntities = runtimeTraceProjThreadOrPidEntities(entities)
 }
 
 // runtimeTraceProjFlatAnchorSubject resolves the flat render's analysis-anchor
