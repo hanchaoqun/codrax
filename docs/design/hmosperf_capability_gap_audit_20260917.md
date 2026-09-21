@@ -2011,7 +2011,7 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 
 旧人工FAIL保留；父账13/79、66开放不变。
 
-## 96. D/IO分类与D总量教学的同类接缝统一修复（2026-09-21，实施中）
+## 96. D/IO分类与D总量教学的同类接缝统一修复（2026-09-21，末版复验中）
 
 上一批§93/95三笔随`39ebdd72d`已推送main，session35559正式exit0，远端af64dc340→39ebdd72d；本地/远端相等、tracked工作区干净后开始本片。不把上批全仓收据套用新代码。
 
@@ -2026,3 +2026,24 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 core已落：`TraceSchedulerWaitPartitionTeaching`单源区分互斥桶/原生D/睡眠内IO细分/独立请求与闭合等待，recap复用既有caliber，唯一AL旧错误文本pin精确迁移，原0/3计数和排序/清单数针不改。root公开首次GREEN18591正式exit0/agent1.238s、race58040正式exit0/agent7.609s；独立focused51153正式exit0，共34顶层，含原生G12、状态折算及formatter census/self-red（agent32.331/types0.968/tracequery1.718秒）。追加根席工具面RED21862正式exit1/agent1.705s，仅四实际query的早期preview缺同源说明；随后工具既有preview一行投递，GREEN2849正式exit0/agent1.672s。公开正针追加于此前初始RED之后，按实际批次记录，不伪记均先红。末版统一race/全仓另验。
 
 默认值/活跃流37837正式exit0/llm3.253s，8项，保600/300/600秒及4ms连续部分帧、隐式推理/tool-call活跃流。未修改超时实现。
+
+核心提交`d168ee40b`、同类三生产面提交`b55ca5d18`，统一冻结。后者新公开测试的首版漏传trace使skill面缺失（root诊断13397/agent1.143s不记完整有效RED），修fixture后86666正式exit1/agent1.176s：6真实B/E业务状态→finalizer分支及6原始note标签失败，原计量/机制上限前提正常。GREEN57753正式exit0/agent1.276s，精确迁移另一个旧zero文案pin，其他断言不降。业务/三类raw note复用既有`TraceStateNonIODStateWord`，finite/defaults用同一常量替换旧句而非保留冲突；无手算或新开门。
+
+独立末审查8类原生TraceNoteKeyDState发射（target/rank/causal/aggregate/churn/IO pressure/burst/summary），均分别取DStateMs与IOWaitMs，没有已fold值混进raw D键，标签修复安全。旧tool的io_wait_zero_scope窄注释可保留；PTV7 canonical-token五桶快照不是自然语言D总量，既裁载体不改，不声称本片已消除所有内部词。参考的原生D/S区分与本仓更细两层分类一致，但不复制其算法/最大桶根因。
+
+干净构建43686正式exit0，revision=b55ca5d1809f/buildTime=2026-09-21T13:00:58Z；统一全仓10053、根席末版公开race42781、同类面focused82597/race9363仍待正式退出。core独立race11290已正式exit0，34顶层49子项（agent160.799/types3.504/tracequery2.306秒），只能签其已运行集合。固定双例56191已启动；完整结果及人审另记，不提前销账。
+
+后续正式收据：42781 exit0/agent8.840s，5顶层32子项；同类面82597 exit0（agent44.095/skill0.966s）、9363 exit0（agent240.060/skill3.412s），均52顶层89子项、零FAIL/SKIP/竞态。原生状态/业务/独立completion与Binder/有限范围/census保护均通过。
+
+全仓10053正式exit1，不销失败：86测试包通过、13无测试包，唯一tool包失败（452.906s）。原针`TestTraceQueryWindowStatsRendersVsyncGeneratorCensus`发现新状态说明使帧节拍发生器普查进入StoreBlob截断中段；不是原始计量变化。独立原针RED83775仍正式exit1。修复仅将canonical window_stats的既有普查调用移到同一stanza起点、可变资源明细之前，删除旧调用；不重复、不扩摘要额度、不改event_search/复合view或旧断言。GREEN6651正式exit0/tool1.794s，含相关普查/状态账号/等待preview；末版源码`trace_query.go` SHA256 `5631d5e8f738e575690c97bc61bd1ed93b6cd55064eb0a320a3e7099bc6964a7`，新全仓77783与race75036另验。b55固定live不冒充覆盖这次纯排序修复。
+
+## 97. b55固定双例完整人工0/2：早期投递与因果事实交接分别留债（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_d_io_semantics_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_d_io_semantics_20260921_manual_audit.md)：runner56191正式exit0，2并行×1，无第三次追绿。C2机器PASS/197秒，因果链FAIL/196秒；完整人工均FAIL。C2三段IO0.635ms和独立Binder0.524ms正确，新共享教学实际到达终答输入；模型仍误否定原生D，并从小占比越权推断影响可忽略。旧答案不倒签。
+
+- [ ] 高ROI投递缺口：无窗`thread_timeline`已算出243段，但Run只给显式双端或无窗window_stats发布TargetWindowStates；summary前12段看不到第三段IO，清单及共享说明也因账号缺失未交付。复用当前精确timeline经单一builder补账号，不重扫；实际timeline.Window是计量边界，不能重标full_artifact或改权限位。保半端/线窗/重名/TID代次/取消/完整性拒绝，S+IO不升D，32段cap继续披露不完整。新纯投递路不追加Binder索引/配对，既有bounded/window_stats/bundle行为不变。
+- [ ] 更高风险组合交接：因果例已采集threadpool的11ms D侧IO/fscache与三依赖各1ms runnable，但analyzer收窄bounded_effect_verdict，实际终答只展示40条中的6条目标自身状态，已选依赖事实被滤掉、投影0/1。不能仅归模型波动。审计typed问题范围、已接受链上事实及报告形态一致性；不扫用户原文切换合同、不把completion自由说明升级权威、不将链外背景当根因。原生irq边存在于wakeup census，展开止于终端IO，不误称Mermaid删边。
+- [ ] P2恢复可操作性：C2原summary已member_set但有两个required清单维度，原子add_facet_id未发布，模型仍调用后正确被拒。代码发布与执行共用投影，条件式hint说发布时才使用；本轮未证新硬合同矛盾。应按typed文档形状区分缺绑定与缺承载/数量，后者指引模型自己补合规结构；不扩schema/重试预算、不系统代写成员。
+- [ ] §94已接受业务实例局部补齐、声明/观测pair、业务同卡分尺、历史authority回放、B2–B6及其余HMC任务继续开放，父账13/79交付、66开放不变。
+
+两份schema2旁路均实际生成；C2有限清单的空数组合理，因果例`trace_root_cause_contract_not_active`是上游合同/交接问题而非落盘失败。模型主文还将CFS threadpool称RT、从network/cookie名称虚构业务职责，附录正确数值不抵销主文缺失。本片修正事实解释，不改变任何窗口/值/排名/源身份/根因资格、JSON准入/所有权或600/300/600秒与活跃流保护。
