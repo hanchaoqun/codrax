@@ -2798,11 +2798,7 @@ func runnerPlanRel(repoRoot string, plan runnerPlan) string {
 }
 
 func runnerPlanLabel(repoRoot string, plan runnerPlan) string {
-	runner := plan.Runner
-	if (plan.Runner == "python" || plan.Runner == "java") && strings.TrimSpace(plan.Framework) != "" {
-		runner += "/" + strings.TrimSpace(plan.Framework)
-	}
-	return fmt.Sprintf("%s@%s", runner, runnerPlanRel(repoRoot, plan))
+	return runnerResultScopeLabel(plan.Runner, plan.Framework, runnerPlanRel(repoRoot, plan))
 }
 
 func renderRunnerOutputSection(plan runnerPlan, output string) string {
@@ -3819,6 +3815,7 @@ func projectTestObservationExecutionMatches(observation types.ProjectTestObserva
 		return nil
 	}
 	var matches []projectTestObservationExecutionMatch
+	resultScopes := projectTestResultScopeCatalog(report)
 	for candidateIndex, candidate := range report.TestSurface.Candidates {
 		expectedSuite, ok := projectTestObservationCandidateSuite(candidate, testPath)
 		if !ok {
@@ -3843,11 +3840,13 @@ func projectTestObservationExecutionMatches(observation types.ProjectTestObserva
 			continue
 		}
 		for resultIndex, result := range report.TestResults {
+			localSuite, scopeMatches := projectTestResultSuiteForCandidate(candidate, result, resultScopes)
 			if result.Kind == types.TestResultKindBuildError || result.Passed != passed ||
 				result.ObservationScope != types.TestObservationScopeAssertion ||
+				!scopeMatches ||
 				strings.TrimSpace(result.AssertionID) != assertionID ||
 				!projectTestAssertionSuiteMatches(strings.TrimSpace(result.Suite), assertionSuite) ||
-				!projectTestResultSuiteBelongsToPath(candidate, testPath, expectedSuite, strings.TrimSpace(result.Suite)) {
+				!projectTestResultSuiteBelongsToPath(candidate, testPath, expectedSuite, localSuite) {
 				continue
 			}
 			matches = append(matches, projectTestObservationExecutionMatch{
