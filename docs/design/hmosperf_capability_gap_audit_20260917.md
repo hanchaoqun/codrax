@@ -1357,3 +1357,17 @@ C仅一行源码更正，真实make test通过、隔离和原仓保护正确；r
 §48结构工作行裁剪口径已查清并另片施工：原工具及实际成文输入均保49ms查询内量/50ms完整量，系统BoundRow丢了范围后renderer裸写49，不是底层算错。按同record已验证字段恢复范围限定，绝不把49换50；同线程业务打点也不等于目标自身执行或因果贡献。真实公开渲染红绿及完整记录另记。
 
 软教学独立只读复审通过；采纳删除共享句中不适用于schema相邻三元组的“below”尾语，避免再造误导。四包race×3正式exit0（agent5.070s/skill2.759s/tool10.909s/types4.086s）；最后纯措辞微调实际消息/skill复验exit0（agent2.035s/skill1.081s），收据分别`/tmp/hmc-runtime-breadth-range-race-20260920.log`及`final-green`同前缀文件。无分类准入或模型字段代写，真实模型是否遵循须另批验收。
+
+## 51. 业务关系回执保查询内量与原始完整量（2026-09-20，验收中）
+
+参考仓`cold_launch_ops.py:450–482`逐节点裁窗，`window_utils.py:22–29`统一区间相交；`marker_ops.py:396–411`/`trace_data_cache.py:294–312`则保原始ts/dur、按相交筛选。不能笼统声称参考的每个marker查询都已提供双口径；本仓native本已同时有selected_window、actual_window、actual_impact_ms，只是业务关系显示载体丢失它们。
+
+最窄修复在确定性ordinary span编译时保存系统私有、值型的测量范围，query内MeasuredDurationMS不换值；实际renderer同时显示片段区间/查询范围，以及同record成对且自洽的可选完整范围/完整量。完整量不扩查询、排名或根因资格；缺失/无效/不包含/不一致字段不能借同名另一record、来源或query的量。模型wire仍仅observation_id+conclusion，BoundRow不序列化，原有语义工作凭证及frame限定分支不改。
+
+普通业务行的关系说明收窄到“仅凭业务打点尚未证明对目标等待/响应的因果贡献”，不再把因果未证误写成业务身份/所属线程也未证。同线程sync/async marker仍不铸target_self_execution，也不代模型选择关系结论。
+
+公开TraceQuery→合同→模型选精确id→绑定→实际中英文renderer，在49/50ms裁剪、完整50ms、显式窄窗10ms及任意改名上先红后绿。真实RED `/tmp/codrax-business-receipt.LOgSwl/RED-public.log`exit1（render0.848s），不是测试编译失败；初版GREEN-public exit0（render1.358s）。末版非法值、相等口径、clone/wire和相邻语义正枝验收另补；不以此签4bcc旧答案或新live已通过。
+
+下一批排序：业务发现/因果组合旧FAIL优先（用户影响高且直接覆盖范围限定），明确时间窗D/IO多跳因果例并列（保护显式窗、各状态族、链资格与图关系）；固定一个干净新二进制恰好2并行×1。C native-command与Python补证已有精确能力缺口，在B2–B6修前不靠重复同样运行求绿。新例仍逐一人工读正文/过程/系统图/mandatory旁路，原审计不回写。
+
+末版定向`GREEN-focused-final.log`正式exit0（types1.246s/render2.383s），末版race `GREEN-race-final.log`正式exit0（types4.293s/render2.991s，17个顶层测试）；同目录较早`GREEN-packages.log`两完整包exit0（types41.389s/render2.041s），但早于相等actual保守排除及补充非法字段针，不借其签末改整包。相等完整/片段口径不生成矛盾的“非查询内量”第二说明。末版全仓正在独立执行，生产已冻结。

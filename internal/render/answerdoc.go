@@ -214,6 +214,22 @@ func renderV2RuntimeWorkRelationReceipt(b *strings.Builder, blk types.AnswerBloc
 		return
 	}
 	row := receipt.BoundRow
+	if measurement, ordinary := row.BusinessSpanMeasurement(); ordinary {
+		if lang == answerDocLangZH {
+			fmt.Fprintf(b, "**运行时工作关系判断**：`%s`（线程 `%s`）查询窗内实测 %.3fms，区间 %.6f–%.6f 秒（查询窗 %.6f–%.6f 秒）", row.WorkLabel, row.Subject, row.MeasuredDurationMS, measurement.StartTs, measurement.EndTs, measurement.QueryStartTs, measurement.QueryEndTs)
+			if measurement.FullKnown {
+				fmt.Fprintf(b, "；同条记录的原始配对范围 %.6f–%.6f 秒，完整耗时 %.3fms（不是查询窗内耗时）", measurement.FullStartTs, measurement.FullEndTs, measurement.FullDurationMS)
+			}
+			b.WriteString("；已观测到该业务区间及所属线程，但仅凭该打点尚未证明它对目标等待或响应的因果贡献。\n\n")
+		} else {
+			fmt.Fprintf(b, "**Runtime-work relation conclusion**: `%s` (thread `%s`) measured %.3fms in the query window, interval %.6f–%.6f s (query window %.6f–%.6f s)", row.WorkLabel, row.Subject, row.MeasuredDurationMS, measurement.StartTs, measurement.EndTs, measurement.QueryStartTs, measurement.QueryEndTs)
+			if measurement.FullKnown {
+				fmt.Fprintf(b, "; the same record's full paired range is %.6f–%.6f s, full elapsed %.3fms (not the in-window duration)", measurement.FullStartTs, measurement.FullEndTs, measurement.FullDurationMS)
+			}
+			b.WriteString("; the work interval and its thread are observed, but this marker alone does not establish a causal contribution to the target's wait or response.\n\n")
+		}
+		return
+	}
 	if lang == answerDocLangZH {
 		fmt.Fprintf(b, "**运行时工作关系判断**：`%s`", row.WorkLabel)
 		if row.Subject != "" {

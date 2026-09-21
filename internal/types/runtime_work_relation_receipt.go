@@ -72,6 +72,11 @@ type RuntimeWorkRelationRow struct {
 	AllowedConclusions []RuntimeWorkRelationConclusion
 	Credential         string
 	Boundary           string
+	// Only the deterministic ordinary-span compiler can stamp this value.
+	// Kept private and value-only: it neither changes the model wire nor
+	// aliases evidence across the existing contract/document clone paths.
+	businessMeasurement RuntimeWorkBusinessMeasurement
+	businessMeasured    bool
 	// FrameCausalityApplicable (RECEIPT-1, §40.31.1 ○14 → §40.32, 2026-09-02)
 	// is the analyzer's typed frame decision (FrameCausalityQualifierApplicable)
 	// stamped on the system-bound row at contract build time: the receipt's
@@ -80,6 +85,22 @@ type RuntimeWorkRelationRow struct {
 	// target-wait / completion mechanism. System-owned — the model authors
 	// only observation_id + conclusion.
 	FrameCausalityApplicable bool
+}
+
+// RuntimeWorkBusinessMeasurement preserves the two existing observation
+// rulers. MeasuredDurationMS remains the query-clipped value on the row;
+// FullDurationMS is optional same-record paired-marker metadata, never a
+// replacement measurement or a causal credential. Callers receive a copy.
+type RuntimeWorkBusinessMeasurement struct {
+	QueryStartTs, QueryEndTs float64
+	StartTs, EndTs           float64
+	FullStartTs, FullEndTs   float64
+	FullDurationMS           float64
+	FullKnown                bool
+}
+
+func (r RuntimeWorkRelationRow) BusinessSpanMeasurement() (RuntimeWorkBusinessMeasurement, bool) {
+	return r.businessMeasurement, r.businessMeasured
 }
 
 // RuntimeWorkRelationContract is active only when the analyzer explicitly
@@ -268,11 +289,35 @@ func runtimeWorkRelationRowFromBusinessSpan(record ObservationRecord) (RuntimeWo
 		math.Abs(ms-(record.Span.EndTs-record.Span.StartTs)*1000) > 0.000501 {
 		return RuntimeWorkRelationRow{}, false
 	}
+	for _, value := range []float64{start, end, record.Span.StartTs, record.Span.EndTs} {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return RuntimeWorkRelationRow{}, false
+		}
+	}
+	measurement := RuntimeWorkBusinessMeasurement{
+		QueryStartTs: start, QueryEndTs: end,
+		StartTs: record.Span.StartTs, EndTs: record.Span.EndTs,
+	}
+	fullStart, fullEnd, fullWindowOK := TraceCausalProjectionParseWindowValue(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyActualWindow))
+	fullMS, fullErr := strconv.ParseFloat(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyActualImpactMS), 64)
+	// Both notes are producer-formatted: endpoints to 1us and duration to
+	// 1us. Accommodate only their combined rounding, never infer a full pair
+	// from another observation, a label match, or one surviving note.
+	if fullWindowOK && fullErr == nil && fullMS > 0 &&
+		!math.IsNaN(fullMS) && !math.IsInf(fullMS, 0) &&
+		!math.IsNaN(fullStart) && !math.IsInf(fullStart, 0) && !math.IsNaN(fullEnd) && !math.IsInf(fullEnd, 0) &&
+		fullStart <= record.Span.StartTs+0.000000501 && fullEnd >= record.Span.EndTs-0.000000501 &&
+		(fullStart < record.Span.StartTs-0.000000501 || fullEnd > record.Span.EndTs+0.000000501) &&
+		math.Abs(fullMS-(fullEnd-fullStart)*1000) <= 0.001501 {
+		measurement.FullStartTs, measurement.FullEndTs = fullStart, fullEnd
+		measurement.FullDurationMS, measurement.FullKnown = fullMS, true
+	}
 	return RuntimeWorkRelationRow{
 		ObservationID: record.ID, WorkLabel: record.Object, Subject: record.Subject,
 		MeasuredDurationMS: ms,
 		AllowedConclusions: []RuntimeWorkRelationConclusion{RuntimeWorkRelationConclusionRelationUnproven},
 		Credential:         "none", Boundary: "work_to_target_relation_unproven",
+		businessMeasurement: measurement, businessMeasured: true,
 	}, true
 }
 
