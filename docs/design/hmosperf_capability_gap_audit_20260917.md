@@ -1859,3 +1859,19 @@ ROI顺序：先修上述全局状态自冲突，再原生身份教学/已执行�
 §85已提交`144a4c1bd`；§86已提交`c8dc9e752`，两片源码冻结。IO公开有效RED=`/tmp/hmc-io-verdict-scope.0jqn69/RED-public-valid.log`（session31609正式exit1/tool2.397s），只在已证S闭合等待/目标自身×中英/改名的无据后缀失败；D自身原词、缺completion保35ms非链上、unknown/context负控均绿。较早RED.log/RED-final.log/RED-harness-d-state.log/RED-public-final.log含D合并类型或EN换行装配假设，不作为产品RED。新3顶层/6子例通过真实查询→编译→ApplyAndPersistMutation→Render，GREEN-public.log session20068正式exit0/tool2.672s。只改两处生产词面和两项旧词面pin，完整字段匹配不降成宽substring；原观测/投影JSON前后相等。
 
 统一末版全仓`/tmp/hmc-repair-label-final-full-20260921.log`已启动（session58849），不复用首次行数FAIL签通过。独立旧默认/活跃流8顶层`/tmp/hmc-repair-label-stream-protection-20260921.log`正式exit0（session34233，llm4.090s），600/300/600秒和活跃隐藏推理等保护未改。IO相邻36项定向/race及独立末审收据随后补，干净构建后再启动固定双例。
+
+IO相邻末版36顶层定向`/tmp/hmc-io-verdict-scope.0jqn69/GREEN-focused.log`正式exit0（session16809/tool7.591s）；相同选择race `GREEN-race.log`正式exit0（session97874/tool67.000s），均36PASS/0FAIL/0SKIP。独立只读审查PASS，5文件hash与冻结相等；IO词根/D各臂/背景原词、全部源值/排名/根因description不变。文档提交`86679d36b`后干净构建`/tmp/hmc-repair-label-clean-build-20260921.log`正式exit0（session46871），实测revision86679d36ba5e/buildTime2026-09-21T11:10:28Z。固定双例runner62896已于04:10:58本机时间启动，结果根`eval/results/hmc_repair_label_scope_20260921`，两例各一次；全仓/人工回放仍待正式退出，未提前销账。
+
+## 87. 86679固定双例：系统修复命中，业务分尺错误与有限IO披露遗漏分账（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_repair_label_scope_20260921.md)、[逐面人工审计](../../eval/parallel_selected_summary_hmc_repair_label_scope_20260921_manual_audit.md)：runner62896正式exit0，2并行×1，机器1/2；H4核心问答人工PASS但保P2展示遗漏，业务IO完整人工FAIL。不为同版追跑第三例，也不改oracle。
+
+H4 170秒保明确13762.791708–13763.024898窗、四态157.248/5.604/70.338/0ms及233.190合计，CPU4直接策略上限2100000kHz未被提升成已证性能限制。finite合同下零投影与schema2空旁路正确，不能记因果能力丢失。实际最后输入还给独立完成闭合IO至少4次/并集至少4.384ms及容量下界（8可见、190溢出），正文只保调度器标记D/IO=0，漏两尺并置。零值已有“调度器标记”限定且本题只问CPU/四态/频率，故不升级为核心答案失败或新P1；但相关IO展示开放项不能全销。首稿自造unproven枚举被拒，删后成功；没有schema教该值的证据，不能将模型误读倒记系统合同冲突。
+
+业务IO 240秒仍缺35ms请求，将51ms查询的6+1+44套进50ms业务，入睡时间当issue时间，31ms线程等待当请求耗时，并把13ms余量脑补交接开销；“立即唤醒”与采集窗50ms也不准确。LoadDocumentIndex40ms本轮恢复、旁路description正确，不代表整份正文通过。最后输入2333/2334、2347、2617逐项已有业务50/40、请求35/等待31、query51，4→7→10消息且prune0；定为持续模型消费错误，不以“随机波动”概括、不增加散文硬门。
+
+窄修复确实命中：分析修补提示保7个required维度及work/frame不变；但本轮未声明target_effect_verdict，不能冒称effect+causal双角色live覆盖。图总览31ms已为IO阻塞、无设备成因后缀，原排名/两业务线索/47ms背景/因果图和三个0.031/0.001/0.001秒旁路selection均保。最后patch再次把summary-only元数据放section，被原子拒绝，交付上一接受正文，无部分修改。正确JSON教学此前已在实际输入，该重复误填独立观察。
+
+统一全仓58849正式exit1：86测试包通过、13无测试包；tool437.335s唯一失败是`TestDiagramIdentityAuthorityCensus`的旧函数名登记。§85将parser改名为`parseRuntimeQuestionProfileWithClassifiers`，源码quote准入尾部逐字未变、仍同一raw/quote参数；旧名只留测试wrapper。根席复核后`7cfd422bf`仅迁移精确(file,fn)键并补注释，不宽化前缀/任意caller，self-red、过期条目和全部身份门不变。独立定向RED/GREEN `/tmp/hmc-runtime-quote-owner-census-{red,green}-20260921.log`正式exit1/0（56935/22122），17顶层/76子例全绿。替代统一全仓`/tmp/hmc-repair-label-final2-full-20260921.log`（session15057）已启动；前两次全仓FAIL保留，未提前签新全仓通过。
+
+下一ROI仍为原生测试身份的单源教学与当前成功身份可见性，再B2来源授权及B3–B6绑定/持久化；当前只读设计不算实现。旧人工FAIL及HMC父账13/79交付、66开放不回写。参考sleep_ops逐状态裁窗/直接wake只支持精确分尺，不支持余量机制推断或抛弃中断waker。
