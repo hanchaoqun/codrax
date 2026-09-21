@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/traceinput"
@@ -275,6 +276,32 @@ func TestTraceQueryBusinessRefAssertionsPreparedInputAliases(t *testing.T) {
 			}
 			if got := businessRefTestQuery(t, ctx, q); got.Success {
 				t.Fatal("stale prepared input borrowed still-existing query file")
+			}
+		})
+	}
+}
+
+func TestTraceQueryBusinessRefAssertionsPreserveCancellationKind(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		name := "canceled"
+		if deadline {
+			name = "deadline_exceeded"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx, ref := businessRefAssertionFixture(t)
+			runCtx, cancel := context.WithCancel(context.Background())
+			cancel()
+			if deadline {
+				runCtx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				cancel()
+			}
+			ctx.Ctx = runCtx
+			for _, fields := range []map[string]any{{}, {"source": "attached_trace"}, {"path": ref.Data().Path}} {
+				fields["view"], fields["business_span_ref"] = "window_stats", ref.Token()
+				r := businessRefTestQuery(t, ctx, fields)
+				if r.Success || r.TraceViewCancellation == nil || r.TraceViewCancellation.Reason != name || len(r.Observations) != 0 {
+					t.Errorf("matching assertion changed cancellation into parameter failure: %+v", r)
+				}
 			}
 		})
 	}

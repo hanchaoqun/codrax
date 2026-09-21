@@ -1087,3 +1087,9 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 首轮race×3 tool21.444s/agent7.581s/types3.149s；流式/default保护17.422s，活跃字节/心跳可超过旧总时限，600/300/600保持。首轮全仓agent102.564s报一条伴随completion schema测试仍期待旧全省略文案；仅更新query子臂为精确断言合同，completion可选性/接受与dispatch条件、用户窗及源代次pin不动。相邻定向已绿，独立agent整包77.634s；全仓退出与最终重测另补，不以定向绿覆盖整仓失败。
 
 独立源码复核确认同类别名缺口：938版本重复物理路径已支持，但当前typed逻辑工件ID仍被当文件路径比对；普通查询同一ID成功而引用查询失败，公开RED1.278s（`/tmp/hmc-business-ref-logical-red-20260920.log`）。等固定live结束后补正，复用原`traceQueryAdaptLogicalArtifactPath`再比物理域，不新增ID映射表、不忽略显式source；不同ID/未知ID/不同文件仍拒绝。文件与prepared附件两种ID均实测。测试曾试图构造独立perf别名，但prepared选择表已将它并入物理工件，fixture因此失败；去掉不存在的测试前提，保真实双文件ID/外来ID负针，并运行既有逻辑ID全部回归，不改原歧义解析规则。最终联合GREEN tool3.746s/agent1.737s（`/tmp/hmc-business-ref-logical-final2-green-20260920.log`），此补正支线尚无live命中，不借938回放销。
+
+### 36.2 取消分型的末端复核
+
+938首轮全仓实际退出1，仅伴随教学pin，tool426.974s通过。逻辑别名及该pin补正后重新全仓；该版race×3通过tool27.475s/agent6.159s/types3.829s，构建e5c2d81861ed退出0。推送前复核再发现本片引入的取消分型小回归：无重复字段会走原typed取消出口，而带匹配source/path时prepared-material.Validate观察到取消，布尔比较却把它误报坐标冲突。公开先红1.165s（`/tmp/hmc-business-ref-assertions-cancel-red-20260920.log`）：canceled/deadline各两个重复字段臂失败、各自无重复字段对照通过。
+
+补正只在断言失败时保留已发生的caller取消原因，复用原`traceQueryCancellationResult`，不改等待时长、不重试取消、不签观察或新引用。最后定向tool3.539s/agent1.231s通过（`/tmp/hmc-business-ref-cancel-final-green-20260920.log`），覆盖所有实例引用/逻辑ID/准备材料及completion消息。再次完整全仓与增量race退出收据待补；未以更早的绿覆盖此末改。

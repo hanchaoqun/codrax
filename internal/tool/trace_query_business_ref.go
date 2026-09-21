@@ -94,6 +94,12 @@ func traceQueryApplyBusinessRef(ctx *types.BusContext, p traceQueryParams) (trac
 		(p.TimeStart.Set() && p.TimeStart.Seconds() != d.StartTs) || (p.TimeEnd.Set() && p.TimeEnd.Seconds() != d.EndTs) ||
 		(p.LineStart.Int() != 0 && p.LineStart.Int() != d.StartLine) || (p.LineEnd.Int() != 0 && p.LineEnd.Int() != d.EndLine) ||
 		(p.SpanName != "" && p.SpanName != d.Name) || !traceQueryBusinessRefSourceAssertionsMatch(ctx, p, d.Path) {
+		// Prepared-material validation observes the caller's context. A
+		// canceled comparison is not evidence of conflicting coordinates.
+		if err := contextFromBus(ctx).Err(); err != nil {
+			r := traceQueryCancellationResult(p.View, p.Source, err)
+			return p, empty, &r
+		}
 		return reject("coordinate assertions conflict with the selected current instance; keep the reference and remove redundant coordinates for that instance, or use ordinary explicit parameters without the reference for a different or clipped scope")
 	}
 	profile := traceSupplementRequestedArtifactScope(ctx)
