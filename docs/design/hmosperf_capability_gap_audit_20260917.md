@@ -1901,3 +1901,19 @@ H4 170秒保明确13762.791708–13763.024898窗、四态157.248/5.604/70.338/0m
 业务分尺的独立二次审计没有找到明确的错误等式或准入自冲突，但确认稳定的显示风险：末张事实卡突出query51=6+1+44，business50=5+1+44在更早卡片，末尾业务行仅留50总量；链上31ms阻塞和背景47ms请求又共用IO延迟泛称。`answer_document_final_decision_boundary.go:286`要求使用该读者标签，邻近机制边界仍明确区分请求与阻塞，因此不能定性为系统授权错误换尺。`trace_span_scheduler.go:92`确实以业务起止重建真实状态，并非按宽查询比例缩放；参考`core/preprocess/sleep_ops.py:198/240/577/593`的局部窗交集能力已有对应实现。
 
 - [ ] 后续上下文精简小批先把现有“业务窗/查询窗”和“请求驻留/闭合阻塞”在同一成文卡紧邻呈现、削减重复摘要，保来源/线程/窗口/覆盖限制；先做公开消息接缝回归再固定双例人审。此项目前是呈现风险设计，不是已证新P1或已修系统缺陷，禁止追加同义教学堆叠、正文扫描硬门、模型结论代写或根因资格扩展。旧业务FAIL、H4两尺遗漏都继续开放。
+
+## 89. 原生断言身份教学与当前持有报告交接（2026-09-21，实施验收中）
+
+从干净的`6647135b9`继续，远程核对无落后。本批落实§88前五项，后续Trace同卡分尺/B2–B6不混入本片，也不以展示成功抵销旧人工FAIL。两路施工分别负责实际计划schema的单源身份说明、当前报告PASS身份的有界只读展示；根席独立补真实公开ReadFile→EmitChangePlan→ApplyPatch→RunTests→JSON往返→planner/controller消息回归，包含根目录零发现、非根原生PASS、错PTO仍proof_weak、混合原生FAIL。
+
+原生展示只使用producer已标记的assertion范围、普通测试种类、PASS和完整非空suite/id，不按名称猜runner或授权。必须当前ChangePlan.ID非空、与report.PlanID逐字相等，channel明确post_apply_verify；不复活历史pack。身份按整项JSON转义和预算省略，不重建前缀、不猜test_path、不创造执行代次或报告路径。报告时间只是持有快照时间，并非最新源码字节已验证；原PTO、matcher、required合同和source-free准入不变。
+
+实际planner/controller消息RED `/tmp/hmc-native-identity-red-20260921.log`（session17487正式exit1）：PASS和混合FAIL都缺完整可引用身份及快照边界，非编译失败。根席公开链首次执行时共享实现已落入工作区，`/tmp/hmc-native-identity-public-red-20260921.log`（文件名沿用启动计划，session44960实际exit0，agent1.940秒）只能记首次GREEN，不能伪称公开RED。后续末版定向、race、全仓、干净构建和固定双例另附正式收据。
+
+再次对照参考`core/llm_contract.py:114–155`的成员/字段工件回查和`core/preprocess/sendable_ops.py:494–550`的命令结果/输出工件分离，仅借鉴结构身份与执行结果分离；参考无本仓PTO/多候选断言体系，不移植其散文数值扫描、子串放宽或外部退出码代断言。父账维持13/79交付、66开放。
+
+实现已分别提交`a15614f57`（当前报告身份只读交接）和`bfa381902`（身份教学单源）。新展示限8项/8KiB，编码前检查过大身份，编码后按总预算整项省略并报数量；非法UTF-8不以替换字符铸新身份。工具在安装报告后、同一出口取当前plan，planner/controller在历史pack之前投递；保原出口审计/失败附录，新增生产/变异针而未修改旧census。实际两个schema共享JSON编码后的说明，Jest明确分隔符为`" > "`（两侧空格），8协议×根/子项目/兄弟项目使用真实parser/qualifier校验，非8套运行环境执行。
+
+有效schema RED=session42327 exit1/tool1.171s，`/tmp/hmc-native-identity-teaching.BihPFp/RED-schema-valid.log`，只缺教学的两个schema失败，24协议scope格正常；首次GREEN=session16251 exit0/tool1.329s。身份末版定向`/tmp/hmc-native-identity-focused-final-20260921.jsonl`（session90844正式exit0）13顶层/96子项、0FAIL/skip，types0.825/agent2.994/tool1.100秒，包含根席两真实runner公开链及原安装出口census。前轮v2 WorkingDir测试装配编译错误已更正为Root，记录保留且不算产品RED。8项超时默认/活跃流保护`/tmp/hmc-native-identity-active-stream-20260921.log`（session38195正式exit0，llm5.499秒）通过，含4ms阈值连续部分帧场景；并未改timeout代码。
+
+统一末版全仓`/tmp/hmc-native-identity-full-20260921.log`（session17118）和独立race仍运行。随后只跑固定`nested_python_increment`＋`trace_query_business_marker_io_chain`，2并行×1：按已复现写模式身份缺口/跨模式保护选例，Trace保旧50/35/31/两段1ms与业务线索的人工检查；不强迫模型采用新分支，不为追绿追加第三例。全部正式收据齐备前保持验收中。
