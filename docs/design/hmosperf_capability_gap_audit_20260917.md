@@ -1692,7 +1692,7 @@ ROI：先完成上述明确显示口径缺陷，再恢复B2的controller源快�
 
 §74实现及§75审计已随`427eb229b`推送main（session36989正式exit0，95112→427eb）。下面的新生产片独立验证，不复用本次全仓签收。
 
-## 76. 背景/邻近行必须使用自身查询尺（2026-09-21，施工中）
+## 76. 背景/邻近行必须使用自身查询尺（2026-09-21，子片验收完成）
 
 §75的原生数值并无错误：logger在补充查询2.000–2.025里20ms，在请求查询2.000–2.020里19.5ms。缺口在显示把前者除主树20ms并据此授“整窗等待”，不是需要改解析、裁掉原段或取消系统补采。旧语义行source-window helper只覆盖semantic且只比长度；rank query与真实状态Start/End也不等于该值的查询分母，不能直接借用。
 
@@ -1709,3 +1709,27 @@ ROI：先完成上述明确显示口径缺陷，再恢复B2的controller源快�
 末版7个tool文件冻结（1生产、1新回归、5旧测试前提/图例迁移），32项顶层定向`/tmp/hmc-context-window-ruler-final-focused-20260921-v6.log`正式exit0（session5155，tool2.987s）。公开矩阵同时保护20/25=80%八格、等长异位2.000500–2.020500=100%十格及同一行/明细上的微秒范围，改名/双语/结果反序均保明确主窗与原始观察字节；typed缺窗、多窗、actual回退、跨单位和无窗模式另有正反针。既有semantic source-window通道不改。为保全图例双向覆盖，最后补两个旧手造over/idle记录的合法QueryWindow前提，99.8/250数值和原断言不变，不以删除图例覆盖要求换绿。
 
 独立只读复核通过生产边界及图例最终增量。末版统一全仓`/tmp/hmc-context-window-ruler-final-full-20260921.log`（session91076）与相同32项race `...-final-race-20260921.log`（session61898）执行中，尚不签全仓或整份live答案通过。
+
+实现提交`cd2e029bc`；同32项race现已正式exit0（session61898，tool12.479s）。`make`干净构建`/tmp/hmc-context-window-ruler-clean-build-20260921.log`正式exit0（session42464），实测revision cd2e029bce1b / buildTime2026-09-21T09:17:01Z。已以该固定二进制启动上述两例，runner session73512、结果根`eval/results/hmc_context_ruler_crossmode_20260921`，2并行×1。全仓与回放仍在执行，不将启动或局部成功写成最终PASS。
+
+首轮统一全仓现已正式exit1（session91076，tool419.831s），其它86测试包通过；5项旧显示针待精确迁移：berlin_gaps过窗比例、c4全tag布局、calside墙钟正控、ptv6d固定行数及v3 golden背景条。没有失败指向Trace原始数值/根因资格变化。旧合法比例样本须补有效查询前提，缺查询的真样本不能凭空补窗，布局变化必须核对实际完整输出再改精确期望；所有原值、负针与宽度要求保留。不以32项绿或live PASS替代这次全仓FAIL，修正后须完整复测。
+
+五份旧测试已精确迁移并经独立只读复核：berlin/calside仅人工样本补自身query（非墙钟负控也同补，避免缺窗分支掩盖）；c4保完整tag各一次、先后、E#及100格宽；PTV6真实样本精确31/17行、成员和值不改；v3真实缺窗三行不捏造query，同一stanza保值/E#/未知尺说明且禁bar/%。完整45项定向末版`/tmp/hmc-context-ruler-five-pin-green-final-20260921.log`正式exit0（session86916，tool1.229s），同45项race `/tmp/hmc-context-ruler-five-pin-final-race-20260921.log`正式exit0（session75415）。第二轮统一全仓`/tmp/hmc-context-window-ruler-final2-full-20260921.log`（session72869）仍在执行；只迁移测试，不改变已回放cd2的生产字节，不抹第一轮FAIL。
+
+末版统一全仓现已正式exit0（session72869）：87测试包通过、13无测试包、零FAIL；与首轮失败分开留存。五文件测试迁移提交`7f14de1c1`，同45项race为tool2.763s。该全仓签`cd2e029bc`生产与`7f14de1c1`测试末版；固定cd2双例详§77，生产未变无需因测试迁移额外追跑。首轮失败、初版无主窗回归失败及旧人工FAIL不回写。
+
+## 77. cd2e固定双例通过，剩余身份教学与附录计数分账（2026-09-21）
+
+上述固定双例runner session73512正式exit0，机器2/2、人工功能正确性2/2 PASS；Trace134秒、Go121秒。[机器摘要](../../eval/parallel_selected_summary_hmc_context_ruler_crossmode_20260921.md)、[逐面人工审计](../../eval/parallel_selected_summary_hmc_context_ruler_crossmode_20260921_manual_audit.md)保留实际过程和未覆盖能力，没有第三例追绿。
+
+真实Trace两窗仍分别为2.992/30ms，CPU运行0/3.414ms及0%/11.38%，四核分布与范围绑定正确；零D/IO仅是记录口径，未铸等待机制排除。bounded_fact_set无因果树合理，schema2空旁路及答案哈希绑定正确；因此本次仅签真实双窗回归，不签§76背景尺分支live命中。两项过程错误（首emit数组/scalar混给、探索摘要跨窗借量及称并行）均有准确现有教学/typed事实供给并最终恢复，不为其加原文硬门。9次模型查询+2次补采仍有重复上下文的优化空间。
+
+Go只改一行，原TestGreet字节不变，真实go test JSON返回一条断言PASS（内部3个表项），隔离交付无合并。旧probe包装go build正确被拒后恢复既有测试；没有独立go build收据，不能额外宣称。PTO suite却填main、真实runner发布module import path，精确匹配不成立；三个合同均planning-only、required=0，报告没有冒发证明，所以功能PASS不销B2–B6。进一步审schema/实际消息确认共享身份说明只笼统提suite/class/module/file和Python例，未明示Go Package(import path)与源码package声明的差别：这是可改进的原生身份教学/可见性缺口，不能全归模型波动，更不能放宽matcher。
+
+Trace附录另有P2确定显示债：同A/B的11条来源记录占四行预览后，len(states)-4被写成“另有7条独立范围”，其实只有两个窗口。权威层按EvidenceID/sourceKey保留来源有其必要性；后续先纠正遗漏记录数量的词义，若压缩只在展示层保来源地折叠完全相同内容，异值/范围/限制不能并。当前数值答案正确，但该债未关闭。
+
+下一顺序：先收齐§76全仓旧针迁移，再处理原生测试身份投递（跨runner一致、非Go个例替换）及附录记录措辞；B2–B6精确来源授权与补绑定仍独立开放。HMC父账仍13/79已交付、66开放，以前人工FAIL不回写。
+
+身份审计进一步发现待公开复现的高ROI接缝：非根项目的`qualifyChangeReport`会给suite与assertion_id都加执行目录前缀，Python的路径归属检查却仍要求原始模块/文件开头；Java完整类选择器也有同类静态风险。若真实通过断言因此无法登记，优先修生产者与消费者的精确执行范围一致性，而非仅补教学。不能任意剥`::`（pytest本身含此分隔符）、借兄弟目录结果，或把candidate范围等同具体执行代次。当前独立树诊断中，未签产品RED，也不改主树正在全仓验收的源码。
+
+成功结果身份可见性亦分账：普通run_tests摘要目前主要给总数，passed suite/id未逐条投递；首轮planner还没有执行报告，不能新教成“必须先复制报告”或授权它突破原生测试执行限制。参考`core/llm_contract.py:114–155`可借鉴已发布成员/字段与实际工件反查，但参考仓没有本项目PTO能力；其散文查重硬拒不移植。
