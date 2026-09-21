@@ -1474,6 +1474,8 @@ XERR只读追查进一步明确待验证机制：payloadless阻塞值取span∩w
 
 旧FAIL不回写，父任务仍13/79交付、66开放。下一片先修公开反证成立的XERR错误物理关系，再处理业务选择器越权升级；上下文重复/缺身份压缩及模型过强推断仍留账，不以反复追加同义教学或同版第三次回放追绿。
 
+§57–59及本轮机器/人工审计已随`d81a2c226`推送并获远端成功回执，包含`5f7b827a9`、`5adad7181`；不是仅本地已提交。
+
 ## 60. 睡眠账目互指不能凭包络声明物理包含（2026-09-20，已确认，施工中）
 
 §47.1/§58的静态疑点已由公开入口有效反证，优先级提升为P1系统显示错误。独立工作树`/tmp/codrax-xerr1-public.YBNM4G`（5f7b827a9），`RED-public4.log`正式exit1（tool1.336s）：两种原始调度文本均经`TraceQuery.Execute(recipe=io_wait,pid=100)`和独立`thread_timeline`核真实成员，再经原生观测→投影→`ApplyAndPersistMutation`→最终中英文renderer，非手造投影或编译失败。
@@ -1482,3 +1484,19 @@ XERR只读追查进一步明确待验证机制：payloadless阻塞值取span∩w
 - 混合形：marker内阻塞等待9ms来自S4+D5；sleep席为24ms。旧反向说明把整个9ms等待称落入sleep，连分量口径也越权。
 
 参考`core/preprocess/sleep_ops.py:558–622`先统计依赖分析窗、再找实际S/D段逐段裁剪；`window_utils.py:22–29`提供单段求交，不用累计量首尾包络替代成员证明。本仓当前XERR链仅有标量/包络，来源身份也不是集合包含凭证。最窄修复保所有数值、引用、链资格及原配对导航，只将专属互指/图例改成同线程等待账目对照、实际睡眠分量关系未证、不能直接相加；不凭时长等于包络补造确证正枝，已有精确状态集合等值去重/分割关系不动。末版公开红绿、相邻/race/全仓收据完成后另补，不提前销账。
+
+末版七文件已从独立树移入主线，原选择函数体字节不动，生产只改XERR专属双语句/图例和说明注释。互指称“睡眠统计”而非“睡眠总量”，避免被读成完整全集。两个公开反例保20/5与24/9各自数值和引用，中英正针要求中性并置、负针禁错误物理关系；源观察与投影前后字节不变。旧负臂补零sleep/异主体/异状态/异query及payload双语，旧legend probe精确同步，未删除负断言。独立树末版37项`GREEN-focused-freeze.log`exit0（tool1.759s/tracequery0.899s）、同37项`GREEN-race-freeze.log`exit0（tool3.397s/tracequery4.497s）。主线复审通过，主线叠加§58的公开复验及统一全仓待正式收据；不以独立树早基线替主线整合验收。
+
+主线叠加§58定向`/tmp/hmc-xerr1-main-focused-20260920.log`正式exit0（tool3.246s）；该命令tracequery选择器没有匹配测试，不冒称引擎复验。引擎末版定向/race见上独立树收据，主线统一全仓将覆盖。
+
+## 61. 业务选择器不由额外坐标自动升级成用户明确时间窗（2026-09-20，子片验收中）
+
+§59发现的两项范围问题分账：本次live是模型直接误声明explicit，仍开放；本片只修另一个确定性分支。原schema把`bounded_selector`定义为“业务/帧/事件选择器，用户未给精确边界”，parser却在scalar和time_windows两臂仅凭合法数值把它升级explicit；`ResolveTraceQueryWindowScope`随后公开为“用户指定”。真实quote存在只能证明选择器原文存在，数值结构更精确不等于来源权威更高。
+
+参考`config/skills/io_analysis.yaml:73–95`将query time_window与user_specified/full_trace来源分列，可借鉴来源区分；其将“冷启动阶段”举在用户提供值旁的教学并不能验证精确数值来源，不能照抄为坐标凭证。本仓继续保自己的typed业务实例引用，不从选择器名字猜时间，不扫描用户/模型原文数字或关键词。
+
+公开`EmitAnalysis.Execute`→RequestModel→`ResolveTraceQueryWindowScope`/实际中文Format先红：scalar、单成员、多成员三形都错误得到requested principal及“用户指定”，不是私有helper自证；第一次缺required因果维度的harness错误不计RED。最窄修法尊重bounded枚举并保原quote，清掉只属于explicit的额外坐标、给结构告警，不加新硬拒；真正explicit scalar/list、多窗成员和所有其它scope路径保持。因果完整报告仍由独立RuntimeQuestionProfile授权，业务原生accepted focus仍可自动补齐完整业务窗；不能以额外数值为业务事件命名坐标，更不能默选业务实例。末版公开/相邻/race及统一全仓待补，不提前签已推。
+
+末版三文件冻结，独立只读复审通过。有效RED保存在执行回执（session30682、chunk f6a572、exit1、tool1.120s），当时未持久化日志，不提供不存在的文件引用。末版`/tmp/codrax-bounded-scope-20260920.YaI48u/focused.log`四包exit0（tool2.784s/types0.582s/skill0.941s/agent2.604s），同目录`race.log`四包exit0（tool11.347s/types3.488s/skill1.614s/agent4.684s）。包括scalar/list/空或畸形/混合字段软清理、失锚quote不得借member取权、真explicit及多窗不成包络、full/unspecified/missing、无附件兼容、required维度保持；公开Emit→accepted native实例→系统补齐真实1..1.05而非.999..1.051，仍标查询窗而非用户明确窗。有限事实/有限影响不授完整报告，关系/系统概览仍保持原独立宽度，全部scalar/list交叉验证。未找到需要修改的工具字节hash pin；实际schema及相邻消息针已跑，不以没有pin免除全仓。
+
+§60–61统一末版全仓正在执行，收据`/tmp/hmc-scope-xerr-final-full-20260920.log`。下一批按新信息量与跨模式保护选jank字段只读清单（超过2^53原始整数、独立时钟/appid与完整成员集）+Java plan-only（非Trace输入、精准补丁与规划JSON），同一干净新二进制2并行×1。两项均不是旧业务/明确窗失败的替代通过，也不能代销写模式补证B2–B6；前两例正确证据已给但模型未遵循的部分保留，不反复用同例跑到绿。

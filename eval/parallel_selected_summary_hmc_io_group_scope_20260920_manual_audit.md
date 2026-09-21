@@ -35,6 +35,8 @@
 
 输出：`.codrax/output/20260920-231107.654-80601.*`。对照原14行输入、native结果、最后实际成文提示和模型primary独立审计；准确时间/状态的改善不抵销机制与关系错误，也不倒签此前同case的FAIL。
 
+独立复核补记：前置triager日志219误写wake=2.019、blocked_reason CPU2、52为CFS、11ms最长及caller机理；最终输入1863/1868–1875/2005/2398已分别给opaque caller、wakee所有权及irq上游、S机制未提供、链席不等于工作完成证明。最终错误来自模型2491/2545的发射参数，不是renderer新造。系统MD57–60仍有cookie/network状态镜像行、203–204保旧“链上发生段”词面，留显示债但未认定重复计价。MD SHA `381824f09923f67c0442f542c18a48cbe7feb74048bb376cd7d854058f5a4746`；root JSON `1e144ca791bac847c5a2cb6bff838f2b1ebafdce31e8ec6ceba7492eea3de018`；primary/principal相同，SHA `a80dca8f5e544613a0fa8a400e5a55420c3fd751ca5166d3e40208283b1cb5ae`。runner墙钟169秒与进程`run-1.wall`165秒分口径，不互相覆盖。
+
 ## 3. 后续处理
 
 先收住§57/58确定性修复及全仓收据；XERR公开带洞/混合状态反例确认后单独修复；随后移除bounded选择器的确定性越权晋升，保护真正explicit与业务自动补齐。模型直接误声明explicit、正文错尺/未证过强推断、上下文精简、原始占用镜像去重和跨模式补证仍开放；不以定向绿销账父项，HMC仍13/79交付、66开放。
