@@ -610,9 +610,8 @@ func TestAnalyzer_BuildInitialInstruction_RetryDirective(t *testing.T) {
 // strict-policy sub-test cannot leak into sibling tests.
 
 // emitResult constructs a ToolResult entry with ToolName=emit_analysis
-// and the given success flag. The ParseOutput counter is
-// success-agnostic — every attempt counts toward the exactly-once
-// contract — so the helper makes that symmetry easy to exercise.
+// and the given success flag. Every attempt remains visible in telemetry;
+// only successful submissions count toward the duplicate-write gate.
 func emitResult(success bool) types.ToolResult {
 	return types.ToolResult{
 		ToolName: "emit_analysis",

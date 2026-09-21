@@ -515,14 +515,30 @@ func mustWriteTestFile(t *testing.T, root, rel, content string) {
 // === schema smoke ===
 
 func TestEmitAnalysisSchema_IrrelevantFilesPresent(t *testing.T) {
-	emitAnalysisSchemaOnce.Do(buildEmitAnalysisSchema)
-	if !strings.Contains(string(emitAnalysisSchemaCache), `"irrelevant_files"`) {
-		t.Error("emit_analysis schema should declare irrelevant_files property")
+	var schema struct {
+		Properties map[string]struct {
+			Type        string `json:"type"`
+			Description string `json:"description"`
+			MaxItems    int    `json:"maxItems"`
+			Items       struct {
+				Type string `json:"type"`
+			} `json:"items"`
+		} `json:"properties"`
 	}
-	if !strings.Contains(string(emitAnalysisSchemaCache), `OFF-TOPIC`) {
-		t.Error("irrelevant_files description should mention OFF-TOPIC")
+	if err := json.Unmarshal((&EmitAnalysis{}).Parameters(), &schema); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(string(emitAnalysisSchemaCache), `plain strings only`) {
-		t.Error("irrelevant_files description should explicitly require string entries")
+	prop, ok := schema.Properties["irrelevant_files"]
+	if !ok || prop.Type != "array" || prop.Items.Type != "string" || prop.MaxItems != 10 {
+		t.Fatalf("irrelevant_files must remain at most ten plain paths: %+v", prop)
+	}
+	for _, want := range []string{"already-returned, allowed navigation metadata", "outside the current request's scope",
+		"Otherwise omit", "do not open source content merely to populate this field", "plain strings only"} {
+		if !strings.Contains(prop.Description, want) {
+			t.Errorf("irrelevant_files description lost %q", want)
+		}
+	}
+	if strings.Contains(prop.Description, "READ a candidate file") {
+		t.Error("analyzer's optional exclusion must not authorize a content read")
 	}
 }

@@ -20,13 +20,13 @@ func TestAnalysisSkillTeachesFrameCausalityDecision(t *testing.T) {
 		"`帧窗口内的卡顿原因` → true",
 		"`这个短窗口卡顿原因`",
 		"never pre-decides whether frame causality is proven and is never derived from exploration or answer prose",
-		// R2' parity: the required-field recap and the field roster name it too.
-		"runtime_question_profile (scope, runtime_work_relation_requested, frame_causality_requested, confidence)",
-		"object with scope, runtime_work_relation_requested, frame_causality_requested, fact_families, and confidence",
 		"`runtime_work_relation_requested` and `frame_causality_requested` are independent model decisions",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("analysis skill frame-decision teaching missing %q", want)
 		}
+	}
+	if strings.Contains(out, "object with scope, runtime_work_relation_requested, frame_causality_requested, fact_families, and confidence") {
+		t.Fatal("a static required-field recap must not make conditional fact_families unconditional")
 	}
 }

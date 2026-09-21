@@ -1277,8 +1277,8 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 		t.Fatal("BuildAnalysisSkill returned nil")
 	}
 	// The focus-identities teaching spans two prompt faces: the OutputFormat
-	// paragraph and the Workflow rules (fast-path reminder + emission field
-	// checklist), so the pin scans their join.
+	// paragraph and the Workflow fast-path reminder, so the pin scans their
+	// join. JSON presence/type details stay in the tool schema.
 	out := strings.Join(append([]string{cfg.Goal, cfg.OutputFormat}, cfg.Workflow...), "\n")
 	for _, want := range []string{
 		"Runtime-artifact focus identities",
@@ -1289,11 +1289,10 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 		// SUPP-TARGET (§29.90.1, 2026-07-15) prompt-face teaching: the
 		// classifier variant that copied the thread identity into entities
 		// but skipped the typed lane (h2 20260714-221545) traced to the
-		// runtime_targets lane being absent from BOTH the emission field
-		// checklist and the no-pre-scan trace fast path. The two reminders
-		// below are the fix; dropping either re-opens the leak.
+		// runtime_targets lane being absent from the no-pre-scan trace fast
+		// path. Preserve both that reminder and the semantic provenance rule.
 		"the Runtime-artifact focus identities rule applies on this no-pre-scan path too",
-		"runtime_targets (required when runtime_target_profile.declaration=named_target",
+		"emit the identity in `runtime_targets` with source=user_explicit",
 		"Runtime question scope (REQUIRED)",
 		"`runtime_question_profile`",
 		"`bounded_fact_set`",

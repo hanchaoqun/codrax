@@ -1141,44 +1141,20 @@ func TestAnalysisSkill_SourceInventoryDoesNotTeachGrepStemValidation(t *testing.
 	}
 }
 
-// TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere is the batch
-// 3A 3-way consistency gate: every top-level required field in the
-// emit_analysis JSON schema must also be named in the skill's
-// Workflow text and in the OutputFormat text, so the LLM sees the
-// same required-field set from three independent surfaces. Previously
-// the three surfaces drifted: Workflow step 6 listed sub_topics as
-// required, OutputFormat omitted the four confidence floats, and
-// the JSON schema was the only complete list. A field missing from
-// two of three surfaces is why the LLM sometimes emits partial
-// classifications without the predicates object.
-func TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere(t *testing.T) {
+// The real schema owns field presence/type/conditionality. Independent
+// required-field recaps drifted despite the former hand-maintained parity
+// list; retain semantic teaching without rebuilding a second schema.
+func TestAnalysisSkill_FieldListsDeferToToolSchema(t *testing.T) {
 	sk := skill.BuildAnalysisSkill()
-
 	workflowCorpus := strings.Join(sk.Workflow, "\n")
-
-	// Canonical required set — matches emit_analysis.go schema
-	// "required" array (verified by TestEmitAnalysisSchemaMatchesContract
-	// in internal/tool). Keep this list in sync if the schema changes.
-	required := []string{
-		"intent", "scenario", "complexity",
-		"keywords", "entities",
-		"question_kind",
-		"intent_confidence", "complexity_confidence",
-		"kind_confidence",
-		"predicates",
-		"diagnostic_profile",
-		"answer_role_profile",
-		"error_granularity_profile",
-		"requested_answer_dimensions",
-		"runtime_artifact_scope_profile",
+	for _, banned := range []string{"Required fields:", "The required fields are:", "Optional fields:"} {
+		if strings.Contains(workflowCorpus+sk.OutputFormat, banned) {
+			t.Errorf("static skill reintroduced a separate JSON field checklist: %q", banned)
+		}
 	}
-	for _, f := range required {
-		if !strings.Contains(workflowCorpus, f) {
-			t.Errorf("Workflow does not name required emit_analysis field %q — the LLM reads Workflow first and will omit it", f)
-		}
-		if !strings.Contains(sk.OutputFormat, f) {
-			t.Errorf("OutputFormat does not name required emit_analysis field %q — the contract section must enumerate every required field", f)
-		}
+	if !strings.Contains(sk.OutputFormat, "schema is the authority for JSON field names, types, required fields, and conditional fields") ||
+		!strings.Contains(workflowCorpus, skill.AnalysisSubmissionContract) {
+		t.Fatal("skill lost live-schema ownership or accepted-submission guidance")
 	}
 }
 

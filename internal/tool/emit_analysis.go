@@ -34,8 +34,8 @@ import (
 //     analysis-skill system prompt built from
 //     internal/skill/analysis_contract.go. The schema-drift test in
 //     this package pins the enum arrays to the SSOT.
-//   - Description() is one sentence: what the tool does and its
-//     one-call-per-dispatch constraint. Strategy guidance ("extract
+//   - Description() states what the tool does and shares the skill's
+//     one-successful-submission contract. Strategy guidance ("extract
 //     entities verbatim", "≥8 keywords", "bilingual for Chinese
 //     questions") lives in the skill prompt, not here.
 //   - Execute() is the quality gate: json.Unmarshal → runtime
@@ -113,7 +113,7 @@ type emitAnalysisParams struct {
 	RequiredFiles []emitRequiredFileParam `json:"required_files,omitempty"`
 	// L4 (2026-05-10) — analyzer-declared irrelevant files. The
 	// negative-channel counterpart of required_files: paths the
-	// analyzer LLM has read in pre-scan and judged off-topic.
+	// analyzer LLM judged off-topic from allowed pre-scan navigation metadata.
 	// Downstream agents respect this as a hard exclusion across
 	// pre-read pools, mid-loop hints, and primary-file selection.
 	IrrelevantFiles []string `json:"irrelevant_files,omitempty"`
@@ -453,14 +453,14 @@ type emitQuestionBucketParam struct {
 
 func (t *EmitAnalysis) Name() string { return "emit_analysis" }
 
-// Description is a single sentence: what the tool does and its
-// one-call-per-dispatch constraint. Strategy guidance — how to pick
+// Description shares the acceptance/retry contract with the skill.
+// Strategy guidance — how to pick
 // an enum value, how many keywords to emit, what not to put in
 // entities — lives in the analysis-skill system prompt, not here.
 func (t *EmitAnalysis) Description() string {
 	return "Records the classified request model for this dispatch so the " +
 		"deterministic analyzer pipeline can assemble the full analysis. " +
-		"Call at most once per dispatch."
+		skill.AnalysisSubmissionContract
 }
 
 // Parameters returns a purely structural JSON schema: type, enum,
@@ -997,7 +997,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"irrelevant_files": map[string]any{
 				"type":        "array",
-				"description": "Optional. Negative-channel counterpart of required_files. When you have READ a candidate file in pre-scan and judged it OFF-TOPIC for the user's question, list its repo-relative POSIX path here. The file will NOT be re-injected via pre-read content, mid-loop reading suggestions, or primary-file selection — saves prompt tokens and prevents the system from contradicting your judgment on later iterations. Use sparingly: at most 10 paths, only files you actually inspected. Empty list is fine when no candidates need explicit exclusion. Emit an array of plain strings only, e.g. [\"internal/foo.go\"]; do not emit objects with confidence/rationale.",
+				"description": skill.AnalysisIrrelevantFileHintTeaching + " Negative-channel counterpart of required_files. Excluded paths are omitted from later pre-read pools, follow-up reading suggestions, and primary-file selection. Emit an array of plain strings only; do not emit objects with confidence/rationale.",
 				"items":       map[string]any{"type": "string", "description": "Plain repo-relative POSIX path string only; do not emit an object."},
 				"maxItems":    10,
 			},

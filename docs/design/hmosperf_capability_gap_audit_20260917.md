@@ -1150,3 +1150,17 @@ db0596794c36 原生构建退出0并核版本（`/tmp/hmc-surfaces-marker-build-2
 末版完整runner正式退出0；全仓final2实际退出1，仅`TestThreadStateComparisonConsumerCoverage`要求登记新windowed-head分支的`StateUnknown`精确排除。已逐字段审计：该比较禁止未知物理状态升级为恢复头，只控制coverage，不新分类；增加该唯一消费点golden，定向GREEN0.898s。完整日志`/tmp/hmc-surfaces-marker-final2-full-20260920.log`保留，不把早版全绿冒充末版。后续完整复测、trim race及下一教学/窗口小批分记收据。
 
 参考仓再次核对`marker_ops.py:576–640`的每线程缓存/逐节点状态交集与`trace_data_cache.py:294–313`先完整配对再相交：本片吸收前者；后者启示的远端B/E丢片段仍独立开放，不扩大padding或将发现候选池冒充完整清单。所有工作仍为稳定79项内修复，13已交付/66开放不变。
+
+推送收据：main已由26c2bf350快进至f908c2f0e，含正文归属8bec1875d、片段状态db0596794及末端trim/审计f908c2f0e。trim race×3正式退出0，orchestrator2.824s（`/tmp/hmc-answer-final-trim-race-20260920.log`）；不将随后施工文件混入这三笔。
+
+## 39. 分析阶段提交教学与成功写入计数统一（2026-09-20，验证中）
+
+§38.2业务生产日志实际5次attempt、4次结构拒绝、1次接受；其Goal/HardRules/OutputFormat和工具描述仍说只许一次，Workflow却说失败可修正。先前§123.83仅改Workflow，尚未消除此矛盾。另两份手写必填清单已陈腐（八/九predicate、漏runtime_selection_profile、将条件fact_families当固定字段），而真实schema已有准确要求。此为系统教学缺口，不证明5次尝试均由教学造成。
+
+- [x] 先红：strict失败→成功仍误拒；全失败可借预存RequestModel继续构建IR；真实拼装prompt含绝对一次/全字段必填。日志`/tmp/codrax-analyzer-contract.lnhUZH/RED.log`，不是只搜源码。
+- [x] 保`analysis_emit_calls`全部attempt遥测，另记成功次数；重复写门只看工具成功布尔。一次成功前允许完整修正，全失败/零尝试fail-loud、两次成功仍按原strict策略拒绝，末尾失败不抹掉前次已接受写入；不改profile/来源/schema校验。
+- [x] schema为JSON结构唯一依据，删除两份独立必填/可选checklist，保九predicate、所有runtime/profile/显式窗及条件fact_families的语义教学。工具描述和Workflow复用同一成功提交合同；动态“下一response一次完整调用”仍有效，不误当dispatch禁止修正。
+- [x] 顺带消除导航阶段`irrelevant_files`要求读源码内容的自冲突：只能用已经返回、允许的导航元数据判明确无关，否则省略，不能为填字段打开源码。字段仍array/string/max10。真实拼装普通/trace附件×首次/retry及terminal失败修正回归覆盖。
+- [ ] 全仓、race、构建及固定新版双例待退出，旧FAIL不销。
+
+最后定向正式exit0：skill0.849s/agent2.776s/tool1.340s，`GREEN-focused-final2.log`。中间`GREEN-focused-final.log`中的旧OFF-TOPIC字样pin失败真实保留，换为解析该property硬钉结构+准确许可/禁令，不改schema门。参考仓工具组合工作流不能替本仓分类接口定义结构；本片不照搬其工具白名单或关键词路由。L1调度循环、Trace选窗/根因/补齐、mandatory旁路与600/300/600不动，13/79交付、66开放不变。

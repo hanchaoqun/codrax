@@ -48,10 +48,10 @@ type AnalysisLimits struct {
 	GenericEntityBlocklist []string
 
 	// RejectMultipleEmit decides the analyzer's policy when the LLM
-	// calls emit_analysis more than once in a single analyze dispatch.
-	// The tool's Execute method already accepts multiple calls (the
-	// last write wins on Mutable.RequestModel), but the call-count
-	// gate in analyzer.ParseOutput makes the repeat VISIBLE:
+	// successfully submits emit_analysis more than once in one analyze
+	// dispatch. Failed attempts never write Mutable.RequestModel and may be
+	// repaired without triggering this gate. Attempt-count telemetry still
+	// includes failures; only accepted writes create last-write ambiguity:
 	//
 	//   - false (default): log a warning, keep the last write,
 	//     continue the pipeline. This matches the historical
@@ -64,10 +64,10 @@ type AnalysisLimits struct {
 	//     rest of the pipeline can continue if the operator chooses
 	//     to ignore the error signal.
 	//
-	// The 0-call case is handled separately (always falls back to
-	// readOrSynthesizeRequestModel with a strong warning + a
-	// structured `analysis_fallback_used` diagnostic), never gated
-	// by this knob.
+	// Zero successful submissions fail loud separately, including when
+	// every attempted call failed and Mutable still contains an older model.
+	// The orchestrator owns stage retry/recovery; this knob cannot accept an
+	// unsubmitted or rejected classification.
 	RejectMultipleEmit bool
 
 	// MaxPrescanRounds caps the number of analyzer pre-scan rounds

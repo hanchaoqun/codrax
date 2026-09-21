@@ -250,16 +250,12 @@ func TestAnalysisSkill_CompletenessIncludesWholeMechanismPaths(t *testing.T) {
 
 func TestAnalysisSkill_CompletenessIsNotListedAsOptional(t *testing.T) {
 	out := analysisSkillPrompt(t)
-	start := strings.Index(out, "Optional fields:")
-	if start < 0 {
-		t.Fatal("analysis prompt missing Optional fields section")
+	if strings.Contains(out, "Optional fields:") {
+		t.Fatal("static optional-field checklist must defer to the live schema")
 	}
-	end := strings.Index(out[start:], "Search planning")
-	if end < 0 {
-		t.Fatal("analysis prompt Optional fields section has no terminator")
-	}
-	if optional := out[start : start+end]; strings.Contains(optional, "completeness_obligation") {
-		t.Fatalf("required completeness decision is still advertised as optional: %q", optional)
+	if !strings.Contains(out, "`completeness_obligation` is a REQUIRED typed decision on every call") ||
+		!strings.Contains(out, "emit `{required:false, source_quote:\"\"}`") {
+		t.Fatal("required completeness decision lost its explicit inactive-arm teaching")
 	}
 }
 

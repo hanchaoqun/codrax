@@ -293,16 +293,23 @@ func enumValues(choices []AnalysisEnumChoice) []string {
 // Keep the files_only=true grep boundary explicit here too because the
 // runtime gate enforces it before dispatching the tool.
 var AnalysisHardRules = []string{
-	"every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays); missing required fields rejects the call",
 	"entities come from the user's ORIGINAL text only — \"ContinuationPrompt\" stays as \"ContinuationPrompt\", not \"continuation prompt\" or \"continuation_prompt\"",
 	"do not invent an intent by stretching a category; if two fit equally, pick the one that matches the user's verb; if none fit, use \"unknown\"",
-	"call emit_analysis EXACTLY ONCE — multiple calls trigger a warning (or a hard reject when analysis_reject_multiple_emit=true) and only the last write is effective",
+	"do not submit another classification after emit_analysis succeeds; a rejected attempt may be corrected",
 	"do not defer emit_analysis by writing open-ended analysis prose — the moment you have enough information to classify, call the tool; brief reasoning paired with pre-scan tool calls is fine, a standalone \"let me think about this\" paragraph is not",
 	"do not translate or re-case entities — copy them verbatim from the user's text",
 	"do not make assumptions about code structure — classify only what the user's text plus the pre-scan results support",
 	"when calling grep in this classification step, ALWAYS pass files_only=true — line-level matches are evidence-gathering input and are rejected here",
 	"do NOT call read_file, exec_command, or any tool that reads file CONTENT — this classification step is existence + location verification only; later evidence gathering owns deep reading",
 }
+
+// AnalysisSubmissionContract is shared by the skill and tool description.
+// Attempts may fail validation without writing a classified request model.
+const AnalysisSubmissionContract = "Aim for one successful emit_analysis call per dispatch. If an attempt is rejected, resend one complete corrected call matching the tool schema; rejected attempts do not count as successful submissions. Stop after success."
+
+// AnalysisIrrelevantFileHintTeaching keeps the optional navigation exclusion
+// inside the analyzer's files-only boundary. It never licenses a content read.
+const AnalysisIrrelevantFileHintTeaching = "For optional irrelevant_files, list only repo-relative paths whose already-returned, allowed navigation metadata clearly shows they are outside the current request's scope. Otherwise omit the hint; do not open source content merely to populate this field. Use at most 10 plain path strings. This is a navigation hint, not proof from file contents."
 
 // renderEnumTable formats one enum table as the bulleted block the
 // skill's OutputFormat section shows to the LLM. Pure formatting,
@@ -369,21 +376,7 @@ func BuildAnalysisSkill() *Config {
 	// surfaces do not drift or contradict each other, and so the reader can
 	// find pre-scan guidance in one place.
 	of.WriteString("## emit_analysis contract\n\n")
-	of.WriteString("Call emit_analysis EXACTLY ONCE. The required fields are:\n")
-	of.WriteString("- intent, scenario, complexity, question_kind — one enum value each (tables below).\n")
-	of.WriteString("- keywords, entities — string arrays (may be empty).\n")
-	of.WriteString("- intent_confidence, complexity_confidence, kind_confidence — floats in [0.0, 1.0].\n")
-	of.WriteString("- predicates — object with eight required booleans (see Semantic predicates below).\n\n")
-	of.WriteString("- diagnostic_profile — object with four required booleans plus confidence (see Diagnostic profile below).\n\n")
-	of.WriteString("- answer_role_profile — object with is_role_binding_requested plus confidence; set false when no positive answer-row role is requested (see Answer role profile below).\n\n")
-	of.WriteString("- error_granularity_profile — object with is_granularity_question plus confidence; set false when no failure-scope verdict is requested (see Error granularity profile below).\n\n")
-	of.WriteString("- runtime_artifact_scope_profile — object with requested_scope plus confidence; this is user-request scope, never a model query window (see Runtime artifact scope below).\n")
-	of.WriteString("- runtime_target_profile — object with declaration plus confidence; this explicitly distinguishes a user-named runtime process/thread from a request with no named runtime identity (see Runtime artifact target declaration below).\n\n")
-	of.WriteString("- runtime_question_profile — object with scope, runtime_work_relation_requested, frame_causality_requested, fact_families, and confidence; this independently declares bounded facts versus causal/relation/overview analysis and which principal fact cards a bounded answer requests (see Runtime question scope below).\n\n")
-	of.WriteString("- history_selection_profile — object with mode, item_kind, and confidence; this independently declares ordinal/cardinality selection over repository history (see History selection scope below).\n\n")
-	of.WriteString("- completeness_obligation — required typed decision with required plus source_quote; use required=false and an empty quote when no exhaustive coverage is requested (see Completeness axis below).\n\n")
-	of.WriteString("- requested_answer_dimensions — required typed decision with is_dimensioned_answer plus confidence; use false when the request names no visible answer dimensions (see Requested answer dimensions below).\n\n")
-	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), diagram_hint (object), enumeration_boundary (object), buckets (array), current_source_explanation_profile (object), external_observation_policy (object), exact_targets (array), exact_context_terms (array), exact_context_roles (array), source_scope_profile (object), answer_visibility_profile (object), source_inventory_profile (object), change_impact_profile (object), field_value_profile (object), artifact_value_profile (object), answer_exclusion_policy (object), language, required_files (array), irrelevant_files (array).\n\n")
+	of.WriteString("The current emit_analysis tool schema is the authority for JSON field names, types, required fields, and conditional fields. Submit one complete object per attempt. The sections below explain classification meaning and evidence boundaries, not a second JSON field checklist.\n\n")
 	of.WriteString("Search planning, evidence planning, hypotheses, and quality checks are derived automatically from your classification; do not provide them.\n\n")
 	// Top-level "current-question primacy" rule (2026-05-10 Issue B).
 	// Generalises the per-field cross-turn discipline rules below
@@ -545,7 +538,7 @@ func BuildAnalysisSkill() *Config {
 
 	return &Config{
 		Name: "analysis-skill",
-		Goal: "You are a CLASSIFIER, not an investigator. Classify the user request into the structured emit_analysis fields, including intent, scenario, complexity, question_kind, keywords, entities, confidence scores, semantic predicates, and diagnostic_profile, then call emit_analysis exactly once. Later evidence-gathering handles deep investigation; your job here is only to verify lightweight existence/location signals and classify.",
+		Goal: "You are a CLASSIFIER, not an investigator. Classify the user request into the structured emit_analysis fields, including intent, scenario, complexity, question_kind, keywords, entities, confidence scores, semantic predicates, and diagnostic_profile, then submit the complete classification through emit_analysis. Later evidence-gathering handles deep investigation; your job here is only to verify lightweight existence/location signals and classify.",
 		Workflow: []string{
 			"Detect the request's language.",
 			"For obvious repository-history / git questions (recent commits, latest merge, who/when introduced something, compare commits, commit diff summaries), do NOT run a source-code pre-scan just to classify. Call emit_analysis directly with question_kind=history, predicates.is_history_lookup=true, and choose the answer shape separately: scalar only for one literal hash/date/author/count; enumeration/list/comparison/mechanism/diagram when the user asks for richer output.",
@@ -557,9 +550,9 @@ func BuildAnalysisSkill() *Config {
 			"Round 2 is allowed at most once, when Round 1 ended ambiguous: broaden keyword stems / variants, but keep every grep(files_only=true). Then call emit_analysis regardless of the Round 2 result. Do not peek at source lines during classification; line-level grep is evidence gathering, not classification.",
 			"For PURE count / size / total / measurement-scalar questions whose entire principal answer is one number: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + predicates.is_count_question=true + predicates.is_scalar_answer=true. Do not apply this shortcut to a mixed/dimensioned answer merely because one dimension asks for a duration, count, percentage, or total; keep that whole answer non-scalar and classify every required dimension first. Do NOT attempt to compute the answer literal yourself in pre-scan — later evidence gathering runs wc / find / grep -c and reads file content. Trying to retrieve source lines here will exhaust the pre-scan budget and force a retry.",
 			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5) as planning scopes/questions, not provisional answers or derived factual claims. Keep each sub_topics[].entities list limited to component/symbol/concept identities stated by the CURRENT request; a file or directory discovered only by pre-scan is a navigation candidate and belongs in required_files, not in sub_topics[].entities or sub_topics[].scopes. Use sub_topics[].scopes for a path only when the CURRENT request itself names that path as the investigation boundary. This separation prevents a nearby candidate subsystem from being presented later as the named component's mechanism owner.",
-			"Aim for one successful emit_analysis call. Every attempt must be one complete call with all required fields. If the tool rejects an attempt, resend one complete corrected call; a rejected attempt is not an accepted analysis and does not make repair contradictory with the one-successful-call goal. Required fields: intent, scenario, complexity, keywords, entities, question_kind, predicate_axis (use the empty enum only when no clear action relation exists), the three confidence floats (intent_confidence, complexity_confidence, kind_confidence), the predicates object (nine booleans, all nested only inside predicates: is_scalar_answer, is_role_locate_lookup, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup, is_diagnostic_question, has_per_member_table), diagnostic_profile (is_diagnostic, current_risk, historical_regression, current_version_check, confidence), answer_role_profile (is_role_binding_requested, confidence), error_granularity_profile (is_granularity_question, confidence), requested_answer_dimensions (is_dimensioned_answer plus confidence; emit false when no dimensions are requested), runtime_artifact_scope_profile (requested_scope, confidence), runtime_target_profile (declaration, confidence), runtime_question_profile (scope, runtime_work_relation_requested, frame_causality_requested, confidence), history_selection_profile (mode, item_kind, confidence), and completeness_obligation (required; source_quote empty when required=false). Optional: sub_topics, answer_subject, diagram_hint, enumeration_boundary, buckets, current_source_explanation_profile, external_observation_policy, exact_targets, exact_context_terms, exact_context_roles, source_scope_profile, answer_visibility_profile, source_inventory_profile, change_impact_profile, field_value_profile, answer_exclusion_policy, language, required_files, runtime_targets (required when runtime_target_profile.declaration=named_target; forbidden for no_named_target/unspecified/not_applicable).",
+			AnalysisSubmissionContract,
 			"When you can identify specific files structurally needed to answer the question (e.g. you read the user's wording carefully + saw exact symbol matches in the prescan), populate the optional `required_files` array with `{path, confidence ∈ [0,1], rationale}` entries. The system threshold-bands them: confidence ≥ 0.8 makes the file a primary file AND eligible for prompt pre-read; 0.5 ≤ conf < 0.8 makes it a soft pre-read hint; below 0.5 the entry is dropped — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction.",
-			"When the prescan pulled in candidate files that you have READ and judged off-topic for the user's question (e.g. you saw the file content in the prescan output and it does NOT match the user's subject), list those paths in the optional `irrelevant_files` array. Later file selection will respect the exclusion across pre-read pools, follow-up reading suggestions, and primary-file selection — this saves prompt tokens and prevents later suggestions from contradicting your judgment. Cap of 10 entries; only include files you actually inspected. Empty list is fine when no candidates need explicit exclusion.",
+			AnalysisIrrelevantFileHintTeaching,
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),

@@ -1590,6 +1590,7 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	emitCalls := countEmitAnalysisCalls(toolResults)
+	emitSuccesses := countSuccessfulEmitAnalysisCalls(toolResults)
 	limits := tool.CurrentAnalysisLimits()
 	prescanRounds := e.prescanRounds
 	prescanBudgetExhausted := limits.MaxPrescanRounds > 0 && prescanRounds > limits.MaxPrescanRounds
@@ -1597,31 +1598,40 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	data := map[string]any{
 		"result":                            lastContent,
 		"analysis_emit_calls":               emitCalls,
+		"analysis_emit_successes":           emitSuccesses,
 		"analysis_prescan_rounds":           prescanRounds,
 		"analysis_prescan_budget_exhausted": prescanBudgetExhausted,
 	}
 
-	// Hard fail on 0 emit_analysis calls. The orchestrator's
+	// Hard fail without an accepted write in this dispatch, even if Mutable
+	// still contains a prior model. Failed repair attempts are not analysis.
+	// The orchestrator's
 	// runAnalyzePhase owns retry — this function just surfaces a
 	// loud Error.
-	if emitCalls == 0 {
+	if emitSuccesses == 0 {
+		reason := "analyzer: emit_analysis was not called during the analyze dispatch"
+		if emitCalls > 0 {
+			reason = fmt.Sprintf("analyzer: emit_analysis did not succeed during the analyze dispatch (%d attempts)", emitCalls)
+		}
 		raw, _ := json.Marshal(data)
 		return &StageOutput{
 			Data:  raw,
-			Error: "analyzer: emit_analysis was not called during the analyze dispatch",
+			Error: reason,
 		}, nil
 	}
 
-	// N > 1: last write wins. Reject policy adds a loud Error at
+	// Multiple successful submissions create last-write ambiguity. Rejected
+	// attempts never write Mutable and must not punish an accepted repair.
+	// Reject policy adds a loud Error at
 	// the end but still builds the IR so downstream stages could
 	// continue if the operator ignores the signal.
 	var emitGateError string
-	if emitCalls > 1 {
+	if emitSuccesses > 1 {
 		if limits.RejectMultipleEmit {
-			emitGateError = fmt.Sprintf("analyzer emit_analysis called %d times (policy=reject)", emitCalls)
+			emitGateError = fmt.Sprintf("analyzer emit_analysis succeeded %d times across %d attempts (policy=reject)", emitSuccesses, emitCalls)
 			logging.Error("[analyzer] %s", emitGateError)
 		} else {
-			logging.Warning("[analyzer] emit_analysis called %d times; only last write effective", emitCalls)
+			logging.Warning("[analyzer] emit_analysis succeeded %d times across %d attempts; only last successful write effective", emitSuccesses, emitCalls)
 		}
 	}
 
@@ -1791,6 +1801,16 @@ func countEmitAnalysisCalls(toolResults []types.ToolResult) int {
 	n := 0
 	for _, r := range toolResults {
 		if r.ToolName == "emit_analysis" {
+			n++
+		}
+	}
+	return n
+}
+
+func countSuccessfulEmitAnalysisCalls(toolResults []types.ToolResult) int {
+	n := 0
+	for _, r := range toolResults {
+		if r.ToolName == "emit_analysis" && r.Success {
 			n++
 		}
 	}
