@@ -1645,3 +1645,17 @@ ROI据实重排：普通预算失败批计数与Trace覆盖/等待方向并行�
 284项相同集合race现已正式exit0（session63803，`GREEN-final-race.log`，tool319.788s）；额外5项工具/提示面race也exit0（session71053，`GREEN-tool-surfaces-race.log`，agent4.416s），不以数量较少的集合替代原集合。实现提交`47babb574`；冻结28文件hash逐项OK，干净构建`/tmp/hmc-coverage-planner-clean-build-20260921.log`正式exit0（session27421），实测revision47babb574d4f、buildTime2026-09-21T08:18:32Z。统一全仓尚在执行，未提前签绿。已用该固定二进制启动上述两例，结果根为`eval/results/hmc_coverage_state_crossmode_20260921`，每例一次、并行2；过程/答案审计待正式结束，不增加第三例追绿。
 
 首次统一全仓现已正式exit1（session61825，tool435.175s）：仅`p0a2_coverage_test.go`和`rnb_leadsem_test.go`四项旧词面针漏迁移；其实际输出已为正确“覆盖数值”，覆盖行提取器仍查“已归因”导致空串。最小修正只改两份测试，保计数/MAX/2.770与28.717ms/112.223分子及零分子披露断言；同步迁移未失败的反面针，避免空针。覆盖行选取精确`- 链路覆盖 `而非新解释句，折叠前后非空与整行字节相等仍强制。独立只读复核通过。58项完整P0A2/RNB/LeadSem集合定向`/tmp/hmc-coverage-pin-migration-green-20260921.log`exit0（session76955，tool3.317s）及同集合race `...-race-20260921.log`exit0（session15149，tool19.622s）。末版统一全仓改记`/tmp/hmc-coverage-planner-final2-full-20260921.log`（session17074）执行中；首轮失败不抹，不据定向绿签全仓。
+
+## 73. 47b固定双例：显示修复命中，原生证明与末尾上下文仍有缺口（2026-09-21）
+
+同一干净47babb574d4f、2并行×1，runner正式exit0（session36566）；Trace217秒机器PASS，C++ apply208秒机器FAIL（verification_proof_incomplete），完整人工均FAIL。[机器摘要](../../eval/parallel_selected_summary_hmc_coverage_state_crossmode_20260921.md)、[人工逐面审计](../../eval/parallel_selected_summary_hmc_coverage_state_crossmode_20260921_manual_audit.md)保留各自结论，无第三例追绿。
+
+Trace新覆盖/等待措辞实际命中，明确窗、11ms链上IO、三项1ms调度供给候选、19.5ms链外logger隔离及必选schema2根因旁路都保住。但模型把依赖窗当连续睡眠起止、把唤醒和入核运行混写、部分机理与内部词面仍越界；相关真实区间和边界已经进入最终输入，不能再把这些都说成工具缺证。首轮fact_families冲突拒绝符合已给教学，不是另一个矛盾合同。
+
+另确认两个系统自矛盾，ROI高于重复追加同义教学：`renderTraceFinalLeaderMechanismCeiling`和一般phase handoff把S/IO亦统称on-chain work；同一最终图的Adjacent行按角色显示“无直接唤醒边”却同时列明确上游唤醒点。后者是行的计量职责被写成物理关系否定，不应升链或删除真边。下一片只改这两处共享语义投递，按状态保等待/工作/未知，显示只声明邻近行的资格；保全部数值、链凭证、独立已证等待、机理上限与模型结论所有权。
+
+C++两发布头各一行真实改对，两次严格编译及运行通过，测试/Makefile未改，隔离交付resolved。最终依旧诚实unverified，未把Make aggregate PASS提升成float-not-regressed的精确断言证明。模型把仅测1.25L且只断言非空的main绑定给普通float/double合同，comparator还引用不存在的double重载；这不能靠未来B2授权或把main当通用断言就自动闭合。B2–B6、C++精确证明生产者、模型合同语义质量分账保留，已有测试绑定教学不等于所有绑定都语义正确。普通planner本例failure_rounds=0，未命中新计费分支，不能以此宣称live重试下降。
+
+HMC父账仍13/79已交付、66开放；此前各次人工FAIL不回写。末版两文件词面迁移提交`b6d1bfa84`，不改变已回放47b的生产字节。
+
+§71–72末版统一全仓`/tmp/hmc-coverage-planner-final2-full-20260921.log`现已正式exit0（session17074），87测试包、13无测试包、零FAIL；首轮四项旧词面FAIL仍保留。该收据签47b生产与b6d测试末版，不签接下来新增的末尾提示/邻近关系修复。
