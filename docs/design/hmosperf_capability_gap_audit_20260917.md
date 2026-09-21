@@ -1887,12 +1887,14 @@ H4 170秒保明确13762.791708–13763.024898窗、四态157.248/5.604/70.338/0m
 下一小批验收清单（仍属HMC-16.4/18.5，不新增父任务完成数）：
 
 - [ ] 两个schema的PTO身份说明单源且JSON编码一致；解释完整字段/非根前缀、Go及框架差异。首轮尚无报告仍可正常规划，不教成必须先执行测试才能发计划。
-- [ ] 用同一有界展示函数向实际planner/controller投递当前持有报告中的原生assertion PASS身份；整体report失败或required证明不足时也保已执行的具体PASS，不自动代填PTO或关闭合同。
+- [ ] 用同一有界展示函数向工具实际返回、planner/controller投递当前持有报告中的原生assertion PASS身份；整体report失败或required证明不足时也保已执行的具体PASS，不自动代填PTO或关闭合同。
 - [ ] 绑定明确active plan与报告PlanID，保持post-apply/非planner-probe边界；当前空/错plan/channel报告不能复活历史context-pack内容。heading说明是持有报告快照、附GeneratedAt，不把仅同PlanID当最新工作树字节或同scope执行代次证明；不存在的invocation ID/通用报告路径不得捏造。
 - [ ] IDs按真实字节JSON转义，控制数量/总字节预算；超长整项省略并说明，不截出新身份、不剥前缀/归一化名称、不按源码或原始散文猜test_path。aggregate/non_asserting/build/plain probe不能混成原生断言。
 - [ ] 实际agent消息与公开RunTests→报告→消息交接回归；覆盖根/非根、7runner格式、错plan/channel/空报告/历史失效、混合PASS+FAIL、控制字符/Unicode/过长ID，并证明matcher、source-free PTO拒绝与required证明边界不变。非本机runner格式单元测试不算实际执行。
 
 现成可借用的是当前报告选择/active scope及failure/probe observation的有界独立提示结构；原failure/probe摘录会截短ID，不能拿来作可复制原生身份。`authoritativeWriteControllerReport`有兼容空PlanID/Channel，新的身份区不能仅调用它就声称来源明确；`TestResult`本身没有invocation ID。来源授权与只读补绑定继续按B2–B6独立验收。
+
+独立设计复核补充：既有`NativeProjectTestObservationBindingTeaching`已经统一“引用原有测试不需伪造文件修改”的权限教学，应复用它并另抽suite/id字段说明，不建第三套规则。工具出口优先核`run_tests.go::installFinishedReport`，与实际planner/controller初始消息共用展示。七个selector runner与序列化协议种数不相等：Python有unittest/pytest两形，Java等共享JUnit，Swift另有`Test Case '-[Suite testName]'`→suite/name，不能漏Swift或据七类协议摘要宣称全矩阵。首轮无report静默，明确post_apply_verify/PlanID匹配，原报告字节及PTO不变，仍只是当前持有快照的可见性而非新执行授权。
 
 业务分尺的独立二次审计没有找到明确的错误等式或准入自冲突，但确认稳定的显示风险：末张事实卡突出query51=6+1+44，business50=5+1+44在更早卡片，末尾业务行仅留50总量；链上31ms阻塞和背景47ms请求又共用IO延迟泛称。`answer_document_final_decision_boundary.go:286`要求使用该读者标签，邻近机制边界仍明确区分请求与阻塞，因此不能定性为系统授权错误换尺。`trace_span_scheduler.go:92`确实以业务起止重建真实状态，并非按宽查询比例缩放；参考`core/preprocess/sleep_ops.py:198/240/577/593`的局部窗交集能力已有对应实现。
 
