@@ -1,0 +1,17 @@
+# End-to-end source-only repair in a nested Python project. No patch kind,
+# planner-internal observation identity, or verification implementation is
+# prescribed by the question or the plan oracle.
+#
+# The normal apply verdict requires an authoritative current-plan passing
+# test report and a verified final workflow. Audit the delivered test bytes
+# against the seed as well: the existing case schema has no unchanged-file
+# hash assertion. Source-text checks below do not substitute for test proof.
+ID="nested_python_increment"
+NAME="nested Python project increment repair with unchanged native tests"
+MODE="apply"
+FIXTURE="eval/fixtures/testdata/nested_python_increment"
+REQUIRED_EXECUTABLES="python3"
+POST_APPLY_FILE="packages/widget/widget.py"
+QUESTION="packages/widget 子项目的 increment 函数应该对任意整数返回输入值加一，但现在调用结果不符合这个约定。请定位并修复实现，只修改实现源码，不改现有测试、项目配置或依赖；运行已有测试验证负数、零和正数，并说明实际验证结果。"
+EXPECT_CONTAINS="increment"
+EXPECT_MATCHES_REGEX='^[[:space:]]*def[[:space:]]+increment[[:space:]]*\('

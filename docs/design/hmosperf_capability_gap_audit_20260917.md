@@ -1733,3 +1733,27 @@ Trace附录另有P2确定显示债：同A/B的11条来源记录占四行预览�
 身份审计进一步发现待公开复现的高ROI接缝：非根项目的`qualifyChangeReport`会给suite与assertion_id都加执行目录前缀，Python的路径归属检查却仍要求原始模块/文件开头；Java完整类选择器也有同类静态风险。若真实通过断言因此无法登记，优先修生产者与消费者的精确执行范围一致性，而非仅补教学。不能任意剥`::`（pytest本身含此分隔符）、借兄弟目录结果，或把candidate范围等同具体执行代次。当前独立树诊断中，未签产品RED，也不改主树正在全仓验收的源码。
 
 成功结果身份可见性亦分账：普通run_tests摘要目前主要给总数，passed suite/id未逐条投递；首轮planner还没有执行报告，不能新教成“必须先复制报告”或授权它突破原生测试执行限制。参考`core/llm_contract.py:114–155`可借鉴已发布成员/字段与实际工件反查，但参考仓没有本项目PTO能力；其散文查重硬拒不移植。
+
+§76实现、旧测试迁移及§77审计已随`a8c5dd474`正式推送main（session84482 exit0，427eb→a8c5）。末版全仓tool395.989s、agent85.893s、tracequery116.512s。以下批次独立验收，不借该全仓收据签新代码。
+
+## 78. 非根测试结果的执行目录与路径归属一致（2026-09-21，验收中）
+
+§77静态疑点已公开复现为确定性系统缺陷：独立树`/tmp/codrax-python-pto-path.VuUJ8T/tree`从EmitChangePlan→真实ApplyPatch→RunTests，子项目`packages/widget`真实unittest exit0、同一完整suite/id确已通过，但`declarationMatches=true/pathMembership=false`，required证明仍missing。正式RED=`public-diagnostic-setup.log`（session24503 exit1、tool2.412s）；根目录正控和兄弟身份负控通过。首版pyproject误选pytest且runner_missing是fixture失败（`public-diagnostic.log`），不计产品RED。参考仓的成员/工件精确反查原则仍适用，但它没有本项目的测试执行证明连接，不能说是移植现成功能。
+
+生产者原先给非根suite/id加`runner[/framework]@working_dir::`，路径核验却读完整串当裸模块/类。修复抽取既有发射词形单源，消费者从当前报告typed候选和已执行项目命令建范围表；两个身份必须属于同一、唯一、当前候选范围，仅路径归属检查解开一次前缀。声明仍匹配原始完整suite/id，报告字节不改；不解析任意`::`，不让root的Go `.`选择器借用已知子项目结果，重复/混合/歧义前缀和兄弟目录均不授证。成功/失败共用resolver，失败多执行来源保守门不动。
+
+此边界只恢复candidate scope，不解决同scope多次invocation的来源身份；B2源快照授权及B3–B6只读补登记不因此开放。Go首轮身份教学、成功身份可见性、full/skeleton checklist教学漂移和C/C++精确断言生产者均保留。没有扫描用户或模型原文，没有新JSON字段或新增模型填写负担。
+
+主树公开四枝（根通过、非根通过、非根真实失败、兄弟不串）加既有未改测试五枝，GREEN=`main-public-green.log`（session91855 exit0/tool3.864s），同组race=`main-public-race.log`（session6116 exit0/tool6.039s），均在同诊断目录。只改真实源码，已有测试字节不变；非根通过现在获required proof、真实失败获得failure relevance。额外九种runner格式的producer→resolver成功/失败矩阵只算单元证据，不冒充本机运行Java/Node等。
+
+末版十个测试文件的54项精确集合定向`/tmp/hmc-test-result-scope-focused-20260921.log`（session34891 exit0/tool23.956s），同54项race `...-race-20260921.log`（session73880 exit0/tool17.579s）。初版矩阵给Django手工suite与其既有selector不一致的失败留在`...-matrix-20260921.log`，未扩修selector或当产品RED。独立只读复核通过；叠加下一节两句文案的统一全仓`/tmp/hmc-scope-record-final-full-20260921.log`（session28202）执行中，尚不签全仓。
+
+## 79. 状态记录数不冒充不同时间窗数（2026-09-21，验收中）
+
+§77附录确认的P2仅修遗漏说明：中英两面都明确未展开的是状态统计记录，条数不是不同窗口数量。四条展示上限、A/B优先顺序、EvidenceID/sourceKey权威去重、原生值和范围均不改。参考`core/batch/closure/select.py`的member_label与`server.py:1309`行截断说明可借鉴明确计数对象，但没有本问题的直接去重实现，不能借它合并观测。
+
+新公开路径EmitAnalysis→原生六类TraceQuery→emit_answer_document→实际渲染，双语×4/5/11记录；先证一份工件、两窗和全部独立原生记录，再核四条展示、A/B优先、逐行原值与前后工具结果/ledger/authority/模型正文不变。有效RED=`/tmp/codrax-state-record-count-20260921.4J8dHX/RED-public.log`（session53408 exit1）：4条正控通过，5/11只因旧遗漏词面失败。首版用event_search未产生状态记录的harness失败另留，不计产品RED。
+
+同目录`GREEN-focused.log`（session58529 exit0/tool3.599s）及`GREEN-race.log`（session68350 exit0/tool10.875s），同24项集合`^(TestTraceStateRecordCountPublicTwoWindows|Test.*B1626.*|TestB1618TargetWaitQueryJoin.*)$`。独立复核未见生产越界；统一全仓与干净固定双例收据待补。父账仍13/79已交付、66开放，不把两项子缺陷冒充父能力完成。
+
+§78/79实现分别提交`e2916433e`与`635814c6d`。下一轮固定双例为真实`real_trace_e1_dual_window_normalized`及新增`nested_python_increment`，2并行×1；前者复验两窗数值与附录词义，后者在子目录项目只改实现并运行已有测试，不以显式PTO提示诱导模型。新fixture语法健康，真实unittest基线exit1（3 methods/7 failures），临时副本仅修源码后exit0（3 tests），测试cmp一致；日志`/tmp/codrax-nested-python-eval.iUnWa5/`。原测试SHA256=`504b2535413cafa883be2802d92a698036735de8883384530caec4fa8375f322`，交付必须另核diff/hash，源码存在性oracle不替代执行证明。当前仅公开回归证明scope修复，live是否实际生成并消费合格声明须逐面审计，不能提前签能力命中。
