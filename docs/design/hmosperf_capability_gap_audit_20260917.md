@@ -1500,3 +1500,22 @@ XERR只读追查进一步明确待验证机制：payloadless阻塞值取span∩w
 末版三文件冻结，独立只读复审通过。有效RED保存在执行回执（session30682、chunk f6a572、exit1、tool1.120s），当时未持久化日志，不提供不存在的文件引用。末版`/tmp/codrax-bounded-scope-20260920.YaI48u/focused.log`四包exit0（tool2.784s/types0.582s/skill0.941s/agent2.604s），同目录`race.log`四包exit0（tool11.347s/types3.488s/skill1.614s/agent4.684s）。包括scalar/list/空或畸形/混合字段软清理、失锚quote不得借member取权、真explicit及多窗不成包络、full/unspecified/missing、无附件兼容、required维度保持；公开Emit→accepted native实例→系统补齐真实1..1.05而非.999..1.051，仍标查询窗而非用户明确窗。有限事实/有限影响不授完整报告，关系/系统概览仍保持原独立宽度，全部scalar/list交叉验证。未找到需要修改的工具字节hash pin；实际schema及相邻消息针已跑，不以没有pin免除全仓。
 
 §60–61统一末版全仓正在执行，收据`/tmp/hmc-scope-xerr-final-full-20260920.log`。下一批按新信息量与跨模式保护选jank字段只读清单（超过2^53原始整数、独立时钟/appid与完整成员集）+Java plan-only（非Trace输入、精准补丁与规划JSON），同一干净新二进制2并行×1。两项均不是旧业务/明确窗失败的替代通过，也不能代销写模式补证B2–B6；前两例正确证据已给但模型未遵循的部分保留，不反复用同例跑到绿。
+
+## 62. 5582异构双例与§60–61交付收据（2026-09-20）
+
+§60 `6d7e340bc`、§61 `3f7f7a4c8`及审计`5582d0fd0`已正式推送main（远端d81→5582）。统一末版全仓正式exit0，`/tmp/hmc-scope-xerr-final-full-20260920.log`：87测试包、13无测试包、零FAIL；agent102.283s、tool409.629s、tracequery133.900s、types61.708s、render9.460s、hitraceconv164.958s。干净构建`/tmp/hmc-scope-xerr-clean-build-20260920.log`exit0，revision5582d0fd03eb、buildTime2026-09-21T06:35:09Z。只覆盖此时冻结源码，不用于签后续Java改动。
+
+23:35:33–23:38:10固定snapshot`.codrax/tmp/codrax-selected-20260920-233533`，2并行×1，runner正式exit0。机器2/2、完整人工0/2；[摘要](../../eval/parallel_selected_summary_hmc_scope_xerr_read_write_20260920.md)、[人审](../../eval/parallel_selected_summary_hmc_scope_xerr_read_write_20260920_manual_audit.md)。两例均未命中新XERR互指/bounded数值软清理，不把异构保护当新分支live见证。
+
+- 卡顿清单157秒/28%上下文：3条、7/4/2帧、70/40/20ms、超过2^53整数、原始头行时间均正确，同名子串/非法数字正确排除；但把marker PID201写成发射线程PID（实际发射TID/TGID101），并输出内部time_domain状态词。最终实际成文输入已清楚分列这三种身份并教普通语言，故留答案质量债，不加原文硬门或同义提示。该有限事实问题不需要因果投影，空mandatory schema2旁路`trace_root_cause_contract_not_active`合理；不是Trace能力缺失或文件未生成。独立人审复核一致。
+- Java计划99秒/28%上下文：单行retrun→return补丁精准且fixture未动，plan-only不冒称apply/verify通过。实际6次发射、5次planner拒绝，读成文reject=0不能隐藏写规划重试。最终附带probe含非法默认包import，是模型错误；另发现任意合法完整Java主类会被系统错误嵌套，下面单独确认修复，不以更宽词面接受外部命令包装器。当前完整计划人审FAIL。
+
+原业务/明确窗FAIL和13/79已交付、66开放不变。模型直接错误explicit来源、真实成员集关系/镜像去重、上下文成本与读者词汇、B2–B6均继续留账，不因本轮机器PASS或局部代码交付整体打勾。
+
+## 63. Java验证程序不能依赖隐藏固定类名（2026-09-20，已确认，施工中）
+
+§62 live揭示两项独立问题：非法`import Main;`不能由系统默认修文；完整`public class ProbeMain`却也是schema所称source-level program，执行器仅因不叫`CodraxVerificationProbe`就把它整个嵌进main，是确定性合同缺口。`run_tests_verification_probe.go`源准备/临时文件/启动主类，以及`verification_probe_syntax.go`预检文件名均硬编码该内部类名；公开schema与实际模型教学未声明这种限制。不应为内部装载限制强迫模型记忆名字，也不把合法源码改坏后的编译错误归给模型。
+
+公开RunTests RED正式exit1，`/tmp/codrax-java-source-unit-20260920.PzwKiT/red.log`（tool2.068s）：实际生成源、javac文件名、java启动类均观察到错误。使用边界观察fake JDK核真实调用参数/写入源，并非真实Java编译。当前主机Java launcher在但无JRE；缺parser不算语法正确，也不能用环境缺失触发新硬拒。独立只读复核同意以已有Java AST识别顶层源单元，syntax和runtime消费同一源/文件名/主类准备结果；保源码字节、包名、旧snippet与固定类入口，不重命名/删import，不从注释字符串猜入口，多主入口不猜。AST子集限制不成为emit新硬拒，原javac明确语法诊断和changed-code耦合门不动。
+
+本片优先于继续堆Trace散文教学，归HMC-16.4/18.5写验证兼容子缺陷，不新增父任务或代销B2–B6。实现及末版回归待验，不借§62全仓或计划machine PASS签新代码。
