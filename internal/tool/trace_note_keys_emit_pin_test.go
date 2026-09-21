@@ -355,6 +355,18 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 			Thread: tracequery.ThreadRef{Comm: "jit", PID: 99}, Kind: "sync", Name: "JIT compiling foo",
 			Category: "runtime", Subcategory: "jit", SemanticClass: "jit_compile",
 			StartTs: 1.05, EndTs: 1.15, DurationMs: 100, StartLine: 58, EndLine: 59,
+		}, {
+			// Ordinary marker state context is a soft-consumer contract key;
+			// exercise the production typed-observation emitter, not an alias.
+			SourcePath: "full.systrace", Thread: tracequery.ThreadRef{Comm: "business", PID: 98},
+			Kind: "sync", Name: "UncataloguedWork", StartTs: 1.1, EndTs: 1.2,
+			DurationMs: 100, StartLine: 60, EndLine: 61,
+			SchedulerStates: &tracequery.TraceSpanSchedulerStates{
+				SourcePath: "full.systrace", Thread: tracequery.ThreadRef{Comm: "business", PID: 98},
+				Window: tracequery.TimeWindow{StartTs: 1.1, EndTs: 1.2}, Coverage: "complete",
+				MeasurementDomain: &types.TraceSchedulerMeasurementDomain{TargetTID: 98, WindowStartTs: 1.1, WindowEndTs: 1.2},
+				RunningMs:         5, RunnableMs: 1, SleepMs: 94, AccountedMs: 100,
+			},
 		}},
 		PerfSamples: &tracequery.PerfContext{
 			SampleCount: 3, TotalPeriod: 9000,

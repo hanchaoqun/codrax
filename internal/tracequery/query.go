@@ -3485,7 +3485,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		if failure := durationFailures[durationOrderTraceSpan]; failure != nil {
 			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "trace_spans/trace_mark_categories/async_file_work"))
 		} else {
-			stats.TraceSpans = traceSpans
+			stats.TraceSpans = append([]TraceSpanSummary(nil), traceSpans...)
+			stampTraceSpanSchedulerStates(idx, q, stats.TraceSpans)
 			// SPANVIS-1: the FULL inventory rides the unexported engine-internal
 			// field under the same fail-closed gate as the bounded view; sole
 			// consumer is the advisory business-span mention face.

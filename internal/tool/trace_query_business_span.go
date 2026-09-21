@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -58,6 +59,7 @@ func traceQueryTypedBusinessSpanObservations(stats tracequery.WindowStats, ref t
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
 				{types.TraceNoteKeyActualImpactMS, traceQueryObservationMSValue(span.ActualDurationMs)},
 				{types.TraceNoteKeyActualWindow, traceQueryWindowValue(span.ActualStartTs, span.ActualEndTs)},
+				{types.TraceNoteKeyBusinessSpanSchedulerStates, traceQueryBusinessSpanSchedulerNote(span)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, span.StartLine, span.EndLine),
 			ObservedAt:  at,
@@ -65,4 +67,15 @@ func traceQueryTypedBusinessSpanObservations(stats tracequery.WindowStats, ref t
 		})
 	}
 	return out
+}
+
+func traceQueryBusinessSpanSchedulerNote(span tracequery.TraceSpanSummary) string {
+	if span.Kind != "sync" || !span.SchedulerStates.Matches(span.SourcePath, traceThreadLabel(span.Thread), span.StartTs, span.EndTs) {
+		return ""
+	}
+	data, err := json.Marshal(span.SchedulerStates)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }

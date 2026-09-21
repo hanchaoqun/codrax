@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -45,6 +47,7 @@ func renderAnswerDocBusinessSpanFacts(ctx *types.AgentContext, ledger types.Obse
 				fmt.Fprintf(&b, "; physical paired range %.6f–%.6f s, full elapsed %s ms (not the in-window duration)", actualStart, actualEnd, actualMS)
 			}
 		}
+		b.WriteString(answerDocBusinessSpanSchedulerMeaning(record, zh))
 		fmt.Fprintf(&b, "; observation_id=%q; source=%q; artifact=%q; query_scope=%q; support=%q\n", record.ID, record.SourceRef.Path, record.SourceRef.ArtifactID, record.SourceRef.QueryScopeID, strings.Join(record.SupportRefs, "; "))
 	}
 	if len(facts) > types.TraceBusinessSpanFactLimit {
@@ -60,4 +63,35 @@ func renderAnswerDocBusinessSpanFacts(ctx *types.AgentContext, ledger types.Obse
 		b.WriteString("- These are returned observations, not an all-trace business inventory or a completeness claim. Work intervals, nested work, scheduler states and IO requests can overlap and must not simply be added. Preserve the stated window basis; the model explains work-to-target relationships from evidence. An unproven relation does not mean the capture lacks business markers.\n\n")
 	}
 	return b.String()
+}
+
+func answerDocBusinessSpanSchedulerMeaning(record types.ObservationRecord, zh bool) string {
+	if traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeySpanKind) != "sync" {
+		return ""
+	}
+	var states tracequery.TraceSpanSchedulerStates
+	if err := json.Unmarshal([]byte(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyBusinessSpanSchedulerStates)), &states); err != nil ||
+		!states.Matches(record.SourceRef.Path, record.Subject, record.Span.StartTs, record.Span.EndTs) {
+		return ""
+	}
+	if states.Coverage == "unavailable" {
+		if zh {
+			return "；本业务区间的线程状态未能计量，不能按零处理，也不能借用更宽查询窗的状态总量"
+		}
+		return "; marker-local scheduler states unavailable, not zero; do not substitute a wider query's state totals"
+	}
+	if zh {
+		coverage := "覆盖完整"
+		if states.Coverage == "partial" {
+			coverage = "仅部分覆盖，未观测或未分类的时间不能按零处理"
+		}
+		return fmt.Sprintf("；本业务区间的线程状态：运行 %.3f 毫秒、等待调度 %.3f 毫秒、睡眠 %.3f 毫秒、不可中断等待 %.3f 毫秒、调度标记 IO 等待 %.3f 毫秒；已计量 %.3f 毫秒（%s；睡眠中调度标记 IO 等待 %.3f 毫秒为包含项，不另加；仅说明本区间状态，不证明等待原因，不能替代为更宽查询窗的总量）",
+			states.RunningMs, states.RunnableMs, states.SleepMs, states.DStateMs, states.IOWaitMs, states.AccountedMs, coverage, states.SleepIOWaitMs)
+	}
+	coverage := "complete coverage"
+	if states.Coverage == "partial" {
+		coverage = "partial coverage; unobserved or unclassified time is not zero"
+	}
+	return fmt.Sprintf("; marker-local scheduler states: running %.3f ms, runnable %.3f ms, sleep %.3f ms, D-state %.3f ms, scheduler-marked IO wait %.3f ms; accounted %.3f ms (%s; scheduler-marked IO within sleep %.3f ms is an included overlay, not an addend; states do not prove a wait mechanism and must not be replaced by wider-query totals)",
+		states.RunningMs, states.RunnableMs, states.SleepMs, states.DStateMs, states.IOWaitMs, states.AccountedMs, coverage, states.SleepIOWaitMs)
 }

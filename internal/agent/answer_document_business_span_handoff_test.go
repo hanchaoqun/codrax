@@ -3,11 +3,13 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -108,5 +110,108 @@ func TestBusinessSpanHandoffCapDisclosesAndKeepsChoiceIDsVisible(t *testing.T) {
 	}
 	if strings.Contains(text, "Work-16") {
 		t.Fatal("prompt cap and selection cap disagree")
+	}
+}
+
+func TestBusinessSpanSchedulerActualFinalizerMessageHasMarkerLocalRulers(t *testing.T) {
+	ctx := hmosBusinessIOFinalizerContext(t)
+	before, _ := json.Marshal(ctx.Mutable.TurnAArtifacts())
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []struct{ name, running, runnable, sleep, total string }{
+		{"OpenDocument", "5.000", "1.000", "44.000", "50.000"},
+		{"LoadDocumentIndex", "8.000", "1.000", "31.000", "40.000"},
+	} {
+		found := false
+		for _, line := range strings.Split(prompt, "\n") {
+			if strings.Contains(line, "业务 "+fmt.Sprintf("%q", want.name)) {
+				found = strings.Contains(line, "本业务区间的线程状态") &&
+					strings.Contains(line, "运行 "+want.running+" 毫秒") &&
+					strings.Contains(line, "等待调度 "+want.runnable+" 毫秒") &&
+					strings.Contains(line, "睡眠 "+want.sleep+" 毫秒") &&
+					strings.Contains(line, "已计量 "+want.total+" 毫秒")
+			}
+		}
+		if !found {
+			t.Errorf("actual finalizer message has no marker-local state breakdown for %s", want.name)
+		}
+	}
+	after, _ := json.Marshal(ctx.Mutable.TurnAArtifacts())
+	if string(before) != string(after) {
+		t.Fatal("marker state handoff mutated accepted facts")
+	}
+	ctx.Language, ctx.AnalysisIR.RequestModel.Language = "en", "en"
+	english := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(english, "marker-local scheduler states: running 5.000 ms, runnable 1.000 ms, sleep 44.000 ms") ||
+		!strings.Contains(english, "must not be replaced by wider-query totals") {
+		t.Fatal("English finalizer lost the marker-local measurement or scope boundary")
+	}
+}
+
+func TestBusinessSpanSchedulerFinalizerMissingCoverageIsNotZero(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		ctx := hmosBusinessIOFinalizerContext(t)
+		trace := "# tracer: nop\ntask-700 (600) [003] .... 9.000000: tracing_mark_write: B|600|OtherWork\n"
+		if partial {
+			trace += "irq-80 (2) [003] .... 9.005000: sched_wakeup: comm=task pid=700 prio=120 target_cpu=003\n" +
+				"task-700 (600) [003] .... 9.006000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=task next_pid=700 next_prio=120\n"
+		}
+		trace += "task-700 (600) [003] .... 9.010000: tracing_mark_write: E|600\n"
+		path := filepath.Join(t.TempDir(), "unknown.systrace")
+		if err := os.WriteFile(path, []byte(trace), 0600); err != nil {
+			t.Fatal(err)
+		}
+		params, _ := json.Marshal(map[string]any{"path": path, "view": "window_stats", "time_start": 9, "time_end": 9.01})
+		result, err := (&tool.TraceQuery{}).Execute(types.ToolBusContext(ctx, types.AgentExplorer), params)
+		if err != nil || !result.Success {
+			t.Fatalf("public query failed: %v %+v", err, result)
+		}
+		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
+		prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+		var line string
+		for _, candidate := range strings.Split(prompt, "\n") {
+			if strings.Contains(candidate, "业务 \"OtherWork\"") {
+				line = candidate
+				break
+			}
+		}
+		if partial {
+			if !strings.Contains(line, "运行 4.000 毫秒") || !strings.Contains(line, "已计量 5.000 毫秒") || !strings.Contains(line, "仅部分覆盖") || strings.Contains(line, "覆盖完整") {
+				t.Fatalf("partial marker measurement was lost or completed: %s", line)
+			}
+		} else if !strings.Contains(line, "本业务区间的线程状态未能计量，不能按零处理") || strings.Contains(line, "运行 0.000") {
+			t.Fatalf("missing scheduler data became measured zero: %s", line)
+		}
+	}
+}
+
+func TestBusinessSpanSchedulerHandoffRejectsMismatchedCarrier(t *testing.T) {
+	ctx := hmosBusinessIOFinalizerContext(t)
+	facts := types.TraceBusinessSpanFacts(answerDocObservationLedger(ctx), &ctx.AnalysisIR.RequestModel)
+	if len(facts) == 0 {
+		t.Fatal("public business facts missing")
+	}
+	for _, mutate := range []func(*tracequery.TraceSpanSchedulerStates){
+		func(s *tracequery.TraceSpanSchedulerStates) { s.Window.StartTs -= .001 },
+		func(s *tracequery.TraceSpanSchedulerStates) { s.Thread.PID++ },
+		func(s *tracequery.TraceSpanSchedulerStates) { s.SourcePath += ".other" },
+		func(s *tracequery.TraceSpanSchedulerStates) { s.RunningMs += 2 },
+		func(s *tracequery.TraceSpanSchedulerStates) { s.MeasurementDomain.TargetTID++ },
+	} {
+		record := facts[0]
+		record.RichNotes = append([]string(nil), record.RichNotes...)
+		var states tracequery.TraceSpanSchedulerStates
+		if err := json.Unmarshal([]byte(traceQueryObservationSupplementNoteValue(record, "business_span_scheduler_states")), &states); err != nil {
+			t.Fatal(err)
+		}
+		mutate(&states)
+		data, _ := json.Marshal(states)
+		for i, note := range record.RichNotes {
+			if strings.HasPrefix(note, "business_span_scheduler_states=") {
+				record.RichNotes[i] = "business_span_scheduler_states=" + string(data)
+			}
+		}
+		if got := answerDocBusinessSpanSchedulerMeaning(record, true); got != "" {
+			t.Fatalf("mismatched producer carrier reached reader facts: %s", got)
+		}
 	}
 }

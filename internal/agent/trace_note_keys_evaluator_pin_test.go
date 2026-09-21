@@ -14,11 +14,62 @@ package agent
 // wire pins — do not replace them with the constants.
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func TestBusinessSpanSchedulerNoteConsumerUsesRegistry(t *testing.T) {
+	if types.TraceNoteKeyBusinessSpanSchedulerStates != "business_span_scheduler_states" {
+		t.Fatal("business scheduler note wire key drifted from the registry")
+	}
+	row, ok := types.TraceNoteKeyLookup("business_span_scheduler_states")
+	if !ok || row.Family != "business_span" || row.Carrier != types.TraceNoteCarrierSoftConsumer {
+		t.Fatalf("business scheduler note is factual context, not a causal gate: %+v", row)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "answer_document_business_span_handoff.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched := map[string]int{}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "answerDocBusinessSpanSchedulerMeaning" {
+			continue
+		}
+		ast.Inspect(fn, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			callee, ok := call.Fun.(*ast.Ident)
+			if !ok || callee.Name != "traceQueryObservationSupplementNoteValue" {
+				return true
+			}
+			if len(call.Args) != 2 {
+				t.Fatalf("business scheduler note consumer signature drifted")
+			}
+			key, ok := call.Args[1].(*ast.SelectorExpr)
+			if !ok || (key.Sel.Name != "TraceNoteKeyBusinessSpanSchedulerStates" && key.Sel.Name != "TraceNoteKeySpanKind") {
+				t.Fatalf("%s: consumer must use the single registered key", fset.Position(call.Pos()))
+			}
+			pkg, ok := key.X.(*ast.Ident)
+			if !ok || pkg.Name != "types" {
+				t.Fatal("business scheduler note consumer bypassed types registry")
+			}
+			matched[key.Sel.Name]++
+			return true
+		})
+	}
+	if matched["TraceNoteKeyBusinessSpanSchedulerStates"] != 1 || matched["TraceNoteKeySpanKind"] != 1 {
+		t.Fatalf("business scheduler consumer pin checked %v, want one state carrier and one sync-kind check", matched)
+	}
+}
 
 // traceNoteKeyPrefixTableViolations reports the entries of a supplement
 // pass-through prefix table that are not "<registered key>=" shaped.

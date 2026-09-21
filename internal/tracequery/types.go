@@ -3488,6 +3488,9 @@ type PacingIdleSummary struct {
 type TraceSpanSummary struct {
 	SourcePath string    `json:"source_path,omitempty"`
 	Thread     ThreadRef `json:"thread"`
+	// Ordinary synchronous marker-local state account; not a query focus,
+	// semantic work classification, or root-cause measurement.
+	SchedulerStates *TraceSpanSchedulerStates `json:"scheduler_states,omitempty"`
 	// CPU is the opening endpoint's ftrace header CPU. CPUKnown separates a
 	// real CPU 0 from converter-authored trace-mark rows whose source CPU is
 	// unavailable; consumers must never infer CPU from Thread.PID or a comm

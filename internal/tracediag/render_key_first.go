@@ -929,6 +929,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// skipped in reflective detail; they neither combine groups' distributions
 	// nor establish scheduler wait or causal authority. The evolution witness
 	// proves these are the only WindowStats schema additions.
+	// HMC marker-local scheduler states (2026-09-20): TraceSpans' nested
+	// TraceSpanSummary gains optional SchedulerStates. The slice-type-only
+	// WindowStats fingerprint is unchanged. Scalar state values (including
+	// measured zero), source/owner/window coordinates, coverage/head/integrity
+	// and caveats retain one detail owner under that span; no key-first skip
+	// or causal/rank authority. Nested field/disposition/render pins live in
+	// render_business_span_scheduler_test.go; no unrelated hash re-pin.
 	reflect.TypeOf(tracequery.WindowStats{}): "ba9df90dfb29d8ec606633961a517d5553522d7d2d620b2ce07b11b4eb6338f1",
 	// B1638b1 (2026-09-09): TimelineResult adds optional MeasurementDomain.
 	// It describes a constructed scheduler partition, NOT capture completeness

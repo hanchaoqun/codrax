@@ -405,6 +405,12 @@ const (
 	TraceNoteKeyBusinessSpanOmitted = "business_span_omitted"
 )
 
+// TraceNoteKeyBusinessSpanSchedulerStates carries a producer-owned JSON
+// scheduler account for one ordinary synchronous marker's clipped interval.
+// The finalizer parses it for factual state/coverage wording only; it never
+// selects a target, anchors a query, or grants a causal rank/seat.
+const TraceNoteKeyBusinessSpanSchedulerStates = "business_span_scheduler_states"
+
 // RCM 区分键族 (§24.7.1 ①/§24.9-B F3, 2026-07-08): the typed real
 // distinguishing keys of the inode-keyed IO rank families. EVOLUTION RECORD:
 // both key names existed as display-tier "io"-family literals (emitted on the
@@ -1624,6 +1630,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyBusinessSpanBasis, "business_span", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBusinessSpanHidden, "business_span", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBusinessSpanOmitted, "business_span", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBusinessSpanSchedulerStates, "business_span", TraceNoteCarrierSoftConsumer},
 	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
 	// disclosure roster — projection compile parses it into
 	// SelfGapSemanticOverlaps; the display renders the 行内 overlap clause.
