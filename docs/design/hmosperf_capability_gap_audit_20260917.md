@@ -1969,3 +1969,28 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 - [ ] 高ROI窄恢复教学：业务成功前一次已声明no_named_target却留空壳targets，`parseRuntimeTargets`先拒并命令“修身份、不要省略”，与下一profile门要求空targets冲突。模型后来自行清空恢复，非无解硬门；应按已有typed profile给一致修复路线，保named真实身份/quote、无profile/invalidprofile/非运行时兼容，不放宽准入。
 - [ ] 自动补齐设计：本轮六query漏rank/critical；接受business_span_ref后，既有full_artifact分支不允许业务focus缩窗，而app/worker混PID cursor无法单选，最终skip=no_typed_target，旁路schema2正常空数组/no_selectable_typed_on_chain_candidates。是既有组合边界，非本节四生产回归；对照参考sleep_ops选定blocked_tid→直接waker，参考无此权限组合的可直接移植方案。必须区分用户范围与已接受实例，不能删full-artifact旧pin、系统代选app或把cursor升级用户身份。
 - [ ] 当前声明与当前观测完整原生pair并置（§89）；业务/查询及请求/阻塞同卡分尺（§88）；相邻历史authority消费者回放（§91），各自最小验收，B2–B6与父账13/79、66开放不变。
+
+§91–92随`af64dc340`推送main，session71034正式exit0，origin从cb2f3679b前进至af64dc340，本地/远端相等、工作区干净后再开下一片。
+
+## 93. 空壳目标恢复教学与准入规则一致（2026-09-21，验收中）
+
+§92实测no_named_target+空壳targets的提示会把模型引向另一个门：列表先拒并命令不得省略，profile下一步却要求无targets。本批仅修条件式恢复教学，不改parser签名、校验顺序、reject条件、schema必填/enum、错误census或当前请求原文quote校验。真正named空列表的“不能省略”拒绝保留；missing/invalid profile不被默认为no_named，null仅保既有兼容不鼓励生产。不会把空壳自动变成无目标，更不会从工具/工件造身份。
+
+`AnalysisRuntimeTargetRosterTeaching`单源交付实际两个目标schema描述、既有analysis-skill段、malformed-roster错误尾句：named保完整身份与profile的原文quote/source=user_explicit；no_named/unspecified用空数组或省略字段，不放占位对象；not_applicable仅限非runtime请求。选择固定条件式而非读尚未验证profile作唯一恢复决策，两席确认比新增helper/分支更窄。参考`config/indicators/sleep/thread_sleep_summary.yaml:9`和`core/query_engine.py:120`的必填tid属于已选线程查询；本仓用户身份声明与查询输入分层，不能直接移植其补tid提示。
+
+根席公开测试第一轮session8809是测试误用不存在Schema()的编译失败，保留日志、不算产品RED。更正为实际Parameters()后，55993正式exit1/tool1.294s（`/tmp/hmc-target-roster-teaching-red-valid-20260921.log`），3顶层12子项均只缺一致指引；同次每条真实拒绝→模型自修→成功/反例已执行，无准入失败掩盖。初次GREEN88981正式exit0（tool2.359/skill0.866s），含旧profile错误census、whole-set拒绝、named身份/source与hard-arm登记不改。后续独立兼容针、race、统一全仓与冻结双例另记，未齐前不终签。
+
+下一固定双例按ROI选真实C2全工件D/IO等待清单＋Go一行编译修复：前者保named/全域统计而不强拓因果，后者查非trace写模式分类/执行无回归。业务旧FAIL已经两批充分暴露，未改分尺/补齐前不继续重复同例追绿。只跑2并行×1，写计划是否成功与真实验证/人工结论独立分账。
+
+## 94. 全工件范围下已接受业务实例的局部补齐（开放设计，未实现）
+
+两席参考实现/消费者审计确认可泛化，但不是删除full_artifact短路。用户full_artifact是原回答范围，已接受且current的私有business_span_ref是完整实例TID/窗口/物理代次的局部查询凭证，cursor仅导航；三者不得混为用户身份或根因选择。参考`sleep_ops.py:198,577–612`按父阻塞窗交集查询和`cold_launch_window.py:499–539`完整TID/端点传递可借鉴；751–770缺标记时选最早候选不能移植。
+
+- [ ] 决策：仅既有RuntimeTraceReportShapeAuthority明确允许完整报告的full_artifact请求，可用成功settle且current的模型选择实例做局部补齐。保原RequestModel不变；用{view,business_span_ref}原子调用，不拼cursor身份/窗口；work/frame布尔不新授因果权。
+- [ ] 披露/覆盖隔离：现有TargetSource=accepted_business_instance及执行窗用于“只补齐已选实例”的标注。不得将用户full_artifact回填旧meta.RequestedArtifactScope，该字段在CompileRuntimeArtifactScopeCoverage被用作全域扫描凭证；局部执行不增加全域count/complete覆盖。
+- [ ] 公开正针：真实查询发布ref→成功completion settle→补齐→ledger→投影→最终上下文。多cursor两顺序、改名、无cursor、子业务实例；真实业务50=5+1+44、请求35/闭合S等待31/背景47分开，完整irq→worker→app，不标用户指定。
+- [ ] 失效负针：无选择、pending/失败/取消、冲突、旧代次、JSON重放不得触发；来源/TID/窗不符的旧家族不能抑制补齐。执行途中失效停止后续查询但保已完成事实。明确单/多窗和不匹配用户目标保原通道。
+- [ ] 全域/有限保护：原FullArtifactScopeOverridesNarrowModelWindow、真实C2第三次等待和ScopeAndNoChoiceCompatibility/full_artifact断言不降。有限D/IO/关系/effect问题保持原windowless census，不能变成因果报告或被单实例补齐替代。
+- [ ] 旁路验收：补齐只交候选事实，不替模型选根因；合法链上候选可选、无合法选择仍诚实空旁路分别验证。不得将强制非空作为通过条件。
+
+本节只是可施工任务拆分，未改生产、未计新增交付，父账13/79、66开放不变。
