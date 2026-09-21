@@ -198,6 +198,9 @@ func TestChangePlanSkillUsesSharedBehaviorContractObservationTeaching(t *testing
 		t.Fatalf("shared behavior-contract observation teaching count = %d, want 1", got)
 	}
 	for _, want := range []string{
+		"Prefer an existing native project-test assertion that you have inspected",
+		"An unchanged test file may be referenced by project_test_observations[].test_path without adding it to changes[]",
+		"include only actual file changes in changes[]",
 		"project_test_observations[]",
 		"exact test_path, assertion_suite, assertion_id, and contract_refs",
 		"exact typed test-surface candidate",
@@ -206,6 +209,9 @@ func TestChangePlanSkillUsesSharedBehaviorContractObservationTeaching(t *testing
 		if !strings.Contains(body, want) {
 			t.Fatalf("change-plan skill missing shared behavior-contract guidance %q", want)
 		}
+	}
+	if strings.Contains(body, "include that test file in the bounded plan") {
+		t.Fatal("the existing-test binding guidance must not contradict the mutation-only changes[] contract")
 	}
 }
 

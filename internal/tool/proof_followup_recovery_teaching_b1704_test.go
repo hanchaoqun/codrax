@@ -89,7 +89,7 @@ func TestB1704ProofOnlyLanguageRepairStaysOnCurrentPlan(t *testing.T) {
 					t.Fatalf("precise repair identity changed: %+v", pack)
 				}
 				for _, text := range []string{res.Summary, pack.Message} {
-					for _, forbidden := range []string{"inspect or add its exact assertion", "include that test file in the bounded plan", "bind one concrete assertion through project_test_observations[]"} {
+					for _, forbidden := range []string{"inspect or add its exact assertion", "include that test file in the bounded plan", "bind one concrete assertion through project_test_observations[]", "An unchanged test file may be referenced", "Emit one project_test_observations[] row"} {
 						if strings.Contains(text, forbidden) {
 							t.Errorf("source-free repair recommends an unavailable current-plan operation %q: %s", forbidden, text)
 						}
@@ -164,7 +164,7 @@ func TestB1704OrdinarySourceLanguageRecoveryRetainsNativeRoute(t *testing.T) {
 		[]types.FileChange{{Path: "src/widget.ts", Kind: "modify"}},
 		[]types.VerificationProbe{{Language: "python", Code: "assert True"}},
 	)
-	if !strings.Contains(got, types.NativeProjectTestObservationRecoveryTeaching) || !strings.Contains(got, "include that test file in the bounded plan") {
+	if !strings.Contains(got, types.NativeProjectTestObservationRecoveryTeaching) || !strings.Contains(got, "An unchanged test file may be referenced by project_test_observations[].test_path without adding it to changes[]") {
 		t.Fatalf("ordinary source/test plans lost the legal native assertion route: %s", got)
 	}
 }
@@ -184,6 +184,10 @@ func TestB1704OrdinarySourcePlanPublicRecoveryRetainsNativeRoute(t *testing.T) {
 	if !strings.Contains(res.Summary, types.NativeProjectTestObservationRecoveryTeaching) || strings.Contains(res.Summary, "this source-free proof plan") {
 		t.Fatalf("ordinary source plan lost its legal native-test repair route: %s", res.Summary)
 	}
+	if strings.Contains(res.Summary, "include that test file in the bounded plan") ||
+		!strings.Contains(res.Summary, "An unchanged test file may be referenced by project_test_observations[].test_path without adding it to changes[]") {
+		t.Fatalf("ordinary repair unnecessarily demands a test-file mutation: %s", res.Summary)
+	}
 	if ctx.Mutable.ChangePlan() != nil {
 		t.Fatal("rejected ordinary plan must not be installed")
 	}
@@ -192,7 +196,7 @@ func TestB1704OrdinarySourcePlanPublicRecoveryRetainsNativeRoute(t *testing.T) {
 func TestB1704AlwaysOnTeachingScopesNativeTestAuthoring(t *testing.T) {
 	text := types.WriteBehaviorContractObservationTeaching
 	scope := strings.Index(text, "when source/test changes are authorized")
-	edit := strings.Index(text, "inspect or add the corresponding assertion")
+	edit := strings.Index(text, "Prefer an existing native project-test assertion")
 	if scope < 0 || edit < scope {
 		t.Fatal("shared always-on teaching must qualify native test authoring before recommending it")
 	}

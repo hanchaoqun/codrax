@@ -143,7 +143,9 @@ func TestPlannerBehaviorDomainPreservation_RendersOnlyFromTypedContracts(t *test
 		"aggregate project runner proves that the selected suite passed",
 		"does not by itself prove that every independent behavior contract was exercised",
 		"each required or fallback behavior-contract id",
-		"include that test file in the bounded plan",
+		"Prefer an existing native project-test assertion that you have inspected",
+		"An unchanged test file may be referenced by project_test_observations[].test_path without adding it to changes[]",
+		"Add or edit a test only if the needed assertion is missing and the edit is authorized",
 		"project_test_observations[]",
 		"exact test_path, assertion_suite, assertion_id, and contract_refs",
 		"inspect the concrete assertion first",
@@ -164,7 +166,7 @@ func TestPlannerBehaviorDomainPreservation_RendersOnlyFromTypedContracts(t *test
 			t.Fatalf("behavior-domain guidance missing %q:\n%s", want, got)
 		}
 	}
-	for _, banned := range []string{"if the user says", "summary contains", "parse prose", "scan the patch"} {
+	for _, banned := range []string{"if the user says", "summary contains", "parse prose", "scan the patch", "include that test file in the bounded plan"} {
 		if strings.Contains(strings.ToLower(got), banned) {
 			t.Fatalf("behavior-domain guidance contains prose-routing smell %q:\n%s", banned, got)
 		}

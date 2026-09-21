@@ -1534,6 +1534,8 @@ Java 完整探测程序不要求使用内部固定类名。语法预检与运行
 
 修复教学同样受当前计划形态约束：full/skeleton 已构造的 source-free proof sentinel 共用专用软指引，保持 `changes: []`，只更正所需的兼容探测，不推荐本计划禁止的文件修改或 `project_test_observations`。普通 source/test 编辑计划仍保留原生项目断言通道；always-on 行为合同教学将编辑建议限定为当前 typed 权限允许的情形。两类计划使用同一个语言兼容性判定，只有修复说明不同；声明、执行与逐合同断言不混同，无法验证时由既有 controller 保留边界，不新增空计划通行证或模型 JSON 必填项。
 
+普通 source/test 计划的断言登记与文件修改分开：共享 `NativeProjectTestObservationBindingTeaching` 优先指向已检查的既存原生断言。未改测试可仅作为 `project_test_observations[].test_path` 输入，不必塞进 `changes[]`；只有缺少所需断言且修改已授权时才新增/修改测试。该说明对应已有路径正常化与精确测试执行面，不新增权限。测试路径、suite、assertion 与 contract refs 仍由模型基于实际测试选择，系统不从旧报告补签映射；执行成功且逐断言精确匹配才授予证明，aggregate PASS、skip、错误标识均不升级。source-free 补证计划仍禁止这一登记，后续只读补登记必须另走独立授权设计。
+
 ### 8.3 write_analyzer — 写模式专属请求分类
 
 读模式 analyzer 跑完后，写模式额外跑一次独立 `write_analyzer` 阶段，用 `emit_write_analysis` 写 `WriteAnalysisIR`：

@@ -1583,3 +1583,17 @@ Trace选窗、因果投影、链上根因资格、背景隔离和自动补齐均
 首轮`reachability.log`因测试错误预期“非权威探测失败必使总体Passed=false”而FAIL；这是harness预期错误，不计产品RED。主线复核并运行修正为逐执行收据/证明资格断言的末版，`reachability-corrected.log`正式exit0（session2533，orchestrator1.446s）。PTO载荷仅验证无条件sentinel禁入，未搭建有效测试文件/active合同，不能据此宣称原生绑定端到端已验；本例也没有验证required合同的最终终态或所有过期grant组合。诊断测试仅留独立树，未混入本批已全仓验收的主线。
 
 设计收窄：未来B2精确快照授权仍是开放原生只读登记能力的前置条件；现有“重新读取当前源码并运行新probe”与“接受/复用某个旧证明”必须分离，不能新增一个把安全重新验证也冻结的过期快照硬门。永久禁源码修改身份、旧报告独立归属及最终required合同缺证保护继续保留。§30.5的B2–B6均未销账，不能把这次反证PASS说成旧Python补登记FAIL已修。
+
+## 69. 普通写计划引用已有测试不必制造测试改动（2026-09-21，子片验收中）
+
+ROI调整：在B2–B6新增原生只读登记之前，先修首轮就能使用的合法通道教学。`normalizeProjectTestObservations`早已允许不在`changes[]`中的既存测试，`test_surface`也按该声明选择精确文件执行；但共享行为合同说明及普通语言错配修复都要求“include that test file in the bounded plan”。这与同页`MUTATIONS ONLY`的实际修改集合说明形成歧义，会增加模型决策负担。它是可复现的上下文教学缺口，不是新发现的运行时准入故障。
+
+旧§30双例的Python首轮确实受影响范围覆盖：`hmc_context_teaching_crossmode_20260920/github_issue_dateutil_relativedelta_float_symptom-20260920-033511/run-1.logs.all.log`第1070/1188行投递旧说明，第1161行保护既有测试，第1313–1343行实际读取该测试（1337–1339为`assertRaises(ValueError)`）；原计划有required `float_type_check`，旧报告中相同断言通过但原计划没有`project_test_observations`。这些证据不证明这句说明单独导致旧FAIL，不能事后给旧计划或报告补映射。
+
+实现：普通规划与普通修复说明共用`NativeProjectTestObservationBindingTeaching`。已检查、未修改的测试只引用`project_test_observations[].test_path`；确需新增断言且已授权时，才把实际测试改动列入`changes[]`。仍由模型选择精确suite/assertion/合同映射，JSON原生数组形态不变；source-free计划继续禁止文件修改及原生登记。没有新增schema、证明资格、原文扫描门或强制测试改动。
+
+参考仓复核：`core/skill_executor.py:326–448`的resume校验从既有步骤读取manifest/package并校验独立答案工件，而非改写输入工件以便登记结果；`core/llm_contract.py`及`tests/test_llm_contract.py`分开处理成员范围、字段身份与原始值验证。可借鉴“输入引用与结果声明分离、单源合同”的边界；参考仓没有本项目的源码修改/PTO执行合同，不能声称直接移植该能力。其散文查重硬拒规则不引入本仓。
+
+验收记录：先改实际skill、planner初始消息和公开普通修复针，`/tmp/hmc-existing-test-binding-red-20260921.log`正式exit1（5针失败）；修共享说明后，同组加相邻证明权限回归`/tmp/hmc-existing-test-binding-green-20260921.log`四包正式exit0。公开Emit→Apply→RunTests已有测试字节保护、错标识/失败/skip反例及末版全仓/race待完成，不借此前收据签当前片。后续固定干净版本双例优先旧Python ordinary apply与明确窗多跳D/IO只读保护；旧人工FAIL和B2–B6未销，父账仍13/79已交付、66开放。
+
+公开运行时补针已完成：`project_test_observation_existing_file_test.go`五场景（full正例、skeleton→change→finalize正例、错assertion ID、真实断言失败、skip）均走真实临时git仓的Emit→ApplyPatch→Python unittest RunTests，不手工设置Applied或构造报告；只有两个精确正例获得合同证明，三负例不获证明，测试字节及git diff证实始终只改源码。`/tmp/codrax-existing-pto.zGA1hF/GREEN-final.log`正式exit0，tool 2.276s，无SKIP。此链路本来合法，不能称为运行时RED→GREEN；红点是上面的教学针。共享说明及相邻权限四包race `/tmp/hmc-existing-test-binding-race-20260921.log`正式exit0；新增公开针race及末版全仓另记。
