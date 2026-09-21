@@ -489,6 +489,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			report.FailureSummaryBlobRef = StoreBlobArtifact(ctx.WorkDir, t.Name(), "run-tests-failure-output.txt", runTestsCombinedOutput(combinedOutputs))
 		}
 		installRunTestsReport(ctx, report, dryRunProbe)
+		if plan := ctx.Mutable.ChangePlan(); plan != nil {
+			if identities := types.RenderCurrentNativeTestIdentitySnapshot(plan.ID, report); identities != "" {
+				base += "\n\n" + identities
+			}
+		}
 		return base + renderRunTestsWorktreeAuditSummary(report) + renderRunTestsProbeGranularitySummary(report) + renderRunTestsFailureContextSummary(report)
 	}
 	// provisionalReport is the mid-loop changed-path ledger: same typed

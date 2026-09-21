@@ -40,6 +40,9 @@ func (e *writeControllerEvaluator) BuildInitialInstruction(ctx *types.AgentConte
 	if observations := buildWriteProbeExecutionObservationSection(ctx, types.WriteConsumerController); observations != "" {
 		sections = append(sections, observations)
 	}
+	if identities := buildWriteNativeTestIdentitySnapshot(ctx); identities != "" {
+		sections = append(sections, identities)
+	}
 	if pack := buildWriteContextPackPromptSection(ctx, types.WriteConsumerController, "Priority write context pack", 16); pack != "" {
 		sections = append(sections, pack)
 	}
