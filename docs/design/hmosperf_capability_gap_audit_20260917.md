@@ -1179,3 +1179,5 @@ db明确窗报告把network累计14ms睡眠配到递归查询域2.001..2.018，�
 独立留债：系统占用表cookie17/network14各重复一行，现有同源StateAccountKey在链impact可用，但派生计价行缺原始状态来源键。不得按同名+同14ms强并；后续补原始状态来源身份，再精确归并，避免重复项挤占5行上限。本片不夹带去重。正文“network比cookie优先级高”（实际同prio20）及“IO11ms是整链最长阻塞”（症状20/17/14更长）也仍需人工审计；正确口径是已确认可消除候选中最大，不由系统改写模型结论。
 
 对照参考仓的节点状态交集和缓存区间筛选，保留其区间/统计域区分思路，不照搬全节点耗时到用户窄窗。远端B/E漏片段、模型采用业务实例、跨模式B2–B6及其它HMC任务继续开放；13/79、66开放不变。
+
+实现b50fb08a0已提交。原窗口RED/GREEN为工具输出收据，非重定向日志：转录`/tmp/codrax_dependency_window_display_receipts_20260920.txt`注明原session/chunk与exit；邻近B1596/RequestedScope/ValueOccurrence/StateAccountKey正式exit0，tool4.101s/agent2.462s/types4.219s/skill2.780s。首次构建因同批skill教学测试尚未入提交标作b50fb08a0207-dirty；未用于live，补入测试后重新干净构建，不能把dirty构建说成固定提交版。全仓正在包含该测试的工作树执行；源码冻结不变。
