@@ -4,12 +4,12 @@ package tool
 // (§29.104.3/.4, 2026-07-15; E6/E7 账目关系先例).
 //
 // A converged payload-less blocking_span row (typed basis wait_segments) whose
-// Σ(sleep+D+iowait) carries a SLEEP component shares that physical sleep time
-// with the thread's own sleep-family seat: the customer E1↔E2 shape — the
-// blocking row said 「阻塞等待 199.992ms」 while the same thread's sleep seat
-// carried the SAME physical sleep account. The two rows must cross-reference
-// (mutual pointers, never an addition invitation). Wording input only; every
-// published value stays untouched.
+// Σ(sleep+D+iowait) carries a SLEEP component can cross-reference a sleep
+// account of the same thread. This is evidence navigation, not proof that the
+// two accounts include the same physical members. A sleep account may omit
+// segments inside its location envelope (for example, a capped CPU-bucket
+// inventory). Keep both values and references; the actual component relation
+// remains unproven and the totals must not be added directly.
 
 import (
 	"strings"
@@ -19,21 +19,22 @@ import (
 )
 
 // runtimeTraceProjMarkBlockingWaitSleepRelations stamps the 件1 mutual
-// pointers. Typed pair rule (precise signals only, 宁漏勿假指):
+// pointers. The unchanged typed selector is a bounded navigation rule, not
+// physical containment authority:
 //
 //   - blocking side: BlockingValueBasis==wait_segments ∧ BlockingWaitSleepMS>0
 //     ∧ a valid published interval [StartTs,EndTs] ∧ payload-LESS
 //     (BlockingKind==""). XERR1-EXT (§29.104.17 裁定⑤): payload-typed rows now
 //     carry the basis too, but their converged Σ windows on the fold
-//     VALUE-WINNER interval, which is NOT on the wire — the containment proof
+//     VALUE-WINNER interval, which is NOT on the wire — the location selector
 //     below reads the published [StartTs,EndTs] (the fold survivor's display
-//     interval), so on a folded payload row it could prove the WRONG interval
+//     interval), so on a folded payload row it could select the WRONG interval
 //     (宁漏勿假指: payload rows skip the pair entirely);
 //   - sleep side: same canonical subject ∧ sleep state family (registry lane,
 //     never word-face compare) ∧ wall-clock row ∧ compatible query windows ∧
-//     a typed interval that CONTAINS the blocking row's interval (the sleep
-//     share physically lives inside the seat's covered time — containment is
-//     the proof; missing endpoints prove nothing and skip);
+//     a typed location envelope containing the blocking row's interval.
+//     This does not prove sleep-member containment; missing endpoints skip
+//     navigation rather than inventing a matching range;
 //   - ≥2 containing sleep seats → ambiguous, skip whole (禁猜).
 func runtimeTraceProjMarkBlockingWaitSleepRelations(model *runtimeTraceProjTreeModel) {
 	all := runtimeTraceProjSMR1AllRows(model)

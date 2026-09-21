@@ -590,9 +590,9 @@ type runtimeTraceProjTreeRow struct {
 	CrossChannelCaliberRef string
 	// BlockingWaitSleepRef / BlockingWaitSleepPeerRef (XERR1-FIX 件1 互指,
 	// §29.104.4; E6/E7 账目关系先例): a converged payload-less blocking_span
-	// row (basis wait_segments) whose Σ carries a SLEEP component shares that
-	// physical sleep time with the thread's own sleep-family window seat —
-	// the two accounts cross-reference (never invite addition). Ref = the
+	// row (basis wait_segments) whose Σ carries a SLEEP component can navigate
+	// to a sleep account of the same thread. The selector's containing location
+	// envelopes do not prove actual member containment. Ref = the
 	// sleep seat's E# on the blocking row; PeerRef = the blocking row's E# on
 	// the sleep seat. Wording input only; both values untouched.
 	BlockingWaitSleepRef     string
@@ -1407,8 +1407,8 @@ const (
 	runtimeTraceProjMarkIconSpanEnvelope
 
 	// XERR1-FIX 件1 互指 (§29.104.4; E6/E7 账目关系先例): the blocking↔sleep
-	// mutual-pointer sentence pair — the converged row's sleep share and the
-	// thread's own sleep seat cover the same physical time in two accounts.
+	// mutual-pointer sentence pair — navigation between two same-thread
+	// accounts whose actual component relation remains unproven.
 	runtimeTraceProjMarkBlockingWaitSleepRelation
 
 	// ELIM-GAP 件D (§29.104.15, 2026-07-16): the occurrence-segment account
@@ -2269,8 +2269,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// XERR1-FIX 件1 互指 (§29.104.4, 2026-07-15): the blocking↔sleep
 		// mutual-pointer teaching entry (E6/E7 账目关系先例的阻塞等待特化).
 		{runtimeTraceProjMarkBlockingWaitSleepRelation, runtimeTraceProjLegendGroupMark,
-			"- `等待段含 sleep 分量` = 阻塞等待行的等待段合计(span∩窗内 sleep+D+iowait)与同线程 sleep 席互指:sleep 分量与 sleep 席同段物理时间、两套账目各计一次,两行数值不可相加。",
-			"- `wait segments include a sleep share` = the blocking-wait row's wait-segment total (sleep+D+iowait inside span∩window) cross-references the thread's own sleep seat: the sleep share is the same physical time counted once in each of two accounts — the two rows are never additive."},
+			"- `等待账目对照` = 同线程阻塞等待总量(span∩查询窗内睡眠+D态+IO等待)与睡眠统计的证据互指。定位包络包含不证明实际分量相同或包含;各自数值和口径保留,实际分量关系未证时不能直接相加。",
+			"- `wait-account comparison` links a thread's blocking-wait total (sleep+D-state+IO wait within span∩query) to a sleep measurement for the same thread. Containing location envelopes do not prove equal or contained physical components; retain each value and caliber, and do not add directly while the actual component relation is unproven."},
 		// WO-C1 (SMR-1 批, 2026-07-12): the account-relation sentence entry.
 		{runtimeTraceProjMarkAccountRelation, runtimeTraceProjLegendGroupMark,
 			"- `账目关系` = 同线程同状态族的两行来自两套账目体系:行内句标出双方口径自述与互指 [E#];定位包络相交或缺失不证明实际分量重叠,未证时明确标注实际区间关系未证,不能直接相加;已证包络不相交时保留该结论。两行数值不可直较,双行均为诚实账目(W-A 不同账目绝不折)。",
@@ -7537,21 +7537,21 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		out = append(out, text)
 	}
 	// XERR1-FIX 件1 互指 (E6/E7 账目关系先例): the converged blocking row and
-	// the thread's own sleep seat share physical sleep time — mutual pointers,
-	// never addition.
+	// a same-thread sleep account cross-reference for navigation only. Their
+	// actual component relation is not proved by the containing envelopes.
 	if ref := strings.TrimSpace(row.BlockingWaitSleepRef); ref != "" {
 		row.marks.mark(runtimeTraceProjMarkBlockingWaitSleepRelation)
-		text := "等待段含 sleep 分量,与[" + ref + "]自身 sleep 席同段物理时间(两账口径不同,不可相加)"
+		text := "等待账目对照:本行含已测睡眠分量;同线程睡眠统计见[" + ref + "];实际分量关系未证,不能直接相加"
 		if !zh {
-			text = "the wait segments include a sleep share physically inside [" + ref + "]'s own sleep seat (two calibers, never additive)"
+			text = "wait-account comparison: this wait includes measured sleep; see [" + ref + "] for a sleep measurement of the same thread; actual component relation unproven, do not add directly"
 		}
 		out = append(out, text)
 	}
 	if ref := strings.TrimSpace(row.BlockingWaitSleepPeerRef); ref != "" {
 		row.marks.mark(runtimeTraceProjMarkBlockingWaitSleepRelation)
-		text := "阻塞等待行[" + ref + "]的等待段落在本席同段物理时间(不可相加)"
+		text := "等待账目对照:同线程阻塞等待[" + ref + "]按睡眠+D态+IO等待计量;实际分量关系未证,不能直接相加"
 		if !zh {
-			text = "the blocking-wait row [" + ref + "]'s wait segments fall inside this seat's physical time (never additive)"
+			text = "wait-account comparison: [" + ref + "] measures the same thread's sleep+D-state+IO wait; actual component relation unproven, do not add directly"
 		}
 		out = append(out, text)
 	}

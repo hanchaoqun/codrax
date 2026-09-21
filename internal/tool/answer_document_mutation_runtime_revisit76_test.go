@@ -784,8 +784,8 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkIconBlockingWait: {"⊖", "⊖"},
 		runtimeTraceProjMarkIconSpanEnvelope: {"⊓", "⊓"},
 		// XERR1-FIX 件1 互指 (§29.104.4): the blocking↔sleep mutual-pointer
-		// sentence pair (both directions open with the sleep-share token).
-		runtimeTraceProjMarkBlockingWaitSleepRelation: {"等待段", "wait segments"},
+		// sentence pair (both directions open with the navigation token).
+		runtimeTraceProjMarkBlockingWaitSleepRelation: {"等待账目对照", "wait-account comparison"},
 		// ELIM-GAP 件D (§29.104.15, 2026-07-16): the C5-guarded typed-producer
 		// occurrence-segment caliber word beside the 有效归因 tag.
 		runtimeTraceProjMarkOccurrenceSegmentAccount: {"(发生段账目)", "(occurrence-segment account)"},

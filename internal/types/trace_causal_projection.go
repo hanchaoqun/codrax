@@ -1474,8 +1474,10 @@ type TraceCausalProjectionNode struct {
 	// line. Empty (legacy artifacts) keeps every legacy word byte-identically.
 	// BlockingWaitSleepMS>0 gates the 互指 disclosure against the thread's
 	// own sleep seat (payload-less rows only — a payload row's convergence
-	// interval is not on the wire, so the containment proof would prove the
-	// wrong interval). The budget trio drives the 件3 ⚠ line 「span 包络 X >
+	// interval is not on the wire, so navigation could select the wrong range).
+	// This is account navigation only: location-envelope containment does not
+	// prove that the two accounts contain the same physical sleep members.
+	// The budget trio drives the 件3 ⚠ line 「span 包络 X >
 	// 窗内非 running Y:含 running Z,非阻塞等待段」 (on holder-subject rank
 	// records the budget describes the WAITER — the record's BlockingPeer).
 	BlockingValueBasis             string  `json:"blocking_value_basis,omitempty"`

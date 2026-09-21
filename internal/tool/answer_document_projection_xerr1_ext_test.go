@@ -114,14 +114,23 @@ func TestXERR1EXTPayloadRowValueBasisDetailLine(t *testing.T) {
 
 // TestXERR1EXTPayloadRowSkipsSleepMutualPointer — 宁漏勿假指: the payload
 // row's converged Σ windows on the fold value-winner interval, which is NOT
-// on the wire — the containment proof would read the survivor's display
+// on the wire — the navigation selector would read the survivor's display
 // interval, so payload rows skip the blocking↔sleep 互指 pair entirely (the
 // containing sleep seat sits right there and must stay unpaired).
 func TestXERR1EXTPayloadRowSkipsSleepMutualPointer(t *testing.T) {
-	model := buildRuntimeTraceProjTreeModel(xerr1ExtPayloadProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
-	fence := runtimeTraceProjTreeFence(model, true)
-	if strings.Contains(fence, "等待段含 sleep 分量") || strings.Contains(fence, "阻塞等待行[") {
-		t.Fatalf("宁漏勿假指: the 互指 pair must skip payload rows:\n%s", fence)
+	for _, zh := range []bool{true, false} {
+		model := buildRuntimeTraceProjTreeModel(xerr1ExtPayloadProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+		fence := runtimeTraceProjTreeFence(model, zh)
+		for _, row := range runtimeTraceProjSMR1AllRows(&model) {
+			if row.BlockingWaitSleepRef != "" || row.BlockingWaitSleepPeerRef != "" {
+				t.Fatalf("payload row received an account-navigation pointer: %+v", row)
+			}
+		}
+		for _, phrase := range []string{"等待段含 sleep 分量", "阻塞等待行[", "等待账目对照", "wait-account comparison"} {
+			if strings.Contains(fence, phrase) {
+				t.Fatalf("宁漏勿假指: the 互指 pair must skip payload rows: %q\n%s", phrase, fence)
+			}
+		}
 	}
 }
 

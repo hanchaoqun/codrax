@@ -23,7 +23,8 @@ import (
 
 // xerr1WaitSegmentsProjection is the converged tieba-anchor shape: the
 // payload-less blocking row (basis wait_segments) beside the SAME thread's
-// sleep window seat (互指 pair) on the on-chain tier.
+// sleep window account (navigation pair) on the on-chain tier. These legacy
+// scalar/envelope fields do not prove the accounts share physical members.
 func xerr1WaitSegmentsProjection() types.TraceCausalProjection {
 	return types.TraceCausalProjection{
 		WakeupPath:    []string{"OS_FFRT_2_142-61764", "os.FusionSearch-8091"},
@@ -142,11 +143,11 @@ func TestXERR1WaitSegmentsRowFace(t *testing.T) {
 	if !strings.Contains(fence, "⚠ span 包络 29.843ms > 窗内非 running 16.572ms:含 running 13.271ms,非阻塞等待段") {
 		t.Fatalf("件3: the budget ⚠ disclosure line is missing:\n%s", fence)
 	}
-	// 件1 互指: both directions.
-	if !strings.Contains(fence, "等待段含 sleep 分量,与[E2]自身 sleep 席同段物理时间(两账口径不同,不可相加)") {
+	// Both navigation directions survive, without asserting physical inclusion.
+	if !strings.Contains(xerr1CollapseFence(fence), xerr1CollapseFence("等待账目对照:本行含已测睡眠分量;同线程睡眠统计见[E2];实际分量关系未证,不能直接相加")) {
 		t.Fatalf("件1: the blocking→sleep 互指 sentence is missing:\n%s", fence)
 	}
-	if !strings.Contains(fence, "阻塞等待行[E1]的等待段落在本席同段物理时间(不可相加)") {
+	if !strings.Contains(xerr1CollapseFence(fence), xerr1CollapseFence("等待账目对照:同线程阻塞等待[E1]按睡眠+D态+IO等待计量;实际分量关系未证,不能直接相加")) {
 		t.Fatalf("件1: the sleep→blocking back-pointer is missing:\n%s", fence)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
@@ -165,6 +166,19 @@ func TestXERR1WaitSegmentsRowFace(t *testing.T) {
 	// The fence soft-wraps long EN lines — probe the head (pre-wrap) only.
 	if !strings.Contains(fenceEN, "⚠ span envelope 29.843ms > in-window non-running 16.572ms") {
 		t.Fatalf("件3 EN: budget line missing:\n%s", fenceEN)
+	}
+	for _, want := range []string{
+		"wait-account comparison: this wait includes measured sleep; see [E2] for a sleep measurement of the same thread; actual component relation unproven, do not add directly",
+		"wait-account comparison: [E1] measures the same thread's sleep+D-state+IO wait; actual component relation unproven, do not add directly",
+	} {
+		if !strings.Contains(xerr1CollapseFence(fenceEN), xerr1CollapseFence(want)) {
+			t.Errorf("EN account navigation missing %q:\n%s", want, fenceEN)
+		}
+	}
+	for _, wrong := range []string{"同段物理时间", "physically inside", "wait segments fall inside this seat's physical time", "sleep 席", "sleep seat"} {
+		if strings.Contains(fence+fenceEN, wrong) {
+			t.Errorf("account navigation claimed a physical relation or leaked internal wording: %q", wrong)
+		}
 	}
 }
 
@@ -254,11 +268,11 @@ func xerr1FenceZH(projection types.TraceCausalProjection) string {
 //	① ≥2 containing sleep seats → ambiguous, the whole pair skips;
 //	② sleep seat without typed endpoints → endpoints prove nothing, skip;
 //	③ sleep seat whose interval does NOT contain the blocking interval →
-//	  containment is the proof, skip.
+//	  the bounded navigation selector does not match, skip.
 func TestXERR1FixEMutualPointerNegativeArms(t *testing.T) {
 	assertNoPointers := func(name, fence string) {
 		t.Helper()
-		if strings.Contains(fence, "等待段含 sleep 分量") || strings.Contains(fence, "阻塞等待行[") {
+		if strings.Contains(fence, "等待段含 sleep 分量") || strings.Contains(fence, "阻塞等待行[") || strings.Contains(fence, "等待账目对照") {
 			t.Fatalf("件E %s: the 互指 pair must skip whole:\n%s", name, fence)
 		}
 	}
@@ -282,6 +296,47 @@ func TestXERR1FixEMutualPointerNegativeArms(t *testing.T) {
 	nonContaining := xerr1WaitSegmentsProjection()
 	nonContaining.OnChainCauses[1].StartTs = 34579.550
 	assertNoPointers("③区间非包含", xerr1FenceZH(nonContaining))
+	for _, variant := range []string{"zero_sleep", "different_subject", "different_state", "different_query_window"} {
+		projection := xerr1WaitSegmentsProjection()
+		switch variant {
+		case "zero_sleep":
+			projection.OnChainCauses[0].BlockingWaitSleepMS = 0
+		case "different_subject":
+			projection.OnChainCauses[1].Subject = "another-200"
+		case "different_state":
+			projection.OnChainCauses[1].TypeToken = "runnable_wait"
+			projection.OnChainCauses[1].StateKind = "runnable"
+		case "different_query_window":
+			projection.OnChainCauses[0].QueryWindowStartTs, projection.OnChainCauses[0].QueryWindowEndTs = 1, 2
+			projection.OnChainCauses[1].QueryWindowStartTs, projection.OnChainCauses[1].QueryWindowEndTs = 2, 3
+		}
+		assertNoPointers(variant, xerr1FenceZH(projection))
+	}
+}
+
+func TestXERR1AccountNavigationLegendDoesNotMintContainment(t *testing.T) {
+	marks := &runtimeTraceProjMarkSet{}
+	marks.mark(runtimeTraceProjMarkBlockingWaitSleepRelation)
+	for _, zh := range []bool{true, false} {
+		text := strings.Join(runtimeTraceProjLegendGroupLines(marks, zh), "\n")
+		want := []string{"等待账目对照", "定位包络包含不证明实际分量相同或包含", "各自数值和口径保留", "不能直接相加"}
+		if !zh {
+			want = []string{"wait-account comparison", "Containing location envelopes do not prove equal or contained physical components", "retain each value and caliber", "do not add directly"}
+		}
+		for _, phrase := range want {
+			if !strings.Contains(text, phrase) {
+				t.Errorf("account legend missing %q: %s", phrase, text)
+			}
+		}
+		for _, phrase := range []string{"同段物理时间", "the same physical time counted once", "sleep 席", "sleep seat"} {
+			if strings.Contains(text, phrase) {
+				t.Errorf("account legend retained unsupported/internal wording %q", phrase)
+			}
+		}
+		if text := strings.Join(runtimeTraceProjLegendGroupLines(&runtimeTraceProjMarkSet{}, zh), "\n"); strings.Contains(text, want[0]) {
+			t.Errorf("absent navigation mark emitted its legend: %s", text)
+		}
+	}
 }
 
 // TestXERR1FixFCoverageCheckDetailLine — 件F display pins: the typed
