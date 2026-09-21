@@ -2052,7 +2052,7 @@ core已落：`TraceSchedulerWaitPartitionTeaching`单源区分互斥桶/原生D/
 
 §96末版收据闭环：普查排序修复`63e55b0a0`，记录`3fd1326f6`。75036正式exit0/tool8.430s，85814最终实际query→成文race正式exit0/agent7.673s。末版全仓77783正式exit0，`/tmp/hmc-d-io-vsync-final-full-20260921.log`共87测试包、13无测试包、零FAIL；首轮10053失败保留。干净构建12468正式exit0，revision3fd1326f6bf7/buildTime2026-09-21T13:16:46Z。独立只读末审PASS，旧普查原针及event_search/位置针不改；状态/窗口/源身份/模型正文不变。仅窄实现验收，§97完整人工0/2和后续开放项不代销。
 
-## 98. 复用原生时间线交付完整等待清单（2026-09-21，实施验收中）
+## 98. 复用原生时间线交付完整等待清单（2026-09-21，窄子片验收完成）
 
 §96–97批次已随`8702ea54f`推送，session31911正式exit0，origin39ebdd72d→8702ea54f，本地/远程相等且工作区干净后开本片。参考`core/preprocess/sleep_ops.py:225–255,502`的已选线程/窗口上保留原状态片段可借鉴；不搬其最大状态桶归因、近邻连边或中断waker丢弃。本仓已有精确Timeline/TargetWindowStateAccount，缺的是前者已生成后未向既有展示链路投递，不新增第二分析内核。
 
@@ -2065,3 +2065,15 @@ core已落：`TraceSchedulerWaitPartitionTeaching`单源区分互斥桶/原生D/
 新独立OPEN：`parse.go:1928`等入口使用FirstTs==0表示未设置，0秒开头的两事件trace会把首时刻替换成下一正值；stream_scan/search/sweep与merge也有类似候选。当前确认最小零起点fixture缺失，需单独审计有效timestamp计数/显式set信号、各入口/合并/缓存兼容，不能只改一处并宣称全支持。本片仅保证空原生结果不会被误补成完整账号；显式[0,x]老能力不变。
 
 冻结后固定2并行×1选择C2真实全域清单＋Go一行写修复，按直接命中风险及跨模式保护排序；自动和完整人工分账，未命中新timeline入口也如实标注。分类causal/finite双轨、§94局部补齐、声明/观测pair等继续开放；父账13/79、66开放不变。
+
+末版正式收据：实现`22b55f6d9`。race94214正式exit0，11顶层26子项（tracequery5.314/agent5.237s），日志`/tmp/hmc-timeline-delivery-public-race-20260921.jsonl`；全仓92905正式exit0，`/tmp/hmc-timeline-delivery-full-20260921.log`，87测试包、13无测试包、零FAIL，agent108.628/tool413.344/tracequery129.311s。干净构建16624正式exit0，revision22b55f6d9d29/buildTime2026-09-21T13:28:26Z。独立消费面只读审查确认account为支持覆盖事实、不自选根；tl.Window只作原生计量边界，真正full-artifact覆盖仍由独立producer排除span/pattern/recipe/窄窗。首次新增测试预期错误不抹，旧测试未改；完成的是公开清单投递窄子片，不是所有Trace回答或父项。
+
+## 99. 22b55固定双例：机器2/2、完整人工1/2，目标分类与语义留债（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_timeline_wait_delivery_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_timeline_wait_delivery_20260921_manual_audit.md)：runner88217正式exit0，2并行×1，无第三次追绿。Go真实一行修复/原生TestGreet通过、原测试与seed tracked不改、未自动合主干，独立人工PASS；没有required/PTO，不能代销B2。
+
+C2人工FAIL仍保：3段D侧IO和0.635ms均正确，不再把非IO D为零误说成无D，也未据小占比写影响可忽略。但用户明确主线程，analyzer仍把“进程整体不是子线程”判no_named_target，补齐因此按权限正确skip；不得借generic实体或原文扫描恢复目标。全工件问题只交付自行选的145ms窄窗状态账，末尾0.184ms Running未计；三段IO恰在窗内不代表全域状态齐备。final还把切入线程/行头称捕获者、把唤醒附近的单一blocked caller说成进入阻塞时的调用栈；具体磁盘/文件系统机理未由该标记单独证明。这些表述错误须与引擎正确量、当前新路未命中分账。
+
+本轮4次trace_query为event_search＋bounded window_stats＋两次event_search，没有thread_timeline，故新入口以公开回归为据，不伪记现场命中。一次analyzer形状不一致拒绝后重发，成文零拒绝/patch；默认schema2空旁路存在，有限问题没有选根合同属合理空值，不强加因果投影。旧§97/此前人工FAIL不改写。
+
+下一批ROI：先用同一真实工具结果跑明确合法causal/finite两套最终消息交接，并审实际主线程/进程/有限因果分类教学；只有确定缺口才改，不能因模型已查询root就扩大合同。§94业务局部补齐、声明/观测pair、两尺同卡、零时刻入口、P2修补指引和B2–B6继续留账，父账13/79、66开放。
