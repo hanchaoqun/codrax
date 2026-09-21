@@ -1829,3 +1829,25 @@ ROI顺序：先修上述全局状态自冲突，再原生身份教学/已执行�
 末审特别收住两个相邻入口：合并仅不继承Passed=true且纯局部零测试报告的派生no_tests类别，原census/leaf字节不改，false或其它不可用类别不清；原生已通过但proof_weak的正文与建议不再称整批没测试或需要装环境。明确缺改动路径覆盖的typed原因独立解释，未知调用范围不猜。当前统一全仓`/tmp/hmc-mixed-no-tests-full-20260921.log`（session39631）和扩大旧NoTests集合的race仍运行，不提前签整批PASS。
 
 最终race `...-final-race-v3-20260921.log`现已正式exit0（session41830）：133顶层、6包、无skip/竞争/失败，tool10.979/types8.346/writeflow2.136/orchestrator3.648/agent4.452/skill2.207秒。独立只读末审PASS，三核心冻结hash完全一致；16文件提交`fe52b4898`，统一全仓仍运行，干净构建及固定双例收据随后另记。没有改动旧测试文件以降门换绿。
+
+审计进度提交`1b9185049`后，末版干净构建`/tmp/hmc-mixed-no-tests-clean-build-final-20260921.log`正式exit0（session18693），实测revision1b9185049056/buildTime2026-09-21T10:44:09Z。此前一次构建带文档dirty标记，未用于live。新固定双例runner77298已启动，2并行×1、每例1800秒，结果根`eval/results/hmc_mixed_test_status_crossmode_20260921`；这只是启动记录，不能签回放结果或全仓。
+
+统一全仓session39631现已正式exit1，唯一失败为`write_verify_render.go`436行超420维护阈值；tool430.527s等行为套件未失败。经用户追问与职责复核，该文件原418行，本片净增18行仍是验证结果解释/建议的同一职责，不为数字机械拆文件。按交付账本允许的有据例外，仅调整420→460，保24行余量、不改其它上限、不删注释压行、不松行为测试。决策已记IR交付账本；结构/显示定向`/tmp/hmc-mixed-no-tests-budget-review-20260921.log`正式exit0（session23493，orchestrator1.202s）。首轮FAIL保留，替代全仓另记。
+
+## 85. 1b918固定双例：混合状态闭环证据成立，业务IO答案仍未通过（2026-09-21）
+
+[机器结果](../../eval/parallel_selected_summary_hmc_mixed_test_status_crossmode_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_mixed_test_status_crossmode_20260921_manual_audit.md)：runner77298正式exit0，2并行×1，机器/人工均1/2。Python116秒只交付实现一行、原测试不变，实际3项原生断言PASS与根目录zero_tests同报；controller/报告/终稿一致，不再全局称无测试或缺环境，§84真实命中。九合同均planning-only、required=0，不冒称精确身份绑定或B2完成。Trace279秒保50ms业务外窗、31ms链上IO、两段1ms调度、因果投影及备份背景隔离，但缺35ms请求与LoadDocumentIndex名字，51ms查询的6ms运行误称唤醒后运行，内部枚举仍泄漏，保留FAIL。
+
+新精确教学接缝（实施前登记）：analyzer对象有required effect、无required causal，同时intent/scenario仍root_cause。现有字段局部修补只建议唯一bounded_effect，但照改后又会被分类一致性门拒绝，增加无谓重试。修复只在这些typed分类冲突时取消唯一缩窄目标，给模型完整的有限/独立因果两路重判说明；full分支由模型补required causal并保留独立effect，work/frame与其它维度原样。真正finite仍给原唯一目标，optional causal及work/relation_path均不授权因果。公共工具红绿、分类组合负控、共享教学测试及末版全仓必须通过；不扫描用户/答案原文，不自动铸角色、不改准入条件。
+
+本轮五次emit/四拒后最终仍为causal_diagnosis，不记投影丢失；模型将原effect改名成causal而未并存，正文仍答了备份不可直接归因。此项记确定提示冲突/重试风险，不虚报新增P1根因授权漏洞。Trace末轮输入与旁路正由独立审查继续核对；若信息确已足量供给，漏答按模型失败留账，不叠加关键词硬门。后续ROI仍为原生身份教学/成功身份可见性→B2–B6，其它HMC开放项及父账13/79、66开放不变。
+
+末轮输入独立复核完成：日志3084/3085有OpenDocument50=5+1+44及LoadDocumentIndex40=8+1+31，3098有请求35ms/线程闭合等待31ms与两组端点，3263独列query51=6+1+44；初始4消息在修补末轮7消息中保留，无prune。正文漏答/混尺按模型错误留账。schema2旁路available、三链上selection及0.031/0.001/0.001归因值/查询范围正确，但模型description仍称“磁盘块请求约31ms”，不签全旁路语义通过、不代写散文。系统图保两业务线索/备份背景；另确定◎榜面将所有io_latency显示“IO阻塞·设备延迟”，当前31ms实际为发送线程阻塞，需仅审无凭据的设备后缀。既裁§29.175.17的一族一词根（IO阻塞）、链上资格、值与排序均应保留。参考sleep_ops.py:558–625逐S/D片段裁窗与直接wake锚支持分尺，不移植其中丢弃未知/中断waker的策略。
+
+## 86. IO榜面不由延迟类型自动推定设备成因（2026-09-21，实施前登记）
+
+问题来自§85真实报告的系统总览，不是模型词汇扫描：类型io_latency统一发射“IO阻塞·设备延迟”，而同类型当前可携带请求驻留、完成闭合的发送线程等待等不同量。31ms线程阻塞不等于35ms请求生命周期，更不直接证明设备服务时间。此后缀会误导正文阅读，即便其它事实卡准确也应修复。
+
+裁定兼容：`real_trace_campaign_20260705.md §29.175.17`的一族一词根、后缀只细化、裸主词表示成因未细分保持；保IO阻塞词根，不换成另一族。仅撤销io_latency默认无依据的“·设备延迟”中英后缀，图例同步；registry、树状态原词、枚举/JSON、根因资格/排序/影响值及模型description所有权均不动。不能从设备名、IRQ名、散文、数值比较或邻近活动补铸设备成因；未来精确设备服务分类应另有typed证据再立项。
+
+验收：真实公开TraceQuery→CompileTraceCausalProjection→总览/图例红绿，中英及自线程/链上/非链图形、原始观察/计价与排名不变；旧OMGCLEAN/SELF/IO折叠回归及race，末版全仓统一验收。旧词面pin只随这项明确语义演进精确更新，不降低词根/证据/值约束。本片不宣称解决模型漏35ms或所有HMC IO能力。
