@@ -550,7 +550,9 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityStatesZeroReasonBoundaryAL(t
 	ctx := tracePrincipalValueAuthorityTestContext(subject, 100, []types.ObservationRecord{root, state})
 	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
 	for _, want := range []string{
-		"no matching target-window wait-reason records means only that this roster captured no such occurrence",
+		"If a complete D/IO-state wait roster reports zero",
+		"does not imply an empty blocked-reason census, Binder wait inventory",
+		"Missing or unavailable rosters are not zero",
 		"does not classify an S interval as cooperative or voluntary sleep",
 		"prove a sleep/nanosleep syscall",
 		"Name a mechanism only from separate syscall, span, blocked-reason, wakeup, or dependency evidence",
@@ -567,7 +569,9 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityStatesZeroReasonBoundaryAL(t
 	ctx.Language = "zh"
 	zh := renderAnswerDocTracePrincipalValueAuthority(ctx)
 	for _, want := range []string{
-		"缺失边界：目标窗口内没有匹配的等待原因记录",
+		"缺失边界：若完整的 D/IO 状态等待清单报告为零",
+		"不表示阻塞原因记录、Binder 等待清单或独立 IO 完成闭合等待清单为空",
+		"清单缺失或不可用不等于零",
 		"不能据此把 S 状态判成主动休眠",
 		"只有独立的系统调用、业务片段、阻塞原因、唤醒或依赖关系证据才能命名具体等待机制",
 	} {
