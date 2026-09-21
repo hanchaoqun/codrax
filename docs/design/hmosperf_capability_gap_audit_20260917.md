@@ -1230,3 +1230,19 @@ db明确窗报告把network累计14ms睡眠配到递归查询域2.001..2.018，�
 ### 42.3 长名称不能挤掉相邻证据预览
 
 两个任意20KB级业务名称经真实公开root_cause_rank→StoreBlob，169221字节原始摘要在既有头尾预览中丢失marker状态与rank头/首行，公开RED exit1。仅在完整Matches之后将显示名称/显示owner复用既有`sanitizeForBanner`；source basename原已使用该保护。未改预算、原生名称、typed note、source/owner匹配或任何查询能力。UTF-8/换行、同显示名不同完整owner、完整/部分/不可用状态及原三视图覆盖同时通过。收据`/tmp/codrax-marker-preview-width.vaF4BR/RED-public.log`、`GREEN-focused.log`（tool1.476s，exit0）；更早RED.log为测试编译错误，不当功能反例。末改全仓、增量race和干净版本双例继续单独验收。
+
+长名称片已提交`efd86524c`，增量`GREEN-race.log`正式exit0（tool2.829s），干净原生构建`/tmp/hmc-measurement-ownership-clean-build-20260920.log`正式exit0，版本efd86524c84f；20:56:26开始固定2并行×1，无第三次追绿。853首轮全仓正式exit1（`/tmp/hmc-measurement-ownership-final-full-20260920.log`）：两个旧展示pin仍期待drilldown裸window/旁路“发生”须按已审正确语义重钉；另一个是真实进程域census限定句被StoreBlob裁到中间，不能改其旧断言去放行。后者正在保关键事实与口径同屏的窄修，仍不增加预算。efd末版全仓已经启动，早于这三个修正，不可当末改收据。
+
+### 42.4 并行发现的教学冲突（独立小片，未冒充efd回放覆盖）
+
+§41人工S机理错误的静态共因已确认：实际finalizer同时收到STATE-DURATION的“S状态不证明机理”和TRACE ANSWER SKELETON②的“which waiting is designed-in cooperation (e.g. sleeping for a downstream reply)”。后者预设正常/协作分类，违背前者证据边界。按同一业务/协议证据前提替换旧句，不新增分类门或答案扫描，也不把既有唤醒/IO/调度链降格；实际初始消息回归进行中。另evidence_pack的IO值再发布可能缺角色元数据，仍在只读核对，不将35/31错误简单归为模型波动。
+
+原句已替换，①③④和各根因家族/链披露保持。公开TraceQuery→DefaultPromptAssembler→实际消息六变体（中英×S/D闭合/S无唤醒）正式RED→GREEN；`/tmp/codrax_sleep_mechanism_teaching_{red,green,race}_20260920.log`，GREEN agent2.142s/skill0.702s，race agent5.605s/skill1.850s，均exit0。无Trace不引入此教学、OnViolation仍为空、原生账与模型答案不变。efd回放不含本改，不作live签收。
+
+进程域预览另已修：只将canonical window_stats原有census整块（普查/名册/fold/全部口径）前移至同节开头，无重复/预算扩张/路由变更。原失败断言未改，改名/成员TID/无目标/复合视图及原rank/marker预览针通过；`/tmp/codrax-census-preview.basimn/{RED-existing,RED-public,GREEN-focused,GREEN-race}.log`，GREEN tool1.364s、race4.821s正式exit0。两个旧测量口径pin仅重钉措辞并保完整数值/坐标/角色，`/tmp/hmc-measurement-ownership-old-pins-green-20260920.log`正式exit0（agent1.184s/tracefinding1.712s）。包含上述末改的全仓正在`/tmp/hmc-measurement-teaching-census-final-full-20260920.log`执行。
+
+### 42.5 IO二次载体误作物理请求（确认，独立修复中）
+
+参考仓亲读`config/indicators/io_latency.yaml:20–25`、`core/preprocess/io_ops.py:902–917`保留请求start/end/duration，`sleep_ops.py:198–260`独立裁剪状态交集。当前fixture请求1.005..1.040=35ms；issuer阻塞1.009010..1.040010=31ms，后者终点比完成晚10微秒，不能声称严格包含或互换。
+
+本仓CriticalBlockingCandidate已将区间/数值转为已闭合issuer阻塞31ms，Type仍io_latency；evidenceFromCriticalBlocking再发EvidenceFact丢typed闭合/计量身份，工具evidence_fact继续只传summary/interval。成文authority仅按io_latency谓词解释为请求，实际519日志2515写“该请求完成唤醒证明未发布”，与2511/2513正确35/31闭合事实同时出现。efd正文尾部再次泛称storage完成唤醒证据不完整，不能直接归为模型波动。下一片只用已有typed请求计量字段决定请求解释；缺载体保留原观察而不自动生成请求缺证判断。不扫summary反推35，不以线程/相近数值拼身份，不改原事实或根因资格。

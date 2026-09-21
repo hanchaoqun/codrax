@@ -14069,9 +14069,9 @@ func TestRenderAnswerDocObservationLedger_IncludesTraceObservationCoverage(t *te
 		"chain_relevance=`on_chain`",
 		"window=1.000000..1.200000",
 		"support_refs=`trace.systrace:10-20`",
-		"top[2] dimension=`state_drilldown`; id=`drill`; window=1.000000..1.200000",
+		"top[2] dimension=`state_drilldown`; id=`drill`; measurement_window=1.000000..1.200000 (not a continuous state interval)",
 		"drilldown_source=`top_sleep`; recommended_views=`wakeup_chain`, `root_cause_rank`; chain_required=true; recursive=true",
-		"top[3] dimension=`state_drilldown`; id=`fragmented`; window=1.000000..1.200000",
+		"top[3] dimension=`state_drilldown`; id=`fragmented`; measurement_window=1.000000..1.200000 (not a continuous state interval)",
 		"drilldown_source=`state_churn`; recommended_views=`thread_timeline`, `interaction_stats`, `window_stats`; chain_required=false; recursive=false",
 	} {
 		if !strings.Contains(got, want) {

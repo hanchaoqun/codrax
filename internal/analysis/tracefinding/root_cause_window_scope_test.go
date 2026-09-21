@@ -41,7 +41,7 @@ func TestRootCauseWindowScopeDoesNotDisplacePhysicalLocatorUnderEvidenceCap(t *t
 	facts := &types.TraceCauseEvidenceFacts{WindowScope: &scope, WindowStartTs: 2, WindowEndTs: 2.021,
 		SeatStartTs: 2.020, SeatEndTs: 2.021, LineStart: 70, LineEnd: 80, ArtifactLabel: strings.Repeat("长名称", 30)}
 	locator := rootCauseEvidenceFit(rootCauseEvidenceLocatorSentence(facts))
-	for _, want := range []string{"第 70–80 行", "发生 2.020000–2.021000 s", "投影范围 2.000000–2.021000 s"} {
+	for _, want := range []string{"第 70–80 行", "定位范围 2.020000–2.021000 s", "不据此推定连续状态", "投影范围 2.000000–2.021000 s"} {
 		if !strings.Contains(locator, want) {
 			t.Fatalf("scope displaced physical locator %q: %s", want, locator)
 		}

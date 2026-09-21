@@ -5172,6 +5172,13 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if result.WindowStats != nil {
 		b.WriteString("## Window stats\n")
+		// Keep the bounded process census, roster fold and unit/population
+		// caveats together before generic resource detail can split them at
+		// StoreBlob's head cutoff. Retain the canonical-view-only display;
+		// composite views still carry this unchanged account in the payload.
+		if strings.EqualFold(strings.TrimSpace(result.View), "window_stats") {
+			writeTraceProcessDomainCensus(&b, result.WindowStats.ProcessDomainCensus)
+		}
 		// WIRENOTE (P3-2 升级为真接线洞, 2026-07-25): WindowStats.Caveats was
 		// rendered NOWHERE — the per-PID narrowing roster (suppressed_pids)
 		// and the sibling stats-level integrity caveats never reached the
@@ -5566,7 +5573,6 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		// the guidance surfaces (state_first_hint, recommended_sections)
 		// steer follow-ups to view=window_stats where these sections render.
 		if strings.EqualFold(strings.TrimSpace(result.View), "window_stats") {
-			writeTraceProcessDomainCensus(&b, result.WindowStats.ProcessDomainCensus)
 			writeTraceCPUOccupancy(&b, result.WindowStats.CPUOccupancy)
 			writeTraceComputeSupplyBalance(&b, result.WindowStats.ComputeSupplyBalance)
 			writeTraceClusterFrequencyCeilings(&b, result.WindowStats.ClusterFrequencyCeilings)
