@@ -1536,6 +1536,8 @@ Java 完整探测程序不要求使用内部固定类名。语法预检与运行
 
 普通 source/test 计划的断言登记与文件修改分开：共享 `NativeProjectTestObservationBindingTeaching` 优先指向已检查的既存原生断言。未改测试可仅作为 `project_test_observations[].test_path` 输入，不必塞进 `changes[]`；只有缺少所需断言且修改已授权时才新增/修改测试。该说明对应已有路径正常化与精确测试执行面，不新增权限。测试路径、suite、assertion 与 contract refs 仍由模型基于实际测试选择，系统不从旧报告补签映射；执行成功且逐断言精确匹配才授予证明，aggregate PASS、skip、错误标识均不升级。source-free 补证计划仍禁止这一登记，后续只读补登记必须另走独立授权设计。
 
+普通 planner 的 handoff / structured-emit-repair / verify-failure-repair 读取预算分开计量：成功读取仍逐调用消耗原限额，失败按本轮 `CurrentToolResults` 中是否存在已登记读取工具的失败计一次，连续两次失败观察批耗尽对应失败预算。同一并行批的调用均在收到反馈前选定，不能因两个同批失败而剥夺一次纠正机会。混合批同时记录成功次数与一次失败轮，空批、未知工具名及散文不计数。source-free proof-followup 保持原来的逐 `read_file` 调用成功/失败计费，发射拒绝不重置其预算；所有执行/源码权限、soft/hard cap和三次结构化拒绝rollover不变。
+
 ### 8.3 write_analyzer — 写模式专属请求分类
 
 读模式 analyzer 跑完后，写模式额外跑一次独立 `write_analyzer` 阶段，用 `emit_write_analysis` 写 `WriteAnalysisIR`：

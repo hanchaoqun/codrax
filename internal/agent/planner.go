@@ -101,6 +101,9 @@ type plannerEvaluator struct {
 	// may still read exact bytes for structured edits, but once this typed
 	// budget is exhausted the schema narrows to materialization/probe tools so
 	// planning cannot restart a broad investigation loop.
+	// Successful reads are charged per call. Ordinary failures are charged once
+	// per completed tool batch, so parallel misses leave a feedback/correction
+	// opportunity; proof-only failures retain the per-call dispatch allowance.
 	handoffSynthesisReadBudget   int
 	handoffSynthesisReadCalls    int
 	handoffSynthesisReadFailures int
@@ -110,6 +113,7 @@ type plannerEvaluator struct {
 	// separate from the initial handoff synthesis budget: validation repair can
 	// need a small current-byte check, but it must not reopen broad planning
 	// exploration after the explorer has already localized the batch.
+	// ReadFailures counts failed tool-result batches, not failed sibling calls.
 	structuredEmitRepairReadCalls    int
 	structuredEmitRepairReadFailures int
 
@@ -120,6 +124,7 @@ type plannerEvaluator struct {
 	// a neighboring owner symbol that was not needed for the initial patch. This
 	// remains a read-tool-only affordance; ordinary exec stays blocked by the
 	// write planner policy.
+	// ReadFailures counts failed tool-result batches, not failed sibling calls.
 	verifyFailureRepairActive       bool
 	verifyFailureRepairReadCalls    int
 	verifyFailureRepairReadFailures int
@@ -156,8 +161,10 @@ const (
 	plannerHandoffSynthesisMaxReadBudget  = 5
 	plannerStructuredEmitRepairReadBudget = 2
 	plannerVerifyFailureRepairReadBudget  = 3
-	plannerReadFailureBudget              = 2
-	plannerStructuredEmitFailureRollover  = 3
+	// Ordinary lanes allow two failed observation batches; proof-only retains
+	// its stricter two-failed-read-call allowance for the whole dispatch.
+	plannerReadFailureBudget             = 2
+	plannerStructuredEmitFailureRollover = 3
 )
 
 // BuildInitialInstruction captures the Mutable pointer + per-dispatch
@@ -1390,15 +1397,15 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 			e.handoffSynthesisReadCalls, e.handoffSynthesisReadBudget,
 			e.handoffSynthesisReadFailures, plannerReadFailureBudget, strings.Join(sortedToolSchemaNames(out), ","))
 	} else if e.structuredEmitRepairActive {
-		logging.Debug("[planner] structured emit repair read budget exhausted (success=%d/%d failure=%d/%d); narrowed tool surface to %s",
+		logging.Debug("[planner] structured emit repair read budget exhausted (success=%d/%d failure_rounds=%d/%d); narrowed tool surface to %s",
 			e.structuredEmitRepairReadCalls, plannerStructuredEmitRepairReadBudget,
 			e.structuredEmitRepairReadFailures, plannerReadFailureBudget, strings.Join(sortedToolSchemaNames(out), ","))
 	} else if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() {
-		logging.Debug("[planner] verify-failure repair read budget exhausted (success=%d/%d failure=%d/%d); narrowed tool surface to %s",
+		logging.Debug("[planner] verify-failure repair read budget exhausted (success=%d/%d failure_rounds=%d/%d); narrowed tool surface to %s",
 			e.verifyFailureRepairReadCalls, plannerVerifyFailureRepairReadBudget,
 			e.verifyFailureRepairReadFailures, plannerReadFailureBudget, strings.Join(sortedToolSchemaNames(out), ","))
 	} else {
-		logging.Debug("[planner] handoff synthesis read budget exhausted (success=%d/%d failure=%d/%d); narrowed tool surface to %s",
+		logging.Debug("[planner] handoff synthesis read budget exhausted (success=%d/%d failure_rounds=%d/%d); narrowed tool surface to %s",
 			e.handoffSynthesisReadCalls, e.handoffSynthesisReadBudget,
 			e.handoffSynthesisReadFailures, plannerReadFailureBudget, strings.Join(sortedToolSchemaNames(out), ","))
 	}
@@ -1885,6 +1892,14 @@ func plannerExplorationPackLocalizationKind(kind string) bool {
 // window without creating a prompt-routing hard gate.
 func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObservation) {
 	readSuccesses, readFailures := plannerReadSynthesisToolResultCounts(obs.CurrentToolResults)
+	// All siblings were selected before the model saw any result in this
+	// batch. Charge one ordinary failure round, preserving a chance to act on
+	// the returned diagnostics. Successful acquisitions remain per-call, and
+	// the proof-only branch below deliberately keeps per-call failure charging.
+	readFailureRounds := 0
+	if readFailures > 0 {
+		readFailureRounds = 1
+	}
 	if e.handoffSynthesisActive {
 		if e.proofFollowupMaterializationOnly {
 			// The only admitted proof-only read is read_file. Its successful and
@@ -1895,13 +1910,13 @@ func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObs
 			e.handoffSynthesisReadFailures += readFailures
 		} else if e.structuredEmitRepairActive {
 			e.structuredEmitRepairReadCalls += readSuccesses
-			e.structuredEmitRepairReadFailures += readFailures
+			e.structuredEmitRepairReadFailures += readFailureRounds
 		} else if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() {
 			e.verifyFailureRepairReadCalls += readSuccesses
-			e.verifyFailureRepairReadFailures += readFailures
+			e.verifyFailureRepairReadFailures += readFailureRounds
 		} else {
 			e.handoffSynthesisReadCalls += readSuccesses
-			e.handoffSynthesisReadFailures += readFailures
+			e.handoffSynthesisReadFailures += readFailureRounds
 		}
 	}
 	if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() &&

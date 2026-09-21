@@ -1609,3 +1609,17 @@ Python最终仅改源码，4条原生测试及probe真实PASS、交付树resolve
 Trace明确窗/IO11ms/三条用户线程有向边/优先级候选边界/必选根因侧车均正确；D/IO根停递归不是漏掉已知IRQ，Harmony来源也有真实入口依据。但系统投影把状态覆盖20ms写成原因全解释，且把sleep未计价方向统一叫自身工作量，是两项确定性文案语义缺口；正文睡眠称工作贡献与内部字段泄漏另留账。此次不把已有正确主IO/投影删除或改成背景，也不额外收窄用户明确窗。先修两个typed生成点，保所有原数值、根因资格和补齐路径。
 
 ROI据实重排：普通预算失败批计数与Trace覆盖/等待方向并行施工，各自红绿后收据再销子缺陷；B2–B6及其源快照授权仍继续排队，不借本轮功能成功跳过权限前置。HMC父账13/79已交付、66开放不变。
+
+§69实现`504883389`及本轮审计`1b17e1b4b`已正式推送main（638→1b17，session35222 exit0）。全仓和干净构建属于§69，不能据此签收以下新生产改动。
+
+## 71. 普通规划给并行取证失败留一次纠正反馈（2026-09-21，子片验收中）
+
+§70真实写入例暴露的是预算计费单位错误：两个同一轮提前选定的失败调用，在模型看过任何反馈前就耗尽2次失败限额。后续成功恢复不能抹掉前面的不必要拒绝与重复规划。`plannerEvaluator.ObserveToolResults`本来已经有精确的当轮工具结果边界，最小修复仅将普通handoff、结构发射修复、验证失败修复三条通道的失败计费改为每观察批一次；成功仍逐调用，混合批同时记成功和一次失败。source-free补证专用通道仍逐read_file调用计费，发射拒绝不重置，搜索/源码修改仍禁；原硬迭代cap、成功限额、3次emit拒绝rollover均不变。没有新字段/教学负担或原文扫描。
+
+参考仓`core/skill_executor.py:333–430`在一次resume契约校验返回整份errors与need_retry，计数是一次修正尝试而非errors数量；可借鉴“反馈机会是轮而非同轮错误条数”，但其工作流不是本仓planner并行读取，不照搬权限或散文校验规则。
+
+新增真实BaseAgent.Execute针：真实文件工具先同批read_file/grep错路径，次轮目录导航、再读源码及测试，最后真实emit存储单源patch，源字节未改；旧版第二轮schema已关读取，`/tmp/codrax-planner-read-round.7jDVLt/RED-final.log`正式exit1（agent1.194s）。首轮新test的repair前置设置错误已修，仅RED-final作产品收据。三通道同批失败/次批关闭、混合/成功逐call、空批/未知工具/散文不计、proof-only同批两失败仍关闭且emit不续命全覆盖，未修改旧测试。
+
+最小生产改动及新针冻结，主线diff复核通过。`GREEN-focused.log`正式exit0（agent1.184s）及同集合`GREEN-race.log`exit0（2.751s），各44项顶层PASS、无SKIP；两者均位于上述临时目录。整包agent与叠加Trace文案后的统一末版全仓待收正式结果；不提前宣称已经降低live重试次数，旧Python人工FAIL不回写。
+
+完整agent包`/tmp/hmc-planner-failure-round-agent-full-20260921.log`正式exit0（session45676，69.346s），不只跑新增针。准备独立提交本片，再与Trace文案末版统一全仓；旧版全仓不挪作本版收据。
