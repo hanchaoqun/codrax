@@ -6736,7 +6736,7 @@ func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm 
 		appendNote("request_residence_caliber", types.TraceNoteKeyIORequestResidenceCaliber)
 		appendNote("request_clock_scope", types.TraceNoteKeyIORequestResidenceClock)
 		appendNote("completion_woke_issuer", types.TraceNoteKeyIOCompletionWokeIssuer)
-		parts = append(parts, answerDocIOCompletionProofMeaning(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOCompletionWokeIssuer), lang))
+		parts = append(parts, answerDocIOObservationProofMeaning(record, lang))
 		appendNote("complete_thread", types.TraceNoteKeyIOCompleteThread)
 		appendNote("issuer_blocked_state", types.TraceNoteKeyIOIssuerBlockedState)
 		appendNote("issuer_blocked_start", types.TraceNoteKeyIOIssuerBlockedStart)

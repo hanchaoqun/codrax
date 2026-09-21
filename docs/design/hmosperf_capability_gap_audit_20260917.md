@@ -1241,8 +1241,20 @@ db明确窗报告把network累计14ms睡眠配到递归查询域2.001..2.018，�
 
 进程域预览另已修：只将canonical window_stats原有census整块（普查/名册/fold/全部口径）前移至同节开头，无重复/预算扩张/路由变更。原失败断言未改，改名/成员TID/无目标/复合视图及原rank/marker预览针通过；`/tmp/codrax-census-preview.basimn/{RED-existing,RED-public,GREEN-focused,GREEN-race}.log`，GREEN tool1.364s、race4.821s正式exit0。两个旧测量口径pin仅重钉措辞并保完整数值/坐标/角色，`/tmp/hmc-measurement-ownership-old-pins-green-20260920.log`正式exit0（agent1.184s/tracefinding1.712s）。包含上述末改的全仓正在`/tmp/hmc-measurement-teaching-census-final-full-20260920.log`执行。
 
-### 42.5 IO二次载体误作物理请求（确认，独立修复中）
+### 42.5 IO二次载体误作物理请求（独立修复，整答仍待验收）
 
 参考仓亲读`config/indicators/io_latency.yaml:20–25`、`core/preprocess/io_ops.py:902–917`保留请求start/end/duration，`sleep_ops.py:198–260`独立裁剪状态交集。当前fixture请求1.005..1.040=35ms；issuer阻塞1.009010..1.040010=31ms，后者终点比完成晚10微秒，不能声称严格包含或互换。
 
 本仓CriticalBlockingCandidate已将区间/数值转为已闭合issuer阻塞31ms，Type仍io_latency；evidenceFromCriticalBlocking再发EvidenceFact丢typed闭合/计量身份，工具evidence_fact继续只传summary/interval。成文authority仅按io_latency谓词解释为请求，实际519日志2515写“该请求完成唤醒证明未发布”，与2511/2513正确35/31闭合事实同时出现。efd正文尾部再次泛称storage完成唤醒证据不完整，不能直接归为模型波动。下一片只用已有typed请求计量字段决定请求解释；缺载体保留原观察而不自动生成请求缺证判断。不扫summary反推35，不以线程/相近数值拼身份，不改原事实或根因资格。
+
+实现只替换该卡解释的来源判定：本record已有独立请求计量字段才解释该请求的完成证明；无计量身份的IO相关观测说明身份未携带，不再凭同名谓词生成“请求缺证明”。并未补齐EvidenceFact的计量身份或闭合字段，也未声称critical_blocking主Observation已携带完整闭合元数据；那些原生字段贯通仍留债。真实请求true/false/unknown、部分字段、旧无notes/仅source、同线程异artifact均保原语义。公开TraceQuery→真实finalizer初始消息先红后绿，中英×改名×异源8变体及原生JSON/模型/projection不变回归齐全。`/tmp/codrax_io_secondary_carrier_red_20260920.log`为实际功能失败；末版邻近race×3 `/tmp/hmc-io-carrier-final2-race-20260920.log`正式exit0（agent14.793s），独立只读复审通过。未用efd回放替本改签收。
+
+eff3上一片完整全仓正式exit0：`/tmp/hmc-measurement-teaching-census-final-full-20260920.log`（agent90.555s、tool396.145s等）；它早于本IO修复及随后图关系修复，不当末改全仓收据。
+
+## 43. efd固定双例人工0/2，子修改善与剩余问题分账（2026-09-20）
+
+[机器](../../eval/parallel_selected_summary_hmc_measurement_owner_20260920.md)1/2，[人工](../../eval/parallel_selected_summary_hmc_measurement_owner_20260920_manual_audit.md)0/2，runner正式exit0；业务250秒、明确窗140秒，均40%上下文。eff3d1365及随后IO显示修复不在此次快照内。
+
+明确窗own等待17/14/11ms不再错位，统计域也未改写成假状态端点，片段新账真实进入探索；但业务正文仍50ms窗口套6/1/44、漏LoadDocumentIndex和不相加口径。35ms请求/31ms线程等待与后台47ms写已分清，尾部仍误称storage完成唤醒不完整。明确窗旁路编造再睡/再唤醒时序，正文将fscache调用点推为特定资源/后端机理，均继续FAIL。详细行号与归属见人工单，不以新代码绿倒签。
+
+两份正文归属收据available；两份mandatory根因旁路都生成，其中明确窗available但描述语义FAIL，业务因本轮未运行root_cause_rank且无可选typed席为unavailable空数组。Trace投影两份均在，不能把旁路存在误报成内容通过，也不能把候选空等同文件丢失。系统投影另有S与runnable“物理重叠”说明疑点，正在独立只读核对生成身份，优先于新能力扩面。13/79、66开放不变，不同版补跑第三例追绿。
