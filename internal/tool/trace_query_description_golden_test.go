@@ -260,6 +260,19 @@ package tool
 // version pair predates this follow-up and must not be counted as its weigh.
 // The dispatch-sensitivity debt remains open after regenerating this golden.
 //
+// EVOLUTION RECORD (2026-09-20, marker-navigation cursor scope): replace
+// only the existing target-inheritance sentence's unconditional promise with
+// the narrow named-span/pure-trace-mark discovery exception. It applies only
+// to an exploration cursor with no active non-cursor target in either request
+// model; explicit selectors, user/unknown-source focus, process scope and
+// system supplementation keep their existing behavior. This corrects actual
+// tool admission teaching, not note-key semantics or a new dispatch rulewall.
+// Public Execute regressions seed cursor TID 100 then discover marker TID 200
+// (payload process 100), with selector/focus/window/action/other-view controls.
+// Every other Description byte is unchanged. These deterministic receipts do
+// not establish live dispatch equivalence: the fixed de475 replay predates
+// this change, and matched h2/h3 A/B remains an explicitly open weigh.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

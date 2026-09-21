@@ -1283,3 +1283,13 @@ eff3上一片完整全仓正式exit0：`/tmp/hmc-measurement-teaching-census-fin
 2. PIC板头仍把三成员定位包络交集写成“成员区间重叠”，实际计量的三个1ms Runnable分量互斥；源头在方向板算术/定位包络helper，并非模型自写。仅纠正显示资格/中性限定，不能从包络补造物理发生集合或放宽可加性。
 
 其余散文错误仅据此不足以证明模型波动；继续核对实际context优先级和测量身份。不得增原文关键词硬门、系统改写模型根因或以机器PASS销掉整答FAIL。HMC总账13/79已交付、66开放保持。
+
+## 46. 业务标记发现不继承纯探索游标（2026-09-20，子片实现）
+
+对照参考仓`core/preprocess/marker_ops.py:355–417`：明确tid过滤才限定该线程，否则枚举各itid，线程来自自身metadata，不从marker payload process身份反推。本仓既有用户焦点继承有其保护职责，不能照搬全局取消；本修只解除先前工具查询产生的游标对独立marker导航的意外限制。
+
+`traceQueryApplyRequestModelTarget`在现有精确单目标选择后，只有已知探索来源且两个RequestModel副本均无活跃非游标目标，命名span_window或归一化event_types全为trace_mark的event_search才跳过隐式继承。显式PID/线程、用户/未知/空来源焦点、同身份混合focus+cursor、进程范围、自动补齐仍保旧域；时间/行号/名称/事件action过滤原样，既不清游标也不选新实例。其它调度/排名/无名span/混合与未知事件族保持旧继承。
+
+公开Execute先执行window_stats产生TID100游标，再按改名子业务发现TID200、payload PID100，三种发现均先红后绿；旧焦点/显式过滤/自动补齐/显式窗反例同步通过。收据`/tmp/codrax-marker-cursor.laD0mS/RED-public.log`exit1、`GREEN-public.log`exit0（tool1.435s）、`GREEN-focused.log`exit0（tool1.106s）、`GREEN-race.log`exit0（tool4.222s）；`RED-description.log`是旧字节快照失败，不冒充功能RED。
+
+Description仅替换原继承语句的一个子句，明确同一例外，未加第二套JSON字段或修补路线；字节34386→34688，sha256 `9928b42a0c6d19b17d594aed3efd4d773b78ed3048c2657f9ff827c2b79e44de`→`01e0b6eb30c958046fc6759bc9a4d169a03e5547caa0d8320cc06b0eb570d08d`，其余字节相同，按演进协议更新。既存h2/h3匹配A/B仍开放；de475回放早于本改，不能签其live。完整全仓及新干净版本跨模式双例另记。
