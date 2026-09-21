@@ -122,17 +122,17 @@ worker-200 (100) [001] .... 1.050000: tracing_mark_write: E|100
 	}
 }
 
-func TestTraceQueryBusinessRefRejectsMixedCoordinatesAndPreservesExplicitWindow(t *testing.T) {
+func TestTraceQueryBusinessRefRejectsConflictingCoordinatesAndPreservesExplicitWindow(t *testing.T) {
 	ctx, path := businessRefTestContext(t, "# tracer: nop\nworker-200 (100) [001] .... 1.000000: tracing_mark_write: B|100|Work\nworker-200 (100) [001] .... 1.050000: tracing_mark_write: E|100\n")
 	r := businessRefTestQuery(t, ctx, map[string]any{"path": path, "view": "span_window", "span_name": "Work"})
 	if len(r.TraceBusinessSpanRefs) != 1 {
 		t.Fatalf("missing discovery: %+v", r)
 	}
 	token := r.TraceBusinessSpanRefs[0].Token()
-	for key, value := range map[string]any{"path": path, "source": "attached_trace", "pid": 300, "thread": "other", "target_scope": "process", "time_start": 1.01, "time_end": 1.06, "line_start": 2, "line_end": 3, "span_name": "Other"} {
+	for key, value := range map[string]any{"path": path + ".missing", "source": "attached_trace", "pid": 300, "thread": "other", "target_scope": "process", "time_start": 1.01, "time_end": 1.06, "line_start": 3, "line_end": 4, "span_name": "Other"} {
 		t.Run(key, func(t *testing.T) {
 			got := businessRefTestQuery(t, ctx, map[string]any{"view": "window_stats", "business_span_ref": token, key: value})
-			if got.Success || !strings.Contains(got.Summary, "do not combine") {
+			if got.Success || !strings.Contains(got.Summary, "coordinate assertions conflict") {
 				t.Fatalf("mixed coordinate accepted: %+v", got)
 			}
 		})

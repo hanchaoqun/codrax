@@ -13,6 +13,8 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	toolpkg "github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/traceinput"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -65,7 +67,8 @@ func TestTraceQueryBusinessRefActualExplorerSchema(t *testing.T) {
 		for _, want := range []string{
 			"this run", "never pick the first/longest", "original physical capture generation",
 			"scheduler TID", "complete paired time interval",
-			"omit source/path/pid/thread/target_scope/time_start/time_end/line_start/line_end/span_name",
+			"coordinate fields are assertions and must exactly match that same current physical instance",
+			"they never override it or apply additional filters", "Conflicting fields are rejected, not silently removed",
 			"navigation only", "does not accept a completion focus or prove a root cause",
 			"Explicit requested time windows remain authoritative",
 			"ordinary explicit parameters for the requested clipped window",
@@ -188,5 +191,94 @@ func assertTraceBusinessRefCompletionBridge(t *testing.T, surface string) {
 	const want = "Using this reference in trace_query is navigation only; it does not accept a completion focus or prove a root cause. To select that exact instance for automatic supplementation, separately copy the published token into the optional top-level emit_investigation_complete.business_span_ref field. Selection takes effect only after the completion is accepted and its exploration dispatch succeeds."
 	if got := strings.Count(surface, want); got != 1 {
 		t.Errorf("actual adapter surface must carry the shared query-to-completion teaching exactly once; got %d", got)
+	}
+}
+
+type traceBusinessRefAssertionsLLM struct{ traceTeachingCaptureLLM }
+
+func (l *traceBusinessRefAssertionsLLM) Chat(_ context.Context, messages []llm.Message, offered []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	l.calls++
+	if l.calls == 1 {
+		return llm.Response{ToolCalls: []llm.ToolCall{{ID: "discover-instance", Name: "trace_query", Params: json.RawMessage(`{"source":"attached_trace","view":"span_window","span_name":"OpenDocument"}`)}}, StopReason: "tool_use"}, nil
+	}
+	if l.calls == 2 {
+		var content string
+		for _, m := range messages {
+			if m.Role == "tool" && m.ToolCallID == "discover-instance" {
+				content = m.Content
+			}
+		}
+		matches := regexp.MustCompile(`business_span_ref="(business-span:[0-9a-f]+)"`).FindAllStringSubmatch(content, -1)
+		if len(matches) != 1 {
+			return llm.Response{}, fmt.Errorf("fixture needs exactly one published instance, got %d", len(matches))
+		}
+		params, _ := json.Marshal(map[string]any{"view": "window_stats", "business_span_ref": matches[0][1], "source": "attached_trace", "thread": "app-main", "pid": 100})
+		return llm.Response{ToolCalls: []llm.ToolCall{{ID: "measure-instance", Name: "trace_query", Params: params}}, StopReason: "tool_use"}, nil
+	}
+	l.messages = append([]llm.Message(nil), messages...)
+	l.tools = append([]llm.ToolSchema(nil), offered...)
+	return llm.Response{}, l.stop
+}
+
+func TestTraceQueryBusinessRefAssertionsActualExplorerDispatch(t *testing.T) {
+	path, err := filepath.Abs("../../eval/fixtures/hmosperf_business_io_chain/events.systrace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := traceinput.Prepare(context.Background(), traceinput.Options{InputPath: path, PreviewBytes: 512})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := traceTeachingRuntimeContext(types.StageExplore)
+	ctx.RepoRoot, ctx.WorkDir = t.TempDir(), t.TempDir()
+	ctx.AttachedTraceMaterial, ctx.AttachedHitrace = m, m.Preview()
+	ctx.Mutable = types.NewMutableState("measure selected business operation")
+	capture := &traceBusinessRefAssertionsLLM{traceTeachingCaptureLLM{stop: errors.New("captured post-assertion query message")}}
+	reg := toolpkg.NewRegistry()
+	reg.Register(&toolpkg.TraceQuery{})
+	explorer := NewExplorerAgent(&Dependencies{LLM: capture, Tools: reg, MaxIterations: 3})
+	_, err = explorer.Execute(ctx, traceTeachingSkill(t, "explore-skill"))
+	if !errors.Is(err, capture.stop) || capture.calls != 3 {
+		t.Fatalf("did not reach post-query adapter: %v calls=%d", err, capture.calls)
+	}
+	var content string
+	for _, message := range capture.messages {
+		if message.Role == "tool" && message.ToolCallID == "measure-instance" {
+			content = message.Content
+		}
+	}
+	if content == "" || strings.Contains(content, "coordinate assertions conflict") {
+		t.Fatalf("actual adapter got a rejection: %s", content)
+	}
+	measured := false
+	for _, result := range ctx.Mutable.DispatchToolResults() {
+		if !result.Success {
+			t.Fatalf("unexpected dispatch rejection: %s", result.Summary)
+		}
+		for _, obs := range result.Observations {
+			if obs.SourceRef.PayloadRef == "" {
+				continue
+			}
+			data, err := os.ReadFile(obs.SourceRef.PayloadRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var native tracequery.Result
+			if err := json.Unmarshal(data, &native); err != nil {
+				t.Fatal(err)
+			}
+			if native.WindowStats != nil {
+				measured = true
+				if native.WindowStats.Window.StartTs != 1 || native.WindowStats.Window.EndTs != 1.05 || len(native.WindowStats.IOLatencies) != 2 {
+					t.Fatalf("public dispatch lost exact instance account: %+v", native.WindowStats)
+				}
+			}
+		}
+	}
+	if !measured {
+		t.Fatal("no native measured account reached dispatch ledger")
+	}
+	if status, ref := ctx.Mutable.AcceptedTraceBusinessFocus(); status == types.TraceBusinessFocusSelected || ref.Token() != "" {
+		t.Fatal("successful query accepted a completion focus")
 	}
 }
