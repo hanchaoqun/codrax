@@ -5172,6 +5172,13 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if result.WindowStats != nil {
 		b.WriteString("## Window stats\n")
+		// Keep the canonical generator census ahead of the variable-length
+		// resource rows: another target-account explanation must not push
+		// this independent measured period into StoreBlob's omitted middle.
+		// Composite views retain the unchanged typed field in the payload.
+		if strings.EqualFold(strings.TrimSpace(result.View), "window_stats") {
+			writeTraceVsyncGeneratorCensus(&b, result.WindowStats.VsyncGeneratorCensus)
+		}
 		// Keep the bounded process census, roster fold and unit/population
 		// caveats together before generic resource detail can split them at
 		// StoreBlob's head cutoff. Retain the canonical-view-only display;
@@ -5298,16 +5305,6 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		}
 		if result.WindowStats.BlockedReasonCensusOverflow > 0 {
 			fmt.Fprintf(&b, "- blocked_reason_census_overflow pids=%d (beyond the census pid cap)\n", result.WindowStats.BlockedReasonCensusOverflow)
-		}
-		// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the generator census renders
-		// EARLY in the stanza beside the sibling census face — busy real-trace
-		// windows hit the banner width cliff and a tail placement never
-		// reached the model face (witness debug: the whole advisory tail was
-		// cut on the tieba window). Canonical window_stats view only — the
-		// composite views sit at the cliff already and keep the typed field
-		// in the JSON payload (CMP-8/CMP-10 width doctrine).
-		if strings.EqualFold(strings.TrimSpace(result.View), "window_stats") {
-			writeTraceVsyncGeneratorCensus(&b, result.WindowStats.VsyncGeneratorCensus)
 		}
 		for _, io := range result.WindowStats.IOLatencies {
 			wake := ""
