@@ -1,0 +1,23 @@
+# Rebased native trace: the first valid timestamp is exactly zero.
+# Whole-file scheduler accounting is 10ms: Running 7, Runnable 1, D-side IO 2.
+# IO occupies [0.002,0.004); the caller event is recorded near wakeup, not
+# at the wait's start. This is a finite state/occurrence query, not cause ranking.
+# Machine checks cover principal values only; manual review must check scope,
+# event ownership, units, and that no specific storage mechanism is invented.
+ID="trace_query_zero_origin_wait_account"
+NAME="trace query — zero-origin whole-trace wait accounting"
+QUESTION="只分析这份 trace，不分析代码。请统计 client-41 主线程在整份 trace 中的调度状态分布，列出不可中断等待或 IO 等待的起止时间、次数和总量，并说明统计实际覆盖的起止时间。"
+FIXTURE="eval/fixtures/stub_repo"
+HTRACE='# tracer: nop
+idle-0 (0) [000] .... 0.000000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=41 next_prio=120
+client-41 (41) [000] .... 0.002000: sched_switch: prev_comm=client prev_pid=41 prev_prio=120 prev_state=D ==> next_comm=idle next_pid=0 next_prio=120
+irq-9 (9) [000] .... 0.004000: sched_wakeup: comm=client pid=41 prio=120 target_cpu=0
+irq-9 (9) [000] .... 0.004001: sched_blocked_reason: pid=41 iowait=1 caller=io_wait_site
+idle-0 (0) [000] .... 0.005000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=41 next_prio=120
+client-41 (41) [000] .... 0.010000: sched_switch: prev_comm=client prev_pid=41 prev_prio=120 prev_state=R+ ==> next_comm=idle next_pid=0 next_prio=120
+'
+EXPECT_PRINCIPAL_CONTAINS="client-41"
+EXPECT_PRINCIPAL_MATCHES_REGEX="(运行|Running|running).*(^|[^0-9])7([.]0+)?([^0-9]|$)
+(可运行|Runnable|runnable|调度).*(^|[^0-9])1([.]0+)?([^0-9]|$)
+(IO|I/O|io_wait|iowait).*(^|[^0-9])2([.]0+)?([^0-9]|$)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

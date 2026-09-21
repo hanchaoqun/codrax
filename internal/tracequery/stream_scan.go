@@ -305,12 +305,7 @@ func streamScanReader(ctx context.Context, path string, info os.FileInfo, source
 			if ev.Ts > 0 {
 				lastParsedTs = ev.Ts
 			}
-			if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
-				idx.FirstTs = ev.Ts
-			}
-			if ev.Ts > idx.LastTs {
-				idx.LastTs = ev.Ts
-			}
+			idx.observeTimestampBounds(ev.Ts)
 			if ev.Type != EventUnknown {
 				idx.ParsedKnown++
 			}

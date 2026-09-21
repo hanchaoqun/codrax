@@ -913,12 +913,7 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 				contiguous = false
 				break
 			}
-			if out.FirstTs == 0 || ev.Ts < out.FirstTs {
-				out.FirstTs = ev.Ts
-			}
-			if ev.Ts > out.LastTs {
-				out.LastTs = ev.Ts
-			}
+			out.observeTimestampBounds(ev.Ts)
 			if ev.Type != EventUnknown {
 				out.ParsedKnown++
 			}
@@ -936,18 +931,14 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		// Non-contiguous window (clock regression inside the span):
 		// reset the stats accumulated during the failed verification
 		// pass and rebuild via the copying path.
-		out.FirstTs, out.LastTs, out.ParsedKnown = 0, 0, 0
+		out.resetTimestampBounds()
+		out.ParsedKnown = 0
 		firstLine, lastLine = 0, 0
 		for _, ev := range full.Events {
 			if !eventInBuildWindow(ev, out) {
 				continue
 			}
-			if out.FirstTs == 0 || ev.Ts < out.FirstTs {
-				out.FirstTs = ev.Ts
-			}
-			if ev.Ts > out.LastTs {
-				out.LastTs = ev.Ts
-			}
+			out.observeTimestampBounds(ev.Ts)
 			if ev.Type != EventUnknown {
 				out.ParsedKnown++
 			}
@@ -1925,12 +1916,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				if ev.Ts > 0 {
 					lastParsedTs = ev.Ts
 				}
-				if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
-					idx.FirstTs = ev.Ts
-				}
-				if ev.Ts > idx.LastTs {
-					idx.LastTs = ev.Ts
-				}
+				idx.observeTimestampBounds(ev.Ts)
 				if ev.Type != EventUnknown {
 					idx.ParsedKnown++
 				}
@@ -4028,11 +4014,10 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 	// event slice are safe even if a child's physical line order regressed.
 	idx.TimestampOrder = TraceTimestampOrderMonotonic
 	for _, ev := range idx.Events {
-		if ev.Ts > 0 && (idx.FirstTs == 0 || ev.Ts < idx.FirstTs) {
-			idx.FirstTs = ev.Ts
-		}
-		if ev.Ts > idx.LastTs {
-			idx.LastTs = ev.Ts
+		// Preserve the old exclusion of negative mapped clock values while
+		// admitting the valid zero boundary in the canonical event domain.
+		if ev.Ts >= 0 {
+			idx.observeTimestampBounds(ev.Ts)
 		}
 	}
 	if len(idx.TraceArtifacts) > 1 {

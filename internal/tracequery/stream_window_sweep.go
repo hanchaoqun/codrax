@@ -329,12 +329,7 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 				if ev.Ts > 0 {
 					lastParsedTs = ev.Ts
 				}
-				if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
-					idx.FirstTs = ev.Ts
-				}
-				if ev.Ts > idx.LastTs {
-					idx.LastTs = ev.Ts
-				}
+				idx.observeTimestampBounds(ev.Ts)
 				if ev.Type != EventUnknown {
 					idx.ParsedKnown++
 				}
@@ -343,7 +338,9 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 				}
 				flavor.observeEvent(ev)
 				platformVote.observe(ev)
-				if ev.Ts <= 0 {
+				// safeParseLine already rejected missing timestamps. Zero is
+				// a valid rebased event, not an absent timestamp sentinel.
+				if ev.Ts < 0 || !isSafeTraceTimestamp(ev.Ts) {
 					goto nextLine
 				}
 				switch ev.Type {

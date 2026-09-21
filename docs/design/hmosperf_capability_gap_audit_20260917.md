@@ -2091,3 +2091,25 @@ C2人工FAIL仍保：3段D侧IO和0.635ms均正确，不再把非IO D为零误�
 再次对照参考`thread_sleep_summary.yaml:24`的tid与时间交集独立过滤，以及`sleep_ops.py:929–941`保tid/itid/pid和`is not None`窗判定：借鉴身份/范围分账，参考没有本仓用户授权协议，不能借原始trace/实体自动授目标。本片race和完整agent包正式收据随后更新；生产仍为22b55，不为测试片追加第三次live或重复花费同版双例。零起点统一入口审计、§94及其余开放项继续，13/79、66开放不变。
 
 末版race59275正式exit0/agent4.160s（同1顶层2父场景6scope子项），`/tmp/hmc-causal-finite-handoff-race-20260921.log`；包含新针的完整agent包60235正式exit0，`/tmp/hmc-causal-finite-handoff-agent-20260921.log`。本片仅增加测试/审计，没有修改任何生产逻辑；§98全仓87包收据仍对应相同生产，不能称新测试也在那次旧全仓中执行。交接下游未复现合法因果范围丢11ms，保模型误分类/全文语义失败观察，不为这两例强加新门。
+
+## 101. 零秒与未初始化分离：统一解析包络及显式零端点（2026-09-21，实施验收中）
+
+§100仅测试/文档随`912652214`已推送，session91944正式exit0；完整agent包60235用时71.285s。再从干净且远端一致状态开始本片，先修§98已证确定性包络缺口，不为模型未遵从教学继续堆提示。
+
+主席复核参考`core/hiperf_converter.py:54–69`以min_ts/max_ts=None区分无数据与0秒，以及`core/preprocess/trace_data_cache.py:209–215`对SQL MIN(ts)使用is not None。仅借鉴presence与数值分离；其MAX(ts)+MAX(dur)并非精确最大结束时刻、空连接返回(0,0)，不移植算法或空值语义。
+
+实施A：冷建、derive连续/非连续、mapped bundle、两类stream search、held-line scan和window_sweep共8处索引包络写点共用独立presence；不从Events/ParsedKnown猜，因为流式可不保Events、unknown和精确存储carrier也有已成功解析时间。保原观察域/过滤前后位置；derive回退重置局部presence，bundle仅观察已映射准入事件，不OR子工件时钟。保负mapped时间原排除，修0不宣称新负时钟支持。normalize仅有真实包络才回填，显式TimeStartSet/EndSet不代写；兼容旧synthetic正宽非负包络。另修sweep直接丢0事件、stream event_search用首个匹配时刻覆盖显式0起点，原matched/scan覆盖分域保留。ParserVersion统一升代，旧缓存不沿用错误包络。
+
+engine公开RED2527正式exit1/tracequery0.813s，`/tmp/hmc-zero-timestamp-engine-red-20260921.log`，4顶层/4具名子例：冷暖实际Run、流式扫描、derive两路及unknown起点被覆盖；非编译失败。主席首次公开尝试93112正式exit1/agent1.030s，`/tmp/hmc-zero-origin-public-red-20260921.log`，但后续诊断发现测试错误要求full-artifact有限轨必须有explicit-window形principal_state，不算完整有效产品RED。95926/94592/94721均保留失败日志；94721诊断显示修后原始target_window_states的0..0.010、Running7ms/总量10ms已正确到达最终输入，只是既有合法载体为事实账而非新主卡。修正新增测试只核该真实事实行及共享口径/等待，不改生产以造新权限。engine有效RED收齐后才落生产，主席公开链后续首次GREEN另记，不伪称已证新的成文门故障。
+
+新eval `trace_query_zero_origin_wait_account`要求从整份真实文本trace恢复状态/等待/覆盖范围，不向问题提供正确数值；原始六行即公开测试同一物理过程。冻结后与既有`trace_query_wakeup_causal_io_chain`按2并行×1：一例检验零起点真实数据供给，一例保明确20ms窗、链上IO/优先级/投影；已有Go上一批人工PASS不能说成本批live再覆盖写模式。公开回归/机器/人工分别记，不追第三例。
+
+留B类独立未修：IndexEventLimitError及恢复建议的零起点presence、VSync census与其它聚合对象自身的FirstTs哨兵。对象/权限不同，不能机械替换并声称全仓零值已扫净。§94、原生pair/两尺同卡/B2–B6及父账13/79、66开放保留；本片末版race/全仓/人工未完成前不销账。
+
+实际tool→final首次有效GREEN22056正式exit0/agent1.145s，`/tmp/hmc-zero-origin-public-final-green-20260921.log`，1顶层2视图4语言格；完整10ms账及IO一段2ms通过真实原生事实行交付，未制造显式窗或因果报告。包含causal/finite、windowless完整清单相邻保护的race45355正式exit0/agent5.950s，`/tmp/hmc-zero-origin-public-race-20260921.log`。上述早期新增测试载体错误仍保留，不改记RED→GREEN。
+
+engine冻结后宽定向65604正式exit0/tracequery3.864s，160顶层、336个含子RUN，`/tmp/hmc-zero-timestamp-engine-focused-20260921.log`。新增10顶层覆盖presence独立于known/retained、真实冷暖/换代/derive、held/stream/sweep及bundle仿射/负mapped边界；旧5处版本断言只迁v43，旧零宽fixture改为真正同刻且保所有原断言。早期93017/7903等失败含新增测试对held字节上限、物理空源准入、sweep既有50ms下限及cluster API视图的错误前提，仅修测试，不伪记生产问题。末版engine race59853、全仓45715待正式退出。
+
+超时/活跃流定向62239正式exit0/llm4.481s，`/tmp/hmc-zero-origin-stream-guards-20260921.log`，8项保600/300/600秒、4ms连续部分帧、隐式推理/tool-call/可见内容进展及调用方取消/更短期限。不改超时代码，也不因本片数据问题提前降级。
+
+冻结engine race59853正式exit0/tracequery41.520s，同160顶层/336含子RUN，`/tmp/hmc-zero-timestamp-engine-race-20260921.log`，零FAIL/竞态。独立末审七个生产文件及新公开测试/case无阻塞：presence不借子工件、normalize不授用户范围/因果、cache升代完整。边界另留：本片stream修的是显式0的结果端点不再被首尾匹配行覆盖；底层既有time gate中time_end=0的零宽筛选语义未全面修复，不能外推。新agent public执行实际工具与成文消息构建，未执行真实模型；live待单列。

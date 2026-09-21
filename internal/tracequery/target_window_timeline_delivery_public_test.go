@@ -214,14 +214,13 @@ func TestTimelineAccountDeliveryKeepsSIOAndBoundedInventory(t *testing.T) {
 	})
 	t.Run("empty normalized range is not rescued by inventing zero", func(t *testing.T) {
 		idx := buildTraceIndex(t, "timeline-delivery-rebased.ftrace",
-			"idle-0 (0) [000] .... 0.000000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=41 next_prio=20\n"+
-				"app-41 (41) [000] .... 0.010000: sched_switch: prev_comm=app prev_pid=41 prev_prio=20 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120\n")
+			"app-41 (41) [000] .... 0.000000: sched_switch: prev_comm=app prev_pid=41 prev_prio=20 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120\n"+
+				"idle-0 (0) [000] .... 0.000000: cpu_idle: state=0 cpu_id=0\n")
 		q := Query{View: "thread_timeline", PID: 41}
 		r := Run(idx, q)
-		// The existing index uses zero as its unset first timestamp and
-		// normalizes this two-event fixture to a zero-width .01.. .01 range.
-		// Fixing that producer is separate; this delivery lane must preserve
-		// the empty native result, not invent a complete 0.. .01 partition.
+		// Both real events occur at the same timestamp. Fixing the parser's
+		// zero-presence bookkeeping must not turn this genuinely zero-width
+		// native result into a positive-duration account.
 		if r.Timeline == nil || len(r.Timeline.Intervals) != 0 || r.TargetWindowStates != nil || q.TimeStartSet || q.TimeEndSet {
 			t.Fatalf("empty native result must not be promoted into a zero-based account: query=%+v timeline=%+v account=%+v", q, r.Timeline, r.TargetWindowStates)
 		}

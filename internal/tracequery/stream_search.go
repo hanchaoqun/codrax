@@ -277,12 +277,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			if ev.Ts > 0 {
 				lastParsedTs = ev.Ts
 			}
-			if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
-				idx.FirstTs = ev.Ts
-			}
-			if ev.Ts > idx.LastTs {
-				idx.LastTs = ev.Ts
-			}
+			idx.observeTimestampBounds(ev.Ts)
 			if ev.Type != EventUnknown {
 				idx.ParsedKnown++
 			}
@@ -398,10 +393,10 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		}
 	}
 	start, end := q.TimeStart, q.TimeEnd
-	if start == 0 && len(events) > 0 {
+	if start == 0 && !q.TimeStartSet && len(events) > 0 {
 		start = events[0].Ts
 	}
-	if end == 0 && len(events) > 0 {
+	if end == 0 && !q.TimeEndSet && len(events) > 0 {
 		end = events[len(events)-1].Ts
 	}
 	scopeKind := EventSearchScopeSelectedWindow
@@ -949,12 +944,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			}
 			if !preWindowCarry && !closingMarkerCarry {
 				parsedEvents++
-				if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
-					idx.FirstTs = ev.Ts
-				}
-				if ev.Ts > idx.LastTs {
-					idx.LastTs = ev.Ts
-				}
+				idx.observeTimestampBounds(ev.Ts)
 				if ev.Type != EventUnknown {
 					idx.ParsedKnown++
 				}

@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v42"
+const ParserVersion = "tracequery-v43"
 
 type EventType string
 
@@ -759,7 +759,10 @@ type Index struct {
 	Events           []Event
 	FirstTs          float64
 	LastTs           float64
-	ParsedKnown      int
+	// timestampBoundsSeen distinguishes a parsed zero from an empty domain.
+	// It is copied with an Index, but derived/merged domains mint their own.
+	timestampBoundsSeen bool
+	ParsedKnown         int
 	// TraceDBText* count converter-authored exact-storage preservation data.
 	// CarrierRows is the physical number of v1 record lines or v2 block lines;
 	// Records and the per-kind counters are logical canonical v1 records

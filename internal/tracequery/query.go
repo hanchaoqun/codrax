@@ -1404,7 +1404,7 @@ func normalizeQuery(idx *Index, q Query) Query {
 	if q.Limit <= 0 {
 		q.Limit = sharedDefaultResultLimit
 	}
-	if q.TimeStart == 0 && !q.TimeStartSet && q.LineStart == 0 && idx != nil {
+	if q.TimeStart == 0 && !q.TimeStartSet && q.LineStart == 0 && idx.hasTimestampBounds() {
 		q.TimeStart = idx.FirstTs
 		// WINFLAG-1 (§29.190④): record the whole-trace backfill provenance so
 		// queryResultWindowStartSet can mark the result window start as
@@ -1413,7 +1413,7 @@ func normalizeQuery(idx *Index, q Query) Query {
 		// explicit-window predicate keeps its behavior.
 		q.timeStartBackfilled = true
 	}
-	if q.TimeEnd == 0 && !q.TimeEndSet && q.LineEnd == 0 && idx != nil {
+	if q.TimeEnd == 0 && !q.TimeEndSet && q.LineEnd == 0 && idx.hasTimestampBounds() {
 		q.TimeEnd = idx.LastTs
 	}
 	if q.View == "wakeup_chain" && !q.windowStatsSpecified {
