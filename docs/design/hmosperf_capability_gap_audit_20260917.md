@@ -849,7 +849,7 @@ LLM等待保护定向回归通过17.992s（`/tmp/hmc-stream-wait-preservation-20
 独立开放施工表（不因止损已修而整体打勾）：
 
 - [x] B1（实现已交付）：派发与实际执行器权威单源，精确不可能的assertion-only探测不再强制派发；缺证不销账，末版全仓/race/干净构建通过，`bc90f5aaa`已推送。
-- [ ] B2：controller-only原生断言补登记授权，绑定run/batch/已应用计划与当前工作树快照，替换run级历史记录可复用的弱授权。
+- [ ] B2：controller-only原生断言补登记授权，绑定run/batch/已应用计划与当前工作树快照；新增原生登记不得借run级历史记录授权。§68已实测区分现有probe重新执行与复用旧证明，不能据历史事件仍允许新probe就宣称当前存在假证明漏洞。
 - [ ] B3：平行于probe-only的新只读补证计划；仅接已读、已存在测试的exact PTO，系统哈希锁定字节，不准改源或改测试oracle，模型不得自填执行收据。
 - [ ] B4：直接进入verify-only，复用精确test_path/suite/assertion执行器，新报告独立留存；原plan/approval fingerprint/旧report不改，失败、skip、身份错配都不授证。
 - [ ] B5：累计scope/JSON往返/resume及快照改变失效；相同快照/合同/绑定/证明方式不原样无限重试，有新精确证据才允许修正绑定。
@@ -1573,3 +1573,13 @@ XERR只读追查进一步明确待验证机制：payloadless阻塞值取span∩w
 干净工作区构建`/tmp/hmc-java-source-unit-clean-build-20260921.log`正式exit0（session55334），`./codrax --version`实测为0.1.20260921、revision `b32a10d98a34`、buildTime `2026-09-21T07:19:22Z`。`f21aaa747`代码与`b32a10d98`文档已正式推送main（b380→b32，session19947 exit0）。没有再跑同例追绿或用plan-only代替真实编译；缺JDK、首轮取消针的未定原因以及旧Java计划非法import仍按§63保留。源码搬运修复不修写错的模型源码、不松changed-code耦合与原生证明门，也不要求新JSON字段或内部类名。
 
 Trace选窗、因果投影、链上根因资格、背景隔离和自动补齐均未改变；600/300/600秒超时默认值及活跃流保护未动。旧业务/明确窗/卡顿清单的人工FAIL、明确窗来源权威和B2–B6继续开放，HMC父账仍13/79已交付、66开放。本片是确定性子缺陷与测试可靠性的收尾，不是所有开放项已完成。
+
+## 68. B2可达性实测：新探测准入不等于复用旧证明（2026-09-21，诊断结论，未实施B2）
+
+在独立detached诊断树`/tmp/codrax-b2-snapshot.9QQFEe/tree`、固定`e2ecb30d0`新增测试，主线生产未改。不是手造proof事件/报告：公开Emit源计划→ApplyPatch→真实applyPostHook检查点→实际Make语法检查及RunTests报告→normalizer产生补证批/事件→ApplyWorkflowDecisionToRun→公开Emit；之后保持HEAD和同一` M widget.py`状态，将已脏源码的函数返回值2改为3。此流程只核现有probe车道与来源边界，不冒称完整B3或LLM live。
+
+结果：现有probe-only计划仍可创建；两个发射器均在source-free sentinel边界拒绝PTO，另拒源码修改。再执行真实RunTests，`assert widget.value() == 2`在新源码上实际退出1，产生新计划的新执行ID/时间/工作目录收据及非权威比较器诊断；没有assertion-scoped通过、VerificationConfidence或target执行证明，旧report保持原PlanID和原字节。独立Make语法检查仍可通过，因此总体Passed=true不是这个模型比较器已获行为权威，更不是旧报告被冒充新结果。
+
+首轮`reachability.log`因测试错误预期“非权威探测失败必使总体Passed=false”而FAIL；这是harness预期错误，不计产品RED。主线复核并运行修正为逐执行收据/证明资格断言的末版，`reachability-corrected.log`正式exit0（session2533，orchestrator1.446s）。PTO载荷仅验证无条件sentinel禁入，未搭建有效测试文件/active合同，不能据此宣称原生绑定端到端已验；本例也没有验证required合同的最终终态或所有过期grant组合。诊断测试仅留独立树，未混入本批已全仓验收的主线。
+
+设计收窄：未来B2精确快照授权仍是开放原生只读登记能力的前置条件；现有“重新读取当前源码并运行新probe”与“接受/复用某个旧证明”必须分离，不能新增一个把安全重新验证也冻结的过期快照硬门。永久禁源码修改身份、旧报告独立归属及最终required合同缺证保护继续保留。§30.5的B2–B6均未销账，不能把这次反证PASS说成旧Python补登记FAIL已修。
