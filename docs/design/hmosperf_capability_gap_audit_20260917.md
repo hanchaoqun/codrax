@@ -1013,7 +1013,7 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 
 推送收据：`00be02cac`、`911518ebd`已一并推送main，远程从8a8ca1813快进至911518ebd；推送后工作树干净。下一片从该基线开始，不把未提交改动混入本片验收。
 
-## 35. 跨视图业务实例导航与末尾事实卡口径（2026-09-20，施工中）
+## 35. 跨视图业务实例导航与末尾事实卡口径（2026-09-20，实现验收完成，答案留债）
 
 这两项分别对应§32旧业务失败和§34当前明确窗失败，不能混为一个根因。两者都基于现有精确对象/字段，不用用户或模型散文扫描驱动硬门，也不赋予系统替模型选焦点或改写结论的权限。
 
@@ -1022,9 +1022,9 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 旧358业务只查rank而未查统计/定位；rank的原生WindowStats.TraceSpans已有完整OpenDocument与LoadDocumentIndex，但导航发现以view白名单开关，仅span_window/window_stats/span_locate能发布。同一对象因工具组合不同而丢能力，违背HMC-02.4灵活组合目标。参考仓`ad_hoc_exploration.yaml`按问题组合指标、`marker_ops.build_marker_tree/compute_node_thread_states`按实例身份与区间组织事实；吸收对象驱动组织方式，不移植其缺窗全量回退、词名优先级或线程名模糊关联。
 
 - [x] 先红：真实公开工具先验证确有完整native carrier，再检查引用；rank/两bundle/perf_stats/evidence_pack/两recipe/wakeup含stats/带真实span_name时间线等10臂失败；无carrier、wakeup=false、内部rank而未发布stats、async/缺端点、synthetic frame及真复合源负例通过。`/tmp/codrax-business-ref-carriers.NAUkj4/public-carrier-red.log`。
-- [ ] 用完整sync原生对象及既有来源/生命周期见证替代视图名白名单；引用只是导航，完整源+TID+B/E全tuple、私有代次、显式用户窗优先不变。
-- [ ] 多窗wrapper从成功child实际对象去重，不能按rank选第一窗或取端点并集；父物理源收据仍整体把关，失败/取消/复合源不能借兄弟授证。两独立窗有2个对象却0引用、重叠发现窗重复4条应去重为2的公开RED见`public-multiwindow-red.log`1.165s。
-- [ ] 公开多视图/多实例/裁窗完整pair/无效输入/来源变更/数量上限/私有焦点不变及真实Explorer消息回归，取得末版全仓、提交、推送和固定双例收据后才勾本片。
+- [x] 用完整sync原生对象及既有来源/生命周期见证替代视图名白名单；引用只是导航，完整源+TID+B/E全tuple、私有代次、显式用户窗优先不变。
+- [x] 多窗wrapper从成功child实际对象去重，不能按rank选第一窗或取端点并集；父物理源收据仍整体把关，失败/取消/复合源不能借兄弟授证。两独立窗有2个对象却0引用、重叠发现窗重复4条应去重为2的公开RED见`public-multiwindow-red.log`1.165s。
+- [x] 公开多视图/多实例/裁窗完整pair/无效输入/来源变更/数量上限/私有焦点不变及真实Explorer消息回归、末版全仓和固定双例收据已取得；生产1d9a9ff643b6，随本次审计提交推送。只勾本片实现，不勾旧答案。
 
 当前33537统计视图已有引用供给却未选择；本修复不能替该行为销账，不强制某一工具顺序或补造自动选择。
 
@@ -1033,8 +1033,8 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 33526末尾`renderTraceFinalReaderDecisionCards`把node的有效值1ms和`PublishedStateOccupancy`给出的14/17ms sleep连写为“对应已测状态占用”。没有跨记录错join，但省略了前文selector已有的精确值组成，造成最近一层上下文语义容易误解。单源`tracefinding.RootCauseValueDescription`已校验1ms=自身runnable全额1+running缺口0，旧公共旁路也保此组成；这不是底层缺数。
 
 - [x] /tmp overlay红针：两候选各自sleep17/14ms保持，但末尾各卡缺其已验证composition，`/tmp/codrax-reader-value-binding-e4KdAk/red.log`1.088s；不能说已发生必带必拒合同冲突。
-- [ ] 只读projection+node描述适配，复用原candidate编译及值说明，不由agent手组组件或按subject/rank跨窗匹配；同卡保原状态原值并标明另账，增其自己的已验证值组成。
-- [ ] 中英共用语义及校验，中文旧selector/sidecar字节、candidate identity/registry/selection wire不变；错和/缺值/负数/非有限/错误口径不造组成，running供给、D/I/O拆分遵守各自旧规则。
+- [x] 只读projection+node描述适配，复用原candidate编译及值说明，不由agent手组组件或按subject/rank跨窗匹配；同卡保原状态原值并标明另账，增其自己的已验证值组成。
+- [x] 中英共用语义及校验，中文旧selector/sidecar字节、candidate identity/registry/selection wire不变；错和/缺值/负数/非有限/错误口径不造组成，running供给、D/I/O拆分遵守各自旧规则。
 - [ ] IO卡没有精确请求身份时不能从全局35ms猜接31ms，当前IO正文前后矛盾仍开放。补实际finalizer消息回归、全仓/race、固定双例后再评，不用新增泛型大段教学代替。
 
 ### 35.3 独立待补：eval正文边界被新系统板穿透（HMC-18.5）
@@ -1057,3 +1057,11 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 主席初次联合定向`/tmp/hmc-native-carrier-value-green-20260920.log`退出1：新context-only负针错用Predicate而非生产Tier，公开token可解析针漏走dispatch发布步骤；两项为测试装配问题，已分别改为既有typed Tier及实际AppendDispatchToolResult，未借此扩生产权限。修正后`/tmp/hmc-native-carrier-value-green2-20260920.log`退出0：tracefinding0.616s、agent0.974s、tool1.997s。中英旧字节、组件错和/缺失/负值/非有限/错误口径、链外/无证/窗外、同主体同rank异窗不借值及实际BuildInitialInstruction均覆盖。全仓、末版race与固定双例仍待退出收据，不先勾整片交付。
 
 新增真实Explorer→工具执行→下一次模型消息覆盖span_window、无span_name的rank及bundle三臂，包含当轮可解析token与完整tuple，不用预造ToolResult替代；公开GREEN1.136s、与事实卡消息race×3为3.746s（`/tmp/hmc-native-carrier-message-green-20260920.log`、`message-race-20260920.log`）。四包定向race×3通过tracefinding1.769s/agent8.531s/tool26.234s/types7.289s（`/tmp/hmc-native-carrier-value-race-20260920.log`）。首轮全仓agent报告两条旧固定文案预期失败：新候选限定注插入导致旧连续子串变化，以及“对应占用”改为另账；按本片设计更新精确期待，原数值/背景隔离/自然语言负针不动，定向GREEN1.447s（`/tmp/hmc-native-carrier-reader-oldpins-green-20260920.log`）。全仓退出及补正后重测另记，不宣称首轮全绿。
+
+### 35.5 固定版本双例与新失败断点
+
+生产提交`1d9a9ff643b6`，构建退出0，固定该版2并行×1：[机器](../../eval/parallel_selected_summary_hmc_native_carrier_value_20260920.md)1/2，[人工](../../eval/parallel_selected_summary_hmc_native_carrier_value_20260920_manual_audit.md)0/2。明确窗213秒/45%上下文，业务294秒/37%。前者已保20ms/11ms、另账14/17ms与自身1ms，仍误说修向独立、将未证机理泛化为无根因资格。后者引用已供给且模型实际使用两次，但带同源/同线程重复参数被一概混填门拒绝，退回51ms查询，最终正文与50ms业务窗混账、缺LoadDocumentIndex/投影，schema2正常必产但状态为`unavailable/trace_root_cause_contract_not_active`。本轮补齐因`families_present`跳过，不冒称旧`no_typed_target`。
+
+下一处高ROI调查：引用绑定的是已成功发布的精确完整tuple；允许经过私有引用/当前源验证的冗余相等字段，有望消除无语义差异的拒绝。绝不能直接忽略额外参数或按文字相似选择：不同物理来源/代次、TID、区间、process范围仍拒绝，用户明确窄窗仍最高优先。当前教学本来要求省略，重复字段来自模型而非系统注入，故暂不定性为必带必拒合同；先公开红针与边界设计，再独立小批。13/79交付、66开放不变。
+
+末版全仓`/tmp/hmc-native-carrier-value-final-full-20260920.log`实际退出0：87包通过（71缓存、16实际）、13包无测试，agent90.504s/tool364.091s/tracequery101.631s/types39.343s。此前首轮全仓退出1仅两条旧文案pin，tool433.118s通过；补正后的独立agent整包70.534s及本轮全仓均通过。后续新片断言红针不属于1d9，不混入此验收。本片代码与机器/人工收据同批推送，不以单测绿覆盖0/2人工通过。
