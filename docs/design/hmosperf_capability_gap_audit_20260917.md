@@ -1807,3 +1807,25 @@ Python仅改实现一行，原tests/config字节不变，真实3条unittest断�
 新增确定高ROI系统矛盾：root discovery zero_tests与nested真实3passed同报，NoTestsRunners=['python']合理保留局部诊断，却被observation_authority、stage_hooks、scheduler及显示当成整批无测试；报告规范化则仍是passed。最终两次写“python没有发现任何测试”并提示补环境，错误。相邻retry helper还可能让次要zero-tests压掉真实失败修复。下一片统一精确信号区分整体无测试与局部空候选；保局部诊断、缺路径/runner/失败/required合同，不用任意passed行清债。必须有真实混合执行公开RED与正反矩阵；仅syntax/probe/aggregate/non_asserting结果不能当原生断言。
 
 ROI顺序：先修上述全局状态自冲突，再原生身份教学/已执行身份可见性，再B2→B3/B4精确来源授权与只读补登记；B5/B6持久化/回放随后。前两项是已复现生产接缝，不能因重复验证仍失败而改oracle或放宽匹配。JS/Ruby cwd相邻风险、同scope执行代次与其它HMC开放项继续保留。
+
+§81–83实现、收据及固定双例审计已随`189bcf48e`推送main（session48219正式exit0，94ce→189bc）；下节独立验收，不复用该全仓签新代码。
+
+## 84. 局部空测试候选不覆盖整批真实执行结论（2026-09-21，修复中）
+
+§83确认的问题已从真实公开工具链复现：ReadFile→EmitChangePlan→ApplyPatch→RunTests→JSON往返，同一报告同时保留根目录zero_tests和子项目原生assertion PASS。正式RED=`/tmp/hmc-mixed-no-tests-public-red-20260921.log`（session78068 exit1/tool2.064s），两个PASS分支只在整体authority被误判no_tests处失败，真实断言FAIL控制正常；错PTO身份另保required missing与proof_weak，不把原生执行PASS等同合同证明PASS。
+
+修复边界：报告层单源区分局部缺测与整体无原生断言；各判定、重试、计划状态和展示消费同一精确信号。保留NoTestsRunners及逐执行目录的零测试收据，未知目录不猜；syntax/build/aggregate/non_asserting/plain probe成功不能冒充原生逐断言结果。真实失败优先，required合同、改动路径覆盖、缺失runner及不可用状态独立保留；旧空报告的诊断兼容不因Passed=false就升级成代码失败。当前不改JSON结构、声明匹配/补授权、Trace证据或投影，禁止以扫描答案/请求原文兜底。
+
+参考`core/llm_contract.py:114–155`按真实成员和字段回查工件，`core/preprocess/sendable_ops.py:494–550`将外部命令返回与输出工件分别处理；仅借鉴职责及身份分离。参考仓没有本仓多候选原生测试聚合或PTO证明通道，不能声称直接移植、以外部命令成功替逐断言证明，亦不引入其散文扫描规则。
+
+计划验收：真实公开混合执行正反针、类型矩阵、controller状态/重试/展示一致性、JSON往返、定向/race和末版全仓。完成后再以新冻结版本跑2并行×1跨模式回放，人工审实际上下文/答案/工件；GREEN未齐前不销本片。原生身份教学/成功身份可见性为下一ROI项，B2–B6、旧人工FAIL与父账13/79交付、66开放不变。
+
+新固定双例预选`nested_python_increment`和`trace_query_business_marker_io_chain`：前者精确复验混合执行，并将原生PASS与required证明缺口分账；后者返回旧人工FAIL，检查完整50ms业务响应、35ms请求/31ms线程等待/1ms调度分尺、LoadDocumentIndex线索、背景备份隔离、因果图及根因旁路。未修改oracle、不强迫模型使用本片分支，未实际命中就不签live；不为追绿追加同版第三例。
+
+下一片只读横向设计已复核（未实施）：12个runner不等于12条PTO精确selector通道。当前Go/Node/Python/Rust/Java/Ruby/Swift有selector；CMake/Meson/Hvigor虽可产JUnit assertion、Cjpm可产Cargo assertion，`test_surface.go::impactCandidateSupportsSuite`未接对应PTO selector，Make/npm退出码仍仅aggregate。不能只补示例就冒称这些通道完成。两计划schema共享身份教学应说明真实TestResult及非根限定前缀、Go Package与源码package的区别；首轮无报告仍合法。执行后需从当前报告以有限预算向实际controller/planner消息提供完整成功身份，带报告身份、保原字节/JSON转义和超长整行省略说明，不混旧代次、不自动填合同或放宽matcher。此设计不代签实现、公开回归或B2授权。
+
+末版16个源码/新增测试文件已冻结；112顶层定向`/tmp/hmc-mixed-no-tests-final-focused-v3-20260921.log`正式exit0（session32038，tool4.710/types2.839/writeflow0.439/orchestrator1.387/agent2.381秒；skill编译通过但该选择无匹配测试）。测试包含真实公开PASS/FAIL/错PTO三枝、22类typed报告、同runner不同目录、局部Ensure后双序合并、controller/旧stage持久化及重试一致性、中英正文/建议负针和实际verifier教学。早期教学test缺plan前提的harness失败保留在`...-final-focused-20260921.log`，不记产品RED；v2未含最后措辞反例，不代替v3。
+
+末审特别收住两个相邻入口：合并仅不继承Passed=true且纯局部零测试报告的派生no_tests类别，原census/leaf字节不改，false或其它不可用类别不清；原生已通过但proof_weak的正文与建议不再称整批没测试或需要装环境。明确缺改动路径覆盖的typed原因独立解释，未知调用范围不猜。当前统一全仓`/tmp/hmc-mixed-no-tests-full-20260921.log`（session39631）和扩大旧NoTests集合的race仍运行，不提前签整批PASS。
+
+最终race `...-final-race-v3-20260921.log`现已正式exit0（session41830）：133顶层、6包、无skip/竞争/失败，tool10.979/types8.346/writeflow2.136/orchestrator3.648/agent4.452/skill2.207秒。独立只读末审PASS，三核心冻结hash完全一致；16文件提交`fe52b4898`，统一全仓仍运行，干净构建及固定双例收据随后另记。没有改动旧测试文件以降门换绿。
