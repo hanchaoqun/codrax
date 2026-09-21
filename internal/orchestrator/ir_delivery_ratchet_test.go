@@ -120,7 +120,11 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// premise shared by both auto-complete consumers.
 		{path: "accepted_closure_reconcile.go", maxLines: 130},
 		{path: "accepted_closure_premise.go", maxLines: 60},
-		{path: "write_verify_render.go", maxLines: 420},
+		// HMC §84: reviewed 420→460 for the existing verification-outcome
+		// concern (418→436 lines). Local empty-test scopes and incomplete
+		// verification need distinct explanations, not a new file solely
+		// to meet a line count. See the delivery ledger for this exception.
+		{path: "write_verify_render.go", maxLines: 460},
 		// DELIBERATE 240→280 (§29.146 UPSTREAM-3 件1): the pre-mint
 		// withhold half of the current_source waiver double defense
 		// (acceptedClosureRequiredOriginLanesBeforeDebtMint +

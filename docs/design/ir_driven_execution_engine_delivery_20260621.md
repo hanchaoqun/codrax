@@ -379,6 +379,12 @@ Commercial hardening before declaring complete:
 
 ## Progress Ledger
 
+### HMC §84: reviewed verification-renderer budget adjustment (2026-09-21)
+
+The mixed-invocation verification fix grew `write_verify_render.go` from 418 to 436 lines: it distinguishes local empty-test scopes, uncovered changed paths, and missing verification obligations in the existing outcome explanation and next-step advice. These remain one cohesive rendering concern. The first full run correctly tripped the 420-line maintenance threshold (`/tmp/hmc-mixed-no-tests-full-20260921.log`, formal exit 1); that receipt is retained, not reclassified as a behavioral failure or erased.
+
+After reviewing the alternatives with the user, increase only this file's budget from 420 to 460. The 24-line headroom is limited maintenance capacity, not permission to add unrelated responsibilities. Do not compress comments/blank lines, mechanically split a cohesive function merely to satisfy the count, or relax other files' budgets. This changes no production behavior, evidence authority, verification requirement, or test oracle. Re-run the structural census and full suite; behavior remains covered by the mixed-invocation public and boundary regressions. A future expansion must receive a new responsibility-based review.
+
 | Batch | Scaffold status | Load-bearing status | Evidence |
 | --- | --- | --- | --- |
 | D0 Delivery Ledger | scaffold-complete | load-bearing-complete | This document added on 2026-06-21; current-state audit and batch ledger recorded. |
