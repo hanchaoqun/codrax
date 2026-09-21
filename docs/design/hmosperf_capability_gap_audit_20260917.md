@@ -1672,6 +1672,20 @@ HMC父账仍13/79已交付、66开放；此前各次人工FAIL不回写。末版
 
 共享提示公开RED `/tmp/codrax-dependency-observation-20260921.m3Yrz6/RED.log`正式exit1（agent1.607s）；实际TraceQuery结果进入NewFinalizerAgent.Execute的适配器边界，原生四视角与七状态×两种查询组完整度×双语、独立等待/target blocker/异对象blocker/有限事实请求及预览容量共四顶层测试，末版`GREEN-new-matrix.log`正式exit0（session52522，agent2.289s）。模型调用在消息捕获边界停止，不能称真实LLM答案已验。冻结后统一全仓`/tmp/hmc-dependency-role-final-full-20260921.log`（session78627）执行中；相关大集合及race另补。
 
+共享提示末版九个显式测试文件、84项顶层集合`GREEN-focused.log`正式exit0（session47739，agent6.199s），同84项`GREEN-race.log`正式exit0（session61111，58.758s），确切选择见同目录`selection.txt`；五文件冻结hash主线复核均匹配，独立末审无阻塞。补semantic正控过程中因fixture缺语义载体造成的`GREEN-new-semantic.log`失败保留，不记作生产故障或用首轮部分绿替代完整末版。实现已提交`f29750f58`，干净构建`/tmp/hmc-dependency-role-clean-build-20260921.log`正式exit0（session40219），revision f29750f5862c、buildTime 2026-09-21T08:47:33Z；全仓正式退出前不宣称整批已验收。
+
 本批固定版本生产双例选`trace_query_wakeup_background_demotion`与`github_issue_dayjs_duration_nan_symptom`，2并行×1。前者按最高风险复验同图关系/等待语义/链外隔离与旁路，后者扩展JS真实apply及既有回归测试保护，不只反复跑Python/C++。在新干净构建上执行，不添第三例追绿；它不替B2–B6缺失原生证明车道验收。
 
 §73的依赖窗当连续状态段、唤醒混同入核运行、正文机理越界和内部词汇泄漏仍是原始人工FAIL；本片只签两个已复现系统缺陷，不倒签整份答案。B2–B6和精确原生断言语义绑定继续开放，HMC父账13/79已交付、66开放不变。
+
+末版统一全仓现已正式exit0（session78627），87测试包、13无测试包、零FAIL；签冻结f29750f58，不签之后的新显示修复。该片定向/race、独立审查、全仓与干净构建已齐，旧人工FAIL不回写。
+
+## 75. f297固定双例：本片live命中，分母口径新缺陷优先（2026-09-21）
+
+固定f29750f5862c、2并行×1，runner session10387正式exit0；Trace234秒、JS136秒，机器0/2、完整人工0/2。详[机器结果](../../eval/parallel_selected_summary_hmc_dependency_role_crossmode_20260921.md)及[人工逐面审计](../../eval/parallel_selected_summary_hmc_dependency_role_crossmode_20260921_manual_audit.md)。Trace机器FAIL仅词序正则不接受主体先于IO说明，正文其实准确给出11ms主IO；原verdict保留，不靠改oracle回填绿。
+
+Trace中性phase/最终上限、邻近角色与准确wake并列均真实命中；显式2.000–2.020、系统补采、链上11ms、17/14ms睡眠、各1ms供给、19.5ms背景隔离及schema2可用旁路均保住，依赖窗冒充连续睡眠和无机制改写否定未再出现。但模型仍将三个候选合成3ms，实际最终输入已明确禁止，无需为此再造关键词硬门。另有明确系统缺陷：模型曾探索2.000–2.025，扩窗logger20ms背景行进入20ms主树后显示100%和“整窗等待(疑似空闲)”，同页另有正确19.5ms请求窗记录。该标签按金额近似主窗长判定，却未比行查询身份，比例亦借主窗分母；不能通过删除背景或篡改原值修。下一片统一修行级计量范围/比例/整窗标签，保护异位同长窗、缺窗、合并窗及真实状态跨窗披露。
+
+JS仅改一行缺失值默认0，原回归测试与检查脚本字节保持，真实apply及隔离交付resolved。make check的Python静态检查通过，npm/node在当前验证环境缺失，最终诚实unverified；不能把它签为JS断言执行成功。模型为顶层assert脚本起了并不存在的具名assertion_id，npm_script_exit_status也没有逐断言生产者，安装运行器不自动使该PTO合格；本例合同全planning-only，不代销B2–B6。一次畸形双编码workflow JSON被精确拒绝后恢复原生对象，未确认新的系统教学互斥。
+
+ROI：先完成上述明确显示口径缺陷，再恢复B2的controller源快照授权前置；模型语义误用、运行器缺失、无原生断言身份及oracle词面限制分别留账，不用反复同版回放追绿。任务总数仍13/79交付、66开放。
