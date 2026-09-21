@@ -2077,3 +2077,17 @@ C2人工FAIL仍保：3段D侧IO和0.635ms均正确，不再把非IO D为零误�
 本轮4次trace_query为event_search＋bounded window_stats＋两次event_search，没有thread_timeline，故新入口以公开回归为据，不伪记现场命中。一次analyzer形状不一致拒绝后重发，成文零拒绝/patch；默认schema2空旁路存在，有限问题没有选根合同属合理空值，不强加因果投影。旧§97/此前人工FAIL不改写。
 
 下一批ROI：先用同一真实工具结果跑明确合法causal/finite两套最终消息交接，并审实际主线程/进程/有限因果分类教学；只有确定缺口才改，不能因模型已查询root就扩大合同。§94业务局部补齐、声明/观测pair、两尺同卡、零时刻入口、P2修补指引和B2–B6继续留账，父账13/79、66开放。
+
+## 100. 因果/有限三轨公开交接与误分类归因复核（2026-09-21，验证完成，不改生产）
+
+§98–99实现及收据随`f3425ae50`已推送，session71633正式exit0、远端8702ea54f→f3425ae50，本地/远端相同且工作区干净后开验证片。不能因为人工答案未过就直接放宽有限过滤器。
+
+新增真实TraceQuery(thread_timeline/wakeup_chain/root_cause_rank)→Bus→BuildAgentContext→完整Finalizer消息回归：同一原始15行fixture和仅重命名版，共causal_diagnosis/bounded_fact_set/bounded_effect_verdict三轨六格；生产维度归一化、当前请求quote、named_target/user_explicit和明确20ms窗先验，不借legacy nil-profile。causal用required causal_attribution且不依赖重复root intent/diagnostic旗标，finite分别保已选状态族及独立verdict。初版待用草稿缺target profile已在应用前纠正，不伪记生产RED。
+
+首次实际运行77738正式exit0/agent1.424s，`/tmp/hmc-causal-finite-handoff-first-20260921.log`，1顶层/2父场景/6scope子项。因果轨完整保留11ms IO/fscache调用点、四节点wake路径以及三个独立1ms优先级候选席；有限轨只交付授权目标状态，不因预先采集root数据开根因报告。前后源结果/账本/范围/投影/模型文档字节不变。这是首次GREEN的审计回归，没有为造RED改生产；不声称该测试执行了emit_analysis、证明模型自然语言分类正确或已填旁路根因选择。
+
+独立只读复核未证当前教学有相反合同：C2当轮109/292/314行已明确具名进程或线程均named，模型两次原发no_named，理由“非子线程”与规则不符；旧causal例身份正确named/app-100，误在把主要阻塞原因标target_effect_verdict，结构修复仅使其一致，并非系统把正确causal降级。存在性属于observed_value也已有明确教学。passive/unresolved条件措辞留观察，现有证据不够归因为系统错误；不再加专项同义说明，不撤H4有限未知条件能力，不扫原文重授目标或改结论。当前人工FAIL保留，但ROI转向已证确定性缺口。
+
+再次对照参考`thread_sleep_summary.yaml:24`的tid与时间交集独立过滤，以及`sleep_ops.py:929–941`保tid/itid/pid和`is not None`窗判定：借鉴身份/范围分账，参考没有本仓用户授权协议，不能借原始trace/实体自动授目标。本片race和完整agent包正式收据随后更新；生产仍为22b55，不为测试片追加第三次live或重复花费同版双例。零起点统一入口审计、§94及其余开放项继续，13/79、66开放不变。
+
+末版race59275正式exit0/agent4.160s（同1顶层2父场景6scope子项），`/tmp/hmc-causal-finite-handoff-race-20260921.log`；包含新针的完整agent包60235正式exit0，`/tmp/hmc-causal-finite-handoff-agent-20260921.log`。本片仅增加测试/审计，没有修改任何生产逻辑；§98全仓87包收据仍对应相同生产，不能称新测试也在那次旧全仓中执行。交接下游未复现合法因果范围丢11ms，保模型误分类/全文语义失败观察，不为这两例强加新门。
