@@ -1603,10 +1603,10 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 		pack.Items[len(pack.Items)-1].ID = writeContextStableID("regression_assertion", assertion)
 	}
-	for _, runner := range report.NoTestsRunners {
-		pack.Items = append(pack.Items, writeContextItem("no_tests_runner", WriteContextP2, runner, "verify",
+	for _, scope := range report.NoTestsInvocationLabels() {
+		pack.Items = append(pack.Items, writeContextItem("no_tests_runner", WriteContextP2, scope+"; local observation only, other invocation results remain independent", "verify",
 			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
-		pack.Items[len(pack.Items)-1].ID = writeContextStableID("no_tests_runner", runner)
+		pack.Items[len(pack.Items)-1].ID = writeContextStableID("no_tests_runner", scope)
 	}
 	return NormalizeWriteContextPack(pack)
 }

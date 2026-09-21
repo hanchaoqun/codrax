@@ -145,11 +145,7 @@ func shouldSuppressVerifyRetry(report *types.ChangeReport) bool {
 	if report == nil {
 		return false
 	}
-	return report.FailureKind == types.FailureKindRunnerMissing ||
-		report.FailureKind == types.FailureKindParserError ||
-		report.FailureKind == types.FailureKindVerificationIncomplete ||
-		report.FailureKind == types.FailureKindPreexistingBuildFailure ||
-		len(report.NoTestsRunners) > 0
+	return report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable
 }
 
 // verifyStallReason returns a non-empty reason when consecutive verify rounds

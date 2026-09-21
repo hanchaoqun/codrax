@@ -2735,9 +2735,6 @@ func appliedPatchVerifyLine(report *types.ChangeReport, plan *types.ChangePlan, 
 		if report.BuildFailed {
 			parts = append(parts, "build_failed")
 		}
-		if len(report.NoTestsRunners) > 0 {
-			parts = append(parts, "unverified")
-		}
 		summary := truncateInline(strings.TrimSpace(report.FailureSummary), 240)
 		if len(parts) == 0 {
 			parts = append(parts, "failed")
@@ -3613,9 +3610,6 @@ func (o *Orchestrator) syncMutablePlanStatusAfterVerify(report *types.ChangeRepo
 	case err != nil || !report.Passed:
 		plan.Status = types.PlanStatusVerifyFailed
 		plan.AppliedAt = nil
-	case len(report.NoTestsRunners) > 0 && planTouchesNonTestCode(o.busCtx):
-		plan.Status = types.PlanStatusUnverified
-		plan.AppliedAt = &now
 	default:
 		plan.Status = types.PlanStatusApplied
 		plan.AppliedAt = &now
@@ -9887,7 +9881,7 @@ func writeWorkflowVerifyAttemptReason(report *types.ChangeReport, err error) str
 		case types.FailureKindRunnerMissing, types.FailureKindParserError, types.FailureKindVerificationIncomplete, types.FailureKindPreexistingBuildFailure:
 			return string(report.FailureKind)
 		}
-		if len(report.NoTestsRunners) > 0 {
+		if report.NoTestsWithoutAssertionVerdict() {
 			return "no_tests"
 		}
 	}

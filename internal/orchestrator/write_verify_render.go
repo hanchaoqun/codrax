@@ -323,7 +323,18 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) (out string
 	reasonEN := "the local verifier did not produce a typed verification report"
 	if report != nil {
 		planID = report.PlanID
-		if reportIndicatesVerificationUnavailable(report) {
+		if report.FailureKind == types.FailureKindNoTests || report.NoTestsWithoutAssertionVerdict() {
+			scopes := strings.Join(report.NoTestsInvocationLabels(), ", ")
+			scopesZH, scopesEN := scopes, scopes
+			if scopes == "" {
+				scopesZH, scopesEN = "未记录具体范围", "scope not recorded"
+			}
+			reasonZH = "仍有验证范围缺少原生测试断言结果；没有测试结果的调用范围为 " + scopesZH
+			reasonEN = "some verification scope still lacks native test assertion results; invocation scope(s) without test results: " + scopesEN
+		} else if report.FailureKind == types.FailureKindVerificationIncomplete && report.FailureReasonCode == "changed_path_verification_uncovered" {
+			reasonZH = "仍有本次修改的源码路径缺少必要验证"
+			reasonEN = "some changed source paths still lack required verification"
+		} else if reportIndicatesVerificationUnavailable(report) {
 			summary := strings.TrimSpace(report.FailureSummary)
 			if cand := reportUntriedRunnableCandidate(report); cand != nil {
 				reasonZH = "验证命令失败"
@@ -342,9 +353,9 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) (out string
 					reasonEN += ": " + summary
 				}
 			}
-		} else if runners := strings.Join(report.NoTestsRunners, ", "); runners != "" {
-			reasonZH = fmt.Sprintf("测试运行器 (%s) 没有发现任何测试", runners)
-			reasonEN = fmt.Sprintf("the test runner (%s) discovered zero tests for the changed code", runners)
+		} else {
+			reasonZH = "已通过检查尚未覆盖所有必要的验证要求"
+			reasonEN = "the passing checks do not cover every required verification obligation"
 		}
 	}
 	// The "install the environment" suggestion is only honest when the
@@ -355,6 +366,13 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) (out string
 	if reportUntriedRunnableCandidate(report) != nil {
 		envStepZH = "- 直接 /verify 重试(按 typed 测试面候选执行),或\n"
 		envStepEN = "- /verify again (it runs the typed test-surface candidate), or\n"
+	} else if report != nil && (report.FailureKind == types.FailureKindNoTests || report.NoTestsWithoutAssertionVerdict()) {
+		envStepZH = "- 检查测试发现范围并补齐必要验证后 /verify,或\n"
+		envStepEN = "- check test discovery scope and complete the required verification before /verify, or\n"
+	} else if report != nil && (!reportIndicatesVerificationUnavailable(report) ||
+		(report.FailureKind == types.FailureKindVerificationIncomplete && report.FailureReasonCode == "changed_path_verification_uncovered")) {
+		envStepZH = "- 在当前授权范围内补齐缺失的验证证据后 /verify,或\n"
+		envStepEN = "- complete the missing verification evidence within the current authorized scope before /verify, or\n"
 	}
 	passedChecks, failedChecks := reportVerificationResultCounts(report)
 	// The worktree-audit note (untracked outputs, disclosed rows, lockfile

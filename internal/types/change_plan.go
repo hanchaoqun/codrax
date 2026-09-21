@@ -1041,14 +1041,15 @@ type ChangeReport struct {
 	// signal; not used by any criterion but rendered to the user.
 	FixedAssertions []string `json:"fixed_assertions,omitempty"`
 
-	// NoTestsRunners records the runner names that completed cleanly
-	// but discovered zero test cases (e.g. pytest exit code 5, jest
+	// NoTestsRunners records runner names with one or more invocations that
+	// completed without direct test cases (e.g. pytest exit code 5, jest
 	// "no tests found", go test ./... with no _test.go files). The
 	// list is intentionally separate from FailureSummary so the
 	// verifier evaluator can keep Passed=true while still surfacing
-	// "verification ran but had no tests to execute" to the LLM /
-	// operator. Empty when every runner that ran found at least one
-	// test, which is the normal case.
+	// the local no-test observation to the LLM / operator. A runner may also
+	// have successful assertions from another invocation or working directory;
+	// this lossy census is not a whole-report verdict. ExecutedCommands keeps
+	// the individual scope. An empty census does not prove any execution.
 	//
 	// Provenance: a Python-script-in-a-Go-repo apply triggered the
 	// verify→plan retry loop because parsePytestJSONReport mapped exit
@@ -1469,7 +1470,7 @@ func (r *ChangeReport) NormalizeVerificationStatus() VerificationStatus {
 	case FailureKindRunnerMissing, FailureKindParserError, FailureKindVerificationIncomplete, FailureKindNoTests, FailureKindPreexistingBuildFailure:
 		return VerificationStatusUnavailable
 	}
-	if len(r.NoTestsRunners) > 0 && len(r.TestResults) == 0 {
+	if r.NoTestsWithoutAssertionVerdict() {
 		return VerificationStatusUnavailable
 	}
 	if !r.Passed {
@@ -1482,7 +1483,7 @@ func (r *ChangeReport) EnsureVerificationStatus() {
 	if r == nil {
 		return
 	}
-	if len(r.NoTestsRunners) > 0 && len(r.TestResults) == 0 && r.FailureKind == "" {
+	if r.NoTestsWithoutAssertionVerdict() && r.FailureKind == "" {
 		r.FailureKind = FailureKindNoTests
 	}
 	r.VerificationStatus = r.NormalizeVerificationStatus()

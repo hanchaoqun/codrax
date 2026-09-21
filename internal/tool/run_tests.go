@@ -3142,7 +3142,11 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 		// retry hint must call out. First-set-wins below that, so
 		// build_failure on project A doesn't get masked by
 		// tests_failed on project B.
-		if out.FailureKind == "" || isMoreSevereFailureKind(report.FailureKind, out.FailureKind) {
+		// A clean leaf's computed no-tests category is local, just like its
+		// runner census. The final Ensure call classifies the combined report;
+		// do not let this leaf erase independent native assertion results.
+		localNoTests := report.Passed && report.FailureKind == types.FailureKindNoTests && report.NoTestsWithoutAssertionVerdict()
+		if !localNoTests && (out.FailureKind == "" || isMoreSevereFailureKind(report.FailureKind, out.FailureKind)) {
 			if report.FailureKind != "" {
 				out.FailureKind = report.FailureKind
 			}
@@ -4217,6 +4221,7 @@ func renderAggregateTestSummary(repoRoot string, plans []runnerPlan, reports []*
 		}
 		failedShown++
 	}
+	b.WriteString(renderNoTestsInvocationSummary(aggregate))
 	return b.String()
 }
 
@@ -7701,13 +7706,7 @@ func renderTestSummary(runner string, report *types.ChangeReport) string {
 		fmt.Fprintf(&b, "[run_tests: runner=%s verdict=%s] %d total, %d passed, %d failed",
 			runner, verdict, total, passed, failed)
 	}
-	if len(report.NoTestsRunners) > 0 {
-		fmt.Fprintf(&b,
-			"\n\nNote: no test-case verdict is available for runner(s) %s. "+
-				"Tests may be absent, unmatched, or unavailable; this alone does not prove execution or success. "+
-				"Any compile/syntax observations are limited to the recorded successful checks and their exact input paths.",
-			strings.Join(report.NoTestsRunners, ", "))
-	}
+	b.WriteString(renderNoTestsInvocationSummary(report))
 	if verdict == "UNAVAILABLE" {
 		if report.FailureSummary != "" {
 			fmt.Fprintf(&b, "\n\nDiagnostic: %s", report.FailureSummary)

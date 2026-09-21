@@ -1189,8 +1189,7 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		appendVerifyFingerprint(o.busCtx, report)
 	}
 	existing := o.busCtx.Mutable.Result()
-	if reportIndicatesVerificationUnavailable(report) ||
-		(report != nil && len(report.NoTestsRunners) > 0 && planTouchesNonTestCode(o.busCtx)) {
+	if reportIndicatesVerificationUnavailable(report) {
 		o.busCtx.Mutable.SetResult(existing + renderVerifyUnverified(report, o.busCtx.Language))
 		now := time.Now()
 		o.persistPlanStatus(types.PlanStatusUnverified, &now)
@@ -1211,19 +1210,9 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
 		return nil
 	}
-	// Verify ran cleanly. Decide between PlanStatusApplied (tests
-	// actually verified the change) and PlanStatusUnverified (runner
-	// reported zero tests for the changed code AND the plan
-	// modified non-test files). The decision reads typed structured
-	// signals only:
-	//   - report.NoTestsRunners — set by the run_tests parser when
-	//     a runner exited successfully but discovered zero tests.
-	//   - WriteAnalysisIR.Request.Task.Kind — set by write_analyzer
-	//     to characterise the user's intent. WriteTaskTest /
-	//     WriteTaskDocs / WriteTaskConfig are benign no-test
-	//     scenarios (the user wanted to add docs / tests / config —
-	//     "0 tests for that" is not a problem); fall back to
-	//     plan.Changes inspection when WriteAnalysisIR is absent.
+	// The shared report status has already separated a wholly unavailable
+	// verifier from secondary empty invocations alongside actual assertions.
+	// Do not promote the lossy runner census back into a whole-plan verdict.
 	o.busCtx.Mutable.SetResult(existing + renderVerifySuccess(report, o.busCtx.Language))
 	now := time.Now()
 	o.persistPlanStatus(types.PlanStatusApplied, &now)
