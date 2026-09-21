@@ -1268,3 +1268,18 @@ eff3上一片完整全仓正式exit0：`/tmp/hmc-measurement-teaching-census-fin
 公开改名×中英先红后绿；同族正针、纯Runnable PIC正针、等值异状态、异查询窗、明确不相交、混合/仅running/未知PIC与原生投影不变均覆盖。正式RED `/tmp/hmc-account-state-final-red-20260920.log` exit1；较早red日志还含测试自身空ref查表噪声，不把噪声当产品问题。邻近SMR1/RSPA/CR2/状态窗口 GREEN `/tmp/hmc-account-state-green-20260920.log` exit0（tool5.975s）；末增纯Runnable正针、race、全仓和干净双例另外签收。独立只读审计提出并纳入等值早退、明确不相交及PIC复合计量反例。
 
 边界留债：窗口缺失仍只是不否决，不是同窗证明；同族同行包络本身也不等于完整的物理发生集合身份。其它遗留关系臂的严格同源/发生集合证明与原始占用镜像去重继续开放，本片不能冒充全图关系已审完。`39becadd4`至`19568569c`已推送main；上轮人工0/2不倒签。
+
+末版提交`de47561c847d`。新增纯Runnable正针与全部新图关系针`/tmp/hmc-account-state-final-green-20260920.log`正式exit0（tool1.169s）；相关race×3 `/tmp/hmc-account-state-race-20260920.log`正式exit0（tool156.528s，早于末增正针、生产代码相同）。完整全仓`/tmp/hmc-io-state-account-final-full-20260920.log`正式exit0（agent111.156s、tool422.891s等）；覆盖IO载体及图关系生产改动，末增测试另验。干净构建`/tmp/hmc-io-state-account-clean-build-20260920.log`exit0。
+
+## 45. de475固定双例：机器2/2、人工0/2，不误销（2026-09-20）
+
+[机器](../../eval/parallel_selected_summary_hmc_io_state_account_20260920.md)与[完整人工单](../../eval/parallel_selected_summary_hmc_io_state_account_20260920_manual_audit.md)，固定干净`de47561c847d`快照2并行×1，runner正式exit0；明确窗160秒/45%，业务354秒/43%。导航继承后续改动不在此快照内。同版无第三次追绿。
+
+明确窗保留四候选及完整Trace投影，错误S/PIC物理重叠说明消失，旧旁路虚构再睡/唤醒也未复现；仍把已计价IO11最大错说成实际占用最大、从内核调用点推出后端机理、Binder零匹配推出排除结论，独立人工FAIL。业务恢复子业务40ms和8/1/31，但仍50/53ms混账、bytes误作扇区、真实相交区间说相邻和35+8拼算，人工FAIL。两份mandatory旁路都在；业务未调用rank而无可选候选，空数组不算内容通过。没有空答案或活跃流强制截断。
+
+新增两条确定性系统供给/显示gap优先于模型散文拟合：
+
+1. 业务标记导航继承前一次工具探测的TID100游标，遮掉真正由TID200发射、payload PID100的子业务。旧efd日志2390–2460实际命中；用户显式目标不是问题，须保留。按已有typed来源/参数修导航，不扫描用户prose。
+2. PIC板头仍把三成员定位包络交集写成“成员区间重叠”，实际计量的三个1ms Runnable分量互斥；源头在方向板算术/定位包络helper，并非模型自写。仅纠正显示资格/中性限定，不能从包络补造物理发生集合或放宽可加性。
+
+其余散文错误仅据此不足以证明模型波动；继续核对实际context优先级和测量身份。不得增原文关键词硬门、系统改写模型根因或以机器PASS销掉整答FAIL。HMC总账13/79已交付、66开放保持。
