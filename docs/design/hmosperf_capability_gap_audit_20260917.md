@@ -1882,17 +1882,17 @@ H4 170秒保明确13762.791708–13763.024898窗、四态157.248/5.604/70.338/0m
 
 §84–88修复、定向/全仓收据、两批固定回放审计与剩余任务清单已随`dc570c66a`推送main（session30448正式exit0，189bcf48e→dc570c66a）；本地/远程HEAD核对相等，工作区干净。三项窄子缺陷收口，父账与所有明确未通过项继续保留。
 
-## 88. 后续小批拆分：身份可见性先行，重复分尺失败不能只归因“信息已在场”（2026-09-21，只读设计，未实施）
+## 88. 后续小批拆分：身份可见性先行，重复分尺失败不能只归因“信息已在场”（2026-09-21，身份子清单已由§89验收，分尺仍开放）
 
 原生身份接缝已由根席再核：`run_tests.go::renderTestSummary`只展开失败名，`write_context_pack.go`跳过PASS结果，controller主要给计数/命令；两种计划schema逐字重复裸身份示例。结果生产者为非根suite/id同时加`runner[/framework]@cwd::`，仅Python/Java包含framework；Go suite是报告Package/import path而非源码package声明，Jest/Vitest的ID保祖先标题链，JUnit保class#method，RSpec保full_description，其它也须以当前报告完整字段为准。不能从命令Suite选择器推定TestResult.suite。`TestResult`旧注释将ID匹配对象写成AcceptanceTests、称一次调用suite恒同，也是待纠正注释债，不冒称实际提示已如此授权。
 
 下一小批验收清单（仍属HMC-16.4/18.5，不新增父任务完成数）：
 
-- [ ] 两个schema的PTO身份说明单源且JSON编码一致；解释完整字段/非根前缀、Go及框架差异。首轮尚无报告仍可正常规划，不教成必须先执行测试才能发计划。
-- [ ] 用同一有界展示函数向工具实际返回、planner/controller投递当前持有报告中的原生assertion PASS身份；整体report失败或required证明不足时也保已执行的具体PASS，不自动代填PTO或关闭合同。
-- [ ] 绑定明确active plan与报告PlanID，保持post-apply/非planner-probe边界；当前空/错plan/channel报告不能复活历史context-pack内容。heading说明是持有报告快照、附GeneratedAt，不把仅同PlanID当最新工作树字节或同scope执行代次证明；不存在的invocation ID/通用报告路径不得捏造。
-- [ ] IDs按真实字节JSON转义，控制数量/总字节预算；超长整项省略并说明，不截出新身份、不剥前缀/归一化名称、不按源码或原始散文猜test_path。aggregate/non_asserting/build/plain probe不能混成原生断言。
-- [ ] 实际agent消息与公开RunTests→报告→消息交接回归；覆盖根/非根、7runner格式、错plan/channel/空报告/历史失效、混合PASS+FAIL、控制字符/Unicode/过长ID，并证明matcher、source-free PTO拒绝与required证明边界不变。非本机runner格式单元测试不算实际执行。
+- [x] 两个schema的PTO身份说明单源且JSON编码一致；解释完整字段/非根前缀、Go及框架差异。首轮尚无报告仍可正常规划，不教成必须先执行测试才能发计划。
+- [x] 用同一有界展示函数向工具实际返回、planner/controller投递当前持有报告中的原生assertion PASS身份；整体report失败或required证明不足时也保已执行的具体PASS，不自动代填PTO或关闭合同。
+- [x] 绑定明确active plan与报告PlanID，保持post-apply/非planner-probe边界；当前空/错plan/channel报告不能复活历史context-pack内容。heading说明是持有报告快照、附GeneratedAt，不把仅同PlanID当最新工作树字节或同scope执行代次证明；不存在的invocation ID/通用报告路径不得捏造。
+- [x] IDs按真实字节JSON转义，控制数量/总字节预算；超长整项省略并说明，不截出新身份、不剥前缀/归一化名称、不按源码或原始散文猜test_path。aggregate/non_asserting/build/plain probe不能混成原生断言。
+- [x] 实际agent消息与公开RunTests→报告→消息交接回归；覆盖根/非根、7runner格式、错plan/channel/空报告/历史失效、混合PASS+FAIL、控制字符/Unicode/过长ID，并证明matcher、source-free PTO拒绝与required证明边界不变。非本机runner格式单元测试不算实际执行。
 
 现成可借用的是当前报告选择/active scope及failure/probe observation的有界独立提示结构；原failure/probe摘录会截短ID，不能拿来作可复制原生身份。`authoritativeWriteControllerReport`有兼容空PlanID/Channel，新的身份区不能仅调用它就声称来源明确；`TestResult`本身没有invocation ID。来源授权与只读补绑定继续按B2–B6独立验收。
 
@@ -1933,3 +1933,17 @@ Trace253秒虽补回35ms请求和LoadDocumentIndex40ms，仍将51ms查询的6+1+
 两席独立确认更高ROI系统P1：唯一wakeup查询目标app-main，原生路径storage-irq→worker→app；analyzer明确`no_named_target`，通用Entities却把worker排在app-main前。`observationLedgerAnchorEntities`无条件收通用实体，路径选举按首次命中截到worker并标用户选举；renderer继承后称worker为“用户关注线程/自身”，与app-main状态账矛盾。不是合法导航游标改变，也不能只换图头掩盖截链。修复应从typed用户目标授权单源收口，并同步显示的明确无目标状态；保完整原生路径、真正named目标、同tid别名、cursor排除与旧nil-profile兼容。不强制业务实例覆盖full-artifact，不改物理数值/根因资格或由原文扫描重新选目标。
 
 后续任务顺序：上述目标授权P1→声明/观测完整pair并置→业务/查询与请求/阻塞同卡分尺→B2–B6和其余HMC开放项。旧人工FAIL不回写，父账13/79交付、66开放不变。
+
+§89–90实现与全仓/人工收据已随`cb2f3679b`推送main，session55235正式exit0，远端6647135b9→cb2f3679b，本地/远程HEAD相等。下一片不复用该全仓签新代码。
+
+## 91. 用户目标身份授权与原生唤醒路径分离（2026-09-21，实施验收中）
+
+先修§90确定系统P1，不仅针对单个no_named枚举补丁：现有emit契约已要求named_target有当前原文quote、有效RuntimeTarget且source=user_explicit；no_named/unspecified不准同时携带targets。消费端却忽略整个profile，把generic/Exact实体重新提升用户身份。因而unspecified，以及named目标不在当前路径时由generic其它线程代选，都是同一类越权，不应逐case补。
+
+实施边界：已有profile时仅其有效named目标通道可授用户身份，由ledger/renderer共享精确resolver；generic/Exact仅保探索/旧时间展示等非身份用途，不允许选根/截链/伪用户标签。profile缺失的历史输入保持旧B1顺序及兼容；查询游标不授用户身份，frame_target_resolution只印证已授权目标。不能因明确无用户目标而丢原生完整路径、修改查询范围或把已接受业务实例强盖full-artifact/明确时间窗；不改根因测量、证据等级、原始结果或模型正文。
+
+根席独立公开RED：`/tmp/hmc-user-target-materializer-red-20260921.log`（session99693正式exit1/tool1.547s），真实四view→当前Bus观察账本→投影→ApplyAndPersistMutation→最终中英渲染；no_named/unspecified四枝均误收generic/Exact实体、将irq→worker→app截为irq→worker并标用户选举。加入Mutable历史named与当前分析相反的输入，当前两端应消费当前AnalysisIR，不得复活旧身份；最终摘要和原工具记录保持不改。公开fixture/线程换序/别名、named/legacy及相邻全仓另验，不将尚未完成测试签绿。
+
+对照参考`core/preprocess/sleep_ops.py:931–932,1077`从已选线程行取tid后递归、558附近按该阻塞段查直接waker；其639–642树根是阻塞者而非本仓被分析目标，也无用户关注chip。只借鉴查询目标与递归节点分离，不复制参考根语义、丢中断waker策略或最大状态桶机制归因。现有状态裁窗/IO请求35与线程阻塞31/业务50及40/背景47、语义优化和供给证据通道保持。
+
+冻结后固定双例预选业务IO旧FAIL与`real_trace_h4_supply_thermal_witness`，2并行×1：前者验证无指定线程、完整路径/分尺/旁路；后者保护真实named线程和明确时间窗下的有限判断、不擅自扩因果投影。写模式前批真实执行/未绑定分账保留，不以两读例宣称写模式本片live覆盖。
