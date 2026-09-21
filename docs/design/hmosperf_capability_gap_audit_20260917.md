@@ -1880,6 +1880,8 @@ H4 170秒保明确13762.791708–13763.024898窗、四态157.248/5.604/70.338/0m
 
 末版全仓耗时tool406.290s、agent95.936s、tracequery120.921s；相较已留存437.335s的owner登记失败是独立正式成功收据，不覆盖旧日志。
 
+§84–88修复、定向/全仓收据、两批固定回放审计与剩余任务清单已随`dc570c66a`推送main（session30448正式exit0，189bcf48e→dc570c66a）；本地/远程HEAD核对相等，工作区干净。三项窄子缺陷收口，父账与所有明确未通过项继续保留。
+
 ## 88. 后续小批拆分：身份可见性先行，重复分尺失败不能只归因“信息已在场”（2026-09-21，只读设计，未实施）
 
 原生身份接缝已由根席再核：`run_tests.go::renderTestSummary`只展开失败名，`write_context_pack.go`跳过PASS结果，controller主要给计数/命令；两种计划schema逐字重复裸身份示例。结果生产者为非根suite/id同时加`runner[/framework]@cwd::`，仅Python/Java包含framework；Go suite是报告Package/import path而非源码package声明，Jest/Vitest的ID保祖先标题链，JUnit保class#method，RSpec保full_description，其它也须以当前报告完整字段为准。不能从命令Suite选择器推定TestResult.suite。`TestResult`旧注释将ID匹配对象写成AcceptanceTests、称一次调用suite恒同，也是待纠正注释债，不冒称实际提示已如此授权。
