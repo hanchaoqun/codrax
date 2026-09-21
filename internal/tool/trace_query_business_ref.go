@@ -152,8 +152,21 @@ func traceQueryBusinessRefSourceAssertionsMatch(ctx *types.BusContext, p traceQu
 	}
 	if p.Path != "" {
 		// Paths are exact filesystem/prepared aliases, never basename matches.
-		// Logical selection IDs retain the ordinary query lane rather than
-		// becoming another source of authority for this opaque reference.
+		// Reuse ordinary typed logical selection before comparing identity;
+		// an alias alone cannot authorize a different capture for the token.
+		if traceQueryRuntimeArtifactSelectionIDRE.MatchString(strings.TrimSpace(p.Path)) {
+			selected, adaptation, reject := traceQueryAdaptLogicalArtifactPath(ctx, traceQueryParams{Source: "path", Path: p.Path})
+			if reject != nil || adaptation == nil {
+				return false
+			}
+			if selected.Source == "attached_trace" {
+				return traceQueryBusinessRefSourceAssertionsMatch(ctx, traceQueryParams{Source: "attached_trace"}, physical)
+			}
+			if traceQueryRuntimeArtifactSelectionIDRE.MatchString(strings.TrimSpace(selected.Path)) {
+				return false // A physical selection must not delegate to another ID.
+			}
+			return matches(resolveToolPath(ctx, selected.Path))
+		}
 		if !matches(resolveToolPath(ctx, p.Path)) {
 			return false
 		}

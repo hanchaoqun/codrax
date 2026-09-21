@@ -65,7 +65,8 @@ func TestCompletionBusinessFocusActualExplorerSchema(t *testing.T) {
 			boundaries: []string{
 				"this run", "never pick the first/longest",
 				"original physical capture generation", "scheduler TID", "complete paired time interval",
-				"omit source/path/pid/thread/target_scope/time_start/time_end/line_start/line_end/span_name",
+				"coordinate fields are assertions and must exactly match that same current physical instance",
+				"they never override it or apply additional filters", "Conflicting fields are rejected, not silently removed",
 				"navigation only", "does not accept a completion focus or prove a root cause",
 				"Explicit requested time windows remain authoritative",
 				"ordinary explicit parameters for the requested clipped window",

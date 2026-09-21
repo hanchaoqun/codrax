@@ -1079,3 +1079,11 @@ analyzer本次6次emit/5拒绝、finalizer2拒绝及JSON安全恢复均按实际
 - [ ] 实际Explorer三轮：发现→模型带重复source/thread/pid→下一次模型收到成功测量且完整50ms、两个IO账保留；成功工具不授completion焦点。全仓/race/构建及新固定双例收据待补，旧人工FAIL不提前销。
 
 首轮公开GREEN1.210s、旧实例公开矩阵及边界1.710s；实际Explorer消息GREEN1.260s。加入gzip/双来源交叉后末版定向tool2.771s、agent1.031s（`/tmp/hmc-business-ref-assertions-final-green-20260920.log`）。旧“混填必拒”测试保10个错误字段负例，原来恰好与引用一致的path/line改用真正冲突值，并由新12臂逐字段恒等正针承接；没有删除来源/窄窗/过期负面要求。跨视图发现、原查询引擎、排序、旁路JSON和600/300/600秒策略不变。主清单13/79、66开放不变；§35.3正文所有权及跨模式B2–B6继续留队。
+
+### 36.1 固定双例、整仓补正及别名复核
+
+93858fb94a05原生构建退出0，固定该版2并行×1：[机器](../../eval/parallel_selected_summary_hmc_business_ref_assertions_20260920.md)2/2，[人工](../../eval/parallel_selected_summary_hmc_business_ref_assertions_20260920_manual_audit.md)0/2。业务274秒/46%，明确窗174秒/43%。业务模型没使用实例引用，仍取0.999..1.051；补齐与投影可用，但正文7ms宽窗运行套50ms业务窗、31ms当请求驻留后又正确列35ms、内部字段泄漏，旧FAIL不销。明确窗保20/11ms，但错把400→300唤醒2.016写成2.014并扩写等待机理；不是新引用分支造成的证据时间改写。两份schema2旁路均available，不代表正文正确。
+
+首轮race×3 tool21.444s/agent7.581s/types3.149s；流式/default保护17.422s，活跃字节/心跳可超过旧总时限，600/300/600保持。首轮全仓agent102.564s报一条伴随completion schema测试仍期待旧全省略文案；仅更新query子臂为精确断言合同，completion可选性/接受与dispatch条件、用户窗及源代次pin不动。相邻定向已绿，独立agent整包77.634s；全仓退出与最终重测另补，不以定向绿覆盖整仓失败。
+
+独立源码复核确认同类别名缺口：938版本重复物理路径已支持，但当前typed逻辑工件ID仍被当文件路径比对；普通查询同一ID成功而引用查询失败，公开RED1.278s（`/tmp/hmc-business-ref-logical-red-20260920.log`）。等固定live结束后补正，复用原`traceQueryAdaptLogicalArtifactPath`再比物理域，不新增ID映射表、不忽略显式source；不同ID/未知ID/不同文件仍拒绝。文件与prepared附件两种ID均实测。测试曾试图构造独立perf别名，但prepared选择表已将它并入物理工件，fixture因此失败；去掉不存在的测试前提，保真实双文件ID/外来ID负针，并运行既有逻辑ID全部回归，不改原歧义解析规则。最终联合GREEN tool3.746s/agent1.737s（`/tmp/hmc-business-ref-logical-final2-green-20260920.log`），此补正支线尚无live命中，不借938回放销。
