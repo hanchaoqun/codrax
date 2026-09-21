@@ -427,7 +427,9 @@ func TestParseRuntimeArtifactScopeProfileAnchorsUserScopeAndSoftensModelScope(t 
 	if errText != "" || len(warnings) != 0 || !ok || gotStart != start || gotEnd != end {
 		t.Fatalf("anchored explicit scope should survive: profile=%+v err=%q warnings=%v", explicit, errText, warnings)
 	}
-	canonical, errText, warnings := parseRuntimeArtifactScopeProfile(
+	// A bounded selector is not promoted even when its quote contains numbers.
+	// This intentionally replaces the old coordinate-driven promotion pin.
+	selector, errText, warnings := parseRuntimeArtifactScopeProfile(
 		"分析目标在 34579.45..34579.48 秒窗口内的状态",
 		true,
 		&emitRuntimeArtifactScopeProfileParam{
@@ -438,15 +440,17 @@ func TestParseRuntimeArtifactScopeProfileAnchorsUserScopeAndSoftensModelScope(t 
 			Confidence:     &confidence,
 		},
 	)
-	gotStart, gotEnd, ok = canonical.ExplicitTimeWindow()
-	if errText != "" || len(warnings) != 1 || !ok || gotStart != start || gotEnd != end {
-		t.Fatalf("anchored bounded selector with a valid typed window should canonicalize: profile=%+v err=%q warnings=%v", canonical, errText, warnings)
+	if errText != "" || len(warnings) != 1 || !selector.Active() ||
+		selector.RequestedScope != types.RuntimeArtifactScopeBoundedSelector ||
+		selector.SourceQuote != "目标在 34579.45..34579.48 秒窗口内" ||
+		selector.TimeStart != nil || selector.TimeEnd != nil || selector.HasExplicitTimeWindows() {
+		t.Fatalf("anchored bounded intent must survive without explicit-window authority: profile=%+v err=%q warnings=%v", selector, errText, warnings)
 	}
 	if decided, allowed := types.RuntimeTraceReportShapeAuthority(&types.RequestModel{
 		Intent:                      types.IntentExplain,
-		RuntimeArtifactScopeProfile: canonical,
-	}); !decided || !allowed {
-		t.Fatalf("canonicalized exact window must retain deterministic trace report authority: decided=%t allowed=%t profile=%+v", decided, allowed, canonical)
+		RuntimeArtifactScopeProfile: selector,
+	}); decided && allowed {
+		t.Fatalf("selector coordinates must not grant legacy explicit-window report authority: decided=%t allowed=%t profile=%+v", decided, allowed, selector)
 	}
 	invalidEnd := start
 	bounded, errText, warnings := parseRuntimeArtifactScopeProfile(
@@ -460,7 +464,7 @@ func TestParseRuntimeArtifactScopeProfileAnchorsUserScopeAndSoftensModelScope(t 
 			Confidence:     &confidence,
 		},
 	)
-	if errText != "" || len(warnings) != 0 ||
+	if errText != "" || len(warnings) != 1 ||
 		bounded.RequestedScope != types.RuntimeArtifactScopeBoundedSelector ||
 		bounded.TimeStart != nil || bounded.TimeEnd != nil {
 		t.Fatalf("invalid typed times must not promote a bounded selector: profile=%+v err=%q warnings=%v", bounded, errText, warnings)

@@ -727,7 +727,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"runtime_artifact_scope_profile": map[string]any{
 				"type":        "object",
-				"description": "Required user-scope authority for runtime artifacts. This is NOT a trace_query/exploration window. Use not_applicable when no runtime artifact is attached or referenced. For an attached artifact, use full_artifact when the current request asks about the supplied artifact without a narrower user boundary (for example 'this trace' / '这份 trace'); use explicit_time_window only when the current request itself states exact trace time bounds; use bounded_selector when the current request names a narrower artifact selector such as a frame/span/event but does not state exact time bounds; use unspecified when the current request's artifact scope cannot be determined. A model-chosen query window never changes this field. " + skill.AnalysisRuntimeWindowMembersTeaching,
+				"description": "Required user-scope authority for runtime artifacts. This is NOT a trace_query/exploration window. Use not_applicable when no runtime artifact is attached or referenced. For an attached artifact, use full_artifact when the current request asks about the supplied artifact without a narrower user boundary (for example 'this trace' / '这份 trace'); use explicit_time_window only when the current request itself states exact trace time bounds; use bounded_selector when the current request names a narrower artifact selector such as a frame/span/event but does not state exact time bounds; use unspecified when the current request's artifact scope cannot be determined. For bounded_selector, omit time_start, time_end and time_windows; stray coordinates are ignored and never promote the selector to an explicit time window. A model-chosen query window never changes this field. " + skill.AnalysisRuntimeWindowMembersTeaching,
 				"properties": map[string]any{
 					"requested_scope": map[string]any{"type": "string", "enum": runtimeArtifactRequestedScopeValues(), "description": "not_applicable, full_artifact, explicit_time_window, bounded_selector, or unspecified."},
 					"time_start":      map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace start in seconds for the legacy single-window form; do not combine with time_windows."},
@@ -4994,11 +4994,33 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 		}, "", nil
 	}
 
+	if scope == types.RuntimeArtifactScopeBoundedSelector {
+		// Coordinates are only a shape, not proof of user-authored bounds.
+		// Preserve the declared selector; native exploration may later resolve
+		// it to a measured instance without minting explicit request authority.
+		profile := &types.RuntimeArtifactScopeProfile{
+			RequestedScope: scope,
+			Confidence:     *p.Confidence,
+			Rationale:      strings.TrimSpace(p.Rationale),
+		}
+		var warnings []string
+		if sourceQuotePresentInCurrentRequest(raw, p.SourceQuote) {
+			profile.SourceQuote = strings.TrimSpace(p.SourceQuote)
+		} else {
+			profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
+			warnings = append(warnings, "runtime_artifact_scope_profile auto-softened to unspecified because source_quote is not verbatim in the current request")
+		}
+		if p.TimeStart != nil || p.TimeEnd != nil || p.TimeWindows != nil {
+			warnings = append(warnings, "runtime_artifact_scope_profile cleared time_start/time_end/time_windows for bounded_selector; selector coordinates are not explicit user-window authority")
+		}
+		return profile, "", warnings
+	}
+
 	if p.TimeWindows != nil {
 		if p.TimeStart != nil || p.TimeEnd != nil {
 			return nil, "runtime_artifact_scope_profile: time_windows and scalar time_start/time_end are mutually exclusive; preserve the requested members, not their envelope", nil
 		}
-		if scope != types.RuntimeArtifactScopeExplicitWindow && scope != types.RuntimeArtifactScopeBoundedSelector {
+		if scope != types.RuntimeArtifactScopeExplicitWindow {
 			return nil, "runtime_artifact_scope_profile.time_windows requires explicit_time_window scope", nil
 		}
 		if len(p.TimeWindows) == 0 {
@@ -5017,9 +5039,6 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 		})
 		if sourceQuotePresentInCurrentRequest(raw, p.SourceQuote) {
 			profile.SourceQuote = strings.TrimSpace(p.SourceQuote)
-		}
-		if scope == types.RuntimeArtifactScopeBoundedSelector {
-			return profile, "", []string{"runtime_artifact_scope_profile canonicalized bounded_selector with valid typed time_windows to explicit_time_window"}
 		}
 		return profile, "", nil
 	}
@@ -5041,29 +5060,6 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 			profile.TimeStart = nil
 			profile.TimeEnd = nil
 			warnings = append(warnings, "runtime_artifact_scope_profile auto-softened to unspecified because source_quote is not verbatim in the current request")
-		} else {
-			profile.SourceQuote = quote
-			profile.TimeStart = nil
-			profile.TimeEnd = nil
-		}
-	case types.RuntimeArtifactScopeBoundedSelector:
-		if !anchored {
-			profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
-			profile.TimeStart = nil
-			profile.TimeEnd = nil
-			warnings = append(warnings, "runtime_artifact_scope_profile auto-softened to unspecified because source_quote is not verbatim in the current request")
-		} else if typedWindowValid {
-			// A valid typed start/end pair is the structurally more precise
-			// subtype of bounded_selector. Analyzer models occasionally emit
-			// both shapes at once. Preserve the precise carrier instead of
-			// discarding it based on the noisier enum choice: downstream
-			// exact-window authority then remains independent of scenario
-			// wording. This consumes only schema-valid typed fields plus the
-			// existing exact current-request quote anchor; it does not scan
-			// request or answer prose for keywords.
-			profile.RequestedScope = types.RuntimeArtifactScopeExplicitWindow
-			profile.SourceQuote = quote
-			warnings = append(warnings, "runtime_artifact_scope_profile canonicalized bounded_selector with valid typed time_start/time_end to explicit_time_window")
 		} else {
 			profile.SourceQuote = quote
 			profile.TimeStart = nil
