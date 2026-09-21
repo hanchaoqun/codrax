@@ -913,7 +913,8 @@ func Run(idx *Index, q Query) Result {
 		// explicit request for the artifact-wide state account. normalizeQuery
 		// has already resolved that immutable artifact window from index
 		// metadata, so it is just as deterministic as caller-provided bounds.
-		// Other views retain the old explicit-bound requirement: an unbounded
+		// Other views retain the old explicit-bound requirement, apart from
+		// the already returned thread timeline below: an unbounded
 		// event_search cursor must not silently grow a full state report. A
 		// partially specified window is not artifact-wide either: both caller
 		// endpoints must be absent, preserving the fail-closed admission for a
@@ -921,14 +922,37 @@ func Run(idx *Index, q Query) Result {
 		artifactWideTargetStats := q.View == "window_stats" &&
 			!stateAccountTimeStartBounded && !stateAccountTimeEndBounded &&
 			q.timeStartBackfilled && q.TimeEnd > q.TimeStart
-		if (stateAccountTimeStartBounded && stateAccountTimeEndBounded || artifactWideTargetStats) &&
+		// A completed native thread_timeline already owns its measured
+		// scheduler partition. Publish that existing account even when both
+		// caller time endpoints were absent; do not infer a caller window or
+		// select a new target. Line-only and partially specified windows keep
+		// their previous admission. Ambiguous/failed/empty timelines cannot
+		// mint a zero account or trigger a recovery scan.
+		returnedTimelineAccount := q.View == "thread_timeline" &&
+			!stateAccountTimeStartBounded && !stateAccountTimeEndBounded &&
+			q.LineStart == 0 && q.LineEnd == 0 && q.TargetScope != TargetScopeProcess &&
+			res.Timeline != nil && res.Timeline.Thread.PID > 0 &&
+			res.Timeline.IntegrityFailure == "" && len(res.Timeline.Intervals) > 0 &&
+			res.Timeline.Window.EndTs > res.Timeline.Window.StartTs
+		if (stateAccountTimeStartBounded && stateAccountTimeEndBounded || artifactWideTargetStats || returnedTimelineAccount) &&
 			q.TimeEnd > q.TimeStart {
 			if faceCanceled("target_window_states") {
 				return runCancelFinalize(&res, cancel)
 			}
 			target := ThreadRef{PID: q.PID, Comm: strings.TrimSpace(q.Thread)}
 			window := queryResultTimeWindow(q)
-			tl, ok := targetWindowTimeline(idx, q, target, window)
+			var tl TimelineResult
+			var ok bool
+			if q.View == "thread_timeline" && res.Timeline != nil {
+				// Reuse bounded timelines too. The native result owns its
+				// resolved identity, actual window, head/tail evidence and
+				// complete intervals; never reconstruct a failed partition.
+				tl = *res.Timeline
+				window = tl.Window
+				ok = tl.Thread.PID > 0 || strings.TrimSpace(tl.Thread.Comm) != ""
+			} else {
+				tl, ok = targetWindowTimeline(idx, q, target, window)
+			}
 			// targetWindowTimeline resolves a name-only selector to one precise
 			// scheduler TID (or fails closed).  Carry that resolved identity into
 			// every refinement; the raw selector's PID=0/comm is only an input
@@ -938,7 +962,10 @@ func Run(idx *Index, q Query) Result {
 			}
 			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, tl.Thread, window, res.WindowStats)
 			stampTargetWindowCPURepresentativeFrequencies(res.TargetWindowStates, idx, q, res.WindowStats)
-			if res.TargetWindowStates != nil {
+			if res.TargetWindowStates != nil && !returnedTimelineAccount {
+				// The new timeline-only delivery does not request or run
+				// Binder pairing. Preserve the pre-existing enrichment on
+				// the old explicit-window / window_stats admission paths.
 				res.TargetWindowStates.BinderWaitInventory = buildTargetWindowBinderWaitInventory(idx, q, tl, window)
 			}
 		}

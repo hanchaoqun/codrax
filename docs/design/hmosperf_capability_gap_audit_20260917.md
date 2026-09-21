@@ -2051,3 +2051,17 @@ core已落：`TraceSchedulerWaitPartitionTeaching`单源区分互斥桶/原生D/
 §97因果项进一步审计限定：本例接受的typed tuple本身是自洽的finite＋target_effect_verdict，既无required causal_attribution也非root intent/diagnostic；relation_path只给展示要求，不能独自授因果权。因此“11ms未到最终输入”是事实，但尚不能判定现有finite过滤器违反已授合同；优先核分类教学与同一真实fixture下coherent causal/finite两套公开交接。没有证实正确causal授权也会丢事实前，不下游强开投影/恢复自由reason或根据已查询root结果升级用户要求。模型误分类与确定性交接故障分账，保持有限问题原有保护。
 
 §96末版收据闭环：普查排序修复`63e55b0a0`，记录`3fd1326f6`。75036正式exit0/tool8.430s，85814最终实际query→成文race正式exit0/agent7.673s。末版全仓77783正式exit0，`/tmp/hmc-d-io-vsync-final-full-20260921.log`共87测试包、13无测试包、零FAIL；首轮10053失败保留。干净构建12468正式exit0，revision3fd1326f6bf7/buildTime2026-09-21T13:16:46Z。独立只读末审PASS，旧普查原针及event_search/位置针不改；状态/窗口/源身份/模型正文不变。仅窄实现验收，§97完整人工0/2和后续开放项不代销。
+
+## 98. 复用原生时间线交付完整等待清单（2026-09-21，实施验收中）
+
+§96–97批次已随`8702ea54f`推送，session31911正式exit0，origin39ebdd72d→8702ea54f，本地/远程相等且工作区干净后开本片。参考`core/preprocess/sleep_ops.py:225–255,502`的已选线程/窗口上保留原状态片段可借鉴；不搬其最大状态桶归因、近邻连边或中断waker丢弃。本仓已有精确Timeline/TargetWindowStateAccount，缺的是前者已生成后未向既有展示链路投递，不新增第二分析内核。
+
+真实公开RED71736正式exit1（tracequery0.887/agent1.125s），`/tmp/hmc-timeline-delivery-red-20260921.log`：C2完整243段已在native结果，但三段清单和单源定义未到工具摘要，随后同一工具结果→当前Bus→最终中英输入均无等待清单权限卡；非目标、半端/反窗、事件cursor、生命周期/坏scheduler等旧拒绝控制保持。结构针确认旧路径还重复计算bounded timeline。
+
+最小实现：Run唯一generic mint不变；无显式双端、无线窗的已完成单线程timeline经原builder投递状态/等待/S细分/CPU清单，直接使用tl.Thread与tl.Window，不改用户端点/范围profile/根因资格；bounded timeline也复用已有结果，其他view仍经旧helper。新timeline-only路径不追加Binder配对/索引，原bounded/window_stats/bundle的独立Binder保留。无区间/解析完整性失败/重名歧义/TID代次冲突/取消都不重建为零。32条清单cap保incomplete，完整计量不受普通12条展示/limit/min_duration截断。
+
+首次GREEN67032有两个新增测试预期错误，保留日志，不修生产迎合测试：窄窗不包含blocked_reason标记，既有native分类应为0.2ms D而非IO；零秒双事件fixture被既有索引归到0.01..0.01，已无可测区间，不能由此新建0..0.01账号。修正新增断言保真实原生边界，旧针一条未改。最终定向3667正式exit0，`/tmp/hmc-timeline-delivery-green-final-20260921.jsonl`共11顶层26子项（tracequery1.050/agent1.828s），含原单一mint/双端单赋值/TID改名旧针及实际工具→成文新针。race94214、末版全仓92905另验，未提前签完。
+
+新独立OPEN：`parse.go:1928`等入口使用FirstTs==0表示未设置，0秒开头的两事件trace会把首时刻替换成下一正值；stream_scan/search/sweep与merge也有类似候选。当前确认最小零起点fixture缺失，需单独审计有效timestamp计数/显式set信号、各入口/合并/缓存兼容，不能只改一处并宣称全支持。本片仅保证空原生结果不会被误补成完整账号；显式[0,x]老能力不变。
+
+冻结后固定2并行×1选择C2真实全域清单＋Go一行写修复，按直接命中风险及跨模式保护排序；自动和完整人工分账，未命中新timeline入口也如实标注。分类causal/finite双轨、§94局部补齐、声明/观测pair等继续开放；父账13/79、66开放不变。
