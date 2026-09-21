@@ -1757,3 +1757,15 @@ Trace附录另有P2确定显示债：同A/B的11条来源记录占四行预览�
 同目录`GREEN-focused.log`（session58529 exit0/tool3.599s）及`GREEN-race.log`（session68350 exit0/tool10.875s），同24项集合`^(TestTraceStateRecordCountPublicTwoWindows|Test.*B1626.*|TestB1618TargetWaitQueryJoin.*)$`。独立复核未见生产越界；统一全仓与干净固定双例收据待补。父账仍13/79已交付、66开放，不把两项子缺陷冒充父能力完成。
 
 §78/79实现分别提交`e2916433e`与`635814c6d`。下一轮固定双例为真实`real_trace_e1_dual_window_normalized`及新增`nested_python_increment`，2并行×1；前者复验两窗数值与附录词义，后者在子目录项目只改实现并运行已有测试，不以显式PTO提示诱导模型。新fixture语法健康，真实unittest基线exit1（3 methods/7 failures），临时副本仅修源码后exit0（3 tests），测试cmp一致；日志`/tmp/codrax-nested-python-eval.iUnWa5/`。原测试SHA256=`504b2535413cafa883be2802d92a698036735de8883384530caec4fa8375f322`，交付必须另核diff/hash，源码存在性oracle不替代执行证明。当前仅公开回归证明scope修复，live是否实际生成并消费合格声明须逐面审计，不能提前签能力命中。
+
+本片统一全仓现已正式exit0（session28202）：87测试包、13无测试包、零FAIL，tool402.458s、tracequery129.105s。案例/文档提交`3b2a41eaa`后干净构建`/tmp/hmc-scope-record-clean-build-20260921.log`正式exit0（session91934），实测revision3b2a41eaa0f3、buildTime2026-09-21T09:54:48Z。固定双例runner6160正式exit0，机器2/2（Trace101秒、Python198秒）；人工审计与新缺口另节记录，不用自动PASS代签整份答案。
+
+## 80. 3b2a固定双例：功能一过一留债，子目录probe合同冲突优先（2026-09-21）
+
+[自动摘要](../../eval/parallel_selected_summary_hmc_scope_record_crossmode_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_scope_record_crossmode_20260921_manual_audit.md)：机器2/2、人审1/2。Trace两窗/CPU量与比率正确，但无健康基线把0%→11.4%写成“有意义的恢复”“正常获得CPU”；实际最终输入已给状态≠机制及bounded边界，暂按模型越界留账，不新增散文硬门。本轮仅4条状态记录且无状态附录/背景尺图，§79/76均不冒称live命中；空schema2旁路及工件绑定正确。
+
+Python仅改实现一行，原tests/config字节不变，真实3条unittest断言及1条changed-target probe通过，最终诚实交付隔离工作树，功能PASS。PTO仍填错suite且漏非根前缀；required=0、四合同planning-only，未授虚假证明，也未命中§78成功绑定。不能用本轮替B2–B6销账。
+
+新高ROI确定接缝：planner probe在packages/widget实际执行from widget import increment并到达原实现，emit耦合门却按仓库根模块packages.widget.widget要求导入，导致七次拒绝；目标生成在逐probe循环之外，未消费WorkingDir，而执行器会归一到最近Python项目根。下一片按同一有效执行目录生成逐probe可解析改动模块身份，保护兄弟同basename、动态别名/注释伪造及越界目录，真实运行来源/target_execution上限不动。JS/Ruby等相邻格式先审计具体执行语义，不能把Python别名规则硬套全语言。
+
+另确认两计划入口acceptance_tests教学矛盾：完整入口是planning-only，分段入口仍must cover。以共享短描述统一，JSON字段与权限/validator不改。原生PTO跨runner身份教学、成功身份可见性、同scope多执行provenance及B2–B6仍开放；本批不为错误身份放宽matcher。父账13/79交付、66开放不变。
