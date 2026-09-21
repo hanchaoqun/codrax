@@ -361,9 +361,9 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 	}
 	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 && len(states) > 4 {
 		if zh {
-			rows = append(rows, fmt.Sprintf("另有 %d 条独立范围的状态统计未在此展开；以上展示不表示所有时间窗均已完成分析。", len(states)-4))
+			rows = append(rows, fmt.Sprintf("另有 %d 条状态统计记录未在此展开；记录条数不代表不同时间窗的数量，以上展示不表示所有时间窗均已完成分析。", len(states)-4))
 		} else {
-			rows = append(rows, fmt.Sprintf("%d additional independently scoped state accounts are not expanded here; this display does not establish complete analysis of all requested windows.", len(states)-4))
+			rows = append(rows, fmt.Sprintf("%d additional state-statistics records are not expanded here; the record count is not the number of distinct time windows, and this display does not establish complete analysis of all requested windows.", len(states)-4))
 		}
 	}
 	title := "目标线程状态与等待明细"
