@@ -143,8 +143,9 @@ func TestTraceRootCauseBoardSummaryPreambleCaliberAware(t *testing.T) {
 // CR-2 组③ P7 / F-4 (冷读 F-4, 2026-07-12; witness tieba 20260712-135155
 // prose: 「runnable_wait 窗口 — 34579.568118s–34579.572194s(25.847ms)」 — the
 // whole-window total paired with ONE occurrence window). The board summary
-// labels a row's representative window as one occurrence and teaches the
-// value-window pairing rule (soft data-feeding lane, never a gate).
+// preserves the first occurrence record's measurement range and teaches the
+// value-window pairing rule without claiming one continuous state interval
+// (soft data-feeding lane, never a gate).
 func TestTraceRootCauseBoardSummaryLabelsRepresentativeWindow(t *testing.T) {
 	ledger := traceBoardTestLedger()
 	ledger.Records[0].RichNotes = append(ledger.Records[0].RichNotes,
@@ -153,12 +154,29 @@ func TestTraceRootCauseBoardSummaryLabelsRepresentativeWindow(t *testing.T) {
 	if !strings.Contains(summary, "representative_window=34579.568118..34579.572194") {
 		t.Fatalf("a row with occurrence windows must label its representative window:\n%s", summary)
 	}
-	if !strings.Contains(summary, "ONE occurrence among several") {
-		t.Fatalf("the preamble must teach the value-window pairing rule:\n%s", summary)
+	for _, want := range []string{"first published occurrence record's measurement window", "does not prove a continuous dominant-state occurrence", "aggregate value is not this window's duration"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("the preamble must teach the record/value-window pairing rule, missing %q:\n%s", want, summary)
+		}
 	}
 	// Rows without occurrence windows stay byte-identical (no fabricated window).
 	if strings.Contains(summary, "keva-1-17437 · sleep_wait · channel=chain · confidence=0.74 · representative_window") {
 		t.Fatalf("windowless rows must not gain a representative window:\n%s", summary)
+	}
+}
+
+func TestTraceRootCauseBoardRepresentativeWindowKeepsFirstOrAbsent(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{"", ""},
+		{"unknown", ""},
+		{"broken;1.000000..1.010000", ""},
+		{"2.000000..1.000000;3.000000..4.000000", ""},
+		{"1.000000..1.010000,state=runnable,running=2.000ms;2.000000..2.020000,state=s_sleep", "1.000000..1.010000"},
+		{"1.000000..1.010000;2.000000..2.020000", "1.000000..1.010000"},
+	} {
+		if got := traceBoardFirstOccurrenceWindow(tc.raw); got != tc.want {
+			t.Errorf("first record range %q: got %q, want %q", tc.raw, got, tc.want)
+		}
 	}
 }
 

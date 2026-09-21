@@ -47,10 +47,10 @@ type traceBoardRow struct {
 	// tgid (CR-3 件③ P11, 2026-07-12; 冷读案8 裸线程名死指针): the seat's
 	// typed process attribution — "" when the record published none.
 	tgid string
-	// representativeWindow is the row's FIRST typed occurrence window (CR-2
-	// 组③ P7 / F-4): labeled as one occurrence so the model never pairs the
-	// whole-window total with a single quoted window. "" when the record
-	// published no occurrence windows (absence never guesses).
+	// representativeWindow is the FIRST published occurrence record's window
+	// (CR-2 组③ P7 / F-4), not a proof of one continuous state interval: a
+	// recursive occurrence record can contain multiple states/segments. Keep
+	// its bounds separate from the row's aggregate value. Empty stays absent.
 	representativeWindow string
 	// fixDirection (FREQDIR-1 件1, §29.149, 2026-07-19; witness 95946: the
 	// board's #1 seat spoke only the bare state word `running`, the model
@@ -178,7 +178,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	} else {
 		b.WriteString("The measured root-cause boards below are separate ordinal domains for this run. ")
 	}
-	b.WriteString("There is no single cross-board ranking: capture, analysis target, query window and parameter fingerprint identify each board. Never merge their ordinals or select a winning board by value or query depth. Rows with incomplete identity are retained separately, not assumed to share a board. Each board is authoritative for ranked eliminable-seat order and published values, not by itself for a mechanism or end-to-end causal verdict. The selected claim-caliber contract distinguishes a typed cause, a bounded candidate, or no causal conclusion; the model owns that conclusion. Preserve the published order and values; explain a justified deviation, never reorder silently. Use each value with its caliber; never sum rows together without exact typed composition authority: they are per-thread measurements — wall-clock or converted, per each row's own published caliber word. Exact composition authorizes only its named members/caliber, not guaranteed repair benefit. representative_window is ONE occurrence among several, not a whole-window total. When 修向=X is published, use that registry-backed direction: within one board, seats sharing one 修向 form ONE repair lane; keep every published on-chain direction. Adjacent rows remain conditional upper bounds outside that lane. " + types.TraceRepairDirectionValueTeaching + " A row without 修向 published no direction; never infer one.\n")
+	b.WriteString("There is no single cross-board ranking: capture, analysis target, query window and parameter fingerprint identify each board. Never merge their ordinals or select a winning board by value or query depth. Rows with incomplete identity are retained separately, not assumed to share a board. Each board is authoritative for ranked eliminable-seat order and published values, not by itself for a mechanism or end-to-end causal verdict. The selected claim-caliber contract distinguishes a typed cause, a bounded candidate, or no causal conclusion; the model owns that conclusion. Preserve the published order and values; explain a justified deviation, never reorder silently. Use each value with its caliber; never sum rows together without exact typed composition authority: they are per-thread measurements — wall-clock or converted, per each row's own published caliber word. Exact composition authorizes only its named members/caliber, not guaranteed repair benefit. representative_window is the first published occurrence record's measurement window. One record may include multiple state intervals; it does not prove a continuous dominant-state occurrence. The row's aggregate value is not this window's duration. When 修向=X is published, use that registry-backed direction: within one board, seats sharing one 修向 form ONE repair lane; keep every published on-chain direction. Adjacent rows remain conditional upper bounds outside that lane. " + types.TraceRepairDirectionValueTeaching + " A row without 修向 published no direction; never infer one.\n")
 	if omittedSupportingWindows {
 		b.WriteString("Measurements from exploratory or narrower query windows remain available in the evidence ledger but are omitted from this principal requested-window board; never add or compare their raw durations across windows.\n")
 	}
@@ -206,9 +206,9 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 			line += " · 修向=" + row.fixDirection + " · repair_lane_value=single_seat_not_direction_total"
 		}
 		if row.representativeWindow != "" {
-			// CR-2 组③ P7 / F-4: the first typed occurrence window, labeled as
-			// one occurrence (the preamble carries the pairing rule) — the
-			// witnessed misread paired the whole-window total with one window.
+			// Preserve the first occurrence record's measurement bounds, not
+			// the family envelope or a reconstructed dominant-state interval.
+			// The preamble keeps the aggregate value separate from this range.
 			line += " · representative_window=" + row.representativeWindow
 		}
 		b.WriteString(line + "\n")

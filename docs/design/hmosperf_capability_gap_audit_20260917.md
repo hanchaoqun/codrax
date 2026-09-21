@@ -1395,3 +1395,21 @@ C仅一行源码更正，真实make test通过、隔离和原仓保护正确；r
 活跃流保护独立复验：`/tmp/hmc-active-stream-protection-20260920.log`正式exit0（agent1.166s/llm1.969s）；真实SSE持续输出在4ms普通/evaluator预算下仍完整完成、不触发备用模型，包含嵌套telemetry/fallback。此次不改600/300/600默认值，也不把日志中的非流式阶段预算误说成活跃SSE截止线。
 
 范围子片末版race同60项正式exit0（agent4.822s，`/tmp/codrax-final-window-handoff.tzomSN/GREEN-race-final.log`），生产冻结。横向仍继续核context根因板`representative_window`的“单次发生”教学是否与其实际producer语义相符；本轮明确窗未发布该字段，不冒称该句直接导致本次错误，也不说所有范围消费者已排除风险。
+
+## 54. 独立因果问题与有限子判断可组合（2026-09-20，施工验收中）
+
+§52真实业务日志的混合对象已经带齐两个required角色；问题是系统先逐维教学、再用“full scope禁止任何target_effect_verdict”拒绝合法组合。公开`EmitAnalysis.Execute`新针覆盖中英、单因/原因集合、维度反序、全工件/精确窗及独立work/frame决策，`/tmp/codrax-mixed-runtime.DGS9u1/RED-public.log`正式exit1：8个混合正例均撞全局互斥，8个fact_families结构重试无法取得保全部维度的确定修复目标；12个纯有限/optional/反向边界原本通过。真实analyzer→adapter消息的8例负针也先红，`/tmp/hmc-mixed-runtime-messages-red-20260920.log`正式exit1，证明矛盾同时存在于workflow和实际schema，不只是执行器一行代码。
+
+修复边界：required因果角色与causal_diagnosis共同声明整体因果宽度，独立required有限子判断可并存且不得删除；有限判断本身仍不能授因果投影权威。optional因果角色、单纯有限判断或显式短窗均不能扩大有限范围。重试只修结构冲突，保全部维度及work/frame决策；不新增presence硬门、不扫描问题/答案关键词、不代模型改分类或写结论。共享教学与实际tool schema一起验收。生产末版/全仓/live收据待补，不提前签绿。
+
+下一批以用户影响、确定性自冲突、跨范围保护和新增证据价值排序：旧失败业务完整响应/IO链例 + 真实donghu有限CPU频率影响例，恰好2并行×1、同一干净新二进制。后者用于防混合修复把纯有限问题误扩大；不更改case/oracle追绿。当前业务/明确窗旧人工FAIL均保留，HMC仍13/79交付、66开放。
+
+## 55. 根因板代表窗口不冒充连续状态段（2026-09-20，子片实现）
+
+§53横向项确认：context读取`occurrence_windows`首条，非直接读取node总包络；但原生`WakeupCausalOccurrence.Window`是递归分析窗，内部可含多种状态/多个片段。链路为`tracequery/query.go`递归窗口累计→OccurrenceWindows→`tool/trace_query.go`精确typed note→根因板首条提取。参考仓依赖分析范围与单段状态交集仍是两层，不能把参考或本仓的“记录”一词升级为连续实际状态证明。
+
+生产只修根因板一段教学和相关注释：保原字段名、首条选择、端点、聚合值和预算，明确它是首条记录的测量窗口，可能含多个状态段；整行聚合值不属于这个窗口的持续时长。不新造区间、不改变排序、chain资格、自动补齐或侧车。
+
+真实`donghu_tieba_frame.systrace`经公开TraceQuery→原生载荷/typed note→实际中英文BuildPromptContext，见证NetworkService-60595第1席首条34579.477038..34579.484273包含running0.481ms、runnable6.754ms、2个片段；整席有效量16.698628ms来自3个occurrence。`/tmp/codrax-board-window.SJjhHY/RED-public.log`正式exit1，中英两支均在错误教学断言失败，真实producer事实已成立；较早RawRef读取错误属于测试harness失败，不计先红。末版`GREEN-focused-final.log`正式exit0（context1.173s，18个顶层测试），精确同row保rank/subject/type/窗口/有效量，并核源观察前后字节不变。缺窗口/畸形首条不借后续记录补造。独立主线复核通过；race/统一全仓待正式收据。
+
+末版同18项`GREEN-race-final.log`正式exit0；统一全仓将与§54冻结后一起执行，不能用定向通过代签全仓。
