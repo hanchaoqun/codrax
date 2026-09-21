@@ -1842,6 +1842,8 @@ ROI顺序：先修上述全局状态自冲突，再原生身份教学/已执行�
 
 本轮五次emit/四拒后最终仍为causal_diagnosis，不记投影丢失；模型将原effect改名成causal而未并存，正文仍答了备份不可直接归因。此项记确定提示冲突/重试风险，不虚报新增P1根因授权漏洞。Trace末轮输入与旁路正由独立审查继续核对；若信息确已足量供给，漏答按模型失败留账，不叠加关键词硬门。后续ROI仍为原生身份教学/成功身份可见性→B2–B6，其它HMC开放项及父账13/79、66开放不变。
 
+提示修复末版已冻结5文件：实际Emit入口将已解析intent/scenario传给提示选择，三个既有拒绝分支复用同一双路说明，准入条件和成功路径不变；schema/workflow共享补齐前提，不自动改角色/范围。公开RED `/tmp/hmc-runtime-repair-conflict-red-v2-20260921.log`（session17693 exit1）仅24个真实冲突枝失败；相邻已落bounded形另6枝RED `...-bounded-conflict-red-20260921.log`。最早4个fixture缺diagnostic前提的harness错误保留、不记产品RED；首次扩大回归发现旧明确负向句缺失，补回cannot-authorize边界而不改旧pin。末版新测试5顶层/44子例，完整选择298顶层/122子例定向`...-final-focused-20260921.log`（session44975 exit0，tool3.395/skill0.453s）与race`...-final-race-20260921.log`（session80206 exit0，tool25.609/skill1.805s）均无skip/失败。覆盖30非法tuple仍拒、4真正finite唯一目标、8模型自主双路收敛及2共享教学表面；旧全部ParseRuntimeQuestion/RuntimeQuestion/EmitAnalysis等同步绿。统一全仓与固定live待末片冻结后另记。
+
 末轮输入独立复核完成：日志3084/3085有OpenDocument50=5+1+44及LoadDocumentIndex40=8+1+31，3098有请求35ms/线程闭合等待31ms与两组端点，3263独列query51=6+1+44；初始4消息在修补末轮7消息中保留，无prune。正文漏答/混尺按模型错误留账。schema2旁路available、三链上selection及0.031/0.001/0.001归因值/查询范围正确，但模型description仍称“磁盘块请求约31ms”，不签全旁路语义通过、不代写散文。系统图保两业务线索/备份背景；另确定◎榜面将所有io_latency显示“IO阻塞·设备延迟”，当前31ms实际为发送线程阻塞，需仅审无凭据的设备后缀。既裁§29.175.17的一族一词根（IO阻塞）、链上资格、值与排序均应保留。参考sleep_ops.py:558–625逐S/D片段裁窗与直接wake锚支持分尺，不移植其中丢弃未知/中断waker的策略。
 
 ## 86. IO榜面不由延迟类型自动推定设备成因（2026-09-21，实施前登记）
@@ -1851,3 +1853,9 @@ ROI顺序：先修上述全局状态自冲突，再原生身份教学/已执行�
 裁定兼容：`real_trace_campaign_20260705.md §29.175.17`的一族一词根、后缀只细化、裸主词表示成因未细分保持；保IO阻塞词根，不换成另一族。仅撤销io_latency默认无依据的“·设备延迟”中英后缀，图例同步；registry、树状态原词、枚举/JSON、根因资格/排序/影响值及模型description所有权均不动。不能从设备名、IRQ名、散文、数值比较或邻近活动补铸设备成因；未来精确设备服务分类应另有typed证据再立项。
 
 验收：真实公开TraceQuery→CompileTraceCausalProjection→总览/图例红绿，中英及自线程/链上/非链图形、原始观察/计价与排名不变；旧OMGCLEAN/SELF/IO折叠回归及race，末版全仓统一验收。旧词面pin只随这项明确语义演进精确更新，不降低词根/证据/值约束。本片不宣称解决模型漏35ms或所有HMC IO能力。
+
+§85–86冻结后固定双例预选`trace_query_business_marker_io_chain`与`real_trace_h4_supply_thermal_witness`，2并行×1。前者回到业务IO旧FAIL与本片实际图词/混合角色，后者是精确时间窗下的有限供给判断反例，必须保数字、限制记录与性能影响未证的区别，不得因修补教学扩成完整根因投影。本批两例都为读模式以覆盖正反权限；前批Python真实写模式验收独立保留，不改oracle，不追加同版第三例。
+
+§85已提交`144a4c1bd`；§86已提交`c8dc9e752`，两片源码冻结。IO公开有效RED=`/tmp/hmc-io-verdict-scope.0jqn69/RED-public-valid.log`（session31609正式exit1/tool2.397s），只在已证S闭合等待/目标自身×中英/改名的无据后缀失败；D自身原词、缺completion保35ms非链上、unknown/context负控均绿。较早RED.log/RED-final.log/RED-harness-d-state.log/RED-public-final.log含D合并类型或EN换行装配假设，不作为产品RED。新3顶层/6子例通过真实查询→编译→ApplyAndPersistMutation→Render，GREEN-public.log session20068正式exit0/tool2.672s。只改两处生产词面和两项旧词面pin，完整字段匹配不降成宽substring；原观测/投影JSON前后相等。
+
+统一末版全仓`/tmp/hmc-repair-label-final-full-20260921.log`已启动（session58849），不复用首次行数FAIL签通过。独立旧默认/活跃流8顶层`/tmp/hmc-repair-label-stream-protection-20260921.log`正式exit0（session34233，llm4.090s），600/300/600秒和活跃隐藏推理等保护未改。IO相邻36项定向/race及独立末审收据随后补，干净构建后再启动固定双例。
