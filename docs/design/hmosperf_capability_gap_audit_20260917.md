@@ -1772,7 +1772,7 @@ Python仅改实现一行，原tests/config字节不变，真实3条unittest断�
 
 §78–80实现/全仓/固定双例审计已随`94ce058ea`推送main（session6677正式exit0，a8c5→94ce）。以下新片须独立验证，不能复用上一片全仓签收。
 
-## 81. 完整与分段计划共享验收清单含义（2026-09-21，验收中）
+## 81. 完整与分段计划共享验收清单含义（2026-09-21，子片验收完成）
 
 完整计划的已有正确说明抽为types单源常量，两工具schema以JSON marshal替换同一占位符；完整入口描述字节不变，只消除分段入口的must cover矛盾。数组/string项、optional、PTO与probe权限、运行/证明校验完全不改，不引入新模型字段或关键词规则。
 
@@ -1782,7 +1782,7 @@ Python仅改实现一行，原tests/config字节不变，真实3条unittest断�
 
 本片已提交`d8a052ed7`。agent/types/skill整包`/tmp/hmc-checklist-teaching-packages-20260921.log`（session89065）正式exit0，agent70.955s、types38.809s；不替代下一片冻结后的统一全仓。
 
-## 82. Python探针的导入身份与实际执行目录一致（2026-09-21，施工中）
+## 82. Python探针的导入身份与实际执行目录一致（2026-09-21，子片验收完成）
 
 §80 live七次误拒已有独立有效公开RED：`/tmp/codrax-python-probe-cwd.KIy00N/RED-public-authoritative.log`（session27724正式exit1/tool2.614s）。先真实planner probe以局部导入调用原源码并获AssertionError而非ImportError，再Emit；根项目正控完整通过，子项目/内部cwd归项目根/src包/改名/仅import五枝只在旧耦合门拒绝。根正控另经真实Apply、提交及CaptureCommitPatch→PatchEffectRecordFromUnifiedDiff生产收据，RunTests实际执行后持久化再核target execution，不手造行表或执行结果；此前三个测试装配错误日志保留，不计产品RED。
 
@@ -1797,3 +1797,13 @@ Python仅改实现一行，原tests/config字节不变，真实3条unittest断�
 最初边界集合中的参数类型/repair-pack装配和文案断言错误分别保留在`GREEN-boundaries-first.log`、`GREEN-boundaries-v2.log`等中间日志，不记产品RED；最终状态以上述v3正式退出为准。主线独立审读三文件无阻塞；另一审查席独立复核§81单源教学无阻塞。统一冻结全仓`/tmp/hmc-probe-cwd-full-20260921.log`（session78915）执行中，不以局部绿代签。
 
 本轮再次逐段读取参考`core/llm_contract.py:114–155`及`core/preprocess/sendable_ops.py:153–190,494–550`：前者按已发布成员/字段回查工件，后者以明确projectPath/配置/输出路径调用外部工具，缺Node及失败单独披露。参考并无本仓inline Python probe的cwd耦合实现，故本片是本仓生产者/消费者一致性根修，不照搬其自然语言扫描或将外部工具聚合成功冒称逐断言证明。
+
+§81–82统一全仓现已正式exit0（session78915）：87测试包、13无测试包、零FAIL，tool426.755s、agent105.649s、tracequery130.513s。文档提交`88be719dc`后干净构建`/tmp/hmc-probe-cwd-clean-build-20260921.log`正式exit0（session93419），revision88be719dc396/buildTime2026-09-21T10:18:26Z。默认600/300/600秒及活跃推理/工具调用/保活流专项8顶层回归`/tmp/hmc-probe-cwd-stream-protection-20260921.log`正式exit0（session26391，llm8.083s），未修改超时生产实现。
+
+## 83. 88be固定双例：身份绑定仍缺，局部零测试被总体化（2026-09-21）
+
+[机器结果](../../eval/parallel_selected_summary_hmc_probe_cwd_crossmode_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_probe_cwd_crossmode_20260921_manual_audit.md)：runner35140正式exit0，2并行×1；机器1/2，完整人审0/2。jank134秒的3条记录/整数/时长/发射TID/TGID正确，但从未建索引推漏扫描并泄漏内部词汇；正确完整覆盖与普通语言教学实际已在最终上下文，不追加散文硬门。Python184秒实际源码单行修复、原测试字节不变、3条原生断言PASS，缺系统限定前缀的短assertion_id未匹配required合同，诚实unverified/proof_weak。短suite本身符合已有suffix规则，不误记错；未声明probe，所以§82没有live命中。父账13/79交付、66开放及旧FAIL均不回写。
+
+新增确定高ROI系统矛盾：root discovery zero_tests与nested真实3passed同报，NoTestsRunners=['python']合理保留局部诊断，却被observation_authority、stage_hooks、scheduler及显示当成整批无测试；报告规范化则仍是passed。最终两次写“python没有发现任何测试”并提示补环境，错误。相邻retry helper还可能让次要zero-tests压掉真实失败修复。下一片统一精确信号区分整体无测试与局部空候选；保局部诊断、缺路径/runner/失败/required合同，不用任意passed行清债。必须有真实混合执行公开RED与正反矩阵；仅syntax/probe/aggregate/non_asserting结果不能当原生断言。
+
+ROI顺序：先修上述全局状态自冲突，再原生身份教学/已执行身份可见性，再B2→B3/B4精确来源授权与只读补登记；B5/B6持久化/回放随后。前两项是已复现生产接缝，不能因重复验证仍失败而改oracle或放宽匹配。JS/Ruby cwd相邻风险、同scope执行代次与其它HMC开放项继续保留。
