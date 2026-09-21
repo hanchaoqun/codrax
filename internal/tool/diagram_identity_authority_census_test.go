@@ -22,6 +22,8 @@ import (
 
 type diagramIdentityCensusKey struct{ file, fn string }
 
+// Classifier-aware repair renamed the runtime-question parser; its quote-vs-
+// request check is unchanged. Allow only the exact production owner below.
 var diagramIdentityCensusQuoteAnchorAllowlist = map[diagramIdentityCensusKey]bool{
 	// ① quote-vs-request anchoring (the helper's only legitimate job).
 	{"emit_analysis.go", "quoteVerbatimInRequest"}:                                        true,
@@ -34,7 +36,7 @@ var diagramIdentityCensusQuoteAnchorAllowlist = map[diagramIdentityCensusKey]boo
 	{"emit_analysis.go", "parseFieldValueProfile"}:                                        true,
 	{"emit_analysis.go", "parseHistorySelectionProfile"}:                                  true,
 	{"emit_analysis.go", "parseRuntimeArtifactScopeProfile"}:                              true,
-	{"emit_analysis.go", "parseRuntimeQuestionProfile"}:                                   true,
+	{"emit_analysis.go", "parseRuntimeQuestionProfileWithClassifiers"}:                    true,
 	{"emit_analysis.go", "parseRuntimeTargetProfile"}:                                     true,
 	{"emit_analysis.go", "parseSourceInventoryProfile"}:                                   true,
 	{"emit_analysis.go", "parseSourceScopeProfile"}:                                       true,
