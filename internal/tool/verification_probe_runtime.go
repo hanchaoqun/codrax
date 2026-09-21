@@ -120,6 +120,8 @@ func verificationProbeLanguageEnumJSON() string {
 }
 
 func injectVerificationProbeLanguageSchema(schema string) json.RawMessage {
+	checklist, _ := json.Marshal(types.AcceptanceTestsPlanningTeaching)
+	schema = strings.ReplaceAll(schema, "__ACCEPTANCE_TESTS_PLANNING_DESCRIPTION__", string(checklist))
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_ENUM__", verificationProbeLanguageEnumJSON())
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__", supportedVerificationProbeRuntimeDescription())
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_AUTHORING_BOUNDARY__", verificationProbeAuthoringBoundary)

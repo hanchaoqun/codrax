@@ -118,7 +118,7 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	    "acceptance_tests": {
 	      "type": "array",
 	      "items": {"type": "string"},
-	      "description": "Optional list of test assertions the verify stage must cover."
+	      "description": __ACCEPTANCE_TESTS_PLANNING_DESCRIPTION__
 	    },
 	    "superseded_contract_refs": {
 	      "type": "array",

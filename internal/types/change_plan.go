@@ -18,6 +18,10 @@ import (
 // whether structured siblings should be native JSON or JSON-encoded strings.
 const ChangePlanJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit exactly one JSON object. changes[], acceptance_tests[], verification_probes[], project_test_observations[], and every changes[i].verification_probes[] value are native JSON arrays, not strings containing JSON. Inside those entries, encode ordinary string values (including code) with standard JSON escaping. Probe ids are unique across the whole plan: place each logical probe in exactly one carrier—top-level verification_probes[] for a batch-wide probe or the owning changes[i].verification_probes[] for a change-local probe—and never duplicate the same id/payload across both. If a repair asks you to re-emit an array, preserve every intended entry that is legal for the current typed plan shape. Do not delete data merely to make decoding pass; when a precise repair says a field is forbidden on this plan shape, omit only that field and keep the remaining legal entries. Controller-owned evidence from earlier applied plans is retained separately and must not be re-authored into a source-free proof plan."
 
+// AcceptanceTestsPlanningTeaching is identical for complete and split plans.
+// A different transport must not turn the same prose into proof or a new gate.
+const AcceptanceTestsPlanningTeaching = "Optional natural-language planning checklist for selecting verification. It does not itself create proof or a hard completion obligation; bind grounded behavior_contract ids to executed verification_probes or exact project_test_observations for typed authority."
+
 // NativeProjectTestObservationBindingTeaching separates the observation's
 // existing test input from the plan's actual file mutations. Both ordinary
 // authoring and language-repair guidance use this rule; source-free proof
