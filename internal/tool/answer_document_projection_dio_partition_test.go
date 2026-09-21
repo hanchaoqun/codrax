@@ -137,7 +137,7 @@ func TestDIOPartitionDisplayRemainderWordEndToEnd(t *testing.T) {
 	if !strings.Contains(fence, "按链上聚合归账") || !strings.Contains(fence, "按状态类互斥归账") {
 		t.Fatalf("the CASE-3 dual-account relation sentences must ride both rows:\n%s", fence)
 	}
-	if !strings.Contains(fence, "物理时间重叠(不可相加)") {
-		t.Fatalf("the non-additive qualifier must ride the dual-account pair:\n%s", fence)
+	if !strings.Contains(fence, "实际区间关系未证(不能直接相加)") {
+		t.Fatalf("the unproven physical relation must not become overlap on the dual-account pair:\n%s", fence)
 	}
 }

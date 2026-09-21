@@ -139,7 +139,7 @@ func runtimeTraceProjSMR1WholeStateFamily(node types.TraceCausalProjectionNode) 
 // two rows' typed occurrence hulls are PROVABLY disjoint: both carry valid
 // [StartTs,EndTs] and the intervals do not intersect. Hull disjointness ⇒
 // member disjointness (precise); anything else (overlap, missing ts) is
-// unprovable and returns false (fail-open to the existing overlap wording).
+// unprovable and returns false (the display must keep the relation unknown).
 func runtimeTraceProjSMR1HullsDisjointProven(a, b types.TraceCausalProjectionNode) bool {
 	if !types.TraceCausalProjectionWindowPresent(a.StartTs, a.EndTs) ||
 		!types.TraceCausalProjectionWindowPresent(b.StartTs, b.EndTs) {
@@ -723,15 +723,14 @@ func runtimeTraceProjSMR1AccountCaliber(row *runtimeTraceProjTreeRow, zh bool) s
 //
 //	(1) same-span scope divergence (SMR-S15 45701 E14/E25, the
 //	    TestCR2FixRankChainCumDivergenceStaysTwoRows pair): two rows over the
-//	    IDENTICAL evidence span with diverging cumulative accounts — same
-//	    physical segments, two scopes. Overlap is structural (same span).
+//	    IDENTICAL evidence-line envelope with diverging cumulative accounts.
+//	    The shared location does not prove identical physical segments.
 //	(2) family window seat ↔ chain rank seat (SMR-S6/S1-TPF: 15.317 family ×4
 //	    vs 17.819 rank io): same thread, same d/io family, two accounting
-//	    systems. Overlap is structural: the family seat totals ALL of the
-//	    thread's in-window family-state time, and the rank row's positive
-//	    window projection is family-state time of the SAME thread in the SAME
-//	    window — a nonempty subset of what the family seat covers (no ms is
-//	    quantified — 禁量化重叠, the cross-lane ts inventory is v5 P1).
+//	    systems. Without a shared complete member/segment inventory, neither
+//	    membership nor physical overlap follows from the family or its hull.
+//	    Proven hull disjointness survives; all other physical relations stay
+//	    unknown. The account cross-pointers never authorize direct addition.
 //
 // 过渡: the S1-TPF pair keeps this sentence until CASE-3 adjudicates the
 // dedicated 双 rank 席 arm.
@@ -1076,11 +1075,11 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		}
 		famCaliber, chainCaliber := runtimeTraceProjSMR1AccountCaliber(family, zh), runtimeTraceProjSMR1AccountCaliber(best, zh)
 		// 修复轮三 R2-F2 (tieba E4↔E25 冷读 witness): typed hull disjointness
-		// derives the sentence's overlap/disjoint claim — hull-disjoint ⇒
+		// supplies a one-way proof — hull-disjoint ⇒
 		// member-disjoint (precise, e.g. a partition-sibling pair whose
-		// fragments never coexist); overlap/missing ts keeps the existing
-		// overlap template (fail-open — hull overlap cannot prove member
-		// overlap, and 禁量化重叠 ms stands).
+		// fragments never coexist). Hull overlap or missing ts proves neither
+		// overlap nor disjointness of the measured members; false is unknown,
+		// not a positive overlap credential. No pairing or value changes here.
 		disjoint := runtimeTraceProjSMR1HullsDisjointProven(fn, best.Node)
 		family.AccountRelRef, family.AccountRelOwn, family.AccountRelPeer =
 			strings.TrimSpace(best.EvidenceTag), famCaliber, chainCaliber

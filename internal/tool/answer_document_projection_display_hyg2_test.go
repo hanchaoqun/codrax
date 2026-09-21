@@ -60,7 +60,7 @@ func TestEffectiveAttributionTagSpacingSingleForm(t *testing.T) {
 // concatenation stays identical throughout.
 func TestWrapNeverEndsLineWithEqualsTail(t *testing.T) {
 	texts := []string{
-		"与[E8]同线程同状态族·物理时间重叠(不可相加)·账目关系(见图例):本行=按本行发生段归账,[E8]=按链上聚合归账(根因排序席)",
+		"与[E8]同线程同状态族·实际区间关系未证(不能直接相加)·账目关系(见图例):本行=按本行发生段归账,[E8]=按链上聚合归账(根因排序席)",
 		"与[E27]同线程同状态族·物理时间不相交·账目关系(见图例):本行=按状态类互斥归账(状态族合计),[E27]=按链上聚合归账(根因排序席)",
 		// EN spaced form: the bare "=" fuses left with its anchor.
 		"same-thread state family as [E8] · account relation (see the legend): this row = occurrence-segment account, [E8] = on-chain aggregate account (rank seat)",

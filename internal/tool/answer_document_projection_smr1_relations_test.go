@@ -662,12 +662,12 @@ func TestSMR1A1SelfBinderIdleRowDoesNotBlockSeatCensus(t *testing.T) {
 // are disjoint (the tieba remainder [34579.531..586] vs the hmfs_get_dnode
 // seat [34579.4869..4872]) the claim was FALSE. The claim is now DERIVED:
 // provably-disjoint hulls speak 「物理时间不相交」 (no additive invitation,
-// account self-identifications preserved); overlap/missing-ts pairs keep
-// the existing overlap template verbatim (fail-open — hull overlap cannot
-// prove member overlap; 禁量化重叠 ms unchanged).
+// account self-identifications preserved); overlap/missing-ts pairs now
+// disclose an unproven relation because hull overlap cannot prove member
+// overlap. Both rows, their account pointers and all values are preserved.
 // MUTATION self-check: dropping the derivation (unconditional template)
 // reds TestSMR1C1DisjointPairSpeaksDisjointWord; loosening it to fire on
-// overlapping hulls reds TestSMR1C1FamilyChainAccountSentenceKeepsOverlapWord.
+// overlapping hulls reds TestSMR1C1FamilyChainAccountSentenceKeepsUnknownWord.
 
 func smr1C1DisjointPairProjection() types.TraceCausalProjection {
 	projection := smr1C1FamilyChainProjection()
@@ -712,15 +712,18 @@ func TestSMR1C1DisjointPairSpeaksDisjointWord(t *testing.T) {
 	}
 }
 
-// The ts-less legacy pair (the original fixture) keeps the overlap template
-// verbatim — absence of interval identity never claims disjointness.
-func TestSMR1C1FamilyChainAccountSentenceKeepsOverlapWord(t *testing.T) {
+// The ts-less legacy pair preserves both account identities without claiming
+// either overlap or disjointness from absent interval evidence.
+func TestSMR1C1FamilyChainAccountSentenceKeepsUnknownWord(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(smr1C1FamilyChainProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "物理时间重叠(不可相加)·账目关系(见图例):本行=") {
-		t.Fatalf("the unprovable pair keeps the overlap template:\n%s", fence)
+	if !rspaFenceContains(fence, "实际区间关系未证(不能直接相加)·账目关系(见图例):本行=") {
+		t.Fatalf("the unprovable pair must disclose the unknown relation:\n%s", fence)
 	}
 	if strings.Contains(fence, "物理时间不相交") {
 		t.Fatalf("no disjoint claim may mint without typed proof:\n%s", fence)
+	}
+	if strings.Contains(fence, "物理时间重叠") {
+		t.Fatalf("no overlap claim may mint without typed proof:\n%s", fence)
 	}
 }

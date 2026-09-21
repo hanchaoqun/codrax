@@ -492,11 +492,9 @@ type runtimeTraceProjTreeRow struct {
 	// AccountRelDisjoint (修复轮三 R2-F2, 冷读 witness tieba E4↔E25,
 	// 2026-07-13): the pair's typed occurrence hulls are PROVABLY disjoint
 	// (hull-disjoint ⇒ member-disjoint, precise) — the sentence speaks
-	// 「物理时间不相交」 instead of the overlap template (SMR 行级判定必须
-	// 论证成员级可达性; an unconditional 重叠 claim on partition-sibling
-	// seats was false). Hull overlap or missing ts stays the existing
-	// overlap wording (hull noise cannot prove member overlap — fail-open
-	// to the current template, 禁量化重叠 ms unchanged).
+	// 「物理时间不相交」. False means the physical relation is unproven,
+	// not that members overlap: overlapping/missing hulls cannot prove a
+	// member intersection. The existing bool and pairing remain unchanged.
 	AccountRelDisjoint bool
 	AccountRelPeer     string
 	// AccountRelSameSourceFullMS / AccountRelSameSourceAnchoredSide (RSPA
@@ -2273,8 +2271,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `wait segments include a sleep share` = the blocking-wait row's wait-segment total (sleep+D+iowait inside span∩window) cross-references the thread's own sleep seat: the sleep share is the same physical time counted once in each of two accounts — the two rows are never additive."},
 		// WO-C1 (SMR-1 批, 2026-07-12): the account-relation sentence entry.
 		{runtimeTraceProjMarkAccountRelation, runtimeTraceProjLegendGroupMark,
-			"- `账目关系` = 同线程同状态族的两行来自两套账目体系(覆盖集不同;物理时间重叠或不相交,行内句按 typed 区间推导如实标注):行内句标出双方口径自述与互指 [E#];两行数值不可直较,双行均为诚实账目(W-A 不同账目绝不折)。",
-			"- `account relation` = two rows of one thread's one state family come from two accounting systems (different coverage sets, overlapping physical time): the inline sentence names both calibers and cross-references [E#]; the two values are neither additive nor directly comparable — both rows are honest accounts (W-A: different accounts never fold)."},
+			"- `账目关系` = 同线程同状态族的两行来自两套账目体系:行内句标出双方口径自述与互指 [E#];定位包络相交或缺失不证明实际分量重叠,未证时明确标注实际区间关系未证,不能直接相加;已证包络不相交时保留该结论。两行数值不可直较,双行均为诚实账目(W-A 不同账目绝不折)。",
+			"- `account relation` = two rows of one thread's one state family come from two accounting systems: the inline sentence names both calibers and cross-references [E#]. Overlapping or missing location envelopes do not prove a physical component intersection; without that proof the actual interval relation stays unproven and values must not be added directly. Proven disjoint envelopes retain their disjoint conclusion. The two values are not directly comparable — both rows are honest accounts (W-A: different accounts never fold)."},
 		// RSPA §29.61.10a (2026-07-14): the same-source bipartition teaching
 		// entry — the 行2 disclosure names the split, this entry names the rule.
 		{runtimeTraceProjMarkChainAnchorSplit, runtimeTraceProjLegendGroupMark,
@@ -2794,9 +2792,9 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 		runtimeTraceProjMarkChainAnchorSplit, runtimeTraceProjMarkChainAnchorRelation,
 		runtimeTraceProjMarkSameSegMirror) {
 		if zh {
-			lines = append(lines, "- 同一线程的多项账目会注明物理时间是否重叠：重叠项不能相加；只有明确互斥或同源拆分闭合时才按行内说明合计。")
+			lines = append(lines, "- 同一线程的多项账目保留各自口径；定位包络相交不证明实际分量重叠，关系未证时不能直接相加。只有明确互斥或同源拆分闭合时才按行内说明合计。")
 		} else {
-			lines = append(lines, "- Multiple accounts for one thread state whether physical time overlaps: overlapping items cannot be added; a total is valid only when rows explicitly prove disjoint intervals or a closed same-source split.")
+			lines = append(lines, "- Multiple accounts for one thread retain their own calibers. Intersecting location envelopes do not prove physical component overlap; do not add directly while the relation is unproven. A total is valid only when rows explicitly prove disjoint intervals or a closed same-source split.")
 		}
 	}
 	if hasAny(runtimeTraceProjMarkMergedSum, runtimeTraceProjMarkMergedDedup, runtimeTraceProjMarkMergedMax,
@@ -7437,23 +7435,23 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			out = append(out, text)
 		} else {
 			row.marks.mark(runtimeTraceProjMarkAccountRelation)
-			// 修复轮三 R2-F2: the overlap/disjoint claim is DERIVED (typed hull
-			// disjointness), never an unconditional template; the disjoint form
-			// adds no additive invitation (账目自识别句保留 — 跨账目体系与其它行
-			// 仍有双计面).
+			// Hull disjointness is a one-way proof. All ordinary account-pair
+			// producers lack an exact overlap credential; false must therefore
+			// disclose unknown, not invert the proof into physical overlap.
+			// The disjoint form still adds no additive invitation.
 			// DISPLAY-WRAP 件③(b) (§29.104.18.1 B3, 2026-07-16): the rule
-			// half-sentence 「两套账目覆盖集不同」 lives in the legend's
+			// account-system distinction lives in the legend's
 			// 账目关系 entry — the row keeps its own facts (the [E#] pair,
-			// the typed overlap/disjoint verdict, the two accounts'
+			// the unknown/proven-disjoint relation, the two accounts'
 			// self-descriptions) behind the legend-keyed chip word.
-			text := "与[" + row.AccountRelRef + "]同线程同状态族·物理时间重叠(不可相加)·账目关系(见图例):本行=" +
+			text := "与[" + row.AccountRelRef + "]同线程同状态族·实际区间关系未证(不能直接相加)·账目关系(见图例):本行=" +
 				row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
 			if row.AccountRelDisjoint {
 				text = "与[" + row.AccountRelRef + "]同线程同状态族·物理时间不相交·账目关系(见图例):本行=" +
 					row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
 			}
 			if !zh {
-				text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time overlaps (never additive) · account relation (see legend): this row = " +
+				text = "same thread, same state family as [" + row.AccountRelRef + "] · actual interval relation unproven (do not add directly) · account relation (see legend): this row = " +
 					row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
 				if row.AccountRelDisjoint {
 					text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time disjoint · account relation (see legend): this row = " +

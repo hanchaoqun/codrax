@@ -1323,3 +1323,21 @@ Description仅替换原继承语句的一个子句，明确同一例外，未加
 4bcc完整全仓已暴露旧`TestB1590aTraceDirectionSharedExtractionPreservesSkillBytes`字节pin未随这次审定新增限定句演进，skill包失败（全仓最终退出另记），不以定向绿掩盖。补正同时钉两层：完整新Body hash `68d5e164ebfe68509662de558c37168d22492e093b48b984e087c61b54762865`；仅去掉唯一新增共享限定句后，必须恢复旧hash `b1f03b587f5b72994525824b665b28c5490db3eed27c323aea0f88cd838de31e`，确保其它教学字节没变。RequiresTrace/OnViolation及共享句一次消费断言全部保留。`/tmp/hmc-envelope-teaching-byte-pin-20260920.log`正式exit0（skill1.098s），此片只更新测试，不改4bcc生产行为。
 
 IO fold设计复核补充：连通分组可经A∩B、B∩C连接互斥的A/C，不能称同一物理段；StateAccountKey仅可证明完整调度状态账重复发布，不代表IO请求，FamilyMemberLineRanges也不是IO完整时间支撑。后续安全方向是保留紧凑展示及各peer自己的值/口径/证据/范围，改称同线程IO证据组；当前private peer缺独立scope，必须一起解决主行范围借给peer及多成员容量可达性，不能只改两个字就声称信息无损。该P1尚未施工。
+
+## 48. 4bcc跨模式双例：机器0/2、人工0/2（2026-09-20）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_marker_navigation_envelope_20260920.md)、[完整人工单](../../eval/parallel_selected_summary_hmc_marker_navigation_envelope_20260920_manual_audit.md)。干净`4bcc34e886e6`固定两例并行各一次，runner exit0；业务287秒/44%，C apply124秒/27%。无同版第三例，无空答案或活跃流截断。
+
+业务本轮确实没有因果投影：分类器把因果解释声明为bounded_fact_set，现有typed报告权威按此收窄；mandatory根因旁路存在并如实报合同未启，不是文件遗失。先审分类教学/能力边界，不扫描请求词或让所有有限查询自动升级成根因。完整50ms业务套49ms局部账、35ms请求驻留误称设备处理量、1.045唤醒误称1.050业务结束及背景竞争推断仍人工FAIL。结构化工作关系行的49ms缺裁剪限定也独立审计中。此次导航没有命中新skip支，方向板没发布，更不能替6ebc/4bcc补签生产命中。
+
+C仅一行源码更正，真实make test通过、隔离和原仓保护正确；required `gcc main.c`合同没有逐断言执行见证，终验保持unverified，端到端FAIL。归既有B2–B6下的native-command能力接缝：Make聚合PASS≠精确gcc合同，现有C教学又不造probe，单添PTO或提示不能产生不存在的执行生产者。后续须以typed能力/精确命令与来源快照/新回执闭环，不降验证杆。
+
+4bcc首轮全仓正式exit1，唯一失败是§47所记旧skill字节pin；tool397.390s、agent95.623s等均过。`b2384f95f`已补精确增量pin，后续关系片的末版全仓另跑，不把该次红改写为绿。
+
+## 49. 普通账目未知关系不再默认物理重叠（2026-09-20，子片实现）
+
+§47.1第一项确认：普通SMR1 class1/class2的`AccountRelDisjoint=false`包含缺时间戳和定位包络相交，两者都不是实际分量重叠凭证。参考仓`sleep_ops.py`逐状态交集与`marker_ops.py`区间裁剪规则同样不允许由包络补造物理交集。本片保已有bool/配对及所有原数值、排名、链边，仅让未知显示未知；中英文行内句、完整/简版图例一致。RSPA同源闭合分账、true disjoint及精确cross_direction关系保原正枝，不扩大任何可加性。
+
+真实投影三类（带洞状态族、缺时间戳、同行包络的两账）×中英×改名先红后绿；保两行互指和projection字节，6个精确正针同步保留。`/tmp/codrax-account-relation.KVbsxY/RED-projection-verified.log`正式exit1（12未知例红/6精确正针绿）；`GREEN-focused.log`exit0（tool5.428s）、`GREEN-race.log`exit0（tool38.600s，64个顶层测试）、`GREEN-legend.log`exit0（tool0.933s，10个图例测试）。独立只读复核通过；主线仅补一处过时注释，不改行为。末版全仓已启动，结果待正式退出。
+
+这是显示资格子缺陷，不能代销整份Trace答案、IO fold或XERR成员凭证；HMC总账仍13/79交付、66开放。
