@@ -55,3 +55,5 @@ First finalizer call placed summary-only `trace_causal_claim_caliber` in five se
 ## Disposition
 
 Reference `core/preprocess/sleep_ops.py:198–216,240–255,527–528,558–625` clips each state segment to its own window and follows direct wake evidence. Keep those distinctions; do not copy unknown/interrupt-waker dropping or infer mechanisms from duration remainders. HMC remains13/79 delivered,66 open; native identity teaching/visibility and B2–B6 stay open. Finish exact structural-census owner synchronization and replacement full suite before signing the three narrow repairs; preserve both full-suite failures and all manual observations.
+
+Final follow-up: exact census-owner migration is committed as `7cfd422bf`; replacement full suite `/tmp/hmc-repair-label-final2-full-20260921.log` (session15057) formally exited0:87 tested packages,13 without tests,0FAIL; tool406.290s/agent95.936s/tracequery120.921s. This completes the three narrow code-repair slices without changing these live/manual verdicts. No post-86679 production change or third live run was made.

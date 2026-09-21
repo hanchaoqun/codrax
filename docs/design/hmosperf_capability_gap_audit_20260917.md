@@ -1810,7 +1810,7 @@ ROI顺序：先修上述全局状态自冲突，再原生身份教学/已执行�
 
 §81–83实现、收据及固定双例审计已随`189bcf48e`推送main（session48219正式exit0，94ce→189bc）；下节独立验收，不复用该全仓签新代码。
 
-## 84. 局部空测试候选不覆盖整批真实执行结论（2026-09-21，修复中）
+## 84. 局部空测试候选不覆盖整批真实执行结论（2026-09-21，子缺陷验收完成，见§87）
 
 §83确认的问题已从真实公开工具链复现：ReadFile→EmitChangePlan→ApplyPatch→RunTests→JSON往返，同一报告同时保留根目录zero_tests和子项目原生assertion PASS。正式RED=`/tmp/hmc-mixed-no-tests-public-red-20260921.log`（session78068 exit1/tool2.064s），两个PASS分支只在整体authority被误判no_tests处失败，真实断言FAIL控制正常；错PTO身份另保required missing与proof_weak，不把原生执行PASS等同合同证明PASS。
 
@@ -1846,7 +1846,7 @@ ROI顺序：先修上述全局状态自冲突，再原生身份教学/已执行�
 
 末轮输入独立复核完成：日志3084/3085有OpenDocument50=5+1+44及LoadDocumentIndex40=8+1+31，3098有请求35ms/线程闭合等待31ms与两组端点，3263独列query51=6+1+44；初始4消息在修补末轮7消息中保留，无prune。正文漏答/混尺按模型错误留账。schema2旁路available、三链上selection及0.031/0.001/0.001归因值/查询范围正确，但模型description仍称“磁盘块请求约31ms”，不签全旁路语义通过、不代写散文。系统图保两业务线索/备份背景；另确定◎榜面将所有io_latency显示“IO阻塞·设备延迟”，当前31ms实际为发送线程阻塞，需仅审无凭据的设备后缀。既裁§29.175.17的一族一词根（IO阻塞）、链上资格、值与排序均应保留。参考sleep_ops.py:558–625逐S/D片段裁窗与直接wake锚支持分尺，不移植其中丢弃未知/中断waker的策略。
 
-## 86. IO榜面不由延迟类型自动推定设备成因（2026-09-21，实施前登记）
+## 86. IO榜面不由延迟类型自动推定设备成因（2026-09-21，子缺陷验收完成，见§87）
 
 问题来自§85真实报告的系统总览，不是模型词汇扫描：类型io_latency统一发射“IO阻塞·设备延迟”，而同类型当前可携带请求驻留、完成闭合的发送线程等待等不同量。31ms线程阻塞不等于35ms请求生命周期，更不直接证明设备服务时间。此后缀会误导正文阅读，即便其它事实卡准确也应修复。
 
@@ -1875,3 +1875,25 @@ H4 170秒保明确13762.791708–13763.024898窗、四态157.248/5.604/70.338/0m
 统一全仓58849正式exit1：86测试包通过、13无测试包；tool437.335s唯一失败是`TestDiagramIdentityAuthorityCensus`的旧函数名登记。§85将parser改名为`parseRuntimeQuestionProfileWithClassifiers`，源码quote准入尾部逐字未变、仍同一raw/quote参数；旧名只留测试wrapper。根席复核后`7cfd422bf`仅迁移精确(file,fn)键并补注释，不宽化前缀/任意caller，self-red、过期条目和全部身份门不变。独立定向RED/GREEN `/tmp/hmc-runtime-quote-owner-census-{red,green}-20260921.log`正式exit1/0（56935/22122），17顶层/76子例全绿。替代统一全仓`/tmp/hmc-repair-label-final2-full-20260921.log`（session15057）已启动；前两次全仓FAIL保留，未提前签新全仓通过。
 
 下一ROI仍为原生测试身份的单源教学与当前成功身份可见性，再B2来源授权及B3–B6绑定/持久化；当前只读设计不算实现。旧人工FAIL及HMC父账13/79交付、66开放不回写。参考sleep_ops逐状态裁窗/直接wake只支持精确分尺，不支持余量机制推断或抛弃中断waker。
+
+替代全仓session15057现已正式exit0：87测试包、13无测试包、零FAIL。该收据验收`fe52b4898`混合状态、`144a4c1bd`提示一致性、`c8dc9e752`IO词面，及`0f153a4fa`有据行数例外/`7cfd422bf`精确census同步。三项窄子缺陷验收完成；前两次全仓失败、旧人工失败及新展示遗漏均保留，不回写成全系统通过。固定回放生产仍是86679，后来仅文档与census测试变化，不借测试迁移另跑第三例。
+
+末版全仓耗时tool406.290s、agent95.936s、tracequery120.921s；相较已留存437.335s的owner登记失败是独立正式成功收据，不覆盖旧日志。
+
+## 88. 后续小批拆分：身份可见性先行，重复分尺失败不能只归因“信息已在场”（2026-09-21，只读设计，未实施）
+
+原生身份接缝已由根席再核：`run_tests.go::renderTestSummary`只展开失败名，`write_context_pack.go`跳过PASS结果，controller主要给计数/命令；两种计划schema逐字重复裸身份示例。结果生产者为非根suite/id同时加`runner[/framework]@cwd::`，仅Python/Java包含framework；Go suite是报告Package/import path而非源码package声明，Jest/Vitest的ID保祖先标题链，JUnit保class#method，RSpec保full_description，其它也须以当前报告完整字段为准。不能从命令Suite选择器推定TestResult.suite。`TestResult`旧注释将ID匹配对象写成AcceptanceTests、称一次调用suite恒同，也是待纠正注释债，不冒称实际提示已如此授权。
+
+下一小批验收清单（仍属HMC-16.4/18.5，不新增父任务完成数）：
+
+- [ ] 两个schema的PTO身份说明单源且JSON编码一致；解释完整字段/非根前缀、Go及框架差异。首轮尚无报告仍可正常规划，不教成必须先执行测试才能发计划。
+- [ ] 用同一有界展示函数向实际planner/controller投递当前持有报告中的原生assertion PASS身份；整体report失败或required证明不足时也保已执行的具体PASS，不自动代填PTO或关闭合同。
+- [ ] 绑定明确active plan与报告PlanID，保持post-apply/非planner-probe边界；当前空/错plan/channel报告不能复活历史context-pack内容。heading说明是持有报告快照、附GeneratedAt，不把仅同PlanID当最新工作树字节或同scope执行代次证明；不存在的invocation ID/通用报告路径不得捏造。
+- [ ] IDs按真实字节JSON转义，控制数量/总字节预算；超长整项省略并说明，不截出新身份、不剥前缀/归一化名称、不按源码或原始散文猜test_path。aggregate/non_asserting/build/plain probe不能混成原生断言。
+- [ ] 实际agent消息与公开RunTests→报告→消息交接回归；覆盖根/非根、7runner格式、错plan/channel/空报告/历史失效、混合PASS+FAIL、控制字符/Unicode/过长ID，并证明matcher、source-free PTO拒绝与required证明边界不变。非本机runner格式单元测试不算实际执行。
+
+现成可借用的是当前报告选择/active scope及failure/probe observation的有界独立提示结构；原failure/probe摘录会截短ID，不能拿来作可复制原生身份。`authoritativeWriteControllerReport`有兼容空PlanID/Channel，新的身份区不能仅调用它就声称来源明确；`TestResult`本身没有invocation ID。来源授权与只读补绑定继续按B2–B6独立验收。
+
+业务分尺的独立二次审计没有找到明确的错误等式或准入自冲突，但确认稳定的显示风险：末张事实卡突出query51=6+1+44，business50=5+1+44在更早卡片，末尾业务行仅留50总量；链上31ms阻塞和背景47ms请求又共用IO延迟泛称。`answer_document_final_decision_boundary.go:286`要求使用该读者标签，邻近机制边界仍明确区分请求与阻塞，因此不能定性为系统授权错误换尺。`trace_span_scheduler.go:92`确实以业务起止重建真实状态，并非按宽查询比例缩放；参考`core/preprocess/sleep_ops.py:198/240/577/593`的局部窗交集能力已有对应实现。
+
+- [ ] 后续上下文精简小批先把现有“业务窗/查询窗”和“请求驻留/闭合阻塞”在同一成文卡紧邻呈现、削减重复摘要，保来源/线程/窗口/覆盖限制；先做公开消息接缝回归再固定双例人审。此项目前是呈现风险设计，不是已证新P1或已修系统缺陷，禁止追加同义教学堆叠、正文扫描硬门、模型结论代写或根因资格扩展。旧业务FAIL、H4两尺遗漏都继续开放。
