@@ -1850,11 +1850,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		// and are still censused below.
 		runtimeTargetProfile, runtimeTargetProfileErr, runtimeTargetProfileWarnings = parseRuntimeTargetProfile(raw, runtimeArtifactCarrier, p.RuntimeTargetProfile, runtimeTargets)
 	}
-	runtimeQuestionProfile, runtimeQuestionProfileErr, runtimeQuestionProfileWarnings := parseRuntimeQuestionProfile(
+	runtimeQuestionProfile, runtimeQuestionProfileErr, runtimeQuestionProfileWarnings := parseRuntimeQuestionProfileWithClassifiers(
 		raw,
 		runtimeArtifactCarrier,
 		p.RuntimeQuestionProfile,
 		requestedAnswerDimensions,
+		intent, scenario,
 	)
 	// MERGE-AUDIT T6-2: these profiles are independent request-authority
 	// declarations. Returning after the first bad declaration made a single
@@ -5196,7 +5197,7 @@ func parseRuntimeTargetProfile(raw string, runtimeArtifactCarrier bool, p *emitR
 	return profile, "", nil
 }
 
-func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeQuestionProfileParam, dimensions *types.RequestedAnswerDimensionProfile) (*types.RuntimeQuestionProfile, string, []string) {
+func parseRuntimeQuestionProfileWithClassifiers(raw string, runtimeArtifactCarrier bool, p *emitRuntimeQuestionProfileParam, dimensions *types.RequestedAnswerDimensionProfile, intent types.Intent, scenario types.Scenario) (*types.RuntimeQuestionProfile, string, []string) {
 	if p == nil {
 		if runtimeArtifactCarrier {
 			return nil, "runtime_question_profile object missing — declare bounded_fact_set, bounded_effect_verdict, causal_diagnosis, relation_analysis, system_overview, or unspecified; intent/scenario labels do not substitute for runtime answer breadth", nil
@@ -5276,6 +5277,9 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 		switch {
 		case requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions) &&
 			!requestedAnswerDimensionsRequireCausalDimension(dimensions):
+			if hint := runtimeQuestionConflictingClassifierRepairHint(profile, intent, scenario); hint != "" {
+				return nil, "runtime_question_profile.fact_families conflicts with the non-bounded scope. " + hint, nil
+			}
 			target := runtimeQuestionProfileFieldTarget(types.RuntimeQuestionScopeBoundedEffectVerdict, profile.FactFamilies)
 			return nil, "runtime_question_profile.fact_families conflicts with the non-bounded scope, while the already-typed required target_effect_verdict uniquely selects the finite target-effect tuple. Preserve that dimension and all observed families; do not widen because state/duration/frequency/evidence dimensions are also present. bounded_effect_verdict_canonical_field_target=" + target + "; apply only these runtime_question_profile fields to the next COMPLETE model-owned object; no automatic rewrite or acceptance occurs for this rejected object", nil
 		case requestedAnswerDimensionsRequireCausalDimension(dimensions):
@@ -5374,6 +5378,9 @@ func validateRuntimeQuestionProfileConsistency(
 			if repair := runtimeQuestionFiniteVerdictRepairTarget(profile, intent, scenario); repair != "" {
 				return "runtime_question_profile.scope=bounded_effect_verdict conflicts with legacy diagnostic predicate/profile flags while intent/scenario remain non-root-cause. Keep the finite verdict breadth and clear the contradictory full-diagnosis flags, or deliberately choose the full causal tuple from the current request; do not change only the scope. " + repair
 			}
+			if hint := runtimeQuestionConflictingClassifierRepairHint(profile, intent, scenario); hint != "" {
+				return hint
+			}
 			return "runtime_question_profile.scope=bounded_effect_verdict conflicts with a typed full root-cause/diagnostic request; use causal_diagnosis and omit fact_families so the chain/ranking investigation remains available"
 		}
 		return ""
@@ -5383,6 +5390,9 @@ func validateRuntimeQuestionProfileConsistency(
 	}
 	if requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions) &&
 		!requestedAnswerDimensionsRequireCausalDimension(dimensions) {
+		if hint := runtimeQuestionConflictingClassifierRepairHint(profile, intent, scenario); hint != "" {
+			return hint
+		}
 		return "runtime_question_profile.scope=causal_diagnosis conflicts with required requested_answer_dimensions role=target_effect_verdict. That role is a finite condition-to-target verdict and cannot authorize cause discovery or full Trace causal projection. Keep target_effect_verdict with bounded_effect_verdict plus fact_families, or deliberately change the model-owned role to causal_attribution/causal_contributor_set only when the current request asks for full root-cause diagnosis"
 	}
 	if !requestedAnswerDimensionsRequireCausalDimension(dimensions) {
