@@ -150,9 +150,9 @@ func TestB1666ResidualCaliberActualPublication(t *testing.T) {
 					if !found {
 						t.Fatalf("candidate must remain visible in %s lane", lane)
 					}
-					clause := "重叠解释"
+					clause := "账目对照量最高"
 					if lang == "en" {
-						clause = "of the residual is co-explained"
+						clause = "Account comparison: up to"
 					}
 					if strings.Contains(text, clause) == tc.excluded {
 						t.Errorf("public residual clause authority: excluded=%t contains=%t", tc.excluded, strings.Contains(text, clause))
@@ -192,9 +192,9 @@ func TestB1666ResidualMixedCalibersKeepWallClockExplanation(t *testing.T) {
 					if !ok || value != 20 {
 						t.Errorf("largest count must not mask valid wall-clock candidate: value=%v ok=%t", value, ok)
 					}
-					want := "未归因中最大 20.000ms 与自身 IO 口径行"
+					want := "账目对照量最高 20.000ms(以未覆盖量封顶),参照自身 IO 口径行"
 					if lang == "en" {
-						want = "Up to 20.000ms of the residual is co-explained"
+						want = "Account comparison: up to 20.000ms (capped by uncovered time)"
 					}
 					if !strings.Contains(text, want) || !strings.Contains(text, "150.000") {
 						t.Errorf("public output must keep valid explanation and independent count: want=%q", want)

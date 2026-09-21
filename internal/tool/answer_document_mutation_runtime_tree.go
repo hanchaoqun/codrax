@@ -2117,8 +2117,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// (∿ 帧间空闲) is split onto its own row and the self running
 		// residual never wears the 未归因 word (tree.go 自身执行 ruling).
 		{runtimeTraceProjMarkCoverageLine, runtimeTraceProjLegendGroupCaliber,
-			"- 已归因/未归因 = 树头覆盖句的口径:只统计第一层直接原因行对关注线程的影响;未归因 = 关注线程等待(或整窗)时长 − 已归因;各层时长在墙钟上互相包含,不能逐层相加;未归因≠正常/无需解释:是尚未被已发布原因覆盖的部分(可能含未发现原因/未探查窗/未识别空闲,系统不判定);已识别的正常空闲(如帧间空闲)另行单列。",
-			"- attributed/unattributed = the tree-header coverage caliber: only the depth-1 direct-cause rows' impact on the focused thread is counted; unattributed = the focused thread's wait (or whole-window) duration minus attributed; layer durations contain each other on the wall clock, so layers never add up; unattributed ≠ normal / needs-no-explanation: it is the portion not yet covered by any published cause (it may hold undiscovered causes, unexplored windows or unrecognized idle — no verdict is made); recognized normal idle (e.g. inter-frame idle) is listed on its own row."},
+			"- 链路覆盖/未覆盖 = 树头账目对照口径:沿用已发布链路账目对关注线程的覆盖量;未覆盖 = 关注线程等待(或整窗)时长 − 链路覆盖;各层墙钟可能包含或重叠,不能逐层相加;覆盖完整不代表原因已全部查明,未覆盖也不代表正常或无需解释;已识别的正常空闲(如帧间空闲)另行单列。",
+			"- chain coverage/uncovered = the tree-header account comparison: retain the published chain account's coverage of the focused thread; uncovered = the focused thread's wait (or whole-window) duration minus chain coverage; layer durations may nest or overlap and never add across layers; complete coverage does not prove complete cause discovery, and uncovered time does not mean normal or needs-no-explanation; recognized normal idle (e.g. inter-frame idle) is listed separately."},
 		// §29.27② (COV-4 用户裁定, 2026-07-11): the four-state coverage
 		// account's caliber entry — full-window wall-clock partition,
 		// window-denominator percentages (a different base from the wait-
@@ -17051,6 +17051,14 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		// its own dynamic-legend entry — marked exactly when the sentence
 		// renders (the lead builds the legend after this line runs).
 		model.Marks.mark(runtimeTraceProjMarkCoverageLine)
+		// State/wakeup coverage is not a closed decomposition of causes. No
+		// typed cause-completeness authority is provided by this account.
+		if zh {
+			b.WriteString("\n- 链路覆盖不等于原因已全部查明；等待为何发生仍需独立证据。")
+		} else {
+			b.WriteString("\n- Chain coverage does not mean all causes are known; the reason for a wait still requires independent evidence.")
+		}
+
 		// V2 (customer revisit 2026-07-03): when the 🎯 target published its own
 		// state rows, the coverage denominator is the TARGET SYMPTOM duration,
 		// not the whole window — a target that slept 11.7ms of a 101ms window
@@ -17122,23 +17130,23 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			if excluded, excludedMax, allOffWindow := censusExcluded, censusMax, censusAllOffWindow; excluded > 0 {
 				switch {
 				case zh && allOffWindow:
-					fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行在其他查询窗,未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。",
+					fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行在其他查询窗,未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未覆盖。",
 						symptom, excluded, excludedMax, attributed)
 				case zh:
-					fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。",
+					fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未覆盖。",
 						symptom, excluded, excludedMax, attributed)
 				case allOffWindow:
-					fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more focused-thread state row(s) live in other query windows and are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual.",
+					fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more focused-thread state row(s) live in other query windows and are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no uncovered residual.",
 						symptom, excluded, excludedMax, attributed)
 				default:
-					fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more focused-thread state row(s) are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual.",
+					fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more focused-thread state row(s) are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no uncovered residual.",
 						symptom, excluded, excludedMax, attributed)
 				}
 			} else if zh {
-				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms;链上单项最大 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。",
+				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms;链上单项最大 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未覆盖。",
 					symptom, attributed)
 			} else {
-				fmt.Fprintf(&b, "\n- Focused-thread wait (sleep/D-state/runnable) %.3fms; the largest single on-chain caliber is %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual.",
+				fmt.Fprintf(&b, "\n- Focused-thread wait (sleep/D-state/runnable) %.3fms; the largest single on-chain caliber is %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no uncovered residual.",
 					symptom, attributed)
 			}
 		case symptom > 0 && censusExcluded > 0 && censusMax > symptom:
@@ -17156,16 +17164,16 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			// wording fork on precise numeric comparisons, never a gate.
 			switch {
 			case zh && censusAllOffWindow:
-				fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行在其他查询窗,未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 分母未覆盖关注线程全部状态行,不给出覆盖百分比,不计未归因。",
+				fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行在其他查询窗,未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 分母未覆盖关注线程全部状态行,不给出覆盖百分比,不计未覆盖。",
 					symptom, censusExcluded, censusMax, attributed)
 			case zh:
-				fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 分母未覆盖关注线程全部状态行,不给出覆盖百分比,不计未归因。",
+				fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 分母未覆盖关注线程全部状态行,不给出覆盖百分比,不计未覆盖。",
 					symptom, censusExcluded, censusMax, attributed)
 			case censusAllOffWindow:
-				fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more focused-thread state row(s) live in other query windows and are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the denominator does not cover all focused-thread state rows: no coverage percentage, no unattributed residual.",
+				fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more focused-thread state row(s) live in other query windows and are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the denominator does not cover all focused-thread state rows: no coverage percentage, no uncovered residual.",
 					symptom, censusExcluded, censusMax, attributed)
 			default:
-				fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more focused-thread state row(s) are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the denominator does not cover all focused-thread state rows: no coverage percentage, no unattributed residual.",
+				fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more focused-thread state row(s) are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the denominator does not cover all focused-thread state rows: no coverage percentage, no uncovered residual.",
 					symptom, censusExcluded, censusMax, attributed)
 			}
 		case symptom > 0 && attributed <= symptom:
@@ -17175,10 +17183,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			// account above measurably disagrees — 禁两行同屏不可对账无披露.
 			rulerNote := runtimeTraceProjWaitDenomRulerNote(projection, model, symptom, zh)
 			if zh {
-				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms%s 中链上已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
+				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms%s 中链路覆盖 %.3fms(%.0f%%),未覆盖 %.3fms(%.0f%%)。",
 					symptom, rulerNote, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			} else {
-				fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms wait time (sleep/D-state/runnable)%s, on-chain attributed %.3fms (%.0f%%), unattributed %.3fms (%.0f%%).",
+				fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms wait time (sleep/D-state/runnable)%s, chain coverage %.3fms (%.0f%%), uncovered %.3fms (%.0f%%).",
 					symptom, rulerNote, attributed, attributed/symptom*100, residual, residual/symptom*100)
 			}
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
@@ -17194,19 +17202,19 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			// RUN2FIX-A 件5: same-denominator arm — same ruler note.
 			jitterRulerNote := runtimeTraceProjWaitDenomRulerNote(projection, model, symptom, zh)
 			if zh {
-				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms%s 中链上已归因 %.3fms(100%%),未归因 0.000ms(0%%);链上单项最大 %.3fms,略超关注线程等待 %.3fms(状态段边界抖动;不计未归因)。",
+				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms%s 中链路覆盖 %.3fms(100%%),未覆盖 0.000ms(0%%);链上单项最大 %.3fms,略超关注线程等待 %.3fms(状态段边界抖动;不计未覆盖)。",
 					symptom, jitterRulerNote, symptom, attributed, attributed-symptom)
 			} else {
-				fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms wait time (sleep/D-state/runnable)%s, on-chain attributed %.3fms (100%%), unattributed 0.000ms (0%%). The largest single on-chain caliber is %.3fms, %.3fms past the focused-thread wait (state-boundary jitter; not unattributed residual).",
+				fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms wait time (sleep/D-state/runnable)%s, chain coverage %.3fms (100%%), uncovered 0.000ms (0%%). The largest single on-chain caliber is %.3fms, %.3fms past the focused-thread wait (state-boundary jitter; not uncovered residual).",
 					symptom, jitterRulerNote, symptom, attributed, attributed-symptom)
 			}
 			b.WriteString(runtimeTraceProjHopAdmissionResidueNote(hopResidueCount, hopResidueMaxMS, zh))
 		case symptom > 0:
 			if zh {
-				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms;链上单项最大 %.3fms,超出关注线程等待 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不计为未归因。",
+				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms;链上单项最大 %.3fms,超出关注线程等待 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不计为未覆盖。",
 					symptom, attributed, attributed-symptom)
 			} else {
-				fmt.Fprintf(&b, "\n- Focused-thread wait (sleep/D-state/runnable) %.3fms; the largest single on-chain caliber is %.3fms, %.3fms beyond the focused-thread wait — the two calibers' wall clocks do not align: no coverage percentage, and the difference is not unattributed residual.",
+				fmt.Fprintf(&b, "\n- Focused-thread wait (sleep/D-state/runnable) %.3fms; the largest single on-chain caliber is %.3fms, %.3fms beyond the focused-thread wait — the two calibers' wall clocks do not align: no coverage percentage, and the difference is not uncovered residual.",
 					symptom, attributed, attributed-symptom)
 			}
 			if attributed > model.WindowMS {
@@ -17234,10 +17242,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				if attributed <= chainWinMS {
 					residual := chainWinMS - attributed
 					if zh {
-						fmt.Fprintf(&b, "\n- 链上已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)(口径:链上数据来自查询窗 %.3f~%.3fs 共 %.3fms,分母取该查询窗,非上句分析窗;两窗基不可混除)。",
+						fmt.Fprintf(&b, "\n- 链路覆盖 %.3fms(%.0f%%),未覆盖 %.3fms(%.0f%%)(口径:链上数据来自查询窗 %.3f~%.3fs 共 %.3fms,分母取该查询窗,非上句分析窗;两窗基不可混除)。",
 							attributed, attributed/chainWinMS*100, residual, residual/chainWinMS*100, ws, we, chainWinMS)
 					} else {
-						fmt.Fprintf(&b, "\n- On-chain attributed %.3fms/%.0f%%, unattributed %.3fms/%.0f%% (caliber: the chain data comes from query window %.3f~%.3fs, %.3fms total — the denominator is that window, not the analysis window above; the two window bases never divide across).",
+						fmt.Fprintf(&b, "\n- Chain coverage %.3fms/%.0f%%, uncovered %.3fms/%.0f%% (caliber: the chain data comes from query window %.3f~%.3fs, %.3fms total — the denominator is that window, not the analysis window above; the two window bases never divide across).",
 							attributed, attributed/chainWinMS*100, residual, residual/chainWinMS*100, ws, we, chainWinMS)
 					}
 					b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
@@ -17246,10 +17254,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 					// Numerator exceeds even its own window — no percentage,
 					// no residual (魔术数不出厂), both magnitudes disclosed.
 					if zh {
-						fmt.Fprintf(&b, "\n- 链上已归因 %.3fms(链上数据来自查询窗 %.3f~%.3fs,非上句分析窗;窗基不同,不给出覆盖百分比,不计未归因)。",
+						fmt.Fprintf(&b, "\n- 链路覆盖 %.3fms(链上数据来自查询窗 %.3f~%.3fs,非上句分析窗;窗基不同,不给出覆盖百分比,不计未覆盖)。",
 							attributed, ws, we)
 					} else {
-						fmt.Fprintf(&b, "\n- On-chain attributed %.3fms (the chain data comes from query window %.3f~%.3fs, not the analysis window above; different window bases — no coverage percentage, no unattributed residual).",
+						fmt.Fprintf(&b, "\n- Chain coverage %.3fms (the chain data comes from query window %.3f~%.3fs, not the analysis window above; different window bases — no coverage percentage, no uncovered residual).",
 							attributed, ws, we)
 					}
 				}
@@ -17262,10 +17270,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				// would fabricate a "未归因残差 7.777ms/6%" for a fully
 				// explained wait. Wording fork only; both magnitudes publish.
 				if zh {
-					fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms 已全部由链上解释(链上单项最大 %.3fms,略超 %.3fms,属状态段边界抖动);占分析窗 %.0f%%。",
+					fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms 由链路账目全额覆盖(链上单项最大 %.3fms,略超 %.3fms,属状态段边界抖动);占分析窗 %.0f%%。",
 						hopSleep, attributed, attributed-hopSleep, attributed/model.WindowMS*100)
 				} else {
-					fmt.Fprintf(&b, "\n- The focused thread's %.3fms sleep is fully explained on-chain (the largest single on-chain caliber is %.3fms, %.3fms past it — state-boundary jitter); %.0f%% of the analysis window.",
+					fmt.Fprintf(&b, "\n- The focused thread's %.3fms sleep is fully covered by chain accounts (the largest single on-chain caliber is %.3fms, %.3fms past it — state-boundary jitter); %.0f%% of the analysis window.",
 						hopSleep, attributed, attributed-hopSleep, attributed/model.WindowMS*100)
 				}
 			} else if hopSleep > 0 && attributed > hopSleep {
@@ -17273,19 +17281,19 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				// unverified — both magnitudes, no percentage, no residual,
 				// never a whole-window recast.
 				if zh {
-					fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms;链上单项最大 %.3fms,超出关注线程睡眠 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不计为未归因。",
+					fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms;链上单项最大 %.3fms,超出关注线程睡眠 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不计为未覆盖。",
 						hopSleep, attributed, attributed-hopSleep)
 				} else {
-					fmt.Fprintf(&b, "\n- Focused-thread sleep %.3fms; the largest single on-chain caliber is %.3fms, %.3fms beyond it — the two calibers' wall clocks do not align: no coverage percentage, and the difference is not unattributed residual.",
+					fmt.Fprintf(&b, "\n- Focused-thread sleep %.3fms; the largest single on-chain caliber is %.3fms, %.3fms beyond it — the two calibers' wall clocks do not align: no coverage percentage, and the difference is not uncovered residual.",
 						hopSleep, attributed, attributed-hopSleep)
 				}
 			} else {
 				residual := model.WindowMS - attributed
 				if zh {
-					fmt.Fprintf(&b, "\n- 链上已归因 %.3fms(%.0f%%),未归因 %.3fms(%.0f%%)。",
+					fmt.Fprintf(&b, "\n- 链路覆盖 %.3fms(%.0f%%),未覆盖 %.3fms(%.0f%%)。",
 						attributed, attributed/model.WindowMS*100, residual, residual/model.WindowMS*100)
 				} else {
-					fmt.Fprintf(&b, "\n- On-chain attributed %.3fms/%.0f%%, unattributed residual %.3fms/%.0f%%.",
+					fmt.Fprintf(&b, "\n- Chain coverage %.3fms/%.0f%%, uncovered residual %.3fms/%.0f%%.",
 						attributed, attributed/model.WindowMS*100, residual, residual/model.WindowMS*100)
 				}
 				b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
@@ -17312,10 +17320,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 					// byte-identically.
 					if idleWord, ok := runtimeTraceProjTargetIdleCarveMatch(model, attributed, zh); ok {
 						if zh {
-							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(不含%s);链上解释的 %.3fms 为单列成行的%s段,不在上句睡眠合计内。",
+							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(不含%s);链路账目覆盖的 %.3fms 为单列成行的%s段,不在上句睡眠合计内。",
 								hopSleep, idleWord, attributed, idleWord)
 						} else {
-							fmt.Fprintf(&b, "\n- Focused-thread sleep %.3fms (excluding %s); the %.3fms explained on-chain is the separately rendered %s segment, outside the sleep total above.",
+							fmt.Fprintf(&b, "\n- Focused-thread sleep %.3fms (excluding %s); the %.3fms covered by chain accounts is the separately rendered %s segment, outside the sleep total above.",
 								hopSleep, idleWord, attributed, idleWord)
 						}
 					} else {
@@ -17338,29 +17346,29 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 							types.TraceCausalProjectionWindowPresent(hopWinStart, hopWinEnd) &&
 							runtimeTraceProjCoverageWindowBaseMismatch(projection, hopWinStart, hopWinEnd):
 							if zh {
-								fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(取自查询窗 %.3f~%.3fs,非上句分析窗)中 %.3fms 已由链上解释。", hopSleep, hopWinStart, hopWinEnd, attributed)
+								fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(取自查询窗 %.3f~%.3fs,非上句分析窗)中 %.3fms 由链路账目覆盖。", hopSleep, hopWinStart, hopWinEnd, attributed)
 							} else {
-								fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (from query window %.3f~%.3fs, not the analysis window above), %.3fms is explained on-chain.", hopSleep, hopWinStart, hopWinEnd, attributed)
+								fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (from query window %.3f~%.3fs, not the analysis window above), %.3fms is covered by chain accounts.", hopSleep, hopWinStart, hopWinEnd, attributed)
 							}
 						case hopSleep > model.WindowMS:
 							if zh {
-								fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(该状态时长超出上句分析窗)中 %.3fms 已由链上解释。", hopSleep, attributed)
+								fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(该状态时长超出上句分析窗)中 %.3fms 由链路账目覆盖。", hopSleep, attributed)
 							} else {
-								fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (its state duration extends beyond the analysis window above), %.3fms is explained on-chain.", hopSleep, attributed)
+								fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (its state duration extends beyond the analysis window above), %.3fms is covered by chain accounts.", hopSleep, attributed)
 							}
 						case zh:
-							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms 中 %.3fms 已由链上解释。", hopSleep, attributed)
+							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms 中 %.3fms 由链路账目覆盖。", hopSleep, attributed)
 						default:
-							fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep, %.3fms is explained on-chain.", hopSleep, attributed)
+							fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep, %.3fms is covered by chain accounts.", hopSleep, attributed)
 						}
 					}
 				}
 			}
 		default:
 			if zh {
-				fmt.Fprintf(&b, "\n- 链上已归因 %.3fms(其实际状态跨出窗口,见 ⚠ 标记)。", attributed)
+				fmt.Fprintf(&b, "\n- 链路覆盖 %.3fms(其实际状态跨出窗口,见 ⚠ 标记)。", attributed)
 			} else {
-				fmt.Fprintf(&b, "\n- On-chain attributed %.3fms (the underlying state crosses the window; see ⚠ marks).", attributed)
+				fmt.Fprintf(&b, "\n- Chain coverage %.3fms (the underlying state crosses the window; see ⚠ marks).", attributed)
 			}
 		}
 	}
@@ -17775,17 +17783,17 @@ func runtimeTraceProjHopAdmissionResidueNote(count int, maxMS float64, zh bool) 
 
 // runtimeTraceProjResidualOwnCaliberNote implements NEW-6 (§7.6 对比场景客户回访
 // 2026-07-04, 客户追问"残差包含 on-chain 吗"): the coverage line's "残差 90%"
-// visually contradicted the tree's own-process IO row (232ms) — that row is the
-// SAME wall-clock segment as the target's D-state read through another caliber,
+// visually contradicted the tree's own-process IO row (232ms). That row is
 // deliberately excluded from the attribution numerator to avoid double
-// counting, and the reader had to infer that. When such a row exists, the
-// coverage sentence now says so itself. Precise signals only
+// counting. The selector establishes an account comparison, not a measured
+// interval intersection, so the disclosure must not claim physical overlap
+// or independence. Precise signals only
 // (runtimeTraceProjOwnCaliberIOPrimaryRow); no qualifying row → empty string
 // (the coverage line stays byte-identical).
 //
-// The published amount is min(caliber value, residual): a caliber row may
-// legitimately exceed the residual (it overlaps attributed wall clock too), and
-// "残差中最大 X" must never claim more than the residual itself.
+// The comparison amount is min(caliber value, residual): a caliber row may
+// legitimately exceed the residual. This cap preserves the existing account
+// bound without claiming that the selected intervals intersect.
 func runtimeTraceProjResidualOwnCaliberNote(model runtimeTraceProjTreeModel, residual float64, zh bool) string {
 	if residual <= 0 {
 		return ""
@@ -17804,13 +17812,13 @@ func runtimeTraceProjResidualOwnCaliberNote(model runtimeTraceProjTreeModel, res
 		if tag != "" {
 			ref = "[" + tag + "]"
 		}
-		return fmt.Sprintf("未归因中最大 %.3fms 与自身 IO 口径行%s重叠解释,未计入链上归因以防双计。", value, ref)
+		return fmt.Sprintf("账目对照量最高 %.3fms(以未覆盖量封顶),参照自身 IO 口径行%s,不重复计入链路覆盖。", value, ref)
 	}
 	ref := ""
 	if tag != "" {
 		ref = " [" + tag + "]"
 	}
-	return fmt.Sprintf(" Up to %.3fms of the residual is co-explained by the own-process IO caliber row%s; it is excluded from the chain attribution to avoid double counting.", value, ref)
+	return fmt.Sprintf(" Account comparison: up to %.3fms (capped by uncovered time), alongside the own-process IO caliber row%s; do not add it again to chain coverage.", value, ref)
 }
 
 // runtimeTraceProjOwnCaliberIOPrimaryRow finds the largest target-own /
@@ -17820,13 +17828,13 @@ func runtimeTraceProjResidualOwnCaliberNote(model runtimeTraceProjTreeModel, res
 //   - tree lane: rows passing the NEW-3/F2 runtimeTraceProjOwnProcessIORow
 //     gate (depthless own-edge rows only) — a chain-attached IO row (resolved
 //     depth) already sits inside the depth-cumulative attribution lane, so
-//     citing it as a residual overlap would contradict "未计入链归因";
+//     citing it as excluded from coverage would contradict "未计入链归因";
 //   - self lane: the 🎯 target's own rows with a typed IO caliber token that
 //     stayed OUT of the symptom denominator (causal_hop views /
 //     non-symptom-family states — the same two typed exclusions
 //     runtimeTraceProjTargetSymptomMS applies; RN-6 widened both to the
 //     symptom family together so the lanes stay complementary):
-//     same-wall-clock re-descriptions, not extra time.
+//     additional account descriptions, not amounts to add to chain coverage.
 func runtimeTraceProjOwnCaliberIOPrimaryRow(model runtimeTraceProjTreeModel) (float64, string, bool) {
 	best, tag, found := 0.0, "", false
 	consider := func(row runtimeTraceProjTreeRow) {
@@ -18712,9 +18720,9 @@ func runtimeTraceProjUnadmittedOnChainDisclosureNote(model runtimeTraceProjTreeM
 		return ""
 	}
 	if zh {
-		return fmt.Sprintf("另有 %d 条链上行未计入上句已归因数值(单项最大 %.3fms;墙钟不可加和,详见明细/树)。", n, x)
+		return fmt.Sprintf("另有 %d 条链上行未计入上句覆盖数值(单项最大 %.3fms;墙钟不可加和,详见明细/树)。", n, x)
 	}
-	return fmt.Sprintf("A further %d on-chain row(s) are not counted in the attributed figure above (single largest %.3fms; wall clock not summable, see the detail blocks/tree).", n, x)
+	return fmt.Sprintf("A further %d on-chain row(s) are not counted in the coverage figure above (single largest %.3fms; wall clock not summable, see the detail blocks/tree).", n, x)
 }
 
 // --- lossless detail table ------------------------------------------------------

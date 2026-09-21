@@ -353,7 +353,7 @@ func TestCWDCoverageSentenceCrossWindowBase(t *testing.T) {
 	// keep the old-form guards and add the new-form equivalents.
 	// The naked anchor-window division and its fabricated residual are banned.
 	for _, banned := range []string{
-		"未归因残差 6.534ms", "未归因 6.534ms", "94.466ms(94%)",
+		"未覆盖残差 6.534ms", "未覆盖 6.534ms", "94.466ms(94%)",
 		"目标睡眠 115.902ms 中", "关注线程睡眠 115.902ms 中",
 	} {
 		if strings.Contains(line, banned) {
@@ -361,18 +361,18 @@ func TestCWDCoverageSentenceCrossWindowBase(t *testing.T) {
 		}
 	}
 	// Same-base rendering: denominator = the chain-data window, named.
-	if !strings.Contains(line, "链上已归因 94.466ms(62%),未归因 57.534ms(38%)(口径:链上数据来自查询窗 3680.568~3680.720s 共 152.000ms,分母取该查询窗,非上句分析窗;两窗基不可混除)。") {
+	if !strings.Contains(line, "链路覆盖 94.466ms(62%),未覆盖 57.534ms(38%)(口径:链上数据来自查询窗 3680.568~3680.720s 共 152.000ms,分母取该查询窗,非上句分析窗;两窗基不可混除)。") {
 		t.Fatalf("coverage must divide over the chain-data window with the base named:\n%s", line)
 	}
 	// The contradiction hard gate: target sleep 115.902 > 窗口 101.000 must
 	// carry its window base instead of the naked legacy form.
-	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568~3680.720s,非上句分析窗)中 94.466ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568~3680.720s,非上句分析窗)中 94.466ms 由链路账目覆盖。") {
 		t.Fatalf("the >window target sleep must name its window base:\n%s", line)
 	}
 
 	en := runtimeTraceProjWindowLine(projection, model, false)
 	if !strings.Contains(en, "the denominator is that window, not the analysis window above") ||
-		!strings.Contains(en, "not the analysis window above), 94.466ms is explained on-chain.") {
+		!strings.Contains(en, "not the analysis window above), 94.466ms is covered by chain accounts.") {
 		t.Fatalf("EN same-base coverage rendering missing:\n%s", en)
 	}
 
@@ -383,10 +383,10 @@ func TestCWDCoverageSentenceCrossWindowBase(t *testing.T) {
 	same := cwdCoverageProjection(3680.818, 3680.919)
 	sameModel := buildRuntimeTraceProjTreeModel(same, nil, true)
 	sameLine := runtimeTraceProjWindowLine(same, sameModel, true)
-	if !strings.Contains(sameLine, "链上已归因 94.466ms(94%),未归因 6.534ms(6%)。") {
+	if !strings.Contains(sameLine, "链路覆盖 94.466ms(94%),未覆盖 6.534ms(6%)。") {
 		t.Fatalf("same-window chains keep the legacy whole-window coverage byte-identically:\n%s", sameLine)
 	}
-	if !strings.Contains(sameLine, "关注线程睡眠 115.902ms(该状态时长超出上句分析窗)中 94.466ms 已由链上解释。") {
+	if !strings.Contains(sameLine, "关注线程睡眠 115.902ms(该状态时长超出上句分析窗)中 94.466ms 由链路账目覆盖。") {
 		t.Fatalf("same-window >window sleep takes the neutral beyond-the-window clause:\n%s", sameLine)
 	}
 	if strings.Contains(sameLine, "非上句分析窗") {
@@ -398,10 +398,10 @@ func TestCWDCoverageSentenceCrossWindowBase(t *testing.T) {
 	bare := cwdCoverageProjection(0, 0)
 	bareModel := buildRuntimeTraceProjTreeModel(bare, nil, true)
 	bareLine := runtimeTraceProjWindowLine(bare, bareModel, true)
-	if !strings.Contains(bareLine, "链上已归因 94.466ms(94%),未归因 6.534ms(6%)。") {
+	if !strings.Contains(bareLine, "链路覆盖 94.466ms(94%),未覆盖 6.534ms(6%)。") {
 		t.Fatalf("windowless chains keep the legacy whole-window coverage (fail-open):\n%s", bareLine)
 	}
-	if !strings.Contains(bareLine, "关注线程睡眠 115.902ms(该状态时长超出上句分析窗)中 94.466ms 已由链上解释。") {
+	if !strings.Contains(bareLine, "关注线程睡眠 115.902ms(该状态时长超出上句分析窗)中 94.466ms 由链路账目覆盖。") {
 		t.Fatalf("windowless >window sleep still switches the disclosure form (numeric gate):\n%s", bareLine)
 	}
 }
@@ -432,8 +432,8 @@ func TestCWDCoverageLegacyShapeBytePreserved(t *testing.T) {
 	// 链上已归因, 未归因残差 → 未归因 (归因族); 目标睡眠 → 关注线程睡眠 (其他族).
 	// The pin's intent (byte-verbatim shape) stays — bytes migrated to the new
 	// canonical wording.
-	if !strings.Contains(line, "链上已归因 40.000ms(20%),未归因 160.000ms(80%)。") ||
-		!strings.Contains(line, "关注线程睡眠 120.000ms 中 40.000ms 已由链上解释。") {
+	if !strings.Contains(line, "链路覆盖 40.000ms(20%),未覆盖 160.000ms(80%)。") ||
+		!strings.Contains(line, "关注线程睡眠 120.000ms 中 40.000ms 由链路账目覆盖。") {
 		t.Fatalf("in-window hop-only shape must stay byte-identical:\n%s", line)
 	}
 }

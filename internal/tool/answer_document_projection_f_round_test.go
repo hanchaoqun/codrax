@@ -62,14 +62,14 @@ func TestRuntimeTraceProjTargetSymptomExcludesNestedBlockingViewRow(t *testing.T
 	line := runtimeTraceProjWindowLine(projection, model, true)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 →
 	// 关注线程等待 (其他族); on-chain 已归因 → 链上已归因 (归因族).
-	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 10.000ms 中链上已归因 8.000ms(80%),未归因 2.000ms(20%)") {
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 10.000ms 中链路覆盖 8.000ms(80%),未覆盖 2.000ms(20%)") {
 		t.Fatalf("denominator must be the 10ms state segment (80%% attributed):\n%s", line)
 	}
 	if strings.Contains(line, "18.000") || strings.Contains(line, "44%") {
 		t.Fatalf("the 18ms double-count / 44%% share must be gone:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
-	if !strings.Contains(en, "Of the focused thread's 10.000ms wait time (sleep/D-state/runnable), on-chain attributed 8.000ms (80%)") {
+	if !strings.Contains(en, "Of the focused thread's 10.000ms wait time (sleep/D-state/runnable), chain coverage 8.000ms (80%)") {
 		t.Fatalf("EN surface must fork the same way:\n%s", en)
 	}
 }
@@ -104,7 +104,7 @@ func TestRuntimeTraceProjTargetSymptomIncludesRunnableExcludesRunning(t *testing
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 →
 	// 关注线程等待 (其他族, both eras banned); 未归因残差 → 未归因 (归因族).
 	if strings.Contains(line, "目标等待") || strings.Contains(line, "关注线程等待") ||
-		!strings.Contains(line, "链上已归因 8.000ms(8%),未归因 92.000ms(92%)") {
+		!strings.Contains(line, "链路覆盖 8.000ms(8%),未覆盖 92.000ms(92%)") {
 		t.Fatalf("running-only self rows must fall back to the whole-window wording:\n%s", line)
 	}
 }

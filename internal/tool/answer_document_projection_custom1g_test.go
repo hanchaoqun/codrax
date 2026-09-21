@@ -147,7 +147,7 @@ func TestRuntimeTraceProjWindowLineTargetSymptomDenominator(t *testing.T) {
 	// runnable, so the label reads the wait-family parenthetical.)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 → 关注线程等待
 	// (其他族); on-chain 已归因 → 链上已归因 (归因族).
-	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 11.716ms 中链上已归因 3.391ms(29%),未归因 8.325ms(71%)") {
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 11.716ms 中链路覆盖 3.391ms(29%),未覆盖 8.325ms(71%)") {
 		t.Fatalf("coverage must use the target symptom duration as denominator:\n%s", line)
 	}
 	// The misleading whole-window residual ("残差 97%") must be gone.
@@ -157,7 +157,7 @@ func TestRuntimeTraceProjWindowLineTargetSymptomDenominator(t *testing.T) {
 		}
 	}
 	en := runtimeTraceProjWindowLine(projection, custom1gWindowModel(true), false)
-	if !strings.Contains(en, "Of the focused thread's 11.716ms wait time (sleep/D-state/runnable), on-chain attributed 3.391ms (29%), unattributed 8.325ms (71%)") {
+	if !strings.Contains(en, "Of the focused thread's 11.716ms wait time (sleep/D-state/runnable), chain coverage 3.391ms (29%), uncovered 8.325ms (71%)") {
 		t.Fatalf("EN coverage must use the symptom denominator:\n%s", en)
 	}
 }
@@ -172,7 +172,7 @@ func TestRuntimeTraceProjWindowLineFallsBackToWholeWindowWithoutSelfRows(t *test
 	// 链上单项最大 — the numerator is a single-row MAX, never a sum (墙钟红线);
 	// "合计" 冒名退役 (huadong_78: "各链上口径合计 4.431ms" = 单行 E15).
 	line := runtimeTraceProjWindowLine(projection, custom1gWindowModel(false), true)
-	if !strings.Contains(line, "链上已归因 3.391ms(3%),未归因 97.609ms(97%)") {
+	if !strings.Contains(line, "链路覆盖 3.391ms(3%),未覆盖 97.609ms(97%)") {
 		t.Fatalf("fallback branch wording must stay unchanged:\n%s", line)
 	}
 	// §15.D gap③ (P0-A1, overturns the V2 pin that stood here): attribution
@@ -185,12 +185,12 @@ func TestRuntimeTraceProjWindowLineFallsBackToWholeWindowWithoutSelfRows(t *test
 	model.SelfRows[0].Node.ImpactMS = 1.0
 	model.SelfRows[1].Node.ImpactMS = 2.0
 	line = runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 3.000ms 中链上已归因 3.000ms(100%)") ||
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 3.000ms 中链路覆盖 3.000ms(100%)") ||
 		!strings.Contains(line, "链上单项最大 3.391ms,略超关注线程等待 0.391ms") {
 		t.Fatalf("attribution above the symptom must keep the symptom denominator (§15.D gap③):\n%s", line)
 	}
 	// Old-form guard (未归因残差 retired) + new-form whole-window residual figure.
-	for _, banned := range []string{"未归因残差", "未归因 97.609ms"} {
+	for _, banned := range []string{"未覆盖残差", "未覆盖 97.609ms"} {
 		if strings.Contains(line, banned) {
 			t.Fatalf("the whole-window residual claim must not render with a symptom denominator (%q):\n%s", banned, line)
 		}

@@ -54,13 +54,13 @@ func TestCR2F3CoverageSentenceNoFalseSubsetOverCarvedPacing(t *testing.T) {
 	projection := cr2F3Projection(15.758)
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if strings.Contains(line, "关注线程睡眠 35.351ms 中 15.758ms 已由链上解释") {
+	if strings.Contains(line, "关注线程睡眠 35.351ms 中 15.758ms 由链路账目覆盖") {
 		t.Fatalf("the subset claim bridges two disjoint families (pacing was carved out):\n%s", line)
 	}
 	if !strings.Contains(line, "关注线程睡眠 35.351ms(不含帧间空闲)") {
 		t.Fatalf("the sleep total must disclose the carve-out:\n%s", line)
 	}
-	if !strings.Contains(line, "链上解释的 15.758ms 为单列成行的帧间空闲段,不在上句睡眠合计内") {
+	if !strings.Contains(line, "链路账目覆盖的 15.758ms 为单列成行的帧间空闲段,不在上句睡眠合计内") {
 		t.Fatalf("the chain-explained mass must be named as the carved idle segment:\n%s", line)
 	}
 }
@@ -72,7 +72,7 @@ func TestCR2F3CoverageSentenceLegacyWhenNoCarveMatch(t *testing.T) {
 	projection := cr2F3Projection(9.999) // pacing value ≠ attributed 15.758
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "关注线程睡眠 35.351ms 中 15.758ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 35.351ms 中 15.758ms 由链路账目覆盖。") {
 		t.Fatalf("non-matching shapes keep the legacy sentence:\n%s", line)
 	}
 }

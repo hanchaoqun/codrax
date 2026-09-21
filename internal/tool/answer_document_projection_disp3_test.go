@@ -641,7 +641,7 @@ func TestDisp3CoverageDenominatorAdmitsSleepHop(t *testing.T) {
 	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 108.865ms") {
 		t.Fatalf("the denominator must include the sleep hop (108.500 + 0.365):\n%s", line)
 	}
-	if !strings.Contains(line, "已归因 108.500ms") {
+	if !strings.Contains(line, "链路覆盖 108.500ms") {
 		t.Fatalf("the numerator stays the depth-1 chain caliber:\n%s", line)
 	}
 	// 复核 P3-2 negative half: the single-hop shape carries NO residue clause.
@@ -670,7 +670,7 @@ func TestDisp3CoverageDenominatorAdmitsSleepHop(t *testing.T) {
 	pure := disp3TextupCoverageProjection(false)
 	pureModel := buildRuntimeTraceProjTreeModel(pure, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	pureLine := runtimeTraceProjWindowLine(pure, pureModel, true)
-	if !strings.Contains(pureLine, "关注线程睡眠 108.500ms 中 108.500ms 已由链上解释") {
+	if !strings.Contains(pureLine, "关注线程睡眠 108.500ms 中 108.500ms 由链路账目覆盖") {
 		t.Fatalf("the hop-only shape keeps its legacy info line:\n%s", pureLine)
 	}
 	if strings.Contains(pureLine, "关注线程等待(sleep/D-state/runnable) 108.500ms 中") {

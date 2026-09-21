@@ -63,7 +63,7 @@ func TestLowCoverageSixPercentWeakensOnlyBoundModelClaims(t *testing.T) {
 	if !verdict.Comparable || !verdict.LowCoverage() || verdict.AttributedMS != 6 || verdict.DenominatorMS != 100 {
 		t.Fatalf("6%% verdict mismatch: %+v", verdict)
 	}
-	if line := runtimeTraceProjWindowLine(projection, model, true); !strings.Contains(line, "链上已归因 6.000ms(6%)") {
+	if line := runtimeTraceProjWindowLine(projection, model, true); !strings.Contains(line, "链路覆盖 6.000ms(6%)") {
 		t.Fatalf("renderer did not consume the same 6/100 coverage arithmetic:\n%s", line)
 	}
 

@@ -313,14 +313,14 @@ func TestRuntimeTraceProjPeriodicCoverageThreeShapes(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 已归因 →
 	// 链上已归因 (归因族); 不计归因、不属未解释残差 → 不计归因,也不属未解释等待
 	// (归因族 残差 wording; EN unchanged).
-	if !strings.Contains(line, "链上已归因 0.000ms") {
+	if !strings.Contains(line, "链路覆盖 0.000ms") {
 		t.Fatalf("zero-discount coverage sentence must not disappear:\n%s", line)
 	}
 	if !strings.Contains(line, "其中 36.361ms 为周期性信号源期内正常节拍(不计归因,也不属未解释等待)。") {
 		t.Fatalf("zero-discount coverage must carry the cadence third item:\n%s", line)
 	}
 	enLine := runtimeTraceProjWindowLine(projection, pureZero, false)
-	if !strings.Contains(enLine, "On-chain attributed 0.000ms") ||
+	if !strings.Contains(enLine, "Chain coverage 0.000ms") ||
 		!strings.Contains(enLine, "36.361ms is a periodic signal source's normal in-period cadence (not attributed, not unexplained residual)") {
 		t.Fatalf("EN zero-discount coverage must mirror the zh shape:\n%s", enLine)
 	}
@@ -329,7 +329,7 @@ func TestRuntimeTraceProjPeriodicCoverageThreeShapes(t *testing.T) {
 		WindowMS: 50.0, TreeRows: []runtimeTraceProjTreeRow{periodicVS1ChainRow(0.176)},
 	}
 	line = runtimeTraceProjWindowLine(projection, partial, true)
-	if !strings.Contains(line, "链上已归因 0.176ms") {
+	if !strings.Contains(line, "链路覆盖 0.176ms") {
 		t.Fatalf("discounted attribution must feed the coverage numerator:\n%s", line)
 	}
 	if !strings.Contains(line, "其中 36.185ms 为周期性信号源期内正常节拍(不计归因,也不属未解释等待)。") {

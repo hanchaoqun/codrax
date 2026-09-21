@@ -273,6 +273,16 @@ package tool
 // not establish live dispatch equivalence: the fixed de475 replay predates
 // this change, and matched h2/h3 A/B remains an explicitly open weigh.
 //
+// EVOLUTION RECORD (2026-09-21, typed unpriced-state guidance): replace only
+// the closed-matrix contract's blanket own-workload direction for unpriced
+// occupancy. Running/typed work may guide workload investigation; waiting
+// follows recorded waits and proven dependencies; unknown states gain no
+// default lever. This corrects the existing contract's interpretation, with
+// no change to views, values, pricing or causal eligibility. Public native
+// query-to-render and actual Description/Parameters pins weigh this change;
+// these deterministic tests do not establish live dispatch equivalence.
+// Matched h2/h3 A/B remains open; regenerating this golden does not close it.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

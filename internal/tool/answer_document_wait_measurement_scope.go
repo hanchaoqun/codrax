@@ -89,11 +89,11 @@ func runtimeTraceProjWaitMeasurementScopeNote(wait float64, excluded int, maxMS,
 		if wait > 0 {
 			prefix = fmt.Sprintf("\n- 仅计入同一事件筛选范围的等待 %.3fms", wait)
 		}
-		return fmt.Sprintf("%s；另有 %d 条状态行未合入等待总量(单项最大 %.3fms)，原值分列保留；链上单项最大 %.3fms。事件筛选范围未能对齐，不给出覆盖百分比，不计未归因。", prefix, excluded, maxMS, attributed)
+		return fmt.Sprintf("%s；另有 %d 条状态行未合入等待总量(单项最大 %.3fms)，原值分列保留；链上单项最大 %.3fms。事件筛选范围未能对齐，不给出覆盖百分比，不计未覆盖量。", prefix, excluded, maxMS, attributed)
 	}
 	prefix := "\n- Focused-thread wait records have unaligned event-filter scopes and are not combined into one wait total"
 	if wait > 0 {
 		prefix = fmt.Sprintf("\n- Only %.3fms of wait from one event-filter scope is counted", wait)
 	}
-	return fmt.Sprintf("%s; %d more state row(s) are outside the denominator (single largest %.3fms), with their original values retained separately; largest individual on-chain contribution %.3fms. Event-filter scopes are not aligned: no coverage percentage, no unattributed residual.", prefix, excluded, maxMS, attributed)
+	return fmt.Sprintf("%s; %d more state row(s) are outside the denominator (single largest %.3fms), with their original values retained separately; largest individual on-chain contribution %.3fms. Event-filter scopes are not aligned: no coverage percentage, no uncovered residual.", prefix, excluded, maxMS, attributed)
 }

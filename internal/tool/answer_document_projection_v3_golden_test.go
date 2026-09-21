@@ -122,7 +122,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		// caliber word and no 占窗 share (C00 同源门).
 		"**主根因(=已证链上单项最大可消除量):** binder:42591_4-42712 sleep 链上累计 38.400ms，下钻到 RenderService-3021",
 		"分析窗 738291.402~738291.466s，共 64.000ms",
-		"\n- 链上已归因 38.400ms(60%),未归因 25.600ms(40%)",
+		"\n- 链路覆盖 38.400ms(60%),未覆盖 25.600ms(40%)",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("berlin golden missing lead fact %q:\n%s", want, md)

@@ -223,18 +223,18 @@ func TestPTV5HopOnlyCoverageInfoLine(t *testing.T) {
 		t.Skipf("fixture drifted: expected a hop-only self lane")
 	}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "关注线程睡眠 120.000ms 中 40.000ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 120.000ms 中 40.000ms 由链路账目覆盖。") {
 		t.Fatalf("hop-only shape must relate target sleep to the chain-explained share:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
-	if !strings.Contains(en, "Of the focused thread's 120.000ms sleep, 40.000ms is explained on-chain.") {
+	if !strings.Contains(en, "Of the focused thread's 120.000ms sleep, 40.000ms is covered by chain accounts.") {
 		t.Fatalf("EN hop-only info line missing:\n%s", en)
 	}
 	// 突变形态: a state-view symptom row exists → the (a) variant renders and
 	// the hop-only line stays out (new canonical word AND the retired word).
 	projection2, model2 := ptv5HopOnlyModel(true)
 	line2 := runtimeTraceProjWindowLine(projection2, model2, true)
-	if (strings.Contains(line2, "关注线程睡眠") || strings.Contains(line2, "目标睡眠")) && strings.Contains(line2, "已由链上解释") {
+	if (strings.Contains(line2, "关注线程睡眠") || strings.Contains(line2, "目标睡眠")) && strings.Contains(line2, "由链路账目覆盖") {
 		t.Fatalf("state-view symptom shapes must not add the hop-only info line:\n%s", line2)
 	}
 }

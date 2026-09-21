@@ -1623,3 +1623,21 @@ ROI据实重排：普通预算失败批计数与Trace覆盖/等待方向并行�
 最小生产改动及新针冻结，主线diff复核通过。`GREEN-focused.log`正式exit0（agent1.184s）及同集合`GREEN-race.log`exit0（2.751s），各44项顶层PASS、无SKIP；两者均位于上述临时目录。整包agent与叠加Trace文案后的统一末版全仓待收正式结果；不提前宣称已经降低live重试次数，旧Python人工FAIL不回写。
 
 完整agent包`/tmp/hmc-planner-failure-round-agent-full-20260921.log`正式exit0（session45676，69.346s），不只跑新增针。准备独立提交本片，再与Trace文案末版统一全仓；旧版全仓不挪作本版收据。
+
+本片`640447004`已正式提交推送main（1b17→640，session77790 exit0）。统一全仓将在下面Trace显示/教学末版冻结后执行。
+
+## 72. Trace链路覆盖与状态专属排查方向（2026-09-21，子片施工中）
+
+§70两个确定系统缺口同批收口：窗口覆盖的分子、分母、跨窗/抖动/缺失分支保持，用“链路覆盖/未覆盖”代替“已归因/已解释”，明确这不表示原因全部查明；不借完整状态分区或满值给系统添加诊断权。未计价真实占用继续展示原行数/最大值/证据，但方向按已发布typed状态分别限定：sleep沿唤醒/阻塞依赖排查；执行/语义工作保自身工作量及业务方向；未知态不给默认机理。混合组不把一类方向借给其它状态，不改变根因排名、已量化可消除量或加冕词形。
+
+实际供给审计同时发现`TraceQuery`共享closed-matrix说明把所有context-only占用统一指向own-workload/business；Description与Parameters两面均被模型消费，必须随显示修复同步限定，不能只改用户图而保冲突教学。其它最终值回执/决策handoff/最终边界已明确状态分区不闭合原因，有限只读复核未确认第二个同类硬授权漏洞；必要条件“additive carrier”可进一步精确的低级措辞观察保留，不据此声称全系统无问题。
+
+参考`core/preprocess/sleep_ops.py:558–622`先按依赖窗统计状态，再对实际S/D段裁剪并递归唤醒者，可借鉴“等待状态与上游依赖分层”，不把睡眠量铸成线程实际执行量。它的中断/未知唤醒提前返回与本仓根节点停递归策略并不完全相同，本片不移植该截断规则或更改已有IO链。
+
+计划验收：真实TraceQuery→原生观察→投影→最终渲染公开红绿，中英/改名/缺失与部分完整状态账/混合与未知态矩阵；工具实际Description/Parameters教学针；旧词面pin只迁移相关输出期望、数值和反例保留。再叠加§71统一全仓、干净构建。下一固定双例按风险与增量覆盖选择`trace_query_wakeup_background_demotion`（明确窗、链上IO与链外长D等待隔离）+`github_issue_nlohmann_long_double_symptom`（C++双发布头同步、真实apply及严格编译），2并行×1。新版本可验修复与跨语言保护，不作§70相同配置A/B，不代销B2–B6或其它人工债。
+
+同owner独立复核另确认`runtimeTraceProjResidualOwnCaliberNote`旧IO互指仅用typed自身IO口径/最大值与`min(caliber,residual)`，没有区间交集凭证；旧测试也能用无时间戳记录生成“重叠解释”。这是代码/既有针确认的旧语义债，不冒称本轮live命中了该臂。纳入同批中性账目对照，数值、引用、上限和选择逻辑不变；不把缺凭证改说无重叠，也不新增数值大小推物理关系的规则。相应旧正负针都更新到实际新表达，保全部数值/证据断言，避免留下永不触发的旧词负针。
+
+末版28个代码/测试/快照文件冻结（`/tmp/codrax-projection-coverage-20260921.HP2oC8/frozen-files.sha256`），主线及独立只读复核无阻塞。公开原生链及中英文RED=`RED.log`，实际工具双面RED=`RED-teaching.log`均正式exit1；旧词面迁移过程`GREEN-focused.log`仍exit1的两处遗漏保留，不改写收据。末版29个相关测试文件的284项顶层精确集合`GREEN-final-focused.log`正式exit0（tool30.484s），额外5项agent工具面/提示快照`GREEN-tool-surfaces.log`exit0（agent1.318s）。完整选择来源/regex/命令在`selection.txt`。共享Description golden先按旧快照正式RED，再依既有仪式更新；`golden-delta-check.log`确认只替换一条获准合同说明（285→556字节），其它字节不动。没有字段/schema/排序/数值改动。
+
+公开新针保20/17/14/11/1ms原生值、改名等价、观察/投影字节不变；nil/partial/full状态账不铸原因闭合；sleep/running/unknown及三类混合组分别限定，最长混合英文在最终图中完整保留方向、41.500ms/E#且每行不超过100显示格。相同集合race及叠加§71的统一全仓`/tmp/hmc-coverage-planner-final-full-20260921.log`正在执行，正式收据另补。

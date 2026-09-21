@@ -1360,6 +1360,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **榜项时间范围口径（B1688）**：系统代表窗表当前消费 `TraceCausalProjectionNode.StartTs/EndTs`，它们可为多段发生记录的最早/最晚起止包络，不是某次独立发生凭证。显示须明确不证明连续占用或仅发生一次、不同榜项范围可能重叠且不可相加；全查询窗累计数值不得挪称为这段范围的持续时间。该表继续只展示精确链上项目，既有时间值、排名、两轴及模型选择不变。真正独立代表性片段的载体供给另行建设，不能由包络猜造。
 
+**链路覆盖不是原因闭合**：投影树头沿用原 `TargetImpactMS` / depth cumulative / admitted-self 覆盖量与各自分母，窗口、事件筛选范围、抖动和未覆盖量规则不变；读者文字统一称“链路覆盖/未覆盖”，不得仅凭覆盖100%声称原因已全部查明。自身IO口径的残差互指是有上限的账目对照，不是区间交集凭证。未计价真实占用不消失，但排查方向须绑定typed状态：睡眠沿唤醒/阻塞依赖，执行/语义工作保留自身工作与业务线索，未知态不默认赋机理，混合组分别限定。`TraceQuery`共享closed-matrix教学同时供Description和Parameters，必须与此显示边界一致；不改变根因选举、量化、模型结论所有权或自动补齐。
+
 **逐段测量附注（B1689）**：最终附注对已有 compact 区间逐字段显示主导状态/耗时、总占时、五态及查询窗/原始状态窗的测量，不以总时长代替某个状态，也不把影响时长改称可消除量。缺字段不补零，显式零保留，原数值、顺序和展示数量上限不变；原始状态窗也不保证连续。未限定物理文件的虚拟行范围不公开。该附注不是模型输入；完整已发布区间、每段来源和次数/截断库存仍须另行贯通查询、账本与投影，不能由摘要或外包窗反推。
 
 **逻辑附件 ID 兼容**：`RuntimeArtifactSelectionItem.ID`（`runtime_artifact:<16hex>`）是选择账本里的逻辑身份，不是文件路径。模型误把该 ID 填进 `source=path/path` 时，`trace_query` 先在当前 typed selection 中精确匹配 kind=trace 的唯一 item，再把它的 typed carriers stat-核验为唯一物理 trace；只有零歧义时才确定性改写成 `source="attached_trace"`（无 path）或 item.source 对应的 `source="path"`。未知 ID、log kind、无物理 carrier、一个 item/producer alias 对应多份物理 trace 均 fail-closed，逻辑 ID 永不进入 filesystem resolver。成功结果头会回写 `auto_resolved=true`、解析后的 source 和 `canonical_next_call`，同时上下文/工具 schema 直接教模型使用 item.source，避免把兼容层变成长期心智负担。

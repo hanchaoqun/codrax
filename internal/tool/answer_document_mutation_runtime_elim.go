@@ -2625,14 +2625,16 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 	// is real but prices to zero on the eliminable dimension (e.g. full-
 	// frequency running with no supply deficit, span-less) used to vanish
 	// from every guidance face. One counted row keeps the raw-occupancy
-	// dimension visible: the time is genuine, the lever is the thread's OWN
-	// workload/business flow — a NEW fix direction to explore, never an
-	// addend of this board. Population is precise: on-chain context-only
+	// dimension visible: the time is genuine, but its investigation direction
+	// follows typed state: work may lead to workload/business investigation,
+	// sleep to recorded dependencies, and unknown states to no inferred lever.
+	// None is an addend of this board. Population is precise: on-chain context-only
 	// valued rows minus the families already accounted above (caliber-side
 	// / self-symptom / semantic census).
 	unpricedCount := 0
 	unpricedMax := 0.0
 	unpricedTag := ""
+	unpricedSleep, unpricedWork, unpricedOther := false, false, false
 	unpricedScan := func(rowsIn []runtimeTraceProjTreeRow) {
 		for i := range rowsIn {
 			row := rowsIn[i]
@@ -2653,6 +2655,16 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 				continue
 			}
 			unpricedCount++
+			// Advice follows typed state, not occupancy magnitude or a thread
+			// name. Waiting time is not work performed by the waiting thread.
+			switch {
+			case row.Node.IsSleepState():
+				unpricedSleep = true
+			case strings.TrimSpace(strings.ToLower(row.Node.StateKind)) == "running" || row.Kind == runtimeTraceProjTreeRowSemantic:
+				unpricedWork = true
+			default:
+				unpricedOther = true
+			}
 			if value > unpricedMax {
 				unpricedMax = value
 				unpricedTag = strings.TrimSpace(row.EvidenceTag)
@@ -2666,11 +2678,41 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 			maxPart += " [" + unpricedTag + "]"
 		}
 		if zh {
+			advice := "机理未定；继续核对状态与依赖"
+			switch {
+			case unpricedSleep && unpricedWork && unpricedOther:
+				advice = "睡眠沿唤醒/阻塞依赖下钻；执行可查自身工作量；其余机理待核"
+			case unpricedSleep && unpricedWork:
+				advice = "等待沿唤醒/阻塞依赖下钻；执行占用可查自身工作量"
+			case unpricedSleep && unpricedOther:
+				advice = "睡眠沿唤醒/阻塞依赖下钻；其余状态机理待核"
+			case unpricedSleep:
+				advice = "等待症状；沿唤醒/阻塞依赖下钻"
+			case unpricedWork && !unpricedOther:
+				advice = "杠杆=自身工作量(新方向)"
+			case unpricedWork:
+				advice = "执行占用可查自身工作量；其余状态机理待核"
+			}
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "未计价占用",
-				content: fmt.Sprintf("⛓ %d 行(最大 %s)·真实占时·杠杆=自身工作量(新方向)", unpricedCount, maxPart)})
+				content: fmt.Sprintf("⛓ %d 行(最大 %s)·真实占时·%s", unpricedCount, maxPart, advice)})
 		} else {
+			advice := "mechanism unresolved; inspect states and dependencies"
+			switch {
+			case unpricedSleep && unpricedWork && unpricedOther:
+				advice = "sleep: inspect wakeup/blocking dependencies; execution: own workload; other states: unresolved"
+			case unpricedSleep && unpricedWork:
+				advice = "sleep: inspect wakeup/blocking dependencies; execution: own workload"
+			case unpricedSleep && unpricedOther:
+				advice = "sleep: inspect wakeup/blocking dependencies; other states: unresolved"
+			case unpricedSleep:
+				advice = "waiting symptom; inspect wakeup/blocking dependencies"
+			case unpricedWork && !unpricedOther:
+				advice = "lever: own workload"
+			case unpricedWork:
+				advice = "execution: own workload; other states: unresolved"
+			}
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "unpriced occupancy",
-				content: fmt.Sprintf("⛓ %d row(s) (largest %s) · genuine time · lever: own workload", unpricedCount, maxPart)})
+				content: fmt.Sprintf("⛓ %d row(s) (largest %s) · genuine time · %s", unpricedCount, maxPart, advice)})
 		}
 	}
 	return rows

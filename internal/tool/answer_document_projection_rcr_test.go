@@ -570,27 +570,27 @@ func TestRCRHopLaneOvershootJitterArmKillsPseudoResidual(t *testing.T) {
 	// 链上单项最大 (名实对齐: the numerator is a single-row MAX,墙钟不可求和;
 	// huadong_78 "各链上口径合计 4.431ms" = 单行 E15 冒名).
 	line := rcrWindowLine(t, rcrHopOnlyProjection(112.175, 112.223))
-	if !strings.Contains(line, "关注线程睡眠 112.175ms 已全部由链上解释(链上单项最大 112.223ms,略超 0.048ms,属状态段边界抖动);占分析窗 94%。") {
+	if !strings.Contains(line, "关注线程睡眠 112.175ms 由链路账目全额覆盖(链上单项最大 112.223ms,略超 0.048ms,属状态段边界抖动);占分析窗 94%。") {
 		t.Fatalf("jitter arm must render the UXA final wording:\n%s", line)
 	}
-	if strings.Contains(line, "未归因") {
+	if strings.Contains(line, "未覆盖") {
 		t.Fatalf("the pseudo-residual must be dead on the jitter arm:\n%s", line)
 	}
 	// Beyond the jitter band: both magnitudes, no percentage, no residual.
 	beyond := rcrWindowLine(t, rcrHopOnlyProjection(100.000, 112.223))
 	if !strings.Contains(beyond, "关注线程睡眠 100.000ms;链上单项最大 112.223ms,超出关注线程睡眠 12.223ms") ||
-		!strings.Contains(beyond, "不给出覆盖百分比,差值不计为未归因") {
+		!strings.Contains(beyond, "不给出覆盖百分比,差值不计为未覆盖") {
 		t.Fatalf("beyond-jitter arm must disclose both magnitudes without arithmetic:\n%s", beyond)
 	}
-	if strings.Contains(beyond, "%,未归因") {
+	if strings.Contains(beyond, "%,未覆盖") {
 		t.Fatalf("beyond-jitter arm must not fabricate coverage arithmetic:\n%s", beyond)
 	}
 	// Legacy negative: attributed within the hop sleep keeps the whole-window
 	// coverage sentence + the hop info line (word families applied, structure
 	// byte-stable).
 	legacy := rcrWindowLine(t, rcrHopOnlyProjection(112.175, 100.000))
-	if !strings.Contains(legacy, "链上已归因 100.000ms(83%),未归因 20.000ms(17%)。") ||
-		!strings.Contains(legacy, "关注线程睡眠 112.175ms 中 100.000ms 已由链上解释。") {
+	if !strings.Contains(legacy, "链路覆盖 100.000ms(83%),未覆盖 20.000ms(17%)。") ||
+		!strings.Contains(legacy, "关注线程睡眠 112.175ms 中 100.000ms 由链路账目覆盖。") {
 		t.Fatalf("the legacy within-sleep arm must keep its shape:\n%s", legacy)
 	}
 }

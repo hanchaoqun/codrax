@@ -936,19 +936,20 @@ type TraceCausalProjectionNode struct {
 	// value edit; the detail stanza renders the 实际口径 line from it. Never
 	// re-derived display-side (single divergence judgment, one producer).
 	ActualCaliberNote string `json:"actual_caliber_note,omitempty"`
-	// TargetImpactMS is the engine's TargetBlockedMs caliber: how much of the
-	// 🎯 target's own blocked wall clock THIS row's chain actually explains
+	// TargetImpactMS is the engine's TargetBlockedMs caliber: the target's
+	// blocked wall clock associated with THIS row's measured dependency chain
 	// (typed promotion, COV §24.9 D-1, real_trace_campaign_20260705.md,
 	// 2026-07-08). Sourced from the target_impact_ms / target_impact rich
-	// notes. It is the 已由链上解释 semantic the coverage-sentence numerator
+	// notes. It is the chain-account coverage the coverage-sentence numerator
 	// consumes FIRST — the CumulativeImpactMS channel is display-overwritten by
 	// §20.1 on inversion∧running rank rows (opendir_78: cumulative 58.919 vs
 	// target_impact 112.175 fabricated "未归因55%" against a ~97% explained
 	// wait). Merge rule everywhere (R1 absorb / R2 fold / R3 fold): member MAX,
-	// never Σ — the members explain overlapping stretches of ONE target's
+	// never Σ — the members cover overlapping stretches of ONE target's
 	// blocked clock — and never group-first inheritance (D-3 order-dependence
 	// family). Zero when the source row did not expose it (consumers fall back
-	// to the legacy cumulative channel byte-identically).
+	// to the legacy cumulative channel byte-identically). This quantity is not
+	// a complete decomposition of causes or proof of the target's mechanism.
 	TargetImpactMS float64 `json:"target_impact_ms,omitempty"`
 	// DrilldownTarget is the direct upstream node a sleep symptom should drill
 	// into. It is attached only from typed wakeup_chain_edge/path records, and

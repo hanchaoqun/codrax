@@ -327,21 +327,21 @@ func TestCWD2SymptomDenominatorCrossBaseGate(t *testing.T) {
 	// This fixture's target published its FULL wait as the denominator (no
 	// excluded wait-view self rows) — the C-3 form-switch stays silent and the
 	// legacy crossBase form is the pinned shape (负向 pin for the census gate).
-	want := "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;链上单项最大 40.000ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。"
+	want := "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;链上单项最大 40.000ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未覆盖。"
 	if !strings.Contains(line, want) {
 		t.Fatalf("cross-base symptom coverage must publish both magnitudes without %%:\n%s", line)
 	}
-	for _, banned := range []string{"(50%)", "未归因 40.000ms"} {
+	for _, banned := range []string{"(50%)", "未覆盖 40.000ms"} {
 		if strings.Contains(line, banned) {
 			t.Fatalf("cross-base symptom coverage must not render the percentage/residual (%q):\n%s", banned, line)
 		}
 	}
 	en := runtimeTraceProjWindowLine(crossed, buildRuntimeTraceProjTreeModel(crossed, nil, false), false)
-	if !strings.Contains(en, "the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual.") {
+	if !strings.Contains(en, "the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no uncovered residual.") {
 		t.Fatalf("EN cross-base symptom disclosure missing:\n%s", en)
 	}
 
-	legacy := "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms 中链上已归因 40.000ms(50%),未归因 40.000ms(50%)。"
+	legacy := "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms 中链路覆盖 40.000ms(50%),未覆盖 40.000ms(50%)。"
 	// Agreeing-window control: both rows measured in ONE window (even a
 	// non-anchor one) prove the same base — the legacy arithmetic stays.
 	same := cwd2SymptomProjection([2]float64{100.500, 100.652}, [2]float64{100.500, 100.652})
@@ -403,10 +403,10 @@ func TestCWD2ChainWindowConsensusRequiresChainAttestation(t *testing.T) {
 	if strings.Contains(line, "链上数据来自查询窗") {
 		t.Fatalf("§21.1 CWD-2 ④: a self row alone must not name a chain-data window no chain row attested:\n%s", line)
 	}
-	if !strings.Contains(line, "链上已归因 94.466ms(94%),未归因 6.534ms(6%)。") {
+	if !strings.Contains(line, "链路覆盖 94.466ms(94%),未覆盖 6.534ms(6%)。") {
 		t.Fatalf("the unattested shape keeps the legacy whole-window coverage (fail-open):\n%s", line)
 	}
-	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568~3680.720s,非上句分析窗)中 94.466ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 115.902ms(取自查询窗 3680.568~3680.720s,非上句分析窗)中 94.466ms 由链路账目覆盖。") {
 		t.Fatalf("the hop-sleep magnitude still names its own per-row window base:\n%s", line)
 	}
 
@@ -481,10 +481,10 @@ func TestCWD2SymptomGateFiresOnMultiWindowMergedNumerator(t *testing.T) {
 	// COV 批 (§24.11 C-3, 2026-07-08). EVOLUTION RECORD: 各链上口径合计 →
 	// 链上单项最大 (名实对齐,墙钟不可求和); no excluded wait-view self rows here
 	// → the C-3 form-switch stays silent (负向 pin).
-	if !strings.Contains(line, "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;链上单项最大 63.831ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。") {
+	if !strings.Contains(line, "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;链上单项最大 63.831ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未覆盖。") {
 		t.Fatalf("the multi-window merged numerator must fire the cross-base disclosure:\n%s", line)
 	}
-	for _, banned := range []string{"(80%)", "未归因 16.169ms"} {
+	for _, banned := range []string{"(80%)", "未覆盖 16.169ms"} {
 		if strings.Contains(line, banned) {
 			t.Fatalf("the cross-window merged numerator must not divide the symptom denominator (%q):\n%s", banned, line)
 		}
@@ -494,7 +494,7 @@ func TestCWD2SymptomGateFiresOnMultiWindowMergedNumerator(t *testing.T) {
 	// the legacy symptom arithmetic stays byte-identical.
 	same := cwd2MergedSymptomProjection(1, [2]float64{100.000, 100.101}, [2]float64{100.000, 100.101})
 	sameLine := runtimeTraceProjWindowLine(same, buildRuntimeTraceProjTreeModel(same, nil, true), true)
-	if !strings.Contains(sameLine, "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms 中链上已归因 63.831ms(80%),未归因 16.169ms(20%)。") {
+	if !strings.Contains(sameLine, "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms 中链路覆盖 63.831ms(80%),未覆盖 16.169ms(20%)。") {
 		t.Fatalf("single-window merged numerator keeps the legacy symptom coverage:\n%s", sameLine)
 	}
 }

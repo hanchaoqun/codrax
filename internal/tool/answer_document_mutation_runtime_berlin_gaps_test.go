@@ -238,7 +238,7 @@ func TestRuntimeTraceProjDepth1CumulativeFallsBackToShallowestDataDepth(t *testi
 	projection := types.TraceCausalProjection{WindowStartTs: 3.300, WindowEndTs: 3.401}
 	line := runtimeTraceProjWindowLine(projection, model, true)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 已归因 → 链上已归因;未归因残差 → 未归因 (归因族)
-	if !strings.Contains(line, "链上已归因 2.891ms") || !strings.Contains(line, "未归因 98.109ms") {
+	if !strings.Contains(line, "链路覆盖 2.891ms") || !strings.Contains(line, "未覆盖 98.109ms") {
 		t.Fatalf("berlin shape must still render the attributed/residual coverage line:\n%s", line)
 	}
 	// Depth-1 data still wins when present.

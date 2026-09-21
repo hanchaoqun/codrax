@@ -530,13 +530,14 @@ const (
 	TraceNoteKeyRankValueCaliber        = "rank_value_caliber"
 	TraceRankValueCaliberNativeDuration = "native_duration"
 	// TraceNoteKeyTargetImpactMS / TraceNoteKeyTargetImpact carry the engine's
-	// TargetBlockedMs caliber — how much of the 🎯 target's own blocked wall
-	// clock THIS row's chain actually explains (rank lane emits
+	// TargetBlockedMs caliber — the target's blocked wall clock associated
+	// with THIS row's measured dependency chain (rank lane emits
 	// target_impact_ms=%.3f, the causal_impact/aggregated_impact lanes carry the
 	// summary field target_impact=%.3fms verbatim). COV §24.9 D-1
 	// (real_trace_campaign_20260705.md, opendir_78): promoted from display-only
 	// to a typed consumer key so the coverage-sentence numerator can consume the
-	// 已由链上解释 semantic instead of the §20.1 display-overwritten cumulative.
+	// chain-account coverage instead of the §20.1 display-overwritten cumulative.
+	// Coverage is not a complete cause decomposition or mechanism proof.
 	TraceNoteKeyTargetImpactMS = "target_impact_ms"
 	TraceNoteKeyTargetImpact   = "target_impact"
 )

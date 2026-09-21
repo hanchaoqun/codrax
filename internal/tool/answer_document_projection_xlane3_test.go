@@ -197,7 +197,7 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	if strings.Contains(md, "周期性信号源期内正常节拍") {
 		t.Fatalf("the fused report must not annotate one board's residual with another board's cadence:\n%s", md)
 	}
-	if !strings.Contains(md, "关注线程等待(sleep/D-state/runnable) 116.963ms 中链上已归因 16.419ms(14%),未归因 100.544ms(86%)。") {
+	if !strings.Contains(md, "关注线程等待(sleep/D-state/runnable) 116.963ms 中链路覆盖 16.419ms(14%),未覆盖 100.544ms(86%)。") {
 		t.Fatalf("the coverage sentence's own account must stay byte-identical:\n%s", md)
 	}
 	// 修补轮 件A3: the 未计入 census scopes to the subject board — the
@@ -223,7 +223,7 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// is retired; the host-edge pre-span seat is a PRICED on-chain row again
 	// and is admitted into the attribution sentence instead of being counted
 	// as an unadmitted clue. The board maximum stays 74.915.
-	if !strings.Contains(md, "另有 39 条链上行未计入上句已归因数值(单项最大 74.915ms") {
+	if !strings.Contains(md, "另有 39 条链上行未计入上句覆盖数值(单项最大 74.915ms") {
 		t.Fatalf("the unadmitted census must scope to the subject board (39 rows, max 74.915):\n%s", md)
 	}
 	// 修补轮 件C (one relation, one sentence): E11↔E44 already cross-refer
@@ -422,7 +422,7 @@ func TestXLANE3ParamsForkPerBoardDenominator(t *testing.T) {
 	if strings.Contains(md, "257.635") {
 		t.Fatalf("the cross-board denominator sum must not survive:\n%s", md)
 	}
-	if !strings.Contains(md, "关注线程等待(sleep/D-state/runnable) 220.887ms 中链上已归因") {
+	if !strings.Contains(md, "关注线程等待(sleep/D-state/runnable) 220.887ms 中链路覆盖") {
 		t.Fatalf("the denominator must be the largest single board's own account net of the periodic-idle fold (220.887):\n%s", md)
 	}
 	if !strings.Contains(md, "另有 1 条关注线程状态行未计入分母(单项最大 18.933ms)") {

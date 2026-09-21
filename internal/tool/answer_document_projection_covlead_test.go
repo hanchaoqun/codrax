@@ -296,10 +296,10 @@ func TestCOVOpendirCoverageSentenceSelfConsistent(t *testing.T) {
 	projection := covOpendirProjection(112.175)
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "关注线程睡眠 115.353ms 中 112.175ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 115.353ms 中 112.175ms 由链路账目覆盖。") {
 		t.Fatalf("the hop info line must speak the typed target caliber:\n%s", line)
 	}
-	if !strings.Contains(line, "链上已归因 112.175ms(86%)") {
+	if !strings.Contains(line, "链路覆盖 112.175ms(86%)") {
 		t.Fatalf("the whole-window arm must consume the same numerator:\n%s", line)
 	}
 	for _, banned := range []string{"58.919", "45%", "55%"} {
@@ -309,7 +309,7 @@ func TestCOVOpendirCoverageSentenceSelfConsistent(t *testing.T) {
 	}
 	// C2 (§24.9 D-2): the disclosure counts ONLY the self-lock row — the ×3
 	// sleep hop view (the sentence's own denominator body) is excluded, 计数如实.
-	if !strings.Contains(line, "另有 1 条链上行未计入上句已归因数值(单项最大 115.944ms;墙钟不可加和,详见明细/树)。") {
+	if !strings.Contains(line, "另有 1 条链上行未计入上句覆盖数值(单项最大 115.944ms;墙钟不可加和,详见明细/树)。") {
 		t.Fatalf("the D-2 disclosure must count 1 (self-lock) and exclude the target's own sleep views:\n%s", line)
 	}
 	if strings.Contains(line, "另有 4 条") {
@@ -324,7 +324,7 @@ func TestCOVOpendirLegacyChannelWithoutTargetCaliber(t *testing.T) {
 	projection := covOpendirProjection(0)
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "关注线程睡眠 115.353ms 中 58.919ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 115.353ms 中 58.919ms 由链路账目覆盖。") {
 		t.Fatalf("without the typed caliber the legacy hop line must stand byte-identically:\n%s", line)
 	}
 }
@@ -338,7 +338,7 @@ func TestCOVNumeratorNeverFabricatesResidual(t *testing.T) {
 		t.Fatalf("an under-explaining caliber must publish as-is (60.000), got %.3f", got)
 	}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "关注线程睡眠 115.353ms 中 60.000ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 115.353ms 中 60.000ms 由链路账目覆盖。") {
 		t.Fatalf("the shortfall must be disclosed honestly, never inflated:\n%s", line)
 	}
 	if strings.Contains(line, "115.353ms 中 115.353ms") {
@@ -440,7 +440,7 @@ func TestCOVCrossBaseDenominatorCollapseFormSwitch(t *testing.T) {
 		t.Fatalf("fixture drifted: the denominator must be the lone 0.011 D-state row, got %.3f", got)
 	}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	want := "仅计入分析窗内直接等待 0.011ms;另有 2 条关注线程状态行未计入分母(单项最大 6.661ms);链上单项最大 4.431ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。"
+	want := "仅计入分析窗内直接等待 0.011ms;另有 2 条关注线程状态行未计入分母(单项最大 6.661ms);链上单项最大 4.431ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未覆盖。"
 	if !strings.Contains(line, want) {
 		t.Fatalf("the crossBase collapse must switch to the census disclosure form:\n%s", line)
 	}
@@ -522,7 +522,7 @@ func TestCOVRoleLaneCollapseFormSwitchWithoutWindowConflict(t *testing.T) {
 		t.Fatalf("the sleep hop must join the runnable denominator (3.262+456.725), got %.3f", got)
 	}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 459.987ms 中链上已归因 65.232ms(14%),未归因 394.755ms(86%)。") {
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 459.987ms 中链路覆盖 65.232ms(14%),未覆盖 394.755ms(86%)。") {
 		t.Fatalf("the admitted-hop shape must render the honest full-denominator arm:\n%s", line)
 	}
 	if strings.Contains(line, "仅计入分析窗内直接等待") {
@@ -544,7 +544,7 @@ func TestCOVRoleLaneCollapseFormSwitchWithoutWindowConflict(t *testing.T) {
 	crossLine := runtimeTraceProjWindowLine(crossWin, crossModel, true)
 	// The ×N member windows positively disagree → the §21.1 CWD-2 ③ crossBase
 	// census wording (the huadong_78 家族 form, same as TestCOVCrossBase*).
-	want := "仅计入分析窗内直接等待 3.262ms;另有 2 条关注线程状态行未计入分母(单项最大 456.725ms);链上单项最大 65.232ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。"
+	want := "仅计入分析窗内直接等待 3.262ms;另有 2 条关注线程状态行未计入分母(单项最大 456.725ms);链上单项最大 65.232ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未覆盖。"
 	if !strings.Contains(crossLine, want) {
 		t.Fatalf("the collapse must keep the census disclaimer on the multi-window shape:\n%s", crossLine)
 	}
@@ -554,7 +554,7 @@ func TestCOVRoleLaneCollapseFormSwitchWithoutWindowConflict(t *testing.T) {
 		t.Fatalf("the 全称 family claim must not render over a collapsed denominator:\n%s", crossLine)
 	}
 	en := runtimeTraceProjWindowLine(crossWin, buildRuntimeTraceProjTreeModel(crossWin, nil, false), false)
-	if !strings.Contains(en, "the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual") {
+	if !strings.Contains(en, "the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no uncovered residual") {
 		t.Fatalf("EN collapse form missing:\n%s", en)
 	}
 }
@@ -574,7 +574,7 @@ func TestCOVHealthyNestedShapeKeepsLegacyArms(t *testing.T) {
 	projection.OnChainCauses[0].CumulativeImpactMS = 9.500
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 10.000ms 中链上已归因 9.500ms(95%),未归因 0.500ms(5%)。") {
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 10.000ms 中链路覆盖 9.500ms(95%),未覆盖 0.500ms(5%)。") {
 		t.Fatalf("the healthy nested shape must keep the legacy percentage arm:\n%s", line)
 	}
 	if strings.Contains(line, "仅计入分析窗内直接等待") {
@@ -610,10 +610,10 @@ func TestCOVCmp60SideWholeWindowShapeAndNoTotalsWord(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	if !strings.Contains(line, "关注线程睡眠 470.071ms 中 92.346ms 已由链上解释。") {
+	if !strings.Contains(line, "关注线程睡眠 470.071ms 中 92.346ms 由链路账目覆盖。") {
 		t.Fatalf("the 6.0-side hop info line must keep its legacy shape:\n%s", line)
 	}
-	if !strings.Contains(line, "链上已归因 92.346ms(6%)") {
+	if !strings.Contains(line, "链路覆盖 92.346ms(6%)") {
 		t.Fatalf("the 6.0-side whole-window arm must keep the legacy channel:\n%s", line)
 	}
 	covAssertNoTotalsWord(t, line)

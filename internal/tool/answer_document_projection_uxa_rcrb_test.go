@@ -104,7 +104,7 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 		// §29.61.6 (词面批 2026-07-14): the epistemic-status sentence is part
 		// of the verbatim pin — 三要素: 非正常义 (未归因≠正常/无需解释)、可能
 		// 构成 (未发现原因/未探查窗/未识别空闲,系统不判定)、已识别正常空闲另列.
-		runtimeTraceProjMarkCoverageLine:            "- 已归因/未归因 = 树头覆盖句的口径:只统计第一层直接原因行对关注线程的影响;未归因 = 关注线程等待(或整窗)时长 − 已归因;各层时长在墙钟上互相包含,不能逐层相加;未归因≠正常/无需解释:是尚未被已发布原因覆盖的部分(可能含未发现原因/未探查窗/未识别空闲,系统不判定);已识别的正常空闲(如帧间空闲)另行单列。",
+		runtimeTraceProjMarkCoverageLine:            "- 链路覆盖/未覆盖 = 树头账目对照口径:沿用已发布链路账目对关注线程的覆盖量;未覆盖 = 关注线程等待(或整窗)时长 − 链路覆盖;各层墙钟可能包含或重叠,不能逐层相加;覆盖完整不代表原因已全部查明,未覆盖也不代表正常或无需解释;已识别的正常空闲(如帧间空闲)另行单列。",
 		runtimeTraceProjMarkStanzaCrossThreadCum:    "- `累计(跨线程)` = ◇/▒ 区段行的时长口径:多线程时间累计,不计入链上已归因。",
 		runtimeTraceProjMarkStanzaDiscount:          "- `折算` = 该行折算后的有效值,仅在与累计值不同时并列显示。",
 		runtimeTraceProjMarkCandidateShapeClass:     "- 无类型词的行 = 未识别出具体影响类型;逐行影响形态见明细。",

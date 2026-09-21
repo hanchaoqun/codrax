@@ -129,7 +129,7 @@ func TestCov4FourStateAccountRendersRunningDominantFrame(t *testing.T) {
 	}
 	// Additive only: the legacy wait-attribution machinery still speaks below
 	// (the account never replaces the wait-denominator sentence family).
-	if !strings.Contains(lead, "链上已归因") {
+	if !strings.Contains(lead, "链路覆盖") {
 		t.Fatalf("the legacy wait-attribution sentence must stay (additive design):\n%s", lead)
 	}
 	// EN face mirrors the same shape.
