@@ -1307,3 +1307,19 @@ Description仅替换原继承语句的一个子句，明确同一例外，未加
 - [ ] 完整全仓、race和干净版本双例另补正式退出收据。de475机器/人工不签本片。
 
 横向扫描继续登记其它消费者，不能以修该段头宣称全图关系闭环。已找到SMR1 class(2)将缺失/相交定位范围的`AccountRelDisjoint=false`默认发射“物理时间重叠”，以及IO显示fold按定位包络连通后用“同段IO”措辞的风险；需独立核对折叠身份/实际成员凭证，分别先红后绿，不自动删除原事实或改变计价。完整清单和排程随独立复审补记。
+
+已提交`4bcc34e886e6`，五包race×3 `/tmp/codrax-elim-envelope.Tt3aCq/race.log`正式exit0（tool6.614s/agent2.618s/context4.594s/skill3.600s/types7.058s）；完整mark、双向图例、段头宽度`legend-green.log`exit0（tool1.277s）。干净原生构建`/tmp/hmc-marker-navigation-envelope-clean-build-20260920.log`exit0，未含后续关系未知态片。21:41:42启动固定该二进制2并行×1：业务Trace读模式（旧FAIL优先）+C单行修改的plan/apply/verify（跨模式安全覆盖），尚未以阶段成功签最终人工PASS。
+
+### 47.1 包络关系消费者横向清单（只读静态核对）
+
+| 优先级/状态 | 消费点与缺口 | 验收/下一步 |
+|---|---|---|
+| P1，正在独立修 | SMR1 class(2) `answer_document_mutation_runtime_smr1.go`普通家族与rank关系，仅同线程/状态族/兼容窗；`AccountRelDisjoint=false`含定位包络相交与时间缺失，但`answer_document_mutation_runtime_tree.go`账目说明默认断言物理重叠。class1普通关系也没有另发精确物理交集凭证 | 通用未知关系显示，不只按PIC/IO名字拟合；带洞家族与缺时间戳先红后绿；保RSPA同源二分、真正互斥和精确cross_direction |
+| P1，待公开反例/方案 | `runtimeTraceProjFoldSameSubjectIONodes`→`runtimeTraceProjIOOverlapComponents`按Start/End定位包络连通，缺完整成员/查询身份核对，吸收无rank成员却称同段IO；旧针只覆盖包络外、不覆盖内部空洞 | 区分精确同发生合并与同主体证据分组；不能只取消fold后让行数cap吞原事实；保每条来源/值/口径和排名。不以本轮live未出现说已安全 |
+| P2，静态边界疑点 | `answer_document_mutation_runtime_xerr1.go`sleep互指用sleep族/兼容窗/包络包含，生成真实sleep包含说明，尚未核完整状态账/成员集合；当前无新live反例 | 先以多段带洞状态反证，核typed状态账身份，再决定关系是否有授权；不借累计量等于窗宽补凭证 |
+
+已排除的正常消费者不能随手退役：cross_direction关系有逐segment支撑、同board/身份/互返；守恒用真实union intersection；SelfGapSemanticOverlap逐run×semantic交集；语义subset有完整FamilyMemberLineRanges；真实包络互斥可安全推出成员互斥。共同方向是精确集合/定位包络/未知分层，不增加另一套宽泛提示或原文扫描门。
+
+4bcc完整全仓已暴露旧`TestB1590aTraceDirectionSharedExtractionPreservesSkillBytes`字节pin未随这次审定新增限定句演进，skill包失败（全仓最终退出另记），不以定向绿掩盖。补正同时钉两层：完整新Body hash `68d5e164ebfe68509662de558c37168d22492e093b48b984e087c61b54762865`；仅去掉唯一新增共享限定句后，必须恢复旧hash `b1f03b587f5b72994525824b665b28c5490db3eed27c323aea0f88cd838de31e`，确保其它教学字节没变。RequiresTrace/OnViolation及共享句一次消费断言全部保留。`/tmp/hmc-envelope-teaching-byte-pin-20260920.log`正式exit0（skill1.098s），此片只更新测试，不改4bcc生产行为。
+
+IO fold设计复核补充：连通分组可经A∩B、B∩C连接互斥的A/C，不能称同一物理段；StateAccountKey仅可证明完整调度状态账重复发布，不代表IO请求，FamilyMemberLineRanges也不是IO完整时间支撑。后续安全方向是保留紧凑展示及各peer自己的值/口径/证据/范围，改称同线程IO证据组；当前private peer缺独立scope，必须一起解决主行范围借给peer及多成员容量可达性，不能只改两个字就声称信息无损。该P1尚未施工。
