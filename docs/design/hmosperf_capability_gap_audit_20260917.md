@@ -1519,3 +1519,49 @@ XERR只读追查进一步明确待验证机制：payloadless阻塞值取span∩w
 公开RunTests RED正式exit1，`/tmp/codrax-java-source-unit-20260920.PzwKiT/red.log`（tool2.068s）：实际生成源、javac文件名、java启动类均观察到错误。使用边界观察fake JDK核真实调用参数/写入源，并非真实Java编译。当前主机Java launcher在但无JRE；缺parser不算语法正确，也不能用环境缺失触发新硬拒。独立只读复核同意以已有Java AST识别顶层源单元，syntax和runtime消费同一源/文件名/主类准备结果；保源码字节、包名、旧snippet与固定类入口，不重命名/删import，不从注释字符串猜入口，多主入口不猜。AST子集限制不成为emit新硬拒，原javac明确语法诊断和changed-code耦合门不动。
 
 本片优先于继续堆Trace散文教学，归HMC-16.4/18.5写验证兼容子缺陷，不新增父任务或代销B2–B6。实现及末版回归待验，不借§62全仓或计划machine PASS签新代码。
+
+末版四文件已冻结，主线及独立只读复核通过。完整源按唯一公开顶层类型决定文件名，按唯一直接main及原包决定启动类；固定类、任意改名、无public辅助类、String[]/变长参数、枚举和接口入口均覆盖。局部类加语句仍走原片段包装；只搬原本在前面的import，错位import和坏语句保原相对顺序交javac，不能修成合法。完整源中无关方法体的解析ERROR不否掉精确入口，片段不再要求第二次解析无ERROR才允许原包装；编译器仍是语法权威。多入口/未知入口不猜，不改源、耦合门、schema或教学负担。
+
+公开回归观察实际源码、临时文件名、带包启动参数与编译/运行两份收据；非法完整import及坏片段编译失败不得启动java。冻结版定向`/tmp/codrax-java-source-unit-20260920.PzwKiT/focused.log`正式exit0（tool18.455s），覆盖取消、launcher子进程树、收据与相邻语言探测；race与主线全仓另待正式退出。真实JDK针明确skip（本机无可用JDK），fake JDK只验证搬运/失败传播，不能作真实Java编译验收。250ms解析失败、未知新语法、嵌套或外部继承入口仍有支持边界，未声称所有Java程序或旧plan答案已通过。
+
+冻结版同范围race首次`race.log`正式exit1（tool33.401s）：唯一失败是既有`TestVerificationProbeSyntaxLauncherTreeCancellationB1715/java`10秒内未等到child-started，没有数据竞争报告。源码不变，独立取消针`race-cancellation-recheck.log`exit0（3.533s），随后完整同范围`race-recheck.log`exit0（26.076s）；首次失败保留，未确定原因，不宣称已证环境波动或修改测试阈值掩盖。定向/复核各64个顶层PASS、4个环境SKIP（真实JDK及3个Node针），不记为68个实跑全过。统一全仓收据另补。
+
+跨日补验（2026-09-21）：只给测试进程配置本机应用内Node，以上3个JavaScript邻接针实际执行全部PASS（含11个包装变量/正常模块/真实语法及断言失败子例），`/tmp/hmc-java-source-unit-adjacent-node-20260921.log`正式exit0（tool1.487s）。未改系统PATH或源码；不反改原4个SKIP的收据，真实JDK仍缺失。
+
+首次主线统一全仓`/tmp/hmc-java-source-unit-final-full-20260920.log`正式exit1（session50192）：86测试包通过、13无测试包、1测试包失败；唯一失败为既有IO跨窗测试的覆盖前提，tool428.142s。不能把Java定向通过写成统一全仓通过。具体复现、原因和不降断言的测试修复见§66；Java四文件保持冻结，等待修复测试后的全仓正式收据。
+
+源单元修复及架构说明已独立提交`f21aaa747`，尚待统一全仓/干净构建及推送收据；不以本地提交当交付完成。
+
+## 64. 直接误声明明确窗口的来源边界（2026-09-20，只读设计，仍开放）
+
+§61仅收确定性自动晋升分支；§59模型直接发射explicit的失败不在其修复范围。本轮主线与独立席核对`emit_analysis.go::parseRuntimeArtifactScopeProfile`、`trace_query_window_scope.go::ResolveTraceQueryWindowScope`及业务focus消费点：坐标、scope与source_quote都来自同一模型声明，引用存在只证明原文片段存在，原生查询结果只证明查了什么，均不能独立证明用户明确选择这些坐标。不能新增`origin=user`模型枚举后自证闭环。
+
+参考仓再次亲读`config/skills/io_analysis.yaml:73–95`，其user_specified也是llm_decision输出，且将非数值“冷启动阶段”与数值窗并列，不提供更强凭证；`launch_perf.yaml:55–70`由阶段工具产出thread_queries，能借鉴的是原生派生范围的直接传递，而非用户数值权威。现有已接受业务实例引用同样可证明来源/线程/完整范围，仍不能反向改称用户明确数值窗。
+
+可靠后续方案需宿主入口拥有的选窗/确认凭证：绑定请求版本、工件/时钟域/单位及有序成员；保重复、重叠、嵌套，不合并包络；模型只能引用既存凭证，不能通过工具JSON自行签发或由历史展示字段恢复授权。缺凭证的提议坐标仍可探索，不因此增加因果资格或删掉原生业务focus。改造须一起覆盖范围来源显示、explicit对业务focus的避让、实例包含约束及多窗补齐；只改显示标签不足。
+
+在保留现有自然语言单/多窗兼容、不解析原文数字语义、又不新增确认入口三项同时成立时，当前输入无法可靠区分伪explicit和真explicit。故本轮不暗改协议/强制确认、不以二次模型裁判或追加同义教学代替根修；入口能力与迁移需另行设计，作为HMC-02.4/16.4范围来源子项继续开放。完整Trace问题宽度、显式窗现有行为、自动补齐及链上资格不动。
+
+§62–63审计文档`e2ecb30d0`已正式推送main（远端5582→e2）；本节仅记录设计边界，不计新增实现交付或抵销旧人工FAIL。
+
+## 65. 旧写验证FAIL的下一片顺序复核（2026-09-21，只读，B2–B6不销）
+
+主线及独立席重读§48 C例实际日志：`hmc_marker_navigation_envelope_20260920/patch_c_typo-20260920-214142/run-1.logs.all.log:1913–1914`第一次make test打印cc编译再运行，2303–2304第二次只有运行已有main。最终report只有make-test总体结果，不含gcc命令真实argv/逐合同断言。不能从stdout里的cc文字补铸执行凭证，也不能把后一次测试PASS当重新编译通过；shell/Python命令包装器被拒不是需要放宽的故障。
+
+`SourceCheckExecutionReceipt`目前明确只授精确输入路径的syntax-only资格，没有计划/补丁代次、源字节、实际argv与合同绑定，不能直接升级为command_result；`run_tests.go`原生PTO匹配正确地要求candidate、suite与assertion-scoped结果。C要闭环仍需结构化命令谓词及真正命令执行生产者，绑定实际程序/参数/cwd/输入快照/执行ID，以及被后续消费的本次输出工件；编译成功只证明对应命令结果，不能证明输出/异常/业务语义。不解析旧合同subject或中文expected来猜命令，不追认旧Make结果。
+
+下一实施片仍优先B2的controller补证授权，后接B3/B4已有原生断言的只读补登记：旧Python例已经有真实`test_non_integer_float_rejected`结果，可复用生产者，缺的是安全绑定与重跑；C不是补一个PTO就能绿。B2需把补证批永久的禁止源码修改身份与当前可消费grant分离，绑定run/目标batch、仍贡献源码的source plans、合同完整定义及工作树HEAD/源字节/缺失/文件类型。沿§30.5既有设计，不将合成累计计划或run历史事件当新授权。
+
+验收反例优先复用公开normalizer→Apply→Emit链：合法产补证批后，保持HEAD/status但改变同dirty路径字节；不得新增绑定，仍必须拒源码改动，且旧报告和普通verify-only不能被抹掉。连同跨run/batch、restore剔除计划、工作树重建、不可读快照与JSON/resume逐项验收；这里只读列出待运行矩阵，不伪称已执行或完成B2。总账仍13/79交付、66开放。
+
+## 66. IO跨窗公开测试须稳定覆盖不同原生口径（2026-09-21，测试修复验收中）
+
+§63首次全仓唯一失败为`TestIOFoldScopePublicQueriesKeepPeerRanges`的尾覆盖断言：没有构造出查询窗与组主席不同的折叠成员。独立席在原版连续30次精准复现25 PASS/5 FAIL，`/tmp/codrax-iofold-audit-20260921.Mjvz3F/count30.log`正式exit1（session61710，tool26.238s）；5次均只失败于旧119行，改名子例、实际数值/证据/定位范围/查询范围配对及输入不变性均通过。不是通过放宽断言抹去生产回退。
+
+源码闭环：临时trace路径写入Result JSON，再进入blob内容哈希及EvidenceID；相同数值的节点最后按EvidenceID排序；同事实去重保留首个代表的标量查询窗，身份键不含查询窗，并合并原生来源/证据。原夹具在两个窗重复查询全部视图，可能合法保留同窗代表，因此临时路径变化就足以改变尾覆盖前提。显示fold按明确groupOrder和slice遍历、按最大值选主席，不是随机map选席；成员直接复制自己的范围/来源，未发现借主席窗口的生产回退。另一聚合路径的MergedQueryWindows不能当此路径的保证；本次也未打印每次失败具体代表ID，不伪称已观察到那一对ID。
+
+修复范围仅测试：宽窗公开`critical_blocking_calls`产生backup提交线程到完成线程的47ms请求驻留记录，窄窗`root_cause_rank`产生同线程45ms窗内背景记录；仅按精确typed family筛选，原记录完整进入ledger，再逐个用精确证据ID对照最终中英渲染。两条原生值不同，不依赖同值代表ID碰巧排序。不改生产排序、不编辑合成systrace或原生观察的数值/ID/范围/来源，不删除旧尾断言；每个改名与语言组合的跨窗覆盖另加强为必达。这里的真实公开查询指合成文本经真实工具发布，不冒称live捕获；背景身份保持，不注入链资格。前两次候选探索失败未作为有效RED，旧版全仓和count30才是修复前收据。
+
+末版一文件冻结并经主线及独立只读复核。`/tmp/codrax-iofold-fixture.dtITy4/GREEN-count30.log`正式exit0（tool7.529s，30/30）；相邻13项`GREEN-focused.log`exit0（2.909s）、同13项`GREEN-race.log`exit0（4.089s）。原值/证据/范围/观测字节不变与所有旧断言保留。叠加冻结Java四文件后的统一全仓为`/tmp/hmc-java-source-unit-io-fixture-full-20260921.log`，当前执行中，尚无正式退出；不能提前签绿或销HMC父任务。
+
+测试修复已单独提交`b380060de`并正式推送main（e2→b380，session33496 exit0），不是仅暂存；本次未修改任何生产IO行为或旧live答案verdict。
