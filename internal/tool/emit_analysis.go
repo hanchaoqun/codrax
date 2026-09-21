@@ -753,7 +753,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"runtime_target_profile": map[string]any{
 				"type":        "object",
-				"description": "Required typed declaration of whether the current runtime-artifact request names a concrete process/thread identity. This is independent of the artifact time/range. Use named_target only with an exact current-request source_quote and one or more matching runtime_targets; use no_named_target when the artifact question names no process/thread identity; use unspecified when genuinely unclear; use not_applicable when no runtime artifact is attached or referenced. This declaration prevents ordinary analyzer entities or model exploration cursors from silently becoming user target authority.",
+				"description": "Required typed declaration of whether the current runtime-artifact request names a concrete process/thread identity. This is independent of the artifact time/range. Use no_named_target when the artifact question names no process/thread identity; use unspecified when genuinely unclear. " + skill.AnalysisRuntimeTargetRosterTeaching,
 				"properties": map[string]any{
 					"declaration":  map[string]any{"type": "string", "enum": runtimeTargetDeclarationValues(), "description": "not_applicable, no_named_target, named_target, or unspecified."},
 					"source_quote": map[string]any{"type": "string", "description": "For named_target, an exact verbatim current-request phrase containing the named process/thread identity."},
@@ -805,7 +805,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"runtime_targets": map[string]any{
 				"type":        "array",
-				"description": "Optional typed runtime-artifact target list. Emit only when the current request explicitly identifies trace/log/perf targets as structured process IDs, thread IDs, or concrete thread labels. This is the only lane downstream trace tools may use to preserve omitted pid/thread filters; do not put timestamps, file paths, span names, generic entities, or guessed values here.",
+				"description": "Optional typed runtime-artifact target list. Emit only when the current request explicitly identifies trace/log/perf targets as structured process IDs, thread IDs, or concrete thread labels. This is the only lane downstream trace tools may use to preserve omitted pid/thread filters; do not put timestamps, file paths, span names, generic entities, or guessed values here. " + skill.AnalysisRuntimeTargetRosterTeaching,
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -5103,7 +5103,7 @@ func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []
 		target, warning, ok := parseRuntimeTarget(item)
 		if !ok {
 			return nil, warnings, fmt.Sprintf(
-				"runtime_targets[%d] is structurally invalid: %s; correct the typed target identity instead of omitting it",
+				"runtime_targets[%d] is structurally invalid: %s; "+skill.AnalysisRuntimeTargetRosterTeaching,
 				i, warning,
 			)
 		}
