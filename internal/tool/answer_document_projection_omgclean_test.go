@@ -40,7 +40,8 @@ func TestOmgcleanVerdictWordTable(t *testing.T) {
 		{"cpu_pressure", "调度延迟·CPU竞争", "scheduling latency·CPU contention"},
 		{"io_wait", "IO阻塞", "IO blocking"},
 		{"d_state_or_io_wait", "IO阻塞·不可中断(原因未证)", "IO blocking·uninterruptible (cause unproven)"},
-		{"io_latency", "IO阻塞·设备延迟", "IO blocking·device latency"},
+		// HMC §86: retain the ruled root, retire the unproved device suffix.
+		{"io_latency", "IO阻塞", "IO blocking"},
 	} {
 		zh, ok := runtimeTraceProjElimVerdictTokenWord(node, tc.token, true)
 		if !ok || zh != tc.zh {

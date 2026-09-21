@@ -363,9 +363,9 @@ func TestSelfAllPromotedSeatEntersElimOverview(t *testing.T) {
 	}
 	var seatLine string
 	for _, line := range strings.Split(fence, "\n") {
-		// OMGCLEAN-1 件11 (§29.175.17): io_latency wears the verdict word
-		// IO阻塞·设备延迟 on the ◎ board face.
-		if strings.Contains(line, "IO阻塞·设备延迟") && strings.Contains(line, "3.264ms") {
+		// OMGCLEAN-1 件11 root is retained; HMC §86 retires its unproved
+		// device suffix. Match the complete field, not another IO refinement.
+		if strings.Contains(line, " · IO阻塞 ·") && strings.Contains(line, "3.264ms") {
 			seatLine = line
 			break
 		}

@@ -917,6 +917,11 @@ func runtimeTraceProjAllZeroFoldRow(node types.TraceCausalProjectionNode) bool {
 // root) / IO阻塞·设备延迟 (io_latency); 频率与热治理族 = 低频运行 root on the
 // running 折算席 (the ·折算 qualifier already rides the row's caliber slot —
 // one 折算 word source, the grammar completes as 低频运行 … ·折算).
+//
+// HMC §86 source-caliber correction: the historical io_latency device suffix
+// above is retired. The token can carry request residence or independently
+// closed issuer waiting; neither proves device causation. Keep the ruled bare
+// IO root (cause not further refined), without changing any token or amount.
 func runtimeTraceProjElimVerdictTokenWord(node types.TraceCausalProjectionNode, token string, zh bool) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(token)) {
 	case "scheduler_latency", "runnable_wait", "runnable":
@@ -965,9 +970,9 @@ func runtimeTraceProjElimVerdictTokenWord(node types.TraceCausalProjectionNode, 
 		return "IO blocking·uninterruptible (cause unproven)", true
 	case "io_latency":
 		if zh {
-			return "IO阻塞·设备延迟", true
+			return "IO阻塞", true
 		}
-		return "IO blocking·device latency", true
+		return "IO blocking", true
 	case "running", "fragmented_running":
 		// 低频运行 root only on the DISCOUNTED running seat (折算席): the
 		// supply-deficit arm, or the merged fold whose published eff is a
