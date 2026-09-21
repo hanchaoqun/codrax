@@ -40,6 +40,14 @@ func TestAnalyzerRuntimeCompositionTeachingReachesActualModelMessages(t *testing
 			request: "From the attached trace, list the recorded wakeup path between the main thread " +
 				"and its worker, including peer identities. No bottleneck or root-cause diagnosis is requested.",
 		},
+		{
+			name:    "one short operation still asks for cause discovery",
+			request: "仅分析附加trace中2.010到2.040秒这一次保存操作：先定位业务范围，再找出究竟是哪条依赖拖慢了响应。",
+		},
+		{
+			name:    "same short window asks only for measurements",
+			request: "仅统计附加trace中2.010到2.040秒这一次保存操作的运行、可运行和等待时长，不分析根因。",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := &types.AgentContext{
@@ -80,6 +88,8 @@ func TestAnalyzerRuntimeCompositionTeachingReachesActualModelMessages(t *testing
 				"exactly one required `target_effect_verdict` and no required causal role ALWAYS selects `bounded_effect_verdict`",
 				"when the request asks why the target was blocked or asks for the principal blocking mechanism/root cause",
 				"Scope never pre-decides the finding",
+				"Runtime scope describes the requested conclusion, not the duration or number of windows or operations",
+				"Locating one business interval is navigation, not a bounded-fact decision",
 			} {
 				if !strings.Contains(system.String(), want) {
 					t.Errorf("actual model message lost composition/scope boundary %q", want)
@@ -92,6 +102,14 @@ func TestAnalyzerRuntimeCompositionTeachingReachesActualModelMessages(t *testing
 				t.Fatalf("expected the actual analyzer classification tool: %+v", capture.tools)
 			}
 			parameters := string(capture.tools[0].Parameters)
+			for _, want := range []string{
+				"Runtime scope describes the requested conclusion, not the duration or number of windows or operations",
+				"Locating one business interval is navigation, not a bounded-fact decision",
+			} {
+				if !strings.Contains(parameters, want) {
+					t.Errorf("actual schema lost the range/breadth distinction %q", want)
+				}
+			}
 			for _, teaching := range []string{skill.AnalysisRuntimeScopeSchemaTeaching, skill.AnalysisRuntimeDimensionSchemaTeaching} {
 				if !strings.Contains(parameters, teaching) {
 					t.Fatal("actual emit_analysis schema lost its compact runtime shape teaching")

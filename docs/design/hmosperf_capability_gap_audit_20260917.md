@@ -1341,3 +1341,19 @@ C仅一行源码更正，真实make test通过、隔离和原仓保护正确；r
 真实投影三类（带洞状态族、缺时间戳、同行包络的两账）×中英×改名先红后绿；保两行互指和projection字节，6个精确正针同步保留。`/tmp/codrax-account-relation.KVbsxY/RED-projection-verified.log`正式exit1（12未知例红/6精确正针绿）；`GREEN-focused.log`exit0（tool5.428s）、`GREEN-race.log`exit0（tool38.600s，64个顶层测试）、`GREEN-legend.log`exit0（tool0.933s，10个图例测试）。独立只读复核通过；主线仅补一处过时注释，不改行为。末版全仓已启动，结果待正式退出。
 
 这是显示资格子缺陷，不能代销整份Trace答案、IO fold或XERR成员凭证；HMC总账仍13/79交付、66开放。
+
+关系片`6a0234da0`末版全仓`/tmp/hmc-account-relation-final-full-20260920.log`正式exit0（tool397.040s、types47.766s、tracequery115.326s、tracediag18.869s等），已覆盖b238字节pin补正。后续§50软教学与业务回执显示片在相关包编译完成后开始，不借此收据签其全仓。
+
+## 50. 问题宽度与业务窗口分开，兼容缺字段另列（2026-09-20）
+
+§48分类审计确认正确因果教学确已送达，并非系统完全没教：日志528–530包含维度表、范围独立性和主要阻塞原因例子。模型两次仍漏发`requested_answer_dimensions`，最终发bounded事实；首次只因目标引用错误被拒。不能就一次失败证明稳定模型波动，也不能据此绕过有限事实报告保护。
+
+参考仓亲读`config/skills/launch_perf.yaml:55–70,99–130`先发现阶段窗再诊断瓶颈；`io_analysis.yaml:73–105,202–234`把查询窗口与根因问题分开。参考没有本仓scope枚举，只借其正交结构，不移植关键词路由或阈值定因。共享软教学现用短句明确scope是所求结论而非窗口长短/数量/业务次数，找一次业务范围只是导航；同一短窗可问事实、条件影响、拓扑或原因发现。schema与workflow单源，删去一处旧重复示例；原维度映射、finite优先级、runtime_work/frame独立决定及未知结论出口保持。
+
+实际analyzer→adapter六种异构问题（含同一短窗的中文因果/纯事实对照）先红后绿；断言初始消息及真实tool schema都消费该说明，并不预填分类结果。`/tmp/hmc-runtime-breadth-range-red-20260920.log`exit1；四包定向GREEN exit0（agent1.094s/skill1.665s/tool1.318s/types1.852s），末版删重复示例后的race×3另验。此RED证明新教学未供给，不伪称确定性分类器已纠正真实模型。
+
+兼容接缝独立留P1：provider schema把requested_answer_dimensions列必填，executor为旧/local兼容只强制部分顶层字段，nil维度成功返回，故本例没有因果role供既有一致性检查消费。若收紧presence必须审旧序列化/提供方兼容，只能读取结构存在性；本片不加门，不从用户原文或work flag推因果，不自动补模型未声明的维度。完整根因查询和有限事实都保原权威。
+
+§48结构工作行裁剪口径已查清并另片施工：原工具及实际成文输入均保49ms查询内量/50ms完整量，系统BoundRow丢了范围后renderer裸写49，不是底层算错。按同record已验证字段恢复范围限定，绝不把49换50；同线程业务打点也不等于目标自身执行或因果贡献。真实公开渲染红绿及完整记录另记。
+
+软教学独立只读复审通过；采纳删除共享句中不适用于schema相邻三元组的“below”尾语，避免再造误导。四包race×3正式exit0（agent5.070s/skill2.759s/tool10.909s/types4.086s）；最后纯措辞微调实际消息/skill复验exit0（agent2.035s/skill1.081s），收据分别`/tmp/hmc-runtime-breadth-range-race-20260920.log`及`final-green`同前缀文件。无分类准入或模型字段代写，真实模型是否遵循须另批验收。
