@@ -2284,7 +2284,7 @@ func runtimeTraceOccupancyPathCandidates(
 			count:            count,
 			recordStatistics: true,
 			unit:             "ms",
-			location:         runtimeTraceOccupancyNodeLocation(node, zh),
+			location:         runtimeTraceOccupancyPathLocation(node, measured, independentState, zh),
 			caliber:          caliber,
 			unavailable:      !known,
 		})
@@ -2581,6 +2581,26 @@ func runtimeTraceOccupancyNodeLocation(node types.TraceCausalProjectionNode, zh 
 		return "—"
 	}
 	return strings.Join(parts, "；")
+}
+
+// The value cell may select the original state account from a priced chain
+// seat. Its source coordinates still describe the dependency analysis domain
+// or an all-state envelope, not that state's continuous interval. Preserve
+// both axes and label the domain; never synthesize endpoints from a duration.
+func runtimeTraceOccupancyPathLocation(node, measured types.TraceCausalProjectionNode, independentState, zh bool) string {
+	location := runtimeTraceOccupancyNodeLocation(node, zh)
+	if location == "—" || (!types.TraceCausalProjectionWindowPresent(node.StartTs, node.EndTs) &&
+		!types.TraceCausalProjectionWindowPresent(node.ActualWindowStartTs, node.ActualWindowEndTs)) {
+		return location
+	}
+	if types.TraceUsesDependencyAnalysisWindow(node.Predicate, "") ||
+		(independentState && runtimeTraceOccupancyExactStateEnvelopeKey(measured) == "") {
+		if zh {
+			return "统计范围 " + location + "（非单段状态起止）"
+		}
+		return "measurement scope " + location + " (not a continuous state interval)"
+	}
+	return location
 }
 
 func runtimeTraceOccupancyLineLocation(start, end int, zh bool) string {

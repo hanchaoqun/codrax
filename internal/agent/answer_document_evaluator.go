@@ -5876,7 +5876,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		}
 	}
 	queryScopes := make(map[string]string)
+	dependencyWindows := make(map[string]bool)
 	for _, record := range promptLedger.Records {
+		dependencyWindows[record.ID] = types.TraceObservationUsesDependencyAnalysisWindow(record)
 		if scope := traceQueryObservationRequestedScopeNote(record, promptLedger.RuntimeArtifactScopeProfile, extractAnswerDocLang(ctx)); scope != "" {
 			queryScopes[record.ID] = scope
 		}
@@ -5899,6 +5901,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		}
 		if span := strings.TrimSpace(record.Span); span != "" {
 			fmt.Fprintf(&b, "; span=%s", span)
+			if dependencyWindows[record.ID] {
+				b.WriteString("; span_role=dependency analysis window (not a continuous state interval)")
+			}
 		}
 		if scope := queryScopes[record.ID]; scope != "" {
 			fmt.Fprintf(&b, "; query_scope=%q", scope)
@@ -6130,6 +6135,12 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 	var b strings.Builder
 	b.WriteString("### Trace Observation Coverage\n\n")
 	b.WriteString("- This typed coverage view is a soft handoff for trace/log answer writing. It summarizes which deterministic `trace_query` dimensions are already on the ledger; missing dimensions are follow-up suggestions only, not completion blockers.\n")
+	for _, record := range ledger.Records {
+		if types.TraceObservationUsesDependencyAnalysisWindow(record) {
+			b.WriteString("- " + types.TraceDependencyAnalysisWindowGuidance + "\n")
+			break
+		}
+	}
 	fmt.Fprintf(&b, "- trace_query_calls=%d; trace_observations=%d", coverage.QueryCount, coverage.TotalRecords)
 	if len(coverage.Windows) > 0 {
 		fmt.Fprintf(&b, "; windows=`%s`", strings.Join(coverage.Windows, "`, `"))
@@ -6214,7 +6225,11 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 			fmt.Fprintf(&b, "; chain_relevance=`%s`", obs.ChainRelevance)
 		}
 		if obs.Window != "" {
-			fmt.Fprintf(&b, "; window=%s", obs.Window)
+			if types.TraceUsesDependencyAnalysisWindow(obs.Predicate, obs.DrilldownSource) {
+				fmt.Fprintf(&b, "; analysis_window=%s (not a continuous state interval)", obs.Window)
+			} else {
+				fmt.Fprintf(&b, "; window=%s", obs.Window)
+			}
 		}
 		if obs.Filter != "" {
 			fmt.Fprintf(&b, "; filter=%q", obs.Filter)
@@ -23926,6 +23941,13 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 		parts = append(parts, value)
 	}
 	if loc := traceQueryObservationLocation(record); loc != "" {
+		if types.TraceObservationUsesDependencyAnalysisWindow(record) && types.TraceCausalProjectionWindowPresent(record.Span.StartTs, record.Span.EndTs) {
+			if zh {
+				loc = "依赖分析窗口（非单段状态起止）：" + loc
+			} else {
+				loc = "dependency analysis window (not a continuous state interval): " + loc
+			}
+		}
 		parts = append(parts, loc)
 	}
 	if notes := traceQueryObservationSupplementNotes(record, zh); notes != "" {

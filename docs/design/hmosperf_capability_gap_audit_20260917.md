@@ -1164,3 +1164,18 @@ db0596794c36 原生构建退出0并核版本（`/tmp/hmc-surfaces-marker-build-2
 - [ ] 全仓、race、构建及固定新版双例待退出，旧FAIL不销。
 
 最后定向正式exit0：skill0.849s/agent2.776s/tool1.340s，`GREEN-focused-final2.log`。中间`GREEN-focused-final.log`中的旧OFF-TOPIC字样pin失败真实保留，换为解析该property硬钉结构+准确许可/禁令，不改schema门。参考仓工具组合工作流不能替本仓分类接口定义结构；本片不照搬其工具白名单或关键词路由。L1调度循环、Trace选窗/根因/补齐、mandatory旁路与600/300/600不动，13/79交付、66开放不变。
+
+本片已独立提交39becadd4；定向race正式exit0：agent3.978s/skill2.004s/tool3.534s，`/tmp/codrax-analyzer-contract.lnhUZH/GREEN-race.log`。原schema字段集合及条件门不变；新增的是精确attempt/accepted诊断，不把一次失败当一次写入。
+
+## 40. 递归链统计域与状态发生区间分开显示（2026-09-20，验证中）
+
+db明确窗报告把network累计14ms睡眠配到递归查询域2.001..2.018，工具观察Span、成文context和系统占用表共用该裸窗口，形成系统供给共因。实际精确state_drilldown已有2.002..2.016，底层统计正确；actual_window=2.002..2.018仍是所有状态的包络，不能当睡眠段。独立源码/人工复核通过，不以模型波动处置。
+
+- [x] 公开root_cause_rank→typed观察→投影占用表/成文ledger与证据附录三面先红，改名transport也同红；五种状态及多段包络同样需要区别，不按thread名/14ms拟合。
+- [x] 复用既有predicate/source字段的只读显示分类，共享“依赖分析窗口，不是单段状态起止”语义。表中累计状态与统计/定位范围清晰分栏说明；真实精确state_drilldown端点保持。无新schema字段/note key/门，原观察、数值、排行、查询窗、链上资格与旁路均不改。
+- [x] 工具description及skill旧`actual_window`单段教学直接改原静态句，说明全状态inventory envelope；单独interval行的actual_duration/actual_start/end仍是原单段语义，不混淆。新公共/成文/types/skill定向GREEN：tool1.200s、agent2.146s、types3.816s、skill3.054s。
+- [ ] 邻近整包、全仓/race、固定新版本双例及人工审计待退出；旧db报告保持FAIL。
+
+独立留债：系统占用表cookie17/network14各重复一行，现有同源StateAccountKey在链impact可用，但派生计价行缺原始状态来源键。不得按同名+同14ms强并；后续补原始状态来源身份，再精确归并，避免重复项挤占5行上限。本片不夹带去重。正文“network比cookie优先级高”（实际同prio20）及“IO11ms是整链最长阻塞”（症状20/17/14更长）也仍需人工审计；正确口径是已确认可消除候选中最大，不由系统改写模型结论。
+
+对照参考仓的节点状态交集和缓存区间筛选，保留其区间/统计域区分思路，不照搬全节点耗时到用户窄窗。远端B/E漏片段、模型采用业务实例、跨模式B2–B6及其它HMC任务继续开放；13/79、66开放不变。
