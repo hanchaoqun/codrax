@@ -18,7 +18,7 @@
 
 [正文](results/hmc_scope_record_crossmode_20260921/real_trace_e1_dual_window_normalized-20260921-025523/run-1.primary.md)第7行称“有意义的恢复”“正常获得CPU”，但本轮只有两个窗口的状态账，没有健康基线、性能效果或等待机制证据；“完全阻塞”也过度概括S观测。因此整体保留人工FAIL。实际最终输入日志1666–1668已明确状态不证明原因/S不证明具体等待，1751限定bounded事实，未发现新的系统供给缺失；不为本轮模型越界加原文硬门或追跑第三例。
 
-A=34579.472865–34579.475857，2.992ms，running/runnable/sleep=0/.014/2.978ms；B=34579.475857–34579.505857，30ms，3.414/.780/25.806ms，0%和约11.4%计算正确。B CPU1=1.971ms，其余CPU2/3/5合计1.443ms，未说单线程多核并行。表格IO零值未充分说明是调度标記统计口径，但正文没有明确宣称排除所有IO机制，另留表达观察项。
+A=34579.472865–34579.475857，2.992ms，running/runnable/sleep=0/.014/2.978ms；B=34579.475857–34579.505857，30ms，3.414/.780/25.806ms，0%和约11.4%计算正确。B CPU1=1.971ms，其余CPU2/3/5合计1.443ms，未说单线程多核并行。表格IO零值未充分说明是调度标记统计口径，但正文没有明确宣称排除所有IO机制，另留表达观察项。
 
 首轮scalar与time_windows混用、缺pid/thread被现有精确信号拒绝后修复；4次查询成功，最终一次发射。该题为bounded_fact_set/count_or_duration，比较表合法、无需因果树；必选schema2旁路已生成root_causes=[]、trace_root_cause_contract_not_active。最终Markdown/receipt与eval副本逐字一致，primary/principal哈希与receipt相符。只有4条状态来源记录、两窗，且未物化状态附录，所以§79遗漏计数句未命中；无背景尺图，§76也不计live命中。
 

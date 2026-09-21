@@ -1769,3 +1769,31 @@ Python仅改实现一行，原tests/config字节不变，真实3条unittest断�
 新高ROI确定接缝：planner probe在packages/widget实际执行from widget import increment并到达原实现，emit耦合门却按仓库根模块packages.widget.widget要求导入，导致七次拒绝；目标生成在逐probe循环之外，未消费WorkingDir，而执行器会归一到最近Python项目根。下一片按同一有效执行目录生成逐probe可解析改动模块身份，保护兄弟同basename、动态别名/注释伪造及越界目录，真实运行来源/target_execution上限不动。JS/Ruby等相邻格式先审计具体执行语义，不能把Python别名规则硬套全语言。
 
 另确认两计划入口acceptance_tests教学矛盾：完整入口是planning-only，分段入口仍must cover。以共享短描述统一，JSON字段与权限/validator不改。原生PTO跨runner身份教学、成功身份可见性、同scope多执行provenance及B2–B6仍开放；本批不为错误身份放宽matcher。父账13/79交付、66开放不变。
+
+§78–80实现/全仓/固定双例审计已随`94ce058ea`推送main（session6677正式exit0，a8c5→94ce）。以下新片须独立验证，不能复用上一片全仓签收。
+
+## 81. 完整与分段计划共享验收清单含义（2026-09-21，验收中）
+
+完整计划的已有正确说明抽为types单源常量，两工具schema以JSON marshal替换同一占位符；完整入口描述字节不变，只消除分段入口的must cover矛盾。数组/string项、optional、PTO与probe权限、运行/证明校验完全不改，不引入新模型字段或关键词规则。
+
+实际planner工具schema投递（无执行报告）新回归先RED：`/tmp/hmc-checklist-teaching-red-20260921.log`，session83607正式exit1，agent1.137s，精确命中分段描述冲突。改后6项小集合GREEN session31635 exit0。包含发射/分段/证明权限/JSON表面的四包146项顶层定向`/tmp/hmc-checklist-teaching-focused-20260921.log` session90469正式exit0；同选择race `...-race-20260921.log` session87579正式exit0。统一全仓待子目录probe实现冻结后合跑，不借146项绿签全部功能。
+
+参考`core/llm_contract.py:114–155`仅借鉴“成员身份已发布、证据可回查”的职责分离；其文本容差/散文重复硬门不移植。首轮planner没有执行报告是合法状态，本片未教成必须复制不存在的结果。成功身份可见性、runner方言与父任务继续开放。
+
+本片已提交`d8a052ed7`。agent/types/skill整包`/tmp/hmc-checklist-teaching-packages-20260921.log`（session89065）正式exit0，agent70.955s、types38.809s；不替代下一片冻结后的统一全仓。
+
+## 82. Python探针的导入身份与实际执行目录一致（2026-09-21，施工中）
+
+§80 live七次误拒已有独立有效公开RED：`/tmp/codrax-python-probe-cwd.KIy00N/RED-public-authoritative.log`（session27724正式exit1/tool2.614s）。先真实planner probe以局部导入调用原源码并获AssertionError而非ImportError，再Emit；根项目正控完整通过，子项目/内部cwd归项目根/src包/改名/仅import五枝只在旧耦合门拒绝。根正控另经真实Apply、提交及CaptureCommitPatch→PatchEffectRecordFromUnifiedDiff生产收据，RunTests实际执行后持久化再核target execution，不手造行表或执行结果；此前三个测试装配错误日志保留，不计产品RED。
+
+设计以执行器已有`resolveVerificationProbeWorkingDir`和`pythonWorktreeImportRoots`为单源，逐probe计算真实改动路径在当前导入根下的模块身份；计划接纳及changed-target绑定消费同一结果，不全局合并兄弟项目basename。原root/src/lib和公共入口兼容、source-free权限、词法字符串/注释防伪及真实运行来源/changed-line证明必须保留。合法import本身不算已执行修改函数，plain Python probe仍仅可给target_execution、不铸target_behavior或逐合同证明。此片不触Trace投影/根因/补采/旁路或超时。
+
+横向审计：JS/Ruby的引用提取同样未读WorkingDir而运行器确设置cwd，是待独立复现的相邻风险；Java按package/class、Go有同包cwd分支，不能套用Python路径规则。当前内联probe能力只有Python/JS/Ruby/Java/Go，ArkTS/Cangjie等原生项目测试通道不能被当成同一种执行器；不因本片给它们虚构内联支持。参考仓的本地工具组合/成员字段反查可借鉴职责，但没有本仓改码后验证证明的直接等价实现。后续须按真实执行语义处理，不按单个case改别名。
+
+冻结后下一组固定live为`nested_python_increment`与`trace_query_jank_field_inventory`，2并行×1：前者验证本次确切生产误拒及真实交付，后者返回前期人工未通过的jank清单，覆盖阈值边界、超过2^53的原始整数、独立时钟/appid和不晋升调度根因；不改oracle，不强制模型选probe或PTO，不追加第三例追绿。
+
+末版实现`4de76b002`冻结三文件，只替换准入/绑定两消费者并共享逐probe候选。五顶层/24子枝新公开集合`/tmp/codrax-python-probe-cwd.KIy00N/GREEN-boundaries-v3.log`正式exit0（session5618，tool5.015s）；含原有边界的48顶层定向`GREEN-focused.log`正式exit0（session24816，tool20.504s），同48项race `GREEN-race.log`正式exit0（session63484，tool22.928s），无skip。内部目录回到真实项目根、既存src/lib、改名、新增包源码均通过；同名兄弟目录、跨probe别名拼接、注释/字符串/复制实现及10项路径边界未放行。仅导入不获执行证明，真实调用仍只获target_execution，不获逐合同behavior证明。新增原本不存在的src/lib导入布局不在本片覆盖范围，不提前声称已支持。
+
+最初边界集合中的参数类型/repair-pack装配和文案断言错误分别保留在`GREEN-boundaries-first.log`、`GREEN-boundaries-v2.log`等中间日志，不记产品RED；最终状态以上述v3正式退出为准。主线独立审读三文件无阻塞；另一审查席独立复核§81单源教学无阻塞。统一冻结全仓`/tmp/hmc-probe-cwd-full-20260921.log`（session78915）执行中，不以局部绿代签。
+
+本轮再次逐段读取参考`core/llm_contract.py:114–155`及`core/preprocess/sendable_ops.py:153–190,494–550`：前者按已发布成员/字段回查工件，后者以明确projectPath/配置/输出路径调用外部工具，缺Node及失败单独披露。参考并无本仓inline Python probe的cwd耦合实现，故本片是本仓生产者/消费者一致性根修，不照搬其自然语言扫描或将外部工具聚合成功冒称逐断言证明。
