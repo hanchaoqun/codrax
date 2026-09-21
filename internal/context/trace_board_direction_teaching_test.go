@@ -61,6 +61,8 @@ func TestB1590aTraceBoardDirectionTeachingThroughRealPrompt(t *testing.T) {
 		"do not replace the missing total with a maximum or infer additivity from a shared label",
 		"a supply-fold/head-room estimate is not an observed saving",
 		"a published lower bound or conservative fallback must not become an upper bound or a guaranteed improvement",
+		"`forbidden_by_typed_overlap` and `overlap_nonadditive`",
+		"do not establish physical overlap of the measured components",
 		"cross_seat_aggregation_authority=not_provided_by_this_row",
 		"never sum rows together without exact typed composition authority",
 		"36.757ms (effective attribution)",
@@ -98,7 +100,7 @@ func TestB1590aTraceBoardTeachingPreservesExactArithmeticBoundary(t *testing.T) 
 		teaching string
 	}{
 		{"typed_disjoint", types.TraceCausalProjectionNode{RankBoardTarget: "ui-10", StartTs: 1.020, EndTs: 1.023, EffectiveImpactMS: 3}, types.TraceAnswerDirectionArithmeticSubtotal, 12, "covers its listed members only"},
-		{"overlap", types.TraceCausalProjectionNode{RankBoardTarget: "ui-10", StartTs: 1.005, EndTs: 1.023, EffectiveImpactMS: 3}, types.TraceAnswerDirectionArithmeticOverlap, 0, "do not replace the missing total with a maximum"},
+		{"overlapping_locators", types.TraceCausalProjectionNode{RankBoardTarget: "ui-10", StartTs: 1.005, EndTs: 1.023, EffectiveImpactMS: 3}, types.TraceAnswerDirectionArithmeticOverlap, 0, "do not establish physical overlap of the measured components"},
 		{"missing_interval", types.TraceCausalProjectionNode{RankBoardTarget: "ui-10", EffectiveImpactMS: 3}, types.TraceAnswerDirectionArithmeticNone, 0, "a direction total has not been established"},
 		{"different_board", types.TraceCausalProjectionNode{RankBoardTarget: "other-20", StartTs: 1.020, EndTs: 1.023, EffectiveImpactMS: 3}, types.TraceAnswerDirectionArithmeticNone, 0, "infer additivity from a shared label"},
 	} {

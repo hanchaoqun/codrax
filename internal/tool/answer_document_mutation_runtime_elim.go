@@ -519,14 +519,22 @@ const (
 	// elimSectionArithmeticSubtotal — L1: every member carries a faithful
 	// typed envelope and the envelopes are pairwise exclusive → Σ 小计.
 	elimSectionArithmeticSubtotal = types.TraceAnswerDirectionArithmeticSubtotal
-	// elimSectionArithmeticOverlap — L2: faithful envelopes measurably
-	// overlap → the seat count plus 合计不可直加, never a Σ.
+	// elimSectionArithmeticOverlap — L2: locator envelopes intersect, so
+	// conservatively withhold a Σ; this is not measured-component overlap.
 	elimSectionArithmeticOverlap = types.TraceAnswerDirectionArithmeticOverlap
+)
+
+// Shared by the section head and its legend. An intersecting locator envelope
+// does not prove that the measured components share any physical time.
+const (
+	runtimeTraceProjElimEnvelopeOverlapZH = "定位范围相交,合计不可直加"
+	runtimeTraceProjElimEnvelopeOverlapEN = "locator ranges overlap; do not add"
 )
 
 // runtimeTraceProjElimEnvelopeToleranceMs mirrors the engine checker's
 // µs-scale float tolerance (directionConservationToleranceMs — the L1/L2 fork
-// fires on real shared wall clock, never on float dust).
+// fires on a measurable locator intersection, never on float dust; it does
+// not prove that the measured components share wall clock).
 const runtimeTraceProjElimEnvelopeToleranceMs = types.TraceCausalProjectionFaithfulEnvelopeOverlapToleranceMS
 
 // runtimeTraceProjElimSectionLadder resolves the section's arithmetic tier.
@@ -541,7 +549,8 @@ const runtimeTraceProjElimEnvelopeToleranceMs = types.TraceCausalProjectionFaith
 //     published values double-bills no physical time. subtotal = Σ of the
 //     µs-rounded member values — reconstructible from the rendered rows
 //     (原始值可见性三问③: integer-µs identity, pinned).
-//   - L2 (合计不可直加) fires when faithful envelopes measurably overlap.
+//   - L2 (合计不可直加) fires when locator envelopes intersect; it does not
+//     authorize a physical-overlap claim about the measured components.
 //   - everything else (missing envelope, merged carrier, cross-board, 未定节,
 //     single seat) publishes NO arithmetic (L3 载体缺席 → 零算术).
 //
@@ -628,9 +637,9 @@ func runtimeTraceProjElimSectionHeadLine(section runtimeTraceProjElimSection, mu
 	case elimSectionArithmeticOverlap:
 		marks.mark(runtimeTraceProjMarkElimSectionNonAddable)
 		if zh {
-			b.WriteString(fmt.Sprintf(" · %d席 · 成员区间重叠,合计不可直加", len(section.entries)))
+			b.WriteString(fmt.Sprintf(" · %d席 · %s", len(section.entries), runtimeTraceProjElimEnvelopeOverlapZH))
 		} else {
-			b.WriteString(fmt.Sprintf(" · %d seats · member intervals overlap; do not add", len(section.entries)))
+			b.WriteString(fmt.Sprintf(" · %d seats · %s", len(section.entries), runtimeTraceProjElimEnvelopeOverlapEN))
 		}
 	}
 	if hoistedAnchor != "" {

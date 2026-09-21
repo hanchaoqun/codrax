@@ -293,6 +293,7 @@ func traceDecisionWriteRepairDirectionAuthority(b *strings.Builder, set types.Tr
 				}
 			case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticOverlap:
 				b.WriteString("; same_direction_subtotal_authority=`forbidden_by_typed_overlap`; published_direction_value=`leader_only`")
+				b.WriteString("; " + types.TraceDirectionEnvelopeOverlapTeaching)
 			case !group.identity.Complete:
 				b.WriteString("; same_direction_subtotal_authority=`not_provided`; published_direction_value=`individual_seat`; board_leader_authority=`unavailable_without_complete_identity`")
 			default:

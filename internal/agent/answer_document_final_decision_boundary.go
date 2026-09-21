@@ -1817,6 +1817,7 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet) 
 					}
 				case sectionOK && section.Arithmetic == types.TraceAnswerDirectionArithmeticOverlap:
 					b.WriteString("; direction_subtotal_authority=`forbidden_by_typed_overlap`")
+					b.WriteString("; " + types.TraceDirectionEnvelopeOverlapTeaching)
 				default:
 					b.WriteString("; direction_subtotal_authority=`not_provided_without_exact_fold`")
 				}

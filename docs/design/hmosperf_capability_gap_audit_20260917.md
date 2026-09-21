@@ -1293,3 +1293,17 @@ eff3上一片完整全仓正式exit0：`/tmp/hmc-measurement-teaching-census-fin
 公开Execute先执行window_stats产生TID100游标，再按改名子业务发现TID200、payload PID100，三种发现均先红后绿；旧焦点/显式过滤/自动补齐/显式窗反例同步通过。收据`/tmp/codrax-marker-cursor.laD0mS/RED-public.log`exit1、`GREEN-public.log`exit0（tool1.435s）、`GREEN-focused.log`exit0（tool1.106s）、`GREEN-race.log`exit0（tool4.222s）；`RED-description.log`是旧字节快照失败，不冒充功能RED。
 
 Description仅替换原继承语句的一个子句，明确同一例外，未加第二套JSON字段或修补路线；字节34386→34688，sha256 `9928b42a0c6d19b17d594aed3efd4d773b78ed3048c2657f9ff827c2b79e44de`→`01e0b6eb30c958046fc6759bc9a4d169a03e5547caa0d8320cc06b0eb570d08d`，其余字节相同，按演进协议更新。既存h2/h3匹配A/B仍开放；de475回放早于本改，不能签其live。完整全仓及新干净版本跨模式双例另记。
+
+提交`6ebc7a4bf`，主线独立定向复测`/tmp/hmc-marker-navigation-main-review-20260920.log`正式exit0（tool1.190s）。另§45唯一成文拒绝已独立复核：系统one-shot展示advisory后的无id补丁整次not_staged，交付的是此前成功正文，既有schema/提示/事务合同一致，不是失败patch误签成功；正确marker账及typed事实高于旧摘要的规则确已到成文输入。保持人工FAIL，不因模型未遵循再加硬门，完整证据见该人工单。
+
+## 47. 方向板定位包络不等于实际分量重叠（2026-09-20，子片验收中）
+
+§45的系统PIC段头问题属于通用方向板，不是PIC数值计算错。原有`TestTraceEnvelopeOverlapDoesNotMintPhysicalRelationAuthority`已禁止包络铸物理重叠权限，但中英文段头/图例却确定性写“成员区间重叠”“相加会重复计费同段物理时间”。参考仓`sleep_ops.py:198–260`及`marker_ops.py:548–642`均以每个原始状态区间与对象窗相交，而非拿最早/最晚定位范围当实际分量支撑。
+
+- [x] 中英段头与图例单源，改为“定位范围相交,合计不可直加”，明确不代表计量分量真实重叠。保既有算术枚举、小计授权、候选/数值/排名/原生证据和Trace投影；既有精确`cross_direction_overlaps`不动。
+- [x] 成文前两个`forbidden_by_typed_overlap`发射面与共享修向教学同源说明旧token仅表示定位包络交集，不能授物理关系。原测试将包络反例错误绑定到物理重叠教学，现改绑准确释义；真正物理交集的教学和测试保留。无新schema字段、答案原文扫描门或模型结论代写。
+- [x] 公开root_cause_rank→观察→真实投影/图例，中英×任意改名，证明三个Runnable实际分量互斥而定位包络相交；PIC/混合/仅running/IO/runnable/sleep异构及原数据不变针。成文前两面也有三族反例，skill/context实际prompt受检。
+- [x] `/tmp/codrax-elim-envelope.Tt3aCq/red.log`与`teaching-red.log`分别为展示/成文教学语义RED；`final-green.log`五包exit0：agent1.836s/context0.743s/skill2.477s/tool1.193s/types1.820s。
+- [ ] 完整全仓、race和干净版本双例另补正式退出收据。de475机器/人工不签本片。
+
+横向扫描继续登记其它消费者，不能以修该段头宣称全图关系闭环。已找到SMR1 class(2)将缺失/相交定位范围的`AccountRelDisjoint=false`默认发射“物理时间重叠”，以及IO显示fold按定位包络连通后用“同段IO”措辞的风险；需独立核对折叠身份/实际成员凭证，分别先红后绿，不自动删除原事实或改变计价。完整清单和排程随独立复审补记。

@@ -1223,8 +1223,8 @@ const (
 	// the L1 section subtotal 小计 X ms(区间互斥) — published only on typed
 	// pairwise-exclusive member envelopes; Σ == the µs sum of the member rows.
 	runtimeTraceProjMarkElimSectionSubtotal
-	// the L2 non-addable word 成员区间重叠,合计不可直加 (measured envelope
-	// overlap — the section publishes NO subtotal).
+	// the L2 non-addable locator-envelope disclosure (not a physical-component
+	// overlap claim — the section publishes NO subtotal).
 	runtimeTraceProjMarkElimSectionNonAddable
 	// the ·∩[E#] cross-direction overlap chip + the merged pair footnote —
 	// transcription of the tree rows' typed 互指句 pairs (件2 wire carrier
@@ -2027,8 +2027,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- 节头 `小计 X ms(区间互斥)` = 该节成员席的 µs 级求和,仅当每席带忠实 typed 时间包络且两两互斥(包络互斥 ⇒ 支撑段互斥,同段物理时间零重复计费)才发布;小计可由下方成员席行逐 µs 重构;跨方向、跨板、未证互斥一律不发。",
 			"- head `subtotal X ms (disjoint intervals)` = the µs-level sum of the section's member seats, published ONLY when every seat carries a faithful typed time envelope and the envelopes are pairwise exclusive (envelope exclusivity ⇒ support exclusivity — no physical time double-billed); the subtotal reconstructs µs-for-µs from the member rows below; never across directions, boards, or unproven exclusivity."},
 		{runtimeTraceProjMarkElimSectionNonAddable, runtimeTraceProjLegendGroupMark,
-			"- 节头 `成员区间重叠,合计不可直加` = 该节成员的 typed 时间包络实测重叠:直接相加会重复计费同段物理时间,故不发小计,只发最大可消。",
-			"- head `member intervals overlap; do not add` = the section members' typed time envelopes measurably overlap: adding the values would double-bill the shared physical time, so no subtotal is published — only the max eliminable."},
+			"- 节头 `" + runtimeTraceProjElimEnvelopeOverlapZH + "` = 该节成员的定位范围相交,不代表计量分量真实重叠;当前口径不能据此直接求和,故不发小计,只发最大可消。",
+			"- head `" + runtimeTraceProjElimEnvelopeOverlapEN + "` = the section members' locator ranges intersect; this does not establish overlap of the measured components. This evidence alone does not authorize adding the values, so no subtotal is published — only the max eliminable."},
 		// OMGCLEAN-1 件1 (§29.175 裁定②, 2026-07-20). EVOLUTION RECORD: the
 		// tail word 「方向未定/复合」/"direction unresolved/composite" read as
 		// an unfinished-analysis claim — renamed 「其他方向」/"other

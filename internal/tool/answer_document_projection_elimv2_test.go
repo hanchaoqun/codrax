@@ -129,8 +129,9 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	if !strings.Contains(heads[0], " · 2席 · 小计 9.000ms(区间互斥)") {
 		t.Fatalf("L1: the disjoint scheduling pair must publish its subtotal:\n%s", heads[0])
 	}
-	// pin③ L2: the overlapping io pair refuses the sum.
-	if !strings.Contains(heads[2], " · 2席 · 成员区间重叠,合计不可直加") || strings.Contains(heads[2], "小计") {
+	// pin③ L2: intersecting IO locators refuse the sum without asserting
+	// physical overlap of the measured components (display-boundary evolution).
+	if !strings.Contains(heads[2], " · 2席 · 定位范围相交,合计不可直加") || strings.Contains(heads[2], "小计") {
 		t.Fatalf("L2: the overlapping io pair must refuse the subtotal:\n%s", heads[2])
 	}
 	// 单席节 (委托默认): no seat count, no subtotal on the frequency head.
@@ -225,7 +226,7 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	_, fenceEN := elimRenderOverview(t, projection, false)
 	for _, want := range []string{
 		"▸ scheduling supply · max eliminable 6.000ms · 2 seats · subtotal 9.000ms (disjoint intervals)",
-		"▸ IO / kernel / dependency · max eliminable 2.000ms · 2 seats · member intervals overlap; do not add",
+		"▸ IO / kernel / dependency · max eliminable 2.000ms · 2 seats · locator ranges overlap; do not add",
 		"◇ adjacent (conditional upper bound · outside direction conservation)",
 		"· direction=scheduling supply",
 		"every direction's support-interval union ≤ window 200.000ms ✓",

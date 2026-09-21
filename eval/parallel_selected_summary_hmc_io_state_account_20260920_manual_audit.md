@@ -34,6 +34,7 @@ primary 为结果目录 `run-1.primary.md`，最终报告 `.codrax/output/202609
 - primary:55拼出44=35+8≈43并虚构1ms容差；请求存续35ms与worker运行部分重叠，不能如此串加。:57保留同步对象未证限定，不抵销前述错误。
 - 系统Trace投影、观测与IO中性载体解释仍在。日志:3882/3883命中新的次生观测解释；本轮是背景载体，不冒充特定31ms载体的live正针。
 - mandatory根因旁路确实生成，但schema2为`unavailable/no_selectable_typed_on_chain_candidates`和空数组；本轮没查root_cause_rank，不能称内容已通过，也不是文件丢失。
-- 成文仅一次拒绝：日志:4302–4304，额外patch的replace_blocks[1]缺id，原完整答案保留；JSON教学/事务状态继续只读核对，不因最终有答案就抹去拒绝。16次查询、两次完成交接的过程成本保留。
+- 成文仅一次拒绝：日志:4302–4304，patch的replace_blocks[1]缺id，原完整答案保留。独立只读复核：:4180完整emit已接受；:4183–4191是系统requested_dimensions主动发起的一次advisory（非模型无端追加）；:4260确有仅claim_uses/title的无id碎片，:4262–4263整个patch明确not_staged，:4305交付此前accepted doc。现有schema、Description、事务回归均一致，不把失败patch记成功，也不据此增硬门。16次查询、两次完成交接的过程成本保留。
+- 事实优先级复核：实际成文输入:3864–3865同时提供marker5/1/44及8/1/31并禁止替成宽窗；:3934/3938明确typed runtime高于closure prose，:4010目标状态窗高于附件全域，:4084–4098保分窗/状态/因果限定。各自口径明确，不是系统数值合同互相矛盾；此次忽略正确事实不足以证明稳定缺陷或纯模型波动，留后续异构回放观察，不追加散文硬门。
 
 两例无空答案、无活跃流强制超时；均有摘要绑定的正文归属收据及Trace投影。测试通过仅签子修复，HMC父项和上述人工FAIL继续开放。

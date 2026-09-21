@@ -55,6 +55,8 @@ func TestTraceDirectionTeachingSeparatesLeaderSubtotalAndEstimateInRenderedPromp
 		"a supply-fold/head-room estimate is not an observed saving",
 		"a published lower bound or conservative fallback must not become an upper bound or a guaranteed improvement",
 		"arithmetic permission alone does not establish a guaranteed combined gain",
+		"`forbidden_by_typed_overlap` and `overlap_nonadditive`",
+		"do not establish physical overlap of the measured components",
 	} {
 		t.Run(want, func(t *testing.T) {
 			if !strings.Contains(prompt, want) {
@@ -93,7 +95,9 @@ func TestTraceDirectionTeachingMatchesExistingArithmeticAuthority(t *testing.T) 
 		teaching string
 	}{
 		{"disjoint", nil, types.TraceAnswerDirectionArithmeticSubtotal, 12, "covers its listed members only"},
-		{"overlapping", func(rows []types.TraceCausalProjectionNode) { rows[1].StartTs = 1.005 }, types.TraceAnswerDirectionArithmeticOverlap, 0, "physical overlap proves shared measured time"},
+		// A broad locator intersection is not the independent exact interval
+		// relation covered by the physical-overlap teaching below.
+		{"overlapping_locators", func(rows []types.TraceCausalProjectionNode) { rows[1].StartTs = 1.005 }, types.TraceAnswerDirectionArithmeticOverlap, 0, "do not establish physical overlap of the measured components"},
 		{"missing_window", func(rows []types.TraceCausalProjectionNode) { rows[1].StartTs, rows[1].EndTs = 0, 0 }, types.TraceAnswerDirectionArithmeticNone, 0, "a direction total has not been established"},
 		{"different_board", func(rows []types.TraceCausalProjectionNode) { rows[1].RankBoardTarget = "other-20" }, types.TraceAnswerDirectionArithmeticNone, 0, "do not replace the missing total with a maximum"},
 	} {

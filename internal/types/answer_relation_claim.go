@@ -173,7 +173,10 @@ type TraceAnswerDirectionArithmetic string
 const (
 	TraceAnswerDirectionArithmeticNone     TraceAnswerDirectionArithmetic = ""
 	TraceAnswerDirectionArithmeticSubtotal TraceAnswerDirectionArithmetic = "disjoint_subtotal"
-	TraceAnswerDirectionArithmeticOverlap  TraceAnswerDirectionArithmetic = "overlap_nonadditive"
+	// Legacy arithmetic token: intersecting locator envelopes withhold a
+	// subtotal. It does not grant physical overlap authority for the measured
+	// components; those require an independent exact interval relation.
+	TraceAnswerDirectionArithmeticOverlap TraceAnswerDirectionArithmetic = "overlap_nonadditive"
 )
 
 // TraceAnswerDirectionSection is one repair-direction section on the bounded
@@ -192,6 +195,8 @@ type TraceAnswerDirectionSection struct {
 // repair-direction section. It never infers a relation from a direction label:
 // every member must have a faithful unmerged envelope, one unambiguous board,
 // and pairwise-disjoint support before a subtotal is authorized.
+// Envelope intersection is only a conservative no-subtotal verdict, not proof
+// that the underlying measured components physically overlap.
 func TraceAnswerDirectionSectionArithmetic(direction string, members []TraceCausalProjectionNode, multiBoard, boardHasNamedTargets bool) (TraceAnswerDirectionArithmetic, float64) {
 	if strings.TrimSpace(direction) == "" || len(members) < 2 || multiBoard {
 		return TraceAnswerDirectionArithmeticNone, 0
