@@ -1415,3 +1415,15 @@ C仅一行源码更正，真实make test通过、隔离和原仓保护正确；r
 真实`donghu_tieba_frame.systrace`经公开TraceQuery→原生载荷/typed note→实际中英文BuildPromptContext，见证NetworkService-60595第1席首条34579.477038..34579.484273包含running0.481ms、runnable6.754ms、2个片段；整席有效量16.698628ms来自3个occurrence。`/tmp/codrax-board-window.SJjhHY/RED-public.log`正式exit1，中英两支均在错误教学断言失败，真实producer事实已成立；较早RawRef读取错误属于测试harness失败，不计先红。末版`GREEN-focused-final.log`正式exit0（context1.173s，18个顶层测试），精确同row保rank/subject/type/窗口/有效量，并核源观察前后字节不变。缺窗口/畸形首条不借后续记录补造。独立主线复核通过；race/统一全仓待正式收据。
 
 末版同18项`GREEN-race-final.log`正式exit0；统一全仓将与§54冻结后一起执行，不能用定向通过代签全仓。
+
+## 56. 85ca固定混合/有限双例与统一验收（2026-09-20，机器1/2、人工1/2）
+
+§53、§55、§54分别提交为`f4cd76b31`、`6a020a3a5`、`85ca9941e`。§54末版tool/skill定向race正式exit0（7.516s/1.968s，`/tmp/codrax-mixed-runtime.DGS9u1/RACE-focused.log`）。干净原生构建`/tmp/hmc-mixed-runtime-clean-build-20260920.log`正式exit0；实际binary revision `85ca9941ec4a`、buildTime `2026-09-21T05:39:49Z`。统一末版`go test ./...`收据`/tmp/hmc-mixed-runtime-final-full-20260920.log`正式exit0：87个测试包、13个无测试包、零FAIL（agent94.687s/tool396.642s/context8.767s/types54.680s/tracequery121.723s等），覆盖三片末改。
+
+22:40:43启动两例，22:45:15结束，固定snapshot `.codrax/tmp/codrax-selected-20260920-224033`，2并行×1、1800秒每例；测试期间源冻结，runner正式exit0。结果目录`eval/results/hmc_mixed_runtime_contract_20260920`；[机器摘要](../../eval/parallel_selected_summary_hmc_mixed_runtime_contract_20260920.md)、[逐项人工单](../../eval/parallel_selected_summary_hmc_mixed_runtime_contract_20260920_manual_audit.md)。业务例验证旧FAIL与混合宽度，真实H4例验证精确233.190ms窗内有限CPU状态/频率判断的边界；原case/oracle未改，无同版第三次追绿。
+
+- **业务仍FAIL**：本轮真实保住required因果+有限子判断及work=true，分类3次emit/2次拒绝（前版6/5）；Trace因果投影、3个31/1/1ms链上根因及mandatory旁路恢复。两个业务工作回执50/40ms真实命中，子业务8ms运行量正确。正文却仍漏35ms请求自身耗时，把未证完成唤醒写成没有唤醒，业务50ms和查询51ms虽分别列出但状态账仍主用宽窗6ms而非业务5ms。准确值与不确定性均已在最终typed输入，不能靠第三次重跑、加关键词门或重复同义教学签绿。
+- **真实H4人工PASS**：233.190ms四态、CPU4原始上限2100000kHz/实际558000kHz及binding未知均准确；窄D/IO清单0与Binder5次/3.094ms分开，未凭有上限即定影响。有限问题无因果图、schema2空旁路是正确边界，不是文件缺失。
+- H4过程另发现通用上下文歧义：窄D/IO零条时，固定缺失说明笼统称“没有匹配的等待原因记录”，而同输入另有blocked_reason_records=50。最终正文没有受污染，仍独立修教学的条件与范围，不伪称这份答案失败；§57另记公开先红后绿。
+
+旧业务/明确窗人工FAIL不回写，HMC仍13/79交付、66开放。下一工程片为窄空值教学及IO fold每成员口径/范围保真，XERR真实成员凭证、原始占用镜像去重、跨模式B2–B6继续开放。
