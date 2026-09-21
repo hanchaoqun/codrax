@@ -145,16 +145,23 @@ func TestTraceProjectionSameSubjectIOCalibersFoldIntoPrimaryRow(t *testing.T) {
 	if !strings.Contains(fence, "232.428") {
 		t.Fatalf("the max-impact caliber must stay the primary row:\n%s", fence)
 	}
-	// PTV5 C09/C16 (#68): zh labels ride the D4 combined form; the longer note
-	// may T3-wrap between tokens, so the pin checks the caliber list and the
-	// evidence roster as two whole substrings (tokens themselves never split).
+	// The note may wrap between tokens, but every member must retain its own
+	// measuring-layer label, value and evidence pointer as a distinct entry.
 	// EVOLUTION RECORD (IOFAM-SELF 件②, 2026-07-12): the roster is layered —
 	// each member wears its measuring-layer word (完成端到端/调度等待).
-	if !strings.Contains(fence, "同段IO另有 完成端到端·IO突发（io_burst_episode） 226.153ms") ||
-		!strings.Contains(fence, "调度等待·iowait（io_wait）") ||
-		!strings.Contains(fence, "112.011/107.672ms 等口径;证据") ||
-		!strings.Contains(fence, "[E2]、[E3]、[E4]") {
-		t.Fatalf("the folded calibers must surface as ONE note with all evidence ids:\n%s", fence)
+	folded := strings.NewReplacer("\n", "", "│", "", "┃", "", " ", "").Replace(fence)
+	for _, want := range []string{
+		"同线程IO证据组",
+		"完成端到端·IO突发（io_burst_episode）226.153ms[E2]",
+		"调度等待·iowait（io_wait）112.011ms[E3]",
+		"调度等待·iowait（io_wait）107.672ms[E4]",
+	} {
+		if !strings.Contains(folded, want) {
+			t.Fatalf("the folded entries must keep each value paired with its own evidence, missing %q:\n%s", want, fence)
+		}
+	}
+	if strings.Contains(fence, "112.011/107.672") {
+		t.Fatalf("distinct observations must not collapse into slash-separated values:\n%s", fence)
 	}
 	// Folded values appear exactly once (inside the note) — no sibling rows.
 	for _, v := range []string{"226.153", "112.011", "107.672"} {
@@ -184,8 +191,18 @@ func TestTraceProjectionIOFoldDetailTableMirrorAndChainAttachedKeepsWake(t *test
 	// PTV4 T10: the caliber-note and relation mirrors live in the (b) vertical
 	// lossless blocks (the (a) key table carries the duration quad only).
 	full := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(full, "同段IO口径: 同段IO另有 完成端到端·IO突发（io_burst_episode） 226.153ms、调度等待·iowait（io_wait） 112.011/107.672ms 等口径") {
-		t.Fatalf("the lossless surface must mirror the caliber note on the primary block:\n%s", full)
+	for _, want := range []string{
+		"同线程IO证据: 同线程IO证据组",
+		"完成端到端·IO突发（io_burst_episode） 226.153ms [E2]",
+		"调度等待·iowait（io_wait） 112.011ms [E3]",
+		"调度等待·iowait（io_wait） 107.672ms [E4]",
+	} {
+		if !strings.Contains(full, want) {
+			t.Fatalf("the lossless surface must mirror each independent entry, missing %q:\n%s", want, full)
+		}
+	}
+	if strings.Contains(full, "112.011/107.672") {
+		t.Fatalf("the lossless surface must not combine independent values:\n%s", full)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关系 ▸ 影响点: 唤醒 ▸ … → split "- 关系: 唤醒 <parent>" line (明细块)
 	if !strings.Contains(full, "- 关系: 唤醒 main-21538") {
@@ -238,7 +255,7 @@ func TestTraceProjectionIOFoldNegativeShapes(t *testing.T) {
 		},
 	}
 	fence := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(distinct, nil, true), true)
-	if strings.Contains(fence, "同段IO另有") {
+	if strings.Contains(fence, "同线程IO证据组") {
 		t.Fatalf("different subjects must not fold:\n%s", fence)
 	}
 	for _, v := range []string{"50.000", "40.000"} {
@@ -255,7 +272,7 @@ func TestTraceProjectionIOFoldNegativeShapes(t *testing.T) {
 		},
 	}
 	fence = runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(disjoint, nil, true), true)
-	if strings.Contains(fence, "同段IO另有") {
+	if strings.Contains(fence, "同线程IO证据组") {
 		t.Fatalf("non-overlapping intervals must not fold:\n%s", fence)
 	}
 	// A member without a valid line interval vetoes the whole group.
@@ -267,7 +284,7 @@ func TestTraceProjectionIOFoldNegativeShapes(t *testing.T) {
 		},
 	}
 	fence = runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(noInterval, nil, true), true)
-	if strings.Contains(fence, "同段IO另有") {
+	if strings.Contains(fence, "同线程IO证据组") {
 		t.Fatalf("a missing line interval must veto the fold (fail closed):\n%s", fence)
 	}
 	// Non-IO tokens never enter the fold set.
@@ -279,7 +296,7 @@ func TestTraceProjectionIOFoldNegativeShapes(t *testing.T) {
 		},
 	}
 	fence = runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(nonIO, nil, true), true)
-	if strings.Contains(fence, "同段IO另有") {
+	if strings.Contains(fence, "同线程IO证据组") {
 		t.Fatalf("non-IO tokens must not fold:\n%s", fence)
 	}
 }
@@ -318,7 +335,7 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if strings.Contains(fence, "同段IO另有") {
+	if strings.Contains(fence, "同线程IO证据组") {
 		t.Fatalf("cross-lane calibers must NOT fold:\n%s", fence)
 	}
 	if !strings.Contains(fence, "112.011") || !strings.Contains(fence, "232.428") {
@@ -347,7 +364,8 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 		depthless("io-own-wait", "io_wait", 107.672, 1250, 1750))
 	model = buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence = runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "同段IO另有 调度等待·iowait（io_wait） 107.672ms 等口径;证据 [E4]") {
+	folded := strings.NewReplacer("\n", "", "│", "", "┃", "", " ", "").Replace(fence)
+	if !strings.Contains(folded, "同线程IO证据组调度等待·iowait（io_wait）107.672ms[E4]") {
 		t.Fatalf("same-lane depthless calibers must keep folding:\n%s", fence)
 	}
 	if !strings.Contains(fence, "112.011") {
@@ -646,7 +664,7 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkOverWindowShare:          {"250%", "250%"},
 		runtimeTraceProjMarkWholeWindowIdle:          {"整窗等待", "whole-window wait"},
 		runtimeTraceProjMarkInheritedAttribution:     {"承自归因", "inherited attribution"},
-		runtimeTraceProjMarkIOCaliberNote:            {"同段IO另有", "same-segment IO also measured"},
+		runtimeTraceProjMarkIOCaliberNote:            {"同线程IO证据组", "same-thread IO evidence group"},
 		runtimeTraceProjMarkPeriodicSource:           {"周期性信号源", "periodic signal source"},
 		runtimeTraceProjMarkAdjacentStanza:           {"◇", "◇"},
 		runtimeTraceProjMarkBackgroundStanza:         {"▒", "▒"},

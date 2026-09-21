@@ -1443,3 +1443,17 @@ C仅一行源码更正，真实make test通过、隔离和原仓保护正确；r
 只替换成文末端中英两句为显式“若/If 完整D/IO状态清单为零”：仅该集合无匹配D/io_wait或内核IO标记S段；不表示blocked-reason、Binder或独立IO完成闭合等待清单为空。缺失/不可用不等于零；原有不由S推主动休眠、系统调用或具体机理的保护保留。未新增段落、gate、schema、计数、模型结论或因果资格。
 
 真实H4 attachment→公开TraceQuery→BuildAgentContext→实际final instruction中英先红后绿；`/tmp/codrax-h4-absence.EXGySS/RED-public-valid.log`正式exit1，三域共存见证先过，失败确为旧措辞；更早三次harness因缺SourceQuote未获范围资格，不计有效RED。末版46项`GREEN-focused-freeze.log`exit0（agent5.097s），同46项`GREEN-race-freeze.log`exit0（agent34.037s）；非零/缺清单/不可用/全缺数据、既有S机制及completion IO/Binder边界保留，源观察/投影/模型文档不变。主线独立只读复核通过，整包/统一全仓在下一冻结批验收；不借85ca全仓签此后改动。
+
+已独立提交`5f7b827a9`，待下一冻结批全仓与推送。
+
+## 58. IO定位分组保每条证据自己的范围（2026-09-20，施工验收中）
+
+§47.1 IO显示片已按公开入口复现：真实业务fixture经`TraceQuery.Execute`的两个查询窗、四个视图进入观察账本，再经`ApplyAndPersistMutation`和最终renderer；中英×改名四形均实际命中旧“同段IO/same-segment”错误关系措辞。`/tmp/io-fold-scope-public-red.log`正式exit1（tool1.624s）。定位包络连通A∩B/B∩C不能证明A/C相交，更不能证明是同一个IO请求。参考`marker_ops.py:548–620`先按线程取检索包络、再逐节点与真实状态段求交，`window_utils.py:22–29`逐段裁剪；本仓显示分组不能替代这些成员级凭证。
+
+实施范围仅tool私有显示载体和说明：保原分组、席位选择、数值/口径、排名、行数容量及链资格；改称同线程IO证据组，不称同次请求或全成员物理重叠。每条成员独立显示值/口径/[E#]/自身定位范围/自身查询范围，缺失或非法范围不借主行，非墙钟计数/评分不改成毫秒。私有来源保深拷贝，不把它铸成IO身份或新公开schema。旧斜线值组与末尾无配对引用退役，图例/明细同步；实际关系、事件、数字均不由系统补造。
+
+现行public pipeline已有artifact分区，不把手工跨采集拼projection冒充生产漏洞；多采集正向隔离和多成员信息可达性仍须验。完整定向/race/全仓及新干净双例收据待补。该子片不能代销业务正文35ms遗漏、未证→否定、XERR成员凭证或HMC父项。
+
+末版新增公开/传递包络/私有范围/源深拷贝/跨采集/40成员容量针`/tmp/codrax-io-fold-scope.pEObiN/GREEN-final-public.log`正式exit0（tool3.061s）；三节点原始RED为同目录`RED-transitive.log`。真实公开输出按原生record.ID映射引用，期望值/定位/查询均取原始record而非新增peer自证；中英×改名各形保tuple，整组确有peer与主行不同查询窗的见证。40成员为明确标注的合成projection→tree/完整明细→最终Markdown容量针，不冒称公开工具端到端。原47ms原生请求口径、复合评分非墙钟、分家族计量、链车道和rank席保护仍单列回归。主线逐行复审通过；生产冻结并启动覆盖§57–58的统一末版全仓。
+
+下一固定双例优先两份旧人工FAIL：业务完整响应/IO链 + 明确2.000..2.020窗的多跳D/IO。前者检验组合/各把尺/业务线索，后者保护精确窗口/真正唤醒端点/所有链上状态/投影和必选旁路；一个干净新二进制2并行×1，不以机器regex替代人审，不改案例/oracle。

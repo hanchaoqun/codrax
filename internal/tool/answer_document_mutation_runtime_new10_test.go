@@ -134,9 +134,9 @@ func TestTraceProjectionNew10CaliberNoteWrapsToContinuationLine(t *testing.T) {
 	for _, zh := range []bool{true, false} {
 		model := buildRuntimeTraceProjTreeModel(revisit76IOProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
 		fence := runtimeTraceProjTreeFence(model, zh)
-		marker := "· 同段IO另有"
+		marker := "· 同线程IO证据组"
 		if !zh {
-			marker = "· same-segment IO also measured"
+			marker = "· same-thread IO evidence group"
 		}
 		if !strings.Contains(fence, marker) {
 			t.Fatalf("zh=%v: over-wide caliber note must move to a ↳ continuation line:\n%s", zh, fence)
@@ -145,7 +145,7 @@ func TestTraceProjectionNew10CaliberNoteWrapsToContinuationLine(t *testing.T) {
 			if !strings.Contains(line, "232.428") {
 				continue
 			}
-			if strings.Contains(line, "同段IO另有") || strings.Contains(line, "same-segment IO also measured") {
+			if strings.Contains(line, "同线程IO证据组") || strings.Contains(line, "same-thread IO evidence group") {
 				t.Fatalf("zh=%v: the main carrier row must no longer hold the over-wide note inline:\n%s", zh, line)
 			}
 			if w := runewidth.StringWidth(line); w > runtimeTraceProjTreeRowMaxWidth {

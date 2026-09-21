@@ -334,13 +334,11 @@ type runtimeTraceProjTreeRow struct {
 	// rows swap the bare 中转 token for the named 用户关注线程(中转) token.
 	// Display-only; never a sort or gate input.
 	UserFocusForced bool
-	// IOFoldPeers carries the same-subject same-segment IO caliber rows folded
-	// into this primary row (NEW-3, §7.6 对比场景客户回访 2026-07-04): one
-	// underlying IO burst published as several near-equal calibers
-	// (io_burst_episode + io_wait over overlapping line spans) rendered as four
-	// sibling rows. The peers render as one load-bearing caliber note on this
-	// row — values + evidence ids all kept; the underlying observations and
-	// projection buckets are untouched (display grouping only).
+	// IOFoldPeers carries same-subject IO evidence grouped compactly by
+	// connected locator ranges. Connectivity does not prove one IO occurrence
+	// or even pairwise overlap. Each peer retains its own value, ruler,
+	// evidence and measurement ranges in the load-bearing note; observations
+	// and projection buckets are untouched (display grouping only).
 	IOFoldPeers []runtimeTraceProjIOFoldPeer
 	// RankFoldPeers carries the same-segment RANK-lane row(s) folded into this
 	// chain-lane row (§21/§22 RNB R2, 2026-07-07): the engine publishes ONE
@@ -665,13 +663,17 @@ type runtimeTraceProjBranchTwinFoldPeer struct {
 	EffectiveImpactMS float64
 }
 
-// runtimeTraceProjIOFoldPeer is one folded same-segment IO caliber: the raw
-// typed token, its display impact WITH ruler, and its registered evidence tag.
+// runtimeTraceProjIOFoldPeer is one compactly grouped IO observation. Its
+// value, ruler and evidence stay paired with its OWN locator/query ranges,
+// never the seat's ranges. Origins remain source receipts, not IO identity.
 type runtimeTraceProjIOFoldPeer struct {
-	Token       string
-	ImpactMS    float64
-	Caliber     runtimeTraceProjIOFoldCaliber
-	EvidenceTag string
+	Token                                string
+	ImpactMS                             float64
+	Caliber                              runtimeTraceProjIOFoldCaliber
+	EvidenceTag                          string
+	StartTs, EndTs                       float64
+	QueryWindowStartTs, QueryWindowEndTs float64
+	MeasurementOrigins                   []types.TraceSchedulerMeasurementOrigin
 	// Engine family measurements are a separate population from this display
 	// fold. Their ruler must survive when the peer loses its independent row.
 	FamilyMemberCount int
@@ -979,7 +981,7 @@ const (
 	runtimeTraceProjMarkOverWindowShare                                       // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
 	runtimeTraceProjMarkWholeWindowIdle                                       // 整窗等待 whole-window idle annotation (PTV4 T4)
 	runtimeTraceProjMarkInheritedAttribution                                  // 承自归因 inherited-attribution annotation (PTV4 T4)
-	runtimeTraceProjMarkIOCaliberNote                                         // NEW-3 同段IO另有…口径 note
+	runtimeTraceProjMarkIOCaliberNote                                         // NEW-3 同线程IO证据组 note
 	runtimeTraceProjMarkPeriodicSource                                        // VS-1 周期性信号源 tag
 	runtimeTraceProjMarkAdjacentStanza                                        // ◇ 邻近 stanza
 	runtimeTraceProjMarkBackgroundStanza                                      // ▒ 背景压力 stanza
@@ -1982,8 +1984,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `构成,见明细` = 该数值为多分量构成(runnable(全额)+running(折算)),非单一口径;各分量口径与拆解见该行「有效归因 V = …」分解行或明细块。",
 			"- `composite, see the detail blocks` = the value is a multi-component composite (runnable in full + discounted running), not one single caliber; per-component calibers and the split live on the row's attribution breakdown line or its detail block."},
 		{runtimeTraceProjMarkIOCaliberNote, runtimeTraceProjLegendGroupCaliber,
-			"- `同段IO另有…等口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因;席行数值=最大墙钟成员自值(下界),家族总量见成员行。",
-			"- `same-segment IO also measured …` / `same-segment IO also reports …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted; ranking impact is not measured request duration; the seat value is the largest wall-clock member's own value (a lower bound) — the family total lives on the member lines."},
+			"- `同线程IO证据组 …` = 仅为同线程观测的紧凑分组,不证明同一次IO或所有成员物理重叠;每项保留自己的数值、口径、证据、定位范围与查询范围,不能直接相加;排序影响不是实测耗时;席行数值仍为最大墙钟成员自值,不是组总量。",
+			"- `same-thread IO evidence group …` = compact observations from the same thread, not proof of one IO occurrence or all-member physical overlap; each item keeps its own value, ruler, evidence, locator range and query range and cannot be directly added; ranking impact is not measured duration; the seat value remains the largest wall-clock member's own value, not a group total."},
 		{runtimeTraceProjMarkPeriodicSource, runtimeTraceProjLegendGroupCaliber,
 			"- `周期性信号源` = 该行是固定周期的信号发生器,期内睡眠(或 D 态定时等待,行内标注 caller)为正常节拍;有效归因只计 runnable 与信号迟到量,窗口投影保留原始值;消除杠杆=让周期源准时触发/完成(迟到量)与其就绪等待的调度(runnable),非泛指修 IO/依赖。",
 			"- `periodic signal source` = this row is a fixed-period signal generator; in-period sleep (or a D-state timer wait — the row names its caller) is normal cadence. Attribution counts only runnable plus signal lateness; the window projection keeps the raw value. Elimination lever = make the periodic source fire/complete ON TIME (the lateness) plus the ready-wait's scheduling (the runnable) — not a generic IO/dependency fix."},
@@ -3452,19 +3454,19 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// 一行」 promise family. The double-seat merge itself stays CR-2 P5 —
 	// only the proof fields sync (one physical set of segments, one proof).
 	runtimeTraceProjPropagateDStateProofToTwins(chainNodes)
-	// NEW-3 (§7.6 回访): fold same-subject same-segment IO calibers into their
+	// NEW-3 (§7.6 回访): group same-subject IO observations into their
 	// max-impact row BEFORE the subject buckets are built, so the peers never
 	// mint sibling tree rows or same-subject cause rows. The fold map is
 	// re-attached to the surviving primary's row after flatten (its row Kind —
 	// self or tree — is only known then).
 	chainNodes, ioFoldPeers := runtimeTraceProjFoldSameSubjectIONodes(chainNodes)
 	// WO-N1 (SMR-1 批 SMR-S13, smr_audit_report §②, 2026-07-12): the NEW-3
-	// same-segment IO fold reaches the ◇/▒ direct-mint lanes too — critical
+	// compact IO evidence grouping reaches the ◇/▒ direct-mint lanes too — critical
 	// rows minted straight into the adjacent/background stanzas escaped the
 	// chainNodes-only fold (8411 witness: ▒ E23 io family beside ▒ E24 whose
-	// wall clock sits inside it, additive read ≈4.23ms double-count). Per-lane
+	// locator sits inside its envelope; that alone proves no physical overlap). Per-lane
 	// fold only (chain↔stanza pairs stay the D3 mutual-tag arm's business);
-	// the wall-clock connectivity gate (see runtimeTraceProjIOOverlapComponents)
+	// locator connectivity (see runtimeTraceProjIOOverlapComponents)
 	// keeps the disjoint E25 shape独立行 by construction.
 	if len(adjacentCauses) > 1 {
 		var peers map[string][]types.TraceCausalProjectionNode
@@ -6030,7 +6032,7 @@ func runtimeTraceProjNodeDemotedToBackground(node types.TraceCausalProjectionNod
 	return node.ChainDepth <= 0 || node.ChainDepth > trunkLen
 }
 
-// --- NEW-3 same-subject same-segment IO caliber fold (§7.6 回访 2026-07-04) ---
+// --- NEW-3 same-subject IO evidence display grouping (§7.6, 2026-07-04) ---
 
 // runtimeTraceProjSameSegmentIOToken reports whether the node carries one of
 // the typed IO caliber tokens of the fold set. Exact match on the
@@ -6090,21 +6092,16 @@ func runtimeTraceProjIOFacetLayerWord(token string, zh bool) string {
 	return ""
 }
 
-// runtimeTraceProjFoldSameSubjectIONodes implements the NEW-3 display grouping
-// (对比场景客户回访 2026-07-04, §7.6): the SAME thread subject
-// (com.xs.fm.lite-21538) published one IO segment through several calibers —
-// io_burst_episode 232.428/226.153ms + io_wait 112.011/107.672ms, heavily
-// overlapping line spans, near-equal but NOT equal values (so the V4
-// exact-value dedup correctly does not fire) — and the tree showed four
-// sibling IO rows for one burst. Rows with the same canonical subject, a typed
-// IO caliber token and PAIRWISE-overlapping line intervals fold into the
-// max-impact row; the folded calibers surface as a load-bearing note on that
-// primary row with every evidence id kept (the caller registers each folded
-// node on the evidence index). Precise signals only: verbatim canonical
-// subject + typed token set + interval-overlap booleans. A group member
-// without a valid line interval, or any non-overlapping pair, keeps the whole
-// group unfolded (fail closed). Display grouping only — the underlying
-// observations and the projection buckets are untouched.
+// runtimeTraceProjFoldSameSubjectIONodes implements compact display grouping
+// of same-subject IO observations. Connected StartTs/EndTs locator ranges
+// select the group, not a shared request/occurrence identity: A can intersect
+// B and B intersect C while A/C are disjoint. The largest wall-clock facet
+// holds the existing seat; each unranked peer keeps its own value, ruler,
+// evidence and ranges in the load-bearing note. Missing locator ranges do
+// not join a component. Observations, projection buckets, ranks and causal
+// eligibility remain untouched. Historical "same-segment" terminology and
+// pairwise line-overlap descriptions are retired; no physical claim follows
+// from this display grouping.
 //
 // F-1 (§7.6 回访聚焦复核 2026-07-04): the group key carries the CHAIN LANE, not
 // just the canonical subject. A chain-ATTACHED caliber row (resolved
@@ -6154,10 +6151,9 @@ func runtimeTraceProjFoldSameSubjectIONodes(nodes []types.TraceCausalProjectionN
 		// the all-pairs overlap gate a GROUP-level veto — one same-subject
 		// page_cache_churn member elsewhere in the window vetoed the whole
 		// group and revived the 64414 flat-row disease. The fold now works
-		// per overlap CONNECTED COMPONENT (interval-union connectivity, the
-		// same 同段 notion as the ◇ engine fold): the veto shrinks to "not in
-		// this component". Fail-closed arms preserved — a member without a
-		// valid line interval joins no component and keeps its own row.
+		// per locator-overlap CONNECTED COMPONENT: the veto shrinks to "not
+		// in this component". This is display density, not physical identity.
+		// A member without valid time bounds keeps its own row.
 		for _, members := range runtimeTraceProjIOOverlapComponents(nodes, candidates) {
 			if len(members) < 2 {
 				continue
@@ -6241,18 +6237,19 @@ func runtimeTraceProjChainLane(node types.TraceCausalProjectionNode) int {
 // runtimeTraceProjIOOverlapComponents — 修复轮 P2-2 (2026-07-12; EVOLUTION
 // RECORD: supersedes the NEW-3 all-pairs gate runtimeTraceProjIOMembers-
 // PairwiseOverlap, whose group-level veto let one distant member unfold the
-// whole family): partitions a candidate set into overlap CONNECTED COMPONENTS
-// (interval-union connectivity — the same 同段 notion as the ◇ engine fold);
-// each component of size ≥2 folds independently.
+// whole family): partitions locator ranges into overlap CONNECTED COMPONENTS;
+// each component of size ≥2 groups independently for display. Connectivity
+// is not pairwise overlap, one IO occurrence, or a numeric union operation.
 //
 // EVOLUTION RECORD (WO-N1, SMR-1 批 SMR-S13, smr_audit_report §②,
-// 2026-07-12): the connectivity edge is now the members' WALL-CLOCK segment
-// overlap (typed StartTs/EndTs), never row-number/line-interval containment —
+// 2026-07-12): the connectivity edge uses typed StartTs/EndTs locator overlap,
+// never row-number/line-interval containment —
 // 席位行号包络连通判被禁 (the vnote 实锤: an ×N family row's LINE envelope
 // 4600–15029 swallowed the wall-clock-DISJOINT E25 at lines 13814–14292 in
 // row-number space; 56643 E10 stamped 2.411 as「同段」the same way). A member
-// without a valid wall-clock interval joins NO component (fail-closed: it
-// keeps its own row — absence never proves 同段). E25-class disjoint members
+// without valid time bounds joins NO component (it keeps its own row).
+// Historical same-physical-segment readings of this edge are retired.
+// E25-class disjoint members
 // therefore stay independent rows by construction (保留独立行).
 func runtimeTraceProjIOOverlapComponents(nodes []types.TraceCausalProjectionNode, candidates []int) [][]int {
 	var valid []int
@@ -6290,136 +6287,60 @@ func runtimeTraceProjIOOverlapComponents(nodes []types.TraceCausalProjectionNode
 	return components
 }
 
-// runtimeTraceProjIOFoldNoteText renders the NEW-3 caliber note carried by the
-// fold's primary row: folded values grouped per raw token in first-appearance
-// order, plus every folded evidence tag ("同段IO另有 io_wait
-// 112.011/107.672ms、io_burst_episode 226.153ms 口径;证据 E3、E4、E5"). The
-// note is the folded rows' only remaining display carrier, so callers must
-// treat it as load-bearing (never elided).
+// runtimeTraceProjIOFoldNoteText keeps each peer's value, ruler, evidence and
+// ranges together. This note is the folded observations' load-bearing display
+// carrier: do not elide members or merge their values into an unpaired list.
 func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool) string {
-	type groupKey struct {
-		token             string
-		caliber           runtimeTraceProjIOFoldCaliber
-		familyMeasurement string
-	}
-	type tokenGroup struct {
-		groupKey
-		values []string
-	}
-	var groups []tokenGroup
-	index := map[groupKey]int{}
-	var tags []string
-	lang := "en"
+	lang, leader, separator := "en", "same-thread IO evidence group ", ", "
 	if zh {
-		lang = "zh"
+		lang, leader, separator = "zh", "同线程IO证据组 ", "、"
 	}
+	parts := make([]string, 0, len(peers))
 	for _, peer := range peers {
-		// A native duration can still be a union or a conservative maximum.
-		// Do not collapse these distinct rulers into one slash-separated value
-		// group. The shared formatter leaves single-record output unchanged.
-		key := groupKey{
-			token: strings.TrimSpace(peer.Token), caliber: peer.Caliber,
-			familyMeasurement: types.FormatTraceFamilyMeasurement(peer.FamilyMemberCount, peer.FamilyMemberMaxMS, peer.FamilyFoldCaliber, lang),
-		}
-		i, ok := index[key]
-		if !ok {
-			i = len(groups)
-			index[key] = i
-			groups = append(groups, tokenGroup{groupKey: key})
-		}
-		groups[i].values = append(groups[i].values, fmt.Sprintf("%.3f", peer.ImpactMS))
-		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
-			tags = append(tags, tag)
-		}
-	}
-	parts := make([]string, 0, len(groups))
-	for _, g := range groups {
-		appendPart := func(part string) {
-			if g.familyMeasurement != "" {
-				part += " (" + g.familyMeasurement + ")"
-			}
-			parts = append(parts, part)
-		}
-		token := g.token
+		token := strings.TrimSpace(peer.Token)
 		if zh {
-			// PTV5 C09/C16 (#68): the zh tree face speaks the D4 combined form
-			// label（raw_token） — the typelabels table already maps the IO
-			// caliber tokens (io_wait→iowait, io_burst_episode→IO突发, …); the
-			// raw token stays inline for audit fidelity, unmapped tokens pass
-			// through verbatim. PTV7 (#74): a label equal to its raw token
-			// collapses to the bare token (same rule as the D4 narrative lane).
-			if label := runtimeTraceRootCauseTypeZHLabel(g.token); label != "" && label != g.token {
-				token = label + "（" + g.token + "）"
+			if label := runtimeTraceRootCauseTypeZHLabel(token); label != "" && label != token {
+				token = label + "（" + token + "）"
 			}
 		}
-		// IOFAM-SELF (件② §29.47.4①, 2026-07-12): the roster is LAYERED — each
-		// member wears its measuring-layer word (调度等待/完成端到端/块设备层/
-		// 页缓存层), and non-wall-clock members never print bare ms: the
-		// composite score wears 「(综合评分,非墙钟)」 (微词面① 2026-07-12:
-		// 「分数」首读 fraction 歧义), the count facet wears the
-		// 计数当量 family word (both from the SHARED registry caliber arm).
-		if layer := runtimeTraceProjIOFoldLayerWord(g.token, g.caliber, zh); layer != "" {
+		if layer := runtimeTraceProjIOFoldLayerWord(peer.Token, peer.Caliber, zh); layer != "" {
 			token = layer + "·" + token
 		}
-		values := strings.Join(g.values, "/")
-		switch tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(strings.ToLower(g.token))) {
+		value := fmt.Sprintf("%.3f", peer.ImpactMS)
+		switch tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(strings.ToLower(peer.Token))) {
 		case tracequery.CausalCaliberSideCompositeScore:
 			if zh {
-				appendPart(strings.TrimSpace(token + " " + values + "(综合评分,非墙钟)"))
+				value += "(综合评分,非墙钟)"
 			} else {
-				appendPart(strings.TrimSpace(token + " " + values + " (score, not wall clock)"))
+				value += " (score, not wall clock)"
 			}
-			continue
 		case tracequery.CausalCaliberSideCount:
 			if zh {
-				appendPart(strings.TrimSpace(token + " 计数当量" + values + "(非墙钟)"))
+				value = "计数当量" + value + "(非墙钟)"
 			} else {
-				appendPart(strings.TrimSpace(token + " 计数当量" + values + " (count-equivalent, not wall clock)"))
+				value += " (count-equivalent, not wall clock)"
 			}
-			continue
-		}
-		suffix := "ms"
-		if g.caliber == runtimeTraceProjIOFoldRankImpact {
-			if zh {
-				suffix += "（非实测耗时）"
-			} else {
-				suffix += " (not measured duration)"
+		default:
+			value += "ms"
+			if peer.Caliber == runtimeTraceProjIOFoldRankImpact {
+				if zh {
+					value += "（非实测耗时）"
+				} else {
+					value += " (not measured duration)"
+				}
 			}
 		}
-		appendPart(strings.TrimSpace(token + " " + values + suffix))
-	}
-	// Catalog B12 (DISPLAY-HYG 二轮, §29.104.18.1, 2026-07-17): the evidence
-	// pointer tail wears the document-wide bracket style ([E33]、[E35(+1)])
-	// — the former bare 「证据 E33」 was the report's only unbracketed E#
-	// face (引用双风格), and a bare tail orphaned at a wrap boundary loses
-	// its reference identity; the bracket form is the self-contained wrap
-	// atom the 件①(d) E#-ref fusion already protects.
-	refs := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		refs = append(refs, "["+tag+"]")
-	}
-	if zh {
-		// 微词面② (用户裁定 2026-07-12): the trailing 「口径」 dangled like a
-		// broken sentence after a T3 wrap — 「等口径」 reads whole on its own
-		// line (minimal change; the legend entry stays the semantics home).
-		text := "同段IO另有 " + strings.Join(parts, "、") + " 等口径"
-		if len(refs) > 0 {
-			text += ";证据 " + strings.Join(refs, "、")
+		part := token + " " + value
+		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
+			part += " [" + tag + "]"
 		}
-		return text
-	}
-	leader := "same-segment IO also measured "
-	for _, peer := range peers {
-		if peer.Caliber == runtimeTraceProjIOFoldRankImpact {
-			leader = "same-segment IO also reports "
-			break
+		part += " " + runtimeTraceProjIOFoldScopeText(peer, zh)
+		if family := types.FormatTraceFamilyMeasurement(peer.FamilyMemberCount, peer.FamilyMemberMaxMS, peer.FamilyFoldCaliber, lang); family != "" {
+			part += " (" + family + ")"
 		}
+		parts = append(parts, part)
 	}
-	text := leader + strings.Join(parts, ", ")
-	if len(refs) > 0 {
-		text += "; evidence " + strings.Join(refs, ", ")
-	}
-	return text
+	return leader + strings.Join(parts, separator)
 }
 
 // --- RNB R2 same-segment two-lane fold (§21/§22, 2026-07-07) --------------------
@@ -15017,7 +14938,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
 		}
 	}
-	// NEW-3: the folded same-segment IO calibers' values and evidence tags live
+	// NEW-3: compact IO peers' values, evidence tags and own ranges live
 	// ONLY on this note (plus the evidence index) — load-bearing, never elided;
 	// demotes intact to a subordinate line on width pressure.
 	if len(row.IOFoldPeers) > 0 {
@@ -20089,7 +20010,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			add("重复发布", "duplicate publications", dup)
 		}
 		if len(row.IOFoldPeers) > 0 {
-			add("同段IO口径", "same-segment IO calibers", runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh)))
+			add("同线程IO证据", "same-thread IO evidence", runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh)))
 		}
 		// PTV8-RCR-A (§24.2). EVOLUTION RECORD: the RNB R2 同段rank行 mirror
 		// line is RETIRED — the folded rank row's seat/confidence/E# live on

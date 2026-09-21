@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"fmt"
+	"math"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -30,6 +32,9 @@ func runtimeTraceProjNewIOFoldPeer(node types.TraceCausalProjectionNode, evidenc
 		FamilyMemberCount: node.FamilyMemberCount,
 		FamilyMemberMaxMS: node.FamilyMemberMaxMS,
 		FamilyFoldCaliber: node.FamilyFoldCaliber,
+		StartTs:           node.StartTs, EndTs: node.EndTs,
+		QueryWindowStartTs: node.QueryWindowStartTs, QueryWindowEndTs: node.QueryWindowEndTs,
+		MeasurementOrigins: types.CloneTraceSchedulerMeasurementOrigins(node.MeasurementOrigins),
 	}
 	// Existing score/count family disclosures remain authoritative and must
 	// not be replaced by a millisecond label, even for rank publications.
@@ -56,6 +61,23 @@ func runtimeTraceProjNewIOFoldPeer(node types.TraceCausalProjectionNode, evidenc
 		peer.Caliber = runtimeTraceProjIOFoldActual
 	}
 	return peer
+}
+
+// Only this peer's published endpoints may describe its measurement. A
+// locator can be an envelope; neither it nor the query identifies a request
+// or proves a continuous occurrence. Missing ranges never borrow the seat.
+func runtimeTraceProjIOFoldScopeText(peer runtimeTraceProjIOFoldPeer, zh bool) string {
+	locator, query, unpublished := "locator range", "query range", " unpublished"
+	if zh {
+		locator, query, unpublished = "定位范围", "查询范围", "未发布"
+	}
+	rangeText := func(label string, start, end float64) string {
+		if !types.TraceCausalProjectionWindowPresent(start, end) || math.IsInf(start, 0) || math.IsInf(end, 0) || math.IsNaN(start) || math.IsNaN(end) {
+			return label + unpublished
+		}
+		return fmt.Sprintf("%s %.6f–%.6fs", label, start, end)
+	}
+	return "(" + rangeText(locator, peer.StartTs, peer.EndTs) + "; " + rangeText(query, peer.QueryWindowStartTs, peer.QueryWindowEndTs) + ")"
 }
 
 func runtimeTraceProjIOFoldLayerWord(token string, caliber runtimeTraceProjIOFoldCaliber, zh bool) string {

@@ -10,8 +10,8 @@ import (
 
 // answer_document_projection_iofam_self_test.go — IOFAM-SELF pins (CAL-1 件②,
 // ledger §29.39② + §29.47.4①, 2026-07-12): the self/on-chain lane's IO facet
-// rows of ONE physical IO episode (interval-connected) collapse into ONE
-// family seat — the 64414 witness rendered five flat rows (io_latency 3.670 /
+// rows connected by locator overlap collapse into ONE display seat without
+// claiming one physical IO episode — the 64414 witness rendered five flat rows (io_latency 3.670 /
 // block_io 2.694+2.116 / io_wait 1.347+1.248) with THREE ➊. Post-fix: the
 // wall-clock lead holds the single seat, members ride the LAYERED roster
 // (调度等待/完成端到端/块设备层), the composite score never prints bare ms on
@@ -92,11 +92,19 @@ func TestIOFAMSelfFiveFacetsOneSeatLayeredRoster(t *testing.T) {
 	// T3-wrap at atom boundaries, so the pins run over the whitespace-folded
 	// fence (rail/indent bytes removed).
 	folded := strings.NewReplacer("\n", "", "│", "", " ", "").Replace(fence)
-	if !strings.Contains(folded, "块设备层·块设备IO(inode)（block_io_by_inode）2.694/2.116(综合评分,非墙钟)") {
-		t.Fatalf("the composite members must ride the 块设备层 roster with the 分数,非墙钟 disclosure:\n%s", fence)
+	for _, want := range []string{
+		"同线程IO证据组",
+		"块设备层·块设备IO(inode)（block_io_by_inode）2.694(综合评分,非墙钟)[E2]",
+		"块设备层·块设备IO(inode)（block_io_by_inode）2.116(综合评分,非墙钟)[E3]",
+		"调度等待·iowait（io_wait）1.347ms[E4]",
+		"调度等待·iowait（io_wait）1.248ms[E5]",
+	} {
+		if !strings.Contains(folded, want) {
+			t.Fatalf("each layered member must retain its own value, unit and evidence pointer, missing %q:\n%s", want, fence)
+		}
 	}
-	if !strings.Contains(folded, "调度等待·iowait（io_wait）1.347/1.248ms") {
-		t.Fatalf("the io_wait members must ride the 调度等待 roster:\n%s", fence)
+	if strings.Contains(folded, "2.694/2.116") || strings.Contains(folded, "1.347/1.248") {
+		t.Fatalf("independent members must not collapse into slash-separated values:\n%s", fence)
 	}
 	// E# 并 merged_ids: the seat tag absorbs the four members.
 	if !strings.Contains(fence, "[E1(+4)]") {
@@ -131,7 +139,7 @@ func TestIOFAMSelfNonOverlappingMemberNoLongerVetoesGroup(t *testing.T) {
 	}
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
 	fence := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(projection, evidence, true), true)
-	if !strings.Contains(fence, "同段IO另有") || !strings.Contains(fence, "调度等待·iowait（io_wait） 1.347ms") {
+	if !strings.Contains(fence, "同线程IO证据组") || !strings.Contains(fence, "调度等待·iowait（io_wait） 1.347ms") {
 		t.Fatalf("the overlapping pair must still fold (component-scoped veto):\n%s", fence)
 	}
 	if got := strings.Count(fence, "1.347"); got != 1 {
@@ -159,7 +167,7 @@ func TestIOFAMSelfInvalidIntervalMemberStaysStandalone(t *testing.T) {
 		},
 	}
 	fence := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true), true)
-	if !strings.Contains(fence, "同段IO另有") {
+	if !strings.Contains(fence, "同线程IO证据组") {
 		t.Fatalf("the valid pair must fold beside an interval-less member:\n%s", fence)
 	}
 	if !strings.Contains(fence, "2.222") {
@@ -182,7 +190,7 @@ func TestIOFAMSelfCompositeOnlyGroupFailsOpen(t *testing.T) {
 		},
 	}
 	fence := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true), true)
-	if strings.Contains(fence, "同段IO另有") {
+	if strings.Contains(fence, "同线程IO证据组") {
 		t.Fatalf("a composite-only group must fail open (no wall-clock seat holder):\n%s", fence)
 	}
 	for _, v := range []string{"2.694", "2.116"} {

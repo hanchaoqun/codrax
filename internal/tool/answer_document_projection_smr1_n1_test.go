@@ -93,13 +93,16 @@ func TestSMR1N1BackgroundLaneFoldsInsideWallClockKeepsDisjoint(t *testing.T) {
 		t.Fatalf("the folded E24 caliber must ride the family's note carrier: %+v", family.IOFoldPeers)
 	}
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "同段IO另有") || !strings.Contains(fence, "4.262") {
+	if !strings.Contains(fence, "同线程IO证据组") || !strings.Contains(fence, "4.262") {
 		t.Fatalf("the ▒ face must carry the fold note with the absorbed caliber:\n%s", fence)
 	}
-	// 56643 E10 松动实锤: the disjoint 2.411 must NEVER be called 同段.
-	for _, line := range strings.Split(fence, "\n") {
-		if strings.Contains(line, "同段IO另有") && strings.Contains(line, "2.411") {
-			t.Fatalf("wall-clock-disjoint member stamped 同段 (banned row-number containment):\n%s", line)
+	// Inspect the complete note, not only its leader line: wrapping must not
+	// hide a disjoint observation later in the same evidence group.
+	for _, laneRows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
+		for _, row := range laneRows {
+			if note := runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, true); strings.Contains(note, "2.411") {
+				t.Fatalf("wall-clock-disjoint member entered the evidence group (banned row-number containment):\n%s", note)
+			}
 		}
 	}
 }

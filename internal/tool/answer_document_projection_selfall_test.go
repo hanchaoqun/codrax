@@ -299,9 +299,8 @@ func TestSelfAllFixRoundDonghuABWitness(t *testing.T) {
 		}
 	}
 	// F2: the overlap-proven io seat and the self-basis family render as
-	// SEPARATE self rows (mixed proof bases never fold), and the false 同段
-	// claim over the disjoint pair is gone — the 1.347 value never appears
-	// inside a 同段IO另有 note.
+	// SEPARATE self rows (mixed proof bases never fold); the disjoint 1.347
+	// observation must never enter a same-thread IO evidence-group note.
 	var overlapSeat, selfFamily bool
 	for _, row := range model.SelfRows {
 		token := runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)
@@ -318,10 +317,11 @@ func TestSelfAllFixRoundDonghuABWitness(t *testing.T) {
 	if !overlapSeat || !selfFamily {
 		t.Fatalf("F2 两把尺分行: overlap seat visible=%v, self-basis family visible=%v", overlapSeat, selfFamily)
 	}
-	fence := runtimeTraceProjTreeFence(model, true)
-	for _, line := range strings.Split(fence, "\n") {
-		if strings.Contains(line, "同段IO另有") && strings.Contains(line, "io_latency） 1.347") {
-			t.Fatalf("F2 同段词面: the disjoint overlap seat must not be claimed 同段 inside a fold note: %q", line)
+	for _, laneRows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
+		for _, row := range laneRows {
+			if note := runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, true); strings.Contains(note, "io_latency） 1.347") {
+				t.Fatalf("F2 proof-basis isolation: the disjoint overlap seat must not enter a fold note: %q", note)
+			}
 		}
 	}
 }
