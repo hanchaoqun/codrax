@@ -2346,7 +2346,7 @@ G1主审及独立人工均FAIL：三段D+IO、0.635ms、全捕获窗/目标/调�
 - [ ] §111分量身份只读设计核对完成：详细reader已有 `RootCauseNodeValueDescription`，state/compact两个出口仍缺归因量自己的类型/说明。下一片应在同一projection/node复用既有描述，保原始状态/测量/行身份和未知空描述，不重算或授根因。独立现状保护99556正式exit0（tracefinding0.544/agent1.310s），不是新缺口RED/GREEN。
 - [ ] §114标量legacy来源混淆、§104收益口径、§94局部补齐/容量、B2–B6及全部66父开放项继续按ROI推进。
 
-## 116. 成文教学与系统附录共用有效语言（2026-09-22，验收中）
+## 116. 成文教学与系统附录共用有效语言（2026-09-22，窄子片验收完成）
 
 前批代码`fd000269c`及收据`d82953c16`已推main，24923正式exit0，本地/远端一致后继续。稳定父账79=13+66不变。本片ROI在于同一个已证优先级错误影响等待、因果、补齐、频率、关系及日志附注等共用出口，修复面小且不碰证据资格，因此先于需要更多计量设计的分量身份片推进。
 
@@ -2359,3 +2359,25 @@ G1主审及独立人工均FAIL：三段D+IO、0.635ms、全捕获窗/目标/调�
 新增types别名/来源矩阵与agent实际BuildInitialInstruction保护25436正式exit0（types1.068/agent2.069s），在agent迁移前先通过，不冒称红针。首次GREEN97041正式exit1，仅旧wrapped external-frame测试在全空语言时仍要求中文系统前缀；精准迁移成en并加完整模型中文原文不变断言，没有改帧位置或repo引用边界。末版定向45670正式exit0（types1.119/agent1.479/tool2.275s）。末版全仓55996、race83651待收正式退出；未提前销账。
 
 范围不外推：deterministicCountAggregateLabel的语言参与派生aggregate身份，本片不顺手改；其它探索/修补提示和非中英翻译并未全域统一。§111分量身份、§114标量legacy来源、§104收益口径、B2–B6与旧人工FAIL继续开放。冻结双例计划仍严格2并行×1：G1有限等待检查实际系统附录语言＋显式20ms因果链保护投影和多类候选。前批Go实际apply已审，不冒称本批另跑写模式。
+
+末版定向race83651正式exit0（types2.781/agent15.776/tool21.206s）；独立定向17314正式exit0（types8.027/agent8.795/tool9.645s）、独立race31441正式exit0（types2.233/agent2.961/tool6.022s），包括枚举append/容量/row-ID及table边界。8项默认值和流保护43325正式exit0/llm4.235s，保600/300/600秒、4ms连续部分帧、visible/hidden/tool进展及更短调用方期限。
+
+首次全仓55996正式exit1，tool447.828s，`/tmp/hmc-language-authority-full-20260922.log`有145项顶层测试失败，不能被上述定向绿掩盖。原因是旧工具夹具遗漏项目语言却依赖中文，及双语夹具只写contract语言；与本片明确的project优先/全空en兼容变化冲突。逐项复核后12个测试文件只补显式语言输入和注释：公共夹具采用CLI实际默认zh，英语/双语场景显式en/lang；新nil/blank/off权威矩阵保独立上下文，不被中文helper污染。数字、证据、关系、容量、owner/model原文断言均不放松。独立静态审计PASS；扩9文件97顶层测试65082正式exit0/tool67.176s（含真实Trace A/B），原3文件49221正式exit0/tool66.360s。末版重跑全仓17639进行中，最终收据另记。
+
+干净生产构建40753正式exit0，revision`4f3206c8c655`/buildTime`2026-09-22T07:14:44Z`，用于下节唯一双例；之前未提交文档时构建96036并非live版本。此后仅测试夹具与文档变更，不将第二次全仓通过冒称已经取得，也不把本片语言修复扩成全部答案语义修复。
+
+第二次全仓17639正式exit1/tool411.648s，剩7项：三个对比表/下一步英语场景通过嵌套helper继承zh，却仅改contract；VSync附注、成员清单中文标点和两个脱离引用附注仍无语言。补6个文件中这些场景的显式语言，断言不改；残余7项58649正式exit0/tool1.197s。至此共18个测试文件输入迁移，首次/第二次失败记录均保留。迁移主体的增量race54067正式exit0（tool5.585/agent2.219/types3.033s）；7项末轮另复核。第三次全仓31168运行中，不以尚未完成的验证签收。
+
+最终收据：第三次全仓31168正式exit0，`/tmp/hmc-language-authority-full-final2-20260922.log`为87测试包、13无测试包、零FAIL，tool431.475s。残余7项race37413正式exit0/tool6.127s；18测试文件独立末审PASS、无断言放松，夹具提交`3ceb3b15e`。生产`30c0176ef`、兼容文档`4f3206c8c`、夹具及本次完整审计一并推送；不改§117双例人工FAIL，不减少66个父开放项。
+
+## 117. 4f320固定双例机器2/2、完整人工0/2（2026-09-22）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_language_authority_20260922.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_language_authority_20260922_manual_audit.md)。runner30328正式exit0，严格2并行×1；G1 148秒、causal389秒，无第三次追跑。稳定ID重数仍79=13已交付+66开放（58待实施、6部分实施、1待验收、1持续执行），历史FAIL不倒签。
+
+G1三段D+IO0.138/0.147/0.350ms与合计0.635ms、全捕获窗口、目标、原始调用点均保留。系统附录中文一致，但项目与contract此次都是zh，未live命中两者冲突，修复依据仍为公开8格RED/GREEN。完整人工仍FAIL：模型从调用点推导具体机理；把搜索返回40条/总匹配620条误写为捕获上限及Trace缺失；把实际零匹配的精确子串查询说成已验证完整D。原生全窗统计与最终交接足够，不能把全部错误归到系统缺材料，也不加答案关键词门。
+
+causal明确2..2.020窗、app S20ms、四节点及三条跨核唤醒、链上IO11ms和三个1ms低优先级依赖候选保留，因果投影存在。正文却虚构中间线程醒后再睡，把唤醒当Running（app真实切入2.020020在窗外），把cookie sleep17ms当直接传导量，并由调用点推页缓存对象/机理。最终schema2旁路available、模型选IO与cookie两项，首次漏版本经一次patch修复且五块正文未动；合法JSON不抵销description机理越权。系统§104“已证最大可消/11ms可消”及重复占用行也仍开放，不以模型问题遮盖。
+
+优先队列：①§111状态占用/归因分量身份（本批日志3722–3724、3737再次实证），及§114标量legacy来源校验；②§104未验证收益；③§94业务已接受实例局部补齐/容量恢复B；④声明/观测pair与B2–B6。新增待复现的源码适用域/完成条件接缝P1：两次accepted completion后因缺current_source重开，形成三轮/13次查询；最终同源交接却说明该义务soft、runtime_only_with_caveat=true、hard_block=false。先构造公开反例定位精确信号，不凭日志删除源码义务，不扩大观测为源码。模型机制越权与搜索/捕获误述独立留人工FAIL，不能称已证随机波动。
+
+独立完整causal审计同判FAIL，并定位旧策略至`accepted_closure_origin_debt.go:174–215`：CurrentSourceRequired即阻止waiver，尚不区分本例可降级soft与精确源码义务；调度/对账出口分别在`orchestrator.go:6433`与`accepted_closure_reconcile.go:91`。这是accepted之后未能自动完成，不是completion硬拒，也不是语言片回归。下一公开反例须保真正混合源码、precise要求和历史来源边界；不能把downgradable一律当免除。系统关键事实原始英文说明仍属本片明确未承诺的全域翻译债。
