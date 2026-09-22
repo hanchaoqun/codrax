@@ -2133,7 +2133,7 @@ causal本次分类终于保named目标、显式20ms窗及required causal，四qu
 - [ ] 容量恢复B：合法零起点被FirstTs>0漏具体建议，正起点建议的LastTs又包含预算触发但未保留事件；照抄该末端可再次拒绝。优先提供真实可执行的局部探测/流式出口，不称失败索引已完整覆盖，不简单改>=0或扩大cap。
 - [ ] P2 typed member_set承载提示与重复表；explicit time_end=0旧筛选边界、VSync/其它独立对象零值哨兵继续开放。§94业务局部补齐、原生pair/两尺同卡/B2–B6等父账仍13/79交付、66开放，不拿本片销父项。
 
-## 103. 等待计数与原始状态分量的显示标签统一（2026-09-21，实施验收中）
+## 103. 等待计数与原始状态分量的显示标签统一（2026-09-21，窄子片验收完成）
 
 §101–102代码与收据随`9534d71c6`已推送，session47768正式exit0，本地/远端相等后开始本片。前批完整人工0/2不改签；当前只处理已经确定的系统展示接缝，不改写模型叙述。
 
@@ -2147,6 +2147,8 @@ causal本次分类终于保named目标、显式20ms窗及required causal，四qu
 
 主席公开首次GREEN18549正式exit0/tool1.759s，末版race44083正式exit0/tool8.426s，日志`/tmp/hmc-wait-bucket-public-{green,race}-20260921.log`；5场景×2语言原生数据、发射附录、修补幂等全部通过。独立只读末审无阻塞，定向50833正式exit0；全仓18996和独立宽race1162继续等待，不提前签全量完成。冻结后固定G1英文整份工件IO清单＋H2中文明确窗口dma_fence纯D清单，2并行×1，检验语言/IO分支差异；不改oracle，不拿旧Go写模式PASS冒充本片live覆盖。
 
+末版收据现已齐：代码`4c47d56a1`；独立宽race1162正式exit0（tool23.233/tracefinding2.126/tracefence1.622s），统一全仓18996正式exit0，`/tmp/hmc-wait-bucket-full-20260921.log`为87测试包、13无测试包、零FAIL（tool452.220s）。干净构建92765正式exit0，revision4c47d56a1ec4/buildTime2026-09-22T01:30:15Z。活跃流/默认值55305正式exit0，8项/llm4.383s，600/300/600秒和4ms部分帧保活不改。本节仅完成系统标签子片；以下真实回答错误仍开放。
+
 ## 104. 归因计量与已验证优化收益分离（已确认，待独立实施）
 
 §102系统“11ms可消”不是仅模型波动。主标题/完整与精简图例/方向标题/动作说明沿用“已证链上可消除量”，`traceQueryRootCauseClosedMatrixContract`也在Description和Parameters双面教“largest single PROVEN on-chain eliminable contribution”。只改显示会留系统自身相反教学，必须同批统一；不改选举、数值、链上凭证或“主根因”既裁名称，不以优化收益未验证撤销已经成立的关系。
@@ -2159,3 +2161,18 @@ causal本次分类终于保named目标、显式20ms窗及required causal，四qu
 - [ ] 公开验收：实际query→emit→render→patch，中英、有限/因果、11ms IO+三1ms席、语义前边份与频率缺失；保全部值/顺序/证据/窗口/旁路/模型正文。主标题单源、所有权、图例、数值守恒与宽度旧针不能降。
 
 退役`proseHeadlineElimFindings`及历史模型主标题替换函数不重新接入，不以模型原文扫描修补此事。此节仅落实可执行任务与证据，不记新增交付；容量恢复、§94及父账66项继续开放。
+
+## 105. 4c47d5固定双例与逐段物理状态载体缺失（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_wait_bucket_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_wait_bucket_20260921_manual_audit.md)：runner8714正式exit0，2并行×1，机器1/2、完整人工0/2。G1 159秒、H2 110秒，两例finalize各一次、成文拒绝/patch均0；这些计数不代表此前analyzer没有修复。没有追跑第三例，没有修改case oracle。
+
+G1整份工件窗口34579.450627..34579.595184、三段0.138/0.147/0.350ms合计0.635ms全部正确，新的系统附录明确非IO D为0、IO为3、S侧IO为0，保D来源。但模型正文仍说“未进入D”“三段均S”。最终输入已含正确双层口径与三段清单，因此本轮模型确实未遵从；不以补充附录抵销正文错误。又独立确认真实payload的三个timeline.intervals均保`prev_state_raw=D`，转`target_window_states.wait_occurrences`时字段丢失，后续观察账本/逐段authority/最终principal行也无原始状态。这是可直接修复的事实交付缺口，不应再只叠教学。
+
+H2的11闭合D段/36.757ms、12条内核原因记录/Σdelay39.157ms、完整sleep库存29段/155.343ms分别保留，不是同一计量。原生状态231.834ms＋未归账1.356ms=233.190ms，系统补齐和显式窗口正确。机器FAIL仅因旧regex不接受“内核调用点/符号=”词面，留原结果；独立人工仍FAIL：模型将调用点和ELF模块推成确定资源/进程身份，将未独立闭合验证的Binder零值当排除Binder证明，并泄漏内部键。系统已有边界教学，不能据此断言缺数字或再造正文扫描门。
+
+两例均是有限事实问题，未强添因果投影、必选schema2空旁路及`trace_root_cause_contract_not_active`正确，不作为漏根因。H2老系统附录的opaque工件标识及内部状态词仍属独立读者词汇债。
+
+- [ ] 优先补逐段原生状态事实：沿现有typed carrier贯通已有`PrevStateRaw`，不从io_wait标签反推D、不从用户/答案原文推断；缺失保未知、历史兼容。保全部计数/时长/窗口/根因资格，最终模型仍负责结论。
+- [ ] 真实producer→观察账本→最终模型输入→发射附录/patch公开红绿，覆盖D变体、S侧IO、无原始状态及真实C2；无新schema必填或硬门。
+- [ ] H2调用点/资源/持有者与“未验证≠排除”人审问题继续留债；G1 event_search中行发射线程与payload主体的呈现歧义另审计，尚不判引擎错误、不擅改过滤。
+- [ ] 之后按ROI推进§104优化潜力口径、§94局部补齐和容量恢复；原人工FAIL及B2–B6不回写，父账仍13/79交付、66开放。
