@@ -1834,6 +1834,9 @@ func renderTraceFinalCompactAuthorityLedger(set types.TraceCausalProjectionSet, 
 				} else if strings.TrimSpace(node.StateKind) != "" {
 					fmt.Fprintf(&b, "; %s_measured_state_occupancy=`unavailable`", role)
 				}
+				if description := tracefinding.RootCauseNodeValueDescription(projection, node, "en"); description != "" {
+					fmt.Fprintf(&b, "; effective_attribution_description=%q", description)
+				}
 				traceDecisionWriteMeasurementLocator(&b, node, records)
 				start, end, queryWindowKnown := traceDecisionNodeQueryWindow(node)
 				if queryWindowKnown {
@@ -1994,6 +1997,9 @@ func renderTraceFinalStateValueAuthority(set types.TraceCausalProjectionSet, rec
 				b.WriteString("measured_state_occupancy=`unavailable`")
 			}
 			fmt.Fprintf(&b, "; effective_attribution=%.3fms; relation=`distinct_do_not_substitute`; row_identity=`%s`", effective, traceDecisionPromptScalar(identity))
+			if description := tracefinding.RootCauseNodeValueDescription(projection, node, "en"); description != "" {
+				fmt.Fprintf(&b, "; effective_attribution_description=%q", description)
+			}
 			if cumulative > 0 {
 				fmt.Fprintf(&b, "; chain_cumulative=%.3fms; chain_cumulative_role=`node_or_subchain_account_not_state_occupancy`", cumulative)
 			}
