@@ -26,14 +26,15 @@ import "strings"
 // JSON tags are stable — this struct is part of the write-once
 // handoff contract and gets persisted in the Run's debug log.
 type PerfBundle struct {
-	Meta         PerfMeta          `json:"meta"`
-	Frames       []PerfFrame       `json:"frames,omitempty"`
-	Janks        []PerfJank        `json:"janks,omitempty"`
-	Stalls       []PerfStall       `json:"stalls,omitempty"`
-	Startup      *PerfStartup      `json:"startup,omitempty"`
-	Observations []PerfObservation `json:"observations,omitempty"`
-	Residue      []string          `json:"residue,omitempty"`
-	Coverage     float64           `json:"coverage,omitempty"`
+	Meta               PerfMeta                `json:"meta"`
+	Frames             []PerfFrame             `json:"frames,omitempty"`
+	Janks              []PerfJank              `json:"janks,omitempty"`
+	Stalls             []PerfStall             `json:"stalls,omitempty"`
+	Startup            *PerfStartup            `json:"startup,omitempty"`
+	Observations       []PerfObservation       `json:"observations,omitempty"`
+	Residue            []string                `json:"residue,omitempty"`
+	Coverage           float64                 `json:"coverage,omitempty"`
+	ExtractionCoverage *PerfExtractionCoverage `json:"extraction_coverage,omitempty"`
 
 	// Layer-4 derivation. Validator-written.
 	ResolvedFiles []string `json:"resolved_files,omitempty"`
@@ -161,18 +162,19 @@ const (
 // "no GC span exceeds 50ms". These are runtime-artifact facts, not current
 // repository source citations.
 type PerfObservation struct {
-	Authority  PerfObservationAuthority `json:"authority,omitempty"`
-	Kind       string                   `json:"kind,omitempty"`
-	Subject    string                   `json:"subject,omitempty"`
-	Summary    string                   `json:"summary,omitempty"`
-	Evidence   string                   `json:"evidence,omitempty"`
-	LineStart  int                      `json:"line_start,omitempty"`
-	LineEnd    int                      `json:"line_end,omitempty"`
-	StartTsMs  float64                  `json:"start_ts_ms,omitempty"`
-	EndTsMs    float64                  `json:"end_ts_ms,omitempty"`
-	DurationMs float64                  `json:"duration_ms,omitempty"`
-	Tags       []string                 `json:"tags,omitempty"`
-	Confidence float64                  `json:"confidence,omitempty"`
+	SourceScope *PerfObservationSourceScope `json:"source_scope,omitempty"`
+	Authority   PerfObservationAuthority    `json:"authority,omitempty"`
+	Kind        string                      `json:"kind,omitempty"`
+	Subject     string                      `json:"subject,omitempty"`
+	Summary     string                      `json:"summary,omitempty"`
+	Evidence    string                      `json:"evidence,omitempty"`
+	LineStart   int                         `json:"line_start,omitempty"`
+	LineEnd     int                         `json:"line_end,omitempty"`
+	StartTsMs   float64                     `json:"start_ts_ms,omitempty"`
+	EndTsMs     float64                     `json:"end_ts_ms,omitempty"`
+	DurationMs  float64                     `json:"duration_ms,omitempty"`
+	Tags        []string                    `json:"tags,omitempty"`
+	Confidence  float64                     `json:"confidence,omitempty"`
 }
 
 // IsNavigationOnly reports whether this observation can be used only to

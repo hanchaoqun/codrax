@@ -15,11 +15,14 @@ func TestMergePerfBundles_NilEmpty(t *testing.T) {
 	}
 }
 
-func TestMergePerfBundles_SingleReturnsAsIs(t *testing.T) {
+func TestMergePerfBundles_SingleDerivesNewBundle(t *testing.T) {
 	in := &types.PerfBundle{Meta: types.PerfMeta{Source: "hitrace"}}
 	got := MergePerfBundles([]*types.PerfBundle{in}, 100)
-	if got != in {
-		t.Errorf("single input: want pass-through pointer, got %+v", got)
+	if got == nil || got == in || got.Meta.Source != in.Meta.Source || got.Coverage != 1 {
+		t.Errorf("single input: want independent derived bundle, got %+v", got)
+	}
+	if in.Coverage != 0 {
+		t.Errorf("single input mutated: %+v", in)
 	}
 }
 

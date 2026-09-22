@@ -87,6 +87,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		UserPinnedFiles:       bus.UserPinnedFiles,
 		AttachedHitrace:       bus.AttachedHitrace,
 		AttachedTraceMaterial: bus.AttachedTraceMaterial,
+		AttachedTraceExcerpt:  bus.AttachedTraceExcerpt,
 		TraceInputPreparer:    bus.TraceInputPreparer,
 		AttachedHitraceSource: bus.AttachedHitraceSource,
 		// Mirror BusContext.Mode onto the agent view so the analyzer
@@ -893,6 +894,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if !shouldSuppressAttachedRuntimeTrace(ac) {
 		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir, attachedTraceTriageState(ac), preStageDegradationSummaryFor(ac, types.StagePerfTriage), attachedTraceRenderOptions{
 			Material:          ac.AttachedTraceMaterial,
+			Excerpt:           ac.AttachedTraceExcerpt,
 			PreferTraceQuery:  attachedTraceQueryPreferredForAgentContext(ac) && availableTools["trace_query"],
 			ReadFileAvailable: availableTools["read_file"],
 		}); section != "" {
@@ -3618,6 +3620,7 @@ type attachedTraceRenderOptions struct {
 	PreferTraceQuery  bool
 	ReadFileAvailable bool
 	Material          *attachment.TraceMaterial
+	Excerpt           *attachment.TraceExcerpt
 	SampleOnly        bool // Prepared bundle metadata; guidance only, not query permission.
 }
 
@@ -4084,6 +4087,9 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 	var opts attachedTraceRenderOptions
 	if len(options) > 0 {
 		opts = options[0]
+	}
+	if opts.Excerpt != nil {
+		return formatTraceExcerpt(raw, state, opts)
 	}
 	if opts.Material != nil {
 		return formatPreparedTrace(raw, state, degradedSummary, opts)
@@ -4654,7 +4660,11 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 		fmt.Fprintf(&b, "- Source: %s\n", bundle.Meta.Source)
 	}
 	if bundle.Meta.DurationMs > 0 {
-		fmt.Fprintf(&b, "- Duration: %.1fms\n", bundle.Meta.DurationMs)
+		if bundle.ExtractionCoverage != nil {
+			fmt.Fprintf(&b, "- Largest extracted fragment's reported duration: %.1fms (not whole attachment)\n", bundle.Meta.DurationMs)
+		} else {
+			fmt.Fprintf(&b, "- Duration: %.1fms\n", bundle.Meta.DurationMs)
+		}
 	}
 	if bundle.Meta.AppPID != 0 {
 		fmt.Fprintf(&b, "- App PID: %d\n", bundle.Meta.AppPID)
@@ -4668,6 +4678,9 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 			"This describes the attachment, not the current request's intent or required answer breadth; classify those from the current request.\n")
 	}
 	fmt.Fprintf(&b, "- Coverage: %.2f\n\n", bundle.Coverage)
+	if bundle.ExtractionCoverage != nil {
+		b.WriteString(bundle.ExtractionCoverage.Description() + "\n\n")
+	}
 	resolvedFile := make(map[string]bool, len(bundle.ResolvedFiles))
 	for _, file := range bundle.ResolvedFiles {
 		file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
@@ -4700,6 +4713,9 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 			}
 		}
 		for i, obs := range bundle.Observations {
+			if obs.SourceScope != nil {
+				b.WriteString("  " + obs.SourceScope.Description() + "\n")
+			}
 			if obs.IsNavigationOnly() {
 				fmt.Fprintf(&b, "  [%d] navigation_locator", i+1)
 				if obs.Authority != "" {

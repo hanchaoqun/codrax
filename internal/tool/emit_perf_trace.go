@@ -146,6 +146,11 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}
 
 	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+	parentCtx := ctx
+	ctx, scope, scopeErr := perfTraceExtractionContext(parentCtx)
+	if scopeErr != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: scopeErr.Error(), Timestamp: time.Now()}, scopeErr
+	}
 
 	var p emitPerfTraceParams
 	dec := json.NewDecoder(strings.NewReader(string(params)))
@@ -213,6 +218,12 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}
 
 	derivePerfLayer4(bundle)
+	if scope != nil {
+		if _, _, err := parentCtx.AttachedTraceExcerpt.Resolve(parentCtx.Ctx, parentCtx.AttachedHitrace, parentCtx.AttachedTraceMaterial); err != nil {
+			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: err.Error(), Timestamp: time.Now()}, err
+		}
+		scopePerfObservations(bundle, *scope)
+	}
 	ctx.Mutable.SetPerfTrace(bundle)
 
 	logging.Debug("[emit_perf_trace] stored: frames=%d janks=%d stalls=%d signals=%d intent=%q",
@@ -469,7 +480,13 @@ func augmentPerfBundleWithTimeSemantics(b *types.PerfBundle, ctx *types.BusConte
 	// narrower window, and the final event can sit just beyond that window. Keep
 	// that caliber boundary visible in the typed observation so later models do
 	// not reuse the attachment extent as a thread sleep/runnable/running total.
-	summary := fmt.Sprintf("Trace timestamps are seconds; the whole attached excerpt spans %.6fs..%.6fs = %s. This is attachment-extent/unit provenance only, not a selected query-window duration or any target-thread state duration.", first, last, formatTraceDuration(durationMs))
+	extent := "whole attached excerpt"
+	provenance := "attachment-extent"
+	if ctx.AttachedTraceExcerpt != nil {
+		extent = "current extraction fragment (not the whole attachment)"
+		provenance = "fragment-extent"
+	}
+	summary := fmt.Sprintf("Trace timestamps are seconds; the %s spans %.6fs..%.6fs = %s. This is %s/unit provenance only, not a selected query-window duration or any target-thread state duration.", extent, first, last, formatTraceDuration(durationMs), provenance)
 	obs := types.PerfObservation{
 		Authority:  types.PerfObservationAuthorityDeterministicValidator,
 		Kind:       "time_semantics",
@@ -492,9 +509,8 @@ func prependPerfObservation(b *types.PerfBundle, obs types.PerfObservation) {
 		return
 	}
 	b.Observations = append([]types.PerfObservation{obs}, b.Observations...)
-	if len(b.Observations) > 50 {
-		b.Observations = b.Observations[:50]
-	}
+	// The model schema already bounds its rows at 50. Validator-owned time
+	// and priority facts are additional; they must not evict accepted rows.
 }
 
 func perfTraceLooksHarmony(ctx *types.BusContext, source string) bool {

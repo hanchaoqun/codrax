@@ -82,9 +82,10 @@ func TestPerfTriageTwoStep_DegenerateSegmentSkipsLLMDispatch(t *testing.T) {
 	a := NewPerfTriagerAgent(deps, settings)
 
 	ctx := &types.AgentContext{
-		AgentName:       types.AgentPerfTriager,
-		Stage:           types.StagePerfTriage,
-		AttachedHitrace: strings.Repeat("x", 1000),
+		AgentName: types.AgentPerfTriager,
+		Stage:     types.StagePerfTriage,
+		// Keep the same byte budgets while supplying complete segment lines.
+		AttachedHitrace: strings.Repeat("x", 899) + "\n" + strings.Repeat("x", 99) + "\n",
 		Mutable:         types.NewMutableState("perf segment floor"),
 	}
 	out, err := a.Execute(ctx, nil)

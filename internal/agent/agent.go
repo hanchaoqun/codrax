@@ -2222,6 +2222,14 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		maxIter = ctx.MaxIterOverride
 	}
 	for i := 0; i < maxIter; i++ {
+		// A scoped attachment becoming stale cannot be repaired by another
+		// JSON attempt. Validate before every model call, retaining the parent
+		// receipt rather than weakening its generation check for a view.
+		if ctx != nil && ctx.AttachedTraceExcerpt != nil {
+			if _, _, err := ctx.AttachedTraceExcerpt.Resolve(ctx.Ctx, ctx.AttachedHitrace, ctx.AttachedTraceMaterial); err != nil {
+				return nil, err
+			}
+		}
 		disableToolsThisTurn := disableToolsNextTurn
 		disableToolsNextTurn = false
 		if forceStop {

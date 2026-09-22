@@ -8406,6 +8406,8 @@ type BusContext struct {
 	AttachedHitrace string `json:"attached_hitrace,omitempty"`
 	// In-process complete-file binding; a persisted preview cannot mint it.
 	AttachedTraceMaterial *attachment.TraceMaterial `json:"-"`
+	// Controller-owned extraction view; canonical attachment bytes stay intact.
+	AttachedTraceExcerpt *attachment.TraceExcerpt `json:"-"`
 	// Run-scoped preparation for explicitly selected physical trace paths.
 	// This in-process service is not persisted or exposed in model JSON.
 	TraceInputPreparer TraceInputPreparer `json:"-"`
@@ -9034,6 +9036,8 @@ type AgentContext struct {
 	AttachedHitrace string `json:"attached_hitrace,omitempty"`
 	// Read-only preparation receipt for honest preview/full-material display.
 	AttachedTraceMaterial *attachment.TraceMaterial `json:"-"`
+	// Same scoped view used by the prompt and the extraction tool.
+	AttachedTraceExcerpt *attachment.TraceExcerpt `json:"-"`
 	// Same Run-owned handle as BusContext; never serialized into prompts.
 	TraceInputPreparer TraceInputPreparer `json:"-"`
 

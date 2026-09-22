@@ -51,32 +51,33 @@ const (
 // ObservationSourceRef is the origin-specific address of the thing that was
 // observed. Only the fields that apply to SourceKind should be populated.
 type ObservationSourceRef struct {
-	Kind                ObservationSourceKind `json:"kind,omitempty"`
-	Repo                string                `json:"repo,omitempty"`
-	Path                string                `json:"path,omitempty"`
-	Commit              string                `json:"commit,omitempty"`
-	Range               string                `json:"range,omitempty"`
-	Pathspec            string                `json:"pathspec,omitempty"`
-	Command             string                `json:"command,omitempty"`
-	ToolCallID          string                `json:"tool_call_id,omitempty"`
-	RawRef              string                `json:"raw_ref,omitempty"`
-	PayloadRef          string                `json:"payload_ref,omitempty"`
-	RowSetRef           string                `json:"row_set_ref,omitempty"`
-	PageRef             string                `json:"page_ref,omitempty"`
-	ArtifactID          string                `json:"artifact_id,omitempty"`
-	ArtifactKind        string                `json:"artifact_kind,omitempty"`
-	TimeDomain          string                `json:"time_domain,omitempty"`
-	CanonicalTimeDomain string                `json:"canonical_time_domain,omitempty"`
-	ClockAlignment      string                `json:"clock_alignment,omitempty"`
-	ClockCalibrated     bool                  `json:"clock_calibrated,omitempty"`
-	ClockOffsetSec      *float64              `json:"clock_offset_sec,omitempty"`
-	ClockSlope          *float64              `json:"clock_slope,omitempty"`
-	URL                 string                `json:"url,omitempty"`
-	FetchedAt           string                `json:"fetched_at,omitempty"`
-	Server              string                `json:"server,omitempty"`
-	ResourceURI         string                `json:"resource_uri,omitempty"`
-	MIMEType            string                `json:"mime_type,omitempty"`
-	Connector           string                `json:"connector,omitempty"`
+	TraceExcerptScope   *PerfObservationSourceScope `json:"trace_excerpt_scope,omitempty"`
+	Kind                ObservationSourceKind       `json:"kind,omitempty"`
+	Repo                string                      `json:"repo,omitempty"`
+	Path                string                      `json:"path,omitempty"`
+	Commit              string                      `json:"commit,omitempty"`
+	Range               string                      `json:"range,omitempty"`
+	Pathspec            string                      `json:"pathspec,omitempty"`
+	Command             string                      `json:"command,omitempty"`
+	ToolCallID          string                      `json:"tool_call_id,omitempty"`
+	RawRef              string                      `json:"raw_ref,omitempty"`
+	PayloadRef          string                      `json:"payload_ref,omitempty"`
+	RowSetRef           string                      `json:"row_set_ref,omitempty"`
+	PageRef             string                      `json:"page_ref,omitempty"`
+	ArtifactID          string                      `json:"artifact_id,omitempty"`
+	ArtifactKind        string                      `json:"artifact_kind,omitempty"`
+	TimeDomain          string                      `json:"time_domain,omitempty"`
+	CanonicalTimeDomain string                      `json:"canonical_time_domain,omitempty"`
+	ClockAlignment      string                      `json:"clock_alignment,omitempty"`
+	ClockCalibrated     bool                        `json:"clock_calibrated,omitempty"`
+	ClockOffsetSec      *float64                    `json:"clock_offset_sec,omitempty"`
+	ClockSlope          *float64                    `json:"clock_slope,omitempty"`
+	URL                 string                      `json:"url,omitempty"`
+	FetchedAt           string                      `json:"fetched_at,omitempty"`
+	Server              string                      `json:"server,omitempty"`
+	ResourceURI         string                      `json:"resource_uri,omitempty"`
+	MIMEType            string                      `json:"mime_type,omitempty"`
+	Connector           string                      `json:"connector,omitempty"`
 	// CaptureIdentityPath is the canonical identity of the physical runtime
 	// capture behind Path. Path remains the exact addressable carrier used by
 	// the producer (and therefore owns its line coordinates); this field lets
@@ -4181,6 +4182,11 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			provenanceLane = ObservationProvenanceInferredUpstreamPossibility
 			richNotes = appendUniqueObservationString(richNotes, TraceNoteMarkerNavigationOnly)
 		}
+		source := perfObservationSourceRef(bundle, "")
+		if obs.SourceScope != nil {
+			scope := *obs.SourceScope
+			source.TraceExcerptScope = &scope
+		}
 		add(ObservationRecord{
 			ID:              fmt.Sprintf("perf:observation:%d", i),
 			Origin:          AnswerEvidenceOriginRuntimeArtifact,
@@ -4188,7 +4194,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Role:            role,
 			GroundingPolicy: groundingPolicy,
 			ProvenanceLane:  provenanceLane,
-			SourceRef:       perfObservationSourceRef(bundle, ""),
+			SourceRef:       source,
 			Span: ObservationSpan{
 				LineStart: obs.LineStart,
 				LineEnd:   obs.LineEnd,
@@ -4541,6 +4547,12 @@ func compactGitLogToolResultRange(ref, count, firstParent, mergesOnly, noMerges 
 // are not mistaken for current-source file:line citations.
 func FormatObservationSourceRef(ref ObservationSourceRef, maxValueLen int) string {
 	parts := make([]string, 0, 8)
+	if ref.TraceExcerptScope != nil {
+		// Keep the coordinate domain before bounded optional identifiers;
+		// capture identity never changes preview lines into physical lines.
+		s := ref.TraceExcerptScope
+		parts = append(parts, fmt.Sprintf("parent-preview lines %d-%d (not physical source lines); bytes [%d,%d)", s.LineStart, s.LineEnd, s.ByteStart, s.ByteEnd))
+	}
 	if ref.Kind != ObservationSourceUnknown {
 		parts = append(parts, "kind="+string(ref.Kind))
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/perftriage"
+	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -273,6 +274,18 @@ func (a *perfTriager) shouldEscalate(b *types.PerfBundle) bool {
 // + bundle type — kept inline (instead of factored) so each channel
 // can evolve independently when the LLM ergonomics diverge.
 func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reason string) (*StageOutput, error) {
+	// Temporary slots never survive a failed/canceled extraction. The parent
+	// attachment and receipt stay untouched for every dispatch and exit path.
+	published := false
+	defer func() {
+		ctx.Mutable.SetPerfSegments(nil)
+		if !published {
+			ctx.Mutable.SetPerfTrace(nil)
+		}
+	}()
+	if err := validatePerfTriageParent(ctx); err != nil {
+		return nil, err
+	}
 	// Look up the segmentation skill from the registry.
 	segSkill, err := a.skillByName("perf-segmentation-skill")
 	if err != nil {
@@ -288,6 +301,9 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 	ctx.Mutable.SetPerfSegments(nil)
 	a.base.eval.(*perfTriagerEvaluator).emitSeen = false
 	if _, segErr := a.base.Execute(ctx, segSkill); segErr != nil {
+		if err := perfTriageContextError(ctx, segErr); err != nil {
+			return nil, err
+		}
 		logging.Warning("[perf_triage] two-step: segmentation dispatch failed: %v", segErr)
 		return &StageOutput{StageReport: fmt.Sprintf("two-step segmentation failed: %v", segErr)}, nil
 	}
@@ -312,6 +328,8 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 	skippedDegenerate := 0
 	origTrace := ctx.AttachedHitrace
 	rawBytes := len(origTrace)
+	coverage := &types.PerfExtractionCoverage{ParentPreviewBytes: rawBytes, Segments: len(segments)}
+	var extractedScopes []types.PerfObservationSourceScope
 
 	// Look up the extraction skill (the same perf-triage-skill used
 	// in single-shot).
@@ -322,11 +340,15 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 	}
 
 	for _, s := range segments {
+		if err := validatePerfTriageParent(ctx); err != nil {
+			return nil, err
+		}
 		if calls >= perSegBudget {
 			logging.Info("[perf_triage] two-step budget reached at %d calls; stopping fan-out", calls)
 			break
 		}
 		if !tool.IsExtractablePerfSegment(s.Kind) {
+			coverage.Skipped++
 			continue
 		}
 		// EVALFIX-2B 类2 形态B (2026-07-30): SEGMENT-granularity admission
@@ -338,35 +360,58 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 		// — never a dedicated LLM dispatch. Zero new knobs: operators
 		// tune perf_triage_min_bytes and both granularities follow.
 		if s.ByteEnd-s.ByteStart < a.settings.MinBytes {
+			coverage.Skipped++
 			skippedDegenerate++
 			logging.Info("[perf_triage] two-step: segment %s [%d:%d] below min_bytes=%d — degenerate, no LLM dispatch",
 				s.Kind, s.ByteStart, s.ByteEnd, a.settings.MinBytes)
 			continue
 		}
-		// Narrow the trace window for this sub-dispatch. Like log
-		// triage, the AgentContext.AttachedHitrace field is per-
-		// view; the prompt builder formats it directly so slicing
-		// here directs the LLM to one segment at a time.
-		ctx.AttachedHitrace = origTrace[s.ByteStart:s.ByteEnd]
+		view, viewErr := attachment.NewTraceExcerpt(ctx.Ctx, origTrace, ctx.AttachedTraceMaterial, s.ByteStart, s.ByteEnd)
+		if viewErr != nil {
+			if err := validatePerfTriageParent(ctx); err != nil {
+				return nil, err
+			}
+			coverage.Skipped++
+			continue
+		}
+		_, sourceScope, viewErr := view.Resolve(ctx.Ctx, origTrace, ctx.AttachedTraceMaterial)
+		if viewErr != nil {
+			return nil, viewErr
+		}
+		scopedCtx := *ctx
+		scopedCtx.AttachedTraceExcerpt = view
 		ctx.Mutable.SetPerfTrace(nil)
 		a.base.eval.(*perfTriagerEvaluator).emitSeen = false
 
-		subOut, subErr := a.base.Execute(ctx, extractSkill)
+		coverage.Attempted++
+		subOut, subErr := a.base.Execute(&scopedCtx, extractSkill)
 		calls++
+		if err := perfTriageContextError(ctx, subErr); err != nil {
+			return nil, err
+		}
+		if err := validatePerfTriageParent(ctx); err != nil {
+			return nil, err
+		}
 		if subErr != nil || subOut == nil || subOut.Error != "" {
+			coverage.Failed++
 			logging.Warning("[perf_triage] two-step: segment %s [%d:%d] emit failed: %v",
 				s.Kind, s.ByteStart, s.ByteEnd, subErr)
 			continue
 		}
 		if partial := ctx.Mutable.PerfTrace(); partial != nil {
 			partials = append(partials, partial)
+			coverage.Succeeded++
+			extractedScopes = append(extractedScopes, sourceScope)
+		} else {
+			coverage.Failed++
 		}
 	}
 
-	// Restore full trace + clear segments so the analyzer's prompt
-	// downstream sees the canonical attachment.
-	ctx.AttachedHitrace = origTrace
-	ctx.Mutable.SetPerfSegments(nil)
+	coverage.Unattempted = coverage.Segments - coverage.Attempted - coverage.Skipped
+	coverage.ExtractedPreviewBytes = extractedPreviewUnionBytes(extractedScopes)
+	if err := validatePerfTriageParent(ctx); err != nil {
+		return nil, err
+	}
 
 	// Degenerate-segment disclosure (audit surface only; soft prose that
 	// never enters an LLM prompt).
@@ -378,15 +423,17 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 
 	if len(partials) == 0 {
 		logging.Info("[perf_triage] two-step: no segments produced bundles")
-		return &StageOutput{StageReport: "two-step produced no per-segment bundles — degraded" + degenerateNote}, nil
+		return &StageOutput{StageReport: "two-step produced no per-segment bundles — degraded" + degenerateNote + "; " + coverage.Description()}, nil
 	}
 
 	merged := perftriage.MergePerfBundles(partials, rawBytes)
 	if merged == nil {
 		return &StageOutput{StageReport: "two-step merge produced nil bundle — degraded" + degenerateNote}, nil
 	}
+	merged.ExtractionCoverage = coverage
 	ctx.Mutable.SetPerfTrace(merged)
-	return &StageOutput{StageReport: renderPerfTriageStageReport(merged) + degenerateNote}, nil
+	published = true
+	return &StageOutput{StageReport: renderPerfTriageStageReport(merged) + degenerateNote + "; " + coverage.Description()}, nil
 }
 
 // skillByName looks up a skill from deps.Skills, returning the
@@ -438,7 +485,11 @@ func renderPerfTriageStageReport(b *types.PerfBundle) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Source: %s\n", b.Meta.Source)
 	if b.Meta.DurationMs > 0 {
-		fmt.Fprintf(&sb, "Duration: %.1fms\n", b.Meta.DurationMs)
+		if b.ExtractionCoverage != nil {
+			fmt.Fprintf(&sb, "Largest extracted fragment's reported duration: %.1fms (not whole attachment)\n", b.Meta.DurationMs)
+		} else {
+			fmt.Fprintf(&sb, "Duration: %.1fms\n", b.Meta.DurationMs)
+		}
 	}
 	if len(b.Meta.Signals) > 0 {
 		fmt.Fprintf(&sb, "Signals: %s\n", strings.Join(b.Meta.Signals, ", "))

@@ -137,6 +137,7 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		UserPinnedFiles:        ctx.UserPinnedFiles,
 		AttachedHitrace:        ctx.AttachedHitrace,
 		AttachedTraceMaterial:  ctx.AttachedTraceMaterial,
+		AttachedTraceExcerpt:   ctx.AttachedTraceExcerpt,
 		TraceInputPreparer:     ctx.TraceInputPreparer,
 		AttachedHitraceSource:  ctx.AttachedHitraceSource,
 		Language:               ctx.Language,

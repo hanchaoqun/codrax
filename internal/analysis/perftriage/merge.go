@@ -30,6 +30,10 @@ import (
 //   - Meta.Signals: set union; canonical alphabetical order so two
 //     identical merges yield identical bundles (test stability).
 //   - Meta.Summary: non-empty values joined with "; " up to 200 chars.
+//   - Meta.BugClasses: stable set union by class, retaining the first
+//     complete detection record, as in the detection registry.
+//   - Observations: complete records concatenated in input order;
+//     equal measurements do not establish equal source or authority.
 //   - Frames / Janks / Stalls: concatenated in input order; cross-
 //     bundle dedup by (start_ts_ms, duration_ms) — segments may
 //     overlap on jank-region boundaries and the LLM might surface
@@ -46,11 +50,15 @@ import (
 // segmenter saw; used as the Coverage denominator. Zero collapses
 // Coverage to 1.0 (matches LogBundle behaviour).
 func MergePerfBundles(parts []*types.PerfBundle, rawTraceBytes int) *types.PerfBundle {
-	if len(parts) == 0 {
-		return nil
+	hasPart := false
+	for _, p := range parts {
+		if p != nil {
+			hasPart = true
+			break
+		}
 	}
-	if len(parts) == 1 {
-		return parts[0]
+	if !hasPart {
+		return nil
 	}
 
 	merged := &types.PerfBundle{
@@ -60,13 +68,23 @@ func MergePerfBundles(parts []*types.PerfBundle, rawTraceBytes int) *types.PerfB
 		},
 	}
 
-	// DurationMs: max of non-zero durations.
+	// Preserve observation records and the registry's per-class set.
+	// DurationMs remains the max of non-zero durations.
+	bugClassesSeen := map[types.BugClass]bool{}
 	for _, p := range parts {
 		if p == nil {
 			continue
 		}
 		if p.Meta.DurationMs > merged.Meta.DurationMs {
 			merged.Meta.DurationMs = p.Meta.DurationMs
+		}
+		merged.Observations = append(merged.Observations, p.Observations...)
+		for _, detected := range p.Meta.BugClasses {
+			if bugClassesSeen[detected.Class] {
+				continue
+			}
+			bugClassesSeen[detected.Class] = true
+			merged.Meta.BugClasses = append(merged.Meta.BugClasses, detected)
 		}
 	}
 
