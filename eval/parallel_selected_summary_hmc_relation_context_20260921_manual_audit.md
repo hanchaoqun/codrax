@@ -11,7 +11,7 @@ This scaffold is for human review. The runner records typed metrics and declared
 
 | # | case | verdict | result_dir | declared_oracles | runtime_authority | sec | ctx% | tools | churn | human_correctness | audit_notes |
 |--:|------|---------|------------|------------------|-------------------|----:|-----:|-------|-------|-------------------|-------------|
-| 1 | real_trace_g1_english_dstate | PASS | eval/results/hmc_relation_context_20260921/real_trace_g1_english_dstate-20260921-233236 | log_regex,trace_attachment,answer_regex,answer_contains | perf_triage+trace_query | 166s | 43 | read=1,repo_map=0,list=0,trace=3,source_lens=0 | midloop=0,inv=1/0,fin_reject=0,unavail=0,prune=0 | FAIL | 三段D+IO及0.635ms正确；调用点被越权解释为正常文件系统/块设备同步等待，非英语回答；新分析字段校验次序矛盾见下。 |
+| 1 | real_trace_g1_english_dstate | PASS | eval/results/hmc_relation_context_20260921/real_trace_g1_english_dstate-20260921-233236 | log_regex,trace_attachment,answer_regex,answer_contains | perf_triage+trace_query | 166s | 43 | read=1,repo_map=0,list=0,trace=3,source_lens=0 | midloop=0,inv=1/0,fin_reject=0,unavail=0,prune=0 | FAIL | 三段D+IO及0.635ms正确；调用点被越权解释为正常文件系统/块设备同步等待；新分析字段校验次序矛盾见下。 |
 | 2 | sr_java_call_chain | FAIL | eval/results/hmc_relation_context_20260921/sr_java_call_chain-20260921-233236 | primary_answer | none | 247s | 47 | read=7,repo_map=1,list=0,trace=0,source_lens=0 | midloop=6,inv=3/0,fin_reject=3,unavail=0,prune=0 | FAIL | 5条源码调用关系和容量检查保留，但stdout冒称审计落库，6项清单混作6跳；图无容量失败分支，局部变量与存储文本复述失真。 |
 
 ## 完整主审结论
@@ -22,7 +22,7 @@ This scaffold is for human review. The runner records typed metrics and declared
 
 最终文件 `.codrax/output/20260921-233520.088-12636.md` 全读。整份捕获34579.450627–34579.595184秒，D原始状态3段0.138/0.147/0.350ms、合计0.635ms及caller原文正确；schema2空旁路原因 `trace_root_cause_contract_not_active` 符合有限事实请求。最终上下文不再重播被投影排除的模型聚合，旧错误近似168/183/371μs没有复活为计量，未出现小数伪关系；但本轮成员是工件定位串而非纯小数，不能宣称live独立命中全部数字语法反例。
 
-正文末段将opaque caller翻译为同步缓冲区读取，并判为文件系统或块设备的正常等待行为，证据只支持调用点和iowait标记，不支持具体业务机制或“正常”。该人工FAIL保留，不能靠补提示或扫描正文硬门销账。英文问题得到中文回答，附注仍泄漏英文系统统计标签，另留展示债。
+正文末段将opaque caller翻译为同步缓冲区读取，并判为文件系统或块设备的正常等待行为，证据只支持调用点和iowait标记，不支持具体业务机制或“正常”。该人工FAIL保留，不能靠补提示或扫描正文硬门销账。语言审计更正：本例日志明确项目锁中文，故中文正文正确，不以问题英语单独判错；附注仍泄漏英文系统统计标签，另留展示债。更正该理由不改变机理越界的原FAIL。
 
 过程新P1：日志551–552首次emit拒绝 `artifact_value_profile.value is required`；第二次577提交 `pending_observation`，578立即按 `is_scalar_answer=false` 丢弃整个可选profile。系统先校验不适用字段再清理，迫使无用重试20秒并诱发占位值。应按已有typed适用范围先处理，保合法标量值的严格校验，且同审field_value兼容转换不能绕回此范围。仅记录，未在冻结版本中修复。
 

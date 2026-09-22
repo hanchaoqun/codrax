@@ -2311,7 +2311,7 @@ causal明确2.000..2.020秒，app S20ms、四节点threadpool→network→cookie
 
 [机器摘要](../../eval/parallel_selected_summary_hmc_relation_context_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_relation_context_20260921_manual_audit.md)。runner87611正式exit0，严格2并行×1，G1 166秒、Java247秒；无第三例、不改oracle。新修复窄边界通过公开红绿与原生保护，不以此销父账或两份完整人工FAIL。
 
-G1全捕获窗、原始D+IO三段0.138/0.147/0.350ms及合计0.635ms正确，错误模型近似值未重播，有限事实空旁路合理。最终仍从caller名字推成正常文件系统/块设备同步IO，英语问题变中文，附注泄漏英文系统词汇；完整人工FAIL。Java真实5条调用边/容量位置保留，图未删；但stdout被称审计落库，条件/分支项混作6跳、成功图未表达失败分支、状态/局部变量/存储字符串复述失真；机器与人工均FAIL。两次patch失败分别重复ref和同块atomic/replace冲突，正确拒绝未改基底，第三次成功；暂不为单次模型误用额外加门。
+G1全捕获窗、原始D+IO三段0.138/0.147/0.350ms及合计0.635ms正确，错误模型近似值未重播，有限事实空旁路合理。最终仍从caller名字推成正常文件系统/块设备同步IO，附注泄漏英文系统词汇；完整人工FAIL。后续语言复核更正：项目明确锁中文，中文正文不是故障，不以英文问题单独判错。Java真实5条调用边/容量位置保留，图未删；但stdout被称审计落库，条件/分支项混作6跳、成功图未表达失败分支、状态/局部变量/存储字符串复述失真；机器与人工均FAIL。两次patch失败分别重复ref和同块atomic/replace冲突，正确拒绝未改基底，第三次成功；暂不为单次模型误用额外加门。
 
 - [ ] 新P1，优先下批：`emit_analysis`对非标量问题先校验 `artifact_value_profile.value`，随后按已有 `is_scalar_answer=false` 丢弃同字段。真实日志551–552拒绝、577占位值、578丢弃，白耗一次20秒重试。泛化修复是typed适用性先于字段语义校验，并审同源field_value兼容转换，不能教模型编造占位值；合法标量/独立源码合同/请求窗和目标必须不变。
 - [x] §111成文关系摘要投影及纯数字compact-dot误判窄子片：§112代码及确定性验收完成，合法源码关系live保留；不是Trace全部机理/答案已稳定。
@@ -2320,7 +2320,7 @@ G1全捕获窗、原始D+IO三段0.138/0.147/0.350ms及合计0.635ms正确，错
 
 剩余仍79=13已交付+66开放，58待实施/6部分实施/1待验收/1持续执行。审计发现属于现有父项子缺口，不重复加减稳定任务数。
 
-## 114. 可选运行时标量先判适用性，兼容转换不得复活非标量（2026-09-21，实施验收中）
+## 114. 可选运行时标量先判适用性，兼容转换不得复活非标量（2026-09-21，窄子片验收完成）
 
 前批§112代码及§113审计随`317970982`已推main，30568正式exit0。直接再核参考`ad_hoc_exploration.yaml:191–207`按实际指标对象/数组解读、`core/batch/rootcause/evidence.py:46–79`保独立状态分量；不搬参考缺值归零/比例判根因，也没有其模型参数移植。当前顺序缺陷由本仓已声明的 `predicates.is_scalar_answer` 决定，不依赖原始请求关键词或回答文本。
 
@@ -2331,3 +2331,17 @@ G1全捕获窗、原始D+IO三段0.138/0.147/0.350ms及合计0.635ms正确，错
 第一次GREEN70811正式exit1仅新legacy测试的carrier夹具不完整：旧混合测试helper只有Meta/signals，没有实际观察，不能授权observation-only escape。换成独立包含PerfObservation的公开helper，既有混合helper不改；57431正式exit0/tool1.955s。独立只读末审无阻断，93684正式exit0/tool1.161s覆盖新旧标量、混合来源、schema与source保护；独立初轮63926的同夹具失败保留。最终新disabled针及全仓81951、race10597等待正式收据。
 
 边界与未销账：本批仅修非标量适用域；旧scalar=true的legacy转换仍可能把有owner.field但source_quote错误的字段降到artifact来源，另记同源来源适用域P1，不冒称所有混合来源转换已经修好。状态占用/归因分量身份、§104收益口径和66个父任务继续开放。冻结双例为G1全工件读取＋Go小范围真实apply，各1次并行2；写案例不是B2–B6恢复证明，也不为旧人审追第三次求绿。
+
+正式收据：代码`fd000269c`；race10597正式exit0/tool13.883s（含最后disabled针），末版全仓81951正式exit0，`/tmp/hmc-artifact-applicability-full-20260921.log`为87测试包、13无测试包、零FAIL。干净构建79885正式exit0，revisionfd000269c58e/buildTime2026-09-22T06:50:29Z；8项默认值与流保活28065正式exit0/llm4.424s，保600/300/600秒及4ms持续帧，不改变真正静默、用户取消和更短调用方期限。独立生产审计与公开正反回归通过，本窄片验收完成。
+
+## 115. fd000固定读写双例：机器2/2、完整人工1/2（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_artifact_applicability_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_artifact_applicability_20260921_manual_audit.md)。runner12571正式exit0，严格2并行×1，无第三次追跑。Go86秒、G1 112秒。旧FAIL保留，父账仍79=13+66。
+
+Go实际一行patch，原生TestGreet/真实go test -json命令通过，隔离工作树main.go之外无变更，fixture main HEAD等于seed2643ad38530b35f6f5215e3a9be962d02900dfe5，没有自动merge。最终交付明确自然语言验收清单不代表逐项独立执行，未虚签go build命令。完整人工PASS，但不是B2–B6补证恢复。
+
+G1主审及独立人工均FAIL：三段D+IO、0.635ms、全捕获窗/目标/调用点正确，finite空root旁路与可选图缺席合理；模型仍把caller词形晋升同步缓冲/文件系统机制，现有最终输入已明确禁止，不因一次输出新增关键词门。两次分析提交中唯一拒绝是effect-vs-fact typed范围矛盾，修后第二次接受；profile始终false，新drop路径触达，但旧parser本也nil，不能冒称live复现旧缺value故障。该窄修以公开RED/GREEN负责验收。
+
+- [ ] 新共享展示P1：项目锁中文已经进入最终模型消息，系统等待附录和补采说明却消费另一语言来源而变英文。应统一有效回答语言权威、保标识符原文，不扫描/翻译模型正文；双语无锁和显式锁都需公开正反回归。同步纠正§113“英文问题→中文正文错误”的审计理由，旧机理FAIL不改签。
+- [ ] §111分量身份只读设计核对完成：详细reader已有 `RootCauseNodeValueDescription`，state/compact两个出口仍缺归因量自己的类型/说明。下一片应在同一projection/node复用既有描述，保原始状态/测量/行身份和未知空描述，不重算或授根因。独立现状保护99556正式exit0（tracefinding0.544/agent1.310s），不是新缺口RED/GREEN。
+- [ ] §114标量legacy来源混淆、§104收益口径、§94局部补齐/容量、B2–B6及全部66父开放项继续按ROI推进。
