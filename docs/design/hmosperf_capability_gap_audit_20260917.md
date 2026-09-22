@@ -2205,3 +2205,19 @@ G1正文已正确消费三段原始D+IO和0.635ms，新详细reader真实命中�
 
 - [ ] 下一窄批：存在answer plan就尊重其聚合投影，包括空；只有无plan才保历史Mutable兼容。覆盖直接/缓存/成文prompt/公开emit一致性、混合源代码事实、非trace空投影；原始审计facts、窗口、native数值和模型正文不改，不扫描算式/原文、不新增门。
 - [ ] 之后§104系统收益措辞、§94局部补齐与容量恢复继续按ROI推进；JSON传输污染恢复、调用点语义越权、读者内部词汇和原始occupancy重复另留账。父账13/79交付、66开放与旧FAIL不变。
+
+## 108. 明确空投影与缺失投影分离（2026-09-21，实施验收中）
+
+§106代码/§107人工审计随`4bcacf783`已推main，session82517正式exit0；首次14057因SSH连接关闭失败，未丢提交，重试后本地/远端一致。先收住战果后处理本片，不把前批两份人工FAIL改签。
+
+主审直接再读参考`core/batch/rootcause/evidence.py:46–79`：从结构化指标提取等待/供给/负载及未知项，提供原生计量参考；未发现本仓模型聚合→答案投影→回退的同构路径，不照搬其比例阈值或关键词类别门。当前gap的修复依据是本仓已存在的typed来源投影，而不是判断19.671这个值或模型原文算式。
+
+两处消费者已确认：普通`preEmitStableAggregateFacts`和请求内缓存`stableAggregateFactsForCheck`以非空列表判断投影存在，复活被排除的原始输入。finalizer的aggregate prompt、principal contract以及orchestrator只在plan缺失回退，已经正确。本批只统一两处存在性判断；保持原投影规则、无plan历史兼容、缓存每代只构建一次以及全部原始审计记录。没有新增schema字段、必填教学、Trace特判或正文校验门。
+
+主席非Trace边界RED5251正式exit1/tool1.183s，`/tmp/hmc-empty-projection-boundary-red-20260921.log`。真实no_directed_path与多顶层日志peer-error投影全部排除时，普通/缓存读取及路径roster会复活；混合保独立scalar、无plan旧handoff先通过。另测nil/[]皆权威、不同emit/patch代次重新编译，不依赖错误数值。agent公开保护8947首次即绿/0.994s，实际TraceQuery→BuildAgentContext→最终instruction，empty/mixed-source×双语4格；原生1ms/D及独立source值7不丢，Mutable/TurnA/模型正文不变，不把此初绿写成RED。
+
+本批固定双例计划：G1真实全工件等待（本次发现的空聚合软合同）＋`hilog_mixed_arkts_cangjie`双语言日志事实（异构非Trace空投影风险），2并行×1。先按影响范围与可复现性排序，源码无路径由确定性回归覆盖；写模式既有公开不变式/全仓回归继续保，前批Go真实apply通过不能代表B2–B6完成。两例均逐读最终答案和过程，是否真实命中空投影分别记，不靠机器PASS补旧账。
+
+公共RED73006正式exit1/tool1.380s，`/tmp/hmc-empty-projection-public-red-20260921.log`：4场景×双语8格真实query→emit→render→patch，D+IO/S+IO的全空4格仅普通/缓存与实际emit/patch软提示复活失败；混合独立source和无native对照4格先绿，模型正文、native1ms/窗口、ledger及raw facts保持针先通过。生产只去掉两处`len>0`附加条件，缓存仍保原排除标志、一次构建，未增加代码行数或降低行数限制。
+
+首轮focused8180和race56630各因新增代次测试的错误前提FAIL：由两条日志改成一条仍有直接runtime证据，既有projector应继续排除无支持复述。仅将测试第二代改为真实partial-dispatch清理路径`SetLogTriage(nil)`，不改生产规则；旧缓存仍空，新代次恢复兼容。最终focused15834正式exit0/tool2.709s；agent53748正式exit0/1.232s；独立末审87449正式exit0（tool1.609/agent2.808s），无阻塞。统一full43341保首轮记录，末版完整复验83670、末版race7031待正式收据。未提前签全量通过。

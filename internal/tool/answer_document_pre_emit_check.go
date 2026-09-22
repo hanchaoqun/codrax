@@ -10857,7 +10857,7 @@ func preEmitStableAggregateFacts(ctx *types.BusContext) []types.AnswerAggregateF
 	if ctx == nil {
 		return nil
 	}
-	if plan := answerSurfacePlan(ctx); plan != nil && len(plan.StableAggregateFacts) > 0 {
+	if plan := answerSurfacePlan(ctx); plan != nil {
 		return plan.StableAggregateFacts
 	}
 	if ctx.Mutable == nil {

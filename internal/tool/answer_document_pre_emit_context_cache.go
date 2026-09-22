@@ -32,8 +32,8 @@ func (c *preEmitCheckContext) stableAggregateFactsForCheck() []types.AnswerAggre
 	}
 	c.stableAggregateFactsBuilt = true
 	c.derivedBuilds.stableAggregateFacts++
-	if plan := c.answerSurfacePlanForCheck(); plan != nil && len(plan.StableAggregateFacts) > 0 {
-		// answerSurfacePlan already applies typed exclusion normalization.
+	if plan := c.answerSurfacePlanForCheck(); plan != nil {
+		// A completed projection owns its result, including an empty list.
 		c.stableAggregateFacts = plan.StableAggregateFacts
 		c.stableFactsExcluded = true
 		return c.stableAggregateFacts
