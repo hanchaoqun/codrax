@@ -95,6 +95,12 @@ func TestB1653CTestPublicStatusPreservesRowsWithoutInventingAssertionScope(t *te
 				t.Fatal(err)
 			}
 			genericRow := junitCasesToResults(genericSuite)[0]
+			if row.InvocationID == "" {
+				t.Fatal("real CTest result lost its execution identity")
+			}
+			// The generic XML parser has no command context. Only the real
+			// execution adapter adds this separately checked correlation ID.
+			genericRow.InvocationID = row.InvocationID
 			withoutScope := row
 			withoutScope.ObservationScope = genericRow.ObservationScope
 			if !reflect.DeepEqual(withoutScope, genericRow) {
@@ -104,8 +110,11 @@ func TestB1653CTestPublicStatusPreservesRowsWithoutInventingAssertionScope(t *te
 				t.Fatalf("fixture identity/value preconditions failed: row=%+v report=%+v", row, report)
 			}
 			actualCommand := false
-			for _, cmd := range report.ExecutedCommands {
+			for ci, cmd := range report.ExecutedCommands {
 				if cmd.Runner == "cmake" && cmd.Outcome == types.ExecutedCommandOutcomeExecuted && cmd.ExitCode == tc.exit && strings.Contains(cmd.Command, string(pathBytes)) {
+					if cmd.InvocationID != row.InvocationID || !types.NewNativeTestInvocationIndex(report).Matches(ci, 0) {
+						t.Fatalf("CTest result must belong to this unique execution: cmd=%+v row=%+v", cmd, row)
+					}
 					actualCommand = true
 				}
 			}
@@ -122,6 +131,9 @@ func TestB1653CTestPublicStatusPreservesRowsWithoutInventingAssertionScope(t *te
 				t.Fatal(err)
 			}
 			for _, current := range []*types.ChangeReport{report, &restored} {
+				if current.TestResults[0].InvocationID != row.InvocationID {
+					t.Error("installed/JSON CTest result lost its execution identity")
+				}
 				if projectTestObservationExecuted(plan.ProjectTestObservations[0], current) || len(projectTestObservationExecutionMatches(plan.ProjectTestObservations[0], current, false)) != 0 {
 					t.Error("the existing unsupported CTest PTO selector gate changed")
 				}
