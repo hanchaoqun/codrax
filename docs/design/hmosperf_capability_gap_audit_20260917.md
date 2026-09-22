@@ -2381,3 +2381,25 @@ causal明确2..2.020窗、app S20ms、四节点及三条跨核唤醒、链上IO1
 优先队列：①§111状态占用/归因分量身份（本批日志3722–3724、3737再次实证），及§114标量legacy来源校验；②§104未验证收益；③§94业务已接受实例局部补齐/容量恢复B；④声明/观测pair与B2–B6。新增待复现的源码适用域/完成条件接缝P1：两次accepted completion后因缺current_source重开，形成三轮/13次查询；最终同源交接却说明该义务soft、runtime_only_with_caveat=true、hard_block=false。先构造公开反例定位精确信号，不凭日志删除源码义务，不扩大观测为源码。模型机制越权与搜索/捕获误述独立留人工FAIL，不能称已证随机波动。
 
 独立完整causal审计同判FAIL，并定位旧策略至`accepted_closure_origin_debt.go:174–215`：CurrentSourceRequired即阻止waiver，尚不区分本例可降级soft与精确源码义务；调度/对账出口分别在`orchestrator.go:6433`与`accepted_closure_reconcile.go:91`。这是accepted之后未能自动完成，不是completion硬拒，也不是语言片回归。下一公开反例须保真正混合源码、precise要求和历史来源边界；不能把downgradable一律当免除。系统关键事实原始英文说明仍属本片明确未承诺的全域翻译债。
+
+## 118. 标量兼容转换不再改变独立源码字段的证据来源（2026-09-22，验收中）
+
+前批语言生产、夹具及完整人审已随`6c826e37e`推送，77090正式exit0，本地/远端一致且工作区干净后继续。父账仍79=13+66。本片处理§114留下的scalar=true路径，不重做已经修好的非标量适用域。
+
+直接核对参考`core/llm_contract.py:122–146`：evidence_refs先按member→json_path→field绑定后校验实际值，失败不改来源；其`_dig`支持点号/数组等运行时字段，因此不能全局禁止点号target。本仓field_value_profile已有owner-qualified目标与source_quote/枚举/置信度合同，artifact_value_profile独立承载运行时字段。参考`ad_hoc_exploration.yaml:175–207`按实际指标形状解读，不能当成把错误源码声明转运行时值的授权。本片不移植数值容差或原文扫描规则。
+
+公开Execute红针31125正式exit1/tool1.625s，`/tmp/hmc-artifact-origin-red-20260922.log`：五种既有支持的限定形式（点号、命名空间、箭头、#及改名）×错误/缺引文、引文缺target/literal、非法枚举、缺失/越界confidence共35项均被原路径错误转换；真正observation-only的可选错误源码字段也被转换而非告警丢弃。缺literal、合法source、缺target/非限定legacy、显式artifact点号目标、两来源并存与无runtime载体控制均先通过。不将未支持斜杠/Unicode或单字符成员人为算成红针，也不扩大解析语法。
+
+生产仅在legacy converter入口复用现有`ParseFieldValueTarget`：已识别的源码字段返回无转换，保原错误继续走既有拒绝/可选丢弃策略。没有匹配错误消息、扫描用户或答案原文、补引文、改变枚举/置信度或扩大硬门；显式artifact_value_profile可继续使用frame.duration等名称。源码原校验、非标量适用域、真正无owner的旧运行时兼容均保留。成功正控核显式2..2.020窗、目标/维度/原始17ms观察与提交JSON不变；失败不落盘替代profile。
+
+首次宽定向12306正式exit0/tool2.110s，覆盖新旧Artifact/FieldValue/MixedRuntime公开入口。追加“合法显式artifact不能掩盖另一坏source”控制于末版race，全仓及独立审计待收正式结果；不冒称本片已经全部交付，也不倒签旧人工FAIL。
+
+末版race36356正式exit0/tool13.270s；独立定向57141正式exit0/tool1.544s、race84924正式exit0/tool9.367s，含新增两来源负控，独立审计无生产阻塞。审计另发现skill与schema对同一字段的教学矛盾：skill无条件允许复制预分诊观察，schema早已要求用户明确的标量问题且不得抄预分诊模型摘要。公开schema＋局部skill段落6611正式RED/exit1/tool1.172s；把原schema说明原样提为共享常量，保target/value/unit/kind/refs与源码区分，删除冲突例子，不增运行时硬门。71795正式GREEN/exit0（tool2.224/skill2.068s）；独立82110正式exit0/tool2.409s、62860完整skill exit0/0.633s。代码`b736a22a3`，统一全仓74551运行中；尚未推送或销账。
+
+## 119. 成文摘要保留归因量自己的分量说明（2026-09-22，验收中）
+
+承接§111/§117的真实交接缺口：详细reader已明确低优先级候选的1ms来自runnable，两个高权重摘要却只并置sleep17ms或IO11ms与归因1ms，使模型失去数值自己的口径。参考`core/batch/rootcause/evidence.py:46–79`分别表示wait/supply/load并保降级信息；采用分量分离的原则，不照搬其缺失填零、最大值选主因或阈值裁决。复用本仓既有projection/node的`RootCauseNodeValueDescription`，两个出口各追加3行：state摘要在effective/identity之后，compact在同方向Leader选定之后；未知/不适用描述保持不输出，不按subject或rank跨窗借值。行数8/6上限、原始状态、计量、有效归因、累计账、行身份、目标/时间窗和模型正文均不变，文本字节略增而非扩大权限。
+
+实际BuildInitialInstruction公开20格覆盖8类×中英及同主体/rank的双窗重排；逐具体行断言，防止详细reader的已有描述掩盖摘要缺失。有效RED21362正式exit1/agent1.138s：14格缺描述失败，纯IO/语义/未知6格先绿，原数值/身份/输入不变均通过。首版测试自身fingerprint键和窗口设置错误已在红针前纠正，不记为产品红针。GREEN73892正式exit0（agent1.864/tracefinding0.637s）；race24138正式exit0（agent4.942/tracefinding1.707s），相邻rank-domain/locator/scope/principal保护race32594正式exit0/agent3.223s；独立末版6行审计通过。全仓74551待正式结果，不以定向绿色销旧答案FAIL。
+
+本批唯一live选择两例、各一次并行：`trace_query_wakeup_background_demotion`检验链上IO/调度分量与19.5ms链外等待不晋升主因；`read_combo_trace_current_source_explanation`检验真实当前源码＋86.111ms运行时观察的独立双来源。按因果误导风险、来源混淆泛化面、既有覆盖与成本排序；前批Go实际apply已审，本批不假称再跑写模式。机械与完整人工结果另记。剩余计数再次逐ID核验仍79=13+66，§104收益口径、§117完成接缝、§94局部补齐/容量、B2–B6及全部父开放项不销。
