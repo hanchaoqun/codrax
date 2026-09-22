@@ -682,6 +682,7 @@ var traceNoteKeyGoldenRows = []string{
 	"target_role_kind|causal_rank|display_only",
 	"target_role_source|causal_rank|display_only",
 	"target_wait_occurrence|state|soft_consumer",
+	"target_wait_occurrence_prev_state_raw|state|soft_consumer",
 	"target_wait_occurrence_prompt|state|soft_consumer",
 	"target_wait_occurrence_prompt_sum_ms|state|soft_consumer",
 	// CR-3 件③ P11 (2026-07-12): rank-row process attribution (冷读案8).

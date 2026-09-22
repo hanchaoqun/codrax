@@ -6061,12 +6061,12 @@ func renderAnswerDocTargetWaitOccurrenceAuthority(ctx *types.AgentContext) strin
 		b.WriteString("## 目标线程的调度器标记等待清单\n\n")
 		b.WriteString("- 这些完整清单由运行时引擎按目标线程和所选窗口配对，只包含不可中断等待、明确的 IO 等待，以及阻塞原因明确标记为 IO 等待的可中断睡眠。普通可中断睡眠和由其他机制证明的等待或阻塞不在本清单内。\n")
 		b.WriteString("- 清单为零只表示该目标与窗口内没有匹配上述窄口径的区间；不能据此声称没有睡眠、等待、阻塞或 IO 活动。另行发布的线程状态总量、IO 完成闭环和依赖证据仍然有效。\n")
-		b.WriteString("- 如果正文列举清单中的任一项，必须保留同一清单的全部项目及其原始起止时间和持续时间；不得用相邻调度事件重建区间，也不得把阻塞原因记录的时间戳当作区间起点。字段名和机器状态码只用于内部校验，不要写入面向客户的正文。\n\n")
+		b.WriteString("- 如果正文列举清单中的任一项，必须保留同一清单的全部项目及其原始起止时间和持续时间；不得用相邻调度事件重建区间，也不得把阻塞原因记录的时间戳当作区间起点。内部字段名和统计分类枚举只用于内部校验；D/S 等原始调度状态可以保留并解释含义，不应与统计类别混同。\n\n")
 	} else {
 		b.WriteString("## Scheduler-marked waits for the target thread\n\n")
 		b.WriteString("- These complete lists are paired by the runtime engine for the target thread and selected window. They include uninterruptible waits, explicit IO waits, and interruptible sleep only when its blocked-reason evidence explicitly marks IO wait. Ordinary interruptible sleep and waits or blocking proved by other mechanisms are outside this list.\n")
 		b.WriteString("- A zero list means only that no interval matched this narrow classifier for the target and window. It does not prove there was no sleep, waiting, blocking, or IO activity. Separately published thread-state totals, completion-closed IO evidence, and dependency evidence remain valid.\n")
-		b.WriteString("- If the answer enumerates any item, preserve every item in the same list with its original start, end, and duration. Do not rebuild intervals from adjacent scheduler events or use a blocked-reason timestamp as an interval start. Field names and machine status codes are validation metadata and must not appear in customer-facing prose.\n\n")
+		b.WriteString("- If the answer enumerates any item, preserve every item in the same list with its original start, end, and duration. Do not rebuild intervals from adjacent scheduler events or use a blocked-reason timestamp as an interval start. Internal field names and accounting-category enums are validation metadata; original scheduler states such as D/S may be retained and explained, and must not be confused with accounting categories.\n\n")
 	}
 	for _, authority := range authorities {
 		fmt.Fprintf(&b, "- %s\n", answerDocTargetWaitOccurrenceReaderSummary(authority, extractAnswerDocLang(ctx)))
@@ -6075,6 +6075,7 @@ func renderAnswerDocTargetWaitOccurrenceAuthority(ctx *types.AgentContext) strin
 			if state == "" {
 				state = row.State
 			}
+			state = tracefence.WaitStateWithOriginal(state, row.PrevStateRaw, zh)
 			iowait := "unknown"
 			if zh {
 				iowait = "未知"

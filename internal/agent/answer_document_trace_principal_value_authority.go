@@ -163,7 +163,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 			continue
 		}
 		for _, occurrence := range wait.Occurrences {
-			fmt.Fprintf(&b, "  - principal_occurrence=`%s`\n", occurrence.CanonicalLine())
+			fmt.Fprintf(&b, "  - principal_occurrence=`%s`\n", occurrence.DisplayLine())
 		}
 		if zh {
 			window := fmt.Sprintf("在 %.6f..%.6f 窗内", wait.WindowStartTs, wait.WindowEndTs)

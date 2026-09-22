@@ -20,6 +20,10 @@ func TestTraceWaitBucketPublicQueryEmitRenderPatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var many strings.Builder
+	for i := 0; i < 11; i++ {
+		many.WriteString(traceWaitBucketNativeCycle(1+float64(i)*.01, "D", 1))
+	}
 	cases := []struct {
 		name, trace, subject, view string
 		pid                        int
@@ -27,12 +31,15 @@ func TestTraceWaitBucketPublicQueryEmitRenderPatch(t *testing.T) {
 		full                       bool
 		d, io, sleep               int
 		total                      string
+		rawState                   string
 	}{
-		{"zero_origin_D_IO", traceWaitBucketNativeCycle(0, "D", 1), "reader-77", "thread_timeline", 77, 0, .004, true, 0, 1, 0, "1.000"},
-		{"D_IO", traceWaitBucketNativeCycle(1, "D", 1), "reader-77", "window_stats", 77, 1, 1.004, false, 0, 1, 0, "1.000"},
-		{"D_unmarked", traceWaitBucketNativeCycle(1, "D", 0), "reader-77", "window_stats", 77, 1, 1.004, false, 1, 0, 0, "1.000"},
-		{"S_IO", traceWaitBucketNativeCycle(1, "S", 1), "reader-77", "window_stats", 77, 1, 1.004, false, 0, 0, 1, "1.000"},
-		{"customer_D_IO", string(customer), "com.baidu.tieba-59566", "window_stats", 59566, 34579.45, 34579.6, false, 0, 3, 0, "0.635"},
+		{"zero_origin_D_IO", traceWaitBucketNativeCycle(0, "D", 1), "reader-77", "thread_timeline", 77, 0, .004, true, 0, 1, 0, "1.000", "D"},
+		{"D_IO", traceWaitBucketNativeCycle(1, "D", 1), "reader-77", "window_stats", 77, 1, 1.004, false, 0, 1, 0, "1.000", "D"},
+		{"D_variant_IO", traceWaitBucketNativeCycle(1, "D|K", 1), "reader-77", "window_stats", 77, 1, 1.004, false, 0, 1, 0, "1.000", "D|K"},
+		{"D_unmarked", traceWaitBucketNativeCycle(1, "D", 0), "reader-77", "window_stats", 77, 1, 1.004, false, 1, 0, 0, "1.000", "D"},
+		{"S_IO", traceWaitBucketNativeCycle(1, "S", 1), "reader-77", "window_stats", 77, 1, 1.004, false, 0, 0, 1, "1.000", "S"},
+		{"customer_D_IO", string(customer), "com.baidu.tieba-59566", "window_stats", 59566, 34579.45, 34579.6, false, 0, 3, 0, "0.635", "D"},
+		{"eleven_D_IO_beyond_preview", many.String(), "reader-77", "window_stats", 77, 1, 1.104, false, 0, 11, 0, "11.000", "D"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,6 +122,25 @@ func TestTraceWaitBucketPublicQueryEmitRenderPatch(t *testing.T) {
 						}
 						if !strings.Contains(appendix, tc.total+"ms") {
 							t.Errorf("wait wall clock lost: %s", appendix)
+						}
+						rawLabel := "original scheduler state: " + tc.rawState
+						category := "accounting category: "
+						if lang == "zh" {
+							rawLabel = "原始调度状态：" + tc.rawState
+							category = "统计类别："
+						}
+						rowCount := 0
+						for _, line := range strings.Split(appendix, "\n") {
+							if !strings.HasPrefix(line, "- ") {
+								continue
+							}
+							rowCount++
+							if !strings.Contains(line, rawLabel) || !strings.Contains(line, category) {
+								t.Errorf("native physical state must accompany each unchanged accounting category: %s", line)
+							}
+						}
+						if rowCount != tc.d+tc.io+tc.sleep {
+							t.Errorf("wait rows lost: %d", rowCount)
 						}
 						text := render.RenderAnswerDocument(doc, lang)
 						if !strings.Contains(text, model) || !strings.Contains(text, want) {

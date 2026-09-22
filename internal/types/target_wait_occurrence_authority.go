@@ -35,6 +35,10 @@ type TargetWaitOccurrenceAuthorityRow struct {
 	DurationM float64
 	IOWait    string
 	Caller    string
+	// PrevStateRaw is optional native scheduler metadata, not the accounting
+	// category or part of the roster's canonical measurement identity.
+	PrevStateRaw           string
+	prevStateRawConflicted bool
 }
 
 func (r TargetWaitOccurrenceAuthorityRow) StartToken() string {
@@ -79,9 +83,14 @@ func BuildTargetWaitOccurrenceAuthorities(ledger ObservationLedger, rm *RequestM
 	safeIDs := traceRuntimeAccountUnambiguousRecordIDs(ledger.Records)
 	full := BuildTraceTargetWaitSummaryAuthorities(ledger, rm)
 	fullByRecordID := map[string][]int{}
+	rawFullByRecordID := map[string][]targetWaitOccurrenceRawMatch{}
 	for i, complete := range full {
 		for _, id := range complete.SourceRecordIDs {
 			fullByRecordID[id] = append(fullByRecordID[id], i)
+		}
+		for _, source := range complete.rawStateSources {
+			id := strings.TrimSpace(source.record.ID)
+			rawFullByRecordID[id] = append(rawFullByRecordID[id], targetWaitOccurrenceRawMatch{fullIndex: i, source: source})
 		}
 	}
 	for position, record := range ledger.Records {
@@ -107,6 +116,16 @@ func BuildTargetWaitOccurrenceAuthorities(ledger ObservationLedger, rm *RequestM
 		// but cannot authorize hiding their underlying observation by ID.
 		if TraceRuntimeAccountRecordsSameResult(record, record) {
 			authority.SourceRecordIDs = []string{record.ID}
+		}
+		// Optional metadata can still be reconciled through an exact native
+		// receipt when a colliding ID is unsafe for reader shadowing. This
+		// path never adds IDs or upgrades the original complete-roster gate.
+		for _, match := range rawFullByRecordID[strings.TrimSpace(record.ID)] {
+			complete := full[match.fullIndex]
+			if !match.source.matches(record) || !targetWaitOccurrenceRawRosterMatches(authority, complete) {
+				continue
+			}
+			authority.Rows = mergeTargetWaitOccurrenceRawRows(authority.Rows, complete.Occurrences)
 		}
 		// Notes establish only this set's bounded roster. Leaf IDs are covered
 		// only after the independent full same-result compiler verified them.
@@ -140,10 +159,13 @@ func BuildTargetWaitOccurrenceAuthorities(ledger ObservationLedger, rm *RequestM
 			continue
 		}
 		fingerprints[key] = fingerprint
-		if _, exists := byScope[key]; !exists {
+		if prior, exists := byScope[key]; !exists {
 			byScope[key] = authority
 			idsByScope[key] = traceRuntimeAccountRecordIDSet{}
 			fullAddedByScope[key] = map[int]bool{}
+		} else {
+			prior.Rows = mergeTargetWaitOccurrenceRawRows(prior.Rows, authority.Rows)
+			byScope[key] = prior
 		}
 		idsByScope[key].add(authority.SourceRecordIDs)
 		for _, fullIndex := range matchingFull {
@@ -285,7 +307,7 @@ func parseTargetWaitOccurrenceAuthorityRow(raw string) (TargetWaitOccurrenceAuth
 	if state == "" || caller == "" || (iowait != "0" && iowait != "1" && iowait != "unknown") {
 		return TargetWaitOccurrenceAuthorityRow{}, false
 	}
-	return TargetWaitOccurrenceAuthorityRow{
+	row := TargetWaitOccurrenceAuthorityRow{
 		Ordinal:   ordinal,
 		State:     state,
 		StartTs:   start,
@@ -293,7 +315,9 @@ func parseTargetWaitOccurrenceAuthorityRow(raw string) (TargetWaitOccurrenceAuth
 		DurationM: duration,
 		IOWait:    iowait,
 		Caller:    caller,
-	}, true
+	}
+	row.setPrevStateRaw(targetWaitOccurrenceRawFromTokens(fields[6:], "prev_state_raw="))
+	return row, true
 }
 
 func targetWaitOccurrenceAuthorityFingerprint(authority TargetWaitOccurrenceAuthority) string {

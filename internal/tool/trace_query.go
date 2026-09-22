@@ -10672,6 +10672,9 @@ func traceQueryTargetWindowWaitOccurrenceObservations(
 			occurrence.DurationMs, iowait, firstNonEmptyTraceString(occurrence.Caller, "unknown"),
 			occurrence.StartLine, occurrence.EndLine, occurrence.ReasonLine,
 		))
+		if occurrence.PrevStateRaw != "" {
+			roster[len(roster)-1] += " prev_state_raw=" + occurrence.PrevStateRaw
+		}
 	}
 	summary := fmt.Sprintf(
 		"target D/IO-wait occurrence roster for %s: status=%s emitted=%d total=%d; includes D, io_wait, and S only with iowait=1; ordinary S and other wait mechanisms are outside this roster; exact rows are carried by typed occurrence notes",
@@ -10775,6 +10778,7 @@ func traceQueryTargetWindowWaitOccurrenceObservations(
 			Summary:   roster[occurrence.Ordinal-1],
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{types.TraceNoteKeySelectedWindow, selectedWindow},
+				{types.TraceNoteKeyTargetWaitOccurrencePrevStateRaw, occurrence.PrevStateRaw},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(
 				ref,

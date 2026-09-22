@@ -462,7 +462,8 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// EVAL-B1-R12/R14: prompt-consumed exact bounded occurrence
 				// roster exercises all three registered note keys.
 				WaitOccurrences: []tracequery.TargetWindowStateOccurrence{{
-					Ordinal: 1, State: tracequery.StateDSleep,
+					PrevStateRaw: "D",
+					Ordinal:      1, State: tracequery.StateDSleep,
 					StartTs: 1.01, EndTs: 1.02, DurationMs: 10,
 					StartLine: 2, EndLine: 3, IOWait: true, IOWaitKnown: true,
 					Caller: "io_schedule", ReasonLine: 2,

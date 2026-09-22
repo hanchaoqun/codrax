@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -466,12 +467,13 @@ func runtimeTraceTargetWaitSummarySuffix(
 		)
 	}
 	for _, occurrence := range wait.Occurrences {
+		state := tracefence.WaitStateWithOriginal(runtimeTraceWaitOccurrenceStateLabel(occurrence.State, zh), occurrence.PrevStateRaw, zh)
 		if zh {
 			fmt.Fprintf(
 				&b,
 				"\n- 第 %d 段：%s，%s..%s，%.3fms，内核 IO 等待标记：%s，内核调用点/符号：%s",
 				occurrence.Ordinal,
-				runtimeTraceWaitOccurrenceStateLabel(occurrence.State, zh),
+				state,
 				occurrence.StartToken(),
 				occurrence.EndToken(),
 				occurrence.DurationM,
@@ -483,7 +485,7 @@ func runtimeTraceTargetWaitSummarySuffix(
 				&b,
 				"\n- Interval %d: %s, %s..%s, %.3fms, kernel IO-wait marker: %s, kernel call-site/symbol: %s",
 				occurrence.Ordinal,
-				runtimeTraceWaitOccurrenceStateLabel(occurrence.State, zh),
+				state,
 				occurrence.StartToken(),
 				occurrence.EndToken(),
 				occurrence.DurationM,

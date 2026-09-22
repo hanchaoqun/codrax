@@ -2176,3 +2176,19 @@ H2的11闭合D段/36.757ms、12条内核原因记录/Σdelay39.157ms、完整sle
 - [ ] 真实producer→观察账本→最终模型输入→发射附录/patch公开红绿，覆盖D变体、S侧IO、无原始状态及真实C2；无新schema必填或硬门。
 - [ ] H2调用点/资源/持有者与“未验证≠排除”人审问题继续留债；G1 event_search中行发射线程与payload主体的呈现歧义另审计，尚不判引擎错误、不擅改过滤。
 - [ ] 之后按ROI推进§104优化潜力口径、§94局部补齐和容量恢复；原人工FAIL及B2–B6不回写，父账仍13/79交付、66开放。
+
+## 106. 逐段原始调度状态事实贯通（2026-09-21，实施验收中）
+
+§103标签代码和§105双例审计随`6122cc281`已推送main，session92262正式exit0，本地/远端相等且tracked干净后开始本片。先处理真实payload证实的已有事实丢失，未把模型未遵从改判为纯系统缺证，也不以再叠教学代替交付。
+
+原生Interval.PrevStateRaw→TargetWindowStateOccurrence可选字段→注册typed leaf note/compact尾部→typed authority→最终principal行/系统逐段显示。旧CanonicalLine、leaf Object及计量指纹保持原身份，不因可选元数据改次数/时长/范围/准入；新旧重复可补已知字段，冲突只抑制该可选显示，同ID的原DeepEqual安全ID校验不降。原始缺失不从统计类别推断，S侧IO保S，唤醒后runnable不因携带历史prev_state进入等待清单。
+
+主审再次直接核对参考`core/preprocess/sleep_ops.py:225–255`，其状态计量仍来自原始state及半开窗口交集，可借鉴保源状态的分层，而非复制其状态桶根因算法。本仓既有IO分区、四态折叠、链上凭证和语义工作事实均不改。
+
+公开有效RED：主席17263正式exit1/tool1.920s，6物理场景×中英12格，包含真实C2、零起点、D|K、S侧IO；所有数值/时间窗/模型正文/patch幂等先过，只有逐行原始状态缺失。11行超compact前8行的补充RED44701正式exit1/tool1.188s。agent公开79583正式exit1/agent2.229s，2来源×新旧记录×中英8格：新字段4格仅缺principal原始状态红，legacy4格绿，10段混合D/S及真实三段总量先过。核心独立RED21084正式exit1，tracequery/types/tool编译成功，旧Object/统计/准入针先过。生产/末版验证尚未终签。
+
+固定下一双例：G1真实整份工件旧人工FAIL＋显式20ms窗`trace_query_wakeup_causal_io_chain`，2并行×1；前者验证字段实际交付，后者保四节点因果投影、IO11ms、三段1ms调度等待及优先级线索，不把背景升主因。模型结果与窄字段交付分别分账，不追第三例；§104系统收益措辞仍另批。
+
+生产已冻结：compact必须通过原有完整envelope且与全部原计量行相等，才能合并可选字段；不完整8行preview不影响完整11行leaf。冲突独立传播的私有收据严格绑定同ID/来源/主体/精确窗口/结果，不能用陈腐或相近窗口代入，也不增加SourceRecordIDs；按ID索引避免新增不同query重复组平方扫描。独立末审61323正式exit0（types0.676/tracequery1.046/tracefence0.544s），无生产阻碍。
+
+另修本批新增事实面对的旧相反教学：原文笼统禁“机器状态码”会连D/S标准状态一并禁止；独立RED66100正式exit1/agent1.758s，其余原始字段/旧记录/两轴/完整行均先通过。现只禁内部字段名和统计分类枚举，允许D/S保留并解释；唯一旧错误literal pin精确迁移，未改数字/完整性断言。agent公开GREEN48032正式exit0/1.536s；主公开GREEN32688正式exit0/tool1.612s，7物理场景×2语言。核心末版focused48073正式exit0（tracequery0.929/types1.026/tool1.563s），registry新增仅一个soft-consumer登记及对应fixture，不新增硬准入。末版全仓34894、公开race39637、核心race22370和agent末版race41464待正式收据，不提前签完成。

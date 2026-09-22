@@ -8303,7 +8303,7 @@ func TestRenderAnswerDocTargetWaitOccurrenceAuthorityBypassesLedgerAndRepairBudg
 		"## Scheduler-marked waits for the target thread",
 		"Ordinary interruptible sleep and waits or blocking proved by other mechanisms are outside this list",
 		"does not prove there was no sleep, waiting, blocking, or IO activity",
-		"Field names and machine status codes are validation metadata",
+		"Internal field names and accounting-category enums are validation metadata",
 		"3 occurrence(s), totaling 0.635 ms",
 		"34579.451701–34579.451839 seconds; duration 0.138 ms",
 		"34579.452934–34579.453081 seconds; duration 0.147 ms",

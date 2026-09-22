@@ -344,6 +344,7 @@ type TraceTargetWaitSummaryAuthority struct {
 	Callers                []string
 	Occurrences            []TargetWaitOccurrenceAuthorityRow
 	RecordID               string
+	rawStateSources        []targetWaitOccurrenceRawReceipt
 }
 
 // TraceTargetWaitRequestedScopeRole distinguishes the account that answers
@@ -418,6 +419,7 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 		}
 		rowPrefix := scopePrefix + "#target_window_wait_occurrence:"
 		rows := make(map[int]ObservationRecord, count)
+		rawStates := make(map[int]targetWaitOccurrenceRawState, count)
 		conflict := false
 		for _, rowPosition := range rowIndex[scopePrefix] {
 			row := ledger.Records[rowPosition]
@@ -446,9 +448,11 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 				if traceTargetWaitOccurrenceFingerprint(prior) != traceTargetWaitOccurrenceFingerprint(row) {
 					conflict = true
 				}
+				rawStates[ordinal] = rawStates[ordinal].merge(targetWaitOccurrenceRawFromTokens(row.RichNotes, TraceNoteKeyTargetWaitOccurrencePrevStateRaw+"="))
 				continue
 			}
 			rows[ordinal] = row
+			rawStates[ordinal] = targetWaitOccurrenceRawFromTokens(row.RichNotes, TraceNoteKeyTargetWaitOccurrencePrevStateRaw+"=")
 		}
 		if conflict || len(rows) != count {
 			continue
@@ -464,6 +468,7 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			RequestedScopeRole: traceTargetWaitRequestedScopeRole(aggregate, ledger, rm, coverageIndex[scopePrefix]),
 			Count:              count,
 			RecordID:           strings.TrimSpace(aggregate.ID),
+			rawStateSources:    []targetWaitOccurrenceRawReceipt{newTargetWaitOccurrenceRawReceipt(aggregate)},
 		}
 		if multiWindow {
 			parent := memberScopes[traceRequestedMemberResultKey(aggregate, position)]
@@ -500,6 +505,7 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 				IOWait:    fields["iowait"],
 				Caller:    fields["caller"],
 			})
+			authority.Occurrences[len(authority.Occurrences)-1].setPrevStateRaw(rawStates[ordinal])
 			authority.WallClockMS += duration
 			switch {
 			case fields["state"] == "d_sleep":
@@ -518,6 +524,7 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 		if conflict {
 			continue
 		}
+		authority.Occurrences = mergeTargetWaitOccurrenceRawRows(authority.Occurrences, targetWaitOccurrenceRawPreviewRows(aggregate, authority))
 		authority.SourceRecordIDs = traceRuntimeAccountSafeRecordIDs(authority.SourceRecordIDs, safeIDs)
 		if artifact := traceRuntimeAuthorityArtifactFromRecord(aggregate); artifact.key != "" {
 			artifacts[artifact.key] = artifact
@@ -559,11 +566,21 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 			idsByKey[candidate.key] = traceRuntimeAccountRecordIDSet{}
 		}
 		idsByKey[candidate.key].add(candidate.authority.SourceRecordIDs)
+		mergedRows := candidate.authority.Occurrences
+		mergedRawSources := candidate.authority.rawStateSources
+		if exists {
+			mergedRows = mergeTargetWaitOccurrenceRawRows(prior.Occurrences, mergedRows)
+			mergedRawSources = append(prior.rawStateSources, mergedRawSources...)
+		}
 		if !exists ||
 			traceTargetWaitRequestedScopeRolePriority(candidate.authority.RequestedScopeRole) <
 				traceTargetWaitRequestedScopeRolePriority(prior.RequestedScopeRole) {
 			byKey[candidate.key] = candidate.authority
 		}
+		merged := byKey[candidate.key]
+		merged.Occurrences = mergedRows
+		merged.rawStateSources = mergedRawSources
+		byKey[candidate.key] = merged
 	}
 	keys := make([]string, 0, len(byKey))
 	for key := range byKey {

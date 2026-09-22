@@ -1452,9 +1452,10 @@ const (
 	// EVAL-B1-R12/R14: exact bounded target-wait occurrence rosters are
 	// prompt-consumed typed values. Keep their wire names centralized so
 	// producers and the repair-handoff projection cannot drift.
-	TraceNoteKeyTargetWaitOccurrence          = "target_wait_occurrence"
-	TraceNoteKeyTargetWaitOccurrencePrompt    = "target_wait_occurrence_prompt"
-	TraceNoteKeyTargetWaitOccurrencePromptSum = "target_wait_occurrence_prompt_sum_ms"
+	TraceNoteKeyTargetWaitOccurrence             = "target_wait_occurrence"
+	TraceNoteKeyTargetWaitOccurrencePrompt       = "target_wait_occurrence_prompt"
+	TraceNoteKeyTargetWaitOccurrencePromptSum    = "target_wait_occurrence_prompt_sum_ms"
+	TraceNoteKeyTargetWaitOccurrencePrevStateRaw = "target_wait_occurrence_prev_state_raw"
 	// EVAL-B12-AE1: IPC request inventory and target blocking occurrences
 	// are different count/value calibers. These soft-consumer keys carry the
 	// deterministic ipc_graph request census and exact sync-request row
@@ -1517,6 +1518,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyTargetWaitOccurrence, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyTargetWaitOccurrencePrompt, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyTargetWaitOccurrencePromptSum, "state", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyTargetWaitOccurrencePrevStateRaw, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyIPCRequestCensusStatus, "ipc", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyIPCSyncRequestCount, "ipc", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyIPCOnewayRequestCount, "ipc", TraceNoteCarrierSoftConsumer},

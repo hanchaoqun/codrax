@@ -233,6 +233,7 @@ func stampTargetWindowCPURepresentativeFrequencies(account *TargetWindowStateAcc
 type TargetWindowStateOccurrence struct {
 	Ordinal       int         `json:"ordinal"`
 	State         ThreadState `json:"state"`
+	PrevStateRaw  string      `json:"prev_state_raw,omitempty"`
 	StartTs       float64     `json:"start_ts"`
 	EndTs         float64     `json:"end_ts"`
 	DurationMs    float64     `json:"duration_ms"`
@@ -488,6 +489,7 @@ func targetWindowWaitOccurrences(intervals []Interval) []TargetWindowStateOccurr
 		}
 		out = append(out, TargetWindowStateOccurrence{
 			State:         it.State,
+			PrevStateRaw:  it.PrevStateRaw,
 			StartTs:       it.StartTs,
 			EndTs:         it.EndTs,
 			DurationMs:    it.DurationMs,
