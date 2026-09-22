@@ -2590,3 +2590,53 @@ Python只改源码，原4unittest两轮均真实通过、原测试/README不变�
 公开验收以真实Prepare→NewPerfTriagerAgent→BaseAgent→注册emit为入口，覆盖单中段/双段、父/转换/bundle成员变化、假视图、UTF-8/CRLF/半行、截断预览、失败/跳过/预算截断、分片间/提取中取消及普通single-shot/legacy对照。参考`skill_executor.py:1348/1636`和`llm_contract.py:114`只借身份/成员/原始引用设计，不移植文件存在即可信或原文扫描。
 
 原生补绑定片应由controller绑定run/batch、仍贡献交付源码的原计划、完整合同与真实工作树/测试快照；只读登记已存在且读过的测试路径/精确suite/assertion/ref，不准源码或测试改动、不让模型写执行收据。新原生执行后才授证明，旧PASS展示不升级。过期授权禁止新登记，但不能抹掉补证批永久禁修改身份；JSON/resume/累计计划保独立声明与报告归属。回归含无声明旧FAIL、正确新执行、错身份/兄弟同名/skip/zero/fail、同HEAD/status字节漂移、跨run/batch、旧PASS、混合计划及普通PTO/probe-only兼容。当前只读设计不计实现完成或公开RED。
+
+## 132. 受控 Trace 分片与卡顿时间轴合同（2026-09-22，末版验收中）
+
+起点 `ae29a813b` 干净；逐唯一 ID 仍为 79=13 已交付+66 开放。当前只修 HMC-01.3/16.4/18 下的已证子缺陷，不把旧人工失败或父项销账。用户本轮明确：卡顿记录的 `start_ts_ns/end_ts_ns` 默认与源 Trace 同一时间轴，只需单位换算，无需时区和额外时钟域映射。该澄清替代旧“默认 unverified”的协议假设，不代表任意外部时间戳或跨采集文件默认同轴。
+
+参考复核：`core/skill_executor.py:1282–1417` 将实际 step 的 iterate_items 与按 session/step/tag 的成员文件一起保留，解决各片独立理解和跨步覆盖问题；借其“父输入不变、每片自带身份和范围”的设计，不复制数组位置兜底、文件存在即可信或原文子串证据门。`core/preprocess/jank_ops.py:146–151` 对定义好的 present_begin_ts/pipeline_dur_ns 仅做单位换算；参考仓没有同名 jank_event_sync/jank_frame 原文解析器，本次字段合同依据用户确认及本仓已有精确 grammar，不套其 frame/fence 算法。
+
+### 132.1 分片身份、范围、观察保留
+
+公开 RED60912 正式 exit1/agent1.159s，真实 Prepare→NewPerfTriagerAgent→BaseAgent→注册 emit：两片模型输入误报源已变；5/7ms 原始值正确却标全附件、局部行1..2未映射父预览3..4/5..6；多片合并丢全部 observations；片间和提取中取消均多调用第三次并吞错误。父正文/material/物理源字节未改是先通过的正控，不能称这些被破坏。独立 Merge RED522e68 exit1/perftriage0.650s 与 metadata REDcecf09 exit1/0.660s另证单片返回原指针、0/1/N语义不一及多片诊断类别丢失。
+
+实施保 canonical AttachedHitrace/TraceMaterial 不变；控制器生成私有 TraceExcerpt，绑定原父 preview/receipt 与半开字节范围，prompt与工具读取同一经验证视图。模型只发原有字段和局部行号，系统自动补每条 SourceScope 并映射到父预览行，明确这些不是物理文件行；完整查询仍用原材料。不重绑、不清空 receipt、不落片段 attached_trace.txt。prepared 来源/转换输出/成员代次变化均拒；预览末尾仅有明确完整文本凭证才将无换行 EOF 视为完整行，其余只保范围内完整行。半行裁剪不扩大范围，inline完整末行和CRLF/UTF-8保持。
+
+Merge 统一0/1/N并重新派生，按原顺序保完整 observations/authority/范围，不以同值去重；原 Frames/Janks/Stalls/Startup 规则保持，BugClasses沿原 Class 集合稳定合并。成功片段 byte 并集与 attempted/succeeded/failed/skipped/unattempted 独立披露，不拿 residue Coverage 冒完整扫描，也不把片时长求和为全附件。Meta时长展示明确为最大片的上报时长。ledger保原 attached_trace 身份及已有唯一 capture 关联，另保 SourceScope；物理 Path 保空，compact source formatter也前置预览坐标说明，不牺牲同附件归并换取坐标诚实。
+
+新增来源失效 RED91654 正式 exit1/agent1.236s：工具正确拒发但 BaseAgent 把无法恢复的代次失效当 JSON 修补，调用7次而非2次；最终无脏发布已先通过。现只对私有 scoped view 在每轮模型调用前复验 receipt，直接返回精确错误，不扫错误文本。取消和所有失败出口清临时 PerfTrace/PerfSegments；外层不再继续调度。独立末版公开 GREEN18288 exit0/1.256s、race31559 exit0/2.702s，3新顶层7子场景及旧分片floor均过。旧floor夹具原1000个x无完整行，改同1000bytes、900/100分片各闭行，次数和200bytes门槛断言不动。
+
+根侧邻接首轮包含一个新测试漏写 gutter 后空格，以及误改普通single-shot的旧 attachment-extent 用词；分别更正测试和恢复普通路径生产用词，未放松旧断言。末版55438正式exit0，attachment/types/context/agent/tool/perftriage六包定向通过；包含父/转换/成员同长同mtime变更、JSON不能恢复receipt、预览/物理坐标、scope往返/同capture关联及字节并集。68290文件行数保护exit0。末版全仓和固定双例尚未完成，不提前签收。
+
+### 132.2 已定义卡顿字段默认同源时间轴
+
+生产 gap 是双向自冲突：parser主动写 unverified、typed inventory只接受此值、探索/schema/最终上下文又要求补映射。公开 RED63450 exit1，数值、header筛选、1ns边界和未知marker负控先过，仅新同轴状态/教学/typed消费失败。统一改由精确 jank_event_sync grammar 发布 source_trace_clock；保规范化的 start_ts_ns/end_ts_ns 和原始int64值，差值先整数计算。header是报告时刻，不等于症状起止，也不把B/E标记跨度换成上报跨度。appid与marker PID/emitter TID仍分离，链上因果、显式时间窗、自动补齐及已有跨采集仿射映射门不改。
+
+旧已存 unverified 兼容保值、不由新教学升级；未知枚举仍拒。ParserVersion v43→v44 防旧缓存假作新协议，六处精确版本针同步。未猜测新增 jank_frame 原文 alias。98408定向GREEN、55971真实registry→模型system中英及无Trace负控、67850六包race、83809转换/旧教学邻接均正式exit0；日志 `/tmp/hmc-jank-source-clock-{red,green,system,race,neighbor}-20260922.log`。既有eval要求“时钟未对齐/需映射”的旧oracle按用户合同迁移，原始大整数和筛选/身份义务不降低；旧运行和人工 verdict 不重写。新固定双例另记版本/答案验收。
+
+### 132.3 观察容量与冻结验收收据
+
+独立公开容量 RED64476 正式 exit1/tool1.215s：通过真实 EmitPerfTraceTool.Execute 发50条模型观察时，无系统补充保50条、补时间后只保49条、补时间与优先级后只保48条，普通和分片两入口同样丢尾部。模型schema仍限50，现移除系统补充后的重复截断，只允许原有有界补充继续追加，不扩模型额度或权威。最终六包定向67335正式exit0（attachment0.660/types0.874/context1.400/agent1.072/tool1.140/perftriage1.608s），同范围race18314正式exit0（1.492/2.116/2.798/4.060/3.398/1.503s），含独立容量回归；日志 `/tmp/hmc-trace-scope-final-{focused,race}-20260922.log`。
+
+代码先分批本地提交 `d2208745a`（同源时间轴及新协议eval）和 `edc5a4e5b`（受控分片与观察保留）。首轮全仓55718正式exit1，两处失败：新教学句含既有受限内部措辞“the system maps”；工具私有视图按值复制带锁BusContext。前者不改词汇检查/白名单，改为父预览行号自动补齐，定向30996正式exit0/context0.918s，提交 `483f87e4a`。后者及agent侧同类视图改为既有ShallowClone，导出字段的原浅共享语义保持，锁/缓存独立；既有copylocks精确静态检查增加agent包，两个旧测试的5处复制只做相同机械迁移，原断言不变。独立5文件末审无阻塞。新定向27422正式exit0（types2.973/tool1.712/agent2.687s）、末版race7952正式exit0（4.420/3.598/5.219s），提交 `d1cdd4b43`；完整复跑35049执行中，不能以定向通过替全仓通过。初次51470的tool选择器未命中，不计tool GREEN，27422/7952已更正覆盖容量公开测试。
+
+新eval夹具16行、14个头时间统一增加9007194.5秒，保证报告晚于上报症状结束；所有非头字段字节、原始int64、身份/坏数据/阈值负控保持，任意精度复核排序7/4/2和70/40/20ms不变。旧反向时钟oracle精确迁移并增加单位与链证据要求，不回签历史失败。末版构建26116正式exit0，revision=`483f87e4ae0d-dirty`、buildTime=`2026-09-22T14:01:25Z`，dirty仅文档；Go/构建输入已提交并由runner再次检查。runner93854启动唯一两例：新版 `trace_query_jank_field_inventory` 与原 `trace_query_frame_semantic_span_optimization`，并行2、各1次，重点验证同轴查询与显式窗口因果投影保护，结果和完整人工审计另补。此前edc5构建71436未跑live，不混用版本。
+
+活跃流/超时默认值保护66916正式exit0/llm5.313s：600/300/600秒、4ms仍有流式字节、隐藏推理/工具/可见进度及keepalive取消边界保持，日志 `/tmp/hmc-trace-scope-clock-active-stream-20260922.log`。本批不改任何超时策略。
+
+末版安全复制构建63568正式exit0，revision=`d1cdd4b4348b-dirty`、buildTime=`2026-09-22T14:09:59Z`，dirty仅文档。它没有替换483固定双例快照，不冒称live包含此修正。公开回归/结构静态检查/race按末版单列，日志 `/tmp/hmc-trace-scope-clock-copylock-final-{green,race}-20260922.log`。
+
+## 133. 同轴协议新版本固定双例：机器1/2、完整人工0/2（2026-09-22）
+
+[机器收据](../../eval/parallel_selected_summary_hmc_trace_scope_clock_20260922.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_trace_scope_clock_20260922_manual_audit.md)。runner93854正式exit0，恰好2并行×1；jank外层202/案例200秒、语义Trace外层181/案例179秒。79唯一ID仍13已交付+66开放。本批验证最新用户时轴澄清及显式窗口/自动因果补齐，未重复写模式原题追绿；后续原生断言补绑定仍P1。
+
+jank全部3条、排序7/4/2、原始大整数、70/40/20ms及完整16行扫描正确，99帧前缀/坏数值排除。但正文仍错误声称同源纳秒和头时间不属同一时钟，并把appid无据解释为应用PID，人工FAIL。实际finalizer输入2763完整新教学到场，2764–2766三个inventory都为source_trace_clock，source/canonical=trace_seconds且identity、三类身份分离；2729明确5条自由预诊断观察已被原生查询替代，单位事实60.010ms正确。未证旧clock提示污染，不能仅凭此称模型波动。机器另两条值与表后排序的距离针漏匹配，不算人工数值错；同轴正针还能命中“并非同一”，粗机器检查不能代替语义审计，本轮不改它重签旧结果。空schema2旁路的根因合同未启用原因合理，本题不要求因果图。
+
+语义Trace保5.000..5.007原窗、S5/runnable0.8/running1.2ms和完整因果投影；VerifyClass墙钟5/链上计入4.6、worker边前running4/full4.6ms都保。模型主动补旁路两候选0.0046/0.0008秒、frame_unproven及原窗正确，没有将不同方向潜力相加。但正文首句直接称已证丢帧及阻塞原因，末附注又说“校验完成触发wakeup”，实际5.005000先唤醒、5.005400才完成，相差0.4ms。最终输入准确给双方时刻、计量以及不得声明完成/直接阻塞的成员边界，旁路和系统附录还明确完成机理未证；故人工FAIL仍保留，不把正确投影当正确全文。
+
+两例均ordinary single-shot预诊断，未命中新受控分片；其来源/偏移/取消的证明来自独立真实Prepare→Agent→注册工具公开回归，不称已获live命中。483快照不含随后d1cdd复制修正，此版本边界明确保留。新确定性噪声归原HMC-01/16子债：分析器把原始纳秒维度标source_location、把预览行4/10/12当用户指定物理行，最终确实出现无关源码提示与错引用行提示，但最终没引用这些行，不能定为本次时轴错的直接原因。既有reader卡缺业务字段/时间/身份语义投影，需按typed来源和字段角色改进；semantic背景cpu·ms在两处简写ms亦留显示子债，不能新增输入/输出原文硬扫描。
+
+本批收尾后ROI：原生断言只读登记与新执行代次（B2→B3/B4旧未通过项）→业务字段/用户显式引用精度与caller双轴→已接受业务局部补齐/容量及B2–B6余项→能力目录/IO总体/精确帧。旧FAIL和新FAIL分别保原版本，不因单次模型越权无限提示拟合或阻塞高优先系统缺口。
+
+末版完整复跑35049正式exit0：87测试包通过、13无测试包、零FAIL；tool405.620s、types51.507s，日志 `/tmp/hmc-trace-scope-clock-sealed-full-20260922.log`。首轮55718的两项失败记录保留，不由分包结果拼接成成功。所有代码及测试已分批本地提交，统一文档与两例全文人工审计随本次收尾提交推送；远端实际收据随后补记。
