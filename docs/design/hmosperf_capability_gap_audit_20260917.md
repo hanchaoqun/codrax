@@ -2566,6 +2566,8 @@ Python仅实现+1、原测试与配置逐字不变，交付commit=c27961f556ef4d
 
 末版完整复跑34185现已正式exit0：87测试包、13无测试包、零FAIL，types36.222s。独立审计、公开红绿、末版race、完整检查均已取得；固定双例的未命中分支及人工FAIL独立见§131。生产/测试与文档分批提交，待推送后补实际收据，不预签远端状态。
 
+提交/推送收据：生产`a182682dd`、精确普查登记`c8441f898`、人工审计/文档`3f388153b`已由80139正式exit0推送main；当时本地/远端同为`3f388153bba3f40551bd59d0adb026d87a50c0e5`，工作区干净。末版tool392.780s。干净构建10041正式exit0，revision=`3f388153bba3`、buildTime=`2026-09-22T13:21:35Z`；它不是之前真实双例使用的构建，不混用身份。本收据随后独立文档提交，不代表§131开放设计已实施。
+
 ## 131. a182固定双例：机器1/2、完整人工0/2（2026-09-22）
 
 [机器收据](../../eval/parallel_selected_summary_hmc_pytest_invocation_20260922.md)、[全文人工审计](../../eval/parallel_selected_summary_hmc_pytest_invocation_20260922_manual_audit.md)。runner95668正式exit0；Trace337s/Python133s，恰好2并行×1。仍79=13已交付+66开放，不把窄修复当父项完成。
