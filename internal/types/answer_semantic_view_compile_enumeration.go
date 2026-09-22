@@ -70,8 +70,8 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 		Required:             true,
 		FacetIDs:             []string{string(FacetEnumerationItem)},
 		AcceptableClaimForms: acceptableClaimForms,
-		Rationale: "The enumeration itself. Each item names the member with its authoritative " +
-			"file:line. Use an ordered_list, table, bullet_list, or section with items depending on which is clearest; " +
+		Rationale: "The enumeration itself. Each item names the member with its supporting evidence and provenance; current-source claims need grounded source locations, while external observations retain artifact provenance without invented repo lines. " +
+			"Use an ordered_list, table, bullet_list, or section with items depending on which is clearest; " +
 			"a table is preferred when members have multiple attributes. Order is alphabetic OR " +
 			"meaningful (e.g. precedence) — describe which in the summary block.",
 		SurfaceRoleHint: SurfacePrincipal,

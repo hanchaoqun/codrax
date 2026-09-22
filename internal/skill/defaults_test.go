@@ -1015,7 +1015,7 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 		// the active phrasing; rule 121 keeps the V1-rejection note.
 		"put the literal directly in the block's `text` field as the rendered value",
 		"Otherwise put the verdict at the START of the block's `text` field",
-		"Put the verdict and the core reasoning together in the decision block's `text` field",
+		"Put the verdict and the core reasoning together using the schema-selected verdict carrier and rationale fields",
 		"top-level `value` / `boolean` payloads are not part of this tool's schema",
 	} {
 		if !strings.Contains(blob, want) {

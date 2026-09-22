@@ -2242,3 +2242,27 @@ HiLog机器FAIL、完整人工PASS（仅本例有限问题）：ArkTS/Cangjie四
 - [ ] JSON教学/修复成本与分析重复输出继续观察，不能以最终答案PASS销前段成本；无新证据前不为单样例增加专门规则。
 
 本片不改变窗口/根因资格/旁路/模型正文，机器与人工结论分账；父账13/79交付、66开放不变。
+
+## 110. 答案载体不自动扩张问题范围或证据来源（2026-09-21，实施验收中）
+
+§108实现`c5514cc56`及§109收据`bef54f3ce`已本地提交；推送84966/19686先后因SSH443连接关闭失败，22端口只读核验87162也失败，提交未丢失，尚不记已推送。本片仍按独立小批开展，不混入未修的系统优化收益措辞或日志派生标签来源。
+
+下一ROI选择依据：§109真实最终system消息同时收到两条无条件summary机制教学，而用户侧明确有限事实范围。`internal/skill/defaults.go`的Workflow与OutputFormat都将“summary是唯一principal”当成需要机制/代码/跨文件解释，属于通用承载形式与任务语义耦合，不是某个caller或Trace类型特判。现有更精确的scope/facets已经给出边界，修正教学即可，不改分类器、准入、补齐或模型原文。
+
+主审直接核参考`config/skills/ad_hoc_exploration.yaml:191–207,235–245`、`freq_distribution.yaml:44–74`及`core/skill_executor.py:645–691,1671–1695`：最终解读绑定当前问题、该步指标和实际引用的数据，可借鉴按问题组织解释。参考仍有D桶直接猜机理、固定阈值、强制全量窗口及芯片频率推断等限制，不移植其根因/路由规则。本仓明确窗、typed链上授权与用户需要仍优先。
+
+真实registry→BuildPromptContext→ToMessages的system消息RED71356正式exit1，`/tmp/codrax-summary-scope-teaching-red-20260921.log`：双语×有限Trace/多栈日志/代码机制/有限事实加源码维度/有限影响/完整因果共12格，两个独立教学出口共24条预期失败；JSON/图所有权/机制解释/因果边界保护先过。只测用户侧最终instruction会漏system层冲突，故两层分别验。
+
+生产仅替换两段文案：summary只是答案承载，解释深度服从resolved scope和required facets；所需机制/代码/跨文件关系仍在有证据时充分展开。有限事实和有界影响保请求事实、计量范围、来源、不确定性及判定理由，不因summary额外要求根因调查。独立源码维度不被finite取消，完整因果/图要求仍保留。没有增加schema、程序分流、关键词扫描、硬门或模型答案改写。
+
+skill整包33345正式exit0/0.862s，双面新语义定向race80412正式exit0/1.799s，原RED保留。实际原生query→完整final消息的agent保护、独立末审、末版全仓及冻结双例另验，未提前签完成。计划G1有限真实全域等待＋明确20ms因果链，2并行×1；同一有限问题是否仍错写机理与完整因果是否保深度分别审计，不追第三例。
+
+同批审计扩面（冻结前）：不能只改summary而留下同一system里的反向总则。主审直接核`compile_enumeration.go:41–50`准许external_observation枚举，generic:129–135可承载普通decision，dynamic_schema:430–458按真实投影保合法claim forms，`TestB1691PublicExplicitRuntimeScalarRemainsScalar`公开保显式direct-waker标量。相反，旧教学的scalar输出强制call graph/config lineage/file:line、普通decision只教代码guard/definition、外部枚举建议drop/换summary、hop先要求repo位置再允许外部帧、全局Prose voice将所有正文当代码机制。将这些同源承载/来源混淆纳入同一教学片，先加各出口RED，不新增任何枚举、运行时门或自动来源推断。有限语义/外部证据不取消独立源码义务，也不把代码所需证据降成无引用。
+
+前批推送收据补齐：HTTPS只读57415确认远端仍4bcacf783，写97303因缺可用口令失败，未改认证或remote配置；稍后原SSH443重试28712正式exit0，远端4bcacf783→bef54f3ce。已完成§108/109提交现均在main，本片仍独立未冻结。
+
+扩面RED32828正式exit1，`/tmp/codrax-runtime-carrier-teaching-red-20260921.log`：7个独立system出口、10个旧句断言×中英×8种合法runtime/source载体共160条预期失败，旧来源/JSON/图保护55911正式exit0。修后新针及skill/context定向race60391正式exit0（2.067/1.949s）。首次整包92562失败保留：一个旧V2针无条件要求decision.text承载，与当前typed verdict不一致，精准迁移到schema-selected verdict/rationale表述，原禁退役字段全部不动；另一个多证据稳定ID旧针仍合理，生产恢复原“selected stable IDs on that item”教学，不改该针。最终skill/context整包84188正式exit0（0.994/1.249s）。
+
+用户侧枚举Rationale同源缺陷亦实际可达：`renderAnswerDocBlockRequirement`直接发布“每项authoritative file:line”，随后又允许external_observation。真实BuildAgentContext→BuildInitialInstruction的中英×源码/外部四格RED58220正式exit1/agent1.145s，`/tmp/hmc-enumeration-origin-user-red-20260921.log`；只有反向教学失败，required成员/形式/事实不变先过。修正Rationale为各自证据与来源，源码仍需grounded位置、外部保工件来源而非伪造repo位置，形状/枚举/门均不动。
+
+原生交接采用分立而非伪合并验收：既有真实三轨查询/改名fixture＋空投影实际成文输入两项race82100正式exit0/agent4.212s，保11ms/三条1ms和finite不授因果；新skill矩阵单独证明实际system教学，新增用户侧Rationale针单独证明该动态出口。未新增重复五组原生fixture，不宣称一条测试串过所有system/user/native入口。公开工具标量及query→emit/render/patch76490正式exit0。完整全仓17085已启动，待正式退出。
