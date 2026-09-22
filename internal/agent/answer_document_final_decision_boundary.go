@@ -243,7 +243,13 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 	}
 	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
 	var b strings.Builder
-	b.WriteString("- reader_facing_control_metadata_policy=`json_only_never_visible`: raw JSON field names, enum literals, authority/status keys, and their snake_case values belong only in structured fields and audit carriers. Never repeat them in the model-authored lead, headings, parenthetical explanations, lists, tables, caveats, or diagrams. Express the same evidence boundary naturally; this changes no measurement, rank, causal ceiling, or conclusion. This is authoring guidance only; no model-authored prose is scanned, rejected, deleted, translated, or rewritten.\n")
+	b.WriteString("- reader_facing_control_metadata_policy=`json_only_never_visible`: ")
+	if zh {
+		b.WriteString(answerDocReaderFieldVisibilityZH)
+	} else {
+		b.WriteString(answerDocReaderFieldVisibilityEN)
+	}
+	b.WriteString(" Express the same evidence boundary naturally; this changes no measurement, rank, causal ceiling, or conclusion. This is authoring guidance only; no model-authored prose is scanned, rejected, deleted, translated, or rewritten.\n")
 	if contract != nil && contract.Active() {
 		meanings := traceFinalReaderCausalScopeOptions(contract, zh)
 		if len(meanings) > 0 {

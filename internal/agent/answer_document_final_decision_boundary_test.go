@@ -60,7 +60,7 @@ func TestTraceFinalReaderFacingLanguageHandoffKeepsControlEnumsOutOfVisibleProse
 	)
 	for _, want := range []string{
 		"reader_facing_control_metadata_policy=`json_only_never_visible`",
-		"raw JSON field names, enum literals, authority/status keys",
+		"内部协议、校验、路由或排序控制所用的字段名、枚举值、状态码和机器键值",
 		"reader_causal_scope_options=",
 		"selection_rule=`choose_exactly_one_matching_summary_caliber_never_combine`",
 		"本轮只报告观测，不选择原因或候选方向 或者 结论仅限所选窗口",

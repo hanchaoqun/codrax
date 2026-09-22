@@ -96,7 +96,7 @@ func TestRun2FixCUserNamedLatencyAnchorCarry(t *testing.T) {
 }
 
 // TestRun2FixCReaderWordsOverFieldSpellings — 件2: wire k=v field spellings
-// and underscore enum tokens stay off user-facing prose; the published
+// and underscore control enum tokens stay off user-facing prose; the published
 // display words replace them; the fact fence (values / caliber words /
 // state words / [E#]) is untouched. Witness: tier=primary ×2,
 // tier=secondary ×2, tier=tertiary, 「runnable_wait dominant_state=
@@ -113,9 +113,9 @@ func TestRun2FixCReaderWordsOverFieldSpellings(t *testing.T) {
 		"`dominant_state=runnable`",
 		"`chain_relevance=on_chain`",
 		"`d_state_or_io_wait`",
-		// The rule: field names are addressing, not reader words.
-		"Those spellings are data field names, not reader words",
-		"A field name may appear only as a quoted key beside its cited evidence row",
+		// Only internal control spelling is hidden, not raw business fields.
+		"Those spellings identify internal control metadata, not reader words",
+		"Preserve and explain relevant, evidence-supported raw-data field names, units, identifiers, and business statuses",
 		// The published display words offered as replacements.
 		"链上/邻近",
 		"D状态/IO候选",
