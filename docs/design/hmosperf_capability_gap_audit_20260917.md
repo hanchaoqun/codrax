@@ -2172,8 +2172,8 @@ H2的11闭合D段/36.757ms、12条内核原因记录/Σdelay39.157ms、完整sle
 
 两例均是有限事实问题，未强添因果投影、必选schema2空旁路及`trace_root_cause_contract_not_active`正确，不作为漏根因。H2老系统附录的opaque工件标识及内部状态词仍属独立读者词汇债。
 
-- [ ] 优先补逐段原生状态事实：沿现有typed carrier贯通已有`PrevStateRaw`，不从io_wait标签反推D、不从用户/答案原文推断；缺失保未知、历史兼容。保全部计数/时长/窗口/根因资格，最终模型仍负责结论。
-- [ ] 真实producer→观察账本→最终模型输入→发射附录/patch公开红绿，覆盖D变体、S侧IO、无原始状态及真实C2；无新schema必填或硬门。
+- [x] 优先补逐段原生状态事实：§106已完成`PrevStateRaw`可选字段贯通，不从io_wait标签反推D、不从用户/答案原文推断；缺失保未知、历史兼容。全部计数/时长/窗口/根因资格不改，最终模型仍负责结论。
+- [x] §106真实producer→观察账本→最终模型输入→发射附录/patch公开红绿及race已完成，覆盖D变体、S侧IO、无原始状态及真实C2；无新schema必填或硬门。仅字段交付验收，不回写本节两例完整人工FAIL。
 - [ ] H2调用点/资源/持有者与“未验证≠排除”人审问题继续留债；G1 event_search中行发射线程与payload主体的呈现歧义另审计，尚不判引擎错误、不擅改过滤。
 - [ ] 之后按ROI推进§104优化潜力口径、§94局部补齐和容量恢复；原人工FAIL及B2–B6不回写，父账仍13/79交付、66开放。
 
@@ -2203,10 +2203,10 @@ G1正文已正确消费三段原始D+IO和0.635ms，新详细reader真实命中�
 
 新确认高ROI系统gap：`projectTypedTraceAnswerAuthority`已按typed范围与native来源把模型复述过滤为空；`renderAnswerDocAggregateFacts`尊重该空结果，而`preEmitStableAggregateFacts`与`buildAnswerDocPreEmitContext`却以`len>0`区分存在，错误回退Mutable原始聚合。G1 explorer918行的19.671ms（首/第三D入口差，不是等待总量）由此在1742行软建议复活，要求全部聚合展示。最终答案仍采用正确0.635ms；本轮没有因该建议拒绝或重试，准确记录为软合同自冲突而非硬门。
 
-- [ ] 下一窄批：存在answer plan就尊重其聚合投影，包括空；只有无plan才保历史Mutable兼容。覆盖直接/缓存/成文prompt/公开emit一致性、混合源代码事实、非trace空投影；原始审计facts、窗口、native数值和模型正文不改，不扫描算式/原文、不新增门。
+- [x] §108窄批验收完成：存在answer plan就尊重其聚合投影，包括空；只有无plan才保历史Mutable兼容。直接/缓存/成文prompt/公开emit一致性、混合源代码事实、非trace空投影均有回归；原始审计facts、窗口、native数值和模型正文不改，不扫描算式/原文、不新增门。
 - [ ] 之后§104系统收益措辞、§94局部补齐与容量恢复继续按ROI推进；JSON传输污染恢复、调用点语义越权、读者内部词汇和原始occupancy重复另留账。父账13/79交付、66开放与旧FAIL不变。
 
-## 108. 明确空投影与缺失投影分离（2026-09-21，实施验收中）
+## 108. 明确空投影与缺失投影分离（2026-09-21，窄子片验收完成）
 
 §106代码/§107人工审计随`4bcacf783`已推main，session82517正式exit0；首次14057因SSH连接关闭失败，未丢提交，重试后本地/远端一致。先收住战果后处理本片，不把前批两份人工FAIL改签。
 
@@ -2221,3 +2221,24 @@ G1正文已正确消费三段原始D+IO和0.635ms，新详细reader真实命中�
 公共RED73006正式exit1/tool1.380s，`/tmp/hmc-empty-projection-public-red-20260921.log`：4场景×双语8格真实query→emit→render→patch，D+IO/S+IO的全空4格仅普通/缓存与实际emit/patch软提示复活失败；混合独立source和无native对照4格先绿，模型正文、native1ms/窗口、ledger及raw facts保持针先通过。生产只去掉两处`len>0`附加条件，缓存仍保原排除标志、一次构建，未增加代码行数或降低行数限制。
 
 首轮focused8180和race56630各因新增代次测试的错误前提FAIL：由两条日志改成一条仍有直接runtime证据，既有projector应继续排除无支持复述。仅将测试第二代改为真实partial-dispatch清理路径`SetLogTriage(nil)`，不改生产规则；旧缓存仍空，新代次恢复兼容。最终focused15834正式exit0/tool2.709s；agent53748正式exit0/1.232s；独立末审87449正式exit0（tool1.609/agent2.808s），无阻塞。统一full43341保首轮记录，末版完整复验83670、末版race7031待正式收据。未提前签全量通过。
+
+最终收据：代码`c5514cc56`。首轮全仓43341正式exit1/tool537.525s，仅上述新增测试前提错误，未改记通过；修正后全仓83670正式exit0，`/tmp/hmc-empty-projection-final-full-20260921.log`为87测试包、13无测试包、零FAIL（agent124.822/tool444.747s）。末版race7031正式exit0（tool15.409/agent3.048s），同时覆盖新空投影公开出口、旧缓存/scalar/cross-target及前片原始状态公开回归。独立末审无阻塞，干净构建48876正式exit0，revision c5514cc56787/buildTime2026-09-22T02:35:35Z。8项精确默认值/保活保护86902正式exit0/llm9.060s，保600/300/600秒及4ms连续流；短调用方期限仍有效，不改超时或降级代码。两处生产条件修改验收完成，不把模型叙述和父项一并销账。
+
+## 109. c551固定双例：机器1/2、完整人工1/2；空投影真实命中与上下文债（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_empty_projection_20260921.md)、[逐例人工审计](../../eval/parallel_selected_summary_hmc_empty_projection_20260921_manual_audit.md)。runner2083正式exit0，严格2并行×1，G1 85秒、HiLog207秒；不追第三例、不改旧oracle。成文拒绝/patch/聚合软建议均0，不代表前段JSON和分析模型没有重试。
+
+G1机器PASS但完整人工FAIL。整份工件34579.450627..34579.595184、三段原始D+IO和0.635ms正确；explorer977行仍提交漏第三段的“两次D”成员集，typed投影将其及另一复述集合过滤为空。最终输入未重播该聚合，也未再出现“全部聚合必须成文”的旧软建议，故本片空投影有真实命中。schema2空旁路的`trace_root_cause_contract_not_active`符合有限事实问题，不是投影丢失。模型仍将sync_buffer_read_wi调用点及sysmgr.elf推成确定的同步缓冲读取/系统管理器机制，又把iowait=0的D说成“纯磁盘/文件类阻塞”，均缺证明。
+
+主审与独立复核按完整finalizer输入追源：explorer的机制性自由总结未重播，原生producer只给调用点和计量，输入已明确opaque符号边界及非IO D为零不能排除所有存储IO。具体错误机制译文由最终模型引入；不归咎于已过滤聚合复活，也不凭单次判为随机波动。另确认通用summary-only教学仍要求机制细节/跨文件关系，而本例typed有限事实卡要求只答所问，存在过宽教学张力；尚不能证明它就是本例错误的唯一原因，另批审计，不扫正文作硬门。
+
+HiLog机器FAIL、完整人工PASS（仅本例有限问题）：ArkTS/Cangjie四帧、文件/行号及index=5,size=3越界信息准确，未虚造当前仓源码权威或跨栈确定根因。机器失败为英文contains碎片`of`/`bounds`未出现，中文“数组下标越界”已保含义，原FAIL保留。两组非空supporting运行时成员集在最终输入仍保留，member_notes被除；这是合法非空保留对照，不冒称命中非Trace空投影修复。“各自独立”的关系措辞偏强、模型派生异常标签被要求逐字呈现仍留读者/来源精度债，不影响此次四帧任务判定。
+
+过程审计：HiLog triager首轮errors字符串内含坏JSON，被拒；第二轮数组可解码但非逐字evidence及无因果marker，被正确拒；第三轮保2条peer事件/4帧成功。分析模型在54362上下文token下活跃输出102秒后触发周期重复熔断，第二轮成功；不是4ms/无答案静默超时，不能用延长watchdog掩盖重复生成。最大上下文55882 token/28%。`analyzer_terminal_emit_only`的3分钟phase budget不等于活跃流累计deadline，现有公开保护证明短phase预算不截断有进展SSE。
+
+- [ ] §104系统优化潜力措辞、§94局部补齐、容量恢复B与B2–B6继续开放，优先已证可复现系统缺陷。
+- [ ] 通用summary-only机制详述教学与typed有限事实范围的精度审计；保需要因果分析时的机制/链/业务证据，不能一律缩短或禁详细解释。
+- [ ] 日志原始异常类型与模型派生描述标签区分：原工件只有Error/panic，NativeBridgeError/CangjiePanic由triager生成，最终教学却要求逐字保留；应保来源层级，不增原文关键词硬门。另记该case旧注释允许无marker单链叙述的eval维护债。
+- [ ] JSON教学/修复成本与分析重复输出继续观察，不能以最终答案PASS销前段成本；无新证据前不为单样例增加专门规则。
+
+本片不改变窗口/根因资格/旁路/模型正文，机器与人工结论分账；父账13/79交付、66开放不变。
