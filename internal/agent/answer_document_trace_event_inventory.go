@@ -47,7 +47,7 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger) string
 		records = records[omitted:]
 	}
 	if traceEventInventoryHasJankFields(records) {
-		b.WriteString("- For jank markers, native start/end nanoseconds and their reported duration are distinct from header seconds and B/E span duration. An unverified native-to-trace clock mapping cannot be inferred from proximity. " + skill.TraceJankClockContract + " The emitter TID, marker PID and appid are distinct identities, not proof of the affected target thread. A jank marker reports a symptom; only independently supported chain evidence can establish its cause.\n")
+		b.WriteString("- " + skill.TraceJankClockContract + " Compute reported duration from the exact (end_ts_ns - start_ts_ns) difference before converting to milliseconds. The emitter TID, marker PID and appid are distinct identities, not proof of the affected target thread. A jank marker reports a symptom; only independently supported chain evidence can establish its cause.\n")
 	}
 	if traceEventInventoryHasResourceMarkers(records) {
 		b.WriteString("- " + skill.TraceResourceObservationContract + "\n")

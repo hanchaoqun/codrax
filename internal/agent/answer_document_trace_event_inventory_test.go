@@ -59,7 +59,7 @@ func TestTraceEventInventoryPublicQuerySurvivesFinalizerHandoff(t *testing.T) {
 		"ledger":  renderAnswerDocObservationLedger(ctx),
 		"initial": (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil),
 	} {
-		for _, want := range []string{"Trace Event Search Inventories", `"matched_total":7`, `"matched_total":3`, `"event_field_filters":`, `"field":"jank_frames"`, `"value":"2"`, "9007199354740993", "9007199474740993", "jank_event_fields_invalid", "unverified"} {
+		for _, want := range []string{"Trace Event Search Inventories", `"matched_total":7`, `"matched_total":3`, `"event_field_filters":`, `"field":"jank_frames"`, `"value":"2"`, "9007199354740993", "9007199474740993", "jank_event_fields_invalid", `"time_domain_status":"source_trace_clock"`} {
 			if !strings.Contains(prompt, want) {
 				t.Errorf("%s handoff lost %q", name, want)
 			}

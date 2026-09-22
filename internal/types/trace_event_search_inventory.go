@@ -11,6 +11,15 @@ const TraceEventSearchInventoryPredicate = "event_search_inventory"
 const TraceEventSearchInventoryRowLimit = 40
 const TraceEventSearchInventoryRawLimit = 4096
 
+// TraceJankSourceClock is the parser-defined clock of jank_event_sync's
+// nanosecond payload fields. It refers only to the physical source Trace axis,
+// not another capture, UTC, or a composite's independently mapped canonical axis.
+const TraceJankSourceClock = "source_trace_clock"
+
+// TraceJankLegacyUnverified preserves older receipts without silently upgrading
+// them to the current parser's field contract.
+const TraceJankLegacyUnverified = "unverified"
+
 // TraceEventSearchInventory is a producer-owned snapshot of ONE event_search
 // result. QueryScopeID binds it to its containing record's source receipt.
 // Neither another query, model aggregate, nor a nearby timestamp can extend
@@ -152,7 +161,7 @@ func IsValidTraceEventSearchInventoryRecord(r ObservationRecord) bool {
 			return false
 		}
 		if j := row.JankEvent; j != nil {
-			if j.TimeDomainStatus != "unverified" {
+			if j.TimeDomainStatus != TraceJankSourceClock && j.TimeDomainStatus != TraceJankLegacyUnverified {
 				return false
 			}
 			if j.Values == nil {

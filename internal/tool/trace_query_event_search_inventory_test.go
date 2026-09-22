@@ -41,7 +41,7 @@ func TestTraceQueryEventSearchInventoryPublicBroadAndFiltered(t *testing.T) {
 	}
 	for n, want := range []int64{2, 7, 4} {
 		row := b.EventSearchInventory.Rows[n]
-		if row.JankEvent == nil || row.JankEvent.Values == nil || row.JankEvent.Values.JankFrames != want || row.JankEvent.TimeDomainStatus != "unverified" || row.EmitterTID != 101 || row.MarkerPID != 201 || row.JankEvent.Values.AppID != 620 {
+		if row.JankEvent == nil || row.JankEvent.Values == nil || row.JankEvent.Values.JankFrames != want || row.JankEvent.TimeDomainStatus != "source_trace_clock" || row.EmitterTID != 101 || row.MarkerPID != 201 || row.JankEvent.Values.AppID != 620 {
 			t.Fatalf("row identity/value mismatch: %+v", row)
 		}
 	}

@@ -1,13 +1,17 @@
 # B1713 — marker-field inventory, not a frame-causality or scheduler claim.
-# The synthetic attachment separates the trace-header clock, reported native
-# nanoseconds, header TID, marker PID and appid. Values deliberately exceed
-# 2^53, so an intermediate float64 cannot satisfy the exact integer oracle.
+# Protocol revision 2026-09-22 (user clarification): these parser-defined
+# nanosecond fields use the source Trace clock; only unit conversion is needed.
+# Header timestamps are later report times, not symptom endpoints. All headers
+# move by one constant offset; native integers and event order are unchanged.
+# Header TID, marker PID and appid remain different identities. Native values
+# exceed 2^53, so float64 cannot satisfy the exact integer oracle.
+# This revised case does not re-grade or re-sign historical answers.
 # The threshold has a positive boundary (2), a negative neighbor (1), another
 # appid (9), a same-name substring decoy (99), and malformed numeric metadata.
 # No case/oracle source is made available through the analysis repository.
 ID="trace_query_jank_field_inventory"
-NAME="trace query — numeric jank inventory with independent clocks and identities"
-QUESTION="只分析附加的 trace，不分析代码。请找出 appid=620 且 jank_frames 至少为 2 的 jank_event_sync 记录，按 jank_frames 从高到低列出清单。每条给出 trace 头行发生时间、记录中的原始起止纳秒整数，以及二者相减得到的上报时长（毫秒），并说明一共匹配多少条。最后说明这些原始时间和 appid 能否直接用于调度线程的根因分析；如果不能，还缺什么证据？"
+NAME="trace query — numeric jank inventory on the source clock with distinct identities"
+QUESTION="只分析附加的 trace，不分析代码。请找出 appid=620 且 jank_frames 至少为 2 的 jank_event_sync 记录，按 jank_frames 从高到低列出清单。每条给出 trace 头行的报告时间、记录中的原始起止纳秒整数，以及终点减起点得到的上报时长（毫秒），并说明一共匹配多少条。最后说明这些原始时间和 appid 能否直接用于调度线程的根因分析；如果不能，还缺什么证据？"
 HTRACE_FILE="eval/fixtures/trace_query_jank_field_inventory/events.systrace"
 FIXTURE="eval/fixtures/stub_repo"
 
@@ -15,17 +19,19 @@ FIXTURE="eval/fixtures/stub_repo"
 # a raw evidence appendix or system projection. Full semantic correctness,
 # rejected-row handling and actual tool-context precision still need audit.
 EXPECT_PRIMARY_CONTAINS="620 9007199255740993 9007199325740993 9007199256740993 9007199296740993 9007199254740993 9007199274740993"
-EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])5\\.040*([^0-9]|$)
-(^|[^0-9])5\\.050*([^0-9]|$)
-(^|[^0-9])5\\.010*([^0-9]|$)
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])9007199\\.540*([^0-9]|$)
+(^|[^0-9])9007199\\.550*([^0-9]|$)
+(^|[^0-9])9007199\\.510*([^0-9]|$)
 (^|[^0-9])70([.]0+)?([^0-9]|$)
 (^|[^0-9])40([.]0+)?([^0-9]|$)
 (^|[^0-9])20([.]0+)?([^0-9]|$)
 (毫秒|ms)"
 EXPECT_PRIMARY_MATCHES_TEXT_REGEX="9007199255740993(.{0,200}){0,3}9007199256740993(.{0,200}){0,3}9007199254740993
 ((匹配|符合|满足|共|总计|合计|总数).{0,80}(^|[^0-9])(3|三)([^0-9]|$)|(3|三)[[:space:]*]*(条|个).{0,80}(匹配|符合|满足))
-((时钟|时间).{0,180}(未|不|缺|无法|不能|尚|需).{0,120}(对齐|映射|关联|转换|直接|同步)|(未|不|缺|无法|不能|尚|需).{0,100}(对齐|映射|关联|转换|同步).{0,100}(时钟|时间)|(未|不|缺|无法|不能|尚|需).{0,100}(时钟|时间).{0,100}(对齐|映射|关联|转换|直接|同步))
+((同一|相同|同源|共享).{0,48}(时间轴|时钟|时间基准)|(时间轴|时钟|时间基准).{0,48}(同一|相同|同源|共享))
+((单位|量纲).{0,48}(换算|转换)|(纳秒|ns).{0,80}(换算|转换).{0,80}(秒|seconds)|(换算|转换).{0,80}(纳秒|ns).{0,80}(秒|seconds))
 ((appid|应用标识|应用 ID).{0,180}(未|不|缺|需|无法|不能).{0,100}(线程|TID|tid|PID|pid)|(线程|TID|tid|PID|pid).{0,180}(未|不|缺|需|无法|不能).{0,100}(appid|应用标识|应用 ID)|(未|不|缺|需|无法|不能).{0,100}(appid|应用标识|应用 ID).{0,100}(线程|TID|tid|PID|pid))
+((根因|因果).{0,100}(链|依赖|唤醒)|(链|依赖|唤醒).{0,100}(根因|因果))
 (9007199255740993.{0,120}(^|[^0-9])7([^0-9]|$)|(^|[^0-9])7([^0-9]|$).{0,120}9007199255740993)
 (9007199256740993.{0,120}(^|[^0-9])4([^0-9]|$)|(^|[^0-9])4([^0-9]|$).{0,120}9007199256740993)
 (9007199254740993.{0,120}(^|[^0-9])2([^0-9]|$)|(^|[^0-9])2([^0-9]|$).{0,120}9007199254740993)"

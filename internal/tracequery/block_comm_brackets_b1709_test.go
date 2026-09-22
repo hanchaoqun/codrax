@@ -88,7 +88,7 @@ func TestB1709PublicBracketCommPreservesRQAndBIOClosure(t *testing.T) {
 }
 
 func TestB1709BracketCommInvalidatesV40Cache(t *testing.T) {
-	if ParserVersion != "tracequery-v43" {
+	if ParserVersion != "tracequery-v44" {
 		t.Fatalf("opaque block comm parsing requires a new cache generation: %q", ParserVersion)
 	}
 	cache := newTraceIndexCache(1 << 20)

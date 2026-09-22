@@ -10,8 +10,8 @@ import (
 	"unsafe"
 )
 
-// The two clocks and three identities deliberately disagree. Payload metadata
-// must remain searchable without becoming a header timestamp or scheduler TID.
+// Reporting time and symptom endpoints deliberately differ, as do all three
+// identities. Same-clock metadata never overwrites the header or scheduler TID.
 func TestJankEventPublicTypedFilterAndNativeClock(t *testing.T) {
 	path := writeTraceMarkIntegrityTrace(t, "jank-fields.systrace",
 		traceMarkTestLine("writer", 10, 1, "B|20|jank_event_sync: start_ts=9007199254740993, end_ts=9007199254741093, jank_frames=2, appid=30"),
@@ -44,7 +44,7 @@ func TestJankEventPublicTypedFilterAndNativeClock(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{`"jank_event"`, `"start_ts_ns":9007199254740993`, `"end_ts_ns":9007199254741093`, `"reported_duration_ns":100`, `"time_domain_status":"unverified"`} {
+		for _, want := range []string{`"jank_event"`, `"start_ts_ns":9007199254740993`, `"end_ts_ns":9007199254741093`, `"reported_duration_ns":100`, `"time_domain_status":"source_trace_clock"`} {
 			if !strings.Contains(string(wire), want) {
 				t.Errorf("%s lost exact native marker field %s: %s", name, want, wire)
 			}
@@ -340,28 +340,28 @@ func TestJankEventConvertedEnvelopesAndOriginalSpanSemantics(t *testing.T) {
 	}
 }
 
-func TestJankEventCacheEpochAndClockMismatchWitnesses(t *testing.T) {
-	if ParserVersion != "tracequery-v43" {
-		t.Fatalf("jank typed metadata requires current v43 cache epoch, got %q", ParserVersion)
+func TestJankEventCacheEpochAndReportedTimeDifferenceWitnesses(t *testing.T) {
+	if ParserVersion != "tracequery-v44" {
+		t.Fatalf("jank source-clock contract requires current v44 cache epoch, got %q", ParserVersion)
 	}
 	cache := newTraceIndexCache(1 << 20)
-	oldKey := parseCacheKey{path: "jank.trace", size: 1, modUnix: 1, version: "tracequery-v41"}
+	oldKey := parseCacheKey{path: "jank.trace", size: 1, modUnix: 1, version: "tracequery-v43"}
 	newKey := oldKey
 	newKey.version = ParserVersion
 	cache.Store(oldKey, &Index{Path: oldKey.path, Events: []Event{{Type: EventTraceMark}}})
 	if _, ok := cache.Load(newKey); ok {
-		t.Fatal("pre-metadata parser cache reused")
+		t.Fatal("pre-source-clock parser cache reused")
 	}
 	for _, line := range []string{
 		".ugc.aweme.lite-17267 (17267) [012] .... 13762.973139: print: B|37722|jank_event_sync: start_ts=13762824649681, end_ts=13762973126250, jank_frames=8, appid=37722",
 		"com.baidu.tieba-59566 (59566) [002] .... 34579.594371: print: B|60194|jank_event_sync: start_ts=29822991976856, end_ts=29823127398574, jank_frames=8, appid=60194",
 	} {
 		ev, ok := ParseLine(1, line, newStringInterner())
-		if !ok || ev.PluginFields == nil || ev.JankEvent == nil || ev.JankEvent.Values == nil || ev.JankEvent.TimeDomainStatus != "unverified" {
-			t.Fatalf("real near/divergent clock witness lost metadata: %+v", ev)
+		if !ok || ev.PluginFields == nil || ev.JankEvent == nil || ev.JankEvent.Values == nil || ev.JankEvent.TimeDomainStatus != "source_trace_clock" {
+			t.Fatalf("real near/divergent reporting time lost source-clock metadata: %+v", ev)
 		}
-		if !strings.Contains(JankEventSummary(ev), "no header-clock alignment") {
-			t.Fatal("clock proximity minted alignment")
+		if !strings.Contains(JankEventSummary(ev), "header is report time") {
+			t.Fatal("reporting time was not distinguished from symptom endpoints")
 		}
 	}
 }

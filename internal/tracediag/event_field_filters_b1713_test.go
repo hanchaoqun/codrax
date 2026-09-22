@@ -134,7 +134,7 @@ steps:
 		t.Fatalf("Run failed=%d err=%v\n%s", failed, err, output.String())
 	}
 	report := output.String()
-	for _, want := range []string{"matched=1 emitted=1", "line=1 ts=1.000000", "writer-10 (10)", "B|20|jank_event_sync", "start_ts=9007199254740993", "end_ts=9007199254741093", "appid=30", "start_ts_ns=9007199254740993", "reported_duration_ns=100", "native_time_domain=unverified", "appid is not a scheduler TID"} {
+	for _, want := range []string{"matched=1 emitted=1", "line=1 ts=1.000000", "writer-10 (10)", "B|20|jank_event_sync", "start_ts=9007199254740993", "end_ts=9007199254741093", "appid=30", "start_ts_ns=9007199254740993", "reported_duration_ns=100", "native_time_domain=source_trace_clock", "appid is not a scheduler TID"} {
 		if !strings.Contains(report, want) {
 			t.Errorf("report lacks exact native payload/header separation %q:\n%s", want, report)
 		}

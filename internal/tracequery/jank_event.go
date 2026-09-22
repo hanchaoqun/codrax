@@ -3,11 +3,14 @@ package tracequery
 import (
 	"fmt"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // JankEventFields is reported marker metadata, not an independently measured
-// frame interval. No clock relationship to Event.Ts or scheduler identity is
-// established by the producer's appid, payload PID, or numerical proximity.
+// frame interval. This grammar defines payload nanoseconds on the source Trace
+// axis. A reporting header need not equal either endpoint, and source-clock
+// membership does not establish a scheduler identity or a causal relation.
 type JankEventFields struct {
 	Values           *JankEventValues `json:"values,omitempty"`
 	IssueReason      string           `json:"issue_reason,omitempty"`
@@ -28,7 +31,7 @@ func attachJankEventFields(ev *Event) {
 	if ev.Type != EventTraceMark || ev.SpanAction != "B" || !strings.HasPrefix(ev.SpanName, "jank_event_sync:") {
 		return
 	}
-	parsed := &JankEventFields{TimeDomainStatus: "unverified"}
+	parsed := &JankEventFields{TimeDomainStatus: types.TraceJankSourceClock}
 	if ev.PluginFields == nil {
 		ev.PluginFields = &PluginFields{}
 	}
@@ -84,10 +87,14 @@ func JankEventSummary(ev Event) string {
 	}
 	fields := plugin.JankEvent
 	if fields.Values == nil {
-		return fmt.Sprintf("jank_event_fields_invalid=%s native_time_domain=unverified (raw marker retained; no numeric authority)", fields.IssueReason)
+		return fmt.Sprintf("jank_event_fields_invalid=%s native_time_domain=%s (raw marker retained; no numeric authority)", fields.IssueReason, fields.TimeDomainStatus)
 	}
 	v := fields.Values
-	return fmt.Sprintf("jank_event_sync start_ts_ns=%d end_ts_ns=%d jank_frames=%d appid=%d reported_duration_ns=%d native_time_domain=unverified (reported metadata; appid is not a scheduler TID; no header-clock alignment)", v.StartTSNS, v.EndTSNS, v.JankFrames, v.AppID, v.ReportedDurationNS)
+	clockNote := "legacy parser clock status; not upgraded"
+	if fields.TimeDomainStatus == types.TraceJankSourceClock {
+		clockNote = "source Trace axis; ns to s only; header is report time"
+	}
+	return fmt.Sprintf("jank_event_sync start_ts_ns=%d end_ts_ns=%d jank_frames=%d appid=%d reported_duration_ns=%d native_time_domain=%s (reported metadata; appid is not a scheduler TID; %s)", v.StartTSNS, v.EndTSNS, v.JankFrames, v.AppID, v.ReportedDurationNS, fields.TimeDomainStatus, clockNote)
 }
 
 func jankEventInvalidInQuery(ev Event, q Query, typeSet map[EventType]bool, actionSet map[string]bool) bool {
@@ -100,5 +107,5 @@ func jankEventInvalidInQuery(ev Event, q Query, typeSet map[EventType]bool, acti
 }
 
 func jankEventIntegrityCaveat(count int) string {
-	return fmt.Sprintf("jank_event_fields_invalid=true rows=%d; raw markers retained as inventory but excluded by numeric predicates; missing/invalid fields are not zero; native_time_domain=unverified", count)
+	return fmt.Sprintf("jank_event_fields_invalid=true rows=%d; raw markers retained as inventory but excluded by numeric predicates; missing/invalid fields are not zero; native_time_domain=%s", count, types.TraceJankSourceClock)
 }
