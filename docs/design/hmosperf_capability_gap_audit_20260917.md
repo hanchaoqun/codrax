@@ -2345,3 +2345,17 @@ G1主审及独立人工均FAIL：三段D+IO、0.635ms、全捕获窗/目标/调�
 - [ ] 新共享展示P1：项目锁中文已经进入最终模型消息，系统等待附录和补采说明却消费另一语言来源而变英文。应统一有效回答语言权威、保标识符原文，不扫描/翻译模型正文；双语无锁和显式锁都需公开正反回归。同步纠正§113“英文问题→中文正文错误”的审计理由，旧机理FAIL不改签。
 - [ ] §111分量身份只读设计核对完成：详细reader已有 `RootCauseNodeValueDescription`，state/compact两个出口仍缺归因量自己的类型/说明。下一片应在同一projection/node复用既有描述，保原始状态/测量/行身份和未知空描述，不重算或授根因。独立现状保护99556正式exit0（tracefinding0.544/agent1.310s），不是新缺口RED/GREEN。
 - [ ] §114标量legacy来源混淆、§104收益口径、§94局部补齐/容量、B2–B6及全部66父开放项继续按ROI推进。
+
+## 116. 成文教学与系统附录共用有效语言（2026-09-22，验收中）
+
+前批代码`fd000269c`及收据`d82953c16`已推main，24923正式exit0，本地/远端一致后继续。稳定父账79=13+66不变。本片ROI在于同一个已证优先级错误影响等待、因果、补齐、频率、关系及日志附注等共用出口，修复面小且不碰证据资格，因此先于需要更多计量设计的分量身份片推进。
+
+主审再读参考`ad_hoc_exploration.yaml:191–207`：最终回答应绑定原始问题及实际指标。参考没有本仓具体项目语言与分析合同双权威的同构实现，不能照搬默认语言；本片依据本仓已生效的project/CLI优先级。独立复核确认语言沿flag→orchestrator→BusContext→AgentContext→ToolBusContext完整保留，错在工具解析顺序，不是传输丢失。顺带纠正architecture旧“问题语言可覆盖具体项目配置”的陈旧说明，不改变已实施语言锁。
+
+主审工具矩阵RED87674正式exit1/tool1.212s，扩展枚举后28087正式exit1，分别记录`/tmp/hmc-language-authority-{red,expanded-red}-20260922.log`。独立公共RED34453正式exit1/tool1.923s，`/tmp/hmc-locale-public-red-20260922.log`：8格真实event_search→自动window_stats补齐→emit/render/noop patch中5格语言失败、3格通过；原始D/IO、1ms、显式1..1.004窗、模型正文/保留说明、ledger/投影/raw bytes及幂等性保护无失败。不是只把附录字符串翻译的假端到端。
+
+生产将既有agent纯解析逻辑移到types，共用project具体语言→contract→request→en；支持别名集合不扩张，off/none只在配置位关闭语言教学且保en系统兜底，auto/follow/空/未知代码按原agent逻辑回退。tool共享入口、源码未命中范围、通用范围附注、枚举系统标题/说明列与外部证据附注同源。原始模型语言字段、正文、证据ID/数值/窗口/根因权限不改，不新增JSON字段、原文扫描或内容硬门。CLI默认zh不动；无任何语言载体的工具直调由部分旧zh兜底变成与finalizer相同的en，此行为变化明确记录而非隐去。
+
+新增types别名/来源矩阵与agent实际BuildInitialInstruction保护25436正式exit0（types1.068/agent2.069s），在agent迁移前先通过，不冒称红针。首次GREEN97041正式exit1，仅旧wrapped external-frame测试在全空语言时仍要求中文系统前缀；精准迁移成en并加完整模型中文原文不变断言，没有改帧位置或repo引用边界。末版定向45670正式exit0（types1.119/agent1.479/tool2.275s）。末版全仓55996、race83651待收正式退出；未提前销账。
+
+范围不外推：deterministicCountAggregateLabel的语言参与派生aggregate身份，本片不顺手改；其它探索/修补提示和非中英翻译并未全域统一。§111分量身份、§114标量legacy来源、§104收益口径、B2–B6与旧人工FAIL继续开放。冻结双例计划仍严格2并行×1：G1有限等待检查实际系统附录语言＋显式20ms因果链保护投影和多类候选。前批Go实际apply已审，不冒称本批另跑写模式。

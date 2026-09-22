@@ -1222,6 +1222,8 @@ CitationRef 在 render 时解析；-1 = 无 cite。`MissingRequestedRoles` 渲�
 
 renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——按"系统只读"红线，输出是字符串 markdown。语言敏感（中英 preamble + section title）。
 
+成文语言教学与系统答案补充共用 `types.ResolveAnswerDocumentLanguage`：已支持的具体项目/CLI语言优先，其次分析合同、请求模型，最后英文。中英别名沿用既有 finalizer 集合；`auto/follow`、空值及不支持的语言代码走结构化回退，不增加其它语言翻译。项目 `off/none` 不发布回答语言指令，系统文案仍需使用英文兜底。工具侧等待清单、因果投影、补采说明、范围附注及枚举系统标题等消费同一解析结果，不改模型正文或原始语言字段。CLI 默认 `zh` 不变；没有任何语言载体的工具直调原先部分默认中文，现与 finalizer 的英文兜底一致。
+
 ### 6.9 证据边界说明 footer — typed degradation ledger（EVALFIX-2E CLASS 5）
 
 设计上的 fail-open 车道（系统确定性软化 / 重写 / 降级了某个承诺面，只发 WARN、用户面零披露）有了统一记账点：`internal/types/degradation_ledger.go`。三件套 = per-Run 收集器（`MutableState.AppendDegradation / DegradationLedger / ResetDegradationLedger`，生命周期边界 = pipeline start，S12/S13 唯一边界裁定）+ 闭集车道注册表（`DegradationLaneRegistry`，**分类的单一事实源**）+ 单一渲染出口（`renderDegradationDisclosureFooter`，仅注入在 `renderAnswerDocumentWithLastMileSupplements` 咽喉内，TRUNC 家族结构测试钉死）。
@@ -2724,7 +2726,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `status_blocks.go` / `status_classify.go` / `status_messages.go` | 状态消息分类 + 多语言文本 |
 | `diff_color.go` | unified diff 着色 |
 
-**响应语言**：`-lang`（默认 `zh`）→ `orchestrator.SetLanguage` → append 到 `BusContext.Preferences` → 作 "User Preferences" system 段渲染。始终带 fallback 分句——另一语言提问能用那语言回答。`-lang=off` / `none` 回退。
+**响应语言**：`-lang`（默认 `zh`）→ `orchestrator.SetLanguage` → `BusContext.Language`/`AgentContext.Language`。具体语言配置锁定回答语言，不因问题使用另一语言自动切换；`auto/follow` 跟随问题，`off/none` 关闭语言指令。成文中英渲染与系统附注的结构化语言来源见§6.8；原始标识符、路径和引文不翻译。
 
 **Thinking 输出截断**：CLI 单次运行和 REPL 都通过 `EventAgentReasoning` 渲染模型 thinking。`thinking_truncate` 默认 `false`， durable thinking 行完整打印；设为 `true` 时恢复 legacy 的 1-2 句 / 200 字符摘要。这个开关只影响终端持久输出，不影响 live dock 的固定宽度一行预览。
 
