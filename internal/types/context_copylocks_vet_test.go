@@ -23,11 +23,11 @@ import (
 // `:= *ctx` shapes — a lexical scan is a noisy signal and noisy
 // signals must not drive hard gates.
 //
-// Scope is deliberately the three packages that have carried
+// Scope is deliberately the four packages that have carried
 // BusContext/AgentContext value copies, not ./... — vet type-checks
 // (and cgo-compiles) everything it analyzes, and the tree-sitter
 // packages make a whole-repo vet disproportionate inside `make test`.
-// Warm-cache cost of this scope is ~2-4s.
+// Agent-side excerpt views must obey the same rule as tool-side views.
 func TestBusContextCopylocksVetClean(t *testing.T) {
 	goBin := filepath.Join(runtime.GOROOT(), "bin", "go"+exeSuffix())
 	if _, err := exec.LookPath(goBin); err != nil {
@@ -51,6 +51,7 @@ func TestBusContextCopylocksVetClean(t *testing.T) {
 
 	cmd := exec.Command(goBin, "vet", "-copylocks",
 		"github.com/hanchaoqun/codrax/internal/types",
+		"github.com/hanchaoqun/codrax/internal/agent",
 		"github.com/hanchaoqun/codrax/internal/tool",
 		"github.com/hanchaoqun/codrax/internal/orchestrator",
 	)

@@ -14,9 +14,9 @@ func perfTraceExtractionContext(parent *types.BusContext) (*types.BusContext, *t
 	if err != nil {
 		return nil, nil, err
 	}
-	view := *parent
+	view := parent.ShallowClone()
 	view.AttachedHitrace = raw
-	return &view, &scope, nil
+	return view, &scope, nil
 }
 
 func scopePerfObservations(bundle *types.PerfBundle, scope types.PerfObservationSourceScope) {

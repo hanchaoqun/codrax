@@ -378,13 +378,13 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 		if viewErr != nil {
 			return nil, viewErr
 		}
-		scopedCtx := *ctx
+		scopedCtx := ctx.ShallowClone()
 		scopedCtx.AttachedTraceExcerpt = view
 		ctx.Mutable.SetPerfTrace(nil)
 		a.base.eval.(*perfTriagerEvaluator).emitSeen = false
 
 		coverage.Attempted++
-		subOut, subErr := a.base.Execute(&scopedCtx, extractSkill)
+		subOut, subErr := a.base.Execute(scopedCtx, extractSkill)
 		calls++
 		if err := perfTriageContextError(ctx, subErr); err != nil {
 			return nil, err

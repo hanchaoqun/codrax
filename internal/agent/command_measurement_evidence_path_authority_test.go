@@ -97,23 +97,23 @@ func TestCommandMeasurementEvidencePathAuthorityRouteBackedProfileOmission(t *te
 		t.Fatalf("precise route obligation should preserve prompt-only authority when analyzer profile is omitted:\n%s", got)
 	}
 
-	optional := *ctx
+	optional := ctx.ShallowClone()
 	optional.TurnRouteHint.CurrentSourceEvidenceMode = types.TurnRouteCurrentSourceEvidenceOptional
-	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(&optional); got != "" {
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(optional); got != "" {
 		t.Fatalf("optional current-source route must not activate route-backed guidance:\n%s", got)
 	}
 
-	operation := *ctx
+	operation := ctx.ShallowClone()
 	operation.TurnRouteHint.NeedsOperationAccess = true
 	operation.TurnRouteHint.ConcreteOperation = true
-	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(&operation); got != "" {
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(operation); got != "" {
 		t.Fatalf("concrete operation route must not activate analysis guidance:\n%s", got)
 	}
 
-	nonCount := *ctx
+	nonCount := ctx.ShallowClone()
 	nonCount.AnalysisIR = &types.AnalysisIR{RequestModel: ctx.AnalysisIR.RequestModel}
 	nonCount.AnalysisIR.RequestModel.Predicates.IsCountQuestion = false
-	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(&nonCount); got != "" {
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(nonCount); got != "" {
 		t.Fatalf("incidental command measurement in a non-count request must not activate guidance:\n%s", got)
 	}
 }

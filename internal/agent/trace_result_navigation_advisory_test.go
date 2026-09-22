@@ -36,7 +36,7 @@ func TestB1624bAgentBothRejectionsAppendOnlyReturnNavigation(t *testing.T) {
 	m.AppendDispatchToolResult(blobEscapeTraceQueryResult())
 	b1624bAgentPublishDerived(t, m, blobEscapeRawRef, b1624bAgentDerived)
 	ctx := blobEscapeObservationOnlyContext(t, m)
-	control := *ctx
+	control := ctx.ShallowClone()
 	control.Mutable = types.NewMutableState("navigation control")
 	control.Mutable.AppendDispatchToolResult(blobEscapeTraceQueryResult())
 	ticket, ok := m.PrepareArtifactReadNavigation(b1624bAgentDerived)
@@ -57,7 +57,7 @@ func TestB1624bAgentBothRejectionsAppendOnlyReturnNavigation(t *testing.T) {
 		for _, name := range []string{"read_file", "grep"} {
 			t.Run(gate.name+"/"+name, func(t *testing.T) {
 				call := b1624bAgentCall(name, b1624bAgentDerived)
-				before, after := gate.call(&control, call, true), gate.call(ctx, call, true)
+				before, after := gate.call(control, call, true), gate.call(ctx, call, true)
 				if before == nil || after == nil || after.Success || after.Repair == nil {
 					t.Fatalf("navigation must retain the original rejection: before=%+v after=%+v", before, after)
 				}
@@ -110,12 +110,12 @@ func TestB1624bAgentUnknownAndStaleNavigationKeepOriginalRejections(t *testing.T
 				name = "exec_command"
 			}
 			ctx := blobEscapeObservationOnlyContext(t, m)
-			control := *ctx
+			control := ctx.ShallowClone()
 			control.Mutable = types.NewMutableState("negative control")
 			control.Mutable.AppendDispatchToolResult(blobEscapeTraceQueryResult())
 			for _, gate := range []func(*types.AgentContext, llm.ToolCall, bool) *types.ToolResult{validateExplorerTraceOnlyExactArtifactToolCall, validateExplorerTraceQueryRuntimeEvidenceBoundary} {
 				call := b1624bAgentCall(name, path)
-				before, after := gate(&control, call, true), gate(ctx, call, true)
+				before, after := gate(control, call, true), gate(ctx, call, true)
 				if before == nil || after == nil {
 					t.Fatal("unknown/source paths must retain the original rejection")
 				}
