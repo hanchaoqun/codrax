@@ -34,6 +34,7 @@
 
 - 正确保留：Mermaid sequenceDiagram和四阶段输入/输出/状态表均在，主入口、共享BusContext/Mutable及AnalysisIR等关键载体出现。先前无证的dispatch/返回边确实经过精确校验/修补；最终不再有首稿`StageOutput(AnswerDocumentV2)`返回边，不能沿用已删除错误判终稿FAIL。引用多数已用实际源码替换原意译；当前终稿路径和行号可以审计。
 - 最终图FAIL：终稿34–41先Run→analyze返回→task→taskGraph→readSchedulerLoop后全部return；45–47再追加An→Ex→ET→FF阶段先后边。源码`runReadSchedulerLoop`在extract/finalize完成前不会作图示整体返回；图还留未连接DC/FV、正文13倒称agent执行dispatchStageCore，而后者属于Orchestrator且负责调用agent。局部precedence顺序正确不等于整个sequence时间顺序正确，不能用机器PASS替代图义。
+- 共享状态描述同样未通过：终稿17称AnalysisIR在analyze后只读，但`orchestrator.go:6788–6804`的`drainHypothesisVerdicts`在消费后续verdict时实际调用`AnalysisIR.MarkHypothesis`更新假设状态。主审已逐行确认独立复审发现；应区分分析骨架与后续假设状态更新，不把整个载体概括为不可变，也不凭这一处误述扩大为所有状态说明均错。
 - 确定性修补载体gap：`answer_document_diagram_edge_patch.go:2000`的action=add统一在body尾追加边，且1979不接受occurrence/body_occurrence；本次局部租约禁止whole-block replacement。log6524模型选择删除11边、添加3条precedence，执行器将新边安到旧return/note后，最终MD仍然如此。应该提供精确当前图位置/分支的可选插入凭据或能保持时序的局部操作，由模型选择有据位置，不能系统猜业务时间或授予新源码关系；也不能对所有图家族只验边集合而忽略载体顺序。公开正反需覆盖sequence return、alt/loop分支及已有flow/class语义不受影响，归HMC-16.5/18.4。
 - 调查供给审计：第一27轮后再次探索不是无界重复同一次dispatch；log3222–3240记录current probe完成后仍有5个required子题，打开第二调查窗。analyzer目标曾写Phase1=analyze+explore、Analyzer产EvidenceItems、AnalysisIR写Mutable等不准确内容，作为调查目标反复供给；但incident参与者已规范化，finalizer5741为analyze/finalizer、context_only空，不能误称参与者门没修。
 - 独立必填补证gap：`emit_evidence.go:7045–7082`对已知stage enum作为参数只看阶段触及，不限定接收API属于真实调度交接。log4439把StageAnalyze→softTransportRetryHintForStage(:2410)与→string(:2436)这两条重试UI/审计用边作为completion阻断，且称schema-invalid。源码真实但非本题阶段交接；修复应区分真实调用参数事实与用户所问交接义务，不放松实际交接证明、不扫问题原文关键词。
