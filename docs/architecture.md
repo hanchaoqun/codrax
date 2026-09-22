@@ -1643,6 +1643,8 @@ coder 是 "dumb marshaller"：每次 apply_patch 工具的 schema 仅 `{path, ki
 
 **分析提交修复预算**：写分析仍为4次正常轻预读、最多6轮（更低显式配置仍优先）。结构化提交失败后，最多额外开放一个仅 `read_file` 和提交工具的修复回合，沿用既有整批读取语义；失败读取或未使用该回合都不续额度。同批尚不可用的读取不消耗下一回合。schema与skill均要求一次成功提交，拒绝可在预算内修复重发；容量32不是承诺单轮可读取32个文件。不分析错误文案、用户关键词或模型散文，也不允许移除真实要求以绕过拒绝。
 
+**pytest 报告归属**：实际执行时为每个调用/选择器分配独立的 `.codrax/tmp/pytest-invocation-*` 私有目录，纯命令预览不分配产物；旧固定报告不读、不覆盖、不清理。读取前后检查准备时的目录身份与普通文件快照，单次读取上限64MiB，同一字节用于解析和摘要；清理仅针对成功解析且仍未变动的准确文件与空目录。此为稳定路径替换防护，不是对恶意并发子进程的原子文件系统沙箱。当前非零命令不能被绿色JSON覆盖，保留真实断言行并报告验证未完成；精确匹配的零测试2/4/5协议仍通过NoTestsRunners披露而不授断言证明。缺少可用当前JSON仍沿原有真实文本重执行路径恢复，其命令与JSON命令分别留档；摘要仅证明实际解析了本次产物，不生成精确文件执行或行为合同证明，也不增加模型JSON字段。
+
 **Syntax fallback diagnostics**：无测试基础设施时，plan-touched Python / Node / Ruby 文件会走语法预检兜底。Python 产出 `py_compile` / `python_static_name_check` 行；Node `node --check` 与 Ruby `ruby -wc` 的失败输出会被解析为 `BuildErrors[]` 并带稳定 `FailureReasonCode`，因此 P2 verify-failure handoff 消费的是 file/line/message typed rows，而不是 runner stdout 或模型 narrative。
 
 **Verification cancellation authority (B1715)**：probe、源码准备、语法预检、项目 suite/fallback 与 manifestless Java 执行继承 `BusContext.Context()`，保持各自原超时预算。调用方取消不是产品测试失败：中断 probe 不生成断言证明，baseline 不能把取消铸成 expected failure；项目命令在读取部分测试结果前检查父 context，取消后不继续测试队列或借此前 probe 的通过降格为成功。源码检查家族共享执行入口，Python 解释器准备也继承父 context，取消后不继续候选；source_compile 成功凭证还要求该检查命令实际 exit 0。统一收尾保留实际命令、输出和此前已完成的独立观察，但整批报告取消为 verification_incomplete、调用方 deadline 为 timeout。文件变动快照/审计仍可收尾；会新启动程序的 locked reverify/formatter 则服从调用方 context。该边界不改变 LLM 的首响应/静默/非流式 600/300/600 秒默认值，活跃流无正文不因此降级。

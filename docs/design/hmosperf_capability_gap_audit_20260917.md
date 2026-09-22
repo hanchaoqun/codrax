@@ -2545,3 +2545,46 @@ Python仅实现+1、原测试与配置逐字不变，交付commit=c27961f556ef4d
 逐唯一ID仍79=13已交付+66开放；本轮完成的是既有父项下的确定性子缺陷与新版本两个用户任务，历史FAIL原样保留。优先级按§128旧pytest产物冒借P1→caller双轴→业务局部补齐/容量→声明-观测pair/B2–B6→能力目录/IO总体/精确帧执行。当前代码两笔本地提交111b22d23、b3c0bf870，文档与本轮审计一并推送收尾；推送正式收据随后补记。
 
 收尾正式收据：代码两笔及审计`0fefcca6c`已推送main，46680正式exit0（`3cb204025..0fefcca6c`）。独立提交前只读审计无阻断，逐ID无重复且新分支未命中、旧FAIL与安全剩余边界没有误销。干净构建42607正式exit0，revision=`0fefcca6cc50`、buildTime=`2026-09-22T11:13:49Z`，日志`/tmp/hmc-native-execution-clean-build-20260922.log`；构建后工作区干净。该构建只有审计文档revision变化，不替换此前b3c0bf固定双例的原始构建身份或冒称又跑评测。下一§128仍只读设计、未实施，66父开放项不变。
+
+## 130. pytest 验证报告按实际调用隔离（2026-09-22，实施验收中）
+
+前批已随收据`39c357497`推送，本地/远端一致且工作区干净后继续。重新逐ID核对79行/79唯一ID=13已交付+66开放（58待实施、6部分实施、1待验收、1持续执行），无重复。§128风险优先于新增领域：验证证据被旧产物替代会使多种写任务假绿，不能用模型教学解决。
+
+主审对照参考`core/skill_executor.py:1303–1417`：先从实际iterate_items确定本步对象，再按session/step目录发布每成员数据及manifest，避免不同阶段互相覆盖；`core/llm_contract.py:114–145`按已登记成员路径回查字段。借鉴的是“先建立本次身份，再消费产物”，不照搬其直接write_text、启发式旧state回退、文本子串/数值容差为测试执行权威。参考没有本仓原生pytest安全适配，方案仍基于本仓JUnit/CTest私有产物及unittest文件身份边界设计。
+
+有效公开RED86796正式exit1/tool1.656s（`/tmp/hmc-pytest-invocation-public-red-20260922.log`）：真实RunTestsTool.Execute调用隔离的协议子进程，本次无JSON且无可解析文本，旧固定路径绿报告竟成为PASS/旧test_old断言，并在结束被删。扩展RED30195正式exit1/tool4.730s：当前非零退出被绿JSON覆盖；旧红阻止缺JSON后的本次绿文本恢复，旧绿覆盖本次红文本。协议子进程不是原生pytest安装，当前host python3未安装pytest及pytest_jsonreport，不混称原生断言实测。
+
+生产为每次真实pytest命令/selector创建私有目录，替换工具自己生成的报告参数；纯builder不创建目录，解释器/cwd/selector原样保留。旧固定文件不读、不删、不改时间。准备时记录目录身份，读取前后校验目录和普通文件快照，实际读取限64MiB+1，同一份字节供JSON解析与摘要；只有成功解析的准确文件获得清理所有权，未知/被替换/额外文件保留，不递归删除。当前非零退出与绿色断言分开保留为验证未完成，不合成红断言，不进parser-error恢复绕绿；原精确匹配的零测试2/4/5通道不改。缺当前JSON仍保真实文本重执行恢复，旧诊断/分类文案共用，不增加模型字段、用户/答案扫描或§127精确执行证明权限。
+
+首条本地选择器误拼导致49820 exit0但no tests to run，不计GREEN。更正后的11409正式exit0/tool11.913s含公开前8场景及Pytest/JUnit相邻保护；独立公开全11场景30636 exit0/tool4.166s，含同仓双并发及双selector不同报告路径，后两类首次在修后执行，只记正反控制，不伪称已取得RED。文件系统边界、末版race/全仓及固定异构双例仍待验收，未提前交付。非原子check/open/remove与第三方插件writer不构成对恶意并发子进程的文件系统沙箱，此边界不隐去。
+
+末版定向收据：77102正式exit0/tool42.227s覆盖Pytest/Python/JUnit/CTest/既有执行相邻范围；17924最终race exit0/tool14.858s。公开11场景在实际Execute安装报告JSON往返后再检PTO正负消费，非零绿JSON/skip/zero不能授正向行为证明，独立race52397 exit0/tool5.493s。helper共5顶层、5准备边界/10文件系统情形/7真实子进程退出协议，80530 focused exit0/tool1.186s、74568最终race exit0/tool2.211s。稀疏超限只证明预读大小拒绝，不宣称测试已注入读取中grow竞态；生产实际reader仍含LimitReader。独立生产末审无阻断，并将非解析读取失败统一到原不可读取分类。
+
+生产/测试已本地提交`a182682dd`，全仓16464执行中（`/tmp/hmc-pytest-invocation-full-20260922.log`），未提前推送。构建56138正式exit0，revision=`a182682dda3a-dirty`/buildTime=`2026-09-22T13:00:09Z`；dirty仅文档，所有Go输入已提交。固定双例95668严格并行2×各1次，选择`trace_query_jank_field_inventory`与原版`github_issue_dateutil_relativedelta_float`，分别复核大整数/身份/时钟/全量范围及根Python保测试写模式，不能预先说一定命中pytest或§127新执行分支。
+
+首轮全仓16464正式exit1：唯一失败为`TestEveryExecutedCommandOutcomeConsumerSwitchEnumeratesTheClosedSet`的函数所属登记仍指`parsePytestJSONReport`，实际原封迁移到`parsePytestJSONReportBytes`。只更新精确函数归属，域仍`outcomeDomainOther`，不改普查规则/允许集/分支；51430定向正式exit0/types1.732s。冻结生产不动，完整复跑34185（`/tmp/hmc-pytest-invocation-sealed-full-20260922.log`）执行中；不拼接分包收据。活跃流保护64650正式exit0/llm8.476s，保600/300/600秒、隐藏/可见增量/工具/keepalive和caller取消边界。
+
+末版完整复跑34185现已正式exit0：87测试包、13无测试包、零FAIL，types36.222s。独立审计、公开红绿、末版race、完整检查均已取得；固定双例的未命中分支及人工FAIL独立见§131。生产/测试与文档分批提交，待推送后补实际收据，不预签远端状态。
+
+## 131. a182固定双例：机器1/2、完整人工0/2（2026-09-22）
+
+[机器收据](../../eval/parallel_selected_summary_hmc_pytest_invocation_20260922.md)、[全文人工审计](../../eval/parallel_selected_summary_hmc_pytest_invocation_20260922_manual_audit.md)。runner95668正式exit0；Trace337s/Python133s，恰好2并行×1。仍79=13已交付+66开放，不把窄修复当父项完成。
+
+Trace精确AND查询恢复3条、7/4/2顺序、所有>2^53原始整数、70/40/20ms及全附件扫描；最终不再把匹配窗当缺采集。人工FAIL来自最终仍把marker PID201和emitter TID/TGID101都归writer、把D/iowait与优先级继承标记当IO/反转必要条件、附注差值方向反和内部字段外露。正确原生身份/时钟/IO边界已送达，不能归因证据没有提供；早期4条/99帧草稿错误未计最终数表。清单题不要求因果图，必选空旁路的`trace_root_cause_contract_not_active`合理。
+
+Python只改源码，原4unittest两轮均真实通过、原测试/README不变；异常探针正确实际执行raise路径，非吞断言或目标观察漏行。required异常合同无项目断言声明，目标执行/原生总体PASS不能补出逐合同证明；累计复核再次执行同一计划后仍缺4项证明，最终诚实unverified，功能PASS但完整验收FAIL。原题只要求不改测试，不应自动生成§127执行义务；pytest、新精确执行/补读分支本轮均未live命中。既有教学明确plain probe边界，不能再加一句提示或放宽证明门冒充解决。下一实现应沿B2→B3/B4给真实断言结果补有界、只读、同交付身份的声明通道，再新执行验证，不从名字/日志推断合同。
+
+独立上下文审计还确认两类问题，均不冒称已证明为终稿错误的直接原因：
+
+- 分析模型主动选`target_wait_occurrences/recorded_reason/occurrence_time`，不是系统自动补facet；现有schema/同源教学提供正确通用事实类，无已证强迫误选合同。但读者卡把所有字段都称仅校验、其余正文只能用卡中名称，过宽地限制用户明确要求的原始字段名；应区分内部元数据和业务/原始数据字段，不因缺ledger row静默改分类。
+- `perf_triager.go`两步提取临时替换`AttachedHitrace`为分片，本轮子提取因此误报附件已变化；随后`emit_perf_trace`从分片生成时间语义，单partial原样merge，恢复完整附件后最终提示把19.990ms/局部行2–5称全附件，而原附件为60.010ms/16行。这是受控分片的来源/范围/偏移未显式承载，属确定性上下文P1，不能用放松材料身份门修复。终稿没有复述这组时间，数表仍正确；公开红绿及实施待下一片。
+
+下一ROI顺序据此明确：①受控分片身份/范围P1（不让系统向后续阶段投错上下文）；②原生断言只读登记与新执行代次（旧人工FAIL、B2→B3/B4，不扩大probe权威）；③读者字段教学范围及完整caller观察/源码双轴；④已接受业务局部补齐/容量与B2–B6余项；⑤能力目录/IO总体/精确帧等基础。全部保在既有HMC-01/16/18范围，不另加重复父ID，也不无限追同样例绿。
+
+### 131.1 下一片的实现边界（设计复核，未实施）
+
+受控Trace分片应保持父`AttachedHitrace`/`TraceMaterial`不可变，控制器产生进程内父凭证+半开字节范围+预览行偏移/完整行状态的视图，子Context携带视图而非改父正文；渲染与emit先验证父代次再解析同一视图。完整query仍用原完整材料。分片只能发布本片范围；物理行映射必须有完整单文本来源和包装行偏移证据，转换/bundle/截断预览不冒称物理坐标。合并当前还有单partial直接返指针、多partial遗漏Observations、失败/跳过范围未反映在覆盖声明的接缝，须统一保逐条来源和原权威，不按同值去重、不把分片时长相加成全附件。每段前与提取中取消需终止后续调度，临时状态在所有出口还原。
+
+公开验收以真实Prepare→NewPerfTriagerAgent→BaseAgent→注册emit为入口，覆盖单中段/双段、父/转换/bundle成员变化、假视图、UTF-8/CRLF/半行、截断预览、失败/跳过/预算截断、分片间/提取中取消及普通single-shot/legacy对照。参考`skill_executor.py:1348/1636`和`llm_contract.py:114`只借身份/成员/原始引用设计，不移植文件存在即可信或原文扫描。
+
+原生补绑定片应由controller绑定run/batch、仍贡献交付源码的原计划、完整合同与真实工作树/测试快照；只读登记已存在且读过的测试路径/精确suite/assertion/ref，不准源码或测试改动、不让模型写执行收据。新原生执行后才授证明，旧PASS展示不升级。过期授权禁止新登记，但不能抹掉补证批永久禁修改身份；JSON/resume/累计计划保独立声明与报告归属。回归含无声明旧FAIL、正确新执行、错身份/兄弟同名/skip/zero/fail、同HEAD/status字节漂移、跨run/batch、旧PASS、混合计划及普通PTO/probe-only兼容。当前只读设计不计实现完成或公开RED。
