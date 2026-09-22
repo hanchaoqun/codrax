@@ -2453,3 +2453,17 @@ GREEN56690正式exit0/2.936s；边界17919正式exit0/4.495s，race60384正式ex
 下一固定双例：`trace_query_frame_semantic_span_optimization`（边前语义工作、测量与掉帧原因的证据边界）＋`nested_python_increment`（真实嵌套项目apply与既有测试证明），各一次并行2。按误导影响、跨状态泛化、近期覆盖与成本选；不再追同一个IO样例。目录审计另发现H8旧case要求语义边前effective=0/非根因，与当前闭合矩阵及真实0.285ms公开回归不一致，保旧oracle与历史结果、另立现有HMC-18下维护子项，不用错误oracle倒逼因果计量回退。本次生产回放不使用该冲突case。
 
 收住阶段成果：§121提交`b7fe02b63`，§122提交`a48c517a1`，暂待末版全仓后统一推送。§123独立旧tool针迁移35文件，只改系统展示正/负向精确字面，不改数值/阈值/排序/谓词/宽度/digest；retired模型正文夹具不动。独立首轮tool整包61798正式exit1/489.872s、无超时，失败均为旧词；最后6文件10个顶层针94614正式exit0/1.857s。末版context整包41237正式exit0/2.534s；公开语义＋无更新Description golden19400正式exit0/tool4.679s，最后四包词面/消息70185正式exit0（tool3.525/context1.979/agent3.818/skill2.646s）。全仓42971首轮context旧针已发现并修正，保这次失败记录，待正式退出后在冻结版本统一重跑；不以分包绿替全仓绿。
+
+末版正式收据：首轮全仓42971 exit1/tool470.554s；第二轮72123 exit1/tool430.891s，仅剩双向图例探针中的旧词“收益不叠加/gains do not add”。该探针精确迁移为“潜力不可相加/potentials do not add”，69414 exit0/tool3.824s，未改生产或放松双向性。第三轮73767正式exit0，87测试包、13无测试包、零FAIL，tool380.865s，日志`/tmp/hmc-closure-origin-potential-sealed-full-20260922.log`。§123生产提交`aff63de7b`；干净构建8733正式exit0、revision `aff63de7b9a1`、buildTime `2026-09-22T09:34:53Z`。最后测试迁移及下节全文审计单独提交，三组窄片已完成代码/回归，不代销父项或历史答案FAIL。
+
+## 124. aff63固定双例：机器2/2、完整人工0/2（2026-09-22）
+
+[机器收据](../../eval/parallel_selected_summary_hmc_closure_origin_potential_20260922.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_closure_origin_potential_20260922_manual_audit.md)。runner61080正式exit0；恰好2并行×1。Trace外层195秒，Python外层146秒/案例自身143秒，保层级差异。逐ID仍79=13已交付+66开放（58待实施/6部分实施/1待验收/1持续执行）。
+
+Trace实际保5.000–5.007窗口、S5/runnable0.8/running1.2ms及完整因果投影；VerifyClass原始5ms、边前4.6ms与完成落在唤醒后0.4ms均在证据中。估算潜力而非已兑现收益的新教学真实到场，旁路是模型主动patch选择空schema2 available，不是导出错误。但正文把“完成类校验”放到5.005唤醒之前，还声称两修向相互独立，人工FAIL。最终上下文已给原窗与完成/独立性未证明，不能归因反证缺失，也不凭单次运行称模型波动。前置triager自身也产错误时序/优先级，但final输入已将其降为定位、归一化平台语义，未证错误句原样带入，不倒推其为本次主文错因。
+
+新确定性展示缺口：tree.go的语义图例把SemanticSpan、SelfDeterministicBasis、SemanticMentionFloor三个标记合并触发“按目标线程窗内运行时间计”；本例实际上是worker语义墙钟，而非app的1.2ms running。修法应按真实发射标记拆开计量定义，保语义边前归因和排序；系统占用表旧收益简称、英语平台原文仍独立留展示债。不得用修改图例冒称已经修好模型完成/唤醒矛盾。
+
+Python源码仅+1、原测试/配置未改，真实执行了当前交付源变更行，身份和hash完整；但run_tests在probe PASS后提前返回，原生unittest明确suite_skipped，±2**64等已有断言未执行。项目test observations缺失，6条行为合同为planning-only；已有精确test observation一旦保留，其suite选择/continuation原本有效，不能误归消费者完全坏。待补独立、持久的typed既有测试执行要求与同交付执行收据；不从原始问题/acceptance文本扫词，不把所有自然语言行为声明升required。原生aggregate PASS仍不自动证明每个行为合同，skip/zero-tests/timeout不能销执行债。静态coupling不识别probe内sys.path亦留独立适配债，不能混称ImportError。
+
+下一优先：①既有测试执行意图持久化与收口；②§120最终caller附注双轴；③§94业务局部补齐/容量与声明-观测pair、B2–B6；短小确定性语义图例缺口在当前收尾后单片修复。caller后续设计以ClaimUses.EvidenceID绑定原生记录/物理来源/窗口/subject/caller角色；未知或模型aggregate不授观察证明，不能复制Log运行级名称白名单。默认文案只说“源码映射未核验”，不把Trace已记录caller说成全证据不存在。

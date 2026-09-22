@@ -810,7 +810,7 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// the mark's own uniquely identifying words; the legend entries quote
 		// both verbatim).
 		runtimeTraceProjMarkFixDirection:          {"修向 ", "fix-direction "},
-		runtimeTraceProjMarkCrossDirectionOverlap: {"收益不叠加", "gains do not add"},
+		runtimeTraceProjMarkCrossDirectionOverlap: {"潜力不可相加", "potentials do not add"},
 		// LEVELMERGE-1 件2 (方案 P, 2026-07-18): the gated-share split pair
 		// word (行2 分账残余席/分账构成份 both open with 分账) and the 裁定④
 		// overlap clause; 件3: the aggregate↔member pointer pair family head.
