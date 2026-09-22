@@ -39,7 +39,8 @@ func TestEmitAnswerDocument_FreshFullEmitClearsStaleRelationRepairLease(t *testi
 // emit_answer_document_v2 has somewhere to write.
 func newV2TestBusContext() *types.BusContext {
 	return &types.BusContext{
-		Mutable: &types.MutableState{},
+		Language: "zh", // Match the CLI default; locale-free behavior has dedicated tests.
+		Mutable:  &types.MutableState{},
 	}
 }
 

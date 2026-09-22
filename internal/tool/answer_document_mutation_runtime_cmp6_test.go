@@ -217,6 +217,7 @@ func TestRuntimeTraceNextStepComparisonRowsAbsentOnSingleArtifact(t *testing.T) 
 
 func TestRuntimeTraceNextStepComparisonRowsEnglishSurface(t *testing.T) {
 	bus := compareProjBus(true)
+	bus.Language = "en"
 	bus.AnalysisIR.AnswerContract.Language = "en"
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
 	if len(items) != 4 {

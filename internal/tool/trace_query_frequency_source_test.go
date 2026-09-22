@@ -217,6 +217,7 @@ func TestB1631ActualFrequencyBoundaryKeepsModelAndSource(t *testing.T) {
 	for _, lang := range []string{"zh", "en"} {
 		t.Run(lang, func(t *testing.T) {
 			ctx := newBusForMutationTest()
+			ctx.Language = lang
 			ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause}, AnswerContract: types.AnswerContract{Language: lang}}
 			ctx.ToolResults = []types.ToolResult{result}
 			model := types.AnswerBlock{ID: "model-answer", Kind: types.BlockSummary, Text: "Keep the model-authored explanation byte-identical."}

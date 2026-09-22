@@ -81,7 +81,7 @@ func suppCoreContext(t *testing.T) *types.BusContext {
 	if err := os.WriteFile(filepath.Join(dir, types.AttachedTraceBlobBasename), []byte(suppCoreTrace), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir, Mutable: types.NewMutableState("为什么 worker 线程卡顿")}
+	ctx := &types.BusContext{Language: "zh", RepoRoot: dir, WorkDir: dir, Mutable: types.NewMutableState("为什么 worker 线程卡顿")}
 	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
 		RuntimeTargets: []types.RuntimeTarget{{
 			Kind: types.RuntimeTargetKindThread, PID: 200, Thread: "worker",

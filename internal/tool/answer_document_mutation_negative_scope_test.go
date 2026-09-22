@@ -131,6 +131,7 @@ func TestCurrentSourceNegativeScopeAuthorityIgnoresNavigationMissWithoutVerified
 
 func TestCurrentSourceNegativeScopeBoundaryUsesReaderFacingEnglish(t *testing.T) {
 	ctx := newBusForMutationTest()
+	ctx.Language = "en"
 	ctx.AnalysisIR = &types.AnalysisIR{
 		RequestModel:   types.RequestModel{Scenario: types.ScenarioConfigTrace, Language: "en"},
 		AnswerContract: types.AnswerContract{Language: "en"},

@@ -112,6 +112,7 @@ func cpdSpecimenDoc() *types.AnswerDocumentV2 {
 // rendered answer has no citation bibliography — zero machine-local paths.
 func TestNormalizeRuntimeArtifactCitationRefs_TypedExcludeBoundaryDropsBlobPseudoCitations(t *testing.T) {
 	ctx := cpdTypedExcludeTraceBusContext()
+	ctx.Language = "zh"
 	cpdSeedIncidentalCurrentSourceRecord(t, ctx)
 	doc := cpdSpecimenDoc()
 	pctx := newPreEmitCheckContext(ctx)
@@ -247,6 +248,7 @@ func TestRuntimeArtifactCitationPathSet_IncludesReservedBlobBasenames(t *testing
 // rewording each other.
 func TestMaterializeDetachedCitationRefCaveats_RuntimeArtifactWordingLanes(t *testing.T) {
 	ctx := cpdTypedExcludeTraceBusContext()
+	ctx.Language = "zh"
 
 	// (a) item removed by a later structural pass → "removed" wording.
 	gone := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "chain", Kind: types.BlockOrderedList}}}

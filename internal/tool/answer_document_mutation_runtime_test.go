@@ -19,7 +19,9 @@ import (
 
 func newBusForMutationTest() *types.BusContext {
 	return &types.BusContext{
-		Mutable: types.NewMutableState("test"),
+		// Match the CLI default; language-specific fixtures override explicitly.
+		Language: "zh",
+		Mutable:  types.NewMutableState("test"),
 	}
 }
 

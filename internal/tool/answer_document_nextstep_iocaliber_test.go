@@ -62,7 +62,7 @@ func TestMaterializeRuntimeTraceVsyncAuthorityCaveat(t *testing.T) {
 		}},
 	}
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2"}
-	ctx := &types.BusContext{ToolResults: []types.ToolResult{censusResult}}
+	ctx := &types.BusContext{Language: "zh", ToolResults: []types.ToolResult{censusResult}}
 	if !materializeRuntimeTraceVsyncAuthorityCaveat(doc, ctx) {
 		t.Fatal("census presence must mint the vsync authority caveat")
 	}

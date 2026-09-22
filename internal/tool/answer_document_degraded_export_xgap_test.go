@@ -68,7 +68,7 @@ func xgapArtifactQuoteFixture(t *testing.T) (*types.BusContext, string) {
 	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return &types.BusContext{Mutable: types.NewMutableState("trace q"), WorkDir: dir}, path
+	return &types.BusContext{Language: "zh", Mutable: types.NewMutableState("trace q"), WorkDir: dir}, path
 }
 
 func TestVerifyRuntimeArtifactCitationQuotes_MismatchDisclosedMatchKept(t *testing.T) {

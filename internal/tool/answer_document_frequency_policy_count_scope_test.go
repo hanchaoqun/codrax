@@ -39,6 +39,7 @@ func TestB1630PolicySystemCaveatPublishedTotalAndSelectedSampleAreSeparate(t *te
 				// Repeated publications are display duplicates, not additive counts.
 				witnesses = append(witnesses, witnesses[0])
 				ctx := newBusForMutationTest()
+				ctx.Language = lang
 				ctx.AnalysisIR = &types.AnalysisIR{
 					RequestModel:   types.RequestModel{Intent: types.IntentRootCause, Language: lang},
 					AnswerContract: types.AnswerContract{Language: lang},

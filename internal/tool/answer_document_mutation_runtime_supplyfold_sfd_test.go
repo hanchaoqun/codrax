@@ -73,7 +73,7 @@ func sfdQ6FoldNotes() []string {
 // 17.702 (same-source by construction — the consistency half of the batch).
 func TestSFDRunningTwinJoinRendersFoldCaliberZH(t *testing.T) {
 	records := []types.ObservationRecord{sfdQ6Anchor(), sfdQ6TwinObs(), sfdQ6DonorObs(sfdQ6FoldNotes()...)}
-	md := audit730Render(t, audit730Bus(""), records, "")
+	md := audit730Render(t, audit730Bus("zh"), records, "zh")
 	despaced := vs2Despace(md)
 	// The running twin's joined clause (deficit-dominant branch wording —
 	// only reachable on the twin: the donor's own runnable 150ms renders the
@@ -126,7 +126,7 @@ func TestSFDRunningTwinNoJoinOnKeyMismatch(t *testing.T) {
 		donor := sfdQ6DonorObs(sfdQ6FoldNotes()...)
 		mutate(&donor)
 		records := []types.ObservationRecord{sfdQ6Anchor(), sfdQ6TwinObs(), donor}
-		md := audit730Render(t, audit730Bus(""), records, "")
+		md := audit730Render(t, audit730Bus("zh"), records, "zh")
 		despaced := vs2Despace(md)
 		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: negative pin
 		// migrates with the clause — "running含跑慢成分" → "running时间含降频".
@@ -148,7 +148,7 @@ func TestSFDRunningTwinNoJoinOnKeyMismatch(t *testing.T) {
 // stable: not a byte of fold wording anywhere, attribution intact.
 func TestSFDRunningTwinBareWithoutSibling(t *testing.T) {
 	records := []types.ObservationRecord{sfdQ6Anchor(), sfdQ6TwinObs()}
-	md := audit730Render(t, audit730Bus(""), records, "")
+	md := audit730Render(t, audit730Bus("zh"), records, "zh")
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: banned clause words
 	// migrate — 已满频满核→已按大核满频, 频点数据不全→频率数据不全 (new "CPU 频率数据不全").
 	for _, banned := range []string{"供给折算缺口", "机制构成", "已按全域最大核最高频", "频率数据不全"} {
@@ -183,7 +183,7 @@ func TestSFDXNSumRowCarriesNoFoldClause(t *testing.T) {
 			"supply_fold_deficit_ms=5.000", "supply_fold_ideal_ms=15.000",
 			"fold_basis=known=20.000ms,unknown=0.000ms"),
 	}
-	md := audit730Render(t, audit730Bus(""), records, "")
+	md := audit730Render(t, audit730Bus("zh"), records, "zh")
 	if !strings.Contains(md, "3次") || !strings.Contains(md, "42.000") {
 		t.Fatalf("the 3次 member SUM row must render:\n%s", md)
 	}
@@ -205,7 +205,7 @@ func TestSFDRunningTwinJoinUnknownBasisBranch(t *testing.T) {
 	records := []types.ObservationRecord{sfdQ6Anchor(), sfdQ6TwinObs(), sfdQ6DonorObs(
 		"supply_fold_deficit_ms=0.400", "supply_fold_ideal_ms=30.000",
 		"fold_basis=known=30.400ms,unknown=28.519ms")}
-	md := audit730Render(t, audit730Bus(""), records, "")
+	md := audit730Render(t, audit730Bus("zh"), records, "zh")
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "频点数据不全" →
 	// "CPU 频率数据不全" (供给折算族); count moves to the despaced surface (the
 	// new clause carries an ASCII space the wrap/collapse may not preserve);

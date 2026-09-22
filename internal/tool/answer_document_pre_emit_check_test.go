@@ -3110,7 +3110,8 @@ func TestNormalizeAggregateMemberSetCarriers_PreservesRelationDimensionLabel(t *
 	}})
 	mu.SetInvestigationComplete("relation dimension handoff ready")
 	ctx := &types.BusContext{
-		Mutable: mu,
+		Language: "zh",
+		Mutable:  mu,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent: types.IntentEnumerate,
 			Predicates: types.SemanticPredicates{

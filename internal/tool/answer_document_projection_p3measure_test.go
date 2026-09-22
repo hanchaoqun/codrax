@@ -88,10 +88,10 @@ func p3mRenderUserFace(t *testing.T, obs []types.ObservationRecord, lang string)
 	t.Helper()
 	bus := newBusForMutationTest()
 	// RUN2FIX-A 复核 P2-3 (对抗 F4+冷读 CR-2): the projection/fence lanes read
-	// AnswerContract.Language (requestedAnswerDocumentLanguage), not the
-	// RenderAnswerDocument lang argument — without this the "en" face rendered
-	// zh boards under an en chrome and every en assertion below judged zh
-	// bytes. Plumb the requested language through so both faces are real.
+	// the effective project/contract language, not the RenderAnswerDocument
+	// argument alone. Keep both carriers explicit so the "en" face cannot
+	// render zh boards under en chrome and accidentally compare zh bytes.
+	bus.Language = lang
 	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent: types.IntentTrace, Scenario: types.ScenarioPerformanceBottleneck,
 	}, AnswerContract: types.AnswerContract{Language: lang}}

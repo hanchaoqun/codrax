@@ -36,6 +36,7 @@ func TestTraceCausalPublicationAuthorityGenericCrossArtifactCoverageQuery(t *tes
 		}
 	}
 	ctx := &types.BusContext{
+		Language: "zh",
 		RepoRoot: dir,
 		WorkDir:  dir,
 		Mutable:  types.NewMutableState("compare trace coverage and sampled lanes"),

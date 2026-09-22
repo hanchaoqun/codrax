@@ -160,7 +160,7 @@ func TestRuntimeTraceFrequencyAuthorityCaveatRejectsCountOnlyCausality(t *testin
 			Text: "CPU 频率调整 172 次，因此可以确定持续低频并造成算力不足。",
 		}},
 	}
-	ctx := &types.BusContext{ToolResults: []types.ToolResult{{
+	ctx := &types.BusContext{Language: "zh", ToolResults: []types.ToolResult{{
 		ToolName: "trace_query",
 		Success:  true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
@@ -215,7 +215,7 @@ func TestRuntimeTraceFrequencyAuthorityCaveatNamesIndependentTypedEvidence(t *te
 			Text: "窗口存在频率变化。",
 		}},
 	}
-	ctx := &types.BusContext{ToolResults: []types.ToolResult{{
+	ctx := &types.BusContext{Language: "zh", ToolResults: []types.ToolResult{{
 		ToolName: "trace_query",
 		Success:  true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{

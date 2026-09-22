@@ -80,6 +80,7 @@ func TestRuntimeTraceNextStepSingleSidedSamplingHintNamesUnsampledCapture(t *tes
 
 func TestRuntimeTraceNextStepSingleSidedSamplingHintEnglishSurface(t *testing.T) {
 	bus := cmpcSingleSidedBus()
+	bus.Language = "en"
 	bus.AnalysisIR.AnswerContract.Language = "en"
 	items := runtimeTraceNextStepItems(&types.AnswerDocumentV2{DocumentModel: "v2"}, bus)
 	if len(items) != 1 ||

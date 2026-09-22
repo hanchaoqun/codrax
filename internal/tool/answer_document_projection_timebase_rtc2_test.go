@@ -112,6 +112,7 @@ func TestTraceProjectionDisjointTimeBaseRowsRTC2ChineseBothSurfaces(t *testing.T
 func TestTraceProjectionDisjointTimeBaseRowsRTC2EnglishBothSurfaces(t *testing.T) {
 	bus := rtc2Bus(rtc2TwoTraceObs(2942.244845, 2942.245401,
 		"selected_window=2942.244845..2942.245401"))
+	bus.Language = "en"
 	bus.AnalysisIR.AnswerContract.Language = "en"
 	got := compareProjApply(t, bus)
 	compare := projectionClusterBlock(got.Blocks, "runtime_trace_causal_projection_compare")

@@ -139,6 +139,7 @@ func TestContextWindowRulerPublicExpandedQuery(t *testing.T) {
 func contextWindowRulerRender(t *testing.T, results []types.ToolResult, lang string, renamed bool) string {
 	t.Helper()
 	bus := newBusForMutationTest()
+	bus.Language = lang
 	start, end := 2.0, 2.020
 	subject := "app-100"
 	if renamed {
