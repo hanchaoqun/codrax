@@ -8555,7 +8555,7 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 		stateEntry("running", types.TraceNoteKeyRunning),
 		stateEntry("runnable", types.TraceNoteKeyRunnable),
 		stateEntry("sleep", types.TraceNoteKeySleep),
-		stateEntry("D-state", types.TraceNoteKeyDState),
+		stateEntry(TraceStateNonIODStateWord(zh), types.TraceNoteKeyDState),
 		stateEntry("iowait", types.TraceNoteKeyIOWait),
 	}
 	// CR-2 组③ P7 (F5-1, 2026-07-12): a wakeup-lane snapshot row's per-state
@@ -8686,7 +8686,7 @@ func runtimeTraceMetricSnapshotActualInline(record types.ObservationRecord, zh b
 	statePart("running", "running", types.TraceNoteKeyActualRunning)
 	statePart("runnable", "runnable", types.TraceNoteKeyActualRunnable)
 	statePart("sleep", "sleep", types.TraceNoteKeyActualSleep)
-	statePart("D-state", "D-state", types.TraceNoteKeyActualDState)
+	statePart(TraceStateNonIODStateWord(true), TraceStateNonIODStateWord(false), types.TraceNoteKeyActualDState)
 	statePart("iowait", "iowait", types.TraceNoteKeyActualIOWait)
 	statePart("合计", "total", types.TraceNoteKeyActualTotalMS)
 	if len(parts) == 0 {

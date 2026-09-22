@@ -2132,3 +2132,30 @@ causal本次分类终于保named目标、显式20ms窗及required causal，四qu
 - [ ] 系统owned归因/优化口径：图例与清单有“已证可消除量”等无条件标签，使有效归因看似已验证可消收益。按现有计量类别统一限定优化预算/潜力，保模型自定结论、原数值/排序及链上优化维度；已明确ideal-baseline modeled headroom的分支不改成测量事实。
 - [ ] 容量恢复B：合法零起点被FirstTs>0漏具体建议，正起点建议的LastTs又包含预算触发但未保留事件；照抄该末端可再次拒绝。优先提供真实可执行的局部探测/流式出口，不称失败索引已完整覆盖，不简单改>=0或扩大cap。
 - [ ] P2 typed member_set承载提示与重复表；explicit time_end=0旧筛选边界、VSync/其它独立对象零值哨兵继续开放。§94业务局部补齐、原生pair/两尺同卡/B2–B6等父账仍13/79交付、66开放，不拿本片销父项。
+
+## 103. 等待计数与原始状态分量的显示标签统一（2026-09-21，实施验收中）
+
+§101–102代码与收据随`9534d71c6`已推送，session47768正式exit0，本地/远端相等后开始本片。前批完整人工0/2不改签；当前只处理已经确定的系统展示接缝，不改写模型叙述。
+
+再次对照参考`core/preprocess/sleep_ops.py:225–255`：窗口交集后分别计Running、R、S与所有原生D，参考未设本仓排他IO子桶。因此不能把本仓`DStateOccurrences`（仅d_sleep）显示成物理D总次数，也不能把S侧IO标记并入D。实际producer、计数authority、root-cause raw分量链路均已审计，只有尚未fold的非IO-D分量改限定词；四态D+IO折叠及逐段真实D状态词保留。
+
+主席公开RED17576正式exit1/tool1.819s，`/tmp/hmc-wait-bucket-public-red-20260921.log`：实际TraceQuery→当前typed Bus→公开EmitAnswerDocument→最终render→公开no-op patch，1顶层5物理场景×中英共10格。覆盖零起点全工件timeline、明确窗口D+IO、D未标记、S+IO及真实C2三段0.635ms。全部原生次数/墙钟/窗口、模型正文、无额外因果授权及修补幂等均先通过，只因系统计数缺“非IO”限定失败；此前只测到finalizer输入的针未覆盖这个发射后附录。
+
+实施边界：共享词源下沉至无上层依赖的tracefence，tool保持兼容包装；等待附录计数/引言、sleep库存、raw/actual快照和根因组成复用同词。不加prompt堆叠、不改JSON/schema/准入/统计/排名/根因资格，模型原文逐字保留。独立unit矩阵与末版公开GREEN/race/全仓待验；系统优化预算标签和容量恢复另分批，不混进此次窄修复。
+
+独立同类RED61617正式exit1，留档复跑69617正式exit1，`/tmp/hmc-wait-bucket-labels-red-20260921.log`；新增测试编译通过，仅计数/引言/库存/raw与actual快照/root-cause组成标签失败，物理D折叠与S侧IO排除先通过。修复后focused23440正式exit0（tool4.115/tracefinding1.917/tracefence2.392s）。旧文本pin仅三文件的对应标签精确迁移，数值、类别、排序、所有权断言不变。中文新增引言用“分别统计/非IO部分/可中断睡眠统计”，不增加“桶/sleep”内部术语。
+
+主席公开首次GREEN18549正式exit0/tool1.759s，末版race44083正式exit0/tool8.426s，日志`/tmp/hmc-wait-bucket-public-{green,race}-20260921.log`；5场景×2语言原生数据、发射附录、修补幂等全部通过。独立只读末审无阻塞，定向50833正式exit0；全仓18996和独立宽race1162继续等待，不提前签全量完成。冻结后固定G1英文整份工件IO清单＋H2中文明确窗口dma_fence纯D清单，2并行×1，检验语言/IO分支差异；不改oracle，不拿旧Go写模式PASS冒充本片live覆盖。
+
+## 104. 归因计量与已验证优化收益分离（已确认，待独立实施）
+
+§102系统“11ms可消”不是仅模型波动。主标题/完整与精简图例/方向标题/动作说明沿用“已证链上可消除量”，`traceQueryRootCauseClosedMatrixContract`也在Description和Parameters双面教“largest single PROVEN on-chain eliminable contribution”。只改显示会留系统自身相反教学，必须同批统一；不改选举、数值、链上凭证或“主根因”既裁名称，不以优化收益未验证撤销已经成立的关系。
+
+主审直接复核参考`core/batch/rootcause/evidence.py:46–79`和`sleep_ops.py:225–255`：时间组成、未知/退化事实可借鉴，不等于实施收益；参考optimization-advisor仅有“待评审”设计，不能记作已实现能力。不得搬其线程名排除或比例启发式作为根因硬门。
+
+- [ ] 单源口径：在现有冠名词源与规则矩阵中将量解释为“按既定规则估算的优化潜力，收益需实施后复测”；保原始占用/有效归因两轴，不系统改写模型正文。
+- [ ] 完整消费者：tree标题/两套图例/方向与边前语义，elim标题/顺序/预览，nextstep非频率动作，runtime排序与语义份额表头一致更新。频率分支已有理想基准限定、root_cause_report已有“不是可直接消除的承诺”保留。
+- [ ] 下界准确性：缺失频率按零计的既定理想算力模型内下界仍保留，只去除“真实可消除量只多不少”的实效承诺；不统改成上界，不丢核类/频率来源和跨方向不可相加条件。
+- [ ] 公开验收：实际query→emit→render→patch，中英、有限/因果、11ms IO+三1ms席、语义前边份与频率缺失；保全部值/顺序/证据/窗口/旁路/模型正文。主标题单源、所有权、图例、数值守恒与宽度旧针不能降。
+
+退役`proseHeadlineElimFindings`及历史模型主标题替换函数不重新接入，不以模型原文扫描修补此事。此节仅落实可执行任务与证据，不记新增交付；容量恢复、§94及父账66项继续开放。

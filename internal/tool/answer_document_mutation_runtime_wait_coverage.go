@@ -367,10 +367,10 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		}
 	}
 	title := "目标线程状态与等待明细"
-	lead := "以下按各条记录自身的查询范围列出调度状态与等待；范围缺失时明确标为未明确，不能按零窗口或请求主范围使用。若存在请求主范围与探索子范围，请求主范围先列，探索子范围只用于下钻，不能替代主范围的次数、总量或清单。若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。D 状态、调度器标记的 IO 等待与带 IO 等待标记的可中断睡眠是分开的记录类型；内核等待原因记录数、IPC 传输延迟和线程状态墙钟也属于不同口径，不能互相替代。IO 等待标记未标记或未提供不表示排除了 IO 阻塞；内核调用点只标识等待位置，不单独证明资源对象或持有者。"
+	lead := "以下按各条记录自身的查询范围列出调度状态与等待；范围缺失时明确标为未明确，不能按零窗口或请求主范围使用。若存在请求主范围与探索子范围，请求主范围先列，探索子范围只用于下钻，不能替代主范围的次数、总量或清单。若同时列出逐段等待，次数和总量来自同一查询结果的完整配对。" + TraceStateNonIODStateWord(true) + " 与调度器标记的 IO 等待分别统计，但两者仍保留 D 状态来源；非 IO 部分为零不证明没有 D 状态等待。带 IO 等待标记的可中断睡眠仍属于 S 状态，已包含在可中断睡眠统计中，不另加到 D 状态。内核等待原因记录数、IPC 传输延迟和线程状态墙钟也属于不同口径，不能互相替代。IO 等待标记未标记或未提供不表示排除了 IO 阻塞；内核调用点只标识等待位置，不单独证明资源对象或持有者。"
 	if !zh {
 		title = "Target-thread states and wait details"
-		lead = "Scheduler states and waits are listed within each record's own query scope. A missing query scope is explicitly unknown, not a zero-length window or an account of the requested scope. When both a requested scope and supporting exploration scopes exist, the requested scope is listed first; exploration scopes are drill-down only and cannot replace its count, total, or roster. When per-interval waits are listed, their count and total come from the complete pairing in the same query result. D state, scheduler-marked IO wait, and interruptible sleep carrying an IO-wait marker are separate record kinds; kernel wait-reason record counts, IPC transport latency, and thread-state wall clock are also different measures and are not interchangeable. An unmarked or unavailable IO-wait marker does not rule out IO blocking; a kernel call site identifies a wait location, not by itself a resource or holder."
+		lead = "Scheduler states and waits are listed within each record's own query scope. A missing query scope is explicitly unknown, not a zero-length window or an account of the requested scope. When both a requested scope and supporting exploration scopes exist, the requested scope is listed first; exploration scopes are drill-down only and cannot replace its count, total, or roster. When per-interval waits are listed, their count and total come from the complete pairing in the same query result. The " + TraceStateNonIODStateWord(false) + " and scheduler-marked IO-wait buckets are accounted separately, but both retain D-state provenance; a zero non-IO bucket does not prove absence of D-state waiting. Interruptible sleep carrying an IO-wait marker remains S-state, already inside sleep, and is not added to D-state. Kernel wait-reason record counts, IPC transport latency, and thread-state wall clock are also different measures and are not interchangeable. An unmarked or unavailable IO-wait marker does not rule out IO blocking; a kernel call site identifies a wait location, not by itself a resource or holder."
 	}
 	return insertRuntimeTraceDataBoundaryBlock(doc, types.AnswerBlock{
 		ID:    runtimeTraceTargetStateAuthorityBlockID,
@@ -439,8 +439,9 @@ func runtimeTraceTargetWaitSummarySuffix(
 	if zh {
 		fmt.Fprintf(
 			&b,
-			"；等待明细完整，共 %d 段（D 状态 %d、调度器标记的 IO 等待 %d、带 IO 等待标记的可中断睡眠 %d、其他 %d），墙钟合计 %.3fms，已解析内核调用点/符号：%s%s",
+			"；等待明细完整，共 %d 段（%s %d、调度器标记的 IO 等待 %d、带 IO 等待标记的可中断睡眠 %d、其他 %d），墙钟合计 %.3fms，已解析内核调用点/符号：%s%s",
 			wait.Count,
+			TraceStateNonIODStateWord(true),
 			wait.DStateOccurrences,
 			wait.IOWaitOccurrences,
 			wait.SleepIOWaitOccurrences,
@@ -452,8 +453,9 @@ func runtimeTraceTargetWaitSummarySuffix(
 	} else {
 		fmt.Fprintf(
 			&b,
-			"; the wait roster is complete: %d intervals (D state %d, scheduler-marked IO wait %d, interruptible sleep carrying an IO-wait marker %d, other %d), totaling %.3fms wall clock; resolved kernel call-sites/symbols: %s%s",
+			"; the wait roster is complete: %d intervals (%s %d, scheduler-marked IO wait %d, interruptible sleep carrying an IO-wait marker %d, other %d), totaling %.3fms wall clock; resolved kernel call-sites/symbols: %s%s",
 			wait.Count,
+			TraceStateNonIODStateWord(false),
 			wait.DStateOccurrences,
 			wait.IOWaitOccurrences,
 			wait.SleepIOWaitOccurrences,

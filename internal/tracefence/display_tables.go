@@ -571,10 +571,10 @@ func FixDirectionWord(direction string, zh bool) (string, bool) {
 //
 // Wire lanes are the engine's own JSON keys (running_ms → "running", …).
 // StateLaneDState is the word of the PUBLISHED fold (non-IO D + scheduler-
-// marked IO = "uninterruptible wait"); the disjoint non-IO D lane is never
-// published alone on a prose face. Customer-face words (internal/tool
-// typelabels / four-state line) are a separate table and deliberately NOT
-// moved here.
+// marked IO = "uninterruptible wait"); the disjoint non-IO D lane instead
+// uses StateNonIODStateWord when its raw bucket is displayed. Other customer-
+// face words (internal/tool typelabels / four-state line) are a separate table
+// and deliberately NOT moved here.
 const (
 	StateLaneRunning     = "running"
 	StateLaneRunnable    = "runnable"

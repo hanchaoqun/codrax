@@ -423,9 +423,9 @@ func rootCauseNonGatedValueDescription(decision types.TraceCauseDecision, zh boo
 			}
 			if parts.DStateMS > 0 || parts.IOWaitMS > 0 {
 				if !zh {
-					return fmt.Sprintf("wait composition: D-state %.3f ms, I/O wait %.3f ms; not a promise of directly eliminable time", parts.DStateMS, parts.IOWaitMS)
+					return fmt.Sprintf("wait composition: %s %.3f ms, I/O wait %.3f ms; not a promise of directly eliminable time", tracefence.StateNonIODStateWord(false), parts.DStateMS, parts.IOWaitMS)
 				}
-				return fmt.Sprintf("等待组成：D 状态 %.3f ms，I/O 等待 %.3f ms；不是可直接消除的承诺", parts.DStateMS, parts.IOWaitMS)
+				return fmt.Sprintf("等待组成：%s %.3f ms，I/O 等待 %.3f ms；不是可直接消除的承诺", tracefence.StateNonIODStateWord(true), parts.DStateMS, parts.IOWaitMS)
 			}
 		}
 		if !zh {

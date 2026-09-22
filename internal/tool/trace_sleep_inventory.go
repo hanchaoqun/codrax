@@ -17,8 +17,8 @@ const traceSleepInventoryPreviewCap = 4
 func traceSleepInventorySummary(inventory *tracequery.TargetWindowSleepInventory) string {
 	// Put the amount, this query's head status and the authority boundary first:
 	// shared finalizer/reviewer projections retain only 180 summary characters.
-	return fmt.Sprintf("Target sleep intervals: %d, union=%.3fms; %s. State inventory does not prove cause or completion. Scope: constructed timeline only; S=%.3fms, D=%.3fms, scheduler IO=%.3fms; returned=%d/%d. Full scanning of this timeline does not certify full artifact coverage, Binder association, IO mechanism, or physical completion at the recorded interval ends.%s",
-		inventory.Total, inventory.TotalMs, traceSleepInventoryHeadSummary(inventory.HeadState), inventory.SleepMs, inventory.DStateMs, inventory.IOWaitMs, inventory.Emitted, inventory.Total, traceSleepInventoryHeadDetail(inventory.HeadState))
+	return fmt.Sprintf("Target sleep intervals: %d, union=%.3fms; %s. State inventory does not prove cause or completion. Scope: constructed timeline only; S=%.3fms, %s=%.3fms, scheduler IO=%.3fms; returned=%d/%d. Full scanning of this timeline does not certify full artifact coverage, Binder association, IO mechanism, or physical completion at the recorded interval ends.%s",
+		inventory.Total, inventory.TotalMs, traceSleepInventoryHeadSummary(inventory.HeadState), inventory.SleepMs, TraceStateNonIODStateWord(false), inventory.DStateMs, inventory.IOWaitMs, inventory.Emitted, inventory.Total, traceSleepInventoryHeadDetail(inventory.HeadState))
 }
 
 func traceSleepInventoryHeadSummary(head *tracequery.TimelineHeadState) string {

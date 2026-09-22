@@ -62,7 +62,7 @@ func TestRootCauseReportPreservesRankedValueCaliber(t *testing.T) {
 		{"mixed D IO", types.TraceCausalProjectionNode{TypeToken: "d_state_or_io_wait", ImpactMS: 10,
 			DStateSplitMS: 3, IOWaitSplitMS: 7}, types.TraceRootCauseSleepBlocking, "I/O 等待 7.000 ms"},
 		{"fragmented mixed D IO", types.TraceCausalProjectionNode{TypeToken: "fragmented_d_state_or_io_wait", ImpactMS: 10,
-			DStateSplitMS: 3, IOWaitSplitMS: 7}, types.TraceRootCauseSleepBlocking, "D 状态 3.000 ms"},
+			DStateSplitMS: 3, IOWaitSplitMS: 7}, types.TraceRootCauseSleepBlocking, "非 IO D-state 3.000 ms"},
 		{"merged pure IO", types.TraceCausalProjectionNode{TypeToken: "d_state_or_io_wait", ImpactMS: 7,
 			IOWaitSplitMS: 7}, types.TraceRootCauseIOBlocking, "I/O 等待 7.000 ms"},
 		{"explicit IO wait including S", types.TraceCausalProjectionNode{TypeToken: "io_wait", ImpactMS: 7, StateKind: "s_sleep"},

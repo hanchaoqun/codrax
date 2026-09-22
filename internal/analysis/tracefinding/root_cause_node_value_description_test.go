@@ -79,8 +79,8 @@ func TestRootCauseValueDescriptionLanguageKeepsLegacyChineseBytes(t *testing.T) 
 		}, "D 状态等待，已有非 I/O 证据", []string{"D-state wait with non-I/O evidence"}},
 		{"D IO split", func(n *types.TraceCausalProjectionNode) {
 			n.TypeToken, n.EffectiveImpactMS, n.DStateSplitMS, n.IOWaitSplitMS = "fragmented_d_state_or_io_wait", 10, 3, 7
-		}, "等待组成：D 状态 3.000 ms，I/O 等待 7.000 ms；不是可直接消除的承诺",
-			[]string{"D-state 3.000 ms, I/O wait 7.000 ms", "not a promise of directly eliminable time"}},
+		}, "等待组成：非 IO D-state 3.000 ms，I/O 等待 7.000 ms；不是可直接消除的承诺",
+			[]string{"non-IO D-state 3.000 ms, I/O wait 7.000 ms", "not a promise of directly eliminable time"}},
 		{"D unsplit", func(n *types.TraceCausalProjectionNode) { n.TypeToken = "d_state_or_io_wait" },
 			"D 状态与 I/O 等待的合并口径，不能全部视为 I/O", []string{"combined D-state and I/O-wait caliber", "not all of it can be treated as I/O"}},
 	} {

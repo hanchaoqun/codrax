@@ -3,6 +3,7 @@ package tool
 import (
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -58,10 +59,7 @@ type RuntimeTraceReconciliationRow struct {
 // word "D-state" on a customer face is reserved for the fold, which the
 // four-state line prints as "D-state …(其中 IO等待 …)".
 func TraceStateNonIODStateWord(zh bool) string {
-	if zh {
-		return "非 IO D-state"
-	}
-	return "non-IO D-state"
+	return tracefence.StateNonIODStateWord(zh)
 }
 
 // RuntimeTraceReconciliationRows returns only rows whose E# roster is already
