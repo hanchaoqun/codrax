@@ -485,7 +485,13 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 	// supply-fold deficit facts, in board seat order.
 	var supplyDeficits []traceSupplyDeficitFact
 	for _, record := range ledger.Records {
-		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+		// An aggregate may quote trace_query in its provenance, but remains
+		// model-owned. Only native runtime observations enter this measured
+		// view; unstamped legacy tool records retain their previous behavior.
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			(record.ClaimAuthority != types.ObservationClaimAuthorityUnknown &&
+				record.ClaimAuthority != types.ObservationClaimAuthorityDirectObservation) ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
 		}
 		subject := strings.TrimSpace(record.Subject)
@@ -820,7 +826,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 	// with per-offset bucket splits and preview-truncation exposure) ───────
 	if !censusFromNotes {
 		for _, tr := range toolResults {
-			if !tr.Success {
+			if !tr.Success || tr.ToolName != "trace_query" {
 				continue
 			}
 			for _, m := range traceWaitCensusBannerRE.FindAllStringSubmatch(tr.Summary, -1) {

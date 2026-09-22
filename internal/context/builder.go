@@ -871,7 +871,9 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir, attachedLogTriageState(ac), preStageDegradationSummaryFor(ac, types.StageLogTriage), attachedArtifactRenderOptions{
 			ReadFileAvailable: availableTools["read_file"],
 		}); section != "" {
-			section = sanitiseSectionForLLM(section, ac)
+			// This is the original artifact, not a current-source claim. Its
+			// preamble/gutter retain that boundary; source denials must not
+			// rewrite observed names (and still govern repository tool calls).
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionAttachedRuntimeLog,
 				Content: section,
@@ -894,7 +896,8 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			PreferTraceQuery:  attachedTraceQueryPreferredForAgentContext(ac) && availableTools["trace_query"],
 			ReadFileAvailable: availableTools["read_file"],
 		}); section != "" {
-			section = sanitiseSectionForLLM(section, ac)
+			// Preserve the artifact-local events before the first query too.
+			// Pre-triage model summaries remain on the sanitised source path.
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				// Title order matches the user-facing CLI flag order:
 				// HiTrace / atrace / systrace / perfetto are all
@@ -965,7 +968,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if (ac.Stage == types.StageFinalize || ac.Stage == types.StageExplore) && strings.TrimSpace(ac.TraceRootCauseBoard) != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionTraceRootCauseBoard,
-			Content: sanitiseSectionForLLM(ac.TraceRootCauseBoard, ac),
+			Content: ac.TraceRootCauseBoard,
 		})
 	}
 
@@ -975,7 +978,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if (ac.Stage == types.StageFinalize || ac.Stage == types.StageExplore) && strings.TrimSpace(ac.TraceWaitEvidence) != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionTraceWaitEvidence,
-			Content: sanitiseSectionForLLM(ac.TraceWaitEvidence, ac),
+			Content: ac.TraceWaitEvidence,
 		})
 	}
 
@@ -3514,9 +3517,10 @@ func renderBugClassesSection(detected []types.DetectedBugClass, modality string)
 // L2 of the negative-knowledge enforcement pyramid (R3 second-axis):
 //   - L1 tool-call gate (read_file / grep / repo_map) refuses calls
 //     naming the same tokens
-//   - L2 (this) — prevents the LLM from extracting the tokens out of
-//     prose context (frame.Raw / attached log body / trace tags) to
-//     bypass L1
+//   - L2 (this) — marks unsupported names in source-bearing/model-summary
+//     context. Raw attachments and typed runtime-only boards keep their
+//     observed fields: presence in an artifact does not verify repository
+//     source, so it cannot bypass the independent L1 source gate.
 //   - L3 answer validator catches answer prose that names denied
 //     tokens without an "unverified" caveat
 //
@@ -3535,9 +3539,10 @@ func sanitiseSectionForLLM(section string, ac *types.AgentContext) string {
 // fact: the exact file token printed by an attached runtime artifact.
 //
 // Only ArtifactFile values copied by ValidateBundle are protected, and only
-// inside the structured log-triage section. Arbitrary raw attached-log text
-// and every other prompt section still pass through the ordinary all-token
-// sanitizer. The rendered section labels these locations as artifact-local
+// inside the structured log-triage section. Other source-bearing sections
+// still pass through the ordinary all-token sanitizer; raw attachment and
+// typed runtime-only sections preserve their own source facts independently.
+// The rendered section labels these locations as artifact-local
 // and not verified in the current repository, so they cannot be mistaken for
 // repository source anchors. Tool calls remain denied by TypedDenials.
 func sanitiseLogTriageSectionForLLM(section string, bundle *types.LogBundle, ac *types.AgentContext) string {
