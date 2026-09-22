@@ -2237,13 +2237,13 @@ HiLog机器FAIL、完整人工PASS（仅本例有限问题）：ArkTS/Cangjie四
 过程审计：HiLog triager首轮errors字符串内含坏JSON，被拒；第二轮数组可解码但非逐字evidence及无因果marker，被正确拒；第三轮保2条peer事件/4帧成功。分析模型在54362上下文token下活跃输出102秒后触发周期重复熔断，第二轮成功；不是4ms/无答案静默超时，不能用延长watchdog掩盖重复生成。最大上下文55882 token/28%。`analyzer_terminal_emit_only`的3分钟phase budget不等于活跃流累计deadline，现有公开保护证明短phase预算不截断有进展SSE。
 
 - [ ] §104系统优化潜力措辞、§94局部补齐、容量恢复B与B2–B6继续开放，优先已证可复现系统缺陷。
-- [ ] 通用summary-only机制详述教学与typed有限事实范围的精度审计；保需要因果分析时的机制/链/业务证据，不能一律缩短或禁详细解释。
+- [x] 通用summary-only机制详述教学与typed有限事实范围的精度审计：§110完成载体/来源教学窄修，所需机制/链/业务证据保留；§111完整人工FAIL不由此销账。
 - [ ] 日志原始异常类型与模型派生描述标签区分：原工件只有Error/panic，NativeBridgeError/CangjiePanic由triager生成，最终教学却要求逐字保留；应保来源层级，不增原文关键词硬门。另记该case旧注释允许无marker单链叙述的eval维护债。
 - [ ] JSON教学/修复成本与分析重复输出继续观察，不能以最终答案PASS销前段成本；无新证据前不为单样例增加专门规则。
 
 本片不改变窗口/根因资格/旁路/模型正文，机器与人工结论分账；父账13/79交付、66开放不变。
 
-## 110. 答案载体不自动扩张问题范围或证据来源（2026-09-21，实施验收中）
+## 110. 答案载体不自动扩张问题范围或证据来源（2026-09-21，窄子片验收完成）
 
 §108实现`c5514cc56`及§109收据`bef54f3ce`已本地提交；推送84966/19686先后因SSH443连接关闭失败，22端口只读核验87162也失败，提交未丢失，尚不记已推送。本片仍按独立小批开展，不混入未修的系统优化收益措辞或日志派生标签来源。
 
@@ -2266,3 +2266,25 @@ skill整包33345正式exit0/0.862s，双面新语义定向race80412正式exit0/1
 用户侧枚举Rationale同源缺陷亦实际可达：`renderAnswerDocBlockRequirement`直接发布“每项authoritative file:line”，随后又允许external_observation。真实BuildAgentContext→BuildInitialInstruction的中英×源码/外部四格RED58220正式exit1/agent1.145s，`/tmp/hmc-enumeration-origin-user-red-20260921.log`；只有反向教学失败，required成员/形式/事实不变先过。修正Rationale为各自证据与来源，源码仍需grounded位置、外部保工件来源而非伪造repo位置，形状/枚举/门均不动。
 
 原生交接采用分立而非伪合并验收：既有真实三轨查询/改名fixture＋空投影实际成文输入两项race82100正式exit0/agent4.212s，保11ms/三条1ms和finite不授因果；新skill矩阵单独证明实际system教学，新增用户侧Rationale针单独证明该动态出口。未新增重复五组原生fixture，不宣称一条测试串过所有system/user/native入口。公开工具标量及query→emit/render/patch76490正式exit0。完整全仓17085已启动，待正式退出。
+
+末版实现`2c0362e62`，独立生产/测试只读审计无阻塞；用户侧Rationale定向95905正式exit0/agent1.320s、race45340正式exit0/2.957s（`/tmp/hmc-enumeration-origin-user-{green,race}-20260921.log`）。完整全仓17085现正式exit0，`/tmp/hmc-carrier-scope-full-20260921.log`为87测试包、13无测试包、零FAIL（tool429.169s）。两条新增Rationale正向词义pin在全仓启动后加入，已由上述末版定向/race覆盖，不冒称旧全仓同时包含它们。活跃流/默认值47683正式exit0/llm4.311s涵盖7项，另补更短调用方期限定向正式exit0，合计8项；600/300/600秒及4ms活跃部分帧保护不改。
+
+干净构建46513正式exit0，revision`2c0362e6295b`/buildTime`2026-09-22T03:50:29Z`；以下冻结双例机器2/2、完整人工0/2。新教学确实进入两个真实system及动态user出口，窄教学矛盾可销；不是模型语义已稳定，更不是父差距完成。
+
+## 111. 2c036固定双例机器2/2、人工0/2：新增关系摘要和计量分量交付缺口（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_carrier_scope_20260921.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_carrier_scope_20260921_manual_audit.md)。runner47633正式exit0，2并行×1，G1 78秒、causal 168秒；无第三次追跑、无oracle修改。新代码只修教学，不改变原数值/准入/窗口/链上资格/图补齐或模型正文。
+
+G1完整工件34579.450627..34579.595184，三段原始D+IO为0.138/0.147/0.350ms、合计0.635ms，实际交付/正文/附录正确。原始模型2.737ms聚合未由已修的pre-emit/最终事实账复活；有限任务仍产schema2空旁路、原因`trace_root_cause_contract_not_active`合理。但正文由调用点符号推成“同步缓冲区读取完成”和具体模块机理，又以“纯不可中断D”混物理状态与计量分区，完整人工FAIL；原始事实交付PASS不抵销主文越界。
+
+causal明确2.000..2.020秒，app S20ms、四节点threadpool→network→cookie→app与唤醒2.016/2.018/2.020、CPU4→3→2→1、链上IO11ms及三条1ms低优先级调度供给候选全保。Trace因果投影存在，旁路available并保模型选择的一项IO根因，未强填四项。正文仍将cookie的17ms睡眠与另一条1ms runnable归因比较，推断“大部分睡眠未计入app阻塞责任”；“阻塞完全通过依赖链间接传导”和旁路“直接阻塞源”也超出未闭全原因/无直接阻塞授权。系统§104“已证最大可消”“11ms可消”继续出现，完整人工FAIL。调用点只作下一步排查且承认资源未知这部分有改善，不能连带签全部通过。
+
+过程：两例成文首次均接受、硬拒绝0；G1 patch0，causal patch1只补漏schema_version的可选旁路，5个正文块完全不动，最后schema2一项合法。causal分析器曾因bounded_fact_set/root_cause结构矛盾合理拒绝一次后接受；不要以runner阶段计数1误称整个分析过程零拒绝。没有成文重试风暴或超时降级，日志中的4ms为完成后的环境构建耗时，不是流式等待上限。
+
+新确认并按ROI排队（均未修，不能归为模型波动）：
+
+- [ ] **P1 关系摘要消费投影与原始值语法分离**：G1实际最终上下文日志1585把`34579.451840 (line 118)`拆成`34579 -> 451840 (line 118)`。`context/builder.go::relationDossierAggregateFacts`仍读原始stable/TurnA而忽略AnswerSurfacePlan，`relationDossierAggregateMemberExamples`又用`types/answer_aggregate_fact.go::aggregateCompactDotRelationParts`将纯数字小数当限定成员。是独立advisory上下文污染，不是已证硬拒绝或图被改写，也不能断言造成调用点机理错误。需保最终空/非空投影、探索/no-plan兼容及原始审计，数字/原生值不得变成伪源码关系，真实限定源码成员/显式关系仍保；全消费者核对后公开先红后绿。§108只修其明确两处consumer，不外推为全系统投影已统一。
+- [ ] **P1 原始占用与归因的分量身份**：causal实际日志2486–2488的state_value_authority把`s_sleep measured=17ms`与runnable席`effective=1ms`放同一行，threadpool也把IO11ms与runnable归因1ms并列；虽写distinct，却未显示归因对应分量。需保原始占用和归因各自状态/范围/行身份，不能仅重复“两轴不同”，不能改变任何值/排序或系统改写模型结论。现有直接阻塞/不穷尽教学已到场，二者错误因果关系不作确定断言。
+- [ ] **P1 §104 归因量≠已验证收益**，及§94业务局部补齐、容量恢复B按既定独立任务继续；日志派生标签来源、原始占用重复行/内部术语、正确上下文上模型越界另保观察。不以两次相似回答就宣布稳定模型波动。
+
+父账仍13/79交付、66开放，B2–B6与既有人审FAIL不回写。本批无写模式live，旧Go保护不能冒充新写模式真实验收。
