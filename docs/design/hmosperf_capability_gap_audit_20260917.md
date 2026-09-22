@@ -2485,3 +2485,61 @@ Python源码仅+1、原测试/配置未改，真实执行了当前交付源变�
 测试调用真实checker→公开AppendSoftContractCaveatsToAnswerForBus/API：3拒绝类×中英、异常详情×中英与三名称上限；模型前缀、doc、denial不变。它不是原生EmitPerfTrace/TraceQuery全链，完整caller记录/附件/窗口/主体绑定仍开放，不能以默认文案修复代销该范围。有效RED28985正式exit1/orchestrator0.703s；前两轮仅测试方法拼写及另一新增测试编译错误，不记产品RED。GREEN70272 exit0/0.901s；相邻40148 exit1为4个旧字面pin，精确迁移5条正向词义并加强Log专用例外负针，不改断言逻辑。末版race70084正式exit0，独立27007 exit0/0.843s，无P1。日志`/tmp/hmc-denied-source-boundary-{red3,green,adjacent,race}-20260922.log`及`/tmp/hmc-source-denial-independent-20260922.log`。
 
 两片待下一次全仓收据统一补记；父账仍66开放。既有测试执行意图已有独立公开RED38703正式exit1/orchestrator4.060s：2个新要求场景都被probe替代，legacy/preserve-only/既有ProjectTestObservation三对照先绿。下一片用可选typed constraint和工具拥有的精确执行收据实现，不把自由文本或静态文件存在性升级为测试证明。
+
+两片已分别提交`3148d2a00`、`3cb204025`并推送，42900正式exit0；全仓复核仍待本批末版，不把之前73767收据套给后续改动。
+
+## 127. 用户要求执行的现有测试不能被探针或其它文件的结果替代（2026-09-22，实现回归完成，生产分支未命中）
+
+先按唯一复选项复核：79总项=13已交付+66开放，尚未修改父项状态。本片承接§124真实Python人工FAIL，优先于新领域扩张。参考`core/llm_contract.py:110–151`的设计意图是把证据绑定到已登记成员及其实际字段；本仓借鉴其归属原则，不复制文本子串/数值容差为执行证明。参考优化建议设计第六节把方案身份、同口径复测和实际结果分开；它仍为待评审设计，不宣称参考仓已经实现本片写模式原生测试验证。
+
+最小新增要求为已固定请求IR中的`constraints[].kind=run_existing_test`，目标是当前仓已读取的精确文件。它独立于保留原测试字节和行为合同证明；计划遗漏project-test observations也不能消除执行要求。新执行收据由原生工具生成，模型不能填写；旧报告消费时重新核验，而不是信任已有“通过”标签。未知选择器、零断言、全跳过、取消或基础设施失败不应由probe PASS顶替。
+
+有效公开RED38703正式exit1/orchestrator4.060s，走真实Run→结构化分析/计划→补丁/交付→run_tests→workflow；只有模型选择被脚本控制。要求原生执行的通过例与大整数失败例都被旧probe提前收口；legacy、仅保护测试、已有ProjectTestObservation三对照原先通过。早期夹具字段编译错误不记产品RED。
+
+实施中的独立审计阻止了更宽的错误闭环：命令`suite`指向某文件不等于其断言实际执行，项目配置或`load_tests`可能转派其它测试；同cwd的其他PASS不能借给目标。另需核实际HEAD/文件字节而非只复制计划指纹，逐目标保留执行债；预阶段4次轻读/6轮约束也不能与“逐文件先读取”的新教学互相矛盾。先补原生unittest精确文件的工具自有运行时观察，其他协议无精确身份时保持未验证，不临时弱化成路径字符串相同即可。尚未取得末版GREEN/全仓/提交收据，本节不得作为交付证明。
+
+独立审计同时留出后续高ROI接缝，不藏在本片“未支持”中：既有pytest固定JSON路径仅在结束时清理，逐调用产物新鲜度尚须修复；既有部分Python/Ruby命令把路径用双引号传shell，含`$`/反引号的字面文件名可能被展开。新unittest观察使用独立临时目录、独占创建报告及literal shell quoting，不代表所有旧runner已修。Node位置过滤也不自动构成精确文件执行凭证。以上归入HMC-18跨模式验证子债，父ID数量不重复增加。
+
+预阶段附片实际复现了相同的系统自冲突：真实BaseAgent四次预读后emit保护非惯例基线文件被拒，要求先read，但schema只剩emit。52784正式exit1/agent1.971s；前轮71398是并行施工期间编译错误，不记产品RED。现仅在typed emit失败后提供一次额外`read_file`修复回合，保原4次正常预读与6轮总cap，不扫错误文案；同批旧schema拒绝的read不消费下一回合，真实失败read则消费，多个read仍按原整批执行规则，不误称严格一个调用。默认教学改为“一次成功发射”，拒绝可修正重发；共享现有测试执行教学到实际模型上下文。根因/工具权限/写风险门不变。附片末版与原生执行片一起补验收收据。
+
+阶段验收收据（尚待全仓正式结束）：原生公开初绿91231 exit0/orchestrator5.399s，要求执行时真实3条原测试，有限整数探针仍通过的大整数错误被原测试检出；legacy、仅保护测试及既有观察路线保持。边界87102 exit1中全skip/零测试/转派已正确保missing，夹具误把workflow的complete生命周期等同于verified结论；检查真实Completion.Verdict后改验unverified与执行债，不改terminal政策。非惯例文件正控另提供真实已存在unittest候选，不能凭已读取文件假定测试框架。90444 exit0/orchestrator8.824s，11场景通过。
+
+独立consumer逐字段破坏、双目标JSON往返及旧报告投影：43177 exit1，唯一新发现是非hex文件哈希被接受；修后9598 exit0/types0.775s、38400 race exit0/types1.989s。此矩阵为typed夹具，不冒称真实执行。原生观察器同时补类/模块fixture事件不经过startTest的处理，保原unittest parser的导入错误分类和原生traceback；观察文件损坏/超限等只丢精确执行凭证，不替代原生结果。末版90903正式exit0（orchestrator15.756/tool4.418/types2.486s），59630 race exit0（28.486/6.469/2.240s），日志`/tmp/hmc-existing-test-sealed-{focused,race}-20260922.log`。最后timeout原生反例单列后补；早期编译错误与单条loader reason旧针预期错误不作为产品失败或隐去。
+
+预阶段附片5979 exit0/agent1.134s；实际默认教学进模型消息40741 exit0（agent0.961/skill1.532s）。独立审计提出“单回合非单调用”及同批不可用read误消费，均补真实BaseAgent反例；主体末版54152 race exit0（agent2.387/skill2.590s），最后未使用修复轮也消费额度的负控10402 exit0（agent1.748/skill0.798s）；独立末审56519 exit0/agent0.998s、skill93324 exit0/0.626s。
+
+生产已冻结，全仓37585执行中，日志`/tmp/hmc-existing-test-and-read-repair-full-20260922.log`；不得先签全仓通过。新增非阻断上下文成本债：原生观察程序现在随完整Command留档，planner的命令展示可带入内部程序正文，controller截240字符可能遮住末尾目标；后续应以同一工具拥有的程序/命令/目标身份分离展示，保完整执行审计，不扫描或改写模型正文。当前不扩成新的执行器或为此更改运行语义。剩余66父项及历史live人工FAIL均未销账。
+
+冻结后第17个真实timeout控制：95813正式exit0/orchestrator3.229s、21856 race exit0/5.023s。首次16105 exit1是新测试误假设timeout早返也保pre-suite TestResults；旧路径保的是已执行probe命令及ProbeExecution，补正只核实际凭证，仍严验native timeout/Passed=false/missing执行债且非verified。如37585已编译该旧测试，必须完整复跑，不能合成全仓成功。原生producer独立末审确认fixture事件、loader原分类、原生traceback及观察超限回退已闭；仅unittest、继承/动态包装方法保守缺凭证、subtest按父方法计数是明确边界。另登记P2：原生已结束后写观察JSON发生OSError可能改变包装进程退出码，被旧parser归为测试失败；目前不假绿，但尚不能宣称所有观察基础设施故障都精确归类。
+
+全仓首轮37585现已正式exit1，tool410.664s；唯一失败为启动时编译的旧timeout测试断言，未发现新增生产失败。按上述规则启动冻结末版完整复跑76502，日志`/tmp/hmc-existing-test-and-read-repair-sealed-full-20260922.log`，不拼接局部结果作成功收据。独立只读复核逐ID无重复，确认79=13+66、跨语言/上下文成本/父项和历史FAIL边界均未夸大。
+
+收尾主审发现新增unittest观察器未沿用目录身份保护，必须在本片交付前补齐：真实文件系统RED72144正式exit1/tool2.228s，日志`/tmp/hmc-existing-test-filesystem-red-20260922.log`。目录换软链接或换目录时旧入口读到外部/替代报告且清理误删；报告软链接虽拒读仍被清理，读取后替换普通文件亦被误删。普通读/额外文件/超大报告三控制先绿。这是当前新增通道的确定性P1，不以临时目录随机名字宣称安全；只补拥有的目录/报告身份、安全有界单次读取和精确清理。76502覆盖补安全片前代码，其结果不得代签后续修改。
+
+安全补片前的76502已正式exit0，87测试包、13无测试包、零FAIL，旧timeout断言问题已消除；该收据同时覆盖§125/126，但不包含上述新安全片。JSON写入误改退出码的P2也获得真实native subprocess RED40426正式exit1/tool1.906s：目录/文件占用×原生pass/fail四格，两个原生fail控制先绿，原生pass却因FileExistsError退出1。末版将只捕获最终观察写入OSError并保真实unittest退出，缺执行凭证继续未验证。
+
+安全片独立末审确认准备时目录身份、实际2MiB＋1读取及前后文件快照保护稳定替换；碰撞非JSON文件不应因读到字节而获得清理所有权，追加RED37131正式exit1/tool1.613s后延迟至有效报告完成验证才发布清理身份。P2 OSError测试是真实observer子进程→readReport→原parser，不是完整Run→Completion；缺凭证仍未验证由已存在Execute/consumer用例另证。剩余边界明确留账：check→open/remove非原子；Python writer尚可沿已替换父链接新建外部文件（不覆盖既存文件，后续拒读不授凭证），不能称完整抗恶意并发的文件系统沙箱。本片只签已证稳定替换误读/误删、实际限量读取及原生退出语义，通用产物writer/原子所有权仍属后续子债。
+
+安全补片末版60254 focused正式exit0（tool5.219/orchestrator17.159s）、76519 race正式exit0（5.304/27.612s），日志`/tmp/hmc-existing-test-filesystem-final-{focused,race}-20260922.log`；7个文件系统情形、4个真实子进程写入失败情形及有界reader控制、原17个公开Run均通过。root补片后agent/skill51681 exit0（1.621/0.658s）。两笔本地代码提交为`111b22d23`原生执行意图与凭证、`b3c0bf870`分析补读/教学；暂不推送。以b3c0bf870冻结生产，末版全仓94036（`/tmp/hmc-native-execution-final-full-20260922.log`）与构建9277进行中，之后同版本固定双例，不扩到pytest或其它runner。
+
+## 128. 后续测试产物归属审计（2026-09-22，只读设计，未实施）
+
+独立源码审计确认pytest固定`.codrax-pytest-report.json`从命令构建流向直接读文件，实际Execute仅结束时defer删除；本次不写报告时可读旧绿，同次不同selector亦复用路径，清理还可能删掉原有文件。Python JSON解析不读取本次普通非零退出也是相邻缺口。此处是源码论证，尚未运行公开反例，不标RED或已修复。
+
+下一批P1方案：复用现有JUnit/CTest的每次调用私有目录、安全单次字节读取及所有权清理；纯builder/教学预览不产生目录。JSON与XML各保原解析器，当前字节同用于hash与解析，不用mtime证明新鲜度；缺当前JSON仍走已有“重新执行并解析本次文本”的恢复，不能借旧产物。当前非零退出不能被绿JSON覆盖，但保留真实断言结果、不合成假失败断言，零测试语义单独保护。清理仅针对本次拥有的精确文件及空目录，不递归删客户目录。
+
+回归应覆盖旧绿无新产物/旧红新绿/同字节新产物、多selector/并行隔离、当前非零、缺JSON后文本恢复、软链接/目录替换及旧文件字节和时间不变，保护既有Maven/CTest和本批unittest收据。公开入口可用真实协议子进程，不能冒称已跑原生pytest。Meson固定XML和Gradle/hvigor旧目录发现属于后续同类适配；Node结果来自本次stdout，不是固定文件新鲜度问题，其忽略runErr须单独记录。以上仍归原HMC-18子债，不重复增加66父项计数。
+
+评测目录只读复核：249个case含26个apply、3个plan、220个默认读模式。本批在新冻结版本选择§124原双例各一次，直接验新worker语义图例和既有测试要求；未live触发的self/mixed/mention图例、read-repair和caller分支不能借签。随后建议`trace_query_jank_field_inventory`＋原版`github_issue_dateutil_relativedelta_float`：分别覆盖有限全量检索的身份/时钟/大整数/展示范围、根目录Python仅保护测试不自动铸执行义务。近期多次IO案例不再优先重复。名称含binary/converted但内联文本的案例不能算真实二进制入口验收。参考`config/skills/frame_drop.yaml:76`的定位→转换→分析→按对象指标及`core/skill_executor.py:895`的默认参数注入/显式覆盖，借鉴减少模型搬运参数；不复制首个文件等于全部或关键词路由，更不能将待评审优化方案文档算已实现写验证。
+
+## 129. b3c0bf末版全仓与固定双例验收（2026-09-22）
+
+末版全仓94036正式exit0，87测试包、13无测试包、零FAIL，tool407.915s；日志`/tmp/hmc-native-execution-final-full-20260922.log`。源码输入已包含§127安全和OSError末片，也覆盖§125/126，不套用之前76502的旧代码结果。活跃隐藏推理/正文/工具调用、keepalive、静默与调用方期限保护38440正式exit0/llm8.361s，600/300/600秒及活跃流无正文不降级的原策略未改。构建9277正式exit0，revision=b3c0bf870378-dirty、buildTime=2026-09-22T10:58:36Z；dirty仅未提交文档收据，Go/构建输入已净且被runner验证，不能称整个工作区当时干净。
+
+[机器收据](../../eval/parallel_selected_summary_hmc_native_execution_20260922.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_native_execution_20260922_manual_audit.md)：98029正式exit0，恰好2并行×1，机器2/2、本次用户任务正确性完整人工2/2 PASS。Trace151秒、Python外层127秒/案例125秒；没有第三例追跑、改旧oracle或重签§124失败答案。
+
+Trace完整292行/原始时点/原生观测/模型输入及旁路同审：5ms语义墙钟、4.6ms链上计入、唤醒后0.4ms，目标S5/runnable0.8/running1.2和worker边前running4/full4.6分别保留；正文不再倒置完成/唤醒，不宣称两方向干预独立。worker墙钟图例真实命中，因果图/自动补齐/背景分离保留。模型一次可选patch主动选择两项，schema2旁路0.0046/0.0008秒、frame_unproven及5..5.007范围正确；非强填。self/mixed/mention/caller分支未命中，前置模型仍有睡眠5.8ms/完成后唤醒等错误表述，但最终上下文有正确证据且本轮终文未继承，不能说前置质量债已闭。内部英语和旧可消除简称仍为展示债。
+
+Python仅实现+1、原测试与配置逐字不变，交付commit=c27961f556ef4d13a30d62674d0bd2be12d358a4；当前worktree实际运行3个原unittest方法（含±2**64），没有用probe替代，根目录零测试分列，故用户任务PASS。但固定IR只有preserve_regression_test，没有run_existing_test，报告无新执行收据，本次依靠既有PTO选测试；新教学真实到场仍未发射该执行要求，分析补读也未触发。§127公开真实Run/独立consumer/race验收成立，不等于本次新机制live验收；不以词扫描补写模型要求，也不凭单次遗漏认定波动。三条PTO身份仍错误、10合同planning-only，原生声明-观测pair/B2–B6未销。新增低优先计数债：proof_profile.probe_count取全部VerificationConfidence数，本例source_compile被计为1，不能当成post-apply probe执行数；规划期临时probe零测试另记，不混层次。
+
+逐唯一ID仍79=13已交付+66开放；本轮完成的是既有父项下的确定性子缺陷与新版本两个用户任务，历史FAIL原样保留。优先级按§128旧pytest产物冒借P1→caller双轴→业务局部补齐/容量→声明-观测pair/B2–B6→能力目录/IO总体/精确帧执行。当前代码两笔本地提交111b22d23、b3c0bf870，文档与本轮审计一并推送收尾；推送正式收据随后补记。
