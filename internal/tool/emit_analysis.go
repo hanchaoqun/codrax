@@ -711,7 +711,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"artifact_value_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional typed profile for a scalar answer explicitly requested from an attached log, trace, perf artifact, or typed runtime observation. Emit it only with predicates.is_scalar_answer=true. It is a soft lookup lane that later stages must verify; never transcribe a pre-triage model summary, stall guess, or inferred root-cause value into this profile.",
+				"description": skill.AnalysisArtifactValueProfileDescription,
 				"properties": map[string]any{
 					"is_artifact_value_lookup": map[string]any{"type": "boolean", "description": "True only when the scalar/key-value target is an exact value observed in a runtime artifact."},
 					"target":                   map[string]any{"type": "string", "description": "Runtime-artifact value target, such as GC span duration, frame jank duration, binder latency, thread state, or trace line number. It does not need to be an owner-qualified source member."},
@@ -5682,6 +5682,11 @@ func normalizeRuntimeTargetSource(raw string) (string, string) {
 
 func runtimeArtifactValueProfileFromFieldValueParam(ctx *types.BusContext, p *emitFieldValueProfileParam, reason string) (*types.RuntimeArtifactValueProfile, string) {
 	if p == nil || p.IsFieldValueLookup == nil || !*p.IsFieldValueLookup {
+		return nil, ""
+	}
+	// A recognized source field must retain its own validation result. Legacy
+	// artifact compatibility cannot repair it by changing its evidence origin.
+	if _, _, _, sourceField := types.ParseFieldValueTarget(p.Target); sourceField {
 		return nil, ""
 	}
 	value := strings.TrimSpace(p.Literal)
