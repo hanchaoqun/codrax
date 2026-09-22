@@ -2403,3 +2403,17 @@ causal明确2..2.020窗、app S20ms、四节点及三条跨核唤醒、链上IO1
 实际BuildInitialInstruction公开20格覆盖8类×中英及同主体/rank的双窗重排；逐具体行断言，防止详细reader的已有描述掩盖摘要缺失。有效RED21362正式exit1/agent1.138s：14格缺描述失败，纯IO/语义/未知6格先绿，原数值/身份/输入不变均通过。首版测试自身fingerprint键和窗口设置错误已在红针前纠正，不记为产品红针。GREEN73892正式exit0（agent1.864/tracefinding0.637s）；race24138正式exit0（agent4.942/tracefinding1.707s），相邻rank-domain/locator/scope/principal保护race32594正式exit0/agent3.223s；独立末版6行审计通过。全仓74551待正式结果，不以定向绿色销旧答案FAIL。
 
 本批唯一live选择两例、各一次并行：`trace_query_wakeup_background_demotion`检验链上IO/调度分量与19.5ms链外等待不晋升主因；`read_combo_trace_current_source_explanation`检验真实当前源码＋86.111ms运行时观察的独立双来源。按因果误导风险、来源混淆泛化面、既有覆盖与成本排序；前批Go实际apply已审，本批不假称再跑写模式。机械与完整人工结果另记。剩余计数再次逐ID核验仍79=13+66，§104收益口径、§117完成接缝、§94局部补齐/容量、B2–B6及全部父开放项不销。
+
+统一末版全仓74551正式exit0（87测试包、13无测试包、零FAIL；tool415.606/agent90.119/skill8.203s），`/tmp/hmc-origin-component-full-20260922.log`；默认600/300/600秒、4ms连续部分帧、visible/hidden/tool活跃进展及更短caller期限保护27189正式exit0/llm4.605s。生产`b736a22a3`、`8c102c030`和收据`ea2365916`已推送，73730正式exit0。工作区干净构建82201正式exit0，revision`ea2365916f01`/buildTime`2026-09-22T08:06:14Z`；唯一双例55480已启动，未完成前不记机器或人工PASS。§118/§119窄确定性缺陷完成代码、回归和推送，原答案级和父项范围仍开放。
+
+## 120. ea236固定双例完成：机器2/2、完整人工0/2（2026-09-22）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_origin_component_20260922.md)、[全文人工审计](../../eval/parallel_selected_summary_hmc_origin_component_20260922_manual_audit.md)。runner55480正式exit0，206/421秒，恰好2并行×1无追加追跑。父账仍79=13+66（58待实施、6部分实施、1待验收、1持续执行）。本批源码来源及分量摘要窄子片已交付，不抵销完整答案FAIL。
+
+background实际命中§119：最终模型输入三行各自明确runnable1ms＋running deficit0，旁路四项选择保IO11ms和三PIC1ms；显式2..2.02、完整链、Trace投影与logger19.5ms仅背景均保留。人工仍FAIL：醒来被写成Running（真实切入在窗外）、network14ms的等待起点借给threadpool、四节点误叫四跨核跳、睡眠/观察链被提升为业务完成和确定原因、logger未确认IO却写成iowait。系统§104收益承诺和重复占用另留债。event_search的窗外导航为已标lookup-only容差，不是计算窗外溢；原始状态/因果仍保精确窗。
+
+mixed-source原生86.111ms及真实源码定义均保住，有限问题的空schema2旁路正确；无新legacy字段错误声明，不能用该live替公开来源红针。全文63行审计FAIL：durationOrderObservations只是顺序审计载体，不是实际时长计算；resetTraceMarkSyncPairingState用于生命周期/坏marker，不是普通E关闭；模型evidence IDs与所写函数错配，附加引用亦错位；未实际搜索阈值却声称仓库没有，60Hz只能是假设而非已知设备基线。精确source_quote、effect维度、negative_search结构和summary缺失的修复都保原合同，结构最终通过不代表解释通过。模型summary追加导致重复，内部术语继续留展示债；本批无4ms活跃流降级。
+
+新确认P1（HMC-01.3/16.4，未另增父ID）：源码未定位与Trace已观测caller双轴混淆。预分诊把caller误填stalls.file（background log274），emit_perf_trace.go:184–199产源码未解析denial后，Explorer原始材料及final typed调用点被改为`<unverified-external-source>`（1199/2064–2066）；晚到摘要2613、图、旁路仍保真实caller，末尾md441却称未被当前证据确认。原Trace第8行已观测名字，机理未证不等于名字未观测。生产链为denied_token_answer_check.go:51→repair_caveat_materializer.go:326；现有artifact例外563–613只覆盖LogBundle，未消费typed Trace caller。后续基于实际runtime来源身份修上下文与caveat，不删除全部源码denial、不授源码/锁/完成机理证明，保错误源码路径负控。
+
+后续ROI：①§104计量词源与完整消费者统一（含精确物理重叠不能证明修其一收益必缩）；②§117真实接受收口回执的公开反例与调度消费；③本节caller双轴；④§94局部补齐/容量、声明-观测pair与B2–B6。参考设计意图逐项写清：等待/供给/工作量分离是量纲和解释边界，不是优化实效证明；member→JSON→field是证据归属约束，不是同词面任意跨来源互换。模型错误不能未经重复因果证明就归随机波动，也不追加输出原文硬门。
