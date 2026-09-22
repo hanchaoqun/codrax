@@ -98,12 +98,17 @@ func ExistingTestExactFileSelector(runner, framework, workingDir, suite, testPat
 // labels are never proof; only current-plan, current-delivery native receipts
 // can satisfy the independent execution requirement.
 func ExistingTestExecutionConfidence(plan *ChangePlan, report *ChangeReport) []VerificationConfidenceRecord {
+	targets := RequiredExistingTestPaths(plan)
+	if len(targets) == 0 {
+		return nil
+	}
 	var out []VerificationConfidenceRecord
-	for _, target := range RequiredExistingTestPaths(plan) {
+	invocations := NewNativeTestInvocationIndex(report)
+	for _, target := range targets {
 		status, reason := "missing", "required_existing_test_not_executed"
 		if report != nil && len(report.ExistingTestExecutions) <= MaxExistingTestExecutionReceipts {
 			for _, receipt := range report.ExistingTestExecutions {
-				if receipt.TestPath != target || !existingTestExecutionReceiptMatches(plan, report, receipt) {
+				if receipt.TestPath != target || !existingTestExecutionReceiptMatches(plan, report, receipt, invocations) {
 					continue
 				}
 				if receipt.FailedAssertionCount > 0 {
@@ -122,7 +127,7 @@ func ExistingTestExecutionConfidence(plan *ChangePlan, report *ChangeReport) []V
 	return out
 }
 
-func existingTestExecutionReceiptMatches(plan *ChangePlan, report *ChangeReport, r ExistingTestExecutionReceipt) bool {
+func existingTestExecutionReceiptMatches(plan *ChangePlan, report *ChangeReport, r ExistingTestExecutionReceipt, invocations *NativeTestInvocationIndex) bool {
 	if plan == nil || plan.PatchEffect == nil || plan.ID == "" || report.PlanID != plan.ID || report.Channel != ChangeReportChannelPostApplyVerify ||
 		r.PlanID != plan.ID || plan.AppliedCommitSHA == "" || r.AppliedCommitSHA != plan.AppliedCommitSHA ||
 		plan.PatchEffect.PlanID != plan.ID || r.PatchEffectID == "" || r.PatchEffectID != plan.PatchEffect.RecordID ||
@@ -148,8 +153,8 @@ func existingTestExecutionReceiptMatches(plan *ChangePlan, report *ChangeReport,
 		return false
 	}
 	rows := make(map[string][]bool)
-	for _, row := range report.TestResults {
-		if row.ObservationScope == TestObservationScopeAssertion && row.AssertionID != "" {
+	for resultIndex, row := range report.TestResults {
+		if invocations.Matches(r.CommandIndex, resultIndex) && row.ObservationScope == TestObservationScopeAssertion && row.AssertionID != "" {
 			digest := ExistingTestAssertionDigest(row)
 			rows[digest] = append(rows[digest], row.Passed)
 		}

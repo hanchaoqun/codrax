@@ -93,12 +93,13 @@ const (
 )
 
 type pytestTextFallbackResult struct {
-	Report   *types.ChangeReport
-	ParseErr error
-	Output   string
-	Command  string
-	ExitCode int
-	Duration time.Duration
+	InvocationID string
+	Report       *types.ChangeReport
+	ParseErr     error
+	Output       string
+	Command      string
+	ExitCode     int
+	Duration     time.Duration
 }
 
 type runnerManifest struct {
@@ -1109,6 +1110,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
+		invocationID := newNativeTestInvocationID()
 		execStart := time.Now()
 		supRes := SupervisedRun(execCtx, cmd, caps)
 		execDuration := time.Since(execStart)
@@ -1125,15 +1127,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			truncateForLog(output, 300))
 		combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, output))
 		executedCmds = append(executedCmds, types.ExecutedCommand{
-			Runner:     runner,
-			Framework:  plan.Framework,
-			WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
-			Suite:      strings.TrimSpace(plan.Suite),
-			Command:    cmdStr,
-			ExitCode:   execExit,
-			DurationMS: execDuration.Milliseconds(),
-			Source:     planSourceFor(plan),
-			Outcome:    types.ExecutedCommandOutcomeExecuted,
+			InvocationID: invocationID,
+			Runner:       runner,
+			Framework:    plan.Framework,
+			WorkingDir:   runnerPlanRel(ctx.RepoRoot, plan),
+			Suite:        strings.TrimSpace(plan.Suite),
+			Command:      cmdStr,
+			ExitCode:     execExit,
+			DurationMS:   execDuration.Milliseconds(),
+			Source:       planSourceFor(plan),
+			Outcome:      types.ExecutedCommandOutcomeExecuted,
 		})
 		setLastExecOutcome := func(outcome string) {
 			if len(executedCmds) > 0 {
@@ -1467,16 +1470,17 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 						}
 					}
 					executedCmds = append(executedCmds, types.ExecutedCommand{
-						Runner:     runner,
-						Framework:  plan.Framework,
-						WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
-						Suite:      strings.TrimSpace(plan.Suite),
-						Command:    fallback.Command,
-						ExitCode:   fallback.ExitCode,
-						DurationMS: fallback.Duration.Milliseconds(),
-						Source:     "parser_error_fallback",
-						Outcome:    fallbackOutcome,
-						ReasonCode: fallbackReasonCode,
+						InvocationID: fallback.InvocationID,
+						Runner:       runner,
+						Framework:    plan.Framework,
+						WorkingDir:   runnerPlanRel(ctx.RepoRoot, plan),
+						Suite:        strings.TrimSpace(plan.Suite),
+						Command:      fallback.Command,
+						ExitCode:     fallback.ExitCode,
+						DurationMS:   fallback.Duration.Milliseconds(),
+						Source:       "parser_error_fallback",
+						Outcome:      fallbackOutcome,
+						ReasonCode:   fallbackReasonCode,
 					})
 					combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, fallback.Output))
 					if fallback.ParseErr == nil && fallback.Report != nil {
@@ -1524,6 +1528,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Timestamp:  time.Now(),
 			}, nil
 		}
+		bindNativeTestResultInvocation(report, invocationID)
 		if report != nil && report.NormalizeVerificationStatus() == types.VerificationStatusUnavailable {
 			if report.FailureKind == types.FailureKindParserError {
 				setLastExecOutcome(types.ExecutedCommandOutcomeParserError)
@@ -2534,6 +2539,7 @@ func runPytestTextFallbackCommand(ctx *types.BusContext, plan runnerPlan, timeou
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
+	invocationID := newNativeTestInvocationID()
 	execStart := time.Now()
 	supRes := SupervisedRun(execCtx, cmd, caps)
 	duration := time.Since(execStart)
@@ -2547,13 +2553,15 @@ func runPytestTextFallbackCommand(ctx *types.BusContext, plan runnerPlan, timeou
 		markVerificationInterrupted(err, report)
 		parseErr = nil
 	}
+	bindNativeTestResultInvocation(report, invocationID)
 	return &pytestTextFallbackResult{
-		Report:   report,
-		ParseErr: parseErr,
-		Output:   output,
-		Command:  cmdStr,
-		ExitCode: exitCode,
-		Duration: duration,
+		InvocationID: invocationID,
+		Report:       report,
+		ParseErr:     parseErr,
+		Output:       output,
+		Command:      cmdStr,
+		ExitCode:     exitCode,
+		Duration:     duration,
 	}
 }
 
@@ -3882,29 +3890,13 @@ func projectTestObservationExecutionMatches(observation types.ProjectTestObserva
 	}
 	var matches []projectTestObservationExecutionMatch
 	resultScopes := projectTestResultScopeCatalog(report)
+	invocations := types.NewNativeTestInvocationIndex(report)
 	for candidateIndex, candidate := range report.TestSurface.Candidates {
 		expectedSuite, ok := projectTestObservationCandidateSuite(candidate, testPath)
 		if !ok {
 			continue
 		}
 		candidateKey := testSurfaceCandidateKey(candidate.Runner, candidate.Framework, candidate.WorkingDir)
-		commandIndex := -1
-		for index, cmd := range report.ExecutedCommands {
-			if strings.TrimSpace(cmd.Outcome) != types.ExecutedCommandOutcomeExecuted || (cmd.ExitCode == 0) != passed || strings.TrimSpace(cmd.Runner) == "verification_probe" {
-				continue
-			}
-			if testSurfaceCandidateKey(cmd.Runner, cmd.Framework, cmd.WorkingDir) != candidateKey {
-				continue
-			}
-			if strings.TrimSpace(cmd.Suite) != expectedSuite {
-				continue
-			}
-			commandIndex = index
-			break
-		}
-		if commandIndex < 0 {
-			continue
-		}
 		for resultIndex, result := range report.TestResults {
 			localSuite, scopeMatches := projectTestResultSuiteForCandidate(candidate, result, resultScopes)
 			if result.Kind == types.TestResultKindBuildError || result.Passed != passed ||
@@ -3915,9 +3907,18 @@ func projectTestObservationExecutionMatches(observation types.ProjectTestObserva
 				!projectTestResultSuiteBelongsToPath(candidate, testPath, expectedSuite, localSuite) {
 				continue
 			}
-			matches = append(matches, projectTestObservationExecutionMatch{
-				CandidateIndex: candidateIndex, CommandIndex: commandIndex, ResultIndex: resultIndex,
-			})
+			for commandIndex, cmd := range report.ExecutedCommands {
+				if strings.TrimSpace(cmd.Outcome) != types.ExecutedCommandOutcomeExecuted ||
+					(cmd.ExitCode == 0) != passed || strings.TrimSpace(cmd.Runner) == "verification_probe" ||
+					testSurfaceCandidateKey(cmd.Runner, cmd.Framework, cmd.WorkingDir) != candidateKey ||
+					strings.TrimSpace(cmd.Suite) != expectedSuite || !invocations.Matches(commandIndex, resultIndex) {
+					continue
+				}
+				matches = append(matches, projectTestObservationExecutionMatch{
+					CandidateIndex: candidateIndex, CommandIndex: commandIndex, ResultIndex: resultIndex,
+				})
+				break
+			}
 		}
 	}
 	return matches

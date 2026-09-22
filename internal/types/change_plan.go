@@ -1987,6 +1987,10 @@ const (
 // mocha --reporter json) expose so the B3 parser surface is
 // minimal.
 type TestResult struct {
+	// InvocationID identifies the tool-owned native command that produced this
+	// row. Empty is the legacy report shape; it is not assertion authority.
+	InvocationID string `json:"invocation_id,omitempty"`
+
 	// Kind classifies this TestResult. TestResultKindUnit for
 	// normal test outcomes; TestResultKindBuildError for synthetic
 	// rows describing a pre-test build failure.

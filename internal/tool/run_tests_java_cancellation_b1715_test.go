@@ -90,6 +90,17 @@ func TestB1715ManifestlessJavaCancellationPreservesCompletedMainPublic(t *testin
 	if len(commands) != 3 {
 		t.Fatalf("expected completed compiler, completed first main, interrupted second main receipts: %+v", commands)
 	}
+	assertNativeInvocationRowsOwned(t, report)
+	ids := map[string]bool{}
+	for _, command := range commands {
+		if command.InvocationID == "" || ids[command.InvocationID] {
+			t.Fatalf("compiler and separate main processes need distinct invocation identities: %+v", commands)
+		}
+		ids[command.InvocationID] = true
+	}
+	if len(report.TestResults) == 1 && report.TestResults[0].InvocationID != commands[1].InvocationID {
+		t.Fatal("completed main result must not borrow the compiler or interrupted main identity")
+	}
 	if !strings.HasPrefix(commands[0].Command, "javac ") || commands[0].ExitCode != 0 || commands[0].Outcome != types.ExecutedCommandOutcomeSyntaxPreflight {
 		t.Errorf("completed compiler receipt was altered: %+v", commands[0])
 	}

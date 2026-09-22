@@ -34,14 +34,16 @@ func BuildVerifyFailureContractRelevance(report *types.ChangeReport, plan *types
 	return types.BuildVerifyFailureContractRelevance(report, plan, bindings...)
 }
 
-// TestResult does not yet carry the execution that produced it. A report with
-// more than one failed project execution therefore cannot assign a failed row
-// to one command merely by matching its display names. Retain expectations
-// until an exact execution source is available; never guess ownership.
+// Invocation-aware rows already have one exact command owner from the shared
+// join. Legacy rows retain the conservative cross-command ambiguity rule.
+// Neither protocol establishes a physical file inside a many-file Make target.
 func projectTestFailureExecutionIsUnambiguous(observation types.ProjectTestObservation, report *types.ChangeReport, match projectTestObservationExecutionMatch) bool {
 	owner := report.ExecutedCommands[match.CommandIndex]
 	ownerKey := testSurfaceCandidateKey(owner.Runner, owner.Framework, owner.WorkingDir)
 	for _, command := range report.ExecutedCommands {
+		if owner.InvocationID != "" {
+			break // The common join has checked uniqueness and row ownership.
+		}
 		if strings.TrimSpace(command.Outcome) != types.ExecutedCommandOutcomeExecuted || command.ExitCode == 0 ||
 			strings.TrimSpace(command.Runner) == "verification_probe" {
 			continue

@@ -25,8 +25,9 @@ type projectTestResultScope struct {
 
 // The catalog comes only from this report's typed execution scopes. A raw
 // pytest suite can itself contain "::", so a delimiter is not scope evidence.
-// TestResult has no invocation ID: this restores candidate-scope ownership,
-// not a claim that two invocations of the same scope are distinguishable.
+// This restores candidate-scope ownership only. Invocation identity is joined
+// independently, so the same candidate can execute repeatedly without borrowing
+// an earlier command's exit status or another command's assertion rows.
 func projectTestResultScopeCatalog(report *types.ChangeReport) []projectTestResultScope {
 	byPrefix := map[string]projectTestResultScope{}
 	add := func(runner, framework, workingDir string) {

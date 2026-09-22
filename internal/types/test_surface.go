@@ -94,6 +94,10 @@ type TestSurface struct {
 // Stored on ChangeReport so every attempt keeps durable command evidence for
 // audit and replan handoff.
 type ExecutedCommand struct {
+	// InvocationID is assigned by the native executor, never by model input.
+	// It joins this command to its leaf results without interpreting names.
+	InvocationID string `json:"invocation_id,omitempty"`
+
 	Runner     string `json:"runner"`
 	Framework  string `json:"framework,omitempty"`
 	WorkingDir string `json:"working_dir,omitempty"`

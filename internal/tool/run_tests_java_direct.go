@@ -254,17 +254,19 @@ func runManifestlessJavaMainTests(ctx *types.BusContext, plan runnerPlan, source
 		sourceArgs = append(sourceArgs, filepath.Join(plan.Root, filepath.FromSlash(rel)))
 	}
 	compileText := fmt.Sprintf("javac <manifestless-java-main sources=%d>", len(surface.SourcePaths))
+	compileInvocationID := newNativeTestInvocationID()
 	compileOutput, compileExit, compileDuration, compileExitKind, compileErr := runManifestlessJavaCommand(ctx, plan.Root, "javac", sourceArgs)
 	compileOutcome, compileKind := manifestlessJavaCommandFailure("javac", compileErr, compileOutput, compileExitKind)
 	commands := []types.ExecutedCommand{{
-		Runner:     "java",
-		Framework:  javaFrameworkDirectMain,
-		WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
-		Command:    compileText,
-		ExitCode:   compileExit,
-		DurationMS: compileDuration.Milliseconds(),
-		Source:     source,
-		Outcome:    types.ExecutedCommandOutcomeSyntaxPreflight,
+		InvocationID: compileInvocationID,
+		Runner:       "java",
+		Framework:    javaFrameworkDirectMain,
+		WorkingDir:   runnerPlanRel(ctx.RepoRoot, plan),
+		Command:      compileText,
+		ExitCode:     compileExit,
+		DurationMS:   compileDuration.Milliseconds(),
+		Source:       source,
+		Outcome:      types.ExecutedCommandOutcomeSyntaxPreflight,
 	}}
 	if compileErr != nil {
 		commands[0].Outcome = compileOutcome
@@ -298,19 +300,21 @@ func runManifestlessJavaMainTests(ctx *types.BusContext, plan runnerPlan, source
 			break
 		}
 		commandText := "java -ea " + mainClass
+		invocationID := newNativeTestInvocationID()
 		runOutput, runExit, runDuration, runExitKind, runErr := runManifestlessJavaCommand(
 			ctx, plan.Root, "java", []string{"-ea", "-cp", tmpDir, mainClass},
 		)
 		outcome, failureKind := manifestlessJavaCommandFailure("java", runErr, runOutput, runExitKind)
 		commands = append(commands, types.ExecutedCommand{
-			Runner:     "java",
-			Framework:  javaFrameworkDirectMain,
-			WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
-			Command:    commandText,
-			ExitCode:   runExit,
-			DurationMS: runDuration.Milliseconds(),
-			Source:     source,
-			Outcome:    outcome,
+			InvocationID: invocationID,
+			Runner:       "java",
+			Framework:    javaFrameworkDirectMain,
+			WorkingDir:   runnerPlanRel(ctx.RepoRoot, plan),
+			Command:      commandText,
+			ExitCode:     runExit,
+			DurationMS:   runDuration.Milliseconds(),
+			Source:       source,
+			Outcome:      outcome,
 		})
 		if strings.TrimSpace(runOutput) != "" {
 			fmt.Fprintf(&output, "[%s]\n%s\n", mainClass, strings.TrimSpace(runOutput))
@@ -322,11 +326,12 @@ func runManifestlessJavaMainTests(ctx *types.BusContext, plan runnerPlan, source
 		}
 		passed := runErr == nil
 		result := types.TestResult{
-			Kind:        types.TestResultKindUnit,
-			AssertionID: mainClass,
-			Suite:       "manifestless-java-main",
-			Passed:      passed,
-			Duration:    runDuration,
+			InvocationID: invocationID,
+			Kind:         types.TestResultKindUnit,
+			AssertionID:  mainClass,
+			Suite:        "manifestless-java-main",
+			Passed:       passed,
+			Duration:     runDuration,
 		}
 		if !passed {
 			result.FailureDetail = manifestlessJavaFailureDetail(runOutput, runErr, commandText)
