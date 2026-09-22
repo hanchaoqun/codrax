@@ -2424,17 +2424,6 @@ func relationDossierSourceInventory(ac *types.AgentContext) types.SourceInventor
 	return observation
 }
 
-func relationDossierAggregateFacts(ac *types.AgentContext) []types.AnswerAggregateFact {
-	if ac == nil || ac.Mutable == nil {
-		return nil
-	}
-	facts := ac.Mutable.StableInvestigationAggregateFacts()
-	if ta := ac.Mutable.TurnAArtifacts(); ta != nil && len(ta.AcceptedAggregateFacts) > 0 {
-		facts = types.MergeAnswerAggregateFacts(facts, ta.AcceptedAggregateFacts)
-	}
-	return facts
-}
-
 func relationDossierSourceInventoryMemberExamples(members []types.SourceInventoryObservationMember, limit int) (string, int) {
 	if len(members) == 0 || limit <= 0 {
 		return "", 0

@@ -5290,7 +5290,7 @@ func aggregateCompactDotRelationParts(member string) (string, string, bool) {
 	}
 	parts := strings.Split(member, ".")
 	left, right := trimAggregateMemberSurface(parts[0]), trimAggregateMemberSurface(parts[1])
-	if !aggregateRelationAtomOK(left) || !aggregateRelationPartOK(right) {
+	if !aggregateCompactDotOwnerOK(left) || !aggregateRelationPartOK(right) {
 		return "", "", false
 	}
 	return left, right, true

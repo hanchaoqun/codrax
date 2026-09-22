@@ -15056,39 +15056,7 @@ func preEmitDecoratedQualifierParts(qualifier string) []string {
 }
 
 func preEmitAggregateMemberLabelRelationParts(member string) (left string, right string, ok bool) {
-	if left, right, ok := types.AnswerAggregateMemberRelationParts(member); ok {
-		return left, right, true
-	}
-	member = strings.TrimSpace(strings.Trim(member, "`\"' "))
-	if strings.Count(member, ".") != 1 || strings.ContainsAny(member, `/\`) {
-		return "", "", false
-	}
-	parts := strings.Split(member, ".")
-	left, right = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
-	if !preEmitAggregateSimpleRelationPartOK(left) || !preEmitAggregateSimpleRelationPartOK(right) {
-		return "", "", false
-	}
-	return left, right, true
-}
-
-func preEmitAggregateSimpleRelationPartOK(part string) bool {
-	part = strings.TrimSpace(part)
-	if part == "" {
-		return false
-	}
-	hasAlphaNum := false
-	for _, r := range part {
-		switch {
-		case r >= 'a' && r <= 'z',
-			r >= 'A' && r <= 'Z',
-			r >= '0' && r <= '9':
-			hasAlphaNum = true
-		case r == '_' || r == '-' || r == '$':
-		default:
-			return false
-		}
-	}
-	return hasAlphaNum
+	return types.AnswerAggregateMemberRelationParts(member)
 }
 
 // preEmitNamedSupportRefBindsMember reports whether a NAMED support_ref

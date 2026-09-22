@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -16,6 +17,17 @@ import (
 // public path while emit-time consumers are brought into agreement: a durable
 // audit fact is not a fallback answer fact merely because none survived.
 func TestAnswerAggregateEmptyProjectionPublicFinalInstruction(t *testing.T) {
+	testAnswerAggregateEmptyProjectionFinalMessages(t, false)
+}
+
+// Explicit relation members exercise the independently rendered relation
+// dossier. Scalar-only facts cannot expose that consumer's raw-state fallback.
+func TestAnswerAggregateEmptyProjectionPublicRelationDossier(t *testing.T) {
+	testAnswerAggregateEmptyProjectionFinalMessages(t, true)
+}
+
+func testAnswerAggregateEmptyProjectionFinalMessages(t *testing.T, relations bool) {
+	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "native.systrace")
 	if err := os.WriteFile(path, []byte(traceWaitRawStateAgentCycle(1, "D", 1)), 0600); err != nil {
@@ -56,12 +68,20 @@ func TestAnswerAggregateEmptyProjectionPublicFinalInstruction(t *testing.T) {
 					SupportRefs: []string{"trace_query:window_stats:model-recalculation"},
 					Provenance:  "model_emitted",
 				}}
+				if relations {
+					facts[0].Kind, facts[0].Value, facts[0].Unit = types.AnswerAggregateMemberSet, "1", ""
+					facts[0].Members = []string{"UnprovenWaitOwner -> UnprovenCompletion"}
+				}
 				mu := types.NewMutableState(rm.RawRequest)
 				if mixed {
 					facts = append(facts, types.AnswerAggregateFact{
 						Kind: types.AnswerAggregateScalar, Role: types.AnswerAggregateRolePrincipalAnswer,
 						Label: sourceLabel, Value: "7", SupportRefs: []string{"budget.go:2"}, Provenance: "model_emitted",
 					})
+					if relations {
+						facts[1].Kind, facts[1].Value = types.AnswerAggregateMemberSet, "1"
+						facts[1].Members = []string{"RetryBudget -> RetryLimit"}
+					}
 					mu.AppendEvidence([]types.EvidenceItem{{ID: "source-budget", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
 						Source: "budget.go", LineStart: 2, LineEnd: 2, AnchorKind: types.AnchorDefinition,
 						Subject: "RetryBudget", GroundingStatus: types.GroundingGrounded, Summary: "RetryBudget = 7"}})
@@ -91,10 +111,25 @@ func TestAnswerAggregateEmptyProjectionPublicFinalInstruction(t *testing.T) {
 				if plan == nil || len(plan.StableAggregateFacts) != wantCount {
 					t.Fatalf("fixture did not produce the requested empty/mixed answer projection: %+v", plan)
 				}
-				if mixed && (plan.StableAggregateFacts[0].Label != sourceLabel || plan.StableAggregateFacts[0].Value != "7") {
+				if mixed && (plan.StableAggregateFacts[0].Label != sourceLabel || plan.StableAggregateFacts[0].Value != facts[1].Value) {
 					t.Fatal("independently supported source fact was discarded or changed")
 				}
 				instruction := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+				var contextMessages strings.Builder
+				for _, message := range ctxbuilder.ToMessages(ctxbuilder.BuildPromptContext(ctx, &skill.Config{Name: "projection-public-test"})) {
+					contextMessages.WriteString(message.Content)
+					contextMessages.WriteByte('\n')
+				}
+				for face, text := range map[string]string{"context_messages": contextMessages.String(), "final_instruction": instruction} {
+					for _, forbidden := range []string{unsupportedLabel, "UnprovenWaitOwner", "UnprovenCompletion"} {
+						if strings.Contains(text, forbidden) {
+							t.Errorf("%s replayed excluded aggregate relation %q", face, forbidden)
+						}
+					}
+					if relations && strings.Contains(text, sourceLabel) != mixed {
+						t.Errorf("%s lost independent source relation or invented one", face)
+					}
+				}
 				for _, forbidden := range []string{unsupportedLabel, "19.671"} {
 					if strings.Contains(instruction, forbidden) {
 						t.Errorf("filtered runtime synthesis replayed in actual finalizer instruction: %q", forbidden)

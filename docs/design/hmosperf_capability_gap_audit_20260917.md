@@ -2288,3 +2288,19 @@ causal明确2.000..2.020秒，app S20ms、四节点threadpool→network→cookie
 - [ ] **P1 §104 归因量≠已验证收益**，及§94业务局部补齐、容量恢复B按既定独立任务继续；日志派生标签来源、原始占用重复行/内部术语、正确上下文上模型越界另保观察。不以两次相似回答就宣布稳定模型波动。
 
 父账仍13/79交付、66开放，B2–B6与既有人审FAIL不回写。本批无写模式live，旧Go保护不能冒充新写模式真实验收。
+
+## 112. 成文关系摘要使用已投影事实，数值成员不再伪装关系（2026-09-21，实施验收中）
+
+前批代码`2c0362e62`与人工审计`bd4ced6ea`已推送，65382正式exit0，本地/远端一致后继续。用户要求先清点剩余任务：按唯一稳定ID复核79=13+66，开放为58待实施/6部分实施/1待验收/1持续执行，未将审计小节和重复FAIL另算父任务；清单§2记录互斥分类与ROI顺序。
+
+再次直接对照参考`ad_hoc_exploration.yaml:191–207`和`sleep_ops.py:225–255`：指标保持自己的数值/形状，最终解释使用本步结果，可借鉴来源/语义分离；不移植其基于状态/阈值的根因分类，不将参考查询顺序当本仓唯一执行路线。参考没有本仓AnswerSurfacePlan或紧凑源码成员合同，修复仍服从本仓现有权威。
+
+公开native query→BuildAgentContext→两段实际成文消息红针：`TestAnswerAggregateEmptyProjectionPublicRelationDossier`空/混合来源×中英4格仅context消息重放被排除的明确箭头成员，既有最终instruction与原生1ms/一次D+IO事实保护先过；7676正式exit1，`/tmp/hmc-relation-dossier-native-red-receipt-20260921.log`（首轮73853日志同失败，旧session已消费，不伪造新收据）。用明确箭头而非小数作投影红针，防数字解析修好后掩盖回流。阶段/有无plan/源码与no_directed_path共12格62479正式exit1/context0.890s，仅final+plan+no_path违反已有投影，探索/提取和无plan正控先过。
+
+数字语法独立RED16705正式exit1，`/tmp/hmc-numeric-relation-red-20260921.log`：十进制、符号/单位/科学计数、分隔符、十六进制、超范围数字与Unicode数值可被误拆；emit侧另有旧fallback把共享语法已排除的worker.go/settings.yaml重新解析。合法命名owner、数字右selector和显式数字端点正控不失败。
+
+生产方案：成文阶段关系摘要只取同一AnswerSurfacePlan的StableAggregateFacts，非nil空结果也不回原始状态；explore/extract及无plan沿用旧raw合并。只换aggregate子来源，不隐藏其它关系证据/源码清单/hints。原函数按完整职责迁至独立23行文件，builder负增长、不抬额度。compact-dot只排除纯数值owner，保Unicode/$/_/7zip等已有命名及pair.0、显式123→456；数值解析超范围仍按数值语法处理。emit局部重复点号fallback删除，统一使用共享解析，不复制另一套规则。没有新增prompt、用户/答案原文扫描或硬门，没有改typed边方向或因果权限。
+
+影响边界：此前误判为relation的数字/裸文件成员恢复literal，其派生aggregate身份和artifact hash会相应变化，不能宣称全部哈希不变；合法源码/明确关系的canonical身份和全部原始成员文本不变。原始审计数据不改写，不能把旧伪关系ID自动别名映射为新关系。共享消费者包含显示候选、归一化、覆盖/引用匹配和上下文，需宽回归，不仅验一条摘要字符串。
+
+首次GREEN49988正式exit0（types1.392/tool1.123/context1.769/agent2.875s），`/tmp/hmc-relation-context-green-20260921.log`。宽定向race58032及全仓19878另记末版正式收据；源码no-path/正常relation、实际原生消息及因果/有限交接均纳保护。冻结双例计划G1旧FAIL+独立Java四层调用链：2并行×1，分别审原缺口与正常源码关系，Trace显式窗/IO/调度候选由原生公开回归保护；不把该替代测试称为新的causal live。
