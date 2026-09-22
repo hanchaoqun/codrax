@@ -2092,7 +2092,7 @@ C2人工FAIL仍保：3段D侧IO和0.635ms均正确，不再把非IO D为零误�
 
 末版race59275正式exit0/agent4.160s（同1顶层2父场景6scope子项），`/tmp/hmc-causal-finite-handoff-race-20260921.log`；包含新针的完整agent包60235正式exit0，`/tmp/hmc-causal-finite-handoff-agent-20260921.log`。本片仅增加测试/审计，没有修改任何生产逻辑；§98全仓87包收据仍对应相同生产，不能称新测试也在那次旧全仓中执行。交接下游未复现合法因果范围丢11ms，保模型误分类/全文语义失败观察，不为这两例强加新门。
 
-## 101. 零秒与未初始化分离：统一解析包络及显式零端点（2026-09-21，实施验收中）
+## 101. 零秒与未初始化分离：统一解析包络及显式零端点（2026-09-21，窄子片验收完成）
 
 §100仅测试/文档随`912652214`已推送，session91944正式exit0；完整agent包60235用时71.285s。再从干净且远端一致状态开始本片，先修§98已证确定性包络缺口，不为模型未遵从教学继续堆提示。
 
@@ -2113,3 +2113,22 @@ engine冻结后宽定向65604正式exit0/tracequery3.864s，160顶层、336个�
 超时/活跃流定向62239正式exit0/llm4.481s，`/tmp/hmc-zero-origin-stream-guards-20260921.log`，8项保600/300/600秒、4ms连续部分帧、隐式推理/tool-call/可见内容进展及调用方取消/更短期限。不改超时代码，也不因本片数据问题提前降级。
 
 冻结engine race59853正式exit0/tracequery41.520s，同160顶层/336含子RUN，`/tmp/hmc-zero-timestamp-engine-race-20260921.log`，零FAIL/竞态。独立末审七个生产文件及新公开测试/case无阻塞：presence不借子工件、normalize不授用户范围/因果、cache升代完整。边界另留：本片stream修的是显式0的结果端点不再被首尾匹配行覆盖；底层既有time gate中time_end=0的零宽筛选语义未全面修复，不能外推。新agent public执行实际工具与成文消息构建，未执行真实模型；live待单列。
+
+实现已提交`0b9e890f2`，干净构建79698正式exit0（revision0b9e890f29f1/buildTime2026-09-21T13:58:42Z）。全仓45715日志已完整输出87测试包、13无测试包、零FAIL（agent101.318/tool400.227/tracequery123.739s），跨后续用户消息后原session不可恢复，未伪造其退出收据；同一冻结代码88873复核正式退出中。固定runner81417亦跨消息丢失session，但完整摘要及日志记录2/2完成、无timeout/launchfail；不为恢复shell收据重跑第三例。
+
+末版全仓复核88873现已正式exit0，`/tmp/hmc-zero-origin-full-receipt-20260921.log`共87测试包、13无测试包、零FAIL，tool391.691s。公开引擎RED/GREEN、实际tool→final、race、独立末审、干净构建及下节真实零起点命中齐备，窄索引/交付子片验收完成；两例完整人工FAIL仍开放，不销叙述、恢复建议或父任务。
+
+## 102. 0b9e固定双例机器2/2、完整人工0/2：计量闭环与语义债分开（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_zero_origin_20260921.md)、[逐例人工审计](../../eval/parallel_selected_summary_hmc_zero_origin_20260921_manual_audit.md)。2并行×1，zero154s、causal258s为runner整例耗时，causal原生wall256s不混用。两例成文硬拒绝均0，各1次软修订；未动600/300/600秒或活跃流保护。
+
+zero实际命中无窗timeline，系统按typed全工件请求补window_stats，二者完整0..0.010；主文7ms运行+1ms就绪+2ms IO、一次等待0.002..0.004、总10ms正确，不再漏首2ms。这足以给索引/投递修复记真实命中；但模型重复表、内部字段、把完整测量零说成清单未匹配、未验证Binder写零仍留债。有限问题schema2空旁路实际产生，未授根因权时空值合理。
+
+causal本次分类终于保named目标、显式20ms窗及required causal，四query和终答输入保四节点链、11ms IO及三条1ms优先级供给候选，投影及4项root-causes旁路齐备。主文/旁路model-owned描述仍有反向唤醒、三边称四跳、相邻IO/Runnable区间误作重叠、Binder无关联过度排除等错误；原生结构与模型语义分账，不加原文硬门或系统改写其结论。已发布Harmony优先级口径，不因Linux规则把20/CFS和52/RT误判为本轮错误。
+
+下一批ROI重新排序（仍未交付）：
+
+- [ ] 系统owned等待计数/数值标签统一：wait_coverage计数把非IO-D桶写成裸D，sleep_inventory及root-cause组成也有同类raw值；统一限定但不改四态D+IO已fold总量、不改数值/IO-S语义/模型正文。
+- [ ] 系统owned归因/优化口径：图例与清单有“已证可消除量”等无条件标签，使有效归因看似已验证可消收益。按现有计量类别统一限定优化预算/潜力，保模型自定结论、原数值/排序及链上优化维度；已明确ideal-baseline modeled headroom的分支不改成测量事实。
+- [ ] 容量恢复B：合法零起点被FirstTs>0漏具体建议，正起点建议的LastTs又包含预算触发但未保留事件；照抄该末端可再次拒绝。优先提供真实可执行的局部探测/流式出口，不称失败索引已完整覆盖，不简单改>=0或扩大cap。
+- [ ] P2 typed member_set承载提示与重复表；explicit time_end=0旧筛选边界、VSync/其它独立对象零值哨兵继续开放。§94业务局部补齐、原生pair/两尺同卡/B2–B6等父账仍13/79交付、66开放，不拿本片销父项。
