@@ -22,6 +22,6 @@ func formatTraceExcerpt(parent string, state attachedRuntimeTriageState, opts at
 		return "The attached Trace or its extraction view changed or became unavailable. Reattach the original source before deriving new evidence.\n"
 	}
 	return preamble + attachedTracePreamble(state, opts) + scope.Description() +
-		" Emit line_start/line_end using the fragment-local gutters below (starting at 1); the system maps them to the parent preview. Keep timestamps on the original trace axis. No result here establishes full-attachment coverage.\n```text\n" +
+		" Emit line_start/line_end using the fragment-local gutters below (starting at 1). Parent-preview line numbers are filled in automatically. Keep timestamps on the original trace axis. No result here establishes full-attachment coverage.\n```text\n" +
 		renderAttachedArtifactLines(strings.TrimSuffix(raw, "\n"), 1) + "\n```"
 }
