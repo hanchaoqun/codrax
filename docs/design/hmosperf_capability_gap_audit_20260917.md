@@ -2417,3 +2417,37 @@ mixed-source原生86.111ms及真实源码定义均保住，有限问题的空sch
 新确认P1（HMC-01.3/16.4，未另增父ID）：源码未定位与Trace已观测caller双轴混淆。预分诊把caller误填stalls.file（background log274），emit_perf_trace.go:184–199产源码未解析denial后，Explorer原始材料及final typed调用点被改为`<unverified-external-source>`（1199/2064–2066）；晚到摘要2613、图、旁路仍保真实caller，末尾md441却称未被当前证据确认。原Trace第8行已观测名字，机理未证不等于名字未观测。生产链为denied_token_answer_check.go:51→repair_caveat_materializer.go:326；现有artifact例外563–613只覆盖LogBundle，未消费typed Trace caller。后续基于实际runtime来源身份修上下文与caveat，不删除全部源码denial、不授源码/锁/完成机理证明，保错误源码路径负控。
 
 后续ROI：①§104计量词源与完整消费者统一（含精确物理重叠不能证明修其一收益必缩）；②§117真实接受收口回执的公开反例与调度消费；③本节caller双轴；④§94局部补齐/容量、声明-观测pair与B2–B6。参考设计意图逐项写清：等待/供给/工作量分离是量纲和解释边界，不是优化实效证明；member→JSON→field是证据归属约束，不是同词面任意跨来源互换。模型错误不能未经重复因果证明就归随机波动，也不追加输出原文硬门。
+
+## 121. 已接受软源码限制的完成回执贯通调度（2026-09-22，窄片验收中）
+
+先重新逐ID计数：79个唯一任务，13已交付、66开放；58待实施/6部分实施/1待验收/1持续执行。本片针对§117真实完成已接受却继续补源码，不将所有soft要求等同于免除。参考`core/llm_contract.py:110–146`按证据成员/来源字段绑定的设计，采用本仓真实已接受回执，不从同词面或预分诊猜来源满足。
+
+公开路径是实际Run→EmitPerfTrace→EmitAnalysis→三类原生TraceQuery→EmitInvestigationComplete。测试只压缩阶段图与answer合同，不冒充完整LLM流水线；真实仓有main.go，排除零源码豁免。有效RED3446正式exit1/orchestrator1.714s，两个accepted消费者均返回false，常规图首次接受后仍派发3次；对账图原先可能由HasEnoughFacts闭合，不宣称两图都复现3次。真正源码/精确main.go:2首次完成仍被退回，generation=0。
+
+新helper要求当前完成标记、非零代次、已发布源码专属caveat回执、当前runtime载体及soft/caveatable权威共同存在；仅从两条共享来源过滤路径移除current_source，不删其它来源债务、不改源码已满足状态。重置/新Run、精准源码、源码已真实读取后均不走新豁免；strict/backtrack/pending read仍由既有消费者阻止自动完成。正常Run从3次派发变1次，保源码尚未验证的限制及2..2.020窗S20ms。
+
+GREEN56690正式exit0/2.936s；边界17919正式exit0/4.495s，race60384正式exit0/22.997s。首轮boundary83422中ExactTargets误写行锚、无runtime仍强求混合来源拒绝，属夹具假设错误，纠正测试而不扩大生产门。独立末审无阻断，1642正式exit0/4.517s、独立race96849正式exit0/23.058s。日志`/tmp/hmc-soft-source-{public-red,public-green,boundaries,race,independent-review,independent-race}-20260922.log`。末版全仓、提交推送及固定生产回放另补；不销此前答案FAIL或父任务。
+
+## 122. 原始运行时材料与原生等待证据不继承源码否认（2026-09-22，验收中）
+
+§120真实问题的两个轴分开：Trace记下某caller，不等于当前仓有它的源码定义；源码路径被拒绝，也不代表Trace没有这条记录。四个明确构造入口（原始Log、原始Trace、原生根因清单、原生等待清单）保其真实材料；预分诊模型摘要/源码推断继续原sanitizer，源码ReadFile的L1拒绝保持。没有全文token白名单、caller名称授权、删denial、修改root身份/窗口/值或模型正文。最终答案caveat中的双轴混淆尚未修好，本片只关闭上下文污染，不能宣称整个§120完成。
+
+真实EmitPerfTrace→TraceQuery→BuildAgentContext→BuildPromptContext→ToMessages公开RED78635正式exit1，原始两面及32个typed展示比较失败；原始文件、来源拒绝、计量/投影控制先过。四组分别是依赖线程、另捕获/主体、另窗口、无caller，每组独立运行×explore/finalize×中英，不冒称混捕获合并。GREEN87188正式exit0，完整context19626正式exit0/1.512s。日志`/tmp/hmc-artifact-context-{public-red,public-green,all}-20260922.log`。
+
+独立审计发现旧等待census兼容入口把任意成功工具的同形Summary当原生查询，typed入口又允许模型aggregate借provenance=trace_query混入。去掉展示sanitizer前必须封住这类来源漏洞，不依赖源码denial字符串遮住。新增实际原生查询及EmitInvestigationComplete公开反例10784正式exit1/context3.920s：4类非Trace工具×2阶段及两种模型aggregate provenance×2阶段污染；trace_query旧成功、失败查询、正常model_emitted及原始ledger不变控制先过。首次编译方法拼写错误不记产品RED；生产修正与末版验收待补。
+
+## 123. 归因计量不再承诺已验证的优化收益（2026-09-22，验收中）
+
+参考仓`docs/superpowers/specs/2026-09-12-optimization-advisor-design.md`全文设计为“待评审”，不是已实现功能。它将诊断、带依据的建议、开发修改、重新采样、按同一指标验证分开；本仓应保现有原生计量/选举，统一估算与实效的语义，而不是按建议关键词选修复或直接承诺收益。`core/preprocess/sleep_ops.py:220–263`裁剪状态交集是计量依据，也不证明干预必然节省该时长；不搬参考缺失归零或最大值自动归因策略。
+
+共享`tracefence`双语词源统一系统标题、因果图/完整与简明图例、方向概览、行动摘要、语义表、HTML无障碍标签和工具/skill/成文交接：称“估算优化潜力”，明确链上依据不等于收益已验证、实际收益需实施后复测；缺频/纯频率下界限定为既定理想模型内部下界；精确物理重叠只证明共享计量时间，不再说修其一必然缩小另一项收益。主根因选举、有效值、分量、凭证、时间窗、旁路schema及围栏token不变。没有新增JSON字段/硬门/原文扫描；旧retired模型正文替换helper保持HEAD原样，不借本次展示改造复活它。
+
+公开原生TraceQuery→EmitAnswerDocument→Render→无变化patch有效RED63470正式exit1/tool3.040s，12格中2个有限事实控制先过、10格116条收益词义断言失败，所有原始值/身份/排序/模型字节控制先过。新增公共GREEN88986正式exit0/tool3.315s：IO11ms+三项PIC1ms、真实Tieba语义边前0.285ms、语义相交17ms及缺频估算6.667ms保留，链外shader未入主因，有限事实不扩因果图。物理重叠/邻近展示用既有typed夹具，不冒称均由新实Trace生成；概览结构行100显示格上限保持。原模型引用旧措辞完全保留，证明只改系统拥有内容。
+
+相邻首轮63731正式exit1，旧文字pin未迁移；独立逐条更新系统新词期待，数值、排序、反例、宽度不变，不弱化测试或重签历史答案。独立审计要求保retired helper匹配语义及补英文/skill残余，已采用。末版回归/全仓、提交推送和唯一2并行×1回放另补；§104答案级实效主张、§94局部业务补齐/容量、原生pair与B2–B6及其余父项继续开放。
+
+本轮正式集成收据：§122两处精确来源修复为runtime origin＋direct/旧版unknown authority＋既有deterministic producer分类，legacy Summary仅成功trace_query；公开GREEN42396正式exit0/context1.513s、同集race33862正式exit0/6.079s，原生/旧记录正控不改即通过。模型aggregate仍留原审计ledger，不晋升原生等待。原四入口独立只读末审通过，最终caveat明确未纳入。
+
+跨包53986正式exit1：context恰读到并行新增测试尚未修正的方法拼写；agent两条旧/新增不适用的词针、skill旧字节pin需精确迁移；types/preview/tracefence/orchestrator整包均过。修后成文实际消息/skill/context定向42369正式exit0（2.742/0.905/2.170s），四包末版race95324正式exit0（tool39.525/agent5.111/context10.814/skill2.175s）。skill保两旧hash，先精确撤回本次三处词面改动和一条共享含义再校验，未放宽原所有权/软适用范围。工具Description字节pin96279正式exit1，81355机械更新exit0；唯一差异为闭合矩阵的两处旧收益措辞和共用含义，新增EVOLUTION RECORD，须末版无更新模式再过。600/300/600秒及4ms活跃流/更短caller期限89453正式exit0/llm7.044s。全仓42971仍在运行，未先记成功。
+
+下一固定双例：`trace_query_frame_semantic_span_optimization`（边前语义工作、测量与掉帧原因的证据边界）＋`nested_python_increment`（真实嵌套项目apply与既有测试证明），各一次并行2。按误导影响、跨状态泛化、近期覆盖与成本选；不再追同一个IO样例。目录审计另发现H8旧case要求语义边前effective=0/非根因，与当前闭合矩阵及真实0.285ms公开回归不一致，保旧oracle与历史结果、另立现有HMC-18下维护子项，不用错误oracle倒逼因果计量回退。本次生产回放不使用该冲突case。

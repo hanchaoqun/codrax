@@ -87,11 +87,12 @@ const hardArmRetryAuthorityFile = "accepted_closure_retry_authority.go"
 // TestHardArmMutableCarrierCensus_PremiseConsumersAreCensused keeps this
 // table total over every premise consumer).
 var hardArmGateFunctions = map[string][]string{
-	"orchestrator.go":                     {"shouldAutoCompleteExploreWindowFromAcceptedClosure"},
-	"accepted_closure_premise.go":         {"acceptedClosurePremise"},
-	"accepted_closure_reconcile.go":       {"acceptedClosureCanSatisfyReconcileEnoughFacts", "shouldAutoCompleteReadyReconcileNode"},
-	"accepted_closure_origin_debt.go":     {"acceptedClosureMissingRequiredOriginsForAutoComplete"},
-	"accepted_closure_retry_authority.go": nil, // whole file, MutableState params
+	"orchestrator.go":                         {"shouldAutoCompleteExploreWindowFromAcceptedClosure"},
+	"accepted_closure_premise.go":             {"acceptedClosurePremise"},
+	"accepted_closure_reconcile.go":           {"acceptedClosureCanSatisfyReconcileEnoughFacts", "shouldAutoCompleteReadyReconcileNode"},
+	"accepted_closure_origin_debt.go":         {"acceptedClosureMissingRequiredOriginsForAutoComplete"},
+	"accepted_closure_soft_source_receipt.go": {"acceptedSoftCurrentSourceCompletionReceipt"},
+	"accepted_closure_retry_authority.go":     nil, // whole file, MutableState params
 	// §40.43 F-orch Q: the exhaustion release reads the backtrack arm and
 	// records the typed decision that consumes it.
 	"explore_backtrack_exhaustion.go": {"releaseExhaustedExploreBacktrack"},

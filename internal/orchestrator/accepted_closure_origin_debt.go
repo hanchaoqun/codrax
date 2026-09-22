@@ -127,7 +127,7 @@ func (o *Orchestrator) dropWaivedCurrentSourceOriginDebt(missing []types.AnswerE
 }
 
 // acceptedClosureCurrentSourceOriginDebtWaiverReason reports whether the
-// current_source arm of the mixed-origin auto-complete debt is waived, on two
+// current_source arm of the mixed-origin auto-complete debt is waived, on three
 // precise typed signals that mirror the emit-side completion bypasses:
 //
 //	① explicit_current_source_exclusion — the analyzer emitted the anchored
@@ -153,8 +153,10 @@ func (o *Orchestrator) dropWaivedCurrentSourceOriginDebt(missing []types.AnswerE
 // precise source obligation), so their redispatch pressure is preserved —
 // negative arm pinned by
 // TestAcceptedClosureAutoCompleteBlocksUntilRuntimeCurrentSourceOriginsPresent.
-// "Downgradable" alone is deliberately NOT a waiver arm: it is soft/noisy and
-// would flip that genuine mixed shape (precise-signals red line).
+// "Downgradable" alone is deliberately NOT a waiver arm. The third arm
+// requires the completion tool's actual accepted, source-lane caveat receipt
+// as well as the current soft authority; it cannot preempt that tool's
+// bounded first-close push-back for genuine source demands.
 func (o *Orchestrator) acceptedClosureCurrentSourceOriginDebtWaiverReason() (string, bool) {
 	if o == nil || o.busCtx == nil {
 		return "", false
@@ -167,6 +169,9 @@ func (o *Orchestrator) acceptedClosureCurrentSourceOriginDebtWaiverReason() (str
 	}
 	if o.busCtx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() {
 		return "zero_current_source_repo", true
+	}
+	if o.acceptedSoftCurrentSourceCompletionReceipt() {
+		return "accepted_soft_current_source_caveat", true
 	}
 	return "", false
 }
