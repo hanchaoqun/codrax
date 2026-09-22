@@ -1447,6 +1447,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 读者字段教学贯穿完整 Finalizer system/user：禁止外露的仅是内部协议、校验、路由和排序控制元信息，相关且有证据的原始业务字段、单位、标识和业务状态可保留并解释。初始/补充提示把用户可见维度标签与内部排序编号分开，保原标签、顺序和空值回退，不扫描或改写用户/模型原文，也不以显示名称增减事实或因果资格。
 
+旁路测量不能隐借报告主窗：事实对照中的每个完整榜域都显示自身来源、目标、查询窗及参数，不以榜位条数决定是否披露。自身运行折算不可量提示保存原查询来源与本条 selected window（可不同于父查询窗），显示原量及自己的范围；缺失/非法范围写未知，不借主窗、不重裁切。去重按已携带的来源、窗口和原量；来源/窗口均缺的旧记录还保留记录身份。这些可选字段只负责描述和展示去重，不增加因果、排名或根因旁路的权限；其它旁栏的范围保真仍按统一账本逐项验收。
+
 **Forbidden 字段是 reject 不 scrub**：shape 不允许的字段（V1 残留、不该有的 boolean/value）会让整个 call 失败而不是静默清洗。`agent_finalizer_max_correction_retries` 默认 3 次。
 
 **后 emit 顾问车道 = 一张表、一个闩、一轮（colleague_merge_audit §40.51 V3-3）**：`emit_answer_document` 被接受后，`answerDocumentEvaluator.Observe` 只跑一个臂 `postEmitAdvisorySignal`——`internal/agent/answer_document_post_emit_advisory.go` 的 `postEmitAdvisoryLanes` 单源表（typed 闭集 `postEmitAdvisoryLaneKind`：requested_dimensions / requested_dimension_order / external_observation_selectors / trace_primary_cause_entity，前三为 precise_repair、G13 实体为 advisory 类，全部只软引导）在同一次观测里逐行探测，命中项合并为一次披露（一个前言 + 编号修订项 + 「一次 patch 覆盖全部项」规则；排序项的「不增删块」约束只限本项，与其他项同出时一次性声明 `model_block_order` 不能与增删同用、其他项优先 replace/局部编辑），单闩 `postEmitAdvisoryDelivered` 按派发重置，每派发至多多付一轮 LLM，且不读写 `retriesUsed` / `rejectHintsUsed` / `emitFullDocFailStreak` / 空块断路器 / patch 偏好等硬拒账目（`BypassBudget` 保留）；顾问 patch 被拒时已接受文档原样出厂（Observe 的 Stop 臂 = typed 逃逸）。`answer_document_post_emit_advisory_census_test.go` 钉死：Observe 已接受文档分支只允许该臂与 Stop 返回（其余语句形 fail-loud）、表行数 == 闭集常量数且每种恰一行、evaluator 无 `*Hinted` 逐车道闩、闩只由 `postEmitAdvisorySignal`/`BuildInitialInstruction` 写。新增后 emit 车道 = 加一行，永不加臂。

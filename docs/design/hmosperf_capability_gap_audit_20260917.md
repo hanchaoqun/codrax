@@ -2723,8 +2723,55 @@ background主榜与根因旁路正确保原窗2..2.020、app S20/running0/runnab
 
 前片末版79992现已正式exit0，87测试包、13无测试包、零FAIL，tool378.600s、tracequery102.317s、types37.654s，日志`/tmp/hmc-finalizer-reader-display-sealed-full-20260922.log`。这是独立完整复跑，期间新旁路修复仅只读设计、未写Go，故明确覆盖到d649af2e8的§137/138末版，不包含§139新发现的两处旁路范围修复。Go结果缓存收尾另耗时，不能把静默视为模型流式超时或失败；未终止活跃运行。代码f914145ed/6643304be/d649af2e8及本轮两批完整机器/人工收据现分批收尾推送，旧FAIL继续开放。
 
-## 140. 旁路展示的原查询范围保真（2026-09-22，实施中）
+## 140. 旁路展示的原查询范围保真（2026-09-22）
 
 入口为§139两处可重现的系统串窗，不是模型越权修补。拆成互不重叠的两片：self-running不可折算旁路保本条SourceRef/selected_window及原始值，去重不再仅靠subject；单/多榜位事实对照每条完整榜域都显示原查询身份，未知域不借主请求补齐。公开反例、末版回归及提交收据随后补记，不提前验收。
 
 参考`core/batch/skills/frame_drop_analysis.py:370–392`每条下钻样本带trace_id/tag/json_path，`_stepref.py:31–63`按session/实际step/tag构造来源，无法访问时保原悬空地址。借鉴聚合后仍能回到原观测的意图；不复制文件存在即回退另一目录的做法、不套用其分类算法，也不新增模型必须手填的范围字段。范围来自已有确定性查询载体，缺失时诚实披露；仅保存/展示，不进行新裁切、重算或因果资格晋升。
+
+前批实际推送收据：26263正式exit0，main由28121d54d推进至`04bed6b49d256396a8afc6a783be72c4fc56e230`，包含§137/138代码、精确旧针适配及两批完整机器/人工审计。推送后本地与远端同SHA、工作区干净；之后才实施本节增量，不借用79992替本节签全仓。
+
+### 140.1 单条及多条事实对照都保榜域
+
+实际TraceQuery→已接受EmitAnswerDocument→系统事实附录→render公开路径，有效RED17836正式exit1/orchestrator1.519s：8个中英语言格缺原范围，跨采集/未知域4格先绿；首个缺principal/caliber的夹具错误不计产品RED。只删除由不同榜域数量决定展示的分支，每条完整榜域保原来源、目标、查询窗/参数；身份不全沿用诚实披露，不借请求窗。真实宽窗app#5/0.020ms不再无范围展示；窄窗仍原四席11/1/1/1ms，logger不升链。完整身份不等于全部事件已穷尽。
+
+末版12格GREEN17321正式exit0/1.883s、race35125正式exit0/8.120s，日志`/tmp/hmc-rank-fact-scope-public-sealed-20260922.log`及`-sealed-race-20260922.log`；含双窗顺序互换、单线程多个榜位、同basename跨采集、未知域及非Trace/所有权邻接。生产仅+4/-6行，新测试240行，提交`a762b50e2`。结果、原ledger/请求/投影/模型文档及现有sidecar快照不变；本公开测试不是Orchestrator.Run，也不冒称已选根因JSON四项的新回放验收。独立末审无阻塞。
+
+### 140.2 自身运行量的原查询来源与时间窗
+
+原生window_stats/wakeup_chain/root_cause_rank→真实Emit及no-op Patch→最终投影的有效RED27189正式exit1/tool4.426s（以日志末行为准，早期口头4.176s已纠正）：16个语言/来源格因范围丢失、同线程多窗first-wins或未知窗误标失败，窄窗2格先绿。主窗0/0/20ms、四根因旁路、来源分桶及模型原文保护先过。首版predicate拼写/临时目录规范化错误另留，不算产品RED。日志`/tmp/hmc-self-running-scope-public-red-v2-20260922.log`。
+
+载体新增两个可选字段，独立克隆本条SourceRef与selected window；父查询窗和叶子窗分开。展示本条0.480/0.380ms及各自范围，缺/坏窗只标未知，不丢原值、不借主窗。去重比较所携带来源/目标/窗口/数值的实际内容而非指针；两种范围信息都缺的旧记录另保record.ID，不将同值陌生记录合并。非法非有限范围只在本旁路显示尺度上拒绝，不修改共用区间算法或原量的资格。无此旁路仍静默、它自身不激活因果榜、不增根因席位。新增嵌套字段普查并扫描实际显示consumer，未加豁免；首GREEN仅因普查漏扫描已有renderer失败，不能改known_gap规避，已补实际consumer。最终收据和冻结全仓另补。
+
+最终41681正式exit0（tool4.847/types14.726s），相邻6679正式exit0（types0.622/tool7.180/tracefinding0.657s），race53046正式exit0（types2.250/tool27.367s），日志`/tmp/hmc-self-running-scope-race-20260922.log`。测试包含16原生窗口/采集格、2旧载体格和10纯renderer零起点/非法窗控制，不能将28格统称原生回放；另有typed JSON、三处指针防御复制、母/子窗不同、来源/目标/值/未知ID去重控制。早期无合法seat导致inactive的types夹具错误不计产品RED。独立末审通过，8文件提交`97407a6ba`。末版全仓48562使用`go test -count=1 ./...`已启动，关闭测试结果缓存以免测试访问日志收尾误占时间；不改变测试或生产超时策略，正式结果待收。
+
+末版完整48562现已正式exit0：87测试包、13无测试包、零FAIL，tool417.520s、tracequery121.704s、types52.216s，日志`/tmp/hmc-aux-scope-full-20260922.log`。期间Go完全冻结，仅变更文档；覆盖a762b50e2及97407a6ba。两片正式收尾推送，与尚在进行的固定模型双例完整答案验收分账。
+
+代码推送54428正式exit0：main由04bed6b49推进至`97407a6baa3339bad38295db03b51bb1b1faeeef`，本地/远端同SHA；工作区只余本批文档和双例审计，不存在未提交Go。文档待固定双例终态后收尾，旧人审FAIL和66父开放项仍保留。
+
+### 140.3 横向审计边界与后续统一载体任务
+
+以下为真实producer→parser→compiler→renderer静态审计，不冒称均已有公开RED；归原HMC-01.3/16.4/18.4子债，79稳定ID/66开放不重复增加。单采集且至多一个显式请求窗时，多个探索查询可汇入同投影，不能因此假定旁路量都属于主窗。
+
+| 旁路 | 已有证据 / 保护 | 剩余实施和验收 |
+|---|---|---|
+| 业务片段提示 | producer有来源/窗，parser丢域；按subject/name/物理行包络first-wins。相同行包络不是相同query | 共用测量来源载体；保不同query的量、target及截断口径；公开双窗/顺序/容量后再验收 |
+| 复合边占用份额 | producer有来源/窗，parser丢域；subject+anchor去重及首配引用可能误借同锚点的另一查询 | 同源同原窗的值/引用一起关联，保原pre/post量；不能用加根因资格解决 |
+| 自身runnable两种计量 | parser丢域、subject首项去重；显示已有唯一host/链上/lead序位/资格/值保护，不能笼统说每次都串窗 | 逐参与者验证同源同窗、未知或歧义不借账；保原自耗和其它参与者，不只核lead |
+| CPU占用进程 | 已有原窗解析和展示前同窗保护，不属于本次缺窗类 | 同subject/window但异query/值的first-wins来源冲突另验证；不误删现有保护 |
+
+后续以共享可选测量来源/克隆/值身份解决这一类问题，先补公开反例，再改引用与双尺成员的关联。此次仅两处已有反例的出口闭环，不宣布所有图/旁栏的范围保真完成；主榜、模型正文、业务证据和自动因果补齐的原权限不变。
+
+## 141. 97407冻结双例：机器2/2、完整人工0/2（2026-09-22）
+
+构建57274正式exit0，revision=`97407a6baa33-dirty`、buildTime=`2026-09-22T15:46:40Z`；dirty仅文档，runner再次核验Go/构建输入已提交。runner42840在15:47:03Z固定恰好两例并行各一次：`trace_query_zero_origin_wait_account`与`read_combo_pipeline_sequence_table`。前者沿case自己的stub仓，后者需要当前真实源码，未全局覆写FIXTURE；没有改题、trace或oracle，也不重跑§139背景原题追绿。结果见[机器收据](../../eval/parallel_selected_summary_hmc_aux_scope_20260922.md)与[完整人工审计](../../eval/parallel_selected_summary_hmc_aux_scope_20260922_manual_audit.md)。此回放验证跨模式原能力保护，不预称命中§140的宽窗根因旁路分支。
+
+零起点例已机器PASS（外层144/案例142秒）。实际原生统计0..0.010、running7/runnable1/IO2ms、唯一D来源等待0.002..0.004、caller位置和次数正确，预分析错3ms已由原生查询纠正；不将中间模型错误直接记作最终数表错。schema2空根因旁路与有限事实合同一致，无须强造因果图。完整人工仍发现确定性身份边界缺口：模型aggregate的`dimensions.scope=client-41_pid=41`，经`observation_ledger.go:4359`回退成ArtifactID，pair编译只依赖runtime origin和可由模型填写的producer前缀，未区分`ClaimAuthority=model_inference`；最终将一个线程范围虚列成第二物理工件，与实际唯一Trace声明跨工件关系未证。
+
+此项归HMC-01.3/16.4/18.4高优先级子债，后续公开反例应覆盖单真实capture+模型scope/provenance、两个真实capture、derived carrier唯一/歧义来源和独立typed证明。在共享endpoint/派生产物归属消费处核真实来源资格，保留模型aggregate事实但不让其铸物理身份；不能靠删“client”关键词、猜路径形状或把共享时钟都改成已证解决。另一教学债是`traceWindowStrategyCaveats`仅按view和时长给微窗建议，最终有限全文件统计也照搬“50ms以下仅局部/应80–150ms”，需区分覆盖范围与跨窗根因推断的适用性；原native值和全文件覆盖已足够回答，不应强制扩窗。optional patch仍按发布的字段分支拒绝错误编辑并保上一已接受答案，JSON教学和覆盖信号的具体接线继续审计，不提前认定为原数值丢失或活跃流降级。
+
+runner42840正式exit0，最终两例机器PASS，完整人工均FAIL。源码例外层632/案例630s，33次read、4次repo_map、50%上下文；两次explore共34轮、finalizer8轮/7次patch。Mermaid语法/表格确实存在，局部已验证阶段先后关系保留，但终稿`.codrax/output/20260922-085733.197-78543.md:39–47`先调度全部return，再发生analyze→explore→extract→finalizer。`answer_document_diagram_edge_patch.go:2000`的原子add只在body尾追加且不支持已有时序位置，本次租约禁止整块重写，导致局部边集合修好仍全图时序错；不是沿用已删除首稿错误。后续P1应统一支持保留已有载体顺序/分支的精确局部插入选择，不能由系统猜因果/时间，也不能依图家族逐个打关键词补丁。正文仍倒称agent执行Orchestrator.dispatchStageCore；有效源码关系门不可因模型误用而取消。
+
+另一个有源码反证的P1是阶段参数关系的强补证范围：`emit_evidence.go:7045–7082`仅由stage enum匹配升为required；log4439要求补StageAnalyze传入重试提示与string转换两条真实但无关阶段交接的辅助边。首次probe完成后的第二调查窗有5个required目标，不是同派发无限循环，但错误子题内容和辅助边必填增加无效调查。最终上下文已正确规范化incident参与者/四阶段precedence，同时仍塞大量重试/日志辅助边及83条溢出；应从已声明关系职责修供给/软排序和精确义务归属，不扫描用户或答案原文。选错FF/FV、越权整块替换等其余7次拒绝按有效门单列，不笼统算系统bug。
+
+ROI队列据本轮有据调整：①共享物理工件身份资格（先单真实capture公开反例，保双真实与派生owner）；②sequence局部修补的时序位置/分支保真及阶段参数无关强补证；③原生只读断言补绑定/新执行代次、caller双轴和已接受业务补齐/容量；④§140.3共享旁路范围载体、能力目录/IO总体/精确帧等。①②归原HMC-01.3/16.4/16.5/18.4子债，不重复增父ID；79=13已交付+66开放。新的系统缺口不以机器PASS销账，充足上下文上的模型误述也不靠第三例追绿、正文硬门或无限提示拟合处置。
