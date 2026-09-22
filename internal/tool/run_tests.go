@@ -392,6 +392,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	scheduledKeys := map[string]bool{}
 	surfaceEscalations := 0
 	var executedCmds []types.ExecutedCommand
+	var existingTestExecutions []types.ExistingTestExecutionReceipt
 	var carriedVerificationDiagnostics []types.VerificationDiagnostic
 	var carriedProbeExecutionObservations []types.VerificationProbeExecutionObservation
 	var combinedOutputs []string
@@ -428,6 +429,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		surfaceCopy.Candidates = append([]types.TestSurfaceCandidate(nil), surface.Candidates...)
 		report.TestSurface = &surfaceCopy
 		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
+		report.ExistingTestExecutions = append([]types.ExistingTestExecutionReceipt(nil), existingTestExecutions...)
 		report.VerificationDiagnostics = mergeVerificationDiagnostics(
 			report.VerificationDiagnostics,
 			carriedVerificationDiagnostics,
@@ -467,6 +469,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// into a product failure or restore an earlier partial green verdict.
 		markVerificationInterrupted(ctx.Context().Err(), report)
 		report.EnsureVerificationStatus()
+		if !dryRunProbe && auditWorktree && ctx.PipelineStage == types.StageVerify {
+			if report.Channel == "" {
+				report.Channel = types.ChangeReportChannelPostApplyVerify
+			}
+			report = types.EffectiveExistingTestExecutionReport(authorityPlan, report)
+		}
 		return report
 	}
 	finishReport := func(report *types.ChangeReport) *types.ChangeReport {
@@ -1026,6 +1034,11 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 		}
 		cmdStr, extraFile := buildRunCommandForPlan(plan, plan.Suite, ctx.MainRepoRoot)
+		existingTestRun, observedCommand := prepareExistingTestUnittestInvocation(ctx, plan)
+		if existingTestRun != nil {
+			defer existingTestRun.cleanup()
+			cmdStr = observedCommand
+		}
 		junitRun, boundCommand, boundExtraFile, bindingErr := prepareJUnitRunnerInvocation(plan, cmdStr, extraFile)
 		if bindingErr != nil {
 			executedCmds = append(executedCmds, types.ExecutedCommand{
@@ -1370,7 +1383,19 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 		var report *types.ChangeReport
 		var err error
-		if junitRun != nil {
+		if existingTestRun != nil {
+			report, err = existingTestRun.readReport(ctx, execExit, output, runErr)
+			if err != nil {
+				// An optional observer failure cannot erase the native verdict or
+				// route a real test failure through the probe fallback. Retain the
+				// established parser result without publishing an execution receipt.
+				existingTestRun.rows = nil
+				report, err = parseRunnerOutputForPlan(plan, output, extraFile, cmdStr, runErr)
+				if report != nil {
+					report.VerificationDiagnostics = append(report.VerificationDiagnostics, types.VerificationDiagnostic{Source: types.WriteConstraintRunExistingTest, Category: "report_binding", Severity: "warning", Runner: runner, Framework: plan.Framework, WorkingDir: runnerPlanRel(ctx.RepoRoot, plan), ReasonCode: "existing_test_observation_unavailable", Detail: "Native unittest output is retained; current file-execution observation is unavailable and grants no execution receipt."})
+				}
+			}
+		} else if junitRun != nil {
 			var reportFiles []junitInvocationReportFile
 			report, reportFiles, err = junitRun.ReadReport()
 			if err != nil {
@@ -1501,7 +1526,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
 			continue
 		}
-		projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
+		report = qualifyChangeReport(report, plan, ctx.RepoRoot)
+		existingTestExecutions = appendExistingTestExecutionReceipts(existingTestExecutions, existingTestExecutionReceipts(ctx, plan, report, surface, executedCmds, existingTestRun))
+		projectReports = append(projectReports, report)
 		// A passing syntax/static check is useful evidence, but it cannot
 		// stand in for an independently discovered behavior-capable suite.
 		// Recompute the provisional changed-path ledger from typed command
@@ -1874,6 +1901,9 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 	var plan *types.ChangePlan
 	if ctx != nil && ctx.Mutable != nil {
 		plan = ctx.Mutable.ChangePlan()
+	}
+	if len(types.RequiredExistingTestPaths(plan)) > 0 {
+		return requiredExistingTestContinuation
 	}
 	// A cumulative replan is verifying changes that remain applied from one or
 	// more earlier plans. A passing bounded probe for the active repair cannot

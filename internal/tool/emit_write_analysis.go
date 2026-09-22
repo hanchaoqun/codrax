@@ -212,12 +212,21 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 	// LLM occasionally emits placeholder rows when no real constraint
 	// applies; let those go cleanly.
 	constraints := make([]types.WriteConstraint, 0, len(p.Constraints))
+	existingTests := 0
 	for i, c := range p.Constraints {
 		if strings.TrimSpace(c.Kind) == "" {
 			continue
 		}
 		kind := strings.TrimSpace(c.Kind)
 		target := strings.TrimSpace(c.Target)
+		if kind == types.WriteConstraintRunExistingTest {
+			existingTests++
+			canonical, ok := protectedBaselineExactPath(target)
+			if !ok || len(canonical) > 4096 || strings.ContainsAny(canonical, "*?[]{}") || !protectedBaselineObservedInCurrentRepository(ctx, canonical) || existingTests > types.MaxRequiredExistingTests {
+				return errResult(t.Name(), fmt.Sprintf("emit_write_analysis rejected: constraints[%d] kind=run_existing_test requires one exact regular file successfully read in this dispatch from the current repository; at most %d execution requirements are supported. Read the requested test file and retain the requirement. A readable file without a supported native selector remains unverified, not an executable test by assumption.", i, types.MaxRequiredExistingTests)), nil
+			}
+			target = canonical
+		}
 		if kind == "preserve_regression_test" {
 			canonical, ok := protectedBaselineExactPath(target)
 			if !ok || protectedBaselineTargetIsDirectory(ctx, canonical) {
@@ -408,7 +417,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 					"type":     "object",
 					"required": []string{"kind"},
 					"properties": map[string]any{
-						"kind":   map[string]any{"type": "string", "description": "Short label like preserve_api / no_external_deps / match_existing_style. Use preserve_regression_test when the user explicitly says an existing regression test, input, fixture, snapshot, or assertion is intentional or must be kept; this protects the existing baseline assertion/oracle rather than authorizing its expected output to be changed to match a new implementation. Pick the closest fit; free string is fine."},
+						"kind":   map[string]any{"type": "string", "description": "Short label like preserve_api / no_external_deps / match_existing_style. Use preserve_regression_test when the user explicitly says an existing regression test, input, fixture, snapshot, or assertion is intentional or must be kept; this protects the existing baseline assertion/oracle rather than authorizing its expected output to be changed to match a new implementation. Pick the closest fit; free string is fine. " + types.WriteExistingTestIntentTeaching},
 						"target": map[string]any{"type": "string", "description": "Path or symbol the constraint applies to. Use '*' when global. " + types.WriteProtectedBaselineTargetTeaching},
 						"note":   map[string]any{"type": "string", "description": "Short quote of the user's wording, when applicable."},
 					},

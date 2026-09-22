@@ -790,7 +790,7 @@ func directTestSurfaceTargetsFromChangePlan(plan *types.ChangePlan) []types.Impa
 	seen := map[string]bool{}
 	addPath := func(raw, source string) {
 		rel := cleanRepoRelPath(raw)
-		if rel == "" || seen[rel] || !types.LooksLikeTestFilePath(rel) {
+		if rel == "" || seen[rel] || (source != types.WriteConstraintRunExistingTest && !types.LooksLikeTestFilePath(rel)) {
 			return
 		}
 		seen[rel] = true
@@ -814,6 +814,9 @@ func directTestSurfaceTargetsFromChangePlan(plan *types.ChangePlan) []types.Impa
 	for _, observation := range types.ChangePlanVerificationProjectTestObservations(plan) {
 		addPath(observation.TestPath, "project_test_observation")
 	}
+	for _, target := range types.RequiredExistingTestPaths(plan) {
+		addPath(target, types.WriteConstraintRunExistingTest)
+	}
 	for _, path := range plan.TargetPaths {
 		addPath(path, "direct_plan_test_path")
 	}
@@ -835,7 +838,7 @@ func impactSuiteForVerificationTarget(
 	// directory. A ProjectTestObservation is narrower: its authority names one
 	// exact file and assertion, so execute that file directly. Other runner
 	// families already derive their narrowest supported selector from the file.
-	if strings.TrimSpace(target.Source) == "project_test_observation" &&
+	if (strings.TrimSpace(target.Source) == "project_test_observation" || target.Source == types.WriteConstraintRunExistingTest) &&
 		cand.Runner == "python" && cand.Framework == pythonFrameworkUnittest {
 		rel := relatedPathInsideWorkingDir(cand.WorkingDir, related)
 		if path.Ext(rel) == ".py" && path.Base(rel) != "__init__.py" {

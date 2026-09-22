@@ -210,13 +210,15 @@ func EffectiveVerificationConfidence(plan *ChangePlan, report *ChangeReport) []V
 	return out
 }
 
-// EffectiveVerificationProbeReport owns only the two authority projections it
-// changes. All other report values remain untouched, including pass/score and
-// the original command/test receipts. It never persists the projected view.
+// EffectiveVerificationProbeReport projects probe authority and explicit native
+// execution requirements without rewriting original command/test receipts.
+// Missing or failed new execution requirements narrow completion status; legacy
+// plans retain their pass/score values. It never persists the projected view.
 func EffectiveVerificationProbeReport(plan *ChangePlan, report *ChangeReport) *ChangeReport {
 	if report == nil {
 		return nil
 	}
+	report = EffectiveExistingTestExecutionReport(plan, report)
 	out := *report
 	out.ChangedPathCoverage = EffectiveChangedPathVerificationCoverage(plan, report)
 	out.VerificationConfidence = EffectiveVerificationConfidence(plan, report)

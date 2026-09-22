@@ -1090,6 +1090,10 @@ type ChangeReport struct {
 	// verify-failure replan handoff; never derived from prose.
 	ExecutedCommands []ExecutedCommand `json:"executed_commands,omitempty"`
 
+	// ExistingTestExecutions are bounded, tool-owned native invocation receipts
+	// for explicit run_existing_test requirements in the pinned request IR.
+	ExistingTestExecutions []ExistingTestExecutionReceipt `json:"existing_test_executions,omitempty"`
+
 	// WorktreeAudit is the git-owned before/after integrity audit for the
 	// verification command surface. It is deliberately independent from the
 	// test verdict: a project runner may pass while creating an untracked build
