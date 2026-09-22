@@ -1445,6 +1445,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 详见 §6。
 
+读者字段教学贯穿完整 Finalizer system/user：禁止外露的仅是内部协议、校验、路由和排序控制元信息，相关且有证据的原始业务字段、单位、标识和业务状态可保留并解释。初始/补充提示把用户可见维度标签与内部排序编号分开，保原标签、顺序和空值回退，不扫描或改写用户/模型原文，也不以显示名称增减事实或因果资格。
+
 **Forbidden 字段是 reject 不 scrub**：shape 不允许的字段（V1 残留、不该有的 boolean/value）会让整个 call 失败而不是静默清洗。`agent_finalizer_max_correction_retries` 默认 3 次。
 
 **后 emit 顾问车道 = 一张表、一个闩、一轮（colleague_merge_audit §40.51 V3-3）**：`emit_answer_document` 被接受后，`answerDocumentEvaluator.Observe` 只跑一个臂 `postEmitAdvisorySignal`——`internal/agent/answer_document_post_emit_advisory.go` 的 `postEmitAdvisoryLanes` 单源表（typed 闭集 `postEmitAdvisoryLaneKind`：requested_dimensions / requested_dimension_order / external_observation_selectors / trace_primary_cause_entity，前三为 precise_repair、G13 实体为 advisory 类，全部只软引导）在同一次观测里逐行探测，命中项合并为一次披露（一个前言 + 编号修订项 + 「一次 patch 覆盖全部项」规则；排序项的「不增删块」约束只限本项，与其他项同出时一次性声明 `model_block_order` 不能与增删同用、其他项优先 replace/局部编辑），单闩 `postEmitAdvisoryDelivered` 按派发重置，每派发至多多付一轮 LLM，且不读写 `retriesUsed` / `rejectHintsUsed` / `emitFullDocFailStreak` / 空块断路器 / patch 偏好等硬拒账目（`BypassBudget` 保留）；顾问 patch 被拒时已接受文档原样出厂（Observe 的 Stop 臂 = typed 逃逸）。`answer_document_post_emit_advisory_census_test.go` 钉死：Observe 已接受文档分支只允许该臂与 Stop 返回（其余语句形 fail-loud）、表行数 == 闭集常量数且每种恰一行、evaluator 无 `*Hinted` 逐车道闩、闩只由 `postEmitAdvisorySignal`/`BuildInitialInstruction` 写。新增后 emit 车道 = 加一行，永不加臂。
@@ -1539,6 +1541,8 @@ Java 完整探测程序不要求使用内部固定类名。语法预检与运行
 修复教学同样受当前计划形态约束：full/skeleton 已构造的 source-free proof sentinel 共用专用软指引，保持 `changes: []`，只更正所需的兼容探测，不推荐本计划禁止的文件修改或 `project_test_observations`。普通 source/test 编辑计划仍保留原生项目断言通道；always-on 行为合同教学将编辑建议限定为当前 typed 权限允许的情形。两类计划使用同一个语言兼容性判定，只有修复说明不同；声明、执行与逐合同断言不混同，无法验证时由既有 controller 保留边界，不新增空计划通行证或模型 JSON 必填项。
 
 普通 source/test 计划的断言登记与文件修改分开：共享 `NativeProjectTestObservationBindingTeaching` 优先指向已检查的既存原生断言。未改测试可仅作为 `project_test_observations[].test_path` 输入，不必塞进 `changes[]`；只有缺少所需断言且修改已授权时才新增/修改测试。该说明对应已有路径正常化与精确测试执行面，不新增权限。测试路径、suite、assertion 与 contract refs 仍由模型基于实际测试选择，系统不从旧报告补签映射；执行成功且逐断言精确匹配才授予证明，aggregate PASS、skip、错误标识均不升级。source-free 补证计划仍禁止这一登记，后续只读补登记必须另走独立授权设计。
+
+原生测试结果与执行命令通过工具产生的 `invocation_id` 关联：普通原生命令、pytest 文本重跑、Java 编译和各 main 执行各有独立标识，只在本次叶子解析结果绑定，合并及 JSON 往返不重贴。PTO 正负匹配和既有测试执行收据共用唯一同 ID 索引，不能借同候选另一条命令的退出状态或断言摘要；混合报告中缺 ID 或错边不得回退，唯一同 ID 的合格边仍可关联，重复 ID 仅拒该 ID。全旧报告保留兼容，不自动升级历史记录。该标识仅表示执行归属，不代替产物新鲜度、真实断言范围、源文件执行、当前交付指纹或只读补绑定授权；原有测试框架支持边界及逐合同证明门均保持。
 
 普通 planner 的 handoff / structured-emit-repair / verify-failure-repair 读取预算分开计量：成功读取仍逐调用消耗原限额，失败按本轮 `CurrentToolResults` 中是否存在已登记读取工具的失败计一次，连续两次失败观察批耗尽对应失败预算。同一并行批的调用均在收到反馈前选定，不能因两个同批失败而剥夺一次纠正机会。混合批同时记录成功次数与一次失败轮，空批、未知工具名及散文不计数。source-free proof-followup 保持原来的逐 `read_file` 调用成功/失败计费，发射拒绝不重置其预算；所有执行/源码权限、soft/hard cap和三次结构化拒绝rollover不变。
 

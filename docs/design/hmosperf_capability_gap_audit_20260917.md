@@ -2642,3 +2642,89 @@ jank全部3条、排序7/4/2、原始大整数、70/40/20ms及完整16行扫描�
 末版完整复跑35049正式exit0：87测试包通过、13无测试包、零FAIL；tool405.620s、types51.507s，日志 `/tmp/hmc-trace-scope-clock-sealed-full-20260922.log`。首轮55718的两项失败记录保留，不由分包结果拼接成成功。所有代码及测试已分批本地提交，统一文档与两例全文人工审计随本次收尾提交推送；远端实际收据随后补记。
 
 推送收据：27854正式exit0，main由ae29a813b推进至 `f707dd48df588172925de09c71c32af46dd4e301`，包含代码d2208745a/edc5a4e5b/483f87e4a/d1cdd4b43及审计f707dd48d。随后本地与远端同SHA、工作区干净；此收据作为独立文档提交保存。确定性子修复已收尾，不代销§133两份人工FAIL、新分片live未命中及66父开放项。
+
+## 134. 原生断言补绑定的前置：结果不得跨执行借用退出状态（2026-09-22）
+
+起点`5f38173c9`干净，重新逐稳定ID计数仍79=13已交付+66开放（58待实施、6部分实施、1待验收、1持续执行）。HMC-18.5原生断言只读补绑定仍属先前人工未通过项。复核§131.1发现，仅放宽两个emit入口的空changes校验不安全：当前PTO先挑一条相同候选/范围、退出状态符合的命令，再遍历整个report找断言，未绑定哪次执行产生该行。新增声明若借旧PASS重新投影，会放大误验证。因此按ROI将“逐执行归属”先单独闭环，再实施独立只读授权，不移除现有probe-only和源码/测试禁止修改边界。
+
+参考`core/llm_contract.py:114–145`先限定分析成员再回查精确字段，`core/skill_executor.py:1282–1417`将session/step/tag与实际iterate成员同存；其意图是防跨成员证据借用，本项目按原生命令/断言的结构身份实现，不复制文本子串/数值容差、数组位置兜底、文件存在即可信。参考仓不是原生测试补绑定框架，本节没有声称照搬已有同功能。
+
+公开RED98355正式exit1/tool1.594s：真实RunTests两次调用的协议子进程，第一次JSON有green行但命令exit1；第二次相同测试范围命令exit0，只报另一断言。两份真实解析结果合并并JSON往返后，第一条错误借到第二次exit0成为PTO已观察。正控确认两次子进程实际执行且第二条自身可用；不是模型波动。子进程模拟pytest命令/报告协议，不冒称主机安装pytest或执行Python测试体。日志`/tmp/hmc-native-invocation-red-20260922.log`。
+
+现于普通原生命令、pytest真实文本重跑、Java编译及逐main执行入口产生各自InvocationID，叶子解析后、qualify/merge前绑定原行。该ID仅为工具产生的相关身份，不是秘密、成功证明、产物新鲜度或源码文件执行收据；不改原AssertionID/Suite、数值、ObservationScope或Outcome，不给探针/语法合成/锁定复核追加原生断言身份。qualify/merge与JSON按原struct保留；不在累计报告上重贴身份。
+
+共享只读索引一次扫描command/results，结果只能匹配唯一同ID命令；重复ID仅拒该ID，不按先到者赋权。任一边有ID即启用新协议，空边/错边/新旧混合不得回退；全旧报告保留既有兼容语义，不因此宣称历史已升级。PTO正/负匹配同源；同candidate第二次正确执行仍可选中，不被旧“第一条command”短路。失败相关性在精确ID归属时不再误受其他失败命令影响，但Make多文件物理归属限制保持。已有测试执行收据的断言摘要多重集也仅从该command同ID结果取，原plan/commit/patch/file/candidate/command/count门和摘要协议不变。
+
+类型consumer有效RED56655 exit1/0.789s，末版GREEN58619 exit0/0.856s、race6367 exit0/2.440s；覆盖纯旧、同ID/后续行、错边/空边/混合/重复、失败、跨执行重复摘要、JSON与旧摘要字节、nil/越界及快照只读。公开/相邻GREEN51309 exit0/tool9.286s、race72245 exit0/tool10.999s，含新跨调用反例、真实文本fallback所有权、正负consumer矩阵及既有多语言scope/native/unittest/pytest和取消回归。Java取消公开测试补每个真实进程身份不重叠、第一main结果不借编译或中断main；该末增量纳入全仓88411。日志`/tmp/hmc-native-invocation-{green,race,types-sealed-green,types-race}-20260922.log`。独立末审无生产阻塞。
+
+仍开放：controller绑定run/batch/原交付计划/完整合同/当前工作树和已读测试快照；独立只读登记载体与新执行代次；resume/累计归属；过期登记权限不得抹掉永久禁修改身份。InvocationID不能替代这些，也不自动宣称所有runner旧产物新鲜度已解决（hvigor等另需审计）。旧人工FAIL不销，完整回归及固定双例另补。
+
+补绑定公开安全基线`TestWriteNativeBindingPublicNoDeclarationRemainsUnverified`：真实Run→Read/EmitWriteAnalysis→EmitChangePlan→ApplyPatch→RunTests→controller，两次verify实跑原3个unittest（含大整数）；当前交付/测试文件强收据有效，plain probe实际经过改动raise行，但没有伪造行为合同见证。post-hook后仅剩reject-fraction这一唯一合同的多个投影债，最终仍unverified；原测试/配置与主仓HEAD/字节保持。两个公开emit的无授权空changes+PTO仍真拒，原plan/report不受影响。controller选择明确由脚本请求诚实unverified，本测试不是自动补绑定成功，也不是新通道产品RED。夹具初版误把投影条数等同独立合同数，校准到实际post-hook+唯一ref后正式GREEN34633 exit0/orchestrator2.219s、race59246 exit0/4.968s；日志`/tmp/hmc-native-binding-public-baseline-{final,race}-20260922.log`。不会提交永久失败测试或以这个安全基线销B2–B6。
+
+## 135. 原始业务字段不应被全称“内部元数据”教学禁止（2026-09-22）
+
+HMC-01/16下确定性教学缺口：有限事实卡把此前所有字段名/枚举/状态/键值称“仅用于校验”，末句又把卡名限定为唯一可见词表；因果卡和通用runtime hint同样全禁JSON字段。这会错误限制用户明确要的原始时间、业务状态、标识等，不需要改分类或硬门即可修正。
+
+参考`core/query_engine.py:370–423`保留data/schema而区分内部meta，`core/skill_executor.py:1456–1537`教结构读取，规则9区分内部itid/ipid与对外tid/pid；借“内部运输/控制元信息与被分析数据本身分开”的意图，不移植关键词选路或不精确因果算法。共享中英短句仅隐藏内部协议/校验/路由/排序控制用语，允许并解释与问题相关且证据支持的原始字段、单位、标识和业务状态；卡维度是阅读提示、非封闭词表。来源、范围、精度、数值、证据强度和因果/源码上限不变，不扫描或重写模型正文，不静默改模型facet，不改变任何JSON shape/校验门。
+
+真实TraceQuery(event_search)普通`ReadBatch`标记的result=E_BUSY、sample_count=9007199254740993经BuildAgentContext→BuildInitialInstruction，双语×有限事实/效果4格及既有typed因果教学2格公开RED80555 exit1/agent0.988s；原始字段/整数/身份/snapshot及不激活负控先绿，只有旧全禁/闭词表教学失败。因果对照使用已有typed fixture，不冒称新原生因果回放。public GREEN35918 exit0/1.009s，邻近84744 exit0/1.480s，race80373 exit0/5.095s；三处旧词面针精确迁移，不放松数值和边界。日志`/tmp/hmc-reader-field-scope-{red,green,neighbor-green,race}-20260922.log`，独立末审无阻塞。
+
+两片完整回归88411执行中，尚不称全仓通过。下一固定pair选原生写模式与Trace有限事实，恰好2并行×1，按末版编译快照记录。§131/133历史FAIL不回签，当前源码维度/用户引用坐标噪声、caller双轴、背景cpu·ms显示、业务局部补齐及66父项继续开放。
+
+首轮全仓88411现已正式exit1，tool420.464s；唯一失败为既有CTest公开16状态测试将真实Execute结果与纯XML parser结果DeepEqual，新InvocationID未纳入预期。`28121d54d`先独立严验非空ID、真实唯一command归属及JSON保留，只给无命令上下文的genericRow补同ID；原scope/Passed/值/125ms及正负PTO不支持边界均保持，未修改生产。54030定向exit0/8.783s、15853 race exit0/26.368s（含B1715 Java取消），独立只读末审无阻塞。完整复跑39804已启动；它不覆盖随后§137/138教学增量，末版必须另跑，不拼接分包结果签全仓。
+
+39804现已正式exit0，87测试包、13无测试包、零FAIL，日志`/tmp/hmc-native-reader-sealed-full-20260922.log`。§134/135代码及公开安全基线、CTest精确适配已分4笔409448e7e/5722d6b39/e2f3931de/28121d54d，并由42212正式exit0推送main（5f38173c9..28121d54d）。这次完整回归及推送不含之后完整system/标签增量，单列版本不借签；统一审计文档随后收尾提交。
+
+## 136. e2f393固定双例：机器1/2、完整用户任务人工1/2（2026-09-22）
+
+[机器收据](../../eval/parallel_selected_summary_hmc_native_reader_20260922.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_native_reader_20260922_manual_audit.md)。runner1192正式exit0，严格2并行×1；写模式外层148s/案例145s、Trace181s/179s。构建35038 exit0，revision=e2f3931ded53-dirty/buildTime=2026-09-22T14:42:18Z；dirty仅文档、Go/构建输入已提交。独立活跃流保护37002正式exit0/llm3.087s，600/300/600及持续隐藏推理/keepalive/4ms无正文保护不改。
+
+Python用户任务PASS：只改relativedelta.py，原4unittest真实通过且原测试SHA256不变，交付e54e824e7d770e533f89f9c63e43652fd5d7368f；main不自动合并。新native命令/4断言同执行ID真实命中，PTO consumer未命中。模型probe错误要求2020年加2年和12个月仍为2021，实际应为2023；原生验证续跑并保失败观察，不能为这个无权威预期改产品。本次7条合同全planning-only，最终verified符合当前typed义务，但不能代销§131 required异常缺PTO的旧FAIL；异常expected自然语言导致仅规划的分析契约质量另留账。首次JSON碎片多塞一个只有verification_probes的changes成员被精确拒绝，下一轮完整修复，未丢probe或改硬门。
+
+Trace人工FAIL：六个>2^53整数、三条70/40/20ms及头时间正确，appid未再冒充PID；却把other jank_event_sync的99帧纳入，数目4、表7/4/2/99非降序，并漏同源换单位说明。唯一查询只是pattern宽检索，原生如实返回7文本匹配，99行没有typed jank_event字段；模型自己从raw升级语义成员，不能说原生解析/数值过滤失效。完整7行inventory和默认同源教学都到场；不能据单次认定波动，也不加用户/答案关键词硬门。清单题空schema2根因旁路合理，不要求因果图，不验收分片/调度链。
+
+此轮发现两个可确定修复的上下文自冲突，继续窄片闭环后收尾：完整system仍全称禁止字段名，与§135已改user卡冲突；初始/修补提示将内部第N维序号当用户标签，最终照搬。两者独立有据，不冒称直接解释99成员误判。修复后的live另起冻结2例批，不把本轮旧结果回写；全部仍归HMC-01/16/18子债，79=13+66不变。
+
+## 137. 完整Finalizer system/user字段教学统一（2026-09-22，验收中）
+
+§135只验BuildInitialInstruction，公开验收有效但覆盖边界不完整。实际NewFinalizerAgent消息公开RED35425正式exit1/agent1.145s，日志`/tmp/hmc-finalizer-reader-field-system-red-v2-20260922.log`：原生event_search两scope×两语言及既有typed因果两语言共6格，完整system两条规则与因果user边界残留全称禁止字段。首版finite测试未携带原始附件导致RequiresTrace未激活属夹具问题，修正从真实SourceRef.Path读原附件后才计valid RED，不把测试错误当产品失败。
+
+三出口仅修教学：defaults reader规则限定内部协议/校验/路由/排序控制元数据，保相关原始字段/单位/标识/业务状态；目标等待句引用同一区分，不改IO/调度/业务语义；最终边界复用§135现有中英短句，不增加模型字段。两个旧pin文件3条过宽词面精确迁移，其余断言保持。新公开测试核完整原生成员、6秒/101与201身份/9007199254740993原值、双语实际system+user；因果部分仍是既有typed fixture，不冒称新原生因果回放。
+
+81186定向正式exit0（agent2.119/skill0.678s），包含新6格/原reader9格、最终边界、原生依赖链改名中英及既有工具教学。race、末版统一全仓、独立末审和新冻结异构双例待补。参考仍沿query_engine的data/schema与内部meta分离意图；不把“不外露控制字段”扩成“不能回答用户问的原始字段”，不加原文硬门或替模型改答案。
+
+同集race82233正式exit0（agent6.582/skill2.124s），skill全包63717 exit0/0.655s；独立末审建议加普通源码请求不激活负控，末增量真实Finalizer无附件/无perf、IntentExplain/not_applicable不启Trace规则或卡片，7格最终race40332 exit0/agent2.804s。公开测试176行，原字段/模型答案快照保持；生产冻结并本地提交f914145ed，独立末审无阻塞。后续统一全仓/新pair未完成，不提前说live已改善。
+
+## 138. 业务标签与内部排序编号分离（2026-09-22，验收中）
+
+§136日志779的typed输入实际Label=匹配条数/Index=4；initial与post-emit软提示却拼“第4维：匹配条数”，后者又说“只列用户标签”，模型因此在正文和patch照搬。不是模型最初写坏Label，更不是需要扫描正文删除“第N维”。参考data/meta分离的同一设计意图，索引负责排列、Label负责业务表达，二者不能合成新的用户词汇。
+
+真实NewFinalizerAgent→注册EmitAnswerDocument接受→实际第二次adapter修补消息公开RED17954正式exit1/agent1.170s，日志`/tmp/hmc-dimension-label-public-red-20260922.log`。前两版测试选择末尾locale nudge而非目标advisory是夹具错误，不计产品RED；末版52个LABEL_ORDER_CONFLATION失败，真实receipt/模型块/IR/软预算及6个无变化控制先绿。
+
+两出口共享19行无状态formatter：业务标签与内部排序分行，各出口只一次短说明，不逐行堆免责声明。initial原顺序、空Label跳过和SourceQuote保持；repair原排序、非正Index→1及角色Label回退保持；输入Label自带“第4维/Dimension4”的合法业务文字不剥除，原JSON/index/role/值/因果资格不变。唯一B1691旧针两项显示预期精确迁移，不改覆盖/软提示/hard retry规则。公开201行、双语16格含稀疏Index、多维9/1/4、零Index、原编号业务词、空/已覆盖/运行时回退、sourcequote与无Trace权限。
+
+首GREEN17454 exit0/1.525s，末版54183 exit0/1.402s、race15613 exit0/3.976s；独立末审无阻塞，4文件提交6643304be。完整末版5061执行中（`/tmp/hmc-finalizer-reader-display-full-20260922.log`），包含§137/138与前片，不借39804旧结果。
+
+构建91774正式exit0，revision=6643304beaee-dirty/buildTime=2026-09-22T15:11:35Z；dirty仅文档，Go/构建输入已提交。新固定batch21438恰好2并行×1：real_trace_h4_supply_thermal_witness（运行量/四态/直接策略上限）、trace_query_wakeup_background_demotion（显式窗/链上IO/链外背景/自动投影）。两例均以FIXTURE=eval/fixtures/stub_repo隔离源仓，H4本来就使用该fixture，background用运行器已有环境覆盖补齐隔离；问题、原始Trace与oracle不改，不能冒称与旧未隔离运行是完全同输入A/B。没有第三例，也不追jank原题绿；结果/人工审计/旁路随后另记。
+
+5061已正式exit1，唯一失败为旧`TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedAnswerDimensions`仍绑定两条旧文案。精确迁移“不要追加内部角色”拆句以及“每一行”→“每个维度”，并新增明确不把内部排序写进答案的断言，原图/清单/证据/facet义务不改；第一次36056仍中第二旧针不计GREEN。末版61881正式exit0/agent1.382s、41121 race exit0/5.892s，提交`d649af2e8`，日志`/tmp/hmc-dimension-label-adjacent-pin-{final,race}-20260922.log`。79992完整复跑进行中；其它agent暂不写Go文件以保持本轮冻结，不用后续修复或分包结果拼接全仓PASS。
+
+## 139. 664330固定双例：机器2/2、完整人工0/2（2026-09-22）
+
+[机器收据](../../eval/parallel_selected_summary_hmc_finalizer_reader_display_20260922.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_finalizer_reader_display_20260922_manual_audit.md)。runner21438正式exit0，恰好2并行×1；H4外层185/案例183s，background208/206s，两者上下文47%。两位独立复审与主审一致。新完整system/user原始字段教学和标签/排序分离真实到场，标题未露“第N维”；没有因此代销其它内部词泄漏、旧FAIL或66父开放项。
+
+H4运行157.248ms、runnable5.604、sleep70.338、D/标记IO0、8CPU归属和CPU4直接2.10GHz上限正确，未用CPU0策略替换或把558MHz当上限触发。但正文把CPU12桶附带2075MHz升级成主要频点/窗口范围、把聚合行数当运行段数并给CPU3补缺失频率；实际上下文明确代表样本不代表驻留/均值/常量，CPU3无值。内部comparison枚举亦外露；不能称上下文不足或单次已证波动。有限事实题不要求因果图，schema2空旁路与未启根因合同理由合理。
+
+background主榜与根因旁路正确保原窗2..2.020、app S20/running0/runnable0、链上IO11ms及三席1ms供给候选，logger19.5ms不入榜；系统自动补采纠正模型三次宽窗查询，文本因果投影实际存在。仍有两个确定性系统附录缺口：①self-running不可折算旁栏丢原查询域，将2..2.0205测得的0.480ms写作主窗内running；②单条事实对照不带榜域，将宽窗app#5/0.020ms写成无范围榜位，而多榜分支和主树已带跨窗限定。核心选举/sidecar没有纳入该#5，范围丢失限两展示出口；按同类“所有旁路携带测量域，不由条目数决定是否保范围”优先闭环。
+
+模型另把cookie被唤醒2.018与其唤醒app2.020混淆、logger CPU5写6、已证链与未证反转机理混同、caller词面升级缓存页位机理、cookie旁路description把runnable1ms说成sleep，原始及最终上下文足以避免。IRQ终端唤醒锚在原始/最终输入存在却未进入树/正文，不能通过给IRQ新增根因资格补图；内部词与嵌套等待串行误述同留HMC-16/18。系统附录的确定性串窗先修，其它成文越界不通过原题追绿或文本硬门处置。
+
+参考仓再核`query_engine.py:340–423`按每项结果保data、单位及截断标识、控制元数据另组；`skill_executor.py:1282–1330,1456–1508`以本步iterate成员身份拆分文件，并强调逐项分析后综合。设计意图是避免跨成员/跨范围借证据，而不是把所有信息平铺为一份无范围摘要。本项目下一片复用已有SourceRef/WindowScope/榜域身份，保原值与原窗；不复制参考位置兜底、默认窗口或模糊成员匹配，不扩模型JSON负担。
+
+前片末版79992现已正式exit0，87测试包、13无测试包、零FAIL，tool378.600s、tracequery102.317s、types37.654s，日志`/tmp/hmc-finalizer-reader-display-sealed-full-20260922.log`。这是独立完整复跑，期间新旁路修复仅只读设计、未写Go，故明确覆盖到d649af2e8的§137/138末版，不包含§139新发现的两处旁路范围修复。Go结果缓存收尾另耗时，不能把静默视为模型流式超时或失败；未终止活跃运行。代码f914145ed/6643304be/d649af2e8及本轮两批完整机器/人工收据现分批收尾推送，旧FAIL继续开放。
+
+## 140. 旁路展示的原查询范围保真（2026-09-22，实施中）
+
+入口为§139两处可重现的系统串窗，不是模型越权修补。拆成互不重叠的两片：self-running不可折算旁路保本条SourceRef/selected_window及原始值，去重不再仅靠subject；单/多榜位事实对照每条完整榜域都显示原查询身份，未知域不借主请求补齐。公开反例、末版回归及提交收据随后补记，不提前验收。
+
+参考`core/batch/skills/frame_drop_analysis.py:370–392`每条下钻样本带trace_id/tag/json_path，`_stepref.py:31–63`按session/实际step/tag构造来源，无法访问时保原悬空地址。借鉴聚合后仍能回到原观测的意图；不复制文件存在即回退另一目录的做法、不套用其分类算法，也不新增模型必须手填的范围字段。范围来自已有确定性查询载体，缺失时诚实披露；仅保存/展示，不进行新裁切、重算或因果资格晋升。
