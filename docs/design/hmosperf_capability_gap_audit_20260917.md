@@ -2467,3 +2467,21 @@ Trace实际保5.000–5.007窗口、S5/runnable0.8/running1.2ms及完整因果�
 Python源码仅+1、原测试/配置未改，真实执行了当前交付源变更行，身份和hash完整；但run_tests在probe PASS后提前返回，原生unittest明确suite_skipped，±2**64等已有断言未执行。项目test observations缺失，6条行为合同为planning-only；已有精确test observation一旦保留，其suite选择/continuation原本有效，不能误归消费者完全坏。待补独立、持久的typed既有测试执行要求与同交付执行收据；不从原始问题/acceptance文本扫词，不把所有自然语言行为声明升required。原生aggregate PASS仍不自动证明每个行为合同，skip/zero-tests/timeout不能销执行债。静态coupling不识别probe内sys.path亦留独立适配债，不能混称ImportError。
 
 下一优先：①既有测试执行意图持久化与收口；②§120最终caller附注双轴；③§94业务局部补齐/容量与声明-观测pair、B2–B6；短小确定性语义图例缺口在当前收尾后单片修复。caller后续设计以ClaimUses.EvidenceID绑定原生记录/物理来源/窗口/subject/caller角色；未知或模型aggregate不授观察证明，不能复制Log运行级名称白名单。默认文案只说“源码映射未核验”，不把Trace已记录caller说成全证据不存在。
+
+§121–§124提交与审计已随`2f3a6dc2b`推送，45232正式exit0；本地/远端同SHA，干净工作区核实后开始下两片。没有重跑旧live改变人工结论。
+
+## 125. 语义图例按实际计量来源拆分（2026-09-22，窄片回归完成）
+
+§124展示反例继续追到引擎：`rank_family_fold.go:356`的自身准入只判目标身份、确定性语义类和正片段范围；`query.go:19424`以裁剪后extent计量，并非与Running状态求交。参考`core/preprocess/sleep_ops.py:220–263`的交集计量设计提示必须注明实际求交对象，不能把span墙钟当CPU时间。本片不复制另一种计量算法来迎合图例，而是修正系统说明。
+
+普通SemanticSpan按所属线程/记录范围的墙钟解释；SelfDeterministicBasis按目标自身语义片段的窗内投影并集解释，保既有排名凭证但不说仅CPU执行；SemanticMentionFloor只说明保留的未排名语义线索，不借其标记授计量或榜位。production只改tree.go完整self词条和简明图例三标记分支，中英常量复用；数学、准入、选举、模型字节、JSON均不改。
+
+真实TraceQuery→emit→render→noop patch共10原生中英格：worker/self/self跨S/mixed、只有wakeup查询的未排名语义；另16个显式渲染mark组合单独记账。跨S反例原生self1.000ms而目标Running0.600ms/Sleep5.400ms，仍保self凭证和第1名，证明不是一概按Running计。有效RED16288正式exit1/tool1.662s，失败仅图例断言；首版无链self夹具无效，修夹具不动生产后才记RED。末版公开/相邻4135正式exit0/tool3.516s、race70835 exit0/tool6.011s，独立复审通过。日志`/tmp/hmc-semantic-legend-caliber-{red-v2,final,race}-20260922.log`。不倒签§124模型完成/唤醒和独立性错误。
+
+## 126. 源码未验证不再被说明成全证据未记录（2026-09-22，窄片回归完成）
+
+§120最后附注默认入口的错误不必等到新观察证明查询才纠正。`denied_token_answer_check.go`修补提示曾要求“NOT present in current repository”，`repair_caveat_materializer.go`又把所有来源说成“尚未由当前证据确认”；两者都超出源码映射拒绝的证明范围。现在只说明当前源码映射未验证，并明确不据此断言仓库无同名文件/符号或附件未记录名字；实现/机理仍需独立核验。不删除原拒绝，不新增原文扫描、caller白名单、Trace豁免或源权限。
+
+测试调用真实checker→公开AppendSoftContractCaveatsToAnswerForBus/API：3拒绝类×中英、异常详情×中英与三名称上限；模型前缀、doc、denial不变。它不是原生EmitPerfTrace/TraceQuery全链，完整caller记录/附件/窗口/主体绑定仍开放，不能以默认文案修复代销该范围。有效RED28985正式exit1/orchestrator0.703s；前两轮仅测试方法拼写及另一新增测试编译错误，不记产品RED。GREEN70272 exit0/0.901s；相邻40148 exit1为4个旧字面pin，精确迁移5条正向词义并加强Log专用例外负针，不改断言逻辑。末版race70084正式exit0，独立27007 exit0/0.843s，无P1。日志`/tmp/hmc-denied-source-boundary-{red3,green,adjacent,race}-20260922.log`及`/tmp/hmc-source-denial-independent-20260922.log`。
+
+两片待下一次全仓收据统一补记；父账仍66开放。既有测试执行意图已有独立公开RED38703正式exit1/orchestrator4.060s：2个新要求场景都被probe替代，legacy/preserve-only/既有ProjectTestObservation三对照先绿。下一片用可选typed constraint和工具拥有的精确执行收据实现，不把自由文本或静态文件存在性升级为测试证明。

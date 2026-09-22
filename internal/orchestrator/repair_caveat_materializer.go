@@ -289,7 +289,8 @@ func materializeSelfContradictionCaveat(violations []types.Violation, useChinese
 // for a real self-contradiction, while giving denied-token violations their own
 // user-facing semantics. ViolDeniedTokenUndeclared shares the historical
 // consistency family for registry compatibility, but it means "this name was
-// not verified", not "the answer contradicts itself".
+// not verified against repository sources", not "the answer contradicts
+// itself" or "the runtime input did not record the name".
 func materializeConsistencyCaveat(violations []types.Violation, useChinese bool) string {
 	if specific := materializeSelfContradictionCaveat(violations, useChinese); specific != "" {
 		return specific
@@ -321,18 +322,18 @@ func materializeConsistencyCaveat(violations []types.Violation, useChinese bool)
 	}
 	if useChinese {
 		if len(tokens) == 0 {
-			return "答案中有一项名称尚未由当前证据确认；请将它明确标为外部或未验证信息，或补充可核验来源。"
+			return "答案中有一项名称的当前源码映射尚未验证；这不表示仓库没有同名文件或符号，也不否定附件中的名称记录。源码实现与具体机理仍需独立核验。"
 		}
-		return "答案中提到的“" + strings.Join(tokens, "”、“") + "”尚未由当前证据确认；请将其明确标为外部或未验证信息，或补充可核验来源。"
+		return "答案中提到的“" + strings.Join(tokens, "”、“") + "”的当前源码映射尚未验证；这不表示仓库没有同名文件或符号，也不否定附件中的名称记录。源码实现与具体机理仍需独立核验。"
 	}
 	if len(tokens) == 0 {
-		return "One name in the answer is not yet verified by the current evidence; mark it as external or unverified, or add a verifiable source."
+		return "One name's repository-source mapping is not yet verified. This does not establish that the repository lacks a same-name file or symbol, or that an attachment did not record the name. The source implementation and any mechanism still need independent verification."
 	}
 	quoted := make([]string, 0, len(tokens))
 	for _, token := range tokens {
 		quoted = append(quoted, `"`+token+`"`)
 	}
-	return "The answer names " + strings.Join(quoted, ", ") + ", which the current evidence does not yet verify; mark it as external or unverified, or add a verifiable source."
+	return "The answer names " + strings.Join(quoted, ", ") + "; the repository-source mapping is not yet verified. This does not establish that the repository lacks a same-name file or symbol, or that an attachment did not record the name. The source implementation and any mechanism still need independent verification."
 }
 
 func parseDeniedTokenViolationDetail(detail string) string {

@@ -139,7 +139,7 @@ func TestMaterializeDeniedTokenCaveatUsesVerificationSemantics(t *testing.T) {
 	}}
 
 	zh := MaterializeUnresolvedViolationsAsCaveats(violations, "zh")
-	if len(zh) != 1 || !strings.Contains(zh[0], "pipeline-max-steps") || !strings.Contains(zh[0], "尚未由当前证据确认") {
+	if len(zh) != 1 || !strings.Contains(zh[0], "pipeline-max-steps") || !strings.Contains(zh[0], "当前源码映射尚未验证") {
 		t.Fatalf("denied-token caveat must disclose its exact verification boundary: %v", zh)
 	}
 	if strings.Contains(zh[0], "前后") || strings.Contains(zh[0], "矛盾") {
@@ -147,7 +147,7 @@ func TestMaterializeDeniedTokenCaveatUsesVerificationSemantics(t *testing.T) {
 	}
 
 	en := MaterializeUnresolvedViolationsAsCaveats(violations, "en")
-	if len(en) != 1 || !strings.Contains(en[0], "pipeline-max-steps") || !strings.Contains(en[0], "does not yet verify") {
+	if len(en) != 1 || !strings.Contains(en[0], "pipeline-max-steps") || !strings.Contains(en[0], "repository-source mapping is not yet verified") {
 		t.Fatalf("English denied-token caveat must preserve the exact verification boundary: %v", en)
 	}
 }
@@ -157,7 +157,7 @@ func TestMaterializeDeniedTokenCaveatMalformedDetailKeepsTypedBoundary(t *testin
 		Kind:   types.ViolDeniedTokenUndeclared,
 		Detail: "malformed producer detail",
 	}}, "zh")
-	if len(got) != 1 || !strings.Contains(got[0], "名称尚未由当前证据确认") || strings.Contains(got[0], "前后") {
+	if len(got) != 1 || !strings.Contains(got[0], "名称的当前源码映射尚未验证") || strings.Contains(got[0], "前后") {
 		t.Fatalf("malformed detail must retain denial semantics without inventing a contradiction: %v", got)
 	}
 }
@@ -395,7 +395,7 @@ func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsDenied
 		Detail:     `answer block "d1" names token "trace中无UI渲染span可关联" without disclosing it as unverified / external`,
 		ClusterKey: "denied_token_undeclared:d1",
 	}}, "zh", ctx)
-	if !strings.Contains(out, "trace中无UI渲染span可关联") || !strings.Contains(out, "尚未由当前证据确认") {
+	if !strings.Contains(out, "trace中无UI渲染span可关联") || !strings.Contains(out, "当前源码映射尚未验证") {
 		t.Fatalf("mixed visible blocks should keep typed-denial caveat disclosure:\n%s", out)
 	}
 	if strings.Contains(out, "答案前后某些表述") {
@@ -463,7 +463,7 @@ func TestAppendSoftContractCaveatsToAnswerForBus_ArtifactLocalFrameGetsPreciseBo
 			t.Fatalf("precise artifact-local boundary missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "尚未由当前证据确认") {
+	if strings.Contains(out, "尚未由当前证据确认") || strings.Contains(out, "当前源码映射尚未验证") {
 		t.Fatalf("artifact-local evidence must not be described as absent evidence:\n%s", out)
 	}
 }
@@ -486,7 +486,7 @@ func TestAppendSoftContractCaveatsToAnswerForBus_UnrelatedDeniedTokenKeepsVerifi
 		Detail:     `answer block "summary" names token "not-observed.go" without disclosing it as unverified / external`,
 		ClusterKey: "denied_token_undeclared:summary",
 	}}, "zh", ctx)
-	if !strings.Contains(out, "not-observed.go") || !strings.Contains(out, "尚未由当前证据确认") {
+	if !strings.Contains(out, "not-observed.go") || !strings.Contains(out, "当前源码映射尚未验证") {
 		t.Fatalf("unrelated denial must keep the conservative verification caveat:\n%s", out)
 	}
 }

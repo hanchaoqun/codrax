@@ -183,6 +183,6 @@ func proseRepairHint(token string, isPath bool) string {
 	} else {
 		what = "this identifier"
 	}
-	return fmt.Sprintf("Re-emit this answer block with an explicit disclosure that %q comes from external runtime input (an attached log frame / trace tag) and is NOT present in the current repository — e.g., \"%s (from the attached input; %s could not be verified against repository sources)\". Do not silently cite or paraphrase %s as if it were a real repository symbol.",
+	return fmt.Sprintf("Re-emit this answer block with an explicit disclosure that the current repository source mapping of %q is unverified — e.g., \"%s (%s could not be verified against repository sources)\". This does not establish that the repository lacks a same-name file or symbol, or that an attachment did not record the name. Preserve independently supported runtime observations without treating %s as a verified repository definition or inferring an unproven mechanism.",
 		token, token, what, token)
 }
