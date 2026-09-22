@@ -175,7 +175,7 @@ func TestTraceCausalCoverageFrameUnprovenKeepsTypedChainAndBackgroundAuthoritySe
 	}
 	for _, want := range []string{
 		"帧级因果尚未证明",
-		"唤醒/阻塞链只支持所选窗口内的链上候选与可消除量",
+		"唤醒/阻塞链只支持所选窗口内的链上候选与估算优化潜力",
 		"无链上凭证的调度、IO、频率观察仍只能作为邻近或背景",
 		"不证明具体丢帧因果",
 	} {

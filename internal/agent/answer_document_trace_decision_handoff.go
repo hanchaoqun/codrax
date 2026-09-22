@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -66,16 +67,17 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 	var b strings.Builder
 	b.WriteString("## Trace Decision Inputs (Model Owns The Conclusion)\n\n")
 	b.WriteString("- The deterministic system owns only the typed measurements, rank seats, wakeup paths, and evidence boundary below. You own the diagnosis and final recommendation. Do not present this handoff as a system-authored conclusion and do not merely repeat the rows.\n")
+	b.WriteString("- " + tracefence.OptimizationMeaningEN + "\n")
 	b.WriteString("- " + types.AnswerControlMetadataVisibilityGuide + " This applies to every machine-facing Trace token below, including coverage/status, role, lane, caliber, authority, and candidate enums; keep the typed field in the tool payload when required, but use only its reader-language meaning in the visible answer.\n")
 	hasActual, hasEliminable := traceDecisionAxesPresent(set)
 	switch {
 	case hasActual && hasEliminable:
-		b.WriteString("- Write a concise synthesis before the detailed evidence. Compare the two distinct decision axes that are actually available (this distinction is not a claim of physical independence): (A) actual time occupancy / critical-path observations, including measured waiting and high-cost work that current formulas do not price, to identify new investigation or optimization directions; and (B) existing-rule eliminable impact, to prioritize already-priced repairs. Explain why the leading direction matters and what to verify or change first.\n")
+		b.WriteString("- Write a concise synthesis before the detailed evidence. Compare the two distinct decision axes that are actually available (this distinction is not a claim of physical independence): (A) actual time occupancy / critical-path observations, including measured waiting and high-cost work that current formulas do not price, to identify new investigation or optimization directions; and (B) existing-rule modeled potential, to prioritize already-priced repairs. Explain why the leading direction matters and what to verify or change first.\n")
 		b.WriteString("- Exhaustive-decomposition ceiling: describe a target wait, selected window, or elected path duration as fully explained/composed by listed Axis B seats only when one exact typed additive carrier publishes that same subtotal. Otherwise keep the Axis A occupancy/path duration and each Axis B seat separate; describe remaining on-chain occupancy as unpriced or unresolved instead of treating the arithmetic remainder as zero. Do not compute a residual by adding or subtracting overlapping rows unless a typed partition authorizes that arithmetic.\n")
 	case hasActual:
-		b.WriteString("- Write a concise synthesis of the available actual time occupancy / critical-path observations and the next investigation or optimization direction. No positive existing-rule eliminable seat is available here; do not invent one.\n")
+		b.WriteString("- Write a concise synthesis of the available actual time occupancy / critical-path observations and the next investigation or optimization direction. No positive existing-rule modeled-potential seat is available here; do not invent one.\n")
 	case hasEliminable:
-		b.WriteString("- Write a concise synthesis of the available existing-rule eliminable seats and the first repair to validate. No separately bound typed actual-occupancy candidate is available here; do not invent one.\n")
+		b.WriteString("- Write a concise synthesis of the available existing-rule modeled-potential seats and the first repair to validate. No separately bound typed actual-occupancy candidate is available here; do not invent one.\n")
 	default:
 		b.WriteString("- Synthesize only the available target-state, wakeup-path, and evidence-boundary inputs. Do not invent an occupancy or eliminable ranking that is absent below.\n")
 	}

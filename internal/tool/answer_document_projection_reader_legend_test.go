@@ -37,9 +37,9 @@ func TestTraceProjectionReaderLegendIsBoundedAndCustomerFacing(t *testing.T) {
 	}
 	text := strings.Join(lines, "\n")
 	for _, want := range []string{
-		"主根因专指已证链上项目中单项可消除量最大的项目",
+		"主根因专指已证链上项目中单项估算优化潜力最大的项目",
 		"后二者都不能替代链上根因",
-		"不同修复方向的收益不能直接相加",
+		"不同修复方向的潜力不能直接相加",
 		"不是墙钟时长",
 		"不据此补造唤醒边",
 		"帧因果尚未证明",

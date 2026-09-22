@@ -71,10 +71,10 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceRankAuthorityZ3(t *testing.
 		"排序范围：唤醒/依赖链上",
 		"排序范围：邻近区域（仅支撑额外排查，不属于链上主因）",
 		"按名次排列的原因清单",
-		"#1 CookieMonsterCl-59843：优先级反转候选；按现有规则可消除影响 23.994ms",
-		"#2 ThreadPoolForeg-60555：D-state/iowait；按现有规则可消除影响 10.433ms",
-		"#3 RenderThread-60666：runnable；按现有规则可消除影响 10.400ms",
-		"#4 com.baidu.tieba-59566：running；按现有规则可消除影响 10.331ms",
+		"#1 CookieMonsterCl-59843：优先级反转候选；估算优化潜力影响 23.994ms",
+		"#2 ThreadPoolForeg-60555：D-state/iowait；估算优化潜力影响 10.433ms",
+		"#3 RenderThread-60666：runnable；估算优化潜力影响 10.400ms",
+		"#4 com.baidu.tieba-59566：running；估算优化潜力影响 10.331ms",
 		"算力供给补充：#4 com.baidu.tieba-59566",
 		"已测算力供给提升空间",
 		"不单独证明热限频、调频策略限制或绑错核",
@@ -119,8 +119,8 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceRankAuthorityZ3(t *testing.
 	}
 	for _, want := range []string{
 		"ranking scope: on the wakeup/dependency chain",
-		"#1 CookieMonsterCl-59843: priority inversion (candidate); 23.994ms eliminable under existing rules",
-		"#2 ThreadPoolForeg-60555: D-state/iowait; 10.433ms eliminable under existing rules",
+		"#1 CookieMonsterCl-59843: priority inversion (candidate); 23.994ms modeled potential under existing rules",
+		"#2 ThreadPoolForeg-60555: D-state/iowait; 10.433ms modeled potential under existing rules",
 		"Compute-supply note: #4 com.baidu.tieba-59566",
 	} {
 		if !strings.Contains(en, want) {

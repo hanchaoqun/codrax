@@ -336,7 +336,7 @@ func TestElimV2RankFoldDirectionAdoptionDonghuFlagship(t *testing.T) {
 	// The adopted pair publishes the flagship subtotal (7.405 + 4.710 —
 	// disjoint typed envelopes; the direction-bare mutation kills this line
 	// together with the section attribution).
-	if !strings.Contains(elim, "▸ 锁与优先级 · 最大可消 7.405ms · 2席 · 小计 12.115ms(区间互斥)") {
+	if !strings.Contains(elim, "▸ 锁与优先级 · 最大估算潜力 7.405ms · 2席 · 小计 12.115ms(区间互斥)") {
 		t.Fatalf("件1: the 锁与优先级 head must publish the flagship subtotal:\n%s", elim)
 	}
 	// Tree face: the surviving rows wear the adopted 修向 word.

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -183,15 +184,15 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 		"worker-200：调度延迟，已测 8.300 毫秒",
 		"另有链上累计 9.000 毫秒，这是不同的链路累计口径，不能改称为该状态的实测占用",
 		"compiler-300：JIT编译，已测 4.500 毫秒；未证位于依赖链上，只能作为耗时与优化线索，不能作为主因",
-		"按现有规则可消除的影响（用于修复优先级，不等同于实测等待时长）",
-		"第 1 位，worker-200：优先级反转候选；可消除影响 8.300 毫秒；低优先级依赖方的调度/算力供给候选，未证明反转已发生或存在锁阻塞；另有链上累计 9.000 毫秒",
+		"估算优化潜力（用于修复优先级，不等同于实测等待时长）",
+		"第 1 位，worker-200：优先级反转候选；估算优化潜力 8.300 毫秒；低优先级依赖方的调度/算力供给候选，未证明反转已发生或存在锁阻塞；另有链上累计 9.000 毫秒",
 		"证据允许的表述：只有每条记录的链路位置和依赖凭证确认其在链上时，才陈述证据行实际计入的低优先级依赖方贡献",
 		"尚未证明：候选标签或唤醒先后本身不证明该线程持有 CPU、锁或资源",
 		"背景与邻近信息（只能支撑额外排查方向，不得升级为链上主因或参与根因序数）",
 		"system-load：CPU竞争压力",
 		"业务线索（用于解释链上工作并提出业务修向，不凭名称自行补造因果）",
 		"worker-200 的 BuildFeedCards：3 次，合计 4.200 毫秒，单次最大 2.100 毫秒",
-		"同时回答真实耗时集中与按现有规则可消除影响两个维度",
+		"同时回答真实耗时集中与估算优化潜力影响两个维度",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("reader-ready Trace card missing %q:\n%s", want, got)
@@ -239,9 +240,9 @@ func TestTraceFinalReaderDecisionCardUsesEnglishReaderLabels(t *testing.T) {
 		"## Reader-ready Trace facts (the model owns the conclusion)",
 		"Measured time concentrations",
 		"storage-worker: IO wait, measured 7.000 ms",
-		"Impact eliminable under existing rules",
-		"Rank 1, storage-worker: D-state/iowait; eliminable impact 6.000 ms; separate measured state account (IO wait): 7.000 ms",
-		"address both measured time concentration and impact eliminable under existing rules",
+		"Modeled potential under existing rules",
+		"Rank 1, storage-worker: D-state/iowait; modeled potential 6.000 ms; separate measured state account (IO wait): 7.000 ms",
+		"address both measured time concentration and modeled potential under existing rules",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("English reader-ready Trace card missing %q:\n%s", want, got)
@@ -531,6 +532,7 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Final Trace Decision Boundary (Typed Facts; Model-Owned Conclusion)",
+		tracefence.OptimizationMeaningEN,
 		"You own the diagnosis, prioritization, optimization direction, and wording",
 		"Principal Trace summary contract",
 		"exactly one value allowed by the dispatch-local tool schema",
@@ -583,7 +585,7 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling",
 		"## Reader-ready Trace facts (the model owns the conclusion)",
 		"do not expose JSON field names, internal enum values, status codes",
-		"address both measured time concentration and impact eliminable under existing rules",
+		"address both measured time concentration and modeled potential under existing rules",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("trace final boundary missing %q:\n%s", want, prompt)
@@ -595,6 +597,9 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		}
 	}
 	decisionBoundary := renderAnswerDocTraceFinalDecisionBoundary(ctx)
+	if !strings.Contains(decisionBoundary, tracefence.OptimizationMeaningEN) {
+		t.Fatal("final synthesis boundary lost the shared estimate-versus-realized-benefit meaning")
+	}
 	for _, forbidden := range []string{
 		"bounded_window_candidate", "no_causal_conclusion", "typed_chain_cause", "typed_frame_cause", "trace_causal_claim_caliber_mapping",
 	} {

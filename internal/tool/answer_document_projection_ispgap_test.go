@@ -472,7 +472,7 @@ func TestISPGAPMirrorExemptChainedBoardByteIdentical(t *testing.T) {
 	// 互指句在场: the AXIOM-V2 cross-direction mutual clauses render (the
 	// mirror-partner ambiguity killed them both-or-neither).
 	combined := fenceWith + "\n" + detailWith
-	if !strings.Contains(combined, "同段重叠") || !strings.Contains(combined, "收益不叠加") {
+	if !strings.Contains(combined, "同段重叠") || !strings.Contains(combined, "潜力不可相加") {
 		t.Fatalf("F-A 互指句在场: the cross-direction mutual clauses must render on the chained board:\n%s", combined)
 	}
 }

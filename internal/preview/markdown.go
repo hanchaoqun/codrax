@@ -164,7 +164,7 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 		// grid CSS) plus its own hook class; classified on its OWN typed
 		// second info token — a brand-new form with no archives, so no
 		// content-sniffing fallback exists for it.
-		_, _ = fmt.Fprint(w, `<pre class="trace-projection-tree trace-elim-overview" role="region" aria-label="Trace eliminable-in-window overview" tabindex="0"><code`)
+		_, _ = fmt.Fprint(w, `<pre class="trace-projection-tree trace-elim-overview" role="region" aria-label="`+tracefence.OptimizationOverviewEN+`" tabindex="0"><code`)
 	case projectionTree:
 		// The generated trace tree is a horizontally scrollable, information-
 		// dense region in the standalone report.  Give the page CSS and assistive

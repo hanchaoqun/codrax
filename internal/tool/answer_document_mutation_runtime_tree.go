@@ -909,7 +909,7 @@ type runtimeTraceProjCrownWordSet struct {
 func runtimeTraceProjCrownWords(zh, frameCausalityUnproven bool) runtimeTraceProjCrownWordSet {
 	if zh {
 		out := runtimeTraceProjCrownWordSet{
-			HeadlinePrefix:   "**主根因(=已证链上单项最大可消除量):** ",
+			HeadlinePrefix:   "**主根因(=有链上依据的单项最大" + tracefence.OptimizationPotentialZH + "):** ",
 			DetailPosition:   "主根因(优先处理)",
 			SubjectKind:      "主根因",
 			ComparisonHeader: "主根因(" + tracefence.SeatChannelChainZH + "#1)",
@@ -917,12 +917,12 @@ func runtimeTraceProjCrownWords(zh, frameCausalityUnproven bool) runtimeTracePro
 		if frameCausalityUnproven {
 			out.HeadlineQualifier = types.TraceCausalQualifierFrameUnprovenSuffixZH
 			out.DetailPosition = "主根因(优先处理;帧因果未证)"
-			out.LegendQualifier = " 本席位的帧因果未证;该限定不改变已证链上可消除量及其席位排序。"
+			out.LegendQualifier = " 本席位的帧因果未证;该限定不改变有链上依据的" + tracefence.OptimizationPotentialZH + "及其席位排序。"
 		}
 		return out
 	}
 	out := runtimeTraceProjCrownWordSet{
-		HeadlinePrefix:   "**Primary root cause (= the largest single proven on-chain eliminable contribution):** ",
+		HeadlinePrefix:   "**Primary root cause (= the largest single on-chain " + tracefence.OptimizationPotentialEN + "):** ",
 		DetailPosition:   "primary (handle first)",
 		SubjectKind:      "primary root cause",
 		ComparisonHeader: "Primary root cause (" + tracefence.SeatChannelChainEN + " #1)",
@@ -930,7 +930,7 @@ func runtimeTraceProjCrownWords(zh, frameCausalityUnproven bool) runtimeTracePro
 	if frameCausalityUnproven {
 		out.HeadlineQualifier = " (frame causality unproven)"
 		out.DetailPosition = "primary (handle first; frame causality unproven)"
-		out.LegendQualifier = " Frame causality is unproven for this seat; that qualifier does not change its proven on-chain eliminable amount or seat order."
+		out.LegendQualifier = " Frame causality is unproven for this seat; that qualifier does not change its on-chain " + tracefence.OptimizationPotentialEN + " or seat order."
 	}
 	return out
 }
@@ -1728,8 +1728,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// DISPLAY caliber may differ; the sentence now says exactly that
 		// (标题口径括注恒挂形 = ruling pool, not implemented).
 		{runtimeTraceProjMarkBadge, runtimeTraceProjLegendGroupMark,
-			"- `➊..➎` = " + tracefence.SeatChannelChainZH + "前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 " + tracefence.SeatChannelChainZH + "#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),➊=按引擎发布的板内有效归因序(与树行显示口径可异),二者可不同(不同时标题括注注明口径);主根因=已证链上候选中单项最大可消除量的持有席,是量与凭证的选举结果而非机理层裁定——机理主张只来自唤醒链/阻塞证据。",
-			"- `➊..➎` = the top-5 root-cause seats (by effective attribution), issued per board (each query board its own TOP5); a badge-wearing row does not restate the " + tracefence.SeatChannelChainEN + " #N word on its identity line (the badge IS the ordinal; un-badged rows with an ordinal keep the word form); the headline primary root cause = the election authority (credential strength participates) while ➊ = the board's engine-published effective-attribution order (the tree rows' display caliber may differ from it) — the two may differ (a differing headline carries a caliber parenthetical); primary root cause = the seat holding the largest single proven on-chain eliminable contribution — an election over magnitude + credentials, never a mechanism-level verdict, mechanism claims ride only the wakeup-chain/blocking evidence."},
+			"- `➊..➎` = " + tracefence.SeatChannelChainZH + "前五(依有效归因),按板各发(每块查询板各自的 TOP5);佩章行行2不再复读 " + tracefence.SeatChannelChainZH + "#N 词(徽章即序数;未佩章而有序数的行保留词形);标题主根因=选举权威(凭证强度参与),➊=按引擎发布的板内有效归因序(与树行显示口径可异),二者可不同(不同时标题括注注明口径);主根因=有链上依据的候选中单项最大" + tracefence.OptimizationPotentialZH + "的持有席,是量与凭证的选举结果而非机理层裁定——机理主张只来自唤醒链/阻塞证据。",
+			"- `➊..➎` = the top-5 root-cause seats (by effective attribution), issued per board (each query board its own TOP5); a badge-wearing row does not restate the " + tracefence.SeatChannelChainEN + " #N word on its identity line (the badge IS the ordinal; un-badged rows with an ordinal keep the word form); the headline primary root cause = the election authority (credential strength participates) while ➊ = the board's engine-published effective-attribution order (the tree rows' display caliber may differ from it) — the two may differ (a differing headline carries a caliber parenthetical); primary root cause = the seat holding the largest single on-chain " + tracefence.OptimizationPotentialEN + " — an election over magnitude + credentials, never a mechanism-level verdict, mechanism claims ride only the wakeup-chain/blocking evidence."},
 		// PTV8-RCR-B (UXA 域A #8 REVISE 缩写稿, 2026-07-08). EVOLUTION RECORD:
 		// 「类型 token 自带的状态语义/沿用影响形态」内部推导话术 → 五词枚举直陈.
 		{runtimeTraceProjMarkStateLabel, runtimeTraceProjLegendGroupMark,
@@ -1810,8 +1810,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// Caliber group keeps catalog order). 强→弱 per the ruling verbatim;
 		// the closing conservativeness sentence rides the head row.
 		{runtimeTraceProjMarkChainCredentialTierFamily, runtimeTraceProjLegendGroupCaliber,
-			"- 入链凭证词族(每 ⛓ 席行恰佩其一,自强至弱四档;词越靠后,该行数值作为已证可消除量的成色越保守):",
-			"- Chain-credential word family (every ⛓ seat row wears exactly one; four tiers strong→weak — the later the word, the more conservative the row's value is as a proven eliminable amount):"},
+			"- 入链凭证词族(每 ⛓ 席行恰佩其一,自强至弱四档;词越靠后,该行数值作为有链上依据的" + tracefence.OptimizationPotentialZH + "的成色越保守):",
+			"- Chain-credential word family (every ⛓ seat row wears exactly one; four tiers strong→weak — the later the word, the more conservative the row's value is as an on-chain " + tracefence.OptimizationPotentialEN + "):"},
 		{runtimeTraceProjMarkChainCredentialTierFamily, runtimeTraceProjLegendGroupCaliber,
 			"- `·" + tracefence.CredentialTierWakeupAnchoredZH + "` = 宿主线程自身对目标的窗内 typed 唤醒边为关系凭证；状态席与语义 span 的计价口径不同，详见同名图例。",
 			"- `·" + tracefence.CredentialTierWakeupAnchoredEN + "` = the host thread's own in-window typed wakeup edge is a relation credential; state seats and semantic spans use different attribution calibers described in the matching legend."},
@@ -2018,19 +2018,19 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			// legend spoke a ledger 「§」 number on a user face — the very
 			// vocabulary class 件10 swept; retired (the sweep pin bans 「§」).
 			// 件1: the zone-⑤ token quotes the 定稿 aux head verbatim.
-			"- `◎` = 窗内可消除量总览:同尺(目标线程窗内墙钟ms)持值行的导航索引,五区制:①`▸` 修复方向节区(链上席,节序=其他方向恒末,余按节内最大可消降序、节内按发布值降序,方向间收益不可相加)→②`◈` 业务线索(名维度,多行 TOP8,无 bar)→③`◇` 邻近(条件可消上界,多行 TOP3)→④`▒` 背景(多行 TOP3,无 bar)→⑤`— 辅助 · 对账与另账(不占序数) —`;零序数·零佩戴·定位走 [E#]·满格=各区TOP1(小值区条不再恒近空);只转录值、口径注记与指针,不铸序数、不佩戴徽章、不跨方向求和、不加冕,榜位与徽章唯一归属见下方主榜;链上席=已证可消除量,◇=条件可消除上界(因果候选成立时至多好这么多);计数当量/复合分数等口径不参与汇排,以 辅助区 口径旁栏 行提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
-			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows on ONE ruler (the focused thread's in-window wall-clock ms), five zones: ① `▸` fix-direction sections (on-chain seats; the other-directions tail section is always last, the rest order by max eliminable desc, published value desc within each section; gains never add across directions) → ② `◈` business leads (name dimension, TOP8 rows, no bar) → ③ `◇` adjacent (conditional upper bounds, TOP3 rows) → ④ `▒` background (TOP3 rows, no bar) → ⑤ `— auxiliary · reconciliation & side accounts (no ordinal) —`; zero ordinals · zero wear · locate via [E#] · bar full = each zone's TOP1 (small-value zones no longer render near-empty bars); it only transcribes values, caliber notes and pointers — no ordinals, no badges, no cross-direction sums, no crowns; seats and badges belong solely to the main board below. On-chain seats = proven eliminable amounts; ◇ = conditional upper bounds (at most this much if the causal candidate holds); count-equivalent / composite-score calibers never join the ranking and ride the auxiliary caliber-sidebar rows; ordinals still never compare across channels — only same-ruler values sit side by side."},
+			"- `◎` = " + tracefence.OptimizationOverviewZH + ":同尺(目标线程窗内墙钟ms)持值行的导航索引,五区制:①`▸` 修复方向节区(链上席,节序=其他方向恒末,余按节内最大估算潜力降序、节内按发布值降序,方向间收益不可相加)→②`◈` 业务线索(名维度,多行 TOP8,无 bar)→③`◇` 邻近(条件模型潜力,多行 TOP3)→④`▒` 背景(多行 TOP3,无 bar)→⑤`— 辅助 · 对账与另账(不占序数) —`;零序数·零佩戴·定位走 [E#]·满格=各区TOP1(小值区条不再恒近空);只转录值、口径注记与指针,不铸序数、不佩戴徽章、不跨方向求和、不加冕,榜位与徽章唯一归属见下方主榜;链上席=有链上依据的" + tracefence.OptimizationPotentialZH + ",◇=条件模型潜力(" + tracefence.OptimizationAdjacentZH + ");计数当量/复合分数等口径不参与汇排,以 辅助区 口径旁栏 行提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。" + tracefence.OptimizationMeaningZH,
+			"- `◎` = " + tracefence.OptimizationOverviewEN + ": a navigation index over the valued rows on ONE ruler (the focused thread's in-window wall-clock ms), five zones: ① `▸` fix-direction sections (on-chain seats; the other-directions tail section is always last, the rest order by max potential desc, published value desc within each section; gains never add across directions) → ② `◈` business leads (name dimension, TOP8 rows, no bar) → ③ `◇` adjacent (conditional model bounds, TOP3 rows) → ④ `▒` background (TOP3 rows, no bar) → ⑤ `— auxiliary · reconciliation & side accounts (no ordinal) —`; zero ordinals · zero wear · locate via [E#] · bar full = each zone's TOP1 (small-value zones no longer render near-empty bars); it only transcribes values, caliber notes and pointers — no ordinals, no badges, no cross-direction sums, no crowns; seats and badges belong solely to the main board below. On-chain seats = on-chain " + tracefence.OptimizationPotentialEN + " values; ◇ = conditional model bounds (" + tracefence.OptimizationAdjacentEN + "); count-equivalent / composite-score calibers never join the ranking and ride the auxiliary caliber-sidebar rows; ordinals still never compare across channels — only same-ruler values sit side by side." + tracefence.OptimizationMeaningEN},
 		// ELIM-V2 方向分组制 mark entries (2026-07-18; each renders exactly
 		// with its ◎ word face — 词条-图例双向):
 		{runtimeTraceProjMarkElimDirectionSection, runtimeTraceProjLegendGroupMark,
-			"- `▸ <方向> · 最大可消 X ms` = ◎ 链上块的修复方向节头:方向词来自 registry 属性轴闭集,「最大可消」恒为该节最大席值的逐字转录(原始值在其席行本体);节序=其他方向恒末,余按节内最大可消降序,节内按发布值降序;节头零序数零徽章,方向间收益不可相加。",
-			"- `▸ <direction> · max eliminable X ms` = a fix-direction section head of the ◎ chain block: the direction word comes from the registry attribute-axis closed set, and 「max eliminable」 is the verbatim transcription of the section's largest seat value (the original lives on its member row); the other-directions tail section is always last, the rest order by max eliminable desc, members by published value desc; heads carry no ordinal and no badge, and gains never add across directions."},
+			"- `▸ <方向> · 最大估算潜力 X ms` = ◎ 链上块的修复方向节头:方向词来自 registry 属性轴闭集,「最大估算潜力」恒为该节最大席值的逐字转录(原始值在其席行本体);节序=其他方向恒末,余按节内最大估算潜力降序,节内按发布值降序;节头零序数零徽章,方向间收益不可相加。",
+			"- `▸ <direction> · max potential X ms` = a fix-direction section head of the ◎ chain block: the direction word comes from the registry attribute-axis closed set, and 「max potential」 is the verbatim transcription of the section's largest seat value (the original lives on its member row); the other-directions tail section is always last, the rest order by max potential desc, members by published value desc; heads carry no ordinal and no badge, and gains never add across directions."},
 		{runtimeTraceProjMarkElimSectionSubtotal, runtimeTraceProjLegendGroupMark,
 			"- 节头 `小计 X ms(区间互斥)` = 该节成员席的 µs 级求和,仅当每席带忠实 typed 时间包络且两两互斥(包络互斥 ⇒ 支撑段互斥,同段物理时间零重复计费)才发布;小计可由下方成员席行逐 µs 重构;跨方向、跨板、未证互斥一律不发。",
 			"- head `subtotal X ms (disjoint intervals)` = the µs-level sum of the section's member seats, published ONLY when every seat carries a faithful typed time envelope and the envelopes are pairwise exclusive (envelope exclusivity ⇒ support exclusivity — no physical time double-billed); the subtotal reconstructs µs-for-µs from the member rows below; never across directions, boards, or unproven exclusivity."},
 		{runtimeTraceProjMarkElimSectionNonAddable, runtimeTraceProjLegendGroupMark,
-			"- 节头 `" + runtimeTraceProjElimEnvelopeOverlapZH + "` = 该节成员的定位范围相交,不代表计量分量真实重叠;当前口径不能据此直接求和,故不发小计,只发最大可消。",
-			"- head `" + runtimeTraceProjElimEnvelopeOverlapEN + "` = the section members' locator ranges intersect; this does not establish overlap of the measured components. This evidence alone does not authorize adding the values, so no subtotal is published — only the max eliminable."},
+			"- 节头 `" + runtimeTraceProjElimEnvelopeOverlapZH + "` = 该节成员的定位范围相交,不代表计量分量真实重叠;当前口径不能据此直接求和,故不发小计,只发最大估算潜力。",
+			"- head `" + runtimeTraceProjElimEnvelopeOverlapEN + "` = the section members' locator ranges intersect; this does not establish overlap of the measured components. This evidence alone does not authorize adding the values, so no subtotal is published — only the max potential."},
 		// OMGCLEAN-1 件1 (§29.175 裁定②, 2026-07-20). EVOLUTION RECORD: the
 		// tail word 「方向未定/复合」/"direction unresolved/composite" read as
 		// an unfinished-analysis claim — renamed 「其他方向」/"other
@@ -2040,14 +2040,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `▸ 其他方向` = 链上块尾节(恒末):修复方向不在六类闭集内、或引擎未绑定单一方向的席位落此;不猜方向、零小计;席行既有口径注记与披露原样保留。",
 			"- `▸ other directions` = the chain block's tail section (always last): seats whose fix direction sits outside the six-direction closed set, or whose direction the engine never bound to a single one, land here — no guessed direction, no subtotal; the rows keep their existing caliber notes and disclosures as they are."},
 		{runtimeTraceProjMarkElimCrossDirectionChip, runtimeTraceProjLegendGroupMark,
-			"- `·∩[E#]` 与 辅助行 `∩ 重叠对` = 真实 typed 跨方向重叠对的 ◎ 转录:两席作用于同段物理时间,修其一后另一席空间会缩,收益不叠加;完整互指句权威在因果树席行,◎ 只转录;无 typed 重叠对载体则两者均不发。",
-			"- `·∩[E#]` and the auxiliary `∩ overlap` row = the ◎ transcription of REAL typed cross-direction overlap pairs: the two seats act on the same physical segment — fixing one shrinks the other seat's headroom, the gains never add; the authoritative full mutual clause lives on the causal-tree rows (◎ only transcribes); with no typed pair carrier neither renders."},
+			"- `·∩[E#]` 与 辅助行 `∩ 重叠对` = 真实 typed 跨方向重叠对的 ◎ 转录:两席作用于同段物理时间," + tracefence.OptimizationOverlapZH + ";完整互指句权威在因果树席行,◎ 只转录;无 typed 重叠对载体则两者均不发。",
+			"- `·∩[E#]` and the auxiliary `∩ overlap` row = the ◎ transcription of REAL typed cross-direction overlap pairs: the two seats act on the same physical segment — " + tracefence.OptimizationOverlapEN + "; the authoritative full mutual clause lives on the causal-tree rows (◎ only transcribes); with no typed pair carrier neither renders."},
 		{runtimeTraceProjMarkElimAdjacentDirectionWord, runtimeTraceProjLegendGroupMark,
 			"- ◇ 行内 `·方向=X` = 邻近席修复方向的转录词(同一 registry 闭集词表):◇ 块不分节,方向仍可见;方向未解析的席不佩(不猜)。",
 			"- inline `· direction=X` on ◇ rows = the adjacent seat's fix-direction transcription (same registry closed word table): the ◇ block stays unsectioned yet the direction stays visible; unresolved seats wear nothing (never guessed)."},
 		{runtimeTraceProjMarkElimAdjacentBlockHead, runtimeTraceProjLegendGroupMark,
-			"- `◇ 邻近(条件可消上界 · 不入方向守恒)` = 邻近块头:◇ 席是条件可消除上界,不进入方向守恒种群,也不入任何节小计。",
-			"- `◇ adjacent (conditional upper bound · outside direction conservation)` = the adjacent block head: ◇ seats are conditional upper bounds — they never enter the direction-conservation population nor any section subtotal."},
+			"- `◇ 邻近(条件模型潜力 · 不入方向守恒)` = 邻近块头:◇ 席是条件模型潜力,不进入方向守恒种群,也不入任何节小计。",
+			"- `◇ adjacent (conditional model potential · outside direction conservation)` = the adjacent block head: ◇ seats are conditional model bounds — they never enter the direction-conservation population nor any section subtotal."},
 		// 双复核修复 件6: the pass row closes on the bare ✓ (定稿形) — the
 		// checker word teaches here, never on the row.
 		// RULE3-1 件10 (§29.183 G9, 2026-07-21): the population sentence —
@@ -2352,8 +2352,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkGatedCompositeEdgeShare, runtimeTraceProjLegendGroupMark,
 			// 双复核修复 件2: the ◎ row form clause co-moves — row value =
 			// the seat's own account, inline 括注 = the pre/post identity.
-			"- `边前份披露(按口径不拆段入榜)` 与 ◎ 辅助行 `未入榜最大` = 复合席(优先级反转 runnable 等待族)携唤醒边界后份额时,按口径整席不拆、不因边前份高单独拆段入榜的分账测度披露:边前份 X=唤醒边前段合计(凭证:该线程对目标的窗内 typed 唤醒边),边后份 Y=边界后段合计(边界后,不入链上),X+Y=本席 runnable 全窗账逐 µs 恒等;仅披露——席位数值与排序零动,边前份与本席已发布值同段、不与之相加;◎ 总览以 `未入榜最大` 辅助行提及,行值=本席账,值后括注列 唤醒边前/边后 两份额即上式恒等(不占序数、不参与节头「最大可消」、不入任何守恒/普查分母)。",
-			"- `pre-edge share disclosure (kept whole per its caliber; not split into a board row)` and the ◎ auxiliary `unranked max` row = the split-MEASURE disclosure on a gated composite seat (priority-inversion runnable-wait family) carrying a post-edge share: the seat stays whole per its caliber and never enters the board on the strength of its pre-edge share alone; pre-edge share X = the segment sum before the wakeup-edge boundary (credential: the thread's own in-window typed wakeup edge toward the target), post-edge share Y = the segment sum after the boundary (never on-chain), X + Y == the seat's runnable full-window account to the µs; disclosure only — seat values and ordering untouched, the pre-edge share covers the same segments as the seat's published value and is never additive to it; the ◎ overview mentions it through the `unranked max` auxiliary row, whose value IS the seat's account with the pre/post shares of that identity in the parenthetical right after it (no ordinal, never inside a section head's max-eliminable, never in any conservation/census denominator)."},
+			"- `边前份披露(按口径不拆段入榜)` 与 ◎ 辅助行 `未入榜最大` = 复合席(优先级反转 runnable 等待族)携唤醒边界后份额时,按口径整席不拆、不因边前份高单独拆段入榜的分账测度披露:边前份 X=唤醒边前段合计(凭证:该线程对目标的窗内 typed 唤醒边),边后份 Y=边界后段合计(边界后,不入链上),X+Y=本席 runnable 全窗账逐 µs 恒等;仅披露——席位数值与排序零动,边前份与本席已发布值同段、不与之相加;◎ 总览以 `未入榜最大` 辅助行提及,行值=本席账,值后括注列 唤醒边前/边后 两份额即上式恒等(不占序数、不参与节头「最大估算潜力」、不入任何守恒/普查分母)。",
+			"- `pre-edge share disclosure (kept whole per its caliber; not split into a board row)` and the ◎ auxiliary `unranked max` row = the split-MEASURE disclosure on a gated composite seat (priority-inversion runnable-wait family) carrying a post-edge share: the seat stays whole per its caliber and never enters the board on the strength of its pre-edge share alone; pre-edge share X = the segment sum before the wakeup-edge boundary (credential: the thread's own in-window typed wakeup edge toward the target), post-edge share Y = the segment sum after the boundary (never on-chain), X + Y == the seat's runnable full-window account to the µs; disclosure only — seat values and ordering untouched, the pre-edge share covers the same segments as the seat's published value and is never additive to it; the ◎ overview mentions it through the `unranked max` auxiliary row, whose value IS the seat's account with the pre/post shares of that identity in the parenthetical right after it (no ordinal, never inside a section head's max potential, never in any conservation/census denominator)."},
 		// RULER2-1 (§29.150② user ruling / R-19-b, 2026-07-19): the self
 		// runnable two-ruler cross-row accounting entry — the 行2 sentence
 		// states the split, this entry names the rule (同尺可加/跨尺禁加).
@@ -2412,8 +2412,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// (口径词 同段重叠; overlap ≤ min of the two support unions by
 		// construction).
 		{runtimeTraceProjMarkCrossDirectionOverlap, runtimeTraceProjLegendGroupMark,
-			"- `与[E#](修向 X)同段重叠 Y ms…收益不叠加` = 同线程同窗同板同口径(墙钟)、修复方向不同的两个严格链上全额席,其 typed 支撑区间交集为 Y ms(同段重叠,恒有 Y ≤ 两席支撑区间较小者):跨方向对同段时间的净收益各自合法,修其一后另一席空间会缩,收益不能相加;互指句成对出现(缺任一载体则两边都不发),仅披露不扣除(主值零动);低于显著阈(相对两席较小发布值)的极小重叠不发句,降入记号道保持可审计。",
-			"- `overlaps [E#] (fix-direction X) by Y ms … gains do not add` = two strict on-chain full seats of one thread/window/board/caliber (wall clock) across DIFFERENT fix directions whose typed support-interval intersection is Y ms (same-segment overlap; Y ≤ the smaller support union by construction): each direction's net gain over the shared segment is legitimate on its own, yet fixing one shrinks the other seat's headroom — the gains never add; the mutual clauses appear in pairs (a missing carrier drops BOTH sides) and disclose without deducting (values untouched); an overlap below the significance floor (relative to the smaller seat's published value) speaks no clause and demotes to the audit token path."},
+			"- `与[E#](修向 X)同段重叠 Y ms…收益不叠加` = 同线程同窗同板同口径(墙钟)、修复方向不同的两个严格链上全额席,其 typed 支撑区间交集为 Y ms(同段重叠,恒有 Y ≤ 两席支撑区间较小者):" + tracefence.OptimizationOverlapZH + ";互指句成对出现(缺任一载体则两边都不发),仅披露不扣除(主值零动);低于显著阈(相对两席较小发布值)的极小重叠不发句,降入记号道保持可审计。",
+			"- `overlaps [E#] (fix-direction X) by Y ms … gains do not add` = two strict on-chain full seats of one thread/window/board/caliber (wall clock) across DIFFERENT fix directions whose typed support-interval intersection is Y ms (same-segment overlap; Y ≤ the smaller support union by construction): " + tracefence.OptimizationOverlapEN + "; the mutual clauses appear in pairs (a missing carrier drops BOTH sides) and disclose without deducting (values untouched); an overlap below the significance floor (relative to the smaller seat's published value) speaks no clause and demotes to the audit token path."},
 		// R3-IMPL (§29.88.1, 2026-07-15): the host-edge-anchored semantic
 		// seat's credential entry — the 行2 sentence names this seat's
 		// credential, this entry names the rule. ONCHAIN-3c (2026-07-19): the
@@ -2425,8 +2425,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			// span seat and the state seat alike — 边=凭证、边前=有效、边后=解除;
 			// the semantic completion mechanism stays a disclosure, never a zero
 			// (the B829 "可消除量为0" clause is retired; 图例是承诺面).
-			"- `" + tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标)` = 宿主自身对目标的窗内 typed 唤醒边是入链凭证。确定性语义 span 与 runnable/D-IO 状态席同用一条计价规则：边=凭证、边前=有效、边后=解除——边前份计入现有规则可消除量；语义完成机理未证仅作披露，不宣称 span 完成触发唤醒。边界取最晚窗内凭证边，跨边原始账按边界二分，无边则留在邻近/背景通道。",
-			"- `" + tracefence.CredentialTierWakeupAnchoredEN + " (host→target)` = the host's own in-window typed wakeup edge is the on-chain credential. A deterministic semantic span and a runnable/D-IO state seat share ONE pricing rule: edge=credential, pre-edge=effective, post-edge=released — the pre-edge share counts as current-rule eliminable attribution; the semantic completion mechanism stays unproven as a disclosure only and never claims span completion triggered the wakeup. The boundary is the latest in-window credential edge; crossing raw accounts split at it, and edge-less accounts remain adjacent/background."},
+			"- `" + tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标)` = 宿主自身对目标的窗内 typed 唤醒边是入链凭证。确定性语义 span 与 runnable/D-IO 状态席同用一条计价规则：边=凭证、边前=有效、边后=解除——边前份计入" + tracefence.OptimizationPotentialZH + "；语义完成机理未证仅作披露，不宣称 span 完成触发唤醒。边界取最晚窗内凭证边，跨边原始账按边界二分，无边则留在邻近/背景通道。",
+			"- `" + tracefence.CredentialTierWakeupAnchoredEN + " (host→target)` = the host's own in-window typed wakeup edge is the on-chain credential. A deterministic semantic span and a runnable/D-IO state seat share ONE pricing rule: edge=credential, pre-edge=effective, post-edge=released — the pre-edge share counts as current-rule " + tracefence.OptimizationPotentialEN + "; the semantic completion mechanism stays unproven as a disclosure only and never claims span completion triggered the wakeup. The boundary is the latest in-window credential edge; crossing raw accounts split at it, and edge-less accounts remain adjacent/background."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
 			"- `发生段` = 同(线程,状态,对端)的多次分别发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
@@ -2466,8 +2466,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// self-basis qualifier's teaching seat — renders exactly when the
 		// qualifier renders (typed node.OnChainBasis single field).
 		{runtimeTraceProjMarkSelfDeterministicBasis, runtimeTraceProjLegendGroupCaliber,
-			"- `" + tracefence.CredentialTierTargetSelfZH + "·确定性优化` = 目标线程自身运行段内的确定性语义工作(类校验/JIT/着色器编译等):在查询窗内即按链上通道参与根因排序,数值为窗内投影并集(自身墙钟,已证可消除量);该行不含任何唤醒边、不宣称跨线程唤醒关系。",
-			"- `" + tracefence.CredentialTierTargetSelfEN + "·deterministic-optimization` = deterministic semantic work inside the target thread's own running segments (class verification / JIT / shader compile …): in-window it competes on the on-chain root-cause channel with its window-projection union value (the target's own wall clock, a proven eliminable amount); the row carries NO wakeup edge and claims no cross-thread wakeup relation."},
+			"- `" + tracefence.CredentialTierTargetSelfZH + "·确定性优化` = 目标线程自身运行段内的确定性语义工作(类校验/JIT/着色器编译等):在查询窗内即按链上通道参与根因排序,数值为窗内投影并集(自身墙钟,有链上依据的" + tracefence.OptimizationPotentialZH + ");该行不含任何唤醒边、不宣称跨线程唤醒关系。",
+			"- `" + tracefence.CredentialTierTargetSelfEN + "·deterministic-optimization` = deterministic semantic work inside the target thread's own running segments (class verification / JIT / shader compile …): in-window it competes on the on-chain root-cause channel with its window-projection union value (the target's own wall clock, an on-chain " + tracefence.OptimizationPotentialEN + "); the row carries NO wakeup edge and claims no cross-thread wakeup relation."},
 		// SELF-ALL (§29.61.2/§29.61.2a user rulings, 2026-07-13): the wall-clock
 		// self-basis qualifier's teaching seat — renders exactly when the
 		// qualifier renders (typed node.OnChainBasis single field).
@@ -2516,8 +2516,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// and a single-term key would misread those rows as class-priced
 		// (key pair mirrors the …FreqOnlyCapability entry's own dual head).
 		{runtimeTraceProjMarkCaliberLowerBound, runtimeTraceProjLegendGroupCaliber,
-			"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」/「按频率比」的行除外);真实可消除量只多不少。",
-			"- `lower bound` = a conservative minimum: slices with missing frequency data count 0; the core-class capability gap is already priced in (default or measured — rows marked 「frequency-ratio fold only」/「frequency-ratio basis」 excepted); the truly removable amount can only be larger."},
+			"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」/「按频率比」的行除外);" + tracefence.OptimizationLowerBoundZH + "。",
+			"- `lower bound` = a conservative minimum: slices with missing frequency data count 0; the core-class capability gap is already priced in (default or measured — rows marked 「frequency-ratio fold only」/「frequency-ratio basis」 excepted); " + tracefence.OptimizationLowerBoundEN + "."},
 		// CAP (§26 C3, 2026-07-08): the capability disclosure words' legend
 		// seats — 默认表粗算必须披露, and the fail-loud freq_only fallback
 		// teaches what it did NOT price.
@@ -2537,8 +2537,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// tree-head 本板成因 single declaration (the hoist) — the promise
 		// face names both carriers.
 		{runtimeTraceProjMarkCaliberFreqOnlyCapability, runtimeTraceProjLegendGroupCaliber,
-			"- `按纯频率比折算`/`按频率比` = 簇结构不可判(具体成因随行标注或树头`本板成因`一次声明:簇最高频并列/簇数超出核类表/簇合并证据不足(共见证变迁<2)/无频点采样/声明簇均无频点采样)、或仅单簇有频点采样(单簇内频点等价):核类算力差未计入,仅按频率比对全域最高频点(全 trace)折算(该形下不写核类词);真实缺口只多不少。",
-			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged (the specific cause rides the row or the head's one-time `board cause` declaration: cluster peak frequencies tie / cluster count exceeds the class table / insufficient cluster-merge evidence (co-witnessed transitions <2) / no frequency samples / declared clusters carry no frequency samples), or single-cluster samples only (equivalent within one cluster) — the core-class capability gap is NOT priced — the fold uses the frequency ratio alone against the global peak frequency point (full trace; no core-class word in that form); the true deficit can only be larger."},
+			"- `按纯频率比折算`/`按频率比` = 簇结构不可判(具体成因随行标注或树头`本板成因`一次声明:簇最高频并列/簇数超出核类表/簇合并证据不足(共见证变迁<2)/无频点采样/声明簇均无频点采样)、或仅单簇有频点采样(单簇内频点等价):核类算力差未计入,仅按频率比对全域最高频点(全 trace)折算(该形下不写核类词);" + tracefence.OptimizationLowerBoundZH + "。",
+			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged (the specific cause rides the row or the head's one-time `board cause` declaration: cluster peak frequencies tie / cluster count exceeds the class table / insufficient cluster-merge evidence (co-witnessed transitions <2) / no frequency samples / declared clusters carry no frequency samples), or single-cluster samples only (equivalent within one cluster) — the core-class capability gap is NOT priced — the fold uses the frequency ratio alone against the global peak frequency point (full trace; no core-class word in that form); " + tracefence.OptimizationLowerBoundEN + "."},
 		// CAP-2 (§28.4/§28.5, 2026-07-09): the two structure-evidence upgrade
 		// words — each entry names its membership provenance AND keeps the
 		// default-ratio coarseness disclosure (图例单点承载).
@@ -2744,15 +2744,15 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 	}
 	if marks.has(runtimeTraceProjMarkBadge) {
 		if zh {
-			line := "- " + runtimeTraceProjBadgeGlyph(1) + ".." + runtimeTraceProjBadgeGlyph(runtimeTraceProjBadgeTopN) + "按可消除影响排序；主根因专指已证链上项目中单项可消除量最大的项目，不额外宣称尚未证明的机理。"
+			line := "- " + runtimeTraceProjBadgeGlyph(1) + ".." + runtimeTraceProjBadgeGlyph(runtimeTraceProjBadgeTopN) + "按" + tracefence.OptimizationPotentialZH + "排序；主根因专指已证链上项目中单项" + tracefence.OptimizationPotentialZH + "最大的项目，不额外宣称尚未证明的机理。"
 			if frameCausalityUnproven {
-				line += " 当前项目的帧因果尚未证明，但这不改变已证链上可消除量及其排序。"
+				line += " 当前项目的帧因果尚未证明，但这不改变有链上依据的" + tracefence.OptimizationPotentialZH + "及其排序。"
 			}
 			lines = append(lines, line)
 		} else {
-			line := "- " + runtimeTraceProjBadgeGlyph(1) + ".." + runtimeTraceProjBadgeGlyph(runtimeTraceProjBadgeTopN) + " order items by eliminable impact. Primary root cause means the largest single proven on-chain eliminable contribution; it does not add an unproven mechanism claim."
+			line := "- " + runtimeTraceProjBadgeGlyph(1) + ".." + runtimeTraceProjBadgeGlyph(runtimeTraceProjBadgeTopN) + " order items by " + tracefence.OptimizationPotentialEN + ". Primary root cause means the largest single on-chain " + tracefence.OptimizationPotentialEN + "; it does not add an unproven mechanism claim."
 			if frameCausalityUnproven {
-				line += " Frame causality is not proven for this item, which does not change its proven amount or order."
+				line += " Frame causality is not proven for this item, which does not change its on-chain modeled potential or order."
 			}
 			lines = append(lines, line)
 		}
@@ -2766,9 +2766,9 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 	}
 	if marks.has(runtimeTraceProjMarkElimOverview) {
 		if zh {
-			lines = append(lines, "- ◎ 汇总现有规则可消除的链上影响，并把业务线索、邻近信息和背景信息分开显示；不同修复方向的收益不能直接相加。")
+			lines = append(lines, "- ◎ 汇总链上的"+tracefence.OptimizationPotentialZH+"，并把业务线索、邻近信息和背景信息分开显示；不同修复方向的潜力不能直接相加。"+tracefence.OptimizationMeaningZH)
 		} else {
-			lines = append(lines, "- ◎ summarizes on-chain impact eliminable under current rules and keeps business leads, adjacent information, and background information separate; gains from different fix directions must not be added directly.")
+			lines = append(lines, "- ◎ summarizes on-chain "+tracefence.OptimizationPotentialEN+" and keeps business leads, adjacent information, and background information separate; potentials from different fix directions must not be added directly. "+tracefence.OptimizationMeaningEN)
 		}
 	}
 	if marks.has(runtimeTraceProjMarkCrossDirectionOverlap) {
@@ -2783,9 +2783,9 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 		runtimeTraceProjMarkChainCredentialTruncatedLowerBound, runtimeTraceProjMarkChainIdentityInheritance,
 		runtimeTraceProjMarkChainCredentialTierFamily) {
 		if zh {
-			lines = append(lines, "- 入链凭证：唤醒锚定证明线程间关系并按边前份计价；区间相交可证明对应时间段并按相交份计价，只有成员身份时证据更弱。确定性语义工作若缺少等待-完成绑定，不据此声称其完成触发唤醒；其边前份/相交份仍按同一凭证规则计入可消除量（机理未证仅作披露）。")
+			lines = append(lines, "- 入链凭证：唤醒锚定证明线程间关系并按边前份计价；区间相交可证明对应时间段并按相交份计价，只有成员身份时证据更弱。确定性语义工作若缺少等待-完成绑定，不据此声称其完成触发唤醒；其边前份/相交份仍按同一凭证规则计入"+tracefence.OptimizationPotentialZH+"（机理未证仅作披露）。")
 		} else {
-			lines = append(lines, "- On-chain credentials: a wakeup anchor proves the thread relationship and prices the pre-edge share; interval intersection proves the corresponding time range and prices the intersection, while membership alone is weaker. Deterministic semantic work without a wait/completion binding does not claim that its completion triggered the wakeup; its pre-edge / intersection share still counts as eliminable under the same credential rule (the mechanism stays a disclosure).")
+			lines = append(lines, "- On-chain credentials: a wakeup anchor proves the thread relationship and prices the pre-edge share; interval intersection proves the corresponding time range and prices the intersection, while membership alone is weaker. Deterministic semantic work without a wait/completion binding does not claim that its completion triggered the wakeup; its pre-edge / intersection share still counts as modeled potential under the same credential rule (the mechanism stays a disclosure).")
 		}
 	}
 	if hasAny(runtimeTraceProjMarkRankBoardAnchor, runtimeTraceProjMarkRankBoardParams, runtimeTraceProjMarkCrossBoardFamilyNote) {
@@ -2850,7 +2850,7 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 	}
 	if hasAny(runtimeTraceProjMarkPeriodicSource, runtimeTraceProjMarkPeriodicIdle, runtimeTraceProjMarkPacingIdle, runtimeTraceProjMarkIconPacing) {
 		if zh {
-			lines = append(lines, "- 周期性信号源的正常节拍等待不计为可消除量；只统计信号迟到和就绪后等待调度的部分。")
+			lines = append(lines, "- 周期性信号源的正常节拍等待不计为"+tracefence.OptimizationPotentialZH+"；只统计信号迟到和就绪后等待调度的部分。")
 		} else {
 			lines = append(lines, "- Normal cadence wait of a periodic signal source is not eliminable; only signal lateness and ready-to-run scheduling delay are counted.")
 		}
@@ -6847,9 +6847,9 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			}
 		}
 		if zh {
-			out = append(out, strings.Join(parts, "、")+":作用于同段时间,修其一后另一席空间会缩,收益不叠加")
+			out = append(out, strings.Join(parts, "、")+":"+tracefence.OptimizationOverlapZH)
 		} else {
-			out = append(out, strings.Join(parts, "; ")+" — same physical segment: fixing one shrinks the other seat's headroom, the gains do not add")
+			out = append(out, strings.Join(parts, "; ")+" — "+tracefence.OptimizationOverlapEN)
 		}
 	}
 	// RSPA §29.61.10a (2026-07-14): the same-source bipartition 行2 disclosure

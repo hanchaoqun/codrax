@@ -85,7 +85,7 @@ func TestTraceProjectionD2TypeLabelsThreeTierFidelityZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), dRoundTypeObs(), "")
 	// Reader lead keeps the localized cause label; raw identity remains in the
 	// explicit evidence/audit carriers.
-	if !strings.Contains(md, "**主根因(=已证链上单项最大可消除量):** dep-200 优先级反转候选") {
+	if !strings.Contains(md, "**主根因(=有链上依据的单项最大估算优化潜力):** dep-200 优先级反转候选") {
 		t.Fatalf("reader lead must use the localized cause label:\n%s", md)
 	}
 	// D2: tree rows show the concise zh label only.
@@ -108,7 +108,7 @@ func TestTraceProjectionD2TypeLabelsKeepRawTokensEN(t *testing.T) {
 	// narrative/detail faces now speak reader verdict words; raw snake_case
 	// tokens remain in the explicit evidence/audit carriers.
 	for _, want := range []string{
-		"**Primary root cause (= the largest single proven on-chain eliminable contribution):** dep-200 priority inversion (candidate)",
+		"**Primary root cause (= the largest single on-chain modeled potential):** dep-200 priority inversion (candidate)",
 		"priority inversion (candidate) · root-cause rank #1 · confidence high",
 		"io-500 · IO latency",
 		"- type: priority inversion (candidate)",

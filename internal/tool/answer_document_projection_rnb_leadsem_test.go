@@ -179,8 +179,8 @@ func TestRNBSameSegmentTwinFoldKeepsLeadAndCoverageInvariant(t *testing.T) {
 		}
 	}
 	for _, md := range []string{folded, control} {
-		lead := pick(md, "**主根因(=已证链上单项最大可消除量):**")
-		if !strings.Contains(lead, "**主根因(=已证链上单项最大可消除量):** sysr-8") || !strings.Contains(lead, "链上累计 2.770ms") {
+		lead := pick(md, "**主根因(=有链上依据的单项最大估算优化潜力):**")
+		if !strings.Contains(lead, "**主根因(=有链上依据的单项最大估算优化潜力):** sysr-8") || !strings.Contains(lead, "链上累计 2.770ms") {
 			t.Fatalf("lead must name the same fact (sysr-8, 链上累计 2.770ms) across fold/no-fold:\n%q", lead)
 		}
 	}
@@ -278,7 +278,7 @@ func TestRNBSameSegmentTwinFoldSiblingCauseForm(t *testing.T) {
 	}
 	// The lock main row is untouched (different segment, not an inversion
 	// arm) — its rank-1 lead survives.
-	if !strings.Contains(md, "**主根因(=已证链上单项最大可消除量):** #RxComputationT-16816") {
+	if !strings.Contains(md, "**主根因(=有链上依据的单项最大估算优化潜力):** #RxComputationT-16816") {
 		t.Fatalf("the lock rank-1 lead must be untouched by the fold:\n%s", md)
 	}
 }
@@ -571,7 +571,7 @@ func TestLeadSemSemanticFallbackNeverFiresBesideRankedPrimary(t *testing.T) {
 	if strings.Contains(md, "窗口内最大语义优化span") {
 		t.Fatalf("the semantic lane must never fire beside a surviving primary:\n%s", md)
 	}
-	if !strings.Contains(md, "**主根因(=已证链上单项最大可消除量):** worker-7") {
+	if !strings.Contains(md, "**主根因(=有链上依据的单项最大估算优化潜力):** worker-7") {
 		t.Fatalf("the ranked primary must lead:\n%s", md)
 	}
 }

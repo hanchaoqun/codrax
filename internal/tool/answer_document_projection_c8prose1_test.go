@@ -209,7 +209,7 @@ func TestC8Prose1SemanticOptimizationFacesRegime(t *testing.T) {
 	if block == nil {
 		t.Fatalf("optimization table missing")
 	}
-	want := "trace 中的确定性语义优化阶段(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等):每行分别列出原始窗内墙钟与现有规则可消除量；后者仅在存在精确链上归因时发布。时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
+	want := "trace 中的确定性语义优化阶段(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等):每行分别列出原始窗内墙钟与估算优化潜力；后者仅在存在精确链上归因时发布。时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if block.Text != want {
 		t.Fatalf("face I: optimization intro must speak the C8 regime:\n got %q\nwant %q", block.Text, want)
 	}

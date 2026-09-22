@@ -259,7 +259,7 @@ func TestB1674PublicFinalizerKeepsTwoWindowFamiliesSeparate(t *testing.T) {
 							needle = "rank=#1; subject=`client-100`; kind=`io_latency`; effective_attribution=" + tc.value + "ms"
 						}
 						if face == "reader" {
-							needle = "可消除影响 " + tc.value + " 毫秒"
+							needle = "估算优化潜力 " + tc.value + " 毫秒"
 							wantCount = tc.count + " 条计量记录"
 							wantMax = "记录最大值 " + tc.max + " 毫秒"
 						}

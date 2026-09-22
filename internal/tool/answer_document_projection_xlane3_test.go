@@ -298,8 +298,8 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// whose members unanimously carry one typed board target hoist the ·板锚
 	// chip onto the ▸ head (once per section); mixed sections keep per-row
 	// chips. The fused witness sections are unanimous → head-worn anchors.
-	if !strings.Contains(md, "最大可消 65.912ms ·板锚 CompThread_0-2955") ||
-		!strings.Contains(md, "最大可消 48.519ms ·板锚 logd.writer-9163") {
+	if !strings.Contains(md, "最大估算潜力 65.912ms ·板锚 CompThread_0-2955") ||
+		!strings.Contains(md, "最大估算潜力 48.519ms ·板锚 logd.writer-9163") {
 		t.Fatalf("the fused ◎ section heads must wear the hoisted board anchors:\n%s", md)
 	}
 	if strings.Contains(md, "·板锚 CompThread_0-2955 [E1]") {

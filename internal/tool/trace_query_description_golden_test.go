@@ -1,5 +1,14 @@
 package tool
 
+// EVOLUTION RECORD 2026-09-22 (HMC §123): only the shared closed-matrix
+// explanation changes its two eliminable/proven-benefit phrases to modeled
+// potential and appends the common estimate-versus-measured-benefit sentence.
+// The full typed participation matrix, ordering, view routing and wire keys
+// stay unchanged. Both tool faces and native query→publish→patch paths pin
+// the meaning and unchanged values; the frozen live pair rotates a semantic
+// Trace diagnosis with a real Python apply rather than chasing h2/h3 greens.
+// This is a deliberate teaching-slot change, not a new dispatch directive.
+
 // trace_query_description_golden_test.go — PIN-1 B5 (§29.65 回归口, 2026-07-13):
 // byte-golden snapshot of dispatch-sensitive tool Descriptions.
 //

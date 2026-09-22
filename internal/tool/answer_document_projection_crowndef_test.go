@@ -22,12 +22,12 @@ func TestPrimaryCrownDefinitionLegendEntry(t *testing.T) {
 	marks := &runtimeTraceProjMarkSet{}
 	marks.mark(runtimeTraceProjMarkBadge)
 	zh := strings.Join(runtimeTraceProjLegendGroupLines(marks, true), "\n")
-	if !strings.Contains(zh, "主根因=已证链上候选中单项最大可消除量的持有席") ||
+	if !strings.Contains(zh, "主根因=有链上依据的候选中单项最大估算优化潜力的持有席") ||
 		!strings.Contains(zh, "非机理层裁定") {
 		t.Fatalf("zh badge legend must carry the crown definition:\n%s", zh)
 	}
 	en := strings.Join(runtimeTraceProjLegendGroupLines(marks, false), "\n")
-	if !strings.Contains(en, "largest single proven on-chain eliminable contribution") ||
+	if !strings.Contains(en, "largest single on-chain modeled potential") ||
 		!strings.Contains(en, "never a mechanism-level verdict") {
 		t.Fatalf("en badge legend must carry the crown definition:\n%s", en)
 	}
@@ -41,7 +41,7 @@ func TestPrimaryCrownTeachingOnBothLLMFaces(t *testing.T) {
 	} {
 		for _, want := range []string{
 			"DEFINED term of art",
-			"largest single PROVEN on-chain eliminable contribution",
+			"largest single on-chain modeled potential",
 			"never a mechanism-level verdict",
 		} {
 			if !strings.Contains(face, want) {

@@ -81,7 +81,7 @@ func TestSemLeadNonTargetSemanticFamilyCrownsByIntervalCredentialZH(t *testing.T
 	// reversed ruling.
 	leadLine := ""
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
+		if strings.Contains(line, "**主根因(=有链上依据的单项最大估算优化潜力):**") {
 			leadLine = line
 			break
 		}
@@ -639,7 +639,7 @@ func TestSemLeadPartialOverlapSingleSeatRelationOnlyDualAccount(t *testing.T) {
 	// relation or its larger raw union.
 	leadLine := ""
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
+		if strings.Contains(line, "**主根因(=有链上依据的单项最大估算优化潜力):**") {
 			leadLine = line
 			break
 		}
@@ -879,7 +879,7 @@ func TestSemLeadNonChainSemanticFamilyStaysOnBackgroundBoard(t *testing.T) {
 		}
 	}
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") && strings.Contains(line, "shader_compile") {
+		if strings.Contains(line, "**主根因(=有链上依据的单项最大估算优化潜力):**") && strings.Contains(line, "shader_compile") {
 			t.Fatalf("a non-chain semantic row must never crown 主根因: %q", line)
 		}
 	}

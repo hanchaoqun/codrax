@@ -110,8 +110,8 @@ func TestPartsplitSeatSubLineAndElimMentionZH(t *testing.T) {
 	// 节头「最大可消」不吸披露行: the section head keeps its own member max
 	// (2.000) even though the disclosure pre-share (3.500) is larger, and no
 	// head ever speaks the disclosure value.
-	if !strings.Contains(elim, partsplitSquash("最大可消 2.000ms")) ||
-		strings.Contains(elim, partsplitSquash("最大可消 3.500ms")) {
+	if !strings.Contains(elim, partsplitSquash("最大估算潜力 2.000ms")) ||
+		strings.Contains(elim, partsplitSquash("最大估算潜力 3.500ms")) {
 		t.Fatalf("the ◎ section head must never absorb the non-seat disclosure:\n%s", elim)
 	}
 	if !model.Marks.has(runtimeTraceProjMarkGatedCompositeEdgeShare) {
@@ -146,8 +146,8 @@ func TestPartsplitSeatSubLineAndElimMentionEN(t *testing.T) {
 			t.Fatalf("EN ◎ unranked-max row must carry %q:\n%s", want, elim)
 		}
 	}
-	if !strings.Contains(elim, partsplitSquash("max eliminable 2.000ms")) ||
-		strings.Contains(elim, partsplitSquash("max eliminable 3.500ms")) {
+	if !strings.Contains(elim, partsplitSquash("max potential 2.000ms")) ||
+		strings.Contains(elim, partsplitSquash("max potential 3.500ms")) {
 		t.Fatalf("the EN ◎ section head must never absorb the non-seat disclosure:\n%s", elim)
 	}
 }

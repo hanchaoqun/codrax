@@ -1880,9 +1880,9 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 				// The channel word rides the tracefence constant (UXG-1 M1
 				// discipline: no new hand mirror of the seat-channel bytes).
 				if zh {
-					lines = append(lines, "- "+tracefence.SeatChannelChainZH+"依据 = 各项折算后的可消除提升空间(即 有效归因):跨修复方向同一口径下可比较但不可相加,同段重叠收益不叠加;修向只表示修复方向类别,不改变排序与数值。")
+					lines = append(lines, "- "+tracefence.SeatChannelChainZH+"依据 = 各项折算后的"+tracefence.OptimizationPotentialZH+"(即 有效归因):跨修复方向同一口径下可比较但不可相加,同段重叠收益不叠加;修向只表示修复方向类别,不改变排序与数值。")
 				} else {
-					lines = append(lines, "- "+tracefence.SeatChannelChainEN+" basis = each item's post-conversion eliminable headroom (attribution): comparable across fix directions on one caliber but never additive, and same-segment overlap gains do not add; fix direction is an organizing category that changes no ordering or value.")
+					lines = append(lines, "- "+tracefence.SeatChannelChainEN+" basis = each item's post-conversion "+tracefence.OptimizationPotentialEN+" (attribution): comparable across fix directions on one caliber but never additive, and same-segment overlap gains do not add; fix direction is an organizing category that changes no ordering or value.")
 				}
 			}
 			// SPANVIS-1 件4 阅读参考层 (user ruling 2026-07-19; SCORE-DERIV
@@ -1894,7 +1894,7 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			// §29.131 既裁).
 			if flags.businessSpanMention {
 				if zh {
-					lines = append(lines, "- ◈ 业务span提示行(阅读参考):次数多而单次小→业务流程/调用次数方向;单次长→单次运行时长方向;三数(单次最大/次数/合计)均为窗内墙钟原始值,仅提供业务排查方向,不参与根因排序或可消除量汇总。")
+					lines = append(lines, "- ◈ 业务span提示行(阅读参考):次数多而单次小→业务流程/调用次数方向;单次长→单次运行时长方向;三数(单次最大/次数/合计)均为窗内墙钟原始值,仅提供业务排查方向,不参与根因排序或"+tracefence.OptimizationPotentialZH+"汇总。")
 				} else {
 					lines = append(lines, "- ◈ business span leads (reading reference): many short occurrences point toward business flow or call count, while one long occurrence points toward that run's duration; max single, count, and total are raw in-window wall-clock values used only for business investigation, never for root-cause ordering or eliminable-impact totals.")
 				}
@@ -2044,11 +2044,11 @@ func runtimeTraceCausalProjectionOccupancyBlock(
 	}
 	title := "主要时间占用 / 关键路径候选"
 	columns := []string{"维度", "主体 / 工作族", "累计占用", "最长值及口径", "数量及口径", "发生窗 / 定位", "解读边界"}
-	text := "本表回答“时间实际花在哪里、下一步应探索什么新修向”；下方「窗内可消除量」回答“按现有规则预计可回收多少”。两轴分别成账，不能相加或互相替代。墙钟 ms 与 cpu·ms 分组展示；本表自身不证明某个占用已经导致具体丢帧，缺少可绑定的 frame/deadline 证据时只能读作所选窗口的主要占用或关键路径候选。"
+	text := "本表回答“时间实际花在哪里、下一步应探索什么新修向”；下方「窗内" + tracefence.OptimizationPotentialZH + "」回答“按既定规则下的估算优化潜力”。两轴分别成账，不能相加或互相替代。墙钟 ms 与 cpu·ms 分组展示；本表自身不证明某个占用已经导致具体丢帧，缺少可绑定的 frame/deadline 证据时只能读作所选窗口的主要占用或关键路径候选。"
 	if !zh {
 		title = "Major Time Occupancy / Critical-path Candidates"
 		columns = []string{"Dimension", "Subject / work family", "Cumulative occupancy", "Maximum and basis", "Count and basis", "Occurrence / location", "Interpretation boundary"}
-		text = "This table answers where time was actually spent and which NEW repair direction deserves exploration. The eliminable-work board below answers how much the existing rules can price as recoverable. The two axes use separate accounting bases and cannot be added or substituted. Wall-clock ms and cpu·ms are grouped separately. This table alone does not prove that an occupancy caused a specific dropped frame; without target-bound frame/deadline evidence it is only a major occupancy or critical-path candidate in the selected window."
+		text = "This table answers where time was actually spent and which NEW repair direction deserves exploration. The " + tracefence.OptimizationPotentialEN + " board below answers the potential estimated under the stated rules, not realized savings. The two axes use separate accounting bases and cannot be added or substituted. Wall-clock ms and cpu·ms are grouped separately. This table alone does not prove that an occupancy caused a specific dropped frame; without target-bound frame/deadline evidence it is only a major occupancy or critical-path candidate in the selected window."
 	}
 	text += runtimeTraceOccupancyStatisticsLegend(zh)
 	text = runtimeTraceQueryScopePreface(text, projection.WindowScope, zh)
@@ -2502,7 +2502,7 @@ func runtimeTraceOccupancyBusinessSpanCandidates(
 			continue
 		}
 		location := runtimeTraceOccupancyLineLocation(span.StartLine, span.EndLine, zh)
-		caliber := fmt.Sprintf("原始墙钟；按线程和 span 名称归组；链上依据：%s；只提供业务排查方向，不进入%s或可消除量汇总", basisWord, tracefence.SeatChannelChainZH)
+		caliber := fmt.Sprintf("原始墙钟；按线程和 span 名称归组；链上依据：%s；只提供业务排查方向，不进入%s或"+tracefence.OptimizationPotentialZH+"汇总", basisWord, tracefence.SeatChannelChainZH)
 		if !zh {
 			caliber = fmt.Sprintf("raw wall clock grouped by thread and span name; on-chain basis: %s; a business investigation lead only, excluded from root-cause ordering and eliminable-impact totals", basisWord)
 		}
@@ -5038,12 +5038,12 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 			} else if authority.frameUnproven {
 				status := runtimeTraceFrameEvidenceReaderLabel(authority.frameEvidenceStatus, true)
 				if typedChainRowsPresent {
-					parts = append(parts, "帧级因果尚未证明："+status+"；已发布的唤醒/阻塞链只支持所选窗口内的链上候选与可消除量，不证明具体丢帧因果；无链上凭证的调度、IO、频率观察仍只能作为邻近或背景")
+					parts = append(parts, "帧级因果尚未证明："+status+"；已发布的唤醒/阻塞链只支持所选窗口内的链上候选与"+tracefence.OptimizationPotentialZH+"，不证明具体丢帧因果；无链上凭证的调度、IO、频率观察仍只能作为邻近或背景")
 				} else {
 					parts = append(parts, "帧级因果尚未证明："+status+"，且没有可用的链上因果观测；调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果")
 				}
 			} else if typedChainRowsPresent {
-				parts = append(parts, "因果证据尚不足：已发布的唤醒/阻塞链只支持所选窗口内的链上候选与可消除量；未被链上凭证覆盖的机理不能升级为确定根因")
+				parts = append(parts, "因果证据尚不足：已发布的唤醒/阻塞链只支持所选窗口内的链上候选与"+tracefence.OptimizationPotentialZH+"；未被链上凭证覆盖的机理不能升级为确定根因")
 			} else {
 				parts = append(parts, "因果证据尚不足：当前没有可用的链上因果观测，背景观察不能升级为确定根因")
 			}
@@ -7170,10 +7170,10 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): prose intro — the depth-0
 	// semicolon goes full-width; the parenthetical span-class roster keeps its
 	// half-width interior comma.
-	text := "trace 中的确定性语义优化阶段(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等):每行分别列出原始窗内墙钟与现有规则可消除量；后者仅在存在精确链上归因时发布。时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
+	text := "trace 中的确定性语义优化阶段(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等):每行分别列出原始窗内墙钟与" + tracefence.OptimizationPotentialZH + "；后者仅在存在精确链上归因时发布。时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if !zh {
 		title = tracefence.SectionOptimizationEN
-		text = "Deterministic semantic optimization stages found in the trace (class verification, JIT, shader or runtime compilation, texture upload, and explicit GC pauses): each row separates raw in-window wall time from the amount eliminable under current rules; the latter is published only when precise on-chain attribution is available. Durations and E# tags resolve to trace line spans via the evidence index."
+		text = "Deterministic semantic optimization stages found in the trace (class verification, JIT, shader or runtime compilation, texture upload, and explicit GC pauses): each row separates raw in-window wall time from " + tracefence.OptimizationPotentialEN + "; the latter is published only when precise on-chain attribution is available. Durations and E# tags resolve to trace line spans via the evidence index."
 	}
 	block := types.AnswerBlock{
 		ID:      "runtime_trace_semantic_optimizations",
@@ -7658,9 +7658,9 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 	// denominator). Legality: semantic eff is pure wall clock (union /
 	// intersection calibers, zero supply-discount component), so the §29.27
 	// discounted-value percentage ban does not bind here.
-	columns := []string{tracefence.ActionWordZH, "类别", "宿主线程", "窗内 span 墙钟", "规则可消除", "可消占窗%", "证据"}
+	columns := []string{tracefence.ActionWordZH, "类别", "宿主线程", "窗内 span 墙钟", tracefence.OptimizationPotentialZH, "潜力占窗%", "证据"}
 	if !zh {
-		columns = []string{"Optimization point", "Class", "Host thread", "In-window span wall time", "Rule-eliminable", "Eliminable % of window", "Evidence"}
+		columns = []string{"Optimization point", "Class", "Host thread", "In-window span wall time", tracefence.OptimizationPotentialEN, "Potential % of window", "Evidence"}
 	}
 	dash := "—"
 	windowShare := func(span types.TraceCausalProjectionNode, eliminable float64, known bool) string {

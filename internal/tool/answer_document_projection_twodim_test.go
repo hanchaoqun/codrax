@@ -429,7 +429,7 @@ func TestTwoDimOccupancyLeadsUnchangedEliminableBoard(t *testing.T) {
 		cluster[1].ID != runtimeTraceCausalProjectionBlockIDBase {
 		t.Fatalf("occupancy must lead the existing projection cluster: %+v", cluster)
 	}
-	if !strings.Contains(cluster[1].Text, "窗内可消除量") ||
+	if !strings.Contains(cluster[1].Text, "窗内估算优化潜力") ||
 		!strings.Contains(cluster[1].Text, "26.392ms") {
 		t.Fatalf("existing eliminable board must remain present and numerically unchanged:\n%s", cluster[1].Text)
 	}

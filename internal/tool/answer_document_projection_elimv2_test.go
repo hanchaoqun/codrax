@@ -120,10 +120,10 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 		t.Fatalf("expected exactly 3 direction sections, got %d:\n%s", len(heads), fence)
 	}
 	// pin②(此板): 节序 = 节内最大可消 desc (6.0 sched → 5.0 freq → 2.0 io).
-	if !strings.Contains(heads[0], "▸ 调度供给 · 最大可消 6.000ms") ||
-		!strings.Contains(heads[1], "▸ 频率与热治理 · 最大可消 5.000ms") ||
-		!strings.Contains(heads[2], "▸ IO/内核/依赖 · 最大可消 2.000ms") {
-		t.Fatalf("section heads must order by max eliminable desc with verbatim maxima:\n%s", fence)
+	if !strings.Contains(heads[0], "▸ 调度供给 · 最大估算潜力 6.000ms") ||
+		!strings.Contains(heads[1], "▸ 频率与热治理 · 最大估算潜力 5.000ms") ||
+		!strings.Contains(heads[2], "▸ IO/内核/依赖 · 最大估算潜力 2.000ms") {
+		t.Fatalf("section heads must order by max potential desc with verbatim maxima:\n%s", fence)
 	}
 	// pin③ L1: the disjoint-envelope pair publishes the µs subtotal.
 	if !strings.Contains(heads[0], " · 2席 · 小计 9.000ms(区间互斥)") {
@@ -184,11 +184,11 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	// pair rides an ∩ 重叠对 aux row — value right after the pair id, the one
 	// ruled short clause, the full explainer on the ∩ legend entry.
 	if !strings.Contains(fence, "· ∩ 重叠对") ||
-		!strings.Contains(fence, "] 2.500ms · 修其一,另一席收益随之收缩,不叠加") {
+		!strings.Contains(fence, "] 2.500ms · 仅证共享计量时间，潜力不可相加；修复收益需复测") {
 		t.Fatalf("the ∩ pair aux row must transcribe the typed overlap in the 定稿 form:\n%s", fence)
 	}
 	// ◇ block head + the ◇ member's direction transcription word.
-	if !strings.Contains(fence, "◇ 邻近(条件可消上界 · 不入方向守恒)") {
+	if !strings.Contains(fence, "◇ 邻近(条件模型潜力 · 不入方向守恒)") {
 		t.Fatalf("the ◇ block head must separate the sections from the adjacent block:\n%s", fence)
 	}
 	adjLine := ""
@@ -225,9 +225,9 @@ func TestELIMV2DirectionSectionsLayout(t *testing.T) {
 	// EN face mirrors the layout (spot probes).
 	_, fenceEN := elimRenderOverview(t, projection, false)
 	for _, want := range []string{
-		"▸ scheduling supply · max eliminable 6.000ms · 2 seats · subtotal 9.000ms (disjoint intervals)",
-		"▸ IO / kernel / dependency · max eliminable 2.000ms · 2 seats · locator ranges overlap; do not add",
-		"◇ adjacent (conditional upper bound · outside direction conservation)",
+		"▸ scheduling supply · max potential 6.000ms · 2 seats · subtotal 9.000ms (disjoint intervals)",
+		"▸ IO / kernel / dependency · max potential 2.000ms · 2 seats · locator ranges overlap; do not add",
+		"◇ adjacent (conditional model potential · outside direction conservation)",
 		"· direction=scheduling supply",
 		"every direction's support-interval union ≤ window 200.000ms ✓",
 		"gains never add across directions",
@@ -296,12 +296,12 @@ func TestELIMV2SectionOrderMaxDesc(t *testing.T) {
 	if len(heads) < 3 {
 		t.Fatalf("expected ≥3 sections, got %d:\n%s", len(heads), fence)
 	}
-	if !strings.Contains(heads[0], "▸ IO/内核/依赖 · 最大可消 8.000ms") {
+	if !strings.Contains(heads[0], "▸ IO/内核/依赖 · 最大估算潜力 8.000ms") {
 		t.Fatalf("pin②: the dominant io section must lead:\n%s", fence)
 	}
 	last := heads[len(heads)-1]
 	// OMGCLEAN-1 件1 (§29.175 裁定②): the tail word is 其他方向.
-	if !strings.Contains(last, "▸ 其他方向 · 最大可消 9.500ms") {
+	if !strings.Contains(last, "▸ 其他方向 · 最大估算潜力 9.500ms") {
 		t.Fatalf("pin②/⑪: the unresolved tail section renders LAST despite holding the largest value:\n%s", fence)
 	}
 	// 未定节零算术: no seat count, no subtotal, no overlap word.
@@ -337,8 +337,8 @@ func TestELIMV2SubtotalLadderCarrierAbsent(t *testing.T) {
 			if strings.Contains(head, "席") || strings.Contains(head, "小计") || strings.Contains(head, "不可直加") {
 				t.Fatalf("L3: a carrier-less member kills every arithmetic claim:\n%s", head)
 			}
-			if !strings.Contains(head, "最大可消 6.000ms") {
-				t.Fatalf("L3: the max eliminable stays (恒发):\n%s", head)
+			if !strings.Contains(head, "最大估算潜力 6.000ms") {
+				t.Fatalf("L3: the max potential stays (恒发):\n%s", head)
 			}
 		}
 	}
@@ -543,7 +543,7 @@ func TestELIMV2CrossDirectionChipBothWithTree(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	tree := runtimeTraceProjTreeFence(model, true)
 	overview := runtimeTraceProjElimOverviewFence(projection, model, true)
-	if !strings.Contains(tree, "同段重叠 2.500ms") || !strings.Contains(tree, "收益不叠加") {
+	if !strings.Contains(tree, "同段重叠 2.500ms") || !strings.Contains(tree, "潜力不可相加") {
 		t.Fatalf("fixture: the tree rows must speak the full 互指句:\n%s", tree)
 	}
 	if !strings.Contains(overview, "·∩[") || !strings.Contains(overview, "· ∩ 重叠对") {
@@ -556,7 +556,7 @@ func TestELIMV2CrossDirectionChipBothWithTree(t *testing.T) {
 	model = buildRuntimeTraceProjTreeModel(oneSided, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	tree = runtimeTraceProjTreeFence(model, true)
 	overview = runtimeTraceProjElimOverviewFence(oneSided, model, true)
-	if strings.Contains(tree, "收益不叠加") {
+	if strings.Contains(tree, "潜力不可相加") {
 		t.Fatalf("fixture: the one-sided roster must prune the tree pair:\n%s", tree)
 	}
 	if strings.Contains(overview, "∩") {

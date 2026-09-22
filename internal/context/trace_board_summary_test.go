@@ -80,7 +80,7 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 		t.Fatalf("board summary preamble must carry the ordering/no-sum teaching:\n%s", summary)
 	}
 	for _, want := range []string{
-		"authoritative for ranked eliminable-seat order and published values",
+		"authoritative for ranked modeled-potential order and published values",
 		"not by itself for a mechanism or end-to-end causal verdict",
 		"selected claim-caliber contract",
 		"a typed cause, a bounded candidate, or no causal conclusion",
@@ -227,7 +227,7 @@ func TestTraceRootCauseBoardSummary_FixDirectionWord(t *testing.T) {
 	for _, teach := range []string{
 		"seats sharing one 修向 form ONE repair lane",
 		types.TraceRepairDirectionValueTeaching,
-		"Adjacent rows remain conditional upper bounds outside that lane",
+		"Adjacent rows remain conditional model bounds outside that lane",
 		"A row without 修向 published no direction; never infer one",
 	} {
 		if !strings.Contains(summary, teach) {

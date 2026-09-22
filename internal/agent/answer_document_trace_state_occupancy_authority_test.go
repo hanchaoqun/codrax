@@ -100,7 +100,7 @@ func TestTraceStateOccupancyProductionFinalizerHandoffKeepsRawAndPricedAxes(t *t
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"measured_state_occupancy=8.294ms", "effective_attribution=7.405ms", "folded_running_total=8.294ms",
-		"kind=`running`; window_projection=8.294ms", "running time, measured 8.294 ms", "eliminable impact 7.405 ms",
+		"kind=`running`; window_projection=8.294ms", "running time, measured 8.294 ms", "modeled potential 7.405 ms",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("production prompt missed original/priced ruler %q:\n%s", want, prompt)

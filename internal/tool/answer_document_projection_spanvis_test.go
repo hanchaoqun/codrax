@@ -325,7 +325,7 @@ func TestSpanvisNameTruncationTailKept(t *testing.T) {
 // entry renders exactly with the ◈ word face (承诺面双向) and never mints a
 // per-row judgment word.
 func TestSpanvisReadingReferenceEntry(t *testing.T) {
-	const entryZH = "- ◈ 业务span提示行(阅读参考):次数多而单次小→业务流程/调用次数方向;单次长→单次运行时长方向;三数(单次最大/次数/合计)均为窗内墙钟原始值,仅提供业务排查方向,不参与根因排序或可消除量汇总。"
+	const entryZH = "- ◈ 业务span提示行(阅读参考):次数多而单次小→业务流程/调用次数方向;单次长→单次运行时长方向;三数(单次最大/次数/合计)均为窗内墙钟原始值,仅提供业务排查方向,不参与根因排序或估算优化潜力汇总。"
 	withText := scoreDerivClusterText(t, spanvisMentionProjection(), "zh")
 	if !strings.Contains(withText, entryZH) {
 		t.Fatalf("the reading-reference entry must render verbatim with the ◈ face:\n%s", withText)

@@ -327,7 +327,7 @@ func TestElimBoardPureEffOrder(t *testing.T) {
 	// compresses to ONE line (头部两行 preview ruling); the retired line ③
 	// (零序数·零佩戴·定位走[E#]·满格=…) lives on the ◎ legend entry with the
 	// scale word moved 本区→各区 (§29.175.9 承诺词同改).
-	if !strings.Contains(fence2, "⛓ 链上块先 · 节=修复方向(其他方向恒末,余按节内最大可消降序)· 节内值降序 · 方向间收益不可相加") {
+	if !strings.Contains(fence2, "⛓ 链上块先 · 节=修复方向(其他方向恒末,余按节内最大估算潜力降序)· 节内值降序 · 方向间收益不可相加") {
 		t.Fatalf("the header promise must state the direction-section ordering:\n%s", fence2)
 	}
 	if strings.Contains(fence2, "纯值降序") || strings.Contains(fence2, "块内值降序") {
@@ -444,7 +444,7 @@ func TestElimOverviewExclusionFootnotes(t *testing.T) {
 	if strings.Contains(fence, "⌗") {
 		t.Fatalf("件9 (§29.175.13): the decorative ⌗ glyph must leave the ◎ face:\n%s", fence)
 	}
-	if !strings.Contains(fence, "· 自身症状") || !strings.Contains(fence, "1 行(症状面,非可消除量)") {
+	if !strings.Contains(fence, "· 自身症状") || !strings.Contains(fence, "1 行(症状面,非估算优化潜力)") {
 		t.Fatalf("the target-self symptom row must ride the 自身症状 aux row:\n%s", fence)
 	}
 	// §29.175.7: the ▒ pointer line is now the ▒ zone head (TOP3 rows below).
@@ -554,7 +554,7 @@ func TestElimOverviewEmptyChainHonestLine(t *testing.T) {
 		t.Fatalf("the chainless rank board must still render an overview")
 	}
 	if !strings.Contains(fence, "链上:本窗无链上持值行") ||
-		!strings.Contains(fence, "无已证链上可消除量,主根因不加冕") {
+		!strings.Contains(fence, "未找到有链上依据的估算优化潜力,主根因不加冕") {
 		t.Fatalf("the empty-chain honest line must state the channel state and the crown consequence:\n%s", fence)
 	}
 	members := elimOverviewMemberLines(fence)
@@ -579,7 +579,7 @@ func TestElimOverviewEmptyChainHonestLine(t *testing.T) {
 	// ◇ zone head is no longer a mere separator — it is the ONLY channel
 	// identity of its rows, so it renders on every board with ◇ rows,
 	// ◇-only boards included.
-	if !strings.Contains(fence, "(条件可消上界") {
+	if !strings.Contains(fence, "(条件模型潜力") {
 		t.Fatalf("件8: the ◇ zone head must render whenever ◇ rows render (zone identity):\n%s", fence)
 	}
 }
@@ -594,7 +594,7 @@ func TestElimOverviewEmptyBoardHonestLine(t *testing.T) {
 		},
 	}
 	_, fence := elimRenderOverview(t, projection, true)
-	if !strings.Contains(fence, "窗内可消除量:无同尺持值行(详见背景/义务通道)") {
+	if !strings.Contains(fence, "窗内估算优化潜力:无同尺持值行(详见背景/义务通道)") {
 		t.Fatalf("the empty board must render the honest single line:\n%s", fence)
 	}
 	// 收尾件2 (P2-2): a board that admitted nothing has no member ordering to
@@ -1017,7 +1017,7 @@ func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
 	// layout).
 	// 用户显示裁定 (2026-07-19): multi-line glyph-worn promise form.
 	// RUN2FIX-A 件1 (刻意更新非静默): tail-last rule spoken on the promise.
-	if !strings.Contains(elim, "⛓ 链上块先 · 节=修复方向(其他方向恒末,余按节内最大可消降序)· 节内值降序 · 方向间收益不可相加") {
+	if !strings.Contains(elim, "⛓ 链上块先 · 节=修复方向(其他方向恒末,余按节内最大估算潜力降序)· 节内值降序 · 方向间收益不可相加") {
 		t.Fatalf("the blocked-order header promise must render:\n%s", elim)
 	}
 	if !(strings.Contains(seatLine, "█") || strings.Contains(seatLine, "░")) {
@@ -1051,7 +1051,7 @@ func TestElimOverviewLegendLockstep(t *testing.T) {
 		t.Fatalf("the ◎ mark must record at the overview emission site")
 	}
 	lead := runtimeTraceProjLeadText(projection, model, "zh", true)
-	if !strings.Contains(lead, "`◎` = 窗内可消除量总览") {
+	if !strings.Contains(lead, "`◎` = 窗内估算优化潜力总览") {
 		t.Fatalf("the ◎ legend promise sentence must render with the overview:\n%s", lead)
 	}
 	// Negative half: no overview (no rank family) → no ◎ legend entry.
@@ -1132,7 +1132,7 @@ func TestElimOverviewPreviewClassifierAndAnchors(t *testing.T) {
 		t.Fatalf("the ◎ head must wear the stanza-head class:\n%s", html)
 	}
 	// textContent byte identity on the overview region (decoration only).
-	if !strings.Contains(md, "◎ 窗内可消除量总览") {
+	if !strings.Contains(md, "◎ 窗内估算优化潜力总览") {
 		t.Fatalf("md face must carry the ◎ head verbatim")
 	}
 }
@@ -1261,7 +1261,7 @@ func TestC4WindowShareColumn(t *testing.T) {
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, true)
 	columns, rows := runtimeTraceSemanticOptimizationParts(projection, evidence, model.WindowMS, true)
-	if len(columns) != 7 || columns[3] != "窗内 span 墙钟" || columns[4] != "规则可消除" || columns[5] != "可消占窗%" {
+	if len(columns) != 7 || columns[3] != "窗内 span 墙钟" || columns[4] != "估算优化潜力" || columns[5] != "潜力占窗%" {
 		t.Fatalf("C4 must carry independent raw/effective axes and the eliminable window-share column: %v", columns)
 	}
 	if len(rows) == 0 || len(rows[0].Cells) != 7 {

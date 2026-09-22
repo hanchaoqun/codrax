@@ -77,7 +77,7 @@ func TestTypedSeatFrameCausalityAddsQualifierWithoutDecrowning(t *testing.T) {
 		}
 	}
 	projection := projectionClusterBlock(persisted.Blocks, runtimeTraceCausalProjectionBlockIDBase)
-	if projection == nil || !strings.Contains(projection.Text, "**主根因(=已证链上单项最大可消除量):**") ||
+	if projection == nil || !strings.Contains(projection.Text, "**主根因(=有链上依据的单项最大估算优化潜力):**") ||
 		!strings.Contains(projection.Text, "（帧因果未证）") {
 		t.Fatalf("seat-level frame authority did not preserve the defined crown and add its qualifier:\n%+v", projection)
 	}
@@ -96,7 +96,7 @@ func TestTypedSeatFrameCausalityAddsQualifierWithoutDecrowning(t *testing.T) {
 			t.Fatalf("retired de-crowning wording %q was emitted:\n%s", forbidden, rendered.String())
 		}
 	}
-	for _, want := range []string{"➊..➎按可消除影响排序", "主根因(优先处理;帧因果未证)", "当前项目的帧因果尚未证明"} {
+	for _, want := range []string{"➊..➎按估算优化潜力排序", "主根因(优先处理;帧因果未证)", "当前项目的帧因果尚未证明"} {
 		if !strings.Contains(rendered.String(), want) {
 			t.Fatalf("seat-level qualifier was not kept consistent on system surfaces, missing %q:\n%s", want, rendered.String())
 		}
@@ -159,7 +159,7 @@ func TestEarlierUnprovenProbeCannotDecrownLaterProvenSeat(t *testing.T) {
 		t.Fatalf("projection missing: %+v", ctx.Mutable.AnswerDocumentV2().Blocks)
 	}
 	firstLine := strings.SplitN(projection.Text, "\n", 2)[0]
-	if !strings.HasPrefix(firstLine, "**主根因(=已证链上单项最大可消除量):**") ||
+	if !strings.HasPrefix(firstLine, "**主根因(=有链上依据的单项最大估算优化潜力):**") ||
 		strings.Contains(firstLine, "帧因果未证") || strings.Contains(firstLine, "首要可消除") {
 		t.Fatalf("an earlier unrelated unproven probe changed the final seat crown: %s", firstLine)
 	}
@@ -217,7 +217,7 @@ func TestMultiArtifactSeatsKeepFrameAuthorityAndCrownWordingIsolated(t *testing.
 		if !leadIDs[block.ID] {
 			continue
 		}
-		if !strings.HasPrefix(block.Text, "**主根因(=已证链上单项最大可消除量):**") {
+		if !strings.HasPrefix(block.Text, "**主根因(=有链上依据的单项最大估算优化潜力):**") {
 			t.Fatalf("multi-board lead lost the single-source crown prefix: id=%s text=%s", block.ID, block.Text)
 		}
 		leads++
@@ -270,7 +270,7 @@ func TestTypedSeatFrameCausalityEnglishQualifierKeepsDefinedCrown(t *testing.T) 
 		set.Projections[0], "en", runtimeTraceProjUserFocus{}, buildRuntimeTraceProjectionSeatAuthorityIndex(input),
 	)
 	lead := projectionClusterBlock(blocks, runtimeTraceCausalProjectionBlockIDBase)
-	if lead == nil || !strings.Contains(lead.Text, "**Primary root cause (= the largest single proven on-chain eliminable contribution):**") ||
+	if lead == nil || !strings.Contains(lead.Text, "**Primary root cause (= the largest single on-chain modeled potential):**") ||
 		!strings.Contains(lead.Text, "(frame causality unproven)") {
 		t.Fatalf("English crown/qualifier mismatch: %+v", lead)
 	}
@@ -350,7 +350,7 @@ func TestTypedSeatFrameCausalityGateClosedKeepsBareCrown(t *testing.T) {
 	}
 	persisted := ctx.Mutable.AnswerDocumentV2()
 	projection := projectionClusterBlock(persisted.Blocks, runtimeTraceCausalProjectionBlockIDBase)
-	if projection == nil || !strings.Contains(projection.Text, "**主根因(=已证链上单项最大可消除量):**") {
+	if projection == nil || !strings.Contains(projection.Text, "**主根因(=有链上依据的单项最大估算优化潜力):**") {
 		t.Fatalf("the defined crown must render: %+v", projection)
 	}
 	var rendered strings.Builder

@@ -187,7 +187,7 @@ func TestAnswerfaceFixDirectionCompletenessDuty(t *testing.T) {
 	// rendered board never publishes.
 	for _, want := range []string{
 		"the direction enumeration MUST cover EVERY direction value published on ON-CHAIN seated causes",
-		"adjacent-channel rows stay conditional upper bounds and never set a direction's maximum",
+		"adjacent-channel rows stay conditional within-model potential bounds and never set a direction's maximum",
 		"a direction is never omitted because its seat's value rides a different caliber",
 	} {
 		if !strings.Contains(item.Body, want) {

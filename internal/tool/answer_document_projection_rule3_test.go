@@ -107,7 +107,7 @@ func TestRule3EdgeAnchorRowNeverRepeatsMechanism(t *testing.T) {
 	// span seat and the state seat (边前份计入), with the mechanism as a
 	// disclosure — the retired "可消除量为0" clause must never return.
 	if !strings.Contains(legend, "宿主自身对目标的窗内 typed 唤醒边是入链凭证") ||
-		!strings.Contains(legend, "边=凭证、边前=有效、边后=解除——边前份计入现有规则可消除量") ||
+		!strings.Contains(legend, "边=凭证、边前=有效、边后=解除——边前份计入估算优化潜力") ||
 		!strings.Contains(legend, "语义完成机理未证仅作披露") {
 		t.Fatalf("件1(b): the legend keeps the full mechanism + the single credential rule:\n%s", legend)
 	}
@@ -394,8 +394,9 @@ func TestRule3ElimCredentialTierChips(t *testing.T) {
 			}
 		}
 		if zh {
-			// 基石 B 零动: the 「已证可消除量」 legend sentence stays verbatim.
-			if !strings.Contains(legend, "链上席=已证可消除量") {
+			// Chain eligibility remains mandatory; the value is modeled
+			// potential, not a promise that a repair will save this duration.
+			if !strings.Contains(legend, "链上席=有链上依据的估算优化潜力") {
 				t.Fatalf("件9 基石B: the GREENLIT sentence must stay:\n%s", legend)
 			}
 		}

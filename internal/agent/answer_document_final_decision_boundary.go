@@ -169,6 +169,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Final Trace Decision Boundary (Typed Facts; Model-Owned Conclusion)\n\n")
 	b.WriteString("- You own the diagnosis, prioritization, optimization direction, and wording. The system supplies measurements and authority ceilings only; do not merely restate the projection rows.\n")
+	b.WriteString("- " + tracefence.OptimizationMeaningEN + "\n")
 	if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil && view.TraceCausalClaimContract.Active() {
 		b.WriteString("- Principal Trace summary contract: emit one principal summary block and fill its causal-strength JSON control field with exactly one value allowed by the dispatch-local tool schema. Keep the visible lead/detail within the matching natural-language scope supplied in the reader handoff below, but never repeat the field name or its machine value in visible prose. This declaration does not choose the cause. No conclusion is inferred from prose or written for you.\n")
 		b.WriteString("- Trace JSON field scope: set `trace_causal_claim_caliber` exactly once on that principal summary and omit it from every section, table, diagram, list, decision, and caveat block. `candidate_role` is not a runtime entity type: omit it from thread, process, CPU, frame, and span rows unless the active typed answer-role contract explicitly requires one value present in the projected enum.\n")
@@ -187,14 +188,14 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		b.WriteString(renderTraceFinalTargetWaitEnumerationAuthority(ledger, requestModel))
 	}
 	b.WriteString("- scheduler_state_interval_authority=`typed_state_segments`: a typed wakeup ends the preceding sleep/io_wait segment; time from wakeup until the next sched-in is runnable_wait. Do not extend an IO/D/sleep duration to the later run timestamp or relabel the two state segments as one wait state.\n")
-	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking/eliminable value; never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
+	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking value (modeled potential under its stated rules); never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
 	b.WriteString(renderTraceFinalWakeupCPUTopologyAuthority(ledger, wakeupTargetCPUIntegrity))
 	b.WriteString(renderTraceFinalSemanticRelationOnlyAuthority(set))
 	b.WriteString(renderTraceFinalStateValueAuthority(set, ledger.Records...))
 	b.WriteString(renderTraceFinalSupplyFoldValueAuthority(set))
 	switch {
 	case hasActual && hasEliminable:
-		b.WriteString("- available_axes=`actual_occupancy,existing_rule_eliminable`: compare both and explain their different decision use. Actual occupancy, existing-rule eliminable impact, and proven frame causality are distinct calibers; none substitutes for another. Their coexistence does not prove physical independence.\n")
+		b.WriteString("- available_axes=`actual_occupancy,existing_rule_eliminable`: compare both and explain their different decision use. Actual occupancy, existing-rule " + tracefence.OptimizationPotentialEN + ", and proven frame causality are distinct calibers; none substitutes for another. Their coexistence does not prove physical independence.\n")
 	case hasActual:
 		b.WriteString("- available_axes=`actual_occupancy`: identify the measured time concentration and a validation/optimization direction without inventing an existing-rule eliminable amount.\n")
 	case hasEliminable:
@@ -403,7 +404,7 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 					if measuredOK {
 						fmt.Fprintf(&b, "已测 %.3f 毫秒", measured)
 					} else {
-						b.WriteString("原始状态占用未提供；不能把可消除影响当作实测时长")
+						b.WriteString("原始状态占用未提供；不能把" + tracefence.OptimizationPotentialZH + "当作实测时长")
 					}
 					if onChain {
 						b.WriteString("；已证位于依赖链上，可参与主因推理")
@@ -415,7 +416,7 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 					if measuredOK {
 						fmt.Fprintf(&b, "measured %.3f ms", measured)
 					} else {
-						b.WriteString("original state occupancy not provided; eliminable impact is not a measured duration")
+						b.WriteString("original state occupancy not provided; " + tracefence.OptimizationPotentialEN + " is not a measured duration")
 					}
 					if onChain {
 						b.WriteString("; proved on the dependency chain and eligible for primary-cause reasoning")
@@ -439,9 +440,9 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 		if len(seats) > 0 {
 			groups := traceFinalRankDisplayGroups(projection, seats, 6)
 			if zh {
-				b.WriteString("- 按现有规则可消除的影响（用于修复优先级，不等同于实测等待时长）：\n")
+				b.WriteString("- " + tracefence.OptimizationPotentialZH + "（用于修复优先级，不等同于实测等待时长）：\n")
 			} else {
-				b.WriteString("- Impact eliminable under existing rules (for repair priority, not automatically a measured wait duration):\n")
+				b.WriteString("- Modeled potential under existing rules (for repair priority, not automatically a measured wait duration):\n")
 			}
 			traceFinalWriteReaderBoardPreview(&b, groups, zh)
 			for _, group := range groups {
@@ -453,9 +454,9 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 					cause := traceFinalReaderCauseLabel(node, zh)
 					measured, measuredOK := traceFinalMeasuredStateOccupancy(node)
 					if zh {
-						fmt.Fprintf(&b, "  - 第 %d 位，%s：%s；可消除影响 %.3f 毫秒", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
+						fmt.Fprintf(&b, "  - 第 %d 位，%s：%s；"+tracefence.OptimizationPotentialZH+" %.3f 毫秒", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
 					} else {
-						fmt.Fprintf(&b, "  - Rank %d, %s: %s; eliminable impact %.3f ms", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
+						fmt.Fprintf(&b, "  - Rank %d, %s: %s; "+tracefence.OptimizationPotentialEN+" %.3f ms", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
 					}
 					if measuredOK && math.Abs(measured-node.EffectiveImpactMS) > 0.0005 {
 						state := traceFinalReaderStateLabel(node.StateKind, zh)
@@ -596,9 +597,9 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 		}
 	}
 	if zh {
-		b.WriteString("\n请基于以上事实自行给出结论：同时回答真实耗时集中与按现有规则可消除影响两个维度；链外信息只作背景；证据不足处明确限定，不得由系统字段名替代面向用户的解释。\n\n")
+		b.WriteString("\n请基于以上事实自行给出结论：同时回答真实耗时集中与" + tracefence.OptimizationPotentialZH + "影响两个维度；链外信息只作背景；证据不足处明确限定，不得由系统字段名替代面向用户的解释。\n\n")
 	} else {
-		b.WriteString("\nNow provide your own conclusion from these facts: address both measured time concentration and impact eliminable under existing rules; keep off-chain information as context; qualify evidence gaps; and use reader language rather than system field names.\n\n")
+		b.WriteString("\nNow provide your own conclusion from these facts: address both measured time concentration and modeled potential under existing rules; keep off-chain information as context; qualify evidence gaps; and use reader language rather than system field names.\n\n")
 	}
 	return b.String()
 }

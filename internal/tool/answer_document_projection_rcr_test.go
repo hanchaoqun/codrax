@@ -508,7 +508,7 @@ func TestRCRCaliberLegendEntriesOnDemand(t *testing.T) {
 	foldLegend := strings.Join(runtimeTraceProjLegendGroupLines(foldModel.Marks, true), "\n")
 	for _, want := range []string{
 		"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`",
-		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」/「按频率比」的行除外);真实可消除量只多不少。",
+		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」/「按频率比」的行除外);既定理想算力模型内的下界，不是实际收益的下界或保证。",
 	} {
 		if !strings.Contains(foldLegend, want) {
 			t.Fatalf("supply-fold caliber legend entry %q must render:\n%s", want, foldLegend)
@@ -678,7 +678,7 @@ func TestRCRSuppressedClauseShapeKeepsCaliberLegend(t *testing.T) {
 	// TestRCRCaliberLegendEntriesOnDemand).
 	for _, want := range []string{
 		"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`",
-		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」/「按频率比」的行除外);真实可消除量只多不少。",
+		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」/「按频率比」的行除外);既定理想算力模型内的下界，不是实际收益的下界或保证。",
 		"- `全额` =",
 		"- `折算,按全域最大核最高频`/`按全域最大核最高频折算`",
 	} {
@@ -715,7 +715,7 @@ func TestRCRConclusionEquationSharedTemplateLineScoped(t *testing.T) {
 	lead := runtimeTraceProjLeadText(projection, model, "zh", true)
 	var conclusion string
 	for _, line := range strings.Split(lead, "\n") {
-		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
+		if strings.Contains(line, "**主根因(=有链上依据的单项最大估算优化潜力):**") {
 			conclusion = line
 			break
 		}

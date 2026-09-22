@@ -291,13 +291,13 @@ func TestA2NextStepDirectionActionsFromSections(t *testing.T) {
 	if !ok {
 		t.Fatalf("件1: a resolved-direction section must synthesize an action")
 	}
-	if action.text != "锁与优先级→评估提升 CookieMonsterCl-59843 调度优先级或减少其唤醒往返依赖(23.994ms 可消)" {
+	if action.text != "锁与优先级→评估提升 CookieMonsterCl-59843 调度优先级或减少其唤醒往返依赖(23.994ms 估算优化潜力)" {
 		t.Fatalf("件1 zh action word face drifted: %q", action.text)
 	}
 	enAction, ok := runtimeTraceNextStepDirectionActionFor(section, false)
 	if !ok || !strings.Contains(enAction.text, "lock & priority → ") ||
 		!strings.Contains(enAction.text, "CookieMonsterCl-59843") ||
-		!strings.Contains(enAction.text, "(23.994ms eliminable)") {
+		!strings.Contains(enAction.text, "(23.994ms modeled potential)") {
 		t.Fatalf("件1 en action word face drifted: %q", enAction.text)
 	}
 	// 无席方向不发: the unresolved tail (direction "") synthesizes nothing.

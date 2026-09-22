@@ -95,27 +95,27 @@ func runtimeTraceNextStepDirectionActionFor(section runtimeTraceProjElimSection,
 	switch direction {
 	case "scheduling_supply":
 		if zh {
-			body = fmt.Sprintf("排查 %s 的就绪等待:同核竞争线程与 CPU 亲和性(%s 可消)", subject, value)
+			body = fmt.Sprintf("排查 %s 的就绪等待:同核竞争线程与 CPU 亲和性(%s "+tracefence.OptimizationPotentialZH+")", subject, value)
 		} else {
-			body = fmt.Sprintf("investigate %s's ready waits: same-CPU contention and affinity (%s eliminable)", subject, value)
+			body = fmt.Sprintf("investigate %s's ready waits: same-CPU contention and affinity (%s "+tracefence.OptimizationPotentialEN+")", subject, value)
 		}
 	case "lock_priority":
 		if zh {
-			body = fmt.Sprintf("评估提升 %s 调度优先级或减少其唤醒往返依赖(%s 可消)", subject, value)
+			body = fmt.Sprintf("评估提升 %s 调度优先级或减少其唤醒往返依赖(%s "+tracefence.OptimizationPotentialZH+")", subject, value)
 		} else {
-			body = fmt.Sprintf("consider raising %s's scheduling priority or cutting its wakeup round-trips (%s eliminable)", subject, value)
+			body = fmt.Sprintf("consider raising %s's scheduling priority or cutting its wakeup round-trips (%s "+tracefence.OptimizationPotentialEN+")", subject, value)
 		}
 	case "io_dependency":
 		if zh {
-			body = fmt.Sprintf("排查 %s 的 IO、内核不可中断与依赖等待来源(%s 可消)", subject, value)
+			body = fmt.Sprintf("排查 %s 的 IO、内核不可中断与依赖等待来源(%s "+tracefence.OptimizationPotentialZH+")", subject, value)
 		} else {
-			body = fmt.Sprintf("investigate %s's IO, kernel-uninterruptible and dependency wait sources (%s eliminable)", subject, value)
+			body = fmt.Sprintf("investigate %s's IO, kernel-uninterruptible and dependency wait sources (%s "+tracefence.OptimizationPotentialEN+")", subject, value)
 		}
 	case "memory":
 		if zh {
-			body = fmt.Sprintf("排查 %s 的内存回收与缺页压力(%s 可消)", subject, value)
+			body = fmt.Sprintf("排查 %s 的内存回收与缺页压力(%s "+tracefence.OptimizationPotentialZH+")", subject, value)
 		} else {
-			body = fmt.Sprintf("investigate %s's memory-reclaim and page-fault pressure (%s eliminable)", subject, value)
+			body = fmt.Sprintf("investigate %s's memory-reclaim and page-fault pressure (%s "+tracefence.OptimizationPotentialEN+")", subject, value)
 		}
 	case "frequency_thermal":
 		if zh {
@@ -124,9 +124,9 @@ func runtimeTraceNextStepDirectionActionFor(section runtimeTraceProjElimSection,
 			body = fmt.Sprintf("evaluate improving %s's running %s (boost / migrate) (modeled headroom %s versus the stated ideal basis)", subject, runtimeTraceRootCauseTypeENLabel("compute_supply"), value)
 		}
 	case "self_workload":
-		verb := fmt.Sprintf("评估削减 %s 的确定性工作(%s 可消)", subject, value)
+		verb := fmt.Sprintf("评估削减 %s 的确定性工作(%s "+tracefence.OptimizationPotentialZH+")", subject, value)
 		if !zh {
-			verb = fmt.Sprintf("consider reducing %s's deterministic work (%s eliminable)", subject, value)
+			verb = fmt.Sprintf("consider reducing %s's deterministic work (%s "+tracefence.OptimizationPotentialEN+")", subject, value)
 		}
 		body = verb
 	default:
@@ -134,9 +134,9 @@ func runtimeTraceNextStepDirectionActionFor(section runtimeTraceProjElimSection,
 		// template would silently vanish — fail open with the generic
 		// investigate form so a table extension is never a silent drop.
 		if zh {
-			body = fmt.Sprintf("排查 %s 的该方向等待来源(%s 可消)", subject, value)
+			body = fmt.Sprintf("排查 %s 的该方向等待来源(%s "+tracefence.OptimizationPotentialZH+")", subject, value)
 		} else {
-			body = fmt.Sprintf("investigate %s's wait sources on this direction (%s eliminable)", subject, value)
+			body = fmt.Sprintf("investigate %s's wait sources on this direction (%s "+tracefence.OptimizationPotentialEN+")", subject, value)
 		}
 	}
 	text := word + "→" + body

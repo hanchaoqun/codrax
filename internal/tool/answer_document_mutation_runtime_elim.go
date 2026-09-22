@@ -621,9 +621,9 @@ func runtimeTraceProjElimSectionHeadLine(section runtimeTraceProjElimSection, mu
 	}
 	var b strings.Builder
 	if zh {
-		b.WriteString(tracefence.ElimSectionGlyph + " " + word + fmt.Sprintf(" · 最大可消 %.3fms", section.maxEff))
+		b.WriteString(tracefence.ElimSectionGlyph + " " + word + fmt.Sprintf(" · 最大估算潜力 %.3fms", section.maxEff))
 	} else {
-		b.WriteString(tracefence.ElimSectionGlyph + " " + word + fmt.Sprintf(" · max eliminable %.3fms", section.maxEff))
+		b.WriteString(tracefence.ElimSectionGlyph + " " + word + fmt.Sprintf(" · max potential %.3fms", section.maxEff))
 	}
 	tier, subtotal := runtimeTraceProjElimSectionLadder(section, multiBoardRuler, boardHasNamedTargets)
 	switch tier {
@@ -685,9 +685,9 @@ func runtimeTraceProjElimSectionHoistedAnchor(section runtimeTraceProjElimSectio
 func runtimeTraceProjElimAdjacentBlockHeadLine(marks *runtimeTraceProjMarkSet, zh bool) string {
 	marks.mark(runtimeTraceProjMarkElimAdjacentBlockHead)
 	if zh {
-		return runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true) + "(条件可消上界 · 不入方向守恒)"
+		return runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true) + "(条件模型潜力 · 不入方向守恒)"
 	}
-	return runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false) + " (conditional upper bound · outside direction conservation)"
+	return runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false) + " (conditional model potential · outside direction conservation)"
 }
 
 // runtimeTraceProjElimCrossDirectionFootnote builds the ∩ pair rows of the
@@ -735,11 +735,11 @@ func runtimeTraceProjElimCrossDirectionFootnote(rendered []runtimeTraceProjElimE
 			if zh {
 				pairs = append(pairs, overlapRow{overlapMS: clause.OverlapMS,
 					row: runtimeTraceProjElimAuxRow{label: "∩ 重叠对",
-						content: fmt.Sprintf("[%s]∩[%s] %.3fms · 修其一,另一席收益随之收缩,不叠加", tag, ref, clause.OverlapMS)}})
+						content: fmt.Sprintf("[%s]∩[%s] %.3fms · "+tracefence.OptimizationOverlapZH, tag, ref, clause.OverlapMS)}})
 			} else {
 				pairs = append(pairs, overlapRow{overlapMS: clause.OverlapMS,
 					row: runtimeTraceProjElimAuxRow{label: "∩ overlap",
-						content: fmt.Sprintf("[%s]∩[%s] %.3fms · fix one and the other seat's gain shrinks; never additive", tag, ref, clause.OverlapMS)}})
+						content: fmt.Sprintf("[%s]∩[%s] %.3fms · "+tracefence.OptimizationOverlapEN, tag, ref, clause.OverlapMS)}})
 			}
 		}
 	}
@@ -1556,7 +1556,7 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 		if target == "" {
 			target = "关注线程"
 		}
-		title = tracefence.ElimGlyph + " 窗内可消除量总览"
+		title = tracefence.ElimGlyph + " " + tracefence.OptimizationOverviewZH
 		ruler = "尺=" + target + " 窗内墙钟ms"
 		if multiBoardRuler {
 			ruler = "尺=各板目标线程 窗内墙钟ms·跨板不可相加"
@@ -1583,7 +1583,7 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 			// 本区→各区 in lockstep with the per-zone bar normalization
 			// (§29.175.9 承诺词同改).
 			promises = []string{
-				chainWord + "块先 · 节=修复方向(其他方向恒末,余按节内最大可消降序)· 节内值降序 · 方向间收益不可相加",
+				chainWord + "块先 · 节=修复方向(其他方向恒末,余按节内最大估算潜力降序)· 节内值降序 · 方向间收益不可相加",
 			}
 		} else {
 			adjacentWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true)
@@ -1595,7 +1595,7 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 		if target == "" {
 			target = "focused thread"
 		}
-		title = tracefence.ElimGlyph + " Eliminable-in-window overview"
+		title = tracefence.ElimGlyph + " " + tracefence.OptimizationOverviewEN
 		ruler = "ruler = " + target + " in-window wall-clock ms"
 		if multiBoardRuler {
 			ruler = "ruler = each board's target thread, in-window wall-clock ms · never add across boards"
@@ -1611,7 +1611,7 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, cha
 			// retired line ③ lives on the ◎ legend entry (件3, zh 同批).
 			promises = []string{
 				chainWord + " block first · sections = fix direction (other directions tail last)",
-				glyph + " rest by max-eliminable desc · value desc within section · gains never add across directions",
+				glyph + " rest by max potential desc · value desc within section · gains never add across directions",
 			}
 		} else {
 			adjacentWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false)
@@ -1994,9 +1994,9 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		// 空板形 (design §2.5): the board ran and admitted nothing — one
 		// honest line, no silent-disappearance path.
 		if zh {
-			lines = append(lines, tracefence.ElimGlyph+" 窗内可消除量:无同尺持值行(详见背景/义务通道)")
+			lines = append(lines, tracefence.ElimGlyph+" 窗内"+tracefence.OptimizationPotentialZH+":无同尺持值行(详见背景/义务通道)")
 		} else {
-			lines = append(lines, tracefence.ElimGlyph+" eliminable in window: no same-ruler valued rows (see the background / obligation channels)")
+			lines = append(lines, tracefence.ElimGlyph+" in-window "+tracefence.OptimizationPotentialEN+": no same-ruler valued rows (see the background / obligation channels)")
 		}
 		// 裁定① (§29.104.17 ①) + XLANE-2 件1 + LEVELMERGE-1 件2 + PARTSPLIT-1
 		// (§29.150④): a board emptied entirely by the exclusion arms still
@@ -2292,13 +2292,13 @@ func runtimeTraceProjElimEmptyChainLine(model runtimeTraceProjTreeModel, zh bool
 		if cause != "" {
 			line += " · " + cause
 		}
-		return line + " —— 无已证链上可消除量,主根因不加冕"
+		return line + " —— 未找到有链上依据的" + tracefence.OptimizationPotentialZH + ",主根因不加冕"
 	}
 	line := "on-chain: no on-chain valued row in this window"
 	if cause != "" {
 		line += " · " + cause
 	}
-	return line + " — no proven on-chain eliminable amount; no primary-cause crown"
+	return line + " — no on-chain " + tracefence.OptimizationPotentialEN + "; no primary-cause crown"
 }
 
 // runtimeTraceProjElimAuxAccountRows builds the 另账组 account rows of the
@@ -2544,7 +2544,7 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 		}
 		if zh {
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "自身症状",
-				content: fmt.Sprintf("%d 行(症状面,非可消除量)见关注线程区%s", selfCount, tagList)})
+				content: fmt.Sprintf("%d 行(症状面,非"+tracefence.OptimizationPotentialZH+")见关注线程区%s", selfCount, tagList)})
 		} else {
 			// 双复核修复 件3 (冷读 CR3, 2026-07-21): EN clause compressed —
 			// "(symptom face, not eliminable)" — so the row stays inside the

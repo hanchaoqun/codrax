@@ -866,14 +866,14 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// section name, the L1/L2 arithmetic words, the ∩ chip, the ◇ inline
 		// direction word, the ◇ block head parenthetical and the 守恒 line
 		// lead (the ◇ block head's 不入方向守恒 lacks the `· ` lead).
-		runtimeTraceProjMarkElimDirectionSection: {"· 最大可消 ", "· max eliminable "},
+		runtimeTraceProjMarkElimDirectionSection: {"· 最大估算潜力 ", "· max potential "},
 		// OMGCLEAN-1 件1 (§29.175 裁定②): renamed 其他方向/other directions.
 		runtimeTraceProjMarkElimDirectionUnresolved:   {"其他方向", "other directions"},
 		runtimeTraceProjMarkElimSectionSubtotal:       {"(区间互斥)", "(disjoint intervals)"},
 		runtimeTraceProjMarkElimSectionNonAddable:     {"合计不可直加", "; do not add"},
 		runtimeTraceProjMarkElimCrossDirectionChip:    {"·∩[", "·∩["},
 		runtimeTraceProjMarkElimAdjacentDirectionWord: {"·方向=", "· direction="},
-		runtimeTraceProjMarkElimAdjacentBlockHead:     {"(条件可消上界", "(conditional upper bound"},
+		runtimeTraceProjMarkElimAdjacentBlockHead:     {"(条件模型潜力", "(conditional model potential"},
 		runtimeTraceProjMarkElimConservation:          {"· 守恒", "· conservation"},
 		// CR-2 组③ P7: the typed actual-scope word faces.
 		runtimeTraceProjMarkActualBeyondEpisode: {"超出发生段,窗内", "beyond own episode, inside window"},

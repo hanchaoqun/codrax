@@ -6892,14 +6892,14 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang stri
 		topCause := answerDocTraceRankReaderCauseLabel(top.Type, zh)
 		boardScope := answerDocTraceRankReaderBoardScope(authority.BoardChannel, zh)
 		if zh {
-			fmt.Fprintf(&b, "- 排名清单 %d；trace：%s；排序范围：%s；清单%s；第一位：#%d %s，%s，按现有规则可消除影响 %.3fms",
+			fmt.Fprintf(&b, "- 排名清单 %d；trace：%s；排序范围：%s；清单%s；第一位：#%d %s，%s，"+tracefence.OptimizationPotentialZH+"影响 %.3fms",
 				written, label, boardScope, answerDocTraceRankReaderCoverage(authority.Complete, zh), top.Rank,
 				strings.TrimSpace(top.Subject), topCause, top.EffectiveImpactMS)
 			if authority.BoardTarget != "" {
 				fmt.Fprintf(&b, "；分析目标：%s", authority.BoardTarget)
 			}
 		} else {
-			fmt.Fprintf(&b, "- ranking list %d; trace: %s; ranking scope: %s; roster %s; first: #%d %s, %s, %.3fms eliminable under existing rules",
+			fmt.Fprintf(&b, "- ranking list %d; trace: %s; ranking scope: %s; roster %s; first: #%d %s, %s, %.3fms modeled potential under existing rules",
 				written, label, boardScope, answerDocTraceRankReaderCoverage(authority.Complete, zh), top.Rank,
 				strings.TrimSpace(top.Subject), topCause, top.EffectiveImpactMS)
 			if authority.BoardTarget != "" {
@@ -6953,10 +6953,10 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang stri
 		for _, seat := range authority.Seats {
 			cause := answerDocTraceRankReaderCauseLabel(seat.Type, zh)
 			if zh {
-				fmt.Fprintf(&b, "    - #%d %s：%s；按现有规则可消除影响 %.3fms\n",
+				fmt.Fprintf(&b, "    - #%d %s：%s；"+tracefence.OptimizationPotentialZH+"影响 %.3fms\n",
 					seat.Rank, seat.Subject, cause, seat.EffectiveImpactMS)
 			} else {
-				fmt.Fprintf(&b, "    - #%d %s: %s; %.3fms eliminable under existing rules\n",
+				fmt.Fprintf(&b, "    - #%d %s: %s; %.3fms modeled potential under existing rules\n",
 					seat.Rank, seat.Subject, cause, seat.EffectiveImpactMS)
 			}
 		}

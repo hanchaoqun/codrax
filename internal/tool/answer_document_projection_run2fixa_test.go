@@ -26,12 +26,12 @@ func TestRun2FixASectionPromiseSpeaksTailRule(t *testing.T) {
 	// compresses (zh one line; EN keeps the structure-pinned two-line split).
 	model := runtimeTraceProjTreeModel{Target: "worker-T-77"}
 	zhLines := runtimeTraceProjElimHead(model, true, true, true, false)
-	if len(zhLines) != 2 || !strings.Contains(zhLines[1], "节=修复方向(其他方向恒末,余按节内最大可消降序)") {
+	if len(zhLines) != 2 || !strings.Contains(zhLines[1], "节=修复方向(其他方向恒末,余按节内最大估算潜力降序)") {
 		t.Fatalf("zh promise must state the tail-last rule:\n%s", strings.Join(zhLines, "\n"))
 	}
 	enLines := runtimeTraceProjElimHead(model, false, true, true, false)
 	if len(enLines) != 3 || !strings.Contains(enLines[1], "(other directions tail last)") ||
-		!strings.Contains(enLines[2], "rest by max-eliminable desc") {
+		!strings.Contains(enLines[2], "rest by max potential desc") {
 		t.Fatalf("en promise must state the tail-last rule + desc rule:\n%s", strings.Join(enLines, "\n"))
 	}
 	// Behavior arm (承诺句与实际节序一致性): an unresolved-direction section
@@ -52,7 +52,7 @@ func TestRun2FixASectionPromiseSpeaksTailRule(t *testing.T) {
 		t.Fatalf("the unresolved tail must park last regardless of value: %+v", sections)
 	}
 	if sections[0].maxEff != 7.394 || sections[len(sections)-1].maxEff != 16.684 {
-		t.Fatalf("named sections keep max-eliminable desc while the tail holds its value: %+v", sections)
+		t.Fatalf("named sections keep max potential desc while the tail holds its value: %+v", sections)
 	}
 }
 
@@ -358,7 +358,7 @@ func TestRun2FixAFirstSectionTopMatchesOverviewHead(t *testing.T) {
 	fence := runtimeTraceProjElimOverviewFence(projection, model, true)
 	var head string
 	for _, l := range strings.Split(fence, "\n") {
-		if strings.Contains(l, "最大可消 ") {
+		if strings.Contains(l, "最大估算潜力 ") {
 			head = l
 			break
 		}
@@ -366,7 +366,7 @@ func TestRun2FixAFirstSectionTopMatchesOverviewHead(t *testing.T) {
 	if head == "" {
 		t.Fatalf("no ▸ section head rendered:\n%s", fence)
 	}
-	if want := fmt.Sprintf("最大可消 %.3fms", top.row.Node.EffectiveImpactMS); !strings.Contains(head, want) {
+	if want := fmt.Sprintf("最大估算潜力 %.3fms", top.row.Node.EffectiveImpactMS); !strings.Contains(head, want) {
 		t.Fatalf("◎ first section head must print the authority's value byte-identically:\n head %q\n want %q", head, want)
 	}
 }
