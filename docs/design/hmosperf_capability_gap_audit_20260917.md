@@ -2177,7 +2177,7 @@ H2的11闭合D段/36.757ms、12条内核原因记录/Σdelay39.157ms、完整sle
 - [ ] H2调用点/资源/持有者与“未验证≠排除”人审问题继续留债；G1 event_search中行发射线程与payload主体的呈现歧义另审计，尚不判引擎错误、不擅改过滤。
 - [ ] 之后按ROI推进§104优化潜力口径、§94局部补齐和容量恢复；原人工FAIL及B2–B6不回写，父账仍13/79交付、66开放。
 
-## 106. 逐段原始调度状态事实贯通（2026-09-21，实施验收中）
+## 106. 逐段原始调度状态事实贯通（2026-09-21，窄子片验收完成）
 
 §103标签代码和§105双例审计随`6122cc281`已推送main，session92262正式exit0，本地/远端相等且tracked干净后开始本片。先处理真实payload证实的已有事实丢失，未把模型未遵从改判为纯系统缺证，也不以再叠教学代替交付。
 
@@ -2192,3 +2192,16 @@ H2的11闭合D段/36.757ms、12条内核原因记录/Σdelay39.157ms、完整sle
 生产已冻结：compact必须通过原有完整envelope且与全部原计量行相等，才能合并可选字段；不完整8行preview不影响完整11行leaf。冲突独立传播的私有收据严格绑定同ID/来源/主体/精确窗口/结果，不能用陈腐或相近窗口代入，也不增加SourceRecordIDs；按ID索引避免新增不同query重复组平方扫描。独立末审61323正式exit0（types0.676/tracequery1.046/tracefence0.544s），无生产阻碍。
 
 另修本批新增事实面对的旧相反教学：原文笼统禁“机器状态码”会连D/S标准状态一并禁止；独立RED66100正式exit1/agent1.758s，其余原始字段/旧记录/两轴/完整行均先通过。现只禁内部字段名和统计分类枚举，允许D/S保留并解释；唯一旧错误literal pin精确迁移，未改数字/完整性断言。agent公开GREEN48032正式exit0/1.536s；主公开GREEN32688正式exit0/tool1.612s，7物理场景×2语言。核心末版focused48073正式exit0（tracequery0.929/types1.026/tool1.563s），registry新增仅一个soft-consumer登记及对应fixture，不新增硬准入。末版全仓34894、公开race39637、核心race22370和agent末版race41464待正式收据，不提前签完成。
+
+末版收据齐备：代码`f31f71d53`；全仓34894正式exit0，`/tmp/hmc-wait-raw-full-20260921.log`为87测试包、13无测试包、零FAIL。公开race39637正式exit0/tool13.838s，agent末版race41464正式exit0/22.747s；核心最终race28090正式exit0（tracequery5.447/types2.800/tool3.904s），最终focused5506正式exit0。独立安全末审无阻塞。干净构建10641正式exit0，revision f31f71d5355d/buildTime2026-09-22T01:59:03Z；活跃流/默认值73128正式exit0/llm4.388s，600/300/600秒与4ms部分帧保活不改。窄原生字段事实交付完成，不倒签此前完整人工FAIL。
+
+## 107. f31固定双例：机器2/2，完整人工0/2；空投影回退缺陷（2026-09-21）
+
+[机器摘要](../../eval/parallel_selected_summary_hmc_wait_raw_state_20260921.md)、[逐例完整人工审计](../../eval/parallel_selected_summary_hmc_wait_raw_state_20260921_manual_audit.md)。runner4607正式exit0，2并行×1，G1 84秒、causal208秒，不追第三例。G1零成文拒绝/patch；causal一次传输标记参数拒绝后完整JSON恢复、一次surface_role patch，不是本片字段合同拒绝。
+
+G1正文已正确消费三段原始D+IO和0.635ms，新详细reader真实命中；但模型仍把内核调用点当确定机制，完整FAIL。principal occurrence摘要和系统状态附录本轮未出现，只以公开确定性回归验这些出口，不冒称live触达；state摘要缺席具体路径未另定位。causal保20ms显式窗、四节点链、11ms IO、三1ms调度/优先级候选、系统投影与schema2旁路，但调用点越权解释/11ms造成整个20ms描述、系统未验证收益承诺继续FAIL。有限G1的schema2空旁路理由正确，不补无权根因。
+
+新确认高ROI系统gap：`projectTypedTraceAnswerAuthority`已按typed范围与native来源把模型复述过滤为空；`renderAnswerDocAggregateFacts`尊重该空结果，而`preEmitStableAggregateFacts`与`buildAnswerDocPreEmitContext`却以`len>0`区分存在，错误回退Mutable原始聚合。G1 explorer918行的19.671ms（首/第三D入口差，不是等待总量）由此在1742行软建议复活，要求全部聚合展示。最终答案仍采用正确0.635ms；本轮没有因该建议拒绝或重试，准确记录为软合同自冲突而非硬门。
+
+- [ ] 下一窄批：存在answer plan就尊重其聚合投影，包括空；只有无plan才保历史Mutable兼容。覆盖直接/缓存/成文prompt/公开emit一致性、混合源代码事实、非trace空投影；原始审计facts、窗口、native数值和模型正文不改，不扫描算式/原文、不新增门。
+- [ ] 之后§104系统收益措辞、§94局部补齐与容量恢复继续按ROI推进；JSON传输污染恢复、调用点语义越权、读者内部词汇和原始occupancy重复另留账。父账13/79交付、66开放与旧FAIL不变。
