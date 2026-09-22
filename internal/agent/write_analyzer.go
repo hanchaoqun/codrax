@@ -19,8 +19,10 @@ import (
 // rounds (read_file / list_files / repo_map) to ground its
 // classification, then emit.
 type writeAnalyzerEvaluator struct {
-	emitSeen         bool
-	prescanToolCalls int
+	emitSeen              bool
+	prescanToolCalls      int
+	emitRepairReadPending bool
+	emitRepairReadGranted bool
 }
 
 // BuildInitialInstruction: skill owns the structural prompt; the
@@ -38,6 +40,8 @@ type writeAnalyzerEvaluator struct {
 func (e *writeAnalyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *skill.Config) string {
 	e.emitSeen = false
 	e.prescanToolCalls = 0
+	e.emitRepairReadPending = false
+	e.emitRepairReadGranted = false
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
@@ -63,9 +67,10 @@ func (e *writeAnalyzerEvaluator) FilterToolSchemas(_ *types.AgentContext, schema
 	if len(schemas) == 0 || e.prescanToolCalls < writeAnalyzerPrescanToolBudget {
 		return schemas
 	}
-	out := make([]llm.ToolSchema, 0, 1)
+	out := make([]llm.ToolSchema, 0, 2)
 	for _, schema := range schemas {
-		if strings.TrimSpace(schema.Name) == "emit_write_analysis" {
+		name := strings.TrimSpace(schema.Name)
+		if name == "emit_write_analysis" || (e.emitRepairReadPending && name == "read_file") {
 			out = append(out, schema)
 		}
 	}
@@ -79,7 +84,25 @@ func (e *writeAnalyzerEvaluator) FilterToolSchemas(_ *types.AgentContext, schema
 // that write_analyzer is allowed to use before emitting. It deliberately does
 // not inspect model prose, summaries, or user keywords.
 func (e *writeAnalyzerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObservation) {
+	repairReadRound := e.emitRepairReadPending && (!obs.ToolSurfaceKnown || obs.AvailableToolNames["read_file"])
+	if repairReadRound {
+		e.emitRepairReadPending = false
+	}
 	for _, result := range obs.CurrentToolResults {
+		// A rejected emission may require an exact current-file read. Grant
+		// only one narrow read round per dispatch; never inspect the rejection
+		// prose or reopen repository exploration. The overall iteration cap is
+		// unchanged. Results are observed after a tool batch: multiple read_file
+		// calls in that round retain normal batching; even failed reads consume it.
+		if result.ToolName == "emit_write_analysis" && !result.Success && e.prescanToolCalls >= writeAnalyzerPrescanToolBudget && !e.emitRepairReadGranted {
+			e.emitRepairReadGranted, e.emitRepairReadPending = true, true
+		}
+		// A same-batch read rejected by the PREVIOUS emit-only surface did not
+		// use the newly granted round. Consume only the surface actually offered.
+		if result.ToolName == "read_file" && repairReadRound {
+			e.prescanToolCalls++
+			continue
+		}
 		if !result.Success {
 			continue
 		}

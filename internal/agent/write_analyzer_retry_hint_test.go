@@ -90,7 +90,6 @@ func TestWriteAnalyzer_FilterToolSchemas_EmitOnlyAfterPrescanBudget(t *testing.T
 			{ToolName: "grep", Success: true},
 			{ToolName: "read_file", Success: true},
 			{ToolName: "list_files", Success: true},
-			{ToolName: "emit_write_analysis", Success: false},
 			{ToolName: "run_tests", Success: true},
 			{ToolName: "repo_map", Success: false},
 		},

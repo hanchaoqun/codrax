@@ -1381,7 +1381,7 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 
 	r.Register(&Config{
 		Name: "write-analysis-skill",
-		Goal: "Characterise the user's code-change request as a structured task description (kind / scope / risk / constraints / outcomes) so the planner has clear, framing-correct context. Read the request and inspect the repository enough to ground your judgement, then call emit_write_analysis exactly once.",
+		Goal: "Characterise the user's code-change request as a structured task description (kind / scope / risk / constraints / outcomes) so the planner has clear, framing-correct context. Read the request and inspect the repository enough to ground your judgement, then produce one successful emit_write_analysis call.",
 		Workflow: []string{
 			types.WriteAnalysisJSONShapeFirstTeaching,
 			"Read the user's request from the active context. The request describes a code change, not a question — your job is to characterise the work, not investigate code in depth.",
@@ -1390,6 +1390,7 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 			"Decide the scope (micro / package / cross / project) by inspecting how widely the change ripples. A one-function change in one file is micro. Multi-file work in one Go package is package. Touching unrelated subsystems is cross. Build-system or repo-wide refactor is project.",
 			"Decide the risk axes from what the change touches: affects_public_api when the change adds / removes / renames any exported identifier; changes_persistence when schemas, on-disk file formats, configuration shapes, or migration files are involved; changes_build_system when go.mod / package.json / Cargo.toml / build scripts / CI configuration are touched. These axes are advisory classification — the approval gate corroborates them against typed diff and path evidence — so flag them honestly rather than defensively. Pick an overall band (low / medium / high) reflecting the mutation's blast radius if the proposed patch is misapplied, not the severity of the pre-existing defect. A package-local bugfix that preserves public signatures and has no persistence, build-system, security, privilege, remote-execution, or irreversible-data surface is ordinarily low or medium; reserve high for genuinely broad or high-impact mutation surfaces. This is soft risk-calibration guidance only and never overrides the deterministic approval gate.",
 			"Extract constraints the user explicitly stated (e.g. 'do not break existing API', 'keep the same file layout'). Skip when the user did not state any.",
+			types.WriteExistingTestIntentTeaching,
 			"REGRESSION ORACLE OWNERSHIP — when the user explicitly identifies an existing regression test, regression input, fixture, snapshot, or assertion as intentional, must-keep, or not to be reduced/removed, emit constraints[] kind=preserve_regression_test with target set to that one exact repo-relative baseline file; keep the protected input/assertion detail in note. This preserves the existing baseline assertion as one oracle: do not reinterpret 'keep the input' as permission to update its expected output to whatever the new implementation currently produces, and do not write an expected_outcome that grants that permission. If the user explicitly requests a new expected baseline instead, describe that requested observable in behavior_contracts[] and do not falsely mark the old oracle preserved. This is typed task framing for the existing plan critic; it does not choose the implementation or a correct expected value. " + types.WriteProtectedBaselineTargetTeaching,
 			types.WriteAnalysisIndependentOutcomeTeaching + " These are the goal-checks the reflector will use to judge whether retries are moving toward what the user wanted.",
 			// The escape-lane enumeration is single-sourced in
@@ -1405,7 +1406,7 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 			"STATE-TRANSITION CONTRACTS — when light repository inspection establishes shared mutable state or an ordered lifecycle/protocol, carry the behavior as behavior_contracts[].transition.steps[] with schema-known phases setup, action, observation, and postcondition. Preserve execution order. Include a non-initial-state sequence when setup changes the state consumed by the action; when two operations or directions mutate the same state boundary, include a cross-operation sequence instead of testing each operation only from a fresh object. Ground each step with request/test/file evidence when available, and keep inferred sequence semantics under operator=satisfies. This is soft context for planning and verification, not proof and not a hard plan gate.",
 			"RENDERED-TEXT PLACEMENT CONTRACTS — when grounded evidence describes relative position inside rendered text, encode that relationship in behavior_contracts[].placement instead of only a global contains contract. For a required target, fill the typed surface, anchor, expected text, relation, and delimiter for boundary relations; attach placement.evidence_ref or contract evidence_ref when the anchor/expected pair came from inspected evidence. Use the same shape for repr lines, CLI/stdout lines, String()/toString output, and UI/snapshot text. Observed local facts are not requests to change that surface. Retain partial observed/planning context without inventing unknown fields. " + types.WritePlacementRefsTeaching,
 			"If the change naturally splits into stages where each stage can be applied and verified before moving on (for example a schema migration before code that depends on it), propose those stages via phase_proposal with split=sequential. Otherwise omit phase_proposal or set split=single.",
-			"Call emit_write_analysis exactly once with all required fields filled in.",
+			"Call emit_write_analysis with all required fields filled in. Stop after one successful emission. If the tool rejects the call, correct its structured arguments and re-emit; after the light pre-scan budget is exhausted, one additional repair round can read exact files with read_file within the unchanged overall iteration budget. This is not a new exploration budget. Do not remove an explicit requirement merely to obtain acceptance.",
 		},
 		ToolSuggestions: []string{
 			"read_file",
@@ -1414,7 +1415,7 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 			"grep",
 			"emit_write_analysis",
 		},
-		OutputFormat: `Emit ONE emit_write_analysis call.
+		OutputFormat: `Produce ONE successful emit_write_analysis call; a rejected call may be corrected and retried.
 
 Required fields:
 - raw_request          (optional legacy string) — omit it; the system binds the exact current request without an LLM echo
@@ -1428,7 +1429,7 @@ Required fields:
 
 Optional fields:
 - scope_anchors[]      — repo-relative paths the change centres on
-- constraints[]        — { kind, target?, note? }; an explicitly protected existing regression test/input/fixture uses kind=preserve_regression_test and one exact repo-relative baseline-file target, with details in note; follow the exact-read guidance above for non-conventional filenames
+- constraints[]        — { kind, target?, note? }; an explicitly protected existing regression test/input/fixture uses kind=preserve_regression_test and one exact repo-relative baseline-file target, with details in note; an explicit existing-test execution requirement uses kind=run_existing_test and its exact file target; follow the distinct read and proof guidance above
 - expected_outcomes[]  — one short signal per independent explicit success or non-regression dimension; usually 2-8, without dropping extra explicit dimensions
 - behavior_contracts[] — optional typed observables { id, kind, subject?, operator, expected, transition?: { steps: [{ phase: setup|action|observation|postcondition, operation?, expected?, evidence_ref? }] }, placement?, comparator?, evidence_ref?, required? }
 - phase_proposal       — when the change splits into ordered stages
@@ -1440,7 +1441,7 @@ Prose written outside the tool call is captured in the trace but does not drive 
 			"do NOT plan the actual code changes — that is the planner's job in the next stage. Your output is a task description, not a change list.",
 			"do NOT invent constraints the user did not state. An empty constraints[] is normal and correct when the user said nothing about restrictions.",
 			"do NOT split into phases unless each phase can independently be applied and verified before the next — speculative subdivision burns retry budget without the LLM having any way to test phase 1's effect before writing phase 2.",
-			"do NOT call emit_write_analysis more than once — a second call replaces the first.",
+			"do NOT replace a successful emit_write_analysis result with a second successful emission; rejected calls do not count as a successful emission and may be repaired within the dispatch budget.",
 		},
 	})
 
