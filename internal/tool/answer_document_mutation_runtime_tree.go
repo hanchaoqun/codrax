@@ -2466,8 +2466,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// self-basis qualifier's teaching seat — renders exactly when the
 		// qualifier renders (typed node.OnChainBasis single field).
 		{runtimeTraceProjMarkSelfDeterministicBasis, runtimeTraceProjLegendGroupCaliber,
-			"- `" + tracefence.CredentialTierTargetSelfZH + "·确定性优化` = 目标线程自身运行段内的确定性语义工作(类校验/JIT/着色器编译等):在查询窗内即按链上通道参与根因排序,数值为窗内投影并集(自身墙钟,有链上依据的" + tracefence.OptimizationPotentialZH + ");该行不含任何唤醒边、不宣称跨线程唤醒关系。",
-			"- `" + tracefence.CredentialTierTargetSelfEN + "·deterministic-optimization` = deterministic semantic work inside the target thread's own running segments (class verification / JIT / shader compile …): in-window it competes on the on-chain root-cause channel with its window-projection union value (the target's own wall clock, an on-chain " + tracefence.OptimizationPotentialEN + "); the row carries NO wakeup edge and claims no cross-thread wakeup relation."},
+			"- `" + tracefence.CredentialTierTargetSelfZH + "·确定性优化` = 目标线程自身确定性语义片段的墙钟(类校验/JIT/着色器编译等):在查询窗内即按链上通道参与根因排序,数值为窗内投影并集(自身语义墙钟,有链上依据的" + tracefence.OptimizationPotentialZH + ");不是目标全部运行时间或仅 CPU 执行时间;该行不含任何唤醒边、不宣称跨线程唤醒关系。",
+			"- `" + tracefence.CredentialTierTargetSelfEN + "·deterministic-optimization` = the target thread's own semantic-span wall clock (class verification / JIT / shader compile …): in-window it competes on the on-chain root-cause channel with its window-projection union value (the target's semantic wall clock, an on-chain " + tracefence.OptimizationPotentialEN + "); it is neither the target's total running time nor CPU execution time alone; the row carries NO wakeup edge and claims no cross-thread wakeup relation."},
 		// SELF-ALL (§29.61.2/§29.61.2a user rulings, 2026-07-13): the wall-clock
 		// self-basis qualifier's teaching seat — renders exactly when the
 		// qualifier renders (typed node.OnChainBasis single field).
@@ -2841,11 +2841,27 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 			lines = append(lines, "- `discounted/converted` is estimated improvement headroom from frequency or core capability, not additional elapsed wall-clock time; the row states its basis and evidence strength.")
 		}
 	}
-	if hasAny(runtimeTraceProjMarkSemanticSpan, runtimeTraceProjMarkSelfDeterministicBasis, runtimeTraceProjMarkSemanticMentionFloor) {
+	// A span, a target-self credential and an unranked mention are separate
+	// emitted facts. None may lend its measurement caliber to the other rows.
+	if marks.has(runtimeTraceProjMarkSemanticSpan) {
 		if zh {
-			lines = append(lines, "- 确定性语义工作（如类校验、JIT、着色器编译、运行时编译、纹理上传或 GC）按目标线程窗内运行时间计；没有独立关系证据时不据此补造唤醒边。")
+			lines = append(lines, "- 语义片段的墙钟时长属于片段所在的线程及记录范围；不能替换为目标线程运行时间，也不能与另列的链上计入或"+tracefence.OptimizationPotentialZH+"互换；没有独立关系证据时不据此补造唤醒边。")
 		} else {
-			lines = append(lines, "- Deterministic semantic work (for example class verification, JIT, shader/runtime compilation, texture upload, or GC) is measured in the target thread's in-window running time; it does not create a wakeup edge without separate relationship evidence.")
+			lines = append(lines, "- Semantic-span wall clock belongs to its host thread and recorded range; it is not interchangeable with target running time or separately stated on-chain attribution or "+tracefence.OptimizationPotentialEN+", and does not create a wakeup edge without separate relationship evidence.")
+		}
+	}
+	if marks.has(runtimeTraceProjMarkSelfDeterministicBasis) {
+		if zh {
+			lines = append(lines, "- 仅带`"+tracefence.CredentialTierTargetSelfZH+"·确定性优化`凭证的项目按目标自身语义片段墙钟的窗内投影并集计量；这不是目标全部运行时间或仅 CPU 执行时间，不扩展到其他线程，也不新增唤醒关系。")
+		} else {
+			lines = append(lines, "- Only rows marked `"+tracefence.CredentialTierTargetSelfEN+"·deterministic-optimization` use the in-window projection union of the target's own semantic-span wall clock; this is neither total target running time nor CPU execution time alone, does not extend to other threads, and adds no wakeup relationship.")
+		}
+	}
+	if marks.has(runtimeTraceProjMarkSemanticMentionFloor) {
+		if zh {
+			lines = append(lines, "- `"+tracefence.ActionWordZH+"·未入"+tracefence.SeatChannelChainZH+"前N`保留链上语义线索及该行已发布的时长和计量范围；这一展示标记不授予目标自身运行时间口径或根因榜位。")
+		} else {
+			lines = append(lines, "- `"+tracefence.ActionWordEN+" · below the top-N root-cause board` preserves on-chain semantic clues and the row's published duration and measurement scope; this display marker does not grant target-self running-time caliber or a ranking position.")
 		}
 	}
 	if hasAny(runtimeTraceProjMarkPeriodicSource, runtimeTraceProjMarkPeriodicIdle, runtimeTraceProjMarkPacingIdle, runtimeTraceProjMarkIconPacing) {
