@@ -128,7 +128,7 @@ func TestB1691PublicAnalysisPreservesDownstreamAnswerShape(t *testing.T) {
 				t.Errorf("finalizer wrongly selects scalar-only discipline=%t", got)
 			}
 			if multi {
-				for _, want := range []string{"Dimension 1: dimension1", "Dimension 2: dimension2"} {
+				for _, want := range []string{"User-facing label: dimension1\n  Internal order: 1", "User-facing label: dimension2\n  Internal order: 2"} {
 					if !strings.Contains(finalPrompt, want) {
 						t.Errorf("finalizer lost independent requested dimension %q", want)
 					}

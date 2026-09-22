@@ -8097,10 +8097,10 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 	if lang == "zh" {
 		b.WriteString("## 用户要求的答案维度\n\n")
 		b.WriteString("- 当前问题显式要求最终答案保留下面这些可见维度。请把它们自然地呈现为小标题、表格列、列表标签或紧凑段落标签。\n")
-		b.WriteString("- 下列冒号后的文字就是面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
+		b.WriteString("- " + requestedAnswerDimensionDisplayInstruction(true))
 		b.WriteString("- 如果答案按多个主体逐项展开（例如逐提交、逐日志事件、逐 trace span、逐组件、逐文件），每个主体下面都应尽量显式保留这些维度标签；某一维没有证据时，在该主体下说明边界，不要补编。\n")
 		b.WriteString("- 这些维度是展示契约，不是新的证据来源；不要为没有证据支撑的维度编造内容，证据不足时在边界说明中说清楚。\n")
-		b.WriteString("- 每一行都是独立的可见输出面；即使共用证据，图也不能吞掉用户另行要求的清单、表格或解释。按“第 N 维”的顺序安排这些输出面；如果图在清单之前，先给图，再在图后给清单。\n")
+		b.WriteString("- 每个维度都是独立的可见输出面；即使共用证据，图也不能吞掉用户另行要求的清单、表格或解释。按内部排序安排这些输出面；如果图在清单之前，先给图，再在图后给清单。\n")
 		if callChainMemberRoster {
 			b.WriteString("- 本轮的成员清单与调用链端点边是两个独立的 typed 责任。普通关键函数/成员清单块只设置 `facet_ids:[\"member_set\"]`，不要同时设置 `principal_path_edge`、directed `claim_uses` 或 `edge_anchors`；精确端点边另用独立块承载。只有清单的每一行本身就是一条精确端点边时才能合并。请在第一稿就分块，不要等校验修补。\n")
 		}
@@ -8108,10 +8108,10 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 	} else {
 		b.WriteString("## User-Requested Answer Dimensions\n\n")
 		b.WriteString("- The current request explicitly asks the final answer to preserve the visible dimensions below. Render them naturally as headings, table columns, list labels, or compact paragraph labels.\n")
-		b.WriteString("- The text after each colon is the user-facing label. Do not append internal system roles or enum names to the visible answer.\n")
+		b.WriteString("- " + requestedAnswerDimensionDisplayInstruction(false))
 		b.WriteString("- When the answer is organized by multiple subjects (for example per commit, log event, trace span, component, or file), preserve these dimension labels under each subject where possible; if a dimension lacks evidence, state that boundary under that subject instead of inventing content.\n")
 		b.WriteString("- These dimensions are presentation guidance, not new evidence origins. Do not invent unsupported content; disclose missing evidence in a boundary note or caveat.\n")
-		b.WriteString("- Every row is an independent visible output surface. Even when surfaces share evidence, a diagram must not absorb a separately requested list, table, or explanation. Follow Dimension N as visible output order; when the diagram precedes a roster, render the roster after the diagram.\n")
+		b.WriteString("- Every dimension is an independent visible output surface. Even when surfaces share evidence, a diagram must not absorb a separately requested list, table, or explanation. Follow the internal order for these output surfaces; when the diagram precedes a roster, render the roster after the diagram.\n")
 		if callChainMemberRoster {
 			b.WriteString("- The requested member roster and the call-chain endpoint edges are two independent typed responsibilities. An ordinary key-function/member roster block uses only `facet_ids:[\"member_set\"]`; do not also attach `principal_path_edge`, directed `claim_uses`, or `edge_anchors`. Put the exact endpoint edges in a separate block. Merge them only when every roster row is itself one exact endpoint edge. Separate these blocks in the first draft instead of relying on repair.\n")
 		}
@@ -8130,11 +8130,7 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		if label == "" {
 			continue
 		}
-		if lang == "zh" {
-			fmt.Fprintf(&b, "- 第 %d 维：%s", dim.Index, label)
-		} else {
-			fmt.Fprintf(&b, "- Dimension %d: %s", dim.Index, label)
-		}
+		b.WriteString(requestedAnswerDimensionDisplayRow(dim.Index, label, lang == "zh"))
 		if dim.SourceQuote != "" && dim.SourceQuote != label {
 			fmt.Fprintf(&b, " — source quote: %q", dim.SourceQuote)
 		}
@@ -17002,7 +16998,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		b.WriteString("结构化覆盖检查尚未确认以下用户要求已获独立承载；这不等于正文确实缺失。")
 		b.WriteString("先核对现有内容：如果已经回答，只补相应归属或绑定，并保留原有正文；确实缺少内容时，再按维度序号补充最小独立输出面。图不能替代另行要求的清单、表格或解释。")
 		b.WriteString("优先使用 `emit_answer_document_patch` 对现有答案作局部修补；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
-		b.WriteString("下面只列面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
+		b.WriteString(requestedAnswerDimensionDisplayInstruction(true))
 		if memberSetMetadataRepair {
 			b.WriteString("Patch 执行形：`facet_ids` 是数组元数据，不要把数组本身塞进 `block_field_edits_v1`。若当前工具 schema 发布精确的 `add_facet_id` 分支，直接选择其 block_id/value，只补该归属并保留整块内容；否则使用 `replace_blocks` 完整重发目标块：复制上一版的 id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family，只改 `facet_ids`；`replace_blocks` 不是字段合并。\n")
 		}
@@ -17012,7 +17008,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			if index <= 0 {
 				index = 1
 			}
-			fmt.Fprintf(&b, "- 第 %d 维：%s", index, requestedAnswerDimensionHintLabel(dim, true))
+			b.WriteString(requestedAnswerDimensionDisplayRow(index, requestedAnswerDimensionHintLabel(dim, true), true))
 			b.WriteByte('\n')
 			if dim.Role == types.RequestedAnswerDimensionMemberSet {
 				if sourceInventoryMemberRoster {
@@ -17044,7 +17040,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	b.WriteString("Structured coverage has not confirmed an independent carrier for the following user requests; this does not prove that visible content is missing. ")
 	b.WriteString("Check the existing content first: if it already answers the request, repair only its ownership or binding and preserve the prose. If content is actually absent, add the minimum independent surface in dimension order; a diagram does not replace a separately requested roster, table, or explanation. ")
 	b.WriteString("Prefer `emit_answer_document_patch` for a local repair of the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
-	b.WriteString("Only user-facing labels are listed below. Do not append internal system roles or enum names to the visible answer.\n")
+	b.WriteString(requestedAnswerDimensionDisplayInstruction(false))
 	if memberSetMetadataRepair {
 		b.WriteString("Executable patch shape: `facet_ids` itself remains array metadata; do not send that array through `block_field_edits_v1`. When the current tool schema publishes an exact `add_facet_id` branch, select its block_id/value to add only that ownership membership while preserving the relation carrier byte-for-byte. Otherwise use `replace_blocks` with the COMPLETE target block: copy the previous id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family and change only `facet_ids`; `replace_blocks` is not a field merge.\n")
 	}
@@ -17054,7 +17050,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		if index <= 0 {
 			index = 1
 		}
-		fmt.Fprintf(&b, "- Dimension %d: %s", index, requestedAnswerDimensionHintLabel(dim, false))
+		b.WriteString(requestedAnswerDimensionDisplayRow(index, requestedAnswerDimensionHintLabel(dim, false), false))
 		b.WriteByte('\n')
 		if dim.Role == types.RequestedAnswerDimensionMemberSet {
 			if sourceInventoryMemberRoster {
