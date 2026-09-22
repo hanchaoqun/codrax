@@ -66,8 +66,8 @@ func TestSelfRunningFoldUnmeasuredParserFailClosedArms(t *testing.T) {
 }
 
 // The compile routes the predicate past node classification into the side
-// list (deduped by subject — a re-published record set cannot double the
-// list), and a records set without the predicate compiles to an empty list
+// list (only exact same-source/window/value copies are deduplicated), and a
+// records set without the predicate compiles to an empty list
 // (absence silent). The projection needs one node record to be Active() —
 // the side channel never activates a projection by itself (sibling
 // discipline: no seat, no node, no ordinal).

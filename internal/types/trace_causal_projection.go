@@ -260,7 +260,7 @@ type TraceCausalProjection struct {
 	// is dropped whole). The records join NO node bucket, NO ordinal
 	// population, NO conservation or census denominator; the display
 	// consumer is the ◎ auxiliary 另账 row 「运行频点未采集,自身降频折算
-	// 不可量」 (absence silent). Deduped by subject.
+	// 不可量」 (absence silent). Only exact source/window/value copies dedupe.
 	SelfRunningFoldUnmeasured []TraceCausalProjectionSelfRunningFoldUnmeasured `json:"self_running_fold_unmeasured,omitempty"`
 }
 
@@ -345,7 +345,7 @@ func TraceCausalProjectionSelfRunnableTwoRulerValid(record TraceCausalProjection
 
 // TraceCausalProjectionSelfRunningFoldUnmeasured is the self supply-fold
 // 「量不了」 absence disclosure (SELFRUN-DISC, §29.192① (b)): the analysis
-// target ran RunningMS inside the window while the fold basis was ENTIRELY
+// target ran RunningMS inside the observation's own selected window while the fold basis was ENTIRELY
 // unknown (no governed frequency coverage on any slice), so the self
 // down-clock fold is unmeasurable — the zero deficit must never wear the
 // affirmative "no loss" face. All fields are typed verbatim transports of
@@ -354,6 +354,12 @@ func TraceCausalProjectionSelfRunnableTwoRulerValid(record TraceCausalProjection
 // the fold identity RunningMS == UnknownMS (KnownMs==0 form) before any
 // wording renders.
 type TraceCausalProjectionSelfRunningFoldUnmeasured struct {
+	// Optional provenance is descriptive, never a value/causal credential.
+	// The parent query receipt and the observation's selected window are
+	// separate: recursive results need not use the same interval. Missing
+	// provenance stays unknown; the enclosing projection cannot supply it.
+	QuerySourceRef *ObservationSourceRef             `json:"query_source_ref,omitempty"`
+	SelectedWindow *TraceCausalProjectionQueryWindow `json:"selected_window,omitempty"`
 	// Subject is the analysis target's thread label (record Subject,
 	// verbatim).
 	Subject string `json:"subject"`
@@ -1943,7 +1949,7 @@ func traceCausalProjectionFromParentResult(records []ObservationRecord, userEnti
 	selfRunnableTwoRulerSeen := map[string]bool{}
 	// SELFRUN-DISC (§29.192① (b)): the self supply-fold 「量不了」 absence
 	// disclosure side channel — collected per record (all-or-nothing strict
-	// parse with the running==unknown identity), deduped by subject.
+	// parse with the running==unknown identity), deduped by source/window/value.
 	var selfRunningFoldUnmeasured []TraceCausalProjectionSelfRunningFoldUnmeasured
 	selfRunningFoldUnmeasuredSeen := map[string]bool{}
 	for _, record := range records {
@@ -2017,12 +2023,14 @@ func traceCausalProjectionFromParentResult(records []ObservationRecord, userEnti
 		// SELFRUN-DISC (§29.192① (b)): a self_running_fold_unmeasured
 		// observation is the self supply-fold 「量不了」 absence disclosure —
 		// a projection-level side channel, never a node of its own. Strict
-		// all-or-nothing parse; a record failing any typed field or the
+		// numeric parse; a record failing the quantity fields or the
 		// running==unknown fold identity drops whole (fail-open to absence).
+		// Optional source/window metadata never supplies value authority.
 		if strings.TrimSpace(record.Predicate) == "self_running_fold_unmeasured" {
 			if disclosure, ok := traceCausalProjectionSelfRunningFoldUnmeasuredFromRecord(record); ok {
-				if !selfRunningFoldUnmeasuredSeen[disclosure.Subject] {
-					selfRunningFoldUnmeasuredSeen[disclosure.Subject] = true
+				key := traceCausalProjectionSelfRunningDisclosureKey(disclosure, record.ID)
+				if key == "" || !selfRunningFoldUnmeasuredSeen[key] {
+					selfRunningFoldUnmeasuredSeen[key] = true
 					selfRunningFoldUnmeasured = append(selfRunningFoldUnmeasured, disclosure)
 				}
 			}
@@ -6448,6 +6456,7 @@ func traceCausalProjectionSelfRunningFoldUnmeasuredFromRecord(record Observation
 		return out, false
 	}
 	out.RunningMS, out.UnknownMS = running, unknown
+	traceCausalProjectionSelfRunningDisclosureScope(&out, record)
 	return out, true
 }
 

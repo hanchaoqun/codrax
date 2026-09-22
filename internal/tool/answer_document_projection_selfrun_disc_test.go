@@ -46,7 +46,7 @@ func TestSelfrunDiscElimRowZH(t *testing.T) {
 	proj := selfrunDiscProjection()
 	model := buildRuntimeTraceProjTreeModel(proj, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	elim := partsplitSquash(runtimeTraceProjElimOverviewFence(proj, model, true))
-	if !strings.Contains(elim, partsplitSquash("· 折算不可量 app-100 窗内 running 19.800ms:运行频点未采集,自身降频折算不可量")) {
+	if !strings.Contains(elim, partsplitSquash("· 折算不可量 app-100 查询范围未明确 running 19.800ms:运行频点未采集,自身降频折算不可量")) {
 		t.Fatalf("zh ◎ must carry the 折算不可量 另账 row with the ruled sentence:\n%s", elim)
 	}
 }
@@ -56,7 +56,7 @@ func TestSelfrunDiscElimRowEN(t *testing.T) {
 	proj := selfrunDiscProjection()
 	model := buildRuntimeTraceProjTreeModel(proj, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	elim := partsplitSquash(runtimeTraceProjElimOverviewFence(proj, model, false))
-	if !strings.Contains(elim, partsplitSquash("· fold unmeasurable app-100 ran 19.800ms in-window: running-frequency samples were not collected; the self down-clock fold is unmeasurable")) {
+	if !strings.Contains(elim, partsplitSquash("· fold unmeasurable app-100 query range unspecified: ran 19.800ms; running-frequency samples were not collected; the self down-clock fold is unmeasurable")) {
 		t.Fatalf("EN ◎ must carry the fold-unmeasurable aux row:\n%s", elim)
 	}
 }

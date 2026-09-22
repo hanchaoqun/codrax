@@ -770,6 +770,9 @@ var infoContractDisplayAuthorityFiles = []string{
 	// Native-duration provenance owns the folded value's displayed ruler;
 	// scan its real consumer instead of exempting the projection marker.
 	"answer_document_io_fold_caliber.go",
+	// Self-running absence disclosures own both the quantity identity and
+	// their original selected window; the parent tree only forwards them.
+	"answer_document_mutation_runtime_selfrun_disc.go",
 	"answer_document_mutation_runtime_rcr.go",
 	"answer_document_mutation_runtime.go",
 	"answer_document_mutation_runtime_typelabels.go",
@@ -949,6 +952,16 @@ var infoContractRankStatuses = map[string]bool{
 	"node_mirror": true, "note_consumed": true, "note_displayed": true, "engine_gate": true, "exempt": true, "known_gap": true,
 }
 
+// The scope-bearing self-running disclosure is a nested projection carrier;
+// the parent field census does not recursively enumerate these fields.
+var selfRunningDisclosureContract = map[string]fieldDisposition{
+	"Subject":        {Status: "displayed", Ref: "self-running absence row's original analysis target"},
+	"RunningMS":      {Status: "displayed", Ref: "native running quantity; never re-clipped to the board window"},
+	"UnknownMS":      {Status: "internal_gate", Ref: "existing running==unknown absence-disclosure identity"},
+	"SelectedWindow": {Status: "displayed", Ref: "observation-owned query window or explicit unknown; never borrowed"},
+	"QuerySourceRef": {Status: "projection_gate", Ref: "display duplicate identity and retained source receipt only; no causal/value authority"},
+}
+
 // TestInfoContractFieldCensus — T1 registration/ghost/reference arms over all
 // contract tables, plus the exemption/open-gap registry completeness checks
 // (open-gap references and registry are exact mirrors; resolved entries leave
@@ -959,6 +972,7 @@ func TestInfoContractFieldCensus(t *testing.T) {
 	infoContractCheckRegistration(t, "Projection", reflect.TypeOf(types.TraceCausalProjection{}), projectionFieldContract, infoContractT1Statuses, usedW, usedOM)
 	infoContractCheckRegistration(t, "TargetStateAccount", reflect.TypeOf(types.TraceCausalProjectionTargetStateAccount{}), targetStateAccountContract, infoContractT1Statuses, usedW, usedOM)
 	infoContractCheckRegistration(t, "QueryWindow", reflect.TypeOf(types.TraceCausalProjectionQueryWindow{}), queryWindowContract, infoContractT1Statuses, usedW, usedOM)
+	infoContractCheckRegistration(t, "SelfRunningDisclosure", reflect.TypeOf(types.TraceCausalProjectionSelfRunningFoldUnmeasured{}), selfRunningDisclosureContract, infoContractT1Statuses, usedW, usedOM)
 	infoContractCheckRegistration(t, "RankFoldPeer", reflect.TypeOf(runtimeTraceProjRankFoldPeer{}), rankFoldPeerContract, infoContractT1Statuses, usedW, usedOM)
 	infoContractCheckRegistration(t, "RankItem", reflect.TypeOf(tracequery.RootCauseRankItem{}), rankItemContract, infoContractRankStatuses, usedW, usedOM)
 
@@ -1041,6 +1055,7 @@ func TestInfoContractDisplayedClaimsHaveRealConsumers(t *testing.T) {
 	check("Projection", projectionFieldContract)
 	check("TargetStateAccount", targetStateAccountContract)
 	check("QueryWindow", queryWindowContract)
+	check("SelfRunningDisclosure", selfRunningDisclosureContract)
 	check("RankFoldPeer", rankFoldPeerContract)
 }
 

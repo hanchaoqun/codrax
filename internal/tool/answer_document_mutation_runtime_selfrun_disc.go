@@ -82,14 +82,24 @@ func runtimeTraceProjElimSelfFoldUnmeasuredRows(model runtimeTraceProjTreeModel,
 		if subject == "" {
 			continue
 		}
+		window := d.SelectedWindow
+		windowKnown := d.HasSelectedWindow()
 		if zh {
+			scope := "查询范围未明确"
+			if windowKnown {
+				scope = fmt.Sprintf("查询窗 %.6f..%.6fs", window.StartTs, window.EndTs)
+			}
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "折算不可量",
-				content: fmt.Sprintf("%s 窗内 running %.3fms:%s",
-					subject, d.RunningMS, runtimeTraceProjSelfFoldUnmeasuredSentence(true))})
+				content: fmt.Sprintf("%s %s running %.3fms:%s",
+					subject, scope, d.RunningMS, runtimeTraceProjSelfFoldUnmeasuredSentence(true))})
 		} else {
+			scope := "query range unspecified"
+			if windowKnown {
+				scope = fmt.Sprintf("query window %.6f..%.6fs", window.StartTs, window.EndTs)
+			}
 			rows = append(rows, runtimeTraceProjElimAuxRow{label: "fold unmeasurable",
-				content: fmt.Sprintf("%s ran %.3fms in-window: %s",
-					subject, d.RunningMS, runtimeTraceProjSelfFoldUnmeasuredSentence(false))})
+				content: fmt.Sprintf("%s %s: ran %.3fms; %s",
+					subject, scope, d.RunningMS, runtimeTraceProjSelfFoldUnmeasuredSentence(false))})
 		}
 	}
 	return rows
