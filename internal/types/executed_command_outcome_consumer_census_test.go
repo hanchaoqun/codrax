@@ -106,7 +106,7 @@ var registeredOutcomeSwitches = []outcomeSwitchRegistration{
 	// it is not a new ExecutedCommand classification or assertion authority.
 	{dir: "internal/types", file: "verification_failure_observation.go", fn: "CurrentReportFailureObservations", domain: outcomeDomainDiagnostic},
 	// Pytest case outcome words (passed / skipped / PASSED / XFAIL …).
-	{dir: "internal/tool", file: "run_tests_parsers.go", fn: "parsePytestJSONReport", domain: outcomeDomainOther},
+	{dir: "internal/tool", file: "run_tests_parsers.go", fn: "parsePytestJSONReportBytes", domain: outcomeDomainOther},
 	{dir: "internal/tool", file: "run_tests_parsers.go", fn: "parsePytestTextCaseRows", domain: outcomeDomainOther},
 	// Hint-injection evaluation outcome (OutcomeInjectHint …).
 	{dir: "internal/agent", file: "agent.go", fn: "Execute", domain: outcomeDomainOther},
