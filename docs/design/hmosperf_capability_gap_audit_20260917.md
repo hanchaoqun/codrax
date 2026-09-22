@@ -2543,3 +2543,5 @@ Trace完整292行/原始时点/原生观测/模型输入及旁路同审：5ms语
 Python仅实现+1、原测试与配置逐字不变，交付commit=c27961f556ef4d13a30d62674d0bd2be12d358a4；当前worktree实际运行3个原unittest方法（含±2**64），没有用probe替代，根目录零测试分列，故用户任务PASS。但固定IR只有preserve_regression_test，没有run_existing_test，报告无新执行收据，本次依靠既有PTO选测试；新教学真实到场仍未发射该执行要求，分析补读也未触发。§127公开真实Run/独立consumer/race验收成立，不等于本次新机制live验收；不以词扫描补写模型要求，也不凭单次遗漏认定波动。三条PTO身份仍错误、10合同planning-only，原生声明-观测pair/B2–B6未销。新增低优先计数债：proof_profile.probe_count取全部VerificationConfidence数，本例source_compile被计为1，不能当成post-apply probe执行数；规划期临时probe零测试另记，不混层次。
 
 逐唯一ID仍79=13已交付+66开放；本轮完成的是既有父项下的确定性子缺陷与新版本两个用户任务，历史FAIL原样保留。优先级按§128旧pytest产物冒借P1→caller双轴→业务局部补齐/容量→声明-观测pair/B2–B6→能力目录/IO总体/精确帧执行。当前代码两笔本地提交111b22d23、b3c0bf870，文档与本轮审计一并推送收尾；推送正式收据随后补记。
+
+收尾正式收据：代码两笔及审计`0fefcca6c`已推送main，46680正式exit0（`3cb204025..0fefcca6c`）。独立提交前只读审计无阻断，逐ID无重复且新分支未命中、旧FAIL与安全剩余边界没有误销。干净构建42607正式exit0，revision=`0fefcca6cc50`、buildTime=`2026-09-22T11:13:49Z`，日志`/tmp/hmc-native-execution-clean-build-20260922.log`；构建后工作区干净。该构建只有审计文档revision变化，不替换此前b3c0bf固定双例的原始构建身份或冒称又跑评测。下一§128仍只读设计、未实施，66父开放项不变。
