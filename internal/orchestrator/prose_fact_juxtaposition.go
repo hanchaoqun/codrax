@@ -620,16 +620,12 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 	var zh, en []string
 	if len(f.seats) > 0 {
 		var pz, pe []string
-		domains := map[string]bool{}
 		incompleteDomain := false
 		for _, seat := range f.seats {
-			if seat.board.Complete {
-				domains[seat.board.Key] = true
-			} else {
+			if !seat.board.Complete {
 				incompleteDomain = true
 			}
 		}
-		showDomain := len(domains) > 1 || (len(domains) > 0 && incompleteDomain)
 		for _, seat := range f.seats {
 			z := fmt.Sprintf("#%d", seat.rank)
 			e := fmt.Sprintf("#%d", seat.rank)
@@ -664,7 +660,9 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 				z += "(" + strings.Join(dz, ",") + ")"
 				e += " (" + strings.Join(de, ", ") + ")"
 			}
-			if showDomain && seat.board.Complete {
+			// A single rank still belongs to its own query, not implicitly
+			// to the report's requested window or another thread's board.
+			if seat.board.Complete {
 				scopeZH, scopeEN := proseFactRankBoardScope(seat.board)
 				z += scopeZH
 				e += scopeEN
