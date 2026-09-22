@@ -1816,6 +1816,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if p.RuntimeArtifactValueProfile != nil && !predicates.IsScalarAnswer {
+		p.RuntimeArtifactValueProfile = nil
+		warning := "dropped artifact_value_profile outside predicates.is_scalar_answer=true; diagnostic and explanatory requests obtain runtime values from later typed observations instead of analyzer-transcribed pre-triage values"
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	runtimeArtifactValueProfile, runtimeArtifactValueErr := parseRuntimeArtifactValueProfile(runtimeArtifactCarrier, p.RuntimeArtifactValueProfile)
 	if runtimeArtifactValueErr != "" {
 		if !runtimeArtifactCarrier && p.RuntimeArtifactValueProfile != nil && p.RuntimeArtifactValueProfile.IsArtifactValueLookup != nil && *p.RuntimeArtifactValueProfile.IsArtifactValueLookup {
@@ -1830,12 +1836,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 				Timestamp: time.Now(),
 			}, nil
 		}
-	}
-	if runtimeArtifactValueProfile != nil && !predicates.IsScalarAnswer {
-		runtimeArtifactValueProfile = nil
-		warning := "dropped artifact_value_profile outside predicates.is_scalar_answer=true; diagnostic and explanatory requests obtain runtime values from later typed observations instead of analyzer-transcribed pre-triage values"
-		logging.Warning("[emit_analysis] %s", warning)
-		val.Warnings = append(val.Warnings, warning)
 	}
 	runtimeArtifactScopeProfile, runtimeArtifactScopeErr, runtimeArtifactScopeWarnings := parseRuntimeArtifactScopeProfile(raw, runtimeArtifactCarrier, p.RuntimeArtifactScopeProfile)
 	runtimeTargets, runtimeTargetWarnings, runtimeTargetErr := parseRuntimeTargets(p.RuntimeTargets)
@@ -1919,7 +1919,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
-		if runtimeArtifactCarrier && runtimeArtifactValueProfile == nil {
+		if runtimeArtifactCarrier && predicates.IsScalarAnswer && runtimeArtifactValueProfile == nil {
 			if converted, warning := runtimeArtifactValueProfileFromFieldValueParam(ctx, p.FieldValueProfile, fieldValueErr); converted != nil {
 				runtimeArtifactValueProfile = converted
 				fieldValueErr = ""
