@@ -185,9 +185,12 @@ func TestTypedFiniteTraceScopeDoesNotPromoteExploratoryRootCausePopulation(t *te
 				"does not suppress any requested scheduler-state",
 				"does not decide yes/no/mixed/unproven",
 				"Runtime user-facing language hint",
-				"evidence metadata, not customer-facing vocabulary",
+				// Raw data fields remain reader vocabulary; only internal
+				// control metadata belongs outside the customer surface.
+				"Do not expose internal protocol, validation, routing, or ranking-control field names",
+				"relevant, evidence-supported raw-data field names, units, identifiers, and business statuses",
 				"answer's language",
-				"without copying field names, English enum values",
+				"enum values, status codes, or key/value pairs in customer prose",
 				"display guidance only",
 				"Runtime finite target-state caliber hint",
 				"selected `target_window_states` account is the principal authority",

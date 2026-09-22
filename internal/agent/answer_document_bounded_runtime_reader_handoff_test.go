@@ -144,7 +144,10 @@ func TestBuildInitialInstructionPinsBoundedRuntimeReaderHandoffAtFinalSeam(t *te
 	}
 	for _, want := range []string{
 		"没有评估由 IO 完成事件闭合的 S 状态等待",
-		"字段名、枚举值、状态码和机器键值只用于校验",
+		// Only protocol/control metadata is hidden; original data fields are
+		// not made internal merely by their structured carrier.
+		"内部协议、校验、路由或排序控制所用的字段名、枚举值、状态码和机器键值",
+		"与问题相关且证据支持的原始数据字段名、单位、标识和业务状态应保留并解释",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("wired prompt missing %q", want)

@@ -584,7 +584,10 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"does not prove physical independence",
 		"does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling",
 		"## Reader-ready Trace facts (the model owns the conclusion)",
-		"do not expose JSON field names, internal enum values, status codes",
+		// Preserve the internal-metadata boundary without forbidding the
+		// reader-facing field names and statuses of the observed data.
+		"Do not expose internal protocol, validation, routing, or ranking-control field names, enum values, status codes",
+		"relevant, evidence-supported raw-data field names, units, identifiers, and business statuses",
 		"address both measured time concentration and modeled potential under existing rules",
 	} {
 		if !strings.Contains(prompt, want) {
