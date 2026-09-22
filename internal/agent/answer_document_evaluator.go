@@ -1508,53 +1508,16 @@ func extractAnswerDocLang(ctx *types.AgentContext) string {
 	return lang
 }
 
-type answerDocLangSource string
-
-const (
-	answerDocLangSourceDefault          answerDocLangSource = "default"
-	answerDocLangSourceDisabled         answerDocLangSource = "disabled"
-	answerDocLangSourceConfigured       answerDocLangSource = "configured"
-	answerDocLangSourceAnalysisContract answerDocLangSource = "analysis_contract"
-	answerDocLangSourceAnalysisRequest  answerDocLangSource = "analysis_request"
-)
-
-func resolveAnswerDocLang(ctx *types.AgentContext) (string, answerDocLangSource) {
+func resolveAnswerDocLang(ctx *types.AgentContext) (string, types.AnswerDocumentLanguageSource) {
 	if ctx == nil {
-		return "en", answerDocLangSourceDefault
+		return types.ResolveAnswerDocumentLanguage("", "", "")
 	}
-	if lang := normalizeAnswerDocConcreteLang(ctx.Language); lang != "" {
-		return lang, answerDocLangSourceConfigured
-	}
-	if answerDocLangDisabled(ctx.Language) {
-		return "en", answerDocLangSourceDisabled
-	}
+	var contract, request string
 	if ctx.AnalysisIR != nil {
-		if lang := normalizeAnswerDocConcreteLang(ctx.AnalysisIR.AnswerContract.Language); lang != "" {
-			return lang, answerDocLangSourceAnalysisContract
-		}
-		if lang := normalizeAnswerDocConcreteLang(ctx.AnalysisIR.RequestModel.Language); lang != "" {
-			return lang, answerDocLangSourceAnalysisRequest
-		}
+		contract = ctx.AnalysisIR.AnswerContract.Language
+		request = ctx.AnalysisIR.RequestModel.Language
 	}
-	return "en", answerDocLangSourceDefault
-}
-
-func normalizeAnswerDocConcreteLang(lang string) string {
-	switch strings.ToLower(strings.TrimSpace(lang)) {
-	case "zh", "zh-cn", "cn", "chinese", "简体中文":
-		return "zh"
-	case "en", "en-us", "english":
-		return "en"
-	}
-	return ""
-}
-
-func answerDocLangDisabled(lang string) bool {
-	switch strings.ToLower(strings.TrimSpace(lang)) {
-	case "off", "none":
-		return true
-	}
-	return false
+	return types.ResolveAnswerDocumentLanguage(ctx.Language, contract, request)
 }
 
 func renderAnswerDocResponseLanguageContract(ctx *types.AgentContext, lang string) string {
@@ -1562,7 +1525,7 @@ func renderAnswerDocResponseLanguageContract(ctx *types.AgentContext, lang strin
 	if lang == "" {
 		lang = resolved
 	}
-	if source == answerDocLangSourceDisabled {
+	if source == types.AnswerDocumentLanguageDisabled {
 		return ""
 	}
 	if lang != "zh" && lang != "en" {
@@ -1573,14 +1536,14 @@ func renderAnswerDocResponseLanguageContract(ctx *types.AgentContext, lang strin
 	b.WriteString("## Response Language\n\n")
 	switch lang {
 	case "zh":
-		if source == answerDocLangSourceConfigured {
+		if source == types.AnswerDocumentLanguageConfigured {
 			b.WriteString("- Project configuration locks the answer language to Simplified Chinese. Write every natural-language answer field in Chinese: summary prose, list explanations, table captions, caveats, and diagram captions.\n")
 		} else {
 			b.WriteString("- The structured analyzer language for this request is Chinese. Write every natural-language answer field in Simplified Chinese: summary prose, list explanations, table captions, caveats, and diagram captions.\n")
 		}
 		b.WriteString("- Keep source identifiers, file paths, API names, type names, function names, quoted source text, and citation paths in their original form.\n\n")
 	case "en":
-		if source == answerDocLangSourceConfigured {
+		if source == types.AnswerDocumentLanguageConfigured {
 			b.WriteString("- Project configuration locks the answer language to English. Write every natural-language answer field in English: summary prose, list explanations, table captions, caveats, and diagram captions.\n")
 		} else {
 			b.WriteString("- The structured analyzer language for this request is English. Write every natural-language answer field in English: summary prose, list explanations, table captions, caveats, and diagram captions.\n")

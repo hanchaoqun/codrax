@@ -675,7 +675,7 @@ func enumerationDisplayTableNeedsNoteColumn(block types.AnswerBlock, rows []type
 }
 
 func enumerationDisplayDefaultNoteColumn(ctx *types.BusContext) string {
-	if ctx != nil && ctx.AnalysisIR != nil && strings.EqualFold(strings.TrimSpace(ctx.AnalysisIR.RequestModel.Language), "zh") {
+	if principalEnumerationPrefersZH(ctx) {
 		return "说明"
 	}
 	return "Notes"

@@ -302,7 +302,9 @@ func TestEmitHypothesisVerdict_NormalizesWrappedExternalLogFrameCitation(t *test
 	if got[0].Citation != "" {
 		t.Fatalf("external frame must not leak into repo citation field, got %q", got[0].Citation)
 	}
-	if !strings.Contains(got[0].Rationale, "外部运行时帧：src/cart/Cart.cj:78") {
+	// No language authority is present: system copy follows the finalizer's
+	// English fallback, while the model's Chinese rationale remains untouched.
+	if got[0].Rationale != "日志帧显示 itemAt 越界 panic\nExternal runtime frame: src/cart/Cart.cj:78" {
 		t.Fatalf("rationale should preserve artifact frame location, got %q", got[0].Rationale)
 	}
 }

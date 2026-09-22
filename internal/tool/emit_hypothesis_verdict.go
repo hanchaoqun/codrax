@@ -932,11 +932,7 @@ func appendHypothesisOriginSpecificCitationNote(ctx *types.BusContext, rationale
 }
 
 func hypothesisVerdictPrefersChinese(ctx *types.BusContext) bool {
-	lang := requestedAnswerDocumentLanguage(ctx)
-	if lang == "" && ctx != nil && ctx.AnalysisIR != nil {
-		lang = strings.ToLower(strings.TrimSpace(ctx.AnalysisIR.RequestModel.Language))
-	}
-	return lang == "" || strings.HasPrefix(lang, "zh")
+	return answerDocumentRequiresChinese(requestedAnswerDocumentLanguage(ctx))
 }
 
 func validateHypothesisVerdictCitationGrounding(ctx *types.BusContext, gc *ground.Context, v types.HypothesisVerdict, index int) error {

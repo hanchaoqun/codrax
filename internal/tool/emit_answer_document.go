@@ -268,20 +268,20 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	return executeAnswerDocumentV2(t.Name(), ctx, params, now)
 }
 
-// requestedAnswerDocumentLanguage returns the requested answer
-// language for downstream tool helpers (log_source_drift_surface,
-// emit_evidence). Reads AnswerContract.Language first, then
-// BusContext.Language fallback. Lowercased + trimmed.
+// requestedAnswerDocumentLanguage uses the same project-first renderer locale
+// as finalizer teaching, without changing model language declarations.
 func requestedAnswerDocumentLanguage(ctx *types.BusContext) string {
 	if ctx == nil {
-		return ""
+		lang, _ := types.ResolveAnswerDocumentLanguage("", "", "")
+		return lang
 	}
+	var contract, request string
 	if ctx.AnalysisIR != nil {
-		if lang := strings.ToLower(strings.TrimSpace(ctx.AnalysisIR.AnswerContract.Language)); lang != "" {
-			return lang
-		}
+		contract = ctx.AnalysisIR.AnswerContract.Language
+		request = ctx.AnalysisIR.RequestModel.Language
 	}
-	return strings.ToLower(strings.TrimSpace(ctx.Language))
+	lang, _ := types.ResolveAnswerDocumentLanguage(ctx.Language, contract, request)
+	return lang
 }
 
 // answerDocumentRequiresChinese reports whether the requested

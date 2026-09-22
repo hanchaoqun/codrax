@@ -35,8 +35,7 @@ func materializeCurrentSourceNegativeScopeAuthority(doc *types.AnswerDocumentV2,
 	if total > maxRows {
 		rows = rows[:maxRows]
 	}
-	zh := !strings.EqualFold(strings.TrimSpace(ctx.AnalysisIR.AnswerContract.Language), "en") &&
-		!strings.EqualFold(strings.TrimSpace(ctx.AnalysisIR.RequestModel.Language), "en")
+	zh := answerDocumentRequiresChinese(requestedAnswerDocumentLanguage(ctx))
 	block := types.AnswerBlock{
 		Kind:                types.BlockCaveat,
 		SystemGeneratedKind: types.AnswerSystemGeneratedNegativeSearchAuthority,

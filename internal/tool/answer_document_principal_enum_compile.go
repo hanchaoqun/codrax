@@ -2134,11 +2134,7 @@ func principalEnumerationSummaryText(ctx *types.BusContext, sets []types.Enumera
 }
 
 func principalEnumerationPrefersZH(ctx *types.BusContext) bool {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return true
-	}
-	lang := strings.ToLower(strings.TrimSpace(ctx.AnalysisIR.RequestModel.Language))
-	return lang == "" || strings.HasPrefix(lang, "zh")
+	return answerDocumentRequiresChinese(requestedAnswerDocumentLanguage(ctx))
 }
 
 func principalEnumerationHasTypedExclusion(ctx *types.BusContext) bool {

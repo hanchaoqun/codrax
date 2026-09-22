@@ -1784,21 +1784,10 @@ func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view 
 }
 
 func materializedScopeCaveatCopy(ctx *types.BusContext) (title string, text string) {
-	lang := ""
-	if ctx != nil {
-		lang = ctx.Language
-	}
-	if answerDocumentToolLangIsZh(lang) {
+	if answerDocumentRequiresChinese(requestedAnswerDocumentLanguage(ctx)) {
 		return "范围说明", "以下结论仅限于本轮已经读取并校验过的证据；未解析或未搜索到的区域不视为已经被证明。"
 	}
 	return "Scope note", "This answer is limited to the evidence that was read and validated in this run; unresolved or unsearched areas are not treated as proven."
-}
-
-func answerDocumentToolLangIsZh(lang string) bool {
-	if strings.TrimSpace(lang) == "" {
-		return true
-	}
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
 }
 
 // repairBlocksAsString detects the "blocks[] arrived as JSON
