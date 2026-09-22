@@ -1007,23 +1007,29 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 	}
 	data, err := os.ReadFile(reportFile)
 	if err != nil {
-		if os.IsNotExist(err) {
-			// A missing JSON artifact is an infrastructure verdict,
-			// not proof of a code regression. Pytest can fail during
-			// collection/import/startup before the plugin writes the
-			// report, and the plugin may also be absent. Keep the
-			// message explicit without claiming one root cause.
-			return nil, fmt.Errorf(
-				"parsePytestJSONReport: report file %s missing — pytest did not produce "+
-					"the requested JSON report. This can happen when collection/import/startup "+
-					"fails before report generation, or when pytest-json-report is unavailable. "+
-					"Install with `pip install pytest-json-report` if the plugin is missing; "+
-					"otherwise fix the local test environment. (command ran: %s). First %d bytes "+
-					"of pytest stdout:\n%s",
-				reportFile, cmdStr, minInt(len(stdout), 400), stdoutHead(stdout, 400))
-		}
-		return nil, fmt.Errorf("parsePytestJSONReport: read %s: %w", reportFile, err)
+		return nil, pytestJSONReportReadError(reportFile, stdout, cmdStr, err)
 	}
+	return parsePytestJSONReportBytes(data, reportFile, stdout, cmdStr, nil)
+}
+
+func pytestJSONReportReadError(reportFile, stdout, cmdStr string, err error) error {
+	if os.IsNotExist(err) {
+		// Missing output is an infrastructure observation, not proof of a
+		// code regression or a specific missing dependency. Preserve the
+		// existing diagnostic/classification for both legacy and bound reads.
+		return fmt.Errorf(
+			"parsePytestJSONReport: report file %s missing — pytest did not produce "+
+				"the requested JSON report. This can happen when collection/import/startup "+
+				"fails before report generation, or when pytest-json-report is unavailable. "+
+				"Install with `pip install pytest-json-report` if the plugin is missing; "+
+				"otherwise fix the local test environment. (command ran: %s). First %d bytes "+
+				"of pytest stdout:\n%s",
+			reportFile, cmdStr, minInt(len(stdout), 400), stdoutHead(stdout, 400))
+	}
+	return fmt.Errorf("parsePytestJSONReport: read %s: %w", reportFile, err)
+}
+
+func parsePytestJSONReportBytes(data []byte, reportFile, stdout, cmdStr string, runErr error) (*types.ChangeReport, error) {
 	var p pytestJSON
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("parsePytestJSONReport: unmarshal %s: %w", reportFile, err)
@@ -1092,6 +1098,15 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 			report.FailureReasonCode = classifyPytestParserErrorReason(stdout+"\n"+pytestErrorLongrepr(results), nil)
 			report.VerificationStatus = types.VerificationStatusUnavailable
 		}
+	}
+	if runErr != nil && report.Passed && !(noTests && p.Exitcode == extractExitCode(runErr)) {
+		// Preserve the established matching zero-test protocol, but green JSON
+		// cannot overrule a failed current process. Actual testcase rows remain
+		// truthful; do not invent a failed assertion to represent infrastructure.
+		report.Passed = false
+		report.FailureKind = types.FailureKindVerificationIncomplete
+		report.FailureReasonCode = "pytest_current_command_failed"
+		report.FailureSummary = fmt.Sprintf("current pytest command exited %d; its JSON results do not establish successful completion (command ran: %s)", extractExitCode(runErr), cmdStr)
 	}
 	return report, nil
 }

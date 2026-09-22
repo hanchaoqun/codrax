@@ -1053,6 +1053,20 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if junitRun != nil {
 			defer junitRun.Cleanup()
 		}
+		pytestRun, boundCommand, boundExtraFile, bindingErr := preparePytestRunnerInvocation(plan, cmdStr, extraFile)
+		if bindingErr != nil {
+			executedCmds = append(executedCmds, types.ExecutedCommand{
+				Runner: runner, Framework: plan.Framework, WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+				Suite: strings.TrimSpace(plan.Suite), Command: cmdStr, Source: planSourceFor(plan),
+				Outcome: types.ExecutedCommandOutcomeNotConfigured, ReasonCode: "pytest_invocation_prepare_failed",
+			})
+			projectReports = append(projectReports, qualifyChangeReport(junitInvocationUnavailableReport("pytest_invocation_prepare_failed", bindingErr), plan, ctx.RepoRoot))
+			continue
+		}
+		cmdStr, extraFile = boundCommand, boundExtraFile
+		if pytestRun != nil {
+			defer pytestRun.cleanup()
+		}
 
 		// Same root cause as the python venv lookup — but for runners
 		// where the dep is consumed by name from cwd (Node's
@@ -1063,7 +1077,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// at warning and the runner's native "missing deps" error
 		// still surfaces.
 		linkProjectDeps(ctx.MainRepoRoot, runnerRoot, runner)
-		if extraFile != "" && junitRun == nil {
+		if extraFile != "" && junitRun == nil && pytestRun == nil {
 			defer os.Remove(extraFile)
 		}
 
@@ -1395,6 +1409,19 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 					report.VerificationDiagnostics = append(report.VerificationDiagnostics, types.VerificationDiagnostic{Source: types.WriteConstraintRunExistingTest, Category: "report_binding", Severity: "warning", Runner: runner, Framework: plan.Framework, WorkingDir: runnerPlanRel(ctx.RepoRoot, plan), ReasonCode: "existing_test_observation_unavailable", Detail: "Native unittest output is retained; current file-execution observation is unavailable and grants no execution receipt."})
 				}
 			}
+		} else if pytestRun != nil {
+			var digest string
+			report, digest, err = pytestRun.readReport(output, cmdStr, runErr)
+			if err == nil {
+				report.VerificationDiagnostics = append(report.VerificationDiagnostics, types.VerificationDiagnostic{
+					Source: "pytest_invocation_report", Category: "report_binding", Severity: "info",
+					Runner: runner, Framework: plan.Framework, WorkingDir: runnerPlanRel(ctx.RepoRoot, plan),
+					Command: cmdStr, ReasonCode: "pytest_current_report_bytes",
+					Detail: fmt.Sprintf("report_path=%q sha256=%s; this receipt records current parsed bytes, not additional assertion coverage", pytestRun.reportPath, digest),
+				})
+			}
+			// Keep errors on the established pytest text rerun path below.
+			// Missing current JSON never falls back to the legacy report file.
 		} else if junitRun != nil {
 			var reportFiles []junitInvocationReportFile
 			report, reportFiles, err = junitRun.ReadReport()
@@ -7434,8 +7461,8 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 			return fmt.Sprintf("%s -m unittest %q -v", interp, filter), ""
 		}
 		// pytest-json-report writes to a file specified by
-		// --json-report-file. We use a temp file in the repo's
-		// worktree so the report doesn't escape.
+		// --json-report-file. This deterministic path is for command previews;
+		// Execute replaces it with a private per-invocation worktree path.
 		tmpFile := filepath.Join(repoRoot, ".codrax-pytest-report.json")
 		// Resolve interpreter: prefer the project's venv when one
 		// exists (so pytest runs against the project's installed
