@@ -236,7 +236,7 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 				pack.RetryInstruction = "PartialChangePlan is retained; re-emit only the offending file with emit_plan_change."
 			}
 		}
-		return rejectPlanToolResult(t.Name(), "emit_plan_change rejected during finalize: "+rej+" (PartialChangePlan retained — re-emit just the offending file via emit_plan_change to fix)", pack), nil
+		return rejectPlanToolResult(t.Name(), "emit_plan_change rejected during finalize: "+rej+" (PartialChangePlan retained — follow the repair instructions)", pack), nil
 	}
 
 	// Promote to canonical ChangePlan and seed write closure. After

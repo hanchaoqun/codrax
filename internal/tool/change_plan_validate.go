@@ -299,15 +299,8 @@ func validatePlanGraphIntegrityWithRepair(toolName string, changes []types.FileC
 // when task.scope is empty / unknown (gate fires only on an
 // authoritative LLM scope decision, never on absence).
 func validatePlanScopeKindAlignment(ctx *types.BusContext, changes []types.FileChange) string {
-	if ctx == nil || ctx.Mutable == nil {
-		return ""
-	}
-	ir := ctx.Mutable.WriteAnalysisIR()
-	if ir == nil {
-		return ""
-	}
-	scope := ir.Request.Task.Scope
-	if scope != types.ScopeMicro {
+	forbidModify, _ := planScopeEditingPolicy(ctx)
+	if !forbidModify {
 		return ""
 	}
 	for i, c := range changes {
@@ -885,7 +878,7 @@ func validatePlanPathStateWithRepair(ctx *types.BusContext, toolName string, cha
 			continue
 		}
 		kind := strings.TrimSpace(change.Kind)
-		exists, isDir, statErr, ok := planPathState(rootAbs, path)
+		info, statErr, ok := planPathState(rootAbs, path)
 		if !ok {
 			rej := fmt.Sprintf("change %q path escapes RepoRoot; use a repo-relative path inside the checkout", path)
 			return rej, planRepairPackFromReason(toolName, "path_state_outside_repo", rej, []string{"$.changes[].path"}, []string{path})
@@ -894,17 +887,12 @@ func validatePlanPathStateWithRepair(ctx *types.BusContext, toolName string, cha
 			rej := fmt.Sprintf("change %q cannot be statted before planning: %v", path, statErr)
 			return rej, planRepairPackFromReason(toolName, "path_state_stat_failed", rej, []string{"$.changes[].path"}, []string{path})
 		}
+		exists := info != nil
+		isDir := exists && info.IsDir()
 		switch kind {
 		case "create":
 			if exists {
-				state := "file"
-				if isDir {
-					state = "directory"
-				}
-				rej := fmt.Sprintf("change %q has kind=create but that %s already exists; use kind=patch/modify for an existing file or choose a new path", path, state)
-				return rej, planRepairPackWithEnums(toolName, "create_path_exists", rej, []string{"$.changes[].kind", "$.changes[].path"}, map[string][]string{
-					"$.changes[].kind": {"patch", "modify", "create"},
-				})
+				return createPathExistsRepair(ctx, toolName, path, info)
 			}
 		case "modify", "patch":
 			if !exists {
@@ -937,7 +925,7 @@ func validatePlanPathStateWithRepair(ctx *types.BusContext, toolName string, cha
 			if newPath == "" {
 				continue
 			}
-			destExists, destIsDir, destErr, destOK := planPathState(rootAbs, newPath)
+			destInfo, destErr, destOK := planPathState(rootAbs, newPath)
 			if !destOK {
 				rej := fmt.Sprintf("change %q new_path %q escapes RepoRoot; use a repo-relative destination inside the checkout", path, newPath)
 				return rej, planRepairPackFromReason(toolName, "rename_destination_outside_repo", rej, []string{"$.changes[].new_path"}, []string{path, newPath})
@@ -946,9 +934,9 @@ func validatePlanPathStateWithRepair(ctx *types.BusContext, toolName string, cha
 				rej := fmt.Sprintf("change %q new_path %q cannot be statted before planning: %v", path, newPath, destErr)
 				return rej, planRepairPackFromReason(toolName, "rename_destination_stat_failed", rej, []string{"$.changes[].new_path"}, []string{path, newPath})
 			}
-			if destExists {
+			if destInfo != nil {
 				state := "file"
-				if destIsDir {
+				if destInfo.IsDir() {
 					state = "directory"
 				}
 				rej := fmt.Sprintf("change %q has kind=rename but destination %q already exists as a %s", path, newPath, state)
@@ -1010,26 +998,6 @@ func annotateMissingPlanPathRelocationCandidate(ctx *types.BusContext, changes [
 	pack.RetryInstruction = "relocation_candidates[0] is the sole existing typed candidate with the same basename; inspect and select that path for this patch/modify instead of creating the stale missing path"
 	normalized := types.NormalizePlanRepairPack(*pack)
 	*pack = normalized
-}
-
-func planPathState(rootAbs, repoRel string) (exists bool, isDir bool, statErr error, ok bool) {
-	if strings.TrimSpace(rootAbs) == "" || strings.TrimSpace(repoRel) == "" {
-		return false, false, os.ErrNotExist, false
-	}
-	abs := filepath.Join(rootAbs, filepath.FromSlash(repoRel))
-	abs, err := filepath.Abs(abs)
-	if err != nil {
-		return false, false, err, true
-	}
-	rel, err := filepath.Rel(rootAbs, abs)
-	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
-		return false, false, err, false
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return false, false, err, true
-	}
-	return true, info.IsDir(), nil, true
 }
 
 func validatePlanContentCarriers(changes []types.FileChange) string {
