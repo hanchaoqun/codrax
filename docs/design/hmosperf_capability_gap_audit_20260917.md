@@ -2793,3 +2793,15 @@ ROI队列据本轮有据调整：①共享物理工件身份资格（先单真�
 边界：新来源快照是全运行身份目录，提示记录筛选时间窗不会隐删实际工件，也不会把窗外量恢复进答案。直接传入旧ledger时非法显式ClaimAuthority不获默认资格；CompileObservationLedger已有非法枚举规范化未改，不声称本批修了该入口。相邻runtime_source_answer_authority_view、trace_observation_coverage、runtime_artifact_scope_coverage等producer-family消费仍需结合各自typed凭证审计，仅有静态风险，不一概登记为已证漏洞。本片独立源码/公开/race审查无阻塞，准备分片提交；统一全仓及新模型双例另收。
 
 §141可选JSON patch再审：当时提示已明确facet_ids是数组，若未发布精确add_facet_id须完整replace_blocks；模型仍选未发布的field=facet_ids。该次拒绝是有效边界且旧答案保留，未证明无合法fallback或教学矛盾，不以这个拒绝修改产品门；微窗适用性和完整答案失败仍留账。
+
+## 143. 阶段参数候选不自动成为必补交接（2026-09-22，验收中）
+
+§141源码人审FAIL的无关补证有确定性来源：`emitEvidenceArgumentFlowRepairsForExactCall`既认可静态类型匹配的已声明必要载体，也认可真实stage provider能绑定的阶段常量，却把两者都描述为“静态类型匹配的必要载体”，统一铸造阻塞调查完成的参数交接义务。阶段常量及真实调用只能证明该实参存在，不能证明其日志、重试、字符串转换等所有消费者都是题目必答的阶段交接；不靠callee名字白名单区分。
+
+参考再次核`core/skill_executor.py:303–394`：必需参数来自已声明required，恢复门来自当前步骤显式contract及其上下文，普通被观察字段不自动成为新合同。本项目沿既有typed职责分离：确切静态类型匹配必要载体仍必须补交接；仅由stage身份/顺序绑定的候选保原调用事实及可选参数提示，不写durable required obligation。模型自行选择参数关系时原源码精确校验不变，不自动生成关系，也不改请求或阶段因果权限。
+
+公开ReadFile→真实checkout阶段声明provider→EmitEvidence→EmitInvestigationComplete有效RED15125正式exit1/tool1.186s，三种不同consumer（含改名）均被辅助stage参数阻塞，混合必要载体+stage误生两条债。显式模型参数正/负控制先绿；fixture的source/search graph共同描述一段解析源码，不冒称实际业务程序执行。日志`/tmp/hmc-stage-argument-scope-public-red-20260922.log`。修复只扩内部repair recipe的可选性标志，模型JSON和持久义务schema不增加字段；合并按显式blocking取并集，避免两个可选提示或可选提示+非阻塞字段错误重新升级为必补。候选提示不覆盖真实grounding/字段修复。
+
+初步GREEN72879正式exit0/tool1.968s、邻接28489正式exit0/tool1.355s、race74675正式exit0/tool5.176s。末版公开、独立审查及冻结全仓另收。历史durable债没有可用于区分必要载体/stage-only的权限来源字段，不能事后猜测清空；保留并允许显式源码关系证明正常解除，不借本片销旧会话未分类债。归原HMC-01.2/01.3/16.4/18.4，父开放仍66。
+
+末版新增13叶包括必需/可选合并真值矩阵、真实grounding和schema错误兄弟项不被掩盖、历史债不被新advisory清空；其中公共路径证明该类阻塞消失或保留，不冒称完整Orchestrator.Run验收。39418正式exit0/tool2.019s、65420 race正式exit0/tool4.343s，日志`/tmp/hmc-stage-argument-scope-final-targeted-20260922.log`与`-final-targeted-race-20260922.log`。独立审查84668正式exit0/tool2.204s且无阻塞；源码仅`emit_evidence.go`与新增222行测试，准备单片提交，末版全仓和固定双例随后汇总。

@@ -1021,7 +1021,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
 		relationEndpointRepair, buildEmitEvidenceRegistrationBindingRepair(registrationBindingRepairs))
 	relationEndpointRepair = mergeEmitEvidenceValueTransferRepair(valueTransferClassificationRepair, relationEndpointRepair)
-	if relationEndpointRepair != nil {
+	if relationEndpointRepair != nil && relationEndpointRepair.Metadata["completion_blocking"] == "true" {
 		validationRepairFields = append(validationRepairFields, relationEndpointRepair.Fields...)
 	}
 	if len(surfaceAlignmentRejects) > 0 {
@@ -1122,7 +1122,9 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
 				relationEndpointRepair, autoPairedArgumentFlowRepair,
 			)
-			validationRepairFields = append(validationRepairFields, autoPairedArgumentFlowRepair.Fields...)
+			if autoPairedArgumentFlowRepair.Metadata["completion_blocking"] == "true" {
+				validationRepairFields = append(validationRepairFields, autoPairedArgumentFlowRepair.Fields...)
+			}
 		}
 		for _, call := range selectedBodyCalls {
 			reports = append(reports, ground.Report{
@@ -1284,7 +1286,17 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	}
 	repair := buildEmitEvidenceRepair(ctx, built, reports)
 	if relationEndpointRepair != nil {
-		repair = relationEndpointRepair
+		if relationEndpointRepair.Metadata["repair_status"] == types.ToolRepairStatusAdvisory {
+			// A verified stage identity proves the literal argument, not that
+			// every consumer belongs to the requested handoff. Keep the optional
+			// source candidate visible without masking an actual grounding repair.
+			summary = strings.TrimRight(summary, "\n") + "\n\nOptional exact source relation candidate:\n" + relationEndpointRepair.Hint + "\n"
+			if repair == nil {
+				repair = relationEndpointRepair
+			}
+		} else {
+			repair = relationEndpointRepair
+		}
 	}
 	if validationRepair := buildEmitEvidenceItemValidationRepair(
 		rejectedItems, validationRepairFields, validationRepairBlocksCompletion); validationRepair != nil {
@@ -6431,6 +6443,10 @@ type emitEvidenceArgumentFlowRepair struct {
 	receiver  string
 	source    string
 	line      int
+	// advisoryOnly distinguishes verified stage identity/order from a
+	// parser-bound incident-required data carrier. A stage-valued argument is
+	// a valid candidate, but its consumer is not thereby a required handoff.
+	advisoryOnly bool
 	// autoPairedCallCompanion records that the accepted direct-call row was
 	// parser-owned evidence projected from a model-selected callable body. The
 	// call is authoritative, but its independently useful complete argument
@@ -7075,6 +7091,7 @@ func emitEvidenceArgumentFlowRepairsForExactCall(
 			receiver:                callee,
 			source:                  item.Source,
 			line:                    item.LineStart,
+			advisoryOnly:            !declaredParticipant,
 			assignmentCallCompanion: assignmentCallCompanion,
 		})
 	}
@@ -7404,9 +7421,16 @@ func buildEmitEvidenceArgumentFlowRepair(in []emitEvidenceArgumentFlowRepair) *t
 	}
 	fields := make([]string, 0, len(in))
 	rows := make([]string, 0, len(in))
+	required := make([]emitEvidenceArgumentFlowRepair, 0, len(in))
 	assignmentCompanionCount := 0
 	for _, row := range in {
-		fields = append(fields, "items")
+		instruction := "emit one additional item"
+		if row.advisoryOnly {
+			instruction = "optional stage-argument candidate; only if this consumer is relevant to the requested explanation, emit one additional item"
+		} else {
+			fields = append(fields, "items")
+			required = append(required, row)
+		}
 		loc := row.source
 		if row.line > 0 {
 			loc = fmt.Sprintf("%s:%d", row.source, row.line)
@@ -7420,8 +7444,8 @@ func buildEmitEvidenceArgumentFlowRepair(in []emitEvidenceArgumentFlowRepair) *t
 			origin = fmt.Sprintf("the assignment/initializer from items[%d] @ %s contains one unique parser-owned call", row.itemIndex, loc)
 		}
 		rows = append(rows, fmt.Sprintf(
-			"%s; emit one additional item with scope=%q, evidence_kind=%q, source=%q, line_start=%d, anchor_kind=%q, anchor_symbol=%q, subject=%q, predicate=%q, and object=%q",
-			origin, string(types.ScopeLine), string(types.EvidenceRelationship), row.source, row.line,
+			"%s; %s with scope=%q, evidence_kind=%q, source=%q, line_start=%d, anchor_kind=%q, anchor_symbol=%q, subject=%q, predicate=%q, and object=%q",
+			origin, instruction, string(types.ScopeLine), string(types.EvidenceRelationship), row.source, row.line,
 			string(types.AnchorArgument), row.argument, row.argument, "passes argument", row.receiver,
 		))
 	}
@@ -7431,17 +7455,21 @@ func buildEmitEvidenceArgumentFlowRepair(in []emitEvidenceArgumentFlowRepair) *t
 	} else if assignmentCompanionCount > 0 {
 		scope += "+assignment_call_argument_flow_pair"
 	}
+	status, blocking := types.ToolRepairStatusAdvisory, "false"
+	if len(required) > 0 {
+		status, blocking = types.ToolRepairStatusActionRequired, "true"
+	}
 	return &types.ToolRepair{
 		Code:   types.ToolRepairCodeEvidenceItemValidation,
-		Hint:   "An exact operation site contains a complete data argument whose parser-owned static type matches an incident-required carrier participant. Preserve the separate argument -> receiving-API handoff by emitting only the additional row(s) below. The accepted source observation stays unchanged, and the system has not created evidence or drawn an edge: " + strings.Join(rows, "; "),
+		Hint:   "Exact argument candidates have separate duties: an argument whose parser-owned static type matches an incident-required carrier needs its handoff row; stage identity/order alone makes its consumer optional, not a completion obligation or a proved pipeline handoff. Emit only the relevant additional row(s) below. Accepted source observations stay unchanged; the system has not created evidence or drawn an edge: " + strings.Join(rows, "; "),
 		Fields: uniqueEmitEvidenceRepairFields(fields),
 		Metadata: map[string]string{
-			"repair_status":       types.ToolRepairStatusActionRequired,
+			"repair_status":       status,
 			"repair_scope":        scope,
 			"repair_stage":        "explorer",
-			"completion_blocking": "true",
+			"completion_blocking": blocking,
 			emitEvidenceRelationRepairObligationsMetadataKey: encodeEmitEvidenceRelationRepairObligations(
-				argumentFlowRepairObligations(in)),
+				argumentFlowRepairObligations(required)),
 		},
 	}
 }
@@ -7599,7 +7627,9 @@ func mergeEmitEvidenceRelationEndpointRepairs(first, second *types.ToolRepair) *
 	if first.Metadata == nil {
 		first.Metadata = make(map[string]string)
 	}
-	first.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
+	if second.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+		first.Metadata["repair_status"] = types.ToolRepairStatusActionRequired
+	}
 	firstScope := strings.TrimSpace(first.Metadata["repair_scope"])
 	secondScope := strings.TrimSpace(second.Metadata["repair_scope"])
 	switch {
@@ -7608,7 +7638,9 @@ func mergeEmitEvidenceRelationEndpointRepairs(first, second *types.ToolRepair) *
 	case secondScope != "" && !strings.Contains("+"+firstScope+"+", "+"+secondScope+"+"):
 		first.Metadata["repair_scope"] = firstScope + "+" + secondScope
 	}
-	first.Metadata["completion_blocking"] = "true"
+	if second.Metadata["completion_blocking"] == "true" {
+		first.Metadata["completion_blocking"] = "true"
+	}
 	mergeEmitEvidenceRelationRepairObligationMetadata(first, second)
 	return first
 }
@@ -7683,7 +7715,9 @@ func mergeEmitEvidenceValidationRepairs(validation, endpoint *types.ToolRepair) 
 		endpointScope = "relation_endpoint_identity"
 	}
 	validation.Metadata["repair_scope"] = "item_validation+" + endpointScope
-	validation.Metadata["completion_blocking"] = "true"
+	if endpoint.Metadata["completion_blocking"] == "true" {
+		validation.Metadata["completion_blocking"] = "true"
+	}
 	mergeEmitEvidenceRelationRepairObligationMetadata(validation, endpoint)
 	return validation
 }
