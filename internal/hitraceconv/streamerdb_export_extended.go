@@ -234,27 +234,59 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	return coverage, nil
 }
 
-func (tdb *traceDB) loadDataDict(ctx context.Context) (map[int64]string, TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "resolver", "data_dict", []string{"id", "data"})
-	out := map[int64]string{}
+func (tdb *traceDB) loadDataDict(ctx context.Context) (out map[int64]string, coverage TraceDBCoverage, err error) {
+	coverage, err = tdb.inspectCoverage(ctx, "resolver", "data_dict", []string{"id", "data"})
+	coverage.FieldSources = map[string]string{
+		"dictionary_resolution": "raw SQLite INTEGER/TEXT storage classes; unique integer keys only; malformed rows and duplicate keys are rejected locally",
+	}
+	out = map[int64]string{}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return out, coverage, err
 	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT id, COALESCE(data, '') FROM data_dict WHERE id IS NOT NULL")
+	rows, err := tdb.db.QueryContext(ctx, "SELECT id, data FROM data_dict")
 	if err != nil {
 		coverage.Error = err.Error()
 		return out, coverage, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int64
-		var data string
-		if err := rows.Scan(&id, &data); err != nil {
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, rows.Close())
+		if err != nil {
 			coverage.Error = err.Error()
+		}
+	}()
+	seen := map[int64]bool{}
+	skipped := map[string]int{}
+	for rows.Next() {
+		var idRaw, dataRaw any
+		if err = rows.Scan(&idRaw, &dataRaw); err != nil {
 			return out, coverage, err
 		}
-		out[id] = data
+		// Keep this shared int64 namespace independent of native_hook's uint32
+		// subtype profile. SQL affinity is already reflected in the raw values;
+		// string/float/blob conversion must not manufacture an INTEGER identity.
+		id, ok := traceDBStrictSQLiteInt(idRaw)
+		if !ok {
+			skipped["invalid_id"]++
+			continue
+		}
+		data, textOK := dataRaw.(string)
+		if !textOK {
+			skipped["invalid_value"]++
+		}
+		if seen[id] {
+			skipped["duplicate_id"]++
+			delete(out, id)
+			continue
+		}
+		// Even an invalid first value reserves the key: a later valid value
+		// cannot rescue a duplicate identity or make row order authoritative.
+		seen[id] = true
+		if textOK {
+			out[id] = data
+		}
 	}
+	coverage.Skipped = traceDBCountSummary(skipped)
+	coverage.RowsEmitted = len(out)
 	return out, coverage, rows.Err()
 }
 

@@ -47,8 +47,8 @@ func loadTraceDBNativeHookMetadata(ctx context.Context, tdb *traceDB, coverage *
 
 // OpenHarmony 5c5afb0c: data_dict.id is uint32 CurrentRow() published as int64;
 // native_hook.sub_type_id is DataIndex, with INVALID_UINT64 published as NULL.
-// Do not reuse the legacy COALESCE/last-write-wins dictionary or normalize a
-// negative source row ID into this separate namespace. The caller's sealed DB
+// The shared int64/TEXT display dictionary has a different ID/value contract;
+// do not reuse it or normalize a negative row ID into this namespace. The sealed DB
 // owns both tables; there is no process-global cache or cross-capture fallback.
 func loadTraceDBNativeHookSubtypes(ctx context.Context, tdb *traceDB) (map[int64]traceDBNativeHookSubtype, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "resource.subtype", "data_dict", []string{"id", "data"})

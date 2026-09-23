@@ -225,6 +225,24 @@ func sameInputCoverageProjection(items []TraceDBCoverage) []sameInputCoverageRec
 
 func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingReceipt) {
 	t.Helper()
+	// HMC-17.7 now accounts for the five usable shared dictionary entries.
+	// Reversing only that diagnostic correction must reproduce the previous
+	// complete receipt; output bytes, events and all other coverage stay pinned.
+	previous := receipt
+	previous.Coverage = append([]sameInputCoverageReceipt(nil), receipt.Coverage...)
+	dictionary := sameInputCoverageByKey(previous.Coverage, "resolver", "data_dict", "resolver_index")
+	if dictionary == nil || dictionary.RowsRead != 5 || dictionary.RowsEmitted != 5 {
+		t.Fatal("same-input shared dictionary must account for exactly five usable entries")
+	}
+	dictionary.RowsEmitted = 0
+	previousJSON, err := json.Marshal(previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousSHA := sha256.Sum256(previousJSON)
+	if hex.EncodeToString(previousSHA[:]) != "d66492c1cd9f1a00ba816a1e020798be9e2c89e9be1ee0f754ebdebeb0610221" {
+		t.Fatal("shared dictionary accounting changed fields outside its resolved-entry count")
+	}
 	compact, err := json.Marshal(receipt)
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +290,7 @@ func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingRe
 		wantInputSHA    = "6294cbbff9509cc1458771f83f0c44d49a224eeead56b4a2e49aa8c64b0271ab"
 		wantOutputBytes = 37193
 		wantOutputSHA   = "d9af65fe4c6c31bf9921bb11412d8614bd11818afe0ed1edad041e2e57969e5a"
-		wantReceiptSHA  = "d66492c1cd9f1a00ba816a1e020798be9e2c89e9be1ee0f754ebdebeb0610221"
+		wantReceiptSHA  = "ae8a84f951d4bacabcc5f89b2ef524d0bf356c669935440fb12a7a4080b4c9fe"
 		wantEvents      = 35
 		wantAuthority   = 18
 		wantAdvisory    = 17
