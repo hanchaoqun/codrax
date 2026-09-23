@@ -364,7 +364,7 @@ REPL 里的等价做法:
 
 ## 3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto / perf sample)
 
-性能问题、卡顿、ANR、冷启动慢 — 把 ftrace 兼容的文本 trace 作为附件喂给 codrax,触发 `perf_triage` 预阶段抽出 frame / jank / stall / startup 信息:
+性能问题、卡顿、ANR、冷启动慢 — 把 ftrace 兼容文本或受支持的原始二进制文件路径交给 Codrax。正常分析会自动准备可查询的完整材料，再由 `perf_triage` 预阶段抽出 frame / jank / stall / startup 信息。自动准备不修改原件，模型预览大小不限制实际查询文件。二进制转换失败，或转换后仅有库存且没有可查询的 Trace/采样材料时，会明确报错，不借用其它输入；文本中缺少某类语义事件时，仍可查询已解析的原始记录，并说明分析能力边界。
 
 ```bash
 # HiTrace(HarmonyOS / OpenHarmony)
@@ -378,7 +378,10 @@ codrax --atrace /tmp/atrace.txt -r "ListView 滑动卡顿哪里出问题?"
 # systrace / perfetto 文本导出
 codrax --htrace /tmp/perfetto.txt -r "..."
 
-# 二进制 HiTrace 需要先手动转换;不会自动附加
+# 正常分析可直接附加受支持的二进制文件；无需模型另调转换工具
+codrax --htrace /tmp/capture.htrace.bin -r "分析这段卡顿"
+
+# 以下是显式导出文本/选择转换引擎的独立入口，不是普通分析的必经步骤
 # 默认 auto 的有序路由固定为 trace_streamer→builtin；第一车道不可用或 SQL 失败才披露后回退
 # codrax-linux-amd64 / codrax-windows-amd64.exe 开发构建默认内嵌本平台 payload；正式发行另受许可证据门约束
 # 显式 --trace-engine=trace_streamer 或 --trace-engine=builtin 时,不会退化到另一个引擎
@@ -390,14 +393,14 @@ codrax --htrace /tmp/capture.htrace.bin.systrace -r "分析这段卡顿"
 # 先看本机 trace_streamer、trace engine、perf.data 解析能力和缺什么官方工具
 codrax trace convert --perf-tools-status
 
-# 多文件比对
-codrax --htrace before.trace --htrace after.trace -r "对比启动耗时差在哪"
+# 多采集分别点名，不用重复附件参数把两份数据拼成一个时钟/因果空间
+codrax -r "分别分析 ./before.trace 和 ./after.trace，对比启动耗时差在哪"
 
-# 标准输入
+# 标准输入只接收文本，不接收二进制
 cat /tmp/atrace.txt | codrax --htrace - -r "..."
 ```
 
-REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
+REPL 里 `/htrace` 和 `/atrace` 是同义命令，支持文件加载、查看、清除和文本粘贴。文件加载也会自动准备受支持的二进制；不支持 `/htrace append`，多个独立采集应分别点名或使用有来源记录的 tracebundle：
 
 ```
 [git:main]❯❯ /htrace /tmp/htrace.txt
@@ -413,7 +416,7 @@ REPL 内也可以先看 trace 转换工具和 sys parity gate 状态:
   · trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]：状态=等待代表性fixture ...
 ```
 
-二进制 Harmony/OpenHarmony HiTrace 使用 `/htrace convert` 手动转成文本:
+需要单独导出或保留转换产物时，可以使用 `/htrace convert`；普通分析直接 `/htrace /tmp/capture.htrace.bin` 即可。下面这个独立转换命令不会自动替换当前附件：
 
 ```text
 [git:main]❯❯ /htrace convert /tmp/capture.htrace.bin
@@ -479,11 +482,19 @@ attach 和直接点名路径的差别:
 
 - attach 适合 REPL 多轮追问;artifact 会成为当前会话的粘性 trace 上下文,提示符也会显示 `[trace]` / `[perftrace]` / `[tracebundle]`。
 - 直接点名路径适合一次性问题或脚本化调用;Codrax 会根据用户请求、路径和文件内容进入 runtime trace/perf 分析,不需要先执行 `/htrace`。
-- 对 trace + perf 混合文件,优先点名或附加 `.tracebundle.json`;只给 `.systrace` 时也能查询事件主体,但会少掉 provider/coverage/clock/caveat 元数据。只给 standalone `.perf.data` 时通常还需要先 `trace convert` 生成 `.perftrace`,否则不能做完整 CPU sample 聚合。
+- 对 trace + perf 混合文件，可直接点名受支持的原始文件，让本轮自动准备完整查询材料；已有转换产物时优先点名或附加 `.tracebundle.json`，保留 provider/coverage/clock/caveat 元数据。只给 `.systrace` 时也能查询事件主体。受支持的 standalone `.perf.data` 文件路径同样自动准备，采样结果不能冒充调度状态或精确执行耗时。
+
+SQLite 数据库仍需显式导出文本；二进制 stdin/inline 不支持。gzip/归档的可用性取决于完整解包后内容及转换验证，不由扩展名保证。自动准备与独立转换都不会把“不支持/缺数据”写成零。
+
+### 按需查看分析能力
+
+可以直接问：“还没有 Trace，请查看当前能力目录，告诉我 IO 长尾、调度等待和 CPU 采样分别需要什么数据。”探索阶段可使用只读 `trace_capabilities`：`{}` 返回当前视图简表，`{"view":"window_stats","detail":true}` 返回该视图的计量单位、数据前提和限制。目录无需附件，不执行查询或转换，也不产生测量证据；之后仍须对实际文件运行查询。
+
+“程序支持”不等于“这份采集已包含所需事件”。例如 IO 请求从提交到完成的驻留耗时不等于线程被 IO 阻塞的时间，CPU 采样权重不等于精确运行毫秒；缺事件、缺完成端点、身份歧义和显示截断应分别说明，不能推成零耗时或确定根因。
 
 ### perf.data / perf sample
 
-如果 Harmony/OpenHarmony HiTrace 里包含 `hiperf-plugin` 的 standalone `perf.data`,`trace convert` 会优先通过 trace_streamer SQL 读取 query-ready perf rows,并在可用时把 `perf_sample:` 行写进同一个 `.systrace`。只有 SQL 不可用、SQL 没有 query-ready perf rows,或输入本身是 standalone Android/simpleperf/OpenHarmony `perf.data` 时,才会通过官方 adapter 或 raw fallback 生成单独 `.perftrace`。后续 `trace_query` 会把 systrace 内嵌 perf 样本或 sibling `.perftrace` 合并成同一个时间窗证据流,用于回答“这个 runnable/running 线程当时在跑什么符号/调用栈”。
+如果 Harmony/OpenHarmony HiTrace 里包含 `hiperf-plugin` 的 standalone `perf.data`，自动准备或独立 `trace convert` 会优先通过 trace_streamer SQL 读取 query-ready perf rows，并在可用时把 `perf_sample:` 行写进同一个 `.systrace`。只有 SQL 不可用、SQL 没有 query-ready perf rows，或输入本身是 standalone Android/simpleperf/OpenHarmony `perf.data` 时，才会通过官方 adapter 或 raw fallback 生成单独 `.perftrace`。后续 `trace_query` 可查询 systrace 内嵌样本，或按验证后的 tracebundle 成员来源组合材料；不会仅因旁边存在同名 `.perftrace` 就自动合并。不同时间域必须有明确、有效的映射，否则隔离展示，不能猜测对齐后拼成因果链。
 
 先做一次 preflight:
 
@@ -583,7 +594,7 @@ codrax trace convert --input /tmp/perf.data
 - `.perftrace`: Codrax 统一的 perf sample 文本格式；仅在 fallback 或 standalone perf.data 场景生成
 - `.tracebundle.json`: systrace、fallback perftrace、provider 决策、coverage、clock/caveat/provenance 的轻量 bundle 元数据
 
-分析时可以直接传 `.tracebundle.json`、`.systrace` 或 `.perftrace`;如果同目录存在 sibling bundle 或 sibling `.systrace + .perftrace`,trace_query 会自动合并。核心事件主体在 `.systrace`,但 `.tracebundle.json` 能保留转换透明度和 handoff 元数据,所以 trace+perf htrace 仍推荐附加或点名 bundle。
+分析时可以直接传 `.tracebundle.json`、`.systrace` 或 `.perftrace`。同目录的 bundle 只有通过来源/成员校验才能提升为查询入口；孤立的 `.systrace + .perftrace` 不会仅凭相邻位置自动合并。核心事件主体在 `.systrace`，但 `.tracebundle.json` 能保留转换透明度、时间关系及交接元数据，所以已有 trace+perf 转换产物仍推荐附加或点名 bundle。
 
 如果本轮保存 markdown/html 报告,报告正文会额外包含运行时附件表；中文报告显示为 `运行时附件`,英文报告显示为 `Runtime Artifacts`,表头也会跟随语言设置。该表列出本轮附加的 log/trace/perf/bundle 来源、大小和关键信息。只附加 `.tracebundle.json` 时,报告会展开 bundle 里的 systrace/fallback perftrace 成员、provider decisions、coverage、converter 和 caveats。raw fallback 产生的 perf 样本会在表里保留 `raw_perfdata_fallback`、`symbolized` / `unsymbolized`、`ip_only`、`event_name_source=event_desc`、`hiperf_cpu_off=true`、`hiperf_unistack_*` 这类标记,方便区分“官方/保存符号名可读调用栈”“off-CPU 事件样本”和“IP/DSO 级保底关联”。
 

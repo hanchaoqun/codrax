@@ -2921,3 +2921,95 @@ E2新确定性供证债：`ReadFile.Execute`的`builtin.go:4954–4956`用string
 工具摘要新有效RED31569正式exit1/tool1.159s，真实Effective投影后header错因及未来/空原因三格失败，日志`/tmp/hmc-verification-reason-summary-valid-red-20260922.log`；更早77490仅测试枚举名编译错，不算产品RED。GREEN55407正式exit0/tool18.243s，独立65187正式exit0/1.778s、race99918正式exit0/3.357s，日志`/tmp/hmc-verification-reason-summary-green-20260922.log`及`-independent[-race]-20260922.log`。报告原字节与无关fallback保留，独立审查无阻塞。所有Go冻结后的全仓/构建收据归§149；旧live仍显示旧误导，不能修饰成已在模型回放验证。
 
 本批封账收据：末版30138已正式exit0，独立完整`go test -count=1 ./...`为87测试包通过、13无测试包、零FAIL，tool425.272秒/orchestrator61.249秒/tracequery115.290秒/types48.982秒；`/tmp/hmc-existing-edge-empty-read-sealed-full-20260922.log`。执行期间Go/依赖/构建输入保持冻结，只补文档，未拼接分包结果；首轮74574失败收据保留。新构建86574及版本检查通过。最新远端fetch64537正式exit0，HEAD领先5、无远端新提交；代码推送56251正式exit0，main从03d141a1d至0caa55175，包含c3009d647/93e242694/17c51a21d/c213fd893/0caa55175。随后单独提交机器/人工收据与文档。79=13已交付+66开放再次逐ID复算不变（58待实施/6部分实施/1待验收/1持续执行），旧人工FAIL不因这五个提交或新全仓通过而销账。
+
+## 151. 合法编辑方式与分步修复指引同源（2026-09-22，代码/定向/race完成）
+
+本轮从干净`93b5810e1`继续，fetch18993正式exit0且远端无差异，逐稳定ID仍79=13已交付+66开放。先处理§149两次真实create→modify→micro拒绝的确定性往返，不把原生合同缺口归咎于模型波动，也不以这个修复替代补证身份和空基线owner剩余工作。
+
+公开RED66588正式exit1：真实`EmitChangePlan`的空/非空×micro/较大/未知scope均获无差别`patch/modify/create`建议；真实`EmitPlanSkeleton→EmitPlanChange`两slot最终拒绝后，系统又要求只重交正文，但该入口没有kind字段，无法落实所建议修复。前者是准入与教学冲突，后者是恢复操作与可用JSON接口冲突。
+
+`6bc92f45d`把scope政策供原准入和建议共用。micro继续硬拒modify；未知/nil不新增硬拒，只保守建议patch；明确package/cross/project保留modify选项。目录/非普通文件不提供文件内容编辑枚举；空文件由同一次stat给EOF插入示例，不授虚构行。AcceptedEnums仅描述出错的当前路径；另选已核新路径的create单独说明，不修改其它项权限。分步改类型明确重发完整skeleton并重新填正文，失败保留旧partial；不自动改模型计划，不提前改变拒绝时机。
+
+25个公开叶及相邻通过：focused84391正式exit0/tool2.809秒，末版race27558正式exit0/tool4.796秒（直接工具输出）；独立75042正式exit0/tool2.360秒、末版race77827正式exit0/tool4.140秒，日志`/tmp/hmc-path-scope-final-independent-race-20260922.log`。覆盖合法建议实际再发射、已知空/非空、多scope、目录、缺失、ENOTDIR、词法越界、两slot替换及非法modify骨架不覆盖原partial。既有`os.Stat`与词法containment不变，不冒称物理symlink逃逸已全面审计。全仓/模型回放/推送另收，不重签旧写例FAIL或销HMC-01.2/18.5父项。
+
+## 152. 阶段能力与实际分派凭证分开教学（2026-09-22，代码/定向/race完成）
+
+承接§149，本片`98fa5006b`保规范主链成员、端点区间先后配方及模型/确定性代码作者边界，只纠正“every selected stage is executed”的无条件执行断言。目录/声明证明能力和逻辑先后；条件、跳过、重试及复用必须读实际控制流或执行回执。某次零dispatch既不删除阶段能力，也不能推出其产物不存在。不改scheduler、L1、schema、关系准入或模型原稿。
+
+真实`BuildAgentContext→NewFinalizerAgent.Execute→默认skill→LLM适配器`首消息公开RED97769正式exit1（4个中英×全主链/端点区间正例失败，Trace/写/未验证源3负控已通过），日志`/tmp/hmc-stage-lane-execution-red-20260922.log`。首个夹具字段编译失误不计产品RED。GREEN54028正式exit0/agent1.195秒；race45811正式exit0/3.068秒；末版扩邻接race6760正式exit0/agent2.748秒、skill2.615秒，日志`/tmp/hmc-stage-lane-execution-final-race-20260922.log`。主审独立90016正式exit0/agent1.820秒（skill此过滤无匹配不冒称新测试），日志`/tmp/hmc-stage-lane-independent-20260922.log`。旧测试仅一条原执行归属文本断言精确迁移；新七叶同时检查配方数量和原证据/答案不变。旧完整答案的不存在字段、载体流向错误及重复修补仍单独留账。
+
+## 153. 整体ROI复排与统一能力目录（2026-09-22，实施中，不提前销账）
+
+再次逐ID计数79=13+66、无重复；优先级不能无限停留在单一报告措辞。§151/152保存明确系统矛盾后，首选完整HMC-01.1，再08.1全层同口径总体、08.3真实在途深度；原生交付谱系/断言补绑定、空基线位置义务、业务局部补齐与共享旁路来源继续留原ID，遇可公开复现的高影响阻塞再按ROI插入，不被新能力调序抹掉。
+
+主审与独立审计亲读参考`server.py:1196–1294 list_indicators`、`:1955–2042 get_skill_catalog`：真实注册表生成简表/详情，按需暴露参数/结果schema，意图是可发现、可组合且减少无关上下文。模块可导入的`batch_supported`不证明当前采集具备数据；关键词路由表只能是软提示。参考本身没有完整typed事件前提矩阵，不能照搬109指标名字宣布本仓支持。当前本仓21个canonical views的`view_capacity.go`只描述容量/回退；`FallbackEventTypes`是恢复扫描过滤，绝不是所需事件。
+
+01.1完整退出条件：共享descriptor覆盖真实views及不同单位/口径的已发布指标族，复合view引用子能力；声明对象、输入格式/转换依赖、时间轴/单位、必需/可选/替代事件、缺口；注册无需附件的metadata-only简表/详情出口，不查询、不转换、不写Bus/覆盖账本、不造测量值；与真实view/alias/schema双向一致、实际agent可发现、代表查询的单位/缺失/零有公开验证；静态实现不自动授当前capture、覆盖或因果资格。本节当前为施工范围，不把设计稿计成交付。
+
+后继统计方案经参考源码复核：`io_ops.py:50–109`先全体分位数再截Top明细的顺序值得采用；本仓block配对已按物理来源+RQ/BIO+设备/操作聚合所有提交线程，并非全无总体。08.1真正余项是非block在`accountGenericStorageTransition`合格闭合点保留请求样本，再按层/端点/口径上卷；不能平均组P99或反算Top-8。参考`io_latency.yaml:194`接`compute_io_concurrency_agg`按start桶COUNT，是到达数；另`io_ops.py:114`按桶相交计数，也不是瞬时在途峰值。08.3应复用同一合格流做半开区间sweep，保carry-in、同时端点、缺完成与覆盖；例如[0,4)、[2,6)、[6,8)在[0,10)峰值2、全窗均值1，而单大桶到达/相交数3。拒绝照搬参考命名歧义，分母、来源、计量与因果权限均独立。
+
+### 153.1 补证交付身份下一片设计（只读审计，尚未实施）
+
+独立复核§149：不是单点observer开关。`run_tests_existing_test_unittest.go:97/274`的准备/前后交付检查、`run_tests_existing_test_intent.go:14`收据生产、`types/write_existing_test_intent.go:130`消费均要求当前plan自己的AppliedCommitSHA/PatchEffect。控制器`write_verification_scope.go:154–180`已有恢复感知的有效apply谱系和原计划加载路径，但累计投影只保ID/paths/contracts/probes/PTO，丢了应用身份。`ReplanCurrentWorktreeReceipt`没有提交SHA且会清除，不可当应用凭证。
+
+最小方向是控制器拥有、可持久化的已应用源码身份快照（原PlanID、应用SHA、原始PatchEffect深拷贝），与当前执行计划分开；模型提供的快照先清除，只从仍有效且确已应用的原计划/受控旧快照重建。仅无源码变更的受控补证计划可由共享resolver取此身份；真实改动计划缺自身应用身份时不可回退借旧。保`pythonTargetAppliedCommit`的真实提交差异/累计补丁指纹及当前HEAD、tracked clean、测试在提交中与当前字节一致的前后复核。每次必须重新执行，当前执行收据归当前plan，源码归属另记；来源ID列表、旧成功或新执行收据均不自动履行PTO行为合同。
+
+公开退出矩阵保真实Run：应用→补证→再补证/持久化恢复正例；伪造/缺原计划/回滚/部分应用/同ID冲突；多来源与旧检查点不得随意取首项；HEAD/源码/测试字节/补丁指纹变化前后均拒；零测试/全skip/redirect/失败/溢出保原边界；原生PASS但PTO错runner/suite/assertion时执行义务与行为合同分开。Python补充探针源码映射也依赖当前plan的PatchEffect，是相邻消费者，不能只修原生收据就签全部补证完成。此节只有代码定位与方案，不计新生产修复、公开RED或任务销账。
+
+## 154. HMC-01.1目录实现与冻结验收（2026-09-22，首轮全仓失败保留，双例已审）
+
+实现`f230ac8b3`覆盖21个真实canonical views、41个不同计量/语义指标族。目录直接供`trace_query`原view枚举（顺序与序列化保持），工具入口别名从真实参数面读取；未给低层引擎添别名。复合view引用真实子能力，详情递归去重；明确输出路径是跨view代表载体而非每次返回字段承诺、components是条件组合、输入格式表示准备路线而非当前capture事件可用性。没有复制参考109指标名来虚称全已实现，也没有第二查询引擎。
+
+无附件的`trace_capabilities`是ReadOnly/NonEvidence工具，返回对象、输入格式/转换前提、查询时间轴及逐指标单位/数据前提/缺口；不读文件、不转换、不写Bus或覆盖/观察账本。Explorer可按需发现，Analyzer权限不变；可在首次原生查询前查目录，但查询义务、其它非证据工具限制和终止输入修复不绕过。JSON只有可选view/detail；默认简表11395字节、window_stats详情25701字节是实际序列化观测，不是新硬上限，未把完整目录常驻注入每轮提示。
+
+独立审计修正了目录施工中发现的共性误导：全局代表载体不能冒称当前view全部产出、recipe/evidence_pack真实组成、原生trace_async_interval替代源、各阻塞候选不同前提、折叠bucket计数而非单桶承诺、多cohort不能共享分母。计量保query秒轴、jank同轴ns、CPU频率kHz、计算供给CPU·ms与墙钟ms、采样event/weight unit、IO请求驻留与阻塞/链上归因分开。jank字段过滤元数据复用现有字段/运算符/容量定义，appid不授TID，header报告时间不覆盖起止时间；无新rank/因果/窗口规则。
+
+公共入口RED62105正式exit1（默认注册缺工具，3顶层）；agent初始发现60580与首次查询门27055分别正式exit1。后者GREEN23660及最终邻接race50475正式exit0。新真实Registry→TraceQuery夹具校目录单位与缺失/实测零：IO不完整与0/2ms、1200000kHz、2samples/40000权重、缺样本、双CPU10ms窗对应20CPU·ms，以及jank>=2过滤/纳秒同轴；不是只反射字段存在或静态字串测试。引擎另检查全部view/metric/组件和实际Result字段路径双向一致、无共享可变切片。
+
+作者末版23759正式exit0（tool2.289/tracequery2.121/agent3.796秒；skill该过滤无测试不签语义），race11353正式exit0（7.035/2.199/4.406秒），日志`/tmp/hmc-trace-capabilities-sealed-focused-20260922.log`与`-sealed-race-20260922.log`。独立10968正式exit0（20顶层/29叶含旧邻接，不全称新公开），日志`/tmp/hmc-capabilities-final-independent-20260922.log`；主审14277正式exit0含本批三修复及维护结构，63012 race正式exit0（tracequery1.523/tool6.065/agent2.566秒），日志`/tmp/hmc-capability-contract-independent[-race]-20260922.log`。全部末审无阻断，未改已有能力门或提高容量预算。
+
+Go冻结后32999启动独立完整`go test -count=1 ./...`，日志`/tmp/hmc-capability-contract-full-20260922.log`；期间不改Go/依赖/构建输入。92160构建正式exit0，revision=f230ac8b3a4a-dirty、buildTime=2026-09-23T04:10:56Z，dirty仅文档。新用例`1403b9bed`专测无附件能力咨询，机器只作关键词/工具调用烟测，完整答案另审。57013于本地21:11:21启动恰好2并行×1：trace_capability_discovery与nested_python_increment；TIMEOUT1800是评测外层，产品600/300/600秒不变，不追加第三例求绿。结果目录`eval/results/hmc_capability_contract_20260922/`，机器/人工表同名保存。全仓、模型终态、推送及任务销账须另收，不能把启动当通过。
+
+文档审计同时纠正user_guide已有错误：正常文件路径分析已支持受控二进制自动准备，显式convert只是独立导出；二进制stdin/inline、SQLite和归档有各自限制；不能重复附件flag宣称多采集，也不能由同名相邻perf文件自动合并。只有受验证的bundle来源/成员与时钟凭证才能组合。不用文档掩盖程序缺口，也不将这些既有实现改写为本批新增转换能力。
+
+首轮32999已正式exit1：85测试包通过、13无测试包、2包失败，共3条顶层检查。`TestExploreSkill_TraceQueryGuidanceIsTraceGated`发现新增目录教学挤掉始终第一项的通用源码探索；修复仅移动目录说明至原PHASE1/2之后，原断言不削弱，23032定向正式exit0（skill0.814秒、agent1.105秒）。`TestToolRosterCensus`发现新工具未登记LLM工具普查；`TestUXG1CrossThreadAggregateFamilyNoLocalReEnumeration`发现纯目录指标引用与跨线程家族重复策略检查相撞，需精确审计声明与运行时分支的区别，不可删除该tripwire。首轮失败不会由局部分包绿拼成全仓通过，所有Go冻结后另作完整复跑。
+
+## 155. 无附件能力咨询与嵌套Python固定双例（2026-09-22，机器1/2、完整人工1/2）
+
+57013正式exit0仅说明runner完成，产品用例1/2通过。冻结构建`f230ac8b3a4a-dirty`（dirty仅文档），2并行、每例1次，未追加第三例追绿。机器及完整人工审计分别保存`eval/parallel_selected_summary_hmc_capability_contract_20260922.md`和`_manual_audit.md`；末尾窄片修正不回写本轮结果，也未重新运行live。
+
+能力例`trace_capability_discovery-20260922-211121`完整人工FAIL：Analyzer将“当前程序有哪些能力”误作空目标仓实现问题；Explorer仍正确调用一次`trace_capabilities({"detail":true})`，实际模型收到45902字节，包含21视图/41族及正确数据前提。日志只打印头2000字节，不是模型收到的目录被截断。此后Explorer已误说34族、将工具文档写成伪源码位置；6条emit中4条仅作为system_inference保留。最终漏`window_stats/scheduler_latency_stats/perf_stats`，把全部调度等待都要求有wakeup、允许不完整IO参与部分耗时、缺测分位数可能为0、样本权重是统一时间等解释均不正确。末轮撤掉未接地evidence_ids，但保留4条`trace_capabilities:1`伪引用；系统又把这些不存在文件列入源码定位附录并泄漏内部枚举。没有实际Trace附件/查询/因果合同，未生成root-causes旁路不能作为真实Trace旁路失败，也不声称此例验证了图、窗口因果投影或自动补齐。
+
+这是模型误读与确定性交接缺口叠加，不能统称波动。`explorer.ParseOutput`不给零证据工具造RepoFact是正确边界；`RelevantToolSummaries`虽赋值却无对应成文渲染，原始工具输出入口主要面向历史或有限标量问题，普通目录回答仍靠模型改写的推断/完成摘要。正值行号伪源码引用又在`currentSourceCitationLines`读取失败后与权限/超大文件一起跳过；证据ID拒绝正确但没有让引用池失效。以上归HMC-01.3/16.4/18.4，目录自身合同和入口的01.1验收独立，不提高目录证据权重、不扩大Analyzer权限、不造文件或运行时观察。
+
+写例`nested_python_increment-20260922-211121`完整人工PASS仅限用户实现和原有测试执行：应用提交`ceaba9251ab61bc8e694b02da6b37201f0bbd56e`只有`packages/widget/widget.py`一行`return value + 1`，测试/配置字节不变。3个原生unittest方法包含7个输入值检查；方法级assertion_count=3正确，根目录zero_tests不被加成第四次成功。当前plan、应用提交、patch effect、测试哈希和退出0收据一致；自然语言验收与逐合同证明仍分开，8个行为合同为planning_only，错误pytest/PTO没有授合同confidence。公开计划错把7个值写成8是低优先级模型算数债；确定性更高ROI错误是planner仅凭setup.py提供pytest教学，下一节修复。此次一次micro+patch未命中§151路径修复，也无source-free补证，不代销§149原生交付身份与空基线位置缺口。
+
+### 155.1 新增接缝分批出口（设计留账，尚未实施）
+
+1. **静态工具文档保真交接（P1，01.3/16.4）**：独立typed来源绑定本次成功工具调用、目录版本与所选能力；沿既有ToolHandoffCarrier/快照/合并/预算机制增加文档载体，不借AcceptedEvidenceRef或RuntimeObservation。提取/成文按所选合同展示完整前提、单位、缺测策略，容量裁剪不能只留前半句；无附件、混合真实源码/Trace、失败调用、并发/恢复/版本变更均需公开正反，不能用metadata满足查询或来源证明。
+2. **引用池的已知不存在与未知读取失败分开（P1，16.4）**：只对typed正值源码行引用在授权范围内的精确ENOENT/ENOTDIR做失效及统一ref重排；权限、敏感、超大、越界和未验证外部来源仍走各自边界，不能猜不存在。真正名为trace_capabilities的文件必须仍可合法引用；禁止按工具名/用户或答案原文关键词剔除。
+3. **能力问题与目标仓实现问题的范围教学（01.3/18.4）**：先检查现有结构化范围能否表达当前工具能力，保目录调用无需仓文件的语义；不为一个新case扩大Analyzer工具面或硬扫原始问题。目录工具实际输出已充分时的模型误述独立保留，不把全部错误算成缺上下文。
+
+这三个出口沿原稳定父ID记录，不新增重复计数；先前66开放数暂不变。完成目录原始退出条件、全仓和推送后，只能单独将01.1改实现已交付，不能把本节完整答案FAIL一起销账。
+
+## 156. 项目标记不代替测试协议（2026-09-22，代码/公开/相邻/race完成）
+
+§155真实写日志中的`setup.py→python (pytest)`来自系统固定表，不是模型自行选择，因此优先修通用教学。`010f89f09`仅中和planner的Test surface导航标签和解释：所有普通manifest只指出语言/构建家族，不猜npm test、make check、RSpec或某个wrapper任务；`pytest.ini`仍作为所在项目的明确配置线索，但不证明已安装、已执行或当前selected native协议。目录/路径仍完整显示，已持有的实际suite/assertion身份单独保留。未修改测试选择器、原生执行、schema、权限、PTO精确匹配或验证置信度。
+
+22叶新公开测试实际经过`BuildAgentContext→NewPlannerAgent.Execute→普通keyword search构图→首个Chat请求`，不直接调用导航helper；覆盖17种普通marker、两种嵌套Python/已有报告状态、显式配置/跨项目配置/无marker。RED50361正式exit1，其中21叶失败、no_manifest负控通过；GREEN1011正式exit0/agent2.075秒，race76317正式exit0/3.427秒；精确PTO、候选/target-path/root-vs-nested与规划不授证邻接24967正式exit0/tool1.158秒（上述stdout收据）。主审独立4247正式exit0/agent1.709秒，日志`/tmp/hmc-manifest-navigation-independent-20260922.log`；第二独立83190正式exit0/agent3.321秒，11顶层/39子例含旧邻接，日志`/tmp/hmc-planner-manifest-independent-review-20260922.log`。所有原稿/文件/计划/报告不变断言保留，未用提示词去抹已存在的真实原生报告。
+
+本片不补齐§153.1的跨补证计划已应用源码身份，也不自动替模型填写PTO。§155原写例的错误PTO与规划算数原文保持，未追加live验证；全仓/推送另收。同批`1f2f9d999`仅恢复原源码探索教学次序，见§154，未删除目录入口或放宽首次native query义务。
+
+## 157. 集成普查修复及末版验收（2026-09-22，末版全仓通过）
+
+`29e8bb4fc`精确登记新工具于唯一LLM-facing roster，并登记`capability_views.go`一处纯声明目录。逐项复核：`windowMetrics`列的是不同指标合同引用，不是跨线程因果家族的同处置分支；构造器无运行时dispatch，既有目录view/schema/指标引用公开普查是第二道校验。原UXG1全包扫描、阈值、family predicate interlock不变，与既有registry/独立label声明表相同方式登记；没有为了测试命中去合并不同指标或新增运行时硬门。审查中撤回了局部变量/参数位置绑定的AST数据流测试草案，避免为34行声明表建立更大、更脆的专用约束；该草案中间绿不记末版验收。最终仅两个测试文件新增6行。
+
+RED33136正式exit1/tool1.347秒，仅roster/UXG1两项预期失败，日志`/tmp/hmc-capability-integration-red-20260922.log`。末版81913正式exit0/tool1.762秒、tracequery2.588秒、agent3.544秒；race15727正式exit0/7.781、1.687、2.882秒，日志`/tmp/hmc-capability-integration-sealed-focused-20260922.log`及`-sealed-race-20260922.log`。主审独立75936正式exit0/tool2.768秒、skill1.247秒，日志`/tmp/hmc-capability-integration-independent-20260922.log`，三条原失败均覆盖且原断言保留。
+
+所有Go于`29e8bb4fc`冻结后，91969启动独立完整`go test -count=1 ./...`，日志`/tmp/hmc-capability-contract-sealed-full-20260922.log`；不是只重跑两个失败包，期间仅整理文档。7643同步启动构建、revision检查，日志`/tmp/hmc-capability-contract-sealed-build-20260922.log`。fetch78609正式exit0，没有远端增量；推送仍须等末版整体验收完成。
+
+本批另保超时/活跃流边界：96163定向正式exit0/llm2.445秒，日志`/tmp/hmc-capability-batch-stream-protection-20260922.log`。代码默认首响应600秒、中途静默300秒、非流600秒；活动字节/心跳/隐藏推理不会因4ms无可见答案或旧总时长上限强行降级。此处是实际adapter/watchdog的缩时确定性测试，不冒称等待真实10分钟的模型回放；调用方显式取消仍正常生效。
+
+91969现已正式exit0：87测试包通过、13无测试包、零FAIL。主要耗时tool435.796秒、tracequery113.972秒、agent95.883秒、orchestrator56.242秒、repl65.911秒；原3条集成失败均在完整执行中转绿，未拼接分包日志。测试期间Go/依赖/构建输入保持冻结，git diff仅文档。7643构建及version正式exit0，revision=`29e8bb4fce02-dirty`、buildTime=`2026-09-23T04:32:40Z`，dirty仍仅文档/审计。第二独立文档审计纠正“仅库存一律报错”的过宽表述：只对二进制转换后无可查询Trace/采样材料报错，普通文本的未知语义事件仍可原始查询并给缺口说明；其它自动准备/bundle/跨源边界与代码一致。
+
+最终fetch40027正式exit0，HEAD领先7、无远端新增；代码推送35296正式exit0，main由`93b5810e1`到`29e8bb4fc`，七个分片均已保存远端。依据§153事先确定的目录退出条件与独立审查，只将HMC-01.1标记实现已交付，逐ID统计变为**79=14已交付+65开放**（57待实施/6部分实施/1待验收/1持续执行）。01.1所交付的是准确静态工具目录，不代表模型完整回答已通过；§155人工FAIL、静态文档保真/伪引用、旧补证谱系/空基线位置、因果/业务/图等剩余工作均保留原父ID。文档/机器与人工收据随后单独提交，不修改被冻结的live答案。

@@ -1295,6 +1295,8 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 ### 7.2 perf_triage — HiTrace / atrace / systrace / perfetto
 
+**按需能力发现（HMC-01.1）**：`trace_capabilities` 是探索阶段的只读、零证据权重目录入口；默认简表，指定 `view` 和 `detail:true` 时读取同一语义目录的指标族、输入前提、单位、口径与缺口。无需文件或附件，不调用查询/转换器，不写Bus、读取覆盖或运行时观察；静态支持不代表当前capture满足条件。目录视图与真实canonical registry、工具入口别名和 `trace_query` 参数面保持一致，复合能力引用子能力。首个原生Trace查询的硬义务允许先查目录，但目录不完成该义务，也不绕过已发生的终止性输入准入失败；不扩大analyzer工具面。完整参数教学继续由原工具schema负责，能力目录不是第二查询内核或因果授权来源。
+
 并行通道，`AttachedHitrace` 非空触发。perf_triager + emit_perf_trace 写 PerfBundle：
 
 - Layer 1 Meta：`source` (hitrace/atrace/systrace/perfetto/unknown) / `duration_ms` / `app_pid` / `signals[]` (jank/cold-start-slow/main-thread-stall/io-block/gc-pause/render-miss) / `summary`
