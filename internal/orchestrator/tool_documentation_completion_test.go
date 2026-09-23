@@ -108,3 +108,86 @@ func TestToolDocumentationSourceNamingOracleRequiresPureAcceptedScope(t *testing
 		})
 	}
 }
+
+func TestToolDocumentationPreFinalizeFloorRequiresPureAcceptedCurrentRead(t *testing.T) {
+	for _, tc := range []struct {
+		name                                             string
+		accepted, reset, mixed, runtime, changed, replay bool
+	}{
+		{name: "accepted_pure", accepted: true},
+		{name: "declared_but_unread"},
+		{name: "reset_completion", accepted: true, reset: true},
+		{name: "mixed_source_obligation", accepted: true, mixed: true},
+		{name: "mixed_explicit_trace_window", accepted: true, mixed: true, runtime: true},
+		{name: "request_changed", accepted: true, changed: true},
+		{name: "serialized_handoff", accepted: true, replay: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bus := documentationContractBus(t, tc.accepted)
+			ta := bus.Mutable.TurnAArtifacts()
+			if ta == nil {
+				ta = &types.TurnAArtifacts{}
+			}
+			// Even incidental navigation cannot create a source obligation for
+			// accepted pure documentation. Every nonaccepted/mixed control must
+			// continue through the original source-localization check.
+			ta.ReadFiles = []string{"pkg/handler.py"}
+			if tc.replay {
+				data, err := json.Marshal(ta)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var replay types.TurnAArtifacts
+				if err := json.Unmarshal(data, &replay); err != nil {
+					t.Fatal(err)
+				}
+				bus.Mutable = types.NewMutableState("Explain documented tool capabilities")
+				bus.Mutable.SetRequestModel(bus.AnalysisIR.RequestModel)
+				ta = &replay
+			}
+			bus.Mutable.SetTurnAArtifacts(*ta)
+			if tc.reset {
+				bus.Mutable.ResetInvestigationComplete()
+			}
+			if tc.mixed || tc.changed {
+				rm := bus.AnalysisIR.RequestModel
+				rm.UserPinnedFiles = []string{"pkg/handler.py"}
+				if tc.runtime {
+					rm.UserPinnedFiles = nil
+					start, end := 0.0, 0.05
+					rm.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+						RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+						TimeStart:      &start, TimeEnd: &end, SourceQuote: "0..0.05 seconds", Confidence: 1,
+					}
+				}
+				if tc.mixed {
+					rm.ToolDocumentationRequest = &types.ToolDocumentationRequest{
+						Scope: types.ToolDocumentationRequestMixed, DimensionIndices: []int{1},
+					}
+					rm.RequestedAnswerDimensions = &types.RequestedAnswerDimensionProfile{
+						IsDimensionedAnswer: true, Confidence: 1, Dimensions: []types.RequestedAnswerDimension{
+							{Index: 1, Label: "Supported inputs", SourceQuote: "Supported inputs", Required: true, Role: types.RequestedAnswerDimensionFunctionOrPurpose},
+						},
+					}
+					if err := types.ValidateToolDocumentationRequest(&rm); err != nil {
+						t.Fatalf("invalid mixed control: %v", err)
+					}
+				}
+				bus.AnalysisIR.RequestModel = rm
+				bus.Mutable.SetRequestModel(rm)
+			}
+			o := &Orchestrator{busCtx: bus}
+			msg, arm, proceed, _ := o.checkTier1Floor(bus.AnalysisIR, &graphState{})
+			wantProceed := tc.accepted && !tc.reset && !tc.mixed && !tc.changed && !tc.replay
+			if proceed != wantProceed {
+				t.Fatalf("proceed=%v want=%v arm=%q msg=%s", proceed, wantProceed, arm, msg)
+			}
+			if !wantProceed && arm != types.TerminationFloorArmFollowupCoverage {
+				t.Fatalf("source-localization control lost: arm=%q msg=%s", arm, msg)
+			}
+			if wantProceed && (msg != "" || arm != "") {
+				t.Fatalf("spurious disclosure: %s %s", arm, msg)
+			}
+		})
+	}
+}

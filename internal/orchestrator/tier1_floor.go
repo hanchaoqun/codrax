@@ -43,6 +43,15 @@ import (
 // first-pass-correct answer) and the donghu.ftrace 4/4 local budget-burn
 // shape (codrax-3afc32b5/20260713).
 func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) (msg string, arm types.TerminationFloorArm, proceed bool, exhausted bool) {
+	// This floor asks whether repository claims were sufficiently localized
+	// and grounded. Accepted, current, documentation-only completion has no
+	// such claims to prove. A declaration, replay or mixed request alone must
+	// not suppress either source localization or runtime drill-down checks.
+	if ir != nil && types.ToolDocumentationOnlyRequested(&ir.RequestModel) &&
+		o.busCtx != nil && o.busCtx.Mutable != nil &&
+		o.busCtx.Mutable.HasAcceptedToolDocumentationCompletion(&ir.RequestModel) {
+		return "", "", true, false
+	}
 	if followup := readLocalizerFollowupForTier1(o.busCtx, ir); followup != nil {
 		traceDrill := traceObservationDrillRetryLensActive(o.busCtx, ir)
 		logging.Info("[orchestrator] pre-finalize read localizer follow-up: reason=%s paths=%d missing_routes=%d trace_drill_lens=%v — will disclose",
