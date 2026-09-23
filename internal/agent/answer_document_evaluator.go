@@ -5802,6 +5802,11 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if measurements := renderAnswerDocCausalIOMeasurements(ctx, promptLedger); measurements != "" {
 		b.WriteString(measurements)
 	}
+	if ctx.AnalysisIR != nil {
+		// Occupancy is already-queried resource context regardless of whether
+		// the model classified the question as pressure, counts or causality.
+		b.WriteString(renderAnswerDocIOInFlightMeasurements(promptLedger, &ctx.AnalysisIR.RequestModel, extractAnswerDocLang(ctx)))
+	}
 	if measurements := renderAnswerDocSchedulerConcurrencyMeasurements(ctx, promptLedger); measurements != "" {
 		b.WriteString(measurements)
 	}
