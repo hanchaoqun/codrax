@@ -3325,7 +3325,7 @@ Trace人工FAIL：50ms业务窗与53ms查询窗混用，运行7ms/未归账1ms�
 
 10580干净构建/version正式exit0，revision=`8a6327ff7f43`、buildTime=`2026-09-23T09:49:45Z`，日志`/tmp/hmc-native-resource-identity-clean-build-20260923.log`。9835 fetch正式exit0，领先2/落后0；56259 push正式exit0，main从`f0a6b84d2`至`8a6327ff7`，包含字段实现`bcc498bd0`和完整审计`8a6327ff7`。固定双例原始人工FAIL不改签，03.2保待验收及65开放。后续修改不得冒称本批冻结全仓或live已覆盖。
 
-## 170. 资源字段/聚合身份/显示标签分离（2026-09-23，实施完成，整体验收中）
+## 170. 资源字段/聚合身份/显示标签分离（2026-09-23，整体验收通过，答案FAIL保留）
 
 起点`29f45dd6d`，79=14交付+65开放。优先修§169双例已经证实的系统P1，而不是追跑负数地址原题。挂02.4/16.4/18.4，不新建重复ID；03.2新字段教学另作独立提交，仍不倒签旧答案。
 
@@ -3377,4 +3377,10 @@ types末版旧摘要6叶及identity编码10叶：有效RED55501正式exit1覆盖
 
 公开真实BuildAgentContext→NewFinalizerAgent首请求捕获消息及实际投影工具schema，9场景×中英18叶：配置普通/标量/清单，对比分桶/清单/只有profile/只有observation/逐成员表/历史无当前源码；验证两身份字段的独立可用性、互斥共享规则、现有cells/成员/配置层级/字面值来源/运行时未知与输入不变。有效RED13406正式exit1（agent1.149秒）：16个旧教学分支失败，2个逐成员表控制先绿，其它保护全部先过。54780/3819首轮将tool schema描述语句误当shared skill原句的测试夹具错误保留，不计产品RED；改为核真实已加载共享合同后取得有效RED。日志`/tmp/hmc-family-citation-teaching-public-valid-red-20260923.log`。
 
-`5d2915982`包含两句修复及202行公开测试，独立末审无阻塞；51213定向正式exit0（agent2.107/types1.077/tool1.075秒），76987 race正式exit0（agent2.807/types3.468/tool2.741秒），包含既有B1620 Finalizer、ConfigPrecedence/Comparison及schema载体邻接，未改旧pin。日志`/tmp/hmc-family-citation-teaching-{focused,race}-20260923.log`。Go/依赖/构建输入冻结后启动75352独立完整全仓，日志`/tmp/hmc-resource-semantics-sealed-full-20260923.log`，当前仍待正式退出，不拼接首轮分包结果。未追加第三个live，不能声称修后模型答案已验收；原配置附录否定已验证引用尚未修，不代销完整FAIL。
+`5d2915982`包含两句修复及202行公开测试，独立末审无阻塞；51213定向正式exit0（agent2.107/types1.077/tool1.075秒），76987 race正式exit0（agent2.807/types3.468/tool2.741秒），包含既有B1620 Finalizer、ConfigPrecedence/Comparison及schema载体邻接，未改旧pin。日志`/tmp/hmc-family-citation-teaching-{focused,race}-20260923.log`。Go/依赖/构建输入冻结后的75352独立完整全仓正式exit1：86测试包通过、13无测试包，仅tool的`TestTraceNoteKeysEmittedSubsetOfRegistry`失败——address成为真实soft consumer后，生产者全键样本仍只有无地址BIO，未覆盖该键。日志`/tmp/hmc-resource-semantics-sealed-full-20260923.log`。未追加第三个live，不能声称修后模型答案已验收；原配置附录否定已验证引用尚未修，不代销完整FAIL。
+
+`af9739f17`补齐方式仅为旧全键样本增加6行真实PageFaultResources地址数据，经原typed emitter发布；不改生产、不删除覆盖断言、不加豁免、不把地址伪填到BIO。25743双包note/census/resource定向正式exit0（tool2.549/types13.663秒）、5842 emitter race正式exit0（2.613秒）；日志`/tmp/hmc-resource-semantics-emitter-{focused,race}-20260923.log`。独立只读审查确认真实生产者路径、登记与原断言均保留，不冒称新增native解析验证。Go/依赖/构建输入冻结后94988独立完整复验正式exit0，87测试包通过、13无测试包、零FAIL，日志`/tmp/hmc-resource-semantics-final-full-20260923.log`；前两轮全仓失败均保留，不拼接各包为全仓绿。
+
+### 170.6 发布收据
+
+74455干净构建/version正式exit0，revision=`fb8836be86f9`、buildTime=`2026-09-23T10:33:22Z`，日志`/tmp/hmc-resource-semantics-clean-build-20260923.log`。此后仅增加全键测试fixture，生产输入不变，末版94988完整全仓正式exit0。此前58348 fetch正式exit0，无远端新增；本批准备推送，收据补记。构建及全仓通过不等于人工答案通过，65开放保持。
