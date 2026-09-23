@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -19,16 +20,33 @@ func toolDocumentationRequestSchema() map[string]any {
 }
 
 func validateEmitToolDocumentationRequest(rm *types.RequestModel, raw *emitRequestedAnswerDimensionsParam) error {
-	if err := types.ValidateToolDocumentationRequest(rm); err != nil {
-		return err
-	}
-	if rm.ToolDocumentationRequest == nil || rm.ToolDocumentationRequest.Scope != types.ToolDocumentationRequestMixed {
-		return nil
+	return errors.Join(collectEmitToolDocumentationRequestViolations(rm, raw)...)
+}
+
+func collectEmitToolDocumentationRequestViolations(rm *types.RequestModel, raw *emitRequestedAnswerDimensionsParam) []error {
+	violations := types.CollectToolDocumentationRequestViolations(rm)
+	if rm == nil || rm.ToolDocumentationRequest == nil || rm.ToolDocumentationRequest.Scope != types.ToolDocumentationRequestMixed {
+		return violations
 	}
 	// Presentation normalization may assign missing indices or discard rows.
 	// A cross-field reference must name an explicit unique original index;
 	// it must never silently retarget a surviving/default-indexed row.
+	seen := map[int]bool{}
 	for _, index := range rm.ToolDocumentationRequest.DimensionIndices {
+		if seen[index] {
+			continue
+		}
+		seen[index] = true
+		// Check provenance for each independently valid selection, even when
+		// another selection is invalid. Do not cascade a missing/ambiguous
+		// retained index into a second error about its original row.
+		selection := *rm
+		selection.ToolDocumentationRequest = &types.ToolDocumentationRequest{
+			Scope: types.ToolDocumentationRequestMixed, DimensionIndices: []int{index},
+		}
+		if types.ValidateToolDocumentationRequest(&selection) != nil {
+			continue
+		}
 		count := 0
 		if raw != nil {
 			for _, dim := range raw.Dimensions {
@@ -38,8 +56,8 @@ func validateEmitToolDocumentationRequest(rm *types.RequestModel, raw *emitReque
 			}
 		}
 		if count != 1 {
-			return fmt.Errorf("tool_documentation_request index %d must name one explicitly indexed original requested_answer_dimensions row, not an inferred or duplicate index", index)
+			violations = append(violations, fmt.Errorf("tool_documentation_request index %d must name one explicitly indexed original requested_answer_dimensions row, not an inferred or duplicate index", index))
 		}
 	}
-	return nil
+	return violations
 }

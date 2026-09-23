@@ -47,8 +47,8 @@ import (
 //   - the persisted roster mint is pinned at its source: every `Entities:` /
 //     `PrimaryEntities:` key-value inside Execute carries exactly
 //     `modelEntities.Entities()`;
-//   - `&rm` may be handed only to registered RequestModel mutators, and each
-//     registered mutator's body (package-wide) never assigns a roster field.
+//   - `&rm` may be handed only to registered local RequestModel helpers or
+//     external readers; each registered body never assigns a roster field.
 
 // emitAnalysisEntityRosterProducers is the single declared registry of RHS
 // expressions allowed to assign the decode slice `entities` inside Execute.
@@ -70,12 +70,14 @@ var emitAnalysisFrozenRosterGates = map[string]bool{
 	"validateRequiredFlowDiagramParticipantProvenance": true,
 }
 
-// emitAnalysisRequestModelMutators is the single declared registry of
-// functions allowed to receive `&rm` inside Execute. Registration is the
+// emitAnalysisRequestModelMutators registers local functions allowed to receive
+// `&rm` inside Execute; external readers have a separate exact-path registry.
+// Registration is the
 // review surface: a registered mutator's body is additionally pinned
 // (package-wide) to never assign the persisted roster fields, so a pointer
 // helper can never rewrite Entities/PrimaryEntities behind the gate.
 var emitAnalysisRequestModelMutators = map[string]bool{
+	"validateEmitToolDocumentationRequest":                    true,
 	"projectRuntimeArtifactPathHintsFromRawRequest":           true,
 	"attachRuntimeArtifactsToRequestModel":                    true,
 	"dropSourceInventoryProfileForTypedRelation":              true,
@@ -316,7 +318,7 @@ func emitAnalysisEntityRosterCensus(src string) (emitAnalysisEntityRosterCensusR
 			if call, ok := parents[x].(*ast.CallExpr); ok && call.Fun != x {
 				callee = emitAnalysisCallee(call)
 			}
-			if callee == "" || !emitAnalysisRequestModelMutators[callee] {
+			if callee == "" || (!emitAnalysisRequestModelMutators[callee] && emitAnalysisRequestModelExternalReaders[callee] == "") {
 				report(x, "&"+emitAnalysisRequestModelIdent+" handed to unregistered "+callee+" — a pointer helper could rewrite the persisted roster behind the gate")
 				return true
 			}

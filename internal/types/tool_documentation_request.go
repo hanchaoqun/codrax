@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // ToolDocumentationRequest is an optional, orthogonal answer domain, not a
 // tool-call receipt or permission to treat documentation as observed evidence.
@@ -33,51 +36,68 @@ const ToolDocumentationRequestTeaching = "Optional tool_documentation_request de
 // ValidateToolDocumentationRequest checks precise model-owned declarations.
 // No keyword scan or confidence score can create or erase an obligation.
 func ValidateToolDocumentationRequest(rm *RequestModel) error {
+	return errors.Join(CollectToolDocumentationRequestViolations(rm)...)
+}
+
+// CollectToolDocumentationRequestViolations reports every independent domain
+// violation without rewriting the request. Invalid selections do not suppress
+// later selections; repeated selections do not repeat their semantic errors.
+func CollectToolDocumentationRequestViolations(rm *RequestModel) []error {
 	if rm == nil || rm.ToolDocumentationRequest == nil {
 		return nil
 	}
+	var violations []error
 	p := rm.ToolDocumentationRequest
 	switch p.Scope {
 	case ToolDocumentationRequestOnly:
 		if len(p.DimensionIndices) != 0 {
-			return fmt.Errorf("tool_documentation_request scope=only must omit dimension_indices; use mixed for selected dimensions")
+			violations = append(violations, fmt.Errorf("tool_documentation_request scope=only must omit dimension_indices; use mixed for selected dimensions"))
 		}
 		if reason := toolDocumentationIndependentObligation(rm); reason != "" {
-			return fmt.Errorf("tool_documentation_request scope=only conflicts with %s; preserve the independent obligation and use mixed with documentation-only dimension indices, or omit the documentation domain", reason)
+			violations = append(violations, fmt.Errorf("tool_documentation_request scope=only conflicts with %s; preserve the independent obligation and use mixed with documentation-only dimension indices, or omit the documentation domain", reason))
 		}
 	case ToolDocumentationRequestMixed:
 		if len(p.DimensionIndices) == 0 {
-			return fmt.Errorf("tool_documentation_request scope=mixed requires nonempty dimension_indices")
+			violations = append(violations, fmt.Errorf("tool_documentation_request scope=mixed requires nonempty dimension_indices"))
 		}
 		seen := map[int]bool{}
+		invalidIndexShapeReported := false
 		for _, index := range p.DimensionIndices {
 			if index <= 0 || seen[index] {
-				return fmt.Errorf("tool_documentation_request dimension_indices must be unique positive indices")
+				if !invalidIndexShapeReported {
+					violations = append(violations, fmt.Errorf("tool_documentation_request dimension_indices must be unique positive indices"))
+					invalidIndexShapeReported = true
+				}
+				continue
 			}
 			seen[index] = true
 			var selected *RequestedAnswerDimension
+			matches := 0
 			if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
 				for i := range rm.RequestedAnswerDimensions.Dimensions {
 					dim := &rm.RequestedAnswerDimensions.Dimensions[i]
 					if dim.Index == index {
-						if selected != nil {
-							return fmt.Errorf("tool_documentation_request index %d is ambiguous in requested_answer_dimensions", index)
-						}
+						matches++
 						selected = dim
 					}
 				}
 			}
+			if matches > 1 {
+				violations = append(violations, fmt.Errorf("tool_documentation_request index %d is ambiguous in requested_answer_dimensions", index))
+				continue
+			}
 			if selected == nil || !selected.Required {
-				return fmt.Errorf("tool_documentation_request index %d must refer to one retained required requested_answer_dimensions row", index)
+				violations = append(violations, fmt.Errorf("tool_documentation_request index %d must refer to one retained required requested_answer_dimensions row", index))
+				continue
 			}
 			if toolDocumentationDimensionHasIndependentObligation(rm, *selected) {
-				return fmt.Errorf("tool_documentation_request index %d carries an independent source/runtime obligation; do not relabel that obligation as documentation", index)
+				violations = append(violations, fmt.Errorf("tool_documentation_request index %d carries an independent source/runtime obligation; do not relabel that obligation as documentation", index))
 			}
 		}
 	default:
-		return fmt.Errorf("tool_documentation_request.scope must be only or mixed")
+		violations = append(violations, fmt.Errorf("tool_documentation_request.scope must be only or mixed"))
 	}
-	return nil
+	return violations
 }
 
 // ToolDocumentationOnlyRequested fails closed for invalid/replayed profiles.

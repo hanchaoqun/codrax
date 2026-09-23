@@ -58,6 +58,7 @@ var emitValidatorScannedFiles = []string{
 	"emit_answer_document_v2.go",
 	"emit_investigation_complete.go",
 	"emit_analysis.go",
+	"emit_analysis_tool_documentation.go",
 	"answer_block_normalize.go",
 	"answer_document_mutation_runtime.go",
 }
@@ -76,6 +77,8 @@ var emitValidatorRoster = map[string]emitValidatorRow{
 	"tool/collectRuntimeWorkRelationReceiptViolations":           {class: emitValidatorList},
 	"tool/collectConceptualTerminalResolutionReceiptViolations":  {class: emitValidatorList},
 	"tool/collectAggregateRequestedDecoratorAlignmentViolations": {class: emitValidatorList},
+	"types/CollectToolDocumentationRequestViolations":            {class: emitValidatorList},
+	"tool/collectEmitToolDocumentationRequestViolations":         {class: emitValidatorList},
 	// ── serial gate + accumulate walker (EMITBURN-1 §29.173) ──
 	"types/NormalizeAnswerAggregateFacts": {class: emitValidatorSerialWithCollector,
 		collector: "CollectAnswerAggregateFactsViolations",
