@@ -3504,17 +3504,19 @@ func traceQueryIndentedContinuation(lines []string, index int, prefix string) st
 func traceQueryRuntimeResourceRecord(index, ordinal int, label, line, continuation string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
 	fields, summary := traceQuerySummaryLineFields(line, "- "+label+"_resource ")
 	path := strings.TrimSpace(fields["path"])
+	dev := strings.TrimSpace(fields["dev"])
+	address := strings.TrimSpace(fields["address"])
 	op := strings.TrimSpace(fields["op"])
 	totalLatency := traceQueryFieldMS(fields, "total_latency")
 	lineStart, lineEnd := traceQueryFieldLineSpan(fields["line"])
-	if path == "" && op == "" && summary == "" {
+	if path == "" && dev == "" && address == "" && op == "" && summary == "" {
 		return ObservationRecord{}, false
 	}
 	value := ""
 	if totalLatency > 0 {
 		value = fmt.Sprintf("%.3f", totalLatency)
 	}
-	notes := traceQuerySelectedRichNotes(fields, []string{"op", TraceNoteKeyPath, "thread", "count", "total_latency", "max_latency", "bytes", "line", "example"})
+	notes := traceQuerySelectedRichNotes(fields, []string{"op", TraceNoteKeyPath, TraceNoteKeyDev, TraceNoteKeyAddress, "thread", "count", "total_latency", "max_latency", "bytes", "line", "example"})
 	if continuation != "" {
 		notes = append(notes, continuation)
 	}
@@ -3527,8 +3529,8 @@ func traceQueryRuntimeResourceRecord(index, ordinal int, label, line, continuati
 		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
-		ClaimKey:        label + "_resource:" + firstNonEmptyString(path, op),
-		Subject:         firstNonEmptyString(path, label+"_resource"),
+		ClaimKey:        traceResourceLegacyObservationClaimKey(label+"_resource", index, ordinal, line, continuation),
+		Subject:         TraceResourceObservationSubject(label, path, dev, address),
 		Predicate:       label + "_resource",
 		Object:          op,
 		Value:           value,
@@ -3543,7 +3545,7 @@ func traceQueryRuntimeResourceRecord(index, ordinal int, label, line, continuati
 
 func traceQueryRuntimeResourceSummary(label string, fields map[string]string) string {
 	parts := []string{label + "_resource"}
-	for _, key := range []string{"op", "path", "total_latency", "max_latency", "bytes", "count"} {
+	for _, key := range []string{"op", TraceNoteKeyPath, TraceNoteKeyDev, TraceNoteKeyAddress, "total_latency", "max_latency", "bytes", "count"} {
 		if value := strings.TrimSpace(fields[key]); value != "" {
 			parts = append(parts, key+"="+value)
 		}
@@ -3571,7 +3573,7 @@ func traceQueryPluginEventRecord(index, ordinal int, line string, ref Observatio
 		ProvenanceLane:  ObservationProvenanceArtifactSpan,
 		SourceRef:       ref,
 		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
-		ClaimKey:        "plugin_event:" + firstNonEmptyString(kind, domain, event, metric),
+		ClaimKey:        traceResourceLegacyObservationClaimKey("plugin_event", index, ordinal, line, ""),
 		Subject:         firstNonEmptyString(domain, kind, "plugin_event"),
 		Predicate:       firstNonEmptyString(kind, "plugin_event"),
 		Object:          firstNonEmptyString(event, metric),

@@ -1,0 +1,20 @@
+# Resource identities, missing metadata, and repeated observations.
+# Presence checks are a smoke floor; manual review must verify every grouping,
+# missing domain, address/device/path distinction, and no causal promotion.
+ID="trace_query_resource_coordinates"
+NAME="trace query — independent resource coordinates and plugin categories"
+QUESTION="只看附加trace在1.0s到1.02s的观测，不分析源码。请按资源对象整理BIO、文件读取和缺页记录：分别列出有证据的文件路径、设备、地址、事件数、累计与最大耗时及字节数。相同对象的重复记录可以合计，不同对象不要混为一项。再列出功耗插件的领域、指标、取值和前后台类别；未记录的字段如实说明。最后说明这些统计能否直接证明卡顿主因，不需要画图。"
+HTRACE='# tracer: nop
+        worker-20 (20) [001] .... 1.001000: page_fault_user: operation=major address=0x1234 duration_us=150 size=4096
+        worker-20 (20) [001] .... 1.002000: page_fault_user: operation=major address=0x5678 duration_us=250 size=4096
+        worker-20 (20) [001] .... 1.003000: file_system: syscall=read path=/data/cache.db dev=8,0 duration_ms=2 bytes=1024
+        worker-20 (20) [001] .... 1.004000: file_system: syscall=read path=/data/cache.db dev=8,1 duration_ms=3 bytes=2048
+        worker-20 (20) [001] .... 1.005000: file_system: syscall=read path=/data/cache.db dev=8,0 duration_ms=4 bytes=4096
+        worker-20 (20) [001] .... 1.006000: bio_latency: op=R dev=8,2 latency_ms=1 bytes=512
+       emitter-30 (30) [002] .... 1.007000: xpower_cpu: component=CPU usage=73 scene=foreground
+       emitter-30 (30) [002] .... 1.008000: xpower_cpu: domain=POWER component=CPU usage=73 scene=foreground
+       emitter-30 (30) [002] .... 1.009000: xpower_cpu: domain=POWER component=CPU usage=73 scene=background
+       emitter-30 (30) [002] .... 1.010000: xpower_cpu: domain=POWER component=CPU usage=73 scene=background
+'
+EXPECT_CONTAINS="/data/cache.db 0x1234 0x5678 POWER"
+EXPECT_MATCHES_REGEX="(5120|5[,.]120)\n(8[:,，]0)\n(8[:,，]1)\n(8[:,，]2)"

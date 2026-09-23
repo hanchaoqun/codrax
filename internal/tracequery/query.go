@@ -2729,17 +2729,17 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	blockedReasons := map[string]BlockedReasonSummary{}
 	freqLimits := map[int]CPUFrequencyLimit{}
 	subsystems := map[string]SubsystemEventSummary{}
-	bioResources := map[string]*RuntimeResourceSummary{}
-	filesystemResources := map[string]*RuntimeResourceSummary{}
-	pageFaultResources := map[string]*RuntimeResourceSummary{}
+	bioResources := map[runtimeResourceKey]*RuntimeResourceSummary{}
+	filesystemResources := map[runtimeResourceKey]*RuntimeResourceSummary{}
+	pageFaultResources := map[runtimeResourceKey]*RuntimeResourceSummary{}
 	bioResourceContributorPIDs := map[int]bool{}
 	filesystemResourceContributorPIDs := map[int]bool{}
 	pageFaultResourceContributorPIDs := map[int]bool{}
 	fileIO := map[string]*FileIOSummary{}
 	pageCache := map[string]*PageCacheSummary{}
-	abilityEvents := map[string]*TracePluginSummary{}
-	xpowerEvents := map[string]*TracePluginSummary{}
-	hiSystemEvents := map[string]*TracePluginSummary{}
+	abilityEvents := map[tracePluginKey]*TracePluginSummary{}
+	xpowerEvents := map[tracePluginKey]*TracePluginSummary{}
+	hiSystemEvents := map[tracePluginKey]*TracePluginSummary{}
 	abilityContributorPIDs := map[int]bool{}
 	xpowerContributorPIDs := map[int]bool{}
 	hiSystemContributorPIDs := map[int]bool{}
@@ -3436,7 +3436,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// family has no numeric identity dependency. The inode/storage composites
 	// below retain the global guard until their multi-input completeness can be
 	// propagated end-to-end.
-	publishRuntimeResources := func(name string, contributors map[int]bool, items map[string]*RuntimeResourceSummary) []RuntimeResourceSummary {
+	publishRuntimeResources := func(name string, contributors map[int]bool, items map[runtimeResourceKey]*RuntimeResourceSummary) []RuntimeResourceSummary {
 		// The already-computed global result is a cheap proof that every
 		// contributor set is clean on the common path. Re-scan a family only
 		// when some lifecycle conflict exists in the window and we must decide
@@ -3453,7 +3453,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.FilesystemResources = publishRuntimeResources("filesystem", filesystemResourceContributorPIDs, filesystemResources)
 	stats.PageFaultResources = publishRuntimeResources("page_fault", pageFaultResourceContributorPIDs, pageFaultResources)
 
-	publishPluginEvents := func(name string, contributors map[int]bool, items map[string]*TracePluginSummary) []TracePluginSummary {
+	publishPluginEvents := func(name string, contributors map[int]bool, items map[tracePluginKey]*TracePluginSummary) []TracePluginSummary {
 		if identityConflict != nil {
 			if conflict := threadIncarnationConflictForPIDSet(idx, q, contributors); conflict != nil {
 				stats.Caveats = append(stats.Caveats, "thread_identity_"+name+"_plugin_fail_closed=true; "+conflict.reason()+"; "+name+" plugin summaries are omitted because a contributing PID spans task incarnations")
@@ -12488,7 +12488,15 @@ func sortedSubsystemEvents(in map[string]SubsystemEventSummary, max int) []Subsy
 	return out
 }
 
-func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeResourceSummary, ev Event) string {
+// Source fields are separate identities, not fallback display names. Keeping
+// the tuple comparable also prevents separators inside a source value from
+// merging unrelated objects.
+type runtimeResourceKey struct {
+	kind, operation, path, dev, address string
+	pid                                 int
+}
+
+func accumulateRuntimeResource(bio, filesystem, pageFault map[runtimeResourceKey]*RuntimeResourceSummary, ev Event) string {
 	kind := runtimeResourceKind(ev)
 	if kind == "" {
 		return ""
@@ -12509,14 +12517,21 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 		blk = &BlockIOFields{}
 	}
 	op := firstNonEmpty(rf.Op, blk.Op, ev.MemoryKind, ev.Name)
-	path := firstNonEmpty(rf.Path, blk.Dev, rf.Address, "unknown")
-	key := fmt.Sprintf("%s/%s/%s/%d", kind, op, path, ev.PID)
+	dev := blk.Dev
+	if ff := ev.FileFields; ff != nil && ff.Dev != "" {
+		// File resource parsers retain their own device. A block-layer
+		// device, when present too, is not proof of the same filesystem.
+		dev = ff.Dev
+	}
+	key := runtimeResourceKey{kind, op, rf.Path, dev, rf.Address, ev.PID}
 	item := target[key]
 	if item == nil {
 		item = &RuntimeResourceSummary{
 			Kind:      kind,
 			Operation: op,
-			Path:      path,
+			Path:      rf.Path,
+			Dev:       dev,
+			Address:   rf.Address,
 			Thread:    threadRefFromEvent(ev),
 			Line:      ev.Line,
 			Ts:        ev.Ts,
@@ -12548,9 +12563,6 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 	if item.Callstack == "" {
 		item.Callstack = rf.Callstack
 	}
-	if item.Address == "" {
-		item.Address = rf.Address
-	}
 	return kind
 }
 
@@ -12577,7 +12589,7 @@ func runtimeResourceKind(ev Event) string {
 	}
 }
 
-func sortedRuntimeResources(in map[string]*RuntimeResourceSummary, max int) []RuntimeResourceSummary {
+func sortedRuntimeResources(in map[runtimeResourceKey]*RuntimeResourceSummary, max int) []RuntimeResourceSummary {
 	out := make([]RuntimeResourceSummary, 0, len(in))
 	for _, item := range in {
 		out = append(out, *item)
@@ -13703,7 +13715,12 @@ func computeIOBurstEpisodes(stats WindowStats, max int) []IOBurstEpisodeSummary 
 	return out
 }
 
-func accumulateTracePluginEvent(ability, xpower, hiSystem map[string]*TracePluginSummary, ev Event) string {
+type tracePluginKey struct {
+	kind, domain, event, metric, value, category string
+	pid                                          int
+}
+
+func accumulateTracePluginEvent(ability, xpower, hiSystem map[tracePluginKey]*TracePluginSummary, ev Event) string {
 	kind := tracePluginKind(ev.Type)
 	if kind == "" {
 		return ""
@@ -13721,8 +13738,8 @@ func accumulateTracePluginEvent(ability, xpower, hiSystem map[string]*TracePlugi
 	}
 	eventName := firstNonEmpty(pl.EventName, ev.Name)
 	metric := firstNonEmpty(pl.Metric, ev.SubsystemKind, ev.Name)
-	domain := firstNonEmpty(pl.Domain, ev.Comm)
-	key := fmt.Sprintf("%s/%s/%s/%s/%s/%d", kind, domain, eventName, metric, pl.Value, ev.PID)
+	domain := pl.Domain
+	key := tracePluginKey{kind, domain, eventName, metric, pl.Value, pl.Category, ev.PID}
 	item := target[key]
 	if item == nil {
 		item = &TracePluginSummary{
@@ -13763,7 +13780,7 @@ func tracePluginKind(typ EventType) string {
 	}
 }
 
-func sortedTracePluginSummaries(in map[string]*TracePluginSummary, max int) []TracePluginSummary {
+func sortedTracePluginSummaries(in map[tracePluginKey]*TracePluginSummary, max int) []TracePluginSummary {
 	out := make([]TracePluginSummary, 0, len(in))
 	for _, item := range in {
 		out = append(out, *item)

@@ -6256,10 +6256,12 @@ func writeTraceBinderEvents(b *strings.Builder, events []tracequery.BinderEventS
 }
 
 func writeTraceRuntimeResource(b *strings.Builder, label string, item tracequery.RuntimeResourceSummary) {
-	fmt.Fprintf(b, "- %s_resource op=%s path=%s thread=%s count=%d total_latency=%.3fms max_latency=%.3fms bytes=%d line=%d example=%s\n",
+	fmt.Fprintf(b, "- %s_resource op=%s path=%s dev=%s address=%s thread=%s count=%d total_latency=%.3fms max_latency=%.3fms bytes=%d line=%d example=%s\n",
 		label,
 		sanitizeForBanner(item.Operation),
 		sanitizeForBanner(item.Path),
+		sanitizeForBanner(item.Dev),
+		sanitizeForBanner(item.Address),
 		traceThreadLabel(item.Thread),
 		item.Count,
 		item.TotalLatencyMs,
@@ -15159,12 +15161,14 @@ func traceQueryTypedResourceObservations(label string, items []tracequery.Runtim
 		if i >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
-		if strings.TrimSpace(item.Path) == "" && strings.TrimSpace(item.Operation) == "" {
+		if strings.TrimSpace(item.Path) == "" && strings.TrimSpace(item.Address) == "" && strings.TrimSpace(item.Dev) == "" && strings.TrimSpace(item.Operation) == "" {
 			continue
 		}
 		notes := traceQueryTypedKVNotes([][2]string{
 			{"op", item.Operation},
 			{types.TraceNoteKeyPath, item.Path},
+			{types.TraceNoteKeyDev, item.Dev},
+			{types.TraceNoteKeyAddress, item.Address},
 			{"thread", traceThreadLabel(item.Thread)},
 			{"count", traceQueryTypedCount(item.Count)},
 			{"total_latency", traceQueryObservationMSValue(item.TotalLatencyMs)},
@@ -15184,8 +15188,8 @@ func traceQueryTypedResourceObservations(label string, items []tracequery.Runtim
 			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
 			SourceRef:       ref,
 			Span:            types.ObservationSpan{LineStart: item.Line, LineEnd: item.Line},
-			ClaimKey:        label + "_resource:" + firstNonEmptyTraceString(item.Path, item.Operation),
-			Subject:         firstNonEmptyTraceString(item.Path, label+"_resource"),
+			ClaimKey:        types.TraceResourceObservationClaimKey(label, item.Operation, item.Path, item.Dev, item.Address, strconv.Itoa(item.Thread.PID)),
+			Subject:         types.TraceResourceObservationSubject(label, item.Path, item.Dev, item.Address),
 			Predicate:       label + "_resource",
 			Object:          item.Operation,
 			Value:           traceQueryObservationMSValue(item.TotalLatencyMs),
@@ -15596,6 +15600,8 @@ func traceQueryTypedResourceSummary(label string, item tracequery.RuntimeResourc
 	for _, kv := range [][2]string{
 		{"op", item.Operation},
 		{types.TraceNoteKeyPath, item.Path},
+		{types.TraceNoteKeyDev, item.Dev},
+		{types.TraceNoteKeyAddress, item.Address},
 		{"total_latency", traceQueryObservationMSValue(item.TotalLatencyMs)},
 		{"max_latency", traceQueryObservationMSValue(item.MaxLatencyMs)},
 		{"bytes", traceQueryTypedInt64(item.Bytes)},
@@ -15629,7 +15635,7 @@ func traceQueryTypedPluginObservations(stats tracequery.WindowStats, ref types.O
 				ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
 				SourceRef:       ref,
 				Span:            types.ObservationSpan{LineStart: item.Line, LineEnd: item.Line},
-				ClaimKey:        "plugin_event:" + firstNonEmptyTraceString(item.Kind, item.Domain, item.EventName, item.Metric),
+				ClaimKey:        types.TracePluginObservationClaimKey(item.Kind, item.Domain, item.EventName, item.Metric, item.Value, item.Category, strconv.Itoa(item.Thread.PID)),
 				Subject:         firstNonEmptyTraceString(item.Domain, item.Kind, "plugin_event"),
 				Predicate:       firstNonEmptyTraceString(item.Kind, "plugin_event"),
 				Object:          firstNonEmptyTraceString(item.EventName, item.Metric),

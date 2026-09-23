@@ -3703,6 +3703,7 @@ type RuntimeResourceSummary struct {
 	Kind           string    `json:"kind,omitempty"`
 	Operation      string    `json:"operation,omitempty"`
 	Path           string    `json:"path,omitempty"`
+	Dev            string    `json:"dev,omitempty"`
 	Thread         ThreadRef `json:"thread,omitempty"`
 	Count          int       `json:"count,omitempty"`
 	TotalLatencyMs float64   `json:"total_latency_ms,omitempty"`
