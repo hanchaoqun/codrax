@@ -1,0 +1,10 @@
+{
+  "window_seconds": [1.0, 1.01],
+  "population": "accepted_closed_intervals",
+  "runnable": {"peak_threads": 2, "mean_threads": 0.8, "busy_ms": 6, "thread_ms": 8},
+  "running": {"peak_threads": 2, "mean_threads": 0.5, "busy_ms": 4, "thread_ms": 5},
+  "runnable_intervals_seconds": [[1.001, 1.006], [1.002, 1.004], [1.006, 1.007]],
+  "running_intervals_seconds_clipped": [[1.0, 1.001], [1.004, 1.005], [1.006, 1.008], [1.007, 1.008]],
+  "unclosed_runnable_tid": 104,
+  "not_proven": ["complete capture", "unfinished thread state through query end", "response dependency", "root cause", "priority inversion", "CPU capacity shortfall"]
+}

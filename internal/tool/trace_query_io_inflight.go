@@ -22,10 +22,10 @@ func traceQueryIOInFlightGroup(group tracequery.IOInFlightGroup) string {
 
 func traceQueryIOInFlightSummary(group tracequery.IOInFlightGroup) string {
 	if v := group.Values; v != nil {
-		return fmt.Sprintf("IO在途 peak_requests=%d mean_requests=%.9g (requests); busy_ms=%.9g ms request_ms=%.9g request·ms; pairs=%d starts=%d; 非目标等待/因果",
+		return fmt.Sprintf("IO在途 peak_requests=%d mean_requests=%.9g (requests); busy_ms=%.9g ms request_ms=%.9g request·ms; 完整配对请求=%d 范围内发起=%d; 非完成次数/覆盖率；非目标等待/因果",
 			v.PeakRequests, v.MeanRequests, v.BusyMs, v.RequestMs, group.AcceptedPairCount, group.IssueCount)
 	}
-	return fmt.Sprintf("IO在途未测量 / unavailable (%s); pairs=%d starts=%d; not measured zero or causal proof", group.ValuesUnavailableReason, group.AcceptedPairCount, group.IssueCount)
+	return fmt.Sprintf("IO在途未测量 / unavailable (%s); 完整配对请求=%d 范围内发起=%d; 非完成次数/覆盖率；not measured zero or causal proof", group.ValuesUnavailableReason, group.AcceptedPairCount, group.IssueCount)
 }
 
 func traceQueryDisplaySeconds(value float64) string {

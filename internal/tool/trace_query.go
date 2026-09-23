@@ -216,6 +216,7 @@ func (t *TraceQuery) Description() string {
 	description += " " + skill.TraceIORequestLatencyDistributionTeaching
 	description += " " + types.TraceStateDrilldownWindowGuidance
 	description += " " + skill.TraceIOInFlightTeaching
+	description += " " + skill.TraceSchedulerConcurrencyTeaching
 	return description
 }
 
@@ -259,7 +260,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	viewNames, _ := json.Marshal(tracequery.CapabilityViewNames())
 	schema = strings.ReplaceAll(schema, "__TRACE_VIEW_NAMES__", string(viewNames))
 	schema = strings.ReplaceAll(schema, "__TRACE_QUERY_INPUT_LINE_SCOPE__", string(lineScope[1:len(lineScope)-1]))
-	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching)
+	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching + " " + skill.TraceSchedulerConcurrencyTeaching)
 	schema = strings.Replace(schema, "The deterministic trace view to compute.",
 		"The deterministic trace view to compute. "+string(ioTeaching[1:len(ioTeaching)-1]), 1)
 	schema = strings.Replace(schema,
@@ -5321,8 +5322,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			// finalizer's precise authority.  A single request's issue→complete
 			// interval is elapsed wall clock even though it is not target blocking;
 			// only the cross-request request·ms sum below is non-wall-clock.
-			fmt.Fprintf(&b, "- io_latency family=%s dev=%s op=%s sector=%d len=%d request_residence=%.3fms request_clock_scope=single_request_elapsed_wall_clock_not_target_blocking wait_caliber=%s issue=%s complete=%s%s source=%s lines=%d-%d\n",
-				sanitizeForBanner(io.EndpointFamily), io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, sanitizeForBanner(firstNonEmpty(io.WaitCaliber, tracequery.BlockIOWaitCaliberIssueToComplete)), traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), wake, traceQuerySourceBasename(io.SourcePath), io.IssueLine, io.CompleteLine)
+			fmt.Fprintf(&b, "- io_latency family=%s dev=%s op=%s sector=%d len=%d request_residence=%.3fms request_clock_scope=single_request_elapsed_wall_clock_not_target_blocking wait_caliber=%s issue=%s complete=%s%s%s source=%s lines=%d-%d\n",
+				sanitizeForBanner(io.EndpointFamily), io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, sanitizeForBanner(firstNonEmpty(io.WaitCaliber, tracequery.BlockIOWaitCaliberIssueToComplete)), traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), traceQueryIORequestTimeDetail(io.IssueTs, io.CompleteTs), wake, traceQuerySourceBasename(io.SourcePath), io.IssueLine, io.CompleteLine)
 		}
 		if result.WindowStats.IOLatencyOverflowCount > 0 {
 			fmt.Fprintf(&b, "- io_latency_overflow pairs=%d request_ms_sum=%.3frequest·ms (non-wall-clock; requests may overlap; beyond the display cap; target/chain ranking and blocking recover strict completion-to-issuer wake requests from the full census; generic evidence and other requests remain bounded context)\n",
@@ -5470,6 +5471,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			writeTraceStorageLatency(&b, storage)
 		}
 		writeTraceIOInFlight(&b, result.WindowStats.IOInFlight)
+		writeTraceSchedulerConcurrency(&b, result.WindowStats.SchedulerConcurrency)
 		if stats := result.WindowStats; stats.StorageLatencyOverflowGroups > 0 {
 			fmt.Fprintf(&b, "- storage_latency_groups shown=%d omitted=%d omitted_complete_pairs=%d; each shown distribution covers only its own group, not all groups\n",
 				len(stats.StorageLatencyByLayer), stats.StorageLatencyOverflowGroups, stats.StorageLatencyOverflowPairedCount)
@@ -5715,8 +5717,12 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				fmt.Fprintf(&b, "... omitted %d fact(s); see payload_ref\n", len(result.EvidencePack)-i)
 				break
 			}
-			fmt.Fprintf(&b, "- %s %s %s lines=%d-%d%s confidence=%.2f — %s\n",
-				fact.Subject, fact.Predicate, fact.Object, fact.LineStart, fact.LineEnd, traceEvidenceFactProvenanceDetail(fact), fact.Confidence, fact.Summary)
+			requestTime := ""
+			if fact.Predicate == "io_latency" {
+				requestTime = traceQueryIORequestTimeDetail(fact.StartTs, fact.EndTs)
+			}
+			fmt.Fprintf(&b, "- %s %s %s lines=%d-%d%s%s confidence=%.2f — %s\n",
+				fact.Subject, fact.Predicate, fact.Object, fact.LineStart, fact.LineEnd, traceEvidenceFactProvenanceDetail(fact), requestTime, fact.Confidence, fact.Summary)
 		}
 	}
 	for _, caveat := range result.Caveats {
@@ -10315,6 +10321,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	if result.WindowStats != nil {
 		out = append(out, traceQueryTypedWindowStatsObservations(*result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedIOInFlightObservations(result.WindowStats.IOInFlight, ref, scope, at)...)
+		out = append(out, traceQueryTypedSchedulerConcurrencyObservations(result.WindowStats.SchedulerConcurrency, ref, scope, at)...)
 		out = append(out, traceQueryTypedSemanticTraceSpanObservations(result, *result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedBusinessSpanObservations(*result.WindowStats, ref, scope, at)...)
 	}

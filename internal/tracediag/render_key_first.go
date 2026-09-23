@@ -97,7 +97,7 @@ var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[stri
 	// Optional wrappers can contain whole bounded profiles, not compact
 	// metadata. Keep those additive collections after existing detail; they
 	// remain fully rendered and counted by the unchanged report-line cap.
-	reflect.TypeOf(tracequery.WindowStats{}): {"IOInFlight": true},
+	reflect.TypeOf(tracequery.WindowStats{}): {"IOInFlight": true, "SchedulerConcurrency": true},
 }}
 
 func policySkipsDetailField(policy *detailRenderPolicy, typ reflect.Type, field string) bool {
@@ -952,7 +952,10 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// existing measurements, never as compact pointer metadata. Full detail
 	// and cap accounting remain intact; the evolution witness strips only
 	// this field and reproduces the previous schema fingerprint.
-	reflect.TypeOf(tracequery.WindowStats{}): "2d8e73ee45e8c05c971f1ef962bbbdb70f3bd78609bc2102f8279900cbc94809",
+	// HMC-08.4: SchedulerConcurrency is another deferred optional bulk face.
+	// Exact values/window/segments preserve native precision and measured zero;
+	// the additive witness strips only this field to recover the HMC-08.3 hash.
+	reflect.TypeOf(tracequery.WindowStats{}): "8618c0fbf7e95f6c9e92daf85fb162781d32e020e50156f1d6e71f49edfc98a6",
 	// B1638b1 (2026-09-09): TimelineResult adds optional MeasurementDomain.
 	// It describes a constructed scheduler partition, NOT capture completeness
 	// or causal authority. Its nine scalar fields stay in original detail;

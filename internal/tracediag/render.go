@@ -718,6 +718,9 @@ func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string),
 	case reflect.TypeOf(tracequery.IOInFlightValues{}), reflect.TypeOf(tracequery.IOInFlightSegment{}), reflect.TypeOf(tracequery.IOInFlightWindow{}):
 		renderIOInFlightDetail(v.Interface(), path, emit)
 		return
+	case reflect.TypeOf(tracequery.SchedulerConcurrencyValues{}), reflect.TypeOf(tracequery.SchedulerConcurrencySegment{}), reflect.TypeOf(tracequery.SchedulerConcurrencyWindow{}):
+		renderSchedulerConcurrencyDetail(v.Interface(), path, emit)
+		return
 	}
 	if t == reflect.TypeOf(tracequery.TraceSpanSchedulerStates{}) {
 		renderBusinessSpanSchedulerDetail(v.Interface().(tracequery.TraceSpanSchedulerStates), path, emit, depth, policy)

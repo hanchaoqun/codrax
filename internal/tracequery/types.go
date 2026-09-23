@@ -1605,15 +1605,16 @@ type WindowStats struct {
 	// cap-overflow disclosure — 件A 的同族补完 (the fourth 「帽基当全量」
 	// instance): how many (thread,cpu) runnable census groups sit beyond the
 	// top-8 display list and their summed account. Disclosure only.
-	RunnableTopOverflowGroups int                      `json:"runnable_top_overflow_groups,omitempty"`
-	RunnableTopOverflowMs     float64                  `json:"runnable_top_overflow_ms,omitempty"`
-	CPUPressure               []CPUPressureStats       `json:"cpu_pressure,omitempty"`
-	CPUConstraints            []CPUConstraintSummary   `json:"cpu_constraints,omitempty"`
-	ThreadCPULoad             []ThreadCPULoadSummary   `json:"thread_cpu_load,omitempty"`
-	ProcessCPULoad            []ProcessCPULoadSummary  `json:"process_cpu_load,omitempty"`
-	RunnableContext           []RunnableContextSummary `json:"runnable_context,omitempty"`
-	IOLatencies               []IOLatencySummary       `json:"io_latencies,omitempty"`
-	IOInFlight                *IOInFlightStats         `json:"io_inflight,omitempty"`
+	RunnableTopOverflowGroups int                        `json:"runnable_top_overflow_groups,omitempty"`
+	RunnableTopOverflowMs     float64                    `json:"runnable_top_overflow_ms,omitempty"`
+	CPUPressure               []CPUPressureStats         `json:"cpu_pressure,omitempty"`
+	CPUConstraints            []CPUConstraintSummary     `json:"cpu_constraints,omitempty"`
+	ThreadCPULoad             []ThreadCPULoadSummary     `json:"thread_cpu_load,omitempty"`
+	ProcessCPULoad            []ProcessCPULoadSummary    `json:"process_cpu_load,omitempty"`
+	RunnableContext           []RunnableContextSummary   `json:"runnable_context,omitempty"`
+	IOLatencies               []IOLatencySummary         `json:"io_latencies,omitempty"`
+	IOInFlight                *IOInFlightStats           `json:"io_inflight,omitempty"`
+	SchedulerConcurrency      *SchedulerConcurrencyStats `json:"scheduler_concurrency,omitempty"`
 	// IOLatencyOverflow* discloses the block-request pairs beyond the public
 	// Top-8 view.  Root-cause, blocking and evidence consumers recover every
 	// strict completion→issuer-wake member from the full census below; a

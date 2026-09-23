@@ -2696,6 +2696,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	schedulerCPUDurationsSafe := schedulerFailure == nil
 	schedulerDurationsSafe := schedulerCPUDurationsSafe && identityConflict == nil
 	schedulerEnd, schedulerArtifactTailUncovered := schedulerMeasuredTimeEnd(idx, q)
+	concurrency := newSchedulerConcurrencyCollector(idx, q, pidIdentity)
 	schedulerQ := q
 	if schedulerArtifactTailUncovered {
 		schedulerQ.TimeEnd = schedulerEnd
@@ -3086,6 +3087,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		// CPU has no samples AND the resolved domains name a sampled sibling.
 		cpuFreqTimeline := freqTimelineFor(cpu)
 		for i, ev := range events {
+			concurrency.running(ev)
 			end := schedulerEnd
 			endLine := 0
 			if i+1 < len(events) {
@@ -3246,7 +3248,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// stats.CPUFrequencyLimits' strict in-window display caliber.
 	observedFmaxByCPU := windowObservedFmaxByCPU(stats.CPU)
 	stats.ClusterFrequencyCeilings = computeWindowClusterFrequencyCeilings(observedFmaxByCPU, coreByCPU, limitTimelineByCPU, q)
-	offCPU := computeOffCPUStats(idx, schedulerQ, freqTimelineFor, pressure, pidIdentity)
+	offCPU := computeOffCPUStats(idx, schedulerQ, freqTimelineFor, pressure, pidIdentity, concurrency)
 	if q.runCancel.sample() {
 		return stats
 	}
@@ -3254,6 +3256,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.cpuPressureCensus = offCPU.pressureCensus
 	stats.RunnableCPUContinuity = offCPU.runnableCPUContinuity
 	stats.runnableSegments = offCPU.runnableSegments
+	stats.SchedulerConcurrency = concurrency.finish(stats.SchedulerHeadCoverage)
 	if suppressed := pidIdentity.suppressedPIDs(); len(suppressed) > 0 {
 		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
 			"thread_identity_per_pid_filtered=true suppressed_pids=%v; only scheduler duration rows owned by a unique selected-window PID lifecycle scope were retained; process/resource composites remain fail-closed",
@@ -5802,12 +5805,16 @@ type offCPUStart struct {
 // (own timeline first, explicit-topology donor fallback) instead of the raw
 // map, so the off-CPU frequency context reads the SAME caliber as the busy
 // loop and the two faces cannot fork on donor-covered CPUs.
-func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, pressure map[int]*cpuPressureAcc, identity *queryPIDIdentityFilter) offCPUStatsResult {
+func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, pressure map[int]*cpuPressureAcc, identity *queryPIDIdentityFilter, concurrencyCollectors ...*schedulerConcurrencyCollector) offCPUStatsResult {
 	if idx == nil {
 		return offCPUStatsResult{}
 	}
 	if schedulerStateIntegrityFailureForQuery(idx, q, 0) != nil {
 		return offCPUStatsResult{}
+	}
+	var concurrency *schedulerConcurrencyCollector
+	if len(concurrencyCollectors) > 0 {
+		concurrency = concurrencyCollectors[0]
 	}
 	blockedReasons := blockedReasonsByPID(idx, q)
 	open := map[int]offCPUStart{}
@@ -6040,6 +6047,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		addDurationCause(bucket, start, endTs, endLine, "", false, schedulerMeasurementSegment{State: start.state, Closure: closure})
 	}
 	addRunnableDuration := func(start offCPUStart, endTs float64, endLine int, observedCPU int, observedKnown bool, boundary string) {
+		concurrency.runnable(start, endTs, endLine, boundary)
 		startTs := start.ts
 		if q.TimeStart > 0 && startTs < q.TimeStart {
 			startTs = q.TimeStart

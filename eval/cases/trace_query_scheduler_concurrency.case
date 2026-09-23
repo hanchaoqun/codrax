@@ -1,0 +1,14 @@
+# HMC-08.4: half-open confirmed interval concurrency, not causal attribution.
+ID="trace_query_scheduler_concurrency"
+NAME="trace query — runnable depth and running concurrency with an open tail"
+QUESTION="只分析附加 trace 的 1.000000 秒到 1.010000 秒，不查源码。分别统计这个来源里已经确认闭合的线程区间：同时等待 CPU 的线程数、同时运行的线程数，各给峰值、包含整个查询窗的时间加权均值、至少一条线程处于该状态的时长、线程数乘时间的累计量，并写清单位和区间。重复唤醒、同一时刻入队与出队、窗口前已经运行的线程应怎样处理？还没有看到后续调度的线程会影响什么结论？请说明哪些数字只是已确认区间的统计，不能据此声称完整采集、响应根因或优先级反转。"
+HTRACE_FILE="eval/fixtures/hmosperf_scheduler_concurrency/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])0[.]80*([^0-9]|$)
+(^|[^0-9])0[.]50*([^0-9]|$)
+(毫秒|ms)
+(未闭合|未完成|缺.{0,10}(终点|闭合|调度)|没有.{0,10}(终点|闭合|调度))"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="((不能|不足|无法|不代表|不等于|未证).{0,100}(根因|因果|响应|反转)|(根因|因果|响应|反转).{0,100}(不能|不足|无法|不代表|不等于|未证))"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

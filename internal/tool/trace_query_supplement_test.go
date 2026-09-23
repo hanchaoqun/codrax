@@ -668,6 +668,11 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 		t.Fatalf("unexpected Binder inventory delta: inventories=%d intervals=%d", binderInventories, binderIntervals)
 	}
 	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测63条（根因12·链9·状态12·其他30）(窗 3.000000..3.200000, 目标 worker-200)"
+	legacyMeta := schedulerConcurrencySupplementLegacyMeta(t, ctx)
+	if got := runtimeTraceSupplementDisclosureText(legacyMeta, true); got != wantZH {
+		t.Fatalf("pre-concurrency zh account changed: %q, want %q", got, wantZH)
+	}
+	wantZH = strings.Replace(strings.Replace(wantZH, "63条", "66条", 1), "其他30", "其他33", 1)
 	if lines[0] != wantZH {
 		t.Fatalf("zh disclosure = %q, want %q", lines[0], wantZH)
 	}
@@ -679,6 +684,10 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
 	en := runtimeTraceSupplementDisclosureText(meta, false)
 	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 63] [families: root_cause 12, chain 9, states 12, other 30] (window 3.000000..3.200000, target worker-200)"
+	if got := runtimeTraceSupplementDisclosureText(legacyMeta, false); got != wantEN {
+		t.Fatalf("pre-concurrency en account changed: %q, want %q", got, wantEN)
+	}
+	wantEN = strings.Replace(strings.Replace(wantEN, "observations: 63", "observations: 66", 1), "other 30", "other 33", 1)
 	if en != wantEN {
 		t.Fatalf("en disclosure = %q, want %q", en, wantEN)
 	}
@@ -1020,11 +1029,20 @@ func TestTraceSupplementDurationBudgetKeepsCompletedViews(t *testing.T) {
 	}
 	// AUD-02 (§14.3, 2026-07-25): same family-census wording evolution.
 	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）·值观测63条（根因12·链9·状态12·其他30）(窗 3.000000..3.200000, 目标 worker-200)；超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
+	legacyMeta := schedulerConcurrencySupplementLegacyMeta(t, ctx)
+	if got := runtimeTraceSupplementDisclosureText(legacyMeta, true); got != wantZH {
+		t.Fatalf("pre-concurrency partial zh account changed: %q, want %q", got, wantZH)
+	}
+	wantZH = strings.Replace(strings.Replace(wantZH, "63条", "66条", 1), "其他30", "其他33", 1)
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh partial disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
 	en := runtimeTraceSupplementDisclosureText(meta, false)
 	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank [value observations: 63] [families: root_cause 12, chain 9, states 12, other 30] (window 3.000000..3.200000, target worker-200); not re-run over the duration budget: critical_blocking_calls"
+	if got := runtimeTraceSupplementDisclosureText(legacyMeta, false); got != wantEN {
+		t.Fatalf("pre-concurrency partial en account changed: %q, want %q", got, wantEN)
+	}
+	wantEN = strings.Replace(strings.Replace(wantEN, "observations: 63", "observations: 66", 1), "other 30", "other 33", 1)
 	if en != wantEN {
 		t.Fatalf("en partial disclosure = %q, want %q", en, wantEN)
 	}

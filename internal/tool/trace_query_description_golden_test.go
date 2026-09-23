@@ -1,5 +1,22 @@
 package tool
 
+// EVOLUTION RECORD 2026-09-23 (HMC-08.4): append a single shared contract
+// for source/state-scoped confirmed scheduler intervals. The old Description
+// remains an exact prefix; no new view, request field, root-cause permission
+// or bucket API is introduced. Parameters and the workflow matrix share the
+// same teaching. Public delivery/coverage tests protect the new optional face;
+// matched h2/h3 dispatch A/B remains separate from this batch's fixed pair.
+
+// EVOLUTION RECORD 2026-09-23 (IO window/count context): append three
+// sentences to the terminal shared IO contract. Existing Description bytes
+// remain an exact prefix. Complete intersecting pairs are not in-window
+// completions; arrival and pair counts are different populations, not a
+// coverage fraction. Full residence and window-clipped occupancy stay distinct.
+// Public Execute-to-summary/typed-projection and shared schema/matrix tests
+// protect this meaning without changing measurements, views or causal gates.
+// This deterministic batch adds no live run and does not discharge the
+// existing matched h2/h3 dispatch A/B or prior IO answer acceptance debt.
+
 // EVOLUTION RECORD 2026-09-23 (HMC-08.3): append the single shared IO
 // in-flight capability contract at the terminal Description slot. Every byte
 // of the previous Description remains a prefix. The existing window_stats

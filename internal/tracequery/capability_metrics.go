@@ -41,6 +41,14 @@ func capabilityMetricDescriptors() []MetricCapability {
 			o("window_stats.cpu", "busy_ms idle_ms", "ms", "per-CPU measured wall-clock occupancy"),
 			o("window_stats.top_running", "duration_ms", "ms", "thread running duration within its published source/window"),
 		}, r("sched_switch", nil, "sched_wakeup", "CPU identity and governing scheduler transitions; read busy_idle_status and coverage."), "Cross-thread/cross-CPU sums are CPU time, not one target's elapsed latency. A frequency-only CPU row has unavailable busy/idle, not measured zero."),
+		m("scheduler_concurrency", "Confirmed closed Runnable and Running intervals, independently grouped by physical source and state.", []CapabilityOutput{
+			o("window_stats.scheduler_concurrency.groups", "accepted_interval_count thread_count", "count", "accepted producer intervals and distinct positive TIDs; same-thread intervals are unioned before measuring concurrency"),
+			o("window_stats.scheduler_concurrency.groups.values", "peak_threads mean_threads", "threads", "half-open interval concurrency; mean divides confirmed thread-time by the entire requested window, not nonzero buckets or active time"),
+			o("window_stats.scheduler_concurrency.groups.values", "busy_ms", "ms", "union of confirmed closed intervals after clipping to the requested window"),
+			o("window_stats.scheduler_concurrency.groups.values", "thread_ms", "thread·ms", "integral of confirmed concurrent thread count; not target elapsed time"),
+			o("window_stats.scheduler_concurrency.groups.segments", "start_ts end_ts", "seconds", "bounded exact prefix on the trace axis; zero means no contribution from accepted intervals, not proven system idle"),
+			o("window_stats.scheduler_concurrency.groups.segments", "threads", "threads", "simultaneous accepted closed intervals after same-TID union"),
+		}, r("sched_switch", nil, "sched_wakeup sched_waking", "Finite positive-width time window, same physical-source endpoints and unique selected-window TID lifecycle. Open tails and shared CPU/TID cross-source members are excluded; missing heads remain disclosed. Line bounds have no time denominator. All positive TIDs participate; query_pid is context, not a filter."), "Only accepted closed intervals are measured: no full-capture or full-system coverage claim, unknown is not zero, and omitted group/segment counts are display limits only. Runnable and Running are separate populations. These background statistics never prove response dependency, priority inversion, compute shortage or root cause."),
 		m("cpu_pressure", "Per-CPU runnable backlog and priority-scoped competition context.", []CapabilityOutput{
 			o("window_stats.cpu_pressure", "runnable_wait_ms", "CPU·ms", "cross-thread runnable-wait sum on this CPU, not one thread's wall latency"),
 			o("window_stats.cpu_pressure", "runnable_wait_density", "ratio", "runnable wait sum / explicit window wall time; average backlog, not peak"),

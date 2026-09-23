@@ -24,6 +24,7 @@ func nonEventSchemaBeforeIOInFlight(t *testing.T, typ reflect.Type, schema strin
 	if typ != reflect.TypeOf(tracequery.WindowStats{}) {
 		return schema
 	}
+	schema = nonEventSchemaBeforeSchedulerConcurrency(t, typ, schema)
 	const added = "IOInFlight|*tracequery.IOInFlightStats|io_inflight,omitempty"
 	var previous []string
 	count := 0

@@ -1,0 +1,17 @@
+# Authored scheduler concurrency fixture; times are trace seconds.
+ idle-0 (0) [000] .... 0.998000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=render next_pid=101 next_prio=120
+ idle-0 (0) [001] .... 0.998000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=idle next_pid=0 next_prio=120
+ idle-0 (0) [002] .... 0.998000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=idle next_pid=0 next_prio=120
+ render-101 (101) [000] .... 1.001000: sched_switch: prev_comm=render prev_pid=101 prev_prio=120 prev_state=R ==> next_comm=idle next_pid=0 next_prio=120
+ waker-900 (900) [002] .... 1.002000: sched_wakeup: comm=decode pid=102 prio=120 target_cpu=001
+ waker-900 (900) [002] .... 1.003000: sched_wakeup: comm=render pid=101 prio=120 target_cpu=000
+ idle-0 (0) [001] .... 1.004000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=decode next_pid=102 next_prio=120
+ decode-102 (102) [001] .... 1.005000: sched_switch: prev_comm=decode prev_pid=102 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+ idle-0 (0) [000] .... 1.006000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=render next_pid=101 next_prio=120
+ waker-900 (900) [002] .... 1.006000: sched_wakeup: comm=upload pid=103 prio=120 target_cpu=001
+ idle-0 (0) [001] .... 1.007000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=upload next_pid=103 next_prio=120
+ render-101 (101) [000] .... 1.008000: sched_switch: prev_comm=render prev_pid=101 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+ upload-103 (103) [001] .... 1.008000: sched_switch: prev_comm=upload prev_pid=103 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+ waker-900 (900) [002] .... 1.009000: sched_wakeup: comm=unfinished pid=104 prio=120 target_cpu=002
+ idle-0 (0) [000] .... 1.012000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=idle next_pid=0 next_prio=120
+ idle-0 (0) [001] .... 1.012000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=idle next_pid=0 next_prio=120

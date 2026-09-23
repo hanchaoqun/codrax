@@ -183,6 +183,18 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		}},
 		IOLatencyOverflowCount:     2,
 		IOLatencyOverflowRequestMs: 0.625,
+		SchedulerConcurrency: &tracequery.SchedulerConcurrencyStats{
+			Window:     &tracequery.SchedulerConcurrencyWindow{StartTs: 1, EndTs: 2},
+			Population: tracequery.SchedulerConcurrencyPopulationClosedIntervals, ThreadScope: tracequery.SchedulerConcurrencyThreadScopeAll,
+			GroupCount: 1,
+			Groups: []tracequery.SchedulerConcurrencyGroup{{
+				SourcePath: "/traces/full.systrace", State: tracequery.SchedulerConcurrencyStateRunnable, AcceptedIntervalCount: 1, ThreadCount: 1,
+				Values:   &tracequery.SchedulerConcurrencyValues{PeakThreads: 1, MeanThreads: .2, BusyMs: 200, ThreadMs: 200},
+				Segments: []tracequery.SchedulerConcurrencySegment{{StartTs: 1, EndTs: 1.2, Threads: 1}, {StartTs: 1.2, EndTs: 2, Threads: 0}},
+				Coverage: tracequery.SchedulerConcurrencyCoverage{Status: "available", CandidateIntervals: 1, AcceptedIntervals: 1},
+			}},
+			Coverage: tracequery.SchedulerConcurrencyCoverage{Status: "partial", CandidateIntervals: 2, AcceptedIntervals: 1, OpenEndedIntervals: 1},
+		},
 		IOInFlight: &tracequery.IOInFlightStats{
 			Window:     &tracequery.IOInFlightWindow{StartTs: 1, EndTs: 2},
 			Population: tracequery.IOInFlightPopulationCompletePairs, IssuerScope: tracequery.IOInFlightIssuerScopeAll,
