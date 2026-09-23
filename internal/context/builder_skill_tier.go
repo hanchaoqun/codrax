@@ -33,13 +33,32 @@ func skillTierAwareWorkflow(ac *types.AgentContext, sk *skill.Config) []string {
 		return nil
 	}
 	out := append([]string(nil), sk.Workflow...)
-	if len(sk.WorkflowTierB) == 0 {
-		return out
+	for _, item := range renderedWorkflowTierB(ac, sk) {
+		out = append(out, item.Body)
+	}
+	return out
+}
+
+// SkillWorkflowProvidesSharedGuidance and the workflow renderer use exactly the
+// same visible rules. A hidden or modified owner never suppresses the fallback.
+func SkillWorkflowProvidesSharedGuidance(ac *types.AgentContext, sk *skill.Config, id skill.SharedGuidanceID) bool {
+	for _, item := range renderedWorkflowTierB(ac, sk) {
+		if item.ProvidesSharedGuidance(id) {
+			return true
+		}
+	}
+	return false
+}
+
+func renderedWorkflowTierB(ac *types.AgentContext, sk *skill.Config) []skill.TierBItem {
+	if sk == nil || len(sk.WorkflowTierB) == 0 {
+		return nil
 	}
 	dispatchCtx := buildAppliesToContext(ac)
+	var out []skill.TierBItem
 	for _, item := range sk.WorkflowTierB {
 		if item.ShouldRender(dispatchCtx) {
-			out = append(out, item.Body)
+			out = append(out, item)
 		}
 	}
 	return out

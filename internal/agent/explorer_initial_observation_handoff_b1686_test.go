@@ -57,8 +57,16 @@ func TestB1686InitialTraceTeachingMatchesActualExternalReadAndEmit(t *testing.T)
 					if strings.Contains(prompt, "Use `emit_evidence` only for load-bearing trace line gutters") {
 						t.Error("initial teaching directs manually read external trace rows into a source emitter that rejects them")
 					}
-					if !strings.Contains(prompt, explorerReadHandoffGuidance()) {
-						t.Error("initial trace teaching must share the already-supported source/external handoff, not publish an opposing contract")
+					if ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision() != types.CurrentSourceLaneExcluded {
+						t.Fatal("fixture must retain typed source exclusion")
+					}
+					if strings.Count(prompt, explorerExternalObservationHandoffGuidance()) != 1 {
+						t.Error("initial trace teaching must retain exactly one shared external-observation handoff, including reason and aggregate_facts")
+					}
+					if !strings.Contains(prompt, "`emit_investigation_complete(reason, confidence, result_kind)`") ||
+						!strings.Contains(prompt, "Current-source inspection is excluded") ||
+						strings.Contains(prompt, "Emit one `emit_evidence(items=[...])` batch only for real current-source anchors") {
+						t.Error("source-excluded teaching must preserve closure fields without suggesting current-source emission")
 					}
 					if strings.Contains(prompt, "first establish the target thread's state priority") != causal {
 						t.Fatal("handoff teaching changed requested fact/causal scope")

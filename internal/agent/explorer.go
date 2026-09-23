@@ -977,7 +977,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
 		e.phase = 1
-		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx, sk))
 	}
 
 	if observationOnlyRuntimeArtifactForExplorer(ctx) {
@@ -988,7 +988,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if runtimeArtifactObservationOnlySurfaceForExplorer(ctx) {
 		e.phase = 1
 		if explorerHasTraceQueryRuntimeTraceCarrier(ctx) {
-			return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+			return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx, sk))
 		}
 		return composeInitialInstruction(e.buildRuntimeObservationOnlyStartInstruction(ctx))
 	}
@@ -996,7 +996,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if runtimeArtifactSourceOptionalMixedSurfaceForExplorer(ctx) {
 		e.phase = 1
 		if runtimeSourceTraceProbePromptPreferred(ctx) {
-			return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+			return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx, sk))
 		}
 		return composeInitialInstruction(e.buildExternalObservationFirstStartInstruction(ctx))
 	}
@@ -1004,19 +1004,19 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if externalObservationFirstSourceOptionalForExplorer(ctx) {
 		e.phase = 1
 		if runtimeSourceTraceProbePromptPreferred(ctx) {
-			return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+			return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx, sk))
 		}
 		return composeInitialInstruction(e.buildExternalObservationFirstStartInstruction(ctx))
 	}
 
 	if runtimeSourceTraceProbePromptPreferred(ctx) {
 		e.phase = 1
-		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx, sk))
 	}
 
 	if runtimeTraceSourceOptionalPromptShouldStayOnTraceQuery(ctx) {
 		e.phase = 1
-		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx, sk))
 	}
 
 	e.phase = 0 // start in breadth-scan phase
@@ -3798,20 +3798,35 @@ func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.Ag
 	return b.String()
 }
 
-func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *types.AgentContext) string {
+func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *types.AgentContext, skills ...*skill.Config) string {
+	var sk *skill.Config
+	if len(skills) > 0 {
+		sk = skills[0]
+	}
+	sourceExcluded := runtimeSourceNavigationPhaseForExplorer(ctx, true).CurrentSourceLane == types.CurrentSourceLaneExcluded
 	var b strings.Builder
 	b.WriteString("## Explicit Runtime Trace Path Start\n\n")
-	b.WriteString("This turn has a runtime trace artifact. Treat it as a runtime-artifact investigation first, not a source-code breadth scan; if a current-source question remains unresolved after trace_query, use a focused source follow-up and keep that evidence in a separate lane.\n\n")
+	if sourceExcluded {
+		b.WriteString("This turn is a runtime-artifact investigation. Current-source inspection is excluded by the typed request; keep all investigation and fallback reading artifact-local. Unsupported or incomplete trace coverage does not authorize repository source inspection.\n\n")
+	} else {
+		b.WriteString("This turn has a runtime trace artifact. Treat it as a runtime-artifact investigation first, not a source-code breadth scan; if a current-source question remains unresolved after trace_query, use a focused source follow-up and keep that evidence in a separate lane.\n\n")
+	}
 	b.WriteString(renderRuntimeTraceCPUIdentityGuide(ctx))
 	b.WriteString(renderExplorerRuntimeQuestionScopeWorkflow(ctx))
 	if phase := renderRuntimeSourceNavigationPhasePrompt(ctx); phase != "" {
 		b.WriteString(phase)
 	}
-	if coverage := renderCurrentSourceMechanismCoveragePrompt(ctx); coverage != "" {
-		b.WriteString(coverage)
+	if !sourceExcluded {
+		if coverage := renderCurrentSourceMechanismCoveragePrompt(ctx); coverage != "" {
+			b.WriteString(coverage)
+		}
 	}
 	b.WriteString("Workflow:\n")
-	b.WriteString("- Start with `trace_query` for typed scheduler/time-window observations: use " + skill.RenderTraceQueryViewMatrix() + ".\n")
+	if promptctx.SkillWorkflowProvidesSharedGuidance(ctx, sk, skill.TraceQueryViewMatrixGuidance) {
+		b.WriteString("- Start with `trace_query` for typed scheduler/time-window observations. Select the view from the full view matrix in the system Workflow's TRACE QUERY rule; it remains available on subsequent tool rounds.\n")
+	} else {
+		b.WriteString("- Start with `trace_query` for typed scheduler/time-window observations: use " + skill.RenderTraceQueryViewMatrix() + ".\n")
+	}
 	if explorerRuntimeQuestionAllowsCausalRoster(ctx) {
 		b.WriteString("- When the target frame/thread/time window is already fixed, first establish the target thread's state priority with `trace_query(view=\"window_stats\", pid=..., time_start=..., time_end=...)` or the stream_state_cluster rows returned by an OOM guard. Rank dominant and secondary states before drilling down: sleep -> wakeup_chain, runnable -> scheduler_latency_stats/root_cause_rank with same-CPU competitors, running -> perf/compute-supply/semantic span work, D-state/IO -> critical_blocking_calls plus window_stats IO resources. Apply the same state-first check to on-chain peer threads before promoting or dismissing them.\n")
 		b.WriteString("- When `window_stats` or `root_cause_rank` reports `state_churn` / `fragmented_*`, preserve the cumulative fragmented-state signal: use `dominant_state`, `impact`, and `cumulative_impact_ms` to describe raw occupancy, retain `running/runnable/sleep/d_state/io_wait` totals, fragment count, max/p95 segment, and follow the rendered `next_step` instead of looking only for one long continuous interval. The dominant state participates only through its closed-matrix effective attribution, not its cumulative occupancy alone; retain significant unpriced business/semantic work as a separate raw-occupancy finding and follow-up direction.\n")
@@ -3832,14 +3847,26 @@ func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *t
 	b.WriteString("- Trace timestamps are seconds end-to-end, so values such as 2942.124416 and 2942.260210 are seconds, not milliseconds; durations from the tool are reported in ms.\n")
 	b.WriteString("- Numeric substrings or suffixes inside a span/marker name are opaque selector identifiers, not time values. Never convert a frame id, span id, cookie, or numeric label token into seconds/milliseconds; only typed start/end/duration fields authorize a duration. A matching B/S marker without its pairable E/F endpoint proves the marker and timestamp only, not a span duration or target-span causal window.\n")
 	b.WriteString("- A perf-triage `time_semantics` row describing the whole attachment's first-to-last timestamp extent proves only timestamp units and physical artifact coverage. It is not the selected trace_query window and never supplies a target thread's running/runnable/sleep/D-state duration. For a selected-window thread-state statement or aggregate fact, copy the full-window value from trace_query's typed `target_window_states` partition.\n")
-	b.WriteString("- Use targeted `grep`, `read_file`, or deterministic `exec_command` only after `trace_query` narrows the line windows or if `trace_query` reports an unsupported/incomplete format.\n")
+	if sourceExcluded {
+		b.WriteString("- Use targeted `grep`, `read_file`, or deterministic `exec_command` only for the attached artifact's raw rows after `trace_query` narrows its line windows or reports an unsupported/incomplete format. Keep this fallback artifact-local, with original line numbers; do not use it to inspect repository source.\n")
+	} else {
+		b.WriteString("- Use targeted `grep`, `read_file`, or deterministic `exec_command` only after `trace_query` narrows the line windows or if `trace_query` reports an unsupported/incomplete format.\n")
+	}
 	if explorerRuntimeQuestionAllowsCausalRoster(ctx) {
-		b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the trace_query views cover the requested window, chain, and resource context, unless a focused current-source lane is still part of the typed request.\n")
+		if sourceExcluded {
+			b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the trace_query views cover the requested window, chain, and resource context.\n")
+		} else {
+			b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the trace_query views cover the requested window, chain, and resource context, unless a focused current-source lane is still part of the typed request.\n")
+		}
 	} else {
 		b.WriteString("- A successful answer-grade `trace_query` result already publishes typed runtime-artifact observations; do not call `emit_evidence` just to repackage those rows. Complete with `emit_investigation_complete` once the declared fact families or requested relation/overview fields and their evidence ceiling are covered; do not widen closure to an unrequested root-cause roster.\n")
 	}
-	b.WriteString("- " + explorerReadHandoffGuidance() + "\n")
-	b.WriteString("- If you later need current-code proof because the question truly asks for it, read source files separately and keep that source evidence in a separate lane.\n\n")
+	if sourceExcluded {
+		b.WriteString("- " + explorerExternalObservationHandoffGuidance() + "When the requested artifact evidence is covered, call `emit_investigation_complete(reason, confidence, result_kind)`; do not create current-source evidence for this excluded lane. A later request may reopen source inspection only through an updated typed request scope.\n\n")
+	} else {
+		b.WriteString("- " + explorerReadHandoffGuidance() + "\n")
+		b.WriteString("- If you later need current-code proof because the question truly asks for it, read source files separately and keep that source evidence in a separate lane.\n\n")
+	}
 	if ctx != nil {
 		b.WriteString("**User question:** ")
 		b.WriteString(types.StripConversationPrefix(ctx.Objective))
@@ -6409,8 +6436,14 @@ func (e *explorerEvaluator) renderReadWithoutEmitHint(prefixFormat string, reads
 // its request-only profile may lag real tool observations and also gates tools.
 func explorerReadHandoffGuidance() string {
 	return "Emit one `emit_evidence(items=[...])` batch only for real current-source anchors the answer must cite, using exact `read_file` line gutters. " +
-		"Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources) through `emit_investigation_complete.reason` plus `aggregate_facts`; artifact line numbers do not make them current-source citations. " +
+		explorerExternalObservationHandoffGuidance() +
 		"When the question is answered and any required current-source evidence has landed, call `emit_investigation_complete(reason, confidence, result_kind)`."
+}
+
+// Both mixed and source-excluded lanes hand non-source observations to the
+// same closure fields. Excluding source inspection must not erase this route.
+func explorerExternalObservationHandoffGuidance() string {
+	return "Preserve non-source observations (logs/traces, VCS, command/search/index results, external resources) through `emit_investigation_complete.reason` plus `aggregate_facts`; artifact line numbers do not make them current-source citations. "
 }
 
 func (e *explorerEvaluator) renderCompactReadWithoutEmitHint(prefixFormat string, reads int, scope, recording string) string {

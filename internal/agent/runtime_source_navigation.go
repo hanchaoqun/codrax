@@ -86,7 +86,9 @@ func renderRuntimeSourceNavigationPhasePrompt(ctx *types.AgentContext) string {
 	}
 	fmt.Fprintf(&b, "`phase=%s`, `current_source_lane=%s`, `current_source_requirement=%s`.\n", view.Phase, view.CurrentSourceLane, requirement)
 	b.WriteString("- First run one bounded `trace_query` runtime probe for the attached trace. Do not start with `repo_map`, `grep`, `list_files`, or `read_file` while this step is pending.\n")
-	if view.SourceOwnerRequired {
+	if view.CurrentSourceLane == types.CurrentSourceLaneExcluded {
+		b.WriteString("- Current-source inspection is excluded. If the runtime probe is unsupported or incomplete, continue only with bounded artifact-local verification or report the coverage boundary; do not turn that boundary into a source-owner follow-up.\n\n")
+	} else if view.SourceOwnerRequired {
 		b.WriteString("- Then collect focused current-source evidence after the runtime probe; use source-owner tools only for the unresolved source mechanism, not for broad repo discovery.\n\n")
 	} else {
 		b.WriteString("- Then use source-owner tools only if the trace result leaves a precise source question unresolved or reports unsupported/incomplete coverage; soft current-source gaps should converge through bounded follow-up or a caveat, not broad repo discovery.\n\n")

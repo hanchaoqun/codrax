@@ -62,10 +62,18 @@ func TestTraceQueryTeachingActualExplorerMessages(t *testing.T) {
 					surfaces["model_dynamic_user"] += message.Content
 				}
 			}
+			// Shared view selection is owned by the rendered system workflow;
+			// the dynamic supplement points back to it instead of copying it.
+			// Verify the actual adapter request, so neither omission nor a
+			// second complete copy can pass by satisfying isolated renderers.
+			matrix := skill.RenderTraceQueryViewMatrix()
+			if strings.Count(surfaces["model_system"], matrix) != 1 || strings.Contains(surfaces["model_dynamic_user"], matrix) {
+				t.Fatal("actual model request must carry exactly one complete view matrix, owned by the system workflow")
+			}
+			if !strings.Contains(surfaces["model_dynamic_user"], "Select the view from the full view matrix in the system Workflow's TRACE QUERY rule; it remains available on subsequent tool rounds.") {
+				t.Fatal("dynamic supplement lost its explicit locator for the retained complete view matrix")
+			}
 			for _, name := range []string{"model_system", "model_dynamic_user"} {
-				if !strings.Contains(surfaces[name], "frame_flow") || !strings.Contains(surfaces[name], "root_cause_rank") {
-					t.Fatalf("fixture did not render the complete shared view matrix on %s", name)
-				}
 				if strings.Contains(surfaces[name], "Root-cause participation uses this authoritative closed typed effective-impact matrix") {
 					t.Errorf("%s duplicated the tool's long closed-matrix contract", name)
 				}
@@ -92,7 +100,14 @@ func TestTraceQueryTeachingActualExplorerMessages(t *testing.T) {
 			if !strings.Contains(surfaces["model_system"], "positive CAP/compute-supply deficit and otherwise remains context_only") {
 				t.Error("self-running teaching lost its positive CAP-deficit participation boundary")
 			}
+			// The model consumes these two messages together. Preserve every
+			// existing rank/frame-flow assertion on their complete instruction
+			// contract, while independent tool surfaces keep their own copies.
+			surfaces["model_instructions"] = surfaces["model_system"] + "\n" + surfaces["model_dynamic_user"]
 			for name, surface := range surfaces {
+				if name == "model_system" || name == "model_dynamic_user" {
+					continue
+				}
 				t.Run(name, func(t *testing.T) {
 					assertTraceTeachingRankContract(t, surface)
 					if strings.Count(surface, skill.TraceFrameFlowEvidenceTeaching) != 1 {

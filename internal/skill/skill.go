@@ -49,9 +49,10 @@ type Config struct {
 // AppliesTo filter would otherwise hide it (the rule just fired —
 // the LLM needs to see it).
 type TierBItem struct {
-	Body        string                `json:"body" yaml:"body"`
-	AppliesTo   AppliesToFilter       `json:"applies_to,omitempty" yaml:"applies_to,omitempty"`
-	OnViolation []types.ViolationKind `json:"on_violation,omitempty" yaml:"on_violation,omitempty"`
+	Body           string                `json:"body" yaml:"body"`
+	AppliesTo      AppliesToFilter       `json:"applies_to,omitempty" yaml:"applies_to,omitempty"`
+	OnViolation    []types.ViolationKind `json:"on_violation,omitempty" yaml:"on_violation,omitempty"`
+	sharedGuidance *sharedGuidanceOwner
 }
 
 // AppliesToFilter describes the dispatch contexts a TierBItem is
