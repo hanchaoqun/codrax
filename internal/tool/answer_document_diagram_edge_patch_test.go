@@ -457,7 +457,7 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_TypedAdditionMakes
 		prev, patch,
 		[]emitAnswerDiagramEdgeEdit{
 			{FailureRef: lease.Failures[0].FailureRef, Action: "remove"},
-			{AdditionRef: lease.AllowedAdditions[0].AdditionRef, Action: "add", Edge: &types.DiagramEdgeAnchor{
+			{AdditionRef: lease.AllowedAdditions[0].AdditionRef, Action: "add", PlacementRef: sequenceEndPlacementForTest(prev, "diag"), Edge: &types.DiagramEdgeAnchor{
 				FromNode: "A", ToNode: "C", VisibleLabel: "分析完成后提取",
 			}},
 		}, nil,
@@ -1015,7 +1015,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 	additionRef := lease.AllowedAdditions[0].AdditionRef
 	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
-		Action: "add", AdditionRef: additionRef,
+		Action: "add", AdditionRef: additionRef, PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 		FromNodeVisibleLabel: "分析阶段", ToNodeVisibleLabel: "探索阶段",
 		Edge: &types.DiagramEdgeAnchor{
 			FromNode: "businessAnalyze", ToNode: "businessExplore",
@@ -1070,7 +1070,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 	t.Run("unlisted visible endpoint mapping fails in the selected generation", func(t *testing.T) {
 		got := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{{
-			Action: "add", AdditionRef: additionRef,
+			Action: "add", AdditionRef: additionRef, PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 			FromNodeVisibleLabel: "分析阶段", ToNodeVisibleLabel: "探索阶段",
 			Edge: &types.DiagramEdgeAnchor{
 				FromNode: "Analyzer", ToNode: "Mutable", VisibleLabel: "model label",
@@ -1103,7 +1103,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 	t.Run("legacy technical mirrors are quarantined", func(t *testing.T) {
 		got := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{{
-			Action: "add", AdditionRef: additionRef,
+			Action: "add", AdditionRef: additionRef, PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 			FromNodeVisibleLabel: "分析阶段", ToNodeVisibleLabel: "探索阶段",
 			Edge: &types.DiagramEdgeAnchor{
 				FromNode: "businessAnalyze", ToNode: "businessExplore", FromIdentity: "other", ToIdentity: "explorer",
@@ -1141,7 +1141,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_ValidatesTechnicalEndpointBeforeUn
 	}
 	patch := &types.AnswerDocumentV2Patch{}
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
-		Action: "add", AdditionRef: lease.AllowedAdditions[0].AdditionRef,
+		Action: "add", AdditionRef: lease.AllowedAdditions[0].AdditionRef, PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 		Edge: &types.DiagramEdgeAnchor{
 			FromNode: "gate.Run", ToNode: "GateWith", VisibleLabel: "包装调用",
 		},
@@ -1203,7 +1203,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_SupportsExplicitModelVisibleNameAc
 			}}}
 			patch := &types.AnswerDocumentV2Patch{}
 			err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
-				BlockID: "diag", Action: "add", ToNodeVisibleLabel: "业务处理器",
+				BlockID: "diag", Action: "add", ToNodeVisibleLabel: "业务处理器", PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 				Edge: &types.DiagramEdgeAnchor{
 					FromNode: "Existing", ToNode: "InternalHandler_a1b2",
 					FromIdentity: "pkg.Existing", ToIdentity: "pkg.InternalHandler",
@@ -1371,7 +1371,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefRejectsUnrelatedPartici
 	}
 	patch := &types.AnswerDocumentV2Patch{}
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
-		Action: "add", AdditionRef: lease.AllowedAdditions[0].AdditionRef,
+		Action: "add", AdditionRef: lease.AllowedAdditions[0].AdditionRef, PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 		Edge: &types.DiagramEdgeAnchor{
 			FromNode: "Analyzer", ToNode: "Mutable", VisibleLabel: "model-authored data flow",
 		},
@@ -1662,7 +1662,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefReusesUniqueDeclaredTyp
 	edits := make([]emitAnswerDiagramEdgeEdit, 0, 3)
 	for i := range lease.AllowedAdditions {
 		edits = append(edits, emitAnswerDiagramEdgeEdit{
-			Action: "add", AdditionRef: lease.AllowedAdditions[i].AdditionRef,
+			Action: "add", AdditionRef: lease.AllowedAdditions[i].AdditionRef, PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 			Edge: &types.DiagramEdgeAnchor{
 				FromNode: modelNodes[i][0], ToNode: modelNodes[i][1], VisibleLabel: labels[i],
 			},
@@ -1706,7 +1706,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefReusesUniqueDeclaredTyp
 		ambiguousLease := types.NewAnswerDiagramRelationRepairLease(&ambiguous, failures, candidates[:1])
 		gotPatch := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEdits(&ambiguous, gotPatch, []emitAnswerDiagramEdgeEdit{{
-			Action: "add", AdditionRef: ambiguousLease.AllowedAdditions[0].AdditionRef,
+			Action: "add", AdditionRef: ambiguousLease.AllowedAdditions[0].AdditionRef, PlacementRef: sequenceEndPlacementForTest(&ambiguous, "diag"),
 			Edge: &types.DiagramEdgeAnchor{FromNode: "analyze", ToNode: "explorer", VisibleLabel: labels[0]},
 		}}, nil, ambiguousLease, precedence)
 		if err == nil || !strings.Contains(err.Error(), "multiple declared sequence participants") {
@@ -1842,8 +1842,8 @@ func TestEmitAnswerDocumentPatch_ProductionWiresDeclaredStageParticipantReuse(t 
 	labels := []string{"确定分析范围后收集证据", "证据就绪后提炼事实", "结构化事实就绪后组织答案"}
 	edits := make([]string, 0, 3)
 	for i, candidate := range lease.AllowedAdditions {
-		edits = append(edits, fmt.Sprintf(`{"action":"add","addition_ref":%q,"edge":{"from_node":%q,"to_node":%q,"visible_label":%q}}`,
-			candidate.AdditionRef, modelNodes[i][0], modelNodes[i][1], labels[i]))
+		edits = append(edits, fmt.Sprintf(`{"action":"add","addition_ref":%q,"placement_ref":%q,"edge":{"from_node":%q,"to_node":%q,"visible_label":%q}}`,
+			candidate.AdditionRef, sequenceEndPlacementForTest(prev, "diag"), modelNodes[i][0], modelNodes[i][1], labels[i]))
 	}
 	params := json.RawMessage(`{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` + strings.Join(edits, ",") + `]}`)
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(ctx, params)
@@ -2053,7 +2053,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_RestoresTypedFailedAnchorWithoutBo
 		}}, nil)
 	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
-		BlockID: "diag", Action: "replace",
+		BlockID: "diag", Action: "replace", PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 		Match: &types.DiagramEdgeAnchor{
 			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
 			RelationKind: types.DiagramRelPrecedence,
@@ -2148,7 +2148,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_StaleRefRestoresModelAuthoredEdgeA
 	}
 	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
-		FailureRef: lease.Failures[0].FailureRef, Action: "replace",
+		FailureRef: lease.Failures[0].FailureRef, Action: "replace", PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 		Edge: &types.DiagramEdgeAnchor{
 			FromNode: "A", ToNode: "B", VisibleLabel: "确定范围后收集证据",
 		},
@@ -2587,13 +2587,13 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefReplaceStillNeedsModelEd
 	ref := lease.Failures[0].FailureRef
 	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
 	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
-		FailureRef: ref, Action: "replace",
+		FailureRef: ref, Action: "replace", PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 	}}, nil, lease); err == nil || !strings.Contains(err.Error(), "edge is required") {
 		t.Fatalf("ref must not let the system author a replacement edge: %v", err)
 	}
 	patch = &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
-		FailureRef: ref, Action: "replace",
+		FailureRef: ref, Action: "replace", PlacementRef: sequenceEndPlacementForTest(prev, "diag"),
 		Edge: &types.DiagramEdgeAnchor{
 			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
 			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "model wording",
@@ -2740,7 +2740,7 @@ func TestEmitAnswerDocumentPatch_AtomicRelationEditsHonorTypedLease(t *testing.T
 			{"block_id":"diag","action":"add","to_node_visible_label":"答案组织阶段","edge":{"from_node":"C","to_node":"F","from_identity":"Extractor","to_identity":"Finalizer","relation_kind":"precedence","visible_label":"结构化事实就绪后组织答案"}}
 		]
 	}`)
-	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, sequenceEndPlacementJSONForTest(t, bus, raw))
 	if err != nil || !res.Success {
 		t.Fatalf("listed atomic transaction must pass: err=%v res=%+v", err, res)
 	}
@@ -2799,7 +2799,7 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 				"from_node":"BusinessExtract","to_node":"BusinessFinalize","visible_label":"结构化事实就绪后组织答案"
 			}}]
 		}`, lease.AllowedAdditions[0].AdditionRef)
-		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(params))
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, sequenceEndPlacementJSONForTest(t, bus, json.RawMessage(params)))
 		if err != nil || !res.Success {
 			t.Fatalf("selected live candidate must not depend on guessing a recipe node dialect: err=%v res=%+v", err, res)
 		}
@@ -2817,7 +2817,7 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 
 	t.Run("unique typed receipt completes invisible identity metadata", func(t *testing.T) {
 		bus := newBus(allowed, []types.DiagramEdgeAnchor{recipe})
-		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, sequenceEndPlacementJSONForTest(t, bus, raw))
 		if err != nil || !res.Success {
 			t.Fatalf("model-selected allowed edge must pass after exact metadata completion: err=%v res=%+v", err, res)
 		}
@@ -2861,7 +2861,7 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 			}}]
 		}`, lease.AllowedAdditions[0].AdditionRef)
 		bus := &types.BusContext{Mutable: mut}
-		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(params))
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, sequenceEndPlacementJSONForTest(t, bus, json.RawMessage(params)))
 		if err != nil || !res.Success {
 			t.Fatalf("the exact initial recipe alias must execute in the retry lane: err=%v res=%+v", err, res)
 		}
@@ -2876,7 +2876,7 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 
 	t.Run("missing receipt remains fail closed", func(t *testing.T) {
 		bus := newBus(allowed, nil)
-		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, sequenceEndPlacementJSONForTest(t, bus, raw))
 		if err != nil {
 			t.Fatalf("unexpected execution error: %v", err)
 		}
@@ -2889,7 +2889,7 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 		other := recipe
 		other.FromIdentity = "OtherExtractor"
 		bus := newBus(allowed, []types.DiagramEdgeAnchor{recipe, other})
-		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, sequenceEndPlacementJSONForTest(t, bus, raw))
 		if err != nil {
 			t.Fatalf("unexpected execution error: %v", err)
 		}
@@ -2902,7 +2902,7 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 		otherAllowed := allowed
 		otherAllowed.FromIdentity = "OtherExtractor"
 		bus := newBus(otherAllowed, []types.DiagramEdgeAnchor{recipe})
-		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, sequenceEndPlacementJSONForTest(t, bus, raw))
 		if err != nil {
 			t.Fatalf("unexpected execution error: %v", err)
 		}
@@ -2922,9 +2922,9 @@ func TestEmitAnswerDocumentPatch_AtomicUnlistedAdditionStillRejectedByLease(t *t
 			FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelPrecedence,
 		}}, nil))
 	bus := &types.BusContext{Mutable: mut}
-	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, sequenceEndPlacementJSONForTest(t, bus, json.RawMessage(`{
 		"diagram_edge_edits":[{"block_id":"diag","action":"add","to_node_visible_label":"答案组织阶段","edge":{"from_node":"C","to_node":"F","from_identity":"Extractor","to_identity":"Finalizer","relation_kind":"precedence","visible_label":"组织答案"}}]
-	}`))
+	}`)))
 	if err != nil {
 		t.Fatalf("unexpected execution error: %v", err)
 	}

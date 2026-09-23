@@ -53,7 +53,7 @@ func (t *EmitAnswerDocumentPatch) Name() string { return "emit_answer_document_p
 
 // One presentation-only contract for broad and lease-selected schema text.
 // Node spelling and optional labels remain model choices, not evidence gates.
-const diagramEndpointLabelAuthorshipTeaching = "For add/replace on a diagram, an exact existing endpoint ID permits an omitted node-visible-label field or an exact current-label replay. A new ID with an explicit node-visible-label field declares a separate model-chosen endpoint; it is not merged into an existing actor. Without that field, sequence diagrams reuse a unique typed existing participant, reject ambiguous reuse, or declare the exact model-authored ID when no match exists. All endpoint evidence requirements remain unchanged."
+const diagramEndpointLabelAuthorshipTeaching = "For add/replace on a diagram, an exact existing endpoint ID permits an omitted node-visible-label field or an exact current-label replay. A new ID with an explicit node-visible-label field declares a separate model-chosen endpoint; it is not merged into an existing actor. Without that field, sequence diagrams reuse a unique typed existing participant, reject ambiguous reuse, or declare the exact model-authored ID when no match exists. All endpoint evidence requirements remain unchanged. " + sequencePlacementTeaching
 
 func (t *EmitAnswerDocumentPatch) Description() string {
 	return "Emit a DELTA against your previous `emit_answer_document` call instead of re-emitting the whole document. Use ONLY on retry paths (when `## Hard Rule (retry attempt N)` appears in the system prompt and a `## Previous Emit` section is present). On first dispatches, use `emit_answer_document` instead.\n\n" +
@@ -143,6 +143,7 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
           "action": {"type": "string", "enum": ["relabel", "remove", "replace", "add"]},
           "failure_ref": {"type": "string", "description": "Opaque selector copied exactly from the live failures[] row. Use only an action listed in that row's allowed_actions. It replaces match, occurrence, and body_occurrence; omit those coordinates because any legacy copies are quarantined after the live ref/action is validated. Omit failure_ref for add. Unknown, stale, disallowed-action, explicit cross-block, ambiguous, or reused refs fail closed."},
           "addition_ref": {"type": "string", "description": "Opaque selector copied exactly from one live allowed_additions[] row. Use only with action=add. It supplies that selected candidate's block_id, relation_kind, from_identity, and to_identity; you still author edge.from_node, edge.to_node, and edge.visible_label. Endpoint declaration choices follow the diagram_edge_edits contract. Omit failure_ref and hidden technical fields; legacy hidden-field copies are quarantined after the live ref/action is validated. Unknown, stale, duplicate, explicit cross-block, or wrong-action refs fail closed."},
+          "placement_ref": {"type": "string", "description": "Required when an add or absent-body replacement creates a new sequence message. Copy a position from the current dispatch schema; existing-message replacement stays in place. This is only a position, not relation evidence."},
           "occurrence": {"type": "integer", "minimum": 1},
           "body_occurrence": {"type": "integer", "minimum": 1, "description": "1-based visible Mermaid edge occurrence for the selected from_node/to_node pair. Omit when the pair is unique or body edges map one-to-one to exact prior anchors; required when the body pair is otherwise ambiguous."},
           "match": {
@@ -335,12 +336,12 @@ func (t *EmitAnswerDocumentPatch) parametersForContext(
 	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, nil)
 		raw = projectAnswerDocumentPatchReceiptEditTargets(raw, prev, nil)
-		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
+		return projectAnswerDocumentSequencePlacements(narrowAnswerDocumentPatchParametersWithoutRelationLease(raw), prev, nil)
 	}
 	excludedTargets := localLeaseAtomicTargetBlockIDs(lease, prev)
 	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, excludedTargets)
 	raw = projectAnswerDocumentPatchReceiptEditTargets(raw, prev, excludedTargets)
-	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev, view)
+	return projectAnswerDocumentSequencePlacements(narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev, view), prev, lease)
 }
 
 // projectAnswerDocumentPatchModelBlockOrder publishes only the exact immutable
@@ -399,7 +400,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 			"For one projected closed-enum block metadata operation, prefer `block_field_edits_v1`; it preserves all unmentioned content and you still select the value. When add_facet_id is published, it adds only that membership and never copies or changes a relation. " +
 			"For one schema-published typed receipt, prefer `block_receipt_edits_v1`; copy one exact native JSON branch and keep the evidence row and conclusion model-selected. " +
 			"Atomic diagram edge edits identify an existing block and carry the complete model-authored local match or replacement/addition edge. " +
-			"Live opaque selectors and participant cleanup choices are unavailable until a typed relation-repair lease publishes them. " +
+			"Live relation selectors and participant cleanup choices are unavailable until a typed relation-repair lease publishes them. " + sequencePlacementTeaching + " " +
 			"Whole-block edits remain available for broader model-authored repairs. The system selects no action, relation, visible wording, layout, or conclusion."
 	}
 	prev := ctx.Mutable.PendingAnswerDocumentPatchBase()
@@ -416,7 +417,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 	if lease.OrphanDispositionOnly {
 		return "The exact model-authored relation edits are already stored in an unpublished retry base. This dispatch exposes only the complete typed orphan roster. Submit exactly one `diagram_participant_edits` branch for every row: choose `remove_if_isolated`, or choose `retain_as_context` and author its visible_label. Do not replay old edge, boundary, block, or citation operations. The system selects no disposition, wording, relation, layout, or conclusion."
 	}
-	description := "Repair the previous structured answer using only the exact current relation-repair choices shown in this tool's parameter schema. " +
+	description := "Repair the previous structured answer using only the exact current relation-repair choices shown in this tool's parameter schema. " + sequencePlacementTeaching + " " +
 		"Select one exact schema branch. A branch may use one published failure_ref, one published addition_ref, or one boundary_ref/action pair that changes only a named participant-boundary row; author every visible endpoint and label required by relation branches. " + types.AnswerDocumentPatchRelationShapeTeaching
 	if types.AnswerDiagramRelationRepairHasExecutableAttachPair(lease.Failures, lease.AllowedAdditions) {
 		description += "Only an exact action=attach schema branch that fixes both opaque ref values may bind a typed relation to one existing relation carrier; never infer a pair from adjacent rows. "
@@ -461,7 +462,7 @@ func narrowAnswerDocumentPatchParametersWithoutRelationLease(raw json.RawMessage
 	delete(itemProperties, "addition_ref")
 	items["required"] = []any{"block_id", "action"}
 	delete(items, "anyOf")
-	edgeEdits["description"] = "Atomic model-authored relation edits for an existing block. block_id and action are required. Supply the complete local match for relabel/remove/replace and the complete model-authored edge for replace/add. No generation-scoped opaque selector or participant-cleanup choice is available in this dispatch. The system applies only the declared operation and never chooses an edge, relation, visible label, layout, or conclusion."
+	edgeEdits["description"] = "Atomic model-authored relation edits for an existing block. block_id and action are required. Supply the complete local match for relabel/remove/replace and the complete model-authored edge for replace/add. No generation-scoped opaque relation selector or participant-cleanup choice is available in this dispatch. The system applies only the declared operation and never chooses an edge, relation, visible label, layout, or conclusion."
 	delete(properties, "diagram_participant_edits")
 	delete(properties, "diagram_boundary_edits")
 	out, err := json.Marshal(root)
@@ -2384,6 +2385,7 @@ type emitAnswerDiagramEdgeEdit struct {
 	Action               string                   `json:"action"`
 	FailureRef           string                   `json:"failure_ref,omitempty"`
 	AdditionRef          string                   `json:"addition_ref,omitempty"`
+	PlacementRef         string                   `json:"placement_ref,omitempty"`
 	Occurrence           int                      `json:"occurrence,omitempty"`
 	BodyOccurrence       int                      `json:"body_occurrence,omitempty"`
 	Match                *types.DiagramEdgeAnchor `json:"match,omitempty"`
@@ -2398,6 +2400,8 @@ type emitAnswerDiagramEdgeEdit struct {
 	attachPairResolving  bool
 	additionCandidate    *types.AnswerDiagramRelationRepairCandidate
 	metadataAttach       bool
+	placementMarker      string  // Private source-gap token; never serialized or persisted.
+	placementStatement   *string // Deferred body only; metadata edits keep their original ordering.
 }
 
 type emitAnswerDiagramBoundaryReplacement struct {
@@ -3151,7 +3155,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					repair.Metadata[types.ToolRepairMetaDiagramParticipantDispositionRosterJSON] = rosterJSON
 					repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature] = progressSignature
 				}
-				repair.Hint = "The submitted atomic diagram operation is not executable under the current relation-repair lease. The whole rejected patch transaction was rolled back: none of its edge, boundary, participant, block, or citation operations were committed. Re-read the complete current typed delta and resubmit every operation you still choose together in one new atomic patch; do not assume a valid sibling operation from the rejected call already applied, and do not guess, silently drop, or widen operations. For a failure branch, copy exactly {failure_ref,action} plus only its branch-published model fields. For an addition branch, copy exactly {addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}}. Ref-selected branches do not accept block_id or legacy match coordinates; every ref, action, endpoint, and label remains your choice."
+				repair.Hint = "The submitted atomic diagram operation is not executable under the current relation-repair lease. The whole rejected patch transaction was rolled back: none of its edge, boundary, participant, block, or citation operations were committed. Re-read the complete current typed delta and resubmit every operation you still choose together in one new atomic patch; do not assume a valid sibling operation from the rejected call already applied, and do not guess, silently drop, or widen operations. For a failure branch, copy exactly {failure_ref,action} plus only its branch-published model fields. For an addition branch, copy exactly {addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}} plus every branch-required position field. Ref-selected branches do not accept block_id or legacy match coordinates; every ref, action, endpoint, and label remains your choice. " + sequencePlacementTeaching
 				result, resultErr := failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
 				result.Repair = attachToolJSONSurfaceMetadataForSchema(
 					t.Name(), t.parametersForContext(types.BuildAnswerSemanticViewForBusContext(ctx), ctx.Mutable, ctx), result.Repair,
@@ -3816,7 +3820,7 @@ func answerDiagramRelationRepairScopeRepair(
 	return &types.ToolRepair{
 		Code: types.ToolRepairCodeAnswerDocRelationRepairScope,
 		Hint: "Keep the existing required diagram block ids, kinds, and count unchanged. Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. " +
-			"For a failure branch, copy exactly {failure_ref,action} and add only the branch-published replacement/label fields. For an addition branch, copy exactly {addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}}. " +
+			"For a failure branch, copy exactly {failure_ref,action} and add only the branch-published replacement/label fields. For an addition branch, copy exactly {addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}} plus every branch-required position field. " + sequencePlacementTeaching + " " +
 			"Ref-selected branches do not accept block_id or legacy match coordinates. You may choose each listed row at most once; do not add any other relation. Every ref, action, endpoint, and label remains your choice.",
 		Fields:   fields,
 		Metadata: metadata,

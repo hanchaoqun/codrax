@@ -1124,10 +1124,10 @@ func TestEmitAnswerDocumentPatch_RelationLeaseIgnoresOnlySystemRecipeIdentityEnr
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(fmt.Sprintf(`{
 		"unchanged_block_ids":["s1"],
 		"diagram_edge_edits":[{
-			"action":"add","addition_ref":%q,
+			"action":"add","addition_ref":%q,"placement_ref":%q,
 			"edge":{"from_node":"analyze","to_node":"explorer","visible_label":"evidence ready"}
 		}]
-	}`, additionRef)))
+	}`, additionRef, sequenceEndPlacementForTest(base, "flow"))))
 	if err != nil || !res.Success {
 		t.Fatalf("system-owned identity enrichment on an inherited edge must not poison the live lease: res=%+v err=%v", res, err)
 	}

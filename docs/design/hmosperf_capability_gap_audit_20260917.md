@@ -2805,3 +2805,15 @@ ROI队列据本轮有据调整：①共享物理工件身份资格（先单真�
 初步GREEN72879正式exit0/tool1.968s、邻接28489正式exit0/tool1.355s、race74675正式exit0/tool5.176s。末版公开、独立审查及冻结全仓另收。历史durable债没有可用于区分必要载体/stage-only的权限来源字段，不能事后猜测清空；保留并允许显式源码关系证明正常解除，不借本片销旧会话未分类债。归原HMC-01.2/01.3/16.4/18.4，父开放仍66。
 
 末版新增13叶包括必需/可选合并真值矩阵、真实grounding和schema错误兄弟项不被掩盖、历史债不被新advisory清空；其中公共路径证明该类阻塞消失或保留，不冒称完整Orchestrator.Run验收。39418正式exit0/tool2.019s、65420 race正式exit0/tool4.343s，日志`/tmp/hmc-stage-argument-scope-final-targeted-20260922.log`与`-final-targeted-race-20260922.log`。独立审查84668正式exit0/tool2.204s且无阻塞；源码仅`emit_evidence.go`与新增222行测试，准备单片提交，末版全仓和固定双例随后汇总。
+
+## 144. 时序图局部补边的原位置与事务坐标（2026-09-22，验收中）
+
+针对§141“调度已return才补阶段消息”的系统缺口，不取消关系证据门或让系统重写图。参考`core/rendering/models.py:52–57`、`core/rendering_pipeline.py:197–218,1437`只保存/投递完整Mermaid teaching，强调业务流程表达，却没有可复用的精确局部编辑器。本项目独立设计：对当前完整diagram与block身份铸精确来源gap引用，实际dispatch schema发布位置前后文；模型选择关系、标签、位置及同位消息顺序，系统只执行其选择，不推断时序或因果。
+
+最初公开RED92733正式exit1/tool1.059s，实际patch schema不能选择return前位置。新增`placement_ref`只在新sequence正文（add及两种缺正文replace入口）要求；已有消息replace原地，不凭失效位置默追加尾。分支/嵌套/空分支/空图、显式尾部、旧位置换代、跨块拒绝、未提及块和旧正文字节保留共同验证。初版19格中18格真实Execute、1格历史coordinate入口直接执行器，不混称全公开；GREEN18613/1.309s、3038 race/3.886s，原图/sequence/patch邻接58437/56.599s和agent39934/1.376s均正式exit0。旧端点/租约测试通过测试专用helper明确选择尾部，生产没有兼容性默认追加。
+
+独立审查追加有效RED41905正式exit1/tool1.242s：同端点旧未锚定call消息与新合法precedence消息同批操作，先add再remove返回成功却删新留旧，反序正确；普通插入会改变后续原BodyOccurrence。另确认participant box仅含声明，box内end前位置会生成非法消息。日志`/tmp/hmc-sequence-placement-review-red-20260922.log`。修复保已有元数据逆序操作，只将新增正文延至旧坐标操作全部完成后物化：每个不可变gap有私有标记/字符串槽，原子事务内部使用，持久化前精确替换，不借排序重排元数据或泄漏临时标记。位置枚举不进入多行participant JSON或box声明区；字段教学不按每个关系候选重复整段合同，无租约旧句仅否定关系selector，避免和新位置selector矛盾。
+
+上述新增接缝末版回归与独立复审正在执行，不用初版GREEN代签。同端点replace组合若被既有failed_relation_expanded拒绝，保原子拒绝控制，不放宽旧门来凑正例。预先存在的多行extended participant端点识别缺口（可能重复声明）单独留HMC-16.4/16.5子债；本片只保证位置不插进其JSON，不宣称修了整个participant parser。全体父项仍66开放，旧完整答案FAIL保留。
+
+后续公开97942证明旧无租约2正文/2锚点的省略body_occurrence映射，在新增锚点先入数组后会误拒。修复仅在有新增正文的块上，从不可变原稿调用既有精确单边/一对一映射并冻结坐标，不扩大歧义兼容。末版34481正式exit0/tool1.945s；28叶=27真实Execute（19接受、8预期拒绝）+1历史缺正文直接editor，4个公开扩张拒绝另验窄editor位置。独立70154正式exit0/tool1.254s且无阻塞，日志`/tmp/hmc-sequence-placement-final-independent-review-20260922.log`。复核74671的relabel两格因原扩张门拒绝，已修测试分类而非产品门，不计新的产品RED。最终race及邻接随后补记。

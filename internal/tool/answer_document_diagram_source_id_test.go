@@ -70,7 +70,8 @@ func TestB1593DiagramSourceID_ProducerLeaseSchemaAndExecution(t *testing.T) {
 		}
 	}
 	params := fmt.Sprintf(`{"unchanged_block_ids":["summary"],"diagram_edge_edits":[{"action":"add","addition_ref":%q,"edge":{"from_node":%q,"to_node":%q,"visible_label":"fetch user"}}]}`, lease.AllowedAdditions[0].AdditionRef, from, to)
-	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut, EvidenceItems: evidence}, json.RawMessage(params))
+	bus := &types.BusContext{Mutable: mut, EvidenceItems: evidence}
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, sequenceEndPlacementJSONForTest(t, bus, json.RawMessage(params)))
 	if err != nil || !res.Success {
 		t.Fatalf("published capability failed its own executor: err=%v result=%+v", err, res)
 	}

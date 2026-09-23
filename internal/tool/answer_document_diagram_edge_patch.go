@@ -499,6 +499,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 	}
 
 	working := make(map[string]types.AnswerBlock)
+	var placementPlan *sequencePlacementPlan
 	order := make([]string, 0, len(edits)+len(boundaries)+len(boundaryEdits)+len(participantEdits))
 	usedFailureRefs := make(map[string]bool, len(edits))
 	usedAdditionRefs := make(map[string]bool, len(edits))
@@ -520,6 +521,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			return types.AnswerBlock{}, fmt.Errorf("%s[%d] block_id=%q is not an existing diagram carrier", field, index, blockID)
 		}
 		block := cloneAtomicDiagramPatchBlock(base)
+		placementPlan.prepare(&block)
 		working[blockID] = block
 		order = append(order, blockID)
 		return block, nil
@@ -553,7 +555,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			action := strings.ToLower(strings.TrimSpace(edit.Action))
 			if action == "add" {
 				return fmt.Errorf(
-					"diagram_edge_edits[%d] does not match any current live schema branch: action=add is missing addition_ref; choose one exact published addition_ref and use {addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}}; block_id is not available on this branch",
+					"diagram_edge_edits[%d] does not match any current live schema branch: action=add is missing addition_ref; choose one exact published addition_ref and use {addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}} plus every branch-required position field; block_id is not available on this branch",
 					i,
 				)
 			}
@@ -583,6 +585,11 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 	}
 	if err := validateAtomicDiagramRelationProducerConflicts(resolvedEdits); err != nil {
 		return err
+	}
+	var placementErr error
+	placementPlan, placementErr = newSequencePlacementPlan(previous, resolvedEdits, lease)
+	if placementErr != nil {
+		return placementErr
 	}
 	// Every body_occurrence is minted against the immutable rejected draft.
 	// Removing or replacing occurrence 1 first would renumber occurrence 2 in
@@ -679,6 +686,11 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			return fmt.Errorf("edit[%d] block_id=%q: %w", i, blockID, err)
 		}
 		working[blockID] = block
+	}
+	// Source-gap markers are private to the relation editor. Remove them before
+	// boundary/participant validation or any staged retry base can escape.
+	if err := placementPlan.finish(working); err != nil {
+		return err
 	}
 	boundarySeen := make(map[string]bool, len(boundaries))
 	for i, replacement := range boundaries {
@@ -1997,8 +2009,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		if err != nil {
 			return err
 		}
-		body := strings.TrimRight(block.Diagram.Body, "\n")
-		block.Diagram.Body = body + "\n" + line + "\n"
+		if err := insertAtomicDiagramStatement(block, edit, line); err != nil {
+			return err
+		}
 		block.EdgeAnchors = append(block.EdgeAnchors, *edit.Edge)
 		return nil
 	}
@@ -2106,8 +2119,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 			if err != nil {
 				return err
 			}
-			body := strings.TrimRight(block.Diagram.Body, "\n")
-			block.Diagram.Body = body + "\n" + line + "\n"
+			if err := insertAtomicDiagramStatement(block, edit, line); err != nil {
+				return err
+			}
 			block.EdgeAnchors[anchorIndex] = *edit.Edge
 		default:
 			return fmt.Errorf("stale_anchor permits only action=remove or action=replace")
@@ -2141,8 +2155,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 			if err != nil {
 				return err
 			}
-			body := strings.TrimRight(block.Diagram.Body, "\n")
-			block.Diagram.Body = body + "\n" + line + "\n"
+			if err := insertAtomicDiagramStatement(block, edit, line); err != nil {
+				return err
+			}
 			block.EdgeAnchors[anchorIndex] = *edit.Edge
 		}
 		return nil
