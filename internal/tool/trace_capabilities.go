@@ -11,8 +11,9 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// TraceCapabilities performs no capture access or state mutation. Its output
-// is tool documentation, never a repository fact or runtime observation.
+// TraceCapabilities performs no capture access or query effects. Its output
+// is tool documentation with a run-local read ticket, never a repository fact
+// or runtime observation; only dispatcher publication records the read.
 type TraceCapabilities struct {
 	ReadOnly
 	NonEvidenceTool
@@ -52,7 +53,7 @@ func traceCapabilityQueryViewSchema() (map[string]json.RawMessage, error) {
 	return view, nil
 }
 
-func (*TraceCapabilities) Execute(_ *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+func (*TraceCapabilities) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	out := types.ToolResult{ToolName: "trace_capabilities"}
 	var input struct {
 		View   string `json:"view"`
@@ -102,5 +103,8 @@ func (*TraceCapabilities) Execute(_ *types.BusContext, params json.RawMessage) (
 	}
 	out.Handoff = &types.ToolHandoffCarrier{Version: types.ToolHandoffCarrierVersion, ToolName: out.ToolName, Documentation: &doc}
 	out.Success, out.Summary = true, string(body)
+	if ctx != nil && ctx.Mutable != nil {
+		out = ctx.Mutable.StampToolDocumentationResult(out)
+	}
 	return out, nil
 }

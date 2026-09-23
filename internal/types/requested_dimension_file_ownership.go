@@ -29,6 +29,19 @@ func RequestedExplanationOperationNeedsForAuthority(rm *RequestModel, authority 
 		return nil
 	}
 	needs := RequestedExplanationOperationNeeds(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints)
+	// Domain selection precedes source-authority handling: mixed requests keep
+	// every non-documentation seat even when only one remains after filtering.
+	// The shared predicate rejects conflicting exact bindings rather than
+	// erasing them or changing the underlying user-requested dimensions.
+	if rm.ToolDocumentationRequest != nil {
+		kept := make([]RequestedExplanationOperationNeed, 0, len(needs))
+		for _, need := range needs {
+			if !ToolDocumentationDimensionRequested(rm, need.Dimension.Index) {
+				kept = append(kept, need)
+			}
+		}
+		needs = kept
+	}
 	// An exact file binding is an independent ownership contract, including
 	// paths such as Makefile that need not look like ordinary source suffixes.
 	// Preserve the whole mixed-source map so guidance and completion continue
@@ -217,6 +230,31 @@ func CompileDimensionOwnerUnresolved(profile *RequestedAnswerDimensionProfile, h
 	}
 	sort.Strings(unclassified)
 	return &DimensionOwnerUnresolved{DimensionIndices: missing, UnclassifiedFiles: unclassified}
+}
+
+// CompileDimensionOwnerUnresolvedForRequest applies the same domain boundary
+// to soft ownership guidance as to executable operation seats. It deliberately
+// filters after the legacy compiler so one remaining source dimension does not
+// fall below the original two-dimension activation floor and disappear.
+func CompileDimensionOwnerUnresolvedForRequest(rm *RequestModel) *DimensionOwnerUnresolved {
+	if rm == nil || ToolDocumentationOnlyRequested(rm) {
+		return nil
+	}
+	marker := CompileDimensionOwnerUnresolved(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints)
+	if marker == nil || rm.ToolDocumentationRequest == nil {
+		return marker
+	}
+	kept := marker.DimensionIndices[:0]
+	for _, index := range marker.DimensionIndices {
+		if !ToolDocumentationDimensionRequested(rm, index) {
+			kept = append(kept, index)
+		}
+	}
+	marker.DimensionIndices = kept
+	if len(marker.DimensionIndices) == 0 && len(marker.UnclassifiedFiles) == 0 {
+		return nil
+	}
+	return marker
 }
 
 // Clone returns a nil-safe deep copy so degraded-recovery IR rebuilds carry

@@ -37,6 +37,7 @@ type Output struct {
 func Compile(rm types.RequestModel, sig budget.BudgetSignals) Output {
 	t := pickTemplate(rm)
 	out := t(rm)
+	requireMixedToolDocumentation(&out, rm)
 	EnsureReadStageNodes(&out.TaskGraph)
 	// Adapt citation thresholds to complexity + subtopic count so a
 	// "simple single-lookup" question is not held to the same bar as
@@ -65,6 +66,9 @@ func RecomputeBudget(out *Output, rm types.RequestModel, sig budget.BudgetSignal
 type templateFn func(types.RequestModel) Output
 
 func pickTemplate(rm types.RequestModel) templateFn {
+	if types.ToolDocumentationOnlyRequested(&rm) {
+		return templateToolDocumentation
+	}
 	// Defense-in-depth: even if an upstream caller kept
 	// architecture_explain/generic, single-topic structural trace
 	// requests should still compile to the lighter trace walkthrough

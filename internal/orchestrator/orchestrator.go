@@ -6830,12 +6830,13 @@ func (o *Orchestrator) runAutoVerdicts() {
 		taToolResults = ta.ToolResults
 	}
 	env := criterion.Env{
-		IR:             o.busCtx.AnalysisIR,
-		Evidence:       o.busCtx.EvidenceItems,
-		ToolResults:    taToolResults,
-		AnswerSymbols:  o.busCtx.AnswerSymbols,
-		AggregateFacts: mu.StableInvestigationAggregateFacts(),
-		PrescanBlob:    mu.PrescanSummaryBlob(),
+		IR:                     o.busCtx.AnalysisIR,
+		ToolDocumentationReady: mu.HasAcceptedToolDocumentationCompletion(&o.busCtx.AnalysisIR.RequestModel),
+		Evidence:               o.busCtx.EvidenceItems,
+		ToolResults:            taToolResults,
+		AnswerSymbols:          o.busCtx.AnswerSymbols,
+		AggregateFacts:         mu.StableInvestigationAggregateFacts(),
+		PrescanBlob:            mu.PrescanSummaryBlob(),
 	}
 	existing := mu.EmittedHypothesisVerdicts()
 	byID := make(map[string]bool, len(existing))

@@ -105,6 +105,7 @@ var emitAnalysisHardArmRegistry = map[string]emitAnalysisHardArm{
 	"validateAnalysisInput":                                     {"schema_shape", "declared keyword/entity roster floor (advisory today; RejectReason reserved)"},
 	"rejectDegenerateClassification":                            {"schema_shape", "declared analysis intent with an empty keyword+entity roster"},
 	"parsePredicates":                                           {"schema_shape", "v4 predicates carrier must be present and explicit"},
+	"validateEmitToolDocumentationRequest":                      {"internal_consistency", "optional documentation domain enum and exact dimension references must agree with retained required source/runtime declarations; omission preserves the legacy contract"},
 	"parseHistorySelectionProfile":                              {"schema_shape", "typed carrier shape + verbatim provenance"},
 	"parseDiagnosticProfile":                                    {"schema_shape", "typed carrier shape"},
 	"parseExternalObservationPolicy":                            {"schema_shape", "typed carrier shape + verbatim provenance"},

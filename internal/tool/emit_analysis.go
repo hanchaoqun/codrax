@@ -97,6 +97,7 @@ type emitAnalysisParams struct {
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
 	ErrorGranularityProfile      *emitErrorGranularityProfileParam      `json:"error_granularity_profile,omitempty"`
 	RequestedAnswerDimensions    *emitRequestedAnswerDimensionsParam    `json:"requested_answer_dimensions,omitempty"`
+	ToolDocumentationRequest     *types.ToolDocumentationRequest        `json:"tool_documentation_request,omitempty"`
 	CurrentSourceExplanation     *emitCurrentSourceExplanationParam     `json:"current_source_explanation_profile,omitempty"`
 	ExternalObservationPolicy    *emitExternalObservationPolicyParam    `json:"external_observation_policy,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
@@ -855,6 +856,7 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_granularity_question", "confidence"},
 			},
+			"tool_documentation_request": toolDocumentationRequestSchema(),
 			"requested_answer_dimensions": map[string]any{
 				"type":        "object",
 				"description": "Required typed declaration for whether the CURRENT request explicitly asks the final answer to preserve visible answer dimensions, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, a directed relation path, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. Set is_dimensioned_answer=false when none are requested. Each dimension is not an evidence origin. Most remain soft presentation guidance; one required role=diagram dimension whose source_quote is verbatim from the CURRENT request is itself a typed current-turn visual carrier: it requires the sibling diagram_hint carrier and final visual surface but still proves no participant or edge. " + skill.AnalysisMultiSurfaceDimensionTeaching,
@@ -1318,6 +1320,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"answer_role_profile",
 		"error_granularity_profile",
 		"requested_answer_dimensions",
+		"tool_documentation_request",
 		"external_observation_policy",
 		"diagram_hint",
 		"enumeration_boundary",
@@ -2356,6 +2359,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		AnswerRoleProfile:               answerRoleProfile,
 		ErrorGranularityProfile:         errorGranularityProfile,
 		RequestedAnswerDimensions:       requestedAnswerDimensions,
+		ToolDocumentationRequest:        p.ToolDocumentationRequest,
 		CurrentSourceObligationSignals:  currentSourceObligationSignals,
 		CurrentSourceExplanationProfile: currentSourceExplanation,
 		ExternalObservationPolicy:       externalObservationPolicy,
@@ -2401,6 +2405,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	projectRuntimeArtifactPathHintsFromRawRequest(&rm, raw)
 	attachRuntimeArtifactsToRequestModel(ctx, &rm)
+	if conflict := validateEmitToolDocumentationRequest(&rm, p.RequestedAnswerDimensions); conflict != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "emit_analysis rejected: " + conflict.Error(), Timestamp: time.Now()}, nil
+	}
 	if types.ErrorGranularityConflictsWithDiagnosticMechanism(rm) {
 		rm.ErrorGranularityProfile = nil
 		warning := "error_granularity_profile auto-softened: diagnostic/current-source explanation is not a precise failure-scope verdict request"
@@ -2443,7 +2450,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		rm.AnalyzerHints.IrrelevantFiles,
 		&val,
 	)
-	if !droppedSourceInventoryForPrincipalConflict {
+	if !droppedSourceInventoryForPrincipalConflict && !types.ToolDocumentationOnlyRequested(&rm) {
 		if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, raw, p.SourceInventoryProfile); warning != "" {
 			logging.Warning("[emit_analysis] %s", warning)
 			val.Warnings = append(val.Warnings, warning)
@@ -2490,7 +2497,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// reads model-declared hints by typed origin, so no deterministic system
 	// projection (runtime-artifact path above, prescan candidate below) can
 	// become a "file without a declared role" (§40.47 fold-in A0).
-	if unresolved := types.CompileDimensionOwnerUnresolved(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints); unresolved != nil {
+	if unresolved := types.CompileDimensionOwnerUnresolvedForRequest(&rm); unresolved != nil {
 		rm.AnalyzerHints.DimensionOwnerUnresolved = unresolved
 		warning := requiredFileDimensionOwnerUnresolvedWarning(unresolved)
 		logging.Warning("[emit_analysis] %s", warning)
@@ -2524,8 +2531,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, &val); added > 0 {
-		logging.Warning("[emit_analysis] projected %d required_file hint(s) from deterministic analyzer prescan", added)
+	if !types.ToolDocumentationOnlyRequested(&rm) {
+		if added := projectAnalyzerPrescanRequiredFileHints(ctx, &rm, &val); added > 0 {
+			logging.Warning("[emit_analysis] projected %d required_file hint(s) from deterministic analyzer prescan", added)
+		}
 	}
 	if warning := normalizeUnbackedExternalObservationAllowToDefault(ctx, &rm); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
@@ -2534,6 +2543,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if warning := normalizeUnbackedExternalObservationCurrentVersionCheck(ctx, &rm); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
+	}
+	if conflict := validateEmitToolDocumentationRequest(&rm, p.RequestedAnswerDimensions); conflict != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "emit_analysis rejected: " + conflict.Error(), Timestamp: time.Now()}, nil
 	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)

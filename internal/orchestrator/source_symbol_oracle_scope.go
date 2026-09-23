@@ -9,6 +9,9 @@ import "github.com/hanchaoqun/codrax/internal/types"
 // typed request decision explicitly excludes that source lane. This does not
 // infer provenance from prose, spelling, graph style or the existence of buckets.
 func answerBlockUsesCurrentSourceSymbolOracle(block types.AnswerBlock, mut *types.MutableState) bool {
+	if rm := mut.RequestModel(); types.ToolDocumentationOnlyRequested(rm) && mut.HasAcceptedToolDocumentationCompletion(rm) {
+		return false
+	}
 	if rm := mut.RequestModel(); rm != nil && rm.CurrentSourceLaneDecision() == types.CurrentSourceLaneExcluded {
 		return false
 	}

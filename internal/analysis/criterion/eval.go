@@ -84,6 +84,8 @@ func dispatch(k Kind, expr string, env Env) Result {
 		return evalCitationCountGE(expr, env)
 	case KindExtractInputReady:
 		return evalExtractInputReady(env)
+	case KindToolDocumentationReady:
+		return evalToolDocumentationReady(env)
 	case KindSourceClassUniverseIncomplete:
 		return evalSourceClassUniverseIncomplete(env)
 	case KindSourceInventoryLensMissing:
@@ -671,6 +673,9 @@ func evalInvariantBroken(expr string, env Env) Result {
 }
 
 func evalNoRelevantEvidence(env Env) Result {
+	if onlyToolDocumentation(env) {
+		return Result{Satisfied: false, Detail: "source-evidence absence cannot falsify a static documentation support obligation"}
+	}
 	if len(env.Evidence) == 0 {
 		return Result{Satisfied: true, Detail: "no evidence items collected"}
 	}
@@ -686,6 +691,9 @@ func evalSignalPresent(expr string, env Env) Result {
 }
 
 func evalHasEnoughFacts(env Env) Result {
+	if onlyToolDocumentation(env) {
+		return evalToolDocumentationReady(env)
+	}
 	if env.Signals.HasEnoughFacts {
 		return Result{Satisfied: true, Detail: "HasEnoughFacts=true"}
 	}
@@ -714,6 +722,9 @@ func evalContractSatisfied(env Env) Result {
 	}
 	if env.IR == nil {
 		return Result{Satisfied: true, Detail: "draft exists; no IR to cross-check"}
+	}
+	if onlyToolDocumentation(env) {
+		return evalToolDocumentationReady(env)
 	}
 	if externalRuntimeCitationFloorWaived(env) {
 		return Result{Satisfied: true, Detail: "external runtime artifact facts use typed external_observation carriers; repo citation floor waived"}
@@ -744,6 +755,9 @@ func evalEvidenceCount(expr string, env Env) Result {
 	if !ok {
 		return Result{Satisfied: false, Detail: fmt.Sprintf("malformed comparison %q", expr)}
 	}
+	if onlyToolDocumentation(env) {
+		return evalToolDocumentationReady(env)
+	}
 	if artifactCount, waived := externalRuntimeEvidenceFloorWaived(env); waived {
 		return Result{
 			Satisfied: true,
@@ -770,6 +784,9 @@ func evalEvidenceCount(expr string, env Env) Result {
 }
 
 func evalExtractInputReady(env Env) Result {
+	if onlyToolDocumentation(env) {
+		return evalToolDocumentationReady(env)
+	}
 	if env.ArtifactReadiness != nil && env.ArtifactReadiness.Active {
 		if env.ArtifactReadiness.Ready {
 			return Result{Satisfied: true, Detail: env.ArtifactReadiness.Detail()}
@@ -894,6 +911,9 @@ func evalCitationCountGE(expr string, env Env) Result {
 	threshold, err := strconv.Atoi(strings.TrimSpace(expr))
 	if err != nil {
 		return Result{Satisfied: false, Detail: fmt.Sprintf("malformed integer %q", expr)}
+	}
+	if onlyToolDocumentation(env) {
+		return evalToolDocumentationReady(env)
 	}
 	if externalRuntimeCitationFloorWaived(env) {
 		return Result{Satisfied: true, Detail: "external runtime artifact facts use typed external_observation carriers; repo citation floor waived"}

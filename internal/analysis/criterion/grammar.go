@@ -43,6 +43,7 @@ const (
 	KindEvidenceCount                 Kind = Kind(types.CritEvidenceCount)
 	KindCitationCountGE               Kind = Kind(types.CritCitationCountGE)
 	KindExtractInputReady             Kind = Kind(types.CritExtractInputReady)
+	KindToolDocumentationReady        Kind = Kind(types.CritToolDocumentationReady)
 	KindSourceClassUniverseIncomplete Kind = Kind(types.CritSourceClassUniverseIncomplete)
 	KindSourceInventoryLensMissing    Kind = Kind(types.CritSourceInventoryLensMissing)
 	KindSourceInventoryFollowupDebt   Kind = Kind(types.CritSourceInventoryFollowupDebt)
@@ -91,6 +92,7 @@ var registered = map[Kind]bool{
 	KindEvidenceCount:                 true,
 	KindCitationCountGE:               true,
 	KindExtractInputReady:             true,
+	KindToolDocumentationReady:        true,
 	KindSourceClassUniverseIncomplete: true,
 	KindSourceInventoryLensMissing:    true,
 	KindSourceInventoryFollowupDebt:   true,
@@ -132,12 +134,16 @@ var ErrUnknownKind = errors.New("criterion: unknown kind")
 // that are irrelevant to the current call site may be left zero —
 // evaluators document which fields they require.
 type Env struct {
-	IR                           *types.AnalysisIR
-	Evidence                     []types.EvidenceItem
-	AnswerSymbols                []types.AnswerSymbol
-	AnswerChains                 []types.AnswerChain
-	AggregateFacts               []types.AnswerAggregateFact
-	ToolResults                  []types.ToolResult
+	IR             *types.AnalysisIR
+	Evidence       []types.EvidenceItem
+	AnswerSymbols  []types.AnswerSymbol
+	AnswerChains   []types.AnswerChain
+	AggregateFacts []types.AnswerAggregateFact
+	ToolResults    []types.ToolResult
+	// ToolDocumentationReady is system-owned: current successful reads selected
+	// into the shared whole-document budget, and after accepted completion only
+	// the matching completion receipt. Model declarations alone never set it.
+	ToolDocumentationReady       bool
 	PrescanBlob                  string
 	Signals                      types.ExecutionSignals
 	SourceInventoryProfileActive bool

@@ -408,6 +408,7 @@ type MutableState struct {
 	// Original capture permissions are distinct from published query blobs.
 	// Survive dispatch reset; isolated forks share the epoch, not the map.
 	traceSourceReadGeneration *traceSourceReadGeneration
+	toolDocumentation         toolDocumentationState
 	traceQuerySourceReads     map[string]TraceQuerySourceReadRef
 	traceBusinessSpanRefs     map[string]TraceBusinessSpanRef
 	// Private completion/worker-success authority; never reconstructed from
@@ -1168,6 +1169,7 @@ type RichnessTelemetrySignal struct {
 // incrementally as a backwards-compatible struct field; anything we
 // include and stop using costs a 5-line removal commit.
 type TurnAArtifacts struct {
+	toolDocumentationCompletion *toolDocumentationCompletion
 	// UserQuestion is the original task question, plumbed through so
 	// Turn B can quote it back in its prompt without re-deriving from
 	// AnalysisIR.RequestModel (which is normalized and may have lost
@@ -1382,6 +1384,7 @@ func NewMutableState(objective string) *MutableState {
 		traceInputAdmissionTerminal:      &traceInputAdmissionTerminalLatch{},
 		artifactReadNavigationGeneration: &artifactReadNavigationGeneration{},
 		traceSourceReadGeneration:        &traceSourceReadGeneration{},
+		toolDocumentation:                toolDocumentationState{generation: &toolDocumentationGeneration{}},
 	}
 }
 
@@ -1431,6 +1434,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
 		traceSourceReadGeneration:                   m.traceSourceReadGeneration,
+		toolDocumentation:                           cloneToolDocumentationState(m.toolDocumentation),
 		traceQuerySourceReads:                       cloneTraceQuerySourceReads(m.traceQuerySourceReads),
 		traceBusinessSpanRefs:                       cloneTraceBusinessSpanRefs(m.traceBusinessSpanRefs),
 		traceBusinessFocus:                          traceBusinessFocusState{epoch: m.traceBusinessFocus.epoch, lineage: m.traceBusinessFocus.ticket},
@@ -1445,6 +1449,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	if m.requestModel != nil {
 		cp := *m.requestModel
 		cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(m.requestModel.RuntimeArtifactScopeProfile)
+		cp.ToolDocumentationRequest = CloneToolDocumentationRequest(m.requestModel.ToolDocumentationRequest)
 		out.requestModel = &cp
 	}
 	out.emittedEvidence = append([]EvidenceItem(nil), m.emittedEvidence...)
@@ -1536,6 +1541,8 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	traceQueryRuntimeObservationDelta := fork.traceQueryRuntimeObservationCount - fork.exploreForkTraceQueryRuntimeObservationBase
 	traceQueryBlobRefs := cloneStringStringMap(fork.traceQueryPublishedBlobRefs)
 	traceSourceGeneration := fork.traceSourceReadGeneration
+	toolDocumentation := cloneToolDocumentationState(fork.toolDocumentation)
+	toolDocumentation.accepted = fork.acceptedToolDocumentationLocked()
 	traceSourceReads := cloneTraceQuerySourceReads(fork.traceQuerySourceReads)
 	traceBusinessSpans := cloneTraceBusinessSpanRefs(fork.traceBusinessSpanRefs)
 	artifactNavigationGeneration := fork.artifactReadNavigationGeneration
@@ -1626,6 +1633,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 			m.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(mergedAggregateFacts)
 		}
 	}
+	m.mergeToolDocumentationLocked(toolDocumentation, investigationComplete && forkDecidedCompletion)
 	// Retained lane write-back from the fork's retained copy (a decided fork
 	// whose window was reset before the merge still carries its accepted
 	// state here). Finding W: gated on the fork's own accepted completion —
@@ -2645,6 +2653,7 @@ func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
 	m.registerArtifactReadNavigationResultLocked(r)
 	m.registerTraceQuerySourceReadLocked(r)
 	m.registerTraceBusinessSpanRefsLocked(r)
+	m.registerToolDocumentationLocked(r)
 }
 
 // traceQueryBlobRefPathSegment is the mandatory path segment every
@@ -3122,6 +3131,7 @@ func (m *MutableState) RequestModel() *RequestModel {
 	}
 	cp := *m.requestModel
 	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(m.requestModel.RuntimeArtifactScopeProfile)
+	cp.ToolDocumentationRequest = CloneToolDocumentationRequest(m.requestModel.ToolDocumentationRequest)
 	return &cp
 }
 
@@ -3137,6 +3147,7 @@ func (m *MutableState) SetRequestModel(rm RequestModel) {
 	defer m.mu.Unlock()
 	cp := rm
 	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(rm.RuntimeArtifactScopeProfile)
+	cp.ToolDocumentationRequest = CloneToolDocumentationRequest(rm.ToolDocumentationRequest)
 	m.requestModel = &cp
 }
 
@@ -5415,6 +5426,7 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 		snap.SourceInventoryObservation = SourceInventoryObservationFromAdvisory(snap.SourceInventoryAdvisory)
 	}
 	snap.HandoffCarriers = ToolHandoffCarriersFromTurnAInputs(snap.ToolResults, snap.EvidenceItems, snap.HandoffCarriers)
+	snap.toolDocumentationCompletion = m.acceptedToolDocumentationLocked()
 	m.turnAArtifacts = &snap
 	m.turnAArtifactsRevision++
 	if snap.SourceInventoryObservation.IsActive() || len(snap.HandoffCarriers) > 0 || len(snap.EvidenceItems) > 0 {
@@ -5447,6 +5459,7 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 		return nil
 	}
 	out := *m.turnAArtifacts
+	out.toolDocumentationCompletion = m.acceptedToolDocumentationLocked()
 	if m.turnAArtifacts.InvestigationNotes != nil {
 		out.InvestigationNotes = append([]string(nil), m.turnAArtifacts.InvestigationNotes...)
 	}
@@ -5505,6 +5518,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.traceQueryPublishedBlobRefs = nil
 	m.traceSourceReadGeneration = &traceSourceReadGeneration{}
+	m.toolDocumentation = toolDocumentationState{generation: &toolDocumentationGeneration{}}
 	m.traceQuerySourceReads = nil
 	m.traceBusinessSpanRefs = nil
 	m.resetTraceBusinessFocusLocked()

@@ -48,21 +48,24 @@ type ArtifactReadinessInput struct {
 // gates and final-audit surfaces. The view may explain why lineage is
 // unresolved, but the payload authority remains the existing typed carriers.
 type ArtifactReadinessView struct {
-	Active                bool                        `json:"active"`
-	Ready                 bool                        `json:"ready"`
-	ReasonCode            ArtifactReadinessReasonCode `json:"reason_code,omitempty"`
-	Consumer              string                      `json:"consumer,omitempty"`
-	PayloadCount          int                         `json:"payload_count,omitempty"`
-	EvidenceItemCount     int                         `json:"evidence_item_count,omitempty"`
-	AnswerChainCount      int                         `json:"answer_chain_count,omitempty"`
-	AggregateFactCount    int                         `json:"aggregate_fact_count,omitempty"`
-	ResolvedRefCount      int                         `json:"resolved_ref_count,omitempty"`
-	UnresolvedRefCount    int                         `json:"unresolved_ref_count,omitempty"`
-	UnsupportedRefCount   int                         `json:"unsupported_ref_count,omitempty"`
-	MissingRequiredInputs []string                    `json:"missing_required_inputs,omitempty"`
-	ResolvedRefs          []NodeArtifactRecord        `json:"resolved_refs,omitempty"`
-	UnresolvedRefs        []NodeArtifactRecord        `json:"unresolved_refs,omitempty"`
-	UnsupportedRefs       []NodeArtifactRecord        `json:"unsupported_refs,omitempty"`
+	// Independent static-document readiness. It never changes Active, Ready,
+	// runtime lineage, payload counts or capture/evidence authority.
+	ToolDocumentationReady bool                        `json:"-"`
+	Active                 bool                        `json:"active"`
+	Ready                  bool                        `json:"ready"`
+	ReasonCode             ArtifactReadinessReasonCode `json:"reason_code,omitempty"`
+	Consumer               string                      `json:"consumer,omitempty"`
+	PayloadCount           int                         `json:"payload_count,omitempty"`
+	EvidenceItemCount      int                         `json:"evidence_item_count,omitempty"`
+	AnswerChainCount       int                         `json:"answer_chain_count,omitempty"`
+	AggregateFactCount     int                         `json:"aggregate_fact_count,omitempty"`
+	ResolvedRefCount       int                         `json:"resolved_ref_count,omitempty"`
+	UnresolvedRefCount     int                         `json:"unresolved_ref_count,omitempty"`
+	UnsupportedRefCount    int                         `json:"unsupported_ref_count,omitempty"`
+	MissingRequiredInputs  []string                    `json:"missing_required_inputs,omitempty"`
+	ResolvedRefs           []NodeArtifactRecord        `json:"resolved_refs,omitempty"`
+	UnresolvedRefs         []NodeArtifactRecord        `json:"unresolved_refs,omitempty"`
+	UnsupportedRefs        []NodeArtifactRecord        `json:"unsupported_refs,omitempty"`
 }
 
 // HasBlockingLedgerIssue reports whether an active ledger contains precise

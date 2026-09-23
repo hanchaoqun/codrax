@@ -1,0 +1,16 @@
+# HMC-01.3/18.4: static documentation and a real bounded observation must
+# remain separate obligations. Presence rules are smoke checks, not causality.
+ID="trace_capability_and_window_analysis"
+NAME="documented IO units plus a bounded business response investigation"
+FIXTURE="eval/fixtures/stub_repo"
+HTRACE_FILE="eval/fixtures/hmosperf_business_io_chain/events.systrace"
+N_DEFAULT=1
+QUESTION="请分开回答两部分，不分析仓库源码。第一部分，查看当前程序公开的 Trace 工具说明，介绍 IO 请求耗时、线程 IO 等待、唤醒后调度等待各自的含义和单位，以及缺少事件时应该如何解释。第二部分，真正查询附加 trace 中 1.000000 秒到 1.050000 秒的 OpenDocument 响应：是哪条依赖拖住响应？分别给出文档读取请求本身的耗时、工作线程实际等待 IO 和唤醒后等待调度的时间，保留链上的业务线索。不要用能力说明代替这份 trace 的证据，也不要把后台备份仅因耗时更长列为本次响应根因；重叠时长不要相加。"
+EXPECT_PRIMARY_CONTAINS="OpenDocument LoadDocumentIndex"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])35([.]0+)?[[:space:]*]*(ms|毫秒)
+(^|[^0-9])31([.]0+)?[[:space:]*]*(ms|毫秒)
+(^|[^0-9])1([.]0+)?[[:space:]*]*(ms|毫秒)
+(缺失|缺少|未知|不足|不可用|无法|不能)"
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_capabilities
+phase=toolcall .*tool=trace_query"

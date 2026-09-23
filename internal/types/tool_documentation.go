@@ -27,6 +27,7 @@ type ToolDocumentationSelection struct {
 // protocol. ContentHash is a deduplication/integrity key, not authentication.
 // Model emit schemas must not accept this carrier.
 type ToolDocumentation struct {
+	read        *toolDocumentationRead
 	Version     int                        `json:"version"`
 	Schema      string                     `json:"schema"`
 	Selection   ToolDocumentationSelection `json:"selection"`

@@ -2040,11 +2040,12 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 			taToolResults = ta.ToolResults
 		}
 		env := criterion.Env{
-			IR:            ctx.AnalysisIR,
-			Evidence:      ctx.EvidenceItems,
-			ToolResults:   taToolResults,
-			AnswerSymbols: out.AnswerSymbols,
-			PrescanBlob:   ctx.Mutable.PrescanSummaryBlob(),
+			IR:                     ctx.AnalysisIR,
+			ToolDocumentationReady: ctx.Mutable.HasAcceptedToolDocumentationCompletion(&ctx.AnalysisIR.RequestModel),
+			Evidence:               ctx.EvidenceItems,
+			ToolResults:            taToolResults,
+			AnswerSymbols:          out.AnswerSymbols,
+			PrescanBlob:            ctx.Mutable.PrescanSummaryBlob(),
 		}
 		existing := ctx.Mutable.EmittedHypothesisVerdicts()
 		byID := make(map[string]bool, len(existing))
@@ -2097,7 +2098,9 @@ func renderExtractorStageReport(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Extraction Summary\n")
 	runtimeSourceOptional := extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx)
-	if runtimeSourceOptional {
+	if acceptedToolDocumentationOnly(ctx) {
+		b.WriteString("- source_lane: documented tool capabilities only; no source or runtime evidence authority\n")
+	} else if runtimeSourceOptional {
 		b.WriteString("- source_lane: runtime_artifact_without_required_current_source\n")
 		b.WriteString("- final_surface: accepted runtime observations and aggregate facts; current-source verdicts are not required\n")
 	} else {
@@ -3372,6 +3375,9 @@ func viewNeedsBoundedPrincipalList(ctx *types.AgentContext) bool {
 }
 
 func needsAnswerSymbols(ctx *types.AgentContext) bool {
+	if acceptedToolDocumentationOnly(ctx) {
+		return false
+	}
 	if pureVCSMetadataAnswerRendersWithoutAnswerSymbols(ctx) {
 		return false
 	}
@@ -3742,6 +3748,9 @@ func pendingHypothesisIDs(ctx *types.AgentContext) []string {
 	if len(ctx.AnalysisIR.HypothesisSet) == 0 {
 		return nil
 	}
+	if acceptedToolDocumentationOnly(ctx) {
+		return nil
+	}
 	if extractorRuntimeArtifactWithoutRequiredCurrentSource(ctx) {
 		return nil
 	}
@@ -3787,6 +3796,9 @@ func (e *extractorEvaluator) extractorInvestigationEmpty(ctx *types.AgentContext
 // backtrack so a zero-read / zero-search / zero-evidence explore
 // window cannot silently flow into finalization.
 func InvestigationStructurallyEmpty(ta *types.TurnAArtifacts, evidence []types.EvidenceItem) bool {
+	if types.AcceptedToolDocumentationCompletion(ta) {
+		return false
+	}
 	if ta != nil {
 		if ta.RuntimeObservationOnlyCompletion {
 			return false

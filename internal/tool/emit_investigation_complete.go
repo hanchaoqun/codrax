@@ -2109,6 +2109,14 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.ToolDocumentationRequest != nil {
+		if err := types.ValidateToolDocumentationRequest(&ctx.AnalysisIR.RequestModel); err != nil {
+			return types.ToolResult{ToolName: t.Name(), Summary: "emit_investigation_complete rejected: " + err.Error()}, nil
+		}
+		if !ctx.Mutable.ToolDocumentationReady() {
+			return types.ToolResult{ToolName: t.Name(), Summary: "emit_investigation_complete rejected: the requested tool documentation has not been read in this investigation. Call trace_capabilities with the relevant view/detail, then answer from the complete returned contract. Documentation is not source or runtime evidence."}, nil
+		}
+	}
 	relationClaims, relationErr := validateCompletionRelationClaims(ctx, p.RelationClaims)
 	if relationErr != nil {
 		return types.ToolResult{
@@ -3154,6 +3162,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	ctx.Mutable.SetInvestigationRelationClaims(relationClaims)
 	appendPrincipalSpanWaiverCompletionNote(ctx)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
+	if ctx.AnalysisIR != nil {
+		ctx.Mutable.AcceptToolDocumentationCompletion(&ctx.AnalysisIR.RequestModel)
+	}
 	ctx.Mutable.RetainInvestigationAggregateFacts()
 	ctx.Mutable.RetainInvestigationRelationClaims()
 	// A1 anchor advisory (soft): verified-but-unconsumed anchors ride a
@@ -5501,6 +5512,10 @@ func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {
 }
 
 func completionGroundingBypassLabel(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) (string, bool) {
+	if ctx != nil && ctx.Mutable != nil && ctx.AnalysisIR != nil &&
+		types.ToolDocumentationOnlyRequested(&ctx.AnalysisIR.RequestModel) && ctx.Mutable.ToolDocumentationReady() {
+		return "current tool documentation", true
+	}
 	if label, ok := explicitCurrentSourceExclusionCompletionBypassLabel(ctx); ok {
 		return label, true
 	}

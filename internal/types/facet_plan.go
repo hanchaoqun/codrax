@@ -714,6 +714,13 @@ func IsRuntimeConditionalFactQuestion(rm RequestModel) bool {
 // ResolveQuestionFamily maps the typed request model onto one principal answer
 // family. See the ordered rules above.
 func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) QuestionFamily {
+	// Host tool documentation is not the architecture/configuration/call graph
+	// of the target checkout. Keep ordinary presentation choices (including
+	// explicit tables/diagrams), without imposing source-specific principal
+	// evidence carriers. Mixed requests retain the existing family decision.
+	if ToolDocumentationOnlyRequested(&rm) {
+		return QFGeneric
+	}
 	hasLog := rm.LogTriage != nil
 	hasPerf := rm.PerfTrace != nil
 

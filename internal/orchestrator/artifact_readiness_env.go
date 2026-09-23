@@ -9,7 +9,8 @@ func (o *Orchestrator) buildArtifactReadinessView(ir *types.AnalysisIR) *types.A
 		return nil
 	}
 	contracts := types.TaskArtifactContractsForNodeType(ir.TaskGraph, types.NodeExtract)
-	if len(contracts) == 0 {
+	docRequested := ir.RequestModel.ToolDocumentationRequest != nil
+	if len(contracts) == 0 && !docRequested {
 		return nil
 	}
 	closure := o.busCtx.Mutable.EvidenceClosure()
@@ -29,7 +30,10 @@ func (o *Orchestrator) buildArtifactReadinessView(ir *types.AnalysisIR) *types.A
 		AggregateFacts: aggregateFacts,
 		Consumer:       types.RuntimeArtifactConsumerExtract,
 	})
-	if !view.Active {
+	if docRequested {
+		view.ToolDocumentationReady = o.busCtx.Mutable.HasAcceptedToolDocumentationCompletion(&ir.RequestModel)
+	}
+	if !view.Active && !docRequested {
 		return nil
 	}
 	return &view

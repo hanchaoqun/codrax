@@ -46,6 +46,9 @@ const AnalysisIRVersion = "v19"
 
 type RequestModel struct {
 	RawRequest string `json:"raw_request"`
+	// ToolDocumentationRequest selects static host-tool documentation without
+	// reclassifying source/runtime facts or granting evidence authority.
+	ToolDocumentationRequest *ToolDocumentationRequest `json:"tool_documentation_request,omitempty"`
 	// UserPinnedFiles is the deterministic @path pin list injected by
 	// the analyzer's post-processing from AgentContext (PIB-5c) —
 	// NEVER decoded from the LLM emission, so the R2' schema-sync
@@ -1390,6 +1393,7 @@ const (
 	CritEvidenceCount                 = "evidence_count"
 	CritCitationCountGE               = "citation_count_ge"
 	CritExtractInputReady             = "extract_input_ready"
+	CritToolDocumentationReady        = "tool_documentation_ready"
 	CritSourceClassUniverseIncomplete = "source_class_universe_incomplete"
 	CritSourceInventoryLensMissing    = "source_inventory_lens_missing"
 	CritSourceInventoryFollowupDebt   = "source_inventory_followup_debt"

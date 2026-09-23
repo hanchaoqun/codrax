@@ -43,6 +43,20 @@ import (
 // extra relation hypothesis is appended whose falsification is the
 // new CritRelationAbsent kind.
 func Plan(rm types.RequestModel) []types.Hypothesis {
+	if types.ToolDocumentationOnlyRequested(&rm) {
+		// A support obligation keeps the existing binder invariant. It is not
+		// a guessed repository implementation or a claim that an absent source
+		// symbol disproves a documented capability. Missing documentation leaves
+		// it unknown; only a current retained-document receipt can confirm it.
+		h := types.Hypothesis{
+			ID: "h1", Statement: "The requested static explanation is supported by current selected tool documentation.",
+			RequiredEvidence:       []types.Criterion{{Kind: types.CritToolDocumentationReady}},
+			FalsificationCondition: types.Criterion{Kind: types.CritNoRelevantEvidence},
+			Status:                 types.HypUnknown,
+		}
+		h.Priority = priority.Score(h, rm, 0)
+		return []types.Hypothesis{h}
+	}
 	var out []types.Hypothesis
 	nextID := func() string { return fmt.Sprintf("h%d", len(out)+1) }
 

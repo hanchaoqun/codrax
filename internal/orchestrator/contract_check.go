@@ -209,6 +209,16 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	}
 	stopCore := trace.start("contract_core")
 	result := contract.CheckWithOracle(draft, c, oracle)
+	if mut != nil {
+		if rm := mut.RequestModel(); rm != nil && rm.ToolDocumentationRequest != nil && !mut.HasAcceptedToolDocumentationCompletion(rm) {
+			result.Passed = false
+			result.Violations = append(result.Violations, types.Violation{
+				Kind:       types.ViolAcceptance,
+				ClusterKey: types.IdentityClusterKey("acceptance:tool_documentation", "ToolDocumentationRequest"),
+				Detail:     "The requested tool documentation has no accepted current-investigation read. Read the relevant complete contract and finish the investigation before answering; source and runtime obligations remain separate.",
+			})
+		}
+	}
 	coreStrict, coreSoft := contractViolationSeverityCounts(result.Violations)
 	stopCore(len(result.Violations), coreStrict, coreSoft)
 
