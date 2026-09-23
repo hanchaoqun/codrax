@@ -679,11 +679,12 @@ func exportTraceDBTaskPool(ctx context.Context, tdb *traceDB, sink *traceDBRowSi
 	return coverage, rows.Err()
 }
 
-func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSink, syncSpans *traceDBSyncSpanAuthority, index traceDBThreadIndex, dict map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "slice", "app_startup", []string{"start_time", "end_time", "start_name", "ipid"})
+func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSink, syncSpans *traceDBSyncSpanAuthority, index traceDBThreadIndex, dict map[int64]string) (coverage TraceDBCoverage, err error) {
+	coverage, err = tdb.inspectCoverage(ctx, "slice", "app_startup", []string{"start_time", "end_time", "start_name", "ipid"})
 	coverage.FieldSources = map[string]string{
 		"wire_laminar":     "current accepted rows submit typed B/E candidates to the shared authority; no endpoint is published by this exporter",
-		"source_admission": "legacy SQL COALESCE/WHERE, scalar, process lifecycle, CPU and anti-rescue correctness remain open as R1b-C",
+		"source_admission": "legacy interval WHERE/scalar, process lifecycle, CPU and anti-rescue correctness remain open as R1b-C",
+		"name_reference":   "raw SQLite INTEGER only; NULL/other storage classes never alias INTEGER 0; unresolved names retain the existing generic label",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
@@ -692,18 +693,26 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 	if err != nil || !stableKnown {
 		return coverage, err
 	}
-	query := fmt.Sprintf("SELECT %s, start_time, end_time, COALESCE(start_name, 0), ipid FROM app_startup WHERE end_time > start_time ORDER BY start_time, %s", stableExpr, stableExpr)
+	query := fmt.Sprintf("SELECT %s, start_time, end_time, start_name, ipid FROM app_startup WHERE end_time > start_time ORDER BY start_time, %s", stableExpr, stableExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
-	defer rows.Close()
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, rows.Close())
+		if err != nil {
+			coverage.Error = err.Error()
+		}
+	}()
 	skipped := map[string]int{}
 	for rows.Next() {
-		var start, end, nameID int64
-		var stableRaw, ipidRaw any
-		if err := rows.Scan(&stableRaw, &start, &end, &nameID, &ipidRaw); err != nil {
+		if err := ctx.Err(); err != nil {
+			return coverage, err
+		}
+		var start, end int64
+		var stableRaw, nameRaw, ipidRaw any
+		if err := rows.Scan(&stableRaw, &start, &end, &nameRaw, &ipidRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
@@ -721,6 +730,10 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 			skipped["unresolved_owner_process"]++
 			continue
 		}
+		name, nameReason := traceDBDictionaryReference(nameRaw, dict)
+		if nameReason != "" {
+			skipped["start_name_"+nameReason]++
+		}
 		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
 			Producer:           traceDBSyncSpanProducerAppStartup,
 			StableKind:         traceDBSyncSpanStableAppStartupRowID,
@@ -736,7 +749,7 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 			StartCPUProvenance: traceDBSyncSpanCPULegacyUnverified,
 			EndCPUProvenance:   traceDBSyncSpanCPULegacyUnverified,
 			Task:               task,
-			Name:               "AppStartup:" + firstNonEmpty(dict[nameID], "startup"),
+			Name:               "AppStartup:" + firstNonEmpty(name, "startup"),
 			NameProvenance:     traceDBSyncSpanNameAppStartupDictionary,
 			DepthProvenance:    traceDBSyncSpanDepthUnknown,
 		}); err != nil {
@@ -744,7 +757,10 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 		}
 	}
 	coverage.Skipped = traceDBCountSummary(skipped)
-	return coverage, rows.Err()
+	if err = rows.Err(); err == nil {
+		err = ctx.Err()
+	}
+	return coverage, err
 }
 
 func exportTraceDBStaticInitialize(ctx context.Context, tdb *traceDB, _ *traceDBRowSink, syncSpans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
@@ -977,31 +993,75 @@ func exportTraceDBLog(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _
 	return coverage, rows.Err()
 }
 
-func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, dict map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "log", "hisys_all_event", []string{"ts", "tid", "domain_id", "event_name_id", "contents"})
+func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, dict map[int64]string) (coverage TraceDBCoverage, err error) {
+	coverage, err = tdb.inspectCoverage(ctx, "log", "hisys_all_event", []string{"ts", "tid", "domain_id", "event_name_id", "contents"})
+	coverage.FieldSources = map[string]string{
+		"name_references": "raw SQLite INTEGER only; NULL/other storage classes never alias INTEGER 0",
+		"name_wire":       "shared exact DOMAIN/ENAME print grammar; unresolved or unsupported names remain preserved in sql_text_fidelity without a semantic print row",
+	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT ts, COALESCE(tid, 0), COALESCE(domain_id, 0), COALESCE(event_name_id, 0), COALESCE(contents, '') FROM hisys_all_event ORDER BY ts")
+	rows, err := tdb.db.QueryContext(ctx, "SELECT ts, COALESCE(tid, 0), domain_id, event_name_id, COALESCE(contents, '') FROM hisys_all_event ORDER BY ts")
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
-	defer rows.Close()
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, rows.Close())
+		if err != nil {
+			coverage.Error = err.Error()
+		}
+	}()
+	skipped := map[string]int{}
 	for rows.Next() {
-		var ts, tid, domainID, eventID int64
+		if err := ctx.Err(); err != nil {
+			return coverage, err
+		}
+		var ts, tid int64
+		var domainRaw, eventRaw any
 		var contents string
-		if err := rows.Scan(&ts, &tid, &domainID, &eventID, &contents); err != nil {
+		if err := rows.Scan(&ts, &tid, &domainRaw, &eventRaw, &contents); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		msg := fmt.Sprintf("%s/%s: %s", dict[domainID], dict[eventID], strings.ReplaceAll(contents, "\n", " "))
+		contents = strings.ReplaceAll(contents, "\n", " ")
+		domain, domainReason := traceDBDictionaryReference(domainRaw, dict)
+		event, eventReason := traceDBDictionaryReference(eventRaw, dict)
+		if domainReason != "" {
+			skipped["domain_id_"+domainReason]++
+		}
+		if eventReason != "" {
+			skipped["event_name_id_"+eventReason]++
+		}
+		domainSupported := domainReason == "" && tracewire.IsHiSysEventPrintName(domain)
+		eventSupported := eventReason == "" && tracewire.IsHiSysEventPrintName(event)
+		if domainReason == "" && !domainSupported {
+			skipped["unsupported_domain_name"]++
+		}
+		if eventReason == "" && !eventSupported {
+			skipped["unsupported_event_name"]++
+		}
+		if !domainSupported || !eventSupported {
+			// Name rejection must not bypass the existing header/contents checks.
+			// This shortest prefix is never published and cannot introduce a new
+			// line-length failure by substituting a longer placeholder name.
+			if _, err := prepareTraceDBRenderedRow(ts, sink.stats.RowsAccepted, "<hisysevent>", tid, tid, 0, "print: "+contents); err != nil {
+				return coverage, err
+			}
+			continue
+		}
+		msg := fmt.Sprintf("%s/%s: %s", domain, event, contents)
 		if err := addTraceDBInstantRow(sink, ts, "<hisysevent>", tid, tid, 0, "print: "+msg); err != nil {
 			return coverage, err
 		}
 		coverage.RowsEmitted++
 	}
-	return coverage, rows.Err()
+	coverage.Skipped = traceDBCountSummary(skipped)
+	if err = rows.Err(); err == nil {
+		err = ctx.Err()
+	}
+	return coverage, err
 }
 
 type traceDBCounterColumn struct {

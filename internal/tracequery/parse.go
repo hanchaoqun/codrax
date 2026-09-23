@@ -5576,14 +5576,6 @@ func isConverterHiLogPrintPayload(comm, fields string) bool {
 	return remainder == "" || remainder[0] == ' '
 }
 
-// hisysEventPrintRE matches the converter-emitted HiSysEvent print payload
-// "{domain}/{ename}: {contents}" (db2systrace.py:751-764;
-// hitraceconv/streamerdb_export_extended.go:939): DOMAIN and ENAME are
-// HiSysEvent uppercase identifiers of length ≥2, exactly one '/', then ':'
-// followed by end-of-payload or a space. The ≥2 floor kills short prose
-// heads ("I/O: read done", "A/B: on") that would otherwise fit the shape.
-var hisysEventPrintRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]+/[A-Z][A-Z0-9_]+:( |$)`)
-
 // isHiSysEventPrintPayload reports whether a print-family payload is the
 // converter HiSysEvent re-emission. The payload shape alone is NOT precise
 // enough to type on — real userspace print prose uses the same head
@@ -5593,7 +5585,11 @@ var hisysEventPrintRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]+/[A-Z][A-Z0-9_]+:( |
 // comm falls through to the Contains-detector chain and then EventUnknown —
 // the pre-B-4 behavior (fail-open).
 func isHiSysEventPrintPayload(comm, fields string) bool {
-	return comm == converterHiSysEventComm && hisysEventPrintRE.MatchString(fields)
+	if comm != converterHiSysEventComm {
+		return false
+	}
+	_, _, ok := tracewire.ParseHiSysEventPrintHead(fields)
+	return ok
 }
 
 // parseHiSysEventPrintPayload extracts the positional domain/ename pair from
@@ -5601,12 +5597,10 @@ func isHiSysEventPrintPayload(comm, fields string) bool {
 // for anything that does not match the exact machine shape, including any
 // row whose comm is not the converter machine token.
 func parseHiSysEventPrintPayload(comm, fields string) (domain, ename string, ok bool) {
-	if !isHiSysEventPrintPayload(comm, fields) {
+	if comm != converterHiSysEventComm {
 		return "", "", false
 	}
-	head, _, _ := strings.Cut(fields, ":")
-	domain, ename, _ = strings.Cut(head, "/")
-	return domain, ename, true
+	return tracewire.ParseHiSysEventPrintHead(fields)
 }
 
 // parseSchedSwitchKV parses the scheduler core in its producer-defined order.
