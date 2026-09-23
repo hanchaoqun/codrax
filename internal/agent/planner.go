@@ -959,11 +959,9 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 }
 
 // buildTestSurfaceSection implements Module B. Derives the
-// "what testing capability does this repo have" answer from facts
-// already in the cached repomap Graph (no new disk I/O). Renders a
-// neutral "## Test surface" section that ENUMERATES manifests / test
-// directories / likely runners. The planner reads these and decides
-// whether its plan needs to update a manifest, add a test file, etc.
+// testing-layout navigation from the cached repomap Graph (no new disk
+// I/O). File names identify project/build families or explicit framework
+// configuration markers, not a selected runner or native assertion protocol.
 //
 // Returns "" when no graph is available (analyzer signal too weak,
 // or first dispatch in a non-explorer-led plan-only path) so the
@@ -982,7 +980,7 @@ func (e *plannerEvaluator) buildTestSurfaceSection(ctx *types.AgentContext) stri
 	}
 	var b strings.Builder
 	b.WriteString("## Test surface\n\n")
-	b.WriteString("Read-only facts about this repo's testing layout (derived from repo_map, no disk probe).\n\n")
+	b.WriteString("Read-only testing-layout navigation from repo_map paths, without inspecting manifest contents or probing the environment. Generic manifests identify language/build families, not a test framework, test command, or installed runner; explicit configuration markers apply only to their containing project. These hints do not choose the selected native protocol or establish execution or assertion identities. Current typed test-surface selection and observed native identities remain separate authorities.\n\n")
 	if len(profile.Manifests) > 0 {
 		b.WriteString("Manifests detected: ")
 		b.WriteString(strings.Join(profile.Manifests, ", "))
@@ -994,7 +992,7 @@ func (e *plannerEvaluator) buildTestSurfaceSection(ctx *types.AgentContext) stri
 		b.WriteString("\n")
 	}
 	if len(profile.RunnerHints) > 0 {
-		b.WriteString("Likely test runners: ")
+		b.WriteString("Project/build and configuration markers: ")
 		b.WriteString(strings.Join(profile.RunnerHints, ", "))
 		b.WriteString("\n")
 	}
@@ -1165,10 +1163,9 @@ func plannerSearchGraph(ctx *types.AgentContext) *repomaptypes.Graph {
 	return g
 }
 
-// repoTestProfile is the structured "what testing capability does
-// this repo have" data the planner sees in the Test surface section.
-// All fields are language-agnostic enumerations of facts derived
-// from a repomap Graph — no recommendations attached.
+// repoTestProfile is bounded testing-layout navigation for the planner.
+// RunnerHints is a historical internal name for filename-derived project/
+// configuration markers; it does not hold the verifier's runner selection.
 type repoTestProfile struct {
 	Manifests   []string
 	TestDirs    []string
@@ -1179,43 +1176,43 @@ func (p *repoTestProfile) empty() bool {
 	return len(p.Manifests) == 0 && len(p.TestDirs) == 0 && len(p.RunnerHints) == 0
 }
 
-// plannerManifestRunner maps recognised manifest filenames to the
-// run_tests runner tag the verifier would pick. The mapping mirrors
-// internal/tool/run_tests.go's detectRunnerPlans so the planner sees
-// the same categorisation the verify stage will apply downstream.
-// Single source of truth would be ideal but circular import would
-// result; this tiny map stays in sync with run_tests.go's table.
+// plannerManifestRunner supplies navigation labels from file names only.
+// Generic project manifests cannot establish test frameworks, scripts,
+// targets or wrapper availability. Explicit framework configuration names
+// remain useful scoped leads, never evidence of installation or execution.
+// Actual runner selection reads manifest contents and native test signals in
+// the verifier; this map deliberately does not predict that richer decision.
 var plannerManifestRunner = map[string]string{
-	"go.mod":              "go (go test)",
-	"package.json":        "node (npm test)",
-	"pyproject.toml":      "python (pytest)",
-	"pytest.ini":          "python (pytest)",
-	"setup.py":            "python (pytest)",
-	"Cargo.toml":          "rust (cargo test)",
-	"pom.xml":             "java (mvn test)",
-	"build.gradle":        "java (gradlew test)",
-	"build.gradle.kts":    "java (gradlew test)",
-	"Gemfile":             "ruby (rspec)",
-	"CMakeLists.txt":      "cmake (ctest)",
-	"meson.build":         "meson (meson test)",
-	"Makefile":            "make (make check)",
-	"oh-package.json5":    "hvigor (hvigorw test)",
-	"build-profile.json5": "hvigor (hvigorw test)",
-	"hvigorfile.ts":       "hvigor (hvigorw test)",
-	"cjpm.toml":           "cjpm (cjpm test)",
-	"Package.swift":       "swift (swift test)",
+	"go.mod":              "go (module)",
+	"package.json":        "node (package manifest)",
+	"pyproject.toml":      "python (project manifest)",
+	"pytest.ini":          "python (pytest configuration marker)",
+	"setup.py":            "python (package manifest)",
+	"Cargo.toml":          "rust (Cargo project)",
+	"pom.xml":             "java (Maven project)",
+	"build.gradle":        "java (Gradle project)",
+	"build.gradle.kts":    "java (Gradle project)",
+	"Gemfile":             "ruby (Bundler manifest)",
+	"CMakeLists.txt":      "cmake (build project)",
+	"meson.build":         "meson (build project)",
+	"Makefile":            "make (build file)",
+	"oh-package.json5":    "hvigor (project/build marker)",
+	"build-profile.json5": "hvigor (project/build marker)",
+	"hvigorfile.ts":       "hvigor (project/build marker)",
+	"cjpm.toml":           "cjpm (Cangjie project)",
+	"Package.swift":       "swift (Swift package)",
 }
 
 // extractTestProfile walks the repomap Graph (zero disk I/O — the
 // graph already carries every file's RelPath from the scan) and
-// emits a fact-only profile of the repo's test surface. Three
+// emits a navigation-only profile of the repo's test surface. Three
 // categories:
 //
-//  1. Manifests: project-root manifest filenames that imply a runner
+//  1. Manifests: project/build or framework configuration filenames
 //     (one entry per distinct manifest file path).
 //  2. TestDirs: directories named tests/test/spec/__tests__ or whose
 //     path contains a test-segment hint.
-//  3. RunnerHints: human-readable runner labels derived from the
+//  3. RunnerHints: human-readable navigation labels derived from the
 //     manifest set, deduplicated.
 //
 // No prescription — the planner reads these and decides whether its
