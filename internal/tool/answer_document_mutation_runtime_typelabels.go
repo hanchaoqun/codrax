@@ -44,7 +44,7 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		// shared reader face without changing the typed cause or its rank.
 		return "优先级反转候选·同核可运行重叠"
 	case "io_latency":
-		return "IO延迟"
+		return types.TraceIOValueCaliberLabel("", true)
 	case "io_wait":
 		return "iowait"
 	case "d_state_or_io_wait":
@@ -172,7 +172,7 @@ func runtimeTraceRootCauseTypeENLabel(token string) string {
 	case "priority_inversion_runnable_wait":
 		return "priority inversion candidate · same-CPU runnable overlap"
 	case "io_latency":
-		return "IO latency"
+		return types.TraceIOValueCaliberLabel("", false)
 	case "io_wait":
 		return "iowait"
 	case "d_state_or_io_wait":
@@ -404,6 +404,9 @@ func runtimeTraceCausalProjectionDisplayCauseNameNode(node types.TraceCausalProj
 			return word + "(原因未证)"
 		}
 		return word + " (cause unproven)"
+	}
+	if word, ok := runtimeTraceIOValueCauseName(node, zh); ok {
+		return qualify(word)
 	}
 	if runtimeTraceCausalProjectionUnknownSentinel(node.Object) {
 		return qualify(runtimeTraceCausalProjectionUnresolvedPeerText(runtimeTraceCausalProjectionUnresolvedPeerKindNode(node), zh))
@@ -678,6 +681,9 @@ func runtimeTraceCausalProjectionNarrativeCauseName(raw string, zh bool) string 
 // type lane. The raw token is available separately through
 // runtimeTraceCausalProjectionRawTypeToken for evidence/audit identities.
 func runtimeTraceCausalProjectionDetailTypeLabel(node types.TraceCausalProjectionNode, zh bool) string {
+	if word, ok := runtimeTraceIOValueWord(node, zh); ok {
+		return word
+	}
 	raw := runtimeTraceCausalProjectionRawTypeToken(node)
 	if label := TraceRootCauseTypeDisplayLabel(raw, zh); label != "" {
 		return label
@@ -918,11 +924,14 @@ func runtimeTraceProjAllZeroFoldRow(node types.TraceCausalProjectionNode) bool {
 // running 折算席 (the ·折算 qualifier already rides the row's caliber slot —
 // one 折算 word source, the grammar completes as 低频运行 … ·折算).
 //
-// HMC §86 source-caliber correction: the historical io_latency device suffix
+// HMC §86/§163 source-caliber correction: the historical io_latency device suffix
 // above is retired. The token can carry request residence or independently
-// closed issuer waiting; neither proves device causation. Keep the ruled bare
-// IO root (cause not further refined), without changing any token or amount.
+// closed issuer waiting; neither proves device causation. Name its published
+// measurement (or explicit mixed/unknown), without changing token or amount.
 func runtimeTraceProjElimVerdictTokenWord(node types.TraceCausalProjectionNode, token string, zh bool) (string, bool) {
+	if types.TraceUsesIOValueCaliber(token, node.IOValueCaliber) {
+		return types.TraceIOValueCaliberLabel(node.IOValueCaliber, zh), true
+	}
 	switch strings.ToLower(strings.TrimSpace(token)) {
 	case "scheduler_latency", "runnable_wait", "runnable":
 		if zh {
@@ -969,10 +978,7 @@ func runtimeTraceProjElimVerdictTokenWord(node types.TraceCausalProjectionNode, 
 		}
 		return "IO blocking·uninterruptible (cause unproven)", true
 	case "io_latency":
-		if zh {
-			return "IO阻塞", true
-		}
-		return "IO blocking", true
+		return types.TraceIOValueCaliberLabel(node.IOValueCaliber, zh), true
 	case "running", "fragmented_running":
 		// 低频运行 root only on the DISCOUNTED running seat (折算席): the
 		// supply-deficit arm, or the merged fold whose published eff is a

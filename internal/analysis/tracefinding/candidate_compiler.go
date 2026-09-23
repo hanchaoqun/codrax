@@ -202,7 +202,8 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 		mechanismQualifier = types.TraceMechanismLowerPriorityDependencyCandidate
 	}
 	gatedPartsPresent := mechanismQualifier != "" && (node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0)
-	if gatedPartsPresent || node.SupplyFoldComputed || node.DStateRefinedNonIO || node.DStateSplitMS > 0 || node.IOWaitSplitMS > 0 {
+	if gatedPartsPresent || node.SupplyFoldComputed || node.DStateRefinedNonIO || node.DStateSplitMS > 0 || node.IOWaitSplitMS > 0 ||
+		(types.TraceUsesIOValueCaliber(token, node.IOValueCaliber) && types.NormalizeTraceIOValueCaliber(node.IOValueCaliber) != "") {
 		magnitude.Components = &types.TraceMagnitudeComponents{
 			GatedComponentsPresent: gatedPartsPresent, GatedRunnableMS: node.GatedRunnableMS,
 			GatedRunningDeficitMS: node.GatedRunningDeficitMS, GatedCapabilitySource: node.GatedCapabilitySource,
@@ -210,6 +211,9 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 			SupplyFoldIdealMS: node.SupplyFoldIdealMS, SupplyFoldKnownMS: node.SupplyFoldKnownMS,
 			SupplyFoldUnknownMS: node.SupplyFoldUnknownMS, SupplyFoldCapabilitySource: node.SupplyFoldCapabilitySource,
 			DStateRefinedNonIO: node.DStateRefinedNonIO, DStateMS: node.DStateSplitMS, IOWaitMS: node.IOWaitSplitMS,
+		}
+		if types.TraceUsesIOValueCaliber(token, node.IOValueCaliber) {
+			magnitude.Components.IOValueCaliber = types.NormalizeTraceIOValueCaliber(node.IOValueCaliber)
 		}
 	}
 	// SIDECAR-Q1: seat-level qualifier from the candidate's OWN evidence IDs

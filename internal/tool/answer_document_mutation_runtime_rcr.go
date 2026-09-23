@@ -426,6 +426,10 @@ func runtimeTraceProjImpactFormFamilyWord(node types.TraceCausalProjectionNode, 
 		if form == runtimeTraceProjImpactFormNone {
 			continue
 		}
+		if types.TraceUsesIOValueCaliber(runtimeTraceCausalProjectionCanonicalNode(token), node.IOValueCaliber) {
+			word, _ := runtimeTraceIOValueCandidateWord(node, zh)
+			return word
+		}
 		// 件③ tri-form (2026-07-12): the merged D/IO family word forks on
 		// the refined-D proof here too (one fork rule, two consumers — the
 		// FormForNode classifier carries the same arm).
@@ -691,6 +695,9 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 	// pre-A5 relocation this arm replaces behaved identically).
 	if word, ok := runtimeTraceProjInversionFamilyWord(node, zh); ok {
 		return word, runtimeTraceProjStateKindLabel(node, zh) == ""
+	}
+	if word, ok := runtimeTraceIOValueCandidateWord(node, zh); ok {
+		return word, true
 	}
 	// Typed non-state shape words (IO阻塞候选 / 页缓存抖动 / 中断突发 …)
 	// relocate whole from the shape cell; a shape cell that carries a pure

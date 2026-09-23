@@ -60,9 +60,9 @@ func TestIOVerdictPublicClosedWaitDoesNotClaimDeviceCause(t *testing.T) {
 					zh := lang == "zh"
 					model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
 					overview := runtimeTraceProjElimOverviewFence(projection, model, zh)
-					root, rawWord := "IO blocking", "IO latency"
+					root, rawWord := "issuer I/O wait", "block request residence"
 					if zh {
-						root, rawWord = "IO阻塞", "IO延迟"
+						root, rawWord = "提交线程IO等待", "块设备请求耗时"
 					}
 					if tc.rootType == "d_state_or_io_wait" {
 						root = "IO blocking·uninterruptible (cause unproven)"
@@ -162,9 +162,9 @@ func TestIOVerdictUnmappedAndContextWordsKeepTheirAuthority(t *testing.T) {
 		}
 		for _, relevance := range []string{"adjacent", "background"} {
 			row := runtimeTraceProjTreeRow{Node: types.TraceCausalProjectionNode{Role: types.TraceCausalRoleRootCauseContext, Predicate: "root_cause_" + relevance, Object: "io_latency", TypeToken: "io_latency", ChainRelevance: relevance}}
-			want := "IO latency"
+			want := "I/O duration (measurement unspecified)"
 			if zh {
-				want = "IO延迟"
+				want = "IO观测时长（口径未明确）"
 			}
 			if word := runtimeTraceProjElimClassWord(row, zh, false, nil); word != want {
 				t.Errorf("non-diagnostic %s context must keep its original type word: got %q want %q", relevance, word, want)

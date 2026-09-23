@@ -670,6 +670,7 @@ type runtimeTraceProjBranchTwinFoldPeer struct {
 // never the seat's ranges. Origins remain source receipts, not IO identity.
 type runtimeTraceProjIOFoldPeer struct {
 	Token                                string
+	IOValueCaliber                       string
 	ImpactMS                             float64
 	Caliber                              runtimeTraceProjIOFoldCaliber
 	EvidenceTag                          string
@@ -1671,13 +1672,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `⚙/running` = 运行占用(正在 CPU 上执行)。",
 			"- `⚙/running` = executing on a CPU."},
 		{runtimeTraceProjMarkIconDState, runtimeTraceProjLegendGroupMark,
-			"- `⛓/D-state·iowait` = 不可中断等待/IO阻塞(链上行)。",
-			"- `⛓/D-state·iowait` = an uninterruptible / IO-blocked wait (on-chain row)."},
+			"- `⛓/D-state·iowait` = D状态/IO相关观测(链上行，具体计时口径见节点)。",
+			"- `⛓/D-state·iowait` = D-state / IO observations (on-chain row; see the node for the duration's measurement)."},
 		// UXR-1 §29.36② (2026-07-11): ⛓ visually claims chain membership, so
 		// the ◇/▒ D-state/IO family wears its own glyph (三面同一来源).
 		{runtimeTraceProjMarkIconDStateOffChain, runtimeTraceProjLegendGroupMark,
-			"- `⧗/D-state·iowait` = 不可中断等待/IO阻塞(◇/▒ 非链上行,与 ⛓ 同族)。",
-			"- `⧗/D-state·iowait` = an uninterruptible / IO-blocked wait (◇/▒ off-chain row, same family as ⛓)."},
+			"- `⧗/D-state·iowait` = D状态/IO相关观测(◇/▒ 非链上行，具体计时口径见节点)。",
+			"- `⧗/D-state·iowait` = D-state / IO observations (◇/▒ off-chain row; see the node for the duration's measurement)."},
 		// RNB-5B 修复轮 D2 (2026-07-15): the ⌗ 口径旁栏 row-head glyph — a
 		// count row falling into the ⛓ arm claimed a channel plus an
 		// uninterruptible wait it never measured.
@@ -2072,11 +2073,11 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			// §29.187② direction-word rename to 「IO/内核/依赖族」/"IO / kernel /
 			// dependency family" (pure label 连带; the verdict word roots inside
 			// the family are untouched).
-			// HMC §86: io_latency no longer claims an unproved device cause;
-			// it uses the same bare IO root, whose grammar already states the
-			// unrefined boundary. Tree/state words and accounting stay intact.
-			"- ◎ 判词文法 = 榜面席行一族一主判词词根,细化用 ·限定 后缀、永不换词根:调度供给族=调度延迟/调度延迟·碎片化/调度延迟·CPU竞争;IO/内核/依赖族=IO阻塞/IO阻塞·不可中断(原因未证);不可中断等待族=不可中断等待·非IO已证(已证非IO 的 D 状态席,独立词根=另一族病,不冒 IO阻塞 根);频率与热治理族=低频运行(·折算 走口径注记);锁与优先级族=优先级反转·*;binder等待、语义类词维持;裸主判词=成因未再细分;内核素状态词(runnable/sleep 等)只留树状态面/状态切换/明细,不再上 ◎ 榜面。",
-			"- ◎ verdict grammar = one family, one head-verdict word root on the board-face seat rows, refinements as ·qualifier suffixes and never a second root: scheduling family = scheduling latency / scheduling latency·fragmented / scheduling latency·CPU contention; IO / kernel / dependency family = IO blocking / IO blocking·uninterruptible (cause unproven); uninterruptible-wait family = uninterruptible wait·proven non-IO (a D-state seat with the typed non-IO proof — its own root, another disease family, never the IO-blocking root); frequency & thermal = low-frequency running (the ·discounted qualifier rides the caliber note); lock & priority = priority inversion·*; binder wait and semantic-class words stay; a bare head verdict = cause not further refined; bare kernel state words (runnable/sleep/…) stay on the tree state face / state-churn / detail table and no longer reach the ◎ board face."},
+			// HMC §86/§163: io_latency never claims an unproved device cause;
+			// its published measurement selects the IO label, with missing or
+			// mixed measurements explicit. Ordinary state accounting stays intact.
+			"- ◎ 判词文法 = 榜面席行一族一主判词词根,细化用 ·限定 后缀、永不换词根:调度供给族=调度延迟/调度延迟·碎片化/调度延迟·CPU竞争;IO/内核/依赖族=IO阻塞(普通iowait)，IO观测按节点计时口径分别命名(请求耗时/提交线程等待，混合或未知单独标注);不可中断且原因未证=IO阻塞·不可中断(原因未证);不可中断等待族=不可中断等待·非IO已证(已证非IO 的 D 状态席,独立词根=另一族病,不冒 IO阻塞 根);频率与热治理族=低频运行(·折算 走口径注记);锁与优先级族=优先级反转·*;binder等待、语义类词维持;裸主判词=成因未再细分;内核素状态词(runnable/sleep 等)只留树状态面/状态切换/明细,不再上 ◎ 榜面。",
+			"- ◎ verdict grammar = one family, one head-verdict word root on the board-face seat rows, refinements as ·qualifier suffixes and never a second root: scheduling family = scheduling latency / scheduling latency·fragmented / scheduling latency·CPU contention; IO / kernel / dependency family = IO blocking (ordinary iowait), with IO observations named by the node's measurement (request residence / issuer wait, with mixed or unspecified measurements disclosed); uninterruptible with an unproven cause = IO blocking·uninterruptible (cause unproven); uninterruptible-wait family = uninterruptible wait·proven non-IO (a D-state seat with the typed non-IO proof — its own root, another disease family, never the IO-blocking root); frequency & thermal = low-frequency running (the ·discounted qualifier rides the caliber note); lock & priority = priority inversion·*; binder wait and semantic-class words stay; a bare head verdict = cause not further refined; bare kernel state words (runnable/sleep/…) stay on the tree state face / state-churn / detail table and no longer reach the ◎ board face."},
 		// INV-SUPPLY 件① (§29.61.11/.11a, 2026-07-14): the compound type-word
 		// suffix's teaching entry — the threshold interpolates from the ONE
 		// shared constant (types.TraceSupplyGapDominanceShare) so the legend
@@ -6318,12 +6319,7 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 	}
 	parts := make([]string, 0, len(peers))
 	for _, peer := range peers {
-		token := strings.TrimSpace(peer.Token)
-		if zh {
-			if label := runtimeTraceRootCauseTypeZHLabel(token); label != "" && label != token {
-				token = label + "（" + token + "）"
-			}
-		}
+		token := runtimeTraceProjIOFoldPeerTypeWord(peer, zh)
 		if layer := runtimeTraceProjIOFoldLayerWord(peer.Token, peer.Caliber, zh); layer != "" {
 			token = layer + "·" + token
 		}
@@ -8519,6 +8515,7 @@ func runtimeTraceProjTimeSpansOverlap(a, b types.TraceCausalProjectionNode) bool
 // (those carry SUM-aggregate semantics), and the former subject-roster append
 // was dead code — the fold identity requires equal canonical subjects.
 func runtimeTraceProjAbsorbAdjacentDuplicate(survivor *types.TraceCausalProjectionNode, dup types.TraceCausalProjectionNode) {
+	original := *survivor
 	// Near lane only (PTV6-B mirror; the types-layer absorb's rule verbatim):
 	// when the two publications' values differ — inside the ≤3% band, or the
 	// identity would not have matched — the fold keeps the LARGEST boundary
@@ -8532,6 +8529,7 @@ func runtimeTraceProjAbsorbAdjacentDuplicate(survivor *types.TraceCausalProjecti
 			survivor.CumulativeImpactMS = dup.CumulativeImpactMS
 		}
 	}
+	runtimeTraceIOValueDuplicateDonors(survivor, original, dup)
 	if survivor.DuplicatePublications < 1 {
 		survivor.DuplicatePublications = 1
 	}
@@ -9881,12 +9879,18 @@ func runtimeTraceProjRowNameKeepSuffix(row runtimeTraceProjTreeRow, zh bool) str
 // uses); "" when the node carries no typed state (labels are never fabricated).
 func runtimeTraceProjDedupRowShortStateWord(row runtimeTraceProjTreeRow, zh bool) string {
 	node := row.Node
+	if token := runtimeTraceIOValueToken(node); token != "" && token != "io_latency" {
+		return types.TraceIOValueCaliberLabel(node.IOValueCaliber, zh)
+	}
 	if label := strings.TrimSpace(runtimeTraceProjStateKindLabel(node, zh)); label != "" {
 		return label
 	}
 	if class := runtimeTraceCausalProjectionTypeTokenStateClass(node); class != "" {
 		return strings.TrimSpace(runtimeTraceCausalProjectionTypeTokenStateWord(
 			runtimeTraceCausalProjectionRefinedStateClass(node, class), zh))
+	}
+	if word, ok := runtimeTraceIOValueWord(node, zh); ok {
+		return word
 	}
 	// Peer-relation forms (IO等待(对端 X) …): the short word is the relation
 	// form's own state head — SAME wording home as the composers (133136 E29
@@ -15633,7 +15637,9 @@ func runtimeTraceProjSelfCauseCrownState(primary types.TraceCausalProjectionNode
 		// face speaks (三面一说).
 		state = "D-state/iowait"
 	case runtimeTraceProjImpactFormIOBlock:
-		if zh {
+		if word, ok := runtimeTraceIOValueWord(primary, zh); ok {
+			state = word
+		} else if zh {
 			state = "IO等待"
 		} else {
 			state = "IO wait"
@@ -15646,6 +15652,11 @@ func runtimeTraceProjSelfCauseCrownState(primary types.TraceCausalProjectionNode
 			category = spec.CategoryZH
 		} else {
 			category = spec.CategoryEN
+		}
+	}
+	if form == runtimeTraceProjImpactFormIOBlock {
+		if word, ok := runtimeTraceIOValueCandidateWord(primary, zh); ok {
+			category = word
 		}
 	}
 	// A5 反转词位 (sweep M8, 2026-07-17): the crown's category word follows the
@@ -15764,7 +15775,7 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
 	// Reader narrative uses the localized label only; raw wire identity remains
 	// available in the explicit evidence/audit carriers.
-	cause := strings.TrimSpace(runtimeTraceCausalProjectionNarrativeCauseName(primary.Object, zh))
+	cause := strings.TrimSpace(runtimeTraceCausalProjectionNarrativeCauseNameNode(*primary, zh))
 	// 修复轮 P2-3 crown face (2026-07-12): a crowned refined-D row's cause
 	// word consumes the proof — the merged compound must not resurface on
 	// the 主根因 line beside the refined seat (同段词面互斥灭; the D4 raw

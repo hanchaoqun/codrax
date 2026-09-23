@@ -67,6 +67,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // adjacentIOFacetFamilySource is the synthesized family row's provenance
@@ -359,6 +361,20 @@ func reconcileAdjacentIOFacetFamilySeats(rank *RootCauseRankResult) {
 		plan := planned[key]
 		lead := active[plan.lead]
 		fam := lead
+		// Only union members contribute this value. Roster-only evidence must
+		// neither lend its ruler nor change the published measurement's ruler.
+		caliberSet := false
+		for _, memberIndex := range plan.members {
+			if _, contributes := plan.intervals[memberIndex]; !contributes {
+				continue
+			}
+			if !caliberSet {
+				fam.IOValueCaliber = types.NormalizeTraceIOValueCaliber(active[memberIndex].IOValueCaliber)
+				caliberSet = true
+			} else {
+				fam.IOValueCaliber = types.MergeTraceIOValueCalibers(fam.IOValueCaliber, active[memberIndex].IOValueCaliber)
+			}
+		}
 		fam.Source = adjacentIOFacetFamilySource
 		fam.RankFamilyKey = key
 		fam.Rank = 0

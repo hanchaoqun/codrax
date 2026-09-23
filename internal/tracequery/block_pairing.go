@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 type blockEndpointPhase uint8
@@ -21,12 +23,12 @@ const (
 	// BlockIOWaitCaliberIssueToComplete is the physical request-residence
 	// ruler.  It deliberately does not claim that the issuing task stayed
 	// scheduler-blocked for the whole interval.
-	BlockIOWaitCaliberIssueToComplete    = "block_rq_issue_to_complete"
-	BlockIOWaitCaliberBIOQueueToComplete = "block_bio_queue_to_complete"
+	BlockIOWaitCaliberIssueToComplete    = types.TraceIOValueCaliberRQResidence
+	BlockIOWaitCaliberBIOQueueToComplete = types.TraceIOValueCaliberBIOResidence
 	// BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked is the response-
 	// impact ruler. It is minted only by an exact request completion which
 	// directly wakes the issuing thread after a proven S/D switch-out.
-	BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked = "completion_closed_issuer_blocked"
+	BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked = types.TraceIOValueCaliberIssuerBlocked
 )
 
 func blockIORequestResidenceCaliber(family string) string {

@@ -939,6 +939,7 @@ const (
 	// the row on the chain lane (pure overlap demotes to ◇). Wording/context
 	// input only.
 	TraceNoteKeyResourceCompletionClosure = "resource_completion_closure"
+	TraceNoteKeyIOValueCaliber            = "io_value_caliber"
 	// TraceNoteKeyTGID / TraceNoteKeyProcessComm (CR-3 件③ P11, 2026-07-12;
 	// 冷读案8 关键角色裸线程名无 tgid): the rank row's process attribution —
 	// the TGID the trace's second column published for the thread, plus the
@@ -1842,6 +1843,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyCPUConstraintAllowedMaxTierKHz, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyCPUConstraintGlobalMaxTierKHz, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyResourceCompletionClosure, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOValueCaliber, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},
 	// ANSWERFACE-1 件2 (§29.140 G6, 2026-07-19): the target_window_states

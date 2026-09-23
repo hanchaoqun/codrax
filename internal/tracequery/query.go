@@ -16037,6 +16037,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 	}
 	for _, io := range ioLatencyCausalAccounting(stats, chainThreads) {
 		impactStart, impactEnd, impactMs := io.IssueTs, io.CompleteTs, io.DurationMs
+		valueCaliber := types.NormalizeTraceIOValueCaliber(ioLatencyRequestResidenceCaliber(io))
 		blockedStart, blockedEnd, blockedMs, completionClosed := ioLatencyIssuerBlockedInterval(io)
 		// Only a dependency-chain issuer may spend the response-impact ruler.
 		// Exact off-chain closures remain useful mechanism evidence, but their
@@ -16045,6 +16046,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		onChain := threadInSet(chainThreads, io.IssueThread) && completionClosed
 		if onChain {
 			impactStart, impactEnd, impactMs = blockedStart, blockedEnd, blockedMs
+			valueCaliber = types.TraceIOValueCaliberIssuerBlocked
 		}
 		projectedStart, projectedEnd := impactStart, impactEnd
 		projectedMs := impactMs
@@ -16074,13 +16076,14 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		// interval above. The existing enrich resource arm requires this
 		// credential for the on-chain lane; pure overlap demotes to ◇.
 		item.ResourceCompletionClosure = completionClosed
+		item.IOValueCaliber = valueCaliber
 		// This native request's closure was evaluated above independently of
 		// dependency-anchor availability. A target-only/anchor-less chain must
 		// not treat its false result as an unevaluated legacy request and spend
 		// request residence as target blocking. Legacy rows keep their zero bit.
 		item.resourceClosureEvaluated = true
 		if item.ResourceCompletionClosure {
-			item.Summary = appendRootCauseSummaryDetail(item.Summary, "the physical completion directly woke the issuing chain thread (source-scoped typed completion-closure credential)")
+			item.Summary = appendRootCauseSummaryDetail(item.Summary, "the physical completion directly woke the issuing thread (source-scoped typed completion-closure credential)")
 		}
 		item.PhysicalSourcePath = io.SourcePath
 		item.ProjectedImpactMs = projectedMs
@@ -23060,9 +23063,11 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 	for _, io := range ioLatencyCausalAccounting(stats, allowedIOIssuers) {
 		wakeDetail := ""
 		startTs, endTs, durationMs := io.IssueTs, io.CompleteTs, io.DurationMs
+		valueCaliber := types.NormalizeTraceIOValueCaliber(ioLatencyRequestResidenceCaliber(io))
 		lineStart, lineEnd := io.IssueLine, io.CompleteLine
 		if blockedStart, blockedEnd, blockedMs, closed := ioLatencyIssuerBlockedInterval(io); closed {
 			startTs, endTs, durationMs = blockedStart, blockedEnd, blockedMs
+			valueCaliber = types.TraceIOValueCaliberIssuerBlocked
 			lineStart, lineEnd = io.IssuerBlockedLine, io.WakeupLine
 			wakeDetail = fmt.Sprintf("; response_blocked(%s, completion_closed)=%.3fms; request_residence=%.3fms is not additive", io.IssuerBlockedState, blockedMs, io.DurationMs)
 		}
@@ -23077,6 +23082,7 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			LineEnd:                   lineEnd,
 			Confidence:                0.86,
 			ResourceCompletionClosure: io.CompletionWokeIssuer && io.CausalWaitCaliber == BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked,
+			IOValueCaliber:            valueCaliber,
 			Summary:                   fmt.Sprintf("block IO %s %s %s sector=%d len=%d request_residence(%s)=%.3fms%s", io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len, ioLatencyRequestResidenceCaliber(io), io.DurationMs, wakeDetail),
 		})
 	}

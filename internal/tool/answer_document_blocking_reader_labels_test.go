@@ -11,7 +11,7 @@ import (
 func TestB1605BlockingScopeUsesReaderLabelsWithoutChangingFacts(t *testing.T) {
 	for _, tc := range []struct{ token, zh, en string }{
 		{"binder_wait", "binder等待", "binder wait"},
-		{"io_latency", "IO延迟", "IO latency"},
+		{"io_latency", "IO观测时长（口径未明确）", "I/O duration (measurement unspecified)"},
 		{"block_io_completion_closed_issuer_wait", "IO完成唤醒提交线程的等待", "issuer wait ended by IO completion"},
 		{"future_wait_kind", "future_wait_kind", "future_wait_kind"},
 	} {

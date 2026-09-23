@@ -415,9 +415,9 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				// fail-close kills (ordinal > channel member population →
 				// chip drops; row identity/confidence stay rendered).
 				"IRQ突发·置信高", "IRQ活动·置信高", "累计(跨线程)1.997ms",
-				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
-				"IO等待(对端 udk-irq-1-63)", "5线程取最大(单项0.051~1.302ms)",
-				"IO等待(对端 udk-irq-4-67)",
+				"IO观测时长（口径未明确）(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
+				"IO观测时长（口径未明确）(对端 udk-irq-1-63)", "5线程取最大(单项0.051~1.302ms)",
+				"IO观测时长（口径未明确）(对端 udk-irq-4-67)",
 				// R9 (§29.93.2): the fold row's member sink line.
 				// RUN2FIX-A 件2 (2026-07-20, 刻意更新非静默): the sink line now names
 				// the fold's MAX member with its value (成员最大 线程·状态·值 form;
@@ -439,8 +439,8 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			inventory: []string{
 				"优先级反转候选·置信高·链上L1·有效归因 1.661ms(全额)",
 				"影响点 优先级反转候选·同核可运行重叠",
-				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
-				"IO等待(对端 udk-irq-1-63)",
+				"IO观测时长（口径未明确）(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
+				"IO观测时长（口径未明确）(对端 udk-irq-1-63)",
 				"本行满格/占比基于查询窗 34579.472865~34579.475857s",
 			},
 		},

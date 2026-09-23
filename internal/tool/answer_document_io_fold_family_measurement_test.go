@@ -100,9 +100,9 @@ func TestIOFoldSingleMeasurementKeepsExistingNote(t *testing.T) {
 			peer := runtimeTraceProjNewIOFoldPeer(node, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
 			peer.EvidenceTag = "E9"
 			got := runtimeTraceProjIOFoldNoteText([]runtimeTraceProjIOFoldPeer{peer}, zh)
-			want := "same-thread IO evidence group observed duration·io_latency 23.000ms [E9] (locator range unpublished; query range unpublished)"
+			want := "same-thread IO evidence group observed duration·I/O duration (measurement unspecified) 23.000ms [E9] (locator range unpublished; query range unpublished)"
 			if zh {
-				want = "同线程IO证据组 观测计时·IO延迟（io_latency） 23.000ms [E9] (定位范围未发布; 查询范围未发布)"
+				want = "同线程IO证据组 观测计时·IO观测时长（口径未明确） 23.000ms [E9] (定位范围未发布; 查询范围未发布)"
 			}
 			if got != want {
 				t.Errorf("count=%d zh=%t changed single-record output:\ngot %s\nwant %s", count, zh, got, want)

@@ -28,6 +28,7 @@ func runtimeTraceProjNewIOFoldPeer(node types.TraceCausalProjectionNode, evidenc
 	value, source := runtimeTraceProjNodeDisplayImpactSource(node)
 	peer := runtimeTraceProjIOFoldPeer{
 		Token: strings.TrimSpace(node.TypeToken), ImpactMS: value,
+		IOValueCaliber:    node.IOValueCaliber,
 		EvidenceTag:       runtimeTraceProjEvidenceTag(node, evidence, zh),
 		FamilyMemberCount: node.FamilyMemberCount,
 		FamilyMemberMaxMS: node.FamilyMemberMaxMS,

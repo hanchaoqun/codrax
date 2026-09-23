@@ -18,7 +18,7 @@ package tool
 //   #6/#13   — 近义收敛: StateKindLabel 吸收 ActionCell 同族词 (typed family;
 //              PTV7 后两 lane 同词, 吸收=只出现一次); 影响点 token 走 D4
 //              label（token）形态 (PTV7: 同词 token 塌缩). 全词一处 dedupe.
-//   #7       — resolved-peer 关系形态: "IO等待(对端 udk-irq-1-63)" 族
+//   #7       — resolved-peer 关系形态: "IO观测时长（口径未明确）(对端 udk-irq-1-63)" 族
 //              (ResolvedPeerText, 与 UnresolvedPeerText 同 wording home).
 //   #8       — sleep 自身行走 StateKindLabel (PTV7: ☾ sleep); raw token 留 (a)/(b)
 //              审计面.
@@ -203,7 +203,7 @@ func TestPTV6CResolvedPeerRelationForm(t *testing.T) {
 	cases := []struct {
 		typeToken, peer, zh, en string
 	}{
-		{"io_latency", "udk-irq-1-63", "IO等待(对端 udk-irq-1-63)", "IO wait (peer udk-irq-1-63)"},
+		{"io_latency", "udk-irq-1-63", "IO观测时长（口径未明确）(对端 udk-irq-1-63)", "I/O duration (measurement unspecified) (peer udk-irq-1-63)"},
 		{"d_state_or_io_wait", "udk-irq-3-65", "D-state/iowait(对端 udk-irq-3-65)", "D-state/iowait (peer udk-irq-3-65)"},
 		{"blocking_span", "worker-7", "阻塞等待(对端 worker-7)", "blocking wait (peer worker-7)"},
 	}
@@ -880,7 +880,7 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	// 关键行三 (▒ 背景): resolved peer 关系形态 + d_state_or_io_wait 状态族
 	// (前: "· udk-irq…-63" 裸词位 + ◦ 无主导态 chip on D状态/IO等待 rows).
 	// UXR-1 §29.36②: ▒ rows wear ⧗ (off-chain D/IO family glyph).
-	for _, want := range []string{"IO等待(对端 udk-irq-1-63)", "D-state/iowait(对端未解析)", "⧗ BdAsyncTask #8-59953"} {
+	for _, want := range []string{"IO观测时长（口径未明确）(对端 udk-irq-1-63)", "D-state/iowait(对端未解析)", "⧗ BdAsyncTask #8-59953"} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("background stanza missing %q:\n%s", want, fence)
 		}
@@ -947,7 +947,7 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 		t.Fatalf("specimen 2 replay must keep its 成因 child (fixture drift?)")
 	}
 	// 关键行三 (▒ 背景): 同标本1 关系形态.
-	if !strings.Contains(fence, "IO等待(对端 udk-irq-1-63)") {
+	if !strings.Contains(fence, "IO观测时长（口径未明确）(对端 udk-irq-1-63)") {
 		t.Fatalf("background peer relation form missing:\n%s", fence)
 	}
 }

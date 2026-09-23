@@ -51,10 +51,10 @@ func TestSelfAllPromotedSeatRendersCauseGrammar(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(revisit76SelfAllWallClockProjection(),
 		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "⛓ 自身·IO延迟 合计3.264ms") {
+	if !strings.Contains(fence, "⛓ 自身·IO观测时长（口径未明确） 合计3.264ms") {
 		t.Fatalf("the promoted seat must render inside the self stanza with the family value stem:\n%s", fence)
 	}
-	if !strings.Contains(fence, "IO阻塞候选·目标自身·墙钟席·根因排序#6·置信高") {
+	if !strings.Contains(fence, "IO观测时长（口径未明确）候选·目标自身·墙钟席·根因排序#6·置信高") {
 		t.Fatalf("行2 identity must wear the 目标自身·墙钟席 qualifier and the chain-channel ordinal (佩序数):\n%s", fence)
 	}
 	if !strings.Contains(fence, "有效归因 3.264ms = 合计(共5条记录,同线程)") {
@@ -362,11 +362,15 @@ func TestSelfAllPromotedSeatEntersElimOverview(t *testing.T) {
 		t.Fatalf("the ◎ overview must render on this shape")
 	}
 	var seatLine string
-	for _, line := range strings.Split(fence, "\n") {
-		// OMGCLEAN-1 件11 root is retained; HMC §86 retires its unproved
-		// device suffix. Match the complete field, not another IO refinement.
-		if strings.Contains(line, " · IO阻塞 ·") && strings.Contains(line, "3.264ms") {
+	lines := strings.Split(fence, "\n")
+	for i, line := range lines {
+		// Match this seat's complete measurement field, including only its
+		// immediate wrapped continuations rather than another seat's text.
+		if strings.Contains(line, " · IO观测时长（口径未明确） ·") && strings.Contains(line, "3.264ms") {
 			seatLine = line
+			for j := i + 1; j < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[j]), "⤷"); j++ {
+				seatLine += lines[j]
+			}
 			break
 		}
 	}
@@ -456,16 +460,16 @@ func TestSelfAllDedupRowKeepsStateWordOnRow1(t *testing.T) {
 	if row1 == "" {
 		t.Fatalf("fixture drifted: the dedup row must render:\n%s", fence)
 	}
-	if strings.Contains(row1, "IO等待(对端") {
+	if strings.Contains(row1, "IO观测时长（口径未明确）(对端") {
 		// The full cause word fits — the shape no longer exercises the cut;
 		// the floor is untestable here. Fail loud so the fixture is retuned.
 		t.Fatalf("fixture drifted: the name cell must be too narrow for the full cause word: %q", row1)
 	}
-	if !strings.Contains(row1, " · IO等待 2次同值") {
+	if !strings.Contains(row1, " · IO观测时长（口径未明确） 2次同值") {
 		t.Fatalf("§29.58.5 ③ 主行三要素: 行1 must keep the short state word beside the chip: %q", row1)
 	}
 	// The full cause word (with the peer tail) survives on the row-2 copy.
-	if !strings.Contains(fence, "IO等待(对端 udk-irq-1-76)") {
+	if !strings.Contains(fence, "IO观测时长（口径未明确）(对端 udk-irq-1-76)") {
 		t.Fatalf("the full cause word must survive on the guarantee copy:\n%s", fence)
 	}
 }

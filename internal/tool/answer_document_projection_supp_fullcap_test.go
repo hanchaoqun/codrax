@@ -391,7 +391,7 @@ func TestSupplementH3WindowMintsIOFacetEndToEndWord(t *testing.T) {
 	// this supplement arm): the io_latency sidebar members ride the io-facet
 	// seat exactly when the critical family is in the ledger, which the
 	// supplement now guarantees.
-	if !strings.Contains(corpus, "完成端到端·IO延迟（io_latency）") {
+	if !strings.Contains(corpus, "完成端到端·提交线程IO等待") {
 		t.Fatalf("the supplement arm must mint the 完成端到端 io-facet member word:\n%s", corpus)
 	}
 	// Same-thread/time-nearest inode↔request attribution is unproven and must

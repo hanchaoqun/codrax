@@ -11285,6 +11285,7 @@ func traceQueryTypedRootCauseStateRichNotesForPublished(item tracequery.RootCaus
 		{types.TraceNoteKeyCPUConstraintAllowedMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintAllowedMaxTierKHz)},
 		{types.TraceNoteKeyCPUConstraintGlobalMaxTierKHz, traceQueryTypedInt64(item.CPUConstraintGlobalMaxTierKHz)},
 		{types.TraceNoteKeyResourceCompletionClosure, closure},
+		{types.TraceNoteKeyIOValueCaliber, types.NormalizeTraceIOValueCaliber(item.IOValueCaliber)},
 	})
 }
 
@@ -12159,6 +12160,7 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 	notes := traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyType, item.Type},
 		{types.TraceNoteKeyPeer, traceThreadLabel(item.Peer)},
+		{types.TraceNoteKeyIOValueCaliber, types.NormalizeTraceIOValueCaliber(item.IOValueCaliber)},
 		// §7.30.3 D1: typed contention semantics parsed from the structured
 		// blocking print payload; renderers key on these, never on prose.
 		{types.TraceNoteKeyBlockingKind, item.BlockingKind},

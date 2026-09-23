@@ -227,9 +227,9 @@ func TestElimSelfDegenerateWindowBoardCarriesSelfFamily(t *testing.T) {
 	// verdict words — running 折算席 → 低频运行 (·折算 on the caliber slot),
 	// io_wait → IO阻塞; the raw state words stay on the tree/state faces.
 	wantSubstrings := map[string]bool{
-		"9.365ms": false, // self running fold deficit (hand-verified)
-		"低频运行":    false,
-		"IO阻塞":    false, // self io family
+		"9.365ms":  false, // self running fold deficit (hand-verified)
+		"低频运行":     false,
+		"提交线程IO等待": false, // self IO family retains its published issuer-wait ruler
 	}
 	for _, line := range members {
 		if !strings.Contains(line, "com.baidu.tieba-59566") {

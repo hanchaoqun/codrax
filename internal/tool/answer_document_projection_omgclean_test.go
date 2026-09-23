@@ -41,7 +41,7 @@ func TestOmgcleanVerdictWordTable(t *testing.T) {
 		{"io_wait", "IO阻塞", "IO blocking"},
 		{"d_state_or_io_wait", "IO阻塞·不可中断(原因未证)", "IO blocking·uninterruptible (cause unproven)"},
 		// HMC §86: retain the ruled root, retire the unproved device suffix.
-		{"io_latency", "IO阻塞", "IO blocking"},
+		{"io_latency", "IO观测时长（口径未明确）", "I/O duration (measurement unspecified)"},
 	} {
 		zh, ok := runtimeTraceProjElimVerdictTokenWord(node, tc.token, true)
 		if !ok || zh != tc.zh {
@@ -57,7 +57,7 @@ func TestOmgcleanVerdictWordTable(t *testing.T) {
 		{"fragmented_runnable_wait", "调度延迟"},
 		{"cpu_pressure", "调度延迟"},
 		{"d_state_or_io_wait", "IO阻塞"},
-		{"io_latency", "IO阻塞"},
+		{"io_latency", "IO观测时长（口径未明确）"},
 	} {
 		word, _ := runtimeTraceProjElimVerdictTokenWord(node, tc.token, true)
 		if !strings.HasPrefix(word, tc.root) {

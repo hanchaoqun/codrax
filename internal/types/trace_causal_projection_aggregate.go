@@ -528,6 +528,7 @@ func traceCausalProjectionIdleCadence(node TraceCausalProjectionNode) (float64, 
 }
 
 func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode, absorbed map[string]bool, foldBackfill *traceCausalProjectionSupplyFoldBackfill) {
+	original := *survivor
 	survivor.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(survivor.MeasurementOrigins, loser.MeasurementOrigins)
 	appendEvidence := func(id string) {
 		id = strings.TrimSpace(id)
@@ -770,8 +771,10 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// range exchange fixture (TestRSPAHygD2SameLineRangeExchangeSurvivorIs-
 	// ClippedSeat); the production donghu/tieba twins publish over different
 	// line ranges and never reached this arm.
+	cumulativeFromLoser := false
 	if survivor.ChainAnchorFullMS == 0 && loser.CumulativeImpactMS > survivor.CumulativeImpactMS {
 		survivor.CumulativeImpactMS = loser.CumulativeImpactMS
+		cumulativeFromLoser = true
 	}
 	// COV §24.9 D-1: TargetImpactMS follows the same one-fact MAX discipline —
 	// both views explain the SAME stretch of the target's blocked clock, and a
@@ -806,6 +809,25 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// SFD (§15.A display half, user q6 issue 1): the SupplyFold arm — guards
 	// and conflict memory live in the helper (SFD 复核 F1/F4).
 	traceCausalProjectionAbsorbSupplyFold(survivor, loser, foldBackfill)
+	// Evidence absorption alone does not change the selected number's ruler.
+	// Existing value channels have distinct donor rules: Impact stays on the
+	// survivor, Effective/Actual may be backfilled, and Cumulative/Target may
+	// take a larger donor. A single ruler cannot describe conflicting adopted
+	// axes, so disclose mixed only when those axes actually carry values.
+	caliber, seen := "", false
+	include := func(value float64, fromLoser bool) {
+		ruler := original.IOValueCaliber
+		if fromLoser {
+			ruler = loser.IOValueCaliber
+		}
+		traceCausalProjectionIncludeIOValueCaliber(&caliber, &seen, ruler, value)
+	}
+	include(survivor.ImpactMS, false)
+	include(survivor.EffectiveImpactMS, !original.PeriodicSource && original.EffectiveImpactMS <= 0)
+	include(survivor.ActualImpactMS, original.ActualImpactMS <= 0)
+	include(survivor.CumulativeImpactMS, cumulativeFromLoser)
+	include(survivor.TargetImpactMS, loser.TargetImpactMS > original.TargetImpactMS)
+	survivor.IOValueCaliber = caliber
 }
 
 // traceCausalProjectionAppendMergedSubject records one merged member's thread
@@ -1212,6 +1234,7 @@ func traceCausalProjectionLineSpansOverlap(a, b TraceCausalProjectionNode) bool 
 }
 
 func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjectionNode, dup TraceCausalProjectionNode) {
+	original := *survivor
 	survivor.MeasurementOrigins = ConcatTraceSchedulerMeasurementOrigins(survivor.MeasurementOrigins, dup.MeasurementOrigins)
 	// Near lane only (PTV6 批② #4): when the two publications' values differ
 	// (inside the ≤3% band, or the identity would not have matched), the fold
@@ -1265,6 +1288,23 @@ func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjec
 			survivor.StateKind = dup.StateKind
 		}
 	}
+	// Publication evidence is not a numeric donor. The exact lane retains all
+	// survivor axes; the near lane can select different owners for Impact,
+	// Cumulative and Target. Preserve that choice without changing the values.
+	caliber, seen := "", false
+	include := func(value, previous, other float64) {
+		ruler := original.IOValueCaliber
+		if original.ImpactMS != dup.ImpactMS && other > previous {
+			ruler = dup.IOValueCaliber
+		}
+		traceCausalProjectionIncludeIOValueCaliber(&caliber, &seen, ruler, value)
+	}
+	include(survivor.ImpactMS, original.ImpactMS, dup.ImpactMS)
+	include(survivor.CumulativeImpactMS, original.CumulativeImpactMS, dup.CumulativeImpactMS)
+	include(survivor.TargetImpactMS, original.TargetImpactMS, dup.TargetImpactMS)
+	traceCausalProjectionIncludeIOValueCaliber(&caliber, &seen, original.IOValueCaliber, survivor.EffectiveImpactMS)
+	traceCausalProjectionIncludeIOValueCaliber(&caliber, &seen, original.IOValueCaliber, survivor.ActualImpactMS)
+	survivor.IOValueCaliber = caliber
 }
 
 // --- WO-G2: zero-value instant-marker fold ----------------------------------
@@ -1676,6 +1716,8 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 // to the legacy form (the tree-side occurrence merge and every other bucket).
 func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjectionNode, first int, members []int, backgroundLane bool) TraceCausalProjectionNode {
 	aggregate := nodes[first]
+	aggregate.IOValueCaliber = ""
+	ioCaliberSeen := false
 	// Keep every actual member's source once, not the seed plus the members.
 	// This is provenance only; existing membership and value calibers are unchanged.
 	memberOrigins := make([][]TraceSchedulerMeasurementOrigin, len(members))
@@ -1765,6 +1807,7 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 			valuelessRows++
 		}
 		sum += display
+		traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, member.IOValueCaliber, display)
 		if minMS == 0 || (display > 0 && display < minMS) {
 			minMS = display
 		}
@@ -1871,9 +1914,11 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 	// wall clock, so a Σ would double-count it, and a group-first
 	// inheritance is order-dependent (D-3 家族). MAX never invents.
 	targetImpact := 0.0
+	targetIOCaliber := ""
 	for _, idx := range members {
 		if v := nodes[idx].TargetImpactMS; v > targetImpact {
 			targetImpact = v
+			targetIOCaliber = nodes[idx].IOValueCaliber
 		}
 	}
 	aggregate.TargetImpactMS = targetImpact
@@ -1893,6 +1938,7 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 	if union.applied {
 		aggregate.ImpactMS = union.unionMS
 		aggregate.CumulativeImpactMS = union.unionMS
+		aggregate.IOValueCaliber = union.ioValueCaliber
 		aggregate.MergedIntervalUnion = true
 		aggregate.MergedSumMS = sum
 	} else if backgroundLane && !union.crossWindowMax {
@@ -1905,6 +1951,7 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 		if mirror := traceCausalProjectionSameSegmentMirrorValue(nodes, members); mirror.engaged {
 			aggregate.ImpactMS = mirror.valueMS
 			aggregate.CumulativeImpactMS = mirror.valueMS
+			aggregate.IOValueCaliber = mirror.ioValueCaliber
 			aggregate.MergedSameSegmentMirror = true
 			aggregate.MergedSumMS = sum
 		}
@@ -1918,6 +1965,7 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 		// member's own query window kept as the display density base.
 		aggregate.ImpactMS = maxMS
 		aggregate.CumulativeImpactMS = maxMS
+		aggregate.IOValueCaliber = union.ioValueCaliber
 		aggregate.MergedCrossWindowMax = true
 		aggregate.MergedSumMS = sum
 		aggregate.MergedMaxWindowStartTs = union.maxMemberWindowStart
@@ -2068,6 +2116,7 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 	// labelled periodic would discount real waits it never measured, and a
 	// stale group-first effective would understate the ×N total.
 	allPeriodic := true
+	effectiveIOCaliber, effectiveIOSeen := "", false
 	for _, idx := range members {
 		if !nodes[idx].PeriodicSource {
 			allPeriodic = false
@@ -2103,6 +2152,7 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 				continue
 			}
 			effective += nodes[idx].EffectiveImpactMS
+			traceCausalProjectionIncludeIOValueCaliber(&effectiveIOCaliber, &effectiveIOSeen, nodes[idx].IOValueCaliber, nodes[idx].EffectiveImpactMS)
 			lateness += nodes[idx].PeriodicLatenessMS
 			// EPUB (§29.31): Σ over published member discounts is itself a
 			// published discount — any COUNTED published member keeps the fold
@@ -2168,6 +2218,7 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 				break
 			}
 			effective += nodes[idx].EffectiveImpactMS
+			traceCausalProjectionIncludeIOValueCaliber(&effectiveIOCaliber, &effectiveIOSeen, nodes[idx].IOValueCaliber, nodes[idx].EffectiveImpactMS)
 			published = published || nodes[idx].EffectiveImpactPublished
 		}
 		// ISPGAP-1 复核 F-B (§29.207): the ▒ same-window mirror caliber joins
@@ -2187,6 +2238,13 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 	if callerConflict {
 		aggregate.BlockedReasonCaller = ""
 	}
+	// Display may use a union/MAX while Target has its own MAX and Effective
+	// has an independently admitted sum. Only axes actually retained above
+	// contribute a ruler; a cleared effective must not contaminate the value.
+	ioCaliberSeen = aggregate.ImpactMS > 0 || aggregate.CumulativeImpactMS > 0
+	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, targetIOCaliber, aggregate.TargetImpactMS)
+	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, effectiveIOCaliber, aggregate.EffectiveImpactMS)
+	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, nodes[first].IOValueCaliber, aggregate.ActualImpactMS)
 	return aggregate
 }
 
@@ -2224,6 +2282,9 @@ func TraceCausalProjectionMergeOccurrenceRows(rows []TraceCausalProjectionNode) 
 // traceCausalProjectionUnionOutcome is what the R2 merge consumes from the
 // §11-N2 cross-window scan of one merged group.
 type traceCausalProjectionUnionOutcome struct {
+	// Ruler of the actual positive contributors (or the selected MAX donor),
+	// not of every member retained in the lossless evidence roster.
+	ioValueCaliber string
 	// roster: the distinct member query windows (F-2 ±1ms endpoint dedupe,
 	// ascending start order). Empty when no member carried an identity.
 	roster []TraceCausalProjectionQueryWindow
@@ -2362,6 +2423,7 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 		}
 		if best >= 0 {
 			node := nodes[members[best]]
+			out.ioValueCaliber = NormalizeTraceIOValueCaliber(node.IOValueCaliber)
 			if traceCausalProjectionIntervalValid(node.QueryWindowStartTs, node.QueryWindowEndTs) {
 				out.maxMemberWindowStart = node.QueryWindowStartTs
 				out.maxMemberWindowEnd = node.QueryWindowEndTs
@@ -2446,6 +2508,7 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 	})
 	perSlot := make([]TraceCausalProjectionIntervalSet, len(slots))
 	total := 0.0
+	ioCaliberSeen := false
 	for _, k := range order {
 		node := nodes[members[k]]
 		display := traceCausalProjectionDisplayValue(node)
@@ -2482,6 +2545,7 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 			perSlot[slotOf[k]].Add(node.StartTs, node.EndTs)
 		}
 		total += contribution
+		traceCausalProjectionIncludeIOValueCaliber(&out.ioValueCaliber, &ioCaliberSeen, node.IOValueCaliber, contribution)
 	}
 	out.applied = true
 	out.unionMS = total
@@ -2492,8 +2556,9 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 // (§29.207 裁定, 2026-07-22) BACKGROUND-lane same-window mirror verdict for
 // one R2 merge group: engaged=false leaves the legacy SUM untouched.
 type traceCausalProjectionSameSegmentMirrorOutcome struct {
-	engaged bool
-	valueMS float64
+	engaged        bool
+	valueMS        float64
+	ioValueCaliber string
 	// exact: the per-segment interval deduction computed (every valued member
 	// carried a valid contained interval); false = member-MAX lower bound
 	// (取大作下界 — the deduction was structurally unavailable).
@@ -2549,6 +2614,7 @@ func traceCausalProjectionSameSegmentMirrorValue(nodes []TraceCausalProjectionNo
 		}
 		if display > maxMS {
 			maxMS = display
+			out.ioValueCaliber = NormalizeTraceIOValueCaliber(node.IOValueCaliber)
 		}
 		if !traceCausalProjectionIntervalValid(node.StartTs, node.EndTs) {
 			deductible = false
@@ -2573,6 +2639,8 @@ func traceCausalProjectionSameSegmentMirrorValue(nodes []TraceCausalProjectionNo
 	})
 	var counted TraceCausalProjectionIntervalSet
 	total := 0.0
+	out.ioValueCaliber = ""
+	ioCaliberSeen := false
 	for _, k := range order {
 		node := nodes[members[k]]
 		display := traceCausalProjectionDisplayValue(node)
@@ -2588,6 +2656,7 @@ func traceCausalProjectionSameSegmentMirrorValue(nodes []TraceCausalProjectionNo
 		}
 		counted.Add(node.StartTs, node.EndTs)
 		total += contribution
+		traceCausalProjectionIncludeIOValueCaliber(&out.ioValueCaliber, &ioCaliberSeen, node.IOValueCaliber, contribution)
 	}
 	out.valueMS = total
 	return out
@@ -2691,6 +2760,21 @@ func traceCausalProjectionDisplayValue(node TraceCausalProjectionNode) float64 {
 		return node.ImpactMS
 	}
 	return node.CumulativeImpactMS
+}
+
+// Keep the numeric producer's contribution decision: a zero-valued member or
+// wholly deducted mirror is evidence, but supplies none of the published value.
+// Unknown metadata on a positive donor stays unknown, never borrowing a peer's.
+func traceCausalProjectionIncludeIOValueCaliber(value *string, seen *bool, caliber string, contribution float64) {
+	if contribution <= 0 {
+		return
+	}
+	if !*seen {
+		*value = NormalizeTraceIOValueCaliber(caliber)
+		*seen = true
+		return
+	}
+	*value = MergeTraceIOValueCalibers(*value, caliber)
 }
 
 // traceCausalProjectionSameValueFoldMembers is the DIAG A1 tie collector for
@@ -2804,6 +2888,7 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 		}
 		if display > maxMS {
 			maxMS = display
+			aggregate.IOValueCaliber = NormalizeTraceIOValueCaliber(member.IOValueCaliber)
 			// RUN2FIX-A 件2: the ▒/◇ stanza fold names its MAX member too —
 			// same all-or-nothing carriers as the on-chain constructor
 			// (traceCausalProjectionOverflowFoldRow), 宁漏勿假 on unknown
@@ -2852,12 +2937,16 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 	// fold row starts empty, so without this the typed caliber would silently
 	// vanish on fold — MAX is the honest lower bound, never a cross-thread Σ).
 	targetImpact := 0.0
+	targetIOCaliber := ""
 	for _, idx := range fold {
 		if v := nodes[idx].TargetImpactMS; v > targetImpact {
 			targetImpact = v
+			targetIOCaliber = nodes[idx].IOValueCaliber
 		}
 	}
 	aggregate.TargetImpactMS = targetImpact
+	ioCaliberSeen := maxMS > 0
+	traceCausalProjectionIncludeIOValueCaliber(&aggregate.IOValueCaliber, &ioCaliberSeen, targetIOCaliber, targetImpact)
 	// DIAG A1 (§28.11-3(a)): µs-tie disclosure at the take-MAX merge point —
 	// zero weight, values above are already final.
 	members := make([]TraceCausalProjectionNode, 0, len(fold))

@@ -45,6 +45,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // --- shared interval algebra -------------------------------------------------
@@ -1358,6 +1360,20 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		}
 	}
 	merged := base
+	merged.IOValueCaliber = ""
+	if rootCauseCumulativeImpactMs(base) > 0 {
+		merged.IOValueCaliber = types.NormalizeTraceIOValueCaliber(base.IOValueCaliber)
+	}
+	// MAX publishes only the existing representative's value. Sum/union
+	// publish multiple members, so their rulers must be combined as well.
+	if caliber != RootCauseMemberFoldCaliberMaxOverlapFallback {
+		for _, member := range members[1:] {
+			if rootCauseCumulativeImpactMs(member) <= 0 {
+				continue
+			}
+			merged.IOValueCaliber = types.MergeTraceIOValueCalibers(merged.IOValueCaliber, member.IOValueCaliber)
+		}
+	}
 	// The representative and display roster do not represent all native
 	// sources. Preserve the full input set independently of the value caliber.
 	merged.MeasurementSources = rootCauseMemberMeasurementSources(members)

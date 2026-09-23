@@ -155,7 +155,7 @@ func TestG1DisplayEndToEndOpendirShape(t *testing.T) {
 	// The fence renders the family row once; no absorbed peer row beside it.
 	fence := runtimeTraceProjTreeFence(model, true)
 	// B1622b: the family's six records are distinct from an event-fold count.
-	if !strings.Contains(fence, "work-500 · IO延迟 6条记录") {
+	if !strings.Contains(fence, "work-500 · 块设备请求耗时 6条记录") {
 		t.Fatalf("fence must render the six-record IO family row:\n%s", fence)
 	}
 	if strings.Count(fence, "udk-irq-") > 0 {

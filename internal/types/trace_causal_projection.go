@@ -851,6 +851,9 @@ type TraceCausalProjectionNode struct {
 	// anchored D/IO wait of a chain thread inside the IO's lifetime).
 	// Wording/context input only.
 	ResourceCompletionClosure bool `json:"resource_completion_closure,omitempty"`
+	// IOValueCaliber travels with the selected IO number; it does not grant
+	// a wakeup edge or on-chain eligibility and is never inferred from prose.
+	IOValueCaliber string `json:"io_value_caliber,omitempty"`
 	// SystemSupplement (SUPP-CORE 修复轮 件5 / 冷读 SC-F1, 2026-07-14):
 	// the node compiled from a SUPP-CORE system-supplement record
 	// (ObservationRecord.SystemSupplement — deterministic tool witness the
@@ -4208,6 +4211,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.HostWakeupEdgeAnchorTS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorTs)
 	node.HostWakeupEdgeAnchorVia = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHostWakeupEdgeAnchorVia))
 	node.ResourceCompletionClosure = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyResourceCompletionClosure)) == "true"
+	node.IOValueCaliber = NormalizeTraceIOValueCaliber(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOValueCaliber))
 	// RNB-2 件5 AFF-EVID (§29.88.6): the affinity/cpuset judgment payload —
 	// the constraint-description inputs (行3/明细).
 	node.CPUConstraintKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCPUConstraintKind))
@@ -5746,6 +5750,9 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 		if display > maxMS {
 			maxMS = display
 			maxFromWindowProjection = fromWindowProjection
+			// A nested fold carries its value owner's ruler, while a larger
+			// non-IO or unknown member clears any prior IO interpretation.
+			fold.IOValueCaliber = NormalizeTraceIOValueCaliber(member.IOValueCaliber)
 			// RUN2FIX-A 件2: record the MAX member's identity for the fold
 			// row's 线程·状态·值 disclosure. An absorbed fold member passes
 			// through its own recorded maximum (the true value owner); an

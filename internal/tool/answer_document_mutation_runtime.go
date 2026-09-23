@@ -5969,6 +5969,9 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 	if word, ok := runtimeTraceProjInversionFamilyWord(node, zh); ok {
 		return word, false
 	}
+	if word, ok := runtimeTraceIOValueCandidateWord(node, zh); ok {
+		return word, false
+	}
 	state := strings.TrimSpace(strings.ToLower(node.StateKind))
 	switch state {
 	case "running":
@@ -6662,9 +6665,9 @@ func runtimeTraceCausalProjectionResolvedPeerText(kind, peer string, zh bool) st
 		return "D-state (peer " + peer + ")"
 	case "io_latency":
 		if zh {
-			return "IO等待(对端 " + peer + ")"
+			return types.TraceIOValueCaliberLabel("", true) + "(对端 " + peer + ")"
 		}
-		return "IO wait (peer " + peer + ")"
+		return types.TraceIOValueCaliberLabel("", false) + " (peer " + peer + ")"
 	}
 	return peer
 }
@@ -6693,10 +6696,7 @@ func runtimeTraceCausalProjectionPeerRelationShortWord(kind string, zh bool) str
 	case "d_state_refined":
 		return "D-state"
 	case "io_latency":
-		if zh {
-			return "IO等待"
-		}
-		return "IO wait"
+		return types.TraceIOValueCaliberLabel("", zh)
 	}
 	return ""
 }

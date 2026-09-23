@@ -84,6 +84,9 @@ type TypedMagnitude struct {
 }
 
 type TraceMagnitudeComponents struct {
+	// IOValueCaliber is the selected number's ruler, separate from the
+	// effective-attribution/window-projection axis on TypedMagnitude.
+	IOValueCaliber string `json:"io_value_caliber,omitempty"`
 	// Gated components retain the measured dependency's ready-to-run share
 	// and discounted running share. Their presence is independent of the
 	// ordinary running supply fold and D/I/O accounting below.

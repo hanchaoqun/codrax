@@ -94,7 +94,7 @@ func TestTraceProjectionD2TypeLabelsThreeTierFidelityZH(t *testing.T) {
 	}
 	// D2 (PTV4 T10): reader-facing labels live on the vertical blocks; raw
 	// tokens remain lossless in the evidence index.
-	for _, want := range []string{"- 类型: 优先级反转候选", "- 类型: IO延迟", "io-500 / IO延迟"} {
+	for _, want := range []string{"- 类型: 优先级反转候选", "- 类型: IO观测时长（口径未明确）", "io-500 / IO观测时长（口径未明确）"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("D2 detail blocks missing raw token %q:\n%s", want, md)
 		}
@@ -110,7 +110,11 @@ func TestTraceProjectionD2TypeLabelsKeepRawTokensEN(t *testing.T) {
 	for _, want := range []string{
 		"**Primary root cause (= the largest single on-chain modeled potential):** dep-200 priority inversion (candidate)",
 		"priority inversion (candidate) · root-cause rank #1 · confidence high",
-		"io-500 · IO latency",
+		// The longer neutral label wraps on the fixed-width tree face;
+		// its complete form remains attached to the same subject in detail.
+		"io-500 · I/O duration …",
+		"io-500 / I/O duration (measurement unspecified)",
+		"· I/O duration (measurement unspecified) · iowait",
 		"- type: priority inversion (candidate)",
 	} {
 		if !strings.Contains(md, want) {

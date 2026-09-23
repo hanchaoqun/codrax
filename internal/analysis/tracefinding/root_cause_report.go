@@ -382,6 +382,13 @@ func RootCauseValueDescriptionForLanguage(decision types.TraceCauseDecision, lan
 
 func rootCauseNonGatedValueDescription(decision types.TraceCauseDecision, zh bool) string {
 	parts := decision.Magnitude.Components
+	caliber := ""
+	if parts != nil {
+		caliber = parts.IOValueCaliber
+	}
+	if types.TraceUsesIOValueCaliber(decision.Token.Token, caliber) {
+		return types.TraceIOValueCaliberLabel(caliber, zh)
+	}
 	if rootCauseUsesRunningSupplyDeficit(decision) {
 		// Table ③c caliber words (折算 / 下界) are read from tracefence, never
 		// hand-typed inside the sentence (V1-1 §40.25 单源).
