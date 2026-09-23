@@ -54,6 +54,14 @@ type PlanRepairRelocationCandidate struct {
 }
 
 func NormalizePlanRepairPack(in PlanRepairPack) PlanRepairPack {
+	// Normalization is also a read-side projection of shared tool history.
+	// Isolate every container modified below, including nested relocation rows.
+	in.AcceptedEnums = cloneStringSliceMap(in.AcceptedEnums)
+	in.Metadata = cloneStringStringMap(in.Metadata)
+	in.CurrentBytes = append([]PlanRepairCurrentBytes(nil), in.CurrentBytes...)
+	for i := range in.CurrentBytes {
+		in.CurrentBytes[i].RelocationCandidates = append([]PlanRepairRelocationCandidate(nil), in.CurrentBytes[i].RelocationCandidates...)
+	}
 	if in.Version <= 0 {
 		in.Version = PlanRepairPackVersion
 	}

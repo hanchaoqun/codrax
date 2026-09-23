@@ -319,6 +319,9 @@ func (c ToolHandoffCarrier) Empty() bool {
 }
 
 func NormalizeToolRefinementHint(in ToolRefinementHint) ToolRefinementHint {
+	// Shared tool results are normalized by parallel readers. Own the map even
+	// when its contents are already canonical: later merges also write to it.
+	in.PreferredParams = cloneStringStringMap(in.PreferredParams)
 	in.ReasonCode = trimToolHandoffText(in.ReasonCode)
 	in.UniverseExcludedReason = trimToolHandoffText(in.UniverseExcludedReason)
 	in.NextCursor = trimToolHandoffText(in.NextCursor)
@@ -430,6 +433,8 @@ func normalizeToolParamNarrowingSuggestions(in []ToolParamNarrowingSuggestion) [
 }
 
 func NormalizeToolJSONSurfaceDescriptor(in ToolJSONSurfaceDescriptor) ToolJSONSurfaceDescriptor {
+	// A value copy of the descriptor still aliases its map and enum slices.
+	in.AcceptedEnums = cloneStringSliceMap(in.AcceptedEnums)
 	in.ToolName = trimToolHandoffText(in.ToolName)
 	in.ReasonCode = trimToolHandoffText(in.ReasonCode)
 	in.FailingFieldPaths = normalizeToolHandoffStrings(in.FailingFieldPaths, toolHandoffMaxFields, 160)
