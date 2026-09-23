@@ -1,0 +1,14 @@
+# Public, attachment-free discovery of the tool's actual analytical contract.
+# No event measurements or source checkout are needed. The presence oracle is
+# only a smoke check: manually audit units, prerequisites, unknown versus zero,
+# input preparation limits, and the distinction between support and evidence.
+ID="trace_capability_discovery"
+NAME="trace capability discovery without a capture or invented measurements"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+QUESTION="我还没有提供 trace。请先查看当前程序公开的 Trace 能力目录，说明：想找 IO 长尾、线程调度等待、CPU 热点采样分别可以选择哪些查询，分别需要什么数据、采用什么时间或数值单位？原始二进制 trace 是否需要我手工转换？如果某份 trace 缺少必要事件，应该怎样解释结果？请区分‘程序支持这类分析’与‘这份 trace 已经证明了某个问题’，不要编造测量数值或根因，不需要画图。"
+EXPECT_PRIMARY_CONTAINS="window_stats scheduler_latency_stats perf_stats"
+EXPECT_PRIMARY_MATCHES_REGEX="(毫秒|milliseconds|\\bms\\b)
+(采样|样本|sample)
+(未知|缺失|缺少|不可用|不能计算|无法计算|不足|未观测)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_capabilities"
