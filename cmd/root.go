@@ -1703,9 +1703,9 @@ func explicitSingleShotRoutePolicy() (repl.TurnPolicy, bool) {
 // classifySingleShotRoutePolicy runs the one route classification a
 // single-shot process gets. It dispatches on the SINGLE-SHOT budget lane:
 // an explicit single_shot_route_policy_timeout_seconds is a total deadline;
-// the unset default 120s bounds each actual non-streaming request, while active
+// the shared unset default 600s bounds each non-streaming request, while active
 // streams retain adapter first-byte/idle guards. Explicit 0 disables this
-// budget. This is NOT the REPL 10s turnPolicyClassifierTimeout. Attribution
+// budget. The REPL and CLI overrides remain independent. Attribution
 // 2026-07 (data-route failure class): reusing the interactive 10s clock made
 // healthy 6.6–11.4s classifications a coin flip, and the silent read-pipeline
 // fallback can never satisfy the data-lane output contract.

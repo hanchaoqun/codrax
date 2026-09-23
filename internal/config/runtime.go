@@ -1227,7 +1227,7 @@ type RuntimeSettings struct {
 	ChitchatClassifierEnabled *bool `yaml:"chitchat_classifier_enabled"`
 
 	// ReplTurnPolicyTimeoutSeconds explicitly bounds the whole REPL route
-	// classification. An unset value uses the code default only for actual
+	// classification. An unset value uses the shared 600s code default only for
 	// non-streaming requests; active streams use adapter first-byte/idle guards.
 	// Non-positive values are ignored and the code default is used.
 	ReplTurnPolicyTimeoutSeconds *int `yaml:"repl_turn_policy_timeout_seconds"`
@@ -1240,7 +1240,7 @@ type RuntimeSettings struct {
 	// which cannot satisfy the data-lane output contract — so this deadline
 	// must clear the healthy classifier band (observed 6.6–11.4s; reasoning-
 	// tier gateways add a thinking period, 终判⑩ §29.96.2) with margin.
-	// nil → code default 120 per actual non-streaming request; active streams
+	// nil → shared code default 600s per non-streaming request; active streams
 	// use adapter first-byte/idle guards. An explicit positive value remains a
 	// whole-classification deadline. Zero is MEANINGFUL: disable that deadline
 	// and rely on adapter-native first-byte/stall/retry guards.

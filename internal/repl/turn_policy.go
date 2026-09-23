@@ -114,9 +114,9 @@ const (
 // turnPolicyClassifierTimeout is the REPL route-classifier budget. Its
 // built-in default bounds each actual non-streaming request; live streams
 // retain adapter-owned first-byte/idle protection. An explicit setter/config
-// value preserves the historical total classification deadline. The REPL
-// and single-shot values remain independent (10s and 120s).
-var turnPolicyClassifierTimeout = 10 * time.Second
+// value preserves the total classification deadline. REPL and single-shot
+// overrides remain independent, but both inherit the shared 10-minute default.
+var turnPolicyClassifierTimeout = llm.DefaultRequestTimeout()
 
 // turnPolicyTimeoutBackoffThreshold (CHATFIX-1, customer log
 // 2026-08-10): after this many CONSECUTIVE classifier timeouts the
@@ -169,22 +169,15 @@ func (r *REPL) turnPolicyClassifierAvailable() bool {
 // deadline calibrated for interactive ergonomics, turning healthy 6.6–11.4s
 // completions into a coin flip.
 //
-// Default 120s. EVOLUTION RECORD (终判⑩ §29.96.2, ledger
-// docs/design/real_trace_campaign_20260705.md, 2026-07-15): 60s → 120s —
-// the 60s default was calibrated against a non-reasoning classifier band
-// (observed 6.6–11.4s); reasoning-tier gateways re-enter a full thinking
-// period before the structured route emission (the same disease class the
-// STREAM-WAIT-2 §29.96 件1 emit-only deadline fix documented), so the outer
-// wall clock gets ×2 the former headroom. DR lane structure is untouched —
-// value-only change; the deadline still sits far below the cost of a wrong
-// degrade (a read-pipeline run on a data-lane request cannot satisfy the
-// data output contract at any speed).
-// B1583: an unset configuration now applies this default only to each actual
-// non-streaming request. Explicit configuration retains the total wall-clock
-// contract, including zero disabling it. Active streams otherwise use the
-// adapter-native first-byte/stall/retry protections.
+// The unset default inherits the adapter's shared 10-minute non-streaming
+// default. Retaining the former 120s here would cancel a healthy slow route
+// before the requested adapter budget expires. B1583's ownership stays intact:
+// the default bounds only each entered non-streaming adapter call; explicit
+// configuration retains the total wall-clock contract, including zero
+// disabling it. Active streams otherwise use adapter-native first-byte/
+// stall/retry protections, with no total-age cap.
 // Configured via codrax.yaml single_shot_route_policy_timeout_seconds.
-var singleShotRoutePolicyTimeout = 120 * time.Second
+var singleShotRoutePolicyTimeout = llm.DefaultRequestTimeout()
 
 // replMemoryContextTimeout bounds foreground prior-memory assembly in the REPL.
 // Memory context is useful continuity, not a prerequisite for dispatch; timeout

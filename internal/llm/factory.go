@@ -38,6 +38,12 @@ const (
 	defaultStreamFirstByteTimeoutSeconds = 600
 )
 
+// DefaultRequestTimeout is the shared code default for a non-streaming
+// request. Callers must keep explicit budgets and stream liveness separate.
+func DefaultRequestTimeout() time.Duration {
+	return time.Duration(defaultRequestTimeoutSeconds) * time.Second
+}
+
 // NewFromConfig creates an Adapter from a resolved provider config.
 // Returns (nil, err) when required fields are missing so the caller
 // can surface the exact reason to the user — the old "silently

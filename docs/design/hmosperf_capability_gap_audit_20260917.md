@@ -2817,3 +2817,13 @@ ROI队列据本轮有据调整：①共享物理工件身份资格（先单真�
 上述新增接缝末版回归与独立复审正在执行，不用初版GREEN代签。同端点replace组合若被既有failed_relation_expanded拒绝，保原子拒绝控制，不放宽旧门来凑正例。预先存在的多行extended participant端点识别缺口（可能重复声明）单独留HMC-16.4/16.5子债；本片只保证位置不插进其JSON，不宣称修了整个participant parser。全体父项仍66开放，旧完整答案FAIL保留。
 
 后续公开97942证明旧无租约2正文/2锚点的省略body_occurrence映射，在新增锚点先入数组后会误拒。修复仅在有新增正文的块上，从不可变原稿调用既有精确单边/一对一映射并冻结坐标，不扩大歧义兼容。末版34481正式exit0/tool1.945s；28叶=27真实Execute（19接受、8预期拒绝）+1历史缺正文直接editor，4个公开扩张拒绝另验窄editor位置。独立70154正式exit0/tool1.254s且无阻塞，日志`/tmp/hmc-sequence-placement-final-independent-review-20260922.log`。复核74671的relabel两格因原扩张门拒绝，已修测试分类而非产品门，不计新的产品RED。最终race及邻接随后补记。
+
+最终32014 race正式exit0/tool7.259s、26876相邻正式exit0（tool63.437/agent1.532s），日志`/tmp/hmc-sequence-placement-review-final-race-20260922.log`及`-review-final-neighbor-20260922.log`。代码及设计分片提交`f6a54d3e6`；新位置helper400行、公开/事务/旧调用迁移测试各331/138/73行，不调行数上限来绕验证。§143已单片提交`46764c9f3`；两片与§142等待本批冻结全仓及固定双例完整答案审计。
+
+## 145. 非流式路由分类的旧默认提前截止（2026-09-22，验收中）
+
+用户已要求代码默认首响应600秒、静默300秒、非流600秒。adapter和活跃流保护已正确，但复核发现CLI分类仍默认120秒、REPL分类仍10秒；`classifierBudget→ChatWithInterruptibleRequestBudget→ChatWithRequestBudget`给真实非流叶子附加更短deadline，可能触发路由回退。默认stream路径由实际叶子的存活watchdog绕过该预算，不能将此缺口说成默认4ms/4m截断活跃流；显式用户总预算是另一类既有合同。
+
+有效RED55070正式exit1/repl1.156s：真实NewChitchatClassifier的CLI/REPL/in-flight/旧二分类五入口，经presentation/telemetry/fallback生产包装后用立即返回的deadline探针观测；factory为600秒，5个非流叶子仅10/120秒，5个流式叶子无总deadline先绿。无HTTP请求、不读凭据、不真实等待10分钟。日志`/tmp/hmc-classifier-default-budget-red-20260922.log`。
+
+最小修复导出llm共享默认时长，只改两个未配置分类预算的初始化，避免将来再次漂移。显式positive总deadline、CLI显式0、较早父deadline/取消、每次真实非流fallback叶子预算及stream活跃保护逻辑不变；不取消真实超时后的错误披露或改路由权限。6文件包括两处注释及旧默认pin精确迁移，旧120秒显式日志样例仍保。初步46419正式exit0（repl5.351/llm1.076/cmd2.954s）；独立/race/冻结全仓随后补记，归原HMC-01.2/18.5，不新增父ID。

@@ -23,8 +23,8 @@ import (
 // wording (degrade de-silencing). Evals reverse-assert on this exact line and
 // log triage keys on the "route-degrade:" prefix — any edit here must update
 // those consumers deliberately.
-// EVOLUTION RECORD (终判⑩ §29.96.2, 2026-07-15): the sample duration follows
-// the default knob 60s → 120s (value-only change; the wording is unchanged).
+// These explicit sample durations preserve log compatibility independently
+// from the shared default, which is pinned separately below.
 func TestSingleShotRouteDegradeLogLineFormatPinned(t *testing.T) {
 	got := singleShotRouteDegradeLogLine(120 * time.Second)
 	want := "route-degrade: single-shot classifier timeout after 120s; falling back to read pipeline (data-lane contract unavailable)"
@@ -36,14 +36,11 @@ func TestSingleShotRouteDegradeLogLineFormatPinned(t *testing.T) {
 	}
 }
 
-// TestSingleShotRoutePolicyTimeoutDefaultPinned pins the DEFAULT deadline
-// value itself (终判⑩ §29.96.2, 2026-07-15: 60s → 120s, reasoning-model
-// tier; DR lane structure untouched — value-only ruling). A silent default
-// regression would re-open the DR coin-flip class the 2026-07 attribution
-// closed, so the default is a pinned contract, not an incidental literal.
+// TestSingleShotRoutePolicyTimeoutDefaultPinned prevents a second, shorter
+// classifier default from silently defeating the shared non-streaming budget.
 func TestSingleShotRoutePolicyTimeoutDefaultPinned(t *testing.T) {
-	if got := repl.SingleShotRoutePolicyTimeout(); got != 120*time.Second {
-		t.Fatalf("single-shot route-policy default deadline = %s, want 120s (终判⑩ §29.96.2)", got)
+	if got := repl.SingleShotRoutePolicyTimeout(); got != 10*time.Minute {
+		t.Fatalf("single-shot non-streaming route-policy default = %s, want 10m", got)
 	}
 }
 
@@ -100,8 +97,8 @@ func (c *replOnlyPolicyClassifier) ClassifyPolicy(context.Context, string, strin
 
 // TestClassifySingleShotPolicyCall_PrefersSingleShotLane structurally pins
 // the lane split at the cmd dispatch: when the wired classifier supports the
-// single-shot lane it MUST be entered there (own 120s-default deadline, no
-// second interactive wrap); the ClassifyPolicy fallback exists only for
+// single-shot lane it MUST be entered there (own explicit override, no second
+// interactive wrap); the ClassifyPolicy fallback exists only for
 // stub classifiers that lack the lane.
 func TestClassifySingleShotPolicyCall_PrefersSingleShotLane(t *testing.T) {
 	both := &laneRecordingClassifier{}
