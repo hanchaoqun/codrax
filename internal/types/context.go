@@ -5390,7 +5390,7 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 		snap.ToolResults = cloneTraceBusinessSpanToolResults(a.ToolResults)
 	}
 	if a.HandoffCarriers != nil {
-		snap.HandoffCarriers = append([]ToolHandoffCarrier(nil), a.HandoffCarriers...)
+		snap.HandoffCarriers = CloneToolHandoffCarriers(a.HandoffCarriers)
 	}
 	if a.MCPResponses != nil {
 		snap.MCPResponses = append([]MCPResponse(nil), a.MCPResponses...)
@@ -5456,7 +5456,7 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 		out.ToolResults = cloneTraceBusinessSpanToolResults(m.turnAArtifacts.ToolResults)
 	}
 	if m.turnAArtifacts.HandoffCarriers != nil {
-		out.HandoffCarriers = append([]ToolHandoffCarrier(nil), m.turnAArtifacts.HandoffCarriers...)
+		out.HandoffCarriers = CloneToolHandoffCarriers(m.turnAArtifacts.HandoffCarriers)
 	}
 	if m.turnAArtifacts.MCPResponses != nil {
 		out.MCPResponses = append([]MCPResponse(nil), m.turnAArtifacts.MCPResponses...)
@@ -5558,7 +5558,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	out.SourceLocalization = CloneSourceLocalizationReviewPtr(in.SourceLocalization)
 	out.ToolResults = cloneTraceBusinessSpanToolResults(in.ToolResults)
 	out.ToolResultTruncation = CloneToolResultTruncationSummary(in.ToolResultTruncation)
-	out.HandoffCarriers = append([]ToolHandoffCarrier(nil), in.HandoffCarriers...)
+	out.HandoffCarriers = CloneToolHandoffCarriers(in.HandoffCarriers)
 	out.MCPResponses = append([]MCPResponse(nil), in.MCPResponses...)
 	out.EvidenceItems = append([]EvidenceItem(nil), in.EvidenceItems...)
 	out.FlowFindings = cloneFlowFindingDigests(in.FlowFindings)
@@ -8651,6 +8651,9 @@ func (ctx *BusContext) GroundingContextCacheSet(key string, value any) {
 type AgentContext struct {
 	AgentName AgentName     `json:"agent_name"`
 	Stage     PipelineStage `json:"stage"`
+
+	// Successful tool documentation is a scoped prompt input, never evidence.
+	ToolDocumentationCarriers []ToolHandoffCarrier `json:"tool_documentation_carriers,omitempty"`
 
 	// TraceID mirrors BusContext.TraceID so agent implementations that
 	// maintain per-run caches can separate one Run() from the next

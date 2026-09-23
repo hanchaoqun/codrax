@@ -84,11 +84,18 @@ type ToolHandoffCarrier struct {
 	SupportedJSON    *ToolJSONSurfaceDescriptor `json:"supported_json,omitempty"`
 	AcceptedEvidence []AcceptedEvidenceRef      `json:"accepted_evidence,omitempty"`
 	ObservationRefs  []ToolObservationRef       `json:"observation_refs,omitempty"`
+	Documentation    *ToolDocumentation         `json:"documentation,omitempty"`
 }
 
 func AttachToolHandoffCarrier(result ToolResult) ToolResult {
 	if result.Handoff != nil {
 		carrier := NormalizeToolHandoffCarrier(*result.Handoff)
+		if !result.Success || carrier.ToolName != result.ToolName {
+			carrier.Documentation = nil
+			if carrier.ReasonCode == "tool_documentation_handoff" {
+				carrier.ReasonCode = ""
+			}
+		}
 		if !carrier.Empty() {
 			result.Handoff = &carrier
 		} else {
@@ -272,6 +279,16 @@ func NormalizeToolHandoffCarrier(in ToolHandoffCarrier) ToolHandoffCarrier {
 	}
 	in.AcceptedEvidence = normalizeAcceptedEvidenceRefs(in.AcceptedEvidence)
 	in.ObservationRefs = normalizeToolObservationRefs(in.ObservationRefs)
+	if in.Documentation != nil {
+		if doc, ok := NormalizeToolDocumentation(*in.Documentation); ok && in.ToolName != "" {
+			in.Documentation = &doc
+		} else {
+			in.Documentation = nil
+			if in.ReasonCode == "tool_documentation_handoff" {
+				in.ReasonCode = ""
+			}
+		}
+	}
 	if in.ReasonCode == "" {
 		switch {
 		case in.RepairCode != "":
@@ -282,6 +299,8 @@ func NormalizeToolHandoffCarrier(in ToolHandoffCarrier) ToolHandoffCarrier {
 			in.ReasonCode = "accepted_evidence_handoff"
 		case len(in.ObservationRefs) > 0:
 			in.ReasonCode = "tool_observation_handoff"
+		case in.Documentation != nil:
+			in.ReasonCode = "tool_documentation_handoff"
 		}
 	}
 	return in
@@ -295,7 +314,8 @@ func (c ToolHandoffCarrier) Empty() bool {
 		c.PlanRepairPack == nil &&
 		c.SupportedJSON == nil &&
 		len(c.AcceptedEvidence) == 0 &&
-		len(c.ObservationRefs) == 0
+		len(c.ObservationRefs) == 0 &&
+		c.Documentation == nil
 }
 
 func NormalizeToolRefinementHint(in ToolRefinementHint) ToolRefinementHint {
@@ -582,10 +602,19 @@ func mergeToolHandoffCarrier(a, b ToolHandoffCarrier) ToolHandoffCarrier {
 	}
 	a.AcceptedEvidence = append(a.AcceptedEvidence, b.AcceptedEvidence...)
 	a.ObservationRefs = append(a.ObservationRefs, b.ObservationRefs...)
+	if a.Documentation == nil {
+		a.Documentation = cloneToolDocumentation(b.Documentation)
+	}
 	return NormalizeToolHandoffCarrier(a)
 }
 
 func toolHandoffCarrierKey(c ToolHandoffCarrier) string {
+	if c.Documentation != nil {
+		doc := c.Documentation
+		c.Documentation = nil
+		return toolHandoffCarrierKey(c) + ":documentation:" + doc.Schema + ":" + strconv.Itoa(doc.Version) + ":" +
+			doc.Selection.View + ":" + strconv.FormatBool(doc.Selection.Detail) + ":" + doc.ContentHash
+	}
 	if len(c.AcceptedEvidence) > 0 && c.ToolName == "emit_evidence" {
 		return "accepted_evidence:" + c.ToolName
 	}

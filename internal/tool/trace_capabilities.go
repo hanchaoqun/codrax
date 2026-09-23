@@ -93,6 +93,14 @@ func (*TraceCapabilities) Execute(_ *types.BusContext, params json.RawMessage) (
 	if err != nil {
 		return out, err
 	}
+	doc, ok := types.NormalizeToolDocumentation(types.ToolDocumentation{
+		Version: types.ToolDocumentationVersion, Schema: "trace_capabilities/v1",
+		Selection: types.ToolDocumentationSelection{View: view, Detail: input.Detail}, Content: body,
+	})
+	if !ok {
+		return out, fmt.Errorf("catalog documentation exceeds its bounded JSON contract")
+	}
+	out.Handoff = &types.ToolHandoffCarrier{Version: types.ToolHandoffCarrierVersion, ToolName: out.ToolName, Documentation: &doc}
 	out.Success, out.Summary = true, string(body)
 	return out, nil
 }

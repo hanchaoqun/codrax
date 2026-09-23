@@ -82,6 +82,7 @@ const (
 	// every run while the model face never saw it (四跑四答案), and the waker
 	// question was answered from the wrong lane 11/11 (R2-F3).
 	SectionTraceWaitEvidence  = "Runtime Trace Kernel Wait Call-Site & Wakeup Evidence"
+	SectionToolDocumentation  = "Tool Documentation (capability contracts, not evidence)"
 	SectionRawToolOutputs     = "Raw Tool Outputs from the Investigation"
 	SectionKnownFacts         = "Known Facts"
 	SectionAnswerSymbolsAuth  = "Extracted Answer Symbols (authoritative)"
@@ -134,6 +135,7 @@ var canonicalUserSectionOrder = []string{
 	SectionEvidenceOrigin,
 	SectionToolSourcedValue,
 	SectionMultiRepoActiveSet,
+	SectionToolDocumentation,
 	SectionRawToolOutputs,
 	SectionKnownFacts,
 	SectionAnswerSymbolsAuth,

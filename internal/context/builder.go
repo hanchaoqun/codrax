@@ -253,6 +253,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 
 		// Collect tool summaries
 		ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
+		ac.ToolDocumentationCarriers = toolDocumentationCarriers(bus.ToolResults, nil)
 
 		// Collect MCP notes
 		ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
@@ -1033,6 +1034,9 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// Stage-gated: only extractor + finalizer see this section.
 	// Explorer has the raw results inline in its own ReAct transcript;
 	// analyzer never reaches this block.
+	if rendered := formatToolDocumentation(ac); rendered != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{Title: SectionToolDocumentation, Content: rendered})
+	}
 	if shouldRenderRawToolOutputs(ac) {
 		if ta := ac.Mutable.TurnAArtifacts(); ta != nil && len(ta.ToolResults) > 0 {
 			if rendered := formatRawToolOutputs(ta.ToolResults); rendered != "" {
@@ -2901,6 +2905,9 @@ func formatRawToolOutputs(results []types.ToolResult) string {
 		if !r.Success {
 			continue
 		}
+		if hasOnlyToolDocumentation(r) {
+			continue // complete contracts have their own non-evidence section
+		}
 		if rawToolOutputSkipTools[r.ToolName] {
 			continue
 		}
@@ -2912,7 +2919,7 @@ func formatRawToolOutputs(results []types.ToolResult) string {
 		if b.Len()+len(chunk) > rawToolOutputTotalCapBytes {
 			remaining := 0
 			for j := i; j < len(results); j++ {
-				if results[j].Success && !rawToolOutputSkipTools[results[j].ToolName] {
+				if results[j].Success && !rawToolOutputSkipTools[results[j].ToolName] && !hasOnlyToolDocumentation(results[j]) {
 					remaining++
 				}
 			}

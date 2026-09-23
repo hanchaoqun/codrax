@@ -353,6 +353,10 @@ func PreserveSuccessfulToolResultWithPayload(r ToolResult) bool {
 // growth from bypassing handoff budgets.
 func ToolHandoffCarrierBytes(c ToolHandoffCarrier) int {
 	n := len(c.ToolName) + len(c.ReasonCode) + len(c.RepairCode) + 64
+	if c.Documentation != nil {
+		n += len(c.Documentation.Schema) + len(c.Documentation.Selection.View) +
+			len(c.Documentation.ContentHash) + len(c.Documentation.Content) + 96
+	}
 	if c.Repair != nil {
 		n += len(c.Repair.Code) + len(c.Repair.Hint) + 64
 		for _, field := range c.Repair.Fields {

@@ -76,6 +76,7 @@ func completedProducerToolResult(result ToolResult) bool {
 		return false
 	}
 	return (runtimeObservationProducerIsDeterministicQuery(result.ToolName) && toolResultCarriesDeterministicRuntimeObservation(result)) ||
+		toolResultHasDocumentation(result) ||
 		result.CommandMeasurement != nil || result.VCSHistory != nil ||
 		result.ReadCoverage != nil || result.RuntimeArtifactRead != nil || result.SourceInventory != nil
 }

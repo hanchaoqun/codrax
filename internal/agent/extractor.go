@@ -263,10 +263,13 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 	}
 	if ta == nil {
 		b.WriteString("## Investigation transcript\n\n")
-		b.WriteString("**No transcript available** — the investigation did not produce a snapshot for this ")
-		b.WriteString("dispatch. This is an unusual path (unit-test bootstrap or wiring bug). ")
-		b.WriteString("Produce whatever `emit_*` calls you can justify from the user question ")
-		b.WriteString("alone, and set `completeness` to `unknown` for any answer-symbol emission.\n\n")
+		b.WriteString("**No transcript available** — the investigation did not produce a snapshot for this dispatch. ")
+		if ctx != nil && len(ctx.ToolDocumentationCarriers) > 0 {
+			b.WriteString("The separately supplied tool documentation may support capability descriptions only, not source symbols, runtime measurements or source/runtime completeness. ")
+		} else {
+			b.WriteString("Produce whatever `emit_*` calls you can justify from the user question alone. ")
+		}
+		b.WriteString("Set `completeness` to `unknown` for any answer-symbol emission without independent accepted evidence.\n\n")
 	} else {
 		b.WriteString("## Investigation transcript digest\n\n")
 		supportScope := extractorTranscriptSupportScope(ctx)

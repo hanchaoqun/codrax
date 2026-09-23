@@ -1176,7 +1176,7 @@ func WriteContextPackFromPlannerToolResults(batchID, goal string, results []Tool
 
 func writeContextItemsFromToolHandoffCarrier(batchID string, carrier ToolHandoffCarrier) []WriteContextItem {
 	carrier = NormalizeToolHandoffCarrier(carrier)
-	if carrier.Empty() {
+	if carrier.Empty() || ToolHandoffCarrierIsDocumentationOnly(carrier) {
 		return nil
 	}
 	text := renderToolHandoffCarrierContext(carrier)

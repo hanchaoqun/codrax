@@ -30,6 +30,19 @@ func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCa
 		opts = options[0]
 	}
 	carriers = types.NormalizeToolHandoffCarriers(carriers)
+	// Documentation is delivered whole in its own prompt section. A doc-only
+	// carrier must not displace repair/evidence identities from this short list.
+	filtered := carriers[:0]
+	for _, carrier := range carriers {
+		if types.ToolHandoffCarrierIsDocumentationOnly(carrier) {
+			continue
+		}
+		carrier.Documentation = nil
+		if !carrier.Empty() {
+			filtered = append(filtered, carrier)
+		}
+	}
+	carriers = filtered
 	if len(carriers) == 0 {
 		return ""
 	}
