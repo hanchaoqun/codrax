@@ -3175,3 +3175,41 @@ Trace FAIL：最终用52ms窗6ms运行解释50ms业务窗、缺35ms请求、31ms
 3. **完整控制器恢复验收**：公开控制器→实际读取→无修改PTO提交→落盘恢复→verify-only→新native执行→required合同消费→再次运行，校验不同invocation、源码测试及旧报告不变；同ID合同正文变化、读取后/登记后/执行中字节与交付变化、取消/换批次/重规划、普通源码计划及旧只读probe正负边界全部覆盖，再固定2并行×1模型验收。
 
 首版边界建议单一有效源码交付、Python unittest、已有有效合同；多来源/其它runner另保留。无需新增模型工作流，但只加emit入口豁免会留下后端观察器和证明消费漏洞，所以当前不作这种局部放行。三片均未实施，不把§160的身份传递或本轮普通apply结果代签本项。
+
+## 166. 静态工具说明的完成通道（2026-09-23，只读设计，未实施）
+
+挂原HMC-01.3/16.4/18.4，仍在65开放项内。§155/159的目录已经完整进入模型，剩余确定性缺口不是再传一次目录：`RequestedExplanationOperationNeedsForAuthority`仍把未绑定文件的`function_or_purpose`等解释维度编成任意源码操作席位；`compiler.expandEvidenceNodes`与`citation_scale`保留源码证据下限；`criterion`和`InvestigationStructurallyEmpty`只认识源码/运行时完成，成功读取静态说明仍被看作空调查。旧live日志`hmc_documentation_citation_20260923/trace_capability_discovery-20260922-220848`1047首次拒绝与这些路径一致，不能以提高目录Confidence或伪造EvidenceItem解决。
+
+参考亲读`server.py:1196`的list_indicators及`:1955`的get_skill_catalog：无Trace/目标源码前置，直接返回注册对象、单位、输入与输出合同；`core/skill_executor.py:622`只对已声明contract的LLM步骤启用相应验证。可借鉴的是合同按对象域适用、结果按真实选中来源绑定，不迁其关键词路由或文本容差判断。当前已有`ToolDocumentation`及extract/final传输应复用，不再造第二套目录。
+
+有界清单（均未实施）：①声明可选正交说明域，纯说明一次声明、混合问题复用维度索引；由同一适用性函数服务compiler、操作席位和教学，缺省仍走旧合同，显式文件/窗口/因果要求不被说明域吞掉。②复用`emit_investigation_complete`承接本轮真实成功说明读取，核producer/schema/version/selection/hash及代次后独立标记完成，贯通criteria、nonempty、Turn-A/直接成文；hash只保完整性，不是权限，任意NonEvidenceTool、Summary、旧引用不能授完成权。③真实注册工具和公开初始消息贯通纯说明、说明+源码、说明+明确Trace窗正负例，再固定双例验收；被预算省略的材料不算完整投递，说明读取不转源码或运行时证据，也不保证模型单位/缺测解释正确。旧人工答案FAIL独立保留。
+
+本节用于下一批选题与实现边界，不是已交付能力。与§165原生断言登记一起按影响、确定性证据、泛化面、实施成本及前置排序；不靠反复重跑同一IO样例拖延二者，也不只放宽某一个完成检查而把矛盾推到后续阶段。
+
+## 167. IO 批固定双例、教学边界与末版集成（2026-09-23，验收收尾中）
+
+### 167.1 固定模型回放：机器2/2，完整人工1/2
+
+干净`e29e8e0e8e04`构建91082正式exit0，日志`/tmp/hmc-io-caliber-clean-build-20260923.log`。15511只运行预定业务Trace与已有空Python模块apply，各一次、2并行，正式exit0；runner耗时346/191秒。机器原判及逐文件完整审计分别为`eval/parallel_selected_summary_hmc_io_value_caliber_20260923.md`及同名`_manual_audit.md`，不追加第三例、不回写旧FAIL。
+
+Trace人工FAIL：50ms业务窗与53ms查询窗混用，运行7ms/未归账1ms被借给业务；把相邻44ms睡眠与1ms就绪等待因首尾相接说成不可相加；缺后台唤醒闭合写成确定未唤醒，原始E打点还被补出名称。末次patch补正确5/44/1和8/31/1业务条目，但未消除前文矛盾。35ms请求、31ms闭合S态等待、独立调度等待及业务链保留，后台47ms未被选为主因。完整文本树合法且Trace因果投影存在；没有新的反向因果边，内部词面/较宽查询范围仍留旧父项。
+
+实际Finalizer日志3827–3830已完整给两条业务窗状态账，3835–3848保35/31双尺与“缺闭合≠未唤醒”；核心数据并未缺失或截断。17次查询没有root_cause_rank或blocking，故§164新增IO数值口径未live命中，不能用机器PASS或公共联测代签。默认schema2旁路实际生成且为空，原因是no_selectable_typed_on_chain_candidates；没有根据模型正文伪造根因，不误记成文件生成失败。已接受实例与full_artifact补齐范围的旧接缝仍留01.3/02.4，不为本例改硬门或强制工具顺序。
+
+写例业务人工PASS：交付`5b92b40bf12fd01a4dc54f052b748f405bb55732`仅totals.py两行，基线`01e26f4f17302618c663ff73ffbcbc2ff4e1da02`仍是评测主仓HEAD；原测试/README/配置不变，原生unittest真实4方法/4断言通过。最终答复如实限定自然语言清单不是逐条独立证明。PTO仍误用pytest身份，四合同均planning_only_ungrounded、hard_required=0；普通apply没有命中新补证身份或只读断言登记，不能销§165/B2–B6。空基线在合法patch之后仍被要求源码owner造成再规划，继续留原父项，不以最终成功抹掉过程债。
+
+### 167.2 同一教学内区分重叠计量与互斥状态
+
+人工审计另定位系统自己的笼统句子：“Request residence, issuer blocking, scheduler delay, and cross-request aggregates are not additive.”它真实出现在上述Finalizer日志3836，可能助长非加法误解，但不能证明它是所有答案错误的唯一原因。`5e6b10439`只替换该句：不盲加重叠请求/发起线程等待及跨线程跨请求总量；同线程同窗的互斥相邻调度状态可依据已发布原生账汇总为离CPU时间。请求驻留仍不等于发起线程阻塞，更不自动取得跨线程响应贡献。来源/闭合/窗口过滤、有限问题通道、选择资格、JSON和模型原文均不改；不新增任何扫描原文的硬门。
+
+真实TraceQuery→BuildInitialInstruction 8格（中英×S/D×有/无闭合）有效RED61606正式exit1/agent1.373秒，原生数值/闭合及输入不变断言已先通过；定向11737正式exit0/2.772秒，race94110正式exit0/13.516秒，含原CausalIO、B1644/B1645、显式窗、有限事实及睡眠边界邻接。日志`/tmp/hmc-causal-io-addition-teaching-{red,green,race}-20260923.log`。独立复核无数值/因果/权限变化。本片在固定live之后实施，只声称确定性消息回归，不冒称真实模型效果已验收。
+
+### 167.3 失败记录、精确迁移与末版全仓
+
+完整全仓56612正式exit1，日志`/tmp/hmc-io-caliber-sealed-full-20260923.log`，8个顶层测试失败分布于tracefinding/orchestrator/tool/tracediag/types五包：新字段合同census、RichNotes registry和schema hash未登记；旧中性IO标签、续行数量以及离线helper词针未迁移。原失败保留，不能当整体通过。`65a6c2756`精确迁移8文件：RootCauseRankItem去掉且仅去掉新增IOValueCaliber后恢复旧schema hash，原MeasurementSources演进测试仍保护所有旧字段；显式登记数值尺的消费位置，不加入skip列表。两份图回放因完整中性词面按原100-cell限制换行31→35/17→19，节点/证据/数值/关系断言不减。离线prose helper仅迁当前类别词，生产断开测试仍在，没有重新接回原文扫描。
+
+迁移收据：types/tracediag focused61324正式exit0（1.497/0.621秒）、race76281正式exit0（2.674/1.718秒），`/tmp/hmc-io-caliber-schema-evolution-{focused,race}-20260923.log`；tool合同/发射52024正式exit0/2.267秒，`/tmp/hmc-io-caliber-contract-metadata-20260923.log`。三包词/行针初轮20544仍因第二标本旧行数失败，补齐后12113正式exit0（tracefinding0.390、orchestrator0.813、tool1.185秒），`/tmp/hmc-io-caliber-word-pin-green-20260923.log`。引擎末版race35433正式exit0/10.432秒，`/tmp/hmc-io-engine-sealed-race-20260923.log`。
+
+3042此前因未知种子显示donor补针主动终止exit143，已记§164。随后2566在只读人工审计识别上述教学矛盾时主动终止exit143，`/tmp/hmc-io-caliber-final-acceptance-full-20260923.log`；两次中止都不是通过或产品失败，已停止本次测试子进程。全部Go/依赖/构建输入现于`5e6b10439`冻结，93083重新启动一份独立完整`go test -count=1 ./...`，日志`/tmp/hmc-io-caliber-frozen-complete-full-20260923.log`。最终正式退出、构建与推送收据待续，不拼接前后分包结果。
+
+稳定任务仍79=14已交付+65开放（57待实施/6部分实施/1待验收/1持续执行）。§164共享数值尺窄片、当前小教学修复及普通apply绿均不抵销完整答案FAIL，不减少父项。后续优先按§165三个有序阶段推进原生断言只读登记，再§166静态说明通用完成通道，然后业务范围/局部补齐、caller双轴、共享旁路来源及IO总体/精确帧等；不靠局部追绿无限延长本IO批次。
