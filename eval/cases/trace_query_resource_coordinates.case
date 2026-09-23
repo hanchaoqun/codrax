@@ -17,4 +17,7 @@ HTRACE='# tracer: nop
        emitter-30 (30) [002] .... 1.010000: xpower_cpu: domain=POWER component=CPU usage=73 scene=background
 '
 EXPECT_CONTAINS="/data/cache.db 0x1234 0x5678 POWER"
-EXPECT_MATCHES_REGEX="(5120|5[,.]120)\n(8[:,，]0)\n(8[:,，]1)\n(8[:,，]2)"
+EXPECT_MATCHES_REGEX='(5120|5[,.]120)
+(8[:,，]0)
+(8[:,，]1)
+(8[:,，]2)'

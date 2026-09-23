@@ -486,9 +486,9 @@
 #   单次 Run 的总步数上限。默认 50。
 # pipeline_max_steps: 50
 
-# pipeline_max_retries_per_stage — max retries per stage. Default 2.
-#   每个阶段的最大重试次数。默认 2。
-# pipeline_max_retries_per_stage: 2
+# pipeline_max_retries_per_stage — max retries per stage. Default 3.
+#   每个阶段的最大重试次数。默认 3。
+# pipeline_max_retries_per_stage: 3
 
 # pipeline_max_stage_visits — max entries into any one stage per Run.
 #   Default 4.
