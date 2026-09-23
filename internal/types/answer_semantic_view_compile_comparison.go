@@ -86,8 +86,8 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 				"comparison axis; add citations or code-path details only when the axis itself " +
 				"requires them, rather than forcing every comparison into current-code-path form. " +
 				"When typed principal member rows belong to this bucket, carry them once in this " +
-				"section's items[]; section items support label/text/cells and citation_ref, so do " +
-				"not duplicate the same roster in a separate global list or table.",
+				"section's items[] with label/text/cells, following the shared item evidence/citation rules for the current projected schema; " +
+				"do not duplicate the same roster in a separate global list or table.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 	}
