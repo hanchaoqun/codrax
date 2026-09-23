@@ -1,0 +1,20 @@
+# HMC-08.3: admitted complete-pair occupancy, distinct from arrivals and causes.
+ID="trace_query_io_inflight"
+NAME="trace query — scoped IO in-flight depth and pairing coverage"
+QUESTION="只分析附加 trace 的 1.000000 秒到 1.010000 秒窗口，不分析源码。请按 RQ/BIO 层级、设备和读写操作分别给出完整可唯一配对请求在窗口内的峰值在途数、时间加权平均在途数、至少一个请求在途的时长，以及请求数乘时间的面积，并写清单位。另列窗口内的发起次数，不要把发起次数当并发深度。说明窗口前已发起和窗口后才完成的请求如何计入，同一时刻完成与发起怎样处理，未完成和无法唯一配对的记录是否影响完整性。不要混加 RQ 与 BIO，也不要仅凭在途数就断言设备瓶颈、线程阻塞或响应根因。"
+HTRACE_FILE="eval/fixtures/hmosperf_io_inflight/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+
+# Presence-only smoke checks. Manual review must bind every value to its own
+# source/family/device/operation and check coverage against expected.json.
+EXPECT_PRIMARY_CONTAINS="RQ BIO"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])1[.]40*([^0-9]|$)
+(^|[^0-9])0[.]60*([^0-9]|$)
+(^|[^0-9])0[.]40*([^0-9]|$)
+(^|[^0-9])14([.]0+)?([^0-9]|$)
+(未完成|未配对|缺.{0,10}完成)
+(歧义|无法唯一|不能唯一)
+(毫秒|ms)"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="((不能|不足|无法|不代表|不等于|未证).{0,100}(根因|因果|响应|瓶颈|阻塞)|(根因|因果|响应|瓶颈|阻塞).{0,100}(不能|不足|无法|不代表|不等于|未证))"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

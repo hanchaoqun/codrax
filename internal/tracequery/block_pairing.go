@@ -343,6 +343,8 @@ type blockPairingResult struct {
 	census    []IOLatencySummary
 	summaries []StorageLatencySummary
 	caveats   []string
+	starts    ioInFlightStarts
+	coverage  IOInFlightPairingCoverage
 }
 
 // stampBlockIOCompletionWakeups adds the strict block-completion → issuing
@@ -563,7 +565,7 @@ func blockPairingReplayIndexes(idx *Index) []int {
 // after depth returns to zero.
 func computeBlockIOLatencies(idx *Index, q Query, max int, providedIntegrity ...*durationPairingIntegrity) blockPairingResult {
 	if idx == nil {
-		return blockPairingResult{}
+		return blockPairingResult{coverage: ioInFlightPairingCoverage(nil, "block", nil, nil)}
 	}
 	integrity := selectedDurationPairingIntegrity(idx, q, durationOrderBlockIO, providedIntegrity)
 	for _, ev := range idx.Events {
@@ -587,7 +589,7 @@ func computeBlockIOLatencies(idx *Index, q Query, max int, providedIntegrity ...
 		if integrity.unresolvedSources > 0 {
 			caveats = append(caveats, fmt.Sprintf("block_io_pairing_provenance_unresolved=true; rows=%d; endpoints without exactly one physical source artifact were excluded", integrity.unresolvedSources))
 		}
-		return blockPairingResult{caveats: caveats}
+		return blockPairingResult{caveats: caveats, coverage: ioInFlightPairingCoverage(idx, "block", integrity, nil)}
 	}
 	lanes := map[string]*blockPairingLane{}
 	accs := map[string]*blockPairingAccumulator{}
@@ -625,6 +627,7 @@ func computeBlockIOLatencies(idx *Index, q Query, max int, providedIntegrity ...
 		var transition pairingCohortTransition
 		switch phase {
 		case blockEndpointStart:
+			ioInFlightRecordStart(&out.starts, ioInFlightGroupKey{source, "block", family, ev.BlockIOFields.Dev, ev.BlockIOFields.Op}, ev, q)
 			transition = lane.cohort.observeStart(ev)
 		case blockEndpointDone:
 			transition = lane.cohort.observeDone(ev)
@@ -686,6 +689,7 @@ func computeBlockIOLatencies(idx *Index, q Query, max int, providedIntegrity ...
 		out.caveats = append(out.caveats, fmt.Sprintf("block_io_pairing_unpaired=true; unpaired_start=%d unpaired_done=%d; elapsed latency was emitted only for complete exact-family pairs", unpairedStart, unpairedDone))
 	}
 	out.caveats = append(out.caveats, integrity.caveats("io_latencies/storage_latency_by_layer(block)")...)
+	out.coverage = ioInFlightPairingCoverage(idx, "block", integrity, out.summaries)
 	return out
 }
 

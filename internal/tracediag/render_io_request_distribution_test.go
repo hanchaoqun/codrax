@@ -62,6 +62,7 @@ func TestIORequestDistributionSchemaEvolutionIsAdditive(t *testing.T) {
 	} {
 		t.Run(tc.typ.Name(), func(t *testing.T) {
 			_, schema := detailSchemaFingerprint(tc.typ)
+			schema = nonEventSchemaBeforeIOInFlight(t, tc.typ, schema)
 			var previous []string
 			addedCount := 0
 			for _, field := range strings.Split(schema, ";") {

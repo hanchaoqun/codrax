@@ -202,7 +202,7 @@ func traceObservationRecordIsResourcePressure(predicate, claimKey string) bool {
 	case "file_io_by_inode", "page_cache_by_inode", "storage_latency_by_layer",
 		"io_burst_episode", "block_io_by_inode", "irq_activity", "softirq_activity",
 		"ipi_activity", "workqueue_activity", "dma_fence_activity", "trace_mark_category", "async_file_work",
-		"background_pressure", "compute_supply_balance", "io_pressure", "runnable_occupancy":
+		"background_pressure", "compute_supply_balance", "io_pressure", "runnable_occupancy", "io_inflight", "io_inflight_coverage":
 		return true
 	}
 	for _, prefix := range []string{

@@ -428,28 +428,36 @@ const (
 	TraceNoteKeyIORequestResidence        = "request_residence"
 	TraceNoteKeyIORequestResidenceCaliber = "request_residence_caliber"
 	TraceNoteKeyIORequestResidenceClock   = "request_residence_clock_scope"
-	TraceNoteKeyIOEndpointFamily          = "io_endpoint_family"
-	TraceNoteKeyIOSector                  = "io_sector"
-	TraceNoteKeyIOLength                  = "io_len"
-	TraceNoteKeyIOIssueThread             = "io_issue_thread"
-	TraceNoteKeyIOIssueTS                 = "io_issue_ts"
-	TraceNoteKeyIOCompleteTS              = "io_complete_ts"
-	TraceNoteKeyIOCompletionWokeIssuer    = "completion_woke_issuer"
-	TraceNoteKeyIOCompleteThread          = "complete_thread"
-	TraceNoteKeyIOIssuerBlockedState      = "issuer_blocked_state"
-	TraceNoteKeyIOIssuerBlockedStart      = "issuer_blocked_start"
-	TraceNoteKeyIOIssuerBlockedEnd        = "issuer_blocked_end"
-	TraceNoteKeyIOIssuerBlocked           = "issuer_blocked"
-	TraceNoteKeyIOCausalWaitCaliber       = "causal_wait_caliber"
-	TraceNoteKeyIOTargetBlockingClock     = "issuer_blocked_clock_scope"
-	TraceNoteKeyIONonAdditiveWithBlocked  = "non_additive_with_issuer_blocked"
-	TraceNoteKeyIOCoverageEmitted         = "io_latency_emitted"
-	TraceNoteKeyIOCoverageComplete        = "io_latency_complete"
-	TraceNoteKeyIOCoverageStatus          = "io_latency_coverage_status"
-	TraceNoteKeyIOOverflowPairs           = "io_latency_overflow_pairs"
-	TraceNoteKeyIOOverflowRequestMS       = "io_latency_overflow_request_ms"
-	TraceNoteKeyIOOverflowSumCaliber      = "overflow_sum_caliber"
-	TraceNoteKeyIOWakeupLine              = "io_wakeup_line"
+	// In-flight measurements are parsed only for display. They never grant
+	// latency, target-blocking, chain or root-cause authority.
+	TraceNoteKeyIOInFlightGroup          = "io_inflight_group"
+	TraceNoteKeyIOInFlightBasis          = "io_inflight_basis"
+	TraceNoteKeyIOInFlightCoverage       = "io_inflight_coverage"
+	TraceNoteKeyIOInFlightTimeline       = "io_inflight_timeline"
+	TraceNoteKeyIOInFlightScope          = "io_inflight_scope"
+	TraceNoteKeyIOInFlightReasons        = "io_inflight_reasons"
+	TraceNoteKeyIOEndpointFamily         = "io_endpoint_family"
+	TraceNoteKeyIOSector                 = "io_sector"
+	TraceNoteKeyIOLength                 = "io_len"
+	TraceNoteKeyIOIssueThread            = "io_issue_thread"
+	TraceNoteKeyIOIssueTS                = "io_issue_ts"
+	TraceNoteKeyIOCompleteTS             = "io_complete_ts"
+	TraceNoteKeyIOCompletionWokeIssuer   = "completion_woke_issuer"
+	TraceNoteKeyIOCompleteThread         = "complete_thread"
+	TraceNoteKeyIOIssuerBlockedState     = "issuer_blocked_state"
+	TraceNoteKeyIOIssuerBlockedStart     = "issuer_blocked_start"
+	TraceNoteKeyIOIssuerBlockedEnd       = "issuer_blocked_end"
+	TraceNoteKeyIOIssuerBlocked          = "issuer_blocked"
+	TraceNoteKeyIOCausalWaitCaliber      = "causal_wait_caliber"
+	TraceNoteKeyIOTargetBlockingClock    = "issuer_blocked_clock_scope"
+	TraceNoteKeyIONonAdditiveWithBlocked = "non_additive_with_issuer_blocked"
+	TraceNoteKeyIOCoverageEmitted        = "io_latency_emitted"
+	TraceNoteKeyIOCoverageComplete       = "io_latency_complete"
+	TraceNoteKeyIOCoverageStatus         = "io_latency_coverage_status"
+	TraceNoteKeyIOOverflowPairs          = "io_latency_overflow_pairs"
+	TraceNoteKeyIOOverflowRequestMS      = "io_latency_overflow_request_ms"
+	TraceNoteKeyIOOverflowSumCaliber     = "overflow_sum_caliber"
+	TraceNoteKeyIOWakeupLine             = "io_wakeup_line"
 )
 
 // IO pressure caliber family (CBZ-B2-IO-CALIBER, 2026-07-23). These notes
@@ -2365,6 +2373,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"storage_group_pid", "io_request_distribution", TraceNoteCarrierDisplayOnly},
 	{"storage_latency_overflow_groups", "io_request_distribution", TraceNoteCarrierDisplayOnly},
 	{"storage_latency_overflow_paired_count", "io_request_distribution", TraceNoteCarrierDisplayOnly},
+	// HMC-08.3: producer-owned occupancy context; no causal compiler/ranker
+	// reads these display notes as wait time, chain membership or authority.
+	{TraceNoteKeyIOInFlightGroup, "io_inflight", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOInFlightBasis, "io_inflight", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOInFlightCoverage, "io_inflight", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOInFlightTimeline, "io_inflight", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOInFlightScope, "io_inflight", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOInFlightReasons, "io_inflight", TraceNoteCarrierSoftConsumer},
 	{"ret", "io", TraceNoteCarrierDisplayOnly},
 	{"offsets", "io", TraceNoteCarrierDisplayOnly},
 	{"example", "io", TraceNoteCarrierDisplayOnly},

@@ -6647,10 +6647,12 @@ func answerDocBoundedRuntimeFactPhysicalKey(record types.ObservationRecord) stri
 
 func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm *types.RequestModel, lang string) string {
 	ownerScope := "selected_window_context"
-	if types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
+	predicate := strings.TrimSpace(record.Predicate)
+	// All-issuer IO accounts cannot acquire target ownership when a thread
+	// happens to share the layer/family label used as their display subject.
+	if predicate != "io_inflight" && predicate != "io_inflight_coverage" && types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
 		ownerScope = "target_owned"
 	}
-	predicate := strings.TrimSpace(record.Predicate)
 	parts := []string{
 		fmt.Sprintf("id=`%s`", strings.TrimSpace(record.ID)),
 		fmt.Sprintf("owner_scope=`%s`", ownerScope),
@@ -6665,7 +6667,7 @@ func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm 
 	}
 	intervalLabel := "interval"
 	switch predicate {
-	case "io_latency", "io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode":
+	case "io_latency", "io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode", "io_inflight", "io_inflight_coverage":
 		// Query receipts belong to the producer result. A pair or group's
 		// observed event envelope cannot recover missing query coordinates.
 		intervalLabel = "observed_interval"
@@ -6717,6 +6719,8 @@ func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm 
 		appendNote("overflow_request_ms", types.TraceNoteKeyIOOverflowRequestMS)
 		appendNote("overflow_sum_caliber", types.TraceNoteKeyIOOverflowSumCaliber)
 		parts = append(parts, types.TraceIODetailCoverageFromObservation(record).CompactMeaning())
+	} else if predicate == "io_inflight" || predicate == "io_inflight_coverage" {
+		parts = append(parts, answerDocIOInFlightDisplayParts(record)...)
 	} else {
 		for _, key := range []string{
 			types.TraceNoteKeyDev, types.TraceNoteKeyInode,
@@ -7869,7 +7873,7 @@ func answerDocBoundedRuntimeGlobalFactPredicateAllowed(predicate string, profile
 	}
 	if profile.RequestsFactFamily(types.RuntimeQuestionFactResourcePressure) {
 		switch predicate {
-		case "background_pressure", "compute_supply_balance", "io_pressure", "runnable_occupancy":
+		case "background_pressure", "compute_supply_balance", "io_pressure", "runnable_occupancy", "io_inflight", "io_inflight_coverage":
 			return true
 		}
 	}
@@ -14709,6 +14713,8 @@ func answerDocRuntimeTraceGuidanceRecord(record types.ObservationRecord) bool {
 		"file_io_by_inode",
 		"page_cache_by_inode",
 		"storage_latency_by_layer",
+		"io_inflight",
+		"io_inflight_coverage",
 		"bio_resource",
 		"filesystem_resource",
 		"page_fault_resource",

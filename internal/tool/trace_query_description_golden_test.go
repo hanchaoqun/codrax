@@ -1,5 +1,16 @@
 package tool
 
+// EVOLUTION RECORD 2026-09-23 (HMC-08.3): append the single shared IO
+// in-flight capability contract at the terminal Description slot. Every byte
+// of the previous Description remains a prefix. The existing window_stats
+// view gains complete-pair occupancy, not a new view or causal authority:
+// starts, request-time area, busy time and mean occupancy have distinct units;
+// source/family/device/operation and unavailable coverage stay explicit.
+// Description, Parameters and skill teaching share one constant. Public
+// query-to-context tests protect the interpretation. The fixed two-case IO
+// and write replay weighs this capability; matched h2/h3 A/B debt stays open
+// and is not satisfied merely by this deliberate golden update.
+
 // EVOLUTION RECORD 2026-09-22 (HMC §123): only the shared closed-matrix
 // explanation changes its two eliminable/proven-benefit phrases to modeled
 // potential and appends the common estimate-versus-measured-benefit sentence.

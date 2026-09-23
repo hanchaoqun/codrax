@@ -3466,6 +3466,10 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.XPowerEvents = publishPluginEvents("xpower", xpowerContributorPIDs, xpowerEvents)
 	stats.HiSystemEvents = publishPluginEvents("hi_sysevent", hiSystemContributorPIDs, hiSystemEvents)
 
+	storagePairing := storagePairingResult{coverage: IOInFlightPairingCoverage{
+		Family: "storage", Status: IOInFlightCoverageUnavailable, TopologyComplete: completePhysicalPairingTopology(idx),
+		Reasons: []string{"thread_identity_conflict"},
+	}}
 	if identityConflict == nil {
 		// INODE (§28.6): fold the FULL accumulator maps BEFORE the top-8
 		// truncations below — the whole-window (dev,inode) carrier must never be
@@ -3474,7 +3478,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.TopIOInodes = computeTopIOInodes(fileIO, pageCache, topIOInodeGroupLimit)
 		stats.FileIOByInode = sortedFileIOSummaries(fileIO, 8)
 		stats.PageCacheByInode = sortedPageCacheSummaries(pageCache, 8)
-		storageLatencies, storagePairingCaveats := computeStorageLatencyByLayer(idx, q, blockPairing.summaries, 0, durationPairingIntegrities[durationOrderStorage])
+		storagePairing = computeStorageLatencyPairing(idx, q, blockPairing.summaries, 0, durationPairingIntegrities[durationOrderStorage])
+		storageLatencies, storagePairingCaveats := storagePairing.summaries, storagePairing.caveats
 		if len(storageLatencies) > 8 {
 			stats.StorageLatencyOverflowGroups = len(storageLatencies) - 8
 			for _, omitted := range storageLatencies[8:] {
@@ -3487,6 +3492,10 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.Caveats = append(stats.Caveats, storagePairingCaveats...)
 	} else {
 		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed inode/file-IO/page-cache/storage composite aggregates are omitted because the selected window crosses a task-incarnation boundary")
+	}
+	stats.IOInFlight = buildIOInFlightStats(q, blockPairing, storagePairing)
+	if q.runCancel.sample() {
+		return stats
 	}
 	if schedulerCPUDurationsSafe {
 		// CR-3 修复轮 P2 (2026-07-12): fold the FULL accumulator BEFORE the
@@ -13016,6 +13025,12 @@ type storageLatencyLane struct {
 }
 
 func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageLatencySummary, max int, providedIntegrity ...*durationPairingIntegrity) ([]StorageLatencySummary, []string) {
+	result := computeStorageLatencyPairing(idx, q, blockSummaries, max, providedIntegrity...)
+	return result.summaries, result.caveats
+}
+
+func computeStorageLatencyPairing(idx *Index, q Query, blockSummaries []StorageLatencySummary, max int, providedIntegrity ...*durationPairingIntegrity) storagePairingResult {
+	var result storagePairingResult
 	integrity := selectedDurationPairingIntegrity(idx, q, durationOrderStorage, providedIntegrity)
 	accs := map[string]*storageLatencyAcc{}
 	lanes := map[string]*storageLatencyLane{}
@@ -13129,11 +13144,12 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 			var transition pairingCohortTransition
 			switch phase {
 			case "start":
+				ioInFlightRecordStart(&result.starts, ioInFlightStorageKey(lane, ev), ev, q)
 				transition = lane.cohort.observeStart(ev)
 			case "done":
 				transition = lane.cohort.observeDone(ev)
 			}
-			accountGenericStorageTransition(accs, lane, transition, q)
+			accountGenericStorageTransition(accs, lane, transition, q, &result.intervals)
 			// A closed/idle cohort left its zero state behind; drop the lane
 			// so map residency (and the lifecycle-reset scan above) tracks
 			// CONCURRENT opens, not distinct identities seen (perf audit
@@ -13182,6 +13198,7 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 		}
 		return storageLatencyGroupSortKey(out[i]) < storageLatencyGroupSortKey(out[j])
 	})
+	result.coverage = ioInFlightPairingCoverage(idx, "storage", integrity, out)
 	if max > 0 && len(out) > max {
 		out = out[:max]
 	}
@@ -13205,7 +13222,8 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 	if unpairedStart > 0 || unpairedDone > 0 {
 		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_unpaired=true; unpaired_start=%d unpaired_done=%d; elapsed latency was emitted only for complete exact-lane pairs", unpairedStart, unpairedDone))
 	}
-	return out, caveats
+	result.summaries, result.caveats = out, caveats
+	return result
 }
 
 func addSaturatedBytes(total, value int64) int64 {
@@ -13265,7 +13283,7 @@ func observeGenericStorageEnvelope(acc *storageLatencyAcc, first, last Event) {
 	}
 }
 
-func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *storageLatencyLane, transition pairingCohortTransition, q Query) {
+func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *storageLatencyLane, transition pairingCohortTransition, q Query, intervals *[]ioInFlightInterval) {
 	if lane == nil {
 		return
 	}
@@ -13308,6 +13326,9 @@ func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *s
 	acc.requestLatenciesMs = append(acc.requestLatenciesMs, dur)
 	if dur > acc.item.MaxLatencyMs {
 		acc.item.MaxLatencyMs = dur
+	}
+	if intervals != nil {
+		*intervals = append(*intervals, ioInFlightInterval{ioInFlightStorageKey(lane, transition.pairStart), transition.pairStart.Ts, transition.last.Ts})
 	}
 }
 

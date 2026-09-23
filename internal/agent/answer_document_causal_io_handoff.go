@@ -38,8 +38,9 @@ func renderAnswerDocCausalIOMeasurements(ctx *types.AgentContext, ledger types.O
 			records = append(records, record)
 		}
 	}
+	inFlight := renderAnswerDocIOInFlightMeasurements(ledger, rm, extractAnswerDocLang(ctx))
 	if len(records) == 0 {
-		return ""
+		return inFlight
 	}
 	rows := answerDocRuntimeFactAuthorityRowsByKey(records, types.RuntimeQuestionFactIOLatency, rm, answerDocCausalIOScopedKey)
 	var b strings.Builder
@@ -57,6 +58,7 @@ func renderAnswerDocCausalIOMeasurements(ctx *types.AgentContext, ledger types.O
 			row.SourceRef.Path, row.SourceRef.QueryScopeID, traceQueryObservationSupplementNoteValue(row, types.TraceNoteKeySelectedWindow), answerDocCausalIOQueryWindow(row))
 	}
 	b.WriteByte('\n')
+	b.WriteString(inFlight)
 	return b.String()
 }
 

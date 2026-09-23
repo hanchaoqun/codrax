@@ -215,6 +215,7 @@ func (t *TraceQuery) Description() string {
 	description += " " + traceQueryInputPreparationTeaching
 	description += " " + skill.TraceIORequestLatencyDistributionTeaching
 	description += " " + types.TraceStateDrilldownWindowGuidance
+	description += " " + skill.TraceIOInFlightTeaching
 	return description
 }
 
@@ -258,7 +259,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	viewNames, _ := json.Marshal(tracequery.CapabilityViewNames())
 	schema = strings.ReplaceAll(schema, "__TRACE_VIEW_NAMES__", string(viewNames))
 	schema = strings.ReplaceAll(schema, "__TRACE_QUERY_INPUT_LINE_SCOPE__", string(lineScope[1:len(lineScope)-1]))
-	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching)
+	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching)
 	schema = strings.Replace(schema, "The deterministic trace view to compute.",
 		"The deterministic trace view to compute. "+string(ioTeaching[1:len(ioTeaching)-1]), 1)
 	schema = strings.Replace(schema,
@@ -4718,7 +4719,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if filters := traceQueryEventFieldFiltersJSON(p.EventFieldFilters); filters != "" {
 		fmt.Fprintf(&b, "event_field_filters=%s\n", filters)
 	}
-	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
+	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%s..%s seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), traceQueryDisplaySeconds(result.TimeStart), traceQueryDisplaySeconds(result.TimeEnd))
 	if coverage := result.EventSearchCoverage; coverage != nil {
 		scopeDurationMs := 0.0
 		if coverage.ScopeTimeEnd >= coverage.ScopeTimeStart &&
@@ -5468,6 +5469,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, storage := range result.WindowStats.StorageLatencyByLayer {
 			writeTraceStorageLatency(&b, storage)
 		}
+		writeTraceIOInFlight(&b, result.WindowStats.IOInFlight)
 		if stats := result.WindowStats; stats.StorageLatencyOverflowGroups > 0 {
 			fmt.Fprintf(&b, "- storage_latency_groups shown=%d omitted=%d omitted_complete_pairs=%d; each shown distribution covers only its own group, not all groups\n",
 				len(stats.StorageLatencyByLayer), stats.StorageLatencyOverflowGroups, stats.StorageLatencyOverflowPairedCount)
@@ -10312,6 +10314,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 
 	if result.WindowStats != nil {
 		out = append(out, traceQueryTypedWindowStatsObservations(*result.WindowStats, ref, scope, at)...)
+		out = append(out, traceQueryTypedIOInFlightObservations(result.WindowStats.IOInFlight, ref, scope, at)...)
 		out = append(out, traceQueryTypedSemanticTraceSpanObservations(result, *result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedBusinessSpanObservations(*result.WindowStats, ref, scope, at)...)
 	}

@@ -3489,3 +3489,58 @@ mixed案在2408字节附件准备成功后被single-shot classifier整轮分到o
 ### 172.5 发布收据
 
 95954 fetch及非强制push正式exit0，推前ahead7/behind0，main从`4f7af20e9`至`940eedfd6`；五个实现/测试分片和两个审计分片均已保存到远端。末版全仓11225及干净构建45713收据见172.3，真实eval仍机器1/2、完整人工0/2。65开放不变，按172.4开始08.3完整能力，不继续追跑说明单例或挤掉参考能力队列。
+
+## 173. HMC-08.3：完整配对请求的真实在途深度（2026-09-23，验收中）
+
+### 173.1 任务数量、参考意图与方案
+
+本批开始逐唯一ID核对79=14已交付+65开放，无重复ID。先闭环§172，51947正式exit0已补推发布文档`a1edcc388`，再实施08.3；旧人工FAIL、17.7剩余SQLite入口及§165原生登记仍留原项，不以新能力冲销。
+
+再次逐行对照参考`core/preprocess/io_ops.py:114–179/482–590`及`config/indicators/io/io_latency.yaml:194–305`。其设计意图是按时间、读写和线程观察IO密集区；实现分别是桶相交请求数和桶内发起数，后者还按带宽/延迟启发式丢桶。串行请求落在同桶也会被叫并发，故本仓不复制该算法或名字，而复用已有严格物理配对器输出的完整成功区间。
+
+在`window_stats.io_inflight`发布同一真实请求总体的独立量尺：按物理来源/层/端点族/设备/操作分组，半开区间裁入确定时间窗后扫描，给出峰值、全窗时间加权平均、忙碌区间并集毫秒、请求·毫秒面积及有界时序。全部issuer参与，query_pid仅上下文；发起数另列。完整总体计算先于8组/每组16段展示截断，披露遗漏；RQ/BIO与其它层不相加，也不推断设备队深、目标等待或根因。原配对、IO闭合、源隔离、拓扑拒绝及根因资格不变。
+
+有限正宽时间窗才有分母；合法0起点保留。缺配对/歧义/源隔离不补到窗尾，缺测与实测0分离。block/storage两族覆盖分别保留未配对、歧义、拒绝、隔离和拓扑凭证；没有拒绝不能推出采集完整。目录、单位、工具说明/参数/视图矩阵共用一份教学，不新增view或输入关键词门。
+
+### 173.2 当前公开回归及新发现
+
+- 84908有效前置RED正式exit1（0.661秒）：同桶串行/重叠真实parse→query已有配对正控通过，仅缺新统计。公开23叶84175正式exit0（0.603秒）；35133 race及旧口径/分布邻接共70叶正式exit0（1.999秒）。日志`/tmp/hmc-io-inflight-public-{sealed-red,sealed-green,race}-20260923.log`。早先24239/9822属于夹具错误：V2 bundle第二份systrace尚未准入共享capture，修测试使用两份独立实际查询，不放宽来源门；不冒称端到端共享双源已经支持。
+- 私有reducer/覆盖10叶及配对邻接12187正式exit0（0.889秒），最终focused通过（0.561秒），66401 race正式exit0（1.755秒）。日志`/tmp/hmc-io-inflight-engine-{neighbor,final-focused,final-race}-20260923.log`。65290仅旧AST针仍找wrapper函数体而失败；针迁到真实replay函数并新增wrapper仅调用一次断言，未删除原3个逆索引检查。
+- 实际TraceQuery→dispatch→TurnA→Finalizer公开前置42661正式exit1（1.026秒），原生4组数值正控通过而新typed上下文缺失。接线后83191仍正式exit1：窄窗口过滤器不读嵌套说明，已增加独立精确`selected_window`字段；78037正式exit1仅因果模式压缩列表丢组，有限事实与窄窗已通过。日志`/tmp/hmc-io-inflight-{context-valid-red,integrated-first,context-second}-20260923.log`。
+- 因果模式复用已有IO测量说明区，独立展示在途量尺，保原请求/闭合等待帐，不更改全局10行观察预算或把resource统计并入latency事实族。人工审计另外发现小于1微秒的非零量被格式化为0、受行筛选的范围未投递、缺测理由丢失，均属本片模型供给问题，正在补公开回归与修复。
+
+尚未取得本片冻结全仓、干净构建、固定双例与推送收据，08.3只改验收中，不销账；后续结果在本节追加，不能倒签前置失败。
+
+### 173.3 范围、精度与最终上下文闭环
+
+独立审计发现旧配对器对line范围优先，而新starts误用line∩time、分母却直接用time。57095真实公共RED正式exit1（0.595秒）：行2..3的2ms请求配对正控成立，但冲突9..10秒却发布0次发起/整窗零占用。修后line范围仍按旧优先级计数，不臆造其时间分母，明确`line_bounds_take_precedence`；无line的显式时间窗能力不变。公开新增3格与原23格32805正式exit0（0.586秒），69167 race含内部10格共36叶正式exit0（2.009秒）。日志`/tmp/hmc-io-inflight-line-scope-{public-red,public-green,race}-20260923.log`。原私有理由pin精确迁移，缺测/空段等断言原样。
+
+精度公测80370有效RED正式exit1（1.127秒）：实际native正量先过，微小时窗/极低非零均值显示成0、行范围和未测理由未投递。统计改9位有效数字（不是小数位截零），时间按最少6位但保留全部已知小数；公共摘要首行及新曲线共用。完整段再有界截断，原typed零/缺测不同。74020末版focused正式exit0（tool1.607秒/tracequery0.522秒），26967 race正式exit0（4.564/2.444秒）；5新叶及10内部叶，日志`/tmp/hmc-io-inflight-precision-sealed-{focused,race}-20260923.log`。1495为macOS真实物理路径别名夹具错误；1302/73126两面定位错误不计产品RED或通过。
+
+因果IO展示保留旧请求/已闭合等待10行预算，新在途帐10行内先保两配对族代表，再填数值组、最后补其余覆盖，不合并不同来源/窗口/receipt，披露所有未展示行。有限与因果说明统一复制同一producer字段；51461公共RED（1.301秒）进一步证明有限模式仍漏已有曲线，已同源补齐；线程恰名block也不得授全issuer帐target_owned。79039末版focused正式exit0（1.999秒），含双语/有限与因果4叶、5独立query+重放/遗漏/不变、8组+2覆盖容量2叶与原IO相邻回归。所有显示操作不修改ledger、模型答案、链/根因候选或旁路；字面值只作为呈现，不扫描用户或答案原文。
+
+注册审计42926正式exit1：golden新增行放错排序及全键fixture没有新发行面；六项真实展示读取明确登记soft_consumer并用共享常量，不授硬消费者。修复fixture与排序，保原全键/消费者普查，不加豁免。88670中skill/llm保护通过（2.322/2.805秒），types同一golden错误保原FAIL。新增发起数不是发起率；提交/完成IOPS、墙钟带宽和分桶曲线继续明确留HMC-08.2，不用本片并发能力代销。
+
+末版context race74656正式exit0（7.005秒）；注册types 42480正式exit0（15.253秒）、全键producer与InfoContract四项27160正式exit0（tool1.636秒）。所有Go冻结后的39115本片独立完整`go test ./... -count=1`正式exit1：85测试包通过、13无测试包、tool/tracediag两包失败。日志`/tmp/hmc-io-inflight-sealed-full-20260923.log`，不以定向绿或此前全仓绿覆写。
+
+首轮全仓发现：①新增IO指针被通用诊断渲染当作紧凑字段，真实167 RQ下抢先占用预算，DHJ3丢旧时长/CPU与XAV1丢频率donor；须保原答案证据断言。②无IO观测/诊断仍生成两条全零覆盖，系统补采数量63→65，须收敛不必要上下文。③canonical窗字段裸小数和原六位显示不一致，须保旧格式且不舍弃更细精度。④两处WindowStats结构pin、工具Description快照需显式审阅本片新增字段/教学，不能直接放开检查。Description新合同移到末端，字节核验35116旧字节完全为前缀，仅追加1028字节；12814按原仪式更新，90639正常非UPDATE定向正式exit0（0.846秒），匹配h2/h3 A/B债仍保留，固定IO/写入两例不冒充该A/B。
+
+### 173.4 下一片17.7 B的已审设计（未实施）
+
+主审/独立审计确认`streamerdb_export_extended.go`的app_startup.start_name、HiSys.domain_id/event_name_id仍COALESCE(NULL,0)并scan int64，NULL可能借合法0、TEXT/REAL可能转换或导致整导出失败；现有共享dict全表map/seen无界，且数据库只开单连接，不能消费者Rows未关闭时再嵌套查字典。HiSys缺失/非标准名称拼出的print也可能在严格owned-output校验拒绝整转换，不能只删COALESCE了事。
+
+参考`core/preprocess/trace_data_cache.py:653`按业务引用关联、`sched_ops.py:860`先收实际引用再查名称，吸收“只解析当前业务引用”的意图；不复制隐式类型匹配、覆盖重复键、fetchall或吞异常。建议在消费者同一SELECT投影原始引用、最多2个候选的唯一性与原始值，双方INTEGER并复用严格int校验，唯一TEXT才成功；区分NULL/非法/缺键/重复/非TEXT/空串，同快照、单cursor、固定Go驻留状态。无索引时仍可能扫描，不承诺次线性性能。
+
+启动可保既有通用回退但明确名称不可用原因；HiSys缺名称/不支持名称局部拒绝语义print、诊断并保原始SQL精确保真，不造SYS/UNKNOWN、不放宽未知print。公共矩阵应从真实ConvertFile→导出→BuildIndex→显式窗查询覆盖合法0与NULL/TEXT/REAL/BLOB、重复反序、无关大字典、跨DB同ID、坏名称不伤健康事件、输入不变及真正DB/取消错误仍失败。共享引用保完整int64/TEXT，不套native subtype的uint32/4096限制。
+
+这是一片完整引用解析安全修复，但不是整个17.7：`loadArgsets`独立全表逻辑、非标准HiSys语义编码（05.1）、现存SQLite只读输入准入/WAL/一致快照/schema-owner-clock-源代次以及CLI/REPL协调仍各留原ID。该设计未写生产、未跑新live、未授新的原始DB输入权限，避免把准备工作误写为交付。
+
+### 173.5 整仓回归收尾（尚待完整复验）
+
+诊断渲染仅在既有精确类型/字段策略中把IOInFlight声明为后置大块，保原紧凑字段与既有测量明细顺序，不依内容或长度启发式猜优先级；新树仍完整渲染并计入总行数/省略披露。新小容量公开RED正式exit1（0.656秒），真实DHJ3/XAV1原断言不改即恢复。结构演进测试剥离唯一新增字段后复得原完整WindowStats SHA `ba9df90d…`，原IO分布演进SHA `99190b28…`保持，不签无关变化。
+
+进一步真实BuildIndex→Run→render公开RED正式exit1（0.657秒）证明零时长/1ns完整pair虽已测得，旧generic walker会丢0并舍入窗口。三个精确类型（Values/Segment/Window）显示保零与原生精度，nil不造测量。新段断言收紧为逐native segment完整路径/坐标/数量，避免`mean_requests=0.1`误满足`requests=0`。末版新6叶focused正式exit0（0.547秒），31867末版race正式exit0（38.645秒），21顶层/25叶含全部新6叶及真实DH/XA、原4失败、schema/renderer邻接；无SKIP。日志`/tmp/hmc-io-inflight-tracediag-{bulk-red,zero-red,final-exact-green,final-exact-race}-20260923.log`。独立只读审计无阻断，整仓复验未出结果前仍不签全仓通过。
+
+无IO空面与canonical窗公开RED60711正式exit1（tool1.225秒，3失败/2正控），真实调度2事件先成功；未配对/拒绝端点诊断及细粒度窗正控保留。仅当无group且两族无计数/无异常诊断时不发布新IO面，不把无观测解释成测得设备空闲；零时长完整pair仍有非nil0值。canonical窗复用至少六位且不截更细精度的既有显示函数。新增5公开叶+6reducer叶，48644focused正式exit0（tool1.820/tracequery0.732秒），实际agent三个Public测试84542正式exit0（1.084秒）；65129错误过滤虽exit0但no-tests不算验收。79279末版race正式exit0（tool3.613/tracequery1.850/agent5.492秒），原3失败断言未改。日志`/tmp/hmc-io-inflight-presence-{public-sealed-red,final-focused,agent-final-focused,final-race}-20260923.log`。
+
+所有Go/构建输入冻结后25994启动独立完整复验，日志`/tmp/hmc-io-inflight-final-sealed-full-20260923.log`；本段记录时尚未正式退出，不预签通过。固定两例为新增`trace_query_io_inflight`与既有`empty_python_module_apply`，各一次并行，分别检查观测范围/量纲/图表/旁路和真实修改/原生测试/验证声明；旧完整人工FAIL不改签。

@@ -1613,6 +1613,7 @@ type WindowStats struct {
 	ProcessCPULoad            []ProcessCPULoadSummary  `json:"process_cpu_load,omitempty"`
 	RunnableContext           []RunnableContextSummary `json:"runnable_context,omitempty"`
 	IOLatencies               []IOLatencySummary       `json:"io_latencies,omitempty"`
+	IOInFlight                *IOInFlightStats         `json:"io_inflight,omitempty"`
 	// IOLatencyOverflow* discloses the block-request pairs beyond the public
 	// Top-8 view.  Root-cause, blocking and evidence consumers recover every
 	// strict completion→issuer-wake member from the full census below; a

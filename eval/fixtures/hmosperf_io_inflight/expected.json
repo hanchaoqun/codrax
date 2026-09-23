@@ -1,0 +1,13 @@
+{
+  "window_seconds": [1.0, 1.01],
+  "population": "accepted_complete_pairs",
+  "issuer_scope": "all_issuers",
+  "groups": [
+    {"endpoint_family": "block_rq", "dev": "8,0", "operation": "R", "accepted_pair_count": 4, "issue_count": 6, "peak_requests": 2, "mean_requests": 1.4, "busy_ms": 10, "request_ms": 14},
+    {"endpoint_family": "block_rq", "dev": "8,0", "operation": "W", "accepted_pair_count": 2, "issue_count": 2, "peak_requests": 1, "mean_requests": 0.6, "busy_ms": 6, "request_ms": 6},
+    {"endpoint_family": "block_bio", "dev": "8,0", "operation": "R", "accepted_pair_count": 1, "issue_count": 1, "peak_requests": 1, "mean_requests": 1, "busy_ms": 10, "request_ms": 10},
+    {"endpoint_family": "block_rq", "dev": "8,1", "operation": "R", "accepted_pair_count": 1, "issue_count": 1, "peak_requests": 1, "mean_requests": 0.4, "busy_ms": 4, "request_ms": 4}
+  ],
+  "block_pairing": {"unpaired_start_count": 1, "ambiguous_cohort_count": 1, "pairing_suppressed_count": 2},
+  "not_proven": ["complete capture", "device queue depth", "target blocking", "root cause", "cross-layer request identity"]
+}

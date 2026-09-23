@@ -813,22 +813,34 @@ func TestGenericStorageLifecycleResetUsesOwnerInverseIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var target *ast.FuncDecl
+	var target, legacy *ast.FuncDecl
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Name.Name == "computeStorageLatencyByLayer" {
+		if ok && fn.Name.Name == "computeStorageLatencyPairing" {
 			target = fn
-			break
+		}
+		if ok && fn.Name.Name == "computeStorageLatencyByLayer" {
+			legacy = fn
 		}
 	}
-	if target == nil {
-		t.Fatal("computeStorageLatencyByLayer not found")
+	if target == nil || legacy == nil {
+		t.Fatal("storage pairing implementation or legacy wrapper not found")
 	}
 	callName := func(call *ast.CallExpr) string {
 		if ident, ok := call.Fun.(*ast.Ident); ok {
 			return ident.Name
 		}
 		return ""
+	}
+	delegations := 0
+	ast.Inspect(legacy.Body, func(node ast.Node) bool {
+		if call, ok := node.(*ast.CallExpr); ok && callName(call) == "computeStorageLatencyPairing" {
+			delegations++
+		}
+		return true
+	})
+	if delegations != 1 {
+		t.Fatalf("legacy storage API no longer delegates once to the audited matcher: %d", delegations)
 	}
 	hasAdd, hasDrop, resetUsesOwnerIndex := false, false, false
 	ast.Inspect(target.Body, func(node ast.Node) bool {

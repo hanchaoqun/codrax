@@ -183,6 +183,25 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		}},
 		IOLatencyOverflowCount:     2,
 		IOLatencyOverflowRequestMs: 0.625,
+		IOInFlight: &tracequery.IOInFlightStats{
+			Window:     &tracequery.IOInFlightWindow{StartTs: 1, EndTs: 2},
+			Population: tracequery.IOInFlightPopulationCompletePairs, IssuerScope: tracequery.IOInFlightIssuerScopeAll,
+			GroupCount: 1,
+			Groups: []tracequery.IOInFlightGroup{{
+				SourcePath: "/traces/full.systrace", Layer: "block", EndpointFamily: "block_rq", Dev: "12,80", Operation: "R",
+				AcceptedPairCount: 1, IssueCount: 2,
+				Values: &tracequery.IOInFlightValues{PeakRequests: 1, MeanRequests: .001347, BusyMs: 1.347, RequestMs: 1.347},
+				Segments: []tracequery.IOInFlightSegment{
+					{StartTs: 1, EndTs: 1.1, Requests: 0},
+					{StartTs: 1.1, EndTs: 1.101347, Requests: 1},
+					{StartTs: 1.101347, EndTs: 2, Requests: 0},
+				},
+			}},
+			Coverage: []tracequery.IOInFlightPairingCoverage{{
+				Family: "block", Status: tracequery.IOInFlightCoveragePartial, TopologyComplete: true,
+				AcceptedPairCount: 1, UnpairedStartCount: 1, Reasons: []string{"unpaired_endpoints_excluded"},
+			}},
+		},
 		// 件1 census 根修 (2026-07-13): the pid-keyed per-caller census pair
 		// (blocked_reason_census + its caller-overflow note).
 		BlockedReasonCensus: []tracequery.BlockedReasonPIDCensus{{

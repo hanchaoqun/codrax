@@ -14,11 +14,12 @@ import (
 
 // detailRenderPolicy is deliberately an exact type+Go-field registry.  A
 // Summary string, JSON key substring, or other noisy vocabulary must never
-// decide that a fact is load-bearing. Fields registered here have one typed
-// key-first renderer below and are therefore skipped by the generic detail
-// walker to avoid publishing two rulers for the same dimension.
+// decide that a fact is load-bearing. Skipped entries have one typed key-first
+// renderer, avoiding duplicate rulers. Deferred bulk entries remain visible
+// but cannot displace existing detail merely because their wrapper is a pointer.
 type detailRenderPolicy struct {
-	skipped map[reflect.Type]map[string]bool
+	skipped      map[reflect.Type]map[string]bool
+	deferredBulk map[reflect.Type]map[string]bool
 }
 
 var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[string]bool{
@@ -92,6 +93,11 @@ var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[stri
 	reflect.TypeOf(tracequery.ComputeSupplyBalance{}):   {"Caveats": true},
 	reflect.TypeOf(tracequery.BinderWaitSummary{}):      {"Caveats": true},
 	reflect.TypeOf(tracequery.IPCEdge{}):                {"Caveats": true},
+}, deferredBulk: map[reflect.Type]map[string]bool{
+	// Optional wrappers can contain whole bounded profiles, not compact
+	// metadata. Keep those additive collections after existing detail; they
+	// remain fully rendered and counted by the unchanged report-line cap.
+	reflect.TypeOf(tracequery.WindowStats{}): {"IOInFlight": true},
 }}
 
 func policySkipsDetailField(policy *detailRenderPolicy, typ reflect.Type, field string) bool {
@@ -99,9 +105,9 @@ func policySkipsDetailField(policy *detailRenderPolicy, typ reflect.Type, field 
 }
 
 // orderedDetailFieldIndexes keeps compact structs/pointers ahead of slices,
-// arrays and maps. This is a structural bulk rule, not a field-name heuristic;
-// the schema pins below make a newly added field fail review until its
-// key-first semantics have been adjudicated.
+// arrays and maps. Exact policy-declared bulk wrappers follow existing detail;
+// pointer syntax does not make a nested profile compact. No field-name or
+// content heuristic decides this priority, and schema pins require review.
 func orderedDetailFieldIndexes(v reflect.Value, policy *detailRenderPolicy) []int {
 	if policy == nil {
 		indexes := make([]int, v.NumField())
@@ -112,7 +118,12 @@ func orderedDetailFieldIndexes(v reflect.Value, policy *detailRenderPolicy) []in
 	}
 	regular := make([]int, 0, v.NumField())
 	bulk := make([]int, 0, v.NumField())
+	deferred := make([]int, 0, v.NumField())
 	for i := 0; i < v.NumField(); i++ {
+		if policy.deferredBulk[v.Type()][v.Type().Field(i).Name] {
+			deferred = append(deferred, i)
+			continue
+		}
 		switch v.Field(i).Kind() {
 		case reflect.Slice, reflect.Array, reflect.Map:
 			bulk = append(bulk, i)
@@ -120,7 +131,7 @@ func orderedDetailFieldIndexes(v reflect.Value, policy *detailRenderPolicy) []in
 			regular = append(regular, i)
 		}
 	}
-	return append(regular, bulk...)
+	return append(append(regular, bulk...), deferred...)
 }
 
 type nonEventDiagnosticKind uint8
@@ -936,7 +947,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// and caveats retain one detail owner under that span; no key-first skip
 	// or causal/rank authority. Nested field/disposition/render pins live in
 	// render_business_span_scheduler_test.go; no unrelated hash re-pin.
-	reflect.TypeOf(tracequery.WindowStats{}): "ba9df90dfb29d8ec606633961a517d5553522d7d2d620b2ce07b11b4eb6338f1",
+	// HMC-08.3 (2026-09-23): optional IOInFlight contains whole group/segment
+	// profiles. Its exact field policy schedules this additive bulk after
+	// existing measurements, never as compact pointer metadata. Full detail
+	// and cap accounting remain intact; the evolution witness strips only
+	// this field and reproduces the previous schema fingerprint.
+	reflect.TypeOf(tracequery.WindowStats{}): "2d8e73ee45e8c05c971f1ef962bbbdb70f3bd78609bc2102f8279900cbc94809",
 	// B1638b1 (2026-09-09): TimelineResult adds optional MeasurementDomain.
 	// It describes a constructed scheduler partition, NOT capture completeness
 	// or causal authority. Its nine scalar fields stay in original detail;

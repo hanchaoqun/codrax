@@ -714,6 +714,11 @@ func walkStructDetail(v reflect.Value, path string, emit func(string), depth int
 
 func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
 	t := v.Type()
+	switch t {
+	case reflect.TypeOf(tracequery.IOInFlightValues{}), reflect.TypeOf(tracequery.IOInFlightSegment{}), reflect.TypeOf(tracequery.IOInFlightWindow{}):
+		renderIOInFlightDetail(v.Interface(), path, emit)
+		return
+	}
 	if t == reflect.TypeOf(tracequery.TraceSpanSchedulerStates{}) {
 		renderBusinessSpanSchedulerDetail(v.Interface().(tracequery.TraceSpanSchedulerStates), path, emit, depth, policy)
 		return
