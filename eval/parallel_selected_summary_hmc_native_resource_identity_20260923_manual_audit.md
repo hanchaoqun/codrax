@@ -23,7 +23,7 @@
 
 上述坏句已经出现在首次模型`emit_answer_document`（日志3442）；后续patch（3483）只补表格facet关联，没有注入这些解释。日志3273的原生资源合同已说明end极值不能预设sentinel，模型仍误述；但新地址位型及显式NULL/缺字段的共享reader语义尚未完整接入教学，留16.4，不宣称全是已证模型波动。3094说明Finalizer不再重复整段raw trace，不能由未投递scheduler原行推断附件没有scheduler数据，也不应把有限资源问题强制扩成调度调查。
 
-首次接受后因required多主题调查重开（1410），1440–1442启动两路，之后重复3+4次event_search；并非current_source欠证。1次表格修补、2路调查、共10次Trace查询属于本次过程成本，不要求固定调用序列，不靠关键词硬门纠正模型。
+首次接受后因required多主题调查重开（1409），1437/1440启动两路，之后重复3+4次event_search；并非current_source欠证。1次表格修补、2路调查、共10次Trace查询属于本次过程成本，不要求固定调用序列，不靠关键词硬门纠正模型。
 
 `.root-causes.json`为schema_version=2、root_causes=[]、status=unavailable、reason_code=trace_root_cause_contract_not_active。用户是有限资源事实查询，无活跃根因合同；这不是旁路未生成或模型选择JSON损坏。解释质量挂03.2待验收与16.4/18.2，代码通过不倒签答案PASS。
 

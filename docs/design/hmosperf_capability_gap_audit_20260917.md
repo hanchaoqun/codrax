@@ -3318,3 +3318,7 @@ Trace人工FAIL：50ms业务窗与53ms查询窗混用，运行7ms/未归账1ms�
 新P1归HMC-02.4/16.4/18.4：`query.go`的`accumulateRuntimeResource`把`Path/Dev/Address`共用一条Path回退，`accumulateTracePluginEvent`以Comm补Domain；`traceQueryTypedResourceObservations`又不投递已有Address。因此不能只删回退而丢地址，也不能把背景身份提升因果。下一片按源字段、聚合身份、显示标签分离，保真实地址/设备/路径，未知保持未知，同线程不同对象不误合组；真实查询→JSON→观测→上下文验证，数量、延迟、查询窗和根因资格均需保持。
 
 实际查询窗丢失和runtime-only附录误派源码核对分别留16.4/§166，不靠答案关键词门修。下一顺序：①上述已污染真实答案的字段保真；②§166说明域完成通道；③17.7现存SQLite/共享字典安全；④08.3在途深度及其它参考差距。§165原生只读登记、旧人工FAIL与全表其它开放项均保留，不再被局部地址解释追绿挤占。
+
+### 169.5 封存收据
+
+10580干净构建/version正式exit0，revision=`8a6327ff7f43`、buildTime=`2026-09-23T09:49:45Z`，日志`/tmp/hmc-native-resource-identity-clean-build-20260923.log`。9835 fetch正式exit0，领先2/落后0；56259 push正式exit0，main从`f0a6b84d2`至`8a6327ff7`，包含字段实现`bcc498bd0`和完整审计`8a6327ff7`。固定双例原始人工FAIL不改签，03.2保待验收及65开放。后续修改不得冒称本批冻结全仓或live已覆盖。
