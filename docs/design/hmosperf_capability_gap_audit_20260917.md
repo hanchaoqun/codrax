@@ -3166,7 +3166,7 @@ Trace FAIL：最终用52ms窗6ms运行解释50ms业务窗、缺35ms请求、31ms
 - 冻结后独立全diff复核又发现显示去重的空口径种子组合：普通io_wait旧行没有口径、同族更大重复值有口径时，helper仅检查旧行会提前返回，导致数值换源而标签未换。首轮完整3042因此主动终止，正式exit143，`/tmp/hmc-io-caliber-final-full-20260923.log`不作为通过或产品失败收据；补该同类边界后重新冻结、整仓重跑，不拼接前后局部结果。
 - 末补只将显示去重的入口判定改为任一实际输入携带IO计时语义，后续仍按真实数值来源。16格公开Render安全网回归（两类型×中英×未知种子/反向/两向平局），有效RED53410仅4个未知种子取已知较大值失败；57545正式exit0（1.333秒），race53028正式exit0（3.203秒），日志`/tmp/hmc-io-caliber-render-unknown-donor-{red,green,race}-20260923.log`。普通TraceQuery→Emit通常已先过类型层去重，故此反例仅声明显示安全网入口，不伪称每次原生端到端复现。
 
-## 165. 原生断言只读补登记：有界实施清单（2026-09-23，设计已复核，未实施）
+## 165. 原生断言只读补登记：有界实施清单（2026-09-23，读取凭证前置见§168，其余未实施）
 
 挂原HMC-18.5，不重复增加79个稳定父任务。现有`emit_change_plan`/`emit_plan_skeleton`已支持`project_test_observations[]`，planner接受计划立即结束，不能设计为同轮“先发射再登记”。参考`core/llm_contract.py:61`的声明成员与真实字段统一验收值得吸收，但没有本仓所需的当前交付/实际测试字节/新invocation权限，不能拿session或缓存代替。本批独立设计与主审接口复核后拆成三片，顺序不可颠倒：
 
@@ -3174,7 +3174,7 @@ Trace FAIL：最终用52ms窗6ms运行解释50ms业务窗、缺35ms请求、31ms
 2. **新原生执行与证明消费绑定**：普通PTO当前不触发仅遍历RequiredExistingTestPaths的unittest观察器；新增独立“已登记测试路径”来源，不能伪造用户运行要求。执行前后冻结登记摘要/testSHA/来源交付/HEAD，当前invocation绑定到实际断言；旧PASS、零断言、skip、wrong file/suite/assertion及probe成功均不能代替新的原生断言。恢复/累计消费同样重核完整合同与登记代次，防历史satisfied被新登记重新解释。
 3. **完整控制器恢复验收**：公开控制器→实际读取→无修改PTO提交→落盘恢复→verify-only→新native执行→required合同消费→再次运行，校验不同invocation、源码测试及旧报告不变；同ID合同正文变化、读取后/登记后/执行中字节与交付变化、取消/换批次/重规划、普通源码计划及旧只读probe正负边界全部覆盖，再固定2并行×1模型验收。
 
-首版边界建议单一有效源码交付、Python unittest、已有有效合同；多来源/其它runner另保留。无需新增模型工作流，但只加emit入口豁免会留下后端观察器和证明消费漏洞，所以当前不作这种局部放行。三片均未实施，不把§160的身份传递或本轮普通apply结果代签本项。
+首版边界建议单一有效源码交付、Python unittest、已有有效合同；多来源/其它runner另保留。无需新增模型工作流，但只加emit入口豁免会留下后端观察器和证明消费漏洞，所以当前不作这种局部放行。设计时三片均未实施；后续§168仅完成第一片中的实际读取凭证前置，控制器授权、双emit登记、持久化恢复和新执行/消费仍未完成。不把§160的身份传递、读取凭证或普通apply结果代签完整登记能力。
 
 ## 166. 静态工具说明的完成通道（2026-09-23，只读设计，未实施）
 
@@ -3219,3 +3219,54 @@ Trace人工FAIL：50ms业务窗与53ms查询窗混用，运行7ms/未归账1ms�
 93083末版独立完整全仓正式exit0：87测试包通过、13无测试包、零FAIL，主要耗时tool444.400秒、tracequery113.305秒、agent98.345秒、orchestrator59.623秒、repl70.337秒。日志`/tmp/hmc-io-caliber-frozen-complete-full-20260923.log`；整个运行期间全部Go/依赖/构建输入保持冻结，仅整理文档，无分包拼接。旧56612失败、3042/2566主动中止及固定e29的Trace人工FAIL均原样保留。
 
 16962干净构建/version正式exit0，revision=`a376569a004d`、buildTime=`2026-09-23T08:32:18Z`，日志`/tmp/hmc-io-caliber-release-build-20260923.log`。32111 fetch正式exit0，推送前领先4/落后0；23936推送正式exit0，远端main由`de7161175`至`a376569a0`，包含`e29e8e0e8`共享计量口径、`65a6c2756`合同迁移、`5e6b10439`非重复计量教学及`a376569a0`审计四个分片。独立最终文档审计确认机器/人工判定、新功能未命中和未实施设计均未夸大。封存收据单独追加，不修改冻结的评测工件、模型正文或机器判定。
+
+## 168. 写模式实际读取版本与可见范围凭证（2026-09-23，已提交，完整答案FAIL保留）
+
+### 168.1 任务复算、参考意图与边界
+
+从干净`c6153f25c63a`继续；fetch55780正式exit0，本地/远端0/0。按稳定ID逐条重算79项、14已交付、65开放，无重复ID；57待实施/6部分实施/1待验收/1持续执行。当前优先§165长期未闭合的原生断言只读登记，先完成必要的实际读取前置；挂HMC-18.5，不新建重复父ID，也不核销完整登记能力。
+
+主审亲读参考`core/llm_contract.py:114–146`：声明成员必须属于选中的真实成员，再按注册JSON字段回查实际值；`core/skill_executor.py:622–640`在续跑越过声明合同步骤时复核产物。采用“来源归属与实际内容绑定后才能消费”的意图，不移植参考的去空白子串/数值容差、原文数字扫描或相似文本拒绝。这些做法不能授予本仓测试文件、当前交付及新执行身份。参考也没有本仓物理工作树、实际读取字节和原生断言执行授权，不能拿其session/cache代替。
+
+原`dispatchRepositoryFileReads`只记录root/path/RawRef，明确不是完整读取或测试证明。登记时重新读取再计算SHA会把“现在的文件”冒充“模型先前看过的版本”；全文件SHA也不等于模型实际看完。新增私有写模式凭证把这两条轴分开，仍不新增模型必填字段、工具JSON或提示词要求。
+
+### 168.2 实施与独立审计
+
+代码`45823f0d3`：
+
+- 写模式合格仓内文件由同一打开的文件描述符受限读取，摘要只来自返回并用于显示的这份data；读取前后复核文件身份、大小、mtime，以及原始root/path链接解析。目录只核身份，不因生成普通blob的目录更新时间误拒。读模式、Trace专用通道、域外/运行时材料不获新凭证，保留原读路径。
+- 凭证冻结真实物理仓库、精确typed source path、实际总行数及本轮独立代次。普通Append不换代次，reset锁内清空并递增；晚返回的旧读取、fork/JSON恢复不能继承。旧路径观察接口及其用途保持不变。
+- 读取工具返回前只登记pending；查询完整读取还必须匹配本轮已Append的成功read_file、原RawRef及全部coverage坐标。只有同root/path/SHA/total且区间无缺口才完整；空文件复用零行完整枚举，不造第1行。查询不重新读取磁盘，也不宣称文件此后没有变化。
+- 最终Summary必须与实际待显示文本完全相等，额外banner引发二次截断、单行过长、预览省略均不授完整范围。合法分页可以按原版本补齐；跨版本不能拼。非法UTF-8会在JSON字符串传输时替换，故仍保持原读取成功，但不能用替换后的展示证明看过原始字节。
+- 独立helper审计找到“pending读A被错误B覆盖记录借用”和“真实2行却声称1行”的封装缺口，先真实RED后补精确路径/总行数绑定；没有按文件名或模型正文猜角色。新凭证只证明已观察版本/覆盖，不授PTO登记、原生执行、行为合同成功或用户必跑义务。
+
+前后元数据核验不是原子文件系统快照；不声称抵抗恶意瞬时换入再恢复/mtime伪造。后续登记及原生执行仍须分别核当前交付、当前字节和新执行身份，不能因为本片有SHA就省略。
+
+### 168.3 确定性回归收据
+
+- 真实ReadFile→Append公开旧producer RED69216正式exit1（tool1.272秒）：19叶中13个正分支因缺版本凭证失败，6负控通过。末补UTF-8负针RED30179正式exit1（1.188秒），先确认读取成功、原文件不变、JSON真实替换，再暴露原摘要被误授。最终20叶及旧protected-read/空文件/物理行/分页/source-free PTO/probe-only邻接GREEN22971正式exit0（2.766秒），race32621正式exit0（6.636秒）。日志`/tmp/hmc-dispatch-read-version-{public-red,invalid-utf8-red,final-public-green,final-public-race}-20260923.log`。
+- 类型层7顶层32叶：同版本分页/重叠/缺口、跨版本/仓库/路径/引用、失败/runtime/未Append、矛盾总行数、空文件枚举、reset晚完成、JSON/fork和并发。50099正式exit0（0.836秒），race88489正式exit0（2.167秒），日志`/tmp/hmc-dispatch-read-version-{focused,race}-20260923.log`。旧Record/Has接口回归保留。
+- 24叶实际reader→pending→record生命周期：同字节替换文件/根、mtime/大小、原alias改内外链接、Mutable/模式/reset变化、路径/total错配，以及上限/默认上限/MaxInt64、普通新增blob。首轮72991正式exit1只发现路径缺口；双针69894正式exit1只路径/total失败，其余22叶先绿。末版56465正式exit0（0.924秒），联合公开/生命周期race15917正式exit0（2.589秒）。日志`/tmp/hmc-dispatch-read-version-identity-{first,red,final-green,final-race}-20260923.log`。
+- 81905超时/流式保护定向正式exit0；600/300/600秒及活跃流保护没有修改，日志`/tmp/hmc-dispatch-read-version-stream-20260923.log`。未新增按用户/答案原文扫描的硬门；Trace根因资格、显式窗口、投影、自动补齐、业务/IO/调度和图/旁路均不修改。
+
+全部Go/依赖/构建输入于`45823f0d3`冻结；完整全仓55744正式exit0，87测试包/13无测试包/零FAIL，日志`/tmp/hmc-dispatch-read-version-full-20260923.log`；tool471.448秒、agent119.012秒、tracequery135.760秒、types61.672秒。整次运行无Go变更，不拼接部分结果。20653构建正式exit0，revision=`45823f0d38b2-dirty`，仅文档未提交、Go/build输入干净；固定双例39298正式exit0，空Python模块apply与无Trace目录说明恰好2并行×1，快照相同构建，结果根`eval/results/hmc_dispatch_read_version_20260923`。机器1/2、完整人工0/2，见§168.5；全仓绿不代签模型答案或完整登记能力。
+
+### 168.4 剩余退出条件
+
+§165第一片仍差控制器对唯一有效交付的精确授权、两条emit原子接受登记、新计划严格形状与持久化恢复；第二片仍差登记路径驱动真实原生观察器和成功/失败共同消费的新身份；第三片完整controller恢复及不同invocation证明未做。source-free PTO原拒绝与旧proof_probe_only形状刻意保留，避免前置完成后留下半开放权限。
+
+本批末审新增一项明确投递边界：`agent.go:2930/3011`在工具返回后便Append，模型实际请求还会经过`:2251`历史裁剪、`:2369`最终消息和`:2502`Chat。因此本片Complete只证明工具发布了该版本/范围，不能证明当前回答调用已收到或理解了它；同批read+emit也可能由模型事先同时发出。完整登记必须另核实际请求投递的ToolCallID/内容身份与成功响应轮次，已裁掉/摘要替换的页面和同批尚未投递读取不能授登记。该接线仍未实施，不能把dispatch代次或Append偷换为模型已读凭证，也不在本片继续扩展闲置状态。
+
+后续仍按整体ROI排序原生登记端到端、§166说明域完成通道、业务实例/全工件范围与caller双轴、合格IO总体/并发及精确帧/实例。不能继续无限增加读取边界组合而延误完整登记；本批旧人工FAIL及65开放状态均保留。完整登记下一片需同时接`ResolveVerificationDelivery`新严格形状、原生观察器独立eligible路径、成功/失败共同消费者以及`EffectiveVerificationConfidence`的无probe提前返回，避免只开emit或只修成功join。私有读取状态不继承为用户必跑要求。
+
+### 168.5 固定双例审计与全局ROI复核
+
+机器原判`eval/parallel_selected_summary_hmc_dispatch_read_version_20260923.md`与完整人工审计同名`_manual_audit.md`已分别留存，不修改原verdict、不追加第三次。
+
+写例298秒，机器/完整人工FAIL，功能正确和4原生方法+1probe通过单独保留。交付`900d22953617b4b7aec916e0090ff0cec0269ec4`仅totals.py新增5行；主仓仍seed `bd8316d316b47d8d32556c3feeacdf82d0c516a9`，原测试/配置字节不变。required c1缺typed行为观察；两种错误suite声明分别为`unittest@tests::TotalTest`、`python@unittest::TotalTest`，真实suite是`tests.test_totals.TotalTest`。补登记身份错误与source-free入口尚未支持同时成立，不能声称正确声明被拒，不能直接放松门。最终诚实保留unverified，无假绿。
+
+本次确实命中§160窄路径：补证PlanID 40781保原SourcePlanID 36194/唯一AppliedSource，TargetExecution complete；两个原生invocation分别`native:9f4d:18d7e7b6ed96fd08:2`、`native:9f4d:18d7e7cda1f9d430:3`。这不是完整原生只读登记通过。本片版本凭证私有、没有live完整覆盖收据，不能从8次read_file数目倒推命中完整资格。
+
+目录例313秒，机器PASS/完整人工FAIL。Finalizer完整获得21views/41metric族/8格式、45902字节目录，不是2000字节日志预览即被截断。答案混view与metric、count归ms、唤醒链事件可选、缺wakeup否定所有runnable入口、缺RQ否定其它层IO配对；二进制自动准备的入口限制遗漏。5次完成调用由1次装饰降级、3次源码席位降级、1次无进展强制完成组成；三个伪来源被拒，最终citations为空，但系统仍要求2个citation并附无关源码定位/内部枚举/锚点警告。确定性的§166完成通道与充足上下文上的模型误述分开留账，不靠反复目录提示或原文硬门修。
+
+重新全表ROI审计没有发现可以只靠现有基础或普通apply绿直接勾选的稳定子项。除上述前五外，HMC-03.2原生堆地址/资源子类是较小的独立完整交付候选：参考`config/indicators/memory/heap.yaml`的`sub_type_id→data_dict.id`关联，需先确认上游地址位型，再把无损整数和同采集字典经过实际DB→文本→parser→query贯通；不能猜有符号地址或用缺失=-1。该项尚未施工，不新建重复ID；用于避免长期只做跨父项局部修补。仍79=14交付+65开放。
