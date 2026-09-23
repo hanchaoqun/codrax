@@ -63,7 +63,8 @@ func normalizeCurrentSourceCitationQuotes(doc *types.AnswerDocumentV2, ctx *type
 }
 
 // normalizeInvalidCurrentSourceCitationRows removes current-source citations
-// whose declared line interval is provably outside the cited file, plus
+// whose authorized path is provably absent or whose declared line interval is
+// provably outside the cited file, plus
 // citations whose entire declared interval is physically present but blank. A
 // blank interval cannot support a non-empty model-authored quote (the r599
 // witness cited a blank __init__.py:2 as "import _fastlex"), nor can it provide
@@ -74,9 +75,11 @@ func normalizeCurrentSourceCitationQuotes(doc *types.AnswerDocumentV2, ctx *type
 // The check is deliberately narrow:
 //   - runtime-artifact and negative-search citations belong to separate
 //     authorities and are left untouched;
-//   - unreadable, sensitive, oversized, or out-of-repository files remain
+//   - permission failures, sensitive, oversized, or out-of-repository files remain
 //     for their existing validators instead of being guessed invalid;
-//   - only a successfully read source file can prove an out-of-bounds line.
+//   - only a successfully read source file can prove an out-of-bounds line;
+//   - a failed read proves nothing by itself: absent paths need a separate
+//     authorized, symlink-free filesystem check; external claim refs stay put.
 //
 // Removing the pool entry (rather than merely clearing its quote) prevents
 // a model-authored quote from another file being carried by an impossible
@@ -99,6 +102,7 @@ func normalizeInvalidCurrentSourceCitationRows(doc *types.AnswerDocumentV2, ctx 
 
 	artifactPaths := runtimeArtifactCitationPathSet(ctx)
 	lineCache := map[string][]string{}
+	externalRefs := currentSourceCitationExternalClaimRefs(doc)
 	remove := make(map[int]bool)
 	for i, cit := range doc.Citations {
 		if cit.Line <= 0 || strings.TrimSpace(cit.NegativePattern) != "" {
@@ -109,6 +113,9 @@ func normalizeInvalidCurrentSourceCitationRows(doc *types.AnswerDocumentV2, ctx 
 		}
 		lines, ok := currentSourceCitationLines(repoRoot, cit.File, lineCache)
 		if !ok {
+			if !externalRefs[i] && currentSourceCitationProvenAbsent(ctx, repoRoot, cit) {
+				remove[i] = true
+			}
 			continue
 		}
 		lineCount := len(lines)

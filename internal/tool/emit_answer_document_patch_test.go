@@ -1480,6 +1480,11 @@ func TestEmitAnswerDocumentPatch_RejectsStructurallyContaminatedFieldName(t *tes
 
 func TestEmitAnswerDocumentPatch_VerifiesNonEmptyAppendedCitationQuote(t *testing.T) {
 	repo := t.TempDir()
+	// The inherited source citation must exist in this checkout; this test
+	// isolates quote repair on the appended source, not missing-file cleanup.
+	if err := os.WriteFile(filepath.Join(repo, "x.go"), []byte(strings.Repeat("\n", 9)+"func A() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(repo, "source.go"), []byte("package sample\nfunc exact() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1540,6 +1545,11 @@ func TestEmitAnswerDocumentPatchPrunesUnusedInheritedCitationAfterMergedRebind(t
 
 func TestEmitAnswerDocumentPatch_DropsAppendedCitationWhoseExactSourceRowIsBlank(t *testing.T) {
 	repo := t.TempDir()
+	// Keep the inherited anchor physically valid so only the blank-row
+	// forgery is removed by this test's original assertion.
+	if err := os.WriteFile(filepath.Join(repo, "x.go"), []byte(strings.Repeat("\n", 9)+"func A() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(repo, "source.py"), []byte("import os\n\nimport _fastlex\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

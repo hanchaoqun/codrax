@@ -112,7 +112,7 @@ func TestNormalizeInvalidCurrentSourceCitationRows_PreservesOtherAuthoritiesAndU
 	doc := &types.AnswerDocumentV2{Citations: []types.Citation{
 		{File: "trace.systrace", Line: 999, Quote: "runtime artifact"},
 		{File: "small.go", Line: 999, NegativePattern: "missing-symbol"},
-		{File: "does-not-exist.go", Line: 999, Quote: "unreadable is not proven here"},
+		{File: "does-not-exist.go", Line: 999, Quote: "authorized absence is now proven separately"},
 		{File: "../outside.go", Line: 999, Quote: "outside repository is not proven here"},
 	}}
 	ctx := &types.BusContext{
@@ -121,10 +121,10 @@ func TestNormalizeInvalidCurrentSourceCitationRows_PreservesOtherAuthoritiesAndU
 		AttachedHitraceSource: "trace.systrace",
 	}
 
-	if changed := normalizeInvalidCurrentSourceCitationRows(doc, ctx); changed != 0 {
-		t.Fatalf("other/unproven authorities must remain untouched, changed=%d citations=%+v", changed, doc.Citations)
+	if changed := normalizeInvalidCurrentSourceCitationRows(doc, ctx); changed != 1 {
+		t.Fatalf("only the proven missing local file may be removed, changed=%d citations=%+v", changed, doc.Citations)
 	}
-	if len(doc.Citations) != 4 {
+	if len(doc.Citations) != 3 || doc.Citations[0].File != "trace.systrace" || doc.Citations[1].NegativePattern != "missing-symbol" || doc.Citations[2].File != "../outside.go" {
 		t.Fatalf("unexpected citation removal: %+v", doc.Citations)
 	}
 }
