@@ -379,6 +379,10 @@ Commercial hardening before declaring complete:
 
 ## Progress Ledger
 
+### HMC physical-line coverage: read-total concern extraction (2026-09-22)
+
+The first full run of `17c51a21d` reported `evidence_closure.go=2657 > 2630` (`/tmp/hmc-existing-edge-empty-read-full-20260922.log`, session 74574, formal exit 1; 86 packages passed and only the orchestrator ratchet failed). Preserve that receipt. Move the complete 167-line `RecordFileTotalLines` through `HasFullyRead` block, including all comments and the private presence/empty-total helpers, verbatim into `evidence_closure_read_totals.go`. The hot file becomes 2489 lines and its ceiling tightens to that exact count; the new 169-line concern has a 180-line ceiling. No comments are compressed, methods or APIs changed, or ownership allowances added. Compare both the extracted block and the remaining original file against `17c51a21d`, then run focused physical-read, coverage, reducer-ownership, ratchet/census and race checks. This is a responsibility-only move; replacement full-suite and live evidence remain separately versioned in the campaign ledger.
+
 ### HMC §84: reviewed verification-renderer budget adjustment (2026-09-21)
 
 The mixed-invocation verification fix grew `write_verify_render.go` from 418 to 436 lines: it distinguishes local empty-test scopes, uncovered changed paths, and missing verification obligations in the existing outcome explanation and next-step advice. These remain one cohesive rendering concern. The first full run correctly tripped the 420-line maintenance threshold (`/tmp/hmc-mixed-no-tests-full-20260921.log`, formal exit 1); that receipt is retained, not reclassified as a behavioral failure or erased.

@@ -13,7 +13,10 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		path     string
 		maxLines int
 	}{
-		{path: filepath.Join("..", "types", "evidence_closure.go"), maxLines: 2630},
+		// HMC physical-line coverage: move the complete read-total concern,
+		// including its comments, rather than raising the hot-file ceiling.
+		{path: filepath.Join("..", "types", "evidence_closure.go"), maxLines: 2489},
+		{path: filepath.Join("..", "types", "evidence_closure_read_totals.go"), maxLines: 180},
 		{path: "scheduler.go", maxLines: 743},
 		// Tightened 9395→9260 after WRITEFIX-1 split the apply/verify
 		// wording single-point into write_verify_render.go (which gets
