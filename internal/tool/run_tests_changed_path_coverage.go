@@ -583,8 +583,8 @@ func changedPathVerificationFailureSummary(uncovered []string) string {
 	)
 }
 
-// finishedReportSummary rewrites the base wording of an exit whose report
-// was flipped to verification_incomplete by the changed-path coverage gate.
+// finishedReportSummary renders the effective verification-incomplete report,
+// including execution obligations applied after the changed-path coverage gate.
 // It renders the verdict only; the worktree-audit sentence is appended by
 // the single install choke point in Execute (installFinishedReport), never
 // here, so no exit can install a report without disclosing its audit.
@@ -594,9 +594,11 @@ func finishedReportSummary(report *types.ChangeReport, fallback string) string {
 		strings.TrimSpace(report.FailureSummary) == "" {
 		return fallback
 	}
-	return "[run_tests: verdict=UNAVAILABLE reason_code=" +
-		changedPathVerificationUncoveredReasonCode + "] " +
-		strings.TrimSpace(report.FailureSummary)
+	header := "[run_tests: verdict=UNAVAILABLE"
+	if reason := strings.TrimSpace(report.FailureReasonCode); reason != "" {
+		header += " reason_code=" + reason
+	}
+	return header + "] " + strings.TrimSpace(report.FailureSummary)
 }
 
 func renderRunTestsWorktreeAuditSummary(report *types.ChangeReport) string {

@@ -308,13 +308,11 @@ func executedMakeCommandTarget(cmdStr string) string {
 // so the operator immediately understands this is NOT a code failure and NOT a
 // verified success — it's an explicit middle state.
 //
-// Wording precondition (eval-audit 20260719 G3/GAP-5): the "environment
-// is missing the runner/dependencies" sentence is only allowed when NO
-// runnable typed-surface candidate remains untried. When a candidate
-// exists, the honest wording is "the verification command failed:
-// <real error>" — the zod sessions told the user their environment
-// lacked a test runner while `make` and the `check` target both
-// existed and had simply never been tried with the right target.
+// Unavailable is a completion status, not an environmental diagnosis. Typed
+// execution/coverage debt stays incomplete even when local checks passed; it
+// does not prove that the runner/dependencies are missing (or healthy). Keep
+// that lane separate from the existing environment and untried-candidate
+// wording, without interpreting the human/model-authored FailureSummary.
 func renderVerifyUnverified(report *types.ChangeReport, lang string) (out string) {
 	defer func() { out += renderVerifyFailureObservationNote(report, lang) }()
 	zh := isLangZh(lang)
@@ -331,9 +329,13 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) (out string
 			}
 			reasonZH = "仍有验证范围缺少原生测试断言结果；没有测试结果的调用范围为 " + scopesZH
 			reasonEN = "some verification scope still lacks native test assertion results; invocation scope(s) without test results: " + scopesEN
-		} else if report.FailureKind == types.FailureKindVerificationIncomplete && report.FailureReasonCode == "changed_path_verification_uncovered" {
-			reasonZH = "仍有本次修改的源码路径缺少必要验证"
-			reasonEN = "some changed source paths still lack required verification"
+		} else if report.FailureKind == types.FailureKindVerificationIncomplete {
+			reasonZH = "仍有必要验证的执行或证明尚未完成"
+			reasonEN = "required verification execution or its supporting evidence is still incomplete"
+			if report.FailureReasonCode == "changed_path_verification_uncovered" {
+				reasonZH = "仍有本次修改的源码路径缺少必要验证"
+				reasonEN = "some changed source paths still lack required verification"
+			}
 		} else if reportIndicatesVerificationUnavailable(report) {
 			summary := strings.TrimSpace(report.FailureSummary)
 			if cand := reportUntriedRunnableCandidate(report); cand != nil {
@@ -369,8 +371,7 @@ func renderVerifyUnverified(report *types.ChangeReport, lang string) (out string
 	} else if report != nil && (report.FailureKind == types.FailureKindNoTests || report.NoTestsWithoutAssertionVerdict()) {
 		envStepZH = "- 检查测试发现范围并补齐必要验证后 /verify,或\n"
 		envStepEN = "- check test discovery scope and complete the required verification before /verify, or\n"
-	} else if report != nil && (!reportIndicatesVerificationUnavailable(report) ||
-		(report.FailureKind == types.FailureKindVerificationIncomplete && report.FailureReasonCode == "changed_path_verification_uncovered")) {
+	} else if report != nil && (!reportIndicatesVerificationUnavailable(report) || report.FailureKind == types.FailureKindVerificationIncomplete) {
 		envStepZH = "- 在当前授权范围内补齐缺失的验证证据后 /verify,或\n"
 		envStepEN = "- complete the missing verification evidence within the current authorized scope before /verify, or\n"
 	}
