@@ -1,0 +1,23 @@
+# HMC-03.2: exact resource identity fields in already-exported text.
+# This is not binary conversion, stack expansion, or leak-analysis acceptance.
+ID="trace_query_native_resource_identity"
+NAME="trace query — exact resource addresses and nullable subtype references"
+QUESTION="只分析附加 trace 中 0.0005s 到 0.0055s 的资源记录，不分析代码。请按时间列出窗口内每次资源操作的发生时间（秒）、原始地址整数及对应的 64 位十六进制位型、资源子类编号和已提供的子类名称，保持大整数精确，并区分 0、NULL、空字符串和没有解析出名称。原始地址的负号应怎样理解，能直接据此认定地址无效吗？说明窗口内共有多少次资源操作，累计资源量另按各自序列说明，不要把累计量采样重复计为操作。仅凭这些记录能否判断某个函数执行很久、存在资源泄漏或已经找到卡顿主因？请说明证据边界，不需要画图。"
+HTRACE_FILE="eval/fixtures/hmosperf_native_resource_identity/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+
+# Presence-only smoke checks. Row association, missingness, counter families,
+# exact bit preservation, window completeness, and conclusions need human audit.
+# All large integers are strings here; the oracle never converts them to float.
+EXPECT_PRIMARY_CONTAINS="9007199254740993 -9223372036854775808 8192 4096 4128"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])-1([^0-9]|$)
+0[xX]0020000000000001
+0[xX][fF]{16}
+0[xX]8000000000000000
+(NULL|null|缺值|缺失|未提供|未记录|未知)
+(空字符串|空名称|空文本|空串)
+(缓存)"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="((共|总计|合计|共有|总数).{0,60}(5|五)[[:space:]*]*(次|条|个)|(5|五)[[:space:]*]*(次|条|个).{0,60}(资源|操作|记录))
+((不能|不足|无法|不支持|不代表|不等于|未证|未能).{0,120}(执行|函数|泄漏|根因|主因)|(执行|函数|泄漏|根因|主因).{0,120}(不能|不足|无法|不支持|不代表|不等于|未证|未能))"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

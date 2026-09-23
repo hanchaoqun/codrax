@@ -1,0 +1,16 @@
+# tracer: nop
+# Authored synthetic exported-text fixture, not a binary capture.
+app-main-100 (100) [001] .... 0.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app-main next_pid=100 next_prio=53
+app-main-100 (100) [001] .... 0.001000: tracing_mark_write: I|100|NativeHook:AllocEvent resource_end_ts_ns=9223372036854775807 source_heap_size=9007199254740993 source_callchain_id=9007199254740995 source_addr_i64=9007199254740993 source_addr_bits_hex=0x0020000000000001 source_sub_type_id=7 source_sub_type_name="缓存\u007c纹理"
+app-main-100 (100) [001] .... 0.001000: tracing_mark_write: C|100|HeapSize|8192
+app-main-100 (100) [001] .... 0.002000: tracing_mark_write: I|100|NativeHook:FreeEvent resource_end_ts_ns=0 source_heap_size=0 source_callchain_id=-1 source_addr_i64=0 source_addr_bits_hex=0x0000000000000000 source_sub_type_id=0 source_sub_type_name=""
+app-main-100 (100) [001] .... 0.002000: tracing_mark_write: C|100|HeapSize|4096
+app-main-100 (100) [001] .... 0.003000: tracing_mark_write: I|100|NativeHook:MmapEvent resource_end_ts_ns=null source_heap_size=4096 source_callchain_id=null source_addr_i64=-1 source_addr_bits_hex=0xffffffffffffffff source_sub_type_id=8 source_sub_type_name=null
+app-main-100 (100) [001] .... 0.003000: tracing_mark_write: C|100|MmapSize|4096
+app-main-100 (100) [001] .... 0.004000: tracing_mark_write: I|100|NativeHook:AllocEvent resource_end_ts_ns=null source_heap_size=32 source_callchain_id=12 source_addr_i64=null source_addr_bits_hex=null source_sub_type_id=99
+app-main-100 (100) [001] .... 0.004000: tracing_mark_write: C|100|HeapSize|4128
+app-main-100 (100) [001] .... 0.005000: tracing_mark_write: I|100|NativeHook:MmapEvent resource_end_ts_ns=null source_heap_size=4096 source_callchain_id=13 source_addr_i64=-9223372036854775808 source_addr_bits_hex=0x8000000000000000 source_sub_type_id=null
+app-main-100 (100) [001] .... 0.005000: tracing_mark_write: C|100|MmapSize|8192
+app-main-100 (100) [001] .... 0.006000: tracing_mark_write: I|100|NativeHook:FD_Open_Event resource_end_ts_ns=9000000 source_heap_size=1 source_callchain_id=14 source_addr_i64=17 source_addr_bits_hex=0x0000000000000011 source_sub_type_id=10 source_sub_type_name="窗外文件描述符"
+app-main-100 (100) [001] .... 0.006000: tracing_mark_write: C|100|NativeHook_FD_Active|1
+app-main-100 (100) [001] .... 0.009000: sched_switch: prev_comm=app-main prev_pid=100 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120

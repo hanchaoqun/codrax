@@ -41,6 +41,8 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		"identity":          "canonical native_hook.itid/ipid joined to an exact positive owner; emitter origin passes the shared thread+process point gate",
 		"row_order":         "signed-int32 native_hook.id row identity when present; otherwise a provable SQLite hidden rowid",
 		"resource_metadata": "instant-only resource metadata, not execution: resource_end_ts_ns preserves nullable end_ts (NULL/0 do not prove release); source_heap_size preserves nonnegative INTEGER heap_size without negating free events or assuming all resource families use bytes; source_callchain_id is an opaque source INTEGER, not a resolved stack or causal edge; absent optional columns stay absent",
+		"resource_address":  "OpenHarmony TraceStreamer 5c5afb0c addr uint64 is published as SQLite int64 without sentinel filtering: source_addr_i64 and source_addr_bits_hex preserve the same 64 bits without float or absolute value; -1 remains all-one bits, not proof of a valid allocation or of missing data; SQL NULL stays null",
+		"resource_subtype":  "optional sub_type_id preserves INTEGER/NULL; only canonical uint32 IDs resolve against one unique data_dict row in the same sealed capture; JSON-quoted source_sub_type_name escapes pipe and controls; empty TEXT and SQL NULL remain distinct, missing/invalid/duplicate references omit the name and are diagnosed; no name-based units, lifetime pairing or root-cause authority",
 	}
 	fail := func(cause error) (TraceDBCoverage, error) {
 		if cause != nil {
@@ -79,35 +81,18 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		stableOrderExpr = stableExpr
 	}
 	coverage.FieldSources["row_order"] = stableSource + "; same-timestamp rows retain stable source order"
-	// Optional resource observations must not become admission requirements for
-	// an otherwise valid instant/counter. The exact all-table fidelity lane also
-	// preserves unsupported address/storage forms without interpreting them.
-	metadataColumns := []struct {
-		column, label string
-		nonnegative   bool
-		present       bool
-	}{
-		{column: "heap_size", label: "source_heap_size", nonnegative: true},
-		{column: "callchain_id", label: "source_callchain_id"},
-	}
-	metadataSQL := []string{"NULL", "NULL"}
-	for i := range metadataColumns {
-		field := &metadataColumns[i]
-		field.present, err = tdb.columnExists(ctx, "native_hook", field.column)
-		if err != nil {
-			return fail(err)
-		}
-		if field.present {
-			metadataSQL[i] = quoteSQLiteIdent(field.column)
-			coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, field.column)
-		}
+	// Load the optional dictionary before opening native rows: the sealed DB
+	// deliberately has only one connection. Bad metadata cannot reject an I/C.
+	metadata, err := loadTraceDBNativeHookMetadata(ctx, tdb, &coverage)
+	if err != nil {
+		return fail(err)
 	}
 	sort.Strings(coverage.ColumnsPresent)
 	query := fmt.Sprintf(`
 		SELECT %s, start_ts, end_ts, event_type, all_heap_size, itid, ipid, %s
 		FROM native_hook
 		ORDER BY %s
-	`, stableExpr, strings.Join(metadataSQL, ", "), stableOrderExpr)
+	`, stableExpr, strings.Join(metadata.selects[:], ", "), stableOrderExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
 		return fail(err)
@@ -119,8 +104,8 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			return fail(err)
 		}
 		var stableRaw, startRaw, endRaw, eventTypeRaw, heapRaw, itidRaw, ipidRaw any
-		var metadataRaw [2]any
-		if err := rows.Scan(&stableRaw, &startRaw, &endRaw, &eventTypeRaw, &heapRaw, &itidRaw, &ipidRaw, &metadataRaw[0], &metadataRaw[1]); err != nil {
+		var metadataRaw [4]any
+		if err := rows.Scan(&stableRaw, &startRaw, &endRaw, &eventTypeRaw, &heapRaw, &itidRaw, &ipidRaw, &metadataRaw[0], &metadataRaw[1], &metadataRaw[2], &metadataRaw[3]); err != nil {
 			return fail(err)
 		}
 		event, reason := prepareTraceDBNativeHookEvent(authority, running, hasSourceID, duplicateSourceIDs,
@@ -134,21 +119,7 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			endText = strconv.FormatInt(event.End, 10)
 		}
 		instantName := "NativeHook:" + event.EventType + " resource_end_ts_ns=" + endText
-		for i, field := range metadataColumns {
-			if !field.present {
-				continue
-			}
-			value := "null"
-			if metadataRaw[i] != nil {
-				integer, valid := traceDBStrictSQLiteInt(metadataRaw[i])
-				if !valid || (field.nonnegative && integer < 0) {
-					skipped["invalid_optional_"+field.column]++
-					continue
-				}
-				value = strconv.FormatInt(integer, 10)
-			}
-			instantName += " " + field.label + "=" + value
-		}
+		instantName = metadata.append(instantName, metadataRaw, skipped)
 		if err := addTraceDBInstantRow(sink, event.TS, event.Task, event.TID, event.TGID, event.CPU,
 			fmt.Sprintf("tracing_mark_write: I|%d|%s", event.TGID, instantName)); err != nil {
 			return fail(err)
