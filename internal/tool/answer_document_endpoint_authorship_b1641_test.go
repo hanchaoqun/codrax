@@ -70,7 +70,8 @@ func b1641AddEdit(t *testing.T, bus *types.BusContext, from, to, fromNode, toNod
 			continue
 		}
 		edit := map[string]any{"action": "add", "addition_ref": candidate.AdditionRef,
-			"edge": map[string]any{"from_node": fromNode, "to_node": toNode, "visible_label": "model-selected call"}}
+			"placement_ref": sequenceEndPlacementForTest(bus.Mutable.AnswerDocumentV2(), candidate.BlockID),
+			"edge":          map[string]any{"from_node": fromNode, "to_node": toNode, "visible_label": "model-selected call"}}
 		if fromLabel != "" {
 			edit["from_node_visible_label"] = fromLabel
 		}

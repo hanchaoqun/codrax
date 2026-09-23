@@ -144,7 +144,7 @@ func b1647StageOrphan(t *testing.T, shape string) (*types.BusContext, *types.Ans
 	accepted := mut.AnswerDocumentV2()
 	edits := fmt.Sprintf(`{"diagram_edge_edits":[{"action":"remove","failure_ref":%q}`, lease.Failures[0].FailureRef)
 	if mixed {
-		edits += fmt.Sprintf(`,{"action":"add","addition_ref":%q,"edge":{"from_node":"A","to_node":"B","visible_label":"keep"},"from_node_visible_label":"Caller","to_node_visible_label":"Callee"}`, lease.AllowedAdditions[0].AdditionRef)
+		edits += fmt.Sprintf(`,{"action":"add","addition_ref":%q,"placement_ref":%q,"edge":{"from_node":"A","to_node":"B","visible_label":"keep"},"from_node_visible_label":"Caller","to_node_visible_label":"Callee"}`, lease.AllowedAdditions[0].AdditionRef, sequenceEndPlacementForTest(prev, "diag"))
 	}
 	edits += `]}`
 	result, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(edits))
