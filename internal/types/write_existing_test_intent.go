@@ -25,6 +25,7 @@ const WriteExistingTestIntentTeaching = "Use kind=run_existing_test only when th
 // prevents an older delivery of the same plan from lending its execution.
 type ExistingTestExecutionReceipt struct {
 	PlanID               string   `json:"plan_id"`
+	SourcePlanID         string   `json:"source_plan_id,omitempty"`
 	AppliedCommitSHA     string   `json:"applied_commit_sha"`
 	PatchEffectID        string   `json:"patch_effect_id"`
 	DiffFingerprint      string   `json:"diff_fingerprint"`
@@ -104,11 +105,12 @@ func ExistingTestExecutionConfidence(plan *ChangePlan, report *ChangeReport) []V
 	}
 	var out []VerificationConfidenceRecord
 	invocations := NewNativeTestInvocationIndex(report)
+	delivery, deliveryValid := ResolveVerificationDelivery(plan)
 	for _, target := range targets {
 		status, reason := "missing", "required_existing_test_not_executed"
-		if report != nil && len(report.ExistingTestExecutions) <= MaxExistingTestExecutionReceipts {
+		if deliveryValid && report != nil && len(report.ExistingTestExecutions) <= MaxExistingTestExecutionReceipts {
 			for _, receipt := range report.ExistingTestExecutions {
-				if receipt.TestPath != target || !existingTestExecutionReceiptMatches(plan, report, receipt, invocations) {
+				if receipt.TestPath != target || !existingTestExecutionReceiptMatches(plan, delivery, report, receipt, invocations) {
 					continue
 				}
 				if receipt.FailedAssertionCount > 0 {
@@ -127,11 +129,12 @@ func ExistingTestExecutionConfidence(plan *ChangePlan, report *ChangeReport) []V
 	return out
 }
 
-func existingTestExecutionReceiptMatches(plan *ChangePlan, report *ChangeReport, r ExistingTestExecutionReceipt, invocations *NativeTestInvocationIndex) bool {
-	if plan == nil || plan.PatchEffect == nil || plan.ID == "" || report.PlanID != plan.ID || report.Channel != ChangeReportChannelPostApplyVerify ||
-		r.PlanID != plan.ID || plan.AppliedCommitSHA == "" || r.AppliedCommitSHA != plan.AppliedCommitSHA ||
-		plan.PatchEffect.PlanID != plan.ID || r.PatchEffectID == "" || r.PatchEffectID != plan.PatchEffect.RecordID ||
-		r.DiffFingerprint == "" || r.DiffFingerprint != plan.PatchEffect.DiffFingerprint ||
+func existingTestExecutionReceiptMatches(plan *ChangePlan, delivery VerificationDeliverySnapshot, report *ChangeReport, r ExistingTestExecutionReceipt, invocations *NativeTestInvocationIndex) bool {
+	if report.PlanID != plan.ID || report.Channel != ChangeReportChannelPostApplyVerify ||
+		r.PlanID != plan.ID || !verificationDeliveryReceiptSourceMatches(plan, delivery, r.SourcePlanID) ||
+		delivery.AppliedCommitSHA == "" || r.AppliedCommitSHA != delivery.AppliedCommitSHA ||
+		r.PatchEffectID == "" || r.PatchEffectID != delivery.PatchEffect.RecordID ||
+		r.DiffFingerprint == "" || r.DiffFingerprint != delivery.PatchEffect.DiffFingerprint ||
 		r.AssertionCount <= 0 || r.FailedAssertionCount < 0 || r.FailedAssertionCount > r.AssertionCount ||
 		r.CommandIndex < 0 || r.CommandIndex >= len(report.ExecutedCommands) || report.TestSurface == nil {
 		return false

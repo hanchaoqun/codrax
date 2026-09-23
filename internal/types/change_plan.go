@@ -798,11 +798,14 @@ type ProjectTestObservation struct {
 // probes remain in their ordinary fields and are combined by the helpers
 // below. SourcePlanIDs make the provenance auditable without parsing prose.
 type CumulativeVerificationScope struct {
-	SourcePlanIDs           []string                 `json:"source_plan_ids,omitempty"`
-	TargetPaths             []string                 `json:"target_paths,omitempty"`
-	BehaviorContracts       []WriteBehaviorContract  `json:"behavior_contracts,omitempty"`
-	VerificationProbes      []VerificationProbe      `json:"verification_probes,omitempty"`
-	ProjectTestObservations []ProjectTestObservation `json:"project_test_observations,omitempty"`
+	SourcePlanIDs []string `json:"source_plan_ids,omitempty"`
+	// AppliedSources are controller-owned retained delivery identities only;
+	// they neither expand apply scope nor carry any previous execution result.
+	AppliedSources          []VerificationDeliverySnapshot `json:"applied_sources,omitempty"`
+	TargetPaths             []string                       `json:"target_paths,omitempty"`
+	BehaviorContracts       []WriteBehaviorContract        `json:"behavior_contracts,omitempty"`
+	VerificationProbes      []VerificationProbe            `json:"verification_probes,omitempty"`
+	ProjectTestObservations []ProjectTestObservation       `json:"project_test_observations,omitempty"`
 }
 
 // FileChange describes one file-level modification the apply stage

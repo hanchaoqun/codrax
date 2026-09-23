@@ -19,6 +19,7 @@ const VerificationProbeTargetExecutionReceiptVersion = 1
 type VerificationProbeTargetExecutionReceipt struct {
 	Version                 int                                      `json:"version"`
 	PlanID                  string                                   `json:"plan_id"`
+	SourcePlanID            string                                   `json:"source_plan_id,omitempty"`
 	ProbeID                 string                                   `json:"probe_id"`
 	ExecutionRoot           string                                   `json:"execution_root"`
 	ManifestSHA256          string                                   `json:"manifest_sha256"`
@@ -114,8 +115,13 @@ func ResolveVerificationProbeTargetExecution(plan *ChangePlan, probe Verificatio
 	if report == nil || report.PlanID == "" || probe.ID == "" {
 		return out
 	}
-	if plan != nil && (plan.ID != report.PlanID || plan.PatchEffect == nil) {
-		return out
+	var delivery VerificationDeliverySnapshot
+	if plan != nil {
+		var ok bool
+		delivery, ok = ResolveVerificationDelivery(plan)
+		if !ok || plan.ID != report.PlanID {
+			return out
+		}
 	}
 	if plan != nil {
 		declared := false
@@ -178,8 +184,10 @@ func ResolveVerificationProbeTargetExecution(plan *ChangePlan, probe Verificatio
 			return out
 		}
 		if plan != nil {
-			effect := plan.PatchEffect
-			if effect.PlanID != plan.ID || receipt.PatchEffectID != effect.RecordID || receipt.DiffFingerprint != effect.DiffFingerprint || receipt.HeadRef != effect.HeadRef ||
+			effect := delivery.PatchEffect
+			if !verificationDeliveryReceiptSourceMatches(plan, delivery, receipt.SourcePlanID) ||
+				receipt.PatchEffectID != effect.RecordID || receipt.DiffFingerprint != effect.DiffFingerprint || receipt.HeadRef != effect.HeadRef ||
+				(delivery.SourcePlanID != plan.ID && receipt.SourceCommitSHA != delivery.AppliedCommitSHA) ||
 				(probeTargetCommit(effect.HeadRef) && receipt.SourceCommitSHA != effect.HeadRef) ||
 				(plan.WorktreePath != "" && filepath.Clean(plan.WorktreePath) != filepath.Clean(receipt.ExecutionRoot)) {
 				return out
@@ -228,7 +236,7 @@ func ResolveVerificationProbeTargetExecution(plan *ChangePlan, probe Verificatio
 				}
 			}
 		}
-		if plan != nil && !probeTargetMatchesAddedLines(plan.PatchEffect, path, changed) {
+		if plan != nil && !probeTargetMatchesAddedLines(delivery.PatchEffect, path, changed) {
 			complete = false
 		}
 		if complete && allExecuted {
