@@ -1,0 +1,17 @@
+# A real existing zero-byte source, not a missing/new path. Exercises its read
+# receipt and protected baseline through plan/apply/verify. An empty file is
+# fully readable but has no source line 1 to cite. Do not prescribe planner
+# patch kind or internal observation/proof identities in the question.
+#
+# Machine verdict is only the first layer: manually inspect the delivered
+# source, unchanged tests/config, actual native test command/result, and final
+# answer. Source text matching does not replace current-plan test evidence.
+ID="empty_python_module_apply"
+NAME="write apply — implement an existing empty Python module"
+MODE="apply"
+FIXTURE="eval/fixtures/testdata/empty_python_module"
+REQUIRED_EXECUTABLES="python3"
+POST_APPLY_FILE="totals.py"
+QUESTION="totals.py 目前是空文件。请实现 total(values)，对任意整数可迭代对象返回精确总和，空输入返回 0，并支持只能遍历一次的生成器。只改这个实现文件，不改已有测试、配置或依赖；运行现有测试，说明实际验证结果。"
+EXPECT_CONTAINS="total"
+EXPECT_MATCHES_REGEX='^[[:space:]]*def[[:space:]]+total[[:space:]]*\('
