@@ -3664,3 +3664,27 @@ B1仅把app_startup.start_name及HiSys两名称引用读为原始存储类型并
 22497独立完整全仓正式exit1：86测试包通过、13无测试包，唯一失败是`TestComputeWindowStats_ClusterFrequencyCeilingsSnapshot`的整JSON散文词扫描。实际内部字段仍`json:"-"`；新统计合法source_path包含该测试临时目录名称`ClusterFrequencyCeilings`，被旧`strings.Contains(...,"ceiling")`误认作结构泄漏。不得删断言、屏蔽新来源或把完整回归算通过；改为反射精确验证不导出标记，并在真实非空snapshot置nil前后比较整份JSON字节恒等，旧三组频率/来源/窗与消费断言原样保留。该测试修正不改变生产Go字节，43703定向race运行中，后续仍须独立末版完整复验。
 
 43703定向race正式exit0（tracequery2.071秒），独立只读审查沿`testing.TempDir`、单源索引身份和新来源字段确认误报路径，新非空前提/标记/字节恒等校验保持并增强原非导出合同。55144末版独立全仓已启动，日志`/tmp/hmc-scheduler-concurrency-final-full-20260923.log`；仅测试/文档修正提交并重新构建后，固定双例与该复验并行，结果分别记账，不拿局部绿或live替代全仓。
+
+### 176.8 固定评测版本及下一能力边界补记
+
+测试精确校验保存为`bf4680bc4`；91982重新构建与57483 version正式exit0，revision=`bf4680bc4c78`、buildTime=`2026-09-23T16:10:36Z`，日志`/tmp/hmc-scheduler-concurrency-final-build-20260923.log`。30091启动恰好2并行×1，sweep=`20260923-091107`，结果目录为`trace_query_scheduler_concurrency-20260923-091108`及`trace_query_io_inflight-20260923-091108`；本段记录时尚在运行，未预签机器/人工结论。生产输入与749863ffa一致，第二提交仅修测试/文档。
+
+04.2进一步只读设计核对：windowed索引只保schedulerHeads，没有业务marker父栈检查点。E弹栈后尚可从剩余栈记录真实父B；子闭合父未闭合时父身份可保留，但父时长/self不可补造。前缀已裁掉时空栈不证明真实根节点，不能把调度头快照当业务父栈。现有`newChainQueryCache`虽复用PID索引，timeline缓存键仍含精确窗；直接给fullInventory逐节点换窗会重复扫同线程状态并clone。应按owner取得基底时间线一次，按状态区间/前缀积分查询节点总区间与self离散集合；self以自身集合长度为分母，不能借连续父窗的`TraceSpanSchedulerStates.Matches`或伪造因果measurement domain。这里只记录设计发现，不声称已经实现或验证。
+
+### 176.9 完整回归通过，调度真实答案仍不合格
+
+55144末版独立完整`go test ./... -count=1`正式exit0：87测试包通过、13无测试包、零FAIL，tool包423.386秒；没有把首轮失败分包和本轮结果拼接。该收据覆盖bf4680bc4冻结Go，不覆盖后续上下文去重施工。重新逐ID统计79=14已交付+65开放、重复0，08.4仍部分实施。
+
+固定调度例`trace_query_scheduler_concurrency-20260923-091108`已结束，机器FAIL（466秒，runner计468秒），完整人工也FAIL，不仅是机器未匹配“未闭合”等词面。原生查询、工具摘要和最终typed补充的两组峰值/全窗均值/忙时/面积均正确；最终答案却把未闭合104当闭合1ms成员、漏真正闭合103，声称跨窗真实入口缺失，把render两段1+2ms写成4ms，同刻并发边界误归事件排列，Running时序只列前四段而未披露剩余三段。这些错误不足以认定为单纯模型波动，也不能改oracle或补固定答案来销账。
+
+过程来源需区分：预阶段错误自由文本已隔离为navigation_locator，不能因日志有错句就认定其被授事实权；event_search的1.0105查找宽容界已明确为lookup-only，真实统计始终1..1.01，不是统计窗口扩张。最终typed新量明确仅接纳闭合区间，但邻接旧TopRunnable仍包括窗尾合成桶，不能拿其Top成员代替新总体成员。新时序note显式有`omitted=3`，原生JSON及首层工具摘要完整；有界截断不是引擎算错，模型未披露截断仍是答案缺陷。总体身份/端点资格、模型聚合交接与时序明细预算的通用修复挂01.3/16.4/18.4，先定位公开反例，不扫描用户/答案散文加门。
+
+JSON过程：第一轮把blocks数组编码成字符串，因有损恢复拒绝；第二轮原生数组受理但包含上述语义错误；第三轮patch把必需summary改成list，结构门正确拒绝，最终保留上一份已受理答案，不把拒绝patch当新成功。机器无strict contract violation不等于语义正确。此例没有图或Mermaid，不拿它验收图表修复；MD/HTML和131字节必选root-causes旁路均产生，旁路为schema_version=2、空数组、`trace_root_cause_contract_not_active`，符合本次有限统计不是根因任务的范围。原始报告`20260923-091854.482-61535`与完整日志保留，未重跑第三例。IO例仍在运行，最终结果另补。
+
+### 176.10 上下文精准度审计及低风险减负片（实施中）
+
+从同一真实首轮日志测得：Analyzer system116866B/user15953B/dynamic1676B，Explorer82558B/20735B/20180B；按telemetry固定4B/token规则反推schema分别约90630–90633B、99040–99043B。它们不是服务端实测token，也不能仅凭体积断言导致本例错误。
+
+明确可复现的冗余是Explorer默认skill和动态supplement逐字重复11197B完整Trace视图矩阵，分别由`internal/skill/defaults.go`与`internal/agent/explorer.go`调用同一渲染器产生。另typed已排除当前源码，动态兜底却仍暗示附件覆盖不足后可查源码。按规则模块身份/实际适用条件及typed导航政策统一供给，默认正文与自定义技能回退均保留；公开initial messages应证明去重且不丢矩阵、显式窗、因果/业务/IO能力或合法后续查阅。只挂01.3/16.4，不新增重复ID。
+
+其它审计发现暂不捆绑本片：后续阶段重复5044B未命中模式百科、Analyzer skill/schema条件解释分散、结构化预分析标题“Validated Extraction”未区分已验证事实和导航候选。正文实际逐行authority已区分，当前无证据证明错误候选被提升为事实；标题可低风险改进但不夸大为权限泄漏。更广内容应按typed范围/阶段投影，而不能因有Trace附件就删除混合源码和关系说明。本片未完成测试/审查前不签交付，固定双例二进制不含后续修改。
