@@ -6537,7 +6537,10 @@ func validateExplorerTraceQueryFirstToolCallWithSourceRead(ctx *types.AgentConte
 		return nil
 	}
 	canonical := types.CanonicalToolName(tc.Name)
-	if canonical == "trace_query" {
+	if canonical == "trace_query" || canonical == "trace_capabilities" {
+		// Static catalog lookup helps select the first runtime probe but does
+		// not execute one or publish observations. Keep the query obligation
+		// pending, all other tools gated, and the terminal-input check above.
 		return nil
 	}
 	// Q5-A P2-1: a registered trace_query blob can only exist because a
