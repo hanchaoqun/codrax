@@ -4895,10 +4895,11 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	// Whole-read wall (customer OOM 2026-07-03): read_file pages AFTER
 	// slurping, so a GiB-scale artifact must be refused before allocation.
 	var data []byte
+	var readVersion repositoryFileReadVersion
 	if originalTraceRead {
 		data, err = readTraceQuerySourceFile(ctx, sourceRead)
 	} else {
-		data, err = width.ReadFileBounded(fsPath, width.Current().ReadFile.MaxWholeReadBytes)
+		data, readVersion, err = readRepositoryFileVersion(ctx, sourceRepoRoot, p.Path, fsPath, width.Current().ReadFile.MaxWholeReadBytes)
 	}
 	if err != nil {
 		var oversized *width.ErrSourceReadOversized
@@ -5120,6 +5121,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 		result.Observations = readFileTypedObservations(ctx, p.Path, fsPath, ref, lineStart, sliceEnd, totalLines, now)
 	}
 	recordSuccessfulRepositoryRead(ctx, sourceRepoRoot, fsPath, result)
+	readVersion.record(ctx, result, summary == content)
 	recordCompletionReadCoverage(ctx, fsPath, result)
 	return result, nil
 }

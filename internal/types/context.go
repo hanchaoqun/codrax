@@ -339,12 +339,15 @@ type MutableState struct {
 	// ResetDispatchToolResults clears it at loop entry so cross-
 	// dispatch leakage is impossible.
 	dispatchToolResults []ToolResult
-	// Read receipts carry only the current dispatch's physical repository/path
-	// identity. They are private, non-persistent, and never test/behavior proof.
-	dispatchRepositoryFileReads map[dispatchRepositoryFileReadKey]struct{}
-	turnAArtifactsRevision      uint64
-	dispatchToolResultsRevision uint64
-	searchGraphRevision         uint64
+	// Read receipts carry current-dispatch physical identity and, for write
+	// reads, separately bound byte versions/visible ranges. Neither is test
+	// execution proof. The generation changes only on reset, not on append.
+	dispatchRepositoryFileReads          map[dispatchRepositoryFileReadKey]struct{}
+	dispatchRepositoryFileReadVersions   map[dispatchRepositoryFileReadKey][]dispatchRepositoryFileReadVersion
+	dispatchRepositoryFileReadGeneration uint64
+	turnAArtifactsRevision               uint64
+	dispatchToolResultsRevision          uint64
+	searchGraphRevision                  uint64
 	// traceInputAdmissionTerminal is the run-scoped, typed safety latch for
 	// action-required trace-input admission failures. Unlike
 	// dispatchToolResults it deliberately survives ResetDispatchToolResults.
@@ -2959,6 +2962,8 @@ func (m *MutableState) ResetDispatchToolResults() {
 	defer m.mu.Unlock()
 	m.dispatchToolResults = nil
 	m.dispatchRepositoryFileReads = nil
+	m.dispatchRepositoryFileReadVersions = nil
+	m.dispatchRepositoryFileReadGeneration++
 	m.dispatchToolResultsRevision++
 }
 
