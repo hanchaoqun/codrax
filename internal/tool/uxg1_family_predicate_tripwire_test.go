@@ -132,6 +132,11 @@ var uxg1AggregateAllowedClusters = map[string]int{
 	// Resource-pressure PREDICATE closed set (includes softirq etc. — a
 	// different, wider semantic set than the aggregate row family).
 	"trace_observation_coverage.go": 1,
+	// Static view descriptors reference independently defined metric contracts,
+	// not a same-treatment runtime family. The constructor has no runtime
+	// dispatch; TestTraceCapabilityCatalogEngineAndWireParity pins view/schema
+	// coverage and resolves every metric reference to its own descriptor.
+	"capability_views.go": 1,
 }
 
 var uxg1QuotedToken = regexp.MustCompile(`"([a-z_]+)"`)
