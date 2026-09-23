@@ -3505,7 +3505,7 @@ func traceQueryRuntimeResourceRecord(index, ordinal int, label, line, continuati
 	fields, summary := traceQuerySummaryLineFields(line, "- "+label+"_resource ")
 	path := strings.TrimSpace(fields["path"])
 	dev := strings.TrimSpace(fields["dev"])
-	address := strings.TrimSpace(fields["address"])
+	address := strings.TrimSpace(fields[TraceNoteKeyAddress])
 	op := strings.TrimSpace(fields["op"])
 	totalLatency := traceQueryFieldMS(fields, "total_latency")
 	lineStart, lineEnd := traceQueryFieldLineSpan(fields["line"])

@@ -1413,7 +1413,8 @@ const (
 // tail PID out of this note).
 const TraceNoteKeyPath = "path"
 
-// A resource address is display metadata, never a path or causal anchor.
+// A resource address is read by the legacy display handoff, never by the
+// causal projection. It is not a file path or an allocation-validity claim.
 const TraceNoteKeyAddress = "address"
 
 // P0-E CHAIN-PATH (ledger §22.1, 2026-07-09): per-branch wakeup path records
@@ -2303,9 +2304,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// Summary prose and every display face dropped them).
 	{TraceNoteKeyInode, "io", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDev, "io", TraceNoteCarrierHardConsumer},
-	// Resource location metadata is display-only, not a causal anchor or
-	// allocation-validity claim. It must never be relabelled as a file path.
-	{TraceNoteKeyAddress, "io", TraceNoteCarrierDisplayOnly},
+	// Legacy resource summaries read this field back into display metadata.
+	// No causal projection consumer or allocation-validity inference.
+	{TraceNoteKeyAddress, "io", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyIORequestResidence, "io_latency", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyIORequestResidenceCaliber, "io_latency", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyIORequestResidenceClock, "io_latency", TraceNoteCarrierSoftConsumer},

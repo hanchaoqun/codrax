@@ -40,7 +40,7 @@ var traceNoteKeyGoldenRows = []string{
 	// EVOLUTION RECORD (CR-2 P7 + R-P2-2, 2026-07-12): soft→hard — compile
 	// parses the interval into ActualWindowStartTs/EndTs (⚠ containment).
 	"actual_window|anchor_window|hard_consumer",
-	"address|io|display_only",
+	"address|io|soft_consumer",
 	"adds|io|display_only",
 	"advisory_pretriage|ledger_marker|soft_consumer",
 	"allowed_core_classes|cpu_load|display_only",
