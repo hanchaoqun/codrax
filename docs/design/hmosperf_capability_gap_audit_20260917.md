@@ -3432,7 +3432,7 @@ types末版旧摘要6叶及identity编码10叶：有效RED55501正式exit1覆盖
 
 65753干净构建/version正式exit0，revision=`19f371ac622c`、buildTime=`2026-09-23T11:11:40Z`，日志`/tmp/hmc-shared-dictionary-clean-build-20260923.log`。Go输入与69366末版全仓一致，此后仅更新文档。17.7从待实施改为部分实施；79=14已交付+65开放，状态55待实施/7部分实施/2待验收/1持续执行，旧完整人工FAIL不改签。3581 fetch正式exit0，远端无新增（当时ahead2/behind0）；86646非强制push正式exit0，main从`a7df67e27`至`2902f3c0d`，实现`3aabdd1c5`、审计`19f371ac6`和验证状态`2902f3c0d`三个分片已保存到远端。
 
-## 172. 静态工具说明的独立完成通道（2026-09-23，修复完成，末版集成验收中）
+## 172. 静态工具说明的独立完成通道（2026-09-23，末版完整验证通过）
 
 挂01.3/16.4/18.4，仍79=14已交付+65开放；本节不代销旧完整人工FAIL。依§166/171.4优先完整贯通，而非单独修改完成门。再次对照参考`server.py:1196/1955`静态注册目录与`core/skill_executor.py:622`步骤合同：说明“工具支持什么”不以用户仓库源码、实际采集或运行测量为前提；混合任务仍分别履行真实步骤。采用对象域适用性，不照搬参考异常吞并、不将目录升级为观测/根因。
 
@@ -3462,6 +3462,8 @@ types末版旧摘要6叶及identity编码10叶：有效RED55501正式exit1覆盖
 
 mixed案在2408字节附件准备成功后被single-shot classifier整轮分到operation，仅按说明部分选路由；三轮操作计划、两次错误find之后误称Trace缺失。没有进入预阶段、四阶段或trace_query，因果图和root-causes均未生成，35ms请求/31ms S态IO等待/1ms调度/47ms后台排除全部未回答；不将此例算mixed完成通道或IO投影验收。共享路由词典仍把investigate说成需要源码读取，且未明确宿主目录归属；需修教学，而非附件presence/原问答关键词硬转路由。operation本身不携带已加载Trace，本片不扩该路线权限。
 
+上下文余项明确留账：pure日志1533/1538两份同producer/version/view的compact/detail都完整进入Finalizer，分别11,395/45,902字节；原始合同未被截断，但重叠静态目录占用冗余，挂01.3量化/供给优化。未来只能按受验证的结构化包含关系消重，不能仅因detail=true或同名字就吞掉冲突版本/限制条件。mixed误分流时无答案收据也无root-causes旁路，另挂18.4的跨入口失败产物覆盖，不以没有进入分析为“必选旁路已经通过”，更不能产生伪根因来补空文件。本批只修路由教学，不声称已经完成operation或错误入口的旁路统一。
+
 ### 172.3 全仓失败与最小修复
 
 11714在`b7b808262930`冻结Go/依赖/构建输入后独立完整`go test ./...`正式exit1：85测试包通过、13无测试包、2包失败，日志`/tmp/hmc-tool-documentation-full-20260923.log`。原结果保留：orchestrator.go8192超过8191；tool的实体名册静态审计未登记三个新只读调用；新说明索引validator首次错误即return，未一次列出所有独立错误。后者是降低模型修复负担的真实JSON接缝，不能加exception躲过。
@@ -3474,7 +3476,7 @@ mixed案在2408字节附件准备成功后被single-shot classifier整轮分到o
 
 `db5a18bcb`只改共享路由prompt三处：repo代表分析管线而非必须读源码；宿主发布的静态说明及其与源码/运行时调查的组合整轮走管线；investigate不再code-only。真实机器/安装工具/文件操作仍operation，schema/guards/权限未变。两分类入口×5初始消息、两REPL分派、一个原生命令对照共13叶：6659有效RED正式exit1（1.287秒）；1592首次误写旧write-intent精确pin属于夹具错误。22281定向正式exit0（1.808秒）、99747 race正式exit0（3.059秒），日志`/tmp/hmc-documentation-routing-{public-valid-red,targeted,targeted-race}-20260923.log`。独立审查无阻塞；模拟策略回包只证消息和接线，不声称live分类已修。
 
-57836复验启动后7秒发生一处census注释同步，虽无逻辑变化仍不算冻结全仓，主动停止正式exit143；日志`/tmp/hmc-tool-documentation-final-full-20260923.log`保留，不计产品FAIL或通过。`ff4305811`全部Go/依赖/构建输入冻结后11225独立完整复验进行中，日志`/tmp/hmc-tool-documentation-sealed-final-full-20260923.log`；只有这一末版正式退出可作新整仓收据，不拼接各包。08.3真实IO在途、17.7引用/输入、§170范围/同账视图及§165原生登记继续在原父项，不新增重复任务或隐去旧失败。
+57836复验启动后7秒发生一处census注释同步，虽无逻辑变化仍不算冻结全仓，主动停止正式exit143；日志`/tmp/hmc-tool-documentation-final-full-20260923.log`保留，不计产品FAIL或通过。`ff4305811`全部Go/依赖/构建输入冻结后11225独立完整复验正式exit0，87测试包通过、13无测试包、零FAIL；日志`/tmp/hmc-tool-documentation-sealed-final-full-20260923.log`，不拼接各包。45713干净构建/version正式exit0，revision=`9e0ef30c4de3`、buildTime=`2026-09-23T12:10:35Z`，日志`/tmp/hmc-tool-documentation-published-build-20260923.log`；此后仅更新审计文档。08.3真实IO在途、17.7引用/输入、§170范围/同账视图及§165原生登记继续在原父项，不新增重复任务或隐去旧失败。
 
 ### 172.4 下一完整能力：08.3
 
