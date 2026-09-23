@@ -1,15 +1,11 @@
 package tool
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -92,6 +88,7 @@ type existingTestUnittestInvocation struct {
 	directory, reportPath, target, targetAbs, targetSHA string
 	rows                                                []existingTestUnittestRow
 	directoryInfo, reportInfo, readInfo                 os.FileInfo
+	delivery                                            verificationDeliveryBinding
 }
 
 func prepareExistingTestUnittestInvocation(ctx *types.BusContext, invocation runnerPlan) (*existingTestUnittestInvocation, string) {
@@ -104,7 +101,11 @@ func prepareExistingTestUnittestInvocation(ctx *types.BusContext, invocation run
 		if !types.ExistingTestExactFileSelector(invocation.Runner, invocation.Framework, wd, invocation.Suite, target) || safeImpactRelatedPath(ctx.RepoRoot, target) == "" {
 			continue
 		}
-		sha, ok := existingTestCurrentDelivery(ctx, target)
+		delivery, ok := bindVerificationDelivery(ctx)
+		if !ok {
+			return nil, ""
+		}
+		sha, ok := delivery.currentTestSHA(ctx, target)
 		if !ok {
 			return nil, ""
 		}
@@ -129,7 +130,7 @@ func prepareExistingTestUnittestInvocation(ctx *types.BusContext, invocation run
 			_ = os.Remove(directory)
 			return nil, ""
 		}
-		run := &existingTestUnittestInvocation{directory: directory, directoryInfo: directoryInfo, reportPath: filepath.Join(directory, "result.json"), target: target, targetAbs: abs, targetSHA: sha}
+		run := &existingTestUnittestInvocation{directory: directory, directoryInfo: directoryInfo, reportPath: filepath.Join(directory, "result.json"), target: target, targetAbs: abs, targetSHA: sha, delivery: delivery}
 		interp := pythonRuntimeInterpreter(invocation.Root, ctx.MainRepoRoot)
 		command := fmt.Sprintf("%s -c %s %s %s", interp, shellQuoteWord(existingTestUnittestObserver), shellQuoteWord(run.reportPath), shellQuoteWord(invocation.Suite))
 		return run, command
@@ -235,7 +236,7 @@ func (r *existingTestUnittestInvocation) readReport(ctx *types.BusContext, exitC
 	if result.Overflow || len(result.Rows) > types.MaxExistingTestExecutionAssertions || result.TestsRun != started || result.Successful != (exitCode == 0) {
 		return nil, fmt.Errorf("unittest observation incomplete or inconsistent")
 	}
-	sha, current := existingTestCurrentDelivery(ctx, r.target)
+	sha, current := r.delivery.currentTestSHA(ctx, r.target)
 	if !current || sha != r.targetSHA {
 		return nil, fmt.Errorf("unittest delivery changed during execution")
 	}
@@ -266,36 +267,4 @@ func (r *existingTestUnittestInvocation) readReport(ctx *types.BusContext, exitC
 	r.reportInfo = r.readInfo
 	r.rows = result.Rows
 	return report, nil
-}
-
-// Validate the native execution root, not just copied plan strings. The same
-// bounded git patch reader used by Python target receipts checks the applied
-// identity, and tracked bytes must still be exactly at that commit.
-func existingTestCurrentDelivery(ctx *types.BusContext, target string) (string, bool) {
-	plan := ctx.Mutable.ChangePlan()
-	if plan == nil || plan.ID == "" || plan.PatchEffect == nil || plan.PatchEffect.PlanID != plan.ID || plan.AppliedCommitSHA == "" {
-		return "", false
-	}
-	deadline, cancel := context.WithTimeout(ctx.Context(), 3*time.Second)
-	defer cancel()
-	commit, err := pythonTargetAppliedCommit(deadline, ctx.RepoRoot, plan.PatchEffect)
-	if err != nil || commit != plan.AppliedCommitSHA {
-		return "", false
-	}
-	head, err := pythonTargetGit(deadline, ctx.RepoRoot, 256, "rev-parse", "HEAD")
-	if err != nil || strings.TrimSpace(string(head)) != commit {
-		return "", false
-	}
-	if _, err := pythonTargetGit(deadline, ctx.RepoRoot, 4096, "diff", "--quiet", "HEAD", "--"); err != nil {
-		return "", false
-	}
-	committed, err := pythonTargetCommitSource(deadline, ctx.RepoRoot, commit, target)
-	if err != nil {
-		return "", false
-	}
-	current, err := os.ReadFile(filepath.Join(ctx.RepoRoot, filepath.FromSlash(target)))
-	if err != nil || !bytes.Equal(current, committed) {
-		return "", false
-	}
-	return pythonTargetSHA(current), true
 }

@@ -37,6 +37,9 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 				VerificationProbes:      append([]types.VerificationProbe(nil), prior.VerificationProbes...),
 				ProjectTestObservations: append([]types.ProjectTestObservation(nil), prior.ProjectTestObservations...),
 			}
+			for _, source := range prior.AppliedSources {
+				restoredScope.AppliedSources = append(restoredScope.AppliedSources, types.CloneVerificationDeliverySnapshot(source))
+			}
 			break
 		}
 		// A newly emitted proof-only plan is a different object from its
@@ -213,6 +216,9 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 	if len(scope.SourcePlanIDs) == 0 {
 		return
 	}
+	// An ID-only transitive scope is not a delivery receipt. Rebuild these
+	// independently even when the older metadata already supplied that ID.
+	scope.AppliedSources = o.verificationAppliedSources(run, scope.SourcePlanIDs, trustedScopes, candidates)
 	plan.CumulativeVerificationScope = &scope
 }
 

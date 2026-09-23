@@ -34,11 +34,11 @@ type pythonTargetObservation struct {
 	ExecutionRoot string                     `json:"execution_root"`
 	Targets       []pythonTargetManifestFile `json:"targets"`
 	receipt       types.VerificationProbeTargetExecutionReceipt
-	effectHash    string
+	delivery      verificationDeliveryBinding
 	ctx           *types.BusContext
 }
 
-// preparePythonTargetObservation uses only the current applied new-side line
+// preparePythonTargetObservation uses only the resolved applied new-side line
 // table. A path hint or old/hunk context is not a fallback execution target.
 func preparePythonTargetObservation(ctx *types.BusContext, probe types.VerificationProbe) *pythonTargetObservation {
 	if ctx == nil || ctx.Mutable == nil {
@@ -55,15 +55,17 @@ func preparePythonTargetObservation(ctx *types.BusContext, probe types.Verificat
 	out := &pythonTargetObservation{ExecutionRoot: root, ctx: ctx, receipt: types.VerificationProbeTargetExecutionReceipt{
 		Version: 1, PlanID: plan.ID, ProbeID: probe.ID, ExecutionRoot: root, Status: "unknown", ReasonCode: "patch_effect_unavailable",
 	}}
-	effect := plan.PatchEffect
-	if effect == nil || effect.PlanID != plan.ID || effect.RecordID == "" || effect.DiffFingerprint == "" || effect.HeadRef == "" {
+	delivery, ok := bindVerificationDelivery(ctx)
+	effect := delivery.snapshot.PatchEffect
+	if !ok || effect == nil || effect.RecordID == "" || effect.DiffFingerprint == "" || effect.HeadRef == "" {
 		return out
 	}
+	out.delivery = delivery
+	out.receipt.SourcePlanID = delivery.snapshot.SourcePlanID
 	out.receipt.PatchEffectID, out.receipt.DiffFingerprint, out.receipt.HeadRef = effect.RecordID, effect.DiffFingerprint, effect.HeadRef
-	out.effectHash = verificationProbeExecutionDigest(effect)
 	prepareCtx, cancel := context.WithTimeout(ctx.Context(), 5*time.Second)
 	defer cancel()
-	commit, err := pythonTargetAppliedCommit(prepareCtx, root, effect)
+	commit, err := delivery.currentCommit(ctx, delivery.snapshot.SourcePlanID != plan.ID)
 	if err != nil {
 		out.receipt.ReasonCode = "applied_source_unavailable"
 		return out
@@ -208,9 +210,13 @@ func (o *pythonTargetObservation) finish(execution *types.VerificationProbeExecu
 		unknown("target_observation_invalid")
 		return
 	}
-	plan := o.ctx.Mutable.ChangePlan()
-	if plan == nil || plan.ID != receipt.PlanID || plan.PatchEffect == nil || verificationProbeExecutionDigest(plan.PatchEffect) != o.effectHash {
+	if !o.delivery.matches(o.ctx) {
 		unknown("target_plan_changed")
+		return
+	}
+	commit, err := o.delivery.currentCommit(o.ctx, o.delivery.snapshot.SourcePlanID != receipt.PlanID)
+	if err != nil || commit != receipt.SourceCommitSHA {
+		unknown("applied_source_changed")
 		return
 	}
 	for i, target := range result.Targets {
