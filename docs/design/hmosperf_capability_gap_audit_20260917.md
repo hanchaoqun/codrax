@@ -3186,6 +3186,8 @@ Trace FAIL：最终用52ms窗6ms运行解释50ms业务窗、缺35ms请求、31ms
 
 本节用于下一批选题与实现边界，不是已交付能力。与§165原生断言登记一起按影响、确定性证据、泛化面、实施成本及前置排序；不靠反复重跑同一IO样例拖延二者，也不只放宽某一个完成检查而把矛盾推到后续阶段。
 
+§170期间主审/独立再核实施面：`hdp/planner.go`的explainHypothesis/explainSetHypothesis还用CritNoRelevantEvidence，`criterion/eval.go`在空源码Evidence时满足该否定条件；纯目录即使工具成功也可能被判rejected。提取的CritExtractInputReady、`agent.InvestigationStructurallyEmpty`及最终目录名的源码核对须在同一片消费说明完成凭证，不能只改emit入口。L1调度循环正文保持不动，复用Env.ToolResults与Turn-A交接；目录完整保留选择应在完成与最终消息共享，预算省略不能仍授已完整投递。退出测试需真实EmitAnalysis→TraceCapabilities→AppendDispatchToolResult→调查完成→提取/成文→最终合同，覆盖纯说明零源码完成、伪Summary/错schema/hash/旧代次/未调用失败，以及说明+明确源码/Trace窗仍须各自证明。该清单仍未实施，不增加模型抄写hash或新补证工作流。
+
 ## 167. IO 批固定双例、教学边界与末版集成（2026-09-23，窄片已推送，人工FAIL保留）
 
 ### 167.1 固定模型回放：机器2/2，完整人工1/2
@@ -3322,3 +3324,57 @@ Trace人工FAIL：50ms业务窗与53ms查询窗混用，运行7ms/未归账1ms�
 ### 169.5 封存收据
 
 10580干净构建/version正式exit0，revision=`8a6327ff7f43`、buildTime=`2026-09-23T09:49:45Z`，日志`/tmp/hmc-native-resource-identity-clean-build-20260923.log`。9835 fetch正式exit0，领先2/落后0；56259 push正式exit0，main从`f0a6b84d2`至`8a6327ff7`，包含字段实现`bcc498bd0`和完整审计`8a6327ff7`。固定双例原始人工FAIL不改签，03.2保待验收及65开放。后续修改不得冒称本批冻结全仓或live已覆盖。
+
+## 170. 资源字段/聚合身份/显示标签分离（2026-09-23，实施完成，整体验收中）
+
+起点`29f45dd6d`，79=14交付+65开放。优先修§169双例已经证实的系统P1，而不是追跑负数地址原题。挂02.4/16.4/18.4，不新建重复ID；03.2新字段教学另作独立提交，仍不倒签旧答案。
+
+### 170.1 参考意图与实现
+
+主审阅读参考`core/preprocess/power_compare_ops.py:26–67`按真实appname/component_type_id分组、区分采集功耗与降级proxy；`config/indicators/io/io_size.yaml:23–39`独立保留请求量与线程/进程字段；`io_page_cache.yaml:1–40`区分页帧、文件和线程身份。采用“来源字段及对象轴不能互相替代”的意图，不搬其零值回填、proxy假设或SQL关联。参考没有直接等价的本仓typed事件投递层，因此用本仓公开观测链修复。
+
+`5753d66b1`：
+
+- 资源聚合键改为kind/op/PID/path/dev/address精确可比较元组，三种位置字段独立保留；去掉Path从地址/设备/unknown的回退。普通资源事件的FileFields.Dev是主要真实设备来源，兼容已有block设备槽；不据此声明文件系统与块层设备已建立关系。缺字段不变成实测unknown，真实字符串unknown仍可保留。
+- 插件Domain仅来自已有PluginFields，Comm继续作线程信息；分组包含Category，防同一指标同值的前后台类别被合并。元组避免字符串分隔符碰撞。原统计值、次数累计、Top8及排序规则、贡献线程代次准入均不改。
+- 公开JSON、工具文本、typed观测和最终摘要同步投递Path/Dev/Address；Subject作为独立标签，地址/设备保类型前缀，不能反向当Path。typed ClaimKey保family前缀，原始tuple长度编码后固定SHA256，不把长原值放入无界claim槽；来源/查询/代次权限仍在SourceRef，不由hash授予。
+- 旧摘要兼容入口保dev/address，按其原摘要行与调用/ordinal建立独立legacy身份，不把有损文本冒充新版typed身份；同span、同值不同类别也不被账本误合。原audit/display-only低权限不变。
+- address首版误登记display_only，全仓发现兼容账本已有读取后，按NKR改soft_consumer并同步golden；只表示展示兼容读取，未增加因果投影消费者。dev复用原键但本资源行不增根因权限；新Dev是RuntimeResourceSummary leaf，明确补schema/通用详情测试，不盲改父WindowStats指纹或核心Event容量。
+
+`b883c83a6`在原共享Native resource contract新增两句：signed/hex为同一位型但不授地址有效性/操作成功失败；同采集opaque subtype引用，JSON字符串（含空串）、显式null、未发布字段分别说明且不猜缺名原因。预阶段/查询/Finalizer复用同源合同，不新增模型JSON、用户/答案原文硬门、固定工具顺序或案例专属极值规则。
+
+### 170.2 公开验证与集成记录
+
+独立真实TraceQuery→JSON→TurnA→BuildAgentContext→Finalizer 10场景双语20叶：有效RED2998正式exit1（9场景失败、原同路径聚合正控绿）；GREEN72120正式exit0（1.080秒），末版race40142正式exit0（8.162秒），另含原资源合同、事件清单和S/D等待桶双语邻接。首版一个JSON family键笔误已纠正后才取有效RED；不算产品故障。日志`/tmp/hmc-resource-semantics-public-{red,green,race}-20260923.log`。
+
+types末版旧摘要6叶及identity编码10叶：有效RED55501正式exit1覆盖其中4叶旧摘要入口，字段丢失及同span类别合并真实失败；新测试首轮误写provenance预期不计产品RED，不声称末版16叶全部曾红。focused12523正式exit0（1.069秒）、race87679正式exit0（2.183秒）；日志`/tmp/hmc-resource-identity-types-{red-final,focused,race}-20260923.log`。engine元组分隔符/重排、实际tracediag独立坐标/leaf schema及既有资源/线程冲突、note registry邻接：48334正式exit0，48793 race正式exit0；日志`/tmp/hmc-resource-semantics-{focused,race}-20260923.log`。真实数量、时长、源文件字节及原因果投影均保持。
+
+共享教学真实初始消息RED62755正式exit1，新语义缺失但原receipt/数值/来源先通过；末版77712 focused正式exit0（agent1.436/skill0.666秒），54073 race正式exit0（agent5.066/skill3.064秒），5顶层14叶及相邻。日志`/tmp/hmc-native-resource-reader-identity-{red,sealed-focused,sealed-race}-20260923.log`。中途58930/64568宽regex撞另一片正在制造的资源RED，61953/26094及98192撞并行helper落盘/改名编译窗口，均非末版通过或新产品故障；全部以冻结后独立完整收据为准。
+
+38856干净构建正式exit0，revision=`b883c83a6e5d`、buildTime=`2026-09-23T10:02:39Z`。冻结Go/依赖/构建输入的82369独立全仓正式exit1，日志`/tmp/hmc-resource-semantics-full-20260923.log`；仅types包`TestInfoContractNoteKeyCarrierTruth`失败，address已有legacy读取却登记display_only。没有假签全仓绿，后续修正后必须独立完整复跑。57687固定双例在20260923-030337启动，新资源对象分组＋异构读模式配置优先级，恰好2并行×1，正式exit0；不重跑上一批原pair。推送及末版全仓另记。
+
+### 170.3 固定双例终审：机器1/2，完整人工0/2
+
+完整机器与人工记录保存在`eval/parallel_selected_summary_hmc_resource_semantics_20260923.md`及同名`_manual_audit.md`，两份报告主审/独立审查均通读。外层195/309秒，内部191/306秒不混用。没有第三例。
+
+资源例真实命中本片：5资源组/6记录、3插件组/4记录及所有path/dev/address/category正确投递。模型仍把同路径的设备8,1并入8,0，错误3次/9ms/7168B，紧邻引用却是正确2次/6ms/5120B；插件4条又写成前台4+后台2，误称component缺失，活动推压力、四采样推整个窗恒定。新字段保真通过不代签完整答案；没有假根因/源码/图，合法空旁路无活跃根因合同。该例不含native_hook，不冒称新地址/子类教学live通过，03.2待验收保留。
+
+系统诱因独立留账：同一IO摘要把代表设备8,0与已保留文件分组合计7168B/3次并排，未明确总体与代表对象归属；而FileIOByInode在汇总前已裁Top8，所以泛化修复不能直接重命名为“全窗口总量”。同源file_io、block_io_by_inode、evidence_fact、filesystem_resource缺少显式计量/替代视图关系；对象hash防碰撞不是跨视图可加性证明，不能按路径/行域强行去重。插件三组被Top10预算省略，但完整4条原行已到场，不能宣称系统给了错误6条或完全缺证。多数观测的真实查询窗仍丢失；均挂16.4/18.4及08.1，不新建重复任务，不声称已证模型波动。
+
+机器资源FAIL另有用例声明错误：字面`\\n`未被runner按真实换行拆成4条regex。终态后仅修case换行，bash语法及4规则拆分检查通过；不改原verdict/答案、不重跑追认绿，人工FAIL独立成立。
+
+配置例主文50/3、两flag及重试显式>0覆盖正确；系统附录却称已经grounded且选中的`--pipeline-max-retries`源码映射未验证，完整人工FAIL。早期带`--`anchor与修后源码无前缀token的exact调和路径高度吻合，但日志没保存最终denial记录，需公开反例证明，不全局剥前缀放宽身份。另一确定教学矛盾：配置/对比家族仍教手填citation_ref，当前schema共享规则要求稳定evidence_ids，本例首次拒绝实际命中；接续修两家族教学并公开验证，第二次patch丢cells仍属模型修复错误。示例文件默认2确陈旧，本批将三处注释/示例改3，不改运行时默认或用户配置。
+
+### 170.4 当前失败闭环与下一ROI
+
+`5f1d510c9`将地址carrier改为soft_consumer并通过常量读取，保legacy audit/display-only的记录权限和0.2置信度，不增加因果投影/硬门消费者，也不新增测试豁免。22463定向正式exit0（13.277秒）、67598 race正式exit0（199.818秒）；日志`/tmp/hmc-resource-semantics-carrier-{focused,race}-20260923.log`。`9612f0515`修case换行及示例三处默认3。末版完整全仓另记，公开验证与真实模型验收分开记录。
+
+仍79=14已交付+65开放（56待实施/6部分/2待验收/1持续）。优先§166完整纯工具说明通道，不能只放开完成门后让源码假设/提取/成文再次拒绝；参考设计按对象域适用合同，同一片覆盖compiler/hdp/criterion/提取/最终边界，并保混合源码和明确Trace窗义务。再17.7 SQLite/共享字典安全、08.3在途；新增广影响的负向披露失配、查询范围与完整分组/计量身份保真并行留原父项。§165原生登记及旧人工FAIL继续保留，不无限追单题绿挤占参考仓补齐。
+
+### 170.5 JSON引用教学消除双重指令
+
+本次配置live首次拒绝揭示的通用问题一并修复：`answer_semantic_view_compile_config_precedence.go`和`answer_semantic_view_compile_comparison.go`仅两处旧引用指令改为遵循当前投影schema的共享条目引用规则。不重复发明一套evidence_ids/inventory二选一逻辑，不删除兼容schema允许的legacy引用，不改稳定ID校验、源码资格、单元格、分桶、标量/表格要求，也不扫描模型原文。
+
+公开真实BuildAgentContext→NewFinalizerAgent首请求捕获消息及实际投影工具schema，9场景×中英18叶：配置普通/标量/清单，对比分桶/清单/只有profile/只有observation/逐成员表/历史无当前源码；验证两身份字段的独立可用性、互斥共享规则、现有cells/成员/配置层级/字面值来源/运行时未知与输入不变。有效RED13406正式exit1（agent1.149秒）：16个旧教学分支失败，2个逐成员表控制先绿，其它保护全部先过。54780/3819首轮将tool schema描述语句误当shared skill原句的测试夹具错误保留，不计产品RED；改为核真实已加载共享合同后取得有效RED。日志`/tmp/hmc-family-citation-teaching-public-valid-red-20260923.log`。
+
+`5d2915982`包含两句修复及202行公开测试，独立末审无阻塞；51213定向正式exit0（agent2.107/types1.077/tool1.075秒），76987 race正式exit0（agent2.807/types3.468/tool2.741秒），包含既有B1620 Finalizer、ConfigPrecedence/Comparison及schema载体邻接，未改旧pin。日志`/tmp/hmc-family-citation-teaching-{focused,race}-20260923.log`。Go/依赖/构建输入冻结后启动75352独立完整全仓，日志`/tmp/hmc-resource-semantics-sealed-full-20260923.log`，当前仍待正式退出，不拼接首轮分包结果。未追加第三个live，不能声称修后模型答案已验收；原配置附录否定已验证引用尚未修，不代销完整FAIL。
