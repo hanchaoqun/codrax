@@ -3431,3 +3431,55 @@ types末版旧摘要6叶及identity编码10叶：有效RED55501正式exit1覆盖
 ### 171.5 封存与状态
 
 65753干净构建/version正式exit0，revision=`19f371ac622c`、buildTime=`2026-09-23T11:11:40Z`，日志`/tmp/hmc-shared-dictionary-clean-build-20260923.log`。Go输入与69366末版全仓一致，此后仅更新文档。17.7从待实施改为部分实施；79=14已交付+65开放，状态55待实施/7部分实施/2待验收/1持续执行，旧完整人工FAIL不改签。3581 fetch正式exit0，远端无新增（当时ahead2/behind0）；86646非强制push正式exit0，main从`a7df67e27`至`2902f3c0d`，实现`3aabdd1c5`、审计`19f371ac6`和验证状态`2902f3c0d`三个分片已保存到远端。
+
+## 172. 静态工具说明的独立完成通道（2026-09-23，修复完成，末版集成验收中）
+
+挂01.3/16.4/18.4，仍79=14已交付+65开放；本节不代销旧完整人工FAIL。依§166/171.4优先完整贯通，而非单独修改完成门。再次对照参考`server.py:1196/1955`静态注册目录与`core/skill_executor.py:622`步骤合同：说明“工具支持什么”不以用户仓库源码、实际采集或运行测量为前提；混合任务仍分别履行真实步骤。采用对象域适用性，不照搬参考异常吞并、不将目录升级为观测/根因。
+
+设计：一个可选`tool_documentation_request`，only表示全问静态说明，mixed只标明确说明维度的既有索引；不重复让模型写工具名、hash、置信度或引用资格。缺省保持旧路径，only与精确源码/运行时独立义务冲突则要求保留义务纠正域，mixed不放开全局门。真实生产者完成输出后取得不可JSON重建的本轮签记，必须经dispatcher发布才登记；接受完成再封存完整选集。每份最大64KiB、最多8份/128KiB共同预算，提取/成文直接使用相同封存集，不依赖可能被工具历史预算丢失的长摘要。注册、调用成功、接受完成与源码/运行时证据是不同资格，不混为一谈。
+
+流程范围：schema与单源教学、compiler/hdp/criterion、实际EmitComplete、TurnA与Extract、最终命名检查和接受收据。纯说明采用通用呈现，保显式表/图合同而不套“目标仓架构必须有可引用源码”的专用要求。现有调度循环L1体不修改，借循环已调用的外部readiness适配函数携带独立静态说明字段；不改runtime Active/Ready/lineage/计量字段含义。600/300/600超时、活跃流、Trace投影/补齐及链上资格未改。
+
+公开反例进度：20254分类真实Execute有效RED（tool1.208秒），only/mixed字段原本均unknown；此前helper构造编译错误不计产品RED。三代理66334有效RED（agent1.189秒，`/tmp/hmc-tool-documentation-completion-public-valid-red-20260923.log`）：真实catalog已到场且Finalizer可无伪引用emit，但实际完成被architecture“0 citable principal support”降级、Extractor仍判空。44277首次夹具少了CLI的工具注册/skill追加，不计产品RED。6337实施中定向exit1仅新source_target类型针失败，其余context/tool/agent通过；已定位file:line精确锚识别接缝，仍待末版复验，不拼凑成整体验证通过。
+
+独立审计另发现混合静态说明块缺乏与请求说明维度的一对一受验证绑定；不能凭标题/顺序/正文或泛化facet猜块归属，也不能借external_observation假装说明来源。该边界保留01.3/16.4，不以纯说明完成通道或mixed源码负控通过宣称混合呈现完全闭环。后续需明确块身份与非源码/观测说明用途，不增加重复模型负担；当前保持混合源码命名原检查。
+
+### 172.1 实现与公开验证
+
+`b7b808262930`实现主通道。69354分类/编译/criterion定向、8617相邻、64372 race正式exit0；日志`/tmp/hmc-tool-documentation-domain-{final-focused,neighbor,race}-20260923.log`。81416真实Explorer→完成→TurnA→Extractor→Finalizer公开流程正式exit0（agent1.029秒），含双语正控、缺读取/失败/JSON重放/mixed源码及显式窗负控、四原家族归通用呈现保护；日志`/tmp/hmc-tool-documentation-completion-public-final-green-20260923.log`。54838中途仅夹具错误要求无关系证据时强制生成图，不计产品RED；保显式呈现合同而不造关系后取得末版收据。
+
+37000另经真实NewAnalyzerAgent→emit_analysis→buildAnalysisIR，正式exit0（agent1.164秒），确认不回填源码义务、也不因分类而铸完成权限；日志`/tmp/hmc-tool-documentation-actual-analyzer-20260923.log`。55607真实目录读取/dispatcher发布/完成→最终合同与现有scheduler readiness适配通过，无引用仍可静态成文；源码oracle、无读取/重置/新源码义务负控保留。提取报告同步不再把纯说明写成current_source_or_mixed。
+
+类型生命周期36叶覆盖15签记发布/篡改、4错误生产者、完整内容与JSON失权、4重置/代次、5分叉合并、4请求变化、2共同完整预算、并发16goroutine。77910定向正式exit0（types0.929秒），72586 race正式exit0（2.224秒）；日志`/tmp/hmc-documentation-completion-lifecycle-{first,race}-20260923.log`。独立审计发现的旧fork seal经系统force complete再次复活风险已修：merge只取fork当前有效seal，不复制已失效历史指针。
+
+42016整片定向正式exit0，types/context/tool/agent/orchestrator/compiler/criterion通过；17135冻结race正式exit0，同7包分别2.052/2.786/3.730/6.743/3.660/4.067/4.581秒，日志`/tmp/hmc-tool-documentation-sealed-{focused,race}-20260923.log`。18420中途定向曾撞上述图夹具，不拼成末版绿。生命周期及实际Analyzer新增先后不同，不宣称所有新增叶都已有同一轮有效RED。
+
+### 172.2 固定双例：机器1/2，完整人工0/2
+
+52356正式exit0，恰好2并行×1，无第三例。正式机器与逐例人工记录见`eval/parallel_selected_summary_hmc_documentation_domain_20260923{,_manual_audit}.md`。7966在LLM启动前因Go未提交被launcher拒绝exit2，不算第三个样本。Go输入提交后77390构建正式exit0，但文档仍脏导致revision=`b7b808262930-dirty`，不能冒称全树干净发布。
+
+纯目录真实命中only、两次完整静态工具读取和接受完成，最终无伪源码引用；中途7条目录当源码证据被原门全部拒绝。完整答案仍把全部耗时单位泛化为ms、把ZIP与gzip支持条件混同，并从静态无测量臆断系统不披露缺失事件。正文重复标题、内部表达也留01.3/16.4；完整目录确已送达，不声称这些错误来自缺证，也不按一次失败宣称已证模型波动。确定系统残余是完成后仍生成源码定位followup降级，见下一节。
+
+mixed案在2408字节附件准备成功后被single-shot classifier整轮分到operation，仅按说明部分选路由；三轮操作计划、两次错误find之后误称Trace缺失。没有进入预阶段、四阶段或trace_query，因果图和root-causes均未生成，35ms请求/31ms S态IO等待/1ms调度/47ms后台排除全部未回答；不将此例算mixed完成通道或IO投影验收。共享路由词典仍把investigate说成需要源码读取，且未明确宿主目录归属；需修教学，而非附件presence/原问答关键词硬转路由。operation本身不携带已加载Trace，本片不扩该路线权限。
+
+### 172.3 全仓失败与最小修复
+
+11714在`b7b808262930`冻结Go/依赖/构建输入后独立完整`go test ./...`正式exit1：85测试包通过、13无测试包、2包失败，日志`/tmp/hmc-tool-documentation-full-20260923.log`。原结果保留：orchestrator.go8192超过8191；tool的实体名册静态审计未登记三个新只读调用；新说明索引validator首次错误即return，未一次列出所有独立错误。后者是降低模型修复负担的真实JSON接缝，不能加exception躲过。
+
+`968a93bd8`整体提取3个假设结论生命周期方法到hypothesis_verdicts.go；174行方法与godoc逐字相同，L1循环SHA仍`cd4e520f4d834d3e4587f113a8f20b9fa8f26f6585bdb71cfbe87619fde31fdb`。主文件8192→8018并收紧上限8018，新文件183/上限190；没有删注释/压缩行或提高旧阈值。85568定向正式exit0（0.814秒）、65629 race正式exit0（2.170秒），日志`/tmp/hmc-hypothesis-verdict-extraction-{focused,race}-20260923.log`。
+
+`096f63d41`修纯说明成文前源码floor：只凭有效only声明＋当前真实接受凭证排除不适用源检查，mixed/未读取/重置/JSON重放/请求变化仍原路径。9322有效RED正式exit1（1.162秒），仅accepted纯说明失败，其余控制先绿；早先两次夹具类型名错误不算产品RED。88819末版7叶及原源码/Trace相邻定向正式exit0（0.955秒）、34732 race正式exit0（2.467秒），日志`/tmp/hmc-tool-documentation-floor-{valid-red,sealed-green,sealed-race}-20260923.log`。独立只读审计无阻塞；mixed两叶主要证旧seal因请求变化失效，未直接构造当前有效mixed受理或真实trace-drill depth=0，不冒称这两支新E2E。
+
+`ff4305811`完整收集说明域typed错误及原始索引出处错误，以errors.Join保原error API；不因第一维错误跳过其它维，也不对同一无效索引级联重复。EntityRoster对一个本地helper及两个精确外部只读函数登记，外部reader复用AST禁止写入检查并加自红与输入不变验证；ListDiscipline新增两个真正的[]error collector并将验证文件纳入扫描，不增加exception。真实EmitAnalysis.Execute五格组合错误58744有效RED正式exit1（1.103秒），末版97013定向正式exit0（tool3.277/types0.744秒）、26945 race正式exit0（tool17.843/types1.979秒），日志`/tmp/hmc-tool-documentation-collector-{public-red,final,final-race}-20260923.log`。保nillegacy、只修形状仍拒源码义务，取消错误说明域不丢原维度/角色；没有新schema字段或改变准入。
+
+`db5a18bcb`只改共享路由prompt三处：repo代表分析管线而非必须读源码；宿主发布的静态说明及其与源码/运行时调查的组合整轮走管线；investigate不再code-only。真实机器/安装工具/文件操作仍operation，schema/guards/权限未变。两分类入口×5初始消息、两REPL分派、一个原生命令对照共13叶：6659有效RED正式exit1（1.287秒）；1592首次误写旧write-intent精确pin属于夹具错误。22281定向正式exit0（1.808秒）、99747 race正式exit0（3.059秒），日志`/tmp/hmc-documentation-routing-{public-valid-red,targeted,targeted-race}-20260923.log`。独立审查无阻塞；模拟策略回包只证消息和接线，不声称live分类已修。
+
+57836复验启动后7秒发生一处census注释同步，虽无逻辑变化仍不算冻结全仓，主动停止正式exit143；日志`/tmp/hmc-tool-documentation-final-full-20260923.log`保留，不计产品FAIL或通过。`ff4305811`全部Go/依赖/构建输入冻结后11225独立完整复验进行中，日志`/tmp/hmc-tool-documentation-sealed-final-full-20260923.log`；只有这一末版正式退出可作新整仓收据，不拼接各包。08.3真实IO在途、17.7引用/输入、§170范围/同账视图及§165原生登记继续在原父项，不新增重复任务或隐去旧失败。
+
+### 172.4 下一完整能力：08.3
+
+主审/独立审计再次逐行读参考`core/preprocess/io_ops.py:114–179/482–590`与`config/indicators/io/io_latency.yaml:194–305`。其“并发”分别实为桶相交数量、发起数量，后者还按带宽/延迟启发式丢桶；只吸收其按时间/读写分析的意图，不移植为真实瞬时并发。
+
+本仓最小完整片已有落点：block配对的截断前全量census及非block成功闭合区间，同源/端点族/设备/操作独立半开区间扫描，输出合格完整配对请求的峰值、请求·ms面积、全窗时间加权均值、忙碌ms与有界时序。沿用完整物理拓扑及RelationScoped拒绝门，但它们不证明采集启用了全部IO事件；缺端点/歧义/未测和显示截断独立披露。不可从Top8、汇总包络反推区间，不补未完成到窗尾，不因统计授根因或跨层累加权限。合法0起点复用queryResultTimeWindow，不能复用要求start>0的旧墙钟helper。
+
+公开矩阵覆盖同桶串行/重叠、carry-in/out/贯穿、同刻/零长/0起点、缺端点/歧义/换代/裁剪、超过Top8及多源分层，贯通真实TraceQuery→最终上下文、目录与单位/窗口/覆盖。非block原始闭合区间与独立分母/覆盖是同片必要工作；无外部阻塞，但本轮仅设计不销08.3。
