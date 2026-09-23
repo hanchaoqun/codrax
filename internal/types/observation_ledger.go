@@ -280,6 +280,10 @@ type AnchorUserEntity struct {
 
 type ObservationLedger struct {
 	Records []ObservationRecord `json:"records,omitempty"`
+	// RuntimeArtifactSources preserves producer-owned physical source receipts
+	// before claim deduplication can merge their factual authority with model
+	// aggregates. A present empty set is authoritative; nil is legacy only.
+	RuntimeArtifactSources *RuntimeArtifactSourceIdentitySet `json:"runtime_artifact_sources,omitempty"`
 	// RuntimeArtifactScopeProfile carries the analyzer's validated current-user
 	// artifact scope into trace projection compilation. In particular, an
 	// explicit time window remains distinct from model-selected drilldown
@@ -675,6 +679,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	compilePerfBundleObservations(input.PerfBundle, add)
 	compileMCPResponseObservations(input.MCPResponses, add)
 	out = reconcileRuntimeObservationProducerPrecedence(out)
+	runtimeArtifactSourcesSnapshot := compileRuntimeArtifactSourceIdentities(out)
 	out = dedupeObservationRecords(out)
 	for i := range out {
 		// Reconciliation can demote a pre-triage row after the central add
@@ -688,6 +693,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	}
 	return ObservationLedger{
 		Records:                     out,
+		RuntimeArtifactSources:      runtimeArtifactSourcesSnapshot,
 		RuntimeArtifactScopeProfile: observationLedgerRuntimeArtifactScopeProfile(input.RequestModel),
 		AnchorUserEntities:          observationLedgerAnchorEntities(input.RequestModel),
 	}

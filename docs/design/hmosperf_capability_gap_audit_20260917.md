@@ -2777,3 +2777,19 @@ runner42840正式exit0，最终两例机器PASS，完整人工均FAIL。源码�
 ROI队列据本轮有据调整：①共享物理工件身份资格（先单真实capture公开反例，保双真实与派生owner）；②sequence局部修补的时序位置/分支保真及阶段参数无关强补证；③原生只读断言补绑定/新执行代次、caller双轴和已接受业务补齐/容量；④§140.3共享旁路范围载体、能力目录/IO总体/精确帧等。①②归原HMC-01.3/16.4/16.5/18.4子债，不重复增父ID；79=13已交付+66开放。新的系统缺口不以机器PASS销账，充足上下文上的模型误述也不靠第三例追绿、正文硬门或无限提示拟合处置。
 
 独立末审补记：源码终稿17还称AnalysisIR在analyze后只读；实际`orchestrator.go:6798`由`drainHypothesisVerdicts`调用`MarkHypothesis`更新后续假设状态，主审已复核。与dispatch所有者误述一起纳入本例完整FAIL，不新增父ID或反向修改原答案。代码及本节完整两例机器/人工收据已随文档`f54a9376cfa67579a0240024cb6b94d57f518c24`由71485正式exit0推送，本地与远端一致；此补记仅文档，不借新测试结论。
+
+## 142. 物理工件身份与主张证明分离（2026-09-22，验收中）
+
+本轮起点6ae7150d0、工作区干净，按稳定复选项重新计数79=13已交付+66开放。优先闭环§141人工FAIL中系统铸造伪工件/伪归属的两种表现，属于HMC-01.3/16.4/18.4，不重复建父项。参考再次逐行核`query_engine.py:340–423`的数据与控制元信息分离、`frame_drop_analysis.py:370–392`逐条保trace_id/tag/json_path、`_stepref.py:31–72`当前会话/步骤产物来源：核心意图是结果身份跟随实际执行产物，统计scope或已证业务结论不能替代物理输入身份。参考的存在性回退不具备本项目所需来源证明，不照搬。
+
+公开真实TraceQuery→EmitInvestigationComplete→已接受答案→no-op Patch→render有效RED73170正式exit1/tool1.465s：8格中英×线程scope/业务scope/model path/artifact ID制造伪第二capture，6个无身份及真实双capture正控先绿；初稿编译/归一化断言错误不计产品RED。新增归属反例16179正式exit1/tool1.696s：8格中英×payload/raw/rowset/page指向另一个真实capture，模型声明使原2端1对消失。原生值/记录、模型事实/维度及合法advisory归一化、正文/no-op幂等、finite不扩因果均受保护。日志`/tmp/hmc-artifact-identity-public-red-v2-20260922.log`与`/tmp/hmc-artifact-identity-carrier-public-red-20260922.log`。
+
+设计审查发现仅拒model_inference仍不够：已独立证明的源码成员聚合也能带model scope/path，结论证明不授物理身份。反过来只看合并后direct_observation会误丢真实来源：相同SourceRef/主张合并时既有ClaimAuthority可能升级为independently_proven。故在ledger去重前保存紧凑的、系统产生的直接查询SourceRef快照，pair端点及两遍派生owner建图消费同一来源集合；nil只兼容旧ledger，显式空集合不回退猜测。三处指针元数据防御复制、同值去重、JSON往返不变；不改全局事实去重/证明优先级，不删模型aggregate，不加模型必填JSON，不扫描原文/路径形状或替模型声明共享时钟。主因资格、显式窗、数值和因果投影/自动补齐不变。
+
+初始direct-only补丁公共22格GREEN96659正式exit0/tool2.024s、race46075正式exit0/tool7.586s，仅属于来源快照引入前的结果，不代签末版。末版公开/类型邻接/race及独立审计正在执行，收据随后补记；源码图顺序修补另片独立实施，未将旧人审FAIL改签。
+
+末版快照公共22格31767正式exit0/tool2.602s、65950 race正式exit0/tool9.132s；types/agent相邻最终44073正式exit0（2.035/2.530s），工具因果/来源/普查保护24896正式exit0/tool2.652s。类型层另有21格来源/四种派生载体及桥接控制、快照空集/3指针/值去重，以及真实CompileObservationLedger+JSON往返的源码成员独立证明和原生同身份合并两组。独立末审57985正式exit0/1.104s、93578 race正式exit0/2.188s；首次合并夹具缺ToolCallID导致并未真实去重，强化同path仅一条+去掉快照丢来源的负控后纠正。38175和33617这两轮夹具失败保留，不作为产品RED；末版日志`/tmp/hmc-artifact-identity-sealed-race-20260922.log`。
+
+边界：新来源快照是全运行身份目录，提示记录筛选时间窗不会隐删实际工件，也不会把窗外量恢复进答案。直接传入旧ledger时非法显式ClaimAuthority不获默认资格；CompileObservationLedger已有非法枚举规范化未改，不声称本批修了该入口。相邻runtime_source_answer_authority_view、trace_observation_coverage、runtime_artifact_scope_coverage等producer-family消费仍需结合各自typed凭证审计，仅有静态风险，不一概登记为已证漏洞。本片独立源码/公开/race审查无阻塞，准备分片提交；统一全仓及新模型双例另收。
+
+§141可选JSON patch再审：当时提示已明确facet_ids是数组，若未发布精确add_facet_id须完整replace_blocks；模型仍选未发布的field=facet_ids。该次拒绝是有效边界且旧答案保留，未证明无合法fallback或教学矛盾，不以这个拒绝修改产品门；微窗适用性和完整答案失败仍留账。
