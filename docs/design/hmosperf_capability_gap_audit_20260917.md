@@ -2778,7 +2778,7 @@ ROI队列据本轮有据调整：①共享物理工件身份资格（先单真�
 
 独立末审补记：源码终稿17还称AnalysisIR在analyze后只读；实际`orchestrator.go:6798`由`drainHypothesisVerdicts`调用`MarkHypothesis`更新后续假设状态，主审已复核。与dispatch所有者误述一起纳入本例完整FAIL，不新增父ID或反向修改原答案。代码及本节完整两例机器/人工收据已随文档`f54a9376cfa67579a0240024cb6b94d57f518c24`由71485正式exit0推送，本地与远端一致；此补记仅文档，不借新测试结论。
 
-## 142. 物理工件身份与主张证明分离（2026-09-22，验收中）
+## 142. 物理工件身份与主张证明分离（2026-09-22，窄片代码验收完成）
 
 本轮起点6ae7150d0、工作区干净，按稳定复选项重新计数79=13已交付+66开放。优先闭环§141人工FAIL中系统铸造伪工件/伪归属的两种表现，属于HMC-01.3/16.4/18.4，不重复建父项。参考再次逐行核`query_engine.py:340–423`的数据与控制元信息分离、`frame_drop_analysis.py:370–392`逐条保trace_id/tag/json_path、`_stepref.py:31–72`当前会话/步骤产物来源：核心意图是结果身份跟随实际执行产物，统计scope或已证业务结论不能替代物理输入身份。参考的存在性回退不具备本项目所需来源证明，不照搬。
 
@@ -2794,7 +2794,7 @@ ROI队列据本轮有据调整：①共享物理工件身份资格（先单真�
 
 §141可选JSON patch再审：当时提示已明确facet_ids是数组，若未发布精确add_facet_id须完整replace_blocks；模型仍选未发布的field=facet_ids。该次拒绝是有效边界且旧答案保留，未证明无合法fallback或教学矛盾，不以这个拒绝修改产品门；微窗适用性和完整答案失败仍留账。
 
-## 143. 阶段参数候选不自动成为必补交接（2026-09-22，验收中）
+## 143. 阶段参数候选不自动成为必补交接（2026-09-22，窄片代码验收完成）
 
 §141源码人审FAIL的无关补证有确定性来源：`emitEvidenceArgumentFlowRepairsForExactCall`既认可静态类型匹配的已声明必要载体，也认可真实stage provider能绑定的阶段常量，却把两者都描述为“静态类型匹配的必要载体”，统一铸造阻塞调查完成的参数交接义务。阶段常量及真实调用只能证明该实参存在，不能证明其日志、重试、字符串转换等所有消费者都是题目必答的阶段交接；不靠callee名字白名单区分。
 
@@ -2806,7 +2806,7 @@ ROI队列据本轮有据调整：①共享物理工件身份资格（先单真�
 
 末版新增13叶包括必需/可选合并真值矩阵、真实grounding和schema错误兄弟项不被掩盖、历史债不被新advisory清空；其中公共路径证明该类阻塞消失或保留，不冒称完整Orchestrator.Run验收。39418正式exit0/tool2.019s、65420 race正式exit0/tool4.343s，日志`/tmp/hmc-stage-argument-scope-final-targeted-20260922.log`与`-final-targeted-race-20260922.log`。独立审查84668正式exit0/tool2.204s且无阻塞；源码仅`emit_evidence.go`与新增222行测试，准备单片提交，末版全仓和固定双例随后汇总。
 
-## 144. 时序图局部补边的原位置与事务坐标（2026-09-22，验收中）
+## 144. 时序图局部补边的原位置与事务坐标（2026-09-22，位置执行验收完成、已有消息识别另留债）
 
 针对§141“调度已return才补阶段消息”的系统缺口，不取消关系证据门或让系统重写图。参考`core/rendering/models.py:52–57`、`core/rendering_pipeline.py:197–218,1437`只保存/投递完整Mermaid teaching，强调业务流程表达，却没有可复用的精确局部编辑器。本项目独立设计：对当前完整diagram与block身份铸精确来源gap引用，实际dispatch schema发布位置前后文；模型选择关系、标签、位置及同位消息顺序，系统只执行其选择，不推断时序或因果。
 
@@ -2820,10 +2820,42 @@ ROI队列据本轮有据调整：①共享物理工件身份资格（先单真�
 
 最终32014 race正式exit0/tool7.259s、26876相邻正式exit0（tool63.437/agent1.532s），日志`/tmp/hmc-sequence-placement-review-final-race-20260922.log`及`-review-final-neighbor-20260922.log`。代码及设计分片提交`f6a54d3e6`；新位置helper400行、公开/事务/旧调用迁移测试各331/138/73行，不调行数上限来绕验证。§143已单片提交`46764c9f3`；两片与§142等待本批冻结全仓及固定双例完整答案审计。
 
-## 145. 非流式路由分类的旧默认提前截止（2026-09-22，验收中）
+## 145. 非流式路由分类的旧默认提前截止（2026-09-22，窄片代码验收完成）
 
 用户已要求代码默认首响应600秒、静默300秒、非流600秒。adapter和活跃流保护已正确，但复核发现CLI分类仍默认120秒、REPL分类仍10秒；`classifierBudget→ChatWithInterruptibleRequestBudget→ChatWithRequestBudget`给真实非流叶子附加更短deadline，可能触发路由回退。默认stream路径由实际叶子的存活watchdog绕过该预算，不能将此缺口说成默认4ms/4m截断活跃流；显式用户总预算是另一类既有合同。
 
 有效RED55070正式exit1/repl1.156s：真实NewChitchatClassifier的CLI/REPL/in-flight/旧二分类五入口，经presentation/telemetry/fallback生产包装后用立即返回的deadline探针观测；factory为600秒，5个非流叶子仅10/120秒，5个流式叶子无总deadline先绿。无HTTP请求、不读凭据、不真实等待10分钟。日志`/tmp/hmc-classifier-default-budget-red-20260922.log`。
 
 最小修复导出llm共享默认时长，只改两个未配置分类预算的初始化，避免将来再次漂移。显式positive总deadline、CLI显式0、较早父deadline/取消、每次真实非流fallback叶子预算及stream活跃保护逻辑不变；不取消真实超时后的错误披露或改路由权限。6文件包括两处注释及旧默认pin精确迁移，旧120秒显式日志样例仍保。初步46419正式exit0（repl5.351/llm1.076/cmd2.954s）；独立/race/冻结全仓随后补记，归原HMC-01.2/18.5，不新增父ID。
+
+最终29580 race正式exit0（repl6.915/llm2.268/cmd4.051s），89969路由/取消控制正式exit0（repl1.582/cmd1.590s）；独立99821正式exit0（repl2.891/llm1.713/cmd2.007s），无阻塞。代码/注释/设计已提交`6a1c4625d`。本批统一`go test -count=1 ./...`76260在Go冻结后启动，期间不改构建输入；30445构建正式exit0，revision=`6a1c4625d453-dirty`、buildTime=`2026-09-23T01:23:52Z`（UTC），dirty仅任务文档，runner核验提交与构建输入后才启动。
+
+## 146. 6a1c冻结双例与完整回归（2026-09-22，完整人工0/2、代码末版全仓通过）
+
+runner41426于本地18:24:57固定恰好2并行、各1次：`real_trace_e2_cross_trace_asymmetry`与`qf_sequence_analyzer_gate`。同一新构建快照，不覆盖FIXTURE、不改题/源材料/oracle、不追跑§141原题第三例。结果目录`eval/results/hmc_identity_sequence_budget_20260922/`，机器与完整人工收据分别写`eval/parallel_selected_summary_hmc_identity_sequence_budget_20260922.md`及`_manual_audit.md`。18:30:59 runner正式exit0，机器1/2；E2机器FAIL150秒，源码机器PASS362秒，不把runner成功当两例通过。
+
+预审真值：两真实Trace首末事件34579.450627–34579.595184和2942.244845–2942.245401，原文件15623/100行，覆盖144.557/0.556ms。不同数值区间本身不能证明不同clock/boot epoch；现有PROFILE §2.1和case注释有过强口径，归HMC-18维护债。本批不改原oracle，人工以实际跨采集身份和同钟/映射证据为准，不能将“不能证明可直接对齐”写成“已经证明异时钟”。源码题真实汇聚为buildAnalysisIR→RunWith←Run，关键处理在同一caller内依次发生，不能画成中间helper互调或RunWith调用Run；未执行精确位置修补也不能仅凭schema出现新字段宣称live命中。
+
+E2已结束：进程exit0，外层150/案例148秒；机器FAIL仅旧时间基准正则没匹配“不能直接时间对齐”，非超时。完整人工独立复核也FAIL，但理由独立：正文无据断言不同基准、把存在CPU/VSync样本扩大为完整采样/完整渲染链路，泄漏typed cross-artifact及内部枚举。系统当轮context在logs.all:2929–2934明确禁止由缺锚点推相同或不同，原料足以诚实作答；不能因模型越界新增原文硬门。VSync较窄patterns匹配59、增加Choreographer后原生matched_total=60，该60是混合记录数，不是脉冲数，不能拿旧PROFILE59反判引擎错。
+
+E2新确定性供证债：`ReadFile.Execute`的`builtin.go:4954–4956`用strings.Split把末尾换行产生的空元素计作一行，read_file banner及Runtime Enumeration Authority提供15624/101，而TraceQuery和原文件是15623/100；终稿抄了系统+1口径。归HMC-01.3/16.4/18.4共享材料行域子债，优先用空文件/尾换行/无尾换行/CRLF/分页/末尾锚点的公开矩阵统一物理行数与既有读取坐标，不能只改这两个文件的数字或把它归模型波动。本批冻结中尚未实施，不冒称已修。
+
+横向只读复核：自动预读`explorer.go:21521`与`context/builder.go:3915`预览也有尾空元素问题，不只改read_file banner。空文件更不能直接删split尾元素后结束：现有offset>=total门会将其变成读取失败，coverage消费仍可能将0/0钳成1/1；`EvidenceClosure.HasReadLine`兼容分支把已读但无ranges当任意行已读。实现需以原生产者确知的零字节/零物理行信号区别旧unknown0：保真实空文件读取收据，不授第1行引用，不把空文件误当未读取；未决定或新增schema前先验证现有精确载体是否足够。坐标基准不改，保真实空行、CRLF原文、无尾LF末行、越界offset和跨窗口anchor。此段仍是设计审计，不算已复现所有下游路径或已实施。
+
+身份正向保护真实命中：14次trace_query、6次read_file，最终仅两个实际capture的一对；没有scope/查询blob铸为额外工件。未主动出现伪scope/重绑blob反例，因此不代签§142全部负控的live验收。终稿`.codrax/output/20260922-182725.230-15807.md`及HTML存在，根因JSON schema2、root_causes空、reason=trace_root_cause_contract_not_active，符合finite事实题；没有强造因果投影、链上主因或跨时钟映射。无Mermaid，系统边界表正确但不抵消正文误述。
+
+首轮全仓76260正式exit1，日志`/tmp/hmc-identity-sequence-budget-full-20260922.log`：其它包通过，tool451.599秒失败，唯一类别是B1641/B1647两组旧夹具漏新必需placement_ref。9个顶层/42个失败叶（17+25）；不能拿定向GREEN代签全仓，也不撤生产精确位置要求。两文件各一处输入构造显式选择原稿EOF，先于真实schema校验，全部原正负断言保持。定向51221正式exit0/tool1.632秒、race96682正式exit0/tool7.316秒，主审核diff仅3增2删，提交`d0d9c24e9`。独立末版完整61750重新执行`go test -count=1 ./...`，日志`/tmp/hmc-identity-sequence-budget-sealed-full-20260922.log`；期间不改Go/构建输入，终态待收。该测试夹具提交不改变6a1c模型回放二进制，不能把live称为在另一个生产实现上运行。
+
+源码例完整人工FAIL：正文保buildAnalysisIR→RunWith←Run的真实汇聚，19个所选中间函数大体有据，不要求穷举235调用；但关键函数列表置于图前，与用户图后要求不符，独立入口/条件调用被画成连续必经序列。最严重的重复箭头有确定性系统来源：初稿唯一GR→RW及对应call anchor缺技术身份，普通调用边门已有严格源码证明所以接受；participant覆盖却仅比Run/RunWith原始身份，不复用gate.Run/gate.RunWith的限定名证明，误报未绘制。repair producer再次只查完整身份anchor，发布新增addition_ref；joint-delta提示明确action=add并保未列边。模型在logs.all:3647甚至说明旧边已存在，3649仍按发布权限加同消息。终稿因此两条GR→RW，不能归为纯模型重复或用原文去重“修好”。
+
+该新P1属于共享关系证明/修补权限，归HMC-01.3/16.4/16.5/18.4子债，不新增父编号。下一方案优先复用`answer_document_diagram_evidence.go:1923–1976`已有严格源码证明桥，生成只读的精确evidence/source、canonical tuple、当前body occurrence绑定，供request-scoped participant覆盖及候选已绘制判断共用；仍只能来自同一requestedRelationEvidence子集，不拿全仓同名关系替问题授证。无歧义已证已有边无需再次拒绝，更不该发布新增。确有未绑定、需模型选择时，再发布现有occurrence引用与候选引用的显式attach；当前attach只支持无prior anchor body-only，本例已有不完整anchor不能直接套用。禁止单独addition_ref暗中吸附旧消息，真正新增仍保placement_ref。仅静态设计，尚未实施或取得公开RED。
+
+验证矩阵保留：限定名/缺身份；完整/部分/无anchor；相同端点多次真实调用、分支/循环及同actor异方法；同名异owner/source歧义；错误方向/类型；真实新增；陈旧/跨块引用；补身份不改原消息/return/激活/分支/其它块。参考仓`TeachingContent`与`rendering_pipeline.py:1424`只保完整配置图及独立线程/切片说明，没有逐消息证据修补器，借鉴展示结构与证据元数据分离的意图，不复制模板或默认加边。
+
+本例7次read_file/14轮explorer、上下文最大80164/200000（40%），完整函数体与两入口源码已供给。存在重复大段读取及可选成文提示因构建预算省略，不冒称没有调用证据。两次调查完成无阻塞，未直接命中§143辅助stage负控。新placement_ref在实际patch命中且严格按所选位置执行，不代表已有消息识别已闭环。最终可选facet_ids字段patch仍未遵循发布schema，被合法拒绝并保前稿；不是放宽任意字段补丁的理由。请求日志实际10m/5m/10m，活跃流继续，无4ms/4分钟总耗时降级；未真等满600秒，不冒称长等待live边界验收。机器1/2、完整人工0/2，两个旧结果及66父项均保留。
+
+两个独立人工复审与主审一致。源码最终`.codrax/output/20260922-183057.085-15808.md:106`相邻两条重复调用，初稿并无重复；未发现§144位置执行器漂移。§142身份负控/§143辅助候选/§145十分钟等满边界未在这两例live命中，定向公开与race证据独立有效但不得扩大结论。机器与人工报告已完整落盘，不因机器PASS忽略图后列表、分支语义或系统新增错误。
+
+末版61750现已正式exit0：`go test -count=1 ./...`完整87测试包、13无测试包、零FAIL；tool435.719秒、tracequery119.452秒、types50.898秒，日志`/tmp/hmc-identity-sequence-budget-sealed-full-20260922.log`。这是d0d9c24e9后的独立完整复跑，期间只变文档，没有拼接分包结果或修改Go输入；先前76260失败收据保留。§142–145四片生产提交与两处旧测试适配分批推送，不以代码PASS代签两个完整答案FAIL。新两类确定性接缝、其它模型越界及79=13+66账目不变。
+
+代码推送27131正式exit0，远端main由`6ae7150d0`推进至`d0d9c24e9`，含`e4342ba93`/`46764c9f3`/`f6a54d3e6`/`6a1c4625d`及精确旧夹具适配；无分叉或远端新提交，未合并无关工作。随后只收本批统一文档及机器/人工审计，不遗留未提交Go，也不把规划中的新修复写成已交付。
