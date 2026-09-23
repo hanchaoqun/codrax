@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -16,11 +17,11 @@ func traceResourceContractPublicResults(t *testing.T) []types.ToolResult {
 	t.Helper()
 	dir := t.TempDir()
 	source := strings.Join([]string{
-		"worker-23 (23) [002] .... 4.030000: tracing_mark_write: I|23|NativeHook:AllocEvent source_heap_size=9007199254741001 source_callchain_id=9007199254741003 resource_end_ts_ns=9223372036854775807",
+		"worker-23 (23) [002] .... 4.030000: tracing_mark_write: I|23|NativeHook:AllocEvent source_heap_size=9007199254741001 source_callchain_id=9007199254741003 resource_end_ts_ns=9223372036854775807 source_addr_i64=9007199254741001 source_addr_bits_hex=0x0020000000000009 source_sub_type_id=7",
 		"worker-23 (23) [002] .... 4.030000: tracing_mark_write: C|23|HeapSize|16384",
-		"worker-23 (23) [002] .... 4.040000: tracing_mark_write: I|23|NativeHook:FreeEvent source_heap_size=0 source_callchain_id=-1 resource_end_ts_ns=0",
+		"worker-23 (23) [002] .... 4.040000: tracing_mark_write: I|23|NativeHook:FreeEvent source_heap_size=0 source_callchain_id=-1 resource_end_ts_ns=0 source_addr_i64=0 source_addr_bits_hex=0x0000000000000000 source_sub_type_id=0 source_sub_type_name=\"\"",
 		"worker-23 (23) [002] .... 4.040000: tracing_mark_write: C|23|HeapSize|8192",
-		"worker-23 (23) [002] .... 4.050000: tracing_mark_write: I|23|NativeHook:MmapEvent source_heap_size=null source_callchain_id=null resource_end_ts_ns=null",
+		"worker-23 (23) [002] .... 4.050000: tracing_mark_write: I|23|NativeHook:MmapEvent source_heap_size=null source_callchain_id=null resource_end_ts_ns=null source_addr_i64=-9 source_addr_bits_hex=0xfffffffffffffff7 source_sub_type_id=8 source_sub_type_name=null",
 		"worker-23 (23) [002] .... 4.050000: tracing_mark_write: C|23|MmapSize|2048",
 	}, "\n") + "\n"
 	path := filepath.Join(dir, "resource.ftrace")
@@ -43,6 +44,43 @@ func traceResourceContractPublicResults(t *testing.T) []types.ToolResult {
 		results = append(results, result)
 	}
 	return results
+}
+
+func TestTraceResourceContractPublicIdentityInitialContext(t *testing.T) {
+	results := traceResourceContractPublicResults(t)
+	for _, lang := range []string{"zh", "en"} {
+		t.Run(lang, func(t *testing.T) {
+			seed := traceEventInventoryPublicContext(results)
+			seed.AnalysisIR.RequestModel.Language = lang
+			seed.AnalysisIR.AnswerContract.Language = lang
+			ctx := ctxbuilder.BuildAgentContext(&types.BusContext{
+				Language: lang, Mutable: seed.Mutable, AnalysisIR: seed.AnalysisIR,
+			}, types.AgentFinalizer, types.StageFinalize)
+			before, err := json.Marshal([]any{ctx.AnalysisIR, ctx.Mutable.TurnAArtifacts(), answerDocObservationLedger(ctx)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+			for _, want := range []string{
+				"source_addr_i64 and source_addr_bits_hex are signed-decimal and hexadecimal views of the same 64-bit pattern",
+				"sign, zero, or all-one bits alone do not establish a valid or invalid address, or operation success or failure",
+				"source_sub_type_id is an opaque reference within the same capture",
+				"JSON-string source_sub_type_name (including an empty string), explicit null, and an unpublished field",
+				"do not guess why a name is absent",
+			} {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("initial resource guidance missing %q", want)
+				}
+			}
+			if strings.Count(prompt, skill.TraceResourceObservationContract) != 1 || len(traceEventInventoryPromptViews(t, prompt)) != 4 {
+				t.Fatal("shared teaching or independent query receipts changed")
+			}
+			after, _ := json.Marshal([]any{ctx.AnalysisIR, ctx.Mutable.TurnAArtifacts(), answerDocObservationLedger(ctx)})
+			if string(before) != string(after) {
+				t.Fatal("initial guidance mutated request, query results, or observation authority")
+			}
+		})
+	}
 }
 
 func TestTraceResourceContractPublicQueryReachesFinalizer(t *testing.T) {

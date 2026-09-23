@@ -29,6 +29,11 @@ func TestTraceResourceObservationTeachingContract(t *testing.T) {
 		"do not subtract them to claim an execution duration",
 		"Preserve decimal integers exactly",
 		"do not infer a floating-point encoding",
+		"source_addr_i64 and source_addr_bits_hex are signed-decimal and hexadecimal views of the same 64-bit pattern",
+		"sign, zero, or all-one bits alone do not establish a valid or invalid address, or operation success or failure",
+		"source_sub_type_id is an opaque reference within the same capture",
+		"JSON-string source_sub_type_name (including an empty string), explicit null, and an unpublished field",
+		"do not guess why a name is absent",
 		"Unresolved callchain keys do not identify functions",
 		"resource lifetime is not execution time",
 	} {
