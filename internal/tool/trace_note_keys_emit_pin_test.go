@@ -351,6 +351,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 			Operation: "bio_write", Path: "/data/app.db", Thread: tracequery.ThreadRef{Comm: "bio", PID: 94},
 			Count: 2, TotalLatencyMs: 3, MaxLatencyMs: 2, Bytes: 4096, Line: 57, Callstack: "submit_bio",
 		}},
+		// Address is read by the legacy display handoff, so its soft-consumer
+		// registration must be exercised through the real resource emitter.
+		PageFaultResources: []tracequery.RuntimeResourceSummary{{
+			Operation: "major", Address: "0x1234", Thread: tracequery.ThreadRef{Comm: "fault", PID: 95},
+			Count: 1, TotalLatencyMs: 0.15, MaxLatencyMs: 0.15, Bytes: 4096, Line: 57,
+		}},
 		TraceSpans: []tracequery.TraceSpanSummary{{
 			Thread: tracequery.ThreadRef{Comm: "jit", PID: 99}, Kind: "sync", Name: "JIT compiling foo",
 			Category: "runtime", Subcategory: "jit", SemanticClass: "jit_compile",
