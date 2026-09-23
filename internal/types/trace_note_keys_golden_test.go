@@ -373,6 +373,7 @@ var traceNoteKeyGoldenRows = []string{
 	"io_request_samples|io_request_distribution|display_only",
 	"io_request_scope|io_request_distribution|display_only",
 	"io_sector|io_latency|display_only",
+	"io_value_caliber|state|hard_consumer",
 	"io_wait|state|hard_consumer",
 	"io_wakeup_line|io_latency|display_only",
 	"iowait_blocked|io|display_only",

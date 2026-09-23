@@ -166,8 +166,17 @@ func TestRootCauseNodeValueDescriptionRetainsCompilerAndFamilyBoundaries(t *test
 			node := base
 			change(&node)
 			for _, lang := range []string{"zh", "en"} {
-				if got := RootCauseNodeValueDescription(projection, node, lang); got != "" {
-					t.Errorf("ineligible/unrelated row gained a value description: %q", got)
+				want := ""
+				if name == "IO does not borrow gated components" {
+					// IO now describes its own unknown ruler; it still must not
+					// borrow any numeric composition from the gated fixture.
+					want = "IO观测时长（口径未明确）"
+					if lang == "en" {
+						want = "I/O duration (measurement unspecified)"
+					}
+				}
+				if got := RootCauseNodeValueDescription(projection, node, lang); got != want {
+					t.Errorf("family/compiler boundary changed: got %q want %q", got, want)
 				}
 			}
 		})

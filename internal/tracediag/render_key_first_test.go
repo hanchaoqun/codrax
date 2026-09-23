@@ -226,9 +226,51 @@ func TestNonEventPrioritySchemaPins(t *testing.T) {
 	}
 }
 
+// Keep the earlier source-inventory evolution witness unchanged: first remove
+// only this separately pinned later addition, never another field or JSON tag.
+func nonEventSchemaBeforeIOValueCaliber(t *testing.T, typ reflect.Type, schema string) string {
+	t.Helper()
+	if typ != reflect.TypeOf(tracequery.RootCauseRankItem{}) {
+		return schema
+	}
+	const added = "IOValueCaliber|string|io_value_caliber,omitempty"
+	var previous []string
+	addedCount := 0
+	for _, field := range strings.Split(schema, ";") {
+		if field == added {
+			addedCount++
+			continue
+		}
+		previous = append(previous, field)
+	}
+	if addedCount != 1 {
+		t.Fatalf("expected exactly one IO value-caliber field, got %d", addedCount)
+	}
+	return strings.Join(previous, ";")
+}
+
+func TestNonEventRootCauseSchemaAddsOnlyIOValueCaliber(t *testing.T) {
+	typ := reflect.TypeOf(tracequery.RootCauseRankItem{})
+	current, schema := detailSchemaFingerprint(typ)
+	const want = "bad0b686f07912dee16bb40b67241e6812a67264c71517295bad537f9d72196f"
+	if current != want {
+		t.Fatalf("IO value-caliber schema drift: got=%s want=%s\ncurrent_schema=%s", current, want, schema)
+	}
+	previous := nonEventSchemaBeforeIOValueCaliber(t, typ, schema)
+	sum := sha256.Sum256([]byte(previous))
+	const beforeIOCaliber = "2427fa750275e117d254e44e6c2a366ec690905148a2d7228b4d851e9a075c9e"
+	if got := hex.EncodeToString(sum[:]); got != beforeIOCaliber {
+		t.Fatalf("non-IO-caliber schema also changed: got=%s want=%s", got, beforeIOCaliber)
+	}
+	if policySkipsDetailField(&nonEventDetailPolicy, typ, "IOValueCaliber") {
+		t.Fatal("IO value caliber cannot silently enter the detail skip policy")
+	}
+}
+
 // B1638b2b evolution witness: removing ONLY the new optional source inventory
 // must reproduce each complete pre-change schema fingerprint. This does not
 // re-pin unrelated Result/bundle schemas or erase any earlier field checks.
+// The later IO-value-caliber addition is independently validated above.
 func TestB1638B2BNonEventSchemaAddsOnlyMeasurementSources(t *testing.T) {
 	const added = "MeasurementSources|*types.TraceSchedulerMeasurementSources|measurement_sources,omitempty"
 	for _, tc := range []struct {
@@ -241,6 +283,7 @@ func TestB1638B2BNonEventSchemaAddsOnlyMeasurementSources(t *testing.T) {
 	} {
 		t.Run(tc.typ.Name(), func(t *testing.T) {
 			current, schema := detailSchemaFingerprint(tc.typ)
+			schema = nonEventSchemaBeforeIOValueCaliber(t, tc.typ, schema)
 			var previous []string
 			addedCount := 0
 			for _, field := range strings.Split(schema, ";") {

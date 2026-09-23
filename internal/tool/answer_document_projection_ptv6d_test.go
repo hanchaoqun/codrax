@@ -401,7 +401,10 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// The six native critical-blocking rows retain their recorded query;
 			// the two IRQ rows and cross-thread fold retain no usable ruler.
 			// No source observation, member, value or evidence tag is changed.
-			lines: 31, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
+			// HMC §164: four legacy IO rows gain a precise unknown-ruler
+			// label; the existing 100-cell packing adds four continuation
+			// lines, with the same rows, values, evidence and relationships.
+			lines: 35, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5(+1)]", "[E6]", "[E7(+2)]", "[E8(+4)]", "[E9(+1)]", "[E10(+1)]"},
 			inventory: []string{
 				"runnable", "链上L1", "2次同值", "有效归因 1.661ms(全额)",
@@ -430,7 +433,9 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 		{
 			name: "specimen2", records: ptv6Specimen2Records(),
 			// PTV8-RCR-A (§24.1): +2 lines = the two ranked rows' 行2 lines.
-			lines: 17, tree: 2, adjacent: 0, background: 3, beforeLines: 23,
+			// HMC §164: the two IO rows each retain the full unknown-ruler
+			// label on an extra continuation, without changing any row.
+			lines: 19, tree: 2, adjacent: 0, background: 3, beforeLines: 23,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]"},
 			// b3 第三标本修 (2026-07-06): 调度等待 leaves the inversion trunk
 			// row at SOURCE (ActionCell category word suppressed on inversion

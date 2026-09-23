@@ -1229,20 +1229,25 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 
 func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 	fixture := traceNoteKeysEmitFixtureResult()
-	// A pure native background request exercises the publication-caliber
-	// marker without changing the composite/count family fixtures above.
+	// A background request-residence fixture exercises both the publication
+	// caliber and typed IO ruler without changing the composite/count families.
 	fixture.RootCauseRank.Items = append(fixture.RootCauseRank.Items, tracequery.RootCauseRankItem{
 		Type: "io_latency", Source: "window_stats", Thread: tracequery.ThreadRef{PID: 901, Comm: "backup"},
 		ChainRelevance: "background", Causality: "background", ImpactMs: 17.5, ProjectedImpactMs: 47, CumulativeImpactMs: 47,
-		LineStart: 1, LineEnd: 2, StartTs: 1.002, EndTs: 1.049,
+		IOValueCaliber: types.TraceIOValueCaliberRQResidence,
+		LineStart:      1, LineEnd: 2, StartTs: 1.002, EndTs: 1.049,
 	})
 	records := traceQueryTypedObservations(fixture, "full.systrace", "payload-ref", "raw-ref", "", time.Unix(1751600000, 0).UTC())
 	if len(records) == 0 {
 		t.Fatal("fixture produced no observation records — the emit pin is checking nothing")
 	}
 	emitted := map[string]bool{}
+	sawRequestResidenceCaliber := false
 	for _, record := range records {
 		for _, note := range record.RichNotes {
+			if note == types.TraceNoteKeyIOValueCaliber+"="+types.TraceIOValueCaliberRQResidence {
+				sawRequestResidenceCaliber = true
+			}
 			key, _, ok := strings.Cut(note, "=")
 			if !ok {
 				t.Errorf("rich note without key=value shape on %s: %q", record.ID, note)
@@ -1254,6 +1259,9 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 				t.Errorf("record %s emits UNREGISTERED rich-note key %q (note %q) — register it in types/trace_note_keys.go and walk the change protocol", record.ID, key, note)
 			}
 		}
+	}
+	if !sawRequestResidenceCaliber {
+		t.Fatal("the background request's typed IO value caliber must survive rich-note publication")
 	}
 
 	// G2/G9 (§27.2/§28.1, 2026-07-09): the demoted blind-spot records — Rank=0

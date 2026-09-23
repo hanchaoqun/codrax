@@ -1374,7 +1374,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// Result/bundle pointer fingerprints are unchanged. The exact prior-schema
 	// subtraction pin and render_measurement_sources_test.go cover the field,
 	// five owner carriers and nested display disposition; only three hashes change.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "2427fa750275e117d254e44e6c2a366ec690905148a2d7228b4d851e9a075c9e",
+	// IO ruler evolution: the optional IOValueCaliber string remains generic
+	// detail under the existing cap, not a new priority or skipped field.
+	// It describes the value, never grants chain membership or cause eligibility.
+	// The subtraction pin preserves every pre-IO field and the earlier
+	// MeasurementSources-only evolution witness separately.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "bad0b686f07912dee16bb40b67241e6812a67264c71517295bad537f9d72196f",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

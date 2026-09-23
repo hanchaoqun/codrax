@@ -195,8 +195,10 @@ func TestHeadlineElim_SilenceLanes(t *testing.T) {
 	mut := psgTraceMutable(records...)
 	bus := psgBus(mut)
 	for name, prose := range map[string]string{
-		"unresolvable entity":     "核心丢帧原因为系统整体负载过高，多个子系统相互作用。",
-		"conflicting families":    "核心原因是优先级反转与IO延迟共同作用的结果。",
+		"unresolvable entity": "核心丢帧原因为系统整体负载过高，多个子系统相互作用。",
+		// The offline helper compares current published class labels. Keep
+		// both families present after the IO label's measurement correction.
+		"conflicting families":    "核心原因是优先级反转与IO观测时长（口径未明确）共同作用的结果。",
 		"negated anchor":          "shadowhook-task-64305 并非核心原因，真正的问题在别处。",
 		"incoherent thread+class": "核心原因为 WifiHandlerThre-12073 的类校验工作。",
 		"no anchor":               "shadowhook-task-64305 的优先级反转贡献了 8.608ms 影响。",
