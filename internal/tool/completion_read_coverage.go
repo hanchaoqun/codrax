@@ -57,6 +57,10 @@ func recordCompletionReadCoverage(ctx *types.BusContext, fsPath string, result t
 	if root == "" || rel == "" {
 		return
 	}
+	if types.ReadFileHasKnownEmptyLines(result, ctx.RepoRoot) {
+		ctx.Mutable.EvidenceClosure().RecordScopedEmptyFileRead(root, rel)
+		return
+	}
 	coverage := *result.ReadCoverage
 	coverage.Path = rel
 	ctx.Mutable.EvidenceClosure().RecordScopedReadCoverage(root, coverage)

@@ -12,8 +12,8 @@ func (c *EvidenceClosure) ReadRangesSnapshot() map[string][]LineRange {
 	return cloneLineRangeMap(c.readRanges)
 }
 
-// FileTotalLinesSnapshot returns a defensive copy of every banner-derived file
-// line count currently known to the closure.
+// FileTotalLinesSnapshot returns a defensive copy of every producer-observed
+// total. A present zero is known empty; an absent key is unknown.
 func (c *EvidenceClosure) FileTotalLinesSnapshot() map[string]int {
 	if c == nil {
 		return nil

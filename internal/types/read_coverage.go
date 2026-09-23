@@ -32,8 +32,11 @@ func ParseReadFileBanner(summary string) (path string, rng LineRange, totalLines
 			return "", LineRange{}, 0, false
 		}
 		n, err := strconv.Atoi(rest[:spaceIdx])
-		if err != nil || n <= 0 {
+		if err != nil || n < 0 {
 			return "", LineRange{}, 0, false
+		}
+		if n == 0 {
+			return path, LineRange{}, 0, true
 		}
 		return path, LineRange{Start: 1, End: n}, n, true
 	}
@@ -82,6 +85,21 @@ func ExtractReadCoverage(history []ToolResult, repoRoot string) (
 		if path == "" {
 			continue
 		}
+		if ReadFileHasKnownEmptyLines(r, repoRoot) {
+			readSet[path] = true
+			if _, known := totals[path]; !known && len(readRanges[path]) == 0 {
+				totals[path] = 0
+			}
+			if _, observed := readRanges[path]; !observed {
+				readRanges[path] = nil
+			}
+			continue
+		}
+		// Zero coordinates without the producer's complete empty enumeration
+		// are not a line read and must not be repaired into a fictional line 1.
+		if coverage.LineStart == 0 && coverage.LineEnd == 0 {
+			continue
+		}
 		start := coverage.LineStart
 		if start <= 0 {
 			start = 1
@@ -92,11 +110,44 @@ func ExtractReadCoverage(history []ToolResult, repoRoot string) (
 		}
 		readSet[path] = true
 		readRanges[path] = append(readRanges[path], LineRange{Start: start, End: end})
+		if total, known := totals[path]; known && total == 0 {
+			delete(totals, path) // a real positive range contradicts empty, not its bytes
+		}
 		if coverage.TotalLines > 0 && coverage.TotalLines > totals[path] {
 			totals[path] = coverage.TotalLines
 		}
 	}
 	return readSet, readRanges, totals
+}
+
+// ReadFileHasKnownEmptyLines recognizes an actual empty read using existing
+// producer-owned carriers. Zero-valued legacy/missing coverage alone means
+// unknown, not empty. Runtime and current-source carriers remain exclusive.
+func ReadFileHasKnownEmptyLines(r ToolResult, repoRoot string) bool {
+	if !r.Success || r.ToolName != "read_file" || strings.TrimSpace(r.RawRef) == "" ||
+		r.EnumerationAuthority == nil || r.EnumerationAuthority.Status != "complete" ||
+		len(r.EnumerationAuthority.Boundaries) != 1 {
+		return false
+	}
+	b := r.EnumerationAuthority.Boundaries[0]
+	if b.Dimension != "lines" || !b.TotalKnown || b.Total != 0 || b.Emitted != 0 || strings.TrimSpace(b.Scope) == "" {
+		return false
+	}
+	var path, rawRef string
+	var start, end, total int
+	switch {
+	case r.ReadCoverage != nil && r.RuntimeArtifactRead == nil:
+		c := r.ReadCoverage
+		path, rawRef, start, end, total = c.Path, c.RawRef, c.LineStart, c.LineEnd, c.TotalLines
+	case r.RuntimeArtifactRead != nil && r.ReadCoverage == nil:
+		c := r.RuntimeArtifactRead
+		path, rawRef, start, end, total = c.RequestedPath, c.RawRef, c.LineStart, c.LineEnd, c.TotalLines
+	default:
+		return false
+	}
+	return start == 0 && end == 0 && total == 0 && rawRef == r.RawRef &&
+		canonicalReadCoveragePath(path, repoRoot) != "" &&
+		canonicalReadCoveragePath(path, repoRoot) == canonicalReadCoveragePath(b.Scope, repoRoot)
 }
 
 func canonicalReadCoveragePath(path, repoRoot string) string {

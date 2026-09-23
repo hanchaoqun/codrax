@@ -90,12 +90,10 @@ type EvidenceClosure struct {
 	// authoritative denominator for HasFullyRead and any other future
 	// per-file coverage signal.
 	//
-	// Zero entry (file in readRanges but absent from this map) means
-	// "total unknown" — typically because the read came from a path
-	// that bypassed the banner (e.g. forced-read injection) or the
-	// banner was malformed. Callers that need a denominator must
-	// treat zero as "unknown" and either skip the ratio check or
-	// fall back to file-level booleans.
+	// An absent entry (not a present zero) means
+	// "total unknown". A present zero records a producer-verified empty
+	// file. Positive line observations invalidate that empty conclusion;
+	// accumulated positive totals are never replaced by a zero delta.
 	fileTotalLines map[string]int
 
 	// scannedSet is the broader set of files the deterministic
@@ -522,12 +520,16 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 	for file, ranges := range snap.readRanges {
 		combined := append(cloneLineRanges(c.readRanges[file]), ranges...)
 		c.readRanges[file] = mergeLineRanges(combined)
+		c.forgetEmptyTotalWithObservedLinesLocked(file)
 	}
 	if c.fileTotalLines == nil {
 		c.fileTotalLines = make(map[string]int)
 	}
 	for file, total := range snap.fileTotalLines {
-		if total > c.fileTotalLines[file] {
+		if total == 0 && len(c.readRanges[file]) > 0 {
+			continue
+		}
+		if current, known := c.fileTotalLines[file]; !known || total > current {
 			c.fileTotalLines[file] = total
 		}
 	}
@@ -774,6 +776,7 @@ func (c *EvidenceClosure) AddReadRanges(ranges map[string][]LineRange) {
 		combined := append([]LineRange{}, c.readRanges[file]...)
 		combined = append(combined, rngs...)
 		c.readRanges[file] = mergeLineRanges(combined)
+		c.forgetEmptyTotalWithObservedLinesLocked(file)
 	}
 	c.dropVerifiedUnverifiedFindsLocked()
 }
@@ -795,6 +798,7 @@ func (c *EvidenceClosure) SetReadRanges(ranges map[string][]LineRange) {
 			continue
 		}
 		c.readRanges[file] = mergeLineRanges(append([]LineRange{}, rngs...))
+		c.forgetEmptyTotalWithObservedLinesLocked(file)
 	}
 	c.dropVerifiedUnverifiedFindsLocked()
 }
@@ -802,10 +806,11 @@ func (c *EvidenceClosure) SetReadRanges(ranges map[string][]LineRange) {
 // RecordFileTotalLines stores the total line count for a file as
 // observed in typed read coverage. Subsequent observations win when
 // they are larger (defensive against partial totals mid-pagination).
-// Zero / negative inputs are dropped silently so callers do not need
-// to validate.
+// Zero is an explicitly observed empty file; callers must omit unknown totals.
+// Negative inputs are dropped. Accumulated positive observations are retained:
+// an empty observation cannot erase previously read positive lines.
 func (c *EvidenceClosure) RecordFileTotalLines(file string, total int) {
-	if c == nil || total <= 0 {
+	if c == nil || total < 0 {
 		return
 	}
 	file = c.canonicalize(file)
@@ -814,10 +819,13 @@ func (c *EvidenceClosure) RecordFileTotalLines(file string, total int) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if total == 0 && len(c.readRanges[file]) > 0 {
+		return
+	}
 	if c.fileTotalLines == nil {
 		c.fileTotalLines = make(map[string]int)
 	}
-	if cur := c.fileTotalLines[file]; cur >= total {
+	if cur, known := c.fileTotalLines[file]; known && cur >= total {
 		return
 	}
 	c.fileTotalLines[file] = total
@@ -834,15 +842,18 @@ func (c *EvidenceClosure) SetFileTotalLines(totals map[string]int) {
 	defer c.mu.Unlock()
 	c.fileTotalLines = make(map[string]int, len(totals))
 	for file, total := range totals {
-		if total <= 0 {
+		if total < 0 {
 			continue
 		}
 		file = c.canonicalize(file)
 		if file == "" {
 			continue
 		}
+		if total == 0 && len(c.readRanges[file]) > 0 {
+			continue
+		}
 		// Keep largest value when canonicalisation collapses two keys.
-		if cur := c.fileTotalLines[file]; cur >= total {
+		if cur, known := c.fileTotalLines[file]; known && cur >= total {
 			continue
 		}
 		c.fileTotalLines[file] = total
@@ -850,18 +861,36 @@ func (c *EvidenceClosure) SetFileTotalLines(totals map[string]int) {
 }
 
 // FileTotalLines returns the recorded total line count for a file,
-// or 0 when no banner-derived total has been observed.
+// or 0 for an empty file or an unknown total. Exact coverage methods retain
+// map presence to distinguish those two states.
 func (c *EvidenceClosure) FileTotalLines(file string) int {
+	total, _ := c.knownFileTotalLines(file)
+	return total
+}
+
+// A present zero is a producer-observed empty file; absent is unknown. Keep
+// the public integer getter compatible while exact coverage retains presence.
+func (c *EvidenceClosure) knownFileTotalLines(file string) (int, bool) {
 	if c == nil || file == "" {
-		return 0
+		return 0, false
 	}
 	file = c.canonicalize(file)
 	if file == "" {
-		return 0
+		return 0, false
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.fileTotalLines[file]
+	total, known := c.fileTotalLines[file]
+	return total, known
+}
+
+// Cumulative reads describe observed bytes, not a file-version replacement.
+// A later positive range with unknown total disproves an earlier empty-file
+// total, but does not supply a new whole-file denominator.
+func (c *EvidenceClosure) forgetEmptyTotalWithObservedLinesLocked(file string) {
+	if total, known := c.fileTotalLines[file]; known && total == 0 && len(c.readRanges[file]) > 0 {
+		delete(c.fileTotalLines, file)
+	}
 }
 
 // MergedReadLines returns the sum of (end - start + 1) over the
@@ -893,9 +922,15 @@ func (c *EvidenceClosure) MergedReadLines(file string) int {
 // 1.0 — the gate semantics are "fully covered or not", not "over
 // covered".
 func (c *EvidenceClosure) CoverageRatio(file string) float64 {
-	total := c.FileTotalLines(file)
-	if total <= 0 {
+	total, known := c.knownFileTotalLines(file)
+	if !known {
 		return -1
+	}
+	if total == 0 {
+		if c.HasRead(file) {
+			return 1
+		}
+		return 0
 	}
 	read := c.MergedReadLines(file)
 	if read <= 0 {
@@ -909,13 +944,15 @@ func (c *EvidenceClosure) CoverageRatio(file string) float64 {
 }
 
 // HasFullyRead reports whether merged ranges cover the entire file.
-// Two-armed contract:
+// Exact coverage contract:
 //
 //  1. total known (FileTotalLines > 0): true iff merged_read_lines
-//     >= total_lines (the banner's own ranges already merge to that).
+//     >= total_lines (the typed read ranges already merge to that).
 //  2. total unknown: false. Without a denominator we cannot prove
 //     "fully read"; conservative answer prevents the parity gate from
 //     short-circuiting on an undersampled file.
+//  3. known empty: true only when the file was actually read; no positive
+//     line becomes covered by that file-level observation.
 //
 // Used by the multi-path symbol-anchored verification check (and any
 // future per-file coverage gate) to bypass the comparison entirely
@@ -924,9 +961,12 @@ func (c *EvidenceClosure) CoverageRatio(file string) float64 {
 // the per-file-ratio floor itself was retired in favour of symbol-
 // region verification.
 func (c *EvidenceClosure) HasFullyRead(file string) bool {
-	total := c.FileTotalLines(file)
-	if total <= 0 {
+	total, known := c.knownFileTotalLines(file)
+	if !known {
 		return false
+	}
+	if total == 0 {
+		return c.HasRead(file)
 	}
 	return c.MergedReadLines(file) >= total
 }
@@ -1149,6 +1189,9 @@ func (c *EvidenceClosure) HasReadLine(file string, line int) bool {
 	}
 	if line <= 0 {
 		return true
+	}
+	if total, known := c.fileTotalLines[file]; known && total == 0 {
+		return false
 	}
 	rngs := c.readRanges[file]
 	if len(rngs) == 0 {

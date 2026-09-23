@@ -74,9 +74,9 @@ func TestReadFile(t *testing.T) {
 			t.Fatalf("expected success, got: %s", result.Summary)
 		}
 		// Summary now carries a "showing lines X-Y of N" banner so the
-		// LLM cannot mistake a slice for the whole file. The trailing
-		// newline in the source content makes Split produce 3 elements.
-		if !strings.Contains(result.Summary, "showing lines 1-3 of 3") {
+		// LLM cannot mistake a slice for the whole file. The terminal
+		// newline terminates line 2; it does not create line 3.
+		if !strings.Contains(result.Summary, "showing lines 1-2 of 2") {
 			t.Fatalf("expected banner with line range, got %q", result.Summary)
 		}
 		// Every line carries an absolute line number in the left
@@ -121,7 +121,7 @@ func TestReadFile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read raw ref: %v", err)
 		}
-		for _, want := range []string{"showing lines 1-3 of 3", "     1│ hello from raw ref", "     2│ second line"} {
+		for _, want := range []string{"showing lines 1-2 of 2", "     1│ hello from raw ref", "     2│ second line"} {
 			if !strings.Contains(string(raw), want) {
 				t.Fatalf("raw ref missing %q:\n%s", want, string(raw))
 			}
@@ -333,7 +333,7 @@ func TestReadFile(t *testing.T) {
 		if !result.Success {
 			t.Fatalf("expected success, got: %s", result.Summary)
 		}
-		if !strings.Contains(result.Summary, "showing lines 11-15 of 401") {
+		if !strings.Contains(result.Summary, "showing lines 11-15 of 400") {
 			t.Fatalf("expected sliced banner for large file, got first 200 chars: %q", result.Summary[:min(200, len(result.Summary))])
 		}
 	})
@@ -376,8 +376,8 @@ func TestReadFile(t *testing.T) {
 		}
 		// Verify the banner is present and the end line is reasonable:
 		// previewHeadBytes (24 KB) / 100 bytes per line ≈ 245 lines.
-		if !strings.Contains(result.Summary, "of 401 total") {
-			t.Fatalf("expected total=401 in banner, got first 200 chars: %q", result.Summary[:min(200, len(result.Summary))])
+		if !strings.Contains(result.Summary, "of 400 total") {
+			t.Fatalf("expected total=400 in banner, got first 200 chars: %q", result.Summary[:min(200, len(result.Summary))])
 		}
 		// The clamped content should fit inline (no blob truncation hint).
 		if strings.Contains(result.Summary, "remaining") || strings.Contains(result.Summary, "NOT returned") {
@@ -5275,7 +5275,7 @@ func TestReadFile_ResolvesAgainstRepoRoot(t *testing.T) {
 	if !result.Success {
 		t.Fatalf("expected success, got: %s", result.Summary)
 	}
-	if !strings.Contains(result.Summary, want) {
+	if !strings.Contains(result.Summary, strings.TrimSuffix(want, "\n")) {
 		t.Fatalf("expected file content in summary, got: %s", result.Summary)
 	}
 	// Banner echoes the LLM-supplied (relative) path so downstream
@@ -5323,7 +5323,7 @@ func TestReadFile_RuntimeArtifactDoesNotPublishCurrentSourceCoverage(t *testing.
 	if !result.Success {
 		t.Fatalf("expected success, got: %s", result.Summary)
 	}
-	if !strings.Contains(result.Summary, want) {
+	if !strings.Contains(result.Summary, strings.TrimSuffix(want, "\n")) {
 		t.Fatalf("expected runtime artifact content in summary, got: %s", result.Summary)
 	}
 	if result.ReadCoverage != nil {

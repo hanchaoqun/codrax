@@ -28,6 +28,7 @@ type scopedReadCoverageDemand struct {
 type scopedReadCoverageObservation struct {
 	ranges     []LineRange
 	totalLines int
+	emptyFile  bool
 }
 
 // This run-local display state is deliberately separate from readSet and
@@ -86,6 +87,23 @@ func (c *EvidenceClosure) RecordScopedReadCoverage(repositoryRoot string, covera
 		ranges:     []LineRange{{Start: coverage.LineStart, End: coverage.LineEnd}},
 		totalLines: coverage.TotalLines,
 	})
+}
+
+// RecordScopedEmptyFileRead records a producer-validated zero-byte source
+// read. Tool callers must first verify ReadFileHasKnownEmptyLines and their
+// RawRef receipt; direct pre-read producers must have observed zero bytes.
+// Both verify physical repository identity. No positive line debt is settled.
+func (c *EvidenceClosure) RecordScopedEmptyFileRead(repositoryRoot, path string) {
+	if c == nil {
+		return
+	}
+	identity, ok := scopedReadCoverageSourceIdentity(repositoryRoot, path)
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.scopedReadCoverage.addObservation(identity, scopedReadCoverageObservation{emptyFile: true})
 }
 
 // CurrentCompletionCaveats is the current display/hint view. Historical
@@ -159,6 +177,7 @@ func (s *scopedReadCoverageState) addObservation(identity scopedReadCoverageIden
 		s.reads = make(map[scopedReadCoverageIdentity]scopedReadCoverageObservation)
 	}
 	current := s.reads[identity]
+	current.emptyFile = current.emptyFile || observed.emptyFile
 	current.ranges = mergeLineRanges(append(cloneLineRanges(current.ranges), observed.ranges...))
 	if observed.totalLines > current.totalLines {
 		current.totalLines = observed.totalLines
@@ -175,7 +194,8 @@ func (s scopedReadCoverageState) resolved() bool {
 		if !ok {
 			return false
 		}
-		if demand.wholeFile && (observed.totalLines <= 0 ||
+		emptyOnly := observed.emptyFile && observed.totalLines == 0 && len(observed.ranges) == 0
+		if demand.wholeFile && !emptyOnly && (observed.totalLines <= 0 ||
 			!scopedReadCoverageRangeCovered(observed, LineRange{Start: 1, End: observed.totalLines})) {
 			return false
 		}

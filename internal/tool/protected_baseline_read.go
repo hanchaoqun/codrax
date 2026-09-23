@@ -77,8 +77,11 @@ func protectedBaselineObservedInCurrentRepository(ctx *types.BusContext, target 
 	for _, result := range ctx.Mutable.DispatchToolResults() {
 		coverage := result.ReadCoverage
 		if !result.Success || result.ToolName != "read_file" || result.RuntimeArtifactRead != nil || coverage == nil ||
-			coverage.LineStart <= 0 || coverage.LineEnd < coverage.LineStart || coverage.TotalLines < coverage.LineEnd ||
 			result.RawRef == "" || coverage.RawRef != result.RawRef {
+			continue
+		}
+		if !types.ReadFileHasKnownEmptyLines(result, ctx.RepoRoot) &&
+			(coverage.LineStart <= 0 || coverage.LineEnd < coverage.LineStart || coverage.TotalLines < coverage.LineEnd) {
 			continue
 		}
 		path, ok := protectedBaselineExactPath(coverage.Path)

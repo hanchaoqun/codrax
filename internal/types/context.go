@@ -7800,6 +7800,8 @@ type ToolVCSChangedPathSet struct {
 // The read_file tool publishes it from schema coordinates and file metadata
 // before rendering Summary, so coverage gates do not parse the user-visible
 // banner to recover path/range/total facts.
+// Zero line coordinates describe no source lines. A known empty file requires
+// the matching complete zero-line EnumerationAuthority; zero alone is unknown.
 type ToolReadCoverage struct {
 	Path       string `json:"path,omitempty"`
 	LineStart  int    `json:"line_start,omitempty"`

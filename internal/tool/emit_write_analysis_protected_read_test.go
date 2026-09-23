@@ -177,7 +177,7 @@ func TestEmitWriteAnalysisProtectedReadDoesNotPromoteResolvedSiblingOrSymlink(t 
 				if err := os.Mkdir(sibling, 0755); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(sibling, path), []byte("another baseline\n"), 0644); err != nil {
+				if err := os.WriteFile(filepath.Join(sibling, path), []byte("another baseline\nsecond baseline line\n"), 0644); err != nil {
 					t.Fatal(err)
 				}
 				bus.MultiGraph = protectedReadSubRepoGater{path: "sibling/" + path, root: "sibling"}

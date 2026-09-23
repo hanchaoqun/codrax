@@ -3912,7 +3912,7 @@ func renderAttachedArtifactLines(raw string, startLineNo int) string {
 	if raw == "" {
 		return ""
 	}
-	return textfmt.LineGutter(strings.Split(raw, "\n"), startLineNo)
+	return textfmt.LineGutter(textfmt.PhysicalLines(raw), startLineNo)
 }
 
 type attachedArtifactPreview struct {

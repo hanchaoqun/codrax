@@ -41,8 +41,8 @@ func ParseReadFileBanner(summary string) (path string, rng types.LineRange, tota
 //     pagination accumulates; not pre-merged so the caller can hand
 //     them to EvidenceClosure.SetReadRanges which runs the canonical
 //     mergeLineRanges)
-//   - totals: per-file total line count harvested from the typed carrier;
-//     0 when the carrier did not carry a total
+//   - totals: per-file known total line count; an absent key is unknown,
+//     while a present zero is a producer-verified empty read
 //
 // repoRoot enables carrier-path canonicalisation via
 // CanonicalRepoRelative so an absolute / leading-./ path shape lands
@@ -124,9 +124,10 @@ func RefreshClosureCoverage(ctx *types.BusContext, closure *types.EvidenceClosur
 	if ctx != nil {
 		repoRoot = ctx.RepoRoot
 	}
-	_, readRanges, totals := ExtractReadCoverage(history, repoRoot)
+	readSet, readRanges, totals := ExtractReadCoverage(history, repoRoot)
 	closure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
 		Class:                 types.EvidenceReducerInputStageCoverageSnapshot,
+		ReadSet:               readSet,
 		ReadRanges:            readRanges,
 		FileTotalLines:        totals,
 		ReplaceReadRanges:     len(readRanges) > 0,

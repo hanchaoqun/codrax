@@ -22,6 +22,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/textfmt"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
@@ -5553,7 +5554,10 @@ func readFileWindowStatsSince(results []types.ToolResult, prevLen int) readFileW
 		if n := len(r.Summary); n > stats.maxBytes {
 			stats.maxBytes = n
 		}
-		lines := rng.End - rng.Start + 1
+		lines := 0
+		if rng.Start > 0 {
+			lines = rng.End - rng.Start + 1
+		}
 		if lines > stats.maxLines {
 			stats.maxLines = lines
 		}
@@ -5601,6 +5605,9 @@ func runtimeArtifactReadWindowFromResult(r types.ToolResult) (runtimeArtifactRea
 		return runtimeArtifactReadWindow{}, false
 	}
 	if marker := r.RuntimeArtifactRead; marker != nil {
+		if types.ReadFileHasKnownEmptyLines(r, "") {
+			return runtimeArtifactReadWindow{path: marker.RequestedPath, typed: true, traceQuery: marker.TraceQueryBlob || marker.Kind == "trace"}, true
+		}
 		if strings.TrimSpace(marker.RequestedPath) == "" || marker.LineStart <= 0 ||
 			marker.LineEnd < marker.LineStart || marker.TotalLines < 0 ||
 			(marker.TotalLines > 0 && marker.LineEnd > marker.TotalLines) {
@@ -6433,6 +6440,9 @@ func renderRuntimeArtifactHeaderReadHint(win runtimeArtifactReadWindow) string {
 }
 
 func renderCompactRuntimeArtifactReadHint(win runtimeArtifactReadWindow) string {
+	if win.typed && win.start == 0 && win.end == 0 && win.total == 0 {
+		return renderEmptyRuntimeArtifactReadHint(win.path)
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Progress check: you have another runtime/log/trace artifact read backlog from `%s` lines %d-%d", win.path, win.start, win.end)
 	if win.total > 0 {
@@ -6449,6 +6459,9 @@ func renderCompactRuntimeArtifactReadHint(win runtimeArtifactReadWindow) string 
 }
 
 func renderRuntimeArtifactReadOnlyHint(win runtimeArtifactReadWindow) string {
+	if win.typed && win.start == 0 && win.end == 0 && win.total == 0 {
+		return renderEmptyRuntimeArtifactReadHint(win.path)
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Progress check: you have read runtime/log/trace artifact rows from `%s` lines %d-%d", win.path, win.start, win.end)
 	if win.total > 0 {
@@ -6464,6 +6477,10 @@ func renderRuntimeArtifactReadOnlyHint(win runtimeArtifactReadWindow) string {
 	b.WriteString(explorerReadHandoffGuidance())
 	b.WriteString(" If a later step also needs current-code proof, read that source separately.")
 	return b.String()
+}
+
+func renderEmptyRuntimeArtifactReadHint(path string) string {
+	return fmt.Sprintf("The runtime artifact `%s` was read successfully and is empty (0 lines). It contains no event rows or current-source line evidence; do not invent a line citation or page beyond EOF. ", path) + explorerReadHandoffGuidance()
 }
 
 func runtimeArtifactReadPrefersTraceQuery(win runtimeArtifactReadWindow) bool {
@@ -20957,6 +20974,12 @@ func readCoverageFromToolResult(r types.ToolResult, repoRoot string) (path strin
 	if path == "" {
 		return "", types.LineRange{}, 0, false
 	}
+	if types.ReadFileHasKnownEmptyLines(r, repoRoot) {
+		return path, types.LineRange{}, 0, true
+	}
+	if coverage.LineStart == 0 && coverage.LineEnd == 0 {
+		return "", types.LineRange{}, 0, false
+	}
 	start := coverage.LineStart
 	if start <= 0 {
 		start = 1
@@ -21068,8 +21091,15 @@ func extractFileCoverageWithTotals(history []types.ToolResult, repoRoot string) 
 			path = canon(path)
 			if path != "" {
 				readSet[path] = true
-				readRanges[path] = append(readRanges[path], rng)
-				if total > 0 && total > totals[path] {
+				if rng.Start > 0 && rng.End >= rng.Start {
+					readRanges[path] = append(readRanges[path], rng)
+					if current, known := totals[path]; known && current == 0 {
+						delete(totals, path)
+					}
+				} else if _, observed := readRanges[path]; !observed {
+					readRanges[path] = nil
+				}
+				if current, known := totals[path]; (total > 0 || (len(readRanges[path]) == 0 && types.ReadFileHasKnownEmptyLines(r, repoRoot))) && (!known || total > current) {
 					totals[path] = total
 				}
 			}
@@ -21476,7 +21506,7 @@ func preReadRequiredFilesTracked(ctx *types.AgentContext, repoRoot string, files
 	}
 	return preReadRequiredFilesWithObserver(repoRoot, files, maxFiles, maxLines, excludeRead, func(file string, totalLines int, lines []string) {
 		readLines := len(lines)
-		if closure == nil || file == "" || totalLines <= 0 || readLines <= 0 {
+		if closure == nil || file == "" || totalLines < 0 || (totalLines > 0 && readLines <= 0) {
 			return
 		}
 		if ctx != nil && ctx.Mutable != nil {
@@ -21487,14 +21517,19 @@ func preReadRequiredFilesTracked(ctx *types.AgentContext, repoRoot string, files
 			readSet = make(map[string]bool, 1)
 		}
 		readSet[canonicalExplorerPath(file)] = true
+		ranges := map[string][]types.LineRange{}
+		if readLines > 0 {
+			ranges[file] = []types.LineRange{{Start: 1, End: readLines}}
+		}
 		closure.IngestEvidenceReducerInput(types.EvidenceReducerInput{
-			Class:   types.EvidenceReducerInputReadCoverageDelta,
-			ReadSet: readSet,
-			ReadRanges: map[string][]types.LineRange{
-				file: {{Start: 1, End: readLines}},
-			},
+			Class:          types.EvidenceReducerInputReadCoverageDelta,
+			ReadSet:        readSet,
+			ReadRanges:     ranges,
 			FileTotalLines: map[string]int{file: totalLines},
 		}, repoRoot)
+		if totalLines == 0 {
+			recordEmptyPreReadCoverage(closure, repoRoot, file)
+		}
 	})
 }
 
@@ -21518,7 +21553,7 @@ func preReadRequiredFilesWithObserver(repoRoot string, files []string, maxFiles,
 		if err != nil {
 			continue
 		}
-		lines := strings.Split(string(content), "\n")
+		lines := textfmt.PhysicalLines(string(content))
 		totalLines := len(lines)
 		truncated := false
 		if totalLines > maxLines {
@@ -21847,7 +21882,7 @@ func readFileIntervalsFromHistory(history []types.ToolResult) map[string][]readI
 			continue
 		}
 		path, rng, _, ok := readCoverageFromToolResult(r, "")
-		if !ok {
+		if !ok || rng.Start <= 0 || rng.End < rng.Start {
 			continue
 		}
 		fileReads[path] = append(fileReads[path], readInterval{start: rng.Start, end: rng.End})

@@ -4950,7 +4950,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	}
 
 	content := string(data)
-	allLines := strings.Split(content, "\n")
+	allLines := textfmt.PhysicalLines(content)
 	totalLines := len(allLines)
 
 	// Slice vs. full-file policy:
@@ -4987,12 +4987,17 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 		} else {
 			sliceStart = lineOffset
 			sliceEnd = totalLines
-			if limit > 0 && sliceStart+limit < sliceEnd {
+			if sliceStart <= sliceEnd && limit > 0 && limit < sliceEnd-sliceStart {
 				sliceEnd = sliceStart + limit
 			}
 		}
 	}
-	if !overrode && sliceStart >= totalLines {
+	if !overrode && sliceStart >= totalLines && (totalLines > 0 || sliceStart > 0) {
+		if totalLines == 0 {
+			return types.ToolResult{ToolName: t.Name(), Success: false,
+				Summary:   fmt.Sprintf("read_file empty range: %s is an empty file (0 total lines); no positive line_offset is readable. Omit line_offset or use line_offset=0 to observe the empty file.", p.Path),
+				Timestamp: time.Now()}, nil
+		}
 		lastOffset := totalLines - 1
 		if lastOffset < 0 {
 			lastOffset = 0
@@ -5062,13 +5067,13 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 	// file — and the model would routinely conclude after the head
 	// that it had seen everything. Banner is plain text, no prescription.
 	//
-	// The banner format is load-bearing for three downstream parsers
-	// in explorer.go (extractFileCoverage, detectTruncatedUngrepped,
-	// detectPartiallyReadSymbols) — keep the `[path: showing lines
-	// X-Y of Z total]` / `[path: showing all N lines (B bytes); ...]`
-	// shapes in sync with the string matchers in those functions.
+	// Typed coverage is the load-bearing coordinate authority. Keep these
+	// display shapes compatible with ParseReadFileBanner; an empty file has
+	// a zero-line banner and no invented gutter line or source span.
 	var banner string
-	if overrode {
+	if totalLines == 0 {
+		banner = fmt.Sprintf("[%s: showing all 0 lines (0 bytes); empty file]\n", p.Path)
+	} else if overrode {
 		banner = fmt.Sprintf("[%s: showing all %d lines (%d bytes); limit=%d expanded to full file (inline-sized; pass line_offset>0 for explicit paging)]\n",
 			p.Path, totalLines, len(data), limit)
 	} else {
@@ -5092,23 +5097,27 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 		ref = StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "read_file-visible.txt", content)
 	}
 	now := time.Now()
+	lineStart := sliceStart + 1
+	if totalLines == 0 {
+		lineStart = 0
+	}
 	result := types.ToolResult{
 		ToolName:   t.Name(),
 		Success:    true,
 		Summary:    summary,
 		RawRef:     ref,
-		Refinement: readFileResultRefinement(ctx, p.Path, fsPath, sliceStart+1, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
+		Refinement: readFileResultRefinement(ctx, p.Path, fsPath, lineStart, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
 		EnumerationAuthority: readFileEnumerationAuthority(
-			p.Path, sliceStart+1, sliceEnd, totalLines, clampedByInlineBudget,
+			p.Path, lineStart, sliceEnd, totalLines, clampedByInlineBudget,
 		),
 		Timestamp: now,
 	}
 	if originalTraceRead {
-		stampTraceQuerySourceReadResult(&result, p.Path, sliceStart+1, sliceEnd, totalLines)
+		stampTraceQuerySourceReadResult(&result, p.Path, lineStart, sliceEnd, totalLines)
 	} else {
-		result.ReadCoverage = readFileTypedCoverage(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines)
-		result.RuntimeArtifactRead = readFileRuntimeArtifactMarker(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines)
-		result.Observations = readFileTypedObservations(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines, now)
+		result.ReadCoverage = readFileTypedCoverage(ctx, p.Path, fsPath, ref, lineStart, sliceEnd, totalLines)
+		result.RuntimeArtifactRead = readFileRuntimeArtifactMarker(ctx, p.Path, fsPath, ref, lineStart, sliceEnd, totalLines)
+		result.Observations = readFileTypedObservations(ctx, p.Path, fsPath, ref, lineStart, sliceEnd, totalLines, now)
 	}
 	recordSuccessfulRepositoryRead(ctx, sourceRepoRoot, fsPath, result)
 	recordCompletionReadCoverage(ctx, fsPath, result)
@@ -5117,7 +5126,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (out t
 
 func readFileEnumerationAuthority(requestedPath string, lineStart, lineEnd, totalLines int, clampedByInlineBudget bool) *types.ToolEnumerationAuthority {
 	emitted := lineEnd - lineStart + 1
-	if emitted < 0 {
+	if emitted < 0 || totalLines == 0 {
 		emitted = 0
 	}
 	status := "complete"
@@ -5280,10 +5289,10 @@ func readFileTypedCoverage(ctx *types.BusContext, requestedPath, fsPath, rawRef 
 	if sourcePath == "" {
 		return nil
 	}
-	if lineStart <= 0 {
+	if totalLines > 0 && lineStart <= 0 {
 		lineStart = 1
 	}
-	if lineEnd < lineStart {
+	if totalLines > 0 && lineEnd < lineStart {
 		lineEnd = lineStart
 	}
 	return &types.ToolReadCoverage{
@@ -5300,14 +5309,16 @@ func readFileTypedObservations(ctx *types.BusContext, requestedPath, fsPath, raw
 	if sourcePath == "" {
 		return nil
 	}
-	if lineStart <= 0 {
+	if totalLines > 0 && lineStart <= 0 {
 		lineStart = 1
 	}
-	if lineEnd < lineStart {
+	if totalLines > 0 && lineEnd < lineStart {
 		lineEnd = lineStart
 	}
 	scope := types.ScopeLineRange
 	switch {
+	case totalLines == 0 && lineStart == 0 && lineEnd == 0:
+		scope = types.ScopeFile
 	case totalLines > 0 && lineStart == 1 && lineEnd >= totalLines:
 		scope = types.ScopeFile
 	case lineStart == lineEnd:
@@ -5390,10 +5401,8 @@ func readFileTypedSourcePath(ctx *types.BusContext, requestedPath, fsPath string
 // the LLM cannot confuse gutter with content.
 //
 // Edge cases:
-//   - strings.Split of a file ending in `\n` yields a trailing empty
-//     element. We preserve it so the joined output round-trips when
-//     a downstream consumer splits on `\n` again, and we still number
-//     it (an empty line is still a line in the file).
+//   - Callers supply physical lines, not strings.Split's extra EOF element.
+//     Genuine empty physical lines are still numbered and preserved.
 //   - If `lines` is empty, returns "" unchanged.
 func renderWithLineGutter(lines []string, startLineNo int) string {
 	return textfmt.LineGutter(lines, startLineNo)
