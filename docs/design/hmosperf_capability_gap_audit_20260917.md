@@ -3385,7 +3385,7 @@ types末版旧摘要6叶及identity编码10叶：有效RED55501正式exit1覆盖
 
 74455干净构建/version正式exit0，revision=`fb8836be86f9`、buildTime=`2026-09-23T10:33:22Z`，日志`/tmp/hmc-resource-semantics-clean-build-20260923.log`。此后仅增加全键测试fixture，生产输入不变，末版94988完整全仓正式exit0。35463 fetch及非强制push正式exit0，远端无新增（推前ahead8/behind0），main从`29f45dd6d`推进到`a7df67e27`，8个实现/测试/审计分片已保存到远端。构建及全仓通过不等于人工答案通过，65开放保持。
 
-## 171. 共享字典坏行隔离（2026-09-23，代码已提交，完整验收中）
+## 171. 共享字典坏行隔离（2026-09-23，完整验证通过，待推送）
 
 挂HMC-17.7，不新建ID；79=14交付+65开放。§166独立审计确认说明域、编译/假设、调查完成、提取与最终合同必须一片贯通（估计15–22生产文件及6–10测试文件），当前无可直接复用的说明域：CapabilitySurfaceHint属于实际源码暴露关系调查，不能冒充宿主静态目录。为避免在收尾阶段只放宽局部门，本片先解决已发现的广影响输入隔离缺口，§166保持完整待实施，不提交闲置enum/receipt，不降低其优先级或遗漏旧人工FAIL。
 
@@ -3409,7 +3409,7 @@ types末版旧摘要6叶及identity编码10叶：有效RED55501正式exit1覆盖
 
 97554整转换包正式exit1（133.870秒），唯一失败`TestSameInputTraceStreamerAccountingReceiptIsDeterministic`，日志`/tmp/hmc-shared-dictionary-full-conversion-20260923.log`。精确复核完整稳定receipt投影，唯一变化为`resolver/data_dict.rows_emitted: 0→5`，纠正可用字典条数；仅将该值还原0即可得到原完整SHA `d66492c1…`。导出仍37193字节、SHA `d9af65fe…`、35事件、18权威/17附属记录；两个运行完全一致，原native suffix剥离后的旧文件全字节校验亦通过。
 
-随后基准演进不只是替换hash：先复制Coverage切片，断言字典5/5，仅在副本还原该计数，完整投影必须复现旧SHA，再要求新SHA `ae8a84f9…`；原文件/事件/权限划分与其它coverage断言全部保留。证明范围是既有稳定receipt投影，不包括未纳入投影的FieldSources。独立审查无减门。69276新旧定向正式exit0（9.835秒）、24737该会计测试race正式exit0（2.439秒），日志`/tmp/hmc-shared-dictionary-accounting-{focused,race}-20260923.log`。提交`3aabdd1c5`后Go/依赖/构建输入冻结，69366独立完整全仓已启动，未取得终态前不写通过；日志`/tmp/hmc-shared-dictionary-final-full-20260923.log`。
+随后基准演进不只是替换hash：先复制Coverage切片，断言字典5/5，仅在副本还原该计数，完整投影必须复现旧SHA，再要求新SHA `ae8a84f9…`；原文件/事件/权限划分与其它coverage断言全部保留。证明范围是既有稳定receipt投影，不包括未纳入投影的FieldSources。独立审查无减门。69276新旧定向正式exit0（9.835秒）、24737该会计测试race正式exit0（2.439秒），日志`/tmp/hmc-shared-dictionary-accounting-{focused,race}-20260923.log`。提交`3aabdd1c5`后Go/依赖/构建输入冻结，69366独立完整全仓正式exit0，87测试包通过、13无测试包、零FAIL；日志`/tmp/hmc-shared-dictionary-final-full-20260923.log`。不是拼接单包结果，首轮会计基准失败保留。
 
 ### 171.3 未销账边界与下一批
 
@@ -3427,3 +3427,7 @@ types末版旧摘要6叶及identity编码10叶：有效RED55501正式exit1覆盖
 08.3是规模较小、可完整交付的参考能力增强：参考SQL实际按`start_time`分桶统计发起请求和不同线程，Python另一版本统计与桶相交的请求；二者均不是瞬时峰值。设计应复用本仓`computeBlockIOLatencies`全量合格census及`accountGenericStorageTransition`成功闭合点，保原区间、不从Top8或均值反推、不重写配对器。按源/端点层级/设备/操作独立半开区间扫描，发布峰值、全窗时间加权平均、忙碌时间及有界时序，发起量另列；未知/歧义/缺端点和显示截断分别披露，不把未完成请求补到窗尾当完整测量。公开验收须含同桶串行峰值1/重叠峰值2、carry-in/out、贯穿全窗、同刻端点、零长、合法0起点、超过Top8不改统计、多源同ID及分层不相加；真实TraceQuery→最终消息保单位/窗/覆盖，不能因统计可读获得链上因果许可。
 
 17.7完整路线还涉及当前`traceinput.prepare`明确拒绝的现存SQLite输入、一致只读快照、WAL/活动DB边界和所有权/时钟/源代次，不能视为修改一个后缀判断。B的最小引用片须NULL/非法与合法0分离、按真实引用有界解析、保重复隔离和真DB错误，并以大量无关字典、双消费者真实转换/查询及原件不变退出。要关闭父项仍须CLI/REPL/typed path、同大小同mtime换源、只读目录、取消/失败回滚、未知schema、跨DB同ID等公开输入验收；不照搬参考可能追加日志/媒体而修改用户DB的权限。以上路线均未因本节只读设计标记完成。
+
+### 171.5 封存与状态
+
+65753干净构建/version正式exit0，revision=`19f371ac622c`、buildTime=`2026-09-23T11:11:40Z`，日志`/tmp/hmc-shared-dictionary-clean-build-20260923.log`。Go输入与69366末版全仓一致，此后仅更新文档。17.7从待实施改为部分实施；79=14已交付+65开放，状态55待实施/7部分实施/2待验收/1持续执行，旧完整人工FAIL不改签。推送完成后单独补实际收据。
