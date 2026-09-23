@@ -3383,4 +3383,47 @@ types末版旧摘要6叶及identity编码10叶：有效RED55501正式exit1覆盖
 
 ### 170.6 发布收据
 
-74455干净构建/version正式exit0，revision=`fb8836be86f9`、buildTime=`2026-09-23T10:33:22Z`，日志`/tmp/hmc-resource-semantics-clean-build-20260923.log`。此后仅增加全键测试fixture，生产输入不变，末版94988完整全仓正式exit0。此前58348 fetch正式exit0，无远端新增；本批准备推送，收据补记。构建及全仓通过不等于人工答案通过，65开放保持。
+74455干净构建/version正式exit0，revision=`fb8836be86f9`、buildTime=`2026-09-23T10:33:22Z`，日志`/tmp/hmc-resource-semantics-clean-build-20260923.log`。此后仅增加全键测试fixture，生产输入不变，末版94988完整全仓正式exit0。35463 fetch及非强制push正式exit0，远端无新增（推前ahead8/behind0），main从`29f45dd6d`推进到`a7df67e27`，8个实现/测试/审计分片已保存到远端。构建及全仓通过不等于人工答案通过，65开放保持。
+
+## 171. 共享字典坏行隔离（2026-09-23，代码已提交，完整验收中）
+
+挂HMC-17.7，不新建ID；79=14交付+65开放。§166独立审计确认说明域、编译/假设、调查完成、提取与最终合同必须一片贯通（估计15–22生产文件及6–10测试文件），当前无可直接复用的说明域：CapabilitySurfaceHint属于实际源码暴露关系调查，不能冒充宿主静态目录。为避免在收尾阶段只放宽局部门，本片先解决已发现的广影响输入隔离缺口，§166保持完整待实施，不提交闲置enum/receipt，不降低其优先级或遗漏旧人工FAIL。
+
+主审及独立审计阅读参考`core/preprocess/trace_data_cache.py:653`和`sched_ops.py:860`：字典用于当前业务引用的名称解析，不应成为无关测量的全局前提。不搬其SQL隐式类型匹配、重复覆盖或异常全吞。修复前`exportTraceDBExtendedFamilies`无条件`loadDataDict`，后者全表扫描到int64/string；一条无关非整数字典ID即可中止全部扩展导出，重复整数键则最后写入获胜。实际旧map仅app_startup和hisys_all_event消费，其余形参未使用；与§169原生资源局部严格解析是两个问题。
+
+本片范围A：保现有map[int64]string载体和两个消费者合同，原始storage-class读取、坏键/非TEXT值局部诊断、重复整数身份永久隔离；合法int64和TEXT原内容不套native uint32/4096限制。数据库、取消和迭代/关闭错误仍失败，绝不catch-all。范围B（按引用有界加载、两个消费者NULL引用被COALESCE成0、其它生命周期/CPU/源代次适配）仍开放，不把本片当整个17.7完成。公共退出走真实ConvertFile→DB导出→BuildIndex/查询，外部TraceStreamer仅使用既有测试替身；以下有效RED均先于各自对应修复。
+
+### 171.1 实现与公开反例
+
+`3aabdd1c5`保原共享int64/TEXT命名空间，不把原生资源子类的uint32/4096字节约束推广到其它消费者。SQL按原始列值读取，仅接受实际SQLite INTEGER键、TEXT值；已有列affinity转换后的合法存储不被拒绝。坏行计入局部诊断，重复整数键（含相同值、坏值后接好值、三次出现）永久退出名称映射，扫描顺序不能决定名称或诊断计数。空文本、中文、控制字符、长文本及完整int64边界保留。真实Query/Scan/Rows.Err/Close、取消及DB关闭错误不吞掉；未修改消费者、源身份/因果许可、模型JSON或教学。
+
+局部共36叶（32个真实SQLite、4个driver故障注入）：75884有效RED正式exit1（0.693秒），24负例失败、12控制通过，日志`/tmp/hmc-shared-dictionary-local-red-20260923.log`。首版实现后补诊断顺序断言，15250正式exit1（0.713秒），3个反序坏值用例失败；修正计数位置后63797正式exit0（0.835秒），日志`/tmp/hmc-shared-dictionary-local-green-20260923.log`。故障注入只用于4个数据库错误传播路径，实际存储类型均用真实SQLite，不用假driver证明格式能力。
+
+公共ConvertFile→封存DB导出/后校验→BuildIndex→显式窗查询26叶：49443有效RED正式exit1（10.299秒），22负例失败、4个合法整数/中文控制通过，日志`/tmp/hmc-shared-dictionary-public-sealed-red-20260923.log`。验证坏行不再阻断无关启动/调度/原生资源、重复键不再抢名、合法SYS/EVENT仍可导出；原输入及DB字节不变，原生事件在目标窗内1条、相邻窗0条。仅替换外部TraceStreamer可执行程序，不伪造ConvertFile或查询结果；不冒称真实客户采集或Windows外部程序验收。
+
+初版33444/26369/92726含夹具问题，不能充作上述有效RED：HiSys使用非标准小写名称导致owned-row后校验拒绝，单条运行区间也没有实际切换可导出。移除非标准HiSys并补两个相邻真实调度片后，才取得49443有效反例；随后另加独立合法SYS/EVENT控制，纳入88583/42294末版验证。非标准HiSys出口问题单列171.3，不以改夹具宣称已经修复。
+
+末版62新增叶＋原生身份31叶邻接：88583定向正式exit0（18.845秒），42294 race正式exit0（20.073秒）；日志`/tmp/hmc-shared-dictionary-sealed-{focused,race}-20260923.log`。独立只读审查确认未缩小共享类型兼容域、未放宽根因/源码门，也未吞真实DB故障。
+
+### 171.2 集成失败与受限基准演进
+
+97554整转换包正式exit1（133.870秒），唯一失败`TestSameInputTraceStreamerAccountingReceiptIsDeterministic`，日志`/tmp/hmc-shared-dictionary-full-conversion-20260923.log`。精确复核完整稳定receipt投影，唯一变化为`resolver/data_dict.rows_emitted: 0→5`，纠正可用字典条数；仅将该值还原0即可得到原完整SHA `d66492c1…`。导出仍37193字节、SHA `d9af65fe…`、35事件、18权威/17附属记录；两个运行完全一致，原native suffix剥离后的旧文件全字节校验亦通过。
+
+随后基准演进不只是替换hash：先复制Coverage切片，断言字典5/5，仅在副本还原该计数，完整投影必须复现旧SHA，再要求新SHA `ae8a84f9…`；原文件/事件/权限划分与其它coverage断言全部保留。证明范围是既有稳定receipt投影，不包括未纳入投影的FieldSources。独立审查无减门。69276新旧定向正式exit0（9.835秒）、24737该会计测试race正式exit0（2.439秒），日志`/tmp/hmc-shared-dictionary-accounting-{focused,race}-20260923.log`。提交`3aabdd1c5`后Go/依赖/构建输入冻结，69366独立完整全仓已启动，未取得终态前不写通过；日志`/tmp/hmc-shared-dictionary-final-full-20260923.log`。
+
+### 171.3 未销账边界与下一批
+
+- HMC-17.7仍非整体交付：现存SQLite直接输入的schema/owner/clock/源代次准入未补齐；共享字典仍全表加载，map与重复键集合仍按全量增长，尚无按引用的有界载入。消费者的NULL引用经COALESCE映射到0旧问题也未修，合法0键测试不代表NULL语义已解决。
+- HMC-17.7/05.1另记广影响出口接缝：`exportTraceDBHiSysEvent`可以生成非标准或缺失DOMAIN/ENAME的print头，而parser只把大写规范头识别为HiSys，owned-row后校验因此可拒绝整个转换。当前健康SYS/EVENT控制通过，不声称标准HiSys普遍失败，也不通过放宽未知事件准入消除报错。需要按源协议和缺失/坏引用状态设计保真/诊断出口。
+- HMC-01.3/16.4/18.4的§166完整纯说明通道继续高优先级；HMC-08.3真实IO在途深度与§170总体/代表对象和同账视图歧义保留。§165原生断言登记、显式查询窗丢失、旧模型完整答案FAIL均不代销。
+- 本片未追加LLM live：转换器缺陷用确定性公开入口验证，§170双例机器1/2、完整人工0/2保持原判，不据此声称新字典变更已通过模型答案验收；以后新增live仍恰好2并行×1。600/300/600秒超时、活跃流保护、Trace因果投影/自动补齐、链上业务和根因资格均未改。
+
+### 171.4 全表ROI复核：按完整交付范围排序
+
+主审再次阅读参考`server.py:1196/1955`、`core/skill_executor.py:622`、`config/indicators/io/io_latency.yaml:194–305`及`core/preprocess/io_ops.py:114–165`；独立审计重读65开放项后排序一致：§166完整静态说明通道 → 08.3真实IO在途统计 → 17.7剩余完整SQLite输入。这里比较的是完整交付路线；17.7引用解析B可以作为有界子片，但不能继续用A已经解决的全局坏行收益重复抬高优先级。
+
+§166收益跨无附件能力咨询和混合问题，已经有多轮真实失败，不是只为目录单例绕门。参考直接返回注册元数据、按实际步骤合同验收；本仓应复用ToolDocumentation当前代次真实调用，不抬Confidence、不伪造EvidenceItem、不让模型抄hash。最小整片与公开正反矩阵见§166；保默认源码合同、显式文件/Trace窗及实际stage工具暴露关系的原调查义务。
+
+08.3是规模较小、可完整交付的参考能力增强：参考SQL实际按`start_time`分桶统计发起请求和不同线程，Python另一版本统计与桶相交的请求；二者均不是瞬时峰值。设计应复用本仓`computeBlockIOLatencies`全量合格census及`accountGenericStorageTransition`成功闭合点，保原区间、不从Top8或均值反推、不重写配对器。按源/端点层级/设备/操作独立半开区间扫描，发布峰值、全窗时间加权平均、忙碌时间及有界时序，发起量另列；未知/歧义/缺端点和显示截断分别披露，不把未完成请求补到窗尾当完整测量。公开验收须含同桶串行峰值1/重叠峰值2、carry-in/out、贯穿全窗、同刻端点、零长、合法0起点、超过Top8不改统计、多源同ID及分层不相加；真实TraceQuery→最终消息保单位/窗/覆盖，不能因统计可读获得链上因果许可。
+
+17.7完整路线还涉及当前`traceinput.prepare`明确拒绝的现存SQLite输入、一致只读快照、WAL/活动DB边界和所有权/时钟/源代次，不能视为修改一个后缀判断。B的最小引用片须NULL/非法与合法0分离、按真实引用有界解析、保重复隔离和真DB错误，并以大量无关字典、双消费者真实转换/查询及原件不变退出。要关闭父项仍须CLI/REPL/typed path、同大小同mtime换源、只读目录、取消/失败回滚、未知schema、跨DB同ID等公开输入验收；不照搬参考可能追加日志/媒体而修改用户DB的权限。以上路线均未因本节只读设计标记完成。
