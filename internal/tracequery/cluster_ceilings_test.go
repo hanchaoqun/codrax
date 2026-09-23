@@ -216,8 +216,21 @@ func TestComputeWindowStats_ClusterFrequencyCeilingsSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if strings.Contains(strings.ToLower(string(blob)), "ceiling") {
-		t.Fatalf("ClusterFrequencyCeilings leaked into the JSON observation face")
+	// Inspect the serialization contract, not arbitrary data values: source
+	// paths now include this test's name (which contains "Ceilings"). Clearing
+	// the populated internal snapshot must leave every serialized byte intact.
+	field, found := reflect.TypeOf(stats).FieldByName("ClusterFrequencyCeilings")
+	if !found || field.Tag.Get("json") != "-" {
+		t.Fatalf("ClusterFrequencyCeilings must remain explicitly non-serialized")
+	}
+	withoutCeilings := stats
+	withoutCeilings.ClusterFrequencyCeilings = nil
+	withoutBlob, err := json.Marshal(withoutCeilings)
+	if err != nil {
+		t.Fatalf("marshal without internal snapshot: %v", err)
+	}
+	if string(blob) != string(withoutBlob) {
+		t.Fatalf("ClusterFrequencyCeilings changed the JSON observation face")
 	}
 
 	// Consumer dedup witness: the compute-supply ledger's per-CPU fmax reads
