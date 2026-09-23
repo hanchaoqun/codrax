@@ -759,6 +759,8 @@ EvidenceKind 11 值是 semantic(direct / conditional / registration / mechanism 
 
 **Path 规范化**：所有 Source / file / citation 路径在落地前都过 `internal/tool/ground/path.go::CanonicalRepoRelative(path, repoRoot)`：empty → empty；绝对且在 repoRoot 内 → `filepath.Rel`；绝对且逃逸 → `filepath.Clean` 后保留绝对形式；相对 → `filepath.Clean`。修一条经典 bug：用 `/abs/repo/README.md:7` 引用，但 LineIndex 是 `read_file path=README.md` 建的,相等比较失败导致整批 citation 被 drop。
 
+**物理行与空文件**：`read_file`、自动预读和附件预览共用 `textfmt.PhysicalLines`；末尾 LF 结束当前行，不额外生成 EOF 行，真实空行、CR 和无尾换行的内容仍保留。0 字节文件读取成功但无正行范围；只有完整且已知零行枚举、同路径/RawRef 和互斥的源码/运行工件回执同时成立，才把零解释为已知空。覆盖总数 map 缺项表示未知、现存零表示已知空；累计正行观察不能被空观察覆盖，空文件只满足文件级读取，不授予第 1 行或任意正行引用。自动预读依据真实 bytes 并核物理仓库身份清文件级展示欠缺，不伪造工具票据。未知的历史零值、运行工件与当前源码权限仍分开；显示 banner 不作覆盖硬门。
+
 ### 5.3.1 证据投影 — 4 个 typed 轴的覆盖
 
 Grounding 落地后,`internal/authority::BackfillEvidenceProjector` 把每条 EvidenceItem 投影到 4 个 typed 轴上,补齐 LLM 直接 emit 时填不出的来源 / 强度 / 漂移 / 子类信息。LLM-emit 路径走 `emit_evidence` 内嵌钩子;deterministic 路径(concrete_value extractor / mechanism_scan / bridge_literal merge)走 BackfillEvidenceProjector 的 idempotent fallback。
@@ -1123,6 +1125,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 **图教学边界（B1683）**：角色名、业务名与引用位置是显示/定位层，不给箭头或整个标签授证；把 file:line 塞进标签、删掉标签或删掉关系元数据，都不能避开当轮 mandatory typed relation ownership。无标签/词汇推断兼容只在原本允许的 presentation-only 车道有效，其关系数量计数不是证据。四种语义图形与各语言统一复用 canonical 关系合同，JSON字段只依当轮schema；Runtime Trace 仍走独立的同capture/目标/时间窗因果权威，模型负责图、标签和结论。
 
 **时序图局部位置**：`diagram_edge_edits`创建新sequence消息时使用当轮schema发布的`placement_ref`，引用当前diagram/block的精确来源间隙；缺失、过期或跨块引用不默认追加到末尾。模型选择位置与同位消息顺序，已有消息改写仍原地；位置不证明关系或时间。临时标记及新增正文槽只存在于原子事务内部，旧消息坐标编辑完成后才物化新增消息，防同端点插入改变旧序号；持久化前消除临时信息。声明JSON/participant box内部不发布消息位置，分支和未编辑字节保留。图的关系资格与原租约范围独立检查，不因位置能力扩大。
+
+**已有调用的源码证明复用**：普通调用边验证与请求参与者覆盖复用相同的限定名调用证明。完整证据池用于检查解析器归属、定义及歧义，证明出的精确调用记录仍必须属于本问题选择的关系子集；全仓的其它同名关系不能补当前义务。验证当前可见消息时沿用既有 occurrence 身份规则，不修改模型锚点、消息、分支或 return；已证明的已有调用不再误报成需要新增。没有锚点、身份冲突或来源歧义的原拒绝/显式绑定路径仍保留，不按文本去重消息，也不自动补写模型 JSON。
 
 **覆盖口径（B1684）**：参与者经已证局部关系与精确身份映射连通，不等于产物生产—消费、端到端数据交接或执行顺序已完整证明。`requested_relation_scope`继续只披露原参与者覆盖范围；不能把它改成新的产物完整性判定。跨技术分量状态只描述当前紧凑端点投影，不否定其它独立证据。默认用group保留业务参与者和技术端点两层；已有typed候选明确允许某侧用参与者节点时，按候选映射显示，anchor里的技术身份不变。提示不得一边发布这种合法映射、一边无条件禁止它。
 
@@ -1652,6 +1656,8 @@ coder 是 "dumb marshaller"：每次 apply_patch 工具的 schema 仅 `{path, ki
 **明确要求执行既有测试**：`WriteAnalysisIR.Request.Constraints` 可携带 `kind=run_existing_test`，`target` 为本轮已成功读取的单个仓内普通文件，最多32项。该要求从计划固定保存的IR读取，独立于 `preserve_regression_test` 的字节保护、测试文件命名启发式和行为合同证明；普通probe通过不能替代它。当前强执行凭证仅支持已发现的 Python unittest 候选及精确文件选择器：工具自有观察器保留 unittest 加载、结果与退出语义，独立临时产物记录实际测试方法/模块物理文件、当前文件SHA和断言结果；前后核对执行树HEAD、已应用补丁及已提交文件字节。其他协议、缺候选、转派其它文件、全skip或零断言保持未验证，不把读文件或目录内其它测试通过当成执行证明。
 
 `ChangeReport.existing_test_executions` 是可选工具拥有字段，最多64条、每次最多512条断言摘要，绑定计划、当前交付、补丁指纹、候选、精确选择器、命令索引/摘要与目标文件SHA。消费时重新计算独立执行状态，过期或缺失凭证不能继承历史“已满足”；它不自动生成行为合同证明。部分跳过与真实失败保留原记录，未验证可沿原有透明 `unverified` 交付通道结束，但不能成为 `verified` 或成功测试结果。没有新执行工具或模型可填的结果入口。
+
+验证原因展示消费最终有效报告：`verification_incomplete` 表示必要执行或证明尚未齐全，不等于缺少运行器/依赖；保留已通过的局部检查，并提示在当前授权范围内补证。`run_tests` 摘要的原因取最终 `FailureReasonCode`，为空则省略，不固定写成修改路径未覆盖，也不从说明文字猜原因。真实运行环境失败、无测试和未尝试候选的原分支不变；展示修复不授予执行凭证、不改变验证结论。
 
 **分析提交修复预算**：写分析仍为4次正常轻预读、最多6轮（更低显式配置仍优先）。结构化提交失败后，最多额外开放一个仅 `read_file` 和提交工具的修复回合，沿用既有整批读取语义；失败读取或未使用该回合都不续额度。同批尚不可用的读取不消耗下一回合。schema与skill均要求一次成功提交，拒绝可在预算内修复重发；容量32不是承诺单轮可读取32个文件。不分析错误文案、用户关键词或模型散文，也不允许移除真实要求以绕过拒绝。
 

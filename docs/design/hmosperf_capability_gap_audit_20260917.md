@@ -2859,3 +2859,65 @@ E2新确定性供证债：`ReadFile.Execute`的`builtin.go:4954–4956`用string
 末版61750现已正式exit0：`go test -count=1 ./...`完整87测试包、13无测试包、零FAIL；tool435.719秒、tracequery119.452秒、types50.898秒，日志`/tmp/hmc-identity-sequence-budget-sealed-full-20260922.log`。这是d0d9c24e9后的独立完整复跑，期间只变文档，没有拼接分包结果或修改Go输入；先前76260失败收据保留。§142–145四片生产提交与两处旧测试适配分批推送，不以代码PASS代签两个完整答案FAIL。新两类确定性接缝、其它模型越界及79=13+66账目不变。
 
 代码推送27131正式exit0，远端main由`6ae7150d0`推进至`d0d9c24e9`，含`e4342ba93`/`46764c9f3`/`f6a54d3e6`/`6a1c4625d`及精确旧夹具适配；无分叉或远端新提交，未合并无关工作。随后只收本批统一文档及机器/人工审计，不遗留未提交Go，也不把规划中的新修复写成已交付。
+
+## 147. 已有调用关系的严格证明复用（2026-09-22，窄片回归通过，完整答案结论见§149）
+
+新轮从干净`03d141a1d`开始，远端更新无差异，逐稳定ID仍79=13交付+66开放。优先收§146已证系统接缝，不以旧机器PASS替代人工FAIL。参考再读`core/rendering/models.py:49–57`及`rendering_pipeline.py:1424–1455`：教学图整体透传、角色/切片另载，设计意图是保持作者结构并分别携带解释信息，而非在“缺证据元数据”时添加一条新物理关系；参考并无逐消息源码证明编辑器，不能直接移植静态图或放宽本仓图证据门。
+
+本片先将普通调用边门已有的严格qualified caller证明返回精确源码记录，再由请求范围内participant判断复用同一记录。证明对象是当前可见消息与真实来源关系，不是拿全池的bool成功代替请求子集资格；辅助定义可解释身份，但不能借无关call消除请求义务。若已有消息确已证明，不生成新增修补；不自动补写原稿身份、不删除重复消息、不新增模型JSON字段。真正无anchor、歧义或缺证明的attach/拒绝路径分别保留，不能把所有已有字样判作已覆盖。公共红绿、改名/多语言/重复消息/限定范围及独立审查收据随后补记。
+
+有效公开RED24190正式exit1：真实parser→ReadFile→EmitEvidence已铸`gate.Run`归属，普通call gate通过，但EmitAnswerDocument被`available_typed_incident_edge_not_rendered`拒绝并发布重复新增，与§146现场一致。最初测试放同包而引入index/cache依赖环、随后fixture未激活typed participant obligation的两次不算产品RED。实现把原严格qualified-caller bool提取为精确源码行凭证，完整池先验歧义，再核请求子集中的ID/来源/坐标/主张/owner/origin/grounding/producer；主门、连通检查、repair与长短guidance一起传同一required-anchor上下文。
+
+独立公开RED3899正式exit1/tool1.100s（`/tmp/hmc-existing-source-binding-partial-review-20260922.log`）：仅填一个冲突identity被可见标签覆盖；末版新证明臂不处理半填identity，保原字段待显式修复，不扩大旧普通call gate。正确单边也保留需要补metadata的边界，避免猜测模型意图。三参与者公开5134正式exit0：definition-backed旧A→B已连接，只为真实缺失B→C发布新增。20个新公开叶与2个独立反例，含重复/branch/return逐字保留、同actor异method及少一个可见消息拒绝、改名/Java短callee、legacy去owner但有真实definition的回放、错owner/source/定义歧义/非请求来源反针；Java最初夹具卡原ordinary gate已纠正支持形态，不放宽原门取得正控。
+
+末版focused77212正式exit0/tool1.124s、race47439正式exit0/tool3.862s，独立最终复验另收；代码5文件分片提交`17c51a21d`。无anchor→attach、其它资格桥和更广关系/时序表达不因此宣称全闭环；只签已证明的qualified-caller通道一致性。模型JSON不增加字段，读者文案/图内容不重写，根因/显式窗/Trace自动补齐不变。
+
+## 148. 物理行域与已知空文件的供证闭环（2026-09-22，窄片回归通过，完整答案结论见§149）
+
+参考`query_engine.py:369–425`仅在确实empty时保留empty/reason，把零结果与截断和展示元数据分开；借鉴的是已知空与未知不能合并，不照搬indicator schema。当前本仓ReadFile、自动预读及附件预览需要同一物理行拆分口径，并让精确零行从生产读取回执传到覆盖/引用消费者，不从banner或模型散文猜空。
+
+真实ReadFile公开RED32716正式exit1，日志`/tmp/hmc-read-physical-red-20260922.log`：7个LF/空文件格错误、末尾虚构EOF页；另offset=1加max-int limit在实际Execute中溢出panic。泛化方案保真实空行/CRLF/无尾LF原字节，先校offset再按剩余行数算limit；空文件读取成功但不授第1行。先复用已有EnumerationAuthority完整且已知0、ReadCoverage/RuntimeArtifactRead零坐标及同RawRef身份，不急增字段；历史unknown0保原兼容，确知0需在clone/merge/消费者中不丢失。所有新路径须公开正反及邻接测试后才能验收。
+
+补充新的通用写模式用例`empty_python_module_apply`：既存0字节totals.py需实现整数可迭代求和，保已有四项标准库测试及配置，验证空文件被读取但不能引用虚构行，同时覆盖真实plan/apply/verify。不是修改旧题/oracle，也不指定内部plan种类或证明ID。种子真实测试因total未实现而ImportError，属于预期能力前置；仅内存给total注入sum的oracle正控4/4通过，原totals.py仍0字节，不冒称产品实现验收。首个检查命令因工作目录重复路径而未执行测试，不计产品RED。计划本轮恰好两例：现有源码sequence+handoff表读模式与该新写模式，待Go提交/构建冻结后各跑一次；不额外追旧原题第三例。
+
+另有空文件公开RED79582正式exit1/tool0.855s（`/tmp/hmc-read-physical-empty-red-20260922.log`）：空源码被铸第1行、空runtime坐标同错。末版只复用原typed凭证，map present0与absent明确分离，累计positive总数/正行不被empty或legacy unknown0冲掉；clone、双序增量、merge及snapshot种子保零，不把跨版本累计读账声称为新鲜文件版本。RefreshClosureCoverage同时保readSet，空文件完整读取才可成立；预读观察零bytes再验证同物理仓库文件，清whole-file展示债不清line债、不伪造RawRef。runtime指导直说空0行，不生成0–0/1–1或继续分页；源文件实际字节不改。
+
+末版公开15457正式exit0：41叶（tool33/agent6/context1/textfmt1；后两内部各5/9数据格，types该过滤无匹配不冒称新增类型测试），真实TraceQuery/ReadFile三格同物理行域、空baseline→EmitWriteAnalysis、分页溢出/大页续读/六载体反针均覆盖。71028最后子测试单独执行正式exit0/tool1.046s，已消除对子测试先后顺序的依赖。末版race14569正式exit0，tool4.846/ground5.154/types2.041/agent6.293/context3.474/textfmt2.387s；主审更广邻接51147六包正式exit0，日志`/tmp/hmc-read-physical-final-targeted-20260922.log`、`/tmp/hmc-read-physical-final-race-20260922.log`、`/tmp/hmc-physical-lines-final-neighbor-20260922.log`。
+
+如实保留初版失败：跨代理临时import cycle/缺大括号为集成编译错误；TraceQuery产物注册夹具缺真实登记且路径不在合法blob目录，门按原权限正确拒绝，不算生产回归；8742/36405旧针仍期待phantom EOF、summary尾LF，另resolved-sub-repo夹具offset1需有真实第2行。两处旧测试文件只精确迁移这些期望/输入，原覆盖/权限断言保留。21文件单片提交`93e242694`，不调容量上限或降低保护门来通过。
+
+## 149. 17c51冻结读写双例与0caa末版全仓（2026-09-22，机器1/2、完整人工0/2，代码已推送）
+
+统一全仓74574已在全部Go冻结后启动，日志`/tmp/hmc-existing-edge-empty-read-full-20260922.log`，期间不改Go或构建输入。构建54209正式exit0，revision=`17c51a21d52f-dirty`、buildTime=`2026-09-23T02:58:53Z`；dirty仅文档，runner核验提交及构建输入。73915于本地19:59:44恰好2并行×1启动`read_combo_pipeline_sequence_table`与`empty_python_module_apply`，TIMEOUT1800只为外层评测，未改产品600/300/600秒或活跃流策略。结果目录`eval/results/hmc_existing_edge_empty_read_20260922/`；机器结果、实际日志、完整人工审计随后补记，不以进程启动或局部单测PASS签答案通过。
+
+冻结版独立末审16909正式exit0/tool1.706s、11956 race正式exit0/tool6.229s，无新增阻塞；同时覆盖所有ExistingSourceBinding、ReadFilePhysical公共族及strict owner/请求子集/occurrence相邻控制，日志`/tmp/hmc-existing-source-binding-independent-final-20260922.log`与`/tmp/hmc-existing-source-binding-independent-final-race-20260922.log`。审查确认已知空不授行、runtime不升源码，图的全部原消息/锚点保留；明确不将no-anchor qualified attach或其它partial metadata历史门签为已修。
+
+首轮全仓74574正式exit1：86测试包通过，仅orchestrator结构检查失败，`evidence_closure.go`2657行超过2630维护阈值；不能签全仓通过。独立职责审查确认`RecordFileTotalLines`至`HasFullyRead`的8个方法及完整godoc为连续167行、同一“文件总数/完整读取”职责，同包迁移不改API/锁/行为。选择整体移至`evidence_closure_read_totals.go`并收紧原热文件上限，不压缩注释/空行或扩大2.6k综合状态文件预算。等首轮正式结束后才实施；双例继续使用17c51冻结可执行文件，不替換或追跑，机械重构后的全仓另作独立完整复跑收据。
+
+机械职责迁移`c213fd893`已提交：原方法块与旧文件剩余内容均逐字相同；实际2489/169行，上限2489/180。定向14596、race66863六包正式exit0，日志`/tmp/hmc-read-totals-extraction-targeted-20260922.log`及`-race-20260922.log`；无新权限或行为变化。§150展示片也冻结后启动独立末版全仓30138，日志`/tmp/hmc-existing-edge-empty-read-sealed-full-20260922.log`，期间不改Go/构建输入，终态另收。新构建86574正式exit0，revision=`0caa55175782-dirty`，buildTime=`2026-09-23T03:18:04Z`，dirty仅文档；该版本没有追加模型回放，不能把下述17c51结果改签为新版本live。
+
+双例73915于20:15:47正式exit0：机器1/2，读模式外层963/案例960秒PASS，写模式373秒FAIL；runner成功不代表案例全过。完整答案、两轮写计划/验证凭证、实际交付树和日志均由主审与独立审查阅读，完整人工0/2。机器表和人工表分别为`eval/parallel_selected_summary_hmc_existing_edge_empty_read_20260922.md`与`_manual_audit.md`。未替换fixture、题目、oracle或追跑第三例。
+
+写例真实命中§148：既有0字节`totals.py`成功读取为0行，`insert_at_eof`生成两行`def total(values): return sum(values)`，交付仅该文件变更；四个原生unittest断言均通过，测试/配置未变。原源码计划有当前提交/补丁/文件摘要及执行收据；模型却将PTO登记为`pytest / test_totals.py::TotalTest::test_empty`，实际身份为`tests.test_totals.TotalTest / test_empty`，hard-required c1缺精确绑定。后续上下文已有原生真实身份，不应自动改签模型意图或放松合同。补证计划执行1个探针结果+4条原生断言共5项通过，不是5条原生测试；最终仍unverified，机器FAIL合理，功能正确不能代签完整交付。
+
+新确定性接缝：source-free补证计划没有自己的AppliedCommitSHA/PatchEffect；`run_tests_existing_test_unittest.go:274`的当前交付检查及producer/consumer只识别当前源码计划，所以原生观察器未启用，实际测试绿但最终`existing_test_executions`为空。应先设计共享交付身份解析：显式来源计划谱系、当前HEAD/补丁与测试字节复核后才授当前执行收据；不能沿用旧收据、单凭source_plan_ids补签，也不能把执行收据当c1行为合同证明。另两轮均经历“existing create被提示modify→micro又拒modify”的矛盾教学；空文件无旧owner导致一次额外定位重规划，最终还留产物不存在的第3行，后者需公开行域反例确认，不能混说成read_file修复失败。分别归HMC-01.2/16.4/18.5原任务子债，不新增父ID。
+
+写例输出把证明未完成误说为“本地验证环境缺少测试运行器或依赖”，同时工具头硬写changed_path原因、最终报告却为required_existing_test_not_executed，确定性展示接缝已另片§150修复，原live失败不回写。
+
+读例图可解析且三条阶段先后关系齐全，无重复新增；3个stale-anchor replace选择当轮同一placement_ref，第8轮按模型提交顺序插入所选间隙、第9轮只清孤立Orch后接受。§144位置/事务真实命中，但该例不经过§147qualified-caller证明桥，不能代销其live范围。9轮成文8拒、23次读取、3次repo_map、上下文峰值129849（65%）；2/4/5/6轮replace+add同一关系被准确拒绝，第3轮越出局部关系范围、第7轮缺位置、第8轮只剩孤立参与者决定。初始权限明确候选非必需，第一次重复拒绝已说choose exactly one producer；主要为模型重复误填，不能说系统强制重复，亦不加原文关键词门。
+
+完整读答案仍FAIL：表格写不存在的`busCtx.Objective`（实际`Mutable.Objective()`）；把runReadSchedulerLoop说成explore内部，而它调度包括extract/finalize的整个读图；把四个逻辑阶段等同每次必经模型执行，本次extract实际skip。精准载体上下文已有Mutable.Objective和stage字段，字段越界不属于缺证据；但`answer_document_evaluator.go:25288/25301`将静态成员说明冠以Current Run并称every selected stage is executed，确实把阶段归属与当前分派混在一起，列下一高ROI软教学子项。保留静态先后与作者边界，同时明确条件/skip/reuse仅能由执行凭证或控制流证明；不可用此修复绕过关系证明或强制新增某图边。格式要求被分类成exhaustive member覆盖、重复阅读与备注冗余另作观察，不凭一次噪声加硬门。活跃语义流超过4分钟仍继续，无固定4ms/4分钟降级；未真等600秒首响应，不冒称超时边界live通过。
+
+独立末审补记：原生执行身份、完整交付树及读答案结论与主审一致。读文“所有产出通过applyStageOutput合并”也过宽，AnswerDocumentV2由工具写Mutable，FinalAnswer在该方法明确不收（orchestrator.go:7631），不把同一stage表当所有载体完整流向证明。写规划两接缝只读定位：`change_plan_validate.go:904–907`的create_path_exists repair未结合scope，实际micro规则在301–327及两个emit入口要求patch；合法EOF patch已accepted才被owner定位规则再次重规划。`write_controller_scheduler.go:2124`零bytes不造owner是正确的，但`LocalizationRequirementsFromWritePlanContext`给所有生产路径同一种旧owner义务不适用真实空基线。下一片以当前scope+已核物理路径状态共用可用编辑方式投影；空基线位置证明另片设计，保非空解析失败/过期/越界反针。此处仅定位与方案，未编写生产修复或公开反例，不冒称闭环。
+
+## 150. 验证未完成的原因单源展示（2026-09-22，窄片代码/定向/race完成）
+
+承接§149同一次真实写输出，先修高ROI确定性误导，不改测试证明规则。`EffectiveExistingTestExecutionReport`在修改路径覆盖处理之后应用既有测试执行要求，可将报告置为verification_incomplete；该类是执行/证明欠缺，不是环境诊断。最终渲染此前按unavailable推缺依赖，`finishedReportSummary`又将整类固定映射changed_path_verification_uncovered，给模型与用户两套错误原因。
+
+泛化实现`0caa55175`只消费最终类型和原因：所有verification_incomplete先解释必要执行/证明未完成，保changed_path细化，保已有局部成功与授权内补证建议；真实runner/parser环境失败、NoTests和未尝试候选原分支不变。工具头取最终FailureReasonCode，空值省略，不从FailureSummary猜测。未新增schema/模型必填字段，不改状态、receipt、计划或证明，不给模型散文增加硬门。两出口4文件，renderer437行≤460维护阈值。
+
+公开生产投影→renderer有效RED49663正式exit1、GREEN99789正式exit0/orchestrator1.523s、race29181正式exit0/2.310s，独立95654正式exit0/1.065s（`/tmp/hmc-verify-incomplete-render-independent-20260922.log`）。14格覆盖中英、真实4通过行保留、说明文字与类型冲突、未来/空原因和真实环境反针，证明对象为实际生产投影→展示，不冒称新原生子进程或完整Run。
+
+工具摘要新有效RED31569正式exit1/tool1.159s，真实Effective投影后header错因及未来/空原因三格失败，日志`/tmp/hmc-verification-reason-summary-valid-red-20260922.log`；更早77490仅测试枚举名编译错，不算产品RED。GREEN55407正式exit0/tool18.243s，独立65187正式exit0/1.778s、race99918正式exit0/3.357s，日志`/tmp/hmc-verification-reason-summary-green-20260922.log`及`-independent[-race]-20260922.log`。报告原字节与无关fallback保留，独立审查无阻塞。所有Go冻结后的全仓/构建收据归§149；旧live仍显示旧误导，不能修饰成已在模型回放验证。
+
+本批封账收据：末版30138已正式exit0，独立完整`go test -count=1 ./...`为87测试包通过、13无测试包、零FAIL，tool425.272秒/orchestrator61.249秒/tracequery115.290秒/types48.982秒；`/tmp/hmc-existing-edge-empty-read-sealed-full-20260922.log`。执行期间Go/依赖/构建输入保持冻结，只补文档，未拼接分包结果；首轮74574失败收据保留。新构建86574及版本检查通过。最新远端fetch64537正式exit0，HEAD领先5、无远端新提交；代码推送56251正式exit0，main从03d141a1d至0caa55175，包含c3009d647/93e242694/17c51a21d/c213fd893/0caa55175。随后单独提交机器/人工收据与文档。79=13已交付+66开放再次逐ID复算不变（58待实施/6部分实施/1待验收/1持续执行），旧人工FAIL不因这五个提交或新全仓通过而销账。
