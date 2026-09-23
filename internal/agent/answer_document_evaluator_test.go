@@ -11264,7 +11264,7 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		"language model authors only the request classification",
 		"deterministic code then normalizes and compiles",
 		"do not attribute deterministically derived artifacts directly to the language model",
-		"Execution-owner boundary: every selected stage is executed by its listed agent",
+		"Execution-owner boundary: when a selected stage is executed, its listed agent owns the model-authored work",
 		"AgentExplorer authors exploration decisions and tool calls",
 		"AgentExtractor authors the structured extraction",
 		"AgentFinalizer authors the answer document",
