@@ -85,7 +85,10 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// Tightened 8203→8201 when the write deadline callback joined that concern.
 		// HMC-17.5 moves the complete sticky log setter and godoc into its
 		// attachment concern file while wiring the Run-scoped preparer.
-		{path: "orchestrator.go", maxLines: 8191},
+		// Extract the complete hypothesis-verdict lifecycle with its godoc;
+		// tighten the hot-file budget instead of hiding or compressing lines.
+		{path: "orchestrator.go", maxLines: 8018},
+		{path: "hypothesis_verdicts.go", maxLines: 190},
 		{path: "attached_log.go", maxLines: 15},
 		{path: "write_change_plan_summary.go", maxLines: 85},
 		{path: "change_plan_status_persistence.go", maxLines: 122},
