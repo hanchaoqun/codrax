@@ -3057,3 +3057,21 @@ RED33136正式exit1/tool1.347秒，仅roster/UXG1两项预期失败，日志`/tm
 EOF补审：原计划只有合法insert_at_eof，没有模型提供的第8行；应用后`write_controller_scheduler.go::planEditOwnerLineCandidates`读取当前内容，以末尾换行的split长度8定位EOF，`FindEnclosingOwner`返回附近total结构。载体确为grounded_evidence/owner，但消费的是路径owner-localization义务，不是“第8行已读”或答案citation。本例还有真实diff第1–7行anchors，未证`:8`单独造成误放行，不能把该数字本身报成新的源码证明造假；EOF与物理行共用坐标语义另做公开反例核验，旧空基线义务仍留原ID。
 
 79004末版独立完整全仓现已正式exit0：87测试包通过、13无测试包、零FAIL；tool447.899秒、tracequery112.946秒、agent93.590秒、orchestrator54.130秒、repl65.032秒。日志`/tmp/hmc-documentation-citation-final-full-20260923.log`，全部Go/依赖/构建输入在该运行期间冻结，git diff仅文档。首轮18989失败原样保留，不拼接分包结果，不回签固定4e0243e08模型回放。fetch7162正式exit0，HEAD领先4、无远端增量；代码推送79913正式exit0，远端main由d861ac3d4到bc12df295，4个代码/测试分片已保存。任务清单/机器原判及完整人工审计另提交，不把目录说明合同到场等同于完整答案通过，父项仍79=14+65。
+
+## 160. 补证执行与源码交付身份分离（2026-09-23，窄片已提交，完整验收中）
+
+从干净33eed21bb续做，fetch70353正式exit0，本地/远端无差异。重新逐ID为79=14已交付+65开放（57待实施/6部分实施/1待验收/1持续执行）。本批按§153.1/159优先补已反复命中的共享交付身份，而非继续调整目录答案提示词；HMC-18.5及只读原生断言补登记仍不提前销账。
+
+参考亲读`core/skill_executor.py:579–609,1282`、`core/session_disk.py:21,45`、`core/llm_contract.py:61,122`：可吸收的是逐步骤/成员归属、独立产物落盘和统一验证引用，不能把session ID、缓存存在或路径/参数hash当当前源码/测试身份。参考没有与本仓git已应用交付、当前原生调用及只读声明授权等价的机制；保持本仓前后真实git/源码/测试字节校验，不能为对齐工具数量抄入较弱权限。
+
+实施边界：controller从仍有效的应用谱系重建原PlanID/应用提交/原PatchEffect，不改写原effect.PlanID，不接收模型重发快照；独立typed resolver只给严格无源码变更补证计划消费完整唯一身份，多来源或冲突先明确不授。本次测试执行PlanID仍属于当前补证，新SourcePlanID只描述源码；原生observer与Python目标执行共享身份解析及执行前后绑定，每次重新执行，绝不复制旧成功回执。源码变更计划缺自身应用身份不能借旧身份；回滚、缺失、同ID冲突、当前HEAD/源码/测试变化均要保守拒绝。无源码PTO两发射入口、durable shape及声明授权本批不扩；运行通过仍不自动履行独立行为合同。
+
+### 160.1 公开回归、独立审查及兼容边界
+
+- 类型消费者公开JSON协议RED43078正式exit1；工具真实git/Python/RunTests封存RED62484正式exit1，8个拒绝负控当时通过；控制器落盘交接RED10113正式exit1。编译字段/语法错误不计产品RED，fixture漏规划钩子的43941/19272也不冒称生产缺口。
+- 独立审查补出两个确定性边界：同一`time.Now()`的单调时钟内部表示不经JSON保存，旧deep-equal误判冲突（18995真实RED）；现在比较完整持久化表示，不删真实身份字段。`AppliedAt`会由验证生命周期写入，不等于源码应用（26036六格持久化生命周期RED）；只移除这个不精确信号，SHA/effect/应用路径/检查点等真实应用限制保留。
+- 类型末版focused92916 exit0/0.940秒、race20165 exit0/2.394秒；工具最终86275 exit0/31.192秒、race46006 exit0/34.078秒，新7顶层44叶，包含真实RunTests双执行、8身份负控、own/borrow × read/mint × 7变化共28格、原生失败/全skip、模型不能填写快照、旧own Python兼容。自身Python5秒、native/borrow3秒的既有局部git预算及native文件读取行为保留，不影响LLM等待配置。
+- 控制器矩阵36548 exit0/2.997秒；独立53997 exit0（orchestrator2.190秒/types0.905秒）、独立types race75295 exit0/2.086秒。联合针真实`EmitChangePlan→planPostHook→controller stamp→WritePlan/Load→RunTests→syncMutablePlanStatusAfterVerify→恢复→第二次RunTests`，末加明确生命周期时间戳断言78958 exit0；源码原apply用真实git提交安排，不手写成功执行记录。它是组件连通公开验证，不伪称完整`Orchestrator.Run`或真实模型证明。
+- 生产/测试提交`eec64d80f`（类型身份/消费者）和`9787be9b9`（控制器/真实执行/架构说明）。完整全仓52726运行中，所有Go/构建输入冻结；全仓、干净构建、固定双例及推送最终收据待补。公开日志统一前缀`/tmp/hmc-verification-delivery-*-20260923.log`。
+
+本片不销HMC-18.5：原生断言只读补登记仍缺，完整behavior合同和多来源交付对齐需后续独立设计；不把native执行成功升级成业务行为证明。下一固定双例选择已有空Python模块apply（直接覆盖当前最频繁失败链）与业务窗口/S态IO依赖（跨模式保护自动补齐、链上业务、IO计量、背景分离和投影），每例仅一次、并行2，不追第三例。
