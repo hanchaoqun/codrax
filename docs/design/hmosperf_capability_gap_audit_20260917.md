@@ -3544,3 +3544,59 @@ mixed案在2408字节附件准备成功后被single-shot classifier整轮分到o
 无IO空面与canonical窗公开RED60711正式exit1（tool1.225秒，3失败/2正控），真实调度2事件先成功；未配对/拒绝端点诊断及细粒度窗正控保留。仅当无group且两族无计数/无异常诊断时不发布新IO面，不把无观测解释成测得设备空闲；零时长完整pair仍有非nil0值。canonical窗复用至少六位且不截更细精度的既有显示函数。新增5公开叶+6reducer叶，48644focused正式exit0（tool1.820/tracequery0.732秒），实际agent三个Public测试84542正式exit0（1.084秒）；65129错误过滤虽exit0但no-tests不算验收。79279末版race正式exit0（tool3.613/tracequery1.850/agent5.492秒），原3失败断言未改。日志`/tmp/hmc-io-inflight-presence-{public-sealed-red,final-focused,agent-final-focused,final-race}-20260923.log`。
 
 所有Go/构建输入冻结后25994启动独立完整复验，日志`/tmp/hmc-io-inflight-final-sealed-full-20260923.log`；本段记录时尚未正式退出，不预签通过。固定两例为新增`trace_query_io_inflight`与既有`empty_python_module_apply`，各一次并行，分别检查观测范围/量纲/图表/旁路和真实修改/原生测试/验证声明；旧完整人工FAIL不改签。
+
+### 173.6 冻结验证及真实评测版本
+
+实现/公开回归/审计分片`a4dd14947`已保存。25994末版独立完整复验正式exit0，87测试包通过、13无测试包、零FAIL；没有拼接首轮失败的分包收据。23221干净构建/version正式exit0，revision=`a4dd149470c1`、buildTime=`2026-09-23T13:23:41Z`，日志`/tmp/hmc-io-inflight-clean-build-20260923.log`。79708 fetch正式exit0，ahead1/behind0，无远端新改动。
+
+18909在上述固定二进制快照启动恰好2并行×1，sweep=`20260923-063141`，本段记录时仍在运行，机器/人工结果另补。下一B1施工不进入该快照，不可借本次live验收后续源码。本轮还只读确认超时代码默认值仍600/300/600秒，活跃隐藏语义流保护未改；未读取provider密钥配置。
+
+### 173.7 固定双例终审与广影响崩溃
+
+18909正式exit0，恰好2并行×1，机器/完整人工均1/2；详`eval/parallel_selected_summary_hmc_io_inflight_20260923{,_manual_audit}.md`。写例只改totals.py，原生4断言加1probe通过，最终范围说明准确；PTO suite误写、planning-only及旧source-free/原生登记债不销。
+
+IO原生四组指标、单位、分母和诊断与expected一致，但实际完成后并行生成下一窗口上下文发生`fatal error: concurrent map writes`（run-1.out:84），退出2、未进入extract/finalize，无报告/旁路。不是1200秒评测超时，也不是600/300/600预算或活跃流降级；4分9秒的语义活跃响应曾正常完成。栈精确落在`NormalizeToolRefinementHint`写PreferredParams，经ToolHandoffCarriersFromTurnAInputs→toolDocumentationCarriers→BuildAgentContext并发调用。按广影响优先修§175，不当模型波动、不重跑第三例。
+
+模型实际完成交接虽保四组数值，仍误解释carry-in/out、未完成归属、驻留/窗内时长和覆盖率，详人工审计；这不是最终答案，也不假定后续会纠正。预阶段错误派生值已被系统仅作为定位导航，不会因日志中出现就宣称污染了事实；原生查询完整到场，不能把解释错误归于Trace缺失。18.4保留模型解释和异常退出旁路债，旧人工FAIL均不倒签。
+
+### 174. HMC-17.7 B1：消费者严格引用与局部安全出口（2026-09-23，施工中）
+
+主审与独立补审修正173.4的捆绑方案：先保`loadDataDict`全表map/诊断原样，只封住两个消费者的NULL/非法引用借合法0及HiSys坏名称导致整转换失败；按引用有界加载单列后续范围，不增加ID、不关闭17.7。参考仍是按业务引用解析名称的设计意图，本仓先把来源身份和错误隔离做正确，再做资源优化。
+
+已有全局合同不能改成“仅被引用子集”：`invalid_id`计全部非INTEGER键行，`invalid_value`计INTEGER键下全部非TEXT值（含重复行），`duplicate_id`计各整数键次数减一，`RowsEmitted`计唯一且TEXT的整数键（包括合法0、负数及空文本）。主审复读共享公共/本地测试和完整同输入receipt，`RowsRead=5/RowsEmitted=5`仍须保留。未来可分离流式全局审计与当前封存DB按引用取名，但SQLite `temp_store(MEMORY)`仍需排序/分组工作集，不能宣传整体常数内存。
+
+B1仅把app_startup.start_name及HiSys两名称引用读为原始存储类型并严格辨识；真实INTEGER完整int64域沿旧兼容，不把带INTEGER affinity后实际合法的值错判。无效启动名保既有通用回退并给诊断；HiSys无名或当前wire不支持的名称不发布伪事件，原始SQL精确保真仍在。名称语法与当前解析器同源，不能放宽来源/名称协议；Query/Scan/Rows.Err/Close/取消错误仍失败。owner/CPU/时间/contents旧语义、全局map、WAL/SQLite直接输入等不混入本片。
+
+### 174.1 公开反例与兼容边界
+
+82288有效公开RED正式exit1（hitraceconv7.314秒），日志`/tmp/hmc-dictionary-reference-public-red-20260923.log`：3个引用字段×NULL/TEXT/REAL/BLOB共12叶误借0或缺局部诊断，4叶缺失/重复/空/非wire名称使真实ConvertFile整份拒绝；合法0、超uint32、int64两端及实际INTEGER affinity五叶先绿。97143补充wire字段RED正式exit1（1.979秒），日志`/tmp/hmc-dictionary-reference-wire-public-red-20260923.log`：domain或event内嵌完整合法头前缀，会被旧出口误解析成另一个SYS/EVENT，而非简单解析失败；两个合法A_1控制先绿。必须校验整个名称字段，不能只匹配拼接后文本的开头。
+
+公开路径为真实ConvertFile→封存DB→语义与SQL保真导出→BuildIndex→显式窗event_search，仅外部可执行程序用既有fixture替代；同时核原件/输入字节不变、健康启动/HiSys/sched/native事件和旧全局invalid_id/duplicate诊断。启动的名称诊断不等于丢弃其合法区间；HiSys局部不发布无法表示的语义行，也不删除原始SQL字段。坏名行仍执行原header/contents检查，使用最短非发布前缀调用既有validator，不进sink、不增RowsEmitted；健康行只走原发布检查一次。合并坏名与坏时间/TID/contents的控制不冒称新增产品RED。
+
+### 174.2 实现与冻结验证
+
+四生产文件完成后冻结：共享strict引用resolver、startup/HiSys消费者和tracewire同源语法，旧parser仍保精确`<hisysevent>`来源门。25301公开29叶正式exit0（9.438秒），日志`/tmp/hmc-dictionary-reference-public-sealed-green-20260923.log`；36799四组合负控另正式exit0（2.018秒）。75154末版定向正式exit0（hitraceconv21.396/tracequery0.498秒），90323末版race正式exit0（27.579/3.004秒）；日志`/tmp/hmc-dictionary-reference-final-{focused,race}-20260923.log`，这两个filter中的tracewire为no-tests，不计入验收。
+
+独立tracewire实测另有23名称格、22头边界格及74,088组合，对照旧正则接受域与提取tuple逐项相同；包括空尾/空格/制表/换行/Unicode/非法UTF8/多分隔符和伪合法前缀。focused正式exit0（0.488秒），99747race正式exit0（1.636秒），日志`/tmp/hmc-hisysevent-grammar-parity-{focused,race}-20260923.log`。独立生产审查无阻断，未改全局字典/计数基准，不扩owner/时钟/CPU权限。本片尚待与§175统一冻结全仓，未追加live；§173固定版本不含B1，不作为模型验收。
+
+## 175. 并行上下文归一化不得回写共享输入（2026-09-23，验收中）
+
+挂01.3/16.4/18.4，不增加重复ID。173.7实际崩溃使其优先于下一新领域；读取说明目录时遍历普通工具交接也会触发，故不是IO计算专属问题。传值复制struct不复制其map/slice；NormalizeToolRefinementHint.PreferredParams与NormalizeToolJSONSurfaceDescriptor.AcceptedEnums原位删除/赋值，即使值已规范也会写。同一路径NormalizePlanRepairPack还写AcceptedEnums/Metadata、CurrentBytes和嵌套RelocationCandidates，必须一起隔离，不能仅锁某一调用方或删掉新说明通道。
+
+52180八叶公开顺序RED正式exit1（types0.932秒），日志`/tmp/hmc-handoff-normalization-public-red-20260923.log`：实际Attach既存/新建及TurnA结果/显式归并入口输入被改、两个输出互相回写。64821pack十叶RED正式exit1（0.925秒），日志`/tmp/hmc-handoff-normalization-pack-public-red-20260923.log`：direct/JSON/三交接入口输入5红，direct/三交接输出隔离4红，JSON反序列化独立输出1绿。中途53024只修两map时测试已扩到pack，正式exit1并复现pack并发map崩溃；日志`/tmp/hmc-handoff-normalization-maps-focused-20260923.log`保留，不当末版收据或覆盖前两轮RED。
+
+方案只在normalizer入口复制其随后会修改的容器，复用现有拷贝函数；已规范输入同样复制，保原trim/过滤/去重/枚举/修复建议与权限。SafeEditKinds及其它字符串/证据/观测列表原本已fresh，Repair含Targets.Lines先深拷贝，Documentation正文独立且权限token只读；只读全可达路径审计无其它原位写入口，不扩大既有CloneToolHandoffCarriers合同或源码/根因资格。
+
+42925定向正式exit0，日志`/tmp/hmc-handoff-normalization-final-focused-20260923.log`；之后测试最终冻结，53057末版verbose定向正式exit0并逐项确认20叶（两map8＋pack10＋raw/canonical并发2；每并发格12worker×20轮），日志`/tmp/hmc-handoff-normalization-sealed-public-green-20260923.log`。17613末版race正式exit0，types/context/agent/orchestrator分别2.337/3.187/4.562/2.549秒，日志`/tmp/hmc-handoff-normalization-sealed-race-20260923.log`。全可达normalization边界独立审查无阻断；并不声称Attach返回的整个原始ToolResult所有字段都深拷贝，只保证新规范化交接的可变容器隔离。
+
+全部Go/构建输入冻结后的89166独立完整全仓正式exit0，87测试包通过、13无测试包、零FAIL；包括hitraceconv184.405秒、tracequery125.354秒、types56.875秒。日志`/tmp/hmc-reference-and-handoff-sealed-full-20260923.log`。没有拼接不同版本分包结果或修改旧断言来抵消失败；冻结期间提交不改变Go字节。`d470de7c4`保存共享输入隔离修复，`407edb6f4`保存B1严格引用/语法修复，均与该轮Go输入一致。
+
+### 175.1 全表ROI复核与下一完整能力
+
+重新逐唯一ID核对79=14已交付+65开放，无重复ID；08.3保验收中，固定IO完整交付仍FAIL，不因本批确定性收据销账。先完成本批发布，下一完整参考能力按08.4→04.2→08.2排序，旧人工FAIL/原生登记/业务局部补齐及SQLite完整输入不移出范围；广影响且有公开反例的系统阻断仍可插队。
+
+1. **08.4 就绪深度与运行并行度**。再次核参考`sched_ops.py:1104–1204`，吸收同线程区间先并集再扫描的意图，但不复制非零桶最大值均值为全窗均值、不把未知尾补到窗末当完整测量。本仓已有runnableSegments和调度区间，按实际来源/线程代次/筛选范围提供瞬时峰值、全窗加权均值和独立桶最大值。公开退出矩阵：重复R/R+、迁核、抢占无wake、半开同刻、零桶、缺头尾/生命周期冲突、TopN之外贡献与未知CPU不可变零；贯通查询/目录/最终上下文，统计不授根因。
+2. **04.2 嵌套业务片段树**。参考`marker_ops.py:317/547`用真实parent_id组织业务树及状态交集；本仓片段库存和局部调度账不是完整父子树。应在既有B/E配对处保真实父子身份，按同源/线程代次构树，自身时间扣除直接子区间并集；同名多实例、重叠/跨窗父、缺端点、异线程源、取消与截断均须公共验收。不能由时间包含制造异步调用边或将最长片段直接判根因。该能力同时支撑04.4/04.6/15.1，ROI高于继续打磨字典细节。
+3. **08.2 IO大小、读写比例、IOPS和墙钟带宽**。参考`io_ops.py:181/250/706/793`和`config/indicators/io/io_block.yaml:34–35`的意图是请求规模/次数/吞吐；64KB推随机顺序、请求耗时总和作带宽分母不照搬。采现有原生端点/配对完整总体，明确提交/完成、请求/实际字节，按真实窗/尾短桶墙钟作分母。验收双端点不翻倍、并发/零桶/未知大小vs零/大整数/跨层隔离/展示截断独立，不只补一种率便销父项。
+
+17.7 B1只解决可定位的引用/出口缺陷；按引用加载是下一独立资源优化，完整现存SQLite入口还需一致只读快照/WAL/schema/owner/clock/源代次及CLI/REPL/typed验收，不能反复用同一坏字典收益占首位。以上三项仍为设计，未实施、未追加第三例live。
