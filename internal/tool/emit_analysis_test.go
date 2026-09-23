@@ -1219,7 +1219,7 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	for _, want := range []string{
 		"fact_families conflicts with causal_diagnosis",
 		`causal_diagnosis_canonical_field_target={"scope":"causal_diagnosis"}`,
-		"repair only runtime_question_profile.fact_families",
+		"For this diagnostic, omit runtime_question_profile.fact_families",
 		"runtime_work_relation_requested is an independent model decision and must remain exactly false",
 		"preserve every required causal_attribution/causal_contributor_set dimension",
 		"no automatic rewrite or acceptance occurs",
@@ -1244,7 +1244,7 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	if !strings.Contains(res.Summary, "runtime_question_profile.frame_causality_requested is likewise an independent model decision and must remain exactly") {
 		t.Fatalf("structural repair hint must preserve the typed frame decision too: %s", res.Summary)
 	}
-	if res.Success || !strings.Contains(res.Summary, "repair only runtime_question_profile.fact_families") ||
+	if res.Success || !strings.Contains(res.Summary, "For this diagnostic, omit runtime_question_profile.fact_families") ||
 		!strings.Contains(res.Summary, "runtime_work_relation_requested is an independent model decision and must remain exactly true") {
 		t.Fatalf("causal scope repair did not preserve the independent true work-relation decision: success=%t summary=%q", res.Success, res.Summary)
 	}

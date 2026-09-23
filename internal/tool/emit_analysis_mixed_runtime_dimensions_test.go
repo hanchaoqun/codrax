@@ -169,7 +169,7 @@ func TestEmitAnalysisMixedRuntimeFactFamilyRepairPreservesDimensions(t *testing.
 					ok, summary, _ := executeMixedRuntime(t, raw, payload)
 					for _, want := range []string{
 						`causal_diagnosis_canonical_field_target={"scope":"causal_diagnosis"}`,
-						"repair only runtime_question_profile.fact_families",
+						"For this diagnostic, omit runtime_question_profile.fact_families",
 						fmt.Sprintf("runtime_work_relation_requested is an independent model decision and must remain exactly %t", work),
 						fmt.Sprintf("frame_causality_requested is likewise an independent model decision and must remain exactly %t", frame),
 						"preserve every requested dimension, including any independently requested target_effect_verdict",
