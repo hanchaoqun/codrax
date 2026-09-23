@@ -21,7 +21,7 @@
 
 | 编号 | 实际实现与可用能力 | 不能据此宣称的能力 |
 |---|---|---|
-| C1 | [native_hook 导出](../../internal/hitraceconv/streamerdb_export_native_hook.go)：事件瞬时点 + 活跃资源计数；精确 owner、发射线程生命周期、Running CPU 见证；资源 `end_ts/dur` 不铸造 B/E；EXT-1 已补 `source_heap_size/source_callchain_id/resource_end_ts_ns` 可查询事实 | 尚无堆分配栈榜、地址代次配对、泄漏证明。首次审计时语义 SELECT 未取 `heap_size/addr/callchain_id`；现已补前者与来源栈键，地址仍仅由全表保真保存，不能称栈已解析 |
+| C1 | [native_hook 导出](../../internal/hitraceconv/streamerdb_export_native_hook.go)：事件瞬时点 + 活跃资源计数；精确 owner、发射线程生命周期、Running CPU 见证；资源 `end_ts/dur` 不铸造 B/E；EXT-1 已补 `source_heap_size/source_callchain_id/resource_end_ts_ns`；§169 bcc498bd0再补精确原地址/64位位型及同采集子类名，可经event_search查询 | 尚无堆分配栈榜、地址代次配对、泄漏证明。03.2原地址负数不等于无效，也不承诺有效分配；子类NULL/空名/未解析引用分别保留。其末版验收收据见统一账本§169，不称栈已解析 |
 | C2 | [process_measure/live_process/network/log 导出](../../internal/hitraceconv/streamerdb_export_extended.go)：进程计数、PSS、网络收发速率、已入库 HiLog/HiSysEvent 文本；[事件查询/窗口统计](../../internal/tracequery/query.go) | 网络速率不等于丢包/RTT/TTFB；PSS 计数不等于低内存快照状态机；能搜原始日志不等于已经计算视频或杀进程指标 |
 | C3 | [perf 语义导出](../../internal/hitraceconv/streamerdb_export_perf.go) + [PerfContext/PerfTimeline 类型](../../internal/tracequery/types.go)：符号、库、调用栈、线程榜、时间桶；采样来源、符号化、时钟、on/off CPU 质量；多 event/unit 分组 | 不把所有硬件事件共享一个权重分母，不把样本数比例自动换成真实执行 ms；树形展示和专门并行改造分析仍有扩展空间 |
 | C4 | [raw perf.data](../../internal/hitraceconv/raw_perfdata.go)：可跳过并盘点 branch-stack 等扩展字段，保留基础采样；`BranchStackCount` 读取后跳过分支记录 | 不是已支持 BRBE 基本块/分支预测分析或 SPE 地址级内存访存分析 |
@@ -41,7 +41,7 @@
 | `heap_leak_candidates` | heap.yaml:274；alloc LEFT JOIN free，addr+ipid+事件类型，窗口内没配上释放则计候选 | **缺失**。需进程代次+地址分配代次、先后顺序/捕获边界；参考无 `free >= alloc`，地址重用可错配。窗口末未释放不是泄漏证明 | P2 |
 | `heap_thread_summary` | heap.yaml:376；itid 分组 count/SUM heap_size，分 malloc/free/mmap/munmap | **部分** C1：发射线程身份已严格限定，缺四类资源量聚合；资源存活与发生于窗口内的事件计数必须分开 | P2 |
 | `heap_callchain_expand` | heap.yaml:481；native_hook_frame 的 depth、IP、库/符号/偏移全栈 | **部分**：原始表保真，普通 perf 全栈已支持，但 native-hook frame 尚无同类语义视图。不能固定“max_depth-2 必为业务叶子” | P1/P2 |
-| `heap_mmap_subtype` | heap.yaml:548；MmapEvent sub_type_id→data_dict，按 subtype/ipid 计数/大小 | **缺失语义聚合**。先保留 nullable subtype 与字典引用，未知 subtype 不编造成匿名/文件映射 | P2 |
+| `heap_mmap_subtype` | heap.yaml:548；MmapEvent sub_type_id→data_dict，按 subtype/ipid 计数/大小 | **缺失语义聚合**仍归14.1；03.2已实现nullable subtype、同采集唯一字典引用及安全JSON名称的瞬时点可查询性（§169），未知不编造成匿名/文件映射，也不按名字猜单位 | P2 |
 | `heap_type_summary` | heap.yaml:623；statistic.type 0/1/2/3/9..21 引擎分配释放量 | **部分**：C1 已支持多个资源族事件/计数，不等于 statistic 表求和；引擎 registry 应与上游版本绑定，句柄数量不可标 bytes | P2 |
 | `kill_events` | [kill_ops.py:136](/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main/core/preprocess/kill_ops.py:136)：AMS/RSS/AppMS 日志解析，±1 秒同 PID 拼接，多来源 reason | **部分** C7 原文/通用定位，缺确定性 kill 事实通道。先持 source+时间+PID/UID/代次；参考忽略时间参数、同 PID 首个近邻匹配不能直接移植 | P2 |
 | `kill_reason_summary` | 同一算子按 `kill_reason_map.json` 的 L1/L2/原因映射统计 | **缺失语义统计**；可复用同一 typed kill 事件，不新增文本硬门。规则版本与 unknown 一并输出，“退出原因”不能冒充帧链根因 | P2 |

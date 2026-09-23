@@ -3276,3 +3276,45 @@ Trace人工FAIL：50ms业务窗与53ms查询窗混用，运行7ms/未归账1ms�
 独立文档复核后修正日志精确行号及目录长度单位（45902字节），不改机器/人工判定。70746干净构建正式exit0，revision=`d594354cfa80`、buildTime=`2026-09-23T09:21:20Z`，构建日志`/tmp/hmc-dispatch-read-version-clean-build-20260923.log`。95588 fetch正式exit0，领先2/落后0；16306 push正式exit0，main从`c6153f25c`至`d594354cf`，包含实现`45823f0d3`和完整审计`d594354cf`。旧失败、未接消费者和剩余登记范围均保留。
 
 用户随后明确提高HarmonyOS参考仓差距优先级。下一批优先审查HMC-03.2作为独立完整字段能力，再推进说明域、业务/IO/帧等参考差距；§165写模式原生登记仍开放，但不继续独占实施队列。正式关闭任何子项仍需上游语义、实际公开链路、正反验证和推送收据，不能用局部前置或任务数目标代替。
+
+## 169. HMC-03.2 资源地址位型与同采集子类引用（2026-09-23，代码验收通过，完整答案FAIL保留）
+
+用户提高参考仓差距优先级后，选择现有03.2独立完整子项；开始时79=14交付+65开放。参考`config/indicators/memory/heap.yaml:35–49,548–576`的意图是保留原生资源字段、通过同采集字典解释资源子类，从而支持后续资源构成分析；本片不复制其聚合SQL，也不混入03.3调用栈或14类生命周期/泄漏推断。
+
+主审与独立审查均读取官方OpenHarmony `5c5afb0c479b070148d8a6e336120638a1a03930`：`native_memory_stdtype.h`的addr及Addrs容器为uint64，`native_hook_table.cpp:192–194`以int64发布原位型；`SUB_TYPE_ID`则经`SetTypeColumnInt64(..., INVALID_UINT64)`在无值时留SQL NULL。`data_dict_table.cpp:103–111`发布uint32 CurrentRow的非负int64值，不能套native行ID的signed-int32别名规则。旧260b028b入口本次不可读，不冒称重验旧提交。[地址及子类投影](https://gitee.com/openharmony/developtools_smartperf_host/blob/5c5afb0c479b070148d8a6e336120638a1a03930/smartperf_host/trace_streamer/src/table/native_hook/native_hook_table.cpp)、[原始类型](https://gitee.com/openharmony/developtools_smartperf_host/blob/5c5afb0c479b070148d8a6e336120638a1a03930/smartperf_host/trace_streamer/src/trace_data/trace_stdtype/htrace/native_memory_stdtype.h)、[空值规则](https://gitee.com/openharmony/developtools_smartperf_host/blob/5c5afb0c479b070148d8a6e336120638a1a03930/smartperf_host/trace_streamer/src/table/base/include/table_base.h)、[字典ID](https://gitee.com/openharmony/developtools_smartperf_host/blob/5c5afb0c479b070148d8a6e336120638a1a03930/smartperf_host/trace_streamer/src/table/base/data_dict_table.cpp)。
+
+实施边界：原瞬时点增加可选signed原地址及16位hex位型，地址-1保全1位型但不承诺真实有效分配（上游默认地址也为INVALID_UINT64且SQL不滤）；子类保原整数/NULL，仅canonical uint32引用从当前sealed DB唯一字典行解名。名称使用可逆JSON字符串并转义pipe，防把一条I打点变成多段/多行或注入调度事件。缺表/列/引用、坏可选字段、歧义字典只取消相应元数据，保原I/C；无跨capture字典缓存。原全表保真、CPU/线程准入、时间窗、链上资格与资源单位不变；不增加模型必填JSON或工具序列。
+
+退出条件：实际DB→文本→BuildIndex→event_search查询正反矩阵，原I/C值数目及根因排除、两个采集同ID不串证、字典缺失/NULL/空串/重复及恶意文本、精确整数与全部storage边界；定向/race/全仓及固定双例独立人工审计、提交推送后再核销。本节开始时尚未完成实施，不先改稳定复选项。
+
+### 169.1 实现与确定性收据
+
+`bcc498bd0`通过局部可选metadata模块增加四个事实字段：`source_addr_i64/source_addr_bits_hex/source_sub_type_id/source_sub_type_name`。字典只读取当前native记录引用的ID，不复制完整符号字典；先读完关闭再打开native游标，符合单连接约束。SQL选择不授身份，取回后仍严格校验storage class及canonical范围；重复行即使同值也不再解析，非法文本/超出4096字节不拿替换/截断值冒充原名。JSON编码保空白与控制字符，pipe单独转义；不改变旧heap/callchain字段及I/C顺序。新字段均可选，不新增模型JSON要求或正则原文硬门。
+
+公开4顶层31叶RED22425正式exit1（hitraceconv1.255秒），只缺新字段/局部诊断，原导出、I/C量值、owner、显式窗、根因排除、DB只读/全表保真及sealed路径先通过。早先两次测试作者的Event/EventView返回类型编译错误不计产品RED。GREEN63076正式exit0（1.446秒），race29269正式exit0（5.925秒），包含原Metadata、NativeHook生命周期/registry邻接；整转换包20475正式exit0（122.156秒）。日志`/tmp/hmc-native-resource-identity-{public-red,public-green,public-race,converter-full}-20260923.log`。独立末审确认上游类型、单DB/单连接、局部字典退化、JSON边界和I/C/因果权限均无阻塞。
+
+99907构建正式exit0（`bcc498bd00b5-dirty`、2026-09-23T09:34:01Z；dirty仅文档，Go/build输入干净）。固定双例84753在20260923-023455启动，恰好2并行×1：新增native_resource_identity及既有smartperf_resources，分别检查完整资源身份与其它六类资源观测，不能用新增手写文本夹具声称binary producer验收。完整全仓72138同时对冻结Go输入独立执行，结果另记，不拼接分包、不加跑第三例。
+
+### 169.2 新识别的广影响旧边界（留账，未实施）
+
+代码审计发现`streamerdb_export_extended.go:40,237`在本片之前先执行旧全局`loadDataDict`，使用`COALESCE(data,'')`、typed Scan及最后写入覆盖。非数值字典ID可先使整个extended导出返回错误，空值/重复也可能误导旧consumer；本片独立严格字典不继承这些行为，但不能声称整个导出器对任意损坏data_dict均局部恢复。该观察为代码路径证据，尚未跑客户复现，不伪称客户故障或本批RED。
+
+挂现有HMC-17.7的SQLite schema安全适配并提高其后续审计优先级，影响其它使用字典的族和全局转换；后续需逐consumer区分显示文本/身份/单位、统一精确缺失/歧义与局部失败范围，保留DB异常/取消fail-loud。不能顺手把新strict uint32规则强套所有旧ID域，不能只改COALESCE或把全局错误吞掉。本项不被03.2的合格schema字段交付代销，也不新建重复HMC编号。
+
+### 169.3 完整全仓与固定双例
+
+冻结于`bcc498bd00b5`的完整全仓72138正式exit0：87测试包、13无测试包、零FAIL；tool455.370秒、hitraceconv155.468秒、tracequery125.703秒。日志`/tmp/hmc-native-resource-identity-full-20260923.log`。运行期间未改Go/依赖/构建输入，没有拼接分包结果。
+
+84753固定双例正式exit0，恰好2并行×1，机器2/2、完整人工0/2。机器原判和完整人工记录分别保存在`eval/parallel_selected_summary_hmc_native_resource_identity_20260923.md`及同名`_manual_audit.md`，不改原答案/oracle，不追加第三例。
+
+新增资源身份例248秒：5条操作及5条独立计数器、精确signed/hex、子类原始字段均真实进入最终上下文，主表数值正确；但答案把全1位型说成无符号0、无依据断言最高位地址无效/零地址释放为空操作，且把操作5缺失的名称字段说成显式null。源数据并未支持这些推断，完整答案FAIL；不把本片数值保全成功等同于模型解释验收。end极值非sentinel已有教学，新地址/子类共享reader语义仍需补齐，不能把所有解释问题宣称已证波动。有限问题没有活跃根因合同，合法空旁路不是生成失败。
+
+既有六类资源例130秒：数值、数量及不晋升根因正确，但系统把缺页地址补成Path、把发射线程名补成XPower Domain，最终表格重复这两个伪字段；模型输入另有9/10观测错误显示查询窗未知、系统附录要求在源码声明中核对运行时条目。该例不含native_hook，不声称命中新metadata producer；真实错误已定位系统上下文，不归为模型波动。
+
+03.2从待实施改为待验收，仍不打勾；稳定数保持79=14交付+65开放（56待实施/6部分实施/2待验收/1持续执行）。实现与答案质量分开留证，不把后续03.3调用栈、14类生命周期或17.7字典安全混入已完成范围。
+
+### 169.4 全局ROI调整与新确定性接缝
+
+新P1归HMC-02.4/16.4/18.4：`query.go`的`accumulateRuntimeResource`把`Path/Dev/Address`共用一条Path回退，`accumulateTracePluginEvent`以Comm补Domain；`traceQueryTypedResourceObservations`又不投递已有Address。因此不能只删回退而丢地址，也不能把背景身份提升因果。下一片按源字段、聚合身份、显示标签分离，保真实地址/设备/路径，未知保持未知，同线程不同对象不误合组；真实查询→JSON→观测→上下文验证，数量、延迟、查询窗和根因资格均需保持。
+
+实际查询窗丢失和runtime-only附录误派源码核对分别留16.4/§166，不靠答案关键词门修。下一顺序：①上述已污染真实答案的字段保真；②§166说明域完成通道；③17.7现存SQLite/共享字典安全；④08.3在途深度及其它参考差距。§165原生只读登记、旧人工FAIL与全表其它开放项均保留，不再被局部地址解释追绿挤占。
