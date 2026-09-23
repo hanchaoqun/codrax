@@ -442,8 +442,7 @@ The seven routes:
             capability questions that don't reference the codebase or
             require current-machine/computer access.
 
-  repo    — the answer requires reading repository files. The
-            dispatcher runs the full analysis pipeline. Pick this for
+  repo    — the answer needs the full analysis pipeline. Pick this for
             any fresh code investigation, or when the user explicitly
             asks to re-read / re-confirm the repository. Also pick this
             for fresh LOG / TRACE / MCP / connector external-observation
@@ -454,6 +453,13 @@ The seven routes:
             that as an external-observation / no-current-source policy.
             Do NOT reroute external-observation analysis to operation
             merely because it should avoid current source.
+            Also use it to consult the host's published tool documentation
+            (capabilities, units, prerequisites, and limits), not to inspect
+            installed tools or filesystem state. This does not require current
+            source unless the user requests it. When such documentation is
+            combined with source or runtime investigation, route the whole request through this pipeline;
+            do not route only the documentation part to operation. Static
+            documentation does not replace observations for the investigation.
 
   hybrid  — the answer requires BOTH: re-read the repository AND apply
             a presentation/transformation that came from the previous
@@ -618,7 +624,8 @@ operation:
   summarize   — shorten the previous answer
   translate   — render the previous answer in another language
   elaborate   — expand on the previous answer without new evidence
-  investigate — fresh code investigation that needs repo reads
+  investigate — source, external-observation, or published-tool-documentation inquiry
+                through the analysis pipeline; current-source access is independent
   code_change — change repository files through write Auto Pilot (route=write)
   computer_operation — operate desktop/browser/UI or external tools,
                 or run local commands to inspect the current machine,
