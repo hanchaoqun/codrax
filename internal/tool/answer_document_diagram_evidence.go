@@ -2098,13 +2098,25 @@ func diagramCallEdgeHasRequiredQualifiedCaller(
 	requiredAnchors []types.AnswerRequiredAnchor,
 	fromSymbol, toSymbol string,
 ) bool {
+	return len(diagramCallEdgeRequiredQualifiedCallerEvidence(evidence, requiredAnchors, fromSymbol, toSymbol)) > 0
+}
+
+// Return the source rows behind the existing qualified-caller proof so other
+// structural consumers can check their own request scope without re-inventing
+// identity rules. Ambiguity is checked against the complete evidence pool,
+// before any caller applies a request/candidate subset.
+func diagramCallEdgeRequiredQualifiedCallerEvidence(
+	evidence []types.EvidenceItem,
+	requiredAnchors []types.AnswerRequiredAnchor,
+	fromSymbol, toSymbol string,
+) []types.EvidenceItem {
 	fromOwner := diagramEvidenceQualifiedOwner(fromSymbol)
 	fromOperation := diagramEvidenceQualifiedOperation(fromSymbol)
 	toOwner := diagramEvidenceQualifiedOwner(toSymbol)
 	toOperation := diagramEvidenceQualifiedOperation(toSymbol)
 	callerDefinitionSource, _, callerDefinitionOK := diagramEvidenceUniqueDefinitionLocation(evidence, fromOwner, fromOperation)
 	if fromOwner == "" || fromOperation == "" || toOperation == "" {
-		return false
+		return nil
 	}
 	definitionBound := toOwner != "" && callerDefinitionOK &&
 		diagramRequiredMechanismAnchorContainsExactSymbol(requiredAnchors, fromSymbol) &&
@@ -2115,10 +2127,11 @@ func diagramCallEdgeHasRequiredQualifiedCaller(
 	// row. A differently-qualified target still needs definition-backed proof.
 	ownerContextBound := toOwner == "" || fromOwner == toOwner
 	if !definitionBound && !ownerContextBound {
-		return false
+		return nil
 	}
 
 	locations := make(map[string]bool)
+	var matched []types.EvidenceItem
 	for _, ev := range evidence {
 		if !ev.IsCitable() || types.ClaimFormOf(ev) != types.ClaimCallEdge ||
 			strings.TrimSpace(ev.Subject) != fromOperation {
@@ -2146,8 +2159,12 @@ func diagramCallEdgeHasRequiredQualifiedCaller(
 		}
 		key := strings.TrimSpace(ev.Source) + "\x00" + strconv.Itoa(ev.LineStart) + "\x00" + fromOperation + "\x00" + toOperation
 		locations[key] = true
+		matched = append(matched, ev)
 	}
-	return len(locations) == 1
+	if len(locations) != 1 {
+		return nil
+	}
+	return matched
 }
 
 func diagramRequiredMechanismAnchorContainsExactSymbol(required []types.AnswerRequiredAnchor, symbol string) bool {

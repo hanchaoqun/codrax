@@ -213,6 +213,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		mismatches,
 		evidence,
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view),
+		diagramExistingSourceBinding{evidence: evidence, required: view.RequiredMechanismAnchors},
 	)
 	actions := diagramParticipantCoverageRepairActions(mismatches)
 	endpointConflicts, endpointConflictDelta := diagramParticipantEndpointConflictRepair(
@@ -224,6 +225,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	compactDelta := diagramParticipantRepairDeltaJSON(
 		doc, pctx.ctx.AnalysisIR.RequestModel, mismatches, evidence,
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view), actions, endpointConflicts,
+		diagramExistingSourceBinding{evidence: evidence, required: view.RequiredMechanismAnchors},
 	)
 	participantAdditionDelta := diagramParticipantRepairAdditionDeltaJSON(
 		doc, pctx.ctx, mismatches, evidence,
@@ -299,7 +301,11 @@ func diagramParticipantRepairAdditionDeltaJSON(
 	}
 	var typed []diagramParticipantTypedIncidentCandidate
 	if componentSplit {
-		typed = diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 4)
+		binding := diagramExistingSourceBinding{evidence: evidence}
+		if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+			binding.required = view.RequiredMechanismAnchors
+		}
+		typed = diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 4, binding)
 	} else if len(failed) > 0 {
 		obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
 		relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
@@ -540,6 +546,7 @@ func diagramParticipantRepairDeltaJSON(
 	stagePrecedence []stageauthority.PrecedenceRelation,
 	actions string,
 	endpointConflicts string,
+	sourceBindings ...diagramExistingSourceBinding,
 ) string {
 	if len(mismatches) == 0 {
 		return ""
@@ -565,7 +572,7 @@ func diagramParticipantRepairDeltaJSON(
 		return ""
 	}
 	compactCandidates := diagramParticipantCoverageCompactCandidateGuidance(
-		doc, rm, mismatches, evidence, stagePrecedence,
+		doc, rm, mismatches, evidence, stagePrecedence, sourceBindings...,
 	)
 	raw, err := json.Marshal(diagramParticipantRepairDelta{
 		Version: 1, Mismatches: rows, Actions: strings.TrimSpace(actions),
@@ -927,6 +934,7 @@ func DiagramParticipantCoverageMismatches(
 	states := make([]state, 0, len(obligations))
 	allSurfaces := make([][]string, 0, len(obligations))
 	requestedRelationEvidence := diagramRequestedRelationEvidenceForRequest(evidence, rm)
+	sourceBinding := diagramExistingSourceBinding{evidence: evidence, required: view.RequiredMechanismAnchors}
 	for _, obligation := range obligations {
 		// The analyzer's typed display identity is always its own exact
 		// presentation surface, including schema-valid labels with spaces such
@@ -942,12 +950,12 @@ func DiagramParticipantCoverageMismatches(
 		states = append(states, state{
 			obligation:      obligation,
 			surfaces:        surfaces,
-			visibleCovered:  diagramParticipantHasTypedVisibleIncident(doc, surfaces, requestedRelationEvidence, stagePrecedence),
+			visibleCovered:  diagramParticipantHasTypedVisibleIncident(doc, surfaces, requestedRelationEvidence, stagePrecedence, sourceBinding),
 			identityVisible: diagramParticipantIdentityVisible(doc, surfaces, stagePrecedence),
 		})
 	}
 	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
-	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, requestedRelationEvidence, stagePrecedence)
+	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, requestedRelationEvidence, stagePrecedence, sourceBinding)
 	evidenceParticipantGraphComplete := len(obligations) > 1
 	for i := range states {
 		requestScopedEdgeAvailable := relationScope.effectiveParticipantCovered(i)
@@ -1091,9 +1099,9 @@ func DiagramParticipantCoverageMismatches(
 	// is useful exploration authority but is not itself a copyable diagram edge.
 	// Without a crossing candidate, keep the split as an honest bounded result
 	// instead of forcing the model to guess a bridge through repeated retries.
-	joinCandidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 4)
+	joinCandidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 4, sourceBinding)
 	if evidenceParticipantGraphComplete && !requestedParticipantGraphComplete && len(joinCandidates) > 0 {
-		principal := diagramParticipantRequestedGraphPrincipalCovered(doc, allSurfaces, requestedRelationEvidence, stagePrecedence)
+		principal := diagramParticipantRequestedGraphPrincipalCovered(doc, allSurfaces, requestedRelationEvidence, stagePrecedence, sourceBinding)
 		outsidePrincipal := make(map[string]bool, len(states))
 		for i, current := range states {
 			if i < len(principal) && principal[i] {
@@ -1315,8 +1323,9 @@ func diagramParticipantRequestedGraphConnected(
 	participantSurfaces [][]string,
 	requestedRelationEvidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
+	sourceBinding diagramExistingSourceBinding,
 ) bool {
-	principal := diagramParticipantRequestedGraphPrincipalCovered(doc, participantSurfaces, requestedRelationEvidence, stagePrecedence)
+	principal := diagramParticipantRequestedGraphPrincipalCovered(doc, participantSurfaces, requestedRelationEvidence, stagePrecedence, sourceBinding)
 	if len(principal) < 2 {
 		return false
 	}
@@ -1340,6 +1349,7 @@ func diagramParticipantRequestedGraphPrincipalCovered(
 	participantSurfaces [][]string,
 	requestedRelationEvidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
+	sourceBinding diagramExistingSourceBinding,
 ) []bool {
 	covered := make([]bool, len(participantSurfaces))
 	if doc == nil || len(participantSurfaces) == 0 {
@@ -1404,18 +1414,22 @@ func diagramParticipantRequestedGraphPrincipalCovered(
 		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
 		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts)
 		typedRelations := diagramTypedAnchorRelationSet(anchors)
+		occurrences := make(map[string]int)
 		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			key := diagramEvidenceEdgeKey(edge.From, edge.To)
+			occurrence := occurrences[key]
+			occurrences[key]++
 			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
 				continue
 			}
 			if !diagramParticipantEdgeHasRequestedRelationAuthority(
-				edge.From, edge.To, anchors, labels, requestedRelationEvidence, stagePrecedence,
+				edge.From, edge.To, occurrence, anchors, labels, requestedRelationEvidence, stagePrecedence, sourceBinding,
 			) {
 				continue
 			}
 			fromIndex, toIndex := ensureNode(edge.From), ensureNode(edge.To)
 			nodeUnion(fromIndex, toIndex)
-			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, requestedRelationEvidence)
+			from, to := diagramEvidenceEdgeEndpointSymbolsAtOccurrence(edge.From, edge.To, occurrence, anchors, labels, requestedRelationEvidence)
 			fromParticipants := diagramParticipantEndpointRosterMatches(block, edge.From, from, labels, participantSurfaces, requestedRelationEvidence)
 			toParticipants := diagramParticipantEndpointRosterMatches(block, edge.To, to, labels, participantSurfaces, requestedRelationEvidence)
 			if typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)][types.DiagramRelPrecedence] {
@@ -1498,10 +1512,12 @@ func diagramParticipantRequestedGraphPrincipalCovered(
 // stitching unrelated owners together through a shared participant label.
 func diagramParticipantEdgeHasRequestedRelationAuthority(
 	fromNode, toNode string,
+	occurrence int,
 	anchors []types.DiagramEdgeAnchor,
 	labels map[string]string,
 	requestedRelationEvidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
+	sourceBinding diagramExistingSourceBinding,
 ) bool {
 	edgeKey := diagramEvidenceEdgeKey(fromNode, toNode)
 	for _, anchor := range anchors {
@@ -1510,9 +1526,16 @@ func diagramParticipantEdgeHasRequestedRelationAuthority(
 		}
 		relation := diagramAnchorRelation(anchor)
 		from, to := diagramEvidenceAnchorEndpointSymbols(anchor, labels, requestedRelationEvidence)
+		if relation == types.DiagramRelCall {
+			from, to = diagramEvidenceEdgeEndpointSymbolsAtOccurrence(fromNode, toNode, occurrence, anchors, labels, requestedRelationEvidence)
+		}
 		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
 		if !relation.IsValid() || from == "" || to == "" {
 			continue
+		}
+		if relation == types.DiagramRelCall && !diagramExistingSourceBindingHasPartialIdentity(anchors, edgeKey) &&
+			sourceBinding.provesRequestedCall(from, to, requestedRelationEvidence) {
+			return true
 		}
 		if relation == types.DiagramRelPrecedence {
 			for _, precedence := range stagePrecedence {
@@ -1705,6 +1728,7 @@ func diagramParticipantCoverageCandidateGuidance(
 	mismatches []DiagramParticipantCoverageMismatch,
 	evidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
+	sourceBindings ...diagramExistingSourceBinding,
 ) string {
 	if rm.DiagramHint == nil || len(mismatches) == 0 {
 		return ""
@@ -1733,7 +1757,7 @@ func diagramParticipantCoverageCandidateGuidance(
 		// bounded typed roster for the whole requested frontier, but lead with the
 		// subset that actually crosses two current visible components. This still
 		// creates no edge or wording.
-		joinGuidance = diagramParticipantTypedJoinCandidateGuidance(doc, rm, evidence, stagePrecedence, 4)
+		joinGuidance = diagramParticipantTypedJoinCandidateGuidance(doc, rm, evidence, stagePrecedence, 4, sourceBindings...)
 		if joinGuidance != "" {
 			// The exact crossing frontier is the smallest actionable repair for a
 			// split requested graph. Publishing every local incident candidate in
@@ -1764,6 +1788,7 @@ func diagramParticipantCoverageCompactCandidateGuidance(
 	mismatches []DiagramParticipantCoverageMismatch,
 	evidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
+	sourceBindings ...diagramExistingSourceBinding,
 ) string {
 	if rm.DiagramHint == nil || len(mismatches) == 0 {
 		return ""
@@ -1782,7 +1807,7 @@ func diagramParticipantCoverageCompactCandidateGuidance(
 	}
 	if componentSplit {
 		return joinDiagramParticipantCandidateGuidance(
-			diagramParticipantTypedJoinCandidateGuidance(doc, rm, evidence, stagePrecedence, 4),
+			diagramParticipantTypedJoinCandidateGuidance(doc, rm, evidence, stagePrecedence, 4, sourceBindings...),
 			diagramParticipantExistingVisibleEndpointGuidance(doc, rm, mismatches),
 		)
 	}
@@ -1943,8 +1968,9 @@ func diagramParticipantTypedJoinCandidateGuidance(
 	evidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
 	limit int,
+	sourceBindings ...diagramExistingSourceBinding,
 ) string {
-	candidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, limit)
+	candidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, limit, sourceBindings...)
 	rows := make([]string, 0, len(candidates))
 	for i, candidate := range candidates {
 		rows = append(rows, fmt.Sprintf("typed_join_candidate[%d]=%s", i+1,
@@ -1959,6 +1985,7 @@ func diagramParticipantTypedJoinCandidates(
 	evidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
 	limit int,
+	sourceBindings ...diagramExistingSourceBinding,
 ) []diagramParticipantTypedIncidentCandidate {
 	if doc == nil || rm.DiagramHint == nil || limit <= 0 {
 		return nil
@@ -1968,7 +1995,11 @@ func diagramParticipantTypedJoinCandidates(
 		return nil
 	}
 	requestedRelationEvidence := diagramRequestedRelationEvidenceForRequest(evidence, rm)
-	indexes := diagramParticipantVisibleComponentIndexes(doc, requestedRelationEvidence, stagePrecedence)
+	sourceBinding := diagramExistingSourceBinding{evidence: evidence}
+	if len(sourceBindings) > 0 {
+		sourceBinding = sourceBindings[0]
+	}
+	indexes := diagramParticipantVisibleComponentIndexes(doc, requestedRelationEvidence, stagePrecedence, sourceBinding)
 	if len(indexes) == 0 {
 		return nil
 	}
@@ -2178,6 +2209,7 @@ func diagramParticipantVisibleComponentIndexes(
 	doc *types.AnswerDocumentV2,
 	requestedRelationEvidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
+	sourceBinding diagramExistingSourceBinding,
 ) []diagramParticipantVisibleComponentIndex {
 	if doc == nil {
 		return nil
@@ -2219,12 +2251,16 @@ func diagramParticipantVisibleComponentIndexes(
 				parent[b] = a
 			}
 		}
+		occurrences := make(map[string]int)
 		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			key := diagramEvidenceEdgeKey(edge.From, edge.To)
+			occurrence := occurrences[key]
+			occurrences[key]++
 			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
 				continue
 			}
 			if !diagramParticipantEdgeHasRequestedRelationAuthority(
-				edge.From, edge.To, anchors, labels, requestedRelationEvidence, stagePrecedence,
+				edge.From, edge.To, occurrence, anchors, labels, requestedRelationEvidence, stagePrecedence, sourceBinding,
 			) {
 				continue
 			}
@@ -3717,7 +3753,7 @@ func answerDocumentContainsDiagramPayload(doc *types.AnswerDocumentV2) bool {
 	return false
 }
 
-func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surfaces []string, evidence []types.EvidenceItem, stagePrecedence []stageauthority.PrecedenceRelation) bool {
+func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surfaces []string, evidence []types.EvidenceItem, stagePrecedence []stageauthority.PrecedenceRelation, sourceBinding diagramExistingSourceBinding) bool {
 	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
@@ -3727,17 +3763,21 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
 		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, i, blockCounts)
 		typedRelations := diagramTypedAnchorRelationSet(anchors)
+		occurrences := make(map[string]int)
 		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			key := diagramEvidenceEdgeKey(edge.From, edge.To)
+			occurrence := occurrences[key]
+			occurrences[key]++
 			relations := typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]
 			if !diagramHasValidTypedRelation(relations) {
 				continue
 			}
 			if !diagramParticipantEdgeHasRequestedRelationAuthority(
-				edge.From, edge.To, anchors, labels, evidence, stagePrecedence,
+				edge.From, edge.To, occurrence, anchors, labels, evidence, stagePrecedence, sourceBinding,
 			) {
 				continue
 			}
-			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, evidence)
+			from, to := diagramEvidenceEdgeEndpointSymbolsAtOccurrence(edge.From, edge.To, occurrence, anchors, labels, evidence)
 			// A technical endpoint owned by a requested component proves the
 			// relation, but it does not by itself prove that the visible graph
 			// connects that component. Keep technical authority and display
