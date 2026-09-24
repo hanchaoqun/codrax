@@ -201,8 +201,13 @@ func TestB1704AlwaysOnTeachingScopesNativeTestAuthoring(t *testing.T) {
 		t.Fatal("shared always-on teaching must qualify native test authoring before recommending it")
 	}
 	for _, want := range []string{
-		"A source-free proof plan must follow its probe-only instructions, not add files or project_test_observations",
-		"earlier declarations remain on their source/test plans",
+		"A source-free probe-only plan must retain its separate instructions and may not add files or project_test_observations",
+		"Only when the current controller authorizes read-only existing-test registration",
+		"changes: [] instead declare project_test_observations",
+		"fully read and delivered Python unittest files",
+		"without verification_probes or contract changes",
+		"verification must execute them again",
+		"Earlier declarations and results remain on their original plans",
 		"For an authorized condition change",
 		"only when its current executor supplies the required assertion witness",
 		"does not by itself prove that every independent behavior contract was exercised",

@@ -29,15 +29,15 @@ func TestNativeTestRegistrationPublicArbitraryFilenameThroughAlias(t *testing.T)
 	nativeRegistrationPublicAuthorizeExecution(t, ctx, delivery, source.BehaviorContracts)
 	// Context seam negatives: the persisted root may not redirect an unrelated
 	// current repository, and ordinary plans retain their path behavior.
-	foreign := *ctx
+	foreign := ctx.ShallowClone()
 	foreign.RepoRoot = t.TempDir()
-	if nativeRegistrationPhysicalExecutionContext(&foreign) != &foreign {
+	if nativeRegistrationPhysicalExecutionContext(foreign) != foreign {
 		t.Fatal("stored registration redirected a different current repository")
 	}
-	ordinary := *ctx
+	ordinary := ctx.ShallowClone()
 	ordinary.Mutable = types.NewMutableState("ordinary plan")
 	ordinary.Mutable.SetChangePlan(&types.ChangePlan{ID: "ordinary"})
-	if nativeRegistrationPhysicalExecutionContext(&ordinary) != &ordinary {
+	if nativeRegistrationPhysicalExecutionContext(ordinary) != ordinary {
 		t.Fatal("ordinary plan acquired new path normalization")
 	}
 	report := existingTestDeliveryPublicRun(t, ctx)

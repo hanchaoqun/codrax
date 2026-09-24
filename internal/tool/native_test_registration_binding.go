@@ -18,9 +18,9 @@ func nativeRegistrationPhysicalExecutionContext(ctx *types.BusContext) *types.Bu
 	if root == "" || root != plan.NativeTestRegistration.RepositoryRoot || root == ctx.RepoRoot {
 		return ctx
 	}
-	copy := *ctx
+	copy := ctx.ShallowClone()
 	copy.RepoRoot = root
-	return &copy
+	return copy
 }
 
 // Registration paths extend physical observation, not the user's independent
