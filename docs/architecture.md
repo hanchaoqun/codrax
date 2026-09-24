@@ -1318,7 +1318,9 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验；闭合自包含SQLite按下述17.7路径接入，未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline/stdin仍是有界文本入口。
 
-**既有SQLite只读接入（HMC-17.7子能力）**：明确选择Trace的CLI/REPL附件、`trace_query`显式文件及已有typed artifact身份，根据文件内容接纳闭合、自包含的TraceStreamer SQLite，不依赖扩展名。`PrepareExistingTraceDB`不调用转换器、不在原DB创建索引或旁件；持有源代次，复制到私有封存快照，复用只读VFS、语义导出、全表保真及原owner/clock/query-ready合同。原文件路径、字节数、SHA-256及代次与外层准备器核对，不能从JSON收据恢复进程内权限。仅支持rollback-journal头模式且别名/规范路径均无`-wal`、`-shm`、`-journal`；拒绝活跃/WAL数据库，不忽略日志或尝试恢复。旁件检查保留在进程内材料中，在提交、缓存复用和查询前后重验。普通自然语言/fileHints中的任意`.data`路径不会因此获得Trace身份；非标准后缀系统补齐仍需typed准入或已有准备收据。gzip内SQLite、活跃数据库一致快照及按引用有界读取不在本片范围。
+**既有SQLite只读接入（HMC-17.7子能力）**：明确选择Trace的CLI/REPL附件、`trace_query`显式文件及已有typed artifact身份，根据文件内容接纳闭合、自包含的TraceStreamer SQLite，不依赖扩展名。`PrepareExistingTraceDB`不调用转换器、不在原DB创建索引或旁件；持有源代次，复制到私有封存快照，复用只读VFS、语义导出、全表保真及原owner/clock/query-ready合同。原文件路径、字节数、SHA-256及代次与外层准备器核对，不能从JSON收据恢复进程内权限。仅支持rollback-journal头模式且别名/规范路径均无`-wal`、`-shm`、`-journal`；拒绝活跃/WAL数据库，不忽略日志或尝试恢复。旁件检查保留在进程内材料中，在提交、缓存复用和查询前后重验。普通自然语言/fileHints中的任意`.data`路径不会因此获得Trace身份；非标准后缀系统补齐仍需typed准入或已有准备收据。gzip内SQLite和活跃数据库一致快照仍未开放。
+
+**按引用保留共享字典（HMC-17.7）**：core args键/文本值、AppStartup阶段名和HiSys事件域/名称先按实际SQLite INTEGER引用收集身份，再全量审计字典，仅在Go内保留引用所需值及其失效身份；引用只是驻留计划，不为消费者行或名称授予有效性。所有引用都处理，不按固定数量截断；未引用坏行和重复键仍计入全局诊断，`RowsEmitted`仍是全表有效身份数，另用`dictionary_references/dictionary_entries_retained`披露引用/驻留数。core保留非负ID/严格文本策略，共享扩展字典保留整个int64及TEXT策略，两者不互相套限；重复身份不能被后续合法值救回。游标关闭后才发下一查询，无N+1访问，不建原库索引或写原件。该边界约束Go字典驻留，不宣称整个转换常量内存：全表扫描、core既有排序、SQLite键分组及原256MiB堆预算仍存在。
 
 **gzip统一输入运输（HMC-17.6）**：默认准备经`hitraceconv.PrepareFile`与显式`ConvertFile`共用一次有界完整解压，持有冻结的内层视图，再由原provider解析。单member、CRC/ISIZE、尾部、大小/压缩比、源与解压代次全部验证；坏压缩、取消、源/输出换代及清理失败不作语义fallback。已知RMQ/OHOSPROF/PERFILE2/SIMPLEPERF/OpenHarmony raw按内层精确格式选路，嵌套容器、SQLite及未知二进制不递归猜解。`gzip_input_v1`只记录外层/内层字节摘要和代次，不进入capture_id、时钟映射或因果授权，不能代替嵌入HIPERF的Standalone/PerfTransform凭证。默认DB保留策略在内层分型后决定，显式ConvertFile选项不被重写。
 
@@ -1366,6 +1368,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **设计定位**：trace_query 不是"返回原始数据、全靠 LLM 分层推理"的工具——"哪个状态优先看 / 要不要递归 / 用哪个 view"这些决策以确定性 Go 代码算好，通过 typed 结构（`StateDrilldownStep` / `RootCauseRankItem.Tier` / `TraceCausalProjection`）+ 可被 `observation_ledger.go` 回解析的文本行喂给 LLM 和下游 finalizer。这与 §1 "精确信号做硬门、噪声信号做软引导"红线一致：状态排序/tier 是精确计算，推荐 view / significant 标记是软引导。
 
 **背景排序与状态测量分离（B1717）**：引擎对链外背景项使用的窗口比例封顶只用于排序，不能称为实测等待。对显式 `background` 且具有正值、有限原生状态账本的纯状态行，工具在公开副本统一以对应 Running/Runnable/Sleep/D/IO 分量发布 `ImpactMs/ProjectedImpactMs`，使 JSON、观测值、notes 与投影同源；组合 D/IO 只合并该生产者已分割的互斥分量。原引擎对象、Score、排名及链上量不改，该公开副本有效归因仍为零，不因此获得根因资格。不从累计量、时间包络、dominant state 或文字猜测状态测量；缺测、未知/复合/语义/设备类及旧未归因行保留原发布行为，未宣称这些旧车道的口径问题全部解决。
+
+**累计状态的端点口径（HMC-01.3/16.4）**：旧Running/Runnable/Sleep/D/IO累计值继续保留窗口内合法贡献；新增共享`TraceSchedulerStateAccounting`分别携已观测分段终点、开放尾、闭合未知的数量/计入毫秒，以及起末裁剪和迁核续接数量。来源是原生片段和真实端点索引，不从回填后的公开`LineEnd`、时间包络或摘要推断；真实闭合在窗外只补元数据，不扩大查询范围。ThreadDuration、逐态churn、drilldown、typed观察、检查点及最终展示共用这一口径；多段包络不变成连续区间，迁核分段终点不等于状态终止，旧缺字段记录保持未知。跨查询shard摘要不重新拼出物理闭合总体；并发统计仍只计已确认闭合区间，不把开放尾贡献补进其中。工具摘要以一次解释加逐态短账保开放/未知数量及其计入ms，完整端点时长、裁剪/续接仍在JSON及typed观察，不逐行重复长教学挤掉后续统计；通用120/160字符备注另用累计口径短卡。原容量、测量指纹、累计算术、因果权限和根因选择不变。
 
 **背景原生资源计时发布（HMC-16.5）**：在上述纯状态之外，仅对精确生产者匹配的 IO 请求、IRQ/IPI 配对活动、workqueue 执行及 DMA fence 等待五族，读取其封顶前的原生计时账。单成员不得携带矛盾的折叠口径，多成员只接既有互斥求和、区间并集或最大记录回退；后者保持重叠未消解的下界，不改成包络或成员原始和。工具公开副本恢复计时，原生排序、Score、链上选举及背景有效归因零保持。只读的 `rank_value_caliber=native_duration` 标记随观测→投影→成文上下文/折叠说明传递，解决同值异尺误标，不进入硬门。成文上下文保留原家族记录数、最大值及折叠口径，不把记录数称物理次数；未标定的旧毫秒量只称已发布值，不能仅凭单位说成实测。未知生产者、组合指数、计数、算力供给权重、文件 IO 建议、blocking 包络等不走此恢复车道，原问题留账，不以这一闭集证明所有背景指标都是实测。
 
