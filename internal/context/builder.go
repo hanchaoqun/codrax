@@ -1432,9 +1432,10 @@ func perfTriageBundleForPrompt(ac *types.AgentContext) *types.PerfBundle {
 				continue
 			}
 			projected.Observations = append(projected.Observations, types.PerfObservation{
-				Authority: obs.Authority,
-				LineStart: obs.LineStart,
-				LineEnd:   obs.LineEnd,
+				Authority:   obs.Authority,
+				LineStart:   obs.LineStart,
+				LineEnd:     obs.LineEnd,
+				SourceScope: obs.SourceScope,
 			})
 		}
 	}
@@ -4715,7 +4716,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 		fmt.Fprintf(&b, "**Trace observations** (%d):\n", len(bundle.Observations))
 		for _, obs := range bundle.Observations {
 			if obs.IsNavigationOnly() {
-				b.WriteString("  ⚠ Non-validator entries are model-extracted navigation locators. Their free-form subject, summary, evidence, and tags are deliberately withheld here; inspect the referenced raw trace region and use deterministic trace tools for numeric, scheduler-class, mechanism, and causal claims.\n")
+				b.WriteString("  ⚠ Non-validator entries are model-extracted navigation locators. Their free-form subject, summary, evidence, tags, and unverified numeric timings are deliberately withheld here; inspect the referenced raw trace region and use deterministic trace tools for numeric, scheduler-class, mechanism, and causal claims.\n")
 				break
 			}
 		}
@@ -4737,15 +4738,9 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 						fmt.Fprintf(&b, " candidate_trace_line=%d", obs.LineStart)
 					}
 				}
-				if obs.StartTsMs > 0 {
-					fmt.Fprintf(&b, " candidate_start_ts_ms=%.3f", obs.StartTsMs)
-				}
-				if obs.EndTsMs > 0 {
-					fmt.Fprintf(&b, " candidate_end_ts_ms=%.3f", obs.EndTsMs)
-				}
-				if obs.DurationMs > 0 {
-					fmt.Fprintf(&b, " candidate_duration_ms=%.3f", obs.DurationMs)
-				}
+				// A model-supplied numeric locator may have the wrong unit or
+				// pairing. Preserve it in the audit bundle, not as a query seed;
+				// validated tools recover timing from the source-local rows.
 				b.WriteString("\n")
 				continue
 			}

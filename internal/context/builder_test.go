@@ -4566,9 +4566,7 @@ func TestFormatPerfTriageStructured_LabelsModelObservationAuthority(t *testing.T
 		"authority=pretriage_model_extraction",
 		"model-extracted navigation locators",
 		"candidate_trace_lines=7-9",
-		"candidate_start_ts_ms=100.000",
-		"candidate_end_ts_ms=108.000",
-		"candidate_duration_ms=8.000",
+		"unverified numeric timings are deliberately withheld",
 		"expose only candidate locators",
 	} {
 		if !strings.Contains(got, want) {
@@ -4580,6 +4578,9 @@ func TestFormatPerfTriageStructured_LabelsModelObservationAuthority(t *testing.T
 		"estimated mechanism",
 		"model-authored causal sentence",
 		"model-authored-tag",
+		"candidate_start_ts_ms=",
+		"candidate_end_ts_ms=",
+		"candidate_duration_ms=",
 	} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("navigation-only model semantics leaked into downstream prompt as %q:\n%s", forbidden, got)

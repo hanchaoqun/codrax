@@ -4722,6 +4722,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "event_field_filters=%s\n", filters)
 	}
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%s..%s seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), traceQueryDisplaySeconds(result.TimeStart), traceQueryDisplaySeconds(result.TimeEnd))
+	writeTraceMarkerQueryNavigation(&b, result)
 	if coverage := result.EventSearchCoverage; coverage != nil {
 		scopeDurationMs := 0.0
 		if coverage.ScopeTimeEnd >= coverage.ScopeTimeStart &&
