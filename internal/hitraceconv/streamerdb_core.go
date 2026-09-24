@@ -760,57 +760,14 @@ func (tdb *traceDB) loadArgsets(ctx context.Context) (traceDBArgsetIndex, []Trac
 	if !argsCoverage.Found || !dictCoverage.Found || len(argsCoverage.ColumnsMissing) > 0 || len(dictCoverage.ColumnsMissing) > 0 {
 		return out, coverage, nil
 	}
-	dict := map[int64]string{}
-	dictInvalid := map[int64]bool{}
-	// data_dict and args are logical sets.  Their correctness cannot depend on
-	// SQLite's optional rowid (WITHOUT ROWID is a valid schema variant), and all
-	// duplicate typed keys are poisoned below regardless of scan order.
-	dictRows, err := tdb.db.QueryContext(ctx, `SELECT id, data FROM data_dict ORDER BY id, data`)
+	refs, err := tdb.argDictionaryReferences(ctx, dataTypes)
 	if err != nil {
 		return out, coverage, err
 	}
-	invalidDictRows := 0
-	for dictRows.Next() {
-		var idRaw, dataRaw any
-		if err := dictRows.Scan(&idRaw, &dataRaw); err != nil {
-			_ = dictRows.Close()
-			return out, coverage, err
-		}
-		id, idOK := traceDBStrictSQLiteInt(idRaw)
-		data, dataOK := traceDBStrictArgText(dataRaw, true)
-		if !idOK || id < 0 || !dataOK {
-			invalidDictRows++
-			if idOK && id >= 0 {
-				dictInvalid[id] = true
-				delete(dict, id)
-			}
-			continue
-		}
-		if dictInvalid[id] {
-			invalidDictRows++
-			continue
-		}
-		if _, duplicate := dict[id]; duplicate {
-			dictInvalid[id] = true
-			delete(dict, id)
-			invalidDictRows++
-			continue
-		}
-		if !dictInvalid[id] {
-			dict[id] = data
-		}
-	}
-	if err := dictRows.Err(); err != nil {
-		_ = dictRows.Close()
+	dict, dictInvalid, err := tdb.loadArgDictionary(ctx, refs, &dictCoverage)
+	if err != nil {
 		return out, coverage, err
 	}
-	if err := dictRows.Close(); err != nil {
-		return out, coverage, err
-	}
-	if invalidDictRows > 0 {
-		dictCoverage.Skipped = fmt.Sprintf("%d data_dict row(s) rejected: invalid or duplicate typed identity", invalidDictRows)
-	}
-	dictCoverage.RowsEmitted = len(dict)
 	rows, err := tdb.db.QueryContext(ctx, `SELECT argset, key, datatype, value FROM args ORDER BY argset, key, datatype, value`)
 	if err != nil {
 		return out, coverage, err

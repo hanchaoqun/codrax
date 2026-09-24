@@ -1,0 +1,31 @@
+{
+  "purpose": "Independent human oracle; only capture.data is attached to the model.",
+  "input_kind": "closed_self_contained_sqlite",
+  "window_seconds": [1.0, 1.08],
+  "source_clock": "trace_seconds, SQLite timestamps in nanoseconds",
+  "process": {"pid": 27599, "name": "DocumentApp"},
+  "startup_stages": [
+    {"row": 2, "start_seconds": 1.01, "end_seconds": 1.018, "duration_ms": 8, "stored_name_reference": 0, "name": "BOOTSTRAP", "published_label": "AppStartup:BOOTSTRAP"},
+    {"row": 3, "start_seconds": 1.022, "end_seconds": 1.026, "duration_ms": 4, "stored_name_reference": null, "name": null, "published_label": "AppStartup:startup", "name_status": "null_reference"},
+    {"row": 4, "start_seconds": 1.03, "end_seconds": 1.034, "duration_ms": 4, "stored_name_reference": 50, "name": null, "published_label": "AppStartup:startup", "name_status": "duplicate_dictionary_identity"},
+    {"row": 5, "start_seconds": 1.04, "end_seconds": 1.045, "duration_ms": 5, "stored_name_reference": 5, "name": "LoadPreferences", "published_label": "AppStartup:LoadPreferences"}
+  ],
+  "semantic_system_events": [
+    {"row": 2, "seconds": 1.012, "domain": "APP_LAUNCH", "name": "STAGE_READY", "contents": "stage=bootstrap status=ok"},
+    {"row": 3, "seconds": 1.046, "domain": "APP_LAUNCH", "name": "UI_READY", "contents": "scene=document status=ok"},
+    {"row": 6, "seconds": 1.058, "domain": "APP_LAUNCH", "name": "BOOTSTRAP", "contents": "stage=bootstrap status=ready"}
+  ],
+  "unresolved_system_event_rows": [
+    {"row": 4, "seconds": 1.05, "domain_reference": null, "event_reference": 8, "domain": null, "name": "STAGE_READY", "contents": "stage=repair status=pending", "reason": "domain_id_null_reference"},
+    {"row": 5, "seconds": 1.052, "domain_reference": 9, "event_reference": 50, "domain": "APP_LAUNCH", "name": null, "contents": "stage=draw status=pending", "reason": "event_name_id_unresolved_reference"}
+  ],
+  "expected_counts": {"startup_stages_in_window": 4, "resolved_startup_names": 2, "system_event_rows_in_window": 5, "semantic_system_events_in_window": 3, "unresolved_system_event_rows_in_window": 2},
+  "extended_dictionary_coverage": {"rows_read": 144, "rows_emitted": 136, "invalid_id": 3, "invalid_value": 1, "duplicate_id": 2},
+  "acceptance": [
+    "Startup timing remains available for both unresolved names; startup is a fallback label, not a recovered business name.",
+    "The three semantic system events preserve exact domain, name, content and timestamps; no ambiguous dictionary candidate becomes a known name.",
+    "The two unresolved raw system rows remain in SQL fidelity; a response may report their known fields and missing identity explicitly, but must not count them as resolved semantic events or claim no such records exist.",
+    "Before/after-window rows and unrelated dictionary entries are not window observations.",
+    "Stages and event occurrence do not prove a response root cause or add scheduler/wakeup authority."
+  ]
+}

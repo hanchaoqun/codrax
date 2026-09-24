@@ -235,12 +235,26 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 }
 
 func (tdb *traceDB) loadDataDict(ctx context.Context) (out map[int64]string, coverage TraceDBCoverage, err error) {
+	refs, err := tdb.extendedDictionaryReferences(ctx)
+	if err != nil {
+		return nil, TraceDBCoverage{Family: "resolver", Table: "data_dict", Error: err.Error()}, err
+	}
+	return tdb.loadReferencedDataDict(ctx, refs)
+}
+
+func (tdb *traceDB) loadReferencedDataDict(ctx context.Context, refs map[int64]bool) (out map[int64]string, coverage TraceDBCoverage, err error) {
 	coverage, err = tdb.inspectCoverage(ctx, "resolver", "data_dict", []string{"id", "data"})
 	coverage.FieldSources = map[string]string{
 		"dictionary_resolution": "raw SQLite INTEGER/TEXT storage classes; unique integer keys only; malformed rows and duplicate keys are rejected locally",
+		"dictionary_retention":  "all physical rows audited; only actual INTEGER AppStartup/HiSys references retained; global valid/rejected counts remain independent of retained names",
 	}
 	out = map[int64]string{}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
+		return out, coverage, err
+	}
+	valid, duplicates, err := tdb.sharedDictionaryPopulation(ctx)
+	if err != nil {
+		coverage.Error = err.Error()
 		return out, coverage, err
 	}
 	rows, err := tdb.db.QueryContext(ctx, "SELECT id, data FROM data_dict")
@@ -256,7 +270,13 @@ func (tdb *traceDB) loadDataDict(ctx context.Context) (out map[int64]string, cov
 	}()
 	seen := map[int64]bool{}
 	skipped := map[string]int{}
+	if duplicates > 0 {
+		skipped["duplicate_id"] = duplicates
+	}
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return out, coverage, err
+		}
 		var idRaw, dataRaw any
 		if err = rows.Scan(&idRaw, &dataRaw); err != nil {
 			return out, coverage, err
@@ -273,8 +293,10 @@ func (tdb *traceDB) loadDataDict(ctx context.Context) (out map[int64]string, cov
 		if !textOK {
 			skipped["invalid_value"]++
 		}
+		if !refs[id] {
+			continue
+		}
 		if seen[id] {
-			skipped["duplicate_id"]++
 			delete(out, id)
 			continue
 		}
@@ -286,8 +308,9 @@ func (tdb *traceDB) loadDataDict(ctx context.Context) (out map[int64]string, cov
 		}
 	}
 	coverage.Skipped = traceDBCountSummary(skipped)
-	coverage.RowsEmitted = len(out)
-	return out, coverage, rows.Err()
+	coverage.RowsEmitted = valid
+	coverage.Metrics = traceDBDictionaryRetentionMetrics(refs, len(out))
+	return out, coverage, traceDBJoinPreservingSingle(rows.Err(), ctx.Err())
 }
 
 type traceDBSyscallRow struct {

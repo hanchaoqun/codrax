@@ -1,0 +1,11 @@
+ID="trace_existing_sqlite_dictionary"
+NAME="closed SQLite trace — startup stages and system event identities"
+QUESTION="请把这份采集数据库里 1.000 到 1.080 秒的启动过程整理成一张表，列出各阶段的名称、起止时刻和耗时；再列出同一窗口的系统事件域、事件名和内容。"
+HTRACE_FILE="eval/fixtures/hmosperf_referenced_dictionary/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="BOOTSTRAP LoadPreferences APP_LAUNCH STAGE_READY UI_READY"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])8([.]0+)?[[:space:]*]*(ms|毫秒)
+(^|[^0-9])5([.]0+)?[[:space:]*]*(ms|毫秒)
+(缺失|未知|不确定|未解析|无法解析|无法确定|不能确定|冲突|重复|空值)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
