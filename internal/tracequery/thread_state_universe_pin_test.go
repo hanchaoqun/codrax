@@ -790,6 +790,11 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"trace_span_scheduler.go:traceSpanSchedulerTimeline": "unknown#1",
 	// S-state IO refines the sleep lane; it never adds a second duration.
 	"trace_marker_tree_states.go:owner": "s_sleep#1",
+	// HMC-08.4 member witnesses add two precise Runnable comparisons:
+	// a retained sched_switch must actually open R/R+ for this TID, and a
+	// checkpoint must still be Runnable. These publish endpoint provenance
+	// only; they do not classify states or change the accepted interval census.
+	"scheduler_concurrency_collect.go:runnable": "runnable#2",
 }
 
 func TestThreadStateComparisonConsumerCoverage(t *testing.T) {

@@ -643,7 +643,16 @@ func renderResultDetail(res *tracequery.Result, emit func(string)) {
 }
 
 func renderNonEventResultDetail(res *tracequery.Result, emit func(string)) {
-	renderResultDetailWithPolicy(res, emit, &nonEventDetailPolicy)
+	var pending []deferredDetail
+	policy := nonEventDetailPolicy
+	policy.deferredQueue = &pending
+	renderResultDetailWithPolicy(res, emit, &policy)
+	// Retain every deferred line and its original source path/header. Only
+	// scheduling changes; the body sink still applies/counts the same cap.
+	policy.deferredQueue = nil
+	for _, item := range pending {
+		walkDetailWithPolicy(item.value, item.path, item.emit, item.depth, &policy)
+	}
 }
 
 func renderResultDetailWithPolicy(res *tracequery.Result, emit func(string), policy *detailRenderPolicy) {
@@ -815,6 +824,10 @@ func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string),
 			childPath := path + "." + jsonTagName(field)
 			if field.Anonymous {
 				childPath = path
+			}
+			if policy != nil && policy.deferredQueue != nil && policy.deferredBulk[t][field.Name] {
+				*policy.deferredQueue = append(*policy.deferredQueue, deferredDetail{value: fv, path: childPath, emit: emit, depth: depth + 1})
+				continue
 			}
 			walkDetailWithPolicy(fv, childPath, emit, depth+1, policy)
 		}

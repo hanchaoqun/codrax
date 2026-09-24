@@ -20,6 +20,17 @@ import (
 type detailRenderPolicy struct {
 	skipped      map[reflect.Type]map[string]bool
 	deferredBulk map[reflect.Type]map[string]bool
+	// Per-render work queue, never shared by the package-level registry. Bulk
+	// must follow ordinary detail across the entire result, not merely across
+	// its immediate siblings (a WindowStats can precede RootCauseRank).
+	deferredQueue *[]deferredDetail
+}
+
+type deferredDetail struct {
+	value reflect.Value
+	path  string
+	emit  func(string)
+	depth int
 }
 
 var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[string]bool{
