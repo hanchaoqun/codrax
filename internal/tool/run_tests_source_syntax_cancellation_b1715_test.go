@@ -244,17 +244,12 @@ func TestB1715SourceCompileConfidenceRequiresCompletedCleanCommand(t *testing.T)
 
 func TestB1715SourceSyntaxPythonPreparationCancellation(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("controlled Python candidate fixture uses POSIX shell")
+		t.Skip("controlled Python candidate fixture uses POSIX executable aliases")
 	}
-	root, bin := t.TempDir(), t.TempDir()
+	captureControlledProcessFailureDiagnostics(t)
+	root := t.TempDir()
 	started, finished, later := filepath.Join(root, "python-preparation-ready"), filepath.Join(root, "python-preparation-finished"), filepath.Join(root, "later-python-candidate")
-	first := "#!/bin/sh\nprintf ready > " + shellQuoteWord(started) + "\n/bin/sleep 5\nprintf finished > " + shellQuoteWord(finished) + "\nexit 1\n"
-	second := "#!/bin/sh\nprintf started > " + shellQuoteWord(later) + "\nexit 0\n"
-	for binary, body := range map[string]string{"python3": first, "python": second} {
-		if err := os.WriteFile(filepath.Join(bin, binary), []byte(body), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
+	bin := installControlledProcessFixture(t, "python_preparation", root, "python3", "python")
 	t.Setenv("PATH", bin)
 	path := filepath.Join(root, "source.py")
 	if err := os.WriteFile(path, []byte("value = 1\n"), 0o600); err != nil {
@@ -264,11 +259,17 @@ func TestB1715SourceSyntaxPythonPreparationCancellation(t *testing.T) {
 	defer cancel()
 	canceled := b1715DriftCancelAfterFile(started, cancel)
 	ctx := &types.BusContext{Ctx: parent, RepoRoot: root, MainRepoRoot: root}
-	report, _ := runPyCompileFallback(ctx, "python-preparation", root, []string{path})
+	executionStartedAt := time.Now()
+	report, output := runPyCompileFallback(ctx, "python-preparation", root, []string{path})
 	returnedAt := time.Now()
 	receipt := <-canceled
 	if receipt.Err != nil {
-		t.Fatal(receipt.Err)
+		encodedReport, _ := json.Marshal(report)
+		_, startedErr := os.Stat(started)
+		_, finishedErr := os.Stat(finished)
+		_, laterErr := os.Stat(later)
+		t.Fatalf("%v; provider_returned_after=%v returned_before_cancel=%v markers(started=%v finished=%v later=%v) output=%q report=%s", receipt.Err,
+			returnedAt.Sub(executionStartedAt), returnedAt.Before(receipt.CanceledAt), startedErr, finishedErr, laterErr, output, encodedReport)
 	}
 	if receipt.CanceledAt.IsZero() || returnedAt.Before(receipt.CanceledAt) || returnedAt.Sub(receipt.CanceledAt) >= 4*time.Second {
 		t.Errorf("Python preparation ignored caller cancellation: cancel_to_return=%v", returnedAt.Sub(receipt.CanceledAt))

@@ -279,8 +279,10 @@ func TestRunTestsUncoveredChangedPathStillRunsTheLockedWitnessForAPassingSeat(t 
 // row stays disclosed with the infra phrase, and the early timeout exit's
 // summary names BOTH audit lanes through the single install choke point.
 func TestRunTestsTimeoutExitDisclosesInfraDowngradedLockfileAndUntrackedOutput(t *testing.T) {
+	captureControlledProcessFailureDiagnostics(t)
 	root := driftRepoWithFiles(t, rustFixtureFiles(nil))
-	installFakeCargo(t, "printf 'v2 refreshed by cargo\\n' > Cargo.lock\nprintf 'junk\\n' > junk.out\nsleep 8 </dev/null >/dev/null 2>&1\n")
+	bin := installControlledProcessFixture(t, "cargo_timeout", root, "cargo")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var calls []verificationLockedReverifyRequest
 	stubLockedReverify(t, verificationLockedReverifyResult{ExitCode: 101}, &calls)
 	result, report := runRustFixture(t, root, []string{"src/lib.rs"}, `{"timeout_seconds": 2}`)
