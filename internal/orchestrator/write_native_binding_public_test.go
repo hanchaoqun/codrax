@@ -20,8 +20,8 @@ const nativeBindingPublicSource = "packages/value/value.py"
 const nativeBindingPublicTest = "packages/value/tests/test_value.py"
 const nativeBindingPublicContract = "reject-fraction"
 
-// This is an honest-unverified baseline for the still-unimplemented read-only
-// native-assertion binding lane, not a successful follow-up implementation.
+// This is an honest-unverified baseline when no native assertion declaration
+// was supplied, not a successful authorized follow-up registration.
 // Only model choices are scripted: Run, public tools, git and Python create the
 // source plan, applied worktree, native assertions and changed-target receipt.
 // The controller requests honest unverified completion; this does not claim to
@@ -166,9 +166,9 @@ class CoerceTest(unittest.TestCase):
 				if err := json.Unmarshal(raw, &firstReport); err != nil {
 					t.Fatal(err)
 				}
-				// The current public source-free shape still rejects native
-				// declarations. Preserve this negative control until a separate
-				// controller-authorized shape is implemented; never forge a grant.
+				// A source-free declaration without a current controller grant
+				// remains forbidden even though an authorized registration lane
+				// exists. Never forge that grant for this negative control.
 				before, _ := json.Marshal([]any{ctx.Mutable.ChangePlan(), ctx.Mutable.ChangeReport()})
 				p := map[string]any{"summary": "Bind the unchanged native assertion without edits.", "changes": []any{},
 					"project_test_observations": []types.ProjectTestObservation{{ID: "existing-rejection", TestPath: nativeBindingPublicTest,
@@ -176,12 +176,17 @@ class CoerceTest(unittest.TestCase):
 				raw, _ = json.Marshal(p)
 				planCtx := o.busCtx.ShallowClone()
 				planCtx.PipelineStage = types.StagePlan
+				if planCtx.Mutable.NativeTestRegistrationAuthorization() != nil {
+					t.Fatal("negative control unexpectedly has registration authority")
+				}
 				for _, emit := range []func(*types.BusContext, json.RawMessage) (types.ToolResult, error){(&tool.EmitChangePlan{}).Execute, (&tool.EmitPlanSkeleton{}).Execute} {
 					rejected, err := emit(planCtx, raw)
-					if err != nil || rejected.Success || !strings.Contains(rejected.Summary, "project_test_observations cannot be carried by a source-free sentinel plan") {
+					repair, ok := types.PlanRepairPackFromToolResult(rejected)
+					if err != nil || rejected.Success || !ok || repair.ReasonCode != "project_test_observation_without_changes" ||
+						len(repair.FailingFieldPaths) != 1 || repair.FailingFieldPaths[0] != "$.project_test_observations" {
 						t.Fatalf("ungranted read-only binding boundary changed: %v %+v", err, rejected)
 					}
-					t.Logf("UNIMPLEMENTED_NATIVE_BINDING_CONTROL tool=%s summary=%s", rejected.ToolName, rejected.Summary)
+					t.Logf("UNAUTHORIZED_NATIVE_BINDING_CONTROL tool=%s summary=%s", rejected.ToolName, rejected.Summary)
 				}
 				after, _ := json.Marshal([]any{ctx.Mutable.ChangePlan(), ctx.Mutable.ChangeReport()})
 				if !bytes.Equal(before, after) {
