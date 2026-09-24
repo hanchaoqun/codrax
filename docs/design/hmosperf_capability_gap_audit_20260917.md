@@ -4286,3 +4286,73 @@ tool除四项共享教学演进pin外，还有真实摘要容量回归：每行�
 8032末版make正式exit0，revision`96210fb0d5fa-dirty`、build time`2026-09-24T14:05:55Z`，日志`/tmp/codrax-hmc183-sealed-build-20260924.log`。dirty仅为本批架构/审计/任务文档，构建时Go已提交冻结；真实双例仍为e15快照，后续摘要修复没有追加live，不宣称末版模型效果已经生产验证。
 
 本批实现三分片：`abde211d2`共享字典、`e15b10751`累计状态端点交接、`96210fb0d`摘要容量与兼容回归闭环。96891 fetch正式exit0，本地3 ahead/0 behind；72896普通push正式exit0，main从`a617ef17d`推进到`96210fb0d`、远端0/0，无强推。架构、任务入口和机器/人工审计合并为一笔文档提交。最终逐唯一ID复算79=15完整稳定任务+64开放、重复0（51待实施/7部分实施/2待验收/3验收中/1持续）。本批2条可用子能力及摘要集成缺陷完成实现验证并已推送，父项未新增销账；全局5项待验收/验收中、本批2份完整答案人工FAIL分列，不把二者当同一计数。下一批按§183.7双轨执行，名称身份丢失等系统缺口保持提升后的优先级。
+
+## 184. 压缩SQLite默认接入与源码义务适用域（HMC-17.7 / 01.3 / 16.4）
+
+### 184.1 起点、参考与退出条件
+
+开工为干净`cc9bfd3ff`，55481 fetch正式exit0、0 ahead/0 behind。79唯一任务=15完整稳定交付+64开放、重复0，51待实施/7部分实施/2待验收/3验收中/1持续；旧人工未通过原证据全部保留。两轨按§183.7执行，不把后续身份/时钟/配对等缺口混成一次大改。
+
+参考`server.py:611`已有数据库直查避免不必要转换，`core/preprocess/perf_calltree_ops.py:103–116`按消费对象关联信息。这一批借鉴输入准备与实际查询分离、复用已有数据库语义路径的设计意图；参考本身不支持gzip SQLite，不照搬`.db`后缀判定或`db_pool.py`在原件写索引/path+mtime缓存。本仓用内容识别、持有代次及封存只读视图，保CLI/REPL/typed路径所有入口的一致性。
+
+能力限定单member gzip中的自包含rollback-journal SQLite；出口复用全表保真、owner/clock/query-ready验证及实际Trace查询。正反矩阵涵盖非标准文件名、零起点/显式窗/完整尾部、内外双收据、默认/显式留存、原件不写、CRC/长度/尾垃圾/第二member/资源预算、损坏DB/WAL/无可查表、取消/源替换/输出竞争和事务清理。压缩时原DB是否活跃不能从此文件证明，不去寻找gzip头文件名或邻近旁件，不宣称WAL恢复/嵌套容器支持。
+
+缺陷起点是§183 SQLite真实分析route为optional却强制源码库存调查。系统自动合成profile有时也复制用户SourceQuotes，故“有引用文字”不是独立源码义务；新增系统声明来源，与精确typed源码请求共用适用域。模型wire不许提供来源标签，旧空来源不猜成模型提供；原句只验当前输入的字面引用，不作语义关键词门。正控保源码路径/位置/合同/精确库存/混合问题；负控保纯Trace表格和泛化枚举不强制README，source-only老行为不变。
+
+### 184.2 实施与定向验证
+
+新自然问题只问1.0–1.2秒内至少2帧的appid/帧数/原始纳秒边界/耗时与总数，不教用户背压缩、来源、根因或时钟防护。夹具是既有闭合SQLite的确定性gzip，不传README/SQL/oracle给模型；压缩SHA `364c52913f2347b383e5d7d89acf03402e97308c798038f653480412fd3bee5b`，解压原件SHA `f7fa073b0016e82ba8c5e1ad851802e64ead08bf828f4feb1947a8d9e5fb77a6`。固定另一例为原SQLite字典问题，不能因其已知未修身份问题改问句或追第三例。
+
+公开Prepare真实RED45628正式exit1，原因为`gzip_decoded_text_invalid`而非模型波动；日志`/tmp/codrax-hmc184-gzip-entry-red-20260924.log`保留。底层接通后37695正式exit0（traceinput1.078秒），公开入口、pending/warm同bytes同mtime替换、八项双收据破坏拒绝均通过；压缩原件与内层DB的摘要/代次不能互相代换。末版公共入口/race、冻结完整回归和双例人工审计合并登记于184.3/184.4/184.6/184.7，不能用局部测试提前销账。
+
+### 184.3 压缩能力分片与公开边界
+
+`a9ee3a948`复用同一个held内层视图/ledger/封存读取导出helper。原raw DB仍检查alias和canonical旁件；gzip只验证给定内层，不按头名字重找源文件。default Prepare保留实际消费的封存DB，Convert的无保留/保留/显式输出均有验收；显式builtin及ArchiveMember不偷换语义而明确拒绝。retained DB与主systrace/bundle共用无覆盖发布，晚竞争/取消/换代完整回滚，不删除别人文件。运输上限在完整解压时先执行，再分流SQL；一次额外有界封存复制并非零拷贝。根因/时钟/owner合同和600/300/600秒未改。
+
+底层RED76445正式exit1，GREEN93352正式exit0；完整定向35999正式exit0（hitraceconv2.956/tracebundle0.388秒），主矩阵race34591正式exit0（6.487/2.296秒），封存VFS/受管发布邻接race18349正式exit0（6.826秒）。原始日志为`/tmp/codrax-hmc184-gzip-sqlite-*-20260924.log`；新语义及全表fidelity字节与同DB直接接入逐字相等。新四输出模式和30项正反分支不替代整仓验证。
+
+64661 CLI/REPL/命名查询及冷补齐定向正式exit0；74693相同末版加原raw相邻race正式exit0：cmd2.928/repl2.662/tool5.576/traceinput4.226秒。日志`/tmp/codrax-hmc184-gzip-public{-race,}-20260924.log`。CLI有界预览后真实查询尾部，REPL实际alias正规化后加载且坏CRC重载不偷答旧附件；typed命名准备只做一次，不改sticky材料，原件同bytes同mtime换代使旧材料/查询无效。双收据破坏失败只清owned目录，保原件及先前输出。独立只读审核核查了完整运输先于SQL分流和回滚路径，未发现新增绕过。
+
+### 184.4 源码义务适用域分片
+
+`8da8d75b4`由系统区分model_provided/synthesized/legacy unknown，模型参数面不新增字段；strict JSON拒绝伪造declaration_origin。声明只是导航来源，必须再具独立精确源码结构才有当前源码必查义务。纯外部表格/枚举不自动补函数/类型库存；明确声明但低精度仍软导航，源码-only和独立精确源码保持原硬门。clone/fork/JSON保声明字段，浅复制数组串改已隔离，不以置信度识别合成来源。
+
+从producer、required-file到调度/完成/preemit共用当前运行上下文。独立审核抓到两项潜在回归并先修后冻：不能用全局inventory适用域跳过用户pin的无后缀Makefile；旧恢复IR无Perf但ctx已有附件/accepted bundle时，部分库存不能重新升主答案或阻塞。临时current-run policy视图复用ShallowClone，不污染原IR/观察/来源，候选角色证明闭合也走同一适用域，两个support成员仍完整保留。只在非L1 helper接入，runReadSchedulerLoop正文未改。业务窗口、链上根因/业务线索及原成员集完整性门不放宽；没有原始问句/回答关键词门。
+
+原病RED87838、首GREEN70703与扩围GREEN51693原log保留，分别`/tmp/codrax-hmc184-source-applicability-{red,scoped,neighbor2}.log`。恢复库存RED30327显示candidate-universe role还绕过共享适用域，不能单修调度后冒称闭环；修后16441三包定向正式exit0（types2.176/tool2.492/orchestrator2.180秒），日志`/tmp/codrax-hmc184-source-final-scoped{,2}.log`保原前后。70856 race虽exit0但早于最后ShallowClone，不能代签末版；41649独立末版相关race正式exit0，types28.778/tool9.103/orchestrator4.168/compiler4.512/criterion4.242秒，含copylocks，日志`/tmp/codrax-hmc184-source-final-race2.log`。
+
+14项新顶层测试涵盖公开EmitAnalysis→compiler→TraceQuery→complete→finalizer语义视图：显式1..14窗保留、真实runtime选择器仍有供给、SourceCount=0/RuntimeCount>0、source obligation none且无hardgate；缺member_set仍被原门拒绝。严格多窗/子题、旧精确代码锚、旧unknown/synthetic有效quote、原句缺失、source-only、合法soft navigation和模型伪造均有正反控。两旧Lensburn正控改为其原注释所称真实resolved source/独立精确锚，不用空bundle冒充明确源码义务；原断言保留。库存执行判断从满额文件抽为职责文件，旧文件行帽670降630，新文件显式登记，不靠提高全局上限。
+
+全部Go在`8da8d75b4`冻结；78432启动独立完整回归，61273 make正式exit0（revision`8da8d75b43bd-dirty`、build time`2026-09-24T14:53:35Z`，dirty仅本批文档）。真实恰好2例×1及末版完整退出收据另列，不用相关测试拼接冒充全仓或模型验收。
+
+### 184.5 下一批高ROI证据接缝（规划，不计交付）
+
+复读参考`core/preprocess/kill_ops.py:33–73`：先按明确采集格式恢复AppMS/AMS业务字段，缺项保None，原始事件族及进程标识用于后续组合。借鉴的是保语义和不确定性后再组合，不照搬其时间邻近合并或把退出原因自动当本次响应根因。当前`streamerdb_export_extended.go`有两个已证接缝：AppStartup缺名称仍给`startup`兜底并标同一Dictionary来源；HiSys缺名称跳过实际时刻的语义行，只保SQL文本。前者模型无法区分真名与占位，后者正确时间窗查询会漏原始人口。提高全局caveat行数不能从根本上恢复逐行身份。
+
+下一批能力优先05.1/17.7未知或不适合现有print语法的HiSys可逆语义载体，缺陷优先01.3/16.4事件语义字段及身份状态的完整交接，二者共用typed消费者身份但独立验收。保真实行时刻/原始字段/身份状态、NULL与合法0/重复键/坏引用区分；名字未知不删有合法时间的数据，不构造真实域名/事件名，不把保真载体时间当事件时间。已解析名字原路径和链上业务语义不回退，未知行只作观察，不能补owner/时钟/唤醒或因果证据。退出需闭合SQLite与二进制两入口、字段特殊字符及换行往返、范围/人口完整性、查询→摘要→结构化handoff→最终表格全部核对。具体SQL行准入仍按现有精确信号，不借此放宽AppStartup旧R1b-C或WAL边界。活跃/WAL一致快照与04.3启动实例仍在队列；旧write和08.3/08.4人工未通过不删除。
+
+§184实时审计进一步定位：原生`tracequery.Event`已有plugin_domain/plugin_event_name，`types.TraceEventSearchInventoryRow:81`与`tool/trace_query_event_search_inventory.go:73`却只有通用身份+Jank专臂；字典case原生ada83898.json给对，实际最终上下文log2074已丢这两项，终稿把comm当域。必须审所有已解析语义族及单位、已知/缺失、原始/合成来源在统一DTO→最终投递中的完整性，不再按每个业务错例往prompt或DTO孤立补两个字段。容量仍有界且披露省略，不能把raw完整可重解析当已交付结构化语义，也不准随行语义自动获得链上根因资格。
+
+独立只读横审确认该接缝还覆盖marker/counter、IO/Binder载荷和官方关系/区间元数据：查询已按业务字段检索，但最终Raw只有512字节预览，资源marker教学还要二次解析Raw；当前预算只特护Jank的values路径。建议由tracequery按固定字段描述符一次生成生产者拥有的有界typed语义投影，先贯通Plugin身份与marker/counter，再复用同一接缝承接其它族。不能直接镜像整个Event：IO/Binder私有接纳凭证用于区分真实零/缺失/非法，官方点关系不具区间权限，Plugin通用value也没有统一毫秒单位。原tracepoint名与业务事件名必须独立；大整数保十进制字符串，字段单位/身份角色由注册描述符决定，缺失不补零，超预算明示省略而非截断后冒充精确身份。Jank保兼容、禁止双份互相冲突的权威值。
+
+下一批共享退出矩阵：真实ParseLine/Run→tool→ledger→实际finalizer分别验证native HiSys/print格式、Raw预览外字段、超长身份披露、NULL/非法/合法0、marker动作/数值、超过2^53的纳秒、sector=0与缺sector、payload参与者与emitter、官方row=0和点关系权限；深复制/恢复/旧库存兼容及原source/window/filter/count全部不变。保32查询/32共享行/128KiB最终预算，语义投影只作supporting_coverage/direct_observation，不授根因、链成员、配对闭合或调度身份。依据`query.go:1869`、`tracequery/types.go:354/468`、`answer_document_trace_event_inventory.go:14/145`及其budget文件；这是下一批设计，不计本批交付。
+
+下一批固定双例候选：原`trace_existing_sqlite_dictionary`问题/失败现场保持，独立oracle核4阶段/5系统事件及两处未知阶段名；新增不同业务名/时间窗的“这份采集在2.000到2.080秒发生了哪些系统事件？请按时间列出所属域、事件名和内容，共有几条？”用已知/NULL/重复引用/合法0和特殊字符、长内容验证泛化。未知、边界、完整性和来源规则留独立验收，不加入问题教学；新用例尚未创建或运行，不混入本批固定2例。
+
+### 184.6 固定双例的机器与完整人工结果
+
+56103严格2并行×1正式exit0，gzip卡顿136秒机器PASS、原SQLite字典192秒机器FAIL，完整人工两份均FAIL。机器原判、全文、上下文、HTML/JSON/根因旁路与SHA见`eval/parallel_selected_summary_hmc_gzip_sqlite_source_20260924{,_manual_audit}.md`。这批无源码读取/README/repo_map/source_lens，两份都正确从optional/none完成，实测闭环源码误门，不把它扩大成全部答案通过。
+
+gzip两条完整数表全对：appid27599、2/4帧、1020000000→1040000000/1100000000→1160000000ns、20/60ms，真正压缩SQLite默认接入命中。完整FAIL是模型称毫秒和起止直接取自reported_duration_ns、无需换算；实际该字段为差值得到的20000000/60000000ns，需转换单位。最终上下文已有正确教学及完整两条typed数据，不属于缺供给。原误述和runtime_work_relation内部词面留16.4/18.4，不追加门/重跑；单次不能证明统计波动。后两次查询明确1..1.2窗，不能只看首轮payload筛选误判全程无窗。
+
+字典四段8/4/4/5ms正确，机器两项单位正则误报原样保留；真正失败是未知startup未披露、两条身份不全HiSys仍遗漏，及新发现的已解析域/名投递降精度。终稿还把SQL合成B/E说成应用主线程原生注入，没有证明。原生数据→模型供给接缝优先修，不以噪音keyword扫描正文拦截或替模型造结论。两份root sidecar都正常schema2空列表、trace_root_cause_contract_not_active，未把观测问题抬为根因；HTML纯表格/文字与原MD/JSON一致，未截图验收。600/300/600与活跃流不变。
+
+### 184.7 冻结完整复验与兼容负控
+
+78432首轮完整`go test -p 4 ./... -count=1`正式exit1：86测试包PASS、13无测试、1包FAIL，仅tool的旧`sqlite_is_not_trace_binary`子例。原日志`/tmp/codrax-hmc184-gzip-source-full-20260924.log`保留。该fixture是只有80字节的不完整SQLite头；新路径正确进入SQLite校验并拒绝，旧断言却仍要求“不支持gzip内SQLite”的错误词。生产行为未改，不能借更新断言放宽拒绝或证据权限。
+
+`0c4a33126`仅把该行命名为truncated_sqlite_header、期望改为精确complete SQLite header错误；原失败、零观察/RawRef、不得invalid_magic回退、二次准备不缓存、不借sticky附件、无输出与原件不变的断言全部保留。5473定向race正式exit0（tool5.245秒），同时覆盖原拒收矩阵、新gzip路径查询/冷补齐与raw SQLite相邻入口，日志`/tmp/codrax-hmc184-gzip-compat-race-20260924.log`。所有Go在此提交再次冻结，73282独立完整复验正式exit0：87测试包PASS、13无测试、零FAIL；日志`/tmp/codrax-hmc184-gzip-source-sealed-full-20260924.log`，agent94.167/hitraceconv158.058/orchestrator50.545/tool488.597/tracequery129.437/types39.093秒。固定双例仍用原8da8快照；后续仅测试断言变化，不追加第三例或改签原机器/人工结果。
+
+31810末版make正式exit0，revision`0c4a331264bb-dirty`、build time`2026-09-24T15:09:22Z`，日志`/tmp/codrax-hmc184-final-build-20260924.log`；dirty仍只有本批待汇总文档。29182 fetch正式exit0，3 ahead/0 behind，没有并发远端更新。稳定任务再次逐唯一ID复算79=15+64，重复0；5个待验收/验收中父项为03.2/04.2/08.3/08.4/18.2，与两份本批完整人工FAIL分别记账，不能重复相加或代销。
+
+97314普通push正式exit0，main由`cc9bfd3ff`推进至`0c4a33126`，三笔代码/兼容分片均已推送，核对0 ahead/0 behind，无强推。架构、任务入口、完整账本和机器/人工审计按一批汇总提交。最终完整稳定任务15/79、开放64（状态分布不变）；本批交付2条可用子能力，完整答案通过0/2，二者不互相替代。下一双轨按184.5继续，不删除既有人工FAIL或活跃/WAL等未完成边界。

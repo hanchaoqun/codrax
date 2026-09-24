@@ -281,6 +281,8 @@ type Config struct {
 
 Skill 是**纯配置**。Agent 加载它后，按 `Workflow` 决定 prompt、按 `ToolSuggestions` 决定允许的工具（`buildToolSchemas` 物理裁剪 LLM 看到的工具 schema）、按 `Prohibitions` 决定禁令。analyzer 的 `analysis-skill` 是个例外：它由 `BuildAnalysisSkill()` 程序化构建，字段枚举来自 `analysis_contract.go` 的单一真源表（`emit_analysis` schema 也从这里读枚举）。
 
+源码库存的结果形状不等于源码义务。`SourceInventoryProfile.DeclarationOrigin`由系统在模型参数通过验证后标为`model_provided`，自动补形状标为`synthesized`；不是模型可写的schema字段，旧持久化缺失保持未知，复制/恢复不猜来源。外部观察问题共用当前源码精度与附件上下文判断：仅有表格、枚举、原句引用或合成profile不能强制查源码；声明来源本身也不授精度，仍需独立typed源码范围/常量或底层类型/完整机械清单等结构证明。低精度模型声明可作软导航，源码-only、用户明确文件、精确源码及混合请求保原必查义务。调度、必读清单和完成门共享此适用域，历史恢复/大附件无triage亦然；不扫描问题或答案关键词，也不减少Trace窗口或自动补齐能力。
+
 ### 3.3 Tool 的两类签名
 
 | 类别 | 接口标记 | 读取 BusContext 字段 | 在哪些 Mode 下注册到 LLM |
@@ -1318,11 +1320,13 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验；闭合自包含SQLite按下述17.7路径接入，未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline/stdin仍是有界文本入口。
 
-**既有SQLite只读接入（HMC-17.7子能力）**：明确选择Trace的CLI/REPL附件、`trace_query`显式文件及已有typed artifact身份，根据文件内容接纳闭合、自包含的TraceStreamer SQLite，不依赖扩展名。`PrepareExistingTraceDB`不调用转换器、不在原DB创建索引或旁件；持有源代次，复制到私有封存快照，复用只读VFS、语义导出、全表保真及原owner/clock/query-ready合同。原文件路径、字节数、SHA-256及代次与外层准备器核对，不能从JSON收据恢复进程内权限。仅支持rollback-journal头模式且别名/规范路径均无`-wal`、`-shm`、`-journal`；拒绝活跃/WAL数据库，不忽略日志或尝试恢复。旁件检查保留在进程内材料中，在提交、缓存复用和查询前后重验。普通自然语言/fileHints中的任意`.data`路径不会因此获得Trace身份；非标准后缀系统补齐仍需typed准入或已有准备收据。gzip内SQLite和活跃数据库一致快照仍未开放。
+**既有SQLite只读接入（HMC-17.7子能力）**：明确选择Trace的CLI/REPL附件、`trace_query`显式文件及已有typed artifact身份，根据文件内容接纳闭合、自包含的TraceStreamer SQLite，不依赖扩展名。`PrepareExistingTraceDB`不调用转换器、不在原DB创建索引或旁件；持有源代次，复制到私有封存快照，复用只读VFS、语义导出、全表保真及原owner/clock/query-ready合同。原文件路径、字节数、SHA-256及代次与外层准备器核对，不能从JSON收据恢复进程内权限。仅支持rollback-journal头模式且别名/规范路径均无`-wal`、`-shm`、`-journal`；拒绝活跃/WAL数据库，不忽略日志或尝试恢复。旁件检查保留在进程内材料中，在提交、缓存复用和查询前后重验。普通自然语言/fileHints中的任意`.data`路径不会因此获得Trace身份；非标准后缀系统补齐仍需typed准入或已有准备收据。活跃数据库一致快照仍未开放。
+
+**gzip内SQLite（HMC-17.7）**：完整运输验证后的内层SQLite复用同一只读导出helper、held view和发布事务，不重开临时路径或启动第二个源事务，也不调用外部转换器。`ExistingTraceDBSource.Path`仍定位压缩原件，其Bytes/SHA256/Generation必须等于gzip的Decoded三元组；外层Result.Input与gzip Source三元组继续绑定压缩原件，准备器同时校验二者。默认Prepare保留实际消费的封存DB，显式Convert保留/不保留/指定DB路径使用原无覆盖发布与回滚规则。仅支持给定自包含rollback-journal表示，不能由此证明压缩前原库的生命周期；gzip头名字/mtime和旁邻文件不作为DB身份、旁件或时钟证据。外层压缩预算、内层解压预算和SQLite原有资源边界不变；失败不借别的输入或旧缓存。
 
 **按引用保留共享字典（HMC-17.7）**：core args键/文本值、AppStartup阶段名和HiSys事件域/名称先按实际SQLite INTEGER引用收集身份，再全量审计字典，仅在Go内保留引用所需值及其失效身份；引用只是驻留计划，不为消费者行或名称授予有效性。所有引用都处理，不按固定数量截断；未引用坏行和重复键仍计入全局诊断，`RowsEmitted`仍是全表有效身份数，另用`dictionary_references/dictionary_entries_retained`披露引用/驻留数。core保留非负ID/严格文本策略，共享扩展字典保留整个int64及TEXT策略，两者不互相套限；重复身份不能被后续合法值救回。游标关闭后才发下一查询，无N+1访问，不建原库索引或写原件。该边界约束Go字典驻留，不宣称整个转换常量内存：全表扫描、core既有排序、SQLite键分组及原256MiB堆预算仍存在。
 
-**gzip统一输入运输（HMC-17.6）**：默认准备经`hitraceconv.PrepareFile`与显式`ConvertFile`共用一次有界完整解压，持有冻结的内层视图，再由原provider解析。单member、CRC/ISIZE、尾部、大小/压缩比、源与解压代次全部验证；坏压缩、取消、源/输出换代及清理失败不作语义fallback。已知RMQ/OHOSPROF/PERFILE2/SIMPLEPERF/OpenHarmony raw按内层精确格式选路，嵌套容器、SQLite及未知二进制不递归猜解。`gzip_input_v1`只记录外层/内层字节摘要和代次，不进入capture_id、时钟映射或因果授权，不能代替嵌入HIPERF的Standalone/PerfTransform凭证。默认DB保留策略在内层分型后决定，显式ConvertFile选项不被重写。
+**gzip统一输入运输（HMC-17.6）**：默认准备经`hitraceconv.PrepareFile`与显式`ConvertFile`共用一次有界完整解压，持有冻结的内层视图，再由原provider解析。单member、CRC/ISIZE、尾部、大小/压缩比、源与解压代次全部验证；坏压缩、取消、源/输出换代及清理失败不作语义fallback。已知RMQ/OHOSPROF/PERFILE2/SIMPLEPERF/OpenHarmony raw及SQLite按内层精确格式选路，嵌套容器及未知二进制不递归猜解。`gzip_input_v1`只记录外层/内层字节摘要和代次，不进入capture_id、时钟映射或因果授权，不能代替嵌入HIPERF的Standalone/PerfTransform凭证。默认DB保留策略在内层分型后决定，显式ConvertFile选项不被重写。
 
 完整UTF-8文本经全量验证，无覆盖发布原文字节，返回独立`gzip_trace_text_v1`运输收据；不铸systrace生产者、事件数或因果凭证，不伪造bundle。CLI/REPL明确显示完整解压及事件尚未统计，附加分析再识别事件；显式DB/trace_streamer选项不静默忽略。行号只属于完整解压材料，预览不替代完整查询。独立`PrepareGzipTraceText`兼容入口复用同一解压原语。无主systrace的inventory、sample-only及retained-DB结果仍保持空systrace字段，物理bundle遵从指定输出目录；ZIP/gzip的外层路径不能伪装成内层raw perf文件，原始容器来源在独立provenance中保留。
 
