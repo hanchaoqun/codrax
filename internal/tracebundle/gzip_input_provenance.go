@@ -17,7 +17,7 @@ const (
 )
 
 // GzipInputProvenance records the outer source and the exact decoded bytes
-// admitted by a converter. It does not add capture members, clock authority,
+// admitted by a semantic reader. It does not add capture members, clock authority,
 // query capabilities, or paths to a consumer's physical source universe.
 // Generation strings are opaque producer observations, not identity proofs
 // that a consumer can authenticate or use to reopen either file.
@@ -67,7 +67,7 @@ func ValidateGzipInputProvenance(value *GzipInputProvenance) error {
 	// Keep the wire tokens here rather than depending on attachment, whose
 	// higher-level consumers may already depend on tracebundle.
 	switch value.DecodedFormat {
-	case "harmony_rmq", "openharmony_profiler", "linux_perf_data", "simpleperf_report_sample_proto", "openharmony_raw":
+	case "harmony_rmq", "openharmony_profiler", "linux_perf_data", "simpleperf_report_sample_proto", "openharmony_raw", "sqlite":
 	default:
 		return fmt.Errorf("decoded_format is outside the supported binary format set")
 	}

@@ -127,7 +127,6 @@ func TestGzipTextTransportRejectsMalformedWithoutPublication(t *testing.T) {
 		{"late-nul", gzipTextFixture(t, append(bytes.Repeat([]byte("# text\n"), 20000), 0), gzip.DefaultCompression), GzipTextCodeDecodedText},
 		{"utf8", gzipTextFixture(t, []byte("# text\n\xff"), gzip.DefaultCompression), GzipTextCodeDecodedText},
 		{"nested-gzip", gzipTextFixture(t, valid, gzip.DefaultCompression), GzipTextCodeDecodedText},
-		{"sqlite", gzipTextFixture(t, []byte("SQLite format 3\x00body"), gzip.DefaultCompression), GzipTextCodeDecodedText},
 		{"ratio", gzipTextFixture(t, bytes.Repeat([]byte("a"), 8<<20), gzip.BestCompression), GzipTextCodeResourceLimit},
 		{"optional-header-budget", gzipHiperfFixtureWithName(t, []byte("# text\n"), strings.Repeat("x", int(hiperfGzipMaxOptionalFieldBytes)+1)), GzipTextCodeResourceLimit},
 		{"line-limit", gzipTextFixture(t, bytes.Repeat([]byte("a"), attachment.TracePhysicalLineMaxBytes+1), gzip.NoCompression), GzipTextCodeDecodedText},
@@ -157,6 +156,7 @@ func TestGzipTextTransportBinaryFallbackRequiresWholeMemberIntegrity(t *testing.
 		{[]byte("OHOSPROF\x00payload"), "openharmony_profiler"},
 		{[]byte{0xce, 0x0a, 0, 0}, "harmony_rmq"},
 		{[]byte{0x49, 0xdf, 0, 0}, "openharmony_raw"},
+		{[]byte("SQLite format 3\x00body"), "sqlite"},
 	} {
 		t.Run(tc.format, func(t *testing.T) {
 			encoded := gzipTextFixture(t, tc.body, gzip.DefaultCompression)

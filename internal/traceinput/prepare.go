@@ -176,13 +176,6 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if err != nil {
 		return nil, &Error{Code: "conversion_failed", Path: source, Err: err}
 	}
-	if existingDB {
-		receipt := result.ExistingTraceDBSource
-		if receipt == nil || receipt.Path != source || receipt.Bytes != original.Size() ||
-			receipt.SHA256 != sourceSHA || receipt.Generation != original.CacheToken() {
-			return nil, fmt.Errorf("existing trace database receipt does not match the held source: %q", source)
-		}
-	}
 	transport := result.TextTransport
 	conversion := &result
 	if kind == string(attachment.BinaryTraceFormatGZIP) && (transport != nil) == (result.GzipInputProvenance != nil) {
@@ -202,6 +195,9 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 			gzip.SourceGeneration != original.CacheToken() || gzip.SourceBytes != original.Size() || gzip.SourceSHA256 != sourceSHA {
 			return nil, fmt.Errorf("gzip binary transport receipt does not match the held source: %q", source)
 		}
+	}
+	if err := validatePreparedSQLiteReceipt(kind, source, original.Size(), sourceSHA, original.CacheToken(), result); err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

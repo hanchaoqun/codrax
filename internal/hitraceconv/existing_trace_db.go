@@ -2,16 +2,17 @@ package hitraceconv
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 )
 
 // ExistingTraceDBSource binds the bytes consumed by the closed-database route.
 // It is input provenance, not an additional causal child or a clock authority.
+// For gzip input, Path is the outer source's display locator, while the other
+// fields identify the decoded SQLite payload and equal GzipInputProvenance's
+// Decoded* tuple. Result.Input* and GzipInputProvenance.Source* identify the
+// compressed source. This public record is not a process-local read authority.
 type ExistingTraceDBSource struct {
 	Path       string
 	Bytes      int64
@@ -39,6 +40,22 @@ func ValidateExistingTraceDBSource(ctx context.Context, path string) (err error)
 }
 
 func validateExistingTraceDBBoundary(ctx context.Context, source *conversionInputAuthority) error {
+	if err := validateExistingTraceDBHeader(ctx, source); err != nil {
+		return err
+	}
+	for _, path := range uniqueNonEmptyStrings([]string{source.requestedPath, source.CanonicalPath()}) {
+		for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+			if _, err := os.Lstat(path + suffix); err == nil {
+				return fmt.Errorf("%w: %s", errTraceStreamerDBAuxiliaryState, path+suffix)
+			} else if !os.IsNotExist(err) {
+				return fmt.Errorf("inspect existing trace DB auxiliary %s: %w", path+suffix, err)
+			}
+		}
+	}
+	return completeConversionInputStage(ctx, source, conversionInputStagePreCommit, nil)
+}
+
+func validateExistingTraceDBHeader(ctx context.Context, source conversionInputView) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -56,15 +73,6 @@ func validateExistingTraceDBBoundary(ctx context.Context, source *conversionInpu
 	// Do not ask SQLite to recover it, checkpoint it, or silently ignore a WAL.
 	if header[18] != 1 || header[19] != 1 {
 		return fmt.Errorf("existing trace DB requires rollback-journal header mode; WAL or unknown read/write modes are not supported")
-	}
-	for _, path := range uniqueNonEmptyStrings([]string{source.requestedPath, source.CanonicalPath()}) {
-		for _, suffix := range []string{"-wal", "-shm", "-journal"} {
-			if _, err := os.Lstat(path + suffix); err == nil {
-				return fmt.Errorf("%w: %s", errTraceStreamerDBAuxiliaryState, path+suffix)
-			} else if !os.IsNotExist(err) {
-				return fmt.Errorf("inspect existing trace DB auxiliary %s: %w", path+suffix, err)
-			}
-		}
 	}
 	return completeConversionInputStage(ctx, source, conversionInputStagePreCommit, nil)
 }
@@ -106,60 +114,10 @@ func PrepareExistingTraceDB(ctx context.Context, opts Options) (result Result, e
 			return err
 		}
 		ledger.stagingRoot = anchor
-		staging, err := newRuntimePrivateConversionDir(anchor, "existing-db-*")
-		if err != nil {
-			return err
-		}
-		defer func() { workErr = traceDBJoinPreservingSingle(workErr, staging.FinalizeCleanup()) }()
-		start := progressStarted(opts, "existing_trace_db_snapshot", "preparing closed SQLite trace snapshot", source.DisplayPath(), output)
-		lease, err := newExternalToolInputLeaseWithProgress(ctx, source, staging, sealedTraceDBVirtualName, externalToolInputSnapshotOnly, nil)
-		if err != nil {
-			return err
-		}
-		sealed, err := sealExternalToolInputSnapshot(ctx, lease, staging)
-		if err != nil {
-			return err
-		}
-		defer func() { workErr = traceDBJoinPreservingSingle(workErr, sealed.Close()) }()
-		progressFinished(opts, "existing_trace_db_snapshot", "closed SQLite trace snapshot prepared", source.DisplayPath(), output, start, ProgressStatusComplete)
-		if err := validateExistingTraceDBBoundary(ctx, source); err != nil {
-			return err
-		}
-		hasher := sha256.New()
-		if _, err := copyCancellableRange(ctx, hasher, io.NewSectionReader(sealed, 0, sealed.Size()), nil); err != nil {
-			return err
-		}
-		start = progressStarted(opts, "existing_trace_db_export", "reading closed SQLite trace snapshot", source.DisplayPath(), output)
-		exported, err := exportTraceDBToSystraceFromSealedWithLedger(ctx, sealed, source.DisplayPath(), output, ledger)
-		if err != nil {
-			return err
-		}
-		if exported.Artifact.Trace == nil || !exported.Artifact.Trace.TraceQueryReady {
-			return fmt.Errorf("existing SQLite DB contains no query-ready trace rows under the supported schema, owner and clock contracts")
-		}
-		decision := newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameTraceStreamer), Options{TraceEngine: traceEngineTraceStreamer}, source.DisplayPath(), output)
-		decision, err = traceProviderPublished(decision, exported.Artifact, ledger)
-		if err != nil {
-			return err
-		}
-		decision.Caveat = "existing closed SQLite database normalized read-only; trace_streamer executable was not invoked"
-		result = Result{
-			InputPath: source.DisplayPath(), InputBytes: source.Size(), OutputPath: exported.Artifact.Path,
-			OutputBytes: exported.OutputBytes, EventsWritten: exported.EventsWritten,
-			FirstTimestampSec: exported.FirstTimestampSec, LastTimestampSec: exported.LastTimestampSec,
-			Artifacts: []Artifact{exported.Artifact}, TraceDecisions: []TraceProviderDecision{decision},
-			TraceDBCoverage: exported.Coverage, TraceCoverage: exported.TraceCoverage,
-			Caveats:               append([]string{decision.Caveat}, traceDBSemanticQualityCaveats(exported.Coverage)...),
-			ExistingTraceDBSource: &ExistingTraceDBSource{Path: source.DisplayPath(), Bytes: source.Size(), SHA256: hex.EncodeToString(hasher.Sum(nil)), Generation: source.identity.CacheToken()},
-		}
-		if err := finalizeResultTraceBundleWithLedger(ctx, source.DisplayPath(), output, &result, ledger); err != nil {
-			return err
-		}
-		progressFinished(opts, "existing_trace_db_export", "closed SQLite trace exported", source.DisplayPath(), output, start, ProgressStatusComplete)
-		if err := sealed.Validate(); err != nil {
-			return err
-		}
-		return validateExistingTraceDBBoundary(ctx, source)
+		result, err = prepareExistingTraceDBFromView(ctx, opts, source, output, "", ledger,
+			ExistingTraceDBSource{Path: source.DisplayPath(), Bytes: source.Size(), Generation: source.identity.CacheToken()},
+			func() error { return validateExistingTraceDBBoundary(ctx, source) })
+		return err
 	})
 	if err != nil {
 		return Result{}, err

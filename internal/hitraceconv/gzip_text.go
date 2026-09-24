@@ -243,8 +243,12 @@ func PrepareGzipTraceText(ctx context.Context, opts Options) (result GzipTextTra
 }
 
 // Only these exact capture magics are eligible for another semantic decoder.
-// Nested containers and SQLite deliberately remain terminal text rejections.
+// Nested containers remain terminal text rejections. SQLite is consumed only
+// by the separate sealed, self-contained database route, never a converter.
 func gzipTextDecodedBinaryFormat(prefix []byte) string {
+	if hasPrefixBytes(prefix, []byte("SQLite format 3\x00")) {
+		return "sqlite"
+	}
 	switch format := attachment.KnownBinaryTraceFormat(prefix); format {
 	case attachment.BinaryTraceFormatHarmonyRMQ, attachment.BinaryTraceFormatOHOSProfile, attachment.BinaryTraceFormatLinuxPerf:
 		return string(format)

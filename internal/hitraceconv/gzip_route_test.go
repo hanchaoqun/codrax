@@ -338,7 +338,7 @@ func TestGzipRouteMetadataCannotAdmitNestedOrUnrecognizedBinary(t *testing.T) {
 		name string
 		body []byte
 	}{
-		{"nested-gzip", nested}, {"sqlite", []byte("SQLite format 3\x00payload")}, {"zip", []byte("PK\x03\x04payload")}, {"driver", []byte("MZ\x00\xffpayload")},
+		{"nested-gzip", nested}, {"zip", []byte("PK\x03\x04payload")}, {"driver", []byte("MZ\x00\xffpayload")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, _ := gzipRouteCapture(t, tc.body, "legitimate-rmq.sys")

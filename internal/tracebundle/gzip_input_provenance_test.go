@@ -21,7 +21,7 @@ func TestGzipInputProvenanceAcceptsClosedFormatsAndInclusiveLimits(t *testing.T)
 	if err := ValidateGzipInputProvenance(nil); err != nil {
 		t.Fatal(err)
 	}
-	for _, format := range []string{"harmony_rmq", "openharmony_profiler", "linux_perf_data", "simpleperf_report_sample_proto", "openharmony_raw"} {
+	for _, format := range []string{"harmony_rmq", "openharmony_profiler", "linux_perf_data", "simpleperf_report_sample_proto", "openharmony_raw", "sqlite"} {
 		t.Run(format, func(t *testing.T) {
 			value := validGzipInputProvenanceForTest()
 			value.DecodedFormat = format
@@ -73,7 +73,7 @@ func TestGzipInputProvenanceRejectsClosedTupleDrift(t *testing.T) {
 		{"decoded generation invalid UTF8", func(v *GzipInputProvenance) { v.DecodedGeneration = "decoded\xff" }},
 		{"decoded generation large", func(v *GzipInputProvenance) { v.DecodedGeneration = strings.Repeat("x", gzipInputGenerationMaxBytes+1) }},
 	}
-	for _, format := range []string{"", "Linux_perf_data", "linux_perf_data ", "trace_text", "gzip", "zip", "sqlite", "gzip_perf_data"} {
+	for _, format := range []string{"", "Linux_perf_data", "linux_perf_data ", "trace_text", "gzip", "zip", "SQLite", "sqlite ", "gzip_perf_data"} {
 		format := format
 		tests = append(tests, struct {
 			name   string

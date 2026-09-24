@@ -257,6 +257,20 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			OutputBytes: transport.DecodedBytes, TextTransport: &transport,
 		}, nil)
 	}
+	if route.gzipProvenance != nil && route.gzipProvenance.DecodedFormat == "sqlite" {
+		if requestedTraceEngineMode(opts.TraceEngine) == traceEngineBuiltin {
+			return Result{}, fmt.Errorf("gzip SQLite input requires the existing read-only database route, not the builtin binary trace engine")
+		}
+		if err := preflightTracePublicationPaths(opts, input, output, true); err != nil {
+			return Result{}, err
+		}
+		p := route.gzipProvenance
+		converted, convertErr := prepareExistingTraceDBFromView(ctx, opts, inputView, output,
+			retainedTraceDBOutputPath(opts, input, output), ledger,
+			ExistingTraceDBSource{Path: input, Bytes: p.DecodedBytes, SHA256: p.DecodedSHA256, Generation: p.DecodedGeneration},
+			func() error { return validateExistingTraceDBHeader(ctx, inputView) })
+		return commit(converted, convertErr)
+	}
 	mode := requestedTraceEngineMode(opts.TraceEngine)
 	if directPerf {
 		directPlan, err := buildTraceProviderPlanWithInput(opts, false, true)

@@ -1,0 +1,13 @@
+ID="trace_gzip_sqlite_jank_inventory"
+NAME="compressed SQLite capture — natural jank inventory"
+QUESTION="请把这份压缩采集文件在 1.0 到 1.2 秒记录的卡顿中，达到至少2帧的全部列成表：appid、卡顿帧数、原始纳秒起止时间和毫秒耗时各是多少？共有几条？"
+HTRACE_FILE="eval/fixtures/hmosperf_gzip_sqlite/capture.transport"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="27599"
+EXPECT_PRIMARY_MATCHES_REGEX="1[,.]?020[,.]?000[,.]?000
+1[,.]?040[,.]?000[,.]?000
+1[,.]?100[,.]?000[,.]?000
+1[,.]?160[,.]?000[,.]?000
+(毫秒|ms)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
