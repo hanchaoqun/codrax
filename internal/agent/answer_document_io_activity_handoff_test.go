@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -43,6 +44,20 @@ func TestIOActivityActualFinalizerHandoffAndScope(t *testing.T) {
 		if !strings.Contains(prompt, selector) || !strings.Contains(prompt, table.Label) {
 			t.Fatalf("actual finalizer lost selector identity beyond data preview cap: %s", selector)
 		}
+		if table.View == types.RuntimeMeasurementSummary {
+			// Exercise the real finalizer message, not just the selectable roster.
+			// Six earlier paired groups used to exhaust the eight-group budget,
+			// leaving RQ/F2FS/MMC without any numbers despite a valid publication.
+			preview := runtimeMeasurementPreviewInPrompt(t, prompt, selector)
+			if !reflect.DeepEqual(preview.Columns, table.Columns) || !reflect.DeepEqual(preview.Rows, table.Rows) {
+				t.Fatalf("actual finalizer lost complete endpoint summary beyond early groups: %s / %+v", selector, preview)
+			}
+			for _, note := range table.Notes {
+				if !strings.Contains(prompt, note) {
+					t.Fatalf("numeric summary lost its population/unknown/ratio ruler: %s / %s", selector, note)
+				}
+			}
+		}
 	}
 	if activityTables != 24 {
 		t.Fatalf("expected 8 endpoint groups × 3 views, got %d", activityTables)
@@ -69,4 +84,27 @@ func TestIOActivityActualFinalizerHandoffAndScope(t *testing.T) {
 			t.Fatal("wider endpoint measurement borrowed into narrower requested window")
 		}
 	}
+}
+
+func runtimeMeasurementPreviewInPrompt(t *testing.T, prompt, selector string) struct {
+	Columns []string   `json:"columns"`
+	Rows    [][]string `json:"rows"`
+} {
+	t.Helper()
+	var out struct {
+		Columns []string   `json:"columns"`
+		Rows    [][]string `json:"rows"`
+	}
+	for _, line := range strings.Split(prompt, "\n") {
+		if !strings.HasPrefix(line, "- "+selector+" ") {
+			continue
+		}
+		_, data, ok := strings.Cut(line, "; preview=")
+		if !ok || json.Unmarshal([]byte(data), &out) != nil {
+			t.Fatalf("invalid actual preview line: %s", line)
+		}
+		return out
+	}
+	t.Fatalf("missing preview line for %s", selector)
+	return out
 }

@@ -27,7 +27,7 @@ func TestRuntimeMeasurementActualFinalizerHandoff(t *testing.T) {
 						t.Fatalf("selector missing from actual finalizer instruction: %s/%s", table.ObservationID, table.View)
 					}
 				}
-				for _, token := range []string{"Peak concurrent requests", "Starts inside query", "Actual start (s)", "0.998000", "1.012000", "preview_omitted_rows=", "No source evidence_items are needed", "Endpoint events", "Known bytes/s", "Size lower bound inclusive (B)", "additional selectable groups not previewed=1; selector roster groups omitted=0"} {
+				for _, token := range []string{"Peak concurrent requests", "Starts inside query", "Actual start (s)", "0.998000", "1.012000", "preview_omitted_rows=", "No source evidence_items are needed", "Endpoint events", "Known bytes/s", "Size lower bound inclusive (B)", "additional selectable groups not previewed=0; selector roster groups omitted=0"} {
 					if !strings.Contains(prompt, token) {
 						t.Errorf("same-population selector teaching/preview lost %q", token)
 					}
