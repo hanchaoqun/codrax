@@ -1,0 +1,14 @@
+# HMC-17.7: a real preconverted DB, not a converter stub or text renamed .db.
+ID="trace_existing_sqlite_jank_inventory"
+NAME="closed SQLite trace — default intake and exact jank marker inventory"
+QUESTION="只分析附加的采集数据库，不分析源码。请在 trace 的 [1.0, 1.2) 秒记录窗口内，找出所有卡顿帧数至少为2帧的 jank_event_sync，逐项给出 appid、卡顿帧数、原始纳秒起止时间和毫秒耗时，并说明总共几条。start_ts/end_ts与trace采用同一个时间基准，不需要时区转换。这里只要打点清单，不要把重叠业务活动或邻近调度信息说成卡顿根因，也不要按固定刷新率倒算这些打点的耗时。"
+HTRACE_FILE="eval/fixtures/hmosperf_existing_sqlite/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="27599"
+EXPECT_PRIMARY_MATCHES_REGEX="1[,.]?020[,.]?000[,.]?000
+1[,.]?040[,.]?000[,.]?000
+1[,.]?100[,.]?000[,.]?000
+1[,.]?160[,.]?000[,.]?000
+(毫秒|ms)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

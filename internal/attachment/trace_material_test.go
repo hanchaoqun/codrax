@@ -3,6 +3,7 @@ package attachment
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -104,5 +105,52 @@ func TestTraceMaterialCompleteTextFactoryIsExplicitAndExact(t *testing.T) {
 	var restored TraceMaterial
 	if err := json.Unmarshal(encoded, &restored); err != nil || restored.SelfContainedText() {
 		t.Fatalf("serialization retained authority: %s %v", encoded, err)
+	}
+}
+
+func TestTraceMaterialSourceCheckIsRevalidatedAndNotSerialized(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prepared.trace")
+	if err := os.WriteFile(path, []byte("trace text\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	id, err := filegeneration.FromPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := map[string]filegeneration.Identity{path: id}
+	preview := "# codrax-source: " + path + "\ntrace text\n"
+	failure := errors.New("source has new journal")
+	blocked, calls := false, 0
+	check := func(ctx context.Context) error {
+		calls++
+		if blocked {
+			return failure
+		}
+		return ctx.Err()
+	}
+	m, err := BindTraceMaterialWithSourceCheck(path, path, preview, bindings, check)
+	if err != nil || calls != 1 {
+		t.Fatalf("binding did not check source: %v calls=%d", err, calls)
+	}
+	if err := m.Validate(t.Context(), preview); err != nil || calls != 2 {
+		t.Fatalf("validation did not recheck: %v calls=%d", err, calls)
+	}
+	blocked = true
+	if err := m.Validate(t.Context(), preview); !errors.Is(err, failure) {
+		t.Fatalf("source failure lost: %v", err)
+	}
+	encoded, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored TraceMaterial
+	if err := json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if err := restored.Validate(t.Context(), preview); err == nil || restored.sourceCheck != nil {
+		t.Fatal("serialized fields restored source authority")
+	}
+	if _, err := BindTraceMaterialWithSourceCheck(path, path, preview, bindings, nil); err == nil {
+		t.Fatal("missing source guard admitted")
 	}
 }

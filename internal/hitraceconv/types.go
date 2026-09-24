@@ -338,25 +338,26 @@ type PerfClockAlignment struct {
 
 // Result summarizes a completed conversion.
 type Result struct {
-	InputPath           string
-	ArchiveProvenance   *TraceArchiveProvenance
-	GzipInputProvenance *tracebundle.GzipInputProvenance
-	TextTransport       *GzipTextTransportResult
-	OutputPath          string
-	BundlePath          string
-	Artifacts           []Artifact
-	ProviderDecisions   []PerfProviderDecision
-	TraceDecisions      []TraceProviderDecision
-	TraceDBCoverage     []TraceDBCoverage
-	TraceCoverage       []TraceDBCoverage
-	InputBytes          int64
-	OutputBytes         int64
-	EventsWritten       int
-	MissingFormatCount  int
-	UnknownEventCount   int
-	FirstTimestampSec   float64
-	LastTimestampSec    float64
-	Caveats             []string
+	InputPath             string
+	ExistingTraceDBSource *ExistingTraceDBSource
+	ArchiveProvenance     *TraceArchiveProvenance
+	GzipInputProvenance   *tracebundle.GzipInputProvenance
+	TextTransport         *GzipTextTransportResult
+	OutputPath            string
+	BundlePath            string
+	Artifacts             []Artifact
+	ProviderDecisions     []PerfProviderDecision
+	TraceDecisions        []TraceProviderDecision
+	TraceDBCoverage       []TraceDBCoverage
+	TraceCoverage         []TraceDBCoverage
+	InputBytes            int64
+	OutputBytes           int64
+	EventsWritten         int
+	MissingFormatCount    int
+	UnknownEventCount     int
+	FirstTimestampSec     float64
+	LastTimestampSec      float64
+	Caveats               []string
 }
 
 // DefaultOutputPath appends the fixed text-trace suffix to the source path.

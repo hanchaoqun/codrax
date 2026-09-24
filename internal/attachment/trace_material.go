@@ -21,6 +21,7 @@ type TraceMaterial struct {
 	preview           string
 	bindings          map[string]filegeneration.Identity
 	selfContainedText bool
+	sourceCheck       func(context.Context) error
 }
 
 // BindTraceMaterial consumes the generations captured by the input preparer.
@@ -28,6 +29,21 @@ type TraceMaterial struct {
 // here would bless a preview from a different generation. Copy the map so the
 // caller cannot mutate the receipt after publication.
 func BindTraceMaterial(sourcePath, queryPath, preview string, bindings map[string]filegeneration.Identity) (*TraceMaterial, error) {
+	return bindTraceMaterial(sourcePath, queryPath, preview, bindings, nil)
+}
+
+// BindTraceMaterialWithSourceCheck also retains a producer-owned, read-only
+// check for source state outside the main file generation (for example SQLite
+// journals). It is process-local, cannot be supplied by model JSON, and is
+// rechecked at commit and on every later use of the prepared material.
+func BindTraceMaterialWithSourceCheck(sourcePath, queryPath, preview string, bindings map[string]filegeneration.Identity, check func(context.Context) error) (*TraceMaterial, error) {
+	if check == nil {
+		return nil, fmt.Errorf("trace source check is required")
+	}
+	return bindTraceMaterial(sourcePath, queryPath, preview, bindings, check)
+}
+
+func bindTraceMaterial(sourcePath, queryPath, preview string, bindings map[string]filegeneration.Identity, check func(context.Context) error) (*TraceMaterial, error) {
 	for _, path := range []string{sourcePath, queryPath} {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 			return nil, fmt.Errorf("trace material requires a clean absolute path: %q", path)
@@ -48,7 +64,7 @@ func BindTraceMaterial(sourcePath, queryPath, preview string, bindings map[strin
 	if err := ValidateSingleTraceAttachmentProvenance(preview); err != nil {
 		return nil, err
 	}
-	m := &TraceMaterial{sourcePath: sourcePath, queryPath: queryPath, preview: preview, bindings: make(map[string]filegeneration.Identity, len(bindings))}
+	m := &TraceMaterial{sourcePath: sourcePath, queryPath: queryPath, preview: preview, bindings: make(map[string]filegeneration.Identity, len(bindings)), sourceCheck: check}
 	for path, id := range bindings {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path || !id.Initialized() || !id.Mode().IsRegular() {
 			return nil, fmt.Errorf("trace material invalid member generation for %q", path)
@@ -127,6 +143,11 @@ func (m *TraceMaterial) Validate(ctx context.Context, preview string) error {
 	}
 	if m == nil || m.queryPath == "" || len(m.bindings) == 0 || preview != m.preview {
 		return fmt.Errorf("trace attachment no longer matches its prepared material; attach the source again")
+	}
+	if m.sourceCheck != nil {
+		if err := m.sourceCheck(ctx); err != nil {
+			return fmt.Errorf("prepared trace source is no longer self-contained: %w", err)
+		}
 	}
 	paths := make([]string, 0, len(m.bindings))
 	for path := range m.bindings {

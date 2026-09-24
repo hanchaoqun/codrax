@@ -108,9 +108,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		return nil, err
 	}
 	kind, binary := binaryCandidate(probe)
-	if kind == string(attachment.BinaryTraceFormatSQLite) {
-		return nil, &Error{Code: "sqlite_export_required", Path: source, Err: fmt.Errorf("existing SQLite databases require an explicit text export; automatic database intake is not supported")}
-	}
+	existingDB := kind == string(attachment.BinaryTraceFormatSQLite)
 	bindings := map[string]filegeneration.Identity{source: original}
 	if !binary {
 		preview, complete, err := previewFromHeld(ctx, source, source, held, original, opts.PreviewBytes, "")
@@ -169,9 +167,21 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 		RuntimeAnchor: opts.RuntimeAnchor, RuntimeAnchorFallback: opts.RuntimeAnchorFallback,
 		Progress: opts.Progress,
 	}
-	result, err := convert(ctx, convertOptions)
+	var result hitraceconv.Result
+	if existingDB {
+		result, err = hitraceconv.PrepareExistingTraceDB(ctx, convertOptions)
+	} else {
+		result, err = convert(ctx, convertOptions)
+	}
 	if err != nil {
 		return nil, &Error{Code: "conversion_failed", Path: source, Err: err}
+	}
+	if existingDB {
+		receipt := result.ExistingTraceDBSource
+		if receipt == nil || receipt.Path != source || receipt.Bytes != original.Size() ||
+			receipt.SHA256 != sourceSHA || receipt.Generation != original.CacheToken() {
+			return nil, fmt.Errorf("existing trace database receipt does not match the held source: %q", source)
+		}
 	}
 	transport := result.TextTransport
 	conversion := &result
@@ -256,6 +266,11 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	}
 	if err := owned.validate(); err != nil {
 		return nil, err
+	}
+	if existingDB {
+		return attachment.BindTraceMaterialWithSourceCheck(source, queryPath, preview, bindings, func(checkCtx context.Context) error {
+			return hitraceconv.ValidateExistingTraceDBSource(checkCtx, source)
+		})
 	}
 	return bind(ctx, source, queryPath, preview, bindings, false)
 }
