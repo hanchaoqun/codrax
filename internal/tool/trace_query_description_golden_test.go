@@ -1,5 +1,19 @@
 package tool
 
+// EVOLUTION RECORD 2026-09-24 (HMC §183, state accounting): replace only
+// the existing shared TraceStateDrilldownWindowGuidance paragraph. Its existing
+// cumulative-measurement contract now distinguishes observed boundaries, open
+// tails and unknown closure, keeps per-state accounts separate, and forbids
+// treating accounted contributions as invented occurrence endpoints. This is
+// a deliberate meaning correction in the established teaching slot, not a new
+// view, dispatch rule or causal permission. Result-side metadata remains on the
+// wire/handoff surfaces; no separate mid-Description note-key tutorial is added.
+// A literal reverse-delta test recovers the entire pre-change golden SHA; the
+// SQLite/event-name, business-tree and IO historical hashes are all retained.
+// Native/public state-accounting and actual handoff tests weigh interpretation;
+// the fixed scheduler/SQLite live pair is not a matched h2/h3 dispatch A/B and
+// does not close that existing debt. Regenerate only via the ritual below.
+
 // EVOLUTION RECORD 2026-09-24 (HMC-17.7-C / IO event discovery): correct
 // only the existing input-preparation paragraph's obsolete manual-only SQLite
 // instruction: the same normal-analysis entry now admits closed, self-contained

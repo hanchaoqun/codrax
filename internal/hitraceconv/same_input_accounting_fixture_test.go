@@ -225,6 +225,29 @@ func sameInputCoverageProjection(items []TraceDBCoverage) []sameInputCoverageRec
 
 func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingReceipt) {
 	t.Helper()
+	// HMC-17.7 reference retention adds exactly two diagnostics to each
+	// resolver. This fixture publishes the extended resolver, with no startup
+	// or HiSys consumer references. Pin that population, then reverse ONLY that addition
+	// to retain every historical byte/count/hash assertion below unchanged.
+	receipt.Coverage = append([]sameInputCoverageReceipt(nil), receipt.Coverage...)
+	retentionProfiles := map[int64]int{}
+	for i := range receipt.Coverage {
+		item := &receipt.Coverage[i]
+		if item.Family != "resolver" || item.Table != "data_dict" || item.Role != "resolver_index" {
+			continue
+		}
+		refs, present := item.Metrics["dictionary_references"]
+		if !present || refs != 0 || !reflect.DeepEqual(item.Metrics, map[string]int64{
+			"dictionary_references": refs, "dictionary_entries_retained": refs,
+		}) {
+			t.Fatalf("same-input dictionary retention diagnostics drifted: %+v", *item)
+		}
+		retentionProfiles[refs]++
+		item.Metrics = nil
+	}
+	if !reflect.DeepEqual(retentionProfiles, map[int64]int{0: 1}) {
+		t.Fatalf("same-input dictionary consumer populations changed: %v", retentionProfiles)
+	}
 	// HMC-17.7 now accounts for the five usable shared dictionary entries.
 	// Reversing only that diagnostic correction must reproduce the previous
 	// complete receipt; output bytes, events and all other coverage stay pinned.

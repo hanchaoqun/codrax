@@ -4775,6 +4775,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	// before long rank/resource detail can fall into the blob preview gap.
 	if result.WindowStats != nil {
 		writeTraceBusinessSpanSchedulerPreview(&b, result.WindowStats.TraceSpans, payloadRef)
+		if len(result.WindowStats.TopRunning)+len(result.WindowStats.RunnableTop)+len(result.WindowStats.SleepTop)+len(result.WindowStats.DStateTop)+len(result.WindowStats.IOWaitTop)+len(result.WindowStats.StateChurn)+len(result.WindowStats.StateDrilldownPlan) > 0 {
+			b.WriteString("- " + types.TraceSchedulerStateAccountingSummaryGuidance + "\n")
+		}
 	}
 	// B33-WAITPREVIEW (2026-08-01): target wait occurrences already have a
 	// complete typed account, but the ordinary thread_timeline preview lists
@@ -5289,19 +5292,19 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				sanitizeForBanner(core.Class), core.CPUs, core.BusyMs, core.IdleMs, sanitizeForBanner(status), reasonClause, core.RunnableWaitMs, core.HighPriorityRunMs, core.SystemOrKernelRunningMs, core.MaxFrequency, sanitizeForBanner(core.TopologySource), sanitizeForBanner(core.ComputeSupplySignal))
 		}
 		for _, td := range result.WindowStats.TopRunning {
-			fmt.Fprintf(&b, "- top_running %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
+			fmt.Fprintf(&b, "- top_running %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingSummary(td.Accounting))
 		}
 		for _, td := range result.WindowStats.RunnableTop {
-			fmt.Fprintf(&b, "- top_runnable %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
+			fmt.Fprintf(&b, "- top_runnable %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingSummary(td.Accounting))
 		}
 		for _, td := range result.WindowStats.SleepTop {
-			fmt.Fprintf(&b, "- top_sleep %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
+			fmt.Fprintf(&b, "- top_sleep %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingSummary(td.Accounting))
 		}
 		for _, td := range result.WindowStats.DStateTop {
-			fmt.Fprintf(&b, "- top_d_state %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
+			fmt.Fprintf(&b, "- top_d_state %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingSummary(td.Accounting))
 		}
 		for _, td := range result.WindowStats.IOWaitTop {
-			fmt.Fprintf(&b, "- top_io_wait %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
+			fmt.Fprintf(&b, "- top_io_wait %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingSummary(td.Accounting))
 		}
 		// 修复轮二 件A (2026-07-13): per-lane cap-overflow disclosure — the top
 		// lists are a display cap, and the evicted remainder must be visible
@@ -5384,7 +5387,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		}
 		for _, churn := range result.WindowStats.StateChurn {
 			fmt.Fprintf(&b, "- state_churn %s dominant_state=%s impact=%.3fms total=%.3fms fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms confidence=%.2f lines=%d-%d — %s\n",
-				traceThreadLabel(churn.Thread), sanitizeForBanner(churn.DominantState), churn.DominantImpactMs, churn.TotalMs, churn.FragmentCount, churn.StateSwitches, churn.MaxSegmentMs, churn.P95SegmentMs, churn.RunningMs, churn.RunnableMs, churn.SleepMs, churn.DStateMs, churn.IOWaitMs, churn.Confidence, churn.LineStart, churn.LineEnd, sanitizeForBanner(churn.Summary)+"; "+types.TraceSchedulerStateAccountsMeaning(churn.StateAccounting, false))
+				traceThreadLabel(churn.Thread), sanitizeForBanner(churn.DominantState), churn.DominantImpactMs, churn.TotalMs, churn.FragmentCount, churn.StateSwitches, churn.MaxSegmentMs, churn.P95SegmentMs, churn.RunningMs, churn.RunnableMs, churn.SleepMs, churn.DStateMs, churn.IOWaitMs, churn.Confidence, churn.LineStart, churn.LineEnd, sanitizeForBanner(churn.Summary)+"; "+types.TraceSchedulerStateAccountsSummary(churn.StateAccounting))
 		}
 		for _, span := range result.WindowStats.TraceSpans {
 			fmt.Fprintf(&b, "- trace_span %s %q category=%s subcategory=%s semantic_class=%s kind=%s duration=%.3fms source=%s lines=%d-%d\n",
@@ -7080,7 +7083,7 @@ func writeTraceStateDrilldownSummary(b *strings.Builder, steps []tracequery.Stat
 		}
 		fmt.Fprintf(b, "- state_drilldown drill_rank=%d thread=%s state=%s impact=%.3fms total=%.3fms%s source=%s chain_required=%t recursive=%t window_proportion=%.4f significant=%t recommended_views=%s lines=%d-%d — %s\n",
 			step.Rank, traceThreadLabel(step.Thread), sanitizeForBanner(step.State), step.ImpactMs, step.TotalMs, totalScope, sanitizeForBanner(step.Source),
-			step.ChainRequired, step.Recursive, step.WindowProportion, step.Significant, sanitizeForBanner(strings.Join(step.RecommendedViews, ",")), step.LineStart, step.LineEnd, sanitizeForBanner(step.Summary)+"; "+types.TraceSchedulerStateAccountingMeaning(step.Accounting, false))
+			step.ChainRequired, step.Recursive, step.WindowProportion, step.Significant, sanitizeForBanner(strings.Join(step.RecommendedViews, ",")), step.LineStart, step.LineEnd, sanitizeForBanner(step.Summary)+"; "+types.TraceSchedulerStateAccountingSummary(step.Accounting))
 	}
 	writeTraceIdleWholeWindowSleeperFold(b, idleFold)
 }

@@ -18,6 +18,8 @@ import (
 
 func TestTraceQueryBusinessTreeTeachingPreservesPreviousDescriptionBytes(t *testing.T) {
 	description := traceQueryDescriptionWithoutEventNameSuffix(t)
+	// Reverse only the later, separately pinned cumulative-state correction.
+	description = traceQueryDescriptionBeforeStateAccountingEvolution(t, description)
 	// The later IO capability is terminal-only; removing it must preserve
 	// the exact previous business-tree dispatch contract and its prefix.
 	description = strings.TrimSuffix(description, " "+skill.TraceIOActivityTeaching)

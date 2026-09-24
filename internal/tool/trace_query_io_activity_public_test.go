@@ -146,6 +146,8 @@ func TestIOActivityPublicLineSelectionHasNoRates(t *testing.T) {
 
 func TestIOActivityPublicSharedTeaching(t *testing.T) {
 	description := traceQueryDescriptionWithoutEventNameSuffix(t)
+	// Reverse only the later, separately pinned cumulative-state correction.
+	description = traceQueryDescriptionBeforeStateAccountingEvolution(t, description)
 	suffix := " " + skill.TraceIOActivityTeaching
 	if !strings.HasSuffix(description, suffix) {
 		t.Fatal("new IO capability must remain at the terminal teaching slot")

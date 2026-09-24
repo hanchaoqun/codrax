@@ -53,7 +53,23 @@ func hmosBusinessIOFinalizerContext(t *testing.T) *types.AgentContext {
 		if query.view != "window_stats" {
 			continue
 		}
-		data, err := os.ReadFile(result.RawRef)
+		// RawRef may be the offloaded text summary at the normal blob limit.
+		// Decode only the structured payload published by this query's rows.
+		payloadRef := ""
+		for _, observation := range result.Observations {
+			ref := observation.SourceRef.PayloadRef
+			if ref == "" {
+				continue
+			}
+			if payloadRef != "" && payloadRef != ref {
+				t.Fatalf("window query published inconsistent structured payloads: %q and %q", payloadRef, ref)
+			}
+			payloadRef = ref
+		}
+		if payloadRef == "" {
+			t.Fatal("window query published no structured payload receipt")
+		}
+		data, err := os.ReadFile(payloadRef)
 		if err != nil {
 			t.Fatal(err)
 		}
