@@ -230,7 +230,7 @@ func TestHMC176BGzipBinaryRejectionsNeverPublishOrBorrow(t *testing.T) {
 		{name: "concatenated_members", body: append(append([]byte(nil), perfGzip...), perfGzip...), want: "gzip_trailing_data"},
 		{name: "nested_gzip", body: hmc176Gzip(t, perfGzip), want: "gzip"},
 		{name: "nested_zip", body: hmc176Gzip(t, hmc176Zip(t, map[string][]byte{"capture.sys": hmc176PerfData(true)})), want: "gzip"},
-		{name: "sqlite_is_not_trace_binary", body: hmc176Gzip(t, append([]byte("SQLite format 3\x00"), make([]byte, 64)...)), want: "gzip"},
+		{name: "truncated_sqlite_header", body: hmc176Gzip(t, append([]byte("SQLite format 3\x00"), make([]byte, 64)...)), want: "requires a complete SQLite header"},
 		{name: "unknown_binary", body: hmc176Gzip(t, []byte{0, 1, 2, 3, 4, 0xff}), want: "gzip"},
 		{name: "perf_inventory_only", body: hmc176Gzip(t, hmc176PerfData(false)), want: "no_query_ready_material"},
 		{name: "unknown_plugin_inventory_only", body: hmc176Gzip(t, hmc176Profiler("future-plugin", []byte{8, 1})), want: "no_query_ready_material"},
