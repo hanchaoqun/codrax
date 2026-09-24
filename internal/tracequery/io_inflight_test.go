@@ -10,7 +10,7 @@ import (
 
 func TestIOInFlightReducerKeepsUnknownSeparateFromZero(t *testing.T) {
 	key := ioInFlightGroupKey{"capture", "storage", "read", "8,0", "read"}
-	pair := ioInFlightInterval{key, 1, 1.002}
+	pair := ioInFlightInterval{key: key, start: 1, end: 1.002}
 	for _, tc := range []struct {
 		name   string
 		query  Query
@@ -23,7 +23,7 @@ func TestIOInFlightReducerKeepsUnknownSeparateFromZero(t *testing.T) {
 		{"unpaired_start_has_no_measured_zero", Query{TimeStart: 1, TimeEnd: 2}, nil, ioInFlightStarts{key: 1}, "no_accepted_complete_pairs"},
 		{"infinite_window", Query{TimeStart: 1, TimeEnd: math.Inf(1)}, []ioInFlightInterval{pair}, nil, "finite_positive_time_window_not_determined"},
 		{"finite_bounds_overflow_ms", Query{TimeStart: 1, TimeEnd: math.MaxFloat64}, []ioInFlightInterval{pair}, nil, "finite_positive_time_window_not_determined"},
-		{"finite_window_overflow_request_area", Query{TimeStart: 0, TimeEnd: 1e305, TimeStartSet: true}, []ioInFlightInterval{{key, 0, 1e305}, {key, 0, 1e305}}, nil, "non_finite_statistic"},
+		{"finite_window_overflow_request_area", Query{TimeStart: 0, TimeEnd: 1e305, TimeStartSet: true}, []ioInFlightInterval{{key: key, start: 0, end: 1e305}, {key: key, start: 0, end: 1e305}}, nil, "non_finite_statistic"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := buildIOInFlightStats(tc.query, blockPairingResult{}, storagePairingResult{intervals: tc.pairs, starts: tc.starts})
@@ -46,7 +46,7 @@ func TestIOInFlightReducerTupleIdentityAndDeterminism(t *testing.T) {
 	}
 	pairs := make([]ioInFlightInterval, len(keys))
 	for i, key := range keys {
-		pairs[i] = ioInFlightInterval{key, 1.001, 1.003}
+		pairs[i] = ioInFlightInterval{key: key, start: 1.001, end: 1.003}
 	}
 	q := Query{PID: 999, TimeStart: 1, TimeEnd: 1.010}
 	forward := buildIOInFlightStats(q, blockPairingResult{}, storagePairingResult{intervals: pairs})
@@ -64,11 +64,11 @@ func TestIOInFlightReducerStatisticsPrecedeSegmentCap(t *testing.T) {
 	var pairs []ioInFlightInterval
 	for i := 0; i < 20; i++ {
 		start := 1 + float64(i*2+1)/1000
-		pairs = append(pairs, ioInFlightInterval{key, start, start + .001})
+		pairs = append(pairs, ioInFlightInterval{key: key, start: start, end: start + .001})
 	}
 	// The maximum occurs strictly beyond the retained chronological prefix.
 	for i := 0; i < 3; i++ {
-		pairs = append(pairs, ioInFlightInterval{key, 1.070, 1.080})
+		pairs = append(pairs, ioInFlightInterval{key: key, start: 1.070, end: 1.080})
 	}
 	got := buildIOInFlightStats(Query{TimeStart: 1, TimeEnd: 1.100}, blockPairingResult{}, storagePairingResult{intervals: pairs})
 	g := got.Groups[0]

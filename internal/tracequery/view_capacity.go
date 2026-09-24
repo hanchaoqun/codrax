@@ -56,6 +56,11 @@ const (
 	TraceMarkerTreeSegmentLimit = 16
 )
 
+// Accepted IO member witnesses have their own display budget. All admitted
+// pairs still contribute to the numeric sweep, independently of this cap,
+// legacy latency Top-N, chronological depth segments, and Query.Limit.
+const IOInFlightMemberLimit = 16
+
 // Wakeup-chain recursion caps.
 //
 // CHAIN-BUDGET (user ruling 2026-07-18, onchain_fix_spec 预算尺度裁定): the

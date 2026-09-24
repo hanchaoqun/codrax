@@ -26,8 +26,9 @@ type IOInFlightStats struct {
 	Coverage      []IOInFlightPairingCoverage `json:"coverage"`
 }
 
-// Non-nil only for a determined, finite, positive-width selected window.
-// Real zero bounds remain explicit on the wire.
+// Bounds on the trace's seconds axis. IOInFlightStats.Window requires a
+// determined, finite, positive-width selection. A member's contribution can
+// instead be a measured zero-width intersection. Real zero remains explicit.
 type IOInFlightWindow struct {
 	StartTs float64 `json:"start_ts"`
 	EndTs   float64 `json:"end_ts"`
@@ -47,6 +48,36 @@ type IOInFlightGroup struct {
 	ValuesUnavailableReason string              `json:"values_unavailable_reason,omitempty"`
 	Segments                []IOInFlightSegment `json:"segments,omitempty"`
 	OmittedSegments         int                 `json:"omitted_segments"`
+	// Members are bounded witnesses of accepted pairs, not the population
+	// used to recompute Values or a roster for each merged depth segment.
+	// These three disjoint sets exactly partition AcceptedPairCount:
+	// len(Members) + OmittedMembers + MemberWitnessUnavailableCount.
+	Members                       []IOInFlightMember `json:"members,omitempty"`
+	OmittedMembers                int                `json:"omitted_members"`
+	MemberWitnessUnavailableCount int                `json:"member_witness_unavailable_count"`
+}
+
+// IOInFlightMember preserves endpoints from the existing successful matcher.
+// It conveys request residence, not issuer blocking or causal eligibility.
+// Members sort by physical issue/completion line, independently of latency
+// Top-N. Identity binds source, layer/family and actual endpoint instances;
+// reused device/sector/name values cannot merge independent requests.
+type IOInFlightMember struct {
+	ID                string    `json:"id"`
+	SourcePath        string    `json:"source_path"`
+	IssueThread       ThreadRef `json:"issue_thread"`
+	CompleteThread    ThreadRef `json:"complete_thread"`
+	IssueLine         int       `json:"issue_line"`          // index-global virtual line
+	CompleteLine      int       `json:"complete_line"`       // index-global virtual line
+	IssueLocalLine    int       `json:"issue_local_line"`    // physical source-local line
+	CompleteLocalLine int       `json:"complete_local_line"` // physical source-local line
+	ActualStartTs     float64   `json:"actual_start_ts"`
+	ActualEndTs       float64   `json:"actual_end_ts"`
+	// Nil contribution_ms means the selected continuous time window is not
+	// established (e.g. line-selected query), never a measured zero. A known
+	// zero has a non-nil value; its interval is nil only for disjoint bounds.
+	WindowContribution   *IOInFlightWindow `json:"window_contribution,omitempty"`
+	WindowContributionMs *float64          `json:"window_contribution_ms,omitempty"`
 }
 
 // Values are exact for the admitted-pair population, never an estimate of

@@ -3496,7 +3496,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	} else {
 		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed inode/file-IO/page-cache/storage composite aggregates are omitted because the selected window crosses a task-incarnation boundary")
 	}
-	stats.IOInFlight = buildIOInFlightStats(q, blockPairing, storagePairing)
+	stats.IOInFlight = buildIOInFlightStats(q, blockPairing, storagePairing, idx)
 	if q.runCancel.sample() {
 		return stats
 	}
@@ -13353,7 +13353,10 @@ func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *s
 		acc.item.MaxLatencyMs = dur
 	}
 	if intervals != nil {
-		*intervals = append(*intervals, ioInFlightInterval{ioInFlightStorageKey(lane, transition.pairStart), transition.pairStart.Ts, transition.last.Ts})
+		*intervals = append(*intervals, ioInFlightInterval{
+			key: ioInFlightStorageKey(lane, transition.pairStart), start: transition.pairStart.Ts, end: transition.last.Ts,
+			endpoints: ioInFlightEndpoints{threadRefFromEvent(transition.pairStart), threadRefFromEvent(transition.last), transition.pairStart.Line, transition.last.Line},
+		})
 	}
 }
 

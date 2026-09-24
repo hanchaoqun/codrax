@@ -20,6 +20,14 @@ type ioInFlightGroupKey struct {
 type ioInFlightInterval struct {
 	key        ioInFlightGroupKey
 	start, end float64
+	endpoints  ioInFlightEndpoints
+}
+
+// Endpoint ownership/coordinates are carried at the existing matcher's
+// success point, never reconstructed from latency summaries or top details.
+type ioInFlightEndpoints struct {
+	issue, complete         ThreadRef
+	issueLine, completeLine int
 }
 
 type ioInFlightStarts map[ioInFlightGroupKey]int
@@ -122,7 +130,7 @@ func ioInFlightPairingCoverage(idx *Index, family string, integrity *durationPai
 	return coverage
 }
 
-func buildIOInFlightStats(q Query, block blockPairingResult, storage storagePairingResult) *IOInFlightStats {
+func buildIOInFlightStats(q Query, block blockPairingResult, storage storagePairingResult, indexes ...*Index) *IOInFlightStats {
 	if q.runCancel.sample() {
 		return nil
 	}
@@ -142,6 +150,10 @@ func buildIOInFlightStats(q Query, block blockPairingResult, storage storagePair
 		out.WindowUnavailableReason = "finite_positive_time_window_not_determined"
 	}
 	groups := map[ioInFlightGroupKey]*ioInFlightGroupAccumulator{}
+	var idx *Index
+	if len(indexes) > 0 {
+		idx = indexes[0]
+	}
 	groupFor := func(key ioInFlightGroupKey) *ioInFlightGroupAccumulator {
 		if acc := groups[key]; acc != nil {
 			return acc
@@ -166,6 +178,11 @@ func buildIOInFlightStats(q Query, block blockPairingResult, storage storagePair
 		}
 		acc := groupFor(pair.key)
 		acc.group.AcceptedPairCount++
+		if member, ok := ioInFlightMemberForPair(idx, pair, out.Window); ok {
+			retainIOInFlightMember(&acc.group, member)
+		} else {
+			acc.group.MemberWitnessUnavailableCount++
+		}
 		if out.Window == nil {
 			return
 		}
@@ -180,7 +197,8 @@ func buildIOInFlightStats(q Query, block blockPairingResult, storage storagePair
 		if q.runCancel.tick() {
 			return nil
 		}
-		add(ioInFlightInterval{ioInFlightBlockKey(pair), pair.IssueTs, pair.CompleteTs})
+		add(ioInFlightInterval{key: ioInFlightBlockKey(pair), start: pair.IssueTs, end: pair.CompleteTs,
+			endpoints: ioInFlightEndpoints{pair.IssueThread, pair.CompleteThread, pair.IssueLine, pair.CompleteLine}})
 	}
 	for _, pair := range storage.intervals {
 		if q.runCancel.tick() {
