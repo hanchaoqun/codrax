@@ -6066,7 +6066,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		addDurationCause(bucket, start, endTs, endLine, "", false, schedulerMeasurementSegment{State: start.state, Closure: closure})
 	}
 	addRunnableDuration := func(start offCPUStart, endTs float64, endLine int, observedCPU int, observedKnown bool, boundary string) {
-		concurrency.runnable(start, endTs, endLine, boundary)
+		concurrency.runnable(start, endTs, endLine, boundary, observedCPU, observedKnown)
 		startTs := start.ts
 		if q.TimeStart > 0 && startTs < q.TimeStart {
 			startTs = q.TimeStart

@@ -2,9 +2,7 @@ package tracequery
 
 import (
 	"math"
-	"math/big"
 	"sort"
-	"strconv"
 )
 
 type ioActivityGroupKey struct {
@@ -173,37 +171,13 @@ func ioActivityBucketWindows(window *IOActivityWindow, ms float64) (uint64, []IO
 	if window == nil {
 		return 0, nil, "continuous_time_window_unavailable"
 	}
-	start, _ := new(big.Rat).SetString(strconv.FormatFloat(window.StartTs, 'f', -1, 64))
-	end, _ := new(big.Rat).SetString(strconv.FormatFloat(window.EndTs, 'f', -1, 64))
-	step, _ := new(big.Rat).SetString(strconv.FormatFloat(ms, 'f', -1, 64))
-	step.Quo(step, big.NewRat(1000, 1))
-	ratio := new(big.Rat).Quo(new(big.Rat).Sub(end, start), step)
-	count, remainder := new(big.Int), new(big.Int)
-	count.QuoRem(ratio.Num(), ratio.Denom(), remainder)
-	if remainder.Sign() > 0 {
-		count.Add(count, big.NewInt(1))
+	n, spans, reason := boundedDecimalTimeBucketWindows(window.StartTs, window.EndTs, ms, IOActivityBucketLimit)
+	if reason != "" {
+		return n, nil, reason
 	}
-	if !count.IsUint64() {
-		return 0, nil, "bucket_count_overflow"
-	}
-	n := count.Uint64()
-	shown := n
-	if shown > IOActivityBucketLimit {
-		shown = IOActivityBucketLimit
-	}
-	out := make([]IOActivityWindow, 0, int(shown))
-	for i := uint64(0); i < shown; i++ {
-		a := new(big.Rat).Add(start, new(big.Rat).Mul(step, new(big.Rat).SetInt(new(big.Int).SetUint64(i))))
-		b := new(big.Rat).Add(a, step)
-		if b.Cmp(end) > 0 {
-			b = end
-		}
-		left, _ := a.Float64()
-		right, _ := b.Float64()
-		if right <= left {
-			return n, nil, "bucket_width_below_trace_timestamp_resolution"
-		}
-		out = append(out, IOActivityWindow{StartTs: left, EndTs: right, EndInclusive: window.EndInclusive && i+1 == n})
+	out := make([]IOActivityWindow, 0, len(spans))
+	for i, span := range spans {
+		out = append(out, IOActivityWindow{StartTs: span.start, EndTs: span.end, EndInclusive: window.EndInclusive && uint64(i)+1 == n})
 	}
 	return n, out, ""
 }

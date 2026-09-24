@@ -1,0 +1,15 @@
+# HMC-08.4: natural request; the independent oracle is distribution.expected.json.
+ID="trace_query_scheduler_concurrency_distribution"
+NAME="trace query — scheduler depth distribution and time-bucket changes"
+QUESTION="帮我看看这份 trace 在 1.000～1.010 秒里同时等待 CPU 和同时运行的线程规模：各自峰值、平均值是多少？每 3ms 有什么变化，各种线程数量分别持续了多久、占这段时间多少？再列出主要线程及其活动区间。"
+HTRACE_FILE="eval/fixtures/hmosperf_scheduler_concurrency/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+
+# Presence-only smoke checks. Bind state, source, window, distribution, buckets
+# and member intervals against the independent oracle during manual review.
+EXPECT_PRIMARY_CONTAINS="render decode upload"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])0[.]80*([^0-9]|$)
+(^|[^0-9])0[.]50*([^0-9]|$)
+(毫秒|ms)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

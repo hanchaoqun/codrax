@@ -11,6 +11,13 @@ import (
 // reviewed JSON presence rules: required zero counts/coordinates survive,
 // optional nil measures stay absent, and no rate/size/scope is recomputed.
 func renderIOActivityDetail(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
+	renderExactNativeDTO(v, path, emit, depth, policy)
+}
+
+// Callers enumerate the supported closed native DTO families. This common
+// projection preserves JSON presence and full native float precision without
+// granting arbitrary structs a new rendering policy.
+func renderExactNativeDTO(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
 	t := v.Type()
 	var tokens []string
 	for i := 0; i < v.NumField(); i++ {

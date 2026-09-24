@@ -61,6 +61,14 @@ const (
 // legacy latency Top-N, chronological depth segments, and Query.Limit.
 const IOInFlightMemberLimit = 16
 
+// Independent display budgets; full accepted scheduler populations are
+// accumulated before publishing any of these bounded lenses.
+const (
+	SchedulerConcurrencyMemberLimit = 16
+	SchedulerConcurrencyDepthLimit  = 32
+	SchedulerConcurrencyBucketLimit = 32
+)
+
 // IO activity summaries consume all admitted endpoint events before these
 // independent group / chronological-bucket display limits are applied.
 const (

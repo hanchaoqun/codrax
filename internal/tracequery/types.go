@@ -1131,7 +1131,7 @@ type Query struct {
 	Limit                int
 	// BucketMs is the time-bucket width in milliseconds. window_sweep uses
 	// ClampWindowSweepBucketMs (default 100, allowed 50..500); the independent
-	// window_stats.io_activity face defaults to 100 and clamps positive inputs
+	// window_stats.io_activity and scheduler_concurrency faces default to 100 and clamp positive inputs
 	// to 1..60000. Each face discloses its effective width; other views ignore it.
 	BucketMs              float64
 	CoreTopology          string

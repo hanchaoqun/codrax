@@ -730,6 +730,12 @@ func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string),
 	case reflect.TypeOf(tracequery.SchedulerConcurrencyValues{}), reflect.TypeOf(tracequery.SchedulerConcurrencySegment{}), reflect.TypeOf(tracequery.SchedulerConcurrencyWindow{}):
 		renderSchedulerConcurrencyDetail(v.Interface(), path, emit)
 		return
+	case reflect.TypeOf(tracequery.SchedulerConcurrencyMember{}), reflect.TypeOf(tracequery.SchedulerConcurrencyDistribution{}),
+		reflect.TypeOf(tracequery.SchedulerConcurrencyDepthDuration{}), reflect.TypeOf(tracequery.SchedulerConcurrencyBucket{}):
+		// This closed family shares the exact required-zero/optional-nil DTO
+		// projection; no rounded timestamp or fabricated unavailable value.
+		renderExactNativeDTO(v, path, emit, depth, policy)
+		return
 	case reflect.TypeOf(tracequery.TraceMarkerTreeStats{}), reflect.TypeOf(tracequery.TraceMarkerTreeNode{}), reflect.TypeOf(tracequery.TraceMarkerTreeAccount{}), reflect.TypeOf(tracequery.TraceMarkerTreeStates{}), reflect.TypeOf(tracequery.TraceMarkerTreeStateValues{}):
 		renderBusinessTreeDetail(v.Interface(), path, emit, depth, policy)
 		return

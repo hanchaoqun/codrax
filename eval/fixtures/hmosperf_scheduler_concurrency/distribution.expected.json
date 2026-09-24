@@ -1,0 +1,102 @@
+{
+  "oracle_kind": "independent_physical_interval_account",
+  "trace": "events.systrace",
+  "window_seconds": [1.0, 1.01],
+  "window_ms": 10,
+  "bucket_ms": 3,
+  "bucket_widths_ms": [3, 3, 3, 1],
+  "population": "accepted_closed_intervals",
+  "thread_scope": "all_positive_tids_in_this_source",
+  "interval_convention": "half_open",
+  "quantile_convention": "smallest_integer_depth_whose_cumulative_wall_time_reaches_fraction",
+  "derivation": "Union intervals separately for each source, state and thread, intersect with the query window, then measure the durations between all distinct boundaries. Bucket peaks use only positive-width intersections with each bucket; quantiles use whole-window durations, not bucket maxima.",
+  "groups": [
+    {
+      "state": "runnable",
+      "values": {"peak_threads": 2, "mean_threads": 0.8, "busy_ms": 6, "thread_ms": 8},
+      "closed_members": [
+        {"tid": 101, "name": "render", "physical_lines": [5, 10], "actual_seconds": [1.001, 1.006], "clipped_seconds": [1.001, 1.006], "contribution_ms": 5},
+        {"tid": 102, "name": "decode", "physical_lines": [6, 8], "actual_seconds": [1.002, 1.004], "clipped_seconds": [1.002, 1.004], "contribution_ms": 2},
+        {"tid": 103, "name": "upload", "physical_lines": [11, 12], "actual_seconds": [1.006, 1.007], "clipped_seconds": [1.006, 1.007], "contribution_ms": 1}
+      ],
+      "segments": [
+        {"seconds": [1.0, 1.001], "threads": 0},
+        {"seconds": [1.001, 1.002], "threads": 1},
+        {"seconds": [1.002, 1.004], "threads": 2},
+        {"seconds": [1.004, 1.007], "threads": 1},
+        {"seconds": [1.007, 1.01], "threads": 0}
+      ],
+      "depth_distribution": [
+        {"threads": 0, "duration_ms": 4, "window_share": 0.4},
+        {"threads": 1, "duration_ms": 4, "window_share": 0.4},
+        {"threads": 2, "duration_ms": 2, "window_share": 0.2}
+      ],
+      "time_weighted_quantiles_threads": {"p50": 1, "p95": 2, "p99": 2},
+      "buckets": [
+        {"seconds": [1.0, 1.003], "width_ms": 3, "peak_threads": 2, "mean_threads": 1, "busy_ms": 2, "thread_ms": 3},
+        {"seconds": [1.003, 1.006], "width_ms": 3, "peak_threads": 2, "mean_threads": 1.3333333333333333, "busy_ms": 3, "thread_ms": 4},
+        {"seconds": [1.006, 1.009], "width_ms": 3, "peak_threads": 1, "mean_threads": 0.3333333333333333, "busy_ms": 1, "thread_ms": 1},
+        {"seconds": [1.009, 1.01], "width_ms": 1, "peak_threads": 0, "mean_threads": 0, "busy_ms": 0, "thread_ms": 0}
+      ]
+    },
+    {
+      "state": "running",
+      "values": {"peak_threads": 2, "mean_threads": 0.5, "busy_ms": 4, "thread_ms": 5},
+      "closed_members": [
+        {"tid": 101, "name": "render", "physical_lines": [2, 5], "actual_seconds": [0.998, 1.001], "clipped_seconds": [1.0, 1.001], "contribution_ms": 1},
+        {"tid": 102, "name": "decode", "physical_lines": [8, 9], "actual_seconds": [1.004, 1.005], "clipped_seconds": [1.004, 1.005], "contribution_ms": 1},
+        {"tid": 101, "name": "render", "physical_lines": [10, 13], "actual_seconds": [1.006, 1.008], "clipped_seconds": [1.006, 1.008], "contribution_ms": 2},
+        {"tid": 103, "name": "upload", "physical_lines": [12, 14], "actual_seconds": [1.007, 1.008], "clipped_seconds": [1.007, 1.008], "contribution_ms": 1}
+      ],
+      "segments": [
+        {"seconds": [1.0, 1.001], "threads": 1},
+        {"seconds": [1.001, 1.004], "threads": 0},
+        {"seconds": [1.004, 1.005], "threads": 1},
+        {"seconds": [1.005, 1.006], "threads": 0},
+        {"seconds": [1.006, 1.007], "threads": 1},
+        {"seconds": [1.007, 1.008], "threads": 2},
+        {"seconds": [1.008, 1.01], "threads": 0}
+      ],
+      "depth_distribution": [
+        {"threads": 0, "duration_ms": 6, "window_share": 0.6},
+        {"threads": 1, "duration_ms": 3, "window_share": 0.3},
+        {"threads": 2, "duration_ms": 1, "window_share": 0.1}
+      ],
+      "time_weighted_quantiles_threads": {"p50": 0, "p95": 2, "p99": 2},
+      "buckets": [
+        {"seconds": [1.0, 1.003], "width_ms": 3, "peak_threads": 1, "mean_threads": 0.3333333333333333, "busy_ms": 1, "thread_ms": 1},
+        {"seconds": [1.003, 1.006], "width_ms": 3, "peak_threads": 1, "mean_threads": 0.3333333333333333, "busy_ms": 1, "thread_ms": 1},
+        {"seconds": [1.006, 1.009], "width_ms": 3, "peak_threads": 2, "mean_threads": 1, "busy_ms": 2, "thread_ms": 3},
+        {"seconds": [1.009, 1.01], "width_ms": 1, "peak_threads": 0, "mean_threads": 0, "busy_ms": 0, "thread_ms": 0}
+      ]
+    }
+  ],
+  "unknown_intervals": [
+    {"state": "runnable", "tid": 104, "name": "unfinished", "start_line": 15, "start_ts_seconds": 1.009, "end_ts_seconds": null, "duration_ms": null, "included_in_confirmed_members": false}
+  ],
+  "required_interpretation": [
+    "The repeated wake of render at line 7 neither resets its ready interval nor adds another thread.",
+    "The runnable departure and arrival at 1.006 have no positive-width overlap.",
+    "The first running interval retains its physical start at 0.998 while contributing only 1 ms inside the query window.",
+    "The zero-depth distribution and final zero bucket describe zero contribution from accepted closed intervals, not observed system idle or absence of the unfinished thread.",
+    "The 8 runnable thread-ms and 5 running thread-ms are population thread-time, not target response latency.",
+    "Peak and full-window mean must not be assigned to the unfinished thread or its open interval."
+  ],
+  "not_proven": [
+    "complete capture",
+    "unfinished thread state through query end",
+    "response dependency",
+    "root cause",
+    "priority inversion",
+    "CPU capacity shortfall"
+  ],
+  "review_surfaces": [
+    "native query output",
+    "actual finalizer input",
+    "selected measurement views",
+    "final prose and tables",
+    "diagram relationships and time spans if present",
+    "root-causes sidecar"
+  ],
+  "smoke_checks_are_not_semantic_acceptance": true
+}
