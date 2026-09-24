@@ -19,7 +19,7 @@ func existingTestExecutionReceipts(ctx *types.BusContext, invocation runnerPlan,
 	sha, current := observed.delivery.currentTestSHA(ctx, observed.target)
 	delivery := observed.delivery.snapshot
 	effect := delivery.PatchEffect
-	if !current || sha != observed.targetSHA || effect == nil || effect.RecordID == "" || effect.DiffFingerprint == "" {
+	if !current || sha != observed.targetSHA || !observed.registrationMatches(ctx) || effect == nil || effect.RecordID == "" || effect.DiffFingerprint == "" {
 		return nil
 	}
 	commandIndex := len(commands) - 1
@@ -55,11 +55,11 @@ func existingTestExecutionReceipts(ctx *types.BusContext, invocation runnerPlan,
 		return nil
 	}
 	var out []types.ExistingTestExecutionReceipt
-	for _, target := range types.RequiredExistingTestPaths(plan) {
+	for _, target := range nativeObservedTestPaths(plan) {
 		if target != observed.target || safeImpactRelatedPath(ctx.RepoRoot, target) == "" || !types.ExistingTestExactFileSelector(cmd.Runner, cmd.Framework, wd, cmd.Suite, target) {
 			continue
 		}
-		out = append(out, types.ExistingTestExecutionReceipt{PlanID: plan.ID, SourcePlanID: delivery.SourcePlanID, AppliedCommitSHA: delivery.AppliedCommitSHA, PatchEffectID: effect.RecordID, DiffFingerprint: effect.DiffFingerprint, TestPath: target, CandidateID: candidateID, Runner: cmd.Runner, Framework: cmd.Framework, WorkingDir: wd, Suite: cmd.Suite, CommandIndex: commandIndex, AssertionCount: assertions, FailedAssertionCount: failures, TestFileSHA256: observed.targetSHA, CommandSHA256: types.ExistingTestExecutionDigest(cmd.Command), AssertionDigests: digests})
+		out = append(out, types.ExistingTestExecutionReceipt{PlanID: plan.ID, SourcePlanID: delivery.SourcePlanID, AppliedCommitSHA: delivery.AppliedCommitSHA, PatchEffectID: effect.RecordID, DiffFingerprint: effect.DiffFingerprint, TestPath: target, CandidateID: candidateID, Runner: cmd.Runner, Framework: cmd.Framework, WorkingDir: wd, Suite: cmd.Suite, CommandIndex: commandIndex, AssertionCount: assertions, FailedAssertionCount: failures, TestFileSHA256: observed.targetSHA, CommandSHA256: types.ExistingTestExecutionDigest(cmd.Command), AssertionDigests: digests, NativeTestRegistrationDigest: observed.registrationDigest})
 	}
 	return out
 }

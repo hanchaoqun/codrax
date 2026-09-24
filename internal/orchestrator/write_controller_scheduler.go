@@ -440,11 +440,11 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			o.mirrorActivePlanToImportFile(importedPlanMirror)
 			o.syncCurrentWriteContextPackToRun(&run)
 			o.persistWriteWorkflowRun(&run)
-			if o.busCtx.Mode == types.ModeApply && changePlanIsProofProbeOnly(plan) {
+			if o.busCtx.Mode == types.ModeApply && changePlanIsReadOnlyProof(plan) {
 				promoteActiveProofProbeOnlyBatchToVerifyOnly(&run)
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchVerifying)
 				appendControllerProgress(&run, run.ActiveBatchID, "proof_probe_only_plan_ready",
-					"controller-owned proof follow-up produced no source edits and will verify typed probes against the current worktree")
+					"controller-owned proof follow-up produced no source edits and will execute the registered checks against the current worktree")
 				o.persistWriteWorkflowRun(&run)
 				o.busCtx.TaskState.LastError = ""
 				continue
@@ -1295,8 +1295,10 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 	lastStallSignature := ""
 	for {
 		priorPlan := o.busCtx.Mutable.ChangePlan()
+		o.prepareNativeTestRegistration(priorPlan)
 		o.prepareControllerPlanningState()
 		_, err := o.runControllerPlanStageInResultScope(resultScope, stepsUsed)
+		o.busCtx.Mutable.RevokeNativeTestRegistrationAuthorization()
 		if err != nil && (errors.Is(err, ErrCanceled) || errors.Is(err, context.Canceled)) && changePlanHasAppliedWork(priorPlan) {
 			o.busCtx.Mutable.SetChangePlan(priorPlan)
 			return err
@@ -1324,6 +1326,9 @@ func (o *Orchestrator) runControllerPlanBatch(batch *writeflow.WriteBatchPlan, s
 		o.syncPlannerObservationContextPack(batch)
 		if err == nil && changePlanIsNoChangeRequired(o.busCtx.Mutable.ChangePlan()) {
 			plan := o.busCtx.Mutable.ChangePlan()
+			if types.IsPersistedNativeTestRegistrationPlan(plan) && activeBatchProofFollowupPurpose(o.busCtx.Mutable.WriteWorkflowRun()) {
+				return nil
+			}
 			if changePlanIsProofProbeOnly(plan) && activeBatchProofFollowupPurpose(o.busCtx.Mutable.WriteWorkflowRun()) {
 				if o.enrichProofFollowupPlanProbeRefs(batch, plan) {
 					o.busCtx.Mutable.SetChangePlan(plan)
@@ -3571,6 +3576,10 @@ func (o *Orchestrator) runControllerVerifyBatch(stepsUsed *int) error {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return fmt.Errorf("write controller verify batch missing context")
 	}
+	if err := o.authorizeNativeTestRegistrationVerification(o.busCtx.Mutable.ChangePlan()); err != nil {
+		return err
+	}
+	defer o.busCtx.Mutable.RevokeNativeTestRegistrationExecution()
 	if o.skipVerify {
 		now := time.Now()
 		o.persistPlanStatus(types.PlanStatusApplied, &now)
@@ -4753,7 +4762,7 @@ func (o *Orchestrator) writeFinalReportDeliverySummary(run *types.WriteWorkflowR
 		out.FinalPlanID = strings.TrimSpace(finalPlan.ID)
 		finalSources, finalTests := writeFinalReportPlanPathRoles(finalPlan)
 		out.FinalPlanTestOnly = len(writeFinalReportPlanChangePaths(finalPlan)) > 0 && len(finalSources) == 0
-		out.FinalPlanValidationOnly = len(writeFinalReportPlanChangePaths(finalPlan)) == 0 && len(finalPlan.VerificationProbes) > 0
+		out.FinalPlanValidationOnly = len(writeFinalReportPlanChangePaths(finalPlan)) == 0 && (len(finalPlan.VerificationProbes) > 0 || types.IsPersistedNativeTestRegistrationPlan(finalPlan))
 		if len(finalSources) > 0 {
 			out.SourcePaths = append(out.SourcePaths, finalSources...)
 		}
@@ -4951,7 +4960,9 @@ func writeFinalReportPlanPathRoles(plan *types.ChangePlan) ([]string, []string) 
 }
 
 func writeFinalReportPlanChangePaths(plan *types.ChangePlan) []string {
-	if plan == nil {
+	// A registration retains source targets for verification, not mutations.
+	// Preserve legacy plan/report path semantics outside this new typed lane.
+	if plan == nil || types.IsPersistedNativeTestRegistrationPlan(plan) {
 		return nil
 	}
 	var out []string
@@ -7970,7 +7981,7 @@ func activeBatchAppliedPlanPendingVerify(run *types.WriteWorkflowRun, plan *type
 }
 
 func activeBatchProofProbeOnlyPendingVerify(run *types.WriteWorkflowRun, plan *types.ChangePlan) bool {
-	if run == nil || !changePlanIsProofProbeOnly(plan) || !activeBatchProofFollowupPurpose(run) {
+	if run == nil || !changePlanIsReadOnlyProof(plan) || !activeBatchProofFollowupPurpose(run) {
 		return false
 	}
 	planID := strings.TrimSpace(plan.ID)

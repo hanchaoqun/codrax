@@ -138,7 +138,7 @@ func writeFinalMaterializationStrictProofOnly(plan *types.ChangePlan) bool {
 	}
 	copyPlan := *plan
 	types.PreserveProofProbeOnlyPlanIdentity(&copyPlan)
-	return types.IsPersistedProofProbeOnlyPlan(&copyPlan)
+	return types.IsPersistedProofProbeOnlyPlan(&copyPlan) || types.IsPersistedNativeTestRegistrationPlan(&copyPlan)
 }
 
 func writeFinalMaterializationHasAppliedMutation(plan *types.ChangePlan) bool {

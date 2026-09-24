@@ -69,6 +69,9 @@ type WriteWorkflowRun struct {
 	// replaced) into MutableState when the run is installed, so a resumed
 	// process cannot reinstate a retired id.
 	BehaviorContractTombstones []WriteBehaviorContractTombstone `json:"behavior_contract_tombstones,omitempty"`
+	// NativeTestRegistrations is the controller-owned durable admission ledger;
+	// neither an imported plan nor a past test result can author it.
+	NativeTestRegistrations []NativeTestRegistrationRecord `json:"native_test_registrations,omitempty"`
 }
 
 type WriteWorkflowRunStatus string
@@ -367,6 +370,7 @@ func NormalizeWriteWorkflowRun(in WriteWorkflowRun) WriteWorkflowRun {
 	in.ContextPacks = normalizeWriteWorkflowContextPacks(in.ContextPacks)
 	in.ProgressLedger = normalizeWriteWorkflowProgress(in.ProgressLedger)
 	in.BehaviorContractTombstones = MergeWriteBehaviorContractTombstones(nil, in.BehaviorContractTombstones...)
+	in.NativeTestRegistrations = append([]NativeTestRegistrationRecord(nil), in.NativeTestRegistrations...)
 	if in.Budget.MaxBatches < 0 {
 		in.Budget.MaxBatches = 0
 	}

@@ -32,7 +32,7 @@ const NativeProjectTestObservationBindingTeaching = "Prefer an existing native p
 // It describes existing parser/qualifier output, not a new permission or join.
 const NativeProjectTestObservationIdentityTeaching = "Use the exact TestResult.suite and TestResult.assertion_id pair from the current held report when available. A first plan without a report remains valid: derive expected identities from inspected tests and the selected runner protocol; authoring does not require running tests first. For a non-root project, both fields carry the runner[/framework]@working_dir:: prefix, where working_dir is repo-relative and only Python/Java include a nonempty framework. Preserve the whole published pair; do not strip, duplicate, or invent a scope prefix. A displayed identity is not proof or authorization."
 
-const NativeProjectTestObservationSuiteTeaching = "Exact TestResult.suite emitted by the project runner. Native forms: Go = go test -json Package (the import path, not the source package clause); unittest = the parenthesized containing class/module; pytest = nodeid before its last ::; Jest = testResults[].name; Cargo = cargo; JUnit = testsuite.name; RSpec = examples[].file_path; Swift = XCTest class. Do not append the test method unless that protocol includes it in the suite. Preserve the non-root project prefix when present."
+const NativeProjectTestObservationSuiteTeaching = "Exact TestResult.suite emitted by the project runner. Native forms: Go = go test -json Package (the import path, not the source package clause); unittest = the parenthesized fully qualified module.Class (not a bare class name); pytest = nodeid before its last ::; Jest = testResults[].name; Cargo = cargo; JUnit = testsuite.name; RSpec = examples[].file_path; Swift = XCTest class. Do not append the test method unless that protocol includes it in the suite. Preserve the non-root project prefix when present."
 
 const NativeProjectTestObservationAssertionIDTeaching = "Exact TestResult.assertion_id emitted by the project runner, not source assertion code, an expected-value expression, or explanatory prose. Native forms: Go = Test including /subtest; unittest = test method name; pytest = nodeid after its last :: including parameters; Jest = ancestor titles and test title joined by \" > \" (spaces included); Cargo = full test path; JUnit = classname#name, or name when classname is absent; RSpec = full_description; Swift = XCTest method. Preserve separators, parameter values and any non-root project prefix exactly."
 
@@ -40,7 +40,7 @@ const NativeProjectTestObservationAssertionIDTeaching = "Exact TestResult.assert
 // shared by the always-on change-plan skill and the typed-contract planner
 // framing. It is deliberately soft guidance: execution grants authority only
 // through exact typed joins, never through planner prose or filenames.
-const WriteBehaviorContractObservationTeaching = "When changing an existing guard, comparison, status check, selector, or lifecycle condition, preserve its pre-edit true/false partition except for the exact partition a typed behavior contract explicitly changes. Treat current tests as sampled witnesses, not the domain definition. A passing aggregate project runner proves that the selected suite passed; it does not by itself prove that every independent behavior contract was exercised. For each required or fallback behavior-contract id, choose a direct executable witness within the current typed plan's permissions: when source/test changes are authorized, use native tests as follows. " + NativeProjectTestObservationBindingTeaching + " Alternatively, use a supported verification_probe only when its current executor supplies the required assertion witness. A source-free proof plan must follow its probe-only instructions, not add files or project_test_observations; earlier declarations remain on their source/test plans. Naming the contract in contract_refs and binding changed_symbol_refs alone do not supply that witness; a Python plain probe's changed-target execution is not per-contract assertion proof. Never bind a contract to a test file merely because the filename sounds relevant: inspect the concrete assertion first. The project-test declaration is not proof; run_tests grants it authority only after an exact typed test-surface candidate containing that path succeeds and the runner emits the same passed assertion identity with assertion-level scope. Aggregate rows such as a top-level Make target cannot discharge a behavior contract. For an authorized condition change, compare the old and proposed conditions and cover the applicable boundary classes through supported, authorized native project tests or verification evidence: negative/zero/positive, false/true, null/non-null, empty/non-empty, sentinel/ordinary, enum variants, or pre/post state. Do not list a natural-language acceptance test as if it were execution evidence. Do not narrow or widen a neighboring condition merely because the failing example exercises one class. The same rule applies across every supported source language. This is language-neutral soft guidance; no prose keyword or operator heuristic authorizes a hard gate."
+const WriteBehaviorContractObservationTeaching = "When changing an existing guard, comparison, status check, selector, or lifecycle condition, preserve its pre-edit true/false partition except for the exact partition a typed behavior contract explicitly changes. Treat current tests as sampled witnesses, not the domain definition. A passing aggregate project runner proves that the selected suite passed; it does not by itself prove that every independent behavior contract was exercised. For each required or fallback behavior-contract id, choose a direct executable witness within the current typed plan's permissions: when source/test changes are authorized, use native tests as follows. " + NativeProjectTestObservationBindingTeaching + " Alternatively, use a supported verification_probe only when its current executor supplies the required assertion witness. A source-free probe-only plan must retain its separate instructions and may not add files or project_test_observations. Only when the current controller authorizes read-only existing-test registration may changes: [] instead declare project_test_observations for fully read and delivered Python unittest files, without verification_probes or contract changes; verification must execute them again. Earlier declarations and results remain on their original plans. Naming the contract in contract_refs and binding changed_symbol_refs alone do not supply that witness; a Python plain probe's changed-target execution is not per-contract assertion proof. Never bind a contract to a test file merely because the filename sounds relevant: inspect the concrete assertion first. The project-test declaration is not proof; run_tests grants it authority only after an exact typed test-surface candidate containing that path succeeds and the runner emits the same passed assertion identity with assertion-level scope. Aggregate rows such as a top-level Make target cannot discharge a behavior contract. For an authorized condition change, compare the old and proposed conditions and cover the applicable boundary classes through supported, authorized native project tests or verification evidence: negative/zero/positive, false/true, null/non-null, empty/non-empty, sentinel/ordinary, enum variants, or pre/post state. Do not list a natural-language acceptance test as if it were execution evidence. Do not narrow or widen a neighboring condition merely because the failing example exercises one class. The same rule applies across every supported source language. This is language-neutral soft guidance; no prose keyword or operator heuristic authorizes a hard gate."
 
 // NativeProjectTestObservationRecoveryTeaching is emitted by the precise
 // source-language mismatch validator. It tells the planner how to replace an
@@ -446,6 +446,10 @@ type ChangePlan struct {
 	// path belongs to a filesystem-derived TestSurface candidate and the exact
 	// candidate command succeeds.
 	ProjectTestObservations []ProjectTestObservation `json:"project_test_observations,omitempty"`
+
+	// NativeTestRegistration is a controller-authorized read-only declaration,
+	// independent from ordinary source edits and from probe-only proof plans.
+	NativeTestRegistration *NativeTestRegistration `json:"native_test_registration,omitempty"`
 
 	// BehaviorContracts is the write_analyzer contract snapshot visible when
 	// this plan was emitted. It lets verify/probe coverage reference stable
@@ -938,6 +942,10 @@ type StructuredEdit struct {
 // finalize stage reads this file and renders a user-visible
 // AnswerDocument describing the change and its test outcome.
 type ChangeReport struct {
+	// Read-only cumulative projection: a current native registration cannot
+	// borrow these exact contract refs from another report. Never persisted.
+	verificationExcludedContractRefs map[string]bool
+
 	// PlanID names the ChangePlan this report corresponds to.
 	// One-to-one: a single plan produces zero-or-one report.
 	PlanID string `json:"plan_id"`
@@ -2354,7 +2362,7 @@ func LoadChangePlanFromFile(path string) (*ChangePlan, error) {
 		return nil, fmt.Errorf("LoadChangePlanFromFile: %s has empty plan ID", path)
 	}
 	PreserveProofProbeOnlyPlanIdentity(&plan)
-	probeOnlyProofPlan := IsPersistedProofProbeOnlyPlan(&plan)
+	probeOnlyProofPlan := IsPersistedProofProbeOnlyPlan(&plan) || IsPersistedNativeTestRegistrationPlan(&plan)
 	if len(plan.Changes) == 0 && !probeOnlyProofPlan {
 		return nil, fmt.Errorf("LoadChangePlanFromFile: %s has no changes[] — refusing to install an empty plan", path)
 	}

@@ -13,6 +13,12 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 	if plan == nil {
 		return
 	}
+	// This shape already contains the independently registered single-source
+	// delivery. Do not copy old probe declarations/results into its new proof.
+	// Execution revalidates the run ledger and original source artifact again.
+	if plan.PersistenceKind == types.PlanPersistenceNativeTestRegistration || plan.NativeTestRegistration != nil {
+		return
+	}
 	// A probe-pass replan restores priorPlan by pointer identity. Its existing
 	// cumulative scope was already stamped by this controller and is the only
 	// route to plans applied before the restore cutoff. Preserve that exact

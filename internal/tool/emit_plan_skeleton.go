@@ -78,7 +78,7 @@ var emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 sen
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
 	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs, project_test_observations: optional [{id,test_path,assertion_suite,assertion_id,contract_refs[]}], superseded_contract_refs: optional []string of soft behavior_contract ids this repair plan supersedes (repair plans after a failed verification only)}. " +
-	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
+	"Controller-authorized proof-follow-up batches may emit changes: [] with verification_probes[], or separately register fully read and delivered existing Python unittest files using project_test_observations[]; registration changes no files and still requires a fresh verification run. " +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
 func (t *EmitPlanSkeleton) Name() string { return "emit_plan_skeleton" }
@@ -98,7 +98,7 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	    "summary": {"type": "string", "description": "3-10 sentences describing what the plan does and why."},
 	    "changes": {
 	      "type": "array",
-	      "description": "Per-file metadata. Empty [] is accepted only for controller-authorized proof-follow-up plans with typed verification_probes.",
+	      "description": "Per-file metadata. Empty [] requires a controller-authorized probe-only follow-up or separately authorized read-only project_test_observations registration. Registration is atomically finalized without emit_plan_change, has no verification_probes or superseded_contract_refs, and requires fresh native verification.",
 	      "items": {
 	        "type": "object",
 	        "additionalProperties": false,
@@ -213,9 +213,11 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	probes = normalizePlanProbePathsForActiveRepo(ctx, probes)
 	if len(p.Changes) == 0 {
 		if len(p.ProjectTestObservations) > 0 {
-			summary := "emit_plan_skeleton rejected: project_test_observations cannot be carried by a source-free sentinel plan; keep the exact declarations on the source/test change plan whose project suite will execute them."
-			return rejectPlanToolResult(t.Name(), summary,
-				planRepairPackFromReason(t.Name(), "project_test_observation_without_changes", summary, []string{"$.changes", "$.project_test_observations"}, nil)), nil
+			return emitNativeTestRegistration(ctx, t.Name(), emitChangePlanParams{
+				Request: p.Request, Summary: p.Summary, AcceptanceTests: p.AcceptanceTests,
+				ProjectTestObservations: p.ProjectTestObservations,
+				VerificationProbes:      p.VerificationProbes, SupersededContractRefs: p.SupersededContractRefs,
+			})
 		}
 		if plan := proofFollowupProbeOnlyPlanSentinel(ctx, emitChangePlanParams{
 			Request:                p.Request,
@@ -256,7 +258,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 		}
 		summary := "emit_plan_skeleton rejected: changes[] cannot be empty — at least one FileChange metadata entry is required. " + emitPlanSkeletonSchemaReminder
 		if _, ok := activeProofFollowupWorkflowBatch(ctx.Mutable.WriteWorkflowRun()); ok {
-			summary = "emit_plan_skeleton rejected: this proof-follow-up batch has no source edit to apply; emit changes: [] only together with verification_probes[] that exercise the already-applied worktree. " + emitPlanSkeletonSchemaReminder
+			summary = "emit_plan_skeleton rejected: this proof-follow-up batch has no source edit to apply; use verification_probes[] for the probe-only lane, or project_test_observations[] when the controller separately authorizes read-only existing-test registration. " + emitPlanSkeletonSchemaReminder
 		}
 		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "changes_empty", summary, []string{"$.changes"}, nil)), nil
 	}

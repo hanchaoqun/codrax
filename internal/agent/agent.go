@@ -2186,6 +2186,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.ResetDispatchToolResults()
 	}
+	repositoryReadDelivery := newDispatchRepositoryReadDelivery(ctx)
 
 	// Loop-control state: snapshot the evaluator's LoopController
 	// once (nil when the evaluator does not implement it) and
@@ -2499,6 +2500,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 		streamActivity := &llmStreamActivityTracker{}
 		stopLLMRequestWatchdog := b.startLLMRequestWatchdog(ctx, i, telemetry, streamActivity)
+		readDeliverySnapshot := repositoryReadDelivery.snapshot(requestMessages)
 		resp, err := llm.ChatWithRequestBudget(ctx.Context(), b.deps.LLM, requestMessages, effectiveTools, llm.ChatOptions{
 			ToolChoice:       toolChoice,
 			OnContentDelta:   streamBuf.onDelta,
@@ -2567,6 +2569,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			return output, err
 		}
 
+		repositoryReadDelivery.commit(ctx, readDeliverySnapshot)
 		resp.ToolCalls = b.normalizeToolCallParamsWithContext(ctx, resp.ToolCalls, effectiveTools)
 		resp.ToolCalls = pruneAnalyzerPrescanBatchBeforeHistory(ctx, resp.ToolCalls)
 		var toolBatchGuardHint string
@@ -2929,6 +2932,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					if ctx != nil && ctx.Mutable != nil {
 						ctx.Mutable.AppendDispatchToolResult(*er.result)
 					}
+					repositoryReadDelivery.observe(tc.ID, *er.result)
 					messages = append(messages, llm.Message{
 						Role:       "tool",
 						Content:    er.result.Summary,
@@ -3010,6 +3014,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					if ctx != nil && ctx.Mutable != nil {
 						ctx.Mutable.AppendDispatchToolResult(*result)
 					}
+					repositoryReadDelivery.observe(tc.ID, *result)
 					messages = append(messages, llm.Message{
 						Role:       "tool",
 						Content:    result.Summary,

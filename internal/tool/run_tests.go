@@ -288,6 +288,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if ctx == nil || ctx.Mutable == nil {
 		return errResult(t.Name(), "run_tests requires a writable run context (the orchestrator did not provide one)"), nil
 	}
+	ctx = nativeRegistrationPhysicalExecutionContext(ctx)
 
 	var p runTestsParams
 	if len(params) > 0 {
@@ -431,6 +432,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		report.TestSurface = &surfaceCopy
 		report.ExecutedCommands = append([]types.ExecutedCommand(nil), executedCmds...)
 		report.ExistingTestExecutions = append([]types.ExistingTestExecutionReceipt(nil), existingTestExecutions...)
+		// Registered native assertions use the full current-execution receipt
+		// join while building confidence, before the usual final channel stamp.
+		// Do not relabel dry-run probes or a report owned by another channel.
+		if !dryRunProbe && report.Channel == "" && types.IsPersistedNativeTestRegistrationPlan(authorityPlan) {
+			report.Channel = types.ChangeReportChannelPostApplyVerify
+		}
 		report.VerificationDiagnostics = mergeVerificationDiagnostics(
 			report.VerificationDiagnostics,
 			carriedVerificationDiagnostics,
@@ -3827,7 +3834,14 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 				declared[ref] = struct{}{}
 			}
 		}
-		if !projectTestObservationExecuted(observation, report) {
+		matched := false
+		for _, match := range projectTestObservationExecutionMatches(observation, report, true) {
+			if types.NativeTestRegistrationAssertionMatches(plan, report, observation, match.CommandIndex, match.ResultIndex) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
 			continue
 		}
 		for _, raw := range observation.ContractRefs {

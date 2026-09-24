@@ -333,7 +333,8 @@ func removeVerificationProofReason(reasons []string, remove string) []string {
 func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryReport *ChangeReport, artifacts []VerificationProofArtifact) VerificationProofProfile {
 	primaryReport = EffectiveVerificationProbeReport(primaryPlan, primaryReport)
 	artifacts = effectiveVerificationProofArtifacts(artifacts)
-	unique := effectiveCumulativeBehaviorContractArtifacts(verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts))
+	unique := effectiveCumulativeNativeRegistrationArtifacts(primaryPlan, verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts))
+	unique = effectiveCumulativeBehaviorContractArtifacts(unique)
 	if (primaryPlan != nil || primaryReport != nil) && len(unique) > 0 {
 		primaryPlan = unique[0].Plan
 	}
@@ -427,7 +428,8 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 		ReasonCodes:        append([]string(nil), profile.ReasonCodes...),
 		CoverageCounts:     map[string]int{},
 	}
-	unique := effectiveCumulativeBehaviorContractArtifacts(verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts))
+	unique := effectiveCumulativeNativeRegistrationArtifacts(primaryPlan, verificationProofUniqueArtifacts(primaryPlan, primaryReport, artifacts))
+	unique = effectiveCumulativeBehaviorContractArtifacts(unique)
 	if len(unique) == 0 {
 		out.State = verificationProofLedgerStateFromProfile(profile)
 		return NormalizeVerificationProofLedger(out)
@@ -456,7 +458,7 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 	for _, artifact := range unique {
 		out.addRequiredBehaviorContractLedgerItems(artifact.Plan)
 	}
-	out.resolveHistoricalVerificationFailures(primaryReport, unique)
+	out.resolveHistoricalVerificationFailures(primaryPlan, primaryReport, unique)
 	out.resolveSuccessfulRunnerMissingEscalations(primaryReport)
 	out.resolveCumulativeChangedPathObligations(primaryPlan, primaryReport)
 	// Probe disposition depends on the final exact obligation state. Resolve
@@ -680,15 +682,18 @@ func (ledger *VerificationProofLedger) addVerificationReportLedgerItems(report *
 // the final ledger falsely failed. Only a passed primary report can supersede
 // an earlier command, and identity excludes outcome/status so no prose match
 // or fuzzy command relation is involved.
-func (ledger *VerificationProofLedger) resolveHistoricalVerificationFailures(primary *ChangeReport, artifacts []VerificationProofArtifact) {
+func (ledger *VerificationProofLedger) resolveHistoricalVerificationFailures(primaryPlan *ChangePlan, primary *ChangeReport, artifacts []VerificationProofArtifact) {
 	if ledger == nil || primary == nil || primary.NormalizeVerificationStatus() != VerificationStatusPassed {
 		return
 	}
 	primaryPlanID := strings.TrimSpace(primary.PlanID)
 	covered := map[string]bool{}
 	probePasses := map[string][]*VerificationProbeExecutionReceipt{}
-	for _, cmd := range primary.ExecutedCommands {
+	for commandIndex, cmd := range primary.ExecutedCommands {
 		if executedCommandFailed(cmd) || verificationProofCommandUnavailableReasonCode(cmd, verificationProofCommandClass(cmd)) != "" {
+			continue
+		}
+		if !nativeTestRegistrationCommandProofMatches(primaryPlan, primary, commandIndex) {
 			continue
 		}
 		if key := verificationProofCommandIdentity(cmd); key != "" {

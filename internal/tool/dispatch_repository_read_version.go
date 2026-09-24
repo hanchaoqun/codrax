@@ -138,6 +138,6 @@ func (read repositoryFileReadVersion) record(ctx *types.BusContext, result types
 	if err != nil || !sameRepositoryReadFile(read.fileInfo, fileInfo) {
 		return
 	}
-	read.mutable.RecordDispatchRepositoryFileReadVersion(read.generation, read.physicalRoot, path, result.RawRef,
-		read.digest, coverage.LineStart, coverage.LineEnd, coverage.TotalLines)
+	read.mutable.RecordDispatchRepositoryFileReadVersionWithSummary(read.generation, read.physicalRoot, path, result.RawRef,
+		read.digest, coverage.LineStart, coverage.LineEnd, coverage.TotalLines, result.Summary)
 }

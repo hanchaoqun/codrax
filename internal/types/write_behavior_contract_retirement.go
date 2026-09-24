@@ -211,7 +211,8 @@ func BuildVerifyFailureContractRelevance(report *ChangeReport, plan *ChangePlan,
 				!ProjectTestAssertionSuiteMatches(suite, observation.AssertionSuite) {
 				continue
 			}
-			if !projectTestFailureBindingMatches(bindings, observation, rowIndex) {
+			if !projectTestFailureBindingMatches(bindings, observation, rowIndex) ||
+				!nativeTestRegistrationFailureRowMatches(plan, report, observation, rowIndex) {
 				unboundProjectAssertion = true
 				continue
 			}

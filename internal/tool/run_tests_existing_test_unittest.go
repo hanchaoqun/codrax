@@ -89,6 +89,7 @@ type existingTestUnittestInvocation struct {
 	rows                                                []existingTestUnittestRow
 	directoryInfo, reportInfo, readInfo                 os.FileInfo
 	delivery                                            verificationDeliveryBinding
+	registrationDigest                                  string
 }
 
 func prepareExistingTestUnittestInvocation(ctx *types.BusContext, invocation runnerPlan) (*existingTestUnittestInvocation, string) {
@@ -97,7 +98,7 @@ func prepareExistingTestUnittestInvocation(ctx *types.BusContext, invocation run
 	}
 	plan := ctx.Mutable.ChangePlan()
 	wd := runnerPlanRel(ctx.RepoRoot, invocation)
-	for _, target := range types.RequiredExistingTestPaths(plan) {
+	for _, target := range nativeObservedTestPaths(plan) {
 		if !types.ExistingTestExactFileSelector(invocation.Runner, invocation.Framework, wd, invocation.Suite, target) || safeImpactRelatedPath(ctx.RepoRoot, target) == "" {
 			continue
 		}
@@ -106,6 +107,10 @@ func prepareExistingTestUnittestInvocation(ctx *types.BusContext, invocation run
 			return nil, ""
 		}
 		sha, ok := delivery.currentTestSHA(ctx, target)
+		if !ok {
+			return nil, ""
+		}
+		registrationDigest, ok := nativeRegistrationExecutionBinding(ctx, target, sha)
 		if !ok {
 			return nil, ""
 		}
@@ -130,7 +135,7 @@ func prepareExistingTestUnittestInvocation(ctx *types.BusContext, invocation run
 			_ = os.Remove(directory)
 			return nil, ""
 		}
-		run := &existingTestUnittestInvocation{directory: directory, directoryInfo: directoryInfo, reportPath: filepath.Join(directory, "result.json"), target: target, targetAbs: abs, targetSHA: sha, delivery: delivery}
+		run := &existingTestUnittestInvocation{directory: directory, directoryInfo: directoryInfo, reportPath: filepath.Join(directory, "result.json"), target: target, targetAbs: abs, targetSHA: sha, delivery: delivery, registrationDigest: registrationDigest}
 		interp := pythonRuntimeInterpreter(invocation.Root, ctx.MainRepoRoot)
 		command := fmt.Sprintf("%s -c %s %s %s", interp, shellQuoteWord(existingTestUnittestObserver), shellQuoteWord(run.reportPath), shellQuoteWord(invocation.Suite))
 		return run, command
@@ -237,7 +242,7 @@ func (r *existingTestUnittestInvocation) readReport(ctx *types.BusContext, exitC
 		return nil, fmt.Errorf("unittest observation incomplete or inconsistent")
 	}
 	sha, current := r.delivery.currentTestSHA(ctx, r.target)
-	if !current || sha != r.targetSHA {
+	if !current || sha != r.targetSHA || !r.registrationMatches(ctx) {
 		return nil, fmt.Errorf("unittest delivery changed during execution")
 	}
 	// Keep the existing parser's native verdict, loader-error classification,

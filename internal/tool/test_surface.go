@@ -672,6 +672,9 @@ func impactRunnerPlansFromChangePlan(repoRoot string, surface types.TestSurface,
 			continue
 		}
 		cand := impactCandidateForRelatedPath(surface, related)
+		if isRegisteredNativeTestPath(plan, related) {
+			cand = nativeRegistrationCandidate(surface, related)
+		}
 		if cand == nil {
 			continue
 		}
@@ -790,7 +793,7 @@ func directTestSurfaceTargetsFromChangePlan(plan *types.ChangePlan) []types.Impa
 	seen := map[string]bool{}
 	addPath := func(raw, source string) {
 		rel := cleanRepoRelPath(raw)
-		if rel == "" || seen[rel] || (source != types.WriteConstraintRunExistingTest && !types.LooksLikeTestFilePath(rel)) {
+		if rel == "" || seen[rel] || (source != types.WriteConstraintRunExistingTest && !types.LooksLikeTestFilePath(rel) && !isRegisteredNativeTestPath(plan, rel)) {
 			return
 		}
 		seen[rel] = true

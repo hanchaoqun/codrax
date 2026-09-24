@@ -44,7 +44,20 @@ func (b verificationDeliveryBinding) matches(ctx *types.BusContext) bool {
 // clean tracked bytes. Borrowed probe delivery uses the same check; the own
 // probe protocol retains its historical optional AppliedCommitSHA semantics.
 func (b verificationDeliveryBinding) currentCommit(ctx *types.BusContext, requireCurrent bool) (string, error) {
-	if !b.matches(ctx) || b.snapshot.PatchEffect == nil || requireCurrent && b.snapshot.AppliedCommitSHA == "" {
+	if !b.matches(ctx) {
+		return "", os.ErrInvalid
+	}
+	commit, err := verificationDeliveryPhysicalCommit(ctx, b.root, b.snapshot, requireCurrent)
+	if err != nil || !b.matches(ctx) {
+		return "", os.ErrInvalid
+	}
+	return commit, nil
+}
+
+// Also used before installing a read-only registration. A prospective plan
+// must never replace Mutable's current draft merely to inspect its delivery.
+func verificationDeliveryPhysicalCommit(ctx *types.BusContext, root string, snapshot types.VerificationDeliverySnapshot, requireCurrent bool) (string, error) {
+	if ctx == nil || snapshot.PatchEffect == nil || requireCurrent && snapshot.AppliedCommitSHA == "" {
 		return "", os.ErrInvalid
 	}
 	budget := 3 * time.Second
@@ -53,21 +66,18 @@ func (b verificationDeliveryBinding) currentCommit(ctx *types.BusContext, requir
 	}
 	deadline, cancel := context.WithTimeout(ctx.Context(), budget)
 	defer cancel()
-	commit, err := pythonTargetAppliedCommit(deadline, b.root, b.snapshot.PatchEffect)
-	if err != nil || requireCurrent && commit != b.snapshot.AppliedCommitSHA {
+	commit, err := pythonTargetAppliedCommit(deadline, root, snapshot.PatchEffect)
+	if err != nil || requireCurrent && commit != snapshot.AppliedCommitSHA {
 		return "", os.ErrInvalid
 	}
 	if requireCurrent {
-		head, err := pythonTargetGit(deadline, b.root, 256, "rev-parse", "HEAD")
+		head, err := pythonTargetGit(deadline, root, 256, "rev-parse", "HEAD")
 		if err != nil || strings.TrimSpace(string(head)) != commit {
 			return "", os.ErrInvalid
 		}
-		if _, err := pythonTargetGit(deadline, b.root, 4096, "diff", "--quiet", "HEAD", "--"); err != nil {
+		if _, err := pythonTargetGit(deadline, root, 4096, "diff", "--quiet", "HEAD", "--"); err != nil {
 			return "", os.ErrInvalid
 		}
-	}
-	if !b.matches(ctx) {
-		return "", os.ErrInvalid
 	}
 	return commit, nil
 }

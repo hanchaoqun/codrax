@@ -342,12 +342,13 @@ type MutableState struct {
 	// Read receipts carry current-dispatch physical identity and, for write
 	// reads, separately bound byte versions/visible ranges. Neither is test
 	// execution proof. The generation changes only on reset, not on append.
-	dispatchRepositoryFileReads          map[dispatchRepositoryFileReadKey]struct{}
-	dispatchRepositoryFileReadVersions   map[dispatchRepositoryFileReadKey][]dispatchRepositoryFileReadVersion
-	dispatchRepositoryFileReadGeneration uint64
-	turnAArtifactsRevision               uint64
-	dispatchToolResultsRevision          uint64
-	searchGraphRevision                  uint64
+	dispatchRepositoryFileReads             map[dispatchRepositoryFileReadKey]struct{}
+	dispatchRepositoryFileReadVersions      map[dispatchRepositoryFileReadKey][]dispatchRepositoryFileReadVersion
+	dispatchRepositoryFileReadGeneration    uint64
+	dispatchRepositoryDeliveredReadVersions map[dispatchRepositoryDeliveredReadKey]bool
+	turnAArtifactsRevision                  uint64
+	dispatchToolResultsRevision             uint64
+	searchGraphRevision                     uint64
 	// traceInputAdmissionTerminal is the run-scoped, typed safety latch for
 	// action-required trace-input admission failures. Unlike
 	// dispatchToolResults it deliberately survives ResetDispatchToolResults.
@@ -991,11 +992,13 @@ type MutableState struct {
 	// and back into planning. They are planning context only: they never
 	// mutate files, never bypass ChangePlan validation, and never become
 	// final-answer citation state.
-	writeExplorationRequest *WriteExplorationRequest
-	writeExplorationHandoff *WriteExplorationHandoff
-	writeContextPack        *WriteContextPack
-	writeWorkflowRun        *WriteWorkflowRun
-	writeWorkflowDecision   []byte
+	writeExplorationRequest             *WriteExplorationRequest
+	writeExplorationHandoff             *WriteExplorationHandoff
+	writeContextPack                    *WriteContextPack
+	writeWorkflowRun                    *WriteWorkflowRun
+	writeWorkflowDecision               []byte
+	nativeTestRegistrationAuthorization *NativeTestRegistrationAuthorization
+	nativeTestRegistrationExecution     *nativeTestRegistrationExecution
 
 	// planCritique is the optional pre-apply review text produced by
 	// the plan_critic agent (commit 4 P1-F). Empty when the critic
@@ -2067,6 +2070,10 @@ func (m *MutableState) SetWriteAnalysisIR(ir *WriteAnalysisIR) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.writeAnalysisIR = ir
+	if ir == nil {
+		m.nativeTestRegistrationAuthorization = nil
+		m.nativeTestRegistrationExecution = nil
+	}
 }
 
 // WriteExplorationRequest returns the current read-only exploration request for
@@ -2251,6 +2258,8 @@ func (m *MutableState) SetWriteWorkflowRun(run *WriteWorkflowRun) {
 	defer m.mu.Unlock()
 	if run == nil {
 		m.writeWorkflowRun = nil
+		m.nativeTestRegistrationAuthorization = nil
+		m.nativeTestRegistrationExecution = nil
 		return
 	}
 	snap := CloneWriteWorkflowRun(*run)
@@ -2267,6 +2276,8 @@ func (m *MutableState) ResetWriteWorkflowRun() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.writeWorkflowRun = nil
+	m.nativeTestRegistrationAuthorization = nil
+	m.nativeTestRegistrationExecution = nil
 }
 
 // WriteWorkflowDecisionJSON returns the last schema-normalized controller
@@ -2972,6 +2983,7 @@ func (m *MutableState) ResetDispatchToolResults() {
 	m.dispatchToolResults = nil
 	m.dispatchRepositoryFileReads = nil
 	m.dispatchRepositoryFileReadVersions = nil
+	m.dispatchRepositoryDeliveredReadVersions = nil
 	m.dispatchRepositoryFileReadGeneration++
 	m.dispatchToolResultsRevision++
 }

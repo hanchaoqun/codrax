@@ -24,23 +24,27 @@ const WriteExistingTestIntentTeaching = "Use kind=run_existing_test only when th
 // CommandIndex binds to the report's existing command ledger; source identity
 // prevents an older delivery of the same plan from lending its execution.
 type ExistingTestExecutionReceipt struct {
-	PlanID               string   `json:"plan_id"`
-	SourcePlanID         string   `json:"source_plan_id,omitempty"`
-	AppliedCommitSHA     string   `json:"applied_commit_sha"`
-	PatchEffectID        string   `json:"patch_effect_id"`
-	DiffFingerprint      string   `json:"diff_fingerprint"`
-	TestPath             string   `json:"test_path"`
-	CandidateID          string   `json:"candidate_id"`
-	Runner               string   `json:"runner"`
-	Framework            string   `json:"framework,omitempty"`
-	WorkingDir           string   `json:"working_dir"`
-	Suite                string   `json:"suite"`
-	CommandIndex         int      `json:"command_index"`
-	AssertionCount       int      `json:"assertion_count"`
-	FailedAssertionCount int      `json:"failed_assertion_count"`
-	TestFileSHA256       string   `json:"test_file_sha256"`
-	CommandSHA256        string   `json:"command_sha256"`
-	AssertionDigests     []string `json:"assertion_digests"`
+	// NativeTestRegistrationDigest binds only the controller-authorized,
+	// read-only registration lane. Ordinary execution requirements leave it
+	// empty; a registered receipt cannot lend its authority to another plan.
+	NativeTestRegistrationDigest string   `json:"native_test_registration_digest,omitempty"`
+	PlanID                       string   `json:"plan_id"`
+	SourcePlanID                 string   `json:"source_plan_id,omitempty"`
+	AppliedCommitSHA             string   `json:"applied_commit_sha"`
+	PatchEffectID                string   `json:"patch_effect_id"`
+	DiffFingerprint              string   `json:"diff_fingerprint"`
+	TestPath                     string   `json:"test_path"`
+	CandidateID                  string   `json:"candidate_id"`
+	Runner                       string   `json:"runner"`
+	Framework                    string   `json:"framework,omitempty"`
+	WorkingDir                   string   `json:"working_dir"`
+	Suite                        string   `json:"suite"`
+	CommandIndex                 int      `json:"command_index"`
+	AssertionCount               int      `json:"assertion_count"`
+	FailedAssertionCount         int      `json:"failed_assertion_count"`
+	TestFileSHA256               string   `json:"test_file_sha256"`
+	CommandSHA256                string   `json:"command_sha256"`
+	AssertionDigests             []string `json:"assertion_digests"`
 }
 
 // RequiredExistingTestPaths reads only the pinned analyzer snapshot, never a
@@ -130,6 +134,12 @@ func ExistingTestExecutionConfidence(plan *ChangePlan, report *ChangeReport) []V
 }
 
 func existingTestExecutionReceiptMatches(plan *ChangePlan, delivery VerificationDeliverySnapshot, report *ChangeReport, r ExistingTestExecutionReceipt, invocations *NativeTestInvocationIndex) bool {
+	if plan.NativeTestRegistration != nil || plan.PersistenceKind == PlanPersistenceNativeTestRegistration || r.NativeTestRegistrationDigest != "" {
+		digest := NativeTestRegistrationDigest(plan)
+		if digest == "" || r.NativeTestRegistrationDigest != digest || nativeTestRegistrationFileSHA(plan, r.TestPath) != r.TestFileSHA256 {
+			return false
+		}
+	}
 	if report.PlanID != plan.ID || report.Channel != ChangeReportChannelPostApplyVerify ||
 		r.PlanID != plan.ID || !verificationDeliveryReceiptSourceMatches(plan, delivery, r.SourcePlanID) ||
 		delivery.AppliedCommitSHA == "" || r.AppliedCommitSHA != delivery.AppliedCommitSHA ||
@@ -149,6 +159,9 @@ func existingTestExecutionReceiptMatches(plan *ChangePlan, delivery Verification
 		return false
 	}
 	cmd := report.ExecutedCommands[r.CommandIndex]
+	if r.NativeTestRegistrationDigest != "" && cmd.InvocationID == "" {
+		return false
+	}
 	if cmd.Runner != r.Runner || cmd.Framework != r.Framework || cmd.WorkingDir != r.WorkingDir || cmd.Suite != r.Suite ||
 		cmd.Outcome != ExecutedCommandOutcomeExecuted || cmd.ProbeExecution != nil || cmd.SourceCheckExecution != nil ||
 		r.CommandSHA256 != ExistingTestExecutionDigest(cmd.Command) || cmd.Command == "" ||

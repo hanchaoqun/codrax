@@ -114,9 +114,10 @@ func EffectiveVerificationConfidence(plan *ChangePlan, report *ChangeReport) []V
 		out[i].ChangedSymbolRefs = append([]string(nil), out[i].ChangedSymbolRefs...)
 		out[i] = effectiveSourceCheckConfidence(plan, report, out[i])
 	}
+	out = effectiveNativeTestRegistrationConfidence(plan, report, out)
 	python := pythonReportProbes(plan, report)
 	if len(python) == 0 {
-		return out
+		return excludeCumulativeNativeRegistrationConfidence(report, out)
 	}
 	contracts, placements, symbols := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	if plan == nil {
@@ -207,7 +208,7 @@ func EffectiveVerificationConfidence(plan *ChangePlan, report *ChangeReport) []V
 			rec.ContractRefs = kept
 		}
 	}
-	return out
+	return excludeCumulativeNativeRegistrationConfidence(report, out)
 }
 
 // EffectiveVerificationProbeReport projects probe authority and explicit native

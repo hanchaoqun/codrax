@@ -1,6 +1,7 @@
 package types
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"sort"
 	"strings"
@@ -20,9 +21,13 @@ type dispatchRepositoryFileReadKey struct {
 // read_file result has been appended to this same dispatch. Neither phase is
 // execution evidence, test classification, or a behavior-contract witness.
 type dispatchRepositoryFileReadVersion struct {
-	sha256             string
-	lineStart, lineEnd int
-	totalLines         int
+	sha256                string
+	lineStart, lineEnd    int
+	totalLines            int
+	producerSummarySHA256 string
+	producerSummaryBytes  int
+	trimmedSummarySHA256  string
+	trimmedSummaryBytes   int
 }
 
 // BeginDispatchRepositoryFileRead freezes the dispatch generation before IO.
@@ -40,7 +45,18 @@ func (m *MutableState) BeginDispatchRepositoryFileRead() uint64 {
 // observation. read_file returns before BaseAgent appends its result, so this
 // method deliberately grants no completed-read qualification by itself.
 func (m *MutableState) RecordDispatchRepositoryFileReadVersion(generation uint64, root, path, rawRef, sha256 string, start, end, total int) bool {
-	if m == nil || root == "" || path == "" || rawRef == "" || !dispatchRepositoryReadSHA256(sha256) ||
+	return m.recordDispatchRepositoryFileReadVersion(generation, root, path, rawRef, sha256, start, end, total, "")
+}
+
+// RecordDispatchRepositoryFileReadVersionWithSummary additionally binds the
+// exact complete producer rendering. Only these versions can later acquire a
+// model-delivery receipt. Legacy read qualification remains unchanged.
+func (m *MutableState) RecordDispatchRepositoryFileReadVersionWithSummary(generation uint64, root, path, rawRef, digest string, start, end, total int, summary string) bool {
+	return m.recordDispatchRepositoryFileReadVersion(generation, root, path, rawRef, digest, start, end, total, summary)
+}
+
+func (m *MutableState) recordDispatchRepositoryFileReadVersion(generation uint64, root, path, rawRef, digest string, start, end, total int, summary string) bool {
+	if m == nil || root == "" || path == "" || rawRef == "" || !dispatchRepositoryReadSHA256(digest) ||
 		!(total == 0 && start == 0 && end == 0 || total > 0 && start > 0 && end >= start && end <= total) {
 		return false
 	}
@@ -53,7 +69,12 @@ func (m *MutableState) RecordDispatchRepositoryFileReadVersion(generation uint64
 	if _, ok := m.dispatchRepositoryFileReads[key]; !ok {
 		return false
 	}
-	version := dispatchRepositoryFileReadVersion{sha256, start, end, total}
+	version := dispatchRepositoryFileReadVersion{sha256: digest, lineStart: start, lineEnd: end, totalLines: total}
+	if summary != "" {
+		trimmed := strings.TrimRight(summary, "\n")
+		version.producerSummarySHA256, version.producerSummaryBytes = dispatchRepositoryReadDigest(summary), len(summary)
+		version.trimmedSummarySHA256, version.trimmedSummaryBytes = dispatchRepositoryReadDigest(trimmed), len(trimmed)
+	}
 	for _, prior := range m.dispatchRepositoryFileReadVersions[key] {
 		if prior == version {
 			return true
@@ -72,6 +93,10 @@ func (m *MutableState) RecordDispatchRepositoryFileReadVersion(generation uint64
 // supplies the desired byte digest; this lookup does not reread the filesystem
 // or claim that the bytes are still current, executed, or behaviorally correct.
 func (m *MutableState) CompleteDispatchRepositoryFileReadVersion(root, path, sha256 string) bool {
+	return m.completeDispatchRepositoryFileReadVersion(root, path, sha256, false)
+}
+
+func (m *MutableState) completeDispatchRepositoryFileReadVersion(root, path, sha256 string, deliveredOnly bool) bool {
 	if m == nil || root == "" || path == "" || !dispatchRepositoryReadSHA256(sha256) {
 		return false
 	}
@@ -88,6 +113,9 @@ func (m *MutableState) CompleteDispatchRepositoryFileReadVersion(root, path, sha
 		}
 		for _, version := range versions {
 			if version.sha256 != sha256 || !m.dispatchRepositoryReadVersionHasResultLocked(key, version) {
+				continue
+			}
+			if deliveredOnly && !m.dispatchRepositoryDeliveredReadVersions[dispatchRepositoryDeliveredReadKey{key, version}] {
 				continue
 			}
 			if total >= 0 && total != version.totalLines {
@@ -114,6 +142,11 @@ func (m *MutableState) CompleteDispatchRepositoryFileReadVersion(root, path, sha
 		}
 	}
 	return covered == total
+}
+
+func dispatchRepositoryReadDigest(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func (m *MutableState) dispatchRepositoryReadVersionHasResultLocked(key dispatchRepositoryFileReadKey, version dispatchRepositoryFileReadVersion) bool {

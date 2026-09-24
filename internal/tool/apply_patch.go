@@ -131,6 +131,9 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 			"apply_patch rejected: no ChangePlan on Mutable — orchestrator's the apply stage hook did not load one. "+
 				"This tool is apply-stage only; calling it from another stage is a skill-configuration bug."), nil
 	}
+	if plan.NativeTestRegistration != nil || plan.PersistenceKind == types.PlanPersistenceNativeTestRegistration {
+		return errResult(t.Name(), "apply_patch rejected: this read-only existing-test registration permits verification only, not file changes"), nil
+	}
 
 	// W1: path must be in plan.TargetPaths. Message enumerates the
 	// valid TargetPaths so the LLM doesn't have to re-read the plan

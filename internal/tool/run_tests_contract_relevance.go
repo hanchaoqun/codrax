@@ -20,7 +20,8 @@ func BuildVerifyFailureContractRelevance(report *types.ChangeReport, plan *types
 	if report != nil && plan != nil {
 		for _, observation := range types.ChangePlanVerificationProjectTestObservations(plan) {
 			for _, match := range projectTestObservationExecutionMatches(observation, report, false) {
-				if !projectTestFailureExecutionIsUnambiguous(observation, report, match) {
+				if !projectTestFailureExecutionIsUnambiguous(observation, report, match) ||
+					!types.NativeTestRegistrationAssertionMatches(plan, report, observation, match.CommandIndex, match.ResultIndex) {
 					continue
 				}
 				bindings = append(bindings, types.ProjectTestFailureBinding{

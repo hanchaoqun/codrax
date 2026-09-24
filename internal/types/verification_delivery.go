@@ -88,7 +88,7 @@ func ResolveVerificationDelivery(plan *ChangePlan) (VerificationDeliverySnapshot
 	// AppliedAt is also stamped by verify-only lifecycle transitions; unlike
 	// these concrete apply carriers, its presence does not prove an own apply.
 	if plan.AppliedCommitSHA != "" || len(plan.AppliedPaths) != 0 || plan.ApplyCheckpoint != nil ||
-		!IsPersistedProofProbeOnlyPlan(plan) || plan.CumulativeVerificationScope == nil {
+		!(IsPersistedProofProbeOnlyPlan(plan) || IsPersistedNativeTestRegistrationPlan(plan)) || plan.CumulativeVerificationScope == nil {
 		return VerificationDeliverySnapshot{}, false
 	}
 	scope := plan.CumulativeVerificationScope

@@ -37,7 +37,7 @@ const emitChangePlanSchemaReminder = types.ChangePlanJSONShapeFirstTeaching + " 
 	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch, " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
 	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs; project_test_observations: array of {id, test_path, assertion_suite, assertion_id, contract_refs[]} declarations; superseded_contract_refs: array of soft behavior_contract ids this repair plan supersedes (repair plans after a failed verification only). " +
-	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
+	"Controller-authorized proof-follow-up batches may emit changes: [] with verification_probes[], or separately register fully read and delivered existing Python unittest files using project_test_observations[]; registration changes no files and still requires a fresh verification run. " +
 	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
 
 // emitMinPayloadBytes is the threshold below which the params blob is
@@ -155,7 +155,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
     },
     "changes": {
       "type": "array",
-      "description": "Ordered list of file-level modifications. Apply-stage processes them sequentially. Empty [] is accepted only for controller-authorized proof-follow-up / no-change sentinel plans with typed verification_probes or typed passing planner probes.",
+      "description": "Ordered list of file-level modifications. Empty [] requires a controller-authorized probe-only follow-up, a typed passing no-change sentinel, or separately authorized read-only project_test_observations registration. Registration has no verification_probes or superseded_contract_refs and requires fresh native verification.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -384,9 +384,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	probes = normalizePlanProbePathsForActiveRepo(ctx, probes)
 	if len(p.Changes) == 0 {
 		if len(p.ProjectTestObservations) > 0 {
-			summary := "emit_change_plan rejected: project_test_observations cannot be carried by a source-free sentinel plan; keep the exact declarations on the source/test change plan whose project suite will execute them."
-			return rejectPlanToolResult(t.Name(), summary,
-				planRepairPackFromReason(t.Name(), "project_test_observation_without_changes", summary, []string{"$.changes", "$.project_test_observations"}, nil)), nil
+			return emitNativeTestRegistration(ctx, t.Name(), p)
 		}
 		if plan := proofFollowupProbeOnlyPlanSentinel(ctx, p, probes); plan != nil {
 			if rej, reason := attachWriteBehaviorContracts(ctx, plan, p.SupersededContractRefs); rej != "" {
@@ -434,7 +432,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}
 		summary := "emit_change_plan rejected: changes[] cannot be empty — at least one FileChange is required. " + emitChangePlanSchemaReminder
 		if _, ok := activeProofFollowupWorkflowBatch(ctx.Mutable.WriteWorkflowRun()); ok {
-			summary = "emit_change_plan rejected: this proof-follow-up batch has no source edit to apply; emit changes: [] only together with verification_probes[] that exercise the already-applied worktree. " + emitChangePlanSchemaReminder
+			summary = "emit_change_plan rejected: this proof-follow-up batch has no source edit to apply; use verification_probes[] for the probe-only lane, or project_test_observations[] when the controller separately authorizes read-only existing-test registration. " + emitChangePlanSchemaReminder
 		}
 		return rejectPlanToolResult(t.Name(), summary, planRepairPackFromReason(t.Name(), "changes_empty", summary, []string{"$.changes"}, nil)), nil
 	}
