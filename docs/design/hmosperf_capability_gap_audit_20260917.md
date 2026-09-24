@@ -3929,3 +3929,5 @@ IO四张真实受信summary表均正确，公开选择器首次真实模型命�
 只读追踪为runPyCompileFallback→pythonInterpreter→resolvePythonDryBuildRunnerWithContext→3秒候选probe→Darwin SupervisedRun。测试自己创建python3/python shell脚本、独占PATH，先写marker再sleep，不依赖真实Python/pytest/网络/模型；本批IO说明和新回归不在链上、不改环境、不启动该进程。冻结源码相同SDK下31009定向一次PASS0.44秒，54332连续三次PASS0.53/0.62/0.45秒。当前未复现，不坐实负载或确定波动。
 
 原失败输出没有保存候选SupervisedResult、父/候选context状态与返回report，不能区分启动失败、候选预算耗尽、marker写失败。再现时优先补精确失败诊断，不先放宽超时，归原18.4/18.5。64202以`go test -p 4 ./... -count=1`独立重新完整复验，降低包级并发而不减少测试、断言或超时合同；日志`/tmp/codrax-hmc-measurement-population-full-p4-20260924.log`。尚未正式结束，不签PASS；不把四次定向绿拼成整仓结果。
+
+完成本批确定性歧义收口后，重新按全局ROI排队：①提高参考仓08.2独立端点大小/比例/IOPS/墙钟带宽优先级，复用当前测量绑定并结合必要的精确范围展示；②18.5只读原生登记完整纵向接通；③08.4完整成员/分布与04.2实例归属/比较窗；④17.7安全SQLite。16.4/16.5随共用能力接面修，不先独占若干批只追这一例正文。08.3人工FAIL与展示债仍在原ID，不能称模型波动后删除，也不要求通过扫输出原文强制纠正才能继续新增能力。本段为最新排序，前文为各阶段历史计划。
