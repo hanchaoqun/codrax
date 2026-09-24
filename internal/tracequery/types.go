@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v44"
+const ParserVersion = "tracequery-v45"
 
 type EventType string
 
@@ -396,8 +396,9 @@ type BlockIOFields struct {
 	// compatibility Events. Production block endpoints must carry an explicit,
 	// fully validated dev/op/sector/len tuple; in particular sector=0 is valid,
 	// while a missing/overflowed sector must not collapse to the same value.
-	IdentityParsed bool `json:"-"`
-	IdentityValid  bool `json:"-"`
+	IdentityParsed bool                `json:"-"`
+	IdentityValid  bool                `json:"-"`
+	ioActivity     *ioActivityEndpoint `json:"-"`
 }
 
 // ResourceFields is the memory/storage/filesystem resource side table.
@@ -1127,9 +1128,10 @@ type Query struct {
 	// with Query, never serialized or included in causal board identity.
 	windowStatsSpecified bool
 	Limit                int
-	// BucketMs is the view=window_sweep coverage bucket width in
-	// milliseconds; StreamWindowSweep clamps it via ClampWindowSweepBucketMs
-	// (default 100, allowed 50..500). Ignored by every other view.
+	// BucketMs is the time-bucket width in milliseconds. window_sweep uses
+	// ClampWindowSweepBucketMs (default 100, allowed 50..500); the independent
+	// window_stats.io_activity face defaults to 100 and clamps positive inputs
+	// to 1..60000. Each face discloses its effective width; other views ignore it.
 	BucketMs              float64
 	CoreTopology          string
 	TraceFlavor           TraceFlavor
@@ -1152,6 +1154,9 @@ type Query struct {
 	// keeps meaning "caller explicitly set time_start" and every existing
 	// predicate on it is untouched.
 	timeStartBackfilled bool
+	// Only the independent IO activity endpoint population uses this flag
+	// to include the captured last event; all legacy window logic is unchanged.
+	timeEndBackfilled bool
 	// chainAnchorWindowsByPID (RSPA §29.61.10a/b/c, 2026-07-14). Unexported
 	// in-package plumbing, never serialized: the merged typed wakeup-
 	// dependency jump-window unions per chain pid (chainAnchorWindowsByPID
@@ -1744,6 +1749,7 @@ type WindowStats struct {
 	traceSpanFullInventory []TraceSpanSummary
 	TraceSpans             []TraceSpanSummary    `json:"trace_spans,omitempty"`
 	BusinessTree           *TraceMarkerTreeStats `json:"business_tree,omitempty"`
+	IOActivity             *IOActivityStats      `json:"io_activity,omitempty"`
 	// TraceTrackSpans is the isolated Android ASYNC_FOR_TRACK G/H lane. These
 	// spans have logical track ownership, not emitter-thread ownership, and
 	// therefore never feed TraceSpans, semantic classification or root rank.

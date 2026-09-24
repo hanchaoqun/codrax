@@ -20,6 +20,7 @@ func nonEventSchemaBeforeBusinessTree(t *testing.T, typ reflect.Type, schema str
 	if typ != reflect.TypeOf(tracequery.WindowStats{}) {
 		return schema
 	}
+	schema = nonEventSchemaBeforeIOActivity(t, typ, schema)
 	const added = "BusinessTree|*tracequery.TraceMarkerTreeStats|business_tree,omitempty"
 	var prior []string
 	count := 0

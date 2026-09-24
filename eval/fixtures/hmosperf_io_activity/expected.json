@@ -1,0 +1,51 @@
+{
+  "purpose": "Independent human oracle for endpoint activity, not an answer-text authority or a claim that paired requests enumerate all issue events.",
+  "window_seconds": [2.0, 2.25],
+  "interval_convention": "start inclusive, end exclusive",
+  "bucket_ms": 100,
+  "wall_clock_seconds": 0.25,
+  "groups": [
+    {
+      "family": "block_rq", "phase": "issue", "device": "8,0", "byte_basis": "explicit issue request bytes, not sector count times 512",
+      "source_lines": [4, 11, 12, 13, 16, 20, 21],
+      "event_count": 7, "known_size_count": 7, "unknown_size_count": 0, "zero_size_count": 2,
+      "known_bytes": 37888, "events_per_second": 28, "known_bytes_per_second": 151552,
+      "directions": {
+        "read": {"event_count": 5, "known_bytes": 21504, "events_per_second": 20, "known_bytes_per_second": 86016},
+        "write": {"event_count": 1, "known_bytes": 16384, "events_per_second": 4, "known_bytes_per_second": 65536},
+        "other": {"event_count": 1, "known_bytes": 0, "events_per_second": 4, "known_bytes_per_second": 0, "operation": "FS"}
+      },
+      "read_write_only_ratios": {"count_denominator": 6, "read_count_fraction": "5/6", "write_count_fraction": "1/6", "known_byte_denominator": 37888, "read_known_byte_fraction": "21/37", "write_known_byte_fraction": "16/37"},
+      "size_buckets_bytes": [
+        {"lower_inclusive": 0, "upper_exclusive": 4096, "count": 3, "bytes": 1024},
+        {"lower_inclusive": 4096, "upper_exclusive": 16384, "count": 3, "bytes": 20480},
+        {"lower_inclusive": 16384, "upper_exclusive": 65536, "count": 1, "bytes": 16384},
+        {"lower_inclusive": 65536, "upper_exclusive": 262144, "count": 0, "bytes": 0},
+        {"lower_inclusive": 262144, "upper_exclusive": 1048576, "count": 0, "bytes": 0},
+        {"lower_inclusive": 1048576, "upper_exclusive": null, "count": 0, "bytes": 0}
+      ],
+      "time_buckets": [
+        {"start_seconds": 2.0, "end_seconds": 2.1, "event_count": 4, "known_bytes": 21504, "events_per_second": 40, "known_bytes_per_second": 215040},
+        {"start_seconds": 2.1, "end_seconds": 2.2, "event_count": 1, "known_bytes": 0, "events_per_second": 10, "known_bytes_per_second": 0},
+        {"start_seconds": 2.2, "end_seconds": 2.25, "event_count": 2, "known_bytes": 16384, "events_per_second": 40, "known_bytes_per_second": 327680}
+      ]
+    },
+    {"family": "block_rq", "phase": "complete", "device": "8,0", "byte_basis": "completion sectors times 512, not evidence of successful physical transfer", "source_lines": [5, 6, 14, 15, 17, 22], "event_count": 6, "known_size_count": 6, "unknown_size_count": 0, "zero_size_count": 1, "known_bytes": 28672, "events_per_second": 24, "known_bytes_per_second": 114688},
+    {"family": "block_bio", "phase": "queue", "device": "8,0", "byte_basis": "queued sectors times 512", "source_lines": [7], "event_count": 1, "known_size_count": 1, "unknown_size_count": 0, "known_bytes": 4096, "events_per_second": 4, "known_bytes_per_second": 16384},
+    {"family": "block_bio", "phase": "complete", "device": "8,0", "byte_basis": "completion sectors times 512", "source_lines": [9], "event_count": 1, "known_size_count": 1, "unknown_size_count": 0, "known_bytes": 4096, "events_per_second": 4, "known_bytes_per_second": 16384},
+    {"family": "mmc_request", "phase": "start", "device": "mmc0", "byte_basis": "blocks times block_size requested bytes", "source_lines": [8], "event_count": 1, "known_size_count": 1, "unknown_size_count": 0, "known_bytes": 2048, "events_per_second": 4, "known_bytes_per_second": 8192},
+    {"family": "mmc_request", "phase": "done", "device": "mmc0", "byte_basis": "reported bytes_xfered, independent of request size", "source_lines": [10], "event_count": 1, "known_size_count": 1, "unknown_size_count": 0, "known_bytes": 1024, "events_per_second": 4, "known_bytes_per_second": 4096},
+    {"family": "f2fs_sync_file", "phase": "enter", "device": "8,0", "byte_basis": "unavailable; i_size and i_blocks are file metadata, not bytes transferred by this event", "source_lines": [18], "direction": "other", "event_count": 1, "known_size_count": 0, "unknown_size_count": 1, "known_bytes": null, "events_per_second": 4, "known_bytes_per_second": null},
+    {"family": "f2fs_sync_file", "phase": "exit", "device": "8,0", "byte_basis": "unavailable; ret=0 is a status, not an actual-byte count", "source_lines": [19], "direction": "other", "event_count": 1, "known_size_count": 0, "unknown_size_count": 1, "known_bytes": null, "events_per_second": 4, "known_bytes_per_second": null}
+  ],
+  "population_checks": [
+    {"source_lines": [3], "expectation": "Outside-window issue excluded from issue activity; its inside-window completion on line 5 is still a completion event."},
+    {"source_lines": [11], "expectation": "Legitimate in-window issue remains counted despite no completion; use its explicit 1024 bytes rather than 8 sectors times 512."},
+    {"source_lines": [12, 13, 14, 15], "expectation": "Two same-identity overlapping issues and two completions remain four valid endpoint observations; pair ambiguity does not erase activity or authorize FIFO pairing."},
+    {"source_lines": [16, 21, 22], "expectation": "Explicit zero-byte size is known zero, distinct from sync events with missing size."},
+    {"source_lines": [20, 24], "expectation": "Inside-window issue counts once although its completion is outside the window; completion does not enter the window's completion population."},
+    {"source_lines": [23], "expectation": "Issue exactly at the right boundary is excluded."},
+    {"source_lines": [7], "expectation": "BIO queue's later empty time buckets remain measured zero-event buckets; its 4 events/s whole-window rate is not an average over only its active bucket."}
+  ],
+  "not_proven": ["complete physical IO capture", "random versus sequential address access", "physical device bandwidth or saturation", "queue depth or concurrent requests from event counts", "thread waiting", "response root cause", "cross-layer request identity", "cross-phase additivity", "read/write direction for a file sync operation"]
+}

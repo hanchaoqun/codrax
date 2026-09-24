@@ -11,11 +11,14 @@ import (
 // endpoint names.  It prevents generic FileFields projection (which is
 // intentionally display-friendly) from becoming a second hard authority.
 type f2fsPairingAdmission struct {
-	identityKnown   bool
-	payloadAdmitted bool
-	device          string
-	inode           string
-	operation       string
+	identityKnown      bool
+	payloadAdmitted    bool
+	activityParsed     bool
+	activityByteStatus ioActivityByteStatus
+	device             string
+	inode              string
+	operation          string
+	activityBytes      uint64
 }
 
 func exactF2FSPairingProfile(name string) (pairingEndpointProfile, bool) {

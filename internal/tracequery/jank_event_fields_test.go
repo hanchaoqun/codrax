@@ -341,8 +341,8 @@ func TestJankEventConvertedEnvelopesAndOriginalSpanSemantics(t *testing.T) {
 }
 
 func TestJankEventCacheEpochAndReportedTimeDifferenceWitnesses(t *testing.T) {
-	if ParserVersion != "tracequery-v44" {
-		t.Fatalf("jank source-clock contract requires current v44 cache epoch, got %q", ParserVersion)
+	if ParserVersion != "tracequery-v45" {
+		t.Fatalf("jank source-clock contract requires current v45 cache epoch, got %q", ParserVersion)
 	}
 	cache := newTraceIndexCache(1 << 20)
 	oldKey := parseCacheKey{path: "jank.trace", size: 1, modUnix: 1, version: "tracequery-v43"}

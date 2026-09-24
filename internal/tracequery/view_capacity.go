@@ -61,6 +61,13 @@ const (
 // legacy latency Top-N, chronological depth segments, and Query.Limit.
 const IOInFlightMemberLimit = 16
 
+// IO activity summaries consume all admitted endpoint events before these
+// independent group / chronological-bucket display limits are applied.
+const (
+	IOActivityGroupLimit  = 16
+	IOActivityBucketLimit = 32
+)
+
 // Wakeup-chain recursion caps.
 //
 // CHAIN-BUDGET (user ruling 2026-07-18, onchain_fix_spec 预算尺度裁定): the

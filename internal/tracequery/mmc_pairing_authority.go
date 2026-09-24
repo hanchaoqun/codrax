@@ -13,10 +13,13 @@ import (
 // 300-byte display inventory bound, so hard pairing consumers must use this
 // verdict carrier rather than reparsing truncated FieldText.
 type mmcPairingAdmission struct {
-	identityKnown   bool
-	payloadAdmitted bool
-	device          string
-	opcode          string
+	identityKnown      bool
+	payloadAdmitted    bool
+	activityParsed     bool
+	activityByteStatus ioActivityByteStatus
+	device             string
+	opcode             string
+	activityBytes      uint64
 }
 
 func exactMMCPairingProfile(name string) (pairingEndpointProfile, bool) {

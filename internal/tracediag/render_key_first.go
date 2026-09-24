@@ -97,7 +97,7 @@ var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[stri
 	// Optional wrappers can contain whole bounded profiles, not compact
 	// metadata. Keep those additive collections after existing detail; they
 	// remain fully rendered and counted by the unchanged report-line cap.
-	reflect.TypeOf(tracequery.WindowStats{}): {"IOInFlight": true, "SchedulerConcurrency": true, "BusinessTree": true},
+	reflect.TypeOf(tracequery.WindowStats{}): {"IOInFlight": true, "SchedulerConcurrency": true, "BusinessTree": true, "IOActivity": true},
 }}
 
 func policySkipsDetailField(policy *detailRenderPolicy, typ reflect.Type, field string) bool {
@@ -959,7 +959,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// Exact instance/parent identity, nullable closure/account, state coverage,
 	// true zero and native endpoint precision have one typed renderer. The
 	// additive witness removes only BusinessTree to reproduce the prior hash.
-	reflect.TypeOf(tracequery.WindowStats{}): "66e8903fcda92dae9dbba337b2a75a844097139d0949c32c35a6d0be7924b77f",
+	// HMC-08.2: IOActivity is a separately admitted endpoint population, last
+	// among deferred bulk so it cannot displace older IO/scheduler/tree detail.
+	// Its exact DTO-family renderer preserves required zeros, nullable values,
+	// native rate/window precision and the existing source-path display policy.
+	// Removing only IOActivity must reproduce the HMC-04.2 fingerprint above.
+	reflect.TypeOf(tracequery.WindowStats{}): "7c7d0deb4a8232bad8d5e9352ca74922c1fd624d6385e09037aee66fcb7aa2f1",
 	// B1638b1 (2026-09-09): TimelineResult adds optional MeasurementDomain.
 	// It describes a constructed scheduler partition, NOT capture completeness
 	// or causal authority. Its nine scalar fields stay in original detail;

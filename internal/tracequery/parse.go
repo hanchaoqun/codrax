@@ -110,6 +110,9 @@ func eventSideTableBytes(ev *Event) int64 {
 	}
 	if ev.BlockIOFields != nil {
 		n += int64(unsafe.Sizeof(BlockIOFields{}))
+		if ev.BlockIOFields.ioActivity != nil {
+			n += int64(unsafe.Sizeof(ioActivityEndpoint{}))
+		}
 	}
 	if ev.ResourceFields != nil {
 		n += int64(unsafe.Sizeof(ResourceFields{}))
@@ -4567,6 +4570,7 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 			bf.Error = intern.intern(parseBlockError(fields))
 		}
 		ev.BlockIOFields = bf
+		bf.ioActivity = parseBlockIOActivity(rawType, fields, intern)
 	case EventBlockRemap:
 		remap := parseBlockRemapValidated(rawType, fields)
 		ev.BlockIOFields = &BlockIOFields{
@@ -4648,6 +4652,7 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 				device: intern.intern(admission.dev), inode: intern.intern(admission.inode), operation: intern.intern(admission.op),
 			}
 		}
+		populateStorageIOActivity(rawType, kv, ev.ResourceFields)
 		if exactWritebackObservationName(rawType) {
 			populateWritebackObservationFields(&ev, fields, intern)
 			break

@@ -1,0 +1,24 @@
+# tracer: nop
+# Authored synthetic endpoint populations; request activity is not completion pairing, thread waiting or a physical-device throughput measurement.
+reader-40 (40) [001] .... 1.999000: block_rq_issue: 8,0 R 4096 () 90 + 8 [reader]
+reader-40 (40) [001] .... 2.000000: block_rq_issue: 8,0 R 4096 () 100 + 8 [reader]
+storage-irq-80 (2) [001] .... 2.005000: block_rq_complete: 8,0 R () 90 + 8 [0]
+storage-irq-80 (2) [001] .... 2.010000: block_rq_complete: 8,0 R () 100 + 8 [0]
+bio-reader-50 (50) [002] .... 2.015000: block_bio_queue: 8,0 R 100 + 8 [bio-reader]
+mmc-reader-60 (60) [003] .... 2.025000: mmc_request_start: mmc0 tag=-1 opcode=17 blocks=2 block_size=1024 blk_addr=10
+bio-irq-82 (2) [002] .... 2.035000: block_bio_complete: 8,0 R 100 + 8 [0]
+mmc-irq-83 (2) [003] .... 2.045000: mmc_request_done: mmc0 tag=-1 opcode=17 bytes_xfered=1024 ret=0
+reader-41 (41) [001] .... 2.050000: block_rq_issue: 8,0 R 1024 () 200 + 8 [reader]
+reader-40 (40) [001] .... 2.060000: block_rq_issue: 8,0 R 8192 () 300 + 16 [reader]
+reader-41 (41) [001] .... 2.070000: block_rq_issue: 8,0 R 8192 () 300 + 16 [reader]
+storage-irq-80 (2) [001] .... 2.080000: block_rq_complete: 8,0 R () 300 + 16 [0]
+storage-irq-80 (2) [001] .... 2.090000: block_rq_complete: 8,0 R () 300 + 16 [0]
+reader-40 (40) [001] .... 2.100000: block_rq_issue: 8,0 R 0 () 500 + 8 [reader]
+storage-irq-80 (2) [001] .... 2.110000: block_rq_complete: 8,0 R () 500 + 8 [0]
+syncer-70 (70) [004] .... 2.125000: f2fs_sync_file_enter: dev=8:0 ino=0x9 pino=0x1 i_mode=0x81a4 i_size=4096 i_nlink=1 i_blocks=8 i_advise=0x0
+syncer-70 (70) [004] .... 2.145000: f2fs_sync_file_exit: dev=8:0 ino=0x9 cp_reason=0 datasync=1 ret=0
+writer-45 (45) [002] .... 2.200000: block_rq_issue: 8,0 W 16384 () 400 + 32 [writer]
+flusher-46 (46) [002] .... 2.220000: block_rq_issue: 8,0 FS 0 () 0 + 0 [flusher]
+storage-irq-80 (2) [001] .... 2.230000: block_rq_complete: 8,0 FS () 0 + 0 [0]
+writer-45 (45) [002] .... 2.250000: block_rq_issue: 8,0 W 32768 () 600 + 64 [writer]
+storage-irq-80 (2) [001] .... 2.300000: block_rq_complete: 8,0 W () 400 + 32 [0]

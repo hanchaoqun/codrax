@@ -1415,6 +1415,7 @@ func normalizeQuery(idx *Index, q Query) Query {
 	}
 	if q.TimeEnd == 0 && !q.TimeEndSet && q.LineEnd == 0 && idx.hasTimestampBounds() {
 		q.TimeEnd = idx.LastTs
+		q.timeEndBackfilled = true
 	}
 	if q.View == "wakeup_chain" && !q.windowStatsSpecified {
 		q.IncludeWindowStats = true
@@ -3497,6 +3498,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed inode/file-IO/page-cache/storage composite aggregates are omitted because the selected window crosses a task-incarnation boundary")
 	}
 	stats.IOInFlight = buildIOInFlightStats(q, blockPairing, storagePairing, idx)
+	stats.IOActivity = computeIOActivity(idx, q)
 	if q.runCancel.sample() {
 		return stats
 	}
@@ -4195,6 +4197,7 @@ func queryForPerfContextWindow(q Query, start, end float64) Query {
 	}
 	if end > 0 && (q.TimeStart <= 0 || end > q.TimeStart) {
 		q.TimeEnd = end
+		q.timeEndBackfilled = false
 	}
 	return q
 }
@@ -10772,6 +10775,7 @@ func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd
 		unioned := unionTimeWindows(explicitWindow, TimeWindow{StartTs: span.StartTs, EndTs: span.EndTs})
 		if unioned.StartTs != explicitWindow.StartTs || unioned.EndTs != explicitWindow.EndTs {
 			q.TimeStart, q.TimeEnd = unioned.StartTs, unioned.EndTs
+			q.timeEndBackfilled = false
 			return spans, append(caveats, fmt.Sprintf("selected_window preserved explicit query window %.6f..%.6f and unioned it with matched span %q window %.6f..%.6f lines=%d-%d instead of shrinking to the explicit bounds", explicitWindow.StartTs, explicitWindow.EndTs, span.Name, span.StartTs, span.EndTs, span.StartLine, span.EndLine)), compaction
 		}
 		return spans, caveats, compaction
@@ -10781,6 +10785,7 @@ func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd
 	}
 	if !explicitEnd {
 		q.TimeEnd = span.EndTs
+		q.timeEndBackfilled = false
 	}
 	return spans, append(caveats, fmt.Sprintf("selected_window derived from unique trace span %q lines=%d-%d", span.Name, span.StartLine, span.EndLine)), compaction
 }
@@ -21754,6 +21759,7 @@ func applyFrameTargetResolution(q Query, resolution FrameTargetResolution) Query
 	if frameTargetWindowValid(resolution.Window) {
 		q.TimeStart = resolution.Window.StartTs
 		q.TimeEnd = resolution.Window.EndTs
+		q.timeEndBackfilled = false
 	}
 	return q
 }
