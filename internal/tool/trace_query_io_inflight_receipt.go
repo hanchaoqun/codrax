@@ -10,8 +10,9 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// One native population supplies summary, actual paired endpoints and the
-// depth series. Presentation limits never become an arithmetic population.
+// Accepted pairs supply concurrency, member witnesses and the depth series;
+// observed in-range issues have a separate count. Presentation limits never
+// become an arithmetic population.
 func traceQueryIOInFlightReceipt(r types.ObservationRecord, stats *tracequery.IOInFlightStats, group tracequery.IOInFlightGroup) string {
 	if group.AcceptedPairCount != len(group.Members)+group.OmittedMembers+group.MemberWitnessUnavailableCount {
 		return "" // Do not publish contradictory member accounting.
@@ -25,7 +26,7 @@ func traceQueryIOInFlightReceipt(r types.ObservationRecord, stats *tracequery.IO
 		window = fmt.Sprintf("Window [%s, %s) seconds", traceQueryDisplaySeconds(stats.Window.StartTs), traceQueryDisplaySeconds(stats.Window.EndTs))
 	}
 	notes := []string{window, "Source: " + group.SourcePath,
-		"All issuing threads; successfully paired requests only. Request residence is not thread waiting or response delay. Independent dependency evidence is required for causal attribution.",
+		"All issuing threads. Request residence is not thread waiting or response delay. Independent dependency evidence is required for causal attribution.",
 		"Request layers may describe the same IO operation: do not add them. Capture completeness is unknown.",
 		fmt.Sprintf("Query groups: %d; groups not displayed: %d. Query target PID (%d) does not filter this all-thread account.", stats.GroupCount, stats.OmittedGroups, stats.QueryPID)}
 	if stats.LineStart > 0 || stats.LineEnd > 0 {
@@ -49,7 +50,9 @@ func traceQueryIOInFlightReceipt(r types.ObservationRecord, stats *tracequery.IO
 	values = append(values, strconv.Itoa(group.AcceptedPairCount), strconv.Itoa(group.IssueCount))
 	summary := table(types.RuntimeMeasurementSummary,
 		[]string{"Peak concurrent requests", "Mean concurrent requests", "Busy time (ms)", "Request-time area (request·ms)", "Accepted complete pairs", "Starts inside query"},
-		[][]string{values}, "Starts inside the query are arrivals, not paired-request count. Mean includes idle time; busy time is a union; request-time area is not wall-clock delay.")
+		[][]string{values},
+		"Concurrent-request peak and mean, busy time, request-time area and accepted complete-pair count use successfully paired requests. Starts inside query is a separate count of in-range issue events retained by source and identity checks: it can include unpaired or ambiguous issues, and excludes start endpoints outside the selected range.",
+		"Mean includes idle time; busy time is a union; request-time area is not wall-clock delay.")
 	if group.Values == nil {
 		if stats.Window == nil {
 			summary.Notes = append(summary.Notes, "No continuous time denominator is established; concurrency and time measures are unavailable.")
@@ -77,14 +80,14 @@ func traceQueryIOInFlightReceipt(r types.ObservationRecord, stats *tracequery.IO
 	}
 	members := table(types.RuntimeMeasurementMembers,
 		[]string{"Issuing thread", "Completing thread", "Issue source line", "Completion source line", "Actual start (s)", "Actual end (s)", "Window intersection (s)", "In-window residence (ms)"}, memberRows,
-		fmt.Sprintf("Accepted complete pairs: %d = displayed witnesses %d + display-limit omissions %d + unavailable endpoint witnesses %d. Statistics use all accepted pairs, not just these rows.", group.AcceptedPairCount, len(group.Members), group.OmittedMembers, group.MemberWitnessUnavailableCount),
+		fmt.Sprintf("Accepted complete pairs: %d = displayed witnesses %d + display-limit omissions %d + unavailable endpoint witnesses %d. Concurrency and residence statistics use all accepted pairs, not just these rows; these members do not enumerate the separate issue-event count.", group.AcceptedPairCount, len(group.Members), group.OmittedMembers, group.MemberWitnessUnavailableCount),
 		"Actual endpoints are not clipped; only in-window residence is clipped. A completing thread is not automatically the thread that woke the issuer.")
 	var timelineRows [][]string
 	for _, s := range group.Segments {
 		timelineRows = append(timelineRows, []string{traceQueryDisplaySeconds(s.StartTs), traceQueryDisplaySeconds(s.EndTs), strconv.Itoa(s.Requests)})
 	}
 	timeline := table(types.RuntimeMeasurementTimeline, []string{"Start inclusive (s)", "End exclusive (s)", "Concurrent requests"}, timelineRows,
-		fmt.Sprintf("Displayed segments: %d; omitted segments: %d. Summary uses the full series. Equal-depth segments may merge across a change of members; do not infer segment membership from depth alone.", len(group.Segments), group.OmittedSegments))
+		fmt.Sprintf("Displayed segments: %d; omitted segments: %d. This series uses successfully paired requests; summary concurrency and time measures use the full series. Equal-depth segments may merge across a change of members; do not infer segment membership or issue-event counts from depth alone.", len(group.Segments), group.OmittedSegments))
 	publication := types.RuntimeMeasurementPublication{Version: 1, ObservationID: r.ID, Source: r.SourceRef,
 		Tables: []types.RuntimeMeasurementTable{summary, members, timeline}}
 	data, err := json.Marshal(publication)
