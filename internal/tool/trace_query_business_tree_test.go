@@ -1,7 +1,9 @@
 package tool
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -9,9 +11,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func TestTraceQueryBusinessTreeTeachingPreservesPreviousDescriptionBytes(t *testing.T) {
+	description := (&TraceQuery{}).Description()
+	suffix := " " + skill.TraceBusinessTreeTeaching
+	if !strings.HasSuffix(description, suffix) {
+		t.Fatal("business tree teaching must remain at the terminal capability slot")
+	}
+	previous := strings.TrimSuffix(description, suffix)
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(previous))); got != "32f59dd0367c61963ccf06fe10bf464c67058ff51120a21c3d405188bfb3b420" {
+		t.Fatalf("business tree changed prior dispatch teaching bytes: %s", got)
+	}
+}
 
 func TestTraceQueryBusinessTreePublicIdentityMeasurementsAndScope(t *testing.T) {
 	path, err := filepath.Abs("../../eval/fixtures/hmosperf_marker_tree/events.systrace")

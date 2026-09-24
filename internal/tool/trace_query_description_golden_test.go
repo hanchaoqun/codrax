@@ -1,5 +1,15 @@
 package tool
 
+// EVOLUTION RECORD 2026-09-23 (HMC-04.2): append the shared synchronous
+// business-tree capability contract at the terminal Description slot. All
+// preceding bytes remain an exact prefix; window_stats gains a result section,
+// not a new view. Real B/E instance identity, inclusive/self/state rulers,
+// unavailable values and independent display limits are also taught from the
+// same constant in Parameters and the workflow matrix. Public native-to-final
+// regressions protect facts without granting causal authority. The fixed
+// business-tree/IO pair weighs the new capability; it does not satisfy the
+// separate matched h2/h3 dispatch A/B debt, which remains open.
+
 // EVOLUTION RECORD 2026-09-23 (HMC-08.4): append a single shared contract
 // for source/state-scoped confirmed scheduler intervals. The old Description
 // remains an exact prefix; no new view, request field, root-cause permission
