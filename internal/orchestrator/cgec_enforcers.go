@@ -439,7 +439,7 @@ func (o *Orchestrator) seedRequiredFileHintForcedReadsBeforeExplore() int {
 		return 0
 	}
 	rm := o.busCtx.AnalysisIR.RequestModel
-	if !types.RequiredFileHintCurrentSourceCoverageApplies(rm) {
+	if !types.RequiredFileHintCurrentSourceCoverageAppliesFromBus(o.busCtx) {
 		return 0
 	}
 	closure := o.busCtx.Mutable.EvidenceClosure()

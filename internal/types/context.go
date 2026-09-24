@@ -1453,6 +1453,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		cp := *m.requestModel
 		cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(m.requestModel.RuntimeArtifactScopeProfile)
 		cp.ToolDocumentationRequest = CloneToolDocumentationRequest(m.requestModel.ToolDocumentationRequest)
+		cp.SourceInventoryProfile = CloneSourceInventoryProfile(m.requestModel.SourceInventoryProfile)
 		out.requestModel = &cp
 	}
 	out.emittedEvidence = append([]EvidenceItem(nil), m.emittedEvidence...)
@@ -3144,6 +3145,7 @@ func (m *MutableState) RequestModel() *RequestModel {
 	cp := *m.requestModel
 	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(m.requestModel.RuntimeArtifactScopeProfile)
 	cp.ToolDocumentationRequest = CloneToolDocumentationRequest(m.requestModel.ToolDocumentationRequest)
+	cp.SourceInventoryProfile = CloneSourceInventoryProfile(m.requestModel.SourceInventoryProfile)
 	return &cp
 }
 
@@ -3160,6 +3162,7 @@ func (m *MutableState) SetRequestModel(rm RequestModel) {
 	cp := rm
 	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(rm.RuntimeArtifactScopeProfile)
 	cp.ToolDocumentationRequest = CloneToolDocumentationRequest(rm.ToolDocumentationRequest)
+	cp.SourceInventoryProfile = CloneSourceInventoryProfile(rm.SourceInventoryProfile)
 	m.requestModel = &cp
 }
 

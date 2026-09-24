@@ -44,14 +44,17 @@ func (u SourceInventoryTypeUnderlying) IsValid() bool {
 // receipt has no discovery, membership, completion, or source-inventory
 // authority; Active deliberately remains false.
 type SourceInventoryProfile struct {
-	IsSourceInventory bool                            `json:"is_source_inventory"`
-	TargetRoles       []AnswerCandidateRole           `json:"target_roles,omitempty"`
-	TypeUnderlying    SourceInventoryTypeUnderlying   `json:"type_underlying,omitempty"`
-	RequiresConstSet  bool                            `json:"requires_const_set,omitempty"`
-	RequestedFields   []SourceInventoryRequestedField `json:"requested_fields,omitempty"`
-	SourceQuotes      []string                        `json:"source_quotes,omitempty"`
-	Confidence        float64                         `json:"confidence,omitempty"`
-	Rationale         string                          `json:"rationale,omitempty"`
+	// DeclarationOrigin is stamped by emit_analysis, never accepted from its
+	// model-facing parameters. Empty persisted legacy profiles are unknown.
+	DeclarationOrigin SourceInventoryDeclarationOrigin `json:"declaration_origin,omitempty"`
+	IsSourceInventory bool                             `json:"is_source_inventory"`
+	TargetRoles       []AnswerCandidateRole            `json:"target_roles,omitempty"`
+	TypeUnderlying    SourceInventoryTypeUnderlying    `json:"type_underlying,omitempty"`
+	RequiresConstSet  bool                             `json:"requires_const_set,omitempty"`
+	RequestedFields   []SourceInventoryRequestedField  `json:"requested_fields,omitempty"`
+	SourceQuotes      []string                         `json:"source_quotes,omitempty"`
+	Confidence        float64                          `json:"confidence,omitempty"`
+	Rationale         string                           `json:"rationale,omitempty"`
 }
 
 func (p *SourceInventoryProfile) Active() bool {

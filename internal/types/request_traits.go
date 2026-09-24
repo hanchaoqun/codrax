@@ -342,6 +342,9 @@ func SourceInventoryPrincipalNavigationActive(rm RequestModel) bool {
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false
 	}
+	if !SourceInventoryCurrentSourceApplicable(rm) && !SourceInventoryHasDeclaredNavigationRequest(rm) {
+		return false
+	}
 	if SourceInventoryCompletionIsSupportOnly(rm) {
 		return false
 	}
@@ -372,6 +375,9 @@ func SourceInventoryPrincipalNavigationActive(rm RequestModel) bool {
 // and localized keyword tables never participate.
 func SourceInventoryPrincipalAuthorityActive(rm RequestModel) bool {
 	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if !SourceInventoryCurrentSourceApplicable(rm) {
 		return false
 	}
 	if SourceInventoryCompletionIsSupportOnly(rm) {
@@ -1966,6 +1972,9 @@ func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
 func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
 		return false
+	}
+	if sourceInventoryHasIndependentCurrentSourceRequirement(rm) {
+		return true
 	}
 	if rm.hasRuntimeArtifactDiagnosticMechanismBridge() {
 		return true

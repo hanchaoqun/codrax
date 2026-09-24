@@ -110,46 +110,6 @@ func (g SourceInventoryCandidateUniverseGap) MissingNames(max int) []string {
 	return out
 }
 
-// SourceInventoryLensExecutionGapForContext reports whether a principal
-// source_inventory lane has reached the executable repo-map lens boundary.
-func SourceInventoryLensExecutionGapForContext(ctx *types.BusContext) SourceInventoryLensExecutionGap {
-	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
-		return SourceInventoryLensExecutionGap{}
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	profile := rm.SourceInventoryProfile
-	advisory := ctx.Mutable.SourceInventoryAdvisory()
-	var roles []types.AnswerCandidateRole
-	if types.SourceInventoryPrincipalAuthorityActive(rm) {
-		roles = profile.PrincipalTargetRoles()
-		if len(roles) == 0 {
-			roles = append([]types.AnswerCandidateRole(nil), profile.TargetRoles...)
-		}
-	} else if sourceInventoryAdvisoryIsTypedQueryLane(ctx, advisory) {
-		roles = sourceInventoryLensExecutionRolesFromAdvisory(advisory)
-	} else {
-		return SourceInventoryLensExecutionGap{}
-	}
-	observation := types.SourceInventoryObservationFromMutable(ctx.Mutable)
-	gap := SourceInventoryLensExecutionGap{
-		Roles:       sourceInventoryLensExecutionRoles(roles),
-		Scopes:      sourceInventoryLensExecutionScopes(advisory, observation),
-		HasAdvisory: advisory.IsActive(),
-	}
-	if sourceInventoryObservationHasListFilesDirect(observation) {
-		gap.HasListFiles = true
-	}
-	if sourceInventoryAdvisoryHasRepoLensToolQuery(advisory) ||
-		sourceInventoryObservationHasRepoLensToolQuery(observation) ||
-		sourceInventoryObservationIsExecutedEmptyLens(observation) ||
-		sourceInventoryToolResultsHaveSourceInventoryLens(ctx.Mutable.DispatchToolResults()) ||
-		sourceInventoryToolResultsHaveSourceInventoryLens(ctx.ToolResults) {
-		return gap
-	}
-	gap.Blocking = true
-	return gap
-}
-
 func sourceInventoryAdvisoryIsTypedQueryLane(ctx *types.BusContext, advisory types.SourceInventoryAdvisory) bool {
 	if ctx == nil || ctx.AnalysisIR == nil || !advisory.IsActive() {
 		return false

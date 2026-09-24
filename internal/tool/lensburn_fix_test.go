@@ -91,8 +91,9 @@ func TestLensburnSynthesizeGuard_MaterializedBundleKeepsAuthority(t *testing.T) 
 	// A materialized perf bundle keeps full authority over its lane: the
 	// preflight arm only covers the bundle-ABSENT blindness, so a small trace
 	// whose bundle resolved into current-source files still synthesizes.
-	rm := lensburnTypedEnumerationRequestModel(lensburnObservationOnlyPolicy())
-	rm.PerfTrace = &types.PerfBundle{}
+	rm := lensburnTypedEnumerationRequestModel(nil)
+	rm.PerfTrace = &types.PerfBundle{ResolvedFiles: []string{"src/owner.go"}}
+	rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "src/owner.go", Confidence: 1}}
 	ctx := &types.BusContext{RuntimeArtifactPreflight: lensburnLargeTracePreflight()}
 	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, "list every module", nil); warning == "" {
 		t.Fatalf("bundle-present form must keep bundle authority (no preflight override)")
@@ -113,6 +114,7 @@ func TestLensburnSynthesizeGuard_ZeroCurrentSourceRepoCensusArm(t *testing.T) {
 		ArtifactFiles: 1,
 	}
 	rm := lensburnTypedEnumerationRequestModel(nil)
+	rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "src/owner.go", Confidence: 1}}
 	ctx := &types.BusContext{RuntimeArtifactPreflight: preflight}
 	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, "list every module", nil); warning != "" || rm.SourceInventoryProfile != nil {
 		t.Fatalf("zero-current-source census must suppress synthesis, got warning=%q profile=%+v", warning, rm.SourceInventoryProfile)
@@ -120,6 +122,7 @@ func TestLensburnSynthesizeGuard_ZeroCurrentSourceRepoCensusArm(t *testing.T) {
 	// Census gate stays precise: an incomplete walk keeps the arm inert.
 	preflight.RepoSourceCensus.Completed = false
 	rm = lensburnTypedEnumerationRequestModel(nil)
+	rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "src/owner.go", Confidence: 1}}
 	ctx = &types.BusContext{RuntimeArtifactPreflight: preflight}
 	if warning := synthesizeSourceInventoryProfileForTypedEnumeration(ctx, &rm, "list every module", nil); warning == "" || rm.SourceInventoryProfile == nil {
 		t.Fatalf("incomplete census must stay inert (synthesis proceeds)")

@@ -22,6 +22,9 @@ func sourceInventoryExactUniverseRoleCanBlock(role types.AnswerCandidateRole, rm
 }
 
 func sourceInventoryExactUniverseRoleCanProveClosure(role types.AnswerCandidateRole, rm *types.RequestModel) bool {
+	if rm != nil && !types.SourceInventoryCurrentSourceApplicable(*rm) {
+		return false
+	}
 	if sourceInventoryExactUniverseRoleCanBlock(role, rm) {
 		return true
 	}

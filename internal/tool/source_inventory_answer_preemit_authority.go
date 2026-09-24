@@ -35,6 +35,7 @@ type SourceInventoryAnswerPreEmitAuthority struct {
 }
 
 func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []types.AnswerAggregateFact, docs ...*types.AnswerDocumentV2) SourceInventoryAnswerPreEmitAuthority {
+	ctx = sourceInventoryCurrentRunContext(ctx)
 	if ctx == nil {
 		return SourceInventoryAnswerPreEmitAuthority{}
 	}
@@ -78,7 +79,7 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 	}
 	var absenceSummary string
 	var absenceBlocking bool
-	if ctx.AnalysisIR != nil {
+	if ctx.AnalysisIR != nil && types.SourceInventoryCurrentSourceApplicableFromBus(ctx) {
 		absenceSummary, absenceBlocking = SourceInventoryExactAbsenceNeedsInventoryProofRepoTruth(
 			ctx,
 			ctx.AnalysisIR.RequestModel.SourceInventoryProfile,

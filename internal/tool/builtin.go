@@ -871,12 +871,12 @@ func readModeExecFileDiscoveryShouldRepair(command string) bool {
 }
 
 func execCommandActiveSourceInventoryProfile(ctx *types.BusContext) bool {
-	return ctx != nil &&
-		ctx.AnalysisIR != nil &&
-		types.SourceInventoryPrincipalAuthorityActive(ctx.AnalysisIR.RequestModel)
+	rm := types.SourceInventoryRequestModelFromBusContext(ctx)
+	return rm != nil && types.SourceInventoryPrincipalAuthorityActive(*rm)
 }
 
 func execCommandActiveSourceInventoryDebt(ctx *types.BusContext) bool {
+	ctx = sourceInventoryCurrentRunContext(ctx)
 	if !execCommandActiveSourceInventoryProfile(ctx) {
 		return false
 	}

@@ -142,7 +142,8 @@ func sourceInventoryProfileActive(ctx *types.BusContext) bool {
 	return ctx != nil &&
 		ctx.AnalysisIR != nil &&
 		ctx.AnalysisIR.RequestModel.SourceInventoryProfile != nil &&
-		ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active()
+		(types.SourceInventoryCurrentSourceApplicableFromBus(ctx) || types.SourceInventoryHasDeclaredNavigationRequest(ctx.AnalysisIR.RequestModel)) &&
+		types.SourceInventoryPrincipalNavigationActive(ctx.AnalysisIR.RequestModel)
 }
 
 func exploreEvidenceNodeCount(window []*types.TaskNode) int {

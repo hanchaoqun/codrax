@@ -411,6 +411,9 @@ func runtimeSourceAuthorityRequestCurrentSourceRequired(rm *RequestModel, hint T
 	if rm == nil {
 		return false
 	}
+	if sourceInventoryHasIndependentCurrentSourceRequirement(*rm) {
+		return true
+	}
 	if hint.ExternalObservationParticipates() &&
 		NormalizeTurnRouteCurrentSourceEvidenceMode(string(hint.CurrentSourceEvidenceMode)) == TurnRouteCurrentSourceEvidenceOptional {
 		return runtimeSourceAuthorityHasIndependentCurrentSourceRequirement(rm)
@@ -483,6 +486,9 @@ func runtimeSourceAuthorityPreciseCurrentSourceRequirement(rm *RequestModel) boo
 	}
 	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return false
+	}
+	if sourceInventoryHasIndependentCurrentSourceRequirement(*rm) {
+		return true
 	}
 	if rm.currentSourceExplanationHasPreciseCurrentSourceQuote() {
 		return true

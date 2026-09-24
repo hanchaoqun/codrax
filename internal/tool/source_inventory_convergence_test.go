@@ -44,7 +44,8 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_render.go":                                1308,
 	"source_inventory_render_paging.go":                         17,
 	"source_inventory_symbol_sort.go":                           38,
-	"source_inventory_universe_coverage.go":                     670, // DELIBERATE raise (B37): exact requested-file coverage gap shares the accepted row-set identity kernel.
+	"source_inventory_universe_coverage.go":                     630, // Execution applicability extracted; original coverage kernel unchanged.
+	"source_inventory_execution_applicability.go":               60,
 	"source_inventory_requested_census.go":                      60,
 	"source_inventory_requested_complete_lens.go":               74,
 	"source_inventory_requested_family_boundary.go":             120,
@@ -93,6 +94,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_authority_snapshot_normalize.go": 24,
 	"../types/source_inventory_authority_snapshot_support.go":   63,
 	"../types/source_inventory_inclusion.go":                    38,
+	"../types/source_inventory_declaration.go":                  94,
 	"../types/source_inventory_exact_file_boundary.go":          94, // B37 typed equality bridge plus independent user-mentioned-file provenance and SourceScopeAll fail-closed guard.
 	"../types/source_inventory_class_complete.go":               35,
 	"../types/source_inventory_language_census.go":              75,

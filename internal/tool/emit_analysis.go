@@ -3495,6 +3495,9 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(ctx *types.BusContext, 
 	if emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards(ctx, *rm) {
 		return ""
 	}
+	if !sourceInventoryCurrentSourceApplicableForAnalysis(ctx, *rm) {
+		return ""
+	}
 	if ctx != nil && ctx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() {
 		// §29.122 LENSBURN 病A 方向A2: the deterministic run-entry census proved
 		// this checkout contains zero current-source files (runtime artifacts
@@ -3513,6 +3516,7 @@ func synthesizeSourceInventoryProfileForTypedEnumeration(ctx *types.BusContext, 
 	}
 	underlying, requiresConstSet := sourceInventoryProfileRepairTypeFacets(attempted)
 	rm.SourceInventoryProfile = &types.SourceInventoryProfile{
+		DeclarationOrigin: types.SourceInventoryDeclarationSynthesized,
 		IsSourceInventory: true,
 		TargetRoles:       sourceInventoryDefaultQueryEnumerationRoles(),
 		TypeUnderlying:    underlying,
@@ -4655,6 +4659,7 @@ func parseSourceInventoryProfile(raw string, p *emitSourceInventoryProfileParam)
 		warnings = append(warnings, "source_inventory_profile.source_quotes entry ignored because it is not copied verbatim from the current request")
 	}
 	profile := &types.SourceInventoryProfile{
+		DeclarationOrigin: types.SourceInventoryDeclarationModelProvided,
 		IsSourceInventory: true,
 		TargetRoles:       roles,
 		TypeUnderlying:    underlying,
@@ -4764,11 +4769,21 @@ func dropSourceInventoryProfileForObservationOnlyRuntime(ctx *types.BusContext, 
 	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false, ""
 	}
-	if !emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards(ctx, *rm) {
+	if !emitAnalysisObservationOnlyRuntimeArtifactForSourceInventoryGuards(ctx, *rm) &&
+		(sourceInventoryCurrentSourceApplicableForAnalysis(ctx, *rm) || types.SourceInventoryHasDeclaredNavigationRequest(*rm)) {
 		return false, ""
 	}
 	rm.SourceInventoryProfile = nil
-	return true, "source_inventory_profile ignored because the typed external-observation policy excludes current-source evidence; runtime artifact identifiers must stay in the observation lane, not source-inventory repair"
+	return true, "source_inventory_profile ignored because no applicable typed current-source inventory obligation exists for this external-observation request; runtime artifact identifiers remain in the observation lane"
+}
+
+func sourceInventoryCurrentSourceApplicableForAnalysis(ctx *types.BusContext, rm types.RequestModel) bool {
+	if ctx == nil {
+		return types.SourceInventoryCurrentSourceApplicable(rm)
+	}
+	return types.SourceInventoryCurrentSourceApplicableInContext(rm, ctx.TurnRouteHint,
+		(rm.PerfTrace == nil && ctx.RuntimeArtifactPreflight.HasTraceArtifact()) ||
+			(rm.LogTriage == nil && ctx.RuntimeArtifactPreflight.HasLogArtifact()))
 }
 
 func parseChangeImpactProfile(p *emitChangeImpactProfileParam) (*types.ChangeImpactProfile, string) {

@@ -55,6 +55,23 @@ func RequiredFileHintCurrentSourceCoverageApplies(rm RequestModel) bool {
 	return IsHistoryBackedCurrentCodeExplanation(rm)
 }
 
+// RequiredFileHintCurrentSourceCoverageAppliesFromBus adds current-run
+// applicability only to the source-inventory arm. Explicit user pins and
+// other independent source obligations keep their existing priority.
+func RequiredFileHintCurrentSourceCoverageAppliesFromBus(ctx *BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !RequiredFileHintCurrentSourceCoverageApplies(rm) {
+		return false
+	}
+	if len(rm.UserPinnedFiles) > 0 || !RequiredFileHintSourceInventoryCoverageApplies(rm) {
+		return true
+	}
+	return SourceInventoryCurrentSourceApplicableFromBus(ctx)
+}
+
 // RequiredFileHintCoverageMaxForRequest returns the shared forced-read cap for
 // a request's required-file lane. Callers must use this instead of open-coding a
 // cap so pre-dispatch and completion gates stay aligned.
@@ -89,7 +106,8 @@ func RequiredFileHintSourceInventoryCoverageApplies(rm RequestModel) bool {
 // hint lane before downstream gates evaluate it.
 func SourceInventoryRequiredFileCoverageShape(rm RequestModel) bool {
 	if rm.HasObservationOnlyRuntimeArtifact() ||
-		(rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()) {
+		(rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()) ||
+		!SourceInventoryCurrentSourceApplicable(rm) {
 		return false
 	}
 	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {

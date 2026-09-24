@@ -46,6 +46,9 @@ func BoundedSourceEnumerationScopeFiles(rm RequestModel, requiredFiles []string,
 // HasBoundedSourceEnumerationScope reports whether the typed IR carries a
 // sizeable same-scope source inventory shape even without source_inventory_profile.
 func HasBoundedSourceEnumerationScope(rm RequestModel, requiredFiles []string, repoRoot string) bool {
+	if !SourceInventoryCurrentSourceApplicable(rm) {
+		return false
+	}
 	files := BoundedSourceEnumerationScopeFiles(rm, requiredFiles, repoRoot)
 	if len(files) < BoundedSourceEnumerationMinFiles {
 		return false

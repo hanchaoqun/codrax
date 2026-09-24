@@ -7724,6 +7724,7 @@ func sourceInventoryClassUniverseAbsenceDowngrade(ctx *types.BusContext, resultK
 }
 
 func sourceInventoryResolvedCompletionDowngrade(ctx *types.BusContext, resultKind string, aggregateFacts []types.AnswerAggregateFact) string {
+	ctx = sourceInventoryCurrentRunContext(ctx)
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
@@ -7924,6 +7925,7 @@ func sourceInventoryCompletionAuthorityForContext(ctx *types.BusContext, observa
 }
 
 func sourceInventoryAuthoritySnapshotForCompletion(ctx *types.BusContext, observation types.SourceInventoryObservation, aggregateFacts []types.AnswerAggregateFact) types.SourceInventoryAuthoritySnapshot {
+	ctx = sourceInventoryCurrentRunContext(ctx)
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return types.SourceInventoryAuthoritySnapshot{}
 	}
@@ -12796,7 +12798,8 @@ func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
 	// repo-wide prescan hints are only soft. The actual pending-read queue below
 	// still requires a precise source-inventory scope, so broad ranker noise
 	// cannot become a hard completion blocker here.
-	if types.SourceInventoryRequiredFileCoverageShape(ctx.AnalysisIR.RequestModel) {
+	if types.SourceInventoryRequiredFileCoverageShape(ctx.AnalysisIR.RequestModel) &&
+		types.SourceInventoryCurrentSourceApplicableFromBus(ctx) {
 		return true
 	}
 	if authority := runtimeSourceAnswerAuthorityForCompletion(ctx); runtimeSourceAuthorityAppliesToCompletionLanding(authority) {
@@ -13127,7 +13130,7 @@ func raiseRequiredFileHintPendingReads(ctx *types.BusContext, closure *types.Evi
 	if ctx == nil || ctx.AnalysisIR == nil || closure == nil {
 		return
 	}
-	if !types.RequiredFileHintCurrentSourceCoverageApplies(ctx.AnalysisIR.RequestModel) {
+	if !types.RequiredFileHintCurrentSourceCoverageAppliesFromBus(ctx) {
 		return
 	}
 	maxUnread := types.RequiredFileHintCoverageMaxForRequest(ctx.AnalysisIR.RequestModel)
