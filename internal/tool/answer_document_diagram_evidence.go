@@ -110,9 +110,14 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 	evidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
 	rm *types.RequestModel,
+	runtimeRelationsOpt ...[]RuntimeDiagramRelation,
 ) []DiagramCallEdgeEvidenceMismatch {
 	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace {
 		return nil
+	}
+	var runtimeRelations []RuntimeDiagramRelation
+	if len(runtimeRelationsOpt) > 0 {
+		runtimeRelations = runtimeRelationsOpt[0]
 	}
 	var participantCarrierAuthorities []diagramParticipantEndpointCarrierAuthority
 	if rm != nil {
@@ -266,6 +271,14 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				}
 				relations := typedAnchorRelations[key]
 				if !diagramHasValidTypedRelation(relations) {
+					// Exact provider-issued node aliases are recoverable without
+					// guessing from business labels; still reject missing anchors.
+					if identity := runtimeDiagramEndpointIdentity(runtimeRelations, edge.From, edge.From); identity != edge.From {
+						fromSymbol = identity
+					}
+					if identity := runtimeDiagramEndpointIdentity(runtimeRelations, edge.To, edge.To); identity != edge.To {
+						toSymbol = identity
+					}
 					issue := diagramCallEdgeIssueMissingRelationAnchor
 					if block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG {
 						issue = diagramCallEdgeIssueMissingAnchor
@@ -315,7 +328,7 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 						diagramVerifiedStageEndpointPair(stagePrecedence, fromSymbol, toSymbol) {
 						genericAuthority = false
 					}
-					if genericAuthority || stageAuthority {
+					if genericAuthority || stageAuthority || runtimeDiagramBodyRelationProved(runtimeRelations, effectiveAnchors, edge.From, edge.To, relation) {
 						continue
 					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -413,6 +426,11 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				continue
 			}
 			relation := diagramAnchorRelation(anchor)
+			if runtimeDiagramAnchorAliasConflict(runtimeRelations, anchor) {
+				out = append(out, DiagramCallEdgeEvidenceMismatch{BlockID: block.ID, Issue: diagramEdgeAnchorNodeIdentityConflict,
+					FromNode: anchor.FromNode, ToNode: anchor.ToNode, FromSymbol: anchor.FromIdentity, ToSymbol: anchor.ToIdentity, Relation: relation})
+				continue
+			}
 			// A complete typed identity pair selects relation evidence; it must
 			// not be attached to the opposite reader-visible Mermaid entities.
 			// Resolve a node only when its parsed declaration contains one unique
@@ -520,10 +538,12 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				// walking the visible body edge above. All other non-runtime
 				// families still treat an explicit relation_kind as a factual
 				// assertion: a schema-valid enum is not its own evidence.
-				if strictBodyEdgeKeys[anchorKey] {
+				runtimeEndpoint := runtimeDiagramEndpointKnown(runtimeRelations, fromSymbol) || runtimeDiagramEndpointKnown(runtimeRelations, toSymbol)
+				if strictBodyEdgeKeys[anchorKey] && (relation != types.DiagramRelContain || !runtimeEndpoint) {
 					continue
 				}
-				if !diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) {
+				if !diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) &&
+					!(anchor.HasEndpointIdentityPair() && runtimeDiagramRelationProved(runtimeRelations, fromSymbol, toSymbol, relation)) {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
 						BlockID: block.ID, Issue: diagramSemanticRelationIssueNoEvidence,
 						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),

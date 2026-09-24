@@ -48,6 +48,11 @@ func renderAnswerDocBusinessTreeFacts(ctx *types.AgentContext, ledger types.Obse
 	}
 	if shown > 0 {
 		fmt.Fprintf(&b, "- 最终上下文独立展示 %d 个实例、另省略 %d 个已发布实例；原生与上下文省略不可混为无打点或完整覆盖。未闭合行仅保存已观测身份，不证明跨窗仍活动。\n\n", shown, accepted-shown)
+		var rm *types.RequestModel
+		if ctx != nil && ctx.AnalysisIR != nil {
+			rm = &ctx.AnalysisIR.RequestModel
+		}
+		b.WriteString(tool.RenderRuntimeDiagramRelationRecipes(ledger, rm))
 	}
 	return b.String()
 }

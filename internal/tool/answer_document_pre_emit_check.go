@@ -5438,7 +5438,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		requestModel = &pctx.ctx.AnalysisIR.RequestModel
 	}
 	mismatches := diagramCallEdgeEvidenceMismatchesWithRequestModel(
-		doc, view, evidence, stageEdgeAuthority, requestModel,
+		doc, view, evidence, stageEdgeAuthority, requestModel, runtimeDiagramRelationsForContext(pctx.ctx),
 	)
 	var semanticHandoffs []types.DiagramEdgeAnchor
 	if pctx.ctx != nil && pctx.ctx.Mutable != nil {
@@ -7077,6 +7077,7 @@ func diagramRelationRepairDeltaJSON(
 		allowedAdditions = diagramRelationRepairAllowedAdditions(
 			doc, ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, blockIDs, standaloneCandidates, 8,
 		)
+		allowedAdditions = appendRuntimeDiagramRepairCandidates(allowedAdditions, runtimeDiagramRelationsForContext(ctx), blockIDs, 8)
 		if ctx.Mutable != nil {
 			receipts := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
 			receipts = append(receipts, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
