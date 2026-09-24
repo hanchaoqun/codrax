@@ -3911,3 +3911,21 @@ IO四张真实受信summary表均正确，公开选择器首次真实模型命�
 此变化发生在8376全仓及87039双例之后，必须另记定向和重新冻结完整收据；不冒称旧全仓验证了新说明，也不跑第三例或倒签人工FAIL。计数仍79=14+65、重复0。下一ROI：系统总体/成员/展示接面与18.5只读登记，再08.2端点尺度/比例/IOPS/墙钟带宽、04.2实例归属/比较范围和17.7安全SQLite；原任务均保留，不按每条失败另增父ID。
 
 只读复核收紧两处说明：发起计数仅指通过现有来源/身份检查的起点，不冒称全量物理事件；“查询时间窗前”改为“所选范围外”，兼容行优先且无连续窗。新公开测试走真实TraceQuery→native payload→publication绑定，固定4配对/6发起和2/1.4/10/14，跨入/跨出端点及4/2ms贡献不变；另一真实line+冲突time查询只取行3–4第二请求，仍1配对/1发起、四个时间/深度量不可用、成员贡献nil。170行测试没有重写生产算法。末版97097定向race正式exit0（tool4.251秒，4顶层/7叶）；初版33508/84998收据仅针对先前说明，不混为末版。全部Go/test冻结后31921独立完整回归启动，日志`/tmp/codrax-hmc-measurement-population-sealed-full-20260924.log`，未结束不签PASS。
+
+### 178.8 跨类型展示与handoff去噪设计（16.4/16.5，未实施）
+
+只读复核发现重复有结构来源：`answerdoc_runtime_measurement.go`同时输出模型Title与系统Label；producer的列名/状态/说明写死英文，而renderer的lang仅影响未绑定报错。`answer_document_measurement_handoff.go`用Notes前两项当来源范围、成员/时序末两项当边界，provider又直接追加Label/Notes范围警告。当前单一producer能按此约定工作，但扩展新的08.2/08.4领域时会使展示/交接依赖备注位置，不能继续靠增加长字符串解决。
+
+建议下一共享片给受信表增加可选producer-owned展示描述：业务名称、列标签、单元格已知/未知状态、说明类型与完整适用范围。数值/端点/单位/来源/窗/总体/省略参数不交给模型翻译重写，固定语义键在同一纯展示解析器中生成中英标签，原样业务文本不翻译；不能全局替换叫unavailable的业务对象。最终渲染与模型交接共用此解析器，废除Notes数组位置合同；模型仍只选observation_id/view，不新增必填或选择权限。
+
+标题按明确职责输出一份并保短身份限定，不用语义相似度扫正文判重。共享说明仅以“类型+完整来源/窗/总体适用范围+参数”精确合并，单表独立渲染必须完整，不让同设备异源/异窗共用长说明；组级缺测和容量省略不能被族级说明吞掉。公开退出矩阵：中英同表数值/端点/身份等价、标题有无、三视图四组说明去重、同设备异源窗总体不合并、未知/0/空交集与同名字面文本、Emit/Patch→恢复→渲染深复制稳定、实际handoff列名/单位与最终一致、不增因果资格。此设计仍归原16.4/16.5，不销账、不宣称本地化就能纠正正文推论。
+
+### 178.9 末版启动标记失败及独立完整复验
+
+`af0b190bf`保存逐指标说明与两项公开回归，`1a7cefc4a`保存固定双例机器/人工审计。37020干净make正式exit0，版本`revision=1a7cefc4a1b8`、构建时间`2026-09-24T05:14:31Z`，日志`/tmp/codrax-hmc-measurement-population-clean-build-20260924.log`；代码冻结后仅补文档。
+
+31921独立完整回归正式exit1：86测试包通过、13无测试包，tool一包失败（480.049秒）。唯一测试为`TestB1715SourceSyntaxPythonPreparationCancellation`在10.00秒没有观察到python-preparation-ready。这里是`b1715DriftCancelAfterFile`的启动marker预算，不是取消后四秒未响应断言；不能仅按名称记录成取消传播失败。旧8376完整PASS仍有效但验证的是此前说明版本，不能拿它代替本轮FAIL。
+
+只读追踪为runPyCompileFallback→pythonInterpreter→resolvePythonDryBuildRunnerWithContext→3秒候选probe→Darwin SupervisedRun。测试自己创建python3/python shell脚本、独占PATH，先写marker再sleep，不依赖真实Python/pytest/网络/模型；本批IO说明和新回归不在链上、不改环境、不启动该进程。冻结源码相同SDK下31009定向一次PASS0.44秒，54332连续三次PASS0.53/0.62/0.45秒。当前未复现，不坐实负载或确定波动。
+
+原失败输出没有保存候选SupervisedResult、父/候选context状态与返回report，不能区分启动失败、候选预算耗尽、marker写失败。再现时优先补精确失败诊断，不先放宽超时，归原18.4/18.5。64202以`go test -p 4 ./... -count=1`独立重新完整复验，降低包级并发而不减少测试、断言或超时合同；日志`/tmp/codrax-hmc-measurement-population-full-p4-20260924.log`。尚未正式结束，不签PASS；不把四次定向绿拼成整仓结果。

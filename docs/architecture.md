@@ -1072,11 +1072,15 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 | `bullet_list` | 同上 | 序无关枚举（选项 / 同级成员） |
 | `scalar` | `text`（字面值）+ 一元 `items[]`（`citation_ref`） | 单字面答案（count / 路径 / config 值） |
 | `decision` | `text`（开头 yes/no/是/否 + rationale）+ 一元 `items[]` | 判决答案 |
-| `table` | markdown 表 inside `text`，或 `columns[]` + `items[].cells[]`，或两列 `items[].label/text` 兜底 | 多列对比 |
+| `table` | markdown 表 inside `text`，或 `columns[]` + `items[].cells[]`，或两列 `items[].label/text` 兜底；有原生测量供给时也可选独立的 `runtime_measurement` | 多列对比、原生测量 |
 | `diagram` | `diagram{kind, language, body}` | 结构图（`diagram.kind` 是语义家族 flow/sequence/architecture/call_dag，`body` 是 mermaid 源码） |
 | `caveat` | `title` + `text` | 范围声明 / 出口外提醒 / 不确定性 |
 
 **核心原则**：scalar / decision 的字面值放在 `text` 里，citation 通过一元 `items=[{id, citation_ref:N}]` 锚——top-level 不存在 `value{}` / `boolean{}`（V2 不接受这些 V1 字段）。
+
+**原生测量表（可选）**：`runtime_measurement:{observation_id,view}` 的 view 为 `summary/members/timeline`，仅在当前有已接受的原生供给时发布可选择项，不是全局必填。与同块的 text/items/columns/diagram/runtime_work_relation 互斥；模型在相邻块解释，系统提供数值、成员、单位、来源、查询范围、未知和省略说明。首个producer为TraceQuery的IO在途统计：配对总体用于并发/驻留/成员/时序，窗内发起次数另按有效发起端点统计，不混为同一总体；都不授目标阻塞或根因资格。
+
+`RuntimeMeasurementPublication`核对成功原生查询、完整SourceRef、query/payload身份及精确ID/view，显式用户窗不能借外窗统计；未知连续窗的行查询独立披露。Emit与Patch绑定同一当前contract，私有`BoundTable`不进入模型/持久JSON。保存后恢复通过`RebindRuntimeAnswerReceipts`对测量和工作关系一起原子重绑：供给消失/换源/换窗不覆盖accepted稿，不回退旧字符串冒充当前证据。选择后渲染全部已保留的producer行，预览容量不成为计算总体；系统不重新计算值、不从正文修数字。当前测量表业务标签仍以producer英文为主，统一中英展示与精确说明去重按HMC-16.4/16.5留账，不冒称已覆盖该新载体。
 
 ### 6.4 AnswerSemanticView — 把问题家族编译成"答案合同"
 
@@ -1224,7 +1228,7 @@ LLM 在 RenderedClaimUse 上声明 claim_form，validator 从 evidence 重派生
 - `renderV2BlockBulletList`：items 用 dash
 - `renderV2BlockScalar`：`**Value:** \`literal\``，可选 title 作 italic
 - `renderV2BlockDecision`：`**Decision:** verdict + rationale`
-- `renderV2BlockTable`：用 text 的 markdown table，否则从 items 重建
+- `renderV2BlockTable`：已绑定的 runtime_measurement 从私有原生表只读渲染；普通表用 text 的 markdown table，否则从 items 重建
 - `renderV2BlockDiagram`：fenced mermaid 块（用 diagram.language 决定围栏）
 - `renderV2BlockCaveat`：title 作 `## `，text 作 prose
 
