@@ -479,7 +479,7 @@ LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/a
 | Sub-topic 实体合并 | 15 | inline | 把 sub-topic 的 entities 并进主 entity 集，保留 PrimaryEntities / MentionedEntities 的来源标 |
 | Derived entities | 16 | types.DerivedEntitiesFromMentioned | 从 MentionedEntities 派生稳定别名，供 no-attachment / prior-context 搜索提示使用 |
 | Normalize | 17 | normalizer.Normalize | 抽 RawRequest 里的 surface，用 repomap-backed SymbolResolver canonicalize，建 alias 边；产出 TermGraph.Canonical + Aliases |
-| Amplifier pre-compile | 18 | amplifier.Amplify | 用 TermGraph 形 + 已有 typed 字段填补 LLM 漏掉的 optional predicate（R1 多 subject、R2 typed-name parity 等） |
+| Amplifier pre-compile | 18 | amplifier.AmplifyWithPlanningFacts | 用 TermGraph 形 + 已有 typed 字段填补 LLM 漏掉的 optional predicate（R1 多 subject、R2 typed-name parity 等）；经准备器核对的单物理工件有限测量不由名称相似另造必查主题，旧 Amplify 零值入口保守兼容 |
 | Implementer 展开 | 19 | inline + Graph.ImplementersOf / FileIndex / SymbolDefs | enumeration intent 的 entity 集合里只要包含 graph 中的 interface/trait/protocol，就把完整实现者并入 Entities；LLM 预先猜出的部分候选不会阻止 typed graph 补齐。单 handle 的 file imports / package exports / child packages 仍要求唯一 entity，避免多轴问题误扩 |
 | Multi-repo scope projection | 20 | projectPrimaryScopes / projectSubTopicScopes | 把已匹配子仓投到 PrimaryScopes / SubTopic.Scopes，legacy PrimaryEntities 保持 copy 语义 |
 | Cardinality sanity | 21 | inline | `IsCategoryEnumeration=true` 且非 relational lookup、distinct named entities ≤ 1 → 硬失败 retry |
@@ -929,6 +929,8 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 
 **architecture narrative boundary**：`IsArchitectureNarrativeExplanation` 是架构/逻辑视图/图示题的 typed safety net。当 `Intent=explain`、`Scenario=architecture_explain`，并且有 `DiagramHint` / 多 `SubTopics` / cross-component / complex 等结构信号时，组件名只作为关系叙事的 search hint，不自动变成 enumeration principal members。只有 `EnumerationBoundary` / `CompletenessObligation` / buckets 等显式结构义务存在时，架构题才切回枚举/比较 member slate。这条边界同时被 R1 amplifier、R3 MustInclude pinning、`ResolveQuestionFamily` 复用，避免 "逻辑视图 + 时序图" 这类题被误编译成 bounded enumeration 后反复要求 typed handoff。
 
+**有限工件测量的名称规划边界**：analyzer先核对当前`TraceMaterial`代次/预览与唯一物理来源，再把进程内`PlanningFacts`传给纯amplifier；有界预览不等于多个来源。只有runtime-only、非因果/关系的`bounded_fact_set`、单明确窗或完整工件范围，且没有显式SubTopics/buckets/required比较或因果维度，才不让R2按共同前后缀派生额外调查单元。实体仍是搜索提示，所需答案维度和成员表义务不删。转换/bundle、缺凭据、多来源、多窗、混合源码及独立比较维持原规划；该事实不经模型JSON授权、不授证据或调查完成。真正的查询结果、显式完成声明和未完成主题检查仍走原流程，查询失败/取消/局部结果本身不会自动完成任务。
+
 **typed comparison bucket safety net**：当 analyzer 漏发 `buckets[]`，但它自己已经结构化出 `IsCrossComponent=true`、≥2 个 sub-topic、以及 ≥2 个高置信 `RequiredFileHints`，并且这些文件标签逐字出现在当前 `RawRequest`，`QuestionStructure()` 会把这些文件标签编译成 comparison buckets。这个 safety net 不扫描“compare/对比”等原文关键词，RawRequest 只用于和 `NormalizeBuckets` 一样的精确 provenance 校验。目的不是补答案，而是保住用户的两侧/多侧分区，避免 comparison 问题退化成 enumeration 后把 return/assignment 等支撑证据误当成 principal member。
 
 **principal handoff preflight**：`emit_investigation_complete` 在 `resolved` 收尾前会重新编译 `AnswerSemanticView → AnswerSurfacePlan → AnswerSupportPlan`。对于 config-precedence / role-lookup / enumeration / architecture 这类主答案必须落在 typed principal lane 的 family，如果 facet binding 后 `PrincipalSupportEvidenceItemsForFamily` 仍为 0，就软降级本次 completion，并要求 explorer 留在已读主线锚点上补 `emit_evidence`。这条门只读 typed family、facet source candidate、ClaimForm、MemberSurface、aggregate_facts 等精确信号；不会从 raw `read_file` / `repo_map` / closure prose 自动合成答案。若答案本身是模型通过 `aggregate_facts` 提交的 verified count / scalar / `member_set`，则 aggregate lane 是合法 handoff，不触发 principal lane 门。
@@ -1078,7 +1080,9 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 
 **核心原则**：scalar / decision 的字面值放在 `text` 里，citation 通过一元 `items=[{id, citation_ref:N}]` 锚——top-level 不存在 `value{}` / `boolean{}`（V2 不接受这些 V1 字段）。
 
-**原生测量表（可选）**：`runtime_measurement:{observation_id,view}` 仅发布当前已接受原生供给的精确二元选择，不是全局必填。IO在途供给支持 `summary/members/timeline`，独立IO活动支持 `summary/distribution/timeline`，未注册predicate或交叉借用视图均不接纳。与同块的 text/items/columns/diagram/runtime_work_relation 互斥；模型在相邻块解释，系统提供数值、成员、单位、来源、查询范围、未知和省略说明。IO在途的配对总体用于并发/驻留/成员/时序，窗内发起次数另按有效发起端点统计；独立IO活动则按完整wire接纳的端点统计，不依赖配对成功。二者不混为同一总体，也不授目标阻塞或根因资格。成文交接保留最多32组精确选择器与来源/范围名册；128行共享预览预算先对全部summary逐行轮转，再对明细轮转，每表最多4行，防早到家族占尽后续家族的数值预览。名册、预览省略分别披露，预览限制不影响系统绑定后的完整保留行；不重排或删减独立链上因果账。
+**原生测量表（可选）**：`runtime_measurement:{observation_id,view}` 仅发布当前已接受原生供给的精确二元选择，不是全局必填。IO在途供给支持 `summary/members/timeline`，独立IO活动支持 `summary/distribution/timeline`，调度并发支持 `summary/members/distribution/timeline`；未注册predicate或交叉借用视图均不接纳。与同块的 text/items/columns/diagram/runtime_work_relation 互斥；模型在相邻块解释，系统提供数值、成员、单位、来源、查询范围、未知和省略说明。IO在途的配对总体用于并发/驻留/成员/时序，窗内发起次数另按有效发起端点统计；独立IO活动则按完整wire接纳的端点统计，不依赖配对成功。调度并发只计同来源已确认闭合状态区间，按同TID并集得到全窗均值、各线程数量持续时间及独立桶内峰值/均值；缺尾不补窗末，零贡献不证明系统空闲。三者不混为同一总体，也不授目标阻塞或根因资格。成文交接保留最多32组精确选择器与来源/范围名册；128行共享预览预算先对全部summary逐行轮转，再对明细轮转，每表最多4行，防早到家族占尽后续家族的数值预览。名册、预览省略分别披露，预览限制不影响系统绑定后的完整保留行；不重排或删减独立链上因果账。
+
+调度并发的成员展示16条、深度档32条、时间桶32条，与既有16段精确时序上限相互独立；全部统计先于展示截断，完整成员数=展示+上限省略+端点见证不可用。成员保留物理来源行和实际端点，窗口内贡献另列；行选择仍能统计真实成员/线程数，但不推定连续时间分母。`bucket_ms`与IO活动共享精确十进制轴（默认100、正数限1..60000ms），保零贡献桶及短尾实宽。分位数按完整窗口持续时间累计，浮点比较处于舍入不确定范围时用十进制端点精确复核，不用容差抹去1ns差异，也不从展示桶峰值或成员名称反推总体。
 
 `RuntimeMeasurementPublication`核对成功原生查询、完整SourceRef、query/payload身份及精确ID/view，显式用户窗不能借外窗统计；未知连续窗的行查询独立披露。Emit与Patch绑定同一当前contract，私有`BoundTable`不进入模型/持久JSON。保存后恢复通过`RebindRuntimeAnswerReceipts`对测量和工作关系一起原子重绑：供给消失/换源/换窗不覆盖accepted稿，不回退旧字符串冒充当前证据。选择后渲染全部已保留的producer行，预览容量不成为计算总体；系统不重新计算值、不从正文修数字。当前测量表业务标签仍以producer英文为主，统一中英展示与精确说明去重按HMC-16.4/16.5留账，不冒称已覆盖该新载体。
 

@@ -4146,3 +4146,65 @@ IO首次window_stats已提供完整正确8组：RQ发起7/37888B/28次每秒/151
 13096 fetch正式exit0、ahead3/behind0；25013普通push正式exit0，main从`5a4921620`推进到`f31020e2a`，四个实现/测试提交全部发布，远端0/0，无强推。统一审计、当前任务入口及固定双例机器/人工报告随后一次汇总提交，不把每个阶段变动拆成文档提交。
 
 最终仍79=15完整稳定任务交付+64开放、重复0；本批已交付3条可用子能力，真实完整答案1通过/1未通过，17.7/01.3/16.4及18.5父项不提前销账。下一轮按§181.6双轨推进，未完成项均留原ID和公开退出矩阵。
+
+## 182. 调度完整分布、测量规划与固定双例（HMC-08.4 / 01.3 / 16.4）
+
+### 182.1 数量、参考意图与冻结范围
+
+从干净`aa96b6e14`继续；开工逐唯一ID复算79=15完整稳定任务交付+64开放、重复0，51待实施/8部分实施/2待验收/2验收中/1持续。两条实现主线是08.4完整区间总体/分布/成员/桶和§181已证实的相似名称派生调查义务，不开启第三能力主线。天然语言eval不要求用户提供系统防错清单。
+
+复读参考`core/preprocess/sched_ops.py:1104–1213`、`core/preprocess/parallelism_ops.py:142–173`和`config/indicators/sched/parallelism.yaml:1–90`。参考意图是同线程区间去重、规模化按桶观察需求和实际运行变化；本仓沿精确已有闭合状态记录计算。不能照搬参考`dur<=0/None`填下个端点或窗口末端、只在非零桶上求均值/分位数、按active时长作全窗分母，或SQL的BETWEEN/预聚合LIMIT漏掉carry-in/尾部。固定CPU不足阈值只可作调查提示，不产生链上根因权限。
+
+### 182.2 能力：完整闭合区间与可信四视图
+
+`5324db51a`从完整已接纳调度区间生成同TID并集、全窗时间加权深度分布/CDF分位数和独立桶峰值/均值；不从旧16段展示反算。原生成员保物理来源、真实起止端点/局部行、CPU连续性、实际端点与窗内贡献分别表述。16成员/32深度/32桶各有独立省略数，与原16段互不代替；行窗仍可列实际线程/成员，但不借时间窗赋分母。未知尾不补零、不补窗末；来源冲突、身份复用、关系局部索引不授全局统计。
+
+IO和调度共用精确十进制桶轴，保IO旧口径；新CDF测试暴露浮点50%边界进位，保留原RED后，仅对误差范围内的歧义比较用原全量sweep的十进制有理数复核，不用epsilon改变真实总体，P50/P95/P99及±1ns均有公开反例。全量结果、DTO、tracediag精确字段表、工具目录/容量及受信summary/members/distribution/timeline贯通。表由同源/同查询/同窗的原生记录生成，模型JSON只选ID/view；没有扫描问句/答案数字、没有替模型做因果结论。
+
+新增自然调度case和独立oracle，3ms问题只表达范围与业务目标；模型只获trace，不获expected.json。实际Tool→Emit/Patch→恢复→渲染、Agent真实最终消息、成员纳秒/行窗、迁核与R/R+抢占无wake、同TID去重、合法0/未闭合/来源/取消/容量正反矩阵均验证。共享JSON教学区分区间成员、事件大小分布、线程深度时间分布、桶峰值和端点速率；不再把所有distribution称为请求大小，不改变旧Description/技能主体。
+
+### 182.3 缺陷：名字仍是导航，不凭前后缀制造必查项
+
+`490992289`新增纯amplifier的PlanningFacts零值兼容入口；agent先验证准备器持有的单一物理Trace材料/源代次，再投静态事实，不以文本preview完整性或一个附件名等同单源。只有无显式SubTopics/Buckets、单窗或全工件、非因果/非关系的有限运行时测量问题，才阻止R2以相似名字派生额外调查主题。原19答案维度、实体导航、显式多题、比较、混合源码、不同源窗和所有完成证明仍保留；没有按IO类型特判。
+
+实际Run仍须真实查询和模型完成声明，只有导航/失败/取消/部分结果不自动完成。AgentContext/BusContext只用ShallowClone，copylocks首轮RED保留后修正。全仓随后发现新amplifier调用旧CurrentSourceLaneDecision；改用共享静态来源权限编译器`RuntimeSourceRequestCurrentSourceRequirementPrecision`，保守排除soft/precise源码义务，未增加lint豁免或放宽完成门。完整来源权限的scope/精度编译仍只有原共享入口。
+
+### 182.4 定向验证与首轮完整回归失败
+
+原生末版81145 race：96顶层/161叶、183个pass事件，tracequery3.802/tracediag1.838秒；日志`/tmp/codrax-hmc084-native-final-race-20260924.jsonl`。公开工具/typed末版61582 race通过tool12.142/types2.654秒；教学pins87305通过，实际finalizer+恢复路径88189及相邻44345 race通过。规划核心90071三包race通过，65114实际agent/orchestrator接缝race通过；没有用内部helper调用替代公开主链。
+
+原RED保留：native新增字段前置、CDF真实P50边界、工具缺新供给、copylocks、旧analyzer顺序pin。对应`/tmp/codrax-hmc084-native-red-20260924.log`、`/tmp/codrax-hmc084-cdf-red-20260924.log`、`/tmp/codrax-scheduler-public-tables-20260924.log`、`/tmp/codrax-hmc182-copylocks-20260924.log`及`/tmp/codrax-runtime-measurement-planning-integration-race.log`；均非故意抹去断言追绿。
+
+两实现冻结后9336完整`go test -p 4 ./... -count=1`正式exit1：83包PASS、13无测试、4包FAIL，原日志`/tmp/codrax-hmc182-scheduler-planning-full-20260924.log`。具体为旧恢复fixture假定所有测量仅9张IO表、新精确Runnable比较site未登记、来源权限旧helper绕路，以及**新增背景表挤掉root_cause_rank明细**。前三项分别精确选择旧IO供给保全部权限断言、审唯一新比较site而不改旧项、接共享静态authority。41261来源定向race正式exit0（amplifier1.645/types6.352秒），86763恢复定向及56978 race正式exit0（1.066/2.559秒）。报告容量问题必须修排序而非删根因或提帽值，最终修复和独立完整复验见182.7。
+
+### 182.5 固定双例：机器1/2，完整人工0/2
+
+44041干净make正式exit0，revision`490992289eab`、build time `2026-09-24T10:12:20Z`。54411严格2并行×1正式exit0，快照`.codrax/tmp/codrax-selected-20260924-031244`；调度246秒机器PASS/人工FAIL，IO421秒机器FAIL/人工FAIL。后续全仓修复不追加live、不回写原结果。机器、全文人工检查、准确行号/原生供给及SHA见`eval/parallel_selected_summary_hmc_scheduler_planning_20260924{,_manual_audit}.md`。
+
+调度原生总体/深度分布正确，完整8个选择器与closed成员真实到场；唯一查询漏`bucket_ms=3`，系统给的是默认100ms单桶。终稿却手写三段“每3ms”，漏最后1ms桶、Running中段错误，并给未闭合104补1ms，与closed排除声明矛盾。不是引擎3ms算法失效，也不是成员被截断。更重要的是旧state_drilldown开放尾在最终上下文仍显示有限1ms、没有逐行闭合标志，和新closed名单真实冲突，不能先归模型波动。
+
+IO自然问题第一次回放：原生8组全窗数据和42种受信表选择准确到场，模型却继续自由写数。RQ总数/读写字节局部正确，时序仍把4/1/2写4/0/2，21504/0/16384B写24576/4096/0B，缺各层速率，把1024B放进4–16KB，并以有限配对观察宣称无竞争。accepted自由aggregate_facts已混入右边界另一写，真实引用不能为其重新手算授原生身份。F2FS未知字节本次正确，不用局部进步替整个答案签PASS。
+
+规划修复live未命中：新IO输入被模型显式拆4子题且读写比例声明comparison_axis，按合同应保留；不能把421比旧698秒快当新分支A/B收益。旧不支持event_types值block_io导致空查询、来源可选但被库存shape强制读源码、以及模型不选可信表均记录原ID。两例必选schema2空root-causes均存在且正常contract_not_active，未加冕根因；普通HTML表复制语义错误，无diagram，未作浏览器截图验收。活跃流及600/300/600不变，无4分钟空正文主动降级。
+
+### 182.6 下一双轨：字典有界解析与区间口径交接
+
+能力优先**17.7按消费者实际引用有界解析共享字典**。当前`streamerdb_core.go:763–814`与`streamerdb_export_extended.go:237–290`仍全表data_dict→Go map；SQLite256MiB堆限制不约束Go map。复读参考`perf_calltree_ops.py:103–116`先限定调用链再关联名称、`uninterruptible_dstate.yaml:18–21/53`沿实际args引用取阻塞原因，借鉴按需证据解析而非照搬原库建索引/mtime缓存。完整范围是core args键/文本值+AppStartup/HiSys两条链，不能只修一个消费者。
+
+退出矩阵：大量未引用字典增加而驻留受限、全引用不截断、INTEGER/TEXT真实类型、NULL/合法0、跨批重复整体失效、乱序/无rowid、全局坏行诊断不漏、消费者ID范围不互改；原DB不写不建索引；单连接下不持游标再查询导致等待；取消/源换代/事务清理和闭合SQLite/真实二进制两个公开入口贯通。不冒称整个转换已恒定内存。其后gzip内闭合SQLite→05.1未知HiSys可逆编码→活跃/WAL一致快照；原安全拒绝边界保留，不能忽略旁件称已支持。
+
+缺陷优先**旧新观察共用区间闭合/窗口截尾口径**，不是再加一条“别算未知”提示。已定位旧`query.go:6345`将开放runnable以q.TimeEnd/endLine=0入top，6019回填LineEnd；内部`schedulerMeasurementSegment.EndLine/Closure/ActualStartTs/ActualEndTs`仍保真实身份，但ThreadDuration→StateDrilldownStep→ObservationRecord没有携带闭合语义，evaluator6696/6725统一渲染interval，6385又称exact finite。应在原生累计点保每行/分状态口径并共享到所有展示，不能用被回填的LineEnd>0猜闭合或从hash逆推。新并发collector只收closed的规则不放宽，旧合法窗口内观察不删。
+
+次序中保留纯Trace被源码库存shape抢先强制读取的问题、显式测量粒度/受信交付、旧write当前run/batch投影和08.3/04.2全部人工FAIL。精准源码义务仍必须履行；不得为自然问题添加“不要读源码”或扫描原始问句消门。08.4虽确定性实现矩阵已齐，当前任务退出还含真实成文，本批不缩条件销账；79=15+64不变，08.4转验收中，子能力与答案质量分别报告。
+
+### 182.7 末版修复、完整复验与发布
+
+`a767a5452`接共享静态来源权限编译器而非新增旧helper豁免；保守规划不等于源码完成硬门。恢复fixture不再假定window_stats只能供9张IO表，而是从真实typed predicate精确选择原IO 1组在途×3、2组活动×3，与原publication逐表DeepEqual；完整semanticview仍含新调度表，旧11答案块计数、坏shape/混合字段/伪私有绑定/失去供给/未知selector/根因越权负控全部保持。没有删新供给或放宽旧来源断言。
+
+`838ee3df5`解决真实公开root_cause_rank报告在200行内被背景大表挤掉的问题：只把已有精确type+field注册的IO在途/调度并发/业务树/IO活动四类大表延后至整个结果的普通明细之后，而非仅在WindowStats兄弟之间排序。新队列属于单次render，完整字段路径/事实行及原预算保持，旧根因及嵌套frame链优先；不存在问句/摘要关键词路由。全部背景full-cap仍逐行保真、省略计数不变；同一个lazy标题只出现一次，延迟行保留全路径，不改变原根因数据。未来如优化标题层次只可改展示，不赋背景因果身份。
+
+真实新RED`/tmp/codrax-hmc182-bulk-rank-red-20260924.log`保留；旧`TestRunEndToEndReport`未改且转绿。新增公开正例、四背景族、嵌套rank、完整行人口排序前后逐行相等、各种行帽同总数同前缀、只含背景/重复render不串队列均通过。63737 tracediag全包race正式exit0：63.607秒、156顶层/210叶/230个pass事件；8330状态比较精确pin race正式exit0、2.111秒。新pin只有`runnable#2`两处来源见证资格判断，原登记不变，日志为`/tmp/codrax-hmc182-{tracediag,state-pin}-final-race-20260924.jsonl`。
+
+全部Go输入在`838ee3df5`再次冻结，60874独立完整`go test -p 4 ./... -count=1`正式exit0：87测试包通过、13无测试包、零FAIL；agent93.866秒、hitraceconv159.829秒、orchestrator50.640秒、tool476.093秒、tracediag11.373秒、tracequery127.988秒、types38.013秒。日志`/tmp/codrax-hmc182-scheduler-planning-sealed-full-20260924.log`独立保留，实际覆盖首轮全部四包失败；不能将9336首轮失败改签或把定向race拼成全仓绿。82198末版make正式exit0，revision`838ee3df53b9-dirty`、build time`2026-09-24T10:31:47Z`；dirty仅是尚未汇总提交的文档/审计，不宣称这次构建全工作区干净。真实双例仍为先前干净490快照，后续四包修复未追加live。
+
+78246 fetch正式exit0，4 ahead/0 behind；12224普通push正式exit0，main从`aa96b6e14`推进至`838ee3df5`，四个实现/测试分片全部推送，无强推。架构、统一账本、任务入口及机器/人工评测合并为一笔文档提交。最终79=15完整稳定任务交付+64开放，重复0；本批交付2条可用子能力，另修背景表挤掉根因的集成回归；真实完整答案0通过/2未通过。08.4转验收中但不勾选完成，下一批按§182.6双轨推进。
