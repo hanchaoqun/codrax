@@ -1,7 +1,10 @@
 # HMC-08.2: endpoint populations, byte provenance and wall-clock rates.
 ID="trace_query_io_activity"
 NAME="trace query — IO endpoint activity, known byte sizes and wall-clock rates"
-QUESTION="只分析附加 trace 的 [2.000000, 2.250000) 秒窗口，不分析源码。请分别列 RQ、BIO、MMC、F2FS 的发起端和完成端事件次数，以及大小已知/未知数量、已知字节数和按完整窗口墙钟计算的事件率、字节率。RQ 发起端再按读、写、其他操作分开，给出仅在读写操作之间的次数与已知字节比例、请求大小分布；按100ms给出RQ发起端时序，说明最后不足100ms的桶和BIO只有一个活跃桶时的处理。区分请求字节、完成端报告字节和扇区换算，未知不能补零；说明窗外起点、右边界、没有完成以及无法唯一配对的起点是否仍计入对应事件统计。不要把小请求直接叫随机IO，不要跨层级或发起/完成相加，也不要用事件率断言并发深度、硬件带宽、线程等待或响应根因。"
+# Natural-user version (2026-09-24): measurement correctness belongs to the
+# system and independent oracle, not to a checklist in the user's question.
+# Earlier runs retain the original request in their logs/reports and git history.
+QUESTION="帮我看看这份 trace 在 2.00～2.25 秒的 IO 活动：RQ、BIO、MMC、F2FS 各有多少次发起和完成，数据量和速率怎样？再给出 RQ 的读写次数占比和数据量占比、请求大小分布，以及每 100ms 的变化。"
 HTRACE_FILE="eval/fixtures/hmosperf_io_activity/events.systrace"
 FIXTURE="eval/fixtures/stub_repo"
 N_DEFAULT=1

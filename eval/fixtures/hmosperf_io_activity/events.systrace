@@ -1,5 +1,5 @@
 # tracer: nop
-# Authored synthetic endpoint populations; request activity is not completion pairing, thread waiting or a physical-device throughput measurement.
+# Authored synthetic trace of storage events.
 reader-40 (40) [001] .... 1.999000: block_rq_issue: 8,0 R 4096 () 90 + 8 [reader]
 reader-40 (40) [001] .... 2.000000: block_rq_issue: 8,0 R 4096 () 100 + 8 [reader]
 storage-irq-80 (2) [001] .... 2.005000: block_rq_complete: 8,0 R () 90 + 8 [0]
