@@ -107,6 +107,7 @@ var traceNoteKeyGoldenRows = []string{
 	"business_span_omitted|business_span|hard_consumer",
 	"business_span_scheduler_states|business_span|soft_consumer",
 	"business_span_total_ms|business_span|hard_consumer",
+	"business_tree_node|business_span|soft_consumer",
 	"bytes|io|display_only",
 	"callstack|io|display_only",
 	"candidate_count|causal_rank|display_only",

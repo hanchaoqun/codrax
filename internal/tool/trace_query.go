@@ -217,6 +217,7 @@ func (t *TraceQuery) Description() string {
 	description += " " + types.TraceStateDrilldownWindowGuidance
 	description += " " + skill.TraceIOInFlightTeaching
 	description += " " + skill.TraceSchedulerConcurrencyTeaching
+	description += " " + skill.TraceBusinessTreeTeaching
 	return description
 }
 
@@ -260,7 +261,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	viewNames, _ := json.Marshal(tracequery.CapabilityViewNames())
 	schema = strings.ReplaceAll(schema, "__TRACE_VIEW_NAMES__", string(viewNames))
 	schema = strings.ReplaceAll(schema, "__TRACE_QUERY_INPUT_LINE_SCOPE__", string(lineScope[1:len(lineScope)-1]))
-	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching + " " + skill.TraceSchedulerConcurrencyTeaching)
+	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching + " " + skill.TraceSchedulerConcurrencyTeaching + " " + skill.TraceBusinessTreeTeaching)
 	schema = strings.Replace(schema, "The deterministic trace view to compute.",
 		"The deterministic trace view to compute. "+string(ioTeaching[1:len(ioTeaching)-1]), 1)
 	schema = strings.Replace(schema,
@@ -5472,6 +5473,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		}
 		writeTraceIOInFlight(&b, result.WindowStats.IOInFlight)
 		writeTraceSchedulerConcurrency(&b, result.WindowStats.SchedulerConcurrency)
+		writeTraceBusinessTree(&b, result.WindowStats.BusinessTree, 8)
 		if stats := result.WindowStats; stats.StorageLatencyOverflowGroups > 0 {
 			fmt.Fprintf(&b, "- storage_latency_groups shown=%d omitted=%d omitted_complete_pairs=%d; each shown distribution covers only its own group, not all groups\n",
 				len(stats.StorageLatencyByLayer), stats.StorageLatencyOverflowGroups, stats.StorageLatencyOverflowPairedCount)
@@ -10324,6 +10326,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		out = append(out, traceQueryTypedSchedulerConcurrencyObservations(result.WindowStats.SchedulerConcurrency, ref, scope, at)...)
 		out = append(out, traceQueryTypedSemanticTraceSpanObservations(result, *result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedBusinessSpanObservations(*result.WindowStats, ref, scope, at)...)
+		out = append(out, traceQueryTypedBusinessTreeObservations(result.WindowStats.BusinessTree, ref, scope, at)...)
 	}
 
 	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the event_search-side generator

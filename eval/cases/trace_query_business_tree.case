@@ -1,0 +1,20 @@
+# HMC-04.2: actual synchronous instances, inclusive/self/state intersections.
+ID="trace_query_business_tree"
+NAME="trace query — business nesting, self time and unrelated same-name work"
+QUESTION="只分析附加 trace 的 5.000000 秒到 5.012000 秒，不查源码。请列出 business-700 的同步业务层级，分别给每层包含子层的总耗时、自身耗时，以及自身区间内的运行、等待调度和睡眠时间。用清楚的层级图或树说明 OpenDocument、LoadIndex、DecodeRecord 的关系；自身耗时可能分成几段，应说明如何计量避免重复。另一个线程上同名 OpenDocument 和 AsyncPrefetch 应如何理解？如果某个片段没有调度状态记录，能否说它没有占用 CPU？请保留证据范围，不把业务嵌套直接当作响应根因或唤醒依赖。"
+HTRACE_FILE="eval/fixtures/hmosperf_marker_tree/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+
+EXPECT_PRIMARY_CONTAINS="OpenDocument
+LoadIndex
+DecodeRecord
+AsyncPrefetch"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])10([.]0+)?([^0-9]|$)
+(^|[^0-9])4([.]0+)?([^0-9]|$)
+(^|[^0-9])3[.]50*([^0-9]|$)
+(^|[^0-9])0[.]30*([^0-9]|$)
+(^|[^0-9])0[.]20*([^0-9]|$)"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="((未知|未能|缺|没有).{0,90}(状态|调度|计量)|(状态|调度|计量).{0,90}(未知|未能|缺|没有))
+((不能|不代表|不等于|不足|未证).{0,100}(因果|根因|唤醒)|(因果|根因|唤醒).{0,100}(不能|不代表|不等于|不足|未证))"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

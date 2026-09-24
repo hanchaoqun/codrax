@@ -183,6 +183,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		}},
 		IOLatencyOverflowCount:     2,
 		IOLatencyOverflowRequestMs: 0.625,
+		BusinessTree: &tracequery.TraceMarkerTreeStats{
+			Window: tracequery.TraceMarkerTreeWindow{StartTs: 1, EndTs: 2}, NodeCount: 1, Coverage: "observed",
+			Nodes: []tracequery.TraceMarkerTreeNode{{ID: "source-thread-begin", SourcePath: "/traces/full.systrace", Thread: tracequery.ThreadRef{Comm: "app", PID: 10}, Name: "BusinessWork", StartLine: 1, ActualStartTs: 1, Closure: "open", ParentStatus: "observed_root"}},
+		},
 		SchedulerConcurrency: &tracequery.SchedulerConcurrencyStats{
 			Window:     &tracequery.SchedulerConcurrencyWindow{StartTs: 1, EndTs: 2},
 			Population: tracequery.SchedulerConcurrencyPopulationClosedIntervals, ThreadScope: tracequery.SchedulerConcurrencyThreadScopeAll,

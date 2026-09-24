@@ -1,0 +1,16 @@
+# tracer: nop
+business-700 (600) [003] .... 5.000000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=business next_pid=700 next_prio=120
+business-700 (600) [003] .... 5.001000: tracing_mark_write: B|600|OpenDocument
+business-700 (600) [003] .... 5.002000: tracing_mark_write: B|600|LoadIndex
+business-700 (600) [003] .... 5.002500: tracing_mark_write: S|600|AsyncPrefetch|41
+business-700 (600) [003] .... 5.003000: sched_switch: prev_comm=business prev_pid=700 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+irq-80 (2) [003] .... 5.003300: sched_wakeup: comm=business pid=700 prio=120 target_cpu=003
+business-700 (600) [003] .... 5.003500: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=business next_pid=700 next_prio=120
+background-900 (900) [004] .... 5.003500: tracing_mark_write: B|900|OpenDocument
+business-700 (600) [003] .... 5.004000: tracing_mark_write: B|600|DecodeRecord
+business-700 (600) [003] .... 5.005000: tracing_mark_write: E|600
+business-700 (600) [003] .... 5.007000: tracing_mark_write: E|600
+background-900 (900) [004] .... 5.009000: tracing_mark_write: E|900
+business-700 (600) [003] .... 5.010000: tracing_mark_write: F|600|AsyncPrefetch|41
+business-700 (600) [003] .... 5.011000: tracing_mark_write: E|600
+business-700 (600) [003] .... 5.012000: sched_switch: prev_comm=business prev_pid=700 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
