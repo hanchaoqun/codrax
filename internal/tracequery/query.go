@@ -3515,11 +3515,16 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.BlockedReasonCensus, stats.BlockedReasonCensusOverflow = buildBlockedReasonCensus(blockedReasons, q.PID, blockedReasonCensusPIDCap, blockedReasonCensusCallerCap)
 	}
 	var traceMarkCaveats []string
+	markerTree := newTraceMarkerTreeCollector(idx)
+	traceSpans, traceSpanInventory, traceCounters, candidateCaveats := computeTraceMarksWithTree(idx, q, 8, markerTree)
+	if durationFailures[durationOrderTraceSpan] == nil {
+		stats.BusinessTree = markerTree.build(idx, q, schedulerDurationsSafe)
+	}
+	stats.Caveats = append(stats.Caveats, markerTree.failureCaveats()...)
 	if schedulerDurationsSafe {
 		if q.runCancel.sample() {
 			return stats
 		}
-		traceSpans, traceSpanInventory, traceCounters, candidateCaveats := computeTraceMarksWithInventory(idx, q, 8)
 		stats.TraceCounters = traceCounters
 		if failure := durationFailures[durationOrderTraceSpan]; failure != nil {
 			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "trace_spans/trace_mark_categories/async_file_work"))
@@ -10196,6 +10201,10 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 // empties the inventory too (the mention face may never out-live the face it
 // annotates).
 func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSummary, []TraceSpanSummary, []TraceCounterSummary, []string) {
+	return computeTraceMarksWithTree(idx, q, max, nil)
+}
+
+func computeTraceMarksWithTree(idx *Index, q Query, max int, tree *traceMarkerTreeCollector) ([]TraceSpanSummary, []TraceSpanSummary, []TraceCounterSummary, []string) {
 	if idx == nil {
 		return nil, nil, nil, nil
 	}
@@ -10236,6 +10245,7 @@ func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSu
 				unresolvedPairingRows++
 				continue
 			}
+			tree.reset(source, resetPID, stacks[traceMarkSyncPairingKey(source, resetPID)], ev)
 			resetTraceMarkSyncPairingState(source, resetPID, stacks)
 			asyncPairer.observeLifecycle(source, resetPID, ev)
 			continue
@@ -10264,6 +10274,7 @@ func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSu
 				unresolvedPairingRows++
 				continue
 			}
+			tree.reset(source, ev.PID, stacks[traceMarkSyncPairingKey(source, ev.PID)], ev)
 			resetTraceMarkSyncPairingState(source, ev.PID, stacks)
 			asyncPairer.observeMalformed(source, ev.PID, ev)
 			continue
@@ -10280,9 +10291,12 @@ func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSu
 		switch ev.SpanAction {
 		case "B":
 			key := traceMarkSyncPairingKey(source, ev.PID)
+			tree.observeOrder(source, ev.PID, ev.Line)
+			tree.begin(source, ev, stacks[key])
 			stacks[key] = append(stacks[key], ev)
 		case "E":
 			key := traceMarkSyncPairingKey(source, ev.PID)
+			tree.observeOrder(source, ev.PID, ev.Line)
 			stack := stacks[key]
 			if len(stack) == 0 {
 				continue
@@ -10292,6 +10306,7 @@ func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSu
 			if ev.Ts < start.Ts {
 				continue
 			}
+			tree.close(source, start, ev)
 			if span, ok := clipTraceMarkSpanToQueryWindow(traceSpanFromEvents(start, ev, "sync", source), q); ok {
 				spans = append(spans, span)
 			}
@@ -10374,11 +10389,13 @@ func computeTraceMarksWithInventory(idx *Index, q Query, max int) ([]TraceSpanSu
 	}
 	caveats := traceMarkIntegrityCaveats(idx, q)
 	if unresolvedPairingRows > 0 {
+		tree.invalidate()
 		spans = nil
 		fullInventory = nil
 		caveats = append(caveats, fmt.Sprintf("trace_mark_pairing_provenance_unresolved=true; rows=%d; trace span durations were omitted because an endpoint or reset could not be mapped to exactly one physical source artifact", unresolvedPairingRows))
 	}
 	if unknownEmitter {
+		tree.invalidate()
 		spans = nil
 		fullInventory = nil
 		caveats = append(caveats, "trace_mark_span_pairing_fail_closed=true; a malformed trace_mark endpoint has an unknown emitter, could not materialize as an Event, or overflowed the bounded witness ledger, so trace_spans/trace_mark_categories/async_file_work are omitted; trace counter inventory remains available")

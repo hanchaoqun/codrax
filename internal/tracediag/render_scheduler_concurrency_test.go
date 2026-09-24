@@ -24,6 +24,7 @@ func nonEventSchemaBeforeSchedulerConcurrency(t *testing.T, typ reflect.Type, sc
 	if typ != reflect.TypeOf(tracequery.WindowStats{}) {
 		return schema
 	}
+	schema = nonEventSchemaBeforeBusinessTree(t, typ, schema)
 	const added = "SchedulerConcurrency|*tracequery.SchedulerConcurrencyStats|scheduler_concurrency,omitempty"
 	var prior []string
 	count := 0

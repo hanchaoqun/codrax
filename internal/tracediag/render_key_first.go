@@ -97,7 +97,7 @@ var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[stri
 	// Optional wrappers can contain whole bounded profiles, not compact
 	// metadata. Keep those additive collections after existing detail; they
 	// remain fully rendered and counted by the unchanged report-line cap.
-	reflect.TypeOf(tracequery.WindowStats{}): {"IOInFlight": true, "SchedulerConcurrency": true},
+	reflect.TypeOf(tracequery.WindowStats{}): {"IOInFlight": true, "SchedulerConcurrency": true, "BusinessTree": true},
 }}
 
 func policySkipsDetailField(policy *detailRenderPolicy, typ reflect.Type, field string) bool {
@@ -955,7 +955,11 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// HMC-08.4: SchedulerConcurrency is another deferred optional bulk face.
 	// Exact values/window/segments preserve native precision and measured zero;
 	// the additive witness strips only this field to recover the HMC-08.3 hash.
-	reflect.TypeOf(tracequery.WindowStats{}): "8618c0fbf7e95f6c9e92daf85fb162781d32e020e50156f1d6e71f49edfc98a6",
+	// HMC-04.2: BusinessTree is independent deferred bulk after older detail.
+	// Exact instance/parent identity, nullable closure/account, state coverage,
+	// true zero and native endpoint precision have one typed renderer. The
+	// additive witness removes only BusinessTree to reproduce the prior hash.
+	reflect.TypeOf(tracequery.WindowStats{}): "66e8903fcda92dae9dbba337b2a75a844097139d0949c32c35a6d0be7924b77f",
 	// B1638b1 (2026-09-09): TimelineResult adds optional MeasurementDomain.
 	// It describes a constructed scheduler partition, NOT capture completeness
 	// or causal authority. Its nine scalar fields stay in original detail;

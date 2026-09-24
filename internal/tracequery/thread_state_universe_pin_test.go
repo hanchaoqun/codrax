@@ -304,6 +304,9 @@ var threadStateSwitchFallthroughLedger = map[string]threadStateFallthroughDecl{
 // (universe order) and default marker: "<members>" or "<members>|default".
 // Deleting a case is red HERE even when the switch carries a default.
 var threadStateSwitchSiteGolden = map[string]string{
+	// Business-instance state integration handles every known physical lane;
+	// unknown intervals explicitly remain in the unclassified remainder.
+	"trace_marker_tree_states.go:owner#1": "running,runnable,s_sleep,d_sleep,io_wait,stopped,dead,unknown",
 	// IO-CAL-1 (2026-08-17): an exact request-completion wake may price a
 	// response wait only when the issuer actually switched out in an S/D
 	// scheduler state. Runnable/running and terminal/unknown states are not
@@ -785,6 +788,8 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// but must never upgrade an unclassified interval to a recovered head.
 	// This exact unknown-state exclusion affects coverage, not state membership.
 	"trace_span_scheduler.go:traceSpanSchedulerTimeline": "unknown#1",
+	// S-state IO refines the sleep lane; it never adds a second duration.
+	"trace_marker_tree_states.go:owner": "s_sleep#1",
 }
 
 func TestThreadStateComparisonConsumerCoverage(t *testing.T) {

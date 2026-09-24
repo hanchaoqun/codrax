@@ -114,6 +114,18 @@ func capabilityMetricDescriptors() []MetricCapability {
 			o("span_windows", "start_ts end_ts", "seconds", "original span endpoints"),
 			o("span_windows", "duration_ms", "ms", "closed native span duration"),
 		}, r("", [][]string{{"trace_mark"}, {"trace_async_interval"}}, "", "Valid B/E stack, unique S/F owner/name/cookie, or an admitted explicit complete trace_async_interval; endpoint completeness and scope disclosed."), "No duration from an unmatched B/S. A business label alone does not prove mechanism, execution ownership or causal relation."),
+		m("business_tree", "Observed synchronous business marker nesting with independent inclusive and self measurements, across all emitters in begin-line order rather than target-filtered or duration-ranked Top work.", []CapabilityOutput{
+			o("window_stats.business_tree", "node_count omitted_nodes", "count", "observed in-scope marker instances before the independent display limit versus omitted instances"),
+			o("window_stats.business_tree.nodes", "direct_child_count", "count", "direct children in the observed same-source/emitter stack, not a complete program call graph"),
+			o("window_stats.business_tree.nodes.inclusive", "duration_ms", "ms", "closed marker wall time intersected with the selected query window"),
+			o("window_stats.business_tree.nodes.self", "duration_ms", "ms", "inclusive extent minus the union of direct child extents before display truncation; may be disconnected"),
+			o("window_stats.business_tree.nodes.inclusive.states", "unknown_ms", "ms", "unmeasured or unclassified portion of the inclusive extent"),
+			o("window_stats.business_tree.nodes.self.states", "unknown_ms", "ms", "unmeasured or unclassified portion of the self extent"),
+			o("window_stats.business_tree.nodes.inclusive.states.values", "running_ms runnable_ms sleep_ms d_state_ms io_wait_ms stopped_ms dead_ms accounted_ms", "ms", "owner scheduler-state intersections with inclusive extents; absent values are unavailable, not zero"),
+			o("window_stats.business_tree.nodes.self.states.values", "running_ms runnable_ms sleep_ms d_state_ms io_wait_ms stopped_ms dead_ms accounted_ms", "ms", "owner scheduler-state intersections with self extents, not a wider enclosing window"),
+			o("window_stats.business_tree.nodes.inclusive.states.values", "sleep_io_wait_ms", "ms", "included in sleep_ms, never an additive state lane"),
+			o("window_stats.business_tree.nodes.self.states.values", "sleep_io_wait_ms", "ms", "included in self sleep_ms, never an additive state lane"),
+		}, r("trace_mark", nil, "sched_switch sched_wakeup sched_waking", "Parent identity requires the native same-physical-source/emitter-thread B/E stack. Read closure, parent_status, coverage and omitted counters; unclosed/invalidated spans do not acquire measured cost and missing ancestors are not promoted to roots."), "Nested inclusive costs are not additive. Names, temporal containment or another thread cannot invent a parent edge; async intervals are not synchronous children. Unknown scheduler time remains unknown, and marker nesting does not prove a wakeup dependency, root cause, CPU execution duration or complete capture."),
 		m("track_spans", "G/H logical-track intervals.", []CapabilityOutput{
 			o("window_stats.trace_track_spans", "duration_ms actual_duration_ms", "ms", "selected projection versus original complete logical-track duration"),
 		}, r("trace_mark", nil, "", "Valid G/H pairing with exact logical owner/track/name/cookie identity."), "Emitter threads do not become execution owners of the logical track; these spans do not mint root-rank authority."),

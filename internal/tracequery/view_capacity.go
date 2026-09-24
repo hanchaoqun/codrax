@@ -47,6 +47,15 @@ const sharedDefaultResultLimit = 40
 // directly (bypassing normalizeQuery's shared default).
 const spanWindowFloorLimit = 8
 
+// Business-tree display budgets are independent of the legacy TraceSpans
+// Top-N lens and of Query.Limit. Compute inclusive/self costs over the full
+// observed stack before truncating nodes or disconnected account segments;
+// the native result discloses both omitted counts.
+const (
+	TraceMarkerTreeNodeLimit    = 32
+	TraceMarkerTreeSegmentLimit = 16
+)
+
 // Wakeup-chain recursion caps.
 //
 // CHAIN-BUDGET (user ruling 2026-07-18, onchain_fix_spec 预算尺度裁定): the
