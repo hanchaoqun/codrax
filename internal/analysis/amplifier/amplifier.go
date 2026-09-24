@@ -72,7 +72,7 @@ type Observation struct {
 // reads from rm and writes back to *out (a working copy). Returns
 // nil to indicate "rule did not fire". A non-nil Observation is the
 // canonical signal that out was mutated.
-type preCompileRule func(in types.RequestModel, out *types.RequestModel) *Observation
+type preCompileRule func(in types.RequestModel, out *types.RequestModel, facts PlanningFacts) *Observation
 
 // postCompileRule is the function shape of every Phase 4 rule. It
 // reads rm and may mutate *contract in place; returns nil when the
@@ -98,10 +98,16 @@ var postCompileRules = []postCompileRule{}
 // returned by value, and rules see the working copy in registration
 // order so a later rule can read an earlier rule's writes.
 func Amplify(rm types.RequestModel) (types.RequestModel, []Observation) {
+	return AmplifyWithPlanningFacts(rm, PlanningFacts{})
+}
+
+// AmplifyWithPlanningFacts additionally accepts producer-owned material facts.
+// They narrow name-based planning heuristics, never evidence or completion gates.
+func AmplifyWithPlanningFacts(rm types.RequestModel, facts PlanningFacts) (types.RequestModel, []Observation) {
 	out := rm
 	var obs []Observation
 	for _, rule := range preCompileRules {
-		if firing := rule(rm, &out); firing != nil {
+		if firing := rule(rm, &out, facts); firing != nil {
 			obs = append(obs, *firing)
 		}
 	}

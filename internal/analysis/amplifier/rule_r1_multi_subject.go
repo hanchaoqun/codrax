@@ -112,7 +112,7 @@ func distinctEntityCount(entities []string) int {
 // The action sets IsCategoryEnumeration=true and emits one
 // Observation. No other slot is touched: SubTopics derivation is
 // R2's job (Phase 3); MustInclude pinning is R3's job (Phase 4).
-func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel) *Observation {
+func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel, _ PlanningFacts) *Observation {
 	if out.Predicates.IsCategoryEnumeration {
 		return nil
 	}

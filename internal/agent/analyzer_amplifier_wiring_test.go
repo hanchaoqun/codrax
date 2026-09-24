@@ -35,9 +35,11 @@ func TestBuildAnalysisIR_AmplifierInsertionOrder(t *testing.T) {
 	}
 	body := string(src)
 
-	idxAmplify := strings.Index(body, "amplifier.Amplify(rm)")
+	// Material-origin planning facts now travel through the explicit pure
+	// entry point; pin the validated adapter as well as the insertion order.
+	idxAmplify := strings.Index(body, "amplifier.AmplifyWithPlanningFacts(rm, analyzerRuntimeMeasurementPlanningFacts(ctx, rm))")
 	if idxAmplify < 0 {
-		t.Fatal("amplifier.Amplify(rm) call missing from buildAnalysisIR — Phase 1.2 wiring lost")
+		t.Fatal("amplifier with validated material planning facts missing from buildAnalysisIR — pre-compile wiring lost")
 	}
 	idxNormalize := strings.Index(body, "rm.TermGraph = normalizer.Normalize(")
 	if idxNormalize < 0 {

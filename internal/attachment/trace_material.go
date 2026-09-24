@@ -81,6 +81,14 @@ func (m *TraceMaterial) Preview() string    { return m.preview }
 func (m *TraceMaterial) SourcePath() string { return m.sourcePath }
 func (m *TraceMaterial) QueryPath() string  { return m.queryPath }
 
+// SinglePhysicalSource is a material-origin fact, independent of preview
+// completeness. Callers must Validate before using it. Converted material and
+// bundles retain the conservative false result; this grants no evidence,
+// completion, scheduling or causal authority.
+func (m *TraceMaterial) SinglePhysicalSource() bool {
+	return m != nil && m.sourcePath == m.queryPath && len(m.bindings) == 1
+}
+
 // BindCompleteTextTraceMaterial is reserved for a preparer's completed,
 // untruncated read of one plain text source. Unlike a converted trace, bundle,
 // or bounded preview, these immutable bytes may retain legacy text snapshot

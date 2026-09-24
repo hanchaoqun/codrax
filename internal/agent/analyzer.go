@@ -2365,7 +2365,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// picks the correct enumeration template via the augmented predicate;
 	// the lost upgrade is a nice-to-have, not load-bearing.
 	{
-		amplified, ampObs := amplifier.Amplify(rm)
+		amplified, ampObs := amplifier.AmplifyWithPlanningFacts(rm, analyzerRuntimeMeasurementPlanningFacts(ctx, rm))
 		for _, obs := range ampObs {
 			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
 				obs.Field, obs.Before, obs.After, 0, obs.Reason, amplified.Predicates,

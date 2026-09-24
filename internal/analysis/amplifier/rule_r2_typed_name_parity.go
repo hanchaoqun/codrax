@@ -249,8 +249,11 @@ func commonAffix(group []string) string {
 // SubTopic{Summary: <Surface>, Entities: [<Surface>]}". The
 // truncation block in buildAnalysisIR caps total SubTopics at 5,
 // which sets a soft upper bound across all groups.
-func r2TypedNameParitySubTopics(in types.RequestModel, out *types.RequestModel) *Observation {
+func r2TypedNameParitySubTopics(in types.RequestModel, out *types.RequestModel, facts PlanningFacts) *Observation {
 	if len(out.SubTopics) > 0 {
+		return nil
+	}
+	if runtimeMeasurementsShareInvestigation(*out, facts) {
 		return nil
 	}
 	// Axis-collapse alignment: skip when the downstream gate would
