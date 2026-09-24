@@ -18,7 +18,7 @@ const AnswerDocumentItemCitationCarrierTeaching = "ITEM EVIDENCE/CITATION CARRIE
 // catalog: visible list prose and block-level evidence annotations are sibling
 // lanes, and confusing them can otherwise turn an enum such as "call_edge"
 // into user-visible answer text.
-const AnswerDocumentJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one object with native blocks[] and citations[] arrays. Visible list/table rows use blocks[i].items[j].text plus whichever optional label/cells/evidence/citation fields the projected item schema exposes; evidence annotations use blocks[i].claim_uses[] at block level. " + AnswerDocumentItemCitationCarrierTeaching + " Never put claim_form/facet_id/evidence_id inside items[], and never quote an object or array as a JSON string."
+const AnswerDocumentJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one object with native blocks[] and citations[] arrays. Ordinary visible list/table rows use blocks[i].items[j].text plus whichever optional label/cells/evidence/citation fields the projected item schema exposes; evidence annotations use blocks[i].claim_uses[] at block level. When the projected schema offers runtime_measurement, that selector alone may supply a provider-owned table without text/items/columns; interpretation belongs in a separate block. " + AnswerDocumentItemCitationCarrierTeaching + " Never put claim_form/facet_id/evidence_id inside items[], and never quote an object or array as a JSON string."
 
 // AnswerDocumentV2 is the block-only carrier introduced by Phase 2 of
 // the docs/migration/block_only_carrier.md plan (B3 落地). It
@@ -316,6 +316,11 @@ type AnswerBlock struct {
 	// The model chooses the observation and conclusion; the tool validates and
 	// binds the row's measured facts without reading or rewriting block.Text.
 	RuntimeWorkRelation *AnswerRuntimeWorkRelationReceipt `json:"runtime_work_relation,omitempty"`
+
+	// RuntimeMeasurement selects a producer-owned factual table. It is valid
+	// only on a table without competing text/items/columns or a work-relation
+	// receipt; interpretation belongs in separate blocks. It grants no causal authority.
+	RuntimeMeasurement *AnswerRuntimeMeasurementReceipt `json:"runtime_measurement,omitempty"`
 
 	// ConceptualTerminalResolution is a model-selected exact terminal-operation
 	// receipt for a conceptual call-chain destination. The bound row is rendered

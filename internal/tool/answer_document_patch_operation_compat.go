@@ -216,6 +216,12 @@ func emitAnswerBlockFromTyped(block types.AnswerBlock) emitAnswerBlockV2 {
 			Conclusion:    string(block.RuntimeWorkRelation.Conclusion),
 		}
 	}
+	if block.RuntimeMeasurement != nil {
+		out.RuntimeMeasurement = &types.AnswerRuntimeMeasurementReceipt{
+			ObservationID: block.RuntimeMeasurement.ObservationID,
+			View:          block.RuntimeMeasurement.View,
+		}
+	}
 	if block.ConceptualTerminalResolution != nil {
 		out.ConceptualTerminalResolution = &emitConceptualTerminalResolutionReceipt{
 			EvidenceID: block.ConceptualTerminalResolution.EvidenceID,

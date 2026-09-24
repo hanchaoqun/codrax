@@ -136,7 +136,11 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 		return failEmit(toolName, now,
 			"mutation apply produced a nil document — internal error")
 	}
-	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if err := bindRuntimeMeasurementReceipts(merged, view); err != nil {
+		return failEmit(toolName, now, "%v", err)
+	}
+	if view != nil {
 		if fixed := normalizeViewCompatibleAnswerDocument(merged, view); fixed > 0 {
 			logging.Warning("[%s] repaired %d view-compatible typed lane field(s) before persist", toolName, fixed)
 		}

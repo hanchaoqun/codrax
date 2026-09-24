@@ -205,7 +205,7 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 			GroupCount: 1,
 			Groups: []tracequery.IOInFlightGroup{{
 				SourcePath: "/traces/full.systrace", Layer: "block", EndpointFamily: "block_rq", Dev: "12,80", Operation: "R",
-				AcceptedPairCount: 1, IssueCount: 2,
+				AcceptedPairCount: 1, IssueCount: 2, MemberWitnessUnavailableCount: 1,
 				Values: &tracequery.IOInFlightValues{PeakRequests: 1, MeanRequests: .001347, BusyMs: 1.347, RequestMs: 1.347},
 				Segments: []tracequery.IOInFlightSegment{
 					{StartTs: 1, EndTs: 1.1, Requests: 0},

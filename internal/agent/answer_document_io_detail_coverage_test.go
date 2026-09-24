@@ -219,12 +219,20 @@ func TestIORuntimeFactQueryWindowIsNotObservedInterval(t *testing.T) {
 			r := ioDetailCoverageTestRecord("5", "23", "18")
 			r.Predicate = predicate
 			r.SourceRef.QueryWindowStartTs, r.SourceRef.QueryWindowEndTs = 0, 20
-			r.SourceRef.QueryLineStart, r.SourceRef.QueryLineEnd = 10, 50
 			r.Span = types.ObservationSpan{StartTs: 12, EndTs: 12.046}
 			got := answerDocBoundedRuntimeFactAuthorityRow(r, &ctx.AnalysisIR.RequestModel, "en")
-			for _, want := range []string{"query_window=`0.000000..20.000000`", "query_lines=`10..50`", "observed_interval=`12.000000..12.046000`", "query_scope=`query:first`"} {
+			for _, want := range []string{"query_window=`0.000000..20.000000`", "query_lines=`unrestricted`", "observed_interval=`12.000000..12.046000`", "query_scope=`query:first`"} {
 				if !strings.Contains(got, want) {
 					t.Errorf("row lost separate query/occurrence coordinate %q: %s", want, got)
+				}
+			}
+			// Actual query execution gives line bounds precedence; retain its
+			// submitted time arguments as audit metadata, not a denominator.
+			r.SourceRef.QueryLineStart, r.SourceRef.QueryLineEnd = 10, 50
+			got = answerDocBoundedRuntimeFactAuthorityRow(r, &ctx.AnalysisIR.RequestModel, "en")
+			for _, want := range []string{"query_window=`unknown`", "query_time_arguments=`0..20`", "line selection takes precedence", "query_lines=`10..50`", "observed_interval=`12.000000..12.046000`"} {
+				if !strings.Contains(got, want) {
+					t.Errorf("line-selected row lost %q: %s", want, got)
 				}
 			}
 			r.SourceRef.QueryWindowKnown = false

@@ -308,6 +308,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			ctx.Mutable.StampTraceBusinessSpanRefs(&out)
 			traceQueryAppendBusinessRefs(&out)
 		}
+		traceQueryFinalizeMeasurementSources(&out)
 	}()
 
 	schema := t.Parameters()

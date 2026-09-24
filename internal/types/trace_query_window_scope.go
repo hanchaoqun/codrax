@@ -97,6 +97,25 @@ func traceQueryScopeWindowPresent(start, end float64) bool {
 		TraceCausalProjectionWindowPresent(start, end)
 }
 
+// TraceObservationContinuousQueryWindow reads the producer's query receipt,
+// never an observed event envelope. A line selector takes precedence over
+// accompanying time arguments, so those arguments cannot become a population
+// denominator. Point/absent/non-finite windows remain unknown, not zero.
+func TraceObservationContinuousQueryWindow(ref ObservationSourceRef) (float64, float64, bool) {
+	if ref.QueryLineRangeKnown && (ref.QueryLineStart > 0 || ref.QueryLineEnd > 0) ||
+		!ref.QueryWindowKnown || !traceQueryScopeWindowPresent(ref.QueryWindowStartTs, ref.QueryWindowEndTs) {
+		return 0, 0, false
+	}
+	return ref.QueryWindowStartTs, ref.QueryWindowEndTs, true
+}
+
+// ResolveTraceObservationQueryWindowScope is the receipt-aware disclosure
+// counterpart of ResolveTraceQueryWindowScope. It grants no causal authority.
+func ResolveTraceObservationQueryWindowScope(requested *RuntimeArtifactScopeProfile, ref ObservationSourceRef) TraceQueryWindowScope {
+	start, end, _ := TraceObservationContinuousQueryWindow(ref)
+	return ResolveTraceQueryWindowScope(requested, start, end)
+}
+
 // Format is the shared reader-facing scope explanation. Matching windows do
 // not imply complete coverage; a mismatching query does not imply the absence
 // of an exact-window account elsewhere. Internal role tokens never appear.

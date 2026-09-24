@@ -156,6 +156,10 @@ type AnswerSemanticView struct {
 	// It is a structured receipt contract, not a system-authored conclusion.
 	RuntimeWorkRelationContract *RuntimeWorkRelationContract
 
+	// RuntimeMeasurementContract publishes optional exact factual tables. It
+	// neither requires an answer block nor changes the causal evidence ceiling.
+	RuntimeMeasurementContract *RuntimeMeasurementContract
+
 	// ConceptualTerminalResolutionContract publishes exact parser-grounded
 	// terminal operations for discover_terminal call-chain
 	// requests. The model selects the operation and destination conclusion;

@@ -11,7 +11,8 @@ import (
 
 // renderAnswerDocCausalIOMeasurements preserves already-published IO rulers
 // when causal questions use the compact runtime ledger. The caller passes the
-// same selected-window-filtered ledger used by all other finalizer authorities.
+// selected-window-filtered ledger plus separately validated local issuer waits.
+// The latter preserve their own ruler, not a query-population authority.
 // Finite fact questions retain their existing dedicated contract unchanged.
 // This is evidence display only: no query, join, sum, rank, or cause is added.
 func renderAnswerDocCausalIOMeasurements(ctx *types.AgentContext, ledger types.ObservationLedger) string {
@@ -27,9 +28,12 @@ func renderAnswerDocCausalIOMeasurements(ctx *types.AgentContext, ledger types.O
 		// Some exact IO/storage records carry their query window in SourceRef
 		// rather than selected_window notes. Honor that existing typed scope as
 		// well; never reintroduce a known wider query through this extra view.
-		if requested := rm.RuntimeArtifactScopeProfile; requested != nil && requested.HasExplicitTimeWindows() &&
-			record.SourceRef.QueryWindowKnown && !requested.ContainsExplicitTimeWindow(record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs) {
-			continue
+		if requested := rm.RuntimeArtifactScopeProfile; requested != nil && requested.HasExplicitTimeWindows() {
+			start, end, known := types.TraceObservationContinuousQueryWindow(record.SourceRef)
+			if known && !requested.ContainsExplicitTimeWindow(start, end) ||
+				!known && len(answerDocIndependentIOWaitRecords(ctx, []types.ObservationRecord{record})) == 0 {
+				continue
+			}
 		}
 		if record.Origin == types.AnswerEvidenceOriginRuntimeArtifact &&
 			types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) &&
@@ -47,13 +51,18 @@ func renderAnswerDocCausalIOMeasurements(ctx *types.AgentContext, ledger types.O
 	b.WriteString("- These are already-published source observations, not new root-cause candidates. One request's issue-to-complete residence is that request's elapsed time, not the issuing thread's wait. An issuer-blocked interval is proven only by its own completion closure and belongs to that issuer; attributing it to another thread's response still requires an independent causal chain. Keep each source, selected window, subject, interval, and measurement ruler together.\n")
 	b.WriteString("- Target ownership is not a root-cause verdict. Rows marked selected_window_context are not automatically attributed to the named target: keep them as comparison/background unless independent dependency evidence places that issuer's wait on the target's causal chain. A longer background request cannot replace an on-chain wait. Missing closure is unproven, not proof of zero IO. Do not blindly add overlapping request-residence and issuer-wait intervals or totals from different threads or requests. For the same thread and window, mutually exclusive adjacent scheduler states may be summed using the published native state account; sleep plus runnable waiting can describe off-CPU time. This does not make request residence equivalent to issuer blocking or establish a cross-thread response contribution. Translate these audit fields into business language while keeping the conclusion model-authored.\n")
 	b.WriteString("- A source request or completion-closed interval may extend beyond its query window. Its full physical elapsed time is not a clipped window total. Preserve both ranges; use a separately published window account for in-window occupancy. The same physical request witnessed in two requested windows remains one request, not two additive operations.\n")
+	b.WriteString("- Rows marked independent_wait_evidence retain a validated local issuer wait, not a continuous query population or requested-window census. Their query window stays unknown; the exact proved wait interval remains usable on its own ruler. This does not grant root-cause or cross-thread authority.\n")
 	fmt.Fprintf(&b, "- rendered_source_rows=%d; this bounded display is not a request census. Use each published coverage row for its own scope, not for a different target.\n", len(rows))
 	if len(rows) < len(records) {
 		b.WriteString("- Repeated or additional source rows are omitted from this compact display; their original observations remain in the ledger.\n")
 	}
 	for _, row := range rows {
+		detail := answerDocBoundedRuntimeFactAuthorityRow(row, rm, extractAnswerDocLang(ctx))
+		if _, _, known := types.TraceObservationContinuousQueryWindow(row.SourceRef); !known && rm.RuntimeArtifactScopeProfile.HasExplicitTimeWindows() {
+			detail = answerDocRuntimeFactAuthorityRowWithOwnerScope(row, rm, extractAnswerDocLang(ctx), "independent_wait_evidence")
+		}
 		fmt.Fprintf(&b, "  - %s; source_path=%q; query_scope_id=%q; selected_window=%q; query_window=%q\n",
-			answerDocBoundedRuntimeFactAuthorityRow(row, rm, extractAnswerDocLang(ctx)),
+			detail,
 			row.SourceRef.Path, row.SourceRef.QueryScopeID, traceQueryObservationSupplementNoteValue(row, types.TraceNoteKeySelectedWindow), answerDocCausalIOQueryWindow(row))
 	}
 	b.WriteByte('\n')
@@ -61,11 +70,11 @@ func renderAnswerDocCausalIOMeasurements(ctx *types.AgentContext, ledger types.O
 }
 
 func answerDocCausalIOQueryWindow(record types.ObservationRecord) string {
-	if !record.SourceRef.QueryWindowKnown {
+	start, end, known := types.TraceObservationContinuousQueryWindow(record.SourceRef)
+	if !known {
 		return "unknown"
 	}
-	return strconv.FormatFloat(record.SourceRef.QueryWindowStartTs, 'g', -1, 64) + ".." +
-		strconv.FormatFloat(record.SourceRef.QueryWindowEndTs, 'g', -1, 64)
+	return strconv.FormatFloat(start, 'g', -1, 64) + ".." + strconv.FormatFloat(end, 'g', -1, 64)
 }
 
 // Do not collapse independent windows just because they witnessed the same

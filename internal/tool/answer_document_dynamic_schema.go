@@ -69,6 +69,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
 			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
 			projectRuntimeWorkRelationField(blockProps, view)
+			projectRuntimeMeasurementField(blockItems, blockProps, view)
 			projectConceptualTerminalResolutionField(blockProps, view)
 			projectSourceInventoryIdentityFields(blockProps, view)
 			projectItemEvidenceIdentityField(blockProps, view)
@@ -278,6 +279,24 @@ func traceRootCauseReportJSONSchema(selectable []types.TraceFindingCandidateV1) 
 // schema-accepted first emit that the precise row oracle must reject later.
 func projectSourceInventoryPrincipalTableItems(blockItems map[string]any, view *types.AnswerSemanticView) {
 	if view == nil || !view.SourceInventoryRowIdentityAvailable {
+		return
+	}
+	if view.RuntimeMeasurementContract.Active() {
+		conditions := schemaAllOfEntries(blockItems)
+		conditions = append(conditions, map[string]any{
+			"if": map[string]any{
+				"required": []string{"kind", "surface_role"},
+				"properties": map[string]any{
+					"kind":         map[string]any{"const": string(types.BlockTable)},
+					"surface_role": map[string]any{"const": string(types.SurfacePrincipal)},
+				},
+			},
+			"then": map[string]any{
+				"if":   map[string]any{"required": []string{"runtime_measurement"}},
+				"else": map[string]any{"required": []string{"items"}},
+			},
+		})
+		blockItems["allOf"] = conditions
 		return
 	}
 	appendPrincipalKindRequiredFieldsConditional(blockItems, string(types.BlockTable), "items")

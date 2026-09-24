@@ -487,6 +487,11 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 			next++
 		}
 	}
+	// A later exact measurement rebind must not mutate the caller's previous
+	// document or replacement/addition input through a shared receipt pointer.
+	for i := range out.Blocks {
+		out.Blocks[i].RuntimeMeasurement = out.Blocks[i].RuntimeMeasurement.Clone()
+	}
 
 	// Companion provenance follows only pairs that still exist after the
 	// model-authored patch. Removing either half retires the pair; retaining or

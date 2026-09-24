@@ -68,6 +68,7 @@ var (
 		"scope_disclosure",
 		"source_inventory_family",
 		"runtime_work_relation",
+		"runtime_measurement",
 		"conceptual_terminal_resolution",
 		"columns",
 		"items",

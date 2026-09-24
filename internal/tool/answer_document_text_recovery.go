@@ -638,6 +638,16 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 		Columns:  normalizeTableStringSlice(block.Columns),
 		FacetIDs: block.FacetIDs,
 	}
+	// A bad sibling must not erase a valid selector-only block. Retain only
+	// selectors that pass the ordinary per-block normalizer, never its bound
+	// facts or other typed authority fields. Current evidence must still bind
+	// these selectors at the shared recovery boundary before they can render.
+	if block.RuntimeMeasurement != nil || block.RuntimeWorkRelation != nil {
+		if normalized, err := NormalizeEmitAnswerBlock(block, fmt.Sprintf("blocks[%d]", idx)); err == nil {
+			blk.RuntimeMeasurement = normalized.RuntimeMeasurement
+			blk.RuntimeWorkRelation = normalized.RuntimeWorkRelation
+		}
+	}
 	if role, ok := types.NormalizeSurfaceRole(block.SurfaceRole); ok {
 		blk.SurfaceRole = role
 	}
@@ -696,6 +706,9 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 		} else {
 			blk.Kind = types.BlockSection
 		}
+	}
+	if blk.RuntimeMeasurement != nil || blk.RuntimeWorkRelation != nil {
+		return blk, true
 	}
 	if blk.Kind == types.BlockSummary || blk.Kind == types.BlockSection || blk.Kind == types.BlockCaveat ||
 		blk.Kind == types.BlockScalar || blk.Kind == types.BlockDecision || blk.Kind == types.BlockTable {

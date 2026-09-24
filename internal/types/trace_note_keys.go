@@ -441,6 +441,7 @@ const (
 	TraceNoteKeyIOInFlightTimeline = "io_inflight_timeline"
 	TraceNoteKeyIOInFlightScope    = "io_inflight_scope"
 	TraceNoteKeyIOInFlightReasons  = "io_inflight_reasons"
+	TraceNoteKeyRuntimeMeasurement = "runtime_measurement"
 	// Closed scheduler-population measurements are display/coverage context,
 	// never a target wait, causal-chain membership or root-rank credential.
 	TraceNoteKeySchedulerConcurrencyGroup      = "scheduler_concurrency_group"
@@ -2395,6 +2396,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyIOInFlightTimeline, "io_inflight", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyIOInFlightScope, "io_inflight", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyIOInFlightReasons, "io_inflight", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyRuntimeMeasurement, "io_inflight", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeySchedulerConcurrencyGroup, "scheduler_concurrency", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeySchedulerConcurrencyBasis, "scheduler_concurrency", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeySchedulerConcurrencyCoverage, "scheduler_concurrency", TraceNoteCarrierSoftConsumer},

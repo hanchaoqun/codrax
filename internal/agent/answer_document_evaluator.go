@@ -5738,12 +5738,22 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		return ""
 	}
 	promptLedgerRecords, supersededPreTriageNarratives := answerDocFinalizerObservationRecords(ctx, ledger.Records)
+	promptLedgerRecords, separateIOContext, outsideIOQueryWindows := answerDocIOWindowObservationRecords(ctx, promptLedgerRecords)
 	promptLedgerRecords, outsideSelectedWindowRecords := answerDocSelectedWindowObservationRecords(ctx, promptLedgerRecords)
+	outsideSelectedWindowRecords += outsideIOQueryWindows
 	promptLedger := ledger
 	promptLedger.Records = promptLedgerRecords
+	// Independent completion-closed waits keep their established causal and
+	// blocking rulers even when the query's statistical population is unknown.
+	// This separate pool must never feed requested facts or occupancy totals.
+	ioWaitLedger := promptLedger
+	if waits := answerDocIndependentIOWaitRecords(ctx, separateIOContext); len(waits) > 0 {
+		ioWaitLedger.Records = append(append([]types.ObservationRecord(nil), promptLedgerRecords...), waits...)
+	}
 	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
 	if len(records) == 0 {
-		return ""
+		return renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx) +
+			renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger) + renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger)
 	}
 	records = answerDocObservationRecordsWithoutReaderAuthorityDuplicates(ctx, promptLedger, records)
 	if len(records) == 0 && answerDocLogPeerRelationUnproven(ctx) {
@@ -5769,6 +5779,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
+	b.WriteString(renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext))
 	if authority := renderAnswerDocVCSSelectionAuthority(ctx); authority != "" {
 		b.WriteString(authority)
 	}
@@ -5802,18 +5813,19 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if facts := renderAnswerDocBusinessTreeFacts(ctx, promptLedger); facts != "" {
 		b.WriteString(facts)
 	}
-	if measurements := renderAnswerDocCausalIOMeasurements(ctx, promptLedger); measurements != "" {
+	if measurements := renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger); measurements != "" {
 		b.WriteString(measurements)
 	}
 	if ctx.AnalysisIR != nil {
 		// Occupancy is already-queried resource context regardless of whether
 		// the model classified the question as pressure, counts or causality.
 		b.WriteString(renderAnswerDocIOInFlightMeasurements(promptLedger, &ctx.AnalysisIR.RequestModel, extractAnswerDocLang(ctx)))
+		b.WriteString(renderAnswerDocRuntimeMeasurementChoices(ctx))
 	}
 	if measurements := renderAnswerDocSchedulerConcurrencyMeasurements(ctx, promptLedger); measurements != "" {
 		b.WriteString(measurements)
 	}
-	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, promptLedger); authority != "" {
+	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger); authority != "" {
 		b.WriteString(authority)
 	}
 	if ctx.AnalysisIR != nil {
@@ -6664,6 +6676,11 @@ func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm 
 	if predicate != "io_inflight" && predicate != "io_inflight_coverage" && !answerDocSchedulerConcurrencyPredicate(predicate) && types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
 		ownerScope = "target_owned"
 	}
+	return answerDocRuntimeFactAuthorityRowWithOwnerScope(record, rm, lang, ownerScope)
+}
+
+func answerDocRuntimeFactAuthorityRowWithOwnerScope(record types.ObservationRecord, rm *types.RequestModel, lang, ownerScope string) string {
+	predicate := strings.TrimSpace(record.Predicate)
 	parts := []string{
 		fmt.Sprintf("id=`%s`", strings.TrimSpace(record.ID)),
 		fmt.Sprintf("owner_scope=`%s`", ownerScope),
@@ -6687,14 +6704,16 @@ func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm 
 			parts = append(parts, fmt.Sprintf("query_scope=`%s`", ref.QueryScopeID))
 		}
 		queryWindow := "unknown"
-		if ref.QueryWindowKnown && ref.QueryWindowEndTs > ref.QueryWindowStartTs &&
-			!math.IsInf(ref.QueryWindowStartTs, 0) && !math.IsInf(ref.QueryWindowEndTs, 0) {
-			queryWindow = fmt.Sprintf("%.6f..%.6f", ref.QueryWindowStartTs, ref.QueryWindowEndTs)
+		if start, end, known := types.TraceObservationContinuousQueryWindow(ref); known {
+			queryWindow = fmt.Sprintf("%.6f..%.6f", start, end)
 			if answerDocSchedulerConcurrencyPredicate(predicate) {
 				queryWindow = answerDocCausalIOQueryWindow(record)
 			}
 		}
 		parts = append(parts, fmt.Sprintf("query_window=`%s`", queryWindow))
+		if ref.QueryWindowKnown && ref.QueryLineRangeKnown && (ref.QueryLineStart > 0 || ref.QueryLineEnd > 0) {
+			parts = append(parts, fmt.Sprintf("query_time_arguments=`%g..%g` (line selection takes precedence; not a continuous-time population)", ref.QueryWindowStartTs, ref.QueryWindowEndTs))
+		}
 		if ref.QueryLineRangeKnown {
 			if ref.QueryLineStart == 0 && ref.QueryLineEnd == 0 {
 				parts = append(parts, "query_lines=`unrestricted`")
@@ -6769,9 +6788,12 @@ func renderAnswerDocTraceBlockingWallClockAuthority(ctx *types.AgentContext, led
 	if len(inventories) > 0 {
 		b.WriteString("- Coverage below describes the selected blocking-view rowset, not an exhaustive census of captured Binder waits. Its capacity-truncated lower bound does not override the independent inventory's pre-cap measurements. Overlapping intervals within an account are unioned, never double-counted.\n")
 	} else {
-		b.WriteString("- `coverage_status=complete` permits an exhaustive total for that type/window. `lower_bound_capacity_truncated` permits only a proven observed lower bound; do not say total/all/only. Overlapping occurrence intervals are unioned, never double-counted.\n")
+		b.WriteString("- `coverage_status=complete` permits an exhaustive total for that type/window unless the account is marked `coverage_scope=observed_occurrences_only`; that marker certifies only the listed validated waits, not an all-waits census. `lower_bound_capacity_truncated` permits only a proven observed lower bound; do not say total/all/only. Overlapping occurrence intervals are unioned, never double-counted.\n")
 	}
 	for _, authority := range authorities {
+		if answerDocIOWaitHasUnverifiedPopulation(authority, ledger) {
+			b.WriteString("- coverage_scope=`observed_occurrences_only`; query_population=`unverified`: for the following independent IO account, complete covers only the listed validated waits, not all waits in the requested window. No query-population or root-cause authority is restored.\n")
+		}
 		if traceBinderInventoryMatchesBlocking(inventories, authority, ledger) {
 			fmt.Fprintf(&b, "- selected Binder blocking-view scope: %s\n", traceBinderInventoryScopeNote(strings.HasPrefix(strings.ToLower(extractAnswerDocLang(ctx)), "zh")))
 		}
@@ -21601,11 +21623,15 @@ func recoverRetryStateAnswerDocumentV2(ctx *types.AgentContext) (*types.AnswerDo
 			// LastRejectedAnswerDocumentV2 arm below stays untouched: it
 			// is an in-memory clone whose markers survive.
 			types.ReauthenticateSystemSnapshotBlockKinds(&doc, rs.PrevEmitSystemBlockKinds)
-			return &doc, true
+			if types.RebindRuntimeAnswerReceipts(&doc, types.BuildAnswerSemanticViewForAgentContext(ctx)) {
+				return &doc, true
+			}
 		}
 	}
 	if doc := ctx.Mutable.LastRejectedAnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
-		return doc, true
+		if types.RebindRuntimeAnswerReceipts(doc, types.BuildAnswerSemanticViewForAgentContext(ctx)) {
+			return doc, true
+		}
 	}
 	return nil, false
 }
@@ -21799,6 +21825,11 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 ) (*StageOutput, bool) {
 	doc := rec.Document
 	if doc == nil {
+		return out, false
+	}
+	// Recovered JSON retains selectors, not their private bound facts. Rebuild
+	// from current accepted evidence before any promotion or rendering.
+	if !types.RebindRuntimeAnswerReceipts(doc, types.BuildAnswerSemanticViewForAgentContext(ctx)) {
 		return out, false
 	}
 	// XGAP-FIX ④: text-recovered documents bypass the persist chokepoint

@@ -1011,6 +1011,13 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	// Per-field lock: every emitAnswerBlockV2 input field must surface
 	// a corresponding non-zero typed field. When a new field is added
 	// to emitAnswerBlockV2, fixturise it above AND extend this map.
+	measurementGot, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID: "measurement", Kind: string(types.BlockTable),
+		RuntimeMeasurement: &types.AnswerRuntimeMeasurementReceipt{ObservationID: "observed", View: types.RuntimeMeasurementSummary},
+	}, "blocks[4]")
+	if err != nil {
+		t.Fatalf("measurement normalize failed: %v", err)
+	}
 	checks := map[string]func() bool{
 		"ID":          func() bool { return got.ID != "" },
 		"Kind":        func() bool { return got.Kind != "" },
@@ -1049,6 +1056,10 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 			return got.RuntimeWorkRelation != nil &&
 				got.RuntimeWorkRelation.ObservationID == "trace_query:test#trace_semantic_span:1" &&
 				got.RuntimeWorkRelation.Conclusion == types.RuntimeWorkRelationConclusionRelatedCausalityUnproven
+		},
+		"RuntimeMeasurement": func() bool {
+			return measurementGot.RuntimeMeasurement != nil && measurementGot.RuntimeMeasurement.ObservationID == "observed" &&
+				measurementGot.RuntimeMeasurement.View == types.RuntimeMeasurementSummary && measurementGot.RuntimeMeasurement.BoundTable == nil
 		},
 		"ConceptualTerminalResolution": func() bool {
 			return got.ConceptualTerminalResolution != nil &&

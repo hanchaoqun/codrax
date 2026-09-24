@@ -116,6 +116,15 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		FacetIDs:       raw.FacetIDs,
 		SurfaceRole:    types.SurfaceRole(raw.SurfaceRole),
 	}
+	if raw.RuntimeMeasurement != nil {
+		if err := validateEmitRuntimeMeasurementBlock(raw, fieldPath); err != nil {
+			return types.AnswerBlock{}, err
+		}
+		blk.RuntimeMeasurement = &types.AnswerRuntimeMeasurementReceipt{
+			ObservationID: raw.RuntimeMeasurement.ObservationID,
+			View:          raw.RuntimeMeasurement.View,
+		}
+	}
 	if raw.RuntimeWorkRelation != nil {
 		receipt := &types.AnswerRuntimeWorkRelationReceipt{
 			ObservationID: strings.TrimSpace(raw.RuntimeWorkRelation.ObservationID),
@@ -279,7 +288,7 @@ func emitAnswerBlockHasUnambiguousDiagramDiscriminator(raw emitAnswerBlockV2) bo
 	if raw.Diagram == nil || emitAnswerDiagramV2IsZero(raw.Diagram) || strings.TrimSpace(raw.Diagram.Body) == "" {
 		return false
 	}
-	return strings.TrimSpace(raw.Text) == "" && strings.TrimSpace(raw.Caveat) == "" &&
+	return raw.RuntimeMeasurement == nil && strings.TrimSpace(raw.Text) == "" && strings.TrimSpace(raw.Caveat) == "" &&
 		strings.TrimSpace(raw.ErrorGranularityVerdict) == "" && strings.TrimSpace(raw.CurrentStatusVerdict) == "" &&
 		strings.TrimSpace(raw.TraceCausalClaimCaliber) == "" && strings.TrimSpace(raw.ScopeDisclosure) == "" &&
 		strings.TrimSpace(raw.SourceInventoryFamily) == "" && len(raw.Columns) == 0 && len(raw.Items) == 0
@@ -312,6 +321,9 @@ func emitAnswerDiagramV2IsZero(diagram *emitAnswerDiagramV2) bool {
 func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath string) error {
 	if block.Kind != types.BlockTable {
 		return nil
+	}
+	if block.RuntimeMeasurement != nil {
+		return nil // The optional exact selector is bound before acceptance.
 	}
 	if types.AnswerTextLooksLikeMarkdownTable(block.Text) {
 		return nil
@@ -608,6 +620,9 @@ func compactNativeDisplayOnlyBlockFragments(blocks []emitAnswerBlockV2) ([]split
 }
 
 func nativeTitleOnlyBlockFragment(raw emitAnswerBlockV2) (string, bool) {
+	if raw.RuntimeMeasurement != nil {
+		return "", false
+	}
 	if strings.TrimSpace(raw.ID) != "" || strings.TrimSpace(raw.Kind) != "" ||
 		strings.TrimSpace(raw.Text) != "" || strings.TrimSpace(raw.Title) == "" {
 		return "", false
@@ -628,6 +643,9 @@ func nativeTitleOnlyBlockFragment(raw emitAnswerBlockV2) (string, bool) {
 }
 
 func nativeDisplayOnlyBlockFragmentText(raw emitAnswerBlockV2) (string, bool) {
+	if raw.RuntimeMeasurement != nil {
+		return "", false
+	}
 	if strings.TrimSpace(raw.ID) != "" || strings.TrimSpace(raw.Kind) != "" {
 		return "", false
 	}
@@ -653,6 +671,9 @@ func nativeDisplayOnlyBlockFragmentText(raw emitAnswerBlockV2) (string, bool) {
 }
 
 func canAbsorbNativeDisplayOnlyBlockFragment(prev emitAnswerBlockV2) bool {
+	if prev.RuntimeMeasurement != nil {
+		return false
+	}
 	if strings.TrimSpace(prev.ID) == "" {
 		return false
 	}

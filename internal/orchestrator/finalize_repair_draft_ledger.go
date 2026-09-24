@@ -178,8 +178,10 @@ func selectBestFinalizeRepairDraft(ledger []finalizeRepairDraftRecord) int {
 // last-mile chokepoint so the deterministic 系统补充 blocks survive
 // the swap. When the document cannot be decoded, the recorded
 // rendered answer string is used verbatim (it was produced by the
-// same chokepoint at its own round). Returns false when nothing was
-// swapped (defensive inputs only — callers pre-check best != last).
+// same chokepoint at its own round). A decoded runtime selector must instead
+// rebind against current accepted evidence; failure leaves the current draft
+// untouched and cannot use the recorded text as a stale-fact fallback. Returns
+// false when nothing was swapped (callers pre-check best != last).
 func (o *Orchestrator) restoreFinalizeRepairDraft(out *agent.StageOutput, rec *finalizeRepairDraftRecord) bool {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || out == nil || rec == nil {
 		return false
@@ -200,6 +202,12 @@ func (o *Orchestrator) restoreFinalizeRepairDraft(out *agent.StageOutput, rec *f
 			// evidence face. System-side snapshot only — never applied
 			// to model-emitted JSON.
 			types.ReauthenticateSystemSnapshotBlockKinds(&doc, rec.SystemBlockKinds)
+			if !types.RebindRuntimeAnswerReceipts(&doc, types.BuildAnswerSemanticViewForBusContext(o.busCtx)) {
+				// Do not fall back to rec.Answer: its rendered facts can be just
+				// as stale as this selector. Keep the current accepted document
+				// and StageOutput untouched when current evidence cannot rebind.
+				return false
+			}
 			o.busCtx.Mutable.RewriteAcceptedAnswerDocumentV2(&doc)
 			attachments := answertool.FilterAcceptedAnswerDisplayAttachments(&doc, o.busCtx.Mutable.AnswerDisplayAttachments())
 			o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)

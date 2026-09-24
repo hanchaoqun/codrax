@@ -304,8 +304,11 @@ func (o *Orchestrator) finalizerRecoveryDraftCandidate() (*types.AnswerDocumentV
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return nil, ""
 	}
+	view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
 	if doc := o.busCtx.Mutable.LastRejectedAnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
-		return doc, "rejected"
+		if types.RebindRuntimeAnswerReceipts(doc, view) {
+			return doc, "rejected"
+		}
 	}
 	if rs := o.busCtx.Mutable.RetryState(); rs != nil && len(rs.PrevEmitJSON) > 0 {
 		var doc types.AnswerDocumentV2
@@ -319,11 +322,15 @@ func (o *Orchestrator) finalizerRecoveryDraftCandidate() (*types.AnswerDocumentV
 			// ViolProseScalarUngrounded aborts an otherwise-valid
 			// recovery at the contract check below.
 			types.ReauthenticateSystemSnapshotBlockKinds(&doc, rs.PrevEmitSystemBlockKinds)
-			return &doc, "retry_state"
+			if types.RebindRuntimeAnswerReceipts(&doc, view) {
+				return &doc, "retry_state"
+			}
 		}
 	}
 	if doc := o.busCtx.Mutable.AnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
-		return doc, "accepted"
+		if types.RebindRuntimeAnswerReceipts(doc, view) {
+			return doc, "accepted"
+		}
 	}
 	return nil, ""
 }

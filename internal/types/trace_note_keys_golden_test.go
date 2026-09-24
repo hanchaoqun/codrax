@@ -573,6 +573,7 @@ var traceNoteKeyGoldenRows = []string{
 	"running|state|hard_consumer",
 	"running_scope|cpu_load|soft_consumer",
 	"runtime|sched_accounting|display_only",
+	"runtime_measurement|io_inflight|soft_consumer",
 	"same_cpu_busy|cpu_load|display_only",
 	"same_cpu_idle|cpu_load|display_only",
 	// DIAG A1 (§28.11-3(a) G12, 2026-07-09): µs-tie fold-member roster on

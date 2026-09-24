@@ -1164,10 +1164,14 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 // checking a pair must not stamp the draft or select a different conclusion.
 // Nil receipts remain outside this check (no new presence obligation).
 func preCheckExactReceiptBindings(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
-	if doc == nil || view == nil {
+	if doc == nil {
 		return nil
 	}
 	var hints []emitFixHint
+	hints = append(hints, preCheckRuntimeMeasurementBindings(doc, view)...)
+	if view == nil {
+		return hints
+	}
 	appendFailure := func(i int, field string, active bool) {
 		target := fmt.Sprintf("blocks[%d]", i)
 		if id := strings.TrimSpace(doc.Blocks[i].ID); id != "" {

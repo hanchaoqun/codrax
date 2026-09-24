@@ -382,6 +382,7 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
 		applyTraceCausalClaimContractForAgent(cached, ac)
 		applyRuntimeWorkRelationContractForAgent(cached, ac)
+		applyRuntimeMeasurementContract(cached, ObservationLedgerInputFromAgentContext(ac, ObservationPromptRecordLimit))
 		applyConceptualTerminalResolutionContractForAgent(cached, ac)
 		return cached
 	}
@@ -391,6 +392,7 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 	applyCallChainEndpointBoundary(view, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
 	applyTraceCausalClaimContractForAgent(view, ac)
 	applyRuntimeWorkRelationContractForAgent(view, ac)
+	applyRuntimeMeasurementContract(view, ObservationLedgerInputFromAgentContext(ac, ObservationPromptRecordLimit))
 	applyConceptualTerminalResolutionContractForAgent(view, ac)
 	emitSemanticViewTrace("agent", view, ac.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
@@ -408,6 +410,7 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
 		applyTraceCausalClaimContractForBus(cached, bus)
 		applyRuntimeWorkRelationContractForBus(cached, bus)
+		applyRuntimeMeasurementContract(cached, ObservationLedgerInputFromBusContext(bus, ObservationPromptRecordLimit))
 		applyConceptualTerminalResolutionContractForBus(cached, bus)
 		return cached
 	}
@@ -417,6 +420,7 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 	applyCallChainEndpointBoundary(view, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
 	applyTraceCausalClaimContractForBus(view, bus)
 	applyRuntimeWorkRelationContractForBus(view, bus)
+	applyRuntimeMeasurementContract(view, ObservationLedgerInputFromBusContext(bus, ObservationPromptRecordLimit))
 	applyConceptualTerminalResolutionContractForBus(view, bus)
 	emitSemanticViewTrace("bus", view, bus.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)

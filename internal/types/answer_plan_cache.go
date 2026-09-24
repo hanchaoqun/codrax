@@ -331,6 +331,7 @@ func cloneAnswerSemanticView(in *AnswerSemanticView) *AnswerSemanticView {
 		}
 		out.RuntimeWorkRelationContract = &contract
 	}
+	out.RuntimeMeasurementContract = in.RuntimeMeasurementContract.Clone()
 	if in.ConceptualTerminalResolutionContract != nil {
 		contract := *in.ConceptualTerminalResolutionContract
 		contract.Rows = make([]ConceptualTerminalResolutionRow, len(in.ConceptualTerminalResolutionContract.Rows))

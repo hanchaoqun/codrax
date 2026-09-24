@@ -1010,6 +1010,10 @@ func scopeDisclosureDisplayLine(disclosure types.ScopeDisclosureKind, lang answe
 }
 
 func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.AnswerDocumentV2, lang answerDocLang) {
+	if blk.RuntimeMeasurement != nil {
+		renderV2RuntimeMeasurementTable(b, blk, lang)
+		return
+	}
 	if heading := renderV2AuthoredOrSourceInventoryHeading(blk); heading != "" {
 		renderV2ListOrTableHeading(b, blk, heading)
 	}
