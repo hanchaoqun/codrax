@@ -13,7 +13,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func textRecoveryReceiptFixture(t *testing.T) *types.AnswerSemanticView {
+func textRecoveryReceiptFixture(t *testing.T) (*types.AnswerSemanticView, []types.RuntimeMeasurementTable) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "capture.systrace")
@@ -41,24 +41,52 @@ func textRecoveryReceiptFixture(t *testing.T) *types.AnswerSemanticView {
 	}
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
 	view := types.BuildAnswerSemanticViewForBusContext(bus)
-	if view == nil || len(view.RuntimeMeasurementContract.Choices()) != 9 || !view.RuntimeWorkRelationContract.Active() {
+	if view == nil || !view.RuntimeMeasurementContract.Active() || !view.RuntimeWorkRelationContract.Active() {
 		t.Fatalf("native measurement/work prerequisites missing: %+v", view)
 	}
 	groups := map[string]int{}
+	ioPublications := map[string]types.RuntimeMeasurementPublication{}
 	for _, row := range result.Observations {
+		// This regression owns IO salvage, not the total number of unrelated
+		// native measurements supplied by the same window query.
+		if row.Predicate != "io_inflight" && row.Predicate != "io_activity" {
+			continue
+		}
 		publication, ok := types.DecodeRuntimeMeasurementPublication(row)
 		if !ok {
-			continue
+			t.Fatalf("native IO publication did not decode: %s", row.ID)
 		}
 		if row.Role != types.AnswerAggregateRoleSupportingCoverage || len(publication.Tables) != 3 {
 			t.Fatal("measurement publication changed view count or acquired causal authority")
 		}
 		groups[row.Predicate]++
+		ioPublications[row.ID] = publication
 	}
 	if !reflect.DeepEqual(groups, map[string]int{"io_inflight": 1, "io_activity": 2}) {
 		t.Fatalf("fixture must preserve 3 paired tables plus 6 phase-separated activity tables: %v", groups)
 	}
-	return view
+	var ioTables []types.RuntimeMeasurementTable
+	for _, table := range view.RuntimeMeasurementContract.Choices() {
+		publication, ok := ioPublications[table.ObservationID]
+		if !ok {
+			continue
+		}
+		found := false
+		for _, published := range publication.Tables {
+			if reflect.DeepEqual(table, published) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("current IO choice differs from its exact native publication: %+v", table)
+		}
+		ioTables = append(ioTables, table)
+	}
+	if len(ioTables) != 9 {
+		t.Fatalf("expected exactly 3 paired and 6 activity tables, got %d", len(ioTables))
+	}
+	return view, ioTables
 }
 
 func textRecoveryWithBadSibling(t *testing.T, blocks ...any) AnswerDocumentTextRecovery {
@@ -79,9 +107,9 @@ func textRecoveryWithBadSibling(t *testing.T, blocks ...any) AnswerDocumentTextR
 }
 
 func TestRecoverAnswerDocumentTextKeepsNativeSelectorsWithBadSibling(t *testing.T) {
-	view := textRecoveryReceiptFixture(t)
+	view, ioTables := textRecoveryReceiptFixture(t)
 	var blocks []any
-	for i, table := range view.RuntimeMeasurementContract.Choices() {
+	for i, table := range ioTables {
 		blocks = append(blocks, map[string]any{"id": fmt.Sprintf("measurement-%d", i), "kind": "table", "runtime_measurement": map[string]any{
 			"observation_id": table.ObservationID, "view": table.View,
 			// JSON cannot supply the private binding, even on a salvage path.
@@ -103,7 +131,7 @@ func TestRecoverAnswerDocumentTextKeepsNativeSelectorsWithBadSibling(t *testing.
 	if !types.RebindRuntimeAnswerReceipts(rec.Document, view) {
 		t.Fatal("exact native selections did not rebind after lossy sibling salvage")
 	}
-	for i, table := range view.RuntimeMeasurementContract.Choices() {
+	for i, table := range ioTables {
 		block := blockByID(t, rec.Document, fmt.Sprintf("measurement-%d", i))
 		if !block.RuntimeMeasurement.IsBound() || !reflect.DeepEqual(*block.RuntimeMeasurement.BoundTable, table) {
 			t.Fatalf("recovered selector did not preserve native %s table", table.View)
@@ -125,8 +153,8 @@ func TestRecoverAnswerDocumentTextKeepsNativeSelectorsWithBadSibling(t *testing.
 }
 
 func TestRecoverAnswerDocumentTextDoesNotUpgradeInvalidSelectors(t *testing.T) {
-	view := textRecoveryReceiptFixture(t)
-	id := view.RuntimeMeasurementContract.Choices()[0].ObservationID
+	view, ioTables := textRecoveryReceiptFixture(t)
+	id := ioTables[0].ObservationID
 	for _, fault := range []string{"kind", "text", "items", "columns", "diagram", "mixed_receipts", "bad_view", "empty_id", "bad_work_conclusion"} {
 		t.Run(fault, func(t *testing.T) {
 			selector := map[string]any{"observation_id": id, "view": "summary"}
@@ -164,8 +192,8 @@ func TestRecoverAnswerDocumentTextDoesNotUpgradeInvalidSelectors(t *testing.T) {
 }
 
 func TestRecoverAnswerDocumentTextSelectorsStillRequireCurrentSupply(t *testing.T) {
-	view := textRecoveryReceiptFixture(t)
-	id := view.RuntimeMeasurementContract.Choices()[0].ObservationID
+	view, ioTables := textRecoveryReceiptFixture(t)
+	id := ioTables[0].ObservationID
 	for _, fault := range []string{"unknown_selector", "missing_supply", "unavailable_work_conclusion"} {
 		t.Run(fault, func(t *testing.T) {
 			block := map[string]any{"id": "selector", "kind": "table", "runtime_measurement": map[string]any{"observation_id": id, "view": "summary"}}

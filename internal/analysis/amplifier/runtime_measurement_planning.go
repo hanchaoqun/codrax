@@ -14,7 +14,7 @@ type PlanningFacts struct {
 // hints. Explicit topics, partitions and answer dimensions are never removed.
 func runtimeMeasurementsShareInvestigation(rm types.RequestModel, facts PlanningFacts) bool {
 	if !facts.SinglePhysicalRuntimeArtifact || len(rm.SubTopics) != 0 || len(rm.Buckets) != 0 ||
-		rm.CurrentSourceLaneDecision().RequiresCurrentSource() ||
+		types.RuntimeSourceRequestCurrentSourceRequirementPrecision(&rm, types.TurnRouteHint{}) != types.RuntimeSourceRequirementNone ||
 		rm.Predicates.IsDiagnosticQuestion || rm.Predicates.IsRelationalLookup || rm.Predicates.IsHistoryLookup ||
 		rm.DiagnosticProfile.IsDiagnostic || rm.DiagnosticProfile.CurrentRisk ||
 		rm.DiagnosticProfile.HistoricalRegression || rm.DiagnosticProfile.CurrentVersionCheck {
