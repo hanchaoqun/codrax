@@ -18,6 +18,9 @@ import (
 
 func TestTraceQueryBusinessTreeTeachingPreservesPreviousDescriptionBytes(t *testing.T) {
 	description := (&TraceQuery{}).Description()
+	// The later IO capability is terminal-only; removing it must preserve
+	// the exact previous business-tree dispatch contract and its prefix.
+	description = strings.TrimSuffix(description, " "+skill.TraceIOActivityTeaching)
 	suffix := " " + skill.TraceBusinessTreeTeaching
 	if !strings.HasSuffix(description, suffix) {
 		t.Fatal("business tree teaching must remain at the terminal capability slot")

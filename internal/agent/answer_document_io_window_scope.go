@@ -8,7 +8,11 @@ import (
 )
 
 func answerDocIOWindowScopedPredicate(predicate string) bool {
-	return answerDocBoundedRuntimeIOLatencyPredicate(predicate) || predicate == "io_inflight" || predicate == "io_inflight_coverage"
+	return answerDocBoundedRuntimeIOLatencyPredicate(predicate) || predicate == "io_inflight" || predicate == "io_inflight_coverage" || answerDocIOActivityPredicate(predicate)
+}
+
+func answerDocIOActivityPredicate(predicate string) bool {
+	return predicate == "io_activity" || predicate == "io_activity_coverage"
 }
 
 // Split only the final answer's display pool. Unknown/line-selected IO stays

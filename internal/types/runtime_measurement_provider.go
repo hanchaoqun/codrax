@@ -18,11 +18,28 @@ type RuntimeMeasurementPublication struct {
 	Tables        []RuntimeMeasurementTable `json:"tables"`
 }
 
+// RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
+// a semantic guess from observation prose. New domains must opt in explicitly.
+func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
+	return predicate == "io_inflight" || predicate == "io_activity"
+}
+
+func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
+	if !RuntimeMeasurementPredicateIsRegistered(predicate) {
+		return false
+	}
+	if view == RuntimeMeasurementSummary || view == RuntimeMeasurementTimeline {
+		return true
+	}
+	return predicate == "io_inflight" && view == RuntimeMeasurementMembers ||
+		predicate == "io_activity" && view == RuntimeMeasurementDistribution
+}
+
 // DecodeRuntimeMeasurementPublication validates a complete, uniquely published
 // receipt against its origin. This supplies display authority only, not a
 // causal claim, user-target ownership, or a new observation in the ledger.
 func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasurementPublication, bool) {
-	if !RuntimeObservationProducerIsDeterministicQuery(r.Producer) || r.Predicate != "io_inflight" ||
+	if !RuntimeObservationProducerIsDeterministicQuery(r.Producer) || !RuntimeMeasurementPredicateIsRegistered(r.Predicate) ||
 		r.Origin != AnswerEvidenceOriginRuntimeArtifact || r.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
 		r.GroundingPolicy != ClaimGroundingHard || r.ProvenanceLane != ObservationProvenanceArtifactSpan ||
 		r.ID == "" || r.SourceRef.Path == "" || r.SourceRef.PayloadRef == "" || r.SourceRef.QueryScopeID == "" {
@@ -48,7 +65,7 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 	}
 	seen := map[RuntimeMeasurementView]bool{}
 	for _, table := range p.Tables {
-		if !table.IsValid() || table.ObservationID != r.ID || seen[table.View] {
+		if !table.IsValid() || !runtimeMeasurementPredicateAllowsView(r.Predicate, table.View) || table.ObservationID != r.ID || seen[table.View] {
 			return RuntimeMeasurementPublication{}, false
 		}
 		seen[table.View] = true

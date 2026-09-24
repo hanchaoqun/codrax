@@ -442,6 +442,10 @@ const (
 	TraceNoteKeyIOInFlightScope    = "io_inflight_scope"
 	TraceNoteKeyIOInFlightReasons  = "io_inflight_reasons"
 	TraceNoteKeyRuntimeMeasurement = "runtime_measurement"
+	// Independent endpoint activity is descriptive, not a dependency proof.
+	TraceNoteKeyIOActivityGroup = "io_activity_group"
+	TraceNoteKeyIOActivityBasis = "io_activity_basis"
+	TraceNoteKeyIOActivityScope = "io_activity_scope"
 	// Closed scheduler-population measurements are display/coverage context,
 	// never a target wait, causal-chain membership or root-rank credential.
 	TraceNoteKeySchedulerConcurrencyGroup      = "scheduler_concurrency_group"
@@ -2397,6 +2401,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyIOInFlightScope, "io_inflight", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyIOInFlightReasons, "io_inflight", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyRuntimeMeasurement, "io_inflight", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOActivityGroup, "io_activity", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOActivityBasis, "io_activity", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOActivityScope, "io_activity", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeySchedulerConcurrencyGroup, "scheduler_concurrency", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeySchedulerConcurrencyBasis, "scheduler_concurrency", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeySchedulerConcurrencyCoverage, "scheduler_concurrency", TraceNoteCarrierSoftConsumer},

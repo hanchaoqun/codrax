@@ -218,6 +218,7 @@ func (t *TraceQuery) Description() string {
 	description += " " + skill.TraceIOInFlightTeaching
 	description += " " + skill.TraceSchedulerConcurrencyTeaching
 	description += " " + skill.TraceBusinessTreeTeaching
+	description += " " + skill.TraceIOActivityTeaching
 	return description
 }
 
@@ -254,14 +255,14 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "include_window_stats": {"type":"boolean","description":"For wakeup_chain, include same-window CPU/IO/binder/irq stats; default true."},
     "core_topology": {"type":"string","description":"Optional CPU core class map for compute-supply evaluation, e.g. \"small=0-3,middle=4-7,big=8-11\" or \"little=0-3,big=4-7\". If omitted, classes are inferred from observed CPU frequency tiers when possible. On devices where each CPU cluster shares one frequency point, frequency-weighted results reuse a same-cluster sampled core's cpu_frequency timeline for cluster members without their own samples (each reuse is disclosed per row/caveat together with its membership source): an explicit map is the authoritative membership, and in its absence clusters are derived from identical cpu_frequency change-point timelines with downward core-number inheritance only (cores above the highest sampled core are never extrapolated), so pass the real topology whenever known — it always overrides the derivation."},
     "limit": {"type":"integer","description":"event_search inline row cap; default 40. For view=window_sweep this is the hotspot top-K; default 8."},
-    "bucket_ms": {"type":"number","description":"For view=window_sweep only: coverage bucket width in milliseconds. Default 100; values are clamped to 50..500. Accepts integers, floats, or duration strings such as \"100ms\"."}
+    "bucket_ms": {"type":"number","description":"Bucket width in milliseconds. Default 100. For view=window_sweep coverage: clamped to 50..500. For window_stats.io_activity endpoint rates: positive values clamped to 1..60000; idle buckets and the actual short-tail width are retained, with display omissions reported. This does not alter the time window or other measurement series. Accepts integers, floats, or duration strings such as \"100ms\"."}
   }
 }`
 	lineScope, _ := json.Marshal(types.TraceQueryInputLineScopeGuidance)
 	viewNames, _ := json.Marshal(tracequery.CapabilityViewNames())
 	schema = strings.ReplaceAll(schema, "__TRACE_VIEW_NAMES__", string(viewNames))
 	schema = strings.ReplaceAll(schema, "__TRACE_QUERY_INPUT_LINE_SCOPE__", string(lineScope[1:len(lineScope)-1]))
-	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching + " " + skill.TraceSchedulerConcurrencyTeaching + " " + skill.TraceBusinessTreeTeaching)
+	ioTeaching, _ := json.Marshal(skill.TraceIORequestLatencyDistributionTeaching + " " + skill.TraceIOInFlightTeaching + " " + skill.TraceIOActivityTeaching + " " + skill.TraceSchedulerConcurrencyTeaching + " " + skill.TraceBusinessTreeTeaching)
 	schema = strings.Replace(schema, "The deterministic trace view to compute.",
 		"The deterministic trace view to compute. "+string(ioTeaching[1:len(ioTeaching)-1]), 1)
 	schema = strings.Replace(schema,
@@ -5474,6 +5475,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			writeTraceStorageLatency(&b, storage)
 		}
 		writeTraceIOInFlight(&b, result.WindowStats.IOInFlight)
+		writeTraceIOActivity(&b, result.WindowStats.IOActivity)
 		writeTraceSchedulerConcurrency(&b, result.WindowStats.SchedulerConcurrency)
 		writeTraceBusinessTree(&b, result.WindowStats.BusinessTree, 8)
 		if stats := result.WindowStats; stats.StorageLatencyOverflowGroups > 0 {
@@ -10325,6 +10327,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	if result.WindowStats != nil {
 		out = append(out, traceQueryTypedWindowStatsObservations(*result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedIOInFlightObservations(result.WindowStats.IOInFlight, ref, scope, at)...)
+		out = append(out, traceQueryTypedIOActivityObservations(result.WindowStats.IOActivity, ref, scope, at)...)
 		out = append(out, traceQueryTypedSchedulerConcurrencyObservations(result.WindowStats.SchedulerConcurrency, ref, scope, at)...)
 		out = append(out, traceQueryTypedSemanticTraceSpanObservations(result, *result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedBusinessSpanObservations(*result.WindowStats, ref, scope, at)...)

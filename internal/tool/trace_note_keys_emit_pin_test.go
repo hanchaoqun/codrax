@@ -1270,6 +1270,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 
 func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 	fixture := traceNoteKeysEmitFixtureResult()
+	fixture.WindowStats.IOActivity = &tracequery.IOActivityStats{
+		Window: &tracequery.IOActivityWindow{StartTs: 1, EndTs: 2}, GroupCount: 1, BucketMs: 100,
+		Population: tracequery.IOActivityPopulationEndpointEvents,
+		Groups: []tracequery.IOActivityGroup{{SourcePath: "full.systrace", Layer: "block", EndpointFamily: "block_rq", Phase: "start", Dev: "8,0", ByteCaliber: "request_bytes",
+			Values: tracequery.IOActivityValues{EventCount: 1, UnknownByteEventCount: 1}}},
+	}
 	// A background request-residence fixture exercises both the publication
 	// caliber and typed IO ruler without changing the composite/count families.
 	fixture.RootCauseRank.Items = append(fixture.RootCauseRank.Items, tracequery.RootCauseRankItem{

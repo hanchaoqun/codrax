@@ -1,5 +1,14 @@
 package tool
 
+// EVOLUTION RECORD 2026-09-24 (HMC-08.2): append the shared independent
+// IO endpoint capability at the terminal slot, preserving every preceding
+// Description byte. It names an existing view's optional result section,
+// full-window rates, size/unknown/population boundaries and no causal grant.
+// Parameters and the workflow matrix reuse the same source. Public query,
+// typed handoff and Emit/Patch/restore regressions protect the new face.
+// The fixed IO-activity/mixed-capability pair does not discharge the separate
+// matched h2/h3 dispatch A/B debt, which remains open.
+
 // EVOLUTION RECORD 2026-09-23 (HMC-04.2): append the shared synchronous
 // business-tree capability contract at the terminal Description slot. All
 // preceding bytes remain an exact prefix; window_stats gains a result section,

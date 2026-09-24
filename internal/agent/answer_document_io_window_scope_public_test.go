@@ -16,19 +16,20 @@ import (
 // dispatch/TurnA path as finalization. No source-window fields are edited.
 func TestIOPublicQueryWindowDoesNotBorrowRequestedAuthority(t *testing.T) {
 	for _, tc := range []struct {
-		name                  string
-		params                map[string]any
-		principal, background bool
+		name                         string
+		params                       map[string]any
+		principal, legacyBackground  bool
+		activityRows, backgroundRows int
 	}{
-		{"line_only", map[string]any{"line_start": 5, "line_end": 6}, false, true},
-		{"line_over_time", map[string]any{"line_start": 5, "line_end": 6, "time_start": 1, "time_end": 1.01}, false, true},
-		{"point", map[string]any{"time_start": 1.004, "time_end": 1.004}, false, true},
-		{"missing", map[string]any{}, false, false},
-		{"selected", map[string]any{"time_start": 1, "time_end": 1.01}, true, false},
-		{"contained", map[string]any{"time_start": 1.002, "time_end": 1.008}, true, false},
-		{"explicit_zero", map[string]any{"time_start": 0, "time_end": 1.01}, true, false},
-		{"multi_member", map[string]any{"time_start": 5, "time_end": 5.01}, true, false},
-		{"multi_envelope", map[string]any{"time_start": 1, "time_end": 5.01}, false, false},
+		{"line_only", map[string]any{"line_start": 5, "line_end": 6}, false, true, 3, 11},
+		{"line_over_time", map[string]any{"line_start": 5, "line_end": 6, "time_start": 1, "time_end": 1.01}, false, true, 3, 11},
+		{"point", map[string]any{"time_start": 1.004, "time_end": 1.004}, false, true, 1, 9},
+		{"missing", map[string]any{}, false, false, 3, 3},
+		{"selected", map[string]any{"time_start": 1, "time_end": 1.01}, true, false, 3, 0},
+		{"contained", map[string]any{"time_start": 1.002, "time_end": 1.008}, true, false, 2, 0},
+		{"explicit_zero", map[string]any{"time_start": 0, "time_end": 1.01}, true, false, 3, 0},
+		{"multi_member", map[string]any{"time_start": 5, "time_end": 5.01}, true, false, 3, 0},
+		{"multi_envelope", map[string]any{"time_start": 1, "time_end": 5.01}, false, false, 3, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "io.systrace")
@@ -74,10 +75,31 @@ func TestIOPublicQueryWindowDoesNotBorrowRequestedAuthority(t *testing.T) {
 			before, _ := json.Marshal(ledger.Records)
 			projectionBefore, _ := json.Marshal(types.CompileTraceCausalProjection(ledger))
 			originalRequest := ctx.AnalysisIR.RequestModel
-			measured := 0
+			measured, activityRows := 0, 0
+			var expectedBackground []types.ObservationRecord
 			for _, row := range ledger.Records {
+				if row.Predicate == "io_activity" || row.Predicate == "io_activity_coverage" {
+					activityRows++
+					// An implicit capture includes its final endpoint. Only this new
+					// population withdraws equivalence to a half-open time query;
+					// the old complete-pair faces below keep their original scope.
+					wantKnown := tc.name != "line_only" && tc.name != "point" && tc.name != "missing"
+					if row.SourceRef.QueryWindowKnown != wantKnown {
+						t.Fatalf("%s query-window receipt=%t want=%t", row.Predicate, row.SourceRef.QueryWindowKnown, wantKnown)
+					}
+					if row.Role != types.AnswerAggregateRoleSupportingCoverage {
+						t.Fatal("endpoint activity must remain supporting measurements")
+					}
+					if tc.legacyBackground || tc.name == "missing" {
+						expectedBackground = append(expectedBackground, row)
+					}
+					continue
+				}
 				if !answerDocBoundedRuntimeIOLatencyPredicate(row.Predicate) && row.Predicate != "io_inflight" && row.Predicate != "io_inflight_coverage" {
 					continue
+				}
+				if tc.legacyBackground {
+					expectedBackground = append(expectedBackground, row)
 				}
 				if row.Predicate == "io_latency" && traceQueryObservationSupplementNoteValue(row, types.TraceNoteKeyIORequestResidence) != "" {
 					measured++
@@ -92,6 +114,14 @@ func TestIOPublicQueryWindowDoesNotBorrowRequestedAuthority(t *testing.T) {
 			}
 			if measured == 0 {
 				t.Fatal("public query must publish actual accepted request measurements")
+			}
+			if activityRows != tc.activityRows || len(expectedBackground) != tc.backgroundRows {
+				t.Fatalf("native fixture populations: activity=%d background=%d; want %d and %d", activityRows, len(expectedBackground), tc.activityRows, tc.backgroundRows)
+			}
+			shownBackground := min(tc.backgroundRows, 10)
+			shownIDs := map[string]bool{}
+			for _, row := range expectedBackground[:shownBackground] {
+				shownIDs[row.ID] = true
 			}
 			for _, lane := range []string{"finite", "causal", "generic"} {
 				t.Run(lane, func(t *testing.T) {
@@ -111,8 +141,8 @@ func TestIOPublicQueryWindowDoesNotBorrowRequestedAuthority(t *testing.T) {
 						principal += ioWindowPublicSection(prompt, heading)
 					}
 					background := ioWindowPublicSection(prompt, "### Separately Scoped IO Background")
-					if (background != "") != tc.background {
-						t.Fatalf("background presence=%t want=%t", background != "", tc.background)
+					if (background != "") != (tc.backgroundRows > 0) {
+						t.Fatalf("background presence=%t want=%t", background != "", tc.backgroundRows > 0)
 					}
 					for _, row := range ledger.Records {
 						if !answerDocIOWindowScopedPredicate(row.Predicate) {
@@ -121,8 +151,8 @@ func TestIOPublicQueryWindowDoesNotBorrowRequestedAuthority(t *testing.T) {
 						if !tc.principal && strings.Contains(principal, "id=`"+row.ID+"`") {
 							t.Errorf("%s borrowed requested-window authority", row.Predicate)
 						}
-						if tc.background && !strings.Contains(background, "id=`"+row.ID+"`") {
-							t.Errorf("background lost %s", row.Predicate)
+						if strings.Contains(background, "id=`"+row.ID+"`") != shownIDs[row.ID] {
+							t.Errorf("%s background identity presence differs from the first %d admitted rows", row.Predicate, shownBackground)
 						}
 					}
 					wantResidence := "5.000"
@@ -132,7 +162,11 @@ func TestIOPublicQueryWindowDoesNotBorrowRequestedAuthority(t *testing.T) {
 					if tc.principal && !strings.Contains(principal, "request_residence=`"+wantResidence+"`") {
 						t.Fatal("contained query lost original full request residence")
 					}
-					if tc.background {
+					if tc.backgroundRows > 0 {
+						budget := fmt.Sprintf("rendered_background_rows=%d; omitted_background_rows=%d", shownBackground, tc.backgroundRows-shownBackground)
+						if !strings.Contains(background, budget) || strings.Count(background, "owner_scope=`separate_query_context`") != shownBackground {
+							t.Fatalf("background lost exact budget %q", budget)
+						}
 						for _, want := range []string{"owner_scope=`separate_query_context`", "query_window=`unknown`", "not use their counts, distributions or durations as requested-window statistics", "Unknown occupancy is not measured zero"} {
 							if !strings.Contains(background, want) {
 								t.Errorf("background lost %q", want)

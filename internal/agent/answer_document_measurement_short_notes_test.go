@@ -22,11 +22,12 @@ func TestRuntimeMeasurementHandoffShortProviderNotes(t *testing.T) {
 			ctx, result, native := ioInFlightPublicContext(t, "en", types.RuntimeQuestionScopeBoundedFactSet, "")
 			beforeView := types.BuildAnswerSemanticViewForAgentContext(ctx)
 			beforeChoices := beforeView.RuntimeMeasurementContract.Choices()
-			if len(beforeChoices) != 3*len(native.Groups) || len(beforeChoices) != 12 {
-				t.Fatal("actual native producer prerequisite lost summary/member/timeline views")
+			if len(native.Groups) != 4 || len(beforeChoices) != 27 {
+				t.Fatal("actual native producer lost old 12 paired or new 15 activity views")
 			}
+			assertRuntimeMeasurementFixturePopulations(t, result, beforeChoices)
 			beforeSchemas := []json.RawMessage{tool.BuildAnswerDocumentParametersFor(beforeView), tool.BuildAnswerDocumentPatchParametersFor(beforeView)}
-			modified := 0
+			modified := map[string]int{}
 			for i := range result.Observations {
 				r := &result.Observations[i]
 				publication, ok := types.DecodeRuntimeMeasurementPublication(*r)
@@ -50,15 +51,15 @@ func TestRuntimeMeasurementHandoffShortProviderNotes(t *testing.T) {
 				for j, note := range r.RichNotes {
 					if strings.HasPrefix(note, types.TraceNoteKeyRuntimeMeasurement+"=") {
 						r.RichNotes[j] = types.TraceNoteKeyRuntimeMeasurement + "=" + string(encoded)
-						modified++
+						modified[r.Predicate]++
 					}
 				}
 				if _, ok := types.DecodeRuntimeMeasurementPublication(*r); !ok {
 					t.Fatal("short optional notes invalidated the exact source-bound receipt")
 				}
 			}
-			if modified != len(native.Groups) {
-				t.Fatalf("modified %d publications, want %d", modified, len(native.Groups))
+			if !reflect.DeepEqual(modified, map[string]int{"io_inflight": 4, "io_activity": 5}) {
+				t.Fatalf("shortened publications changed populations: got=%v", modified)
 			}
 			ctx.Mutable.ResetDispatchToolResults()
 			ctx.Mutable.AppendDispatchToolResult(result)
@@ -68,6 +69,7 @@ func TestRuntimeMeasurementHandoffShortProviderNotes(t *testing.T) {
 			if len(choices) != len(beforeChoices) {
 				t.Fatalf("short notes changed the selectable population: %d -> %d", len(beforeChoices), len(choices))
 			}
+			assertRuntimeMeasurementFixturePopulations(t, result, choices)
 			// Calling the actual handoff must not panic for any legal note count.
 			beforeRender, _ := json.Marshal(result)
 			prompt := renderAnswerDocRuntimeMeasurementChoices(ctx)

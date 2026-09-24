@@ -106,7 +106,7 @@ func traceQueryFinalizeMeasurementSources(result *types.ToolResult) {
 	}
 	for i := range result.Observations {
 		r := &result.Observations[i]
-		if !types.RuntimeObservationProducerIsDeterministicQuery(r.Producer) || r.Predicate != "io_inflight" {
+		if !types.RuntimeObservationProducerIsDeterministicQuery(r.Producer) || !types.RuntimeMeasurementPredicateIsRegistered(r.Predicate) {
 			continue
 		}
 		for j, note := range r.RichNotes {

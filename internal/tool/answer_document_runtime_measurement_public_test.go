@@ -87,9 +87,11 @@ func TestRuntimeMeasurementPublicQueryEmitPatchRender(t *testing.T) {
 	choices := view.RuntimeMeasurementContract.Choices()
 	byView := map[types.RuntimeMeasurementView]types.RuntimeMeasurementTable{}
 	for _, choice := range choices {
-		byView[choice.View] = choice
+		if strings.Contains(choice.ObservationID, "#io_inflight:") {
+			byView[choice.View] = choice
+		}
 	}
-	if len(byView) != 3 {
+	if len(byView) != 3 || len(choices) != 9 {
 		t.Fatalf("summary/member/timeline choices missing: %+v", choices)
 	}
 	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit))
@@ -138,6 +140,15 @@ func TestRuntimeMeasurementPublicQueryEmitPatchRender(t *testing.T) {
 	execute(types.RuntimeMeasurementSummary, false)
 	execute(types.RuntimeMeasurementMembers, true)
 	execute(types.RuntimeMeasurementTimeline, true)
+	// The new independently counted endpoint domain uses the same actual
+	// emit/patch paths, including its newly registered distribution view.
+	for _, choice := range choices {
+		if strings.Contains(choice.ObservationID, "#io_activity:") {
+			byView[choice.View] = choice
+			execute(choice.View, false)
+			execute(choice.View, true)
+		}
+	}
 	// Reject a stale identity and a competing authored table through BOTH
 	// entrypoints without changing the last accepted document or its bound data.
 	for _, patch := range []bool{false, true} {

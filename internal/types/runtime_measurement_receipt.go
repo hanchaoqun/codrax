@@ -7,13 +7,14 @@ import "strings"
 type RuntimeMeasurementView string
 
 const (
-	RuntimeMeasurementSummary  RuntimeMeasurementView = "summary"
-	RuntimeMeasurementMembers  RuntimeMeasurementView = "members"
-	RuntimeMeasurementTimeline RuntimeMeasurementView = "timeline"
+	RuntimeMeasurementSummary      RuntimeMeasurementView = "summary"
+	RuntimeMeasurementMembers      RuntimeMeasurementView = "members"
+	RuntimeMeasurementTimeline     RuntimeMeasurementView = "timeline"
+	RuntimeMeasurementDistribution RuntimeMeasurementView = "distribution"
 )
 
 func (v RuntimeMeasurementView) IsValid() bool {
-	return v == RuntimeMeasurementSummary || v == RuntimeMeasurementMembers || v == RuntimeMeasurementTimeline
+	return v == RuntimeMeasurementSummary || v == RuntimeMeasurementMembers || v == RuntimeMeasurementTimeline || v == RuntimeMeasurementDistribution
 }
 
 // RuntimeMeasurementTable is a lossless display projection supplied by a typed

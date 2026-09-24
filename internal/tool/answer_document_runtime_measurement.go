@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const runtimeMeasurementTeaching = "Optional trusted measurement table: select one published observation_id/view pair on kind=table; do not copy values or supply text/items/columns. The system renders exact measured values, members or timeline segments with source/window and coverage notes. Put interpretation and runtime_work_relation in separate blocks. This selection proves measurements only, never a root cause."
+const runtimeMeasurementTeaching = "Optional trusted measurement table: select one published observation_id/view pair on kind=table; do not copy values or supply text/items/columns. The system renders exact measured values, members, distributions or timeline rows with source/window and coverage notes. Put interpretation and runtime_work_relation in separate blocks. This selection proves measurements only, never a root cause."
 
 func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view *types.AnswerSemanticView) {
 	choices := view.RuntimeMeasurementContract.Choices()
@@ -56,7 +56,7 @@ func validateEmitRuntimeMeasurementBlock(raw emitAnswerBlockV2, path string) err
 		return nil
 	}
 	if strings.TrimSpace(receipt.ObservationID) == "" || !receipt.View.IsValid() {
-		return fmt.Errorf("%s.runtime_measurement requires one published observation_id and view (summary, members, or timeline)", path)
+		return fmt.Errorf("%s.runtime_measurement requires one published observation_id/view pair from the current choices", path)
 	}
 	if raw.Kind != string(types.BlockTable) || raw.Text != "" || len(raw.Items) > 0 || len(raw.Columns) > 0 || raw.Diagram != nil || raw.RuntimeWorkRelation != nil {
 		return fmt.Errorf("%s.runtime_measurement is only valid on kind=table without text/items/columns/diagram/runtime_work_relation; put explanations and relation judgments in separate blocks", path)

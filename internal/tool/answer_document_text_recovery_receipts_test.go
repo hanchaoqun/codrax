@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -40,8 +41,22 @@ func textRecoveryReceiptFixture(t *testing.T) *types.AnswerSemanticView {
 	}
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
 	view := types.BuildAnswerSemanticViewForBusContext(bus)
-	if view == nil || len(view.RuntimeMeasurementContract.Choices()) != 3 || !view.RuntimeWorkRelationContract.Active() {
+	if view == nil || len(view.RuntimeMeasurementContract.Choices()) != 9 || !view.RuntimeWorkRelationContract.Active() {
 		t.Fatalf("native measurement/work prerequisites missing: %+v", view)
+	}
+	groups := map[string]int{}
+	for _, row := range result.Observations {
+		publication, ok := types.DecodeRuntimeMeasurementPublication(row)
+		if !ok {
+			continue
+		}
+		if row.Role != types.AnswerAggregateRoleSupportingCoverage || len(publication.Tables) != 3 {
+			t.Fatal("measurement publication changed view count or acquired causal authority")
+		}
+		groups[row.Predicate]++
+	}
+	if !reflect.DeepEqual(groups, map[string]int{"io_inflight": 1, "io_activity": 2}) {
+		t.Fatalf("fixture must preserve 3 paired tables plus 6 phase-separated activity tables: %v", groups)
 	}
 	return view
 }
@@ -66,8 +81,8 @@ func textRecoveryWithBadSibling(t *testing.T, blocks ...any) AnswerDocumentTextR
 func TestRecoverAnswerDocumentTextKeepsNativeSelectorsWithBadSibling(t *testing.T) {
 	view := textRecoveryReceiptFixture(t)
 	var blocks []any
-	for _, table := range view.RuntimeMeasurementContract.Choices() {
-		blocks = append(blocks, map[string]any{"id": string(table.View), "kind": "table", "runtime_measurement": map[string]any{
+	for i, table := range view.RuntimeMeasurementContract.Choices() {
+		blocks = append(blocks, map[string]any{"id": fmt.Sprintf("measurement-%d", i), "kind": "table", "runtime_measurement": map[string]any{
 			"observation_id": table.ObservationID, "view": table.View,
 			// JSON cannot supply the private binding, even on a salvage path.
 			"bound_table": map[string]any{"Rows": [][]string{{"FORGED-NUMBER"}}}}})
@@ -77,7 +92,7 @@ func TestRecoverAnswerDocumentTextKeepsNativeSelectorsWithBadSibling(t *testing.
 		"observation_id": work.ObservationID, "conclusion": types.RuntimeWorkRelationConclusionRelationUnproven,
 		"bound_row": map[string]any{"MeasuredDurationMS": 999}}})
 	rec := textRecoveryWithBadSibling(t, blocks...)
-	if len(rec.Document.Blocks) != 5 {
+	if len(rec.Document.Blocks) != 11 {
 		t.Fatalf("bad sibling erased otherwise valid selectors: %+v", rec.Document.Blocks)
 	}
 	for _, block := range rec.Document.Blocks {
@@ -88,8 +103,8 @@ func TestRecoverAnswerDocumentTextKeepsNativeSelectorsWithBadSibling(t *testing.
 	if !types.RebindRuntimeAnswerReceipts(rec.Document, view) {
 		t.Fatal("exact native selections did not rebind after lossy sibling salvage")
 	}
-	for _, table := range view.RuntimeMeasurementContract.Choices() {
-		block := blockByID(t, rec.Document, string(table.View))
+	for i, table := range view.RuntimeMeasurementContract.Choices() {
+		block := blockByID(t, rec.Document, fmt.Sprintf("measurement-%d", i))
 		if !block.RuntimeMeasurement.IsBound() || !reflect.DeepEqual(*block.RuntimeMeasurement.BoundTable, table) {
 			t.Fatalf("recovered selector did not preserve native %s table", table.View)
 		}
@@ -101,6 +116,11 @@ func TestRecoverAnswerDocumentTextKeepsNativeSelectorsWithBadSibling(t *testing.
 	visible := render.RenderAnswerDocument(rec.Document, "en")
 	if strings.Contains(visible, "FORGED-NUMBER") || !strings.Contains(visible, "Actual start (s)") || !strings.Contains(visible, "Concurrent requests") {
 		t.Fatalf("renderer lost native tables or trusted a model binding: %s", visible)
+	}
+	for _, want := range []string{"Endpoint events", "Known bytes/s", "Size lower bound inclusive (B)", "requested bytes", "sectors × 512 bytes"} {
+		if !strings.Contains(visible, want) {
+			t.Errorf("new activity projection lost %q while restoring old paired tables", want)
+		}
 	}
 }
 

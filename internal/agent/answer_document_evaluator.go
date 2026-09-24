@@ -6673,7 +6673,7 @@ func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm 
 	predicate := strings.TrimSpace(record.Predicate)
 	// All-issuer IO accounts cannot acquire target ownership when a thread
 	// happens to share the layer/family label used as their display subject.
-	if predicate != "io_inflight" && predicate != "io_inflight_coverage" && !answerDocSchedulerConcurrencyPredicate(predicate) && types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
+	if predicate != "io_inflight" && predicate != "io_inflight_coverage" && !answerDocIOActivityPredicate(predicate) && !answerDocSchedulerConcurrencyPredicate(predicate) && types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
 		ownerScope = "target_owned"
 	}
 	return answerDocRuntimeFactAuthorityRowWithOwnerScope(record, rm, lang, ownerScope)
@@ -6695,7 +6695,7 @@ func answerDocRuntimeFactAuthorityRowWithOwnerScope(record types.ObservationReco
 	}
 	intervalLabel := "interval"
 	switch predicate {
-	case "io_latency", "io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode", "io_inflight", "io_inflight_coverage", "scheduler_concurrency", "scheduler_concurrency_coverage":
+	case "io_latency", "io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode", "io_inflight", "io_inflight_coverage", "io_activity", "io_activity_coverage", "scheduler_concurrency", "scheduler_concurrency_coverage":
 		// Query receipts belong to the producer result. A pair or group's
 		// observed event envelope cannot recover missing query coordinates.
 		intervalLabel = "observed_interval"
@@ -7911,7 +7911,7 @@ func answerDocBoundedRuntimeGlobalFactPredicateAllowed(predicate string, profile
 	}
 	if profile.RequestsFactFamily(types.RuntimeQuestionFactResourcePressure) {
 		switch predicate {
-		case "background_pressure", "compute_supply_balance", "io_pressure", "runnable_occupancy", "io_inflight", "io_inflight_coverage", "scheduler_concurrency", "scheduler_concurrency_coverage":
+		case "background_pressure", "compute_supply_balance", "io_pressure", "runnable_occupancy", "io_inflight", "io_inflight_coverage", "io_activity", "io_activity_coverage", "scheduler_concurrency", "scheduler_concurrency_coverage":
 			return true
 		}
 	}
@@ -14753,6 +14753,8 @@ func answerDocRuntimeTraceGuidanceRecord(record types.ObservationRecord) bool {
 		"storage_latency_by_layer",
 		"io_inflight",
 		"io_inflight_coverage",
+		"io_activity",
+		"io_activity_coverage",
 		"scheduler_concurrency",
 		"scheduler_concurrency_coverage",
 		"bio_resource",
