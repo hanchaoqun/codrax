@@ -212,6 +212,12 @@ func cloneTraceBusinessSpanRefs(in map[string]TraceBusinessSpanRef) map[string]T
 // copy contract for unrelated carriers.
 func cloneTraceBusinessSpanToolResult(in ToolResult) ToolResult {
 	out := in
+	if in.Observations != nil {
+		out.Observations = append([]ObservationRecord{}, in.Observations...)
+		for i := range out.Observations {
+			out.Observations[i].StateAccounting = CloneTraceSchedulerStateAccounts(in.Observations[i].StateAccounting)
+		}
+	}
 	if in.Handoff != nil && in.Handoff.Documentation != nil {
 		carrier := *in.Handoff
 		carrier.Documentation = cloneToolDocumentation(in.Handoff.Documentation)

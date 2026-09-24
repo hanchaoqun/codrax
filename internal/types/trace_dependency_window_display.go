@@ -41,6 +41,13 @@ func TraceMeasurementWindowDisplayRole(predicate, source string, zh bool) string
 		}
 		return "dependency analysis window"
 	}
+	switch strings.TrimSpace(predicate) {
+	case "state_churn", "running_time", "runnable_wait", "sleep_wait", "d_state_or_io_wait", "io_wait":
+		if zh {
+			return "累计状态统计范围"
+		}
+		return "cumulative state measurement scope"
+	}
 	if strings.TrimSpace(predicate) != "state_drilldown" {
 		return ""
 	}
@@ -70,4 +77,4 @@ func TraceObservationMeasurementWindowDisplayRole(record ObservationRecord, zh b
 // as a thread_timeline interval certifies continuous state endpoints.
 const TraceDependencyAnalysisWindowGuidance = "A dependency analysis window on causal_impact/aggregated_impact and their root-cause rows is a measurement scope, not a continuous state interval. State totals may cover several disjoint intervals; actual_window is the envelope of all observed states, not the dominant state's endpoints. For a precise state start/end, use a same-source thread_timeline interval; state_drilldown is cumulative measurement guidance, not occurrence proof. Otherwise report the cumulative duration within the analysis window without inventing one continuous interval. This changes neither the requested window nor causal eligibility."
 
-const TraceStateDrilldownWindowGuidance = "state_drilldown is a cumulative state measurement scope, not a continuous state interval. Its top_sleep/top_runnable/top_running/top_io_wait/top_d_state rows sum state durations; their start/end, when present, bound those records and may contain gaps. state_churn also aggregates states and may have no timestamp bounds. Preserve source, recommended_views, chain_required and recursive; precise state occurrences require a same-source thread_timeline interval, never an equality between cumulative duration and envelope width. Unknown drilldown sources do not prove a single occurrence. Requested windows and causal eligibility are unchanged."
+const TraceStateDrilldownWindowGuidance = "state_drilldown is a cumulative state measurement scope, not a continuous state interval. Its top_sleep/top_runnable/top_running/top_io_wait/top_d_state rows sum state durations; start/end bound those records and may contain gaps. Typed state_accounting distinguishes observed boundaries, open tails and unknown closure; its times are accounted contributions, not invented actual endpoints. Missing metadata means unknown closure. state_churn keeps each state's account separately. Preserve source, recommended_views, chain_required and recursive; precise occurrences need same-source occurrence evidence, never cumulative duration equated to envelope width. Requested windows and causal eligibility are unchanged."

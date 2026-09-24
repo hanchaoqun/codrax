@@ -3167,12 +3167,17 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				if endLine > 0 {
 					closure = string(EventSchedSwitch)
 				}
-				measurement.add(schedulerMeasurementSegment{
+				segment := schedulerMeasurementSegment{
 					Thread: candidateThread, State: StateRunning, OriginalState: StateRunning,
 					StartTs: start, EndTs: end, ActualStartTs: ev.Ts, ActualEndTs: actualEnd, DurationMs: dur,
 					StartLine: ev.Line, EndLine: endLine, CPU: cpu, CPUKnown: true,
 					Priority: ev.NextPrio, PriorityClass: td.PriorityClass, Closure: closure,
-				})
+				}
+				measurement.add(segment)
+				// The old CPU running account remains unchanged even when the
+				// next switch cannot prove this thread's closing endpoint.
+				accountSegment, observedEnd := schedulerRunningAccountingSegment(concurrency, ev, segment)
+				addSchedulerStateAccounting(&td.Accounting, accountSegment, observedEnd)
 				if td.StartTs == 0 || start < td.StartTs {
 					td.StartTs = start
 				}
@@ -6041,6 +6046,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			measurementRecorders[start.thread.PID] = recorder
 		}
 		recorder.add(measurement)
+		addSchedulerStateAccounting(&td.Accounting, measurement, schedulerStateObservedEnd(idx, measurement))
 		bucket[key] = td
 		if start.state == StateRunnable && start.cpuKnown && validTraceCPUIndex(start.cpu) {
 			acc := cpuPressure(pressure, start.cpu)
@@ -8321,6 +8327,7 @@ type stateChurnOpen struct {
 }
 
 type stateChurnAcc struct {
+	accounting    schedulerStateAccounts
 	thread        ThreadRef
 	runningMs     float64
 	runnableMs    float64
@@ -8646,6 +8653,10 @@ func addStateChurnInterval(idx *Index, accs map[string]*stateChurnAcc, start sta
 		segment.Caller = match.Event.Reason
 	}
 	acc.measurement.add(segment)
+	if acc.accounting == nil {
+		acc.accounting = schedulerStateAccounts{}
+	}
+	acc.accounting.add(segment, schedulerStateObservedEnd(idx, segment))
 	candidateEndLine := firstPositive(endLine, start.line)
 	if candidateEndLine > acc.lineEnd || (candidateEndLine == acc.lineEnd && threadDisplayLess(start.thread, acc.thread)) {
 		acc.thread = start.thread
@@ -8748,6 +8759,7 @@ func buildStateChurnSummary(acc *stateChurnAcc, minDurationMs float64) (ThreadSt
 		NextStepKind:     stateChurnNextStepKind(dominantState),
 	}
 	item.Summary = renderStateChurnSummary(item)
+	item.StateAccounting = acc.accounting.finish()
 	item.MeasurementDomain = acc.measurement.finish()
 	return item, true
 }
@@ -9049,6 +9061,7 @@ func buildStateDrilldownPlanForTarget(stats WindowStats, max int, pinnedPID int,
 				LineEnd:          td.LineEnd,
 			}
 			step.MeasurementSources = threadDurationMeasurementSources(td)
+			step.Accounting = types.CloneTraceSchedulerStateAccounting(td.Accounting)
 			candidates = append(candidates, step)
 		}
 	}
@@ -9084,6 +9097,7 @@ func buildStateDrilldownPlanForTarget(stats WindowStats, max int, pinnedPID int,
 			LineEnd:          churn.LineEnd,
 		}
 		step.MeasurementSources = types.TraceSchedulerMeasurementSourcesFromDomain(churn.MeasurementDomain)
+		step.Accounting = schedulerStateAccountingForState(churn.StateAccounting, churn.DominantState)
 		candidates = append(candidates, step)
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -9385,6 +9399,9 @@ func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chai
 			acc.cpuKnown = false
 		}
 		acc.td.MeasurementDomain = retainThreadDurationMeasurementSource(acc.td.MeasurementDomain, member.MeasurementDomain)
+		if acc.td.DurationMs > 0 {
+			acc.td.Accounting = mergeSchedulerStateAccounting(acc.td.Accounting, member.Accounting)
+		}
 		acc.measurementSources = append(acc.measurementSources, threadDurationMeasurementSources(member))
 		// Numeric TID is the hard key; display identity follows the latest
 		// contributing bucket so a rename while the task migrates does not leave

@@ -2740,6 +2740,9 @@ type offCPUCauseSlice struct {
 }
 
 type ThreadDuration struct {
+	// Accounting describes the accepted segment population behind DurationMs.
+	// Nil is legacy/unknown, not proof that the enclosing range was continuous.
+	Accounting *SchedulerStateAccounting `json:"accounting,omitempty"`
 	// MeasurementSources retains all native input references after a fold;
 	// MeasurementDomain below remains the legacy unanimous-single-source face.
 	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
@@ -2870,6 +2873,9 @@ func (td ThreadDuration) weightedFrequencyKHz() int64 {
 }
 
 type ThreadStateChurnSummary struct {
+	// Each entry describes only its own state total; the dominant-state
+	// duration must not borrow the closure population of all other states.
+	StateAccounting []SchedulerStateAccounting `json:"state_accounting,omitempty"`
 	// MeasurementDomain describes the native state-churn accumulation stream;
 	// it neither replaces StateAccountKey nor grants cross-method equivalence.
 	MeasurementDomain *types.TraceSchedulerMeasurementDomain `json:"measurement_domain,omitempty"`
@@ -2916,6 +2922,7 @@ type ThreadStateChurnSummary struct {
 }
 
 type StateDrilldownStep struct {
+	Accounting         *SchedulerStateAccounting               `json:"accounting,omitempty"`
 	MeasurementSources *types.TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
 	// Rank is the state-drilldown Top-N ordinal. Wire/text word is
 	// `drill_rank` (RANKDIS-EXT A1, §29.104.16/.16.1 2026-07-16): the bare

@@ -130,6 +130,16 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 		if sourceExcerpt == nil {
 			excerpt = observationPromptExcerpt(record, opts)
 		}
+		notes := observationPromptNotesWithLimit(record, opts, observationPromptNoteLimit(record, opts)-len(modelNotes))
+		span := FormatObservationSpan(record.Span, 80)
+		if meaning := TraceObservationStateAccountingCompact(record); meaning != "" {
+			// Producer metadata is never reconstructed from summary prose. Keep
+			// the caliber ahead of optional notes, including compact checkpoints.
+			notes = append([]string{meaning}, notes...)
+			if span != "" {
+				span = "accounting_scope:" + span
+			}
+		}
 		out = append(out, ObservationPromptRecord{
 			ID:              strings.TrimSpace(record.ID),
 			Origin:          record.Origin,
@@ -139,13 +149,13 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 			ProvenanceLane:  record.ProvenanceLane,
 			ClaimAuthority:  record.ClaimAuthority,
 			Source:          FormatObservationSourceRef(record.SourceRef, opts.SourceMaxLen),
-			Span:            FormatObservationSpan(record.Span, 80),
+			Span:            span,
 			Claim:           observationPromptClaim(record.ClaimKey, summary, value),
 			Value:           value,
 			Summary:         summary,
 			Excerpt:         excerpt,
 			SourceExcerpt:   sourceExcerpt,
-			Notes:           observationPromptNotesWithLimit(record, opts, observationPromptNoteLimit(record, opts)-len(modelNotes)),
+			Notes:           notes,
 			ModelNotes:      modelNotes,
 			Negative:        record.Negative,
 			ResultCount:     cloneObservationPromptResultCount(record.ResultCount),

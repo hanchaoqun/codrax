@@ -5289,19 +5289,19 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				sanitizeForBanner(core.Class), core.CPUs, core.BusyMs, core.IdleMs, sanitizeForBanner(status), reasonClause, core.RunnableWaitMs, core.HighPriorityRunMs, core.SystemOrKernelRunningMs, core.MaxFrequency, sanitizeForBanner(core.TopologySource), sanitizeForBanner(core.ComputeSupplySignal))
 		}
 		for _, td := range result.WindowStats.TopRunning {
-			fmt.Fprintf(&b, "- top_running %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_running %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
 		}
 		for _, td := range result.WindowStats.RunnableTop {
-			fmt.Fprintf(&b, "- top_runnable %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_runnable %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
 		}
 		for _, td := range result.WindowStats.SleepTop {
-			fmt.Fprintf(&b, "- top_sleep %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_sleep %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
 		}
 		for _, td := range result.WindowStats.DStateTop {
-			fmt.Fprintf(&b, "- top_d_state %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_d_state %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
 		}
 		for _, td := range result.WindowStats.IOWaitTop {
-			fmt.Fprintf(&b, "- top_io_wait %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_io_wait %s %.3fms %s%s lines=%d-%d; %s\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd, types.TraceSchedulerStateAccountingMeaning(td.Accounting, false))
 		}
 		// 修复轮二 件A (2026-07-13): per-lane cap-overflow disclosure — the top
 		// lists are a display cap, and the evicted remainder must be visible
@@ -5384,7 +5384,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		}
 		for _, churn := range result.WindowStats.StateChurn {
 			fmt.Fprintf(&b, "- state_churn %s dominant_state=%s impact=%.3fms total=%.3fms fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms confidence=%.2f lines=%d-%d — %s\n",
-				traceThreadLabel(churn.Thread), sanitizeForBanner(churn.DominantState), churn.DominantImpactMs, churn.TotalMs, churn.FragmentCount, churn.StateSwitches, churn.MaxSegmentMs, churn.P95SegmentMs, churn.RunningMs, churn.RunnableMs, churn.SleepMs, churn.DStateMs, churn.IOWaitMs, churn.Confidence, churn.LineStart, churn.LineEnd, sanitizeForBanner(churn.Summary))
+				traceThreadLabel(churn.Thread), sanitizeForBanner(churn.DominantState), churn.DominantImpactMs, churn.TotalMs, churn.FragmentCount, churn.StateSwitches, churn.MaxSegmentMs, churn.P95SegmentMs, churn.RunningMs, churn.RunnableMs, churn.SleepMs, churn.DStateMs, churn.IOWaitMs, churn.Confidence, churn.LineStart, churn.LineEnd, sanitizeForBanner(churn.Summary)+"; "+types.TraceSchedulerStateAccountsMeaning(churn.StateAccounting, false))
 		}
 		for _, span := range result.WindowStats.TraceSpans {
 			fmt.Fprintf(&b, "- trace_span %s %q category=%s subcategory=%s semantic_class=%s kind=%s duration=%.3fms source=%s lines=%d-%d\n",
@@ -7080,7 +7080,7 @@ func writeTraceStateDrilldownSummary(b *strings.Builder, steps []tracequery.Stat
 		}
 		fmt.Fprintf(b, "- state_drilldown drill_rank=%d thread=%s state=%s impact=%.3fms total=%.3fms%s source=%s chain_required=%t recursive=%t window_proportion=%.4f significant=%t recommended_views=%s lines=%d-%d — %s\n",
 			step.Rank, traceThreadLabel(step.Thread), sanitizeForBanner(step.State), step.ImpactMs, step.TotalMs, totalScope, sanitizeForBanner(step.Source),
-			step.ChainRequired, step.Recursive, step.WindowProportion, step.Significant, sanitizeForBanner(strings.Join(step.RecommendedViews, ",")), step.LineStart, step.LineEnd, sanitizeForBanner(step.Summary))
+			step.ChainRequired, step.Recursive, step.WindowProportion, step.Significant, sanitizeForBanner(strings.Join(step.RecommendedViews, ",")), step.LineStart, step.LineEnd, sanitizeForBanner(step.Summary)+"; "+types.TraceSchedulerStateAccountingMeaning(step.Accounting, false))
 	}
 	writeTraceIdleWholeWindowSleeperFold(b, idleFold)
 }
@@ -13839,6 +13839,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 		out = append(out, types.ObservationRecord{
 			ID:                 fmt.Sprintf("trace_query:%s#state_churn:%d", scope, i+1),
 			MeasurementSources: types.TraceSchedulerMeasurementSourcesFromDomain(churn.MeasurementDomain),
+			StateAccounting:    types.CloneTraceSchedulerStateAccounts(churn.StateAccounting),
 			Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
 			Producer:           "trace_query",
 			Role:               types.AnswerAggregateRoleSupportingCoverage,
@@ -13874,6 +13875,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			// semantics (RANKDIS-EXT C8 unification, §29.104.16.1 M23).
 			ID:                 fmt.Sprintf("trace_query:%s#state_drilldown:%d", scope, i+1),
 			MeasurementSources: types.CloneTraceSchedulerMeasurementSources(step.MeasurementSources),
+			StateAccounting:    types.TraceSchedulerStateAccounts(step.Accounting),
 			Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
 			Producer:           "trace_query",
 			Role:               types.AnswerAggregateRoleSupportingCoverage,
@@ -15151,7 +15153,7 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 			{types.TraceNoteKeyDStateRefinedNonIO, refined},
 			{types.TraceNoteKeyBlockedReasonCaller, sanitizeForBanner(caller)},
 			// F-2 (统一复核 2026-07-04, NEW-8 pattern): the row's own `window`
-			// above is the thread-state segment; the selected QUERY window
+			// above is the cumulative state envelope; the selected QUERY window
 			// travels via the same typed note as every other selected-window
 			// family. RN-12 collection refuses totals without it (禁猜), and
 			// these predicates stay outside the CMP-2 anchor whitelist —
@@ -15163,6 +15165,7 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 		out = append(out, types.ObservationRecord{
 			ID:                 fmt.Sprintf("trace_query:%s#%s:%d", scope, family, i+1),
 			MeasurementSources: traceQueryThreadDurationMeasurementSources(td),
+			StateAccounting:    types.TraceSchedulerStateAccounts(td.Accounting),
 			Origin:             types.AnswerEvidenceOriginRuntimeArtifact,
 			Producer:           "trace_query",
 			Role:               types.AnswerAggregateRoleSupportingCoverage,

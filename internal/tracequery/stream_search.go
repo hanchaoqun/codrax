@@ -1256,6 +1256,8 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 }
 
 func addStreamStateClusterInterval(idx *Index, accs map[string]*stateChurnAcc, running, runnable, sleep, dstate, iowait map[string]ThreadDuration, start stateChurnOpen, endTs float64, endLine int, q Query, blockedReasons map[int][]Event) (ambiguous bool) {
+	// Keep the original close before D/I/O marker and display-line fallback.
+	physicalEndLine := endLine
 	if endTs <= start.ts {
 		return false
 	}
@@ -1317,6 +1319,17 @@ func addStreamStateClusterInterval(idx *Index, accs map[string]*stateChurnAcc, r
 		LineEnd:    firstPositive(endLine, start.line),
 		CPU:        -1,
 	}
+	segment := schedulerMeasurementSegment{State: state, StartTs: clampedStart, EndTs: clampedEnd,
+		ActualStartTs: start.ts, ActualEndTs: endTs, DurationMs: durationMs,
+		StartLine: start.line, EndLine: physicalEndLine}
+	if physicalEndLine == 0 {
+		segment.Closure = runnableCPUContinuityBoundaryWindowEnd
+	}
+	addSchedulerStateAccounting(&td.Accounting, segment, physicalEndLine > 0)
+	if acc.accounting == nil {
+		acc.accounting = schedulerStateAccounts{}
+	}
+	acc.accounting.add(segment, physicalEndLine > 0)
 	zeroStartReal := queryWindowStartsAtDeterminedZero(q)
 	switch state {
 	case StateRunning:
@@ -1370,6 +1383,7 @@ func streamStateClusterSummaries(accs map[string]*stateChurnAcc, max int) []Thre
 		}
 		item.Summary = fmt.Sprintf("state_cluster %s dominant_state=%s impact=%.3fms total=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms; next_step=%s",
 			threadLabel(item.Thread), item.DominantState, item.DominantImpactMs, item.TotalMs, item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs, item.NextStep)
+		item.StateAccounting = acc.accounting.finish()
 		out = append(out, item)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -1418,10 +1432,11 @@ func streamStateAccumulateDuration(dst map[string]ThreadDuration, td ThreadDurat
 	key := threadKey(td.Thread)
 	existing := dst[key]
 	if existing.Thread.PID == 0 {
-		dst[key] = td
+		dst[key] = cloneThreadDurationMeasurement(td)
 		return
 	}
 	existing.DurationMs += td.DurationMs
+	existing.Accounting = mergeSchedulerStateAccounting(existing.Accounting, td.Accounting)
 	if td.EndTs > existing.EndTs || (td.EndTs == existing.EndTs && threadDisplayLess(td.Thread, existing.Thread)) {
 		existing.Thread = td.Thread
 	}

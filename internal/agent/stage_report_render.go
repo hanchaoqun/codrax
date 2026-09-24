@@ -269,6 +269,9 @@ func renderTraceObservationCoverageForStageReport(coverage types.TraceObservatio
 		}
 		b.WriteString(" soft_handoff=true\n")
 	}
+	if len(coverage.ShardStateAggregates) > 0 {
+		b.WriteString("- " + types.TraceSchedulerStateShardAccountingMeaning + ".\n")
+	}
 	for i, agg := range coverage.ShardStateAggregates {
 		if i >= 3 {
 			break
@@ -313,6 +316,9 @@ func renderTraceObservationCoverageForStageReport(coverage types.TraceObservatio
 		}
 		if obs.Value != "" {
 			fmt.Fprintf(&b, " value=%q", obs.Value)
+		}
+		if obs.StateAccountingMeaning != "" {
+			fmt.Fprintf(&b, " accounting=%q", obs.StateAccountingMeaning)
 		}
 		if obs.DrilldownSource != "" {
 			fmt.Fprintf(&b, " drilldown_source=%s", obs.DrilldownSource)

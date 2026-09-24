@@ -8,6 +8,7 @@ func cloneThreadDurationMeasurement(in ThreadDuration) ThreadDuration {
 	out := in
 	out.MeasurementDomain = types.CloneTraceSchedulerMeasurementDomain(in.MeasurementDomain)
 	out.MeasurementSources = types.CloneTraceSchedulerMeasurementSources(in.MeasurementSources)
+	out.Accounting = types.CloneTraceSchedulerStateAccounting(in.Accounting)
 	return out
 }
 

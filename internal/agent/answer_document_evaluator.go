@@ -6179,6 +6179,7 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 	}
 	if len(coverage.ShardStateAggregates) > 0 {
 		b.WriteString("- state_shard_aggregates: bounded state/window-stats shard summaries below are soft parent-window handoff, not completion blockers.\n")
+		b.WriteString("- " + types.TraceSchedulerStateShardAccountingMeaning + ".\n")
 		for i, agg := range coverage.ShardStateAggregates {
 			if i >= 4 {
 				break
@@ -6231,6 +6232,9 @@ func renderAnswerDocTraceObservationCoverage(ledger types.ObservationLedger) str
 		}
 		if obs.Value != "" {
 			fmt.Fprintf(&b, "; value=%q", obs.Value)
+		}
+		if obs.StateAccountingMeaning != "" {
+			fmt.Fprintf(&b, "; accounting=%q", obs.StateAccountingMeaning)
 		}
 		if obs.DrilldownSource != "" {
 			fmt.Fprintf(&b, "; drilldown_source=`%s`", obs.DrilldownSource)
@@ -6382,7 +6386,7 @@ func renderAnswerDocBoundedRuntimeFactAuthority(ctx *types.AgentContext, ledger 
 	}
 	var b strings.Builder
 	b.WriteString("### Requested Runtime Fact Authority\n\n")
-	b.WriteString("- These rows are the exact finite fact families requested for this answer. They bypass only the generic prompt display budget; they do not widen the question into root-cause ranking, alter a Trace causal projection, or decide the model-owned conclusion.\n")
+	b.WriteString("- These rows are the typed fact families requested for this answer; their individual accounting and closure boundaries still apply. They bypass only the generic prompt display budget; they do not widen the question into root-cause ranking, alter a Trace causal projection, or decide the model-owned conclusion.\n")
 	b.WriteString("- Keep measurement rulers separate. One block request's issue-to-complete residence is elapsed wall clock for that request, but it is not target-thread blocking time. A completion-closed issuer-blocked interval is target blocking wall clock even when the scheduler state is interruptible `S`. Only an explicitly typed closure permits that attribution. Cross-request `request·ms` and composite pressure scores are non-wall-clock/non-additive.\n")
 	b.WriteString("- `selected_window_context` rows describe the selected window but are not attributed to the named target unless the row itself has `owner_scope=target_owned`. Use context rows only as comparison/background evidence. The raw rows below are audit metadata, not reader-facing vocabulary: translate their meaning into natural language and do not copy family/status/caliber enums into the visible answer.\n")
 	if bridge := renderAnswerDocIOMeasurementRelationBridge(ctx, ledger, groups[types.RuntimeQuestionFactIOLatency]); bridge != "" {
@@ -6694,6 +6698,10 @@ func answerDocRuntimeFactAuthorityRowWithOwnerScope(record types.ObservationReco
 		parts = append(parts, fmt.Sprintf("value=`%s%s`", value, strings.TrimSpace(record.Unit)))
 	}
 	intervalLabel := "interval"
+	if meaning := types.TraceObservationStateAccountingMeaning(record, false); meaning != "" {
+		intervalLabel = "measurement_scope"
+		parts = append(parts, meaning)
+	}
 	switch predicate {
 	case "io_latency", "io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode", "io_inflight", "io_inflight_coverage", "io_activity", "io_activity_coverage", "scheduler_concurrency", "scheduler_concurrency_coverage":
 		// Query receipts belong to the producer result. A pair or group's
@@ -23977,6 +23985,9 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 	}
 	if notes := traceQueryObservationSupplementNotes(record, zh); notes != "" {
 		parts = append(parts, notes)
+	}
+	if meaning := types.TraceObservationStateAccountingMeaning(record, zh); meaning != "" {
+		parts = append(parts, meaning)
 	}
 	return strings.Join(parts, partSep)
 }

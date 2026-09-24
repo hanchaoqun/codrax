@@ -222,6 +222,7 @@ const TraceObservationUnitCompositeScore = "composite_score"
 type ObservationRecord struct {
 	EventSearchInventory *TraceEventSearchInventory        `json:"event_search_inventory,omitempty"`
 	MeasurementSources   *TraceSchedulerMeasurementSources `json:"measurement_sources,omitempty"`
+	StateAccounting      []TraceSchedulerStateAccounting   `json:"state_accounting,omitempty"`
 	ID                   string                            `json:"id"`
 	Origin               AnswerEvidenceOrigin              `json:"origin"`
 	Producer             string                            `json:"producer,omitempty"`
@@ -654,6 +655,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		}
 		record.ModelNotes = cloneObservationModelNotes(record.ModelNotes)
 		record.MeasurementSources = CloneTraceSchedulerMeasurementSources(record.MeasurementSources)
+		record.StateAccounting = CloneTraceSchedulerStateAccounts(record.StateAccounting)
 		record.EventSearchInventory = CloneTraceEventSearchInventory(record.EventSearchInventory)
 		out = append(out, record)
 	}
@@ -952,6 +954,11 @@ func observationRecordHasMergeAnchor(record ObservationRecord) bool {
 }
 
 func mergeObservationRecord(dst, src ObservationRecord) ObservationRecord {
+	// The merge key includes the full source receipt, scope, value and span.
+	// Only native typed metadata can fill a legacy missing display account.
+	if len(dst.StateAccounting) == 0 && RuntimeObservationProducerIsDeterministicQuery(src.Producer) {
+		dst.StateAccounting = CloneTraceSchedulerStateAccounts(src.StateAccounting)
+	}
 	if AnswerAggregateRolePriority(src.Role) > AnswerAggregateRolePriority(dst.Role) {
 		dst.Role = src.Role
 	}
