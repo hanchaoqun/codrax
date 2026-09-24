@@ -1,5 +1,22 @@
 package tool
 
+// EVOLUTION RECORD 2026-09-24 (HMC-17.7-C / IO event discovery): correct
+// only the existing input-preparation paragraph's obsolete manual-only SQLite
+// instruction: the same normal-analysis entry now admits closed, self-contained
+// TraceStreamer SQLite by content through a private snapshot, without a binary
+// converter or mutation of the original. Sidecar/header-WAL refusal and existing
+// text/bundle low-level boundaries stay explicit. This is an existing entry's
+// capability/semantics correction, not note-key teaching or causal permission.
+// Append the exact event_names versus normalized event_types contract ONCE at
+// the Description tail. The event-name suffix is separately unique/terminal
+// pinned; reverting just the SQLite paragraph and removing just that suffix
+// must recover the pre-batch golden SHA byte-for-byte. Prior business-tree and
+// IO-prefix pins strip the new terminal suffix before checking their deliberate
+// SQLite-only prefix SHA evolution. Public exact-name and typed-navigation
+// tests protect the new path; data-side guidance remains advisory. The fixed
+// SQLite/IO pair and this golden update do not discharge the separate matched
+// h2/h3 dispatch A/B debt, which remains open.
+
 // EVOLUTION RECORD 2026-09-24 (HMC-08.2): append the shared independent
 // IO endpoint capability at the terminal slot, preserving every preceding
 // Description byte. It names an existing view's optional result section,

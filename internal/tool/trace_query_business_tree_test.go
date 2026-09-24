@@ -17,7 +17,7 @@ import (
 )
 
 func TestTraceQueryBusinessTreeTeachingPreservesPreviousDescriptionBytes(t *testing.T) {
-	description := (&TraceQuery{}).Description()
+	description := traceQueryDescriptionWithoutEventNameSuffix(t)
 	// The later IO capability is terminal-only; removing it must preserve
 	// the exact previous business-tree dispatch contract and its prefix.
 	description = strings.TrimSuffix(description, " "+skill.TraceIOActivityTeaching)
@@ -26,7 +26,9 @@ func TestTraceQueryBusinessTreeTeachingPreservesPreviousDescriptionBytes(t *test
 		t.Fatal("business tree teaching must remain at the terminal capability slot")
 	}
 	previous := strings.TrimSuffix(description, suffix)
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(previous))); got != "32f59dd0367c61963ccf06fe10bf464c67058ff51120a21c3d405188bfb3b420" {
+	// HMC-17.7-C deliberately corrects only the earlier SQLite preparation
+	// paragraph; the full reverse-delta test pins every other historical byte.
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(previous))); got != "139652563bc592980611afa3206920a414d5f8ad2d18ba5cac11a874c6dca811" {
 		t.Fatalf("business tree changed prior dispatch teaching bytes: %s", got)
 	}
 }

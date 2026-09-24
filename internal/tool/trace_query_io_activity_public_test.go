@@ -145,12 +145,14 @@ func TestIOActivityPublicLineSelectionHasNoRates(t *testing.T) {
 }
 
 func TestIOActivityPublicSharedTeaching(t *testing.T) {
-	description := (&TraceQuery{}).Description()
+	description := traceQueryDescriptionWithoutEventNameSuffix(t)
 	suffix := " " + skill.TraceIOActivityTeaching
 	if !strings.HasSuffix(description, suffix) {
 		t.Fatal("new IO capability must remain at the terminal teaching slot")
 	}
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSuffix(description, suffix)))); got != "8a958c5b1c14ef131fde566885db52fb335d20b451215507dbb1ae47e8ffdf55" {
+	// Only the prior SQLite preparation paragraph intentionally evolved in
+	// HMC-17.7-C; the full reverse-delta test protects the rest of this prefix.
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSuffix(description, suffix)))); got != "275c7bd892a72ca0ff78d71f6b999dca13e915f543f30fcc3fc63d7f3c3b151f" {
 		t.Fatalf("IO capability changed preceding dispatch teaching: %s", got)
 	}
 	var schema struct {
