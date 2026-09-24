@@ -284,6 +284,7 @@ func stepQuery(step *Step, flavorHint tracequery.TraceFlavor) tracequery.Query {
 		// Validated + normalized by Script.Validate; copied so v2 fan-out
 		// instances (Step copied by value) never alias one backing array.
 		Patterns:          append([]string(nil), step.Patterns...),
+		EventNames:        append([]string(nil), step.EventNames...),
 		EventFieldFilters: stepEventFieldFilters(step),
 	}
 	if start, end, ok := step.WindowBounds(); ok {

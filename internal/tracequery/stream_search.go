@@ -27,6 +27,11 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	if err := ValidateViewName(q.View); err != nil {
 		return Result{}, fmt.Errorf("stream_event_search: %w", err)
 	}
+	var namesErr error
+	q.EventNames, namesErr = NormalizeEventSearchNames(q.View, q.EventNames)
+	if namesErr != nil {
+		return Result{}, fmt.Errorf("stream_event_search: %w", namesErr)
+	}
 	if err := ValidateEventFieldFilters(q.View, q.EventFieldFilters); err != nil {
 		return Result{}, fmt.Errorf("stream_event_search: %w", err)
 	}

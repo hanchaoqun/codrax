@@ -215,7 +215,7 @@ type ScriptOverrides struct {
 //
 // The static event_search filter fields mirror the LLM trace_query tool's
 // parameter face one-for-one (pid/thread/window/line_*/pattern/patterns/
-// event_types/trace_mark_actions/event_field_filters/max_lines) so a customer script can replay
+// event_types/event_names/trace_mark_actions/event_field_filters/max_lines) so a customer script can replay
 // any LLM-lane event_search deterministically. That mirror is pinned in both
 // directions: internal/tool's cross-face census walks the tool schema against
 // these yaml tags, and stepParamSchemaPins (render_key_first.go) fingerprints
@@ -234,6 +234,7 @@ type Step struct {
 	Pattern           string             `yaml:"pattern"`
 	Patterns          []string           `yaml:"patterns"`
 	EventTypes        []string           `yaml:"event_types"`
+	EventNames        []string           `yaml:"event_names"`
 	TraceMarkActions  []string           `yaml:"trace_mark_actions"`
 	EventFieldFilters []EventFieldFilter `yaml:"event_field_filters"`
 	MaxLines          int                `yaml:"max_lines"`
@@ -351,7 +352,7 @@ func parseScript(data []byte, overrides ScriptOverrides) (*Script, error) {
 	dec.KnownFields(true)
 	var script Script
 	if err := dec.Decode(&script); err != nil {
-		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; step fields include pattern/patterns/event_types/trace_mark_actions/event_field_filters; v2 adds inputs/limits/discoveries/windows_from/pid_from): %w", err)
+		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; step fields include pattern/patterns/event_types/trace_mark_actions/event_field_filters/event_names; v2 adds inputs/limits/discoveries/windows_from/pid_from): %w", err)
 	}
 	if override := strings.TrimSpace(overrides.Window); override != "" {
 		script.Defaults.Window = override
@@ -615,6 +616,11 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveri
 		return fmt.Errorf("%s (%s): patterns: %w", at, step.Label, err)
 	}
 	step.Patterns = patterns
+	names, err := tracequery.NormalizeEventSearchNames(step.View, step.EventNames)
+	if err != nil {
+		return fmt.Errorf("%s (%s): %w", at, step.Label, err)
+	}
+	step.EventNames = names
 	if err := tracequery.ValidateEventFieldFilters(step.View, stepEventFieldFilters(step)); err != nil {
 		return fmt.Errorf("%s (%s): %w", at, step.Label, err)
 	}

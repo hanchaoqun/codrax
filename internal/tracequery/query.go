@@ -135,6 +135,11 @@ func Run(idx *Index, q Query) Result {
 	if err := ValidateViewName(q.View); err != nil {
 		return queryViewInvalidResult(idx, q, err)
 	}
+	var namesErr error
+	q.EventNames, namesErr = NormalizeEventSearchNames(q.View, q.EventNames)
+	if namesErr != nil {
+		return queryViewInvalidResult(idx, q, namesErr)
+	}
 	if CanonicalViewName(q.View) == ViewWindowSweep {
 		return queryViewInvalidResult(idx, q, fmt.Errorf("view %q is streaming-only; use StreamWindowSweep", ViewWindowSweep))
 	}
@@ -1548,6 +1553,9 @@ func eventSearchIndexed(idx *Index, q Query) ([]EventView, string) {
 	if idx == nil {
 		return nil, ""
 	}
+	if _, err := NormalizeEventSearchNames(q.View, q.EventNames); err != nil {
+		return nil, "event_names_invalid=true; " + err.Error()
+	}
 	if err := ValidateEventFieldFilters(q.View, q.EventFieldFilters); err != nil {
 		return nil, "event_field_filters_invalid=true; " + err.Error()
 	}
@@ -1686,6 +1694,9 @@ func eventInQueryBase(ev Event, q Query, typeSet map[EventType]bool, actionSet m
 		return false
 	}
 	if len(typeSet) > 0 && !eventTypeMatches(ev, typeSet) {
+		return false
+	}
+	if !eventMatchesNames(ev, q.EventNames) {
 		return false
 	}
 	if len(actionSet) > 0 && (ev.Type != EventTraceMark || !actionSet[ev.SpanAction]) {

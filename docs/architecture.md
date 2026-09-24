@@ -1312,7 +1312,9 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一个物理 capture。REPL `/htrace <path>` / `/atrace <path>` 同形态；历史 `/htrace append` 入口 fail-close 且不改变 sticky attachment。多个独立 trace 不得拼接成一个时钟/因果宇宙：应在问题中分别点名路径（整组原子准入），或附加/点名一个保留 child provenance 的 tracebundle。
 
-**默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验，SQLite、未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline/stdin仍是有界文本入口。
+**默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验；闭合自包含SQLite按下述17.7路径接入，未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline/stdin仍是有界文本入口。
+
+**既有SQLite只读接入（HMC-17.7子能力）**：明确选择Trace的CLI/REPL附件、`trace_query`显式文件及已有typed artifact身份，根据文件内容接纳闭合、自包含的TraceStreamer SQLite，不依赖扩展名。`PrepareExistingTraceDB`不调用转换器、不在原DB创建索引或旁件；持有源代次，复制到私有封存快照，复用只读VFS、语义导出、全表保真及原owner/clock/query-ready合同。原文件路径、字节数、SHA-256及代次与外层准备器核对，不能从JSON收据恢复进程内权限。仅支持rollback-journal头模式且别名/规范路径均无`-wal`、`-shm`、`-journal`；拒绝活跃/WAL数据库，不忽略日志或尝试恢复。旁件检查保留在进程内材料中，在提交、缓存复用和查询前后重验。普通自然语言/fileHints中的任意`.data`路径不会因此获得Trace身份；非标准后缀系统补齐仍需typed准入或已有准备收据。gzip内SQLite、活跃数据库一致快照及按引用有界读取不在本片范围。
 
 **gzip统一输入运输（HMC-17.6）**：默认准备经`hitraceconv.PrepareFile`与显式`ConvertFile`共用一次有界完整解压，持有冻结的内层视图，再由原provider解析。单member、CRC/ISIZE、尾部、大小/压缩比、源与解压代次全部验证；坏压缩、取消、源/输出换代及清理失败不作语义fallback。已知RMQ/OHOSPROF/PERFILE2/SIMPLEPERF/OpenHarmony raw按内层精确格式选路，嵌套容器、SQLite及未知二进制不递归猜解。`gzip_input_v1`只记录外层/内层字节摘要和代次，不进入capture_id、时钟映射或因果授权，不能代替嵌入HIPERF的Standalone/PerfTransform凭证。默认DB保留策略在内层分型后决定，显式ConvertFile选项不被重写。
 
@@ -2783,6 +2785,8 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 ### 13.7 internal/tracediag — `--tracediag` 零 LLM 确定性收集模式
 
 **B1713 数值条件镜像**：静态 Step 同样接受 `event_field_filters`，经本地闭合 YAML DTO 映射到引擎共享验证/谓词，参数回显使用精确字符串整数。新 Step/DTO 字段和输出叶子逐项渲染处置后重钉，工具→脚本跨面 census 同批更新。示例 `examples/tracediag/collect_jank_events.yaml` 查询 `jank_frames >= 2`；可组合帧数范围、appid、原生纳秒条件及原有外层时间/物理行范围。不支持把原生时钟猜成调度时间，也不从清单自动加冕根因。
+
+**原始事件名镜像**：工具与静态Step均接受`event_names`，仅用于`event_search`，同经引擎验证为最多16个、区分大小写、保留名称字节的精确OR集合；与其它筛选AND。`event_types`继续表示原有归一化类别，历史RQ/BIO等别名不改语义。marker名称是`tracing_mark_write`等载体，不是业务区间标签；业务标签仍用`pattern`/`span_name`。参数、结果和最终事件清单均保留名称合同，不以搜索行数冒充IO请求数或速率分母。
 
 客户回访取证命令簇（裁定=campaign 账本 §28.12/§28.13，自动补采窗演化=§29.30）：
 

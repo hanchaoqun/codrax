@@ -41,8 +41,10 @@ var traceQueryTraceDiagStepMirror = map[string]string{
 	// B1713: shared numeric event predicates also replay through tracediag.
 	"event_field_filters": "event_field_filters",
 	"event_types":         "event_types",
-	"trace_mark_actions":  "trace_mark_actions",
-	"limit":               "max_lines",
+	// Exact parser-retained names mirror the shared case-sensitive engine filter.
+	"event_names":        "event_names",
+	"trace_mark_actions": "trace_mark_actions",
+	"limit":              "max_lines",
 }
 
 // traceQueryToolOnlyParams: schema properties that by design have no script

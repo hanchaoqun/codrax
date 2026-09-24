@@ -1578,7 +1578,10 @@ var stepParamSchemaPins = map[reflect.Type]string{
 	// JSON string integers; decode hint lists the field; validateStep shares
 	// ValidateEventFieldFilters (event_search only). Architecture §13.7 and
 	// tool-side cross-face census are updated in the same batch.
-	reflect.TypeOf(Step{}): "3a2226dce1c90957446776935bb0cd509033278156a990b932430e76a2c6b948",
+	// HMC event_names: exact case-sensitive parser-name OR set; normalized by
+	// the shared engine validator, copied by stepQuery, JSON-quoted in the
+	// report echo, listed in the decode hint and mirrored in the tool census.
+	reflect.TypeOf(Step{}): "24a97d9bbfba0bb8b4002a5544052a70a2898a0cd339170f1a914dd56d942751",
 	// B1713 boundary review: only Value's Go type moved from the engine scalar
 	// to tracediag.EventFieldValue. The same field/op/value wire and engine
 	// semantic validation remain; YAML Node/tag admission belongs to scripts.

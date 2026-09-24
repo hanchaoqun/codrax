@@ -1085,6 +1085,7 @@ type Query struct {
 	LineStart        int
 	LineEnd          int
 	EventTypes       []EventType
+	EventNames       []string // event_search: exact case-sensitive Event.Name OR set, AND other filters.
 	TraceMarkActions []TraceMarkAction
 	Pattern          string
 	// Patterns is an event_search-only OR set of exact case-insensitive

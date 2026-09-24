@@ -42,6 +42,7 @@ type TraceEventSearchInventoryQuery struct {
 	Pattern           string                            `json:"pattern,omitempty"`
 	Patterns          []string                          `json:"patterns,omitempty"`
 	EventTypes        []string                          `json:"event_types,omitempty"`
+	EventNames        []string                          `json:"event_names,omitempty"`
 	TraceMarkActions  []string                          `json:"trace_mark_actions,omitempty"`
 	EventFieldFilters []TraceEventSearchInventoryFilter `json:"event_field_filters,omitempty"`
 	PID               int                               `json:"pid,omitempty"`
@@ -89,6 +90,7 @@ type TraceEventSearchInventoryRow struct {
 	TimeDomain           string                     `json:"time_domain,omitempty"`
 	CanonicalTimeDomain  string                     `json:"canonical_time_domain,omitempty"`
 	EventType            string                     `json:"event_type"`
+	EventName            string                     `json:"event_name,omitempty"`
 	Comm                 string                     `json:"comm,omitempty"`
 	EmitterTID           int                        `json:"emitter_tid"`
 	EmitterTGID          int                        `json:"emitter_tgid"`
@@ -151,6 +153,11 @@ func IsValidTraceEventSearchInventoryRecord(r ObservationRecord) bool {
 			return false
 		}
 	}
+	for _, name := range i.Query.EventNames {
+		if strings.TrimSpace(name) == "" {
+			return false
+		}
+	}
 	for _, row := range i.Rows {
 		if row.Line <= 0 || row.LocalLine < 0 || row.EventType == "" || len(row.Raw) > TraceEventSearchInventoryRawLimit ||
 			math.IsNaN(row.TraceTimeSeconds) || math.IsInf(row.TraceTimeSeconds, 0) ||
@@ -159,6 +166,15 @@ func IsValidTraceEventSearchInventoryRecord(r ObservationRecord) bool {
 		}
 		if row.SourceTimeKnown && (row.SourcePath == "" || row.LocalLine <= 0) {
 			return false
+		}
+		if len(i.Query.EventNames) > 0 {
+			matched := false
+			for _, name := range i.Query.EventNames {
+				matched = matched || row.EventName == name
+			}
+			if !matched {
+				return false
+			}
 		}
 		if j := row.JankEvent; j != nil {
 			if j.TimeDomainStatus != TraceJankSourceClock && j.TimeDomainStatus != TraceJankLegacyUnverified {
@@ -213,6 +229,7 @@ func CloneTraceEventSearchInventory(in *TraceEventSearchInventory) *TraceEventSe
 	out := *in
 	out.Query.Patterns = append([]string(nil), in.Query.Patterns...)
 	out.Query.EventTypes = append([]string(nil), in.Query.EventTypes...)
+	out.Query.EventNames = append([]string(nil), in.Query.EventNames...)
 	out.Query.TraceMarkActions = append([]string(nil), in.Query.TraceMarkActions...)
 	out.Query.EventFieldFilters = append([]TraceEventSearchInventoryFilter(nil), in.Query.EventFieldFilters...)
 	out.Caveats = append([]string(nil), in.Caveats...)

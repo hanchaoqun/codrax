@@ -99,8 +99,11 @@ func TestTraceEventInventoryPublicQuerySurvivesFinalizerHandoff(t *testing.T) {
 }
 
 type traceEventInventoryPromptView struct {
+	ObservationID     string                           `json:"observation_id"`
+	ObservedAt        string                           `json:"observed_at"`
 	Source            types.ObservationSourceRef       `json:"source"`
 	Inventory         *types.TraceEventSearchInventory `json:"inventory"`
+	ProducerNotes     []string                         `json:"producer_notes,omitempty"`
 	PromptRowsShown   int                              `json:"prompt_rows_shown"`
 	PromptRowsOmitted int                              `json:"prompt_rows_omitted"`
 }
@@ -109,12 +112,15 @@ func traceEventInventoryPromptViews(t *testing.T, prompt string) []traceEventInv
 	t.Helper()
 	var views []traceEventInventoryPromptView
 	for _, line := range strings.Split(prompt, "\n") {
-		if !strings.HasPrefix(line, `- {"observation_id":`) {
+		if !strings.HasPrefix(line, `- {`) {
 			continue
 		}
 		var view traceEventInventoryPromptView
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "- ")), &view); err != nil {
 			t.Fatal(err)
+		}
+		if view.Inventory == nil {
+			continue
 		}
 		views = append(views, view)
 	}
@@ -155,16 +161,20 @@ func TestTraceEventInventoryPromptBudgetDoesNotChangeCoverageOrAuthority(t *test
 	}
 	before, _ := json.Marshal([]any{all, types.CompileTraceCausalProjectionSet(all)})
 	prompt := renderAnswerDocTraceEventInventories(all)
-	if !strings.Contains(prompt, "query_receipts_omitted=2") {
-		t.Fatal("query budget silently discarded scopes")
+	if strings.Contains(prompt, "query_receipts_omitted=") {
+		t.Fatal("six query summaries should fit without discarding scopes")
 	}
 	views := traceEventInventoryPromptViews(t, prompt)
-	if len(views) != traceEventInventoryPromptQueryLimit {
+	if len(views) != 6 {
 		t.Fatalf("views=%d", len(views))
 	}
-	for _, view := range views {
+	for n, view := range views {
 		i := view.Inventory
-		if i.Coverage.MatchedTotal != 12 || i.Coverage.Emitted != 12 || !i.Coverage.ScopeComplete || !i.Coverage.EnumerationComplete || i.RowsComplete || view.PromptRowsShown != 8 || view.PromptRowsOmitted != 4 || i.HandoffRowsOmitted != 4 {
+		wantRows := 5
+		if n < 2 {
+			wantRows = 6
+		}
+		if i.Coverage.MatchedTotal != 12 || i.Coverage.Emitted != 12 || !i.Coverage.ScopeComplete || !i.Coverage.EnumerationComplete || i.RowsComplete || view.PromptRowsShown != wantRows || view.PromptRowsOmitted != 12-wantRows || i.HandoffRowsOmitted != 12-wantRows {
 			t.Fatalf("budget/count contradiction: %+v", view)
 		}
 		for _, row := range i.Rows {

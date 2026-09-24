@@ -47,6 +47,7 @@ type traceQueryParams struct {
 	LineStart            FlexInt                       `json:"line_start,omitempty"`
 	LineEnd              FlexInt                       `json:"line_end,omitempty"`
 	EventTypes           TraceEventTypes               `json:"event_types,omitempty"`
+	EventNames           []string                      `json:"event_names,omitempty"`
 	TraceMarkActions     TraceMarkActions              `json:"trace_mark_actions,omitempty"`
 	Pattern              string                        `json:"pattern,omitempty"`
 	Patterns             []string                      `json:"patterns,omitempty"`
@@ -219,6 +220,7 @@ func (t *TraceQuery) Description() string {
 	description += " " + skill.TraceSchedulerConcurrencyTeaching
 	description += " " + skill.TraceBusinessTreeTeaching
 	description += " " + skill.TraceIOActivityTeaching
+	description += " " + traceQueryEventNameTeaching
 	return description
 }
 
@@ -278,7 +280,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return json.RawMessage(schema)
+	return json.RawMessage(traceQueryEventNameSchema(schema))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -348,6 +350,11 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			Summary:   "trace_query rejected patterns: " + patternErr.Error(),
 			Timestamp: time.Now(),
 		}, nil
+	}
+	p.EventNames, patternErr = tracequery.NormalizeEventSearchNames(p.View, p.EventNames)
+	if patternErr != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false,
+			Summary: "trace_query rejected event_names: " + patternErr.Error(), Timestamp: time.Now()}, nil
 	}
 	scope := strings.ToLower(strings.TrimSpace(p.TargetScope))
 	if scope != "" && scope != tracequery.TargetScopeThread && scope != tracequery.TargetScopeProcess {
@@ -1507,6 +1514,7 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 		LineStart:            p.LineStart.Int(),
 		LineEnd:              p.LineEnd.Int(),
 		EventTypes:           parseTraceQueryEventTypes(p.EventTypes.Strings()),
+		EventNames:           append([]string(nil), p.EventNames...),
 		TraceMarkActions:     parseTraceQueryMarkActions(p.TraceMarkActions.Strings()),
 		Pattern:              p.Pattern,
 		Patterns:             append([]string(nil), p.Patterns...),
@@ -2647,6 +2655,10 @@ func traceQueryRefinementPreferredParams(result tracequery.Result, q tracequery.
 		encoded, _ := json.Marshal(q.Patterns)
 		params["patterns"] = string(encoded)
 	}
+	if len(q.EventNames) > 0 {
+		encoded, _ := json.Marshal(q.EventNames)
+		params["event_names"] = string(encoded)
+	}
 	if filters := traceQueryEventFieldFiltersJSON(q.EventFieldFilters); filters != "" {
 		params["event_field_filters"] = filters
 	}
@@ -2761,10 +2773,10 @@ func traceQueryRefinementRequiredFields(result tracequery.Result, q tracequery.Q
 	var fields []string
 	view := traceQueryCanonicalView(result, q)
 	if view == "event_search" {
-		if strings.TrimSpace(q.Pattern) == "" && len(q.Patterns) == 0 && len(q.TraceMarkActions) == 0 && len(q.EventFieldFilters) == 0 {
+		if strings.TrimSpace(q.Pattern) == "" && len(q.Patterns) == 0 && len(q.EventNames) == 0 && len(q.TraceMarkActions) == 0 && len(q.EventFieldFilters) == 0 {
 			fields = append(fields, "pattern")
 		}
-		if len(q.EventTypes) == 0 && len(q.TraceMarkActions) == 0 && len(q.EventFieldFilters) == 0 {
+		if len(q.EventTypes) == 0 && len(q.EventNames) == 0 && len(q.TraceMarkActions) == 0 && len(q.EventFieldFilters) == 0 {
 			fields = append(fields, "event_types")
 		}
 	}
@@ -4725,6 +4737,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%s..%s seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), traceQueryDisplaySeconds(result.TimeStart), traceQueryDisplaySeconds(result.TimeEnd))
 	writeTraceMarkerQueryNavigation(&b, result)
+	writeTraceEventFilterAndIONavigation(&b, result, p, sourceLabel)
 	if coverage := result.EventSearchCoverage; coverage != nil {
 		scopeDurationMs := 0.0
 		if coverage.ScopeTimeEnd >= coverage.ScopeTimeStart &&

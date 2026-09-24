@@ -88,7 +88,7 @@ func TestB1713StepQueryCopiesEventFieldFilters(t *testing.T) {
 	}
 }
 
-func TestB1713StepSchemaEvolutionAddsOnlyEventFieldFilters(t *testing.T) {
+func TestB1713StepSchemaEvolutionAddsReviewedEventFilters(t *testing.T) {
 	_, filterSchema := paramSchemaFingerprint(reflect.TypeOf(EventFieldFilter{}))
 	if filterSchema != "Field|string|field;Op|string|op;Value|tracediag.EventFieldValue|value" {
 		t.Fatalf("local YAML scalar migration changed the closed predicate face: %s", filterSchema)
@@ -96,15 +96,22 @@ func TestB1713StepSchemaEvolutionAddsOnlyEventFieldFilters(t *testing.T) {
 	_, schema := paramSchemaFingerprint(reflect.TypeOf(Step{}))
 	var prior []string
 	added := 0
+	namesAdded := 0
 	for _, field := range strings.Split(schema, ";") {
 		if field == "EventFieldFilters|[]tracediag.EventFieldFilter|event_field_filters" {
 			added++
 			continue
 		}
+		// The later exact-name carrier is independently pinned and replayed by
+		// TestEventNamesMirrorScriptAndRun; preserve this older baseline check.
+		if field == "EventNames|[]string|event_names" {
+			namesAdded++
+			continue
+		}
 		prior = append(prior, field)
 	}
 	sum := sha256.Sum256([]byte(strings.Join(prior, ";")))
-	if added != 1 || hex.EncodeToString(sum[:]) != "77f2f21c1f75a0e0babddb8f9981850ba79bbfbb17f278e1a88fb94eb23ca54e" {
+	if added != 1 || namesAdded != 1 || hex.EncodeToString(sum[:]) != "77f2f21c1f75a0e0babddb8f9981850ba79bbfbb17f278e1a88fb94eb23ca54e" {
 		t.Fatalf("unrelated step schema changed: %s", schema)
 	}
 }

@@ -154,6 +154,10 @@ func stepParamsEcho(step *Step) string {
 	if len(step.EventTypes) > 0 {
 		parts = append(parts, fmt.Sprintf("event_types=[%s]", strings.Join(step.EventTypes, ",")))
 	}
+	if len(step.EventNames) > 0 {
+		names, _ := json.Marshal(step.EventNames)
+		parts = append(parts, "event_names="+string(names))
+	}
 	if len(step.TraceMarkActions) > 0 {
 		parts = append(parts, fmt.Sprintf("trace_mark_actions=[%s]", strings.Join(step.TraceMarkActions, ",")))
 	}

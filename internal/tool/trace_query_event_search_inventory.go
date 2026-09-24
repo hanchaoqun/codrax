@@ -16,6 +16,10 @@ func traceQueryEventSearchInventoryObservation(result tracequery.Result, ref typ
 		return nil
 	}
 	q, c := queries[0], result.EventSearchCoverage
+	names, namesErr := tracequery.NormalizeEventSearchNames(q.View, q.EventNames)
+	if namesErr != nil {
+		return nil
+	}
 	if tracequery.ValidateEventFieldFilters(q.View, q.EventFieldFilters) != nil || len(result.Events) != c.Emitted {
 		return nil
 	}
@@ -24,7 +28,8 @@ func traceQueryEventSearchInventoryObservation(result tracequery.Result, ref typ
 		QueryScopeID:  ref.QueryScopeID,
 		Query: types.TraceEventSearchInventoryQuery{
 			View: "event_search", Pattern: q.Pattern, Patterns: append([]string(nil), q.Patterns...),
-			PID: q.PID, Thread: q.Thread, ThreadInput: q.ThreadInput, TargetScope: q.TargetScope,
+			EventNames: names,
+			PID:        q.PID, Thread: q.Thread, ThreadInput: q.ThreadInput, TargetScope: q.TargetScope,
 			TimeStart: q.TimeStart, TimeEnd: q.TimeEnd, TimeStartSet: q.TimeStartSet, TimeEndSet: q.TimeEndSet,
 			LineStart: q.LineStart, LineEnd: q.LineEnd, SpanName: q.SpanName, Limit: q.Limit,
 		},
@@ -70,7 +75,7 @@ func traceQueryEventSearchInventoryObservation(result tracequery.Result, ref typ
 			TraceTimeSeconds: event.Ts, SourceTimeSeconds: sourceTime,
 			SourceTimeKnown: sourceTimeKnown,
 			TimeDomain:      event.TimeDomain, CanonicalTimeDomain: event.CanonicalTimeDomain,
-			EventType: string(event.Type), Comm: event.Comm, EmitterTID: event.PID, EmitterTGID: event.TGID,
+			EventType: string(event.Type), EventName: event.Name, Comm: event.Comm, EmitterTID: event.PID, EmitterTGID: event.TGID,
 			MarkerPID: event.SpanPID, CPU: event.CPU, Raw: raw, RawTruncated: truncated,
 			RawUnavailableReason: event.RawUnavailableReason,
 		}
