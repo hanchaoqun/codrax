@@ -1078,7 +1078,7 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 
 **核心原则**：scalar / decision 的字面值放在 `text` 里，citation 通过一元 `items=[{id, citation_ref:N}]` 锚——top-level 不存在 `value{}` / `boolean{}`（V2 不接受这些 V1 字段）。
 
-**原生测量表（可选）**：`runtime_measurement:{observation_id,view}` 的 view 为 `summary/members/timeline`，仅在当前有已接受的原生供给时发布可选择项，不是全局必填。与同块的 text/items/columns/diagram/runtime_work_relation 互斥；模型在相邻块解释，系统提供数值、成员、单位、来源、查询范围、未知和省略说明。首个producer为TraceQuery的IO在途统计：配对总体用于并发/驻留/成员/时序，窗内发起次数另按有效发起端点统计，不混为同一总体；都不授目标阻塞或根因资格。
+**原生测量表（可选）**：`runtime_measurement:{observation_id,view}` 仅发布当前已接受原生供给的精确二元选择，不是全局必填。IO在途供给支持 `summary/members/timeline`，独立IO活动支持 `summary/distribution/timeline`，未注册predicate或交叉借用视图均不接纳。与同块的 text/items/columns/diagram/runtime_work_relation 互斥；模型在相邻块解释，系统提供数值、成员、单位、来源、查询范围、未知和省略说明。IO在途的配对总体用于并发/驻留/成员/时序，窗内发起次数另按有效发起端点统计；独立IO活动则按完整wire接纳的端点统计，不依赖配对成功。二者不混为同一总体，也不授目标阻塞或根因资格。成文交接保留最多32组精确选择器与来源/范围名册；128行共享预览预算先对全部summary逐行轮转，再对明细轮转，每表最多4行，防早到家族占尽后续家族的数值预览。名册、预览省略分别披露，预览限制不影响系统绑定后的完整保留行；不重排或删减独立链上因果账。
 
 `RuntimeMeasurementPublication`核对成功原生查询、完整SourceRef、query/payload身份及精确ID/view，显式用户窗不能借外窗统计；未知连续窗的行查询独立披露。Emit与Patch绑定同一当前contract，私有`BoundTable`不进入模型/持久JSON。保存后恢复通过`RebindRuntimeAnswerReceipts`对测量和工作关系一起原子重绑：供给消失/换源/换窗不覆盖accepted稿，不回退旧字符串冒充当前证据。选择后渲染全部已保留的producer行，预览容量不成为计算总体；系统不重新计算值、不从正文修数字。当前测量表业务标签仍以producer英文为主，统一中英展示与精确说明去重按HMC-16.4/16.5留账，不冒称已覆盖该新载体。
 
@@ -1344,6 +1344,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 末尾成文事实卡以当前projection+node只读复用候选编译与`RootCauseValueDescription`同源数值口径，中英文共用相同组件校验；14/17ms睡眠等原状态占用另账保留，不暗示它折算为1ms。有效值的就绪全额/运行供给缺口仅来自该候选已校验的组成，不从同名/同rank的其它窗借值，也不从全局IO请求时长补配。旧中文selector/sidecar词面、候选标识、排名与JSON结构不变；描述只帮助模型理解，不代写最终诊断或增加硬拒绝。
 
 **IO请求耗时分布（HMC-08.1首片）**：`window_stats.storage_latency_by_layer[].request_latency_distribution`从现有block/generic配对的成功闭合分支采样，统计该行来源、层级、设备、操作及既有身份组的完整合格总体，不使用Top8请求明细或均值反算。`sample_count`及`min_ms/mean_ms/max_ms/p50_ms/p90_ms/p95_ms/p99_ms`为毫秒，分位数固定按`p*(n-1)`线性插值；真实0值保留，零合格样本为nil。沿原“与查询域相交的完整请求”口径，含carry-in/out、显式零时间、行窗优先，不能把全请求时长当作裁窗等待。组明细仍Top8，`storage_latency_overflow_groups/storage_latency_overflow_paired_count`另行披露被省略的组/合格请求数；RQ/BIO/文件系统及物理来源分开，不平均各组P99生成全层P99。原配对完整性、线程代次及来源校验不变，新统计只作支持观察，不进入因果选举或可消除量计算。全层跨身份上卷与生产模型答案验收另列，不由组内通过代销。
+
+**独立IO事件活动（HMC-08.2）**：`window_stats.io_activity`从完整wire准入的RQ/BIO/MMC/F2FS发起、完成端点独立统计，不依赖成功配对或Top-N明细。物理source/layer/family/phase/device/byte-caliber分别分组，组内保read/write/other；请求大小与实际完成字节不互补、不跨层相加，已知0/未知/非法/溢出分别披露。次数比例和已知字节比例各有分母；速率用完整查询墙钟，不能用请求耗时之和或非空桶平均。显式正长度窗为半开，默认capture末点单独以EndInclusive披露，不借半开用户窗权限；行优先和点查询保计数、不生造速率。bucket_ms默认100，正输入限1..60000ms，空桶和实际短尾保留；原window_sweep的50..500语义不变。完整统计后限16组/32桶，超预算只披露省略、不影响汇总；未观察到IO不等于全设备零IO。新结果仅作工作量背景，不改变配对、S/D等待、唤醒、优先级/算力候选或因果投影。可选受信summary/distribution/timeline仅引用当前原生供给，不要求模型重抄数值。
 
 **卡顿打点数值查询（B1713）**：`print`/`tracing_mark_write` 等既有合法 B 标记信封中的 `jank_event_sync: start_ts=..., end_ts=..., jank_frames=..., appid=...` 保留原文，并挂接稀疏 `JankEventFields`（不增加事件类型、不替换 B/E span 时长）。四字段顺序/键值空白可变，额外字段只保留原文；缺项、重复核心键、非整数、越界或反向时间保留原文并披露，不补零。`event_search.event_field_filters` 是至多16项的 AND 列表：`field=start_ts|end_ts|jank_frames|appid`，`op=eq|ne|gt|gte|lt|lte`，`value` 为精确十进制 int64 字符串或 JSON 整数（建议纳秒用字符串，不经 float64）；其它视图拒绝。流式/索引/计数同一谓词，原有 `pattern/patterns` OR 集与数值条件 AND，续查保条件；完整匹配数与展示上限分别披露。原生 start/end 纳秒与外层 trace 秒分域，`appid` 不铸 scheduler TID；字段查询跳过隐式目标线程继承，显式 pid 保持 emitter TID 过滤，thread 沿既有 name/text 语义，不作为身份凭证。打点只有症状清单权限，因果下钻前仍须独立建立目标线程与时钟映射，不改显式窗/自动补齐/链上根因资格。tool schema 与 explore 的 typed Trace 教学同源；ParserVersion v42 使暖缓存重解析。已核 RMQ4/structured/SQL 既有转换路径原已保留四字段，本片仅新增转换保真回归，不臆造转换修复。
 
