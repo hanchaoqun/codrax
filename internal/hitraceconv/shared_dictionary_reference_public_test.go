@@ -97,10 +97,10 @@ func TestSharedDictionaryReferencePublicUnresolvedOrNonwireNamesRemainLocal(t *t
 		t.Run(tc.name, func(t *testing.T) {
 			body, result := dictionaryReferencePublicConvert(t, [3]string{"0", "0", "0"}, false, tc.mutation)
 			if !strings.Contains(body, "AppStartup:"+tc.startup) || strings.Contains(body, "candidate-row\n") {
-				t.Error("unresolved name either lost startup fallback or published an invalid HiSys semantic row")
+				t.Error("unresolved name either lost startup fallback or leaked an unencoded HiSys row")
 			}
 			coverage := requireTraceDBCoverage(t, result.TraceDBCoverage, "log", "hisys_all_event")
-			if coverage.Error != "" || coverage.RowsEmitted != 1 || coverage.Skipped == "" {
+			if coverage.Error != "" || coverage.RowsEmitted != 2 || coverage.Skipped == "" {
 				t.Errorf("HiSys name failure was not isolated from the healthy record: %+v", coverage)
 			}
 			if cell := dictionaryReferencePublicCell(t, body, "hisys_all_event", "contents", 2); string(traceDBTextFidelityDecodedBytes(t, cell)) != "candidate-row" {
@@ -143,8 +143,8 @@ func TestSharedDictionaryReferencePublicHiSysNamesAreWholeFields(t *testing.T) {
 				if len(candidate.Events) != 1 || candidate.Events[0].PluginFields == nil || candidate.Events[0].PluginFields.Domain != domain || candidate.Events[0].PluginFields.EventName != event || coverage.Skipped != "" {
 					t.Fatalf("valid whole-field identity changed: events=%+v coverage=%+v", candidate.Events, coverage)
 				}
-			} else if len(candidate.Events) != 0 || coverage.RowsEmitted != 1 || coverage.Skipped == "" {
-				t.Fatalf("valid prefix rescued an invalid full name: events=%+v coverage=%+v", candidate.Events, coverage)
+			} else if len(candidate.Events) != 1 || candidate.Events[0].PluginFields == nil || candidate.Events[0].HiSysEvent == nil || candidate.Events[0].Domain != domain || candidate.Events[0].PluginFields.EventName != event || coverage.RowsEmitted != 2 || coverage.Skipped == "" {
+				t.Fatalf("reversible wire failed to preserve the complete non-print name: events=%+v coverage=%+v", candidate.Events, coverage)
 			}
 			if cell := dictionaryReferencePublicCell(t, body, "data_dict", "data", 5); string(traceDBTextFidelityDecodedBytes(t, cell)) != tc.name {
 				t.Fatalf("raw dictionary name was changed to fit semantic wire grammar: %+v", cell)
@@ -160,8 +160,8 @@ func TestSharedDictionaryReferencePublicBadNameCannotHideMalformedRecord(t *test
 	for _, tc := range []struct{ name, row, reason string }{
 		{"null_name_negative_time", "(-1, 100, NULL, 8, 'payload')", "invalid_timestamp"},
 		{"nonwire_name_negative_tid", "(1000000, -1, 5, 8, 'payload')", "invalid_tid"},
-		{"null_name_nul_contents", "(1000000, 100, NULL, 8, 'payload' || char(0))", "invalid_body"},
-		{"nonwire_name_cr_contents", "(1000000, 100, 5, 8, 'payload' || char(13))", "invalid_body"},
+		{"null_name_invalid_utf8_contents", "(1000000, 100, NULL, 8, CAST(X'FF' AS TEXT))", "invalid_body"},
+		{"nonwire_name_oversize_contents", "(1000000, 100, 5, 8, replace(hex(zeroblob(600000)), '0', 'x'))", "line_too_long"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			statements := append(traceDBSyncSpanIntegrationBaseStatements(),

@@ -1020,12 +1020,12 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 	coverage, err = tdb.inspectCoverage(ctx, "log", "hisys_all_event", []string{"ts", "tid", "domain_id", "event_name_id", "contents"})
 	coverage.FieldSources = map[string]string{
 		"name_references": "raw SQLite INTEGER only; NULL/other storage classes never alias INTEGER 0",
-		"name_wire":       "shared exact DOMAIN/ENAME print grammar; unresolved or unsupported names remain preserved in sql_text_fidelity without a semantic print row",
+		"name_wire":       "exact legacy DOMAIN/ENAME print for known names and single-line TEXT; reversible timed observation for other names/storage/content, without scheduler or causal identity",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT ts, COALESCE(tid, 0), domain_id, event_name_id, COALESCE(contents, '') FROM hisys_all_event ORDER BY ts")
+	rows, err := tdb.db.QueryContext(ctx, "SELECT ts, tid, domain_id, event_name_id, contents FROM hisys_all_event ORDER BY ts")
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
@@ -1041,14 +1041,13 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		if err := ctx.Err(); err != nil {
 			return coverage, err
 		}
-		var ts, tid int64
-		var domainRaw, eventRaw any
-		var contents string
-		if err := rows.Scan(&ts, &tid, &domainRaw, &eventRaw, &contents); err != nil {
+		var ts int64
+		var tid sql.NullInt64
+		var domainRaw, eventRaw, contentsRaw any
+		if err := rows.Scan(&ts, &tid, &domainRaw, &eventRaw, &contentsRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		contents = strings.ReplaceAll(contents, "\n", " ")
 		domain, domainReason := traceDBDictionaryReference(domainRaw, dict)
 		event, eventReason := traceDBDictionaryReference(eventRaw, dict)
 		if domainReason != "" {
@@ -1065,18 +1064,26 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		if eventReason == "" && !eventSupported {
 			skipped["unsupported_event_name"]++
 		}
-		if !domainSupported || !eventSupported {
-			// Name rejection must not bypass the existing header/contents checks.
-			// This shortest prefix is never published and cannot introduce a new
-			// line-length failure by substituting a longer placeholder name.
-			if _, err := prepareTraceDBRenderedRow(ts, sink.stats.RowsAccepted, "<hisysevent>", tid, tid, 0, "print: "+contents); err != nil {
+		contents, textContents := contentsRaw.(string)
+		if tid.Valid && domainSupported && eventSupported && textContents && traceDBSinglePhysicalLine(contents, true) && contents == strings.TrimSpace(contents) {
+			msg := fmt.Sprintf("%s/%s: %s", domain, event, contents)
+			if err := addTraceDBInstantRow(sink, ts, "<hisysevent>", tid.Int64, tid.Int64, 0, "print: "+msg); err != nil {
 				return coverage, err
 			}
-			continue
-		}
-		msg := fmt.Sprintf("%s/%s: %s", domain, event, contents)
-		if err := addTraceDBInstantRow(sink, ts, "<hisysevent>", tid, tid, 0, "print: "+msg); err != nil {
-			return coverage, err
+		} else {
+			row := tracewire.HiSysEvent{TimestampNS: ts,
+				Domain: traceDBHiSysName(domainRaw, domain, domainReason), Event: traceDBHiSysName(eventRaw, event, eventReason)}
+			if tid.Valid {
+				value := tid.Int64
+				row.SourceTID = &value
+			}
+			row.Contents, err = traceDBHiSysContents(contentsRaw)
+			if err != nil {
+				return coverage, err
+			}
+			if err := addTraceDBHiSysObservationRow(sink, row); err != nil {
+				return coverage, err
+			}
 		}
 		coverage.RowsEmitted++
 	}

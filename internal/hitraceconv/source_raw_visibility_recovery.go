@@ -95,6 +95,7 @@ var traceDBReservedCarrierFamilies = []traceDBCarrierFamily{
 	// SQL text-fidelity export: the parser declares the wire, the converter
 	// renders the lines (streamerdb_text_fidelity.go).
 	{Wire: "codrax_trace_db_record/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/trace_db_text_record.go", EmitterFile: "streamerdb_text_fidelity.go"},
+	{Wire: "codrax_hisysevent/v1", Kind: traceDBCarrierKindComment, WireFile: "tracewire/hisysevent_observation.go", EmitterFile: "tracewire/hisysevent_observation.go"},
 	{Wire: "codrax_trace_db_block/v2", Kind: traceDBCarrierKindComment, WireFile: "tracequery/trace_db_text_record.go", EmitterFile: "streamerdb_text_fidelity.go"},
 	// Parser-formatted comment carriers: one file declares and renders each.
 	{Wire: "codrax_sched_wakeup_cpu_unavailable/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/cpu_unavailable_wakeup.go", EmitterFile: "tracequery/cpu_unavailable_wakeup.go"},

@@ -368,6 +368,9 @@ func TestTraceDBSourceRawVisibilityFormatNamesWitnessBounded(t *testing.T) {
 // belongs to: bare names are internal/hitraceconv, `tracequery/<name>` keys
 // are the parser package.
 func traceDBCarrierCensusPackage(key string) string {
+	if strings.HasPrefix(key, "tracewire/") {
+		return "tracewire"
+	}
 	if strings.HasPrefix(key, "tracequery/") {
 		return "tracequery"
 	}
@@ -715,7 +718,7 @@ func traceDBCarrierBodyArgShape(expr ast.Expr) (string, bool) {
 
 // traceDBCarrierCensusDirs are the packages the census scans: the producer
 // (this package) and the parser package that owns every wire's bytes.
-var traceDBCarrierCensusDirs = map[string]string{".": "", "../tracequery": "tracequery/"}
+var traceDBCarrierCensusDirs = map[string]string{".": "", "../tracequery": "tracequery/", "../tracewire": "tracewire/"}
 
 func traceDBCarrierCensusSources(t *testing.T) map[string][]byte {
 	t.Helper()
@@ -772,8 +775,8 @@ func TestTraceDBReservedCarrierFamilyRegistry(t *testing.T) {
 		if family.WireFile == "" || family.EmitterFile == "" {
 			t.Fatalf("family %s registered without a wire/emitter file pair: %+v", family.Wire, family)
 		}
-		if traceDBCarrierCensusPackage(family.WireFile) != "tracequery" {
-			t.Fatalf("family %s declares its wire outside the parser package (%s); the parser owns every wire's bytes", family.Wire, family.WireFile)
+		if pkg := traceDBCarrierCensusPackage(family.WireFile); pkg != "tracequery" && pkg != "tracewire" {
+			t.Fatalf("family %s declares its wire outside the parser/shared wire packages (%s)", family.Wire, family.WireFile)
 		}
 	}
 

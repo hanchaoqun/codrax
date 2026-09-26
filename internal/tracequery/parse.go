@@ -128,6 +128,22 @@ func eventSideTableBytes(ev *Event) int64 {
 	}
 	if ev.PluginFields != nil {
 		n += int64(unsafe.Sizeof(PluginFields{}))
+		if ev.PluginFields.Contents != nil {
+			n += int64(unsafe.Sizeof(""))
+		}
+		if h := ev.PluginFields.HiSysEvent; h != nil {
+			n += int64(unsafe.Sizeof(tracewire.HiSysEvent{}))
+			for _, p := range []*int64{h.SourceTID, h.Domain.Reference, h.Event.Reference} {
+				if p != nil {
+					n += 8
+				}
+			}
+			for _, p := range []*string{h.Domain.Name, h.Event.Name, h.Contents.Text} {
+				if p != nil {
+					n += int64(unsafe.Sizeof(""))
+				}
+			}
+		}
 		if ev.PluginFields.Counter != nil {
 			n += int64(unsafe.Sizeof(TraceCounterFields{}))
 		}
@@ -1416,7 +1432,9 @@ func (s *lineScan) timestamp() (float64, bool) {
 	if !s.tsTried {
 		s.tsTried = true
 		s.ts, s.tsOK = 0, false
-		if mark, ok := parseExactTraceMark(s.line); ok {
+		if row, ok := tracewire.ParseHiSysEventObservation(s.line); ok {
+			s.ts, s.tsOK = float64(row.TimestampNS)/1e9, true
+		} else if mark, ok := parseExactTraceMark(s.line); ok {
 			s.ts, s.tsOK = float64(mark.TimestampNS)/1e9, true
 		} else if mark, ok := parseCPUUnavailableTraceMark(s.line); ok {
 			s.ts, s.tsOK = float64(mark.TimestampNS)/1e9, true
@@ -4127,6 +4145,9 @@ func paddedLineEnd(opts BuildOptions) int {
 }
 
 func parseLineTimestamp(line string) (float64, bool) {
+	if row, ok := tracewire.ParseHiSysEventObservation(line); ok {
+		return float64(row.TimestampNS) / 1e9, true
+	}
 	// Timestamp extraction is a hard gate for window admission, EOF-complete
 	// monotonicity proof and anchor seeking.  It therefore uses the exact same
 	// anchored ftrace header grammar as ParseLine.  A timestamp-looking token
@@ -4312,6 +4333,9 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 // here instead of being recomputed (perf audit #21).
 func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	lineNo := s.lineNo
+	if row, ok := tracewire.ParseHiSysEventObservation(s.line); ok {
+		return hiSysEventObservationEvent(lineNo, row, intern), true
+	}
 	if mark, ok := parseExactTraceMark(s.line); ok {
 		ev := exactTraceMarkEvent(lineNo, mark, intern)
 		attachJankEventFields(&ev)
@@ -4677,6 +4701,9 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 			if domain, ename, ok := parseHiSysEventPrintPayload(ev.Comm, fields); ok {
 				ev.PluginFields.Domain = intern.intern(domain)
 				ev.PluginFields.EventName = intern.intern(ename)
+				_, tail, _ := strings.Cut(fields, ":")
+				contents := intern.intern(strings.TrimPrefix(tail, " "))
+				ev.PluginFields.Contents = &contents
 			}
 		}
 	case EventPerfSample:

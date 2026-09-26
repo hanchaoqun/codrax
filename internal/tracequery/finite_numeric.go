@@ -4,6 +4,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 // maxTraceTimestampMagnitudeSec leaves enough IEEE-754 headroom for every
@@ -33,6 +35,9 @@ func parseTraceTimestampSeconds(raw string) (float64, bool) {
 // ordering: an admitted decimal must fit uint64 exactly at nanosecond
 // precision, and sub-nanosecond spellings are rejected instead of rounded.
 func ParseLineTimestampNS(line string) (uint64, bool) {
+	if row, ok := tracewire.ParseHiSysEventObservation(line); ok {
+		return uint64(row.TimestampNS), true
+	}
 	if mark, ok := parseExactTraceMark(line); ok {
 		return mark.TimestampNS, true
 	}
