@@ -4356,3 +4356,65 @@ gzip两条完整数表全对：appid27599、2/4帧、1020000000→1040000000/110
 31810末版make正式exit0，revision`0c4a331264bb-dirty`、build time`2026-09-24T15:09:22Z`，日志`/tmp/codrax-hmc184-final-build-20260924.log`；dirty仍只有本批待汇总文档。29182 fetch正式exit0，3 ahead/0 behind，没有并发远端更新。稳定任务再次逐唯一ID复算79=15+64，重复0；5个待验收/验收中父项为03.2/04.2/08.3/08.4/18.2，与两份本批完整人工FAIL分别记账，不能重复相加或代销。
 
 97314普通push正式exit0，main由`cc9bfd3ff`推进至`0c4a33126`，三笔代码/兼容分片均已推送，核对0 ahead/0 behind，无强推。架构、任务入口、完整账本和机器/人工审计按一批汇总提交。最终完整稳定任务15/79、开放64（状态分布不变）；本批交付2条可用子能力，完整答案通过0/2，二者不互相替代。下一双轨按184.5继续，不删除既有人工FAIL或活跃/WAL等未完成边界。
+
+## 185. 系统事件可逆保留与业务字段统一交接（HMC-05.1 / 17.7 / 01.3 / 16.4）
+
+### 185.1 起点、设计取舍与范围
+
+2026-09-25从干净`590a29fab`继续；唯一稳定ID复算79=15已交付+64开放、重复0，51待实施/7部分实施/2待验收/3验收中/1持续执行。原五项待验收/验收中03.2/04.2/08.3/08.4/18.2及§184两份完整人工FAIL保持，不能把一次修复当全部收债。27013 fetch正式exit0，当前2 ahead/0 behind，无远端冲突。
+
+本批复读参考`core/preprocess/kill_ops.py:33–73`，设计意图是按明确采集格式先提取业务字段，缺项保None，再支持多个分析器组合。借鉴字段完整性与来源边界，不移植±1秒同PID邻近合并、原因映射即根因或写原数据库。Codrax已有事实/证据流水线，应在同一转换与交接接缝补齐，不建第二查询内核。
+
+轨A是完整可用子能力：未知/非传统print名称HiSys按真实SQL行时间可查询，闭合SQLite及二进制路径共用；轨B是已证高影响缺陷：原生Plugin语义已知但最终库存只有通用身份+512字节raw，模型把comm当域或丢长内容。统一注册描述符先贯通Plugin和marker/counter；IO/Binder/官方关系只确定后续复用接口，不假称本批已实现。AppStartup未知名称逐行状态、WAL一致快照、多文件日志原来源及只读凭证登记旧验收不借本批销账。
+
+### 185.2 可逆观察与字段传递
+
+`cd542ab0f`新增有界版本化HiSys观察载体，完整保SQL纳秒时间、nullable源TID、域/名的引用与解析状态、NULL/TEXT/BLOB/INTEGER/REAL内容。特殊名称、换行/CR/NUL、前后空白可逆保留，不插入新的物理行；非法UTF-8/过长/负时间或非法TID仍拒绝。原合法print格式及普通TEXT字节路径保留，并让parser独立保住已解析内容。未知名称的行不再仅留SQL保真文本而失去真实事件时间。CPU=-1、无调度emitter，仅观察权限；精确时间扫描、windowed/index/streaming查询均接入，v45→v46使旧缓存失效，载体注册审计扩至共享wire包。
+
+`12e2acfe4`由tracequery按固定key/type/unit定义创建只读语义投影，tool发布→typed库存→ledger编译/JSON恢复/深复制→实际finalizer消息共用。known空字符串、合法0、unavailable、invalid、omitted各自保留；超过2^53的计数/纳秒及字典引用走精确十进制字符串，未知单位不补ms。原tracepoint名/comm、业务域/名、载荷PID和源记录TID不合并。旧parser的fallback标签不冒充观测到的真实事件名，E无独立业务名不造名；Jank继续原专臂，无第二套权威值。
+
+单字段1024字节、字段32个、投影16KiB，整个prompt仍32查询/32共享行/128KiB；语义文本超限只变明确省略收据，不截断成新身份。显示预算保未知状态与数值字符串，先压缩省略清单，再必要时明确省略整投影，长度/SHA绑定原始JSON而非已缩减内容。accepted ledger、查询原范围/过滤/计数、原证据权限不变。资源marker软教学优先消费语义字段，旧nil载体才兼容raw解析；没有关键词扫描用户/回答硬门。
+
+### 185.3 失败证据、公开回归与冻结
+
+保留A首轮RED `/tmp/codrax-hmc185-hisys-red.log`：闭合SQLite和二进制两个生产入口各丢3条未知/特殊事件；首GREEN `/tmp/codrax-hmc185-hisys-first.log`随后恢复全部。B的JSON恢复RED `/tmp/codrax-hmc185-semantics-red.log`显示semantics静默消失；实际finalizer RED13486/11946分别留`/tmp/codrax-hmc185-semantic-handoff-red{,2}-20260925.log`。初始测试中普通comm误当HiSys已纠正为真实转换器comm；event_search既有查找包络扩大0.5ms，最终测试比较真实原生receipt与finalizer逐项相等，不把查找包络误写成本批篡改时间窗。
+
+新自然fixture只附53,248字节自包含SQLite，不给模型SQL/README/oracle。独立期望是2.000..2.080秒六条系统事件，包含NULL域、重复键无法解析名、合法字典0、含斜线/中文/引号名称、换行及raw预览外后缀。窗外见证为1.999/2.081秒，避免把自然边界歧义当该字段能力的验收；精确半开窗已有专门测试，不改既有查找容差。原字典case问题与历史失败保持不变。
+
+末版80073定向正式exit0：agent2.776/types2.809/tracequery0.839/hitraceconv24.421/tracewire3.668秒，日志`/tmp/codrax-hmc185-final-scoped.log`。80095相邻race正式exit0：agent12.438/types3.628/tracequery4.189/hitraceconv43.316/tracewire4.491秒，日志`/tmp/codrax-hmc185-race.log`。测试包含真实Prepare→TraceQuery→ledger→actual finalizer的六条及长内容后缀、原件SHA不变、精确字典/存储类、索引流式一致、已知空值/零/NULL、注入样式内容、恶意/非canonical wire、32查询预算、持久化/深复制和不授因果权。早期编译测试有两处嵌入字段歧义，已限定PluginFields，失败原log保留，不放宽生产语义或旧负控。
+
+所有Go/build输入在`12e2acfe4`冻结。28741 make正式exit0，revision`12e2acfe46fc`、build time`2026-09-26T04:16:29Z`（本地仍9月25日）；53690独立`go test -p 4 ./... -count=1`和1652固定两例并行×1运行中。完整退出、机器与人工结论、普通推送以本节后续收据为准；当前不能据定向绿宣布全仓/真实答案已通过。
+
+### 185.4 固定双例人工审计与下一高影响缺陷
+
+1652正式exit0，恰好两例并行各一次：新HiSys语义154秒机器PASS、原字典182秒机器FAIL，完整人工两份均FAIL。完整主答案/上下文/独立oracle、指标纠偏、旁路与SHA见`eval/parallel_selected_summary_hmc_hisys_semantics_20260925{,_manual_audit}.md`，不改签历史失败、不追跑第三例。新例一次trace_query、原例九次；两份无源码读取/README/repo_map/source_lens。root-causes旁路均schema2空列表、trace_root_cause_contract_not_active，观察未升级根因。
+
+新例六行时间、身份和内容尾部都到达实际finalizer（log2017）；合法0、NULL域、重复键未知名、特殊字符/长内容已实际命中。完整答案仍把未知域包含在“均来自两个域”，把pending事件解释为发起/完成流程、完整传入的metadata称为截断、重复键误称null；还重复表格与成员列表并泄露内部工具/临时路径。字段投递缺陷已闭，成文债留01.3/16.4/18.4，不新增正文关键词门。fin_reject=1实为emit接受后一次requested_dimensions软提示和patch，非hard reject；机器汇总原值保留并人工注释。
+
+原字典系统事件恢复5条，未知域仍被推测；四个阶段应8/4/4/5ms，终稿后两项变约10ms/无结束。8ms机器正则漏表头单位属误报，5ms确实缺失，不能因此宣布全文正确。实际finalizer log3067..3075九份库存轮转共享32行，多份重叠查询反复提供同一批早期事件：8行trace_mark只剩首4行、两个13行查询也各只剩首4行，E1.034/E1.045未进入库存区块。窗口内唯一事件只有13条，本可在原预算内完整传递；模型借下一起点代结束不能只归为偶发误述。
+
+因此下批01.3/16.4优先共享同一可信来源/代次/物理行的事件显示池，同时保持各查询membership、过滤范围、总量和完整性，不跨采集或时钟去重，不用最新结果覆盖旧范围，不加大32行/128KiB帽。配对事实由原生合法区间提供，不能用时间邻近或字符串补闭。参考仓先结构化字段再组合的意图适用于该层，具体实现须遵守Codrax证据权限。独立共享预算反例须涵盖重叠/不重叠/不同来源/代次/窗口及同物理行不同语义状态；实际finalizer和恢复路径一并验证。AppStartup逐行未知身份（04.3/17.7）、活跃/WAL快照（17.7）、只读凭证登记与写阶段投递（18.5）继续留队，不能被单个解释段优化无限阻塞。
+
+### 185.5 全仓暴露的问题与再次冻结
+
+53690首轮全仓正式exit1：84测试包PASS、13无测试、3测试包FAIL。原`/tmp/codrax-hmc185-full-20260925.log`保留六个顶层失败：agent旧resource选择测试残留MmapSize语义却只替换raw；hitraceconv两套完整fixture仍要求把HiSys换行压为空格；Event JSON golden不识别新nullable标量/嵌套字段；另两个是真性能回归（Profiler大文件分配增长、perf_sample每行分配超限），不能全部说成旧测试未迁移。
+
+`ad06faec8`修复共同性能原因：解码结构体取地址导致Go逃逸，放在前缀排除之前使每条普通事件探测也堆分配，多个读取器累计放大。新零分配测试先RED（每探测1对象，`/tmp/codrax-hmc185-wire-alloc-red.log`），再把解码状态延至实际格式通过后才创建，GREEN见同名green日志。无格式准入/错误判断/阈值变化。43179正式exit0，大文件70k/120k分配从1,344,826,168/2,293,263,968降至1,291,055,696/2,201,091,240字节，保留状态约9KiB、FD2；perf_sample从56.68降54.68次/事件，原55门槛保留，调度/Binder相邻亦PASS。日志`/tmp/codrax-hmc185-regression-perf-green.log`。
+
+两套完整导出fixture现在明确核对原时间2600000/3700ns、域SYS/名BATTERY和精确`low\npower`，不只删旧断言；Event全量golden手工增12个叶字段（209→221），nullable整数用精确字符串，稀疏scheduler JSON和688字节core帽不变。resource旧矩阵显式走legacy nil语义分支，同时新增公开查询→actual finalizer的长内容正控与相似名称/错误动作负控，优先生产者字段而不重解析截断预览。46281定向正式exit0，34912末版四包race正式exit0（wire1.479/query1.984/conv3.454/agent3.286秒）；日志`/tmp/codrax-hmc185-regression-{compat,race}-green.log`。
+
+全部Go/build输入重新冻结在`ad06faec8`，26496独立全仓复验及97685末版make已启动。原live快照12e2仍保持原判，本次生产变化仅普通行探测分配时机；未改提示、查询结果、schema或语义内容，不重跑第三例或倒签人工FAIL。最终全仓和推送收据随后补齐。
+
+### 185.6 下一轮双轨优先级（规划，不计交付）
+
+1. 已证高影响缺陷轨：01.3/16.4重叠查询显示共享优先，真实32个展示成员仅12种来源/行/时间/类型，20槽重复；旧窗口内13条加另一查询窗外见证共14条，本可容纳。先区分“显示内容驻留共享”和“同一物理事件身份判定”；现有ObservationSourceRef只有capture路径/时钟等，没有显式generation字段，不能按路径+行号猜代次。须复用生产者确切封存/代次凭证，或只作有明确查询成员引用的内容压缩，绝不据此合并人口、覆盖或因果资格。旧缺结束答案继续原样留档。
+2. 能力轨候选：17.8完整二进制stdin接入，先做端到端可退出的有界流封存→EOF确认→既有Prepare→查询尾部。复读参考`server.py:547–650`：其目标是一次转换返回可查询DB与全量范围，实际仅路径/目录并用邻接mtime缓存，没有流式输入协议；本项目不能照搬目录取首个、原DB融合写入或mtime判新。当前`cmd/attached_input.go:137–139,273–306`明确只接有界文本stdin，`traceinput/prepare.go`只准备完整文件，`receipt.go`已有SourceBytes/SHA256/SourceGeneration。后续应在独立所有权入口把完整流封为受控只读材料再复用准备器，而非把2MiB预览当完整二进制。退出包括EOF/超限/取消/读失败/重复stdin拒绝、无半成品、内容认型及完整尾部可查；inline-text仍是文本协议，不能暗中base64猜测，也不新增活跃流墙钟降级。
+3. 18.5只读凭证登记/写阶段投递、17.7活跃WAL一致快照和AppStartup身份、03.2/04.2/08.3/08.4/18.2旧验收继续保留。二进制全流与共享库存优先评估后择高ROI完整闭合，不让证据已经充分的单次误述长期独占；若流封存需要扩大生命周期范围，先以设计/回归明确切口，不用缩验收换父项计数下降。
+
+### 185.7 末版完整退出与交付收据
+
+26496独立末版`go test -p 4 ./... -count=1`正式exit0，87测试包PASS、13无测试、0失败，日志`/tmp/codrax-hmc185-sealed-full-20260925.log`。agent93.500/hitraceconv168.995/orchestrator46.804/tool474.941/tracequery128.188/types38.112秒。97685末版make正式exit0，revision`ad06faec8fbd-dirty`、build time`2026-09-26T04:31:34Z`（本地9月25日），dirty只有本批文档；日志`/tmp/codrax-hmc185-sealed-build-20260925.log`。不是用首轮或定向结果拼接成全仓收据，首轮六个失败和修复证据全保留。
+
+40738 fetch正式exit0，3 ahead/0 behind。91321普通push正式exit0，main从`590a29fab`推进到`ad06faec8`，三笔代码分片均已推送，核对0 ahead/0 behind，无强推。架构、任务入口及机器/完整人工审计按本批一次汇总提交，不追加Go变化或第三例live。
+
+最终稳定任务79=15完整实现交付+64开放，重复0；51待实施/7部分实施/2待验收/3验收中/1持续执行。本批交付两条可用子能力（未知/特殊HiSys真实时刻保留；Plugin与marker/counter统一字段交接），不是两个父任务全部关闭。稳定5项验收父项不变；本批完整人工0/2继续留债，新发现的共享库存预算缺口提升优先级。未将未知域/占位名、相邻时间、业务事件标签、SQL转换输出或raw保真载体当根因权限；显式窗、Trace因果投影/自动补齐、根因旁路、600/300/600及活跃流保护均未改。

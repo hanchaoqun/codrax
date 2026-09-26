@@ -1343,6 +1343,10 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **支持来源**：HarmonyOS hdc shell hitrace、Android adb shell atrace、Android systrace（旧名）、perfetto 文本 dump。
 **暂不支持**：C/C++ glibc 裸 backtrace（只有返回地址）、tail/stream/远端源（Loki / ES / CloudWatch）。
 
+**系统事件可逆观察（HMC-05.1/17.7）**：HiSys的域/名称无法解析或不适合传统print语法时，不再丢弃有合法时间的行。版本化观察载体保原SQL纳秒时间、nullable TID、名称引用/解析状态、内容存储类（NULL/TEXT/BLOB/INTEGER/REAL），不补线程、CPU或因果边；特殊字符、换行及前后空白经有界编码往返。合法名称、已知TID及普通单行TEXT沿原print字节路径，parser同时保留已解析的内容尾部。共享时间扫描、流式/索引查询与载体注册均识别新格式，ParserVersion=v46；原件只读、输入/输出事务、SQL全表保真及AppStartup准入不变。
+
+**事件业务语义交接（HMC-01.3/16.4）**：event_search生产者按固定字段描述符投影已解析的Plugin域/名/内容及marker/counter，连同单位、known/unavailable/invalid/omitted状态交给库存DTO、ledger和最终回答。数值用精确字符串，已知空值与未知、合法0与缺测分开；不从raw预览重建字段，不自动取得根因/调度/配对权限。兼容旧无semantics库存，Jank保原专臂。单值1024字节、32字段、整投影16KiB；超限不截断成另一个合法身份，而保长度/SHA及省略状态。最终仍32查询/32共享行/128KiB预算，优先保类型/单位/未知状态及精确数值，整投影实在放不下时明确披露省略并绑定原始JSON摘要；不改accepted ledger或查询计数/范围。IO/Binder及官方关系字段尚未接入此投影，不能据此宣称全事件语义已齐。
+
 ### 7.2.1 trace_query — 深度分层根因下钻引擎
 
 **业务实例原子查询引用（HMC-02.4）**：成功的原生单物理同步B/E查询可发布本轮`business_span_ref`，显式选择后把原文件代次、scheduler TID和完整配对时间窗一起传给既有调度/IO/因果视图，避免分别抄写而错绑。推荐只传引用和view/options；重复的源/目标/时间/行/name仅作同一完整实例的精确断言，不额外过滤或覆盖。逐项相等才消去，来源与path分别核验，prepared路径只接受当前已验证材料；未知/过期/矛盾/不同物理文件一律拒绝，不能凭同字节或名称相似消歧。需要裁窗或依赖线程下钻时沿原显式参数调用，用户明确时间窗不被扩大。发现或查询引用本身仅是导航，不授已接受completion焦点、链上资格或根因选择；不自动挑最长/首个实例。私有收据不可JSON重放，读取前后校验原物理域/代次，异步/track/缺端点/复合坐标不授本片快捷引用；原事实查询不变。每结果最多16、本轮父/兄弟共享最多1024张，未列成员仍可显式查询，不声称完整业务清单。引用查询不复用较弱size/mtime纯工具memo，引擎索引缓存不变。
