@@ -160,6 +160,9 @@ func TestTraceResourceContractSelectionUsesParsedSourceMarkersOnly(t *testing.T)
 			// Query keywords alone do not activate resource guidance.
 			r.EventSearchInventory.Query.Pattern = "NativeHook"
 			row := &r.EventSearchInventory.Rows[0]
+			// Exercise legacy receipts; the public-query tests separately cover
+			// producer semantics, which intentionally take priority over Raw.
+			row.Semantics = nil
 			row.EventType, row.Raw, row.RawTruncated = tc.eventType, tc.raw, tc.truncated
 			if !types.IsValidTraceEventSearchInventoryRecord(r) {
 				t.Fatal("test receipt must remain structurally valid")
@@ -172,5 +175,34 @@ func TestTraceResourceContractSelectionUsesParsedSourceMarkersOnly(t *testing.T)
 	}
 	if strings.Contains(renderAnswerDocTraceEventInventories(types.ObservationLedger{}), skill.TraceResourceObservationContract) {
 		t.Fatal("absent typed receipt received resource guidance")
+	}
+}
+
+func TestTraceResourceContractProducerSemanticsBeyondRawPreview(t *testing.T) {
+	for _, tc := range []struct {
+		name, action, prefix string
+		want                 bool
+	}{
+		{"resource", "I", "NativeHook:AllocEvent", true},
+		{"unrelated_name", "I", "Render NativeHook:AllocEvent", false},
+		{"execution_span", "B", "NativeHook:AllocEvent", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := traceSemanticPublicResult(t, "worker-23 (23) [002] .... 2.030000: tracing_mark_write: "+
+				tc.action+"|23|"+tc.prefix+strings.Repeat("detail", 100)+"-last\n")
+			ctx := traceEventInventoryPublicContext([]types.ToolResult{result})
+			prompt := traceEventInventoryActualFinalizerPrompt(t, ctx)
+			views := traceEventInventoryPromptViews(t, prompt)
+			if len(views) != 1 || len(views[0].Inventory.Rows) != 1 {
+				t.Fatal("public source row missing in actual finalizer")
+			}
+			row := views[0].Inventory.Rows[0]
+			if row.Semantics == nil || !row.RawTruncated || strings.Contains(row.Raw, "-last") {
+				t.Fatal("test must exercise retained semantics beyond the raw preview")
+			}
+			if got := strings.Contains(prompt, skill.TraceResourceObservationContract); got != tc.want {
+				t.Fatalf("producer resource guidance selected=%t, want %t", got, tc.want)
+			}
+		})
 	}
 }

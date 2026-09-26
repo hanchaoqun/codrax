@@ -117,22 +117,24 @@ func FormatHiSysEventObservation(e HiSysEvent) (string, error) {
 }
 
 func ParseHiSysEventObservation(line string) (HiSysEvent, bool) {
-	var e HiSysEvent
 	if !strings.HasPrefix(line, HiSysEventObservationPrefix+" ts_ns=") || len(line) > MaxHiSysEventObservationBytes {
-		return e, false
+		return HiSysEvent{}, false
 	}
 	ts, payload, ok := strings.Cut(strings.TrimPrefix(line, HiSysEventObservationPrefix+" ts_ns="), " payload=")
 	if !ok || payload == "" {
-		return e, false
+		return HiSysEvent{}, false
 	}
 	ns, err := strconv.ParseInt(ts, 10, 64)
 	if err != nil || ns < 0 || strconv.FormatInt(ns, 10) != ts {
-		return e, false
+		return HiSysEvent{}, false
 	}
 	b, err := base64.RawURLEncoding.Strict().DecodeString(payload)
 	if err != nil || !utf8.Valid(b) {
-		return e, false
+		return HiSysEvent{}, false
 	}
+	// Allocate decoder state only for this format, never on the hot path
+	// used to reject each ordinary ftrace row.
+	var e HiSysEvent
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
 	if d.Decode(&e) != nil || e.TimestampNS != ns {

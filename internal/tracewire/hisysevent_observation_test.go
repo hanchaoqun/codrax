@@ -16,6 +16,25 @@ func hisysWireFixture() HiSysEvent {
 		Event: HiSysEventName{Status: "null_reference"}, Contents: HiSysEventContents{StorageClass: "text", Text: &content}}
 }
 
+func TestHiSysObservationNonMatchingRowsAllocateNothing(t *testing.T) {
+	// Every ordinary row is probed by multiple trace readers. JSON decoding
+	// state must not escape to the heap until the wire prefix is accepted.
+	for _, line := range []string{
+		"worker-23 (23) [002] .... 4.030000: tracing_mark_write: E|23",
+		"# codrax_hisysevent/v1x ts_ns=0 payload=invalid",
+		"# ordinary trace comment",
+	} {
+		allocs := testing.AllocsPerRun(1000, func() {
+			if _, ok := ParseHiSysEventObservation(line); ok {
+				t.Fatal("ordinary row admitted as a HiSys observation")
+			}
+		})
+		if allocs != 0 {
+			t.Errorf("nonmatching wire probe allocates %g objects per row", allocs)
+		}
+	}
+}
+
 func TestHiSysObservationWireReversibleAndStrict(t *testing.T) {
 	want := hisysWireFixture()
 	line, err := FormatHiSysEventObservation(want)

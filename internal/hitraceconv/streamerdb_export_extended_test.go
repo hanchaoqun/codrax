@@ -178,7 +178,7 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		"tracing_mark_write: C|500|pss_kb|2048.0",
 		"tracing_mark_write: C|0|xpower_display|12.5",
 		"print: [I][TEST] hello world",
-		"print: SYS/BATTERY: low power",
+		"# codrax_hisysevent/v1 ts_ns=2600000 ",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("extended systrace missing %q:\n%s", want, body)
@@ -200,6 +200,26 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	if traceMarks == 0 {
 		t.Fatalf("tracequery should retain trace marker spans")
 	}
+	assertExtendedHiSysContentPreserved(t, idx.Events, 2600000)
+}
+
+func assertExtendedHiSysContentPreserved(t *testing.T, events []tracequery.Event, timestampNS int64) {
+	t.Helper()
+	for _, event := range events {
+		if event.PluginFields == nil || event.PluginFields.HiSysEvent == nil {
+			continue
+		}
+		row := event.PluginFields.HiSysEvent
+		if row.TimestampNS != timestampNS {
+			continue
+		}
+		if row.Domain.Name == nil || *row.Domain.Name != "SYS" || row.Event.Name == nil || *row.Event.Name != "BATTERY" ||
+			row.Contents.StorageClass != "text" || row.Contents.Text == nil || *row.Contents.Text != "low\npower" {
+			t.Fatalf("HiSys business fields must survive without flattening newlines: %+v", row)
+		}
+		return
+	}
+	t.Fatalf("HiSys observation missing at original timestamp %d", timestampNS)
 }
 
 func TestExportTraceDBTaskPoolWithholdsOpenInvalidAndKeepsOneOwnerAcrossEmitters(t *testing.T) {
@@ -716,7 +736,7 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 		"tracing_mark_write: B|500|AppStartup:coldStart",
 		"tracing_mark_write: I|500|NativeHook:AllocEvent",
 		"tracing_mark_write: C|500|HeapSize|8192",
-		"print: SYS/BATTERY: low power",
+		"# codrax_hisysevent/v1 ts_ns=3700 ",
 		"tracing_mark_write: C|0|xpower_display|12.5",
 	} {
 		if !strings.Contains(body, want) {
@@ -735,6 +755,7 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 	if len(idx.Events) < 20 {
 		t.Fatalf("tracequery should parse comprehensive fixture rows, got %d", len(idx.Events))
 	}
+	assertExtendedHiSysContentPreserved(t, idx.Events, 3700)
 }
 
 func TestExportTraceDBCallstackFailsClosedWithoutCompleteLifecycle(t *testing.T) {

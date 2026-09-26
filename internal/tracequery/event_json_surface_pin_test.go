@@ -8,7 +8,7 @@ package tracequery
 // without changing the sparse scheduler golden.
 //
 // Coverage, precisely: for the field kinds the fill knows (string, int/int32/
-// int64, float64, bool, []int, *bool) this fails on any drift in key order,
+// int64, float64, bool, []int, scalar pointers and nested structs) this fails on any drift in key order,
 // key names, omitempty behavior, or nil-group handling. A field of any OTHER
 // kind cannot slip past as a silently-unfilled zero value (the []string
 // double-green loophole): the fill fatals on unhandled kinds, and the
@@ -30,7 +30,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 209
+const eventSerializableLeafCount = 221
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -70,6 +70,10 @@ func eventFillByJSONTag(t *testing.T, v reflect.Value) int {
 			leaves += eventFillByJSONTag(t, fv.Elem())
 			continue
 		}
+		if fv.Kind() == reflect.Struct {
+			leaves += eventFillByJSONTag(t, fv)
+			continue
+		}
 		leaves++
 		if tag == "" {
 			tag = f.Name
@@ -96,11 +100,17 @@ func eventFillByJSONTag(t *testing.T, v reflect.Value) int {
 				t.Fatalf("eventFillByJSONTag: field %s.%s has unhandled slice element kind %s — extend the fill (and the golden) deliberately, a zero-filled leaf would pass the golden vacuously", typ.Name(), f.Name, f.Type.Elem().Kind())
 			}
 		case reflect.Ptr:
-			if f.Type.Elem().Kind() != reflect.Bool {
+			fv.Set(reflect.New(f.Type.Elem()))
+			switch f.Type.Elem().Kind() {
+			case reflect.Bool:
+				fv.Elem().SetBool(true)
+			case reflect.String:
+				fv.Elem().SetString(tag)
+			case reflect.Int64:
+				fv.Elem().SetInt(seed)
+			default:
 				t.Fatalf("eventFillByJSONTag: field %s.%s has unhandled pointer element kind %s — extend the fill (and the golden) deliberately", typ.Name(), f.Name, f.Type.Elem().Kind())
 			}
-			b := true
-			fv.Set(reflect.ValueOf(&b))
 		default:
 			t.Fatalf("eventFillByJSONTag: field %s.%s has unhandled kind %s — extend the fill (and the golden) deliberately, a zero-filled leaf would pass the golden vacuously", typ.Name(), f.Name, fv.Kind())
 		}
@@ -264,6 +274,26 @@ const eventJSONGoldenFull = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
+  "hi_sysevent": {
+    "timestamp_ns": "6188",
+    "source_tid": "2368",
+    "domain": {
+      "name": "name",
+      "status": "status",
+      "reference": "5659"
+    },
+    "event": {
+      "name": "name",
+      "status": "status",
+      "reference": "5659"
+    },
+    "contents": {
+      "storage_class": "storage_class",
+      "text": "text",
+      "bytes_base64": "bytes_base64"
+    }
+  },
+  "plugin_contents": "plugin_contents",
   "plugin_domain": "plugin_domain",
   "plugin_event_name": "plugin_event_name",
   "plugin_metric": "plugin_metric",
@@ -501,6 +531,26 @@ const eventJSONGoldenView = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
+  "hi_sysevent": {
+    "timestamp_ns": "6188",
+    "source_tid": "2368",
+    "domain": {
+      "name": "name",
+      "status": "status",
+      "reference": "5659"
+    },
+    "event": {
+      "name": "name",
+      "status": "status",
+      "reference": "5659"
+    },
+    "contents": {
+      "storage_class": "storage_class",
+      "text": "text",
+      "bytes_base64": "bytes_base64"
+    }
+  },
+  "plugin_contents": "plugin_contents",
   "plugin_domain": "plugin_domain",
   "plugin_event_name": "plugin_event_name",
   "plugin_metric": "plugin_metric",
