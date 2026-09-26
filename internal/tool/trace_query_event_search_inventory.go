@@ -78,6 +78,7 @@ func traceQueryEventSearchInventoryObservation(result tracequery.Result, ref typ
 			EventType: string(event.Type), EventName: event.Name, Comm: event.Comm, EmitterTID: event.PID, EmitterTGID: event.TGID,
 			MarkerPID: event.SpanPID, CPU: event.CPU, Raw: raw, RawTruncated: truncated,
 			RawUnavailableReason: event.RawUnavailableReason,
+			Semantics:            tracequery.ProjectTraceEventSemantics(event.Event),
 		}
 		if event.PluginFields != nil && event.PluginFields.JankEvent != nil {
 			j := event.PluginFields.JankEvent

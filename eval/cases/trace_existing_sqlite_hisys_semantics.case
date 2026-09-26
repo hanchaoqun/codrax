@@ -1,0 +1,12 @@
+ID="trace_existing_sqlite_hisys_semantics"
+NAME="SQLite system events — business identity and preserved content"
+QUESTION="这份采集在 2.000 到 2.080 秒发生了哪些系统事件？请按时间列出所属域、事件名和内容，共有几条？"
+HTRACE_FILE="eval/fixtures/hmosperf_hisys_semantics/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="CAMERA_PIPELINE"
+EXPECT_PRIMARY_MATCHES_REGEX="MEDIA_START
+CAPTURE_DONE
+Media/管线
+(未知|缺失|未解析|无法解析|无法确定)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -1,0 +1,14 @@
+{
+  "window_seconds": [2.0, 2.08],
+  "event_count": 6,
+  "events": [
+    {"time_ns": "2004000000", "domain": "CAMERA_PIPELINE", "event_name": "MEDIA_START", "contents": "session=17 state=begin"},
+    {"time_ns": "2012000000", "domain": "CAMERA_PIPELINE", "event_name": "CAPTURE_DONE", "contents": "session=17 result=ready"},
+    {"time_ns": "2022000000", "domain": null, "event_name": "MEDIA_START", "contents": "session=18 state=pending"},
+    {"time_ns": "2034000000", "domain": "CAMERA_PIPELINE", "event_name": null, "contents": "session=18 result=pending"},
+    {"time_ns": "2046000000", "domain": "Media/管线", "event_name": "完成 \"甲\"", "contents": "file=\"片段甲.mp4\"\nstate=ready"},
+    {"time_ns": "2060000000", "domain": "CAMERA_PIPELINE", "event_name": "CAPTURE_DONE", "contents_prefix": "session=19 metadata=", "contents_suffix": " result=complete", "metadata_repeated_token": "ab", "metadata_repeat_count": 320}
+  ],
+  "excluded_time_ns": ["1999000000", "2081000000"],
+  "authority": "reported system-event observations only; no scheduler identity or causal conclusion"
+}

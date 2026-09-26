@@ -42,6 +42,7 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger) string
 	b.WriteString("- matched_total counts matching lookup records before display limits, not a request population, unique I/O requests or a rate denominator; emitted is the tool's returned row count, and prompt_rows_shown is only this compact view. Scope completeness, enumeration completeness and member-list completeness are separate. Preserve a known zero; do not turn incomplete scope into global absence. Never reconstruct the total from displayed rows. If complete member detail is absent from the accepted context, state that the displayed list is partial, keep its known total and reference the available full result; do not promise a new query from this answer-writing stage.\n")
 	b.WriteString("- Keep each row's exact fields and source coordinates together. The supplied order is trace order, not a requested numeric ranking; order the model-authored answer by the user's requested measure. Explain counts, filters, missing/invalid values and completeness in ordinary user language, not internal field/status tokens.\n")
 	b.WriteString("- trace_time_seconds belongs to the query's trace/canonical axis. source_time_seconds is the physical source header time only when source_time_known is true. A missing or truncated raw line does not invalidate retained typed fields, but cannot be quoted as a complete original line.\n")
+	b.WriteString("- semantics contains already parsed business fields: plugin.domain/event_name are distinct from comm and the physical event_name; plugin.contents is parsed business content and source.contents is the typed source record content. Preserve each registered type, unit and status: known empty text is not unavailable, invalid is not zero, and omitted is a display limit, not a missing source value. Numeric strings are exact; an absent unit does not imply milliseconds. A converted representation does not prove application injection, a scheduler identity or a causal relationship. Prefer these fields over re-parsing the raw preview.\n")
 	if len(records) > traceEventInventoryPromptQueryLimit {
 		omitted := len(records) - traceEventInventoryPromptQueryLimit
 		fmt.Fprintf(&b, "- query_receipts_omitted=%d; retaining the first %d distinct accepted query receipts for context budget only. Publication order does not supersede another query or decide which scope answers the request. Other receipts remain in the observation ledger.\n", omitted, traceEventInventoryPromptQueryLimit)
@@ -142,13 +143,20 @@ func traceEventInventoryPromptRowCounts(records []types.ObservationRecord) []int
 	return counts
 }
 
-// Inventory rows currently retain marker action/name only in the producer's
-// source line. Reuse the trace parser rather than interpreting query keywords
-// or user/model prose. This selects soft teaching only: it never changes a row,
-// count, query scope, resource meaning, or causal authority.
+// Prefer producer-parsed fields, including rows whose raw preview is truncated.
+// Only legacy receipts without a semantic projection need the old parser path.
+// This selects soft teaching; it never changes evidence or causal authority.
 func traceEventInventoryHasResourceMarkers(records []types.ObservationRecord) bool {
 	for _, record := range records {
 		for _, row := range record.EventSearchInventory.Rows {
+			if row.Semantics != nil {
+				action := traceEventSemanticKnownText(row.Semantics, "marker.action")
+				name := traceEventSemanticKnownText(row.Semantics, "marker.name")
+				if action == "I" && strings.HasPrefix(name, "NativeHook:") || action == "C" && (name == "HeapSize" || name == "MmapSize") {
+					return true
+				}
+				continue
+			}
 			if row.EventType != "trace_mark" || row.RawTruncated || row.Raw == "" {
 				continue
 			}
@@ -165,6 +173,15 @@ func traceEventInventoryHasResourceMarkers(records []types.ObservationRecord) bo
 		}
 	}
 	return false
+}
+
+func traceEventSemanticKnownText(semantics *types.TraceEventSemantics, key string) string {
+	for _, field := range semantics.Fields {
+		if field.Key == key && field.Status == "known" && field.Value != nil {
+			return *field.Value
+		}
+	}
+	return ""
 }
 
 func traceEventInventoryHasJankFields(records []types.ObservationRecord) bool {

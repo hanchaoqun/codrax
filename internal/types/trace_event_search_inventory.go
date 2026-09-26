@@ -100,6 +100,7 @@ type TraceEventSearchInventoryRow struct {
 	RawTruncated         bool                       `json:"raw_truncated"`
 	RawUnavailableReason string                     `json:"raw_unavailable_reason,omitempty"`
 	JankEvent            *TraceEventSearchJankEvent `json:"jank_event,omitempty"`
+	Semantics            *TraceEventSemantics       `json:"semantics,omitempty"`
 }
 
 type TraceEventSearchJankEvent struct {
@@ -159,6 +160,9 @@ func IsValidTraceEventSearchInventoryRecord(r ObservationRecord) bool {
 		}
 	}
 	for _, row := range i.Rows {
+		if !ValidateTraceEventSemantics(row.Semantics) || !traceEventSemanticsMatchEventType(row.Semantics, row.EventType) {
+			return false
+		}
 		if row.Line <= 0 || row.LocalLine < 0 || row.EventType == "" || len(row.Raw) > TraceEventSearchInventoryRawLimit ||
 			math.IsNaN(row.TraceTimeSeconds) || math.IsInf(row.TraceTimeSeconds, 0) ||
 			math.IsNaN(row.SourceTimeSeconds) || math.IsInf(row.SourceTimeSeconds, 0) {
@@ -235,6 +239,7 @@ func CloneTraceEventSearchInventory(in *TraceEventSearchInventory) *TraceEventSe
 	out.Caveats = append([]string(nil), in.Caveats...)
 	out.Rows = append([]TraceEventSearchInventoryRow{}, in.Rows...)
 	for n := range out.Rows {
+		out.Rows[n].Semantics = CloneTraceEventSemantics(in.Rows[n].Semantics)
 		if j := in.Rows[n].JankEvent; j != nil {
 			copy := *j
 			if j.Values != nil {
