@@ -113,7 +113,7 @@ func loadPreparedAttachedTrace(ctx context.Context, progress hitraceconv.Progres
 	if len(paths) > 1 {
 		return cliPreparedTrace{}, fmt.Errorf("multiple physical trace attachments cannot be flattened into one causal timeline; name each path in the question or use a provenance-carrying .tracebundle.json")
 	}
-	if len(paths) == 1 && paths[0] != "-" {
+	if len(paths) == 1 {
 		anchor, err := filepath.Abs(runtimeAnchorDir)
 		if err != nil {
 			return cliPreparedTrace{}, fmt.Errorf("resolve trace attachment runtime anchor: %w", err)
@@ -134,8 +134,8 @@ func loadPreparedAttachedTrace(ctx context.Context, progress hitraceconv.Progres
 		}
 		return cliPreparedTrace{body: material.Preview(), source: source, material: material}, nil
 	}
-	// Inline and stdin remain bounded text protocols. In particular, a
-	// truncated stdin prefix must never be passed to a binary converter.
+	// Inline remains a bounded text protocol. A binary stdin is separately
+	// sealed to EOF above; its model preview is never a conversion input.
 	body, err := loadMultiPathSlice("trace", paths, text, maxAttachedTraceBytes)
 	if err != nil {
 		return cliPreparedTrace{}, err
@@ -159,7 +159,14 @@ func prepareCLITraceFile(parent context.Context, opts traceinput.Options) (*atta
 		stop()
 		worktree.SetSignalHandlerSuppressed(false)
 	}()
-	material, err := prepareAttachedTraceInput(ctx, opts)
+	var material *attachment.TraceMaterial
+	var err error
+	if opts.InputPath == "-" {
+		opts.InputPath = ""
+		material, err = traceinput.PrepareStream(ctx, os.Stdin, traceinput.StreamOptions{Options: opts})
+	} else {
+		material, err = prepareAttachedTraceInput(ctx, opts)
+	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, errors.Join(err, ctxErr)
 	}

@@ -27,6 +27,12 @@ type Options struct {
 	RuntimeAnchorFallback string
 	PreviewBytes          int
 	Progress              hitraceconv.ProgressFunc
+	// Only BeginStream can provide these: its original, EOF receipt and
+	// converted outputs share one held-directory rollback authority.
+	streamDirectory        *managedDirectory
+	streamReceiptPath      string
+	streamReceiptID        filegeneration.Identity
+	streamSourceGeneration string
 }
 
 // Error describes a preparation boundary failure, not a decoder capability.
@@ -83,7 +89,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if err != nil {
 		return nil, err
 	}
-	var owned *managedDirectory
+	owned := opts.streamDirectory
 	defer func() {
 		// A source replacement dominates any provisional format verdict.
 		if identityErr := validateHeld(source, held, original); identityErr != nil {
@@ -99,6 +105,9 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 			err = errors.Join(err, owned.cleanup())
 		}
 	}()
+	if opts.streamSourceGeneration != "" && original.CacheToken() != opts.streamSourceGeneration {
+		return nil, fmt.Errorf("sealed trace stream changed before preparation: %q", source)
+	}
 	probeSize := original.Size()
 	if probeSize > attachment.TextProbeBytes {
 		probeSize = attachment.TextProbeBytes
@@ -110,6 +119,9 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	kind, binary := binaryCandidate(probe)
 	existingDB := kind == string(attachment.BinaryTraceFormatSQLite)
 	bindings := map[string]filegeneration.Identity{source: original}
+	if opts.streamReceiptPath != "" {
+		bindings[opts.streamReceiptPath] = opts.streamReceiptID
+	}
 	if !binary {
 		preview, complete, err := previewFromHeld(ctx, source, source, held, original, opts.PreviewBytes, "")
 		if err != nil {
@@ -123,7 +135,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 				return nil, err
 			}
 		}
-		return bind(ctx, source, source, preview, bindings, complete)
+		return bind(ctx, source, source, preview, bindings, complete && opts.streamReceiptPath == "")
 	}
 	// Reject an oversized gzip before hashing the entire original. The
 	// transport enforces the same bound again on its own held source.
@@ -143,9 +155,11 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if err := validateHeld(source, held, original); err != nil {
 		return nil, err
 	}
-	owned, err = newManagedDirectory(opts.RuntimeAnchor, opts.RuntimeAnchorFallback)
-	if err != nil {
-		return nil, err
+	if owned == nil {
+		owned, err = newManagedDirectory(opts.RuntimeAnchor, opts.RuntimeAnchorFallback)
+		if err != nil {
+			return nil, err
+		}
 	}
 	directPerf := kind == string(attachment.BinaryTraceFormatLinuxPerf) || kind == "simpleperf_report_sample_proto"
 	if opts.Progress != nil {

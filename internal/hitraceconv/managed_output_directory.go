@@ -1,6 +1,9 @@
 package hitraceconv
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 // ManagedOutputDirectory exposes the existing held-directory authority to
 // attachment preparation. It owns a unique private output directory; callers
@@ -37,6 +40,30 @@ func (managed *ManagedOutputDirectory) Validate() error {
 		return fmt.Errorf("managed output directory authority is missing")
 	}
 	return managed.dir.Validate()
+}
+
+// CreateFile creates one exclusive private child through the held directory,
+// not a reopened public pathname. Callers retain responsibility for Close.
+func (managed *ManagedOutputDirectory) CreateFile(name string) (*os.File, error) {
+	if managed == nil || managed.dir == nil {
+		return nil, fmt.Errorf("managed output directory authority is missing")
+	}
+	dir := managed.dir
+	dir.mu.Lock()
+	defer dir.mu.Unlock()
+	if dir.terminal {
+		return nil, fmt.Errorf("managed output directory is terminal")
+	}
+	if _, err := dir.ChildPath(name); err != nil {
+		return nil, err
+	}
+	if err := dir.validateIdentityLocked(true); err != nil {
+		return nil, err
+	}
+	if err := validatePrivateConversionDirSecurityPlatform(dir.path, dir.identity, &dir.platform); err != nil {
+		return nil, err
+	}
+	return dir.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 }
 
 // Cleanup is terminal even when cleanup fails. The existing authority keeps

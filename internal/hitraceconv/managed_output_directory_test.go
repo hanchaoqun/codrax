@@ -37,3 +37,40 @@ func TestManagedOutputDirectoryReleaseFailureCannotRegainCleanupAuthority(t *tes
 		t.Fatalf("failed release triggered a pathname rollback: %q %v", data, err)
 	}
 }
+
+func TestManagedOutputDirectoryCreateFileUsesExclusiveHeldChild(t *testing.T) {
+	managed, err := NewManagedOutputDirectory(t.TempDir(), "", "stream-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer managed.Cleanup()
+	for _, name := range []string{"", "..", "../escape", "nested/child", "/tmp/escape"} {
+		if file, err := managed.CreateFile(name); err == nil {
+			file.Close()
+			t.Fatalf("unsafe child accepted: %s", name)
+		}
+	}
+	file, err := managed.CreateFile("input.trace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	if file, err := managed.CreateFile("input.trace"); err == nil {
+		file.Close()
+		t.Fatal("existing child overwritten")
+	}
+	moved := managed.Path() + "-moved"
+	if err := os.Rename(managed.Path(), moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(managed.Path(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := managed.CreateFile("unowned"); err == nil {
+		file.Close()
+		t.Fatal("directory replacement acquired write authority")
+	}
+	if _, err := os.Stat(filepath.Join(managed.Path(), "unowned")); !os.IsNotExist(err) {
+		t.Fatal("replacement directory was written")
+	}
+}

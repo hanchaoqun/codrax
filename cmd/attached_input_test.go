@@ -130,10 +130,10 @@ func TestLoadPreparedAttachedTraceRejectsConflictsBeforePreparation(t *testing.T
 	}
 }
 
-func TestLoadPreparedAttachedTraceInlineAndStdinRemainTextOnly(t *testing.T) {
+func TestLoadPreparedAttachedTraceInlineStaysTextOnlyAndMalformedStreamFails(t *testing.T) {
 	resetPreparedTraceFlags(t)
 	prepareAttachedTraceInput = func(context.Context, traceinput.Options) (*attachment.TraceMaterial, error) {
-		t.Fatal("inline/stdin invoked binary preparation")
+		t.Fatal("inline invoked file preparation")
 		return nil, nil
 	}
 	flagAttachHitraceText = "worker-12 (12) [000] .... 1.000000: sched_switch: prev_pid=12 next_pid=42\n"
@@ -158,7 +158,7 @@ func TestLoadPreparedAttachedTraceInlineAndStdinRemainTextOnly(t *testing.T) {
 	os.Stdin = stdin
 	t.Cleanup(func() { os.Stdin = oldStdin; _ = stdin.Close() })
 	if _, err := loadPreparedAttachedTrace(context.Background(), nil); err == nil {
-		t.Fatal("binary stdin accepted")
+		t.Fatal("truncated binary stdin accepted")
 	}
 }
 

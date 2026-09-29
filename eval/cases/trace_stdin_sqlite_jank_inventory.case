@@ -1,0 +1,10 @@
+ID="trace_stdin_sqlite_jank_inventory"
+NAME="binary stdin — complete trace jank inventory"
+QUESTION="这份 trace 中卡顿至少两帧的记录有哪些？请列出应用、起止时间、卡顿帧数和持续时间。"
+HTRACE_STDIN_FILE="eval/fixtures/hmosperf_existing_sqlite/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="27599"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])20([.]0+)?[[:space:]*]*(ms|毫秒)
+(^|[^0-9])60([.]0+)?[[:space:]*]*(ms|毫秒)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

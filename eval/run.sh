@@ -138,6 +138,11 @@ LOG="${LOG:-}"
 LOG_FILE="${LOG_FILE:-}"
 HTRACE="${HTRACE:-}"
 HTRACE_FILE="${HTRACE_FILE:-}"
+HTRACE_STDIN_FILE="${HTRACE_STDIN_FILE:-}"
+if [[ -n "$HTRACE_STDIN_FILE" && ( -n "$HTRACE" || -n "$HTRACE_FILE" || -n "$LOG" || -n "$LOG_FILE" ) ]]; then
+  echo "case HTRACE_STDIN_FILE must be the only attachment" >&2
+  exit 2
+fi
 if [[ -n "$LOG" && -n "$LOG_FILE" ]]; then
   echo "case must not set both LOG and LOG_FILE" >&2
   exit 2
@@ -337,6 +342,10 @@ if [[ -n "$LOG_FILE" && ! -f "$LOG_FILE" ]]; then
 fi
 if [[ -n "$HTRACE_FILE" && ! -f "$HTRACE_FILE" ]]; then
   echo "case HTRACE_FILE not found: $HTRACE_FILE" >&2
+  exit 2
+fi
+if [[ -n "$HTRACE_STDIN_FILE" && ! -f "$HTRACE_STDIN_FILE" ]]; then
+  echo "case HTRACE_STDIN_FILE not found: $HTRACE_STDIN_FILE" >&2
   exit 2
 fi
 
@@ -555,6 +564,12 @@ setup_data_scratch() {
 # plus any mode-specific extras. Each appends to $out (read mode uses
 # '>' to truncate on first call; write-mode apply appends after plan).
 run_read_step() {
+  if [[ -n "$HTRACE_STDIN_FILE" ]]; then
+    # Reopen the full input once per run, without shell variables/base64 or
+    # preview truncation. The child CLI owns its stdin and EOF boundary.
+    ( HTRACE_FILE="-" HTRACE_STDIN_FILE="" run_read_step "$@" <"$HTRACE_STDIN_FILE" )
+    return $?
+  fi
   local i="$1" out="$2" logdir="$3"
   # Multi-repo eval (2026-05-08): when $4 is set, --repo points at the
   # multi-repo parent scratch (where each immediate child is its own
@@ -734,7 +749,7 @@ write_metrics() {
   local runtime_attachment_kind="none" log_triage_dispatches="0" perf_triage_dispatches="0" emit_log_triage_calls="0" emit_perf_trace_calls="0" runtime_prestage_dispatches="0"
   if [[ -n "$LOG" || -n "$LOG_FILE" ]]; then
     runtime_attachment_kind="log"
-  elif [[ -n "$HTRACE" || -n "$HTRACE_FILE" ]]; then
+  elif [[ -n "$HTRACE" || -n "$HTRACE_FILE" || -n "$HTRACE_STDIN_FILE" ]]; then
     runtime_attachment_kind="trace"
   fi
   log_triage_dispatches="$(eval_count_stage_dispatches "$log" log_triage)"

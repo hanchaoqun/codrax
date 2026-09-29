@@ -524,7 +524,7 @@ eval_case_oracle_surface() {
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_OPERATION_TERMINAL_STATUS=' "$file"; then
     eval_case_oracle_surface_add "typed_operation_terminal"
   fi
-  if LC_ALL=C grep -aEq '^[[:space:]]*(HTRACE|HTRACE_FILE)=' "$file"; then
+  if LC_ALL=C grep -aEq '^[[:space:]]*(HTRACE|HTRACE_FILE|HTRACE_STDIN_FILE)=' "$file"; then
     eval_case_oracle_surface_add "trace_attachment"
   fi
   if LC_ALL=C grep -aEq '^[[:space:]]*(LOG|LOG_FILE)=' "$file"; then
