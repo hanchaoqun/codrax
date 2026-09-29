@@ -144,6 +144,8 @@ func sharedDictionaryPublicConvert(t *testing.T, key string, dictionaryRows ...s
 		found := strings.Contains(string(body), want)
 		if strings.HasPrefix(want, "AppStartup:") {
 			found = traceDBTestHasMarkerLabel(t, string(body), want)
+		} else if strings.HasPrefix(want, "print: ") {
+			found = traceDBTestHasHiSysFields(t, string(body), want)
 		}
 		if !found {
 			t.Fatalf("unrelated scheduler/resource output lost %q", want)

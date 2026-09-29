@@ -1030,7 +1030,7 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 	coverage, err = tdb.inspectCoverage(ctx, "log", "hisys_all_event", []string{"ts", "tid", "domain_id", "event_name_id", "contents"})
 	coverage.FieldSources = map[string]string{
 		"name_references": "raw SQLite INTEGER only; NULL/other storage classes never alias INTEGER 0",
-		"name_wire":       "exact legacy DOMAIN/ENAME print for known names and single-line TEXT; reversible timed observation for other names/storage/content, without scheduler or causal identity",
+		"name_wire":       "all SQL rows use reversible timed observations; name resolution never grants ftrace emitter, process, CPU, or causal identity; ordinary systrace viewers may ignore these comment records",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
@@ -1074,26 +1074,20 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		if eventReason == "" && !eventSupported {
 			skipped["unsupported_event_name"]++
 		}
-		contents, textContents := contentsRaw.(string)
-		if tid.Valid && domainSupported && eventSupported && textContents && traceDBSinglePhysicalLine(contents, true) && contents == strings.TrimSpace(contents) {
-			msg := fmt.Sprintf("%s/%s: %s", domain, event, contents)
-			if err := addTraceDBInstantRow(sink, ts, "<hisysevent>", tid.Int64, tid.Int64, 0, "print: "+msg); err != nil {
-				return coverage, err
-			}
-		} else {
-			row := tracewire.HiSysEvent{TimestampNS: ts,
-				Domain: traceDBHiSysName(domainRaw, domain, domainReason), Event: traceDBHiSysName(eventRaw, event, eventReason)}
-			if tid.Valid {
-				value := tid.Int64
-				row.SourceTID = &value
-			}
-			row.Contents, err = traceDBHiSysContents(contentsRaw)
-			if err != nil {
-				return coverage, err
-			}
-			if err := addTraceDBHiSysObservationRow(sink, row); err != nil {
-				return coverage, err
-			}
+		// SQL TID is a source field, not a physical ftrace emitter/TGID/CPU.
+		// Keep the same role for every name/content shape, including plain TEXT.
+		row := tracewire.HiSysEvent{TimestampNS: ts,
+			Domain: traceDBHiSysName(domainRaw, domain, domainReason), Event: traceDBHiSysName(eventRaw, event, eventReason)}
+		if tid.Valid {
+			value := tid.Int64
+			row.SourceTID = &value
+		}
+		row.Contents, err = traceDBHiSysContents(contentsRaw)
+		if err != nil {
+			return coverage, err
+		}
+		if err := addTraceDBHiSysObservationRow(sink, row); err != nil {
+			return coverage, err
 		}
 		coverage.RowsEmitted++
 	}

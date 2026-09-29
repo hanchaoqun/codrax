@@ -68,3 +68,37 @@ func TestHiSysObservationNativePublicWindowAndStreaming(t *testing.T) {
 		t.Fatalf("zero event lost: %+v %v", r.Events, err)
 	}
 }
+
+func TestHiSysPhysicalPrintKeepsRealEmitterDistinctFromSQLSource(t *testing.T) {
+	name, contents := "EVENT", "pid=789"
+	tid := int64(123)
+	row, err := tracewire.FormatHiSysEventObservation(tracewire.HiSysEvent{TimestampNS: 1000000, SourceTID: &tid,
+		Domain:   tracewire.HiSysEventName{Status: "resolved", Name: &name, Reference: &tid},
+		Event:    tracewire.HiSysEventName{Status: "resolved", Name: &name, Reference: &tid},
+		Contents: tracewire.HiSysEventContents{StorageClass: "text", Text: &contents}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "mixed.systrace")
+	text := "<hisysevent>-123 (  456) [003] .... 0.001001: print: EVENT/EVENT: pid=789\n" + row + "\n"
+	if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := Run(idx, Query{View: "event_search", EventTypes: []EventType{EventHiSystemEvent}})
+	if len(r.Events) != 2 {
+		t.Fatalf("native/SQL observation duplicated or lost: %+v", r.Events)
+	}
+	for _, e := range r.Events {
+		if e.HiSysEvent != nil {
+			if e.CPU != -1 || e.PID != 0 || e.TGID != 0 || *e.HiSysEvent.SourceTID != tid {
+				t.Fatalf("SQL source acquired physical identity: %+v", e)
+			}
+		} else if e.CPU != 3 || e.PID != 123 || e.TGID != 456 {
+			t.Fatalf("actual physical emitter lost or replaced by payload PID: %+v", e)
+		}
+	}
+}

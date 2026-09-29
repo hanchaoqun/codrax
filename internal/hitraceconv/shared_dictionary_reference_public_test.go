@@ -27,7 +27,7 @@ func TestSharedDictionaryReferencePublicStoredClassesStayDistinct(t *testing.T) 
 					if traceDBTestHasMarkerLabel(t, body, "AppStartup:ZERO") || !traceDBTestHasMarkerLabel(t, body, "AppStartup:startup") {
 						t.Error("non-INTEGER startup reference borrowed the valid zero key or lost its unnamed span")
 					}
-				} else if strings.Contains(body, "print: ZERO/ZERO: candidate-row") {
+				} else if traceDBTestHasHiSysFields(t, body, "print: ZERO/ZERO: candidate-row") {
 					t.Error("non-INTEGER HiSys reference borrowed the valid zero key")
 				}
 				coverage := requireTraceDBCoverage(t, result.TraceDBCoverage, family, table)
@@ -67,6 +67,8 @@ func TestSharedDictionaryReferencePublicIntegerCompatibility(t *testing.T) {
 				found := strings.Contains(body, want)
 				if strings.HasPrefix(want, "AppStartup:") {
 					found = traceDBTestHasMarkerLabel(t, body, want)
+				} else if strings.HasPrefix(want, "print: ") {
+					found = traceDBTestHasHiSysFields(t, body, want)
 				}
 				if !found {
 					t.Errorf("legal stored INTEGER reference lost %q", want)
@@ -240,6 +242,8 @@ func dictionaryReferencePublicConvert(t *testing.T, refs [3]string, affinity boo
 		found := strings.Contains(string(body), want)
 		if strings.HasPrefix(want, "AppStartup:") {
 			found = traceDBTestHasMarkerLabel(t, string(body), want)
+		} else if strings.HasPrefix(want, "print: ") {
+			found = traceDBTestHasHiSysFields(t, string(body), want)
 		}
 		if !found {
 			t.Fatalf("healthy semantic output lost %q", want)

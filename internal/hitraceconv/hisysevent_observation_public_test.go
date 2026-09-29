@@ -10,7 +10,24 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
+
+// Compare business fields, not the old synthetic ftrace header. Retaining a
+// name or TEXT payload must not depend on manufacturing a CPU/TGID identity.
+func traceDBTestHasHiSysFields(t *testing.T, body, expected string) bool {
+	t.Helper()
+	for _, line := range strings.Split(body, "\n") {
+		row, ok := tracewire.ParseHiSysEventObservation(line)
+		if !ok || row.Domain.Name == nil || row.Event.Name == nil || row.Contents.StorageClass != "text" || row.Contents.Text == nil {
+			continue
+		}
+		if "print: "+*row.Domain.Name+"/"+*row.Event.Name+": "+*row.Contents.Text == expected {
+			return true
+		}
+	}
+	return false
+}
 
 func TestHiSysObservationPublicUnknownNamesRemainTimedEvents(t *testing.T) {
 	for _, entry := range []string{"existing_sqlite", "binary_provider"} {
@@ -85,7 +102,7 @@ func TestHiSysObservationPublicNullTIDAndWhitespaceStayExact(t *testing.T) {
 	}
 }
 
-func TestHiSysObservationPublicContentStorageAndLegacyPrint(t *testing.T) {
+func TestHiSysObservationPublicContentStorageHasOneSourceRole(t *testing.T) {
 	statements := append(traceDBSyncSpanIntegrationBaseStatements(),
 		"INSERT INTO data_dict VALUES (81, 'SYS'), (82, 'EVENT')",
 		"CREATE TABLE hisys_all_event (ts INT, tid INT, domain_id, event_name_id, contents)",
@@ -98,8 +115,8 @@ func TestHiSysObservationPublicContentStorageAndLegacyPrint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "print: SYS/EVENT: unchanged\n") || strings.Contains(string(body), "print: SYS/FAKE: injected") {
-		t.Fatal("legacy bytes changed or encoded payload injected a row")
+	if strings.Contains(string(body), "print: SYS/") {
+		t.Fatal("SQL identity fabricated a physical emitter or payload injected a row")
 	}
 	idx, err := tracequery.BuildIndex(context.Background(), result.OutputPath)
 	if err != nil {
@@ -109,12 +126,15 @@ func TestHiSysObservationPublicContentStorageAndLegacyPrint(t *testing.T) {
 	if len(r.Events) != 7 {
 		t.Fatalf("storage population=%d", len(r.Events))
 	}
-	if r.Events[0].HiSysEvent != nil || r.Events[0].Domain != "SYS" || r.Events[0].PluginFields.EventName != "EVENT" {
-		t.Fatal("legacy print path replaced")
+	if r.Events[0].HiSysEvent == nil || r.Events[0].Domain != "SYS" || r.Events[0].PluginFields.EventName != "EVENT" || *r.Events[0].HiSysEvent.Contents.Text != "unchanged" {
+		t.Fatal("known names/plain TEXT lost")
 	}
-	for i, want := range []string{"null", "text", "text", "blob", "integer", "real"} {
-		if r.Events[i+1].HiSysEvent == nil || r.Events[i+1].HiSysEvent.Contents.StorageClass != want {
+	for i, want := range []string{"text", "null", "text", "text", "blob", "integer", "real"} {
+		if r.Events[i].HiSysEvent == nil || r.Events[i].HiSysEvent.Contents.StorageClass != want {
 			t.Fatalf("storage[%d] not %s", i, want)
+		}
+		if e := r.Events[i]; e.CPU != -1 || e.PID != 0 || e.TGID != 0 {
+			t.Fatalf("name/content shape invented physical identity: %+v", e)
 		}
 	}
 	if r.Events[1].HiSysEvent.SourceTID != nil || r.Events[2].HiSysEvent.Contents.Text == nil || *r.Events[2].HiSysEvent.Contents.Text != "" {
