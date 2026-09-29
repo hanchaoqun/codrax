@@ -36,3 +36,30 @@ func TestMarkerSourceRecordExactAndClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkerSourceRecordPreservesAdmittedNameBudget(t *testing.T) {
+	// JSON escapes each quote; the old envelope admitted this exact business
+	// name. Adding bounded provenance must not make conversion fail for it.
+	name, ref := strings.Repeat(`"`, 3000), int64(9223372036854775807)
+	origin := MarkerNameOrigin{SourceTable: "app_startup", Name: HiSysEventName{Name: &name, Status: "resolved", Reference: &ref}}
+	if _, err := EncodeMarkerNameOrigin(origin); err != nil {
+		t.Fatalf("legacy admitted name: %v", err)
+	}
+	origin.Record = &MarkerSourceRecord{RowID: -9223372036854775808, OwnerIPID: 9223372036854775807, StartNS: 9223372036854775806, EndNS: 9223372036854775807}
+	wire, err := EncodeMarkerNameOrigin(origin)
+	if err != nil {
+		t.Fatalf("bounded record reduced the admitted name budget: %v", err)
+	}
+	got, ok := DecodeMarkerNameOrigin(wire)
+	if !ok || !reflect.DeepEqual(got, origin) {
+		t.Fatal("source record changed the original business name")
+	}
+	// The extra capacity belongs only to the fixed-size record, not to names.
+	name = strings.Repeat(`"`, 3050)
+	for _, record := range []*MarkerSourceRecord{nil, origin.Record} {
+		origin.Record = record
+		if _, err := EncodeMarkerNameOrigin(origin); err == nil {
+			t.Fatal("record capacity expanded the legacy name admission budget")
+		}
+	}
+}

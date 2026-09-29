@@ -26,7 +26,11 @@ type MarkerSourceRecord struct {
 	EndNS     int64 `json:"end_ns,string"`
 }
 
-const MaxMarkerNameOriginBytes = 8192
+const maxMarkerNameOriginLegacyBytes = 8192
+
+// The optional record needs at most 192 additional JSON bytes (256 base64
+// bytes). Reserve it separately; it must not consume the legacy name budget.
+const MaxMarkerNameOriginBytes = maxMarkerNameOriginLegacyBytes + 256
 
 func EncodeMarkerNameOrigin(origin MarkerNameOrigin) (string, error) {
 	if origin.SourceTable != "app_startup" || !validHiSysName(origin.Name) ||
@@ -35,6 +39,12 @@ func EncodeMarkerNameOrigin(origin MarkerNameOrigin) (string, error) {
 	}
 	if r := origin.Record; r != nil && (r.OwnerIPID < 0 || r.StartNS < 0 || r.EndNS <= r.StartNS) {
 		return "", fmt.Errorf("invalid marker source record")
+	}
+	nameOnly := origin
+	nameOnly.Record = nil
+	nameBytes, err := json.Marshal(nameOnly)
+	if err != nil || len(nameBytes) > maxMarkerNameOriginLegacyBytes*3/4 {
+		return "", fmt.Errorf("marker name origin exceeds name budget")
 	}
 	b, err := json.Marshal(origin)
 	if err != nil || len(b) > MaxMarkerNameOriginBytes*3/4 {

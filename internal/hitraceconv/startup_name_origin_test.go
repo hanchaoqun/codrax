@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -77,6 +78,7 @@ func TestStartupNameOriginPublicConversionAndWindow(t *testing.T) {
 		{"duplicate", "0", "INSERT INTO data_dict VALUES (0,'OTHER')", "unresolved_reference", "", false},
 		{"empty", "0", "UPDATE data_dict SET data='' WHERE id=0", "resolved", "", true},
 		{"opaque", "0", "UPDATE data_dict SET data='业务 | stage:α' WHERE id=0", "resolved", "业务 | stage:α", true},
+		{"escaped_name_budget", "0", "UPDATE data_dict SET data='" + strings.Repeat(`"`, 3000) + "' WHERE id=0", "resolved", strings.Repeat(`"`, 3000), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mutations []string
