@@ -1318,7 +1318,9 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一个物理 capture。REPL `/htrace <path>` / `/atrace <path>` 同形态；历史 `/htrace append` 入口 fail-close 且不改变 sticky attachment。多个独立 trace 不得拼接成一个时钟/因果宇宙：应在问题中分别点名路径（整组原子准入），或附加/点名一个保留 child provenance 的 tracebundle。
 
-**默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验；闭合自包含SQLite按下述17.7路径接入，未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline/stdin仍是有界文本入口。
+**默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验；闭合自包含SQLite按下述17.7路径接入，未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline仅接受有界文本，不隐式解码二进制/base64。
+
+**完整标准输入（HMC-17.8）**：`--htrace -` / `--atrace -`通过`traceinput.BeginStream/PrepareStream`接收文本或受支持二进制。独占可关闭reader，固定64KiB缓冲写私有目录；独立输入上限64GiB（库调用可指定更低上限），与模型预览无关，无新增等待超时。必须实际读到EOF，保存精确字节数、SHA-256、源代次和上限的`input-stream.json`后才调用既有准备器。源流、EOF收据、转换输出共用一个持有目录的事务；取消关闭输入以解除阻塞，未提交失败只清理自己的目录。收据和完整源均绑定到`TraceMaterial`，缺尾、超限、读取/关闭失败、改代或损坏格式不发布。大于上限使用文件路径；stdin与日志仍只允许一个消费者。已封存的文本流也携带收据，不冒充单文件自包含预览。
 
 **既有SQLite只读接入（HMC-17.7子能力）**：明确选择Trace的CLI/REPL附件、`trace_query`显式文件及已有typed artifact身份，根据文件内容接纳闭合、自包含的TraceStreamer SQLite，不依赖扩展名。`PrepareExistingTraceDB`不调用转换器、不在原DB创建索引或旁件；持有源代次，复制到私有封存快照，复用只读VFS、语义导出、全表保真及原owner/clock/query-ready合同。原文件路径、字节数、SHA-256及代次与外层准备器核对，不能从JSON收据恢复进程内权限。仅支持rollback-journal头模式且别名/规范路径均无`-wal`、`-shm`、`-journal`；拒绝活跃/WAL数据库，不忽略日志或尝试恢复。旁件检查保留在进程内材料中，在提交、缓存复用和查询前后重验。普通自然语言/fileHints中的任意`.data`路径不会因此获得Trace身份；非标准后缀系统补齐仍需typed准入或已有准备收据。活跃数据库一致快照仍未开放。
 
@@ -1346,6 +1348,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **系统事件可逆观察（HMC-05.1/17.7）**：HiSys的域/名称无法解析或不适合传统print语法时，不再丢弃有合法时间的行。版本化观察载体保原SQL纳秒时间、nullable TID、名称引用/解析状态、内容存储类（NULL/TEXT/BLOB/INTEGER/REAL），不补线程、CPU或因果边；特殊字符、换行及前后空白经有界编码往返。合法名称、已知TID及普通单行TEXT沿原print字节路径，parser同时保留已解析的内容尾部。共享时间扫描、流式/索引查询与载体注册均识别新格式，ParserVersion=v46；原件只读、输入/输出事务、SQL全表保真及AppStartup准入不变。
 
 **事件业务语义交接（HMC-01.3/16.4）**：event_search生产者按固定字段描述符投影已解析的Plugin域/名/内容及marker/counter，连同单位、known/unavailable/invalid/omitted状态交给库存DTO、ledger和最终回答。数值用精确字符串，已知空值与未知、合法0与缺测分开；不从raw预览重建字段，不自动取得根因/调度/配对权限。兼容旧无semantics库存，Jank保原专臂。单值1024字节、32字段、整投影16KiB；超限不截断成另一个合法身份，而保长度/SHA及省略状态。最终仍32查询/32共享行/128KiB预算，优先保类型/单位/未知状态及精确数值，整投影实在放不下时明确披露省略并绑定原始JSON摘要；不改accepted ledger或查询计数/范围。IO/Binder及官方关系字段尚未接入此投影，不能据此宣称全事件语义已齐。
+
+**重叠库存展示共享（HMC-01.3/16.4）**：每份查询保留完整来源、条件、范围和coverage，`inventory.row_refs`按原查询成员顺序引用节内`display_rows`。只对未裁剪整行内容及来源/时钟信封计算内容键；移除的仅请求/结果定位信息，完整source仍在每个查询内。相同展示对象只占一次32对象预算，成员引用保留重复次数；轮询选择，不通过用户/模型关键词或评分硬门筛选。共享不是物理事件去重，不推断未提供的generation，不合并查询总数/总体、来源权限或因果资格。先保查询摘要，再有界投影共享内容，省略数按每查询实际可引用成员计算，原ledger不变。
 
 ### 7.2.1 trace_query — 深度分层根因下钻引擎
 
