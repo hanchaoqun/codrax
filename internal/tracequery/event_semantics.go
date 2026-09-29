@@ -145,10 +145,19 @@ func (p *traceEventSemanticProjector) marker(event Event) {
 		p.known("source.table", origin.SourceTable)
 		if r := origin.Record; r != nil {
 			p.known("source.row_id", strconv.FormatInt(r.RowID, 10))
-			p.known("source.owner_ipid", strconv.FormatInt(r.OwnerIPID, 10))
+			if r.OwnerIssue == "" {
+				p.known("source.owner_ipid", strconv.FormatInt(r.OwnerIPID, 10))
+			} else {
+				p.unknown("source.owner_ipid", "unavailable", r.OwnerIssue)
+			}
 			p.known("source.start_ns", strconv.FormatInt(r.StartNS, 10))
 			p.known("source.end_ns", strconv.FormatInt(r.EndNS, 10))
 			p.known("source.duration_ns", strconv.FormatInt(r.EndNS-r.StartNS, 10))
+			if r.OwnerPID != nil {
+				p.known("source.owner_pid", strconv.FormatInt(*r.OwnerPID, 10))
+			} else {
+				p.unknown("source.owner_pid", "unavailable", "no_verified_process_mapping")
+			}
 		}
 		if origin.Name.Status == "resolved" && origin.Name.Name != nil {
 			p.known("marker.business_name", *origin.Name.Name)
@@ -163,6 +172,14 @@ func (p *traceEventSemanticProjector) marker(event Event) {
 			p.known("marker.business_name_ref", strconv.FormatInt(*origin.Name.Reference, 10))
 		}
 		p.known("marker.label_origin", "synthesized_sql_label")
+	}
+	if event.SpanAction == "source_begin" || event.SpanAction == "source_end" {
+		p.known("source.subject_role", "process_owned_interval")
+		p.unknown("source.emitter_tid", "unavailable", "not_recorded")
+		p.unknown("source.execution_cpu", "unavailable", "not_recorded")
+		p.unknown("marker.payload_pid", "unavailable", "not_a_thread_marker")
+		p.optional("marker.name", event.SpanName)
+		return
 	}
 	if event.SpanAction == "C" {
 		p.counter(event)

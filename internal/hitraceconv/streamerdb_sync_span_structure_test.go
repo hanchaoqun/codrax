@@ -493,7 +493,6 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	wantSubmitters := map[string]int{
 		"exportTraceDBCallstack":                        1,
 		"exportTraceDBSyscall":                          1,
-		"exportTraceDBAppStartup":                       1,
 		"exportTraceDBStaticInitialize":                 1,
 		"submitTraceDBRawMarkerSyncRecovery":            1,
 		"traceDBReplaceRawMarkerAuthoritativeCollision": 1,
@@ -640,7 +639,6 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		{"exportTraceDBThreadRegistrations", "exportTraceDBSchedulerFamilies", 5, 2},
 		{"exportTraceDBCallstack", "exportTraceDBExtendedFamilies", 6, 5},
 		{"exportTraceDBSyscall", "exportTraceDBExtendedFamilies", 6, 5},
-		{"exportTraceDBAppStartup", "exportTraceDBExtendedFamilies", 6, 3},
 		{"exportTraceDBStaticInitialize", "exportTraceDBExtendedFamilies", 5, 3},
 	}
 	for _, dispatch := range dispatches {
@@ -652,7 +650,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 
 	// TaskPool and async/resource producers are deliberately outside the B/E
 	// authority. Their S/F or instant contracts must not acquire a sync pointer.
-	for _, function := range []string{"exportTraceDBTaskPool", "exportTraceDBFrameSliceWithRows", "exportTraceDBNativeHook"} {
+	for _, function := range []string{"exportTraceDBTaskPool", "exportTraceDBFrameSliceWithRows", "exportTraceDBNativeHook", "exportTraceDBAppStartup"} {
 		if countParamType(function, "*traceDBSyncSpanAuthority") != 0 {
 			t.Fatalf("%s incorrectly entered the sync span authority", function)
 		}
@@ -676,7 +674,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	// Mechanical B/E takeover must not imply source-admission correctness for
 	// the three legacy SQL producers. Their R1b-C disclosure stays explicit
 	// until that separately scoped batch closes.
-	for _, function := range []string{"exportTraceDBAppStartup", "exportTraceDBStaticInitialize"} {
+	for _, function := range []string{"exportTraceDBStaticInitialize"} {
 		decl := functions[function][0].decl
 		fieldSources := map[string]string{}
 		fieldSourceAssignments := 0

@@ -88,7 +88,7 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	startupCoverage, err := exportTraceDBAppStartup(context.Background(), tdb, sink, syncSpans, index, map[int64]string{1: "cold"})
+	startupCoverage, err := exportTraceDBAppStartup(context.Background(), tdb, sink, index, map[int64]string{1: "cold"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,8 +114,7 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 		!strings.Contains(taskCoverage.Skipped, "invalid_allocation_itid=1") {
 		t.Fatalf("TaskPool identity/atomicity fail-close mismatch: %+v", taskCoverage)
 	}
-	if startupCoverage.RowsEmitted != 2 || !strings.Contains(startupCoverage.Skipped, "unresolved_owner_process=2") ||
-		!strings.Contains(startupCoverage.Skipped, "invalid_owner_ipid=1") {
+	if startupCoverage.RowsEmitted != 8 || !strings.Contains(startupCoverage.Skipped, "owner_invalid_reference=1") {
 		t.Fatalf("AppStartup identity fail-close mismatch: %+v", startupCoverage)
 	}
 	if staticCoverage.RowsEmitted != 2 || !strings.Contains(staticCoverage.Skipped, "unresolved_owner_process=2") ||

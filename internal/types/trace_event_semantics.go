@@ -71,6 +71,10 @@ var traceEventSemanticDescriptors = []TraceEventSemanticDescriptor{
 	{"source.table", "source", "text", "", "源数据表（非业务域）"},
 	{"source.row_id", "source", "int64", "", "源表记录编号（仅在同一采集内唯一，不是完整启动实例）"},
 	{"source.owner_ipid", "source", "int64", "", "源表进程引用（不是系统PID，不证明进程生命周期）"},
+	{"source.owner_pid", "source", "int64", "", "源表所属进程PID（不是发射线程，不证明生命周期）"},
+	{"source.subject_role", "source", "text", "", "源记录主体角色（进程所属区间不代表线程执行）"},
+	{"source.emitter_tid", "source", "int64", "", "原始发射线程（缺测不猜测主线程）"},
+	{"source.execution_cpu", "source", "int64", "", "执行CPU（缺测不补CPU0）"},
 	{"source.start_ns", "source", "int64", "ns", "源记录完整区间起点（非查询窗起点）"},
 	{"source.end_ns", "source", "int64", "ns", "源记录完整区间终点（不证明显示或可交互）"},
 	{"source.duration_ns", "source", "int64", "ns", "源记录完整区间时长（非窗口内累计值）"},
@@ -152,7 +156,9 @@ func ValidateTraceEventSemantics(value *TraceEventSemantics) bool {
 func traceEventSemanticFieldValueValid(key, value string) bool {
 	switch key {
 	case "marker.action":
-		return len(value) == 1 && strings.Contains("BESFGHNIC", value)
+		return len(value) == 1 && strings.Contains("BESFGHNIC", value) || value == "source_begin" || value == "source_end"
+	case "source.subject_role":
+		return value == "process_owned_interval"
 	case "counter.owner_scope":
 		return value == "global" || value == "payload_process"
 	case "counter.aggregation_status":

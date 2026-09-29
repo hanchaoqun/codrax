@@ -163,7 +163,8 @@ func TestTraceMarkActionFilterClosedSetAndConjunction(t *testing.T) {
 
 func TestValidateTraceMarkActionFilterAndCPUGlobalRegistry(t *testing.T) {
 	valid := []TraceMarkAction{TraceMarkActionBegin, TraceMarkActionEnd, TraceMarkActionCounter, TraceMarkActionAsyncBegin, TraceMarkActionAsyncEnd, TraceMarkActionTrackBegin, TraceMarkActionTrackEnd, TraceMarkActionTrackInstant, TraceMarkActionInstant}
-	if got := TraceMarkActionNames(); !reflect.DeepEqual(got, []string{"B", "E", "C", "S", "F", "G", "H", "N", "I"}) {
+	valid = append(valid, TraceMarkActionSourceBegin, TraceMarkActionSourceEnd)
+	if got := TraceMarkActionNames(); !reflect.DeepEqual(got, []string{"B", "E", "C", "S", "F", "G", "H", "N", "I", "source_begin", "source_end"}) {
 		t.Fatalf("canonical action registry = %v", got)
 	}
 	if err := ValidateTraceMarkActionFilter("event_search", nil, valid); err != nil {

@@ -21,6 +21,8 @@ const (
 	TraceMarkActionTrackEnd     TraceMarkAction = "H"
 	TraceMarkActionTrackInstant TraceMarkAction = "N"
 	TraceMarkActionInstant      TraceMarkAction = "I"
+	TraceMarkActionSourceBegin  TraceMarkAction = "source_begin"
+	TraceMarkActionSourceEnd    TraceMarkAction = "source_end"
 )
 
 var canonicalTraceMarkActions = [...]TraceMarkAction{
@@ -33,6 +35,8 @@ var canonicalTraceMarkActions = [...]TraceMarkAction{
 	TraceMarkActionTrackEnd,
 	TraceMarkActionTrackInstant,
 	TraceMarkActionInstant,
+	TraceMarkActionSourceBegin,
+	TraceMarkActionSourceEnd,
 }
 
 // TraceMarkActionNames exports the canonical wire-token order to the tool and

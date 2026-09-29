@@ -1,0 +1,6 @@
+# Natural source/subject question. Admission, unknown values and evidence
+# authority are system responsibilities, not instructions in the question.
+source eval/cases/trace_existing_sqlite_dictionary.case
+ID="trace_sqlite_startup_subject"
+NAME="closed SQLite trace — startup source records and execution identity"
+QUESTION="请整理这份采集数据库里 1.000 到 1.080 秒的启动记录，列出名称、起止时刻和耗时，并说明这些记录属于哪个进程、能否看出执行线程和 CPU；再列出同期的系统事件域、事件名和内容。"

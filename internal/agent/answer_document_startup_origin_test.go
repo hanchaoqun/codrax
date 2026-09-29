@@ -48,6 +48,9 @@ func TestStartupNameOriginSQLiteToActualFinalizer(t *testing.T) {
 		for _, f := range row.Semantics.Fields {
 			fields[f.Key] = f
 		}
+		if fields["source.subject_role"].Value == nil || *fields["source.subject_role"].Value != "process_owned_interval" || fields["source.emitter_tid"].Status != "unavailable" || fields["source.execution_cpu"].Status != "unavailable" || fields["marker.payload_pid"].Status != "unavailable" {
+			t.Fatalf("row %d invented execution identity or lost process role: %+v", i, fields)
+		}
 		want := wants[i/2]
 		f := fields["marker.business_name"]
 		if f.Status != want.status || f.IssueReason != want.reason || (f.Value != nil && *f.Value != want.value) || (f.Value == nil && want.status == "known") {
@@ -61,7 +64,7 @@ func TestStartupNameOriginSQLiteToActualFinalizer(t *testing.T) {
 		starts := []string{"1010000000", "1022000000", "1030000000", "1040000000"}
 		ends := []string{"1018000000", "1026000000", "1034000000", "1045000000"}
 		durations := []string{"8000000", "4000000", "4000000", "5000000"}
-		for key, value := range map[string]string{"source.row_id": strconv.Itoa(i/2 + 2), "source.owner_ipid": "1", "source.start_ns": starts[i/2], "source.end_ns": ends[i/2], "source.duration_ns": durations[i/2]} {
+		for key, value := range map[string]string{"source.row_id": strconv.Itoa(i/2 + 2), "source.owner_ipid": "1", "source.owner_pid": "27599", "source.start_ns": starts[i/2], "source.end_ns": ends[i/2], "source.duration_ns": durations[i/2]} {
 			if fields[key].Value == nil || *fields[key].Value != value {
 				t.Fatalf("endpoint %d lost source record %s=%s: %+v", i, key, value, fields[key])
 			}

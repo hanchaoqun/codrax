@@ -31,7 +31,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 238
+const eventSerializableLeafCount = 240
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -309,6 +309,8 @@ const eventJSONGoldenFull = `{
     "record": {
       "row_id": "4250",
       "owner_ipid": "3762",
+      "owner_issue": "owner_issue",
+      "owner_pid": "7055",
       "start_ns": "5443",
       "end_ns": "8312"
     }
@@ -597,6 +599,8 @@ const eventJSONGoldenView = `{
     "record": {
       "row_id": "4250",
       "owner_ipid": "3762",
+      "owner_issue": "owner_issue",
+      "owner_pid": "7055",
       "start_ns": "5443",
       "end_ns": "8312"
     }

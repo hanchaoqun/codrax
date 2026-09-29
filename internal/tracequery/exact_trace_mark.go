@@ -158,6 +158,9 @@ func validExactTraceMark(mark ExactTraceMark) bool {
 			return false
 		}
 		if r := mark.NameOrigin.Record; r != nil {
+			if r.OwnerIssue != "" {
+				return false
+			}
 			expected := r.StartNS
 			if mark.Action == "E" {
 				expected = r.EndNS

@@ -65,8 +65,8 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 		"INSERT INTO native_hook VALUES (1, 7000000, 0, 'malloc', 8192, 1, 1)",
 	)
 
-	if traceDBTestHasMarkerLabel(t, body, "AppStartup:coldStart") {
-		t.Fatal("crossing lane leaked a typed startup span")
+	if !traceDBTestHasMarkerLabel(t, body, "AppStartup:coldStart") {
+		t.Fatal("physical lane conflict suppressed an independent process record")
 	}
 	for _, forbidden := range []string{
 		"tracing_mark_write: B|100|app",
@@ -95,7 +95,7 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 	authorityCoverage := requireTraceDBCoverage(t, result.Coverage, "integrity", "sync_span_authority")
 	if authorityCoverage.RowsEmitted != 2 ||
 		!strings.Contains(authorityCoverage.Skipped, "crossing_lanes=1") ||
-		!strings.Contains(authorityCoverage.Skipped, "suppressed_spans=4") {
+		!strings.Contains(authorityCoverage.Skipped, "suppressed_spans=3") {
 		t.Fatalf("cross-producer lane audit coverage mismatch: %+v", authorityCoverage)
 	}
 	checks := []struct {
@@ -106,7 +106,7 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 		{"metadata", "thread", 2, false},
 		{"slice", "callstack", 2, true},
 		{"slice", "syscall", 2, true},
-		{"slice", "app_startup", 0, true},
+		{"slice", "app_startup", 2, false},
 		{"slice", "static_initalize", 0, true},
 		{"resource", "native_hook", 2, false},
 	}
@@ -119,7 +119,7 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 		if hasSuppression != check.suppressed {
 			t.Fatalf("%s/%s suppression=%t want %t: %+v", check.family, check.table, hasSuppression, check.suppressed, coverage)
 		}
-		if (check.table == "app_startup" || check.table == "static_initalize") &&
+		if check.table == "static_initalize" &&
 			!strings.Contains(coverage.FieldSources["source_admission"], "R1b-C") {
 			t.Fatalf("%s/%s no longer exposes the open R1b-C source-admission gap: %+v",
 				check.family, check.table, coverage)
@@ -157,10 +157,9 @@ func TestTraceDBSyncSpanLegalCrossProducerNestingAndAdjacentRoundTrip(t *testing
 	}
 	stats := tracequery.ComputeWindowStats(index, tracequery.Query{TimeStart: 0, TimeEnd: 0.01, TimeStartSet: true, TimeEndSet: true})
 	wantDurations := map[string]float64{
-		"outer":                4.0,
-		"sys_1":                0.5,
-		"AppStartup:coldStart": 0.8,
-		"SoInit:libok.so":      0.5,
+		"outer":           4.0,
+		"sys_1":           0.5,
+		"SoInit:libok.so": 0.5,
 	}
 	for name, want := range wantDurations {
 		found := false
@@ -172,6 +171,11 @@ func TestTraceDBSyncSpanLegalCrossProducerNestingAndAdjacentRoundTrip(t *testing
 		}
 		if !found {
 			t.Fatalf("roundtrip missing %s=%fms: %+v\n%s", name, want, stats.TraceSpans, body)
+		}
+	}
+	for _, span := range stats.TraceSpans {
+		if span.Name == "AppStartup:coldStart" {
+			t.Fatal("process-owned record became a physical thread span")
 		}
 	}
 }
@@ -230,7 +234,7 @@ func traceDBSyncSpanBoundaryCases() []traceDBSyncSpanBoundaryCase {
 			withoutRow:    "INSERT INTO app_startup VALUES (1, 1000000, 1100000, 31, 1)",
 			wantTokens:    []string{"B|100|AppStartup:name-11", "B|100|AppStartup:name-12", "B|100|AppStartup:name-13"},
 			export: func(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBSchedulerAuthority, _ traceDBSchedulerRunningIndex, spans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
-				return exportTraceDBAppStartup(ctx, tdb, sink, spans, index, map[int64]string{
+				return exportTraceDBAppStartup(ctx, tdb, sink, index, map[int64]string{
 					11: "name-11", 12: "name-12", 13: "name-13", 21: "shadow", 31: "without",
 				})
 			},
@@ -322,7 +326,11 @@ func TestTraceDBSyncSpanHiddenRowIDBoundaries(t *testing.T) {
 		t.Run(test.name+"/signed-negative-zero-positive", func(t *testing.T) {
 			statements := append([]string{test.createNormal}, test.signedRows...)
 			coverage, report, body := traceDBRunSyncSpanBoundaryExporter(t, test, statements, false)
-			if coverage.RowsRead != 3 || coverage.RowsEmitted != 6 || report.SubmittedSpans != 3 || report.EmittedEndpoints != 6 {
+			wantSpans, wantEndpoints := 3, 6
+			if test.name == "app_startup" {
+				wantSpans, wantEndpoints = 0, 0
+			}
+			if coverage.RowsRead != 3 || coverage.RowsEmitted != 6 || report.SubmittedSpans != wantSpans || report.EmittedEndpoints != wantEndpoints {
 				t.Fatalf("%s signed hidden rowids rejected: coverage=%+v report=%+v body=%q", test.name, coverage, report, body)
 			}
 			if coverage.FieldSources["stable_identity"] != test.table+".hidden_rowid; signed hidden rowid is used only for deterministic typed candidate identity/order" {
@@ -344,7 +352,11 @@ func TestTraceDBSyncSpanHiddenRowIDBoundaries(t *testing.T) {
 		t.Run(test.name+"/declared-rowid-alias-shadow", func(t *testing.T) {
 			coverage, report, body := traceDBRunSyncSpanBoundaryExporter(t, test,
 				[]string{test.createShadow, test.shadowRow}, false)
-			if coverage.RowsRead != 1 || coverage.RowsEmitted != 2 || report.SubmittedSpans != 1 || report.EmittedEndpoints != 2 {
+			wantSpans, wantEndpoints := 1, 2
+			if test.name == "app_startup" {
+				wantSpans, wantEndpoints = 0, 0
+			}
+			if coverage.RowsRead != 1 || coverage.RowsEmitted != 2 || report.SubmittedSpans != wantSpans || report.EmittedEndpoints != wantEndpoints {
 				t.Fatalf("%s alias-shadow row rejected: coverage=%+v report=%+v body=%q", test.name, coverage, report, body)
 			}
 			if coverage.FieldSources["stable_identity"] != test.table+".hidden__rowid_; signed hidden rowid is used only for deterministic typed candidate identity/order" {

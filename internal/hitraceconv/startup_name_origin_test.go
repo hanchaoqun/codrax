@@ -117,7 +117,7 @@ func TestStartupNameOriginPublicConversionAndWindow(t *testing.T) {
 				t.Fatal("zero reference changed")
 			}
 			end := tracequery.Run(index, tracequery.Query{View: "event_search", EventTypes: []tracequery.EventType{tracequery.EventTraceMark}, TimeStart: .003, TimeEnd: .0031, TimeStartSet: true, TimeEndSet: true})
-			if len(end.Events) != 1 || end.Events[0].SpanAction != "E" || end.Events[0].MarkerNameOrigin == nil || end.Events[0].MarkerNameOrigin.Name.Status != tc.status {
+			if len(end.Events) != 1 || end.Events[0].SpanAction != "source_end" || end.Events[0].MarkerNameOrigin == nil || end.Events[0].MarkerNameOrigin.Name.Status != tc.status {
 				t.Fatalf("end-only window lost source name: %+v", end.Events)
 			}
 			if !reflect.DeepEqual(end.Events[0].MarkerNameOrigin.Record, origin.Record) {

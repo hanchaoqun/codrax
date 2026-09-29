@@ -64,7 +64,7 @@ func splitTraceEventTypesLiteral(raw string) TraceEventTypes {
 
 // TraceMarkActions mirrors TraceEventTypes' small-model compatibility at the
 // JSON boundary while keeping a distinct semantic type. The schema remains a
-// closed uppercase enum; validation against tracequery's canonical registry
+// closed enum; validation against tracequery's canonical registry
 // happens after decode so unknown or duplicate tokens fail loud.
 type TraceMarkActions []string
 

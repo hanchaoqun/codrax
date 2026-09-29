@@ -73,7 +73,7 @@ func TestContextInventoryTypesRequireByteExactNamesQ2b(t *testing.T) {
 }
 
 func TestContextInventoryParserVersionSeparatesCacheGenerationQ2b(t *testing.T) {
-	if ParserVersion != "tracequery-v49" {
+	if ParserVersion != "tracequery-v50" {
 		t.Fatalf("context inventory type change requires parser cache invalidation, got %q", ParserVersion)
 	}
 	cache := newTraceIndexCache(1 << 20)

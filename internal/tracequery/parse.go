@@ -131,6 +131,10 @@ func eventSideTableBytes(ev *Event) int64 {
 		if origin := ev.PluginFields.MarkerNameOrigin; origin != nil {
 			n += int64(unsafe.Sizeof(tracewire.MarkerNameOrigin{})) + int64(len(origin.SourceTable)+len(origin.Name.Status))
 			if origin.Record != nil {
+				n += int64(len(origin.Record.OwnerIssue))
+				if origin.Record.OwnerPID != nil {
+					n += 8
+				}
 				n += int64(unsafe.Sizeof(tracewire.MarkerSourceRecord{}))
 			}
 			if origin.Name.Reference != nil {
@@ -1444,7 +1448,9 @@ func (s *lineScan) timestamp() (float64, bool) {
 	if !s.tsTried {
 		s.tsTried = true
 		s.ts, s.tsOK = 0, false
-		if row, ok := tracewire.ParseHiSysEventObservation(s.line); ok {
+		if row, ok := tracewire.ParseProcessInterval(s.line); ok {
+			s.ts, s.tsOK = float64(row.TimestampNS())/1e9, true
+		} else if row, ok := tracewire.ParseHiSysEventObservation(s.line); ok {
 			s.ts, s.tsOK = float64(row.TimestampNS)/1e9, true
 		} else if mark, ok := parseExactTraceMark(s.line); ok {
 			s.ts, s.tsOK = float64(mark.TimestampNS)/1e9, true
@@ -4157,6 +4163,9 @@ func paddedLineEnd(opts BuildOptions) int {
 }
 
 func parseLineTimestamp(line string) (float64, bool) {
+	if row, ok := tracewire.ParseProcessInterval(line); ok {
+		return float64(row.TimestampNS()) / 1e9, true
+	}
 	if row, ok := tracewire.ParseHiSysEventObservation(line); ok {
 		return float64(row.TimestampNS) / 1e9, true
 	}
@@ -4345,6 +4354,9 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 // here instead of being recomputed (perf audit #21).
 func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	lineNo := s.lineNo
+	if row, ok := tracewire.ParseProcessInterval(s.line); ok {
+		return processIntervalEvent(lineNo, row, intern), true
+	}
 	if row, ok := tracewire.ParseHiSysEventObservation(s.line); ok {
 		return hiSysEventObservationEvent(lineNo, row, intern), true
 	}

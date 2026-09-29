@@ -184,7 +184,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	startupCoverage, err := exportTraceDBAppStartup(ctx, tdb, sink, syncSpans, index, dict)
+	startupCoverage, err := exportTraceDBAppStartup(ctx, tdb, sink, index, dict)
 	traceDBSetCoverageElapsed(&startupCoverage, stageStart)
 	coverage = append(coverage, startupCoverage)
 	if err != nil {
@@ -702,12 +702,13 @@ func exportTraceDBTaskPool(ctx context.Context, tdb *traceDB, sink *traceDBRowSi
 	return coverage, rows.Err()
 }
 
-func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSink, syncSpans *traceDBSyncSpanAuthority, index traceDBThreadIndex, dict map[int64]string) (coverage TraceDBCoverage, err error) {
+func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, dict map[int64]string) (coverage TraceDBCoverage, err error) {
 	coverage, err = tdb.inspectCoverage(ctx, "slice", "app_startup", []string{"start_time", "end_time", "start_name", "ipid"})
 	coverage.FieldSources = map[string]string{
-		"wire_laminar":     "current accepted rows submit typed B/E candidates to the shared authority; no endpoint is published by this exporter",
-		"source_admission": "legacy interval WHERE/scalar, process lifecycle, CPU and anti-rescue correctness remain open as R1b-C",
-		"name_reference":   "raw SQLite INTEGER only; NULL/other storage classes never alias INTEGER 0; exact marker metadata preserves per-row name resolution separately from synthesized display labels",
+		"subject_role":      "process-owned source intervals, not synchronous thread B/E; optional public PID only from unique process-table identity, never an emitter TID, CPU or lifecycle proof",
+		"source_admission":  "all source rows audited with strict SQLite INTEGER endpoints; invalid/NULL owner remains explicit unknown; source intervals do not enter the physical sync stack",
+		"viewer_visibility": "typed-only process interval comments; generic ftrace viewers ignore these records",
+		"name_reference":    "raw SQLite INTEGER only; NULL/other storage classes never alias INTEGER 0; exact marker metadata preserves per-row name resolution separately from synthesized display labels",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
@@ -716,7 +717,7 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 	if err != nil || !stableKnown {
 		return coverage, err
 	}
-	query := fmt.Sprintf("SELECT %s, start_time, end_time, start_name, ipid FROM app_startup WHERE end_time > start_time ORDER BY start_time, %s", stableExpr, stableExpr)
+	query := fmt.Sprintf("SELECT %s, start_time, end_time, start_name, ipid FROM app_startup ORDER BY %s", stableExpr, stableExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
 		coverage.Error = err.Error()
@@ -729,67 +730,68 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 		}
 	}()
 	skipped := map[string]int{}
+	scanned := 0
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return coverage, err
 		}
-		var start, end int64
-		var stableRaw, nameRaw, ipidRaw any
-		if err := rows.Scan(&stableRaw, &start, &end, &nameRaw, &ipidRaw); err != nil {
+		var stableRaw, startRaw, endRaw, nameRaw, ipidRaw any
+		if err := rows.Scan(&stableRaw, &startRaw, &endRaw, &nameRaw, &ipidRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		ipid, ok := traceDBStrictInternalID(ipidRaw)
-		if !ok {
-			skipped["invalid_owner_ipid"]++
+		scanned++
+		start, startOK := traceDBStrictSQLiteInt(startRaw)
+		end, endOK := traceDBStrictSQLiteInt(endRaw)
+		if !startOK || !endOK || start < 0 || end <= start {
+			skipped["invalid_source_interval"]++
 			continue
 		}
 		stableID, stableOK := traceDBStrictSQLiteInt(stableRaw)
 		if !stableOK {
 			return coverage, &traceDBOutputInvariantError{Reason: "invalid_app_startup_hidden_rowid"}
 		}
-		task, tid, tgid, ok := traceDBResolvedProcessLineContext(index, ipid, "startup")
-		if !ok {
-			skipped["unresolved_owner_process"]++
-			continue
+		ipid, ownerOK := traceDBStrictInternalID(ipidRaw)
+		ownerIssue := ""
+		if !ownerOK {
+			ipid, ownerIssue = 0, "invalid_reference"
+			if ipidRaw == nil {
+				ownerIssue = "null_reference"
+			}
+			skipped["owner_"+ownerIssue]++
 		}
 		name, nameReason := traceDBDictionaryReference(nameRaw, dict)
 		if nameReason != "" {
 			skipped["start_name_"+nameReason]++
 		}
-		nameOrigin, err := tracewire.EncodeMarkerNameOrigin(tracewire.MarkerNameOrigin{
+		origin := tracewire.MarkerNameOrigin{
 			SourceTable: "app_startup", Name: traceDBHiSysName(nameRaw, name, nameReason),
-			Record: &tracewire.MarkerSourceRecord{RowID: stableID, OwnerIPID: ipid, StartNS: start, EndNS: end},
-		})
-		if err != nil {
-			return coverage, err
+			Record: &tracewire.MarkerSourceRecord{RowID: stableID, OwnerIPID: ipid, OwnerIssue: ownerIssue, StartNS: start, EndNS: end},
 		}
-		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
-			Producer:           traceDBSyncSpanProducerAppStartup,
-			StableKind:         traceDBSyncSpanStableAppStartupRowID,
-			StableID:           stableID,
-			HeaderTID:          tid,
-			HeaderTGID:         tgid,
-			OwnerIPID:          ipid,
-			OwnerIPIDKnown:     true,
-			Start:              start,
-			End:                end,
-			StartCPU:           0,
-			EndCPU:             0,
-			StartCPUProvenance: traceDBSyncSpanCPULegacyUnverified,
-			EndCPUProvenance:   traceDBSyncSpanCPULegacyUnverified,
-			Task:               task,
-			Name:               "AppStartup:" + firstNonEmpty(name, "startup"),
-			NameProvenance:     traceDBSyncSpanNameAppStartupDictionary,
-			NameOrigin:         nameOrigin,
-			DepthProvenance:    traceDBSyncSpanDepthUnknown,
-		}); err != nil {
-			return coverage, err
+		if ownerOK && !index.AmbiguousIPID[ipid] {
+			if process, ok := index.Processes[ipid]; ok && process.PID > 0 && process.PID <= math.MaxInt32 {
+				pid := process.PID
+				origin.Record.OwnerPID = &pid
+			}
+		}
+		for _, endpoint := range []string{"begin", "end"} {
+			row := tracewire.ProcessInterval{Endpoint: endpoint, Origin: origin}
+			line, err := tracewire.FormatProcessInterval(row)
+			if err != nil {
+				return coverage, err
+			}
+			if err := sink.add(renderedRow{tsNS: uint64(row.TimestampNS()), seq: sink.stats.RowsAccepted, line: line}); err != nil {
+				return coverage, err
+			}
+			coverage.RowsEmitted++
 		}
 	}
 	coverage.Skipped = traceDBCountSummary(skipped)
 	if err = rows.Err(); err == nil {
 		err = ctx.Err()
+	}
+	if err == nil && scanned != coverage.RowsRead {
+		err = &traceDBOutputInvariantError{Reason: "app_startup_source_census_changed"}
 	}
 	return coverage, err
 }

@@ -22,15 +22,19 @@ type MarkerNameOrigin struct {
 type MarkerSourceRecord struct {
 	RowID     int64 `json:"row_id,string"`
 	OwnerIPID int64 `json:"owner_ipid,string"`
-	StartNS   int64 `json:"start_ns,string"`
-	EndNS     int64 `json:"end_ns,string"`
+	// Empty means a known internal process reference (including 0). When the
+	// source has NULL or an invalid reference, OwnerIPID is unused, not PID 0.
+	OwnerIssue string `json:"owner_issue,omitempty"`
+	OwnerPID   *int64 `json:"owner_pid,string,omitempty"`
+	StartNS    int64  `json:"start_ns,string"`
+	EndNS      int64  `json:"end_ns,string"`
 }
 
 const maxMarkerNameOriginLegacyBytes = 8192
 
-// The optional record needs at most 192 additional JSON bytes (256 base64
-// bytes). Reserve it separately; it must not consume the legacy name budget.
-const MaxMarkerNameOriginBytes = maxMarkerNameOriginLegacyBytes + 256
+// Reserve record identity plus nullable-owner status separately; additional
+// source metadata must not consume the legacy name budget.
+const MaxMarkerNameOriginBytes = maxMarkerNameOriginLegacyBytes + 384
 
 func EncodeMarkerNameOrigin(origin MarkerNameOrigin) (string, error) {
 	if origin.SourceTable != "app_startup" || !validHiSysName(origin.Name) ||
@@ -40,7 +44,14 @@ func EncodeMarkerNameOrigin(origin MarkerNameOrigin) (string, error) {
 	if r := origin.Record; r != nil && (r.OwnerIPID < 0 || r.StartNS < 0 || r.EndNS <= r.StartNS) {
 		return "", fmt.Errorf("invalid marker source record")
 	}
+	if r := origin.Record; r != nil && r.OwnerIssue != "" &&
+		(r.OwnerIPID != 0 || r.OwnerIssue != "null_reference" && r.OwnerIssue != "invalid_reference") {
+		return "", fmt.Errorf("invalid marker owner status")
+	}
 	nameOnly := origin
+	if r := origin.Record; r != nil && r.OwnerPID != nil && (r.OwnerIssue != "" || *r.OwnerPID <= 0 || *r.OwnerPID > 2147483647) {
+		return "", fmt.Errorf("invalid source process PID")
+	}
 	nameOnly.Record = nil
 	nameBytes, err := json.Marshal(nameOnly)
 	if err != nil || len(nameBytes) > maxMarkerNameOriginLegacyBytes*3/4 {
