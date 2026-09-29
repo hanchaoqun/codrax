@@ -1,0 +1,9 @@
+{
+  "behavior_contract": "increment-result",
+  "fresh_invocation": "native:e983:18d9bd85b3f54ec8:2",
+  "old_invocation": "native:e983:18d9bd82193a7758:1",
+  "passed": true,
+  "readonly": true,
+  "registration_plan_id": "plan-1790670708458859000-59779",
+  "source_plan_id": "plan-1790670693180452000-59779"
+}

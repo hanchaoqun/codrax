@@ -1,0 +1,6 @@
+{
+  "full_cli_run": false,
+  "kind": "restored_native_registration_planner",
+  "model": "MiniMax-M2.7-highspeed",
+  "question": "实现已修好，请运行保留的现有测试，确认返回值正确。不要再修改源码、测试、配置或依赖。"
+}

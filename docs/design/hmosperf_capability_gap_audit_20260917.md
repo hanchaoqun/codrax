@@ -4697,3 +4697,45 @@ Go/build输入冻结于`a78ed6086399`后，46322启动独立完整`go test -p 4 
 50003 fetch正式exit0，发布前4 ahead/0 behind；18906普通push正式exit0，`46cf88c99`、`a78ed6086`、`25a1b07c5`、`cb57f3a1d`已推送origin/main，随后核对0/0。统一账本、架构、原机器结果和人工审计按批合并另交，不覆盖任何原始失败。
 
 末次逐checkbox/唯一ID复算79=16完整交付+63开放，重复0；开放状态49待实施/8部分实施/2待验收/3验收中/1持续执行。本批完整稳定任务新增0、已交付可复用子能力2，5个稳定验收父项03.2/04.2/08.3/08.4/18.2均保留。两份完整答案仍人工FAIL，启动修订丢表提升为通用高影响缺陷，资源无证解释保留但不追加追跑；下一批只读登记真实验收与参考能力路线按§190.6执行。
+
+## 191. 通用答案修补保真与只读登记真实验收（2026-09-29）
+
+### 191.1 起点与本批范围
+
+从干净 d2ebc4c1c 继续，79个唯一稳定ID=16完整交付+63开放，重复0；49待实施/8部分实施/2待验收/3验收中/1持续执行。五个稳定验收父项03.2/04.2/08.3/08.4/18.2及历史人工FAIL保留。本批修已证“缺summary→替换已有表丢数据”的通用接缝，并完成此前欠缺的只读登记真实模型验收入口；不连续第三批追跑资源地址误述。
+
+参考能力轨复读 `core/preprocess/launch_ops.py:1–220,315–410`。按ipid及下一实例限界的设计意图是避免跨进程、跨次启动拼链；NULL补0、未知ipid合组、名称子串定阶段、吸收gap、ReceiveVsync冒首帧和单位注释矛盾不移植。本项目 `streamerdb_export_extended.go:705–798` 仍用 SQL WHERE预筛/标量转换、进程角色代线程及legacy CPU0；NameOrigin走typed-only行，直接并排输出普通B/E会造成虚假CPU与重复事件。故不把“查看器看得到”当作修复，不继续盲目堆启动阶段。本批二进制轨为设计审计，未交付普通查看器或完整启动实例能力；主体/CPU准入仍是下批高优先级能力退出条件。
+
+### 191.2 修补意图统一（303bd55e6）
+
+前置缺块提示原为 `blocks[].kind=summary`＋emit数量，后置从Detail猜类型并总建议add；两者缺少一致的操作方向。新增共享typed数量修补对象，由既有BlockRequirement与当前doc计数生成：缺量add、超量reduce，保可选类型及facet范围。对象随Violation→ScoredViolation→JSON重试传递，前置和后置用同一教学，不增加模型字段。每次patch反馈从当前基底重新算缺口，保有界载荷数量名册；一次错误ID不能让仍缺summary的意图失踪。ID拼写不推断kind，不重复全部正文，不把数量当事实证明。
+
+此为软指导，不是锁定表格、不允许删除或系统代写答案。合法replace/remove照常通过；错误patch原子失败；原count/ID/证据门和Trace根因资格、因果投影、补齐、图关系、只读边界及600/300/600秒等待均不变。公开矩阵覆盖所有类型、类型候选、按facet计数、误导ID、表/列表/图载荷、合法删改、错误ID、修补后缺口消失，以及实际finalizer第二次adapter消息。真实消息测试保证指导进入消费者，而非只测helper文本。
+
+### 191.3 只读登记评测入口（6d73a22d1）
+
+新增显式opt-in `TestNativeRegistrationLiveRestoredFollowup`，使用真实默认planner和公开读取/发射路径。公开emit/apply、真实Git提交/旧原生测试准备已交付源，控制器派发产生私有登记授权；模型完整读取后自行登记。公开文件保存/加载计划与工作流，授权不持久化，再由控制器新授权verify-only并真实执行。要求新的invocation、原交付归属、精确原合同见证、授权撤销及源码/测试/HEAD不变；未伪造PASS、读取收据或模型工具返回。
+
+这是阶段级真实模型＋控制器/工具验收，不是完整CLI/真实controller模型/最终用户答案。fixture预置强合同与已完成来源批次；登记后通过公开文件恢复而非默认durable store整轮完成。最终工作流仍in_progress/planned，不据报告PASS签整个工作流完成。复现及工件边界见 [eval入口说明](../../eval/native_registration_live.md)。
+
+### 191.4 定向验证与冻结
+
+初次新增测试使用了不存在的类型名，8072编译失败，原 `/tmp/codrax-hmc191-repair.log` 保留；这是测试编写错误，不冒称产品RED。修正后29763四包定向exit0，69314真实finalizer消息回归exit0，56335四包定向race正式exit0（types2.256/agent2.591/tool3.517/orchestrator6.883秒）。代码与Go测试冻结后93230独立全仓，日志 `/tmp/codrax-hmc191-full.log`；90290 make正式exit0，日志 `/tmp/codrax-hmc191-build.log`。构建显示d2ebc4c1c776-dirty（包含本批未提交源码），随后同字节提交303bd55e6和6d73a22d1；不得将该dirty解释为仅文档。
+
+固定30338启动CLI与2362只读登记两例并行×1，均正式exit0，未追加第三例。只读登记真实模型先读value.py和test_value.py，再登记完整suite `test_value.ValueTest` / `test_increment` / 原 `increment-result`；恢复后新执行满足原合同，旧PASS未复用。机器1/2；完整启动答案人工FAIL，登记阶段人工PASS，不混为完整用户答案通过数。独立全仓与发布收据见191.6，不提前销账。
+
+### 191.5 真实答案审计与新缺陷归因
+
+启动四段表与五系统事件都保留，原起止/时长正确；本次首次emit即通过，零patch，故不能宣称真实命中新修补指导。机器仅失败5ms文本正则（5.0在表内、毫秒在表头），原FAIL不改；完整人工独立FAIL，因为摘要4写5、未知阶段名被当作真实startup，并把模型生成cold/ability_init8ms当文件头部事实。
+
+新系统接缝有直接源码及真实消息证据：第一段窗外0.950–0.958秒的提取模型将LoadPreferences8ms填入 `startup:{mode:cold,ability_init_ms:8}`，第二段无startup；`emit_perf_trace.go:276`复制此信封却未像Observations/Stalls设置提取权威，`builder.go:4704`无条件展示为Startup。最终真实消息有该值且答案复述，未证明纯模型波动。现有skill已经要求源明确模式/显式毫秒值，继续堆提示不解决权威提升。挂01.3/16.4/18.4高影响缺陷：统一预分析摘要/派生/合并的来源、权威与范围，未验证的模型信息只作导航，保原生证据、合法窗外依赖和所有链上业务类别；不做关键词硬门。
+
+只读登记真实2轮请求、2次read_file、1次emit，零拒绝；新执行invocation与旧执行不同，原合同精确满足，源码/测试/HEAD不变，阶段退出可闭合。最终workflow仍in_progress/planned＋no_durable_store，完整收尾不能签PASS。当前同一消息明确禁止写入后仍带通用“准备编辑/grep/repo_map”，本轮没致错但属于系统教学冲突，按typed权限裁剪的余项记入01.3/16.4，不改生产等待或授权。
+
+详细轨迹/上下文/原件SHA见[人工审计](../../eval/parallel_selected_summary_hmc_repair_registration_20260929_manual_audit.md)。启动旁路仍schema2空列表、trace_root_cause_contract_not_active；没有链外晋升根因。原始问句/oracle不变，旧FAIL均保留，未加第三次模型调用。完整任务新增0，累计16/79、剩余63；交付子能力1、已交付登记的阶段验收退出1、新增二进制能力0；五项稳定验收父项不销账。
+
+### 191.6 独立全仓与发布收据
+
+冻结后93230独立 `go test -p 4 ./... -count=1` 正式exit0：87测试包PASS、13无测试、零FAIL；agent106.480、tool507.475、tracequery147.332秒。原日志 `/tmp/codrax-hmc191-full.log` SHA-256=`fba04dfde69df0b7f201ba57734907790f6553d6395a665cef3547875388ac4f`。本批代码/测试未在全仓运行后变动，不拼接局部结果，默认全仓中的新live入口按设计SKIP，不是再次调用模型。四包定向race日志SHA-256=`f57e675091a140055594b0b7bf119e56bd278e6726d625a881e5710a0d53da85`；90290构建正式exit0，日志SHA-256=`b5c01266e5640d9179179437380ef6281580606db520980a76279b08d55255d4`，冻结评测二进制SHA见双例汇总。
+
+82489 fetch正式exit0，发布前2 ahead/0 behind；20123普通push正式exit0，303bd55e6与6d73a22d1已推至origin/main，核对0/0。统一任务清单、架构、入口说明、原机器判定/执行收据及人工审计一次汇总提交；原完整日志/失败工件保留本地及SHA，不改写历史。末次稳定计数仍79=16交付+63开放、重复0，五个稳定验收父项不变。下一两轨以唯一清单§191当前队列为准。

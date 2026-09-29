@@ -1170,6 +1170,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 - `validateFacetCoverage`：FacetHardRequired 的 facet 必有至少 1 个 block 在 `block.facet_ids[]` 声明它或带 grounded citation，否则 `ViolFacetUncovered`
 - `validateLaneBlockKindCompliance`：principal block 的 citation 若全部来自某条 support lane，则 block.kind 必须在该 lane 的 `AllowedBlocks[]` 中，否则 `ViolLaneBlockKindMismatch`
 
+**块数量修补指导（HMC §191）**：前置发射检查与后置数量合同共用 typed `AnswerBlockCountRepair`，传递实际数量、上下限、可接受类型与维度范围。缺块指导追加，超额指导合并后显式移除，不从违规散文或块 ID 拼写推断方向。后置重试保留该对象；旧持久违规仍兼容原软提示。每次 patch 反馈按当前基底重新计算缺口，并附有界载荷数量名册（最多24块、4个缺口；不重复正文），错误 ID 的短期反馈不会遮蔽仍缺少的内容类型。已有表/列表/图的载荷应继承；数量名册不是事实正确性证明，不禁止模型合法删改，也不增加内容保留硬门、修补租约或 JSON 必填项。精确 ID、原子合并、既有数量和证据校验不变。
+
 **Layer 3 richness**（telemetry，不阻塞）：
 - `validateRichnessRegression`：optional facet 覆盖率比基线低 → 软违规
 - `validateRichnessGlaringGap`：标 glaring 的 facet 完全缺席 → 软违规
