@@ -34,9 +34,9 @@ func formatPreparedTrace(raw string, state attachedRuntimeTriageState, degradedS
 		preamble += "This stage has no trace query or raw-file reader. Record only visible observations and leave unobserved regions for subsequent evidence collection.\n"
 	}
 	if len(raw) <= attachedLogInlineCap {
-		return preamble + "\n```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```"
+		return preamble + "\n```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```" + renderAttachedTraceSemantics(tracePreviewPart{raw, 1, !opts.Material.SelfContainedText()})
 	}
-	return preamble + "\n" + renderAttachedArtifactPreviewBlock(buildAttachedArtifactPreview(raw), "")
+	return preamble + "\n" + renderAttachedTracePreviewBlock(buildAttachedArtifactPreview(raw), "", !opts.Material.SelfContainedText())
 }
 
 // Reuse existing bounded capability disclosure from the complete, held bundle

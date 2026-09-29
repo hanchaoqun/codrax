@@ -3924,10 +3924,12 @@ func renderAttachedArtifactLines(raw string, startLineNo int) string {
 }
 
 type attachedArtifactPreview struct {
-	head          string
-	tail          string
-	tailStartLine int
-	elidedBytes   int
+	head             string
+	tail             string
+	tailStartLine    int
+	elidedBytes      int
+	headClippedEnd   bool
+	tailClippedStart bool
 }
 
 func buildAttachedArtifactPreview(raw string) attachedArtifactPreview {
@@ -3956,10 +3958,12 @@ func buildAttachedArtifactPreview(raw string) attachedArtifactPreview {
 	head := raw[:headEnd]
 	tail := raw[tailStart:]
 	return attachedArtifactPreview{
-		head:          head,
-		tail:          tail,
-		tailStartLine: 1 + strings.Count(raw[:tailStart], "\n"),
-		elidedBytes:   tailStart - headEnd,
+		head:             head,
+		tail:             tail,
+		tailStartLine:    1 + strings.Count(raw[:tailStart], "\n"),
+		elidedBytes:      tailStart - headEnd,
+		headClippedEnd:   headEnd < len(raw) && raw[headEnd] != '\n',
+		tailClippedStart: tailStart > 0 && raw[tailStart-1] != '\n',
 	}
 }
 
@@ -4115,7 +4119,7 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 	}
 
 	if len(raw) <= attachedLogInlineCap {
-		return preamble + "```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```"
+		return preamble + "```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```" + renderAttachedTraceSemantics(tracePreviewPart{raw, 1, false})
 	}
 
 	blobPath := ""
@@ -4143,7 +4147,7 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 					"the middle (%d B) is elided. The complete trace is saved to `%s` for `trace_query` and fallback/verbatim raw excerpts. "+
 					"Prefer `trace_query` with bounded time/line/window parameters for evidence. %s\n\n",
 					len(raw), preview.elidedBytes, blobPath, readFallback) +
-				renderAttachedArtifactPreviewBlock(preview, previewPath)
+				renderAttachedTracePreviewBlock(preview, previewPath, false)
 		}
 		if !opts.ReadFileAvailable {
 			return preamble +
@@ -4151,7 +4155,7 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 					"the middle (%d B) is elided. The complete trace is persisted for a later evidence stage, but this stage's projected tool schema has neither trace_query nor a raw-file reader. "+
 					"Use the typed artifact context and visible preview now; do not attempt to open the elided middle in this stage.\n\n",
 					len(raw), preview.elidedBytes) +
-				renderAttachedArtifactPreviewBlock(preview, "")
+				renderAttachedTracePreviewBlock(preview, "", false)
 		}
 		return preamble +
 			fmt.Sprintf("Total trace size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
@@ -4159,13 +4163,13 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 				"use `read_file` with line_offset+limit on that path to paginate through the "+
 				"elided region if you need exact event-line anchors beyond the preview. line_offset is a zero-based line coordinate, not a byte offset.\n\n",
 				len(raw), preview.elidedBytes, blobPath) +
-			renderAttachedArtifactPreviewBlock(preview, blobPath)
+			renderAttachedTracePreviewBlock(preview, blobPath, false)
 	}
 
 	return preamble +
 		fmt.Sprintf("Total trace size: %d bytes; showing head + tail with artifact-local line gutters, middle elided.\n\n",
 			len(raw)) +
-		renderAttachedArtifactPreviewBlock(preview, "")
+		renderAttachedTracePreviewBlock(preview, "", false)
 }
 
 // formatLogTriageStructured renders the validated LogBundle as an
