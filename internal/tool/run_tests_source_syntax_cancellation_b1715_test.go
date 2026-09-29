@@ -286,8 +286,9 @@ func TestB1715SourceSyntaxPythonPreparationCancellation(t *testing.T) {
 
 func TestB1715SourceSyntaxPythonPreparationLegacyAndPreCanceled(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("controlled Python candidate fixture uses POSIX shell")
+		t.Skip("controlled candidate fallback currently verified on POSIX hosts")
 	}
+	captureControlledProcessFailureDiagnostics(t)
 	for _, tc := range []struct {
 		name     string
 		canceled bool
@@ -298,16 +299,11 @@ func TestB1715SourceSyntaxPythonPreparationLegacyAndPreCanceled(t *testing.T) {
 		{name: "legacy_signature_keeps_candidate_fallback", legacy: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root, bin := t.TempDir(), t.TempDir()
+			root := t.TempDir()
 			first, second := filepath.Join(root, "first-candidate"), filepath.Join(root, "second-candidate")
-			for binary, body := range map[string]string{
-				"python3": "#!/bin/sh\nprintf first > " + shellQuoteWord(first) + "\nexit 1\n",
-				"python":  "#!/bin/sh\nprintf second > " + shellQuoteWord(second) + "\nexit 0\n",
-			} {
-				if err := os.WriteFile(filepath.Join(bin, binary), []byte(body), 0o700); err != nil {
-					t.Fatal(err)
-				}
-			}
+			// Keep the real resolver and process supervisor, but remove fresh
+			// shebang startup from this candidate-order/cancellation contract.
+			bin := installControlledProcessFixture(t, "python_candidate_fallback", root, "python3", "python")
 			t.Setenv("PATH", bin)
 			var parent context.Context
 			if tc.canceled {

@@ -16,7 +16,8 @@ import (
 const controlledProcessFixtureMode = "CODRAX_CONTROLLED_TEST_PROCESS_MODE"
 const controlledProcessFixtureRoot = "CODRAX_CONTROLLED_TEST_PROCESS_ROOT"
 
-// Only the two cancellation/timeout fixtures use this native helper process.
+// Controlled cancellation, timeout and candidate-fallback fixtures use this
+// native helper process.
 // It avoids freshly written shebang execution latency before the first fixture
 // instruction, without bypassing the real command resolver or supervisor.
 func TestMain(m *testing.M) {
@@ -41,6 +42,21 @@ func runControlledProcessFixture(mode string) int {
 	}
 	binary := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")
 	switch {
+	case mode == "python_candidate_fallback" && (binary == "python3" || binary == "python"):
+		if len(os.Args) != 3 || os.Args[1] != "-c" || os.Args[2] != "import sys" {
+			fmt.Fprintf(os.Stderr, "unexpected Python candidate arguments: %q\n", os.Args[1:])
+			return 2
+		}
+		if binary == "python3" {
+			if !write("first-candidate", "first") {
+				return 2
+			}
+			return 1
+		}
+		if !write("second-candidate", "second") {
+			return 2
+		}
+		return 0
 	case mode == "python_preparation" && binary == "python3":
 		if len(os.Args) != 3 || os.Args[1] != "-c" || os.Args[2] != "import sys" {
 			fmt.Fprintf(os.Stderr, "unexpected Python preparation arguments: %q\n", os.Args[1:])
