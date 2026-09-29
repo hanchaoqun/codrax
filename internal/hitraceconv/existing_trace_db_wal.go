@@ -20,6 +20,7 @@ type ExistingTraceDBWAL struct {
 	SHA256         string
 	Generation     string
 	CommitFrame    int64
+	CheckpointOnly bool
 	SnapshotBytes  int64
 	SnapshotSHA256 string
 }
@@ -90,6 +91,9 @@ func openExistingWALView(ctx context.Context, main *conversionInputAuthority) (v
 	if view.pageSize < 512 || view.pageSize > 65536 || view.pageSize&(view.pageSize-1) != 0 || main.Size()%view.pageSize != 0 || main.Size() > maxExistingWALBytes {
 		return nil, fmt.Errorf("WAL snapshot has invalid main-file page geometry")
 	}
+	if wal.Size() == 0 {
+		return finishExistingWALView(ctx, view, 0)
+	}
 	if wal.Size() < 32 || wal.Size() > maxExistingWALBytes {
 		return nil, fmt.Errorf("WAL snapshot length outside supported budget")
 	}
@@ -157,10 +161,22 @@ func openExistingWALView(ctx context.Context, main *conversionInputAuthority) (v
 		view.size = int64(count) * view.pageSize
 		commitFrame = (offset-32)/frameSize + 1
 	}
-	// No commit (including a reset header alone) needs separate checkpoint
-	// authority. Do not silently treat the main file as the latest snapshot.
+	return finishExistingWALView(ctx, view, commitFrame)
+}
+
+// A zero/header-only/uncommitted WAL contributes no committed pages. The
+// checkpoint in the held main file is the readable state, not pending frames.
+// Both generations remain bound through publication and later cache reuse.
+func finishExistingWALView(ctx context.Context, view *existingWALView, commitFrame int64) (*existingWALView, error) {
+	main, wal := view.main, view.wal
 	if commitFrame == 0 {
-		return nil, fmt.Errorf("WAL contains no validated commit; checkpointed-only WAL intake is not yet supported")
+		// Require a self-consistent checkpoint size; never fabricate absent pages
+		// or use uncommitted page 1 to repair the main header.
+		if !bytes.Equal(view.header[24:28], view.header[92:96]) ||
+			int64(binary.BigEndian.Uint32(view.header[28:32])) != main.Size()/view.pageSize {
+			return nil, fmt.Errorf("WAL has no commit and main checkpoint size is not authoritative")
+		}
+		view.size = main.Size()
 	}
 	if view.size > maxExistingWALBytes {
 		return nil, fmt.Errorf("committed SQLite snapshot exceeds byte budget")
@@ -173,7 +189,7 @@ func openExistingWALView(ctx context.Context, main *conversionInputAuthority) (v
 		}
 	}
 	if location, ok := view.pages[1]; ok {
-		if _, err = wal.ReadAt(view.header[:], location); err != nil {
+		if _, err := wal.ReadAt(view.header[:], location); err != nil {
 			return nil, err
 		}
 	}
@@ -193,8 +209,8 @@ func openExistingWALView(ctx context.Context, main *conversionInputAuthority) (v
 	if err != nil {
 		return nil, err
 	}
-	view.receipt = ExistingTraceDBWAL{Path: wal.DisplayPath(), Bytes: wal.Size(), SHA256: digest, Generation: wal.identity.CacheToken(), CommitFrame: commitFrame, SnapshotBytes: view.size}
-	if err = view.Validate(conversionInputStagePreCommit); err != nil {
+	view.receipt = ExistingTraceDBWAL{Path: wal.DisplayPath(), Bytes: wal.Size(), SHA256: digest, Generation: wal.identity.CacheToken(), CommitFrame: commitFrame, CheckpointOnly: commitFrame == 0, SnapshotBytes: view.size}
+	if err := view.Validate(conversionInputStagePreCommit); err != nil {
 		return nil, err
 	}
 	return view, nil

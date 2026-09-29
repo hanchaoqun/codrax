@@ -16,7 +16,9 @@ func validatePreparedSQLiteReceipt(kind, source string, size int64, digest, gene
 		if db == nil || db.Path != source || db.Bytes != size || db.SHA256 != digest || db.Generation != generation {
 			return fmt.Errorf("existing trace database receipt does not match the held source: %q", source)
 		}
-		if wal := db.WAL; wal != nil && (wal.Path == "" || wal.Bytes < 32 || len(wal.SHA256) != 64 || wal.Generation == "" || wal.CommitFrame <= 0 || wal.SnapshotBytes < 512 || len(wal.SnapshotSHA256) != 64) {
+		if wal := db.WAL; wal != nil && (wal.Path == "" || (wal.Bytes != 0 && wal.Bytes < 32) || len(wal.SHA256) != 64 || wal.Generation == "" ||
+			(wal.CheckpointOnly && wal.CommitFrame != 0) || (!wal.CheckpointOnly && (wal.CommitFrame <= 0 || wal.Bytes < 32)) ||
+			wal.SnapshotBytes < 512 || len(wal.SnapshotSHA256) != 64) {
 			return fmt.Errorf("incomplete SQLite WAL snapshot receipt: %q", source)
 		}
 		return nil
