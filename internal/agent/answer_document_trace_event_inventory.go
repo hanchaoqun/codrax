@@ -54,20 +54,21 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger) string
 	if traceEventInventoryHasResourceMarkers(records) {
 		b.WriteString("- " + skill.TraceResourceObservationContract + "\n")
 	}
-	b.WriteString("- Query summaries are retained before member previews; members share a 32-row budget in round-robin query order. prompt_metadata_omission identifies omitted fields (or all free-form string/array fields) and the SHA-256/byte length of their original JSON object, not replacement values. An object with omitted metadata is not an exact source/filter-scope reference; do not infer unfiltered scope, identity, absence, or root cause from it. The full accepted receipt remains in the ledger.\n")
-	counts := traceEventInventoryPromptRowCounts(records)
+	b.WriteString("- Each inventory.row_refs lists its members in original order; resolve each ID in display_rows below. Identical full rows under the same source/clock envelope share display storage only: a shared ID is not a unique-event identity or a reason to merge counts, scopes, generations or causes. There are at most 32 display objects, selected round-robin across queries; repeated references cost no extra object. prompt_metadata_omission identifies omitted fields and the SHA-256/byte length of their original JSON, not replacement values. Omitted metadata is not an exact source/filter reference. Full accepted receipts remain in the ledger.\n")
+	members := traceEventInventoryMembers(records)
 	// Reserve half the remaining bytes for all query summaries before any
 	// member consumes space. The remainder is shared by the selected rows.
 	const trailerReserve = 1024
 	summaryBudget := (traceEventInventoryPromptByteLimit - b.Len() - trailerReserve) / 2 / len(records)
 	views := make([]map[string]any, len(records))
 	remaining := traceEventInventoryPromptByteLimit - b.Len() - trailerReserve
-	rowCount := 0
+	rowCount := len(members.rows)
 	for n, record := range records {
+		count := len(members.refs[n])
 		inventory := types.CloneTraceEventSearchInventory(record.EventSearchInventory)
 		inventory.Rows = []types.TraceEventSearchInventoryRow{}
-		inventory.HandoffRowsOmitted = inventory.Coverage.Emitted - counts[n]
-		inventory.RowsComplete = inventory.Coverage.ScopeComplete && inventory.Coverage.EnumerationComplete && counts[n] == inventory.Coverage.MatchedTotal
+		inventory.HandoffRowsOmitted = inventory.Coverage.Emitted - count
+		inventory.RowsComplete = inventory.Coverage.ScopeComplete && inventory.Coverage.EnumerationComplete && count == inventory.Coverage.MatchedTotal
 		// The compact list reports its own budget/completeness. Coverage is the
 		// unchanged engine receipt, never rewritten to describe prompt limits.
 		view := struct {
@@ -78,34 +79,20 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger) string
 			ProducerNotes     []string                         `json:"producer_notes,omitempty"`
 			PromptRowsShown   int                              `json:"prompt_rows_shown"`
 			PromptRowsOmitted int                              `json:"prompt_rows_omitted"`
-		}{record.ID, record.ObservedAt, record.SourceRef, inventory, record.RichNotes, counts[n], inventory.Coverage.Emitted - counts[n]}
+		}{record.ID, record.ObservedAt, record.SourceRef, inventory, record.RichNotes, count, inventory.Coverage.Emitted - count}
 		views[n] = traceEventInventoryBoundedPromptObject(view, summaryBudget)
+		projected := views[n]["inventory"].(map[string]any)
+		delete(projected, "rows")
+		projected["row_refs"] = members.refs[n]
 		data, _ := json.Marshal(views[n])
 		remaining -= len(data) + 3 // '- ' and newline
-		rowCount += counts[n]
 	}
 	rowBudget := remaining
 	if rowCount > 0 {
-		rowBudget = remaining/rowCount - 1 // array separators
+		rowBudget = remaining/rowCount - 64 // object ID/envelope and array separators
 	}
 	metadataOmissions := 0
-	for n, record := range records {
-		rows := make([]map[string]any, 0, counts[n])
-		for _, row := range record.EventSearchInventory.Rows[:counts[n]] {
-			if len(row.Raw) > traceEventInventoryPromptRawLimit {
-				end := traceEventInventoryPromptRawLimit
-				for end > 0 && !utf8.RuneStart(row.Raw[end]) {
-					end--
-				}
-				row.Raw, row.RawTruncated = row.Raw[:end], true
-			}
-			bounded := traceEventInventoryBoundedPromptObject(row, rowBudget)
-			if bounded["prompt_metadata_omission"] != nil {
-				metadataOmissions++
-			}
-			rows = append(rows, bounded)
-		}
-		views[n]["inventory"].(map[string]any)["rows"] = rows
+	for n := range records {
 		if views[n]["prompt_metadata_omission"] != nil {
 			metadataOmissions++
 		}
@@ -114,33 +101,27 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger) string
 		b.Write(data)
 		b.WriteByte('\n')
 	}
+	rows := make([]map[string]any, 0, rowCount)
+	for n, row := range members.rows {
+		if len(row.Raw) > traceEventInventoryPromptRawLimit {
+			end := traceEventInventoryPromptRawLimit
+			for end > 0 && !utf8.RuneStart(row.Raw[end]) {
+				end--
+			}
+			row.Raw, row.RawTruncated = row.Raw[:end], true
+		}
+		bounded := traceEventInventoryBoundedPromptObject(row, rowBudget)
+		if bounded["prompt_metadata_omission"] != nil {
+			metadataOmissions++
+		}
+		rows = append(rows, map[string]any{"id": fmt.Sprintf("row-%d", n+1), "row": bounded})
+	}
+	data, _ := json.Marshal(map[string]any{"display_rows": rows})
+	b.WriteString("- ")
+	b.Write(data)
+	b.WriteByte('\n')
 	fmt.Fprintf(&b, "- query_receipts_shown=%d; prompt_member_rows=%d/%d; objects_with_metadata_omissions=%d; inventory_section_byte_limit=%d. Preview omissions never change the original query counts, completeness or causal authority.\n\n", len(records), rowCount, traceEventInventoryPromptRowLimit, metadataOmissions, traceEventInventoryPromptByteLimit)
 	return b.String()
-}
-
-// Share the existing member budget across all retained query identities. Small
-// or empty inventories release their share; no query is limited to eight rows.
-func traceEventInventoryPromptRowCounts(records []types.ObservationRecord) []int {
-	counts := make([]int, len(records))
-	remaining := traceEventInventoryPromptRowLimit
-	for row := 0; remaining > 0; row++ {
-		progress := false
-		for n, record := range records {
-			if len(record.EventSearchInventory.Rows) <= row {
-				continue
-			}
-			counts[n]++
-			remaining--
-			progress = true
-			if remaining == 0 {
-				break
-			}
-		}
-		if !progress {
-			break
-		}
-	}
-	return counts
 }
 
 // Prefer producer-parsed fields, including rows whose raw preview is truncated.

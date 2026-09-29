@@ -99,7 +99,7 @@ func TestTraceEventInventoryActualFinalizerKeepsMainQueryAfterNarrowDrilldowns(t
 			t.Fatal("exact event-name filter was widened or rewritten")
 		}
 	}
-	if mainRows != 19 || !strings.Contains(prompt, "prompt_member_rows=23/32") || !strings.Contains(prompt, "not a request population") {
+	if mainRows != 19 || !strings.Contains(prompt, "prompt_member_rows=19/32") || !strings.Contains(prompt, "not a request population") {
 		t.Fatalf("broad inventory count/lookup boundary incorrect: main rows=%d", mainRows)
 	}
 	afterLedger := answerDocObservationLedger(ctx)

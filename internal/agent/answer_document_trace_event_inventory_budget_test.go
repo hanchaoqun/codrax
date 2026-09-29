@@ -26,6 +26,9 @@ func traceEventInventoryBudgetRecord(t *testing.T) types.ObservationRecord {
 func traceEventInventoryDistinctRecord(base types.ObservationRecord, index int) types.ObservationRecord {
 	out := base
 	out.ID = fmt.Sprintf("query-%02d", index)
+	// Budget fairness fixtures are independent captures; overlap is tested
+	// separately through real public queries and the finalizer adapter.
+	out.SourceRef.CaptureIdentityPath = fmt.Sprintf("capture-%02d", index)
 	out.EventSearchInventory = types.CloneTraceEventSearchInventory(base.EventSearchInventory)
 	out.SourceRef.QueryScopeID = out.ID
 	out.EventSearchInventory.QueryScopeID = out.ID
@@ -123,6 +126,7 @@ func TestTraceEventInventoryByteBudgetDeclaresOversizedMetadataWithoutChangingFa
 			}
 		}
 		i := r.EventSearchInventory
+		r.SourceRef.CaptureIdentityPath = fmt.Sprintf("capture-%02d", n)
 		i.Query.Patterns = []string{large, large}
 		i.Caveats = []string{large, large}
 		for row := range i.Rows {

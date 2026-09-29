@@ -111,6 +111,8 @@ type traceEventInventoryPromptView struct {
 func traceEventInventoryPromptViews(t *testing.T, prompt string) []traceEventInventoryPromptView {
 	t.Helper()
 	var views []traceEventInventoryPromptView
+	pool := map[string]types.TraceEventSearchInventoryRow{}
+	var refs [][]string
 	for _, line := range strings.Split(prompt, "\n") {
 		if !strings.HasPrefix(line, `- {`) {
 			continue
@@ -120,9 +122,46 @@ func traceEventInventoryPromptViews(t *testing.T, prompt string) []traceEventInv
 			t.Fatal(err)
 		}
 		if view.Inventory == nil {
+			var shared struct {
+				Rows []struct {
+					ID  string                             `json:"id"`
+					Row types.TraceEventSearchInventoryRow `json:"row"`
+				} `json:"display_rows"`
+			}
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "- ")), &shared); err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range shared.Rows {
+				if _, exists := pool[entry.ID]; exists {
+					t.Fatalf("duplicate display ID %s", entry.ID)
+				}
+				pool[entry.ID] = entry.Row
+			}
 			continue
 		}
+		var membership struct {
+			Inventory struct {
+				Refs []string `json:"row_refs"`
+			} `json:"inventory"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "- ")), &membership); err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, membership.Inventory.Refs)
 		views = append(views, view)
+	}
+	for n := range views {
+		if refs[n] == nil {
+			continue
+		}
+		views[n].Inventory.Rows = []types.TraceEventSearchInventoryRow{}
+		for _, id := range refs[n] {
+			row, ok := pool[id]
+			if !ok {
+				t.Fatalf("dangling display reference %s", id)
+			}
+			views[n].Inventory.Rows = append(views[n].Inventory.Rows, row)
+		}
 	}
 	return views
 }
@@ -143,6 +182,7 @@ func TestTraceEventInventoryPromptBudgetDoesNotChangeCoverageOrAuthority(t *test
 	for n := 0; n < 6; n++ {
 		r := base
 		r.ID = fmt.Sprintf("query-%d", n)
+		r.SourceRef.CaptureIdentityPath = fmt.Sprintf("capture-%d", n)
 		r.EventSearchInventory = types.CloneTraceEventSearchInventory(base.EventSearchInventory)
 		i := r.EventSearchInventory
 		r.SourceRef.QueryScopeID = fmt.Sprintf("query-%d", n)
