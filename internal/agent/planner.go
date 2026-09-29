@@ -767,6 +767,9 @@ func (e *plannerEvaluator) buildWorkflowSeedSection(ctx *types.AgentContext) str
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
+	if run := ctx.Mutable.WriteWorkflowRun(); run != nil {
+		return buildCurrentWriteBatchPrompt(run)
+	}
 	ir := ctx.Mutable.WriteAnalysisIR()
 	if ir == nil {
 		return ""
@@ -856,11 +859,13 @@ func (e *plannerEvaluator) buildProofFollowupMaterializationSection(ctx *types.A
 	}
 	var b strings.Builder
 	b.WriteString("## Verification proof materialization\n\n")
-	b.WriteString("Typed workflow state marks this active batch as a verification proof follow-up over an already-applied worktree, with no typed code-failure handoff currently authorizing repair. Materialize verification by emitting `changes: []` plus `verification_probes[]` that import or execute the changed code and bind the uncovered typed criteria. Do not create or edit production, test, fixture, documentation, or other auxiliary files to manufacture proof; any file repair requires a separate impact batch or a same-batch typed verification-failure handoff.\n")
+	b.WriteString("Typed workflow state marks this active batch as a verification proof follow-up over an already-applied worktree, with no typed code-failure handoff currently authorizing repair. Keep `changes: []`. Do not create or edit production, test, fixture, documentation, or other auxiliary files to manufacture proof; any file repair requires a separate impact batch or a same-batch typed verification-failure handoff.\n")
 	if ctx.Mutable.NativeTestRegistrationAuthorization() != nil {
-		b.WriteString("This dispatch also permits read-only existing-test registration as an alternative to probes: first read each entire existing Python unittest file and receive its contents in a model turn, then emit `changes: []` and `project_test_observations[]` with the exact test_path, assertion_suite, assertion_id and existing contract_refs. Do not include verification_probes or change contracts in that registration. It is not a test pass: verification must execute these exact tests again. No additional metadata fields are needed.\n")
+		b.WriteString("This dispatch permits read-only existing-test registration: first read each entire existing Python unittest file and receive its contents in a model turn, then emit `project_test_observations[]` with the exact test_path, assertion_suite, assertion_id and existing contract_refs. Do not include verification_probes or change contracts in that registration. It is not a test pass: verification must execute these exact tests again. No additional metadata fields are needed. Alternatively, use `verification_probes[]` to execute the changed code and bind the uncovered typed criteria when existing tests do not cover them; do not combine these two plan shapes.\n")
+	} else {
+		b.WriteString("Materialize verification with `verification_probes[]` that import or execute the changed code and bind the uncovered typed criteria.\n")
 	}
-	fmt.Fprintf(&b, "Before forming probes, use bounded `read_file` calls if needed to inspect the current worktree's changed code, relevant tests, and necessary project metadata. Use the current repository root and returned source paths; do not assume prior plan summaries contain current bytes. This dispatch allows up to %d successful reads or %d failed reads; the next turn closes reads when either count is reached, including all calls already admitted in the same tool batch. Rejected plan submissions do not refresh this allowance. Repository search and source writes remain unavailable in this proof-only lane.\n", plannerHandoffSynthesisBaseReadBudget, plannerReadFailureBudget)
+	fmt.Fprintf(&b, "Before forming the verification plan, use bounded `read_file` calls if needed to inspect the current worktree's changed code, relevant tests, and necessary project metadata. Use the current repository root and returned source paths; do not assume prior plan summaries contain current bytes. This dispatch allows up to %d successful reads or %d failed reads; the next turn closes reads when either count is reached, including all calls already admitted in the same tool batch. Rejected plan submissions do not refresh this allowance. Repository search and source writes remain unavailable in this proof-only lane.\n", plannerHandoffSynthesisBaseReadBudget, plannerReadFailureBudget)
 	if len(batch.ExpectedPaths) > 0 {
 		fmt.Fprintf(&b, "- expected_paths: %s\n", strings.Join(batch.ExpectedPaths, ", "))
 	}

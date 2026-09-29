@@ -9261,7 +9261,7 @@ func verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
 	id := nextRepairBatchID(run, active.ID, "proof-probe-plan")
 	return &writeflow.WriteBatchPlan{
 		ID:                   id,
-		Goal:                 "Author one bounded executable verification probe for the remaining typed proof obligations against the already-applied worktree; keep changes empty unless a later typed probe failure proves a production repair is needed.",
+		Goal:                 "Obtain fresh executable verification evidence for the remaining typed proof obligations against the already-applied worktree, using the verification plan shapes authorized for this dispatch; keep changes empty unless a later typed verification failure proves a production repair is needed.",
 		Purpose:              "verification_proof_followup",
 		Status:               writeflow.BatchNeedsExploration,
 		NeedsCodeExploration: true,

@@ -45,16 +45,26 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 		b.WriteString(note)
 		b.WriteByte('\n')
 	}
-	if pack.BatchID != "" {
-		fmt.Fprintf(&b, "- batch_id: %s\n", pack.BatchID)
+	run := ctx.Mutable.WriteWorkflowRun()
+	if run != nil {
+		if batch := currentWriteBatch(run); batch != nil {
+			fmt.Fprintf(&b, "- batch_id: %s\n- durable_batch_goal: %s\n", batch.ID, batch.Goal)
+		} else {
+			b.WriteString("- active_batch_unavailable: historical pack identity does not select a current batch.\n")
+		}
+		if pack.BatchID != "" {
+			fmt.Fprintf(&b, "- source_pack_batch_id: %s\n", pack.BatchID)
+		}
+	} else {
+		if pack.BatchID != "" {
+			fmt.Fprintf(&b, "- batch_id: %s\n", pack.BatchID)
+		}
+		if consumer != types.WriteConsumerController && pack.Goal != "" {
+			fmt.Fprintf(&b, "- goal: %s\n", pack.Goal)
+		}
 	}
 	if consumer == types.WriteConsumerController {
-		if goal := activeWriteContextBatchGoal(ctx); goal != "" {
-			fmt.Fprintf(&b, "- durable_batch_goal: %s\n", goal)
-		}
 		b.WriteString("- authority_boundary: context-pack artifact summaries are evidence for the durable batch, not proof of remaining work; use typed batch status, verification results, and explicit outstanding obligations to choose append versus finish.\n")
-	} else if pack.Goal != "" {
-		fmt.Fprintf(&b, "- goal: %s\n", pack.Goal)
 	}
 	b.WriteString("- items:\n")
 	for _, item := range view.Items {
@@ -76,23 +86,6 @@ func buildWriteContextPackPromptSection(ctx *types.AgentContext, consumer types.
 		fmt.Fprintf(&b, "  - ... +%d more context item(s)\n", view.DroppedItems)
 	}
 	return strings.TrimSpace(b.String())
-}
-
-func activeWriteContextBatchGoal(ctx *types.AgentContext) string {
-	if ctx == nil || ctx.Mutable == nil {
-		return ""
-	}
-	run := ctx.Mutable.WriteWorkflowRun()
-	if run == nil {
-		return ""
-	}
-	activeID := strings.TrimSpace(run.ActiveBatchID)
-	for _, batch := range run.Batches {
-		if strings.TrimSpace(batch.ID) == activeID {
-			return strings.TrimSpace(batch.Goal)
-		}
-	}
-	return ""
 }
 
 func activeWriteContextScope(ctx *types.AgentContext) (string, string) {
