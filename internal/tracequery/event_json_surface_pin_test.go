@@ -8,7 +8,8 @@ package tracequery
 // without changing the sparse scheduler golden.
 //
 // Coverage, precisely: for the field kinds the fill knows (string, int/int32/
-// int64, float64, bool, []int, scalar pointers and nested structs) this fails on any drift in key order,
+// int64, float64, bool, []int, []string, []struct, scalar pointers and nested
+// structs) this fails on any drift in key order,
 // key names, omitempty behavior, or nil-group handling. A field of any OTHER
 // kind cannot slip past as a silently-unfilled zero value (the []string
 // double-green loophole): the fill fatals on unhandled kinds, and the
@@ -30,7 +31,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 225
+const eventSerializableLeafCount = 234
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -72,6 +73,13 @@ func eventFillByJSONTag(t *testing.T, v reflect.Value) int {
 		}
 		if fv.Kind() == reflect.Struct {
 			leaves += eventFillByJSONTag(t, fv)
+			continue
+		}
+		if fv.Kind() == reflect.Slice && f.Type.Elem().Kind() == reflect.Struct {
+			// One populated representative exercises every nested leaf without
+			// making the schema count depend on the number of array elements.
+			fv.Set(reflect.MakeSlice(f.Type, 1, 1))
+			leaves += eventFillByJSONTag(t, fv.Index(0))
 			continue
 		}
 		leaves++
@@ -274,6 +282,23 @@ const eventJSONGoldenFull = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
+  "native_hook_semantics": {
+    "schema_version": 6429,
+    "fields": [
+      {
+        "key": "key",
+        "type": "type",
+        "unit": "unit",
+        "status": "status",
+        "value": "value",
+        "issue_reason": "issue_reason",
+        "omitted": {
+          "original_bytes": 2980,
+          "sha256": "sha256"
+        }
+      }
+    ]
+  },
   "marker_name_origin": {
     "source_table": "source_table",
     "name": {
@@ -539,6 +564,23 @@ const eventJSONGoldenView = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
+  "native_hook_semantics": {
+    "schema_version": 6429,
+    "fields": [
+      {
+        "key": "key",
+        "type": "type",
+        "unit": "unit",
+        "status": "status",
+        "value": "value",
+        "issue_reason": "issue_reason",
+        "omitted": {
+          "original_bytes": 2980,
+          "sha256": "sha256"
+        }
+      }
+    ]
+  },
   "marker_name_origin": {
     "source_table": "source_table",
     "name": {
