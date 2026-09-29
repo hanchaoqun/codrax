@@ -140,7 +140,8 @@ func (l *controllerRegistrationLLM) Chat(_ context.Context, messages []llm.Messa
 			deliveredTeaching.WriteString(message.Content)
 		}
 		for _, rule := range []string{
-			"This dispatch also permits read-only existing-test registration as an alternative to probes:",
+			"This dispatch permits read-only existing-test registration:",
+			"do not combine these two plan shapes.",
 			"first read each entire existing Python unittest file and receive its contents in a model turn",
 			"It is not a test pass: verification must execute these exact tests again.",
 			"No additional metadata fields are needed.",

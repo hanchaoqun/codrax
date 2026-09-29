@@ -57,7 +57,11 @@ func TestReferencedDictionaryBothPublicIntakesPreserveConsumerOutput(t *testing.
 				t.Fatal(err)
 			}
 			for _, want := range []string{"AppStartup:BOOTSTRAP", "AppStartup:coldStart", "AppStartup:startup", "print: SYS/EVENT: phase=ready", "print: SYS/BOOTSTRAP: phase=bootstrap"} {
-				if !strings.Contains(string(body), want) {
+				found := strings.Contains(string(body), want)
+				if strings.HasPrefix(want, "AppStartup:") {
+					found = traceDBTestHasMarkerLabel(t, string(body), want)
+				}
+				if !found {
 					t.Fatalf("retained consumer lost %q", want)
 				}
 			}

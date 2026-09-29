@@ -65,6 +65,9 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 		"INSERT INTO native_hook VALUES (1, 7000000, 0, 'malloc', 8192, 1, 1)",
 	)
 
+	if traceDBTestHasMarkerLabel(t, body, "AppStartup:coldStart") {
+		t.Fatal("crossing lane leaked a typed startup span")
+	}
 	for _, forbidden := range []string{
 		"tracing_mark_write: B|100|app",
 		"tracing_mark_write: B|100|cross-callstack",

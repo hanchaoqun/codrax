@@ -297,8 +297,8 @@ func TestPlannerBuildInitialInstruction_WorkflowExpectedPathsSuppressInvestigati
 	}
 
 	got := e.BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(got, "## Rolling write workflow") {
-		t.Fatalf("expected workflow seed section; got:\n%s", got)
+	if !strings.Contains(got, "## Current write batch") || !strings.Contains(got, "phase: ready_to_plan") || !strings.Contains(got, "expected_paths: pkg/needle.go") {
+		t.Fatalf("expected current workflow section; got:\n%s", got)
 	}
 	if strings.Contains(got, "## Likely-relevant files") {
 		t.Fatalf("typed workflow expected paths should suppress keyword rediscovery seed; got:\n%s", got)

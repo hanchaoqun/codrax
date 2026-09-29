@@ -147,7 +147,11 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	}
 	body := string(bodyBytes)
 	for _, want := range []string{"sys_2", "TaskPool-93", "AppStartup:cold", "good.so", "good_counter"} {
-		if !strings.Contains(body, want) {
+		found := strings.Contains(body, want)
+		if strings.HasPrefix(want, "AppStartup:") {
+			found = traceDBTestHasMarkerLabel(t, body, want)
+		}
+		if !found {
 			t.Fatalf("valid identity sibling %q missing:\n%s", want, body)
 		}
 	}

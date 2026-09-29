@@ -155,6 +155,9 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
+	if !traceDBTestHasMarkerLabel(t, body, "AppStartup:coldStart") {
+		t.Fatal("extended fixture lost startup stage")
+	}
 	for _, want := range []string{
 		"tracing_mark_write: B|500|DoWork",
 		"tracing_mark_write: B|500|AsyncWork",
@@ -164,7 +167,6 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		"tracing_mark_write: F|500|FrameActual-123|hconv-frame-1",
 		"tracing_mark_write: B|500|sys_64",
 		"tracing_mark_write: S|500|TaskPool-99|99",
-		"tracing_mark_write: B|500|AppStartup:coldStart",
 		"tracing_mark_write: B|500|SoInit:libfoo.so",
 		"tracing_mark_write: I|500|NativeHook:AllocEvent",
 		"tracing_mark_write: C|500|HeapSize|8192",
@@ -721,6 +723,9 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
+	if !traceDBTestHasMarkerLabel(t, body, "AppStartup:coldStart") {
+		t.Fatal("hmtrace fixture lost startup stage")
+	}
 	for _, want := range []string{
 		"tracing_mark_write: B|500|DoWork",
 		"tracing_mark_write: B|500|AllocTask",
@@ -733,7 +738,6 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 		"tracing_mark_write: F|500|FrameActual-123|hconv-frame-1",
 		"tracing_mark_write: C|500|pss_kb|2048.0",
 		"print: [I][TEST] hello world",
-		"tracing_mark_write: B|500|AppStartup:coldStart",
 		"tracing_mark_write: I|500|NativeHook:AllocEvent",
 		"tracing_mark_write: C|500|HeapSize|8192",
 		"# codrax_hisysevent/v1 ts_ns=3700 ",
