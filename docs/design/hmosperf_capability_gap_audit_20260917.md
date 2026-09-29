@@ -4461,3 +4461,73 @@ gzip两条完整数表全对：appid27599、2/4帧、1020000000→1040000000/110
 4. 03.2/04.2/08.3/08.4/18.2旧验收、05.1多文件身份、IO/Binder及官方关系语义保原ID；证据充分的成文错误保原始结果，未证明波动不称波动，也不以第三次追绿挤占完整能力交付。
 
 最终79唯一任务=16完整实现交付+63开放，重复0；50待实施/7部分实施/2待验收/3验收中/1持续执行。17.8完整退出条件满足，交付数+1；01.3/16.4仅交付共享展示子能力，父项未关。稳定5项验收父项和本批两份完整人工FAIL分别记账，不重复相加或代销。显式时间窗、Trace因果投影/自动补齐、链上业务/调度/算力/D状态/IO/语义优化依据、root-causes旁路及600/300/600秒与活跃流保护未改。
+
+## 187. 当前写批次投递与启动源名称状态（HMC-01.3 / 16.4 / 18.5 / 04.3 / 17.7）
+
+### 187.1 起点、参考设计与边界
+
+2026-09-28从干净`8a854972a`继续，8207 fetch正式exit0，起点0 ahead/0 behind。稳定79唯一任务=16完整交付+63开放、重复0。只施工两轨：§180/186已证的当前写run/batch与初始seed矛盾；启动源业务名称/引用/解析状态端到端保留。原人工FAIL不回写，不把这两个切口扩称为全部补证或启动实例完成。
+
+复读参考`core/preprocess/launch_ops.py:180–240,328–384,393–422,494–546`：按ipid组织多次启动、首帧限定当前进程与下一实例上界、缺阶段明确missing，意图是防止多次启动和邻近绘制事件混账。本项目应借用显式实例与未知状态，而不是复制同名重叠就去重为同一事务、前置阶段只归首实例、缺duration补0、把阶段gap挪进lifecycle但duration仍旧值等假设。源名称是实例与业务阶段建模的前置事实，不能用`AppStartup:startup`占位词反推真实业务名，也不能据此证明启动归属或根因。
+
+### 187.2 写模式：当前状态替代旧目标，权限不变
+
+`571ce8fd3`新增共享当前批次显示：仅唯一、非空ActiveBatchID对应的durable batch可投递，阶段由`DeriveBatchAttemptState`派生。显示当前goal/purpose/执行模式/plan/report/状态/路径；缺失或重复主动批次显式不可用，不回退初始IR。没有run的独立规划仍走原seed。context-pack头同步当前批次，历史pack仅列来源；不改历史证据、条目过滤、审批或证明权限。
+
+补证目标改为当前权限允许的新执行凭证，不固定要求探针。私有NativeTestRegistrationAuthorization存在时才教学完整读取既有Python unittest后登记精确身份、不得与探针混用、必须新执行；没有授权仍维持探针形态。持久化文字不恢复权限，同批typed代码失败可按原路径退出proof-only限制，其他源码修复不得越权。未改read scheduler、工作树/审批/指纹/完成硬门。
+
+公开回归涵盖实际planner初始消息、持久恢复、旧IR不再驱动目标、历史pack不变、三种消费者、规范failed-verify/complete/blocked阶段、缺失/歧义active，以及授权存在/撤销/恢复不带授权/混合impact。RED 99532正式exit1，GREEN 88898正式exit0，`/tmp/codrax-hmc187-current-batch-{red,green}.log`。真实评测实际命中新批次与登记，但来源测试身份尚未充分交接，见187.5，不以本片代销18.5。
+
+### 187.3 启动名称：有界来源协议贯通实际成文
+
+`e3f78e4b5`新增闭合`MarkerNameOrigin`：固定源表app_startup，复用nullable名称、精确字符串引用和resolved/null/unresolved/非法存储类状态，合法0与已知空名独立。JSON以规范base64URL承载，拒绝未知键、重复键、非规范编码、矛盾状态；源名4096字节、encoded8192字节上限。格式器校验B的展示标签与源名一致、E不伪造普通marker.name；不靠关键词猜名称状态。
+
+来源随共享同步区间暂存，在内存/SQLite spill、排序、抑制和发布之间保持一致；payload与驻留预算计入新增字段，stage字符串驻留基数256→272。B/E均发布`codrax_trace_mark_exact/v2`，只查结束端也保该源行名称状态。普通v1与原始输入兼容，v47使旧缓存失效；大多数Event不分配新元数据，附加指针及字符串按实占纳入内存计算，普通行前缀探测不额外分配。
+
+typed语义分别输出source.table/representation、marker.business_name、ref/status和label_origin；展示标签、源业务名、物理事件名不再混为一项。沿真实Prepare→TraceQuery→ledger→finalizer适配器验证，不只检查内部DTO。未知状态不补空名或0、不从邻近事件求身份；语义省略与512字节raw预览、32对象/128KiB等原预算不放宽。全量JSON surface手工登记221→225叶，稀疏scheduler不变。
+
+**明确兼容边界**：普通ftrace viewer忽略v2注释，所以本片AppStartup端点是Codrax typed可见，不声称标准viewer仍显示原同步条。coverage新增`official_viewer_typed_only_sync_spans_name_origin`计数，如实区分表示损失，而非误称无法表示名称。该普通viewer可见性需后续补齐并保留在04.3/17.7；已有AppStartup进程/CPU legacy准入R1b-C未在本片修复，不借名称元数据提升权威。完整实例/冷热/首帧/可交互终点也未实现。
+
+正反矩阵覆盖0/NULL/TEXT/REAL/BLOB/缺键/重复/空/Unicode及分隔符、B/E窗口、内存与强制spill逐字节一致、实际finalizer已知/未知状态；v2错标签/动作/版本/额外字段/重复字段均拒绝。event_search为含端点定位查询，起点单窗测试使用Nextafter而非偷偷改变公开窗口规则。首轮局部失败及修复日志`/tmp/codrax-hmc187-{origin-initial,origin-scoped,scoped,handoff}.log`保留。
+
+### 187.4 验证与冻结
+
+9631定向正式exit0：agent4.652、hitraceconv32.537、tracequery2.806、tracewire2.162、orchestrator1.905、tool14.308、types2.001秒，日志`/tmp/codrax-hmc187-scoped-final.log`。17132相邻race正式exit0：agent4.313、hitraceconv10.087、tracequery2.807、tracewire4.406秒，日志`/tmp/codrax-hmc187-race.log`。87916构建正式exit0，revision`e3f78e4b56d2`、build time `2026-09-29T02:59:09Z`，日志`/tmp/codrax-hmc187-build.log`。
+
+首轮41181全仓正式exit1：84测试包PASS、13无测试、3包FAIL，日志`/tmp/codrax-hmc187-sealed-full.log`。7个顶层失败为旧“Rolling write workflow”标题、四处直接匹配旧AppStartup文本字节、两个公共登记测试要求旧教学开头。`8d06ccc1e`迁移为当前goal/phase/paths、真实解析后同等名称（仍保所有计数/身份/负控），登记教学每条仅一次且明确两种形状不混用；交叉同步区间负控另加typed标签不可泄漏，避免原raw负控变成空验。27661两包兼容定向和13265公共登记回归正式exit0，日志`/tmp/codrax-hmc187-{compat,registration-compat}.log`。
+
+生产代码仍为原live快照，Go测试输入在`8d06ccc1e`再次冻结。84501独立完整回归正式exit1：86测试包PASS、13无测试、1包FAIL，日志`/tmp/codrax-hmc187-final-full.log`。唯一剩余失败是`TestB1715SourceSyntaxPythonPreparationLegacyAndPreCanceled/nil_parent_keeps_candidate_fallback`：首个新写shebang候选未留下进入标记，第二候选成功，子测试3.18秒。该生产探测本来就允许候选在3秒未成功后继续，不能以脚本内部标记缺失证明resolver未尝试；尚无证据确认具体主机启动延迟机制。67944原样重复10次正式exit0（22.396秒），日志`/tmp/codrax-hmc187-python-candidate-recheck.log`，不倒签全仓失败。
+
+`ace0601e7`仅将这个候选顺序/预取消fixture迁移到仓库已有受控原生子进程，避免新脚本启动时序混入被测合同；保真实LookPath/监督进程/参数/首失败后成功/预取消不启动/legacy和nil入口，新增失败诊断。没有mock生产resolver、删断言、延长3秒产品预算或修改LLM超时。82209相关重复10次正式exit0（2.279秒），日志`/tmp/codrax-hmc187-python-candidate-native.log`；70484相邻race重复3次正式exit0（9.559秒），日志`/tmp/codrax-hmc187-python-candidate-race.log`。第三次独立完整70728在`ace0601e7`冻结测试输入后正式exit0：87测试包PASS、13无测试、零失败，日志`/tmp/codrax-hmc187-exit-full.log`；tool478.739、tracequery129.171、types38.940秒。这是测试fixture加固，不新增生产语义或第三例live；前两轮失败独立保留，不拼接定向绿代替末版完整收据。
+
+### 187.5 固定双例、未通过项与下一轨道
+
+48682固定2并行×1正式exit0：empty Python写例327秒、原字典读例247秒，机器0/2、完整人工0/2。原机器结果、完整人工、精确上下文定位/新报告/源码与SHA见[人工审计](../../eval/parallel_selected_summary_hmc_current_batch_startup_20260928_manual_audit.md)，没有第三次评测。旧8/5ms正则不支持表头单位的误报照实注释，不回签原判。
+
+写例当前proof批次投递/完整读/只读登记/新执行全部真实命中，源码正确且既有测试不变、4条断言PASS。但两轮登记suite分别为`unittest@tests::TotalTest`与`unittest.TestCase`，真实为`tests.test_totals.TotalTest`，精确证明门正确保unverified，用户输出没有伪报全验收。高ROI接缝是controller已有native身份而新proof planner的实际消息没有该快照：源码`runControllerPlanBatch:1298–1300`先授权再`prepareControllerPlanningState:4298–4303`清空plan/report，helper按当前plan判断自然返回空。清理旧执行状态不能取消；应建立绑定私有授权源计划、文件/指纹/代次的独立只读身份显示，不把旧报告恢复成新执行证明。下一批经真实dispatch/恢复验证，含错误run/源计划/指纹、文件换代、撤销授权、不支持runner、缺报告、过期执行及显示不授证明等负控。重复proof criteria与原请求旧状态也需统一，不添加某类名提示。
+
+字典15共享对象中窄窗13条完整，另外2条扩窗事实都有独立来源；四段8/4/4/5ms与5行系统表正确，未知域不再冒充载体，单点事件不再混入阶段表。正文却说同窗7条、均APP_LAUNCH，并把35ms包络叫总窗口耗时、未知名叫子阶段、推测解析表未下发及窗外同一启动序列。字段完整不能证明所有失误是模型波动；结构化预览/事件族路由/用户窗与扩窗用途/实例身份是高ROI系统改进面，不能删除合法窗外依赖或用词扫描硬门。
+
+下一完整能力轨优先04.3启动实例与主体，保参考的进程/实例/首帧边界意图；17.7活跃/WAL一致快照、普通viewer兼容、17.6实机/平台、05.1来源和IO/Binder/官方关系语义均留队。通用压缩元数据不能直接当因果缺证的旧问题保留16.4/18.4。根因sidecar本次schema2空列表、`trace_root_cause_contract_not_active`，没有以阶段长短或系统事件授根因；全链路保护不变。
+
+收尾稳定任务仍79=16完整交付+63开放，重复0；本批完整能力新增0、可用子能力2，04.3从待实施转部分实施后为49待实施/8部分实施/2待验收/3验收中/1持续执行。5项稳定验收父项仍在，与本批两份完整人工FAIL分列，不重复计数。任务入口同步纠正01.3/16.4/17.7/18.5过期的“尚未实施”描述，旧证据仍留历史章节，避免文档自身矛盾。
+
+### 187.6 下一能力切口的参考发现与退出矩阵（设计，未交付）
+
+进一步复核`launch_ops.py:1–170,384–424`：参考名为FirstFrame的量实际上是当前进程/主线程首个ReceiveVsync的回调区间，并非显示呈现、输入响应或可交互完成见证；其顶部冷/温/热序列与PRE_PHASES“进程级只出现一次”也不能直接作为通用归属协议。注释声称微秒但换算系数1e-6且字段名ns，存在自相矛盾。Codrax应从生产者已知单位和关系出发，不能照抄名字、注释或缺事件推断冷/热。
+
+04.3后续须覆盖以下独立维度，全部完成前父项保持部分实施：
+
+- **源事件与实例身份**：采集代次+源记录键、明确进程代次/已知未知状态；同名/同时间/同PID复用及两个进程并行不可合并，未知ipid不可聚成一个真实实例。源app_startup区间与callstack观察各保来源，未证明同一启动时不强合。
+- **阶段与关系**：真实起止与协议给出的归属单列；嵌套/交错/重复锚点、异步线程和缺完成均有正反例。阶段间gap保独立未知，不伸长已测区间伪装为执行；自耗时/包络/完整实例时长/用户窗口墙钟不混账。
+- **启动结果**：首个绘制回调、显示呈现、可交互分别命名和出证；下一实例或邻近回调只作候选，不补当前完成。冷/温/热须有源协议证据，不由缺少前置片段直接定型。
+- **用户范围与能力退化**：明确窗口外起点、右边界、只含结束端、部分捕获、0时长/未知时长各测；自动补齐和因果依赖可扩查但不改目标统计人口。普通viewer可见性、CPU未知与业务进程/发起线程身份是显式出口，不能由元数据补权。
+- **组合与交接**：自然问题例如“这份采集里每次打开页面花了多久，主要卡在哪个阶段？”和“只看这段时间，有哪些启动没完成？”；用户不背单位/缺失/配对约束。独立oracle检验实例/阶段/结果/范围及根因链资格，沿公开准备→查询组合→实际finalizer，不能只测内部算子。
+
+以上补充参考意图及不宜照搬的推断，属于同一04.3/17.7工作范围，不新增重复编号或验收得分。下一高影响缺陷仍为187.5已证的登记身份投递，不继续追同一答案措辞。
+
+### 187.7 发布收尾
+
+末版全仓正式通过后，47887 fetch正式exit0，4 ahead/0 behind，`git diff --check`通过。25281构建正式exit0，revision`8d06ccc1eebf-dirty`、build time `2026-09-29T03:19:15Z`，日志`/tmp/codrax-hmc187-final-build.log`；该构建时未提交差异仅文档，后续`ace0601e7`仅测试fixture。真实模型评测仍使用187.4记录的干净`e3f78e4b56d2`快照，不将不同构建标成同一revision。
+
+37934普通push正式exit0，四笔代码/测试提交`571ce8fd3`、`e3f78e4b5`、`8d06ccc1e`、`ace0601e7`已推送至origin/main；未强推、未覆盖旧失败。架构、当前任务队列、机器原结果与完整人工审计按本批汇总提交。完成数仍16/79，63开放，5项稳定验收父项及本批两份完整人工FAIL保留；下一批按187.5/187.6双轨推进，不继续追第三例。

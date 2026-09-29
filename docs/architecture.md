@@ -1345,7 +1345,9 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **支持来源**：HarmonyOS hdc shell hitrace、Android adb shell atrace、Android systrace（旧名）、perfetto 文本 dump。
 **暂不支持**：C/C++ glibc 裸 backtrace（只有返回地址）、tail/stream/远端源（Loki / ES / CloudWatch）。
 
-**系统事件可逆观察（HMC-05.1/17.7）**：HiSys的域/名称无法解析或不适合传统print语法时，不再丢弃有合法时间的行。版本化观察载体保原SQL纳秒时间、nullable TID、名称引用/解析状态、内容存储类（NULL/TEXT/BLOB/INTEGER/REAL），不补线程、CPU或因果边；特殊字符、换行及前后空白经有界编码往返。合法名称、已知TID及普通单行TEXT沿原print字节路径，parser同时保留已解析的内容尾部。共享时间扫描、流式/索引查询与载体注册均识别新格式，ParserVersion=v46；原件只读、输入/输出事务、SQL全表保真及AppStartup准入不变。
+**系统事件可逆观察（HMC-05.1/17.7）**：HiSys的域/名称无法解析或不适合传统print语法时，不再丢弃有合法时间的行。版本化观察载体保原SQL纳秒时间、nullable TID、名称引用/解析状态、内容存储类（NULL/TEXT/BLOB/INTEGER/REAL），不补线程、CPU或因果边；特殊字符、换行及前后空白经有界编码往返。合法名称、已知TID及普通单行TEXT沿原print字节路径，parser同时保留已解析的内容尾部。共享时间扫描、流式/索引查询与载体注册均识别新格式；原件只读、输入/输出事务与SQL全表保真不变。
+
+**启动名称来源（HMC-04.3/17.7）**：AppStartup同步端点经共享区间裁决后，以`codrax_trace_mark_exact/v2`保源表、源业务名、字典引用及resolved/unresolved/null/非法存储类状态，展示标签与真实名称分开。合法0、已知空名和未知不能混同；名称状态不从兜底标签反推。两端都带同一源行名称信息，结束端窗口不依赖窗外起点重建名称；内存和SQLite暂存、索引和最终语义投影同路，ParserVersion=v47使旧解析缓存失效。v1及普通输入保持兼容，特殊分隔符经编码而非替换；共享抑制、排序、时间、实例和根因权限不变。代价是普通ftrace查看器忽略v2注释，覆盖报告用`official_viewer_typed_only_sync_spans_name_origin`明确计数，不声称标准查看器可见。原AppStartup进程/CPU的legacy准入问题（R1b-C）、完整启动实例/首帧/可交互建模仍开放，本片名称元数据不能提升其权限。
 
 **事件业务语义交接（HMC-01.3/16.4）**：event_search生产者按固定字段描述符投影已解析的Plugin域/名/内容及marker/counter，连同单位、known/unavailable/invalid/omitted状态交给库存DTO、ledger和最终回答。数值用精确字符串，已知空值与未知、合法0与缺测分开；不从raw预览重建字段，不自动取得根因/调度/配对权限。兼容旧无semantics库存，Jank保原专臂。单值1024字节、32字段、整投影16KiB；超限不截断成另一个合法身份，而保长度/SHA及省略状态。最终仍32查询/32共享行/128KiB预算，优先保类型/单位/未知状态及精确数值，整投影实在放不下时明确披露省略并绑定原始JSON摘要；不改accepted ledger或查询计数/范围。IO/Binder及官方关系字段尚未接入此投影，不能据此宣称全事件语义已齐。
 
@@ -1915,6 +1917,8 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 ### 8.20 多阶段（顺序阶段 = workflow batches）
 
 顺序多阶段语义由 controller batch 体系承载：`WorkflowSeedFromWriteAnalysis` 把 `WriteAnalysisIR.PhaseProposal`（split=sequential/parallel）的每个 phase 转成一个 planned batch,controller 按 batch 推进（每 batch 独立 plan→apply→verify attempt 记录、retry 预算、canonical attempt state、finish 硬门、失败证据落盘）。
+
+有durable run时，planner投递当前唯一ActiveBatchID对应批次及`DeriveBatchAttemptState`派生阶段，不再每轮把初始分析seed当next_batch；缺失/歧义主动批次显式不可用，不挑历史目标替代。context-pack头同样用当前批次目标，并单列历史pack来源；既有条目作用域、历史证据与权限均不变。独立无run规划仍沿原seed入口。补证目标只要求当前授权形态的新执行凭证，不强制探针；只有当次原生测试登记私有授权存在时，教学才允许只读既有测试登记，且必须完整读取并重新执行。持久化恢复/历史文字不重建授权，修复代码仍须独立typed失败或impact路径。
 
 **遗留 PlanGroup 工件兼容**：早期版本以 `PlanGroup` 调度多阶段,其 per-phase LLM acceptance verdict 曾作为阶段推进硬门——按 §1.5 噪声信号不得驱动硬门,该模型已被 batch 体系取代；acceptance criteria 以 `ChangePlan.AcceptanceTests` 渲染进 verifier prompt 并喂给 reflector。磁盘上的 `.codrax/plans/groups/` 工件保持可读：`/phase show [<group-id>]` 只读展示（带提示横幅）,`/merge group` 与 `/reject group` 可结算/清理；执行队列动词 `next/rollback/resume/skip` 不再可用（输出会指引到 `/workflow`）。`PhaseGroupID`/`PhaseIndex` 字段保留（/history 分组、单 pending 豁免照常）。controller 探索子流程（`runWriteExplorationSubflow` 一族）位于 `write_exploration_subflow.go`。
 
