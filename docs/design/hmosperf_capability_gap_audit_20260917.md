@@ -4633,3 +4633,67 @@ Trace217秒，新预览实际进入pre-stage/explorer，精确1.010时间与正�
 架构文档同步本片字段与范围合同，并纠正两处历史文字：B1713仍称Jank载荷需独立时钟映射，与现有TraceJankClockContract/source_trace_clock及用户同轴要求矛盾；B1714仍写旧4×8展示，与当前32查询/32共享对象/128KiB实现矛盾。修订只使文档与已有代码一致，不新增时间偏移、不重算事件、不修改实际预算，不把文档修正计为第三项生产子能力。
 
 67720 fetch正式exit0，发布前0 behind/2 ahead；3602普通push正式exit0，`f31a5b5ee`与`d760ba5f8`已推送origin/main，随后核对0/0。本批文档、机器原结果与人工审计合并另交，不覆盖任何原始失败。最终稳定数仍79=16完整交付+63开放，重复0；本批完整任务新增0、可用子能力2、五项稳定验收父项保留，两份完整人工FAIL独立留档，不重复计为新增父任务。
+
+## 190. 启动源记录边界与任务相关教学（HMC-04.3 / 17.7 / 01.3 / 16.4）
+
+### 190.1 起点、参考发现与范围
+
+2026-09-29从干净`a9784bb31`继续；77527 fetch正式exit0、0/0。复算79唯一ID=16完整交付+63开放，重复0；49待实施/8部分实施/2待验收/3验收中/1持续执行。稳定五项验收父项与§189两份人工FAIL继续保留。本批两轨为启动源记录身份/完整区间交接，以及已证的通用诊断教学污染有限事实问题；不追加第三条生产修复线。
+
+复读参考`launch_ops.py:1–170,328–450`及架构/Golden Rules：按ipid、实例、下一实例边界组织业务数据的意图值得保留。但以名称子串识别阶段、NULL补0、未知ipid合组、前置阶段只归首实例、吸收阶段gap、ReceiveVsync回调称FirstFrame及微秒注释/纳秒换算矛盾均不能照搬。本仓先让已接纳源表行的编号、主体引用、原始起止随两个端点完整到场，而不是让模型从邻近事件补配对；源表行不是完整启动实例。
+
+### 190.2 交付实现与明确未交付边界
+
+`46cf88c99`给既有v2来源增加可选闭合record：rowid、owner ipid、start/end ns均精确十进制字符串；合法0、负rowid、大于2^53均保真。时间非负、严格正区间、非负进程引用，解码仍拒绝非规范/重复/未知键及缺字段。共享同步区间入口逐字段核对源记录与已接纳候选一致，两端wire时刻分别对应start/end，不把另一行元数据借给当前事件。内存/SQLite spill共用原预算与排序，稀疏侧表计驻留。原生语义增加源行/进程引用/完整起止/完整时长五字段，贯通公开准备、查询、账本及实际finalizer。ParserVersion=v49，Event/EventView全叶234→238手工扩golden，普通scheduler JSON和688字节core上限不变。
+
+这使结束端单窗也能识别同一源记录，并直接获得原记录区间，不用读邻近起点猜时间。它**不**交付进程生命周期/完整启动实例、首屏显示/可交互见证、冷热类型、ordinary viewer兼容或旧AppStartup CPU/主体准入修复；source.owner_ipid不是系统PID，source.duration_ns不是选定窗口内累计时间。原04.3/17.7仍开放。
+
+`a78ed6086`扩展既有Tier B声明式适用范围：7条根因报告教学复用已有typed ranking-suppression决策，12条调度教学按结构化范围/事实族投递，动态5条调度说明同路。有限清单仅要求通用发生时间/次数不触发调度故事，目标状态/等待/原因/唤醒/IPC/IO时延/压力/频率等仍保留；未指定/legacy保守保留。根因请求保全原文教学，精确retry violation仍能恢复单条规则，自定义skill旧RequiresTrace行为不变。所有证据、图schema、工具可用性、因果投影/自动补齐与hard gate不变；来源数值、未知状态、链上/邻近/背景规则仍在。未按问答原文扫描，没有添加地址/名称专用裁决。本片不声称已消除全部重复，完整图教学与若干跨域共享规则仍有后续空间。
+
+### 190.3 定向验证与冻结
+
+首轮77113定向exit1：新源记录/JSON通过，频率教学测试发现修改时条件块边界误合，使有频率见证的分支漏了目标CPU解释；10247实际消息测试同时发现有限清单仍收到该解释。修正条件边界，未删旧断言或放宽频率规则。原日志`/tmp/codrax-hmc190-scoped.log`、`/tmp/codrax-hmc190-messages.log`保留。
+
+86437末版定向正式exit0：tracewire、hitraceconv、tracequery、types、context、agent六包通过，skill所选模式无测试；`/tmp/codrax-hmc190-scoped-final.log`。83200相邻race正式exit0，context/agent/hitraceconv/tracequery/tracewire五包通过，`/tmp/codrax-hmc190-race.log`。新增公开测试包含SQLite→真实finalizer五字段/四段时长、二进制转换器适配路径及结束端窗口、内存/spill一致、候选身份冲突、闭合wire、大整数、有限/因果/关系/总览/频率范围、retry与自定义skill；实际adapter验证证据账本字节不变、有限问题没有根因骨架、因果问题保调度解释。
+
+Go/build输入冻结于`a78ed6086399`后，46322启动独立完整`go test -p 4 ./... -count=1`，日志`/tmp/codrax-hmc190-full.log`；88692为构建，正式exit0（日志`/tmp/codrax-hmc190-build.log`）。会话中曾把两者编号/状态混淆，发现进程仍在运行即更正，没有据此销账。固定36755使用两例自然问题`trace_existing_sqlite_dictionary`、`trace_resource_identity_inventory`，恰好2并行×1，不追加追绿例。
+
+### 190.4 真实答案与上下文审计
+
+固定36755正式exit0，机器0/2、完整人工0/2，原FAIL保留。新源记录在实际finalizer完整命中：启动13行内8端点各自保留源行2/3/4/5、ipid1和8/4/4/5ms原始区间，五条系统事件完整；资源10行包含5次操作+5次计数，精确signed/hex及字段状态不缺。两例都未源码读取，没有把背景事件列为根因。根因旁路schema2空列表、trace_root_cause_contract_not_active，600/300/600秒等待配置不变。
+
+启动失败转为新的可证高影响接缝：初次emit把启动表命名summary-1却kind=table，缺summary被拒；第一次修补使用不存在table-1，按精确ID拒绝；第二次模型整块替换summary-1为summary，丢掉四条启动数据，系统事件表保留，形状检查通过。最终摘要仍称两表但只有一表，机器缺LoadPreferences/8/5ms本次属实，不借用旧表头单位误报。是模型显式替换及修订保真不足，不是renderer无故删表或源记录未提供；下一优先修复必须基于当前block ID/kind/载荷/精确修复原因，而非扫描表标题或正文硬门，也不强禁正常整块改写。
+
+资源地址表与计数序列正确，但无据认定地址无效/映射失败、FreeEvent字段0代表完全释放、4096代表4KiB一页及操作与计数一一因果，完整答案仍FAIL。分析阶段用户目标冒认曾被既有精确引用门纠正，不能把被拒尝试说成最终授权；错误“8条”中间rationale未出现在实际finalizer初始消息，最终5次正确，亦不武断归因。未知/空/缺字段及单位边界继续留账；不因已提供证据就声称证明了纯模型波动。
+
+实际system字节启动114481→85816、资源113165→88240，Workflow71188→42523/69872→44947；动态调度说明7531→4183/8523→5175。初次finalizer估算tokens63419→55554/57576→49258，下降约12%/14%；只能说明新适用域命中，不能证明准确率改善。有限问题真实消息不再收到根因骨架/调度等待规则，数据和共同证据边界保留。图通用教学/剩余优先级旁注仍有噪声空间，本批不额外扩改。详细过程、SHA及原工件见[本批人工审计](../../eval/parallel_selected_summary_hmc_startup_teaching_20260929_manual_audit.md)。
+
+### 190.5 冻结回归发现与测试迁移
+
+46322首轮全仓正式exit1：86测试包PASS、13无测试，唯一失败为agent内TestFinalizerReaderFieldActualMessagesNativeFinite，4个中英finite/effect分支仍强制无关TARGET WAIT OCCURRENCE AUTHORITY到场，与新适用域冲突。日志SHA-256=`2f727788bbd4ea5d05808b95c60dffa8a8a5721a92945376d481340952e02fab`保留，不删除测试或放宽因果/数值约束。
+
+`25a1b07c5`让公开实际adapter测试同时断言业务清单零调度教学、有限等待查询与typed因果恰好一份原文；每个中英finite/effect分支增等待事实族正控。原始字段/大整数/账本不变、精度/JSON、链上11ms、普通源码不激活Trace等断言全部保留。67425相关回归正式exit0，agent1.874秒，日志`/tmp/codrax-hmc190-reader-scope.log`。生产代码未改，live仍准确对应当时冻结生产实现，不追加第三例。再冻结后20865独立全仓重验，日志`/tmp/codrax-hmc190-final-full.log`；后续容量修正和最终完成/发布收据见§190.7–8，不拼接前次结果签末版全绿。
+
+### 190.6 下一批可执行入口（设计，不计交付）
+
+通用修订轨已有精确入口：`preCheckRequiredBlocks`按真实kind/count产出under_min及ExpectedBlockKinds，但读者修复字段仍是`blocks[].kind=summary`；后置`classifyViolationToStructuredFix(ViolBlockCoverageMissing)`已明确add_block，两条路径的操作表达不一致。`answerDocPatchBaseBlockRosterHint`正确发布真实ID/kind，本例不是根本没给ID，而是模型在missing-kind修补中误用已有载体。下一修复先统一缺块/超额/已有块错误的typed操作意图，并检查仅补形状时的载荷保护；避免新增整份平行JSON说明或按summary-1字面推断类型。跨表、列表、图及合法删改/失败原子性公开矩阵是退出条件，不以一例表补回来代替通用验收。
+
+只读登记轨：当前`eval/run.sh`的apply分支先自然模型plan再导入，没有预置强行为合同/恢复注入的case入口，单纯重复empty_python_module_apply会继续依赖分类偶然性。下一固定双例保留一个名额，用已存在`write_native_test_registration_public_test.go`的公开emit/apply、真实Git交付、真实旧测试、controller恢复/重新授权路径构造明确前置状态，再接真实planner，不伪造PASS/授权/模型读收据，不给自然用户问题塞内部身份；新增runner声明需保原case和原FAIL。另一例给参考能力/通用修订，不再第三批连续资源地址追跑。
+
+参考能力仍按04.3/17.7推进：普通viewer事件与typed来源必须共存且不双计；来源缺CPU/主体不能编造0/PID来取悦查看器。源记录、完整实例、协议推导阶段、实际执行和显示/可交互终点分别建模；多次/交错/缺端点和显式窗需矩阵。活跃WAL须一致快照协议，现有只接rollback自包含DB的门不能直接删除。上述均未实施完，63项开放及5个稳定验收父项保留。
+
+### 190.7 新增元数据的容量兼容修正
+
+发布前复核发现本批自己引入的边界回归：3000个双引号的业务名称在旧信封内可接纳，但增加最大int64源记录后共用6144 JSON字节预算，Encode失败可导致转换失败。新增TestMarkerSourceRecordPreservesAdmittedNameBudget公开编码反例正式exit1，日志`/tmp/codrax-hmc190-name-budget-red.log` SHA-256=`8417c019efe59031117c6037ec3ab287eb063fc3eb10e4bbcb614669df9df8ff`；不把它称为历史模型波动。
+
+`cb57f3a1d`保名称原4096字节上限和6144 JSON字节信封准入，固定record另保192 JSON字节（256编码字节），总编码上限8192→8448；没有扩大名称准入、截断名字或丢record。新增负控保证3050双引号等原超限名称不能借用record预算。18147四包定向race正式exit0，22267真实转换→查询→结束端窗口的转义长名称公开回归exit0。源时刻、字段、因果资格及其它预算未改。
+
+20865上一轮完整回归正式exit0（87测试包/13无测试，日志SHA-256=`cf935cf760cdc3e8388d238eeb368ace2bb6e411cb5eaefb28ca822a839bff7e`），但其运行期间另发现并修上述容量问题，不作为末版冻结收据。17558最新make正式exit0，日志`/tmp/codrax-hmc190-final-build.log`；代码/测试重新冻结于cb57f3a1d，74697独立完整回归结果见§190.8。两例live早于容量修正，未覆盖该边界；由公开红绿及末版回归验收该修正，不增加第三次模型追跑。本片属于本批启动源记录兼容性修补，不另算第三项已交付能力。
+
+### 190.8 末版独立回归与发布收据
+
+冻结`cb57f3a1d8fa`后，74697独立完整回归正式exit0：87测试包PASS、13无测试、零FAIL；agent98.588、tool490.677、tracequery132.456秒。日志`/tmp/codrax-hmc190-release-full.log` SHA-256=`bccb0b572fe4e238f8cfed9b5a2705756703d0e4142a8fa6cedcb7c638e7ff56`。17558末版构建正式exit0，日志SHA-256=`6322b94933d365d03d1c148ecfa0664e43e63009a5375cfe814da20fb468fe1a`；版本显示revision cb57f3a1d8fa-dirty，dirty仅待汇总文档，不含未提交Go/build输入。前两轮完整回归和容量RED全部保留，不用结果拼接代替本次独立验证。
+
+50003 fetch正式exit0，发布前4 ahead/0 behind；18906普通push正式exit0，`46cf88c99`、`a78ed6086`、`25a1b07c5`、`cb57f3a1d`已推送origin/main，随后核对0/0。统一账本、架构、原机器结果和人工审计按批合并另交，不覆盖任何原始失败。
+
+末次逐checkbox/唯一ID复算79=16完整交付+63开放，重复0；开放状态49待实施/8部分实施/2待验收/3验收中/1持续执行。本批完整稳定任务新增0、已交付可复用子能力2，5个稳定验收父项03.2/04.2/08.3/08.4/18.2均保留。两份完整答案仍人工FAIL，启动修订丢表提升为通用高影响缺陷，资源无证解释保留但不追加追跑；下一批只读登记真实验收与参考能力路线按§190.6执行。
