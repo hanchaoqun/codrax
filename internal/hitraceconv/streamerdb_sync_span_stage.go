@@ -349,7 +349,8 @@ func (stage *traceDBSyncSpanStage) admitRecord() (int64, error) {
 }
 
 func traceDBSyncSpanCandidateResidentBytes(candidate traceDBSyncSpanCandidate) int64 {
-	return 256 + int64(len(candidate.Task)) + int64(len(candidate.Name)) +
+	return 272 + int64(len(candidate.Task)) + int64(len(candidate.Name)) +
+		int64(len(candidate.NameOrigin)) +
 		int64(len(candidate.StartMarkerBody)) + int64(len(candidate.EndMarkerBody)) +
 		traceDBSyncSpanLaneOrderKeyBytes
 }
@@ -560,6 +561,7 @@ var traceDBSyncSpanStageSchema = []string{
 		task TEXT NOT NULL,
 		name TEXT NOT NULL,
 		name_provenance INTEGER NOT NULL,
+		name_origin TEXT NOT NULL,
 		viewer_disposition INTEGER NOT NULL,
 		depth INTEGER NOT NULL,
 		depth_known INTEGER NOT NULL CHECK(depth_known IN (0,1)),
@@ -595,9 +597,9 @@ const traceDBSyncSpanInsertCandidateSQL = `INSERT INTO candidate(
 	marker_pid,marker_known,canonical_itid,canonical_known,owner_ipid,owner_known,start_ns,end_ns,start_cpu,end_cpu,
 	start_flags,end_flags,start_preempt_count,end_preempt_count,
 	start_marker_body,end_marker_body,
-	cpu_placement,start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,
+	cpu_placement,start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,name_origin,
 	viewer_disposition,depth,depth_known,depth_provenance
-) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 const traceDBSyncSpanInsertIdentitySQL = `INSERT OR IGNORE INTO identity_first VALUES(?,?,?,?)`
 const traceDBSyncSpanLookupIdentitySQL = `SELECT first_header_tid FROM identity_first WHERE producer=? AND stable_kind=? AND stable_id=?`
 const traceDBSyncSpanLookupSemanticSQL = `SELECT 1
@@ -756,6 +758,7 @@ func (stage *traceDBSyncSpanStage) insertSQLiteCandidate(ctx context.Context, or
 		return nil
 	}
 	payloadBytes := int64(len(candidate.Task)) + int64(len(candidate.Name)) +
+		int64(len(candidate.NameOrigin)) +
 		int64(len(candidate.StartMarkerBody)) + int64(len(candidate.EndMarkerBody))
 	if payloadBytes > (math.MaxInt64-1024)/2 {
 		return stage.failBudget(traceDBSyncSpanStageBudgetSQLitePageCap)
@@ -781,7 +784,7 @@ func (stage *traceDBSyncSpanStage) insertSQLiteCandidate(ctx context.Context, or
 		candidate.StartMarkerBody, candidate.EndMarkerBody,
 		candidate.CPUPlacement,
 		candidate.StartCPUProvenance, candidate.EndCPUProvenance,
-		candidate.Task, candidate.Name, candidate.NameProvenance,
+		candidate.Task, candidate.Name, candidate.NameProvenance, candidate.NameOrigin,
 		traceDBSyncSpanViewerDispositionForCandidate(candidate),
 		candidate.Depth, boolToSQLiteInt(candidate.DepthKnown), candidate.DepthProvenance,
 	)
@@ -1579,7 +1582,7 @@ const traceDBSyncSpanSelectCandidatesSQL = `SELECT
 	marker_pid,marker_known,canonical_itid,canonical_known,owner_ipid,owner_known,start_ns,end_ns,start_cpu,end_cpu,
 	start_flags,end_flags,start_preempt_count,end_preempt_count,
 	start_marker_body,end_marker_body,
-	cpu_placement,start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,depth,depth_known,depth_provenance
+	cpu_placement,start_cpu_provenance,end_cpu_provenance,task,name,name_provenance,name_origin,depth,depth_known,depth_provenance
 FROM candidate INDEXED BY candidate_lane_idx
 WHERE superseded=0
 ORDER BY header_tid,start_ns,zero_key,lane_order_key,ordinal`
@@ -1811,7 +1814,7 @@ func (iterator *traceDBSyncSpanSQLiteCandidateIterator) next(ctx context.Context
 		&candidate.StartPreemptCount, &candidate.EndPreemptCount,
 		&candidate.StartMarkerBody, &candidate.EndMarkerBody,
 		&cpuPlacement, &startCPUProvenance, &endCPUProvenance,
-		&candidate.Task, &candidate.Name, &nameProvenance, &candidate.Depth, &depthKnown, &depthProvenance,
+		&candidate.Task, &candidate.Name, &nameProvenance, &candidate.NameOrigin, &candidate.Depth, &depthKnown, &depthProvenance,
 	); err != nil {
 		return traceDBSyncSpanStagedCandidate{}, false, err
 	}

@@ -24,7 +24,7 @@ func TestSharedDictionaryReferencePublicStoredClassesStayDistinct(t *testing.T) 
 				table, family, ordinal := "hisys_all_event", "log", uint64(2)
 				if field == 0 {
 					table, family, ordinal = "app_startup", "slice", 1
-					if strings.Contains(body, "AppStartup:ZERO") || !strings.Contains(body, "AppStartup:startup") {
+					if traceDBTestHasMarkerLabel(t, body, "AppStartup:ZERO") || !traceDBTestHasMarkerLabel(t, body, "AppStartup:startup") {
 						t.Error("non-INTEGER startup reference borrowed the valid zero key or lost its unnamed span")
 					}
 				} else if strings.Contains(body, "print: ZERO/ZERO: candidate-row") {
@@ -64,7 +64,11 @@ func TestSharedDictionaryReferencePublicIntegerCompatibility(t *testing.T) {
 			}
 			body, result := dictionaryReferencePublicConvert(t, [3]string{tc.literal, tc.literal, tc.literal}, tc.affinity, rows...)
 			for _, want := range []string{"AppStartup:ZERO", "print: ZERO/ZERO: candidate-row"} {
-				if !strings.Contains(body, want) {
+				found := strings.Contains(body, want)
+				if strings.HasPrefix(want, "AppStartup:") {
+					found = traceDBTestHasMarkerLabel(t, body, want)
+				}
+				if !found {
 					t.Errorf("legal stored INTEGER reference lost %q", want)
 				}
 			}
@@ -96,7 +100,7 @@ func TestSharedDictionaryReferencePublicUnresolvedOrNonwireNamesRemainLocal(t *t
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body, result := dictionaryReferencePublicConvert(t, [3]string{"0", "0", "0"}, false, tc.mutation)
-			if !strings.Contains(body, "AppStartup:"+tc.startup) || strings.Contains(body, "candidate-row\n") {
+			if !traceDBTestHasMarkerLabel(t, body, "AppStartup:"+tc.startup) || strings.Contains(body, "candidate-row\n") {
 				t.Error("unresolved name either lost startup fallback or leaked an unencoded HiSys row")
 			}
 			coverage := requireTraceDBCoverage(t, result.TraceDBCoverage, "log", "hisys_all_event")
@@ -233,7 +237,11 @@ func dictionaryReferencePublicConvert(t *testing.T, refs [3]string, affinity boo
 		t.Fatal(err)
 	}
 	for _, want := range []string{"sched_switch:", "NativeHook:AllocEvent", "HeapSize|4096", "AppStartup:EVENT", "print: SYS/EVENT: healthy-row"} {
-		if !strings.Contains(string(body), want) {
+		found := strings.Contains(string(body), want)
+		if strings.HasPrefix(want, "AppStartup:") {
+			found = traceDBTestHasMarkerLabel(t, string(body), want)
+		}
+		if !found {
 			t.Fatalf("healthy semantic output lost %q", want)
 		}
 	}

@@ -707,7 +707,7 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 	coverage.FieldSources = map[string]string{
 		"wire_laminar":     "current accepted rows submit typed B/E candidates to the shared authority; no endpoint is published by this exporter",
 		"source_admission": "legacy interval WHERE/scalar, process lifecycle, CPU and anti-rescue correctness remain open as R1b-C",
-		"name_reference":   "raw SQLite INTEGER only; NULL/other storage classes never alias INTEGER 0; unresolved names retain the existing generic label",
+		"name_reference":   "raw SQLite INTEGER only; NULL/other storage classes never alias INTEGER 0; exact marker metadata preserves per-row name resolution separately from synthesized display labels",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
@@ -757,6 +757,12 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 		if nameReason != "" {
 			skipped["start_name_"+nameReason]++
 		}
+		nameOrigin, err := tracewire.EncodeMarkerNameOrigin(tracewire.MarkerNameOrigin{
+			SourceTable: "app_startup", Name: traceDBHiSysName(nameRaw, name, nameReason),
+		})
+		if err != nil {
+			return coverage, err
+		}
 		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
 			Producer:           traceDBSyncSpanProducerAppStartup,
 			StableKind:         traceDBSyncSpanStableAppStartupRowID,
@@ -774,6 +780,7 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 			Task:               task,
 			Name:               "AppStartup:" + firstNonEmpty(name, "startup"),
 			NameProvenance:     traceDBSyncSpanNameAppStartupDictionary,
+			NameOrigin:         nameOrigin,
 			DepthProvenance:    traceDBSyncSpanDepthUnknown,
 		}); err != nil {
 			return coverage, err

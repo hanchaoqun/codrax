@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 const maxTraceDBSystraceLineBytes = 1 << 20
@@ -152,8 +153,15 @@ func prepareTraceDBCPUUnavailableTraceMarkRow(tsNS int64, seq int, task string,
 // preserves the exact source text and timestamp without inventing an escape
 // convention.
 func prepareTraceDBExactTraceMarkRow(tsNS int64, seq int, task string,
-	tid, tgid, cpu, spanPID int64, action, name, value string,
+	tid, tgid, cpu, spanPID int64, action, name, value string, origins ...*tracewire.MarkerNameOrigin,
 ) (renderedRow, error) {
+	var origin *tracewire.MarkerNameOrigin
+	if len(origins) > 1 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "multiple_marker_origins"}
+	}
+	if len(origins) == 1 {
+		origin = origins[0]
+	}
 	if seq < 0 {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sequence"}
 	}
@@ -171,6 +179,7 @@ func prepareTraceDBExactTraceMarkRow(tsNS int64, seq int, task string,
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_task"}
 	}
 	line, err := tracequery.FormatExactTraceMark(tracequery.ExactTraceMark{
+		NameOrigin:  origin,
 		TimestampNS: uint64(tsNS),
 		CPU:         int(cpu),
 		TID:         int(tid),

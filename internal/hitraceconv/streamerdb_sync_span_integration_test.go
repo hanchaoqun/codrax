@@ -134,7 +134,6 @@ func TestTraceDBSyncSpanLegalCrossProducerNestingAndAdjacentRoundTrip(t *testing
 	for _, want := range []string{
 		"tracing_mark_write: B|100|outer",
 		"tracing_mark_write: B|100|sys_1",
-		"tracing_mark_write: B|100|AppStartup:coldStart",
 		"tracing_mark_write: B|100|SoInit:libok.so",
 	} {
 		if !strings.Contains(body, want) {
@@ -142,6 +141,9 @@ func TestTraceDBSyncSpanLegalCrossProducerNestingAndAdjacentRoundTrip(t *testing
 		}
 	}
 
+	if !traceDBTestHasMarkerLabel(t, body, "AppStartup:coldStart") {
+		t.Fatal("typed startup label lost")
+	}
 	path := filepath.Join(t.TempDir(), "roundtrip.systrace")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -324,6 +326,12 @@ func TestTraceDBSyncSpanHiddenRowIDBoundaries(t *testing.T) {
 				t.Fatalf("%s signed hidden rowid provenance mismatch: %+v", test.name, coverage)
 			}
 			for _, want := range test.wantTokens {
+				if test.name == "app_startup" && strings.HasPrefix(want, "B|100|") {
+					if !traceDBTestHasMarkerLabel(t, body, strings.TrimPrefix(want, "B|100|")) {
+						t.Fatalf("signed rowid lost typed startup label %q", want)
+					}
+					continue
+				}
 				if !strings.Contains(body, want) {
 					t.Fatalf("%s signed hidden rowid output missing %q:\n%s", test.name, want, body)
 				}

@@ -212,7 +212,7 @@ func TestTraceMarkBuildIndexAndStreamScanTypedParity(t *testing.T) {
 			t.Fatalf("%s instant consumers normalized N/I opaque edges: instants=%+v caveats=%v", lane, stats.TraceInstants, stats.Caveats)
 		}
 	}
-	if ParserVersion != "tracequery-v46" {
+	if ParserVersion != "tracequery-v47" {
 		t.Fatalf("right-edge side-table schema changed without cache invalidation: %q", ParserVersion)
 	}
 }

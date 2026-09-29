@@ -130,8 +130,29 @@ func (p *traceEventSemanticProjector) hiSysEvent(event tracewire.HiSysEvent) {
 }
 
 func (p *traceEventSemanticProjector) marker(event Event) {
-	p.known("source.representation", "parsed_trace_marker")
+	representation := "parsed_trace_marker"
+	if event.PluginFields != nil && event.PluginFields.MarkerNameOrigin != nil {
+		representation = "sql_app_startup"
+	}
+	p.known("source.representation", representation)
 	p.known("marker.action", event.SpanAction)
+	if event.PluginFields != nil && event.PluginFields.MarkerNameOrigin != nil {
+		origin := event.PluginFields.MarkerNameOrigin
+		p.known("source.table", origin.SourceTable)
+		if origin.Name.Status == "resolved" && origin.Name.Name != nil {
+			p.known("marker.business_name", *origin.Name.Name)
+		} else {
+			status := "unavailable"
+			if origin.Name.Status == "invalid_reference_storage_class" {
+				status = "invalid"
+			}
+			p.unknown("marker.business_name", status, origin.Name.Status)
+		}
+		if origin.Name.Reference != nil {
+			p.known("marker.business_name_ref", strconv.FormatInt(*origin.Name.Reference, 10))
+		}
+		p.known("marker.label_origin", "synthesized_sql_label")
+	}
 	if event.SpanAction == "C" {
 		p.counter(event)
 		return

@@ -23,7 +23,7 @@ func TestSharedDictionaryPublicUnrelatedBadIDsRemainLocal(t *testing.T) {
 				"INSERT INTO data_dict VALUES (5, 'coldStart')",
 				fmt.Sprintf("INSERT INTO data_dict VALUES (%s, 'bad-key-name')", key))
 			for _, want := range []string{"AppStartup:coldStart"} {
-				if !strings.Contains(body, want) {
+				if !traceDBTestHasMarkerLabel(t, body, want) {
 					t.Errorf("unrelated dictionary row changed valid name %q", want)
 				}
 			}
@@ -47,11 +47,11 @@ func TestSharedDictionaryPublicAmbiguousNamesNeverWin(t *testing.T) {
 					rows[0], rows[1] = rows[1], rows[0]
 				}
 				body, result := sharedDictionaryPublicConvert(t, "5", rows...)
-				if !strings.Contains(body, "AppStartup:startup") {
+				if !traceDBTestHasMarkerLabel(t, body, "AppStartup:startup") {
 					t.Fatal("ambiguous key won a name")
 				}
 				for _, forbidden := range []string{"AppStartup:coldStart", "AppStartup:conflicting-name"} {
-					if strings.Contains(body, forbidden) {
+					if traceDBTestHasMarkerLabel(t, body, forbidden) {
 						t.Errorf("duplicate resolver identity leaked %q", forbidden)
 					}
 				}
@@ -68,7 +68,7 @@ func TestSharedDictionaryPublicNonTextNamesStayAbsent(t *testing.T) {
 	for _, value := range []string{"NULL", "X'636F6C645374617274'", "123", "1.5"} {
 		t.Run(value, func(t *testing.T) {
 			body, result := sharedDictionaryPublicConvert(t, "5", "INSERT INTO data_dict VALUES (5, "+value+")")
-			if !strings.Contains(body, "AppStartup:startup") {
+			if !traceDBTestHasMarkerLabel(t, body, "AppStartup:startup") {
 				t.Fatal("non-TEXT value became a display name")
 			}
 			coverage := requireTraceDBCoverage(t, result.TraceDBCoverage, "resolver", "data_dict")
@@ -83,7 +83,7 @@ func TestSharedDictionaryPublicPreservesIntegerCompatibility(t *testing.T) {
 	for _, key := range []string{"0", "4294967296", "9223372036854775807", "-9223372036854775808"} {
 		t.Run(key, func(t *testing.T) {
 			body, result := sharedDictionaryPublicConvert(t, key, "INSERT INTO data_dict VALUES ("+key+", '启动标签')")
-			if !strings.Contains(body, "AppStartup:启动标签") {
+			if !traceDBTestHasMarkerLabel(t, body, "AppStartup:启动标签") {
 				t.Fatal("shared INTEGER/TEXT compatibility was narrowed to a native subtype profile")
 			}
 			coverage := requireTraceDBCoverage(t, result.TraceDBCoverage, "resolver", "data_dict")
@@ -141,7 +141,11 @@ func sharedDictionaryPublicConvert(t *testing.T, key string, dictionaryRows ...s
 		t.Fatal(err)
 	}
 	for _, want := range []string{"sched_switch:", "NativeHook:AllocEvent", "HeapSize|4096", "AppStartup:EVENT", "print: SYS/EVENT: marker"} {
-		if !strings.Contains(string(body), want) {
+		found := strings.Contains(string(body), want)
+		if strings.HasPrefix(want, "AppStartup:") {
+			found = traceDBTestHasMarkerLabel(t, string(body), want)
+		}
+		if !found {
 			t.Fatalf("unrelated scheduler/resource output lost %q", want)
 		}
 	}

@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v46"
+const ParserVersion = "tracequery-v47"
 
 type EventType string
 
@@ -448,16 +448,17 @@ type FileFields struct {
 // it, as do CPU-unavailable wakeups; ordinary physical B/E/S/F/I and scheduler
 // rows keep it nil.
 type PluginFields struct {
-	HiSysEvent *tracewire.HiSysEvent `json:"hi_sysevent,omitempty"`
-	Contents   *string               `json:"plugin_contents,omitempty"`
-	Domain     string                `json:"plugin_domain,omitempty"`
-	EventName  string                `json:"plugin_event_name,omitempty"`
-	Metric     string                `json:"plugin_metric,omitempty"`
-	Value      string                `json:"plugin_value,omitempty"`
-	Category   string                `json:"plugin_category,omitempty"`
-	SpanTrack  string                `json:"span_track,omitempty"`
-	Counter    *TraceCounterFields   `json:"-"`
-	JankEvent  *JankEventFields      `json:"jank_event,omitempty"`
+	MarkerNameOrigin *tracewire.MarkerNameOrigin `json:"marker_name_origin,omitempty"`
+	HiSysEvent       *tracewire.HiSysEvent       `json:"hi_sysevent,omitempty"`
+	Contents         *string                     `json:"plugin_contents,omitempty"`
+	Domain           string                      `json:"plugin_domain,omitempty"`
+	EventName        string                      `json:"plugin_event_name,omitempty"`
+	Metric           string                      `json:"plugin_metric,omitempty"`
+	Value            string                      `json:"plugin_value,omitempty"`
+	Category         string                      `json:"plugin_category,omitempty"`
+	SpanTrack        string                      `json:"span_track,omitempty"`
+	Counter          *TraceCounterFields         `json:"-"`
+	JankEvent        *JankEventFields            `json:"jank_event,omitempty"`
 	// TraceMarkerCPUStatus/Reason are set only for converter-authored
 	// versioned marker records which deliberately have no physical CPU
 	// envelope. They never backfill Event.CPU.

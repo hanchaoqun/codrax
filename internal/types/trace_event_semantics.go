@@ -64,7 +64,11 @@ var traceEventSemanticDescriptors = []TraceEventSemanticDescriptor{
 	{"plugin.domain_ref", "plugin", "int64", "", "业务域原始字典引用"},
 	{"plugin.event_name_ref", "plugin", "int64", "", "事件名原始字典引用"},
 	{"marker.action", "marker", "text", "", "标记动作"},
-	{"marker.name", "marker", "text", "", "业务标记名称"},
+	{"marker.name", "marker", "text", "", "标记标签（合成标签的源业务名另列）"},
+	{"marker.business_name", "marker", "text", "", "源业务名称（可能未知，区别于合成标记标签）"},
+	{"marker.business_name_ref", "marker", "int64", "", "业务名称原始字典引用"},
+	{"marker.label_origin", "marker", "text", "", "标记标签的产生方式"},
+	{"source.table", "source", "text", "", "源数据表（非业务域）"},
 	{"marker.payload_pid", "marker", "int64", "", "标记载荷进程标识（非发出线程）"},
 	{"marker.track", "marker", "text", "", "标记轨道"},
 	{"marker.value", "marker", "text", "", "标记原始附加值"},
@@ -141,7 +145,11 @@ func traceEventSemanticFieldValueValid(key, value string) bool {
 	case "counter.aggregation_status":
 		return value == "admitted" || value == "excluded"
 	case "source.representation":
-		return value == "parsed_plugin_fields" || value == "parsed_trace_marker" || value == "sql_hisysevent"
+		return value == "parsed_plugin_fields" || value == "parsed_trace_marker" || value == "sql_hisysevent" || value == "sql_app_startup"
+	case "source.table":
+		return value == "app_startup"
+	case "marker.label_origin":
+		return value == "synthesized_sql_label"
 	case "source.contents_storage_class":
 		return value == "null" || value == "text" || value == "blob" || value == "integer" || value == "real"
 	case "source.timestamp_ns", "source.tid", "marker.payload_pid":

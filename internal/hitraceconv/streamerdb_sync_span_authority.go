@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 // traceDBSyncSpanProducer is a closed set of Trace Streamer DB exporters that
@@ -94,6 +95,7 @@ const (
 	traceDBSyncSpanViewerDispositionCPULifecycleRejected
 	traceDBSyncSpanViewerDispositionCPUAliasAmbiguous
 	traceDBSyncSpanViewerDispositionNameUnrepresentable
+	traceDBSyncSpanViewerDispositionNameOrigin
 	traceDBSyncSpanViewerDispositionCount
 )
 
@@ -135,6 +137,7 @@ type traceDBSyncSpanCandidate struct {
 	Task               string
 	Name               string
 	NameProvenance     traceDBSyncSpanNameProvenance
+	NameOrigin         string // canonical, bounded source-name metadata; not identity authority
 	Depth              int64
 	DepthKnown         bool
 	DepthProvenance    traceDBSyncSpanDepthProvenance
@@ -734,6 +737,11 @@ func traceDBSyncSpanErrorTreeOnlyBudget(err error) bool {
 }
 
 func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error {
+	if candidate.NameOrigin != "" {
+		if _, ok := tracewire.DecodeMarkerNameOrigin(candidate.NameOrigin); !ok || candidate.Producer != traceDBSyncSpanProducerAppStartup || candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
+			return &traceDBOutputInvariantError{Reason: "invalid_sync_span_name_origin"}
+		}
+	}
 	if candidate.Producer <= traceDBSyncSpanProducerUnknown || candidate.Producer > traceDBSyncSpanProducerSourceRawMarker {
 		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_candidate"}
 	}
@@ -813,7 +821,10 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 		candidate.Producer == traceDBSyncSpanProducerSourceRawMarker &&
 			candidate.NameProvenance == traceDBSyncSpanNameSourceRawMarker) &&
 		traceDBCallstackSpanName(candidate.Name)
-	if !traceDBCallstackMarkerToken(candidate.Name) && !exactSourceName {
+	// The closed source-name wire is validated above and again against its
+	// synthesized label below. Delimiters are encoded, not reparsed as tokens.
+	exactSQLName := candidate.NameOrigin != "" && traceDBCallstackSpanName(candidate.Name)
+	if !traceDBCallstackMarkerToken(candidate.Name) && !exactSourceName && !exactSQLName {
 		return &traceDBOutputInvariantError{Reason: "invalid_span_name"}
 	}
 	if candidate.CanonicalITIDKnown && (candidate.CanonicalITID < 0 || candidate.CanonicalITID > maxTraceDBInternalID) {
@@ -853,13 +864,14 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 		}
 		return nil
 	}
-	if strings.ContainsRune(candidate.Name, '|') && !traceDBStandardSyncPipeCandidate(candidate) {
+	if candidate.NameOrigin != "" || strings.ContainsRune(candidate.Name, '|') && !traceDBStandardSyncPipeCandidate(candidate) {
+		origin := traceDBSyncSpanNameOrigin(candidate)
 		if _, err := prepareTraceDBExactTraceMarkRow(candidate.Start, 0, candidate.Task, candidate.HeaderTID,
-			candidate.HeaderTGID, candidate.StartCPU, markerPID, "B", candidate.Name, ""); err != nil {
+			candidate.HeaderTGID, candidate.StartCPU, markerPID, "B", candidate.Name, "", origin); err != nil {
 			return err
 		}
 		if _, err := prepareTraceDBExactTraceMarkRow(candidate.End, 1, candidate.Task, candidate.HeaderTID,
-			candidate.HeaderTGID, candidate.EndCPU, markerPID, "E", "", ""); err != nil {
+			candidate.HeaderTGID, candidate.EndCPU, markerPID, "E", "", "", origin); err != nil {
 			return err
 		}
 		return nil
@@ -1517,7 +1529,7 @@ func (stack *traceDBSyncSpanBoundedCandidateStack) reset() {
 func (stack *traceDBSyncSpanBoundedCandidateStack) pop() traceDBSyncSpanCandidate {
 	last := len(stack.frames) - 1
 	candidate := stack.frames[last]
-	stack.payloadBytes -= int64(len(candidate.Task)) + int64(len(candidate.Name))
+	stack.payloadBytes -= int64(len(candidate.Task)) + int64(len(candidate.Name)) + int64(len(candidate.NameOrigin))
 	stack.frames[last] = traceDBSyncSpanCandidate{}
 	stack.frames = stack.frames[:last]
 	return candidate
@@ -1529,7 +1541,7 @@ func (stack *traceDBSyncSpanBoundedCandidateStack) push(candidate traceDBSyncSpa
 		return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveDepthCap)
 	}
 	depth := stack.baseDepth + frameDepth
-	payloadDelta := int64(len(candidate.Task)) + int64(len(candidate.Name))
+	payloadDelta := int64(len(candidate.Task)) + int64(len(candidate.Name)) + int64(len(candidate.NameOrigin))
 	if stack.payloadBytes > math.MaxInt64-payloadDelta {
 		return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
 	}
@@ -1907,9 +1919,9 @@ func traceDBPublishSyncSpanEndpoint(sink *traceDBRowSink, candidate traceDBSyncS
 		}
 		return sink.add(row)
 	}
-	if strings.ContainsRune(candidate.Name, '|') && !traceDBStandardSyncPipeCandidate(candidate) {
+	if candidate.NameOrigin != "" || strings.ContainsRune(candidate.Name, '|') && !traceDBStandardSyncPipeCandidate(candidate) {
 		row, err := prepareTraceDBExactTraceMarkRow(ts, sink.stats.RowsAccepted, candidate.Task,
-			candidate.HeaderTID, candidate.HeaderTGID, cpu, markerPID, action, name, "")
+			candidate.HeaderTID, candidate.HeaderTGID, cpu, markerPID, action, name, "", traceDBSyncSpanNameOrigin(candidate))
 		if err != nil {
 			return err
 		}
@@ -1947,6 +1959,17 @@ func traceDBSyncSpanStandardViewerCandidate(candidate traceDBSyncSpanCandidate) 
 		traceDBSyncSpanViewerDispositionStandard
 }
 
+func traceDBSyncSpanNameOrigin(candidate traceDBSyncSpanCandidate) *tracewire.MarkerNameOrigin {
+	if candidate.NameOrigin == "" {
+		return nil
+	}
+	origin, ok := tracewire.DecodeMarkerNameOrigin(candidate.NameOrigin)
+	if !ok {
+		return nil
+	} // validation rejects this before publication
+	return &origin
+}
+
 func traceDBSyncSpanViewerDispositionForCandidate(
 	candidate traceDBSyncSpanCandidate,
 ) traceDBSyncSpanViewerDisposition {
@@ -1962,6 +1985,9 @@ func traceDBSyncSpanViewerDispositionForCandidate(
 	case traceDBSyncSpanCPUPlacementAliasAmbiguous:
 		return traceDBSyncSpanViewerDispositionCPUAliasAmbiguous
 	case traceDBSyncSpanCPUPlacementKnown:
+		if candidate.NameOrigin != "" {
+			return traceDBSyncSpanViewerDispositionNameOrigin
+		}
 		if candidate.Producer == traceDBSyncSpanProducerSourceRawMarker ||
 			!strings.ContainsRune(candidate.Name, '|') ||
 			traceDBStandardSyncPipeCandidate(candidate) {
@@ -1989,6 +2015,8 @@ func traceDBSyncSpanViewerDispositionMetric(
 		return "official_viewer_typed_only_sync_spans_cpu_alias_ambiguous"
 	case traceDBSyncSpanViewerDispositionNameUnrepresentable:
 		return "official_viewer_typed_only_sync_spans_name_unrepresentable"
+	case traceDBSyncSpanViewerDispositionNameOrigin:
+		return "official_viewer_typed_only_sync_spans_name_origin"
 	default:
 		return ""
 	}
@@ -2010,6 +2038,8 @@ func traceDBSyncSpanViewerDispositionSuffix(
 		return "cpu_alias_ambiguous"
 	case traceDBSyncSpanViewerDispositionNameUnrepresentable:
 		return "name_unrepresentable"
+	case traceDBSyncSpanViewerDispositionNameOrigin:
+		return "name_origin"
 	default:
 		return ""
 	}
