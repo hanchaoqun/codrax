@@ -120,13 +120,14 @@ func scoreViolations(in []contract.Violation) []types.ScoredViolation {
 	for _, v := range in {
 		isStrict := !isSoftViolationKind(v.Kind)
 		sv := types.ScoredViolation{
-			Kind:      v.Kind,
-			Detail:    v.Detail,
-			Repair:    v.Repair,
-			Severity:  types.DeriveSeverity(v.Kind, isStrict),
-			Layer:     inferViolationLayer(v.Kind),
-			BlockID:   extractBlockIDFromDetail(v.Detail),
-			FieldPath: inferFieldPathFromKind(v.Kind, v.Detail),
+			Kind:             v.Kind,
+			Detail:           v.Detail,
+			Repair:           v.Repair,
+			Severity:         types.DeriveSeverity(v.Kind, isStrict),
+			Layer:            inferViolationLayer(v.Kind),
+			BlockID:          extractBlockIDFromDetail(v.Detail),
+			FieldPath:        inferFieldPathFromKind(v.Kind, v.Detail),
+			BlockCountRepair: v.BlockCountRepair,
 		}
 		out = append(out, sv)
 	}

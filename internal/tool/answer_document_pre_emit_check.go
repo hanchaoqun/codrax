@@ -15835,17 +15835,12 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 			continue
 		}
 		got := types.CountAnswerBlocksForRequirement(doc.Blocks, req)
-		kindLabel := req.AcceptedKindsLabel()
-		if kindLabel == "" {
-			kindLabel = string(req.Kind)
-		}
+		repair := types.NewAnswerBlockCountRepair(req, got)
 		if got < req.MinCount {
 			out = append(out, emitFixHint{
-				Field:              fmt.Sprintf("blocks[].kind=%s", req.Kind),
-				ExpectedBlockKinds: req.AcceptedKinds(),
-				ExpectedShape: fmt.Sprintf(
-					"emit at least %d block(s) of kind=%s (currently emitted: %d)",
-					req.MinCount, kindLabel, got),
+				Field:                    fmt.Sprintf("blocks[].kind=%s", req.Kind),
+				ExpectedBlockKinds:       req.AcceptedKinds(),
+				ExpectedShape:            repair.Instruction(),
 				Reason:                   strings.TrimSpace(req.Rationale),
 				BlockCardinalityRelation: preEmitBlockCardinalityUnderMin,
 			})
@@ -15853,11 +15848,9 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 		}
 		if req.MaxCount > 0 && got > req.MaxCount {
 			out = append(out, emitFixHint{
-				Field:              fmt.Sprintf("blocks[].kind=%s", req.Kind),
-				ExpectedBlockKinds: req.AcceptedKinds(),
-				ExpectedShape: fmt.Sprintf(
-					"reduce kind=%s blocks to at most %d (currently emitted: %d)",
-					kindLabel, req.MaxCount, got),
+				Field:                    fmt.Sprintf("blocks[].kind=%s", req.Kind),
+				ExpectedBlockKinds:       req.AcceptedKinds(),
+				ExpectedShape:            repair.Instruction(),
 				Reason:                   strings.TrimSpace(req.Rationale),
 				OffendingBlockKinds:      answerBlockKindsPresentForRequirement(doc.Blocks, req),
 				BlockCardinalityRelation: preEmitBlockCardinalityOverMax,

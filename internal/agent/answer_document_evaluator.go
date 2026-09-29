@@ -1944,6 +1944,9 @@ type structuredFixArg struct {
 func classifyViolationToStructuredFix(sv types.ScoredViolation) (structuredFixRow, bool) {
 	switch sv.Kind {
 	case types.ViolBlockCoverageMissing:
+		if r := sv.BlockCountRepair; r.Valid() {
+			return structuredFixRow{Action: r.Operation, Target: "blocks[]", Hint: r.Instruction()}, true
+		}
 		// Detail typically reads "required block kind=X appears
 		// N times; the family contract requires at least M".
 		// Extract the kind from the Detail tail (best-effort) so
@@ -18103,6 +18106,7 @@ func answerDocPatchBaseBlockRosterHint(ctx *types.AgentContext, primary *types.M
 	b.WriteString(" Current patch-base block roster (exact typed ids and kinds; normalization-derived ids in this list are already real existing ids): `")
 	b.Write(rosterJSON)
 	b.WriteString("`.")
+	b.WriteString(answerDocPatchContentPreservationHint(doc, types.BuildAnswerSemanticViewForAgentContext(ctx)))
 	if focusKind != "" {
 		idsJSON, marshalErr := json.Marshal(focusedIDs)
 		if marshalErr == nil {

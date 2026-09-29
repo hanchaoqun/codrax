@@ -104,10 +104,9 @@ func validateRequiredBlockCoverage(doc *types.AnswerDocumentV2, view *types.Answ
 				Detail: fmt.Sprintf(
 					"required block kind=%s appears %d time(s) in answer; the family contract requires at least %d",
 					kindLabel, got, req.MinCount),
-				Repair: fmt.Sprintf(
-					"emit at least %d block(s) of kind=%s. Per the rationale: %s",
-					req.MinCount, kindLabel, req.Rationale),
-				ClusterKey: blockKindClusterKey(req.Kind, "answer_block_coverage"),
+				Repair:           types.NewAnswerBlockCountRepair(req, got).Instruction(),
+				BlockCountRepair: types.NewAnswerBlockCountRepair(req, got),
+				ClusterKey:       blockKindClusterKey(req.Kind, "answer_block_coverage"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_block_coverage",
 					Reason:     "required block kind under-emitted",
@@ -125,10 +124,9 @@ func validateRequiredBlockCoverage(doc *types.AnswerDocumentV2, view *types.Answ
 				Detail: fmt.Sprintf(
 					"required block kind=%s appears %d time(s); the family contract caps it at %d",
 					kindLabel, got, req.MaxCount),
-				Repair: fmt.Sprintf(
-					"reduce kind=%s blocks to at most %d. Per the rationale: %s",
-					kindLabel, req.MaxCount, req.Rationale),
-				ClusterKey: blockKindClusterKey(req.Kind, "answer_block_coverage"),
+				Repair:           types.NewAnswerBlockCountRepair(req, got).Instruction(),
+				BlockCountRepair: types.NewAnswerBlockCountRepair(req, got),
+				ClusterKey:       blockKindClusterKey(req.Kind, "answer_block_coverage"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_block_coverage",
 					Reason:     "required block kind over-emitted",

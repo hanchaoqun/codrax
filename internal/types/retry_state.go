@@ -143,7 +143,8 @@ type ScoredViolation struct {
 
 	// FieldPath points at the typed field the LLM must edit.
 	// See struct doc for syntax.
-	FieldPath string `json:"field_path,omitempty"`
+	FieldPath        string                  `json:"field_path,omitempty"`
+	BlockCountRepair *AnswerBlockCountRepair `json:"block_count_repair,omitempty"`
 }
 
 // RetryBlockSummary captures the typed state of one AnswerBlock from

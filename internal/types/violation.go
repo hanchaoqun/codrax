@@ -1272,6 +1272,9 @@ type Violation struct {
 	// like "appears 0 time(s)" + "kind=diagram" — a CLAUDE.md
 	// "precise signals for hard gates" red-line requirement.
 	MissingBlockKind AnswerBlockKind
+	// BlockCountRepair preserves under/over-count direction and facet scope
+	// through retries. It guides repair only; existing routing gates are unchanged.
+	BlockCountRepair *AnswerBlockCountRepair
 
 	// RepairLocusOverride lets a typed producer narrow the fallback
 	// owner for this specific violation instance when the generic
