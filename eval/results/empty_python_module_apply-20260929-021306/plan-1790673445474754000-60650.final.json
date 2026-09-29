@@ -1,0 +1,1691 @@
+{
+  "schema_version": 1,
+  "kind": "final_report",
+  "generated_at": "2026-09-29T02:17:48.885288-07:00",
+  "run_id": "wf-1790673318851150000-60650",
+  "run_status": "complete",
+  "goal": "实现 total(values) 函数，对任意整数可迭代对象返回精确总和，空输入返回 0，并支持只能遍历一次的生成器。",
+  "completion": {
+    "verdict": "verified",
+    "reason_code": "all_batches_verified",
+    "source": "batch_completion_aggregate",
+    "at": "2026-09-29T02:17:48.845393-07:00"
+  },
+  "active_batch_id": "batch-1-cumulative-review-proof-probe-plan",
+  "batches": [
+    {
+      "id": "batch-1",
+      "status": "complete",
+      "plan_id": "plan-1790673318064898000-41478",
+      "apply_ref": "refs/codrax/applied/plan-1790673318064898000-41478",
+      "verify_ref": "plan-1790673318064898000-41478.report.json",
+      "completion": {
+        "verdict": "verified",
+        "reason_code": "tests_passed",
+        "source": "slice_observe",
+        "at": "2026-09-29T02:15:43.10668-07:00"
+      },
+      "latest_attempt_kind": "verify",
+      "latest_attempt_status": "passed",
+      "latest_reason_code": "tests_passed",
+      "active_slice_id": "slice-001",
+      "active_slice_status": "verified"
+    },
+    {
+      "id": "batch-1-cumulative-review",
+      "status": "complete",
+      "verify_ref": "plan-1790673318064898000-41478.report.json",
+      "completion": {
+        "verdict": "verified",
+        "reason_code": "superseded_by_verified_proof_followup",
+        "source": "proof_followup_dependency",
+        "at": "2026-09-29T02:17:48.839965-07:00"
+      },
+      "latest_attempt_kind": "verify",
+      "latest_attempt_status": "unverified",
+      "latest_reason_code": "verification_proof_incomplete"
+    },
+    {
+      "id": "batch-1-cumulative-review-proof-probe-plan",
+      "status": "complete",
+      "plan_id": "plan-1790673445474754000-60650",
+      "verify_ref": "plan-1790673445474754000-60650.report.json",
+      "completion": {
+        "verdict": "verified",
+        "reason_code": "tests_passed",
+        "source": "finish",
+        "at": "2026-09-29T02:17:48.769545-07:00"
+      },
+      "latest_attempt_kind": "verify",
+      "latest_attempt_status": "passed",
+      "latest_reason_code": "tests_passed"
+    }
+  ],
+  "artifacts": {
+    "plan_path": "/Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.plan.json",
+    "report_path": "/Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/plan-1790673445474754000-60650.report.json",
+    "workflow_path": "/Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.repo/.codrax/plans/workflows/wf-1790673318851150000-60650.json"
+  },
+  "plan": {
+    "id": "plan-1790673445474754000-60650",
+    "status": "applied",
+    "plan_fingerprint": "62036c7cc562f828240c170e48238eef80ddc8cbaae2113c86ff8e9691e0643d",
+    "target_paths": [
+      "totals.py"
+    ],
+    "source_paths": [
+      "totals.py"
+    ],
+    "approval_action": "auto_execute",
+    "approval_risk_level": "low",
+    "approval_reason_code": "auto_safe_allows_low_medium",
+    "localization": {
+      "status": "supported",
+      "source": "write_plan_context",
+      "plan_id": "plan-1790673445474754000-60650",
+      "batch_id": "batch-1-cumulative-review-proof-probe-plan",
+      "goal": "实现 total(values) 函数，对任意整数可迭代对象返回精确总和，空输入返回 0，并支持只能遍历一次的生成器。",
+      "reason_codes": [
+        "plan_source_paths_owner_supported_by_prior_context"
+      ],
+      "source_paths": [
+        "totals.py"
+      ],
+      "prior_context_paths": [
+        "totals.py"
+      ],
+      "supported_paths": [
+        "totals.py"
+      ],
+      "owner_supported_paths": [
+        "totals.py"
+      ],
+      "anchors": [
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:1:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 1,
+            "line_end": 1,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:2:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 2,
+            "line_end": 2,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:3:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 3,
+            "line_end": 3,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:4:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 4,
+            "line_end": 4,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:5:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 5,
+            "line_end": 5,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:6:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 6,
+            "line_end": 6,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:7:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 7,
+            "line_end": 7,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "plan edit line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "plan_edit_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_localization",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:1:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 1,
+            "line_end": 1,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        }
+      ],
+      "support_ratio": 1
+    },
+    "owner_anchors": [
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:1:total:total:totals.py:1:1",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673445474754000-60650",
+        "batch_id": "batch-1-cumulative-review-proof-probe-plan",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:1:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 1,
+          "line_end": 1,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:2:total:total:totals.py:2:2",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673445474754000-60650",
+        "batch_id": "batch-1-cumulative-review-proof-probe-plan",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:2:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 2,
+          "line_end": 2,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:3:total:total:totals.py:3:3",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673445474754000-60650",
+        "batch_id": "batch-1-cumulative-review-proof-probe-plan",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:3:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 3,
+          "line_end": 3,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:4:total:total:totals.py:4:4",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673445474754000-60650",
+        "batch_id": "batch-1-cumulative-review-proof-probe-plan",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:4:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 4,
+          "line_end": 4,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:5:total:total:totals.py:5:5",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673445474754000-60650",
+        "batch_id": "batch-1-cumulative-review-proof-probe-plan",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:5:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 5,
+          "line_end": 5,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:6:total:total:totals.py:6:6",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673445474754000-60650",
+        "batch_id": "batch-1-cumulative-review-proof-probe-plan",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:6:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 6,
+          "line_end": 6,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:7:total:total:totals.py:7:7",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673445474754000-60650",
+        "batch_id": "batch-1-cumulative-review-proof-probe-plan",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:7:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 7,
+          "line_end": 7,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "plan edit line is enclosed by total"
+        },
+        "rank": 1
+      }
+    ]
+  },
+  "patch": {},
+  "verification": {
+    "report_id": "plan-1790673445474754000-60650.report.json",
+    "status": "passed",
+    "passed": true,
+    "test_count": 4,
+    "passed_count": 4,
+    "command_count": 2,
+    "runner_families": [
+      "python"
+    ],
+    "confidence_reason_codes": [
+      "source_compile_ok"
+    ],
+    "worktree_audit_status": "clean"
+  },
+  "proof": {
+    "status": "strong",
+    "verification_status": "passed",
+    "runner_evidence": "mixed",
+    "cumulative": true,
+    "contributing_reports": 2,
+    "confidence_reason_codes": [
+      "source_compile_ok",
+      "project_test_contract_ref_observed",
+      "project_test_assertion_not_observed"
+    ],
+    "test_count": 8,
+    "command_count": 4,
+    "probe_count": 4,
+    "project_runner_commands": 2,
+    "syntax_fallback_commands": 2,
+    "target_behavior_paths": 2,
+    "localization_status": "supported"
+  },
+  "proof_ledger": {
+    "state": "verified",
+    "profile_status": "strong",
+    "verification_status": "passed",
+    "runner_evidence": "mixed",
+    "cumulative": true,
+    "coverage_counts": {
+      "advisory": 2,
+      "covered": 8
+    },
+    "obligation_count": 10,
+    "covered_count": 10,
+    "capability_count": 8,
+    "obligations": [
+      {
+        "id": "behavior_contract\u0000covered\u0000project_test_observation\u0000plan-1790673445474754000-60650\u0000project_test_contract_refs\u0000project_test_contract_ref_observed\u0000empty-input-zero",
+        "kind": "behavior_contract",
+        "status": "covered",
+        "source": "project_test_observation",
+        "report_plan_id": "plan-1790673445474754000-60650",
+        "category": "project_test_contract_refs",
+        "severity": "info",
+        "reason_code": "project_test_contract_ref_observed",
+        "contract_ref": "empty-input-zero",
+        "capability": "unknown",
+        "detail": "Registered native assertion proof requires this plan's exact registration and fresh file-bound invocation."
+      },
+      {
+        "id": "behavior_contract\u0000missing\u0000project_test_observation\u0000plan-1790673318064898000-41478\u0000project_test_contract_refs\u0000project_test_assertion_not_observed\u0000empty-input-zero",
+        "kind": "behavior_contract",
+        "status": "covered",
+        "source": "project_test_observation",
+        "report_plan_id": "plan-1790673318064898000-41478",
+        "category": "project_test_contract_refs",
+        "severity": "warning",
+        "reason_code": "resolved_by_cumulative_proof",
+        "contract_ref": "empty-input-zero",
+        "capability": "unknown",
+        "detail": "behavior contract is covered by cumulative proof carrying the exact contract_ref"
+      },
+      {
+        "id": "required_behavior_contract\u0000plan-1790673318064898000-41478\u0000empty-input-zero",
+        "kind": "behavior_contract",
+        "status": "covered",
+        "source": "change_plan_behavior_contract",
+        "plan_id": "plan-1790673318064898000-41478",
+        "reason_code": "resolved_by_cumulative_proof",
+        "contract_ref": "empty-input-zero",
+        "capability": "unknown",
+        "detail": "behavior contract is covered by cumulative proof carrying the exact contract_ref"
+      },
+      {
+        "id": "required_behavior_contract\u0000plan-1790673445474754000-60650\u0000empty-input-zero",
+        "kind": "behavior_contract",
+        "status": "covered",
+        "source": "change_plan_behavior_contract",
+        "plan_id": "plan-1790673445474754000-60650",
+        "reason_code": "resolved_by_cumulative_proof",
+        "contract_ref": "empty-input-zero",
+        "capability": "unknown",
+        "detail": "behavior contract is covered by cumulative proof carrying the exact contract_ref"
+      },
+      {
+        "id": "impact\u0000plan-1790673318064898000-41478\u0000impact-target:changed_file|totals.py|totals.py||||patch-effect:plan-1790673318064898000-41478:slice-001:6de2f22a6c17:totals.py\u0000changed_file\u0000verified\u0000totals.py\u0000totals.py",
+        "kind": "changed_file",
+        "status": "covered",
+        "source": "patch_effect",
+        "plan_id": "plan-1790673318064898000-41478",
+        "reason_code": "verified",
+        "path": "totals.py",
+        "related_path": "totals.py",
+        "evidence_ref": "patch-effect:plan-1790673318064898000-41478:slice-001:6de2f22a6c17:totals.py",
+        "capability": "unknown"
+      },
+      {
+        "id": "impact\u0000plan-1790673318064898000-41478\u0000impact-target:changed_file|totals.py|||||totals.py\u0000changed_file\u0000verified\u0000totals.py",
+        "kind": "changed_file",
+        "status": "covered",
+        "source": "change_plan",
+        "plan_id": "plan-1790673318064898000-41478",
+        "reason_code": "verified",
+        "path": "totals.py",
+        "evidence_ref": "totals.py",
+        "capability": "unknown"
+      },
+      {
+        "id": "source_compile\u0000covered\u0000impact_test_surface\u0000plan-1790673318064898000-41478\u0000source_compile\u0000source_compile_ok",
+        "kind": "source_compile",
+        "status": "covered",
+        "source": "impact_test_surface",
+        "report_plan_id": "plan-1790673318064898000-41478",
+        "category": "source_compile",
+        "severity": "info",
+        "reason_code": "source_compile_ok",
+        "capability": "unknown",
+        "detail": "source checker completed successfully for exact input path(s): totals.py"
+      },
+      {
+        "id": "source_compile\u0000covered\u0000impact_test_surface\u0000plan-1790673445474754000-60650\u0000source_compile\u0000source_compile_ok",
+        "kind": "source_compile",
+        "status": "covered",
+        "source": "impact_test_surface",
+        "report_plan_id": "plan-1790673445474754000-60650",
+        "category": "source_compile",
+        "severity": "info",
+        "reason_code": "source_compile_ok",
+        "capability": "unknown",
+        "detail": "source checker completed successfully for exact input path(s): totals.py"
+      },
+      {
+        "id": "patch_review\u0000plan-1790673318064898000-41478\u0000convention_surface_available\u0000advisory\u0000totals.py\u0000patch-effect:plan-1790673318064898000-41478:slice-001:6de2f22a6c17",
+        "kind": "convention",
+        "status": "advisory",
+        "source": "convention_learner",
+        "plan_id": "plan-1790673318064898000-41478",
+        "category": "convention",
+        "severity": "info",
+        "reason_code": "convention_surface_available",
+        "path": "totals.py",
+        "evidence_ref": "patch-effect:plan-1790673318064898000-41478:slice-001:6de2f22a6c17",
+        "capability": "unknown",
+        "detail": "repository convention context is available for the actual patch surface"
+      },
+      {
+        "id": "patch_review\u0000plan-1790673318064898000-41478\u0000non_ascii_source_comment_added\u0000advisory\u0000totals.py\u0000totals.py:2",
+        "kind": "effect_followup",
+        "status": "advisory",
+        "source": "patch_review",
+        "plan_id": "plan-1790673318064898000-41478",
+        "category": "semantic_coverage",
+        "severity": "warning",
+        "reason_code": "non_ascii_source_comment_added",
+        "path": "totals.py",
+        "evidence_ref": "totals.py:2",
+        "capability": "unknown",
+        "detail": "added production-source comment contains non-ASCII text; verify this matches the repository's source-comment convention"
+      }
+    ],
+    "capabilities": [
+      {
+        "id": "changed_path_capability\u0000plan-1790673318064898000-41478\u0000totals.py\u0000project_runner\u0000target_behavior",
+        "kind": "changed_path_verification",
+        "status": "covered",
+        "source": "impact_test_surface",
+        "report_plan_id": "plan-1790673318064898000-41478",
+        "category": "project_runner",
+        "path": "totals.py",
+        "capability": "target_behavior"
+      },
+      {
+        "id": "changed_path_capability\u0000plan-1790673445474754000-60650\u0000totals.py\u0000project_runner\u0000target_behavior",
+        "kind": "changed_path_verification",
+        "status": "covered",
+        "source": "impact_test_surface",
+        "report_plan_id": "plan-1790673445474754000-60650",
+        "category": "project_runner",
+        "path": "totals.py",
+        "capability": "target_behavior"
+      },
+      {
+        "id": "command\u0000plan-1790673318064898000-41478\u0000impact_test_surface\u0000tests/test_totals.py\u0000executed\u0000python3 -m unittest \"tests/test_totals.py\" -v\u0000runner:python\u0000framework:unittest\u0000working_dir:.",
+        "kind": "executed_command",
+        "status": "covered",
+        "source": "impact_test_surface",
+        "report_plan_id": "plan-1790673318064898000-41478",
+        "category": "project_runner",
+        "reason_code": "executed",
+        "path": ".",
+        "related_path": "tests/test_totals.py",
+        "evidence_ref": "command_identity\u0000python\u0000unittest\u0000.\u0000tests/test_totals.py\u0000python3 -m unittest \"tests/test_totals.py\" -v",
+        "capability": "unknown",
+        "detail": "python3 -m unittest \"tests/test_totals.py\" -v"
+      },
+      {
+        "id": "command\u0000plan-1790673318064898000-41478\u0000impact_test_surface\u0000tests/test_totals.py\u0000syntax_preflight\u0000/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.repo/.codrax/worktrees/trace-1790673318796035000-60650/totals.py\u0000runner:python\u0000framework:unittest\u0000working_dir:.",
+        "kind": "executed_command",
+        "status": "covered",
+        "source": "impact_test_surface",
+        "report_plan_id": "plan-1790673318064898000-41478",
+        "category": "syntax_fallback",
+        "reason_code": "syntax_preflight",
+        "path": ".",
+        "related_path": "tests/test_totals.py",
+        "evidence_ref": "command_identity\u0000python\u0000unittest\u0000.\u0000tests/test_totals.py\u0000/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.repo/.codrax/worktrees/trace-1790673318796035000-60650/totals.py",
+        "capability": "unknown",
+        "detail": "/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.repo/.codrax/worktrees/trace-1790673318796035000-60650/totals.py"
+      },
+      {
+        "id": "command\u0000plan-1790673445474754000-60650\u0000impact_test_surface\u0000tests/test_totals.py\u0000executed\u0000python3 -c 'import hashlib, inspect, json, os, sys, unittest\ndestination, selected = sys.argv[1:3]\nrows = []\noverflow = False\nclass ObservedResult(unittest.TextTestResult):\n    current = None\n    def record(self, test, **fields):\n        global overflow\n        if self.current is not None:\n            self.current.update(fields)\n        elif len(rows) \u003c 512:\n            row = dict(assertion_id=str(test)[:1024], suite='\\''unittest.fixture'\\'', passed=True, non_asserting=True, started=False, detail='\\'''\\'')\n            row.update(fields)\n            rows.append(row)\n        else:\n            overflow = True\n    def startTest(self, test):\n        super().startTest(test)\n        self.current = dict(assertion_id=getattr(test, '\\''_testMethodName'\\'', '\\'''\\''), suite=type(test).__module__+'\\''.'\\''+type(test).__qualname__, passed=True, non_asserting=False, started=True, detail='\\'''\\'')\n        try:\n            method = getattr(test, test._testMethodName)\n            source = os.path.realpath(inspect.getfile(method))\n            module = os.path.realpath(sys.modules[type(test).__module__].__file__)\n            with open(source, '\\''rb'\\'') as f: digest = hashlib.sha256(f.read()).hexdigest()\n            self.current.update(source=source, module=module, sha256=digest)\n        except (AttributeError, KeyError, OSError, TypeError):\n            pass\n    def addFailure(self, test, err):\n        self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000]); super().addFailure(test, err)\n    def addError(self, test, err):\n        self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000]); super().addError(test, err)\n    def addSubTest(self, test, subtest, err):\n        if err is not None: self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000])\n        super().addSubTest(test, subtest, err)\n    def addSkip(self, test, reason):\n        self.record(test, non_asserting=True, detail='\\''skipped: '\\''+str(reason)[:1000]); super().addSkip(test, reason)\n    def addExpectedFailure(self, test, err):\n        self.record(test, non_asserting=True, detail='\\''expected failure'\\''); super().addExpectedFailure(test, err)\n    def addUnexpectedSuccess(self, test):\n        self.record(test, passed=False, detail='\\''unexpected success'\\''); super().addUnexpectedSuccess(test)\n    def stopTest(self, test):\n        global overflow\n        if len(rows) \u003c 512: rows.append(self.current)\n        else: overflow = True\n        super().stopTest(test)\n        self.current = None\nclass ObservedRunner(unittest.TextTestRunner):\n    resultclass = ObservedResult\nprogram = unittest.main(module=None, argv=['\\''unittest'\\'', selected, '\\''-v'\\''], testRunner=ObservedRunner, exit=False)\ntry:\n    with open(destination, '\\''x'\\'', encoding='\\''utf-8'\\'') as f:\n        json.dump(dict(rows=rows, overflow=overflow, successful=program.result.wasSuccessful(), tests_run=program.result.testsRun), f)\nexcept OSError:\n    print('\\''[codrax unittest] execution observation could not be written'\\'', file=sys.stderr)\nsys.exit(not program.result.wasSuccessful())\n' /private/var/folders/v4/g_gxvqts3d922ft7y0hktq1m0000gn/T/codrax-unittest-execution-3116417171/result.json tests/test_totals.py\u0000runner:python\u0000framework:unittest\u0000working_dir:.",
+        "kind": "executed_command",
+        "status": "covered",
+        "source": "impact_test_surface",
+        "report_plan_id": "plan-1790673445474754000-60650",
+        "category": "project_runner",
+        "reason_code": "executed",
+        "path": ".",
+        "related_path": "tests/test_totals.py",
+        "evidence_ref": "command_identity\u0000python\u0000unittest\u0000.\u0000tests/test_totals.py\u0000python3 -c 'import hashlib, inspect, json, os, sys, unittest\ndestination, selected = sys.argv[1:3]\nrows = []\noverflow = False\nclass ObservedResult(unittest.TextTestResult):\n    current = None\n    def record(self, test, **fields):\n        global overflow\n        if self.current is not None:\n            self.current.update(fields)\n        elif len(rows) \u003c 512:\n            row = dict(assertion_id=str(test)[:1024], suite='\\''unittest.fixture'\\'', passed=True, non_asserting=True, started=False, detail='\\'''\\'')\n            row.update(fields)\n            rows.append(row)\n        else:\n            overflow = True\n    def startTest(self, test):\n        super().startTest(test)\n        self.current = dict(assertion_id=getattr(test, '\\''_testMethodName'\\'', '\\'''\\''), suite=type(test).__module__+'\\''.'\\''+type(test).__qualname__, passed=True, non_asserting=False, started=True, detail='\\'''\\'')\n        try:\n            method = getattr(test, test._testMethodName)\n            source = os.path.realpath(inspect.getfile(method))\n            module = os.path.realpath(sys.modules[type(test).__module__].__file__)\n            with open(source, '\\''rb'\\'') as f: digest = hashlib.sha256(f.read()).hexdigest()\n            self.current.update(source=source, module=module, sha256=digest)\n        except (AttributeError, KeyError, OSError, TypeError):\n            pass\n    def addFailure(self, test, err):\n        self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000]); super().addFailure(test, err)\n    def addError(self, test, err):\n        self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000]); super().addError(test, err)\n    def addSubTest(self, test, subtest, err):\n        if err is not None: self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000])\n        super().addSubTest(test, subtest, err)\n    def addSkip(self, test, reason):\n        self.record(test, non_asserting=True, detail='\\''skipped: '\\''+str(reason)[:1000]); super().addSkip(test, reason)\n    def addExpectedFailure(self, test, err):\n        self.record(test, non_asserting=True, detail='\\''expected failure'\\''); super().addExpectedFailure(test, err)\n    def addUnexpectedSuccess(self, test):\n        self.record(test, passed=False, detail='\\''unexpected success'\\''); super().addUnexpectedSuccess(test)\n    def stopTest(self, test):\n        global overflow\n        if len(rows) \u003c 512: rows.append(self.current)\n        else: overflow = True\n        super().stopTest(test)\n        self.current = None\nclass ObservedRunner(unittest.TextTestRunner):\n    resultclass = ObservedResult\nprogram = unittest.main(module=None, argv=['\\''unittest'\\'', selected, '\\''-v'\\''], testRunner=ObservedRunner, exit=False)\ntry:\n    with open(destination, '\\''x'\\'', encoding='\\''utf-8'\\'') as f:\n        json.dump(dict(rows=rows, overflow=overflow, successful=program.result.wasSuccessful(), tests_run=program.result.testsRun), f)\nexcept OSError:\n    print('\\''[codrax unittest] execution observation could not be written'\\'', file=sys.stderr)\nsys.exit(not program.result.wasSuccessful())\n' /private/var/folders/v4/g_gxvqts3d922ft7y0hktq1m0000gn/T/codrax-unittest-execution-3116417171/result.json tests/test_totals.py",
+        "capability": "unknown",
+        "detail": "python3 -c 'import hashlib, inspect, json, os, sys, unittest\ndestination, selected = sys.argv[1:3]\nrows = []\noverflow = False\nclass ObservedResult(unittest.TextTestResult):\n    current = None\n    def record(self, test, **fields):\n        global overflow\n        if self.current is not None:\n            self.current.update(fields)\n        elif len(rows) \u003c 512:\n            row = dict(assertion_id=str(test)[:1024], suite='\\''unittest.fixture'\\'', passed=True, non_asserting=True, started=False, detail='\\'''\\'')\n            row.update(fields)\n            rows.append(row)\n        else:\n            overflow = True\n    def startTest(self, test):\n        super().startTest(test)\n        self.current = dict(assertion_id=getattr(test, '\\''_testMethodName'\\'', '\\'''\\''), suite=type(test).__module__+'\\''.'\\''+type(test).__qualname__, passed=True, non_asserting=False, started=True, detail='\\'''\\'')\n        try:\n            method = getattr(test, test._testMethodName)\n            source = os.path.realpath(inspect.getfile(method))\n            module = os.path.realpath(sys.modules[type(test).__module__].__file__)\n            with open(source, '\\''rb'\\'') as f: digest = hashlib.sha256(f.read()).hexdigest()\n            self.current.update(source=source, module=module, sha256=digest)\n        except (AttributeError, KeyError, OSError, TypeError):\n            pass\n    def addFailure(self, test, err):\n        self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000]); super().addFailure(test, err)\n    def addError(self, test, err):\n        self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000]); super().addError(test, err)\n    def addSubTest(self, test, subtest, err):\n        if err is not None: self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000])\n        super().addSubTest(test, subtest, err)\n    def addSkip(self, test, reason):\n        self.record(test, non_asserting=True, detail='\\''skipped: '\\''+str(reason)[:1000]); super().addSkip(test, reason)\n    def addExpectedFailure(self, test, err):\n        self.record(test, non_asserting=True, detail='\\''expected failure'\\''); super().addExpectedFailure(test, err)\n    def addUnexpectedSuccess(self, test):\n        self.record(test, passed=False, detail='\\''unexpected success'\\''); super().addUnexpectedSuccess(test)\n    def stopTest(self, test):\n        global overflow\n        if len(rows) \u003c 512: rows.append(self.current)\n        else: overflow = True\n        super().stopTest(test)\n        self.current = None\nclass ObservedRunner(unittest.TextTestRunner):\n    resultclass = ObservedResult\nprogram = unittest.main(module=None, argv=['\\''unittest'\\'', selected, '\\''-v'\\''], testRunner=ObservedRunner, exit=False)\ntry:\n    with open(destination, '\\''x'\\'', encoding='\\''utf-8'\\'') as f:\n        json.dump(dict(rows=rows, overflow=overflow, successful=program.result.wasSuccessful(), tests_run=program.result.testsRun), f)\nexcept OSError:\n    print('\\''[codrax unittest] execution observation could not be written'\\'', file=sys.stderr)\nsys.exit(not program.result.wasSuccessful())\n' /private/var/folders/v4/g_gxvqts3d922ft7y0hktq1m0000gn/T/codrax-unittest-execution-3116417171/result.json tests/test_totals.py"
+      },
+      {
+        "id": "command\u0000plan-1790673445474754000-60650\u0000impact_test_surface\u0000tests/test_totals.py\u0000syntax_preflight\u0000/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.repo/.codrax/worktrees/trace-1790673318796035000-60650/totals.py\u0000runner:python\u0000framework:unittest\u0000working_dir:.",
+        "kind": "executed_command",
+        "status": "covered",
+        "source": "impact_test_surface",
+        "report_plan_id": "plan-1790673445474754000-60650",
+        "category": "syntax_fallback",
+        "reason_code": "syntax_preflight",
+        "path": ".",
+        "related_path": "tests/test_totals.py",
+        "evidence_ref": "command_identity\u0000python\u0000unittest\u0000.\u0000tests/test_totals.py\u0000/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.repo/.codrax/worktrees/trace-1790673318796035000-60650/totals.py",
+        "capability": "unknown",
+        "detail": "/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.repo/.codrax/worktrees/trace-1790673318796035000-60650/totals.py"
+      },
+      {
+        "id": "capability\u0000plan-1790673318064898000-41478\u0000passed",
+        "kind": "local_verification",
+        "status": "covered",
+        "source": "change_report",
+        "report_plan_id": "plan-1790673318064898000-41478",
+        "capability": "unknown"
+      },
+      {
+        "id": "capability\u0000plan-1790673445474754000-60650\u0000passed",
+        "kind": "local_verification",
+        "status": "covered",
+        "source": "change_report",
+        "report_plan_id": "plan-1790673445474754000-60650",
+        "capability": "unknown"
+      }
+    ]
+  },
+  "delivery": {
+    "materialization": {
+      "schema_version": 1,
+      "status": "available",
+      "reason_code": "applied_checkpoint_candidates",
+      "run_id": "wf-1790673318851150000-60650",
+      "final_plan_id": "plan-1790673445474754000-60650",
+      "retained_plan_ids": [
+        "plan-1790673318064898000-41478"
+      ],
+      "owners": [
+        {
+          "plan_id": "plan-1790673318064898000-41478",
+          "commit_sha": "a2e8d190e51462612b867361c1718b4102568388",
+          "paths": [
+            "totals.py"
+          ]
+        }
+      ]
+    },
+    "status": "coherent",
+    "relation": "source_plan_with_later_validation_followup",
+    "final_plan_id": "plan-1790673445474754000-60650",
+    "report_plan_id": "plan-1790673445474754000-60650",
+    "primary_source_plan_id": "plan-1790673318064898000-41478",
+    "source_owner_plan_ids": [
+      "plan-1790673318064898000-41478"
+    ],
+    "source_paths": [
+      "totals.py"
+    ],
+    "final_plan_validation_only": true
+  },
+  "source_authority": {
+    "plan_id": "plan-1790673318064898000-41478",
+    "source_paths": [
+      "totals.py"
+    ],
+    "localization": {
+      "status": "supported",
+      "source": "write_plan_context",
+      "plan_id": "plan-1790673318064898000-41478",
+      "batch_id": "batch-1",
+      "goal": "实现 total(values) 函数，对任意整数可迭代对象返回精确总和，空输入返回 0，并支持只能遍历一次的生成器。",
+      "reason_codes": [
+        "plan_source_paths_owner_supported_by_prior_context"
+      ],
+      "source_paths": [
+        "totals.py"
+      ],
+      "prior_context_paths": [
+        "totals.py"
+      ],
+      "supported_paths": [
+        "totals.py"
+      ],
+      "owner_supported_paths": [
+        "totals.py"
+      ],
+      "anchors": [
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:1:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 1,
+            "line_end": 1,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:2:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 2,
+            "line_end": 2,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:3:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 3,
+            "line_end": 3,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:4:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 4,
+            "line_end": 4,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:5:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 5,
+            "line_end": 5,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:6:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 6,
+            "line_end": 6,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:7:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 7,
+            "line_end": 7,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "plan edit line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "plan_edit_structural_owner"
+        },
+        {
+          "path": "totals.py",
+          "role": "production",
+          "source_stage": "plan_localization",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|totals.py:1:total:total",
+            "kind": "plan_edit_owner",
+            "source": "totals.py",
+            "line_start": 1,
+            "line_end": 1,
+            "subject": "totals.py:total",
+            "owner_symbol": "total",
+            "anchor_symbol": "total",
+            "summary": "actual patch line is enclosed by total"
+          },
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "reason_code": "actual_diff_structural_owner"
+        }
+      ],
+      "support_ratio": 1
+    },
+    "owner_anchors": [
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:1:total:total:totals.py:1:1",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:1:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 1,
+          "line_end": 1,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:2:total:total:totals.py:2:2",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:2:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 2,
+          "line_end": 2,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:3:total:total:totals.py:3:3",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:3:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 3,
+          "line_end": 3,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:4:total:total:totals.py:4:4",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:4:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 4,
+          "line_end": 4,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:5:total:total:totals.py:5:5",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:5:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 5,
+          "line_end": 5,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:6:total:total:totals.py:6:6",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:6:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 6,
+          "line_end": 6,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "totals.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000totals.py:total\u0000total\u0000total\u0000plan-edit-owner|totals.py:7:total:total:totals.py:7:7",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:7:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 7,
+          "line_end": 7,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "plan edit line is enclosed by total"
+        },
+        "rank": 1
+      }
+    ]
+  },
+  "patch_review": {},
+  "impact": {
+    "result_id": "impact-analysis:plan-1790673445474754000-60650"
+  },
+  "handoff": {
+    "total_items": 96,
+    "top_items": [
+      {
+        "priority": "p0",
+        "kind": "approval",
+        "source_stage": "approval",
+        "fingerprint": "8a5987897e471a0f"
+      },
+      {
+        "priority": "p0",
+        "kind": "behavior_contract",
+        "source_stage": "write_analysis",
+        "source_id": "empty-input-zero",
+        "fingerprint": "98e8f4f0b19d4c12"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "e0724a5cffd8e9d8"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_decision",
+        "source_stage": "risk",
+        "fingerprint": "8a29c02f36cc2f71"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "f5d24d12834a4424"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval",
+        "source_stage": "approval",
+        "fingerprint": "6ca66c6bbcc3c9a5"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval",
+        "source_stage": "approval",
+        "fingerprint": "9d75f5b080386076"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "659f5beba0cc64e1"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "e9a6cf983fc39b79"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "138cdff80eb91ba4"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "c860f091aa1940cb"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_decision",
+        "source_stage": "risk",
+        "fingerprint": "ffc27f3ba495df9d"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval",
+        "source_stage": "approval",
+        "fingerprint": "19b7ab7d0ba223cf"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "d31bfbf725ac9a00"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "904e8ba76026197b"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "627b5bd2c710fd2e"
+      }
+    ],
+    "owner_anchors": [
+      {
+        "id": "plan_edit_owner|totals.py:1:total:total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_edit_owner",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:1:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 1,
+          "line_end": 1,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "plan_edit_owner|totals.py:2:total:total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_edit_owner",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:2:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 2,
+          "line_end": 2,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "plan_edit_owner|totals.py:3:total:total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_edit_owner",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:3:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 3,
+          "line_end": 3,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "plan_edit_owner|totals.py:4:total:total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_edit_owner",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:4:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 4,
+          "line_end": 4,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "plan_edit_owner|totals.py:5:total:total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_edit_owner",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:5:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 5,
+          "line_end": 5,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "plan_edit_owner|totals.py:6:total:total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_edit_owner",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:6:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 6,
+          "line_end": 6,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "plan_edit_owner|totals.py:7:total:total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_edit_owner",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:7:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 7,
+          "line_end": 7,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "plan edit line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "source_localization_anchor|plan-1790673318064898000-41478|totals.py|grounded_evidence|owner|total|total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_localization",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:1:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 1,
+          "line_end": 1,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "source_localization_anchor|plan-1790673318064898000-41478|totals.py|grounded_evidence|owner|total|total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_localization",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:2:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 2,
+          "line_end": 2,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "source_localization_anchor|plan-1790673318064898000-41478|totals.py|grounded_evidence|owner|total|total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_localization",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:3:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 3,
+          "line_end": 3,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "source_localization_anchor|plan-1790673318064898000-41478|totals.py|grounded_evidence|owner|total|total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_localization",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:4:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 4,
+          "line_end": 4,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      },
+      {
+        "id": "source_localization_anchor|plan-1790673318064898000-41478|totals.py|grounded_evidence|owner|total|total",
+        "path": "totals.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_localization",
+        "source_id": "plan-1790673318064898000-41478",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "totals.py:total",
+        "owner_symbol": "total",
+        "anchor_symbol": "total",
+        "reason_code": "actual_diff_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|totals.py:5:total:total",
+          "kind": "plan_edit_owner",
+          "source": "totals.py",
+          "line_start": 5,
+          "line_end": 5,
+          "subject": "totals.py:total",
+          "owner_symbol": "total",
+          "anchor_symbol": "total",
+          "summary": "actual patch line is enclosed by total"
+        },
+        "rank": 1
+      }
+    ]
+  },
+  "loop": {
+    "run_id": "wf-1790673318851150000-60650",
+    "status": "complete",
+    "active_unit_id": "batch:batch-1-cumulative-review-proof-probe-plan",
+    "event_count": 11,
+    "last_event_kind": "run_completed",
+    "last_reason_code": "all_batches_verified",
+    "event_refs": [
+      "wf-1790673318851150000-60650:000001:run_seeded",
+      "wf-1790673318851150000-60650:000002:localization_projected",
+      "wf-1790673318851150000-60650:000003:proof_projected",
+      "wf-1790673318851150000-60650:000004:unit_created",
+      "wf-1790673318851150000-60650:000005:effect_described",
+      "wf-1790673318851150000-60650:000006:permission_decided",
+      "wf-1790673318851150000-60650:000007:plan_emitted",
+      "wf-1790673318851150000-60650:000008:observe_completed",
+      "wf-1790673318851150000-60650:000009:proof_projected",
+      "wf-1790673318851150000-60650:000010:unit_completed",
+      "wf-1790673318851150000-60650:000011:run_completed"
+    ],
+    "runtime_units": [
+      {
+        "unit_id": "batch:batch-1-cumulative-review-proof-probe-plan",
+        "status": "complete",
+        "reason_code": "tests_passed",
+        "truth": {}
+      }
+    ],
+    "truth": {},
+    "proof": {
+      "state": "covered",
+      "reason_code": "tests_passed",
+      "recommended_action": "continue"
+    },
+    "localization": {
+      "state": "owner_supported",
+      "reason_code": "localization_owner_supported",
+      "recommended_action": "continue",
+      "source_paths": [
+        "totals.py"
+      ],
+      "owner_supported_paths": [
+        "totals.py"
+      ]
+    },
+    "permission": {
+      "state": "allow",
+      "reason_code": "all_rules_allow",
+      "recommended_action": "continue",
+      "source": "write_workflow_run"
+    }
+  },
+  "reasoning_graph": {
+    "graph_id": "wf-1790673318851150000-60650",
+    "event_count": 11,
+    "last_event_kind": "workflow_event_projected",
+    "last_reason_code": "all_batches_verified",
+    "event_refs": [
+      "wf-1790673318851150000-60650:000001:run_seeded",
+      "wf-1790673318851150000-60650:000002:localization_projected",
+      "wf-1790673318851150000-60650:000003:proof_projected",
+      "wf-1790673318851150000-60650:000004:unit_created",
+      "wf-1790673318851150000-60650:000005:effect_described",
+      "wf-1790673318851150000-60650:000006:permission_decided",
+      "wf-1790673318851150000-60650:000007:plan_emitted",
+      "wf-1790673318851150000-60650:000008:observe_completed",
+      "wf-1790673318851150000-60650:000009:proof_projected",
+      "wf-1790673318851150000-60650:000010:unit_completed",
+      "wf-1790673318851150000-60650:000011:run_completed"
+    ],
+    "workflow_event_count": 11,
+    "node_count": 2
+  }
+}

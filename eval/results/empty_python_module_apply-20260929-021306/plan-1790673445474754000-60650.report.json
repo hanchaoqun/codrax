@@ -1,0 +1,170 @@
+{
+  "plan_id": "plan-1790673445474754000-60650",
+  "channel": "post_apply_verify",
+  "test_results": [
+    {
+      "invocation_id": "native:ecea:18d9c005525f5e10:3",
+      "kind": "unit",
+      "observation_scope": "assertion",
+      "assertion_id": "test_empty",
+      "suite": "tests.test_totals.TotalTest",
+      "passed": true,
+      "duration": 0
+    },
+    {
+      "invocation_id": "native:ecea:18d9c005525f5e10:3",
+      "kind": "unit",
+      "observation_scope": "assertion",
+      "assertion_id": "test_large_integers",
+      "suite": "tests.test_totals.TotalTest",
+      "passed": true,
+      "duration": 0
+    },
+    {
+      "invocation_id": "native:ecea:18d9c005525f5e10:3",
+      "kind": "unit",
+      "observation_scope": "assertion",
+      "assertion_id": "test_signed_integers",
+      "suite": "tests.test_totals.TotalTest",
+      "passed": true,
+      "duration": 0
+    },
+    {
+      "invocation_id": "native:ecea:18d9c005525f5e10:3",
+      "kind": "unit",
+      "observation_scope": "assertion",
+      "assertion_id": "test_single_pass_iterable",
+      "suite": "tests.test_totals.TotalTest",
+      "passed": true,
+      "duration": 0
+    }
+  ],
+  "passed": true,
+  "verification_status": "passed",
+  "verification_confidence": [
+    {
+      "source": "impact_test_surface",
+      "category": "source_compile",
+      "status": "satisfied",
+      "severity": "info",
+      "reason_code": "source_compile_ok",
+      "changed_symbol_refs": [
+        "path:totals.py"
+      ],
+      "detail": "source checker completed successfully for exact input path(s): totals.py"
+    },
+    {
+      "source": "project_test_observation",
+      "category": "project_test_contract_refs",
+      "status": "satisfied",
+      "severity": "info",
+      "reason_code": "project_test_contract_ref_observed",
+      "contract_refs": [
+        "empty-input-zero"
+      ],
+      "detail": "successful exact typed project-test candidates observed the listed behavior contracts",
+      "witness_kind": "project_test"
+    }
+  ],
+  "executed_commands": [
+    {
+      "runner": "python",
+      "framework": "unittest",
+      "working_dir": ".",
+      "suite": "tests/test_totals.py",
+      "command": "/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.repo/.codrax/worktrees/trace-1790673318796035000-60650/totals.py",
+      "exit_code": 0,
+      "duration_ms": 33,
+      "source_check_execution": {
+        "version": 1,
+        "started": true,
+        "completed": true,
+        "exit_code_known": true,
+        "exit_code": 0,
+        "checked_paths": [
+          "totals.py"
+        ]
+      },
+      "covered_paths": [
+        "totals.py"
+      ],
+      "source": "impact_test_surface",
+      "outcome": "syntax_preflight"
+    },
+    {
+      "invocation_id": "native:ecea:18d9c005525f5e10:3",
+      "runner": "python",
+      "framework": "unittest",
+      "working_dir": ".",
+      "suite": "tests/test_totals.py",
+      "command": "python3 -c 'import hashlib, inspect, json, os, sys, unittest\ndestination, selected = sys.argv[1:3]\nrows = []\noverflow = False\nclass ObservedResult(unittest.TextTestResult):\n    current = None\n    def record(self, test, **fields):\n        global overflow\n        if self.current is not None:\n            self.current.update(fields)\n        elif len(rows) \u003c 512:\n            row = dict(assertion_id=str(test)[:1024], suite='\\''unittest.fixture'\\'', passed=True, non_asserting=True, started=False, detail='\\'''\\'')\n            row.update(fields)\n            rows.append(row)\n        else:\n            overflow = True\n    def startTest(self, test):\n        super().startTest(test)\n        self.current = dict(assertion_id=getattr(test, '\\''_testMethodName'\\'', '\\'''\\''), suite=type(test).__module__+'\\''.'\\''+type(test).__qualname__, passed=True, non_asserting=False, started=True, detail='\\'''\\'')\n        try:\n            method = getattr(test, test._testMethodName)\n            source = os.path.realpath(inspect.getfile(method))\n            module = os.path.realpath(sys.modules[type(test).__module__].__file__)\n            with open(source, '\\''rb'\\'') as f: digest = hashlib.sha256(f.read()).hexdigest()\n            self.current.update(source=source, module=module, sha256=digest)\n        except (AttributeError, KeyError, OSError, TypeError):\n            pass\n    def addFailure(self, test, err):\n        self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000]); super().addFailure(test, err)\n    def addError(self, test, err):\n        self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000]); super().addError(test, err)\n    def addSubTest(self, test, subtest, err):\n        if err is not None: self.record(test, passed=False, detail=self._exc_info_to_string(err, test)[:4000])\n        super().addSubTest(test, subtest, err)\n    def addSkip(self, test, reason):\n        self.record(test, non_asserting=True, detail='\\''skipped: '\\''+str(reason)[:1000]); super().addSkip(test, reason)\n    def addExpectedFailure(self, test, err):\n        self.record(test, non_asserting=True, detail='\\''expected failure'\\''); super().addExpectedFailure(test, err)\n    def addUnexpectedSuccess(self, test):\n        self.record(test, passed=False, detail='\\''unexpected success'\\''); super().addUnexpectedSuccess(test)\n    def stopTest(self, test):\n        global overflow\n        if len(rows) \u003c 512: rows.append(self.current)\n        else: overflow = True\n        super().stopTest(test)\n        self.current = None\nclass ObservedRunner(unittest.TextTestRunner):\n    resultclass = ObservedResult\nprogram = unittest.main(module=None, argv=['\\''unittest'\\'', selected, '\\''-v'\\''], testRunner=ObservedRunner, exit=False)\ntry:\n    with open(destination, '\\''x'\\'', encoding='\\''utf-8'\\'') as f:\n        json.dump(dict(rows=rows, overflow=overflow, successful=program.result.wasSuccessful(), tests_run=program.result.testsRun), f)\nexcept OSError:\n    print('\\''[codrax unittest] execution observation could not be written'\\'', file=sys.stderr)\nsys.exit(not program.result.wasSuccessful())\n' /private/var/folders/v4/g_gxvqts3d922ft7y0hktq1m0000gn/T/codrax-unittest-execution-3116417171/result.json tests/test_totals.py",
+      "exit_code": 0,
+      "duration_ms": 62,
+      "covered_paths": [
+        "totals.py"
+      ],
+      "source": "impact_test_surface",
+      "outcome": "executed"
+    }
+  ],
+  "existing_test_executions": [
+    {
+      "native_test_registration_digest": "5893b5c9e0ddc1467920fdd9cd8b694b260a3db8603ca2d3a892c18b3d0afdf6",
+      "plan_id": "plan-1790673445474754000-60650",
+      "source_plan_id": "plan-1790673318064898000-41478",
+      "applied_commit_sha": "a2e8d190e51462612b867361c1718b4102568388",
+      "patch_effect_id": "patch-effect:plan-1790673318064898000-41478:slice-001:6de2f22a6c17",
+      "diff_fingerprint": "6de2f22a6c17dd997bea976328f1598c53fcf7e307adc841467aa1ad32d10987",
+      "test_path": "tests/test_totals.py",
+      "candidate_id": "python/unittest@.",
+      "runner": "python",
+      "framework": "unittest",
+      "working_dir": ".",
+      "suite": "tests/test_totals.py",
+      "command_index": 1,
+      "assertion_count": 4,
+      "failed_assertion_count": 0,
+      "test_file_sha256": "95143baf97adf98c6343795287cf6cab334533ddc5b34bea7e1887067c1e5556",
+      "command_sha256": "1a3bfeb6668b1a1c5459be03bf6b0b04ab01643fa08ef936494ad8415a2947b0",
+      "assertion_digests": [
+        "325a56798c3dba09696f0b561a9f7d02bd456821fc33b34439cf2bbaaad7ad10",
+        "18e4e522e116bcaa26e4d2d5d514283df738b6b1e2693eb92499ca7a82462525",
+        "6b389d6b11969ff55406764919e877c3d8bc73a46fa7d548942246485d19297d",
+        "d1bad3c06d30e1b4f3f58dbcd8e5617c987c734bdcb539578888c5cc131bd657"
+      ]
+    }
+  ],
+  "worktree_audit": {
+    "status": "clean"
+  },
+  "changed_path_coverage": [
+    {
+      "path": "totals.py",
+      "language_families": [
+        "python"
+      ],
+      "status": "covered",
+      "caliber": "project_runner",
+      "capability": "target_behavior",
+      "runner": "python",
+      "source": "impact_test_surface"
+    }
+  ],
+  "test_surface": {
+    "candidates": [
+      {
+        "id": "python/unittest@.",
+        "runner": "python",
+        "framework": "unittest",
+        "working_dir": ".",
+        "command": "python3 -m unittest discover -v",
+        "source": "test-file convention",
+        "has_test_signal": true,
+        "priority": 7
+      }
+    ],
+    "selected_id": "python/unittest@.",
+    "generated_at": "2026-09-29T02:17:35.786471-07:00"
+  },
+  "generated_at": "2026-09-29T02:17:36.121803-07:00"
+}

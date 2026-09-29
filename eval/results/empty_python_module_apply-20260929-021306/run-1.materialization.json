@@ -1,0 +1,13 @@
+{
+  "status": "resolved",
+  "seed_commit_sha": "4d75460579ebd74b264a4b247b8c7bdaaba55136",
+  "run_id": "wf-1790673318851150000-60650",
+  "final_plan_id": "plan-1790673445474754000-60650",
+  "retained_plan_ids": [
+    "plan-1790673318064898000-41478"
+  ],
+  "selected_plan_ids": [
+    "plan-1790673318064898000-41478"
+  ],
+  "path": "eval/results/empty_python_module_apply-20260929-021306/run-1.applied-tree"
+}

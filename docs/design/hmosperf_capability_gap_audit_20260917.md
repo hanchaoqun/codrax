@@ -4739,3 +4739,51 @@ Go/build输入冻结于`a78ed6086399`后，46322启动独立完整`go test -p 4 
 冻结后93230独立 `go test -p 4 ./... -count=1` 正式exit0：87测试包PASS、13无测试、零FAIL；agent106.480、tool507.475、tracequery147.332秒。原日志 `/tmp/codrax-hmc191-full.log` SHA-256=`fba04dfde69df0b7f201ba57734907790f6553d6395a665cef3547875388ac4f`。本批代码/测试未在全仓运行后变动，不拼接局部结果，默认全仓中的新live入口按设计SKIP，不是再次调用模型。四包定向race日志SHA-256=`f57e675091a140055594b0b7bf119e56bd278e6726d625a881e5710a0d53da85`；90290构建正式exit0，日志SHA-256=`b5c01266e5640d9179179437380ef6281580606db520980a76279b08d55255d4`，冻结评测二进制SHA见双例汇总。
 
 82489 fetch正式exit0，发布前2 ahead/0 behind；20123普通push正式exit0，303bd55e6与6d73a22d1已推至origin/main，核对0/0。统一任务清单、架构、入口说明、原机器判定/执行收据及人工审计一次汇总提交；原完整日志/失败工件保留本地及SHA，不改写历史。末次稳定计数仍79=16交付+63开放、重复0，五个稳定验收父项不变。下一两轨以唯一清单§191当前队列为准。
+
+## 192. 启动摘要权威与进程所属源区间（2026-09-29）
+
+### 192.1 清点与参考设计
+
+从干净`7ed7b2534`继续；逐checkbox/唯一ID复算79=16完整实现交付+63开放，重复0；49待实施/8部分实施/2待验收/3验收中/1持续执行。旧机器/人工FAIL和5个稳定验收父项03.2/04.2/08.3/08.4/18.2原样保留。本批两个生产交付面：阻断§191模型Startup摘要提升成来源事实的已证缺陷；补二进制/SQLite源启动记录的真实主体和严格准入。不是继续给相同答案增加措辞规则。
+
+复读参考`core/preprocess/launch_ops.py:1–180,315–410`：按ipid分组、按下一启动实例限界，设计意图是防止跨进程/跨次拼接。当前项目AppStartup源表只有进程引用，不能借主线程/CPU0制造执行主体；源行区间与物理调用栈应是不同证据。采用“源主体与区间先独立保真，再按见证组合实例”的方案；不移植NULL/NaN补零、未知ipid合组、名称子串定阶段、gap吸收、首个ReceiveVsync等同显示完成，亦不照抄微秒说明与`1e-6`矛盾。完整实例与viewer不是本片退出范围，仍记04.3/17.7。
+
+### 192.2 生产实现
+
+`073f9b63f`给`PerfStartup`复用系统拥有的提取权威。公开模型发射一律为pre_triage_model_extraction，模型schema不能授予validator权威；旧持久值及未知权威也不生成事实。合并先选已验证权威、同级才比较报告值，取消“每Trace最多一次启动”的错误假设。LogFrames、派生entities/intent/signals、criterion、回答绑定/种子/义务/账本、上下文builder及阶段报告一致消费权威；未验证摘要值留在审计包，不作为Startup事实进入模型，Meta.Summary旁路也不再把同一虚构值带回。已验证正控与原始查询字段保留，不修改用户窗/投影/补齐/根因资格。此片不是整个PerfBundle的验证器，也不为全部其他预提取字段销账。
+
+`7320af656`将app_startup导出改为`codrax_process_interval/v1`。逐行严格SQLite INTEGER时间审计，全表RowsRead与扫描数一致，坏时间计数而非SQL WHERE静默丢弃；有效时间的NULL/非法/未解析owner仍保源行。源记录携带rowid、原始ipid或未知状态、唯一process表验证的可选public PID、完整起止纳秒及名称状态。它不是线程事件：不合成TID/CPU/生命周期，不进入物理B/E栈，不因交错区间毒化真实调用栈。source_begin/source_end在解析器、时间扫描、索引/流式、工具闭合enum和最终语义字段同路；pid/thread选择仍不把进程owner当线程。两端各保完整源区间，结束端单窗不依赖邻近起点，真实业务名不被兜底标签替代。
+
+ParserVersion=v50；Event/EventView全叶238→240手工扩golden，普通调度JSON/core尺寸不变。OwnerPID/OwnerIssue与原始名称预算独立，名称准入仍4096字节/6144 JSON字节，元数据编码预算384、总8576，旧v1/v2输入兼容。无新增模型必填、无问答原文关键词门、无系统代写答案。600/300/600秒、活跃流等待、链上根因/业务线索、图及自动补齐未改。普通查看器仍忽略注释，coverage明确typed-only，不能称已交付viewer支持；static_initialize的legacy R1b-C也未被此片代销。
+
+### 192.3 定向回归、冻结与双例
+
+首轮44300发现旧启动事实fixture未显式标validator及新测试空来源约束；75096旧export签名编译失败，76983新fixture列数错误，均修正并保原日志。13179相关整包运行期间发生测试迁移，正式exit1：旧缓存v49/238叶与旧AppStartup同步栈断言失败；不得将其余包PASS拼接成末版全仓。`/tmp/codrax-hmc192-related.log` SHA-256=`a5bb1574d6c23b460d4d68b1eaa8866eff621486009c17368ad95667c424b3c6`保留。
+
+74235末版定向9包正式exit0，32309六包race正式exit0；新增公开路径覆盖发射→实际finalizer摘要权威、多片顺序/数值大小、旧/未知权威、SQL坏时间/NULL或文本owner/合法0/未解析owner、真实栈交错、结束端单窗、精确大整数/JSON/缓存及长名称容量。最后接口审计发现新解析动作尚未进入工具闭合enum，补齐后53614三包定向race正式exit0，含源owner不进入线程选择负控；其日志SHA-256=`635bfedd9801e31eda0863005b964ff6146cd9df9686b255e172eb0a060d77c7`。74235日志SHA=`0bef6fd75c2d5eb749716693cedf4fbc3dae4836c127d4ea4f26f3c9a315e5a6`，32309=`165d031ae77b6fbb942f7dc0d4ad135bf6e00431dc0abae3c9dad924f90c3c1d`。
+
+Go/build/测试输入冻结于`7320af656b27`后，48334启动独立全仓`go test -p 4 ./... -count=1`，日志`/tmp/codrax-hmc192-full.log`。72578 make正式exit0，revision7320af656b27，日志SHA-256=`bf9b2772f8f32e98772fa0048aa279dc5174cd01d40a3b0635fdb490cd9df99d`。固定46820启动`trace_sqlite_startup_subject`与`empty_python_module_apply`，恰好2并行×1，不补第三例。自然问句仅增加所求的所属进程/能否看见执行线程和CPU，不向用户暴露内部守护约束；沿用原oracle，旧问题/FAIL不改。
+
+### 192.4 真实模型答案与新缺口
+
+46820正式exit0，机器1/2、完整人工1/2。启动查询13个唯一行=四源记录8端点+五系统事件，实际finalizer owner_pid27599/原始起止/8、4、4、5ms/未知线程CPU完整，metadata omission=0；零源码读取。首次emit四段及数值都在，但post-emit只补维度归属时，模型整块replace两表漏columns，最后表头变“列1…”且单位丢失，机器8ms/5ms失败本次属实，不套旧表头正则误报。全文另PID27599错写27559、合成startup名冒真名、HiSys逐行主体被泛化，人工FAIL不改。
+
+已证通用缺口挂01.3/16.4/18.4：现有add_facet_id无损通道限单一member_set维度和唯一带enumeration/item证据的载体；本例多维/多表退回完整block authoring，纯元数据修订成为丢列风险。应审typed维度身份/目标集合/模型选值的无损编辑，不靠名称/问答原文硬门，不自动补用户删除的字段。日志2215/2272分别保首次columns与漏columns的patch，不把renderer当根本原因，不声称§191数量指导已处理所有修订问题。下一高影响轨优先该跨载体缺口，与17.7接入能力并行推进，而非第三次追跑此答案。
+
+本次没有emit Startup，故live不代签Startup权威分支；公开真实消息正反测试承担它。Meta仍发duration_ms0.08及cold-start-slow，explorer/finalizer显示Duration0.1ms及相同signal，证明其它元数据的权威/单位尚有共享缺口；摘要Summary旁路已消除，不代表整个PerfBundle都修完。原始源字段13/32行完整，finalizer初始system85,816字节/62,198估算tokens，全链最大82,895（41%）；用户维度不同，不主张token相对收益。最终未据该错误meta断言根因；旁路schema2空根因、trace_root_cause_contract_not_active。详见[人工审计](../../eval/parallel_selected_summary_hmc_startup_authority_20260929_manual_audit.md)。
+
+### 192.5 只读登记完整CLI验收闭合
+
+Python实现仅totals.py六行，核心`return sum(values)`，测试/配置/依赖未改。初次计划用错误suite `tests.test_totals::TotalTest`，真实runner返回`tests.test_totals.TotalTest`，4测试绿未使empty-input-zero合同假关闭。控制器派发只读proof followup，真实planner完整读取旧测试、空changes登记4个精确断言；再verify产生新invocation `native:ecea:18d9c005525f5e10:3`，不复用旧`:2`。系统凭证绑定原交付commit/source plan及测试SHA，报告existing_test_executions=4断言/0失败，worktree_audit=clean。
+
+真实controller执行verify_batch→finish/all_verified，默认持久run和final报告均complete/verified/all_batches_verified，3批完成；原seed主仓HEAD不变，测试SHA前后同为95143baf97adf98c6343795287cf6cab334533ddc5b34bea7e1887067c1e5556。用户答案明确4测试通过/最终已验证，完整人工PASS。可以关闭“只读登记完整CLI/controller/默认持久收尾”子退出，不再误列未完；跨进程重启恢复整轮未覆盖，§191恢复阶段结果仍按原范围保存。18.5持续执行父项不勾选；内部术语、初始请求与当前验证批次解释重复等呈现债仍保留。
+
+关键plan/report/final、机器原判随批登记，大原始日志、工作仓与默认持久run留本地及SHA。完整任务新增0，交付子能力2，既有子能力新增完整验收退出1；剩余63及5稳定验收父项不变。完整全仓及发布收据见下节。
+
+### 192.6 独立全仓及发布收据
+
+48334冻结独立全仓正式exit0：87测试包PASS、13无测试、零FAIL；agent99.753、hitraceconv191.142、tool487.086、tracequery134.225秒。日志`/tmp/codrax-hmc192-full.log` SHA-256=`f9e7f36f5a7647231e0fc110c7d9cb0e38c91c22eb19fc8d7ff3de9b171ab120`。期间Go/build/测试字节未改，仅补文档，不拼接此前相关包失败结果。72578构建正式exit0，revision7320af656b27，二进制SHA-256=`8cb47cea55802a2d5199a600f7c306610bcdef8b3abf3e06834e6711672cab13`，46820使用同一构建的冻结快照；模型评测固定2并行×1。
+
+17533 fetch正式exit0，发布前2 ahead/0 behind；42399普通push正式exit0，`073f9b63f`和`7320af656`已推origin/main，随后核对0/0。统一任务清单、架构、机器原判、关键只读登记计划/新执行/完成报告与人工审计一次汇总提交推送，不覆盖原始失败。
+
+末次稳定计数79=16已交付+63开放、重复0；完整父能力新增0、已交付子能力2、完整只读登记验收退出1。下一两轨为17.7活跃/WAL一致快照与01.3/16.4多载体无损元数据修订；Meta时长/信号权威、启动实例/viewer、恢复重启及其它领域按唯一清单§192队列保留，不继续无限追跑同一答案。

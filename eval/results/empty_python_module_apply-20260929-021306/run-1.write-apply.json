@@ -1,0 +1,20 @@
+{
+  "plan_id": "plan-1790673445474754000-60650",
+  "plan_written": true,
+  "apply_attempted": true,
+  "worktree_path": "/Users/han/opt/codrax/eval/results/empty_python_module_apply-20260929-021306/run-1.repo/.codrax/worktrees/trace-1790673318796035000-60650",
+  "worktree_exists": true,
+  "report_path": "eval/results/empty_python_module_apply-20260929-021306/plan-1790673445474754000-60650.report.json",
+  "report_exists": true,
+  "report_plan_id": "plan-1790673445474754000-60650",
+  "report_channel": "post_apply_verify",
+  "report_passed": true,
+  "final_report_path": "eval/results/empty_python_module_apply-20260929-021306/plan-1790673445474754000-60650.final.json",
+  "final_report_exists": true,
+  "final_plan_id": "plan-1790673445474754000-60650",
+  "final_run_status": "complete",
+  "final_verdict": "verified",
+  "final_reason_code": "all_batches_verified",
+  "verify_authoritative": true,
+  "allow_unverified": false
+}

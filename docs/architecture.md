@@ -1317,6 +1317,8 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 - Layer 1 Meta：`source` (hitrace/atrace/systrace/perfetto/unknown) / `duration_ms` / `app_pid` / `signals[]` (jank/cold-start-slow/main-thread-stall/io-block/gc-pause/render-miss) / `summary`
 - Layer 2 Events：`Frames[]`（FrameNo / TsMs / DurationMs / Phase / Janky）/ `Janks[]`（start_ts_ms / duration_ms / trigger_span / reason / tags[]）/ `Stalls[]`（symbol / file / line）/ `Startup`（mode=cold/warm/hot / app_launch_ms / ability_init_ms / first_frame_ms）
+
+  `Startup.Authority`由系统生产者设置，`emit_perf_trace`模型提取固定为`pre_triage_model_extraction`，模型schema不能自行授予权威；旧值/未知值同样不作为事实。仅`deterministic_validator`允许产生启动事实绑定、账本条目、语义义务和派生模式/慢启动信号。多片合并先比较权威、再在同级取代表值，不声称多实例聚合；未验证startup与Meta.Summary保留在审计包，但具体值不投递为阶段报告/最终上下文中的事实。合法源事件与源字段仍通过公开查询交接，未验证摘要不会删除它们（HMC §192）。
 - Layer 3 Residue：`residue[]`
 - Layer 4 派生（`derivePerfLayer4`）：任一 jank/stall/慢冷启动 → `IntentHint=performance`；Entities (cap 32) 来自 trigger spans + tags + stall symbols + startup mode；ResolvedFiles (cap 10) 来自 stall files；signals 按阈值（PerfFrameBudget60HzMs 16.67ms / PerfStartupSlowColdMs 1.2s / PerfMainThreadStallMs 100ms）自动追加
 
@@ -1353,13 +1355,13 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **系统事件可逆观察（HMC-05.1/17.7）**：HiSys的域/名称无法解析或不适合传统print语法时，不再丢弃有合法时间的行。版本化观察载体保原SQL纳秒时间、nullable TID、名称引用/解析状态、内容存储类（NULL/TEXT/BLOB/INTEGER/REAL），不补线程、CPU或因果边；特殊字符、换行及前后空白经有界编码往返。合法名称、已知TID及普通单行TEXT沿原print字节路径，parser同时保留已解析的内容尾部。共享时间扫描、流式/索引查询与载体注册均识别新格式；原件只读、输入/输出事务与SQL全表保真不变。
 
-**启动名称来源（HMC-04.3/17.7）**：AppStartup同步端点经共享区间裁决后，以`codrax_trace_mark_exact/v2`保源表、源业务名、字典引用及resolved/unresolved/null/非法存储类状态，展示标签与真实名称分开。合法0、已知空名和未知不能混同；名称状态不从兜底标签反推。两端都带同一源行名称信息，结束端窗口不依赖窗外起点重建名称；内存和SQLite暂存、索引和最终语义投影同路，ParserVersion=v47使旧解析缓存失效。v1及普通输入保持兼容，特殊分隔符经编码而非替换；共享抑制、排序、时间、实例和根因权限不变。代价是普通ftrace查看器忽略v2注释，覆盖报告用`official_viewer_typed_only_sync_spans_name_origin`明确计数，不声称标准查看器可见。原AppStartup进程/CPU的legacy准入问题（R1b-C）、完整启动实例/首帧/可交互建模仍开放，本片名称元数据不能提升其权限。
+**启动名称来源（HMC-04.3/17.7）**：源表、源业务名、字典引用及resolved/unresolved/null/非法存储类状态保存在`MarkerNameOrigin`，展示标签与真实名称分开。合法0、已知空名和未知不能混同；名称状态不从兜底标签反推。两端都带同一源行名称信息，结束端窗口不依赖窗外起点重建名称；内存和SQLite暂存、索引和最终语义投影同路。旧`codrax_trace_mark_exact/v1/v2`及普通输入仍可读；新的AppStartup输出采用下述进程源区间载体，不再进入物理B/E栈。特殊分隔符经编码而非替换，普通ftrace查看器仍忽略typed注释，覆盖报告明确披露；完整启动实例/首帧/可交互及普通viewer兼容仍开放。
 
 **事件业务语义交接（HMC-01.3/16.4）**：event_search生产者按固定字段描述符投影已解析的Plugin域/名/内容及marker/counter，连同单位、known/unavailable/invalid/omitted状态交给库存DTO、ledger和最终回答。数值用精确字符串，已知空值与未知、合法0与缺测分开；不从raw预览重建字段，不自动取得根因/调度/配对权限。兼容旧无semantics库存，Jank保原专臂。单值1024字节、32字段、整投影16KiB；超限不截断成另一个合法身份，而保长度/SHA及省略状态。最终仍32查询/32共享行/128KiB预算，优先保类型/单位/未知状态及精确数值，整投影实在放不下时明确披露省略并绑定原始JSON摘要；不改accepted ledger或查询计数/范围。IO/Binder及官方关系字段尚未接入此投影，不能据此宣称全事件语义已齐。
 
-**资源身份原生解析（HMC-03.2）**：NativeHook瞬时标记的既有闭合元数据语法由parser一次解析，操作、资源结束时刻、数量、栈键、signed地址/64位hex位型、子类ID及名称共8个字段进入上述统一语义交接。大整数不经浮点，NULL、空串和未发布分列；两种地址表示矛盾时仅标记地址字段无效，不选择其中一个猜测。重复键/未知键/坏语法不生成伪解析结果，原事件与原文保留。单位未知不是“已证非字节”，地址负值不是“已证无效”，栈键不证明函数执行；不生成生命周期、泄漏或根因权限。稀疏侧表随事件缓存往返，初始ParserVersion=v48；当前v49同时保留下述源记录区间，普通调度事件的JSON与core尺寸不变。
+**资源身份原生解析（HMC-03.2）**：NativeHook瞬时标记的既有闭合元数据语法由parser一次解析，操作、资源结束时刻、数量、栈键、signed地址/64位hex位型、子类ID及名称共8个字段进入上述统一语义交接。大整数不经浮点，NULL、空串和未发布分列；两种地址表示矛盾时仅标记地址字段无效，不选择其中一个猜测。重复键/未知键/坏语法不生成伪解析结果，原事件与原文保留。单位未知不是“已证非字节”，地址负值不是“已证无效”，栈键不证明函数执行；不生成生命周期、泄漏或根因权限。稀疏侧表随事件缓存往返，初始ParserVersion=v48；当前v50同时保留下述进程源记录区间，普通调度事件的JSON与core尺寸不变。
 
-**启动源记录区间（HMC-04.3/17.7）**：v2名称来源内可选`record`保存源表rowid、原始owner ipid、完整start/end纳秒，精确十进制字符串不经过浮点。共享区间裁决逐字段校验其与候选一致，wire两端时刻须对应原始起止。源表记录身份及完整时长通过统一事件语义交接，结束端单窗不借相邻起点猜配对；一个表记录不是完整启动实例，两个端点不是两次启动，原始进程引用不是系统PID或生命周期。完整时长不是用户窗口内累计值，终点不证明首屏呈现或可交互；不扩大旧源行准入和因果权限。ParserVersion=v49清除旧缓存；旧无record载体仍可读，源记录预算计入稀疏侧表，JSON全叶238项。名称4096字节及原名称信封6144 JSON字节准入不变，固定大小record单独预留192 JSON字节，使编码载体上限8192→8448字节，避免元数据挤掉原已接纳的转义长名称；新增容量不能借给名称。
+**启动源记录区间（HMC-04.3/17.7，§192）**：`# codrax_process_interval/v1`承载源行rowid、原始owner ipid及其缺测状态、可选唯一process表映射的public PID、完整start/end纳秒；精确十进制字符串不经过浮点。所有SQL源行先普查，起止只接纳严格INTEGER且`0 <= start < end`，坏时间计数、不被WHERE静默过滤；无效/NULL/未解析owner不再丢弃合法区间。`source_begin/source_end`只表示进程所属源区间，不是物理线程B/E，不编造发射TID、CPU或生命周期，也不与真实调用栈相互抑制。统一事件语义把所属进程和未知执行主体分列，`trace_mark_actions`schema与引擎支持精确端点筛选；pid/thread仍只选择线程。结束端单窗仍携带完整原区间；两个端点不等于两次启动，源时长不等于窗口累计值，终点不证明显示/可交互。ParserVersion=v50清除旧缓存；旧载体保持可读，Event/EventView JSON全叶240项，普通调度core/JSON不变。名称4096字节及原信封6144 JSON字节准入不变，源记录固定元数据独立预留384编码字节（总8576），新增预算不能借给名称。普通viewer忽略注释，覆盖明确披露；viewer适配、进程代次/完整实例与真实显示终点仍开放。
 
 **任务相关教学（HMC-01.3/16.4）**：Tier B增加`requires_trace_report`与`requires_trace_scheduler`，只投影既有结构化问题范围/事实族，不扫描问答原文、不筛选事实、不限制工具。根因排行教学复用现有`SuppressesRootCauseRankingPrompt`；有限清单中的通用时间/次数不触发调度教学，状态、等待、唤醒、IPC、IO时延、压力和频率维度仍保留；未知/legacy问题保留原教学。七条根因报告、十二条调度教学及动态五条调度说明按此投递，精确重试仍可恢复单条规则。数值归属、未知状态、链上/背景边界和自定义skill既有规则不删除，绘图schema及可选图教学不因本片缩减。
 
