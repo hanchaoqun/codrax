@@ -4531,3 +4531,53 @@ typed语义分别输出source.table/representation、marker.business_name、ref/
 末版全仓正式通过后，47887 fetch正式exit0，4 ahead/0 behind，`git diff --check`通过。25281构建正式exit0，revision`8d06ccc1eebf-dirty`、build time `2026-09-29T03:19:15Z`，日志`/tmp/codrax-hmc187-final-build.log`；该构建时未提交差异仅文档，后续`ace0601e7`仅测试fixture。真实模型评测仍使用187.4记录的干净`e3f78e4b56d2`快照，不将不同构建标成同一revision。
 
 37934普通push正式exit0，四笔代码/测试提交`571ce8fd3`、`e3f78e4b5`、`8d06ccc1e`、`ace0601e7`已推送至origin/main；未强推、未覆盖旧失败。架构、当前任务队列、机器原结果与完整人工审计按本批汇总提交。完成数仍16/79，63开放，5项稳定验收父项及本批两份完整人工FAIL保留；下一批按187.5/187.6双轨推进，不继续追第三例。
+
+## 188. 授权测试身份交接与有界Trace解码预览（2026-09-28）
+
+### 188.1 起点、优先级与验收边界
+
+从干净、已同步的`b71b80481`继续，68367 fetch正式exit0，起点0 ahead/0 behind。逐checkbox唯一ID重新计算79项=16完整实现交付+63开放，重复0；49待实施/8部分实施/2待验收/3验收中/1持续执行。03.2/04.2/08.3/08.4/18.2五个稳定验收父项仍开放。§187两份机器/完整人工FAIL不回写，本批无第三例追绿。
+
+优先处理§187真实dispatch缺身份这一高影响缺陷，以及参考仓“先解析再向Agent投递”的系统级接入子能力。普通viewer兼容原计划经过边界复核未贸然实施：把v2注释旁再追加普通B/E会让Codrax重复计数；改名藏元数据又会改变业务名称，E语法和所有扫描入口均需同代次协议。活跃SQLite/WAL不能通过忽略sidecar或改头字节获取一致快照。两者明确继续挂04.3/17.7；本批并非交付完整启动能力。
+
+### 188.2 只读登记身份：展示与执行权威分离
+
+`4f1387469`修复controller准备登记后清空旧plan/report，planner因此失去原生名称的接缝。正确保留清空行为；另在当前私有登记授权中封存最多8行/8KiB的历史身份展示，绑定原授权token、当前run/batch/合同上下文及仓库，报告须匹配授权来源计划和post_apply_verify通道，行须来自唯一原生python/unittest调用、成功assertion，而不是aggregate/plain probe/source-check。没有对用户或模型文本做硬匹配。
+
+仅当前登记planner在没有新plan时可读该视图；已有plan仍走旧current-plan快照。字段明确为source_plan_id和历史观察，不声称当前文件版本；不给read receipt、执行、行为绑定或完成权限，必须重新完整读文件、登记并新执行。撤销/换授权、run/batch/root失配或恢复只读workflow本身均不能复活展示；磁盘恢复仅从控制器已验证的保留源计划报告重新获取，不恢复旧执行权限。反向source交付/rollback/合同变更仍由原私有授权门处理。
+
+公开controller先前RED7252（`/tmp/codrax-hmc188-identity-red.log`）在两种plan入口都缺精确身份；实现后11434与扩展矩阵64046正式exit0。真实fixture含原生Python执行、实际planner消息、完整文件读取、新执行不借旧调用、两入口及磁盘源报告恢复。types补错误token/plan/channel、缺调用/重复调用、不支持runner、aggregate、换run/batch/root、撤销、替换、恢复、源对象后变及dispatch reset；安装展示不改变plan/report/证明账。这里是历史名称参考，不宣称该报告证明当前文件hash。
+
+### 188.3 Trace预览：同一解析器，精确字段不让模型重解码
+
+复核参考`core/query_engine.py:370–422`的设计意图：保display_name/unit及空/截断说明、汇总legend，减少模型自行理解内部表示的负担。但其白名单会删掉params_used，本项目不能照抄，否则显式用户窗、扩查范围及来源边界更易丢失。`core/preprocess/launch_ops.py`的ipid分组、多次启动边界是后续实例建模参考，不把未知ipid合成真实主体，也不把ReceiveVsync回调命名为呈现或可交互证据；§187.6退出矩阵继续有效。
+
+`02770242f`在上下文装配唯一入口补解码视图，附件inline、准备材料及受控片段均复用tracequery.ParseLine和ProjectTraceEventSemantics；没有第二套base64/marker语法。每行显示原可见行坐标、精确整数ns和以整数商余计算的秒、合法query_event_type、原tracepoint及同一语义字段状态。业务名/合成标签、NULL/0、未知域/未知单位、长值省略保持区别；时间不经float往返，也不做时区/domain转换。消费者仍可合法扩窗追依赖，但预览不是用户窗人口、更不是全附件普查。
+
+展示只扫描已可见head/tail或片段，不打开完整材料，不覆盖原文或生成query blob。准备材料先过原代次校验；不完整头尾/被截断末行不能因语法前缀合法而升级成完整事实。独立预算128KiB/256行扫描、最多32行/16KiB输出，整行省略并披露；字段仍沿已有1024字节/typed omission摘要。JSON转义围栏字符，值均为不可信数据。没有增加调度主体、配对、根因、统计或新模型schema权威。链上归因、明确窗投影/自动补齐、原生Jank专臂以及600/300/600秒活跃流保护均未修改。
+
+48629定向正式exit0；32947末版四包相关race正式exit0（context/types/orchestrator/agent）。公开矩阵覆盖真实准备/失效、片段局部坐标、head/tail远隔坐标、不完整长行、未知引用/合法0、超binary64整数时刻、恶意围栏、非法wire、输出与扫描上限。原始字节和完整材料不变，解码副本不计为新增事件。
+
+### 188.4 冻结验证与固定双例
+
+生产及测试已按两笔提交冻结。10677 make正式exit0，revision`02770242fba3`，build time `2026-09-29T03:59:30Z`，日志`/tmp/codrax-hmc188-build.log`。80394执行独立全仓`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -p 4 ./... -count=1`正式exit0：87测试包PASS、13无测试、零失败；耗时最长tool包511.945秒，未缩减测试或沿用缓存代替运行。日志`/tmp/codrax-hmc188-full.log`，SHA-256 `c99d10360309a614893a48d1ad1ed3ba6422ce8b0c6c4d160f59d89cff539ee2`。
+
+7969固定并行2×1正式exit0：`empty_python_module_apply`与`trace_existing_sqlite_dictionary`，自然问句与原oracle不改，20分钟操作预算不改变产品活跃流策略。批次时间戳`20260928-210004`，两例实际结果目录时间戳`20260928-210006`；原§187全部失败收据保留。机器1/2、完整用户结果人工1/2，详见[本批人工审计](../../eval/parallel_selected_summary_hmc_source_identity_preview_20260928_manual_audit.md)。
+
+写例128秒，正确只改totals.py且原4条unittest实跑PASS、测试字节不变；但本轮5条合同均为planning-only，因此未进入新只读登记，不能代签§187新分支。PTO仍错用pytest命名，证明账未将它绑定成强合同见证；用户结果PASS与新分支NOT_HIT分开保留。下一验收用预置强合同恢复入口，而非改自然问句塞内部字段或追第三例。
+
+Trace217秒，新预览实际进入pre-stage/explorer，精确1.010时间与正确hi_sysevent族得到使用，5次query/零源码或read_file，前批14次查询只作单样本对比。四段8/4/4/5ms正确；8/5ms机器正则误报仍保原判。完整答案漏5条系统事件中的BOOTSTRAP，并将未知startup合成标签写成业务名、NULL域写不存在、线程名写进程；人工FAIL。最终4份库存共享13条display_rows，遗漏0，模型却说只展示10条，故不能继续归咎数据丢失。
+
+### 188.5 当前开放缺陷与下一退出条件
+
+1. **统计范围与汇总冲突（01.3/16.4/18.4，高ROI）**：`query.go:eventSearchScopeAccounting`明确以窗口内事件min/max产生scope_time，`stream_search.go`按已扫timestamp行积累同类包络，既有口径不应直接改成用户窗覆盖。下一步将请求窗/可扫描覆盖/观察包络/匹配包络分别投递；无PID全窗13与带PID的8/3/11集合不可互替，模型member_set须绑定其支持的范围/总体。反例覆盖空窗、首尾无事件、未知事件行、不同对象、扩窗依赖和取消/裁剪；不以scope_complete证明没有未采集事件。
+2. **04.3/17.7完整能力**：保§187.6矩阵，源名字可读≠业务主体/实例/完成已证。普通viewer兼容的协议双计风险、R1b-C legacy CPU/主体准入及活跃WAL一致快照继续明确开放。不得为修一份表格凭事件邻近猜实例。
+3. **18.5真实登记退出**：公开controller/恢复和新执行已通过，本次live未命中，继续验收；原生断言身份错误和弱合同通道单列，不用一次普通apply成功掩盖。不会复活旧report或减少当前文件/新执行校验。
+
+父项仍16/79交付、63开放；本批交付子能力2、完整父能力新增0，五项稳定验收父项不变，本批一份用户结果FAIL及一个新分支NOT_HIT均在原ID，不重复增加任务数。失败原始日志、SHA及图/旁路检查见本批人工审计；生产根因/窗口/流式保护未变。
+
+### 188.6 发布收尾
+
+75303 fetch正式exit0，2 ahead/0 behind；完整回归通过后53831普通push正式exit0，将`4f1387469`与`02770242f`推至origin/main，0 ahead/0 behind。未强推、未覆盖历史失败；本批评测使用冻结生产快照，不以之后纯文档修改伪称新模型回放。架构、唯一任务入口、统一审计及双例机器/人工记录汇总提交。
+
+定向日志SHA-256：RED `dcd1e9c29dc48e69413f0c30218b518f09b4102c9e57c24b320931cbc43f579d`；首次GREEN `2d2622c56dc4ba815d4321c4533fc6cf58bbc21c750e899d0344a47814691cda`；身份矩阵 `407ad72102fbd466ceeb101bed376bb92016c5875f665397b3f8ec248b94ee1b`；末版四包race `4d8324eb2879a64c9019b5ac52578879df21a240680c1a880ede8b497508b66a`。原始路径分别见188.2/188.3与`/tmp/codrax-hmc188-scoped-race.log`。这些是实施验证，不代签真实模型未命中的登记分支。
