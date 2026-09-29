@@ -4837,3 +4837,54 @@ main/WAL/镜像各4GiB边界，committed+pending页映射1<<20项；每帧可取
 63622冻结独立全仓正式exit0：87测试包PASS、13无测试、零FAIL；agent100.476、hitraceconv184.835、tool483.211、tracequery136.179秒。日志`/tmp/codrax-hmc193-full.log` SHA-256=`140d18e177396cdfb3afbddc46e77be71b70788303f5a59eaf2e0545eae349be`。运行期间Go/build/测试字节未变，仅补文档，未拼接早期失败。18705构建与85921双例使用同一冻结代码；git diff --check通过。
 
 27397 fetch正式exit0，发布前2 ahead/0 behind；93055普通push正式exit0，两笔生产提交已推至origin/main的1c5f23818，随后核对0/0。汇总文档、机器原判、关键答案和执行报告另成一笔提交推送，不以定向/race或机器2/2替代人工验收。
+
+## 194. SQL系统事件来源统一与预分析元数据权威（2026-09-29）
+
+### 194.1 数量、退出条件与参考设计
+
+开工工作区干净，基线68b56ee2b。重新逐行统计稳定清单：79唯一ID=16已交付+63开放，重复0；49待实施、8部分实施、2待验收、3验收中、1持续执行。稳定验收父项仍03.2/04.2/08.3/08.4/18.2五项。原§193机器2/2而完整人工1/2不能改签。本批只交付两片通用能力，不冒称05.1多文件联查或17.7全部完成。
+
+- 能力轨05.1/17.7/16.4：所有SQL HiSys事件采用同一来源角色，名称/内容变化不能凭空授予执行CPU或TGID；保精确字段和原生文本兼容、窗口与一行一次计数。普通viewer、安全标量准入和多文件完整来源不是本片退出条件，继续列账。
+- 缺陷轨01.3/16.4/18.4：模型元数据不能变成测量事实/证据计数；合并不洗白权威；独立验证的卡顿/停顿/启动不丢失。通过实际emit→MutableState→finalizer初始消息和阶段报告验证，不扫描用户问题或模型原文。
+
+参考`core/preprocess/kill_ops.py::_parse_ams/_parse_appms`从AMS JSON或AppMS源协议提取业务PID/process_name/reason，并保缺失字段None。其意图是把业务对象/原因组织成可查询记录，不等于将日志发送线程视为被查杀进程。本项目用统一源观察承载原值和名称解析状态，不复制某种事件名规则到用户文本上；业务语义后续只有源协议明确时才能再解析。`core/preprocess/launch_ops.py`按真实阶段锚点形成起止/时长/缺失状态，其可借鉴点是有来源的时间关系，不照搬模型估计或把任意启动片段升为完整启动实例。独立发现：原代码恰恰在名称完整时退回合成ftrace头，造成数据质量越完整、角色越不可靠；修复应按来源统一，而非只给未知值多加提示。
+
+### 194.2 两片实现
+
+`9cee971b7`：`exportTraceDBHiSysEvent`统一走既有`HiSysEvent`观察。source.tid不再复制成物理emitter PID/TGID，不补CPU0；名称引用/解析状态、NULL/空白/换行/NUL/BLOB/INTEGER/REAL仍原样保留。既有文本print仍解析其原物理头；新增混合文本/SQL公开查询正控，不把payload PID当emitter。字典测试由旧合成print字节断言迁为解码后的域/名称/内容精确断言，坏引用仍不能借合法0，未放宽校验。无需新wire版本/叶字段，旧格式解析仍兼容；新准备事务重新导出，现有进程内缓存不跨二进制升级复用。
+
+权衡明确：取消SQL合成print后，普通systrace viewer可能不展示该注释记录，覆盖收据和架构文档明确说明；Codrax索引/流式/窗口查询保可见且不双计。未把“保普通可见性”误签已完成，通用viewer安全表示仍在17.7。本片未重写`rows.Scan`的时间/TID标量准入，也未新增逐源rowid/多文件/代次身份；这些继续归05.1/17.7，不能声称完成所有原始SQL身份边界。
+
+`63c9e69fc`：`PerfMeta.Authority`为系统字段，模型工具schema不开放，旧/未知值fail-closed。工具生产者固定model-extraction；持续保存估计原值用于审计。上下文与阶段报告只显示已验证duration/AppPID/signals；`AuthoritativeSignals()`保留独立验证过的jank/stall/startup语义。证据计数、最终回答运行时语义指导和探索故障名词消费同一方法；保Source软路由提示、BugClasses独立来源，不改变显式请求意图。合并仅在已验证元数据分区内选代表PID、最长片段、信号并集，未验证的更大值/多数票无权混入。schema只补现有字段准确说明，不让模型自报新权限、不增加用户心智。
+
+### 194.3 验证与冻结
+
+开发期如实留痕：实际emit严格拒绝未知authority字段，初版测试原以为会忽略，已改为先断言拒绝再正常调用；真实工具也拒绝只有meta无观察的空包，回归改用正常frame载荷。旧字典测试要求合成print、旧上下文把IntentHint称已验证，按新来源合同更新；criterion旧正控意在验证真实事实，显式标记validator，与新增无权负控并置。所有这些是开发期FAIL，未计入末版通过。
+
+29075七包定向exit0，88742七包race exit0；56758工具schema/emit定向exit0，46618相邻暴露criterion旧正控后已修、末版criterion单包exit0。定向SHA=`ec5ccfc4092fc1bfc2060805e0af4bf903cbd2351278164ad6f63385d3751d58`，race SHA=`eb5ff4f31765a4b619c72cd85dabc72c398e743b3b25512941d4d7067c0074f2`，schema SHA=`c15974d7f4a002f467609586e8a62e914ad950a5644f3fb1ee4d9202810dad2c`，criterion SHA=`f24786f52610c667d4ae93d07a1680959d2b9dcaa51a4e19d2b34171091afb17`，日志前缀`/tmp/codrax-hmc194-`。race之后只改criterion测试正控与schema描述/格式；末版Go/build/测试冻结于63c9e69fc，独立5223全仓运行中，不用早期定向/race冒充全仓。
+
+85206 make正式exit0，revision63c9e69fccec，build日志SHA=`53fee2295c7f8485e15664787698a8823aa2fae7df0eb32005b219deb10cf8d8`，二进制SHA=`47903f1cf5365d785ce3aa1a02df565ae3f3fe6e3d7a59af3ae32c1623abf038`。固定25203恰好2并行×1：trace_sqlite_wal_records与read_combo_command_current_source_explanation；不修改自然问句/独立oracle，不追加第三例追绿。最终人工结论、全仓及发布收据在本节后补。
+
+首轮5223全仓发现`TestTraceEventSemanticsSQLitePreparationToActualFinalizer`仍期待旧`plugin.contents`，而统一SQL源字段为`source.contents`；长内容尾部实际仍在结构化结果，非生产数据丢失。保留失败日志SHA=`9b542bff43aeb244c4033d8e5eec8f9ba76ebfe21000c033d039ad9193ed8eef`后，为避免已红全仓继续占用资源，精确终止本轮独立进程组69714，正式exit143。`4ac37132a`仅修该测试字段断言、增加全部六行的无CPU/执行TID/TGID及精确source.tid断言；与63c9e69fc相比生产代码/构建字节没有变化。19397实际finalizer接缝与Meta回归race正式exit0，SHA=`912adbf532308a145455045139344ee5af844f27cd00be3fac3ad601a47f87eb`。重新冻结于4ac37132a，89583独立完整全仓正式exit0；本批真实eval仍用相同生产代码的63c9e69fc构建，不重复评测求绿。
+
+### 194.4 新识别的高ROI系统接缝，继续留账
+
+只读case实际分析器给`is_count_question=true/is_scalar_answer=true`，同时`source_inventory_profile.is_source_inventory=true/target_roles=[file]/requested_fields=[name,location,count]`。`agent.go::sourceInventoryLensToolSurface`把首段工具限制为repo_map与两个emit；`explorerSourceInventoryLensRootScopeViolation`因缺typed局部scope拒绝目录。`repomap/tool.go::repoMapSourceInventoryFileRoleRepair/Refinement`又要求纯file角色改用list_files，而当前工具表没有它，形成已证工具路由矛盾。`source_inventory_exact_file_boundary.go`已有typed路径scope支持，修复应在分类/能力选择/工具供给同源完成，不扫描source_quotes/raw request来猜路径，不放宽源码成员完整性硬门。
+
+工具表释放后，真实只读命令已测得389个非测试Go文件（独立当前源码oracle一致），但任务仍被要求提供完整389成员才能交付一个标量计数，先后拒绝0/部分成员的member_set。模型进一步混淆aggregate_facts条数上限与members上限，并生成过一个语法错误的awk命令。后两者是模型误操作，前置不必要的集合义务和不可执行的推荐工具则是系统问题，不能一概归模型波动。该类问题按01.2/01.3/16.4/18.5提升P1：区分标量测量、语义成员枚举、当前源码解释的principal义务；复用原生命令/库存证据，无需模型重抄大集合。新增验收应覆盖显式目录、全仓、混合机制说明、合法小集合/大集合、只读边界和证据改代，不给单个case写路由特判。
+
+Trace实际finalizer的8行库存完整：四个启动端点、四条HiSys；四个HiSys均`cpu=-1/emitter_tid=0/emitter_tgid=0`且`source.tid=27599`。1.050s的domain为NULL未知，1.052s的event_name引用50未解析，精确状态均到场。最终摘要却写5条系统事件、域名APP_LAUNCH冒作事件名，并把source TID泛化同进程；人工FAIL保留。已有结构化事实系统事件value=4也已到场，下一步应审计统一数量/字段角色绑定与低噪音上下文，而非添加“不能写5”的原文硬门。Meta修复实际消息边界已生效，本轮模型没有输出错误Meta时长/Signals，不能声称真实重现了§192负控；对应防护以实际agent正反回归证明。
+
+### 194.5 独立全仓与发布收据
+
+89583在4ac37132a冻结字节上独立全仓正式exit0：87测试包PASS、13无测试、零FAIL；tool487.489、tracequery131.803秒。日志`/tmp/codrax-hmc194-full-final.log` SHA-256=`344d308c32c3ba8fdccd6d12c442fa26075344142c4876a4ceaf6842476ea650`。运行期间未修改Go/build/测试输入，只更新文档。首轮失败没有拼接为通过；85206构建及固定双例所用生产代码与末版相同。
+
+65991 fetch正式exit0、发布前3 ahead/0 behind；25668普通push正式exit0，`9cee971b7`、`63c9e69fc`、`4ac37132a`已推origin/main，随后核对0/0。完整能力新增0、已交付子能力2；剩余63及5个稳定验收父项不变。批次评测及文档另作一次汇总提交，不覆盖原始失败。
+
+### 194.6 双例最终收据与人工结论
+
+25203正式exit0表示runner收尾，并非两例成功：机器1 PASS/1 TIMEOUT，完整人工通过0/2（一份完整答案FAIL、一份未完成）。Trace112秒、模型管线108秒；只读1201秒，预设1200秒总评测上限使worker退出124。末尾第5轮模型仍有语义流活动，仅约74秒，没有产品层4分钟降级或首响应超时；保partial_result=1，不把过程草稿称最终答案。原机器判定未改，也不追加第三例。
+
+只读过程已测到完整389个文件，却被要求递交全成员，再降为head -200的展示清单；初稿把200放统计主位、389放边界说明，随后为满足逐项成文连续重写200行，当前源码解释被挤掉。48个探索轮次、12次完成尝试、4次成文拒绝；finalizer上下文从59,635增至109,252估算tokens。能力分类、工具可调用性、principal义务同源修复为下一P1，不以更长超时或放松集合硬门解决。不涉及本批修改的既有路由不能宣称由本批引入，也不能归为纯模型波动。
+
+Trace未知身份/数量仍错述但SQL字段完整保真，新source角色修复已live命中；Meta本轮未产生旧错误值，其负控由真实消息公开回归证明。原件main/WAL指纹未变、根因旁路未启用因果合同，无邻近信息升根因。完整过程/上下文/答案及原始SHA见[双例人工审计](../../eval/parallel_selected_summary_hmc_source_meta_20260929_manual_audit.md)。小型原判/metrics/wall及Trace正文随文档登记，原日志/过程留本地；完整父项仍16/79，63开放、零重复，新增子能力2，不误销旧人工FAIL。

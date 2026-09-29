@@ -1317,7 +1317,7 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 并行通道，`AttachedHitrace` 非空触发。perf_triager + emit_perf_trace 写 PerfBundle：
 
-- Layer 1 Meta：`source` (hitrace/atrace/systrace/perfetto/unknown) / `duration_ms` / `app_pid` / `signals[]` (jank/cold-start-slow/main-thread-stall/io-block/gc-pause/render-miss) / `summary`
+- Layer 1 Meta：`source` (hitrace/atrace/systrace/perfetto/unknown) / `duration_ms` / `app_pid` / `signals[]` (jank/cold-start-slow/main-thread-stall/io-block/gc-pause/render-miss) / `summary`。系统所有的`Meta.Authority`区分模型提取与确定性测量；模型schema不接受该字段。未验证/旧值/未知权威的时长、PID和故障标签只保审计，不投递为上下文/阶段报告中的事实，也不计作证据或故障语义。`AuthoritativeSignals`仍从各自已验证的帧/停顿/启动记录恢复合法信号，不由Meta整体失权而丢掉它们。合并先选确定性元数据分区，再计算代表值，不能把更大的模型估计或多数模型PID混入已验证分区。Source仍是描述性路由提示、Summary仍仅审计，BugClasses保独立注册表来源（HMC §194）。
 - Layer 2 Events：`Frames[]`（FrameNo / TsMs / DurationMs / Phase / Janky）/ `Janks[]`（start_ts_ms / duration_ms / trigger_span / reason / tags[]）/ `Stalls[]`（symbol / file / line）/ `Startup`（mode=cold/warm/hot / app_launch_ms / ability_init_ms / first_frame_ms）
 
   `Startup.Authority`由系统生产者设置，`emit_perf_trace`模型提取固定为`pre_triage_model_extraction`，模型schema不能自行授予权威；旧值/未知值同样不作为事实。仅`deterministic_validator`允许产生启动事实绑定、账本条目、语义义务和派生模式/慢启动信号。多片合并先比较权威、再在同级取代表值，不声称多实例聚合；未验证startup与Meta.Summary保留在审计包，但具体值不投递为阶段报告/最终上下文中的事实。合法源事件与源字段仍通过公开查询交接，未验证摘要不会删除它们（HMC §192）。
@@ -1328,7 +1328,7 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一个物理 capture。REPL `/htrace <path>` / `/atrace <path>` 同形态；历史 `/htrace append` 入口 fail-close 且不改变 sticky attachment。多个独立 trace 不得拼接成一个时钟/因果宇宙：应在问题中分别点名路径（整组原子准入），或附加/点名一个保留 child provenance 的 tracebundle。
 
-**默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验；闭合自包含SQLite按下述17.7路径接入，未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline仅接受有界文本，不隐式解码二进制/base64。
+**默认文件准备（HMC-17.1–17.5）**：CLI文件附件先经`internal/traceinput.Prepare`；根据内容识别既有转换器支持的二进制候选，复用`hitraceconv`的auto/provider/归档/取消事务。文本直接校验；自包含SQLite及代次稳定、有有效提交的main/WAL按下述17.7路径接入，未知二进制及库存-only输出不伪装为可查询Trace。派生材料放在运行锚下独立私有目录，不写原件旁；完整输出和转换收据保留，`trace_attach_max_bytes`仅限制模型预览，不截断转换输入或查询文件。REPL新文件加载的独立操作见§13.3；普通Run内命名路径由下述协调器准备。inline仅接受有界文本，不隐式解码二进制/base64。
 
 **完整标准输入（HMC-17.8）**：`--htrace -` / `--atrace -`通过`traceinput.BeginStream/PrepareStream`接收文本或受支持二进制。独占可关闭reader，固定64KiB缓冲写私有目录；独立输入上限64GiB（库调用可指定更低上限），与模型预览无关，无新增等待超时。必须实际读到EOF，保存精确字节数、SHA-256、源代次和上限的`input-stream.json`后才调用既有准备器。源流、EOF收据、转换输出共用一个持有目录的事务；取消关闭输入以解除阻塞，未提交失败只清理自己的目录。收据和完整源均绑定到`TraceMaterial`，缺尾、超限、读取/关闭失败、改代或损坏格式不发布。大于上限使用文件路径；stdin与日志仍只允许一个消费者。已封存的文本流也携带收据，不冒充单文件自包含预览。
 
@@ -1355,7 +1355,7 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **支持来源**：HarmonyOS hdc shell hitrace、Android adb shell atrace、Android systrace（旧名）、perfetto 文本 dump。
 **暂不支持**：C/C++ glibc 裸 backtrace（只有返回地址）、tail/stream/远端源（Loki / ES / CloudWatch）。
 
-**系统事件可逆观察（HMC-05.1/17.7）**：HiSys的域/名称无法解析或不适合传统print语法时，不再丢弃有合法时间的行。版本化观察载体保原SQL纳秒时间、nullable TID、名称引用/解析状态、内容存储类（NULL/TEXT/BLOB/INTEGER/REAL），不补线程、CPU或因果边；特殊字符、换行及前后空白经有界编码往返。合法名称、已知TID及普通单行TEXT沿原print字节路径，parser同时保留已解析的内容尾部。共享时间扫描、流式/索引查询与载体注册均识别新格式；原件只读、输入/输出事务与SQL全表保真不变。
+**系统事件可逆观察（HMC-05.1/17.7）**：所有SQL HiSys行统一使用版本化观察载体，保原SQL纳秒时间、nullable source TID、名称引用/解析状态、内容存储类（NULL/TEXT/BLOB/INTEGER/REAL），不补执行线程、进程TGID、CPU或因果边；特殊字符、换行及前后空白经有界编码往返。名称已解析且普通单行TEXT也不再造`tid=TGID/CPU0`的print头，字段是否可解析不改变来源角色。既有文本print解析兼容仍保留，不删除输入中已有的物理头。共享时间扫描、流式/索引查询与载体注册识别结构化格式；一源行仅一个语义观察，不额外输出一份print而双计。普通systrace viewer可能忽略这些注释记录，转换覆盖收据明确披露；未声称通用viewer全部兼容。原件只读、输入/输出事务与SQL全表保真不变（HMC §194）。
 
 **启动名称来源（HMC-04.3/17.7）**：源表、源业务名、字典引用及resolved/unresolved/null/非法存储类状态保存在`MarkerNameOrigin`，展示标签与真实名称分开。合法0、已知空名和未知不能混同；名称状态不从兜底标签反推。两端都带同一源行名称信息，结束端窗口不依赖窗外起点重建名称；内存和SQLite暂存、索引和最终语义投影同路。旧`codrax_trace_mark_exact/v1/v2`及普通输入仍可读；新的AppStartup输出采用下述进程源区间载体，不再进入物理B/E栈。特殊分隔符经编码而非替换，普通ftrace查看器仍忽略typed注释，覆盖报告明确披露；完整启动实例/首帧/可交互及普通viewer兼容仍开放。
 
