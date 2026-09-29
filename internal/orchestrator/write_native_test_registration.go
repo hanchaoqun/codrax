@@ -79,7 +79,16 @@ func (o *Orchestrator) prepareNativeTestRegistration(prior *types.ChangePlan) {
 	if err != nil {
 		return
 	}
-	_ = mu.AuthorizeNativeTestRegistration(root, delivery, contracts, targets)
+	if mu.AuthorizeNativeTestRegistration(root, delivery, contracts, targets) != nil {
+		return
+	}
+	report := mu.ChangeReport()
+	if report == nil || report.PlanID != delivery.SourcePlanID {
+		report = o.loadWriteFinalReportChangeReport(delivery.SourcePlanID)
+	}
+	if grant := mu.NativeTestRegistrationAuthorization(); grant != nil {
+		mu.InstallNativeTestRegistrationIdentity(grant.ID, report)
+	}
 }
 
 func (o *Orchestrator) authorizeNativeTestRegistrationVerification(plan *types.ChangePlan) error {

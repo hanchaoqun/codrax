@@ -150,6 +150,14 @@ func (l *controllerRegistrationLLM) Chat(_ context.Context, messages []llm.Messa
 				l.t.Fatalf("actual planning request must teach current registration exactly once: %q", rule)
 			}
 		}
+		for _, identity := range []string{`"assertion_suite":"test_value.ValueTest"`, `"assertion_id":"test_increment"`, "Retained-source native test identities"} {
+			if !strings.Contains(deliveredTeaching.String(), identity) {
+				l.t.Fatalf("real controller planning dispatch lost source identity: %s", identity)
+			}
+		}
+		if strings.Contains(deliveredTeaching.String(), "## Current native test identity snapshot") {
+			l.t.Fatal("retained source report was presented as a current planning report")
+		}
 		return llm.Response{ToolCalls: []llm.ToolCall{{ID: "read-native", Name: "read_file", Params: json.RawMessage(`{"path":"test_value.py"}`)}}}, nil
 	}
 	if l.round != 2 {
@@ -254,6 +262,15 @@ func TestNativeRegistrationControllerPublicRoundTrip(t *testing.T) {
 	for _, entry := range []string{"emit_change_plan", "emit_plan_skeleton"} {
 		t.Run(entry, func(t *testing.T) {
 			f := newControllerRegistrationFixture(t)
+			if entry == "emit_plan_skeleton" {
+				// Rehydration uses the exact source artifact, not a serialized
+				// private grant or a random context-pack report.
+				path := filepath.Join(f.o.ensureChangeReportDir(), f.source.ID+".report.json")
+				if err := types.WriteChangeReportToFile(f.o.busCtx.Mutable.ChangeReport(), path); err != nil {
+					t.Fatal(err)
+				}
+				f.o.busCtx.Mutable.ResetChangeReport()
+			}
 			f.register(t, entry)
 			var priorInvocation string
 			for invocation := 0; invocation < 2; invocation++ {

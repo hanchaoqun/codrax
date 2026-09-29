@@ -16,6 +16,7 @@ type NativeTestRegistrationAuthorization struct {
 	Contracts                          []WriteBehaviorContract
 	TargetPaths                        []string
 	contextDigest                      string
+	identitySnapshot                   string // bounded historical display only; never serialized
 }
 
 type nativeTestRegistrationExecution struct{ digest, root, contextDigest string }
