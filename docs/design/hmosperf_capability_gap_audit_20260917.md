@@ -4787,3 +4787,53 @@ Python实现仅totals.py六行，核心`return sum(values)`，测试/配置/依�
 17533 fetch正式exit0，发布前2 ahead/0 behind；42399普通push正式exit0，`073f9b63f`和`7320af656`已推origin/main，随后核对0/0。统一任务清单、架构、机器原判、关键只读登记计划/新执行/完成报告与人工审计一次汇总提交推送，不覆盖原始失败。
 
 末次稳定计数79=16已交付+63开放、重复0；完整父能力新增0、已交付子能力2、完整只读登记验收退出1。下一两轨为17.7活跃/WAL一致快照与01.3/16.4多载体无损元数据修订；Meta时长/信号权威、启动实例/viewer、恢复重启及其它领域按唯一清单§192队列保留，不继续无限追跑同一答案。
+
+## 193. 稳定WAL默认接入与多载体无损修补（2026-09-29）
+
+### 193.1 计数、参考意图与交付边界
+
+起点干净21656cc39；79个唯一任务ID=16完整交付+63开放、重复0，49待实施/8部分实施/2待验收/3验收中/1持续执行。两轨分别是17.7的稳定main/WAL接入，以及01.3/16.4/18.4的多维多载体纯元数据修补。没有把持续验收、同一失败的不同重跑重复计数；本批完整父能力新增0，交付2项可复用子能力，5个稳定验收父项仍开放。
+
+对照参考仓 `core/db_pool.py:1–180`、`core/query_engine.py` 的既有DB入口：设计目标是复用SQLite page cache并用索引加速大表；path+mtime缓存和尝试CREATE INDEX/commit是其可接受的工程选择，却不满足本项目原件只读及WAL单独变化失效要求。没有照搬向原DB写索引，也没把“不启用WAL模式”误读成“输入不可能有WAL”。本项目复用现有私有封存/VFS/导出/查询内核，只在输入视图层增加复合源与已提交页快照。
+
+SQLite页、salt、checksum及提交边界按[官方WAL文件格式](https://www.sqlite.org/fileformat2.html#wal_file_format)核对；[只读WAL说明](https://www.sqlite.org/wal.html#read_only_databases)用于确认旁件/权限语义，不将源直接以普通SQLite连接打开或触发恢复/检查点。本片承诺“准备全过程源代次稳定”；运行中但空闲的连接/未提交事务可存在，持续写入引起变化则失败。在线持续写入快照和WAL模式无/空日志、无有效提交帧等变体仍开放。
+
+### 193.2 多载体修补已实现
+
+`adc936497`：动态patch schema不再把无损add_facet_id限定为一个required member_set维度、唯一载体或必须有源码itemEvidenceIDs。存在typed必需成员维度时，公布所有合法模型自有非空表/列表候选ID，由模型自己选目标；不从标题、问句、答案或ID拼写推断归属，不系统代填facet。系统生成块、principal_path_edge、显式边锚、空载体仍排除；真正有向关系claim必须精确引用item evidence，因果图资格不下降。
+
+原子add_facet_id只改元数据，列名/单位/行内容不重写，图surface_role等既有无损操作不变。显式replace/remove仍可合法重写/删内容，不强继承已删除字段。公开工具正反覆盖多维、多表/列表、source inventory、关系负控、非法目标/值原子失败及图正文保真；实际finalizer→emit→post-emit→真实动态schema→patch回归验证两张无item证据表，所有可见内容除FacetIDs外DeepEqual，未追加模型必填字段或新的猜测硬门。
+
+本批真实WAL模型首轮发summary内Markdown，没有patch，故不能冒称live已命中新通道；旧§192表头丢失FAIL不倒签。这片解决的是“纯元数据操作表达能力不足”一类问题，不宣称禁止所有合法整块替换或已经消除所有丢载荷风险。
+
+### 193.3 代次稳定WAL准备已实现
+
+`1c5f23818`：主头2/2路径持有main和WAL两个只读文件权威；核对magic/version/page size、header/frame累计checksum、salt与提交帧。只将已提交页覆盖到ReaderAt镜像，未提交尾不进入；旧salt完整尾按重置后残留停止，不把它的伪提交纳入。提交后的扩展页必须有真实页像，不能补零。仅私有镜像重写模式/页数/version-valid头，源main/WAL/SHM不写、不建旁件、不执行checkpoint，SHM也不是读取权威。
+
+main/WAL/镜像各4GiB边界，committed+pending页映射1<<20项；每帧可取消，视图读取前后及导出收尾复核源代次。拒绝部分帧/同代损坏checksum/错误页几何/journal/旁件非普通文件或歧义，别名与规范目录同一身份才兼容。原main与原WAL路径/字节/SHA/代次、私有镜像字节/SHA分别记录；WAL纳入材料绑定和源检查，只有WAL新commit、main完全不变也会使旧缓存失效。JSON收据只用于审计/一致性检查，不能授予源读取权限。gzip内闭合SQLite仍走原路径，不能借旁邻WAL拼成另一份数据库。
+
+公开正反：真实live SQLite writer及未提交事务、只读文件/目录、源三文件字节不变；真实cache spill确保磁盘存在未提交尾，并由独立SQLite读取验证表不可见/提交name正确/integrity_check=ok；提交中途改代、同字节替换、取消、journal、损坏、部分帧、页预算；512/4096/65536页和双checksum端序、old-salt尾；公共Prepare缓存WAL-only变化失效。原闭合输入、别名、覆盖保护及清理矩阵相邻回归保留。
+
+### 193.4 定向、冻结与固定双例
+
+最初67942编译名称错误、77506/63087的/var与/private/var规范目录别名拒绝、18726测试搜索未解码process文本失败均保原日志。别名修复依据规范路径身份；fixture改用真实sched读取的thread名称，同时独立SQL oracle仍验证process。不能将开发期失败拼接成全仓通过。
+
+末版60754四包定向正式exit0，41857四包race正式exit0，分别为 `/tmp/codrax-hmc193-scoped-final.log` SHA=`6588357f0e121920911b0716c66a8ab134417c127c63f21868ec6e69ec82bd8b`，race SHA=`713dc627820d07a0e6bf41deb3d8b41e3b6ea87cd787a0faf7da221f634b82a1`。Go/build/测试冻结于1c5f23818后独立63622全仓；18705 make正式exit0，revision1c5f23818e1f，build日志SHA=`cc94ce8d11e5abc40ff25961cb6817684f662d33482e63d39b2ee0f30b15c976`，二进制SHA=`cc1dd408184dcfaa831be30fc1fb19172fae11a281a59d1445ec6e58adc30487`。
+
+85921固定trace_sqlite_wal_records与nested_python_increment恰好2并行×1，正式exit0，机器2/2、完整人工1/2。WAL两段8ms及4条系统事件进入实际finalizer，接入通过；未知域/名称、时间关系错误使全文FAIL。嵌套Python真实一行apply、3原测试新执行、controller complete/verified通过；zero_tests/语法检查不作断言，tests与main HEAD未改，运行器.gitignore新增.codrax单独披露。新WAL fixture仅2已提交帧，没有真实未提交磁盘尾，不能代签公开spill负控。没有第三例追绿，完整凭证、SHA和判断见[本批人工审计](../../eval/parallel_selected_summary_hmc_wal_metadata_20260929_manual_audit.md)。
+
+### 193.5 未销账缺口与下一ROI顺序
+
+1. **05.1/17.7/16.4源角色统一优先**：真实finalizer同时收到HiSys旧print出口的合成cpu0/tgid=tid与sql_hisysevent出口的source.tid/cpu未知。源码 `streamerdb_export_extended.go:1029–1104` 已确认完整名称分支调用addTraceDBInstantRow(...tid,tid,0)，源无该CPU/TGID权威。下一能力轨统一源行表示和角色/名称状态，兼顾普通可见性和不双计；不是多加“不要猜PID”的提示，也不只修一个事件类型的答案。
+2. **01.3/16.4/18.4 Meta时长/Signals权威**：§192已经证实非validator元数据投递，Startup权威修复没覆盖它。下一缺陷轨按精确生产者权威处理所有相关输出/派生入口；保确定性业务字段和合法链外背景导航，不把背景升根因。
+3. **17.7/04.3**：持续写入在线快照、无/空WAL及无提交变体、viewer兼容、源阶段/实例/显示/可交互、static_initialize R1b-C继续保留。AppStartup进程区间和稳定WAL已实现的部分不再误列未实现。
+4. **17.6/其它领域/18.5**：实机平台格式、栈展开、进程概览/D-state、多来源日志、网络音视频依覆盖收益推进；只读登记完整CLI收尾§192已通过，余跨进程重启恢复及教学/呈现债。5个稳定验收父项仍开放。
+5. **模型已充分供证的局部错误**：本轮未知域/名称状态完整到达却错写，时序原值正确却称重叠，保原始FAIL，不宣称已证明纯波动，不追加场景关键词硬门/第三次评测。全领域范围/关系/图表达及IO/Binder/官方关系交接仍在原任务。
+
+稳定计数79=16完整交付+63开放，完整父项新增0、交付子能力2、本批剩余完整答案验收1；三个口径分报。JSON合同、read调度红线、根因链上资格/业务线索/语义成本、精确时间窗/因果投影/自动补齐、600/300/600及活跃流保护均未改。
+
+### 193.6 独立全仓与发布收据
+
+63622冻结独立全仓正式exit0：87测试包PASS、13无测试、零FAIL；agent100.476、hitraceconv184.835、tool483.211、tracequery136.179秒。日志`/tmp/codrax-hmc193-full.log` SHA-256=`140d18e177396cdfb3afbddc46e77be71b70788303f5a59eaf2e0545eae349be`。运行期间Go/build/测试字节未变，仅补文档，未拼接早期失败。18705构建与85921双例使用同一冻结代码；git diff --check通过。
+
+27397 fetch正式exit0，发布前2 ahead/0 behind；93055普通push正式exit0，两笔生产提交已推至origin/main的1c5f23818，随后核对0/0。汇总文档、机器原判、关键答案和执行报告另成一笔提交推送，不以定向/race或机器2/2替代人工验收。

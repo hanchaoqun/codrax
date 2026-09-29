@@ -1,0 +1,20 @@
+{
+  "plan_id": "plan-1790675410310943000-91875",
+  "plan_written": true,
+  "apply_attempted": true,
+  "worktree_path": "/Users/han/opt/codrax/eval/results/nested_python_increment-20260929-024852/run-1.repo/.codrax/worktrees/trace-1790675410518730000-3018",
+  "worktree_exists": true,
+  "report_path": "eval/results/nested_python_increment-20260929-024852/plan-1790675410310943000-91875.report.json",
+  "report_exists": true,
+  "report_plan_id": "plan-1790675410310943000-91875",
+  "report_channel": "post_apply_verify",
+  "report_passed": true,
+  "final_report_path": "eval/results/nested_python_increment-20260929-024852/plan-1790675410310943000-91875.final.json",
+  "final_report_exists": true,
+  "final_plan_id": "plan-1790675410310943000-91875",
+  "final_run_status": "complete",
+  "final_verdict": "verified",
+  "final_reason_code": "all_batches_verified",
+  "verify_authoritative": true,
+  "allow_unverified": false
+}

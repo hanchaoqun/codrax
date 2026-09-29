@@ -1,0 +1,979 @@
+{
+  "schema_version": 1,
+  "kind": "final_report",
+  "generated_at": "2026-09-29T02:50:48.813274-07:00",
+  "run_id": "wf-1790675410581835000-3018",
+  "run_status": "complete",
+  "goal": "修复 packages/widget/widget.py 中 increment 函数的返回值错误，使其正确返回 value + 1",
+  "completion": {
+    "verdict": "verified",
+    "reason_code": "all_batches_verified",
+    "source": "batch_completion_aggregate",
+    "at": "2026-09-29T02:50:48.767862-07:00"
+  },
+  "active_batch_id": "batch-1",
+  "batches": [
+    {
+      "id": "batch-1",
+      "status": "complete",
+      "plan_id": "plan-1790675410310943000-91875",
+      "apply_ref": "refs/codrax/applied/plan-1790675410310943000-91875",
+      "verify_ref": "plan-1790675410310943000-91875.report.json",
+      "completion": {
+        "verdict": "verified",
+        "reason_code": "tests_passed",
+        "source": "finish",
+        "at": "2026-09-29T02:50:48.713813-07:00"
+      },
+      "latest_attempt_kind": "verify",
+      "latest_attempt_status": "passed",
+      "latest_reason_code": "tests_passed",
+      "active_slice_id": "slice-001",
+      "active_slice_status": "verified"
+    }
+  ],
+  "artifacts": {
+    "plan_path": "/Users/han/opt/codrax/eval/results/nested_python_increment-20260929-024852/run-1.plan.json",
+    "report_path": "/Users/han/opt/codrax/eval/results/nested_python_increment-20260929-024852/plan-1790675410310943000-91875.report.json",
+    "workflow_path": "/Users/han/opt/codrax/eval/results/nested_python_increment-20260929-024852/run-1.repo/.codrax/plans/workflows/wf-1790675410581835000-3018.json"
+  },
+  "plan": {
+    "id": "plan-1790675410310943000-91875",
+    "status": "applied",
+    "plan_fingerprint": "a557f4a2ede660b99bf9523662ade1efa35a73f82eca340b6fec56c8e8691225",
+    "target_paths": [
+      "packages/widget/widget.py"
+    ],
+    "applied_paths": [
+      "packages/widget/widget.py"
+    ],
+    "source_paths": [
+      "packages/widget/widget.py"
+    ],
+    "approval_action": "auto_execute",
+    "approval_risk_level": "medium",
+    "approval_reason_code": "auto_safe_allows_low_medium",
+    "applied_commit_sha": "3a1d39de918aba1a5e9a66f0b8966125df5b6826",
+    "localization": {
+      "status": "supported",
+      "source": "write_plan_context",
+      "plan_id": "plan-1790675410310943000-91875",
+      "batch_id": "batch-1",
+      "goal": "修复 packages/widget/widget.py 中 increment 函数的返回值错误，使其正确返回 value + 1",
+      "reason_codes": [
+        "plan_source_paths_owner_supported_by_prior_context"
+      ],
+      "source_paths": [
+        "packages/widget/widget.py"
+      ],
+      "prior_context_paths": [
+        "packages/widget/widget.py"
+      ],
+      "supported_paths": [
+        "packages/widget/widget.py"
+      ],
+      "owner_supported_paths": [
+        "packages/widget/widget.py"
+      ],
+      "anchors": [
+        {
+          "path": "packages/widget/widget.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|packages/widget/widget.py:1:increment:increment",
+            "kind": "plan_edit_owner",
+            "source": "packages/widget/widget.py",
+            "line_start": 1,
+            "line_end": 1,
+            "subject": "packages/widget/widget.py:increment",
+            "owner_symbol": "increment",
+            "anchor_symbol": "increment",
+            "summary": "plan edit line is enclosed by increment"
+          },
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "reason_code": "plan_edit_structural_owner"
+        },
+        {
+          "path": "packages/widget/widget.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|packages/widget/widget.py:2:increment:increment",
+            "kind": "plan_edit_owner",
+            "source": "packages/widget/widget.py",
+            "line_start": 2,
+            "line_end": 2,
+            "subject": "packages/widget/widget.py:increment",
+            "owner_symbol": "increment",
+            "anchor_symbol": "increment",
+            "summary": "plan edit line is enclosed by increment"
+          },
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "reason_code": "plan_edit_structural_owner"
+        },
+        {
+          "path": "packages/widget/widget.py",
+          "role": "production",
+          "source_stage": "plan_localization",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|packages/widget/widget.py:1:increment:increment",
+            "kind": "plan_edit_owner",
+            "source": "packages/widget/widget.py",
+            "line_start": 1,
+            "line_end": 1,
+            "subject": "packages/widget/widget.py:increment",
+            "owner_symbol": "increment",
+            "anchor_symbol": "increment",
+            "summary": "plan edit line is enclosed by increment"
+          },
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "reason_code": "plan_edit_structural_owner"
+        },
+        {
+          "path": "packages/widget/widget.py",
+          "role": "production",
+          "source_stage": "plan_localization",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|packages/widget/widget.py:2:increment:increment",
+            "kind": "plan_edit_owner",
+            "source": "packages/widget/widget.py",
+            "line_start": 2,
+            "line_end": 2,
+            "subject": "packages/widget/widget.py:increment",
+            "owner_symbol": "increment",
+            "anchor_symbol": "increment",
+            "summary": "plan edit line is enclosed by increment"
+          },
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "reason_code": "plan_edit_structural_owner"
+        }
+      ],
+      "support_ratio": 1
+    },
+    "owner_anchors": [
+      {
+        "id": "packages/widget/widget.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000packages/widget/widget.py:increment\u0000increment\u0000increment\u0000plan-edit-owner|packages/widget/widget.py:1:increment:increment:packages/widget/widget.py:1:1",
+        "path": "packages/widget/widget.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790675410310943000-91875",
+        "batch_id": "batch-1",
+        "subject": "packages/widget/widget.py:increment",
+        "owner_symbol": "increment",
+        "anchor_symbol": "increment",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|packages/widget/widget.py:1:increment:increment",
+          "kind": "plan_edit_owner",
+          "source": "packages/widget/widget.py",
+          "line_start": 1,
+          "line_end": 1,
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "summary": "plan edit line is enclosed by increment"
+        },
+        "rank": 1
+      },
+      {
+        "id": "packages/widget/widget.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000packages/widget/widget.py:increment\u0000increment\u0000increment\u0000plan-edit-owner|packages/widget/widget.py:2:increment:increment:packages/widget/widget.py:2:2",
+        "path": "packages/widget/widget.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790675410310943000-91875",
+        "batch_id": "batch-1",
+        "subject": "packages/widget/widget.py:increment",
+        "owner_symbol": "increment",
+        "anchor_symbol": "increment",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|packages/widget/widget.py:2:increment:increment",
+          "kind": "plan_edit_owner",
+          "source": "packages/widget/widget.py",
+          "line_start": 2,
+          "line_end": 2,
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "summary": "plan edit line is enclosed by increment"
+        },
+        "rank": 1
+      }
+    ]
+  },
+  "patch": {
+    "patch_effect_id": "patch-effect:plan-1790675410310943000-91875:slice-001:b0fda745c2ee",
+    "diff_fingerprint": "b0fda745c2ee55f6684eec990eb063681447227fd9571b79f5154e7bbc1e9f1c",
+    "diff_bytes": 521,
+    "changed_files": [
+      "packages/widget/widget.py"
+    ],
+    "source_files": [
+      "packages/widget/widget.py"
+    ],
+    "language_families": [
+      "python"
+    ]
+  },
+  "verification": {
+    "report_id": "plan-1790675410310943000-91875.report.json",
+    "status": "passed",
+    "passed": true,
+    "test_count": 3,
+    "passed_count": 3,
+    "command_count": 3,
+    "runner_families": [
+      "python"
+    ],
+    "confidence_reason_codes": [
+      "source_compile_ok"
+    ],
+    "no_tests_runners": [
+      "python"
+    ],
+    "worktree_audit_status": "clean"
+  },
+  "proof": {
+    "status": "strong",
+    "verification_status": "passed",
+    "runner_evidence": "mixed",
+    "confidence_reason_codes": [
+      "source_compile_ok"
+    ],
+    "test_count": 3,
+    "command_count": 3,
+    "probe_count": 1,
+    "project_runner_commands": 2,
+    "syntax_fallback_commands": 1,
+    "target_behavior_paths": 1,
+    "impact_target_count": 2,
+    "impact_verified_count": 2,
+    "patch_review_verdict": "advisory",
+    "localization_status": "supported"
+  },
+  "proof_ledger": {
+    "state": "verified",
+    "profile_status": "strong",
+    "verification_status": "passed",
+    "runner_evidence": "mixed",
+    "coverage_counts": {
+      "advisory": 1,
+      "covered": 3
+    },
+    "obligation_count": 4,
+    "covered_count": 4,
+    "capability_count": 5,
+    "capability_unavailable_count": 1,
+    "obligations": [
+      {
+        "id": "impact\u0000plan-1790675410310943000-91875\u0000impact-target:changed_file|packages/widget/widget.py|packages/widget/widget.py||||patch-effect:plan-1790675410310943000-91875:slice-001:b0fda745c2ee:packages/widget/widget.py\u0000changed_file\u0000verified\u0000packages/widget/widget.py\u0000packages/widget/widget.py",
+        "kind": "changed_file",
+        "status": "covered",
+        "source": "patch_effect",
+        "plan_id": "plan-1790675410310943000-91875",
+        "reason_code": "verified",
+        "path": "packages/widget/widget.py",
+        "related_path": "packages/widget/widget.py",
+        "evidence_ref": "patch-effect:plan-1790675410310943000-91875:slice-001:b0fda745c2ee:packages/widget/widget.py",
+        "capability": "unknown"
+      },
+      {
+        "id": "impact\u0000plan-1790675410310943000-91875\u0000impact-target:changed_file|packages/widget/widget.py|||||packages/widget/widget.py\u0000changed_file\u0000verified\u0000packages/widget/widget.py",
+        "kind": "changed_file",
+        "status": "covered",
+        "source": "change_plan",
+        "plan_id": "plan-1790675410310943000-91875",
+        "reason_code": "verified",
+        "path": "packages/widget/widget.py",
+        "evidence_ref": "packages/widget/widget.py",
+        "capability": "unknown"
+      },
+      {
+        "id": "source_compile\u0000covered\u0000test_surface_default\u0000plan-1790675410310943000-91875\u0000source_compile\u0000source_compile_ok",
+        "kind": "source_compile",
+        "status": "covered",
+        "source": "test_surface_default",
+        "report_plan_id": "plan-1790675410310943000-91875",
+        "category": "source_compile",
+        "severity": "info",
+        "reason_code": "source_compile_ok",
+        "capability": "unknown",
+        "detail": "source checker completed successfully for exact input path(s): packages/widget/widget.py"
+      },
+      {
+        "id": "patch_review\u0000plan-1790675410310943000-91875\u0000convention_surface_available\u0000advisory\u0000packages/widget/widget.py\u0000patch-effect:plan-1790675410310943000-91875:slice-001:b0fda745c2ee",
+        "kind": "convention",
+        "status": "advisory",
+        "source": "convention_learner",
+        "plan_id": "plan-1790675410310943000-91875",
+        "category": "convention",
+        "severity": "info",
+        "reason_code": "convention_surface_available",
+        "path": "packages/widget/widget.py",
+        "evidence_ref": "patch-effect:plan-1790675410310943000-91875:slice-001:b0fda745c2ee",
+        "capability": "unknown",
+        "detail": "repository convention context is available for the actual patch surface"
+      }
+    ],
+    "capabilities": [
+      {
+        "id": "command\u0000plan-1790675410310943000-91875\u0000test_surface_default\u0000zero_tests\u0000python3 -m unittest discover -v\u0000runner:python\u0000framework:unittest\u0000working_dir:.",
+        "kind": "executed_command",
+        "status": "unavailable",
+        "source": "test_surface_default",
+        "report_plan_id": "plan-1790675410310943000-91875",
+        "category": "project_runner",
+        "reason_code": "no_tests",
+        "path": ".",
+        "evidence_ref": "command_identity\u0000python\u0000unittest\u0000.\u0000python3 -m unittest discover -v",
+        "capability": "unknown",
+        "detail": "python3 -m unittest discover -v"
+      },
+      {
+        "id": "changed_path_capability\u0000plan-1790675410310943000-91875\u0000packages/widget/widget.py\u0000project_runner\u0000target_behavior",
+        "kind": "changed_path_verification",
+        "status": "covered",
+        "source": "test_surface_default",
+        "report_plan_id": "plan-1790675410310943000-91875",
+        "category": "project_runner",
+        "path": "packages/widget/widget.py",
+        "capability": "target_behavior"
+      },
+      {
+        "id": "command\u0000plan-1790675410310943000-91875\u0000test_surface_default\u0000executed\u0000python3 -m unittest discover -v\u0000runner:python\u0000framework:unittest\u0000working_dir:packages/widget",
+        "kind": "executed_command",
+        "status": "covered",
+        "source": "test_surface_default",
+        "report_plan_id": "plan-1790675410310943000-91875",
+        "category": "project_runner",
+        "reason_code": "executed",
+        "path": "packages/widget",
+        "evidence_ref": "command_identity\u0000python\u0000unittest\u0000packages/widget\u0000python3 -m unittest discover -v",
+        "capability": "unknown",
+        "detail": "python3 -m unittest discover -v"
+      },
+      {
+        "id": "command\u0000plan-1790675410310943000-91875\u0000test_surface_default\u0000syntax_preflight\u0000/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/nested_python_increment-20260929-024852/run-1.repo/.codrax/worktrees/trace-1790675410518730000-3018/packages/widget/widget.py\u0000runner:python\u0000framework:unittest\u0000working_dir:.",
+        "kind": "executed_command",
+        "status": "covered",
+        "source": "test_surface_default",
+        "report_plan_id": "plan-1790675410310943000-91875",
+        "category": "syntax_fallback",
+        "reason_code": "syntax_preflight",
+        "path": ".",
+        "evidence_ref": "command_identity\u0000python\u0000unittest\u0000.\u0000/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/nested_python_increment-20260929-024852/run-1.repo/.codrax/worktrees/trace-1790675410518730000-3018/packages/widget/widget.py",
+        "capability": "unknown",
+        "detail": "/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/nested_python_increment-20260929-024852/run-1.repo/.codrax/worktrees/trace-1790675410518730000-3018/packages/widget/widget.py"
+      },
+      {
+        "id": "capability\u0000plan-1790675410310943000-91875\u0000passed",
+        "kind": "local_verification",
+        "status": "covered",
+        "source": "change_report",
+        "report_plan_id": "plan-1790675410310943000-91875",
+        "capability": "unknown"
+      }
+    ]
+  },
+  "delivery": {
+    "materialization": {
+      "schema_version": 1,
+      "status": "available",
+      "reason_code": "applied_checkpoint_candidates",
+      "run_id": "wf-1790675410581835000-3018",
+      "final_plan_id": "plan-1790675410310943000-91875",
+      "retained_plan_ids": [
+        "plan-1790675410310943000-91875"
+      ],
+      "owners": [
+        {
+          "plan_id": "plan-1790675410310943000-91875",
+          "commit_sha": "3a1d39de918aba1a5e9a66f0b8966125df5b6826",
+          "paths": [
+            "packages/widget/widget.py"
+          ]
+        }
+      ]
+    },
+    "status": "coherent",
+    "relation": "source_plan_owns_final_delivery",
+    "final_plan_id": "plan-1790675410310943000-91875",
+    "report_plan_id": "plan-1790675410310943000-91875",
+    "primary_source_plan_id": "plan-1790675410310943000-91875",
+    "source_owner_plan_ids": [
+      "plan-1790675410310943000-91875"
+    ],
+    "source_paths": [
+      "packages/widget/widget.py"
+    ]
+  },
+  "source_authority": {
+    "plan_id": "plan-1790675410310943000-91875",
+    "source_paths": [
+      "packages/widget/widget.py"
+    ],
+    "localization": {
+      "status": "supported",
+      "source": "write_plan_context",
+      "plan_id": "plan-1790675410310943000-91875",
+      "batch_id": "batch-1",
+      "goal": "修复 packages/widget/widget.py 中 increment 函数的返回值错误，使其正确返回 value + 1",
+      "reason_codes": [
+        "plan_source_paths_owner_supported_by_prior_context"
+      ],
+      "source_paths": [
+        "packages/widget/widget.py"
+      ],
+      "prior_context_paths": [
+        "packages/widget/widget.py"
+      ],
+      "supported_paths": [
+        "packages/widget/widget.py"
+      ],
+      "owner_supported_paths": [
+        "packages/widget/widget.py"
+      ],
+      "anchors": [
+        {
+          "path": "packages/widget/widget.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|packages/widget/widget.py:1:increment:increment",
+            "kind": "plan_edit_owner",
+            "source": "packages/widget/widget.py",
+            "line_start": 1,
+            "line_end": 1,
+            "subject": "packages/widget/widget.py:increment",
+            "owner_symbol": "increment",
+            "anchor_symbol": "increment",
+            "summary": "plan edit line is enclosed by increment"
+          },
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "reason_code": "plan_edit_structural_owner"
+        },
+        {
+          "path": "packages/widget/widget.py",
+          "role": "production",
+          "source_stage": "plan_edit_owner",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|packages/widget/widget.py:2:increment:increment",
+            "kind": "plan_edit_owner",
+            "source": "packages/widget/widget.py",
+            "line_start": 2,
+            "line_end": 2,
+            "subject": "packages/widget/widget.py:increment",
+            "owner_symbol": "increment",
+            "anchor_symbol": "increment",
+            "summary": "plan edit line is enclosed by increment"
+          },
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "reason_code": "plan_edit_structural_owner"
+        },
+        {
+          "path": "packages/widget/widget.py",
+          "role": "production",
+          "source_stage": "plan_localization",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|packages/widget/widget.py:1:increment:increment",
+            "kind": "plan_edit_owner",
+            "source": "packages/widget/widget.py",
+            "line_start": 1,
+            "line_end": 1,
+            "subject": "packages/widget/widget.py:increment",
+            "owner_symbol": "increment",
+            "anchor_symbol": "increment",
+            "summary": "plan edit line is enclosed by increment"
+          },
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "reason_code": "plan_edit_structural_owner"
+        },
+        {
+          "path": "packages/widget/widget.py",
+          "role": "production",
+          "source_stage": "plan_localization",
+          "kind": "grounded_evidence",
+          "strength": "owner",
+          "evidence_ref": {
+            "id": "plan-edit-owner|packages/widget/widget.py:2:increment:increment",
+            "kind": "plan_edit_owner",
+            "source": "packages/widget/widget.py",
+            "line_start": 2,
+            "line_end": 2,
+            "subject": "packages/widget/widget.py:increment",
+            "owner_symbol": "increment",
+            "anchor_symbol": "increment",
+            "summary": "plan edit line is enclosed by increment"
+          },
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "reason_code": "plan_edit_structural_owner"
+        }
+      ],
+      "support_ratio": 1
+    },
+    "owner_anchors": [
+      {
+        "id": "packages/widget/widget.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000packages/widget/widget.py:increment\u0000increment\u0000increment\u0000plan-edit-owner|packages/widget/widget.py:1:increment:increment:packages/widget/widget.py:1:1",
+        "path": "packages/widget/widget.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790675410310943000-91875",
+        "batch_id": "batch-1",
+        "subject": "packages/widget/widget.py:increment",
+        "owner_symbol": "increment",
+        "anchor_symbol": "increment",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|packages/widget/widget.py:1:increment:increment",
+          "kind": "plan_edit_owner",
+          "source": "packages/widget/widget.py",
+          "line_start": 1,
+          "line_end": 1,
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "summary": "plan edit line is enclosed by increment"
+        },
+        "rank": 1
+      },
+      {
+        "id": "packages/widget/widget.py\u0000production\u0000grounded_evidence\u0000owner\u0000plan_edit_owner\u0000packages/widget/widget.py:increment\u0000increment\u0000increment\u0000plan-edit-owner|packages/widget/widget.py:2:increment:increment:packages/widget/widget.py:2:2",
+        "path": "packages/widget/widget.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "write_plan_context",
+        "source_id": "plan-1790675410310943000-91875",
+        "batch_id": "batch-1",
+        "subject": "packages/widget/widget.py:increment",
+        "owner_symbol": "increment",
+        "anchor_symbol": "increment",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|packages/widget/widget.py:2:increment:increment",
+          "kind": "plan_edit_owner",
+          "source": "packages/widget/widget.py",
+          "line_start": 2,
+          "line_end": 2,
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "summary": "plan edit line is enclosed by increment"
+        },
+        "rank": 1
+      }
+    ]
+  },
+  "patch_review": {
+    "status": "passed",
+    "verdict": "advisory",
+    "reason_codes": [
+      "convention_surface_available"
+    ],
+    "total_findings": 1
+  },
+  "impact": {
+    "result_id": "impact-analysis:plan-1790675410310943000-91875:patch-effect:plan-1790675410310943000-91875:slice-001:b0fda745c2ee",
+    "changed_surface_count": 3,
+    "verification_targets": 2,
+    "coverage_counts": {
+      "verified": 2
+    }
+  },
+  "handoff": {
+    "total_items": 61,
+    "top_items": [
+      {
+        "priority": "p0",
+        "kind": "constraint",
+        "source_stage": "write_analysis",
+        "fingerprint": "94cc9dd9390bbbcc"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval",
+        "source_stage": "approval",
+        "fingerprint": "9d75f5b080386076"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "659f5beba0cc64e1"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "576717efc0a18111"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "28c4a0a5f2535fa5"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "c860f091aa1940cb"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_decision",
+        "source_stage": "risk",
+        "fingerprint": "c6e7e476648c3534"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval",
+        "source_stage": "approval",
+        "fingerprint": "fc1578c6ffa1112a"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "e4f952aba208d7c9"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "9eea0ccaea63cb53"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "4611ecbdea3dd97b"
+      },
+      {
+        "priority": "p0",
+        "kind": "approval_reason",
+        "source_stage": "approval",
+        "fingerprint": "50c6d804f37c2842"
+      },
+      {
+        "priority": "p1",
+        "kind": "plan_generation",
+        "source_stage": "plan",
+        "source_id": "plan-1790675410310943000-91875",
+        "fingerprint": "9205c9ff3d3b9690"
+      },
+      {
+        "priority": "p1",
+        "kind": "target_file",
+        "source_stage": "plan",
+        "fingerprint": "c1c69ed30fafc707"
+      },
+      {
+        "priority": "p1",
+        "kind": "source_localization_missing_path",
+        "source_stage": "plan_localization",
+        "source_id": "plan-1790675410310943000-91875",
+        "fingerprint": "1f238f72d9272c76"
+      },
+      {
+        "priority": "p1",
+        "kind": "impact_changed_surface",
+        "source_stage": "impact_analysis",
+        "source_id": "impact-analysis:plan-1790675410310943000-91875",
+        "fingerprint": "20f4b1057eb23116"
+      }
+    ],
+    "owner_anchors": [
+      {
+        "id": "plan_edit_owner|packages/widget/widget.py:1:increment:increment",
+        "path": "packages/widget/widget.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_edit_owner",
+        "source_id": "plan-1790675410310943000-91875",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "packages/widget/widget.py:increment",
+        "owner_symbol": "increment",
+        "anchor_symbol": "increment",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|packages/widget/widget.py:1:increment:increment",
+          "kind": "plan_edit_owner",
+          "source": "packages/widget/widget.py",
+          "line_start": 1,
+          "line_end": 1,
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "summary": "plan edit line is enclosed by increment"
+        },
+        "rank": 1
+      },
+      {
+        "id": "plan_edit_owner|packages/widget/widget.py:2:increment:increment",
+        "path": "packages/widget/widget.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_edit_owner",
+        "source_id": "plan-1790675410310943000-91875",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "packages/widget/widget.py:increment",
+        "owner_symbol": "increment",
+        "anchor_symbol": "increment",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|packages/widget/widget.py:2:increment:increment",
+          "kind": "plan_edit_owner",
+          "source": "packages/widget/widget.py",
+          "line_start": 2,
+          "line_end": 2,
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "summary": "plan edit line is enclosed by increment"
+        },
+        "rank": 1
+      },
+      {
+        "id": "source_localization_anchor|plan-1790675410310943000-91875|packages/widget/widget.py|grounded_evidence|owner|increment|increment",
+        "path": "packages/widget/widget.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_localization",
+        "source_id": "plan-1790675410310943000-91875",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "packages/widget/widget.py:increment",
+        "owner_symbol": "increment",
+        "anchor_symbol": "increment",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|packages/widget/widget.py:1:increment:increment",
+          "kind": "plan_edit_owner",
+          "source": "packages/widget/widget.py",
+          "line_start": 1,
+          "line_end": 1,
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "summary": "plan edit line is enclosed by increment"
+        },
+        "rank": 1
+      },
+      {
+        "id": "source_localization_anchor|plan-1790675410310943000-91875|packages/widget/widget.py|grounded_evidence|owner|increment|increment",
+        "path": "packages/widget/widget.py",
+        "role": "production",
+        "kind": "grounded_evidence",
+        "strength": "owner",
+        "priority": "p1",
+        "source_stage": "plan_localization",
+        "source_id": "plan-1790675410310943000-91875",
+        "batch_id": "batch-1",
+        "slice_id": "slice-001",
+        "subject": "packages/widget/widget.py:increment",
+        "owner_symbol": "increment",
+        "anchor_symbol": "increment",
+        "reason_code": "plan_edit_structural_owner",
+        "evidence_ref": {
+          "id": "plan-edit-owner|packages/widget/widget.py:2:increment:increment",
+          "kind": "plan_edit_owner",
+          "source": "packages/widget/widget.py",
+          "line_start": 2,
+          "line_end": 2,
+          "subject": "packages/widget/widget.py:increment",
+          "owner_symbol": "increment",
+          "anchor_symbol": "increment",
+          "summary": "plan edit line is enclosed by increment"
+        },
+        "rank": 1
+      },
+      {
+        "id": "packages/widget/widget.py\u0000production\u0000scope_anchor\u0000supporting\u0000write_analysis\u0000\u0000\u0000\u0000",
+        "path": "packages/widget/widget.py",
+        "role": "production",
+        "kind": "scope_anchor",
+        "strength": "supporting",
+        "priority": "p1",
+        "source_stage": "write_analysis",
+        "batch_id": "batch-1",
+        "reason_code": "scope_anchor_prior_context",
+        "rank": 11
+      }
+    ]
+  },
+  "loop": {
+    "run_id": "wf-1790675410581835000-3018",
+    "status": "complete",
+    "active_unit_id": "slice-001",
+    "event_count": 15,
+    "last_event_kind": "run_completed",
+    "last_reason_code": "all_batches_verified",
+    "event_refs": [
+      "wf-1790675410581835000-3018:000001:run_seeded",
+      "wf-1790675410581835000-3018:000002:localization_projected",
+      "wf-1790675410581835000-3018:000003:proof_projected",
+      "wf-1790675410581835000-3018:000004:unit_created",
+      "wf-1790675410581835000-3018:000005:effect_described",
+      "wf-1790675410581835000-3018:000006:permission_decided",
+      "wf-1790675410581835000-3018:000007:plan_emitted",
+      "wf-1790675410581835000-3018:000008:checkpoint_created",
+      "wf-1790675410581835000-3018:000009:patch_effect_recorded",
+      "wf-1790675410581835000-3018:000010:unit_apply_completed",
+      "wf-1790675410581835000-3018:000011:observe_completed",
+      "wf-1790675410581835000-3018:000012:proof_projected",
+      "wf-1790675410581835000-3018:000013:truth_projected",
+      "wf-1790675410581835000-3018:000014:unit_completed",
+      "wf-1790675410581835000-3018:000015:run_completed"
+    ],
+    "runtime_units": [
+      {
+        "unit_id": "slice-001",
+        "status": "complete",
+        "reason_code": "tests_passed",
+        "truth": {
+          "state": "covered",
+          "reason_code": "tests_passed",
+          "recommended_action": "continue",
+          "completion_verdict": "verified",
+          "signals": [
+            {
+              "kind": "proof_coverage",
+              "state": "covered",
+              "reason_code": "tests_passed",
+              "recommended_action": "continue",
+              "source": "write_workflow_slice",
+              "paths": [
+                "packages/widget/widget.py"
+              ],
+              "evidence_refs": [
+                "plan-1790675410310943000-91875.report.json",
+                "refs/codrax/applied/plan-1790675410310943000-91875"
+              ]
+            }
+          ],
+          "covered": true
+        }
+      }
+    ],
+    "truth": {
+      "state": "covered",
+      "reason_code": "tests_passed",
+      "recommended_action": "continue",
+      "completion_verdict": "verified",
+      "signals": [
+        {
+          "kind": "proof_coverage",
+          "state": "covered",
+          "reason_code": "tests_passed",
+          "recommended_action": "continue",
+          "source": "write_workflow_slice",
+          "paths": [
+            "packages/widget/widget.py"
+          ],
+          "evidence_refs": [
+            "plan-1790675410310943000-91875.report.json",
+            "refs/codrax/applied/plan-1790675410310943000-91875"
+          ]
+        }
+      ],
+      "covered": true
+    },
+    "proof": {
+      "state": "covered",
+      "reason_code": "tests_passed",
+      "recommended_action": "continue"
+    },
+    "localization": {
+      "state": "owner_supported",
+      "reason_code": "localization_owner_supported",
+      "recommended_action": "continue",
+      "source_paths": [
+        "packages/widget/widget.py"
+      ],
+      "owner_supported_paths": [
+        "packages/widget/widget.py"
+      ]
+    },
+    "permission": {
+      "state": "allow",
+      "reason_code": "all_rules_allow",
+      "recommended_action": "continue",
+      "source": "write_workflow_run"
+    }
+  },
+  "reasoning_graph": {
+    "graph_id": "wf-1790675410581835000-3018",
+    "event_count": 15,
+    "last_event_kind": "workflow_event_projected",
+    "last_reason_code": "all_batches_verified",
+    "event_refs": [
+      "wf-1790675410581835000-3018:000001:run_seeded",
+      "wf-1790675410581835000-3018:000002:localization_projected",
+      "wf-1790675410581835000-3018:000003:proof_projected",
+      "wf-1790675410581835000-3018:000004:unit_created",
+      "wf-1790675410581835000-3018:000005:effect_described",
+      "wf-1790675410581835000-3018:000006:permission_decided",
+      "wf-1790675410581835000-3018:000007:plan_emitted",
+      "wf-1790675410581835000-3018:000008:checkpoint_created",
+      "wf-1790675410581835000-3018:000009:patch_effect_recorded",
+      "wf-1790675410581835000-3018:000010:unit_apply_completed",
+      "wf-1790675410581835000-3018:000011:observe_completed",
+      "wf-1790675410581835000-3018:000012:proof_projected",
+      "wf-1790675410581835000-3018:000013:truth_projected",
+      "wf-1790675410581835000-3018:000014:unit_completed",
+      "wf-1790675410581835000-3018:000015:run_completed"
+    ],
+    "workflow_event_count": 15,
+    "node_count": 2
+  }
+}

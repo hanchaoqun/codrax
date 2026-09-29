@@ -1172,6 +1172,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 
 **块数量修补指导（HMC §191）**：前置发射检查与后置数量合同共用 typed `AnswerBlockCountRepair`，传递实际数量、上下限、可接受类型与维度范围。缺块指导追加，超额指导合并后显式移除，不从违规散文或块 ID 拼写推断方向。后置重试保留该对象；旧持久违规仍兼容原软提示。每次 patch 反馈按当前基底重新计算缺口，并附有界载荷数量名册（最多24块、4个缺口；不重复正文），错误 ID 的短期反馈不会遮蔽仍缺少的内容类型。已有表/列表/图的载荷应继承；数量名册不是事实正确性证明，不禁止模型合法删改，也不增加内容保留硬门、修补租约或 JSON 必填项。精确 ID、原子合并、既有数量和证据校验不变。
 
+**多载体无损元数据修补（HMC §193）**：存在required typed member_set维度时，动态schema可公布多个模型自有、非空且未绑定member_set的表格/有序或无序列表ID，由模型使用既有`add_facet_id`选择目标；不再限定唯一维度、唯一载体或源码item证据。系统生成块、principal_path_edge与显式边锚块仍排除，真正的有向关系claim仍必须有精确item证据；既有图的surface_role等元数据通道不变。操作原子合并并经普通合同校验，列名、单位、行和图正文不需要重新生成。不会按标题、问答原文或ID拼写代选维度，也不自动补facet；合法显式整块替换/删除仍可执行，不强继承模型明确删除的字段。
+
 **Layer 3 richness**（telemetry，不阻塞）：
 - `validateRichnessRegression`：optional facet 覆盖率比基线低 → 软违规
 - `validateRichnessGlaringGap`：标 glaring 的 facet 完全缺席 → 软违规
@@ -1330,7 +1332,7 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **完整标准输入（HMC-17.8）**：`--htrace -` / `--atrace -`通过`traceinput.BeginStream/PrepareStream`接收文本或受支持二进制。独占可关闭reader，固定64KiB缓冲写私有目录；独立输入上限64GiB（库调用可指定更低上限），与模型预览无关，无新增等待超时。必须实际读到EOF，保存精确字节数、SHA-256、源代次和上限的`input-stream.json`后才调用既有准备器。源流、EOF收据、转换输出共用一个持有目录的事务；取消关闭输入以解除阻塞，未提交失败只清理自己的目录。收据和完整源均绑定到`TraceMaterial`，缺尾、超限、读取/关闭失败、改代或损坏格式不发布。大于上限使用文件路径；stdin与日志仍只允许一个消费者。已封存的文本流也携带收据，不冒充单文件自包含预览。
 
-**既有SQLite只读接入（HMC-17.7子能力）**：明确选择Trace的CLI/REPL附件、`trace_query`显式文件及已有typed artifact身份，根据文件内容接纳闭合、自包含的TraceStreamer SQLite，不依赖扩展名。`PrepareExistingTraceDB`不调用转换器、不在原DB创建索引或旁件；持有源代次，复制到私有封存快照，复用只读VFS、语义导出、全表保真及原owner/clock/query-ready合同。原文件路径、字节数、SHA-256及代次与外层准备器核对，不能从JSON收据恢复进程内权限。仅支持rollback-journal头模式且别名/规范路径均无`-wal`、`-shm`、`-journal`；拒绝活跃/WAL数据库，不忽略日志或尝试恢复。旁件检查保留在进程内材料中，在提交、缓存复用和查询前后重验。普通自然语言/fileHints中的任意`.data`路径不会因此获得Trace身份；非标准后缀系统补齐仍需typed准入或已有准备收据。活跃数据库一致快照仍未开放。
+**既有SQLite只读接入（HMC-17.7子能力）**：明确选择Trace的CLI/REPL附件、`trace_query`显式文件及已有typed artifact身份，根据内容接纳自包含TraceStreamer SQLite或准备期间代次稳定的main/WAL组合，不依赖扩展名。`PrepareExistingTraceDB`不调用外部转换器、不在原DB创建索引/旁件或执行检查点；持有源代次，复制到私有封存快照，复用只读VFS、语义导出、全表保真及原owner/clock/query-ready合同。rollback-journal头仍须别名/规范路径均无`-wal`、`-shm`、`-journal`。WAL头2/2要求合法WAL：校验页几何、salt、累积checksum和提交帧，只覆盖到最后已验证提交，未提交尾帧不进入镜像；仅在私有镜像规范化SQLite头，源main/WAL/SHM均不修改，也不借SHM作为权威。main与WAL各最多4GiB，镜像最多4GiB，页索引最多1<<20项；部分帧、同代校验损坏、缺已提交扩展页、源变化、旁件歧义或journal均失败。原main、WAL及私有镜像分别记摘要/代次，缓存复用和查询前后重验两源，WAL单独变化也失效；JSON收据不能恢复进程内权限。普通自然语言/fileHints中的任意`.data`路径不会因此获得Trace身份；非标准后缀补齐仍需typed准入或既有准备收据。持续写入时的在线快照、WAL头模式无WAL/空WAL/无提交帧变体仍未开放，不能称支持任意活跃数据库。
 
 **gzip内SQLite（HMC-17.7）**：完整运输验证后的内层SQLite复用同一只读导出helper、held view和发布事务，不重开临时路径或启动第二个源事务，也不调用外部转换器。`ExistingTraceDBSource.Path`仍定位压缩原件，其Bytes/SHA256/Generation必须等于gzip的Decoded三元组；外层Result.Input与gzip Source三元组继续绑定压缩原件，准备器同时校验二者。默认Prepare保留实际消费的封存DB，显式Convert保留/不保留/指定DB路径使用原无覆盖发布与回滚规则。仅支持给定自包含rollback-journal表示，不能由此证明压缩前原库的生命周期；gzip头名字/mtime和旁邻文件不作为DB身份、旁件或时钟证据。外层压缩预算、内层解压预算和SQLite原有资源边界不变；失败不借别的输入或旧缓存。
 

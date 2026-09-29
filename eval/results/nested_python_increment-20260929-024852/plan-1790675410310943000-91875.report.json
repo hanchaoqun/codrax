@@ -1,0 +1,157 @@
+{
+  "plan_id": "plan-1790675410310943000-91875",
+  "channel": "post_apply_verify",
+  "test_results": [
+    {
+      "invocation_id": "native:bca:18d9c1d28336a808:2",
+      "kind": "unit",
+      "observation_scope": "assertion",
+      "assertion_id": "python/unittest@packages/widget::test_negative_integers",
+      "suite": "python/unittest@packages/widget::tests.test_widget.IncrementTest",
+      "passed": true,
+      "duration": 0
+    },
+    {
+      "invocation_id": "native:bca:18d9c1d28336a808:2",
+      "kind": "unit",
+      "observation_scope": "assertion",
+      "assertion_id": "python/unittest@packages/widget::test_positive_integers",
+      "suite": "python/unittest@packages/widget::tests.test_widget.IncrementTest",
+      "passed": true,
+      "duration": 0
+    },
+    {
+      "invocation_id": "native:bca:18d9c1d28336a808:2",
+      "kind": "unit",
+      "observation_scope": "assertion",
+      "assertion_id": "python/unittest@packages/widget::test_zero",
+      "suite": "python/unittest@packages/widget::tests.test_widget.IncrementTest",
+      "passed": true,
+      "duration": 0
+    }
+  ],
+  "passed": true,
+  "verification_status": "passed",
+  "verification_diagnostics": [
+    {
+      "source": "test_surface_default",
+      "category": "no_tests",
+      "severity": "warning",
+      "runner": "python",
+      "framework": "unittest",
+      "working_dir": ".",
+      "command": "python3 -m unittest discover -v",
+      "outcome": "zero_tests",
+      "detail": "zero_tests"
+    }
+  ],
+  "verification_confidence": [
+    {
+      "source": "test_surface_default",
+      "category": "source_compile",
+      "status": "satisfied",
+      "severity": "info",
+      "reason_code": "source_compile_ok",
+      "changed_symbol_refs": [
+        "path:packages/widget/widget.py"
+      ],
+      "detail": "source checker completed successfully for exact input path(s): packages/widget/widget.py"
+    }
+  ],
+  "no_tests_runners": [
+    "python"
+  ],
+  "executed_commands": [
+    {
+      "runner": "python",
+      "framework": "unittest",
+      "working_dir": ".",
+      "command": "/usr/bin/python3 -m py_compile /Users/han/opt/codrax/eval/results/nested_python_increment-20260929-024852/run-1.repo/.codrax/worktrees/trace-1790675410518730000-3018/packages/widget/widget.py",
+      "exit_code": 0,
+      "duration_ms": 31,
+      "source_check_execution": {
+        "version": 1,
+        "started": true,
+        "completed": true,
+        "exit_code_known": true,
+        "exit_code": 0,
+        "checked_paths": [
+          "packages/widget/widget.py"
+        ]
+      },
+      "covered_paths": [
+        "packages/widget/widget.py"
+      ],
+      "source": "test_surface_default",
+      "outcome": "syntax_preflight"
+    },
+    {
+      "invocation_id": "native:bca:18d9c1d280b04f30:1",
+      "runner": "python",
+      "framework": "unittest",
+      "working_dir": ".",
+      "command": "python3 -m unittest discover -v",
+      "exit_code": 0,
+      "duration_ms": 40,
+      "source": "test_surface_default",
+      "outcome": "zero_tests"
+    },
+    {
+      "invocation_id": "native:bca:18d9c1d28336a808:2",
+      "runner": "python",
+      "framework": "unittest",
+      "working_dir": "packages/widget",
+      "command": "python3 -m unittest discover -v",
+      "exit_code": 0,
+      "duration_ms": 37,
+      "covered_paths": [
+        "packages/widget/widget.py"
+      ],
+      "source": "test_surface_default",
+      "outcome": "executed"
+    }
+  ],
+  "worktree_audit": {
+    "status": "clean"
+  },
+  "changed_path_coverage": [
+    {
+      "path": "packages/widget/widget.py",
+      "language_families": [
+        "python"
+      ],
+      "status": "covered",
+      "caliber": "project_runner",
+      "capability": "target_behavior",
+      "runner": "python",
+      "source": "test_surface_default"
+    }
+  ],
+  "test_surface": {
+    "candidates": [
+      {
+        "id": "python/unittest@.",
+        "runner": "python",
+        "framework": "unittest",
+        "working_dir": ".",
+        "command": "python3 -m unittest discover -v",
+        "source": "test-file convention",
+        "has_test_signal": true,
+        "priority": 7
+      },
+      {
+        "id": "python/unittest@packages/widget",
+        "runner": "python",
+        "framework": "unittest",
+        "working_dir": "packages/widget",
+        "command": "python3 -m unittest discover -v",
+        "source": "packages/widget/setup.py",
+        "has_test_signal": true,
+        "priority": 9
+      }
+    ],
+    "selected_id": "python/unittest@.",
+    "generated_at": "2026-09-29T02:50:36.592487-07:00"
+  },
+  "generated_at": "2026-09-29T02:50:36.793918-07:00"
+}
