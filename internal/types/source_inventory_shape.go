@@ -8,6 +8,7 @@ func IsTypedSourceEnumerationShape(rm RequestModel) bool {
 	if rm.Predicates.IsScalarAnswer ||
 		rm.Predicates.IsRoleLocateLookup ||
 		rm.Predicates.IsCountQuestion ||
+		RequestsAggregateWithoutMemberRoster(rm) ||
 		rm.Predicates.IsHistoryLookup ||
 		rm.Predicates.IsDiagnosticQuestion {
 		return false

@@ -661,7 +661,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"source_inventory_profile": map[string]any{
 				"type":        "object",
-				"description": "Optional typed source-inventory intent. Emit when the current request asks for bounded structural source members such as public functions, public types, constants, enum-like types, fields, or methods under a path/package/file scope. This is the user's requested membership shape, not evidence. Do not emit it for conceptual stages, phases, steps, modes, actors, or components in an architecture/mechanism explanation even when code represents them as enums, types, or constants. In particular, an explain request with a required requested_answer_dimensions role=stage_or_workflow uses source declarations only as supporting evidence and must not also emit source_inventory_profile merely because the stages are constants or types. Do not emit this for runtime artifact identifiers such as trace/log inode, dev, entry_name, pid, timestamp, line, event, span, thread, or trace-local file-like labels; keep those in external_observation_policy / runtime artifact lanes. Downstream may use parser/repo-map facts to recover missing members, but it must keep model summaries as enrichment.",
+				"description": "Optional typed source-inventory intent. Emit when the current request asks for bounded structural source members such as public functions, public types, constants, enum-like types, fields, or methods under a path/package/file scope. This is the user's requested membership shape, not evidence. Do not emit it for conceptual stages, phases, steps, modes, actors, or components in an architecture/mechanism explanation even when code represents them as enums, types, or constants. In particular, an explain request with a required requested_answer_dimensions role=stage_or_workflow uses source declarations only as supporting evidence and must not also emit source_inventory_profile merely because the stages are constants or types. Do not emit this for runtime artifact identifiers such as trace/log inode, dev, entry_name, pid, timestamp, line, event, span, thread, or trace-local file-like labels; keep those in external_observation_policy / runtime artifact lanes. Downstream may use parser/repo-map facts to recover missing members, but it must keep model summaries as enrichment." + " " + skill.AnalysisAggregateInventoryTeaching,
 				"properties": map[string]any{
 					"is_source_inventory": map[string]any{"type": "boolean", "description": "True only when the answer's principal payload is a bounded inventory of source-code members."},
 					"target_roles":        map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Principal source-member roles requested by the user, such as function, method, type, constant, variable, or field. This carries the requested answer shape and accepts the full role enum; the source-inventory navigation lens later enumerates members for the structural-carrier subset of these roles."},
@@ -1482,10 +1482,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		predicates = reconciled
 		val.Warnings = append(val.Warnings, reason)
 	}
-	if reconciled, reason := reconcileSetValuedCountPredicates(intent, predicates); reason != "" {
-		predicates = reconciled
-		val.Warnings = append(val.Warnings, reason)
-	}
 	historySelectionProfile, historySelectionErr, historySelectionWarnings := parseHistorySelectionProfile(raw, predicates.IsHistoryLookup, p.HistorySelectionProfile)
 	if historySelectionErr != "" {
 		return types.ToolResult{
@@ -1640,6 +1636,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for _, warning := range requestedAnswerDimensionsWarnings {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
+	}
+	if reconciled, reason := reconcileSetValuedCountPredicates(predicates, requestedAnswerDimensions); reason != "" {
+		predicates = reconciled
+		val.Warnings = append(val.Warnings, reason)
 	}
 	// The hard gate reads the typed presentation authority through the same
 	// accessor the analyzer prompt renders it from (V7-4): one field, one
@@ -3787,8 +3787,14 @@ func setValuedRoleLocateShape(intent types.Intent, preds types.SemanticPredicate
 	return len(trimSubTopicsForConsistency(subTopics)) > 1
 }
 
-func reconcileSetValuedCountPredicates(intent types.Intent, preds types.SemanticPredicates) (types.SemanticPredicates, string) {
-	if intent != types.IntentEnumerate || !preds.IsCountQuestion {
+func reconcileSetValuedCountPredicates(preds types.SemanticPredicates, dimensions *types.RequestedAnswerDimensionProfile) (types.SemanticPredicates, string) {
+	roster := preds.IsCategoryEnumeration || preds.HasPerMemberTable
+	if dimensions != nil && dimensions.Active() {
+		for _, dimension := range dimensions.Dimensions {
+			roster = roster || dimension.Required && dimension.Role == types.RequestedAnswerDimensionMemberSet
+		}
+	}
+	if !preds.IsCountQuestion || !roster {
 		return preds, ""
 	}
 	preds.IsCountQuestion = false
@@ -3856,15 +3862,8 @@ func validateSelfConsistencyDetailed(
 			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_role_locate_lookup=true requires answer_subject.kind to name the located literal kind (numeric / string_literal / function_name / type_name / file_path / handler_route / config_key / interface_name / struct_field / enum_value)"}
 		}
 	}
-	// Count question must resolve to a scalar answer, not a list. The
-	// normal parse path clears this predicate for intent=enumerate, where
-	// counts are per-list attributes. Keep a defensive reject for direct
-	// callers that bypass the normalizer.
-	if preds.IsCountQuestion {
-		if intent == types.IntentEnumerate {
-			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_count_question=true is inconsistent with intent=enumerate — set is_count_question=false and is_scalar_answer=false when the answer is a member list with counts per category"}
-		}
-	}
+	// Enumeration is also an input-gathering strategy for a count. Only an
+	// explicit member/table predicate may turn that count into answer rows.
 	// is_count_question implies is_scalar_answer (the prompt says so).
 	// LLM can still get this wrong; reject so it has to fix one or
 	// the other.
@@ -4699,6 +4698,10 @@ func normalizeMissingAnswerSubjectForSourceInventory(profile *types.SourceInvent
 func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, string) {
 	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false, ""
+	}
+	if types.SourceInventoryIsPathDiscovery(rm.SourceInventoryProfile) || types.RequestsAggregateWithoutMemberRoster(*rm) {
+		rm.SourceInventoryProfile = nil
+		return true, "source_inventory_profile ignored for filesystem discovery or an aggregate without requested member rows; preserve scope/completeness for measurement and use ordinary read-only tools without a semantic-lens prerequisite"
 	}
 	if types.HasTypedRelationMemberSetShape(*rm) {
 		// The typed relation remains the sole membership/evidence authority, but

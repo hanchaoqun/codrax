@@ -102,14 +102,16 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	// executed-empty lens credential (LensExecutedEmpty carrier + provenance
 	// credential preservation across merge/normalize) is a correctness fix —
 	// an empty shelf must stay distinguishable from "lens never ran".
-	"../types/source_inventory_lens_execution.go":                    68,
-	"../types/source_inventory_provenance.go":                        27,
-	"../types/source_inventory_mutable.go":                           40,
-	"../types/source_inventory_completion_authority.go":              151,
-	"../types/source_inventory_completion_boundary.go":               45,
-	"../types/source_inventory_completion_helpers.go":                46,
-	"../types/source_inventory_display_debt.go":                      155,
-	"../types/source_inventory_exact_scalar_boundary.go":             46,
+	"../types/source_inventory_lens_execution.go":       68,
+	"../types/source_inventory_provenance.go":           27,
+	"../types/source_inventory_mutable.go":              40,
+	"../types/source_inventory_completion_authority.go": 151,
+	"../types/source_inventory_completion_boundary.go":  45,
+	"../types/source_inventory_completion_helpers.go":   46,
+	"../types/source_inventory_display_debt.go":         155,
+	// Only shared aggregate/path applicability calls grow here; implementation
+	// lives in aggregate_answer_boundary.go, not this convergence cluster.
+	"../types/source_inventory_exact_scalar_boundary.go":             47,
 	"../types/source_inventory_role_binding_boundary.go":             14,
 	"../types/source_inventory_followup_class_samples.go":            55,
 	"../types/source_inventory_followup_class_scope.go":              64,
@@ -169,7 +171,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_row_set_projection_surface_family.go": 80,
 	"../types/source_inventory_row_set_projection.go":                351,
 	"../types/source_inventory_scope.go":                             119,
-	"../types/source_inventory_shape.go":                             30,
+	"../types/source_inventory_shape.go":                             31, // one shared aggregate applicability call
 	"../types/source_inventory_surface_family_keys.go":               78,
 }
 

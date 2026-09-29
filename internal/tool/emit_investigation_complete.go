@@ -8630,6 +8630,9 @@ func completionTypedInventoryLikeRequest(ctx *types.BusContext) bool {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	if types.RequestsAggregateWithoutMemberRoster(rm) {
+		return false
+	}
 	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
 		return true
 	}

@@ -2,6 +2,8 @@ package types
 
 func sourceInventoryCompletionSupportBoundary(rm RequestModel) bool {
 	return SourceInventoryProfileCompletionIsSupportOnly(rm.SourceInventoryProfile) ||
+		SourceInventoryIsPathDiscovery(rm.SourceInventoryProfile) ||
+		RequestsAggregateWithoutMemberRoster(rm) ||
 		SourceInventoryProfileConflictsWithRoleBinding(rm) ||
 		SourceInventoryLaneConflictsWithArchitectureNarrative(rm) ||
 		SourceInventoryLaneConflictsWithArchitectureMemberExplanation(rm) ||

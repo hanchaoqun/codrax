@@ -1143,8 +1143,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		rm := ctx.AnalysisIR.RequestModel
 		if rm.CompletenessObligation.IsActive() {
 			b.WriteString("### Exhaustive-coverage Obligation\n\n")
-			fmt.Fprintf(&b, "The user demands every match (`%s` in the question). Every grep / repo_map / list_files candidate file MUST be either read_file'd OR explicitly excluded by a narrower follow-up grep before you call emit_investigation_complete with result_kind='resolved'. Premature completion is refused when scanned candidates remain unread under this obligation. The honest fallback when the investigation legitimately cannot enumerate the full set is result_kind='absence' with absence_justification, OR an emit_investigation_complete that explicitly notes the un-read scope.\n\n",
+			fmt.Fprintf(&b, "Cover the full requested scope (`%s` in the question), and disclose any incomplete investigation. Navigation candidates are not an exact answer universe; verify relevant source claims, but do not read unrelated candidates merely to satisfy a file count.\n",
 				rm.CompletenessObligation.SourceQuote)
+			if types.RequestsAggregateWithoutMemberRoster(rm) {
+				b.WriteString("For this aggregate, prove the complete measurement scope with read-only tool output. File contents need reading only for separately requested source explanations, not to count filesystem paths; do not turn the scanned inputs into principal answer rows.\n")
+			}
+			b.WriteString("\n")
 		}
 		if rm.Predicates.IsCountQuestion || len(rm.Buckets) >= 2 || rm.EnumerationBoundary != nil || (rm.CompletenessObligation != nil && rm.CompletenessObligation.Required) || types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) || types.RequiresSourceOperationSiteMemberSetHandoff(rm) {
 			b.WriteString("### Structured Aggregate Handoff\n\n")

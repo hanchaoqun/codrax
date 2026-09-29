@@ -7622,7 +7622,7 @@ func TestEmitAnalysis_Execute_NormalizesEnumerateWithCountPredicate(t *testing.T
 			"is_count_question": true,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
-			"is_category_enumeration": false,
+			"is_category_enumeration": true,
 			"is_history_lookup": false,
 			"is_diagnostic_question": false, "has_per_member_table": false
 		}

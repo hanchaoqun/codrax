@@ -308,6 +308,9 @@ func requirementsForKind(kind types.RequirementKind, entities []string, reason s
 }
 
 func isEnumerationRequestModel(rm types.RequestModel) bool {
+	if types.RequestsAggregateWithoutMemberRoster(rm) {
+		return false
+	}
 	// Architecture / mechanism narratives often mention many
 	// components, but those names are context for a prose answer, not
 	// a closed principal-member slate. Keep this boundary above every

@@ -1488,6 +1488,7 @@ func extractorValueEvidenceRankProfileFor(ctx *types.AgentContext) extractorValu
 		return extractorValueRankConfig
 	}
 	if rm.Intent == types.IntentReturnValue ||
+		types.RequestsAggregateWithoutMemberRoster(rm) ||
 		rm.AnswerSubject.Kind == types.SubjectReturnValue ||
 		rm.AnswerSubject.Kind == types.SubjectNumeric ||
 		rm.AnswerSubject.Kind == types.SubjectStringLiteral ||

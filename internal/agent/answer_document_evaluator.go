@@ -1644,6 +1644,9 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, view *types.Ans
 	hasBoundary := boundary != nil && boundary.DeclaredCount > 0 && strings.TrimSpace(boundary.SourceQuote) != ""
 	hasCompleteness := qs.CompletenessObligation.IsActive()
 	hasBuckets := len(qs.Buckets) >= 2
+	if types.RequestsAggregateWithoutMemberRoster(rm) {
+		return "## Requested Measurement Coverage\n\nUse a grounded measurement covering the requested input scope; disclose any incomplete scan or sampled result. Input completeness does not require rendering each input as a member row. Preserve the requested total and independent explanation/source dimensions.\n\n"
+	}
 	var b strings.Builder
 	b.WriteString("## Requested Set Boundary\n\n")
 	if hasBoundary {

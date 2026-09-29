@@ -692,7 +692,7 @@ func HasPrincipalAnswerSetObligation(rm RequestModel) bool {
 		return true
 	}
 	if view.CompletenessObligation.IsActive() {
-		return !CompletenessObligationIsMechanismCoverageOnly(rm)
+		return !CompletenessObligationIsMechanismCoverageOnly(rm) && !RequestsAggregateWithoutMemberRoster(rm)
 	}
 	return false
 }
@@ -948,7 +948,7 @@ func IsCategoryEnumerationAnswerShape(rm RequestModel) bool {
 	}
 	if rm.Predicates.IsScalarAnswer ||
 		rm.Predicates.IsRoleLocateLookup ||
-		rm.Predicates.IsCountQuestion {
+		rm.Predicates.IsCountQuestion || RequestsAggregateWithoutMemberRoster(rm) {
 		return false
 	}
 	return true
