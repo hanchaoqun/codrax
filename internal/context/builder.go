@@ -4671,22 +4671,25 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	if bundle.Meta.Source != "" {
 		fmt.Fprintf(&b, "- Source: %s\n", bundle.Meta.Source)
 	}
-	if bundle.Meta.DurationMs > 0 {
+	if !bundle.HasAuthoritativeMeta() {
+		b.WriteString("- Trace metadata estimates are unverified and withheld; use trace tools for duration, process identity and measured signals.\n")
+	}
+	if bundle.HasAuthoritativeMeta() && bundle.Meta.DurationMs > 0 {
 		if bundle.ExtractionCoverage != nil {
 			fmt.Fprintf(&b, "- Largest extracted fragment's reported duration: %.1fms (not whole attachment)\n", bundle.Meta.DurationMs)
 		} else {
 			fmt.Fprintf(&b, "- Duration: %.1fms\n", bundle.Meta.DurationMs)
 		}
 	}
-	if bundle.Meta.AppPID != 0 {
+	if bundle.HasAuthoritativeMeta() && bundle.Meta.AppPID != 0 {
 		fmt.Fprintf(&b, "- App PID: %d\n", bundle.Meta.AppPID)
 	}
-	if len(bundle.Meta.Signals) > 0 {
-		fmt.Fprintf(&b, "- Signals: %s\n", strings.Join(bundle.Meta.Signals, ", "))
-		b.WriteString("  Perf pre-triage signals are routing/navigation tags, not device-deadline, mechanism, or causal verdicts; keep typed measurements and validator-owned semantics separate.\n")
+	if signals := bundle.AuthoritativeSignals(); len(signals) > 0 {
+		fmt.Fprintf(&b, "- Verified signals: %s\n", strings.Join(signals, ", "))
+		b.WriteString("  These describe verified observations, not necessarily the cause of the requested response.\n")
 	}
 	if bundle.IntentHint != "" {
-		b.WriteString("- Artifact evidence capability: validated performance observations are available. " +
+		b.WriteString("- Artifact navigation: performance candidates are available for source verification. " +
 			"This describes the attachment, not the current request's intent or required answer breadth; classify those from the current request.\n")
 	}
 	fmt.Fprintf(&b, "- Coverage: %.2f\n\n", bundle.Coverage)

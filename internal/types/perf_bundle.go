@@ -107,6 +107,11 @@ func (b *PerfBundle) LogFrames() []LogFrame {
 
 // PerfMeta carries trace-level descriptive fields.
 type PerfMeta struct {
+	// Authority covers DurationMs, AppPID and Signals. It is system-owned,
+	// absent from emit_perf_trace's model schema, and fail-closed when missing.
+	// Source is a descriptive routing hint; Summary remains audit-only.
+	Authority PerfObservationAuthority `json:"authority,omitempty"`
+
 	// BugClasses mirrors LogMeta.BugClasses for the perf channel
 	// (deterministic cross-platform bug-pattern detection populated
 	// by the perf_triage entry hook before the LLM dispatch). Empty

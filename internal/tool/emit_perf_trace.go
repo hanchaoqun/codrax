@@ -293,7 +293,8 @@ func toPerfBundle(p *emitPerfTraceParams) *types.PerfBundle {
 	}
 	return &types.PerfBundle{
 		Meta: types.PerfMeta{
-			Source: p.Meta.Source, DurationMs: p.Meta.DurationMs,
+			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			Source:    p.Meta.Source, DurationMs: p.Meta.DurationMs,
 			AppPID: p.Meta.AppPID, Signals: append([]string(nil), p.Meta.Signals...),
 			Summary: p.Meta.Summary,
 		},
@@ -815,8 +816,8 @@ func buildEmitPerfTraceSchema() map[string]any {
 						"type": "string",
 						"enum": []string{"hitrace", "atrace", "systrace", "perfetto", "unknown"},
 					},
-					"duration_ms": map[string]any{"type": "number", "minimum": 0},
-					"app_pid":     map[string]any{"type": "integer", "minimum": 0},
+					"duration_ms": map[string]any{"type": "number", "minimum": 0, "description": "Optional source-explicit duration already in milliseconds; omit if absent. Retained as unverified extraction, not a whole-trace measurement."},
+					"app_pid":     map[string]any{"type": "integer", "minimum": 0, "description": "Optional source-explicit application PID; omit if absent. A logging TID is not an application PID. Later trace tools verify identity."},
 					"signals": map[string]any{
 						"type": "array", "maxItems": 8,
 						"description": "Navigation tags only; jank/render-miss do not prove a device-deadline verdict.",

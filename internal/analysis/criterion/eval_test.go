@@ -124,7 +124,7 @@ func TestEval_EvidenceCount_ObservationOnlyRuntimeUsesArtifactFacts(t *testing.T
 
 func TestEval_EvidenceCount_SourceOptionalRuntimeUsesArtifactFacts(t *testing.T) {
 	perfBundle := &types.PerfBundle{
-		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"jank"}},
+		Meta: types.PerfMeta{Authority: types.PerfObservationAuthorityDeterministicValidator, Source: "hitrace", Signals: []string{"jank"}},
 		Observations: []types.PerfObservation{{
 			Kind:       "trace_query",
 			Subject:    "Choreographer#doFrame 1254842",

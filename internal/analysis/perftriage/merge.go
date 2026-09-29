@@ -23,7 +23,10 @@ import (
 //
 // Merge strategy (mirrors logtriage.MergeBundles for symmetry):
 //
-//   - Meta.Source: most common non-empty value wins. Ties → first.
+//   - Measured Meta fields: select validator-owned parts if present; never
+//     promote estimates by merging them with verified metadata. Otherwise
+//     retain estimates as explicitly unverified audit data.
+//   - Meta.Source: most common non-empty value in that partition. Ties → first.
 //   - Meta.DurationMs: max of non-zero values (the trace span the
 //     LLM saw is the longest segment that overlapped wall-clock).
 //   - Meta.AppPID: most common non-zero value wins.
@@ -61,11 +64,18 @@ func MergePerfBundles(parts []*types.PerfBundle, rawTraceBytes int) *types.PerfB
 		return nil
 	}
 
+	metaParts, metaAuthority := perfMetaMergePartition(parts)
 	merged := &types.PerfBundle{
 		Meta: types.PerfMeta{
-			Source: pickDominantSource(parts),
-			AppPID: pickDominantPID(parts),
+			Authority: metaAuthority,
+			Source:    pickDominantSource(metaParts),
+			AppPID:    pickDominantPID(metaParts),
 		},
+	}
+	for _, p := range metaParts {
+		if p != nil && p.Meta.DurationMs > merged.Meta.DurationMs {
+			merged.Meta.DurationMs = p.Meta.DurationMs
+		}
 	}
 
 	// Preserve observation records and the registry's per-class set.
@@ -74,9 +84,6 @@ func MergePerfBundles(parts []*types.PerfBundle, rawTraceBytes int) *types.PerfB
 	for _, p := range parts {
 		if p == nil {
 			continue
-		}
-		if p.Meta.DurationMs > merged.Meta.DurationMs {
-			merged.Meta.DurationMs = p.Meta.DurationMs
 		}
 		merged.Observations = append(merged.Observations, p.Observations...)
 		for _, detected := range p.Meta.BugClasses {
@@ -90,7 +97,7 @@ func MergePerfBundles(parts []*types.PerfBundle, rawTraceBytes int) *types.PerfB
 
 	// Signals: union, alphabetical.
 	sigSet := map[string]bool{}
-	for _, p := range parts {
+	for _, p := range metaParts {
 		if p == nil {
 			continue
 		}

@@ -484,15 +484,18 @@ func renderPerfTriageStageReport(b *types.PerfBundle) string {
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Source: %s\n", b.Meta.Source)
-	if b.Meta.DurationMs > 0 {
+	if !b.HasAuthoritativeMeta() {
+		sb.WriteString("Trace metadata estimates are unverified and withheld; inspect source events.\n")
+	}
+	if b.HasAuthoritativeMeta() && b.Meta.DurationMs > 0 {
 		if b.ExtractionCoverage != nil {
 			fmt.Fprintf(&sb, "Largest extracted fragment's reported duration: %.1fms (not whole attachment)\n", b.Meta.DurationMs)
 		} else {
 			fmt.Fprintf(&sb, "Duration: %.1fms\n", b.Meta.DurationMs)
 		}
 	}
-	if len(b.Meta.Signals) > 0 {
-		fmt.Fprintf(&sb, "Signals: %s\n", strings.Join(b.Meta.Signals, ", "))
+	if signals := b.AuthoritativeSignals(); len(signals) > 0 {
+		fmt.Fprintf(&sb, "Verified signals: %s\n", strings.Join(signals, ", "))
 	}
 	fmt.Fprintf(&sb, "Frames: %d  Slow-frame candidates: %d  Stalls: %d\n",
 		len(b.Frames), len(b.Janks), len(b.Stalls))

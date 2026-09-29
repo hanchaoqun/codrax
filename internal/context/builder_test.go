@@ -4758,7 +4758,7 @@ func TestFormatPerfTriageStructured_ArtifactCapabilityIsNotRequestIntent(t *test
 	}
 	got := formatPerfTriageStructured(bundle, nil)
 	for _, want := range []string{
-		"Artifact evidence capability: validated performance observations are available",
+		"Artifact navigation: performance candidates are available for source verification",
 		"not the current request's intent or required answer breadth",
 	} {
 		if !strings.Contains(got, want) {

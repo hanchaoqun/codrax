@@ -6977,11 +6977,11 @@ func (e *explorerEvaluator) failureTraceNounPhrase() string {
 	}
 	intent := e.requestIntent()
 	hasLog := e.logTriage != nil && len(e.logTriage.Meta.Signals) > 0
-	hasPerf := e.perfTrace != nil && len(e.perfTrace.Meta.Signals) > 0
+	hasPerf := e.perfTrace != nil && len(e.perfTrace.AuthoritativeSignals()) > 0
 	// Performance framing: prefer the user's intent or the perf
 	// bundle's mere presence over enumerating signals.
 	if e.perfTrace != nil && (intent == "performance" || !hasLog) {
-		labels := uniqLowerLabels(e.perfTrace.Meta.Signals, 3)
+		labels := uniqLowerLabels(e.perfTrace.AuthoritativeSignals(), 3)
 		if len(labels) == 0 {
 			return "the attached performance trace"
 		}
@@ -6994,7 +6994,7 @@ func (e *explorerEvaluator) failureTraceNounPhrase() string {
 		}
 	}
 	if hasPerf {
-		signals = append(signals, e.perfTrace.Meta.Signals...)
+		signals = append(signals, e.perfTrace.AuthoritativeSignals()...)
 	}
 	labels := uniqLowerLabels(signals, 3)
 	if len(labels) == 0 {

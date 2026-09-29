@@ -879,7 +879,7 @@ func runtimeArtifactObservationCount(logBundle *types.LogBundle, perfBundle *typ
 		})
 	}
 	if perfBundle != nil {
-		count += len(perfBundle.Meta.Signals)
+		count += len(perfBundle.AuthoritativeSignals())
 		count += len(perfBundle.Frames)
 		count += len(perfBundle.Janks)
 		count += len(perfBundle.Stalls)

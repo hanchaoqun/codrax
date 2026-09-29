@@ -14960,7 +14960,7 @@ func answerDocPerfBundleHasRuntimeTraceGuidance(perf *types.PerfBundle) bool {
 			return true
 		}
 	}
-	for _, signal := range perf.Meta.Signals {
+	for _, signal := range perf.AuthoritativeSignals() {
 		switch strings.TrimSpace(signal) {
 		case "jank", "cold-start-slow", "main-thread-stall", "io-block", "gc-pause", "render-miss":
 			return true
