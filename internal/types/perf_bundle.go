@@ -96,7 +96,7 @@ func (b *PerfBundle) LogFrames() []LogFrame {
 		}
 		out = append(out, LogFrame{Func: span})
 	}
-	if b.Startup != nil {
+	if b.HasAuthoritativeStartup() {
 		mode := strings.TrimSpace(b.Startup.Mode)
 		if mode != "" {
 			out = append(out, LogFrame{Func: mode + "-startup"})
@@ -280,14 +280,22 @@ func (s PerfStall) IsNavigationOnly() bool {
 	return s.Authority != PerfObservationAuthorityDeterministicValidator
 }
 
-// PerfStartup carries cold-start / warm-start timing when the trace
-// covers a process-spawn event (detected by `ActivityTaskManager`
-// or `AppInit` tags). Single-occurrence per bundle.
+// PerfStartup retains an optional startup summary. Model extraction is not a
+// source header, measured interval, or proof of a cold/warm/hot classification.
+// Authority is system-owned, just as for observations and stalls.
 type PerfStartup struct {
-	Mode          string  `json:"mode"` // "cold" / "warm" / "hot"
-	AppLaunchMs   float64 `json:"app_launch_ms,omitempty"`
-	AbilityInitMs float64 `json:"ability_init_ms,omitempty"`
-	FirstFrameMs  float64 `json:"first_frame_ms,omitempty"`
+	Authority     PerfObservationAuthority `json:"authority,omitempty"`
+	Mode          string                   `json:"mode"` // "cold" / "warm" / "hot"
+	AppLaunchMs   float64                  `json:"app_launch_ms,omitempty"`
+	AbilityInitMs float64                  `json:"ability_init_ms,omitempty"`
+	FirstFrameMs  float64                  `json:"first_frame_ms,omitempty"`
+}
+
+// HasAuthoritativeStartup fails closed for old persisted summaries and model
+// emissions. They remain in the audit bundle, but cannot mint fact bindings,
+// startup-path obligations, or scalar answer evidence.
+func (b *PerfBundle) HasAuthoritativeStartup() bool {
+	return b != nil && b.Startup != nil && b.Startup.Authority == PerfObservationAuthorityDeterministicValidator
 }
 
 // Performance comparison constants. These values are useful only after their

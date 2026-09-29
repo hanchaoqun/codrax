@@ -530,7 +530,7 @@ func perfBundleClaimBindings(bundle *PerfBundle, outputs []AnswerRequestedOutput
 			out[len(out)-1].GroundingPolicy = ClaimGroundingDisplayOnly
 		}
 	}
-	if bundle.Startup != nil {
+	if bundle.HasAuthoritativeStartup() {
 		add("startup "+bundle.Startup.Mode, []string{fmt.Sprintf("app_launch_ms=%.3f ability_init_ms=%.3f first_frame_ms=%.3f", bundle.Startup.AppLaunchMs, bundle.Startup.AbilityInitMs, bundle.Startup.FirstFrameMs)})
 	}
 	return out

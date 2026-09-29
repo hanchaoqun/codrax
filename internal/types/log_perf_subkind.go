@@ -362,7 +362,7 @@ func perfFrameJankMatch(item EvidenceItem, p *PerfBundle) bool {
 // slow. Refines later when real data shows what "on the startup
 // path" structurally means.
 func perfFrameStartupMatch(item EvidenceItem, p *PerfBundle) bool {
-	if p == nil || p.Startup == nil {
+	if !p.HasAuthoritativeStartup() {
 		return false
 	}
 	if p.Startup.AppLaunchMs <= 0 {

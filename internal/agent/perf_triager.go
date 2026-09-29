@@ -526,7 +526,10 @@ func renderPerfTriageStageReport(b *types.PerfBundle) string {
 		fmt.Fprintf(&sb, "  stall[%d] %.1fms kind=%s sym=%s authority=%s\n",
 			i, s.DurationMs, s.Kind, s.Symbol, s.Authority)
 	}
-	if b.Startup != nil {
+	if b.Startup != nil && !b.HasAuthoritativeStartup() {
+		sb.WriteString("Startup summary: unverified extraction retained for audit; query source events before using mode or timings.\n")
+	}
+	if b.HasAuthoritativeStartup() {
 		fmt.Fprintf(&sb, "Startup: mode=%s launch=%.1fms firstFrame=%.1fms\n",
 			b.Startup.Mode, b.Startup.AppLaunchMs, b.Startup.FirstFrameMs)
 	}
@@ -537,7 +540,7 @@ func renderPerfTriageStageReport(b *types.PerfBundle) string {
 		fmt.Fprintf(&sb, "Entities: %s\n", strings.Join(b.Entities, ", "))
 	}
 	if b.Meta.Summary != "" {
-		fmt.Fprintf(&sb, "Synopsis (auxiliary shorthand): %s\n", b.Meta.Summary)
+		sb.WriteString("Unverified model synopsis retained in the audit bundle, not source metadata or answer evidence.\n")
 	}
 	fmt.Fprintf(&sb, "IntentHint: %s\n", b.IntentHint)
 	return sb.String()

@@ -276,7 +276,8 @@ func toPerfBundle(p *emitPerfTraceParams) *types.PerfBundle {
 	var startup *types.PerfStartup
 	if p.Startup != nil {
 		startup = &types.PerfStartup{
-			Mode: p.Startup.Mode, AppLaunchMs: p.Startup.AppLaunchMs,
+			Authority: types.PerfObservationAuthorityPreTriageModelExtraction,
+			Mode:      p.Startup.Mode, AppLaunchMs: p.Startup.AppLaunchMs,
 			AbilityInitMs: p.Startup.AbilityInitMs, FirstFrameMs: p.Startup.FirstFrameMs,
 		}
 	}
@@ -311,7 +312,7 @@ func derivePerfLayer4(b *types.PerfBundle) {
 	// IntentHint: any jank or stall or slow cold-start promotes to
 	// "performance".
 	if len(b.Janks) > 0 || len(b.Stalls) > 0 ||
-		(b.Startup != nil && b.Startup.AppLaunchMs > types.PerfStartupSlowColdMs) {
+		(b.HasAuthoritativeStartup() && b.Startup.AppLaunchMs > types.PerfStartupSlowColdMs) {
 		b.IntentHint = "performance"
 	}
 
@@ -337,7 +338,7 @@ func derivePerfLayer4(b *types.PerfBundle) {
 			add(s.Kind)
 		}
 	}
-	if b.Startup != nil && b.Startup.Mode != "" {
+	if b.HasAuthoritativeStartup() && b.Startup.Mode != "" {
 		add(b.Startup.Mode + "-start")
 	}
 	for _, obs := range b.Observations {
@@ -372,7 +373,7 @@ func derivePerfLayer4(b *types.PerfBundle) {
 			break
 		}
 	}
-	if b.Startup != nil && b.Startup.Mode == "cold" &&
+	if b.HasAuthoritativeStartup() && b.Startup.Mode == "cold" &&
 		b.Startup.AppLaunchMs > types.PerfStartupSlowColdMs {
 		pushSig("cold-start-slow")
 	}
@@ -771,6 +772,7 @@ func buildEmitPerfTraceSchema() map[string]any {
 		},
 	}
 	startupSchema := map[string]any{
+		"description":          "Optional source-explicit startup summary, retained as unverified navigation only. Omit when the source does not state cold/warm/hot; ordinary business markers belong in observations[]. Never infer a mode or compute durations from marker endpoints.",
 		"type":                 "object",
 		"additionalProperties": false,
 		"required":             []string{"mode"},

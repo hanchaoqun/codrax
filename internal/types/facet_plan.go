@@ -1387,7 +1387,7 @@ func rootCauseRequiredSubKind(rm RequestModel) LogPerfSubKind {
 		if rm.PerfTrace.HasAuthoritativeJankVerdict() {
 			return PerfJankFrame
 		}
-		if rm.PerfTrace.Startup != nil &&
+		if rm.PerfTrace.HasAuthoritativeStartup() &&
 			rm.PerfTrace.Startup.AppLaunchMs > PerfStartupSlowColdMs {
 			return PerfStartupFrame
 		}

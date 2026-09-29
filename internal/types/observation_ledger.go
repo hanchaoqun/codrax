@@ -4169,7 +4169,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			RichNotes: notes,
 		})
 	}
-	if bundle.Startup != nil {
+	if bundle.HasAuthoritativeStartup() {
 		add(ObservationRecord{
 			ID:              "perf:startup",
 			Origin:          AnswerEvidenceOriginRuntimeArtifact,
@@ -4183,7 +4183,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Predicate:       "launch_duration",
 			Value:           strconv.FormatFloat(bundle.Startup.AppLaunchMs, 'f', -1, 64),
 			Unit:            "ms",
-			Summary:         firstNonEmptyString(bundle.Meta.Summary, "startup timing"),
+			Summary:         "startup timing",
 		})
 	}
 	for i, obs := range bundle.Observations {

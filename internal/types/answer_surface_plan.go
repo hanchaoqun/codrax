@@ -3681,7 +3681,7 @@ func collectPerfExternalObservationSeeds(bundle *PerfBundle, observed []LogSourc
 			return out
 		}
 	}
-	if bundle.Startup != nil {
+	if bundle.HasAuthoritativeStartup() {
 		record(ExternalObservationSeed{
 			Kind: "perf_startup",
 			Raw:  fmt.Sprintf("%s startup %.2fms", bundle.Startup.Mode, bundle.Startup.AppLaunchMs),

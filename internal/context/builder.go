@@ -4701,8 +4701,12 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 		}
 	}
 
-	// Startup envelope
-	if bundle.Startup != nil {
+	// Only system-verified summaries can supply startup values. Keep the
+	// unverified payload in the audit bundle, not in answer-facing fact text.
+	if bundle.Startup != nil && !bundle.HasAuthoritativeStartup() {
+		b.WriteString("Startup summary: unverified pre-triage extraction withheld; inspect source events with trace tools. No startup mode, duration, first-frame endpoint, or requested-window measurement is established by this summary.\n\n")
+	}
+	if bundle.HasAuthoritativeStartup() {
 		fmt.Fprintf(&b, "**Startup**: mode=%s", bundle.Startup.Mode)
 		if bundle.Startup.AppLaunchMs > 0 {
 			fmt.Fprintf(&b, " app_launch=%.1fms", bundle.Startup.AppLaunchMs)

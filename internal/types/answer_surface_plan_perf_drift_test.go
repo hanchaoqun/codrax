@@ -132,7 +132,8 @@ func TestPerfBundleLogFrames_ProjectAllFrameLikeSignals(t *testing.T) {
 		Stalls: []PerfStall{{Symbol: "Render", File: "ui.go", Line: 60}},
 		Janks:  []PerfJank{{TriggerSpan: "Choreographer#doFrame"}},
 		Startup: &PerfStartup{
-			Mode: "cold",
+			Authority: PerfObservationAuthorityDeterministicValidator,
+			Mode:      "cold",
 		},
 	}
 	frames := perf.LogFrames()

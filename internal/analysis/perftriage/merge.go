@@ -38,9 +38,9 @@ import (
 //     bundle dedup by (start_ts_ms, duration_ms) — segments may
 //     overlap on jank-region boundaries and the LLM might surface
 //     the same span from both sides.
-//   - Startup: first non-nil wins (a trace covers at most one cold-
-//     /warm-/hot-start envelope; if multiple bundles claim startup,
-//     trust the one with the largest app_launch_ms).
+//   - Startup: verified authority precedes magnitude. Within an authority
+//     class keep the largest reported app_launch_ms, first on ties. This
+//     representative is not an all-instances startup aggregate.
 //   - Residue: concatenate + dedupe.
 //   - Layer 4 (ResolvedFiles / Entities / IntentHint / Coverage):
 //     re-derived inline (the helpers below stay package-local
@@ -174,14 +174,17 @@ func MergePerfBundles(parts []*types.PerfBundle, rawTraceBytes int) *types.PerfB
 		}
 	}
 
-	// Startup: take the entry with the largest app_launch_ms; falls
-	// back to first non-nil when launches tie at 0.
+	// Prefer verified authority before magnitude: a larger model summary must
+	// not displace a validator-owned record. Within one authority class retain
+	// the existing representative rule; this is not a multi-instance aggregate.
 	var bestStart *types.PerfStartup
 	for _, p := range parts {
 		if p == nil || p.Startup == nil {
 			continue
 		}
-		if bestStart == nil || p.Startup.AppLaunchMs > bestStart.AppLaunchMs {
+		verified := p.HasAuthoritativeStartup()
+		bestVerified := bestStart != nil && bestStart.Authority == types.PerfObservationAuthorityDeterministicValidator
+		if bestStart == nil || verified && !bestVerified || verified == bestVerified && p.Startup.AppLaunchMs > bestStart.AppLaunchMs {
 			bestStart = p.Startup
 		}
 	}
@@ -305,7 +308,7 @@ func mergedDeriveEntities(b *types.PerfBundle) {
 			add(s.Kind)
 		}
 	}
-	if b.Startup != nil && b.Startup.Mode != "" {
+	if b.HasAuthoritativeStartup() && b.Startup.Mode != "" {
 		add(b.Startup.Mode + "-start")
 	}
 }
@@ -330,7 +333,7 @@ func mergedDeriveResolvedFiles(b *types.PerfBundle) {
 // or slow cold start promotes to "performance".
 func mergedDeriveIntentHint(b *types.PerfBundle) {
 	if len(b.Janks) > 0 || len(b.Stalls) > 0 ||
-		(b.Startup != nil && b.Startup.AppLaunchMs > types.PerfStartupSlowColdMs) {
+		(b.HasAuthoritativeStartup() && b.Startup.AppLaunchMs > types.PerfStartupSlowColdMs) {
 		b.IntentHint = "performance"
 	}
 }

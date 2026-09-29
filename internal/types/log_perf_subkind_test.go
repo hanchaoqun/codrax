@@ -189,7 +189,7 @@ func TestLogPerfSubKindOf_PerfStartup_SlowAppLaunch(t *testing.T) {
 	item := EvidenceItem{Source: "startup.go", LineStart: 1}
 	// Slow startup: AppLaunchMs > PerfStartupSlowColdMs (1200ms)
 	bundle := &PerfBundle{
-		Startup: &PerfStartup{AppLaunchMs: 2000},
+		Startup: &PerfStartup{Authority: PerfObservationAuthorityDeterministicValidator, AppLaunchMs: 2000},
 	}
 	if got := LogPerfSubKindOf(item, nil, bundle); got != PerfStartupFrame {
 		t.Errorf("expected PerfStartupFrame for slow cold-start; got %q", got)
@@ -199,7 +199,7 @@ func TestLogPerfSubKindOf_PerfStartup_SlowAppLaunch(t *testing.T) {
 func TestLogPerfSubKindOf_PerfStartup_FastStartupReturnsUnknown(t *testing.T) {
 	item := EvidenceItem{Source: "startup.go", LineStart: 1}
 	bundle := &PerfBundle{
-		Startup: &PerfStartup{AppLaunchMs: 800}, // below threshold
+		Startup: &PerfStartup{Authority: PerfObservationAuthorityDeterministicValidator, AppLaunchMs: 800}, // below threshold
 	}
 	if got := LogPerfSubKindOf(item, nil, bundle); got == PerfStartupFrame {
 		t.Errorf("fast startup should NOT trigger PerfStartupFrame; got %q", got)
