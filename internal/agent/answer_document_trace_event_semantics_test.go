@@ -63,6 +63,9 @@ func TestTraceEventSemanticsSQLitePreparationToActualFinalizer(t *testing.T) {
 		for _, f := range row.Semantics.Fields {
 			fields[f.Key] = f
 		}
+		if row.CPU != -1 || row.EmitterTID != 0 || row.EmitterTGID != 0 || fields["source.tid"].Value == nil || *fields["source.tid"].Value != "41007" {
+			t.Fatalf("SQL source role changed on the way to finalizer: %+v", row)
+		}
 		for key, want := range map[string]string{"plugin.domain": "CAMERA_PIPELINE", "plugin.event_name": "CAPTURE_DONE"} {
 			if n != 1 && n != 5 {
 				continue
@@ -81,7 +84,7 @@ func TestTraceEventSemanticsSQLitePreparationToActualFinalizer(t *testing.T) {
 			}
 		}
 		if n == 5 {
-			f := fields["plugin.contents"]
+			f := fields["source.contents"]
 			if f.Value == nil || !strings.HasSuffix(*f.Value, " result=complete") || !row.RawTruncated || strings.Contains(row.Raw, "result=complete") {
 				t.Fatalf("content beyond preview not available to finalizer: %+v", row)
 			}
