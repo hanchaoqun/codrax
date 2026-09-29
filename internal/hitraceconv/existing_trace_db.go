@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// ExistingTraceDBSource binds the bytes consumed by the closed-database route.
+// ExistingTraceDBSource binds the physical main database input. For WAL input,
+// WAL separately identifies the committed private image consumed by SQLite.
 // It is input provenance, not an additional causal child or a clock authority.
 // For gzip input, Path is the outer source's display locator, while the other
 // fields identify the decoded SQLite payload and equal GzipInputProvenance's
@@ -18,6 +19,7 @@ type ExistingTraceDBSource struct {
 	Bytes      int64
 	SHA256     string
 	Generation string
+	WAL        *ExistingTraceDBWAL `json:",omitempty"`
 }
 
 // ValidateExistingTraceDBSource checks the single-file SQLite boundary without
@@ -77,8 +79,9 @@ func validateExistingTraceDBHeader(ctx context.Context, source conversionInputVi
 	return completeConversionInputStage(ctx, source, conversionInputStagePreCommit, nil)
 }
 
-// PrepareExistingTraceDB prepares a self-contained, closed TraceStreamer SQLite
-// database. It never invokes a converter or opens the user database in SQLite.
+// PrepareExistingTraceDB prepares a closed TraceStreamer SQLite database or a
+// generation-stable main/WAL pair. It never invokes a converter or opens the
+// user database in SQLite. Continuously changing captures are rejected.
 // The exact private snapshot uses the existing sealed VFS, semantic exporters,
 // full-table fidelity carrier and owned publication receipts. Inventory-only
 // databases are not accepted as queryable traces. KeepTraceDB needs no extra
@@ -99,10 +102,30 @@ func PrepareExistingTraceDB(ctx context.Context, opts Options) (result Result, e
 		output = DefaultOutputPath(strings.TrimSpace(opts.InputPath))
 	}
 	err = runConversionInputTransaction(ctx, opts.InputPath, func(source *conversionInputAuthority, ledger *conversionFileLedger) (workErr error) {
-		if err := validateExistingTraceDBBoundary(ctx, source); err != nil {
+		if err := preflightExistingTraceDBOutputs(source, output); err != nil {
 			return err
 		}
-		if err := preflightExistingTraceDBOutputs(source, output); err != nil {
+		var input conversionInputView = source
+		receipt := ExistingTraceDBSource{Path: source.DisplayPath(), Bytes: source.Size(), Generation: source.identity.CacheToken()}
+		boundary := func() error { return validateExistingTraceDBBoundary(ctx, source) }
+		var header [100]byte
+		if _, err := source.ReadAt(header[:], 0); err != nil {
+			return err
+		}
+		if header[18] == 2 && header[19] == 2 {
+			wal, err := openExistingWALView(ctx, source)
+			if err != nil {
+				return err
+			}
+			defer func() { workErr = traceDBJoinPreservingSingle(workErr, wal.wal.Close()) }()
+			input, receipt.WAL = wal, &wal.receipt
+			receipt.SHA256, err = existingDBViewDigest(ctx, source)
+			if err != nil {
+				return err
+			}
+			boundary = func() error { return completeConversionInputStage(ctx, wal, conversionInputStagePreCommit, nil) }
+		}
+		if err := boundary(); err != nil {
 			return err
 		}
 		anchor, err := resolveConversionRuntimeAnchor(opts.RuntimeAnchor, output)
@@ -114,9 +137,7 @@ func PrepareExistingTraceDB(ctx context.Context, opts Options) (result Result, e
 			return err
 		}
 		ledger.stagingRoot = anchor
-		result, err = prepareExistingTraceDBFromView(ctx, opts, source, output, "", ledger,
-			ExistingTraceDBSource{Path: source.DisplayPath(), Bytes: source.Size(), Generation: source.identity.CacheToken()},
-			func() error { return validateExistingTraceDBBoundary(ctx, source) })
+		result, err = prepareExistingTraceDBFromView(ctx, opts, input, output, "", ledger, receipt, boundary)
 		return err
 	})
 	if err != nil {

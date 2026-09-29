@@ -20,7 +20,11 @@ func prepareExistingTraceDBFromView(
 			result = Result{}
 		}
 	}()
-	if source == nil || ledger == nil || validateBoundary == nil || receipt.Path != source.DisplayPath() || receipt.Bytes != source.Size() || receipt.Generation == "" {
+	payloadBytes := receipt.Bytes
+	if receipt.WAL != nil {
+		payloadBytes = receipt.WAL.SnapshotBytes
+	}
+	if source == nil || ledger == nil || validateBoundary == nil || receipt.Path != source.DisplayPath() || payloadBytes != source.Size() || receipt.Generation == "" {
 		return Result{}, fmt.Errorf("existing trace DB view binding is incomplete")
 	}
 	if err := validateBoundary(); err != nil {
@@ -45,7 +49,7 @@ func prepareExistingTraceDBFromView(
 		}
 		defer func() { resultErr = traceDBJoinPreservingSingle(resultErr, staging.FinalizeCleanup()) }()
 	}
-	start := progressStarted(opts, "existing_trace_db_snapshot", "preparing closed SQLite trace snapshot", source.DisplayPath(), output)
+	start := progressStarted(opts, "existing_trace_db_snapshot", "preparing SQLite trace snapshot", source.DisplayPath(), output)
 	lease, err := newExternalToolInputLeaseWithProgress(ctx, source, staging, leaf, externalToolInputSnapshotOnly, nil)
 	if err != nil {
 		return Result{}, err
@@ -55,7 +59,7 @@ func prepareExistingTraceDBFromView(
 		return Result{}, err
 	}
 	defer func() { resultErr = traceDBJoinPreservingSingle(resultErr, sealed.Close()) }()
-	progressFinished(opts, "existing_trace_db_snapshot", "closed SQLite trace snapshot prepared", source.DisplayPath(), output, start, ProgressStatusComplete)
+	progressFinished(opts, "existing_trace_db_snapshot", "SQLite trace snapshot prepared", source.DisplayPath(), output, start, ProgressStatusComplete)
 	if err := validateBoundary(); err != nil {
 		return Result{}, err
 	}
@@ -64,11 +68,15 @@ func prepareExistingTraceDBFromView(
 		return Result{}, err
 	}
 	digest := hex.EncodeToString(hasher.Sum(nil))
-	if sealed.Size() != receipt.Bytes || receipt.SHA256 != "" && digest != receipt.SHA256 {
+	if sealed.Size() != payloadBytes || receipt.WAL == nil && receipt.SHA256 != "" && digest != receipt.SHA256 {
 		return Result{}, fmt.Errorf("existing trace DB sealed snapshot differs from the bound payload")
 	}
-	receipt.SHA256 = digest
-	start = progressStarted(opts, "existing_trace_db_export", "reading closed SQLite trace snapshot", source.DisplayPath(), output)
+	if receipt.WAL != nil {
+		receipt.WAL.SnapshotSHA256 = digest
+	} else {
+		receipt.SHA256 = digest
+	}
+	start = progressStarted(opts, "existing_trace_db_export", "reading SQLite trace snapshot", source.DisplayPath(), output)
 	exported, err := exportTraceDBToSystraceFromSealedWithLedger(ctx, sealed, source.DisplayPath(), output, ledger)
 	if err != nil {
 		return Result{}, err
@@ -82,11 +90,14 @@ func prepareExistingTraceDBFromView(
 		return Result{}, err
 	}
 	decision.Caveat = "existing closed SQLite database normalized read-only; trace_streamer executable was not invoked"
+	if receipt.WAL != nil {
+		decision.Caveat = "SQLite main file and WAL were generation-stable during preparation; only validated committed pages were read; source files and shared memory were not modified; changing captures must be reattached"
+	}
 	if ledger.gzip != nil {
 		decision.Caveat = "decoded self-contained SQLite snapshot normalized read-only; trace_streamer executable was not invoked; pre-compression database lifecycle is not established"
 	}
 	result = Result{
-		InputPath: source.DisplayPath(), InputBytes: source.Size(), OutputPath: exported.Artifact.Path,
+		InputPath: source.DisplayPath(), InputBytes: receipt.Bytes, OutputPath: exported.Artifact.Path,
 		OutputBytes: exported.OutputBytes, EventsWritten: exported.EventsWritten,
 		FirstTimestampSec: exported.FirstTimestampSec, LastTimestampSec: exported.LastTimestampSec,
 		Artifacts: []Artifact{exported.Artifact}, TraceDecisions: []TraceProviderDecision{decision},
@@ -109,7 +120,7 @@ func prepareExistingTraceDBFromView(
 	if err := finalizeResultTraceBundleWithLedger(ctx, source.DisplayPath(), output, &result, ledger); err != nil {
 		return Result{}, err
 	}
-	progressFinished(opts, "existing_trace_db_export", "closed SQLite trace exported", source.DisplayPath(), output, start, ProgressStatusComplete)
+	progressFinished(opts, "existing_trace_db_export", "SQLite trace exported", source.DisplayPath(), output, start, ProgressStatusComplete)
 	if err := sealed.Validate(); err != nil {
 		return Result{}, err
 	}

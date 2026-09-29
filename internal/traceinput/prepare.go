@@ -213,6 +213,15 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if err := validatePreparedSQLiteReceipt(kind, source, original.Size(), sourceSHA, original.CacheToken(), result); err != nil {
 		return nil, err
 	}
+	if existingDB && result.ExistingTraceDBSource != nil && result.ExistingTraceDBSource.WAL != nil {
+		wal := result.ExistingTraceDBSource.WAL
+		if err := bindMeasuredFile(ctx, wal.Path, wal.Bytes, wal.SHA256, bindings); err != nil {
+			return nil, err
+		}
+		if bindings[wal.Path].CacheToken() != wal.Generation {
+			return nil, fmt.Errorf("SQLite WAL generation changed before binding")
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -279,7 +288,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	}
 	if existingDB {
 		return attachment.BindTraceMaterialWithSourceCheck(source, queryPath, preview, bindings, func(checkCtx context.Context) error {
-			return hitraceconv.ValidateExistingTraceDBSource(checkCtx, source)
+			return hitraceconv.ValidateExistingTraceDBReceipt(checkCtx, source, result.ExistingTraceDBSource)
 		})
 	}
 	return bind(ctx, source, queryPath, preview, bindings, false)
