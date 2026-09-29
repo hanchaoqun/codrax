@@ -47,11 +47,14 @@ func finalizerReaderFieldMessages(t *testing.T, ctx *types.AgentContext) (string
 	return system.String(), user.String()
 }
 
-func assertFinalizerReaderFieldMessagePolicy(t *testing.T, system, user string) {
+func assertFinalizerReaderFieldMessagePolicy(t *testing.T, system, user string, scheduler bool) {
 	t.Helper()
-	for _, header := range []string{"READER WORDS OVER FIELD SPELLINGS:", "TARGET WAIT OCCURRENCE AUTHORITY:"} {
-		if strings.Count(system, header) != 1 {
-			t.Fatalf("HARNESS: default trace system rule %q did not reach the actual adapter exactly once", header)
+	for header, want := range map[string]int{"READER WORDS OVER FIELD SPELLINGS:": 1, "TARGET WAIT OCCURRENCE AUTHORITY:": 0} {
+		if scheduler && header == "TARGET WAIT OCCURRENCE AUTHORITY:" {
+			want = 1
+		}
+		if got := strings.Count(system, header); got != want {
+			t.Fatalf("HARNESS: default trace system rule %q reached adapter %d times, want %d", header, got, want)
 		}
 	}
 	for _, old := range []string{
@@ -75,12 +78,20 @@ func assertFinalizerReaderFieldMessagePolicy(t *testing.T, system, user string) 
 			t.Errorf("FIELD_VISIBILITY_SCOPE: actual system message omitted %q", want)
 		}
 	}
-	// The raw measurement and chain rules must remain present, not disappear
-	// while fixing terminology. These assertions do not inspect answer prose.
+	// Finite business inventories do not acquire scheduler teaching. Requests
+	// for waiting and causal analysis retain it verbatim, exactly once.
 	for _, want := range []string{
 		"preserve its count and every published start/end/duration/state/IO-marker/caller relation exactly",
 		"do not merge or discard an item",
 		"never proves no sleep, waiting, blocking, or IO activity",
+	} {
+		count := strings.Count(system, want)
+		if (scheduler && count != 1) || (!scheduler && count != 0) {
+			t.Errorf("scheduler teaching scope: %q count=%d scheduler=%v", want, count, scheduler)
+		}
+	}
+	// General precision and schema ownership remain unconditional on Trace.
+	for _, want := range []string{
 		"The fact fence is unchanged",
 		"The projected `emit_answer_document` tool schema is the only authority",
 	} {
@@ -124,10 +135,14 @@ func TestFinalizerReaderFieldActualMessagesNativeFinite(t *testing.T) {
 					!strings.Contains(row.Raw, "result=E_BUSY, sample_count=9007199254740993") {
 					t.Fatalf("native raw business fields or exact integer identity changed: %+v", row)
 				}
-				assertFinalizerReaderFieldMessagePolicy(t, system, user)
+				assertFinalizerReaderFieldMessagePolicy(t, system, user, false)
 				if strings.Contains(user, "## Final Trace Decision Boundary (Typed Facts; Model-Owned Conclusion)") {
 					t.Fatal("finite native enumeration gained a complete causal conclusion boundary")
 				}
+				ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.FactFamilies = append(
+					ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.FactFamilies, types.RuntimeQuestionFactTargetWaitOccurrences)
+				system, user = finalizerReaderFieldMessages(t, ctx)
+				assertFinalizerReaderFieldMessagePolicy(t, system, user, true)
 			})
 		}
 	}
@@ -147,7 +162,7 @@ func TestFinalizerReaderFieldActualMessagesTypedCausal(t *testing.T) {
 				!strings.Contains(user, "reader_facing_control_metadata_policy=`json_only_never_visible`") {
 				t.Fatal("HARNESS: causal evidence, value, or reader-control handoff missing at actual adapter")
 			}
-			assertFinalizerReaderFieldMessagePolicy(t, system, user)
+			assertFinalizerReaderFieldMessagePolicy(t, system, user, true)
 		})
 	}
 }
