@@ -11,8 +11,19 @@ import (
 // MarkerNameOrigin preserves the business name separately from a synthesized
 // trace-marker label. This is display provenance, never interval/CPU authority.
 type MarkerNameOrigin struct {
-	SourceTable string         `json:"source_table"`
-	Name        HiSysEventName `json:"name"`
+	SourceTable string              `json:"source_table"`
+	Name        HiSysEventName      `json:"name"`
+	Record      *MarkerSourceRecord `json:"record,omitempty"`
+}
+
+// MarkerSourceRecord identifies one source-table interval, not a complete
+// launch instance. RowID and OwnerIPID are local to this source capture; neither
+// is a public PID, lifecycle generation or cross-capture join key.
+type MarkerSourceRecord struct {
+	RowID     int64 `json:"row_id,string"`
+	OwnerIPID int64 `json:"owner_ipid,string"`
+	StartNS   int64 `json:"start_ns,string"`
+	EndNS     int64 `json:"end_ns,string"`
 }
 
 const MaxMarkerNameOriginBytes = 8192
@@ -21,6 +32,9 @@ func EncodeMarkerNameOrigin(origin MarkerNameOrigin) (string, error) {
 	if origin.SourceTable != "app_startup" || !validHiSysName(origin.Name) ||
 		(origin.Name.Name != nil && len(*origin.Name.Name) > 4096) {
 		return "", fmt.Errorf("invalid marker name origin")
+	}
+	if r := origin.Record; r != nil && (r.OwnerIPID < 0 || r.StartNS < 0 || r.EndNS <= r.StartNS) {
+		return "", fmt.Errorf("invalid marker source record")
 	}
 	b, err := json.Marshal(origin)
 	if err != nil || len(b) > MaxMarkerNameOriginBytes*3/4 {

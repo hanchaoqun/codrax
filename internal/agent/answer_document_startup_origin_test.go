@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -55,6 +56,14 @@ func TestStartupNameOriginSQLiteToActualFinalizer(t *testing.T) {
 		for key, value := range map[string]string{"source.table": "app_startup", "source.representation": "sql_app_startup", "marker.label_origin": "synthesized_sql_label"} {
 			if fields[key].Value == nil || *fields[key].Value != value {
 				t.Fatalf("row %d missing provenance %s", i, key)
+			}
+		}
+		starts := []string{"1010000000", "1022000000", "1030000000", "1040000000"}
+		ends := []string{"1018000000", "1026000000", "1034000000", "1045000000"}
+		durations := []string{"8000000", "4000000", "4000000", "5000000"}
+		for key, value := range map[string]string{"source.row_id": strconv.Itoa(i/2 + 2), "source.owner_ipid": "1", "source.start_ns": starts[i/2], "source.end_ns": ends[i/2], "source.duration_ns": durations[i/2]} {
+			if fields[key].Value == nil || *fields[key].Value != value {
+				t.Fatalf("endpoint %d lost source record %s=%s: %+v", i, key, value, fields[key])
 			}
 		}
 	}

@@ -157,6 +157,15 @@ func validExactTraceMark(mark ExactTraceMark) bool {
 		if mark.Action != "B" && mark.Action != "E" || mark.Action == "B" && mark.Name != label {
 			return false
 		}
+		if r := mark.NameOrigin.Record; r != nil {
+			expected := r.StartNS
+			if mark.Action == "E" {
+				expected = r.EndNS
+			}
+			if uint64(expected) != mark.TimestampNS {
+				return false
+			}
+		}
 	}
 	if !validTraceCPUIndex(mark.CPU) || mark.TID <= 0 || mark.TGID <= 0 || mark.SpanPID <= 0 ||
 		!validCPUUnavailableTraceMarkText(mark.Comm, false) ||

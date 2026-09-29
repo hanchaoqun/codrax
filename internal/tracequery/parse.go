@@ -130,6 +130,9 @@ func eventSideTableBytes(ev *Event) int64 {
 		n += int64(unsafe.Sizeof(PluginFields{}))
 		if origin := ev.PluginFields.MarkerNameOrigin; origin != nil {
 			n += int64(unsafe.Sizeof(tracewire.MarkerNameOrigin{})) + int64(len(origin.SourceTable)+len(origin.Name.Status))
+			if origin.Record != nil {
+				n += int64(unsafe.Sizeof(tracewire.MarkerSourceRecord{}))
+			}
 			if origin.Name.Reference != nil {
 				n += 8
 			}

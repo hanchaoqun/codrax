@@ -143,6 +143,13 @@ func (p *traceEventSemanticProjector) marker(event Event) {
 	if event.PluginFields != nil && event.PluginFields.MarkerNameOrigin != nil {
 		origin := event.PluginFields.MarkerNameOrigin
 		p.known("source.table", origin.SourceTable)
+		if r := origin.Record; r != nil {
+			p.known("source.row_id", strconv.FormatInt(r.RowID, 10))
+			p.known("source.owner_ipid", strconv.FormatInt(r.OwnerIPID, 10))
+			p.known("source.start_ns", strconv.FormatInt(r.StartNS, 10))
+			p.known("source.end_ns", strconv.FormatInt(r.EndNS, 10))
+			p.known("source.duration_ns", strconv.FormatInt(r.EndNS-r.StartNS, 10))
+		}
 		if origin.Name.Status == "resolved" && origin.Name.Name != nil {
 			p.known("marker.business_name", *origin.Name.Name)
 		} else {

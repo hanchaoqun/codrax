@@ -33,12 +33,13 @@ func traceDBTestHasMarkerLabel(t *testing.T, body, label string) bool {
 
 func TestStartupNameOriginMemoryAndSQLiteStageParity(t *testing.T) {
 	ref := int64(0)
-	origin, err := tracewire.EncodeMarkerNameOrigin(tracewire.MarkerNameOrigin{SourceTable: "app_startup", Name: tracewire.HiSysEventName{Status: "unresolved_reference", Reference: &ref}})
+	origin, err := tracewire.EncodeMarkerNameOrigin(tracewire.MarkerNameOrigin{SourceTable: "app_startup", Name: tracewire.HiSysEventName{Status: "unresolved_reference", Reference: &ref}, Record: &tracewire.MarkerSourceRecord{RowID: 10, OwnerIPID: 1, StartNS: 1000000, EndNS: 2000000}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	candidate := traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerAppStartup, 10, 100, 100, 1000000, 2000000, "AppStartup:startup")
 	candidate.NameOrigin = origin
+	candidate.OwnerIPID, candidate.OwnerIPIDKnown = 1, true
 	a := renderTraceDBSyncSpanStageCase(t, traceDBSyncSpanStageOptions{ResidentBytes: 1 << 20}, []traceDBSyncSpanCandidate{candidate}, nil, false)
 	b := renderTraceDBSyncSpanStageCase(t, traceDBSyncSpanStageOptions{ResidentBytes: 1}, []traceDBSyncSpanCandidate{candidate}, nil, false)
 	if a.body != b.body || !reflect.DeepEqual(a.report, b.report) {
@@ -46,6 +47,19 @@ func TestStartupNameOriginMemoryAndSQLiteStageParity(t *testing.T) {
 	}
 	if !traceDBTestHasMarkerLabel(t, b.body, "AppStartup:startup") {
 		t.Fatal("spill output cannot roundtrip")
+	}
+	for _, mutate := range []func(*traceDBSyncSpanCandidate){
+		func(c *traceDBSyncSpanCandidate) { c.StableID++ },
+		func(c *traceDBSyncSpanCandidate) { c.OwnerIPID++ },
+		func(c *traceDBSyncSpanCandidate) { c.OwnerIPIDKnown = false },
+		func(c *traceDBSyncSpanCandidate) { c.Start++ },
+		func(c *traceDBSyncSpanCandidate) { c.End++ },
+	} {
+		bad := candidate
+		mutate(&bad)
+		if validateTraceDBSyncSpanCandidate(bad) == nil {
+			t.Fatal("source record was detached from the admitted interval")
+		}
 	}
 }
 
@@ -85,6 +99,9 @@ func TestStartupNameOriginPublicConversionAndWindow(t *testing.T) {
 				t.Fatal("name origin lost in public conversion")
 			}
 			origin := event.MarkerNameOrigin
+			if origin.Record == nil || origin.Record.StartNS != 2000000 || origin.Record.EndNS != 3000000 || origin.Record.OwnerIPID != 1 {
+				t.Fatalf("lost original record: %+v", origin.Record)
+			}
 			if origin.SourceTable != "app_startup" || origin.Name.Status != tc.status || (origin.Name.Name != nil) != tc.known {
 				t.Fatalf("wrong source name status: %+v", origin)
 			}
@@ -100,6 +117,9 @@ func TestStartupNameOriginPublicConversionAndWindow(t *testing.T) {
 			end := tracequery.Run(index, tracequery.Query{View: "event_search", EventTypes: []tracequery.EventType{tracequery.EventTraceMark}, TimeStart: .003, TimeEnd: .0031, TimeStartSet: true, TimeEndSet: true})
 			if len(end.Events) != 1 || end.Events[0].SpanAction != "E" || end.Events[0].MarkerNameOrigin == nil || end.Events[0].MarkerNameOrigin.Name.Status != tc.status {
 				t.Fatalf("end-only window lost source name: %+v", end.Events)
+			}
+			if !reflect.DeepEqual(end.Events[0].MarkerNameOrigin.Record, origin.Record) {
+				t.Fatal("end-only query cannot identify the same source interval")
 			}
 		})
 	}

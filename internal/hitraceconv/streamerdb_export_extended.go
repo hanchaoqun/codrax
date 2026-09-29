@@ -759,6 +759,7 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 		}
 		nameOrigin, err := tracewire.EncodeMarkerNameOrigin(tracewire.MarkerNameOrigin{
 			SourceTable: "app_startup", Name: traceDBHiSysName(nameRaw, name, nameReason),
+			Record: &tracewire.MarkerSourceRecord{RowID: stableID, OwnerIPID: ipid, StartNS: start, EndNS: end},
 		})
 		if err != nil {
 			return coverage, err

@@ -738,8 +738,12 @@ func traceDBSyncSpanErrorTreeOnlyBudget(err error) bool {
 
 func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error {
 	if candidate.NameOrigin != "" {
-		if _, ok := tracewire.DecodeMarkerNameOrigin(candidate.NameOrigin); !ok || candidate.Producer != traceDBSyncSpanProducerAppStartup || candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
+		origin, ok := tracewire.DecodeMarkerNameOrigin(candidate.NameOrigin)
+		if !ok || candidate.Producer != traceDBSyncSpanProducerAppStartup || candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown {
 			return &traceDBOutputInvariantError{Reason: "invalid_sync_span_name_origin"}
+		}
+		if r := origin.Record; r != nil && (r.RowID != candidate.StableID || !candidate.OwnerIPIDKnown || r.OwnerIPID != candidate.OwnerIPID || r.StartNS != candidate.Start || r.EndNS != candidate.End) {
+			return &traceDBOutputInvariantError{Reason: "inconsistent_sync_span_source_record"}
 		}
 	}
 	if candidate.Producer <= traceDBSyncSpanProducerUnknown || candidate.Producer > traceDBSyncSpanProducerSourceRawMarker {
