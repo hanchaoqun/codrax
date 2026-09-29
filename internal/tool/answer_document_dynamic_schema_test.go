@@ -707,7 +707,7 @@ func TestAnswerDocumentPatchFieldEditProjection_OffersExactExistingEndpointCarri
 	}
 }
 
-func TestAnswerDocumentPatchFieldEditProjection_OffersMemberSetOnlyForUniqueTypedRoster(t *testing.T) {
+func TestAnswerDocumentPatchFieldEditProjection_OffersModelSelectedMemberSetCarriers(t *testing.T) {
 	view := &types.AnswerSemanticView{Presentation: types.AnswerPresentationContract{RequestedDimensions: []types.RequestedAnswerDimension{{
 		Index: 1, Role: types.RequestedAnswerDimensionMemberSet, Required: true,
 	}}}}
@@ -753,8 +753,8 @@ func TestAnswerDocumentPatchFieldEditProjection_OffersMemberSetOnlyForUniqueType
 	prev.Blocks[1].ClaimUses[0].EvidenceID = "ev-a"
 	prev.Blocks = append(prev.Blocks, types.AnswerBlock{ID: "second-roster", Kind: types.BlockTable,
 		FacetIDs: []string{string(types.FacetEnumerationItem)}, Items: []types.AnswerBlockItem{{ID: "c", EvidenceIDs: []string{"ev-c"}}}})
-	if got := answerDocumentMemberSetFacetAdditionCandidateBlockIDs(prev, view); len(got) != 0 {
-		t.Fatalf("ambiguous roster ownership must fail closed, got %v", got)
+	if got := answerDocumentMemberSetFacetAdditionCandidateBlockIDs(prev, view); !reflect.DeepEqual(got, []string{"roster", "second-roster"}) {
+		t.Fatalf("multiple carriers must remain model choices, got %v", got)
 	}
 }
 

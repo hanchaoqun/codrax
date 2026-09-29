@@ -1605,20 +1605,21 @@ func answerDocumentMemberSetFacetAdditionEnabled(view *types.AnswerSemanticView)
 	if view == nil {
 		return false
 	}
-	count := 0
 	for _, dimension := range view.Presentation.RequestedDimensions {
 		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionMemberSet {
-			count++
+			return true
 		}
 	}
-	return count == 1
+	return false
 }
 
-// answerDocumentMemberSetFacetAdditionCandidateBlockIDs identifies one
-// unambiguous model-authored roster carrier that is missing only its hidden
-// member_set membership. Enumeration ownership and item evidence are typed;
-// titles, labels, item prose, request text, and rendered output are ignored.
-// Mixed relation/source-inventory carriers remain outside this atomic lane.
+// answerDocumentMemberSetFacetAdditionCandidateBlockIDs publishes compatible
+// model-authored carriers, not a system-selected answer. Multiple requested
+// sets and multiple carriers are normal: the model selects exact block ids.
+// Adding display membership does not prove evidence or dimension coverage;
+// the merged document still goes through the ordinary validators. Runtime
+// tables need not have repository evidence ids or a prior enumeration facet.
+// Explicit topology carriers remain in their separate relation repair lane.
 func answerDocumentMemberSetFacetAdditionCandidateBlockIDs(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []string {
 	if doc == nil || !answerDocumentMemberSetFacetAdditionEnabled(view) {
 		return nil
@@ -1628,7 +1629,6 @@ func answerDocumentMemberSetFacetAdditionCandidateBlockIDs(doc *types.AnswerDocu
 		id := strings.TrimSpace(block.ID)
 		if id == "" || block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
 			containsBlockFacet(block, types.FacetMemberSet) ||
-			!containsBlockFacet(block, types.FacetEnumerationItem) ||
 			containsBlockFacet(block, types.FacetPrincipalPathEdge) || len(block.EdgeAnchors) > 0 || len(block.Items) == 0 {
 			continue
 		}
@@ -1640,18 +1640,11 @@ func answerDocumentMemberSetFacetAdditionCandidateBlockIDs(doc *types.AnswerDocu
 		valid := true
 		itemEvidenceIDs := make(map[string]bool)
 		for _, item := range block.Items {
-			if strings.TrimSpace(item.SourceInventoryRowID) != "" || len(item.EvidenceIDs) == 0 {
-				valid = false
-				break
-			}
 			for _, rawEvidenceID := range item.EvidenceIDs {
 				if evidenceID := strings.TrimSpace(rawEvidenceID); evidenceID != "" {
 					itemEvidenceIDs[evidenceID] = true
 				}
 			}
-		}
-		if !valid || len(itemEvidenceIDs) == 0 {
-			continue
 		}
 		// A member roster may cite a call/registration row as the evidence for
 		// one visible member without thereby becoming a topology carrier.  Keep
@@ -1672,12 +1665,7 @@ func answerDocumentMemberSetFacetAdditionCandidateBlockIDs(doc *types.AnswerDocu
 			candidates = append(candidates, id)
 		}
 	}
-	// The system may expose a lossless membership operation only when typed
-	// shape leaves exactly one model-selected carrier. Ambiguity returns to the
-	// ordinary full-block authoring lane.
-	if len(candidates) != 1 {
-		return nil
-	}
+	sort.Strings(candidates)
 	return candidates
 }
 
