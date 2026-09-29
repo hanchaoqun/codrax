@@ -70,6 +70,9 @@ type AppliesToFilter struct {
 	RequiresDiagram bool                    `json:"requires_diagram,omitempty" yaml:"requires_diagram,omitempty"`
 	RequiresLog     bool                    `json:"requires_log,omitempty" yaml:"requires_log,omitempty"`
 	RequiresTrace   bool                    `json:"requires_trace,omitempty" yaml:"requires_trace,omitempty"`
+	// Teaching applicability only. These never filter evidence or tool access.
+	RequiresTraceReport    bool `json:"requires_trace_report,omitempty" yaml:"requires_trace_report,omitempty"`
+	RequiresTraceScheduler bool `json:"requires_trace_scheduler,omitempty" yaml:"requires_trace_scheduler,omitempty"`
 	// RequiresMechanism gates items to the analyzer's canonical typed
 	// question_kind=mechanism lane. Diagnostic/root-cause questions can ask
 	// for a mechanism even when their principal intent is not IntentExplain.
@@ -94,11 +97,13 @@ type AppliesToFilter struct {
 // Populated from BusContext / AgentContext / view at the renderer
 // entry point; nil-safe.
 type AppliesToContext struct {
-	PrincipalKind types.AnswerBlockKind
-	Intent        types.Intent
-	HasDiagram    bool
-	HasLog        bool
-	HasTrace      bool
+	PrincipalKind     types.AnswerBlockKind
+	Intent            types.Intent
+	HasDiagram        bool
+	HasLog            bool
+	HasTrace          bool
+	HasTraceReport    bool
+	HasTraceScheduler bool
 	// HasMechanism mirrors RequiresMechanism and is populated only from the
 	// canonical typed RequirementKind lane.
 	HasMechanism bool
@@ -146,6 +151,12 @@ func (f AppliesToFilter) MatchesAppliesTo(ctx AppliesToContext) bool {
 	if f.RequiresTrace && !ctx.HasTrace {
 		return false
 	}
+	if f.RequiresTraceReport && !ctx.HasTraceReport {
+		return false
+	}
+	if f.RequiresTraceScheduler && !ctx.HasTraceScheduler {
+		return false
+	}
 	if f.RequiresMechanism && !ctx.HasMechanism {
 		return false
 	}
@@ -163,7 +174,7 @@ func (f AppliesToFilter) MatchesAppliesTo(ctx AppliesToContext) bool {
 	if len(f.PrincipalKinds) == 0 && len(f.Intents) == 0 {
 		// All bool gates passed (or were unset and no slice
 		// gates declared) → admit.
-		return f.RequiresDiagram || f.RequiresLog || f.RequiresTrace || f.RequiresMechanism || f.RequiresTraceComparison || f.RequiresBuckets || f.AbsenceContract
+		return f.RequiresDiagram || f.RequiresLog || f.RequiresTrace || f.RequiresTraceReport || f.RequiresTraceScheduler || f.RequiresMechanism || f.RequiresTraceComparison || f.RequiresBuckets || f.AbsenceContract
 	}
 	for _, k := range f.PrincipalKinds {
 		if k == ctx.PrincipalKind {

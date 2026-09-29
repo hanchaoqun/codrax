@@ -140,6 +140,14 @@ func buildAppliesToContext(ac *types.AgentContext) skill.AppliesToContext {
 	if agentContextHasTraceCarrier(ac) {
 		out.HasTrace = true
 	}
+	if out.HasTrace {
+		var profile *types.RuntimeQuestionProfile
+		if ac.AnalysisIR != nil {
+			profile = ac.AnalysisIR.RequestModel.RuntimeQuestionProfile
+		}
+		out.HasTraceReport = !profile.SuppressesRootCauseRankingPrompt()
+		out.HasTraceScheduler = profile.RequestsTraceSchedulerTeaching()
+	}
 
 	// Cross-trace comparison form (CMP-6): the analyzer's typed
 	// historical-regression / cross-component comparison boolean AND

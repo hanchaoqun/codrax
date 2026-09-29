@@ -651,12 +651,12 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			{
 				// SG-C4: periodic-source discount consumption — trace-only.
 				Body:      "PERIODIC-SOURCE DISCOUNT: when a trace observation carries periodic-source cadence notes (`periodic_source=true` with `effective_impact_ms` / `detected_period_ms` / `lateness_ms`), that observation's subject is a periodic signal source (e.g. a vsync-style generator or timer thread): its in-period sleep is normal scheduled cadence, and only the discounted `effective_impact_ms` (signal lateness plus ready-wait) is attributable impact on the analysis target. Any prose that reports that chain's impact MUST use the discounted value and state the basis (e.g. 'X ms attributable after the periodic-cadence discount'); the raw aggregated duration may appear only as an explicitly labelled comparison figure next to it (e.g. 'raw window sum Y ms, mostly scheduled cadence sleep'), NEVER as the primary impact number or the root-cause magnitude. Promoting the raw sum to the headline while the discounted value exists misattributes normal cadence sleep to the reported cause.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 			},
 			{
 				// SG-Q4K4: on-chain blocking disposition obligation — trace-only.
 				Body:      "ON-CHAIN BLOCKING DISPOSITION: when the evidence contains an on-chain blocking or lock-wait observation (chain_relevance=on_chain with a lock/monitor contention, blocking-span, or binder wait) whose duration is the same order of magnitude as the target's total wait, the answer prose MUST explicitly dispose of it: either present it as the root-cause carrier (naming the holder/peer thread and holding site when the observation resolved them), or state concretely WHY it is subordinate to the chosen root cause (e.g. it is contained inside another cause's interval, or it is serialized behind the named cause). Silently omitting a near-target-length on-chain blocking observation while the conclusion promotes a much smaller cause is a regression — the reader cannot audit why the largest on-chain wait was passed over.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceReport: true},
 			},
 			{
 				// SG-N7: window-stats core-number basis obligation — trace-only.
@@ -704,7 +704,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// compute. This remains soft guidance; the authority fix lives
 				// in the typed observation provenance, not a prose scanner.
 				Body:      "TRACE DATA-GAP AUTHORITY: rows with type=trace_gap, tier=data_gap, or claim root_evidence:trace_gap report an evidence-coverage boundary, never observed execution behavior or a root cause. `trace_gap_kind=no_sched_data` means scheduler intervals were not available for that thread/window; it does NOT prove that the thread ran continuously, consumed CPU throughout, avoided preemption, never slept, or performed pure computation. `trace_gap_kind=no_eligible_wait` means the observed intervals did not meet the selected minimum-duration floor; it does NOT prove that no shorter waits occurred. Preserve the measured enclosing span and any other positive observations, state that scheduler-state causality is unavailable at this coverage level, and require positive typed running/perf/semantic-work evidence before claiming compute.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 			},
 			{
 				// EVAL-B10-Z3 answer-side mirror: the exploration skill carries
@@ -716,22 +716,22 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			{
 				// EVAL-B11-AB3 answer-side mirror.
 				Body:      "TRACE ORDERED RANK ROSTER AUTHORITY: when the reader-ready Trace ranking reference provides a cause list, copy its `#N` ordinals, subject, effective value, and ranking scope exactly, and use its reader-language cause label for visible wording. Raw type/tier/channel/repair-bucket tokens are audit metadata and must not be copied into visible prose. On-chain and adjacent lists are distinct ordinal domains, so never compare or merge their `#N` values. The list is the only ordinal authority: a measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row absent from it has no rank seat; never infer a rank from duration, discovery order, another table, or narrative importance. When the reference says the list is incomplete or rank-ambiguous, preserve published ordinals but do not invent missing seats or claim complete coverage. Ranked rows remain non-additive across seats.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceReport: true},
 			},
 			{
 				// EVAL-B11-AC2 answer-side mirror.
 				Body:      "TRACE VALUE-OWNER TEMPORAL AUTHORITY: when `Trace Value-Owner Temporal Authority` publishes `temporal_status=exact`, use its `value_owner_occurrence` for that subject/type/value measurement. A command aggregate, transaction send/receive phase, neighboring scheduler event, or narrative timestamp cannot replace the interval owned by the same measured value. When status is ambiguous, do not choose one occurrence by arrival order.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 			},
 			{
 				// EVAL-B11-AD1 answer-side mirror.
 				Body:      "TRACE TARGET BLOCKING WALL-CLOCK AUTHORITY: when `Trace Target Blocking Wall-Clock Authority` is present, its `proven_blocking_wall_clock` is the only published target blocking-wall-clock account for that blocking type and selected window. Synchronous request count, send-to-reply/transaction latency, peer execution, and model aggregates are separate metrics and must not be added unless they own a listed blocking occurrence. An interruptible S scheduler state is compatible with a proven blocking occurrence; zero D-state/uninterruptible time cannot refute a listed S-state wait or prove that no counterpart wait occurred. `coverage_status=complete` permits an exhaustive total; `lower_bound_capacity_truncated` permits only a proven observed lower bound and forbids total/all/only wording. Preserve listed occurrence interval and peer identity.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 			},
 			{
 				// EVAL-B12-AE1 answer-side mirror.
 				Body:      "TRACE IPC REQUEST CENSUS AUTHORITY: when `Trace IPC Request Census Authority` is present, copy request counts only from its typed census and keep them separate from the target blocking-occurrence count. `sync_request=N` counts synchronous IPC request rows; it does not mean N requests caused proven target blocking. Preserve each listed transaction id/flags/code/peer/send/matched-receive tuple from the same row. Only `coverage_status=complete` permits exhaustive request-count wording; all other statuses are lower-bound or roster-incomplete.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 			},
 			{
 				// PSG-1: prose numeral grounding — trace-only (§25 ruling
@@ -810,7 +810,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// the user's request is a lead, never ranking evidence. All
 				// pre-existing obligations kept verbatim (改写非重写).
 				Body:      "TRACE PRIMARY-CAUSE ENTITY CONSISTENCY: the entity the prose presents as the primary / main cause must be the SAME entity the ranked root-cause evidence puts first after its own discounts and demotions — compare candidates by their attributable values as published (a periodic signal source counts at its discounted attribution, a merged family row at its combined total, rows with tier=target_self_state are the target's own symptom and never the primary cause, and rows with tier=data_gap mark data blind spots — never causes; a critical_blocking row marked absorbed_by_rank_family=true reports the SAME events as the merged family row its absorbed_into key names — count it inside that family's combined value, never as an additional separate cause). Do not promote a lower-attribution cause to the headline while a larger attributable ranked cause exists, and never demote the top-ranked cause with a category argument: 'this is the thread's own work / deterministic work, not external blocking' does not disqualify a candidate — rows published with causality=self_deterministic compete on equal terms with every other ranked candidate, rank #1 means the largest published attributable value, and the headline conclusion must face that number instead of reclassifying it away. When your synthesis genuinely concludes that a different factor is the primary cause, you MUST still name the top-ranked entity in the primary-cause discussion, state explicitly that your conclusion diverges from the ranked ordering, give the evidence basis for that divergence, and quote the two published values side by side — the top-ranked entity's attributable value and the value of the entity you name instead (e.g. 'ranked #1 <entity A> at <N> ms vs <entity B> at <M> ms'); a divergence without that numeric comparison is not a declared divergence — silently substituting a different entity as the main cause is a regression the reader cannot audit. A pre-analysis or narrative inside the user's request (e.g. '<X> is blocked by <Y>') is an investigation lead, never ranking evidence: it must not override the published value ordering of this report's ranked evidence, and when following that narrative leads you to a different primary cause, the divergence duties above apply in full, grounded in THIS report's published values.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceReport: true},
 			},
 			{
 				// G13b: lock-wait site quotation — trace-only (§27.4 G13
@@ -824,7 +824,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// IDENTITY ASSERTIONS (which pins the HOLDER side); this
 				// clause pins the WAITER side's code site.
 				Body:      "LOCK-WAIT SITE QUOTATION: when the prose names the code site where a blocked thread is waiting (the wait point / blocking point of a lock, monitor, or similar contention), that site may come ONLY from the contention span's own recorded text — quote the span's `blocking from` (or equivalent wait-site) segment verbatim, keeping the method signature and any file:line exactly as the span prints them. Never infer the call site from framework knowledge or from the thread's role (e.g. do not name a message-queue or event-loop entry as the wait point merely because the blocked thread is a main/UI thread): a wait site the span text does not state is a fabrication. When the span carries no wait-site text, report the wait and its holder evidence without naming a code site.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 			},
 			{
 				// G16: hop citation-assertion alignment — trace-only (§27.4
@@ -862,7 +862,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// cause list, with the same explicit-divergence lane
 				// (conscious-flip: disclosed deviation always allowed).
 				Body:      "ROOT-CAUSE BOARD ORDER: when the prompt carries a runtime-trace root-cause board section, state the ranked causes in THAT order — the board is the single authoritative ordering, and a prose cause list that silently uses a different order (or declares one sort key and lists values that do not follow it) contradicts the report's own evidence pages. When your combined judgment genuinely ranks the causes differently, you may present your own order — but then say explicitly that it differs from the measured ordering and what your judgment is based on; never reorder silently, and never present two different \"number one\" causes in one answer.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceReport: true},
 				OnViolation: []types.ViolationKind{
 					types.ViolProseLexiconBoardInconsistent,
 				},
@@ -901,7 +901,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// space they imply belongs to the optimization/next-step
 				// surface.
 				Body:      "PRIORITY-INVERSION AND LOCK-HOLD COEXISTENCE: when the evidence publishes BOTH a priority-inversion relation and a lock-holding fact for the same wait, state both facts — they coexist; neither cancels the other. Do not use the lock fact to deny the inversion wording, and do not hide the lock fact to keep the inversion story clean. The two facts define different repair spaces (a lock-held inversion can be addressed through priority inheritance or through decoupling the lock; a lock-free inversion only through priority/scheduling adjustment) — put that repair-direction reasoning in the optimization / next-step surface, and keep the fact statements themselves plain.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 			},
 			{
 				// FIN-BIND (f): IO-latency role words — trace-only (CR-3
@@ -912,7 +912,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// (which binds a number to its thread): this clause binds a
 				// number to its ROLE within one IO story.
 				Body:      "IO-LATENCY ROLE WORDS: follow each row's typed measurement role, not the IO category name. Single-request issue-to-completion request residence is the REQUEST's own latency; scheduler-marked D/iowait occupancy is a DIFFERENT measurement with its own value. An IO cause row may instead publish a separately measured completion-closed S/D blocked interval of the issuing thread, backed by independent completion-to-issuer wakeup proof. Preserve whichever ruler the row actually carries; these intervals can overlap, must not be added, and are never interchangeable. A request match, S/D state, or shared IO label alone proves neither completion-to-issuer wakeup nor on-chain causality. Never restate one side's value as the other's, and when only one side is published, say which side it is instead of implying both.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 				OnViolation: []types.ViolationKind{
 					types.ViolProseScalarUngrounded,
 				},
@@ -927,7 +927,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// the deterministic conservation cross-check; this clause is
 				// the drafting-side discipline.
 				Body:      "STATE-DURATION CALIBER SEPARATION: one thread's scheduler states partition wall clock — for any single thread, running + runnable + sleep + uninterruptible time together can never exceed the analysis window, and no single state can exceed the window. Values measured over an activity slice (covering only part of the window) and full-window totals are DIFFERENT calibers: never list them side by side as if directly comparable, and never mix calibers inside one per-thread breakdown. The separation has a second direction: a value published for ONE segment, occurrence, or per-CPU slice (e.g. a single wait segment's duration inside an observation summary) is never the thread's full-window total for that state — when prose states how long the thread spent in a state over the window, take the number from the published full-window per-state account (the target_window_states partition), not from a segment row and not from your own reconstruction of segments. " + types.TraceSchedulerWaitPartitionTeaching + " Interpret each zero only within its named bucket for that target/window. It never proves no disk/filesystem/device IO or no IO blocking. If a completion-closed issuer-blocked IO ruler is absent from the finite question, it is not assessed by this state partition rather than zero; if present, report the two rulers separately. Sleep proves only interruptible scheduler S-state and, without a typed interval join, cannot be explained as voluntary yield, idle, preemption, IO, lock, or another mechanism. A perf-triage time_semantics value spanning the whole attached artifact is a third, artifact-global caliber: it proves timestamp units and attachment extent only, never the selected query window or any target-thread state duration, even when its endpoints are numerically close to the selected window. Before publishing a per-thread state breakdown, sanity-check that the durations can fit the window together; when they cannot, re-read which rows the values really came from instead of publishing an impossible set.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 				OnViolation: []types.ViolationKind{
 					types.ViolProseScalarUngrounded,
 				},
@@ -937,7 +937,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// engine-paired evidence. The prompt-level roster explicitly
 				// distinguishes complete from budget-truncated membership.
 				Body:      "TARGET WAIT OCCURRENCE AUTHORITY: use the dedicated scheduler-marked target-wait list published in the prompt. It is a narrow list, not a census of every kind of waiting: it includes D-state, explicit IO wait, and interruptible sleep only when paired blocked-reason evidence marks IO wait; ordinary interruptible sleep and waits or blocking proved by other mechanisms are outside it. When the list says it completely covers the selected window, preserve its count and every published start/end/duration/state/IO-marker/caller relation exactly; do not rebuild intervals from adjacent scheduler or wakeup events and do not merge or discard an item. A complete zero means no matching scheduler-marked D/IO-wait occurrence for this target/window only; it never proves no sleep, waiting, blocking, or IO activity. Use reader language for internal control metadata; preserve and explain relevant raw fields and business statuses instead of hiding all structured names. When the list is incomplete, disclose the visible/total boundary and never claim exhaustive enumeration.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 				OnViolation: []types.ViolationKind{
 					types.ViolProseScalarUngrounded,
 				},
@@ -958,7 +958,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// analysis where trace observations anchor the answer stays
 				// normal — the rule speaks ONLY to the empty-result shape.
 				Body:      "NO SILENT SOURCE FALLBACK ON AN EMPTY TRACE RESULT: when a runtime trace is attached and the question asks about that trace, but the trace analysis produced ZERO root-cause findings, disclose that FIRST — state plainly that this trace analysis produced no root-cause findings and why (no matching observations in the window, an analysis error, or an exhausted budget), and only then offer whatever else genuinely helps. An empty trace result is not a source-code question: never let source-code mechanism narration silently take the place of the missing trace findings as the answer's principal claims. Mixed analysis stays normal — when trace observations are present and anchor the answer, explaining the implicated source code is welcome; this rule applies only when the principal claims would otherwise rest on source citations alone because the trace lane found nothing.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceReport: true},
 			},
 			{
 				// ANSWERFACE-1 件1 (§29.140 G4 教学半场, 2026-07-19): census
@@ -967,7 +967,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// impression is a value error the drafting side must not
 				// commit; no gate reads this).
 				Body:      "BLOCKED-REASON CENSUS CONSUMPTION: when the evidence publishes a blocked_reason census for a thread (a `blocked_reason_census` note with a total count and per-caller ×count(Σms) shares), that census is the authoritative record inventory: the window holds exactly that many kernel blocked_reason records for that thread, with exactly those caller symbols and Σ shares. A caller symbol identifies the kernel call site recorded for the blocked_reason event; it is NOT by itself the waited resource/object, its owner, a device, a completed GPU/IO operation, a subsystem mechanism, or a direct fix direction. Its function-name morphology is only a code-location/search clue unless a separate typed field or dependency edge confirms the interpretation. Name a wait object, owner, mechanism, subsystem, or corresponding fix only when that separate typed evidence exists. Report the census's own numbers — never re-derive the count or the per-record fields from your recollection of raw rows read earlier, and never drop a record because it no longer fits the narrative (reporting one fewer record 'without a recorded reason' while the census names the full count contradicts the published inventory). The census count/Σ and a scheduler-state interval count/total are different typed measures: do not call their difference rounding or an allowed precision error, and do not pair every caller record to every D/IO interval unless a typed interval join authorizes that pairing. When your reading of individual raw rows disagrees with the census count or Σ, the census wins and the raw rows deserve a re-read — a silent drop is a wrong answer, not a simplification. The census record's selected_window note names the caliber of that count: read the total as a count over exactly the window the note names (when no analysis window was established, that window is the whole trace), and never re-dress it as an in-window count for a window the note does not name.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 			},
 			{
 				// ANSWERFACE-1 件6 (§29.140 叙事消费教学, 2026-07-19): the
@@ -996,7 +996,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// licenses only its own arithmetic, not guaranteed savings;
 				// an undisclosed relationship is not a negative observation.
 				Body:      "TYPED WORD-FACE CONSUMPTION: the deterministic evidence publishes several typed word faces the narrative should actively use. (a) `fix_direction` groups ranked causes by repair direction — when the user asks what to fix, answer along those directions. " + types.TraceRepairDirectionValueTeaching + " Across DIFFERENT directions, a combined value requires an exact typed additive or joint-counterfactual carrier; arithmetic permission alone does not establish a guaranteed combined gain. This non-additivity means the joint benefit is UNPROVEN; it does NOT prove that the seats overlap, that one depends on another, or that fixing one makes another disappear. When the user asks for repair directions or improvement head-room, the direction enumeration MUST cover EVERY direction value published on ON-CHAIN seated causes (adjacent-channel rows stay conditional within-model potential bounds and never set a direction's maximum) — a direction is never omitted because its seat's value rides a different caliber; a seat published on the discounted (折算) caliber enters the enumeration as its OWN direction entry stated together with its published caliber words, and its value never joins any wall-clock total or any guaranteed cross-direction total. State such an entry beside the other directions — never summed into them, never silently dropped, and never ranked by your own cross-caliber comparison: let the published board order speak for which direction leads. (b) Only exact typed interval relations, including `cross_direction_overlaps`, authorize a physical-overlap statement: physical overlap proves shared measured time, not that either repair necessarily recovers that time or makes the other repair unnecessary; never present that shared part as stackable and never extrapolate beyond its typed value. A guaranteed saved duration or joint benefit needs separate counterfactual evidence. A `cross_direction_overlap_undisclosed` audit token says that the detailed overlap was not published (for example a small-overlap filter or roster cap), not that overlap is absent or insignificant in every case, nor that the two seats are disjoint; never invent a value or an independence claim from omission. (c) merged family rows carry member rosters (`member_roster` / `member_wall_ms` / `member_count`): the leading members are concrete business leads — name the top member spans when explaining a merged family instead of quoting only the family total. (d) chain-credential markers state HOW a row's on-chain status was proven (`chain_credential_segments` = per-segment proof; `chain_credential_envelope_level` = envelope-level only; `chain_credential_lane_demoted` = no on-chain credential, demoted lane): paraphrase attribution at the strength the credential supports — a demoted or adjacent row is a within-model potential bound conditional on a causal relation, never a proven cause or a guaranteed repair saving. (e) `business_span_mention` rows are advisory business-side leads, never ranked causes: each carries a verbatim span name with a typed trio (occurrence count, max single duration, total). Root causes have TWO dimensions — the rule-priced modeled-potential board AND raw time occupancy guiding NEW fix directions — and these rows are the dedicated raw-occupancy carriers, so when business_span_mention rows are present the final conclusion MUST mention the admitted families (at least the largest by total, with its trio) as business-lens leads beside the ranked causes. Read the trio as levers — many occurrences with a small max single suggest reducing the call count or reshaping the business flow; a long max single suggests shortening one run's duration — never as a substitute for the ranked causes, and never promote a mention row into the primary-cause discussion.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceReport: true},
 			},
 			{
 				// RUN2FIX-C 件1 (§29.174 处置④, 2026-07-20; witness runnable_2
@@ -1044,7 +1044,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// and every consistency rule (TRACE PRIMARY-CAUSE ENTITY
 				// CONSISTENCY / ROOT-CAUSE BOARD ORDER) are untouched.
 				Body:      "TRACE ANSWER SKELETON: organize a trace root-cause answer in four moves. ① Open with ONE quantified conclusion: the user-named object and its end-to-end quantity (per USER-NAMED END-TO-END QUANTITY COVERAGE — when the quantity was never established, its honest gap statement stands in that slot, never an invented number), followed by the strongest relationship permitted by typed causal authority. When frame/deadline causality is proven, state the causal chain; when `causal_conclusion=unproven` or `frame_evidence_status=absent`, state the selected-window bottleneck / strongest chain candidate and the missing frame-causality link instead. A `root_cause_rank` or projection title is a ranking inside the observed chain, not permission to call it the proven dropped-frame cause. Keep the opening to one or two short sentences, nothing in front of them. ② Then split the target's own account: separate measured scheduler-state occupancy from proven dependencies and unresolved candidates, and explain which part is the real bottleneck only within that evidence. S alone proves no wait mechanism, and an absent IO marker does not prove non-IO waiting; calling a wait normal or cooperative requires independent business/protocol evidence. ③ Then the top eliminable causes with their repair directions — a few short lines (about five at most), each with its value, its published caliber word, and its [E#]; concrete action advice follows these directions and names these entities, never generic template steps. ④ Point everything else at the report's own deterministic faces (the overview, the causal tree, the detail table): prose does NOT re-read every seat's value account row by row — the board already renders them, and a per-seat prose re-listing duplicates the authority face without adding judgment. Keep paragraphs short: split a long conclusion into short sentences or bullets — a single wall-of-text paragraph buries the conclusion the user came for.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceReport: true},
 			},
 			{
 				// RUN2FIX-C 件4 (§29.174 处置④ F4, 2026-07-20; witness
@@ -1065,7 +1065,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			},
 			{
 				Body:      "WAKEUP CENSUS DIRECTION AND STATE: consume typed wakeup_edge_census rows as waker -> wakee counts. The sleep_exit/d_exit/other_exit split is the state the WAKEE LEFT when the wakeup occurred — pre-wakeup state — not a state entered after the wakeup. A wakeup makes the target runnable; later switch-in, execution, preemption, and switch-out are separate scheduler facts. Never turn sleep_exit=N into “after each wake it immediately slept”; an all/every post-wakeup claim requires a separately complete paired transition census.",
-				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				AppliesTo: AppliesToFilter{RequiresTrace: true, RequiresTraceScheduler: true},
 			},
 			{
 				Body:      mechanicalProducerChainSeparationDirective,
