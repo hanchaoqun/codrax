@@ -34,6 +34,7 @@ func traceQueryEventSearchInventoryObservation(result tracequery.Result, ref typ
 			LineStart: q.LineStart, LineEnd: q.LineEnd, SpanName: q.SpanName, Limit: q.Limit,
 		},
 		Coverage: types.TraceEventSearchInventoryCoverage{
+			ScanScope: types.CloneTraceEventSearchScanScope(c.ScanScope),
 			ScopeKind: c.ScopeKind, ScopeTimeStart: c.ScopeTimeStart, ScopeTimeEnd: c.ScopeTimeEnd,
 			ScopeTimestampRows: c.ScopeTimestampRows, ScopeComplete: c.ScopeComplete,
 			MatchedTimeStart: c.MatchedTimeStart, MatchedTimeEnd: c.MatchedTimeEnd,

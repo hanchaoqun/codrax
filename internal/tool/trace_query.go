@@ -4739,24 +4739,31 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	writeTraceMarkerQueryNavigation(&b, result)
 	writeTraceEventFilterAndIONavigation(&b, result, p, sourceLabel)
 	if coverage := result.EventSearchCoverage; coverage != nil {
-		scopeDurationMs := 0.0
+		observedTime := "unknown"
 		if coverage.ScopeTimeEnd >= coverage.ScopeTimeStart &&
 			(coverage.ScopeTimeStart != 0 || coverage.ScopeTimeEnd != 0 || coverage.ScopeTimestampRows > 0) {
-			scopeDurationMs = (coverage.ScopeTimeEnd - coverage.ScopeTimeStart) * 1000
+			observedTime = fmt.Sprintf("%.6f..%.6f", coverage.ScopeTimeStart, coverage.ScopeTimeEnd)
+		}
+		if coverage.ScanScope != nil {
+			observedTime = "absent"
+			if coverage.ScanScope.ObservedCount > 0 {
+				observedTime = fmt.Sprintf("%.6f..%.6f", coverage.ScopeTimeStart, coverage.ScopeTimeEnd)
+			}
 		}
 		scopeTimestampRows := "unknown"
-		if coverage.ScopeTimestampRows > 0 {
+		if coverage.ScopeTimestampRows > 0 || coverage.ScanScope != nil && coverage.ScanScope.ObservedBasis == "physical_timestamp_rows" {
 			scopeTimestampRows = strconv.Itoa(coverage.ScopeTimestampRows)
 		}
 		matchedTime := "absent"
 		if coverage.MatchedTotal > 0 {
 			matchedTime = fmt.Sprintf("%.6f..%.6f", coverage.MatchedTimeStart, coverage.MatchedTimeEnd)
 		}
-		fmt.Fprintf(&b, "event_search_coverage scope_kind=%s scope_complete=%t scope_time=%.6f..%.6f scope_duration_ms=%.3f scope_timestamp_rows=%s matched_time=%s matched_total=%d emitted=%d enumeration_complete=%t selected_window_caliber=query_or_matched_rows\n",
+		fmt.Fprintf(&b, "event_search_coverage scope_kind=%s scope_complete=%t observed_timestamp_envelope=%s scope_timestamp_rows=%s matched_timestamp_envelope=%s matched_total=%d emitted=%d enumeration_complete=%t\n",
 			sanitizeForBanner(coverage.ScopeKind), coverage.ScopeComplete,
-			coverage.ScopeTimeStart, coverage.ScopeTimeEnd, scopeDurationMs,
+			observedTime,
 			scopeTimestampRows, sanitizeForBanner(matchedTime),
 			coverage.MatchedTotal, coverage.Emitted, coverage.EnumerationComplete)
+		b.WriteString(types.FormatTraceEventSearchScanScope(coverage.ScanScope) + "\n")
 		b.WriteString(tracequery.FormatEventSearchCoverageForReaders(coverage, nil, false) + "\n")
 	}
 	if selection := result.ThreadSelection; selection != nil {

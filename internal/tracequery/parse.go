@@ -4348,11 +4348,13 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	if mark, ok := parseExactTraceMark(s.line); ok {
 		ev := exactTraceMarkEvent(lineNo, mark, intern)
 		attachJankEventFields(&ev)
+		attachNativeHookSemantics(&ev)
 		return ev, true
 	}
 	if mark, ok := parseCPUUnavailableTraceMark(s.line); ok {
 		ev := cpuUnavailableTraceMarkEvent(lineNo, mark, intern)
 		attachJankEventFields(&ev)
+		attachNativeHookSemantics(&ev)
 		return ev, true
 	}
 	if wakeup, ok := parseCPUUnavailableWakeup(s.line); ok {
@@ -4589,6 +4591,7 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 			}
 		}
 		attachJankEventFields(&ev)
+		attachNativeHookSemantics(&ev)
 	case EventBlockIssue, EventBlockComplete:
 		dev, op, sector, length, identityValid := parseBlockRequestValidated(rawType, fields)
 		bf := &BlockIOFields{

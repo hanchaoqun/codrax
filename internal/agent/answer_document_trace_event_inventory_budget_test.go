@@ -55,7 +55,7 @@ func TestTraceEventInventoryQueryRosterKeepsEarliestIdentityAndExactOmissions(t 
 		original := ledger.Records[n]
 		if view.ObservationID != original.ID || view.Inventory.QueryScopeID != original.SourceRef.QueryScopeID ||
 			!reflect.DeepEqual(view.Source, original.SourceRef) || !reflect.DeepEqual(view.Inventory.Query, original.EventSearchInventory.Query) ||
-			view.Inventory.Coverage != original.EventSearchInventory.Coverage || view.PromptRowsShown != 1 || view.PromptRowsOmitted != 6 || view.Inventory.RowsComplete {
+			!reflect.DeepEqual(view.Inventory.Coverage, original.EventSearchInventory.Coverage) || view.PromptRowsShown != 1 || view.PromptRowsOmitted != 6 || view.Inventory.RowsComplete {
 			t.Fatalf("query %d lost its identity, filter, ruler or exact row omission: %+v", n, view)
 		}
 	}
@@ -150,7 +150,7 @@ func TestTraceEventInventoryByteBudgetDeclaresOversizedMetadataWithoutChangingFa
 	}
 	for n, view := range views {
 		original := ledger.Records[n]
-		if view.Inventory.Coverage != original.EventSearchInventory.Coverage || view.Inventory.Query.TimeStart != original.EventSearchInventory.Query.TimeStart ||
+		if !reflect.DeepEqual(view.Inventory.Coverage, original.EventSearchInventory.Coverage) || view.Inventory.Query.TimeStart != original.EventSearchInventory.Query.TimeStart ||
 			view.Inventory.Query.TimeEnd != original.EventSearchInventory.Query.TimeEnd || view.PromptRowsShown != 1 || view.PromptRowsOmitted != 6 ||
 			view.Inventory.Rows[0].JankEvent.Values.StartTSNS != original.EventSearchInventory.Rows[0].JankEvent.Values.StartTSNS {
 			t.Fatal("display budget rewrote a count, query window or exact timestamp")

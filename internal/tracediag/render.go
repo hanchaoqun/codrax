@@ -438,9 +438,19 @@ func renderEventSearchCoverageToken(coverage *tracequery.EventSearchCoverage) st
 		// measured zero or not reported; preserve that typed uncertainty.
 		scopeRows = "zero_or_not_reported"
 	}
-	return fmt.Sprintf("scope=%s scope_ts=%s scope_timestamp_rows=%s scope_complete=%t matched_ts=%s matched_total=%d engine_emitted=%d enumeration_complete=%t",
+	if coverage.ScanScope != nil {
+		if coverage.ScanScope.ObservedBasis == "physical_timestamp_rows" {
+			scopeRows = fmt.Sprint(coverage.ScopeTimestampRows)
+		}
+		scopeWindow = "none"
+		if coverage.ScanScope.ObservedCount > 0 {
+			scopeWindow = formatSecondsToken(coverage.ScopeTimeStart) + ".." + formatSecondsToken(coverage.ScopeTimeEnd)
+		}
+	}
+	return fmt.Sprintf("scope=%s observed_ts=%s scope_timestamp_rows=%s scope_complete=%t matched_ts=%s matched_total=%d engine_emitted=%d enumeration_complete=%t; %s",
 		coverage.ScopeKind, scopeWindow, scopeRows, coverage.ScopeComplete,
-		matchedWindow, coverage.MatchedTotal, coverage.Emitted, coverage.EnumerationComplete)
+		matchedWindow, coverage.MatchedTotal, coverage.Emitted, coverage.EnumerationComplete,
+		types.FormatTraceEventSearchScanScope(coverage.ScanScope))
 }
 
 func eventSearchMatchedRows(res *tracequery.Result) int {

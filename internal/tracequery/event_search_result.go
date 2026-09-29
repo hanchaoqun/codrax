@@ -36,8 +36,9 @@ func publishIndexedEventSearch(res *Result, idx *Index, q Query, explicitTimeSta
 	if invalidJankFields > 0 {
 		res.Caveats = append(res.Caveats, jankEventIntegrityCaveat(invalidJankFields))
 	}
-	scopeKind, scopeTimeStart, scopeTimeEnd := eventSearchScopeAccounting(idx, q, explicitTimeStart, explicitTimeEnd)
+	scopeKind, scopeTimeStart, scopeTimeEnd, observedCount := eventSearchScopeAccounting(idx, q, explicitTimeStart, explicitTimeEnd)
 	res.EventSearchCoverage = &EventSearchCoverage{
+		ScanScope: eventSearchScanScope(q, idx != nil && idx.Windowed, "parsed_events", observedCount),
 		ScopeKind: scopeKind, ScopeTimeStart: scopeTimeStart, ScopeTimeEnd: scopeTimeEnd,
 		ScopeComplete: true, MatchedTimeStart: matchedTimeStart, MatchedTimeEnd: matchedTimeEnd,
 		MatchedTotal: matchedEvents, Emitted: len(searchEvents), EnumerationComplete: true,

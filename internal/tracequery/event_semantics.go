@@ -130,6 +130,10 @@ func (p *traceEventSemanticProjector) hiSysEvent(event tracewire.HiSysEvent) {
 }
 
 func (p *traceEventSemanticProjector) marker(event Event) {
+	if event.PluginFields != nil && event.PluginFields.NativeHookSemantics != nil {
+		parsed := types.CloneTraceEventSemantics(event.PluginFields.NativeHookSemantics)
+		p.value.Fields = append(p.value.Fields, parsed.Fields...)
+	}
 	representation := "parsed_trace_marker"
 	if event.PluginFields != nil && event.PluginFields.MarkerNameOrigin != nil {
 		representation = "sql_app_startup"

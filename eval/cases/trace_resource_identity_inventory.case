@@ -1,0 +1,6 @@
+# HMC-03.2 natural request; system owns numeric/missingness/causal constraints.
+# Reuse the established value smoke oracle, not its over-specified question.
+source "$(dirname "${BASH_SOURCE[0]}")/trace_query_native_resource_identity.case"
+ID="trace_resource_identity_inventory"
+NAME="resource operations — natural identity and counter inventory"
+QUESTION="请整理附加 trace 在 0.0005 到 0.0055 秒内的资源操作明细，列出时间、操作、地址的原始整数和十六进制表示、资源子类编号和名称，并总结各类内存总量的变化。这些记录能说明什么问题？"

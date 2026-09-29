@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v47"
+const ParserVersion = "tracequery-v48"
 
 type EventType string
 
@@ -446,19 +446,20 @@ type FileFields struct {
 // admission-time payload verdict must outlive Event.FieldText's 300-byte
 // inventory clamp. Converter-authored CPU-unavailable B/E/S/F rows also use
 // it, as do CPU-unavailable wakeups; ordinary physical B/E/S/F/I and scheduler
-// rows keep it nil.
+// rows keep it nil unless an I row carries parsed NativeHook resource metadata.
 type PluginFields struct {
-	MarkerNameOrigin *tracewire.MarkerNameOrigin `json:"marker_name_origin,omitempty"`
-	HiSysEvent       *tracewire.HiSysEvent       `json:"hi_sysevent,omitempty"`
-	Contents         *string                     `json:"plugin_contents,omitempty"`
-	Domain           string                      `json:"plugin_domain,omitempty"`
-	EventName        string                      `json:"plugin_event_name,omitempty"`
-	Metric           string                      `json:"plugin_metric,omitempty"`
-	Value            string                      `json:"plugin_value,omitempty"`
-	Category         string                      `json:"plugin_category,omitempty"`
-	SpanTrack        string                      `json:"span_track,omitempty"`
-	Counter          *TraceCounterFields         `json:"-"`
-	JankEvent        *JankEventFields            `json:"jank_event,omitempty"`
+	NativeHookSemantics *types.TraceEventSemantics  `json:"native_hook_semantics,omitempty"`
+	MarkerNameOrigin    *tracewire.MarkerNameOrigin `json:"marker_name_origin,omitempty"`
+	HiSysEvent          *tracewire.HiSysEvent       `json:"hi_sysevent,omitempty"`
+	Contents            *string                     `json:"plugin_contents,omitempty"`
+	Domain              string                      `json:"plugin_domain,omitempty"`
+	EventName           string                      `json:"plugin_event_name,omitempty"`
+	Metric              string                      `json:"plugin_metric,omitempty"`
+	Value               string                      `json:"plugin_value,omitempty"`
+	Category            string                      `json:"plugin_category,omitempty"`
+	SpanTrack           string                      `json:"span_track,omitempty"`
+	Counter             *TraceCounterFields         `json:"-"`
+	JankEvent           *JankEventFields            `json:"jank_event,omitempty"`
 	// TraceMarkerCPUStatus/Reason are set only for converter-authored
 	// versioned marker records which deliberately have no physical CPU
 	// envelope. They never backfill Event.CPU.
@@ -1310,16 +1311,17 @@ const (
 // limit; Emitted is the bounded display count. EnumerationComplete never
 // follows from Emitted alone.
 type EventSearchCoverage struct {
-	ScopeKind           string  `json:"scope_kind"`
-	ScopeTimeStart      float64 `json:"scope_time_start,omitempty"`
-	ScopeTimeEnd        float64 `json:"scope_time_end,omitempty"`
-	ScopeTimestampRows  int     `json:"scope_timestamp_rows,omitempty"`
-	ScopeComplete       bool    `json:"scope_complete"`
-	MatchedTimeStart    float64 `json:"matched_time_start,omitempty"`
-	MatchedTimeEnd      float64 `json:"matched_time_end,omitempty"`
-	MatchedTotal        int     `json:"matched_total"`
-	Emitted             int     `json:"emitted"`
-	EnumerationComplete bool    `json:"enumeration_complete"`
+	ScanScope           *types.TraceEventSearchScanScope `json:"scan_scope,omitempty"`
+	ScopeKind           string                           `json:"scope_kind"`
+	ScopeTimeStart      float64                          `json:"scope_time_start,omitempty"`
+	ScopeTimeEnd        float64                          `json:"scope_time_end,omitempty"`
+	ScopeTimestampRows  int                              `json:"scope_timestamp_rows,omitempty"`
+	ScopeComplete       bool                             `json:"scope_complete"`
+	MatchedTimeStart    float64                          `json:"matched_time_start,omitempty"`
+	MatchedTimeEnd      float64                          `json:"matched_time_end,omitempty"`
+	MatchedTotal        int                              `json:"matched_total"`
+	Emitted             int                              `json:"emitted"`
+	EnumerationComplete bool                             `json:"enumeration_complete"`
 }
 
 // TraceLifecycleSuppression is the actionable typed consequence of one exact

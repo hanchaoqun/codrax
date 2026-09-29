@@ -86,6 +86,14 @@ var traceEventSemanticDescriptors = []TraceEventSemanticDescriptor{
 	{"source.contents", "source", "text", "", "源记录内容"},
 	{"source.contents_storage_class", "source", "text", "", "源内容存储类型"},
 	{"source.contents_base64", "source", "text", "", "源内容字节的Base64表示"},
+	{"resource.operation", "resource", "text", "", "资源操作（瞬时观测，不是执行区间）"},
+	{"resource.end_ts_ns", "resource", "int64", "ns", "资源结束原始时刻（不单独证明释放）"},
+	{"resource.size", "resource", "int64", "", "资源原始数量（单位依资源种类，不统一假定字节）"},
+	{"resource.callchain_id", "resource", "int64", "", "源调用栈引用（未展开，不证明函数执行）"},
+	{"resource.address_i64", "resource", "int64", "", "地址原始有符号整数（负号不判有效性）"},
+	{"resource.address_bits_hex", "resource", "text", "", "同一地址的64位十六进制位型（不判有效性）"},
+	{"resource.sub_type_id", "resource", "int64", "", "资源子类原始引用"},
+	{"resource.sub_type_name", "resource", "text", "", "已提供的资源子类名称"},
 }
 
 func LookupTraceEventSemanticDescriptor(key string) (TraceEventSemanticDescriptor, bool) {
@@ -154,6 +162,12 @@ func traceEventSemanticFieldValueValid(key, value string) bool {
 		return value == "null" || value == "text" || value == "blob" || value == "integer" || value == "real"
 	case "source.timestamp_ns", "source.tid", "marker.payload_pid":
 		return !strings.HasPrefix(value, "-")
+	case "resource.address_bits_hex":
+		if len(value) != 18 || !strings.HasPrefix(value, "0x") {
+			return false
+		}
+		_, err := strconv.ParseUint(value[2:], 16, 64)
+		return err == nil && value == strings.ToLower(value)
 	}
 	return true
 }
@@ -166,7 +180,7 @@ func traceEventSemanticsMatchEventType(value *TraceEventSemantics, eventType str
 	marker := eventType == "trace_mark"
 	for _, field := range value.Fields {
 		descriptor, ok := LookupTraceEventSemanticDescriptor(field.Key)
-		if !ok || descriptor.Family == "plugin" && !plugin || (descriptor.Family == "marker" || descriptor.Family == "counter") && !marker || descriptor.Family == "source" && !plugin && !marker {
+		if !ok || descriptor.Family == "plugin" && !plugin || (descriptor.Family == "marker" || descriptor.Family == "counter" || descriptor.Family == "resource") && !marker || descriptor.Family == "source" && !plugin && !marker {
 			return false
 		}
 	}

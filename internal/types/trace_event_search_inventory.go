@@ -66,16 +66,17 @@ type TraceEventSearchInventoryFilter struct {
 }
 
 type TraceEventSearchInventoryCoverage struct {
-	ScopeKind           string  `json:"scope_kind"`
-	ScopeTimeStart      float64 `json:"scope_time_start"`
-	ScopeTimeEnd        float64 `json:"scope_time_end"`
-	ScopeTimestampRows  int     `json:"scope_timestamp_rows"`
-	ScopeComplete       bool    `json:"scope_complete"`
-	MatchedTimeStart    float64 `json:"matched_time_start"`
-	MatchedTimeEnd      float64 `json:"matched_time_end"`
-	MatchedTotal        int     `json:"matched_total"`
-	Emitted             int     `json:"emitted"`
-	EnumerationComplete bool    `json:"enumeration_complete"`
+	ScanScope           *TraceEventSearchScanScope `json:"scan_scope,omitempty"`
+	ScopeKind           string                     `json:"scope_kind"`
+	ScopeTimeStart      float64                    `json:"scope_time_start"`
+	ScopeTimeEnd        float64                    `json:"scope_time_end"`
+	ScopeTimestampRows  int                        `json:"scope_timestamp_rows"`
+	ScopeComplete       bool                       `json:"scope_complete"`
+	MatchedTimeStart    float64                    `json:"matched_time_start"`
+	MatchedTimeEnd      float64                    `json:"matched_time_end"`
+	MatchedTotal        int                        `json:"matched_total"`
+	Emitted             int                        `json:"emitted"`
+	EnumerationComplete bool                       `json:"enumeration_complete"`
 }
 
 type TraceEventSearchInventoryRow struct {
@@ -134,6 +135,9 @@ func IsValidTraceEventSearchInventoryRecord(r ObservationRecord) bool {
 		return false
 	}
 	c := i.Coverage
+	if !ValidateTraceEventSearchScanScope(c.ScanScope) {
+		return false
+	}
 	if c.ScopeKind != "artifact" && c.ScopeKind != "selected_window" && c.ScopeKind != "scan_segment" {
 		return false
 	}
@@ -231,6 +235,7 @@ func CloneTraceEventSearchInventory(in *TraceEventSearchInventory) *TraceEventSe
 		return nil
 	}
 	out := *in
+	out.Coverage.ScanScope = CloneTraceEventSearchScanScope(in.Coverage.ScanScope)
 	out.Query.Patterns = append([]string(nil), in.Query.Patterns...)
 	out.Query.EventTypes = append([]string(nil), in.Query.EventTypes...)
 	out.Query.EventNames = append([]string(nil), in.Query.EventNames...)

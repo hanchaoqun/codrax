@@ -82,7 +82,7 @@ func TestTraceEventInventoryActualFinalizerKeepsMainQueryAfterNarrowDrilldowns(t
 		original := record.EventSearchInventory
 		if !found || !reflect.DeepEqual(view.Source, record.SourceRef) || !reflect.DeepEqual(view.Inventory.Query, original.Query) ||
 			view.ObservedAt != record.ObservedAt || !reflect.DeepEqual(view.ProducerNotes, record.RichNotes) ||
-			view.Inventory.Coverage != original.Coverage || !reflect.DeepEqual(view.Inventory.Rows, original.Rows) || !view.Inventory.RowsComplete || view.PromptRowsOmitted != 0 {
+			!reflect.DeepEqual(view.Inventory.Coverage, original.Coverage) || !reflect.DeepEqual(view.Inventory.Rows, original.Rows) || !view.Inventory.RowsComplete || view.PromptRowsOmitted != 0 {
 			t.Fatalf("actual model request lost source, original/matched window, exact event-name filter or member detail: %+v", view)
 		}
 		if len(original.Query.EventNames) == 0 {
@@ -99,7 +99,7 @@ func TestTraceEventInventoryActualFinalizerKeepsMainQueryAfterNarrowDrilldowns(t
 			t.Fatal("exact event-name filter was widened or rewritten")
 		}
 	}
-	if mainRows != 19 || !strings.Contains(prompt, "prompt_member_rows=19/32") || !strings.Contains(prompt, "not a request population") {
+	if mainRows != 19 || !strings.Contains(prompt, "prompt_member_rows=19/32") || !strings.Contains(prompt, "not unique I/O requests") {
 		t.Fatalf("broad inventory count/lookup boundary incorrect: main rows=%d", mainRows)
 	}
 	afterLedger := answerDocObservationLedger(ctx)

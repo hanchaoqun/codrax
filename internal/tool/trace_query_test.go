@@ -2633,11 +2633,11 @@ func TestTraceQueryLargeEventSearchUsesStreamingScan(t *testing.T) {
 	}
 	for _, want := range []string{
 		"event_search_coverage scope_kind=artifact scope_complete=true",
-		"scope_time=9.000000..9.010000",
-		"scope_duration_ms=10.000",
+		"observed_timestamp_envelope=9.000000..9.010000",
+		"observed_basis=physical_timestamp_rows observed_count=3",
 		"scope_timestamp_rows=3",
-		"matched_time=9.000000..9.000000 matched_total=1 emitted=1 enumeration_complete=true",
-		"selected_window_caliber=query_or_matched_rows",
+		"matched_timestamp_envelope=9.000000..9.000000 matched_total=1 emitted=1 enumeration_complete=true",
+		"not requested windows, rate denominators or recording coverage",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("streaming event_search typed coverage missing %q:\n%s", want, res.Summary)

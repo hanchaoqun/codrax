@@ -435,6 +435,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		TimeStart:                   start,
 		TimeEnd:                     end,
 		EventSearchCoverage: &EventSearchCoverage{
+			ScanScope:           eventSearchScanScope(q, false, "physical_timestamp_rows", scopeTimestampRows),
 			ScopeKind:           scopeKind,
 			ScopeTimeStart:      scopeTimeStart,
 			ScopeTimeEnd:        scopeTimeEnd,

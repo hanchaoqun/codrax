@@ -326,7 +326,7 @@ func TestRenderEventSearchCoverageIsKeyFirstAndFixedPoint(t *testing.T) {
 	report := strings.Join(body.lines, "\n")
 	for _, want := range []string{
 		"coverage={scope=selected_window",
-		"scope_ts=6793222.031000..6793225.370000",
+		"observed_ts=6793222.031000..6793225.370000",
 		"matched_ts=6793224.900123..6793225.100000",
 		"matched_total=2 engine_emitted=2 enumeration_complete=true",
 	} {

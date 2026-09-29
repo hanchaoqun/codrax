@@ -121,6 +121,20 @@ func traceEventInventoryPromptViews(t *testing.T, prompt string) []traceEventInv
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "- ")), &view); err != nil {
 			t.Fatal(err)
 		}
+		if view.Inventory != nil {
+			var projected struct {
+				Inventory struct {
+					Coverage struct {
+						Start float64 `json:"observed_time_start"`
+						End   float64 `json:"observed_time_end"`
+					} `json:"coverage"`
+				} `json:"inventory"`
+			}
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "- ")), &projected); err != nil {
+				t.Fatal(err)
+			}
+			view.Inventory.Coverage.ScopeTimeStart, view.Inventory.Coverage.ScopeTimeEnd = projected.Inventory.Coverage.Start, projected.Inventory.Coverage.End
+		}
 		if view.Inventory == nil {
 			var shared struct {
 				Rows []struct {

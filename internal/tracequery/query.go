@@ -984,9 +984,9 @@ func Run(idx *Index, q Query) Result {
 // eventInQueryBase); a simultaneous time range must not relabel a line-window
 // result. In particular, an indexed line query must not publish the full
 // index's FirstTs..LastTs envelope as its selected-window scope.
-func eventSearchScopeAccounting(idx *Index, q Query, explicitTimeStart, explicitTimeEnd bool) (string, float64, float64) {
+func eventSearchScopeAccounting(idx *Index, q Query, explicitTimeStart, explicitTimeEnd bool) (string, float64, float64, int) {
 	if idx == nil {
-		return EventSearchScopeArtifact, 0, 0
+		return EventSearchScopeArtifact, 0, 0, 0
 	}
 	lineBounded := q.LineStart > 0 || q.LineEnd > 0
 	// A unique span can narrow the effective query after the caller's explicit
@@ -996,11 +996,12 @@ func eventSearchScopeAccounting(idx *Index, q Query, explicitTimeStart, explicit
 		q.TimeEnd > 0 && q.TimeEnd < idx.LastTs
 	timeBounded := !lineBounded && (explicitTimeStart || explicitTimeEnd || effectiveTimeBounded)
 	if !idx.Windowed && !lineBounded && !timeBounded {
-		return EventSearchScopeArtifact, idx.FirstTs, idx.LastTs
+		return EventSearchScopeArtifact, idx.FirstTs, idx.LastTs, len(idx.Events)
 	}
 
 	start, end := 0.0, 0.0
 	seen := false
+	count := 0
 	for _, event := range idx.Events {
 		if lineBounded {
 			if q.LineStart > 0 && event.Line < q.LineStart {
@@ -1024,8 +1025,9 @@ func eventSearchScopeAccounting(idx *Index, q Query, explicitTimeStart, explicit
 			end = event.Ts
 		}
 		seen = true
+		count++
 	}
-	return EventSearchScopeSelectedWindow, start, end
+	return EventSearchScopeSelectedWindow, start, end, count
 }
 
 // runCancelFinalize is Run's single exit chokepoint for the SUPP-CANCEL

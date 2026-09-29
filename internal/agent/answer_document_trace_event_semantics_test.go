@@ -138,7 +138,7 @@ func TestTraceEventSemanticsActualFinalizerPreservesParsedBusinessFields(t *test
 			t.Error("long parsed marker was not tested beyond raw preview")
 		}
 	}
-	if !reflect.DeepEqual(views[0].Inventory.Query, original.Query) || views[0].Inventory.Coverage != original.Coverage || !views[0].Inventory.RowsComplete {
+	if !reflect.DeepEqual(views[0].Inventory.Query, original.Query) || !reflect.DeepEqual(views[0].Inventory.Coverage, original.Coverage) || !views[0].Inventory.RowsComplete {
 		t.Fatalf("parsed fields changed query scope/completeness: query=%+v coverage=%+v rows_complete=%v", views[0].Inventory.Query, views[0].Inventory.Coverage, views[0].Inventory.RowsComplete)
 	}
 	after, _ := json.Marshal(answerDocObservationLedger(ctx))
