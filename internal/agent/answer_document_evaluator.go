@@ -5819,6 +5819,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if facts := renderAnswerDocBusinessTreeFacts(ctx, promptLedger); facts != "" {
 		b.WriteString(facts)
 	}
+	b.WriteString(renderAnswerDocProcessProfiles(ctx, promptLedger))
 	if measurements := renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger); measurements != "" {
 		b.WriteString(measurements)
 	}

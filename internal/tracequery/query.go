@@ -452,6 +452,13 @@ func Run(idx *Index, q Query) Result {
 		return cachedFrameTimeline
 	}
 	switch q.View {
+	case "process_profile":
+		profile := buildProcessProfile(idx, q)
+		if faceCanceled("process_profile") {
+			break
+		}
+		res.ProcessProfile = profile
+		res.EvidencePack = evidenceFromProcessProfile(profile)
 	case "span_window":
 		if len(spanWindows) == 0 {
 			spanWindows, spanCaveats, spanCompaction = findSpanWindowsCompacted(idx, q, q.Limit)

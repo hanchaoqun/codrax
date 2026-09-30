@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"strings"
 	"testing"
 )
@@ -10,8 +11,8 @@ import (
 // and the three previously-untaught views are present.
 func TestTraceQueryViewTeachings_TableShape(t *testing.T) {
 	rows := TraceQueryViewTeachings()
-	if len(rows) != 21 {
-		t.Fatalf("expected 21 trace_query view rows, got %d", len(rows))
+	if len(rows) != len(tracequery.CanonicalViewNames()) {
+		t.Fatalf("expected %d canonical view rows, got %d", len(tracequery.CanonicalViewNames()), len(rows))
 	}
 	seen := map[string]bool{}
 	for _, row := range rows {
@@ -26,7 +27,7 @@ func TestTraceQueryViewTeachings_TableShape(t *testing.T) {
 			t.Fatalf("view %q has no when-to-use clause", row.View)
 		}
 	}
-	for _, want := range []string{"frame_timeline", "frame_flow", "frame_root_cause_bundle", "perf_stats", "perf_timeline", "trace_perf_bundle", "evidence_pack"} {
+	for _, want := range tracequery.CanonicalViewNames() {
 		if !seen[want] {
 			t.Fatalf("previously-untaught view %q missing from shared table", want)
 		}

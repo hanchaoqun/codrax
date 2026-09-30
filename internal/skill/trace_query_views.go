@@ -1,6 +1,9 @@
 package skill
 
-import "strings"
+import (
+	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"strings"
+)
 
 // Occupancy is a different ruler from full request latency or issue counts.
 const TraceIOInFlightTeaching = "For simultaneous IO requests use view=\"window_stats\", section io_inflight (not a new view). peak_requests/mean_requests measure half-open complete-pair occupancy, grouped by physical source/layer/endpoint family/device/operation across all issuers; query_pid is not a filter. busy_ms is interval-union time; request_ms is request·ms area; mean divides by the full selected window including idle time. issue_count counts admitted starts, not concurrency. Line bounds retain their existing priority over time bounds: a line-selected cohort has no inferred time denominator, so occupancy values are unavailable; query a time window without line bounds for those values. Read pairing coverage and omitted groups/segments; absent values mean unavailable, not zero. Never extend unpaired requests to the window end, add different IO layers, or equate occupancy with device queue depth, target waiting or a root cause. Use reader language such as 同时在途请求数、平均在途数、忙碌时长 with the measured group/window. accepted_pair_count counts complete requests intersecting the query, including carry-in/out, not in-window completions. It and issue_count have different populations: their ratio is not coverage. Full request residence is unclipped; occupancy uses only the intersection with the selected window."
@@ -30,6 +33,7 @@ type TraceQueryViewTeaching struct {
 // order. Every view the tool accepts has exactly one row here.
 func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 	return []TraceQueryViewTeaching{
+		{View: "process_profile", Params: "`pid` and `time_start`/`time_end`", When: tracequery.ProcessProfileTeaching},
 		{
 			View:   "event_search",
 			Params: "`pattern` as a literal substring (not a regex)",

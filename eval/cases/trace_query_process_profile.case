@@ -1,0 +1,14 @@
+# HMC-04.5: natural overview request; safety/caliber rules belong to producers.
+ID="trace_query_process_profile"
+NAME="trace query — observed process threads, waits and business work"
+QUESTION="只看附加 trace 的 1.000 到 1.020 秒，帮我概览 ui（线程10）所在进程：有哪些线程，主要在运行还是等待，哪些业务片段比较耗时？用一张清楚的表说明，缺少的信息也请说明。"
+HTRACE_FILE="eval/fixtures/hmosperf_process_profile/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="ui
+worker
+Load"
+EXPECT_PRIMARY_MATCHES_REGEX="(^|[^0-9])17([.]0+)?([^0-9]|$)
+(^|[^0-9])15([.]0+)?([^0-9]|$)"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="((未知|未能|缺|没有|不足).{0,90}(状态|调度|计量|记录)|(状态|调度|计量|记录).{0,90}(未知|未能|缺|没有|不足))"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

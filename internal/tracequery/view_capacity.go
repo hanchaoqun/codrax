@@ -203,6 +203,11 @@ type ViewCompaction struct {
 }
 
 var viewCapacityTable = map[string]ViewCapacity{
+	"process_profile": {
+		View: "process_profile", DefaultLimit: sharedDefaultResultLimit, MaxLimit: 40,
+		HeavyView: true, FallbackView: FallbackViewEventSearch,
+		FallbackEventTypes: []string{string(EventSchedSwitch)},
+	},
 	"event_search": {
 		View:         "event_search",
 		DefaultLimit: sharedDefaultResultLimit,

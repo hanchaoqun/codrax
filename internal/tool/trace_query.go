@@ -280,7 +280,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return json.RawMessage(traceQueryEventNameSchema(schema))
+	return traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -5171,6 +5171,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		}
 		b.WriteString("\n")
 	}
+	writeTraceProcessProfilePreview(&b, result.ProcessProfile)
 	if result.Timeline != nil {
 		b.WriteString("## Thread timeline\n")
 		if head := result.Timeline.HeadState; head != nil {
@@ -9100,6 +9101,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	at := observedAt.Format("2006-01-02T15:04:05Z07:00")
 	var out []types.ObservationRecord
 	out = append(out, traceQueryEventSearchInventoryObservation(result, ref, at, query)...)
+	out = append(out, traceQueryProcessProfileObservations(result.ProcessProfile, ref, scope, at)...)
 	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {
 		integrity := stats.WakeupTargetCPUIntegrity
 		if integrity.Status == tracequery.WakeupTargetCPUIntegritySuspectedDegradedAllZero &&

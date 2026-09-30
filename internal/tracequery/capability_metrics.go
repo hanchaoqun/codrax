@@ -15,6 +15,14 @@ func capabilityMetricDescriptors() []MetricCapability {
 		return MetricCapability{ID: id, Summary: summary, Outputs: outputs, Requirements: requirements, Limitations: []string{limit}}
 	}
 	metrics := []MetricCapability{
+		m("process_profile", "Observed native process membership, independent thread state accounts and business hotspot inventory.", []CapabilityOutput{
+			o("process_profile", "thread_count emitted_threads omitted_threads unavailable_threads unknown_membership_threads", "count", "full observed native member census versus display/availability counts; unknown membership is source-wide, not assigned to this process"),
+			o("process_profile.threads", "running_window_pct", "percent", "thread running time divided by full selected window; absent means unavailable"),
+			o("process_profile.threads.states", "unknown_ms", "ms", "unmeasured remainder, not zero time"),
+			o("process_profile.threads.states.values", "running_ms runnable_ms sleep_ms d_state_ms io_wait_ms stopped_ms dead_ms", "ms", "mutually exclusive per-thread window-clipped scheduler lanes; cross-thread time can overlap"),
+			o("process_profile.threads.sleep_groups", "duration_ms io_flag_positive_ms", "ms", "state/caller grouped waits; IO flags on S are a subset, missing caller stays unknown"),
+			o("process_profile.threads.business_hotspots", "inclusive_ms max_instance_ms", "ms", "closed synchronous marker elapsed time grouped per emitter/name; nested groups may overlap, not CPU time"),
+		}, r("sched_switch", nil, "sched_wakeup sched_blocked_reason trace_mark", "Single complete physical source, finite positive-width window and a source TID with native TGID; no marker vote or process-name inference."), ProcessProfileTeaching),
 		m("event_inventory", "Matched events, original coordinates and finite-search coverage.", []CapabilityOutput{
 			o("event_search_coverage", "matched_total emitted", "count", "matched population versus bounded display"),
 			o("window_stats", "event_counts", "count", "recognized event-family counts in the selected window"),

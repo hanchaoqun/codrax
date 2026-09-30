@@ -1,0 +1,18 @@
+# tracer: nop
+ui-10 (10) [000] .... 1.000000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ui next_pid=10 next_prio=120
+worker-11 (10) [001] .... 1.000000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=11 next_prio=120
+ui-10 (10) [000] .... 1.002000: tracing_mark_write: B|10|Load
+worker-11 (10) [001] .... 1.003000: tracing_mark_write: B|10|Load
+worker-11 (10) [001] .... 1.004000: sched_switch: prev_comm=worker prev_pid=11 prev_prio=120 prev_state=D ==> next_comm=idle next_pid=0 next_prio=120
+worker-11 (10) [001] .... 1.004010: sched_blocked_reason: pid=11 iowait=1 caller=submit_bio
+ui-10 (10) [000] .... 1.005000: sched_switch: prev_comm=ui prev_pid=10 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+irq-90 (90) [000] .... 1.007000: sched_wakeup: comm=ui pid=10 prio=120 target_cpu=000
+irq-90 (90) [001] .... 1.008000: sched_wakeup: comm=worker pid=11 prio=120 target_cpu=001
+ui-10 (10) [000] .... 1.008000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ui next_pid=10 next_prio=120
+worker-11 (10) [001] .... 1.009000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=11 next_prio=120
+ui-10 (10) [000] .... 1.010000: tracing_mark_write: E|10
+worker-11 (10) [001] .... 1.010000: tracing_mark_write: E|10
+late-12 (10) [002] .... 1.011000: tracing_mark_write: I|10|ObservedOnly
+ui-10 (10) [000] .... 1.020000: sched_switch: prev_comm=ui prev_pid=10 prev_prio=120 prev_state=D ==> next_comm=idle next_pid=0 next_prio=120
+worker-11 (10) [001] .... 1.020000: sched_switch: prev_comm=worker prev_pid=11 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+outside-13 (10) [002] .... 1.020000: tracing_mark_write: I|10|RightBoundary

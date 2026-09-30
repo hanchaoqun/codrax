@@ -1243,6 +1243,7 @@ type Result struct {
 	LifecycleSuppressions []TraceLifecycleSuppression `json:"lifecycle_suppressions,omitempty"`
 	Events                []EventView                 `json:"events,omitempty"`
 	Timeline              *TimelineResult             `json:"timeline,omitempty"`
+	ProcessProfile        *ProcessProfile             `json:"process_profile,omitempty"`
 	WindowStats           *WindowStats                `json:"window_stats,omitempty"`
 	SchedulerLatency      *SchedulerLatencyResult     `json:"scheduler_latency_stats,omitempty"`
 	IPCGraph              *IPCGraphResult             `json:"ipc_graph,omitempty"`
