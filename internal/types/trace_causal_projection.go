@@ -2784,8 +2784,11 @@ func traceCausalProjectionAnchorLabelMatchesEntity(label string, entity traceCau
 	// The explicit "pid=N" handle is unambiguous and stays open to prose.
 	entityPid, entityHasPid := traceCausalProjectionPidPeerForm(value)
 	if entity.typedLane {
-		if pid, name, ok := threadidentity.Identity(value); ok {
-			value, entityPid, entityHasPid = name, pid, true
+		if pid, _, ok := threadidentity.Identity(value); ok {
+			entityPid, entityHasPid = pid, true
+			if base, _, display := traceCausalProjectionTypedDiagnosticPIDDisplay(value); display {
+				value = base
+			}
 		} else if threadidentity.Parse(value).HasPID {
 			return false // contradictory or out-of-domain typed identity
 		}

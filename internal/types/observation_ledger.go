@@ -406,12 +406,14 @@ func observationRecordMatchesUserRuntimeTarget(record ObservationRecord, rm *Req
 				continue
 			}
 		}
-		if target.PID > 0 && target.PID <= RuntimeTargetMaxPID &&
-			traceCausalProjectionAnchorLabelMatchesEntity(record.Subject, traceCausalProjectionAnchorEntity{
+		if target.PID > 0 && target.PID <= RuntimeTargetMaxPID {
+			if traceCausalProjectionAnchorLabelMatchesEntity(record.Subject, traceCausalProjectionAnchorEntity{
 				value:     strconv.Itoa(target.PID),
 				typedLane: true,
 			}) {
-			return true
+				return true
+			}
+			continue // a matching comm cannot override a different known TID
 		}
 		if strings.TrimSpace(target.Thread) != "" &&
 			traceCausalProjectionAnchorLabelMatchesEntity(record.Subject, traceCausalProjectionAnchorEntity{

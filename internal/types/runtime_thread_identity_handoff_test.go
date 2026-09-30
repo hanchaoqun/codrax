@@ -30,6 +30,13 @@ func TestRuntimeThreadIdentityHandoffUsesQueryGrammar(t *testing.T) {
 			t.Errorf("invalid/cursor target matched: %+v", target)
 		}
 	}
+	rm := &RequestModel{RuntimeTargets: []RuntimeTarget{{Kind: RuntimeTargetKindThread, PID: 10, Thread: "ui", Source: "user_explicit"}}}
+	if !ObservationRecordMatchesUserRuntimeTarget(ObservationRecord{Subject: "10"}, rm) {
+		t.Fatal("typed numeric query subject lost")
+	}
+	if ObservationRecordMatchesUserRuntimeTarget(ObservationRecord{Subject: "ui-11"}, rm) {
+		t.Fatal("shared comm overrode explicit TID")
+	}
 	if traceCausalProjectionAnchorLabelMatchesEntity("ui-10", traceCausalProjectionAnchorEntity{value: "ui (tid=10)"}) {
 		t.Fatal("typed-only grammar leaked into prose authority")
 	}
