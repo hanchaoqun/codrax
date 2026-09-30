@@ -5113,3 +5113,78 @@ RequestModel新增`runtime_thread_lookups`（最多8个），包含源TID/精确
 本批未修改只读调度loop、链上主因/业务线索、显式时间窗/因果投影、写风险/审批和600/300/600秒策略；未增加活跃流固定时长降级。代码/测试三片，文档及小型原判一批汇总；完整能力累计16、开放63，本批完整答案残留2、稳定验收父项5。
 
 三笔代码/测试提交`4b5589fbc`、`4a7d4fe9e`、`0550003d4`已普通推送main，16298正式exit0（618fb8d39→0550003d4），核对本地/远端0/0；本文、任务清单、架构及两份小型评测报告统一提交。原始失败日志、完整答案及payload未覆盖，后续只读审计不能把本批机器PASS当完整人工验收。
+
+## 199. 2026-09-29：聚合选择范围保留与完整睡眠统计
+
+### 199.1 开工数量、参考意图与本批范围
+
+开工`5c1e84239`主仓干净且同步；唯一ID复算79、已交付16、开放63、重复0，开放48待实施/9部分实施/2待验收/3验收中/1持续执行。仍按完整能力轨04.5与高影响缺陷轨01.3/16.4推进，不将过去机器PASS或局部实现倒签为完整人工通过。
+
+对照参考`sleep/thread_sleep_summary.yaml`和`core/preprocess/sleep_ops.py`的`compute_thread_sleep_summary`、递归阻塞树及formatter实现，核对其实际设计：先按窗口从S段统计次数/总量/均值/最大值，再单独做W-S匹配、阻塞者聚合与top段详情；曾将W-to-W间隔误计睡眠造成约3倍虚高，因此统计与配对必须解耦。树的默认限制为深度5、每节点5分支、总50节点、详情3段；这些展示限制不应改变总体统计。
+
+不能照搬的细节：参考只统计入口S；±5µs的W-S配对有数据前提，不授本项目链资格；交叠函数的最深/最长选择或串联并非完整调用栈；结构化blocker取top1而文本可top5，不能据标题“最大阻塞者”将背景对象排成根因。单段时formatter省略avg/max的做法也不适合用户明确问平均/最长。本项目已经有原生状态时间线、唤醒递归引擎和因果资格，复用现有路径，在其上补缺少的完整统计与准确传递，不另建近邻配对引擎或同义工具。
+
+本批父能力新增0、可用子能力/系统修复2组。04.5仍含递归睡眠依赖和D-state业务解释的完整组合退出，不把新增统计称整个父能力交付。睡眠问句仅给对象/窗口/所求统计与图，未知、边界和因果约束由工具/schema/结构验证负责，不让用户承担。
+
+### 199.2 聚合交接：身份、选择范围与事实主体分离
+
+`5a2099b7a`提取已有查询语法到无业务依赖的`internal/threadidentity`。`Parse`保模糊查询用途，`Identity`只给typed载体提供精确线程身份：`ui-10`、`ui (tid=10)`、`ui-10 [10]`等统一，重复数字必须一致且在合法域内。Analyzer先检查显式PID范围，防止负数/越界被规范化洗白；仅线程kind规范化，原句/自由文本不按此语法新增硬门。
+
+有限命名目标下，`TraceQueryAggregateSelectionSubject`先消费具体producer的校验器，校验来源、窗口、角色、完整payload、原生源TID及实际查询选择器。目前接入process_profile；将来其它聚合必须供自己的typed校验，不能仅凭任意记录的query hint放行。只在prompt范围判定时借用已证明选择主体，不改变ledger实际`process 10`主体、成员角色、原始观测或因果链。
+
+公开测试以真实TraceQuery→TurnA→BuildInitialInstruction串起实际bounded_fact_set+named_target组合，覆盖四种身份拼法、3成员/未知/Load/调用点保留；来源、窗口、选择器、角色篡改及旁邻普通记录均不获保留。进程集合内的成员可以被观察，不因此成为用户诊断主线程或根因候选。
+
+全仓暴露兼容性后`d5b4c30c7`保留纯数字查询主体（如`100`）的精确匹配，恢复既有多窗口及JIT/类校验业务事实交接；已知PID匹配失败不能再回退到相同comm匹配另一个TID。补positive/negative公开回归。AST状态渲染审计显式登记新中立包的真实导入闭包，未放松字段审计。
+
+### 199.3 睡眠统计：先总体计量，再独立限制明细/链
+
+`627b714ba`在原`target_window_states.sleep_inventory`增加`state_statistics`，按S、D、scheduler标记IO分别提供interval_count、interval_sum_ms、mean_ms、max_ms。来自全部已构造且窗口裁剪的正时长区间；与既有union total分开，重叠输入不能用union除区间数。明细32条上限及链深度/分支/最小时长筛选均不改变统计。沿用window_stats/wakeup_chain/root_cause_rank/frame_root_cause_bundle，不增加一套选择/配对规则。
+
+独立`target_sleep_state_summary`观测保supporting_coverage，同源同窗进入有限目标上下文。测试39区间仅展示32时各状态仍13段，重叠输入60ms逐段合计与40ms并集明确分离，真实公开查询与最终消息保留均值/最长；加入统计前后因果投影不变。开放尾或未知头不因统计存在而被说成物理等待已完成。
+
+实际消息二次审计发现，原公开测试没有显式窗，live的状态＋等待＋次数分类下仍被通用展示预算挤出：所求事实索引未登记睡眠总体/分状态摘要/区间。原payload正确而最终数值正确不能反证交接完整。先将公开测试扩为实际显式窗、PID、两次查询序列及有无direct_waker矩阵，正式复现FAIL；`9daf89eb8`统一补事实索引后PASS。总体与分状态摘要没有发生时点/直接唤醒/已记录原因/IO请求时延权限，只有真实区间映射发生时间；旁邻线程摘要仍被过滤。不改ledger、因果投影、答案硬门或原始问答文本。这一末版修复只有回归证据，不倒签627b714ba的live。
+
+`09e1ef1ec`补全仓发现的集成遗漏：诊断渲染显式展示完整统计且保持行容量，字段处置枚举登记新结构；补采census将新predicate归入状态而非other。真实补采fixture仅增加两条S/D摘要，原63条移除这两条及既有并发三条后保持完全相同，最终68条精确分为根因12/链9/状态14/其他33，不重签其它旧计数。Event侧表promotion审计登记同一中立包真实闭包，严格类型检查继续有效。
+
+### 199.4 两例真实结果及人工审计
+
+固定89539恰好2并行×1，runner正式exit0，机器2/2、完整人工0/2；二进制627b714ba，不混签后续修复。进程139秒、睡眠279秒，均未读源码、未超时、未fallback。机器原判见[汇总](../../eval/parallel_selected_summary_hmc_aggregate_sleep_20260929.md)，完整过程/实际上下文/答案/指纹见[人工审计](../../eval/parallel_selected_summary_hmc_aggregate_sleep_20260929_manual_audit.md)。
+
+- **进程：** 实际查询未传PID，唯一typed源TID自动补齐命中；finalizer有已观测进程概览、3成员/late20ms未知/17与15ms运行/8与7ms业务热点，最终也正确保留，§198范围投影丢失问题本次live改善。仍将ui单线程1条业务树记录当进程总数，又另列worker和末尾2条；把submit_bio调用点和IO标记说成块设备完成；空闭合热点说成late无任何打点，实际有I型ObservedOnly。状态措辞另有S与D/IO混用。主概览已到场不能再以“全部上下文丢失”概括，也不能笼统称纯模型波动。
+- **睡眠：** S次数2/总4ms/均2ms/最大3ms，IO次数1/总均最大3ms，两个唤醒者与时点都正确。预分析却先按窗外起点算4ms/2.5ms，被后续准确查询纠正，说明噪音仍存在。图首次有真实唤醒箭头及状态自箭头，普通generic+flow分类进入源码关系门，反复missing_call_anchor/call_edge_unproven后删除两条唤醒关系，最终只剩目标的两条S注释。7次成文工具调用、6次patch、指标5次reject；不是Mermaid库限制，也不是只有视觉样式欠佳。附录的正确状态/拓扑不能替代用户所求图。
+
+### 199.5 失败保留、验证和发布
+
+相关公开矩阵、身份矛盾/非法PID、精确源窗口角色、旁邻负控、39/32容量、区间合计/并集及实际finalizer消息先行。首轮相关编译字段Comm/旧出处常量、重复身份隐藏于标点的问题均已修，原日志保留。身份首轮全仓既有语义事实和多窗口失败由数字主体兼容解决，不删除这些保护；既有pytest fallback一次10秒空stdout失败定向复验通过，未改超时，冻结全仓仍需独立验证。
+
+全仓阶段原件严格分开：79681主动终止exit143；93363正式exit1，暴露身份、真实导入闭包、新结构诊断/census遗漏；64305在发现剩余集成遗漏后仅终止本次已核实的进程组，exit143，不称PASS。末版登记定向47296正式exit0（threadidentity/types/tracequery/tracediag/tool五包），包含B1626多窗口投影与公开状态/候选、B1607四视图、补采披露、pytest fallback。未增测试超时、删断言、放宽容量或把旧FAIL改签。
+
+09e1ef1ec独立全仓72034正式exit0，88测试包PASS/13无测试/零FAIL；agent111.120s、tool486.070s。六包相关race61956、构建97708均正式exit0。完成真实消息复核后发现并修复上述事实索引遗漏，另以9daf89eb8重新冻结：独立全仓10643正式exit0，88测试包PASS/13无测试/零FAIL，agent119.992s、hitraceconv184.091s、tool476.022s、tracequery145.062s；相关race34135、构建69512均正式exit0。此次race覆盖types/tracequery/tracediag/tool/agent所选用例，threadidentity没有命中所选正则，其前版完整相关race及末版全仓另有收据，不谎称该包末版重复跑过race用例。构建revision为9daf89eb8c43-dirty，dirty仅三份文档和两份报告。上述两例live仍使用627b714ba，不能拿后续单测声称新版本已真实跑过。
+
+| 本地验证原件 | SHA-256 |
+| --- | --- |
+| `/tmp/codrax-hmc199-full.log`（主动终止143） | `bf2b2c65f37e050aaf160ad5c23d8249e8b63683811a85e85b56e66552a7a44f` |
+| `/tmp/codrax-hmc199-full-final.log`（身份/结构集成FAIL） | `ccb80fc02e8ee293866501c39e19e470ba1c0eeef09e9f0dda460238ba1f09fe` |
+| `/tmp/codrax-hmc199-full-verified.log`（修复中主动终止143） | `b63e72de72f5f4648fb3facfa1b86787ce192fe38a208f4efe48bf41dfc37f9c` |
+| `/tmp/codrax-hmc199-registration-verified.log`（修后登记回归PASS） | `7869b1184a4b78a090f6e32da17bc5fc666a1f8c796f941b7fb0514a034b0ec6` |
+| `/tmp/codrax-hmc199-full-integrated.log`（09e版全仓PASS） | `5b507c0b73cf2fbb34b9a613b17b586c7837f7a8d45489c79c4c33d5c79edd3d` |
+| `/tmp/codrax-hmc199-race-integrated.log`（09e版六包相关race PASS） | `26716cd2a10026cea44e5d12ac1eb8862d7012aab4008e916325f1d449d3925c` |
+| `/tmp/codrax-hmc199-build-integrated.log`（09e版构建PASS） | `243c7047cb43adb4fa82c4d972ba99b251c75bbec351c50fa2d8974d3d63e818` |
+| `/tmp/codrax-hmc199-handoff-repro.log`（真实显式窗分类公开反例FAIL） | `d8c76810ddd0a99da04ba395e1be1ee7e1eae5d6abc972624337b33421f0f6e7` |
+| `/tmp/codrax-hmc199-handoff-related.log`（索引修复后相关公开回归PASS） | `add3e51abf89f6a9d7824182c12a2328ebe48b22fc30a4993309c164831f99b2` |
+| `/tmp/codrax-hmc199-race-handoff.log`（末版相关race PASS） | `e056af2dae0d1125c700edf752e7f4b59a5c673ede7d15e651d9f00e09757247` |
+| `/tmp/codrax-hmc199-build-handoff.log`（末版构建PASS，dirty仅文档/报告） | `e2708d43d1a5964a25c227fdfca4a0a2f84167a7e41689f447ae9e0ec90351b8` |
+| `/tmp/codrax-hmc199-full-handoff.log`（末版独立全仓PASS） | `0155cdbc92ea7e7dccdc5dea076f5ff05fa3ff421e823aa921adeb9dbbfbe623` |
+
+### 199.6 剩余项与下一批ROI
+
+1. **16.4/12.5/04.5运行时关系通路，P1。** 本次源码审计证实源调用门只按QFRootCauseTrace整体退出，已有局部运行时通路仅处理frame temporal和业务contain，没有通用有限事实唤醒关系。下一步统一局部producer关系提供者→图教学/精确证据→修复候选，检验来源、方向、窗口、端点实例和重复发生；覆盖关系/时序/逻辑图及源码混合，不能靠附件存在全局豁免、硬改family、箭头文字或case名绕门。通用运行时边的修复不等待12.2帧连接器；帧协议专属完整性仍保留其依赖。
+
+   已定位可复用与不可照搬的接面：`RuntimeDiagramRelationProvider`已经统一authoring/preemit/repair/post校验，目前只有business contain；其入口按record.Subject过滤目标，不能原样用到wakeup（Subject是唤醒方，Object才是被唤醒方）。已有`BuildTraceWakeupEdgeRoleAuthorities`示范按wakee匹配及同query/window绑定，但它要求priority/CPU字段，是端点角色说明而非通用关系证明，不能直接把其输出升格为图边。应在producer适配层保留真正事件发生身份与双端角色后再按问题范围投递，不将同一对线程的多次唤醒压成无时序的名称边。
+2. **04.5参考完整退出，P1。** 全量统计和现有链引擎保留；补递归树的缺边/容量/裁剪、链上业务caller与D-state解释组合。界面分组不得冒充因果树。接着03.3原生资源栈，避免局部措辞继续占用能力轨。
+3. **01.3/16.4作用域与上下文。** 区分总体、被筛选的业务实例、原始marker与闭合热点；caller不赋设备完成含义，预分析按已接受窗、发现实体不能派生用户要求。完整profile已经保留，不再反复修已解决的同一过滤位置；供证充分的个别误述留原FAIL但不追第三例求绿。低优先矩阵补充：ValidProcessProfile允许源线程comm缺失，但聚合选择适配仍拼接comm-PID；仅TID载体的保留尚未验收，需公开来源反例后复用规范label，不把这个未验证变体写成已支持或挤占图通路P1。
+4. **17.7/17.6、18.5及5验收父项。** 稳定WAL分型和只读登记CLI/controller/持久收尾不重复施工；持续写入快照、存储类型/rowid/多来源代次、static_initialize/普通viewer、实机格式、跨进程恢复及provider计划义务/标准surface仍按原ID独立验收。03.2/04.2/08.3/08.4/18.2不代签。
+
+批末再次复算79/16/63、重复0；完整父能力新增0，新增2组子能力/系统修复，本批完整人工残留2份、稳定验收父项5。只读调度loop、链上根因/业务线索、显式窗与自动补齐、写风险/审批、600/300/600秒及活跃流保护未改。待完成项全部保留原ID和明确退出，不以改编号或缩范围让数字下降。
+
+五笔代码/测试`5a2099b7a`、`627b714ba`、`d5b4c30c7`、`09e1ef1ec`、`9daf89eb8`已普通推送main，68682正式exit0（5c1e84239→9daf89eb8），核对本地/远端0/0；三份文档及机器/人工两份小型报告统一收尾提交。原始FAIL、完整答案、payload及所有回归日志保留，不改写旧机器和人工判定。
