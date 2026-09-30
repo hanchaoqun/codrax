@@ -466,6 +466,7 @@ func mermaidInfoLineDirective(info string) (directive string, keyword string) {
 func preprocessMermaidBody(body string) string {
 	body = mermaidcompat.NormalizeSourceForMarkdown(body)
 	body = normalizeSequenceDiagramEndpointAliases(body)
+	body = mermaidcompat.NormalizeSequenceParticipantDisplayLabels(body)
 	body = flattenMermaidSubgraphs(body)
 	body = normalizeMermaidLabels(body)
 	return body

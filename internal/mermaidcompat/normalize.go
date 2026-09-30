@@ -17,7 +17,7 @@ import (
 func NormalizeSourceForMarkdown(body string) string {
 	original := body
 	body = NormalizeSequenceParticipantMessagePrefixes(body)
-	body = NormalizeSequenceParticipantDisplayLabels(body)
+	body = NormalizeSequenceMultilineNotes(body)
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartMultilineSubgraphLabels(body)
 	body = NormalizeFlowchartMultilinePipeEdgeLabels(body)
@@ -537,16 +537,15 @@ func NormalizeFlowchartRepeatedDotEdges(body string) string {
 	return strings.Join(lines, "\n")
 }
 
-// NormalizeSequenceParticipantDisplayLabels quotes parser-sensitive display
-// labels in participant/actor declarations. Mermaid permits an alias such as
+// NormalizeSequenceParticipantDisplayLabels is a terminal-parser shim for
+// participant/actor display labels. The ASCII parser requires quotes around
+// aliases such as
 //
 //	participant BusCtx as "o.busCtx.AnalysisIR"
 //
-// but renderer versions disagree on the unquoted dotted/spaced form. The
-// participant identifier on the left remains byte-identical, so message
-// topology and typed endpoint identity are untouched; only the presentation
-// label is made portable. Already quoted and simple identifier labels remain
-// unchanged, making the pass idempotent.
+// but Mermaid.js renders those quotes literally. Never apply this shim to
+// persisted Markdown or browser source. Identifiers and message topology are
+// unchanged; already quoted and simple labels make this pass idempotent.
 func NormalizeSequenceParticipantDisplayLabels(body string) string {
 	if !isSequenceDiagram(body) {
 		return body

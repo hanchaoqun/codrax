@@ -511,7 +511,7 @@ func TestNormalizeSequenceParticipantMessagePrefixes_LeavesDeclarationsAlone(t *
 	}
 }
 
-func TestNormalizeSequenceParticipantDisplayLabels_QuotesCrossRendererSensitiveAliases(t *testing.T) {
+func TestNormalizeSequenceParticipantDisplayLabels_QuotesTerminalParserAliases(t *testing.T) {
 	in := strings.Join([]string{
 		"sequenceDiagram",
 		"    participant Run as Orchestrator.Run",
@@ -523,7 +523,7 @@ func TestNormalizeSequenceParticipantDisplayLabels_QuotesCrossRendererSensitiveA
 		"    BusCtx-->>ir: ir := o.busCtx.AnalysisIR",
 	}, "\n")
 
-	got := NormalizeSourceForMarkdown(in)
+	got := NormalizeSequenceParticipantDisplayLabels(in)
 	for _, want := range []string{
 		`participant Run as "Orchestrator.Run"`,
 		`participant AnalyzePhase as "Orchestrator.runAnalyzePhase"`,
@@ -537,7 +537,7 @@ func TestNormalizeSequenceParticipantDisplayLabels_QuotesCrossRendererSensitiveA
 			t.Fatalf("portable sequence normalization missing %q in:\n%s", want, got)
 		}
 	}
-	if again := NormalizeSourceForMarkdown(got); again != got {
+	if again := NormalizeSequenceParticipantDisplayLabels(got); again != got {
 		t.Fatalf("participant display-label normalization must be idempotent:\nfirst:\n%s\nsecond:\n%s", got, again)
 	}
 	beforeEdges := ParseEdges(in)

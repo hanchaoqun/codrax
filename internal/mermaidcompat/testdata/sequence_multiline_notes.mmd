@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant L2 as "loader-2"
+    participant T41 as "target-41"
+    participant W3 as "worker-3"
+    Note over T41: 10.001–10.004s
+    S态睡眠 (3ms)
+    Note over T41: 10.004–10.005s
+    可运行 (0.5ms)
+    Note over T41: 10.005–10.006s
+    S态睡眠 (1ms)
+    Note over T41: 10.006–10.007s
+    可运行 (1ms)
+    Note over T41: 10.009–10.012s
+    IO等待 (3ms)
+    Note over T41: caller=io_schedule
