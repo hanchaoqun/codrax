@@ -1156,6 +1156,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 
 ### 6.6 Validator 链 — 三层校验
 
+**运行时唤醒图与显示修复（HMC §200）**：`RuntimeDiagramRelationProvider`从生产者的native链边或解析后的scheduler事件行提供同源/同窗/同发生实例的`wakeup`端点，统一供证、发射、局部修补和后校验。事件行仅证明一次唤醒，不授链上根因、等待归因、算力收益或源码call权限；有限事实不要求business marker，查询扩展包络也不能扩大事件的请求半开窗资格。通用Mermaid归一化将紧邻Note的明确纯文本续行折成`<br/>`，保消息/声明/控制/注释/空行和歧义边界，不生成箭头或修正测量值。Markdown、typed图、HTML与终端共用修复；终端parser所需的participant引号仅在内部shim添加，不能污染浏览器可见标签。真实语法失败仍遵守L7，库子集差异仍遵守L8。
+
 `internal/orchestrator/contract_check_block.go` 在 mutation 写入 Mutable 之前跑校验，HARD / Layer 2 / Layer 3 三层：
 
 **HARD correctness**（永远 strict）：
