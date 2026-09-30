@@ -205,3 +205,9 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 公开基线五类正例先红后绿；正反矩阵包括gzip包裹RMQ/OHOSPROF/PERFILE2/SIMPLEPERF、内嵌gzip采样、多member/嵌套/CRC、库存无能力与暖代次。显式文本路线仅完整解压且如实提示事件未统计，不发假语义产物。ZIP/PERFILE2同根假raw路径同时去除，容器原件身份仍保留。尚缺的search-only目录、实机RMQ/OHOSPROF更多版本、真实外部TS和原生Linux/Windows保持开放；本机合成二进制测试不能充当这些验收。
 
 真实PERFILE2专项补证：参考`test_brbe.data`只读作裸输入及临时gzip包装的共同原件，两者经默认准备和公开`perf_stats`均保留12,000样本、总权重43,037,682及相同热点/时间范围。环境变量控制的用例和详细运行日志见主账本§22；真实外部provider未由此验证，BRBE名只是采集文件名，不是本批语义能力声明。
+
+## 10. SQLite 标量接入增量（2026-09-30，HMC-17.7 N）
+
+`b503127d3`对HiSys时间/TID消费保实际SQLite存储类：合法时间必须是非负INTEGER纳秒，NULL/TEXT/REAL/BLOB/负值留SQL fidelity与覆盖，不中断健康兄弟也不补0；TID的合法INTEGER源值含0，NULL未知，非法类型/范围可逆保留但无线程身份。existing SQLite及外部provider公开路径、超2^53纳秒、wire预算/互斥及JSON语义目录都有回归，`b172b43cd`补字典坏名称组合契约。
+
+这不是任意DB/所有表标量全部完成。自然问题live表格8行正确，完整性回答仍FAIL：相关表的坏行覆盖被前24个通用coverage挤出actual finalizer，预分析时域只读ftrace哨兵生成0..0。下一高ROI增量是查询所用事件族的质量交接及统一时标，不能把模型无从看到的异常归纯波动，也不堆更多专表提示。原始HiSys rowid、多文件/代次、持续写入快照、static_initialize/普通viewer与实机/平台仍开放；详细证据、验收与发布见主账本§201。
