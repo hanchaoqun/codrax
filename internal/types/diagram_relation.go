@@ -161,6 +161,11 @@ const (
 	// causality. It is typed-only and primarily serves runtime trace diagrams;
 	// edge labels cannot mint it. Maps to ClaimExternalObservation.
 	DiagramRelTemporal DiagramRelationKind = "temporal"
+
+	// DiagramRelWakeup is one recorded scheduler wake event, waker -> wakee.
+	// Typed runtime instance authority is required; labels cannot mint it.
+	// It proves neither a source invocation nor delay attribution/root cause.
+	DiagramRelWakeup DiagramRelationKind = "wakeup"
 )
 
 // allDiagramRelationKinds is the canonical iteration order for tests
@@ -182,6 +187,7 @@ var allDiagramRelationKinds = []DiagramRelationKind{
 	DiagramRelDataFlow,
 	DiagramRelReturn,
 	DiagramRelTemporal,
+	DiagramRelWakeup,
 }
 
 // AllDiagramRelationKinds returns the canonical iteration order.

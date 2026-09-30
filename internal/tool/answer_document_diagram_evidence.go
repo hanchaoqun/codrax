@@ -539,7 +539,7 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				// families still treat an explicit relation_kind as a factual
 				// assertion: a schema-valid enum is not its own evidence.
 				runtimeEndpoint := runtimeDiagramEndpointKnown(runtimeRelations, fromSymbol) || runtimeDiagramEndpointKnown(runtimeRelations, toSymbol)
-				if strictBodyEdgeKeys[anchorKey] && (relation != types.DiagramRelContain || !runtimeEndpoint) {
+				if strictBodyEdgeKeys[anchorKey] && !runtimeEndpoint && relation != types.DiagramRelWakeup {
 					continue
 				}
 				if !diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) &&
@@ -1155,6 +1155,7 @@ func diagramStrictLogicalRelationNeedsEvidence(relation types.DiagramRelationKin
 		types.DiagramRelPrecedence,
 		types.DiagramRelContain,
 		types.DiagramRelObserve,
+		types.DiagramRelWakeup,
 		types.DiagramRelTemporal:
 		return true
 	default:

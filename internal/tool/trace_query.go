@@ -9998,7 +9998,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Value:       traceQueryObservationMSValue(edge.LatencyMs),
 				Unit:        "ms",
 				Summary:     traceQueryWakeupEdgeSummary(edge),
-				RichNotes:   traceQueryTypedWakeupEdgeRichNotes(edge, edgePath),
+				RichNotes:   append(traceQueryTypedWakeupEdgeRichNotes(edge, edgePath), traceQueryWakeupEventNote(ref, edge)),
 				SupportRefs: traceQueryObservationSupportRefs(ref, edge.WakeupLine, edge.WakeupLine),
 				ObservedAt:  at,
 				Confidence:  0.82,

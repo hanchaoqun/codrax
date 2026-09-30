@@ -3606,6 +3606,8 @@ func diagramParticipantReaderArrowLabel(relation types.DiagramRelationKind, lang
 			return "返回"
 		case types.DiagramRelTemporal:
 			return "随后发生（未证明因果）"
+		case types.DiagramRelWakeup:
+			return "唤醒"
 		}
 		return ""
 	}
@@ -3638,6 +3640,8 @@ func diagramParticipantReaderArrowLabel(relation types.DiagramRelationKind, lang
 		return "return value to"
 	case types.DiagramRelTemporal:
 		return "occur before (causality unproven)"
+	case types.DiagramRelWakeup:
+		return "wake up"
 	default:
 		return ""
 	}

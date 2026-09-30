@@ -41,11 +41,32 @@ func testSleepStatisticsPublicBoundedFinalContext(t *testing.T, directWaker bool
 		if err != nil || !r.Success {
 			t.Fatalf("query: %v %+v", err, r)
 		}
+		// A scheduler-only trace need not contain any business marker. Keep
+		// the real event records but remove the optional business-tree carrier.
+		var kept []types.ObservationRecord
+		for _, record := range r.Observations {
+			if record.Predicate != types.TraceBusinessTreePredicate {
+				kept = append(kept, record)
+			}
+		}
+		r.Observations = kept
 		ctx.Mutable.AppendDispatchToolResult(r)
 		observations = append(observations, r.Observations...)
 	}
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: ctx.Mutable.DispatchToolResults()})
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	relations := tool.RuntimeDiagramRelations(answerDocObservationLedger(ctx), &ctx.AnalysisIR.RequestModel)
+	if len(relations) == 0 {
+		t.Fatal("missing native wakeup relation")
+	}
+	for _, relation := range relations {
+		if relation.Kind != types.DiagramRelWakeup {
+			continue
+		}
+		if !strings.Contains(prompt, relation.FromIdentity) || !strings.Contains(prompt, relation.ToIdentity) {
+			t.Fatal("actual finalizer instruction lost the copyable event recipe")
+		}
+	}
 	for _, want := range []string{"2 intervals; clipped sum=4ms, mean=2ms, max=3ms", "1 intervals; clipped sum=3ms, mean=3ms, max=3ms", "not proof of cause or completion"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("final context lost full-population statistic %q", want)

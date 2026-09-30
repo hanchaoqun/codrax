@@ -1368,6 +1368,9 @@ const (
 	// compatibility caliber fields are deliberately not renamed.
 	TraceNoteKeyWakeupTs             = "wakeup_ts"
 	TraceNoteKeyWakeupLatencyCaliber = "wakeup_latency_caliber"
+	// Producer-owned JSON event instance for diagram relations only; it does
+	// not grant causal ranking, priority inversion, or source-call authority.
+	TraceNoteKeyWakeupEventInstance = "wakeup_event_instance"
 	// TraceNoteKeyWakerPriority / TraceNoteKeyWakeePriority are role-bound
 	// display pairs ("priority/class") on one exact wakeup edge. B1034
 	// promotes them from unparsed display literals because the compact final
@@ -2202,6 +2205,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"nodes", "chain_path", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyWakeupTs, "chain_path", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWakeupLatencyCaliber, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakeupEventInstance, "chain_path", TraceNoteCarrierHardConsumer},
 	{"latency", "chain_path", TraceNoteCarrierDisplayOnly},
 	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
 	// census notes — the model evidence feed (internal/context wait-object

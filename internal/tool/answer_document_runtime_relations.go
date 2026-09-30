@@ -11,7 +11,8 @@ import (
 )
 
 // RuntimeDiagramRelation is a display-only, directed instance relation. It is
-// not EvidenceItem, a call, a wakeup, or a causal/root-cause permission.
+// not EvidenceItem, a source call, or a root-cause/impact permission. Each
+// provider proves only its exact relation (e.g. nesting or a recorded wakeup).
 type RuntimeDiagramRelation struct {
 	Kind                     types.DiagramRelationKind
 	FromIdentity, ToIdentity string
@@ -23,9 +24,22 @@ type RuntimeDiagramRelation struct {
 }
 
 // RuntimeDiagramRelationProvider keeps producer validation separate from
-// diagram rendering and repair. There is deliberately only one provider today.
+// diagram rendering and repair. Providers own relation-specific scope checks.
 type RuntimeDiagramRelationProvider interface {
 	Relations(types.ObservationLedger) []RuntimeDiagramRelation
+}
+
+func runtimeDiagramHasNamedBoundedTarget(rm *types.RequestModel) bool {
+	if rm == nil || !rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() {
+		return false
+	}
+	for _, target := range rm.RuntimeTargets {
+		if !types.RuntimeTargetIsExplorationCursorSource(target.Source) &&
+			((target.PID > 0 && target.PID <= types.RuntimeTargetMaxPID) || strings.TrimSpace(target.Thread) != "") {
+			return true
+		}
+	}
+	return false
 }
 
 type businessTreeDiagramRelationProvider struct{}
@@ -139,6 +153,7 @@ func RuntimeDiagramRelations(ledger types.ObservationLedger, rm *types.RequestMo
 	if rm != nil && rm.RuntimeArtifactScopeProfile != nil {
 		ledger.RuntimeArtifactScopeProfile = rm.RuntimeArtifactScopeProfile
 	}
+	wakeupRows := (wakeupDiagramRelationProvider{request: rm}).Relations(ledger)
 	if rm != nil && rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() &&
 		!rm.RuntimeQuestionProfile.RequestsFactFamily(types.RuntimeQuestionFactOtherObservedValue) {
 		named := false
@@ -159,7 +174,7 @@ func RuntimeDiagramRelations(ledger types.ObservationLedger, rm *types.RequestMo
 		}
 	}
 	var provider RuntimeDiagramRelationProvider = businessTreeDiagramRelationProvider{}
-	return provider.Relations(ledger)
+	return append(wakeupRows, provider.Relations(ledger)...)
 }
 
 func runtimeDiagramRelationsForContext(ctx *types.BusContext) []RuntimeDiagramRelation {
@@ -254,12 +269,12 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 	}
 	const limit = 8
 	var b strings.Builder
-	b.WriteString("### 可用业务包含图锚 / Available business-nesting diagram anchors\n\nOnly these observed direct parent→child pairs authorize `contain`, not calls, wakeups, precedence or root causes. Optional diagram: use business labels; copy exact identities into edge_anchors. Stable node aliases below allow precise local repair; never bind by name alone. Do not sum parent and child elapsed times.\n")
+	b.WriteString("### 可用运行时关系图锚 / Available runtime diagram anchors\n\nThese producer-verified pairs authorize only their listed relation_kind, independently of the question family: contain is direct synchronous business nesting; wakeup is one recorded waker→wakee event, not a source call, attributed wait duration, or root-cause ranking. Use business labels in flow/sequence/architecture diagrams and copy exact identities into edge_anchors. Stable node aliases allow local repair; names alone are not identities. Keep each event's timestamp visible; never merge different instances into an invented dependency. Use notes or intervals for measured states, not self-call arrows. Do not sum parent and child durations.\n")
 	for _, row := range rows[:min(limit, len(rows))] {
 		anchor := types.DiagramEdgeAnchor{FromNode: row.FromNode, ToNode: row.ToNode, FromIdentity: row.FromIdentity, ToIdentity: row.ToIdentity, RelationKind: row.Kind}
 		data, _ := json.Marshal(anchor)
 		fmt.Fprintf(&b, "- %q → %q；%s；edge_anchor=%s\n", row.FromLabel, row.ToLabel, row.ScopeLabel, data)
 	}
-	fmt.Fprintf(&b, "- 展示 %d 条已证明直接包含关系，另省略 %d 条；只选所问业务，省略不是无子项或完整树。\n\n", min(limit, len(rows)), max(0, len(rows)-limit))
+	fmt.Fprintf(&b, "- 展示 %d 条已证明直接关系，另省略 %d 条；省略不表示不存在其它关系，也不保证完整树。\n\n", min(limit, len(rows)), max(0, len(rows)-limit))
 	return b.String()
 }

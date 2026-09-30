@@ -5819,6 +5819,14 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if facts := renderAnswerDocBusinessTreeFacts(ctx, promptLedger); facts != "" {
 		b.WriteString(facts)
 	}
+	// Relation providers project from accepted records themselves: a wakeup's
+	// subject is the upstream waker, not the user's target. Generic prose-row
+	// filtering must not delete that endpoint or require a business marker.
+	var relationRequest *types.RequestModel
+	if ctx.AnalysisIR != nil {
+		relationRequest = &ctx.AnalysisIR.RequestModel
+	}
+	b.WriteString(tool.RenderRuntimeDiagramRelationRecipes(ledger, relationRequest))
 	b.WriteString(renderAnswerDocProcessProfiles(ctx, promptLedger))
 	if measurements := renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger); measurements != "" {
 		b.WriteString(measurements)
