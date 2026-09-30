@@ -117,7 +117,7 @@ func PrepareExistingTraceDB(ctx context.Context, opts Options) (result Result, e
 			if err != nil {
 				return err
 			}
-			defer func() { workErr = traceDBJoinPreservingSingle(workErr, wal.wal.Close()) }()
+			defer func() { workErr = traceDBJoinPreservingSingle(workErr, wal.Close()) }()
 			input, receipt.WAL = wal, &wal.receipt
 			receipt.SHA256, err = existingDBViewDigest(ctx, source)
 			if err != nil {

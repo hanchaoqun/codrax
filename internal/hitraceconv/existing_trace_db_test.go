@@ -200,9 +200,12 @@ func TestPrepareExistingTraceDBRejectsAuxiliaryAndWALModes(t *testing.T) {
 		}
 		opts := existingTraceDBOptions(t, input)
 		result, err := PrepareExistingTraceDB(t.Context(), opts)
-		assertExistingTraceDBFailureClean(t, opts, result, err)
-		if !strings.Contains(err.Error(), "header mode") {
-			t.Fatalf("checkpointed WAL header was not rejected: %v", err)
+		if err != nil || result.ExistingTraceDBSource == nil || result.ExistingTraceDBSource.WAL == nil || !result.ExistingTraceDBSource.WAL.Absent {
+			t.Fatalf("closed WAL header needs explicit absent-log receipt: %v", err)
+		}
+		// The narrower rollback-only validator must not acquire the new lane.
+		if ValidateExistingTraceDBSource(t.Context(), input) == nil {
+			t.Fatal("single-file validator accepted WAL mode")
 		}
 	})
 }

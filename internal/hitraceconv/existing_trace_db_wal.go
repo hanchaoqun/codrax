@@ -21,6 +21,7 @@ type ExistingTraceDBWAL struct {
 	Generation     string
 	CommitFrame    int64
 	CheckpointOnly bool
+	Absent         bool // no WAL/SHM/journal observed; not proof of historical completeness
 	SnapshotBytes  int64
 	SnapshotSHA256 string
 }
@@ -67,12 +68,12 @@ func openExistingWALView(ctx context.Context, main *conversionInputAuthority) (v
 	if err = existingWALNamespace(main); err != nil {
 		return nil, err
 	}
-	wal, err := openConversionInputAuthority(main.CanonicalPath() + "-wal")
+	wal, err := openExistingWALOrAbsent(main)
 	if err != nil {
-		return nil, fmt.Errorf("SQLite WAL header mode requires an available WAL: %w", err)
+		return nil, err
 	}
 	defer func() {
-		if err != nil {
+		if err != nil && wal != nil {
 			err = traceDBJoinPreservingSingle(err, wal.Close())
 			view = nil
 		}
@@ -91,7 +92,7 @@ func openExistingWALView(ctx context.Context, main *conversionInputAuthority) (v
 	if view.pageSize < 512 || view.pageSize > 65536 || view.pageSize&(view.pageSize-1) != 0 || main.Size()%view.pageSize != 0 || main.Size() > maxExistingWALBytes {
 		return nil, fmt.Errorf("WAL snapshot has invalid main-file page geometry")
 	}
-	if wal.Size() == 0 {
+	if wal == nil || wal.Size() == 0 {
 		return finishExistingWALView(ctx, view, 0)
 	}
 	if wal.Size() < 32 || wal.Size() > maxExistingWALBytes {
@@ -205,11 +206,14 @@ func finishExistingWALView(ctx context.Context, view *existingWALView, commitFra
 	view.header[18], view.header[19] = 1, 1
 	binary.BigEndian.PutUint32(view.header[28:32], uint32(view.size/view.pageSize))
 	copy(view.header[92:96], view.header[24:28])
-	digest, err := existingDBViewDigest(ctx, wal)
-	if err != nil {
-		return nil, err
+	view.receipt = ExistingTraceDBWAL{Path: main.CanonicalPath() + "-wal", Absent: wal == nil, CommitFrame: commitFrame, CheckpointOnly: commitFrame == 0, SnapshotBytes: view.size}
+	if wal != nil {
+		digest, err := existingDBViewDigest(ctx, wal)
+		if err != nil {
+			return nil, err
+		}
+		view.receipt.Bytes, view.receipt.SHA256, view.receipt.Generation = wal.Size(), digest, wal.identity.CacheToken()
 	}
-	view.receipt = ExistingTraceDBWAL{Path: wal.DisplayPath(), Bytes: wal.Size(), SHA256: digest, Generation: wal.identity.CacheToken(), CommitFrame: commitFrame, CheckpointOnly: commitFrame == 0, SnapshotBytes: view.size}
 	if err := view.Validate(conversionInputStagePreCommit); err != nil {
 		return nil, err
 	}
@@ -242,6 +246,9 @@ func (v *existingWALView) DisplayPath() string { return v.main.DisplayPath() }
 func (v *existingWALView) Validate(stage conversionInputStage) error {
 	if err := v.main.Validate(stage); err != nil {
 		return err
+	}
+	if v.wal == nil {
+		return validateAbsentExistingWAL(v.main)
 	}
 	if err := v.wal.Validate(stage); err != nil {
 		return err
@@ -303,6 +310,12 @@ func ValidateExistingTraceDBReceipt(ctx context.Context, path string, receipt *E
 	}
 	if receipt.WAL.Path != main.CanonicalPath()+"-wal" {
 		return fmt.Errorf("SQLite WAL locator differs from main source")
+	}
+	if receipt.WAL.Absent {
+		if !receipt.WAL.CheckpointOnly || receipt.WAL.CommitFrame != 0 || receipt.WAL.Bytes != 0 || receipt.WAL.SHA256 != "" || receipt.WAL.Generation != "" {
+			return fmt.Errorf("invalid absent-WAL receipt")
+		}
+		return completeConversionInputStage(ctx, main, conversionInputStagePreCommit, validateAbsentExistingWAL(main))
 	}
 	wal, err := openConversionInputAuthority(receipt.WAL.Path)
 	if err != nil {

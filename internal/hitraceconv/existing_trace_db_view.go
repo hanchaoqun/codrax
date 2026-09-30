@@ -92,6 +92,9 @@ func prepareExistingTraceDBFromView(
 	decision.Caveat = "existing closed SQLite database normalized read-only; trace_streamer executable was not invoked"
 	if receipt.WAL != nil {
 		decision.Caveat = "SQLite main file and WAL were generation-stable during preparation; only validated committed pages were read; source files and shared memory were not modified; changing captures must be reattached"
+		if receipt.WAL.Absent {
+			decision.Caveat = "SQLite WAL-mode main checkpoint read without source writes; no WAL, SHM or journal observed during preparation; historical completeness and transactions from any missing WAL are unknown; reattach if auxiliary files appear"
+		}
 	}
 	if ledger.gzip != nil {
 		decision.Caveat = "decoded self-contained SQLite snapshot normalized read-only; trace_streamer executable was not invoked; pre-compression database lifecycle is not established"

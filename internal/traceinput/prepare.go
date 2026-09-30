@@ -213,7 +213,7 @@ func prepareWithOwnership(ctx context.Context, opts Options, convert converter, 
 	if err := validatePreparedSQLiteReceipt(kind, source, original.Size(), sourceSHA, original.CacheToken(), result); err != nil {
 		return nil, err
 	}
-	if existingDB && result.ExistingTraceDBSource != nil && result.ExistingTraceDBSource.WAL != nil {
+	if existingDB && result.ExistingTraceDBSource != nil && result.ExistingTraceDBSource.WAL != nil && !result.ExistingTraceDBSource.WAL.Absent {
 		wal := result.ExistingTraceDBSource.WAL
 		if err := bindMeasuredFile(ctx, wal.Path, wal.Bytes, wal.SHA256, bindings); err != nil {
 			return nil, err

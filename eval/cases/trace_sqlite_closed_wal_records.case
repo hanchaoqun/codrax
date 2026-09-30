@@ -1,0 +1,12 @@
+ID="trace_sqlite_closed_wal_records"
+NAME="SQLite capture — normally closed WAL database"
+QUESTION="请整理这份采集数据在 1.040 到 1.080 秒之间的启动记录，列出名称、起止时刻、耗时和所属进程。"
+HTRACE_FILE="eval/fixtures/hmosperf_closed_wal/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="LoadPreferences RestoreTabs"
+EXPECT_PRIMARY_MATCHES_REGEX="1[.]048
+1[.]064
+1[.]072
+27599"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
