@@ -344,7 +344,7 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "needs_repo_access": {
       "type": "boolean",
-      "description": "true iff route is repo, hybrid, or write, or an operation explicitly needs fresh repository facts first. Route=repo also covers pipeline analysis of external observations such as logs/traces even when the classification later excludes current source. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
+      "description": "true iff route is repo, hybrid, or write, or a concrete external artifact/machine operation needs repository facts. ` + mixedTaskRouteContract + `"
     },
     "current_source_evidence_mode": {
       "type": "string",
@@ -506,11 +506,7 @@ The seven routes:
             side_effects to describe safety; the deterministic
             operation policy decides auto-run, manual approval, or
             denial.
-            If the operation must first read repository facts (for
-            example "based on this repo, generate a PPT"), set
-            needs_repo_access=true as an additional typed signal, but
-            keep route=operation so the dispatcher can use the
-            operation pipeline once enabled.
+            ` + mixedTaskRouteContract + `
 
   data    — the answer is a read-only data processing task over local
 	            structured or semi-structured files/materials: tables,
@@ -604,13 +600,9 @@ needs_operation_access is true iff route=operation. Do not set it for
 ordinary source, log, trace, MCP, connector, or attached-artifact
 external-observation investigation.
 
-Read-only commands used to measure, locate, or verify evidence INSIDE a
-current-source investigation are analysis-pipeline tools, not the objective of
-a computer operation. For that shape use route=repo/hybrid,
-operation=investigate, needs_repo_access=true, needs_operation_access=false,
-and leave operation_kind/target_surface empty. Use route=operation only when
-operating or querying the current machine/environment/filesystem/UI is itself
-the requested objective rather than a source-analysis evidence step.
+For the mixed analysis task described above, set needs_operation_access=false
+and leave operation_kind/target_surface empty; the analysis pipeline owns its
+read-only measurement tools.
 
 needs_data_access is true iff route=data. Do not set it for source-code,
 runtime log/trace, MCP/connector observation, or command-operation tasks.

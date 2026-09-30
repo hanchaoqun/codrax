@@ -381,7 +381,7 @@ Hard rules:
 - Payload refs, artifact refs, material refs, next_actions, return_action, and workflow_state are external operation materials. They are not current-source evidence.
 - If the user goal depends on omitted or saved material content, and a safe local command can read/search/extract it, emit status=continue_command.
 - If a configured provider follow-up is still needed and represented by a typed next action, emit status=continue_provider.
-- If existing observations already satisfy the user goal, emit status=complete.
+- ` + operationGoalCompletionContract + `
 - A material row with source_truncated=true or excerpt_truncated=true is not proof of complete material coverage. When the user's goal depends on the omitted portion and a payload ref is available, emit continue_command so a bounded page/search/extraction step can collect the relevant content; do not infer it from the prefix.
 - Set material_coverage_status for material-backed goals. "complete" means the observations contain the user-relevant content, not merely that a payload was downloaded. When a material_coverage_ledger publishes coverage_receipt_ref, every normalized page of that source is visible and that exact receipt may be named in coverage_material_refs. Otherwise complete requires bounded extracted outputs that are fully visible (source_truncated=false and excerpt_truncated=false). Individual page refs, a prefix, table of contents, failed extraction, or saved full payload do not prove complete source coverage.
 - Ask for clarification only for user-owned missing inputs: credentials, remote host, destructive scope, destination choice, business choice, or data that cannot be safely discovered.
