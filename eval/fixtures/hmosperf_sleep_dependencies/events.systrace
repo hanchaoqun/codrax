@@ -1,0 +1,20 @@
+# tracer: nop
+app-100 (100) [001] .... 4.999000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+dep3-300 (300) [003] .... 5.001000: sched_switch: prev_comm=idle/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep3 next_pid=300 next_prio=30
+dep4-400 (400) [004] .... 5.001500: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep4 next_pid=400 next_prio=35
+dep2-200 (200) [002] .... 5.002000: sched_switch: prev_comm=dep2 prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+dep3-300 (300) [003] .... 5.012000: sched_wakeup: comm=dep2 pid=200 prio=40 target_cpu=002
+dep2-200 (200) [002] .... 5.012200: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep2 next_pid=200 next_prio=40
+dep3-300 (300) [003] .... 5.012500: sched_switch: prev_comm=dep3 prev_pid=300 prev_prio=30 prev_state=R ==> next_comm=idle/3 next_pid=0 next_prio=120
+dep2-200 (200) [002] .... 5.014000: sched_switch: prev_comm=dep2 prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+dep4-400 (400) [004] .... 5.020000: sched_wakeup: comm=dep2 pid=200 prio=40 target_cpu=002
+dep2-200 (200) [002] .... 5.020200: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep2 next_pid=200 next_prio=40
+dep4-400 (400) [004] .... 5.020500: sched_switch: prev_comm=dep4 prev_pid=400 prev_prio=35 prev_state=R ==> next_comm=idle/4 next_pid=0 next_prio=120
+dep2-200 (200) [002] .... 5.022000: sched_switch: prev_comm=dep2 prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+dep2-200 (200) [002] .... 5.027000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep2 next_pid=200 next_prio=40
+dep2-200 (200) [002] .... 5.028000: sched_switch: prev_comm=dep2 prev_pid=200 prev_prio=40 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+dep5-500 (500) [005] .... 5.028800: sched_wakeup: comm=dep2 pid=200 prio=40 target_cpu=002
+dep2-200 (200) [002] .... 5.028900: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=dep2 next_pid=200 next_prio=40
+dep2-200 (200) [002] .... 5.040000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+app-100 (100) [001] .... 5.040200: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52

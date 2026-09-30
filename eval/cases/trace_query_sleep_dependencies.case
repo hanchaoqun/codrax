@@ -1,0 +1,11 @@
+# HMC-04.5 recursive branches; evidence, omissions and time ownership are system duties.
+ID="trace_query_sleep_dependencies"
+NAME="trace query — sleep dependency branches and missing wake event"
+QUESTION="只看附加 trace 的 5.000 到 5.041 秒，app-100 这次休眠期间的唤醒依赖是什么？请继续看看上游 dep2-200 的几次休眠，用一张图和表格说明。"
+HTRACE_FILE="eval/fixtures/hmosperf_sleep_dependencies/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="dep2
+dep3
+dep4"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
