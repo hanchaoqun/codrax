@@ -343,6 +343,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	// 守恒尾行 violation transcription.
 	"DirectionConservationExcess": {Status: "displayed", Ref: "◎ 守恒违例行(ELIM-V2 守恒尾行)"},
 	"StateAccountKey":             {Status: "projection_gate", Ref: "B7-T2 精确状态段账目一席"},
+	"StateAccountComplete":        {Status: "projection_gate", Ref: "B201 完整状态统计对嵌套子窗的包含证明"},
 	"RankFamilyKey":               {Status: "displayed", Ref: "明细链上并入(G1 对账键)"},
 	"AbsorbedByRankFamily":        {Status: "displayed", Ref: "明细链上并入 + audit"},
 	"AbsorbedInto":                {Status: "displayed", Ref: "明细链上并入"},

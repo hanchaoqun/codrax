@@ -1335,6 +1335,9 @@ const (
 	// publication. The projection joins it verbatim; values, line envelopes,
 	// labels, request prose and answer prose are never fallback identities.
 	TraceNoteKeyStateAccountKey = "state_account_key"
+	// Complete raw scheduler-state census inside the observation's exact span.
+	// This compact proof avoids shipping every segment to the language model.
+	TraceNoteKeyStateAccountComplete = "state_account_complete"
 )
 
 // 门控族 (gated-composition family, §7.30.3 D3).
@@ -1702,6 +1705,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// The same key is emitted on causal_rank and wakeup-impact observations;
 	// this single registry row owns the shared cross-publication protocol.
 	{TraceNoteKeyStateAccountKey, "state_account", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyStateAccountComplete, "state_account", TraceNoteCarrierHardConsumer},
 
 	// 冲击度量族.
 	{TraceNoteKeyImpact, "impact", TraceNoteCarrierHardConsumer},

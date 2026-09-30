@@ -1917,8 +1917,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// form (NEW-7: this entry renders exactly when a union row is emitted).
 		// The raw Σ and the window-source roster live in the (b) lossless block.
 		{runtimeTraceProjMarkMergedUnion, runtimeTraceProjLegendGroupCaliber,
-			"- `N次(a~b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a~b 为单次范围;原始和与窗来源见明细。",
-			"- `n=N(a~b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a~b the per-instance range; the raw sum and the window sources live in the detail blocks."},
+			"- `N份统计(a~b)union` = 重叠时间不重复计：N 是统计记录数，不是发生次数；包含总体与局部统计或跨窗统计，a~b 为各记录的数值范围；原始和仅供核对。",
+			"- `N records(a~b)union` = overlapping time counted once: N counts measurement records, not occurrences; records may be a census and its subwindows or cross-window measurements; a~b is their value range, and the raw sum is for audit only."},
 		// §21 CWD (cmp_01 revisit 2026-07-07): the overlapping-query-window MAX
 		// caliber gets its own form token (×N 第五式) — the sum entry claims
 		// 数值为总和 and the union entry claims per-segment deduction; a MAX
@@ -11727,14 +11727,14 @@ func runtimeTraceProjMergedSumRowTagText(row runtimeTraceProjTreeRow, zh bool) s
 func runtimeTraceProjMergedUnionTagText(node types.TraceCausalProjectionNode, zh bool) string {
 	if valued, valueless, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
 		if zh {
-			return fmt.Sprintf("%d次(有值%d项 %s,%d项无时长值)union", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+			return fmt.Sprintf("%d份统计(有值%d项 %s,%d项无时长值)union", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
 		}
-		return fmt.Sprintf("n=%d (%d valued %s, %d without measurable duration) union", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+		return fmt.Sprintf("%d records (%d valued %s, %d without measurable duration) union", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
 	}
 	if zh {
-		return fmt.Sprintf("%d次(%.3f~%.3fms)union", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+		return fmt.Sprintf("%d份统计(%.3f~%.3fms)union", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 	}
-	return fmt.Sprintf("n=%d(%.3f~%.3fms)union", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+	return fmt.Sprintf("%d records(%.3f~%.3fms)union", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjMergedAllValueless is the standalone all-zero R2 shape's
@@ -11760,6 +11760,12 @@ func runtimeTraceProjMergedValuelessWordRenders(node types.TraceCausalProjection
 // all-valued rows (legacy byte-identical), the valued split on mixed rows,
 // the honest no-value wording on all-valueless rows.
 func runtimeTraceProjMergedPerInstanceText(node types.TraceCausalProjectionNode, zh bool) string {
+	if node.MergedIntervalUnion && node.MergedValuelessCount == 0 {
+		if zh {
+			return fmt.Sprintf("各统计值 %.3f~%.3fms", node.MergedMinMS, node.MergedMaxMS)
+		}
+		return fmt.Sprintf("measurement range %.3f~%.3fms", node.MergedMinMS, node.MergedMaxMS)
+	}
 	if runtimeTraceProjMergedAllValueless(node) {
 		if zh {
 			return "全部无时长值"
@@ -11767,6 +11773,12 @@ func runtimeTraceProjMergedPerInstanceText(node types.TraceCausalProjectionNode,
 		return "all without measurable duration"
 	}
 	if valued, valueless, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+		if node.MergedIntervalUnion {
+			if zh {
+				return fmt.Sprintf("有值%d份统计 %s,另%d项无时长值", valued, runtimeTraceProjMergedRangeText(node), valueless)
+			}
+			return fmt.Sprintf("%d valued measurements %s, %d without measurable duration", valued, runtimeTraceProjMergedRangeText(node), valueless)
+		}
 		if zh {
 			return fmt.Sprintf("有值%d项单次 %s,另%d项无时长值", valued, runtimeTraceProjMergedRangeText(node), valueless)
 		}
@@ -20008,9 +20020,9 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				// valued-split helper — the fence tag and this (b) line must
 				// never contradict on one mixed row.
 				k := len(node.MergedQueryWindows)
-				form = fmt.Sprintf("%d次union口径(%d 窗重叠段不重复计),原始和 %.3fms 供对照,%s", node.MergedCount, k, node.MergedSumMS, runtimeTraceProjMergedPerInstanceText(node, zh))
+				form = fmt.Sprintf("%d份统计去重(%d 个查询窗,总体/局部或跨窗的重叠时间不累加),原始和 %.3fms 仅供核对,%s", node.MergedCount, k, node.MergedSumMS, runtimeTraceProjMergedPerInstanceText(node, zh))
 				if !zh {
-					form = fmt.Sprintf("n=%d union caliber (overlap across %d windows counted once), raw sum %.3fms for cross-checking, %s", node.MergedCount, k, node.MergedSumMS, runtimeTraceProjMergedPerInstanceText(node, zh))
+					form = fmt.Sprintf("%d measurement records deduplicated (%d query windows; nested or cross-window overlap counted once), raw sum %.3fms for audit only, %s", node.MergedCount, k, node.MergedSumMS, runtimeTraceProjMergedPerInstanceText(node, zh))
 				}
 			} else if node.MergedCrossWindowMax {
 				// §21 CWD: the cross-window MAX caliber discloses itself, the

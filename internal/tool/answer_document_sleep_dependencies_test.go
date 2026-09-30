@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"math"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -69,5 +70,36 @@ func TestSleepDependenciesPublicComposition(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("missing full upstream sleep summary including missing-wake and sub-threshold intervals")
+	}
+}
+
+// A complete state census and its individual waits are overlapping views,
+// not four independent waits whose durations can be added again.
+func TestSleepDependenciesCensusDoesNotSumItsOccurrences(t *testing.T) {
+	path, _ := filepath.Abs("../../eval/fixtures/hmosperf_sleep_dependencies/events.systrace")
+	ctx := &types.BusContext{RepoRoot: t.TempDir(), WorkDir: t.TempDir(), Mutable: types.NewMutableState("state census")}
+	var ledger types.ObservationLedger
+	for _, pid := range []int{100, 200} {
+		r := businessRefTestQuery(t, ctx, map[string]any{"path": path, "view": "wakeup_chain", "pid": pid, "time_start": 5.0, "time_end": 5.041, "trace_flavor": "harmony_hitrace"})
+		ledger.Records = append(ledger.Records, r.Observations...)
+	}
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	found := false
+	for _, p := range set.Projections {
+		for _, bucket := range [][]types.TraceCausalProjectionNode{p.OnChainCauses, p.SupportingHops, p.BackgroundCauses, p.PrimaryRootCauses, p.AdjacentCauses} {
+			for _, n := range bucket {
+				if n.Subject == "dep2-200" && n.Object == "s_sleep" {
+					found = true
+					if math.Abs(n.ImpactMS-21.8) > 0.000001 {
+						b, _ := json.MarshalIndent(n, "", "  ")
+						t.Fatalf("complete 21.8ms account must not sum its own waits: %s", b)
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		b, _ := json.MarshalIndent(set, "", "  ")
+		t.Fatalf("lost the upstream sleep account: %s", b)
 	}
 }

@@ -52,9 +52,9 @@ func TestN2UnionRowWearsUnionFormOnEverySurface(t *testing.T) {
 		lead := runtimeTraceProjLeadText(projection, model, lang, zh)
 		lossless := runtimeTraceProjDetailFullText(model, zh)
 
-		unionToken := "4次(14.550~104.127ms)union"
+		unionToken := "4份统计(14.550~104.127ms)union"
 		if !zh {
-			unionToken = "n=4(14.550~104.127ms)union"
+			unionToken = "4 records(14.550~104.127ms)union"
 		}
 		if !strings.Contains(fence, unionToken) {
 			t.Fatalf("zh=%v: fence must carry the union form token:\n%s", zh, fence)
@@ -62,10 +62,10 @@ func TestN2UnionRowWearsUnionFormOnEverySurface(t *testing.T) {
 		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 见无损块 →
 		// 见明细 / "lossless block" → "detail blocks" (legend tail; sum entry
 		// unchanged).
-		unionEntry := "- `N次(a~b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a~b 为单次范围;原始和与窗来源见明细。"
+		unionEntry := "- `N份统计(a~b)union` = 重叠时间不重复计：N 是统计记录数，不是发生次数；包含总体与局部统计或跨窗统计，a~b 为各记录的数值范围；原始和仅供核对。"
 		sumEntry := "- `N次(a~b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a~b 为单次范围。"
 		if !zh {
-			unionEntry = "- `n=N(a~b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a~b the per-instance range; the raw sum and the window sources live in the detail blocks."
+			unionEntry = "- `N records(a~b)union` = overlapping time counted once: N counts measurement records, not occurrences; records may be a census and its subwindows or cross-window measurements; a~b is their value range, and the raw sum is for audit only."
 			sumEntry = "- `n=N(a~b)` = N instances of one (thread, cause) merged; the value is the SUM, a~b the per-instance range."
 		}
 		if !strings.Contains(lead, unionEntry) {
@@ -74,10 +74,10 @@ func TestN2UnionRowWearsUnionFormOnEverySurface(t *testing.T) {
 		if strings.Contains(lead, sumEntry) {
 			t.Fatalf("zh=%v: the SUM legend entry must NOT render for a union-only tree (口径谎言): %s", zh, lead)
 		}
-		wantDetail := "4次union口径(2 窗重叠段不重复计),原始和 183.940ms 供对照,单次 14.550~104.127ms"
+		wantDetail := "4份统计去重(2 个查询窗,总体/局部或跨窗的重叠时间不累加),原始和 183.940ms 仅供核对,各统计值 14.550~104.127ms"
 		wantWindows := "3680.569~3682.819s、3680.800~3681.001s"
 		if !zh {
-			wantDetail = "n=4 union caliber (overlap across 2 windows counted once), raw sum 183.940ms for cross-checking, each 14.550~104.127ms"
+			wantDetail = "4 measurement records deduplicated (2 query windows; nested or cross-window overlap counted once), raw sum 183.940ms for audit only, measurement range 14.550~104.127ms"
 			wantWindows = "3680.569~3682.819s, 3680.800~3681.001s"
 		}
 		if !strings.Contains(lossless, wantDetail) {

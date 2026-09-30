@@ -1049,12 +1049,16 @@ type TraceCausalProjectionNode struct {
 	// 104.127+50.057+15.206+14.550 SUMMED to 183.940ms while the 15.206ms
 	// occurrence [3680.7995–3680.8192] lay entirely inside the 104.127ms
 	// occurrence [3680.6909–3680.8192] — the same physical runnable segment
-	// carved once per query window and double-counted ~15.2ms). Set ONLY when
+	// carved once per query window and double-counted ~15.2ms). Set when
 	// members from DISTINCT query windows (typed QueryWindow identity, F-2
 	// ±1ms endpoint tolerance) have overlapping occurrence intervals — bare
 	// time overlap WITHOUT distinct window identity never engages the lane
 	// (PTV6 adjudication family: same-window overlapping same-(subject,object)
 	// rows are DISTINCT facts — the E9/E10 9µs strict pin — and keep the SUM).
+	// B201 adds a separate exact proof: a complete raw state census contains
+	// every other member's complete census window, with the same native
+	// thread/state/source/restriction. This works in one query window too and
+	// uses that covering census's value (never an unproved max or hull union).
 	// On a union row ImpactMS/CumulativeImpactMS carry the union-caliber value
 	// (per-member deduction = min(member value, wall clock already counted by
 	// OTHER windows inside the member's interval) — interval algebra on typed
@@ -1367,6 +1371,10 @@ type TraceCausalProjectionNode struct {
 	// inventory identity. One-seat convergence compares it verbatim across a
 	// rank row and wakeup-impact row; empty/ambiguous identities stay split.
 	StateAccountKey string `json:"state_account_key,omitempty"`
+	// StateAccountComplete certifies a raw state census throughout StartTs..EndTs,
+	// not a selection of examples. Used only for nested-account containment;
+	// it grants no causal qualification and does not authorize partial unions.
+	StateAccountComplete bool `json:"state_account_complete,omitempty"`
 	// BackgroundRank mirrors the producer's typed background_rank note (DCS
 	// §23.1: a non-on-chain semantic span-work contender's position among the
 	// non-chain rows — the 背景综合排序 board). Promoted for the RCM-2 display
@@ -4548,6 +4556,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.AbsorbedByRankFamily = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedByRankFamily)) == "true"
 	node.AbsorbedInto = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedInto))
 	node.StateAccountKey = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyStateAccountKey))
+	node.StateAccountComplete = traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyStateAccountComplete) == "true"
 	return node
 }
 

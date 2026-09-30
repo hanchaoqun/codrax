@@ -1554,13 +1554,8 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 // (see traceCausalProjectionSameSegmentMirrorValue); false is byte-identical
 // to the legacy single-argument form every other bucket and test consumes.
 func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNode, backgroundLane bool) []TraceCausalProjectionNode {
-	if len(nodes) < traceCausalProjectionSameKindAggregateMin {
-		// ISPGAP-1 复核 F-B: the ▒ lane may hold exactly the mirror PAIR —
-		// the pair arm below must still see it (every other lane keeps the
-		// ≥3 economy early-out byte-identically).
-		if !backgroundLane || len(nodes) < 2 {
-			return nodes
-		}
+	if len(nodes) < 2 {
+		return nodes
 	}
 	type group struct {
 		first   int
@@ -1669,7 +1664,8 @@ func traceCausalProjectionAggregateSameKindLane(nodes []TraceCausalProjectionNod
 			// repair, not a row-count economy). Engagement = the same strict
 			// interval-overlap predicate the merge arm reads; disjoint pairs
 			// and every non-background lane keep the threshold byte-identically.
-			if !(backgroundLane && len(g.members) == 2 &&
+			_, covered := traceCausalProjectionCompleteStateCover(nodes, g.members)
+			if !covered && !(backgroundLane && len(g.members) == 2 &&
 				traceCausalProjectionSameSegmentMirrorValue(nodes, g.members).engaged) {
 				continue
 			}
@@ -1715,6 +1711,12 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 // 复核 F-B same-window cross-record mirror caliber; false is byte-identical
 // to the legacy form (the tree-side occurrence merge and every other bucket).
 func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjectionNode, first int, members []int, backgroundLane bool) TraceCausalProjectionNode {
+	coverIndex, covered := traceCausalProjectionCompleteStateCover(nodes, members)
+	if covered {
+		// The complete census also owns the surviving summary and state
+		// breakdown. A child selected first must not impersonate the total.
+		first = coverIndex
+	}
 	aggregate := nodes[first]
 	aggregate.IOValueCaliber = ""
 	ioCaliberSeen := false
@@ -1931,6 +1933,11 @@ func traceCausalProjectionMergeSameKindMembersLane(nodes []TraceCausalProjection
 	// member carried the SAME window — a mixed or partially-unknown roster
 	// must not let the merged row claim a single window as its own.
 	union := traceCausalProjectionCrossWindowUnion(nodes, members)
+	if covered {
+		union.applied, union.unionMS, union.crossWindowMax = true, traceCausalProjectionDisplayValue(nodes[coverIndex]), false
+	}
+	// A merged row must not inherit the seed member's census certificate.
+	aggregate.StateAccountComplete = false
 	aggregate.MergedQueryWindows = union.roster
 	if !union.singleWindow {
 		aggregate.QueryWindowStartTs, aggregate.QueryWindowEndTs = 0, 0

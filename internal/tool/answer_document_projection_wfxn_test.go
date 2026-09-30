@@ -42,10 +42,10 @@ func TestWFXnFiveFormTokensVerbatim(t *testing.T) {
 	if got := runtimeTraceProjMergedCrossWindowMaxTagText(node, false); got != "n=4 cross-window max(each 2.197~3.853ms)" {
 		t.Fatalf("en cross-window max form: %q", got)
 	}
-	if got := runtimeTraceProjMergedUnionTagText(node, true); got != "4次(2.197~3.853ms)union" {
+	if got := runtimeTraceProjMergedUnionTagText(node, true); got != "4份统计(2.197~3.853ms)union" {
 		t.Fatalf("zh union form: %q", got)
 	}
-	if got := runtimeTraceProjMergedUnionTagText(node, false); got != "n=4(2.197~3.853ms)union" {
+	if got := runtimeTraceProjMergedUnionTagText(node, false); got != "4 records(2.197~3.853ms)union" {
 		t.Fatalf("en union form: %q", got)
 	}
 	if got := runtimeTraceProjDedupFoldTagText(3, true); got != "3次同值" {

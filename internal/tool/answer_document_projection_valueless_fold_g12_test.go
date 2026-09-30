@@ -201,10 +201,10 @@ func TestG12MixedUnionAndSumDetailFaces(t *testing.T) {
 	union.MergedCrossWindowMax = false
 	union.MergedIntervalUnion = true
 	union.EvidenceID = "g12-union-ev"
-	if got := runtimeTraceProjMergedUnionTagText(union, true); got != "3次(有值2项 20.000~60.000ms,1项无时长值)union" {
+	if got := runtimeTraceProjMergedUnionTagText(union, true); got != "3份统计(有值2项 20.000~60.000ms,1项无时长值)union" {
 		t.Fatalf("mixed union tag must carry the valued split: %q", got)
 	}
-	if got := runtimeTraceProjMergedPerInstanceText(union, true); got != "有值2项单次 20.000~60.000ms,另1项无时长值" {
+	if got := runtimeTraceProjMergedPerInstanceText(union, true); got != "有值2份统计 20.000~60.000ms,另1项无时长值" {
 		t.Fatalf("mixed per-instance segment must carry the valued split: %q", got)
 	}
 	sum := g12MixedCWDNode()
@@ -219,7 +219,7 @@ func TestG12MixedUnionAndSumDetailFaces(t *testing.T) {
 		t.Fatalf("all-valued sum tag must stay byte-identical: %q", got)
 	}
 	union.MergedValuelessCount = 0
-	if got := runtimeTraceProjMergedUnionTagText(union, false); got != "n=3(20.000~60.000ms)union" {
+	if got := runtimeTraceProjMergedUnionTagText(union, false); got != "3 records(20.000~60.000ms)union" {
 		t.Fatalf("all-valued union tag must keep the en count form: %q", got)
 	}
 }

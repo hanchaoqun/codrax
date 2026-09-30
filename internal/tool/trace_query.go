@@ -11647,6 +11647,10 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		// B7-T2 producer-minted exact segment-inventory identity. Empty on
 		// absent, incomplete, or ambiguous accounts.
 		{types.TraceNoteKeyStateAccountKey, impact.StateAccountKey},
+		// The key is minted from the complete dominant-state inventory inside
+		// impact.Window (the observation span). Consumers must also verify
+		// that their displayed value still uses this raw, unmodified account.
+		{types.TraceNoteKeyStateAccountComplete, traceQueryTypedBool(impact.StateAccountKey != "")},
 		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(impact.DominantImpactMs)},
 		// PTV5 Q1 (#68 用户裁定 2026-07-05, 上游根治): every wakeup_causal_impact
 		// row publishes its effective attribution with the SAME semantics as
