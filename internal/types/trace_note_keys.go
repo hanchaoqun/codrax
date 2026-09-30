@@ -2205,7 +2205,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"nodes", "chain_path", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyWakeupTs, "chain_path", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWakeupLatencyCaliber, "chain_path", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyWakeupEventInstance, "chain_path", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyWakeupEventInstance, "chain_path", TraceNoteCarrierSoftConsumer},
 	{"latency", "chain_path", TraceNoteCarrierDisplayOnly},
 	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
 	// census notes — the model evidence feed (internal/context wait-object

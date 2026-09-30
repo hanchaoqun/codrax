@@ -18,7 +18,7 @@ func TestSleepStatisticsPublicBoundedFinalContext(t *testing.T) {
 	}
 }
 
-func testSleepStatisticsPublicBoundedFinalContext(t *testing.T, directWaker bool) {
+func testSleepStatisticsPublicBoundedFinalContext(t *testing.T, directWaker bool, eventSearch ...bool) {
 	t.Helper()
 	path, _ := filepath.Abs("../../eval/fixtures/hmosperf_sleep_summary/events.systrace")
 	start, end := 10.001, 10.012
@@ -35,8 +35,17 @@ func testSleepStatisticsPublicBoundedFinalContext(t *testing.T, directWaker bool
 	var observations []types.ObservationRecord
 	// Match the live timeline -> dependency query sequence as well as its
 	// explicit-window profile; a profile-free one-query test missed this gap.
-	for _, view := range []string{"thread_timeline", "wakeup_chain"} {
-		params, _ := json.Marshal(map[string]any{"source": "path", "path": path, "view": view, "pid": 41, "time_start": start, "time_end": end})
+	dependencyView := "wakeup_chain"
+	if len(eventSearch) > 0 && eventSearch[0] {
+		dependencyView = "event_search"
+	}
+	for _, view := range []string{"thread_timeline", dependencyView} {
+		args := map[string]any{"source": "path", "path": path, "view": view, "pid": 41, "time_start": start, "time_end": end}
+		if view == "event_search" {
+			delete(args, "pid")
+			args["event_types"] = []string{"sched_wakeup", "sched_blocked_reason"}
+		}
+		params, _ := json.Marshal(args)
 		r, err := (&tool.TraceQuery{}).Execute(types.ToolBusContext(ctx, types.AgentExplorer), params)
 		if err != nil || !r.Success {
 			t.Fatalf("query: %v %+v", err, r)
@@ -58,6 +67,9 @@ func testSleepStatisticsPublicBoundedFinalContext(t *testing.T, directWaker bool
 	relations := tool.RuntimeDiagramRelations(answerDocObservationLedger(ctx), &ctx.AnalysisIR.RequestModel)
 	if len(relations) == 0 {
 		t.Fatal("missing native wakeup relation")
+	}
+	if dependencyView == "event_search" && len(relations) != 2 {
+		t.Fatalf("expected both row-local wake events, got %+v", relations)
 	}
 	for _, relation := range relations {
 		if relation.Kind != types.DiagramRelWakeup {
@@ -85,4 +97,8 @@ func testSleepStatisticsPublicBoundedFinalContext(t *testing.T, directWaker bool
 			t.Fatal("sleep summary family laundered an unrelated thread")
 		}
 	}
+}
+
+func TestSleepStatisticsPublicEventSearchFinalContext(t *testing.T) {
+	testSleepStatisticsPublicBoundedFinalContext(t, false, true)
 }

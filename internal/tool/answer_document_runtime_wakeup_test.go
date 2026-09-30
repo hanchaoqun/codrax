@@ -17,7 +17,7 @@ func runtimeWakeFixture(t *testing.T) (*types.BusContext, types.ToolResult, []Ru
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Language: "zh", Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
 			RuntimeTargets:              []types.RuntimeTarget{{Kind: types.RuntimeTargetKindThread, PID: 41, Source: "user_explicit"}},
 			RuntimeQuestionProfile:      &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet, FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactTargetSchedulerState, types.RuntimeQuestionFactCountOrDuration}},
-			RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeExplicitWindow, TimeStart: &start, TimeEnd: &end}}}}
+			RuntimeArtifactScopeProfile: &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeExplicitWindow, TimeStart: &start, TimeEnd: &end, SourceQuote: "10.001 to 10.012"}}}}
 	result := businessRefTestQuery(t, ctx, map[string]any{"path": path, "view": "wakeup_chain", "pid": 41, "time_start": start, "time_end": end, "min_duration_ms": 0.1})
 	ctx.Mutable.AppendDispatchToolResult(result)
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{result}})
@@ -161,5 +161,53 @@ func TestRuntimeWakeupAuthorityNegativeMatrix(t *testing.T) {
 				t.Fatalf("%s accepted: %v %+v", name, err, res)
 			}
 		})
+	}
+}
+
+func TestRuntimeWakeupEventSearchPublicAuthority(t *testing.T) {
+	ctx, _, _ := runtimeWakeFixture(t)
+	path, _ := filepath.Abs("../../eval/fixtures/hmosperf_sleep_summary/events.systrace")
+	r := businessRefTestQuery(t, ctx, map[string]any{"path": path, "view": "event_search", "event_types": []string{"sched_wakeup", "sched_blocked_reason"}, "time_start": 10.001, "time_end": 10.012})
+	ctx.Mutable = types.NewMutableState("event search only")
+	ctx.Mutable.AppendDispatchToolResult(r)
+	rows := runtimeDiagramRelationsForContext(ctx)
+	if len(rows) != 2 {
+		t.Fatalf("missing parsed events: %+v", rows)
+	}
+	for _, row := range rows {
+		doc := runtimeNestingDoc(row, true)
+		raw, _ := json.Marshal(doc)
+		res, err := (&EmitAnswerDocument{}).Execute(ctx, raw)
+		if err != nil || !res.Success {
+			t.Fatalf("event_search display relation rejected: %v %+v", err, res)
+		}
+	}
+	ledger := types.ObservationLedger{Records: r.Observations}
+	projectionBefore, _ := json.Marshal(types.CompileTraceCausalProjectionSet(ledger))
+	var withoutEvents []types.ObservationRecord
+	for _, record := range ledger.Records {
+		if record.Predicate != "scheduler_wakeup_event" {
+			withoutEvents = append(withoutEvents, record)
+		}
+	}
+	ledger.Records = withoutEvents
+	projectionAfter, _ := json.Marshal(types.CompileTraceCausalProjectionSet(ledger))
+	if string(projectionBefore) != string(projectionAfter) {
+		t.Fatal("row-local event acquired causal projection authority")
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeTargets[0].PID = 999
+	if got := runtimeDiagramRelationsForContext(ctx); len(got) != 0 {
+		t.Fatalf("unfiltered event_search leaked unrelated wakee: %+v", got)
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeTargets[0].PID = 2
+	if got := runtimeDiagramRelationsForContext(ctx); len(got) != 0 {
+		t.Fatal("matching waker was used as wakee target")
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeTargets[0].PID = 41
+	start, end := 10.0035, 10.004
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile.TimeStart = &start
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile.TimeEnd = &end
+	if got := runtimeDiagramRelationsForContext(ctx); len(got) != 0 {
+		t.Fatal("lookup envelope promoted right-boundary/outside events into requested window")
 	}
 }

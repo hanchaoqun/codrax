@@ -37,9 +37,11 @@ func traceQueryWakeupEventNote(ref types.ObservationSourceRef, edge tracequery.W
 func decodeRuntimeWakeupEvent(r types.ObservationRecord) (traceWakeupEvent, bool) {
 	var f traceWakeupEvent
 	ref := r.SourceRef
-	if r.Negative || r.Predicate != "wakeup_chain_edge" || r.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+	chain := r.Predicate == "wakeup_chain_edge" && r.ProvenanceLane == types.ObservationProvenanceObservedDirectCause
+	event := r.Predicate == "scheduler_wakeup_event" && r.ProvenanceLane == types.ObservationProvenanceArtifactSpan
+	if r.Negative || (!chain && !event) || r.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
 		!types.RuntimeObservationProducerIsDeterministicQuery(r.Producer) || r.GroundingPolicy != types.ClaimGroundingHard ||
-		r.ProvenanceLane != types.ObservationProvenanceObservedDirectCause || r.Role != types.AnswerAggregateRoleSupportingCoverage ||
+		r.Role != types.AnswerAggregateRoleSupportingCoverage ||
 		ref.Kind != types.ObservationSourceRuntimeArtifact || ref.QueryScopeID == "" || ref.PayloadRef == "" ||
 		!ref.QueryWindowKnown || !finiteRuntimeEventTime(ref.QueryWindowStartTs) || !finiteRuntimeEventTime(ref.QueryWindowEndTs) ||
 		ref.QueryWindowEndTs <= ref.QueryWindowStartTs || len(r.SupportRefs) == 0 {
@@ -59,8 +61,9 @@ func decodeRuntimeWakeupEvent(r types.ObservationRecord) (traceWakeupEvent, bool
 		f.Timestamp >= ref.QueryWindowStartTs && f.Timestamp < ref.QueryWindowEndTs &&
 		(!ref.QueryLineRangeKnown || ((ref.QueryLineStart <= 0 || f.Line >= ref.QueryLineStart) && (ref.QueryLineEnd <= 0 || f.Line <= ref.QueryLineEnd))) &&
 		f.Line == r.Span.LineStart && f.Line == r.Span.LineEnd && f.Timestamp == r.Span.StartTs && f.Timestamp == r.Span.EndTs &&
-		traceThreadLabel(f.Waker) == r.Subject && traceThreadLabel(f.Wakee) == r.Object && r.Unit == "ms" &&
-		r.ClaimKey == "wakeup_chain_edge:"+r.Subject+"->"+r.Object
+		traceThreadLabel(f.Waker) == r.Subject && traceThreadLabel(f.Wakee) == r.Object &&
+		((chain && r.Unit == "ms") || (event && r.Unit == "event" && r.Value == "1")) &&
+		r.ClaimKey == r.Predicate+":"+r.Subject+"->"+r.Object
 }
 
 func finiteRuntimeEventTime(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
@@ -80,15 +83,31 @@ func (p wakeupDiagramRelationProvider) Relations(ledger types.ObservationLedger)
 			continue
 		}
 		ref := r.SourceRef
-		if scope := ledger.RuntimeArtifactScopeProfile; scope != nil && scope.HasExplicitTimeWindows() &&
-			!scope.ContainsExplicitTimeWindow(ref.QueryWindowStartTs, ref.QueryWindowEndTs) {
-			continue
+		if scope := ledger.RuntimeArtifactScopeProfile; scope != nil && scope.HasExplicitTimeWindows() {
+			inside := scope.ContainsExplicitTimeWindow(ref.QueryWindowStartTs, ref.QueryWindowEndTs)
+			if r.Predicate == "scheduler_wakeup_event" {
+				// event_search may expand only its lookup boundary. An individual
+				// point fact uses exact requested half-open membership, not the
+				// wider query envelope or an aggregate denominator.
+				inside = false
+				for _, window := range scope.ExplicitTimeWindows() {
+					inside = inside || (f.Timestamp >= *window.TimeStart && f.Timestamp < *window.TimeEnd)
+				}
+			}
+			if !inside {
+				continue
+			}
 		}
 		// Match the query's selected target, not the waker. This retains native
 		// upstream branches while unrelated queries cannot borrow the target.
 		if runtimeDiagramHasNamedBoundedTarget(p.request) {
 			selected := r
 			selected.Subject = traceThreadLabel(tracequery.ThreadRef{PID: ref.QueryTargetPID, Comm: ref.QueryTargetThread})
+			if r.Predicate == "scheduler_wakeup_event" {
+				// Unfiltered event_search has no selected query target. This one
+				// event belongs to its exact wakee, never every nearby thread.
+				selected.Subject = r.Object
+			}
 			if !types.ObservationRecordMatchesUserRuntimeTarget(selected, p.request) {
 				continue
 			}
@@ -110,7 +129,7 @@ func (p wakeupDiagramRelationProvider) Relations(ledger types.ObservationLedger)
 		to := fmt.Sprintf("runtime_instance_%x", sha256.Sum256(append(append([]byte(nil), coordinates...), []byte("\x00to\x00"+string(data))...)))
 		row := RuntimeDiagramRelation{Kind: types.DiagramRelWakeup, FromIdentity: from, ToIdentity: to,
 			FromNode: runtimeDiagramNode(from), ToNode: runtimeDiagramNode(to), FromLabel: r.Subject, ToLabel: r.Object,
-			ScopeLabel:  fmt.Sprintf("唤醒时刻=%s秒；查询窗口=[%s,%s)秒；来源=%s；这是一次唤醒，不表示唤醒者造成了全部等待", traceQueryDisplaySeconds(f.Timestamp), traceQueryDisplaySeconds(ref.QueryWindowStartTs), traceQueryDisplaySeconds(ref.QueryWindowEndTs), strings.Join(r.SupportRefs, "; ")),
+			ScopeLabel:  fmt.Sprintf("唤醒时刻=%s秒；检索范围=[%s,%s)秒；来源=%s；这是一次唤醒，不表示唤醒者造成了全部等待", traceQueryDisplaySeconds(f.Timestamp), traceQueryDisplaySeconds(ref.QueryWindowStartTs), traceQueryDisplaySeconds(ref.QueryWindowEndTs), strings.Join(r.SupportRefs, "; ")),
 			SupportRefs: append([]string(nil), r.SupportRefs...)}
 		byEvent[key] = candidate{row, string(data)}
 	}

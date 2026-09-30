@@ -10802,6 +10802,7 @@ func answerDocMechanismRelationSafeForCopyReadyDiagram(kind types.DiagramKind, r
 			types.DiagramRelAssignment,
 			types.DiagramRelDataFlow,
 			types.DiagramRelReturn,
+			types.DiagramRelWakeup,
 			types.DiagramRelTemporal:
 			return true
 		}
