@@ -70,6 +70,9 @@ func writeTraceSleepInventoryPreview(b *strings.Builder, account *tracequery.Tar
 	}
 	inventory := account.SleepInventory
 	fmt.Fprintln(b, traceSleepInventorySummary(inventory))
+	for _, stats := range inventory.StateStatistics {
+		fmt.Fprintln(b, traceSleepStateStatsSummary(stats))
+	}
 	visible := len(inventory.Occurrences)
 	if visible > traceSleepInventoryPreviewCap {
 		visible = traceSleepInventoryPreviewCap
@@ -103,6 +106,17 @@ func traceQuerySleepInventoryObservations(account *tracequery.TargetWindowStateA
 		SupportRefs: traceQueryObservationSupportRefs(ref, account.LineStart, account.LineEnd), ObservedAt: at, Confidence: 0.95,
 	}
 	out := []types.ObservationRecord{set}
+	for _, stats := range inventory.StateStatistics {
+		row := set
+		row.ID += ":state:" + string(stats.State)
+		row.ClaimKey = "target_sleep_state_summary:" + subject + ":" + string(stats.State)
+		row.Predicate, row.Object = "target_sleep_state_summary", string(stats.State)
+		count := stats.IntervalCount
+		row.ResultCount = &count
+		row.Value = strconv.Itoa(count)
+		row.Summary = traceSleepStateStatsSummary(stats)
+		out = append(out, row)
+	}
 	for _, row := range inventory.Occurrences {
 		out = append(out, types.ObservationRecord{
 			ID:     fmt.Sprintf("trace_query:%s#target_sleep_interval:%d", scope, row.Ordinal),
@@ -117,4 +131,8 @@ func traceQuerySleepInventoryObservations(account *tracequery.TargetWindowStateA
 		})
 	}
 	return out
+}
+
+func traceSleepStateStatsSummary(s tracequery.TargetWindowSleepStateStats) string {
+	return fmt.Sprintf("%s: %d intervals; clipped sum=%.6gms, mean=%.6gms, max=%.6gms. Before all display/chain caps; not proof of cause or completion. Sum is per interval, not union; do not add overlapping levels.", s.State, s.IntervalCount, s.IntervalSumMs, s.MeanMs, s.MaxMs)
 }

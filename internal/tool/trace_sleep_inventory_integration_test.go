@@ -55,7 +55,7 @@ func TestB1607SleepInventoryPublishesOutsideChainSelectionWithoutRootAuthority(t
 				if r.Predicate == "target_sleep_interval" {
 					rows++
 				}
-				if r.Predicate != "target_sleep_inventory" && r.Predicate != "target_sleep_interval" {
+				if r.Predicate != "target_sleep_inventory" && r.Predicate != "target_sleep_interval" && r.Predicate != "target_sleep_state_summary" {
 					old = append(old, r)
 					continue
 				}

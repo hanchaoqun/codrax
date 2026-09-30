@@ -1,0 +1,14 @@
+# tracer: nop
+idle-0 (0) [000] .... 9.999000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=41 next_prio=120
+target-41 (41) [000] .... 10.000000: sched_switch: prev_comm=target prev_pid=41 prev_prio=120 prev_state=S ==> next_comm=loader next_pid=2 next_prio=120
+loader-2 (2) [000] .... 10.004000: sched_wakeup: comm=target pid=41 prio=120 target_cpu=0
+loader-2 (2) [000] .... 10.004500: sched_switch: prev_comm=loader prev_pid=2 prev_prio=120 prev_state=R ==> next_comm=target next_pid=41 next_prio=120
+target-41 (41) [000] .... 10.004600: tracing_mark_write: B|41|LoadCache
+target-41 (41) [000] .... 10.005000: sched_switch: prev_comm=target prev_pid=41 prev_prio=120 prev_state=S ==> next_comm=worker next_pid=3 next_prio=120
+worker-3 (3) [000] .... 10.006000: sched_wakeup: comm=target pid=41 prio=120 target_cpu=0
+worker-3 (3) [000] .... 10.007000: sched_switch: prev_comm=worker prev_pid=3 prev_prio=120 prev_state=R ==> next_comm=target next_pid=41 next_prio=120
+target-41 (41) [000] .... 10.008000: tracing_mark_write: E|41
+target-41 (41) [000] .... 10.009000: sched_switch: prev_comm=target prev_pid=41 prev_prio=120 prev_state=D ==> next_comm=worker next_pid=3 next_prio=120
+worker-3 (3) [000] .... 10.009100: sched_blocked_reason: pid=41 iowait=1 caller=io_schedule
+worker-3 (3) [000] .... 10.012000: sched_switch: prev_comm=worker prev_pid=3 prev_prio=120 prev_state=R ==> next_comm=target next_pid=41 next_prio=120
+target-41 (41) [000] .... 10.013000: sched_switch: prev_comm=target prev_pid=41 prev_prio=120 prev_state=R ==> next_comm=idle next_pid=0 next_prio=120

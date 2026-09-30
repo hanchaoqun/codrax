@@ -24,6 +24,7 @@ type TargetWindowSleepInventory struct {
 	SleepMs                 float64                       `json:"sleep_ms"`
 	DStateMs                float64                       `json:"d_state_ms"`
 	IOWaitMs                float64                       `json:"io_wait_ms"`
+	StateStatistics         []TargetWindowSleepStateStats `json:"state_statistics,omitempty"`
 	HeadState               *TimelineHeadState            `json:"head_state,omitempty"`
 	StateClosureStatus      string                        `json:"state_closure_status"`
 	BinderAssociationStatus string                        `json:"binder_association_status"`
@@ -43,6 +44,17 @@ type TargetWindowSleepOccurrence struct {
 
 const targetWindowSleepInventoryCap = 32
 
+// Per-interval statistics are calculated before either publication or chain
+// limits. Durations are window-clipped scheduler intervals, not completed wait
+// latencies. IntervalSumMs may exceed the union if input intervals overlap.
+type TargetWindowSleepStateStats struct {
+	State         ThreadState `json:"state"`
+	IntervalCount int         `json:"interval_count"`
+	IntervalSumMs float64     `json:"interval_sum_ms"`
+	MeanMs        float64     `json:"mean_ms"`
+	MaxMs         float64     `json:"max_ms"`
+}
+
 func buildTargetWindowSleepInventory(tl TimelineResult, window TimeWindow) *TargetWindowSleepInventory {
 	if tl.IntegrityFailure != "" || len(tl.Intervals) == 0 ||
 		!finiteSleepInventoryTime(window.StartTs) || !finiteSleepInventoryTime(window.EndTs) || window.EndTs <= window.StartTs {
@@ -60,6 +72,7 @@ func buildTargetWindowSleepInventory(tl TimelineResult, window TimeWindow) *Targ
 	}
 	var all, sleep, dState, ioWait []foldInterval
 	var selected []int
+	stats := map[ThreadState]*TargetWindowSleepStateStats{}
 	measurable := false
 	for i, it := range tl.Intervals {
 		// The producer owns scheduler integrity. Defensive invalid-input
@@ -87,6 +100,14 @@ func buildTargetWindowSleepInventory(tl TimelineResult, window TimeWindow) *Targ
 		measurable = true
 		all = append(all, span)
 		selected = append(selected, i)
+		if stats[it.State] == nil {
+			stats[it.State] = &TargetWindowSleepStateStats{State: it.State}
+		}
+		s := stats[it.State]
+		ms := (it.EndTs - it.StartTs) * 1000
+		s.IntervalCount++
+		s.IntervalSumMs += ms
+		s.MaxMs = math.Max(s.MaxMs, ms)
 	}
 	if !measurable {
 		return nil
@@ -96,6 +117,12 @@ func buildTargetWindowSleepInventory(tl TimelineResult, window TimeWindow) *Targ
 	out.SleepMs, _ = foldIntervalUnionMs(sleep)
 	out.DStateMs, _ = foldIntervalUnionMs(dState)
 	out.IOWaitMs, _ = foldIntervalUnionMs(ioWait)
+	for _, state := range []ThreadState{StateSSleep, StateDSleep, StateIOWait} {
+		if s := stats[state]; s != nil {
+			s.MeanMs = s.IntervalSumMs / float64(s.IntervalCount)
+			out.StateStatistics = append(out.StateStatistics, *s)
+		}
+	}
 	sort.SliceStable(selected, func(i, j int) bool {
 		a, b := tl.Intervals[selected[i]], tl.Intervals[selected[j]]
 		if a.StartTs != b.StartTs {

@@ -1,0 +1,12 @@
+# HMC-04.5 natural request. Boundary/cap/causal rules are system obligations.
+ID="trace_query_sleep_summary"
+NAME="trace query — complete sleep statistics and recorded wake relationships"
+QUESTION="只看附加 trace 的 10.001 到 10.012 秒，线程41睡眠和IO等待分别有几次，平均和最长多久？有哪些线程唤醒过它？请用表格和一张图说明。"
+HTRACE_FILE="eval/fixtures/hmosperf_sleep_summary/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="loader
+worker"
+EXPECT_PRIMARY_MATCHES_TEXT_REGEX="(睡眠|Sleep|sleep|S[） )|]).{0,120}2
+(IO|I/O|io_wait).{0,120}3"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
