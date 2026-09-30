@@ -7878,6 +7878,13 @@ func answerDocBoundedRuntimeObservationPromptRecordAllowed(
 	if types.TraceObservationIsEvidenceBoundary(record) || answerDocBoundedRuntimeTargetDiagnosticPredicate(predicate) {
 		return true
 	}
+	if subject, ok := tool.TraceQueryAggregateSelectionSubject(record); ok {
+		selected := record // prompt-only retention; never rewrite the ledger owner
+		selected.Subject = subject
+		if types.ObservationRecordMatchesUserRuntimeTarget(selected, rm) {
+			return true
+		}
+	}
 	if types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
 		// Target ownership alone does not authorize an IO-latency card for an
 		// unrelated finite state/relation lookup. The dedicated typed family is

@@ -12,7 +12,7 @@ func ValidProcessProfile(p ProcessProfile) bool {
 	if p.Status == "unavailable" {
 		return p.Reason != "" && len(p.Threads) == 0
 	}
-	if p.Status != "observed_members" || p.TGID <= 0 || p.SourceThread.TGID != p.TGID || p.MembershipBasis != "observed_native_tgid_members" || p.ThreadCount <= 0 || p.EmittedThreads != len(p.Threads) || p.OmittedThreads < 0 || p.ThreadCount != p.EmittedThreads+p.OmittedThreads || p.UnavailableThreads < 0 || p.UnavailableThreads > p.ThreadCount || p.UnknownMembershipThreads < 0 {
+	if p.Status != "observed_members" || p.TGID <= 0 || p.SourceThread.PID <= 0 || p.SourceThread.TGID != p.TGID || p.MembershipBasis != "observed_native_tgid_members" || p.ThreadCount <= 0 || p.EmittedThreads != len(p.Threads) || p.OmittedThreads < 0 || p.ThreadCount != p.EmittedThreads+p.OmittedThreads || p.UnavailableThreads < 0 || p.UnavailableThreads > p.ThreadCount || p.UnknownMembershipThreads < 0 {
 		return false
 	}
 	seen := map[int]bool{}

@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/prescan"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/threadidentity"
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -5678,12 +5679,19 @@ func parseRuntimeTarget(p emitRuntimeTargetParam) (types.RuntimeTarget, string, 
 	if p.PID != nil {
 		pid = *p.PID
 	}
-	thread := strings.TrimSpace(p.Thread)
-	if pid <= 0 && thread == "" {
-		return types.RuntimeTarget{}, "pid or thread is required", false
-	}
 	if pid < 0 || pid > emitRuntimeTargetMaxPID {
 		return types.RuntimeTarget{}, fmt.Sprintf("pid %d is out of supported range", pid), false
+	}
+	thread := strings.TrimSpace(p.Thread)
+	if kind == types.RuntimeTargetKindThread && threadidentity.Parse(thread).HasPID {
+		parsedPID, name, valid := threadidentity.Identity(thread)
+		if !valid || (pid > 0 && pid != parsedPID) {
+			return types.RuntimeTarget{}, "thread identity has conflicting or out-of-range IDs; use one observed TID", false
+		}
+		pid, thread = parsedPID, name
+	}
+	if pid <= 0 && thread == "" {
+		return types.RuntimeTarget{}, "pid or thread is required", false
 	}
 	switch kind {
 	case types.RuntimeTargetKindProcess:

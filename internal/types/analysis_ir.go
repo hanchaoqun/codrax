@@ -3,6 +3,8 @@ package types
 import (
 	"fmt"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/threadidentity"
 )
 
 // AnalysisIR is the sole structured output of the analyze stage under the
@@ -587,7 +589,7 @@ func RuntimeTargetIsExplorationCursorSource(source string) bool {
 // process/thread id — the single shared cap the emit-analysis normalizer, the
 // trace_query inheritance lane, and the B1 anchor-election ledger carrier all
 // bound against (F4 教义统一).
-const RuntimeTargetMaxPID = 4194304
+const RuntimeTargetMaxPID = threadidentity.MaxPID
 
 func NormalizeRuntimeTargetKind(kind RuntimeTargetKind) RuntimeTargetKind {
 	switch RuntimeTargetKind(strings.ToLower(strings.TrimSpace(string(kind)))) {

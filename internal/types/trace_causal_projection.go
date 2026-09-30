@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/threadidentity"
 )
 
 const (
@@ -2781,11 +2783,11 @@ func traceCausalProjectionAnchorLabelMatchesEntity(label string, entity traceCau
 	// F2/F3: the "-<digits>" tail and bare-integer arms are TYPED-lane only.
 	// The explicit "pid=N" handle is unambiguous and stays open to prose.
 	entityPid, entityHasPid := traceCausalProjectionPidPeerForm(value)
-	if !entityHasPid && entity.typedLane {
-		if base, pid, ok := traceCausalProjectionTypedDiagnosticPIDDisplay(value); ok {
-			value, entityPid, entityHasPid = base, pid, true
-		} else if entityPid, entityHasPid = traceCausalProjectionNamePidTail(value); !entityHasPid {
-			entityPid, entityHasPid = traceCausalProjectionPureInt(value)
+	if entity.typedLane {
+		if pid, name, ok := threadidentity.Identity(value); ok {
+			value, entityPid, entityHasPid = name, pid, true
+		} else if threadidentity.Parse(value).HasPID {
+			return false // contradictory or out-of-domain typed identity
 		}
 	}
 	if labelHasPid && entityHasPid {
@@ -2805,13 +2807,14 @@ func traceCausalProjectionAnchorLabelMatchesEntity(label string, entity traceCau
 
 // traceCausalProjectionTypedDiagnosticPIDDisplay accepts a typed diagnostic
 // display suffix such as "worker-17267 [17267]", "worker [17267]", or the
-// parenthesized runtime-target spelling "worker-17267 (17267)". Models
+// parenthesized runtime-target spelling "worker-17267 (tid=17267)". Models
 // sometimes retain the human-facing pid/tid display inside
 // RuntimeTarget.Thread instead of populating RuntimeTarget.PID separately.
-// This parser is consumed only after the entity has entered a typed lane; it
+// This adapter is consumed only after the entity has entered a typed lane; it
 // never mines raw request or answer prose. The suffix is therefore a precise
 // typed integer carrier. If a name-tid base exposes a different id, the shape
-// is contradictory and fails closed.
+// is contradictory and fails closed. It delegates to the query grammar rather
+// than maintaining a second numeric/display grammar in the evidence layer.
 func traceCausalProjectionTypedDiagnosticPIDDisplay(raw string) (string, int, bool) {
 	raw = strings.TrimSpace(raw)
 	if len(raw) < 4 {
@@ -2830,13 +2833,8 @@ func traceCausalProjectionTypedDiagnosticPIDDisplay(raw string) (string, int, bo
 	if open <= 0 {
 		return "", 0, false
 	}
-	base := strings.TrimSpace(raw[:open])
-	digits := strings.TrimSpace(raw[open+1 : len(raw)-1])
-	pid, err := strconv.Atoi(digits)
-	if err != nil || pid <= 0 || pid > RuntimeTargetMaxPID || base == "" {
-		return "", 0, false
-	}
-	if basePID, ok := traceCausalProjectionNamePidTail(base); ok && basePID != pid {
+	pid, base, ok := threadidentity.Identity(raw)
+	if !ok || base == "" {
 		return "", 0, false
 	}
 	return base, pid, true

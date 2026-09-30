@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/threadidentity"
 )
 
 // Trace thread CPU-load calibers live in the evidence layer so both the
@@ -397,6 +399,12 @@ func observationRecordMatchesUserRuntimeTarget(record ObservationRecord, rm *Req
 	for _, target := range rm.RuntimeTargets {
 		if RuntimeTargetIsExplorationCursorSource(target.Source) {
 			continue
+		}
+		if parsed := threadidentity.Parse(target.Thread); parsed.HasPID {
+			pid, _, valid := threadidentity.Identity(target.Thread)
+			if !valid || (target.PID > 0 && target.PID != pid) {
+				continue
+			}
 		}
 		if target.PID > 0 && target.PID <= RuntimeTargetMaxPID &&
 			traceCausalProjectionAnchorLabelMatchesEntity(record.Subject, traceCausalProjectionAnchorEntity{
