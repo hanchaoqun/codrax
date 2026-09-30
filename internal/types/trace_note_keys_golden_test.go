@@ -527,6 +527,7 @@ var traceNoteKeyGoldenRows = []string{
 	"process|cpu_load|display_only",
 	// CR-3 件③ P11 (2026-07-12): rank-row process attribution (冷读案8).
 	"process_comm|causal_rank|hard_consumer",
+	"process_profile|process_profile|soft_consumer",
 	// EVOLUTION RECORD (审计 #5/#62, 2026-07-10): display_only →
 	// hard_consumer — the on-chain semantic FAMILY record's exact
 	// intersection participation (SemanticChainProjectedMS); the rank-lane

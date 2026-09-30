@@ -304,6 +304,10 @@ var threadStateSwitchFallthroughLedger = map[string]threadStateFallthroughDecl{
 // (universe order) and default marker: "<members>" or "<members>|default".
 // Deleting a case is red HERE even when the switch carries a default.
 var threadStateSwitchSiteGolden = map[string]string{
+	// Profile groups only waiting states; all other states remain in the
+	// shared complete state account, never reclassified as sleeps.
+	"process_profile.go:processProfileSleepGroups#1":      "s_sleep,d_sleep,io_wait|default",
+	"process_profile_validation.go:ValidProcessProfile#1": "s_sleep,d_sleep,io_wait|default",
 	// Business-instance state integration handles every known physical lane;
 	// unknown intervals explicitly remain in the unclassified remainder.
 	"trace_marker_tree_states.go:owner#1": "running,runnable,s_sleep,d_sleep,io_wait,stopped,dead,unknown",

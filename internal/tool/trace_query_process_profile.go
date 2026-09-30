@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -30,11 +31,13 @@ func traceQueryProcessProfileSchema(schema json.RawMessage) json.RawMessage {
 			field["description"] = desc + " For process_profile, one source thread selector (pid or exact thread) is required unless already inherited from a unique typed analysis target; this selects its native process, not only that thread's statistics."
 		}
 	}
-	out, err := json.Marshal(obj)
-	if err != nil {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(obj); err != nil {
 		return schema
 	}
-	return out
+	return out.Bytes()
 }
 
 // Check only typed call fields, after existing target inheritance. A missing

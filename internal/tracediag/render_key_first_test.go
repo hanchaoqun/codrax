@@ -226,6 +226,24 @@ func TestNonEventPrioritySchemaPins(t *testing.T) {
 	}
 }
 
+func TestProcessProfileResultSchemaAddsOnlyOptionalProfile(t *testing.T) {
+	_, schema := detailSchemaFingerprint(reflect.TypeOf(tracequery.Result{}))
+	const added = "ProcessProfile|*tracequery.ProcessProfile|process_profile,omitempty"
+	var previous []string
+	count := 0
+	for _, field := range strings.Split(schema, ";") {
+		if field == added {
+			count++
+			continue
+		}
+		previous = append(previous, field)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(previous, ";")))
+	if count != 1 || hex.EncodeToString(sum[:]) != "7ac039b25fffee37930ecb705d752687c43de96f9c4b9bf56a65d6e26736ad19" {
+		t.Fatal("profile addition changed an unrelated result field")
+	}
+}
+
 // Keep the earlier source-inventory evolution witness unchanged: first remove
 // only this separately pinned later addition, never another field or JSON tag.
 func nonEventSchemaBeforeIOValueCaliber(t *testing.T, typ reflect.Type, schema string) string {
