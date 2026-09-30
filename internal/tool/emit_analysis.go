@@ -884,7 +884,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"current_source_explanation_profile": map[string]any{
 				"type":        "object",
-				"description": "Dedicated soft typed profile for mixed external-observation + current-checkout requests. You MUST emit it when the CURRENT request asks to explain, verify, trace, compare, locate, or assess an external/non-source observation against current source. source_scope_profile, diagnostic_profile.current_risk/current_version_check, and external_observation_policy.current_source_mode=allow do not substitute for this carrier. It opens the current-source evidence lane; it is not a display dimension and not a hard answer gate.",
+				"description": skill.AnalysisCurrentSourceExplanationTeaching,
 				"properties": map[string]any{
 					"is_current_source_explanation_requested": map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks to relate external/non-source evidence to the current checkout/source."},
 					"modes": map[string]any{

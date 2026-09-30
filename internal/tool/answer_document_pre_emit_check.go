@@ -11080,6 +11080,7 @@ func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.An
 	out := make([]preEmitAggregateCardinalityRef, 0, len(principalRefs))
 	principalByIndex := make(map[int]bool, len(principalRefs))
 	uniquePrincipalSet := len(principalRefs) == 1
+	implicitScalarBinding := preEmitImplicitMemberCountBindingUnambiguous(facts)
 	for _, ref := range principalRefs {
 		principalByIndex[ref.Index] = true
 		min := 0
@@ -11089,7 +11090,7 @@ func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.An
 		scalarBlockBinding := false
 		if ctx != nil && ctx.AnalysisIR != nil {
 			rm := ctx.AnalysisIR.RequestModel
-			scalarBlockBinding = types.AggregateMemberSetIsScalarCountSupport(&rm, ref.Fact)
+			scalarBlockBinding = implicitScalarBinding && types.AggregateMemberSetIsScalarCountSupport(&rm, ref.Fact)
 		}
 		out = append(out, preEmitAggregateCardinalityRef{
 			Index:              ref.Index,
@@ -11110,7 +11111,7 @@ func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.An
 			Index:              idx,
 			Fact:               fact,
 			MemberBindingMin:   0,
-			ScalarBlockBinding: true,
+			ScalarBlockBinding: implicitScalarBinding,
 		})
 	}
 	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(facts) {

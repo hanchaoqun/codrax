@@ -48,6 +48,9 @@ func commandMeasurementEvidencePathRequested(ctx *types.AgentContext) bool {
 		strings.TrimSpace(hint.Source) != "mixed" {
 		return false
 	}
+	if measurementHasRequiredMechanismDimension(rm) {
+		return true
+	}
 	if !rm.Predicates.IsCountQuestion || !rm.Predicates.IsScalarAnswer || rm.Intent != types.IntentExplain {
 		return false
 	}
@@ -65,14 +68,14 @@ func renderCommandMeasurementEvidencePathAuthority(count int, lang string) strin
 		fmt.Fprintf(&b, "- typed command measurement carrier：%d 个。\n", count)
 		b.WriteString("- 确定性命令测量与模型生成的汇总/解释是相互独立的证据载体。兼容的计数可以用测量值做单向核对，但两者并置本身不证明客户仓中的调用边、数据流边或所有权关系。\n")
 		b.WriteString("- 回答当前源码机制时，只从本轮在当前仓实际读取并引用的源码推导 producer、consumer、相邻调用和方向；运行分析工具自身的内部测量管线不属于客户仓源码证据，不要把它写成客户仓架构。\n")
-		b.WriteString("- 若现有源码证据不足以证明相邻边，请保留边界或继续读取相关文件，不要用测量载体的存在补造调用链。若画图，只有 typed call evidence 支持时才标成 call。\n")
+		b.WriteString("- 定义或字段赋值不能独立证明后续流向。沿实际调用者/消费者读取调用条件、阶段与方向；未执行分支或仅支持序列化的辅助函数不能写成实际下一步。未闭合的边保留未知；若画图，只有 typed call evidence 支持时才标成 call。\n")
 		b.WriteString("- 这是关于证据权限与来源边界的软提示，不替模型选择机制结论，也不修改最终答案。\n\n")
 	} else {
 		b.WriteString("## Current-source measurement context\n\n")
 		fmt.Fprintf(&b, "- Typed command-measurement carriers: %d.\n", count)
 		b.WriteString("- Deterministic command measurements and model-authored summaries or explanations are independent evidence carriers. A compatible count may be checked one way against the measurement, but their coexistence does not prove a call edge, data-flow edge, or ownership relation in the customer repository.\n")
 		b.WriteString("- For a current-source mechanism answer, derive producers, consumers, adjacent calls, and direction only from source actually read and cited from the current repository. The analysis tool's own measurement plumbing is outside the customer-repository evidence boundary and must not be presented as customer architecture.\n")
-		b.WriteString("- If current source evidence does not prove an adjacent edge, preserve that boundary or read the relevant source instead of inventing a call chain from the presence of a measurement carrier. In diagrams, use call only where typed call evidence supports it.\n")
+		b.WriteString("- A definition or field assignment does not independently prove downstream flow. Read actual callers and consumers, including invocation conditions, stage and direction; an unexecuted branch or serialization helper is not an actual next step. Keep unproved edges unknown. In diagrams, use call only where typed call evidence supports it.\n")
 		b.WriteString("- This is soft guidance about evidence authority and provenance. It does not choose the model's mechanism conclusion or rewrite the final answer.\n\n")
 	}
 	return b.String()

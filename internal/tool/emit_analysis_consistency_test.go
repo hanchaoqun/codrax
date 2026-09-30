@@ -1111,7 +1111,8 @@ func TestEmitAnalysisSchemaIncludesCurrentSourceExplanationProfile(t *testing.T)
 		t.Fatal("emit_analysis schema is missing property \"current_source_explanation_profile\"")
 	}
 	var prop struct {
-		Properties map[string]struct {
+		Description string `json:"description"`
+		Properties  map[string]struct {
 			Type  string `json:"type"`
 			Items struct {
 				Enum []string `json:"enum"`
@@ -1121,6 +1122,9 @@ func TestEmitAnalysisSchemaIncludesCurrentSourceExplanationProfile(t *testing.T)
 	}
 	if err := json.Unmarshal(propRaw, &prop); err != nil {
 		t.Fatalf("current_source_explanation_profile property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	if prop.Description != skill.AnalysisCurrentSourceExplanationTeaching {
+		t.Fatal("schema and analyzer current-source teaching drifted")
 	}
 	for _, want := range []string{"is_current_source_explanation_requested", "confidence"} {
 		found := false
