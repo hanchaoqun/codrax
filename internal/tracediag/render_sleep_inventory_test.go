@@ -25,10 +25,12 @@ func TestB1607DiagInventoryFieldDisposition(t *testing.T) {
 		{reflect.TypeOf(tracequery.TargetWindowSleepInventory{}), []string{
 			"Thread|thread", "Window|window", "Scope|scope", "ScanStatus|scan_status", "OutputStatus|output_status",
 			"Total|total", "Emitted|emitted", "TotalMs|total_ms", "SleepMs|sleep_ms", "DStateMs|d_state_ms", "IOWaitMs|io_wait_ms",
+			"StateStatistics|state_statistics,omitempty",
 			"HeadState|head_state,omitempty", "StateClosureStatus|state_closure_status", "BinderAssociationStatus|binder_association_status",
 			"CausalAttributionStatus|causal_attribution_status", "Occurrences|occurrences",
 		}},
 		{reflect.TypeOf(tracequery.TargetWindowSleepOccurrence{}), []string{"Ordinal|ordinal", "Interval|"}},
+		{reflect.TypeOf(tracequery.TargetWindowSleepStateStats{}), []string{"State|state", "IntervalCount|interval_count", "IntervalSumMs|interval_sum_ms", "MeanMs|mean_ms", "MaxMs|max_ms"}},
 	} {
 		var got []string
 		for i := 0; i < tc.typ.NumField(); i++ {
@@ -99,6 +101,9 @@ func TestB1607DiagActualNestedInventoryKeepsCoordinatesAndEngineCap(t *testing.T
 				"total=39", "emitted=32", "total_ms=7.800", "sleep_ms=2.600", "d_state_ms=2.600", "io_wait_ms=2.600",
 				"state_closure_status=not_assessed", "binder_association_status=not_assessed", "causal_attribution_status=not_assessed",
 				"ordinal=1", "start_ts=6793222.001000", "end_ts=6793222.001200", "duration_ms=0.200", "ordinal=32",
+				"state=s_sleep interval_count=13 interval_sum_ms=2.600 mean_ms=0.200 max_ms=0.200 basis=window_clipped_intervals",
+				"state=d_sleep interval_count=13 interval_sum_ms=2.600 mean_ms=0.200 max_ms=0.200 basis=window_clipped_intervals",
+				"state=io_wait interval_count=13 interval_sum_ms=2.600 mean_ms=0.200 max_ms=0.200 basis=window_clipped_intervals",
 			} {
 				if !strings.Contains(report, want) {
 					t.Fatalf("actual nested inventory omitted %q:\n%s", want, report)

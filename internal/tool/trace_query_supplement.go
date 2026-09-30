@@ -675,7 +675,7 @@ func traceSupplementViewFamilyCensus(result types.ToolResult) types.TraceSupplem
 			census.WakeupChainRows++
 		case predicate == "target_window_states" ||
 			predicate == "target_cpu_running" ||
-			predicate == "target_sleep_inventory" || predicate == "target_sleep_interval" ||
+			predicate == "target_sleep_inventory" || predicate == "target_sleep_interval" || predicate == "target_sleep_state_summary" ||
 			predicate == "target_binder_wait_inventory" || predicate == "target_binder_wait_interval" ||
 			predicate == "target_window_wait_occurrences" ||
 			predicate == "target_window_wait_occurrence":

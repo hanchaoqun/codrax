@@ -23,6 +23,12 @@ func renderTargetSleepInventoryDetail(inventory tracequery.TargetWindowSleepInve
 	if inventory.HeadState != nil {
 		walkDetailWithPolicy(reflect.ValueOf(inventory.HeadState), path+".head_state", emit, depth+1, policy)
 	}
+	// These full-population statistics precede the independently capped detail
+	// rows. The interval sum is not the union total above or proof of closure.
+	for i, stat := range inventory.StateStatistics {
+		emit(fmt.Sprintf("- %s.state_statistics[%d]: state=%s interval_count=%d interval_sum_ms=%s mean_ms=%s max_ms=%s basis=window_clipped_intervals",
+			path, i, clampToken(string(stat.State)), stat.IntervalCount, formatMsToken(stat.IntervalSumMs), formatMsToken(stat.MeanMs), formatMsToken(stat.MaxMs)))
+	}
 	for i, occurrence := range inventory.Occurrences {
 		// Reuse the existing scalar/tag formatter for EVERY original Interval
 		// field, including its unmodified Summary. Direct scalar rendering is

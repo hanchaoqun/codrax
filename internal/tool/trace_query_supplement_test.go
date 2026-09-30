@@ -672,7 +672,7 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	if got := runtimeTraceSupplementDisclosureText(legacyMeta, true); got != wantZH {
 		t.Fatalf("pre-concurrency zh account changed: %q, want %q", got, wantZH)
 	}
-	wantZH = strings.Replace(strings.Replace(wantZH, "63条", "66条", 1), "其他30", "其他33", 1)
+	wantZH = strings.NewReplacer("63条", "68条", "状态12", "状态14", "其他30", "其他33").Replace(wantZH)
 	if lines[0] != wantZH {
 		t.Fatalf("zh disclosure = %q, want %q", lines[0], wantZH)
 	}
@@ -687,7 +687,7 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	if got := runtimeTraceSupplementDisclosureText(legacyMeta, false); got != wantEN {
 		t.Fatalf("pre-concurrency en account changed: %q, want %q", got, wantEN)
 	}
-	wantEN = strings.Replace(strings.Replace(wantEN, "observations: 63", "observations: 66", 1), "other 30", "other 33", 1)
+	wantEN = strings.NewReplacer("observations: 63", "observations: 68", "states 12", "states 14", "other 30", "other 33").Replace(wantEN)
 	if en != wantEN {
 		t.Fatalf("en disclosure = %q, want %q", en, wantEN)
 	}
@@ -1033,7 +1033,7 @@ func TestTraceSupplementDurationBudgetKeepsCompletedViews(t *testing.T) {
 	if got := runtimeTraceSupplementDisclosureText(legacyMeta, true); got != wantZH {
 		t.Fatalf("pre-concurrency partial zh account changed: %q, want %q", got, wantZH)
 	}
-	wantZH = strings.Replace(strings.Replace(wantZH, "63条", "66条", 1), "其他30", "其他33", 1)
+	wantZH = strings.NewReplacer("63条", "68条", "状态12", "状态14", "其他30", "其他33").Replace(wantZH)
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh partial disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
@@ -1042,7 +1042,7 @@ func TestTraceSupplementDurationBudgetKeepsCompletedViews(t *testing.T) {
 	if got := runtimeTraceSupplementDisclosureText(legacyMeta, false); got != wantEN {
 		t.Fatalf("pre-concurrency partial en account changed: %q, want %q", got, wantEN)
 	}
-	wantEN = strings.Replace(strings.Replace(wantEN, "observations: 63", "observations: 66", 1), "other 30", "other 33", 1)
+	wantEN = strings.NewReplacer("observations: 63", "observations: 68", "states 12", "states 14", "other 30", "other 33").Replace(wantEN)
 	if en != wantEN {
 		t.Fatalf("en partial disclosure = %q, want %q", en, wantEN)
 	}

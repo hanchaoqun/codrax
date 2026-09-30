@@ -72,7 +72,8 @@ func TestEventSideTablePromotionBan(t *testing.T) {
 			modPath + "/internal/types": true,
 			// PERF-TEXT-KV-CODEC: tracequery and all perf writers share one
 			// escape-aware wire grammar from this leaf package.
-			modPath + "/internal/tracewire": true,
+			modPath + "/internal/tracewire":      true,
+			modPath + "/internal/threadidentity": true,
 		},
 		fakes: map[string]*types.Package{},
 	}
