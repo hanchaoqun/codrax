@@ -5044,3 +5044,72 @@ typed profile observation携带来源、窗口、查询及payload，解码校验
 本批完整能力新增0，累计16/79、63开放；新增可调用进程概览子能力1，另有混合教学/参数失败修复，不能把修复提交数当完整能力数。当前两份真实答案均未通过、稳定验收父项仍5；能力可用与自然问法验收分开。下一批新增view先快速覆盖canonical目录容量、typed key/wire字段、状态switch、结果指纹及schema原文语义，避免到昂贵全仓才发现登记遗漏；只在代码和测试冻结后跑一次全仓，确有失败才修后重验。
 
 本批不修改600/300/600秒等待、stream activity计时、链上根因、指定窗投影/自动补齐或读写风险/审批；两例未超时，均为读模式，不代签写模式。也修正文档中17.7仍称无/空/无提交WAL未支持的陈旧描述；实际已支持稳定捕获checkpoint-only，各分支缺失状态收据不可混同历史完整性。四笔实现/测试提交已普通推送main，1164正式exit0（cad9f8003→76c2fa726），本地/远端0/0；本文、任务清单、架构说明及小型原判按批合并保存。
+
+## 198. 2026-09-29：查找输入与诊断焦点分离；独立交付义务跨路由/完成
+
+### 198.1 数量、参考意图和交付边界
+
+开工与批末均79个唯一ID、16完整任务、63开放、重复0；开放48待实施/9部分实施/2待验收/3验收中/1持续执行。5个验收父项03.2/04.2/08.3/08.4/18.2仍开放，未更改旧机器/人工FAIL。开工主仓干净、618fb8d39已同步；本批仍两轨：04.5进程观察入口的查询身份，01.3/16.4/18.5混合任务整体交付。不是继续增加某个问法的同义prompt。
+
+重新完整核对参考`config/indicators/process/profile.yaml`及320行`core/preprocess/process_profile_ops.py`：工具要求一个TID来定位进程，分开输出窗口内状态、运行Top和业务热点；这个定位输入不意味着用户只诊断该线程。Codrax原来把查询定位与根因焦点共用runtime_targets，前批“线程10所在进程”因无唯一诊断焦点而丢输入，就是接口建模缺陷。参考以进程为总体的设计可复用，但其同名聚合借首TID、top_n=0人口为零、按已观测状态而非完整窗口作分母不能照搬。保持原生身份、未知、完整窗口及按线程业务热点语义，不新增评分式根因排名。
+
+完整能力新增0，新增两组可使用的系统子能力/修复；机器通过不等于完整成文通过。睡眠依赖树与D-state说明组合、原生资源栈、二进制和只读凭证剩余退出仍留原ID，不因子能力交付缩小父项退出条件。
+
+### 198.2 实现：独立结果义务，不以路由标签代替总体完成
+
+`4b5589fbc265`增加值所有权的`TurnOutcomeSet`，wire为6个枚举的短数组。分类器schema/prompt共用一条教学：source_explanation指当前源码实现说明，即使是统计后的次要请求也保留；external_artifact/computer_action是用户要的产物/动作，不是系统为取证使用的命令。此集合是交付需求，不是事实、计划或写授权，不从reason/原始问句/最终答案关键词重建。
+
+TurnPolicy→TurnRouteHint→分析上下文保留集合。仅测量＋源码说明且无外部产物/机器动作/明确写入时走既有只读分析；有具体产物/副作用/显式写意图仍保原路由及风险门，普通pwd等单一操作不无条件增加一次重模型。低置信度及组织kill switch不被位集合绕过。
+
+CLI/REPL命令request、plan、replan、continuation与policy恢复传递原集合，模型不能在新计划里静默删掉次要义务；真正新followup仍采用本轮分类。复合目标/独立产物即使stdout很短且没有payload，也触发已有整体完成评估；执行成功但评估未能给出结果时保留partial/outcome_evaluation_unavailable，不能仅凭命令exit0完成整个目标。单一普通action/measurement保持原低成本路径。跨源分析的证据路径软提示同时消费独立结果义务，不再仅依赖另一个可选profile恰好出现。
+
+教学常量最初放types造成glossary AST无法读取跨包selector，低成本包测试发现后移回repl的单源常量，不放宽教学校验。provider专用workflow plan及provider→command转换的全链传递尚未全部接入；本批不将command分支签成所有handler已支持。操作标准answer_surface收据也保原验收项。
+
+### 198.3 实现：定位身份与根因焦点隔离
+
+RequestModel新增`runtime_thread_lookups`（最多8个），包含源TID/精确线程及当前请求的原句。独立于runtime_targets，Mutable快照克隆切片，读取阶段以一个简短边界区传递，写阶段不额外塞入。删除“用户提到任意线程必为诊断焦点”式矛盾教学。
+
+自动补齐只面向process_profile/thread_timeline/window_stats/scheduler_latency_stats这组观察型线程输入；显式调用优先，真正答案焦点仍走既有逻辑，多个lookup不猜选。单一lookup不能被后续探索cursor覆盖，也不会创建runtime_target或root seat；root/frame/global查询不继承新入口。窗口、物理来源及已有Trace因果投影不改。
+
+`4a7d4fe9e6a3`补两处：当前请求中有某句不等于该句证明任意附件身份；原句必须确实含对应定位身份，泛化“有哪些线程”不能给worker/late/outside授输入权威。IR中已写入的explicit_tool_call只作探索游标，不能阻断独立lookup继承。公开矩阵覆盖显式/唯一/多个/冲突输入、源窗口、真实焦点、探索游标和根因/全局负控。
+
+全仓身份审计发现新quote anchoring owner未登记。`0550003d4`仅登记精确`parseRuntimeThreadLookups`原句出处检查；身份判断复用既有`entityNamedInQuote`整词权威，规范线程标签用已有解析器消费完整identity surface。补background_worker不能证明worker、Worker10/pkg.10不能证明TID10，以及10/100/310、线程名/TID一致性负控；不以放宽全局allowlist或改变测试上限解决。新增身份函数也纳入同一结构审计。
+
+### 198.4 真实双例：机器2/2，完整人工0/2
+
+固定52931恰好2并行×1、runner正式exit0，未追加第三例。真实二进制为4b5589fbc265；后续身份修补及末版测试不倒签它。完整过程、实际消息、最终答案和SHA见[人工审计](../../eval/parallel_selected_summary_hmc_lookup_outcomes_20260929_manual_audit.md)，[机器PASS原判](../../eval/parallel_selected_summary_hmc_lookup_outcomes_20260929.md)保留。
+
+- **Trace230秒：** 工具显式pid10正确得到3个窗内成员、未知状态及17/15ms调度、8/7ms单实例Load；最终仍写4成员、未知为0、“5ms+12ms合计8ms”、业务区间冒CPU运行区间及无证据的无竞争/无反转结论。新自动补齐没有live命中（模型本次显式传PID），不能用结果假装验收该分支。
+- **混合289秒：** 分类进入hybrid/investigate/current_source required，实际执行统计393并读取源码18次，保留账本消费者、聚合维度及explorer调用点解释；相对前批“仅命令receipt/源码读取0”有实质改善。结尾却把排除`*_test.go`写成文件名不含`_test`，与开头及实际命令冲突，完整答案仍FAIL。此局部误述已有充分证据，暂保记录不占第三例追跑。新短stdout operation完成分支未被该真实例经过，仅公共入口验证。
+
+更重要的**系统级P1新证据**：Trace真实finalizer消息没有`已观测进程概览`。范围投影先按bounded_fact_set+named_target(ui-10)过滤，进程聚合主体`process 10`无法通过线程主体/global-family分支，专用renderer收到的promptLedger已无该记录；较早文字总结还在，形成数据正确但交接失真。§197公开测试未带实际bounded/named组合，因此不足以证明完整handoff。不能笼统说“模型已有全量正确证据，是随机波动”。挂04.5/01.3/16.4，下一片需生产者范围/查找主体/所求维度的通用聚合保留，不能简单放行所有旁邻进程背景。
+
+分类器还将纯Trace问题误标source_explanation，造成soft源码lane假阳性；预分析发现对象进入subtopics及用户维度也有噪音。均留01.3/16.4，处理分类/来源/范围接缝，不给用户增加约束心智。调度并发typed数据已到finalizer却被错述，则单列最终语义一致性，不与主概览丢失混为一因。
+
+后续代码核对还有同类高影响接面：analyzer的`ui-10 (tid=10)`未规范化为独立PID，query选择器支持此typed身份，而ledger主体匹配仅接受裸数字括号等部分形式。因此主体投影同时存在身份解析漂移和线程→进程聚合范围丢失；下片统一规范身份与生产者范围，不仅为一个view豁免。此发现留同一P1，不新增任务ID充数。
+
+### 198.5 回归与发布收据
+
+小改测试先行：公共emit→query、上下文实际消息、CLI短输出完成/失败partial、计划序列化/续跑、读写负控、快照所有权、schema教学和先前自动补齐回归均通过。末版身份定向81872正式exit0；五包相关race25458、构建86922正式exit0。早期测试编译类型/fixture必需predicates、旧教学文案pin及glossary跨包常量读取失败日志均保留，不冒作用户故障或删除原判。
+
+首个全仓92615在发现游标接缝后定向终止自己的进程组，exit143，不是PASS；随后1358以4a7d4fe9e冻结运行正式exit1：86包PASS/13无测试/1包FAIL，唯一失败是新增quote-owner未登记的结构审计。修复后以0550003d4重新冻结运行独立全仓12359，正式exit0：87测试包PASS、13无测试、零FAIL，不拼接前轮绿包。agent103.683s、tool489.908s、hitraceconv174.965s、tracequery141.618s；没有改测试超时或跳过失败用例。末版构建revision为0550003d4d71-dirty，dirty仅本文/任务/架构及两份评测汇总；真实双例仍使用4b5589fbc，不混签。
+
+| 本地验证日志 | SHA-256 |
+| --- | --- |
+| `/tmp/codrax-hmc198-full.log`（主动终止143） | `dc8942c9ab7babd7bdd1bc816f0aef6493a1190a3de6fdc55d1d77ae07db2111` |
+| `/tmp/codrax-hmc198-full-final.log`（身份审计FAIL，不是末版） | `1f42f91bfec4538b1c2fc7cb8e6a9683b3a22636577f092b5623dc520fec1bb1` |
+| `/tmp/codrax-hmc198-identity-final.log`（修后身份回归） | `1908adffc589a1d5bd2bf9bb601331ece8b92df9c0fd79978e9ffb22dc3e3bd0` |
+| `/tmp/codrax-hmc198-full-verified.log`（末版独立全仓PASS） | `299a9225aa342786a1aa382f8ba31f5725bac2715922d56c77d26ca751794efb` |
+| `/tmp/codrax-hmc198-identity-final-race.log`（末版五包定向race） | `3a526d3d6a545cf2688fbc53c52b4003f32282f84b427914a7c48e1183e2fb9a` |
+| `/tmp/codrax-hmc198-build-verified.log`（末版构建） | `6cb0249ffe32221b8150f025259721c80aa1328693719e66171f2b60b67462f7` |
+
+### 198.6 下一队列和不误销边界
+
+1. **高影响01.3/16.4/04.5，P1：** 聚合证据经过实际范围投影后仍可供最终回答；真实分类×查询输入/焦点×物理来源/多窗矩阵，保根因链资格和非链背景角色。不得用放开全部背景、把集合成员选为诊断焦点或扫问答关键词修复。错误附加源码义务、预分析实体衍生用户要求同项保留。
+2. **完整参考04.5，P1：** 睡眠依赖树的已证边、S/D/IO、caller/业务线索、未知/容量/裁剪组合，继承参考的问题分解意图但复用本项目wakeup/state事实。后续03.3原生资源栈；不再因单个局部措辞无限延期完整能力。
+3. **17.7/17.6、18.5：** 已支持稳定main/WAL全部分型，不重复施工；持续写入一致快照、时间/TID存储类、原rowid/多源代次、static_initialize、普通viewer、实机格式与登记重启恢复各自验收。provider专用计划义务传递/标准operation surface仍开放，不以一条command路径冒签。
+4. **模型成文与验收：** 充分供证后的`*_test.go`边界误述等留原FAIL但降于跨范围供证缺失；5父项及图关系/时序/范围继续独立验收。未修内容均留原ID，不用拆并任务让63下降。
+
+本批未修改只读调度loop、链上主因/业务线索、显式时间窗/因果投影、写风险/审批和600/300/600秒策略；未增加活跃流固定时长降级。代码/测试三片，文档及小型原判一批汇总；完整能力累计16、开放63，本批完整答案残留2、稳定验收父项5。
+
+三笔代码/测试提交`4b5589fbc`、`4a7d4fe9e`、`0550003d4`已普通推送main，16298正式exit0（618fb8d39→0550003d4），核对本地/远端0/0；本文、任务清单、架构及两份小型评测报告统一提交。原始失败日志、完整答案及payload未覆盖，后续只读审计不能把本批机器PASS当完整人工验收。

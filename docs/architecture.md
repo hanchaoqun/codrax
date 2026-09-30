@@ -401,6 +401,8 @@ Per-agent 模型路由在 `providers.yaml` 配，不同 agent 可指向不同模
 
 ## 4. 用户意图识别
 
+**独立交付义务（HMC §198）**：TurnPolicy与TurnRouteHint携带`required_outcomes`枚举集合（answer/measurement/source_explanation/external_artifact/computer_action/source_change），记录用户要的结果，不记录内部取证步骤、事实或权限。共享短教学明确“统计＋当前源码说明”中的说明不能因被判次要而丢失；没有外部产物/机器动作/明确写入要求时，typed源码义务将请求送入只读分析，普通工作目录访问不因此变源码任务。命令操作的request/plan/重规划/续跑保留原集合，短stdout也不能绕过复合目标的完成评估；确实未能评估时以partial保留未完义务，简单单一操作继续走原低成本路径。不扫描问答原文，不凭source_change位绕过写授权。provider专用计划全链传递及分类假阳性仍为开放验收范围，不宣称所有operation handler均已覆盖。
+
 > **这一章解决一个 LLM 系统里最容易出问题的环节：把自然语言问题翻译成下游可消费的 typed 结构。**
 
 ### 4.1 为什么要把"意图识别"做成一整层
@@ -1336,7 +1338,7 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **进程观察概览（HMC-04.5子能力）**：`trace_query(view=process_profile,pid=<源TID>,time_start,time_end)`以原生header TGID/已验证scheduler head建立已观测成员，不使用名称或marker PID投票作为成员证明。单完整物理源及确定窗口内，复用owner时间线计算完整成员的状态和睡眠调用者分组；百分比分母为完整窗口，缺状态/caller为未知。同步业务热点按线程及名称汇总完整已配对库存的窗口内包含耗时，不跨线程借代表TID；嵌套热点不能相加。先算总数再展示最多40线程/每线程8组，工具及最终上下文分别披露省略。typed observation绑定来源/查询/窗口并校验状态守恒，最终上下文最多4查询×12线程；不改请求范围。成员→状态→调用者是观察分组，不是调用图或唤醒因果树；根因仍由已有链上证据决定。
 
-概览入口保留唯一typed目标自动补齐；补齐后仍缺源线程选择器时返回可重试参数错误，不产生缺证统计。原生进程身份或状态确实不可计量则显示未知，不能把调用遗漏/缺证显示为零成员。
+概览入口保留唯一typed目标自动补齐。另以`RequestModel.runtime_thread_lookups`保存用户给出的查询定位线程，与诊断焦点分开：原句必须属于当前请求，身份须由统一整词匹配/完整线程选择器绑定；泛化“有哪些线程”不能授予附件中发现的身份。仅观察型线程输入view可继承唯一lookup，显式调用/真正焦点优先，多输入不猜选，探索游标不能覆盖lookup，不创建根因焦点。补齐后仍缺选择器返回可重试参数错误，不产生缺证统计；原生身份/状态不可计量则显示未知，不补零。§198真实回放发现bounded/named范围投影仍可能过滤进程聚合，虽独立handoff路径已有实现，完整组合尚未通过，见统一账本§198。
 
 **gzip内SQLite（HMC-17.7）**：完整运输验证后的内层SQLite复用同一只读导出helper、held view和发布事务，不重开临时路径或启动第二个源事务，也不调用外部转换器。`ExistingTraceDBSource.Path`仍定位压缩原件，其Bytes/SHA256/Generation必须等于gzip的Decoded三元组；外层Result.Input与gzip Source三元组继续绑定压缩原件，准备器同时校验二者。默认Prepare保留实际消费的封存DB，显式Convert保留/不保留/指定DB路径使用原无覆盖发布与回滚规则。仅支持给定自包含rollback-journal表示，不能由此证明压缩前原库的生命周期；gzip头名字/mtime和旁邻文件不作为DB身份、旁件或时钟证据。外层压缩预算、内层解压预算和SQLite原有资源边界不变；失败不借别的输入或旧缓存。
 
