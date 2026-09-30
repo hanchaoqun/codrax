@@ -40,7 +40,7 @@ func capabilityPublicCall(t *testing.T, ctx *types.BusContext, params string) ma
 	if out["static_only"] != true || out["evidence"] != false || out["capture_availability"] != "not_evaluated" {
 		t.Fatalf("lost metadata boundary: %+v", out)
 	}
-	if params == `{}` || params == `{"view":"window_stats","detail":true}` {
+	if params == `{}` || params == `{"view":"window_stats","detail":true}` || params == `{"detail":true}` {
 		t.Logf("catalog params=%s serialized_bytes=%d", params, len(result.Summary))
 	}
 	return out
@@ -62,7 +62,7 @@ func TestTraceCapabilitiesPublicCompleteDiscovery(t *testing.T) {
 	if !reflect.DeepEqual(got, tracequery.CanonicalViewNames()) {
 		t.Fatalf("catalog/engine drift: %v", got)
 	}
-	if len(got) != 21 || out["metrics"] != nil {
+	if len(got) != len(tracequery.CanonicalViewNames()) || out["metrics"] != nil {
 		t.Fatalf("summary should be complete but compact: views=%d metrics=%v", len(got), out["metrics"])
 	}
 	var schema struct {

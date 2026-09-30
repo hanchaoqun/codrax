@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -23,11 +24,27 @@ func traceQueryProcessProfileSchema(schema json.RawMessage) json.RawMessage {
 	}
 	description, _ := view["description"].(string)
 	view["description"] = description + " " + tracequery.ProcessProfileTeaching
+	for _, name := range []string{"pid", "thread"} {
+		if field, ok := properties[name].(map[string]any); ok {
+			desc, _ := field["description"].(string)
+			field["description"] = desc + " For process_profile, one source thread selector (pid or exact thread) is required unless already inherited from a unique typed analysis target; this selects its native process, not only that thread's statistics."
+		}
+	}
 	out, err := json.Marshal(obj)
 	if err != nil {
 		return schema
 	}
 	return out
+}
+
+// Check only typed call fields, after existing target inheritance. A missing
+// selector is a repairable invocation error, not absent process evidence.
+func traceQueryProcessProfileInputRepair(p traceQueryParams) *types.ToolResult {
+	if tracequery.CanonicalViewName(p.View) != "process_profile" || p.PID.Int() > 0 || strings.TrimSpace(p.Thread) != "" {
+		return nil
+	}
+	hint := "process_profile needs a source thread selector. Retry the same source/window with pid=<observed TID> or thread=<exact observed thread>. If not yet known, locate the requested thread with event_search first. No process census was performed; missing call parameters do not mean missing capture data."
+	return &types.ToolResult{ToolName: "trace_query", Success: false, Summary: hint, Timestamp: time.Now(), Repair: &types.ToolRepair{Code: "trace_query_source_thread_required", Fields: []string{"pid", "thread"}, Hint: hint, Metadata: map[string]string{"view": "process_profile", "retry_scope": "same_source_and_window", "selector_semantics": "one_source_thread"}}}
 }
 
 func writeTraceProcessProfilePreview(b *strings.Builder, p *tracequery.ProcessProfile) {
@@ -87,6 +104,10 @@ func DecodeTraceProcessProfile(record types.ObservationRecord) (tracequery.Proce
 
 func TraceProcessProfileText(p tracequery.ProcessProfile, limit int) string {
 	var b strings.Builder
+	if p.Status == "unavailable" {
+		fmt.Fprintf(&b, "进程概览未能计量；窗口=[%.9f, %.9f) 秒；reason=%s。成员数、状态及业务分布未知，不能按零处理，也不据此推断原始trace缺数据。\n", p.Window.StartTs, p.Window.EndTs, p.Reason)
+		return b.String()
+	}
 	fmt.Fprintf(&b, "进程 %d；窗口=[%.9f, %.9f) 秒，完整窗口 %.9g 毫秒；status=%s reason=%s；已观测成员=%d，原生展示=%d，原生省略=%d，状态未能计量成员=%d；全来源进程归属未确定线程=%d（不算入本进程）。\n", p.TGID, p.Window.StartTs, p.Window.EndTs, p.WindowMs, p.Status, p.Reason, p.ThreadCount, p.EmittedThreads, p.OmittedThreads, p.UnavailableThreads, p.UnknownMembershipThreads)
 	shown := 0
 	for _, row := range p.Threads {

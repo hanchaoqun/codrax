@@ -99,7 +99,7 @@ func (*TraceCapabilities) Execute(ctx *types.BusContext, params json.RawMessage)
 		Selection: types.ToolDocumentationSelection{View: view, Detail: input.Detail}, Content: body,
 	})
 	if !ok {
-		return out, fmt.Errorf("catalog documentation exceeds its bounded JSON contract")
+		return out, fmt.Errorf("catalog documentation exceeds its bounded JSON contract (%d bytes; maximum %d)", len(body), types.ToolDocumentationMaxBytes)
 	}
 	out.Handoff = &types.ToolHandoffCarrier{Version: types.ToolHandoffCarrierVersion, ToolName: out.ToolName, Documentation: &doc}
 	out.Success, out.Summary = true, string(body)

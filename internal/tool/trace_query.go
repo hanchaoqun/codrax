@@ -418,6 +418,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	explicitTargetParams := p
 	var targetCaveat string
 	p, targetCaveat = traceQueryApplyRequestModelTarget(ctx, p)
+	if reject := traceQueryProcessProfileInputRepair(p); reject != nil {
+		return *reject, nil
+	}
 	var sourceReject *types.ToolResult
 	p, sourceAdaptation, sourceReject = traceQueryAdaptLogicalArtifactPath(ctx, p)
 	if sourceReject != nil {
