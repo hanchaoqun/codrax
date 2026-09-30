@@ -43,6 +43,9 @@ func commandMeasurementEvidencePathRequested(ctx *types.AgentContext) bool {
 		return true
 	}
 	hint := ctx.TurnRouteHint
+	if hint.RequiredOutcomes.Has(types.TurnOutcomeSourceExplanation) && hint.RequiredOutcomes.Has(types.TurnOutcomeMeasurement) {
+		return true
+	}
 	if types.NormalizeTurnRouteCurrentSourceEvidenceMode(string(hint.CurrentSourceEvidenceMode)) != types.TurnRouteCurrentSourceEvidenceRequired ||
 		!hint.NeedsRepoAccess || hint.NeedsOperationAccess || hint.ConcreteOperation ||
 		strings.TrimSpace(hint.Source) != "mixed" {

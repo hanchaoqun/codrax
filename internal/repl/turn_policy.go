@@ -230,6 +230,7 @@ func SetMemoryContextTimeout(timeout time.Duration) {
 // ApplyTurnPolicyGuards before acting on any TurnPolicy so missing
 // or self-contradictory fields cannot drive a wrong route.
 type TurnPolicy struct {
+	RequiredOutcomes          types.TurnOutcomeSet
 	Route                     TurnRoute
 	NeedsRepoAccess           bool
 	NeedsOperationAccess      bool
@@ -282,13 +283,14 @@ var _ SingleShotTurnPolicyClassifier = (*llmChitchatClassifier)(nil)
 // emit_analysis.
 func TurnRouteHintFromPolicy(p TurnPolicy) types.TurnRouteHint {
 	return types.TurnRouteHint{
-		Route:         string(p.Route),
-		Source:        strings.TrimSpace(p.Source),
-		Operation:     strings.TrimSpace(p.Operation),
-		OperationKind: strings.TrimSpace(p.OperationKind),
-		DataTaskKind:  strings.TrimSpace(p.DataTaskKind),
-		WriteIntent:   normalizeWriteIntent(p.WriteIntent),
-		TargetSurface: strings.TrimSpace(p.TargetSurface),
+		RequiredOutcomes: p.RequiredOutcomes,
+		Route:            string(p.Route),
+		Source:           strings.TrimSpace(p.Source),
+		Operation:        strings.TrimSpace(p.Operation),
+		OperationKind:    strings.TrimSpace(p.OperationKind),
+		DataTaskKind:     strings.TrimSpace(p.DataTaskKind),
+		WriteIntent:      normalizeWriteIntent(p.WriteIntent),
+		TargetSurface:    strings.TrimSpace(p.TargetSurface),
 		CurrentSourceEvidenceMode: types.NormalizeTurnRouteCurrentSourceEvidenceMode(
 			string(p.CurrentSourceEvidenceMode),
 		),
@@ -337,6 +339,7 @@ var turnPolicyTool = llm.ToolSchema{
   "type": "object",
   "x-codrax-native-validation-required": ["requires_diagram"],
   "properties": {
+    "required_outcomes": ` + turnOutcomesSchema + `,
     "route": {
       "type": "string",
       "enum": ["local", "repo", "hybrid", "clarify", "operation", "data", "write"],
@@ -420,7 +423,7 @@ var turnPolicyTool = llm.ToolSchema{
       "description": "Precise presentation authority. True only when the CURRENT turn explicitly requires a diagram, drawing, graph, sequence/timeline visual, or other visual relation view. False for tables, JSON, prose, ordinary call-chain/architecture questions, and diagrams that would merely be helpful. Downstream hard diagram gates read only this boolean and never scan presentation_directive or answer prose."
     }
   },
-  "required": ["route", "needs_repo_access", "current_source_evidence_mode", "operation", "write_intent", "source", "confidence", "reason", "requires_diagram"]
+  "required": ["required_outcomes", "route", "needs_repo_access", "current_source_evidence_mode", "operation", "write_intent", "source", "confidence", "reason", "requires_diagram"]
 }`),
 }
 
@@ -431,6 +434,8 @@ var turnPolicyTool = llm.ToolSchema{
 // presentation_directive. Future additions go through the same
 // shape so the prompt grows without coupling to keyword tables.
 const turnPolicySystemPrompt = `You route each user turn in a code-analysis REPL into a structured TurnPolicy and emit it via emit_turn_policy.
+
+` + turnOutcomesTeaching + `
 
 The seven routes:
 
@@ -1088,6 +1093,7 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		bool(parsed.RequiresDiagram),
 	)
 	return TurnPolicy{
+		RequiredOutcomes:     parsed.RequiredOutcomes,
 		Route:                route,
 		NeedsRepoAccess:      bool(parsed.NeedsRepoAccess),
 		NeedsOperationAccess: bool(parsed.NeedsOperationAccess),
@@ -1153,6 +1159,7 @@ func turnPolicyPresentationProvenanceRepairPrompt() string {
 }
 
 type turnPolicyParams struct {
+	RequiredOutcomes          types.TurnOutcomeSet     `json:"required_outcomes"`
 	Route                     string                   `json:"route"`
 	NeedsRepoAccess           flexiblePolicyBool       `json:"needs_repo_access"`
 	NeedsOperationAccess      flexiblePolicyBool       `json:"needs_operation_access"`
@@ -1491,6 +1498,7 @@ const presentationDirectiveCap = 200
 // is demoted to repo.
 func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) TurnPolicy {
 	p.WriteIntent = normalizeWriteIntent(p.WriteIntent)
+	p = applyTurnOutcomeObligations(p)
 	p.CurrentSourceEvidenceMode = types.NormalizeTurnRouteCurrentSourceEvidenceMode(
 		string(p.CurrentSourceEvidenceMode),
 	)
@@ -2024,6 +2032,9 @@ func targetSurfaceLooksOperation(raw string) bool {
 }
 
 func isAnalysisOnlyPolicy(p TurnPolicy) bool {
+	if p.RequiredOutcomes.Has(types.TurnOutcomeExternalArtifact | types.TurnOutcomeComputerAction) {
+		return false
+	}
 	operation := strings.TrimSpace(p.Operation)
 	// Route and operation are required primary axes. operation_kind and
 	// target_surface are optional operation-only refinements. When the two

@@ -2584,6 +2584,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 				req = planned
 			}
 		}
+		req.RequiredOutcomes = policy.RequiredOutcomes
 		plan := operation.BuildCommandOperationPlan(req, r.operationPolicy)
 		if plan.Status == operation.StatusReady && !operation.LintCommandOperationPlan(plan).OK() {
 			r.pendingCommandClarification = nil
@@ -2722,6 +2723,7 @@ func (r *REPL) maybeDispatchCommandOperationFollowup(line, display string, polic
 	requestText := commandOperationFollowupRequestText(line, records)
 	req := next.Request
 	req.Text = requestText
+	req.RequiredOutcomes = policy.RequiredOutcomes
 	nextPlan := operation.BuildCommandOperationPlan(req, r.operationPolicy)
 	previousPlan := records[len(records)-1].Plan
 	decision := operation.DecideCommandPlanApproval(r.operationPolicy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &previousPlan})
@@ -4942,6 +4944,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				} else {
 					repairRounds++
 					revisedReq = dropRepeatedFailedCommandSteps(revisedReq, currentPlan, result)
+					revisedReq.RequiredOutcomes = currentPlan.RequiredOutcomes
 					revisedPlan := operation.BuildCommandOperationPlan(revisedReq, r.operationPolicy)
 					replanDecision := operation.DecideCommandPlanApproval(r.operationPolicy, revisedPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalReplan, PreviousPlan: &currentPlan})
 					revisedPlan = operation.ApplyCommandPlanApprovalDecision(revisedPlan, replanDecision)
@@ -5065,6 +5068,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 									return
 								}
 							} else if !next.Complete {
+								next.Request.RequiredOutcomes = currentPlan.RequiredOutcomes
 								nextPlan := operation.BuildCommandOperationPlan(next.Request, r.operationPolicy)
 								continuationDecision := operation.DecideCommandPlanApproval(r.operationPolicy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
 								nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, continuationDecision)
@@ -5120,6 +5124,12 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				}
 			}
 		}
+		if terminal, ok := commandOperationUnevaluatedOutcomes(currentPlan, result, materialEvaluation); ok {
+			r.appendCommandOperationResult(currentPlan, terminal)
+			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: terminal})
+			result = terminal
+			r.renderCommandOperationRoundResult(currentPlan, result)
+		}
 		if commandOperationMaterialEvaluationNeedsBudget(result, materialEvaluation, ownRecords) {
 			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, r.language)
 			r.appendCommandOperationResult(currentPlan, budget)
@@ -5160,6 +5170,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 					logging.Info("[repl/operation] command continuation complete plan_id=%s reason=%q rounds=%d",
 						currentPlan.ID, oneLineClamp(next.Reason, 160), len(window()))
 				} else {
+					next.Request.RequiredOutcomes = currentPlan.RequiredOutcomes
 					nextPlan := operation.BuildCommandOperationPlan(next.Request, r.operationPolicy)
 					continuationDecision := operation.DecideCommandPlanApproval(r.operationPolicy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
 					nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, continuationDecision)
@@ -5930,6 +5941,7 @@ func commandReplanCanAutoExecute(policy operation.CommandPolicy, previous, revis
 
 func commandOperationPolicyFromPlan(plan operation.CommandOperationPlan) TurnPolicy {
 	return TurnPolicy{
+		RequiredOutcomes:     plan.RequiredOutcomes,
 		Route:                RouteOperation,
 		NeedsOperationAccess: true,
 		Operation:            "computer_operation",

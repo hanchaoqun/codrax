@@ -93,6 +93,7 @@ type emitAnalysisParams struct {
 	RuntimeQuestionProfile       *emitRuntimeQuestionProfileParam       `json:"runtime_question_profile"`
 	HistorySelectionProfile      *emitHistorySelectionProfileParam      `json:"history_selection_profile"`
 	RuntimeTargets               []emitRuntimeTargetParam               `json:"runtime_targets,omitempty"`
+	RuntimeThreadLookups         []types.RuntimeThreadLookup            `json:"runtime_thread_lookups,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
 	ErrorGranularityProfile      *emitErrorGranularityProfileParam      `json:"error_granularity_profile,omitempty"`
@@ -754,7 +755,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"runtime_target_profile": map[string]any{
 				"type":        "object",
-				"description": "Required typed declaration of whether the current runtime-artifact request names a concrete process/thread identity. This is independent of the artifact time/range. Use no_named_target when the artifact question names no process/thread identity; use unspecified when genuinely unclear. " + skill.AnalysisRuntimeTargetRosterTeaching,
+				"description": "Required typed declaration of whether a concrete process/thread is an answer subject. This is independent of artifact time/range and of lookup-only thread inputs. Use no_named_target when there is no concrete process/thread answer subject, including lookup-only requests; use unspecified when genuinely unclear. " + skill.AnalysisRuntimeTargetRosterTeaching,
 				"properties": map[string]any{
 					"declaration":  map[string]any{"type": "string", "enum": runtimeTargetDeclarationValues(), "description": "not_applicable, no_named_target, named_target, or unspecified."},
 					"source_quote": map[string]any{"type": "string", "description": "For named_target, an exact verbatim current-request phrase containing the named process/thread identity."},
@@ -804,9 +805,10 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"mode", "item_kind", "confidence"},
 			},
+			"runtime_thread_lookups": runtimeThreadLookupSchema(),
 			"runtime_targets": map[string]any{
 				"type":        "array",
-				"description": "Optional typed runtime-artifact target list. Emit only when the current request explicitly identifies trace/log/perf targets as structured process IDs, thread IDs, or concrete thread labels. This is the only lane downstream trace tools may use to preserve omitted pid/thread filters; do not put timestamps, file paths, span names, generic entities, or guessed values here. " + skill.AnalysisRuntimeTargetRosterTeaching,
+				"description": "Optional typed runtime-artifact answer-subject list. Emit only when the current request explicitly identifies process IDs, thread IDs, or concrete thread labels as answer subjects. Lookup-only threads use runtime_thread_lookups; neither lane accepts timestamps, file paths, span names, generic entities, or guessed values. " + skill.AnalysisRuntimeTargetRosterTeaching,
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -1842,6 +1844,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	runtimeArtifactScopeProfile, runtimeArtifactScopeErr, runtimeArtifactScopeWarnings := parseRuntimeArtifactScopeProfile(raw, runtimeArtifactCarrier, p.RuntimeArtifactScopeProfile)
 	runtimeTargets, runtimeTargetWarnings, runtimeTargetErr := parseRuntimeTargets(p.RuntimeTargets)
+	runtimeThreadLookups, runtimeThreadLookupErr := parseRuntimeThreadLookups(raw, p.RuntimeThreadLookups)
 	var runtimeTargetProfile *types.RuntimeTargetProfile
 	var runtimeTargetProfileErr string
 	var runtimeTargetProfileWarnings []string
@@ -1870,6 +1873,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	runtimeProfileErrors := trimNonEmptyStrings([]string{
 		runtimeArtifactScopeErr,
 		runtimeTargetErr,
+		runtimeThreadLookupErr,
 		runtimeTargetProfileErr,
 		runtimeQuestionProfileErr,
 	})
@@ -2352,6 +2356,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		RuntimeArtifactValueProfile:     runtimeArtifactValueProfile,
 		RuntimeArtifactScopeProfile:     runtimeArtifactScopeProfile,
 		RuntimeTargets:                  runtimeTargets,
+		RuntimeThreadLookups:            runtimeThreadLookups,
 		RuntimeTargetProfile:            runtimeTargetProfile,
 		RuntimeQuestionProfile:          runtimeQuestionProfile,
 		HistorySelectionProfile:         historySelectionProfile,

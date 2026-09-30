@@ -31,6 +31,7 @@ func NormalizeTurnRouteCurrentSourceEvidenceMode(raw string) TurnRouteCurrentSou
 // read pipeline starts. It is not user prose and not evidence; analyzer uses it
 // only to avoid doing the wrong kind of pre-scan before emit_analysis.
 type TurnRouteHint struct {
+	RequiredOutcomes          TurnOutcomeSet                     `json:"required_outcomes,omitempty"`
 	Route                     string                             `json:"route,omitempty"`
 	Source                    string                             `json:"source,omitempty"`
 	Operation                 string                             `json:"operation,omitempty"`
@@ -47,7 +48,7 @@ type TurnRouteHint struct {
 }
 
 func (h TurnRouteHint) IsZero() bool {
-	return strings.TrimSpace(h.Route) == "" &&
+	return h.RequiredOutcomes == 0 && strings.TrimSpace(h.Route) == "" &&
 		strings.TrimSpace(h.Source) == "" &&
 		strings.TrimSpace(h.Operation) == "" &&
 		strings.TrimSpace(h.OperationKind) == "" &&
@@ -67,6 +68,9 @@ func (h TurnRouteHint) IsZero() bool {
 // route hints and test/adapter implementations that predate this field. New
 // production classifier output always emits required or optional.
 func (h TurnRouteHint) RequiresCurrentSourceEvidence() bool {
+	if h.RequiredOutcomes.Has(TurnOutcomeSourceExplanation) {
+		return true
+	}
 	switch NormalizeTurnRouteCurrentSourceEvidenceMode(string(h.CurrentSourceEvidenceMode)) {
 	case TurnRouteCurrentSourceEvidenceRequired:
 		return true

@@ -16576,7 +16576,10 @@ func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams
 		// disagree.
 		return p, fmt.Sprintf("trace_query_target_inheritance_skipped=cpu_global_event_search event_types=[%s]; pid/thread would filter emitter identity rather than CPU-state ownership", strings.Join(globalTypes, ","))
 	}
-	target, ok := traceQuerySingleRuntimeTarget(ctx)
+	target, ok, lookupApplicable := traceQueryThreadLookup(ctx, p)
+	if !lookupApplicable {
+		target, ok = traceQuerySingleRuntimeTarget(ctx)
+	}
 	if !ok {
 		return p, traceQueryUntypedTargetHintCaveat(ctx)
 	}

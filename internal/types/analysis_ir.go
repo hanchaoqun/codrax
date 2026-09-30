@@ -192,7 +192,8 @@ type RequestModel struct {
 	// AnalyzerHints entity strings, this field is already structured and may be
 	// consumed by trace tools to preserve target filters across follow-up calls.
 	// Producers must not derive it by scanning arbitrary answer prose.
-	RuntimeTargets []RuntimeTarget `json:"runtime_targets,omitempty"`
+	RuntimeTargets       []RuntimeTarget       `json:"runtime_targets,omitempty"`
+	RuntimeThreadLookups []RuntimeThreadLookup `json:"runtime_thread_lookups,omitempty"`
 
 	// RuntimeTargetProfile declares whether the current runtime-artifact
 	// request names a process/thread identity at all. It prevents absence of

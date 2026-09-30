@@ -452,7 +452,9 @@ func (p *llmCommandOperationPlanner) ContinueCommandOperation(ctx context.Contex
 	if status == string(operation.StatusNeedsClarification) && !commandPlanDraftHasQuestions(parsed) {
 		return CommandOperationContinuation{Complete: true, Reason: "continuation returned no actionable clarification question"}, nil
 	}
-	return CommandOperationContinuation{Request: parsed.toRequest(userLine, repoRoot)}, nil
+	req := parsed.toRequest(userLine, repoRoot)
+	req.RequiredOutcomes = policy.RequiredOutcomes
+	return CommandOperationContinuation{Request: req}, nil
 }
 
 const commandOperationAnswerSystemPrompt = `You are an operation result writer.
@@ -820,7 +822,9 @@ func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, r
 			return operation.CommandOperationRequest{}, err
 		}
 	}
-	return parsed.toRequest(req.UserLine, req.RepoRoot), nil
+	result := parsed.toRequest(req.UserLine, req.RepoRoot)
+	result.RequiredOutcomes = req.Policy.RequiredOutcomes
+	return result, nil
 }
 
 func shouldRetryInitialCommandPlanWithoutRecentContext(req commandOperationPlannerRequest, parsed commandPlanDraft) bool {
@@ -876,6 +880,7 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 	b.WriteString("## repo_root\n")
 	b.WriteString(strings.TrimSpace(req.RepoRoot))
 	b.WriteString("\n\n## route_policy\n")
+	b.WriteString(renderTurnOutcomesForPrompt(req.Policy.RequiredOutcomes))
 	b.WriteString(fmt.Sprintf("operation=%s operation_kind=%s risk=%s side_effects=%s target=%s requires_confirmation=%t\n",
 		req.Policy.Operation, req.Policy.OperationKind, req.Policy.RiskLevel, strings.Join(req.Policy.SideEffects, ","), req.Policy.TargetSurface, req.Policy.RequiresConfirmation))
 	if rendered := req.Snapshot.RenderForPrompt(); strings.TrimSpace(rendered) != "" {
@@ -1175,6 +1180,7 @@ func operationProviderRecordsRepairContext(userLine, lang string, records []prov
 
 func operationPlanRepairContext(plan operation.CommandOperationPlan) string {
 	var b strings.Builder
+	b.WriteString(renderTurnOutcomesForPrompt(plan.RequiredOutcomes))
 	fmt.Fprintf(&b, "plan id=%s status=%s risk=%s approval=%s work_dir=%s\n",
 		plan.ID, plan.Status, plan.RiskLevel, plan.ApprovalMode, plan.WorkDir)
 	if strings.TrimSpace(plan.Goal) != "" {
@@ -1253,6 +1259,7 @@ func clampMultilineForRepair(s string, maxRunes int) string {
 
 func renderCommandPlanForPrompt(plan operation.CommandOperationPlan) string {
 	var b strings.Builder
+	b.WriteString(renderTurnOutcomesForPrompt(plan.RequiredOutcomes))
 	fmt.Fprintf(&b, "previous_plan id=%s status=%s risk=%s approval=%s work_dir=%s\n",
 		plan.ID, plan.Status, plan.RiskLevel, plan.ApprovalMode, plan.WorkDir)
 	if strings.TrimSpace(plan.Goal) != "" {

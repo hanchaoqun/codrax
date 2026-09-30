@@ -1287,18 +1287,18 @@ func TestAnalysisSkill_RuntimeFocusIdentityGuidance(t *testing.T) {
 	// join. JSON presence/type details stay in the tool schema.
 	out := strings.Join(append([]string{cfg.Goal, cfg.OutputFormat}, cfg.Workflow...), "\n")
 	for _, want := range []string{
-		"Runtime-artifact focus identities",
-		"`runtime_target_profile.declaration=named_target`",
-		"A named_target declaration without runtime_targets is rejected",
-		"EVENT LOCATORS",
-		"not focus subjects",
+		"Runtime-artifact identities: distinguish an answer subject from a lookup input",
+		"named_target for concrete process/thread answer subjects",
+		"complete runtime_targets entry with source=user_explicit",
+		"Frame/sequence/span IDs remain event locators in entities/keywords, not thread/process targets",
+		"it is not discarded and does not become a causal focus",
 		// SUPP-TARGET (§29.90.1, 2026-07-15) prompt-face teaching: the
 		// classifier variant that copied the thread identity into entities
 		// but skipped the typed lane (h2 20260714-221545) traced to the
 		// runtime_targets lane being absent from the no-pre-scan trace fast
 		// path. Preserve both that reminder and the semantic provenance rule.
-		"the Runtime-artifact focus identities rule applies on this no-pre-scan path too",
-		"emit the identity in `runtime_targets` with source=user_explicit",
+		"The Runtime artifact target declaration rule still applies on this no-pre-scan path",
+		"entities alone cannot carry either role",
 		"Runtime question scope (REQUIRED)",
 		"`runtime_question_profile`",
 		"`bounded_fact_set`",

@@ -53,6 +53,7 @@ func RunCommandOperationCLI(ctx context.Context, userLine string, policy TurnPol
 	if err != nil {
 		return "", err
 	}
+	req.RequiredOutcomes = policy.RequiredOutcomes
 	plan := operation.BuildCommandOperationPlan(req, cfg.Policy)
 	initial := operation.DecideCommandPlanApproval(cfg.Policy, plan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalInitial})
 	plan = operation.ApplyCommandPlanApprovalDecision(plan, initial)
@@ -165,6 +166,7 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 				} else {
 					repairRounds++
 					revisedReq = dropRepeatedFailedCommandSteps(revisedReq, currentPlan, result)
+					revisedReq.RequiredOutcomes = currentPlan.RequiredOutcomes
 					revisedPlan := operation.BuildCommandOperationPlan(revisedReq, cfg.Policy)
 					decision := operation.DecideCommandPlanApproval(cfg.Policy, revisedPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalReplan, PreviousPlan: &currentPlan})
 					revisedPlan = operation.ApplyCommandPlanApprovalDecision(revisedPlan, decision)
@@ -257,6 +259,7 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 									return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 								}
 							} else if !next.Complete {
+								next.Request.RequiredOutcomes = currentPlan.RequiredOutcomes
 								nextPlan := operation.BuildCommandOperationPlan(next.Request, cfg.Policy)
 								decision := operation.DecideCommandPlanApproval(cfg.Policy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
 								nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, decision)
@@ -286,6 +289,11 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 				}
 			}
 		}
+		if terminal, ok := commandOperationUnevaluatedOutcomes(currentPlan, result, materialEvaluation); ok {
+			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: terminal})
+			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, terminal))
+			return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
+		}
 		if commandOperationMaterialEvaluationNeedsBudget(result, materialEvaluation, ownRecords) {
 			budget := commandOperationBudgetResult(currentPlan, commandOperationBudgetCommandRounds, cfg.Language)
 			ownRecords = append(ownRecords, commandOperationResultRecord{Plan: currentPlan, Result: budget})
@@ -311,6 +319,7 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 						return commandOperationFinalMessageCLI(ctx, cfg, request, window()), nil
 					}
 				} else if !next.Complete {
+					next.Request.RequiredOutcomes = currentPlan.RequiredOutcomes
 					nextPlan := operation.BuildCommandOperationPlan(next.Request, cfg.Policy)
 					decision := operation.DecideCommandPlanApproval(cfg.Policy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
 					nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, decision)

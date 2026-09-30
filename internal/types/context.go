@@ -3143,6 +3143,7 @@ func (m *MutableState) RequestModel() *RequestModel {
 		return nil
 	}
 	cp := *m.requestModel
+	cp.RuntimeThreadLookups = append([]RuntimeThreadLookup(nil), m.requestModel.RuntimeThreadLookups...)
 	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(m.requestModel.RuntimeArtifactScopeProfile)
 	cp.ToolDocumentationRequest = CloneToolDocumentationRequest(m.requestModel.ToolDocumentationRequest)
 	cp.SourceInventoryProfile = CloneSourceInventoryProfile(m.requestModel.SourceInventoryProfile)
@@ -3160,6 +3161,7 @@ func (m *MutableState) SetRequestModel(rm RequestModel) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := rm
+	cp.RuntimeThreadLookups = append([]RuntimeThreadLookup(nil), rm.RuntimeThreadLookups...)
 	cp.RuntimeArtifactScopeProfile = CloneRuntimeArtifactScopeProfile(rm.RuntimeArtifactScopeProfile)
 	cp.ToolDocumentationRequest = CloneToolDocumentationRequest(rm.ToolDocumentationRequest)
 	cp.SourceInventoryProfile = CloneSourceInventoryProfile(rm.SourceInventoryProfile)

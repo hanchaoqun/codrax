@@ -14,6 +14,9 @@ func commandOperationShouldRunMaterialEvaluator(records []commandOperationResult
 	if last.Result.Status != operation.StatusExecuted {
 		return false
 	}
+	if last.Plan.RequiredOutcomes.NeedsGoalEvaluation() {
+		return true
+	}
 	for _, ref := range commandOperationRecordPayloadRefs(last) {
 		if strings.TrimSpace(ref) != "" {
 			return true
@@ -25,6 +28,18 @@ func commandOperationShouldRunMaterialEvaluator(records []commandOperationResult
 		}
 	}
 	return false
+}
+
+// A finished command is not proof that every requested result was delivered.
+// Only an actually unavailable evaluation enters this terminal; it never
+// interrupts an active model stream or changes provider timeouts.
+func commandOperationUnevaluatedOutcomes(plan operation.CommandOperationPlan, result operation.CommandOperationResult, eval *operation.OperationEvaluation) (operation.CommandOperationResult, bool) {
+	if result.Status != operation.StatusExecuted || eval != nil || !plan.RequiredOutcomes.NeedsGoalEvaluation() {
+		return operation.CommandOperationResult{}, false
+	}
+	return operation.CommandOperationResult{PlanID: plan.ID, Status: operation.StatusPartialAnswer,
+		FailureClass:  "outcome_evaluation_unavailable",
+		OutputPreview: "Command execution finished, but completion of all requested results was not verified. Preserve the available observations and explicitly state the remaining unverified results."}, true
 }
 
 func commandOperationAttachEvaluation(records []commandOperationResultRecord, eval operation.OperationEvaluation) []commandOperationResultRecord {

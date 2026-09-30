@@ -557,6 +557,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Content: reasoningHygieneFor(sk),
 		},
 	}
+	appendRequestBoundaryContext(pc, ac)
 	if ac.ThinkAloud {
 		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
 			Title:   SectionThinkAloud,

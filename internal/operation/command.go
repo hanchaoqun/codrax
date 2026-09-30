@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // OperationStatus is the precise lifecycle state for an operation plan.
@@ -78,6 +80,7 @@ func DefaultCommandPolicy() CommandPolicy {
 // A later LLM planner may produce this shape, but the policy evaluator only
 // consumes typed fields and never user prose.
 type CommandOperationRequest struct {
+	RequiredOutcomes     types.TurnOutcomeSet
 	Text                 string
 	ID                   string
 	WorkDir              string
@@ -119,6 +122,7 @@ type CommandStep struct {
 }
 
 type CommandOperationPlan struct {
+	RequiredOutcomes    types.TurnOutcomeSet
 	ID                  string
 	RequestText         string
 	Status              OperationStatus
@@ -330,6 +334,7 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 	}
 
 	plan := CommandOperationPlan{
+		RequiredOutcomes:    req.RequiredOutcomes,
 		ID:                  firstNonEmpty(req.ID, defaultOperationID()),
 		RequestText:         strings.TrimSpace(req.Text),
 		Status:              StatusReady,

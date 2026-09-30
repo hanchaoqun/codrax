@@ -118,6 +118,18 @@ func TestCommandMeasurementEvidencePathAuthorityRouteBackedProfileOmission(t *te
 	}
 }
 
+func TestCommandMeasurementEvidencePathAuthorityIndependentOutcomes(t *testing.T) {
+	ctx := commandMeasurementEvidencePathTestContext(false)
+	ctx.TurnRouteHint.RequiredOutcomes = types.TurnOutcomeMeasurement | types.TurnOutcomeSourceExplanation
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(ctx); !strings.Contains(got, "independent evidence carriers") {
+		t.Fatal("secondary source obligation lost without optional analyzer profile")
+	}
+	ctx.TurnRouteHint.RequiredOutcomes = types.TurnOutcomeMeasurement
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(ctx); got != "" {
+		t.Fatal("measurement alone gained source explanation")
+	}
+}
+
 func TestExplorerCommandMeasurementEvidencePathSignalIsOneShotSoftGuidance(t *testing.T) {
 	ctx := commandMeasurementEvidencePathTestContext(true)
 	results := ctx.Mutable.TurnAArtifacts().ToolResults
