@@ -211,3 +211,13 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 `b503127d3`对HiSys时间/TID消费保实际SQLite存储类：合法时间必须是非负INTEGER纳秒，NULL/TEXT/REAL/BLOB/负值留SQL fidelity与覆盖，不中断健康兄弟也不补0；TID的合法INTEGER源值含0，NULL未知，非法类型/范围可逆保留但无线程身份。existing SQLite及外部provider公开路径、超2^53纳秒、wire预算/互斥及JSON语义目录都有回归，`b172b43cd`补字典坏名称组合契约。
 
 这不是任意DB/所有表标量全部完成。自然问题live表格8行正确，完整性回答仍FAIL：相关表的坏行覆盖被前24个通用coverage挤出actual finalizer，预分析时域只读ftrace哨兵生成0..0。下一高ROI增量是查询所用事件族的质量交接及统一时标，不能把模型无从看到的异常归纯波动，也不堆更多专表提示。原始HiSys rowid、多文件/代次、持续写入快照、static_initialize/普通viewer与实机/平台仍开放；详细证据、验收与发布见主账本§201。
+
+## 11. 转换质量与附件时标交接（2026-09-30，HMC-17.7 O）
+
+§10的裁剪与0..0接缝由`cba31daf5`修复。参考`core/preprocess/base.py`共享data/meta、`core/query_engine.py::_post_process_agent_output`降低普通元信息噪声但保empty/truncated及原因；本项目采用已有typed coverage属性作展示排序：有数据且异常的表优先，其次有数据表，缺失可选表在后，保既有24普通条及独立协议保留席。原完整manifest不变，排序只影响软展示，不授证据/根因权限，也不是额外HiSys专名特例。
+
+源表计数明确发生在查询过滤前，诊断计数可交叠，时间非法行不能归属所问窗口。公开真实SQLite准备→事件查询→实际finalizer消息已验证10读/8出、2时间异常、5来源TID异常及采集质量未知。固定双例中的SQLite真实分支同样供齐这些信息，但最终把导出物9个已知语义行错说成所查数据库总数，并把窗口尾没有事件判为采集缺口；人工FAIL原件保留，不把上下文修复签成整题通过。
+
+附件时间改用tracequery共享严格解析，纳秒timed observation与普通ftrace同源，不新增时区/domain转换。乱序时间取min/max，物理行范围仍按有效行先后，扫描失败不把前缀当完整附件；其含义仅为有效记录时间范围，不是用户查询窗、线程状态时长或采集完整性。该路径已有实际EmitPerfTrace公共回归；本轮live没有emit_perf_trace调用，分开记录而不冒称命中。
+
+尚未交付：超过24个有数据表时按所查族/表精确选择质量、三类计数范围的紧凑结构化摘要及resolver噪声控制；原始HiSys rowid/多来源代次、持续写入一致快照、static_initialize/普通viewer和实机平台矩阵仍开放。具体全仓/race及发布收据见主账本§202；不把17.7 O记作父项新增交付。
