@@ -206,6 +206,17 @@ func RuntimeObservationRecordFactFamilies(record ObservationRecord) []RuntimeQue
 		out = add(out, RuntimeQuestionFactTargetWaitOccurrences)
 		out = add(out, RuntimeQuestionFactOccurrenceTime)
 		out = add(out, RuntimeQuestionFactCountOrDuration)
+	case "target_sleep_inventory", "target_sleep_state_summary":
+		// Constructed S/D/IO populations are independent of the narrower
+		// reason-marked D/IO roster and of any wakeup-chain display cap.
+		out = add(out, RuntimeQuestionFactTargetSchedulerState)
+		out = add(out, RuntimeQuestionFactTargetWaitOccurrences)
+		out = add(out, RuntimeQuestionFactCountOrDuration)
+	case "target_sleep_interval":
+		out = add(out, RuntimeQuestionFactTargetSchedulerState)
+		out = add(out, RuntimeQuestionFactTargetWaitOccurrences)
+		out = add(out, RuntimeQuestionFactOccurrenceTime)
+		out = add(out, RuntimeQuestionFactCountOrDuration)
 	case "blocked_reason_census":
 		out = add(out, RuntimeQuestionFactRecordedReason)
 		out = add(out, RuntimeQuestionFactCountOrDuration)

@@ -2,6 +2,27 @@ package types
 
 import "testing"
 
+func TestSleepPopulationFactFamiliesDoNotRequireWakerOrMintCause(t *testing.T) {
+	for _, predicate := range []string{"target_sleep_inventory", "target_sleep_state_summary", "target_sleep_interval"} {
+		families := RuntimeObservationRecordFactFamilies(ObservationRecord{Predicate: predicate})
+		has := map[RuntimeQuestionFactFamily]bool{}
+		for _, family := range families {
+			has[family] = true
+		}
+		for _, want := range []RuntimeQuestionFactFamily{RuntimeQuestionFactTargetSchedulerState, RuntimeQuestionFactTargetWaitOccurrences, RuntimeQuestionFactCountOrDuration} {
+			if !has[want] {
+				t.Errorf("%s lost %s", predicate, want)
+			}
+		}
+		if has[RuntimeQuestionFactDirectWaker] || has[RuntimeQuestionFactRecordedReason] || has[RuntimeQuestionFactIOLatency] {
+			t.Errorf("%s gained an unproved mechanism/relation: %v", predicate, families)
+		}
+		if has[RuntimeQuestionFactOccurrenceTime] != (predicate == "target_sleep_interval") {
+			t.Errorf("summary envelope became an occurrence: %s", predicate)
+		}
+	}
+}
+
 func TestRuntimeQuestionProfilePromptBreadthIsTyped(t *testing.T) {
 	finite := &RuntimeQuestionProfile{
 		Scope: RuntimeQuestionScopeBoundedEffectVerdict,
