@@ -4937,3 +4937,55 @@ JSON schema与分析技能共享短教学，删去把files导向声明清单的�
 4. **最终事实一致性与旧人工FAIL。** 本轮HiSys原始字段完整到场，数量/角色仍错述，不称已证明纯波动，也不继续追第三例。统一结构化事实绑定、阶段交接、用户范围与图关系审计挂原ID；不通过提高主因资格或系统代写答案求绿。只读测试登记CLI/controller/持久收尾§192已通过，剩重启恢复等退出不重复施工。
 
 本批未改Trace链上根因、显式窗/因果投影/自动补齐、只读调度loop、写风险/审批、600/300/600秒等待；两例为读模式，不代签写模式。生产两片已普通推送main，49776正式exit0（b7fff7a3e→9034f8142），核对本地/远端0/0；文档与小型原件合批保存。
+
+## 196. 2026-09-29：无WAL主库的缺失状态收据；混合测量说明维度保留
+
+### 196.1 数量、两轨及参考发现
+
+开工和复算均为79=16完整交付+63开放、重复0（49待实施/8部分实施/2待验收/3验收中/1持续执行）。5个验收父项03.2/04.2/08.3/08.4/18.2不销账。此次交付2个可复用子能力，不用多次评测、拆片数或修复代码行数冒充完整任务关闭。
+
+重新读取参考`core/db_pool.py`：核心目标是复用SQLite连接与page cache；普通SQLite读会处理已提交状态，但首次索引优化会改源库，缓存只看path+mtime。本项目采用私有封存快照和源代次校验，不能照搬源写入或mtime-only复用。[SQLite WAL文档](https://sqlite.org/wal.html)说明正常最终关闭可以checkpoint并移除辅助文件；仅见WAL模式文件头不能判定必须另有WAL。反过来，无WAL也不能证明历史捕获完整。
+
+### 196.2 17.7：缺失状态也是输入边界
+
+`3c619e10f`在现有WAL只读页视图中增加无辅助文件分支，复用主库页几何、页数/有效计数、私有镜像与SQL读取验证。收据`WAL.Absent=true`不伪造零字节文件的SHA或Generation；`CheckpointOnly=true/CommitFrame=0`明确只消费主库checkpoint，历史是否遗失日志/事务仍未知。缺失、空文件、仅头、未提交帧和有效提交帧保持独立状态。
+
+读页、发布、缓存复用均复查请求路径与canonical路径的WAL/SHM/journal。任何新辅助文件（含零字节、悬空符号链接）、源主库替换或取消都会拒绝发布/复用；共享traceinput不再强行绑定不存在的WAL，同时保留缺失状态验证回调。原件无写入、无SQLite源连接，也不回退为强制源checkpoint；gzip窄自包含准入不因该分支放宽。
+
+公开回归覆盖Prepare→systrace→BuildIndex三条调度记录、只读源文件/目录、无新增辅助文件、请求别名namespace、main同内容换代、非法页数、取消及准备后辅助出现。共享Begin/Commit/Coordinator/material.Validate覆盖后续状态变化和不允许同Run悄悄重建来源。旧“WAL头一概拒绝”测试改为验证显式缺失收据，独立rollback-only validator仍拒WAL模式。
+
+自然case只要求启动记录，生成器不把系统约束塞给用户。最初宿主Python SQLite关闭仍保辅助文件的夹具前置断言失败；改用项目固定SQLite实现真实正常关闭，未删源日志伪造状态。61,440字节main真实评测已默认接入，准备receipt、查询和输入不变指纹见人工审计。此片不宣称持续写入在线快照、实机全格式、完整启动实例或普通viewer兼容。
+
+### 196.3 01.3/16.4：次要义务不被主intent吞掉
+
+`1eeb563f0`让已有测量证据上下文在mixed/current-source-required/read-only路由下，消费已声明的必需count＋function_or_purpose/branch_behavior/relation_path/stage_or_workflow维度；不再只依赖可选profile或intent=explain。真实测量载体仍为前提，可选维度不升级义务，普通操作不受影响。提示仅指导模型读取实际调用者/消费者、条件、阶段和方向；定义、字段赋值或序列化辅助函数本身不证明后续数据流。未硬编码客户函数链，不替模型写结论。
+
+分析技能与emit_analysis schema使用同一短教学源：未来才采集的命令测量也属混合观察；次要源码说明跨count/return_value保留，附件未匹配源码不撤销明确源码要求，artifact-only及普通code-only不激活，仍为软信号。删除旧重复长说明，schema枚举、JSON结构与源码引用门不放宽。新增主intent×4维度矩阵及真实finalizer初始消息、可选负控、schema/skill单源测试。
+
+同组软数量提示修复：存在独立typed scalar事实时，不仅凭整题count谓词把裸scalar块绑定为解释member_set的数量。明确指向集合的数量仍核对，没有独立scalar时的无歧义集合计数也仍核对；这只减少advisory误报，不触碰证据硬门，也不新增用户/模型原文扫描。
+
+### 196.4 验证、真实失败与发布收据
+
+定向公开回归92884、指导47535、边界73514、四包race31689、最后矩阵race41017及构建98032均正式exit0。原始RED13177（缺失WAL拒绝/次要维度遗漏）、共享接入FAIL48032（仍尝试打开不存在WAL）、数量RED32254均保留。测试夹具最初缺SetInvestigationComplete导致非有效反例，修后才复现真实数量误绑定；不把那次无效测试当生产故障。
+
+首轮全仓93751发现一处旧教学全文断言仍要求退役文案，当前简短同源说明保留其语义：源码要求不能被附件解析取消、artifact-only不激活、只作软信号。仅更新测试到新措辞，另提交`493251de6`；技能包16717正式exit0，生产代码与真实评测版本不变。冻结后独立全仓55376正式exit0：87测试包通过、13无测试包、零FAIL，不拼接首轮与单包结果；首轮失败原日志不覆盖。
+
+| 验证日志（本地原件） | SHA-256 |
+| --- | --- |
+| `/tmp/codrax-hmc196-full-final.log`（末版全仓） | `f29aabfaab513c12dbad6b749cc322d784f3d17aee30c4e720ad5ebaafe3bb8f` |
+| `/tmp/codrax-hmc196-full.log`（首轮FAIL） | `7f797ee310ef0d7a07cd98d31fee6a5c178a3b6f0ab8bc14df54601629cca5e3` |
+| `/tmp/codrax-hmc196-race.log`（四包相关race） | `a9a055793f6e12634f57e331bd29e26198aebf1bfe7999104260573d62ba5068` |
+| `/tmp/codrax-hmc196-final-matrix.log`（末版相关矩阵race） | `31f14c56fbacb1d139e97f5feb231389663c226425f8952bb0dcab7e3fbfb33c` |
+| `/tmp/codrax-hmc196-build.log`（真实评测使用的构建） | `c07f05d3f3a436c9d25a1e13685684757a92c8a8b77a4a26e3d813cbab269518` |
+
+固定26432恰好2并行×1，runner正式exit0；机器1/2、完整人工0/2。Trace130秒主表正确，但额外系统事件4写5、域/名称表达含混；只读96秒统计390正确，却被路由为纯operation，源码读取0、分析管线0，操作完成代替整体源码说明完成。缺标准answer_surface收据的机器FAIL也保留，不误说390数字错。完整日志/上下文/答案/根因旁路和输入指纹见[人工审计](../../eval/parallel_selected_summary_hmc_closed_wal_mixed_20260929_manual_audit.md)，机器原判见[summary](../../eval/parallel_selected_summary_hmc_closed_wal_mixed_20260929.md)。未追加第三例，不倒签§195或更早FAIL。
+
+### 196.5 下一批ROI与不误销边界
+
+1. **完整参考能力04.5优先，随后03.3。** 已完整审读`config/indicators/process/profile.yaml`及`core/preprocess/process_profile_ops.py`：窗口裁剪、运行时间/状态分布/热点三维分开、TopN与总数分离是可复用意图。本项目复用已有状态/唤醒/频率事实和owner/代次，而非另建根因排序。参考的contention_score只能排序线索；其跨线程按名称汇总后仅给首个代表TID、top_n=0时线程数=0、观测状态分母与墙钟分母混用，不能原样作为业务事实。完整退出应涵盖进程全线程概览、睡眠树容量/缺caller、S/D/已证IO分离、代次/窗边界及未知覆盖，并保持链外仅背景。
+2. **已证高影响缺陷01.3/16.4/18.5：路由—完成—handoff的次要义务。** 本次`needs_repo=true/source=mixed/current_source=optional/route=operation`后，CLI操作直接收尾，源码分析没有执行。本批分析管线内修复未live命中，不称已证明模型波动；下批从typed证据义务贯穿路由和完成条件修，而非把工作目录需求一律变源码分析、或扫原始问句硬门。操作输出标准surface收据独立验收，不通过改oracle消除失败。
+   已核对turn_policy.go:581–614存在清楚的混合源码/只读测量指导；本次路由误分类不证明缺少同义提示。isAnalysisOnlyPolicy依赖精确required，不解析reason；operation完整判定只有整体状态/置信度。先复用现有载体做多组合公共矩阵，区分分类波动、交接丢失和完成过早，再补系统级边界，不重复堆prompt或直接硬改所有operation。
+3. **上下文及最终一致性留原ID。** Trace实际8行结果仍有33 caveats、28,755字符，许多跨域覆盖信息；最终模型已拿到正确4条却写5条。精准投递、结构化字段/数量归属、图关系/时序/范围和内部术语继续审计，不围绕该事件名追绿。预览/extent呈现的0..0接缝留账；本次数值未受影响，不凭一例推广根因。
+4. **17.7/17.6剩余项不重复施工。** 无/空/仅头/未提交/有效提交WAL的稳定捕获接入均已有实现；持续变化在线一致快照、时间/TID存储类、原始HiSys rowid/多文件代次、static_initialize R1b-C、普通viewer及实机/平台仍未完整交付。只读登记完整CLI/controller收尾§192已通过；重启恢复等原退出仍开放。
+
+本批未修改链上根因、显式窗/Trace投影/自动补齐、只读调度loop、写风险/审批及600/300/600秒策略。两例都是读模式，不代签写模式。完整能力新增0、子能力2、当前完整人工失败2；稳定验收父项5，63开放不减。生产两片及测试教学同步已普通推送main，47783正式exit0（a18549332→493251de6），核对本地/远端0/0；本文、任务清单及小型原判按批合并保存。

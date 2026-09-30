@@ -1,0 +1,1 @@
+tool_non_test_go_recursive	390	primary_text	repo_checkout:internal/tool;recursion=recursive;include=*.go;exclude=*_test.go	/Users/han/opt/codrax	find internal/tool -type f -name '*.go' ! -name '*_test.go' -print | LC_ALL=C wc -l | tr -d '[:space:]'
