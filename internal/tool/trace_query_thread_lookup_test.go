@@ -120,6 +120,9 @@ func TestThreadLookupRejectsUnboundArtifactIdentity(t *testing.T) {
 		{PID: 10, SourceQuote: "线程310所属进程"},
 		{PID: 10, SourceQuote: "线程100所属进程"},
 		{Thread: "worker", SourceQuote: "有哪些线程"},
+		{Thread: "worker", SourceQuote: "background_worker所属进程"},
+		{PID: 10, SourceQuote: "Worker10所属进程"},
+		{PID: 10, SourceQuote: "pkg.10所属进程"},
 	} {
 		if _, reason := parseRuntimeThreadLookups(item.SourceQuote, []types.RuntimeThreadLookup{item}); reason == "" {
 			t.Fatalf("generic/mismatched quote authorized %+v", item)

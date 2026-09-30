@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -60,23 +58,17 @@ func runtimeThreadLookupIdentityInQuote(item types.RuntimeThreadLookup) bool {
 		pid = parsed
 	}
 	if pid <= 0 {
-		return item.Thread != "" && strings.Contains(item.SourceQuote, item.Thread)
+		return item.Thread != "" && entityNamedInQuote(item.SourceQuote, item.Thread)
 	}
-	literal := strconv.Itoa(pid)
-	quote := item.SourceQuote
-	for offset := 0; offset < len(quote); {
-		rel := strings.Index(quote[offset:], literal)
-		if rel < 0 {
-			return false
-		}
-		start := offset + rel
-		end := start + len(literal)
-		before, _ := utf8.DecodeLastRuneInString(quote[:start])
-		after, _ := utf8.DecodeRuneInString(quote[end:])
-		if !unicode.IsDigit(before) && !unicode.IsDigit(after) {
+	if entityNamedInQuote(item.SourceQuote, strconv.Itoa(pid)) {
+		return true
+	}
+	// A canonical thread selector such as ui-10 also names TID 10. Parse
+	// complete identity surfaces, not numeric substrings in arbitrary names.
+	for _, surface := range diagramParticipantIdentitySurfaces(item.SourceQuote) {
+		if quotedPID, _, ok := tracequery.ParseThreadSelectorIdentity(surface); ok && quotedPID == pid {
 			return true
 		}
-		offset = end
 	}
 	return false
 }

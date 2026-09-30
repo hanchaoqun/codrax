@@ -44,12 +44,16 @@ var diagramIdentityCensusQuoteAnchorAllowlist = map[diagramIdentityCensusKey]boo
 	{"emit_analysis_call_chain_wire.go", "reconcileRuntimeSelectionProfile"}:              true,
 	{"emit_analysis_call_chain_wire.go", "validateCallChainRuntimeSelectionDeclaration"}:  true,
 	{"emit_analysis_source_inventory_prescan.go", "sourceInventoryAnalyzerPrescanQuotes"}: true,
+	// Lookup provenance anchors the quote here; identity membership is checked
+	// separately by the shared whole-surface authority, never this helper.
+	{"emit_analysis_thread_lookup.go", "parseRuntimeThreadLookups"}: true,
 }
 
 var diagramIdentityCensusHardArms = map[string]bool{
 	"validateRequiredFlowDiagramParticipantProvenance":    true,
 	"reconcileDiagramParticipantsWithClosedRelationScope": true,
-	"parseDiagramHint": true,
+	"parseDiagramHint":                   true,
+	"runtimeThreadLookupIdentityInQuote": true,
 }
 
 var diagramIdentityCensusIdentityArgs = map[string]bool{
