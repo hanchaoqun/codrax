@@ -2869,6 +2869,13 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 	if len(rows) == 0 {
 		return nil
 	}
+	// Keep the existing reserved protocol seats separate. In the bounded
+	// ordinary inventory, real data/quality receipts outrank absent optional
+	// tables. This is display ordering only, never evidence admission.
+	rows = append([]traceBundleCoverage(nil), rows...)
+	sort.SliceStable(rows, func(i, j int) bool {
+		return traceBundleCoverageDisplayPriority(rows[i]) > traceBundleCoverageDisplayPriority(rows[j])
+	})
 	limit := traceBundleCoverageCaveatLimit
 	if len(rows) < limit {
 		limit = len(rows)
@@ -2899,6 +2906,19 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 		out = append(out, fmt.Sprintf("%s_compacted total=%d emitted=%d priority_emitted=%d", prefix, len(rows), limit, priorityEmitted))
 	}
 	return out
+}
+
+func traceBundleCoverageDisplayPriority(row traceBundleCoverage) int {
+	if traceBundleCoveragePriorityClass(row) != "" {
+		return 0
+	}
+	if row.Found && row.RowsRead > 0 {
+		if row.Error != "" || row.Skipped != "" || len(row.ColumnsMissing) > 0 {
+			return 2
+		}
+		return 1
+	}
+	return 0
 }
 
 func traceBundleCoveragePriorityCaveatLimitForPrefix(prefix string) int {
@@ -3012,6 +3032,12 @@ func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) stri
 	appendKV("columns_present", traceBundleCompactList(coverage.ColumnsPresent, 8))
 	appendKV("skipped", coverage.Skipped)
 	appendKV("error", coverage.Error)
+	if coverage.RowsRead > 0 {
+		parts = append(parts, "counts_scope=source_table_before_query_filters")
+		if coverage.Skipped != "" || coverage.Error != "" {
+			parts = append(parts, "diagnostic_counts_may_overlap_and_do_not_equal_removed_rows; untimed_rows_have_no_query_window_assignment")
+		}
+	}
 	return strings.Join(parts, " ")
 }
 
@@ -4167,6 +4193,10 @@ func paddedLineEnd(opts BuildOptions) int {
 	}
 	return opts.LineEnd + opts.LinePaddingAfter
 }
+
+// ParseTimestamp shares the indexer's validated physical-row timestamp grammar
+// with attachment diagnostics. It does not infer clocks or event semantics.
+func ParseTimestamp(line string) (float64, bool) { return parseLineTimestamp(line) }
 
 func parseLineTimestamp(line string) (float64, bool) {
 	if row, ok := tracewire.ParseProcessInterval(line); ok {

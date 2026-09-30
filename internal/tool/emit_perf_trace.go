@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/analysis/perftriage"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -678,22 +680,17 @@ func traceTimestampWindowFromTrace(trace string) (float64, float64, int, int, bo
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
-		match := perfTraceTimestampRE.FindStringSubmatch(scanner.Text())
-		if len(match) < 2 {
-			continue
-		}
-		ts, err := strconv.ParseFloat(match[1], 64)
-		if err != nil {
+		ts, valid := tracequery.ParseTimestamp(scanner.Text())
+		if !valid {
 			continue
 		}
 		if firstLine == 0 {
-			first = ts
-			firstLine = lineNo
+			first, last, firstLine = ts, ts, lineNo
 		}
-		last = ts
+		first, last = math.Min(first, ts), math.Max(last, ts)
 		lastLine = lineNo
 	}
-	if firstLine == 0 {
+	if firstLine == 0 || scanner.Err() != nil {
 		return 0, 0, 0, 0, false
 	}
 	return first, last, firstLine, lastLine, true
