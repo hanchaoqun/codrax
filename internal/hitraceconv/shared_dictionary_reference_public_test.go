@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 func TestSharedDictionaryReferencePublicStoredClassesStayDistinct(t *testing.T) {
@@ -163,11 +164,11 @@ func TestSharedDictionaryReferencePublicBadNameCannotHideMalformedRecord(t *test
 	if runtime.GOOS == "windows" {
 		t.Skip("existing external fixture exporter uses /bin/sh")
 	}
-	for _, tc := range []struct{ name, row, reason string }{
-		{"null_name_negative_time", "(-1, 100, NULL, 8, 'payload')", "invalid_timestamp"},
-		{"nonwire_name_negative_tid", "(1000000, -1, 5, 8, 'payload')", "invalid_tid"},
-		{"null_name_invalid_utf8_contents", "(1000000, 100, NULL, 8, CAST(X'FF' AS TEXT))", "invalid_body"},
-		{"nonwire_name_oversize_contents", "(1000000, 100, 5, 8, replace(hex(zeroblob(600000)), '0', 'x'))", "line_too_long"},
+	for _, tc := range []struct{ name, row, reason, scalarColumn string }{
+		{"null_name_negative_time", "(-1, 100, NULL, 8, 'payload')", "invalid_timestamp", "ts"},
+		{"nonwire_name_negative_tid", "(1000000, -1, 5, 8, 'payload')", "invalid_source_tid", "tid"},
+		{"null_name_invalid_utf8_contents", "(1000000, 100, NULL, 8, CAST(X'FF' AS TEXT))", "invalid_body", ""},
+		{"nonwire_name_oversize_contents", "(1000000, 100, 5, 8, replace(hex(zeroblob(600000)), '0', 'x'))", "line_too_long", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			statements := append(traceDBSyncSpanIntegrationBaseStatements(),
@@ -181,7 +182,44 @@ func TestSharedDictionaryReferencePublicBadNameCannotHideMalformedRecord(t *test
 				t.Fatal(err)
 			}
 			t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
-			_, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "capture.systrace"), TraceEngine: traceEngineTraceStreamer, TraceStreamerPath: writeFakeTraceStreamer(t, dir, 0)})
+			result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "capture.systrace"), TraceEngine: traceEngineTraceStreamer, TraceStreamerPath: writeFakeTraceStreamer(t, dir, 0)})
+			if tc.scalarColumn != "" {
+				// A bad name cannot hide scalar damage. Invalid time now stays in
+				// SQL fidelity, while invalid TID also remains a non-identity raw
+				// field on the timed event; neither aborts healthy sibling rows.
+				if err != nil {
+					t.Fatal(err)
+				}
+				coverage := requireTraceDBCoverage(t, result.TraceDBCoverage, "log", "hisys_all_event")
+				wantEmitted := 0
+				if tc.scalarColumn == "tid" {
+					wantEmitted = 1
+				}
+				if coverage.Error != "" || coverage.RowsRead != 1 || coverage.RowsEmitted != wantEmitted || !strings.Contains(coverage.Skipped, tc.reason+"=1") {
+					t.Fatalf("bad name hid scalar coverage: %+v", coverage)
+				}
+				body, readErr := os.ReadFile(result.OutputPath)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				cell := dictionaryReferencePublicCell(t, string(body), "hisys_all_event", tc.scalarColumn, 1)
+				if cell.Storage != "integer" || cell.Integer != "-1" {
+					t.Fatalf("invalid scalar was lost or coerced: %+v", cell)
+				}
+				events := 0
+				for _, line := range strings.Split(string(body), "\n") {
+					if event, ok := tracewire.ParseHiSysEventObservation(line); ok {
+						events++
+						if tc.scalarColumn != "tid" || event.SourceTID != nil || event.SourceTIDRaw == nil || event.SourceTIDRaw.StorageClass != "integer" || event.SourceTIDRaw.Text == nil || *event.SourceTIDRaw.Text != "-1" {
+							t.Fatalf("invalid source TID gained identity or lost raw evidence: %+v", event)
+						}
+					}
+				}
+				if events != wantEmitted {
+					t.Fatalf("timed-event count=%d want=%d", events, wantEmitted)
+				}
+				return
+			}
 			if reason, ok := traceDBOutputInvariantReason(err); !ok || reason != tc.reason {
 				t.Fatalf("name-reference rejection hid the original record failure: reason=%q typed=%t want=%q err=%v", reason, ok, tc.reason, err)
 			}
