@@ -92,6 +92,9 @@ var traceEventSemanticDescriptors = []TraceEventSemanticDescriptor{
 	{"source.representation", "source", "text", "", "记录表示来源（不证明原生注入）"},
 	{"source.timestamp_ns", "source", "int64", "ns", "源记录时刻"},
 	{"source.tid", "source", "int64", "", "源记录线程标识（非调度身份凭证）"},
+	{"source.tid_storage_class", "source", "text", "", "无效线程标识的存储类型"},
+	{"source.tid_raw", "source", "text", "", "无效线程标识的原始值"},
+	{"source.tid_base64", "source", "text", "", "无效线程标识的原始字节（Base64）"},
 	{"source.contents", "source", "text", "", "源记录内容"},
 	{"source.contents_storage_class", "source", "text", "", "源内容存储类型"},
 	{"source.contents_base64", "source", "text", "", "源内容字节的Base64表示"},
@@ -169,7 +172,7 @@ func traceEventSemanticFieldValueValid(key, value string) bool {
 		return value == "app_startup"
 	case "marker.label_origin":
 		return value == "synthesized_sql_label"
-	case "source.contents_storage_class":
+	case "source.contents_storage_class", "source.tid_storage_class":
 		return value == "null" || value == "text" || value == "blob" || value == "integer" || value == "real"
 	case "source.timestamp_ns", "source.tid", "marker.payload_pid":
 		return !strings.HasPrefix(value, "-")

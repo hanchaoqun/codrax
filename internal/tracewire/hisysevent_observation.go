@@ -18,11 +18,14 @@ const MaxHiSysEventObservationBytes = 1 << 20
 // or causal relationship. Its timestamp is the row's trace timestamp, never
 // the timestamp of a SQL-fidelity carrier. Zero and NULL remain distinct.
 type HiSysEvent struct {
-	TimestampNS int64              `json:"timestamp_ns,string"`
-	SourceTID   *int64             `json:"source_tid,string"`
-	Domain      HiSysEventName     `json:"domain"`
-	Event       HiSysEventName     `json:"event"`
-	Contents    HiSysEventContents `json:"contents"`
+	TimestampNS int64  `json:"timestamp_ns,string"`
+	SourceTID   *int64 `json:"source_tid,string"`
+	// Present only for an invalid non-NULL TID cell. Preserve the cell without
+	// turning numeric-looking TEXT/REAL or an out-of-range integer into identity.
+	SourceTIDRaw *HiSysEventContents `json:"source_tid_raw,omitempty"`
+	Domain       HiSysEventName      `json:"domain"`
+	Event        HiSysEventName      `json:"event"`
+	Contents     HiSysEventContents  `json:"contents"`
 }
 
 type HiSysEventName struct {
@@ -92,7 +95,25 @@ func FormatHiSysEventObservation(e HiSysEvent) (string, error) {
 	if e.TimestampNS < 0 || (e.SourceTID != nil && (*e.SourceTID < 0 || *e.SourceTID > math.MaxInt32)) || !validHiSysName(e.Domain) || !validHiSysName(e.Event) || !validHiSysContents(e.Contents) {
 		return "", fmt.Errorf("invalid HiSys event observation")
 	}
+	if e.SourceTIDRaw != nil {
+		c := *e.SourceTIDRaw
+		if e.SourceTID != nil || !validHiSysContents(c) || c.StorageClass == "null" {
+			return "", fmt.Errorf("invalid HiSys source TID storage")
+		}
+		if c.StorageClass == "integer" {
+			v, _ := strconv.ParseInt(*c.Text, 10, 64)
+			if v >= 0 && v <= math.MaxInt32 {
+				return "", fmt.Errorf("valid HiSys source TID cannot use invalid storage carrier")
+			}
+		}
+	}
 	rawBytes := len(e.Contents.BytesBase64)
+	if e.SourceTIDRaw != nil {
+		rawBytes += len(e.SourceTIDRaw.BytesBase64)
+		if e.SourceTIDRaw.Text != nil {
+			rawBytes += len(*e.SourceTIDRaw.Text)
+		}
+	}
 	for _, value := range []*string{e.Domain.Name, e.Event.Name, e.Contents.Text} {
 		if value != nil {
 			rawBytes += len(*value)

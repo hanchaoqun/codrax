@@ -179,6 +179,7 @@ func TestTraceEventSemanticsHiSysSQLKnownEmptyNullAndExactValues(t *testing.T) {
 		{"unresolved_and_blob", tracewire.HiSysEvent{TimestampNS: 0, SourceTID: integer(0), Domain: tracewire.HiSysEventName{Status: "unresolved_reference", Reference: integer(-7)}, Event: tracewire.HiSysEventName{Name: str("event/with\nseparator"), Status: "resolved", Reference: integer(9007199254740993)}, Contents: tracewire.HiSysEventContents{StorageClass: "blob", BytesBase64: "AP8="}}},
 		{"invalid_reference_and_integer", tracewire.HiSysEvent{TimestampNS: 1, Domain: tracewire.HiSysEventName{Status: "invalid_reference_storage_class"}, Event: tracewire.HiSysEventName{Name: str("name"), Status: "resolved", Reference: integer(1)}, Contents: tracewire.HiSysEventContents{StorageClass: "integer", Text: str("9007199254740993")}}},
 		{"empty_text", tracewire.HiSysEvent{TimestampNS: 1, Domain: tracewire.HiSysEventName{Status: "null_reference"}, Event: tracewire.HiSysEventName{Status: "null_reference"}, Contents: tracewire.HiSysEventContents{StorageClass: "text", Text: str("")}}},
+		{"invalid_source_tid", tracewire.HiSysEvent{TimestampNS: 1, SourceTIDRaw: &tracewire.HiSysEventContents{StorageClass: "text", Text: str("41007")}, Domain: tracewire.HiSysEventName{Status: "null_reference"}, Event: tracewire.HiSysEventName{Status: "null_reference"}, Contents: tracewire.HiSysEventContents{StorageClass: "null"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			wire, err := tracewire.FormatHiSysEventObservation(tc.event)
@@ -205,6 +206,14 @@ func TestTraceEventSemanticsHiSysSQLKnownEmptyNullAndExactValues(t *testing.T) {
 			if tc.event.SourceTID == nil {
 				if eventSemanticField(t, fields, "source.tid").Value != nil {
 					t.Fatal("NULL tid became 0")
+				}
+				if tc.event.SourceTIDRaw != nil {
+					field := eventSemanticField(t, fields, "source.tid")
+					if field.Status != "invalid" || field.IssueReason != "invalid_source_tid" {
+						t.Fatalf("invalid source TID disguised as NULL: %+v", field)
+					}
+					expectEventSemanticValue(t, fields, "source.tid_storage_class", "text")
+					expectEventSemanticValue(t, fields, "source.tid_raw", "41007")
 				}
 			} else {
 				expectEventSemanticValue(t, fields, "source.tid", "0")

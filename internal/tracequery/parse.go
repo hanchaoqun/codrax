@@ -149,6 +149,12 @@ func eventSideTableBytes(ev *Event) int64 {
 		}
 		if h := ev.PluginFields.HiSysEvent; h != nil {
 			n += int64(unsafe.Sizeof(tracewire.HiSysEvent{}))
+			if h.SourceTIDRaw != nil {
+				n += int64(unsafe.Sizeof(tracewire.HiSysEventContents{})) + int64(len(h.SourceTIDRaw.BytesBase64))
+				if h.SourceTIDRaw.Text != nil {
+					n += int64(unsafe.Sizeof("")) + int64(len(*h.SourceTIDRaw.Text))
+				}
+			}
 			for _, p := range []*int64{h.SourceTID, h.Domain.Reference, h.Event.Reference} {
 				if p != nil {
 					n += 8

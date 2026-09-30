@@ -1031,6 +1031,8 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 	coverage.FieldSources = map[string]string{
 		"name_references": "raw SQLite INTEGER only; NULL/other storage classes never alias INTEGER 0",
 		"name_wire":       "all SQL rows use reversible timed observations; name resolution never grants ftrace emitter, process, CPU, or causal identity; ordinary systrace viewers may ignore these comment records",
+		"timestamp":       "exact nonnegative SQLite INTEGER nanoseconds; invalid timed rows stay in SQL fidelity with coverage, never coerced or placed at zero",
+		"source_tid":      "NULL stays unknown; exact INTEGER 0..2147483647 is a source field only; other cells remain source_tid_raw without granting thread identity",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
@@ -1051,12 +1053,15 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		if err := ctx.Err(); err != nil {
 			return coverage, err
 		}
-		var ts int64
-		var tid sql.NullInt64
-		var domainRaw, eventRaw, contentsRaw any
-		if err := rows.Scan(&ts, &tid, &domainRaw, &eventRaw, &contentsRaw); err != nil {
+		var tsRaw, tidRaw, domainRaw, eventRaw, contentsRaw any
+		if err := rows.Scan(&tsRaw, &tidRaw, &domainRaw, &eventRaw, &contentsRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
+		}
+		ts, validTS := traceDBStrictSQLiteInt(tsRaw)
+		if !validTS || ts < 0 {
+			skipped["invalid_timestamp"]++
+			continue
 		}
 		domain, domainReason := traceDBDictionaryReference(domainRaw, dict)
 		event, eventReason := traceDBDictionaryReference(eventRaw, dict)
@@ -1078,9 +1083,15 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		// Keep the same role for every name/content shape, including plain TEXT.
 		row := tracewire.HiSysEvent{TimestampNS: ts,
 			Domain: traceDBHiSysName(domainRaw, domain, domainReason), Event: traceDBHiSysName(eventRaw, event, eventReason)}
-		if tid.Valid {
-			value := tid.Int64
+		if value, ok := traceDBStrictSQLiteInt(tidRaw); ok && value >= 0 && value <= math.MaxInt32 {
 			row.SourceTID = &value
+		} else if tidRaw != nil {
+			cell, cellErr := traceDBHiSysContents(tidRaw)
+			if cellErr != nil {
+				return coverage, cellErr
+			}
+			row.SourceTIDRaw = &cell
+			skipped["invalid_source_tid"]++
 		}
 		row.Contents, err = traceDBHiSysContents(contentsRaw)
 		if err != nil {

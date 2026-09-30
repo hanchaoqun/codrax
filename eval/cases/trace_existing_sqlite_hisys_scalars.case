@@ -1,0 +1,11 @@
+ID="trace_existing_sqlite_hisys_scalars"
+NAME="SQLite system events — honest source identity and incomplete timestamps"
+QUESTION="这份采集在 2.000 到 2.080 秒发生了哪些系统事件？请按时间列出所属域、事件名、来源线程和内容，并说明记录是否完整。"
+HTRACE_FILE="eval/fixtures/hmosperf_hisys_scalars/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="CAMERA_PIPELINE"
+EXPECT_PRIMARY_MATCHES_REGEX="CAPTURE_STATE
+session=8
+(未知|无效|异常|缺失|无法确定)"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
