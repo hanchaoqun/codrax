@@ -1152,7 +1152,7 @@ func TestNormalizeEmitAnswerBlock_RejectsInvalidRequestedRelationScope(t *testin
 	}
 }
 
-func TestNormalizeEmitAnswerBlock_QuotesSequenceParticipantDisplayLabelsWithoutChangingEdges(t *testing.T) {
+func TestNormalizeEmitAnswerBlock_PreservesSequenceParticipantDisplayLabelsWithoutChangingEdges(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID: "pipeline", Kind: string(types.BlockDiagram),
 		Diagram: &emitAnswerDiagramV2{
@@ -1169,12 +1169,15 @@ func TestNormalizeEmitAnswerBlock_QuotesSequenceParticipantDisplayLabelsWithoutC
 		t.Fatalf("normalize sequence diagram: %v", err)
 	}
 	for _, want := range []string{
-		`participant Run as "Orchestrator.Run"`,
-		`participant BusCtx as "o.busCtx.AnalysisIR"`,
+		`participant Run as Orchestrator.Run`,
+		`participant BusCtx as o.busCtx.AnalysisIR`,
 		`Run->>BusCtx: read AnalysisIR`,
 	} {
 		if got.Diagram == nil || !strings.Contains(got.Diagram.Body, want) {
 			t.Fatalf("normalized diagram missing %q: %+v", want, got.Diagram)
 		}
+	}
+	if strings.Contains(got.Diagram.Body, `"Orchestrator.Run"`) || strings.Contains(got.Diagram.Body, `"o.busCtx.AnalysisIR"`) {
+		t.Fatalf("shared diagram source must not gain terminal-parser quotes: %s", got.Diagram.Body)
 	}
 }
