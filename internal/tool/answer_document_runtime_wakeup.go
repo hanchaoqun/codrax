@@ -110,7 +110,7 @@ func (p wakeupDiagramRelationProvider) Relations(ledger types.ObservationLedger)
 		to := fmt.Sprintf("runtime_instance_%x", sha256.Sum256(append(append([]byte(nil), coordinates...), []byte("\x00to\x00"+string(data))...)))
 		row := RuntimeDiagramRelation{Kind: types.DiagramRelWakeup, FromIdentity: from, ToIdentity: to,
 			FromNode: runtimeDiagramNode(from), ToNode: runtimeDiagramNode(to), FromLabel: r.Subject, ToLabel: r.Object,
-			ScopeLabel:  fmt.Sprintf("唤醒时刻=%.9g秒；查询窗口=[%.9g,%.9g)秒；来源=%s；这是一次唤醒，不表示唤醒者造成了全部等待", f.Timestamp, ref.QueryWindowStartTs, ref.QueryWindowEndTs, strings.Join(r.SupportRefs, "; ")),
+			ScopeLabel:  fmt.Sprintf("唤醒时刻=%s秒；查询窗口=[%s,%s)秒；来源=%s；这是一次唤醒，不表示唤醒者造成了全部等待", traceQueryDisplaySeconds(f.Timestamp), traceQueryDisplaySeconds(ref.QueryWindowStartTs), traceQueryDisplaySeconds(ref.QueryWindowEndTs), strings.Join(r.SupportRefs, "; ")),
 			SupportRefs: append([]string(nil), r.SupportRefs...)}
 		byEvent[key] = candidate{row, string(data)}
 	}
