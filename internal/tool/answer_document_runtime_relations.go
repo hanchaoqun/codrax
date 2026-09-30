@@ -219,8 +219,16 @@ func runtimeDiagramBodyRelationProved(rows []RuntimeDiagramRelation, anchors []t
 
 func runtimeDiagramAnchorAliasConflict(rows []RuntimeDiagramRelation, anchor types.DiagramEdgeAnchor) bool {
 	for _, endpoint := range [][2]string{{anchor.FromNode, anchor.FromIdentity}, {anchor.ToNode, anchor.ToIdentity}} {
-		identity := runtimeDiagramEndpointIdentity(rows, endpoint[0], endpoint[0])
-		if identity != endpoint[0] && identity != endpoint[1] {
+		known, matches := false, false
+		for _, row := range rows {
+			for _, issued := range [][2]string{{row.FromNode, row.FromIdentity}, {row.ToNode, row.ToIdentity}} {
+				if issued[0] == endpoint[0] {
+					known = true
+					matches = matches || issued[1] == endpoint[1]
+				}
+			}
+		}
+		if known && !matches {
 			return true
 		}
 	}
@@ -233,15 +241,37 @@ func runtimeDiagramEndpointIdentity(rows []RuntimeDiagramRelation, node, identit
 	if identity != node {
 		return identity
 	}
+	resolved := ""
 	for _, row := range rows {
-		if row.FromNode == node {
-			return row.FromIdentity
-		}
-		if row.ToNode == node {
-			return row.ToIdentity
+		for _, endpoint := range [][2]string{{row.FromNode, row.FromIdentity}, {row.ToNode, row.ToIdentity}} {
+			if endpoint[0] == node {
+				if resolved != "" && resolved != endpoint[1] {
+					return identity
+				}
+				resolved = endpoint[1]
+			}
 		}
 	}
+	if resolved != "" {
+		return resolved
+	}
 	return identity
+}
+
+// A shared target lane may be ambiguous alone but unique with its source.
+// Repeated identical pairs deliberately require an explicit event credential.
+func runtimeDiagramPairIdentities(rows []RuntimeDiagramRelation, from, to string) (string, string, bool) {
+	var a, b string
+	for _, row := range rows {
+		if row.FromNode != from || row.ToNode != to {
+			continue
+		}
+		if a != "" && (a != row.FromIdentity || b != row.ToIdentity) {
+			return "", "", false
+		}
+		a, b = row.FromIdentity, row.ToIdentity
+	}
+	return a, b, a != ""
 }
 
 func appendRuntimeDiagramRepairCandidates(allowed []types.AnswerDiagramRelationRepairCandidate, rows []RuntimeDiagramRelation, blockIDs []string, limit int) []types.AnswerDiagramRelationRepairCandidate {

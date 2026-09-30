@@ -9104,7 +9104,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	at := observedAt.Format("2006-01-02T15:04:05Z07:00")
 	var out []types.ObservationRecord
 	out = append(out, traceQueryEventSearchInventoryObservation(result, ref, at, query)...)
-	out = append(out, traceQuerySchedulerWakeEventObservations(result.Events, ref, scope, at)...)
+	out = append(out, traceQuerySchedulerWakeEventObservations(result.Events, ref, scope, at, result.EventSearchCoverage)...)
 	out = append(out, traceQueryProcessProfileObservations(result.ProcessProfile, ref, scope, at)...)
 	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {
 		integrity := stats.WakeupTargetCPUIntegrity

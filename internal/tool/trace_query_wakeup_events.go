@@ -11,7 +11,10 @@ import (
 // They prove only the recorded wake event. Never label them as chain edges or
 // direct-root-cause evidence; duration thresholds and expansion caps do not
 // alter the identity of an observed event_search row.
-func traceQuerySchedulerWakeEventObservations(events []tracequery.EventView, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+func traceQuerySchedulerWakeEventObservations(events []tracequery.EventView, ref types.ObservationSourceRef, scope, at string, coverage *tracequery.EventSearchCoverage) []types.ObservationRecord {
+	if coverage == nil || coverage.ScanScope == nil || !types.ValidateTraceEventSearchScanScope(coverage.ScanScope) {
+		return nil
+	}
 	var out []types.ObservationRecord
 	for _, row := range events {
 		e := row.Event
@@ -27,7 +30,7 @@ func traceQuerySchedulerWakeEventObservations(events []tracequery.EventView, ref
 			SourceRef: ref, Span: types.ObservationSpan{LineStart: e.Line, LineEnd: e.Line, StartTs: e.Ts, EndTs: e.Ts},
 			ClaimKey: "scheduler_wakeup_event:" + subject + "->" + object, Predicate: "scheduler_wakeup_event", Subject: subject, Object: object, Value: "1", Unit: "event",
 			Summary:   fmt.Sprintf("Recorded scheduler wake event: %s -> %s at %s seconds; no chain membership or wait-duration attribution", subject, object, traceQueryDisplaySeconds(e.Ts)),
-			RichNotes: []string{traceQueryWakeupEventNote(ref, edge)}, SupportRefs: traceQueryObservationSupportRefs(ref, e.Line, e.Line), ObservedAt: at, Confidence: 1,
+			RichNotes: []string{traceQueryWakeupEventNote(ref, edge, coverage.ScanScope)}, SupportRefs: traceQueryObservationSupportRefs(ref, e.Line, e.Line), ObservedAt: at, Confidence: 1,
 		})
 	}
 	return out

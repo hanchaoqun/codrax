@@ -279,6 +279,9 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 					if identity := runtimeDiagramEndpointIdentity(runtimeRelations, edge.To, edge.To); identity != edge.To {
 						toSymbol = identity
 					}
+					if from, to, ok := runtimeDiagramPairIdentities(runtimeRelations, edge.From, edge.To); ok {
+						fromSymbol, toSymbol = from, to
+					}
 					issue := diagramCallEdgeIssueMissingRelationAnchor
 					if block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG {
 						issue = diagramCallEdgeIssueMissingAnchor
