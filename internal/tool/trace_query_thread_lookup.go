@@ -26,8 +26,13 @@ func traceQueryThreadLookup(ctx *types.BusContext, p traceQueryParams) (target t
 	} else if ctx.Mutable != nil {
 		rm = ctx.Mutable.RequestModel()
 	}
-	if rm == nil || len(rm.RuntimeTargets) != 0 || len(rm.RuntimeThreadLookups) == 0 {
+	if rm == nil || len(rm.RuntimeThreadLookups) == 0 {
 		return target, false, false
+	}
+	for _, focus := range rm.RuntimeTargets {
+		if !types.RuntimeTargetIsExplorationCursorSource(focus.Source) {
+			return target, false, false
+		}
 	}
 	lookups, errText := parseRuntimeThreadLookups(rm.RawRequest, rm.RuntimeThreadLookups)
 	if errText != "" {

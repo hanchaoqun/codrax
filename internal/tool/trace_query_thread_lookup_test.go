@@ -69,12 +69,15 @@ func TestThreadLookupInheritanceBoundaries(t *testing.T) {
 		t.Fatal("explicit selector overwritten")
 	}
 	ctx.AnalysisIR.RequestModel.RuntimeThreadLookups = append(rm.RuntimeThreadLookups, types.RuntimeThreadLookup{PID: 11, SourceQuote: "线程11所属进程"})
-	ctx.Mutable.SetRequestModel(types.RequestModel{RuntimeTargets: []types.RuntimeTarget{{Kind: types.RuntimeTargetKindThread, PID: 12, Source: "exploration_cursor"}}})
+	cursor := types.RuntimeTarget{Kind: types.RuntimeTargetKindThread, PID: 12, Source: types.RuntimeTargetSourceExplicitToolCall}
+	ctx.Mutable.SetRequestModel(types.RequestModel{RuntimeTargets: []types.RuntimeTarget{cursor}})
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{cursor}
 	p, _ = traceQueryApplyRequestModelTarget(ctx, traceQueryParams{View: "process_profile"})
 	if p.PID.Int() != 0 {
 		t.Fatal("ambiguous lookup arbitrarily selected")
 	}
 	ctx.AnalysisIR.RequestModel = rm
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{cursor}
 	p, _ = traceQueryApplyRequestModelTarget(ctx, traceQueryParams{View: "process_profile"})
 	if p.PID.Int() != 10 {
 		t.Fatal("exploration cursor replaced current-request lookup")
@@ -108,5 +111,23 @@ func TestThreadLookupValidationAndCanonicalIdentity(t *testing.T) {
 	}
 	if !strings.Contains(string((&EmitAnalysis{}).Parameters()), types.RuntimeThreadLookupTeaching) {
 		t.Fatal("schema teaching absent")
+	}
+}
+
+func TestThreadLookupRejectsUnboundArtifactIdentity(t *testing.T) {
+	for _, item := range []types.RuntimeThreadLookup{
+		{Thread: "worker-11 (tid=11)", SourceQuote: "有哪些线程"},
+		{PID: 10, SourceQuote: "线程310所属进程"},
+		{PID: 10, SourceQuote: "线程100所属进程"},
+		{Thread: "worker", SourceQuote: "有哪些线程"},
+	} {
+		if _, reason := parseRuntimeThreadLookups(item.SourceQuote, []types.RuntimeThreadLookup{item}); reason == "" {
+			t.Fatalf("generic/mismatched quote authorized %+v", item)
+		}
+	}
+	for _, quote := range []string{"ui（线程10）所在进程", "10所属进程", "thread 10", "线程310和线程10", "线程010及10"} {
+		if _, reason := parseRuntimeThreadLookups(quote, []types.RuntimeThreadLookup{{PID: 10, SourceQuote: quote}}); reason != "" {
+			t.Fatalf("exact numeric provenance rejected %s: %s", quote, reason)
+		}
 	}
 }
