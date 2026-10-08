@@ -2846,9 +2846,19 @@ func (r *Renderer) emitNonTTYLine(line string) {
 }
 
 func (r *Renderer) emitNonTTYLines(lines []scrollbackLine) {
-	for _, line := range lines {
-		r.emitNonTTYLine(stripAnsiEscapes(line.text))
+	if len(lines) == 0 {
+		return
 	}
+	// This is a content batch, not a sequence of status notices. Equal
+	// neighboring rows are separate occurrences: preserve stdout layout and
+	// every non-empty audit row. Draft-once and same-round
+	// reasoning echo suppression already happen at their typed event owners.
+	// Content also separates consecutive notice runs; it must not share the
+	// single-line notice dedupe key with either neighboring notice.
+	r.lastCommittedLine = ""
+	body := stripAnsiEscapes(formatScrollbackBody(lines, false))
+	fmt.Fprint(r.outputWriter(), body)
+	mirrorDockBlockToLog(body)
 }
 
 func (r *Renderer) answerDraftPreviewLinesOnToolEnd(ev Event) []scrollbackLine {
