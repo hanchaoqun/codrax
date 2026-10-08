@@ -49,8 +49,9 @@ import (
 //   - context.BuildPromptContext applied with the populated fixture
 //     (renders the canonical user-section / system-section corpus
 //     including LogTriage / PerfTrace / Evidence / Hint sections)
-//   - every tool ParametersFor(ctx) projection (3: EmitAnswerDocument,
-//     EmitAnswerDocumentPatch, EmitWriteWorkflowDecision) — the dynamic
+//   - every tool ParametersFor(ctx) projection (5: EmitAnswerDocument,
+//     EmitAnswerDocumentPatch, EmitWriteWorkflowDecision, EmitChangePlan,
+//     EmitPlanSkeleton) — the dynamic
 //     schema surfaces the static TestNoInternalTermsInToolSchemas scan
 //     does NOT cover (it walks Parameters() only)
 func TestPromptSnapshot_NoInternalTermsInRenderedOutput(t *testing.T) {
@@ -205,6 +206,7 @@ func allPromptSnapshotCaptures(t *testing.T) []promptCapture {
 	// mode artifact gating applies.
 	base := buildPromptSnapshotAgentContext(t)
 	skills := buildPromptSnapshotSkills()
+	registration, assertionRef := buildPromptSnapshotRegistrationContext(t)
 
 	out := []promptCapture{
 		captureBuildInitialInstruction(
@@ -305,8 +307,71 @@ func allPromptSnapshotCaptures(t *testing.T) []promptCapture {
 			&tool.EmitWriteWorkflowDecision{},
 			withWriteMode(withAgent(base, types.AgentWriteController, types.StagePlan)),
 		),
+		captureParametersFor(
+			"EmitChangePlan.ParametersFor",
+			&tool.EmitChangePlan{},
+			registration,
+		),
+		captureParametersFor(
+			"EmitPlanSkeleton.ParametersFor",
+			&tool.EmitPlanSkeleton{},
+			registration,
+		),
+	}
+	for _, capture := range out {
+		if capture.label != "EmitChangePlan.ParametersFor" && capture.label != "EmitPlanSkeleton.ParametersFor" {
+			continue
+		}
+		var projected struct {
+			Properties struct {
+				Observations struct {
+					Items struct {
+						Properties map[string]struct {
+							Enum []string `json:"enum"`
+						} `json:"properties"`
+					} `json:"items"`
+				} `json:"project_test_observations"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal([]byte(capture.text), &projected); err != nil {
+			t.Fatalf("%s did not render a schema: %v", capture.label, err)
+		}
+		refs := projected.Properties.Observations.Items.Properties["assertion_ref"].Enum
+		if len(refs) != 1 || refs[0] != assertionRef {
+			t.Fatalf("%s did not exercise the current authorized identity selector: %v", capture.label, refs)
+		}
 	}
 	return out
+}
+
+// The snapshot exercises schema projection, not native execution. Its typed
+// producer report and live authorization avoid a Python dependency while still
+// requiring the actual nonempty dispatch-local selector branch.
+func buildPromptSnapshotRegistrationContext(t *testing.T) (*types.AgentContext, string) {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu := currentBatchPromptFixture()
+	sha := strings.Repeat("a", 40)
+	delivery := types.VerificationDeliverySnapshot{SourcePlanID: "prompt-source", AppliedCommitSHA: sha,
+		PatchEffect: &types.PatchEffectRecord{PlanID: "prompt-source", RecordID: "prompt-effect", Source: "applied_commit", HeadRef: sha, DiffFingerprint: strings.Repeat("b", 64)}}
+	if err := mu.AuthorizeNativeTestRegistration(root, delivery, []types.WriteBehaviorContract{{ID: "criterion-current"}}, []string{"current.py"}); err != nil {
+		t.Fatal(err)
+	}
+	mu.InstallNativeTestRegistrationIdentity(mu.NativeTestRegistrationAuthorization().ID, &types.ChangeReport{
+		PlanID: "prompt-source", Channel: types.ChangeReportChannelPostApplyVerify,
+		TestResults: []types.TestResult{{InvocationID: "prompt-native", Kind: types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion, Suite: "python/unittest@packages/widget::test_widget.IncrementTest",
+			AssertionID: "python/unittest@packages/widget::test_value", Passed: true}},
+		ExecutedCommands: []types.ExecutedCommand{{InvocationID: "prompt-native", Runner: "python", Framework: "unittest", Outcome: types.ExecutedCommandOutcomeExecuted}},
+	})
+	choices := mu.NativeTestRegistrationIdentityChoices(root)
+	if len(choices) != 1 || choices[0].Ref == "" {
+		t.Fatalf("snapshot fixture did not publish a current identity choice: %+v", choices)
+	}
+	return &types.AgentContext{Mutable: mu, RepoRoot: root, Mode: types.ModeApply, Stage: types.StagePlan, AgentName: types.AgentPlanner}, choices[0].Ref
 }
 
 // captureBuildInitialInstruction calls the evaluator's BuildInitialInstruction
