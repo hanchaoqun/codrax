@@ -1,0 +1,7 @@
+ID="trace_cpu_state_frequency"
+NAME="CPU idle and frequency — joint residency and coverage"
+QUESTION="看看这份 trace 在 1.000 到 1.040 秒内，各个 CPU 的空闲状态和频率是怎么搭配变化的。请给出每核各组合持续多久、占比多少，以及整体分布和数据覆盖情况。"
+HTRACE_FILE="eval/fixtures/hmosperf_cpu_state_frequency/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query.*cpu_state_frequency"

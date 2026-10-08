@@ -203,6 +203,10 @@ type ViewCompaction struct {
 }
 
 var viewCapacityTable = map[string]ViewCapacity{
+	ViewCPUStateFrequency: {
+		View: ViewCPUStateFrequency, DefaultLimit: sharedDefaultResultLimit,
+		Dimension: CompactionDimensionIntervals,
+	},
 	"process_profile": {
 		View: "process_profile", DefaultLimit: sharedDefaultResultLimit, MaxLimit: 40,
 		HeavyView: true, FallbackView: FallbackViewEventSearch,

@@ -3,12 +3,13 @@ package tracequery
 // Rebuilt on each read: consumers cannot mutate shared descriptors or nested
 // slices. Composite rows reference existing views, not cloned metric contracts.
 func capabilityViewDescriptors() []ViewCapability {
-	formats := []string{"trace_text", "perf_trace_text", "tracebundle", "native_trace", "native_perf", "gzip", "zip"}
+	formats := []string{"trace_text", "perf_trace_text", "tracebundle", "native_trace", "native_perf", "gzip", "zip", "sqlite"}
 	row := func(name, summary string, objects, metrics, components []string, limitation string) ViewCapability {
 		return ViewCapability{name, summary, objects, append([]string(nil), formats...), metrics, components, []string{limitation}}
 	}
 	windowMetrics := []string{"event_inventory", "scheduler_states", "cpu_occupancy", "scheduler_concurrency", "cpu_pressure", "cpu_frequency", "cpu_constraints", "compute_supply", "blocked_reasons", "sched_accounting", "io_request_latency", "io_inflight", "io_activity", "file_io", "page_cache", "io_pressure", "interrupt_activity", "workqueue", "dma_fence", "trace_spans", "business_tree", "track_spans", "trace_instants", "trace_counters", "counter_deltas", "runtime_resources", "plugin_inventory", "perf_samples", "state_churn", "vsync_inventory"}
 	return []ViewCapability{
+		row(ViewCPUStateFrequency, "Per-CPU raw idle-state and frequency overlap, full-window coverage and bounded interval detail.", []string{"CPU", "time interval"}, []string{"cpu_state_frequency"}, nil, "Single physical state-transition trace only. SQL measure interval semantics are not yet preserved and this view explicitly withholds those results. Unknown state/frequency is retained; CPU-time differs from wall-clock time. This is not thread execution or causal evidence."),
 		row("process_profile", "Observed native process members with per-thread scheduler accounts, sleep groups and synchronous business hotspots.", []string{"process", "thread incarnation", "blocked caller"}, []string{"process_profile"}, nil, "Select a source TID and finite window. Native TGID proves observed membership, not a full OS census. Member counts precede display limits; independent state/marker contracts are in metric process_profile. No causal ranking or wakeup-tree authority."),
 		row("event_search", "Literal event discovery with separate matched and emitted counts.", []string{"artifact", "event", "thread", "CPU"}, []string{"event_inventory", "reported_jank", "native_protocol_fields", "runtime_resources", "vsync_inventory"}, nil, "Display limit is not enumeration coverage; raw inventory does not prove a measured duration or dependency."),
 		row("window_sweep", "Streaming event-density buckets and advisory follow-up windows.", []string{"artifact", "time bucket", "thread"}, []string{"event_density"}, nil, "Density identifies where to inspect, not a root cause; bucket width and scan coverage are reported separately."),

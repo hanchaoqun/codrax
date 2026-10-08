@@ -280,7 +280,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))
+	return traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -328,6 +328,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	}
 	if err := tracequery.ValidateViewName(p.View); err != nil {
 		return traceQueryUnknownViewRejection(p.View, err), nil
+	}
+	if repair := traceQueryCPUStateFrequencyInputRepair(p); repair != nil {
+		return *repair, nil
 	}
 	var businessReject *types.ToolResult
 	p, businessRef, businessReject = traceQueryApplyBusinessRef(ctx, p)
@@ -516,6 +519,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// escape lanes (kill switch / no MutableState / supplement in flight /
 	// stat failure); those calls execute directly, exactly as before.
 	runPureTraceQueryCore := func() (types.ToolResult, error) {
+		if streamed, ok := t.streamCPUStateFrequency(ctx, p, path, sourceLabel, callCaveat, window); ok {
+			return streamed, nil
+		}
 		// LSPAN-1: an explicit micro-window around a named B marker is a parent
 		// selector, not a maximum-duration claim.  On large single-artifact
 		// traces, resolve the remote unnamed E with the immutable whole-artifact
@@ -5175,6 +5181,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		b.WriteString("\n")
 	}
 	writeTraceProcessProfilePreview(&b, result.ProcessProfile)
+	if result.CPUStateFrequency != nil {
+		b.WriteString("## CPU状态与频率联合区间\n")
+		b.WriteString(TraceCPUStateFrequencyText(*result.CPUStateFrequency, 8))
+	}
 	if result.Timeline != nil {
 		b.WriteString("## Thread timeline\n")
 		if head := result.Timeline.HeadState; head != nil {
@@ -9096,6 +9106,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQueryEventSearchInventoryObservation(result, ref, at, query)...)
 	out = append(out, traceQuerySchedulerWakeEventObservations(result.Events, ref, scope, at, result.EventSearchCoverage)...)
 	out = append(out, traceQueryProcessProfileObservations(result.ProcessProfile, ref, scope, at)...)
+	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
 	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {
 		integrity := stats.WakeupTargetCPUIntegrity
 		if integrity.Status == tracequery.WakeupTargetCPUIntegritySuspectedDegradedAllZero &&
@@ -16552,6 +16563,9 @@ type traceQueryRequestTarget struct {
 const traceQueryMaxInheritedPID = types.RuntimeTargetMaxPID
 
 func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams) (traceQueryParams, string) {
+	if tracequery.CanonicalViewName(p.View) == tracequery.ViewCPUStateFrequency {
+		return p, "trace_query_target_inheritance_skipped=cpu_state_frequency; control lanes are CPU-owned, not emitter-thread-owned"
+	}
 	if p.PID.Int() > 0 || strings.TrimSpace(p.Thread) != "" {
 		return p, ""
 	}

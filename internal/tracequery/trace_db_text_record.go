@@ -374,3 +374,14 @@ func countTraceDBTextRecord(idx *Index, ev Event) bool {
 	}
 	return true
 }
+
+// These artifact-wide receipts survive index composition and window carving.
+// Carriers are deliberately absent from Events; re-counting a retained event
+// slice would silently erase the source's preserved-storage provenance.
+func mergeTraceDBTextCounts(dst, src *Index) {
+	dst.TraceDBTextCarrierRows += src.TraceDBTextCarrierRows
+	dst.TraceDBTextRecords += src.TraceDBTextRecords
+	dst.TraceDBTextSchemaRecords += src.TraceDBTextSchemaRecords
+	dst.TraceDBTextRowRecords += src.TraceDBTextRowRecords
+	dst.TraceDBTextReceiptRecords += src.TraceDBTextReceiptRecords
+}

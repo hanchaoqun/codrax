@@ -452,6 +452,13 @@ func Run(idx *Index, q Query) Result {
 		return cachedFrameTimeline
 	}
 	switch q.View {
+	case ViewCPUStateFrequency:
+		joint := buildCPUStateFrequency(idx, q)
+		if faceCanceled(ViewCPUStateFrequency) {
+			break
+		}
+		res.CPUStateFrequency = joint
+		res.Caveats = append(res.Caveats, joint.Caveats...)
 	case "process_profile":
 		profile := buildProcessProfile(idx, q)
 		if faceCanceled("process_profile") {
@@ -10217,7 +10224,7 @@ func appendFrequencyResidency(in []CPUFrequencyResidency, ev Event, start, end f
 		LineStart:  ev.Line,
 		LineEnd:    firstPositive(endLine, ev.Line),
 	}
-	if len(in) > 0 && in[len(in)-1].Frequency == res.Frequency {
+	if len(in) > 0 && in[len(in)-1].Frequency == res.Frequency && in[len(in)-1].EndTs == res.StartTs {
 		in[len(in)-1].DurationMs += res.DurationMs
 		in[len(in)-1].EndTs = res.EndTs
 		in[len(in)-1].LineEnd = res.LineEnd

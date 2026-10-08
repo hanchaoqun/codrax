@@ -428,7 +428,8 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		}},
 	}
 	return tracequery.Result{
-		ProcessProfile: &tracequery.ProcessProfile{Status: "unavailable", SourcePath: "/traces/full.systrace", Reason: "native_identity_missing", Window: tracequery.TimeWindow{StartTs: 1, EndTs: 2, StartSet: true}, WindowMs: 1000},
+		ProcessProfile:    &tracequery.ProcessProfile{Status: "unavailable", SourcePath: "/traces/full.systrace", Reason: "native_identity_missing", Window: tracequery.TimeWindow{StartTs: 1, EndTs: 2, StartSet: true}, WindowMs: 1000},
+		CPUStateFrequency: &tracequery.CPUStateFrequencyResult{Status: "unavailable", SourcePath: "/traces/full.systrace", Reason: "no_attributed_cpu_control_samples_before_window_end", Window: tracequery.TimeWindow{StartTs: 1, EndTs: 2, StartSet: true}, WindowWallMs: 1000},
 		TraceArtifacts: []tracequery.TraceArtifactSource{
 			{SourcePath: "/trace/primary.ftrace", CausalCompatible: true},
 			{SourcePath: "/trace/secondary.ftrace", CausalCompatible: true},

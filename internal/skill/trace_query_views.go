@@ -33,6 +33,7 @@ type TraceQueryViewTeaching struct {
 // order. Every view the tool accepts has exactly one row here.
 func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 	return []TraceQueryViewTeaching{
+		{View: "cpu_state_frequency", Params: "`time_start`/`time_end` without `pid`/`thread`", When: tracequery.CPUStateFrequencyTeaching},
 		{View: "process_profile", Params: "`pid` and `time_start`/`time_end`", When: tracequery.ProcessProfileTeaching},
 		{
 			View:   "event_search",

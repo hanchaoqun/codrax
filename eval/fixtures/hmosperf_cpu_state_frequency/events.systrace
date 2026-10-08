@@ -1,0 +1,12 @@
+# tracer: nop
+<idle>-0 (-----) [000] .... 0.990000: cpu_frequency: state=1000000 cpu_id=0
+<idle>-0 (-----) [000] .... 0.990000: cpu_idle: state=0 cpu_id=0
+<idle>-0 (-----) [002] .... 1.000000: cpu_idle: state=2 cpu_id=2
+<idle>-0 (-----) [000] .... 1.010000: cpu_idle: state=4294967295 cpu_id=0
+<idle>-0 (-----) [001] .... 1.010000: cpu_frequency: state=1500000 cpu_id=1
+<idle>-0 (-----) [000] .... 1.020000: cpu_frequency: state=2000000 cpu_id=0
+<idle>-0 (-----) [001] .... 1.020000: cpu_idle: state=4294967295 cpu_id=1
+<idle>-0 (-----) [000] .... 1.030000: cpu_idle: state=1 cpu_id=0
+<idle>-0 (-----) [001] .... 1.035000: cpu_idle: state=0 cpu_id=1
+<idle>-0 (-----) [000] .... 1.040000: cpu_frequency: state=3000000 cpu_id=0
+<idle>-0 (-----) [002] .... 1.050000: cpu_idle: state=4294967295 cpu_id=2

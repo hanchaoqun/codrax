@@ -15,6 +15,12 @@ func capabilityMetricDescriptors() []MetricCapability {
 		return MetricCapability{ID: id, Summary: summary, Outputs: outputs, Requirements: requirements, Limitations: []string{limit}}
 	}
 	metrics := []MetricCapability{
+		m("cpu_state_frequency", "Per-CPU idle-state × frequency joint intervals and distribution.", []CapabilityOutput{
+			o("cpu_state_frequency", "window_wall_ms", "ms", "complete selected half-open wall-clock window"),
+			o("cpu_state_frequency", "cpu_time_ms known_joint_ms unknown_joint_ms", "CPU·ms", "sum over observed CPUs, including explicit unknown coverage"),
+			o("cpu_state_frequency.cpus.groups", "duration_ms window_pct", "ms/percent", "joint combination duration divided by the full per-CPU selected window; all groups computed before display limits"),
+			o("cpu_state_frequency.cpus.intervals", "start_ts end_ts duration_ms", "seconds/ms", "bounded chronological interval prefix with independent total/omission counts"),
+		}, r("", [][]string{{"cpu_idle"}, {"cpu_frequency"}}, "", "Single complete physical source scan; strict payload CPU identity; finite time window. Known joint coverage requires both lanes. Explicit core_topology may name CPUs; unknown topology is not inferred."), "Raw idle index 0 is not Running. Only explicit idle exit proves active CPU state, not thread execution. Frequency remains kHz and positive samples never bridge a zero/unknown gap. Malformed or physically regressed lanes are unavailable; SQL measure duration/state encoding and cross-artifact joint identities are not supported by this view. No power, concurrency, response-cause or priority-inversion conclusion follows from overlap alone."),
 		m("process_profile", "Observed native process membership, independent thread state accounts and business hotspot inventory.", []CapabilityOutput{
 			o("process_profile", "thread_count emitted_threads omitted_threads unavailable_threads unknown_membership_threads", "count", "full observed native member census versus display/availability counts; unknown membership is source-wide, not assigned to this process"),
 			o("process_profile.threads", "running_window_pct", "percent", "thread running time divided by full selected window; absent means unavailable"),

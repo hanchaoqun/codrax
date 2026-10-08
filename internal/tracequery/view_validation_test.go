@@ -30,6 +30,7 @@ func TestStreamingRejectsUnknownViewBeforeForcingItsView(t *testing.T) {
 	}{
 		{"event_search", StreamEventSearch},
 		{"window_sweep", StreamWindowSweep},
+		{"cpu_state_frequency", StreamCPUStateFrequency},
 		{"state_cluster", func(ctx context.Context, path string, q Query) (Result, error) {
 			return StreamStateCluster(ctx, path, q, 8)
 		}},

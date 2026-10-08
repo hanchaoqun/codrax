@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v51"
+const ParserVersion = "tracequery-v52"
 
 type EventType string
 
@@ -1244,6 +1244,7 @@ type Result struct {
 	Events                []EventView                 `json:"events,omitempty"`
 	Timeline              *TimelineResult             `json:"timeline,omitempty"`
 	ProcessProfile        *ProcessProfile             `json:"process_profile,omitempty"`
+	CPUStateFrequency     *CPUStateFrequencyResult    `json:"cpu_state_frequency,omitempty"`
 	WindowStats           *WindowStats                `json:"window_stats,omitempty"`
 	SchedulerLatency      *SchedulerLatencyResult     `json:"scheduler_latency_stats,omitempty"`
 	IPCGraph              *IPCGraphResult             `json:"ipc_graph,omitempty"`

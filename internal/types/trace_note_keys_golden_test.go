@@ -183,6 +183,7 @@ var traceNoteKeyGoldenRows = []string{
 	"cpu_count|compute_supply|display_only",
 	"cpu_relation|chain_path|soft_consumer",
 	"cpu_scope|cpu_load|soft_consumer",
+	"cpu_state_frequency|cpu_state_frequency|soft_consumer",
 	"cpus|cpu_load|hard_consumer",
 	"cpuset|cpu_load|display_only",
 	// AXIOM-V2 件2/件3 (2026-07-18): the cross-direction overlap pair roster

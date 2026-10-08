@@ -919,6 +919,7 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		// (maps shared read-only).
 		fullFreq: full.fullFreq,
 	}
+	mergeTraceDBTextCounts(out, full)
 	firstLine, lastLine := 0, 0
 	// Window selection prefers a ZERO-COPY view: Event is ~1KB, so
 	// copying a large window allocates window×1KB per derived query
@@ -3773,6 +3774,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		idx.ParseLinePanics += child.ParseLinePanics
 		idx.ClockRegressions += child.ClockRegressions
 		idx.UnparsedLines += child.UnparsedLines
+		mergeTraceDBTextCounts(idx, child)
 		// TDIAG B4: merged bundles keep the first-cap samples in artifact
 		// order. Rebase their line to the same virtual coordinate as Events;
 		// ResolveArtifactSpans remains the one path back to local lines.
@@ -6889,6 +6891,12 @@ func safeParseLineScan(s *lineScan, intern *stringInterner, idx *Index) (ev Even
 		}
 	}()
 	ev, ok = parseLineScanFn(s, intern)
+	if idx != nil && !ok && cpuInputRawCandidate(s.line) {
+		if failure := cpuStateFrequencyRejectedFailure(s); failure != nil {
+			failure.SourcePath = idx.Path
+			appendCPUInputIntegrityFailure(idx, *failure)
+		}
+	}
 	if idx != nil && (!ok || ev.CPUInputInvalid) {
 		if cpuInputRawCandidate(s.line) {
 			for _, failure := range cpuInputValidationFailuresScan(s) {
