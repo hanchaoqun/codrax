@@ -30,7 +30,7 @@ func emitNativeTestRegistration(ctx *types.BusContext, toolName string, p emitCh
 	if len(p.Changes) != 0 || len(p.VerificationProbes) != 0 || len(p.SupersededContractRefs) != 0 {
 		return reject("project_test_registration_shape", "read-only registration accepts only existing project_test_observations: no changes, verification probes, or retired contracts")
 	}
-	observations, reason := normalizeProjectTestObservations(ctx, p.ProjectTestObservations, nil)
+	observations, reason := normalizeEmittedProjectTestObservations(ctx, p.ProjectTestObservations, nil, true)
 	if reason != "" || len(observations) == 0 {
 		return reject("project_test_registration_invalid", "existing-test declarations are invalid: "+reason)
 	}

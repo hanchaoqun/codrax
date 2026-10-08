@@ -202,7 +202,8 @@ func TestChangePlanSkillUsesSharedBehaviorContractObservationTeaching(t *testing
 		"An unchanged test file may be referenced by project_test_observations[].test_path without adding it to changes[]",
 		"include only actual file changes in changes[]",
 		"project_test_observations[]",
-		"exact test_path, assertion_suite, assertion_id, and contract_refs",
+		"test_path, contract_refs, and its exact assertion_suite/assertion_id pair",
+		"an offered assertion_ref may replace only that pair",
 		"exact typed test-surface candidate",
 		"natural-language acceptance test as if it were execution evidence",
 	} {
@@ -251,9 +252,11 @@ func TestChangePlanSkillScopesEmptyChangesProhibitionToTypedExceptions(t *testin
 	for _, want := range []string{
 		"ordinary source-change plan",
 		"scheduler-labelled verification_proof_followup",
-		"changes: [] together with verification_probes[]",
+		"verification_probes[] over the already-applied worktree",
 		"typed passing-probe no-change sentinel",
-		"never infer either exception from prose",
+		"controller-authorized read-only existing-test registration",
+		"no verification_probes or contract changes",
+		"Never infer any route from prose",
 	} {
 		if !strings.Contains(prohibitions, want) {
 			t.Fatalf("empty-changes boundary must state the typed exception %q:\n%s", want, prohibitions)
@@ -261,6 +264,9 @@ func TestChangePlanSkillScopesEmptyChangesProhibitionToTypedExceptions(t *testin
 	}
 	if strings.Contains(prohibitions, "do not write a plan whose changes[] array is empty") {
 		t.Fatalf("absolute empty-changes prohibition contradicts typed proof/no-change lanes:\n%s", prohibitions)
+	}
+	if strings.Contains(prohibitions, "only two typed exceptions") {
+		t.Fatal("registration is a third distinct empty-changes route")
 	}
 }
 

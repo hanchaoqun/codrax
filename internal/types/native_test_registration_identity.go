@@ -14,6 +14,7 @@ func (m *MutableState) InstallNativeTestRegistrationIdentity(authorizationID str
 		return
 	}
 	g.identitySnapshot = ""
+	g.identityChoices = nil
 	if report == nil || report.PlanID != g.Delivery.SourcePlanID || report.Channel != ChangeReportChannelPostApplyVerify {
 		return
 	}
@@ -33,7 +34,25 @@ func (m *MutableState) InstallNativeTestRegistrationIdentity(authorizationID str
 			}
 		}
 	}
-	g.identitySnapshot = renderNativeTestIdentitySnapshot(g.Delivery.SourcePlanID, &view, true)
+	g.identitySnapshot, g.identityChoices = renderNativeTestIdentitySnapshotChoices(g.Delivery.SourcePlanID, &view, true, g.ID)
+}
+
+// NativeTestIdentityChoice selects only a producer-published identity pair.
+// It deliberately has no test path, contract mapping, or execution receipt.
+type NativeTestIdentityChoice struct {
+	Ref            string `json:"assertion_ref"`
+	AssertionSuite string `json:"assertion_suite"`
+	AssertionID    string `json:"assertion_id"`
+}
+
+// NativeTestRegistrationIdentityChoices shares the exact bounded rows shown
+// to this live registration dispatch. JSON/history cannot restore selectors.
+func (m *MutableState) NativeTestRegistrationIdentityChoices(root string) []NativeTestIdentityChoice {
+	g := m.NativeTestRegistrationAuthorization()
+	if g == nil || g.RepositoryRoot != root {
+		return nil
+	}
+	return append([]NativeTestIdentityChoice(nil), g.identityChoices...)
 }
 
 // NativeTestRegistrationIdentitySnapshot is available only for the grant's

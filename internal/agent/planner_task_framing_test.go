@@ -147,7 +147,8 @@ func TestPlannerBehaviorDomainPreservation_RendersOnlyFromTypedContracts(t *test
 		"An unchanged test file may be referenced by project_test_observations[].test_path without adding it to changes[]",
 		"Add or edit a test only if the needed assertion is missing and the edit is authorized",
 		"project_test_observations[]",
-		"exact test_path, assertion_suite, assertion_id, and contract_refs",
+		"test_path, contract_refs, and its exact assertion_suite/assertion_id pair",
+		"an offered assertion_ref may replace only that pair in currently authorized read-only registration",
 		"inspect the concrete assertion first",
 		"exact typed test-surface candidate",
 		// B1575: refs declare intended scope; only the executor's compatible

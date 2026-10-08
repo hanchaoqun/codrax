@@ -16,7 +16,8 @@ type NativeTestRegistrationAuthorization struct {
 	Contracts                          []WriteBehaviorContract
 	TargetPaths                        []string
 	contextDigest                      string
-	identitySnapshot                   string // bounded historical display only; never serialized
+	identitySnapshot                   string                     // bounded historical display only; never serialized
+	identityChoices                    []NativeTestIdentityChoice // dispatch-local selectors, not evidence
 }
 
 type nativeTestRegistrationExecution struct{ digest, root, contextDigest string }
@@ -30,6 +31,7 @@ func cloneNativeRegistrationAuthorization(in *NativeTestRegistrationAuthorizatio
 	body, _ := json.Marshal(in.Contracts)
 	_ = json.Unmarshal(body, &out.Contracts)
 	out.TargetPaths = append([]string(nil), in.TargetPaths...)
+	out.identityChoices = append([]NativeTestIdentityChoice(nil), in.identityChoices...)
 	return &out
 }
 

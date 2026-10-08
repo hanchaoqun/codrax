@@ -133,7 +133,7 @@ func TestCurrentWriteProofTeachingFollowsDispatchAuthorization(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := section()
-	for _, want := range []string{"permits read-only existing-test registration", "exact test_path, assertion_suite, assertion_id", "verification must execute these exact tests again", "do not combine these two plan shapes", "changes: []"} {
+	for _, want := range []string{"permits read-only existing-test registration", "test_path, existing contract_refs, and an offered assertion_ref or the exact assertion_suite/assertion_id pair", "verification must execute these exact tests again", "do not combine these two plan shapes", "changes: []"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q: %s", want, got)
 		}

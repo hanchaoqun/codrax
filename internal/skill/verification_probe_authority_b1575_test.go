@@ -36,7 +36,7 @@ func TestB1575PlannerSkillSeparatesPythonExecutionFromAssertionProof(t *testing.
 		t.Error("planner still grants unconditional behavior evidence to a passing plain probe")
 	}
 	// Existing optional native-runner escape and model-owned assertions remain.
-	for _, want := range []string{"verification_probes[] are optional", "project_test_observations[]", "exact test_path, assertion_suite, assertion_id, and contract_refs", "same-package `TestX(*testing.T)`", "A failing probe is an exact execution observation"} {
+	for _, want := range []string{"verification_probes[] are optional", "project_test_observations[]", "test_path, contract_refs, and its exact assertion_suite/assertion_id pair", "same-package `TestX(*testing.T)`", "A failing probe is an exact execution observation"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("planner lost existing positive route %q", want)
 		}

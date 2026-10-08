@@ -38,6 +38,7 @@ const emitChangePlanSchemaReminder = types.ChangePlanJSONShapeFirstTeaching + " 
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
 	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs; project_test_observations: array of {id, test_path, assertion_suite, assertion_id, contract_refs[]} declarations; superseded_contract_refs: array of soft behavior_contract ids this repair plan supersedes (repair plans after a failed verification only). " +
 	"Controller-authorized proof-follow-up batches may emit changes: [] with verification_probes[], or separately register fully read and delivered existing Python unittest files using project_test_observations[]; registration changes no files and still requires a fresh verification run. " +
+	types.NativeTestRegistrationAssertionSelectionShapeTeaching +
 	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
 
 // emitMinPayloadBytes is the threshold below which the params blob is
@@ -77,12 +78,12 @@ type EmitChangePlan struct {
 // in sync with the JSON schema below; Execute uses DisallowUnknownFields
 // so any drift fails loudly rather than silently losing fields.
 type emitChangePlanParams struct {
-	Request                 string                         `json:"request"`
-	Summary                 string                         `json:"summary"`
-	Changes                 []emitChangePlanChange         `json:"changes"`
-	AcceptanceTests         []string                       `json:"acceptance_tests,omitempty"`
-	VerificationProbes      []types.VerificationProbe      `json:"verification_probes,omitempty"`
-	ProjectTestObservations []types.ProjectTestObservation `json:"project_test_observations,omitempty"`
+	Request                 string                       `json:"request"`
+	Summary                 string                       `json:"summary"`
+	Changes                 []emitChangePlanChange       `json:"changes"`
+	AcceptanceTests         []string                     `json:"acceptance_tests,omitempty"`
+	VerificationProbes      []types.VerificationProbe    `json:"verification_probes,omitempty"`
+	ProjectTestObservations []emitProjectTestObservation `json:"project_test_observations,omitempty"`
 	// SupersededContractRefs is the planner's typed escape lane for the
 	// soft-contract retention rule (§40.23): on a verify-failure replan the
 	// planner may declare soft contract ids that the repair supersedes.
@@ -354,7 +355,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	params = applyStructuredPayloadCompatWithSelectedStringFieldRepair(
 		t.Name(),
 		params,
-		t.Parameters(),
+		nativeTestRegistrationSelectionSchemaForBus(t.Parameters(), ctx),
 		[]string{"changes", "acceptance_tests", "verification_probes", "project_test_observations"},
 	)
 
@@ -443,7 +444,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// emit_plan_change path can reuse them); keeping the conversion
 	// at the top means the rest of Execute is a single-shape pipeline.
 	fcs := normalizePlanPathsForActiveRepo(ctx, emitChangesToFileChanges(p.Changes))
-	projectTestObservations, rej := normalizeProjectTestObservations(ctx, p.ProjectTestObservations, fcs)
+	projectTestObservations, rej := normalizeEmittedProjectTestObservations(ctx, p.ProjectTestObservations, fcs, false)
 	if rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
 			planRepairPackFromReason(t.Name(), "project_test_observation_invalid", rej, []string{"$.project_test_observations"}, nil)), nil

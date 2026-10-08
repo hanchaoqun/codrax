@@ -24,6 +24,10 @@ func nativeRegistrationPublicFixture(t *testing.T, body string) (*types.BusConte
 }
 
 func nativeRegistrationPublicFixtureForTestPath(t *testing.T, body, testPath string, requiredTests ...map[string]string) (*types.BusContext, *types.ChangePlan, types.VerificationDeliverySnapshot) {
+	return nativeRegistrationPublicFixtureWithFiles(t, body, testPath, nil, requiredTests...)
+}
+
+func nativeRegistrationPublicFixtureWithFiles(t *testing.T, body, testPath string, additionalFiles map[string]string, requiredTests ...map[string]string) (*types.BusContext, *types.ChangePlan, types.VerificationDeliverySnapshot) {
 	t.Helper()
 	if !GitAvailable() {
 		t.Skip("git unavailable")
@@ -36,6 +40,9 @@ func nativeRegistrationPublicFixtureForTestPath(t *testing.T, body, testPath str
 		t.Fatal(err)
 	}
 	files := map[string]string{"widget.py": "def increment(value):\n    return value\n", testPath: body, ".gitignore": "__pycache__/\n*.pyc\n"}
+	for path, data := range additionalFiles {
+		files[path] = data
+	}
 	var constraints []types.WriteConstraint
 	for _, tests := range requiredTests {
 		for path, data := range tests {

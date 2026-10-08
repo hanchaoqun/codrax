@@ -63,9 +63,30 @@ func TestNativeRegistrationIdentityGrantBoundaries(t *testing.T) {
 				mu.ResetDispatchToolResults()
 			}
 			got := mu.NativeTestRegistrationIdentitySnapshot(root)
+			choices := mu.NativeTestRegistrationIdentityChoices(root)
 			want := condition == "valid" || condition == "report_mutated_after_install" || condition == "dispatch_reset"
 			if (got != "") != want {
 				t.Fatalf("view present=%t want=%t: %s", got != "", want, got)
+			}
+			if (len(choices) == 1) != want {
+				t.Fatalf("selector escaped snapshot authority: choices=%+v want=%t", choices, want)
+			}
+			if want {
+				choice := choices[0]
+				if choice.Ref == "" || choice.AssertionSuite != report.TestResults[0].Suite || choice.AssertionID != report.TestResults[0].AssertionID || !strings.Contains(got, choice.Ref) {
+					t.Fatalf("selector is not the exact visible pair: %+v", choice)
+				}
+				choices[0].AssertionID = "caller-mutation"
+				if mu.NativeTestRegistrationIdentityChoices(root)[0] != choice {
+					t.Fatal("getter shares mutable selectors")
+				}
+				grantJSON, _ := json.Marshal(mu.NativeTestRegistrationAuthorization())
+				if strings.Contains(string(grantJSON), choice.Ref) {
+					t.Fatal("selector serialized as recoverable authority")
+				}
+				if len(mu.ForkForExploreDispatch().NativeTestRegistrationIdentityChoices(root)) != 0 {
+					t.Fatal("exploration fork acquired registration authority")
+				}
 			}
 			if want && (!strings.Contains(got, `"assertion_suite":"`+report.TestResults[0].Suite+`"`) || !strings.Contains(got, "not the current plan's report")) {
 				t.Fatalf("source identity or historical boundary missing: %s", got)

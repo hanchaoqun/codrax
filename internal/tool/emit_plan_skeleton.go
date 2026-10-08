@@ -59,12 +59,12 @@ type emitPlanSkeletonChange struct {
 // emitPlanSkeletonParams is the wire shape for the skeleton tool.
 // Mirrors emitChangePlanParams except changes carries metadata only.
 type emitPlanSkeletonParams struct {
-	Request                 string                         `json:"request"`
-	Summary                 string                         `json:"summary"`
-	Changes                 []emitPlanSkeletonChange       `json:"changes"`
-	AcceptanceTests         []string                       `json:"acceptance_tests,omitempty"`
-	VerificationProbes      []types.VerificationProbe      `json:"verification_probes,omitempty"`
-	ProjectTestObservations []types.ProjectTestObservation `json:"project_test_observations,omitempty"`
+	Request                 string                       `json:"request"`
+	Summary                 string                       `json:"summary"`
+	Changes                 []emitPlanSkeletonChange     `json:"changes"`
+	AcceptanceTests         []string                     `json:"acceptance_tests,omitempty"`
+	VerificationProbes      []types.VerificationProbe    `json:"verification_probes,omitempty"`
+	ProjectTestObservations []emitProjectTestObservation `json:"project_test_observations,omitempty"`
 	// SupersededContractRefs mirrors emitChangePlanParams.SupersededContractRefs.
 	SupersededContractRefs []string `json:"superseded_contract_refs,omitempty"`
 }
@@ -79,6 +79,7 @@ var emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 sen
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
 	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs, project_test_observations: optional [{id,test_path,assertion_suite,assertion_id,contract_refs[]}], superseded_contract_refs: optional []string of soft behavior_contract ids this repair plan supersedes (repair plans after a failed verification only)}. " +
 	"Controller-authorized proof-follow-up batches may emit changes: [] with verification_probes[], or separately register fully read and delivered existing Python unittest files using project_test_observations[]; registration changes no files and still requires a fresh verification run. " +
+	types.NativeTestRegistrationAssertionSelectionShapeTeaching +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
 func (t *EmitPlanSkeleton) Name() string { return "emit_plan_skeleton" }
@@ -188,7 +189,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	params = applyStructuredPayloadCompatWithSelectedStringFieldRepair(
 		t.Name(),
 		params,
-		t.Parameters(),
+		nativeTestRegistrationSelectionSchemaForBus(t.Parameters(), ctx),
 		[]string{"changes", "acceptance_tests", "verification_probes", "project_test_observations"},
 	)
 
@@ -283,7 +284,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 		})
 	}
 	fcs = normalizePlanPathsForActiveRepo(ctx, fcs)
-	projectTestObservations, rej := normalizeProjectTestObservations(ctx, p.ProjectTestObservations, fcs)
+	projectTestObservations, rej := normalizeEmittedProjectTestObservations(ctx, p.ProjectTestObservations, fcs, false)
 	if rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
 			planRepairPackFromReason(t.Name(), "project_test_observation_invalid", rej, []string{"$.project_test_observations"}, nil)), nil

@@ -3842,6 +3842,14 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			if ewd, ok := t.(*tool.EmitWriteWorkflowDecision); ok {
 				params = ewd.ParametersFor(ctx)
 			}
+			// Registration selectors belong only to the current authorized
+			// planner dispatch; ordinary plan schemas remain unchanged.
+			if plan, ok := t.(*tool.EmitChangePlan); ok {
+				params = plan.ParametersFor(ctx)
+			}
+			if skeleton, ok := t.(*tool.EmitPlanSkeleton); ok {
+				params = skeleton.ParametersFor(ctx)
+			}
 			// The classification step hard-rejects line-level grep
 			// (evidence-lite boundary); surface the requirement on the
 			// schema itself so the model does not learn it from a
