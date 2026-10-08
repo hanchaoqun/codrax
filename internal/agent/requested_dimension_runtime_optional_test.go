@@ -9,10 +9,20 @@ import (
 )
 
 func TestExplorerRuntimeOptionalDimensionOwnershipPrompt(t *testing.T) {
-	for _, exactBinding := range []bool{false, true} {
-		t.Run(map[bool]string{false: "runtime only", true: "one precise source binding"}[exactBinding], func(t *testing.T) {
+	for _, tc := range []struct {
+		name, source string
+		mode         types.TurnRouteCurrentSourceEvidenceMode
+		exactBinding bool
+	}{
+		{"runtime only", "external_tool", types.TurnRouteCurrentSourceEvidenceOptional, false},
+		{"one precise source binding", "external_tool", types.TurnRouteCurrentSourceEvidenceOptional, true},
+		{"mixed source intent remains soft", "mixed", types.TurnRouteCurrentSourceEvidenceRequired, false},
+		{"mixed exact source binding", "mixed", types.TurnRouteCurrentSourceEvidenceRequired, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exactBinding := tc.exactBinding
 			ctx := requestedDimensionEvidenceOwnershipContext()
-			ctx.TurnRouteHint = types.TurnRouteHint{Route: "repo", Source: "external_tool", NeedsRepoAccess: true, CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional}
+			ctx.TurnRouteHint = types.TurnRouteHint{Route: "repo", Source: tc.source, NeedsRepoAccess: true, CurrentSourceEvidenceMode: tc.mode}
 			ctx.Mutable = types.NewMutableState("runtime optional dimensions")
 			ctx.Mutable.AppendDispatchToolResult(types.ToolResult{ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{{
 				ID: "trace:distribution", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",

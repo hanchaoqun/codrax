@@ -47,10 +47,10 @@ func TestRequestedExplanationOperationNeedsRuntimeOptionalAuthority(t *testing.T
 			rm.ExternalObservationPolicy = &ExternalObservationPolicy{CurrentSourceMode: ExternalObservationCurrentSourceExclude, ExclusionKind: ExternalObservationSourceExclusionExplicitUserBoundary}
 		}},
 		{name: "attachment without observation", wantSource: true, adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) { in.Ledger = ObservationLedger{} }},
-		{name: "required route", wantSource: true, adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
+		{name: "soft required route", adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
 			in.RouteHint.CurrentSourceEvidenceMode = TurnRouteCurrentSourceEvidenceRequired
 		}},
-		{name: "mixed required route", wantSource: true, adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
+		{name: "soft mixed required route", adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
 			in.RouteHint.Source = "mixed"
 			in.RouteHint.CurrentSourceEvidenceMode = TurnRouteCurrentSourceEvidenceRequired
 		}},
@@ -63,7 +63,7 @@ func TestRequestedExplanationOperationNeedsRuntimeOptionalAuthority(t *testing.T
 		{name: "extensionless exact binding retains whole contract", wantSource: true, adjust: func(rm *RequestModel, _ *RuntimeSourceAnswerAuthorityInput) {
 			rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{Path: "Makefile", Confidence: 1, RequestedDimensionIndices: []int{3}}}
 		}},
-		{name: "landed source proof", wantSource: true, adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
+		{name: "unrequested source proof", adjust: func(_ *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
 			in.Ledger.Records = append(in.Ledger.Records, ObservationRecord{ID: "source:worker", Origin: AnswerEvidenceOriginCurrentSource, SourceRef: ObservationSourceRef{Kind: ObservationSourceCurrentSource, Path: "worker.go"}, Span: ObservationSpan{LineStart: 9}})
 		}},
 		{name: "ordinary source", wantSource: true, adjust: func(rm *RequestModel, in *RuntimeSourceAnswerAuthorityInput) {
@@ -84,8 +84,8 @@ func TestRequestedExplanationOperationNeedsRuntimeOptionalAuthority(t *testing.T
 			authority := BuildRuntimeSourceAnswerAuthoritySnapshot(in)
 			want := RequestedExplanationOperationNeeds(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints)
 			if !tc.wantSource {
-				if authority.CurrentSourceLane != CurrentSourceLaneAllowedOptional || authority.CurrentSourceRequired || authority.RuntimeObservationCount == 0 {
-					t.Fatalf("fixture must exercise source optionality, not exclusion: %+v", authority)
+				if authority.CurrentSourceLane == CurrentSourceLaneExcluded || authority.CurrentSourceRequirement == RuntimeSourceRequirementPrecise || authority.RuntimeObservationCount == 0 {
+					t.Fatalf("fixture must exercise unbound measurement applicability, not source exclusion: %+v", authority)
 				}
 				want = nil
 			}

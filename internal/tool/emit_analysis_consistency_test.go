@@ -108,6 +108,9 @@ func TestEmitAnalysisSchemaSeparatesRuntimeDimensionDecisionFromScopeConsequence
 	dimensions := parsed.Properties["requested_answer_dimensions"].(map[string]any)
 	dimensionItems := dimensions["properties"].(map[string]any)["dimensions"].(map[string]any)["items"].(map[string]any)
 	roleDescription := dimensionItems["properties"].(map[string]any)["role"].(map[string]any)["description"].(string)
+	if strings.Count(roleDescription, skill.AnalysisObservedDimensionTeaching) != 1 || strings.Contains(roleDescription, "observed_value for one scalar") {
+		t.Fatalf("role schema must share scalar/aggregate observation semantics: %q", roleDescription)
+	}
 	if strings.Count(roleDescription, skill.AnalysisRuntimeDimensionSchemaTeaching) != 1 || strings.Contains(roleDescription, skill.AnalysisRuntimeCausalAttributionTeaching) {
 		t.Fatalf("dimension-role schema must carry one compact role reminder, not duplicate the workflow: %q", roleDescription)
 	}

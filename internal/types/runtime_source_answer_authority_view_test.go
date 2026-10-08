@@ -784,10 +784,11 @@ func TestRuntimeSourceAuthorityRequestCarrierActiveUsesSharedAuthority(t *testin
 
 func runtimeSourceTraceRecord(id, producer string) ObservationRecord {
 	return ObservationRecord{
-		ID:       id,
-		Origin:   AnswerEvidenceOriginRuntimeArtifact,
-		Producer: producer,
-		Summary:  "trace_query observed a runtime span",
+		ID:             id,
+		Origin:         AnswerEvidenceOriginRuntimeArtifact,
+		Producer:       producer,
+		ClaimAuthority: ObservationClaimAuthorityDirectObservation,
+		Summary:        "trace_query observed a runtime span",
 		SourceRef: ObservationSourceRef{
 			Kind:         ObservationSourceRuntimeArtifact,
 			ArtifactID:   "attached_trace",

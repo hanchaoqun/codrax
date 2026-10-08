@@ -5,26 +5,29 @@ package types
 // existing typed carriers; it must not inspect user prose, model rationale, or
 // rendered answer text.
 type RuntimeSourceAnswerAuthoritySnapshot struct {
-	Active                         bool                                 `json:"active,omitempty"`
-	CurrentSourceLane              CurrentSourceLaneDecision            `json:"current_source_lane,omitempty"`
-	CurrentSourceRequirement       RuntimeSourceRequirementPrecision    `json:"current_source_requirement,omitempty"`
-	ExternalObservationSufficiency ExternalObservationSufficiencyStatus `json:"external_observation_sufficiency,omitempty"`
-	ExternalObservationScope       ExternalObservationSufficiencyScope  `json:"external_observation_scope,omitempty"`
-	RuntimeObservationCount        int                                  `json:"runtime_observation_count,omitempty"`
-	AddressableRuntimeCount        int                                  `json:"addressable_runtime_count,omitempty"`
-	DeterministicRuntimeQueryCount int                                  `json:"deterministic_runtime_query_count,omitempty"`
-	CurrentSourceRecordCount       int                                  `json:"current_source_record_count,omitempty"`
-	ExactCurrentSourceSupportCount int                                  `json:"exact_current_source_support_count,omitempty"`
-	CurrentSourceRequired          bool                                 `json:"current_source_required,omitempty"`
-	CurrentSourceSatisfied         bool                                 `json:"current_source_satisfied,omitempty"`
-	RuntimeOnlySufficient          bool                                 `json:"runtime_only_sufficient,omitempty"`
-	CanCompleteWithCombinedProof   bool                                 `json:"can_complete_with_combined_proof,omitempty"`
-	CanUseRuntimeOnlyWithCaveat    bool                                 `json:"can_use_runtime_only_with_caveat,omitempty"`
-	NeedsCurrentSourceEvidence     bool                                 `json:"needs_current_source_evidence,omitempty"`
-	CanHardBlockCompletion         bool                                 `json:"can_hard_block_completion,omitempty"`
-	CanDowngradeToCaveat           bool                                 `json:"can_downgrade_to_caveat,omitempty"`
-	RuntimeCitationPolicy          RuntimeGroundingCitationPolicy       `json:"runtime_citation_policy,omitempty"`
-	ReasonCodes                    []RuntimeSourceAuthorityReasonCode   `json:"reason_codes,omitempty"`
+	Active                                    bool                                 `json:"active,omitempty"`
+	CurrentSourceLane                         CurrentSourceLaneDecision            `json:"current_source_lane,omitempty"`
+	CurrentSourceRequirement                  RuntimeSourceRequirementPrecision    `json:"current_source_requirement,omitempty"`
+	ExternalObservationSufficiency            ExternalObservationSufficiencyStatus `json:"external_observation_sufficiency,omitempty"`
+	ExternalObservationScope                  ExternalObservationSufficiencyScope  `json:"external_observation_scope,omitempty"`
+	RuntimeObservationCount                   int                                  `json:"runtime_observation_count,omitempty"`
+	AddressableRuntimeCount                   int                                  `json:"addressable_runtime_count,omitempty"`
+	DeterministicRuntimeQueryCount            int                                  `json:"deterministic_runtime_query_count,omitempty"`
+	AddressableDeterministicRuntimeQueryCount int                                  `json:"addressable_deterministic_runtime_query_count,omitempty"`
+	ExternalObservationRequested              bool                                 `json:"external_observation_requested,omitempty"`
+	CurrentSourceExplanationRequested         bool                                 `json:"current_source_explanation_requested,omitempty"`
+	CurrentSourceRecordCount                  int                                  `json:"current_source_record_count,omitempty"`
+	ExactCurrentSourceSupportCount            int                                  `json:"exact_current_source_support_count,omitempty"`
+	CurrentSourceRequired                     bool                                 `json:"current_source_required,omitempty"`
+	CurrentSourceSatisfied                    bool                                 `json:"current_source_satisfied,omitempty"`
+	RuntimeOnlySufficient                     bool                                 `json:"runtime_only_sufficient,omitempty"`
+	CanCompleteWithCombinedProof              bool                                 `json:"can_complete_with_combined_proof,omitempty"`
+	CanUseRuntimeOnlyWithCaveat               bool                                 `json:"can_use_runtime_only_with_caveat,omitempty"`
+	NeedsCurrentSourceEvidence                bool                                 `json:"needs_current_source_evidence,omitempty"`
+	CanHardBlockCompletion                    bool                                 `json:"can_hard_block_completion,omitempty"`
+	CanDowngradeToCaveat                      bool                                 `json:"can_downgrade_to_caveat,omitempty"`
+	RuntimeCitationPolicy                     RuntimeGroundingCitationPolicy       `json:"runtime_citation_policy,omitempty"`
+	ReasonCodes                               []RuntimeSourceAuthorityReasonCode   `json:"reason_codes,omitempty"`
 }
 
 type RuntimeSourceRequirementPrecision string
@@ -143,6 +146,9 @@ func RuntimeSourceAuthorityRequestModelFromBusContext(ctx *BusContext) *RequestM
 func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityInput) RuntimeSourceAnswerAuthoritySnapshot {
 	out := RuntimeSourceAnswerAuthoritySnapshot{}
 	rm := in.RequestModel
+	out.ExternalObservationRequested = runtimeSourceRequestHasExternalObservationCarrier(rm, in.RouteHint)
+	out.CurrentSourceExplanationRequested = in.RouteHint.RequiredOutcomes.Has(TurnOutcomeSourceExplanation) ||
+		(rm != nil && rm.CurrentSourceExplanationProfile.Active())
 	suff := AssessExternalObservationSufficiency(in.Ledger.Records, rm, in.RouteHint)
 	out.ExternalObservationSufficiency = suff.Status
 	out.ExternalObservationScope = suff.Scope
@@ -171,6 +177,15 @@ func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityIn
 			}
 			if RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 				out.DeterministicRuntimeQueryCount++
+				// Producer, content and address must belong to the same record;
+				// separate anonymous query and addressable model rows cannot lend
+				// each other authority for explanation-domain applicability.
+				if record.ClaimAuthority == ObservationClaimAuthorityDirectObservation &&
+					(record.SourceRef.Path != "" || record.SourceRef.ArtifactID != "") &&
+					(record.SourceRef.PayloadRef != "" || ObservationRecordHasAddressableExternalObservation(record)) &&
+					observationRecordHasExternalObservationContent(record) {
+					out.AddressableDeterministicRuntimeQueryCount++
+				}
 			}
 		case runtimeSourceAuthorityCurrentSourceRecord(record):
 			out.CurrentSourceRecordCount++
@@ -213,6 +228,17 @@ func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityIn
 		(!out.CurrentSourceRequired || out.CurrentSourceSatisfied)
 	out.ReasonCodes = runtimeSourceAuthorityReasonCodes(out)
 	return out
+}
+
+// UnboundExplanationUsesExternalObservationDomain applies only to otherwise
+// unbound explanation-operation seats. Source already read is available proof,
+// not a new request obligation. This does not waive any completion/evidence
+// gate, and precise bindings and independent source explanations win first.
+func (s RuntimeSourceAnswerAuthoritySnapshot) UnboundExplanationUsesExternalObservationDomain() bool {
+	return s.Active && s.ExternalObservationRequested &&
+		s.AddressableDeterministicRuntimeQueryCount > 0 &&
+		!s.CurrentSourceExplanationRequested && !s.CanHardBlockCompletion &&
+		(s.CurrentSourceRequirement == RuntimeSourceRequirementNone || s.CurrentSourceRequirement == RuntimeSourceRequirementSoft)
 }
 
 // HasRuntimeCarrier reports whether the authority has answer-grade runtime or

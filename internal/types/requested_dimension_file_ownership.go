@@ -20,10 +20,10 @@ type RequestedExplanationOperationNeed struct {
 // describe runtime-only questions; they do not override a validated exclusion
 // of current source. Callers provide the existing agent/bus authority snapshot,
 // preserving its policy precedence instead of re-deriving source applicability.
-// Merely having an attached trace or an optional source lane does not waive
-// operation seats. A deterministic runtime-query observation can discharge
-// unscoped source-operation pressure only when the same authority says no
-// source lane is required or present. Roles, requiredness and bindings never change.
+// Merely having an attachment or optional source lane does not change seats.
+// Addressable deterministic runtime observations can resolve unbound external
+// explanation seats when source intent is only soft; unrelated source reads
+// cannot create an obligation. Roles, requiredness and bindings never change.
 func RequestedExplanationOperationNeedsForAuthority(rm *RequestModel, authority RuntimeSourceAnswerAuthoritySnapshot) []RequestedExplanationOperationNeed {
 	if rm == nil || authority.CurrentSourceLane == CurrentSourceLaneExcluded {
 		return nil
@@ -59,11 +59,7 @@ func RequestedExplanationOperationNeedsForAuthority(rm *RequestModel, authority 
 			return needs
 		}
 	}
-	if authority.CurrentSourceLane == CurrentSourceLaneAllowedOptional &&
-		authority.RuntimeObservationCount > 0 &&
-		authority.DeterministicRuntimeQueryCount > 0 &&
-		!authority.HasCurrentSourceCarrier() &&
-		authority.AllowsRuntimeEvidenceWithoutCurrentSource() {
+	if authority.UnboundExplanationUsesExternalObservationDomain() {
 		return nil
 	}
 	return needs

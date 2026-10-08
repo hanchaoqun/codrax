@@ -1949,7 +1949,7 @@ func renderEmitEvidenceExternalObservationSoftSkipSummary(ctx *types.BusContext,
 		}
 		if len(sourceNeeds) > 0 {
 			b.WriteString("The current-source citation-count floor is waived, but independently requested current-source operation evidence is still required. Keep these runtime observations in reason plus aggregate_facts; emit separate grounded operation rows with requested_dimension_indices for the required source dimensions before completion.\n")
-		} else if authority.CurrentSourceRequired {
+		} else if authority.CurrentSourceRequired && !authority.UnboundExplanationUsesExternalObservationDomain() {
 			b.WriteString("The current-source citation-count floor is waived; this does not erase the separately requested current-source lane. Keep runtime observations in reason plus aggregate_facts and use relevant grounded source evidence for the source question. If that source proof remains unavailable, preserve the boundary through the existing typed waiver/caveat rules instead of claiming the implementation is verified.\n")
 		} else {
 			b.WriteString("This turn's completion does not require current-source citations: once the runtime observations answer the question, call emit_investigation_complete directly with the conclusion in reason plus aggregate_facts.\n")

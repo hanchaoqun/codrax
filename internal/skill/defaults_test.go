@@ -1326,6 +1326,12 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 	if got := strings.Count(out, AnalysisRuntimeFactFamilyTeaching); got != 1 {
 		t.Fatalf("runtime fact-family ontology occurrences=%d, want one classification site", got)
 	}
+	if got := strings.Count(out, AnalysisObservedDimensionTeaching); got != 1 {
+		t.Fatalf("observed dimension teaching occurrences=%d, want one scalar/aggregate contract", got)
+	}
+	if strings.Contains(out, "function_or_purpose` for a requested explanation") {
+		t.Fatal("generic explanation teaching would misclassify measured distributions as implementation purpose")
+	}
 	for _, want := range []string{
 		"Choose the most specific semantic fact family before a generic unit family",
 		"`count_or_duration` is only the generic count/duration family when no named family above owns that measurement",
