@@ -892,7 +892,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// field exactly once in its guaranteed-visible accounting header; second
 	// coordinates use fixed-point rendering and the reflective detail copy is
 	// suppressed. Non-event results keep the nil field invisible.
-	reflect.TypeOf(tracequery.Result{}): "7657fe758057bf0d00ab1a2f0567b524131ca770311ca6d64275543428b444c7",
+	reflect.TypeOf(tracequery.Result{}): "4e71f90506825b960cdc6b9316048169663b995a59d234cd73e20917ae9cbc93",
 	// 修复轮二 件A (2026-07-13) schema review: WindowStats gained the
 	// per-lane cap-overflow disclosure quartet
 	// (DStateTopOverflowGroups/-Ms, IOWaitTopOverflowGroups/-Ms — scalar

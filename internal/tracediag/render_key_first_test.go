@@ -228,6 +228,7 @@ func TestNonEventPrioritySchemaPins(t *testing.T) {
 
 func TestProcessProfileResultSchemaAddsOnlyOptionalProfile(t *testing.T) {
 	_, schema := detailSchemaFingerprint(reflect.TypeOf(tracequery.Result{}))
+	schema = resultSchemaBeforeCPUStateFrequency(t, schema)
 	const added = "ProcessProfile|*tracequery.ProcessProfile|process_profile,omitempty"
 	var previous []string
 	count := 0
