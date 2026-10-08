@@ -1,5 +1,24 @@
 package tool
 
+// EVOLUTION RECORD 2026-10-08 (HMC §207, request-window defaults): append
+// exactly the shared traceQueryRequestWindowTeaching contract at the terminal
+// Description slot. It describes the common parameter default implemented for
+// registered views: inherit one validated request window only for the same
+// admitted capture when no time/line/business-instance scope was supplied.
+// Explicit single or paired endpoints, line scopes, business references,
+// multiple request windows and existing unscoped defaults remain unchanged.
+// This teaches an existing parameter's deterministic default, not a new note
+// key, view, causal permission or mid-Description dispatch instruction. Every
+// preceding Description byte is preserved; the independently literal suffix
+// reverse-projection retains the complete historical SQLite/event-name and
+// state-accounting SHA pins. Public preparation-to-query and actual finalizer
+// tests cover the natural omitted-bound call (three events/eight source frames)
+// and source/scope negative controls. This batch's fixed two live evaluations
+// predate the defaulting change: they are not matched h2/h3 dispatch A/B and
+// cannot close that open debt. No extra live run is added by this golden repair.
+// Regenerate only with the canonical UPDATE RITUAL below; full byte comparison
+// stays intact after regeneration.
+
 // EVOLUTION RECORD 2026-09-24 (HMC §183, state accounting): replace only
 // the existing shared TraceStateDrilldownWindowGuidance paragraph. Its existing
 // cumulative-measurement contract now distinguishes observed boundaries, open
