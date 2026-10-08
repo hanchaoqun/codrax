@@ -187,7 +187,7 @@ func traceCatalogPage(s tracecatalog.Snapshot, ref string, offset int) (string, 
 	}
 	page := map[string]any{"catalog_id": s.ID, "root": s.Root, "navigation_only": true, "discovery": s.Discovery,
 		"candidate_count": len(s.Artifacts), "planned_query_count": len(s.Queries), "offset": offset, "total_records": total, "records": records, "saved_index": ref,
-		"guidance": "Candidates are not yet admitted captures. Query each selected path with trace_query. Query records preserve source/object/window separately; unexecuted, failed and empty are different. Do not combine capture clocks or infer causes from this index."}
+		"guidance": "Candidates are not yet admitted captures. Query each selected path with trace_query. Window numbers are argument bounds, not an inferred endpoint-inclusion contract; use actual query evidence for boundaries. Query records preserve source/object/window separately; unexecuted, failed and empty are different. Do not combine capture clocks or infer causes from this index."}
 	if offset+len(records) < total {
 		page["next_call"] = map[string]any{"action": "status", "catalog_id": s.ID, "offset": offset + len(records)}
 	}

@@ -32,6 +32,7 @@ func (t *TraceQuery) streamResourceStack(ctx *types.BusContext, p traceQueryPara
 	now := time.Now()
 	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now,
 		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
+		EnumerationAuthority:   traceQueryResourceStackIncompleteEnumeration(result),
 		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
 		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q)}, true
 }

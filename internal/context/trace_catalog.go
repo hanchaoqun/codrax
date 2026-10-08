@@ -18,7 +18,7 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 	for _, c := range ac.Mutable.TraceCatalogs() {
 		s := c.Snapshot()
 		if b.Len() == 0 {
-			b.WriteString("Capture/object query directory — navigation and last recorded execution status only. Revalidate sources before reuse. It does not prove measurements, capture completeness, cross-capture clock alignment or causality. Use the actual query evidence for findings; do not count failed, stale or unexecuted work as zero.\n")
+			b.WriteString("Capture/object query directory — navigation and last recorded execution status only. Window numbers are argument bounds; endpoint inclusion is unknown unless explicitly recorded, so use the actual query's boundary contract. Revalidate sources before reuse. It does not prove measurements, capture completeness, cross-capture clock alignment or causality. Use the actual query evidence for findings; do not count failed, stale or unexecuted work as zero.\n")
 		}
 		counts := map[string]int{}
 		for _, q := range s.Queries {

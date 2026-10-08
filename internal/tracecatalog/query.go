@@ -95,8 +95,12 @@ func normalizePlan(p Plan) (Plan, error) {
 	}
 	if p.Window != nil {
 		w := *p.Window
-		if w.EndNS < w.StartNS || (w.EndNS == w.StartNS && !w.EndInclusive) {
+		if w.EndNS < w.StartNS || (w.EndNS == w.StartNS && (w.EndInclusive == nil || !*w.EndInclusive)) {
 			return Plan{}, fmt.Errorf("query window is reversed or empty")
+		}
+		if w.EndInclusive != nil {
+			value := *w.EndInclusive
+			w.EndInclusive = &value
 		}
 		p.Window = &w
 	}

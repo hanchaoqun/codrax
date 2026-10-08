@@ -48,6 +48,44 @@ func bind(t *testing.T, c *Catalog, a Artifact) {
 	}
 }
 
+func TestWindowBoundaryUnknownExclusiveInclusiveStayDistinctAndDetached(t *testing.T) {
+	root := t.TempDir()
+	putFile(t, filepath.Join(root, "capture"), "trace")
+	c := discover(t, root)
+	a := c.Snapshot().Artifacts[0]
+	unknown := plan(t, c, a.ID, "101", &Window{StartNS: 0, EndNS: 50})
+	exclusive, inclusive := false, true
+	excluded := plan(t, c, a.ID, "101", &Window{StartNS: 0, EndNS: 50, EndInclusive: &exclusive})
+	included := plan(t, c, a.ID, "101", &Window{StartNS: 0, EndNS: 50, EndInclusive: &inclusive})
+	if unknown.ID == excluded.ID || unknown.ID == included.ID || excluded.ID == included.ID {
+		t.Fatal("unknown, exclusive and inclusive endpoint contracts collapsed")
+	}
+	for _, row := range []QueryRecord{unknown, excluded, included} {
+		data, err := json.Marshal(row)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded QueryRecord
+		if err := json.Unmarshal(data, &decoded); err != nil || !reflect.DeepEqual(decoded.Window, row.Window) {
+			t.Fatalf("boundary contract did not survive JSON: %s, %v", data, err)
+		}
+	}
+	exclusive, inclusive = true, false
+	*excluded.Window.EndInclusive = true
+	*included.Window.EndInclusive = false
+	for id, want := range map[string]bool{excluded.ID: false, included.ID: true} {
+		row, _ := c.Query(id)
+		if row.Window.EndInclusive == nil || *row.Window.EndInclusive != want {
+			t.Fatal("caller mutated stored endpoint contract")
+		}
+		*row.Window.EndInclusive = !want
+		next, _ := c.Clone().Query(id)
+		if next.Window.EndInclusive == nil || *next.Window.EndInclusive != want {
+			t.Fatal("query or clone shared endpoint pointer")
+		}
+	}
+}
+
 func finish(t *testing.T, c *Catalog, q QueryRecord, outcome Outcome) QueryRecord {
 	t.Helper()
 	completion := Completion{Outcome: outcome}
@@ -192,7 +230,8 @@ func TestPerObjectPlansOutcomesReorderedAndFailedRetryHistory(t *testing.T) {
 	if empty, _ := c.Query(q3.ID); empty.Outcome != OutcomeEmpty || empty.ArtifactID != artifacts[1].ID {
 		t.Fatalf("empty outcome/order association lost: %+v", empty)
 	}
-	qChangedWindow := plan(t, c, artifacts[0].ID, "101", &Window{StartNS: 0, EndNS: 50_000_000, EndInclusive: true})
+	inclusive := true
+	qChangedWindow := plan(t, c, artifacts[0].ID, "101", &Window{StartNS: 0, EndNS: 50_000_000, EndInclusive: &inclusive})
 	qUnbounded := plan(t, c, artifacts[0].ID, "101", nil)
 	if qChangedWindow.ID == q0.ID || qUnbounded.ID == q0.ID {
 		t.Fatal("exact window/unknown window collapsed")

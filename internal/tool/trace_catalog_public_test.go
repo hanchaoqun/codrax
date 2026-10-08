@@ -82,6 +82,9 @@ func TestTraceCatalogPublicSameNamesObjectsStatusesAndPersistence(t *testing.T) 
 			if q.Window == nil || q.Window.StartNS != 10_000_000_000 || q.Window.EndNS != 10_050_000_000 {
 				t.Fatalf("window loss: %+v", q)
 			}
+			if q.Window.EndInclusive != nil {
+				t.Fatal("argument bounds guessed native endpoint inclusion")
+			}
 		}
 	}
 	if counts[tracecatalog.OutcomeSuccess] != 1 || counts[tracecatalog.OutcomeEmpty] != 1 || counts[tracecatalog.OutcomeFailure] != 1 || counts[tracecatalog.OutcomeNotExecuted] != 3 {
@@ -95,10 +98,10 @@ func TestTraceCatalogPublicSameNamesObjectsStatusesAndPersistence(t *testing.T) 
 	if err != nil || len(historical.Queries) != 6 || !historical.NavigationOnly {
 		t.Fatalf("saved catalog: %v %+v", err, historical)
 	}
-	other := *bus
+	other := bus.ShallowClone()
 	other.Mutable = types.NewMutableState("another run")
 	raw, _ := json.Marshal(map[string]any{"action": "status", "catalog_id": c.ID()})
-	if out, _ := (&TraceCatalog{}).Execute(&other, raw); out.Success {
+	if out, _ := (&TraceCatalog{}).Execute(other, raw); out.Success {
 		t.Fatal("historical ID restored live authority")
 	}
 	if len(other.Mutable.TraceQueryBlobRefs()) != 0 {
@@ -163,6 +166,24 @@ func TestTraceCatalogPublicCancellationDoesNotRecordSuccess(t *testing.T) {
 		}
 	}
 	t.Fatal("canceled query vanished")
+}
+
+func TestTraceCatalogArgumentBoundsDoNotInventViewBoundaryContract(t *testing.T) {
+	for _, view := range []string{"event_search", "resource_stack", "window_stats"} {
+		raw, _ := json.Marshal(map[string]any{"view": view, "time_start": 10, "time_end": 10.05})
+		var p traceQueryParams
+		if err := json.Unmarshal(raw, &p); err != nil {
+			t.Fatal(err)
+		}
+		plan, err := traceCatalogQueryPlan(p, raw, "artifact")
+		if err != nil || plan.Window == nil || plan.Window.EndInclusive != nil {
+			t.Fatalf("%s guessed boundary: %+v %v", view, plan, err)
+		}
+		encoded, _ := json.Marshal(plan.Window)
+		if strings.Contains(string(encoded), "end_inclusive") {
+			t.Fatal("unknown became false on JSON wire")
+		}
+	}
 }
 
 func TestTraceCatalogPublicAuthorizationAndSaveFailure(t *testing.T) {

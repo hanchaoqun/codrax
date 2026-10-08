@@ -84,12 +84,13 @@ type Object struct {
 	Scope string `json:"scope,omitempty"`
 }
 
-// Window is exact and explicit. Nil means no explicit query window; zero is a
-// valid bound, and a point requires EndInclusive. There is no clock conversion.
+// Window retains exact argument bounds. A nil EndInclusive means the
+// navigation caller has no producer-owned endpoint-inclusion contract; it
+// must not infer a half-open interval. Zero is valid, with no clock conversion.
 type Window struct {
 	StartNS      int64 `json:"start_ns"`
 	EndNS        int64 `json:"end_ns"`
-	EndInclusive bool  `json:"end_inclusive,omitempty"`
+	EndInclusive *bool `json:"end_inclusive,omitempty"`
 }
 
 // Plan records the actual tool parameters as canonical JSON solely for
@@ -203,6 +204,10 @@ func cloneQuery(q QueryRecord) QueryRecord {
 	q.Parameters = append(json.RawMessage(nil), q.Parameters...)
 	if q.Window != nil {
 		w := *q.Window
+		if w.EndInclusive != nil {
+			value := *w.EndInclusive
+			w.EndInclusive = &value
+		}
 		q.Window = &w
 	}
 	q.Attempts = append([]Attempt(nil), q.Attempts...)

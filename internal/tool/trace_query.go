@@ -1119,12 +1119,13 @@ func traceQueryFrequencyEvidenceAuthority(result tracequery.Result) (int, int, [
 
 func traceQueryEnumerationAuthority(result tracequery.Result) *types.ToolEnumerationAuthority {
 	authority := &types.ToolEnumerationAuthority{Status: "complete"}
-	if len(result.Compactions) == 0 {
+	compactions := traceQueryResultEnumerationCompactions(result)
+	if len(compactions) == 0 {
 		return authority
 	}
 	authority.Status = "incomplete"
 	seen := map[types.ToolEnumerationBoundary]bool{}
-	for _, compaction := range result.Compactions {
+	for _, compaction := range compactions {
 		boundary := types.ToolEnumerationBoundary{
 			Scope:      strings.TrimSpace(compaction.View),
 			Dimension:  strings.TrimSpace(compaction.Dimension),
