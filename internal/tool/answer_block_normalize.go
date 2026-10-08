@@ -105,7 +105,7 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		SourceInventoryFamily: types.SourceInventorySurfaceTermKey(
 			raw.SourceInventoryFamily,
 		),
-		Columns:               normalizeTableStringSlice(raw.Columns),
+		Columns:               normalizeTableCellStringSlice(raw.Columns),
 		ClaimUses:             raw.ClaimUses,
 		EdgeAnchors:           raw.EdgeAnchors,
 		ParticipantBoundaries: types.CloneDiagramParticipantBoundaries(raw.ParticipantBoundaries),
@@ -255,9 +255,6 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 			blk.Items = append(blk.Items, item)
 		}
 	}
-	if err := validateEmitAnswerStructuredTableRows(blk, fieldPath); err != nil {
-		return types.AnswerBlock{}, err
-	}
 	if raw.Diagram != nil {
 		if blk.Kind != types.BlockDiagram {
 			// A non-empty typed diagram sibling is a precise schema signal:
@@ -281,8 +278,16 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 	} else if blk.Kind == types.BlockDiagram {
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
+	if err := validateEmitAnswerStructuredTableRows(blk, fieldPath); err != nil {
+		// The complete projection is safe only as an unpublished correction
+		// base. Callers must still reject; the typed error identifies this
+		// lossless shape-only failure separately from invalid typed metadata.
+		return blk, answerStructuredTableShapeError{err}
+	}
 	return blk, nil
 }
+
+type answerStructuredTableShapeError struct{ error }
 
 func emitAnswerBlockHasUnambiguousDiagramDiscriminator(raw emitAnswerBlockV2) bool {
 	if raw.Diagram == nil || emitAnswerDiagramV2IsZero(raw.Diagram) || strings.TrimSpace(raw.Diagram.Body) == "" {
@@ -328,6 +333,23 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 	if types.AnswerTextLooksLikeMarkdownTable(block.Text) {
 		return nil
 	}
+	// cells[] is positional data, so its column names cannot be guessed from
+	// the title or values. Preserve blank header positions through projection
+	// and reject them here instead of silently creating generic Column N names.
+	for _, item := range block.Items {
+		if len(item.Cells) == 0 {
+			continue
+		}
+		if len(block.Columns) == 0 {
+			return fmt.Errorf("%s.columns: non-empty column headers are required for structured cells[] rows. Add the model-authored headers for this table, retaining its existing items and every unrelated block; do not guess missing values or rewrite valid rows", fieldPath)
+		}
+		for index, header := range block.Columns {
+			if strings.TrimSpace(header) == "" {
+				return fmt.Errorf("%s.columns[%d]: column header must be non-empty. Name this existing column without changing cell positions or unrelated rows/blocks", fieldPath, index)
+			}
+		}
+		break
+	}
 	visibleRows := 0
 	rowConvention := ""
 	for idx, item := range block.Items {
@@ -342,10 +364,13 @@ func validateEmitAnswerStructuredTableRows(block types.AnswerBlock, fieldPath st
 		if text := strings.TrimSpace(item.Text); text != "" && !tableRowCellsContain(cells, text) {
 			cells = append(cells, text)
 		}
-		if !labelPresent && !textPresent && !tableCellStringSliceHasVisibleValue(cells) {
+		rowVisible := labelPresent || textPresent || tableCellStringSliceHasVisibleValue(cells)
+		if !rowVisible && len(rawCells) == 0 {
 			continue
 		}
-		visibleRows++
+		if rowVisible {
+			visibleRows++
+		}
 		if len(block.Columns) == 0 {
 			continue
 		}

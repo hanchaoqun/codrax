@@ -2817,6 +2817,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// successful emit). Fall back to
 	// RetryState.PrevEmitJSON (snapshot taken at retry-decision
 	// time) when AnswerDocumentV2 has been cleared by ResetForFallback.
+	revalidateRejectedTables := false
 	prev := ctx.Mutable.PendingAnswerDocumentPatchBase()
 	if prev == nil {
 		prev = ctx.Mutable.AnswerDocumentV2()
@@ -2827,6 +2828,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	if prev == nil {
 		prev = recoverPrevFromRejectedDraft(ctx.Mutable)
 		if prev != nil {
+			revalidateRejectedTables = true
 			logging.Warning("[emit_answer_document_patch] using previous rejected answer draft as patch base; merged document will be fully revalidated")
 		}
 	}
@@ -3195,6 +3197,20 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// merged-doc invariants (id uniqueness / diagram payload /
 	// max blocks) live in ApplyAndPersistMutation.
 	merged, mutation, applyErr := buildAnswerDocumentPatchBase(prev, patch)
+	if applyErr == nil && merged != nil && revalidateRejectedTables {
+		// A shape-rejected full draft is addressable, not accepted. Inherited
+		// bad rows must not bypass the same table contract via unchanged ids.
+		// This does not retroactively reject tables in accepted old documents.
+		var tableViolations []string
+		for _, block := range merged.Blocks {
+			if err := validateEmitAnswerStructuredTableRows(block, fmt.Sprintf("blocks[id=%q]", block.ID)); err != nil {
+				tableViolations = append(tableViolations, err.Error())
+			}
+		}
+		if len(tableViolations) > 0 {
+			return failEmit(t.Name(), now, "%s", emitBlockViolationsMessage(tableViolations))
+		}
+	}
 	// The selector was already resolved right after the strict decode
 	// (§40.44 G-emit-faces fold-in #1) and is committed on every exit by the
 	// deferred commitTraceRootCauseSelection.

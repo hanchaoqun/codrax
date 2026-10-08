@@ -370,11 +370,15 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// (the patch twin does the same for replace/add); a single error keeps
 	// its historical text byte-identical.
 	var blockViolations []string
+	completeRejectedProjection := true
 	for _, entry := range splitFusedDiagramBlockEntries(toolName, blockEntries) {
 		blk, err := NormalizeEmitAnswerBlock(entry.raw, fmt.Sprintf("blocks[%d]", entry.modelIndex))
 		if err != nil {
 			blockViolations = append(blockViolations, err.Error())
-			continue
+			if _, shapeOnly := err.(answerStructuredTableShapeError); !shapeOnly {
+				completeRejectedProjection = false
+				continue
+			}
 		}
 		doc.Blocks = append(doc.Blocks, blk)
 		if entry.companionLineage != nil {
@@ -382,6 +386,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 	}
 	if len(blockViolations) > 0 {
+		if completeRejectedProjection && !answerDocumentRecoveryLostUnattachedBlocks(recovery) && types.ValidateAnswerDocumentPatchBaseIdentity(doc) == nil {
+			rememberRejectedAnswerDocumentDraft(ctx, doc)
+		}
 		persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
 		return failEmit(toolName, now, "%s", emitBlockViolationsMessage(blockViolations))
 	}

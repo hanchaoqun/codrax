@@ -7,6 +7,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+const answerStructuredTableHeaderTeaching = "For every structured cells row, supply non-empty column headers naming its values and units where relevant. Keep the same width and column order across all rows, including intentionally blank cells; never omit or leave a header blank."
+
 // answer_document_block_schema.go — B4 v3 (2026-05-04). Single-source-
 // of-truth helpers for the answer-document tool surfaces shared by
 // emit_answer_document (full) and emit_answer_document_patch
@@ -58,7 +60,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"ordered_list / bullet_list (items[] each with id, optional label, text, optional top-level citation_ref or citation_refs), " +
 		"scalar (block.text carries the literal; optional one-element items=[{citation_ref:N}] anchors the cite), " +
 		"decision (block.text carries verdict + rationale; same one-element items pattern for the cite), " +
-		"table (when runtime_measurement is published, that selector alone may own a trusted measured table; otherwise use a complete markdown table inside text, OR preferably structured rows with columns[] + items[].cells[] where label/text are omitted and each row has exactly one cell per column. Legacy label-first rows remain accepted only when label deliberately owns the first visible column and cells[]/text supply every remaining column; columns[] may omit only that synthetic label header. Use label/text without columns only for the legacy two-column fallback), " +
+		"table (when runtime_measurement is published, that selector alone may own a trusted measured table; otherwise use a complete markdown table inside text, OR preferably structured rows with columns[] + items[].cells[] where label/text are omitted and each row has exactly one cell per column. " + answerStructuredTableHeaderTeaching + " Legacy label-first rows remain accepted only when label deliberately owns the first visible column and cells[]/text supply every remaining column; columns[] may omit only that synthetic label header. Use label/text without columns only for the legacy two-column fallback), " +
 		"diagram (kind=diagram plus diagram{kind, language, body}), caveat (text only). Never attach a payload owned by an omitted kind to another block kind. " +
 		"\n\n" +
 		"Each block has an `id` (any non-empty string the LLM picks; load-bearing — your retry hints reference it back to you) and `kind` " +
