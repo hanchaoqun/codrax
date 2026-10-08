@@ -2749,6 +2749,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	cpuByCPU := map[int][]Event{}
 	byCPU := map[int][]Event{}
 	freqByCPU := map[int][]Event{}
+	nativeFrequency := nativeCPUFrequencyForWindow(idx, q)
 	// CFC (§7.10 VS-2c 设计): governed limits timeline for the cluster-ceiling
 	// snapshot — head-governing caliber needs pre-window rows, so this is
 	// collected beside freqByCPU (upper bound only), NOT inside the strict
@@ -2800,7 +2801,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		// (perCPUFrequencyTransitionValues,
 		// cluster_ceilings.go), closing the window-face pollution lane
 		// (fabricated cpu0 residency / flipped topology / false low_frequency).
-		if cpu, _, ok := perCPUFrequencyTransitionValues(ev); ok && eventLineInWindow(ev, q) {
+		if cpu, _, ok := perCPUFrequencyTransitionValues(ev); nativeFrequency == nil && ok && eventLineInWindow(ev, q) {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
 				if !frequencyIntegrity.frequencyUnsafe(cpu) {
 					freqByCPU[cpu] = append(freqByCPU[cpu], ev)
@@ -3078,6 +3079,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		// own-sample guard then refuses to alias a healthy sibling into it.
 		func(cpu int) bool { return frequencyIntegrity.frequencyUnsafe(cpu) || len(freqByCPU[cpu]) > 0 })
 	freqTimelineFor := func(cpu int) []Event {
+		if nativeFrequency != nil {
+			return nil // Explicit intervals are not continuous controls or cluster donors.
+		}
 		if frequencyIntegrity.frequencyUnsafe(cpu) {
 			return nil
 		}
@@ -3144,6 +3148,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			} else {
 				freq := frequencyAt(cpuFreqTimeline, start)
 				fs := segmentFrequencyStats(cpuFreqTimeline, start, end)
+				if nativeFrequency != nil {
+					freq, fs = nativeFrequency.at(cpu, start), nativeFrequency.segment(cpu, start, end)
+				}
 				// Compute-supply is a CPU-lane interval account, like
 				// busy/idle. Keep it independent of task identity; only the
 				// PID-keyed running/pressure ledgers below consult the
@@ -3168,6 +3175,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					td.Thread = candidateThread
 				}
 				td.DurationMs += dur
+				td.freqExplicitIntervals = nativeFrequency != nil && fs.known && (td.DurationMs == dur || td.freqExplicitIntervals)
 				td.CPU = cpu
 				if freq > 0 {
 					td.Frequency = freq
@@ -3240,6 +3248,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.targetCPUFrequencyCensus = newTargetCPURepresentativeFrequencyCensus(idx, q)
 	for key, td := range running {
 		td.MeasurementDomain = runningMeasurements[key].finish()
+		if nativeFrequency != nil && !td.freqExplicitIntervals {
+			// A partially observed native bucket has no whole-bucket frequency
+			// average. Its exact start-frequency context may still be retained.
+			td.freqWeightKHzMs, td.freqKnownMs, td.freqObservedMaxKHz, td.freqInSegmentSamples = 0, 0, 0, 0
+		}
 		running[key] = td
 		stats.TopRunning = append(stats.TopRunning, td)
 		if census := stats.targetCPUFrequencyCensus; census != nil && td.Thread.PID > 0 && td.CPU >= 0 && td.Frequency > 0 {
@@ -3271,6 +3284,10 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		frequencyOnlyBusyIdleReason = schedulerFailure.code
 	}
 	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q, frequencyOnlyBusyIdleReason)
+	if nativeFrequency != nil {
+		stats.CPU = nativeFrequency.applyResidency(stats.CPU, q, frequencyOnlyBusyIdleReason)
+		stats.Caveats = append(stats.Caveats, "native_cpu_frequency_intervals=true; frequency residency and running-segment context use explicit same-CPU measured intervals only; gaps remain unknown, no cluster donation or ftrace transition is synthesized")
+	}
 	coreByCPU, topologySource := resolveCoreTopology(idx, q.CoreTopology)
 	applyCPUCoreClasses(stats.CPU, coreByCPU)
 	// CFC P1 (§7.10 VS-2c 设计): single-point cluster frequency ceilings for
@@ -3433,7 +3450,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if q.runCancel.sample() {
 		return stats
 	}
-	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU, observedFmaxByCPU, freqDonors.donorFor, freqDonors.sourceToken())
+	if nativeFrequency != nil && nativeFrequency.supplyUnavailableReason(supplyByCPU, observedFmaxByCPU) != "" {
+		stats.Caveats = append(stats.Caveats, "compute_supply_balance_unavailable="+nativeFrequency.supplyUnavailableReason(supplyByCPU, observedFmaxByCPU)+"; missing native frequency coverage is not measured full-speed compute or zero low-frequency loss")
+	} else {
+		stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU, observedFmaxByCPU, freqDonors.donorFor, freqDonors.sourceToken())
+	}
 	// SUPP-HYG P3-C: boundary sampling point after the supply-balance
 	// sub-pass (its idle-mismatch scans are tick-instrumented; a fire inside
 	// them — or a deadline expiring in the cheap passes around them — returns
@@ -8022,7 +8043,7 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 		overlap := runnableDisplacementOverlap(p, td.Thread, 8)
 		verdict, conf := computeSupplyVerdict(td.DurationMs, weighted, td.freqObservedMaxKHz, overlap.highPriorityMs, cpu)
 		frequencySample := ""
-		if weighted > 0 && td.freqInSegmentSamples == 0 {
+		if weighted > 0 && td.freqInSegmentSamples == 0 && !td.freqExplicitIntervals {
 			frequencySample = FrequencySampleNearestFallback
 		}
 		summary := fmt.Sprintf("%s %s for %.3fms on cpu=%d", threadLabel(td.Thread), state, td.DurationMs, td.CPU)
@@ -9404,6 +9425,7 @@ func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chai
 			acc.td.freqKnownMs = 0
 			acc.td.freqObservedMaxKHz = 0
 			acc.td.freqInSegmentSamples = 0
+			acc.td.freqExplicitIntervals = false
 			acc.td.StartTs = member.StartTs
 			acc.td.EndTs = member.EndTs
 			acc.td.LineStart = member.LineStart
@@ -9454,6 +9476,7 @@ func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chai
 		acc.td.freqKnownMs += member.freqKnownMs
 		acc.td.freqObservedMaxKHz = max(acc.td.freqObservedMaxKHz, member.freqObservedMaxKHz)
 		acc.td.freqInSegmentSamples += member.freqInSegmentSamples
+		acc.td.freqExplicitIntervals = member.freqExplicitIntervals && (acc.td.DurationMs == member.DurationMs || acc.td.freqExplicitIntervals)
 		if member.StartTs < acc.td.StartTs {
 			acc.td.StartTs = member.StartTs
 		}
@@ -9483,6 +9506,7 @@ func aggregateChainRunnableCensusByThread(census map[string]ThreadDuration, chai
 			acc.td.freqKnownMs = 0
 			acc.td.freqObservedMaxKHz = 0
 			acc.td.freqInSegmentSamples = 0
+			acc.td.freqExplicitIntervals = false
 		}
 		aggregated[key] = acc.td
 	}
@@ -9775,7 +9799,7 @@ func eventCPUForStats(ev Event) int {
 	if ev.CPUForFieldValid && validTraceCPUIndex(ev.CPUForField) {
 		return ev.CPUForField
 	}
-	if ev.Type == EventCPUIdle || ev.Type == EventCPUFrequency ||
+	if ev.Type == EventCPUIdle || ev.Type == EventCPUFrequency || ev.Type == EventCPUMeasureInterval ||
 		ev.Type == EventCPUFrequencyLimit || ev.Type == EventClockSetRate {
 		// CPU state/control rows are CPU-global: the payload identifies the
 		// controlled CPU while the header identifies the emitter. No producer,

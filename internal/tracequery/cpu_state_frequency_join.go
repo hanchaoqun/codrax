@@ -71,32 +71,42 @@ func buildCPUStateFrequencyCPU(cpu int, lane *cpuStateFrequencyLane, q Query) CP
 			interval.FrequencyLine = freqs[freqPos].LineStart
 		}
 		interval.CPUStateFrequencyValue = v
-		if v.StateKnown {
-			row.IdleKnownMs += interval.DurationMs
-		}
-		if v.FrequencyKnown {
-			row.FrequencyKnownMs += interval.DurationMs
-		}
-		if v.StateKnown && v.FrequencyKnown {
-			row.JointKnownMs += interval.DurationMs
-		} else {
-			row.UnknownJointMs += interval.DurationMs
-		}
-		key := cpuStateFrequencyValueKey(v)
-		g, exists := groups[key]
-		if !exists {
-			g = len(row.Groups)
-			groups[key] = g
-			row.Groups = append(row.Groups, CPUStateFrequencyGroup{CPUStateFrequencyValue: v})
-		}
-		row.Groups[g].DurationMs += interval.DurationMs
-		row.TotalIntervals++
-		if len(row.Intervals) < cpuStateFrequencyIntervalLimit {
-			row.Intervals = append(row.Intervals, interval)
-		} else {
-			row.OmittedIntervals++
-		}
+		appendCPUStateFrequencyInterval(&row, groups, interval)
 	}
+	finishCPUStateFrequencyGroups(&row)
+	return row
+}
+
+func appendCPUStateFrequencyInterval(row *CPUStateFrequencyCPU, groups map[cpuStateFrequencyKey]int, interval CPUStateFrequencyInterval) {
+	v := interval.CPUStateFrequencyValue
+	if v.StateKnown {
+		row.IdleKnownMs += interval.DurationMs
+	}
+	if v.FrequencyKnown {
+		row.FrequencyKnownMs += interval.DurationMs
+	}
+	if v.StateKnown && v.FrequencyKnown {
+		row.JointKnownMs += interval.DurationMs
+	} else {
+		row.UnknownJointMs += interval.DurationMs
+	}
+	key := cpuStateFrequencyValueKey(v)
+	g, exists := groups[key]
+	if !exists {
+		g = len(row.Groups)
+		groups[key] = g
+		row.Groups = append(row.Groups, CPUStateFrequencyGroup{CPUStateFrequencyValue: v})
+	}
+	row.Groups[g].DurationMs += interval.DurationMs
+	row.TotalIntervals++
+	if len(row.Intervals) < cpuStateFrequencyIntervalLimit {
+		row.Intervals = append(row.Intervals, interval)
+	} else {
+		row.OmittedIntervals++
+	}
+}
+
+func finishCPUStateFrequencyGroups(row *CPUStateFrequencyCPU) {
 	for i := range row.Groups {
 		row.Groups[i].WindowPct = row.Groups[i].DurationMs / row.WindowWallMs * 100
 	}
@@ -107,17 +117,17 @@ func buildCPUStateFrequencyCPU(cpu int, lane *cpuStateFrequencyLane, q Query) CP
 		row.OmittedGroups = row.GroupCount - cpuStateFrequencyGroupLimit
 		row.Groups = row.Groups[:cpuStateFrequencyGroupLimit]
 	}
-	return row
 }
 
 type cpuStateFrequencyKey struct {
-	state string
-	idle  uint32
-	freq  int64
+	state    string
+	encoding string
+	idle     uint32
+	freq     int64
 }
 
 func cpuStateFrequencyValueKey(v CPUStateFrequencyValue) cpuStateFrequencyKey {
-	k := cpuStateFrequencyKey{state: v.State}
+	k := cpuStateFrequencyKey{state: v.State, encoding: v.StateEncoding}
 	if v.IdleState != nil {
 		k.idle = *v.IdleState
 	}

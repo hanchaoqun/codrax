@@ -1,0 +1,8 @@
+ID="trace_cpu_native_intervals"
+NAME="Native CPU intervals — preserved durations, residency and coverage"
+QUESTION="看看这份采集在前40毫秒里，各个CPU的状态和频率是怎么搭配变化的。请给出每核各组合持续多久、占比多少，以及整体分布和数据覆盖情况。"
+HTRACE_FILE="eval/fixtures/hmosperf_cpu_native_intervals/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="sqlite3"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query.*cpu_state_frequency"

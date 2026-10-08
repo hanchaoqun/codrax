@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v52"
+const ParserVersion = "tracequery-v53"
 
 type EventType string
 
@@ -31,6 +31,7 @@ const (
 	EventRSSStat            EventType = "rss_stat"
 	EventPhaseTaskDelta     EventType = "phase_task_delta"
 	EventCPUIdle            EventType = "cpu_idle"
+	EventCPUMeasureInterval EventType = "cpu_measure_interval"
 	EventCPUFrequency       EventType = "cpu_frequency"
 	EventCPUFrequencyLimit  EventType = "cpu_frequency_limits"
 	EventCPUConstraint      EventType = "cpu_constraint"
@@ -776,6 +777,9 @@ type Index struct {
 	// and none carry scheduler/span/causal authority until a semantic adapter
 	// promotes the corresponding official SQL relation.
 	TraceDBTextCarrierRows int
+	// CPUIntervalMalformed counts rejected native interval envelopes. No
+	// partial decode may restore measurement authority from such rows.
+	CPUIntervalMalformed int
 	// LegacyVisibilityCarrierRows counts converter visibility carriers dropped
 	// at index build that still wore their wrapped record's original event
 	// name (artifacts converted before colleague_merge_audit §40.13 / V6-2).
@@ -2868,6 +2872,9 @@ type ThreadDuration struct {
 	freqKnownMs          float64
 	freqObservedMaxKHz   int64
 	freqInSegmentSamples int
+	// Explicit interval coverage is not a sample fallback or a synthetic
+	// change point; keep its provenance private to the frequency consumers.
+	freqExplicitIntervals bool
 }
 
 // weightedFrequencyKHz returns the duration-weighted CPU frequency across the

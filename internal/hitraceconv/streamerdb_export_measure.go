@@ -505,9 +505,29 @@ func traceDBMeasureNoOutputSummary(skipped map[string]int) string {
 
 func exportTraceDBCPUMeasuresStrict(ctx context.Context, queryer traceDBQueryer, stableExpr, stableSource string, sink *traceDBRowSink, coverage TraceDBCoverage, filters map[int64]traceDBCPUMeasureFilter, claimedFilterIDs map[int64]bool, skipped map[string]int) (TraceDBCoverage, error) {
 	coverage.RowsRead = 0
+	nativeIntervals, err := traceDBHasMeasureDuration(ctx, queryer)
+	if err != nil {
+		return coverage, err
+	}
+	if nativeIntervals {
+		read, emitted, intervalErr := exportTraceDBCPUIntervals(ctx, queryer, stableExpr, sink, filters, skipped)
+		coverage.RowsRead, coverage.RowsEmitted = read, emitted
+		if intervalErr != nil {
+			return coverage, intervalErr
+		}
+	}
 	lanes := map[traceDBCPUMeasureLaneKey]*traceDBCPUMeasureLane{}
 	limitAudit := map[int64]*traceDBLimitAuditState{}
-	_, err := scanTraceDBMeasureSamples(ctx, queryer, stableExpr, func(sample traceDBMeasureSample) error {
+	_, err = scanTraceDBMeasureSamples(ctx, queryer, stableExpr, func(sample traceDBMeasureSample) error {
+		if nativeIntervals {
+			id := sample.FilterID
+			if !sample.FilterIDValid {
+				id = sample.FilterPoisonID
+			}
+			if f, ok := filters[id]; ok && (f.Name == "cpu_idle" || f.Name == "cpu_frequency") {
+				return nil
+			}
+		}
 		filterID := sample.FilterID
 		if !sample.FilterIDValid {
 			if !sample.FilterPoisonIDKnown || !claimedFilterIDs[sample.FilterPoisonID] {
@@ -700,6 +720,9 @@ func exportTraceDBCPUMeasuresStrict(ctx context.Context, queryer traceDBQueryer,
 		"value":           "measure.value exact finite integral SQLite INTEGER or lossless integral REAL",
 		"cpu":             "cpu_measure_filter.cpu exact SQLite INTEGER in 0..4095; CPU0 preserved",
 		"limit_tuple":     "per-CPU atomic state; publish only after exact min and max are both known and min<=max",
+	}
+	if nativeIntervals {
+		coverage.FieldSources["cpu_interval"] = "measure.ts/dur exact SQLite INTEGER explicit half-open intervals; NULL/invalid durations never extend; native idle code meaning unverified; ordinary viewers may ignore typed comments; no ftrace CPU control or legacy supply attribution is synthesized"
 	}
 	return coverage, nil
 }

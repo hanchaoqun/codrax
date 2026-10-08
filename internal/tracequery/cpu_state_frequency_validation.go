@@ -123,6 +123,9 @@ func ValidCPUStateFrequency(p CPUStateFrequencyResult) bool {
 }
 
 func validCPUStateFrequencyValue(v CPUStateFrequencyValue) bool {
+	if v.StateEncoding != "" && v.StateEncoding != "native_sql_idle" {
+		return false
+	}
 	if v.FrequencyKnown != (v.FrequencyKHz != nil) || v.FrequencyKHz != nil && (*v.FrequencyKHz <= 0 || *v.FrequencyKHz > math.MaxUint32) {
 		return false
 	}
@@ -130,9 +133,11 @@ func validCPUStateFrequencyValue(v CPUStateFrequencyValue) bool {
 	case "unknown":
 		return !v.StateKnown && v.IdleState == nil
 	case "active":
-		return v.StateKnown && v.IdleState == nil
+		return v.StateEncoding == "" && v.StateKnown && v.IdleState == nil
 	case "idle":
-		return v.StateKnown && v.IdleState != nil && *v.IdleState < math.MaxUint32
+		return v.StateEncoding == "" && v.StateKnown && v.IdleState != nil && *v.IdleState < math.MaxUint32
+	case "native_idle":
+		return v.StateEncoding == "native_sql_idle" && v.StateKnown && v.IdleState != nil
 	default:
 		return false
 	}

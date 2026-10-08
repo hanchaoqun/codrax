@@ -6,6 +6,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 type cpuStateFrequencySample struct {
@@ -25,6 +27,8 @@ type cpuStateFrequencyCollector struct {
 	idleIssue, freqIssue string
 	samples              int
 	overflow             bool
+	native               []cpuNativeInterval
+	nativeInvalid        bool
 }
 
 func newCPUStateFrequencyCollector() *cpuStateFrequencyCollector {
@@ -32,6 +36,20 @@ func newCPUStateFrequencyCollector() *cpuStateFrequencyCollector {
 }
 
 func (c *cpuStateFrequencyCollector) observe(ev Event) bool {
+	if ev.Type == EventCPUMeasureInterval {
+		row, ok := tracewire.ParseCPUMeasureInterval(ev.FieldText)
+		if !ok {
+			c.nativeInvalid = true
+			return true
+		}
+		c.samples++
+		if c.samples > cpuStateFrequencySampleLimit {
+			c.overflow = true
+			return false
+		}
+		c.native = append(c.native, cpuNativeInterval{row: row, line: ev.Line})
+		return true
+	}
 	if ev.Type != EventCPUIdle && (ev.Type != EventCPUFrequency || ev.Name == "clock_set_rate") {
 		return true
 	}
@@ -121,10 +139,10 @@ func buildCPUStateFrequency(idx *Index, q Query) *CPUStateFrequencyResult {
 	if err := validateCPUStateFrequencyQuery(q); err != nil {
 		return unavailableCPUStateFrequency(idx.Path, q, err.Error())
 	}
-	if idx.TraceDBTextCarrierRows > 0 {
+	if idx.TraceDBTextCarrierRows > 0 && !hasNativeCPUIntervals(idx) {
 		return unavailableCPUStateFrequency(idx.Path, q, "sql_measure_interval_semantics_not_preserved")
 	}
-	if idx.Windowed || idx.RelationScoped || len(idx.TraceArtifacts) > 1 || len(idx.TraceArtifacts) == 1 && idx.TraceArtifacts[0].SourcePath != idx.Path {
+	if !cpuStateFrequencySingleSource(idx) {
 		return unavailableCPUStateFrequency(idx.Path, q, "requires_complete_single_source_cpu_control_scan")
 	}
 	for _, ev := range idx.Events {
@@ -133,6 +151,15 @@ func buildCPUStateFrequency(idx *Index, q Query) *CPUStateFrequencyResult {
 		}
 	}
 	return c.finish(idx, q)
+}
+
+func hasNativeCPUIntervals(idx *Index) bool {
+	for _, ev := range idx.Events {
+		if ev.Type == EventCPUMeasureInterval {
+			return true
+		}
+	}
+	return false
 }
 
 func unavailableCPUStateFrequency(path string, q Query, reason string) *CPUStateFrequencyResult {
@@ -148,6 +175,13 @@ func (c *cpuStateFrequencyCollector) finish(idx *Index, q Query) *CPUStateFreque
 	if c.overflow {
 		p.Reason = "cpu_control_sample_limit"
 		return p
+	}
+	if idx.CPUIntervalMalformed > 0 || c.nativeInvalid {
+		p.Reason = "malformed_native_cpu_interval_carrier"
+		return p
+	}
+	if len(c.native) > 0 {
+		return c.finishNative(idx, q)
 	}
 	if idx.TraceDBTextCarrierRows > 0 {
 		p.Reason = "sql_measure_interval_semantics_not_preserved"

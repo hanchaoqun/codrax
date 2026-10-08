@@ -117,11 +117,12 @@ func traceQueryCPUStateFrequencyObservations(p *tracequery.CPUStateFrequencyResu
 func DecodeTraceCPUStateFrequency(r types.ObservationRecord) (tracequery.CPUStateFrequencyResult, bool) {
 	var p tracequery.CPUStateFrequencyResult
 	ref := r.SourceRef
+	_, _, continuousWindow := types.TraceObservationContinuousQueryWindow(ref)
 	if r.Negative || r.Predicate != TraceCPUStateFrequencyPredicate || r.ClaimKey != r.Predicate || r.Subject != "CPU controls" ||
 		r.Origin != types.AnswerEvidenceOriginRuntimeArtifact || !types.RuntimeObservationProducerIsDeterministicQuery(r.Producer) ||
 		r.Role != types.AnswerAggregateRoleSupportingCoverage || r.GroundingPolicy != types.ClaimGroundingHard ||
 		r.ProvenanceLane != types.ObservationProvenanceArtifactSpan || ref.Kind != types.ObservationSourceRuntimeArtifact ||
-		ref.Path == "" || ref.QueryScopeID == "" || ref.PayloadRef == "" || !ref.QueryWindowKnown || ref.QueryTargetPID != 0 || ref.QueryTargetThread != "" {
+		ref.Path == "" || ref.QueryScopeID == "" || ref.PayloadRef == "" || !continuousWindow || ref.QueryTargetPID != 0 || ref.QueryTargetThread != "" {
 		return p, false
 	}
 	count := 0
@@ -181,6 +182,9 @@ func cpuStateFrequencyLabels(v tracequery.CPUStateFrequencyValue) (string, strin
 		state = "非idle（已观测退出）"
 		if v.IdleState != nil {
 			state = fmt.Sprintf("idle状态%d", *v.IdleState)
+			if v.StateEncoding == "native_sql_idle" {
+				state = fmt.Sprintf("源CPU状态码%d（含义未核实）", *v.IdleState)
+			}
 		}
 	}
 	if v.FrequencyKnown && v.FrequencyKHz != nil {

@@ -3,7 +3,7 @@ package tracequery
 const ViewCPUStateFrequency = "cpu_state_frequency"
 
 // Shared by tool schema and view-selection teaching; no extra user fields.
-const CPUStateFrequencyTeaching = "Use cpu_state_frequency for per-CPU idle-state × frequency residency and interval changes over time_start/time_end. Omit pid/thread: control lanes belong to the CPU, not the row's emitter. Read complete-window duration/percentages and explicit state/frequency/joint unknown coverage; carry-in samples and same-timestamp updates are handled by the tool. Raw idle 0 remains idle state 0; active means an observed idle exit, not proof of thread running. Keep source/CPU/topology identity and omitted counts; never borrow another CPU's frequency or infer power, capacity, thread waiting or a response cause from residency alone. An unavailable result (including SQL exports without preserved measure intervals) is missing measurement, not zero; drill into thread_timeline/root_cause_rank separately for thread causality."
+const CPUStateFrequencyTeaching = "Use cpu_state_frequency for per-CPU state × frequency residency over time_start/time_end; omit pid/thread. The tool handles carry-in, interval boundaries and complete-window percentages. Raw ftrace idle 0 remains idle, and active requires an idle exit; native_sql_idle is an observed source code with unverified meaning, never Running/C-state naming. Preserved SQL measure.ts/dur intervals do not fill gaps or overlaps; absent duration/state/frequency remains unknown. Without an independently established capture range, measure row timestamps do not prove whole-capture coverage. Keep source/CPU/topology identity, CPU-time versus wall time, kHz units and omitted counts. Unavailable means missing measurement, not zero. Residency alone proves neither thread execution, power, compute shortage nor a response cause; use thread_timeline/root_cause_rank for independently supported thread causality."
 
 // CPUStateFrequencyResult is a CPU-control observation, never a thread-state
 // account, hardware-capacity model, or causal attribution. CPUTimeMs sums the
@@ -46,7 +46,10 @@ type CPUStateFrequencyCPU struct {
 // that a particular thread was running. Raw idle state 0 remains idle index 0;
 // no platform-independent C1/C2/C3 naming is inferred.
 type CPUStateFrequencyValue struct {
-	State          string  `json:"state"`
+	State string `json:"state"`
+	// native_sql_idle labels an observed opaque source code, never an idle
+	// entry/exit interpretation. Empty preserves the ftrace control contract.
+	StateEncoding  string  `json:"state_encoding,omitempty"`
 	StateKnown     bool    `json:"state_known"`
 	IdleState      *uint32 `json:"idle_state,omitempty"`
 	FrequencyKnown bool    `json:"frequency_known"`

@@ -149,7 +149,7 @@ func perfBundleRowIsSchedulerOrCPU(typ EventType) bool {
 	switch typ {
 	case EventSchedSwitch, EventSchedWakeup, EventSchedWaking,
 		EventSchedBlockedReason, EventSchedStat,
-		EventCPUIdle, EventCPUFrequency, EventCPUFrequencyLimit,
+		EventCPUIdle, EventCPUFrequency, EventCPUFrequencyLimit, EventCPUMeasureInterval,
 		EventCPUConstraint, EventClockSetRate:
 		return true
 	default:

@@ -43,6 +43,9 @@ func TestCPUStateFrequencyPublicToolAndHandoff(t *testing.T) {
 	for _, mutate := range []func(*types.ObservationRecord){
 		func(r *types.ObservationRecord) { r.SourceRef.QueryScopeID = "" },
 		func(r *types.ObservationRecord) { r.SourceRef.QueryWindowStartTs = 0 },
+		func(r *types.ObservationRecord) {
+			r.SourceRef.QueryLineRangeKnown, r.SourceRef.QueryLineStart = true, 4
+		},
 		func(r *types.ObservationRecord) { r.SourceRef.Path += ".other" },
 		func(r *types.ObservationRecord) { r.SourceRef.QueryTargetPID = 41 },
 		func(r *types.ObservationRecord) { r.Role = types.AnswerAggregateRolePrincipalAnswer },
@@ -67,7 +70,7 @@ func TestCPUStateFrequencyPublicToolAndHandoff(t *testing.T) {
 	if _, ok := DecodeTraceCPUStateFrequency(corrupt); ok {
 		t.Fatal("accepted corrupt percentage")
 	}
-	if !strings.Contains(string((&TraceQuery{}).Parameters()), "Omit pid/thread") {
+	if !strings.Contains(string((&TraceQuery{}).Parameters()), tracequery.CPUStateFrequencyTeaching) {
 		t.Fatal("missing CPU ownership teaching")
 	}
 }

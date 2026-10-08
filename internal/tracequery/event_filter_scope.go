@@ -147,7 +147,7 @@ func CPUGlobalEventSearchTypes(eventTypes []EventType) []EventType {
 	seen := map[EventType]bool{}
 	for _, eventType := range eventTypes {
 		switch eventType {
-		case EventCPUFrequency, EventCPUFrequencyLimit, EventCPUIdle, EventClockSetRate:
+		case EventCPUFrequency, EventCPUFrequencyLimit, EventCPUIdle, EventClockSetRate, EventCPUMeasureInterval:
 			seen[eventType] = true
 		}
 	}
