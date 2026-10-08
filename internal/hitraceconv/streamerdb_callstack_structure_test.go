@@ -233,6 +233,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	if !reflect.DeepEqual(callerCounts("threadPointAllows"), map[string]int{
 		"auditDBEdges":                    2,
 		"exportTraceDBPerfSamples":        1,
+		"exportTraceDBResourceStacks":     1,
 		"exportTraceDBWakeups":            2,
 		"loadTraceDBBlockedCandidates":    1,
 		"prepareTraceDBCallstackRow":      4,

@@ -1050,6 +1050,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	assertCallSites("resolveThreadSubject", map[string]int{
 		"auditDBEdges":                           2,
 		"exportTraceDBCallstack":                 1,
+		"exportTraceDBResourceStacks":            1,
 		"exportTraceDBWakeups":                   2,
 		"loadTraceDBBlockedCandidates":           1,
 		"prepareTraceDBCallstackRow":             2,
@@ -1068,6 +1069,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	assertCallSites("threadPointAllows", map[string]int{
 		"auditDBEdges":                    2,
 		"exportTraceDBPerfSamples":        1,
+		"exportTraceDBResourceStacks":     1,
 		"exportTraceDBWakeups":            2,
 		"loadTraceDBBlockedCandidates":    1,
 		"prepareTraceDBCallstackRow":      4,

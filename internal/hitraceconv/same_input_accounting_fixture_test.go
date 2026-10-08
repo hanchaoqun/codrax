@@ -225,6 +225,26 @@ func sameInputCoverageProjection(items []TraceDBCoverage) []sameInputCoverageRec
 
 func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingReceipt) {
 	t.Helper()
+	// HMC-03.3 resource-stack inspection adds one independent coverage lane.
+	// This legacy fixture has one native_hook row but no callchain_id, so
+	// that lane must account for the row without emitting a carrier or reading
+	// frame/dictionary data. Pin the entire new projected entry, then remove
+	// ONLY that addition to preserve every historical receipt/hash below.
+	var resourceStackCoverage, previousCoverage []sameInputCoverageReceipt
+	for _, item := range receipt.Coverage {
+		if item.Family == "resource_stack" {
+			resourceStackCoverage = append(resourceStackCoverage, item)
+		} else {
+			previousCoverage = append(previousCoverage, item)
+		}
+	}
+	if !reflect.DeepEqual(resourceStackCoverage, []sameInputCoverageReceipt{{
+		Family: "resource_stack", Table: "native_hook", Role: "query_ready_export",
+		Found: true, RowsRead: 1, Skipped: "missing required columns: callchain_id",
+	}}) {
+		t.Fatalf("same-input resource-stack coverage extension drifted: %+v", resourceStackCoverage)
+	}
+	receipt.Coverage = previousCoverage
 	// HMC-17.7 reference retention adds exactly two diagnostics to each
 	// resolver. This fixture publishes the extended resolver, with no startup
 	// or HiSys consumer references. Pin that population, then reverse ONLY that addition
