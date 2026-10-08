@@ -22,7 +22,7 @@ type TraceCatalog struct {
 
 func (*TraceCatalog) Name() string { return "trace_catalog" }
 func (*TraceCatalog) Description() string {
-	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence."
+	return "Discover candidate capture files across a selected directory and keep a per-capture, per-object query index. Recursive discovery preserves same-named files in different directories. Optional queries are ordinary trace_query arguments without source/path: they register expected work for each candidate but do not execute it. For directory work with one explicit request window, put that window in the expected calls once; after admission, queries of those same members can inherit it when all their declared plans agree. Discovery alone does not bind a request window. Continue with trace_query using the returned paths; status shows results, empty results, failures and unexecuted work separately. Candidates and saved indexes are navigation only, not measurements, input admission or causal evidence."
 }
 func (*TraceCatalog) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{

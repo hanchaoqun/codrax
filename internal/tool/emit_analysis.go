@@ -730,7 +730,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"runtime_artifact_scope_profile": map[string]any{
 				"type":        "object",
-				"description": "Required user-scope authority for runtime artifacts. This is NOT a trace_query/exploration window. Use not_applicable when no runtime artifact is attached or referenced. For an attached artifact, use full_artifact when the current request asks about the supplied artifact without a narrower user boundary (for example 'this trace' / '这份 trace'); use explicit_time_window only when the current request itself states exact trace time bounds; use bounded_selector when the current request names a narrower artifact selector such as a frame/span/event but does not state exact time bounds; use unspecified when the current request's artifact scope cannot be determined. For bounded_selector, omit time_start, time_end and time_windows; stray coordinates are ignored and never promote the selector to an explicit time window. A model-chosen query window never changes this field. " + skill.AnalysisRuntimeWindowMembersTeaching,
+				"description": "Required user-scope authority for runtime artifacts. This is NOT a trace_query/exploration window. " + skill.AnalysisRuntimeIntentAvailabilityTeaching + " For an attached or referenced artifact, use full_artifact when the current request asks about the supplied artifact without a narrower user boundary (for example 'this trace' / '这份 trace'); use explicit_time_window only when the current request itself states exact trace time bounds; use bounded_selector when the current request names a narrower artifact selector such as a frame/span/event but does not state exact time bounds; use unspecified when the current request's artifact scope cannot be determined. For bounded_selector, omit time_start, time_end and time_windows; stray coordinates are ignored and never promote the selector to an explicit time window. A model-chosen query window never changes this field. " + skill.AnalysisRuntimeWindowMembersTeaching,
 				"properties": map[string]any{
 					"requested_scope": map[string]any{"type": "string", "enum": runtimeArtifactRequestedScopeValues(), "description": "not_applicable, full_artifact, explicit_time_window, bounded_selector, or unspecified."},
 					"time_start":      map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace start in seconds for the legacy single-window form; do not combine with time_windows."},
@@ -1846,6 +1846,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	runtimeArtifactScopeProfile, runtimeArtifactScopeErr, runtimeArtifactScopeWarnings := parseRuntimeArtifactScopeProfile(raw, runtimeArtifactCarrier, p.RuntimeArtifactScopeProfile)
 	runtimeTargets, runtimeTargetWarnings, runtimeTargetErr := parseRuntimeTargets(p.RuntimeTargets)
 	runtimeThreadLookups, runtimeThreadLookupErr := parseRuntimeThreadLookups(raw, p.RuntimeThreadLookups)
+	// Request intent can precede discovery/preparation of a directory or path.
+	// Validated declarations require companion decisions in this fixed order;
+	// they never change material availability or artifact-value authority.
+	runtimeRequestDeclared := runtimeArtifactCarrier ||
+		(runtimeArtifactScopeErr == "" && runtimeArtifactScopeProfile != nil && runtimeArtifactScopeProfile.RequestedScope != types.RuntimeArtifactScopeNotApplicable)
 	var runtimeTargetProfile *types.RuntimeTargetProfile
 	var runtimeTargetProfileErr string
 	var runtimeTargetProfileWarnings []string
@@ -1855,11 +1860,13 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		// doing so would add a synthetic "missing target" error that cannot be
 		// acted on independently. The other runtime profiles remain independent
 		// and are still censused below.
-		runtimeTargetProfile, runtimeTargetProfileErr, runtimeTargetProfileWarnings = parseRuntimeTargetProfile(raw, runtimeArtifactCarrier, p.RuntimeTargetProfile, runtimeTargets)
+		runtimeTargetProfile, runtimeTargetProfileErr, runtimeTargetProfileWarnings = parseRuntimeTargetProfile(raw, runtimeRequestDeclared, p.RuntimeTargetProfile, runtimeTargets)
 	}
+	runtimeRequestDeclared = runtimeRequestDeclared ||
+		(runtimeTargetProfileErr == "" && runtimeTargetProfile != nil && runtimeTargetProfile.Declaration != types.RuntimeTargetDeclarationNotApplicable)
 	runtimeQuestionProfile, runtimeQuestionProfileErr, runtimeQuestionProfileWarnings := parseRuntimeQuestionProfileWithClassifiers(
 		raw,
-		runtimeArtifactCarrier,
+		runtimeRequestDeclared,
 		p.RuntimeQuestionProfile,
 		requestedAnswerDimensions,
 		intent, scenario,
@@ -5022,13 +5029,10 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 			p.RequestedScope, strings.Join(runtimeArtifactRequestedScopeValues(), ", "),
 		), nil
 	}
-	if !runtimeArtifactCarrier {
-		if scope != types.RuntimeArtifactScopeNotApplicable {
-			return &types.RuntimeArtifactScopeProfile{
-				RequestedScope: types.RuntimeArtifactScopeNotApplicable,
-				Confidence:     *p.Confidence,
-			}, "", []string{"runtime_artifact_scope_profile normalized to not_applicable because no runtime artifact carrier is present"}
-		}
+	// This profile owns the requested ruler, not evidence that a capture has
+	// already been admitted. Preserve an explicit declaration before discovery,
+	// but apply exactly the same quote/member/coordinate validation below.
+	if !runtimeArtifactCarrier && scope == types.RuntimeArtifactScopeNotApplicable {
 		return &types.RuntimeArtifactScopeProfile{
 			RequestedScope: scope,
 			Confidence:     *p.Confidence,
@@ -5160,9 +5164,9 @@ func parseRuntimeTargets(in []emitRuntimeTargetParam) ([]types.RuntimeTarget, []
 	return out, warnings, ""
 }
 
-func parseRuntimeTargetProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeTargetProfileParam, targets []types.RuntimeTarget) (*types.RuntimeTargetProfile, string, []string) {
+func parseRuntimeTargetProfile(raw string, runtimeRequestDeclared bool, p *emitRuntimeTargetProfileParam, targets []types.RuntimeTarget) (*types.RuntimeTargetProfile, string, []string) {
 	if p == nil {
-		if runtimeArtifactCarrier {
+		if runtimeRequestDeclared || len(targets) > 0 {
 			return nil, "runtime_target_profile object missing — declare named_target, no_named_target, or unspecified; do not let entities or exploration cursors stand in for user target authority", nil
 		}
 		return &types.RuntimeTargetProfile{Declaration: types.RuntimeTargetDeclarationNotApplicable}, "", nil
@@ -5187,24 +5191,8 @@ func parseRuntimeTargetProfile(raw string, runtimeArtifactCarrier bool, p *emitR
 			p.Declaration, strings.Join(runtimeTargetDeclarationValues(), ", "),
 		), nil
 	}
-	if !runtimeArtifactCarrier {
-		if len(targets) == 0 {
-			var warnings []string
-			if declaration != types.RuntimeTargetDeclarationNotApplicable && declaration != types.RuntimeTargetDeclarationUnspecified {
-				warnings = append(warnings, "runtime_target_profile normalized to not_applicable because no runtime artifact carrier is present")
-			}
-			return &types.RuntimeTargetProfile{
-				Declaration: types.RuntimeTargetDeclarationNotApplicable,
-				Confidence:  *p.Confidence,
-			}, "", warnings
-		}
-		// A schema-valid named declaration plus typed targets is itself a
-		// precise runtime-request carrier. This supports explicit trace/log
-		// paths whose preflight attachment is established after analysis and
-		// keeps unit/adapter callers from having to manufacture an artifact.
-		if declaration != types.RuntimeTargetDeclarationNamedTarget {
-			return nil, fmt.Sprintf("runtime_targets conflict with runtime_target_profile %s outside an attached runtime artifact; declare named_target with an anchored source_quote", declaration), nil
-		}
+	if !runtimeRequestDeclared && declaration == types.RuntimeTargetDeclarationNotApplicable && len(targets) == 0 {
+		return &types.RuntimeTargetProfile{Declaration: declaration, Confidence: *p.Confidence}, "", nil
 	}
 
 	profile := &types.RuntimeTargetProfile{
@@ -5232,14 +5220,14 @@ func parseRuntimeTargetProfile(raw string, runtimeArtifactCarrier bool, p *emitR
 			return nil, fmt.Sprintf("runtime_target_profile %s conflicts with %d runtime_targets entries; declare named_target with an anchored source_quote or remove the targets", declaration, len(targets)), nil
 		}
 	case types.RuntimeTargetDeclarationNotApplicable:
-		return nil, "runtime_target_profile not_applicable conflicts with the attached/referenced runtime request; use named_target, no_named_target, or unspecified", nil
+		return nil, "runtime_target_profile not_applicable conflicts with the declared runtime request; use named_target, no_named_target, or unspecified", nil
 	}
 	return profile, "", nil
 }
 
-func parseRuntimeQuestionProfileWithClassifiers(raw string, runtimeArtifactCarrier bool, p *emitRuntimeQuestionProfileParam, dimensions *types.RequestedAnswerDimensionProfile, intent types.Intent, scenario types.Scenario) (*types.RuntimeQuestionProfile, string, []string) {
+func parseRuntimeQuestionProfileWithClassifiers(raw string, runtimeRequestDeclared bool, p *emitRuntimeQuestionProfileParam, dimensions *types.RequestedAnswerDimensionProfile, intent types.Intent, scenario types.Scenario) (*types.RuntimeQuestionProfile, string, []string) {
 	if p == nil {
-		if runtimeArtifactCarrier {
+		if runtimeRequestDeclared {
 			return nil, "runtime_question_profile object missing — declare bounded_fact_set, bounded_effect_verdict, causal_diagnosis, relation_analysis, system_overview, or unspecified; intent/scenario labels do not substitute for runtime answer breadth", nil
 		}
 		return &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeNotApplicable}, "", nil
@@ -5248,14 +5236,15 @@ func parseRuntimeQuestionProfileWithClassifiers(raw string, runtimeArtifactCarri
 	if strings.TrimSpace(p.Scope) == "" {
 		missing = append(missing, "scope")
 	}
-	// The projected provider schema requires this decision on every new call.
-	// Keep the executor backward-compatible for non-runtime fixtures/older
-	// callers because false is the only valid meaning without a runtime carrier;
-	// runtime requests still fail loud when the decision is absent.
-	if runtimeArtifactCarrier && p.RuntimeWorkRelationRequested == nil {
+	// Compatibility applies only to a non-runtime declaration. A typed runtime
+	// question is independently meaningful before any material is available and
+	// must not acquire false decisions merely because preparation is pending.
+	declaredScope := strings.TrimSpace(p.Scope)
+	runtimeRequestDeclared = runtimeRequestDeclared || (declaredScope != "" && declaredScope != string(types.RuntimeQuestionScopeNotApplicable))
+	if runtimeRequestDeclared && p.RuntimeWorkRelationRequested == nil {
 		missing = append(missing, "runtime_work_relation_requested")
 	}
-	if runtimeArtifactCarrier && p.FrameCausalityRequested == nil {
+	if runtimeRequestDeclared && p.FrameCausalityRequested == nil {
 		missing = append(missing, "frame_causality_requested")
 	}
 	if p.Confidence == nil {
@@ -5274,20 +5263,16 @@ func parseRuntimeQuestionProfileWithClassifiers(raw string, runtimeArtifactCarri
 			p.Scope, strings.Join(runtimeQuestionScopeValues(), ", "),
 		), nil
 	}
-	if !runtimeArtifactCarrier {
-		var warnings []string
-		if scope != types.RuntimeQuestionScopeNotApplicable && scope != types.RuntimeQuestionScopeUnspecified {
-			warnings = append(warnings, "runtime_question_profile normalized to not_applicable because no runtime artifact carrier is present")
-		}
+	if !runtimeRequestDeclared {
 		return &types.RuntimeQuestionProfile{
 			Scope:                        types.RuntimeQuestionScopeNotApplicable,
 			RuntimeWorkRelationRequested: false,
 			FrameCausalityRequested:      false,
 			Confidence:                   *p.Confidence,
-		}, "", warnings
+		}, "", nil
 	}
 	if scope == types.RuntimeQuestionScopeNotApplicable {
-		return nil, "runtime_question_profile not_applicable conflicts with the attached/referenced runtime request", nil
+		return nil, "runtime_question_profile not_applicable conflicts with the declared runtime request; artifact discovery or preparation does not erase its answer breadth", nil
 	}
 	profile := &types.RuntimeQuestionProfile{
 		Scope:                        scope,

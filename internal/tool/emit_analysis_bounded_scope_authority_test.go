@@ -170,16 +170,19 @@ func TestEmitAnalysisPublicBoundedScopePreservesOtherScopeLanes(t *testing.T) {
 			t.Fatalf("missing profile bypassed the existing contract: result=%+v err=%v", result, err)
 		}
 	})
-	t.Run("no_artifact_carrier_still_not_applicable", func(t *testing.T) {
+	t.Run("request_precedes_artifact_preparation", func(t *testing.T) {
 		scope := map[string]any{"requested_scope": "bounded_selector", "source_quote": "this trace", "time_start": 0.999, "time_end": 1.051, "confidence": 1.0}
 		ctx := &types.BusContext{Mutable: types.NewMutableState(request)}
 		result, err := (&EmitAnalysis{}).Execute(ctx, boundedScopeAuthorityPublicParams(t, scope, request))
 		if err != nil || !result.Success {
-			t.Fatalf("missing carrier should retain existing normalization: result=%+v err=%v", result, err)
+			t.Fatalf("missing carrier must not erase validated request intent: result=%+v err=%v", result, err)
 		}
 		profile := ctx.Mutable.RequestModel().RuntimeArtifactScopeProfile
-		if profile.RequestedScope != types.RuntimeArtifactScopeNotApplicable || profile.Active() || profile.TimeStart != nil || profile.TimeEnd != nil || profile.TimeWindows != nil {
-			t.Fatalf("selector created runtime authority without an artifact carrier: %+v", profile)
+		if profile.RequestedScope != types.RuntimeArtifactScopeBoundedSelector || !profile.Active() || profile.TimeStart != nil || profile.TimeEnd != nil || profile.TimeWindows != nil {
+			t.Fatalf("selector intent lost or acquired explicit-window authority: %+v", profile)
+		}
+		if emitAnalysisHasRuntimeArtifactCarrier(ctx) || ctx.Mutable.RequestModel().PerfTrace != nil {
+			t.Fatal("request intent manufactured an artifact carrier")
 		}
 	})
 }

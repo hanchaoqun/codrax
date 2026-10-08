@@ -26,7 +26,8 @@ func traceQueryApplyRequestWindow(ctx *types.BusContext, p traceQueryParams, pat
 		return p, ""
 	}
 	start, end, ok := traceSupplementRequestedArtifactScope(ctx).ExplicitTimeWindow()
-	if !ok || !traceQueryRequestWindowSourceMatches(ctx, path, sourceLabel) {
+	if !ok || (!traceQueryRequestWindowSourceMatches(ctx, path, sourceLabel) &&
+		!traceCatalogRequestWindowSourceMatches(ctx, p, path, start, end)) {
 		return p, ""
 	}
 	// The profile already contains exact trace-clock seconds. Do not introduce

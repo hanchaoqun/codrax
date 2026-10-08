@@ -9384,6 +9384,13 @@ func TestEmitAnalysis_RedundantToolNameTypeFieldPreservesExternalObservationPoli
 			"source_quote": "这份 trace",
 			"confidence": 0.95
 		},
+		"runtime_question_profile": {
+			"scope": "unspecified",
+			"runtime_work_relation_requested": false,
+			"frame_causality_requested": false,
+			"confidence": 0.95
+		},
+		"runtime_target_profile": {"declaration": "unspecified", "confidence": 0.95},
 		"external_observation_policy": {
 			"artifact_citation_mode": "external_only",
 			"current_source_mode": "exclude",
