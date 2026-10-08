@@ -2,8 +2,10 @@ package tool
 
 import (
 	"go/ast"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	gotypes "go/types"
 	"os"
 	"path/filepath"
 	"sort"
@@ -38,7 +40,7 @@ import (
 //     declarations (named types, aliases), package-level FuncLits (IIFE
 //     tables, closure vars) are walked like any other body, and a literal
 //     that writes an `Outcome:` key under a type the census CANNOT resolve
-//     (a generic instantiation, an other-package named type) is a
+//     (a generic instantiation, an unresolved other-package named type) is a
 //     violation — unrecognized shapes are red by default instead of
 //     silently skipped. Package types itself must not export an
 //     alias/named form of ExecutedCommand (the cross-package recognizers
@@ -180,6 +182,60 @@ type outcomeCensusFile struct {
 	// (fold-in round six): named types, aliases and generic declarations
 	// are resolved instead of silently trusted.
 	typeDecls map[string]*ast.TypeSpec
+	// Imported types are opt-in and resolved from the actual import path and
+	// source declaration, never from a package/type spelling alone.
+	importedKinds map[ast.Expr]outcomeLocalKind
+}
+
+const outcomeCatalogPackage = "github.com/hanchaoqun/codrax/internal/tracecatalog"
+
+// Trace catalog status is a separate named enum, not an ExecutedCommand
+// label. Resolve its actual field type so a renamed import, an alias to a
+// command, or an unrelated same-named package cannot become an exemption.
+func importedCatalogOutcomeKinds(fset *token.FileSet, files []*ast.File) map[ast.Expr]outcomeLocalKind {
+	kinds := map[ast.Expr]outcomeLocalKind{}
+	imp := importer.ForCompiler(fset, "source", nil)
+	for _, file := range files {
+		for _, spec := range file.Imports {
+			path, err := strconv.Unquote(spec.Path.Value)
+			if err != nil || path != outcomeCatalogPackage {
+				continue
+			}
+			pkg, err := imp.Import(path)
+			if err != nil {
+				continue // unresolved Outcome-bearing uses stay fail-closed
+			}
+			alias := pkg.Name()
+			if spec.Name != nil {
+				alias = spec.Name.Name
+			}
+			ast.Inspect(file, func(node ast.Node) bool {
+				sel, ok := node.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				id, ok := sel.X.(*ast.Ident)
+				if !ok || id.Name != alias || id.Obj != nil {
+					return true
+				}
+				obj, ok := pkg.Scope().Lookup(sel.Sel.Name).(*gotypes.TypeName)
+				if !ok {
+					return true
+				}
+				field, _, _ := gotypes.LookupFieldOrMethod(obj.Type(), true, pkg, "Outcome")
+				value, ok := field.(*gotypes.Var)
+				if !ok || !value.IsField() {
+					return true
+				}
+				named, ok := value.Type().(*gotypes.Named)
+				if ok && named.Obj().Name() == "Outcome" && named.Obj().Pkg() == pkg && named.Underlying() == gotypes.Typ[gotypes.String] {
+					kinds[sel] = outcomeLocalOther
+				}
+				return true
+			})
+		}
+	}
+	return kinds
 }
 
 // outcomeBuiltinTypeNames are the predeclared type names a bare identifier
@@ -200,8 +256,8 @@ func (file *outcomeCensusFile) kindOfTypeExpr(expr ast.Expr) outcomeLocalKind {
 // kindOfTypeExprSeen classifies a type expression, resolving package-local
 // named types and aliases through typeDecls (fold-in round six). An
 // expression it cannot classify — an undeclared bare name (a type
-// parameter, a dot import), an other-package named type outside package
-// types, a generic instantiation — is outcomeLocalUnknown, which the
+// parameter, a dot import), an other-package named type without a verified
+// importedKinds entry, a generic instantiation — is outcomeLocalUnknown, which the
 // producer positions treat as a violation rather than a silent skip.
 func (file *outcomeCensusFile) kindOfTypeExprSeen(expr ast.Expr, seen map[string]bool) outcomeLocalKind {
 	switch {
@@ -233,6 +289,9 @@ func (file *outcomeCensusFile) kindOfTypeExprSeen(expr ast.Expr, seen map[string
 	case *ast.StarExpr:
 		return file.kindOfTypeExprSeen(v.X, seen)
 	case *ast.SelectorExpr:
+		if kind, ok := file.importedKinds[v]; ok {
+			return kind
+		}
 		if pkg, ok := v.X.(*ast.Ident); ok && pkg.Name == "types" {
 			// A non-command types.X name. The types package is pinned to
 			// declare no alias/named form of ExecutedCommand (see
@@ -997,7 +1056,7 @@ func executedCommandOutcomeCensus(fset *token.FileSet, files []*ast.File, result
 	if len(files) == 0 {
 		return
 	}
-	file := &outcomeCensusFile{fset: fset, pkgName: files[0].Name.Name, byName: map[string][]*outcomeCensusFunc{}}
+	file := &outcomeCensusFile{fset: fset, pkgName: files[0].Name.Name, byName: map[string][]*outcomeCensusFunc{}, importedKinds: importedCatalogOutcomeKinds(fset, files)}
 	file.analyseTypeDecls(files, result)
 	file.resultKindsPrePass(files)
 	for _, f := range files {
@@ -1322,6 +1381,43 @@ const packageLevelAlias = types.ExecutedCommandOutcomeExecuted
 type probeResult struct{ Commands []types.ExecutedCommand }
 type probeStatus struct{ Outcome string }
 `
+
+func TestExecutedCommandOutcomeCensusCatalogDomainIsTyped(t *testing.T) {
+	const catalogPrelude = `package tool
+import (
+ cat "github.com/hanchaoqun/codrax/internal/tracecatalog"
+ "github.com/hanchaoqun/codrax/internal/types"
+)
+`
+	t.Run("actual_import_alias_and_catalog_field", func(t *testing.T) {
+		violations, _ := selfRedCensus(t, catalogPrelude+`
+func producer() {
+ c := cat.Completion{Outcome: cat.OutcomeSuccess}
+ c.Outcome = cat.OutcomeEmpty
+ _ = cat.QueryRecord{Outcome: cat.OutcomeNotExecuted}
+}
+`)
+		if len(violations) != 0 {
+			t.Fatalf("typed catalog status mistaken for command outcome: %v", violations)
+		}
+	})
+	selfRedExpectViolation(t, "command_write_in_same_catalog_function", catalogPrelude+`
+func producer() {
+ c := cat.Completion{Outcome: cat.OutcomeSuccess}
+ c.Outcome = cat.OutcomeEmpty
+ cmd := types.ExecutedCommand{}
+ cmd.Outcome = "executed"
+}
+`, `literal "executed"`)
+	selfRedExpectViolation(t, "same_package_name_is_not_import_identity", `package tool
+import tracecatalog "example.invalid/tracecatalog"
+func producer() { _ = tracecatalog.Completion{Outcome: "executed"} }
+`, "type cannot be resolved")
+	selfRedExpectViolation(t, "command_import_renamed_to_catalog", `package tool
+import tracecatalog "github.com/hanchaoqun/codrax/internal/types"
+func producer() { _ = tracecatalog.ExecutedCommand{Outcome: "executed"} }
+`, "type cannot be resolved")
+}
 
 // Self-red: every evasion shape the round-three census accepted is a
 // violation now — alias, package const, selector-LHS literal, index-LHS

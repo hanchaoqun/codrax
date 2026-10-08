@@ -73,7 +73,7 @@ func textRecoveryReceiptFixture(t *testing.T) (*types.AnswerSemanticView, []type
 		}
 		found := false
 		for _, published := range publication.Tables {
-			if reflect.DeepEqual(table, published) {
+			if textRecoveryMeasurementPublicationEqual(t, table, published) {
 				found = true
 				break
 			}
@@ -87,6 +87,23 @@ func textRecoveryReceiptFixture(t *testing.T) (*types.AnswerSemanticView, []type
 		t.Fatalf("expected exactly 3 paired and 6 activity tables, got %d", len(ioTables))
 	}
 	return view, ioTables
+}
+
+// Admission may revoke the private member-coverage scope when no run-entry
+// source set is known. Recovery still owes every public publication field:
+// identity, view, labels, columns, rows, notes and member population metadata.
+// Compare that complete wire form, not consumer-private completion authority.
+func textRecoveryMeasurementPublicationEqual(t *testing.T, a, b types.RuntimeMeasurementTable) bool {
+	t.Helper()
+	aJSON, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bJSON, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(aJSON) == string(bJSON)
 }
 
 func textRecoveryWithBadSibling(t *testing.T, blocks ...any) AnswerDocumentTextRecovery {

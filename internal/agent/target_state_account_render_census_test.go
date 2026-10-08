@@ -781,7 +781,7 @@ var targetStateCensusTargets = []targetStateCensusTarget{
 // closure (go list -deps), imported for real so the strict check stays exact.
 var targetStateCensusRealPaths = []string{
 	"internal/types", "internal/tracefence", "internal/canonpath", "internal/logging", "internal/mermaidcompat", "internal/threadidentity",
-	"internal/filegeneration", "internal/attachment",
+	"internal/filegeneration", "internal/attachment", "internal/tracecatalog",
 }
 
 type targetStateCensusSession struct {

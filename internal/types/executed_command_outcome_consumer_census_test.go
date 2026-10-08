@@ -2,8 +2,10 @@ package types
 
 import (
 	"go/ast"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	gotypes "go/types"
 	"os"
 	"path/filepath"
 	"sort"
@@ -51,6 +53,8 @@ import (
 //   - diagnostic: VerificationDiagnostic.Outcome, which carries the command
 //     label for command-derived diagnostics and probe status words
 //     otherwise — member literals banned, totality not required;
+//   - catalog: tracecatalog.Outcome — each individual finding must resolve
+//     to the real package-level enum field, not merely share its spelling;
 //   - other: an unrelated field or local that happens to share the name
 //     (the probe status envelope's Outcome, the controller apply-transition
 //     outcome) — registration only, so the census never mistakes it for a
@@ -62,6 +66,9 @@ const (
 	outcomeDomainCommand outcomeSwitchDomain = iota
 	outcomeDomainDiagnostic
 	outcomeDomainOther
+	// Unlike the legacy other domain, each finding must independently prove
+	// that its receiver is the actual tracecatalog.Outcome enum.
+	outcomeDomainCatalog
 )
 
 type outcomeSwitchRegistration struct {
@@ -70,6 +77,8 @@ type outcomeSwitchRegistration struct {
 }
 
 var registeredOutcomeSwitches = []outcomeSwitchRegistration{
+	{dir: "internal/context", file: "trace_catalog.go", fn: "formatTraceCatalogs", domain: outcomeDomainCatalog},
+	{dir: "internal/tracecatalog", file: "query.go", fn: "validateCompletion", domain: outcomeDomainCatalog},
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandUnavailableReasonCode"},
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandFailed"},
 	{dir: "internal/types", file: "verification_proof_profile.go", fn: "verificationProofCommandUnavailableReasonCode"},
@@ -309,13 +318,88 @@ type outcomeSwitchFinding struct {
 	// comparison marks an if-chain equality finding (fold-in round six):
 	// registration and the literal rules apply, totality does not — an
 	// if-chain is not required to enumerate the members.
-	comparison bool
-	members    map[string]bool
-	violations []string
+	comparison   bool
+	catalogTyped bool
+	members      map[string]bool
+	violations   []string
 	// outOfSet lists comparisons against non-member, non-empty literals;
 	// they are violations only in the command domain (the diagnostic and
 	// probe-status lanes legitimately compare against their own words).
 	outOfSet []string
+}
+
+const outcomeCatalogImportPath = "github.com/hanchaoqun/codrax/internal/tracecatalog"
+
+// Only types and the catalog need real module imports to resolve this domain;
+// unrelated dependencies may remain unresolved. An unresolved expression is
+// never catalogTyped and cannot use the domain exemption. The source importer
+// resolves the entire real types import closure, including tracecatalog.
+type outcomeCatalogImporter struct {
+	real  gotypes.Importer
+	fakes map[string]*gotypes.Package
+}
+
+func (i *outcomeCatalogImporter) Import(path string) (*gotypes.Package, error) {
+	first := strings.Split(path, "/")[0]
+	if !strings.Contains(first, ".") || path == outcomeCatalogImportPath || path == "github.com/hanchaoqun/codrax/internal/types" {
+		return i.real.Import(path)
+	}
+	if p := i.fakes[path]; p != nil {
+		return p, nil
+	}
+	p := gotypes.NewPackage(path, path[strings.LastIndex(path, "/")+1:])
+	p.MarkComplete()
+	i.fakes[path] = p
+	return p, nil
+}
+
+func outcomeCatalogTypes(fset *token.FileSet, dir string, files map[string]*ast.File, registry []outcomeSwitchRegistration) *gotypes.Info {
+	wanted := false
+	for _, reg := range registry {
+		wanted = wanted || reg.dir == dir && reg.domain == outcomeDomainCatalog
+	}
+	if !wanted {
+		return nil
+	}
+	var names []string
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var astFiles []*ast.File
+	for _, name := range names {
+		astFiles = append(astFiles, files[name])
+	}
+	info := &gotypes.Info{Types: map[ast.Expr]gotypes.TypeAndValue{}, Uses: map[*ast.Ident]gotypes.Object{}}
+	conf := gotypes.Config{
+		Importer:    &outcomeCatalogImporter{real: importer.ForCompiler(fset, "source", nil), fakes: map[string]*gotypes.Package{}},
+		FakeImportC: true,
+		Error:       func(error) {}, // incomplete unrelated imports never authorize a finding
+	}
+	_, _ = conf.Check("github.com/hanchaoqun/codrax/"+dir, fset, astFiles, info)
+	return info
+}
+
+// The two registered catalog consumers read the enum field directly, with an
+// optional builtin string conversion for a histogram key. More complex shapes
+// remain fail-closed; registering a function does not exempt command reads in it.
+func outcomeIsCatalogField(expr ast.Expr, info *gotypes.Info) bool {
+	if info == nil || expr == nil {
+		return false
+	}
+	if paren, ok := expr.(*ast.ParenExpr); ok {
+		return outcomeIsCatalogField(paren.X, info)
+	}
+	if call, ok := expr.(*ast.CallExpr); ok {
+		id, ok := call.Fun.(*ast.Ident)
+		return ok && info.Uses[id] == gotypes.Universe.Lookup("string") && len(call.Args) == 1 && outcomeIsCatalogField(call.Args[0], info)
+	}
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Outcome" {
+		return false
+	}
+	named, ok := info.TypeOf(sel).(*gotypes.Named)
+	return ok && named.Obj().Name() == "Outcome" && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == outcomeCatalogImportPath && named.Obj().Pkg().Scope().Lookup("Outcome") == named.Obj() && named.Underlying() == gotypes.Typ[gotypes.String]
 }
 
 // outcomeTagHelperReturnsOutcome reports whether tag is a call to a
@@ -379,7 +463,11 @@ func outcomeCaseExprComparisons(expr ast.Expr, tainted map[string]bool, visit fu
 // tags, init-statement tags, tagless equality switches, helper-call tags —
 // and for map lookups indexed by Outcome, and returns one finding per
 // consumer (attributed to the enclosing declaration).
-func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.File, members map[string]string) []outcomeSwitchFinding {
+func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.File, members map[string]string, typeInfo ...*gotypes.Info) []outcomeSwitchFinding {
+	var info *gotypes.Info
+	if len(typeInfo) == 1 {
+		info = typeInfo[0]
+	}
 	byValue := map[string]string{}
 	for name, value := range members {
 		byValue[value] = name
@@ -470,6 +558,7 @@ func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.Fi
 				switch v := n.(type) {
 				case *ast.SwitchStmt:
 					finding := outcomeSwitchFinding{dir: dir, file: fileName, fn: fd.Name.Name, pos: fset.Position(v.Pos()).String(), members: map[string]bool{}}
+					finding.catalogTyped = outcomeIsCatalogField(v.Tag, info)
 					isOutcome := outcomeSwitchTagMentionsOutcome(v.Tag, tainted)
 					// Init-statement tag: `switch o := cmd.Outcome; o`.
 					if init, ok := v.Init.(*ast.AssignStmt); ok {
@@ -520,6 +609,7 @@ func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.Fi
 						return true
 					}
 					finding := outcomeSwitchFinding{dir: dir, file: fileName, fn: fd.Name.Name, pos: fset.Position(v.Pos()).String(), members: map[string]bool{}}
+					finding.catalogTyped = outcomeIsCatalogField(v.Index, info)
 					var literals []string
 					mapLit := (*ast.CompositeLit)(nil)
 					if ident, ok := v.X.(*ast.Ident); ok {
@@ -666,6 +756,12 @@ func outcomeCensusCheck(findings []outcomeSwitchFinding, registry []outcomeSwitc
 			continue
 		}
 		matched[idx] = true
+		if registry[idx].domain == outcomeDomainCatalog {
+			if !f.catalogTyped || len(f.members) != 0 {
+				problems = append(problems, f.pos+": catalog-domain consumer in "+key+" does not resolve exclusively to the declared tracecatalog.Outcome field")
+			}
+			continue
+		}
 		if registry[idx].domain == outcomeDomainOther {
 			continue
 		}
@@ -736,7 +832,8 @@ func TestEveryExecutedCommandOutcomeConsumerSwitchEnumeratesTheClosedSet(t *test
 		if len(files) == 0 {
 			continue
 		}
-		findings = append(findings, outcomeSwitchesIn(fset, label, files, members)...)
+		info := outcomeCatalogTypes(fset, label, files, registeredOutcomeSwitches)
+		findings = append(findings, outcomeSwitchesIn(fset, label, files, members, info)...)
 	}
 	if len(findings) < len(registeredOutcomeSwitches) {
 		t.Fatalf("found %d Outcome switches, fewer than the %d registered", len(findings), len(registeredOutcomeSwitches))
@@ -870,6 +967,56 @@ func TestExecutedCommandOutcomeClassifiersDecideEveryMember(t *testing.T) {
 
 // Self-red: the checker flags a total switch missing a member, a member
 // spelled as a literal, an unregistered switch, and a stale registration.
+func TestExecutedCommandOutcomeConsumerCatalogDomainIsTyped(t *testing.T) {
+	members := map[string]string{"ExecutedCommandOutcomeExecuted": "executed", "ExecutedCommandOutcomeTimeout": "timeout"}
+	for _, target := range []struct{ dir, file, fn string }{
+		{"internal/context", "trace_catalog.go", "formatTraceCatalogs"},
+		{"internal/tracecatalog", "query.go", "validateCompletion"},
+	} {
+		for _, probe := range []struct {
+			name, body string
+			red        bool
+		}{
+			{"catalog_switch", `switch q.Outcome { case cat.OutcomeSuccess: }`, false},
+			{"catalog_histogram", `counts := map[string]int{}; counts[string(q.Outcome)]++`, false},
+			{"same_function_command_switch", `switch q.Outcome { case cat.OutcomeSuccess: }; switch cmd.Outcome { case "executed": }`, true},
+			{"same_function_command_histogram", `counts := map[string]int{}; counts[string(q.Outcome)]++; counts[string(cmd.Outcome)]++`, true},
+			{"renamed_command_local", `o := cmd.Outcome; switch o { case "executed": }`, true},
+			{"mixed_histogram_key", `key := func(a cat.Outcome, b string) string { return string(a)+b }; counts := map[string]int{}; counts[key(q.Outcome, cmd.Outcome)]++`, true},
+			{"same_named_unrelated_enum", `type Outcome string; other := struct{ Outcome Outcome }{}; switch other.Outcome { case "executed": }`, true},
+		} {
+			t.Run(target.dir+"/"+probe.name, func(t *testing.T) {
+				fset := token.NewFileSet()
+				src := `package probe
+import (
+ cat "github.com/hanchaoqun/codrax/internal/tracecatalog"
+ "github.com/hanchaoqun/codrax/internal/types"
+)
+func ` + target.fn + `(q cat.QueryRecord, cmd types.ExecutedCommand) { ` + probe.body + ` }
+`
+				file, err := parser.ParseFile(fset, target.file, src, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				files := map[string]*ast.File{target.file: file}
+				reg := []outcomeSwitchRegistration{{dir: target.dir, file: target.file, fn: target.fn, domain: outcomeDomainCatalog}}
+				info := outcomeCatalogTypes(fset, target.dir, files, reg)
+				findings := outcomeSwitchesIn(fset, target.dir, files, members, info)
+				problems := outcomeCensusCheck(findings, reg, members)
+				if (len(problems) != 0) != probe.red {
+					t.Fatalf("red=%t findings=%d problems=%v", probe.red, len(findings), problems)
+				}
+				if probe.red && !strings.Contains(strings.Join(problems, "\n"), "does not resolve exclusively") {
+					t.Fatalf("negative probe failed for the wrong reason: %v", problems)
+				}
+				if !probe.red && len(outcomeCensusCheck(outcomeSwitchesIn(fset, target.dir, files, members), reg, members)) == 0 {
+					t.Fatal("catalog exemption must fail closed without resolved type information")
+				}
+			})
+		}
+	}
+}
+
 func TestExecutedCommandOutcomeConsumerCensusSelfRed(t *testing.T) {
 	members := map[string]string{"ExecutedCommandOutcomeExecuted": "executed", "ExecutedCommandOutcomeTimeout": "timeout"}
 	parse := func(src string) (*token.FileSet, map[string]*ast.File) {
