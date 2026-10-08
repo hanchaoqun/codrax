@@ -2,6 +2,8 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
+当前实施状态（2026-10-08，§207）：79个稳定子任务中17项实现交付、62项开放；最新队列与计数以[实施清单](hmosperf_implementation_tasks_20260917.md)为准。下文初始映射和历史批次保留当时边界，不把早期“待实施”或旧FAIL当成最新实现状态；实现交付也不倒签模型答案验收。
+
 ## 1. 范围、证据与结论口径
 
 按用户顺序，先闭环 B1716 并提交推送 `93bf1a42d`，再进行本审计；r1088 尚未开始。本次参考仓只读，没有运行服务器、插件加载器、遥测或客户数据分析任务。
@@ -68,7 +70,7 @@
 |---|---|---|---|---|
 | HMC-01 | P1 | 指标可发现性/前提/单位目录 | 复用单源 view/schema；列明需要的事件族、单位、缺测，不添加重复 JSON 必填合同 | 待设计 |
 | HMC-02 | P1 | 按窗口/对象组织有界证据包 | 复用 artifact/blob 与 typed 对象 ID；独立错误、覆盖/截断、缺对象，不按数组位置猜同一对象 | span_locate 子查询覆盖丢失已24d82316f修复；因果诊断IO事实交接及独立窗口去重末版全仓验收通过，第四批交付（§11）；其余待设计 |
-| HMC-03 | P1 | native_hook 资源事实易查询性 | 全表原始保真已覆盖；I 语义出口补本次资源量/来源栈键/nullable 资源 end，不铸执行时长/泄漏/根因；地址与栈解析另批 | 首批实现/确定性回归/构建闭环；生产数据交付正确、模型解释FAIL（§10）；同源教学857920fa7已推，修后live未回放 |
+| HMC-03 | P1 | native_hook 资源事实易查询性 | 原始保真、资源瞬时语义及同源资源栈已有；不铸执行时长/泄漏/根因；地址等字段验收单列 | 03.1及03.3实现已交付，资源完整栈与公开默认入口见§207；03.2验收开放，旧§10及本批模型解释FAIL不倒签 |
 | HMC-04 | P1 | 启动阶段与阶段内业务热点 | 业务事件→精确区间→既有因果/采样；未配对保持未知，不用全量热点填指定窗口 | 普通业务片段事实交接末版全仓验收通过，第四批交付（§11）；命名启动阶段/业务窗口自主选择仍未闭环 |
 | HMC-05 | P1 | hilog/kmsg 结构化日志与 trace 联查 | 先来源身份/时钟映射/误差/对齐见证，再提供时间邻近支持，不自动成因果边 | 待设计 |
 | HMC-06 | P2 | pcap 网络流及协议指标 | 有界流标识、包时间/重传/方向/完整度；不能把同窗网络当链上 IO 等待 | 待设计 |
@@ -5637,3 +5639,85 @@ SQLite出口探测真实dur列，有dur的频率/idle走区间载体，不再造
 末版冻结728aa2efc的单次完整`go test -count=1 -p 4 ./...`，15283正式exit0：88测试包PASS、13无测试包、零FAIL，不使用测试结果缓存、不拼接前后收据。tool479.478秒、agent103.280秒、hitraceconv164.300秒、orchestrator58.784秒、tracequery130.352秒、types39.505秒。末版make56775正式exit0，revision `728aa2efc805-dirty` 的dirty仅三份文档及两份汇总报告，没有未冻结产品修改；无须为仅文档变化再跑全仓。
 
 四笔代码/测试已普通推送main，42762正式exit0（`a322f50b9`→`728aa2efc`），远端0/0，没有force或历史改写。2026-10-08跨日合批收尾三份文档与两份评测小报告；原始live、输入、测试RED和限定PASS均保本地归档，版本库保存可复核引用/哈希与人工结论。末次79/16/63、重复0，本批1份完整答案FAIL与五验收父项不误销。
+
+## 207. 同采集资源栈、受信量测表与请求窗口继承（2026-10-08）
+
+### 207.1 起点、参考意图与交付边界
+
+起点`0665df7da`干净；逐唯一ID复算79项、16实现交付、63开放，重复0。本批两轨：03.3同采集原生资源调用栈完整纵向；16.4已证的结构化表列合同/拒稿恢复和CPU受信量测通道。固定双例随后暴露工具漏填用户窗的确定接缝，在共享参数层同批闭环；不另跑第三例，不继续围绕单份CPU答案追加特判。退出范围不含14堆存量/泄漏、17.6非空真机矩阵、17.7持续写入一致快照或CPU全部统计子能力。
+
+再次逐段核对参考`config/indicators/memory/heap.yaml:481`：heap_callchain_expand把热点资源事件的callchain_id下钻为同库native_hook_frame与data_dict，是从统计定位到业务调用位置的能力，preprocess=null。参考将depth=0称叶子，却又固定max_depth-2为业务叶子；直接JOIN重复字典ID还可能放大帧数。本仓吸收同采集下钻意图，不复制这两项假设，也不借已有perf栈的深度方向。原始六份参考SQLite的native表为空（§206.5已列路径），本批新增非空构造SQLite验默认真实入口，不能因此签真机PASS。上游OpenHarmony生产表实现另验callchain为uint32、全1为无效标识；NULL、非法值、合法0及signed物理rowid仍各自保留，不能靠消费者默认值定语义。
+
+### 207.2 完整实现：资源事件到逐帧业务证据
+
+`4b464b2d2`贯通默认.data/SQLite只读准备→同库native_hook事件/帧/字典导出→版本化载体→公开resource_stack查询→有界typed交接→actual finalizer。资源主体通过itid/ipid与线程/进程生命周期验证，不要求起点必须Running；无CPU见证仍保独立资源观察，CPU未知，不造CPU0。精确同源资源引用才可关联callchain，裸栈键不是跨采集身份。
+
+`tracewire.ResourceStackRecord`使用独立canonical JSON/base64url注释协议，保精确ns/hidden rowid、原始id/地址/IP位型、深度、offset/symbol_offset/vaddr及解析状态；共享操作规范化，ParserVersion v54隔离旧缓存。只导出被事件引用的帧与字典，重复字典键保歧义不任选；missing table、unresolved key、no frames、observed分开。源物理序列齐全不等于真实unwind完整；深度缺口、重复/无效、未知符号及显示省略独立计数，没有固定业务叶子或泄漏/等待/响应根因推断。
+
+查询先完整统计、再显示40事件×128帧；handoff为8事件×32帧及JSON/文字各24KiB，最终最多4查询/64KiB。预算删除完整帧/事件/查询并报告省略，不截半个符号；原始payload保留。实际长字符串/转义预算、冲突同身份拒借、显式右开边界、默认含末点包络与单点均有公开正反控。协议128KiB覆盖受限字段的最坏JSON转义，低层sink与原始行准入上限未扩大。
+
+大型原始文本/完整单身份bundle走全源流式扫描，私有资源索引上限65536载体/32MiB；超限继续读到EOF但返回typed不可用，不拿部分扫描冒充全量。计算后发布前复验V2源代次/完整性；取消仍返回真实错误，不伪装缺数据。多源、仿射时钟或裁剪索引不偷借单源权限。真实超过64MiB的raw/bundle与小文件路径事件和行身份一致，资源协议、source-generation、容量及取消都有定向race。
+
+新增自然case只问10.000–10.050秒线程101的分配/释放及调用位置，不附系统约束清单。独立oracle为3资源事件、8帧，包含缺层、重复深度、歧义字典和右边界事件。实际准备器→公开工具→最终消息测试验证原始输入字节不变、同线程归属、业务符号可见、证据ledger不被展示改写；源码、因果投影及根因链权限不变。
+
+### 207.3 系统修复：表格身份与低心智交接
+
+`0c3361572`统一普通cells表合同：有cells必须有非空columns，列名非空、每行列数一致；空格子保位，Markdown表/旧label-text保持兼容，不猜列名。Emit/Patch/schema共用短教学。先投影完整拒稿，再给精确shape错误；只有完整可寻址、ID无歧义且仅此形状问题的拒稿可作为局部patch基稿。未修的旧坏表仍被拒；缺ID/重复ID/未保留块不借恢复路径过门。公开红绿和race证明不会因修表头丢其它表/根因选择或强制重写整答。
+
+`9dc00ac3a`复用既有RuntimeMeasurementProvider，而非新造CPU输出协议：生产者从完整查询结果发布summary/distribution/timeline三种确定性表，模型只选当前observation_id/view。精确来源、查询范围、payload身份及冲突校验仍在；跨查询/陈旧/伪造pair不能借数值。原模型自定义解释表保留，没有扫描自由文本数字替模型修文。40ms×2核的80 CPU-ms、联合已知35/未知45及全部7区间在生产者到最终展示保持，原生状态码仍不猜Running或C态。此子能力降低手抄/换算负担，但不证明模型已选择完整所求视图。
+
+`1185a30b4`针对本批真实FAIL补共享请求窗口默认：每个登记view在来源准入后，两端均省略且无行范围/业务实例时，读取当前唯一、已验证typed请求窗和精确已准备来源；0起点保持，时钟不平移，不添查找容差。任一显式端点、多个请求窗、不同/不明来源、旧附件blob、系统补证执行均不覆盖，显式扩窗探索继续允许。有效参数进查询/memo，SUPP-CORE登记只读原始decoded调用，派生窗不冒充模型明确选择。真实附件只传source/view的同款公开回归现在返回3事件/8帧，实际finalizer包含ImageCache::reserve/UIFrame::render；原先严格拒inclusive末点的范围门没有放宽。这是通用参数补齐，不是资源case名单或用户原文关键词门。
+
+### 207.4 固定双例与未销账验收缺陷
+
+冻结`4b464b2d2`，恰好2并行×1，机器2/2、完整人工0/2；详见[人工审计](../../eval/parallel_selected_summary_hmc_resource_stack_cpu_20261008_manual_audit.md)。原始日志/答案/机器汇总保留，不重跑第三例，不倒签§205/206或本轮FAIL。
+
+- **资源栈204秒，FAIL。** 三查询、零源码读取；analyzer请求窗正确，resource_stack漏窗只补目标101，默认含末点包络得到4事件。原payload已含完整业务符号/缺层/歧义，但最终严格范围门排除越界载荷后只留定位信息，答案错误声称无符号并把-1/Free地址作无凭据解释。无CPU因果越权不能抵消未完成栈展开。上节共享默认值修复在live之后，有完整确定性回归但不把该次答案改签；有意扩窗的重要证据被排除时的精确补查仍留16.4。
+- **CPU169秒，FAIL。** 一查询、零源码读取；受信7组分布数值与列名正确，旧50ms/125%未再现。然而同一全核distribution被重复选两次，分别冠以CPU0/CPU1标题，缺timeline；模型把状态码语义未核实混同联合测量缺口。全量正确供给不代表已证明偶发波动；保留记录，不继续占用整条能力轨。
+- **跨层新发现，归16.4/16.5而非新编号。** member_set覆盖修补与受信表facet不一致，触发无实质变化的patch；选表目标粒度/范围标题/时间维度缺统一对应。预分析直接收到base64协议，emit_perf_trace已误解原始ns，后续确定性查询纠正主要值；应给可读且保精确身份的解析摘要，不让模型自行解码作事实。英文表头、路径与每表重复安全说明是业务化/降噪工作，不以扩大prompt或关键词硬门解决。
+
+### 207.5 全仓发现、保留证据与下一队列
+
+首轮完整`go test -count=1 -p 4 ./...`正式exit1：85包PASS、13无测试、3包FAIL（9测试），不能拼接其余成功宣称全绿。hitraceconv三处是新增资源导出owner调用/缺列覆盖lane未纳入结构见证；`98871f62c`只增加精确新增调用/覆盖记录，再逆投影该新增lane，原始SHA、输出字节和历史事件计数不改。
+
+tool另三处暴露最外schema wrapper重新Marshal把旧教学中的`>`等转义，以及新typed key未经过registry测试fixture的真实producer。`c103975f5`使用已有Encoder.SetEscapeHTML(false)保持schema原文，不删旧教学pin；用真实SQLite→公开query产生available资源观察，不手写测试假记录或豁免key。tracediag三处新增optional ResourceStack字段的精确类型/json-tag/omitempty见证，仅逆投影新字段校验全部历史hash，不任意更换黄金值。窗口短教学随后触发两处旧Description演进pin，`1185a30b4`独立批准唯一literal后缀并逆投影，原hash不变。这些遗漏说明§197已有的登记快速矩阵本批执行仍不完整；以后新增view需在昂贵全仓前运行整组，不靠提高阈值消错。
+
+下一双轨按ROI：**能力轨02.3逐工件/对象证据索引**（授权集合、源代次、窗口、部分失败、重排不串证），或04.5依赖树，不能继续为CPU单例停滞；**系统轨16.4受信表选择/范围/覆盖与可读协议预览**，跨量测家族统一，不强迫用户背守护规则。下一真实双例应配18.5完整CLI/controller/来源终态，§206只读登记跨进程成功仍保留限定PASS，不能误列全未实施。17.6真机、17.7持续写入/多来源代次/static_initialize/普通viewer，以及08.5逐源/簇/线程和独立全采集边界继续开放；未证多源/硬件/完整展开不得靠成功样例外推。
+
+02.3前置只读审计（不是交付）：参考`core/batch/engine.py:182`只首层glob/stem合并、`:279`仅按skill/stem存在复用state，`:321`future异常只写日志未进失败成员；`server.py:192`首层命中即不下探。`core/skill_executor.py:1366`同tag内按数组位置配线程与指标；`game_performance_analysis.py:471`虽保trace_id，`core/llm_contract.py:114`却又按裸tag建map，跨采集同tag可覆盖。其对象自包含文件＋索引＋失败继续值得借鉴，缓存键、位置配对和裸标签身份不能照搬。当前材料/源集合代次（attachment/traceinput/tracequery）与payload/观察引用可复用；runtime_artifact_selection的kind+source只是导航ID，artifact_read_navigation私有代次只限run-local。最小完整纵向为授权范围内完整发现清单→按真实材料代次/原生对象身份/实际查询窗登记结果与错误→原子持久目录→最终成员状态与按需事实；历史目录只导航，重新验证后才可用作当前事实。公开验收须同时覆盖多工件和同trace多对象、倒序/同名/同tag、空/失败/未执行、替换代次/bundle子源、cap/取消/存储失败、symlink越界和历史JSON重放。02.3继续待实施，不扩成10/11跨trace比较/聚类/报告工程。
+
+16.4下一系统轨已定位明确反例，不泛称模型幻觉：`answer_document_evaluator.go::answerDocumentBlockHasVisibleMemberPayload`只查Items/普通可见表，受信selector不含Items，schema又禁止它手填Items；本次首稿已有member_set facet仍触发同义patch。`emit_investigation_complete.go`的成员完成路径另只认aggregate member_set，导致有受信数据还要模型重抄。下一片应由producer发布可承载维度/精确成员范围/窗口/完整性，完成门与答案覆盖共用；重复selector不能算新增覆盖，部分/过期/错误源或窗口不伪称完成，源码清单原门不变，完整替换教学须保runtime_measurement。第二片复用`context/attached_trace_semantics.go`可读预览，`tracequery/event_semantics.go`当前未支持CPU区间；只解码可见完整行、不授统计或因果权限，尤其原始signed负起点不能被索引钳0替代。第三片统一producer范围/总体/用途展示和精确成员选项；标题不改变成员，不按标题关键词过滤、不静默去重或强制三视图全选。这些已有具体退出条件的系统缺陷按ROI续修，本批冻结后不插入新功能而使全仓反复失效。
+
+末版统一全仓与推送完成后，03.3按原退出条件记实现已交付：本批完整能力新增1，累计17/79，剩余62（45待实施/11部分实施/2待验收/3验收中/1持续执行）。另交付通用表形状/拒稿恢复、CPU受信表、同源请求窗继承三组系统子能力；不把字段数量或机器PASS折成任务数。人工0/2及五验收父项03.2/04.2/08.3/08.4/18.2独立保留，旧FAIL不改签。
+
+### 207.6 验证与发布收据
+
+首版代码冻结`1185a30b4`，六笔实现/测试提交（前三笔能力/系统修复、两笔完整回归接缝修复、一笔live后统一窗口补齐）；最终测试冻结另见下段。资源协议/query/export/tool/agent/skill相关race全部通过；实际大型raw/bundle与发布尾部源代次检查在`measurement-stream-race`通过。窗口末版广相关race为tool91.495秒/agent7.048秒；额外DET1 race自然exit0（tool167.470秒/agent4.739秒），没有实际中止测试。最后Description见证加入后的小范围race-v2再次exit0，tool4.771秒/agent4.256秒。独立只读窗口/来源审核未发现阻断，`git diff --check`通过。
+
+首轮末版统一回归91905仍exit1：87包PASS、13无测试、1包FAIL，仅TestToolDescriptionByteGolden发现新增窗口教学未同步完整快照。此FAIL必须保留，不能把前述局部Description测试算成完整覆盖。后续遵循golden文件的更新流程，记录批准的唯一terminal教学追加并重新生成完整快照；旧文字逆投影hash不变、不在测试内跳过差异。该变更发生在固定两例live之后，matched h2/h3派发A/B仍欠，不能声称已真验或为追绿追加第三例。最终统一回归另记独立日志。
+
+`931021b46`只提交演进记录及canonical完整golden，没有生产代码变动。原40685字节是新版41114字节的精确前缀，只有批准的429字节追加；旧完整SHA为`75b5ccc1017efb7b08bfbdc608b10884549d7a4e9d533431a433854c6d56fc1c`。所有Description/Schema（含ToolDescriptionByteGolden）普通测试1.291秒、相关race tool8.930秒/agent4.826秒正式exit0。最终构建78322正式exit0，revision `931021b46faf-dirty`的dirty仅文档与评测汇总；产品与测试全部冻结，统一全仓46380单独重验。
+
+初始表合同RED、拒稿恢复RED、结构见证与扩展Description失败均留原件，不能只留绿日志。正式构建7331已exit0，revision `1185a30b4f69-dirty`的dirty只有本批文档及两份评测汇总；没有未冻结代码。末版单次完整`go test -count=1 -p 4 ./...`另行验收，不使用测试结果缓存、不拿旧全仓收据代替。以下日志均归档至结果目录`validation/`；两次真实run的完整tool参数/结果及query payload另拷贝至`payloads/<原session>/`，原 `.codrax/blob/`不改。
+
+| 验证记录 | SHA-256 |
+|---|---|
+| 表格公开RED `codrax-hmc207-table-red-public.log` | `929da8d3076bcabaa78d6d3be41e33bf4d15ef9161965e06ed641aabfc5ddf68` |
+| 表格广相关 `codrax-hmc207-table-related-wide.log` | `212642234146b8e8213bda68e0c71fcf84c9a48506ac1c296705240a0d5971ef` |
+| 表格race `codrax-hmc207-table-race.log` | `5c1fb0cbb6949b3dc78964d0991d6b876e846fa9a27eaf8dec6db0615e381c07` |
+| 资源栈矩阵race `codrax-hmc207-resource-race.log` | `d8380d97086d0593074a2fcdf21b99e490920ac70c4331db554b261db9f32720` |
+| 大文件公开race `codrax-hmc207-measurement-stream-race.log` | `ea4b7c09534c19d99edc599c403274a73d0789a6591da34dc9b26a49ad617074` |
+| 最终窗口/教学race `codrax-hmc207-request-window-final-race-v2.log` | `2807c2c5126e0ba44587fb8fe1da7e7e90d1779dd15b5c71b29ef354bdab8e79` |
+| 原生会计见证race `codrax-hmc207-accounting-pins-race.log` | `eec3696243627bb06f832fba0b02a53bf872b3b0f4c841254bc718665f385b58` |
+| schema/真实registry race `codrax-hmc207-tool-contract-race-narrow.log` | `f71cc872887ba059921a7276cac8e94436e6cca31fecc882a9a8a8431a8a582f` |
+| 结果可选字段见证race `codrax-hmc207-measurement-schema-race.log` | `78b7b997bcc837e4c830cfdce8344fc9ad7144d2061b0f54e546d284793a586c` |
+| 初始全仓FAIL `codrax-hmc207-full.log` | `258f739d8cef901ea1c94990f6ca43e2dff32cfd4d7289910207dcc7a9f83902` |
+| 首轮末版全仓FAIL `codrax-hmc207-full-final.log` | `4434302c7d5194bd5be572753ed4688f9b35b4c454bbcba6b986db1558bcd2dc` |
+| 最终构建 `codrax-hmc207-build-final.log` | `e67d705f6c798e5e0cde6e48f1d7b7fa77635aefdf0d8430f141d1237de6326f` |
+| 完整Description/Schema与窗口race `codrax-hmc207-description-schema-complete-race.log` | `3cc0f8680bd6dbd18d5bdc988d0bd0bbf0eb67f233776ff05a967c64c7f6f280` |
+| 末版测试冻结后构建 `codrax-hmc207-build-final-v2.log` | `79d6991ab50769838140cd4bf6eaf2a709ac5cf1c35ac4a30a894bb4a7243372` |
+| 末版完整回归 `codrax-hmc207-full-final-v2.log` | `645f8380a711e28efb236cfe76b29fee6d3c192c6288ae3e30e6cbfa30c8457b` |
+
+最终冻结931021b46，46380正式exit0：统一单次`go test -count=1 -p 4 ./...`为88测试包PASS、13无测试、零FAIL，没有拼接前次成功包或使用测试结果缓存。tool480.232秒、agent102.897秒、hitraceconv165.591秒、orchestrator56.502秒、tracediag12.043秒、tracequery130.492秒、types39.845秒。后续仅文档/报告变化，不再重跑全仓。
+
+七笔代码/测试`0c3361572`、`9dc00ac3a`、`4b464b2d2`、`98871f62c`、`c103975f5`、`1185a30b4`、`931021b46`已普通推送main；21999正式exit0（0665df7da→931021b46），未force或改写历史。统一文档/机器原汇总/完整人工审计合批收尾；验证原件在`eval/results/hmc_resource_stack_cpu_20261008/validation/`，原始两run及payload保留。任务计数17交付/62开放是实现口径，不是本轮模型答案通过率。
