@@ -724,6 +724,12 @@ func TestPreDecodeRejectExitsResolveTheSelector(t *testing.T) {
 		projectedDiagram bool
 	}
 	cases := []exitCase{
+		{name: "full-emit unowned visible fields", patch: false, withPrev: false,
+			payload:     `{"blocks":[{"id":"s1","kind":"summary","text":"answer"}],"columns":["unowned"],"trace_root_causes":%s}`,
+			wantSummary: "visible answer field ownership is unresolved"},
+		{name: "patch unowned visible fields", patch: true, withPrev: true,
+			payload:     `{"unchanged_block_ids":["s1"],"items":[{"label":"unowned"}],"replace_trace_root_causes":%s}`,
+			wantSummary: "visible answer field ownership is unresolved"},
 		{name: "patch no-previous-emit", patch: true, withPrev: false,
 			payload:     `{"unchanged_block_ids":["s1"],"replace_trace_root_causes":%s}`,
 			wantSummary: "no previous emit found"},

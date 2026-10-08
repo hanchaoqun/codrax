@@ -175,7 +175,16 @@ func balancedJSONValueEnd(s string, start int) (int, bool) {
 	return 0, false
 }
 
-func recoverAnswerDocumentV2FromRawCandidate(raw json.RawMessage) (AnswerDocumentTextRecovery, bool) {
+func recoverAnswerDocumentV2FromRawCandidate(raw json.RawMessage) (result AnswerDocumentTextRecovery, recovered bool) {
+	// Display-only salvage must not relabel a structurally incomplete answer
+	// as lossless merely because its surviving blocks render successfully.
+	defer func() {
+		if paths := answerDocumentPayloadOwnershipPaths(raw, answerDocumentFullEmitQuarantineProfile); recovered && len(paths) > 0 {
+			result.Lossless = false
+			result.Diagnostics = append(result.Diagnostics, paths...)
+			result.Attachments = appendRecoveredAttachment(result.Attachments, answerDocumentOwnershipAttachment(raw))
+		}
+	}()
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
 		return AnswerDocumentTextRecovery{}, false

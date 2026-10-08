@@ -154,6 +154,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		return failEmit(toolName, now, "argument envelope rejected: %s", bodyErr)
 	}
 	var recovery answerDocumentRecoveryReport
+	if paths := answerDocumentPayloadOwnershipPaths(raw, answerDocumentFullEmitQuarantineProfile); len(paths) > 0 {
+		preserveAnswerDocumentOwnershipDraft(ctx, raw)
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, raw, false)
+		return failEmitWithRepair(toolName, now, answerDocumentPayloadOwnershipRepair(paths, answerDocumentFullEmitQuarantineProfile), "visible answer field ownership is unresolved: %s", strings.Join(paths, ", "))
+	}
 	// First pass: detect retired top-level fields (shape / steps /
 	// symbols / value / boolean / summary / symbols_completeness).
 	// The answer payload lives entirely inside blocks[]; these
@@ -623,6 +628,7 @@ type answerDocumentRecoveryReport struct {
 	CandidateKinds        []types.AnswerBlockKind
 	RecoveredKinds        []types.AnswerBlockKind
 	DroppedVisiblePayload bool
+	UnownedVisibleFields  []string
 	Attachments           []types.AnswerDisplayAttachment
 	Diagnostics           []string
 }
@@ -710,6 +716,9 @@ func answerDocumentDraftTextAttachment(doc *types.AnswerDocumentV2, source strin
 }
 
 func answerDocumentRecoveryLostUnattachedBlocks(report answerDocumentRecoveryReport) bool {
+	if len(report.UnownedVisibleFields) > 0 {
+		return true
+	}
 	if strings.TrimSpace(report.Mode) == "" || report.Lossless {
 		return false
 	}
@@ -1845,6 +1854,9 @@ func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 // the in-tool repair path, so the agent layer does not grow a parallel
 // answer-document taxonomy.
 func RepairEmitAnswerDocumentMalformedParams(raw json.RawMessage) (json.RawMessage, bool) {
+	if len(answerDocumentPayloadOwnershipPaths(raw, answerDocumentFullEmitQuarantineProfile)) > 0 {
+		return nil, false
+	}
 	patched, ok := repairBlocksAsString(raw)
 	if !ok {
 		return nil, false
@@ -1875,7 +1887,15 @@ func RepairEmitAnswerDocumentMalformedParams(raw json.RawMessage) (json.RawMessa
 	return out, true
 }
 
-func repairBlocksAsStringDetailed(raw json.RawMessage) (json.RawMessage, answerDocumentRecoveryReport, bool) {
+func repairBlocksAsStringDetailed(raw json.RawMessage) (patched json.RawMessage, report answerDocumentRecoveryReport, ok bool) {
+	defer func() {
+		if paths := answerDocumentPayloadOwnershipPaths(raw, answerDocumentFullEmitQuarantineProfile); ok && len(paths) > 0 {
+			report.Lossless = false
+			report.DroppedVisiblePayload = true
+			report.Diagnostics = append(report.Diagnostics, paths...)
+			report.UnownedVisibleFields = append(report.UnownedVisibleFields, paths...)
+		}
+	}()
 	if len(raw) == 0 {
 		return nil, answerDocumentRecoveryReport{}, false
 	}
@@ -2189,6 +2209,14 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 		}
 		switch c {
 		case '"':
+			// A document sibling owns its entire value. Its nested objects
+			// (including unknown metadata shaped like a block) are not blocks.
+			if depth == 0 {
+				if end, ok := recoverySiblingValueEnd(scan, i); ok {
+					i = end - 1
+					continue
+				}
+			}
 			inStr = true
 		case '{':
 			if depth <= 0 {
@@ -2411,14 +2439,7 @@ func answerBlockAnnotationTail(tail string) string {
 }
 
 func countAnswerBlockKindMarkers(s string) int {
-	decoded := decodeEscapedTextLoose(s)
-	compact := strings.NewReplacer(" ", "", "\n", "", "\r", "", "\t", "").Replace(decoded)
-	total := 0
-	for _, kind := range types.AllAnswerBlockKinds() {
-		k := string(kind)
-		total += strings.Count(compact, `"kind":"`+k+`"`)
-	}
-	return total
+	return countRecoveryBlockObjects(s)
 }
 
 // isAnswerBlockCandidate is Path D's structural filter. The brace

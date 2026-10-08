@@ -2846,6 +2846,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		return failEmit(t.Name(), now, "emit_answer_document_patch: unaddressable current draft: %s", err)
 	}
 	addressablePatchBase = true
+	if paths := answerDocumentPayloadOwnershipPaths(params, answerDocumentPatchQuarantineProfile); len(paths) > 0 {
+		preserveAnswerDocumentOwnershipDraft(ctx, params)
+		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true)
+		return failEmitWithRepair(t.Name(), now, answerDocumentPayloadOwnershipRepair(paths, answerDocumentPatchQuarantineProfile), "visible answer field ownership is unresolved: %s", strings.Join(paths, ", "))
+	}
 	if answerDocumentHasTopLevelField(params, "relation_claims") {
 		rootCauseSelection = resolveTraceRootCauseSelectionFromRawParams(ctx, carriers, params, true) // §40.43 round-six #4
 		return failEmit(t.Name(), now,

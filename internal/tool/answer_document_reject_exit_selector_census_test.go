@@ -143,6 +143,7 @@ var rejectExitRoster = map[string][]rejectExitRow{
 		// selector. An uninspected bounded tail is handled inside that same
 		// resolver, never by skipping the ownership/exit census.
 		{"failEmit", "argument envelope rejected: %s", rejectExitLaneRaw},
+		{"failEmitWithRepair", "visible answer field ownership is unresolved: %s", rejectExitLaneRaw},
 		{"failEmit", "top-level field %q is not accepted; the answer is expressed through blocks[] only", rejectExitLaneRaw},
 		{"failEmit", "top-level field %q is not accepted; place the exact typed claim object(s) under blocks[i].relation_claims", rejectExitLaneRaw},
 		{"failEmitWithRepair", "answer_document carrier contains serialized JSON boundary text", rejectExitLaneRaw},
@@ -156,6 +157,7 @@ var rejectExitRoster = map[string][]rejectExitRow{
 		// B1565: the identity guard resolves the optional selector before
 		// rejecting the unaddressable draft, just like the missing-base lane.
 		{"failEmit", "emit_answer_document_patch: unaddressable current draft", rejectExitLaneRaw},
+		{"failEmitWithRepair", "visible answer field ownership is unresolved: %s", rejectExitLaneRaw},
 		{"failEmit", "top-level field %q is not accepted; place the exact typed claim object(s) under replace_blocks[i].relation_claims", rejectExitLaneRaw},
 		{"failEmitWithRepair", "answer_document patch carrier contains serialized JSON boundary text", rejectExitLaneRaw},
 		{"failEmitWithRepair", "answer_document patch placed a block operation in replace_snippets", rejectExitLaneRaw},
