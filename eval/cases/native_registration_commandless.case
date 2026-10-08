@@ -1,0 +1,11 @@
+ID="native_registration_commandless"
+NAME="Complete CLI controller — retained existing Python tests"
+MODE="apply"
+COMMANDLESS_APPLY=1
+FIXTURE="eval/fixtures/testdata/nested_python_increment"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="python3"
+POST_APPLY_FILE="packages/widget/widget.py"
+QUESTION="packages/widget 的 increment 应该返回输入整数加一，但现在结果不对。请修好实现，保留现有测试、项目配置和依赖，运行已有测试确认负数、零和正数的结果，并说明最后的验证情况。"
+EXPECT_CONTAINS="increment"
+EXPECT_MATCHES_REGEX='^[[:space:]]*def[[:space:]]+increment[[:space:]]*\('

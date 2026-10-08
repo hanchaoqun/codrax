@@ -52,6 +52,7 @@ func traceQuerySchedulerConcurrencyReceipt(r types.ObservationRecord, s *tracequ
 		summary.Notes = append(summary.Notes, "测量不可用："+traceQuerySchedulerConcurrencyReason(g.ValuesUnavailableReason))
 	}
 	var members [][]string
+	var memberIDs []string
 	for _, m := range g.Members {
 		if m.SourcePath != g.SourcePath || m.ID == "" || m.Thread.PID <= 0 || m.StartLocalLine <= 0 || m.EndLocalLine <= 0 {
 			return ""
@@ -65,11 +66,14 @@ func traceQuerySchedulerConcurrencyReceipt(r types.ObservationRecord, s *tracequ
 		}
 		members = append(members, []string{traceThreadLabel(m.Thread), strconv.Itoa(m.StartLocalLine), strconv.Itoa(m.EndLocalLine),
 			traceQueryDisplaySeconds(m.ActualStartTs), traceQueryDisplaySeconds(m.ActualEndTs), intersection, contribution})
+		memberIDs = append(memberIDs, m.ID)
 	}
 	memberTable := table(types.RuntimeMeasurementMembers,
 		[]string{"线程", "起点来源行", "终点来源行", "实际起点 (s)", "实际终点 (s)", "窗口内区间 (s)", "窗口内时长 (ms)"}, members,
 		fmt.Sprintf("已接纳区间 %d = 展示 %d + 展示上限省略 %d + 端点见证不可用 %d；汇总/分布/分桶基于全部已接纳区间。", g.AcceptedIntervalCount, len(members), g.OmittedMembers, g.MemberWitnessUnavailableCount),
 		"实际端点未按查询窗口裁剪，窗口内时长另列。同线程重叠成员不能直接相加重算线程时间；仅有深度不能反推参与线程，也不能把排除的开放尾线程当成峰值成员。")
+	memberTable.MemberSet = &types.RuntimeMeasurementMemberSet{PopulationID: "accepted_state_intervals", RowIDs: memberIDs, TotalRows: g.AcceptedIntervalCount,
+		Complete: s.OmittedGroups == 0 && g.OmittedMembers == 0 && g.MemberWitnessUnavailableCount == 0}
 	var depths [][]string
 	var distributionNotes []string
 	if d := g.Distribution; d != nil {
@@ -83,6 +87,13 @@ func traceQuerySchedulerConcurrencyReceipt(r types.ObservationRecord, s *tracequ
 	}
 	distributionNotes = append(distributionNotes, "各深度按完整窗口内的实际持续时间计量，包含已确认总体的零贡献时段；不是按桶峰值或事件次数计数。分位数取累计持续时间达到对应比例的最小线程数。")
 	distribution := table(types.RuntimeMeasurementDistribution, []string{"同时线程数", "持续时间 (ms)", "全窗时间占比 (%)"}, depths, distributionNotes...)
+	if d := g.Distribution; d != nil {
+		var ids []string
+		for _, depth := range d.Depths {
+			ids = append(ids, strconv.Itoa(depth.Threads))
+		}
+		distribution.MemberSet = &types.RuntimeMeasurementMemberSet{PopulationID: "state_concurrency_depths", RowIDs: ids, TotalRows: d.DepthCount, Complete: s.OmittedGroups == 0 && d.OmittedDepths == 0}
+	}
 	var buckets [][]string
 	for _, b := range g.Buckets {
 		buckets = append(buckets, []string{traceQueryDisplaySeconds(b.Window.StartTs), traceQueryDisplaySeconds(b.Window.EndTs),

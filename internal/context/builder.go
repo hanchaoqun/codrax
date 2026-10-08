@@ -845,7 +845,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			})
 		}
 	}
-	if section := formatRuntimeArtifactSelection(ac); section != "" {
+	if section := strings.TrimSpace(formatRuntimeArtifactSelection(ac)+"\n"+formatTraceCatalogs(ac)); section != "" {
 		section = sanitiseSectionForLLM(section, ac)
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionRuntimeArtifactChoice,

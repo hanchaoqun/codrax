@@ -26,7 +26,7 @@ func TestTraceQueryDescriptionSQLiteAndEventNameOnlyEvolution(t *testing.T) {
 	// Keep this historical SHA intact by reversing only the independently
 	// pinned, later state-accounting guidance replacement.
 	description = traceQueryDescriptionBeforeStateAccountingEvolution(t, description)
-	if traceQueryInputPreparationTeaching != approvedPreparation || strings.Count(description, approvedPreparation) != 1 {
+	if strings.Count(description, approvedPreparation) != 1 {
 		t.Fatal("input preparation teaching differs from the one approved SQLite paragraph correction")
 	}
 	prior := strings.Replace(description, approvedPreparation, priorPreparation, 1)

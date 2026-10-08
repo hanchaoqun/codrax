@@ -67,11 +67,18 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 		return RuntimeMeasurementPublication{}, false
 	}
 	seen := map[RuntimeMeasurementView]bool{}
-	for _, table := range p.Tables {
+	uniqueMembers := runtimeMeasurementUniqueKeys(raw)
+	for i, table := range p.Tables {
 		if !table.IsValid() || !runtimeMeasurementPredicateAllowsView(r.Predicate, table.View) || table.ObservationID != r.ID || seen[table.View] {
 			return RuntimeMeasurementPublication{}, false
 		}
 		seen[table.View] = true
+		start, end, known := TraceObservationContinuousQueryWindow(r.SourceRef)
+		if uniqueMembers && table.MemberSet.valid(len(table.Rows)) &&
+			(r.ClaimAuthority == ObservationClaimAuthorityUnknown || r.ClaimAuthority == ObservationClaimAuthorityDirectObservation || r.ClaimAuthority == ObservationClaimAuthorityIndependentlyProven) {
+			p.Tables[i].coverageScope = &runtimeMeasurementCoverageScope{path: r.SourceRef.Path, windowStart: start, windowEnd: end, windowKnown: known,
+				targetPID: r.SourceRef.QueryTargetPID, targetThread: r.SourceRef.QueryTargetThread}
+		}
 	}
 	return p, true
 }
@@ -108,6 +115,9 @@ func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasu
 				seen[string(key)] = true
 				for _, table := range p.Tables {
 					table = table.Clone()
+					if !runtimeMeasurementCoverageSourceAllowed(r, input) {
+						table.coverageScope = nil
+					}
 					if requested.HasExplicitTimeWindows() && !known {
 						table.Label = "Supplementary query (time scope unverified): " + table.Label
 						table.Notes = append(table.Notes, "This query has no verified continuous time window; it cannot substitute for the requested-window statistics.")
@@ -121,6 +131,29 @@ func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasu
 		return nil
 	}
 	return &out
+}
+
+func runtimeMeasurementCoverageSourceAllowed(r ObservationRecord, input ObservationLedgerInput) bool {
+	index := compileRuntimeArtifactPreflightSourceIndex(input.RuntimeArtifactPreflight, input.RepoRoot)
+	if len(index.byPath) == 0 {
+		// An observed query source is not proof of the requested input set.
+		// In particular, directory discovery may include unqueried captures.
+		return false
+	}
+	// A single population cannot settle multiple independent requested
+	// captures without a typed all-source selection contract. Keep their
+	// tables available for display; only this new completion authority waits.
+	if len(index.byPath) > 1 {
+		return false
+	}
+	r = index.requalify(r)
+	for _, path := range []string{r.SourceRef.CaptureIdentityPath, r.SourceRef.Path} {
+		key := runtimeArtifactIdentityPathKey(canonicalRuntimeArtifactIdentityPath(path, input.RepoRoot))
+		if _, ok := index.byPath[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func applyRuntimeMeasurementContract(view *AnswerSemanticView, input ObservationLedgerInput) {

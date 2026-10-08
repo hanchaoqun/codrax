@@ -30,6 +30,8 @@ type RuntimeMeasurementTable struct {
 	Columns       []string
 	Rows          [][]string
 	Notes         []string
+	MemberSet     *RuntimeMeasurementMemberSet `json:"member_set,omitempty"`
+	coverageScope *runtimeMeasurementCoverageScope
 }
 
 func (t RuntimeMeasurementTable) IsValid() bool {
@@ -51,6 +53,11 @@ func (t RuntimeMeasurementTable) IsValid() bool {
 
 func (t RuntimeMeasurementTable) Clone() RuntimeMeasurementTable {
 	out := t
+	out.MemberSet = t.MemberSet.clone()
+	if t.coverageScope != nil {
+		scope := *t.coverageScope
+		out.coverageScope = &scope
+	}
 	out.Columns = append([]string(nil), t.Columns...)
 	out.Notes = append([]string(nil), t.Notes...)
 	if t.Rows != nil {

@@ -29,6 +29,7 @@ var llmFacingToolRoster = []Tool{
 	&GrepTool{},
 	&TraceQuery{},
 	&TraceCapabilities{},
+	&TraceCatalog{},
 	&ReadFile{},
 	&ListFiles{},
 	&GitDiff{},

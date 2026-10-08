@@ -22,6 +22,24 @@ func AnswerBlockVisibleSurface(block AnswerBlock) string {
 	var b strings.Builder
 	appendAnswerVisibleSurface(&b, block.Title)
 	appendAnswerVisibleSurface(&b, block.Text)
+	if block.RuntimeMeasurement != nil {
+		if block.RuntimeMeasurement.IsBound() {
+			table := block.RuntimeMeasurement.BoundTable
+			appendAnswerVisibleSurface(&b, table.Label)
+			for _, column := range table.Columns {
+				appendAnswerVisibleSurface(&b, column)
+			}
+			for _, row := range table.Rows {
+				for _, cell := range row {
+					appendAnswerVisibleSurface(&b, cell)
+				}
+			}
+			for _, note := range table.Notes {
+				appendAnswerVisibleSurface(&b, note)
+			}
+		}
+		return strings.TrimSpace(b.String())
+	}
 	if block.Kind == BlockTable && !AnswerBlockRendersStructuredItems(block) {
 		// The table renderer treats a complete Markdown table as canonical and
 		// returns before rendering structured Items. Preserve only Markdown

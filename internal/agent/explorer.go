@@ -7452,6 +7452,7 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	// execution schema remains a strict superset and continues to reject stale
 	// or fabricated authority IDs.
 	schemas = projectExplorerCompletionRelationClaimSchema(ctx, schemas)
+	schemas = projectExplorerMeasurementMemberSchema(ctx, schemas)
 	// Completion-obligation lane: the scheduler granted ONE bounded
 	// dispatch whose sole purpose is materializing the pending typed
 	// completion handoff. Default to emit-only, but let typed repair

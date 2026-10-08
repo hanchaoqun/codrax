@@ -40,6 +40,7 @@ func traceQueryCPUStateFrequencyReceipt(r types.ObservationRecord, p tracequery.
 		notes = append(notes, fmt.Sprintf("Observed CPUs %d; full-window CPU-time %.9g CPU-ms; jointly known %.9g CPU-ms (%.9g%%); jointly unknown %.9g CPU-ms (%.9g%%). Overall percentages use all observed CPUs × the complete window (%.9g CPU-ms); every per-CPU percentage uses the entire %.9g ms wall-clock window, not just known coverage or displayed rows.", p.CPUCount, p.CPUTimeMs, p.KnownJointMs, p.KnownJointMs/p.CPUTimeMs*100, p.UnknownJointMs, p.UnknownJointMs/p.CPUTimeMs*100, p.CPUTimeMs, p.WindowWallMs),
 			fmt.Sprintf("Producer rows: CPUs displayed %d of %d; omitted %d. Tables retain all rows available in the query result, independently of the shorter handoff preview; omitted rows are not reconstructed and displayed rows need not sum to the full totals.", len(p.CPUs), p.CPUCount, p.OmittedCPUs))
 		var summary, distribution, timeline [][]string
+		var groupIDs []string
 		var coverage, groupOmissions, intervalOmissions []string
 		groups, intervals := 0, 0
 		number := func(v float64) string { return strconv.FormatFloat(v, 'g', 9, 64) }
@@ -64,6 +65,8 @@ func traceQueryCPUStateFrequencyReceipt(r types.ObservationRecord, p tracequery.
 				intervalOmissions = append(intervalOmissions, fmt.Sprintf("%s intervals displayed %d of %d, omitted %d", id, len(cpu.Intervals), cpu.TotalIntervals, cpu.OmittedIntervals))
 			}
 			for _, group := range cpu.Groups {
+				identity, _ := json.Marshal([]any{cpu.CPU, group.CPUStateFrequencyValue})
+				groupIDs = append(groupIDs, string(identity))
 				state, frequency := cpuStateFrequencyLabels(group.CPUStateFrequencyValue)
 				distribution = append(distribution, []string{id, state, frequency, number(group.DurationMs), number(group.WindowPct)})
 			}
@@ -85,6 +88,8 @@ func traceQueryCPUStateFrequencyReceipt(r types.ObservationRecord, p tracequery.
 			table(types.RuntimeMeasurementDistribution, []string{"CPU", "Observed state", "Frequency (kHz)", "Duration (ms)", "Full CPU window (%)"}, distribution, countNote("groups", len(distribution), groups, groupOmissions)),
 			table(types.RuntimeMeasurementTimeline, []string{"CPU", "Start inclusive (s)", "End exclusive (s)", "Observed state", "Frequency (kHz)", "Duration (ms)", "State source line", "Frequency source line"}, timeline, countNote("intervals", len(timeline), intervals, intervalOmissions)),
 		}
+		tables[1].MemberSet = &types.RuntimeMeasurementMemberSet{PopulationID: "cpu_state_frequency_groups", RowIDs: groupIDs, TotalRows: groups,
+			Complete: p.OmittedCPUs == 0 && len(distribution) == groups}
 	}
 	publication := types.RuntimeMeasurementPublication{Version: 1, ObservationID: r.ID, Source: r.SourceRef, Tables: tables}
 	data, err := json.Marshal(publication)

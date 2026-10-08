@@ -15972,7 +15972,7 @@ func requestedAnswerDimensionRoleOwnedByBlock(ctx *types.AgentContext, role type
 	case types.RequestedAnswerDimensionDiagram:
 		return block.Kind == types.BlockDiagram && block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != ""
 	case types.RequestedAnswerDimensionMemberSet:
-		return visible && answerDocumentBlockHasVisibleMemberPayload(block) &&
+		return visible && answerDocumentMemberPayloadForContext(ctx, block) &&
 			(answerBlockHasFacet(block, string(types.RequestedAnswerDimensionMemberSet)) || answerDocumentBlockCarriesExactSourceInventoryRoster(block))
 	case types.RequestedAnswerDimensionRelationPath:
 		if !visible || block.SurfaceRole != types.SurfacePrincipal {
@@ -16572,7 +16572,7 @@ func answerDocumentCoversRequestedMemberSetDimensions(ctx *types.AgentContext, d
 	}
 	exactSourceInventoryRoster := answerDocumentCoversExactTypedSourceInventoryRoster(ctx, doc)
 	if !exactSourceInventoryRoster &&
-		answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(doc) < requested {
+		answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(ctx, doc) < requested {
 		return false
 	}
 	if answerDocumentRelationMemberSetRequestsVisibleLocations(ctx) {
@@ -16742,18 +16742,34 @@ func answerDocumentMemberSetPayloadBlockCount(doc *types.AnswerDocumentV2, requi
 	return count
 }
 
-func answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(doc *types.AnswerDocumentV2) int {
+func answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(ctx *types.AgentContext, doc *types.AnswerDocumentV2) int {
 	if doc == nil {
 		return 0
 	}
 	count := 0
+	seenMeasurements := map[string]bool{}
+	var measurements []types.AnswerRuntimeMeasurementReceipt
 	for _, block := range doc.Blocks {
 		if !answerBlockHasFacet(block, string(types.RequestedAnswerDimensionMemberSet)) &&
 			!answerDocumentBlockCarriesExactSourceInventoryRoster(block) {
 			continue
 		}
-		if answerDocumentBlockHasVisibleMemberPayload(block) {
+		if answerDocumentMemberPayloadForContext(ctx, block) {
+			if receipt := block.RuntimeMeasurement; receipt != nil {
+				key := receipt.ObservationID + "\x00" + string(receipt.View)
+				if seenMeasurements[key] {
+					continue
+				}
+				seenMeasurements[key] = true
+				measurements = append(measurements, *receipt)
+				continue
+			}
 			count++
+		}
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && len(measurements) > 0 {
+		if selected, valid := types.RuntimeMeasurementMemberSetSelections(measurements, types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract, &ctx.AnalysisIR.RequestModel); valid {
+			count += len(selected)
 		}
 	}
 	return count
@@ -17075,9 +17091,10 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	memberLocationsRequired := answerDocumentRelationMemberSetRequestsVisibleLocations(ctx)
 	sourceInventoryMemberRoster := answerDocRequestedMemberSetUsesExactSourceInventoryRows(ctx)
+	markedMeasurementMembers := answerDocumentHasMarkedMeasurementMembers(ctx)
 	memberSetMetadataRepair := false
 	for _, dim := range missing {
-		if dim.Role == types.RequestedAnswerDimensionMemberSet && !sourceInventoryMemberRoster {
+		if dim.Role == types.RequestedAnswerDimensionMemberSet && !sourceInventoryMemberRoster && !markedMeasurementMembers {
 			memberSetMetadataRepair = true
 			break
 		}
@@ -17089,7 +17106,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		b.WriteString("优先使用 `emit_answer_document_patch` 对现有答案作局部修补；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
 		b.WriteString(requestedAnswerDimensionDisplayInstruction(true))
 		if memberSetMetadataRepair {
-			b.WriteString("Patch 执行形：`facet_ids` 是数组元数据，不要把数组本身塞进 `block_field_edits_v1`。若当前工具 schema 发布精确的 `add_facet_id` 分支，直接选择其 block_id/value，只补该归属并保留整块内容；否则使用 `replace_blocks` 完整重发目标块：复制上一版的 id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family，只改 `facet_ids`；`replace_blocks` 不是字段合并。\n")
+			b.WriteString("Patch 执行形：`facet_ids` 是数组元数据，不要把数组本身塞进 `block_field_edits_v1`。若当前工具 schema 发布精确的 `add_facet_id` 分支，直接选择其 block_id/value，只补该归属并保留整块内容；否则使用 `replace_blocks` 完整重发目标块：复制上一版的 id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family/runtime_measurement，只改 `facet_ids`；`replace_blocks` 不是字段合并。\n")
 		}
 		b.WriteString("待核对维度：\n")
 		for _, dim := range missing {
@@ -17102,6 +17119,8 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			if dim.Role == types.RequestedAnswerDimensionMemberSet {
 				if sourceInventoryMemberRoster {
 					b.WriteString("  - 请恢复对应的模型成文主清单块：保留 `facet_ids:[\"enumeration_item\"]`，并让每个可见结构化行携带其精确 `source_inventory_row_id`；仅单一家族块保留 `source_inventory_family`，混合/全局块省略。列表 `items[].label/text` 已可承载逐行字段，也可使用 `columns[]` + 可见 `items[].cells[]`；不要补重复 `member_set`，也不要为了字段展示复制第二份清单。\n")
+				} else if markedMeasurementMembers {
+					b.WriteString("  - 已有量测表包含成员归属标记；不要重复补同一标记或复制同一 selector。请核对所选 population 是否完整覆盖所求来源、目标和全部窗口，多个所求成员集需要不同的对应 population；保留部分表的可见数据与边界，不能把省略行或范围未验证当完整。\n")
 				} else {
 					b.WriteString("  - 请在真正承载该成员清单的可见列表/表格块上补隐藏元数据 `facet_ids:[\"member_set\"]`；不要把这个内部标记写进可见标题/正文，也不要标到别的关系或边界清单上。\n")
 				}
@@ -17131,7 +17150,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	b.WriteString("Prefer `emit_answer_document_patch` for a local repair of the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
 	b.WriteString(requestedAnswerDimensionDisplayInstruction(false))
 	if memberSetMetadataRepair {
-		b.WriteString("Executable patch shape: `facet_ids` itself remains array metadata; do not send that array through `block_field_edits_v1`. When the current tool schema publishes an exact `add_facet_id` branch, select its block_id/value to add only that ownership membership while preserving the relation carrier byte-for-byte. Otherwise use `replace_blocks` with the COMPLETE target block: copy the previous id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family and change only `facet_ids`; `replace_blocks` is not a field merge.\n")
+		b.WriteString("Executable patch shape: `facet_ids` itself remains array metadata; do not send that array through `block_field_edits_v1`. When the current tool schema publishes an exact `add_facet_id` branch, select its block_id/value to add only that ownership membership while preserving the relation carrier byte-for-byte. Otherwise use `replace_blocks` with the COMPLETE target block: copy the previous id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family/runtime_measurement and change only `facet_ids`; `replace_blocks` is not a field merge.\n")
 	}
 	b.WriteString("Dimensions to check:\n")
 	for _, dim := range missing {
@@ -17144,6 +17163,8 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		if dim.Role == types.RequestedAnswerDimensionMemberSet {
 			if sourceInventoryMemberRoster {
 				b.WriteString("  - Restore the corresponding model-authored principal roster block with `facet_ids:[\"enumeration_item\"]` and the exact `source_inventory_row_id` on every visible structured row; keep `source_inventory_family` only for a single-family block and omit it for a mixed/global block. List `items[].label/text` may already carry row-local fields, or use `columns[]` plus visible `items[].cells[]`; do not add a duplicate `member_set` marker or copy the roster merely to display fields.\n")
+			} else if markedMeasurementMembers {
+				b.WriteString("  - A measurement table already carries the member marker; do not repeat that marker or copy the same selector. Check that the selected population completely covers the requested source, target and all windows; independent member sets need distinct matching populations. Preserve partial tables and their boundaries, without treating omitted rows or unverified scope as complete.\n")
 			} else {
 				b.WriteString("  - Add hidden metadata `facet_ids:[\"member_set\"]` to the visible list/table block that actually carries this roster. Do not print the marker in the visible title/body or attach it to another relation/boundary list.\n")
 			}

@@ -8,6 +8,7 @@ func RegisterDefaults(r *Registry) {
 	r.Register(&GrepTool{})
 	r.Register(&TraceQuery{})
 	r.Register(&TraceCapabilities{})
+	r.Register(&TraceCatalog{})
 	r.Register(&ReadFile{})
 	r.Register(&ListFiles{})
 	r.Register(&GitDiff{})

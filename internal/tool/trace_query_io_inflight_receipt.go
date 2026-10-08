@@ -61,6 +61,7 @@ func traceQueryIOInFlightReceipt(r types.ObservationRecord, stats *tracequery.IO
 		}
 	}
 	var memberRows [][]string
+	var memberIDs []string
 	for _, m := range group.Members {
 		if m.SourcePath != group.SourcePath || m.IssueLocalLine <= 0 || m.CompleteLocalLine <= 0 || m.ID == "" {
 			return ""
@@ -77,11 +78,14 @@ func traceQueryIOInFlightReceipt(r types.ObservationRecord, stats *tracequery.IO
 		memberRows = append(memberRows, []string{traceThreadLabel(m.IssueThread), traceThreadLabel(m.CompleteThread),
 			strconv.Itoa(m.IssueLocalLine), strconv.Itoa(m.CompleteLocalLine),
 			traceQueryDisplaySeconds(m.ActualStartTs), traceQueryDisplaySeconds(m.ActualEndTs), intersection, contribution})
+		memberIDs = append(memberIDs, m.ID)
 	}
 	members := table(types.RuntimeMeasurementMembers,
 		[]string{"Issuing thread", "Completing thread", "Issue source line", "Completion source line", "Actual start (s)", "Actual end (s)", "Window intersection (s)", "In-window residence (ms)"}, memberRows,
 		fmt.Sprintf("Accepted complete pairs: %d = displayed witnesses %d + display-limit omissions %d + unavailable endpoint witnesses %d. Concurrency and residence statistics use all accepted pairs, not just these rows; these members do not enumerate the separate issue-event count.", group.AcceptedPairCount, len(group.Members), group.OmittedMembers, group.MemberWitnessUnavailableCount),
 		"Actual endpoints are not clipped; only in-window residence is clipped. A completing thread is not automatically the thread that woke the issuer.")
+	members.MemberSet = &types.RuntimeMeasurementMemberSet{PopulationID: "accepted_io_pairs", RowIDs: memberIDs, TotalRows: group.AcceptedPairCount,
+		Complete: stats.OmittedGroups == 0 && group.OmittedMembers == 0 && group.MemberWitnessUnavailableCount == 0}
 	var timelineRows [][]string
 	for _, s := range group.Segments {
 		timelineRows = append(timelineRows, []string{traceQueryDisplaySeconds(s.StartTs), traceQueryDisplaySeconds(s.EndTs), strconv.Itoa(s.Requests)})

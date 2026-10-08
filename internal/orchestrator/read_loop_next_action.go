@@ -360,6 +360,31 @@ func admitAttachedTraceToolIntoReadDispatchPolicy(policy types.ReadDispatchPolic
 	return types.NormalizeReadDispatchPolicy(policy)
 }
 
+// A current catalog keeps a directory investigation navigable during a bounded
+// proof continuation. This only extends the tool menu: every catalog/source
+// access still uses its normal run-local authorization and generation checks.
+// Form repair, unknown lanes, and explicit denials never acquire tools here.
+func admitLiveTraceCatalogToolsIntoReadDispatchPolicy(policy types.ReadDispatchPolicy, busCtx *types.BusContext) types.ReadDispatchPolicy {
+	if busCtx == nil || busCtx.Mutable == nil || len(busCtx.Mutable.TraceCatalogs()) == 0 ||
+		!policy.Active || len(policy.AllowedTools) == 0 ||
+		policy.Action != types.ReadDispatchPolicyActionAddProof || policy.RouteSurface != types.ReadDispatchPolicySurfaceVerify {
+		return policy
+	}
+	for _, tool := range []string{"trace_query", "trace_catalog"} {
+		present, denied := false, false
+		for _, name := range policy.AllowedTools {
+			present = present || name == tool
+		}
+		for _, name := range policy.DeniedTools {
+			denied = denied || name == tool
+		}
+		if !present && !denied {
+			policy.AllowedTools = append(append([]string(nil), policy.AllowedTools...), tool)
+		}
+	}
+	return types.NormalizeReadDispatchPolicy(policy)
+}
+
 func (o *Orchestrator) installReadDispatchPolicyForExplore(policy types.ReadDispatchPolicy, active bool) func() {
 	if o == nil || o.busCtx == nil {
 		return func() {}
@@ -371,6 +396,7 @@ func (o *Orchestrator) installReadDispatchPolicyForExplore(policy types.ReadDisp
 	}
 	policy = types.NormalizeReadDispatchPolicy(policy)
 	policy = admitAttachedTraceToolIntoReadDispatchPolicy(policy, o.busCtx)
+	policy = admitLiveTraceCatalogToolsIntoReadDispatchPolicy(policy, o.busCtx)
 	if active && policy.Active {
 		o.busCtx.ReadDispatchPolicy = policy
 		if o.busCtx.Mutable != nil {

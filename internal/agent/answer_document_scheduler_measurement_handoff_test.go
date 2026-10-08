@@ -116,7 +116,7 @@ func TestSchedulerMeasurementActualFinalizerHandoffAndScope(t *testing.T) {
 		}
 		seen[state][table.View] = true
 		key := table.ObservationID + "/" + string(table.View)
-		if !reflect.DeepEqual(table, publications[key]) {
+		if !runtimeMeasurementPublicationEqual(t, table, publications[key]) {
 			t.Fatalf("contract changed source-bound publication %s", key)
 		}
 		selector := fmt.Sprintf("observation_id=%q view=%q", table.ObservationID, table.View)

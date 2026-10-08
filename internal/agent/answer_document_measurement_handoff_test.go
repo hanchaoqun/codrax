@@ -87,8 +87,25 @@ func assertRuntimeMeasurementFixturePopulations(t *testing.T, result types.ToolR
 	}
 	for _, table := range choices {
 		key := table.ObservationID + "/" + string(table.View)
-		if !reflect.DeepEqual(table, publications[key]) {
+		if !runtimeMeasurementPublicationEqual(t, table, publications[key]) {
 			t.Fatalf("handoff altered source-bound values/units/population for %s", key)
 		}
 	}
+}
+
+// Compare every producer-visible field, including rows, units, notes and
+// member population metadata. The consumer-private coverageScope is not part
+// of the publication: absent run-entry source proof may revoke completion
+// authority without changing any display data.
+func runtimeMeasurementPublicationEqual(t *testing.T, a, b types.RuntimeMeasurementTable) bool {
+	t.Helper()
+	aJSON, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bJSON, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(aJSON) == string(bJSON)
 }

@@ -81,8 +81,12 @@ func TestExplorerCompletionSchemaKeepsRelationClaimsWithTypedAuthority(t *testin
 	if len(got) != 1 || !explorerSchemaTopLevelPropertyForTest(t, got[0], "relation_claims") {
 		t.Fatalf("relation_claims must remain available when a copyable typed authority exists")
 	}
-	if !reflect.DeepEqual([]byte(got[0].Parameters), []byte(schema.Parameters)) {
-		t.Fatalf("authority-present schema should remain byte-identical")
+	// The independent measurement lane removes only its new optional field
+	// when no exact native member population is available. All old schema
+	// bytes after that precise projection must remain identical.
+	expected, ok := omitJSONSchemaTopLevelProperty(schema.Parameters, "runtime_measurement_member_sets")
+	if !ok || !reflect.DeepEqual([]byte(got[0].Parameters), []byte(expected)) {
+		t.Fatalf("relation-authority schema changed beyond the optional measurement field")
 	}
 }
 

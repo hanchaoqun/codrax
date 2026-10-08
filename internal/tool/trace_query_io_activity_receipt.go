@@ -63,6 +63,7 @@ func traceQueryIOActivityReceipt(r types.ObservationRecord, s *tracequery.IOActi
 		summary.Notes = append(summary.Notes, fmt.Sprintf("Read/write event denominator %d; read fraction %s; write fraction %s. Known read/write byte denominator %s B; read fraction %s; write fraction %s. Fractions are 0–1 and exclude other operations; byte fractions describe known bytes only, not all traffic.", rw.EventDenominator, traceQueryIOActivityNumber(rw.ReadEventShare), traceQueryIOActivityNumber(rw.WriteEventShare), traceQueryIOActivityBytes(rw.KnownByteDenominator), traceQueryIOActivityNumber(rw.ReadKnownByteShare), traceQueryIOActivityNumber(rw.WriteKnownByteShare)))
 	}
 	var sizes [][]string
+	var sizeIDs []string
 	for _, d := range g.Directions {
 		for _, band := range d.Values.SizeBuckets {
 			end := "unbounded"
@@ -70,10 +71,13 @@ func traceQueryIOActivityReceipt(r types.ObservationRecord, s *tracequery.IOActi
 				end = strconv.FormatUint(*band.MaxBytes, 10)
 			}
 			sizes = append(sizes, []string{d.Direction, strconv.FormatUint(band.MinBytes, 10), end, strconv.Itoa(band.Count)})
+			id, _ := json.Marshal([]string{d.Direction, strconv.FormatUint(band.MinBytes, 10), end})
+			sizeIDs = append(sizeIDs, string(id))
 		}
 	}
 	distribution := table(types.RuntimeMeasurementDistribution, []string{"Operation", "Size lower bound inclusive (B)", "Size upper bound exclusive (B)", "Known-size events"}, sizes,
 		"Bands cover known-size events only, with inclusive lower and exclusive upper bounds. Zero size is known; unknown/invalid/overflow sizes are excluded, not assigned to the smallest band. Size alone does not prove random or sequential IO.")
+	distribution.MemberSet = &types.RuntimeMeasurementMemberSet{PopulationID: "known_size_operation_bands", RowIDs: sizeIDs, TotalRows: len(sizes), Complete: s.OmittedGroups == 0}
 	var buckets [][]string
 	for _, b := range g.Buckets {
 		prefix := []string{traceQueryDisplaySeconds(b.Window.StartTs), traceQueryDisplaySeconds(b.Window.EndTs)}

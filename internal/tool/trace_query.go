@@ -290,6 +290,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	var preparedView string
 	var businessRef types.TraceBusinessSpanRef
 	var recordBusinessQuery func()
+	var catalogTickets []traceCatalogQueryTicket
 	defer func() {
 		if preparedMaterial != nil {
 			if err := traceQueryValidateReadyMaterial(ctx, preparedMaterial); err != nil {
@@ -312,6 +313,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			traceQueryAppendBusinessRefs(&out)
 		}
 		traceQueryFinalizeMeasurementSources(&out)
+		traceCatalogFinishQuery(ctx, catalogTickets, &out, executeErr)
 	}()
 
 	schema := t.Parameters()
@@ -432,6 +434,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if sourceReject != nil {
 		return *sourceReject, nil
 	}
+	catalogTickets = traceCatalogBeginQuery(ctx, p, params)
 	if err := traceQueryValidateAttachedInputBeforeMaterialization(ctx, p); err != nil {
 		if traceQueryIsCancellation(err) {
 			return traceQueryCancellationResult(p.View, "attached_trace", err), nil
@@ -469,6 +472,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// consume.
 	var requestWindowCaveat string
 	p, requestWindowCaveat = traceQueryApplyRequestWindow(ctx, p, path, sourceLabel)
+	if err := traceCatalogBindQuery(ctx, catalogTickets, p, path, material); err != nil {
+		return traceQueryPreparedMaterialFailure(path, p.View, err), nil
+	}
 	window := normalizedTraceQueryWindow(p)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
 	// typed window on the run-scoped registry so the post-explore

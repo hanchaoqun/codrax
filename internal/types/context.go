@@ -11,6 +11,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/canonpath"
+	"github.com/hanchaoqun/codrax/internal/tracecatalog"
 )
 
 // RetryHintKind classifies the control-plane meaning of TaskState.RetryHint.
@@ -406,6 +407,10 @@ type MutableState struct {
 	// explorer can audit a payload blob one dispatch after the
 	// trace_query call that produced it.
 	traceQueryPublishedBlobRefs map[string]string
+	// Discovery/query bookkeeping only; these handles never grant evidence or
+	// filesystem access. Their private generations do not survive JSON replay.
+	traceCatalogs        map[string]*tracecatalog.Catalog
+	traceCatalogLineages *traceCatalogLineages
 	// Original capture permissions are distinct from published query blobs.
 	// Survive dispatch reset; isolated forks share the epoch, not the map.
 	traceSourceReadGeneration *traceSourceReadGeneration
@@ -729,10 +734,11 @@ type MutableState struct {
 	// finalizer chose an explanation shape instead of a literal 0 /
 	// false / [] shape. Declarative, not command: the audit
 	// (hasInvestigationEvidence ≥1 investigation tool) still runs.
-	absenceJustification        string
-	investigationResultKind     string
-	investigationAggregateFacts []AnswerAggregateFact
-	investigationRelationClaims []AnswerRelationClaim
+	absenceJustification               string
+	investigationResultKind            string
+	investigationAggregateFacts        []AnswerAggregateFact
+	investigationMeasurementMemberSets []AnswerRuntimeMeasurementReceipt
+	investigationRelationClaims        []AnswerRelationClaim
 	// exactContextRequiredFiles stores repo-relative production files
 	// that the explorer structurally ranked as same-scope related-
 	// context anchors for an exact-resolution task. When an
@@ -1387,6 +1393,7 @@ func NewMutableState(objective string) *MutableState {
 		traceInputAdmissionTerminal:      &traceInputAdmissionTerminalLatch{},
 		artifactReadNavigationGeneration: &artifactReadNavigationGeneration{},
 		traceSourceReadGeneration:        &traceSourceReadGeneration{},
+		traceCatalogLineages:             &traceCatalogLineages{},
 		toolDocumentation:                toolDocumentationState{generation: &toolDocumentationGeneration{}},
 	}
 }
@@ -1436,6 +1443,8 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceQueryRuntimeObservationCount:           m.traceQueryRuntimeObservationCount,
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
+		traceCatalogs:                               cloneTraceCatalogs(m.traceCatalogs),
+		traceCatalogLineages:                        m.traceCatalogLineages,
 		traceSourceReadGeneration:                   m.traceSourceReadGeneration,
 		toolDocumentation:                           cloneToolDocumentationState(m.toolDocumentation),
 		traceQuerySourceReads:                       cloneTraceQuerySourceReads(m.traceQuerySourceReads),
@@ -1489,6 +1498,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	}
 	out.phase1Ranking = append([]Phase1RankedFile(nil), m.phase1Ranking...)
 	out.investigationAggregateFacts = cloneAnswerAggregateFacts(m.investigationAggregateFacts)
+	out.investigationMeasurementMemberSets = cloneMeasurementMemberSetSelections(m.investigationMeasurementMemberSets)
 	out.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(m.retainedInvestigationAggregateFacts)
 	out.investigationRelationClaims = CloneAnswerRelationClaims(m.investigationRelationClaims)
 	out.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(m.retainedInvestigationRelationClaims)
@@ -1532,6 +1542,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	absenceJustification := fork.absenceJustification
 	investigationResultKind := fork.investigationResultKind
 	investigationAggregateFacts := cloneAnswerAggregateFacts(fork.investigationAggregateFacts)
+	investigationMeasurementMemberSets := cloneMeasurementMemberSetSelections(fork.investigationMeasurementMemberSets)
 	investigationRelationClaims := CloneAnswerRelationClaims(fork.investigationRelationClaims)
 	sourceInventoryAdvisory := CloneSourceInventoryAdvisory(fork.sourceInventoryAdvisory)
 	sourceInventoryObservation := CloneSourceInventoryObservation(fork.sourceInventoryObservation)
@@ -1544,6 +1555,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	exactContextRequiredFiles := append([]string(nil), fork.exactContextRequiredFiles...)
 	traceQueryRuntimeObservationDelta := fork.traceQueryRuntimeObservationCount - fork.exploreForkTraceQueryRuntimeObservationBase
 	traceQueryBlobRefs := cloneStringStringMap(fork.traceQueryPublishedBlobRefs)
+	traceCatalogs := cloneTraceCatalogs(fork.traceCatalogs)
 	traceSourceGeneration := fork.traceSourceReadGeneration
 	toolDocumentation := cloneToolDocumentationState(fork.toolDocumentation)
 	toolDocumentation.accepted = fork.acceptedToolDocumentationLocked()
@@ -1622,6 +1634,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		// branch guard above already excludes an inherited flag).
 		m.investigationCompleteGeneration += fork.investigationCompleteGeneration - fork.exploreForkCompletionGenerationBase
 		m.investigationAggregateFacts = mergedAggregateFacts
+		m.investigationMeasurementMemberSets = investigationMeasurementMemberSets
 		m.investigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
 		m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
 		if investigationCompleteReason != "" {
@@ -1692,6 +1705,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		}
 	}
 	m.mergeTraceQuerySourceReadsLocked(traceSourceGeneration, traceSourceReads)
+	m.mergeTraceCatalogsLocked(traceSourceGeneration, traceCatalogs)
 	m.mergeTraceBusinessSpanRefsLocked(traceSourceGeneration, traceBusinessSpans)
 	m.mergeArtifactReadNavigationLocked(artifactNavigationGeneration, artifactNavigationPublished, artifactNavigation)
 	// Pure-tool memo union: first-writer-wins (the memo is an economy
@@ -5525,6 +5539,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.turnAArtifacts = nil
+	m.investigationMeasurementMemberSets = nil
 	m.turnAArtifactsRevision++
 	m.exploreForkTurnABaseNotesLen = 0
 	m.exploreForkTurnABaseBoundaryLen = 0
@@ -5535,6 +5550,8 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.traceQueryRuntimeObservationCount = 0
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.traceQueryPublishedBlobRefs = nil
+	m.traceCatalogs = nil
+	m.traceCatalogLineages = &traceCatalogLineages{}
 	m.traceSourceReadGeneration = &traceSourceReadGeneration{}
 	m.toolDocumentation = toolDocumentationState{generation: &toolDocumentationGeneration{}}
 	m.traceQuerySourceReads = nil
@@ -7990,6 +8007,9 @@ type ToolResult struct {
 	// Producer-only complete business instances and run-local navigation receipts.
 	TraceBusinessSpanCandidates []TraceBusinessSpanCandidate `json:"-"`
 	TraceBusinessSpanRefs       []TraceBusinessSpanRef       `json:"-"`
+	// Only a current, predeclared independent catalog member's admission
+	// failure may remain local to that member. Never restored from JSON.
+	TraceCatalogIndependentFailure bool `json:"-"`
 
 	// Observations are optional producer-published typed observation rows for
 	// this tool result — the ToolResult companion to MCPResponse.Observations.

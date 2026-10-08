@@ -4906,7 +4906,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall, curren
 			tool.BindTraceQuerySourceRead(busCtx, traceSourceRead)
 			toolStart := time.Now()
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
-			if ctx != nil && ctx.Mutable != nil && ctx.Mutable.ArmTraceInputAdmissionTerminal(ctx.Stage, result) {
+			if ctx != nil && ctx.Mutable != nil && !result.TraceCatalogIndependentFailure && ctx.Mutable.ArmTraceInputAdmissionTerminal(ctx.Stage, result) {
 				logging.Warning("[explorer] armed terminal trace input admission latch: code=%s", result.Repair.Code)
 			}
 			if execErr != nil {
@@ -6542,9 +6542,10 @@ func validateExplorerTraceQueryFirstToolCallWithSourceRead(ctx *types.AgentConte
 		return nil
 	}
 	canonical := types.CanonicalToolName(tc.Name)
-	if canonical == "trace_query" || canonical == "trace_capabilities" {
+	if canonical == "trace_query" || canonical == "trace_capabilities" || canonical == "trace_catalog" {
 		// Static catalog lookup helps select the first runtime probe but does
-		// not execute one or publish observations. Keep the query obligation
+		// not execute one or publish observations. Artifact discovery likewise
+		// supplies navigation, never a runtime probe. Keep the query obligation
 		// pending, all other tools gated, and the terminal-input check above.
 		return nil
 	}
@@ -7059,7 +7060,14 @@ func toolSurfaceNarrowed(base, effective []llm.ToolSchema) bool {
 }
 
 func traceQueryToolVisible(ctx *types.AgentContext) bool {
-	return traceQueryToolAvailable(ctx) || traceQueryToolVisibleFromRuntimePreflight(ctx)
+	return traceQueryToolAvailable(ctx) || traceQueryToolVisibleFromRuntimePreflight(ctx) || traceQueryToolVisibleFromCatalog(ctx)
+}
+
+// A current discovery makes the native query tool selectable, not mandatory.
+// The catalog remains navigation; normal query preparation and per-source
+// admission still determine whether any selected artifact can be measured.
+func traceQueryToolVisibleFromCatalog(ctx *types.AgentContext) bool {
+	return ctx != nil && ctx.Stage == types.StageExplore && ctx.Mutable != nil && len(ctx.Mutable.TraceCatalogs()) > 0
 }
 
 func traceQueryToolVisibleFromRuntimePreflight(ctx *types.AgentContext) bool {

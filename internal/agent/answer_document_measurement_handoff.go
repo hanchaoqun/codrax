@@ -22,6 +22,13 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 	previewCounts := runtimeMeasurementHandoffPreviewRows(choices)
 	var b strings.Builder
 	b.WriteString("### 已核对的测量表 / Verified measurement tables\n\n")
+	if ctx.Mutable != nil && ctx.AnalysisIR != nil && types.RuntimeMeasurementMemberSetDomain(&ctx.AnalysisIR.RequestModel, types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})) {
+		if selected, ok := types.RuntimeMeasurementMemberSetSelections(ctx.Mutable.InvestigationMeasurementMemberSets(), view.RuntimeMeasurementContract, &ctx.AnalysisIR.RequestModel); ok {
+			for _, receipt := range selected {
+				fmt.Fprintf(&b, "- Selected during investigation for a requested member set: observation_id=%q view=%q. Reuse this table with facet_ids:[\"member_set\"] if it still answers that dimension; do not retype its members.\n", receipt.ObservationID, receipt.View)
+			}
+		}
+	}
 	b.WriteString("- For measured summaries, members, distributions or changes over time, prefer the optional runtime_measurement selector instead of retyping numbers. It renders all retained producer rows, including source/window, units, unknown values and omissions. Choose only views needed for the question. Keep interpretation in adjacent prose; this is not a dependency or root-cause proof. No source evidence_items are needed for these runtime tables.\n")
 	b.WriteString("- JSON shape: {\"kind\":\"table\",\"runtime_measurement\":{\"observation_id\":\"<published ID>\",\"view\":\"summary\"}}. Choose only published observation_id/view combinations: members lists the producer's accepted interval or endpoint witnesses; distribution uses its labeled measure and denominator (event sizes and time spent at a thread count are different populations); timeline shows its labeled quantity over declared intervals/buckets, respecting its endpoint policy. Bucket peaks, duration-weighted means and endpoint rates are distinct. Omit text/items/columns/diagram/runtime_work_relation on that table; these are alternative payloads, not extra required fields. The system fills data. Never reconstruct members from thread-name resemblance or depth alone.\n")
 	seen := map[string]bool{}
@@ -41,6 +48,9 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 		}{table.Columns, rows})
 		fmt.Fprintf(&b, "- observation_id=%q view=%q label=%q; output_rows=%d; preview_omitted_rows=%d; preview=%s\n",
 			table.ObservationID, table.View, table.Label, len(table.Rows), len(table.Rows)-len(rows), preview)
+		if table.MemberSet != nil {
+			fmt.Fprintf(&b, "  population=%q; member_rows=%d/%d; complete_population=%t (not capture completeness).\n", table.MemberSet.PopulationID, len(table.MemberSet.RowIDs), table.MemberSet.TotalRows, table.MemberSet.Complete)
+		}
 		// Keep the ruler beside every selector; opaque IDs are not sufficient
 		// teaching for multiple captures/windows with the same device label.
 		if len(table.Notes) >= 2 {

@@ -88,12 +88,19 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 		// (both the maxItems constraint and the description pre-announcement),
 		// so the schema promise can never drift from the validator.
 		capTeachingJSON, _ := json.Marshal(completionAggregateFactsCapTeaching)
+		measurementTeachingJSON, _ := json.Marshal(types.RuntimeMeasurementMemberSetTeaching)
 		emitInvestigationCompleteParametersCached = json.RawMessage(strings.NewReplacer(
 			"__AGG_FACTS_CAP__", strconv.Itoa(types.MaxAnswerAggregateFacts),
 			"__AGG_FACTS_CAP_TEACHING__", string(capTeachingJSON[1:len(capTeachingJSON)-1]),
+			"__MEASUREMENT_MEMBER_SET_TEACHING__", string(measurementTeachingJSON[1:len(measurementTeachingJSON)-1]),
 		).Replace(`{
 		"type": "object",
 		"properties": {
+			"runtime_measurement_member_sets": {
+				"type": "array", "maxItems": 16,
+				"description": "__MEASUREMENT_MEMBER_SET_TEACHING__",
+				"items": {"type":"object", "properties":{"observation_id":{"type":"string"},"view":{"type":"string","enum":["members","distribution"]}}, "required":["observation_id","view"], "additionalProperties":false}
+			},
 			"business_span_ref": {
 				"type": "string",
 				"description": "OPTIONAL. Select one currently published business-span token from trace_query when the final investigation concerns that exact complete business instance. Its physical source, thread and full time window travel together for automatic supplementation only after this completion and its exploration dispatch succeed. This selection does not prove a causal relation or elect a root cause; explicit user scope and target remain authoritative. Copy only the published token into this top-level field, never reconstruct it from prose or repeat its coordinates. Omit when no single instance is selected; a new accepted completion without this field clears any previous selection."
@@ -281,31 +288,33 @@ func joinPrincipalSpanWaiverReasons() string {
 }
 
 type emitInvestigationCompleteParams struct {
-	BusinessSpanRef          string                                  `json:"business_span_ref,omitempty"`
-	Reason                   string                                  `json:"reason"`
-	Confidence               string                                  `json:"confidence"`
-	ResultKind               string                                  `json:"result_kind"`
-	AbsenceJustification     string                                  `json:"absence_justification,omitempty"`
-	AggregateFacts           []types.AnswerAggregateFact             `json:"aggregate_facts,omitempty"`
-	RelationClaims           []types.AnswerRelationClaim             `json:"relation_claims,omitempty"`
-	EvidenceFloorWaiver      *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
-	ClearEvidenceWaiver      bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
-	PrincipalSpanWaiver      *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
-	ClearPrincipalSpanWaiver bool                                    `json:"clear_principal_span_waiver,omitempty"`
+	RuntimeMeasurementMemberSets []types.AnswerRuntimeMeasurementReceipt `json:"runtime_measurement_member_sets,omitempty"`
+	BusinessSpanRef              string                                  `json:"business_span_ref,omitempty"`
+	Reason                       string                                  `json:"reason"`
+	Confidence                   string                                  `json:"confidence"`
+	ResultKind                   string                                  `json:"result_kind"`
+	AbsenceJustification         string                                  `json:"absence_justification,omitempty"`
+	AggregateFacts               []types.AnswerAggregateFact             `json:"aggregate_facts,omitempty"`
+	RelationClaims               []types.AnswerRelationClaim             `json:"relation_claims,omitempty"`
+	EvidenceFloorWaiver          *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
+	ClearEvidenceWaiver          bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
+	PrincipalSpanWaiver          *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
+	ClearPrincipalSpanWaiver     bool                                    `json:"clear_principal_span_waiver,omitempty"`
 }
 
 type emitInvestigationCompleteRawParams struct {
-	BusinessSpanRef          string                                  `json:"business_span_ref,omitempty"`
-	Reason                   string                                  `json:"reason"`
-	Confidence               string                                  `json:"confidence"`
-	ResultKind               string                                  `json:"result_kind"`
-	AbsenceJustification     string                                  `json:"absence_justification,omitempty"`
-	AggregateFacts           json.RawMessage                         `json:"aggregate_facts,omitempty"`
-	RelationClaims           []types.AnswerRelationClaim             `json:"relation_claims,omitempty"`
-	EvidenceFloorWaiver      *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
-	ClearEvidenceWaiver      bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
-	PrincipalSpanWaiver      *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
-	ClearPrincipalSpanWaiver bool                                    `json:"clear_principal_span_waiver,omitempty"`
+	RuntimeMeasurementMemberSets []types.AnswerRuntimeMeasurementReceipt `json:"runtime_measurement_member_sets,omitempty"`
+	BusinessSpanRef              string                                  `json:"business_span_ref,omitempty"`
+	Reason                       string                                  `json:"reason"`
+	Confidence                   string                                  `json:"confidence"`
+	ResultKind                   string                                  `json:"result_kind"`
+	AbsenceJustification         string                                  `json:"absence_justification,omitempty"`
+	AggregateFacts               json.RawMessage                         `json:"aggregate_facts,omitempty"`
+	RelationClaims               []types.AnswerRelationClaim             `json:"relation_claims,omitempty"`
+	EvidenceFloorWaiver          *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
+	ClearEvidenceWaiver          bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
+	PrincipalSpanWaiver          *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
+	ClearPrincipalSpanWaiver     bool                                    `json:"clear_principal_span_waiver,omitempty"`
 }
 
 func (p *emitInvestigationCompleteParams) UnmarshalJSON(data []byte) error {
@@ -366,6 +375,7 @@ func (p *emitInvestigationCompleteParams) loadFromRaw(raw emitInvestigationCompl
 		raw.AbsenceJustification = decodeMisplacedStringField(misplaced, "absence_justification")
 	}
 	*p = emitInvestigationCompleteParams{
+		RuntimeMeasurementMemberSets: raw.RuntimeMeasurementMemberSets,
 		// Execution focus is selected only by the top-level typed field.
 		// The prose/string-tail compatibility lane must never mint it.
 		BusinessSpanRef:          raw.BusinessSpanRef,
@@ -2428,19 +2438,24 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 	aggregateFacts = sourceInventoryPrincipalRowSetLandingFacts(ctx, aggregateFacts)
+	measurementMemberSets, measurementMemberSetErr := completionRuntimeMeasurementMemberSets(ctx, p.RuntimeMeasurementMemberSets)
+	if measurementMemberSetErr != nil {
+		return types.ToolResult{ToolName: t.Name(), Summary: measurementMemberSetErr.Error(), Success: false, Timestamp: time.Now()}, nil
+	}
 	// has_per_member_table completion obligation (2026-06-12
 	// sequence-table forensics): the analyzer-declared typed shape
 	// makes the bounded member set part of the answer, so a resolved
-	// completion must hand it over as a member_set aggregate fact —
-	// the only channel the answer-side materializer and its coverage
-	// gate consume. Typed escape lane (§1.6): absence_justification
+	// completion must hand it over as a member_set aggregate fact or an
+	// explicitly selected, source/window-bound native population. A mere
+	// query or partial display receipt is not a handoff. Typed escape lane
+	// (§1.6): absence_justification
 	// declares the set genuinely non-enumerable. All four conjuncts
 	// are typed fields; no prose is inspected.
 	if ctx != nil && ctx.AnalysisIR != nil &&
 		ctx.AnalysisIR.RequestModel.Predicates.HasPerMemberTable &&
 		strings.EqualFold(strings.TrimSpace(resultKind), "resolved") &&
 		justification == "" &&
-		!completionFactsContainMemberSet(aggregateFacts) {
+		!completionFactsContainMemberSet(aggregateFacts) && len(measurementMemberSets) == 0 {
 		queuePrincipalMemberSetHandoffRepair(ctx, "has_per_member_table")
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLanePrincipalMemberSetHandoff) {
 			if ctx != nil && ctx.Mutable != nil {
@@ -3159,6 +3174,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		return completionBusinessSpanRefRejected(t.Name()), nil
 	}
 	ctx.Mutable.SetInvestigationAggregateFacts(effectiveAggregateFacts)
+	ctx.Mutable.SetInvestigationMeasurementMemberSets(measurementMemberSets)
 	ctx.Mutable.SetInvestigationRelationClaims(relationClaims)
 	appendPrincipalSpanWaiverCompletionNote(ctx)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)

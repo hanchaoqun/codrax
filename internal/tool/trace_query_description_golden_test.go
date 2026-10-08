@@ -1,5 +1,20 @@
 package tool
 
+// EVOLUTION RECORD 2026-10-08 (HMC §208, existing preparation contract):
+// correct only traceQueryInputPreparationTeaching in its existing slot.
+// Stable validated SQLite main/WAL snapshots and complete bounded binary
+// stdin sealing are already implemented and tested; the old blanket refusals
+// misdescribed both public Description and path-parameter surfaces. Continuous
+// online writes, ambiguous/rollback sidecars, incomplete streams, arbitrary
+// databases and inline binary remain unsupported. No new tool/query parameter,
+// note key, evidence permission or runtime execution behavior is introduced.
+// The independently literal reverse-delta restores the entire preceding
+// canonical golden SHA and all older full-byte pins. Regenerate only by the
+// canonical UPDATE RITUAL below, never by weakening whole-byte comparison.
+// Existing preparation/stream and native-interval public tests weigh the
+// corrected claims; this is not matched h2/h3 dispatch A/B and does not close
+// that open live debt or justify adding a third live evaluation to the batch.
+
 // EVOLUTION RECORD 2026-10-08 (HMC §207, request-window defaults): append
 // exactly the shared traceQueryRequestWindowTeaching contract at the terminal
 // Description slot. It describes the common parameter default implemented for

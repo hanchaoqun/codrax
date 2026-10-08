@@ -1,0 +1,8 @@
+ID="trace_catalog_objects"
+NAME="Capture directory — per-file and per-thread resource evidence"
+QUESTION="把 captures 目录里的采集逐份检查一下，分别列出 10.000 到 10.050 秒内线程 101 和 202 的内存分配、释放及对应调用位置，整理各文件各线程的检查结果。只分析这些采集文件。"
+FIXTURE="eval/fixtures/hmosperf_catalog_objects"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="sqlite3"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_catalog"
+EXPECT_LOG_NOT_MATCHES_REGEX="trace_input_admission_terminal"
