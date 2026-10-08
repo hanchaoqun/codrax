@@ -221,3 +221,15 @@ TS发现顺序在 `trace_tools.go:323–363`：显式Options路径→`CODRAX_TRA
 附件时间改用tracequery共享严格解析，纳秒timed observation与普通ftrace同源，不新增时区/domain转换。乱序时间取min/max，物理行范围仍按有效行先后，扫描失败不把前缀当完整附件；其含义仅为有效记录时间范围，不是用户查询窗、线程状态时长或采集完整性。该路径已有实际EmitPerfTrace公共回归；本轮live没有emit_perf_trace调用，分开记录而不冒称命中。
 
 尚未交付：超过24个有数据表时按所查族/表精确选择质量、三类计数范围的紧凑结构化摘要及resolver噪声控制；原始HiSys rowid/多来源代次、持续写入一致快照、static_initialize/普通viewer和实机平台矩阵仍开放。具体全仓/race及发布收据见主账本§202；不把17.7 O记作父项新增交付。
+
+## 12. 动态库初始化来源准入与帧表覆盖（2026-10-08，HMC-17.7 R1b-C）
+
+参考仓`docs/sql_schema.md:1250`的`static_initalize`字段、`docs/frame_drop_analysis_design.md:530`的启动扩展意图及`config/indicators/marker/so_load_stats.yaml`一起核对：该指标仍从callstack的dlopen/so标记统计，不能把指标存在当静态表已完整验收。上游官方固定版本`5c5afb0c479b070148d8a6e336120638a1a03930`的`table/ftrace/so_static_initalization_table.cpp`和`filter/app_start_filter.cpp::ParserSoInitalization`进一步证明：静态表是原dlopen区间的派生视图；IPID由uint32投影为SQLite int64、TID是公开线程号、call_id来自内部线程索引而非callstack行ID，depth是进程时间排序的展示嵌套。这里的设计价值是按库提供初始化墙钟与来源，不是新的独立CPU执行或根因证据。
+
+`ef1a030ac`据此替换旧SQL WHERE过滤及CPU0默认：完整物理行扫描，存储类/范围/名称预算逐项准入，保合法signed hidden rowid含0/负值；唯一(IPID,公开TID)解析到canonical线程，并复用共享生命周期。起止CPU分别取确切Running见证；未知CPU使用既有独立载体保区间，不能把不存在的见证补成0。合法区间仍由共享同步区间仲裁发布，不复制第二个调用栈内核。
+
+静态行是派生信息：非法行只拒自身并记源覆盖，不反向清除健康callstack/raw。已准入callstack与静态行精确同身份/同区间/同原名时保原件一次；同区间冲突仅拒派生、披露原因，不因展示侧表删除独立业务；两条互相冲突的静态记录仍由原仲裁处理，不选第一条。`27b0154bb`补共享语义key的已知owner0边界：本仓兼容合同允许非idle公开PID使用内部IPID0，不能再把其当未知而漏掉去重。官方已审版本process0通常为idle，本次反例是合法兼容输入，不冒称真机事故。
+
+同批对`native_hook_frame`实际producer单独回传覆盖，事件5条与帧14个重复载体、8个源帧分别记账；引用/去重发布/未引用/未发布/字段状态分开，原件SQL全量保真不变。实际读过的帧表不再标成完全未转换，真正未消费表、缺表/列/隐藏身份仍如实披露。不通过全局白名单掩盖缺失，也不改变资源栈因果资格。
+
+默认准备→公开`span_locate`及真实event_search已验证线程101的6ms/15ms初始化，CPU0与未知分开，背景线程和窗后库可排除，源文件未变。构造SQLite自然评测机器PASS、人工FAIL：库名/CPU和图时序错误仍需修可读语义交接，不能倒签为完整问答通过。普通viewer、完整启动实例/树、其它表严格标量、多物理来源代次、持续写入一致快照、17.6实机/平台仍开放。实现、失败原件及末版全仓收据见主账本§209；§10/11的历史剩余列表由本节增量更新，不删旧证据。
