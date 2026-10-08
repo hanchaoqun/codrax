@@ -21,7 +21,7 @@ type RuntimeMeasurementPublication struct {
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
 // a semantic guess from observation prose. New domains must opt in explicitly.
 func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
-	return predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency"
+	return predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation"
 }
 
 func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
@@ -35,14 +35,14 @@ func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasure
 		return view == RuntimeMeasurementMembers || view == RuntimeMeasurementDistribution
 	}
 	return predicate == "io_inflight" && view == RuntimeMeasurementMembers ||
-		predicate == "io_activity" && view == RuntimeMeasurementDistribution
+		(predicate == "io_activity" || predicate == "cpu_state_frequency_observation") && view == RuntimeMeasurementDistribution
 }
 
 // DecodeRuntimeMeasurementPublication validates a complete, uniquely published
 // receipt against its origin. This supplies display authority only, not a
 // causal claim, user-target ownership, or a new observation in the ledger.
 func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasurementPublication, bool) {
-	if !RuntimeObservationProducerIsDeterministicQuery(r.Producer) || !RuntimeMeasurementPredicateIsRegistered(r.Predicate) ||
+	if r.Negative || !RuntimeObservationProducerIsDeterministicQuery(r.Producer) || !RuntimeMeasurementPredicateIsRegistered(r.Predicate) ||
 		r.Origin != AnswerEvidenceOriginRuntimeArtifact || r.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
 		r.GroundingPolicy != ClaimGroundingHard || r.ProvenanceLane != ObservationProvenanceArtifactSpan ||
 		r.ID == "" || r.SourceRef.Path == "" || r.SourceRef.PayloadRef == "" || r.SourceRef.QueryScopeID == "" {

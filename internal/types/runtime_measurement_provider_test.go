@@ -34,7 +34,7 @@ func TestRuntimeMeasurementProviderStrictSourceAndShape(t *testing.T) {
 	if _, ok := DecodeRuntimeMeasurementPublication(original); !ok {
 		t.Fatal("valid receipt rejected")
 	}
-	for _, field := range []string{"source", "payload", "query", "window", "lines", "clock", "id", "producer", "policy", "duplicate", "empty_duplicate", "extra", "trailing"} {
+	for _, field := range []string{"source", "payload", "query", "window", "lines", "clock", "id", "producer", "policy", "negative", "duplicate", "empty_duplicate", "extra", "trailing"} {
 		t.Run(field, func(t *testing.T) {
 			r := original
 			r.RichNotes = append([]string(nil), original.RichNotes...)
@@ -57,6 +57,8 @@ func TestRuntimeMeasurementProviderStrictSourceAndShape(t *testing.T) {
 				r.Producer = "model"
 			case "policy":
 				r.GroundingPolicy = ""
+			case "negative":
+				r.Negative = true
 			case "duplicate":
 				r.RichNotes = append(r.RichNotes, r.RichNotes[0])
 			case "empty_duplicate":

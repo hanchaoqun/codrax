@@ -82,6 +82,16 @@ func traceQueryCPUStateFrequencyObservations(p *tracequery.CPUStateFrequencyResu
 	if p == nil {
 		return nil
 	}
+	r := types.ObservationRecord{ID: "trace_query:" + scope + "#cpu_state_frequency", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard,
+		ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: ref,
+		Span:     types.ObservationSpan{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs},
+		ClaimKey: TraceCPUStateFrequencyPredicate, Predicate: TraceCPUStateFrequencyPredicate, Subject: "CPU controls", Object: p.Status,
+		Summary:    "Per-CPU observed idle/frequency intersection with explicit unknown coverage; not thread execution or causal rank",
+		ObservedAt: at, Confidence: 1}
+	// Bind display receipts before the 16-item handoff lens. The complete
+	// producer result is validated and its own omission counts stay explicit.
+	receipt := traceQueryCPUStateFrequencyReceipt(r, *p)
 	// This is a bounded handoff lens. Aggregate values retain their original
 	// full-window denominators; payloadRef still points to the native result.
 	copy := *p
@@ -105,13 +115,11 @@ func traceQueryCPUStateFrequencyObservations(p *tracequery.CPUStateFrequencyResu
 	if err != nil {
 		return nil
 	}
-	return []types.ObservationRecord{{ID: "trace_query:" + scope + "#cpu_state_frequency", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
-		Producer: "trace_query", Role: types.AnswerAggregateRoleSupportingCoverage, GroundingPolicy: types.ClaimGroundingHard,
-		ProvenanceLane: types.ObservationProvenanceArtifactSpan, SourceRef: ref,
-		Span:     types.ObservationSpan{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs},
-		ClaimKey: TraceCPUStateFrequencyPredicate, Predicate: TraceCPUStateFrequencyPredicate, Subject: "CPU controls", Object: p.Status,
-		Summary:   "Per-CPU observed idle/frequency intersection with explicit unknown coverage; not thread execution or causal rank",
-		RichNotes: []string{types.TraceNoteKeyCPUStateFrequency + "=" + string(data)}, ObservedAt: at, Confidence: 1}}
+	r.RichNotes = []string{types.TraceNoteKeyCPUStateFrequency + "=" + string(data)}
+	if receipt != "" {
+		r.RichNotes = append(r.RichNotes, receipt)
+	}
+	return []types.ObservationRecord{r}
 }
 
 func DecodeTraceCPUStateFrequency(r types.ObservationRecord) (tracequery.CPUStateFrequencyResult, bool) {
