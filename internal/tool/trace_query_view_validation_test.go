@@ -64,7 +64,13 @@ func TestTraceQueryViewValidationPreservesDefaultsAliasesAndWindow(t *testing.T)
 		{"window_sweep", "window_sweep"},
 	} {
 		t.Run(tc.view, func(t *testing.T) {
-			params, _ := json.Marshal(map[string]any{"path": path, "view": tc.view, "time_start": 1, "time_end": 14})
+			input := map[string]any{"path": path, "view": tc.view, "time_start": 1, "time_end": 14}
+			if tc.want == "wakeup_chain" {
+				// Alias acceptance must use a valid target-scoped invocation;
+				// missing selectors have a separate repair contract.
+				input["pid"] = 10
+			}
+			params, _ := json.Marshal(input)
 			got, err := (&TraceQuery{}).Execute(&types.BusContext{RepoRoot: dir, WorkDir: dir}, params)
 			if err != nil || !got.Success || !strings.Contains(got.Summary, "view="+tc.want+" ") || !strings.Contains(got.Summary, "time_start=1.000000 time_end=14.000000") {
 				t.Fatalf("valid view/default/explicit window changed: err=%v result=%+v", err, got)

@@ -57,3 +57,10 @@ func TestWakeupTargetRepairPreservesAutocompleteAndExplicitSelection(t *testing.
 		}
 	}
 }
+
+func TestWakeupAliasCannotBypassRequiredSelector(t *testing.T) {
+	r, err := (&TraceQuery{}).Execute(nil, json.RawMessage(`{"view":"causal_impact","time_start":0,"time_end":1}`))
+	if err != nil || r.Success || r.Repair == nil || r.Repair.Code != "trace_query_source_thread_required" || r.Repair.Metadata["view"] != "wakeup_chain" || len(r.Observations) != 0 {
+		t.Fatalf("alias bypassed the canonical input contract: err=%v success=%v repair=%+v", err, r.Success, r.Repair)
+	}
+}
