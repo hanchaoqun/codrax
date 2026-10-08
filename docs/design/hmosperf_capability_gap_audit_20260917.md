@@ -5861,3 +5861,81 @@ B有已证系统上下文缺口，不归笼统模型波动：actual finalizer的
 冻结`af36b4dfe`后的构建27000正式exit0，revision `af36b4dfe7ae-dirty`的dirty仅文档/评测汇总。最终全仓92366正式exit0：`go test -count=1 -p 4 ./...`单次89测试包PASS、13无测试包、零FAIL；tool478.412秒、agent103.959秒、hitraceconv201.963秒、orchestrator56.963秒、tracequery131.117秒、types51.751秒。不拼接初轮成功包，不用缓存结果替代末版。随后仅文档变化，不重复全仓。
 
 四笔代码/测试普通推送main已确认，62613正式exit0（`475373af0→af36b4dfe`），没有force或改写历史。统一任务清单、架构/参考细节、机器原汇总及完整人工审计合批收尾；完整实现累计18/79、剩余61和人工0/2保持原口径。
+
+## 210. 精确断言选择与有限目标的可读事件交接（2026-10-08）
+
+### 210.1 起点、参考意图与范围
+
+开工工作区干净，HEAD/origin `194cdbffa`。按清单唯一ID复算79=18已交付+61开放，重复0；44待实施/11部分实施/2待验收/3验收中/1持续执行。双轨选择已证的只读登记身份手抄错误（18.5/16.4），以及原生事件可读字段被命名目标过滤丢弃（01.3/16.4，支撑17.7静态初始化）。不重写根因引擎，不把邻近背景变主因，不为单个库名或测试方法增加硬门。
+
+亲查参考仓 `config/indicators/marker/so_load_stats.yaml` 与 `core/preprocess/so_load_ops.py`：其意图是把线程、路径、加载类型、时间量和明细一起交付，并先计算总体再截TopN。Codrax吸收“可读业务字段+精确成员归属+总体/明细分离”，不照搬跨类型求和、名称清洗、inclusive BETWEEN或把耗时排名当主因。参考 `core/validators.py:309–355` 和 `core/skill_executor.py:85–140` 通过引用检查及producer结果寻址减少步骤间手抄；本项目使用当次授权内精确身份引用，不复制数组位置身份、宽松空值回退或自由表达式求值。
+
+### 210.2 能力轨：登记选择而非手抄原生身份
+
+`801afc501` 在当前私有登记授权里保留最多8行/8KiB可见的原生断言选项，两emit真实模型schema通过 `ParametersFor` 提供可选 `assertion_ref`。引用绑定授权代次、来源plan与完整suite/id，只把输入展开为原精确pair；不根据后缀猜测，不从suite推test_path，不代模型绑定contract_refs，不补写执行结果。
+
+引用只存在工具wire/当前授权，不新增持久计划字段。普通计划、撤销、跨仓、恢复历史、未知引用、冲突或半对显式identity均拒绝；合法显式pair继续兼容，不强制旧报告必须列过每个合法测试。当前文件完整读取与模型实际投递、源提交/字节摘要、run/batch/合同代次、注册摘要及新执行门不变。错误测试路径即使选到真实identity也不能获得行为证明。
+
+同批统一空changes三条独立受控通道的教学，修planner及失败恢复仍要求手写pair的旧表述。没有给普通空计划新权限。实际planner adapter捕获正反测试证明两个工具真正收到动态schema，不只测试辅助方法；公开真实Python producer→完整读取→登记→新执行覆盖root/nonroot及新身份匹配。多来源、其它原生框架及完整来源终态仍需独立验收，本片不代销父项。
+
+### 210.3 系统轨：精确成员、可知性和成文展示分离
+
+`bf1be10c2` 先修producer清单坐标：从parser typed来源投影CPU及emitter可知性，未知用-1+false、真实CPU0/idle TID0仍已知，legacy nil不升级；SQL业务ID、进程所属区间、资源帧、frame/GPU/measure等无物理发射端的资料不造线程，原始业务字段仍留semantics。parser/Event原JSON与解析版本不改，不重解Raw或借相邻行推断。
+
+有限事实问题有命名目标时，独立投递已验证producer事件清单。线程用明确已知emitter TID，进程用明确TGID，名称用精确观测comm；query pid/text可能匹配waker、dest或payload，不能证明owner，marker PID/appid/source.tid也不能替代。命名目标显式ID冲突不能降级同名；探索游标不改变请求目标。
+
+每个事件按canonical时间和请求的离散半开窗筛选，不用整条lookup扩展窗判定事件是否可见。多窗间隙、右端及容差外行排除；原Query/Source/Coverage和matched_total保持原查询口径，单独披露owner/window排除、保留行、预算省略；零展示不是零总体。仍使用32查询/32共享对象/128KiB限制、原源/时钟显示身份和裁剪声明，完整ledger/因果投影/root-causes不变，无命名/因果车道不变，不自动生成配对、区间或因果结论。
+
+公开actual-finalizer RED证明长业务名和CPU可知性原先整体消失；8组末版回归覆盖读到的parser字段超Raw512预览仍保留、0/未知、假producer/错query身份、同名异TID/进程TGID、边界/多窗间隙、独立来源、共享容量与原账本权限不变。原SQL HiSys测试钉死unknown TID/TGID=0的旧预期精确改为-1/false，`source.tid=41007`及其余来源字段不动；原失败保留，不能把unknown恢复成idle来求绿。
+
+### 210.4 统一验收与归档边界
+
+相关native公开路径、实际planner schema、scope实际finalizer及其race、完整skill、结构/状态/复制锁/来源字段快检均通过后冻结。两片实现提交后构建，真实eval固定动态库初始化读模式与保留既有测试的commandless写模式，恰好2并行各1次，原自然问题不添系统约束。
+
+首轮统一全仓发现上批隔离复现归档 `eval/results/hmc_intent_static_20261008/validation/ipid0-repro/repro_test.go` 被Go当独立包编译，因其引用原hitraceconv包私有测试helper而失败。该文件不属于生产/提交源码；改名 `repro_test.go.txt` 保全部原字节，改名前后SHA-256同为 `e03b947c6e79f8926c7f4ce46b3dd7074a92d731358accbb324f6994573a50c2`，原overlay JSON/RED日志原样保留。归档规则补为独立复现源码使用非编译扩展名；gitignore不阻止Go包发现。先收齐首轮正式结果再重新统一全仓，不叠跑、不删失败或拼接成功包。
+
+首轮全仓56827正式exit1，88测试包PASS/13无测试/2包FAIL（含上述归档包）。另一失败是`TestPromptRendererCensus`没有登记两个新增`ParametersFor`；`b25075330`仅补实际动态schema捕获，fixture使用当前私有授权及typed原生报告，并断言两入口的非空`assertion_ref`枚举与当次选项完全一致，不拿普通静态schema冒覆盖，不依赖外部Python。旧roster/pin不改，快检`PromptSnapshot|PromptRendererCensus|TestNativeRegistrationSelectionActualPlannerRequest`正式exit0（1.652秒）。新增动态入口后的低成本普查纳入冻结前快速组。
+
+### 210.5 固定读写双例与剩余缺陷
+
+构建`bf1be10c27d4-dirty`（仅文档dirty），恰好2并行×1，12296正式exit0；机器1/2、完整人工0/2。结果根 `eval/results/hmc_native_identity_inventory_20261008/`，完整payload按原session归档；详见[人工审计](../../eval/parallel_selected_summary_hmc_native_identity_inventory_20261008_manual_audit.md)。后续仅提示词普查测试变化，不为此追加live。构造SQLite样本不能代签17.6实机。
+
+- **读例134秒：目标字段交接命中。** 三次查询，actual finalizer日志2009–2011获得完整解析名、时间、目标线程、CPU0已知/CPU未知及两query独立范围，预算遗漏0。终稿libimage `[10.002,10.008)` 6ms/CPU0、librender `[10.030,10.045)` 15ms/CPU未知正确，表头正确；背景/窗外未混入目标清单，没有图，不销旧Gantt问题。仍错误声称`libbackground.so`在整段Trace没有匹配，实际线程202有8ms事件；第二查询明确pid101，只有受限查询未命中。错句已在emit入参，不是renderer添加。finalizer没有背景完整正向说明，但收到准确查询范围，当前问题是负向结论越界，不是本批目标表消失。挂16.4/01.3，原始FAIL保留，不扫终稿关键词硬拒。上游自由摘要均写CPU0而实际query纠正、成文内部字段外露亦留案。
+- **写例159秒：修复与3测试通过，证明消费未闭环。** 只改increment为+1，现有测试/配置不动；一个普通计划、一次run_tests，无只读登记，因此新增选择入口未live命中。所有合同hard/soft required均0、planning_only10，不能误诊为必须补PTO。非根cwd运行unittest目录discover得到3个精确scoped assertion，根目录另有zero_tests；test_surface/related_test_surface/no_tests三个状态未闭合。controller想all_verified，系统转accept_unverified，终态如实`unverified / impact_targets_unverified`，机器FAIL正确。相关文件未得到精确单文件执行收据，消费端又只取suite而丢cwd/invocation，passed run压缩后缺可执行补证意图。不能把整个目录拼cwd当全部文件已证；下一P1接精确候选→已有文件观察器→当前字节/真实调用→对应义务消费/续行，不升级planning合同。
+
+完整父能力新增0、累计18/79；当前授权身份选择与有限目标事件交接两组子能力已实现。剩余61开放和5稳定验收父项不变；旧HiSys/图/CPU/目录人工失败不倒签，不把单次误述说成已证模型波动。
+
+### 210.6 后续能力选择与参考发现
+
+下一能力轨提高08.6 GPU active×frequency优先级，缺陷轨处理18.5/16.4精确相关测试证明/续行；14.1为后继候选。只读登记当前选择子片不再列全缺，但来源终态/多来源/多框架仍要独立收据。17.7持续写入、多文件代次、其它表严格标量、普通viewer与17.6实机保留原编号，不因本批静态明细成文改善整体销账。
+
+亲查参考`config/indicators/gpu/freq.yaml:1–155`和`core/preprocess/gpu_freq_ops.py:30–190`。原设计从所有频点驻留改为freq∩running，避免把idle频率解释成活跃负载；这类联合区间可复用本仓CPU原生interval和量测表管线。参考fixture `tests/fixtures/gpu_freq_001/trace.db`有filter47的263条gpufreq与filter48的484条gpu_state，存在334200000Hz、0/1状态和负起点，dur均非NULL；它仅证明该fixture数据，不证明所有producer的编码/资源关联，更不是本批真实设备验收。
+
+不直接复制参考实现：SQL只取窗内起点会丢跨窗前继；NULL dur延到trace末尾会伪造覆盖；整数`/1000000`及算子`int(freq)`抹掉334.2MHz；running单bool无法处理重叠，sum(dur)分母可能重复；缺freq/running返回全零混淆“未观测”和“没有活跃”。本项目08.6退出需默认SQLite/二进制准备→typed GPU来源/资源/单位/状态→summary/distribution/timeline→可读handoff，按每资源区间交集保active/inactive/unknown、缺频率、冲突重叠、负起点/零时长/右界/短尾桶、多GPU及TopN前总体；首先核对源producer单位、状态码和关联规则，不凭同名filter强行配对。低频背景仍不能升格帧根因。
+
+前置审计另发现参考`gpu_freq_ops.py:13`旧注释仍称kHz/1000，与同仓实际YAML的Hz/1e6冲突。`measure_filter.source_arg_set_id`在表文档只泛称itid或CPU，并未定义GPU实例键；当前GPU SQL和缓存按name合并且丢filter身份，fixture两filter同为0不能证明同一GPU。已查本地参考/相关源码缓存只有对应平台二进制，未获GPU生产链；固定版本线上源码目录本轮也未能读取，不能冒称生产协议已核验。下一片先补版本化producer依据；若没有精确实例关联，只可保独立原始lane和未知关联，不能把这当完整active×freq交付或默认同名配对。
+
+14.1参考多行分配释放聚合，但不能复制GROUP BY中非聚合计数取任意行；已有native_hook_statistic原始字段保留不等于typed统计已交付。先核验量值是增量还是累计，按资源族与单位分组，NULL/0、FD与bytes分离，事件流/统计量/存量分列；只做malloc计数不满足父项退出条件。该项留待下一能力交付完成后，不并行再开第三条生产主线。
+
+### 210.7 验证与发布收据
+
+实现分片`801afc501`、`bf1be10c2`，提示词快照补片`b25075330`。相关native四包正式通过（types16.803秒/tool44.701秒/agent5.043秒/orchestrator11.060秒），native race三包通过；scope actual-finalizer八组及其race、原生SQL finalizer、坐标可知性race、完整skill、状态/结构/复制锁/字段来源快检均通过。实际planner request capture与末版动态schema普查通过，不依赖只测helper。原公开RED、fixture setup错误、旧SQL未知坐标预期和首轮完整回归失败都保留，不靠删测试、提高容量或删pin求绿。
+
+| 验证记录 | SHA-256 |
+|---|---|
+| 原生公开路径 `codrax-hmc210-native-related-v2.log` | `8755ab6820e1d40b5ce8e1634a2780b950bd3acdfbf0c2a54c6d16cc3ee69592` |
+| 原生身份/读取/新执行race `codrax-hmc210-native-race-v2.log` | `bb76f020aa862438adaedc4040aaaa39e18952a6198d8ed4293357121efa8d95` |
+| 实际planner schema `codrax-hmc210-native-planner-request.log` | `5ff3b9106adf1e3ef35fecb99b013e510f3160ee9020ce224081bf494318887c` |
+| 有限目标交接RED `codrax-hmc210-inventory-scope-red.log` | `b5c03d8cf924863dafbe5f8dec10d585425eb6417978888f5495534f154a8a25` |
+| 实际finalizer范围race `codrax-hmc210-inventory-scope-race-final.log` | `a1957564a3fc3c00aa387ef1a4793f932c8d16a782f9e2f5c826e013843754e6` |
+| 坐标可知性race `codrax-hmc210-event-race.log` | `fa4fb0dc3a9d97dcb8933fcff696c4120ee3da3f0fbab9ba1f9635402dc5627c` |
+| 首轮全仓FAIL `codrax-hmc210-full-final.log` | `1b7ee24ef72f7381a44dc3e59a0929286a969ccc311eed987fe3eb53fd73f6ef` |
+| 动态schema普查 `codrax-hmc210-native-prompt-census.log` | `7669253f638cf2ea39161b0ad54b9d35acfa5659d34d11caf3b4fdb019c993e6` |
+| 冻结末版构建 `codrax-hmc210-build-final-v2.log` | `f9bb909a28786c9f2dc87a2eecdfd93108fb78ccb657688461d55d7761d3bd73` |
+| 冻结末版统一全仓 `codrax-hmc210-full-final-v2.log` | `7e4d9ab3a5ee49d7f61ec354077f99f3344b2d302a49970f7cacbe8f4dd670c6` |
+
+末版构建68087正式exit0，revision `b25075330a26-dirty`，dirty仅统一文档及评测汇总。真实双例后只有普查测试变化，不冒称再覆盖新生产分支。
+
+末版统一全仓3763正式exit0：`go test -count=1 -p 4 ./...`单次89测试包PASS、13无测试包、零FAIL。tool494.206秒、agent104.080秒、hitraceconv169.591秒、orchestrator56.507秒、tracequery133.612秒、types50.168秒；无缓存结果替代、不拼接首轮成功包。原始失败及成功日志共37份归档到本批`validation/`，两个live的完整工具载荷保存在`payloads/20261008-060032-000-40457`与`40472`。之后仅文档变化，不重跑全仓。
+
+三笔代码/测试已普通推送main，73403正式exit0（`194cdbffa→b25075330`），无force/改写历史。统一任务清单、架构、机器原汇总及完整人工审计合批收尾；18/79完整交付、61开放、本批机器1/2和完整人工0/2维持真实口径。
