@@ -1160,6 +1160,8 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚�
 
 多查询的图教学与修补候选先按同索引路径、唯一物理点引用、时域、时间及观察双端身份做展示去重，再使用既有8条预算；优先使用覆盖不同事件较多的同一查询，保输入时序。链查询补充的TGID不作为事件行展示匹配的必要字段。硬权限仍保完整查询/事件/分支凭证，原候选池不变，跨查询借端点继续拒绝；未证物理同一事件不合并。这只是软选取，不铸造来源代次、线程生命周期或传递因果，也不自动清除不明所有权的图声明。
 
+运行时事件的图可用性和边校验共用`types.RuntimeWakeupDiagramEvents`的原始行、查询范围、请求窗口、目标与冲突检查。已要求sequence/flow/call_dag且有合格唤醒事件时，不因缺少源码EvidenceItem把required静默降成optional；无证仍诚实降级，不生成替代图。缺证/修补教学区分运行时事件与源码call，只有patch可用时不要求重开查询，保有证部分与状态Note、不补近邻箭头。`process_profile`/`wakeup_chain`先保既有唯一typed目标自动补齐，再把缺选择器作为调用参数修复，不发布“成功空链”；多目标需分别显式选择，原窗口不改。没有增加模型必填JSON字段或关键词硬门。
+
 `internal/orchestrator/contract_check_block.go` 在 mutation 写入 Mutable 之前跑校验，HARD / Layer 2 / Layer 3 三层：
 
 **HARD correctness**（永远 strict）：
@@ -1370,6 +1372,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **暂不支持**：C/C++ glibc 裸 backtrace（只有返回地址）、tail/stream/远端源（Loki / ES / CloudWatch）。
 
 **系统事件可逆观察（HMC-05.1/17.7）**：所有SQL HiSys行统一使用版本化观察载体，保原SQL纳秒时间、nullable source TID、名称引用/解析状态、内容存储类（NULL/TEXT/BLOB/INTEGER/REAL），不补执行线程、进程TGID、CPU或因果边；特殊字符、换行及前后空白经有界编码往返。名称已解析且普通单行TEXT也不再造`tid=TGID/CPU0`的print头，字段是否可解析不改变来源角色。既有文本print解析兼容仍保留，不删除输入中已有的物理头。共享时间扫描、流式/索引查询与载体注册识别结构化格式；一源行仅一个语义观察，不额外输出一份print而双计。普通systrace viewer可能忽略这些注释记录，转换覆盖收据明确披露；未声称通用viewer全部兼容。原件只读、输入/输出事务与SQL全表保真不变（HMC §194）。
+
+HiSys观察的可选`source_rowid`以精确signed-int64字符串保原物理行，语义投影为`source.table/source.row_id`；仅在同一源文件代次及表内定位，不替代声明id/seq，不授线程/执行/因果身份。SQL按ts与已证明的hidden rowid稳定展示，同刻同内容不合并；无可证rowid仍保观察并披露未知。共用hidden-rowid探测使用`table_xinfo`检查普通、generated及hidden声明列的全部遮蔽，不能凭样本恰好为INTEGER判身份。三别名全部遮蔽时既有全表保真拒绝门不降；WITHOUT ROWID不造扫描序号。ParserVersion v51淘汰旧索引，旧明确导出文本保兼容及身份未知；准备缓存只在当前Run复用，未引入跨代次或在线一致快照保证。
 
 **启动名称来源（HMC-04.3/17.7）**：源表、源业务名、字典引用及resolved/unresolved/null/非法存储类状态保存在`MarkerNameOrigin`，展示标签与真实名称分开。合法0、已知空名和未知不能混同；名称状态不从兜底标签反推。两端都带同一源行名称信息，结束端窗口不依赖窗外起点重建名称；内存和SQLite暂存、索引和最终语义投影同路。旧`codrax_trace_mark_exact/v1/v2`及普通输入仍可读；新的AppStartup输出采用下述进程源区间载体，不再进入物理B/E栈。特殊分隔符经编码而非替换，普通ftrace查看器仍忽略typed注释，覆盖报告明确披露；完整启动实例/首帧/可交互及普通viewer兼容仍开放。
 

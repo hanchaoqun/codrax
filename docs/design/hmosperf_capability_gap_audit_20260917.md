@@ -5431,3 +5431,62 @@ EmitPerfTrace复用tracequery严格时间解析，保已验证timed comment/nano
 中间测试夹具错误（Go常量名、已受理答案被当patch底稿、要求无终态来源批次也verified）与真实产品RED分别保留，不能混称产品故障或拼接通过。发布收尾只合批更正文档，不为文档变化重跑全仓。
 
 代码`544773f21`、`91aaa9be3`、`db54efcd2`已普通推送main，60456正式exit0（84b3d7d3a→db54efcd2），远端0/0。三份统一文档、只读登记验收入口说明和两份小型评测报告合批收尾；原始日志/工作流与旧FAIL保留。末次复算79/16/63、重复0，本批完整父能力新增0、两组子能力/修复、2例完整人工未过、5稳定验收父项。
+
+## 204. 2026-10-07：HiSys原始行身份、图要求保留与上下文复核
+
+### 204.1 起点、计数及参考设计
+
+起点`3e2b774e2`干净。按唯一ID复算79项、16实现已交付、63开放、重复0；47待实施/10部分实施/2待验收/3验收中/1持续执行，03.2/04.2/08.3/08.4/18.2五验收父项不销账。能力轨17.7原始HiSys行身份，高影响缺陷轨12.5/16.4运行时关系供给与图要求。代码、独立审计并行，真实评测仍恰好2并行×1。
+
+参考仓只读复核：`docs/sql_schema.md:632`把hisys_all_event定义为采集原始数据表，id/seq是声明字段，未发现独立HiSys导出实现，不能伪称照搬现成算法。`core/preprocess/trace_data_cache.py:43`的连接ID/sqlite_master首rowid只用于连接缓存防串，不证明事件行或跨代次身份。本项目复用既有更严格隐藏rowid探测与来源材料代次；保业务字段原值，不把导出序号当原始身份。`sleep_ops.py:502`的递归树按父阻塞窗口、直接waker、路径visited及规模预算裁剪，设计意图是保真实分支，不以相近时间造边；本批保留原链证据权限，修其后续供给和表达接缝。
+
+### 204.2 两组实现与公开回归
+
+**`5ae5808da`：HiSys行身份与通用行号遮蔽修复。** SQL先证明hidden rowid，再按ts与signed rowid稳定展示。新增可选`source_rowid`精确int64字符串，保负数、0、超过2^53及两端极值；同刻同内容不合并。typed语义同步source.table/source.row_id，非线程、CPU、业务实例或因果权限；无可证rowid保观察并披露未知。旧wire兼容，ParserVersion v51、JSON叶子244、内存计费同步。
+
+独立审计发现共享探测用table_info漏掉generated列：rowid计算列恰好为INTEGER时，会把两条真实行都标成7。真实SQL RED后，专用列发现改用table_xinfo，覆盖VIRTUAL/STORED、大小写、双/三别名遮蔽；不替换所有普通表列读取，不降低全表保真门。三别名全部遮蔽仍由既有公开保真层拒绝，HiSys局部语义保行另有真实导出→stream负控；WITHOUT ROWID走公开准备后仍不造扫描序号。现有SQLite/二进制provider→Prepare/Convert→真实查询、索引/stream、源文件byte不变均覆盖。
+
+准备缓存仅当前Run内复用，新Run生成新材料/权限，JSON收据不恢复转换权限；没有持久旧转换缓存可借新parser版本绕过。用户明确附加旧导出文本则诚实保rowid未知，不能从旧文本补造。多来源代次、持续写入一致快照、普通viewer兼容仍开放，17.7父项不勾。
+
+**`850a03cf2`：事件图要求与缺参修复。** 原来分析器已要求图，但可用性只看源码EvidenceItem，把已有运行时关系的required降成optional。将旧精确唤醒事件解码/窗口/目标/冲突筛选下沉types，图支持与原边校验共用；仅已有事件支持原requested sequence/flow/call_dag时恢复required，无证仍诚实降级，不系统造图。原ThreadRef载体、标签和四事件端点哈希逐字兼容；公开TraceQuery→actual finalizer→emit覆盖三种图：删图拒绝、有证4事件图接受；无观测、摘要、模型producer、缺receipt、越窗、外目标、同坐标冲突负控保持。
+
+修补教学以确定性查询账本选择运行时分支，区分事件关系与源码call、缺凭证与不存在，只有patch可用时不要求重开查询；保有证部分/状态Note，不造近邻箭头。精确目标继承后，process_profile/wakeup_chain缺pid/thread给typed调用修复，而非成功空链；多目标不猜，显式参数及原窗口不改，全局库存继续可无目标。公开缺参RED及唯一目标自动补齐、多目标显式选择、无副作用/无证据发布回归通过。没有新模型必填字段、用户/模型散文扫描门、L1改动或根因资格放宽；600/300/600秒与活跃流保护未改。
+
+### 204.3 两例真实评测与未闭环证据
+
+固定`850a03cf2`两例各一次，机器1/2、完整人工0/2，未追跑第三例。详细路径/行号、oracle和失败分层见[人工审计](../../eval/parallel_selected_summary_hmc_hisys_graph_20261007_manual_audit.md)。
+
+- **HiSys121秒**：默认SQLite只读接入、窗内6行及全部精确rowid完整到达finalizer；模型把负值、零和大整数当不可用，以导出行14–19替代原始行号。数据层子能力通过，完整答案FAIL，不用供给充分作为销账理由。畸形blocks字符串恢复丢孤立columns而仍以block数相同判无损，表头成列2…列6；另有同receipt明确查询窗与“范围未知”冲突，以及blob分页覆盖与6/6查询枚举混杂。均挂16.4/17.7/18.2，原FAIL保留。
+- **sleep216秒**：8次查询均给thread，故缺参修复本例未触发。四次唤醒及10/6/5/0.8ms保留，5.027不再冒称唤醒；但analyzer接受no_named_target、所有查询扩窗4.998–5.045、supplement以no_typed_target跳过。1ms分支阈值丢0.8ms链事件，未以event_search补物理事件；没有合格图凭证，首稿拒后删图，最终0图仍FAIL。仅因低优先级waker发布priority_inversion_candidate，再叠加Coverage/Fact Authority重新引入已称省略的越窗观察，诱发无证反转/无反转结论；不是可直接归为纯模型波动。root旁路未激活且为空，正确不启rank，正文问题单列。
+
+### 204.4 剩余ROI及明确退出条件
+
+批末完整父能力新增0、累计16/79；两组可用子能力/修复、63稳定开放、2份本批完整答案残留、5稳定验收父项。原失败未删，未通过的任务不误销账。接下来不让17.7局部字段与同一成文案例占满能力轨：
+
+1. **下一能力轨08.5：CPU idle-state×频率联合区间。** 参考`cpu_state_freq_ops.py`扫描线区间交集，复用本项目频率驻留与严格CPU解析；参考默认缺idle=Running及state_freq.yaml漏窗前carry-in不能照搬。退出为文本/SQLite公开入口、逐核明细/汇总/上下文，窗头前继、零起点、同刻更新、缺频率/缺状态、右界/乱序正反例；未知不补运行，核时间与墙钟分母分开。中成本且支撑10.3/13.3。
+2. **系统轨P1：统一查询/显示/采集范围及关系资格投影（16.4/12.5/04.5）。** primary context、Coverage、Requested Fact Authority共用结构化窗/对象/来源角色；物理事件point与整段账户/链归因资格分开，不靠放宽所有边门或扫描答案措辞。反转候选需链上低优先级和runnable或执行供给提升证据，不能仅按优先级比较。保多目标精确补齐、<1ms事件事实、缺边未知，不能把背景晋主因。
+3. **系统轨P1另一已证缺陷：JSON可见字段恢复所有权（16.4）。** 不只比恢复block数；已知可见载荷必须能定位归属，结构唯一才归并，歧义保草稿并返回局部修复。适用于columns和其它可见字段，不把本例列名硬挂最后一个table，不用额外用户约束补系统缺陷。
+4. **随后能力03.3、02.3。** 参考heap.yaml的callchain完整帧下钻，但不照搬max_depth-2业务叶子猜法；保同源owner/callchain、帧序/完整度及缺符号/重复深度负控。参考batch/engine.py逐对象结果与closure工件，不照搬stem去重/仅首层glob/按完成顺序关联；绑定授权范围相对路径及源代次，逐对象失败/截断/引用留痕。两者可完整验收，分别服务堆分析与跨工件比较。
+5. **保留原债**：17.7持续写入快照/多来源、17.6实机平台；18.5真实CLI/controller和来源终态（新进程恢复子能力不重列未实施）、planner重复教学；04.5 D-state树、IPC/lock/其它时序关系与五验收父项不代销。单次供给充分的行号误述留档，不以未证明波动为由签绿，也不无限挡更高ROI能力。
+
+### 204.5 验证与发布收据
+
+定向集成tool10.863秒/agent3.791秒/types3.179秒通过；运行时相关race三包54.976/12.970/19.205秒正式exit0，HiSys相关race的hitraceconv5.464秒/tracewire1.507秒/tracequery2.902秒正式exit0。skill整包及构建通过。缺选择器成功空链、generated列冒充原行身份均有修前真实公开RED；中间测试使用未注册view、生产者census字符串pin等接缝错误与产品RED分开保留，未删除原断言。
+
+首轮完整`go test -p 4 ./...`正式exit1，唯一失败为旧`causal_impact`别名成功用例未给目标；该别名对应wakeup_chain，不能绕过同一缺参合同。`32d61cca4`只让成功用例提供实际pid=10，并补别名缺参必须typed repair的反例，未再改生产代码或降低硬门。相关复验tool1.410秒通过。末版构建60516正式exit0，revision `32d61cca436a-dirty`中的dirty仅来自待汇总文档；真实两例仍固定原`850a03cf2`，不追加live或倒签。
+
+| 记录 | SHA-256 |
+| --- | --- |
+| 缺参公开RED `/tmp/codrax-hmc204-selector-red.log` | `4973fc3f8c0f615b4830551ec47ad1a59af0a872a22705b425ae2a7fd2acf61a` |
+| generated列公开RED `/tmp/codrax-hmc204-hisys-generated-red.log` | `e52a7e3cd142b0cfed616803c23215b74a9a3f296f27ea98c3524b7e40509002` |
+| HiSys相关race `/tmp/codrax-hmc204-hisys-final-race.log` | `f04575bcc73cb873b468ae9e5b2fb16318a7ec2089a015935224e2af9b4dd28d` |
+| 集成定向 `/tmp/codrax-hmc204-integrated-related.log` | `c0db6e6dd68a8f0ba8149fd8e800991214920dfdf4f8c630b1dab894b60a43ed` |
+| 运行时相关race `/tmp/codrax-hmc204-runtime-race.log` | `57af44423552bbe884d2cb10e75efd9248323d4b592d30b2416f7d6c9504ee29` |
+| 首轮完整FAIL `/tmp/codrax-hmc204-full.log` | `607af4372e72849f9e606a68434bfcdef65805135854e12fc3bc2f779db3ee1b` |
+| 别名合同复验 `/tmp/codrax-hmc204-alias-test-contract.log` | `ffc4a1f21debd9d2c7a4f40851e6f22cb9c2aaa2aebb04e22b8a2edf9ed494cd` |
+| 末版构建 `/tmp/codrax-hmc204-build-final.log` | `1263f1077e7230f93ba887f778d255585bb6d2d329cf0741869485c7caa6b8be` |
+| 末版全仓 `/tmp/codrax-hmc204-full-final.log` | `6c12335c39c725fae9cd65b82ff7c9f45fccbb58ab37c15855423e288dd2e95e` |
+
+末版冻结`32d61cca4`的单次完整`go test -p 4 ./...`，86798正式exit0：88测试包PASS、13无测试、零FAIL；tool468.302秒、agent99.818秒、hitraceconv149.616秒、orchestrator56.730秒、tracequery128.423秒、types39.219秒。未加`-count=1`，允许未变包使用Go缓存，不拼接前后结果；首轮FAIL和所有原始live仍保留。
+
+三笔代码/测试`5ae5808da`、`850a03cf2`、`32d61cca4`已普通推送main，68929正式exit0（`3e2b774e2`→`32d61cca4`），没有force或改写历史。三份统一文档与两份小型评测报告合批收尾。末次逐ID复算79/16/63、重复0；完整父能力新增0、两组子能力/修复、2份完整人工未过、5稳定验收父项。17.7权威任务行已移除“原始HiSys rowid尚未实施”的旧描述，但成文验收FAIL及其余父项边界保留。
