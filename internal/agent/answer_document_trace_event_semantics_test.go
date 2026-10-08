@@ -63,7 +63,10 @@ func TestTraceEventSemanticsSQLitePreparationToActualFinalizer(t *testing.T) {
 		for _, f := range row.Semantics.Fields {
 			fields[f.Key] = f
 		}
-		if row.CPU != -1 || row.EmitterTID != 0 || row.EmitterTGID != 0 || fields["source.tid"].Value == nil || *fields["source.tid"].Value != "41007" {
+		if row.CPU != -1 || row.CPUKnown == nil || *row.CPUKnown || row.CPUUnknownReason != "source_has_no_cpu_coordinate" ||
+			row.EmitterTID != -1 || row.EmitterTIDKnown == nil || *row.EmitterTIDKnown ||
+			row.EmitterTGID != -1 || row.EmitterTGIDKnown == nil || *row.EmitterTGIDKnown ||
+			fields["source.tid"].Value == nil || *fields["source.tid"].Value != "41007" {
 			t.Fatalf("SQL source role changed on the way to finalizer: %+v", row)
 		}
 		for key, want := range map[string]string{"plugin.domain": "CAMERA_PIPELINE", "plugin.event_name": "CAPTURE_DONE"} {

@@ -5749,6 +5749,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	outsideSelectedWindowRecords += outsideIOQueryWindows
 	promptLedger := ledger
 	promptLedger.Records = promptLedgerRecords
+	inventoryPrompt := renderAnswerDocScopedTraceEventInventories(ctx, ledger, promptLedger)
 	// Independent completion-closed waits keep their established causal and
 	// blocking rulers even when the query's statistical population is unknown.
 	// This separate pool must never feed requested facts or occupancy totals.
@@ -5758,7 +5759,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	}
 	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
 	if len(records) == 0 {
-		return renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx) +
+		return inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx) +
 			renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger) + renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger)
 	}
 	records = answerDocObservationRecordsWithoutReaderAuthorityDuplicates(ctx, promptLedger, records)
@@ -5801,9 +5802,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if coverage := renderAnswerDocTraceObservationCoverage(promptLedger); coverage != "" {
 		b.WriteString(coverage)
 	}
-	if inventory := renderAnswerDocTraceEventInventories(promptLedger); inventory != "" {
-		b.WriteString(inventory)
-	}
+	b.WriteString(inventoryPrompt)
 	if authority := renderAnswerDocTraceValueOccurrenceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}

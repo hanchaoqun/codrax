@@ -85,18 +85,24 @@ type TraceEventSearchInventoryRow struct {
 	LocalLine  int    `json:"local_line,omitempty"`
 	// TraceTimeSeconds follows the canonical result clock, not necessarily
 	// the physical source header. Native payload nanoseconds stay separate.
-	TraceTimeSeconds     float64                    `json:"trace_time_seconds"`
-	SourceTimeSeconds    float64                    `json:"source_time_seconds,omitempty"`
-	SourceTimeKnown      bool                       `json:"source_time_known"`
-	TimeDomain           string                     `json:"time_domain,omitempty"`
-	CanonicalTimeDomain  string                     `json:"canonical_time_domain,omitempty"`
-	EventType            string                     `json:"event_type"`
-	EventName            string                     `json:"event_name,omitempty"`
-	Comm                 string                     `json:"comm,omitempty"`
-	EmitterTID           int                        `json:"emitter_tid"`
-	EmitterTGID          int                        `json:"emitter_tgid"`
+	TraceTimeSeconds    float64 `json:"trace_time_seconds"`
+	SourceTimeSeconds   float64 `json:"source_time_seconds,omitempty"`
+	SourceTimeKnown     bool    `json:"source_time_known"`
+	TimeDomain          string  `json:"time_domain,omitempty"`
+	CanonicalTimeDomain string  `json:"canonical_time_domain,omitempty"`
+	EventType           string  `json:"event_type"`
+	EventName           string  `json:"event_name,omitempty"`
+	Comm                string  `json:"comm,omitempty"`
+	EmitterTID          int     `json:"emitter_tid"`
+	EmitterTGID         int     `json:"emitter_tgid"`
+	// Nil is legacy/unverified, not known. A current producer sets each bit;
+	// unavailable coordinates use -1, distinct from an observed idle TID 0.
+	EmitterTIDKnown      *bool                      `json:"emitter_tid_known,omitempty"`
+	EmitterTGIDKnown     *bool                      `json:"emitter_tgid_known,omitempty"`
 	MarkerPID            int                        `json:"marker_pid"`
-	CPU                  int                        `json:"cpu"` // -1 stays unknown, never CPU zero.
+	CPU                  int                        `json:"cpu"` // The observed coordinate, not proof of execution.
+	CPUKnown             *bool                      `json:"cpu_known,omitempty"`
+	CPUUnknownReason     string                     `json:"cpu_unknown_reason,omitempty"`
 	Raw                  string                     `json:"raw,omitempty"`
 	RawTruncated         bool                       `json:"raw_truncated"`
 	RawUnavailableReason string                     `json:"raw_unavailable_reason,omitempty"`
@@ -164,6 +170,9 @@ func IsValidTraceEventSearchInventoryRecord(r ObservationRecord) bool {
 		}
 	}
 	for _, row := range i.Rows {
+		if !validTraceEventInventoryCoordinates(row) {
+			return false
+		}
 		if !ValidateTraceEventSemantics(row.Semantics) || !traceEventSemanticsMatchEventType(row.Semantics, row.EventType) {
 			return false
 		}
@@ -244,6 +253,9 @@ func CloneTraceEventSearchInventory(in *TraceEventSearchInventory) *TraceEventSe
 	out.Caveats = append([]string(nil), in.Caveats...)
 	out.Rows = append([]TraceEventSearchInventoryRow{}, in.Rows...)
 	for n := range out.Rows {
+		out.Rows[n].CPUKnown = cloneTraceEventInventoryKnown(in.Rows[n].CPUKnown)
+		out.Rows[n].EmitterTIDKnown = cloneTraceEventInventoryKnown(in.Rows[n].EmitterTIDKnown)
+		out.Rows[n].EmitterTGIDKnown = cloneTraceEventInventoryKnown(in.Rows[n].EmitterTGIDKnown)
 		out.Rows[n].Semantics = CloneTraceEventSemantics(in.Rows[n].Semantics)
 		if j := in.Rows[n].JankEvent; j != nil {
 			copy := *j
@@ -255,4 +267,28 @@ func CloneTraceEventSearchInventory(in *TraceEventSearchInventory) *TraceEventSe
 		}
 	}
 	return &out
+}
+
+func validTraceEventInventoryCoordinates(row TraceEventSearchInventoryRow) bool {
+	if !validTraceEventInventoryKnownCoordinate(row.CPUKnown, row.CPU) ||
+		!validTraceEventInventoryKnownCoordinate(row.EmitterTIDKnown, row.EmitterTID) ||
+		!validTraceEventInventoryKnownCoordinate(row.EmitterTGIDKnown, row.EmitterTGID) {
+		return false
+	}
+	if row.CPUKnown == nil || *row.CPUKnown {
+		return row.CPUUnknownReason == ""
+	}
+	return row.CPUUnknownReason != "" && traceEventSemanticReasonValid(row.CPUUnknownReason)
+}
+
+func validTraceEventInventoryKnownCoordinate(known *bool, value int) bool {
+	return known == nil || (*known && value >= 0) || (!*known && value == -1)
+}
+
+func cloneTraceEventInventoryKnown(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }

@@ -19,6 +19,7 @@ import (
 func TestPerfIdentityAndCPUAuthorityCallerClosure(t *testing.T) {
 	calls := tracequeryProductionFunctionCalls(t)
 	assertPerfHelperCallers(t, calls, "perfSampleHasKnownCPU", []string{
+		"ProjectTraceEventInventoryCoordinates", // display identity only, not execution authority
 		"applyPerfBundleAdmission",
 		"normalizePerfSampleClaims",
 		"perfQualityAcc.add",

@@ -71,13 +71,17 @@ func traceQueryEventSearchInventoryObservation(result tracequery.Result, ref typ
 		if sourceTimeKnown {
 			sourceTime = event.SourceTs
 		}
+		coordinates := tracequery.ProjectTraceEventInventoryCoordinates(event.Event)
 		row := types.TraceEventSearchInventoryRow{
 			Line: event.Line, SourcePath: event.SourcePath, LocalLine: event.LocalLine,
 			TraceTimeSeconds: event.Ts, SourceTimeSeconds: sourceTime,
 			SourceTimeKnown: sourceTimeKnown,
 			TimeDomain:      event.TimeDomain, CanonicalTimeDomain: event.CanonicalTimeDomain,
-			EventType: string(event.Type), EventName: event.Name, Comm: event.Comm, EmitterTID: event.PID, EmitterTGID: event.TGID,
-			MarkerPID: event.SpanPID, CPU: event.CPU, Raw: raw, RawTruncated: truncated,
+			EventType: string(event.Type), EventName: event.Name, Comm: event.Comm,
+			EmitterTID: coordinates.EmitterTID, EmitterTGID: coordinates.EmitterTGID,
+			EmitterTIDKnown: &coordinates.EmitterTIDKnown, EmitterTGIDKnown: &coordinates.EmitterTGIDKnown,
+			MarkerPID: event.SpanPID, CPU: coordinates.CPU, CPUKnown: &coordinates.CPUKnown,
+			CPUUnknownReason: coordinates.CPUUnknownReason, Raw: raw, RawTruncated: truncated,
 			RawUnavailableReason: event.RawUnavailableReason,
 			Semantics:            tracequery.ProjectTraceEventSemantics(event.Event),
 		}
