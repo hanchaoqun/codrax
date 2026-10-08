@@ -63,7 +63,7 @@ func TestNativeRegistrationLiveRestoredFollowup(t *testing.T) {
 		t.Fatal(err)
 	}
 	const question = "实现已修好，请运行保留的现有测试，确认返回值正确。不要再修改源码、测试、配置或依赖。"
-	save("evaluation.json", map[string]any{"kind": "restored_native_registration_planner", "model": adapter.ModelID(), "question": question, "full_cli_run": false})
+	save("evaluation.json", map[string]any{"kind": "restored_native_registration_planner", "model": adapter.ModelID(), "question": question, "full_cli_run": false, "fresh_process_restore": true, "controller_decisions": "scripted_verify_then_finish"})
 	f := newControllerRegistrationFixture(t)
 	o, mu := f.o, f.o.busCtx.Mutable
 	mu.SetObjective(question)
@@ -124,21 +124,11 @@ func TestNativeRegistrationLiveRestoredFollowup(t *testing.T) {
 	updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchPlanned)
 	promoteActiveProofProbeOnlyBatchToVerifyOnly(run)
 	mu.SetWriteWorkflowRun(run)
-	plan = f.reload(t)
-	o.controllerWriteStageFn = func(stage types.PipelineStage, steps *int) (*agent.StageOutput, error) {
-		if stage != types.StageVerify || !o.busCtx.Mutable.NativeTestRegistrationExecutionAuthorized(plan, o.busCtx.RepoRoot) {
-			t.Fatal("restored verifier lacks fresh authority")
-		}
-		*steps++
-		result := controllerRegistrationTool(t, o.busCtx, (&tool.RunTests{}).Execute, map[string]any{})
-		return &agent.StageOutput{ToolResults: []types.ToolResult{result}}, nil
-	}
-	steps = 0
-	if err := o.runControllerVerifyBatch(&steps); err != nil {
-		t.Fatal(err)
-	}
-	report := o.busCtx.Mutable.ChangeReport()
-	if steps != 1 || report == nil || len(report.ExistingTestExecutions) != 1 || !types.BehaviorContractRefHasVerificationWitness(plan, report, "increment-result") {
+	save("before-restart-plan.json", plan)
+	save("before-restart-workflow.json", run)
+	report := f.restart(t)
+	plan = o.busCtx.Mutable.ChangePlan()
+	if report == nil || len(report.ExistingTestExecutions) != 1 || !types.BehaviorContractRefHasVerificationWitness(plan, report, "increment-result") {
 		t.Fatal("fresh execution did not prove the original required behavior")
 	}
 	receipt := report.ExistingTestExecutions[0]
@@ -146,11 +136,10 @@ func TestNativeRegistrationLiveRestoredFollowup(t *testing.T) {
 	if invocation == "" || invocation == f.oldInvocation || receipt.SourcePlanID != f.source.ID || receipt.AppliedCommitSHA != f.head || o.busCtx.Mutable.NativeTestRegistrationExecutionAuthorized(plan, o.busCtx.RepoRoot) {
 		t.Fatal("old execution reused or fresh grant leaked")
 	}
-	o.syncMutablePlanStatusAfterVerify(report, nil)
 	root := o.busCtx.RepoRoot
 	body, _ := os.ReadFile(filepath.Join(root, "test_value.py"))
 	if string(body) != controllerRegistrationTestSource || strings.TrimSpace(runGitForWorkflowRestoreTest(t, root, "rev-parse", "HEAD")) != f.head || runGitForWorkflowRestoreTest(t, root, "diff", "HEAD", "--") != "" {
 		t.Fatal("registration changed retained source/tests")
 	}
-	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true})
+	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": o.busCtx.Mutable.WriteWorkflowRun().Status == types.WriteWorkflowRunComplete})
 }

@@ -11232,6 +11232,23 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 			)
 		}
 	}
+	if plan := o.busCtx.Mutable.ChangePlan(); plan != nil && plan.ID == st.PlanID {
+		// The durable plan carries the original contract/task snapshot. Do not
+		// replace a newly supplied analysis (which must pass the normal exact
+		// contract checks), but a fresh process has no in-memory snapshot yet.
+		if o.busCtx.Mutable.WriteAnalysisIR() == nil && plan.WriteAnalysisIR != nil {
+			o.busCtx.Mutable.SetWriteAnalysisIR(plan.WriteAnalysisIR)
+		}
+		// A crash may occur between saving the planned proof and marking it
+		// verifying. Resume the same controller-owned no-edit transition as
+		// the live planning path; execution still requires a fresh source/run/
+		// contract authorization. No approval or source-apply gate is bypassed.
+		if active.Status == types.WriteWorkflowBatchPlanned && changePlanIsReadOnlyProof(plan) && activeBatchProofFollowupPurpose(run) {
+			promoteActiveProofProbeOnlyBatchToVerifyOnly(run)
+			updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchVerifying)
+			o.busCtx.Mutable.SetWriteWorkflowRun(run)
+		}
+	}
 	if o.busCtx.Mutable.VerifyFailureHandoff() == nil && st.Phase == writeflow.BatchPhaseNeedsReplan {
 		reportEvidenceReason := "durable_report_ref_missing"
 		if report := o.loadDurableReportArtifact(st.ReportID); report != nil && !report.Passed &&
