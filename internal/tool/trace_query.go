@@ -418,7 +418,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	explicitTargetParams := p
 	var targetCaveat string
 	p, targetCaveat = traceQueryApplyRequestModelTarget(ctx, p)
-	if reject := traceQueryProcessProfileInputRepair(p); reject != nil {
+	if reject := traceQueryRequiredTargetInputRepair(p); reject != nil {
 		return *reject, nil
 	}
 	var sourceReject *types.ToolResult
@@ -7744,17 +7744,7 @@ func traceQueryIndexDiagnostic(result tracequery.Result) string {
 }
 
 func traceThreadLabel(t tracequery.ThreadRef) string {
-	comm := sanitizeForBanner(t.Comm)
-	switch {
-	case comm != "" && t.PID > 0:
-		return fmt.Sprintf("%s-%d", comm, t.PID)
-	case comm != "":
-		return comm
-	case t.PID > 0:
-		return fmt.Sprintf("pid=%d", t.PID)
-	default:
-		return "unknown-thread"
-	}
+	return types.RuntimeWakeupThreadLabel(types.RuntimeWakeupThread(t))
 }
 
 // traceQueryFrameLaneIdentity keeps every scheduler identity axis explicit.

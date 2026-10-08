@@ -28,7 +28,7 @@ func traceQueryProcessProfileSchema(schema json.RawMessage) json.RawMessage {
 	for _, name := range []string{"pid", "thread"} {
 		if field, ok := properties[name].(map[string]any); ok {
 			desc, _ := field["description"].(string)
-			field["description"] = desc + " For process_profile, one source thread selector (pid or exact thread) is required unless already inherited from a unique typed analysis target; this selects its native process, not only that thread's statistics."
+			field["description"] = desc + " For process_profile and wakeup_chain, one source thread selector (pid or exact thread) is required unless already inherited from a unique typed analysis target. For multiple requested threads, query each explicitly in the same requested window; do not omit the selector. process_profile selects the source thread's native process, not only that thread's statistics."
 		}
 	}
 	var out bytes.Buffer
@@ -42,12 +42,24 @@ func traceQueryProcessProfileSchema(schema json.RawMessage) json.RawMessage {
 
 // Check only typed call fields, after existing target inheritance. A missing
 // selector is a repairable invocation error, not absent process evidence.
-func traceQueryProcessProfileInputRepair(p traceQueryParams) *types.ToolResult {
-	if tracequery.CanonicalViewName(p.View) != "process_profile" || p.PID.Int() > 0 || strings.TrimSpace(p.Thread) != "" {
+func traceQueryRequiredTargetInputRepair(p traceQueryParams) *types.ToolResult {
+	if p.PID.Int() > 0 || strings.TrimSpace(p.Thread) != "" {
 		return nil
 	}
-	hint := "process_profile needs a source thread selector. Retry the same source/window with pid=<observed TID> or thread=<exact observed thread>. If not yet known, locate the requested thread with event_search first. No process census was performed; missing call parameters do not mean missing capture data."
-	return &types.ToolResult{ToolName: "trace_query", Success: false, Summary: hint, Timestamp: time.Now(), Repair: &types.ToolRepair{Code: "trace_query_source_thread_required", Fields: []string{"pid", "thread"}, Hint: hint, Metadata: map[string]string{"view": "process_profile", "retry_scope": "same_source_and_window", "selector_semantics": "one_source_thread"}}}
+	view := tracequery.CanonicalViewName(p.View)
+	var operation string
+	switch view {
+	case "process_profile":
+		operation = "process census"
+	case "wakeup_chain":
+		operation = "wakeup dependency query"
+	default:
+		// Global inventories and views with their own target election keep
+		// their existing contracts; attachment presence never elects a thread.
+		return nil
+	}
+	hint := view + " needs one source thread selector. Retry the same source/window with pid=<observed TID> or thread=<exact observed thread>. For multiple requested threads, query each explicitly without changing the requested window. If not yet known, locate the requested thread with event_search first. No " + operation + " was performed; missing call parameters do not mean missing capture data."
+	return &types.ToolResult{ToolName: "trace_query", Success: false, Summary: hint, Timestamp: time.Now(), Repair: &types.ToolRepair{Code: "trace_query_source_thread_required", Fields: []string{"pid", "thread"}, Hint: hint, Metadata: map[string]string{"view": view, "retry_scope": "same_source_and_window", "selector_semantics": "one_source_thread"}}}
 }
 
 func writeTraceProcessProfilePreview(b *strings.Builder, p *tracequery.ProcessProfile) {

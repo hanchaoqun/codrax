@@ -2,6 +2,35 @@ package types
 
 import "strings"
 
+// A runtime query may supply exact event relations without any source-code
+// EvidenceItems. Restore only an already-requested compatible diagram, using
+// the same scoped, conflict-checked events as the edge validator. Evidence
+// absence still takes the existing honest downgrade; this is not an attachment
+// waiver and does not construct a diagram or grant call/root-cause authority.
+func applyRuntimeDiagramSupport(plan *AnswerSurfacePlan, ir *AnalysisIR, ledger ObservationLedger) {
+	if plan == nil || ir == nil || ir.AnswerContract.Diagram == nil || !ir.AnswerContract.Diagram.Required {
+		return
+	}
+	if plan.Diagram != nil && plan.Diagram.Required {
+		return
+	}
+	base := ir.AnswerContract.Diagram
+	kind := base.RequiredKind
+	if kind == DiagramNone || !kind.IsValid() {
+		kind = firstConcreteDiagramKindInContract(base.PreferredKinds)
+	}
+	switch kind {
+	case DiagramSequence, DiagramFlow, DiagramCallDAG:
+	default:
+		return
+	}
+	if len(RuntimeWakeupDiagramEvents(ledger, &ir.RequestModel)) == 0 {
+		return
+	}
+	plan.Diagram = EffectiveDiagramContract(base, []DiagramKind{kind})
+	plan.DiagramHardRequirementDropped = false
+}
+
 // EffectiveDiagramContract applies the current grounded-structure
 // support to a static DiagramContract. The analyzer may correctly
 // infer that a question is structural, but by finalization time the

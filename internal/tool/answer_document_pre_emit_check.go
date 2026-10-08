@@ -5531,6 +5531,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if len(mismatches) == 0 {
 		return hints
 	}
+	runtimeRepairTeaching := runtimeDiagramRelationRepairTeaching(pctx.ctx)
 	typeRelationParts := make([]string, 0, len(mismatches))
 	valueFlowParts := make([]string, 0, len(mismatches))
 	logicalRelationParts := make([]string, 0, len(mismatches))
@@ -5634,6 +5635,10 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			DiagramRelationFailurePairs:    failurePairs,
 			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
+		if runtimeRepairTeaching != "" {
+			hints[len(hints)-1].ExpectedShape = runtimeRepairTeaching + " Mismatches: " + strings.Join(logicalRelationParts, "; ") + diagramRelationSurgicalRepairInstruction
+			hints[len(hints)-1].Reason = "The declared relation must have its own exact source or runtime authority. Runtime observations select this repair guidance only; they do not authorize any failed edge or replace the ordinary source, scope, identity, and relation checks."
+		}
 	}
 	if len(otherParts) > 0 {
 		occurrenceBoundary := ""
@@ -5666,6 +5671,10 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			DiagramGroundedAnchorPatchJSON: groundedAnchorPatchJSON,
 			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
+		if runtimeRepairTeaching != "" {
+			hints[len(hints)-1].ExpectedShape = runtimeRepairTeaching + occurrenceBoundary + " Mismatches: " + strings.Join(otherParts, "; ") + sequenceOperatorBoundary + staleAnchorBoundary + reversedAnchorBoundary + diagramRelationSurgicalRepairInstruction
+			hints[len(hints)-1].Reason = "A missing or invalid anchor is an evidence/ownership failure, not a requirement to label a runtime event as a source call. Only the published exact relation pairs can repair it. Ordinary validation remains unchanged for all source and runtime relations."
+		}
 	}
 	return hints
 }

@@ -63,7 +63,7 @@ func TestProcessProfileMissingSelectorIsRepairNotCaptureAbsence(t *testing.T) {
 		t.Fatalf("missing selector became data: %v %+v", err, r)
 	}
 	for _, p := range []traceQueryParams{{View: "process_profile", PID: 10}, {View: "process_profile", Thread: "ui"}, {View: "window_stats"}} {
-		if traceQueryProcessProfileInputRepair(p) != nil {
+		if traceQueryRequiredTargetInputRepair(p) != nil {
 			t.Fatal("explicit selector or unrelated view rejected")
 		}
 	}

@@ -19337,7 +19337,7 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	if len(delta.Failures) == 0 {
 		b.WriteString(". The patch executor has returned the complete current additions-only typed capability roster. Use the reported patch transaction state to determine which earlier operations are already in the live retry base. ")
 	} else {
-		b.WriteString(" by a local typed source relation mismatch. ")
+		b.WriteString(" by a local typed relation mismatch. ")
 	}
 	b.WriteString(action)
 	b.WriteString("; use `diagram_edge_edits` for schema-published local repairs; preserve the rest. ")

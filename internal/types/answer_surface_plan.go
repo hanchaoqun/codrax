@@ -2102,6 +2102,7 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 	if plan == nil || ir == nil {
 		return
 	}
+	applyRuntimeDiagramSupport(plan, ir, ledger)
 	if observationLedgerHasRuntimeTraceArtifact(ledger) {
 		attachedRuntimeArtifact = true
 	}

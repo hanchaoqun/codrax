@@ -33,16 +33,7 @@ type RuntimeDiagramRelationProvider interface {
 }
 
 func runtimeDiagramHasNamedBoundedTarget(rm *types.RequestModel) bool {
-	if rm == nil || !rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() {
-		return false
-	}
-	for _, target := range rm.RuntimeTargets {
-		if !types.RuntimeTargetIsExplorationCursorSource(target.Source) &&
-			((target.PID > 0 && target.PID <= types.RuntimeTargetMaxPID) || strings.TrimSpace(target.Thread) != "") {
-			return true
-		}
-	}
-	return false
+	return types.RuntimeDiagramHasNamedBoundedTarget(rm)
 }
 
 type businessTreeDiagramRelationProvider struct{}
@@ -300,6 +291,9 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 	authority := RuntimeDiagramRelations(ledger, rm)
 	rows := runtimeDiagramPresentationRows(authority)
 	if len(rows) == 0 {
+		if runtimeDiagramHasQueryObservations(ledger) {
+			return "### 运行时关系图证据边界 / Runtime diagram evidence boundary\n\n" + runtimeDiagramRelationOwnershipTeaching + " " + runtimeDiagramMissingRelationTeaching + "\n\n"
+		}
 		return ""
 	}
 	const limit = 8
