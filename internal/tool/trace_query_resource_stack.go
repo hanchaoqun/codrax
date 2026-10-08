@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -24,11 +25,13 @@ func traceQueryResourceStackSchema(schema json.RawMessage) json.RawMessage {
 	}
 	description, _ := view["description"].(string)
 	view["description"] = description + " " + tracequery.ResourceStackTeaching
-	out, err := json.Marshal(obj)
-	if err != nil {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if encoder.Encode(obj) != nil {
 		return schema
 	}
-	return out
+	return out.Bytes()
 }
 
 func traceQueryResourceStackObservations(p *tracequery.ResourceStackResult, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {

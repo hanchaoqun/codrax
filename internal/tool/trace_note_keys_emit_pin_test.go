@@ -18,6 +18,7 @@ package tool
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1287,6 +1288,17 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 		LineStart:      1, LineEnd: 2, StartTs: 1.002, EndTs: 1.049,
 	})
 	records := traceQueryTypedObservations(fixture, "full.systrace", "payload-ref", "raw-ref", "", time.Unix(1751600000, 0).UTC())
+	// Exercise the new contract carrier through real SQLite preparation and
+	// public trace_query publication, not a hand-written note or exemption.
+	resourcePath, err := filepath.Abs("../../eval/fixtures/hmosperf_native_resource_stack/capture.data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resourceResult, _, resourceStack := nativeStackPublicQuery(t, resourcePath, map[string]any{"pid": 101, "time_start": 10, "time_end": 10.05})
+	if resourceStack.Status != "available" || resourceStack.MatchedEvents != 3 {
+		t.Fatalf("resource-stack producer fixture did not publish its complete population: %+v", resourceStack)
+	}
+	records = append(records, resourceResult.Observations...)
 	if len(records) == 0 {
 		t.Fatal("fixture produced no observation records — the emit pin is checking nothing")
 	}

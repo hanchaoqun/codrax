@@ -32,6 +32,7 @@ func resultSchemaBeforeCPUStateFrequency(t *testing.T, schema string) string {
 
 func TestCPUStateFrequencyResultSchemaAddsOnlyOptionalResidency(t *testing.T) {
 	_, schema := detailSchemaFingerprint(reflect.TypeOf(tracequery.Result{}))
+	schema = resultSchemaBeforeResourceStack(t, schema)
 	sum := sha256.Sum256([]byte(resultSchemaBeforeCPUStateFrequency(t, schema)))
 	if hex.EncodeToString(sum[:]) != "7657fe758057bf0d00ab1a2f0567b524131ca770311ca6d64275543428b444c7" {
 		t.Fatal("CPU joint-residency addition changed an unrelated result field")

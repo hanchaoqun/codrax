@@ -219,6 +219,11 @@ func TestNonEventPrioritySchemaPins(t *testing.T) {
 	sort.Slice(types, func(i, j int) bool { return types[i].name < types[j].name })
 	for _, item := range types {
 		got, schema := detailSchemaFingerprint(item.typ)
+		if item.typ == reflect.TypeOf(tracequery.Result{}) {
+			previous := resultSchemaBeforeResourceStack(t, schema)
+			sum := sha256.Sum256([]byte(previous))
+			got = hex.EncodeToString(sum[:])
+		}
 		want := nonEventPrioritySchemaPins[item.typ]
 		if got != want {
 			t.Errorf("%s schema drift: got=%s want=%s\ncurrent_schema=%s", item.name, got, want, schema)
@@ -228,6 +233,7 @@ func TestNonEventPrioritySchemaPins(t *testing.T) {
 
 func TestProcessProfileResultSchemaAddsOnlyOptionalProfile(t *testing.T) {
 	_, schema := detailSchemaFingerprint(reflect.TypeOf(tracequery.Result{}))
+	schema = resultSchemaBeforeResourceStack(t, schema)
 	schema = resultSchemaBeforeCPUStateFrequency(t, schema)
 	const added = "ProcessProfile|*tracequery.ProcessProfile|process_profile,omitempty"
 	var previous []string
