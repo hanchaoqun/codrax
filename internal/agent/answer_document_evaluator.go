@@ -23769,13 +23769,15 @@ func traceQueryObservationRequestedScopeNote(record types.ObservationRecord, req
 	}
 	// An occurrence's Span is not its query window. Missing producer-owned
 	// query endpoints stay unknown even when the row has a precise event span.
-	start, end, _ := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
-	if len(requested.ExplicitTimeWindows()) > 1 {
-		start, end = 0, 0
-		if record.SourceRef.QueryWindowKnown {
-			start, end = record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs
-		}
+	ref := record.SourceRef
+	if ref.QueryScopeID != "" || ref.QueryWindowKnown || ref.QueryLineRangeKnown || len(requested.ExplicitTimeWindows()) > 1 {
+		// A native selected_window can describe a recursive child. The parent
+		// receipt owns query disclosure, including invalid/line-only windows;
+		// never replace it with that child's ruler or an event envelope.
+		return types.ResolveTraceObservationQueryWindowScope(requested, ref).Format(lang)
 	}
+	// Preserve the legacy single-window display when no query receipt exists.
+	start, end, _ := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
 	return types.ResolveTraceQueryWindowScope(requested, start, end).Format(lang)
 }
 
