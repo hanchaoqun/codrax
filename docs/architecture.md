@@ -1130,6 +1130,8 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 
 ### 6.5 Diagram relation 与 edge anchor
 
+**JSON恢复的可见字段归属（HMC-16.4）**：full emit、局部patch、agent畸形参数预解析和display-only恢复共用结构所有权检查。`columns/items/text/diagram`等可见字段落在文档根或字符串blocks的块外时，不能仅凭恢复前后块数相同判无损，也不猜它属于最后一个块；保原始载体和可寻址草稿，返回按原schema放回明确owner的局部修复。合法metadata作为完整值跳过，引号内JSON示例不计为块；仅保留既有能证明字段实际保存的邻接注解修复。拒绝出口继续处理合法/非法根因选择旁路，成功局部修复后不把失败原JSON另当答案展示。没有新增模型必填字段或原文关键词硬门。
+
 Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚举以 `internal/types/diagram_relation.go::AllDiagramRelationKinds` 为准，包括调用、回调交接、注册、回复、时序、类型关系等不同语义。它们不能互相冒充；命名相似、展示标签或消息参数不产生身份与关系证据。调用链的 principal claim-form 清单由 `CallChainPrincipalClaimForms` 统一提供给编译器和发射校验，避免某语言或某关系只更新一侧。
 
 **DiagramEdgeAnchor**（`AnswerBlock.EdgeAnchors[]`）把模型选择的可见端点与 typed 关系证据绑定。发射阶段依据当前 schema/candidate 发布的端点身份、relation_kind 和凭证校验；展示别名必须能唯一对应证据身份。用户未请求图时不能仅因 call-chain 家族强制新增图；断开的证据段应保留断开，不由系统补桥。旧 `claim_form` 兼容元数据不是要求模型为同一关系重复填写的第二份判定依据，具体可写字段以当轮工具 schema 为准。
@@ -1323,6 +1325,8 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 **按需能力发现（HMC-01.1）**：`trace_capabilities` 是探索阶段的只读、零证据权重目录入口；默认简表，指定 `view` 和 `detail:true` 时读取同一语义目录的指标族、输入前提、单位、口径与缺口。无需文件或附件，不调用查询/转换器，不写Bus、读取覆盖或运行时观察；静态支持不代表当前capture满足条件。目录视图与真实canonical registry、工具入口别名和 `trace_query` 参数面保持一致，复合能力引用子能力。首个原生Trace查询的硬义务允许先查目录，但目录不完成该义务，也不绕过已发生的终止性输入准入失败；不扩大analyzer工具面。完整参数教学继续由原工具schema负责，能力目录不是第二查询内核或因果授权来源。
 
+目录文档每份最多64KiB，跨阶段最多8份/128KiB，按完整文档选择、不剪JSON条件。`detail:true`完整目录超过单份预算时，只在完整metric合同边界分页；每页保所有view、格式条件和总则，`metric_page`给offset/total/has_more及可直接调用的next_call。cursor绑定完整目录内容hash及原view/detail，过期或错页明确失败；非初始末页不能宣称完整目录。cursor随选择进入读凭证、去重和计费，模型摘要不能覆盖typed分页状态。总则或单一合同自身超限时仍诚实失败并建议选view，不通过提高上限或截短限制解决。
+
 并行通道，`AttachedHitrace` 非空触发。perf_triager + emit_perf_trace 写 PerfBundle：
 
 - Layer 1 Meta：`source` (hitrace/atrace/systrace/perfetto/unknown) / `duration_ms` / `app_pid` / `signals[]` (jank/cold-start-slow/main-thread-stall/io-block/gc-pause/render-miss) / `summary`。系统所有的`Meta.Authority`区分模型提取与确定性测量；模型schema不接受该字段。未验证/旧值/未知权威的时长、PID和故障标签只保审计，不投递为上下文/阶段报告中的事实，也不计作证据或故障语义。`AuthoritativeSignals`仍从各自已验证的帧/停顿/启动记录恢复合法信号，不由Meta整体失权而丢掉它们。合并先选确定性元数据分区，再计算代表值，不能把更大的模型估计或多数模型PID混入已验证分区。Source仍是描述性路由提示、Summary仍仅审计，BugClasses保独立注册表来源（HMC §194）。
@@ -1343,6 +1347,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **既有SQLite只读接入（HMC-17.7子能力）**：明确选择Trace的CLI/REPL附件、`trace_query`显式文件及已有typed artifact身份，根据内容接纳自包含TraceStreamer SQLite或准备期间代次稳定的main/WAL组合，不依赖扩展名。`PrepareExistingTraceDB`不调用外部转换器、不在原DB创建索引/旁件或执行检查点；持有源代次，复制到私有封存快照，复用只读VFS、语义导出、全表保真及原owner/clock/query-ready合同。rollback-journal头仍须别名/规范路径均无`-wal`、`-shm`、`-journal`。WAL头2/2有有效提交时校验页几何、salt、累积checksum和提交帧，只覆盖到最后已验证提交，未提交尾帧不进入镜像；无/空/仅头/仅未提交WAL走checkpoint-only主库页视图并保留各自状态收据，缺失不伪造零字节文件摘要。仅在私有镜像规范化SQLite头，源main/WAL/SHM均不修改，也不借SHM作为权威。main与WAL各最多4GiB，镜像最多4GiB，页索引最多1<<20项；部分帧、同代校验损坏、缺已提交扩展页、源变化、旁件歧义或journal均失败。原main、存在的WAL及私有镜像分别记摘要/代次，缓存复用和查询前后重验来源及辅助文件存在/缺失状态，WAL单独变化也失效；JSON收据不能恢复进程内权限。普通自然语言/fileHints中的任意`.data`路径不会因此获得Trace身份；非标准后缀补齐仍需typed准入或既有准备收据。持续写入时的在线快照仍未开放，checkpoint-only不证明历史日志从未丢失，不能称支持任意活跃数据库。
 
 **进程观察概览（HMC-04.5子能力）**：`trace_query(view=process_profile,pid=<源TID>,time_start,time_end)`以原生header TGID/已验证scheduler head建立已观测成员，不使用名称或marker PID投票作为成员证明。单完整物理源及确定窗口内，复用owner时间线计算完整成员的状态和睡眠调用者分组；百分比分母为完整窗口，缺状态/caller为未知。同步业务热点按线程及名称汇总完整已配对库存的窗口内包含耗时，不跨线程借代表TID；嵌套热点不能相加。先算总数再展示最多40线程/每线程8组，工具及最终上下文分别披露省略。typed observation绑定来源/查询/窗口并校验状态守恒，最终上下文最多4查询×12线程；不改请求范围。成员→状态→调用者是观察分组，不是调用图或唤醒因果树；根因仍由已有链上证据决定。
+
+**CPU空闲状态×频率（HMC-08.5子能力）**：`trace_query(view=cpu_state_frequency,time_start,time_end)`对完整单源CPU控制流求半开区间交集；控制轨属于CPU，既不继承线程目标，也不接受显式pid/thread过滤发出事件的线程。全流前继、同刻最后物理更新、右界、未知频率及状态分别处理。原始idle编号0仍是idle，只有退出标记表示active，不能当作某线程正在运行；不跨核借频率、不自动推C态名字。逐核组合/区间先完整统计，再分别限制64项，CPU最多展示64核；typed handoff缩至16核×16组/区间，最终上下文最多4查询×8核，均披露省略且不改变完整窗口分母。全核CPU-ms与单窗口墙钟分开，已知/未知保守恒；完整区间与分组做结构交叉校验，仅显式拓扑提供核类型。控制轨回拨/坏标量/被拒外壳使对应轨未知，ParserVersion随新审计收据换代。现有SQL measure导出未保dur及原生idle编码，明确返回不可计量；多源/窗口索引缺完整前继也不拼成联合区间。新view不改变旧因果投影/根因排序；旧频率驻留合并仅允许相邻同值，避免跨零频率未知洞形成虚假连续包络。
 
 概览入口保留唯一typed目标自动补齐。另以`RequestModel.runtime_thread_lookups`保存用户给出的查询定位线程，与诊断焦点分开：原句必须属于当前请求，身份须由统一整词匹配/完整线程选择器绑定；泛化“有哪些线程”不能授予附件中发现的身份。仅观察型线程输入view可继承唯一lookup，显式调用/真正焦点优先，多输入不猜选，探索游标不能覆盖lookup，不创建根因焦点。补齐后仍缺选择器返回可重试参数错误，不产生缺证统计；原生身份/状态不可计量则显示未知，不补零。
 
