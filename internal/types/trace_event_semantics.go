@@ -69,7 +69,7 @@ var traceEventSemanticDescriptors = []TraceEventSemanticDescriptor{
 	{"marker.business_name_ref", "marker", "int64", "", "业务名称原始字典引用"},
 	{"marker.label_origin", "marker", "text", "", "标记标签的产生方式"},
 	{"source.table", "source", "text", "", "源数据表（非业务域）"},
-	{"source.row_id", "source", "int64", "", "源表记录编号（仅在同一采集内唯一，不是完整启动实例）"},
+	{"source.row_id", "source", "int64", "", "源表物理记录编号（仅在同一源文件代次与表内定位，不是业务实例或因果关系）"},
 	{"source.owner_ipid", "source", "int64", "", "源表进程引用（不是系统PID，不证明进程生命周期）"},
 	{"source.owner_pid", "source", "int64", "", "源表所属进程PID（不是发射线程，不证明生命周期）"},
 	{"source.subject_role", "source", "text", "", "源记录主体角色（进程所属区间不代表线程执行）"},
@@ -169,7 +169,7 @@ func traceEventSemanticFieldValueValid(key, value string) bool {
 	case "source.representation":
 		return value == "parsed_plugin_fields" || value == "parsed_trace_marker" || value == "sql_hisysevent" || value == "sql_app_startup"
 	case "source.table":
-		return value == "app_startup"
+		return value == "app_startup" || value == "hisys_all_event"
 	case "marker.label_origin":
 		return value == "synthesized_sql_label"
 	case "source.contents_storage_class", "source.tid_storage_class":

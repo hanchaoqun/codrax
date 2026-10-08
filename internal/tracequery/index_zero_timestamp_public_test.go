@@ -326,7 +326,7 @@ func TestIndexZeroTimestampPublicCacheEpochAndExplicitZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if actualKey.version != "tracequery-v50" {
+	if actualKey.version != "tracequery-v51" {
 		t.Fatalf("actual public parser key did not advance its zero-presence epoch: %+v", actualKey)
 	}
 	oldKey := actualKey

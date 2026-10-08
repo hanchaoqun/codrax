@@ -18,7 +18,12 @@ const MaxHiSysEventObservationBytes = 1 << 20
 // or causal relationship. Its timestamp is the row's trace timestamp, never
 // the timestamp of a SQL-fidelity carrier. Zero and NULL remain distinct.
 type HiSysEvent struct {
-	TimestampNS int64  `json:"timestamp_ns,string"`
+	TimestampNS int64 `json:"timestamp_ns,string"`
+	// SourceRowID is the SQL hidden rowid, not the declared id/seq field or
+	// export position. It locates a row only within the same source database
+	// generation and hisys_all_event table; it grants no causal identity.
+	// Nil keeps legacy observations and sources without a provable rowid valid.
+	SourceRowID *int64 `json:"source_rowid,string,omitempty"`
 	SourceTID   *int64 `json:"source_tid,string"`
 	// Present only for an invalid non-NULL TID cell. Preserve the cell without
 	// turning numeric-looking TEXT/REAL or an out-of-range integer into identity.

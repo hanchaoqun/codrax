@@ -155,7 +155,7 @@ func eventSideTableBytes(ev *Event) int64 {
 					n += int64(unsafe.Sizeof("")) + int64(len(*h.SourceTIDRaw.Text))
 				}
 			}
-			for _, p := range []*int64{h.SourceTID, h.Domain.Reference, h.Event.Reference} {
+			for _, p := range []*int64{h.SourceRowID, h.SourceTID, h.Domain.Reference, h.Event.Reference} {
 				if p != nil {
 					n += 8
 				}

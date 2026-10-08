@@ -90,6 +90,12 @@ func (p *traceEventSemanticProjector) plugin(event Event) {
 
 func (p *traceEventSemanticProjector) hiSysEvent(event tracewire.HiSysEvent) {
 	p.known("source.representation", "sql_hisysevent")
+	p.known("source.table", "hisys_all_event")
+	if event.SourceRowID != nil {
+		p.known("source.row_id", strconv.FormatInt(*event.SourceRowID, 10))
+	} else {
+		p.unknown("source.row_id", "unavailable", "source_row_identity_unavailable")
+	}
 	p.known("source.timestamp_ns", strconv.FormatInt(event.TimestampNS, 10))
 	if event.SourceTIDRaw != nil {
 		p.unknown("source.tid", "invalid", "invalid_source_tid")

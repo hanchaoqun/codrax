@@ -1037,7 +1037,25 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT ts, tid, domain_id, event_name_id, contents FROM hisys_all_event ORDER BY ts")
+	stableExpr, stableSource, stableErr := traceDBHiddenRowIDExpr(ctx, tdb.db, "hisys_all_event")
+	stableKnown := stableErr == nil
+	orderExpr := "ts"
+	skipped := map[string]int{}
+	if stableKnown {
+		coverage.FieldSources["stable_identity"] = stableSource
+		coverage.FieldSources["same_timestamp_order"] = "hisys_all_event.ts then signed hidden rowid; deterministic presentation only, not physical execution order"
+		orderExpr += ", " + stableExpr
+	} else {
+		if err := ctx.Err(); err != nil {
+			return coverage, err
+		}
+		stableExpr = "NULL"
+		coverage.FieldSources["stable_identity"] = "unavailable: no provable hidden rowid; declared id/seq and scan ordinals are not substitutes"
+		coverage.FieldSources["same_timestamp_order"] = "unavailable: timestamps retained, equal-timestamp order not guaranteed"
+		skipped["stable_row_identity_unavailable"] = coverage.RowsRead
+	}
+	coverage.FieldSources["identity_scope"] = "hisys_all_event within the existing source artifact generation only; not a cross-file/cross-generation key, thread identity, event sequence, or causal edge"
+	rows, err := tdb.db.QueryContext(ctx, "SELECT "+stableExpr+", ts, tid, domain_id, event_name_id, contents FROM hisys_all_event ORDER BY "+orderExpr)
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
@@ -1048,13 +1066,12 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			coverage.Error = err.Error()
 		}
 	}()
-	skipped := map[string]int{}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return coverage, err
 		}
-		var tsRaw, tidRaw, domainRaw, eventRaw, contentsRaw any
-		if err := rows.Scan(&tsRaw, &tidRaw, &domainRaw, &eventRaw, &contentsRaw); err != nil {
+		var stableRaw, tsRaw, tidRaw, domainRaw, eventRaw, contentsRaw any
+		if err := rows.Scan(&stableRaw, &tsRaw, &tidRaw, &domainRaw, &eventRaw, &contentsRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
@@ -1083,6 +1100,13 @@ func exportTraceDBHiSysEvent(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		// Keep the same role for every name/content shape, including plain TEXT.
 		row := tracewire.HiSysEvent{TimestampNS: ts,
 			Domain: traceDBHiSysName(domainRaw, domain, domainReason), Event: traceDBHiSysName(eventRaw, event, eventReason)}
+		if stableKnown {
+			value, ok := traceDBStrictSQLiteInt(stableRaw)
+			if !ok {
+				return coverage, &traceDBOutputInvariantError{Reason: "invalid_hisysevent_hidden_rowid"}
+			}
+			row.SourceRowID = &value
+		}
 		if value, ok := traceDBStrictSQLiteInt(tidRaw); ok && value >= 0 && value <= math.MaxInt32 {
 			row.SourceTID = &value
 		} else if tidRaw != nil {

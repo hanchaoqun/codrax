@@ -1,0 +1,11 @@
+ID="trace_existing_sqlite_hisys_row_identity"
+NAME="SQLite system events — repeated records and original row identity"
+QUESTION="这份采集在 2.000 到 2.080 秒发生了哪些系统事件？请按时间列出所属域、事件名、内容和可以回查原始记录的编号，总共有几条？"
+HTRACE_FILE="eval/fixtures/hmosperf_hisys_row_identity/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_PRIMARY_CONTAINS="CAMERA_PIPELINE"
+EXPECT_PRIMARY_MATCHES_REGEX="9007199254740993
+9223372036854775807
+CAPTURE_DONE"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

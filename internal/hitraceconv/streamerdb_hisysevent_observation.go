@@ -72,5 +72,7 @@ func addTraceDBHiSysObservationRow(sink *traceDBRowSink, row tracewire.HiSysEven
 	if err != nil {
 		return &traceDBOutputInvariantError{Reason: "line_too_long", Cause: err}
 	}
+	// seq is only the cross-producer sorter ordinal. The audited SQL cursor
+	// already establishes ts/rowid order, and SourceRowID carries identity.
 	return sink.add(renderedRow{tsNS: uint64(row.TimestampNS), seq: sink.stats.RowsAccepted, line: line})
 }

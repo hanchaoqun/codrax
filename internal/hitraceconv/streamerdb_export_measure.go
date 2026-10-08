@@ -1164,7 +1164,7 @@ func scanTraceDBMeasureSamples(ctx context.Context, queryer traceDBQueryer, stab
 }
 
 func traceDBHiddenRowIDExpr(ctx context.Context, queryer traceDBQueryer, table string) (string, string, error) {
-	columns, err := traceDBColumnNames(ctx, queryer, table)
+	columns, err := traceDBHiddenRowIDColumnNames(ctx, queryer, table)
 	if err != nil {
 		return "", "", err
 	}
