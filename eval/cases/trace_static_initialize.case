@@ -1,0 +1,8 @@
+ID="trace_static_initialize"
+NAME="Static SO initialization — native SQLite source admission"
+QUESTION="只分析这份采集：10.000到10.050秒内，线程101初始化了哪些动态库，各花了多久？请按时间顺序说明，并看看能否知道它们发生在哪个CPU上。"
+HTRACE_FILE="eval/fixtures/hmosperf_static_initialize/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="sqlite3"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -120,8 +120,8 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 			t.Fatalf("%s/%s suppression=%t want %t: %+v", check.family, check.table, hasSuppression, check.suppressed, coverage)
 		}
 		if check.table == "static_initalize" &&
-			!strings.Contains(coverage.FieldSources["source_admission"], "R1b-C") {
-			t.Fatalf("%s/%s no longer exposes the open R1b-C source-admission gap: %+v",
+			!strings.Contains(coverage.FieldSources["source_admission"], "shared closed-endpoint lifecycle admission") {
+			t.Fatalf("%s/%s lost strict static source-admission disclosure: %+v",
 				check.family, check.table, coverage)
 		}
 	}
@@ -254,8 +254,8 @@ func traceDBSyncSpanBoundaryCases() []traceDBSyncSpanBoundaryCase {
 			createWithout: "CREATE TABLE static_initalize (id INTEGER PRIMARY KEY, start_time INT, end_time INT, so_name TEXT, ipid INT, tid INT) WITHOUT ROWID",
 			withoutRow:    "INSERT INTO static_initalize VALUES (1, 1000000, 1100000, 'lib31.so', 1, 100)",
 			wantTokens:    []string{"B|100|SoInit:lib11.so", "B|100|SoInit:lib12.so", "B|100|SoInit:lib13.so"},
-			export: func(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBSchedulerAuthority, _ traceDBSchedulerRunningIndex, spans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
-				return exportTraceDBStaticInitialize(ctx, tdb, sink, spans, index)
+			export: func(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex, spans *traceDBSyncSpanAuthority, _ traceDBThreadIndex) (TraceDBCoverage, error) {
+				return exportTraceDBStaticInitialize(ctx, tdb, sink, spans, authority, running)
 			},
 		},
 	}

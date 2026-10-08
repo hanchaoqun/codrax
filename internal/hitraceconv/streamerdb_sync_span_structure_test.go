@@ -505,7 +505,8 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 			t.Fatalf("%s submit does not use syncSpans.submit(ctx, candidate)", site.function)
 		}
 		if site.function != "submitTraceDBRawMarkerSyncRecovery" &&
-			site.function != "traceDBReplaceRawMarkerAuthoritativeCollision" {
+			site.function != "traceDBReplaceRawMarkerAuthoritativeCollision" &&
+			site.function != "exportTraceDBStaticInitialize" {
 			literal, ok := site.call.Args[1].(*ast.CompositeLit)
 			if !ok || compositeTypeName(literal) != "traceDBSyncSpanCandidate" {
 				t.Fatalf("%s submit does not use a typed sync candidate literal", site.function)
@@ -639,7 +640,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		{"exportTraceDBThreadRegistrations", "exportTraceDBSchedulerFamilies", 5, 2},
 		{"exportTraceDBCallstack", "exportTraceDBExtendedFamilies", 6, 5},
 		{"exportTraceDBSyscall", "exportTraceDBExtendedFamilies", 6, 5},
-		{"exportTraceDBStaticInitialize", "exportTraceDBExtendedFamilies", 5, 3},
+		{"exportTraceDBStaticInitialize", "exportTraceDBExtendedFamilies", 6, 3},
 	}
 	for _, dispatch := range dispatches {
 		call := onlyCall(dispatch.name, dispatch.caller)
@@ -672,8 +673,8 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	}
 
 	// Mechanical B/E takeover must not imply source-admission correctness for
-	// the three legacy SQL producers. Their R1b-C disclosure stays explicit
-	// until that separately scoped batch closes.
+	// Static initialization now declares the complete source-admission contract,
+	// not the former legacy SQL/CPU-0 implementation.
 	for _, function := range []string{"exportTraceDBStaticInitialize"} {
 		decl := functions[function][0].decl
 		fieldSources := map[string]string{}
@@ -715,10 +716,11 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 			return false
 		})
 		if fieldSourceAssignments != 1 ||
-			!strings.Contains(fieldSources["source_admission"], "remain open as R1b-C") ||
+			!strings.Contains(fieldSources["source_admission"], "complete physical-row scan") ||
+			!strings.Contains(fieldSources["source_admission"], "shared closed-endpoint lifecycle admission") ||
 			!strings.Contains(fieldSources["wire_laminar"], "shared authority") ||
 			!strings.Contains(fieldSources["wire_laminar"], "no endpoint is published") {
-			t.Fatalf("%s coverage.FieldSources lost B1-b/R1b-C disclosure: %v", function, fieldSources)
+			t.Fatalf("%s coverage.FieldSources lost strict source-admission disclosure: %v", function, fieldSources)
 		}
 	}
 	syscallDecl := functions["exportTraceDBSyscall"][0].decl

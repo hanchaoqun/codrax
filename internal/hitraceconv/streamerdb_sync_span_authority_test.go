@@ -58,10 +58,9 @@ func traceDBTestSyncSpanCandidate(producer traceDBSyncSpanProducer, stableID, ti
 		candidate.NameProvenance = traceDBSyncSpanNameAppStartupDictionary
 	case traceDBSyncSpanProducerStaticInitialize:
 		candidate.StableKind = traceDBSyncSpanStableStaticInitializeRowID
-		candidate.CanonicalITID, candidate.CanonicalITIDKnown = 0, false
 		candidate.StartCPU, candidate.EndCPU = 0, 0
-		candidate.StartCPUProvenance = traceDBSyncSpanCPULegacyUnverified
-		candidate.EndCPUProvenance = traceDBSyncSpanCPULegacyUnverified
+		candidate.StartCPUProvenance = traceDBSyncSpanCPUStaticTypedRunning
+		candidate.EndCPUProvenance = traceDBSyncSpanCPUStaticTypedRunning
 		candidate.NameProvenance = traceDBSyncSpanNameStaticObject
 	case traceDBSyncSpanProducerSourceRawMarker:
 		candidate.StableKind = traceDBSyncSpanStableSourceRawOrdinal

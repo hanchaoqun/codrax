@@ -92,7 +92,7 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	staticCoverage, err := exportTraceDBStaticInitialize(context.Background(), tdb, sink, syncSpans, index)
+	staticCoverage, err := exportTraceDBStaticInitialize(context.Background(), tdb, sink, syncSpans, authority, running)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,9 +117,7 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	if startupCoverage.RowsEmitted != 8 || !strings.Contains(startupCoverage.Skipped, "owner_invalid_reference=1") {
 		t.Fatalf("AppStartup identity fail-close mismatch: %+v", startupCoverage)
 	}
-	if staticCoverage.RowsEmitted != 2 || !strings.Contains(staticCoverage.Skipped, "unresolved_owner_process=2") ||
-		!strings.Contains(staticCoverage.Skipped, "invalid_owner_ipid=1") ||
-		!strings.Contains(staticCoverage.Skipped, "invalid_emitter_tid=1") {
+	if staticCoverage.RowsEmitted != 2 || !strings.Contains(staticCoverage.Skipped, "unresolved_static_owner_thread=4") {
 		t.Fatalf("static-init identity fail-close mismatch: %+v", staticCoverage)
 	}
 	if measureCoverage.RowsEmitted != 1 || !strings.Contains(measureCoverage.Skipped, "unresolved_owner_process=2") ||
@@ -149,6 +147,9 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 		found := strings.Contains(body, want)
 		if strings.HasPrefix(want, "AppStartup:") {
 			found = traceDBTestHasMarkerLabel(t, body, want)
+		}
+		if want == "good.so" {
+			found = traceDBTestHasMarkerLabel(t, body, "SoInit:"+want)
 		}
 		if !found {
 			t.Fatalf("valid identity sibling %q missing:\n%s", want, body)

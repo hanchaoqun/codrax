@@ -64,6 +64,8 @@ const (
 	traceDBSyncSpanCPULegacyUnverified
 	traceDBSyncSpanCPUCallstackUnavailable
 	traceDBSyncSpanCPUSourceRawPage
+	traceDBSyncSpanCPUStaticTypedRunning
+	traceDBSyncSpanCPUStaticUnavailable
 )
 
 // traceDBSyncSpanCPUPlacement is deliberately separate from CPU provenance.
@@ -787,11 +789,14 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 		candidate.StartMarkerBody != "" || candidate.EndMarkerBody != "" {
 		return &traceDBOutputInvariantError{Reason: "unproven_sync_span_raw_envelope"}
 	}
+	unknownCPUProvenance := candidate.Producer == traceDBSyncSpanProducerCallstack &&
+		candidate.StartCPUProvenance == traceDBSyncSpanCPUCallstackUnavailable &&
+		candidate.EndCPUProvenance == traceDBSyncSpanCPUCallstackUnavailable ||
+		candidate.Producer == traceDBSyncSpanProducerStaticInitialize &&
+			candidate.StartCPUProvenance == traceDBSyncSpanCPUStaticUnavailable &&
+			candidate.EndCPUProvenance == traceDBSyncSpanCPUStaticUnavailable
 	if candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown &&
-		(candidate.Producer != traceDBSyncSpanProducerCallstack ||
-			candidate.StartCPU != 0 || candidate.EndCPU != 0 ||
-			candidate.StartCPUProvenance != traceDBSyncSpanCPUCallstackUnavailable ||
-			candidate.EndCPUProvenance != traceDBSyncSpanCPUCallstackUnavailable) {
+		(!unknownCPUProvenance || candidate.StartCPU != 0 || candidate.EndCPU != 0) {
 		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_unavailable_cpu_placement"}
 	}
 	if candidate.HeaderTID < 0 || candidate.HeaderTID > math.MaxInt32 {
@@ -823,7 +828,9 @@ func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error 
 	exactSourceName := (candidate.Producer == traceDBSyncSpanProducerCallstack &&
 		candidate.NameProvenance == traceDBSyncSpanNameCallstack ||
 		candidate.Producer == traceDBSyncSpanProducerSourceRawMarker &&
-			candidate.NameProvenance == traceDBSyncSpanNameSourceRawMarker) &&
+			candidate.NameProvenance == traceDBSyncSpanNameSourceRawMarker ||
+		candidate.Producer == traceDBSyncSpanProducerStaticInitialize &&
+			candidate.NameProvenance == traceDBSyncSpanNameStaticObject) &&
 		traceDBCallstackSpanName(candidate.Name)
 	// The closed source-name wire is validated above and again against its
 	// synthesized label below. Delimiters are encoded, not reparsed as tokens.
@@ -935,9 +942,13 @@ func traceDBSyncSpanCandidateProvenanceMatches(candidate traceDBSyncSpanCandidat
 			candidate.OwnerIPIDKnown &&
 			!candidate.DepthKnown &&
 			candidate.NameProvenance == traceDBSyncSpanNameStaticObject &&
-			candidate.StartCPUProvenance == traceDBSyncSpanCPULegacyUnverified &&
-			candidate.EndCPUProvenance == traceDBSyncSpanCPULegacyUnverified &&
-			!candidate.CanonicalITIDKnown
+			(candidate.CPUPlacement == traceDBSyncSpanCPUPlacementKnown &&
+				candidate.StartCPUProvenance == traceDBSyncSpanCPUStaticTypedRunning &&
+				candidate.EndCPUProvenance == traceDBSyncSpanCPUStaticTypedRunning ||
+				candidate.CPUPlacement != traceDBSyncSpanCPUPlacementKnown &&
+					candidate.StartCPUProvenance == traceDBSyncSpanCPUStaticUnavailable &&
+					candidate.EndCPUProvenance == traceDBSyncSpanCPUStaticUnavailable) &&
+			candidate.CanonicalITIDKnown && candidate.CanonicalITID > 0
 	case traceDBSyncSpanProducerSourceRawMarker:
 		return candidate.StableKind == traceDBSyncSpanStableSourceRawOrdinal &&
 			candidate.StableID > 0 && candidate.OwnerIPIDKnown &&
@@ -2117,6 +2128,10 @@ func traceDBSyncSpanCPUProvenanceLabel(
 		return "callstack_unavailable"
 	case traceDBSyncSpanCPUSourceRawPage:
 		return "source_raw_page"
+	case traceDBSyncSpanCPUStaticTypedRunning:
+		return "static_initialize_typed_running"
+	case traceDBSyncSpanCPUStaticUnavailable:
+		return "static_initialize_unavailable"
 	default:
 		return "unknown"
 	}
@@ -2129,7 +2144,8 @@ func traceDBSyncSpanCPUWitnessValue(
 	switch provenance {
 	case traceDBSyncSpanCPUCallstackTypedRunning,
 		traceDBSyncSpanCPUSyscallTypedRunning,
-		traceDBSyncSpanCPUSourceRawPage:
+		traceDBSyncSpanCPUSourceRawPage,
+		traceDBSyncSpanCPUStaticTypedRunning:
 		return strconv.FormatInt(cpu, 10)
 	default:
 		return "unavailable"

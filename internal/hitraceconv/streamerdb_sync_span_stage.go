@@ -1821,8 +1821,8 @@ func (iterator *traceDBSyncSpanSQLiteCandidateIterator) next(ctx context.Context
 	if item.Ordinal <= 0 || producer <= int64(traceDBSyncSpanProducerUnknown) || producer > int64(traceDBSyncSpanProducerSourceRawMarker) ||
 		stableKind <= int64(traceDBSyncSpanStableUnknown) || stableKind > int64(traceDBSyncSpanStableSourceRawOrdinal) ||
 		cpuPlacement < int64(traceDBSyncSpanCPUPlacementKnown) || cpuPlacement > int64(traceDBSyncSpanCPUPlacementAliasAmbiguous) ||
-		startCPUProvenance < int64(traceDBSyncSpanCPUUnknown) || startCPUProvenance > int64(traceDBSyncSpanCPUSourceRawPage) ||
-		endCPUProvenance < int64(traceDBSyncSpanCPUUnknown) || endCPUProvenance > int64(traceDBSyncSpanCPUSourceRawPage) ||
+		startCPUProvenance < int64(traceDBSyncSpanCPUUnknown) || startCPUProvenance > int64(traceDBSyncSpanCPUStaticUnavailable) ||
+		endCPUProvenance < int64(traceDBSyncSpanCPUUnknown) || endCPUProvenance > int64(traceDBSyncSpanCPUStaticUnavailable) ||
 		nameProvenance <= int64(traceDBSyncSpanNameUnknown) || nameProvenance > int64(traceDBSyncSpanNameSourceRawMarker) ||
 		depthProvenance < int64(traceDBSyncSpanDepthUnknown) || depthProvenance > int64(traceDBSyncSpanDepthCallstack) {
 		return traceDBSyncSpanStagedCandidate{}, false, &traceDBOutputInvariantError{Reason: "invalid_sync_span_stage_enum"}

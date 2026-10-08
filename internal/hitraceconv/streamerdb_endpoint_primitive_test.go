@@ -398,15 +398,17 @@ func TestTraceDBStaticInitializeIncompleteIdentitySkipsLocally(t *testing.T) {
 		t.Fatal(err)
 	}
 	syncSpans := newTraceDBTestSyncSpanAuthority(t)
-	coverage, err := exportTraceDBStaticInitialize(context.Background(), tdb, sink, syncSpans, index)
+	authority := newTraceDBSchedulerAuthority(index, traceDBLifecycleCollection{CreationComplete: true, TerminalComplete: true, ActivityComplete: true})
+	running := newTraceDBSchedulerRunningIndex(authority, nil, traceDBRunningIntegrity{}, nil)
+	coverage, err := exportTraceDBStaticInitialize(context.Background(), tdb, sink, syncSpans, authority, running)
 	if err != nil {
 		t.Fatalf("incomplete producer identity should be a row-local skip: %v", err)
 	}
 	items, _, _ := finalizeTraceDBTestSyncSpans(t, sink, syncSpans, []TraceDBCoverage{coverage})
 	coverage = items[0]
-	if coverage.RowsEmitted != 2 || len(sink.rows) != 2 ||
-		!strings.Contains(coverage.Skipped, "invalid_emitter_tid=1") ||
-		!strings.Contains(coverage.Skipped, "unresolved_owner_process=1") {
+	if coverage.RowsRead != 3 || coverage.RowsEmitted != 2 || len(sink.rows) != 2 ||
+		!strings.Contains(coverage.Skipped, "unresolved_static_owner_thread=2") ||
+		strings.Contains(coverage.Skipped, "global_poison") {
 		t.Fatalf("unexpected static-init identity account: coverage=%+v rows=%+v", coverage, sink.rows)
 	}
 }

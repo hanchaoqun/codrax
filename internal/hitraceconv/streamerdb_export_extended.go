@@ -191,7 +191,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	staticCoverage, err := exportTraceDBStaticInitialize(ctx, tdb, sink, syncSpans, index)
+	staticCoverage, err := exportTraceDBStaticInitialize(ctx, tdb, sink, syncSpans, authority, lifecycleRunning)
 	traceDBSetCoverageElapsed(&staticCoverage, stageStart)
 	coverage = append(coverage, staticCoverage)
 	if err != nil {
@@ -213,7 +213,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	resourceStackCoverage, err := exportTraceDBResourceStacks(ctx, tdb, sink, authority)
-	coverage = append(coverage, resourceStackCoverage)
+	coverage = append(coverage, resourceStackCoverage...)
 	if err != nil {
 		return coverage, err
 	}
@@ -799,79 +799,6 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		err = &traceDBOutputInvariantError{Reason: "app_startup_source_census_changed"}
 	}
 	return coverage, err
-}
-
-func exportTraceDBStaticInitialize(ctx context.Context, tdb *traceDB, _ *traceDBRowSink, syncSpans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "slice", "static_initalize", []string{"start_time", "end_time", "so_name", "ipid", "tid"})
-	coverage.FieldSources = map[string]string{
-		"wire_laminar":     "current accepted rows submit typed B/E candidates to the shared authority; no endpoint is published by this exporter",
-		"source_admission": "legacy SQL WHERE/scalar, (ipid,tid)->ITID uniqueness, lifecycle, CPU and anti-rescue correctness remain open as R1b-C",
-	}
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	stableExpr, stableKnown, err := traceDBSyncSpanHiddenRowID(ctx, tdb, &coverage)
-	if err != nil || !stableKnown {
-		return coverage, err
-	}
-	query := fmt.Sprintf("SELECT %s, start_time, end_time, so_name, ipid, tid FROM static_initalize WHERE end_time > start_time ORDER BY start_time, %s", stableExpr, stableExpr)
-	rows, err := tdb.db.QueryContext(ctx, query)
-	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	defer rows.Close()
-	skipped := map[string]int{}
-	for rows.Next() {
-		var start, end int64
-		var stableRaw, so, ipidRaw, tidRaw any
-		if err := rows.Scan(&stableRaw, &start, &end, &so, &ipidRaw, &tidRaw); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
-		}
-		ipid, ipidOK := traceDBStrictInternalID(ipidRaw)
-		if !ipidOK {
-			skipped["invalid_owner_ipid"]++
-			continue
-		}
-		stableID, stableOK := traceDBStrictSQLiteInt(stableRaw)
-		if !stableOK {
-			return coverage, &traceDBOutputInvariantError{Reason: "invalid_static_initialize_hidden_rowid"}
-		}
-		tid, tidOK := traceDBStrictPublicID(tidRaw)
-		if !tidOK || tid <= 0 {
-			skipped["invalid_emitter_tid"]++
-			continue
-		}
-		task, _, tgid, processOK := traceDBResolvedProcessLineContext(index, ipid, "soInit")
-		if !processOK {
-			skipped["unresolved_owner_process"]++
-			continue
-		}
-		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
-			Producer:           traceDBSyncSpanProducerStaticInitialize,
-			StableKind:         traceDBSyncSpanStableStaticInitializeRowID,
-			StableID:           stableID,
-			HeaderTID:          tid,
-			HeaderTGID:         tgid,
-			OwnerIPID:          ipid,
-			OwnerIPIDKnown:     true,
-			Start:              start,
-			End:                end,
-			StartCPU:           0,
-			EndCPU:             0,
-			StartCPUProvenance: traceDBSyncSpanCPULegacyUnverified,
-			EndCPUProvenance:   traceDBSyncSpanCPULegacyUnverified,
-			Task:               task,
-			Name:               "SoInit:" + traceDBAnyText(so, "None"),
-			NameProvenance:     traceDBSyncSpanNameStaticObject,
-			DepthProvenance:    traceDBSyncSpanDepthUnknown,
-		}); err != nil {
-			return coverage, err
-		}
-	}
-	coverage.Skipped = traceDBCountSummary(skipped)
-	return coverage, rows.Err()
 }
 
 func exportTraceDBProcessMeasures(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
