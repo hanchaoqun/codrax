@@ -62,7 +62,7 @@ func TestB1793RuntimeTargetRosterProfileValidationCompatibility(t *testing.T) {
 		{"missing_confidence", map[string]any{"declaration": "no_named_target"}, false, "runtime_target_profile missing required field(s): confidence"},
 		{"negative_confidence", map[string]any{"declaration": "no_named_target", "confidence": -0.1}, false, "runtime_target_profile.confidence -0.10 out of [0,1]"},
 		{"excess_confidence", map[string]any{"declaration": "no_named_target", "confidence": 1.1}, false, "runtime_target_profile.confidence 1.10 out of [0,1]"},
-		{"attached_not_applicable", map[string]any{"declaration": "not_applicable", "confidence": 0.9}, false, "not_applicable conflicts with the attached/referenced runtime request"},
+		{"attached_not_applicable", map[string]any{"declaration": "not_applicable", "confidence": 0.9}, false, "not_applicable conflicts with the declared runtime request"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,6 +90,7 @@ func TestB1793RuntimeTargetRosterOutsideRuntimeCompatibility(t *testing.T) {
 	for _, shape := range []string{"missing", "null", "not_applicable", "unspecified", "no_named_target"} {
 		t.Run(shape, func(t *testing.T) {
 			payload := b1793TargetRosterPayload(t, false)
+			want := types.RuntimeTargetDeclarationNotApplicable
 			switch shape {
 			case "missing":
 				delete(payload, "runtime_target_profile")
@@ -97,10 +98,14 @@ func TestB1793RuntimeTargetRosterOutsideRuntimeCompatibility(t *testing.T) {
 				payload["runtime_target_profile"] = nil
 			default:
 				payload["runtime_target_profile"] = map[string]any{"declaration": shape, "confidence": 0.9}
+				// An explicit request declaration survives pending material
+				// preparation. Missing/null retain legacy non-runtime defaults;
+				// neither case invents an identity or source authority.
+				want = types.RuntimeTargetDeclaration(shape)
 			}
 			result, rm := b1793ExecuteTargetRoster(t, false, payload)
-			if !result.Success || rm == nil || rm.RuntimeTargetProfile == nil || rm.RuntimeTargetProfile.Declaration != types.RuntimeTargetDeclarationNotApplicable || len(rm.RuntimeTargets) != 0 {
-				t.Fatalf("non-runtime empty-roster compatibility changed: success=%t rm=%+v summary=%s", result.Success, rm, result.Summary)
+			if !result.Success || rm == nil || rm.RuntimeTargetProfile == nil || rm.RuntimeTargetProfile.Declaration != want || len(rm.RuntimeTargets) != 0 {
+				t.Fatalf("unprepared empty-roster compatibility changed: want=%s success=%t rm=%+v summary=%s", want, result.Success, rm, result.Summary)
 			}
 		})
 	}
