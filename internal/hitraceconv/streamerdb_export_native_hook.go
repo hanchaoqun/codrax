@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 // native_hook.end_ts is the release timestamp of an allocation/mapping and
@@ -223,49 +225,5 @@ func traceDBNativeHookEventType(value any) (eventType, counter string, ok bool) 
 	if !ok {
 		return "", "", false
 	}
-	switch text {
-	case "AllocEvent", "malloc":
-		return "AllocEvent", "HeapSize", true
-	case "FreeEvent", "free":
-		return "FreeEvent", "HeapSize", true
-	case "MmapEvent", "mmap":
-		return "MmapEvent", "MmapSize", true
-	case "MunmapEvent", "munmap":
-		return "MunmapEvent", "MmapSize", true
-	}
-	if family, found := traceDBNativeHookAllocFreeFamily(text); found {
-		return text, "NativeHook_" + family + "_Active", true
-	}
-	switch text {
-	case "FD_Open_Event", "FD_Close_Event":
-		return text, "NativeHook_FD_Active", true
-	case "THREAD_Create_Event", "THREAD_Destroy_Event":
-		return text, "NativeHook_THREAD_Active", true
-	case "Thread_Create_Event":
-		return "THREAD_Create_Event", "NativeHook_THREAD_Active", true
-	case "Thread_Destroy_Event":
-		return "THREAD_Destroy_Event", "NativeHook_THREAD_Active", true
-	default:
-		return "", "", false
-	}
-}
-
-func traceDBNativeHookAllocFreeFamily(eventType string) (string, bool) {
-	var family string
-	switch {
-	case strings.HasSuffix(eventType, "_Alloc_Event"):
-		family = strings.TrimSuffix(eventType, "_Alloc_Event")
-	case strings.HasSuffix(eventType, "_Free_Event"):
-		family = strings.TrimSuffix(eventType, "_Free_Event")
-	default:
-		return "", false
-	}
-	switch family {
-	case "GPU_VK", "GPU_GLES", "GPU_CL", "OTHER", "ARKTS_HEAP", "JS_HEAP", "KMP_HEAP",
-		"RN_HERMES_HEAP", "DART_HEAP", "ASHMEM", "ION", "SO", "ARK_GLOBAL_HANDLE",
-		"ARK_LOCAL_HANDLE", "ARKTS_STATIC_HEAP":
-		return family, true
-	default:
-		return "", false
-	}
+	return tracewire.NormalizeResourceOperation(text)
 }

@@ -5829,6 +5829,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	b.WriteString(tool.RenderRuntimeDiagramRelationRecipes(ledger, relationRequest))
 	b.WriteString(renderAnswerDocProcessProfiles(ctx, promptLedger))
 	b.WriteString(renderAnswerDocCPUStateFrequency(ctx, promptLedger))
+	b.WriteString(renderAnswerDocResourceStacks(ctx, promptLedger))
 	if measurements := renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger); measurements != "" {
 		b.WriteString(measurements)
 	}

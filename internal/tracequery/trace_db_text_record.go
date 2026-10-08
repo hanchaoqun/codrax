@@ -380,6 +380,7 @@ func countTraceDBTextRecord(idx *Index, ev Event) bool {
 // slice would silently erase the source's preserved-storage provenance.
 func mergeTraceDBTextCounts(dst, src *Index) {
 	dst.CPUIntervalMalformed += src.CPUIntervalMalformed
+	dst.ResourceStackMalformed += src.ResourceStackMalformed
 	dst.TraceDBTextCarrierRows += src.TraceDBTextCarrierRows
 	dst.TraceDBTextRecords += src.TraceDBTextRecords
 	dst.TraceDBTextSchemaRecords += src.TraceDBTextSchemaRecords

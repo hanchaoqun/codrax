@@ -565,6 +565,7 @@ var traceNoteKeyGoldenRows = []string{
 	"requested_pid|thread_selection|soft_consumer",
 	// RSPA M-IO (§29.61.10c, 2026-07-14): per-IO completion-closure credential.
 	"resource_completion_closure|state|hard_consumer",
+	"resource_stack|resource_stack|soft_consumer",
 	"restricted_runnable|cpu_load|display_only",
 	"restriction_proof|cpu_load|display_only",
 	"ret|io|display_only",

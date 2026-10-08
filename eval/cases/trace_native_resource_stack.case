@@ -1,0 +1,8 @@
+ID="trace_native_resource_stack"
+NAME="Native resource stacks — owner, full recorded frames and missing data"
+QUESTION="帮我看看这份采集中10.000到10.050秒期间线程101的内存分配和释放，展开各次事件的调用栈，指出能定位到哪些业务调用位置，以及还有哪些信息缺失。只分析采集文件。"
+HTRACE_FILE="eval/fixtures/hmosperf_native_resource_stack/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="sqlite3"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query.*resource_stack"

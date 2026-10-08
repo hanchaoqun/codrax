@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v53"
+const ParserVersion = "tracequery-v54"
 
 type EventType string
 
@@ -32,6 +32,7 @@ const (
 	EventPhaseTaskDelta     EventType = "phase_task_delta"
 	EventCPUIdle            EventType = "cpu_idle"
 	EventCPUMeasureInterval EventType = "cpu_measure_interval"
+	EventResourceStack      EventType = "resource_stack"
 	EventCPUFrequency       EventType = "cpu_frequency"
 	EventCPUFrequencyLimit  EventType = "cpu_frequency_limits"
 	EventCPUConstraint      EventType = "cpu_constraint"
@@ -779,7 +780,8 @@ type Index struct {
 	TraceDBTextCarrierRows int
 	// CPUIntervalMalformed counts rejected native interval envelopes. No
 	// partial decode may restore measurement authority from such rows.
-	CPUIntervalMalformed int
+	CPUIntervalMalformed   int
+	ResourceStackMalformed int
 	// LegacyVisibilityCarrierRows counts converter visibility carriers dropped
 	// at index build that still wore their wrapped record's original event
 	// name (artifacts converted before colleague_merge_audit §40.13 / V6-2).
@@ -1249,6 +1251,7 @@ type Result struct {
 	Timeline              *TimelineResult             `json:"timeline,omitempty"`
 	ProcessProfile        *ProcessProfile             `json:"process_profile,omitempty"`
 	CPUStateFrequency     *CPUStateFrequencyResult    `json:"cpu_state_frequency,omitempty"`
+	ResourceStack         *ResourceStackResult        `json:"resource_stack,omitempty"`
 	WindowStats           *WindowStats                `json:"window_stats,omitempty"`
 	SchedulerLatency      *SchedulerLatencyResult     `json:"scheduler_latency_stats,omitempty"`
 	IPCGraph              *IPCGraphResult             `json:"ipc_graph,omitempty"`

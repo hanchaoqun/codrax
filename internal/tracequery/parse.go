@@ -1455,7 +1455,9 @@ func (s *lineScan) timestamp() (float64, bool) {
 	if !s.tsTried {
 		s.tsTried = true
 		s.ts, s.tsOK = 0, false
-		if row, ok := tracewire.ParseCPUMeasureInterval(s.line); ok {
+		if row, ok := tracewire.ParseResourceStack(s.line); ok {
+			s.ts, s.tsOK = float64(row.TimestampNS)/1e9, true
+		} else if row, ok := tracewire.ParseCPUMeasureInterval(s.line); ok {
 			s.ts, s.tsOK = float64(row.TimestampNS())/1e9, true
 		} else if row, ok := tracewire.ParseProcessInterval(s.line); ok {
 			s.ts, s.tsOK = float64(row.TimestampNS())/1e9, true
@@ -4203,6 +4205,9 @@ func paddedLineEnd(opts BuildOptions) int {
 func ParseTimestamp(line string) (float64, bool) { return parseLineTimestamp(line) }
 
 func parseLineTimestamp(line string) (float64, bool) {
+	if row, ok := tracewire.ParseResourceStack(line); ok {
+		return float64(row.TimestampNS) / 1e9, true
+	}
 	if row, ok := tracewire.ParseCPUMeasureInterval(line); ok {
 		return float64(row.TimestampNS()) / 1e9, true
 	}
@@ -4397,6 +4402,13 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 // here instead of being recomputed (perf audit #21).
 func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	lineNo := s.lineNo
+	if row, ok := tracewire.ParseResourceStack(s.line); ok {
+		ev := Event{Line: lineNo, Ts: float64(row.TimestampNS) / 1e9, CPU: -1, Type: EventResourceStack, Name: "native_resource_stack", FieldText: intern.intern(s.line)}
+		if row.Event != nil {
+			ev.PID, ev.TGID, ev.Comm = row.Event.TID, row.Event.PID, intern.intern(row.Event.Thread)
+		}
+		return ev, true
+	}
 	if row, ok := tracewire.ParseCPUMeasureInterval(s.line); ok {
 		return Event{Line: lineNo, Ts: float64(row.TimestampNS()) / 1e9, CPU: -1,
 			Type: EventCPUMeasureInterval, Name: "codrax_cpu_measure_interval", FieldText: intern.intern(s.line),
@@ -6873,6 +6885,9 @@ func safeParseLine(lineNo int, line string, intern *stringInterner, idx *Index) 
 		}
 	}()
 	ev, ok = parseLineFn(lineNo, line, intern)
+	if idx != nil && !ok && strings.HasPrefix(line, "# codrax_resource_stack/") {
+		idx.ResourceStackMalformed++
+	}
 	if idx != nil && !ok && strings.HasPrefix(line, "# codrax_cpu_measure_interval/") {
 		idx.CPUIntervalMalformed++
 	}
@@ -6904,6 +6919,9 @@ func safeParseLineScan(s *lineScan, intern *stringInterner, idx *Index) (ev Even
 		}
 	}()
 	ev, ok = parseLineScanFn(s, intern)
+	if idx != nil && !ok && strings.HasPrefix(s.line, "# codrax_resource_stack/") {
+		idx.ResourceStackMalformed++
+	}
 	if idx != nil && !ok && strings.HasPrefix(s.line, "# codrax_cpu_measure_interval/") {
 		idx.CPUIntervalMalformed++
 	}

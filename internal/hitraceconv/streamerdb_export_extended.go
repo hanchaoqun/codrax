@@ -212,6 +212,11 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil {
 		return coverage, err
 	}
+	resourceStackCoverage, err := exportTraceDBResourceStacks(ctx, tdb, sink, authority)
+	coverage = append(coverage, resourceStackCoverage)
+	if err != nil {
+		return coverage, err
+	}
 	postSyncExporters := []func(context.Context, *traceDB, *traceDBRowSink, traceDBThreadIndex, map[int64][]traceDBRunningInterval, map[int64]string) (TraceDBCoverage, error){
 		exportTraceDBProcessMeasures,
 		exportTraceDBNetwork,

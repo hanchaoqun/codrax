@@ -280,7 +280,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))
+	return traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -520,6 +520,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// stat failure); those calls execute directly, exactly as before.
 	runPureTraceQueryCore := func() (types.ToolResult, error) {
 		if streamed, ok := t.streamCPUStateFrequency(ctx, p, path, sourceLabel, callCaveat, window); ok {
+			return streamed, nil
+		}
+		if streamed, ok := t.streamResourceStack(ctx, p, path, sourceLabel, callCaveat, window); ok {
 			return streamed, nil
 		}
 		// LSPAN-1: an explicit micro-window around a named B marker is a parent
@@ -5185,6 +5188,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		b.WriteString("## CPU状态与频率联合区间\n")
 		b.WriteString(TraceCPUStateFrequencyText(*result.CPUStateFrequency, 8))
 	}
+	if result.ResourceStack != nil {
+		b.WriteString(TraceResourceStackText(boundedResourceStackHandoff(*result.ResourceStack), 8))
+	}
 	if result.Timeline != nil {
 		b.WriteString("## Thread timeline\n")
 		if head := result.Timeline.HeadState; head != nil {
@@ -9107,6 +9113,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQuerySchedulerWakeEventObservations(result.Events, ref, scope, at, result.EventSearchCoverage)...)
 	out = append(out, traceQueryProcessProfileObservations(result.ProcessProfile, ref, scope, at)...)
 	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
+	out = append(out, traceQueryResourceStackObservations(result.ResourceStack, ref, scope, at)...)
 	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {
 		integrity := stats.WakeupTargetCPUIntegrity
 		if integrity.Status == tracequery.WakeupTargetCPUIntegritySuspectedDegradedAllZero &&

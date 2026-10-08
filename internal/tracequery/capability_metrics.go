@@ -15,6 +15,7 @@ func capabilityMetricDescriptors() []MetricCapability {
 		return MetricCapability{ID: id, Summary: summary, Outputs: outputs, Requirements: requirements, Limitations: []string{limit}}
 	}
 	metrics := []MetricCapability{
+		m("resource_stack", "Observed native resource stacks, independent of scheduler CPU execution.", []CapabilityOutput{o("resource_stack", "matched_events omitted_events", "count", "selected observed resource events versus display omissions"), o("resource_stack.events", "missing_depths duplicate_depths invalid_depths unknown_symbols omitted_frames", "count", "full source frame assessment, separately from display truncation")}, r("resource_stack", nil, "", "Owner-verified native_hook events and exact same-capture native_hook_frame linkage; complete identity-mapped single-source scan."), ResourceStackTeaching),
 		m("cpu_state_frequency", "Per-CPU idle-state × frequency joint intervals and distribution.", []CapabilityOutput{
 			o("cpu_state_frequency", "window_wall_ms", "ms", "complete selected half-open wall-clock window"),
 			o("cpu_state_frequency", "cpu_time_ms known_joint_ms unknown_joint_ms", "CPU·ms", "sum over observed CPUs, including explicit unknown coverage"),

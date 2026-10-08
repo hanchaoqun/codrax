@@ -203,6 +203,7 @@ type ViewCompaction struct {
 }
 
 var viewCapacityTable = map[string]ViewCapacity{
+	ViewResourceStack: {View: ViewResourceStack, DefaultLimit: sharedDefaultResultLimit, MaxLimit: 40, Dimension: CompactionDimensionEvents},
 	ViewCPUStateFrequency: {
 		View: ViewCPUStateFrequency, DefaultLimit: sharedDefaultResultLimit,
 		Dimension: CompactionDimensionIntervals,

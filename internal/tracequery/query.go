@@ -452,6 +452,13 @@ func Run(idx *Index, q Query) Result {
 		return cachedFrameTimeline
 	}
 	switch q.View {
+	case ViewResourceStack:
+		stack := buildResourceStack(idx, q)
+		if faceCanceled(ViewResourceStack) {
+			break
+		}
+		res.ResourceStack = stack
+		res.Caveats = append(res.Caveats, stack.Caveats...)
 	case ViewCPUStateFrequency:
 		joint := buildCPUStateFrequency(idx, q)
 		if faceCanceled(ViewCPUStateFrequency) {
