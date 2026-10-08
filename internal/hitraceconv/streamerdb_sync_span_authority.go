@@ -449,7 +449,7 @@ func (authority *traceDBSyncSpanAuthority) submit(ctx context.Context, candidate
 func traceDBSyncSpanCandidateSemanticKey(candidate traceDBSyncSpanCandidate) (traceDBSyncSpanSemanticKey, bool) {
 	if candidate.HeaderTID <= 0 || candidate.HeaderTGID <= 0 ||
 		!candidate.CanonicalITIDKnown || candidate.CanonicalITID <= 0 ||
-		!candidate.OwnerIPIDKnown || candidate.OwnerIPID <= 0 ||
+		!candidate.OwnerIPIDKnown || candidate.OwnerIPID < 0 ||
 		candidate.Start < 0 || candidate.End <= candidate.Start ||
 		!traceDBCallstackSpanName(candidate.Name) {
 		return traceDBSyncSpanSemanticKey{}, false
