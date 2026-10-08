@@ -99,6 +99,7 @@ func TestRuntimeMultiQueryRecipesKeepDistinctEvents(t *testing.T) {
 	if strings.Count(markdown, "participant ") != 5 || strings.Count(markdown, "->>") != 4 || strings.Contains(render.RenderMermaidBlocks(markdown), "# ⚠") {
 		t.Fatalf("accepted graph malformed: %s", markdown)
 	}
+	t.Logf("accepted multi-query diagram:\n%s", markdown)
 	// Display de-duplication never transfers credentials between queries.
 	originalAnchor := anchors[0]
 	for _, row := range authority {

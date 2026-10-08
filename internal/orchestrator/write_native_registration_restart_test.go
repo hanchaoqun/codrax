@@ -176,6 +176,22 @@ func TestNativeRegistrationFreshProcessHelper(t *testing.T) {
 		t.Fatalf("resume workflow: %v", err)
 	}
 	plan, report := mu.ChangePlan(), mu.ChangeReport()
+	run := mu.WriteWorkflowRun()
+	proofVerified := false
+	for _, batch := range run.Batches {
+		if batch.PlanID == input.PlanID {
+			proofVerified = batch.Completion != nil && batch.Completion.Verdict == types.WriteWorkflowCompletionVerified
+		}
+	}
+	if !proofVerified {
+		ledger := types.BuildVerificationProofLedger(plan, report, nil)
+		t.Fatalf("new proof batch not verified: completion=%+v proof=%s reasons=%v", run.Completion, ledger.State, ledger.ReasonCodes)
+	}
+	// This fixture has actual source delivery but no terminal verdict for the
+	// source batch. A verified follow-up must not fabricate that missing verdict.
+	if run.Completion == nil || run.Completion.Verdict != types.WriteWorkflowCompletionUnverified || run.Completion.ReasonCode != "missing_terminal_verify_verdict" {
+		t.Fatalf("missing source completion was laundered: %+v", run.Completion)
+	}
 	if verified != 1 || report == nil || !report.Passed || len(report.ExistingTestExecutions) != 1 || !types.BehaviorContractRefHasVerificationWitness(plan, report, "increment-result") {
 		t.Fatalf("new registered proof missing: executions=%d report=%+v", verified, report)
 	}

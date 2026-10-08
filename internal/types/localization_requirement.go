@@ -61,7 +61,7 @@ func LocalizationRequirementsFromWritePlanContext(batchID, sliceID string, consu
 	if plan == nil {
 		return LocalizationRequirementSet{}
 	}
-	planPaths := writeContextCoveragePlanPaths(plan)
+	planPaths := writePlanLocalizationPaths(plan)
 	if len(planPaths) == 0 {
 		return LocalizationRequirementSet{}
 	}

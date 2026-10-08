@@ -375,13 +375,24 @@ func SourceLocalizationReviewFromWriteContextPacks(packs []WriteContextPack, con
 	return NormalizeSourceLocalizationReview(out)
 }
 
+// A persisted source-free proof plan retains verification targets, not new
+// source-edit targets. Their original owner evidence remains on the source
+// delivery; this dispatch must prove its tests/probes instead. Do not infer
+// this distinction from an empty changes array or from model prose alone.
+func writePlanLocalizationPaths(plan *ChangePlan) []string {
+	if IsPersistedNativeTestRegistrationPlan(plan) || IsPersistedProofProbeOnlyPlan(plan) {
+		return nil
+	}
+	return writeContextCoveragePlanPaths(plan)
+}
+
 func SourceLocalizationReviewFromWritePlanContext(batchID, goal string, prior []WriteContextPack, plan *ChangePlan) SourceLocalizationReview {
 	if plan == nil {
 		return SourceLocalizationReview{}
 	}
 	contextPaths := writeContextCoveragePriorPaths(prior)
 	contextAnchors := writeContextCoveragePriorAnchors(prior)
-	planPaths := writeContextCoveragePlanPaths(plan)
+	planPaths := writePlanLocalizationPaths(plan)
 	requirements := LocalizationRequirementsFromWritePlanContext(batchID, "", WriteConsumerPlanner, prior, plan, 0)
 	out := SourceLocalizationReview{
 		Source:            "write_plan_context",

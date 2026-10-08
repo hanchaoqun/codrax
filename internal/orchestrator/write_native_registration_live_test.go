@@ -141,5 +141,6 @@ func TestNativeRegistrationLiveRestoredFollowup(t *testing.T) {
 	if string(body) != controllerRegistrationTestSource || strings.TrimSpace(runGitForWorkflowRestoreTest(t, root, "rev-parse", "HEAD")) != f.head || runGitForWorkflowRestoreTest(t, root, "diff", "HEAD", "--") != "" {
 		t.Fatal("registration changed retained source/tests")
 	}
-	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": o.busCtx.Mutable.WriteWorkflowRun().Status == types.WriteWorkflowRunComplete})
+	completedRun := o.busCtx.Mutable.WriteWorkflowRun()
+	save("receipt.json", map[string]any{"passed": true, "source_plan_id": f.source.ID, "registration_plan_id": plan.ID, "old_invocation": f.oldInvocation, "fresh_invocation": invocation, "behavior_contract": "increment-result", "readonly": true, "fresh_process_restore": true, "durable_run_complete": completedRun.Status == types.WriteWorkflowRunComplete, "workflow_completion": completedRun.Completion, "proof_batch_verified": true})
 }
