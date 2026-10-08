@@ -21,7 +21,7 @@ type TraceCapabilities struct {
 
 func (*TraceCapabilities) Name() string { return "trace_capabilities" }
 func (*TraceCapabilities) Description() string {
-	return "Discover implemented trace_query views, measurement units, required events/identities, input-format conditions and known gaps. No attachment is needed. Defaults to a compact catalog; select view and detail=true for measurement contracts (including referenced components). This is static metadata, not evidence that a capture supports a measurement, not measured zero and not causal proof. It performs no trace query or conversion."
+	return "Discover implemented trace_query views, measurement units, required events/identities, input-format conditions and known gaps. No attachment is needed. Defaults to a compact catalog; select view and detail=true for measurement contracts (including referenced components). Large detail catalogs page at complete metric boundaries: follow metric_page.next_call for exhaustive contracts, retaining all pages. This is static metadata, not evidence that a capture supports a measurement, not measured zero and not causal proof. It performs no trace query or conversion."
 }
 
 func (*TraceCapabilities) Parameters() json.RawMessage {
@@ -32,6 +32,7 @@ func (*TraceCapabilities) Parameters() json.RawMessage {
 		"properties": map[string]any{
 			"view":   view,
 			"detail": map[string]any{"type": "boolean", "default": false, "description": "Include per-metric outputs/units/prerequisites/limitations and input formats. Composite views include their referenced components' metric contracts."},
+			"cursor": map[string]any{"type": "string", "description": "Copy from metric_page.next_call with its unchanged view/detail selection. Omit on the first call. Pages preserve complete metric contracts; has_more=false does not make a noninitial page the complete catalog."},
 		},
 	})
 	return body
@@ -55,10 +56,7 @@ func traceCapabilityQueryViewSchema() (map[string]json.RawMessage, error) {
 
 func (*TraceCapabilities) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	out := types.ToolResult{ToolName: "trace_capabilities"}
-	var input struct {
-		View   string `json:"view"`
-		Detail bool   `json:"detail"`
-	}
+	var input traceCapabilitiesInput
 	decoder := json.NewDecoder(bytes.NewReader(params))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
@@ -86,20 +84,19 @@ func (*TraceCapabilities) Execute(ctx *types.BusContext, params json.RawMessage)
 		out.Summary = err.Error()
 		return out, nil
 	}
-	payload := struct {
-		tracequery.CapabilityCatalog
-		ToolEntryAliases map[string]string `json:"tool_entry_aliases"`
-	}{catalog, aliases}
-	body, err := json.Marshal(payload)
+	input.View = view
+	body, err := marshalTraceCapabilitiesPage(catalog, aliases, input, types.ToolDocumentationMaxBytes)
 	if err != nil {
-		return out, err
+		out.Summary = "Catalog documentation unavailable: " + err.Error()
+		return out, nil
 	}
 	doc, ok := types.NormalizeToolDocumentation(types.ToolDocumentation{
 		Version: types.ToolDocumentationVersion, Schema: "trace_capabilities/v1",
-		Selection: types.ToolDocumentationSelection{View: view, Detail: input.Detail}, Content: body,
+		Selection: types.ToolDocumentationSelection{View: view, Detail: input.Detail, Cursor: input.Cursor}, Content: body,
 	})
 	if !ok {
-		return out, fmt.Errorf("catalog documentation exceeds its bounded JSON contract (%d bytes; maximum %d)", len(body), types.ToolDocumentationMaxBytes)
+		out.Summary = fmt.Sprintf("Catalog documentation could not preserve its bounded JSON contract (%d bytes; maximum %d); select one view for a complete contract", len(body), types.ToolDocumentationMaxBytes)
+		return out, nil
 	}
 	out.Handoff = &types.ToolHandoffCarrier{Version: types.ToolHandoffCarrierVersion, ToolName: out.ToolName, Documentation: &doc}
 	out.Success, out.Summary = true, string(body)

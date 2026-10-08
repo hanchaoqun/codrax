@@ -17,8 +17,8 @@ func ToolDocumentationPromptChunk(c ToolHandoffCarrier) string {
 	if d == nil {
 		return ""
 	}
-	return fmt.Sprintf("Producer: %s; schema: %s; document version: %d; selected view: %q; detail: %t\n```json\n%s\n```\n\n",
-		c.ToolName, d.Schema, d.Version, d.Selection.View, d.Selection.Detail, d.Content)
+	return fmt.Sprintf("Producer: %s; schema: %s; document version: %d; selected view: %q; detail: %t; page cursor: %q\n```json\n%s\n```\n\n",
+		c.ToolName, d.Schema, d.Version, d.Selection.View, d.Selection.Detail, d.Selection.Cursor, d.Content)
 }
 
 func SelectToolDocumentation(carriers []ToolHandoffCarrier) (kept []ToolHandoffCarrier, omitted int) {

@@ -354,7 +354,7 @@ func PreserveSuccessfulToolResultWithPayload(r ToolResult) bool {
 func ToolHandoffCarrierBytes(c ToolHandoffCarrier) int {
 	n := len(c.ToolName) + len(c.ReasonCode) + len(c.RepairCode) + 64
 	if c.Documentation != nil {
-		n += len(c.Documentation.Schema) + len(c.Documentation.Selection.View) +
+		n += len(c.Documentation.Schema) + len(c.Documentation.Selection.View) + len(c.Documentation.Selection.Cursor) +
 			len(c.Documentation.ContentHash) + len(c.Documentation.Content) + 96
 	}
 	if c.Repair != nil {

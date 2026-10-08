@@ -73,6 +73,54 @@ func TestToolDocumentationActualDirectBusHandoff(t *testing.T) {
 	assertDocumentationDownstreamRequests(t, bus, registry, result.Summary)
 }
 
+func TestToolDocumentationActualCrossStagePageContinuation(t *testing.T) {
+	params := json.RawMessage(`{"detail":true}`)
+	pages := 0
+	for {
+		registry := toolpkg.NewRegistry()
+		toolpkg.RegisterDefaults(registry)
+		bus := traceCapabilitiesDiscoveryBus(t, false)
+		ctx := ctxbuilder.BuildAgentContext(bus, types.AgentExplorer, types.StageExplore)
+		capture := &documentationHandoffLLM{traceTeachingCaptureLLM: traceTeachingCaptureLLM{stop: errors.New("page collected")}, params: params}
+		_, err := NewExplorerAgent(&Dependencies{LLM: capture, Tools: registry, MaxIterations: 2}).Execute(ctx, traceTeachingSkill(t, "explore-skill"))
+		if !errors.Is(err, capture.stop) {
+			t.Fatalf("page explorer failed: %v", err)
+		}
+		ta := bus.Mutable.TurnAArtifacts()
+		if ta == nil || len(ta.ToolResults) != 1 || !ta.ToolResults[0].Success {
+			t.Fatalf("page missing from actual TurnA: %+v", ta)
+		}
+		original := ta.ToolResults[0].Summary
+		var decoded struct {
+			Page *struct {
+				Offset   int             `json:"offset"`
+				All      bool            `json:"all_metrics_in_response"`
+				HasMore  bool            `json:"has_more"`
+				NextCall json.RawMessage `json:"next_call"`
+			} `json:"metric_page"`
+		}
+		if json.Unmarshal([]byte(original), &decoded) != nil || decoded.Page == nil || decoded.Page.All || (pages > 0 && decoded.Page.Offset <= 0) {
+			t.Fatal("partial page masqueraded as a full catalog")
+		}
+		// Retain page inventory and continuation in the trusted contract even
+		// if the model's summary invents a claim that all contracts were read.
+		ta.ToolResults[0].Summary = "all detailed documentation was read"
+		bus.Mutable.SetTurnAArtifacts(*ta)
+		assertDocumentationDownstreamRequests(t, bus, registry, original)
+		pages++
+		if !decoded.Page.HasMore {
+			break
+		}
+		if pages > 10 || len(decoded.Page.NextCall) == 0 {
+			t.Fatal("page continuation did not advance")
+		}
+		params = decoded.Page.NextCall
+	}
+	if pages < 2 {
+		t.Fatal("fixture did not exercise a noninitial page")
+	}
+}
+
 func assertDocumentationDownstreamRequests(t *testing.T, bus *types.BusContext, registry *toolpkg.Registry, original string) {
 	t.Helper()
 	for _, stage := range []types.PipelineStage{types.StageExtract, types.StageFinalize} {

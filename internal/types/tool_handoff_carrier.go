@@ -618,7 +618,7 @@ func toolHandoffCarrierKey(c ToolHandoffCarrier) string {
 		doc := c.Documentation
 		c.Documentation = nil
 		return toolHandoffCarrierKey(c) + ":documentation:" + doc.Schema + ":" + strconv.Itoa(doc.Version) + ":" +
-			doc.Selection.View + ":" + strconv.FormatBool(doc.Selection.Detail) + ":" + doc.ContentHash
+			doc.Selection.View + ":" + strconv.FormatBool(doc.Selection.Detail) + ":" + doc.Selection.Cursor + ":" + doc.ContentHash
 	}
 	if len(c.AcceptedEvidence) > 0 && c.ToolName == "emit_evidence" {
 		return "accepted_evidence:" + c.ToolName

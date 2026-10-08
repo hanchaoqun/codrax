@@ -15,10 +15,12 @@ const (
 
 // ToolDocumentationSelection records the successful call's canonical selection.
 // Empty View selects a catalog; Detail distinguishes its overview from full
-// contracts. It is not a query scope, capture identity, or capability grant.
+// contracts. Cursor selects a producer-bound page, not an authorization token.
+// This is not a query scope, capture identity, or capability grant.
 type ToolDocumentationSelection struct {
 	View   string `json:"view,omitempty"`
 	Detail bool   `json:"detail"`
+	Cursor string `json:"cursor,omitempty"`
 }
 
 // ToolDocumentation is static, producer-owned documentation, never source or
@@ -45,7 +47,7 @@ func NormalizeToolDocumentation(in ToolDocumentation) (ToolDocumentation, bool) 
 	}
 	in.Schema = strings.TrimSpace(in.Schema)
 	in.Selection.View = strings.TrimSpace(in.Selection.View)
-	if in.Schema == "" || len(in.Schema) > 160 || len(in.Selection.View) > 160 {
+	if in.Schema == "" || len(in.Schema) > 160 || len(in.Selection.View) > 160 || len(in.Selection.Cursor) > 256 {
 		return ToolDocumentation{}, false
 	}
 	var compact bytes.Buffer
