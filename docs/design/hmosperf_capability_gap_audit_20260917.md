@@ -5721,3 +5721,78 @@ tool另三处暴露最外schema wrapper重新Marshal把旧教学中的`>`等转�
 最终冻结931021b46，46380正式exit0：统一单次`go test -count=1 -p 4 ./...`为88测试包PASS、13无测试、零FAIL，没有拼接前次成功包或使用测试结果缓存。tool480.232秒、agent102.897秒、hitraceconv165.591秒、orchestrator56.502秒、tracediag12.043秒、tracequery130.492秒、types39.845秒。后续仅文档/报告变化，不再重跑全仓。
 
 七笔代码/测试`0c3361572`、`9dc00ac3a`、`4b464b2d2`、`98871f62c`、`c103975f5`、`1185a30b4`、`931021b46`已普通推送main；21999正式exit0（0665df7da→931021b46），未force或改写历史。统一文档/机器原汇总/完整人工审计合批收尾；验证原件在`eval/results/hmc_resource_stack_cpu_20261008/validation/`，原始两run及payload保留。任务计数17交付/62开放是实现口径，不是本轮模型答案通过率。
+
+## 208. 逐采集/对象查询目录与量测成员交接（2026-10-08）
+
+### 208.1 起点、参考意图与范围
+
+开工按唯一ID复算79=17已交付+62开放（45待实施/11部分实施/2待验收/3验收中/1持续执行），重复0；历史人工FAIL和五验收父项均保留。本批两轨为02.3通用对象证据目录、16.4已证实的量测成员交接矛盾，配18.5完整CLI写入验收；不继续围绕CPU一份答案追加类型补丁。
+
+重新核对参考`core/skill_executor.py:1350–1410,1605–1645`的逐对象文件＋索引、`server.py:175–202`目录发现、`core/batch/engine.py:175–200`和`core/llm_contract.py:105–140`对象关联。设计价值是各对象独立交付、失败可定位、结果按需读取；首层即停、stem去重、数组位置和裸tag关联会漏文件或跨采集串证，不能照抄。本项目沿用已有材料准备/原生查询/观察账本，新增目录仅记录导航和执行状态，不创建第二执行内核。
+
+### 208.2 能力轨02.3
+
+实现冻结`5e603f29f`：`trace_catalog`在活动仓或host明确固定的范围内递归发现常规文件，不按后缀假定格式；symlink不追随，取消、深度/数量上限、非递归及跳过项明确披露。可预登记标准`trace_query`参数组合，但不执行、不授事实权限。查询仍通过原来的二进制/SQLite/文本准入，原始工件代次、完整源集合版本、对象、精确纳秒窗口、参数、独立尝试与原始结果引用分别保存；不跨采集平移时间，也不按位置拼对象。
+
+目录区分未执行、查询成功、明确空结果、失败、取消、源变化；成功仅代表该次查询完成，不代表用户问题或整个采集已回答。空态只消费确定性结构计数，没有计数证明时保success而不猜空；仅有raw引用时不伪装payload。失败重试保前次记录。独立多工件、预声明计划中的实际输入准入失败只阻断该成员；单源、未计划、普通重试、bundle及旧源不获得例外，JSON不携带私有资格，不解除已存在的终止状态。
+
+同turn分支共享私有目录lineage而隔离查询状态，按完整查询/尝试身份合并；两个分支从无目录开始各自发现同一目录也不丢工作。源集合版本冲突保双方历史、当前态一律stale，不择一恢复权威；跨turn和历史JSON不能复活。原子保存还合并同run先前成功发布的活状态，避免并行保存覆盖；磁盘旧JSON不参与授权恢复。状态进入后续调查/最终上下文，仍与实际观察账本分开。补证据续轮只给当前目录补可用工具，逐项尊重deny、格式修补限制和原调用预算。
+
+公开回归覆盖：两份同名无.sqlite后缀原生采集、同采集多线程、乱序查询、空/失败/未执行、失败重试、物理及集合代次改变、历史重放、越界symlink、取消/容量/保存失败、并发分支及写盘、实际BaseAgent准入失败隔离、实际最终上下文来源与窗口不串证。核心与types/tool/context/agent/orchestrator相关race通过。新增文件保持职责拆分，不提高行数上限。
+
+### 208.3 系统轨16.4与接入教学
+
+旧公开反例：原生量测表已有完整成员，schema禁止模型给该selector手填Items，完成门/答案覆盖却只认手填清单，触发无效patch及重复抄算。现由注册producer发布成员身份/总数/完整性，模型显式选择现有observation/view，完成与最终覆盖共用同一精确判定；handoff只传selector，最终重新绑定，不传模型抄写数值。重复selector只占一席，summary/timeline、遗漏行、错源/错窗、命名目标或源码清单不能借此销账；多个显式窗口必须齐全。无精确单源preflight、多独立来源、无独立全采集范围证明仅保可见表，不授新的全集完成权。语义相关性与逐维选择仍由模型负责，不以表格存在推断因果或问题已解决。
+
+新增域门不使用置信分、关键词或标题语义扫描；实际源码维度的精确路径绑定仍保留。已有成员标记时引导检查范围/完整性，不再重复要求补同一标记；完整替换教学明确保留量测selector。原公开RED独立保留，随后真实query→completion→emit→advisory→patch、多窗和枚举正控，以及部分/模型推断/重复JSON/源码义务/无preflight负控均通过。
+
+审计同时发现教学陈旧：原Description仍宣称所有WAL和二进制stdin不可用，与已交付的稳定WAL验证及EOF准备矛盾；本批更新唯一共享说明和native能力摘要，精确逆投影保全部历史字节SHA，并同步完整golden。持续写入一致快照、多源混合、static_initialize及普通viewer仍属17.7剩余范围，不借文字修改冒充实现。
+
+### 208.4 固定双例与未销账验收缺陷
+
+构建正式exit0，revision `5e603f29f3b4`；恰好2并行×1真实评测已结束，机器1/2、完整人工0/2，详见[人工审计](../../eval/parallel_selected_summary_hmc_catalog_registration_20261008_manual_audit.md)。A为自然问题的两采集/两线程资源栈，独立oracle及建库SQL放在`eval/cases/`，模型可见fixture只有采集文件；B为自然问题进入CLI默认write controller，保留已有Python测试。没有追跑第三例，不倒签§207或其它历史FAIL。
+
+- **A目录正确、分析未通过，runner248秒。** 两份同名采集均被发现、身份独立；未声明查询计划，不能把planned=0当对象全集已完成。8次查询全为event_search，无resource_stack；最终编造符号、跨文件混用业务栈、纳入10.050秒右边界、把最后观察当采集结束，未经配对断言分配/释放关系。源数据已导出，完整resource_stack教学也进入最终上下文，不能笼统归咎于二进制数据丢失或教学全缺失。机器只验证弱结构，PASS不代表业务答案正确。
+- **B登记分支通过、整体验证未通过，runner283秒。** 实际CLI/controller授权只读登记，拒绝登记/probe混合，读取现有测试后接受零源码变更的native_test_registration，重新执行产生1份新凭证/3个passed断言；不存在借早期成功冒充新执行。计划仍用裸test_*而报告为python/unittest@packages/widget::test_*，三个行为映射缺失，两个批次诚实保unverified，18.5不销账。scratch HEAD及业务/测试配置隔离正确；既有EnsureCodraxGitignore修改scratch根.gitignore，不虚称全部主根字节不变。
+
+本批对幻觉的系统层归因按已证精度分别记账：
+
+1. **16.4/01.3：目录来源与请求范围脱节。** A log616–618仅因无附件carrier，将明确窗口/runtime profile撤成not_applicable，随后目录发现及实际采集准入未恢复同源请求范围。下一片应接通精确目录来源/材料收据，不能扫原问题关键词授权限。
+2. **17.7/16.4：原生来源覆盖说明自相矛盾。** A原始结果一面记resource_stack已导出19行，一面仍把native_hook_frame列为未转换；exporter确实读帧/字典却只回传native_hook表覆盖。应按实际成功producer登记完整来源表，不全局掩去真正unsupported。
+3. **16.4：已知源能力没有驱动后续视图导航。** 零literal匹配后仍推荐trace_mark/perf，未有效利用已验证的resource_stack。优先打通同源能力、结构化对象和查询用途，而非给单个问句加规则。数据充分情况下的编造仍留原证据，未证明随机波动。
+4. **18.5/16.4：只读测试声明身份仍依赖模型手抄。** 应从当前执行报告的精确原生标识形成结构化选择/校验，不以裸后缀模糊匹配。另已确认同prompt“空changes仅两个例外”与登记第三入口冲突，需统一唯一合同；尚不能证明该矛盾直接导致本次ID错误。
+
+冻结期间继续只读复核的设计发现：`emitAnalysisHasRuntimeArtifactCarrier`只看preflight/附件/triage，目录发现发生在analyzer之后，因此仅在后续catalog里增加一个存在位不足以修复已被覆盖掉的用户窗口。下一片宜分离“结构化请求意图/待绑定范围”和“当前已有合格材料”两层：保留前者，待实际同源准入后精确绑定，证据/因果权限仍由后者决定；不能把暂未发现解释成不适用，更不能直接给任意目录授运行时权限。参考仓先发现再按对象执行的顺序可借鉴，但不照搬首层早停。此为后续方案方向，尚未实现或验收。
+
+### 208.5 末版接缝修复与验证
+
+post-live发现目录Window.EndInclusive的bool默认false把未知边界暗示成右开，与event_search自身包含末点合同不符。已改可选端点语义：nil=未知、false/true仍分别表示明确排除/包含，三者身份不同、持久化不丢失、所有复制脱离指针；页面及最终上下文说明目录只保参数界限，实际查询证据决定边界。实际查询结果、请求窗口、根因资格均不修改，不能倒签A。本片公开三类view负控及core完整race通过。
+
+独立按02.3原退出复核又发现原始资源查询截断未进目录：其stream没有EnumerationAuthority，仅看此字段的catalog漏记事件/帧容量截断。共享结果边界从完整producer结果的精确省略计数生成，保已知总数及原有其它压缩记录，stream仅新增incomplete边界，不给正常/不可用结果新的“全集完整”授权。目录仍只消费通用结构元数据，没有加resource_stack特判或扫描prose。真实SQLite→query→持久化公开RED恰好事件/帧两例失败，修后正常/事件上限/帧上限/仅handoff事件和字节裁剪均过：上下文展示的省略不能冒充原始payload截断。该阻断在销02.3之前修复，原失败日志保留。
+
+首轮统一`go test -count=1 -p 4 ./...`正式exit1，86包PASS/13无测试/3包FAIL（8个测试），原件`codrax-hmc208-full-final.log`保留：新tracecatalog包未被人工维护的类型普查依赖闭包识别、恢复测试误比较新增私有覆盖授权，以及新测试直接复制BusContext锁。分别精确补真实类型依赖、比较完整公开JSON而保留绑定/身份负控、使用ShallowClone。命令Outcome普查另按实际import与包级typed enum辨别目录状态域，每个consumer单独证明类型，不以函数名豁免；同函数混入命令switch/map、别名、混合key、同名局部enum及未解析类型继续红。新增self-red先抓出局部同名enum的误识别并收紧，失败v2日志保留。生产型门不删除、旧hash和self-red不放宽。末版冻结后重新统一全仓，不拿已过的其它包拼接“全绿”。
+
+测试基础设施另有旧语法覆盖限制，归18.4留案：Outcome消费普查识别直接switch/map及helper-call混合key，但尚不识别直接二元拼接key `counts[string(q.Outcome)+cmd.Outcome]`；本批新增typed域没有扩大此旧扫描语法。v2曾由stale-registration报红，不能冒称已精确覆盖该变形。该限制不改变生产状态判定，也不阻断本次真实producer/consumer修复，后续统一AST表达式覆盖时补齐。
+
+本批原始结果位于`eval/results/hmc_catalog_registration_20261008/`，两run完整参数/结果归档`payloads/<原session>/`，所有失败/成功测试日志归档`validation/`。源窗口可读协议预览、逐维选表/标题及缺时序、只读登记来源终态、多框架、多源与17.6实机保留原ID。末版回归及代码推送完成后，02.3按原退出条件销实现项：本批完整能力新增1，累计18/79，61开放（44待实施/11部分实施/2待验收/3验收中/1持续执行）；另交付量测成员交接子能力及边界/截断/教学修复。本批2份完整人工FAIL、五稳定验收父项和全部历史失败不改签。
+
+### 208.6 验证与发布收据
+
+实现`5e603f29f`、末版边界/截断修复`114af36bb`、精确结构普查与恢复测试`8a9364ba9`分片提交。末版构建45258正式exit0，revision `8a9364ba9262-dirty`的dirty只有两份任务文档和评测汇总；生产和测试冻结。统一全仓84896正式exit0，`go test -count=1 -p 4 ./...`单次89测试包PASS、13无测试、零FAIL，不缓存测试结果、不拼接初轮成功包。tool490.517秒、agent115.516秒、hitraceconv202.598秒、orchestrator63.215秒、tracequery137.846秒、types54.591秒。随后仅文档变化，不再重跑全仓。
+
+末版相关race全部正式exit0：资源原始截断/公开目录四包tool90.686秒、types3.342秒、tracecatalog2.830秒、context4.943秒；目录边界核心2.897秒；Outcome普查tool18.568秒/types60.412秒；恢复公开JSON2.485秒。原始截断RED、census同名类型RED及首轮全仓FAIL均保留，未通过改名、改自然问题、提高容量上限或静默终止测试消错。
+
+| 验证记录 | SHA-256 |
+|---|---|
+| 目录核心/实际上下文race `codrax-hmc208-catalog-core-context-race.log` | `a875116591c64aa75617cf64f95af5c42c121e82199f0b6b797f181e39b4da77` |
+| 量测同源权限race `codrax-hmc208-measurement-source-race2.log` | `566e7b906b7cbde352c499295b7746b4d3585323df792745382fba5dc2a9492c` |
+| 截断公开RED `codrax-hmc208-catalog-truncation-red.log` | `00ecdf032d153cec29d8681acfdcc8273502ede7dfd0086ebfd30644032eefa2` |
+| 截断公开及相邻race `codrax-hmc208-catalog-truncation-race.log` | `f8072af7741be129434592a481856d6556473dc64f982128b77d166e7c5d3cf8` |
+| 三态窗口核心race `codrax-hmc208-catalog-boundary-core-all-race-v2.log` | `495f19a789332218587a45516c252cf0a5839e4161f996db20d5c52c908073e4` |
+| 完整公开JSON恢复race `codrax-hmc208-text-recovery-publication-race.log` | `62bd4ad35dafae1155cfca488f17c65d2bf2f6d459951b3eb91843ba37b5b16a` |
+| Outcome真实类型与self-red race `codrax-hmc208-outcome-census-race.log` | `ce471cfc3d8e12ee822f4611ed860ebaa847c91caf86d87ca5c2fd5486e4b75a` |
+| 首轮全仓FAIL `codrax-hmc208-full-final.log` | `f652381d811725aad8c80a747a9cb0e1c1be446b5158662c59a88dcb6973f586` |
+| 末版构建 `codrax-hmc208-build-final-v2.log` | `e6f1b354f834c66e3c84dd903f718058624ce500353891de5e3fb00f35cd6336` |
+| 末版统一全仓 `codrax-hmc208-full-final-v2.log` | `3ca7d4ca2a762fe9e2337755f383ed9f8fb4667485b69d9f641e9401b6137170` |
+
+三笔代码/测试已普通推送main，31091正式exit0（647723045→8a9364ba9），未force或改写历史。统一文档、机器原汇总和完整人工审计合批收尾；原始query载荷及所有RED/失败/成功测试记录保留在上述结果目录。目录实现交付不改变机器1/2、完整人工0/2的真实验收结论。
