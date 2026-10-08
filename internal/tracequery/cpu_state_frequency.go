@@ -99,6 +99,7 @@ func StreamCPUStateFrequency(ctx context.Context, path string, q Query) (Result,
 	}
 	return Result{View: ViewCPUStateFrequency, SourcePath: idx.Path, TimeUnit: "seconds", TimeStart: q.TimeStart, TimeEnd: q.TimeEnd,
 		LineCount: idx.LineCount, ScannedLineCount: idx.ScannedLineCount, UnparsedLineCount: idx.UnparsedLines,
+		EventCount: idx.ParsedKnown, ParseLinePanics: idx.ParseLinePanics, ClockRegressions: idx.ClockRegressions,
 		TraceArtifacts: idx.TraceArtifacts, CPUStateFrequency: p, Caveats: p.Caveats}, nil
 }
 

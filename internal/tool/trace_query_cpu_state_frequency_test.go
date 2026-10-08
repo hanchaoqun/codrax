@@ -32,10 +32,13 @@ func TestCPUStateFrequencyPublicToolAndHandoff(t *testing.T) {
 	if !ok || p.CPUCount != 3 || math.Abs(p.CPUTimeMs-120) > 1e-6 || math.Abs(p.KnownJointMs-60) > 1e-6 || math.Abs(p.UnknownJointMs-60) > 1e-6 {
 		t.Fatalf("lost full-window census (or inherited emitter): %+v %+v", record, p)
 	}
-	for _, want := range []string{"CPU0", "CPU1", "CPU2", "全部核时间=120", "联合未知=60", "idle状态0", "1000000"} {
+	for _, want := range []string{"CPU0", "CPU1", "CPU2", "全部核时间=120", "联合未知=60", "idle状态0", "1000000", "parsed_events=11", "scanned_lines=12", "unparsed_lines=1"} {
 		if !strings.Contains(r.Summary, want) {
 			t.Errorf("preview lost %q: %s", want, r.Summary)
 		}
+	}
+	if strings.Contains(r.Summary, "parse_diagnostic=zero_events") {
+		t.Fatalf("stream's unretained index was mistaken for zero parsed events: %s", r.Summary)
 	}
 	for _, mutate := range []func(*types.ObservationRecord){
 		func(r *types.ObservationRecord) { r.SourceRef.QueryScopeID = "" },

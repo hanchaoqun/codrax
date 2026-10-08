@@ -293,3 +293,15 @@ func TestCPUStateFrequencyHandoffRejectsNonfiniteDurations(t *testing.T) {
 		}
 	}
 }
+
+func TestCPUStateFrequencyStreamPreservesScanDiagnostics(t *testing.T) {
+	text := "# tracer: nop\n" + cpuJointLine("0.000000", "cpu_frequency", "1000000", "0") + cpuJointLine("0.500000", "cpu_idle", "1", "0") + cpuJointLine("0.400000", "cpu_idle", "2", "0")
+	idx, _ := cpuJointFixture(t, text, Query{TimeEnd: 1})
+	got, err := StreamCPUStateFrequency(context.Background(), idx.Path, Query{TimeEnd: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EventCount != 3 || got.ScannedLineCount != 4 || got.UnparsedLineCount != 1 || got.ParseLinePanics != 0 || got.ClockRegressions != 1 || len(got.Events) != 0 {
+		t.Fatalf("stream scan quality was replaced by unretained Events: %+v", got)
+	}
+}
