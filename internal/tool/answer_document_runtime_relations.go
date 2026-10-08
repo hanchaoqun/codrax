@@ -21,6 +21,9 @@ type RuntimeDiagramRelation struct {
 	// ScopeLabel is reader guidance only; it never participates in authority.
 	ScopeLabel  string
 	SupportRefs []string
+	// Soft presentation sampling only. Neither field participates in proof,
+	// endpoint recovery, or alias ownership. Empty keys keep the row distinct.
+	presentationKey, presentationQuery string
 }
 
 // RuntimeDiagramRelationProvider keeps producer validation separate from
@@ -275,6 +278,7 @@ func runtimeDiagramPairIdentities(rows []RuntimeDiagramRelation, from, to string
 }
 
 func appendRuntimeDiagramRepairCandidates(allowed []types.AnswerDiagramRelationRepairCandidate, rows []RuntimeDiagramRelation, blockIDs []string, limit int) []types.AnswerDiagramRelationRepairCandidate {
+	rows = runtimeDiagramPresentationRows(rows)
 	for _, blockID := range blockIDs {
 		for _, row := range rows {
 			if len(allowed) >= limit {
@@ -293,7 +297,8 @@ func appendRuntimeDiagramRepairCandidates(allowed []types.AnswerDiagramRelationR
 // Business labels remain reader-facing; exact instance IDs live only in anchor
 // metadata. A missing parent or an omitted pair never authorizes an invented edge.
 func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *types.RequestModel) string {
-	rows := RuntimeDiagramRelations(ledger, rm)
+	authority := RuntimeDiagramRelations(ledger, rm)
+	rows := runtimeDiagramPresentationRows(authority)
 	if len(rows) == 0 {
 		return ""
 	}
@@ -306,5 +311,42 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 		fmt.Fprintf(&b, "- %q → %q；%s；edge_anchor=%s\n", row.FromLabel, row.ToLabel, row.ScopeLabel, data)
 	}
 	fmt.Fprintf(&b, "- 展示 %d 条已证明直接关系，另省略 %d 条；省略不表示不存在其它关系，也不保证完整树。\n\n", min(limit, len(rows)), max(0, len(rows)-limit))
+	if repeated := len(authority) - len(rows); repeated > 0 {
+		fmt.Fprintf(&b, "同一观察的 %d 份重复查询凭证未重复展示；每行仍使用其原查询的完整凭证，不能混用端点。\n\n", repeated)
+	}
 	return b.String()
+}
+
+// Prefer a coherent query with broad event coverage, then fill uncovered rows
+// from other queries. This prevents repeated lookups exhausting a small prompt
+// or repair budget. The complete authority pool is deliberately untouched: a
+// sampling key is not a claim of cross-query identity or a causal permission.
+func runtimeDiagramPresentationRows(rows []RuntimeDiagramRelation) []RuntimeDiagramRelation {
+	coverage := map[string]map[string]bool{}
+	for _, row := range rows {
+		if row.presentationKey != "" && row.presentationQuery != "" {
+			if coverage[row.presentationQuery] == nil {
+				coverage[row.presentationQuery] = map[string]bool{}
+			}
+			coverage[row.presentationQuery][row.presentationKey] = true
+		}
+	}
+	chosen := map[string]int{}
+	for i, row := range rows {
+		if row.presentationKey == "" {
+			continue
+		}
+		prior, exists := chosen[row.presentationKey]
+		if !exists || len(coverage[row.presentationQuery]) > len(coverage[rows[prior].presentationQuery]) ||
+			(len(coverage[row.presentationQuery]) == len(coverage[rows[prior].presentationQuery]) && row.presentationQuery < rows[prior].presentationQuery) {
+			chosen[row.presentationKey] = i
+		}
+	}
+	var out []RuntimeDiagramRelation
+	for i, row := range rows {
+		if row.presentationKey == "" || chosen[row.presentationKey] == i {
+			out = append(out, row)
+		}
+	}
+	return out
 }

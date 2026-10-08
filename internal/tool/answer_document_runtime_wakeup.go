@@ -147,6 +147,17 @@ func (p wakeupDiagramRelationProvider) Relations(ledger types.ObservationLedger)
 			FromNode: runtimeWakeupDisplayNode(r, f.Waker, from), ToNode: runtimeWakeupDisplayNode(r, f.Wakee, to), FromLabel: r.Subject, ToLabel: r.Object,
 			ScopeLabel:  fmt.Sprintf("唤醒时刻=%s秒；来源=%s；这是一次唤醒，不表示唤醒者造成了全部等待", traceQueryDisplaySeconds(f.Timestamp), strings.Join(r.SupportRefs, "; ")),
 			SupportRefs: append([]string(nil), r.SupportRefs...)}
+		// Physical point + exact typed event fields distinguish repeated events,
+		// files, clocks and endpoints. Query/branch coordinates remain in the
+		// hard credentials above; they must not consume repeated display slots.
+		if physical, _, ok := runtimeWakeupPhysicalPoint(r); ok {
+			// TGID can be optional lookup enrichment in a chain view and absent
+			// from the same event_search row. It is not needed to sample an
+			// exact physical row, and remains intact in the authority carrier.
+			point, _ := json.Marshal([]any{ref.Path, physical, ref.TimeDomain, ref.CanonicalTimeDomain, f.Timestamp, f.Waker.PID, f.Waker.Comm, f.Wakee.PID, f.Wakee.Comm})
+			query, _ := json.Marshal([]string{ref.Path, ref.QueryScopeID, ref.PayloadRef})
+			row.presentationKey, row.presentationQuery = string(point), string(query)
+		}
 		byEvent[key] = candidate{row, string(data), f.Timestamp, f.Line}
 	}
 	keys := make([]string, 0, len(byEvent))
@@ -178,19 +189,24 @@ func (p wakeupDiagramRelationProvider) Relations(ledger types.ObservationLedger)
 func runtimeWakeupDisplayNode(record types.ObservationRecord, thread tracequery.ThreadRef, fallback string) string {
 	// Provenance maps bundle virtual lines back to source-local point refs.
 	// Without one exact physical point locator, keep the event-local display.
-	if len(record.SupportRefs) != 1 {
-		return runtimeDiagramNode(fallback)
-	}
-	support := record.SupportRefs[0]
-	colon := strings.LastIndexByte(support, ':')
-	if colon <= 0 {
-		return runtimeDiagramNode(fallback)
-	}
-	line, err := strconv.Atoi(support[colon+1:])
-	if err != nil || line <= 0 {
+	_, path, ok := runtimeWakeupPhysicalPoint(record)
+	if !ok {
 		return runtimeDiagramNode(fallback)
 	}
 	ref := record.SourceRef
-	b, _ := json.Marshal([]any{ref.Path, ref.QueryScopeID, ref.PayloadRef, support[:colon], ref.TimeDomain, ref.CanonicalTimeDomain, thread})
+	b, _ := json.Marshal([]any{ref.Path, ref.QueryScopeID, ref.PayloadRef, path, ref.TimeDomain, ref.CanonicalTimeDomain, thread})
 	return fmt.Sprintf("rt_thread_%x", sha256.Sum256(b))
+}
+
+func runtimeWakeupPhysicalPoint(record types.ObservationRecord) (point, path string, ok bool) {
+	if len(record.SupportRefs) != 1 {
+		return "", "", false
+	}
+	point = record.SupportRefs[0]
+	colon := strings.LastIndexByte(point, ':')
+	if colon <= 0 {
+		return "", "", false
+	}
+	line, err := strconv.Atoi(point[colon+1:])
+	return point, point[:colon], err == nil && line > 0
 }
