@@ -5368,3 +5368,66 @@ EmitPerfTrace复用tracequery严格时间解析，保已验证timed comment/nano
 | 冻结全仓PASS `/tmp/codrax-hmc202-full.log` | `decf03293b9190c562c610b1077d1775759b94712d9f3d237ea504fe29ee6049` |
 
 批末79/16/63，完整父能力新增0、两组子能力/修复、2份完整答案验收残留、5稳定验收父项。代码`d0d6b46e1`/`cba31daf5`已普通推送main，25948正式exit0（fe93fb557→cba31daf5），远端0/0。三份统一文档与两份小型评测报告合批收尾；原失败及本轮FAIL不覆盖，不为未完成图/质量答案签绿。
+
+## 203. 2026-10-07：多查询展示预算、只读补证跨进程恢复
+
+### 203.1 起点、数量与参考设计意图
+
+起点`84b3d7d3a`干净；79稳定ID、16已交付、63开放、重复0。开放状态47待实施/10部分实施/2待验收/3验收中/1持续执行；五验收父项03.2/04.2/08.3/08.4/18.2保持。能力轨为18.5只读测试凭证新进程恢复；高影响缺陷轨为12.5/16.4多query重复事件挤占图教学/修补预算。没有创建新的父任务或缩小原退出条件。
+
+只读复核参考仓 `/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`：
+
+- `core/preprocess/sleep_ops.py:502–660`通过逐层父S/D区间、直接waker、路径visited、最小时长/topK/深度/总预算构建阻塞树，目的在保各分支窗口和受控规模，不是按同名或邻近时间连接所有线程。本项目保原查询/事件权限，另设展示选取，不改变链裁剪或把不同查询当新事件。
+- `core/skill_executor.py:579–635`从已执行步骤恢复工作流、补LLM输出并重新过合同门；`core/session_disk.py`提供CLI可选的步骤文件/status及同目录原子替换。参考架构仍说明主体会话为内存态，不能夸称其已有跨进程原生测试授权。借鉴“状态恢复不等于重新授予结果权威”，本项目用既有默认run store、精确源码交付和重新执行；不导入任意字典充当证明。
+
+### 203.2 已实施的两组子能力
+
+**`544773f21`：多查询事件展示先去重、后限额。** 仅教学与修补候选按同索引路径、唯一物理点引用、时域、事件时间和观察双端身份归并，选择覆盖不同事件较多的同一查询，保原时序及未归并项。链查询可补TGID而event_search不带，故软展示key不强求TGID；硬凭证仍完整携带原身份。14条多查询凭证保留，展示4个事件/5个线程，8条预算不再被重复查询耗尽。未知物理同一性不合并，旧查询精确边仍有效，跨查询借半个端点继续拒绝。没有删硬query身份、扩大窗口、按名称/相近时间合并或提升根因权限。
+
+公开四次TraceQuery→实际finalizer教学→公开emit→实际修补lease/patch→后校验覆盖了旧接缝；终端通过，原样fence逐字diff后浏览器渲染1张sequence、SVG24382字节，人工见5生命线/4箭头，含app入边。截图仅公开回归，不冒充live。自动清理未知所有权声明、无凭证时的工具路由仍不在已交付范围。
+
+**`91aaa9be3`＋`db54efcd2`：只读补证新进程恢复及义务归属。** 默认WriteWorkflowRunStore保存，独立子进程用生产load/hydrate/scheduler恢复；当前没有IR时取持久化原IR，有新IR则绝不覆盖；planned只读补证按既有typed形态恢复verify-only/verifying。修前公开RED为apply_ready_requires_apply/缺原合同，修后planned与verifying两个崩溃点均恢复，必须新invocation、原合同/提交/补丁/测试摘要一致，源码/测试/HEAD不变，授权终结后撤销。缺源码产物、缺独立登记账本、改变合同三负控在执行前拒绝。
+
+真实eval又发现后续系统接缝：RunTests已给strong/verified，控制器附上下文时把只读TargetPaths再次作为“修改源码”要求owner定位，降为source_localization_weak。`db54efcd2`把合法持久化native/probe-only的验证目标与修改定位目标分开；保TargetPaths、原交付和全部执行/逐合同证明门。空changes本身、非法状态/坏形态/真正修改均不豁免。公开新进程回归加严到**proof批次verified**；fixture来源批次缺终态凭证，整轮仍unverified/missing_terminal_verify_verdict，不能补造原批次完成证明。
+
+本组不是完整CLI或真实controller模型决策验收，也不开放多来源/其他原生框架。未改L1 read scheduler、Trace投影/自动补齐、链上业务/调度/算力/IO/语义根因、审批或600/300/600秒活跃流保护；没有新增模型必填JSON字段或扫描用户/模型原文的硬门。
+
+### 203.3 两例真实评测与人工审计
+
+冻结`91aaa9be3`恰好2并行×1，机器两个exit0；完整人工0/2。一例自然Trace CLI，另一例默认真实planner＋新进程生产恢复（controller决策脚本化）。自动selected摘要只含一个CLI，组合边界在[人工报告](../../eval/parallel_selected_summary_hmc_restart_graph_20261007_manual_audit.md)明确列出。没有追加第三例，也没有用后续确定性修复倒签原live。
+
+- **sleep150秒**：7查询、峰值42%、1emit拒绝/2patch。app40ms、四段10/6/5/0.8ms正确，无再借邻近dep5；但状态边界5.027列作唤醒时刻，且无足够执行/供给证据排除优先级反转。首wakeup_chain缺目标、nodes=null，后续普查未产生图事件凭证；首稿5参与者4箭头无锚被拒，源码call倾向的修补提示使模型删图，最终0图仍被接受。当前live不是多query去重失效，而是上游供证/工具补齐及请求展示保留接缝。原始失败仍挂12.5/16.4/04.5。
+- **native11.21秒**：真实planner读value.py及完整test_value.py后发射空changes登记，零拒绝；新进程默认store恢复、新测试产生不同invocation，原合同断言与文件/HEAD不变已证。原机器入口只看执行/complete，人工发现proof批次未验证；据此修义务归属并加严回归。原workflow仍保verification_proof_incomplete，完整CLI/来源终态仍未验，不签整轮verified。
+- **上下文审计**：默认planner长行为合同教学在system/user重复，system普通空changes禁令与授权登记例外不一致；本例做对不等于系统无矛盾。后续按typed计划形态统一来源，归16.4。Trace当前窗口说明诚实但查询比用户窗宽，图供证缺失/需求掉落不能靠问句增加内部约束掩盖。
+
+### 203.4 剩余ROI队列与统计
+
+完整父能力本批新增0、累计16/79；**两组可用子能力/修复**（其中恢复轨含一次eval新发现修复）；63稳定开放、2例本批整体验收残留、5稳定验收父项。不同口径分别报告，不将持续执行或一组子能力算作父能力清零。
+
+1. 能力轨下一批优先17.7原始HiSys rowid/多来源代次与持续写入一致快照，参考真实SQL/转换设计、用生产查询及源文件不变正反验证；17.6实机/平台不冒验。
+2. 系统轨P1为16.4/12.5运行时缺图凭证的typed工具补齐与修补教学：精确目标/窗口→可用事件关系→图，不把普查总量或近邻变边；请求展示形式不能因局部修补静默消失。不再重复已完成的候选排序。
+3. 18.5继续真实CLI/真实controller及完整来源终态；本轮新进程/默认store/当前交付/新执行已交付部分不重复列为未实施。教学重复和空计划例外合并成系统任务，不逐case追加句子。
+4. 17.7质量三范围、04.5完整D-state/树组合、03.3原生资源栈、IPC/lock/其它关系及旧五验收父项仍按原退出；证据充分的偶发误述可以留档，本轮没有凭空宣称均为模型波动。
+
+下一能力轨已做只读预研：参考`core/db_pool.py`的path+mtime连接LRU与按需索引，意图是复用页缓存、降低重复扫描；`core/preprocess/trace_data_cache.py::_compute_fp`的连接ID/首条sqlite_master rowid是连接缓存防串场，不是业务事件行身份或持续写入快照凭证。不能照搬参考仓在源DB上创建索引的做法，也不能把mtime当本项目多源代次证明。本项目`exportTraceDBHiSysEvent`目前仅`ORDER BY ts`且未传原rowid，下一步应复用已有严格hidden-rowid探测，保同时间不同原始行与来源代次；一致快照另行验证，不能用导出序号替代。此处仅记录设计发现，未计实现交付。
+
+### 203.5 验证与发布收据
+
+初冻结`91aaa9be3`完整`go test -p 4 ./... -count=1`正式exit0；三包race通过（tool15.092秒、agent8.325秒、orchestrator20.021秒），构建通过。随后因人工审计发现真实收尾缺陷，新增`db54efcd2`，不能用初冻结全仓冒充末版。末版相关types0.959秒/orchestrator8.265秒通过，公开图/终端/浏览器通过；末版相关race78870正式exit0（types2.221秒、orchestrator16.526秒）、make51098正式exit0。构建revision的dirty仅来自当时文档，代码已冻结。
+
+末版冻结后56946单次完整`go test -p 4 ./...`正式exit0：88测试包PASS、13无测试、零FAIL；tool469.763秒、agent99.711秒、hitraceconv177.958秒、tracequery128.875秒、orchestrator53.299秒、types40.422秒。此次未加`-count=1`，允许未变包使用Go缓存；未拼接早期分包结果。
+
+| 记录 | SHA-256 |
+| --- | --- |
+| 重启公开RED `/tmp/codrax-hmc203-restart-red.log` | `4114a8373060bf2f61d1810a54940e39bd35f118a172e6c6e31164b86445b34e` |
+| 定位义务公开RED `/tmp/codrax-hmc203-completion-red.log` | `0ce7799ba1c01b49ea4f14ac9a7d57a93e73051c89516d243dc10e21d1842ecb` |
+| 末版相关 `/tmp/codrax-hmc203-final-related.log` | `15a17af51289a041401845310b5bc08db53fc65218df3ca3ad22799e23c1637f` |
+| 初冻结全仓 `/tmp/codrax-hmc203-full.log` | `4c94549def0c1732c899dea9a3f83374379878a828eb4ddf177c8019c0167f83` |
+| 初冻结race `/tmp/codrax-hmc203-race.log` | `1a467de690b7b2ba07d4f2eb931d843bf44d464379f23ad3f308c9b5ae61544f` |
+| 末版相关race `/tmp/codrax-hmc203-race-final.log` | `345aa878cce3e4bed2e4db5c07e56028a1c73a76c29baea385b6e2ee24acc8b4` |
+| 末版构建 `/tmp/codrax-hmc203-build-final.log` | `6f79166b47caae62fea5765cdf9ffdc8d0b8f22d30b3d60c2b0beacabe5c1b9f` |
+| 末版全仓 `/tmp/codrax-hmc203-full-final.log` | `648be04692ece675f30ef66d236fb2ccb159fdda45c80ae599e940d659a9e69b` |
+
+中间测试夹具错误（Go常量名、已受理答案被当patch底稿、要求无终态来源批次也verified）与真实产品RED分别保留，不能混称产品故障或拼接通过。发布收尾只合批更正文档，不为文档变化重跑全仓。
+
+代码`544773f21`、`91aaa9be3`、`db54efcd2`已普通推送main，60456正式exit0（84b3d7d3a→db54efcd2），远端0/0。三份统一文档、只读登记验收入口说明和两份小型评测报告合批收尾；原始日志/工作流与旧FAIL保留。末次复算79/16/63、重复0，本批完整父能力新增0、两组子能力/修复、2例完整人工未过、5稳定验收父项。
