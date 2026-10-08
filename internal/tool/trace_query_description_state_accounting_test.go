@@ -27,7 +27,7 @@ func traceQueryDescriptionBeforeStateAccountingEvolution(t *testing.T, descripti
 }
 
 func TestTraceQueryDescriptionStateAccountingOnlyEvolution(t *testing.T) {
-	previous := traceQueryDescriptionBeforeStateAccountingEvolution(t, (&TraceQuery{}).Description())
+	previous := traceQueryDescriptionBeforeStateAccountingEvolution(t, traceQueryDescriptionBeforeRequestWindowEvolution(t, (&TraceQuery{}).Description()))
 	// Complete golden SHA immediately before e15b10751. This includes all
 	// earlier SQLite/event-name and terminal capability contracts unchanged.
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(previous))); got != "a6e517507280c740603ef2654ff04db44719b5efb66065a34b663763d38188f4" {

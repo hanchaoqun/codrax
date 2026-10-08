@@ -9,7 +9,7 @@ import (
 
 func traceQueryDescriptionWithoutEventNameSuffix(t *testing.T) string {
 	t.Helper()
-	description := (&TraceQuery{}).Description()
+	description := traceQueryDescriptionBeforeRequestWindowEvolution(t, (&TraceQuery{}).Description())
 	suffix := " " + traceQueryEventNameTeaching
 	if strings.Count(description, traceQueryEventNameTeaching) != 1 || !strings.HasSuffix(description, suffix) {
 		t.Fatal("event-name teaching must occur exactly once at the Description tail")

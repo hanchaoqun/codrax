@@ -221,7 +221,7 @@ func (t *TraceQuery) Description() string {
 	description += " " + skill.TraceBusinessTreeTeaching
 	description += " " + skill.TraceIOActivityTeaching
 	description += " " + traceQueryEventNameTeaching
-	return description
+	return description + " " + traceQueryRequestWindowTeaching
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -326,6 +326,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		// tool's schema, so the retry re-aims instead of re-guessing.
 		return failStrictDecodeWithErrorSchema(t.Name(), time.Now(), err, nil, params, schema)
 	}
+	// Keep model-owned coordinates separate from request defaults and instance
+	// navigation. Derived bounds must not seed the model-call supplement lane.
+	explicitCallParams := p
 	if err := tracequery.ValidateViewName(p.View); err != nil {
 		return traceQueryUnknownViewRejection(p.View, err), nil
 	}
@@ -464,6 +467,8 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// rejected binary/empty inputs must not mint an exploration-cursor target or
 	// a supplement window that a later healthy trace call could accidentally
 	// consume.
+	var requestWindowCaveat string
+	p, requestWindowCaveat = traceQueryApplyRequestWindow(ctx, p, path, sourceLabel)
 	window := normalizedTraceQueryWindow(p)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
 	// typed window on the run-scoped registry so the post-explore
@@ -478,7 +483,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// TestTraceQueryBoundedScopeKeepsHeavyGuardOut).
 	recordQuery := func() {
 		traceQueryRecordExplicitRuntimeTarget(ctx, explicitTargetParams)
-		traceQueryRecordCallWindow(ctx, p, window)
+		traceQueryRecordCallWindow(ctx, explicitCallParams, normalizedTraceQueryWindow(explicitCallParams))
 	}
 	if businessRef.Token() == "" {
 		recordQuery()
@@ -488,7 +493,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		// rejected navigation must not seed a later automatic supplement.
 		recordBusinessQuery = recordQuery
 	}
-	callCaveat := traceQueryJoinCallCaveats(window.NormalizationCaveat, targetCaveat)
+	callCaveat := traceQueryJoinCallCaveats(window.NormalizationCaveat, targetCaveat, requestWindowCaveat)
 	if auto, ok := t.maybeLargeRecipeAutoWindow(ctx, p, path, sourceLabel, callCaveat); ok {
 		return auto, nil
 	}
