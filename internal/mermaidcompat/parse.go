@@ -1072,66 +1072,8 @@ func AddRemovableNodeDeclaration(body, ident, visibleLabel string) (string, bool
 // The helper is syntax-only. The caller supplies both the node id and visible
 // label; no technical identity, edge message, or prose is translated here.
 func AddExplicitNodeDeclaration(body, ident, visibleLabel string) (string, bool) {
-	ident = strings.TrimSpace(ident)
-	visibleLabel = strings.TrimSpace(visibleLabel)
-	family := mermaidBodyFamily(body)
-	safeID := safeStandaloneNodeIdentifier(ident)
-	if family == "sequence" {
-		safeID = safeExplicitSequenceNodeIdentifier(ident)
-	}
-	if !safeID || visibleLabel == "" ||
-		strings.ContainsAny(visibleLabel, "\r\n\x00") {
-		return body, false
-	}
-	for _, raw := range strings.Split(body, "\n") {
-		line := strings.TrimSpace(raw)
-		var declarations []NodeDecl
-		switch family {
-		case "sequence":
-			declarations = SequenceParticipantDeclarations(line)
-		case "flow":
-			declarations = NodeDeclarationsAll(line)
-		case "class":
-			declarations = classNodeDeclarations(line)
-		default:
-			return body, false
-		}
-		for _, declaration := range declarations {
-			if strings.TrimSpace(declaration.Ident) == ident {
-				return body, false
-			}
-		}
-	}
-
-	label := strings.ReplaceAll(visibleLabel, `"`, `&quot;`)
-	var declaration string
-	switch family {
-	case "sequence":
-		declaration = `    participant ` + ident + ` as "` + label + `"`
-	case "flow":
-		declaration = `    ` + ident + `["` + label + `"]`
-	case "class":
-		declaration = `    class ` + ident + `["` + label + `"]`
-	default:
-		return body, false
-	}
-	lines := strings.Split(body, "\n")
-	header := -1
-	for i, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "%%") {
-			continue
-		}
-		header = i
-		break
-	}
-	if header < 0 {
-		return body, false
-	}
-	lines = append(lines, "")
-	copy(lines[header+2:], lines[header+1:])
-	lines[header+1] = declaration
-	return strings.Join(lines, "\n"), true
+	updated, err := AddExplicitNodeDeclarationChecked(body, ident, visibleLabel)
+	return updated, err == nil
 }
 
 func classNodeDeclarations(line string) []NodeDecl {

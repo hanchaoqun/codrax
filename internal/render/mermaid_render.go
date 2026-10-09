@@ -308,11 +308,11 @@ func SanitizeDegradedMermaidBlocks(text, language string) string {
 		if english {
 			reason = "Mermaid in the recovered draft failed syntax validation; preserved as text"
 		}
-		return degradedMermaidFallbackFence(body, reason)
+		return mermaidFailureFence(body, reason)
 	})
 }
 
-func degradedMermaidFallbackFence(body, reason string) string {
+func mermaidFailureFence(body, reason string) string {
 	body = strings.TrimRight(body, "\n")
 	return "```text\n# ⚠ " + strings.TrimSpace(reason) + "\n" + body + "\n```"
 }
@@ -673,8 +673,8 @@ func escapeMermaidParticipantLabel(label string) string {
 	return strings.ReplaceAll(label, `"`, `\"`)
 }
 
-// htmlEntityToText maps the HTML named entities Mermaid spec
-// allows inside labels to their plain-text equivalent. We keep the
+// htmlEntityToText maps HTML display entities, including the backslash entity
+// emitted by the declaration shim, to their plain-text equivalent. We keep the
 // set narrow — only the entities that actually appear in real
 // Mermaid corpus — to avoid acting like a half-baked HTML parser.
 var htmlEntityToText = map[string]string{
@@ -684,6 +684,7 @@ var htmlEntityToText = map[string]string{
 	"&gt;":   ">",
 	"&quot;": "\"",
 	"&apos;": "'",
+	"&#92;":  "\\",
 }
 
 // brTagRe matches every <br> / <br/> / <br /> variant
@@ -700,22 +701,63 @@ var brTagRe = regexp.MustCompile(`(?i)<br\s*/?>`)
 //  1. <br>, <br/>, <br /> (any case)         → single space
 //  2. &nbsp; / &amp; / &lt; / &gt; / &quot; / &apos; → plain text
 //
-// We deliberately only touch contents inside fenced LABELS would be
-// risky to detect statefully; instead we run on the whole body and
-// rely on the fact that the source-side characters we replace are
-// not load-bearing for Mermaid SYNTAX (parser doesn't use `<br/>`
-// or HTML entities anywhere meaningful outside labels).
+// Entities are consumed once from the source: &amp;quot; is literal &quot;
+// display text, not a second instruction to decode a quote. Inside a quoted
+// token, display quotes use the terminal parser's supported \" escape so
+// they cannot become a premature closing delimiter and truncate the label.
+// This local syntax adaptation never changes persisted/browser Mermaid.
 func normalizeMermaidLabels(body string) string {
 	if !strings.Contains(body, "<") && !strings.Contains(body, "&") {
 		return body
 	}
 	body = brTagRe.ReplaceAllString(body, " ")
-	for entity, repl := range htmlEntityToText {
-		if strings.Contains(body, entity) {
-			body = strings.ReplaceAll(body, entity, repl)
+	var b strings.Builder
+	b.Grow(len(body))
+	quoted := false
+	for i := 0; i < len(body); {
+		if body[i] == '\r' || body[i] == '\n' {
+			quoted = false
+		}
+		if body[i] == '"' {
+			quoted = !quoted
+		}
+		if quoted && body[i] == '\\' && i+1 < len(body) {
+			if strings.HasPrefix(body[i+1:], "&quot;") {
+				// A literal backslash before an entity quote must survive too:
+				// the scanner consumes \\ as one slash and \" as one quote.
+				b.WriteString(`\\`)
+				i++
+				continue
+			}
+			if body[i+1] == '"' || body[i+1] == '\\' {
+				b.WriteString(body[i : i+2])
+				i += 2
+				continue
+			}
+		}
+		matched := false
+		if body[i] == '&' {
+			for entity, repl := range htmlEntityToText {
+				if !strings.HasPrefix(body[i:], entity) {
+					continue
+				}
+				if quoted && (repl == `"` || repl == `\`) {
+					b.WriteByte('\\')
+					b.WriteString(repl)
+				} else {
+					b.WriteString(repl)
+				}
+				i += len(entity)
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			b.WriteByte(body[i])
+			i++
 		}
 	}
-	return body
+	return b.String()
 }
 
 // flattenMermaidSubgraphs removes `subgraph <name> [...]` and the
@@ -794,7 +836,7 @@ func looksLikeMermaidBody(body string) bool {
 //  1. Detected as mermaid AND keyword is in the supported subset
 //     (flowchart / graph / sequenceDiagram) → render via library;
 //     success returns the ASCII grid as ```text``` fence; failure
-//     returns the unsupported-kind fallback fence (see step 4).
+//     returns the warning fence with the original source.
 //
 //  2. Detected as mermaid AND keyword is in the unsupported subset
 //     (classDiagram / stateDiagram / ...) → short-circuit to the
@@ -807,8 +849,8 @@ func looksLikeMermaidBody(body string) bool {
 //  4. Anything else (```go / ```bash / ```json / etc.) → leave
 //     byte-identical.
 //
-// Failure fence shape (step 1, 2, 3 fallback): rewrite to ```text```
-// and inject a single leader line (`# · <reason>`) above the original
+// Fallback fence shape: rewrite to ```text``` and inject a single leader
+// (`# ⚠ <reason>` for failure, `# · <reason>` for an unsupported kind) above the original
 // mermaid source. This guarantees the user always sees an explicit
 // signal that the diagram did not render, AND chroma never highlights
 // the body as code (because the fence is ```text```), eliminating the
@@ -840,7 +882,7 @@ func maybeReplaceMermaidFence(match string) string {
 			if rendered, ok := renderMermaidFenceBody(synth); ok {
 				return rendered
 			}
-			return mermaidFallbackFence(full, "终端 Mermaid 渲染器解析失败，原始源码已保留")
+			return mermaidFailureFence(full, "终端 Mermaid 渲染器解析失败，原始源码已保留")
 		}
 		if kw := firstMermaidKeywordIn(first); kw != "" && !isMermaidSupportedKind(kw) {
 			recordMermaidUnsupportedKind(kw)
@@ -864,7 +906,7 @@ func maybeReplaceMermaidFence(match string) string {
 		if rendered, ok := renderMermaidFenceBody(synth); ok {
 			return rendered
 		}
-		return mermaidFallbackFence(infoLine+"\n"+body, "终端 Mermaid 渲染器解析失败，原始源码已保留")
+		return mermaidFailureFence(infoLine+"\n"+body, "终端 Mermaid 渲染器解析失败，原始源码已保留")
 	}
 	// Case 2: untagged or `text`-tagged fence whose body shape is
 	// mermaid. We only match the empty-info-string and `text` cases
@@ -898,7 +940,7 @@ func maybeReplaceMermaidFence(match string) string {
 	return match
 }
 
-// mermaidFallbackFence builds the unified failure-and-unsupported
+// mermaidFallbackFence builds the unsupported-kind
 // fence: rewrite info-string to `text` so chroma does not highlight
 // the body as code, and prepend a single `# · <reason>` leader line
 // so the user always sees an explicit signal. The ORIGINAL mermaid
@@ -963,7 +1005,7 @@ func replaceMermaidFence(match string) string {
 		// mermaid body passes through" contract).
 		return match
 	}
-	return mermaidFallbackFence(match[bodyStart+1:bodyEnd], "终端 Mermaid 渲染器解析失败，原始源码已保留")
+	return mermaidFailureFence(match[bodyStart+1:bodyEnd], "终端 Mermaid 渲染器解析失败，原始源码已保留")
 }
 
 // renderMermaidFenceBody is the explicit (rendered, ok) core of
@@ -1026,6 +1068,12 @@ func renderMermaidFenceBody(match string) (out string, ok bool) {
 		recordMermaidLibraryRejected()
 		return "", false
 	}
+	preparedBody, literalNewlines, substErr := protectMermaidLiteralLabelNewlines(preparedBody, adapter)
+	if substErr != nil {
+		logging.Warning("[render/mermaid] literal label adapter pool exhausted: %v", substErr)
+		recordMermaidLibraryRejected()
+		return "", false
+	}
 	if degraded := adapter.DegradedRunes(); len(degraded) > 0 {
 		recordMermaidFallbackSubstituted(len(degraded))
 		logging.Warning("[render/mermaid] %d narrow-multibyte rune(s) replaced via fallback table; example: %q→%q",
@@ -1066,6 +1114,9 @@ func renderMermaidFenceBody(match string) (out string, ok bool) {
 	// pool was chosen to exclude any 2-byte pair already present
 	// in the source so we don't risk false-positive replacements.
 	rendered = adapter.restore(rendered)
+	for placeholder, literal := range literalNewlines {
+		rendered = strings.ReplaceAll(rendered, placeholder, literal)
+	}
 
 	// Rewrap as `text` fence so chroma doesn't tokenize the box-
 	// drawing chars as code (which it would if the fence stayed

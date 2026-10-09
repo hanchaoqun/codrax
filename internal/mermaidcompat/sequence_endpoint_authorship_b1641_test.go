@@ -57,10 +57,14 @@ func TestB1641QualifiedIDAllowanceIsSequenceOnlyAndCannotInject(t *testing.T) {
 			t.Errorf("unsafe ID accepted: %q => %q", id, got)
 		}
 	}
-	for _, label := range []string{"", "label\nparticipant Other", "label\x00"} {
+	for _, label := range []string{"", "label\x00"} {
 		body := "sequenceDiagram\n"
 		if got, ok := AddExplicitNodeDeclaration(body, "Logger.log", label); ok || got != body {
 			t.Errorf("invalid label accepted: %q", label)
 		}
+	}
+	body, ok := AddExplicitNodeDeclaration("sequenceDiagram\n", "Logger.log", "label\nparticipant Other")
+	if !ok || !strings.Contains(body, `participant Logger.log as "label<br/>participant Other"`) || len(RemovableNodeDeclarations(body)) != 1 || len(ParseEdges(body)) != 0 {
+		t.Fatalf("a label line break must stay inside one declaration, never inject another participant: %q", body)
 	}
 }

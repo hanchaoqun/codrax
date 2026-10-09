@@ -2248,8 +2248,8 @@ func ensureAtomicDiagramEndpointDeclarations(block *types.AnswerBlock, edit emit
 		label string
 	}
 	endpoints := []endpoint{
-		{field: "from_node", node: strings.TrimSpace(edit.Edge.FromNode), label: strings.TrimSpace(edit.FromNodeVisibleLabel)},
-		{field: "to_node", node: strings.TrimSpace(edit.Edge.ToNode), label: strings.TrimSpace(edit.ToNodeVisibleLabel)},
+		{field: "from_node", node: strings.TrimSpace(edit.Edge.FromNode), label: edit.FromNodeVisibleLabel},
+		{field: "to_node", node: strings.TrimSpace(edit.Edge.ToNode), label: edit.ToNodeVisibleLabel},
 	}
 	// Declaration ownership uses the same exact, case-sensitive inventory as
 	// the schema, not the separate case-folded code-identity lookup registry.
@@ -2263,8 +2263,14 @@ func ensureAtomicDiagramEndpointDeclarations(block *types.AnswerBlock, edit emit
 		if endpoint.node == "" {
 			return fmt.Errorf("edge.%s must be non-empty", endpoint.field)
 		}
+		label, err := mermaidcompat.NormalizeExplicitNodeLabel(endpoint.label)
+		if err != nil {
+			return fmt.Errorf("%s_visible_label for endpoint %q: %w", endpoint.field, endpoint.node, err)
+		}
+		endpoint.label = label
 		if declaredLabel, declared := labels[endpoint.node]; declared {
-			if endpoint.label != "" && endpoint.label != strings.TrimSpace(declaredLabel) {
+			normalizedDeclared, err := mermaidcompat.NormalizeExplicitNodeLabel(declaredLabel)
+			if endpoint.label != "" && (err != nil || endpoint.label != normalizedDeclared) {
 				return fmt.Errorf("%s_visible_label must be omitted or exactly match the current explicit label %q because edge.%s=%q already has an explicit declaration", endpoint.field, strings.TrimSpace(declaredLabel), endpoint.field, endpoint.node)
 			}
 			continue
@@ -2282,9 +2288,9 @@ func ensureAtomicDiagramEndpointDeclarations(block *types.AnswerBlock, edit emit
 		order = append(order, endpoint.node)
 	}
 	for _, node := range order {
-		body, ok := mermaidcompat.AddExplicitNodeDeclaration(block.Diagram.Body, node, pending[node])
-		if !ok {
-			return fmt.Errorf("cannot add an explicit model-authored declaration for endpoint %q in this Mermaid family; use an existing declared node id or a supported flow/sequence/class carrier", node)
+		body, err := mermaidcompat.AddExplicitNodeDeclarationChecked(block.Diagram.Body, node, pending[node])
+		if err != nil {
+			return fmt.Errorf("cannot add an explicit model-authored declaration for endpoint %q: %w", node, err)
 		}
 		block.Diagram.Body = body
 	}

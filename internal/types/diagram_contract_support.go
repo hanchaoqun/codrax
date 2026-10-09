@@ -7,11 +7,25 @@ import "strings"
 // the same scoped, conflict-checked events as the edge validator. Evidence
 // absence still takes the existing honest downgrade; this is not an attachment
 // waiver and does not construct a diagram or grant call/root-cause authority.
-func applyRuntimeDiagramSupport(plan *AnswerSurfacePlan, ir *AnalysisIR, ledger ObservationLedger) {
+func applyRuntimeDiagramSupport(plan *AnswerSurfacePlan, ir *AnalysisIR, ledger ObservationLedger, routeHint TurnRouteHint) {
 	if plan == nil || ir == nil || ir.AnswerContract.Diagram == nil || !ir.AnswerContract.Diagram.Required {
 		return
 	}
 	if plan.Diagram != nil && plan.Diagram.Required {
+		return
+	}
+	rm := &ir.RequestModel
+	profile := rm.RuntimeQuestionProfile
+	if profile != nil && profile.Scope == RuntimeQuestionScopeNotApplicable {
+		return
+	}
+	runtimeQuestion := profile != nil && profile.Scope.IsValid() && profile.Scope != RuntimeQuestionScopeUnspecified
+	if !runtimeQuestion && !rm.RuntimeArtifactScopeProfile.Active() && !RuntimeSourceRequestHasExternalObservationCarrier(rm, routeHint) {
+		return
+	}
+	// An incidental runtime relation must not replace a precise requested
+	// source-code diagram. Soft exploration advice is not such an obligation.
+	if RuntimeSourceRequestCurrentSourceRequirementPrecisionForContract(rm, routeHint, &ir.AnswerContract) == RuntimeSourceRequirementPrecise {
 		return
 	}
 	base := ir.AnswerContract.Diagram
@@ -24,10 +38,11 @@ func applyRuntimeDiagramSupport(plan *AnswerSurfacePlan, ir *AnalysisIR, ledger 
 	default:
 		return
 	}
-	if len(RuntimeWakeupDiagramEvents(ledger, &ir.RequestModel)) == 0 {
+	effective := EffectiveDiagramContract(base, runtimeSupportedDiagramKinds(ledger, rm))
+	if effective == nil || !effective.Required {
 		return
 	}
-	plan.Diagram = EffectiveDiagramContract(base, []DiagramKind{kind})
+	plan.Diagram = effective
 	plan.DiagramHardRequirementDropped = false
 }
 
