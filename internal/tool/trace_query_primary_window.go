@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -90,9 +91,18 @@ func runPrimaryWindowSupplement(ctx *types.BusContext, path, sourceLabel string,
 	if len(calls) == 0 {
 		return out, false
 	}
-	// Stable query-shape order makes the bounded selection independent of
-	// concurrent explorer completion ordering, without ranking answer content.
-	sort.SliceStable(calls, func(i, j int) bool { return calls[i].key < calls[j].key })
+	// Prefer already-successful semantic projections over generic raw discovery
+	// when they compete for the same bounded slot. This is only soft ordering of
+	// existing calls, never a new view election or an evidence-authority gate.
+	// Within each tier keep completion-order-independent query-shape order.
+	sort.SliceStable(calls, func(i, j int) bool {
+		iRaw := calls[i].view == tracequery.FallbackViewEventSearch
+		jRaw := calls[j].view == tracequery.FallbackViewEventSearch
+		if iRaw != jRaw {
+			return !iRaw
+		}
+		return calls[i].key < calls[j].key
+	})
 	meta := types.SystemTraceSupplementMeta{RequestedArtifactScope: types.RuntimeArtifactScopeExplicitWindow,
 		TargetSource: "original_query", DurationBudgetS: traceSupplementMaxDuration.Seconds()}
 	results := []types.ToolResult{}
