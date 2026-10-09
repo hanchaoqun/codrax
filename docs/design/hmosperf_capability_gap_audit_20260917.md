@@ -5915,7 +5915,7 @@ B有已证系统上下文缺口，不归笼统模型波动：actual finalizer的
 
 前置审计另发现参考`gpu_freq_ops.py:13`旧注释仍称kHz/1000，与同仓实际YAML的Hz/1e6冲突。`measure_filter.source_arg_set_id`在表文档只泛称itid或CPU，并未定义GPU实例键；当前GPU SQL和缓存按name合并且丢filter身份，fixture两filter同为0不能证明同一GPU。已查本地参考/相关源码缓存只有对应平台二进制，未获GPU生产链；固定版本线上源码目录本轮也未能读取，不能冒称生产协议已核验。下一片先补版本化producer依据；若没有精确实例关联，只可保独立原始lane和未知关联，不能把这当完整active×freq交付或默认同名配对。
 
-14.1参考多行分配释放聚合，但不能复制GROUP BY中非聚合计数取任意行；已有native_hook_statistic原始字段保留不等于typed统计已交付。先核验量值是增量还是累计，按资源族与单位分组，NULL/0、FD与bytes分离，事件流/统计量/存量分列；只做malloc计数不满足父项退出条件。该项留待下一能力交付完成后，不并行再开第三条生产主线。
+14.1参考多行分配释放聚合，但不能复制GROUP BY中非聚合计数取任意行。§211源码复核更正：本段原称“已有native_hook_statistic原始字段保留”不准确；当前仅导出native_hook及其栈，未转换表仅有非空存在性提示，保留原SQLite不等于统计字段已进入查询。先核验量值是增量还是累计，按资源族与单位分组并补typed统计导出，NULL/0、FD与bytes分离，事件流/统计量/存量分列；只做malloc计数不满足父项退出条件。该项留待下一能力交付完成后，不并行再开第三条生产主线。
 
 ### 210.7 验证与发布收据
 
@@ -5939,3 +5939,59 @@ B有已证系统上下文缺口，不归笼统模型波动：actual finalizer的
 末版统一全仓3763正式exit0：`go test -count=1 -p 4 ./...`单次89测试包PASS、13无测试包、零FAIL。tool494.206秒、agent104.080秒、hitraceconv169.591秒、orchestrator56.507秒、tracequery133.612秒、types50.168秒；无缓存结果替代、不拼接首轮成功包。原始失败及成功日志共37份归档到本批`validation/`，两个live的完整工具载荷保存在`payloads/20261008-060032-000-40457`与`40472`。之后仅文档变化，不重跑全仓。
 
 三笔代码/测试已普通推送main，73403正式exit0（`194cdbffa→b25075330`），无force/改写历史。统一任务清单、架构、机器原汇总及完整人工审计合批收尾；18/79完整交付、61开放、本批机器1/2和完整人工0/2维持真实口径。
+
+## 211. 多框架线索目录与相关测试文件的执行证明（2026-10-08）
+
+### 211.1 起点、参考设计与双轨选择
+
+起点 HEAD/origin `f7e51691b`，工作区干净；唯一ID复算79=18实现已交付+61开放，重复0，状态44待实施/11部分实施/2待验收/3验收中/1持续执行。能力轨完成12.1框架/角色候选目录；缺陷轨处理§210已实证的普通相关测试执行后仍欠文件级证明，不把planning-only问题改造为新行为合同。
+
+本轮再次亲查参考 `core/rendering_pipeline.py:460–575,1456–1545`、五份实际 `config/pipelines/*.skill.yaml`、`index.yaml` 及逐进程检测设计：其目的在于用线程/标记线索选择后续帧协议和业务入口，避免单一全局管线遮蔽其它进程。但required/scoring/exclude机制、单进程赢家、缺结果默认ArkUI及仅路径/package缓存并不适合直接移植；混合Web/Flutter可共存，名称分数不能决定因果或拒绝其它查询。索引列出的游戏、RS及GLFunctor定义实际缺失，目录项不是完整能力凭证。本项目保留逐来源/逐owner的多候选与真实观测前提，既不照搬模板箭头，也不复制“Impeller无首帧卡顿”等过强教学。
+
+原计划08.6 GPU active×freq在本批完成前置核验后保留开放：参考GPU YAML说明Hz，而预处理旧注释写kHz；SQL按名称合并且缺dur补trace尾，不能据此证明多GPU身份、单位或状态编码。源producer中的通用filter键也不能直接当GPU实例键。未获完整版本化单位/状态/资源关联证明前，不造默认映射，不将独立原始lane保存当作完整active×freq。改选无该前置依赖且可独立验收的12.1，避免无限等待或降低08.6标准。
+
+### 211.2 完整能力：框架/角色候选导航
+
+`f57ff390a` 新增 `rendering_candidates` 公开视图，贯通共享能力目录、参数schema、单源教学、引擎、typed观察及实际finalizer。默认准备后的文本/SQLite与合格bundle使用同一解析后事件，不新增另一套二进制解析或猜GPU协议。ArkUI/Flutter/KMP/RN/Web及游戏、合成服务、GLFunctor名称线索按物理source与已知header TGID聚合；未知进程只用发射TID，不借marker PID。多候选不相互排斥，通用Draw/FlushBuffer不单独选框架，无命中不默认ArkUI；缺定义明确unsupported_definition，不阻止帧查询，也不承诺帧实例或连接器已支持。
+
+稳定排序只用于导航；全候选总数先统计，再保至多32组合×16信号×4示例，匹配数是源行次数而非帧数/线程数。逐层省略独立；裁剪索引和重复来源路径保留不完整/歧义声明，取消不发布半账。工具JSON有64KiB边界，finalizer最多4查询/64KiB，删除完整组合而非截断名称。目标过滤保留合格的完整候选，不因广查中有别的进程而丢整条查询；未显示示例不能证明线程归属，只有完整例子或producer精确过滤可支撑，process query不借给thread。原总体仍标原查询口径，不重写为目标总体，原ledger与链上主因池不变。
+
+公开接缝同时补合法线程显示别名与process scope入口：来源引用保原提交selector，消费侧用共享typed语法核对引擎有效目标，不扫描问题/答案全文。旧scheduler/wakeup/rank仍拒process scope。测试包括真实SQLite默认准备、源DB字节不变、混合进程/同进程双框架、右开边界、未知owner、多来源歧义、预算/取消及实际finalizer投递；新字段用精确增量见证保全部历史schema hash，未改旧pin或提高容量。
+
+### 211.3 已证缺陷：普通相关测试的精确执行与续行
+
+`0edf4d04d` 将结构化相关unittest文件编译为精确文件选择，复用既有原生物理观察器。当前源码交付、测试字节、唯一invocation与物理断言执行收据一致才消除 `test_surface` 文件执行欠账；目录discover、间接导入、skip、旧PASS或重复调用不能补签。不强制PTO，不新增用户执行义务，不覆盖源码、符号或行为合同。
+
+累计审查先按真实来源计划验证当前收据，再投影到合成审查视图，仅映射同一个测试文件；失效收据撤回旧verified。通过了别的测试不能压缩掉仍可执行的精确文件义务，保既有有界verify-only续行。末版race公开断言另暴露共享证明账本将普通文件义务误升级为探针；修复保留typed原来源，probe/confidence、symbol/contract及behavior负控不变。根目录零测试记录仍可见，Go/pytest/Jest既有Suite投影及无InvocationID的legacy unittest兼容保持，现代unittest仍走当前精确收据。
+
+### 211.4 验收与发布
+
+固定两个自然问题并行各一次，构建 `f57ff390a6cf-dirty`（当时仅文档未提交），机器1/2、完整人工0/2：[机器记录](../../eval/parallel_selected_summary_hmc_rendering_native_proof_20261008.md)、[人工审计](../../eval/parallel_selected_summary_hmc_rendering_native_proof_20261008_manual_audit.md)。原始结果目录 `eval/results/hmc_rendering_native_proof_20261008/` 保留日志、终稿、实际应用树及执行报告；5份完整query JSON另存 `payloads/20261008-183523-000-9276/`，文件名SHA前缀与原字节一致。
+
+- **读例240秒，机器PASS/人工FAIL。** 新view两次命中，原始payload正确保多框架/来源/未知定义；用户 `[1,1.05)` 被analyzer写成 `[1.001,1.051)`，四次查询却是 `[1,1.051)`。实际finalizer把错误IR称为用户范围，严格范围过滤又丢掉完整候选，仅剩generic note。终稿混Web/Flutter、KMP/ArkUI、独立进程和线程，计数自相矛盾，并凭标记名称给跨进程链路与根因优先级。没有源码读取，表格可渲染、没有图；不代签旧图语义失败。
+- **写例98秒，机器/人工FAIL。** 只改业务实现一行、测试和setup字节不变，实际3断言PASS且当前精确文件收据生成，根目录zero_tests诚实保留。随后查明子目录代码图污染共享根坐标，使相关义务缺 `packages/widget/` 前缀，不能用正确收据为另一个路径补签，最终保持unverified。新只读登记/当前授权assertion_ref未命中，不冒称来源终态或登记全部闭环。
+
+首轮统一全仓正式exit1：`TestRunTestsPythonUnittestRootImpactTargetUsesDiscovery`仍要求目录discover而非新精确文件命令；`TestTraceCapabilitiesPublicCompleteDiscovery`错误要求导航view必须有量测引用；`TestTraceNoteKeyRegistryGolden`新增行未按key排序。`395aa12a4`只修后两项的精确测试登记，新view反向钉住无量测权限、全部旧view仍保原要求，全部旧golden行不变；定向tool1.859秒/types2.096秒通过。不是提高上限、删原测试或造量测字段求绿。原始RED/FAIL全部保留；路径修复完成后再冻结末版全仓，不叠跑、也不追加第三例改签。
+
+### 211.5 已定位系统缺口与下一ROI
+
+1. **18.5/16.4，共享图根坐标，P1，本批已修并推送。** 真实 `repo_map(path=packages/widget,view=source_inventory)`将相对局部Graph.Root的索引发布为全局SearchGraph，下游 `internal/writeflow/impact/repomap_adapter.go`把局部相对路径直接用于仓库级义务。`5c13c1993`保主根图生命周期，并在五类图查询统一涉及文件路径的输入/输出坐标，明确MainRepoRoot与当前隔离worktree的映射；不在收据末端拼cwd、猜后缀、回扫父目录或把局部图冒充完整全图，符号ID、行范围及特征值不变。公开 `repo_map→emit_change_plan→apply→run_tests` 原始RED同时复现主图污染、截短义务和精确收据无法消费；末版已贯通active/cumulative/convention三个消费端。独立审查补非目录根与typed-nil边界，主仓/当前图优先级、同名兄弟、图根软链接逃逸、无主根不扩扫、partial索引与全部五接口均有正反回归。旧根图仅是导航基线，不升级为当前源码/执行证明，也不替代逐文件物理检查。
+2. **01.3/16.4，成员身份去重，P1，下一优先缺陷轨。** 读例日志1494提交9个(owner,framework)成员，1501被系统归一成6：`answer_aggregate_fact.go`剥去括号后同base label且无可解析源坐标即等价，随后自动缩count；不同PID的Flutter/Web/RN被合并。producer仍有9个且未省略，不能归咎新view或模型波动。应要求正向同身份凭证才跨拼写去重，保未知限定信息和对齐support/note；不能不断追加pid/设备名关键词。原有decorative-dedupe测试也要按身份边界审计，不能只修渲染框架类型。
+3. **01.3/16.4，请求端点的来源绑定，P1。** 日志733附件extent教学明确“不是用户选定范围”，696用户原句准确；881/913/950仍由模型连续发错端点。现有emit只验引用逐字存在和float有序，并未证明数字来自该引用，后续却把它当精确用户权威。因此不是生产代码直接复制extent，也不是已证偶发性。需区分请求端点见证、采集可用范围、实际查询范围和展示投影；减少阶段内extent竞争，探索精确typed端点/单位来源绑定，不扫描问题关键词授硬门，不放宽窗外因果资格，也不靠最终改写答案掩盖错窗。
+4. **能力队列不被上述单例无限占据。** 优先17.7进程量测无损接入，12.2再按有来源的帧实例/连接器分片；08.6仍需GPU单位/状态/资源关联前提，14.1仍需统计增量/累计及资源量纲协议。17.7持续写入/多源代次/其它表/viewer、17.6实机，以及只读登记来源终态、多框架仍保原编号；五稳定验收父项与旧人工FAIL不销。
+
+### 211.6 后继能力的参考源码复核（不新增生产施工线）
+
+14.1不能照抄参考`config/indicators/memory/heap.yaml:163–221,630–688`：热点SQL在GROUP BY后直接取非聚合apply/release字段，且未按进程隔离；类型汇总又使用SUM。它们说明定位分配热点/引擎贡献的设计意图，却不能证明producer量值是每次上报增量还是累计。本轮可读参考源码未提供固定producer版本的更新/清零协议。旧§210及任务队列关于statistic字段已保留的前提已明确更正：当前`streamerdb_export_native_hook.go:38`只读取native_hook，`streamerdb_resource_stack.go`补其栈，`streamerdb_table_inventory.go:132`的unsupported_input只是存在性提示，不保逐字段。14.1退出仍要求事件、协议已证的统计及存量三账分离、类型/资源族/单位/来源与owner隔离；不能用合成数据自证协议或将地址生命周期14.2混入代销。
+
+下一能力轨选择有直接源码反例的17.7 `process_measure`：参考`docs/sql_schema.md:1197`明确进程所属及ts/dur/value/filter；当前`streamerdb_export_extended.go:804–853`遗漏dur、将NULL value经默认字符串写0并生成CPU0。复用已有原生量测区间/known flags设计，完整小能力退出为默认准备→原值/缺值/完整区间和真实进程身份→右开查询→可读交接；不从名称猜单位，不把进程计量当线程执行或因果。必须覆盖NULL/真实0、非法存储类、超大整数、重复filter、窗前跨入/右界/区间洞及原件不变。自然eval可问“1到2秒应用内存指标怎样变化”及“比较两个进程的内存变化，数据是否足够”，守护条款放独立oracle，不让用户背诵。此为下一批建议，当前未实施、未运行额外live，也不改变17.7父项状态。
+
+### 211.7 确定性回归收据
+
+实现提交 `0edf4d04d`、`f57ff390a`、登记测试 `395aa12a4`、图根坐标 `5c13c1993`。冻结前相关回归均正式exit0：native相关types1.130/tool64.777/orchestrator31.338秒，native末版race3.120/36.235/19.900秒；渲染登记快检六包及skill通过，线程别名/SQLite/typed note工具race4.238秒、投递race4.058秒、公开系统快检tool4.362/agent2.315/skill2.543秒。精确适配层定向0.784秒/race1.612秒；图接缝三包整包orchestrator49.274/repomap3.844/impact0.537秒，tool定向19.783秒，四包末版race3.520/3.609/3.610/3.260秒。
+
+全部43份日志按原名保存至 `eval/results/hmc_rendering_native_proof_20261008/validation/`。保留native公开RED、共享账本续行RED、并行编译失败、渲染别名/投影范围/登记接缝FAIL、首轮完整全仓FAIL、图根坐标公共RED，以及旧命令测试调整中出现的两轮断言FAIL；不拿后一次通过覆盖同名旧日志。
+
+Go代码及测试冻结在`5c13c1993`后，统一`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`由40421正式exit0，89测试包通过、13无测试包、零FAIL；原始完整输出`codrax-hmc211-full-v2.log`归档，不拼接分包绿。构建27221正式exit0，版本`5c13c19939a7-dirty`（仅本批文档/审计待提交），记录`codrax-hmc211-build-v2.log`。首轮全仓89个测试包中87通过/2失败的原件`codrax-hmc211-full.log`保留，不冒称从未失败。
+
+四笔代码/测试由91768普通推送main正式exit0，远端从`f7e51691b`到`5c13c1993`，无force或改写历史。按原12.1实现退出条件销1项：79=19实现交付+60开放，43待实施/11部分实施/2待验收/3验收中/1持续执行；独立两组系统子能力交付不重复增加父项数。五验收父项、此次人工0/2和全部旧FAIL保持原判；只读登记未命中、GPU/统计协议前置及新增身份/请求端点缺陷均在原ID保留。
