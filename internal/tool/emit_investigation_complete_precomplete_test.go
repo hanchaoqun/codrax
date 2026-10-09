@@ -395,48 +395,49 @@ var builtinStageBindings = []StageBinding{
     {Stage: "finalize", Agent: "finalizer"},
 }
 `)
-	mut := types.NewMutableState("read-mode stages and agents")
-	bus := &types.BusContext{
-		Mutable:  mut,
-		RepoRoot: repo,
-	}
-
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason":      "structured relation members are complete",
-		"confidence":  "high",
-		"result_kind": "resolved",
-		"aggregate_facts": []map[string]any{
-			{
-				"kind":    "member_set",
-				"role":    "supporting_coverage",
-				"label":   "pipeline phases",
-				"members": []string{`StageAnalyze ("analyze")`, `StageExplore ("explore")`, `StageExtract ("extract")`, `StageFinalize ("finalize")`},
-			},
-			{
-				"kind":    "member_set",
-				"role":    "supporting_coverage",
-				"label":   "phase actors",
-				"members": []string{`AgentAnalyzer ("analyzer")`, `AgentExplorer ("explorer")`, `AgentExtractor ("extractor")`, `AgentFinalizer ("finalizer")`},
-			},
-		},
-	})
-	res, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	if strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("repo-specific stage/agent-looking relation must not trigger a built-in authority downgrade: %s", res.Summary)
-	}
-	for _, pending := range mut.EvidenceClosure().PendingReads() {
-		if strings.Contains(pending.File, "stage_binding") {
-			t.Fatalf("repo-specific relation-looking member sets must not enqueue authority reads without an explicit provider: %+v", pending)
+	for _, qualified := range []bool{false, true} {
+		name := "bare_names"
+		phases := []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"}
+		actors := []string{"AgentAnalyzer", "AgentExplorer", "AgentExtractor", "AgentFinalizer"}
+		if qualified {
+			name = "unbound_qualifiers"
+			phases = []string{`StageAnalyze ("analyze")`, `StageExplore ("explore")`, `StageExtract ("extract")`, `StageFinalize ("finalize")`}
+			actors = []string{`AgentAnalyzer ("analyzer")`, `AgentExplorer ("explorer")`, `AgentExtractor ("extractor")`, `AgentFinalizer ("finalizer")`}
 		}
-	}
-	for _, repair := range mut.EvidenceClosure().PendingRepairs() {
-		if strings.Contains(repair.Origin, "relation_authority") || strings.Contains(strings.Join(repair.Files, ","), "stage_binding") {
-			t.Fatalf("repo-specific relation-looking member sets must not enqueue authority repairs without an explicit provider: %+v", repair)
-		}
+		t.Run(name, func(t *testing.T) {
+			mut := types.NewMutableState("read-mode stages and agents")
+			bus := &types.BusContext{Mutable: mut, RepoRoot: repo}
+			params, _ := json.Marshal(map[string]any{
+				"reason": "structured relation members are complete", "confidence": "high", "result_kind": "resolved",
+				"aggregate_facts": []map[string]any{
+					{"kind": "member_set", "role": "supporting_coverage", "label": "pipeline phases", "members": phases},
+					{"kind": "member_set", "role": "supporting_coverage", "label": "phase actors", "members": actors},
+				},
+			})
+			res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+			if err != nil {
+				t.Fatalf("Execute returned error: %v", err)
+			}
+			if qualified {
+				// No special repository authority does not waive ordinary identity
+				// grounding. Unknown qualifiers must not be silently stripped.
+				if !strings.Contains(res.Summary, "DOWNGRADED") || !strings.Contains(res.Summary, "support_refs is empty") || mut.IsInvestigationComplete() {
+					t.Fatalf("qualified members still need generic grounding: %s", res.Summary)
+				}
+			} else if strings.Contains(res.Summary, "DOWNGRADED") {
+				t.Fatalf("repo-specific names must not trigger built-in authority: %s", res.Summary)
+			}
+			for _, pending := range mut.EvidenceClosure().PendingReads() {
+				if strings.Contains(pending.File, "stage_binding") {
+					t.Fatalf("must not enqueue authority reads without an explicit provider: %+v", pending)
+				}
+			}
+			for _, repair := range mut.EvidenceClosure().PendingRepairs() {
+				if strings.Contains(repair.Origin, "relation_authority") || strings.Contains(strings.Join(repair.Files, ","), "stage_binding") {
+					t.Fatalf("must not enqueue authority repairs without an explicit provider: %+v", repair)
+				}
+			}
+		})
 	}
 }
 
