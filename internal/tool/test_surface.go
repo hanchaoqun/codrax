@@ -837,12 +837,10 @@ func impactSuiteForVerificationTarget(
 	target types.ImpactVerificationTarget,
 	related string,
 ) string {
-	// unittest's ordinary impact lane intentionally scopes discovery to a
-	// directory. A ProjectTestObservation is narrower: its authority names one
-	// exact file and assertion, so execute that file directly. Other runner
-	// families already derive their narrowest supported selector from the file.
-	if (strings.TrimSpace(target.Source) == "project_test_observation" || target.Source == types.WriteConstraintRunExistingTest) &&
-		cand.Runner == "python" && cand.Framework == pythonFrameworkUnittest {
+	// A typed related-file target selects execution scope, not proof. Preserve
+	// that scope for ordinary impact tests as well as explicit declarations;
+	// only the native observer's current-file receipt can later prove execution.
+	if cand.Runner == "python" && cand.Framework == pythonFrameworkUnittest {
 		rel := relatedPathInsideWorkingDir(cand.WorkingDir, related)
 		if path.Ext(rel) == ".py" && path.Base(rel) != "__init__.py" {
 			return rel

@@ -12,7 +12,7 @@ import (
 
 // This observer runs inside the existing native unittest process. Loading,
 // TextTestRunner reporting, skips, subtests and exit status remain unittest's.
-// Only the new explicit execution intent uses it; no model code is accepted.
+// Exact typed native-file selections use it; no model code is accepted.
 const existingTestUnittestObserver = `import hashlib, inspect, json, os, sys, unittest
 destination, selected = sys.argv[1:3]
 rows = []

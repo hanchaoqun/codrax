@@ -2883,7 +2883,7 @@ func (o *Orchestrator) appendCumulativePatchReviewFollowupIfNeeded(run *types.Wr
 		return true
 	}
 	items := selectImpactRepairQueueItems(plan, report, 0)
-	items = filterPassedVerifyGraphTelemetryItems(run, run.ActiveBatchID, items)
+	items = filterPassedVerifyGraphTelemetryItems(run, run.ActiveBatchID, items, nativeTestFileRetryCandidates(o.busCtx.Mutable.ChangePlan(), report))
 	items = filterPassedVerifyAdvisoryProofTelemetryItems(report, items)
 	if len(items) == 0 {
 		return false
@@ -2987,6 +2987,7 @@ func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRu
 	}
 	stampChangePlanImpactObligations(plan, graphProvider)
 	applyVerifyCoverageToChangePlan(plan, report, err)
+	applyNativeTestFileCoverage(plan, current, report, err)
 	conventionGraph := o.conventionGraphForPatchReview(run, plan)
 	review := writeflow.ReviewAppliedPatchSemantic(writeflow.SemanticPatchReviewInput{
 		Plan:              plan,
@@ -2998,6 +2999,7 @@ func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRu
 	review = types.NormalizePatchReviewRecord(review)
 	plan.PatchReview = &review
 	applyVerifyCoverageToChangePlan(plan, report, err)
+	applyNativeTestFileCoverage(plan, current, report, err)
 	return plan
 }
 
@@ -3656,6 +3658,8 @@ type verifyCoverageConfidence struct {
 	CoveredSymbols       map[string]bool
 	CoveredContracts     map[string]bool
 	CoveredPaths         map[string]bool
+	NativeTestPaths      map[string]bool
+	NativeReceiptScopes  map[string]bool
 	TargetBehaviorPaths  map[string]bool
 	ProbeUnavailable     bool
 }
@@ -3737,6 +3741,9 @@ func verifyCoverageConfidenceFromReportForPlan(plan *types.ChangePlan, report *t
 	if plan == nil || report == nil {
 		return conf
 	}
+	for _, path := range types.VerifiedNativeTestExecutionPaths(plan, report) {
+		conf.NativeTestPaths[path] = true
+	}
 	for ref := range conf.CoveredContracts {
 		if !types.BehaviorContractRefHasVerificationWitness(plan, report, ref) {
 			delete(conf.CoveredContracts, ref)
@@ -3765,19 +3772,21 @@ func verifyCoverageConfidenceFromEffectiveReport(report *types.ChangeReport) ver
 		CoveredSymbols:      map[string]bool{},
 		CoveredContracts:    map[string]bool{},
 		CoveredPaths:        map[string]bool{},
+		NativeTestPaths:     map[string]bool{},
+		NativeReceiptScopes: nativeUnittestFileReceiptScopes(report),
 		TargetBehaviorPaths: map[string]bool{},
 	}
 	if report == nil {
 		return conf
 	}
 	for _, result := range report.TestResults {
-		if !result.Passed {
+		if !result.Passed || nativeUnittestResultNeedsFileReceipt(report, result) {
 			continue
 		}
 		conf.addCoveredPath(result.Suite)
 	}
 	for _, cmd := range report.ExecutedCommands {
-		if !verifyCoverageCommandCoversPath(cmd) {
+		if !verifyCoverageCommandCoversPath(cmd) || nativeUnittestCommandNeedsFileReceipt(cmd) {
 			continue
 		}
 		conf.addCoveredPath(cmd.Suite)
@@ -3860,6 +3869,15 @@ func (conf *verifyCoverageConfidence) addCoveredPath(raw string) {
 func impactCoverageForTarget(target types.ImpactVerificationTarget, projection verifyCoverageProjection) string {
 	switch projection.ImpactStatus {
 	case impactCoverageVerified:
+		if target.Kind == "test_surface" {
+			path := normalizeVerifyCoveragePath(firstNonEmptyController(target.RelatedPath, target.Path))
+			if projection.Confidence.NativeTestPaths[path] {
+				return impactCoverageVerified
+			}
+			if projection.Confidence.NativeReceiptScopes[path] {
+				return impactCoverageUnverified
+			}
+		}
 		if projection.Confidence.ProbeUnavailable {
 			switch target.Kind {
 			case "changed_symbol":
@@ -3941,6 +3959,9 @@ func patchReviewCoverageForFinding(finding types.PatchReviewFinding, projection 
 				return types.PatchReviewCoverageUnverified
 			}
 		case "dependent_surface_without_verify_coverage", "related_test_surface_unverified":
+			if finding.Code == "related_test_surface_unverified" && projection.Confidence.NativeTestPaths[normalizeVerifyCoveragePath(firstNonEmptyController(finding.RelatedPath, finding.Path))] {
+				return types.PatchReviewCoverageVerified
+			}
 			if !projection.Confidence.CoversPath(finding.RelatedPath, finding.Path) {
 				return preservePatchReviewUncoveredStatus(finding.CoverageStatus)
 			}
@@ -8420,7 +8441,7 @@ func impactObligationRepairFollowupBatch(run *types.WriteWorkflowRun, activeBatc
 
 func impactObligationRepairFollowupDecision(run *types.WriteWorkflowRun, activeBatchID string, plan *types.ChangePlan, report *types.ChangeReport) (*writeflow.WriteBatchPlan, bool) {
 	items := selectImpactRepairQueueItems(plan, report, 0)
-	items = filterPassedVerifyGraphTelemetryItems(run, activeBatchID, items)
+	items = filterPassedVerifyGraphTelemetryItems(run, activeBatchID, items, nativeTestFileRetryCandidates(plan, report))
 	items = filterPassedVerifyAdvisoryProofTelemetryItems(report, items)
 	items = filterPendingImpactRepairQueueItems(run, items)
 	if len(items) == 0 {
@@ -8853,14 +8874,23 @@ func controllerDirectInlineProbeLanguage(path string) string {
 	return ""
 }
 
-func filterPassedVerifyGraphTelemetryItems(run *types.WriteWorkflowRun, activeBatchID string, items []impactRepairQueueItem) []impactRepairQueueItem {
+func filterPassedVerifyGraphTelemetryItems(run *types.WriteWorkflowRun, activeBatchID string, items []impactRepairQueueItem, nativeCandidates []string) []impactRepairQueueItem {
 	if len(items) == 0 || activeBatchLatestVerifyStatus(run, activeBatchID) != "passed" {
 		return items
 	}
 	out := make([]impactRepairQueueItem, 0, len(items))
+	exactFiles := map[string]bool{}
+	for _, path := range nativeCandidates {
+		exactFiles[path] = true
+	}
 	for _, item := range items {
 		if impactRepairQueueItemRequiresGraphNavigation(item) && !impactRepairQueueItemFromVerificationProof(item) {
-			continue
+			// A different suite passing does not discharge a concrete native
+			// file that the current executor can select precisely. Keep its
+			// bounded verify-only follow-up; other graph telemetry stays soft.
+			if item.Kind != "test_surface" || !exactFiles[normalizeVerifyCoveragePath(firstNonEmptyController(item.RelatedPath, item.Path))] {
+				continue
+			}
 		}
 		out = append(out, item)
 	}
@@ -8960,6 +8990,14 @@ func verificationProofLedgerRepairQueueItems(plan *types.ChangePlan, report *typ
 			EvidenceRef:    firstNonEmptyController(obligation.EvidenceRef, strings.Trim(strings.TrimSpace(obligation.Source)+":"+strings.TrimSpace(obligation.Category), ":")),
 			Source:         "verification_proof_ledger",
 			Priority:       impactRepairPriority(obligation.Kind),
+		}
+		if item.Kind == "test_surface" && item.ContractRef == "" && item.Symbol == "" &&
+			strings.TrimSpace(obligation.Source) != "verification_probe" &&
+			strings.TrimSpace(obligation.Source) != "verification_confidence" {
+			// The ledger also carries ordinary file-execution obligations.
+			// Preserve their producer semantics: entering this shared container
+			// does not turn a related test file into a behavior/probe contract.
+			item.Source = firstNonEmptyController(obligation.Source, "impact_analysis")
 		}
 		if item.Path == "" && item.RelatedPath == "" && len(item.Paths) == 0 {
 			switch item.Kind {

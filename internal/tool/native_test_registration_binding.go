@@ -23,8 +23,8 @@ func nativeRegistrationPhysicalExecutionContext(ctx *types.BusContext) *types.Bu
 	return copy
 }
 
-// Registration paths extend physical observation, not the user's independent
-// run_existing_test obligation. Ordinary plans keep their existing behavior.
+// Physical observation covers selected native files, not a newly invented
+// run_existing_test obligation or a behavior-contract declaration.
 func nativeObservedTestPaths(plan *types.ChangePlan) []string {
 	out := append([]string(nil), types.RequiredExistingTestPaths(plan)...)
 	seen := make(map[string]bool, len(out))
@@ -35,6 +35,12 @@ func nativeObservedTestPaths(plan *types.ChangePlan) []string {
 		if !seen[path] {
 			out = append(out, path)
 			seen[path] = true
+		}
+	}
+	for _, target := range impactVerificationTargetsFromChangePlan(plan) {
+		if target.Kind == "test_surface" && target.RelatedPath != "" && !seen[target.RelatedPath] {
+			out = append(out, target.RelatedPath)
+			seen[target.RelatedPath] = true
 		}
 	}
 	sort.Strings(out)
