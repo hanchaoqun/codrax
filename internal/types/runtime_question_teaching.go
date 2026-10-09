@@ -10,13 +10,14 @@ func (p *RuntimeQuestionProfile) RequestsTraceSchedulerTeaching() bool {
 	for _, family := range p.FactFamilies {
 		switch family {
 		case RuntimeQuestionFactTargetSchedulerState, RuntimeQuestionFactResourcePressure,
-			RuntimeQuestionFactFrequencyResidency, RuntimeQuestionFactTargetWaitOccurrences,
+			RuntimeQuestionFactTargetWaitOccurrences,
 			RuntimeQuestionFactRecordedReason, RuntimeQuestionFactRelationPeer,
 			RuntimeQuestionFactTransactionID, RuntimeQuestionFactDirectWaker,
 			RuntimeQuestionFactIOLatency:
 			return true
 		}
 	}
-	// A generic occurrence timestamp or count is not a scheduler request.
+	// A generic frequency (including expected frame rate), timestamp or count
+	// is not a scheduler request. Actual CPU witnesses own CPU-specific cards.
 	return false
 }

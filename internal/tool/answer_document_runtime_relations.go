@@ -148,6 +148,7 @@ func RuntimeDiagramRelations(ledger types.ObservationLedger, rm *types.RequestMo
 		ledger.RuntimeArtifactScopeProfile = rm.RuntimeArtifactScopeProfile
 	}
 	wakeupRows := (wakeupDiagramRelationProvider{request: rm}).Relations(ledger)
+	transactionRows := (transactionDiagramRelationProvider{request: rm}).Relations(ledger)
 	if rm != nil && rm.RuntimeQuestionProfile.CarriesBoundedFactFamilies() &&
 		!rm.RuntimeQuestionProfile.RequestsFactFamily(types.RuntimeQuestionFactOtherObservedValue) {
 		named := false
@@ -168,7 +169,7 @@ func RuntimeDiagramRelations(ledger types.ObservationLedger, rm *types.RequestMo
 		}
 	}
 	var provider RuntimeDiagramRelationProvider = businessTreeDiagramRelationProvider{}
-	return append(wakeupRows, provider.Relations(ledger)...)
+	return append(append(wakeupRows, transactionRows...), provider.Relations(ledger)...)
 }
 
 func runtimeDiagramRelationsForContext(ctx *types.BusContext) []RuntimeDiagramRelation {
@@ -298,7 +299,7 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 	}
 	const limit = 8
 	var b strings.Builder
-	b.WriteString("### 可用运行时关系图锚 / Available runtime diagram anchors\n\nThese producer-verified pairs authorize only their listed relation_kind, independently of the question family: contain is direct synchronous business nesting; wakeup is one recorded waker→wakee event, not a source call, attributed wait duration, or root-cause ranking. Use business labels in flow/sequence/architecture diagrams and copy exact identities into edge_anchors. Stable node aliases allow local repair; names alone are not identities. Keep each event's timestamp visible; never merge different instances into an invented dependency. Use notes or intervals for measured states, not self-call arrows. Do not sum parent and child durations.\n")
+	b.WriteString("### 可用运行时关系图锚 / Available runtime diagram anchors\n\nThese producer-verified pairs authorize only their listed relation_kind, independently of the question family: contain is direct synchronous business nesting; wakeup is one recorded waker→wakee event; observe is only the specifically described external-observation correspondence (transaction records do not establish a complete frame). None grants a source call, attributed wait duration, or root-cause ranking. Use business labels in flow/sequence/architecture diagrams and copy exact identities into edge_anchors. Stable node aliases allow local repair; names alone are not identities. Keep each event's timestamp visible; never merge different instances into an invented dependency. Use notes or intervals for measured states, not self-call arrows. Do not sum parent and child durations.\n")
 	for _, row := range rows[:min(limit, len(rows))] {
 		anchor := types.DiagramEdgeAnchor{FromNode: row.FromNode, ToNode: row.ToNode, FromIdentity: row.FromIdentity, ToIdentity: row.ToIdentity, RelationKind: row.Kind}
 		data, _ := json.Marshal(anchor)

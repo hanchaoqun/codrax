@@ -17,6 +17,7 @@ package tool
 // double-write) — do not replace them with the constants.
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -1301,6 +1302,13 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 	records = append(records, resourceResult.Observations...)
 	renderingResult, _, _ := renderingCandidateQuery(t)
 	records = append(records, renderingResult.Observations...)
+	transactionPath, _ := filepath.Abs("../../eval/fixtures/hmosperf_transaction_handoffs/events.systrace")
+	transactionParams, _ := json.Marshal(map[string]any{"source": "path", "path": transactionPath, "view": "transaction_handoffs", "time_start": 1, "time_end": 1.05})
+	transactionResult, transactionErr := (&TraceQuery{}).Execute(&types.BusContext{RepoRoot: t.TempDir(), WorkDir: t.TempDir()}, transactionParams)
+	if transactionErr != nil || !transactionResult.Success {
+		t.Fatalf("transaction registry fixture: %v %+v", transactionErr, transactionResult)
+	}
+	records = append(records, transactionResult.Observations...)
 	if len(records) == 0 {
 		t.Fatal("fixture produced no observation records — the emit pin is checking nothing")
 	}

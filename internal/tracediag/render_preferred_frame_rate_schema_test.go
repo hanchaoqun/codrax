@@ -12,6 +12,7 @@ import (
 // No other field, type, declaration order or JSON tag is excluded.
 func resultSchemaBeforePreferredFrameRate(t *testing.T, schema string) string {
 	t.Helper()
+	schema = resultSchemaBeforeTransactionHandoffs(t, schema)
 	const added = "PreferredFrameRate|*tracequery.PreferredFrameRateResult|preferred_frame_rate,omitempty"
 	var kept []string
 	count := 0

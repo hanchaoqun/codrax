@@ -85,6 +85,7 @@ func streamProcessMeasurements(ctx context.Context, path string, q Query, record
 		p.Status = "unavailable"
 		p.Rows = nil
 		p.TotalRows, p.OmittedRows, p.UnpositionedRows = 0, 0, 0
+		p.AvailableDerivedViews = nil
 		p.Caveats = append(p.Caveats, "complete_scan_retention_limit: source scanned to EOF; no partial process measurement inventory published")
 	}
 	if err := errors.Join(selection.validateIndex(idx), selection.validate(ctx)); err != nil {

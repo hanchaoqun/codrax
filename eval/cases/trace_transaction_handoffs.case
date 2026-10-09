@@ -1,0 +1,7 @@
+ID="trace_transaction_handoffs"
+NAME="Application transaction submission and rendering-service consumption"
+QUESTION="请看附件1到1.05秒内，应用提交的渲染事务分别被渲染服务哪次处理接收了？哪些能对应，哪些还不能确认？画一张简洁的交接图。"
+HTRACE_FILE="eval/fixtures/hmosperf_transaction_handoffs/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

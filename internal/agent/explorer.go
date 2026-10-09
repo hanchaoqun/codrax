@@ -178,6 +178,7 @@ type explorerEvaluator struct {
 	midLoopExplanationAnchorSent            bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
 	midLoopCommandMeasurementPathSent       bool // one-shot: typed command measurement needs its post-explore carrier/compile path, not the analyzer lane
 	midLoopCompletionReadySent              bool // one-shot: advisory evidence-collection readiness hint already pushed this dispatch
+	midLoopStatisticsNavigationSent         bool // optional native computation navigation; never arms closure escalation
 	midLoopCandidateUniverseSent            bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
 	midLoopCompletionReadyEscalated         bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
 	midLoopCompletionReadyClosureSent       bool // one-shot: post-ready navigation grace was already consumed without structured progress
@@ -673,6 +674,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopExplanationAnchorSent = false
 		e.midLoopCommandMeasurementPathSent = false
 		e.midLoopCompletionReadySent = false
+		e.midLoopStatisticsNavigationSent = false
 		e.midLoopCandidateUniverseSent = false
 		e.midLoopCompletionReadyEscalated = false
 		e.midLoopCompletionReadyClosureSent = false
@@ -832,6 +834,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopExplanationAnchorSent = false
 	e.midLoopCommandMeasurementPathSent = false
 	e.midLoopCompletionReadySent = false
+	e.midLoopStatisticsNavigationSent = false
 	e.midLoopCandidateUniverseSent = false
 	e.midLoopCompletionReadyEscalated = false
 	e.midLoopCompletionReadyClosureSent = false
@@ -8850,7 +8853,7 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 			len(e.flowFindings) > 0) {
 		fileCoverage = true
 	}
-	if sourceCount == 1 {
+	if sourceCount == 1 && !e.traceStatisticsAvailability(toolResults).HasPending() {
 		toolDiversity = true
 		fileCoverage = true
 		evidenceQuality = true
@@ -10201,6 +10204,19 @@ func (e *explorerEvaluator) postExternalObservationSufficiencySignal(obs LoopObs
 	if !sufficiency.Status.Sufficient() {
 		return LoopSignal{}
 	}
+	if availability := e.traceStatisticsAvailability(obs.AllToolResults); availability.HasPending() {
+		if e.midLoopStatisticsNavigationSent {
+			return LoopSignal{}
+		}
+		e.midLoopStatisticsNavigationSent = true
+		// Do not arm completion-ready escalation or closure-only mode: this
+		// signal only distinguishes available raw values from computation.
+		signal := explorerStatisticsAvailabilitySignal(availability)
+		if sufficiency.Scope == types.ExternalObservationSufficiencyScopeExternalLane {
+			signal.Hint += explorerExternalObservationRequiredSourceGuidance(sufficiency.CurrentSourceRequirement)
+		}
+		return signal
+	}
 	e.midLoopCompletionReadySent = true
 	e.midLoopCompletionReadyIter = obs.Iteration
 	var b strings.Builder
@@ -10209,7 +10225,7 @@ func (e *explorerEvaluator) postExternalObservationSufficiencySignal(obs LoopObs
 		b.WriteString(explorerExternalObservationRequiredSourceGuidance(sufficiency.CurrentSourceRequirement))
 	} else {
 		b.WriteString("Progress check: typed external observations already form a small addressable answer surface, and the current-source lane is optional for this turn. ")
-		b.WriteString("Prefer closing with `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")` instead of reading current-source sidecars by default.\n")
+		b.WriteString("These rows establish observations, not automatic completion of every requested statistic or causal conclusion. If they answer the question, use `emit_investigation_complete` with the supported result kind; otherwise continue the relevant observation query or explicitly report the missing evidence. Do not read current-source sidecars by default.\n")
 	}
 	fmt.Fprintf(&b, "- external observation rows: %d\n", sufficiency.RecordCount)
 	if origins := externalObservationSufficiencyOriginLabels(sufficiency.Origins); origins != "" {
@@ -13952,7 +13968,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 	e.mcpResponses = append(e.mcpResponses[:0], mcpResponses...)
 	externalSufficiency := e.externalObservationSufficiency(toolResults, mcpResponses)
-	if externalSufficiency.Status.Sufficient() && !readiness.HasEnough && !missingStructuredMemberSet && !candidateUniverseGap.Blocking {
+	if externalSufficiency.Status.Sufficient() && !e.traceStatisticsAvailability(toolResults).HasPending() && !readiness.HasEnough && !missingStructuredMemberSet && !candidateUniverseGap.Blocking {
 		logging.Debug("[explorer] HasEnoughFacts promoted by external observation sufficiency (records=%d origins=%v)",
 			externalSufficiency.RecordCount, externalSufficiency.Origins)
 		readiness.HasEnough = true

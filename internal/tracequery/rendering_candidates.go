@@ -69,6 +69,7 @@ func buildRenderingCandidates(idx *Index, q Query) *RenderingCandidatesResult {
 		return a.framework < b.framework
 	}
 	types := map[EventType]bool{}
+	transactionNavigation := false
 	for _, typ := range q.EventTypes {
 		types[typ] = true
 	}
@@ -107,6 +108,10 @@ func buildRenderingCandidates(idx *Index, q Query) *RenderingCandidatesResult {
 		}
 		if source == "" || local <= 0 || sourceCounts[source] > 1 {
 			continue
+		}
+		if role, _, bad := transactionProtocol(ev); role != "" && !bad && !transactionNavigation {
+			transactionNavigation = true
+			p.Caveats = append(p.Caveats, "Exact application/rendering-service transaction protocol observed; transaction_handoffs can independently inspect submission-to-consumption key matches, ambiguity and endpoint windows. Navigation alone is not a relation proof.")
 		}
 		scope, owner := TargetScopeThread, coordinates.EmitterTID
 		if coordinates.EmitterTGIDKnown {

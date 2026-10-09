@@ -1199,7 +1199,7 @@ func answerDocBoundedRuntimeFactFamilyReaderLabel(family types.RuntimeQuestionFa
 		case types.RuntimeQuestionFactResourcePressure:
 			return "资源压力（不与墙钟时长相加）"
 		case types.RuntimeQuestionFactFrequencyResidency:
-			return "CPU 频率驻留与策略上限"
+			return "已观测频率的持续时间与覆盖分布"
 		case types.RuntimeQuestionFactOtherObservedValue:
 			return "其他已观测数值"
 		}
@@ -1227,7 +1227,7 @@ func answerDocBoundedRuntimeFactFamilyReaderLabel(family types.RuntimeQuestionFa
 	case types.RuntimeQuestionFactResourcePressure:
 		return "resource pressure (not additive with wall clock)"
 	case types.RuntimeQuestionFactFrequencyResidency:
-		return "CPU frequency residency and policy ceiling"
+		return "observed frequency duration and coverage distribution"
 	case types.RuntimeQuestionFactOtherObservedValue:
 		return "other observed value"
 	}

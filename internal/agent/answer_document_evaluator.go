@@ -5830,6 +5830,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	b.WriteString(renderAnswerDocCPUStateFrequency(ctx, promptLedger))
 	b.WriteString(renderAnswerDocResourceStacks(ctx, promptLedger))
 	b.WriteString(renderAnswerDocRenderingCandidates(ctx, ledger))
+	b.WriteString(renderAnswerDocTransactionHandoffs(ctx, ledger))
 	if measurements := renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger); measurements != "" {
 		b.WriteString(measurements)
 	}

@@ -15,6 +15,13 @@ func capabilityMetricDescriptors() []MetricCapability {
 		return MetricCapability{ID: id, Summary: summary, Outputs: outputs, Requirements: requirements, Limitations: []string{limit}}
 	}
 	metrics := []MetricCapability{
+		m(ViewTransactionHandoffs, "Published-source transaction-key and endpoint populations; no frame, wait or causal measurement.", []CapabilityOutput{
+			o("transaction_handoffs", "total_keys omitted_keys", "count", "keys selected by an endpoint in the requested window and target versus display-only key omissions; multiplicity is assessed across the complete published source before selection"),
+			o("transaction_handoffs", "window_submission_events window_consumption_events", "count", "distinct physical endpoint events of selected keys inside the window, separated by role; one consumption carrying multiple keys counts once"),
+			o("transaction_handoffs.handoffs", "submission_count consumption_count", "count", "all published source endpoints for this selected key, including peers outside the query window; not the number of matched pairs"),
+			o("transaction_handoffs.handoffs", "window_submissions window_consumptions", "count", "each key's own endpoint membership in the query window; shared consumption events repeat across keys and must not be summed into an event total"),
+			o("transaction_handoffs.handoffs", "omitted_submissions omitted_consumptions", "count", "display-only endpoint omissions; neither uniqueness nor endpoint population changes with truncation"),
+		}, r("trace_mark", nil, "", "Exact MarshRSTransactionData transactionFlag and ProcessCommandUni key-list protocols in a complete frozen identity-mapped single source. Read status: unavailable or overflow does not publish a partial census. Rejected or unpublished original source rows are outside the population."), TransactionHandoffsTeaching),
 		m("preferred_frame_rate", "PreferredFrameRate protocol observations; no actual display or voting-cause authority.", []CapabilityOutput{
 			o("preferred_frame_rate.series", "known_duration_ns conflict_duration_ns unknown_value_duration_ns unobserved_duration_ns", "ns", "disjoint wall-clock coverage per source/process/filter in the complete requested window"),
 			o("preferred_frame_rate.series.distribution", "rate_hz duration_ns window_percent", "Hz/ns/percent", "equal-rate union; disagreement and unknown intervals do not enter known distribution"),

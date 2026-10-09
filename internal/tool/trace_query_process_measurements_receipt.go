@@ -53,9 +53,10 @@ func traceQueryProcessMeasurementsReceipt(r types.ObservationRecord, p tracequer
 	}
 	base := []string{fmt.Sprintf("查询窗口 [%s,%s%s 秒。", traceQueryDisplaySeconds(start), traceQueryDisplaySeconds(end), right), "Source: " + p.SourcePath,
 		"查询状态：" + p.Status + "；没有可展示记录不等于指标值为0。",
-		"数值单位及存量/累计/增量含义未由源协议提供；不由指标名称推断。进程量测不证明线程执行、CPU活动、等待或响应根因。",
+		"本原值视图不解释单位及存量/累计/增量含义；无已验证协议时不由指标名称推断。已识别精确协议时另列可选统计导航；进程量测不证明线程执行、CPU活动、等待或响应根因。",
 		"原始区间与窗口内交集分列；缺持续时间仅为时间点观测。NULL不等于0，重叠记录不合并、区间空洞不填满。记录数不证明采集完整。"}
 	base = append(base, p.Caveats...)
+	base = append(base, traceProcessMeasurementNavigation(p)...)
 	keep := len(p.Rows)
 	for {
 		notes := append([]string(nil), base...)

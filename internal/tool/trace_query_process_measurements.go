@@ -111,6 +111,7 @@ func (t *TraceQuery) streamProcessMeasurements(ctx *types.BusContext, p traceQue
 	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now,
 		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
+		TraceStatistics:        traceQueryStatisticsCandidate(result),
 		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q)}, true
 }
 
@@ -138,7 +139,10 @@ func TraceProcessMeasurementsText(p tracequery.ProcessMeasurementsResult) string
 		right = "]"
 	}
 	fmt.Fprintf(&b, "进程量测；查询=[%.9f,%.9f%s秒；状态=%s；匹配记录=%d，展示=%d，省略=%d；无法定位时间的记录=%d（不计入窗口总体）。\n", p.Window.StartTs, p.Window.EndTs, right, p.Status, p.TotalRows, len(p.Rows), p.OmittedRows, p.UnpositionedRows)
-	b.WriteString("原始记录各自保留，不填区间空洞或累加重叠。数值单位及累计/存量含义未提供，不能由指标名称推断；这些量测不代表线程执行或响应根因。\n")
+	b.WriteString("原始记录各自保留，不填区间空洞或累加重叠。本原值视图不解释单位及累计/存量含义；无已验证协议时不由指标名称推断。已识别精确协议时另列可选统计导航；这些量测不代表线程执行或响应根因。\n")
+	for _, note := range traceProcessMeasurementNavigation(p) {
+		b.WriteString(note + "\n")
+	}
 	for i, row := range p.Rows {
 		if i == 8 {
 			fmt.Fprintf(&b, "预览另省略%d条；完整保留行可从测量表选择。\n", len(p.Rows)-i)
@@ -150,4 +154,12 @@ func TraceProcessMeasurementsText(p tracequery.ProcessMeasurementsResult) string
 		fmt.Fprintf(&b, "- %s\n", note)
 	}
 	return b.String()
+}
+
+func traceProcessMeasurementNavigation(p tracequery.ProcessMeasurementsResult) []string {
+	var notes []string
+	for _, view := range p.AvailableDerivedViews {
+		notes = append(notes, fmt.Sprintf("可选原生统计：view=%s，沿用当前来源、窗口和进程选择；完整扫描识别了其精确协议。原值可直接引用；如需覆盖、持续时间或分布，可用该视图或等价的已验证统计。只问原值时无需额外查询，不能由原始行填补未知或重叠。", view))
+	}
+	return notes
 }

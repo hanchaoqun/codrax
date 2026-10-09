@@ -228,10 +228,11 @@ func TestB1680TypedReadKeepsExistingSourcePolicyWithoutTriage(t *testing.T) {
 		before, _ := json.Marshal(ac.AnalysisIR)
 		sig := eval.Observe(ac, LoopObservation{Phase: PhaseMidLoop, Iteration: 3, AllToolResults: []types.ToolResult{read, read}, LastToolResult: &read})
 		if excluded {
-			// Existing sufficient-external-observation closure outranks the
-			// backlog hint. Do not suppress it to force textual identity.
+			// Existing external-observation guidance outranks the backlog
+			// hint, but addressable facts alone do not prove resolution.
 			if sig.HintKey != "explorer.mid-loop.external-observation-sufficient" ||
-				!strings.Contains(sig.Hint, "`emit_investigation_complete(reason, confidence, result_kind=\"resolved\")`") ||
+				!strings.Contains(sig.Hint, "`emit_investigation_complete`") ||
+				!strings.Contains(sig.Hint, "If they answer the question") || strings.Contains(sig.Hint, "Prefer closing") ||
 				!strings.Contains(sig.Hint, "`aggregate_facts`") || strings.Contains(sig.Hint, "emit_evidence") {
 				t.Fatalf("existing typed external closure must remain higher priority: %+v", sig)
 			}

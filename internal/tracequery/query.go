@@ -452,6 +452,11 @@ func Run(idx *Index, q Query) Result {
 		return cachedFrameTimeline
 	}
 	switch q.View {
+	case ViewTransactionHandoffs:
+		res.TransactionHandoffs = buildTransactionHandoffs(idx, q)
+		if faceCanceled(ViewTransactionHandoffs) {
+			break
+		}
 	case ViewPreferredFrameRate:
 		rates := buildPreferredFrameRate(idx, q)
 		if faceCanceled(ViewPreferredFrameRate) {

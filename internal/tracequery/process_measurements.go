@@ -52,6 +52,7 @@ func buildProcessMeasurements(idx *Index, q Query) *ProcessMeasurementsResult {
 	fail := func(reason string) *ProcessMeasurementsResult {
 		p.Rows = nil
 		p.TotalRows, p.OmittedRows, p.UnpositionedRows = 0, 0, 0
+		p.AvailableDerivedViews = nil
 		p.Caveats = append(p.Caveats, reason)
 		return p
 	}
@@ -105,6 +106,15 @@ func buildProcessMeasurements(idx *Index, q Query) *ProcessMeasurementsResult {
 			continue
 		}
 		p.TotalRows++
+		if view := ProcessMeasureProtocolView(r); view != "" {
+			found := false
+			for _, previous := range p.AvailableDerivedViews {
+				found = found || previous == view
+			}
+			if !found {
+				p.AvailableDerivedViews = append(p.AvailableDerivedViews, view)
+			}
+		}
 		if len(p.Rows) >= ViewCapacityFor(ViewProcessMeasurements).ClampLimit(q.Limit) {
 			p.OmittedRows++
 			continue

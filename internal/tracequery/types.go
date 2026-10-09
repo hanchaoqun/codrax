@@ -1256,6 +1256,7 @@ type Result struct {
 	CPUStateFrequency     *CPUStateFrequencyResult    `json:"cpu_state_frequency,omitempty"`
 	ProcessMeasurements   *ProcessMeasurementsResult  `json:"process_measurements,omitempty"`
 	PreferredFrameRate    *PreferredFrameRateResult   `json:"preferred_frame_rate,omitempty"`
+	TransactionHandoffs   *TransactionHandoffsResult  `json:"transaction_handoffs,omitempty"`
 	ResourceStack         *ResourceStackResult        `json:"resource_stack,omitempty"`
 	RenderingCandidates   *RenderingCandidatesResult  `json:"rendering_candidates,omitempty"`
 	WindowStats           *WindowStats                `json:"window_stats,omitempty"`

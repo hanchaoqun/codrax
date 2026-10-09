@@ -75,6 +75,7 @@ func (t *TraceQuery) streamCPUStateFrequency(ctx *types.BusContext, p traceQuery
 	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now,
 		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
+		TraceStatistics:        traceQueryStatisticsCandidate(result),
 		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q)}, true
 }
 

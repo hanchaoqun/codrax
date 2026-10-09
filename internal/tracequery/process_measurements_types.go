@@ -22,7 +22,10 @@ type ProcessMeasurementsResult struct {
 	TotalRows        int                       `json:"total_rows"`
 	OmittedRows      int                       `json:"omitted_rows"`
 	UnpositionedRows int                       `json:"unpositioned_rows"`
-	Caveats          []string                  `json:"caveats,omitempty"`
+	// Optional native interpretations found in the complete selected inventory,
+	// collected before row display limits. Raw rows retain their original units.
+	AvailableDerivedViews []string `json:"available_derived_views,omitempty"`
+	Caveats               []string `json:"caveats,omitempty"`
 }
 
 type ProcessMeasurementRow struct {

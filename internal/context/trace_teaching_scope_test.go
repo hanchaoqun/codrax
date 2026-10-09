@@ -26,7 +26,9 @@ func TestTraceTeachingScopeUsesTypedQuestionNotWindowOrProse(t *testing.T) {
 		{"overview", &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeSystemOverview}, false, true},
 		{"inventory", &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet, FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactOccurrenceTime, types.RuntimeQuestionFactCountOrDuration, types.RuntimeQuestionFactOtherObservedValue}}, false, false},
 		{"state", &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedFactSet, FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactTargetSchedulerState}}, false, true},
-		{"effect", &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedEffectVerdict, FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactFrequencyResidency}}, false, true},
+		{"effect_frequency", &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedEffectVerdict, FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactFrequencyResidency}}, false, false},
+		{"effect_state", &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedEffectVerdict, FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactTargetSchedulerState}}, false, true},
+		{"effect_frequency_state", &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedEffectVerdict, FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactFrequencyResidency, types.RuntimeQuestionFactTargetSchedulerState}}, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			start, end := 2.0, 2.25

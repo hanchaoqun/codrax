@@ -93,7 +93,7 @@ func buildPreferredFrameRate(idx *Index, q Query) *PreferredFrameRateResult {
 			return fail("duplicate_process_measure_row_identity")
 		}
 		seen[r.RowID] = true
-		if !r.NameKnown || r.Name != "H:PreferredFrameRate" || q.LineStart > 0 && ev.Line < q.LineStart || q.LineEnd > 0 && ev.Line > q.LineEnd || q.PID > 0 && (r.PID == nil || *r.PID != q.PID) {
+		if ProcessMeasureProtocolView(r) != ViewPreferredFrameRate || q.LineStart > 0 && ev.Line < q.LineStart || q.LineEnd > 0 && ev.Line > q.LineEnd || q.PID > 0 && (r.PID == nil || *r.PID != q.PID) {
 			continue
 		}
 		selection, left, right := processMeasurementSelection(r, start, end, false)

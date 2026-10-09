@@ -747,6 +747,7 @@ var traceNoteKeyGoldenRows = []string{
 	// (Wave-3.2 收尾): display→hard_consumer — the DISP-2 ◇ wording fork
 	// parses it in the projection compile; TraceNoteKeyTraceGapKind exported.
 	"trace_gap_kind|causal_rank|hard_consumer",
+	"transaction_handoffs|transaction_handoffs|soft_consumer",
 	"type|causal_rank|hard_consumer",
 	"unpaired_done|io|display_only",
 	"unpaired_start|io|display_only",

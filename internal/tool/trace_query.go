@@ -280,7 +280,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))))))
+	return traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -310,6 +310,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		traceQueryAnnotateSourceAdaptation(&out, sourceAdaptation)
 		if ctx != nil && ctx.Mutable != nil {
 			ctx.Mutable.StampTraceQueryWindowReplay(sourceRead, &out, windowReplayParams)
+			ctx.Mutable.StampTraceStatistics(sourceRead, &out, windowReplayParams)
 			ctx.Mutable.StampTraceQuerySourceRead(sourceRead, &out)
 			ctx.Mutable.StampTraceBusinessSpanRefs(&out)
 			traceQueryAppendBusinessRefs(&out)
@@ -392,7 +393,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			}, nil
 		}
 		switch view {
-		case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", tracequery.ViewRenderingCandidates, tracequery.ViewProcessMeasurements, tracequery.ViewPreferredFrameRate:
+		case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", tracequery.ViewRenderingCandidates, tracequery.ViewProcessMeasurements, tracequery.ViewPreferredFrameRate, tracequery.ViewTransactionHandoffs:
 		default:
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -538,6 +539,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// escape lanes (kill switch / no MutableState / supplement in flight /
 	// stat failure); those calls execute directly, exactly as before.
 	runPureTraceQueryCore := func() (types.ToolResult, error) {
+		if streamed, ok := t.streamTransactionHandoffs(ctx, p, path, sourceLabel, callCaveat, window); ok {
+			return streamed, nil
+		}
 		if streamed, ok := t.streamProcessMeasurements(ctx, p, path, sourceLabel, callCaveat, window); ok {
 			return streamed, nil
 		}
@@ -627,6 +631,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			Refinement:                  traceQueryRefinement(result, q, p, sourceLabel),
 			Observations:                observations,
 			TraceQuerySourceRead:        traceQuerySourceReadCandidate(result),
+			TraceStatistics:             traceQueryStatisticsCandidate(result),
 			TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(p, result),
 			TraceViewCancellation:       traceQueryToolViewCancellation(result),
 			TraceEvidenceAuthority:      traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
@@ -5210,6 +5215,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.ProcessMeasurements != nil {
 		b.WriteString(TraceProcessMeasurementsText(*result.ProcessMeasurements))
 	}
+	if result.TransactionHandoffs != nil {
+		b.WriteString(TraceTransactionHandoffsText(*result.TransactionHandoffs))
+	}
 	if result.PreferredFrameRate != nil {
 		b.WriteString(TracePreferredFrameRateText(*result.PreferredFrameRate))
 	}
@@ -9145,6 +9153,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQuerySchedulerWakeEventObservations(result.Events, ref, scope, at, result.EventSearchCoverage)...)
 	out = append(out, traceQueryProcessProfileObservations(result.ProcessProfile, ref, scope, at)...)
 	out = append(out, traceQueryProcessMeasurementsObservations(result.ProcessMeasurements, ref, scope, at)...)
+	out = append(out, traceQueryTransactionHandoffsObservations(result.TransactionHandoffs, ref, scope, at)...)
 	out = append(out, traceQueryPreferredFrameRateObservations(result.PreferredFrameRate, ref, scope, at)...)
 	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
 	out = append(out, traceQueryResourceStackObservations(result.ResourceStack, ref, scope, at)...)

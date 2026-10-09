@@ -8007,6 +8007,10 @@ type ToolResult struct {
 	// Current native effective parameters for bounded same-source window repair.
 	// Historical JSON never grants permission to repeat an old query.
 	TraceQueryWindowReplay TraceQueryWindowReplayRef `json:"-"`
+	// Native statistical availability, not answer completeness or source rights.
+	// Immutable private payload and run-local source ticket survive Go copies,
+	// but never JSON/model output, including historical tool-result snapshots.
+	TraceStatistics TraceStatisticsRef `json:"-"`
 	// Producer-only complete business instances and run-local navigation receipts.
 	TraceBusinessSpanCandidates []TraceBusinessSpanCandidate `json:"-"`
 	TraceBusinessSpanRefs       []TraceBusinessSpanRef       `json:"-"`

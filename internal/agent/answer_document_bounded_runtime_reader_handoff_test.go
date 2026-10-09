@@ -99,7 +99,7 @@ func TestBoundedRuntimeFinalReaderHandoffUsesNaturalLanguageWithoutWireEnums(t *
 	got := renderAnswerDocBoundedRuntimeFinalReaderHandoff(boundedRuntimeReaderHandoffTestContext())
 	for _, want := range []string{
 		"有限窗口查询的读者事实卡（结论由模型给出）",
-		"目标线程状态分布、次数或持续时间、CPU 频率驻留与策略上限",
+		"目标线程状态分布、次数或持续时间、已观测频率的持续时间与覆盖分布",
 		// EVOLUTION RECORD (V3-1, §40.20): the handoff prints the types-level
 		// account sentence (types.FormatTargetStateAccount).
 		"运行 157.248 毫秒，可运行但尚未获调度 5.604 毫秒，可中断睡眠 70.338 毫秒，不可中断等待 0.000 毫秒（其中调度器标记的 IO 等待 0.000 毫秒）",
