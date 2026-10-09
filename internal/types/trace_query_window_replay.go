@@ -8,6 +8,9 @@ import "encoding/json"
 type TraceQueryWindowReplayRef struct {
 	source TraceQuerySourceReadRef
 	params string
+	// Independent navigation does not grant physical reads or change the
+	// original replay contract (which may change only window endpoints).
+	nativeNavigation *traceIntervalNavigation
 }
 
 func (m *MutableState) StampTraceQueryWindowReplay(ref TraceQuerySourceReadRef, result *ToolResult, params json.RawMessage) {
@@ -35,7 +38,7 @@ func (m *MutableState) StampTraceQueryWindowReplay(ref TraceQuerySourceReadRef, 
 		args["path"], _ = json.Marshal(ref.path)
 		bound, err := json.Marshal(args)
 		if err == nil {
-			result.TraceQueryWindowReplay = TraceQueryWindowReplayRef{source: ref, params: string(bound)}
+			result.TraceQueryWindowReplay = TraceQueryWindowReplayRef{source: ref, params: string(bound), nativeNavigation: result.TraceQueryWindowReplay.nativeNavigation}
 		}
 	}
 }

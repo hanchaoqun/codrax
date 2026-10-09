@@ -5,7 +5,13 @@ package tracequery
 func capabilityViewDescriptors() []ViewCapability {
 	formats := []string{"trace_text", "perf_trace_text", "tracebundle", "native_trace", "native_perf", "gzip", "zip", "sqlite"}
 	row := func(name, summary string, objects, metrics, components []string, limitation string) ViewCapability {
-		return ViewCapability{name, summary, objects, append([]string(nil), formats...), metrics, components, []string{limitation}}
+		v := ViewCapability{View: name, Summary: summary, Objects: objects, InputFormats: append([]string(nil), formats...), MetricRefs: metrics, Components: components, Limitations: []string{limitation}}
+		for _, source := range NativeIntervalNavigations() {
+			if source.View == name {
+				v.NativeIntervalSources = append(v.NativeIntervalSources, source)
+			}
+		}
+		return v
 	}
 	windowMetrics := []string{"event_inventory", "scheduler_states", "cpu_occupancy", "scheduler_concurrency", "cpu_pressure", "cpu_frequency", "cpu_constraints", "compute_supply", "blocked_reasons", "sched_accounting", "io_request_latency", "io_inflight", "io_activity", "file_io", "page_cache", "io_pressure", "interrupt_activity", "workqueue", "dma_fence", "trace_spans", "business_tree", "track_spans", "trace_instants", "trace_counters", "counter_deltas", "runtime_resources", "plugin_inventory", "perf_samples", "state_churn", "vsync_inventory"}
 	return []ViewCapability{

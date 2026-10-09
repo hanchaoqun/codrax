@@ -1441,6 +1441,11 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		}
 	}
 	if len(views) == 0 {
+		if businessFocus == nil {
+			if recovered, handled := runTraceIntervalSupplement(execCtx, path, sourceLabel, input, out, censusLiteWanted); handled {
+				return recovered
+			}
+		}
 		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, types.TraceSupplementReasonFamiliesPresent, &out, businessFocus) {
 			return out
 		}

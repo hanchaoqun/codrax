@@ -44,6 +44,24 @@ func (p *traceEventSemanticProjector) processMeasurement(r tracewire.ProcessMeas
 	p.known("source.table", "process_measure")
 	p.known("source.row_id", strconv.FormatInt(r.RowID, 10))
 	p.known("source.subject_role", "process_measurement_not_thread_execution")
+	p.known("source.filter_table", "process_measure_filter")
+	p.known("source.filter_storage_class", r.FilterID.StorageClass)
+	filterEncoding := ""
+	if r.FilterID.StorageClass == "blob" {
+		filterEncoding = "base64"
+	}
+	p.known("source.filter_encoding", filterEncoding)
+	if r.FilterID.StorageClass == "null" || r.FilterID.StorageClass == "absent" {
+		p.unknown("source.filter_id", "unavailable", r.FilterID.Status)
+	} else {
+		p.known("source.filter_id", r.FilterID.Value)
+	}
+	p.known("plugin.value_storage_class", r.Value.StorageClass)
+	encoding := ""
+	if r.Value.StorageClass == "blob" {
+		encoding = "base64"
+	}
+	p.known("plugin.value_encoding", encoding)
 	if r.NameKnown {
 		p.known("plugin.metric", r.Name)
 	} else {

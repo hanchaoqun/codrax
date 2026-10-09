@@ -19,13 +19,14 @@ type CapabilityCatalog struct {
 }
 
 type ViewCapability struct {
-	View         string   `json:"view"`
-	Summary      string   `json:"summary"`
-	Objects      []string `json:"objects"`
-	InputFormats []string `json:"input_formats"`
-	MetricRefs   []string `json:"metric_refs"`
-	Components   []string `json:"components,omitempty"`
-	Limitations  []string `json:"limitations"`
+	View                  string                     `json:"view"`
+	Summary               string                     `json:"summary"`
+	Objects               []string                   `json:"objects"`
+	InputFormats          []string                   `json:"input_formats"`
+	MetricRefs            []string                   `json:"metric_refs"`
+	Components            []string                   `json:"components,omitempty"`
+	Limitations           []string                   `json:"limitations"`
+	NativeIntervalSources []NativeIntervalNavigation `json:"native_interval_sources,omitempty"`
 }
 
 type MetricCapability struct {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 // A prepared preview is not a replacement trace file. Keep the full material
@@ -34,16 +35,17 @@ func formatPreparedTrace(raw string, state attachedRuntimeTriageState, degradedS
 		preamble += "This stage has no trace query or raw-file reader. Record only visible observations and leave unobserved regions for subsequent evidence collection.\n"
 	}
 	if len(raw) <= attachedLogInlineCap {
-		return preamble + "\n```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```" + renderAttachedTraceSemantics(tracePreviewPart{raw, 1, !opts.Material.SelfContainedText()})
+		return preamble + "\n```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```" + renderAttachedTraceSemanticsWithNavigation(info.nativeNavigationFamilies, tracePreviewPart{raw, 1, !opts.Material.SelfContainedText()})
 	}
-	return preamble + "\n" + renderAttachedTracePreviewBlock(buildAttachedArtifactPreview(raw), "", !opts.Material.SelfContainedText())
+	return preamble + "\n" + renderAttachedTracePreviewBlockWithNavigation(buildAttachedArtifactPreview(raw), "", !opts.Material.SelfContainedText(), info.nativeNavigationFamilies)
 }
 
 // Reuse existing bounded capability disclosure from the complete, held bundle
 // metadata, never from the clipped text preview or a guessed filename class.
 type preparedTracePromptInfo struct {
-	text       string
-	sampleOnly bool
+	text                     string
+	sampleOnly               bool
+	nativeNavigationFamilies map[tracequery.EventType]bool
 }
 
 func preparedTraceBundlePromptInfo(path string) preparedTracePromptInfo {
@@ -65,6 +67,8 @@ func preparedTraceBundlePromptInfo(path string) preparedTracePromptInfo {
 	b.WriteString("The complete query material is a tracebundle, not just the visible text preview. Manifest counters are disclosures until trace_query reconciles each artifact with its receipt; absence from the preview does not show absence from the bundle.\n")
 	b.WriteString(strings.Join(attachedTraceBundleManifestPartsFromMetadata(path, metadata), " "))
 	b.WriteString("\n")
+	navigation, families := attachedTraceNativeNavigationContent(metadata)
+	b.WriteString(navigation)
 	groups := []hitraceconv.PerfCaptureArtifactGroup{{Scope: path, Artifacts: metadata.Artifacts}}
 	for _, disclosure := range hitraceconv.PerfCaptureDisclosuresForGroups(groups) {
 		if boundary := hitraceconv.FormatPerfCapturePromptBoundary("en", disclosure); boundary != "" {
@@ -85,6 +89,6 @@ func preparedTraceBundlePromptInfo(path string) preparedTracePromptInfo {
 		}
 	}
 	return preparedTracePromptInfo{
-		text: b.String(), sampleOnly: !hasTrace && hitraceconv.QueryReadyPerfTracePath(metadata.Artifacts) != "",
+		text: b.String(), sampleOnly: !hasTrace && hitraceconv.QueryReadyPerfTracePath(metadata.Artifacts) != "", nativeNavigationFamilies: families,
 	}
 }

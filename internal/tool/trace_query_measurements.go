@@ -67,7 +67,7 @@ func (t *TraceQuery) streamMeasurements(ctx *types.BusContext, p traceQueryParam
 		rawRef = payloadRef
 	}
 	now := time.Now()
-	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now, Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q), TraceQuerySourceRead: traceQuerySourceReadCandidate(result), TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q)}, true
+	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now, Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q), TraceQuerySourceRead: traceQuerySourceReadCandidate(result), TraceQueryWindowReplay: traceQueryIntervalNavigationCandidate(result), TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q)}, true
 }
 
 func traceQueryMeasurementsObservations(p *tracequery.MeasurementsResult, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {

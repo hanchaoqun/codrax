@@ -59,6 +59,13 @@ var traceEventSemanticDescriptors = []TraceEventSemanticDescriptor{
 	{"plugin.event_label", "plugin", "text", "", "解析事件标签（原字段是否存在未确定）"},
 	{"plugin.metric", "plugin", "text", "", "指标键"},
 	{"plugin.value", "plugin", "text", "", "指标原始值（单位未推定）"},
+	{"plugin.value_storage_class", "plugin", "text", "", "指标原始值的SQLite存储类型"},
+	{"plugin.value_encoding", "plugin", "text", "", "指标原始值的字节编码（空表示原文）"},
+	{"plugin.category_storage_class", "plugin", "text", "", "源分类字段的SQLite存储类型"},
+	{"plugin.category_encoding", "plugin", "text", "", "源分类字段的字节编码（空表示原文）"},
+	{"plugin.filter_type", "plugin", "text", "", "量测引用表的原始类型字段"},
+	{"plugin.filter_type_storage_class", "plugin", "text", "", "量测引用表类型字段的SQLite存储类型"},
+	{"plugin.filter_type_encoding", "plugin", "text", "", "量测引用表类型字段的字节编码（空表示原文）"},
 	{"plugin.category", "plugin", "text", "", "业务分类"},
 	{"plugin.contents", "plugin", "text", "", "解析后的业务事件内容"},
 	{"plugin.domain_ref", "plugin", "int64", "", "业务域原始字典引用"},
@@ -70,6 +77,14 @@ var traceEventSemanticDescriptors = []TraceEventSemanticDescriptor{
 	{"marker.label_origin", "marker", "text", "", "标记标签的产生方式"},
 	{"source.table", "source", "text", "", "源数据表（非业务域）"},
 	{"source.row_id", "source", "int64", "", "源表物理记录编号（仅在同一源文件代次与表内定位，不是业务实例或因果关系）"},
+	{"source.filter_id", "source", "text", "", "量测的原始filter引用值（须结合存储类型，不是资源身份）"},
+	{"source.filter_storage_class", "source", "text", "", "量测filter引用的SQLite存储类型"},
+	{"source.filter_encoding", "source", "text", "", "量测filter引用的字节编码（空表示原文）"},
+	{"source.filter_table", "source", "text", "", "量测引用的源注册表（同名跨表不合并）"},
+	{"source.filter_status", "source", "text", "", "源注册表引用匹配状态（不证明资源身份）"},
+	{"source.arg_set_id", "source", "text", "", "source_arg_set_id原始引用（含义与资源对应未验证）"},
+	{"source.arg_set_storage_class", "source", "text", "", "source_arg_set_id的SQLite存储类型"},
+	{"source.arg_set_encoding", "source", "text", "", "source_arg_set_id的字节编码（空表示原文）"},
 	{"source.owner_ipid", "source", "int64", "", "源表进程引用（不是系统PID，不证明进程生命周期）"},
 	{"source.owner_pid", "source", "int64", "", "源表所属进程PID（不是发射线程，不证明生命周期）"},
 	{"source.subject_role", "source", "text", "", "源记录主体角色（进程所属区间不代表线程执行）"},
@@ -158,6 +173,14 @@ func ValidateTraceEventSemantics(value *TraceEventSemantics) bool {
 
 func traceEventSemanticFieldValueValid(key, value string) bool {
 	switch key {
+	case "plugin.value_storage_class", "plugin.category_storage_class", "plugin.filter_type_storage_class", "source.filter_storage_class", "source.arg_set_storage_class":
+		return value == "absent" || value == "null" || value == "text" || value == "blob" || value == "integer" || value == "real"
+	case "plugin.value_encoding", "plugin.category_encoding", "plugin.filter_type_encoding", "source.filter_encoding", "source.arg_set_encoding":
+		return value == "" || value == "base64"
+	case "source.filter_status":
+		return value == "observed_unique" || value == "ambiguous" || value == "unknown"
+	case "source.filter_table":
+		return value == "measure_filter" || value == "process_measure_filter"
 	case "marker.action":
 		return len(value) == 1 && strings.Contains("BESFGHNIC", value) || value == "source_begin" || value == "source_end"
 	case "source.subject_role":
@@ -198,8 +221,14 @@ func traceEventSemanticsMatchEventType(value *TraceEventSemantics, eventType str
 					return false
 				}
 			case "source.row_id", "source.start_ns", "source.duration_ns", "source.end_ns", "plugin.metric", "plugin.category", "plugin.value":
+			case "source.filter_table":
+				if field.Value == nil || *field.Value != "measure_filter" {
+					return false
+				}
 			default:
-				return false
+				if !measurementSemanticRawField(field.Key) {
+					return false
+				}
 			}
 		}
 		return true
@@ -212,6 +241,11 @@ func traceEventSemanticsMatchEventType(value *TraceEventSemantics, eventType str
 					return false
 				}
 			case "source.row_id", "source.start_ns", "source.duration_ns", "source.end_ns", "source.owner_ipid", "source.owner_pid", "plugin.metric", "plugin.category", "plugin.value", "counter.raw_value":
+			case "source.filter_id", "source.filter_storage_class", "source.filter_encoding", "plugin.value_storage_class", "plugin.value_encoding":
+			case "source.filter_table":
+				if field.Value == nil || *field.Value != "process_measure_filter" {
+					return false
+				}
 			default:
 				return false
 			}
@@ -221,6 +255,9 @@ func traceEventSemanticsMatchEventType(value *TraceEventSemantics, eventType str
 	plugin := eventType == "hi_sysevent" || eventType == "ability_monitor" || eventType == "xpower"
 	marker := eventType == "trace_mark"
 	for _, field := range value.Fields {
+		if measurementSemanticRawField(field.Key) || field.Key == "source.filter_table" {
+			return false
+		}
 		if field.Value != nil && (processMeasurementSemanticDiscriminator(field.Key, *field.Value) || genericMeasurementSemanticDiscriminator(field.Key, *field.Value)) {
 			return false
 		}
@@ -230,6 +267,14 @@ func traceEventSemanticsMatchEventType(value *TraceEventSemantics, eventType str
 		}
 	}
 	return true
+}
+
+func measurementSemanticRawField(key string) bool {
+	switch key {
+	case "source.filter_id", "source.filter_storage_class", "source.filter_encoding", "source.filter_status", "source.arg_set_id", "source.arg_set_storage_class", "source.arg_set_encoding", "plugin.value_storage_class", "plugin.value_encoding", "plugin.filter_type", "plugin.filter_type_storage_class", "plugin.filter_type_encoding", "plugin.category_storage_class", "plugin.category_encoding":
+		return true
+	}
+	return false
 }
 
 func genericMeasurementSemanticDiscriminator(key, value string) bool {

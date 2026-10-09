@@ -845,7 +845,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			})
 		}
 	}
-	if section := strings.TrimSpace(formatRuntimeArtifactSelection(ac)+"\n"+formatTraceCatalogs(ac)); section != "" {
+	if section := strings.TrimSpace(formatRuntimeArtifactSelection(ac) + "\n" + formatTraceCatalogs(ac)); section != "" {
 		section = sanitiseSectionForLLM(section, ac)
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionRuntimeArtifactChoice,
@@ -3750,9 +3750,11 @@ func attachedTraceCapabilityPreamble() string {
 }
 
 type attachedTraceBundleMetadata struct {
-	Systrace       string                 `json:"systrace"`
-	Artifacts      []hitraceconv.Artifact `json:"artifacts"`
-	TraceDecisions []struct {
+	Systrace        string                            `json:"systrace"`
+	Artifacts       []hitraceconv.Artifact            `json:"artifacts"`
+	TraceDBCoverage []attachedTraceCoverageNavigation `json:"trace_db_coverage"`
+	TraceCoverage   []attachedTraceCoverageNavigation `json:"trace_coverage"`
+	TraceDecisions  []struct {
 		ProviderName    string `json:"provider_name"`
 		ProviderKind    string `json:"provider_kind"`
 		TraceQueryReady bool   `json:"trace_query_ready"`

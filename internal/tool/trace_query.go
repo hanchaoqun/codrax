@@ -292,6 +292,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	var recordBusinessQuery func()
 	var catalogTickets []traceCatalogQueryTicket
 	var windowReplayParams json.RawMessage
+	var intervalNavigationParams json.RawMessage
 	defer func() {
 		if preparedMaterial != nil {
 			if err := traceQueryValidateReadyMaterial(ctx, preparedMaterial); err != nil {
@@ -310,6 +311,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		traceQueryAnnotateSourceAdaptation(&out, sourceAdaptation)
 		if ctx != nil && ctx.Mutable != nil {
 			ctx.Mutable.StampTraceQueryWindowReplay(sourceRead, &out, windowReplayParams)
+			ctx.Mutable.StampTraceIntervalNavigation(contextFromBus(ctx), sourceRead, &out, intervalNavigationParams, preparedMaterial)
 			ctx.Mutable.StampTraceStatistics(sourceRead, &out, windowReplayParams)
 			ctx.Mutable.StampTraceQuerySourceRead(sourceRead, &out)
 			ctx.Mutable.StampTraceBusinessSpanRefs(&out)
@@ -488,6 +490,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	}
 	window := normalizedTraceQueryWindow(p)
 	windowReplayParams = traceQueryWindowReplayParams(p, path, sourceLabel, params)
+	intervalNavigationParams = traceQueryIntervalNavigationParams(p, windowReplayParams, params)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
 	// typed window on the run-scoped registry so the post-explore
 	// deterministic supplement can derive its query window from model-call
@@ -637,6 +640,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			Refinement:                  traceQueryRefinement(result, q, p, sourceLabel),
 			Observations:                observations,
 			TraceQuerySourceRead:        traceQuerySourceReadCandidate(result),
+			TraceQueryWindowReplay:      traceQueryIntervalNavigationCandidate(result),
 			TraceStatistics:             traceQueryStatisticsCandidate(result),
 			TraceBusinessSpanCandidates: traceQueryBusinessSpanCandidates(p, result),
 			TraceViewCancellation:       traceQueryToolViewCancellation(result),
@@ -2348,6 +2352,7 @@ func (t *TraceQuery) maybeStreamEventSearch(ctx *types.BusContext, p traceQueryP
 		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
 		Observations:           observations,
 		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
+		TraceQueryWindowReplay: traceQueryIntervalNavigationCandidate(result),
 		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
 		Timestamp:              now,
@@ -4783,6 +4788,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%s..%s seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), traceQueryDisplaySeconds(result.TimeStart), traceQueryDisplaySeconds(result.TimeEnd))
 	writeTraceMarkerQueryNavigation(&b, result)
+	writeTraceNativeIntervalNavigation(&b, result)
 	writeTraceEventFilterAndIONavigation(&b, result, p, sourceLabel)
 	if coverage := result.EventSearchCoverage; coverage != nil {
 		observedTime := "unknown"

@@ -111,6 +111,7 @@ func (t *TraceQuery) streamProcessMeasurements(ctx *types.BusContext, p traceQue
 	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef, Timestamp: now,
 		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now, q),
 		TraceQuerySourceRead:   traceQuerySourceReadCandidate(result),
+		TraceQueryWindowReplay: traceQueryIntervalNavigationCandidate(result),
 		TraceStatistics:        traceQueryStatisticsCandidate(result),
 		TraceEvidenceAuthority: traceQueryEvidenceAuthorityWithSource(result, sourceLabel, payloadRef, rawRef, "", now, q)}, true
 }
