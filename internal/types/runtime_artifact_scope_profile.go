@@ -53,8 +53,10 @@ type RuntimeArtifactScopeProfile struct {
 }
 
 // RuntimeArtifactTimeWindow is one ordered, request-owned member. Its quote is
-// validated against the current request by emit_analysis, never parsed for
-// coordinates. A member is not a capture, target, or measurement receipt.
+// validated against the current request by emit_analysis; literal intervals
+// are bound to their coordinates at that producer boundary. Downstream gates
+// consume only the typed coordinates. A member is not a capture, target, or
+// measurement receipt.
 type RuntimeArtifactTimeWindow struct {
 	TimeStart   *float64 `json:"time_start,omitempty"`
 	TimeEnd     *float64 `json:"time_end,omitempty"`

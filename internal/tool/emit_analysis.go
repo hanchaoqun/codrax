@@ -5071,21 +5071,31 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 		if len(p.TimeWindows) == 0 {
 			return nil, "runtime_artifact_scope_profile.time_windows must contain every requested member; an empty list is not an explicit window", nil
 		}
+		members := make([]types.RuntimeArtifactTimeWindow, 0, len(p.TimeWindows))
+		var warnings []string
 		for i, member := range p.TimeWindows {
 			if !member.Valid() || !sourceQuotePresentInCurrentRequest(raw, member.SourceQuote) {
-				return nil, fmt.Sprintf("runtime_artifact_scope_profile.time_windows[%d] needs finite time_start>=0, time_end>time_start, and a verbatim current-request source_quote; correct the whole member list rather than dropping this member", i), nil
+				return nil, fmt.Sprintf("runtime_artifact_scope_profile.time_windows[%d] needs finite time_start>=0, time_end>time_start, and a verbatim current-request source_quote; correct the whole member list rather than dropping this member; %s", i, runtimeWindowSourceRepair), nil
+			}
+			bound, warning, err := bindRuntimeWindowSource(member)
+			if err != nil {
+				return nil, fmt.Sprintf("runtime_artifact_scope_profile.time_windows[%d]: %s", i, err), nil
+			}
+			members = append(members, bound)
+			if warning != "" {
+				warnings = append(warnings, fmt.Sprintf("time_windows[%d]: %s", i, warning))
 			}
 		}
 		profile := types.CloneRuntimeArtifactScopeProfile(&types.RuntimeArtifactScopeProfile{
 			RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
-			TimeWindows:    p.TimeWindows,
+			TimeWindows:    members,
 			Confidence:     *p.Confidence,
 			Rationale:      strings.TrimSpace(p.Rationale),
 		})
 		if sourceQuotePresentInCurrentRequest(raw, p.SourceQuote) {
 			profile.SourceQuote = strings.TrimSpace(p.SourceQuote)
 		}
-		return profile, "", nil
+		return profile, "", warnings
 	}
 	profile := &types.RuntimeArtifactScopeProfile{
 		RequestedScope: scope,
@@ -5112,12 +5122,15 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 		}
 	case types.RuntimeArtifactScopeExplicitWindow:
 		if !anchored || !typedWindowValid {
-			profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
-			profile.TimeStart = nil
-			profile.TimeEnd = nil
-			warnings = append(warnings, "runtime_artifact_scope_profile auto-softened to unspecified because explicit_time_window lacks an anchored quote or valid time_start/time_end")
-		} else {
-			profile.SourceQuote = quote
+			return nil, "runtime_artifact_scope_profile explicit_time_window needs an anchored quote and finite time_start>=0, time_end>time_start; " + runtimeWindowSourceRepair, nil
+		}
+		bound, warning, err := bindRuntimeWindowSource(types.RuntimeArtifactTimeWindow{TimeStart: p.TimeStart, TimeEnd: p.TimeEnd, SourceQuote: quote})
+		if err != nil {
+			return nil, "runtime_artifact_scope_profile: " + err.Error(), nil
+		}
+		profile.SourceQuote, profile.TimeStart, profile.TimeEnd = quote, bound.TimeStart, bound.TimeEnd
+		if warning != "" {
+			warnings = append(warnings, warning)
 		}
 	case types.RuntimeArtifactScopeNotApplicable:
 		profile.RequestedScope = types.RuntimeArtifactScopeUnspecified
