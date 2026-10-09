@@ -39,12 +39,12 @@ func traceQueryProcessMeasurementsSchema(schema json.RawMessage) json.RawMessage
 }
 
 func traceQueryProcessMeasurementsInput(p traceQueryParams) (traceQueryParams, *types.ToolResult) {
-	if tracequery.CanonicalViewName(p.View) != tracequery.ViewProcessMeasurements {
+	if tracequery.CanonicalViewName(p.View) != tracequery.ViewProcessMeasurements && tracequery.CanonicalViewName(p.View) != tracequery.ViewPreferredFrameRate {
 		return p, nil
 	}
 	scope := strings.ToLower(strings.TrimSpace(p.TargetScope))
 	if strings.TrimSpace(p.Thread) != "" || scope != "" && scope != tracequery.TargetScopeProcess {
-		hint := "process_measurements describes process-owned observations. Omit thread; use an optional process pid. Query thread_timeline separately for thread execution."
+		hint := p.View + " describes process-owned observations. Omit thread; use an optional process pid. Query thread_timeline separately for thread execution."
 		return p, &types.ToolResult{ToolName: "trace_query", Summary: hint, Timestamp: time.Now(), Repair: &types.ToolRepair{Code: "trace_query_process_owned_view", Fields: []string{"thread", "target_scope"}, Hint: hint}}
 	}
 	p.TargetScope = tracequery.TargetScopeProcess
@@ -86,7 +86,7 @@ func traceQueryProcessMeasurementTarget(ctx *types.BusContext, p traceQueryParam
 }
 
 func (t *TraceQuery) streamProcessMeasurements(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, callCaveat string, window traceQueryNormalizedWindow) (types.ToolResult, bool) {
-	if tracequery.CanonicalViewName(p.View) != tracequery.ViewProcessMeasurements || tracequery.TracePathRequiresCompositeIndex(path) {
+	if (tracequery.CanonicalViewName(p.View) != tracequery.ViewProcessMeasurements && tracequery.CanonicalViewName(p.View) != tracequery.ViewPreferredFrameRate) || tracequery.TracePathRequiresCompositeIndex(path) {
 		return types.ToolResult{}, false
 	}
 	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, window.RequestedStart, window.RequestedEnd)

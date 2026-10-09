@@ -195,6 +195,16 @@ func LoadBlobText(ref string, maxBytes int) (string, bool) {
 // preview. It reuses the same WorkDir/session directory and filename sanitizing
 // policy as StoreBlob, but always writes when WorkDir is available.
 func StoreBlobArtifact(workDir, toolName, nameHint, output string) string {
+	return storeBlobArtifact(workDir, toolName, nameHint, output, false)
+}
+
+// Attached capture materialization needs a stable file version across queries.
+// Other artifact writers retain their established overwrite policy.
+func storeStableTraceBlob(workDir, nameHint, output string) string {
+	return storeBlobArtifact(workDir, "trace_query", nameHint, output, true)
+}
+
+func storeBlobArtifact(workDir, toolName, nameHint, output string, reuseIdentical bool) string {
 	if strings.TrimSpace(output) == "" || strings.TrimSpace(workDir) == "" {
 		return ""
 	}
@@ -212,10 +222,36 @@ func StoreBlobArtifact(workDir, toolName, nameHint, output string) string {
 		stem = sanitizeToolName(firstNonEmptyBlobName(toolName, "artifact"))
 	}
 	path := filepath.Join(workDir, fmt.Sprintf("%s-%s%s", stem, hex.EncodeToString(sum[:4]), ext))
+	if reuseIdentical && blobArtifactMatches(path, output) {
+		return path
+	}
 	if err := os.WriteFile(path, []byte(output), 0o644); err != nil {
 		return ""
 	}
 	return path
+}
+
+func blobArtifactMatches(path, output string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(output)) {
+		return false
+	}
+	var buf [32 << 10]byte
+	for offset := 0; offset < len(output); {
+		size := min(len(buf), len(output)-offset)
+		n, err := io.ReadFull(f, buf[:size])
+		if err != nil || n != size || string(buf[:n]) != output[offset:offset+n] {
+			return false
+		}
+		offset += n
+	}
+	n, err := f.Read(buf[:1])
+	return n == 0 && err == io.EOF
 }
 
 // StoreBlobArtifactFromFile writes an auxiliary blob from an already-spooled

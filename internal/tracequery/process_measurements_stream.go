@@ -12,8 +12,13 @@ func StreamProcessMeasurements(ctx context.Context, path string, q Query) (Resul
 	return streamProcessMeasurements(ctx, path, q, 65536, 32<<20)
 }
 
+func StreamPreferredFrameRate(ctx context.Context, path string, q Query) (Result, error) {
+	q.View = ViewPreferredFrameRate
+	return streamProcessMeasurements(ctx, path, q, 65536, 32<<20)
+}
+
 func streamProcessMeasurements(ctx context.Context, path string, q Query, recordLimit, byteLimit int) (Result, error) {
-	if CanonicalViewName(q.View) != ViewProcessMeasurements {
+	if CanonicalViewName(q.View) != ViewProcessMeasurements && CanonicalViewName(q.View) != ViewPreferredFrameRate {
 		return Result{}, fmt.Errorf("process measurement stream requires view=%s", ViewProcessMeasurements)
 	}
 	if ctx == nil {
@@ -56,6 +61,22 @@ func streamProcessMeasurements(ctx context.Context, path string, q Query, record
 		idx.Caveats = append(idx.Caveats, traceBundleCaveats(selection.bundle)...)
 	}
 	q = normalizeQuery(idx, q).WithRunContext(ctx)
+	if q.View == ViewPreferredFrameRate {
+		p := buildPreferredFrameRate(idx, q)
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
+		}
+		if overflow {
+			p = &PreferredFrameRateResult{Status: "unavailable", SourcePath: idx.Path, Window: ProcessMeasurementsWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}, TargetScope: q.TargetScope, TargetPID: q.PID, Caveats: []string{PreferredFrameRateTeaching, "complete_scan_retention_limit: no partial frequency population published"}}
+		}
+		if err := errors.Join(selection.validateIndex(idx), selection.validate(ctx)); err != nil {
+			return Result{}, err
+		}
+		if err := selection.close(); err != nil {
+			return Result{}, err
+		}
+		return Result{View: q.View, SourcePath: idx.Path, TimeUnit: "seconds", TimeStart: q.TimeStart, TimeEnd: q.TimeEnd, LineCount: idx.LineCount, ScannedLineCount: idx.ScannedLineCount, UnparsedLineCount: idx.UnparsedLines, EventCount: idx.ParsedKnown, ParseLinePanics: idx.ParseLinePanics, ClockRegressions: idx.ClockRegressions, TraceArtifacts: idx.TraceArtifacts, PreferredFrameRate: p, Caveats: append(idx.Caveats, p.Caveats...)}, nil
+	}
 	p := buildProcessMeasurements(idx, q)
 	if err := ctx.Err(); err != nil {
 		return Result{}, err

@@ -79,6 +79,8 @@ const (
 	// TraceSupplementReasonDurationBudgetExceeded so the disclosure never
 	// blames a budget that did not fire.
 	TraceSupplementReasonCanceledByCaller = "canceled_by_caller"
+	// The bounded replay lane has exhausted its shared engine-call count.
+	TraceSupplementReasonQueryBudgetExceeded = "query_budget_exceeded"
 )
 
 // traceSupplementReasonRegistry is the closed-set membership table. Keep in
@@ -97,6 +99,7 @@ var traceSupplementReasonRegistry = []string{
 	TraceSupplementReasonNoAttachedTrace,
 	TraceSupplementReasonWindowedCensusAbsent,
 	TraceSupplementReasonCanceledByCaller,
+	TraceSupplementReasonQueryBudgetExceeded,
 }
 
 // TraceSupplementReasons returns the registered closed set in registration

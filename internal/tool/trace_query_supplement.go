@@ -1407,6 +1407,11 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		return skip(types.TraceSupplementReasonWindowInconsistent)
 	}
 	if members := requestedArtifactScope.ExplicitTimeWindows(); len(members) > 1 {
+		if businessFocus == nil && !targetOK {
+			if replay, handled := runPrimaryWindowSupplement(execCtx, path, sourceLabel, input, out, false); handled {
+				return replay
+			}
+		}
 		return runTraceSupplementMembers(execCtx, path, sourceLabel, input, preLedger, members, target, targetSource, targetOK, out)
 	}
 	families := traceSupplementFamiliesForRequestedScope(preLedger, requestedArtifactScope, target, targetOK)
@@ -1430,6 +1435,11 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	// census keeps every lane byte-identical.
 	censusLiteWanted := traceSupplementVsyncFamilyHit(ctx) &&
 		!traceSupplementObservationsCarryVsyncCensus(sourceLedger.Records)
+	if businessFocus == nil && (!targetOK || len(views) == 0) {
+		if replay, handled := runPrimaryWindowSupplement(execCtx, path, sourceLabel, input, out, censusLiteWanted); handled {
+			return replay
+		}
+	}
 	if len(views) == 0 {
 		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, types.TraceSupplementReasonFamiliesPresent, &out, businessFocus) {
 			return out

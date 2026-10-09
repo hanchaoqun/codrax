@@ -1,0 +1,7 @@
+ID="trace_preferred_frame_rate"
+NAME="Preferred frame-rate observations and coverage"
+QUESTION="请看附件里1到2秒的期望帧率：各进程有哪些变化，各种帧率持续多久、占比多少？这段数据能否说明屏幕实际刷新情况？"
+HTRACE_FILE="eval/fixtures/hmosperf_preferred_frame_rate/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

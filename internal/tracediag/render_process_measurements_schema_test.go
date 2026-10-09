@@ -15,6 +15,7 @@ import (
 // witnesses still pin every prior field, type, declaration order and JSON tag.
 func resultSchemaBeforeProcessMeasurements(t *testing.T, schema string) string {
 	t.Helper()
+	schema = resultSchemaBeforePreferredFrameRate(t, schema)
 	const added = "ProcessMeasurements|*tracequery.ProcessMeasurementsResult|process_measurements,omitempty"
 	var previous []string
 	count := 0

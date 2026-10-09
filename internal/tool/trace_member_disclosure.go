@@ -35,6 +35,12 @@ func runtimeTraceSupplementMemberDisclosure(meta *types.SystemTraceSupplementMet
 		if text == "" {
 			var reason string
 			switch member.SkipReason {
+			case types.TraceSupplementReasonQueryBudgetExceeded:
+				if zh {
+					reason = "本次补采查询次数已用尽，该窗仍有查询未完成"
+				} else {
+					reason = "the supplementary query-count budget was exhausted; queries remain incomplete for this window"
+				}
 			case types.TraceSupplementReasonDurationBudgetExceeded:
 				if zh {
 					reason = "全部时间窗共用的补采时限已用尽，未启动该窗剩余查询"
@@ -79,6 +85,12 @@ func runtimeTraceSupplementMemberDisclosure(meta *types.SystemTraceSupplementMet
 			text = strings.TrimSpace(strings.TrimPrefix(text, prefix))
 			if len(member.Views) > 0 && len(member.SkippedViews) > 0 {
 				switch member.SkipReason {
+				case types.TraceSupplementReasonQueryBudgetExceeded:
+					if zh {
+						text += "；查询次数已用尽，另有查询未完成，不能据此认定该窗证据齐全"
+					} else {
+						text += "; the query-count budget was exhausted; other queries remain incomplete, so this does not establish complete window coverage"
+					}
 				case types.TraceSupplementReasonExecutionFailed:
 					if zh {
 						text += "；另有补采查询失败，仅保留上述已完成结果"

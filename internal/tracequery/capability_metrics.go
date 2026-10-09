@@ -15,6 +15,10 @@ func capabilityMetricDescriptors() []MetricCapability {
 		return MetricCapability{ID: id, Summary: summary, Outputs: outputs, Requirements: requirements, Limitations: []string{limit}}
 	}
 	metrics := []MetricCapability{
+		m("preferred_frame_rate", "PreferredFrameRate protocol observations; no actual display or voting-cause authority.", []CapabilityOutput{
+			o("preferred_frame_rate.series", "known_duration_ns conflict_duration_ns unknown_value_duration_ns unobserved_duration_ns", "ns", "disjoint wall-clock coverage per source/process/filter in the complete requested window"),
+			o("preferred_frame_rate.series.distribution", "rate_hz duration_ns window_percent", "Hz/ns/percent", "equal-rate union; disagreement and unknown intervals do not enter known distribution"),
+		}, r("process_measure_interval", nil, "", "Exact H:PreferredFrameRate source protocol; unique process/filter, complete frozen single source and explicit window."), PreferredFrameRateTeaching),
 		m("process_measurements", "Exact process-owned source values and explicit interval observations.", []CapabilityOutput{
 			o("process_measurements", "total_rows omitted_rows unpositioned_rows", "count", "matched records, display omissions and separately unpositioned records; not complete capture coverage"),
 			o("process_measurements.rows", "clipped_start_ns clipped_end_ns", "ns", "intersection with the selected window; missing duration has no known end"),

@@ -29,6 +29,7 @@ func TestTraceSupplementReasonRegistryGolden(t *testing.T) {
 		"no_attached_trace",
 		"windowed_census_absent",
 		"canceled_by_caller",
+		"query_budget_exceeded",
 	}
 	got := TraceSupplementReasons()
 	if strings.Join(got, "\n") != strings.Join(golden, "\n") {

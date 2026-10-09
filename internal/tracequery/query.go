@@ -452,6 +452,13 @@ func Run(idx *Index, q Query) Result {
 		return cachedFrameTimeline
 	}
 	switch q.View {
+	case ViewPreferredFrameRate:
+		rates := buildPreferredFrameRate(idx, q)
+		if faceCanceled(ViewPreferredFrameRate) {
+			break
+		}
+		res.PreferredFrameRate = rates
+		res.Caveats = append(res.Caveats, rates.Caveats...)
 	case ViewProcessMeasurements:
 		measurements := buildProcessMeasurements(idx, q)
 		if faceCanceled(ViewProcessMeasurements) {
@@ -1408,7 +1415,7 @@ func resolveTraceFlavor(idx *Index, q Query) (TraceFlavor, float64, []string, []
 
 func normalizeQuery(idx *Index, q Query) Query {
 	q.View = CanonicalViewName(q.View)
-	if q.View == ViewProcessMeasurements && strings.TrimSpace(q.TargetScope) == "" {
+	if (q.View == ViewProcessMeasurements || q.View == ViewPreferredFrameRate) && strings.TrimSpace(q.TargetScope) == "" {
 		q.TargetScope = TargetScopeProcess
 	}
 	q.TargetScope = normalizedTargetScope(q.TargetScope)

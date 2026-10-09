@@ -8004,6 +8004,9 @@ type ToolResult struct {
 	ArtifactReadNavigation ToolArtifactReadNavigation `json:"-"`
 	// Native trace_query receipt; omitted from JSON and all model schemas.
 	TraceQuerySourceRead TraceQuerySourceReadRef `json:"-"`
+	// Current native effective parameters for bounded same-source window repair.
+	// Historical JSON never grants permission to repeat an old query.
+	TraceQueryWindowReplay TraceQueryWindowReplayRef `json:"-"`
 	// Producer-only complete business instances and run-local navigation receipts.
 	TraceBusinessSpanCandidates []TraceBusinessSpanCandidate `json:"-"`
 	TraceBusinessSpanRefs       []TraceBusinessSpanRef       `json:"-"`

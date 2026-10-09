@@ -280,7 +280,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))))
+	return traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -291,6 +291,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	var businessRef types.TraceBusinessSpanRef
 	var recordBusinessQuery func()
 	var catalogTickets []traceCatalogQueryTicket
+	var windowReplayParams json.RawMessage
 	defer func() {
 		if preparedMaterial != nil {
 			if err := traceQueryValidateReadyMaterial(ctx, preparedMaterial); err != nil {
@@ -308,6 +309,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 		traceQueryAnnotateSourceAdaptation(&out, sourceAdaptation)
 		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.StampTraceQueryWindowReplay(sourceRead, &out, windowReplayParams)
 			ctx.Mutable.StampTraceQuerySourceRead(sourceRead, &out)
 			ctx.Mutable.StampTraceBusinessSpanRefs(&out)
 			traceQueryAppendBusinessRefs(&out)
@@ -381,7 +383,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	p.TargetScope = scope
 	if strings.EqualFold(strings.TrimSpace(p.TargetScope), tracequery.TargetScopeProcess) {
 		view := tracequery.CanonicalViewName(p.View)
-		if p.PID.Int() <= 0 && view != tracequery.ViewProcessMeasurements {
+		if p.PID.Int() <= 0 && view != tracequery.ViewProcessMeasurements && view != tracequery.ViewPreferredFrameRate {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -390,7 +392,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			}, nil
 		}
 		switch view {
-		case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", tracequery.ViewRenderingCandidates, tracequery.ViewProcessMeasurements:
+		case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", tracequery.ViewRenderingCandidates, tracequery.ViewProcessMeasurements, tracequery.ViewPreferredFrameRate:
 		default:
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -481,6 +483,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		return traceQueryPreparedMaterialFailure(path, p.View, err), nil
 	}
 	window := normalizedTraceQueryWindow(p)
+	windowReplayParams = traceQueryWindowReplayParams(p, path, sourceLabel, params)
 	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
 	// typed window on the run-scoped registry so the post-explore
 	// deterministic supplement can derive its query window from model-call
@@ -3717,7 +3720,7 @@ func resolveAttachedTraceQueryPath(ctx *types.BusContext) (string, bool) {
 		}
 	}
 	if ctx != nil && strings.TrimSpace(ctx.AttachedHitrace) != "" {
-		ref := StoreBlobArtifact(ctx.WorkDir, "trace_query", promptctx.AttachedTraceBlobName, ctx.AttachedHitrace)
+		ref := storeStableTraceBlob(ctx.WorkDir, promptctx.AttachedTraceBlobName, ctx.AttachedHitrace)
 		if strings.TrimSpace(ref) != "" {
 			return ref, true
 		}
@@ -5206,6 +5209,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	writeTraceProcessProfilePreview(&b, result.ProcessProfile)
 	if result.ProcessMeasurements != nil {
 		b.WriteString(TraceProcessMeasurementsText(*result.ProcessMeasurements))
+	}
+	if result.PreferredFrameRate != nil {
+		b.WriteString(TracePreferredFrameRateText(*result.PreferredFrameRate))
 	}
 	if result.CPUStateFrequency != nil {
 		b.WriteString("## CPU状态与频率联合区间\n")
@@ -9139,6 +9145,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQuerySchedulerWakeEventObservations(result.Events, ref, scope, at, result.EventSearchCoverage)...)
 	out = append(out, traceQueryProcessProfileObservations(result.ProcessProfile, ref, scope, at)...)
 	out = append(out, traceQueryProcessMeasurementsObservations(result.ProcessMeasurements, ref, scope, at)...)
+	out = append(out, traceQueryPreferredFrameRateObservations(result.PreferredFrameRate, ref, scope, at)...)
 	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
 	out = append(out, traceQueryResourceStackObservations(result.ResourceStack, ref, scope, at)...)
 	out = append(out, traceQueryRenderingCandidatesObservations(result.RenderingCandidates, ref, scope, at)...)
@@ -16598,7 +16605,7 @@ type traceQueryRequestTarget struct {
 const traceQueryMaxInheritedPID = types.RuntimeTargetMaxPID
 
 func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams) (traceQueryParams, string) {
-	if tracequery.CanonicalViewName(p.View) == tracequery.ViewProcessMeasurements {
+	if tracequery.CanonicalViewName(p.View) == tracequery.ViewProcessMeasurements || tracequery.CanonicalViewName(p.View) == tracequery.ViewPreferredFrameRate {
 		return traceQueryProcessMeasurementTarget(ctx, p)
 	}
 	if tracequery.CanonicalViewName(p.View) == tracequery.ViewCPUStateFrequency {

@@ -2047,7 +2047,17 @@ func TestTraceQuerySchemaDocumentsWakeupChainDefaultDepth(t *testing.T) {
 			t.Fatalf("trace_query schema missing wakeup-chain depth default %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, "default 6") {
+	// This prohibition belongs to max_depth, not other metric protocols
+	// (for example, an unrelated instruction never to default to 60 Hz).
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(body), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(schema.Properties["max_depth"].Description, "default 6") {
 		t.Fatalf("trace_query schema must not drift back to the old max_depth default:\n%s", body)
 	}
 }
