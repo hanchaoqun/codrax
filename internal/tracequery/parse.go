@@ -4407,10 +4407,15 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 // here instead of being recomputed (perf audit #21).
 func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	lineNo := s.lineNo
-	if row, ok := tracewire.ParseProcessMeasureInterval(s.line); ok {
-		return Event{Line: lineNo, Ts: float64(row.TimestampNS()) / 1e9, CPU: -1, PID: -1, TGID: -1,
-			Type: EventProcessMeasureInterval, Name: "codrax_process_measure_interval", FieldText: intern.intern(s.line),
-			PluginFields: &PluginFields{ProcessMeasure: &row}}, true
+	// The retained row escapes through PluginFields. Keep its declaration behind
+	// the carrier discriminator so unrelated physical events do not pay a heap
+	// allocation merely for probing this optional native representation.
+	if strings.HasPrefix(s.line, tracewire.ProcessMeasureIntervalPrefix+" record=") {
+		if row, ok := tracewire.ParseProcessMeasureInterval(s.line); ok {
+			return Event{Line: lineNo, Ts: float64(row.TimestampNS()) / 1e9, CPU: -1, PID: -1, TGID: -1,
+				Type: EventProcessMeasureInterval, Name: "codrax_process_measure_interval", FieldText: intern.intern(s.line),
+				PluginFields: &PluginFields{ProcessMeasure: &row}}, true
+		}
 	}
 	if row, ok := tracewire.ParseResourceStack(s.line); ok {
 		ev := Event{Line: lineNo, Ts: float64(row.TimestampNS) / 1e9, CPU: -1, Type: EventResourceStack, Name: "native_resource_stack", FieldText: intern.intern(s.line)}
