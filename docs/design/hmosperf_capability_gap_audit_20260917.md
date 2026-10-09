@@ -6244,3 +6244,97 @@ Go代码与测试冻结`2f5afc9b6bd2`后，统一`SDKROOT=/Library/Developer/Com
 本地`eval/results/hmc_transaction_statistics_20261009/validation/`归档96份验证日志、失败构造和overlay/基线快照，75份原始工具载荷归档在同根`tool_payloads/`；复制后逐字节核对。原始构造用`.go.txt`防止归档被全仓发现为编译包；实际旧renderer/parse内容与指定commit blob逐一相等。所有设置失败、首轮全仓FAIL、真实事务FAIL、同ID冲突FAIL、旧新图归一FAIL均保留，没有只存最后成功日志。大体积原始结果按仓库惯例本地保留，未强行纳入Git。
 
 最终计数79=19完整交付+60开放，重复ID0；本批完整父能力新增0，新增事务交接子能力、统计准备度/中性教学修复和共享图支持/标签保真修复。开放分布41待实施/13部分实施/2待验收/3验收中/1持续执行。5稳定验收父项与本轮1份人工FAIL有交叉，不相加；原PFR失败由本次新PASS取得阶段进展，旧判定不改签。下一双轨仍为17.7量测接入→08.6 GPU前置，以及01.3/16.4统一请求义务；其它高影响图/失败终态与同ID冲突按§214.7/9挂原ID，不遗漏，也不让局部模型误述无限阻塞完整能力交付。
+
+## 215. 通用量测接入与有效请求义务（2026-10-09）
+
+### 215.1 起点与冻结前退出条件
+
+起点`8057c0bf9`，工作区干净。按稳定ID复算79项，19已交付、60开放、重复0；41待实施/13部分实施/2待验收/3验收中/1持续执行。旧事务人工FAIL、PFR旧FAIL及§214.7/9余债原样保留，不以新批实现倒签。
+
+能力轨只交17.7的通用`measure`原值垂直切片，为08.6提供前置：默认SQLite/二进制准备→保真载体→完整来源查询→实际成文交接。保SQLite存储类、原始有符号ns、时长、filter/type/原始引用；同名序列不合并、缺时长不补尾、未知单位/状态不猜。08.6的已核实GPU资源配对、active×freq统计和GPU管线根因不在本片退出范围，父项不据此前置销账。
+
+缺陷轨修01.3/16.4已有公开证据的多阶段义务矛盾：保留既有明确false与省略nil的区别，仅在受理后的请求模型没有独立源码义务时精化路由派生要求；真实源码角色、精确绑定及正向解释要求独立保留。源码策略、上下文与完成消费者共用有效结果，原始route留审计。工具文档冲突在既有精确维度校验中处理，不增加模型字段、全文关键词门或重复提示。
+
+实施期先跑相关功能/公开负控、schema/目录/结构pin、普通行分配及必要race；冻结代码后统一全仓与构建，再以同一构建并行运行两例各一次：新增自然量测问答，以及保留原问句的事务交接。完整过程/最终答案分别审计；没有命中的只读凭证和写模式不补签。
+
+### 215.2 参考设计与不照搬的边界
+
+主代理直接核对参考`config/indicators/gpu/freq.yaml`、`rendering/gpu_pipeline_analysis.yaml`、`core/preprocess/gpu_freq_ops.py`及`gpu_pipeline_ops.py`相关执行路径。其意图是把频率观测与运行状态区间求交，再计算时长加权分布；管线缓存一次读取基础表，避免逐帧反复SQL扫描。本批实施前项目只有CPU及已识别clock专用measure导出，generic GPU原值尚缺公共通路，因此先补底层保真接入比增加单个GPU问句教学更有复用价值。
+
+参考实现的约束不能当作本项目默认真值：`freq.yaml`只按起点入窗会漏carry-in，NULL持续时间被补到采集末尾；无CPU缓存按名称分组会丢filter身份；GPU算子将频点强转整数，运行区间直接相加及单当前频率状态不能表达多资源/重叠冲突。YAML时序极值描述与算子原始频点极值口径也不一致。新raw通路保原值及原区间，不复制这些填充/合并/截断；`source_arg_set_id`只保原始字段，不当GPU设备号或跨序列配对证明，也不凭名称固化为参数集语义。
+
+新增`eval/fixtures/hmosperf_measurements/capture.sql`为可重建合成闭合SQLite，独立README保存13条入窗、右边界、未知时间、同名独立序列、歧义引用及精确值oracle。自然问题只问数据序列、原始值/时间与可解释范围，系统守护条款不塞入QUESTION或采集注释。
+
+### 215.3 实施与公开退出证据
+
+通用量测沿默认准备、保真载体、完整来源扫描、统一语义目录及既有量测三表进入实际finalizer。SQL端严格存储类JOIN避免亲和转换和重复fanout，只驻留被引用filter元数据；signed filter ID与大整数保留，所有hidden-rowid别名被遮蔽则不编造物理身份。非法UTF-8 TEXT按原字节编码保留，不退化为替换字符或整源静默遗漏。显式时间窗纳入carry-in并裁交集，未知时间另计，右界不纳入；没有dur不借下条记录或trace尾补齐。来源/映射/代次与保留上限沿已有完整来源合同，CPU/进程专用观察不受新raw序列替代或跨层汇总。工具文字直接提供同一原生记录的filter名/type/引用与值，模型无需解码载荷才辨认序列。三表供系统填充，模型只选择原生表；不增加新模型字段或GPU权威。
+
+请求侧保`false`/`nil`三态，统一有效route投影只精化受理后的外部问题。独立源码要求由既有编译器、角色和精确绑定保留；route自动产生的allow和展示库存不能反向为自身作证。策略降为default时同步替换旧必读rationale，并保稀疏bundle已受理的外部领域；拒绝的analyzer候选不改变先前受理合同。所有当前消费者复用有效投影，原路由保审计及受理前兜底，写权限不变。`observed_value`与文档义务精确冲突一次报全，合法文档`member_set/count`继续支持，不猜模糊业务意图。
+
+新增公开SQLite prepare→query四组独审落仓（storage/identity、limit/缺列、三别名遮蔽拒绝、非法UTF-8），repo-v1正式exit0/1.970s；16组义务独审及精确AnswerContract负控落仓，保持当前源码独立义务/历史/调用链、不修改输入且幂等。root实际finalizer→emit→patch→render回归正式exit0/1.168s，三表选择器、13行原始记录、精确REAL/大整数/NULL、一次展示、错窗或收据消失拒绝、原数据库SHA与因果投影不变均检查；有界提示预览没有显示所有行不是数据丢失，完整原生表与实际渲染另验，未为测试放大提示预算。
+
+义务相关-v1、四包race-v1、skill整包-v2、schema/教学/历史/公开流程contracts-v2均正式exit0；能力related-final-v2八包正式exit0（tool73.853/agent8.781/types2.917/context2.241s，其余cached）。原RED、实施中设置/编译失败、误把预览当全量的测试失败均保留并区分，不能拼接成完整回归收据。新view接入曾漏semantic enum/全目录教学/准备合同共用短句，均经原pin修正，不删保护断言。
+
+### 215.4 冻结与验证调度
+
+代码/测试/自然fixture冻结为`bd3209a3a2ef`，构建49051正式exit0，dirty仅文档。同一构建启动双例live27540（并行2、各一次，批次023244）；统一全仓40431使用`go test -count=1 -p 4 ./...`。末尾定向race尚在等待旧大fixture退出时全仓开始，没有运行中源码变更；两组结果分别登记，正式exit前不签绿。
+
+本轮效率教训：`Test.*Measure`把既有P3Measure/真实donghu等大fixture带入“相关”与race，造成不必要重复。下批使用精确新增前缀加列举的相邻CPU/过程/目录/结构保护；冻结后统一全仓仍保留，不以少测伪造提速。双例的过程与主答案分开审计，旧事务/PFR人工FAIL不倒签，未跑只读凭证或写例不补签。
+
+### 215.5 量测真实问答的失败与上下文审计
+
+自然量测例183秒完成、机器PASS，**完整人工FAIL**。工具视图和公开原生表均通过不等于自然问答闭环。日志`trace_measurement_records-20261009-023244/run-1.logs/codrax-20261009-023246-000-2199.log`：1175–1176先选`process_measurements`和按`gpufreq`的event_search，1260–1261再按marker及名字搜索，未调用`measurements`。宽搜索正确返回12条窗内起点，而用户要区间，缺少原0.9s跨入窗的334200000.5；既有点事件查询本身没有错，不能把它的总体换名为完整区间总体。1350错误closure合并同名filter、猜单位/状态、误算时长，1427又因无typed证据/aggregate事实跳过extract；finalizer虽有event库存，没有相应原生量测表。
+
+最终primary第5–9行把filter20的800000000与filter10合并为单gpufreq，17行将TEXT "1"的存储类丢失；25、35、37、41行声称Hz/MHz、0/1=空闲/活跃、load=百分比并用时间邻近证明GPU状态配对，证据均不支持。31行称12个区间/4序列但明细仅9行，vendor大整数、BLOB和歧义filter未完整回答；正确原生视图应为13匹配、另1时间未知、排除2秒右边界，并保持7个显示分组（未知/歧义分别保物理行）。主答案本身仍错，不是已纠正的中间草稿，更不能仅称模型偶发波动。
+
+系统接缝按原01.3/16.4/17.7升P1：实际解析族与目录虽然齐全，空的进程量测没有把通用量测作为同源同窗候选，通用点搜索的可读字段又丢filter/存储类区分，模型只得到按名字的弱语义和旧错误closure。来源预览仅显示未知时间的一条gpufreq，未形成代表性的类型/序列导航。748/777模型两次只提交gpufreq bucket，但779–780受理回执明确因无当前请求provenance而丢弃，不能将它当作生效路由或已证错因；“1到2秒”被填为枚举2项仍受理。一份15行源数据，首轮analyzer约57,539估计tokens，explorer从71,128涨到95,702，finalizer65,915→69,043；三份inventory重复大段manifest/capture caveats。下一片应复用精确已解析family/来源/窗口的capability offer和原生事实投递、控制重复背景，不能继续堆问句约束/答案关键词门或让用户选内部view。错误单位不可由source_arg_set_id或名称“纠正”为真。
+
+具体接缝：`attached_trace_semantics.go`的通用measure分支仍复用“For process_measure_interval rows”时间教学；`context/builder.go`的2KiB头/1KiB尾在本19,355B源仅显示NULL时间行，shown=1/omitted=0描述的是可见片段、不是原源15行完整普查。`measurements_semantics.go`的event_search文字投影保名称/值/时间，却不保filter_id、引用状态和值的SQLite存储类；INTEGER 1与TEXT "1"失去区别。完整carrier及measurements原生三表并未丢字段，故应修能力发现/投影/路由共享接缝，不能冒称底层保真实现无效，也不能让模型从同名或编码尾片猜回丢失身份。
+
+### 215.6 GPU协议前置的进一步只读核查
+
+参考`tests/fixtures/gpu_freq_001/trace.db`只读查询：gpufreq filter47共263行INTEGER 334200000，gpu_state filter48共484行0/1，两者source_arg_set_id=0；仅measure/measure_filter/trace_range，无producer meta。README却期望334MHz，`freq.yaml:32`整数除法与`gpu_freq_ops.py:83`强转整数丢了0.2MHz；此golden不能作为精确oracle。YAML顶部说明是3个样本归纳，仍不是任意版本同名量测的生产者协议。本地未找到相应GPU采集端源码或版本固定的量纲/状态/资源定义。
+
+当前embedded manifest固定hmtrace资产提交，`third_party/trace_streamer/PROVENANCE.json`的source_build_attestation为空；数据库meta在`streamerdb_metadata.go`只作诊断，不能借它升级GPU准入。08.6继续开放，缺前置先保原值与独立序列，不再盲增GPU专用提示。只读登记来源终态仍是可完整验收的下一能力候选：`writeflow/controller.go`的missing_terminal_verify_verdict以及restart测试已明确补证批通过不等于源码批通过，须补来源批自己的当前验证/完整controller闭环，不能删除保护或聚合补签。
+
+### 215.7 事务终稿与共享图合同的确定性失败
+
+事务例runner442秒、核心439秒，机器PASS、完整人工FAIL。`trace_transaction_handoffs-20261009-023244/run-1.logs.all.log`的1349–1350一次查询得到7键、5提交、4物理消费；2220–2227已投递3条唯一observe关系，2233–2261保全部事实。主答案第1/7–15/34–42行计数及逐键正确，包括共享消费、窗外对端、缺端、歧义及身份未明；上批tid999误当seq999本次已纠正。第17–26行却只剩2个孤点及空subgraph，零边/时间/事务，第28行还声称当前证据未证明有向关系。不能以文字正确替整份答案签绿。
+
+§214必需图恢复实际命中（1472/1583/2111–2117），并非缺图要求。2401首稿节点ID与锚标签不一致，还画未支持的歧义/缺端箭头，2410拒绝有依据；但业务角色未承接已证实例关系，被当作unproven。后续补丁先删全部边、再删孤点；中文node_id三次遭unsafe/used/family复合错误，改ASCII后两孤点图被接受。最终3020报告required=2/covered=2/unproven_boundaries=2。主动删边后被合同接受，不是renderer删除正确边。成文11轮、9拒绝/10patch，context52,142→88,611，修图约291秒。
+
+独立公开RED两例正式exit1（agent1.052s），只用临时overlay，未改仓库或追跑live：①真实TraceQuery产生3关系，实际finalizer的3边正控通过；两孤点、无surface_role加unproven边界仍emit成功、post无错误、Observe停止，ParseOutput生成错误“未证关系”文案；②实际ParametersFor分支及完整信封均接纳中文node_id，但ensure_visible拒绝，ASCII正控通过且拒绝不改原文。根部为`emit_answer_document_patch.go:1215`动态schema与`mermaidcompat/parse.go:1099`辅助器语法子集不一致，加上`answer_document_diagram_edge_patch.go:1032`混合诊断。日志`codrax-hmc215-diagram-gap-public-red-v1.log`保原构造，SHA-256为`c05bfbbac4aad3839f364a68c4a1915ac46f0b38ba51c803b021e7c056175430`。
+
+按原12.5/18.4提升P1，不误称模型波动。下片修共享业务角色→原生实例→图覆盖及局部语法适配，保真实未证/歧义/缺端边界、保不支持箭头拒绝，不向用户/模型增加本地库ASCII限制。§214内联实体丢边、空白冒成功仍开放，未被此新RED替换。详细原日志/主答案行号见[本批人工审计](../../eval/parallel_selected_summary_hmc_measurements_obligations_20261009_manual_audit.md)。
+
+本次事务原route已为answer/external_artifact，受理profile省略而非false；authority原本optional。故只能说无源码重调查，不能声称本批false精化分支live命中；该分支以公开正反/race验证。14xx阶段仍手写member_set并误报6提交，finalizer原生事实已修正，不另计最终数值失败。
+
+### 215.8 集成回归失败与末版冻结
+
+首轮全仓40431正式exit1：86包通过、13无测试包，3包17例失败。hitraceconv三例为载体族登记及旧精确字节收据；tracediag六例为新增可选Measurements字段未接入历史schema剥除链；tracequery八例为v56缓存代次的七处历史pin及新增29叶字段JSON普查。原有保护保留，不能删除旧hash、旧缓存负控或旧字段字节比较来追绿。
+
+`e5ac39554`提取同字节wire族常量并补精确新增后缀、保旧量测收据；相关普通/race正式exit0。`f7c701e29`仅修测试：Result当前完整schema与仅剥除Measurements后的旧hash双校验；Event/EventView新增29叶，移除新字段须逐字节还原旧267叶；当前v56并保全部旧代次不能复用的负控。tracediag六旧例加两新例0.699s、tracequery九精确例0.604s正式exit0。所有RED及中间失败保留。
+
+收齐首轮失败前提前开启的full-v2由70669收到人为SIGINT后exit1，是取消轮，不是产品回归结论，不与分包结果拼作全仓通过。冻结`f7c701e29`后启动唯一末版full-v3（53592）与构建-v3（25941），二者最终均正式exit0，完整收据见§215.10。该冻结之后没有源码/测试变更；两例live仍对应bd3209a3a，测试pin补齐不倒签人工FAIL。
+
+### 215.9 下一能力轨的来源终态预审（只读，未计交付）
+
+HMC-18.5/16.4现有`write_native_test_registration_public_test.go:94`确实执行来源计划的RunTests，但绕过controller；115–119随后直接将来源批标complete，仅保存apply attempt。`write_native_registration_restart_test.go:190`因此明确检查整轮仍unverified/missing_terminal_verify_verdict，这是正确负控，不是已证aggregate缺陷。新登记批自己的PASS和精确合同账本充分，不能给缺失来源终态补签。
+
+下一最小完整正控从实际来源计划仍active/verifying时起，经过`write_controller_scheduler.go:507`正常verify路径产生来源批自己的尝试、报告和持久终态；再让现成typed缺证续行派生只读登记，真实planner读取/登记，默认store跨新进程恢复，新invocation执行后由controller完成整轮。分别断言来源批、登记批、累计合同及用户报告，原件/源码/测试/HEAD不改。若这条真实路径仍失败，按实际生产/交接断点修复，不先手填verified或放宽aggregate。
+
+必须保留缺来源终态、来源真实失败、原件缺失、合同同ID变更、HEAD/字节漂移、旧执行/JSON回放、只登记未执行及其它批未闭合的反例。`resolveVerifiedProofFollowupDependencies:6958`仅清算直接依赖、verify-only且明确verification_proof_incomplete的前序补证批，不扩成普通源码批的终态替代。该项是可执行的下一验收片，未在本批运行或销账；18.5仍持续执行，不把一个正控当全部跨语言/恢复能力完成。
+
+配套缺陷轨也已只读定位：`trace_query_primary_window.go:49`只重放已成功view、更改时间端点，不能纠正已选错的事件族；`capability_catalog.go:78`的static_only/not_evaluated目录是说明，不是执行准入。主代理核对参考`skill_executor.py:895`把参数解析/组展开/默认参数注入交给框架，`skill_router.py:27`分离简要发现与按需详情，其降低模型记忆负担的意图可借鉴，关键词优先路由不照搬。
+
+下片拟共用代码持有的原生family→raw view/允许选择器登记，覆盖通用、进程及CPU量测，由实际解析/同代manifest给有界导航，不从gpufreq名称授单位或GPU配对。沿既有来源代次、精确窗和系统补齐槽交接原生表，保链上因果优先、总预算与取消；显式PID/pattern/行范围不能静默丢弃来扩权，多源/非identity/代次变化不拼接。导航不等于完整统计/完成硬门，原值答复及明确不足保出口；carrier完整字段与point搜索紧凑身份投影另验，后者不替代carry-in区间查询。该方案尚未实施，不以预审设计计交付。
+
+### 215.10 末版回归、归档与发布收据
+
+Go源码和测试冻结于`f7c701e29a1f6f3101cf109b37fc75f47d1d465d`，统一`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`由53592正式exit0：89测试包通过、13无测试包、零FAIL。tool495.572s、agent106.536s、hitraceconv196.517s、tracequery133.579s、tracediag11.854s、types51.852s、orchestrator58.305s。构建25941正式exit0，dirty仅文档。原始full-v1失败、v2取消和v3完整通过分别保留，不拼接收据。
+
+三笔代码/测试`bd3209a3a`、`e5ac39554`、`f7c701e29`经63265普通push正式exit0，origin/main由8057c0bf9前进到f7c701e29，核对0/0；无force或改历史。实现发布后，架构说明、统一账本、任务当前队列和机器/人工摘要汇总提交。fixture README仅纠正原始来源字段术语，SQL/数据库/模型题面不变。
+
+本地`eval/results/hmc_measurements_obligations_20261009/validation/`保存50份验证日志、公开失败构造及overlay；`tool_payloads/`57份原始工具载荷，`prepared_source/`三份准备源/manifest/收据，均复制后逐字节核对。失败构造以`.go.txt`归档避免被全仓当编译包；设置失败、首轮17例失败、取消轮、两份人工FAIL和公开空图/中文ID RED均保原件。大体积产物按仓库惯例本地保存，未强行加入Git。
+
+末版复算79唯一ID=19完整交付+60开放、重复0；本批完整父能力新增0，交付1项通用量测原值/原生表子能力及1组有效请求义务修复。开放仍41待实施/13部分实施/2待验收/3验收中/1持续执行，5稳定验收父项与本批2份完整人工FAIL分列不相加。下一双轨为只读登记来源终态完整正控，以及来源驱动查询/保真交接；已证共享图合同及旧渲染失败紧邻P1，不以统计通过、设计预审或模型波动误销账。
