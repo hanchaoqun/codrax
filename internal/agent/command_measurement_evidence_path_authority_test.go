@@ -130,6 +130,19 @@ func TestCommandMeasurementEvidencePathAuthorityIndependentOutcomes(t *testing.T
 	}
 }
 
+func TestCommandMeasurementEvidencePathAuthorityAcceptedFalseRefinesRoute(t *testing.T) {
+	ctx := commandMeasurementEvidencePathTestContext(false)
+	ctx.TurnRouteHint = types.TurnRouteHint{Source: "mixed", NeedsRepoAccess: true, CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired, RequiredOutcomes: types.TurnOutcomeMeasurement | types.TurnOutcomeSourceExplanation}
+	ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile = &types.CurrentSourceExplanationProfile{}
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(ctx); got != "" {
+		t.Fatalf("withdrawn route-only explanation still produced source guidance: %s", got)
+	}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.ExactTargets = []string{"worker.go"}
+	if got := renderAnswerDocCommandMeasurementEvidencePathAuthority(ctx); !strings.Contains(got, "independent evidence carriers") {
+		t.Fatal("false erased independent current-source measurement guidance")
+	}
+}
+
 func TestExplorerCommandMeasurementEvidencePathSignalIsOneShotSoftGuidance(t *testing.T) {
 	ctx := commandMeasurementEvidencePathTestContext(true)
 	results := ctx.Mutable.TurnAArtifacts().ToolResults

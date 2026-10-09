@@ -100,6 +100,7 @@ func AssessExternalObservationSufficiency(records []ObservationRecord, rm *Reque
 // evidence: it can block external-only sufficiency, but it never creates
 // citations or answer facts by itself.
 func RouteBackedExternalObservationRequiresCurrentSource(rm *RequestModel, hint TurnRouteHint) bool {
+	hint = EffectiveRequestRouteHint(rm, hint)
 	if !hint.ExternalObservationParticipates() || !hint.RequiresCurrentSourceEvidence() {
 		return false
 	}

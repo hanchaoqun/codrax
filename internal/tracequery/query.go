@@ -452,6 +452,12 @@ func Run(idx *Index, q Query) Result {
 		return cachedFrameTimeline
 	}
 	switch q.View {
+	case ViewMeasurements:
+		res.Measurements = buildMeasurements(idx, q)
+		if faceCanceled(ViewMeasurements) {
+			break
+		}
+		res.Caveats = append(res.Caveats, res.Measurements.Caveats...)
 	case ViewTransactionHandoffs:
 		res.TransactionHandoffs = buildTransactionHandoffs(idx, q)
 		if faceCanceled(ViewTransactionHandoffs) {
@@ -1825,6 +1831,9 @@ func eventInQueryWindow(ev Event, q Query) bool {
 		return false
 	}
 	if q.LineStart == 0 && q.LineEnd == 0 {
+		if ev.Type == EventMeasureInterval {
+			return measurementEventInTimeWindow(ev, q)
+		}
 		if ev.Type == EventProcessMeasureInterval {
 			return processMeasurementEventInTimeWindow(ev, q)
 		}
@@ -1925,6 +1934,14 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		candidates = append(candidates, pl.Domain, pl.EventName, pl.Metric, pl.Value, pl.Category, pl.SpanTrack)
 		if r := pl.ProcessMeasure; r != nil {
 			candidates = append(candidates, r.Name, r.MeasureType, r.ProcessName)
+		}
+		if r := pl.Measure; r != nil {
+			if r.MeasureType.Encoding == "" {
+				candidates = append(candidates, r.MeasureType.Value)
+			}
+			if r.Filter != nil && r.Filter.Name.Encoding == "" {
+				candidates = append(candidates, r.Filter.Name.Value)
+			}
 		}
 	}
 	if pf := ev.PerfFields; pf != nil {

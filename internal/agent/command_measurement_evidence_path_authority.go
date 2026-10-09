@@ -42,7 +42,7 @@ func commandMeasurementEvidencePathRequested(ctx *types.AgentContext) bool {
 	if profile := rm.CurrentSourceExplanationProfile; profile != nil && profile.Active() {
 		return true
 	}
-	hint := ctx.TurnRouteHint
+	hint := types.EffectiveRequestRouteHint(&rm, ctx.TurnRouteHint)
 	if hint.RequiredOutcomes.Has(types.TurnOutcomeSourceExplanation) && hint.RequiredOutcomes.Has(types.TurnOutcomeMeasurement) {
 		return true
 	}

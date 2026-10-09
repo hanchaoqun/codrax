@@ -105,6 +105,13 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
+	rawMeasureCoverage, err := exportTraceDBMeasureIntervals(ctx, tdb, sink)
+	traceDBSetCoverageElapsed(&rawMeasureCoverage, stageStart)
+	coverage = append(coverage, rawMeasureCoverage)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
 	callstackCoverage, err := exportTraceDBCallstack(ctx, tdb, sink, authority, callstackRunning, syncSpans)
 	traceDBSetCoverageElapsed(&callstackCoverage, stageStart)
 	coverage = append(coverage, callstackCoverage)

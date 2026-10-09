@@ -15,8 +15,16 @@ func appendRequestBoundaryContext(pc *types.PromptContext, ac *types.AgentContex
 		return
 	}
 	var b strings.Builder
-	if outcomes := ac.TurnRouteHint.RequiredOutcomes; outcomes != 0 {
-		fmt.Fprintf(&b, "Requested result kinds: %q. Preserve each independently in analysis, evidence gathering and final answer; a completed measurement does not satisfy a source explanation. These are obligations, not evidence or permission to write.\n", outcomes.Names())
+	var request *types.RequestModel
+	if ac.AnalysisIR != nil {
+		request = &ac.AnalysisIR.RequestModel
+	}
+	if outcomes := types.EffectiveRequestRouteHint(request, ac.TurnRouteHint).RequiredOutcomes; outcomes != 0 {
+		fmt.Fprintf(&b, "Requested result kinds: %q. Preserve each independently in analysis, evidence gathering and final answer.", outcomes.Names())
+		if outcomes.Has(types.TurnOutcomeSourceExplanation) {
+			b.WriteString(" A completed measurement does not satisfy a source explanation.")
+		}
+		b.WriteString(" These are obligations, not evidence or permission to write.\n")
 	}
 	if ac.AnalysisIR != nil && len(ac.AnalysisIR.RequestModel.RuntimeThreadLookups) > 0 {
 		data, _ := json.Marshal(ac.AnalysisIR.RequestModel.RuntimeThreadLookups)

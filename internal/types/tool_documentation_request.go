@@ -170,7 +170,7 @@ func toolDocumentationDimensionHasIndependentObligation(rm *RequestModel, dim Re
 	case RequestedAnswerDimensionCurrentKeyCode, RequestedAnswerDimensionSourceLocation,
 		RequestedAnswerDimensionSourceAttribute, RequestedAnswerDimensionRuntimeWorkRelation,
 		RequestedAnswerDimensionTargetEffectVerdict, RequestedAnswerDimensionCausalAttribution,
-		RequestedAnswerDimensionCausalContributorSet:
+		RequestedAnswerDimensionCausalContributorSet, RequestedAnswerDimensionObservedValue:
 		return true
 	}
 	if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {

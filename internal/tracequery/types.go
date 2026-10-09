@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v55"
+const ParserVersion = "tracequery-v56"
 
 type EventType string
 
@@ -33,6 +33,7 @@ const (
 	EventCPUIdle                EventType = "cpu_idle"
 	EventCPUMeasureInterval     EventType = "cpu_measure_interval"
 	EventProcessMeasureInterval EventType = "process_measure_interval"
+	EventMeasureInterval        EventType = "measure_interval"
 	EventResourceStack          EventType = "resource_stack"
 	EventCPUFrequency           EventType = "cpu_frequency"
 	EventCPUFrequencyLimit      EventType = "cpu_frequency_limits"
@@ -451,6 +452,7 @@ type FileFields struct {
 // it, as do CPU-unavailable wakeups; ordinary physical B/E/S/F/I and scheduler
 // rows keep it nil unless an I row carries parsed NativeHook resource metadata.
 type PluginFields struct {
+	Measure             *tracewire.MeasureInterval        `json:"measure,omitempty"`
 	ProcessMeasure      *tracewire.ProcessMeasureInterval `json:"process_measure,omitempty"`
 	NativeHookSemantics *types.TraceEventSemantics        `json:"native_hook_semantics,omitempty"`
 	MarkerNameOrigin    *tracewire.MarkerNameOrigin       `json:"marker_name_origin,omitempty"`
@@ -784,6 +786,7 @@ type Index struct {
 	// partial decode may restore measurement authority from such rows.
 	CPUIntervalMalformed    int
 	ProcessMeasureMalformed int
+	MeasureMalformed        int
 	ResourceStackMalformed  int
 	// LegacyVisibilityCarrierRows counts converter visibility carriers dropped
 	// at index build that still wore their wrapped record's original event
@@ -1255,6 +1258,7 @@ type Result struct {
 	ProcessProfile        *ProcessProfile             `json:"process_profile,omitempty"`
 	CPUStateFrequency     *CPUStateFrequencyResult    `json:"cpu_state_frequency,omitempty"`
 	ProcessMeasurements   *ProcessMeasurementsResult  `json:"process_measurements,omitempty"`
+	Measurements          *MeasurementsResult         `json:"measurements,omitempty"`
 	PreferredFrameRate    *PreferredFrameRateResult   `json:"preferred_frame_rate,omitempty"`
 	TransactionHandoffs   *TransactionHandoffsResult  `json:"transaction_handoffs,omitempty"`
 	ResourceStack         *ResourceStackResult        `json:"resource_stack,omitempty"`

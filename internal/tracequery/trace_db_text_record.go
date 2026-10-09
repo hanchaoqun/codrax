@@ -379,6 +379,7 @@ func countTraceDBTextRecord(idx *Index, ev Event) bool {
 // Carriers are deliberately absent from Events; re-counting a retained event
 // slice would silently erase the source's preserved-storage provenance.
 func mergeTraceDBTextCounts(dst, src *Index) {
+	dst.MeasureMalformed += src.MeasureMalformed
 	dst.CPUIntervalMalformed += src.CPUIntervalMalformed
 	dst.ResourceStackMalformed += src.ResourceStackMalformed
 	dst.TraceDBTextCarrierRows += src.TraceDBTextCarrierRows

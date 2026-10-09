@@ -1,0 +1,7 @@
+ID="trace_measurement_records"
+NAME="Generic measurement records and GPU interpretation boundary"
+QUESTION="请看附件1到2秒的量测记录：各数据序列的原始值和时间区间是什么？其中GPU相关记录能说明它的实际运行频段吗？"
+HTRACE_FILE="eval/fixtures/hmosperf_measurements/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -1362,6 +1362,8 @@ func loosePhysicalFtraceLine(line string) []string {
 // windowed-build regression on GiB traces). The struct is reused across loop
 // iterations; reset() only clears the memo flags.
 type lineScan struct {
+	measureTried         bool
+	measure              *tracewire.MeasureInterval
 	lineNo               int
 	line                 string
 	m                    []string
@@ -1379,6 +1381,7 @@ type lineScan struct {
 }
 
 func (s *lineScan) reset(lineNo int, line string) {
+	s.measureTried, s.measure = false, nil
 	s.lineNo, s.line = lineNo, line
 	s.mTried, s.kvTried, s.tsTried = false, false, false
 	s.schedSwitchKVFailure = ""
@@ -1455,7 +1458,9 @@ func (s *lineScan) timestamp() (float64, bool) {
 	if !s.tsTried {
 		s.tsTried = true
 		s.ts, s.tsOK = 0, false
-		if row, ok := tracewire.ParseResourceStack(s.line); ok {
+		if row := s.measureInterval(); row != nil {
+			s.ts, s.tsOK = float64(row.TimestampNS())/1e9, true
+		} else if row, ok := tracewire.ParseResourceStack(s.line); ok {
 			s.ts, s.tsOK = float64(row.TimestampNS)/1e9, true
 		} else if row, ok := tracewire.ParseCPUMeasureInterval(s.line); ok {
 			s.ts, s.tsOK = float64(row.TimestampNS())/1e9, true
@@ -4207,6 +4212,9 @@ func paddedLineEnd(opts BuildOptions) int {
 func ParseTimestamp(line string) (float64, bool) { return parseLineTimestamp(line) }
 
 func parseLineTimestamp(line string) (float64, bool) {
+	if row, ok := tracewire.ParseMeasureInterval(line); ok {
+		return float64(row.TimestampNS()) / 1e9, true
+	}
 	if row, ok := tracewire.ParseResourceStack(line); ok {
 		return float64(row.TimestampNS) / 1e9, true
 	}
@@ -4407,6 +4415,9 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 // here instead of being recomputed (perf audit #21).
 func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	lineNo := s.lineNo
+	if row := s.measureInterval(); row != nil {
+		return Event{Line: lineNo, Ts: float64(row.TimestampNS()) / 1e9, CPU: -1, PID: -1, TGID: -1, Type: EventMeasureInterval, Name: "codrax_measure_interval", FieldText: intern.intern(s.line), PluginFields: &PluginFields{Measure: row}}, true
+	}
 	// The retained row escapes through PluginFields. Keep its declaration behind
 	// the carrier discriminator so unrelated physical events do not pay a heap
 	// allocation merely for probing this optional native representation.
@@ -6900,6 +6911,9 @@ func safeParseLine(lineNo int, line string, intern *stringInterner, idx *Index) 
 		}
 	}()
 	ev, ok = parseLineFn(lineNo, line, intern)
+	if idx != nil && !ok && strings.HasPrefix(line, "# codrax_measure_interval/") {
+		idx.MeasureMalformed++
+	}
 	if idx != nil && !ok && strings.HasPrefix(line, "# codrax_resource_stack/") {
 		idx.ResourceStackMalformed++
 	}
@@ -6937,6 +6951,9 @@ func safeParseLineScan(s *lineScan, intern *stringInterner, idx *Index) (ev Even
 		}
 	}()
 	ev, ok = parseLineScanFn(s, intern)
+	if idx != nil && !ok && strings.HasPrefix(s.line, "# codrax_measure_interval/") {
+		idx.MeasureMalformed++
+	}
 	if idx != nil && !ok && strings.HasPrefix(s.line, "# codrax_resource_stack/") {
 		idx.ResourceStackMalformed++
 	}

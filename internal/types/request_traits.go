@@ -872,6 +872,7 @@ func IsHistoryBackedCurrentCodeExplanation(rm RequestModel) bool {
 // explanation. The result is answer-shape authority only: it does not prove a
 // repository fact and must never be rendered as evidence.
 func RouteBackedHistoryCurrentCodeExplanation(rm RequestModel, hint TurnRouteHint) bool {
+	hint = EffectiveRequestRouteHint(&rm, hint)
 	if NormalizeTurnRouteCurrentSourceEvidenceMode(string(hint.CurrentSourceEvidenceMode)) != TurnRouteCurrentSourceEvidenceRequired ||
 		!hint.RequiresCurrentSourceEvidence() {
 		return false

@@ -6250,7 +6250,7 @@ func parseCurrentSourceExplanationProfile(raw string, p *emitCurrentSourceExplan
 		return nil, "", []string{"current_source_explanation_profile ignored: is_current_source_explanation_requested missing"}
 	}
 	if !*p.IsCurrentSourceExplanationRequested {
-		return nil, "", nil
+		return &types.CurrentSourceExplanationProfile{}, "", nil
 	}
 	confidence := 0.5
 	if p.Confidence == nil {
@@ -6748,8 +6748,17 @@ func normalizeUnbackedExternalObservationAllowToDefault(ctx *types.BusContext, r
 		!emitAnalysisHasRuntimeArtifactCarrier(ctx) {
 		return ""
 	}
-	if ctx != nil && ctx.TurnRouteHint.RequiresCurrentSourceEvidence() {
-		return ""
+	refinedRoute := types.TurnRouteHint{}
+	if ctx != nil {
+		effective := types.EffectiveRequestRouteHint(rm, ctx.TurnRouteHint)
+		if effective.RequiresCurrentSourceEvidence() {
+			return ""
+		}
+		if effective != ctx.TurnRouteHint {
+			// Keep the accepted external domain when withdrawing the route's
+			// synthesized allow. A sparse bundle need not classify itself again.
+			refinedRoute = effective
+		}
 	}
 
 	probe := *rm
@@ -6759,6 +6768,7 @@ func normalizeUnbackedExternalObservationAllowToDefault(ctx *types.BusContext, r
 	probe.ExternalObservationPolicy = &probePolicy
 	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshot(types.RuntimeSourceAnswerAuthorityInput{
 		RequestModel: &probe,
+		RouteHint:    refinedRoute,
 	})
 	if authority.CurrentSourceRequired {
 		return ""
@@ -6767,9 +6777,9 @@ func normalizeUnbackedExternalObservationAllowToDefault(ctx *types.BusContext, r
 	normalized := *rm.ExternalObservationPolicy
 	normalized.CurrentSourceMode = types.ExternalObservationCurrentSourceDefault
 	normalized.ExclusionKind = types.ExternalObservationSourceExclusionNone
-	if strings.TrimSpace(normalized.Rationale) == "" {
-		normalized.Rationale = "current checkout evidence remains optional because no independent typed current-source obligation is active"
-	}
+	// Replace the obsolete route-synthesized explanation along with the enum;
+	// retaining its old required rationale would teach contradictory policy.
+	normalized.Rationale = "current checkout evidence remains optional because no independent typed current-source obligation is active"
 	rm.ExternalObservationPolicy = &normalized
 	return "external_observation_policy unbacked current_source_mode=allow fell back to default for runtime artifact: an isolated analyzer enum cannot upgrade an optional source lane without independent typed current-source authority"
 }
@@ -6784,7 +6794,7 @@ func normalizeUnbackedExternalObservationAllowToDefault(ctx *types.BusContext, r
 func normalizeUnbackedExternalObservationCurrentVersionCheck(ctx *types.BusContext, rm *types.RequestModel) string {
 	if ctx == nil || rm == nil || !rm.DiagnosticProfile.CurrentVersionCheck ||
 		!ctx.TurnRouteHint.ExternalObservationParticipates() ||
-		types.NormalizeTurnRouteCurrentSourceEvidenceMode(string(ctx.TurnRouteHint.CurrentSourceEvidenceMode)) != types.TurnRouteCurrentSourceEvidenceOptional ||
+		types.EffectiveRequestRouteHint(rm, ctx.TurnRouteHint).CurrentSourceEvidenceMode != types.TurnRouteCurrentSourceEvidenceOptional ||
 		!emitAnalysisHasRuntimeArtifactCarrier(ctx) {
 		return ""
 	}

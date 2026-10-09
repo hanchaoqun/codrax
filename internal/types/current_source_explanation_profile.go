@@ -81,7 +81,9 @@ func NormalizeCurrentSourceExplanationProfile(raw string, in *CurrentSourceExpla
 	}
 	var warnings []string
 	if !in.IsCurrentSourceExplanationRequested {
-		return nil, warnings
+		// Keep explicit false distinct from an omitted legacy declaration. Do
+		// not retain positive-only navigation fields on the negative profile.
+		return &CurrentSourceExplanationProfile{}, warnings
 	}
 	sourceQuotes := normalizeCurrentSourceExplanationQuotes(raw, in.SourceQuotes, &warnings)
 	if len(sourceQuotes) == 0 {

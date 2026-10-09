@@ -15,6 +15,15 @@ func TestEmitAnalysisToolDocumentationCollectsIndependentViolationsPublic(t *tes
 		want   []string
 	}{
 		{
+			name: "measured_dimensions_are_not_documentation",
+			change: func(p map[string]any) {
+				for _, row := range p["requested_answer_dimensions"].(map[string]any)["dimensions"].([]any) {
+					row.(map[string]any)["role"] = "observed_value"
+				}
+			},
+			want: []string{"index 1 carries an independent", "index 2 carries an independent"},
+		},
+		{
 			name: "independent_dimension_obligations",
 			change: func(p map[string]any) {
 				for _, row := range p["requested_answer_dimensions"].(map[string]any)["dimensions"].([]any) {

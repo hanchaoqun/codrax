@@ -33,6 +33,7 @@ type TraceQueryViewTeaching struct {
 // order. Every view the tool accepts has exactly one row here.
 func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 	return []TraceQueryViewTeaching{
+		{View: tracequery.ViewMeasurements, Params: "`time_start`/`time_end`, optional `line_start`/`line_end` and `limit`; no owner selector", When: tracequery.MeasurementsTeaching},
 		{View: tracequery.ViewTransactionHandoffs, Params: "`time_start`/`time_end` and optional `pid`/`thread`/`target_scope`", When: tracequery.TransactionHandoffsTeaching},
 		{View: tracequery.ViewPreferredFrameRate, Params: "`time_start`/`time_end` and optional process `pid`", When: tracequery.PreferredFrameRateTeaching},
 		{View: tracequery.ViewProcessMeasurements, Params: "`time_start`/`time_end` and optional process `pid`", When: tracequery.ProcessMeasurementsTeaching},

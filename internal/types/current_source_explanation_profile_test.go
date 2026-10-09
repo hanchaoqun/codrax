@@ -69,8 +69,8 @@ func TestNormalizeCurrentSourceExplanationProfile_InactiveFalse(t *testing.T) {
 		SourceQuotes:                        []string{"结合当前代码"},
 		Confidence:                          0.9,
 	})
-	if profile != nil || len(warnings) != 0 {
-		t.Fatalf("inactive false profile should be ignored cleanly, got profile=%+v warnings=%v", profile, warnings)
+	if profile == nil || profile.Active() || len(profile.SourceQuotes) != 0 || len(warnings) != 0 {
+		t.Fatalf("explicit false should survive without positive navigation, got profile=%+v warnings=%v", profile, warnings)
 	}
 }
 

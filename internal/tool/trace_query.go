@@ -280,7 +280,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))))))
+	return traceQueryMeasurementsSchema(traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))))))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -336,6 +336,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	explicitCallParams := p
 	if err := tracequery.ValidateViewName(p.View); err != nil {
 		return traceQueryUnknownViewRejection(p.View, err), nil
+	}
+	if reject := traceQueryMeasurementsInput(p); reject != nil {
+		return *reject, nil
 	}
 	if repair := traceQueryCPUStateFrequencyInputRepair(p); repair != nil {
 		return *repair, nil
@@ -540,6 +543,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// stat failure); those calls execute directly, exactly as before.
 	runPureTraceQueryCore := func() (types.ToolResult, error) {
 		if streamed, ok := t.streamTransactionHandoffs(ctx, p, path, sourceLabel, callCaveat, window); ok {
+			return streamed, nil
+		}
+		if streamed, ok := t.streamMeasurements(ctx, p, path, sourceLabel, callCaveat, window); ok {
 			return streamed, nil
 		}
 		if streamed, ok := t.streamProcessMeasurements(ctx, p, path, sourceLabel, callCaveat, window); ok {
@@ -5215,6 +5221,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.ProcessMeasurements != nil {
 		b.WriteString(TraceProcessMeasurementsText(*result.ProcessMeasurements))
 	}
+	if result.Measurements != nil {
+		b.WriteString(TraceMeasurementsText(*result.Measurements))
+	}
 	if result.TransactionHandoffs != nil {
 		b.WriteString(TraceTransactionHandoffsText(*result.TransactionHandoffs))
 	}
@@ -9153,6 +9162,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQuerySchedulerWakeEventObservations(result.Events, ref, scope, at, result.EventSearchCoverage)...)
 	out = append(out, traceQueryProcessProfileObservations(result.ProcessProfile, ref, scope, at)...)
 	out = append(out, traceQueryProcessMeasurementsObservations(result.ProcessMeasurements, ref, scope, at)...)
+	out = append(out, traceQueryMeasurementsObservations(result.Measurements, ref, scope, at)...)
 	out = append(out, traceQueryTransactionHandoffsObservations(result.TransactionHandoffs, ref, scope, at)...)
 	out = append(out, traceQueryPreferredFrameRateObservations(result.PreferredFrameRate, ref, scope, at)...)
 	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
@@ -16614,6 +16624,9 @@ type traceQueryRequestTarget struct {
 const traceQueryMaxInheritedPID = types.RuntimeTargetMaxPID
 
 func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams) (traceQueryParams, string) {
+	if tracequery.CanonicalViewName(p.View) == tracequery.ViewMeasurements {
+		return p, "trace_query_target_inheritance_skipped=measurements; raw resource identity does not imply thread/process ownership"
+	}
 	if tracequery.CanonicalViewName(p.View) == tracequery.ViewProcessMeasurements || tracequery.CanonicalViewName(p.View) == tracequery.ViewPreferredFrameRate {
 		return traceQueryProcessMeasurementTarget(ctx, p)
 	}

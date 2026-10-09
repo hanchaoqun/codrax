@@ -52,10 +52,13 @@ func renderAttachedTraceSemantics(parts ...tracePreviewPart) string {
 			}
 			var timestamp, seconds string
 			var sourceTimeKnown *bool
-			if event.Type == tracequery.EventProcessMeasureInterval {
+			if event.Type == tracequery.EventProcessMeasureInterval || event.Type == tracequery.EventMeasureInterval {
 				// The wire's nonnegative ordering coordinate is not source time.
 				// Keep unknown-time observations readable without inventing zero.
 				ts, known := tracequery.ProcessMeasurementSourceTimestamp(event)
+				if event.Type == tracequery.EventMeasureInterval {
+					ts, known = tracequery.MeasurementSourceTimestamp(event)
+				}
 				sourceTimeKnown = &known
 				if known {
 					timestamp, seconds = strconv.FormatInt(ts, 10), signedTracePreviewSeconds(ts)

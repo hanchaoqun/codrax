@@ -205,6 +205,7 @@ type ViewCompaction struct {
 var viewCapacityTable = map[string]ViewCapacity{
 	ViewTransactionHandoffs: {View: ViewTransactionHandoffs, DefaultLimit: sharedDefaultResultLimit, MaxLimit: TransactionHandoffsLimit, Dimension: CompactionDimensionEvents},
 	ViewProcessMeasurements: {View: ViewProcessMeasurements, DefaultLimit: sharedDefaultResultLimit, MaxLimit: ProcessMeasurementsLimit, Dimension: CompactionDimensionIntervals},
+	ViewMeasurements:        {View: ViewMeasurements, DefaultLimit: sharedDefaultResultLimit, MaxLimit: MeasurementsLimit, Dimension: CompactionDimensionIntervals},
 	ViewPreferredFrameRate:  {View: ViewPreferredFrameRate, DefaultLimit: sharedDefaultResultLimit, MaxLimit: PreferredFrameRateSeriesLimit, Dimension: CompactionDimensionIntervals},
 	ViewRenderingCandidates: {View: ViewRenderingCandidates, DefaultLimit: sharedDefaultResultLimit, MaxLimit: RenderingCandidatesLimit, Dimension: CompactionDimensionCandidates, HeavyView: true, FallbackView: FallbackViewEventSearch, FallbackEventTypes: []string{string(EventTraceMark)}},
 	ViewResourceStack:       {View: ViewResourceStack, DefaultLimit: sharedDefaultResultLimit, MaxLimit: 40, Dimension: CompactionDimensionEvents},

@@ -15,6 +15,11 @@ import (
 func ProjectTraceEventSemantics(event Event) *types.TraceEventSemantics {
 	p := traceEventSemanticProjector{value: types.TraceEventSemantics{SchemaVersion: types.TraceEventSemanticsVersion}}
 	switch event.Type {
+	case EventMeasureInterval:
+		if event.PluginFields == nil || event.PluginFields.Measure == nil {
+			return nil
+		}
+		p.measurement(*event.PluginFields.Measure)
 	case EventProcessMeasureInterval:
 		if event.PluginFields == nil || event.PluginFields.ProcessMeasure == nil {
 			return nil

@@ -1563,7 +1563,7 @@ func streamEventSearchRawCandidate(line string, lineNo int, q Query) bool {
 	// This envelope stores metric labels as encoded typed data. Bypass only
 	// the raw-text optimization; the strict parser and shared matcher still
 	// decide admission, ownership and the requested literal match.
-	if strings.HasPrefix(line, tracewire.ProcessMeasureIntervalPrefix+" record=") {
+	if strings.HasPrefix(line, tracewire.ProcessMeasureIntervalPrefix+" record=") || strings.HasPrefix(line, tracewire.MeasureIntervalPrefix) {
 		return true
 	}
 	// Numeric predicates consume parsed marker metadata, including lossless

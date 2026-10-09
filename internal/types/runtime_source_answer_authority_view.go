@@ -146,6 +146,7 @@ func RuntimeSourceAuthorityRequestModelFromBusContext(ctx *BusContext) *RequestM
 func BuildRuntimeSourceAnswerAuthoritySnapshot(in RuntimeSourceAnswerAuthorityInput) RuntimeSourceAnswerAuthoritySnapshot {
 	out := RuntimeSourceAnswerAuthoritySnapshot{}
 	rm := in.RequestModel
+	in.RouteHint = EffectiveRequestRouteHint(rm, in.RouteHint)
 	out.ExternalObservationRequested = runtimeSourceRequestHasExternalObservationCarrier(rm, in.RouteHint)
 	out.CurrentSourceExplanationRequested = in.RouteHint.RequiredOutcomes.Has(TurnOutcomeSourceExplanation) ||
 		(rm != nil && rm.CurrentSourceExplanationProfile.Active())
@@ -428,6 +429,7 @@ func runtimeSourceRequestHasExternalObservationCarrier(rm *RequestModel, hint Tu
 // soft. Generic allow/default policy, diagnostic flags, and a repo path-scope
 // quote do not independently prove that the answer must verify the checkout.
 func runtimeSourceAuthorityRequestCurrentSourceRequired(rm *RequestModel, hint TurnRouteHint) bool {
+	hint = EffectiveRequestRouteHint(rm, hint)
 	if rm != nil && rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
 		return false
 	}

@@ -110,6 +110,7 @@ var traceDBReservedCarrierFamilies = []traceDBCarrierFamily{
 	{Wire: "codrax_process_interval/v1", Kind: traceDBCarrierKindComment, WireFile: "tracewire/process_interval.go", EmitterFile: "tracewire/process_interval.go"},
 	{Wire: "codrax_cpu_measure_interval/v1", Kind: traceDBCarrierKindComment, WireFile: "tracewire/cpu_measure_interval.go", EmitterFile: "tracewire/cpu_measure_interval.go"},
 	{Wire: "codrax_process_measure_interval/v1", Kind: traceDBCarrierKindComment, WireFile: "tracewire/process_measure_interval.go", EmitterFile: "tracewire/process_measure_interval.go"},
+	{Wire: "codrax_measure_interval/v1", Kind: traceDBCarrierKindComment, WireFile: "tracewire/measure_interval.go", EmitterFile: "tracewire/measure_interval.go"},
 	{Wire: "codrax_resource_stack/v1", Kind: traceDBCarrierKindComment, WireFile: "tracewire/resource_stack.go", EmitterFile: "tracewire/resource_stack.go"},
 	{Wire: "codrax_ebpf_interval/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/official_ebpf_interval.go", EmitterFile: "tracequery/official_ebpf_interval.go"},
 }
