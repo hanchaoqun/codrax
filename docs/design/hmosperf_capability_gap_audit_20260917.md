@@ -2,7 +2,7 @@
 
 日期：2026-09-17。Codrax 审计基线：`93bf1a42d`。参考目录：`/Users/han/opt/hmosperf/HarmonyOS_PerfMcpServer-main`（本地归档，没有 Git 元数据）。
 
-当前实施状态（2026-10-08，§207）：79个稳定子任务中17项实现交付、62项开放；最新队列与计数以[实施清单](hmosperf_implementation_tasks_20260917.md)为准。下文初始映射和历史批次保留当时边界，不把早期“待实施”或旧FAIL当成最新实现状态；实现交付也不倒签模型答案验收。
+当前实施状态（2026-10-09，§214）：79个稳定子任务中19项实现交付、60项开放；最新队列与计数以[实施清单](hmosperf_implementation_tasks_20260917.md)为准。下文初始映射和历史批次保留当时边界，不把早期“待实施”或旧FAIL当成最新实现状态；实现交付也不倒签模型答案验收。
 
 ## 1. 范围、证据与结论口径
 
@@ -6136,3 +6136,111 @@ Go代码与测试冻结`2f5afc9b6bd2`后，统一`SDKROOT=/Library/Developer/Com
 本批43份原始验证/构建/live日志已按原名归档到`eval/results/hmc_frame_rate_scope_20261008/validation/`并逐字节核对一致，保留公开RED、测试设置失败、首轮完整GREEN及末版完整GREEN，不覆盖原失败。两例完整结果与54份原始工具载荷独立保留，原始结果目录依既有策略不提交大体积机器日志；可提交机器/人工摘要、fixture与独立oracle进入版本库。冻结后只更新文档，没有第三例live或因文档变更重复全仓。
 
 三笔代码/测试`e3028baa7`、`6c2da84f5`、`2f5afc9b6`由48509普通推送main正式exit0，远端`4e8a8c1e5..2f5afc9b6`，无force或改写历史。文档/架构与机器/人工摘要合批收尾。完整任务新增交付0、累计19/79，60开放；12.3转部分实施，分布42待实施/12部分实施/2待验收/3验收中/1持续执行。已交付1项期望帧率观测子能力，以及请求引用端点、主窗补查及其预算排序系统修复；五验收父项与本批两份人工FAIL保留且不重复相加。下一双轨见§213.6，不以已证单句误述无限阻塞参考连接器能力。
+
+## 214. 精确事务交接与派生统计准备度（2026-10-09）
+
+### 214.1 起点、优先级与退出边界
+
+从干净且已推送`efe70a349`继续，79个稳定唯一ID=19已交付+60开放，重复0；42待实施/12部分实施/2待验收/3验收中/1持续执行。上一批两例人工FAIL及五验收父项保留，原始日志不覆盖。
+
+能力轨12.2提高参考仓优先级，选“应用事务提交→合成侧处理”的独立完整交接，不一次扩大到全部帧协议。自读`frame_ops.py`精确transactionFlag和ProcessCommandUni键、多分支解析及首匹配实现，复用精确业务键的设计意图，拒绝近邻拼接、固定4ms和重复键取首条。默认文本/SQLite→完整扫描/来源与身份→唯一或歧义关系→实际finalizer可读结果为退出；同键重用、缺端、跨窗与显示省略必须保守。只授事务交接，不由此推整帧、线程等待、根因或GPU执行，旧时序邻接仍非因果。其它协议和完整12.2父项不预销。
+
+缺陷轨01.3/16.4修§213已证的原值读取后过早催收口、专用派生查询未导航以及通用频率维度误译CPU。根据生产者的原生协议、实际计算结果与既有结构化所求维度表达独立统计准备度；共享“是否必须读源码”的权威状态不混入统计缺口。协议导航只作软建议，不强制唯一工具、不扫问答全文或自由label、不增加重复模型JSON字段；未知/原值问题/明确不足及合法空结果保出口，因果链和自动补齐不变。至少一个非PFR原生统计消费者共用机制证明泛化。
+
+两轨先取公开前置RED、相关正反及必要race/注册快检；Go冻结后一次统一全仓，固定事务交接新能力与期望帧率旧FAIL两例并行2、各一次。自然问句不承载系统守护条款，独立oracle不投递给模型。实现、真实路径命中和最终答案分别记账；不追加第三例追绿，不为已有充分证据下的单句误述无限扩大本批范围。
+
+### 214.2 设计审计中的范围修正
+
+现有`observed_value`及`count_or_duration/frequency_residency`并不能精确区分“只看原值”与“要求整窗占比”。本批不另增一份要求模型重复分类的measurement_operations JSON，而把准备度限定为生产者已提供的原值/已计算统计可用性：只有原值且有明确派生协议时，撤回自动催收口/充分性提升，软提示可用派生路径及仅原值问题无需额外查询；不新增硬完成门，不宣称已读懂用户一定要求哪种计算。普通completion和明确不足出口保留，计算收据也不证明整道问题已答全。完整请求运算选择仍是独立开放范围。
+
+参考事务解析会丢内部ITID/IPID；本项目现有普通marker投影也不携这两个内部身份，公开TID及header TGID不是永久任务身份。需区分协议键对应的观察与完整线程生命周期/整帧因果证明；namespace payload PID不同于host TGID可以合法，不因不相等就猜错端。完整采集中重复/重用/身份冲突必须保歧义，不能裁窗或截断后取唯一。公开默认SQLite反例与实际finalizer投递由独立审计补验。
+
+独立源码审计另发现默认SQLite导出会拒绝坏duration/未知owner行，因此准备后完整EOF扫描只代表已发布有效端点，并不自动证明原数据库的事务全集唯一。此次状态限定为已观测协议匹配，不铸通用因果证书；未观察到身份冲突不宣称完整生命周期已证。原始来源全体唯一若需交付，须新增上游被拒协议行的完整性载体及来源收据，仍挂12.2/17.7，不能把缺失源事实靠下游警告“修好”。测试将保好端点旁有被拒同键行的反例，明确限制来源范围。
+
+### 214.3 原生实现与系统接缝
+
+事务原生视图先扫完整封存来源，再按用户窗/对象/展示limit选键；uint64序号不经过float64，消费列表重复提键不重复计事件。多端点保歧义，缺端/身份不明/先后不明分开；实际时间决定先后，物理行只作同刻tie，不能把物理乱序误作反向执行。完整原始源扫描与已发布有效记录全集明确分层；默认SQLite无Running时保CPU未知，namespace payload PID不替换header TGID。identity单子源bundle的查询身份与物理子源行坐标分别保存，多源/仿射/过期映射不接受。64KiB typed结果及最后4查询/64KiB仅按完整成员省略，保原总体及歧义，不截名称。
+
+统计收据是生产者私有状态，不进入模型JSON；精确协议映射在原值和派生消费者间共享。其来源/窗口/选择器和run代次经真实查询核验，显示limit不影响计算总体，换源/换窗/换PID/新run/JSON重放不能借用。CPU流式生产者未发布事件roster时，只在私有副本核验计算来源，不向公开结果新授source-read或window-replay。已完成兄弟任务通过data-only合并保收据，不能带入其模型完成声明。
+
+公开反例还确认两条旧自动足量入口：外部少量可寻址记录催`resolved`，以及`sourceCount==1`直接把coverage/diversity/quality全置true。本批只撤回原值尚有可用派生统计时的自动足量捷径，显式完成/仅原值/明确不足保留；源码义务判断不改。可选导航使用独立one-shot位，不复用`midLoopCompletionReadySent`触发后续closure-only或升级。通用frequency事实族改领域中性，真实CPU见证继续有CPU专属释义；无问答原文扫描门。
+
+根席独立测试走真实query→兄弟任务发布→TurnA复制→explorer，以及真实query→finalizer初始上下文，保窗口/来源/冲突载荷和原ledger字节；`/tmp/codrax-hmc214-root-public-v3.log`正式exit0/agent1.043s、race3.616s。早期handoff测试把未经AttachToolHandoffCarrier的原返回值与实际dispatch结果混放，造成两个不同payload；修测试使snapshot从真实DispatchToolResults取值，没有修改产品去重，原两份失败保留。独立SQLite五项公开矩阵v4正式exit0/tool2.810s，前三轮是manifest与physical child坐标测试预期纠正，未冒称产品RED。
+
+统计轨有效行为RED为`readiness-red-v2.log`，不是并行新文件尚未编译的red.log。末版related-v3五包绿（tracequery0.651/tool10.389/types0.873/agent5.723/context2.873s），全skill0.686s；race types3.590/tracequery2.591/tool46.790/agent11.322s（context选择器无匹配测试，不计覆盖）。默认SQLite→原值导航→原生统计收据→表交接正控sqlite-v2通过；首轮缺preparer的测试setup失败保留。活跃流保护原样复验4.284s通过，包含4ms连续部分帧、可见/隐藏推理/工具活跃进展及默认超时；本批未修改流式降级逻辑。
+
+### 214.4 图交付边界与新增通用余债
+
+仅finalizer散文不能证明图箭头，因此复用既有`RuntimeDiagramRelationProvider`提供精确`observe`关系，经同一recipe→emit→repair→post校验链路消费。identity绑定来源/query/payload/端点，不借线程名串联，两个提交可指向同一消费实例；只接受`observed_unique_protocol_match`，不赋`call`、`wakeup`、等待、整帧或根因。窗外端点保“窗外关联背景”，自动包络的末点按真实`]`显示，用户右开窗保护不改。真实EmitAnswerDocument/Post正控与反向、调用/唤醒、跨query/source、宽窗、伪造身份负控通过；无须对用户额外增加JSON字段。
+
+**P1通用未闭环，归01.3/16.4：同ID冲突在证据编译前被丢弃。** `internal/types/observation_ledger.go::compileProducerToolResultObservations`在`seen[id]`时直接跳过，后面的内容冲突检测看不到第二条不同RichNotes。本批真实Emit/Post构造显示同ID、同receipt、不同内容仍取先到者，原始FAIL与完整构造源码保留为`connector-diagram-v1.log`及`connector-diagram-v1-source.go.txt`。改用不同record.ID同receipt的负控只验证provider可见冲突，不能替同ID问题签绿。正常原生生产者以payload/query锚定ID，本轮未观察到实际查询自身生成两份同ID不同内容；这不等于通用合并安全已证。下一缺陷轨应在生产者证据合并处保留冲突/同一性，再复用下游边界，不能逐view补首选规则或扫描模型答案。
+
+### 214.5 下一能力的参考实现预审（只读，不计交付）
+
+08.6不宜只移植GPU聚合器。亲查参考`config/indicators/gpu/freq.yaml`、`rendering/gpu_pipeline_analysis.yaml`，其设计意图是分离空闲频点与真实active×freq交集；但前者SQL仅取窗内起点，会漏carry-in，NULL dur直接延伸到trace末点；按裸name合并又没有设备/filter配对。当前17.7仅保CPU measure闭集与process_measure，GPU的原始filter/type/资源引用及dur尚缺独立typed通道。Hz单位、状态码语义、freq/state同资源关联三项需生产者协议证明，不能把`source_arg_set_id`猜成GPU ID或默认只有一块GPU。
+
+只读交叉审计还发现参考`gpu_freq`与`gpu_freq_ts`同名`total_duration_ms`分别表示交集和running总体，TS schema所说桶平均极值与算子原频率极值不一致，小数频点fixture被截成整数后仍固定为golden。因此最小完整纵向应是默认接入原值/身份→协议证明→逐资源完整窗区间联合→三种数表→实际回答；缺协议时保独立lane和未知关联，不销08.6。余债与只读登记来源终态、17.7多源/持续写入、17.6实机依原ID排队，不把更多提示替代输入语义。
+
+### 214.6 完整集成中发现的遗漏及效率调整
+
+首轮统一全仓`codrax-hmc214-full.log`正式exit1，收齐四处失败后再合批修正：B1680旧测试钉无条件resolved催收口，改检条件化completion且保HintKey、aggregate_facts、无emit_evidence、原源码权限及IR不变；context旧effect测试把泛frequency一概当调度，改领域中性并加真实scheduler-state及混合维度正控；新公共handoff测试误复制含锁BusContext，改真实ShallowClone；事务view遗漏metric_refs，补其实际键/分端事件/全源端点/展示省略的明确统计合同，不放宽目录原断言。
+
+相关复验`full-fixes-targeted.log`正式exit0（agent1.770/context0.606/types3.710s）；目录和事务快检`connector-catalog-repair.log`正式exit0（tool4.161/query0.833/types2.716/tracediag3.151s）。前三项改测试，不回退中性教学；最后一项是目录真实交付遗漏。首轮失败与原构造均保留，不合并成所谓全仓通过。
+
+代码/测试以`98bcfe448f41`冻结并提交，构建正式exit0。为减少串行等待，冻结后末版完整回归与两例真实评测并行，仍只用同一提交的构建快照；非紧急发现只记录，不在运行中改代码，也不另追第三例。快速组增加引用旧教学的历史断言、fork锁复制和完整能力目录详情，而不是仅匹配新增测试文件名。图审计后的末版全仓与两笔代码推送收据统一见§214.11。
+
+### 214.7 固定双例与统一上下文审计
+
+两例均一次、并行2，runner正式exit0；机器2/2，最终主答案人工1/2。[完整人工审计](../../eval/parallel_selected_summary_hmc_transaction_statistics_20261009_manual_audit.md)保存逐阶段行号、原生载荷及图消失链路。PFR254秒，首次raw→派生软导航真实命中，原生分布/时序抵达finalizer，最终三个owner/filter全部已知Hz、时长、整窗比例及实际屏幕边界正确；这是旧失败场景的新PASS，不改签§213原FAIL。事务495秒，算法给对7键/5提交/4消费事件及窗外歧义/共享消费，终稿仍把事件数写成键数、误读tid为seq，并缺用户所求图，保人工FAIL。
+
+本批确认两个必须在收尾前补齐的图接缝：当前图支持恢复只认wakeup，漏掉同一工具已验证的observe关系，导致显式图要求降可选；局部add-node把标签真实换行的拒绝误报为图类型不支持，模型随后主动删图。不是渲染器吞图、长ID不合法，也不是未提供事实。对应修复以共享已校验provider结果驱动图准入，以库内语法shim吸收标签换行；不新增LLM库限制教学，不放宽歧义/反向/调用/唤醒/错窗/错源边。该修复另取确定性及全仓收据，不倒签live，也不追第三例。
+
+其余系统高ROI缺口按原ID留案，不隐藏、不继续在本批扩张：
+
+1. **01.3/16.4，请求义务多真值源（P1）。** 事务路由source_explanation将源码强制required，analyzer却始终否认请求源码解释，OR合并放大误标，反复flow carrier/缺源码重调查。PFR把observed_value/member_set实测维度登记文档，已有明确教学却缺精确合同拦截，造成额外目录硬义务。应共享一次声明的当前请求领域/来源，派生来源需求、文档与图计划；保真正mixed题，不能靠用户写“只看Trace”、全文关键词硬门或更多重复enum。业务角色与调查后发现的实际线程身份分开。首轮事务analyzer约58,715tokens，四次串行纠错约70秒，需减少重复合同与一次仅返一个错误的修复负担。
+2. **01.3/16.4，原生事实可读投影与handoff排序（P1）。** PFR统计已算全但工具文字仅给覆盖总数，探索三阶段反复取raw并错误手算；事务finalizer虽有正确原生字段，仍并置扩大窗/“tid特殊”等不受支持closure。复用同一事实表给explorer/finalizer和查询复用、优先当前范围受信数据，减少旧总结噪音；不是对答案做关键词封堵。终稿PFR已纠正，不据中间错误把本次最终PASS改FAIL。
+3. **01.3/18.4，过期失败与问题范围（P1）。** 事务仅一次参数错误且随后4次成功，完整答案仍自动说“Trace查询执行失败”并给未请求的因果补齐建议。应按实际能力/来源/范围与恢复代次记录终态，当前有限关系问题不自动升级成根因任务。自然显式窗、自动补证、真正根因链与链上业务线索仍保持。
+4. **18.4，初稿展示（P2）。** PFR终稿已正确，但console仍展示后来删除的错误第一稿。需区分编辑中的未验收草稿与最终可依赖答案，不冒称当前primary仍错。
+5. **01.3/16.4，同ID冲突去重（P1原债）。** 见§214.4，保公开失败构造；本轮未见正常原生query制造此冲突，不与live新故障混记。
+
+主问题正确性与完整流程无缺陷分开。本批未跑写模式，不替旧只读登记/写FAIL签绿；75份完整工具载荷按原相对路径归档并逐字节核对。
+
+### 214.8 图接缝修复前的完整回归收据
+
+`98bcfe448f41`冻结代码统一`go test -count=1 -p 4 ./...`，25585正式exit0，89测试包通过、13无测试包、零FAIL；tool506.323s、tracequery143.875s、types60.672s、orchestrator63.434s，完整日志`codrax-hmc214-full-v2.log`。构建90661正式exit0，live59962正式exit0。首轮四项集成FAIL保留；图审计后新补丁须另取末版统一全仓，不将此修前收据拼接为修后通过。
+
+### 214.9 Live后的通用图接缝与独立复核
+
+图要求恢复改为同一`RuntimeDiagramRelations`原生池的支持投影，复用原来源、窗口、目标、内容冲突和关系等级校验；types通过启动时一次性非空resolver接入，工具侧与author/emit/repair/post共用结果。已安装provider返回空集合时不能绕回旧wakeup分支。只恢复用户已要求且关系可支持的sequence/flow/callDAG，不自动画图、不把observe升级成call或wakeup，不授class关系。附带Trace不能替纯源码图；typed not_applicable、无运行时请求载体或精确源码义务均不恢复，软mixed探索建议不误成硬源码前提。
+
+公开RED `transaction-required-diagram-red-v2.log`三图型均复现已有协议事实但Required=false；red-v1是测试枚举设置错误，分别保留。GREEN-v5 types1.047/agent2.090/tool1.525s、focused race-v1 types2.036/agent5.233/tool3.949s正式exit0。真实query→Agent/Bus缓存→finalizer提示→emit/repair/post闭环；缺图/修补删图拒绝、合法锚点补齐通过，错窗/错对象/歧义/身份未知/内容冲突/不兼容图型及源码边界负控保留。新查询更新旧空缓存、返回副本互不污染、注册不可替换均有回归；不把确定性修复改签本批事务live。
+
+标签修复在局部语法层统一处理实际CRLF/CR/LF，保节点身份、锚点和拓扑；错误分别指向非法标签、非法ID、已存在声明或不支持图型，不再把换行一律误报为图型。实际终端渲染暴露`&quot;`提前解码导致文字截断，独立复核又证实末尾反斜杠能吞掉后续节点/边却返回成功：依赖scanner将未闭合引号当字符串结束，不能只依靠渲染错误分支发现。对应原始红例`connector-multiline-red-v2.log`、`connector-multiline-green-v2.log`和`independent-label-audit-v1.log`均保留，设置失败日志也不删除。修复及末版收据在下一节登记，不向LLM增加本地库限制教学。
+
+**P2保留，12.5/18.4：字面HTML标签的跨渲染一致性。** 独立构造中的`&lt;br/&gt;`在flow底层二次解释为换行，而sequence保留字面`<br/>`；属于既有不同图族渲染行为，非本轮自然问题失败来源。保构造和原输出，不为此开启第三条实施线，也不声称所有图格式已永久修完。
+
+`62aacc805`冻结上述图修复。反斜杠以幂等`&#92;`保存为显示数据；终端实体只按输入解码一次，引号/反斜杠使用依赖已支持的转义。依赖在lexer前还会全局解释字面反斜杠+n，故仅该字面序列复用现有CJK碰撞安全双字节池、渲染后还原，不修改持久Mermaid源或新增占位池。容量耗尽保原文；节点/边/锚点不变，不改测量值。标准mermaid、合并图型info-line和图型别名fence的真实解析/容量失败统一走`text + # ⚠`；未尝试渲染的已知不支持图型保既有`# ·`兼容说明，避免把两类出口混为成功。
+
+最终四组`multiline-*-final-v2.log`正式exit0：mermaidcompat整包0.590/render整包1.396/tool相关1.681s；对应race1.336/4.350/7.134s。独立22子例`independent-label-audit-v2.log`正式exit0/0.770s，核对实际ASCII恰一条箭头与完整标签，而非只看无diagnostic；原v1失败及原构造保留。末版源码/测试不再变更后启动统一全仓-v3与构建-v2，收据另记。
+
+**P1继续开放，12.5/18.4：共用图归一与成功判定。** 同一完整公开构造在`98bcfe448`旧实现和修后均失败，不能将新成功的分行节点形态替代销账：①`A["literal &amp;quot; and &amp;lt; and &amp;gt; and &amp;amp;"] --> B["sink"]`经`NormalizeFlowchartQuotedEdgeFragments`的tailCandidate路径误识别，只剩sink框，丢A与边；②`flowchart LR`后只有`{unclosed bracket &quot;quote&quot; &amp;literal`时底层返回纯空白网格，当前只判空字符串而冒成功，未进入保原文警告出口。前者是关系/文本完整性，后者是错误成功，不降为美观问题。基线`connector-entities-baseline-98bcfe448.log`与现版`connector-entities-remaining-audit.log`均正式exit1；旧renderer/parse快照blob分别为`0bef85e765a4f80a9116ae2998010b26d978d103`、`6dda6a4ee37944baf1c04ed1dcbf285482c5fb42`，逐一与原commit一致，normalize.go未改。本批不改写原失败、不开第三例追绿，后续在统一语法/成功语义层解决，不让模型避用合法内联图。
+
+### 214.10 下一缺陷轨的代码预审（只读，不计交付）
+
+共同设计缺口是多阶段分类累加为义务、没有统一校验与精化。源码侧`repl/turn_outcome_obligations.go:22`把source_explanation升为required，`types/turn_route_hint.go:70`优先该位；`tool/emit_analysis.go:6252`与`types/current_source_explanation_profile.go:83`又把明确false丢成nil，`runtime_source_answer_authority_view.go:150`再OR路由位，`context/request_boundary_context.go:18`继续投递原始分类。不能以新增“不要查源码”提示掩盖状态丢失。
+
+下一片保留已有false与未声明nil的区别，不新增模型字段；false不等于exclude_current_source或权限豁免。基于现有RequestModel、当前源码义务编译器及角色/精确绑定集中生成有效义务，原route仅保分析前兜底/审计。只有完全由route派生、无独立源码要求的软义务可被已验收声明精化；当前关键代码/源码定位、实现目标、精确文件绑定、current-source obligation及有效正向解释profile均独立保留。策略、authority、解释席位和各阶段上下文一起消费，不能只放松单一完成门而提示仍反复灌旧要求。
+
+文档侧现有`toolDocumentationDimensionHasIndependentObligation`遗漏了精确定义为实测结果的`observed_value`，导致错误声明随后被completion硬执行。应在同一冲突收集器一次报全、保原维度让模型纠正，不静默删题；`member_set`/`count`/`function_or_purpose`仍可合法描述工具支持项，不能因有Trace窗口或这些通用角色就拒绝真正mixed文档。
+
+公开退出需覆盖：纯外部观察＋false＋仅软route不再被逼源码；旧nil兼容；false不撤销独立精确源码义务；测量＋正向源码解释两项保留；实测维度冒文档时聚合字段错误；合法文档成员＋实测＋源码三域独立；原值、未知协议、合法空结果和明确不足仍有出口。实施建议先声明保真/统一投影，再迁移消费者及公开交接测试；不在本批全仓等待期间改代码，也不混入事务数值成文或草稿显示第三轨。
+
+### 214.11 末版回归、归档和发布收据
+
+代码/测试冻结在`62aacc805c6d9b04e1c943f82497cb5526caf97d`后，统一`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`由35588正式exit0：89测试包通过、13无测试包、零FAIL；tool510.710s、agent111.170s、hitraceconv199.049s、tracequery140.126s、types56.943s、orchestrator61.933s。完整日志`codrax-hmc214-full-v3.log`独立于修前v2及首轮FAIL。同一冻结代码构建23239正式exit0（`build-v2.log`，dirty仅剩文档），随后未修改Go源码或测试。
+
+能力/统计代码`98bcfe448f41614bf01be44bed1e825ecd7f15e6`已普通push，43525正式exit0；图修复`62aacc805c6d9b04e1c943f82497cb5526caf97d`亦普通push，53647正式exit0，remote由98bcfe448前进至62aacc805，核对origin/main...HEAD为0/0。未force、改历史或跳过失败回归；统一文档与本批机器/人工摘要汇总提交。
+
+本地`eval/results/hmc_transaction_statistics_20261009/validation/`归档96份验证日志、失败构造和overlay/基线快照，75份原始工具载荷归档在同根`tool_payloads/`；复制后逐字节核对。原始构造用`.go.txt`防止归档被全仓发现为编译包；实际旧renderer/parse内容与指定commit blob逐一相等。所有设置失败、首轮全仓FAIL、真实事务FAIL、同ID冲突FAIL、旧新图归一FAIL均保留，没有只存最后成功日志。大体积原始结果按仓库惯例本地保留，未强行纳入Git。
+
+最终计数79=19完整交付+60开放，重复ID0；本批完整父能力新增0，新增事务交接子能力、统计准备度/中性教学修复和共享图支持/标签保真修复。开放分布41待实施/13部分实施/2待验收/3验收中/1持续执行。5稳定验收父项与本轮1份人工FAIL有交叉，不相加；原PFR失败由本次新PASS取得阶段进展，旧判定不改签。下一双轨仍为17.7量测接入→08.6 GPU前置，以及01.3/16.4统一请求义务；其它高影响图/失败终态与同ID冲突按§214.7/9挂原ID，不遗漏，也不让局部模型误述无限阻塞完整能力交付。

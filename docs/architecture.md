@@ -1378,11 +1378,17 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 
 **期望帧率观测（HMC-12.3子能力）**：`trace_query(view=preferred_frame_rate,time_start,time_end)`复用完整进程量测载体，仅在精确`H:PreferredFrameRate`协议层解释有限正INTEGER/REAL为Hz（保留119.88等值，不强转TEXT）。物理来源/IPID/filter独立；同值重叠并集，异值冲突、无有效值、无观测覆盖分开，以每条序列完整查询墙钟作分母。未知owner不借名称认定render_service。原始记录、时序、分布和省略数保留，经原`runtime_measurement` summary/distribution/timeline三表送达finalizer。无显式窗/线程选择器/未知多源映射不推断总体；没有匹配不默认60、不回退其它进程，不授权实际FPS、投票因果、帧预算或根因。三表只按完整序列降量，不截原始名称或冒充成员全集证明。
 
+**原值与统计可用性（HMC-01.3/16.4）**：原生`process_measurements`仅对已解析的精确协议给出可选派生视图，不按用户问句或自由标签猜工具。生产者私有非JSON收据区分原值与已计算统计，绑定同run、实际物理文件代次和完整有效选择器；展示limit不改变总体，换源/换窗/换对象不抵扣。当前消费者为进程期望帧率与CPU状态频率。原值可寻址不等于整窗时长/占比已经计算，只撤回自动足量捷径并给一次软导航；原值问答、显式完成或明确不足保持出口，统计到场也不证明问题全部解决。统计状态不改变当前源码是否必读、不授主窗重放或原始读取权限；并行任务仅交接已发布原生数据，不继承另一任务的模型完成声明。通用频率事实族使用领域中性标题，实际CPU证据仍保专属解释。
+
 **请求窗口生产与补查（HMC §213）**：`emit_analysis`只核验模型已声明的explicit短逐字引用，不扫描全文分类；明确单位的唯一字面区间可纠正端点并留审计警告，裸数字仅兼容已精确匹配的秒值，多窗保顺序/间隙/重复。不能唯一解释、未知单位或不支持的拓扑须修复为精确引用或既有bounded_selector，不能静默降全采集。成文前既有system补查空闲分支可重放当前成功同源view的原过滤条件，仅更换用户窗口；最多两次总查询（含C-lite预留），共用时限/跨度门，原目标因果补链优先。已有合格查询争用同一名额时，专用视图先于通用event_search，同档稳定排序；只有通用检索时仍可重放，不新选视图或增加权限。私有非JSON票据绑定物理文件代次及当前run，保attached提示原等级，新旧查询票据交叉核对；历史JSON/换源/过期/memo不能造票。结果只走独立system ledger，原模型探索不改、不把广查结果改名为主窗，不新增因果或原始读取权限。没有成功视图、非时间选择器、多源及预算之外的缺口仍诚实保留。旧inline附件fallback物化仅在逐字节相同才复用，避免无意义重写破坏来源代次，其它blob写策略不变。
 
 **渲染框架/线程角色导航（HMC-12.1）**：`trace_query(view=rendering_candidates,time_start,time_end)`消费默认准备后的真实标记和线程名，按物理来源与已知TGID分组；进程未知时只保发射TID，marker PID不代替归属。ArkUI/Flutter/KMP/RN/Web及游戏、合成服务、GLFunctor线索可并存，无命中仍为未知，不默认ArkUI，不阻止帧查询。参考索引缺少游戏/RS/GLFunctor定义时明确 `unsupported_definition`，具备识别规则也不承诺完整帧解析。名称仅是柔性导航，不产生帧连接、线程关系、量测或根因权限。
 
 候选总体先计数，展示按稳定来源/owner/框架顺序保最多32组合、每组合16种线索×4例；匹配次数是源行次数，不是帧数/线程数或严重性。候选、线索和例子的省略独立保留；裁剪索引仅描述保留范围，未知/歧义来源不跨代拼接。取消不发布半份结果。工具typed交接上限64KiB，finalizer按请求窗口/精确目标过滤完整候选、独立于主因证据池展示，最多4查询/64KiB；完整payload和原查询总体保留，不截名称、不把未显示成员判为不存在。SQLite公开默认准备及文本/单子源bundle路径共用同一引擎，真机原始格式覆盖仍按17.6/17.7单独验收。
+
+**应用事务交接（HMC-12.2子能力）**：`transaction_handoffs`在完整冻结已发布单源中按`MarshRSTransactionData transactionFlag:[tid,seq]`与`RSMainThread::ProcessCommandUni`键列表核对提交和消费；序号保uint64精确文本。窗口、目标和展示限额不缩小重复键检查总体；同次消费的多事务分支分列，事件按端点去重，窗外端点只作交接背景。源物理行、发射TID、记录TGID和已观察生命周期冲突分别保留；状态只称观测内匹配、歧义、缺端或身份/先后未确认，不宣称原数据库全体唯一或永久任务身份。被默认转换拒绝的行不在当前观察总体内，完整来源补齐仍留12.2/17.7。完整EOF扫描最多保65536协议记录/32MiB，超限不发布前缀唯一性；最多展示48键、每端4例，并独立记录省略。结果以支持性协议观察送达finalizer，不加入唤醒链/根因池，不用邻近标记补关系，不把提交到消费解释为整帧完成、线程等待或GPU执行。默认文本/SQLite及identity单子源bundle共用此路径。
+
+运行时图的支持判定复用authoring/emit/repair/post同一原生关系池，types通过工具启动时的一次性resolver接入，不增加模型字段。只恢复已请求且当前已校验关系可支持的图型，不从附件存在或业务名字授边；provider空结果不借旧wakeup兜底。精确源码图义务与纯源码问题不被运行时图替代，软探索建议也不阻断真实运行时关系。`observe`始终只是协议观察，不升级为调用、唤醒或根因。局部显式节点声明在库内规范安全标签换行并精确返回失败原因，终端兼容层负责转义与显示保真，本地依赖限制不向LLM教学泄漏。
 
 `trace_query(view=resource_stack,time_start,time_end,pid/thread)`只展开同源资源事件与源帧；显式time_end右开，默认包络包含最后已观测点，单点可查但不生成持续时间，也不证明完整采集范围。源帧载体齐全、源深度缺口/重复/无效、未知符号、真实展开终点未知和展示省略分开。先全量统计，再展示最多40事件×128帧；typed交接8事件×32帧且JSON/文字各24KiB，最终最多4查询/64KiB。预算删除完整帧、事件或查询并记省略，绝不截断符号为另一个函数名；原始payload保留。跨查询相同身份冲突不选首个；inclusive末点不得借到用户右开边界。栈仅支持资源事件的业务调用位置线索，不固定max_depth-2或最深帧为业务叶子，不把资源生命周期当执行/等待时长，不授泄漏或响应根因资格。
 
@@ -2875,7 +2881,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `event.go` | Event struct（Kind, Timestamp, TraceID, Agent, ...) + 事件类型（PipelineStart/End, StageDispatch, AgentReasoning, ToolCall, ToolResult, AnalysisReady, TaskNodeStart/End, ...） |
 | `renderer.go` / `renderer_dock.go` | CLI 渲染器（pterm.Area + 实时事件消费）+ docking station（双行状态栏） |
 | `answerdoc.go` | AnswerDocumentV2 → markdown 渲染器，block-kind-aware，多语言（zh/en），code block 语法标记，citation pool 渲染 |
-| `mermaid_render.go` | Mermaid 内嵌预览 + library-subset 的失败兜底（fence 改为 ```text` + 注入 `# · <reason>` leader；柔和 `·` 取代 `⚠` 为 9ec4bf01 的有意演化，pin 在 `mermaid_render_test.go`） |
+| `mermaid_render.go` | Mermaid 内嵌预览与保原文降级：实际解析失败、适配器耗尽等遵循L7，改为text fence并加`# ⚠ <reason>`；未尝试渲染的已知不支持图型保留9ec4bf01的`# ·`兼容说明，两种出口分别测试，不将错误冒充成功。 |
 | `apply_authority_hedging.go` | drift-bounded 答案的权威标注渲染（`[hedged]` / `[historical]` / `[illustrative]` 带状） |
 | `cjk_adapter.go` / `wrap_by_display_width_test.go` | CJK 字符等宽显示 / 换行宽度计算 |
 | `dock.go` / `dock_state.go` / `tty_preview_area.go` | 终端实时预览（finalizer 流式 summary 提取） |
