@@ -16,6 +16,7 @@ import (
 // their complete original field, type, declaration-order and JSON-tag pins.
 func resultSchemaBeforeResourceStack(t *testing.T, schema string) string {
 	t.Helper()
+	schema = resultSchemaBeforeRenderingCandidates(t, schema)
 	const added = "ResourceStack|*tracequery.ResourceStackResult|resource_stack,omitempty"
 	var previous []string
 	count := 0

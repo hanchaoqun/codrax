@@ -116,7 +116,7 @@ func TestTraceQueryRejectsUnscopedOrUnsupportedProcessScope(t *testing.T) {
 		want   string
 	}{
 		{`{"view":"frame_timeline","target_scope":"process"}`, "explicit positive pid=<process_id>"},
-		{`{"view":"wakeup_chain","pid":100,"target_scope":"process"}`, "frame/span discovery scope only"},
+		{`{"view":"wakeup_chain","pid":100,"target_scope":"process"}`, "process scope supports frame/span discovery and rendering_candidates navigation only"},
 	} {
 		result, err := tool.Execute(nil, json.RawMessage(tc.params))
 		if err != nil {

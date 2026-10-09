@@ -1,0 +1,7 @@
+ID="trace_rendering_candidates"
+NAME="Rendering discovery — multiple processes and mixed framework signals"
+QUESTION="请看看这份采集在1.000到1.050秒里有哪些渲染框架线索，分别涉及哪些进程和线程？如果后续排查掉帧，应该从哪些线程和标记入手？"
+HTRACE_FILE="eval/fixtures/hmosperf_rendering_candidates/events.systrace"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

@@ -1299,6 +1299,8 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 		t.Fatalf("resource-stack producer fixture did not publish its complete population: %+v", resourceStack)
 	}
 	records = append(records, resourceResult.Observations...)
+	renderingResult, _, _ := renderingCandidateQuery(t)
+	records = append(records, renderingResult.Observations...)
 	if len(records) == 0 {
 		t.Fatal("fixture produced no observation records — the emit pin is checking nothing")
 	}

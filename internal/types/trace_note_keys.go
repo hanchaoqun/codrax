@@ -416,6 +416,10 @@ const TraceNoteKeyBusinessSpanSchedulerStates = "business_span_scheduler_states"
 const TraceNoteKeyBusinessTreeNode = "business_tree_node"
 const TraceNoteKeyProcessProfile = "process_profile"
 const TraceNoteKeyCPUStateFrequency = "cpu_state_frequency"
+
+// Advisory rendering signatures; never an execution, frame or causal claim.
+const TraceNoteKeyRenderingCandidates = "rendering_candidates"
+
 // Full recorded native resource frames; no execution or causal authority.
 const TraceNoteKeyResourceStack = "resource_stack"
 const TraceBusinessTreePredicate = "trace_business_tree"
@@ -1678,6 +1682,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyBusinessTreeNode, "business_span", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyProcessProfile, "process_profile", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyCPUStateFrequency, "cpu_state_frequency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyRenderingCandidates, "rendering_candidates", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyResourceStack, "resource_stack", TraceNoteCarrierSoftConsumer},
 	// XLANE-2 件2 (2026-07-17): the self-gap seat's semantic-overlap
 	// disclosure roster — projection compile parses it into

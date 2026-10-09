@@ -452,6 +452,13 @@ func Run(idx *Index, q Query) Result {
 		return cachedFrameTimeline
 	}
 	switch q.View {
+	case ViewRenderingCandidates:
+		candidates := buildRenderingCandidates(idx, q)
+		if faceCanceled(ViewRenderingCandidates) {
+			break
+		}
+		res.RenderingCandidates = candidates
+		res.Caveats = append(res.Caveats, candidates.Caveats...)
 	case ViewResourceStack:
 		stack := buildResourceStack(idx, q)
 		if faceCanceled(ViewResourceStack) {

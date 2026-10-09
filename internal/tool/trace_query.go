@@ -280,7 +280,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))
+	return traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -385,12 +385,12 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			}, nil
 		}
 		switch view {
-		case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle":
+		case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", tracequery.ViewRenderingCandidates:
 		default:
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
-				Summary:   fmt.Sprintf("trace_query rejected target_scope=process for view=%q: process scope is a frame/span discovery scope only; use span_window, frame_window/render_pipeline, frame_timeline/frame_flow, or frame_root_cause_bundle, then continue scheduler/wakeup/rank analysis with the returned exact member TID", view),
+				Summary:   fmt.Sprintf("trace_query rejected target_scope=process for view=%q: process scope supports frame/span discovery and rendering_candidates navigation only; use span_window, frame_window/render_pipeline, frame_timeline/frame_flow, frame_root_cause_bundle, or rendering_candidates, then continue scheduler/wakeup/rank analysis with the returned exact member TID", view),
 				Timestamp: time.Now(),
 			}, nil
 		}
@@ -5203,6 +5203,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.ResourceStack != nil {
 		b.WriteString(TraceResourceStackText(boundedResourceStackHandoff(*result.ResourceStack), 8))
 	}
+	if result.RenderingCandidates != nil {
+		b.WriteString(TraceRenderingCandidatesText(*result.RenderingCandidates, 12))
+	}
 	if result.Timeline != nil {
 		b.WriteString("## Thread timeline\n")
 		if head := result.Timeline.HeadState; head != nil {
@@ -9126,6 +9129,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQueryProcessProfileObservations(result.ProcessProfile, ref, scope, at)...)
 	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
 	out = append(out, traceQueryResourceStackObservations(result.ResourceStack, ref, scope, at)...)
+	out = append(out, traceQueryRenderingCandidatesObservations(result.RenderingCandidates, ref, scope, at)...)
 	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {
 		integrity := stats.WakeupTargetCPUIntegrity
 		if integrity.Status == tracequery.WakeupTargetCPUIntegritySuspectedDegradedAllZero &&
