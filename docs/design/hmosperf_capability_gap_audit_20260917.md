@@ -5995,3 +5995,73 @@ B有已证系统上下文缺口，不归笼统模型波动：actual finalizer的
 Go代码及测试冻结在`5c13c1993`后，统一`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`由40421正式exit0，89测试包通过、13无测试包、零FAIL；原始完整输出`codrax-hmc211-full-v2.log`归档，不拼接分包绿。构建27221正式exit0，版本`5c13c19939a7-dirty`（仅本批文档/审计待提交），记录`codrax-hmc211-build-v2.log`。首轮全仓89个测试包中87通过/2失败的原件`codrax-hmc211-full.log`保留，不冒称从未失败。
 
 四笔代码/测试由91768普通推送main正式exit0，远端从`f7e51691b`到`5c13c1993`，无force或改写历史。按原12.1实现退出条件销1项：79=19实现交付+60开放，43待实施/11部分实施/2待验收/3验收中/1持续执行；独立两组系统子能力交付不重复增加父项数。五验收父项、此次人工0/2和全部旧FAIL保持原判；只读登记未命中、GPU/统计协议前置及新增身份/请求端点缺陷均在原ID保留。
+
+## 212. 进程量测无损接入与通用成员身份（2026-10-08，实现已交付，整答验收未通过）
+
+### 212.1 起点与退出边界
+
+从干净`a50d943f7`继续，唯一ID复算79=19实现交付+60开放，无重复；43待实施/11部分实施/2待验收/3验收中/1持续执行。上一批两份人工FAIL及五验收父项保持原判，不把确定性修复倒签为live通过。
+
+能力轨按17.7推进`process_measure`无损接入：亲查参考`docs/sql_schema.md:1197`，设计意图是按真实进程与filter记录带持续区间的量测，而非采样线程的执行或CPU控制。现有导出丢弃dur并将NULL value写0，属于源事实损失。退出要求默认准备、精确值/缺值/区间/进程身份、窗口查询、来源绑定量测表及实际finalizer贯通；单位、内存存量/增量未获协议时不从名字推断。不把17.7其它输入格式、持续写入、普通viewer或实机矩阵代销。
+
+缺陷轨按01.3/16.4修§211已证9成员→6的错误合并：显示名称兼容与实体身份等价分开，未知括号限定不能被当成装饰删除，跨拼写合并需正向同身份凭证；保成员、support、notes、count一致及幂等。覆盖非Trace租户/版本、来源/坐标冲突、单侧未知和实际emit/merge路径，不新增PID/框架关键词表或问答原文硬门。请求端点与引用绑定仍独立留账，本批不第三线扩展。两轨各跑相关公开RED/正反/race后冻结，再统一全仓；恰好两例真实评测并行各一次，原失败不覆盖。
+
+### 212.2 参考意图与实现边界
+
+复读参考`docs/sql_schema.md:1197–1221`与`config/indicators/rendering/preferred_frame_rate.yaml`、`game/game_launch_phases.yaml`：`process_measure`是进程所属的异构指标，既可承载内存，也承载刷新率或业务状态。参考schema只给ts/dur的ns单位，不能推导通用value的字节、累计、存量或增量语义。明确指标协议下的PreferredFrameRate与GameGScene状态才有各自业务意义；本批不复制按任意filter ID猜游戏边界或给所有指标套内存单位。
+
+默认准备器改用独立typed载体，保真实rowid/filter/ipid、进程、原始TEXT类型和SQLite数值存储类；原始数据库字节不变。NULL/0、超大整数、非法存储、缺/负/溢出持续时间分别保留。完整冻结单源扫描后按整数ns选显式区间交集；窗前跨入保原起点，右边界不混入，未知时长只计时间点，未知ts独立记不定位数量。相同PID不同采集内身份不自动合并；同名filter/进程不借名绑定，重复键/未知归属不JOIN广播。采用既有代次验证、EOF审计和有界保留，耗尽不发布半份总体；支持已验证identity单子源bundle，不给多源或仿射映射自动合并权威。
+
+新`process_measurements`默认全进程、可选精确进程PID，线程目标不继承为进程，schema/能力目录/技能说明复用同一约束。不另造JSON合同：通过现有`runtime_measurement`选择器交付summary/members/timeline，保精确源值、区间交集、未知和逐级省略，64KiB只删除完整记录，不截断名称/整数、不污染完整query载荷。按来源/owner/filter整理序列而不做通用SUM/增长；无MemberSet完成凭证，不给线程执行、CPU供给或根因授权。实际finalizer→Emit/Patch→render保持模型正文与自定义表原样，来源/窗口变化撤回旧选择器，不改变Trace因果投影。
+
+独立审查补齐了同一能力的三个接缝：原排序替身0不能成为已知source time，通用event_search须保真实时间可知性与typed指标名称发现；新typed语义须被精确事件族注册（`Validate(nil)`不是已保语义的证明）；空测量表仍向finalizer展示可用性/未知说明，不能让缺行变成0。新Result字段和Event JSON增量均保历史schema/hash见证，旧family不借新来源判别值。预备阶段发现能力目录漏metric refs，按真实字段补descriptor而非豁免测量要求；首轮FAIL原件保留。
+
+### 212.3 成员身份与证据边界
+
+`2c76ffd42`统一单次规范化、fact identity及跨completion成员合并的身份判定：同短名、单侧来源、同局部时间、basename后缀或大小写相似不能建立同一实体；未知括号内的租户/版本/进程限定不丢。具有同一精确来源坐标的完整名和短显示形式仍可合并，但保留更具体名称，短别名不能在三元序列中桥接两个冲突的完整名。opaque来源引用与inline坐标是独立轴，不能因坐标相同抹掉工件代次；序列化再归一化保持幂等，备注/引用/计数一起保真。
+
+同时删除工具“没有grounding就去掉装饰、让裸符号自动解析”的矛盾教学及无证删括号支路。已有grounded inline叙述修复及真实SurfaceEvidence自动补完整显示路径继续正控；旧basename/fullref自述就升级精确源的测试改成无证负控+真实证据正控，count/exclusion本职测试给完整坐标，不放宽同名异源。跨租户、来源大小写、单侧引用、重复调用、六种短名桥接顺序及不同opaque代次均覆盖。独立复查无新增阻断；旧冒号叙述究竟是解释还是版本限定的typed角色区分仍是01.3/16.4待验证审计项，不靠关键词立新门，也不在本批展开第三施工线。
+
+公开9→6、再次归一化2→1、短名桥接3→1的RED原件保留。末版types整包54.697秒、相关types/tool0.898/1.360秒、race2.587/5.981秒均正式exit0。能力轨`2bf044259`相关四包及race通过（hitraceconv50.665、tracequery64.572、tracewire2.190、types264.455秒）；组合源时钟另有公开matrix0.597秒/race1.724秒，证明process载体仅可来自identity主源，仿射perf子源不能偷渡同型记录，未新增时钟权限。
+
+### 212.4 两例真实评测与上下文审计
+
+冻结`2c76ffd425c7-dirty`（仅文档未提交）后恰好2并行×1，机器2/2、完整人工0/2：[机器记录](../../eval/parallel_selected_summary_hmc_process_identity_20261008.md)、[人工审计](../../eval/parallel_selected_summary_hmc_process_identity_20261008_manual_audit.md)。230秒进程量测与293秒渲染线索均正常完成，无timeout、工具不可用或成文拒绝；没有第三例追绿。结果目录`eval/results/hmc_process_identity_20261008/`按仓库既有策略本地留档、不提交大体积机器日志；54份工具参数/结果/完整载荷另存`payloads/`，与两份原blob目录逐字节一致，其中8份完整query JSON的文件名SHA前缀均吻合。可提交的机器摘要、人工结论与独立oracle和fixture进入版本库。
+
+- **进程例：限定数据链通过、整答FAIL。** 默认20KiB SQLite只读准备→query→实际finalizer三表贯通，11条入选与1条未知起点分列，右界9900排除，双owner/NULL/TEXT/0/大整数/原区间不丢。日志2823–2839的4组summary完整覆盖两应用与两个其它指标，members/timeline可精确选用，已给单位/存量语义未知及无因果授权。模型未选任何原生表，最终将数值差当内存增长、单点Page faults=0当排因、大整数猜成特殊码，Beta先降却称单向增加；单位免责声明不抵消越权。
+- **渲染例：身份修复路径命中、整答FAIL。** 本次五份analyzer均正确保[1,1.05)，不是§211错IR再次复发；全部六次query却显式到1.051，完整候选专栏被正确范围门过滤。日志2927排除22条越窗观测、2971只剩补充范围generic片段、3035用户窗仍正确，证明缺的是当前请求窗主查询。两次completion输入9个有owner限定成员且实际跑修复归一化；无归一化后逐行快照，不夸大为live最终9→9见证。最终“6类”下列11项属于不同口径成文错误，不以数字巧合重开旧9→6缺陷。终稿仍纳右界PID900、KMP改ArkUI、跨独立进程串统一流水线；无Mermaid，不代签旧图失败。
+
+两例均无源码调查。进程例预检只有未知起点123的显著预览，先验误认为只有一条/一个应用，探索已纠正；最终正确原生表虽到达，current/previous model closure两次重复错归纳，与typed语义上限竞争。它们已标advisory，不是系统明确授予因果权限，但足以构成上下文精简/派生事实分层的泛化改进方向。未证明随机波动，不用“模型波动”销账；也不为整数、框架或某句再加关键词门。
+
+独立审计另发现本批能力接缝：`context/attached_trace_semantics.go`仍用载体排序时间，将process未知起点外层显示为0，和内层source.start_ns unavailable矛盾。公开event_search已复用source-time known，预览消费者未复用；这是当前保真交付的确定性缺口，在live之后修同一能力，不展开第三主线，原始live FAIL保留。观察端点范围也不能冒充独立capture边界；其余extent来源权限继续挂17.7/01.3审计，不能仅修外层显示就销所有时间口径。
+
+### 212.5 后继参考能力与ROI排序
+
+亲查参考`preferred_frame_rate.yaml:12–35`、`frame_rate_ops.py:160–209,275–320,552,861–863`及`test_preferred_frame_rate_indicator.py:34–48`。设计意图是把期望帧率持续段变成可比较的覆盖分布，并提供帧率变化的投票线索。可借鉴“区间交集、完整窗分母、分布+原始窗口+来源”组合，但不能照抄四点：过滤为空回退其它进程、含糊的后发生效裁剪、`int(value)`截断REAL、时间后首个VoteRes就作为官方决定者。参考测试明确REAL/120.0，通用process层不应因此授所有REAL整数权；协议层可明确接受有限REAL Hz并保原值。`ui_frame_ops.py:269`及`jank_interval_ops.py:321`的缺失回退60已进入实际severity消费者，新观测能力不应顺带接此预算。当前callstack exporter尚未保parent_id，投票父子/轮次/结果关系仍需独立来源证明。
+
+下一双轨均保原ID和独立退出条件：
+
+1. **能力P1，12.3期望帧率观测与覆盖子能力。** 复用本批默认process接入，加明确协议的Hz、来源/IPID/filter隔离、完整窗覆盖、同值并集/异值冲突/空洞未知及原始投票事实。值缺失、无owner或目标无记录不补60、不借别的进程；不宣称实际刷新率、帧预算或“此次变化由邻近投票决定”。自然双例可问“各进程期望帧率怎样变化”及“为何降帧，有哪些投票证据”，守护验收放独立oracle。交付这一独立子能力不等于12.3完整请求—决议因果关联。
+2. **缺陷P1，01.3/16.4请求范围闭环。** 同时覆盖两个已证接缝：§211准入只验引用存在/数字有序而未绑定引用端点；§212正确IR仍缺同源同view当前请求窗查询。仅解析已声明explicit窗口的短原句范围表达式、确定性校验数字/单位/端点，保多窗/间隙/原序，不扫整题关键词作意图门；对实际typed查询集合提供有界补查，不覆盖模型显式扩展探索、不放宽finalizer范围或窗外因果权威。无法唯一解释时不能默默降为全采集。
+3. **后续P1/P2，01.3/16.4原生观测优先交接。** 按同源收据减少重复旧closure，把原值、派生算术和业务解释分层，保真实来源表与未知语义；不逼模型重抄、不系统代写答案。上下文预览代表性及extent provenance与此协同，逐个公开反例退出，不将一次大整数误述扩为新特殊规则。
+4. **原债与协议前置。** 12.2首个精确帧实例/跨线程连接器优先于未经证明的投票因果；08.6 GPU仍欠单位/状态/资源关联，14.1 native_hook_statistic仍欠增量/累计/量纲及typed导出。17.7持续写入/多来源代次/其它表/viewer、17.6实机、只读登记来源终态/多框架与五验收父项不销。既有充分证据下的单句误述留原FAIL，不让其独占后继能力轨。
+
+### 212.6 首轮全仓失败与同类接缝闭合
+
+首轮统一全仓49966正式exit1，原始`codrax-hmc212-full.log`完整保留：86测试包通过、3测试包失败、13无测试包。三个失败不能只看日志尾部误记为一个，分别是hitraceconv的Profiler发布资源斜率、tracequery的普通perf事件分配量，以及tool的旧repo-specific relation fixture。先收齐原轮结果、统一修复再启动末版，不叠跑全仓。
+
+`a38e261c1`解决前两项共同根因。新增process row在格式探测不命中时也因`&row`逃逸；普通四类事件每行稳定多1次分配，当前独立count5复现perf55.68–55.69/原上限55，父`a50d943f`隔离源码count3为54.68且通过。compiler escape原始输出与父对照保留。Profiler实际每个有效f2fs输入行经三个准入/时标路径调用解析，额外约3×352B；large/small分配斜率约962.837MB而原容许911.909MB，retained内存/FD不异常，故不是保留泄漏或仅并发噪声。
+
+修复仅在精确载体prefix命中后声明并取址原生row，不改协议、容量、全部旧性能门或fixture。GREEN count5恢复四类父成本；相关回归1.253秒/race1.937秒。独立Profiler原门连续3次26.090秒均通过，斜率约910.032MB低于原911.909MB；18项相关发布/配对/进程导出回归0.811秒/race3.121秒，FD、侧账尺寸、保留内存和清理断言不变。
+
+`11914baaa`只修测试接缝：旧“不得内置某仓库stage/agent关系权威”fixture同时携无来源括号限定，过去被静默剥除，现正确触发通用grounding。保原stage/agent样式和陷阱文件，拆bare正常与qualified缺证应降级两条，同时要求均不得发起内置authority读取/修复。生产门未改，相关1.250秒正式exit0。
+
+`25f1f9a78`闭合live发现的预览时间接缝：精确复用`ProcessMeasurementSourceTimestamp`，只有新process事件加source_time_known，unknown保整条可读语义但省时间字段，0/负值及MinInt64/MaxInt64无溢出精确显示。普通事件JSON行逐字节不变，实际BuildPromptContext三个阶段均覆盖九种时间存储，未安装额外观测或关系。公开RED原件保留；相关0.779秒/race2.038秒/整个context2.544秒均正式exit0。发生在live后，不倒签此次模型结果。
+
+### 212.7 冻结末版回归与发布收据
+
+Go代码及测试冻结在`11914baaa627`后，统一`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`由53925正式exit0：89测试包通过、13无测试包、零FAIL。tool503.233秒、agent104.389秒、hitraceconv189.912秒、orchestrator58.160秒、tracequery139.056秒、types57.166秒；完整输出`codrax-hmc212-full-v2.log`保留，不拼接早期分包结果。末版构建47945正式exit0，revision `11914baaa627-dirty`（仅文档/审计待提交），记录`codrax-hmc212-build-v2.log`。
+
+本批68份验证/构建日志按原名归档到`eval/results/hmc_process_identity_20261008/validation/`并逐字节核对，包含首轮完整FAIL、公开RED、父版本成本对照、compiler逃逸证据与末版GREEN；54份工具载荷及两份原始失败终稿仍保留。冻结后只更新文档，不为文档变化重跑完整测试，也未补跑第三个live。
+
+五笔实现/测试提交由13466普通推送main正式exit0，远端从`a50d943f7`到`11914baaa`，无force或历史改写。统一清单、架构及机器/人工摘要合批收尾。完整父能力新增0、累计19/79，60项开放；两组子能力/修复已交付，五验收父项及本批人工0/2不倒签。下一能力轨为明确协议的期望帧率观测，缺陷轨为请求端点及主范围查询闭环，详见§212.5。

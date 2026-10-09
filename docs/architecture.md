@@ -1104,7 +1104,11 @@ CPU状态×频率同样注册`summary/distribution/timeline`，不支持`members
 
 `RuntimeMeasurementPublication`核对成功原生查询、完整SourceRef、query/payload身份及精确ID/view，显式用户窗不能借外窗统计；未知连续窗的行查询独立披露。Emit与Patch绑定同一当前contract，私有`BoundTable`不进入模型/持久JSON。保存后恢复通过`RebindRuntimeAnswerReceipts`对测量和工作关系一起原子重绑：供给消失/换源/换窗不覆盖accepted稿，不回退旧字符串冒充当前证据。选择后渲染全部已保留的producer行，预览容量不成为计算总体；系统不重新计算值、不从正文修数字。当前测量表业务标签仍以producer英文为主，统一中英展示与精确说明去重按HMC-16.4/16.5留账，不冒称已覆盖该新载体。
 
+进程原始量测注册`summary/members/timeline`，不提供未获协议的分布聚合。summary按来源、真实进程/filter及原始类型整理保留观测序列，members保精确原值/起点/dur，timeline另列窗口交集；三表共同保留完整行、省略与未知说明。源值可能并非字节或内存存量，不计算通用增长/累计，也不把指标名称当协议。工具发布64KiB有界表时只删完整记录，三表保持一致，完整query载荷不变；不附成员全集完成凭证，不代替因果链或线程执行证明。
+
 ### 6.4 AnswerSemanticView — 把问题家族编译成"答案合同"
+
+成员集的显示别名与身份去重分离：未知括号限定、大小写、完整来源坐标及opaque来源引用不能仅因同一短名而合并。跨拼写合并要求两侧精确来源坐标与限定信息一致，并保留最具体名称，短别名不能桥接两个不同全名；有inline坐标和独立来源代次时两轴都保留。规范化、fact身份与跨completion成员合并采用同一原则，引用/备注/数量对齐且重复归一化幂等。缺证据不再通过删限定词变成裸符号来放行；已有grounded evidence仍能正常补全显示路径，展示匹配本身不铸实体身份。
 
 运行时工作关系的请求由 `RuntimeWorkRelationRequested` 统一读取 typed profile 或 active required展示维度，Agent/Bus/schema/教学不得各认一套。有精确业务工作行时保留模型自选的 `runtime_work_relation` 回执及原证据上限；无候选时schema不发布回执，模型可用可见principal `caveat`＋`runtime_work_relation/uncertainty_boundary` facets说明缺证。该形只承载展示边界，不生成观测或因果结论，不把调度/IO状态变成业务工作，也不否定已有链上证据。初稿、覆盖提示和维度位置识别共享此供给分支；系统不从正文判断是否确实缺证或替模型编写说明。
 
@@ -1367,6 +1371,10 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储），每次只接受一�
 **量测维度与查询窗口交接（HMC-16.4）**：`observed_value`统一承载数值、分布、时序、占比和缺测说明；`function_or_purpose`用于函数/组件职责。共享operation适用域不会把软mixed/required意图或无关源码读取升级为量测的源码义务；只有同记录、可寻址、`direct_observation`的确定性查询能支持该域判定。独立源码outcome/profile、精确目标和文件绑定仍保原要求，模型自标producer不能借用工具权威。查询范围披露优先用`SourceRef`收据，行选择/无效窗口保持未知，不从事件Span或递归子窗口猜父查询范围；只对无新收据的旧单窗载体保留原显示兼容，不改变准入/根因资格。
 
 **原生资源调用栈（HMC-03.3）**：默认二进制/SQLite准备器从同一封存库的`native_hook`资源事件建立itid/ipid与线程/进程生命周期归属，再关联本库callchain帧。没有Running/CPU见证仍可保资源事实，但CPU未知；不能借裸callchain跨采集关联。`codrax_resource_stack/v1`独立载体保有符号ns、物理rowid、原始id、调用栈深度、IP/地址位型、offset、symbol offset及vaddr；整数以精确十进制字符串交接，缺值有状态，字典重复ID不任取或JOIN倍增。ParserVersion v54隔离此前无栈索引的缓存。
+
+**进程量测（HMC-17.7子能力）**：`trace_query(view=process_measurements,time_start,time_end)`默认查询所有原始owner，可选进程pid，不借线程目标当进程。默认二进制/SQLite准备经`codrax_process_measure_interval/v1`保存物理rowid、filter/ipid、真实进程、原始type、signed ns起点/dur及SQLite值存储类；NULL、真实0、缺列、REAL/TEXT/BLOB及大于2^53整数分开，不补CPU/TID。未知或歧义filter不JOIN倍增、不猜owner。完整冻结单源扫描到EOF后按整数ns裁剪显式区间，允许窗前跨入；缺/负/溢出dur只保窗内时间点，重叠不合并，洞不填，右界遵循显式右开。未知ts不分配到窗口，独立计数；有界保留耗尽不发布残缺总体。合格identity单子源bundle可查，跨源/仿射/过期映射不拼接，ParserVersion v55隔离旧索引。
+
+该载体的非负排序坐标不等于物理来源时间。event_search和附件解码预览复用signed source-time known：未知不显示0，真实0/负值保留；预览仍无观察/关系授权。可选原生载体只有精确格式命中后才构造大对象，普通事件不为探测支付每行堆分配，原分配/发布资源界限继续适用。
 
 **渲染框架/线程角色导航（HMC-12.1）**：`trace_query(view=rendering_candidates,time_start,time_end)`消费默认准备后的真实标记和线程名，按物理来源与已知TGID分组；进程未知时只保发射TID，marker PID不代替归属。ArkUI/Flutter/KMP/RN/Web及游戏、合成服务、GLFunctor线索可并存，无命中仍为未知，不默认ArkUI，不阻止帧查询。参考索引缺少游戏/RS/GLFunctor定义时明确 `unsupported_definition`，具备识别规则也不承诺完整帧解析。名称仅是柔性导航，不产生帧连接、线程关系、量测或根因权限。
 
