@@ -6065,3 +6065,74 @@ Go代码及测试冻结在`11914baaa627`后，统一`SDKROOT=/Library/Developer/
 本批68份验证/构建日志按原名归档到`eval/results/hmc_process_identity_20261008/validation/`并逐字节核对，包含首轮完整FAIL、公开RED、父版本成本对照、compiler逃逸证据与末版GREEN；54份工具载荷及两份原始失败终稿仍保留。冻结后只更新文档，不为文档变化重跑完整测试，也未补跑第三个live。
 
 五笔实现/测试提交由13466普通推送main正式exit0，远端从`a50d943f7`到`11914baaa`，无force或历史改写。统一清单、架构及机器/人工摘要合批收尾。完整父能力新增0、累计19/79，60项开放；两组子能力/修复已交付，五验收父项及本批人工0/2不倒签。下一能力轨为明确协议的期望帧率观测，缺陷轨为请求端点及主范围查询闭环，详见§212.5。
+
+## 213. 期望帧率观测与请求范围闭环（2026-10-08）
+
+### 213.1 起点与双轨退出条件
+
+从干净`4e8a8c1e5`继续。独立按稳定条目复算79个唯一ID=19实现已交付+60开放，重复0；43待实施/11部分实施/2待验收/3验收中/1持续执行，18类均有余项。旧人工FAIL及五验收父项保持原判。
+
+能力轨12.3：亲查参考`preferred_frame_rate.yaml`及`frame_rate_ops.py`，复用“区间交集、完整窗口墙钟分母、Hz分布与覆盖”的设计，不移植REAL截整、异值后发覆盖、目标无结果回退其它进程或缺值默认60。默认process输入→精确协议→逐来源/IPID/filter时序/分布/冲突与未知→来源绑定量测三表→实际finalizer为本批独立退出；不宣称实测FPS、显示帧预算、票决因果或12.3整个父项完成。
+
+缺陷轨01.3/16.4覆盖两处已证接缝：模型已声明explicit短逐字引用与端点的确定性绑定；正确IR之后缺少主窗查询时，在既有补查通道空闲分支重放当前成功同源查询的原view/过滤器，仅更换请求窗。保原探索、自动补证、原目标因果补链优先、当前代次、共同预算与独立system结果槽；不扫用户/答案全文关键词、不由相邻上下文造目标/因果。逐个公开RED后修复，相关回归先行，冻结后统一全仓，固定新期望帧率与旧渲染候选两例并行各一次；失败不删除、不追加第三例。
+
+### 213.2 参考意图、实现与独立验证
+
+参考`config/indicators/rendering/preferred_frame_rate.yaml`解决不必进入完整掉帧链即可查看期望帧率环境的下钻问题；`core/preprocess/frame_rate_ops.py`的区间合并与完整查询墙钟分母值得复用。但其`int(rate)`丢小数，异值后发裁剪可能丢旧尾，render_service过滤空回退所有进程不能成为目标授权；UI默认60和全局后首个VoteRes也不提供真实owner/轮次证明。
+
+`6c2da84f5`新增原生`preferred_frame_rate`，沿已冻结process carrier解释精确协议，不另造模型JSON。正INTEGER/有限REAL保Hz原值（包括119.88），TEXT/缺值/不合法值不强转。按来源/IPID/filter隔离，同值并集、异值冲突、无有效值、无覆盖分账；保原始记录和逐级省略。通过原三表summary/distribution/timeline选择器进入实际finalizer/emit/patch，不增加成员全集、实际FPS、线程或根因权威。三表预算只去整系列，极长身份不截断、不借相似进程拼接。
+
+独立审查发现时序段原始见证只保首行时，相邻段虽首行/数量相同但实际来源集合变化，旧合并会少算来源行数；新增独立RED后，只有完整见证可判等才合并，省略见证段保守分开，频率分布仍按同值并集计算。来源单子源正控、多源/仿射/过期负控、REAL/未知与完整扫描、64KiB多长名系列及单系列超限、actual finalizer供给均经过公开回归；原失败不删。
+
+### 213.3 请求范围两处闭环与来源保护
+
+`e3028baa7`在已有explicit producer上绑定短逐字引用，支持精确十进制单位算术与共享单位，保多窗顺序/间隙/重复；明确单位且唯一literal可纠正错端点并留下审计警告。裸数字只有typed秒值精确匹配才兼容，冲突、未知单位、时钟token局部匹配、未支持拓扑不猜测；原子repair且不覆盖前一份RequestModel，不默改全采集。仅解析已声明引用，不按全文关键词路由。真实emit→prepare→resource_stack证明精确窗口、三事件、右开和系统默认窗来源，用户无需背工具参数。
+
+`6c2da84f5`在原补查通道无目标/无需原核心补链的空闲分支消费当前成功原生调用私有票据，只换请求窗端点，不造view/目标，不删原探索；所有成员合计最多两次引擎调用、共用deadline/跨度门，C-lite预留、重复窗复用、空结果成功及预算未完成披露分开。实际BuildAgentContext→system ledger→finalizer instruction公开正控验证[1,1.05)候选送达且PID900排除，原[1,1.051)结果仍独立保留。
+
+票据非JSON，绑定物理文件版本和run generation；原有效过滤器及attached提示原等级保留，不把弱平台提示变成tool_param。路径规范化并比对新旧查询票据，历史JSON/换源/代次变化/取消/memo不能借票。同一次inline附件fallback每次重写同内容曾使票据失效：只在这一条物化路径分块逐字节核验后复用同文件，其它blob写策略不改。相关原始FAIL、无意义改代反例、真正内容变化负控均保留。独立原始读取权限、精确目标补链与Trace因果投影不变。
+
+不包含范围：无成功原生视图、需要line/span/业务实例/recipe等非时间上下文、多个物理来源、超过两次预算的缺口仍待后继工作；未支持的自然语言时间选择器仍走既有bounded_selector，不宣称任意表达式解析。12.3仍欠动态刷新与投票事实/owner轮次关联，父项仅转部分实施；01.3/16.4及旧人工FAIL不销。
+
+### 213.4 首次冻结、两例真实评测与上下文审计
+
+`e3028baa7`、`6c2da84f5`冻结后构建正式exit0，revision `6c2da84f5eaa-dirty`仅文档待收尾。相关六包、整包skill、必要race/原分配门已通过；root补查相关tool2.941s/types0.989s，登记快速组tool7.893s/types18.528s/agent37.146s/tracediag0.655s/hitraceconv1.729s均exit0，真实finalizer集成1.042s。补查相关race最终tool22.392s/types59.054s/agent195.244s正式exit0。首轮完整回归83501正式exit0，89测试包通过、13无测试包、零FAIL，`codrax-hmc213-full.log`保留；live后仍有Go修复，故不把此轮充作末版收据。
+
+固定PFR+渲染两例并行2、各一次，runner49176正式exit0，机器2/2、完整人工0/2：[机器摘要](../../eval/parallel_selected_summary_hmc_frame_rate_scope_20261008.md)、[完整人工审计](../../eval/parallel_selected_summary_hmc_frame_rate_scope_20261008_manual_audit.md)。191s/307s均正常完成，无第三例追绿；两例未读取仓库源码。54份工具载荷按原运行目录另存`eval/results/hmc_frame_rate_scope_20261008/tool_payloads/`，逐字节核对一致。原始日志、终稿和失败判定保留。
+
+- **期望帧率：原值通路通过，派生查询未命中。** 新view教学实际提供，但模型仅做3次`process_measurements`，均为正确[1,2)，从未调用`preferred_frame_rate`。当前充分性提示在原始小表到达后催收口，completion先行手写聚合；实际finalizer已收到原始三表，非数据缺失。终稿将NULL转0、TEXT转Hz、未知dur/空洞补连续区间；filter10应为已知500ms、异值冲突100ms、值未知200ms、无覆盖200ms，120/60/119.88Hz分别300/100/100ms，最终多项错误。正确的“不能证明实测刷新”限定不能抵消数值错误；不冒称新算法已live命中。
+- **渲染：主窗重放真实命中，预算排序暴露确定性缺陷。** 所有analyzer均保用户1..1.05，模型4次查询却仍显式到1.051。新补查确实执行主窗event_search；按query key字母序优先通用检索，C-lite预留后没有名额补已有rendering_candidates，未生成主窗候选专栏。终稿仍列右界PID900、7进程下列9个PID、跨进程串Flutter/RN流水线、将KMP说成HarmonyOS、用标记名称推GPU执行和无证阈值/瓶颈。这些语义误述不能由单个排序修复保证消失。本次无Mermaid，不代签旧图FAIL；端点producer纠错分支也未live命中，不夸大收据。
+
+失败不是已证随机波动：原始观察、派生统计与业务解释未分层，专用查询路由和所求维度充分性有系统可改进空间。后继按结构化protocol/所求维度/来源receipt作软导航和精确证明，同源旧closure去重；不继续堆重复警告、不把守护约束塞给用户，也不扫描问答原文加硬门。
+
+### 213.5 Live发现的预算排序缺陷与公开修复
+
+`2f5afc9b6`仅在已有当前成功、同源原生票据集合内，把非通用event_search视图排在通用检索之前；同档仍按规范参数稳定排序，不依赖并发完成先后，不新造view/目标/关系、不更改max2共同预算、C-lite预留或原因果补链优先级。只有通用检索时仍重放原过滤器和精确请求窗，不把软排序变成禁止raw查询。
+
+公开反例使用原真实采集中的generator行，在保原C-lite前提下同时放入已成功的宽窗专用/通用查询；两种插入顺序都应先补主窗语义候选，再执行windowless census。首次测试设置遗漏既有AnalyzerHints，`priority-red.log`属于前置设置失败，不能当作产品RED；补齐真实前置后`priority-red-v2.log`正式exit1，两个顺序均错误执行event_search/event_search，raw-only负控通过。修后GREEN正式exit0（tool8.855s/agent1.285s），race正式exit0（tool3.555s/agent3.952s）。两次调用、真实generator、右界PID900排除、原ToolResults/调用窗登记字节保留、raw-only过滤条件及预算缺口披露均断言。
+
+修复发生在live之后，本次两份人工FAIL不改签。Go/测试再次冻结在`2f5afc9b6`后重新执行统一全仓与构建，最终收据见§213.7；没有第三例重跑。
+
+### 213.6 下一批参考意图与ROI顺序
+
+能力轨优先12.2的一段完整事务交接，而非继续帧率措辞打补丁。亲查参考`core/preprocess/frame_ops.py:94–103,344–355`：应用`MarshRSTransactionData transactionFlag:[tid,seq]`与合成侧`RSMainThread::ProcessCommandUni [tid,seq]...`通过精确事务键关联，一个消费事件可接多个事务。这解决跨线程/跨进程“哪次提交交给哪次处理”，不只是按名称猜框架。现有`internal/tracequery/query.go`仍明确只提供时间排序相邻span，因果未证，适合作为非因果背景保留，不能直接升级为连接器。
+
+参考`_find_marsh_by_tid_seq`及`_match_proc_cmd`在重复键时取首条；本项目不照抄。另见`frame_ops.py:315–322`解析只留时间/名称而丢原owner，1050–1063在四周期邻近范围取首个HWC，1103在真实marsh结束时间上固定加4ms；这些都不能作为准确身份、连接或实际完成时刻。下一片应绑定物理来源代次、真实线程身份/生命周期及tid+seq，完整扫描之后区分唯一、重复/重用歧义、缺端；保一消费多事务的分支，不能截断显示后再宣称唯一，也不能用邻近VSync补缺证。默认文本/SQLite→完整原生事实→明确关系等级→实际finalizer/图是独立退出；窗外端点只作交接证据，右开主窗统计和背景角色分别保留。这仅证明事务交接，不直接证明完整帧、线程等待或响应根因。
+
+缺陷轨优先01.3/16.4：已解析的精确协议提供派生view软导航，原生收据区分“读到原始值”和“所求整窗覆盖/分布已计算”；所求结构化duration/proportion尚未满足时不能仅因原始表短小催收口。未知协议仍可原值问答，不造单位；不读问答关键词加硬门。旧closure降噪与此合并，不再开启第三条局部施工线。
+
+只读定位确认`types.AssessExternalObservationSufficiency`目前只按external路由、源码要求和1..8条可寻址有内容记录判断；PFR live第一轮5行即触发提前收口（日志1369–1372），不是完成3次查询才触发。这一状态还被source authority、tier1及completion修复通道共用，不能把“统计尚未计算”直接变成“必须查源码”。后继应独立表达统计准备度，限定地替换收口建议/自动完成提升，保源码权限原判。另已证同轨教学矛盾：`answerDocBoundedRuntimeFactFamilyReaderLabel`把通用`frequency_residency`无条件译为“CPU频率驻留与策略上限”，PFR finalizer日志2323实际收到此错标签。应让通用family领域中性，仅实际CPU typed见证触发CPU专属教学，不新增让模型重复填写的帧率enum；与协议软路由和统计准备度同批验收。
+
+最小落点已定位：`buildProcessMeasurements`在完整扫描阶段收集明确协议能力，`TraceProcessMeasurementsText`及既有交接展示一次可选派生导航；与专用view共用协议识别，未知/相似名称不补语义。统计证明由原生producer负责，绑定来源代次/窗口/对象，不能从summary或timeline表型、表头或模型aggregate倒推；`postExternalObservationSufficiencySignal`及explorer的`HasEnoughFacts`自动提升消费独立准备度，而非全局改源码充分性状态。缺统计仅引导继续或明确不足，不能强制唯一view。
+
+下一片退出至少覆盖：公开原值查询→真实explorer不提前收口；匹配派生收据到达后满足；原值问题/未知协议/相似名称/合法空结果仍可正常回答；异源/旧代次/错窗/错PID/模型自报不能补签；一个非PFR原生统计producer共用机制；实际finalizer的PFR领域中性与CPU策略正控同时通过。原广查、自动补齐、源码义务和链上根因权限均需保持，不把某个case名字作为生产分支。
+
+12.3原始投票事实/owner轮次关系排后；当前callstack导出尚未保parent_id，不能用全局后首个VoteRes代替父子/轮次来源。08.6 GPU、14.1统计量纲、17.7持续写入/多来源代次/其它表/viewer、17.6实机、只读登记来源终态/多框架以及五验收父项仍挂原ID。jank纳秒端点沿Trace本身时间，无额外时区/domain转换。
+
+### 213.7 末版全仓、归档与发布收据
+
+Go代码与测试冻结`2f5afc9b6bd2`后，统一`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`由28731正式exit0：89测试包通过、13无测试包、零FAIL。agent107.914s、hitraceconv153.131s、orchestrator62.293s、tool487.111s、tracequery131.909s、types50.535s；完整输出`codrax-hmc213-full-v2.log`，不拼接早期分包结果。末版构建64627正式exit0，revision `2f5afc9b6bd2-dirty`仅文档待提交，记录`codrax-hmc213-build-v2.log`。
+
+本批43份原始验证/构建/live日志已按原名归档到`eval/results/hmc_frame_rate_scope_20261008/validation/`并逐字节核对一致，保留公开RED、测试设置失败、首轮完整GREEN及末版完整GREEN，不覆盖原失败。两例完整结果与54份原始工具载荷独立保留，原始结果目录依既有策略不提交大体积机器日志；可提交机器/人工摘要、fixture与独立oracle进入版本库。冻结后只更新文档，没有第三例live或因文档变更重复全仓。
+
+三笔代码/测试`e3028baa7`、`6c2da84f5`、`2f5afc9b6`由48509普通推送main正式exit0，远端`4e8a8c1e5..2f5afc9b6`，无force或改写历史。文档/架构与机器/人工摘要合批收尾。完整任务新增交付0、累计19/79，60开放；12.3转部分实施，分布42待实施/12部分实施/2待验收/3验收中/1持续执行。已交付1项期望帧率观测子能力，以及请求引用端点、主窗补查及其预算排序系统修复；五验收父项与本批两份人工FAIL保留且不重复相加。下一双轨见§213.6，不以已证单句误述无限阻塞参考连接器能力。
