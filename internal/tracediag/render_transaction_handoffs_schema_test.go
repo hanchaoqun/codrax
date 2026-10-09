@@ -10,6 +10,7 @@ import (
 
 func resultSchemaBeforeTransactionHandoffs(t *testing.T, schema string) string {
 	t.Helper()
+	schema = resultSchemaBeforeMeasurements(t, schema)
 	const added = "TransactionHandoffs|*tracequery.TransactionHandoffsResult|transaction_handoffs,omitempty"
 	var kept []string
 	count := 0

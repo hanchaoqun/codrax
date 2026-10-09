@@ -31,7 +31,8 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 267
+// HMC-17.7 adds 29 leaves under the optional raw measure side-table only.
+const eventSerializableLeafCount = 267 + 29
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -145,6 +146,24 @@ func TestEventJSONSurfaceGolden(t *testing.T) {
 	if string(viewJSON) != eventJSONGoldenView {
 		t.Errorf("EventView JSON drifted from the pre-P4 flat surface:\n got: %s\nwant: %s", viewJSON, eventJSONGoldenView)
 	}
+	// Removing only the newly added optional group must reproduce all 267
+	// prior populated leaves byte-for-byte, including their original order.
+	ev.Measure = nil
+	for _, old := range []struct {
+		value  any
+		golden string
+	}{
+		{ev, eventJSONGoldenFull},
+		{EventView{Event: ev, Raw: "raw-line-text"}, eventJSONGoldenView},
+	} {
+		if strings.Count(old.golden, eventJSONGoldenMeasure) != 1 {
+			t.Fatal("raw measure golden must be a single exact additive field")
+		}
+		legacy, err := json.MarshalIndent(old.value, "", "  ")
+		if err != nil || string(legacy) != strings.Replace(old.golden, eventJSONGoldenMeasure, "", 1) {
+			t.Fatalf("optional raw measure changed a legacy Event JSON field: %s (%v)", legacy, err)
+		}
+	}
 	sparse, err := json.MarshalIndent(Event{Line: 7, Ts: 100.5, Type: EventSchedSwitch, Name: "sched_switch", Comm: "app", PID: 42, PrevComm: "prev", PrevPID: 41, NextComm: "next", NextPID: 43}, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +183,61 @@ func TestEventCoreSizeRatchet(t *testing.T) {
 		t.Fatalf("Event core is %d bytes, over the P4 ratchet ceiling %d. Kind-specific payloads belong in a side-table group (*PerfFields et al.), not the core struct every sched_switch pays for.", size, ceiling)
 	}
 }
+
+// Exact additive raw SQL measure shape: five source scalars plus four
+// referenced-filter scalars, each preserving storage_class/value/encoding.
+const eventJSONGoldenMeasure = `  "measure": {
+    "row_id": "4250",
+    "start_ns": {
+      "storage_class": "storage_class",
+      "value": "value",
+      "encoding": "encoding"
+    },
+    "duration_ns": {
+      "storage_class": "storage_class",
+      "value": "value",
+      "encoding": "encoding"
+    },
+    "value": {
+      "storage_class": "storage_class",
+      "value": "value",
+      "encoding": "encoding"
+    },
+    "filter_id": {
+      "storage_class": "storage_class",
+      "value": "value",
+      "encoding": "encoding"
+    },
+    "type": {
+      "storage_class": "storage_class",
+      "value": "value",
+      "encoding": "encoding"
+    },
+    "filter_status": "filter_status",
+    "filter": {
+      "id": {
+        "storage_class": "storage_class",
+        "value": "value",
+        "encoding": "encoding"
+      },
+      "name": {
+        "storage_class": "storage_class",
+        "value": "value",
+        "encoding": "encoding"
+      },
+      "type": {
+        "storage_class": "storage_class",
+        "value": "value",
+        "encoding": "encoding"
+      },
+      "source_arg_set_id": {
+        "storage_class": "storage_class",
+        "value": "value",
+        "encoding": "encoding"
+      }
+    }
+  },
+`
 
 const eventJSONGoldenFull = `{
   "line": 1190,
@@ -282,7 +356,7 @@ const eventJSONGoldenFull = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
-  "process_measure": {
+` + eventJSONGoldenMeasure + `  "process_measure": {
     "row_id": "4250",
     "filter_id": {
       "status": "status",
@@ -613,7 +687,7 @@ const eventJSONGoldenView = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
-  "process_measure": {
+` + eventJSONGoldenMeasure + `  "process_measure": {
     "row_id": "4250",
     "filter_id": {
       "status": "status",

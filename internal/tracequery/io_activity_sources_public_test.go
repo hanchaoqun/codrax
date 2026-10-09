@@ -139,7 +139,7 @@ func TestIOActivityPublicCacheEpochColdWarmAndWindowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ParserVersion != "tracequery-v55" || key.version != ParserVersion {
+	if ParserVersion != "tracequery-v56" || key.version != ParserVersion {
 		t.Fatalf("IO parse-time presence carrier reused old cache epoch: %+v", key)
 	}
 	oldKey := key
