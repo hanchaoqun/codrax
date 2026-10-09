@@ -802,56 +802,7 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, sink *traceDBRow
 }
 
 func exportTraceDBProcessMeasures(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "counter", "process_measure", []string{"ts", "value", "filter_id"})
-	coverage.SourceTables = []string{"process_measure", "process_measure_filter"}
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	filterCoverage, err := tdb.inspectCoverage(ctx, "counter", "process_measure_filter", []string{"id", "name", "ipid"})
-	if err != nil {
-		return coverage, err
-	}
-	if !filterCoverage.Found || len(filterCoverage.ColumnsMissing) > 0 {
-		coverage.Skipped = "missing process_measure_filter dependency"
-		return coverage, nil
-	}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT m.ts, m.value, f.name, f.ipid
-		FROM process_measure m
-		JOIN process_measure_filter f ON f.id = m.filter_id
-		ORDER BY m.ts
-	`)
-	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	defer rows.Close()
-	skipped := map[string]int{}
-	for rows.Next() {
-		var ts int64
-		var value, ipidRaw any
-		var name string
-		if err := rows.Scan(&ts, &value, &name, &ipidRaw); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
-		}
-		ipid, ok := traceDBStrictInternalID(ipidRaw)
-		if !ok {
-			skipped["invalid_owner_ipid"]++
-			continue
-		}
-		task, tid, tgid, ok := traceDBResolvedProcessLineContext(index, ipid, "unknown")
-		if !ok {
-			skipped["unresolved_owner_process"]++
-			continue
-		}
-		if err := addTraceDBInstantRow(sink, ts, task, tid, tgid, 0, fmt.Sprintf("tracing_mark_write: C|%d|%s|%s", tgid, name, traceDBAnyText(value, "0"))); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted++
-	}
-	coverage.Skipped = traceDBCountSummary(skipped)
-	return coverage, rows.Err()
+	return exportTraceDBProcessMeasureIntervals(ctx, tdb, sink, index)
 }
 
 func exportTraceDBNetwork(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {

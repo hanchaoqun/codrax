@@ -15,6 +15,11 @@ func capabilityMetricDescriptors() []MetricCapability {
 		return MetricCapability{ID: id, Summary: summary, Outputs: outputs, Requirements: requirements, Limitations: []string{limit}}
 	}
 	metrics := []MetricCapability{
+		m("process_measurements", "Exact process-owned source values and explicit interval observations.", []CapabilityOutput{
+			o("process_measurements", "total_rows omitted_rows unpositioned_rows", "count", "matched records, display omissions and separately unpositioned records; not complete capture coverage"),
+			o("process_measurements.rows", "clipped_start_ns clipped_end_ns", "ns", "intersection with the selected window; missing duration has no known end"),
+			o("process_measurements.rows.record.value", "value", "source-defined/unknown", "exact source scalar with explicit status and storage class; no byte, stock or delta inference"),
+		}, r("process_measure_interval", nil, "", "Preserved process_measure rows, strict filter-to-process identity and complete frozen identity-mapped single source; unknown owners remain separate."), ProcessMeasurementsTeaching),
 		m("resource_stack", "Observed native resource stacks, independent of scheduler CPU execution.", []CapabilityOutput{o("resource_stack", "matched_events omitted_events", "count", "selected observed resource events versus display omissions"), o("resource_stack.events", "missing_depths duplicate_depths invalid_depths unknown_symbols omitted_frames", "count", "full source frame assessment, separately from display truncation")}, r("resource_stack", nil, "", "Owner-verified native_hook events and exact same-capture native_hook_frame linkage; complete identity-mapped single-source scan."), ResourceStackTeaching),
 		m("cpu_state_frequency", "Per-CPU idle-state × frequency joint intervals and distribution.", []CapabilityOutput{
 			o("cpu_state_frequency", "window_wall_ms", "ms", "complete selected half-open wall-clock window"),

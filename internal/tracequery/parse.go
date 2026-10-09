@@ -1459,6 +1459,8 @@ func (s *lineScan) timestamp() (float64, bool) {
 			s.ts, s.tsOK = float64(row.TimestampNS)/1e9, true
 		} else if row, ok := tracewire.ParseCPUMeasureInterval(s.line); ok {
 			s.ts, s.tsOK = float64(row.TimestampNS())/1e9, true
+		} else if row, ok := tracewire.ParseProcessMeasureInterval(s.line); ok {
+			s.ts, s.tsOK = float64(row.TimestampNS())/1e9, true
 		} else if row, ok := tracewire.ParseProcessInterval(s.line); ok {
 			s.ts, s.tsOK = float64(row.TimestampNS())/1e9, true
 		} else if row, ok := tracewire.ParseHiSysEventObservation(s.line); ok {
@@ -4211,6 +4213,9 @@ func parseLineTimestamp(line string) (float64, bool) {
 	if row, ok := tracewire.ParseCPUMeasureInterval(line); ok {
 		return float64(row.TimestampNS()) / 1e9, true
 	}
+	if row, ok := tracewire.ParseProcessMeasureInterval(line); ok {
+		return float64(row.TimestampNS()) / 1e9, true
+	}
 	if row, ok := tracewire.ParseProcessInterval(line); ok {
 		return float64(row.TimestampNS()) / 1e9, true
 	}
@@ -4402,6 +4407,11 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 // here instead of being recomputed (perf audit #21).
 func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	lineNo := s.lineNo
+	if row, ok := tracewire.ParseProcessMeasureInterval(s.line); ok {
+		return Event{Line: lineNo, Ts: float64(row.TimestampNS()) / 1e9, CPU: -1, PID: -1, TGID: -1,
+			Type: EventProcessMeasureInterval, Name: "codrax_process_measure_interval", FieldText: intern.intern(s.line),
+			PluginFields: &PluginFields{ProcessMeasure: &row}}, true
+	}
 	if row, ok := tracewire.ParseResourceStack(s.line); ok {
 		ev := Event{Line: lineNo, Ts: float64(row.TimestampNS) / 1e9, CPU: -1, Type: EventResourceStack, Name: "native_resource_stack", FieldText: intern.intern(s.line)}
 		if row.Event != nil {
@@ -6891,6 +6901,9 @@ func safeParseLine(lineNo int, line string, intern *stringInterner, idx *Index) 
 	if idx != nil && !ok && strings.HasPrefix(line, "# codrax_cpu_measure_interval/") {
 		idx.CPUIntervalMalformed++
 	}
+	if idx != nil && !ok && strings.HasPrefix(line, "# codrax_process_measure_interval/") {
+		idx.ProcessMeasureMalformed++
+	}
 	if idx != nil && (!ok || ev.CPUInputInvalid) {
 		for _, failure := range cpuInputValidationFailures(lineNo, line) {
 			failure.SourcePath = idx.Path
@@ -6924,6 +6937,9 @@ func safeParseLineScan(s *lineScan, intern *stringInterner, idx *Index) (ev Even
 	}
 	if idx != nil && !ok && strings.HasPrefix(s.line, "# codrax_cpu_measure_interval/") {
 		idx.CPUIntervalMalformed++
+	}
+	if idx != nil && !ok && strings.HasPrefix(s.line, "# codrax_process_measure_interval/") {
+		idx.ProcessMeasureMalformed++
 	}
 	if idx != nil && !ok && cpuInputRawCandidate(s.line) {
 		if failure := cpuStateFrequencyRejectedFailure(s); failure != nil {

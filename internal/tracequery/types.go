@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v54"
+const ParserVersion = "tracequery-v55"
 
 type EventType string
 
@@ -28,43 +28,44 @@ const (
 	// EventRSSStat and EventPhaseTaskDelta are exact-name, context-only
 	// inventory types. They deliberately carry no memory, scheduler, span,
 	// plugin, causal, or root-rank authority.
-	EventRSSStat            EventType = "rss_stat"
-	EventPhaseTaskDelta     EventType = "phase_task_delta"
-	EventCPUIdle            EventType = "cpu_idle"
-	EventCPUMeasureInterval EventType = "cpu_measure_interval"
-	EventResourceStack      EventType = "resource_stack"
-	EventCPUFrequency       EventType = "cpu_frequency"
-	EventCPUFrequencyLimit  EventType = "cpu_frequency_limits"
-	EventCPUConstraint      EventType = "cpu_constraint"
-	EventClockSetRate       EventType = "clock_set_rate"
-	EventBlockIssue         EventType = "block_rq_issue"
-	EventBlockRemap         EventType = "block_bio_remap"
-	EventBlockComplete      EventType = "block_rq_complete"
-	EventBinderTransaction  EventType = "binder_transaction"
-	EventBinderReceived     EventType = "binder_transaction_received"
-	EventBinderAllocBuf     EventType = "binder_transaction_alloc_buf"
-	EventBinderLock         EventType = "binder_lock"
-	EventBinderLocked       EventType = "binder_locked"
-	EventBinderUnlock       EventType = "binder_unlock"
-	EventBinderReply        EventType = "binder_reply"
-	EventIRQ                EventType = "irq"
-	EventSoftIRQ            EventType = "softirq"
-	EventIPI                EventType = "ipi"
-	EventTraceMark          EventType = "trace_mark"
-	EventMemory             EventType = "memory"
-	EventStorage            EventType = "storage"
-	EventFilesystem         EventType = "filesystem"
-	EventPower              EventType = "power"
-	EventAbilityMonitor     EventType = "ability_monitor"
-	EventXPower             EventType = "xpower"
-	EventHiSystemEvent      EventType = "hi_sysevent"
-	EventHiLog              EventType = "hilog"
-	EventWorkqueue          EventType = "workqueue"
-	EventDMAFence           EventType = "dma_fence"
-	EventFrameMap           EventType = "frame_map"
-	EventFrameCallstack     EventType = "frame_callstack"
-	EventFrameGPU           EventType = "frame_gpu"
-	EventTraceAsyncInterval EventType = "trace_async_interval"
+	EventRSSStat                EventType = "rss_stat"
+	EventPhaseTaskDelta         EventType = "phase_task_delta"
+	EventCPUIdle                EventType = "cpu_idle"
+	EventCPUMeasureInterval     EventType = "cpu_measure_interval"
+	EventProcessMeasureInterval EventType = "process_measure_interval"
+	EventResourceStack          EventType = "resource_stack"
+	EventCPUFrequency           EventType = "cpu_frequency"
+	EventCPUFrequencyLimit      EventType = "cpu_frequency_limits"
+	EventCPUConstraint          EventType = "cpu_constraint"
+	EventClockSetRate           EventType = "clock_set_rate"
+	EventBlockIssue             EventType = "block_rq_issue"
+	EventBlockRemap             EventType = "block_bio_remap"
+	EventBlockComplete          EventType = "block_rq_complete"
+	EventBinderTransaction      EventType = "binder_transaction"
+	EventBinderReceived         EventType = "binder_transaction_received"
+	EventBinderAllocBuf         EventType = "binder_transaction_alloc_buf"
+	EventBinderLock             EventType = "binder_lock"
+	EventBinderLocked           EventType = "binder_locked"
+	EventBinderUnlock           EventType = "binder_unlock"
+	EventBinderReply            EventType = "binder_reply"
+	EventIRQ                    EventType = "irq"
+	EventSoftIRQ                EventType = "softirq"
+	EventIPI                    EventType = "ipi"
+	EventTraceMark              EventType = "trace_mark"
+	EventMemory                 EventType = "memory"
+	EventStorage                EventType = "storage"
+	EventFilesystem             EventType = "filesystem"
+	EventPower                  EventType = "power"
+	EventAbilityMonitor         EventType = "ability_monitor"
+	EventXPower                 EventType = "xpower"
+	EventHiSystemEvent          EventType = "hi_sysevent"
+	EventHiLog                  EventType = "hilog"
+	EventWorkqueue              EventType = "workqueue"
+	EventDMAFence               EventType = "dma_fence"
+	EventFrameMap               EventType = "frame_map"
+	EventFrameCallstack         EventType = "frame_callstack"
+	EventFrameGPU               EventType = "frame_gpu"
+	EventTraceAsyncInterval     EventType = "trace_async_interval"
 	// EventTraceDBRecord is a converter-authored, exact-storage preservation
 	// record. It is known syntax but advisory-only: indexed builds count and
 	// discard it before relation pruning and MaxEvents admission.
@@ -450,18 +451,19 @@ type FileFields struct {
 // it, as do CPU-unavailable wakeups; ordinary physical B/E/S/F/I and scheduler
 // rows keep it nil unless an I row carries parsed NativeHook resource metadata.
 type PluginFields struct {
-	NativeHookSemantics *types.TraceEventSemantics  `json:"native_hook_semantics,omitempty"`
-	MarkerNameOrigin    *tracewire.MarkerNameOrigin `json:"marker_name_origin,omitempty"`
-	HiSysEvent          *tracewire.HiSysEvent       `json:"hi_sysevent,omitempty"`
-	Contents            *string                     `json:"plugin_contents,omitempty"`
-	Domain              string                      `json:"plugin_domain,omitempty"`
-	EventName           string                      `json:"plugin_event_name,omitempty"`
-	Metric              string                      `json:"plugin_metric,omitempty"`
-	Value               string                      `json:"plugin_value,omitempty"`
-	Category            string                      `json:"plugin_category,omitempty"`
-	SpanTrack           string                      `json:"span_track,omitempty"`
-	Counter             *TraceCounterFields         `json:"-"`
-	JankEvent           *JankEventFields            `json:"jank_event,omitempty"`
+	ProcessMeasure      *tracewire.ProcessMeasureInterval `json:"process_measure,omitempty"`
+	NativeHookSemantics *types.TraceEventSemantics        `json:"native_hook_semantics,omitempty"`
+	MarkerNameOrigin    *tracewire.MarkerNameOrigin       `json:"marker_name_origin,omitempty"`
+	HiSysEvent          *tracewire.HiSysEvent             `json:"hi_sysevent,omitempty"`
+	Contents            *string                           `json:"plugin_contents,omitempty"`
+	Domain              string                            `json:"plugin_domain,omitempty"`
+	EventName           string                            `json:"plugin_event_name,omitempty"`
+	Metric              string                            `json:"plugin_metric,omitempty"`
+	Value               string                            `json:"plugin_value,omitempty"`
+	Category            string                            `json:"plugin_category,omitempty"`
+	SpanTrack           string                            `json:"span_track,omitempty"`
+	Counter             *TraceCounterFields               `json:"-"`
+	JankEvent           *JankEventFields                  `json:"jank_event,omitempty"`
 	// TraceMarkerCPUStatus/Reason are set only for converter-authored
 	// versioned marker records which deliberately have no physical CPU
 	// envelope. They never backfill Event.CPU.
@@ -780,8 +782,9 @@ type Index struct {
 	TraceDBTextCarrierRows int
 	// CPUIntervalMalformed counts rejected native interval envelopes. No
 	// partial decode may restore measurement authority from such rows.
-	CPUIntervalMalformed   int
-	ResourceStackMalformed int
+	CPUIntervalMalformed    int
+	ProcessMeasureMalformed int
+	ResourceStackMalformed  int
 	// LegacyVisibilityCarrierRows counts converter visibility carriers dropped
 	// at index build that still wore their wrapped record's original event
 	// name (artifacts converted before colleague_merge_audit §40.13 / V6-2).
@@ -1251,6 +1254,7 @@ type Result struct {
 	Timeline              *TimelineResult             `json:"timeline,omitempty"`
 	ProcessProfile        *ProcessProfile             `json:"process_profile,omitempty"`
 	CPUStateFrequency     *CPUStateFrequencyResult    `json:"cpu_state_frequency,omitempty"`
+	ProcessMeasurements   *ProcessMeasurementsResult  `json:"process_measurements,omitempty"`
 	ResourceStack         *ResourceStackResult        `json:"resource_stack,omitempty"`
 	RenderingCandidates   *RenderingCandidatesResult  `json:"rendering_candidates,omitempty"`
 	WindowStats           *WindowStats                `json:"window_stats,omitempty"`

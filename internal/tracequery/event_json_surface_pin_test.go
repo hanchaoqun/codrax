@@ -31,7 +31,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 244
+const eventSerializableLeafCount = 267
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -114,7 +114,7 @@ func eventFillByJSONTag(t *testing.T, v reflect.Value) int {
 				fv.Elem().SetBool(true)
 			case reflect.String:
 				fv.Elem().SetString(tag)
-			case reflect.Int64:
+			case reflect.Int, reflect.Int64:
 				fv.Elem().SetInt(seed)
 			default:
 				t.Fatalf("eventFillByJSONTag: field %s.%s has unhandled pointer element kind %s — extend the fill (and the golden) deliberately", typ.Name(), f.Name, f.Type.Elem().Kind())
@@ -282,6 +282,41 @@ const eventJSONGoldenFull = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
+  "process_measure": {
+    "row_id": "4250",
+    "filter_id": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "start_ns": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "duration_ns": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "value": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "ipid": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "name": "name",
+    "name_known": true,
+    "measure_type": "measure_type",
+    "type_known": true,
+    "pid": 6653,
+    "process_name": "process_name",
+    "owner_status": "owner_status"
+  },
   "native_hook_semantics": {
     "schema_version": 6429,
     "fields": [
@@ -578,6 +613,41 @@ const eventJSONGoldenView = `{
   "file_rw": "file_rw",
   "file_ret": 5586,
   "file_size": 1836,
+  "process_measure": {
+    "row_id": "4250",
+    "filter_id": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "start_ns": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "duration_ns": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "value": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "ipid": {
+      "status": "status",
+      "storage_class": "storage_class",
+      "value": "value"
+    },
+    "name": "name",
+    "name_known": true,
+    "measure_type": "measure_type",
+    "type_known": true,
+    "pid": 6653,
+    "process_name": "process_name",
+    "owner_status": "owner_status"
+  },
   "native_hook_semantics": {
     "schema_version": 6429,
     "fields": [

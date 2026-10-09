@@ -161,15 +161,15 @@ func traceEventSemanticFieldValueValid(key, value string) bool {
 	case "marker.action":
 		return len(value) == 1 && strings.Contains("BESFGHNIC", value) || value == "source_begin" || value == "source_end"
 	case "source.subject_role":
-		return value == "process_owned_interval"
+		return value == "process_owned_interval" || value == "process_measurement_not_thread_execution"
 	case "counter.owner_scope":
 		return value == "global" || value == "payload_process"
 	case "counter.aggregation_status":
-		return value == "admitted" || value == "excluded"
+		return value == "admitted" || value == "excluded" || value == "not_aggregated_unit_and_quantity_semantics_unknown"
 	case "source.representation":
-		return value == "parsed_plugin_fields" || value == "parsed_trace_marker" || value == "sql_hisysevent" || value == "sql_app_startup"
+		return value == "parsed_plugin_fields" || value == "parsed_trace_marker" || value == "sql_hisysevent" || value == "sql_app_startup" || value == "sql_process_measure_interval"
 	case "source.table":
-		return value == "app_startup" || value == "hisys_all_event"
+		return value == "app_startup" || value == "hisys_all_event" || value == "process_measure"
 	case "marker.label_origin":
 		return value == "synthesized_sql_label"
 	case "source.contents_storage_class", "source.tid_storage_class":
@@ -190,15 +190,46 @@ func traceEventSemanticsMatchEventType(value *TraceEventSemantics, eventType str
 	if value == nil {
 		return true
 	}
+	if eventType == "process_measure_interval" {
+		for _, field := range value.Fields {
+			switch field.Key {
+			case "source.representation", "source.table", "source.subject_role", "counter.aggregation_status":
+				if field.Value == nil || !processMeasurementSemanticDiscriminator(field.Key, *field.Value) {
+					return false
+				}
+			case "source.row_id", "source.start_ns", "source.duration_ns", "source.end_ns", "source.owner_ipid", "source.owner_pid", "plugin.metric", "plugin.category", "plugin.value", "counter.raw_value":
+			default:
+				return false
+			}
+		}
+		return true
+	}
 	plugin := eventType == "hi_sysevent" || eventType == "ability_monitor" || eventType == "xpower"
 	marker := eventType == "trace_mark"
 	for _, field := range value.Fields {
+		if field.Value != nil && processMeasurementSemanticDiscriminator(field.Key, *field.Value) {
+			return false
+		}
 		descriptor, ok := LookupTraceEventSemanticDescriptor(field.Key)
 		if !ok || descriptor.Family == "plugin" && !plugin || (descriptor.Family == "marker" || descriptor.Family == "counter" || descriptor.Family == "resource") && !marker || descriptor.Family == "source" && !plugin && !marker {
 			return false
 		}
 	}
 	return true
+}
+
+func processMeasurementSemanticDiscriminator(key, value string) bool {
+	switch key {
+	case "source.representation":
+		return value == "sql_process_measure_interval"
+	case "source.table":
+		return value == "process_measure"
+	case "source.subject_role":
+		return value == "process_measurement_not_thread_execution"
+	case "counter.aggregation_status":
+		return value == "not_aggregated_unit_and_quantity_semantics_unknown"
+	}
+	return false
 }
 
 func traceEventSemanticReasonValid(reason string) bool {

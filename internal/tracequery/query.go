@@ -452,6 +452,13 @@ func Run(idx *Index, q Query) Result {
 		return cachedFrameTimeline
 	}
 	switch q.View {
+	case ViewProcessMeasurements:
+		measurements := buildProcessMeasurements(idx, q)
+		if faceCanceled(ViewProcessMeasurements) {
+			break
+		}
+		res.ProcessMeasurements = measurements
+		res.Caveats = append(res.Caveats, measurements.Caveats...)
 	case ViewRenderingCandidates:
 		candidates := buildRenderingCandidates(idx, q)
 		if faceCanceled(ViewRenderingCandidates) {
@@ -1401,6 +1408,9 @@ func resolveTraceFlavor(idx *Index, q Query) (TraceFlavor, float64, []string, []
 
 func normalizeQuery(idx *Index, q Query) Query {
 	q.View = CanonicalViewName(q.View)
+	if q.View == ViewProcessMeasurements && strings.TrimSpace(q.TargetScope) == "" {
+		q.TargetScope = TargetScopeProcess
+	}
 	q.TargetScope = normalizedTargetScope(q.TargetScope)
 	wakeupCapacity := ViewCapacityFor("wakeup_chain")
 	q.RecipeName = strings.TrimSpace(q.RecipeName)
@@ -1803,6 +1813,9 @@ func eventInQueryWindow(ev Event, q Query) bool {
 		return false
 	}
 	if q.LineStart == 0 && q.LineEnd == 0 {
+		if ev.Type == EventProcessMeasureInterval {
+			return processMeasurementEventInTimeWindow(ev, q)
+		}
 		if q.TimeStart > 0 && ev.Ts < q.TimeStart {
 			return false
 		}
@@ -1898,6 +1911,9 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 	}
 	if pl := ev.PluginFields; pl != nil {
 		candidates = append(candidates, pl.Domain, pl.EventName, pl.Metric, pl.Value, pl.Category, pl.SpanTrack)
+		if r := pl.ProcessMeasure; r != nil {
+			candidates = append(candidates, r.Name, r.MeasureType, r.ProcessName)
+		}
 	}
 	if pf := ev.PerfFields; pf != nil {
 		candidates = append(candidates, pf.Comm, pf.EventName, pf.Symbol, pf.DSO, pf.IP, pf.Callchain, pf.Source, pf.Resolution, pf.SourceComm, pf.SampleKindSource, pf.SymbolizationStatus, pf.Clock, pf.ClockConfidence, pf.CallchainStatus)

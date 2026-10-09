@@ -280,7 +280,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))))
+	return traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -337,6 +337,11 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	if repair := traceQueryCPUStateFrequencyInputRepair(p); repair != nil {
 		return *repair, nil
 	}
+	var processRepair *types.ToolResult
+	p, processRepair = traceQueryProcessMeasurementsInput(p)
+	if processRepair != nil {
+		return *processRepair, nil
+	}
 	var businessReject *types.ToolResult
 	p, businessRef, businessReject = traceQueryApplyBusinessRef(ctx, p)
 	if businessReject != nil {
@@ -376,7 +381,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	p.TargetScope = scope
 	if strings.EqualFold(strings.TrimSpace(p.TargetScope), tracequery.TargetScopeProcess) {
 		view := tracequery.CanonicalViewName(p.View)
-		if p.PID.Int() <= 0 {
+		if p.PID.Int() <= 0 && view != tracequery.ViewProcessMeasurements {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -385,7 +390,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			}, nil
 		}
 		switch view {
-		case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", tracequery.ViewRenderingCandidates:
+		case "span_window", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "frame_root_cause_bundle", tracequery.ViewRenderingCandidates, tracequery.ViewProcessMeasurements:
 		default:
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -530,6 +535,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// escape lanes (kill switch / no MutableState / supplement in flight /
 	// stat failure); those calls execute directly, exactly as before.
 	runPureTraceQueryCore := func() (types.ToolResult, error) {
+		if streamed, ok := t.streamProcessMeasurements(ctx, p, path, sourceLabel, callCaveat, window); ok {
+			return streamed, nil
+		}
 		if streamed, ok := t.streamCPUStateFrequency(ctx, p, path, sourceLabel, callCaveat, window); ok {
 			return streamed, nil
 		}
@@ -5196,6 +5204,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		b.WriteString("\n")
 	}
 	writeTraceProcessProfilePreview(&b, result.ProcessProfile)
+	if result.ProcessMeasurements != nil {
+		b.WriteString(TraceProcessMeasurementsText(*result.ProcessMeasurements))
+	}
 	if result.CPUStateFrequency != nil {
 		b.WriteString("## CPU状态与频率联合区间\n")
 		b.WriteString(TraceCPUStateFrequencyText(*result.CPUStateFrequency, 8))
@@ -9127,6 +9138,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQueryEventSearchInventoryObservation(result, ref, at, query)...)
 	out = append(out, traceQuerySchedulerWakeEventObservations(result.Events, ref, scope, at, result.EventSearchCoverage)...)
 	out = append(out, traceQueryProcessProfileObservations(result.ProcessProfile, ref, scope, at)...)
+	out = append(out, traceQueryProcessMeasurementsObservations(result.ProcessMeasurements, ref, scope, at)...)
 	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
 	out = append(out, traceQueryResourceStackObservations(result.ResourceStack, ref, scope, at)...)
 	out = append(out, traceQueryRenderingCandidatesObservations(result.RenderingCandidates, ref, scope, at)...)
@@ -16586,6 +16598,9 @@ type traceQueryRequestTarget struct {
 const traceQueryMaxInheritedPID = types.RuntimeTargetMaxPID
 
 func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams) (traceQueryParams, string) {
+	if tracequery.CanonicalViewName(p.View) == tracequery.ViewProcessMeasurements {
+		return traceQueryProcessMeasurementTarget(ctx, p)
+	}
 	if tracequery.CanonicalViewName(p.View) == tracequery.ViewCPUStateFrequency {
 		return p, "trace_query_target_inheritance_skipped=cpu_state_frequency; control lanes are CPU-owned, not emitter-thread-owned"
 	}

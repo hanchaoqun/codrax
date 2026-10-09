@@ -20,7 +20,7 @@ func ProjectTraceEventInventoryCoordinates(event Event) TraceEventInventoryCoord
 	}
 	noEmitter := false
 	switch event.Type {
-	case EventFrameMap, EventFrameCallstack, EventFrameGPU, EventTraceDBRecord, EventCPUMeasureInterval:
+	case EventFrameMap, EventFrameCallstack, EventFrameGPU, EventTraceDBRecord, EventCPUMeasureInterval, EventProcessMeasureInterval:
 		noEmitter = true
 		p.CPUKnown, p.CPUUnknownReason = false, "source_has_no_cpu_coordinate"
 	case EventResourceStack:

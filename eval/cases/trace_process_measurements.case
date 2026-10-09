@@ -1,0 +1,7 @@
+ID="trace_process_measurements"
+NAME="Native process measurements — values, intervals and missing observations"
+QUESTION="请分析附件采集中1到2秒两个应用的内存指标变化，哪些变化值得进一步排查？现有数据能否比较它们的增长情况？"
+HTRACE_FILE="eval/fixtures/hmosperf_process_measurements/capture.data"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

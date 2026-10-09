@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
@@ -173,7 +174,7 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		"cpu_idle: state=1 cpu_id=1",
 		"cpu_frequency: state=2200000 cpu_id=4",
 		"clock_set_rate: ddr_freq 400",
-		"tracing_mark_write: C|500|H:Heap size (KB)|4096.0",
+		tracewire.ProcessMeasureIntervalPrefix,
 		"tracing_mark_write: C|0|net_tx_speed|1.5",
 		"tracing_mark_write: C|0|disk_wr_speed|20.0",
 		"tracing_mark_write: C|0|cpu_total_load|70.0",
@@ -203,6 +204,20 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		t.Fatalf("tracequery should retain trace marker spans")
 	}
 	assertExtendedHiSysContentPreserved(t, idx.Events, 2600000)
+	processRows := 0
+	for _, event := range idx.Events {
+		if event.PluginFields == nil || event.PluginFields.ProcessMeasure == nil {
+			continue
+		}
+		processRows++
+		r := event.PluginFields.ProcessMeasure
+		if r.Name != "H:Heap size (KB)" || r.PID == nil || *r.PID != 500 || r.StartNS.Value != "1950000" || r.DurationNS.Status != "unavailable" || r.Value.Status != "invalid_storage" || r.Value.StorageClass != "real" || r.Value.Value != "4096" || event.CPU != -1 || event.PID != -1 {
+			t.Fatalf("process measurement projection changed source: %+v", event)
+		}
+	}
+	if processRows != 1 {
+		t.Fatal("process measurement source row lost", processRows)
+	}
 }
 
 func assertExtendedHiSysContentPreserved(t *testing.T, events []tracequery.Event, timestampNS int64) {

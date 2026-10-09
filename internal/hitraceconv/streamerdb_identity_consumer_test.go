@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testing.T) {
@@ -120,8 +122,8 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	if staticCoverage.RowsEmitted != 2 || !strings.Contains(staticCoverage.Skipped, "unresolved_static_owner_thread=4") {
 		t.Fatalf("static-init identity fail-close mismatch: %+v", staticCoverage)
 	}
-	if measureCoverage.RowsEmitted != 1 || !strings.Contains(measureCoverage.Skipped, "unresolved_owner_process=2") ||
-		!strings.Contains(measureCoverage.Skipped, "invalid_owner_ipid=1") {
+	if measureCoverage.RowsEmitted != 4 || !strings.Contains(measureCoverage.Skipped, "retained_owner_ambiguous=2") ||
+		!strings.Contains(measureCoverage.Skipped, "retained_owner_unknown=1") {
 		t.Fatalf("process-measure identity fail-close mismatch: %+v", measureCoverage)
 	}
 
@@ -143,6 +145,22 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
+	processRecords := 0
+	for _, line := range strings.Split(body, "\n") {
+		if r, ok := tracewire.ParseProcessMeasureInterval(line); ok {
+			processRecords++
+			if r.Name == "good_counter" {
+				if r.PID == nil || *r.PID != 600 || r.Value.Value != "3" || r.OwnerStatus != "known" {
+					t.Fatalf("healthy process owner lost: %+v", r)
+				}
+			} else if r.PID != nil || r.ProcessName != "" || r.OwnerStatus == "known" {
+				t.Fatalf("poisoned process owner acquired identity: %+v", r)
+			}
+		}
+	}
+	if processRecords != 4 {
+		t.Fatal("process raw records lost", processRecords)
+	}
 	for _, want := range []string{"sys_2", "TaskPool-93", "AppStartup:cold", "good.so", "good_counter"} {
 		found := strings.Contains(body, want)
 		if strings.HasPrefix(want, "AppStartup:") {
@@ -150,6 +168,9 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 		}
 		if want == "good.so" {
 			found = traceDBTestHasMarkerLabel(t, body, "SoInit:"+want)
+		}
+		if want == "good_counter" {
+			found = processRecords == 4
 		}
 		if !found {
 			t.Fatalf("valid identity sibling %q missing:\n%s", want, body)

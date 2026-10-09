@@ -11,6 +11,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
+	"github.com/hanchaoqun/codrax/internal/tracewire"
 )
 
 // StreamEventSearch scans a trace for event_search rows without materializing a
@@ -1559,6 +1560,12 @@ func streamStateClusterFilterLabel(q Query) string {
 }
 
 func streamEventSearchRawCandidate(line string, lineNo int, q Query) bool {
+	// This envelope stores metric labels as encoded typed data. Bypass only
+	// the raw-text optimization; the strict parser and shared matcher still
+	// decide admission, ownership and the requested literal match.
+	if strings.HasPrefix(line, tracewire.ProcessMeasureIntervalPrefix+" record=") {
+		return true
+	}
 	// Numeric predicates consume parsed marker metadata, including lossless
 	// converter envelopes whose name is encoded on the physical line. A raw
 	// literal prefilter must not suppress such a row before the shared typed

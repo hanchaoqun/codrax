@@ -68,7 +68,17 @@ func traceQueryEventSearchInventoryObservation(result tracequery.Result, ref typ
 		// number as a physical header. Identity-clock rows need no alignment.
 		sourceTimeKnown := event.SourcePath != "" && event.LocalLine > 0 && event.RawUnavailableReason != "clock_inverse_unsafe"
 		sourceTime := 0.0
-		if sourceTimeKnown {
+		if event.Type == tracequery.EventProcessMeasureInterval {
+			// The carrier's Event.Ts may be a sorting substitute of zero. Read
+			// the parser-owned signed SQL timestamp instead: NULL, numeric TEXT
+			// and REAL remain unknown, while genuine zero and negative source
+			// coordinates retain their own observed values.
+			ns, known := tracequery.ProcessMeasurementSourceTimestamp(event.Event)
+			sourceTimeKnown = sourceTimeKnown && known
+			if sourceTimeKnown {
+				sourceTime = float64(ns) / 1e9
+			}
+		} else if sourceTimeKnown {
 			sourceTime = event.SourceTs
 		}
 		coordinates := tracequery.ProjectTraceEventInventoryCoordinates(event.Event)

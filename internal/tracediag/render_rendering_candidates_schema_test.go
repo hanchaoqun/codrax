@@ -15,6 +15,7 @@ import (
 // historical Result schema witnesses; preserve their hashes and field order.
 func resultSchemaBeforeRenderingCandidates(t *testing.T, schema string) string {
 	t.Helper()
+	schema = resultSchemaBeforeProcessMeasurements(t, schema)
 	const added = "RenderingCandidates|*tracequery.RenderingCandidatesResult|rendering_candidates,omitempty"
 	var previous []string
 	count := 0

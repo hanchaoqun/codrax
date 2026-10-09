@@ -56,7 +56,9 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 		if len(table.Notes) >= 2 {
 			fmt.Fprintf(&b, "  scope: %s; %s\n", table.Notes[0], table.Notes[1])
 		}
-		if count > 0 && table.View == types.RuntimeMeasurementSummary && len(table.Notes) > 2 {
+		// Empty summaries still carry the producer's unavailable/empty status.
+		// No preview rows is not evidence of a measured zero.
+		if table.View == types.RuntimeMeasurementSummary && (count > 0 || len(table.Rows) == 0) && len(table.Notes) > 2 {
 			for _, note := range table.Notes[2:] {
 				fmt.Fprintf(&b, "  boundary: %s\n", note)
 			}
