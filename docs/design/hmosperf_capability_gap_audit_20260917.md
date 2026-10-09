@@ -6338,3 +6338,83 @@ Go源码和测试冻结于`f7c701e29a1f6f3101cf109b37fc75f47d1d465d`，统一`SD
 本地`eval/results/hmc_measurements_obligations_20261009/validation/`保存50份验证日志、公开失败构造及overlay；`tool_payloads/`57份原始工具载荷，`prepared_source/`三份准备源/manifest/收据，均复制后逐字节核对。失败构造以`.go.txt`归档避免被全仓当编译包；设置失败、首轮17例失败、取消轮、两份人工FAIL和公开空图/中文ID RED均保原件。大体积产物按仓库惯例本地保存，未强行加入Git。
 
 末版复算79唯一ID=19完整交付+60开放、重复0；本批完整父能力新增0，交付1项通用量测原值/原生表子能力及1组有效请求义务修复。开放仍41待实施/13部分实施/2待验收/3验收中/1持续执行，5稳定验收父项与本批2份完整人工FAIL分列不相加。下一双轨为只读登记来源终态完整正控，以及来源驱动查询/保真交接；已证共享图合同及旧渲染失败紧邻P1，不以统计通过、设计预审或模型波动误销账。
+
+## 216. 只读登记完整来源终态与原生区间导航（2026-10-09）
+
+### 216.1 起点、双轨与参考设计
+
+起点`45e1bddb4`，工作区干净；重新按唯一ID计数79=19已交付+60开放，重复0，分布41待实施/13部分实施/2待验收/3验收中/1持续执行。本批仍只实施两个轨道：18.5/16.4只读登记的完整来源验证及恢复；01.3/16.4/17.7已解析区间族到原生查询/保真交接。§215量测与事务完整人工FAIL保留，图覆盖紧邻P1，不分散成第三条实施轨。
+
+主代理重新核对参考`core/skill_executor.py:895`的结构化参数代换、组展开、默认参数及覆盖次序，`core/skill_router.py:27`的简要发现/详情分层。可借鉴的是让框架承担能力选择前提和可靠交接，不能照搬原始问句的关键词硬选或同名即同资源。统一登记generic/process/CPU原生区间族、来源表和专用视图，静态目录与manifest只作导航；只有实际原生查询的进程内收据才可驱动同源同窗的有限补查。原值仍不授GPU单位/状态/资源配对或链上因果。
+
+### 216.2 公开失败与修复中状态
+
+只读登记真实controller正控首个产品RED为`/tmp/codrax-hmc216-registration-red-v6.log`：来源批已产生自己的verify attempt/verified，但旧“没有声明就不能产生断言”判断阻断已有测试身份登记，plans=0、verifies=2，最终verification_proof_incomplete。v1–v2是构造编译、v3–v5是导入设置问题，分别保留，不冒充产品失败。第一处修复复用当前来源计划/报告中唯一合格测试身份，只允许进入有界补证规划；真正读取/登记权限仍由dispatch签发，不放宽emit、执行或整轮聚合。
+
+第二个真实断点是恢复时延迟生成的PlanPath被当成用户导入镜像，后续登记计划覆盖来源ID.json；跨进程恢复正确拒绝original applied source artifact unavailable。`registration-green-v2.log`记录原件身份断言失败。修复在workflow入口先保存真正的用户导入镜像，再进行任何懒加载/持久化，不更改显式import行为、不取消原件检查。`registration-green-v3.log`正式exit0，公开来源verify→typed补证→实际读/登记→默认store→独立进程新执行→整轮verified通过，尚待负控/集成/真实问答。
+
+区间恢复独立公开RED `interval-navigation-public-red-v2.log`正式exit1：默认SQLite准备后，宽event_search只返回12个窗内起点，系统以families_present停止，未产生含carry-in的13条原生区间/三表；pattern不扩大与显式原生查询不重复正控通过。v1是构造错误，单列。另三组上下文/目录投影RED见`native-navigation-red.log`，缺少family路由和紧凑身份/存储类。旧完整carrier并未丢数据，不重写正确的点搜索统计语义。
+
+默认SQLite的queryPath是manifest、事件来源是子文件，旧单文件回放凭证不能签发是正确保护。新导航收据独立保留预读manifest代次与完整TraceMaterial（原DB/manifest/子文件及journal校验），resolve重新验证全部绑定和当前轮次；JSON、旧memo、路径字符串不恢复它，物理读取和旧“仅更换窗口端点”回放权限不扩大。自动补查仅在因果/目标及原主窗通路空闲时，使用已受理的精确问题类型、唯一显式窗口、无冲突选择器和实际解析族，继续共享两次总预算/取消/专用投递槽，不修改模型原始工具结果、不增加回答硬义务。筛选不兼容只保软导航，不悄悄删除pattern、owner、行窗或业务实例。
+
+本批代码尚未冻结；定向绿不等于全仓或live通过。后续固定自然量测与只读登记写例，各一次并行2，保留全部原FAIL；父项退出条件不缩范围。
+
+### 216.3 同类持久化入口补查与导航定向验收
+
+未把自动入口的GREEN误当作全部恢复入口完成。独审发现同一Orchestrator第二次Run会把上次内部生成的PlanPath再当输入，`registration-path-red-v2.log`正式exit1；显式same/other/clear/mirror四对照通过。`generatedPlanPath`区分内部输出与明确SetPlanPath输入，完整入口回归`registration-path-green.log`正式exit0。继续用真实apply+planner/read/emit查显式输入恰为来源ID路径，`registration-import-red-v2.log`正式exit1：镜像正确更新为新计划，但loadDurable(sourceID)找不到旧交付原件。直接将已apply fixture重新import会另行seed run的早期实验不是该缺陷的有效RED，单独保留。当前补共享写前原件保留及精确ID恢复，覆盖mirror与普通persist两入口，不能用后置快照修补已覆盖文件，更不能放宽缺来源拒绝。
+
+导航轨已提交`d26eb19fe`。原公开RED不改构造复跑`interval-navigation-public-green-v1.log`正式exit0/tool1.378s；related-v3正式exit0/tool2.707s。最终race-v1正式exit0/tool12.632s、types1.997s；涵盖manifest/成员替换、历史JSON/换轮、错窗/多窗、owner/pattern/未知未来选择器、三族共享两调用预算、合法空结果去重以及实际因果优先。进程视图自动补的默认scope仅在原请求未提供且effective owner为空时从独立导航参数归一，显式scope与继承owner不删，原主窗回放参数不变。完整原生self结果以available及原生validator确认，不凭行数猜是否执行。
+
+目录/上下文/紧凑投影最终相关6包与race3包正式exit0；root收据正反、旧主窗/来源权限及量测成文回归均通过。独立只读复核未发现导航扩大来源、窗口、权限或回答义务。空结果构造两次因NULL/右边界点搜索前置预期错误失败，root误读嵌入Event字段的编译失败及并行编辑中间态失败均保留，不记为产品RED、也不拼作全仓收据。尚未全仓/live，不提前销父项或改签旧人工FAIL。
+
+### 216.4 原件身份闭环、末版冻结与验收范围
+
+`62cfa7ddb`补完只读登记能力轨。只有来源计划/当前报告/唯一合格调用及未变合同可提供规划能力布尔值；真正登记仍须新派发授权、完整当前读取及模型实际收到、新执行和独立来源终态。完整公开正链先走真实来源controller verify，再派生登记、实际planner/read/emit、默认store、独立新进程恢复和新invocation，整轮verified；旧缺来源终态、其它未验证批、合同/交付/执行身份漂移、重复调用等负控不放宽。
+
+快照镜像与普通持久化共用写前保留边界，canonical/../目录symlink两入口六变体通过，真实显式镜像还过独立进程恢复。通常保旧ID sibling，物理碰撞时使用retained-plans/ID.json；保留失败不覆盖、不重绑路径，错误ID回读拒绝。内部自动生成的PlanPath只作本次输出，同实例下次Run不会隐式导入；明确SetPlanPath同路径/其它路径/清除及mirror的旧含义保留。
+
+独审又发现旧版proof-only sentinel经WritePlanToFile自动升级字段，原先JSON往返比较会误拒绝合法旧计划；`registration-legacy-red.log`两入口正式exit1。末版改为识别ID但原字节AtomicWriteFileSync保留、逐字节回读验证，兼容旧形态及未知字段；后续恢复/汇总仍正常LoadChangePlanFromFile并要求exact ID。不是将历史JSON恢复为授权。独审末版无剩余阻断。
+
+`registration-related-final-v4.log`正式exit0：types0.940s/tool25.168s/writeflow1.007s/orchestrator14.943s；相同精确范围`registration-race-final-v4.log`正式exit0：2.184s/32.586s/1.727s/28.821s。包括历史PersistCurrentChangePlanSnapshot、MirrorsActivePlanToImportFile和ProofPlanIdentityPreservedBeforeMutableStatusTransitions，不只测新增名称；此前完整source终态/路径/导入/legacy RED均保留。
+
+全部Go源码及测试冻结`62cfa7ddb936`；构建53179正式exit0，dirty仅文档。随后固定自然双例60809：trace_measurement_records和native_registration_commandless，各一次、并行2，不改QUESTION、不用旧人工注入来源终态的live harness。统一全仓54559执行`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`；未正式退出前不签全仓绿，最终答案需独立人工审计，不追第三例求绿。
+
+### 216.5 固定双例与新增系统接缝
+
+60809正式exit0，机器2/2、完整人工1/2。量测175秒，Python158秒；两位独立代理与主代理核对原日志、最终答案/文件和执行凭证。详见[完整人工审计](../../eval/parallel_selected_summary_hmc_registration_intervals_20261009_manual_audit.md)。
+
+量测首轮已直接选measurements的[1,2)及额外[0,2)，原生13行/0省略/1时间未知正确，carry-in及7分组、原值存储类均到explorer；新导航真实到场，自动恢复分支本次未触发。完整三表在finalizer可选，但6张表固定各预览4行，只用24/128预算；模型不选原生表而在summary中重写，漏3组、错dur及NULL终点、猜MHz/active及2–3次GPU切换，完整人工FAIL。字段边界已明确提供，不用再加相同禁止句掩盖结构化交接缺口，也不能认定偶发波动。按01.3/16.4/18.4提升原生整表绑定/预览分配与主窗/对照用途为P1；完整原件不丢不等于最终答案完整。
+
+另查明两类上下文误导：分类将明确窗口误报full_artifact，频段解释归function_or_purpose导致源码软义务；预分诊把未知量纲/0占位时间当物理含义/完整捕获范围。`trace_query.go::traceQueryResultCompacted`还将bundle元数据coverage摘要压缩误报查询截断，尽管原生Compactions=null、量测省略0，仍反复建议缩至80–150ms。后者应按实际结果结构/覆盖来源修，不扫描用户或模型原文。均归原ID，不新增重复计数。
+
+Python完整人工PASS：唯一源码patch为return value+1；原测试/setup字节、seed HEAD保持。三原生断言及三探针有本轮真实执行，来源批自己的verify attempt及终态verified完整，根目录零测试不冒成功。但只有普通source plan，没有native_test_registration/补证批/恢复，不能用该live代签新登记分支；新分支以公开真实工具+独立进程正控验收。保留非阻断项：旧EnsureCodraxGitignore对scratch配置管理、不匹配原生身份的模型标签未获证明、not_applicable交叉profile自修、final.json ProbeCount实际取置信条目数量而非探针数。后两项按01.3/16.4/18.5记录，需对照typed输入/定义再修，不仅凭模型抱怨判断误拒。
+
+### 216.6 下一批ROI组合（未实施，不计交付）
+
+重新看全部任务而非继续局部叠加原值入口。下一完整能力优先05.1共享日志事件来源层，系统缺陷优先12.5/18.4已证关系空图/中文ID与inline/空白成功；本批量测原生表交接/元数据误报截断紧邻P1，按影响与退出成本择一缺陷轨，不同时扩为三轨。
+
+主代理复读参考`core/extensions/hilog_parser.py:12–134`、`kmsg_parser.py:14–123`、`log_extender.py:175–272`及本仓`cmd/attached_input.go:22`。参考设计价值是将多文件日志统一成可检索事件，为后续网络/媒体/内存诊断提供前置；本仓已有多文件CLI，但仍是带来源标题拼接和截尾，不能误称需要新造多文件参数。05.1应交付完整来源/物理行及续行范围、原字节、PID/TID原值、解析/缺测/省略、压缩与多文件代次，并贯通CLI/REPL→查询→实际引用。未知年份/时区/时钟关联保未知，不依赖05.2才能查询原值，不把日志邻近关联当Trace根因。
+
+不照搬参考的mtime补年份、主机时区、浮点boot秒、首层命中即停止目录发现、同stem覆盖、非法UTF-8替换、直接修改用户DB及白名单将窗外行混回当前窗。验收需重复导入不倍计、同名独立源不误合并、坏成员不抹健康源、范围/取消/代次安全及自然问句；不是只加一个解析器函数就销05.1。
+
+进一步静态发现：两个参考parser遇带时间戳的坏记录只计skip，未清理前一条续行目标，之后无时间戳的文本可能被接到更早的健康记录。下一实现需保物理边界及孤立续行，不能把坏记录的堆栈归给另一PID/TID；这是参考代码审读发现，尚非本仓公开RED。当前CLI日志附件是有界合并预览，与Trace已具完整材料收据的路径不同；应借鉴“完整输入与模型预览分离”的架构，而不是取消预览上限或把日志预览假装完整材料。压缩/未知格式仍要有可引用原值出口，时间关联是独立05.2，不影响原值检索；这不更改jank自身与Trace同时间轴的既定约定。
+
+备选10.1双侧测量可复用02.3/17.2与现有原生发布，独立保存两侧来源/窗口/单位/分母/覆盖和失败；真正数值比较仍属10.2，不能以空信封销能力。09.4前缀树需先补逐帧DSO/IP保真，当前SQL输出callchain主要是Name，不能只split字符串；参考perf_calltree_ops将样本比例乘窗口当毫秒及错窗回退全量均不采纳。17.7持续写入需一致快照/锁协议而非取消代次检查；17.6真机/原生平台与08.6固定GPU生产者协议有独立外部前置，保持开放但不占用可独立交付能力的全部批次。
+
+### 216.7 首轮统一回归的正式失败与收尾边界
+
+54559正式exit1，`full-v1.log`收齐88个通过测试包、13无测试包、1失败包（orchestrator），共两项失败：`TestWriteNativeBindingPublicNoDeclarationRemainsUnverified`在新允许的第二次规划处按旧calls=1断言提前Fatal，尚未检查最终unverified；`TestIRDeliveryHotFileLineRatchet/orchestrator.go`为8029行超过8018。其余包包括tool498.524s、tracequery132.447s全部正式结束，未叠跑第二套全仓。
+
+收尾保原负控真正的失败边界：有当前来源原生身份仅允许一次有界规划，不等于模型已经登记断言。第二次若仍未提供合法PTO，不得替required合同签绿；两种未经授权的emit、源/测试原字节、真实执行及最终unverified仍须验。行数问题采用将计划路径/快照持久化/工件文件名三函数原样迁入既有专属文件并降低主文件门槛，不提高上限、不做空白压缩、不修改read scheduler。相关验证与末版全仓收据待后续记录，不把第一轮FAIL换成无痕通过。
+
+`dcd4e4500`完成收尾：负控真实第二次规划获得controller提供的登记机会，但仍只发射probe-only、PTO/登记摘要/源码改动皆空；后续真实执行PASS，合同仍无witness、整轮unverified。第二次规划前核对源码批独立verified/slice_observe、同源passed verify attempt与ReportID/VerifyRef；不能用未真正执行后续来碰巧得到unverified。targeted-v1/v2是新增断言误套另一路径的终态来源，原日志保留；未修改生产状态机或旧正控helper。targeted-v3正式exit0（4.459s），两种未经授权emit及原字节保护仍通过。
+
+末版`registration-fullfix-related-final.log`正式exit0：types0.813/tool24.395/writeflow0.574/orchestrator16.623s；`registration-fullfix-race-final.log`正式exit0：2.364/31.227/2.150/32.000s。此组明确包含历史WriteNativeBindingPublic、完整SourceTerminalPublic、所有注册/持久化与ratchet。独审确认三个函数迁移前后及runReadSchedulerLoop逐字节相同，主文件上限8018→7943，职责文件208行/上限210。源码冻结dcd4e4500，build-v2正式exit0；唯一full-v2为66232，须取得其正式退出后再签统一回归。真实双例仍是62cfa7ddb的原始一次运行，本次仅原样职责迁移与测试增强，不追第三例。
+
+### 216.8 最终验收、归档与推送
+
+66232正式exit0，`full-v2.log`为89测试包通过/13无测试包/零FAIL；orchestrator67.931s、tool495.454s、tracequery128.682s、types49.153s。命令仍为`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`。构建37309正式exit0，版本dcd4e45008f4-dirty的dirty仅文档；末版没有追加源码修改。第一轮全部失败及收尾新增断言的构造失败原样保留，没有删例、降门或拼接旧绿。
+
+三笔代码`d26eb19fe`/`62cfa7ddb`/`dcd4e4500`已普通推送origin/main，14338正式exit0，远端从45e1bddb4前进至dcd4e4500。55份验证产物（53日志及2份原始复现文件）、60份工具载荷、3份准备源均本地保留在`eval/results/hmc_registration_intervals_20261009/`，全部日志复制后逐字节cmp、两份blob目录及准备源diff通过。独立公开RED源码以非编译`.go.txt`归档，SHA256仍为`284a6532f0275168310ff16982ebcf4e858a256bb6178627b8434d1df9c93fc3`；原live结果和源码计划/执行/工作流工件未改。
+
+最终复算仍79唯一ID=19完整实现交付+60开放、重复0，本批新增关闭完整父项0，交付两组可使用子能力：只读登记的真实来源终态/原件安全恢复；原生区间发现/身份保真及同源有界恢复。稳定验收父项仍5个，固定两例机器2/2、完整人工1/2，与本批1份人工FAIL重叠而不加成第6个稳定ID。普通写例没有命中新登记恢复，量测没有触发自动补查，均不伪称live验证；完整公开正反/race与真实问答各自计账。17.7/08.6/12.5及持续18.5未缩范围销账，后继按§216.6双轨推进。
