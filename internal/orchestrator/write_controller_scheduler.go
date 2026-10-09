@@ -55,6 +55,14 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 	if !o.busCtx.Mode.IsWrite() {
 		return fmt.Errorf("write controller workflow requires write mode, got %q", o.busCtx.Mode)
 	}
+	// Keep an explicit --plan-file pointing at the live plan across replans.
+	// Capture only the input mirror. Recovery/approval preparation may lazily
+	// resolve the active plan's durable path; that generated artifact is not an
+	// imported mirror and must not be overwritten by a later proof/replan.
+	importedPlanMirror := strings.TrimSpace(o.busCtx.PlanPath)
+	if o.generatedPlanPath {
+		importedPlanMirror = ""
+	}
 	// Run-scoped receipt. A resumed run will recapture it from the restored
 	// applied plan immediately before its next replan dispatch.
 	o.busCtx.Mutable.ResetReplanCurrentWorktreeReceipt()
@@ -86,13 +94,6 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 		o.publishBlockedRunGuidance(&run, "pending_approval")
 		return fmt.Errorf("%s", msg)
 	}
-	// importedPlanMirror is the --plan-file path this run was started
-	// with (empty otherwise). The controller workflow may replace the
-	// active plan across replan rounds; mirroring every accepted plan
-	// (and its later status/worktree updates) back to this file keeps
-	// the operator-visible artifact pointing at the LIVE plan instead
-	// of the first imported snapshot.
-	importedPlanMirror := strings.TrimSpace(o.busCtx.PlanPath)
 	controllerTurns := 0
 	maxTurns := defaultWriteWorkflowMaxBatches*4 + 4
 	var lastInnerErr error
@@ -4325,6 +4326,7 @@ func (o *Orchestrator) prepareControllerPlanningState() {
 	mu.ResetWriteClosure()
 	mu.ResetIterationLedger()
 	o.planPath = ""
+	o.generatedPlanPath = false
 	o.busCtx.PlanPath = ""
 	o.bestAppliedCommitSHA = ""
 	o.currentIterCommitSHA = ""
@@ -5214,7 +5216,7 @@ func (o *Orchestrator) loadWriteFinalReportChangePlan(planID string) (*types.Cha
 	if stem == "" {
 		return nil, nil
 	}
-	return types.LoadChangePlanFromFile(filepath.Join(planDir, stem+".json"))
+	return loadPlanIdentityArtifact(planDir, planID)
 }
 
 func upsertWorkflowRunContextPack(run types.WriteWorkflowRun, pack types.WriteContextPack) types.WriteWorkflowRun {
@@ -6511,7 +6513,7 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		appendControllerProgress(run, batchID, next.ReasonCode, next.Reason)
 		return next
 	}
-	if batch, ok := verificationProofProbePlanningFollowupDecision(run, plan, o.busCtx.Mutable.ChangeReport()); ok &&
+	if batch, ok := o.verificationProofPlanningFollowupDecision(run, plan, o.busCtx.Mutable.ChangeReport()); ok &&
 		(decision.Action == writeflow.ActionFinish ||
 			decision.Action == writeflow.ActionReplanBatch ||
 			controllerActionInterruptsUnverifiedCompletion(decision.Action)) {
@@ -9222,6 +9224,16 @@ func verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
 	report *types.ChangeReport,
 	runtimeAvailable func(string) bool,
 ) (*writeflow.WriteBatchPlan, bool) {
+	return verificationProofProbePlanningFollowupDecisionWithCapability(run, plan, report, runtimeAvailable, false)
+}
+
+func verificationProofProbePlanningFollowupDecisionWithCapability(
+	run *types.WriteWorkflowRun,
+	plan *types.ChangePlan,
+	report *types.ChangeReport,
+	runtimeAvailable func(string) bool,
+	registrationAvailable bool,
+) (*writeflow.WriteBatchPlan, bool) {
 	if run == nil || plan == nil || report == nil ||
 		workflowProgressReasonCount(run, "", "verification_proof_probe_plan_requested") > 0 ||
 		!report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed ||
@@ -9268,7 +9280,7 @@ func verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
 		ledger.UncoveredCount <= ledger.UnavailableCount {
 		return nil, false
 	}
-	if proofPlanningAssertionWitnessUnavailable(plan, ledger, active.ExpectedPaths, runtimeAvailable) {
+	if !registrationAvailable && proofPlanningAssertionWitnessUnavailable(plan, ledger, active.ExpectedPaths, runtimeAvailable) {
 		// Runtime presence alone cannot satisfy per-contract assertion debt.
 		// Keep the uncovered ledger unchanged and let the existing unverified
 		// terminal path disclose it instead of forcing an impossible probe.
@@ -10636,11 +10648,12 @@ func (o *Orchestrator) mirrorActivePlanToImportFile(mirrorPath string) {
 	if plan == nil {
 		return
 	}
-	if err := types.WritePlanToFile(plan, mirrorPath); err != nil {
+	if err := writePlanSnapshotPreservingIdentity(plan, mirrorPath); err != nil {
 		logging.Warning("[orchestrator] active plan mirror to %s failed: %v", mirrorPath, err)
 		return
 	}
 	o.planPath = mirrorPath
+	o.generatedPlanPath = false
 	o.busCtx.PlanPath = mirrorPath
 }
 
@@ -11349,7 +11362,7 @@ func (o *Orchestrator) loadDurablePlanArtifact(planID string) *types.ChangePlan 
 	if stem == "" || dir == "" {
 		return nil
 	}
-	plan, err := types.LoadChangePlanFromFile(filepath.Join(dir, stem+".json"))
+	plan, err := loadPlanIdentityArtifact(dir, planID)
 	if err != nil || plan == nil || strings.TrimSpace(plan.ID) != planID {
 		return nil
 	}

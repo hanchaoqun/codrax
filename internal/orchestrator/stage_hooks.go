@@ -1622,6 +1622,7 @@ func clearForReplan(o *Orchestrator, attempt int) {
 		o.busCtx.Mutable.WriteClosure().Reset()
 	}
 	o.planPath = ""
+	o.generatedPlanPath = false
 	o.busCtx.PlanPath = ""
 	// Multi-phase carry-through: when a phase is in flight, the
 	// orchestrator pinned a "## Phase X of Y: <goal>" header onto

@@ -148,6 +148,10 @@ type Orchestrator struct {
 	// in those modes). Copied into BusContext.PlanPath at Run entry
 	// so the phase functions read a single authoritative source.
 	planPath string
+	// Internal persistence publishes an output path through PlanPath(), but
+	// that path is not an input plan for the next REPL Run. Only SetPlanPath
+	// or an explicit imported mirror gives it cross-Run input ownership.
+	generatedPlanPath bool
 
 	// worktreeBase is the directory root under which the apply stage hook
 	// asks worktree.Create to provision new worktree sessions.
@@ -901,6 +905,7 @@ func (o *Orchestrator) SetEvalDisableGitHistory(on bool) {
 // between modes).
 func (o *Orchestrator) SetPlanPath(path string) {
 	o.planPath = path
+	o.generatedPlanPath = false
 }
 
 // PlanPath returns the currently configured plan file path.
@@ -1523,6 +1528,10 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// Runs never write these slots, so the reset is a no-op for
 	// the read-mode path.
 	o.phaseContextPrefix = ""
+	if o.generatedPlanPath {
+		o.planPath = ""
+		o.generatedPlanPath = false
+	}
 	o.nextPhaseHint = ""
 	o.advisoryDebtNoticeEmitted = false
 	o.readStatusDebouncer.Reset()
@@ -3389,6 +3398,7 @@ func (o *Orchestrator) ensureChangePlanPath() string {
 		} else if strings.TrimSpace(path) != "" {
 			o.busCtx.PlanPath = path
 			o.planPath = path
+			o.generatedPlanPath = true
 			o.reportDir = filepath.Dir(path)
 			return path
 		}
@@ -3401,6 +3411,7 @@ func (o *Orchestrator) ensureChangePlanPath() string {
 		path := filepath.Join(workDir, "plans", stem+".json")
 		o.busCtx.PlanPath = path
 		o.planPath = path
+		o.generatedPlanPath = true
 		o.reportDir = filepath.Dir(path)
 		return path
 	}
@@ -3419,7 +3430,7 @@ func (o *Orchestrator) persistCurrentChangePlanSnapshot() {
 	if strings.TrimSpace(path) == "" {
 		return
 	}
-	if err := types.WritePlanToFile(plan, path); err != nil {
+	if err := writePlanSnapshotPreservingIdentity(plan, path); err != nil {
 		logging.Warning("[orchestrator] ChangePlan snapshot persist failed: %v", err)
 		return
 	}

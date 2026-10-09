@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // Resolve the retained source from the live apply ledger, never from the new
@@ -113,4 +115,20 @@ func (o *Orchestrator) authorizeNativeTestRegistrationVerification(plan *types.C
 
 func changePlanIsReadOnlyProof(plan *types.ChangePlan) bool {
 	return changePlanIsProofProbeOnly(plan) || types.IsPersistedNativeTestRegistrationPlan(plan)
+}
+
+// A missing native declaration does not make assertion proof impossible when
+// the controller can offer the existing read-only registration lane. This only
+// routes bounded planning; the planning dispatch still mints a fresh grant,
+// requires delivered reads, and execution revalidates source bytes and identity.
+func (o *Orchestrator) verificationProofPlanningFollowupDecision(run *types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport) (*writeflow.WriteBatchPlan, bool) {
+	registrationAvailable := false
+	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+		if delivery, _, _, err := o.nativeTestRegistrationSource(plan); err == nil {
+			registrationAvailable = types.NativeTestRegistrationSourceIdentitiesAvailable(delivery.SourcePlanID, report)
+		}
+	}
+	return verificationProofProbePlanningFollowupDecisionWithCapability(run, plan, report, func(language string) bool {
+		return plan != nil && tool.VerificationProbeRuntimeAvailable(language, plan.WorktreePath)
+	}, registrationAvailable)
 }

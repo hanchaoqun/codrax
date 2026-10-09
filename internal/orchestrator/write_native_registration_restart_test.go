@@ -23,9 +23,15 @@ type registrationRestartInput struct {
 	Root, WorkDir, Objective, PlanID, SourceID, Head, OldInvocation string
 	ParentPID                                                       int
 	Reject                                                          string
+	SourceTerminal                                                  bool
+	PriorInvocations                                                []string
 }
 
 func (f controllerRegistrationFixture) restart(t *testing.T, reject ...string) *types.ChangeReport {
+	return f.restartExpectingSourceTerminal(t, false, reject...)
+}
+
+func (f controllerRegistrationFixture) restartExpectingSourceTerminal(t *testing.T, sourceTerminal bool, reject ...string) *types.ChangeReport {
 	t.Helper()
 	o := f.o
 	plan, run := o.busCtx.Mutable.ChangePlan(), o.busCtx.Mutable.WriteWorkflowRun()
@@ -39,6 +45,14 @@ func (f controllerRegistrationFixture) restart(t *testing.T, reject ...string) *
 		t.Fatal(err)
 	}
 	input := registrationRestartInput{Root: o.busCtx.RepoRoot, WorkDir: o.busCtx.WorkDir, Objective: o.busCtx.Mutable.Objective(), PlanID: plan.ID, SourceID: f.source.ID, Head: f.head, OldInvocation: f.oldInvocation, ParentPID: os.Getpid()}
+	input.SourceTerminal = sourceTerminal
+	if prior := o.loadWriteFinalReportChangeReport(f.source.ID); prior != nil {
+		for _, command := range prior.ExecutedCommands {
+			if command.InvocationID != "" {
+				input.PriorInvocations = append(input.PriorInvocations, command.InvocationID)
+			}
+		}
+	}
 	if len(reject) > 0 {
 		input.Reject = reject[0]
 	}
@@ -189,7 +203,12 @@ func TestNativeRegistrationFreshProcessHelper(t *testing.T) {
 	}
 	// This fixture has actual source delivery but no terminal verdict for the
 	// source batch. A verified follow-up must not fabricate that missing verdict.
-	if run.Completion == nil || run.Completion.Verdict != types.WriteWorkflowCompletionUnverified || run.Completion.ReasonCode != "missing_terminal_verify_verdict" {
+	if input.SourceTerminal {
+		assertNativeRegistrationSourceTerminal(t, run, input.SourceID)
+		if run.Completion == nil || run.Completion.Verdict != types.WriteWorkflowCompletionVerified {
+			t.Fatalf("verified source and current registration did not complete: %+v", run.Completion)
+		}
+	} else if run.Completion == nil || run.Completion.Verdict != types.WriteWorkflowCompletionUnverified || run.Completion.ReasonCode != "missing_terminal_verify_verdict" {
 		t.Fatalf("missing source completion was laundered: %+v", run.Completion)
 	}
 	if verified != 1 || report == nil || !report.Passed || len(report.ExistingTestExecutions) != 1 || !types.BehaviorContractRefHasVerificationWitness(plan, report, "increment-result") {
@@ -199,6 +218,11 @@ func TestNativeRegistrationFreshProcessHelper(t *testing.T) {
 	invocation := report.ExecutedCommands[r.CommandIndex].InvocationID
 	if invocation == "" || invocation == input.OldInvocation || r.SourcePlanID != input.SourceID || r.AppliedCommitSHA != input.Head || mu.NativeTestRegistrationExecutionAuthorized(plan, input.Root) {
 		t.Fatal("historical proof reused or execution grant leaked")
+	}
+	for _, previous := range input.PriorInvocations {
+		if invocation == previous {
+			t.Fatal("registration reused the source controller's previous invocation")
+		}
 	}
 	testBytes, err := os.ReadFile(filepath.Join(input.Root, "test_value.py"))
 	if err != nil || string(testBytes) != controllerRegistrationTestSource || strings.TrimSpace(runGitForWorkflowRestoreTest(t, input.Root, "rev-parse", "HEAD")) != input.Head || runGitForWorkflowRestoreTest(t, input.Root, "diff", "HEAD", "--") != "" {

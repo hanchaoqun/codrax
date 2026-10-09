@@ -1,11 +1,100 @@
 package orchestrator
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// An explicitly imported filename remains a live result alias. Preserve its
+// old identity before replacement, including when that filename is itself the
+// canonical ID key (or reaches it through a directory symlink). Both snapshot
+// writers use this boundary; a failed preservation must leave the alias intact.
+func writePlanSnapshotPreservingIdentity(plan *types.ChangePlan, path string) error {
+	prior, priorBytes, err := readPlanSnapshotForPreservation(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read prior plan before replacing alias: %w", err)
+	}
+	if prior != nil && plan != nil && prior.ID != plan.ID {
+		stem := writeWorkflowArtifactFileStem(prior.ID)
+		if stem == "" {
+			return fmt.Errorf("cannot retain prior plan with empty identity")
+		}
+		identityPath := filepath.Join(filepath.Dir(path), stem+".json")
+		if planSnapshotPathsSameFile(identityPath, path) {
+			identityPath = retainedPlanIdentityPath(filepath.Dir(path), stem)
+		}
+		if planSnapshotPathsSameFile(identityPath, path) {
+			return fmt.Errorf("retained plan destination aliases the live result")
+		}
+		if existing, _, readErr := readPlanSnapshotForPreservation(identityPath); readErr == nil && existing.ID != prior.ID {
+			return fmt.Errorf("retained plan destination belongs to another identity")
+		} else if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return fmt.Errorf("read retained plan destination: %w", readErr)
+		}
+		if err := os.MkdirAll(filepath.Dir(identityPath), 0o755); err != nil {
+			return fmt.Errorf("create retained plan directory: %w", err)
+		}
+		// Do not reserialize: normal plan writes upgrade valid legacy shapes
+		// and discard unknown fields. Historical originals stay byte-exact.
+		if err := types.AtomicWriteFileSync(identityPath, priorBytes, 0o644); err != nil {
+			return fmt.Errorf("retain prior plan before replacing alias: %w", err)
+		}
+		retained, err := os.ReadFile(identityPath)
+		if err != nil || !bytes.Equal(priorBytes, retained) {
+			return fmt.Errorf("retained prior plan did not round trip unchanged")
+		}
+	}
+	return types.WritePlanToFile(plan, path)
+}
+
+// Persistence may update a still-incomplete plan of the same identity. Reading
+// its serialized shape here is only for lossless preservation, not admission:
+// every source/recovery consumer still uses LoadChangePlanFromFile validation.
+func readPlanSnapshotForPreservation(path string) (*types.ChangePlan, []byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	var plan types.ChangePlan
+	if err := json.Unmarshal(data, &plan); err != nil {
+		return nil, nil, err
+	}
+	return &plan, data, nil
+}
+
+func planSnapshotPathsSameFile(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	left, leftErr := os.Stat(a)
+	right, rightErr := os.Stat(b)
+	return leftErr == nil && rightErr == nil && os.SameFile(left, right)
+}
+
+func retainedPlanIdentityPath(dir, stem string) string {
+	return filepath.Join(dir, "retained-plans", stem+".json")
+}
+
+// A live alias can contain a successor with a different ID. Never return that
+// successor for a historical lookup; only the exact ID-addressed retained copy
+// is eligible, and normal source/contract/physical-byte checks still apply.
+func loadPlanIdentityArtifact(dir, planID string) (*types.ChangePlan, error) {
+	stem := writeWorkflowArtifactFileStem(planID)
+	for _, path := range []string{filepath.Join(dir, stem+".json"), retainedPlanIdentityPath(dir, stem)} {
+		plan, err := types.LoadChangePlanFromFile(path)
+		if err == nil && plan != nil && plan.ID == planID {
+			return plan, nil
+		}
+	}
+	return nil, fmt.Errorf("exact plan artifact %q unavailable: %w", planID, os.ErrNotExist)
+}
 
 // persistImmutablePlanIDSnapshot retains an id-addressed sibling when
 // PlanPath is a stable import/result alias that a later replan may overwrite.

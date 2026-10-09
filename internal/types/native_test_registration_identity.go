@@ -15,8 +15,24 @@ func (m *MutableState) InstallNativeTestRegistrationIdentity(authorizationID str
 	}
 	g.identitySnapshot = ""
 	g.identityChoices = nil
-	if report == nil || report.PlanID != g.Delivery.SourcePlanID || report.Channel != ChangeReportChannelPostApplyVerify {
+	view := nativeTestRegistrationSourceIdentities(g.Delivery.SourcePlanID, report)
+	if view == nil {
 		return
+	}
+	g.identitySnapshot, g.identityChoices = renderNativeTestIdentitySnapshotChoices(g.Delivery.SourcePlanID, view, true, g.ID)
+}
+
+// NativeTestRegistrationSourceIdentitiesAvailable is a planning capability,
+// not permission or proof. The controller must separately resolve the retained
+// source and unchanged contracts before offering this read-only planning lane.
+func NativeTestRegistrationSourceIdentitiesAvailable(sourcePlanID string, report *ChangeReport) bool {
+	view := nativeTestRegistrationSourceIdentities(sourcePlanID, report)
+	return view != nil && len(view.TestResults) > 0
+}
+
+func nativeTestRegistrationSourceIdentities(sourcePlanID string, report *ChangeReport) *ChangeReport {
+	if sourcePlanID == "" || report == nil || report.PlanID != sourcePlanID || report.Channel != ChangeReportChannelPostApplyVerify {
+		return nil
 	}
 	// This registration route currently supports Python unittest only. A
 	// unique producer invocation, not command prose, selects eligible rows.
@@ -34,7 +50,7 @@ func (m *MutableState) InstallNativeTestRegistrationIdentity(authorizationID str
 			}
 		}
 	}
-	g.identitySnapshot, g.identityChoices = renderNativeTestIdentitySnapshotChoices(g.Delivery.SourcePlanID, &view, true, g.ID)
+	return &view
 }
 
 // NativeTestIdentityChoice selects only a producer-published identity pair.
