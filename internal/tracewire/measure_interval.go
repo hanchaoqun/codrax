@@ -104,7 +104,8 @@ func (r MeasureInterval) Valid() bool {
 	return ok && fok && id == fid && r.Filter.Name.Valid() && r.Filter.Type.Valid() && r.Filter.SourceArgSetID.Valid()
 }
 
-const MeasureIntervalPrefix = "# codrax_measure_interval/v1 record="
+const MeasureIntervalFamily = "# codrax_measure_interval/v1"
+const MeasureIntervalPrefix = MeasureIntervalFamily + " record="
 
 func FormatMeasureInterval(r MeasureInterval) (string, error) {
 	if !r.Valid() {

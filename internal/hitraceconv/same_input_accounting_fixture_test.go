@@ -96,9 +96,9 @@ func TestSameInputTraceStreamerAccountingReceiptIsDeterministic(t *testing.T) {
 			t.Fatalf("same-input conversion run %d: %v", run, err)
 		}
 		receipt := buildSameInputAccountingReceipt(t, input, childInput, output, result)
-		// HMC-03 adds exactly one source-metadata suffix to this fixture's
-		// resource instant. Removing only that suffix must reproduce the old
-		// complete output byte-for-byte, including the exact SQL fidelity tail.
+		// HMC-17.7 adds exactly three independently pinned raw measure rows.
+		// Remove only those rows and HMC-03's resource metadata suffix to
+		// reproduce the old complete output, including its SQL fidelity tail.
 		body, err := os.ReadFile(output)
 		if err != nil {
 			t.Fatal(err)
@@ -107,10 +107,10 @@ func TestSameInputTraceStreamerAccountingReceiptIsDeterministic(t *testing.T) {
 		if strings.Count(string(body), metadataSuffix) != 1 {
 			t.Fatal("same-input native resource metadata suffix is missing or duplicated")
 		}
-		previousBody := strings.Replace(string(body), metadataSuffix, "", 1)
+		previousBody := strings.Replace(sameInputWithoutMeasureExtension(t, string(body)), metadataSuffix, "", 1)
 		previousSHA := sha256.Sum256([]byte(previousBody))
 		if len(previousBody) != 37140 || hex.EncodeToString(previousSHA[:]) != "427d8b8664897dba6641f271fb01ec29a3870c18b9417c26019da8ccb8388752" {
-			t.Fatal("native metadata evolution changed bytes outside the explicit resource suffix")
+			t.Fatal("native metadata evolution changed bytes outside the explicit resource suffix and three raw measure records")
 		}
 		if receipt.InputBytes != receipt.ChildInputBytes ||
 			receipt.InputSHA256 != receipt.ChildInputSHA256 {
@@ -225,6 +225,7 @@ func sameInputCoverageProjection(items []TraceDBCoverage) []sameInputCoverageRec
 
 func assertSameInputAccountingGolden(t *testing.T, receipt sameInputAccountingReceipt) {
 	t.Helper()
+	receipt = sameInputBeforeMeasureExtension(t, receipt)
 	// HMC-03.3 resource-stack inspection adds one independent coverage lane.
 	// This legacy fixture has one native_hook row but no callchain_id, so
 	// that lane must account for the row without emitting a carrier or reading
