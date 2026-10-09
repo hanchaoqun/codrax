@@ -87,7 +87,10 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// attachment concern file while wiring the Run-scoped preparer.
 		// Extract the complete hypothesis-verdict lifecycle with its godoc;
 		// tighten the hot-file budget instead of hiding or compressing lines.
-		{path: "orchestrator.go", maxLines: 8018},
+		// HMC §216 moves the complete plan-path allocation, snapshot writing
+		// and artifact-name concern into write_plan_snapshot.go unchanged.
+		{path: "orchestrator.go", maxLines: 7943},
+		{path: "write_plan_snapshot.go", maxLines: 210},
 		{path: "hypothesis_verdicts.go", maxLines: 190},
 		{path: "attached_log.go", maxLines: 15},
 		{path: "write_change_plan_summary.go", maxLines: 85},

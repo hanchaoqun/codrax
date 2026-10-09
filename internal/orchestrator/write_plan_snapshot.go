@@ -7,10 +7,97 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func (o *Orchestrator) ensureChangePlanPath() string {
+	if o == nil || o.busCtx == nil {
+		return ""
+	}
+	if path := strings.TrimSpace(o.busCtx.PlanPath); path != "" {
+		o.planPath = path
+		o.reportDir = filepath.Dir(path)
+		return path
+	}
+	if o.busCtx.Mutable == nil {
+		return ""
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil || strings.TrimSpace(plan.ID) == "" {
+		return ""
+	}
+	if o.planSaver != nil {
+		path, err := o.planSaver.Save(plan)
+		if err != nil {
+			logging.Warning("[orchestrator] ChangePlan persist fallback failed: %v", err)
+		} else if strings.TrimSpace(path) != "" {
+			o.busCtx.PlanPath = path
+			o.planPath = path
+			o.generatedPlanPath = true
+			o.reportDir = filepath.Dir(path)
+			return path
+		}
+	}
+	if workDir := strings.TrimSpace(o.busCtx.WorkDir); workDir != "" {
+		stem := writeWorkflowArtifactFileStem(plan.ID)
+		if stem == "" {
+			return ""
+		}
+		path := filepath.Join(workDir, "plans", stem+".json")
+		o.busCtx.PlanPath = path
+		o.planPath = path
+		o.generatedPlanPath = true
+		o.reportDir = filepath.Dir(path)
+		return path
+	}
+	return ""
+}
+
+func (o *Orchestrator) persistCurrentChangePlanSnapshot() {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil {
+		return
+	}
+	path := o.ensureChangePlanPath()
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	if err := writePlanSnapshotPreservingIdentity(plan, path); err != nil {
+		logging.Warning("[orchestrator] ChangePlan snapshot persist failed: %v", err)
+		return
+	}
+	logging.Info("[orchestrator] ChangePlan snapshot persisted: %s", path)
+	o.persistImmutablePlanIDSnapshot(plan, path)
+}
+
+func writeWorkflowArtifactFileStem(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return strings.Trim(b.String(), ".")
+}
 
 // An explicitly imported filename remains a live result alias. Preserve its
 // old identity before replacement, including when that filename is itself the

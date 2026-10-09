@@ -24,8 +24,9 @@ const nativeBindingPublicContract = "reject-fraction"
 // was supplied, not a successful authorized follow-up registration.
 // Only model choices are scripted: Run, public tools, git and Python create the
 // source plan, applied worktree, native assertions and changed-target receipt.
-// The controller requests honest unverified completion; this does not claim to
-// prove automatic discovery/rebinding of the missing native declaration.
+// The controller may offer one bounded follow-up planning opportunity, but
+// the model still declines native registration. A successful probe cannot
+// replace that missing declaration or upgrade the final unverified verdict.
 func TestWriteNativeBindingPublicNoDeclarationRemainsUnverified(t *testing.T) {
 	for _, name := range []string{"git", "python3"} {
 		if _, err := exec.LookPath(name); err != nil {
@@ -81,6 +82,7 @@ class CoerceTest(unittest.TestCase):
 	var o *Orchestrator
 	var sourcePlan *types.ChangePlan
 	var firstReport *types.ChangeReport
+	var proofPlanID string
 	postHookChecked := false
 	plannerCalls, coderCalls, verifyCalls := 0, 0, 0
 	execute := func(call func(*types.BusContext, json.RawMessage) (types.ToolResult, error), params any) types.ToolResult {
@@ -132,19 +134,53 @@ class CoerceTest(unittest.TestCase):
 		},
 		types.AgentPlanner: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 			plannerCalls++
-			if plannerCalls != 1 {
-				t.Fatalf("execution-only probe must not force an impossible repeated plan: calls=%d", plannerCalls)
+			if plannerCalls > 2 {
+				t.Fatalf("missing native declaration must not cause unbounded planning: calls=%d", plannerCalls)
 			}
 			results := []types.ToolResult{read(nativeBindingPublicSource), read(nativeBindingPublicTest)}
+			changes := []map[string]any{{"path": nativeBindingPublicSource, "kind": "patch", "rationale": "Reject a fractional value with the required exception.",
+				"edits": []map[string]any{{"kind": "replace", "start_line": 3, "old_text": "        raise TypeError(\"fractional value\")", "content": "        raise ValueError(\"fractional value\")"}}}}
+			summary := "Correct only the exception type; keep every existing test unchanged."
+			if plannerCalls == 2 {
+				nativeBindingPublicAssertDebt(t, sourcePlan, firstReport)
+				sourceTerminal := false
+				for _, batch := range o.busCtx.Mutable.WriteWorkflowRun().Batches {
+					if batch.PlanID != sourcePlan.ID || proofFollowupPurpose(batch.Purpose) {
+						continue
+					}
+					if batch.Completion == nil || batch.Completion.Verdict != types.WriteWorkflowCompletionVerified || batch.Completion.Source != "slice_observe" || batch.VerifyRef == "" {
+						t.Fatalf("source must retain its real slice-observe verification: %+v completion=%+v", batch, batch.Completion)
+					}
+					for _, attempt := range batch.Attempts {
+						if attempt.Kind == "verify" && attempt.Status == "passed" && attempt.PlanID == sourcePlan.ID && attempt.ReportID == batch.VerifyRef {
+							sourceTerminal = true
+						}
+					}
+				}
+				if !sourceTerminal {
+					t.Fatal("source completion lacks its own actual verify attempt")
+				}
+				if o.busCtx.Mutable.NativeTestRegistrationAuthorization() == nil {
+					t.Fatal("bounded follow-up must come from actual controller registration authorization")
+				}
+				changes = []map[string]any{}
+				summary = "Rerun the existing probe without modifying files or registering a native assertion."
+			}
 			results = append(results, execute((&tool.EmitChangePlan{}).Execute, map[string]any{
-				"request": request, "summary": "Correct only the exception type; keep every existing test unchanged.",
-				"changes": []map[string]any{{"path": nativeBindingPublicSource, "kind": "patch", "rationale": "Reject a fractional value with the required exception.",
-					"edits": []map[string]any{{"kind": "replace", "start_line": 3, "old_text": "        raise TypeError(\"fractional value\")", "content": "        raise ValueError(\"fractional value\")"}}}},
+				"request": request, "summary": summary, "changes": changes,
 				"verification_probes": []types.VerificationProbe{{ID: "exercise-rejection", Language: "python", WorkingDir: "packages/value",
 					Code:         "from value import coerce_integer\ntry:\n    coerce_integer(1.5)\nexcept ValueError:\n    pass\nelse:\n    raise AssertionError('fraction was accepted')\nassert coerce_integer(2.0) == 2\n",
 					ContractRefs: []string{nativeBindingPublicContract}, ChangedSymbolRefs: []string{"path:" + nativeBindingPublicSource}}},
 				"project_test_observations": []any{},
 			}))
+			if plannerCalls == 2 {
+				plan := o.busCtx.Mutable.ChangePlan()
+				if !types.IsPersistedProofProbeOnlyPlan(plan) || plan.NativeTestRegistration != nil || len(plan.ProjectTestObservations) != 0 || len(plan.Changes) != 0 {
+					t.Fatalf("bounded follow-up fabricated native registration or source edits: %+v", plan)
+				}
+				proofPlanID = plan.ID
+				assertWorktreeBytes()
+			}
 			return &agent.StageOutput{ToolResults: results}, nil
 		},
 		types.AgentCoder: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
@@ -232,7 +268,7 @@ class CoerceTest(unittest.TestCase):
 	o.SetMaxSteps(30)
 	o.SetWorktreeBase(filepath.Join(t.TempDir(), "worktrees"))
 	bus, err := o.Run(request, root, "main")
-	if err != nil || bus == nil || firstReport == nil || !postHookChecked || plannerCalls != 1 || coderCalls != 1 || verifyCalls < 1 {
+	if err != nil || bus == nil || firstReport == nil || !postHookChecked || plannerCalls != 2 || proofPlanID == "" || coderCalls != 1 || verifyCalls < 2 {
 		t.Fatalf("HARNESS: complete real source/apply/verify path unavailable: err=%v planner=%d coder=%d verifier=%d", err, plannerCalls, coderCalls, verifyCalls)
 	}
 	run := bus.Mutable.WriteWorkflowRun()
@@ -240,7 +276,15 @@ class CoerceTest(unittest.TestCase):
 		t.Fatalf("missing native binding must remain explicitly unverified: %+v", run)
 	}
 	nativeBindingPublicAssertDebt(t, sourcePlan, firstReport)
-	if current := bus.Mutable.ChangePlan(); current != nil && types.BuildVerificationProofLedger(current, bus.Mutable.ChangeReport(), nil).State == types.VerificationProofLedgerVerified {
+	current := bus.Mutable.ChangePlan()
+	if current == nil || current.ID != proofPlanID || !types.IsPersistedProofProbeOnlyPlan(current) || current.NativeTestRegistration != nil || len(current.ProjectTestObservations) != 0 {
+		t.Fatalf("final plan must retain the actual unregistered proof-only follow-up: %+v", current)
+	}
+	report := bus.Mutable.ChangeReport()
+	if report == nil || report.PlanID != proofPlanID || report.Channel != types.ChangeReportChannelPostApplyVerify || !report.Passed || len(report.ExecutedCommands) == 0 {
+		t.Fatalf("final unverified verdict must follow actual successful follow-up execution: %+v", report)
+	}
+	if types.BuildVerificationProofLedger(current, report, nil).State == types.VerificationProofLedgerVerified || types.BehaviorContractRefHasVerificationWitness(current, report, nativeBindingPublicContract) {
 		t.Fatal("final cumulative projection silently discharged missing native assertion binding")
 	}
 	if git("rev-parse", "HEAD") != seed {
