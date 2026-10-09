@@ -340,12 +340,10 @@ func TestSupprefTol_WitnessReplay_FaithfulStateEmitFourLandsAfterCSP63(t *testin
 	if aggregateMemberSetOriginRequiresCurrentSource(bus, rm, []types.AnswerAggregateFact{witnessFact}) {
 		t.Fatalf("post-CSP63 blob reads must not mint a current-source requirement")
 	}
-	// With the bypass alive the bare-surface form repair correctly steps
-	// aside (the per-member loop would no-op on protected members); the
-	// repair lane itself stays pinned by the synthetic no-runtime-context
-	// pins below.
-	if decoratedMemberSetFormRepairEligible(bus, "resolved", witnessFact) {
-		t.Fatalf("live origin bypass must supersede the bare-surface form repair")
+	// The actual form-repair boundary must retain every runtime identity and
+	// its existing note; an origin bypass is not identity-equivalence proof.
+	if got, _ := normalizeDecoratedMemberSetFormDebt(bus, "resolved", []types.AnswerAggregateFact{witnessFact}, nil); len(got) != 1 || !reflect.DeepEqual(got[0], witnessFact) {
+		t.Fatalf("runtime identities changed at form-repair boundary: %+v", got)
 	}
 
 	res4, err := tool.Execute(bus, json.RawMessage(supprefTolWitnessEmit4Params))
@@ -463,9 +461,9 @@ func TestSupprefTol_AcceptedExcludeLane_EmitFourLandsInHandoff(t *testing.T) {
 
 // —— Pin ③ (fail-open): a decorated member_set whose support ref is
 // CONSUMABLE (parses to a real location) but does not resolve to the member
-// keeps today's downgrade byte-identically — consumable refs still veto the
-// bare-surface repair and the gate message format is pinned verbatim.
-func TestSupprefTol_ConsumableButUnresolvingRefKeepsDowngradeByteIdentical(t *testing.T) {
+// keeps the original downgrade verdict. Guidance must not advise dropping an
+// unknown identity qualifier as an alternative to providing evidence.
+func TestSupprefTol_ConsumableButUnresolvingRefKeepsDowngrade(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
 	tool := &EmitInvestigationComplete{}
@@ -490,9 +488,9 @@ func TestSupprefTol_ConsumableButUnresolvingRefKeepsDowngradeByteIdentical(t *te
 	if !res.Success {
 		t.Fatalf("downgrade must stay a successful tool result: %s", res.Summary)
 	}
-	want := `aggregate_facts: member_set "code members" has 1 member(s) shaped as "<code identifier> (<qualifier>)" ("Gate.Run (8个独立检查)") but support_refs do not resolve to the cited member. Decorated code-shape members never auto-resolve against evidence anchors, so downstream answer rendering cannot align row item citation_ref values without explicit per-member grounding. Re-emit with support_refs in either of these forms: labeled ["<member-leading-symbol>: <file>:<line>", …] where the label is the member's bare leading identifier (no decorator), or positional ["<file>:<line>", …] with one entry per members[] in the same order. If you cannot ground a member, drop the decorator so the bare symbol can auto-resolve; removing the member entirely is a last resort and you must name the removed member in reason with one line on why.`
+	want := `aggregate_facts: member_set "code members" has 1 member(s) shaped as "<code identifier> (<qualifier>)" ("Gate.Run (8个独立检查)") but support_refs do not resolve to the cited member. Decorated code-shape members never auto-resolve against evidence anchors, so downstream answer rendering cannot align row item citation_ref values without explicit per-member grounding. Re-emit with support_refs in either of these forms: labeled ["<member-leading-symbol>: <file>:<line>", …] where the label is the member's bare leading identifier (no decorator), or positional ["<file>:<line>", …] with one entry per members[] in the same order. Preserve identity qualifiers: a shorter display name is not proof of the same object. If grounding remains unavailable, report that evidence gap instead of removing qualifiers to bypass it.`
 	if !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) || !strings.Contains(res.Summary, want) {
-		t.Fatalf("consumable-but-unresolving ref must keep the byte-identical downgrade, got: %s", res.Summary)
+		t.Fatalf("consumable-but-unresolving ref must preserve evidence debt, got: %s", res.Summary)
 	}
 }
 
@@ -653,12 +651,9 @@ func TestSupprefTol_DecoratedRefsResolveEndToEnd(t *testing.T) {
 	})
 }
 
-// —— Synthetic form-repair pin (deliverable b): a NON-consumable junk ref no
-// longer vetoes the bare-surface repair. Baseline behavior for this exact
-// payload was the "support_refs do not resolve" DOWNGRADE; now the fact
-// lands with bare members and the decorator qualifier moved losslessly into
-// member_notes.
-func TestSupprefTol_JunkRefNoLongerVetoesBareSurfaceRepair(t *testing.T) {
+// A non-consumable ref supplies no identity witness. Preserve the qualifier and
+// the same evidence debt as a missing ref, rather than laundering a bare name.
+func TestSupprefTol_JunkRefCannotAuthorizeBareSurfaceRepair(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
 	tool := &EmitInvestigationComplete{}
@@ -677,34 +672,17 @@ func TestSupprefTol_JunkRefNoLongerVetoesBareSurfaceRepair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !res.Success || !strings.HasPrefix(res.Summary, "Investigation marked complete") {
-		t.Fatalf("junk-ref decorated member_set must land via bare-surface repair, got: %s", res.Summary)
+	if !res.Success || !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) || !strings.Contains(res.Summary, "Gate.Run (8个独立检查)") {
+		t.Fatalf("junk-ref decorated member_set must retain identity and evidence debt, got: %s", res.Summary)
 	}
 	facts := mut.StableInvestigationAggregateFacts()
-	if len(facts) != 1 {
-		t.Fatalf("expected one fact, got %+v", facts)
-	}
-	fact := facts[0]
-	if len(fact.Members) != 1 || fact.Members[0] != "Gate.Run" {
-		t.Fatalf("member must be repaired to the bare surface, got %+v", fact.Members)
-	}
-	if len(fact.MemberNotes) != 1 || fact.MemberNotes[0] != "8个独立检查" {
-		t.Fatalf("decorator qualifier must move losslessly into member_notes, got %+v", fact.MemberNotes)
-	}
-	if !strings.Contains(fact.Provenance, "form_repair:decorated_member_base") {
-		t.Fatalf("repair provenance marker missing: %q", fact.Provenance)
+	if len(facts) != 0 {
+		t.Fatalf("missing evidence became accepted bare-name facts: %+v", facts)
 	}
 }
 
-// —— Shadowed-fact uniformity pin (accepted-surface delta, argued): facts
-// shadowed by a source-inventory principal row set are exempt from the
-// support_refs GATE, and before this batch a junk ref (unlike no ref) also
-// kept them out of the bare-surface repair. The repair is lossless
-// (decorator qualifier moves to member_notes) and an identical fact one junk
-// ref away must not fork its accepted surface, so both variants now repair
-// identically — pinned here with the refs-absent variant as the behavior
-// authority (that lane predates this batch unchanged).
-func TestSupprefTol_ShadowedFactJunkRefRepairsSameAsNoRef(t *testing.T) {
+// Shadowing and source-ref presence are not equivalence evidence either.
+func TestSupprefTol_ShadowedFactJunkRefPreservesSameAsNoRef(t *testing.T) {
 	shadowed := func(refs []string) types.AnswerAggregateFact {
 		return types.AnswerAggregateFact{
 			Kind:        types.AnswerAggregateMemberSet,
@@ -722,8 +700,8 @@ func TestSupprefTol_ShadowedFactJunkRefRepairsSameAsNoRef(t *testing.T) {
 	if len(noRef) != 1 || len(junkRef) != 1 {
 		t.Fatalf("unexpected fact counts: %d vs %d", len(noRef), len(junkRef))
 	}
-	if noRef[0].Members[0] != "Gate.Run" {
-		t.Fatalf("refs-absent repair lane (pre-existing) must strip to the bare surface, got %+v", noRef[0].Members)
+	if noRef[0].Members[0] != "Gate.Run (8个独立检查)" {
+		t.Fatalf("refs-absent repair must retain unknown qualifier, got %+v", noRef[0].Members)
 	}
 	if junkRef[0].Members[0] != noRef[0].Members[0] ||
 		strings.Join(junkRef[0].MemberNotes, "\n") != strings.Join(noRef[0].MemberNotes, "\n") {

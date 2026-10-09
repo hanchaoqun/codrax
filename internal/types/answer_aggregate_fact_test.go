@@ -681,7 +681,7 @@ func TestMergeAnswerAggregateFacts_ReplacesStaleSubsetWithLaterCompleteMemberSet
 	}
 	visible := strings.Join(got[0].SupportRefs, "\n")
 	for _, want := range []string{
-		"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"native_add(a: Int64, b: Int64): Int64 @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
 		"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
 	} {
 		if !strings.Contains(visible, want) {
@@ -853,8 +853,8 @@ func TestNormalizeAnswerAggregateFacts_PreservesRepeatedOccurrenceAtDistinctRunt
 	if err != nil {
 		t.Fatalf("duplicate occurrence normalization failed: %v", err)
 	}
-	if len(duplicate) != 1 || duplicate[0].Value != "1" || len(duplicate[0].Members) != 1 {
-		t.Fatalf("the same occurrence coordinate must still dedupe idempotently: %+v", duplicate)
+	if len(duplicate) != 1 || duplicate[0].Value != "2" || len(duplicate[0].Members) != 2 {
+		t.Fatalf("local occurrence coordinates without a common source cannot establish identity: %+v", duplicate)
 	}
 
 	decorative, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
@@ -869,8 +869,8 @@ func TestNormalizeAnswerAggregateFacts_PreservesRepeatedOccurrenceAtDistinctRunt
 	if err != nil {
 		t.Fatalf("decorative member normalization failed: %v", err)
 	}
-	if len(decorative) != 1 || decorative[0].Value != "1" || len(decorative[0].Members) != 1 {
-		t.Fatalf("non-coordinate decorators must retain semantic member-set dedupe: %+v", decorative)
+	if len(decorative) != 1 || decorative[0].Value != "2" || len(decorative[0].Members) != 2 {
+		t.Fatalf("unknown qualifiers must remain part of object identity: %+v", decorative)
 	}
 }
 
@@ -1704,7 +1704,7 @@ func TestNormalizeAnswerAggregateFacts_SeparatesMemberIdentityFromSupportLocatio
 		Members: []string{
 			"Kind: internal/analysis/criterion/grammar.go:26",
 			"Kind",
-			"Kind (grammar.go:26)",
+			"Kind (internal/analysis/criterion/grammar.go:26)",
 			"Env: internal/analysis/criterion/grammar.go:124",
 			"Env",
 			"Result: internal/analysis/criterion/grammar.go:184",
@@ -1873,7 +1873,7 @@ func TestAggregateMemberAttributeQualifierRejectsAppendedStructuredCarrierGeneri
 	}
 }
 
-func TestNormalizeAnswerAggregateFacts_DedupesQualifiedRelationMemberSetVariants(t *testing.T) {
+func TestNormalizeAnswerAggregateFacts_PreservesUnprovenQualifiedRelationMemberSetVariants(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
 		{
 			Kind:    AnswerAggregateMemberSet,
@@ -1891,8 +1891,8 @@ func TestNormalizeAnswerAggregateFacts_DedupesQualifiedRelationMemberSetVariants
 	if err != nil {
 		t.Fatalf("qualified relation member variants should validate: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("qualified relation variants should dedupe to one fact, got %+v", got)
+	if len(got) != 2 {
+		t.Fatalf("display-compatible qualified names without shared identity must remain distinct, got %+v", got)
 	}
 	candidates := AnswerAggregateMemberDisplayCandidates("aggregator → Aggregator.Aggregate")
 	if !stringSliceContains(candidates, "aggregator → Aggregate") ||

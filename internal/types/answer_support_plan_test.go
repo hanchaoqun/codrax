@@ -2929,7 +2929,7 @@ func TestBuildAnswerSupportPlan_CompactAggregateSupportRefMemberUsesLabelAndCita
 	}
 }
 
-func TestBuildAnswerSupportPlan_GenericAggregateMemberSetUpgradesShortDisplayLocationFromSupportRef(t *testing.T) {
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetPreservesSourceIdentityWithShortDisplayLocation(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		StableAggregateFacts: []AnswerAggregateFact{{
 			Kind:  AnswerAggregateMemberSet,
@@ -2959,11 +2959,25 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetUpgradesShortDisplayLoc
 	if len(obligations) != 2 {
 		t.Fatalf("expected two principal obligations, got %+v", obligations)
 	}
-	if obligations[0].Label != "Kind" || obligations[0].Location != "internal/analysis/criterion/grammar.go:26" {
-		t.Fatalf("short display path should upgrade to precise grammar.go support_ref, got %+v", obligations[0])
+	if obligations[0].Label != "Kind" || obligations[0].Location != "grammar.go:26" {
+		t.Fatalf("unverified suffix correspondence must not replace member-owned identity, got %+v", obligations[0])
 	}
-	if obligations[1].Label != "Eval" || obligations[1].Location != "internal/analysis/criterion/eval.go:15" {
-		t.Fatalf("short display path should upgrade to precise eval.go support_ref, got %+v", obligations[1])
+	if obligations[1].Label != "Eval" || obligations[1].Location != "eval.go:15" {
+		t.Fatalf("unverified suffix correspondence must not replace member-owned identity, got %+v", obligations[1])
+	}
+	// Independent grounded source evidence can resolve the display path; the
+	// author's positional support_ref alone cannot establish that identity.
+	plan.SurfaceEvidence = []EvidenceItem{
+		{Kind: EvidenceDirect, Source: "internal/analysis/criterion/grammar.go", LineStart: 26, AnchorKind: AnchorDefinition, AnchorSymbol: "Kind", GroundingStatus: GroundingGrounded},
+		{Kind: EvidenceDirect, Source: "internal/analysis/criterion/eval.go", LineStart: 15, AnchorKind: AnchorDefinition, AnchorSymbol: "Eval", GroundingStatus: GroundingGrounded},
+	}
+	support = BuildAnswerSupportPlan(RequestModel{
+		Intent: IntentEnumerate, Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "public criterion symbols"},
+	}, plan)
+	obligations = PrincipalSupportMemberObligations(support)
+	if len(obligations) != 2 || obligations[0].Location != "internal/analysis/criterion/grammar.go:26" || obligations[1].Location != "internal/analysis/criterion/eval.go:15" {
+		t.Fatalf("grounded source identities should resolve short display paths: %+v", obligations)
 	}
 
 	doc := &AnswerDocumentV2{
@@ -3055,7 +3069,7 @@ func TestBuildAnswerSupportPlan_CompleteCountFactMembersActAsPrincipalRows(t *te
 			Kind:    AnswerAggregateTotalCount,
 			Label:   "public functions",
 			Value:   "2",
-			Members: []string{"Eval @ eval.go:15", "EvalAll @ eval.go:36"},
+			Members: []string{"Eval @ internal/analysis/criterion/eval.go:15", "EvalAll @ internal/analysis/criterion/eval.go:36"},
 			SupportRefs: []string{
 				"Member @ internal/analysis/criterion/eval.go:15",
 				"Member @ internal/analysis/criterion/eval.go:36",

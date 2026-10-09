@@ -765,7 +765,7 @@ func TestNormalizeAggregateFactsForTypedExclusion_PreservesAllowedHomonym(t *tes
 		Label:       "公开类型",
 		Role:        types.AnswerAggregateRolePrincipalAnswer,
 		Value:       "2",
-		Members:     []string{"Kind (grammar.go:26)", "ErrUnknownKind (grammar.go:118)"},
+		Members:     []string{"Kind (internal/analysis/criterion/grammar.go:26)", "ErrUnknownKind (internal/analysis/criterion/grammar.go:118)"},
 		SupportRefs: []string{"Kind: internal/analysis/criterion/grammar.go:26", "ErrUnknownKind: internal/analysis/criterion/grammar.go:118"},
 	}}
 

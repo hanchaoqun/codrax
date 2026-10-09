@@ -629,13 +629,13 @@ func MergeAnswerAggregateFacts(groups ...[]AnswerAggregateFact) []AnswerAggregat
 			}
 			identity := AnswerAggregateFactIdentity(fact)
 			if AnswerAggregateFactCarriesCompleteMemberSet(fact) {
-				if identitySeen[identity] {
-					continue
-				}
 				key := answerAggregateMemberSetMergeKey(fact)
 				if slot, ok := memberSlots[key]; ok {
 					out[slot.index] = mergeAnswerAggregateMemberSet(out[slot.index], fact)
 					identitySeen[AnswerAggregateFactIdentity(out[slot.index])] = true
+					continue
+				}
+				if identitySeen[identity] {
 					continue
 				}
 				memberSlots[key] = memberSlot{index: len(out)}
@@ -1186,8 +1186,8 @@ func answerAggregateMemberSetMergeKey(fact AnswerAggregateFact) string {
 
 func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregateFact {
 	dst = cloneAnswerAggregateFacts([]AnswerAggregateFact{dst})[0]
-	memberKeys := make(map[string]bool, len(dst.Members)+len(src.Members))
-	locationSlots := make(map[string]int, len(dst.Members))
+	memberKeys := make(map[string]int, len(dst.Members)+len(src.Members))
+	locationSlots := make(map[string][]int, len(dst.Members))
 	// XGAP-FIX ① seat guard: when BOTH sides are fully ordinal-seated
 	// ranking facts, a src member whose seat ordinal is already occupied in
 	// dst must not be appended as a second version of the same seat — one
@@ -1211,10 +1211,10 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 	for i, member := range dst.Members {
 		key := answerAggregateMemberSetEntryKey(dst, i, member)
 		if key != "" {
-			memberKeys[key] = true
+			memberKeys[key] = i
 		}
 		if loc := answerAggregateMemberSetEntryLocationKey(dst, i, member); loc != "" {
-			locationSlots[loc] = i
+			locationSlots[loc] = append(locationSlots[loc], i)
 		}
 	}
 	for i, member := range src.Members {
@@ -1223,7 +1223,11 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 			continue
 		}
 		key := answerAggregateMemberSetEntryKey(src, i, member)
-		if key == "" || memberKeys[key] {
+		if key == "" {
+			continue
+		}
+		if existingIdx, ok := memberKeys[key]; ok {
+			dst = mergeAnswerAggregateMemberSetEntryAt(dst, existingIdx, src, i, member)
 			continue
 		}
 		if seatGuard {
@@ -1231,17 +1235,25 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 				continue
 			}
 		}
+		merged := false
 		if loc := answerAggregateMemberSetEntryLocationKey(src, i, member); loc != "" {
-			if existingIdx, ok := locationSlots[loc]; ok &&
-				answerAggregateMemberSetEntryLabelsCompatible(dst.Members[existingIdx], member) {
+			for _, existingIdx := range locationSlots[loc] {
+				if !aggregateMemberSupportSurfacesEquivalent(
+					aggregateMemberSetEntrySurface(dst, existingIdx), aggregateMemberSetEntrySurface(src, i)) {
+					continue
+				}
 				dst = mergeAnswerAggregateMemberSetEntryAt(dst, existingIdx, src, i, member)
 				if updatedKey := answerAggregateMemberSetEntryKey(dst, existingIdx, dst.Members[existingIdx]); updatedKey != "" {
-					memberKeys[updatedKey] = true
+					memberKeys[updatedKey] = existingIdx
 				}
-				continue
+				merged = true
+				break
 			}
 		}
-		memberKeys[key] = true
+		if merged {
+			continue
+		}
+		memberKeys[key] = len(dst.Members)
 		dst.Members = append(dst.Members, member)
 		if seatGuard {
 			if seat, ok := answerAggregateMemberOrdinalSeat(member); ok {
@@ -1255,7 +1267,7 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 			dst.MemberNotes = appendAggregateStringAtMemberIndex(dst.MemberNotes, len(dst.Members)-1, src.MemberNotes[i])
 		}
 		if loc := answerAggregateMemberSetEntryLocationKey(dst, len(dst.Members)-1, member); loc != "" {
-			locationSlots[loc] = len(dst.Members) - 1
+			locationSlots[loc] = append(locationSlots[loc], len(dst.Members)-1)
 		}
 	}
 	if AnswerAggregateRolePriority(src.Role) > AnswerAggregateRolePriority(dst.Role) {
@@ -1367,17 +1379,11 @@ func answerAggregateMemberSetEntryLabelKeys(raw string) map[string]bool {
 }
 
 func answerAggregateMemberSetEntryKey(fact AnswerAggregateFact, memberIdx int, member string) string {
-	base := AnswerAggregateMemberSurfaceKey(member)
-	if base == "" {
-		base = strings.ToLower(strings.TrimSpace(member))
+	ref := ""
+	if memberIdx >= 0 && memberIdx < len(fact.SupportRefs) {
+		ref = fact.SupportRefs[memberIdx]
 	}
-	if base == "" {
-		return ""
-	}
-	if loc := answerAggregateMemberSetEntryLocationKey(fact, memberIdx, member); loc != "" {
-		return base + "\x00loc:" + loc
-	}
-	return base
+	return aggregateMemberIdentityKey(normalizeAggregateMemberSupportSurface(member, ref))
 }
 
 func answerAggregateMemberSetEntryLocationKey(fact AnswerAggregateFact, memberIdx int, member string) string {
@@ -4272,6 +4278,13 @@ func normalizeAggregateMemberSupportSurface(member string, ref string) aggregate
 		surface.loc = loc
 		surface.hasLoc = loc.File != "" && loc.LineStart > 0
 		surface.ref = chooseAggregateMemberSupportRef(ref, formatAggregateMemberSupportRef(surface.label, loc))
+		if aggregateMemberOpaqueSourceRef(surface) != "" {
+			// The opaque reference may name an artifact revision while the
+			// inline coordinate names an object within it. There is no second
+			// structured source slot; retaining the inline form preserves both
+			// axes through serialization and later normalization.
+			surface.member = member
+		}
 		return surface
 	}
 	surface.label = aggregateMemberSupportSurfaceLabel(member)
@@ -4508,46 +4521,25 @@ func chooseAggregateMemberSupportRef(existing string, candidate string) string {
 	// positional support_refs[i] slot: a short or observation-shaped ref list
 	// can otherwise shift every later citation onto an adjacent member while
 	// the normalized fact still looks fully index-aligned.  Preserve an
-	// existing ref only when it names the same coordinate (where the more
-	// specific path spelling still wins below); a genuinely different
-	// coordinate yields to the member-owned coordinate.
-	if candidateLoc.LineStart != existingLoc.LineStart ||
-		!aggregateSupportRefPathCorresponds(candidateLoc.File, existingLoc.File) {
-		return candidate
-	}
-	if candidateLoc.LineStart == existingLoc.LineStart &&
-		aggregateSupportRefPathCorresponds(candidateLoc.File, existingLoc.File) &&
-		aggregateSupportRefMoreSpecific(candidateLoc.File, existingLoc.File) {
+	// existing ref only for the exact same coordinate. Suffix/path-case
+	// compatibility is useful for display lookup, but cannot promote a short
+	// source into a full identity on a later normalization pass.
+	if aggregateMemberIdentityLocationKey(candidateLoc) != aggregateMemberIdentityLocationKey(existingLoc) {
 		return candidate
 	}
 	return existing
 }
 
 func aggregateMemberSupportSurfacesEquivalent(a, b aggregateMemberSupportSurface) bool {
-	aLabel := strings.ToLower(strings.TrimSpace(aggregateMemberSetProjectionMemberKey(a.label)))
-	bLabel := strings.ToLower(strings.TrimSpace(aggregateMemberSetProjectionMemberKey(b.label)))
-	if aLabel == "" || bLabel == "" || aLabel != bLabel {
-		return false
-	}
-	// Repeated runtime/log occurrences often share one semantic label while
-	// carrying distinct typed-in-member coordinates such as line and ts.
-	// Those are occurrence identity, not decorative member attributes. Keep
-	// them as separate roster entries even when the support_ref path is a
-	// runtime artifact (and therefore intentionally not parsed as a current-
-	// source citation). Equal coordinates still merge idempotently.
-	aOccurrence := aggregateMemberOccurrenceCoordinateKey(a.member)
-	bOccurrence := aggregateMemberOccurrenceCoordinateKey(b.member)
-	if aOccurrence != "" || bOccurrence != "" {
-		return aOccurrence != "" && aOccurrence == bOccurrence
-	}
-	if a.hasLoc || b.hasLoc {
-		if a.hasLoc && b.hasLoc {
-			return a.loc.LineStart == b.loc.LineStart &&
-				aggregateSupportRefPathCorresponds(a.loc.File, b.loc.File)
-		}
+	if key := aggregateMemberIdentityKey(a); key != "" && key == aggregateMemberIdentityKey(b) {
 		return true
 	}
-	return true
+	// A full source coordinate on BOTH rows can witness a shorter symbol
+	// spelling. A basename suffix, a one-sided citation, a local timestamp,
+	// or a shared display base alone cannot establish that identity.
+	return aggregateMemberIdentityLocationAgrees(a, b) &&
+		aggregateMemberIdentityQualifier(a.member) == aggregateMemberIdentityQualifier(b.member) &&
+		aggregateMemberIdentityLabelsCompatible(a.member, b.member)
 }
 
 func aggregateMemberOccurrenceCoordinateKey(member string) string {
@@ -4643,7 +4635,11 @@ func aggregateMemberSupportSurfacePrefersMember(candidate, existing aggregateMem
 	if _, ok := ParseAnswerSourceLocationSurface(candidate.member); ok {
 		return false
 	}
-	return len([]rune(candidate.member)) < len([]rune(existing.member))
+	// Keep the most specific proven spelling. Replacing a qualified identity
+	// with its shorter display alias would let that alias bridge two different
+	// qualified objects on a later row or completion.
+	return aggregateMemberIdentityHasDisplayForm(candidate.member, existing.member) &&
+		!aggregateMemberIdentityHasDisplayForm(existing.member, candidate.member)
 }
 
 // normalizeNegativeSearchAggregateFactCollect validates/normalizes a
@@ -5066,7 +5062,7 @@ func AnswerAggregateFactIdentity(fact AnswerAggregateFact) string {
 	b.WriteString(strings.ToLower(renderAggregateDimensionsKey(fact.Dimensions)))
 	b.WriteByte('\x00')
 	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
-		b.WriteString(canonicalAggregateMemberSetKey(fact.Members))
+		b.WriteString(aggregateMemberFactIdentityKey(fact))
 		return b.String()
 	}
 	b.WriteString(strings.ToLower(strings.TrimSpace(fact.Label)))

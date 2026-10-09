@@ -9375,9 +9375,9 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 				"of these forms: labeled [\"<member-leading-symbol>: <file>:<line>\", …] "+
 				"where the label is the member's bare leading identifier (no decorator), "+
 				"or positional [\"<file>:<line>\", …] with one entry per members[] in the "+
-				"same order. If you cannot ground a member, drop the decorator so the "+
-				"bare symbol can auto-resolve; removing the member entirely is a last "+
-				"resort and you must name the removed member in reason with one line on why.",
+				"same order. Preserve identity qualifiers: a shorter display name is "+
+				"not proof of the same object. If grounding remains unavailable, report "+
+				"that evidence gap instead of removing qualifiers to bypass it.",
 			label, len(problem), strings.Join(quoted, ", "), omitted, problemKind,
 		))
 	}
@@ -17336,52 +17336,13 @@ func normalizeDecoratedMemberSetFormDebt(ctx *types.BusContext, resultKind strin
 			notes = append(notes, fmt.Sprintf("normalized member_set %q inline explanatory labels into bare member identities with member_notes", completionFirstNonEmptyString(fact.Label, "(unlabeled)")))
 			changedAny = true
 		}
-		// SUPPREF-TOL (§29.104.13): support_refs used to block this repair
-		// lane by mere PRESENCE. The h9 witness fact carried exactly one
-		// decorated prose ref ("attached_trace.txt: wakeup_chain path") that
-		// no parser or lookup lane can consume — strictly less grounding
-		// than emitting no refs at all, yet it disabled the bare-surface
-		// repair and the whole emit was DOWNGRADED. Only refs that are
-		// actually CONSUMABLE (verbatim or decoration-stripped: evidence-id
-		// hit, source-inventory hit, or a parseable location) keep blocking,
-		// because those may carry load-bearing member associations the
-		// rewrite could desync. Junk refs stay on the fact (lossless) but no
-		// longer veto the repair.
-		if len(fact.SupportRefs) > 0 &&
-			aggregateFactAnySupportRefConsumable(fact.SupportRefs, supportIndex()) {
-			continue
-		}
-		if !decoratedMemberSetFormRepairEligible(ctx, resultKind, *fact) {
-			continue
-		}
-		memberNotes := append([]string(nil), fact.MemberNotes...)
-		for len(memberNotes) < len(fact.Members) {
-			memberNotes = append(memberNotes, "")
-		}
-		changed := false
-		for j, member := range fact.Members {
-			if decoratedAggregateMemberCanRelyOnOriginSpecificProvenance(ctx, *fact, member) {
-				continue
-			}
-			base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(member)
-			base = strings.TrimSpace(base)
-			qualifier = strings.TrimSpace(qualifier)
-			if !ok || base == "" || !types.IsCodeIdentitySurface(base) {
-				continue
-			}
-			fact.Members[j] = base
-			if qualifier != "" && strings.TrimSpace(memberNotes[j]) == "" {
-				memberNotes[j] = qualifier
-			}
-			changed = true
-		}
-		if !changed {
-			continue
-		}
-		fact.MemberNotes = memberNotes
-		fact.Provenance = appendCompletionAggregateProvenance(fact.Provenance, "form_repair:decorated_member_base")
-		notes = append(notes, fmt.Sprintf("normalized member_set %q decorated member labels into bare member surfaces with member_notes", completionFirstNonEmptyString(fact.Label, "(unlabeled)")))
-		changedAny = true
+		// Parenthesized text may identify a distinct object, not merely explain
+		// its display name. Missing/unusable support is not proof of equivalence
+		// to the bare name; even moving that text to notes would let downstream
+		// member unions collapse distinct objects. Keep unknown qualifiers and
+		// let the existing origin/support gates report any remaining evidence
+		// debt. Only the independently grounded inline-note repair above changes
+		// an explanatory surface here.
 	}
 	if !changedAny {
 		return facts, nil
@@ -17419,67 +17380,6 @@ func aggregateInlineNarrativeMemberParts(member string) (base string, qualifier 
 		return base, qualifier, true
 	}
 	return "", "", false
-}
-
-func decoratedMemberSetFormRepairEligible(ctx *types.BusContext, resultKind string, fact types.AnswerAggregateFact) bool {
-	if !strings.EqualFold(strings.TrimSpace(resultKind), "resolved") {
-		return false
-	}
-	rm := requestModelForAggregateSupport(ctx)
-	// Visibility and grounding are separate contracts. A current-source
-	// diagnostic member_set may be narrative support rather than a visible
-	// answer slate, but its decorated source identities still need grounded
-	// per-member refs. Do not erase the decoration into member_notes and thereby
-	// make that evidence debt disappear. An explicitly runtime-origin fact keeps
-	// the established artifact-local repair lane.
-	if aggregateMemberSetRequiresCurrentSourceGrounding(ctx, fact) {
-		return false
-	}
-	// SUPPREF-TOL (§29.104.13): under a typed explicit user exclude boundary
-	// ("只分析这份 trace，不分析代码" — CSP #63 chokepoint precedent in
-	// AnswerAggregateFactEvidenceOrigins), a current-source grounding
-	// requirement is semantically impossible for this run, so it must not
-	// veto the bare-surface form repair. In the h9 witness the requirement
-	// bit came from blob reads of the engine's own trace-query result
-	// polluting the current-source census (CSP #63 family, root fix owned
-	// there); honoring it here left the decorated members with no
-	// non-downgrade landing in an exclude run. The user boundary is the
-	// stronger precise signal and outranks the derived authority bit for
-	// THIS repair lane only — proof lanes and the authority snapshot itself
-	// are untouched.
-	excludesCurrentSource := rm != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()
-	if !excludesCurrentSource && aggregateMemberSetOriginRequiresCurrentSource(ctx, rm, []types.AnswerAggregateFact{fact}) {
-		return false
-	}
-	if authority := runtimeSourceAnswerAuthorityForCompletion(ctx); runtimeSourceAuthorityAppliesToCompletionLanding(authority) &&
-		runtimeSourceAuthorityAllowsRuntimeCompletionLandingSnapshot(authority) &&
-		runtimeSourceCompletionLandingRequiresExplicitRuntimeOrigin(ctx, rm) &&
-		!aggregateFactHasExplicitRuntimeArtifactOrigin(fact) {
-		return false
-	}
-	origins := types.AnswerAggregateFactEvidenceOrigins(fact, rm)
-	for _, origin := range origins {
-		if !types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
-			continue
-		}
-		// SUPPREF-TOL (§29.104.13): the runtime-artifact origin only blocks
-		// this repair when the origin-specific bypass will actually protect
-		// the fact's decorated members at the support_refs gate. In the h9
-		// witness state the runtime landing snapshot was disallowed
-		// (current-source lane load-bearing), so the gate refused the bypass
-		// while THIS pre-filter still assumed it — the fact fell between the
-		// two halves and the emit was wholesale DOWNGRADED. When the bypass
-		// holds, repair stays blocked exactly as before (the per-member loop
-		// would no-op anyway); when it does not, the bare-surface repair is
-		// the fact's only non-downgrade landing. Other origin-specific
-		// origins (VCS, command, external documents, …) keep today's block.
-		if origin == types.AnswerEvidenceOriginRuntimeArtifact &&
-			!aggregateFactOriginLanesProtectAllDecoratedMembers(ctx, fact) {
-			continue
-		}
-		return false
-	}
-	return true
 }
 
 // aggregateFactOriginLanesProtectAllDecoratedMembers reports whether every

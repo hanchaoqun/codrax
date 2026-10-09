@@ -428,7 +428,7 @@ func TestEmitInvestigationComplete_RefreshesStaleMemberSetWithLaterCompleteSet(t
 	}
 	visible := strings.Join(got[0].SupportRefs, "\n")
 	for _, want := range []string{
-		"native_add @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
+		"native_add(a: Int64, b: Int64): Int64 @ eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:6",
 		"native_add @ internal/thirdparty/tree-sitter-cangjie/corpus/sources/07_foreign_ffi.cj:6",
 	} {
 		if !strings.Contains(visible, want) {
@@ -7788,13 +7788,9 @@ func TestEmitInvestigationComplete_AnnotatedStageReportDoesNotOverrideExactDefin
 	}
 }
 
-// TestEmitInvestigationComplete_RepairsDecoratedMemberSetWithoutSupportRefs
-// pins the completion-form debt policy: when a member_set uses
-// "<code identifier> (<qualifier>)" labels but omits support_refs, the tool
-// repairs the form locally by keeping the bare citable member surface and moving
-// the qualifier into member_notes. This avoids turning answer-presentation debt
-// into another exploration round.
-func TestEmitInvestigationComplete_RepairsDecoratedMemberSetWithoutSupportRefs(t *testing.T) {
+// Missing support cannot authorize removing potentially identifying qualifiers.
+// The existing source gate must keep the evidence debt visible instead.
+func TestEmitInvestigationComplete_PreservesDecoratedMemberDebtWithoutSupportRefs(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
 	tool := &EmitInvestigationComplete{}
@@ -7820,25 +7816,22 @@ func TestEmitInvestigationComplete_RepairsDecoratedMemberSetWithoutSupportRefs(t
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("decorated member_set without support_refs should be repaired locally: %s", res.Summary)
+		t.Fatalf("evidence downgrade remains a successful tool response: %s", res.Summary)
 	}
 	for _, want := range []string{
-		"aggregate_facts normalized",
-		"decorated member labels",
+		EmitInvestigationCompleteDowngradePrefix,
+		"support_refs is empty",
+		"Gate.Run (8个独立检查)",
+		"Ground (3层验证)",
+		"Orchestrator (4阶段管道整合)",
 	} {
 		if !strings.Contains(res.Summary, want) {
-			t.Errorf("repair summary missing %q in:\n%s", want, res.Summary)
+			t.Errorf("evidence-debt response missing %q in:\n%s", want, res.Summary)
 		}
 	}
 	got := mut.StableInvestigationAggregateFacts()
-	if len(got) != 1 {
-		t.Fatalf("stable aggregate facts = %+v, want one repaired member_set", got)
-	}
-	if got[0].Members[0] != "Gate.Run" || got[0].Members[2] != "Orchestrator" {
-		t.Fatalf("decorated members were not canonicalized to bare citable surfaces: %+v", got[0].Members)
-	}
-	if len(got[0].MemberNotes) < 3 || got[0].MemberNotes[0] != "8个独立检查" || got[0].MemberNotes[2] != "4阶段管道整合" {
-		t.Fatalf("decorator qualifiers not preserved in member_notes: %+v", got[0].MemberNotes)
+	if len(got) != 0 || strings.Contains(res.Summary, "drop the decorator") {
+		t.Fatalf("unsupported identity must not be laundered into accepted bare-name facts: %+v / %s", got, res.Summary)
 	}
 }
 
