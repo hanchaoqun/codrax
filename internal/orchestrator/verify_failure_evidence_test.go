@@ -686,6 +686,7 @@ func TestAttachActivePatchEffectRecordCapturesAppliedCommitDiff(t *testing.T) {
 	mu := types.NewMutableState("effect")
 	mu.SetChangePlan(plan)
 	mu.SetSearchGraph(&repotypes.Graph{
+		Root: mainRoot,
 		FileIndex: map[string]*repotypes.FileInfo{
 			"seed.py":   {RelPath: "seed.py"},
 			"caller.py": {RelPath: "caller.py"},

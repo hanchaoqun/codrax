@@ -373,6 +373,8 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 
 	if p.View == "source_inventory" {
 		if ctx != nil && ctx.Mutable != nil && graph != nil {
+			sharedGraph := sourceInventorySharedGraph(ctx, graph)
+			defer restoreSourceInventorySharedGraph(ctx, sharedGraph, graph)
 			ctx.Mutable.SetSearchGraph(graph)
 		}
 		budgetAdvisories := repoMapSourceInventoryApplyBudgetGuard(&p, len(graph.FileIndex))

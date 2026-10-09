@@ -4722,7 +4722,7 @@ class SampleTests(unittest.TestCase):
 	}
 }
 
-func TestRunTestsPythonUnittestRootImpactTargetUsesDiscovery(t *testing.T) {
+func TestRunTestsPythonUnittestRootImpactTargetUsesExactFileAndDirectoryDiscovery(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
 	}
@@ -4768,18 +4768,50 @@ class WidgetTests(unittest.TestCase):
 	if report == nil || !report.Passed {
 		t.Fatalf("unexpected root unittest report: %+v", report)
 	}
-	found := false
+	foundFile := false
 	for _, cmd := range report.ExecutedCommands {
 		if cmd.Runner != "python" || cmd.Framework != pythonFrameworkUnittest || cmd.Outcome != types.ExecutedCommandOutcomeExecuted {
 			continue
 		}
-		found = true
-		if !strings.Contains(cmd.Command, "-m unittest discover -v") || strings.Contains(cmd.Command, "unittest \".\"") {
-			t.Fatalf("root impact selector must render discovery, got command=%q", cmd.Command)
+		if strings.Contains(cmd.Command, "unittest \".\"") {
+			t.Fatalf("directory selector must not become a module name: %q", cmd.Command)
+		}
+		if cmd.Source == "impact_test_surface" && cmd.Suite == "test_widget.py" {
+			foundFile = true
+			if !strings.Contains(cmd.Command, `-m unittest "test_widget.py" -v`) {
+				t.Fatalf("exact file selector lost its identity: %q", cmd.Command)
+			}
 		}
 	}
-	if !found {
-		t.Fatalf("missing executed unittest command: %+v", report.ExecutedCommands)
+	if !foundFile {
+		t.Fatalf("missing exact file command: %+v", report.ExecutedCommands)
+	}
+	// Root-directory input is a separate invocation, not a requirement to run
+	// the same suite twice after a precise file selection already succeeded.
+	directoryCtx := ctx.ShallowClone()
+	directoryCtx.Mutable = types.NewMutableState("explicit root directory verification")
+	directoryResult, err := (&RunTests{}).Execute(directoryCtx, runTestsJSONParams(t, map[string]any{
+		"runner": "python", "framework": "unittest", "suite": ".",
+	}))
+	if err != nil || !directoryResult.Success {
+		t.Fatalf("directory invocation failed: %+v %v", directoryResult, err)
+	}
+	directoryReport := directoryCtx.Mutable.ChangeReport()
+	if directoryReport == nil || !directoryReport.Passed {
+		t.Fatalf("directory report did not pass: %+v", directoryReport)
+	}
+	foundDirectory := false
+	for _, cmd := range directoryReport.ExecutedCommands {
+		if cmd.Runner != "python" || cmd.Framework != pythonFrameworkUnittest || cmd.Outcome != types.ExecutedCommandOutcomeExecuted {
+			continue
+		}
+		foundDirectory = true
+		if !strings.Contains(cmd.Command, "-m unittest discover -v") || strings.Contains(cmd.Command, `unittest "."`) {
+			t.Fatalf("directory selector must render discovery, not a module: %q", cmd.Command)
+		}
+	}
+	if !foundDirectory {
+		t.Fatalf("missing directory discovery command: %+v", directoryReport.ExecutedCommands)
 	}
 }
 

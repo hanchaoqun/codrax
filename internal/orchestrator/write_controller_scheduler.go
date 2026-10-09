@@ -2961,7 +2961,7 @@ func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRu
 	planID := "plan-cumulative-" + sanitizeWorkflowArtifactID(run.RunID)
 	effect := writeflow.PatchEffectRecordFromUnifiedDiff(planID, "cumulative", "workflow_cumulative_owned_diff", baseRef, "HEAD", patch)
 	writeflow.AnnotatePatchEffectStructuredFileParses(&effect, wt)
-	graphProvider := writeimpact.GraphProviderFromSearchGraph(o.busCtx.Mutable.SearchGraph())
+	graphProvider := o.writeImpactGraphProvider()
 	writeimpact.AnnotatePatchEffectLineFeatureEvents(&effect, graphProvider)
 	paths := patchEffectRecordPaths(effect)
 	if len(paths) == 0 {
@@ -3137,7 +3137,7 @@ func (o *Orchestrator) conventionGraphForPatchReview(run *types.WriteWorkflowRun
 	if handoff := o.busCtx.Mutable.WriteExplorationHandoff(); handoff != nil && handoff.ConventionGraph != nil {
 		graphs = append(graphs, *handoff.ConventionGraph)
 	}
-	graphProvider := writeimpact.GraphProviderFromSearchGraph(o.busCtx.Mutable.SearchGraph())
+	graphProvider := o.writeImpactGraphProvider()
 	learned := writeconvention.LearnFromGraph(writeconvention.LearnInput{
 		BatchID:       firstNonEmptyController(activeWorkflowRunBatchID(run), "batch-1"),
 		Goal:          firstNonEmptyController(plan.Summary, plan.Request),
@@ -3255,7 +3255,7 @@ func (o *Orchestrator) attachActivePatchEffectRecord(plan *types.ChangePlan, act
 	)
 	writeflow.AnnotatePatchEffectStructuredFileParses(&effect, o.busCtx.WorktreePath)
 	plan.PatchEffect = &effect
-	graphProvider := writeimpact.GraphProviderFromSearchGraph(o.busCtx.Mutable.SearchGraph())
+	graphProvider := o.writeImpactGraphProvider()
 	writeimpact.AnnotatePatchEffectLineFeatureEvents(&effect, graphProvider)
 	stampChangePlanImpactObligations(plan, graphProvider)
 	o.busCtx.Mutable.SetChangePlan(plan)
