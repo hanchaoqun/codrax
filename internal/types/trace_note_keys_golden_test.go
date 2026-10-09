@@ -557,6 +557,7 @@ var traceNoteKeyGoldenRows = []string{
 	"recommended_sections|causal_rank|display_only",
 	"recommended_views|causal_rank|soft_consumer",
 	"recursive|causal_rank|soft_consumer",
+	"rendering_candidates|rendering_candidates|soft_consumer",
 	"representative_thread|io_request_distribution|display_only",
 	"request_residence|io_latency|soft_consumer",
 	"request_residence_caliber|io_latency|soft_consumer",
@@ -565,7 +566,6 @@ var traceNoteKeyGoldenRows = []string{
 	"requested_pid|thread_selection|soft_consumer",
 	// RSPA M-IO (§29.61.10c, 2026-07-14): per-IO completion-closure credential.
 	"resource_completion_closure|state|hard_consumer",
-	"rendering_candidates|rendering_candidates|soft_consumer",
 	"resource_stack|resource_stack|soft_consumer",
 	"restricted_runnable|cpu_load|display_only",
 	"restriction_proof|cpu_load|display_only",

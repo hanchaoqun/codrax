@@ -52,10 +52,20 @@ func TestTraceCapabilitiesPublicCompleteDiscovery(t *testing.T) {
 	for _, raw := range out["views"].([]any) {
 		v := raw.(map[string]any)
 		got = append(got, v["view"].(string))
-		for _, field := range []string{"summary", "objects", "metric_refs", "input_formats"} {
+		for _, field := range []string{"summary", "objects", "input_formats"} {
 			if v[field] == nil || v[field] == "" {
 				t.Errorf("%s lacks %s", v["view"], field)
 			}
+		}
+		// Candidate navigation has no measurement authority. Keep the historical
+		// metric requirement on every existing view and pin the new view's lack
+		// of metric refs, rather than inventing a metric to satisfy the catalog.
+		if v["view"] == "rendering_candidates" {
+			if v["metric_refs"] != nil {
+				t.Error("rendering candidate navigation acquired metric refs")
+			}
+		} else if v["metric_refs"] == nil || v["metric_refs"] == "" {
+			t.Errorf("%s lacks metric_refs", v["view"])
 		}
 	}
 	sort.Strings(got)
