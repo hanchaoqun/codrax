@@ -1105,7 +1105,7 @@ func renderMermaidFenceBody(match string) (out string, ok bool) {
 		return "", false
 	}
 	rendered = strings.TrimRight(rendered, "\n")
-	if rendered == "" {
+	if strings.TrimSpace(rendered) == "" {
 		recordMermaidLibraryRejected()
 		return "", false
 	}

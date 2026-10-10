@@ -8,25 +8,38 @@ import "strings"
 // absence still takes the existing honest downgrade; this is not an attachment
 // waiver and does not construct a diagram or grant call/root-cause authority.
 func applyRuntimeDiagramSupport(plan *AnswerSurfacePlan, ir *AnalysisIR, ledger ObservationLedger, routeHint TurnRouteHint) {
-	if plan == nil || ir == nil || ir.AnswerContract.Diagram == nil || !ir.AnswerContract.Diagram.Required {
+	if plan == nil || (plan.Diagram != nil && plan.Diagram.Required) {
 		return
 	}
-	if plan.Diagram != nil && plan.Diagram.Required {
+	effective := RuntimeSupportedDiagramContract(ir, ledger, routeHint)
+	if effective == nil {
 		return
+	}
+	plan.Diagram = effective
+	plan.DiagramHardRequirementDropped = false
+}
+
+// RuntimeSupportedDiagramContract is the shared qualification for a requested
+// runtime relation diagram. Consumers may require a visible relation only under
+// this same contract; an incidental trace row cannot create a source or optional
+// diagram obligation. The returned contract never grants an edge identity.
+func RuntimeSupportedDiagramContract(ir *AnalysisIR, ledger ObservationLedger, routeHint TurnRouteHint) *DiagramContract {
+	if ir == nil || ir.AnswerContract.Diagram == nil || !ir.AnswerContract.Diagram.Required {
+		return nil
 	}
 	rm := &ir.RequestModel
 	profile := rm.RuntimeQuestionProfile
 	if profile != nil && profile.Scope == RuntimeQuestionScopeNotApplicable {
-		return
+		return nil
 	}
 	runtimeQuestion := profile != nil && profile.Scope.IsValid() && profile.Scope != RuntimeQuestionScopeUnspecified
 	if !runtimeQuestion && !rm.RuntimeArtifactScopeProfile.Active() && !RuntimeSourceRequestHasExternalObservationCarrier(rm, routeHint) {
-		return
+		return nil
 	}
 	// An incidental runtime relation must not replace a precise requested
 	// source-code diagram. Soft exploration advice is not such an obligation.
 	if RuntimeSourceRequestCurrentSourceRequirementPrecisionForContract(rm, routeHint, &ir.AnswerContract) == RuntimeSourceRequirementPrecise {
-		return
+		return nil
 	}
 	base := ir.AnswerContract.Diagram
 	kind := base.RequiredKind
@@ -36,14 +49,13 @@ func applyRuntimeDiagramSupport(plan *AnswerSurfacePlan, ir *AnalysisIR, ledger 
 	switch kind {
 	case DiagramSequence, DiagramFlow, DiagramCallDAG:
 	default:
-		return
+		return nil
 	}
 	effective := EffectiveDiagramContract(base, runtimeSupportedDiagramKinds(ledger, rm))
 	if effective == nil || !effective.Required {
-		return
+		return nil
 	}
-	plan.Diagram = effective
-	plan.DiagramHardRequirementDropped = false
+	return effective
 }
 
 // EffectiveDiagramContract applies the current grounded-structure

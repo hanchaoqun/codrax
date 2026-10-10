@@ -883,12 +883,19 @@ func normalizeFlowchartQuotedEdgeFragmentsInLine(line string) (string, bool) {
 
 func findFlowchartQuotedEdgeFragment(line string) (start, end int, fragment string, ok bool) {
 	for i := 0; i < len(line); i++ {
-		if line[i] != '"' || !flowchartQuotedEdgeFragmentStartAllowed(line, i) {
+		if line[i] != '"' {
 			continue
 		}
 		closeAt := findClosingQuote(line, i)
 		if closeAt < 0 {
 			return 0, 0, "", false
+		}
+		// A closing quote inside an ordinary node/edge label is not a new
+		// fragment opener. In particular, an entity ending in ';' immediately
+		// before it must not make the rest of a valid inline edge look quoted.
+		if !flowchartQuotedEdgeFragmentStartAllowed(line, i) {
+			i = closeAt
+			continue
 		}
 		fragmentEnd := closeAt + 1
 		for fragmentEnd < len(line) && strings.ContainsRune("])}", rune(line[fragmentEnd])) {

@@ -14,9 +14,12 @@ func TestRenderMermaidBlocks_QuotedEntitiesPreserveVisibleText(t *testing.T) {
 		{"literal slash then quote", `slash \&quot;owner\&quot; tail`, `slash \"owner\" tail`},
 		{"empty quotes", `before &quot;&quot; after`, `before "" after`},
 	} {
-		for _, family := range []string{"flow", "sequence"} {
+		for _, family := range []string{"flow", "flow-inline", "sequence"} {
 			t.Run(family+"/"+tc.name, func(t *testing.T) {
 				body := "flowchart LR\n A[\"" + tc.label + "\"]\n B[\"sink\"]\n A --> B"
+				if family == "flow-inline" {
+					body = "flowchart LR\n A[\"" + tc.label + "\"] --> B[\"sink\"]"
+				}
 				if family == "sequence" {
 					body = "sequenceDiagram\n participant A as \"" + tc.label + "\"\n participant B as sink\n A->>B: sends"
 				}
@@ -26,6 +29,14 @@ func TestRenderMermaidBlocks_QuotedEntitiesPreserveVisibleText(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestRenderMermaidBlocks_BlankLibraryGridIsFailure(t *testing.T) {
+	const body = "flowchart LR\n {unclosed bracket &quot;quote&quot; &amp;literal"
+	out := RenderMermaidBlocks("```mermaid\n" + body + "\n```")
+	if !strings.Contains(out, "```text\n# ⚠ ") || !strings.Contains(out, body) {
+		t.Fatalf("blank grid must not replace malformed original source with a success header:\n%s", out)
 	}
 }
 

@@ -1,6 +1,10 @@
 package mermaidcompat
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 var sequenceArrowOperators = []string{
 	"-->>+", "-->>-", "->>+", "->>-",
@@ -1097,12 +1101,12 @@ func classNodeDeclarations(line string) []NodeDecl {
 }
 
 func safeStandaloneNodeIdentifier(ident string) bool {
-	if ident == "" || len(ident) > 128 {
+	if ident == "" || !utf8.ValidString(ident) || utf8.RuneCountInString(ident) > 128 {
 		return false
 	}
 	for i, r := range ident {
-		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_' ||
-			(i > 0 && r >= '0' && r <= '9') {
+		if unicode.IsLetter(r) || r == '_' ||
+			(i > 0 && (unicode.IsNumber(r) || unicode.IsMark(r))) {
 			continue
 		}
 		return false
@@ -1115,7 +1119,7 @@ func safeStandaloneNodeIdentifier(ident string) bool {
 // endpoint-alias shim handles its narrower terminal-library syntax. This does
 // not widen flow/class IDs or admit statement delimiters, arrows, or labels.
 func safeExplicitSequenceNodeIdentifier(ident string) bool {
-	if len(ident) > 128 {
+	if utf8.RuneCountInString(ident) > 128 {
 		return false
 	}
 	for _, segment := range strings.Split(ident, ".") {

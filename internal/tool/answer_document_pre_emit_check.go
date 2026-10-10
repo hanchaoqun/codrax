@@ -5378,6 +5378,7 @@ const diagramReversedAnchorBoundaryTeaching = " A typed_anchor_reversed_against_
 
 func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
 	var standaloneHints []emitFixHint
+	standaloneHints = append(standaloneHints, preCheckRequiredRuntimeDiagramRelation(doc, view, pctx)...)
 	standaloneHints = append(standaloneHints, preCheckStandaloneCallChainRelationAnchorPresence(doc, view, pctx)...)
 	standaloneHints = append(standaloneHints, preCheckStandaloneTypedRelationVisibility(doc)...)
 	if pctx == nil {

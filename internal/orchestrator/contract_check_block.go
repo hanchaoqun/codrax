@@ -392,6 +392,15 @@ func validateDiagramEdgeSupportWithRuntimeContext(
 	view *types.AnswerSemanticView,
 	bus *types.BusContext,
 ) []types.Violation {
+	if tool.RequiredRuntimeDiagramRelationMissing(bus, doc, view) {
+		return []types.Violation{{
+			Kind:       types.ViolRequiredDiagramEdgeAbsent,
+			Detail:     "required runtime diagram does not visibly carry any available producer-verified relation",
+			Repair:     "select an available scoped runtime relation and render its visible edge with exact endpoint identities; keep unproven role mapping separate and never invent a bridge",
+			ClusterKey: blockKindClusterKey(types.BlockDiagram, "required_runtime_diagram_relation"),
+			Stage:      string(types.StageFinalize), RepairLocusOverride: types.LocusFinalizer,
+		}}
+	}
 	owned := tool.ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(bus, doc)
 	if len(owned) == 0 {
 		return assignRequiredDiagramEdgeRepairOwner(
