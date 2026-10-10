@@ -6506,3 +6506,72 @@ Python完整人工PASS：唯一源码patch为return value+1；原测试/setup字
 四笔代码`57e59de51`、`dbb3b4275`、`11138db8b`、`a14f1221e`已普通推送origin/main，8049正式exit0，远端从8e2aac52b前进至a14f1221e。本地`eval/results/hmc_log_sources_graph_20261009/`保留69份验证产物（65日志及4份原始复现/诊断文件）和36份工具载荷；全部日志复制后cmp，两个blob归档目录diff通过。原图RED源SHA保持4095b2362687ca77e43bd9625e737ef1944456ad9a808d92ff65816eb29b5d8b，原live答案和判定未改。
 
 按§217.9原范围核账，最终79唯一ID=20完整实现已交付+59开放、重复0；开放为40待实施/13部分实施/2待验收/3验收中/1持续执行。本批完整任务新增1（05.1共享完整日志输入），另交付关系图覆盖/语法及跨旧family原生边证据修复子能力。不是“日志分析整题通过”或“完整图能力关闭”。五稳定验收父项仍03.2/04.2/08.3/08.4/18.2，两份本批人工FAIL与其重叠而不相加。下一系统缺陷优先§217.8共享原生事实展示；下一完整参考能力候选10.1需真实双侧获取/来源/失败隔离，不以空结构销账。05.2/05.3、二进制接入剩余矩阵、只读登记未命中自然分支与原写模式FAIL继续留案。
+
+## 218. 日志与量测共用事实交接（2026-10-09）
+
+### 218.1 起点、设计意图与范围
+
+起点`dcbb998c5`，干净main；复核79唯一ID=20已交付+59开放，重复0，状态40待实施/13部分实施/2待验收/3验收中/1持续执行。本批固定16.4/18.4共享事实交接，不另开10.1或继续局部图拟合。退出条件是实际工具→最终adapter消息保持来源、完整字段与准确未知值；原文唯一定位决定原始坐标；预算在去重后按来源/视图分配，未展示范围明确披露；Trace主窗/因果投影/自动补齐权限不扩大。固定真实双例为自然问题`log_shared_sources`和`trace_measurement_records`，各一次、并行2，人工审计独立于机器判定，不倒签§216/217失败。
+
+本批重新逐段阅读参考`core/extensions/hilog_parser.py`、`kmsg_parser.py`，对照`log_extender.py`结构/元数据/时钟实现。设计意图是完整结构化事件与独立来源元数据支撑后续组合查询，而不是把原文前缀当成事实表。本项目采用来源代次、原始物理坐标、原值时间/空身份和完整字段单元；不照搬同stem覆盖、mtime/年份/宿主时区推断、浮点boot换算、邻近时钟估计或用户DB写入。原生事实展示资格与Trace确定性因果授权分离，不能把log_query简单加入后者公共谓词。
+
+### 218.2 公开反例与实施方案
+
+- 原始坐标：真实emit_log_triage Registry路径在唯一原件、跨来源重复及无Catalog场景仍接受模型99–101行为原始行，`/tmp/codrax-hmc218-log-binding-public-red.log`正式exit1。改用完整Catalog原文唯一定位；可选source_id只选择真实来源，不要求模型计算坐标；重复、过期、未命中和旧preview保持未验证。私有绑定收据不由JSON恢复，clone保留；同文但已验证不同来源不错误去重。
+- 字段/来源：真实log_query两源9记录、11物理行进入finalizer后完整JSON对象0/9，原Value被按字符截断；旧triage抢占原生事实位置。`/tmp/codrax-hmc218-public-red-v2.log`正式exit1；原v1及null语义等价调整后的v2测试源码按原字节单独保留，不用测试标题或提示句作oracle。原生JSON保身份/坐标/状态/原时间与精确ns/空PID和TID/解析错误/业务字段；重复raw、SHA与来源长元数据移出逐行预算。
+- 量测：相同公开消息路径中generic三表仅12/33、CPU11/21、两捕获24/66、五捕获60/165，总预算128未用满。共用完整行分配器按精确来源/查询父组、视图及结构化优先级分配，取消每表固定4行上限；先覆盖每源/视图，再优先摘要与可完整的小表，超额显式披露；完整选择器/原表/NULL及单位不变。
+- 交接：去除专属读者区重复前先分预算会漏补位；现改预算前排除精确已展示身份，ledger与typed carrier复用同一所选ID，未选ref仍保留并披露截断。自动填充行号不再冒称用户指定。全量ledger、因果权限、原文件和输出成员不随展示变更。
+
+独审另发现既存跨来源cause marker归属风险：标记出现在父source或材料中不必然证明两个source的独立错误属于同一cause occurrence；记05.3/16.4后继，当前不按邻近或关键词推因果、不为本批扩新硬门。第9查询来源元数据被8查询展示上限跳过、遗漏计数错误属于本批共享预算阻断问题，公开复现后同批修复。所有未验收项保持开放，正式末版全仓/构建/双例/归档/推送收据后补。
+
+### 218.3 广域接缝、冻结及验证
+
+`b6c00f4d1`冻结本批实现和公开正反控。参考`core/query_engine.py:284–320/370–419`以结构化单位、空结果与截断元数据降低模型负担；本项目保留完整原生表，只裁有标识的预览，不照搬downsample为答案数据。实际日志malformed/orphan/unknown三条非正常记录及精确boot值、量测7组及NULL/0/未知单位不依赖问句提示。共享投影每条保精确代次，重复SHA移至来源区；独立消费者不因finalizer有来源区而失去代次。
+
+独审补获并修复三个同轨接缝：①已验证物理行不能与合并预览的protocol行按数值相等关联；真实Registry反例`log-coordinate-axis-red.log`证明原line1被无关preview line1错误降权，改为精确来源坐标轴未映射时不关联。②9源正控被context原有前12源manifest兜住，未冒记RED；24源仅查询末9源真实消息才复现第9查询源元数据遗漏，原件`metadata-public-red-v2.go.txt` SHA256=`420f64c7e6a8b22ef286cdf9e0731f963e4e594a408734a74f3c6eb8f8da2e8b`，修为全部已查询来源独立收集、再分别裁查询/来源名册并准确披露。③通用原生ID已展示不代表专属等待明细已展示，carrier保有ObservationDetails的ref不去掉；真实11个D/IO周期的公开Query→adapter又发现selected_window占用10个专用notes槽位导致第8行丢失，局部副本只投递10个原生等待notes，不让范围或模型附注占数值槽位，原ledger/完整11行/因果投影不变。该RED源码SHA256=`a5dee63adb0bfed1e226e15e36ac20fe35739cfcfef2f1f1ac92d836f9653c44`，bounded_fact_set与causal_diagnosis均验。
+
+末版相关`related-v4.log`正式exit0：agent35.803s/tool2.504s/types3.956s/orchestrator1.712s/context0.656s；root精确race-v3正式exit0（agent10.026s/context1.755s），类型/日志轨另有最终race全部正式绿；skill整包0.742s。快速组含实际adapter、schema/roster、PromptSnapshot/RendererCensus、copylocks、目标状态全类型闭包、hot-file/L1及Trace因果/窗口/自动补齐，不靠单独新文件名前缀。此前编译枚举拼错、测试缺Mutable以及断言误用双引号均为测试构造失败，日志保留，不称产品RED；旧4行预算断言按新完整小表/来源与视图覆盖规则更新，不删除预算/不变性断言。metadata新反例在首轮定向运行期间加入造成的同缺陷FAIL也原样保留。
+
+源码冻结后启动全仓v1（81758）及构建v1（41237），构建正式exit0，只有文档dirty；固定双例live v1（78484）使用冻结二进制并行2，各一次，结果见下节。后继源名册超过32时应优先覆盖实际选中事实所属源，当前明确披露省略且逐行保source_id/代次/坐标；不提高上限或扩本批去做新领域。
+
+### 218.4 真实双例：交接改善明确，完整人工仍0/2
+
+78484正式exit0，日志222秒、量测237秒，机器2/2；主代理及两位独审读取原件、工具载荷、实际finalizer消息和终稿，完整人工0/2，详见[人工审计](../../eval/parallel_selected_summary_hmc_shared_fact_handoff_20261009_manual_audit.md)。不追加第三例、不改原始答案、不倒签§216/217。
+
+日志两个query为6+3记录/11物理行，原件SHA正确；实际finalizer保全9个完整JSON和来源，malformed/orphan/unknown及精确boot纳秒全部到场。系统已由原件修正triage错行；终稿也列全9条。然而最终归属表给无PID/TID的not_found借用了邻近81/82/storage及错误level，跨时钟“升序”混合未知时间且顺序错误，还臆断唯一失败/其他线程与请求未受影响。这不是输入/字段丢失，仍归最终身份/关系16.4/18.4验收债。
+
+系统放大链路明确：analyzer把自然事件/执行者/关系问题误发成`error_granularity`，唯一肯定选项`per_item_rejection`被编译成必答粒度合同，finalizer又声称是用户明确要求。旧`errorGranularityHasDiagnosticMechanismShape`不识别当前runtime profile/causal维度，`ShouldCarryErrorGranularityHardContract`在未命中旧shape时默认升权；硬合同不能拿模型标签当事实。后继需统一请求义务与证据结论，保真正混合原因+粒度问题与单项“是否”问法，不能简单删除runtime粒度能力。逐字quote只证明文本来源，不等于语义已核实；先公开回放schema→emit→合同→最终消息，再决定必要载体，不加原文关键词硬门。
+
+量测实际正确主窗为[1,2)，13记录/7组；summary7、members13、timeline13共33/128原生预览全部投递，未省略。终稿保13行、NULL/文本1/大整数/BLOB/未知及非法时长，却擅加Hz/MHz和百分比、断言GPU实际运行频段、开头仍0~2秒且分类数错误。首条科学计数`3.342000005e+08`与原数`334200000.5`等值，独审纠正草稿误记为精度错误，不能算入失败；后置“单位未经确认”仍不能撤销前述无证单位/状态结论。没有使用原生表选择器，仍手写副本；既有closure/narrative又重复0~2秒、4.8GHz误码及GPU频段，正确事实与错误软摘要并置，约72737tokens的最终上下文形成噪音。后继按精确来源/查询/范围/证据身份协调原生事实和模型摘要、保调查方向与未知，不删除业务线索，不把全量正确到场冒称整答正确或已证偶发波动。
+
+### 218.5 全仓失败回收与同级来源公平
+
+首轮全仓81758正式exit1：89测试包通过/13无测试包/1失败包。agent失败两项：`TestSleepStatisticsPublicBoundedFinalContext`在实际双query最终消息丢3ms IO统计；`TestRenderAnswerDocObservationLedgerDisclosesDroppedCategories`的原省略说明被不必要改写。tool501.313秒、tracequery136.259秒、types51.198秒均完整结束后才开始修复，没有叠跑第二套全仓。
+
+`51f1d2fc2`不为sleep predicate特判：来源/组轮转不得推翻既有typed目标/事实族的请求相关性，保持原selected各rank的原生名额，只在同rank内公平来源。两个query、各两条高优先级census被低rank首行挤走以及零配额新来源偷槽位均先公开优先级API RED；修后原8+3日志公平、非原生原位、不变性继续GREEN，量测allocator/总预算不改，完整ledger/因果投影不变。无独立去重/coverage时恢复原省略说明，存在独立处理时准确说明，并非把未显示元数据谎称已全部发布。
+
+rank相关及精确race正式exit0；最终相关`final-related-v1.log`正式exit0：agent36.038s/types13.184s/orchestrator3.384s，context没有匹配测试，不冒充本轮覆盖。实际Sleep/HMC218/ObservationPrompt、因果投影/补齐、HotFile/L1/Copylocks/目标状态登记均包括。末版源码冻结`51f1d2fc2`后启动统一全仓v2（80497）、构建v2（48227）及root精确race（2397），完成结果在收尾段登记；真实双例仍保旧冻结版原始结果，不以这个确定性修复倒签模型验收。
+
+全仓等待期间只作一次1秒成本采样，`tool-cost-sample.log`保留：采样时tool.test接近单核满载、约1.1GiB，栈命中`TestAnswerDocumentPatchBaseCensus_SingleBaseConstructor`的fact收集与AST遍历。该测试97个self-red只重解析注入文件，但每轮重新多遍扫描全仓；不能误称97次全仓解析，也不能从单个样本量化501秒全段占比。后继可先缓存不可变per-file/per-function节点索引、overlay只替换变更文件，保持全部规则/真实仓/跨包与97反例，并以新旧结果差分验证；全局facts不能直接缓存，注入alias可能改变其它文件解释。下次正常全仓用-json收逐测试耗时，不额外重跑、不简单t.Parallel或缩短取消负控；本批未改测试基础设施。
+
+### 218.6 任务口径与下一ROI
+
+完整父项本批新增0，累计20/79，仍59开放。新增四组可用子能力：原件坐标核验、完整字段投递、同级来源/视图预算、去重补位与一致身份交接；16.4全领域教学和18.4完整边界矩阵未齐。18.4已有实际工具/消息可组合正反矩阵，状态从“待实施”纠正为“部分实施”，开放状态现39待实施/14部分实施/2待验收/3验收中/1持续执行；只是准确反映进展，不减少59。五稳定验收父项03.2/04.2/08.3/08.4/18.2与本批两份人工FAIL不相加。
+
+下一缺陷轨优先原生事实/模型摘要的精确来源协调及失败粒度请求义务升权接缝，下一完整能力轨10.1双侧原生测量包；先完整退出而非新增空结构。来源名册超过32的所选源优先、跨源cause occurrence（05.3/16.4）、时钟见证、二进制持续写入/多源/viewer、固定producer单位/状态协议及只读登记/旧写FAIL全部留案。不以本轮未跑写例替其验收，也不让单个模型错误无限阻塞能力交付。
+
+### 218.7 后继10.1参考实现预审（只读，不计交付）
+
+末版全仓期间复核参考`config/skills/load_compare.yaml`、`server.py:1807–1940`及`core/preprocess/load_compare_ops.py:94–310`、`pmu_compare_ops.py:15–69`。参考意图是两侧独立取数、逐维确定性计算，模型解释；PMU的both/single_side/missing_both分级保单侧原值及diff=null，是可复用设计。但其_query_pmu把异常与空数据同归None，服务器又只对部分维度统一捕获失败；process侧缺项补零、重叠查询直接SUM未裁剪dur、同名进程/线程分组及whole-trace自动窗不能直接成为本项目的比较事实。工作流chip匹配度阈值、“跨芯片无意义”和目录默认取第一条也不应成为新的硬权限。
+
+当前`RuntimeMeasurementPublication`已有成功查询的精确来源/QueryScopeID/完整表，`RuntimeMeasurementMemberSet`已有总体/省略收据，`traceinput.Coordinator`已有逐源准备及代次核验；`BuildRuntimeArtifactPairRelationAuthority`明确独立源的同设备/同clock/同session未证，不能被双侧展示覆盖。仍缺用户所指左右侧角色、失败/未请求/缺测的独立状态、设备/负载/单位/分母/覆盖的可核验包装和实际成文消费。已有成功表契约只读成功query，不能仅从两张表反推未成功一侧的状态。
+
+实施优先复用真实query与原生发布，新增最少的双侧组合契约，不另造一套数值计算或从字符串表格倒算。两侧各自保来源/代次、请求窗与实际查询窗、已知值/有效零/缺测/失败/取消及缺少设备或负载元数据的明确状态；一侧失败不抹另一侧，包装本身不授可比性、同步或根因。先公开工具→组合→finalizer验证两侧成功、单侧失败、有效零对缺测、同名不同源、独立窗/单位、换代和取消，再安排自然双例；差异计算/对齐仍10.2，10.1只有真实获取及下游交接齐全才可销账。本节没有启动实现或额外live。
+
+### 218.8 最终回归、归档与推送收据
+
+末版统一全仓80497正式exit0：90测试包通过、13无测试包、零FAIL；agent110.986s、orchestrator67.880s、tool500.890s、tracequery129.353s、types50.781s。构建48227正式exit0，revision=`51f1d2fc277a-dirty`的dirty仅文档；root最终精确race2397正式exit0（agent9.744s），rank精确race2.731s通过。源码冻结后未追加生产/测试变更，完整原版Sleep/footer回归未删改或放宽；四份实际工具→adapter公开RED测试源码SHA保持原值。
+
+两笔代码`b6c00f4d1`、`51f1d2fc2`普通推送origin/main，4427正式exit0，远端由dcbb998c5前进至51f1d2fc2。`eval/results/hmc_shared_fact_handoff_20261009/`本地保留62份验证产物（56日志/6份非编译源码快照）与46份工具载荷；全部临时原件逐字节cmp、两个完整blob目录diff通过。首轮全仓FAIL、初始公开RED、构造错误及实际机器/人工分歧原样保留，没有追第三个live或编辑原答案求绿。汇总文档随本批单独提交，工作树收尾状态以Git为准。
+
+最终复算79唯一ID=20已交付+59开放、重复0，39待实施/14部分实施/2待验收/3验收中/1持续执行。四组共享交接子能力已交付，完整父任务新增0；真实机器2/2、完整人工0/2，原生事实到场改善与最终答案未通过分开报告。独立审查确认同rank预算与map迭代确定性、非原生原位和Trace因果权限未扩张。所有后继按§218.6–7及任务清单当前队列继续，不把本轮失败冒称已证明模型波动。
