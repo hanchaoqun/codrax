@@ -68,7 +68,7 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 			}
 		}
 	}
-	fmt.Fprintf(&b, "- Preview groups=%d; additional selectable groups not previewed=%d; selector roster groups omitted=%d; preview rows=%d/128. Summaries receive rows before detail views; each table preview has at most 4 rows. Preview omissions never mean absent events, missing output rows, or complete capture. Select the full source-bound table by ID/view for omitted distributions, members or time buckets; do not reconstruct unseen rows.\n\n", len(previewed), len(seen)-len(previewed), omittedGroups, previewRows)
+	fmt.Fprintf(&b, "- Preview groups=%d; additional selectable groups not previewed=%d; selector roster groups omitted=%d; preview rows=%d/128. Source/query groups and their views share the row budget; summaries have priority for remaining rows. Whole small tables can fit without a per-table cap. Preview omissions never mean absent events, missing output rows, or complete capture. Select the full source-bound table by ID/view for omitted distributions, members or time buckets; do not reconstruct unseen rows.\n\n", len(previewed), len(seen)-len(previewed), omittedGroups, previewRows)
 	return b.String()
 }
 
@@ -86,25 +86,16 @@ func runtimeMeasurementHandoffRoster(tables []types.RuntimeMeasurementTable, lim
 	return out, len(omitted)
 }
 
-// Round-robin within each priority tier. Only the schema-validated view chooses
-// the tier; neither question words, IDs, family names nor noisy ranks do so.
-// The roster limit guarantees up to four summary rows for every listed group.
+// Reuse the fact presentation allocator, with exact producer observation IDs
+// as source/query groups. This only selects previews, never output membership.
 func runtimeMeasurementHandoffPreviewRows(tables []types.RuntimeMeasurementTable) []int {
-	counts := make([]int, len(tables))
-	remaining := 128
-	for _, summary := range []bool{true, false} {
-		for row := 0; row < 4; row++ {
-			for i, table := range tables {
-				if (table.View == types.RuntimeMeasurementSummary) != summary || len(table.Rows) <= row {
-					continue
-				}
-				if remaining == 0 {
-					return counts
-				}
-				counts[i]++
-				remaining--
-			}
+	groups := make([]types.PresentationRowGroup, len(tables))
+	for i, table := range tables {
+		priority := 1
+		if table.View == types.RuntimeMeasurementSummary {
+			priority = 0
 		}
+		groups[i] = types.PresentationRowGroup{Key: table.ObservationID + ":" + string(table.View), ParentKey: table.ObservationID, Rows: len(table.Rows), Priority: priority}
 	}
-	return counts
+	return types.AllocatePresentationRows(groups, 128)
 }

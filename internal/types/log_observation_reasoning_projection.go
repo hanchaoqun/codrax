@@ -11,6 +11,12 @@ import "strings"
 // and does not inspect the wording of either the interpretation or the excerpt.
 // Single-error/operational logs retain their existing advisory interpretation.
 func ProjectLogObservationForReasoning(bundle *LogBundle, obs LogObservation) (LogObservation, bool) {
+	if obs.SourceBinding != nil {
+		obs.LineStart, obs.LineEnd = 0, 0
+		if obs.SourceBinding.IsVerified() {
+			obs.LineStart, obs.LineEnd = int(obs.SourceBinding.FirstLine), int(obs.SourceBinding.LastLine)
+		}
+	}
 	if bundle == nil || len(bundle.Errors) <= 1 {
 		return obs, true
 	}

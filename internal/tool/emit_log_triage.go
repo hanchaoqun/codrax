@@ -52,6 +52,8 @@ type emitLogTriageMeta struct {
 }
 
 type emitLogTriageError struct {
+	SourceID      string `json:"source_id,omitempty"`
+	sourceBinding *types.LogSourceBinding
 	Type          string                      `json:"type"`
 	Message       string                      `json:"message,omitempty"`
 	Frames        []emitLogTriageFrame        `json:"frames,omitempty"`
@@ -75,15 +77,17 @@ type emitLogTriageFrame struct {
 }
 
 type emitLogTriageObservation struct {
-	Kind       string  `json:"kind"`
-	Severity   string  `json:"severity,omitempty"`
-	Subject    string  `json:"subject,omitempty"`
-	Summary    string  `json:"summary"`
-	Evidence   string  `json:"evidence,omitempty"`
-	LineStart  int     `json:"line_start,omitempty"`
-	LineEnd    int     `json:"line_end,omitempty"`
-	Diagnostic bool    `json:"diagnostic"`
-	Confidence float64 `json:"confidence"`
+	SourceID      string `json:"source_id,omitempty"`
+	sourceBinding *types.LogSourceBinding
+	Kind          string  `json:"kind"`
+	Severity      string  `json:"severity,omitempty"`
+	Subject       string  `json:"subject,omitempty"`
+	Summary       string  `json:"summary"`
+	Evidence      string  `json:"evidence,omitempty"`
+	LineStart     int     `json:"line_start,omitempty"`
+	LineEnd       int     `json:"line_end,omitempty"`
+	Diagnostic    bool    `json:"diagnostic"`
+	Confidence    float64 `json:"confidence"`
 }
 
 // Name returns the tool's stable identifier used by providers + the
@@ -173,7 +177,8 @@ func buildEmitLogTriageSchema() {
 	var errorSchemaAtDepth func(depth int) map[string]any
 	errorSchemaAtDepth = func(depth int) map[string]any {
 		props := map[string]any{
-			"type": map[string]any{"type": "string", "maxLength": 80},
+			"source_id": map[string]any{"type": "string", "minLength": 1, "description": "Optional exact attached log source_id. Omit when unknown; the system locates verbatim text and never guesses a source from a filename or line number."},
+			"type":      map[string]any{"type": "string", "maxLength": 80},
 			"message": map[string]any{
 				"type":        "string",
 				"maxLength":   500,
@@ -219,6 +224,7 @@ func buildEmitLogTriageSchema() {
 		"additionalProperties": false,
 		"required":             []string{"kind", "summary", "diagnostic", "confidence"},
 		"properties": map[string]any{
+			"source_id": map[string]any{"type": "string", "minLength": 1, "description": "Optional exact attached log source_id. Omit when unknown; physical coordinates are derived from a unique verbatim match in revalidated material."},
 			"kind": map[string]any{
 				"type":        "string",
 				"enum":        observationKindEnum,
@@ -240,8 +246,8 @@ func buildEmitLogTriageSchema() {
 				"maxLength":   300,
 				"description": "Short observed excerpt copied from the attached log. This is the answer-grade artifact fact; code mechanism requires separate current-source evidence.",
 			},
-			"line_start": map[string]any{"type": "integer", "minimum": 1},
-			"line_end":   map[string]any{"type": "integer", "minimum": 1},
+			"line_start": map[string]any{"type": "integer", "minimum": 1, "description": "Optional navigation hint, never an original-source coordinate witness; the system verifies or replaces it."},
+			"line_end":   map[string]any{"type": "integer", "minimum": 1, "description": "Optional navigation hint; ambiguous or unavailable source locations remain unverified."},
 			"diagnostic": map[string]any{"type": "boolean"},
 			"confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0},
 		},
@@ -319,6 +325,10 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	if err != nil {
 		return *decodeFailure, err
 	}
+	proof, err := prepareLogTriageSourceProof(ctx, &p)
+	if err != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "emit_log_triage source lookup failed: " + err.Error(), Timestamp: time.Now()}, ctx.Context().Err()
+	}
 	// Return all precise provenance/cardinality violations together. The
 	// triager has a deliberately small retry budget; surfacing one issue at a
 	// time can spend that budget without ever producing a valid bundle.
@@ -327,25 +337,25 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	// LF excerpt from a CRLF/CR attachment is not rejected as fabricated.
 	authoritySurface := textfmt.NormalizeAttachedArtifactText(ctx.AttachedLog)
 	var authorityViolations []string
-	if field, message, ok := firstUnobservedLogTriageErrorMessage(p.Errors, authoritySurface); ok {
+	if field, message, ok := firstUnobservedLogTriageErrorMessage(p.Errors, authoritySurface, proof); ok {
 		authorityViolations = append(authorityViolations, fmt.Sprintf(
 			"%s must be copied verbatim from the attached log; unobserved message=%q. Omit message when the log has no explicit error text, and put bounded interpretation in observations[].summary",
 			field, message,
 		))
 	}
-	if message, emitted, observed, ok := firstOverclaimedLogTriageErrorMessage(p.Errors, authoritySurface); ok {
+	if message, emitted, observed, ok := firstOverclaimedLogTriageErrorMessage(p.Errors, authoritySurface, proof); ok {
 		authorityViolations = append(authorityViolations, fmt.Sprintf(
 			"errors tree claims %d explicit error occurrences carrying verbatim message %q, but the attached log contains that message only %d time(s). A goroutine/thread block without its own explicit error header belongs in observations[] as kind=thread_snapshot, severity=info, diagnostic=false; it is not a peer error",
 			emitted, message, observed,
 		))
 	}
-	if field, evidence, ok := firstUnobservedLogTriageObservationEvidence(p.Observations, authoritySurface); ok {
+	if field, evidence, ok := firstUnobservedLogTriageObservationEvidence(p.Observations, authoritySurface, proof); ok {
 		authorityViolations = append(authorityViolations, fmt.Sprintf(
 			"%s must be copied verbatim from the attached log; unobserved evidence=%q. Keep interpretation in observations[].summary, and omit evidence when no short exact excerpt exists",
 			field, evidence,
 		))
 	}
-	if violation := firstInvalidLogTriageCauseRelation(p.Errors, authoritySurface); violation != "" {
+	if violation := firstInvalidLogTriageCauseRelation(p.Errors, authoritySurface, proof); violation != "" {
 		authorityViolations = append(authorityViolations, violation)
 	}
 	if len(authorityViolations) > 0 {
@@ -372,6 +382,7 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 
 	// Convert wire-shape to ValidateInput. The conversion walks the
 	// full Cause chain so recursive errors keep their tree intact.
+	bindLogTriageSources(&p, proof)
 	in := logtriage.ValidateInput{
 		Meta:         toValidateMeta(p.Meta),
 		Errors:       toValidateErrors(p.Errors),
@@ -433,6 +444,9 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		}
 	}
 
+	if err := ctx.Context().Err(); err != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "emit_log_triage canceled", Timestamp: time.Now()}, err
+	}
 	ctx.Mutable.SetLogTriage(bundle)
 
 	summary := fmt.Sprintf(
@@ -462,13 +476,13 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 // never enter this field. The check is an exact structured-field ↔ held-log
 // substring comparison; it does not inspect the user request, model thoughts,
 // final answer prose, keywords, or semantic similarity.
-func firstUnobservedLogTriageErrorMessage(errors []emitLogTriageError, attachedLog string) (field, message string, found bool) {
+func firstUnobservedLogTriageErrorMessage(errors []emitLogTriageError, attachedLog string, proofs ...logTriageSourceProof) (field, message string, found bool) {
 	var walk func([]emitLogTriageError, string) (string, string, bool)
 	walk = func(items []emitLogTriageError, prefix string) (string, string, bool) {
 		for i := range items {
 			path := fmt.Sprintf("%s[%d]", prefix, i)
 			message := strings.TrimSpace(items[i].Message)
-			if message != "" && !strings.Contains(attachedLog, message) {
+			if message != "" && logTriageExcerptCount(message, items[i].SourceID, attachedLog, proofs) == 0 {
 				return path + ".message", message, true
 			}
 			if items[i].Cause != nil {
@@ -488,18 +502,25 @@ func firstUnobservedLogTriageErrorMessage(errors []emitLogTriageError, attachedL
 // times. This prevents concurrent thread snapshots from being promoted into
 // peer errors while staying language- and runtime-agnostic. It does not parse
 // the user request or any model/final-answer prose.
-func firstOverclaimedLogTriageErrorMessage(errors []emitLogTriageError, attachedLog string) (message string, emitted, observed int, found bool) {
-	counts := make(map[string]int)
-	order := make([]string, 0)
+func firstOverclaimedLogTriageErrorMessage(errors []emitLogTriageError, attachedLog string, proofs ...logTriageSourceProof) (message string, emitted, observed int, found bool) {
+	counts := make(map[[2]string]int)
+	order := make([][2]string, 0)
+	totals := make(map[string]int)
+	var messageOrder []string
 	var walk func([]emitLogTriageError)
 	walk = func(items []emitLogTriageError) {
 		for i := range items {
 			message := strings.TrimSpace(items[i].Message)
 			if message != "" {
-				if counts[message] == 0 {
-					order = append(order, message)
+				if totals[message] == 0 {
+					messageOrder = append(messageOrder, message)
 				}
-				counts[message]++
+				totals[message]++
+				key := [2]string{items[i].SourceID, message}
+				if counts[key] == 0 {
+					order = append(order, key)
+				}
+				counts[key]++
 			}
 			if items[i].Cause != nil {
 				walk([]emitLogTriageError{*items[i].Cause})
@@ -507,9 +528,16 @@ func firstOverclaimedLogTriageErrorMessage(errors []emitLogTriageError, attached
 		}
 	}
 	walk(errors)
-	for _, message := range order {
-		emitted := counts[message]
-		observed := strings.Count(attachedLog, message)
+	for _, message := range messageOrder {
+		observed := logTriageExcerptCount(message, "", attachedLog, proofs)
+		if totals[message] > observed {
+			return message, totals[message], observed, true
+		}
+	}
+	for _, key := range order {
+		message := key[1]
+		emitted := counts[key]
+		observed := logTriageExcerptCount(message, key[0], attachedLog, proofs)
 		if emitted > observed {
 			return message, emitted, observed, true
 		}
@@ -522,10 +550,10 @@ func firstOverclaimedLogTriageErrorMessage(errors []emitLogTriageError, attached
 // non-empty Evidence value is promoted as an observed runtime fact downstream;
 // therefore Evidence must be an exact excerpt of the held attachment. This is
 // a structured-field provenance check, not a scan of user or final-answer prose.
-func firstUnobservedLogTriageObservationEvidence(observations []emitLogTriageObservation, attachedLog string) (field, evidence string, found bool) {
+func firstUnobservedLogTriageObservationEvidence(observations []emitLogTriageObservation, attachedLog string, proofs ...logTriageSourceProof) (field, evidence string, found bool) {
 	for i := range observations {
 		evidence := strings.TrimSpace(observations[i].Evidence)
-		if evidence != "" && !strings.Contains(attachedLog, evidence) {
+		if evidence != "" && logTriageExcerptCount(evidence, observations[i].SourceID, attachedLog, proofs) == 0 {
 			return fmt.Sprintf("observations[%d].evidence", i), evidence, true
 		}
 	}
@@ -540,7 +568,7 @@ func firstUnobservedLogTriageObservationEvidence(observations []emitLogTriageObs
 // structural exception-chain marker. This reads the attached artifact and the
 // typed relation carrier only; user-request prose and final/model prose are
 // never inputs.
-func firstInvalidLogTriageCauseRelation(errors []emitLogTriageError, attachedLog string) string {
+func firstInvalidLogTriageCauseRelation(errors []emitLogTriageError, attachedLog string, proofs ...logTriageSourceProof) string {
 	var walk func([]emitLogTriageError, string) string
 	walk = func(items []emitLogTriageError, prefix string) string {
 		for i := range items {
@@ -560,7 +588,7 @@ func firstInvalidLogTriageCauseRelation(errors []emitLogTriageError, attachedLog
 				return fmt.Sprintf("%s.cause_relation.authority=%q is not the closed explicit-artifact authority", path, rel.Authority)
 			}
 			marker := strings.TrimSpace(rel.Marker)
-			if marker == "" || !strings.Contains(attachedLog, marker) {
+			if marker == "" || logTriageExcerptCount(marker, err.SourceID, attachedLog, proofs) == 0 {
 				return fmt.Sprintf("%s.cause_relation.marker must be copied verbatim from the attached artifact; unobserved marker=%q", path, marker)
 			}
 			if !isExplicitLogCauseMarker(marker) {
@@ -761,15 +789,16 @@ func toValidateObservations(in []emitLogTriageObservation) []types.LogObservatio
 			lineEnd = lineStart
 		}
 		out = append(out, types.LogObservation{
-			Kind:       kind,
-			Severity:   severity,
-			Subject:    obs.Subject,
-			Summary:    obs.Summary,
-			Evidence:   obs.Evidence,
-			LineStart:  lineStart,
-			LineEnd:    lineEnd,
-			Diagnostic: obs.Diagnostic,
-			Confidence: obs.Confidence,
+			SourceBinding: obs.sourceBinding,
+			Kind:          kind,
+			Severity:      severity,
+			Subject:       obs.Subject,
+			Summary:       obs.Summary,
+			Evidence:      obs.Evidence,
+			LineStart:     lineStart,
+			LineEnd:       lineEnd,
+			Diagnostic:    obs.Diagnostic,
+			Confidence:    obs.Confidence,
 		})
 	}
 	return out
@@ -780,8 +809,9 @@ func toValidateError(e *emitLogTriageError) types.LogError {
 		return types.LogError{}
 	}
 	out := types.LogError{
-		Type:    e.Type,
-		Message: e.Message,
+		SourceBinding: e.sourceBinding,
+		Type:          e.Type,
+		Message:       e.Message,
 	}
 	if len(e.Frames) > 0 {
 		out.Frames = make([]types.LogFrame, len(e.Frames))

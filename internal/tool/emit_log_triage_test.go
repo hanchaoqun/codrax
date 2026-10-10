@@ -249,8 +249,8 @@ func TestEmitLogTriage_Execute_ObservationOnlyAccepted(t *testing.T) {
 	if bundle == nil || len(bundle.Observations) != 1 {
 		t.Fatalf("bundle observations missing: %+v", bundle)
 	}
-	if bundle.Observations[0].LineStart != 3 {
-		t.Fatalf("observation line_start not preserved: %+v", bundle.Observations[0])
+	if bundle.Observations[0].LineStart != 0 || bundle.Observations[0].Evidence != "topic mismatch" {
+		t.Fatalf("preview evidence must survive without upgrading the model's unsupported line 3: %+v", bundle.Observations[0])
 	}
 	if bundle.IntentHint != types.IntentRootCause {
 		t.Fatalf("IntentHint = %q, want root_cause", bundle.IntentHint)

@@ -22,6 +22,9 @@ type toolHandoffRenderOptions struct {
 	// observation families whose exact bounded values must survive beside a
 	// handoff ref. The generic carrier remains identity-only.
 	ObservationDetails map[string]types.ObservationPromptRecord
+	// Native facts already published in the same prompt. Elide only duplicate
+	// identity listings, not the underlying carrier or unshown observations.
+	PresentedObservationIDs map[string]bool
 }
 
 func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCarrier, options ...toolHandoffRenderOptions) string {
@@ -88,7 +91,18 @@ func renderTypedToolHandoffCarriers(title string, carriers []types.ToolHandoffCa
 		if refs := renderTypedToolHandoffEvidenceRefs(carrier.AcceptedEvidence, maxRefs); refs != "" {
 			b.WriteString(refs)
 		}
-		if refs := renderTypedToolHandoffObservationRefs(carrier.ObservationRefs, maxRefs, opts.ObservationDetails); refs != "" {
+		observationRefs := make([]types.ToolObservationRef, 0, len(carrier.ObservationRefs))
+		for _, ref := range carrier.ObservationRefs {
+			id := strings.TrimSpace(ref.ID)
+			_, hasDedicatedDetails := opts.ObservationDetails[id]
+			if !opts.PresentedObservationIDs[id] || hasDedicatedDetails {
+				observationRefs = append(observationRefs, ref)
+			}
+		}
+		if already := len(carrier.ObservationRefs) - len(observationRefs); already > 0 {
+			fmt.Fprintf(&b, "  - %d observation(s) already published in the fact/coverage sections; duplicate identity listings omitted.\n", already)
+		}
+		if refs := renderTypedToolHandoffObservationRefs(observationRefs, maxRefs, opts.ObservationDetails); refs != "" {
 			b.WriteString(refs)
 		}
 	}
@@ -255,10 +269,15 @@ func renderTypedToolHandoffObservationRefs(refs []types.ToolObservationRef, limi
 	if len(refs) == 0 || limit <= 0 {
 		return ""
 	}
+	omitted := 0
 	if len(refs) > limit {
+		omitted = len(refs) - limit
 		refs = refs[:limit]
 	}
 	var b strings.Builder
+	if omitted > 0 {
+		fmt.Fprintf(&b, "  - Additional observation identities omitted from this bounded carrier preview: %d (not absent facts).\n", omitted)
+	}
 	for _, ref := range refs {
 		if ref.Empty() {
 			continue

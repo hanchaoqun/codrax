@@ -5758,20 +5758,21 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		ioWaitLedger.Records = append(append([]types.ObservationRecord(nil), promptLedgerRecords...), waits...)
 	}
 	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
-	if len(records) == 0 {
-		return inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx) +
+	logMetadata, _ := answerDocLogQueryPresentationMetadata(promptLedgerRecords)
+	if len(promptLedgerRecords) == 0 {
+		return logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx) +
 			renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger) + renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger)
 	}
-	records = answerDocObservationRecordsWithoutReaderAuthorityDuplicates(ctx, promptLedger, records)
 	if len(records) == 0 && answerDocLogPeerRelationUnproven(ctx) {
 		// The dedicated reader-ready peer-error section below republishes the
 		// complete per-occurrence messages and ordered frames in natural
 		// language. Keep machine relation keys in the lossless audit ledger,
 		// not in the answer-writing prompt where they can leak into prose.
-		return ""
+		return logMetadata
 	}
 	var b strings.Builder
 	b.WriteString("## Observation Ledger\n\n")
+	b.WriteString(logMetadata)
 	b.WriteString("- This is a compact typed view of accepted observations from exploration: current source evidence, structured aggregate facts, VCS/diff or command tool banners, runtime artifacts, cross-repo index rows, external documents, web pages, MCP resources, and connector resources.\n")
 	b.WriteString("- It is read-only context for answer writing. Do not turn non-`current_source` observations into source `file:line` citation requirements; use them as their own origin-specific support and disclose boundaries when needed.\n")
 	b.WriteString("- Prefer these origin/role/policy fields over raw tool-output shape when deciding whether a fact is principal, repairable, support-only, negative, or citation-bearing.\n\n")
@@ -5861,13 +5862,14 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceWakeupCensusAuthority(promptLedger, extractAnswerDocLang(ctx)); authority != "" {
 		b.WriteString(authority)
 	}
-	if len(records) > 0 && len(promptLedger.Records) > len(records) {
+	presentationCandidates := answerDocObservationPresentationCandidates(ctx, promptLedger)
+	if len(records) > 0 && len(presentationCandidates) > len(records) {
 		renderedIDs := make(map[string]bool, len(records))
 		for _, record := range records {
 			renderedIDs[strings.TrimSpace(record.ID)] = true
 		}
-		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total", len(records), len(promptLedger.Records))
-		if dropped := types.SummarizeDroppedObservationRecords(promptLedger.Records, renderedIDs); dropped != "" {
+		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d presentation candidates (other records are published in dedicated sections)", len(records), len(presentationCandidates))
+		if dropped := types.SummarizeDroppedObservationRecords(presentationCandidates, renderedIDs); dropped != "" {
 			fmt.Fprintf(&b, "; dropped: %s", dropped)
 		}
 		b.WriteString(")*\n\n")
@@ -7285,15 +7287,18 @@ func renderAnswerDocToolHandoffCarriers(ctx *types.AgentContext) string {
 		return ""
 	}
 	observationDetails := answerDocToolHandoffObservationDetails(ctx, carriers)
+	presented := answerDocPresentedNativeObservationIDs(ctx)
 	if answerDocRuntimeSourceAuthorityUsesCompactToolHandoff(ctx) {
 		return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
-			MaxCarriers:        4,
-			MaxRefs:            6,
-			ObservationDetails: observationDetails,
+			MaxCarriers:             4,
+			MaxRefs:                 6,
+			ObservationDetails:      observationDetails,
+			PresentedObservationIDs: presented,
 		})
 	}
 	return renderTypedToolHandoffCarriers("## Typed Repair And Evidence Handoff", carriers, toolHandoffRenderOptions{
-		ObservationDetails: observationDetails,
+		ObservationDetails:      observationDetails,
+		PresentedObservationIDs: presented,
 	})
 }
 
@@ -7330,6 +7335,10 @@ func answerDocToolHandoffObservationDetails(ctx *types.AgentContext, carriers []
 		opts.OriginSpecificSupportingNoteLimit = 10
 		opts.OriginSpecificPrincipalNoteLimit = 10
 		opts.NoteMaxLen = 512
+		// This dedicated value lane has ten bounded wait notes. Source/window
+		// metadata remains on the record; it must not consume a value slot.
+		record.RichNotes = targetWaitOccurrenceHandoffNotes(record.RichNotes)
+		record.ModelNotes = nil // this value-only lane does not render model commentary
 		projected := types.ProjectObservationPromptRecords([]types.ObservationRecord{record}, rm, contract, opts)
 		if len(projected) == 1 && len(targetWaitOccurrenceHandoffNotes(projected[0].Notes)) > 0 {
 			out[id] = projected[0]
@@ -7636,6 +7645,7 @@ func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.
 	records, _ = answerDocFinalizerObservationRecords(ctx, records)
 	records, _ = answerDocSelectedWindowObservationRecords(ctx, records)
 	ledger := types.ObservationLedger{Records: records}
+	records = answerDocObservationPresentationCandidates(ctx, ledger)
 	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, ledger, limit))
 }
 
@@ -13000,9 +13010,9 @@ func truncateAnswerDocPromptText(s string, max int) string {
 }
 
 // renderAnswerDocReferencedArtifactLines reminds the finalizer to keep
-// the artifact-local coordinates the QUESTION referenced anchored in the
-// visible answer. Soft guidance from a typed analyzer declaration; no
-// hard gate reads it.
+// analyzer-declared artifact navigation hints separate from verified original
+// coordinates. The declaration has no user-authorship receipt; no hard gate
+// reads it.
 func renderAnswerDocReferencedArtifactLines(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
@@ -13013,7 +13023,7 @@ func renderAnswerDocReferencedArtifactLines(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Referenced artifact lines\n\n")
-	b.WriteString("The question references these attached-artifact line coordinates. Anchor the explanation to them explicitly (e.g. 「日志第 N 行」 / \"log line N\") so the user can map the answer back to their artifact; keep them artifact-local — they are NOT repository citations.\n")
+	b.WriteString("Analysis supplied these attached-artifact navigation hints; they may be auto-filled, not user-specified or verified original coordinates. Use the source-bound records to resolve locations and preserve exact source identity before citing lines. These hints are NOT repository citations.\n")
 	for _, r := range refs {
 		if r.EndLine > r.StartLine {
 			fmt.Fprintf(&b, "- %s lines %d-%d\n", r.Source, r.StartLine, r.EndLine)

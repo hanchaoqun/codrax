@@ -1096,7 +1096,7 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 
 普通结构化表只要使用`items[].cells[]`，必须提供非空`columns[]`，列名不得为空，每行列数必须一致；空单元格保留位置，不通过丢空值把下一列左移。完整Markdown表和旧label/text形态保持兼容，不猜列名或扫描正文内容。Emit/Patch共用同一短教学与精确结构校验。仅列形状错误、完整可寻址且无歧义的拒稿投影可供局部patch恢复，全部原行/其它块保留；继承的未修坏表仍拒绝。缺身份、重复ID、未保留恢复块或其它不完整结构不成为patch基稿。
 
-**原生测量表（可选）**：`runtime_measurement:{observation_id,view}` 仅发布当前已接受原生供给的精确二元选择，不是全局必填。IO在途供给支持 `summary/members/timeline`，独立IO活动支持 `summary/distribution/timeline`，调度并发支持 `summary/members/distribution/timeline`；未注册predicate或交叉借用视图均不接纳。与同块的 text/items/columns/diagram/runtime_work_relation 互斥；模型在相邻块解释，系统提供数值、成员、单位、来源、查询范围、未知和省略说明。IO在途的配对总体用于并发/驻留/成员/时序，窗内发起次数另按有效发起端点统计；独立IO活动则按完整wire接纳的端点统计，不依赖配对成功。调度并发只计同来源已确认闭合状态区间，按同TID并集得到全窗均值、各线程数量持续时间及独立桶内峰值/均值；缺尾不补窗末，零贡献不证明系统空闲。三者不混为同一总体，也不授目标阻塞或根因资格。成文交接保留最多32组精确选择器与来源/范围名册；128行共享预览预算先对全部summary逐行轮转，再对明细轮转，每表最多4行，防早到家族占尽后续家族的数值预览。名册、预览省略分别披露，预览限制不影响系统绑定后的完整保留行；不重排或删减独立链上因果账。
+**原生测量表（可选）**：`runtime_measurement:{observation_id,view}` 仅发布当前已接受原生供给的精确二元选择，不是全局必填。IO在途供给支持 `summary/members/timeline`，独立IO活动支持 `summary/distribution/timeline`，调度并发支持 `summary/members/distribution/timeline`；未注册predicate或交叉借用视图均不接纳。与同块的 text/items/columns/diagram/runtime_work_relation 互斥；模型在相邻块解释，系统提供数值、成员、单位、来源、查询范围、未知和省略说明。IO在途的配对总体用于并发/驻留/成员/时序，窗内发起次数另按有效发起端点统计；独立IO活动则按完整wire接纳的端点统计，不依赖配对成功。调度并发只计同来源已确认闭合状态区间，按同TID并集得到全窗均值、各线程数量持续时间及独立桶内峰值/均值；缺尾不补窗末，零贡献不证明系统空闲。三者不混为同一总体，也不授目标阻塞或根因资格。成文交接保留最多32组精确选择器与来源/范围名册；128行共享预览复用`AllocatePresentationRows`，先覆盖各来源/查询组及其视图，剩余预算优先摘要和可完整展示的小表，再公平补齐，取消独立每表4行上限。名册、预览省略分别披露，预览限制不影响系统绑定后的完整保留行；不重排或删减独立链上因果账。
 
 调度并发的成员展示16条、深度档32条、时间桶32条，与既有16段精确时序上限相互独立；全部统计先于展示截断，完整成员数=展示+上限省略+端点见证不可用。成员保留物理来源行和实际端点，窗口内贡献另列；行选择仍能统计真实成员/线程数，但不推定连续时间分母。`bucket_ms`与IO活动共享精确十进制轴（默认100、正数限1..60000ms），保零贡献桶及短尾实宽。分位数按完整窗口持续时间累计，浮点比较处于舍入不确定范围时用十进制端点精确复核，不用容差抹去1ns差异，也不从展示桶峰值或成员名称反推总体。
 
@@ -1303,6 +1303,8 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 - 系统（`internal/analysis/logtriage.ValidateBundle`）：路径归一、`os.Stat` 校验、Java basename 仓内 glob、运行时内部文件过滤、派生 Layer 4
 
 把抽取交给 LLM 而不是写死正则，使支持的日志格式不再是固定列表——Go panic / Java exception（含 `Caused by` 链）/ C/C++ ASAN/UBSAN/gdb / Python traceback（含 `During handling`）/ Node.js V8 / Rust `#[source]` 链 / Ruby backtrace / 结构化 JSON / 编译器错误 全部走同一代码路径。
+
+**原始日志坐标与事实交接**：`emit_log_triage`中`source_id`是可选的真实来源选择，`line_start/end`只作导航提示。系统用完整Catalog批量定位原文，核验代次与原字节后才签发`LogSourceBinding`；重复/失效/仅preview不授唯一原件坐标。收据在当前进程clone中保留，JSON恢复及字段修改失权；不同源同文不合并，新物理行不与旧合并预览行按数值误关联。原生`log_query`展示以完整字段JSON保身份/原时间/空值/解析失败，不按字符裁成无效JSON；来源元数据与查询覆盖独立限额。通用ledger先去精确重复再分预算，typed carrier复用已展示ID但保专用富化等待详情。展示资格独立于Trace因果授权，全部原生记录仍留在完整账本与审计载荷。
 
 **LogBundle 四层**：
 

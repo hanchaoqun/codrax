@@ -356,7 +356,8 @@ func PrioritizeObservationRecords(records []ObservationRecord, rm *RequestModel,
 	})
 	out = budgetSourceInventoryObservationRecords(out, intent, limit)
 	if len(out) > limit {
-		out = budgetObservationRecordsByOrigin(out, intent, limit)
+		selected := budgetObservationRecordsByOrigin(out, intent, limit)
+		out = rebalanceNativePresentationRecords(out, selected, intent, rm)
 	}
 	return out
 }
@@ -1194,6 +1195,11 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 	}
 	if record.Origin == AnswerEvidenceOriginRuntimeArtifact && runtimeObservationProducerIsDeterministicQuery(record.Producer) {
 		rank -= 70
+	}
+	if !runtimeObservationProducerIsDeterministicQuery(record.Producer) && IsNativeRuntimeFactPresentationRecord(record) {
+		// Display the native receipt before model-authored triage coordinates.
+		// This does not widen causal, clock or query-window authority.
+		rank -= 170
 	}
 	if record.Origin == AnswerEvidenceOriginRuntimeArtifact && runtimeObservationProducerIsPreTriage(record.Producer) {
 		rank += 60
@@ -3823,7 +3829,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 			if peerRelationUnproven && depth == 0 {
 				notes = appendUniqueObservationString(notes, logPeerRelationUnprovenNote)
 			}
-			add(ObservationRecord{
+			add(applyLogSourceBinding(err.SourceBinding, ObservationRecord{
 				ID:              fmt.Sprintf("log:error:%d", errIndex),
 				Origin:          AnswerEvidenceOriginRuntimeArtifact,
 				Producer:        "log_triage",
@@ -3840,7 +3846,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 				Summary:     firstNonEmptyString(err.Message, err.Type),
 				RichNotes:   notes,
 				SupportRefs: logFrameRawRefs(err.Frames),
-			})
+			}))
 			errIndex++
 		}
 		if err.Cause != nil {
@@ -3890,7 +3896,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 		for _, ref := range supersededBy {
 			richNotes = appendUniqueObservationString(richNotes, "triager_interpretation_superseded_by="+ref)
 		}
-		add(ObservationRecord{
+		add(applyLogSourceBinding(obs.SourceBinding, ObservationRecord{
 			ID:              fmt.Sprintf("log:observation:%d", i),
 			Origin:          AnswerEvidenceOriginRuntimeArtifact,
 			Producer:        "log_triage",
@@ -3918,7 +3924,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 			RawExcerpt: strings.TrimSpace(obs.Evidence),
 			RichNotes:  richNotes,
 			Confidence: obs.Confidence,
-		})
+		}))
 	}
 }
 
@@ -3997,6 +4003,12 @@ func logOperationalSemanticsNeedRelationFence(rows []LogOperationalSemantic) boo
 }
 
 func logOperationalSemanticRefsForObservation(bundle *LogBundle, obs LogObservation) []string {
+	// Bound observations use original-source physical lines, while these legacy
+	// protocol rows use the combined preview's line axis. Numeric overlap is not
+	// a source identity join, including when a binding could not be verified.
+	if obs.SourceBinding != nil {
+		return nil
+	}
 	if bundle == nil || len(bundle.OperationalSemantics) == 0 {
 		return nil
 	}

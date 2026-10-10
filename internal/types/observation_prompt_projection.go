@@ -124,13 +124,16 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 	for _, record := range prioritized {
 		summary := observationPromptAuthoritativeSummary(record, opts.SummaryMaxLen)
 		value := clampObservationPromptText(record.Value, opts.ValueMaxLen)
+		if nativeValue, ok := nativeLogPromptValue(record); ok {
+			value = nativeValue
+		}
 		modelNotes := observationPromptModelNotes(record, opts)
 		sourceExcerpt := observationPromptSourceExcerpt(record, opts)
 		excerpt := ""
 		if sourceExcerpt == nil {
 			excerpt = observationPromptExcerpt(record, opts)
 		}
-		notes := observationPromptNotesWithLimit(record, opts, observationPromptNoteLimit(record, opts)-len(modelNotes))
+		notes := observationPromptNotesWithLimit(nativePresentationNoteRecord(record), opts, observationPromptNoteLimit(record, opts)-len(modelNotes))
 		span := FormatObservationSpan(record.Span, 80)
 		if meaning := TraceObservationStateAccountingCompact(record); meaning != "" {
 			// Producer metadata is never reconstructed from summary prose. Keep

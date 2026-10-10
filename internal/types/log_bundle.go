@@ -218,10 +218,11 @@ type LogObservation struct {
 	// citation.
 	Evidence string `json:"evidence,omitempty"`
 
-	// LineStart / LineEnd are artifact-local gutter lines inside the
-	// attached log. They are answer-grade anchors for "which line" /
-	// "which event row" questions, but they are not repository source
-	// citations.
+	// SourceBinding is populated only after full-source exact excerpt lookup.
+	SourceBinding *LogSourceBinding `json:"source_binding,omitempty"`
+
+	// LineStart / LineEnd are source-local decoded physical lines when backed
+	// by a verified SourceBinding; model coordinates alone do not prove them.
 	LineStart int `json:"line_start,omitempty"`
 	LineEnd   int `json:"line_end,omitempty"`
 
@@ -317,6 +318,9 @@ type LogError struct {
 	// for entity extraction (too variable). Capped at 500 chars by
 	// the emit schema.
 	Message string `json:"message,omitempty"`
+
+	// SourceBinding locates Message only, never the model's error class/frames.
+	SourceBinding *LogSourceBinding `json:"source_binding,omitempty"`
 
 	// Frames is the stack for this specific error. Outermost
 	// (innermost failure site) first when the source format preserves

@@ -25,12 +25,13 @@ func TestRuntimeMeasurementPreviewBudgetProtectsEverySummary(t *testing.T) {
 	counts := runtimeMeasurementHandoffPreviewRows(roster)
 	total := 0
 	for i, table := range roster {
-		want := 0
-		if table.View == types.RuntimeMeasurementSummary {
-			want = 4
+		// Each source and view now gets a witness before remaining capacity
+		// fills complete summaries; no independent four-row cap wastes budget.
+		if counts[i] < 1 || counts[i] > len(table.Rows) || len(table.Rows) != 5 {
+			t.Fatalf("view starvation or output mutation: %s/%s count=%d", table.ObservationID, table.View, counts[i])
 		}
-		if counts[i] != want || len(table.Rows) != 5 {
-			t.Fatalf("summary starvation or output mutation: %s/%s count=%d", table.ObservationID, table.View, counts[i])
+		if table.View != types.RuntimeMeasurementSummary && counts[i] != 1 {
+			t.Fatalf("detail consumed residual summary priority: %s count=%d", table.View, counts[i])
 		}
 		total += counts[i]
 	}
@@ -53,7 +54,7 @@ func TestRuntimeMeasurementPreviewBudgetSharesRemainingRows(t *testing.T) {
 	counts := runtimeMeasurementHandoffPreviewRows(tables)
 	total := 0
 	for i, table := range tables {
-		if counts[i] < 1 || counts[i] > 4 {
+		if counts[i] < 1 || counts[i] > len(table.Rows) {
 			t.Fatalf("an early detail table monopolized rows: index=%d count=%d", i, counts[i])
 		}
 		if table.View == types.RuntimeMeasurementSummary && counts[i] != 1 {

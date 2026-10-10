@@ -4502,7 +4502,9 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 			if obs.Severity != "" {
 				fmt.Fprintf(&b, " severity=%s", obs.Severity)
 			}
-			if obs.LineStart > 0 {
+			if obs.SourceBinding != nil {
+				fmt.Fprintf(&b, " %s", obs.SourceBinding.LocationLabel())
+			} else if obs.LineStart > 0 {
 				if obs.LineEnd > obs.LineStart {
 					fmt.Fprintf(&b, " log_lines=%d-%d", obs.LineStart, obs.LineEnd)
 				} else {
@@ -4520,7 +4522,7 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 				fmt.Fprintf(&b, "     triager_interpretation (advisory): %s\n", truncateForPrompt(obs.Summary, 240))
 			}
 		}
-		b.WriteString("Observation log_line/log_lines are artifact-local anchors from the attached log, not repository source citations.\n")
+		b.WriteString("Verified source_id/path/decoded_lines identify original decoded log coordinates, not repository source citations. Legacy log_line/log_lines without verified source binding are advisory locations, not proof of an original source coordinate.\n")
 		b.WriteString("\n")
 	}
 
@@ -4953,6 +4955,9 @@ func renderLogError(b *strings.Builder, e *types.LogError, depth, index int, inc
 	}
 	if e.Message != "" {
 		fmt.Fprintf(b, " — %s", truncateForPrompt(e.Message, 200))
+	}
+	if e.SourceBinding != nil {
+		fmt.Fprintf(b, " [%s]", e.SourceBinding.LocationLabel())
 	}
 	b.WriteString("\n")
 

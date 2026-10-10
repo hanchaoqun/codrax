@@ -377,6 +377,7 @@ func cloneErrors(in []types.LogError) []types.LogError {
 	out := make([]types.LogError, len(in))
 	for i, e := range in {
 		out[i] = e
+		out[i].SourceBinding = e.SourceBinding.Clone()
 		if len(e.Frames) > 0 {
 			out[i].Frames = append([]types.LogFrame(nil), e.Frames...)
 		}
@@ -396,7 +397,11 @@ func cloneObservations(in []types.LogObservation) []types.LogObservation {
 	if len(in) == 0 {
 		return nil
 	}
-	return append([]types.LogObservation(nil), in...)
+	out := append([]types.LogObservation(nil), in...)
+	for i := range out {
+		out[i].SourceBinding = in[i].SourceBinding.Clone()
+	}
+	return out
 }
 
 func cloneErrorPtr(e *types.LogError) *types.LogError {
@@ -404,6 +409,7 @@ func cloneErrorPtr(e *types.LogError) *types.LogError {
 		return nil
 	}
 	out := *e
+	out.SourceBinding = e.SourceBinding.Clone()
 	if len(e.Frames) > 0 {
 		out.Frames = append([]types.LogFrame(nil), e.Frames...)
 	}
@@ -786,7 +792,7 @@ func normaliseObservations(in []types.LogObservation) []types.LogObservation {
 			obs.Confidence = 1
 		}
 		key := string(obs.Kind) + "|" + string(obs.Severity) + "|" +
-			obs.Subject + "|" + obs.Summary + "|" + obs.Evidence
+			obs.Subject + "|" + obs.Summary + "|" + obs.Evidence + "|" + obs.SourceBinding.IdentityKey()
 		if seen[key] {
 			continue
 		}
