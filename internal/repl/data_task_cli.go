@@ -56,12 +56,14 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	var dataRounds int
 	var repairRounds int
 	var workflowRuntime *dataworkflow.WorkflowRuntime
+	// Publication may legitimately return a partial answer without an error.
+	// Carry the typed terminal decision separately from transport success.
+	terminalStatus, terminalReason := "complete", ""
 	defer func() {
 		if len(records) == 0 && dataRounds == 0 && repairRounds == 0 {
 			return
 		}
-		status := "complete"
-		reason := ""
+		status, reason := terminalStatus, terminalReason
 		if retErr != nil {
 			status = "failed"
 			reason = retErr.Error()
@@ -392,6 +394,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return "", fmt.Errorf("%s", errText)
 		case dataworkflow.WorkflowPreRunTerminalPlan:
 			if handled, answer, err := terminalDataTaskPlanForCLI(repoRoot, currentPlan, records, cfg.Language); handled {
+				terminalStatus, terminalReason = preRunDecision.TerminalStatus, preRunDecision.Reason
 				return answer, err
 			}
 		case dataworkflow.WorkflowPreRunBudgetFail:
@@ -401,6 +404,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			return "", fmt.Errorf("%s", preRunDecision.Reason)
 		case dataworkflow.WorkflowPreRunBudgetReturnResult:
 			if preRunHasResult {
+				terminalStatus, terminalReason = preRunDecision.Status, preRunDecision.Reason
 				return finalDataTaskAnswerForCLI(repoRoot, records, currentPlan, preRunResult, cfg.Language)
 			}
 		case dataworkflow.WorkflowPreRunPreExecutionFallback:
@@ -684,8 +688,10 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		evalDecision := dataTaskEvaluationDecisionWithRepo(repoRoot, records, currentPlan, result, eval, contOK, repairOK, repairRounds, repairRoundsMax)
 		switch evalDecision.Action {
 		case dataworkflow.EvaluationDecisionReturnAnswer:
+			terminalStatus, terminalReason = evalDecision.Status, evalDecision.Reason
 			return finalDataTaskAnswerForCLI(repoRoot, records, currentPlan, result, cfg.Language)
 		case dataworkflow.EvaluationDecisionReturnEvaluation:
+			terminalStatus, terminalReason = evalDecision.Status, evalDecision.Reason
 			return dataTaskEvaluationMarkdown(cfg.Language, eval), nil
 		case dataworkflow.EvaluationDecisionFallbackPlan:
 			if !evalDecision.Guard.Empty() {
