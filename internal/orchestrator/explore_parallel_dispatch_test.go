@@ -624,6 +624,7 @@ func TestAcceptedClosureAutoCompleteBlocksUntilRuntimeCurrentSourceOriginsPresen
 				Kind:      types.LogObservationRetryCycle,
 				Subject:   "retry status",
 				Summary:   "runtime log shows a retry loop",
+				Evidence:  "retry attempt=2 status=pending",
 				LineStart: 7,
 			}}},
 			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
@@ -651,6 +652,10 @@ func TestAcceptedClosureAutoCompleteBlocksUntilRuntimeCurrentSourceOriginsPresen
 	}}
 	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
 		t.Fatal("runtime+current-source request may auto-complete after runtime and current-source lanes are both present")
+	}
+	o.busCtx.AnalysisIR.RequestModel.LogTriage.Observations[0].Evidence = ""
+	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("model summary and line coordinates cannot replace the missing runtime fact lane")
 	}
 }
 

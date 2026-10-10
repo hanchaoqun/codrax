@@ -13663,6 +13663,7 @@ func TestEmitAnalysis_Execute_DefaultsRuntimeArtifactRoleLocateSubject(t *testin
 		Observations: []types.LogObservation{{
 			Kind:       types.LogObservationRuntimeEvent,
 			Summary:    "WARN appears on line 3",
+			Evidence:   "WARN retry pending",
 			LineStart:  3,
 			Diagnostic: true,
 			Confidence: 0.95,

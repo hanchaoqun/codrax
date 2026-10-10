@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -27,9 +28,10 @@ func (a *hmc221ContinuationAgent) Execute(ctx *types.AgentContext, _ *skill.Conf
 }
 
 // Classifier navigation is not source admission. This follows the actual CLI
-// classifier adapter into Run's normal preflight and a public path query. The
-// structured classifier/analyzer choices are stubs, not a claim of live-model
-// routing accuracy; the fixed natural live case must establish that separately.
+// classifier adapter through typed analyzer admission and a public path query.
+// The structured agents are stubs: this checks CLI continuation, not the real
+// BaseAgent's dynamic tools or a complete model-answer run. Those are covered
+// by TestHMC223NamedInputsReachRealExplorerAndDualMeasurement and live eval.
 func TestHMC221NamedInputHintReadPreflightActualQuery(t *testing.T) {
 	oldApp, oldRepo := app, flagRepo
 	t.Cleanup(func() { app, flagRepo = oldApp, oldRepo })
@@ -68,7 +70,8 @@ func TestHMC221NamedInputHintReadPreflightActualQuery(t *testing.T) {
 		sr.Register(&skill.Config{Name: name, Goal: name})
 	}
 	ar.Register(&hmc221ContinuationAgent{name: types.AgentAnalyzer, run: func(ctx *types.AgentContext) (*agent.StageOutput, error) {
-		if ctx.TurnRouteHint.Route != "repo" || ctx.RuntimeArtifactPreflight.HasTraceArtifact() || ctx.AttachedTraceMaterial != nil || ctx.AttachedHitrace != "" {
+		if ctx.TurnRouteHint.Route != "repo" || ctx.RuntimeArtifactPreflight.HasTraceArtifact() || ctx.AttachedTraceMaterial != nil || ctx.AttachedHitrace != "" ||
+			ctx.TraceInputPreparer == nil || len(ctx.TraceInputPreparer.PreparedMaterials()) != 0 {
 			t.Fatal("navigation candidate was lost or promoted to attached/source authority")
 		}
 		return &agent.StageOutput{AnalysisIR: &types.AnalysisIR{Version: types.AnalysisIRVersion,
@@ -77,19 +80,46 @@ func TestHMC221NamedInputHintReadPreflightActualQuery(t *testing.T) {
 			TaskGraph: types.TaskGraph{Nodes: []types.TaskNode{{ID: "finalize", Type: types.NodeFinalize, Objective: "read selected native measurements", OneShot: true}}}}}, nil
 	}})
 	var actual types.ToolResult
+	var admittedProfile []byte
 	ar.Register(&hmc221ContinuationAgent{name: types.AgentFinalizer, run: func(ctx *types.AgentContext) (*agent.StageOutput, error) {
 		bus := types.ToolBusContext(ctx, types.AgentFinalizer)
-		if bus.TraceInputPreparer == nil || len(bus.TraceInputPreparer.PreparedMaterials()) != 0 {
-			t.Fatal("preflight must neither lose the preparer nor prepare .data from routing hints")
+		if bus.TraceInputPreparer == nil || len(bus.TraceInputPreparer.PreparedMaterials()) != 2 || bus.AttachedTraceMaterial != nil || bus.AttachedHitrace != "" {
+			t.Fatal("typed admission must prepare both inputs without replacing the sticky attachment")
+		}
+		prepared, navigable := map[string]bool{}, map[string]bool{}
+		for _, material := range bus.TraceInputPreparer.PreparedMaterials() {
+			prepared[material.SourcePath()] = true
+		}
+		for _, artifact := range bus.RuntimeArtifactPreflight.Artifacts {
+			if artifact.RuntimeArtifactKind() != "trace" || artifact.Carrier != "request_path" {
+				t.Fatalf("prepared input acquired a different carrier: %+v", artifact)
+			}
+			navigable[artifact.Source] = true
+		}
+		if len(prepared) != 2 || len(navigable) != 2 {
+			t.Fatal("typed admission lost independent input identities")
+		}
+		for _, path := range paths {
+			if !prepared[path] || !navigable[path] {
+				t.Fatalf("original input identity missing from preparation/navigation: %s", path)
+			}
+		}
+		var err error
+		admittedProfile, err = json.Marshal(bus.RuntimeArtifactPreflight)
+		if err != nil {
+			t.Fatal(err)
 		}
 		args, _ := json.Marshal(map[string]any{"comparison": map[string]any{
 			"baseline": map[string]any{"source": "path", "path": paths[0], "view": "measurements", "time_start": 1, "time_end": 2},
 			"current":  map[string]any{"source": "path", "path": paths[1], "view": "measurements", "time_start": 4, "time_end": 4.5},
 		}})
-		var err error
 		actual, err = (&tool.TraceQuery{}).Execute(bus, args)
 		if err != nil || !actual.Success {
 			t.Fatalf("public query following routing/preflight: %v %s", err, actual.Summary)
+		}
+		after, err := json.Marshal(bus.RuntimeArtifactPreflight)
+		if err != nil || !bytes.Equal(admittedProfile, after) {
+			t.Fatal("query changed the admitted navigation profile", err)
 		}
 		return &agent.StageOutput{Error: "acceptance stops after native acquisition, before model answer"}, nil
 	}})
@@ -102,9 +132,10 @@ func TestHMC221NamedInputHintReadPreflightActualQuery(t *testing.T) {
 	}
 	report, valid := actual.RuntimeMeasurementPair.Report()
 	if !valid || report.Sides[0].Status != "available" || report.Sides[1].Status != "available" {
-		t.Fatalf("path query did not independently prepare both inputs: valid=%t statuses=%s,%s", valid, report.Sides[0].Status, report.Sides[1].Status)
+		t.Fatalf("path query did not reuse both admitted inputs: valid=%t statuses=%s,%s", valid, report.Sides[0].Status, report.Sides[1].Status)
 	}
-	if bus.RuntimeArtifactPreflight.HasTraceArtifact() || bus.AttachedTraceMaterial != nil || bus.AttachedHitrace != "" {
-		t.Fatal("explicit path query replaced sticky attachment or preflight authority")
+	after, err := json.Marshal(bus.RuntimeArtifactPreflight)
+	if err != nil || !bytes.Equal(admittedProfile, after) || bus.AttachedTraceMaterial != nil || bus.AttachedHitrace != "" {
+		t.Fatal("explicit path query replaced the admitted profile or sticky attachment", err)
 	}
 }
