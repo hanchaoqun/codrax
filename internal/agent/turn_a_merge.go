@@ -84,6 +84,8 @@ func preserveSuccessfulInvestigationToolResult(r types.ToolResult) bool {
 //     otherwise prior. Later windows may contain the accepted completion
 //     rationale after a repair, but a closure-only retry must not erase a
 //     previously accepted rationale with an empty value.
+//   - SupersededClosures: union the audit history and record the prior closure
+//     when replaced. Never inject historical reasons into ordinary notes.
 //   - AcceptedAggregateFacts: current when present, otherwise prior.
 //     These are structured model-emitted closure facts, so the last
 //     successful completion window owns them.
@@ -106,7 +108,7 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 		return current
 	}
 	merged := current
-	merged.InvestigationNotes = types.PreserveSupersededClosureReasonNote(merged.InvestigationNotes, prior.AcceptedClosureReason, current.AcceptedClosureReason)
+	merged.SupersededClosures = types.MergeInvestigationClosureHistory(prior, &current)
 	merged.ReadFiles = mergeStrings(prior.ReadFiles, current.ReadFiles)
 	merged.SourceLocalization = types.MergeSourceLocalizationReviews(prior.SourceLocalization, current.SourceLocalization)
 	var mergeTruncation *types.ToolResultTruncationSummary

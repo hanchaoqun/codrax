@@ -252,7 +252,7 @@ func reconcileDiagnosticQuestionProfile(rm types.RequestModel) (types.RequestMod
 // final answer needs a decision verdict; it does not by itself mean
 // the user asked to diagnose a runtime failure.
 func reconcileNonDiagnosticErrorGranularityRoute(rm types.RequestModel) (types.RequestModel, string) {
-	if rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
+	if rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() || types.ErrorGranularityQuotesBelongToOtherDimensions(rm) {
 		return rm, ""
 	}
 	if errorGranularityHasDiagnosticRouteSignal(rm) {

@@ -1258,6 +1258,11 @@ type TurnAArtifacts struct {
 	// must reconcile it with the typed evidence and tool outputs.
 	AcceptedClosureReason string
 
+	// SupersededClosures retains replaced closures as audit-only lifecycle
+	// records. They are not ordinary narrative or independently supported
+	// facts, and must not be replayed as current answer-writing context.
+	SupersededClosures []InvestigationClosureHistoryEntry `json:",omitempty"`
+
 	// AcceptedResultKind mirrors emit_investigation_complete.result_kind
 	// for the successful closure ("resolved" or "absence"). Kept with
 	// AcceptedClosureReason so extractor/finalizer can distinguish a
@@ -5428,6 +5433,7 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	if a.InvestigationNotes != nil {
 		snap.InvestigationNotes = append([]string(nil), a.InvestigationNotes...)
 	}
+	snap.SupersededClosures = append([]InvestigationClosureHistoryEntry(nil), a.SupersededClosures...)
 	if a.ValidationBoundaryNotes != nil {
 		snap.ValidationBoundaryNotes = append([]string(nil), a.ValidationBoundaryNotes...)
 	}
@@ -5496,6 +5502,7 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 	if m.turnAArtifacts.InvestigationNotes != nil {
 		out.InvestigationNotes = append([]string(nil), m.turnAArtifacts.InvestigationNotes...)
 	}
+	out.SupersededClosures = append([]InvestigationClosureHistoryEntry(nil), m.turnAArtifacts.SupersededClosures...)
 	if m.turnAArtifacts.ValidationBoundaryNotes != nil {
 		out.ValidationBoundaryNotes = append([]string(nil), m.turnAArtifacts.ValidationBoundaryNotes...)
 	}
@@ -5608,6 +5615,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	}
 	out := *in
 	out.InvestigationNotes = append([]string(nil), in.InvestigationNotes...)
+	out.SupersededClosures = append([]InvestigationClosureHistoryEntry(nil), in.SupersededClosures...)
 	out.ValidationBoundaryNotes = append([]string(nil), in.ValidationBoundaryNotes...)
 	out.ReadFiles = append([]string(nil), in.ReadFiles...)
 	out.SourceLocalization = CloneSourceLocalizationReviewPtr(in.SourceLocalization)
@@ -5661,7 +5669,7 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 		append([]string(nil), prior.ValidationBoundaryNotes...),
 		current.ValidationBoundaryNotes[clampMergeSliceBase(base.ValidationBoundaryLen, len(current.ValidationBoundaryNotes)):]...,
 	)
-	merged.InvestigationNotes = PreserveSupersededClosureReasonNote(merged.InvestigationNotes, prior.AcceptedClosureReason, current.AcceptedClosureReason)
+	merged.SupersededClosures = MergeInvestigationClosureHistory(prior, &current)
 	merged.ReadFiles = mergeStringsForMutable(prior.ReadFiles, current.ReadFiles)
 	merged.SourceLocalization = MergeSourceLocalizationReviews(prior.SourceLocalization, current.SourceLocalization)
 	merged.ToolResults = append(
@@ -5717,26 +5725,6 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 		merged.TerminalEvidenceCount = current.TerminalEvidenceCount
 	}
 	return merged
-}
-
-// PreserveSupersededClosureReasonNote keeps rich model-authored closure prose
-// visible as advisory context when a later accepted closure replaces the
-// authoritative closure reason. The later reason remains authoritative; the
-// prior prose is retained only as an investigation note so downstream agents can
-// reuse useful explanation without treating it as a citation or validator fact.
-func PreserveSupersededClosureReasonNote(notes []string, priorReason, currentReason string) []string {
-	priorReason = strings.TrimSpace(priorReason)
-	currentReason = strings.TrimSpace(currentReason)
-	if priorReason == "" || currentReason == "" || strings.EqualFold(priorReason, currentReason) {
-		return notes
-	}
-	for _, note := range notes {
-		if strings.Contains(note, priorReason) {
-			return notes
-		}
-	}
-	const prefix = "Previous accepted closure reason (preserved advisory, not a citation): "
-	return append(notes, prefix+priorReason)
 }
 
 func clampMergeSliceBase(base, n int) int {

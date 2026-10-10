@@ -849,10 +849,10 @@ func buildEmitAnalysisSchema() {
 			},
 			"error_granularity_profile": map[string]any{
 				"type":        "object",
-				"description": "Required typed profile for requests about failure scope across an item, record, call, batch, or transaction. Set is_granularity_question=false when no canonical failure-scope verdict is needed.",
+				"description": skill.AnalysisErrorGranularityTeaching,
 				"properties": map[string]any{
 					"is_granularity_question":   map[string]any{"type": "boolean", "description": "True only when the current request asks how failures are scoped, such as per-item rejection, whole-batch failure, partial success, fail-fast stop, or collected errors."},
-					"requested_verdict_options": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": errorGranularityRequestedOptionValues()}, "description": "Optional enum options explicitly contrasted by the current request. This is not the answer verdict; it constrains the final decision to one of the request's alternatives when evidence supports one."},
+					"requested_verdict_options": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": errorGranularityRequestedOptionValues()}, "description": skill.AnalysisErrorGranularityOptionsTeaching},
 					"source_quotes":             map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Current-request phrase(s) that state the failure-scope question. Exact verbatim is preferred; the system performs deterministic normalization and may ignore unanchored optional quotes instead of forcing a retry."},
 					"confidence":                map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this failure-scope profile in [0,1]."},
 					"rationale":                 map[string]any{"type": "string", "description": "Short audit rationale for why a canonical failure-scope verdict is or is not required."},
@@ -1962,6 +1962,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	var enumerationBoundary *types.RequestedEnumerationBoundary
 	if p.EnumerationBoundary != nil &&
+		!types.ErrorGranularityQuotesBelongToOtherDimensions(types.RequestModel{Intent: intent, AnalyzerHints: types.AnalyzerHints{Kind: kind}, ErrorGranularityProfile: errorGranularityProfile, RequestedAnswerDimensions: requestedAnswerDimensions}) &&
 		types.ErrorGranularityCountsAreContextual(intent, predicates, errorGranularityProfile) {
 		val.Warnings = append(val.Warnings, "ignored enumeration_boundary because error_granularity_profile makes count-like phrases contextual")
 	} else if p.EnumerationBoundary != nil && scalarCountBoundaryIsScopeOnly(predicates) {
@@ -2421,7 +2422,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if conflict := validateEmitToolDocumentationRequest(&rm, p.RequestedAnswerDimensions); conflict != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "emit_analysis rejected: " + conflict.Error(), Timestamp: time.Now()}, nil
 	}
-	if types.ErrorGranularityConflictsWithDiagnosticMechanism(rm) {
+	if types.ErrorGranularityQuotesBelongToOtherDimensions(rm) {
+		warning := "error_granularity_profile auto-softened: every anchored quote already belongs to another required answer dimension; original profile retained for audit, not a failure-scope answer obligation"
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	} else if types.ErrorGranularityConflictsWithDiagnosticMechanism(rm) {
 		rm.ErrorGranularityProfile = nil
 		warning := "error_granularity_profile auto-softened: diagnostic/current-source explanation is not a precise failure-scope verdict request"
 		logging.Warning("[emit_analysis] %s", warning)
@@ -7907,7 +7912,7 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 		fmt.Fprintf(&b, " required_roles=%s", strings.Join(roles, ","))
 	}
 	if rm.ErrorGranularityProfile != nil && rm.ErrorGranularityProfile.Active() {
-		b.WriteString(" error_granularity=true")
+		fmt.Fprintf(&b, " error_granularity=%t", types.ShouldCarryErrorGranularityHardContract(rm))
 		if len(rm.ErrorGranularityProfile.RequestedVerdictOptions) > 0 {
 			options := make([]string, 0, len(rm.ErrorGranularityProfile.RequestedVerdictOptions))
 			for _, option := range rm.ErrorGranularityProfile.RequestedVerdictOptions {

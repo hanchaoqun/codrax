@@ -79,6 +79,9 @@ func ShouldCarryErrorGranularityHardContract(rm RequestModel) bool {
 	if rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
 		return false
 	}
+	if ErrorGranularityQuotesBelongToOtherDimensions(rm) {
+		return false
+	}
 	if !errorGranularityHasDiagnosticMechanismShape(rm) {
 		return true
 	}
@@ -122,7 +125,12 @@ func errorGranularityHasDedicatedFailureScopeAnswerShape(rm RequestModel) bool {
 	if rm.Intent == IntentReturnValue {
 		return true
 	}
-	return NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqReturnValue
+	if NormalizeRequirementKind(rm.AnalyzerHints.Kind) == ReqReturnValue {
+		return true
+	}
+	// An independently quoted failure-scope subquestion can coexist with a
+	// diagnostic question. No duplicate presentation row is required for it.
+	return errorGranularityHasIndependentRequestQuote(rm)
 }
 
 // ErrorGranularityCountsAreContextual reports whether numeric/count-like
@@ -149,6 +157,15 @@ func ErrorGranularityCountsAreContextual(intent Intent, preds SemanticPredicates
 // principal-member enumerations, unless the analyzer also emits a typed
 // count/category/relation answer lane or a bucketed comparison structure.
 func IsFailureScopeDecisionAnswer(rm RequestModel) bool {
+	if ErrorGranularityQuotesBelongToOtherDimensions(rm) {
+		return false
+	}
+	// A retained scope subquestion does not replace the independent causal
+	// investigation with a generic decision-only family.
+	typedRuntimeCause := rm.RuntimeQuestionProfile != nil && rm.RuntimeQuestionProfile.Scope == RuntimeQuestionScopeCausalDiagnosis && rm.RequestedAnswerDimensions.RequiresRuntimeCausalDiagnosis()
+	if (errorGranularityHasDiagnosticMechanismShape(rm) || typedRuntimeCause) && errorGranularityHasIndependentRequestQuote(rm) {
+		return false
+	}
 	if !ErrorGranularityCountsAreContextual(rm.Intent, rm.Predicates, rm.ErrorGranularityProfile) {
 		return false
 	}
@@ -176,7 +193,7 @@ func MissingErrorGranularityVerdict(doc *AnswerDocumentV2, profile *ErrorGranula
 }
 
 func ErrorGranularityVerdictOptionMismatch(doc *AnswerDocumentV2, profile *ErrorGranularityProfile) (ErrorGranularityVerdict, bool) {
-	if doc == nil || profile == nil || !profile.Active() || len(profile.RequestedVerdictOptions) == 0 {
+	if doc == nil || profile == nil || !profile.Active() || !profile.HasRequestedContrast() {
 		return ErrorGranularityUnknown, false
 	}
 	for _, block := range doc.Blocks {
@@ -198,4 +215,20 @@ func ErrorGranularityVerdictOptionMismatch(doc *AnswerDocumentV2, profile *Error
 		return verdict, true
 	}
 	return ErrorGranularityUnknown, false
+}
+
+// HasRequestedContrast distinguishes a closed comparison from a single
+// proposition ("does the whole batch fail?"). The latter must permit an
+// evidence-supported negative answer, not only affirmation or uncertainty.
+func (p *ErrorGranularityProfile) HasRequestedContrast() bool {
+	if p == nil {
+		return false
+	}
+	seen := make(map[ErrorGranularityVerdict]bool)
+	for _, option := range p.RequestedVerdictOptions {
+		if option.IsValid() && option != ErrorGranularityUnknown && option != ErrorGranularityNotEnoughEvidence {
+			seen[option] = true
+		}
+	}
+	return len(seen) >= 2
 }

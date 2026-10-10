@@ -135,7 +135,7 @@ func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel, _ P
 	if types.IsSingleTopicMechanismExplanation(*out) {
 		return nil
 	}
-	if types.ErrorGranularityCountsAreContextual(out.Intent, out.Predicates, out.ErrorGranularityProfile) {
+	if !types.ErrorGranularityQuotesBelongToOtherDimensions(*out) && types.ErrorGranularityCountsAreContextual(out.Intent, out.Predicates, out.ErrorGranularityProfile) {
 		return nil
 	}
 	if types.IsArchitectureNarrativeExplanation(*out) {

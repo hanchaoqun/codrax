@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -28,13 +29,34 @@ func answerDocObservationPresentationCandidates(ctx *types.AgentContext, ledger 
 
 // Preserve atomic producer JSON and publish each exact source generation once.
 // Coverage describes the query, not capture completeness or causal authority.
-func answerDocLogQueryPresentationMetadata(records []types.ObservationRecord) (string, map[string]bool) {
+func answerDocLogQueryPresentationMetadata(records []types.ObservationRecord, selected []types.ObservationPromptRecord) (string, map[string]bool) {
 	const maxQueries, maxSources = 8, 32
 	var b strings.Builder
 	seenSources := map[string]bool{}
 	represented := map[string]bool{}
 	var sources []string
 	queries, omittedQueries := 0, 0
+	// The same selection that spends the fact budget owns the source budget.
+	// Catalog order must not hide a selected source behind unqueried siblings.
+	selectedIDs := make(map[string]int, len(selected))
+	for i, row := range selected {
+		selectedIDs[row.ID] = i
+	}
+	priority := map[string]int{}
+	for _, record := range records {
+		rank, ok := selectedIDs[record.ID]
+		if !ok || types.NativeRuntimeFactPresentationKind(record) != "log_record" {
+			continue
+		}
+		for _, note := range record.RichNotes {
+			if generation, ok := strings.CutPrefix(note, "source_generation="); ok && generation != "" {
+				key := record.SourceRef.ArtifactID + "\x00" + generation
+				if old, exists := priority[key]; !exists || rank < old {
+					priority[key] = rank
+				}
+			}
+		}
+	}
 	// Source inventory has its own budget. A query outside the query-preview
 	// budget may still own a selected record, so collect sources independently.
 	for _, record := range records {
@@ -64,6 +86,20 @@ func answerDocLogQueryPresentationMetadata(records []types.ObservationRecord) (s
 			}
 		}
 	}
+	sourcePriorities := make(map[string]int, len(sources))
+	for _, raw := range sources {
+		sourcePriorities[raw] = len(selected)
+		var source struct {
+			ID         string `json:"source_id"`
+			Generation string `json:"generation"`
+		}
+		if json.Unmarshal([]byte(raw), &source) == nil {
+			if rank, ok := priority[source.ID+"\x00"+source.Generation]; ok {
+				sourcePriorities[raw] = rank
+			}
+		}
+	}
+	sort.SliceStable(sources, func(i, j int) bool { return sourcePriorities[sources[i]] < sourcePriorities[sources[j]] })
 	for _, record := range records {
 		if types.NativeRuntimeFactPresentationKind(record) != "log_query_coverage" {
 			continue
@@ -105,14 +141,15 @@ func answerDocPresentedNativeObservationIDs(ctx *types.AgentContext) map[string]
 	records, _ := answerDocFinalizerObservationRecords(ctx, ledger.Records)
 	records, _, _ = answerDocIOWindowObservationRecords(ctx, records)
 	records, _ = answerDocSelectedWindowObservationRecords(ctx, records)
-	_, ids := answerDocLogQueryPresentationMetadata(records)
+	selected := answerDocObservationPromptRecords(ctx, records, answerDocObservationLedgerPromptLimit)
+	_, ids := answerDocLogQueryPresentationMetadata(records, selected)
 	native := map[string]bool{}
 	for _, record := range records {
 		if types.IsNativeRuntimeFactPresentationRecord(record) {
 			native[record.ID] = true
 		}
 	}
-	for _, row := range answerDocObservationPromptRecords(ctx, records, answerDocObservationLedgerPromptLimit) {
+	for _, row := range selected {
 		if native[row.ID] {
 			ids[row.ID] = true
 		}

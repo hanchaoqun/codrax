@@ -4285,7 +4285,7 @@ func renderAnswerDocErrorGranularityContract(view *types.AnswerSemanticView) str
 	b.WriteString("## Typed Error Granularity Contract\n\n")
 	b.WriteString("The current request requires a canonical failure-scope verdict.\n\n")
 	allowedValues := values
-	if len(view.ErrorGranularityProfile.RequestedVerdictOptions) > 0 {
+	if view.ErrorGranularityProfile.HasRequestedContrast() {
 		allowedValues = make([]string, 0, len(view.ErrorGranularityProfile.RequestedVerdictOptions)+1)
 		for _, verdict := range view.ErrorGranularityProfile.RequestedVerdictOptions {
 			allowedValues = append(allowedValues, string(verdict))
@@ -4294,12 +4294,14 @@ func renderAnswerDocErrorGranularityContract(view *types.AnswerSemanticView) str
 	}
 	fmt.Fprintf(&b, "- Emit a principal `decision` block with `error_granularity_verdict` set to one of: %s.\n",
 		renderQuotedList(allowedValues))
-	if len(view.ErrorGranularityProfile.RequestedVerdictOptions) > 0 {
+	if view.ErrorGranularityProfile.HasRequestedContrast() {
 		b.WriteString("- The analyzer captured explicit requested verdict options for this question. Choose the most specific evidence-supported enum from those options; use `not_enough_evidence` only when the evidence cannot decide between them. Do not substitute a broader umbrella verdict that was not one of the requested options.\n")
+	} else if len(view.ErrorGranularityProfile.RequestedVerdictOptions) == 1 {
+		b.WriteString("- The single requested option is a proposition to test, not a pre-decided answer or a closed choice set. An evidence-supported negative answer may use another canonical verdict; uncertainty is not the only alternative to affirmation.\n")
 	}
 	b.WriteString("- Choose the enum from grounded evidence: `per_item_rejection` means the bad item or record is rejected while valid siblings continue; `whole_batch_failure` means one failure rejects the whole call or batch; `partial_success` means a mixed result is returned; `fail_fast` means processing stops at the first failure; `collect_errors` means errors are accumulated for reporting; `not_enough_evidence` means the evidence cannot decide.\n")
 	b.WriteString("- Put the rationale and citations in the same decision block; do not satisfy this contract with prose-only wording.\n\n")
-	b.WriteString("- For item-vs-batch or fail-fast judgments, cite both sides when available: the item-level handling branch (append/skip/continue/return for one record) and the batch-level gate (for example `len(built)==0`, rollback, or first-error return). Closure prose may summarize the verdict, but it is not a citation.\n\n")
+	b.WriteString("- For item-vs-batch or fail-fast judgments, bind the verdict to the operation and its affected set. Ground both the failed-member handling and the sibling/batch outcome (for example skip/continue, rollback, or first-error return). One observed error or an absence of other error messages does not prove siblings continued, a rollback, or complete capture; if those outcomes cannot be established, use `not_enough_evidence`. Closure prose may summarize the verdict, but it is not a citation.\n\n")
 	return b.String()
 }
 
@@ -5419,7 +5421,9 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 		renderAcceptedInvestigationDisposition(&b, ctx, plan.StableInvestigationResultKind)
 	}
 	if reason := strings.TrimSpace(plan.StableInvestigationReason); reason != "" {
-		if runtimeObservationOnlyForAnswerDoc(ctx) {
+		if answerDocHasNativeFactHandoff(ctx) {
+			b.WriteString("- Native facts are published with their source/query receipts. Completion is a workflow state, not verification of model-authored prose; any eligible current synthesis is shown once in the advisory narrative, not repeated here.\n")
+		} else if runtimeObservationOnlyForAnswerDoc(ctx) {
 			b.WriteString("- model-authored closure reason omitted from this authority section because the typed observed-artifact lane is authoritative for direct runtime facts. Any preserved runtime narrative appears only as advisory synthesis below, not as caller-side provenance or current-source proof.\n")
 		} else if suppressUnstructuredClosureReasonForTypedMechanism(ctx) {
 			b.WriteString("- model-authored closure reason omitted from this authority section because grounded current-source facts and typed flow carriers are authoritative for mechanism roles and relations. Unstructured exploration synthesis cannot upgrade a local definition, branch, assignment, or payload field into a runtime identity, pairing key, call edge, or ordered path.\n")
@@ -5758,7 +5762,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		ioWaitLedger.Records = append(append([]types.ObservationRecord(nil), promptLedgerRecords...), waits...)
 	}
 	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
-	logMetadata, _ := answerDocLogQueryPresentationMetadata(promptLedgerRecords)
+	logMetadata, _ := answerDocLogQueryPresentationMetadata(promptLedgerRecords, records)
 	if len(promptLedgerRecords) == 0 {
 		return logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx) +
 			renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger) + renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger)
@@ -8548,7 +8552,7 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 		raw = append([]string(nil), ta.InvestigationNotes...)
 	}
 	if runtimeObservationOnlyForAnswerDoc(ctx) {
-		if !answerDocHasDeterministicRuntimeQueryObservation(ctx) {
+		if !answerDocHasDeterministicRuntimeQueryObservation(ctx) && !answerDocHasNativeFactHandoff(ctx) {
 			reason := ""
 			if ta != nil {
 				reason = strings.TrimSpace(ta.AcceptedClosureReason)
@@ -8561,11 +8565,27 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 			}
 		}
 	}
-	if len(raw) == 0 {
+	currentSynthesis := ""
+	if answerDocHasNativeFactHandoff(ctx) {
+		if plan := answerSurfacePlan(ctx); plan != nil {
+			currentSynthesis = strings.TrimSpace(plan.StableInvestigationReason)
+		}
+		// Exact duplicate identity only, not text classification. The current
+		// lifecycle reason has its own bounded slot, so it cannot evict an
+		// independent investigation note from the notes budget.
+		unique := make([]string, 0, len(raw))
+		for _, note := range raw {
+			if strings.TrimSpace(note) != currentSynthesis {
+				unique = append(unique, note)
+			}
+		}
+		raw = unique
+	}
+	if len(raw) == 0 && currentSynthesis == "" {
 		return ""
 	}
 	notes := recentSanitizedInvestigationNarrativeNotes(raw)
-	if len(notes) == 0 {
+	if len(notes) == 0 && currentSynthesis == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -8578,6 +8598,9 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 	}
 	for i, note := range notes {
 		fmt.Fprintf(&b, "**Note %d:**\n%s\n\n", i+1, note)
+	}
+	if currentSynthesis != "" {
+		fmt.Fprintf(&b, "**Current model synthesis (advisory, not a verified fact):**\n%s\n\n", truncateAnswerDocPromptText(sanitizePriorDraftForSummary(currentSynthesis), 900))
 	}
 	return b.String()
 }
@@ -13134,13 +13157,20 @@ func renderAnswerDocCurrentStatusDiagnostic(ctx *types.AgentContext) string {
 
 func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	plan := answerSupportPlan(ctx)
+	nativeSupport := renderAnswerDocNativeFactSupport(ctx)
 	if plan == nil || len(plan.Lanes) == 0 {
-		return ""
+		if nativeSupport == "" {
+			return ""
+		}
+		return "## Typed Answer Support Lanes\n\n" + nativeSupport
 	}
 	enumerationCoverage := answerDocPrincipalEnumerationCoverage(ctx)
 	var b strings.Builder
 	b.WriteString("## Typed Answer Support Lanes\n\n")
-	if supportPlanAllowsBlockKind(plan, string(types.BlockDecision)) {
+	b.WriteString(nativeSupport)
+	if nativeSupport != "" {
+		b.WriteString("- Build the principal answer from the published native facts above and the eligible lanes below, keeping each source and its proof boundary separate. Native references permit observed values, not unproved causal or current-source conclusions.\n")
+	} else if supportPlanAllowsBlockKind(plan, string(types.BlockDecision)) {
 		b.WriteString("- Build the principal answer blocks and any typed `decision` verdict only from the lanes below; use only block kinds each lane explicitly allows.\n")
 	} else {
 		b.WriteString("- Build the principal answer blocks only from the lanes below; use only block kinds each lane explicitly allows.\n")

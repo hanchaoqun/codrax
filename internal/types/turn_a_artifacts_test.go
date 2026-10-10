@@ -396,7 +396,7 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 	}
 }
 
-func TestTurnAArtifacts_ExploreForkMergePreservesSupersededClosureReasonAsNote(t *testing.T) {
+func TestTurnAArtifacts_ExploreForkMergePreservesSupersededClosureForAudit(t *testing.T) {
 	parent := NewMutableState("q")
 	parent.SetTurnAArtifacts(TurnAArtifacts{
 		InvestigationNotes:    []string{"base-note"},
@@ -419,9 +419,13 @@ func TestTurnAArtifacts_ExploreForkMergePreservesSupersededClosureReasonAsNote(t
 		t.Fatalf("current closure remains authoritative, got %q", got.AcceptedClosureReason)
 	}
 	joined := strings.Join(got.InvestigationNotes, "\n")
-	if !strings.Contains(joined, "first closure carried rich VCS") ||
-		!strings.Contains(joined, "preserved advisory, not a citation") {
-		t.Fatalf("superseded closure reason should survive as advisory note, got %+v", got.InvestigationNotes)
+	if joined != "base-note\nfork-note" {
+		t.Fatalf("ordinary notes changed: %+v", got.InvestigationNotes)
+	}
+	if len(got.SupersededClosures) != 1 ||
+		got.SupersededClosures[0].Reason != "first closure carried rich VCS and current-source synthesis" ||
+		got.SupersededClosures[0].ResultKind != "resolved" {
+		t.Fatalf("superseded closure audit history lost: %+v", got.SupersededClosures)
 	}
 }
 

@@ -1615,7 +1615,7 @@ func principalEvidenceAllowedBlocks(family QuestionFamily) []string {
 
 func principalEvidenceAllowedBlocksForRequest(family QuestionFamily, rm RequestModel) []string {
 	allowed := principalEvidenceAllowedBlocks(family)
-	if rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
+	if rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() || ErrorGranularityQuotesBelongToOtherDimensions(rm) {
 		return allowed
 	}
 	for _, kind := range allowed {
