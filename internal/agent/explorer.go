@@ -3962,12 +3962,16 @@ func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *typ
 	b.WriteString(renderExplorerPeerErrorFactScope(ctx))
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Do not run repo breadth search (`repo_map`, `grep`, `list_files`) and do not read current-repo files just because artifact labels resemble repo symbols.\n")
-	b.WriteString("- Explain the artifact's own observed frames, spans, messages, or cause chain. If those facts are already present in the Log / Trace Triage section, proceed to completion instead of looking for same-named tests or helpers.\n")
+	if logQueryToolVisible(ctx) {
+		b.WriteString("- Use log_query for the requested records across complete attached sources; the Log Triage section and text preview do not prove full-source coverage. The query publishes native observations directly: preserve their observation IDs and source-local coordinates, then complete when the requested facts are collected. No emit_evidence source wrapper is needed.\n")
+	} else {
+		b.WriteString("- Explain the artifact's own observed frames, spans, messages, or cause chain. If those facts are already present in the Log / Trace Triage section, proceed to completion instead of looking for same-named tests or helpers.\n")
+	}
 	b.WriteString("- Keep direct observations and inferred upstream causes separate. The artifact can directly establish the error message, observed operation/property, frame/span, signal, duration, and trace order.\n")
 	b.WriteString(runtimeArtifactObservationCausalityCalibration())
 	b.WriteString("- Do not call `emit_evidence` for unresolved artifact frames: that tool is for current-checkout source anchors. Preserve artifact facts in `emit_investigation_complete.reason` and, when useful, `aggregate_facts`.\n")
 	b.WriteString("- If the artifact is sufficient, call `emit_investigation_complete` with a resolved result and, when needed, `evidence_floor_waiver.reason=\"external_only_log\"` or `\"external_only_trace\"` so the final answer preserves the observation-only boundary.\n\n")
-	if ctx != nil && ctx.LogTriage != nil {
+	if ctx != nil && ctx.LogTriage != nil && !logQueryToolVisible(ctx) {
 		if len(ctx.LogTriage.Errors) > 0 {
 			b.WriteString("The structured log triage already extracted runtime error facts; prefer those over repository lookups.\n\n")
 		}

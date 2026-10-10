@@ -131,15 +131,22 @@ EXPECT_OPERATION_MATERIAL_COVERAGE_STATUS="${EXPECT_OPERATION_MATERIAL_COVERAGE_
 EXPECT_OPERATION_COVERAGE_REF_REGEX="${EXPECT_OPERATION_COVERAGE_REF_REGEX:-}"
 EXPECT_OPERATION_COVERAGE_SOURCE_REGEX="${EXPECT_OPERATION_COVERAGE_SOURCE_REGEX:-}"
 EXPECT_TRACE_FINAL_PROJECTION_BLOCKS="${EXPECT_TRACE_FINAL_PROJECTION_BLOCKS:-}"
-# Runtime-artifact eval cases may attach either inline text or a file path:
-# LOG=<inline panic> / LOG_FILE=<path> exercise --log-text / --log, while
+# Runtime-artifact eval cases may attach inline text, a file or a log array:
+# LOG=<inline panic> / LOG_FILE=<path> / LOG_FILES=(<paths...>) exercise
+# --log-text / --log / repeated --log without concatenating physical sources.
 # HTRACE=<inline trace> / HTRACE_FILE=<path> exercise --htrace-text / --htrace.
 LOG="${LOG:-}"
 LOG_FILE="${LOG_FILE:-}"
+if ! declare -p LOG_FILES >/dev/null 2>&1; then
+  LOG_FILES=()
+elif [[ "$(declare -p LOG_FILES)" != "declare -a "* ]]; then
+  echo "case LOG_FILES must be an indexed array of file paths" >&2
+  exit 2
+fi
 HTRACE="${HTRACE:-}"
 HTRACE_FILE="${HTRACE_FILE:-}"
 HTRACE_STDIN_FILE="${HTRACE_STDIN_FILE:-}"
-if [[ -n "$HTRACE_STDIN_FILE" && ( -n "$HTRACE" || -n "$HTRACE_FILE" || -n "$LOG" || -n "$LOG_FILE" ) ]]; then
+if [[ -n "$HTRACE_STDIN_FILE" && ( -n "$HTRACE" || -n "$HTRACE_FILE" || -n "$LOG" || -n "$LOG_FILE" || ${#LOG_FILES[@]} -gt 0 ) ]]; then
   echo "case HTRACE_STDIN_FILE must be the only attachment" >&2
   exit 2
 fi
@@ -147,11 +154,15 @@ if [[ -n "$LOG" && -n "$LOG_FILE" ]]; then
   echo "case must not set both LOG and LOG_FILE" >&2
   exit 2
 fi
+if [[ ${#LOG_FILES[@]} -gt 0 && ( -n "$LOG" || -n "$LOG_FILE" ) ]]; then
+  echo "case LOG_FILES must not be combined with LOG or LOG_FILE" >&2
+  exit 2
+fi
 if [[ -n "$HTRACE" && -n "$HTRACE_FILE" ]]; then
   echo "case must not set both HTRACE and HTRACE_FILE" >&2
   exit 2
 fi
-if [[ ( -n "$LOG" || -n "$LOG_FILE" ) && ( -n "$HTRACE" || -n "$HTRACE_FILE" ) ]]; then
+if [[ ( -n "$LOG" || -n "$LOG_FILE" || ${#LOG_FILES[@]} -gt 0 ) && ( -n "$HTRACE" || -n "$HTRACE_FILE" ) ]]; then
   echo "case must not set log and htrace attachments together" >&2
   exit 2
 fi
@@ -340,6 +351,12 @@ if [[ -n "$LOG_FILE" && ! -f "$LOG_FILE" ]]; then
   echo "case LOG_FILE not found: $LOG_FILE" >&2
   exit 2
 fi
+for log_file in ${LOG_FILES[@]+"${LOG_FILES[@]}"}; do
+  if [[ -z "$log_file" || ! -f "$log_file" ]]; then
+    echo "case LOG_FILES member not found: $log_file" >&2
+    exit 2
+  fi
+done
 if [[ -n "$HTRACE_FILE" && ! -f "$HTRACE_FILE" ]]; then
   echo "case HTRACE_FILE not found: $HTRACE_FILE" >&2
   exit 2
@@ -590,6 +607,11 @@ run_read_step() {
     attach_args=(--log-text "$LOG")
   elif [[ -n "$LOG_FILE" ]]; then
     attach_args=(--log "$LOG_FILE")
+  elif [[ ${#LOG_FILES[@]} -gt 0 ]]; then
+    local log_file
+    for log_file in "${LOG_FILES[@]}"; do
+      attach_args+=(--log "$log_file")
+    done
   elif [[ -n "$HTRACE" ]]; then
     attach_args=(--htrace-text "$HTRACE")
   elif [[ -n "$HTRACE_FILE" ]]; then
@@ -747,7 +769,7 @@ write_metrics() {
   local metrics="$OUTDIR/run-$i.metrics.txt"
   local data_terminal_path="" data_terminal_status="" data_rounds="0" data_repair_rounds="0" data_record_count="0" data_result_summary="" data_answer_len="0" data_action_failed="0"
   local runtime_attachment_kind="none" log_triage_dispatches="0" perf_triage_dispatches="0" emit_log_triage_calls="0" emit_perf_trace_calls="0" runtime_prestage_dispatches="0"
-  if [[ -n "$LOG" || -n "$LOG_FILE" ]]; then
+  if [[ -n "$LOG" || -n "$LOG_FILE" || ${#LOG_FILES[@]} -gt 0 ]]; then
     runtime_attachment_kind="log"
   elif [[ -n "$HTRACE" || -n "$HTRACE_FILE" || -n "$HTRACE_STDIN_FILE" ]]; then
     runtime_attachment_kind="trace"
@@ -786,6 +808,7 @@ write_metrics() {
     echo "tool_read_file=$(eval_count_tool_calls "$log" read_file)"
     echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
     echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
+    echo "tool_log_query=$(eval_count_tool_calls "$log" log_query)"
     echo "tool_trace_query=$(eval_count_tool_calls "$log" trace_query)"
     echo "trace_query_dimension_families=$(eval_count_trace_query_dimension_families "$log")"
     echo "trace_query_root_cause_views=$(eval_count_trace_query_view_family "$log" 'root_cause_rank|frame_root_cause_bundle|frame_bundle')"

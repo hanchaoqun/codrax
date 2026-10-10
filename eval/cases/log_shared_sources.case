@@ -1,0 +1,7 @@
+ID="log_shared_sources"
+NAME="Independent application and compressed kernel logs"
+QUESTION="请整理这两份日志里启动失败附近实际记录了哪些事件，分别由哪个进程和线程记录；日志能否确认这些事件之间的先后和因果关系？"
+LOG_FILES=("eval/fixtures/hmosperf_log_sources/app/session.log" "eval/fixtures/hmosperf_log_sources/kernel/session.log.gz")
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=log_query"

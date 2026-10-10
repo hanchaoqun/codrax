@@ -1988,7 +1988,7 @@ func TestExplicitLogStaysStickyAcrossTurns(t *testing.T) {
 		"/exit\n"
 	in := strings.NewReader(input)
 	out := &bytes.Buffer{}
-	runner := &logAwareRunner{}
+	runner := &catalogAwareRunner{}
 	r := New(Config{
 		Runner:     runner,
 		Store:      store,

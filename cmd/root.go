@@ -857,7 +857,7 @@ func rootRun(cmd *cobra.Command, args []string) error {
 	if request != "" {
 		printCLIAttachmentReadPlan(flagLang)
 	}
-	attached, err := loadAttachedLog()
+	preparedLog, err := loadPreparedAttachedLog(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -870,8 +870,10 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	trace, traceSource := preparedTrace.body, preparedTrace.source
-	if attached != "" {
+	attached := preparedLog.body
+	if attached != "" || preparedLog.catalog != nil {
 		app.orch.SetAttachedLog(attached)
+		app.orch.SetAttachedLogCatalog(preparedLog.catalog)
 		logging.Info("[cmd] attached runtime log: %d bytes", len(attached))
 		if request != "" {
 			printCLIAttachmentLoaded(flagLang, "log", len(attached), maxAttachedLogBytes)

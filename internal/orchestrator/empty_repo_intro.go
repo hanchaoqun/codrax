@@ -17,6 +17,14 @@ func dirIsEffectivelyEmpty(path string) bool {
 	return worktree.DirIsEffectivelyEmpty(path)
 }
 
+// Runtime captures can be analyzed without source code. Only current attached
+// input counts here: request wording, old bus state and source-flavor hints do
+// not establish material presence. A valid zero-record catalog still counts.
+func (o *Orchestrator) hasRuntimeAttachment() bool {
+	return o.attachedLogCatalog != nil || o.attachedTraceMaterial != nil ||
+		strings.TrimSpace(o.attachedLog) != "" || strings.TrimSpace(o.attachedHitrace) != ""
+}
+
 // emptyRepoReadIntro builds the user-visible terminal message
 // shown when the target directory has no source files to analyse.
 // Plain language only — no internal stage names, no project brand,

@@ -11,6 +11,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
 	"github.com/hanchaoqun/codrax/internal/canonpath"
+	"github.com/hanchaoqun/codrax/internal/loginput"
 	"github.com/hanchaoqun/codrax/internal/tracecatalog"
 )
 
@@ -8450,6 +8451,8 @@ type BusContext struct {
 	// `request` would otherwise flood TermGraph with hundreds of
 	// spurious kindLiteral surfaces.
 	AttachedLog string `json:"attached_log,omitempty"`
+	// Complete read-only sources; serialized previews never restore this handle.
+	AttachedLogCatalog *loginput.Catalog `json:"-"`
 
 	// UserPinnedFiles carries repo-relative file paths the user pinned
 	// with @path tokens in the request (PIB-5c, ledger
@@ -9092,6 +9095,8 @@ type AgentContext struct {
 	// a prompt section for every stage (so the LLM sees the raw log
 	// body for narrative context). Empty when no log was attached.
 	AttachedLog string `json:"attached_log,omitempty"`
+	// Same in-process catalog as the parent bus; never model-authored or persisted.
+	AttachedLogCatalog *loginput.Catalog `json:"-"`
 
 	// UserPinnedFiles mirrors BusContext.UserPinnedFiles (PIB-5c) for
 	// the analyzer's required-file lane. Deterministic, never

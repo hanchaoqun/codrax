@@ -527,7 +527,7 @@ eval_case_oracle_surface() {
   if LC_ALL=C grep -aEq '^[[:space:]]*(HTRACE|HTRACE_FILE|HTRACE_STDIN_FILE)=' "$file"; then
     eval_case_oracle_surface_add "trace_attachment"
   fi
-  if LC_ALL=C grep -aEq '^[[:space:]]*(LOG|LOG_FILE)=' "$file"; then
+  if LC_ALL=C grep -aEq '^[[:space:]]*(LOG|LOG_FILE|LOG_FILES)=' "$file"; then
     eval_case_oracle_surface_add "log_attachment"
   fi
   if LC_ALL=C grep -aEq '^[[:space:]]*MODE=["'\'']?apply' "$file"; then
@@ -1832,9 +1832,10 @@ eval_count_stage_dispatches() {
 
 eval_runtime_attachment_kind_from_log() {
   local file="$1"
-  local log_triage perf_triage trace_query emit_log emit_perf
+  local log_triage perf_triage log_query trace_query emit_log emit_perf
   log_triage="$(eval_count_stage_dispatches "$file" log_triage)"
   perf_triage="$(eval_count_stage_dispatches "$file" perf_triage)"
+  log_query="$(eval_count_tool_calls "$file" log_query)"
   trace_query="$(eval_count_tool_calls "$file" trace_query)"
   emit_log="$(eval_count_tool_calls "$file" emit_log_triage)"
   emit_perf="$(eval_count_tool_calls "$file" emit_perf_trace)"
@@ -1842,7 +1843,7 @@ eval_runtime_attachment_kind_from_log() {
     echo trace
     return
   fi
-  if [[ "${log_triage:-0}" -gt 0 || "${emit_log:-0}" -gt 0 ]]; then
+  if [[ "${log_triage:-0}" -gt 0 || "${emit_log:-0}" -gt 0 || "${log_query:-0}" -gt 0 ]]; then
     echo log
     return
   fi
@@ -1852,16 +1853,21 @@ eval_runtime_attachment_kind_from_log() {
 eval_runtime_authority_path() {
   local attachment="$1"
   local file="$2"
-  local log_triage perf_triage trace_query emit_log emit_perf
+  local log_triage perf_triage log_query trace_query emit_log emit_perf
   attachment="${attachment:-none}"
   log_triage="$(eval_count_stage_dispatches "$file" log_triage)"
   perf_triage="$(eval_count_stage_dispatches "$file" perf_triage)"
+  log_query="$(eval_count_tool_calls "$file" log_query)"
   trace_query="$(eval_count_tool_calls "$file" trace_query)"
   emit_log="$(eval_count_tool_calls "$file" emit_log_triage)"
   emit_perf="$(eval_count_tool_calls "$file" emit_perf_trace)"
   case "$attachment" in
     log)
-      if [[ "${log_triage:-0}" -gt 0 || "${emit_log:-0}" -gt 0 ]]; then
+      if [[ "${log_query:-0}" -gt 0 && ( "${log_triage:-0}" -gt 0 || "${emit_log:-0}" -gt 0 ) ]]; then
+        echo log_triage+log_query
+      elif [[ "${log_query:-0}" -gt 0 ]]; then
+        echo log_query
+      elif [[ "${log_triage:-0}" -gt 0 || "${emit_log:-0}" -gt 0 ]]; then
         echo log_triage
       elif [[ "${trace_query:-0}" -gt 0 ]]; then
         echo trace_query
@@ -2683,6 +2689,7 @@ eval_materialize_partial_run_result() {
       echo "tool_read_file=$(eval_count_tool_calls "$log" read_file)"
       echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
       echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
+      echo "tool_log_query=$(eval_count_tool_calls "$log" log_query)"
       echo "tool_trace_query=$(eval_count_tool_calls "$log" trace_query)"
       echo "trace_query_dimension_families=$(eval_count_trace_query_dimension_families "$log")"
       echo "trace_query_root_cause_views=$(eval_count_trace_query_view_family "$log" 'root_cause_rank|frame_root_cause_bundle|frame_bundle')"

@@ -2,11 +2,13 @@ package repl
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/loginput"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -72,15 +74,19 @@ func TestREPL_HandleLogLoad_HonorsCap(t *testing.T) {
 	if len(r.attachedLog) != customCap {
 		t.Fatalf("attached log: len=%d, want %d", len(r.attachedLog), customCap)
 	}
-	if !strings.Contains(out.String(), "log truncated") {
-		t.Errorf("expected truncation warning in output, got: %q", out.String())
+	if !strings.Contains(out.String(), "preview is bounded") || r.attachedLogCatalog == nil {
+		t.Errorf("expected honest preview disclosure and complete source, got: %q", out.String())
+	}
+	result, err := r.attachedLogCatalog.Query(context.Background(), loginput.Query{})
+	if err != nil || len(result.Records) != 1 || string(result.Records[0].RawBytes) != payload {
+		t.Fatalf("preview cap lost source: %+v %v", result, err)
 	}
 }
 
 func TestREPL_HandleLogLoad_RejectsBinaryAttachment(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.log")
-	if err := os.WriteFile(path, []byte{'l', 'o', 'g', 0, 1, 2}, 0o600); err != nil {
+	if err := os.WriteFile(path, append([]byte("SQLite format 3\x00"), make([]byte, 128)...), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 
@@ -93,35 +99,37 @@ func TestREPL_HandleLogLoad_RejectsBinaryAttachment(t *testing.T) {
 		t.Fatalf("binary log must not become sticky attachment: %q", r.attachedLog)
 	}
 	got := out.String()
-	for _, want := range []string{"附加 log", "不是可解析文本", "UTF-8"} {
+	for _, want := range []string{"log:", "source"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("binary log warning missing %q:\n%s", want, got)
 		}
 	}
 }
 
-func TestREPL_HandleLogAppend_RejectsBinaryWithoutMutatingExistingAttachment(t *testing.T) {
+func TestREPL_HandleLogAppend_RejectsKnownBinaryWithoutBorrowingOldAttachment(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.log")
-	if err := os.WriteFile(path, []byte{'b', 'a', 'd', 0, 3}, 0o600); err != nil {
+	if err := os.WriteFile(path, append([]byte("SQLite format 3\x00"), make([]byte, 128)...), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 
 	out := &bytes.Buffer{}
 	r := New(Config{In: strings.NewReader(""), Out: out})
-	r.attachedLog = "existing\n"
+	if !r.prepareAttachedLogText("existing\n", "paste") {
+		t.Fatal(out.String())
+	}
 
 	r.handleLogAppend(path)
 
-	if r.attachedLog != "existing\n" {
-		t.Fatalf("binary append should not mutate existing attachment: %q", r.attachedLog)
+	if r.attachedLog != "" || r.attachedLogCatalog != nil {
+		t.Fatalf("failed append must not analyze old attachment as new input: %q", r.attachedLog)
 	}
-	if !strings.Contains(out.String(), "不是可解析文本") {
+	if !strings.Contains(out.String(), "log:") {
 		t.Fatalf("append rejection should be visible:\n%s", out.String())
 	}
 }
 
-func TestREPL_HandleLogAppend_RejectsHeaderOnlyCapWithoutMutation(t *testing.T) {
+func TestREPL_HandleLogAppend_PreviewHeaderCapDoesNotLimitSourceQuery(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "next.log")
 	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
@@ -131,15 +139,18 @@ func TestREPL_HandleLogAppend_RejectsHeaderOnlyCapWithoutMutation(t *testing.T) 
 	headered := existing + "\n# codrax-source: " + path + "\n"
 	out := &bytes.Buffer{}
 	r := New(Config{In: strings.NewReader(""), Out: out, AttachedLogMaxBytes: len(headered)})
-	r.attachedLog = existing
+	if !r.prepareAttachedLogText(existing, "paste") {
+		t.Fatal(out.String())
+	}
 
 	r.handleLogAppend(path)
 
-	if r.attachedLog != existing {
-		t.Fatalf("header-only append mutated sticky log: %q", r.attachedLog)
+	if len(r.attachedLog) > len(headered) || r.attachedLogCatalog == nil {
+		t.Fatalf("preview exceeded cap or source lost: %s", out.String())
 	}
-	if !strings.Contains(out.String(), "at least 1 content byte") {
-		t.Fatalf("header-cap rejection missing: %s", out.String())
+	result, err := r.attachedLogCatalog.Query(context.Background(), loginput.Query{Contains: "x"})
+	if err != nil || result.Matched != 2 || !result.Complete {
+		t.Fatalf("bounded preview prevented full query: %+v %v", result, err)
 	}
 }
 

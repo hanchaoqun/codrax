@@ -3713,6 +3713,9 @@ func validateExternalObservationOnlyToolCall(ctx *types.AgentContext, tc llm.Too
 	}
 	canonical := types.CanonicalToolName(tc.Name)
 	next := "call emit_investigation_complete"
+	if logQueryToolVisible(ctx) {
+		next = "use log_query for complete attached sources, then call emit_investigation_complete from collected runtime observations"
+	}
 	if ctx != nil && ctx.Stage == types.StageAnalyze {
 		next = "call emit_analysis"
 	}
@@ -3976,6 +3979,9 @@ func (b *BaseAgent) skillToolSuggestionBlocked(ctx *types.AgentContext, toolName
 		return true
 	}
 	if types.CanonicalToolName(toolName) == "trace_query" && !traceQueryToolVisible(ctx) {
+		return true
+	}
+	if types.CanonicalToolName(toolName) == "log_query" && !logQueryToolVisible(ctx) {
 		return true
 	}
 	return toolName == "emit_answer_document_patch" && !answerDocumentPatchBaseAvailable(ctx, nil)
@@ -6258,6 +6264,9 @@ func sourceInventoryProbeSurfaceWithAttachedTraceTools(ctx *types.AgentContext, 
 	if traceQueryToolVisible(ctx) {
 		surface["trace_query"] = true
 	}
+	if logQueryToolVisible(ctx) {
+		surface["log_query"] = true
+	}
 	return surface
 }
 
@@ -6308,6 +6317,11 @@ func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *
 		return nil
 	case "emit_investigation_complete":
 		return nil
+	case "log_query":
+		if logQueryToolVisible(ctx) {
+			return nil
+		}
+		return rejectExplorerSourceInventoryLensTool(ctx, tc, "log_query requires complete attached log sources in this dispatch")
 	case "trace_query":
 		// TOOLWIN-FIX: an attached-trace run keeps trace_query callable
 		// inside the source-inventory probe window (same typed gate as
@@ -6323,6 +6337,9 @@ func validateExplorerSourceInventoryLensToolCall(ctx *types.AgentContext, eval *
 		}
 		if traceQueryToolVisible(ctx) {
 			available += ", trace_query"
+		}
+		if logQueryToolVisible(ctx) {
+			available += ", log_query"
 		}
 		return rejectExplorerSourceInventoryLensTool(ctx, tc,
 			fmt.Sprintf("tool %q is outside this scheduler-owned source-inventory lens probe; available tools here: %s", name, available))
@@ -6550,7 +6567,7 @@ func validateExplorerTraceQueryFirstToolCallWithSourceRead(ctx *types.AgentConte
 		return nil
 	}
 	canonical := types.CanonicalToolName(tc.Name)
-	if canonical == "trace_query" || canonical == "trace_capabilities" || canonical == "trace_catalog" {
+	if canonical == "trace_query" || canonical == "trace_capabilities" || canonical == "trace_catalog" || (canonical == "log_query" && logQueryToolVisible(ctx)) {
 		// Static catalog lookup helps select the first runtime probe but does
 		// not execute one or publish observations. Artifact discovery likewise
 		// supplies navigation, never a runtime probe. Keep the query obligation

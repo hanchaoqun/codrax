@@ -84,6 +84,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		TypedDenials:          bus.TypedDenials,
 		AnalysisIR:            bus.AnalysisIR,
 		AttachedLog:           bus.AttachedLog,
+		AttachedLogCatalog:    bus.AttachedLogCatalog,
 		UserPinnedFiles:       bus.UserPinnedFiles,
 		AttachedHitrace:       bus.AttachedHitrace,
 		AttachedTraceMaterial: bus.AttachedTraceMaterial,
@@ -870,10 +871,8 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	//     when the projected stage schema actually includes read_file.
 	//
 	// Empty AttachedLog is a no-op.
-	if !shouldSuppressAttachedRuntimeLog(ac) {
-		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir, attachedLogTriageState(ac), preStageDegradationSummaryFor(ac, types.StageLogTriage), attachedArtifactRenderOptions{
-			ReadFileAvailable: availableTools["read_file"],
-		}); section != "" {
+	if !shouldSuppressAttachedRuntimeLog(ac) || ac.AttachedLogCatalog != nil {
+		if section := formatAttachedLogContext(ac, availableTools); section != "" {
 			// This is the original artifact, not a current-source claim. Its
 			// preamble/gutter retain that boundary; source denials must not
 			// rewrite observed names (and still govern repository tool calls).

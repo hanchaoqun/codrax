@@ -21,6 +21,7 @@ import (
 
 const runtimeArtifactStoreSchemaVersion = 1
 const runtimeArtifactPreparedSchemaVersion = 2
+const runtimeArtifactLogPreviewSchemaVersion = 3
 
 // latest.json is control-plane metadata, not an artifact payload. Keep its
 // admission ceiling deliberately small so a corrupt or attacker-controlled
@@ -39,6 +40,7 @@ type RuntimeArtifactRef struct {
 	Source        string `json:"source,omitempty"`
 	// This marker is a restore restriction, never serialized query authority.
 	TraceRequiresReattach bool      `json:"trace_requires_reattach,omitempty"`
+	LogRequiresReattach   bool      `json:"log_requires_reattach,omitempty"`
 	TraceOriginalPath     string    `json:"trace_original_path,omitempty"`
 	CreatedAt             time.Time `json:"created_at"`
 }
@@ -70,6 +72,14 @@ func (s *RuntimeArtifactStore) Put(kind, payload, source string) (RuntimeArtifac
 }
 
 func (s *RuntimeArtifactStore) put(kind, payload, source string, tracePreview bool, originalPath string) (RuntimeArtifactRef, error) {
+	return s.putPrepared(kind, payload, source, tracePreview, false, originalPath)
+}
+
+func (s *RuntimeArtifactStore) putLogPreview(payload string) (RuntimeArtifactRef, error) {
+	return s.putPrepared("log", payload, "", false, true, "")
+}
+
+func (s *RuntimeArtifactStore) putPrepared(kind, payload, source string, tracePreview, logPreview bool, originalPath string) (RuntimeArtifactRef, error) {
 	if s == nil || strings.TrimSpace(s.dir) == "" {
 		return RuntimeArtifactRef{}, fmt.Errorf("runtime artifact store disabled")
 	}
@@ -88,6 +98,10 @@ func (s *RuntimeArtifactStore) put(kind, payload, source string, tracePreview bo
 		id = fmt.Sprintf("trace-preview-%s", sha[:16])
 		schemaVersion = runtimeArtifactPreparedSchemaVersion
 	}
+	if logPreview {
+		id = fmt.Sprintf("log-preview-%s", sha[:16])
+		schemaVersion = runtimeArtifactLogPreviewSchemaVersion
+	}
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return RuntimeArtifactRef{}, err
 	}
@@ -104,6 +118,7 @@ func (s *RuntimeArtifactStore) put(kind, payload, source string, tracePreview bo
 		SHA256:                sha,
 		Source:                strings.TrimSpace(source),
 		TraceRequiresReattach: tracePreview,
+		LogRequiresReattach:   logPreview,
 		TraceOriginalPath:     originalPath,
 		CreatedAt:             time.Now(),
 	}
@@ -127,6 +142,9 @@ func (s *RuntimeArtifactStore) SaveLatest(snapshot RuntimeArtifactSnapshot) erro
 	snapshot.SchemaVersion = runtimeArtifactStoreSchemaVersion
 	if snapshot.Trace.TraceRequiresReattach {
 		snapshot.SchemaVersion = runtimeArtifactPreparedSchemaVersion
+	}
+	if snapshot.Log.LogRequiresReattach {
+		snapshot.SchemaVersion = runtimeArtifactLogPreviewSchemaVersion
 	}
 	if snapshot.UpdatedAt.IsZero() {
 		snapshot.UpdatedAt = time.Now()
@@ -229,6 +247,9 @@ func validateRuntimeArtifactSnapshot(snapshot RuntimeArtifactSnapshot) error {
 	if snapshot.Trace.TraceRequiresReattach {
 		expectedSchema = runtimeArtifactPreparedSchemaVersion
 	}
+	if snapshot.Log.LogRequiresReattach {
+		expectedSchema = runtimeArtifactLogPreviewSchemaVersion
+	}
 	if snapshot.SchemaVersion != expectedSchema {
 		return fmt.Errorf("unsupported runtime artifact snapshot schema %d", snapshot.SchemaVersion)
 	}
@@ -256,6 +277,12 @@ func validateRuntimeArtifactSnapshot(snapshot RuntimeArtifactSnapshot) error {
 				return fmt.Errorf("runtime artifact snapshot has invalid prepared trace restore restriction")
 			}
 			refSchema = runtimeArtifactPreparedSchemaVersion
+		}
+		if candidate.ref.LogRequiresReattach {
+			if candidate.kind != "log" || candidate.ref.TraceRequiresReattach {
+				return fmt.Errorf("runtime artifact snapshot has invalid prepared log restore restriction")
+			}
+			refSchema = runtimeArtifactLogPreviewSchemaVersion
 		}
 		if candidate.ref.SchemaVersion != refSchema {
 			return fmt.Errorf(
@@ -288,6 +315,9 @@ func validateRuntimeArtifactSnapshot(snapshot RuntimeArtifactSnapshot) error {
 }
 
 func (s *RuntimeArtifactStore) Load(ref RuntimeArtifactRef, maxBytes int) (payload string, err error) {
+	if ref.LogRequiresReattach {
+		return "", fmt.Errorf("prepared log preview cannot be restored as complete material; reattach original sources with /log")
+	}
 	if ref.TraceRequiresReattach {
 		return "", fmt.Errorf("prepared trace preview cannot be restored as complete material; reattach original source %q", ref.TraceOriginalPath)
 	}

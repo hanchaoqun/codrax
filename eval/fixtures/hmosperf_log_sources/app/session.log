@@ -1,0 +1,7 @@
+10-09 09:00:00.001 27599 27599 I Startup: request=rx17 begin
+10-09 09:00:00.003 27599 27612 E AssetLoad: request=rx17 asset=catalog.bin status=missing
+    at loadCatalog (AssetLoader.ets:42)
+99-09 09:00:00.004 27599 27612 E AssetLoad: malformed timestamp
+    orphan stack detail, owner not established
+unstructured diagnostic: device boot identity absent
+10-09 09:00:00.008 27599 27599 W Startup: request=rx17 aborted

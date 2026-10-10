@@ -14,16 +14,17 @@ import (
 // A borrowed io.Reader cannot be interrupted safely: close revokes delivery,
 // without closing the reader or waiting for a blocked Read to return.
 type scriptInputOwner struct {
-	mu      sync.Mutex
-	changed *sync.Cond
-	scanner *bufio.Scanner
-	line    string
-	ready   bool
-	ended   bool
-	err     error
-	closed  bool
-	active  *scriptInputLease
-	byteCap int
+	mu              sync.Mutex
+	changed         *sync.Cond
+	scanner         *bufio.Scanner
+	line            string
+	ready           bool
+	ended           bool
+	err             error
+	closed          bool
+	active          *scriptInputLease
+	byteCap         int
+	promptLineLimit int
 }
 
 type scriptInputLease struct {
@@ -43,11 +44,15 @@ type scriptInputReceipt struct {
 
 const scriptInputQueueBytes = 8 * 1024 * 1024
 
-func newScriptInputOwner(in io.Reader, maxLineBytes int) *scriptInputOwner {
+func newScriptInputOwner(in io.Reader, maxLineBytes int, promptLimit ...int) *scriptInputOwner {
 	if maxLineBytes <= 0 {
 		maxLineBytes = 1024 * 1024
 	}
 	o := &scriptInputOwner{scanner: bufio.NewScanner(in), byteCap: max(scriptInputQueueBytes, maxLineBytes)}
+	o.promptLineLimit = maxLineBytes
+	if len(promptLimit) > 0 && promptLimit[0] > 0 {
+		o.promptLineLimit = promptLimit[0]
+	}
 	o.scanner.Buffer(make([]byte, min(64*1024, maxLineBytes)), maxLineBytes)
 	o.changed = sync.NewCond(&o.mu)
 	go o.pump()
@@ -60,7 +65,7 @@ func (o *scriptInputOwner) pump() {
 		for o.ready && !o.closed {
 			o.changed.Wait()
 		}
-		if o.closed {
+		if o.closed || o.ended {
 			o.mu.Unlock()
 			return
 		}
@@ -68,7 +73,7 @@ func (o *scriptInputOwner) pump() {
 		// Exactly this goroutine owns Scan, including its read-ahead buffer.
 		ok := o.scanner.Scan()
 		o.mu.Lock()
-		if o.closed {
+		if o.closed || o.ended {
 			o.mu.Unlock()
 			return
 		}
@@ -101,6 +106,13 @@ func (o *scriptInputOwner) borrow() (*scriptInputLease, error) {
 
 func (o *scriptInputOwner) borrowLines() (captureLineScanner, func()) {
 	l, err := o.borrow()
+	return &scriptLineScanner{lease: l, err: err, lineLimit: o.promptLineLimit}, func() { l.stopAndDrain() }
+}
+
+// Capture owns the same prefetched line but has a source-input limit, not the
+// normal prompt's presentation limit. No second reader or scanner is created.
+func (o *scriptInputOwner) borrowCaptureLines() (captureLineScanner, func()) {
+	l, err := o.borrow()
 	return &scriptLineScanner{lease: l, err: err}, func() { l.stopAndDrain() }
 }
 
@@ -123,6 +135,11 @@ func (l *scriptInputLease) consumeRuntime(cancel func(string)) {
 			o.changed.Wait()
 		}
 		if o.closed || o.active != l || !o.ready {
+			return
+		}
+		if len(o.line) >= o.promptLineLimit {
+			o.line, o.ready, o.ended, o.err = "", false, true, bufio.ErrTooLong
+			o.changed.Broadcast()
 			return
 		}
 		raw := strings.TrimSpace(o.line)
@@ -193,9 +210,10 @@ func (o *scriptInputOwner) close() {
 }
 
 type scriptLineScanner struct {
-	lease *scriptInputLease
-	text  string
-	err   error
+	lease     *scriptInputLease
+	text      string
+	err       error
+	lineLimit int
 }
 
 func (s *scriptLineScanner) Scan() bool {
@@ -218,6 +236,12 @@ func (s *scriptLineScanner) Scan() bool {
 	}
 	s.text = o.line
 	o.line, o.ready = "", false
+	if s.lineLimit > 0 && len(s.text) >= s.lineLimit {
+		s.text, s.err = "", bufio.ErrTooLong
+		o.ended, o.err = true, bufio.ErrTooLong
+		o.changed.Broadcast()
+		return false
+	}
 	o.changed.Broadcast()
 	return true
 }
@@ -227,7 +251,7 @@ func (s *scriptLineScanner) Err() error   { return s.err }
 
 func (r *REPL) scriptedInputOwner() *scriptInputOwner {
 	if r.scriptInput == nil {
-		r.scriptInput = newScriptInputOwner(r.in, r.attachedLogMaxBytes+1)
+		r.scriptInput = newScriptInputOwner(r.in, r.logInputLineLimit(), r.attachedLogMaxBytes+1)
 	}
 	return r.scriptInput
 }

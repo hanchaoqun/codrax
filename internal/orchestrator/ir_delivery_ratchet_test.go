@@ -89,7 +89,7 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// tighten the hot-file budget instead of hiding or compressing lines.
 		// HMC §216 moves the complete plan-path allocation, snapshot writing
 		// and artifact-name concern into write_plan_snapshot.go unchanged.
-		{path: "orchestrator.go", maxLines: 7943},
+		{path: "orchestrator.go", maxLines: 7942},
 		{path: "write_plan_snapshot.go", maxLines: 210},
 		{path: "hypothesis_verdicts.go", maxLines: 190},
 		{path: "attached_log.go", maxLines: 15},

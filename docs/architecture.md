@@ -1319,6 +1319,8 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 **多文件附加**：`--log a.log --log b.log` 或 REPL `/log append` 在多份日志间插入 `# codrax-source: <path>` 边界头；prompt 已教 LLM 把每段视为独立 capture。stdin (`-`) 跨 `--log` / `--htrace` / `--atrace` 整体只允许一次。
 
+**完整日志来源与查询**：这些公开入口先由 `internal/loginput` 准备独立来源，再提供有界 `AttachedLog` 分诊预览；非 JSON 的 `AttachedLogCatalog` 经 Bus/Agent/fork 保留完整查询权限。`log_query` 只在持有此句柄的 explore 阶段可用，不由请求中的路径词或旧预览开启。文件/gzip/完整 stdin/粘贴保留原始与解压 SHA、文件代次、物理行与续行范围、原始字节、PID/TID、错误及未知记录；每次查询重新校验来源。坏成员单列，健康成员仍可读；全部失败不是零事件。`complete` 只表示所选材料读取到 EOF，不表示采集完整性。Hilog 年份/时区缺失不补值；Kmsg boot 纳秒保持精确十进制字符串，不自动对齐 Trace。原生结果进入 runtime-artifact observation 引用通路，不成为源码证明或 Trace 因果链。清空/替换撤销旧权限，导出或持久化的预览需要重新附加原件；无完整来源凭证的旧文本不能通过 `/log append` 升级为完整来源。空代码目录不再阻止实际附带日志或 Trace 的请求进入分析。
+
 **路径解析与过滤**（`internal/analysis/logtriage/resolver.go`）：
 - `StripBuildPathPrefix` 按优先级剥 `/build/src/` / `/rpmbuild/BUILD/` / `/home/<user>/src/` 等 CI/build 前缀
 - `ResolveJavaFile(pkg, basename, candidates)` 处理 Java frame 只带 basename：用 package 后缀消歧（tier 1 精确后缀 > tier 2 src/main/java/ 布局后匹配 > tier 3 仅 basename）

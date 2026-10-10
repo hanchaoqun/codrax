@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/loginput"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -94,6 +95,13 @@ type hmc17ScriptRunner struct {
 	abortOnce   sync.Once
 	canceled    atomic.Bool
 	blockFirst  bool
+	logCatalog  *loginput.Catalog
+}
+
+func (r *hmc17ScriptRunner) SetAttachedLogCatalog(catalog *loginput.Catalog) {
+	r.mu.Lock()
+	r.logCatalog = catalog
+	r.mu.Unlock()
 }
 
 func (r *hmc17ScriptRunner) SetOutputTranscriptRequest(s string) {

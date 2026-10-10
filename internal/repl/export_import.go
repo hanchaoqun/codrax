@@ -25,6 +25,7 @@ const exportBundleSchemaVersion = 1
 // Older readers must reject a prepared-preview export instead of ignoring its
 // reattachment restriction and treating trace.txt as the complete capture.
 const exportPreparedTraceSchemaVersion = 2
+const exportPreparedLogSchemaVersion = 3
 
 type exportBundleManifest struct {
 	SchemaVersion int       `json:"schema_version"`
@@ -35,6 +36,7 @@ type exportBundleManifest struct {
 	TurnID        string    `json:"turn_id,omitempty"`
 	// Attachment integrity: sha256 of the payload files as written.
 	LogSHA256             string `json:"log_sha256,omitempty"`
+	LogRequiresReattach   bool   `json:"log_requires_reattach,omitempty"`
 	TraceSHA256           string `json:"trace_sha256,omitempty"`
 	TraceSource           string `json:"trace_source,omitempty"`
 	TraceRequiresReattach bool   `json:"trace_requires_reattach,omitempty"`
@@ -104,6 +106,10 @@ func (r *REPL) handleExportCmd(line string) {
 	}
 	if strings.TrimSpace(r.attachedLog) != "" {
 		manifest.LogSHA256 = sha256Hex(r.attachedLog)
+		if r.attachedLogCatalog != nil {
+			manifest.SchemaVersion = exportPreparedLogSchemaVersion
+			manifest.LogRequiresReattach = true
+		}
 		if !write("log.txt", r.attachedLog) {
 			return
 		}
@@ -112,7 +118,9 @@ func (r *REPL) handleExportCmd(line string) {
 		manifest.TraceSHA256 = sha256Hex(r.attachedHitrace)
 		manifest.TraceSource = r.attachedHitraceSource
 		if r.attachedTraceMaterial != nil && !r.attachedTraceMaterial.SelfContainedText() {
-			manifest.SchemaVersion = exportPreparedTraceSchemaVersion
+			if !manifest.LogRequiresReattach {
+				manifest.SchemaVersion = exportPreparedTraceSchemaVersion
+			}
 			manifest.TraceRequiresReattach = true
 			manifest.TraceOriginalPath = r.attachedTraceMaterial.SourcePath()
 		}
@@ -214,7 +222,8 @@ func (r *REPL) handleImportCmd(line string) {
 		return
 	}
 	if manifest.SchemaVersion != exportBundleSchemaVersion &&
-		(manifest.SchemaVersion != exportPreparedTraceSchemaVersion || !manifest.TraceRequiresReattach) {
+		(manifest.SchemaVersion != exportPreparedTraceSchemaVersion || !manifest.TraceRequiresReattach) &&
+		(manifest.SchemaVersion != exportPreparedLogSchemaVersion || !manifest.LogRequiresReattach) {
 		r.errorf("import: unsupported bundle schema %d (this codrax reads %d)\n", manifest.SchemaVersion, exportBundleSchemaVersion)
 		return
 	}
@@ -272,13 +281,17 @@ func (r *REPL) handleImportCmd(line string) {
 			return
 		}
 	}
+	if manifest.LogRequiresReattach {
+		r.errorf("import: %s\n", preparedLogReattachMessage(r.language))
+		return
+	}
 	if manifest.TraceRequiresReattach {
 		r.errorf("import: %s\n", preparedTraceReattachMessage(r.language, manifest.TraceOriginalPath))
 		return
 	}
 	// Every payload verified — only now do the sticky lanes change.
 	if logPayload != "" {
-		r.attachedLog = logPayload
+		r.replaceAttachedLogText(logPayload)
 	}
 	if tracePayload != "" {
 		r.replaceAttachedTraceText(tracePayload, manifest.TraceSource)

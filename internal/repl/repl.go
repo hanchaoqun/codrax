@@ -44,6 +44,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/loginput"
 	"github.com/hanchaoqun/codrax/internal/mcp"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/operation"
@@ -630,7 +631,8 @@ type REPL struct {
 	//     dispatch it was attached for (see attachedLogAutoRouted).
 	// Propagated to the runner via attachedLogSetter before each
 	// dispatch.
-	attachedLog string
+	attachedLog        string
+	attachedLogCatalog *loginput.Catalog
 
 	// attachedHitrace mirrors attachedLog for the HiTrace channel. Set
 	// by /htrace (sticky across turns until /htrace clear). Sent to the
@@ -1037,6 +1039,7 @@ func New(cfg Config) *REPL {
 	if getter, ok := cfg.Runner.(interface{ AttachedLog() string }); ok {
 		r.attachedLog = getter.AttachedLog()
 	}
+	r.seedAttachedLogCatalogFromRunner()
 	r.seedAttachedTraceFromRunner()
 	return r
 }
@@ -1291,8 +1294,11 @@ func (r *REPL) maybeRestoreRuntimeArtifactForPolicy(policy TurnPolicy) {
 		body, err := r.runtimeArtifactStore.Load(snapshot.Log, r.attachedLogMaxBytes)
 		if err != nil {
 			logging.Warning("[repl/runtime_artifact] restore log %s failed: %v", snapshot.Log.ID, err)
+			if snapshot.Log.LogRequiresReattach {
+				r.warn("%s\n", preparedLogReattachMessage(r.language))
+			}
 		} else if strings.TrimSpace(body) != "" {
-			r.attachedLog = body
+			r.replaceAttachedLogText(body)
 			r.attachedLogAutoRestored = true
 			restored = true
 		}
@@ -1324,7 +1330,7 @@ func (r *REPL) persistCurrentRuntimeArtifactSnapshot() RuntimeArtifactSnapshot {
 	}
 	snapshot := RuntimeArtifactSnapshot{UpdatedAt: time.Now()}
 	if body := strings.TrimSpace(r.attachedLog); body != "" {
-		ref, err := r.runtimeArtifactStore.Put("log", body, runtimeArtifactSourceFromAttachment("log", body))
+		ref, err := r.persistLogRuntimeArtifact(body)
 		if err != nil {
 			logging.Warning("[repl/runtime_artifact] persist log failed: %v", err)
 		} else {
@@ -1408,9 +1414,12 @@ func (r *REPL) readRuntimeArtifactSourceForStore(kind, source string) (string, e
 		limit = r.attachedTraceMaxBytes
 		attachmentKind = attachment.KindTrace
 	}
-	data, _, err := attachment.ReadTextFileLimited(attachmentKind, path, limit)
+	data, truncated, err := attachment.ReadTextFileLimited(attachmentKind, path, limit)
 	if err != nil {
 		return "", err
+	}
+	if truncated && kind == "log" {
+		return "", fmt.Errorf("log source exceeds saved-text preview limit; reattach with /log to retain complete-source queries")
 	}
 	if strings.TrimSpace(string(data)) == "" {
 		return "", fmt.Errorf("empty runtime artifact")
@@ -7021,20 +7030,20 @@ func (r *REPL) readInputInteractive(prompt string) (string, string, error) {
 // else is reading from stdin during capture.
 func (r *REPL) captureScanner() (captureLineScanner, func()) {
 	if r.in != nil {
-		return r.scriptedInputOwner().borrowLines()
+		return r.scriptedInputOwner().borrowCaptureLines()
 	}
 	// TTY-1: the interactive capture window borrows the shared cooked
 	// line reader from the stdin owner — a fresh bufio.Scanner here
 	// would start PAST any type-ahead bytes the prompt window already
 	// buffered (census defect D1).
-	scanner, release, err := r.ttyStdinOwnerInstance().borrowCookedLines(r.attachedLogMaxBytes + 1)
+	scanner, release, err := r.ttyStdinOwnerInstance().borrowCookedLines(r.logInputLineLimit())
 	if err != nil {
 		// Owner window busy is a programming error on this single
 		// goroutine; degrade to the legacy direct scanner rather
 		// than dropping the capture.
 		logging.Warning("[repl] capture window borrow failed (%v); using direct scanner", err)
 		fallback := bufio.NewScanner(os.Stdin)
-		fallback.Buffer(make([]byte, 64*1024), r.attachedLogMaxBytes+1)
+		fallback.Buffer(make([]byte, 64*1024), r.logInputLineLimit())
 		return fallback, func() {}
 	}
 	return scanner, release
@@ -7127,7 +7136,7 @@ func (r *REPL) dispatch(line, display string) {
 				r.warn("auto-detected log hit %d-byte cap; truncating\n", r.attachedLogMaxBytes)
 				detected = detected[:r.attachedLogMaxBytes]
 			}
-			r.attachedLog = detected
+			r.replaceAttachedLogText(detected)
 			r.attachedLogAutoRouted = true
 			r.info(fmt.Sprintf("auto-attached log: %d bytes (one-shot for this request; use /log to attach persistently across turns)", len(detected)))
 			line = cleaned
@@ -7159,7 +7168,7 @@ func (r *REPL) dispatch(line, display string) {
 	// unaffected; only the auto-routed bit triggers the clear.
 	defer func() {
 		if r.attachedLogAutoRouted || r.attachedLogAutoRestored {
-			r.attachedLog = ""
+			r.replaceAttachedLogText("")
 			r.attachedLogAutoRouted = false
 			r.attachedLogAutoRestored = false
 			if setter, ok := r.runner.(attachedLogSetter); ok {
@@ -7461,8 +7470,9 @@ func (r *REPL) dispatch(line, display string) {
 
 	// Propagate sticky attached-log to the runner. Runners without
 	// SetAttachedLog simply skip this step (tests).
-	if setter, ok := r.runner.(attachedLogSetter); ok {
-		setter.SetAttachedLog(r.attachedLog)
+	if err := r.propagateAttachedLog(); err != nil {
+		r.errorf("log attachment: %v\n", err)
+		return
 	}
 	// PIB-5c: per-turn @path pins. Set fresh every dispatch (nil
 	// clears) so pins never leak across turns; a visible info line
@@ -11605,11 +11615,11 @@ func (r *REPL) handleLogCmd(line string) {
 	case rest == "":
 		r.handleLogPaste()
 	case rest == "clear":
-		if r.attachedLog == "" {
+		if r.attachedLog == "" && r.attachedLogCatalog == nil {
 			r.info(noLogAttached(r.language))
 			return
 		}
-		r.attachedLog = ""
+		r.replaceAttachedLogText("")
 		r.attachedLogAutoRouted = false
 		r.attachedLogAutoRestored = false
 		if setter, ok := r.runner.(attachedLogSetter); ok {
@@ -11632,38 +11642,7 @@ func (r *REPL) handleLogCmd(line string) {
 // empty acts as `/log <path>`). Total bytes still capped by
 // attachedLogMaxBytes; excess tail-truncates with a WARN.
 func (r *REPL) handleLogAppend(path string) {
-	if path == "" {
-		r.errorf("/log append <path> — missing path argument\n")
-		return
-	}
-	if err := attachment.ValidateSourceLabel(path); err != nil {
-		r.errorf("append log: %v\n", err)
-		return
-	}
-	header := "# codrax-source: " + path + "\n"
-	combined := r.attachedLog
-	if combined != "" {
-		combined += "\n"
-	}
-	combined += header
-	remaining := r.attachedLogMaxBytes - len(combined)
-	if remaining < 1 {
-		r.errorf("append log: attachment cap %d cannot fit source header plus at least 1 content byte for %q\n", r.attachedLogMaxBytes, path)
-		return
-	}
-	data, truncated, err := attachment.ReadTextFileLimited(attachment.KindLog, path, remaining)
-	if err != nil {
-		r.reportAttachmentTextIssue(err)
-		return
-	}
-	combined += string(data)
-	if truncated {
-		r.warn("appended log truncated at %d-byte cap\n", r.attachedLogMaxBytes)
-	}
-	r.attachedLog = combined
-	r.attachedLogAutoRouted = false
-	r.attachedLogAutoRestored = false
-	r.success(fmt.Sprintf("appended %s (%d bytes added; total %d bytes)", path, len(data), len(r.attachedLog)))
+	r.prepareAttachedLogFile(path, true)
 }
 
 // handleHitraceCmd is the perf-channel companion to handleLogCmd.
@@ -12266,18 +12245,7 @@ func mergeTraceSourceHints(existing, next string) string {
 // Replaces any existing attachment (a `/log append` variant is a
 // future add; users can cat files together themselves for now).
 func (r *REPL) handleLogLoad(path string) {
-	data, truncated, err := attachment.ReadTextFileLimited(attachment.KindLog, path, r.attachedLogMaxBytes)
-	if err != nil {
-		r.reportAttachmentTextIssue(err)
-		return
-	}
-	if truncated {
-		r.warn("log truncated at %d-byte cap\n", r.attachedLogMaxBytes)
-	}
-	r.attachedLog = string(data)
-	r.attachedLogAutoRouted = false
-	r.attachedLogAutoRestored = false
-	r.success(attachedLogLoadedMsg(r.language, path, len(data)))
+	r.prepareAttachedLogFile(path, false)
 }
 
 func (r *REPL) reportAttachmentTextIssue(err error) bool {
@@ -12308,6 +12276,7 @@ func (r *REPL) handleLogPaste() {
 	scanner, releaseCapture := r.captureScanner()
 	defer releaseCapture()
 	var buf strings.Builder
+	oversized := false
 	tag := r.currentStickyTag()
 	for {
 		if r.interactive() {
@@ -12325,24 +12294,34 @@ func (r *REPL) handleLogPaste() {
 		if trim == "/end" || trim == "\\end" {
 			break
 		}
+		if oversized {
+			continue
+		}
 		buf.WriteString(line)
 		buf.WriteByte('\n')
-		if buf.Len() > r.attachedLogMaxBytes {
-			r.warn("log paste hit %d-byte cap; stopping capture\n", r.attachedLogMaxBytes)
-			break
+		if buf.Len() > completeLogPasteMaxBytes {
+			oversized = true
+			buf.Reset()
 		}
+	}
+	if oversized {
+		r.replaceAttachedLogText("")
+		r.errorf("log paste exceeds %d-byte input limit; no partial source attached\n", completeLogPasteMaxBytes)
+		return
 	}
 	if err := scanner.Err(); err != nil {
 		logging.Warning("[repl] log paste scan error: %v", err)
+		r.replaceAttachedLogText("")
+		r.errorf("log paste: %v\n", err)
+		return
 	}
 	if buf.Len() == 0 {
 		r.info(pasteNoCaptureLog(r.language))
 		return
 	}
-	r.attachedLog = buf.String()
-	r.attachedLogAutoRouted = false
-	r.attachedLogAutoRestored = false
-	r.success(fmt.Sprintf("attached log captured: %d bytes", buf.Len()))
+	if r.prepareAttachedLogText(buf.String(), "paste") {
+		r.success(fmt.Sprintf("attached log captured: %d bytes", buf.Len()))
+	}
 }
 
 // handlePasteCmd is the terminal-independent fallback for the main

@@ -343,6 +343,7 @@ func RegisterDefaults(r *Registry) {
 			"trace_query",
 			"trace_capabilities",
 			"trace_catalog",
+			"log_query",
 			"read_file",
 			"list_files",
 			"exec_command",

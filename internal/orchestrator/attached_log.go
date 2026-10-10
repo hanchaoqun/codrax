@@ -11,5 +11,5 @@ package orchestrator
 // once with the --log / --log-text payload before the single Run().
 // Empty string clears any previously attached log.
 func (o *Orchestrator) SetAttachedLog(log string) {
-	o.attachedLog = log
+	o.replaceAttachedLog(log)
 }

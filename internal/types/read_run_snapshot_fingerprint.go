@@ -314,7 +314,7 @@ func ReadRunAttachmentFingerprintsFromBusContext(ctx *BusContext) []ReadRunAttac
 		return nil
 	}
 	var out []ReadRunAttachmentFingerprint
-	if item := ReadRunAttachmentFingerprintFromPayload(ReadRunAttachmentKindLog, ctx.AttachedLog, ""); item.Kind != "" {
+	if item := readRunLogAttachmentFingerprint(ctx); item.Kind != "" {
 		out = append(out, item)
 	}
 	if item := ReadRunAttachmentFingerprintFromPayload(ReadRunAttachmentKindTrace, ctx.AttachedHitrace, ctx.AttachedHitraceSource); item.Kind != "" {

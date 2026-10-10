@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/attachment"
+	"github.com/hanchaoqun/codrax/internal/loginput"
 )
 
 // TestBusContextProjection_AllTypedSignalsPropagated_ToolBusContext
@@ -276,6 +277,10 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.PresentationDiagramRequired = true
 	case "AttachedTraceMaterial":
 		ac.AttachedTraceMaterial = &attachment.TraceMaterial{}
+	case "AttachedLogCatalog":
+		ac.AttachedLogCatalog = &loginput.Catalog{}
+	case "AttachedLog":
+		ac.AttachedLog = "log preview"
 	case "TraceInputPreparer":
 		ac.TraceInputPreparer = &sentinelTraceInputPreparer{}
 	case "AttachedHitrace":
@@ -344,6 +349,10 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.PresentationDiagramRequired = true
 	case "AttachedTraceMaterial":
 		bc.AttachedTraceMaterial = &attachment.TraceMaterial{}
+	case "AttachedLogCatalog":
+		bc.AttachedLogCatalog = &loginput.Catalog{}
+	case "AttachedLog":
+		bc.AttachedLog = "log preview"
 	case "TraceInputPreparer":
 		bc.TraceInputPreparer = &sentinelTraceInputPreparer{}
 	case "AttachedHitrace":

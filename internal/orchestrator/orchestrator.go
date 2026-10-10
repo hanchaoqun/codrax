@@ -26,6 +26,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/loginput"
 	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -60,10 +61,11 @@ type Orchestrator struct {
 	thinkAloudMap         map[types.AgentName]bool // per-agent think-aloud override
 	blobSessionDir        string                   // persistent per-process blob dir; empty = tmpdir fallback
 	attachedLog           string                   // runtime log excerpt attached via --log / /log
-	userPinnedFiles       []string                 // @path pins, per-turn (PIB-5c; setter in user_pinned_files.go)
-	steering              steeringIntake           // TTY-3 mid-run steering notes (steering_notes.go)
-	attachedHitrace       string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
-	attachedHitraceSource string                   // advisory trace flavor/source hint from --htrace/--atrace spelling
+	attachedLogCatalog    *loginput.Catalog
+	userPinnedFiles       []string       // @path pins, per-turn (PIB-5c; setter in user_pinned_files.go)
+	steering              steeringIntake // TTY-3 mid-run steering notes (steering_notes.go)
+	attachedHitrace       string         // HiTrace / atrace excerpt attached via --htrace / /htrace
+	attachedHitraceSource string         // advisory trace flavor/source hint from --htrace/--atrace spelling
 	attachedTraceMaterial *attachment.TraceMaterial
 	traceRuntimeAnchor    string // stable derived trace root; never the temporary WorkDir
 	// presentationDirective is a per-run typed display requirement
@@ -1841,7 +1843,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// path. Skipped when Mode != ModeRead — write modes hit
 	// planPreHook / applyPreHook which produce their own
 	// authorization message via bareDirAuthorizationMessage.
-	if o.busCtx.Mode == types.ModeRead && dirIsEffectivelyEmpty(repoRoot) {
+	if o.busCtx.Mode == types.ModeRead && !o.hasRuntimeAttachment() && dirIsEffectivelyEmpty(repoRoot) {
 		msg := emptyRepoReadIntro(o.busCtx.Language, repoRoot)
 		logging.Info("[orchestrator] target %s is effectively empty; read-mode short-circuit with intro message", repoRoot)
 		o.busCtx.Mutable.SetResultPlain(msg)
@@ -1937,13 +1939,10 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.busCtx.Mutable.ResetDegradationLedger()
 
 	o.busCtx.Language = o.language
-	o.busCtx.AttachedLog = o.attachedLog
+	o.bindRuntimeAttachments()
 	o.busCtx.UserPinnedFiles = o.userPinnedFiles
 	o.steering.openIntake() // TTY-3 (steering_notes.go)
 	defer o.steering.closeIntake()
-	o.busCtx.AttachedHitrace = o.attachedHitrace
-	o.busCtx.AttachedTraceMaterial = o.attachedTraceMaterial
-	o.busCtx.AttachedHitraceSource = o.attachedHitraceSource
 
 	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 
