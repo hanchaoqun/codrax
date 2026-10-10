@@ -518,6 +518,9 @@ eval_case_oracle_surface() {
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_LOG_MATCHES_REGEX=' "$file"; then
     eval_case_oracle_surface_add "log_regex"
   fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_SUCCESSFUL_TOOL_RESULTS=' "$file"; then
+    eval_case_oracle_surface_add "successful_tool_result"
+  fi
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=' "$file"; then
     eval_case_oracle_surface_add "typed_trace_projection_count"
   fi
@@ -1818,6 +1821,33 @@ eval_count_tool_calls() {
     return
   fi
   eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolcall [^:]*tool=${tool}( |$)" "$file"
+}
+
+# Matches exact diagnostic ToolResult.Success headers, not call attempts or
+# inline quotations. The legacy multiline log is not a tamper-proof receipt:
+# a fully prefixed header embedded in raw payload can still match. Actual
+# results/publications require independent audit. An ok=true emit can also
+# carry semantic repair, and a query can return no rows.
+eval_count_successful_tool_results() {
+  local file="$1" tool="$2"
+  if [[ -z "$file" || ! -f "$file" || ! "$tool" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern "DEBUG \\[diag [^]]+\\] iter=[0-9]+ phase=toolresult TOOLRESULT ${tool} ok=true len=[0-9]+:" "$file"
+}
+
+eval_successful_tool_result_reasons() {
+  local file="$1" names="${2:-}" tool
+  local -a tool_names
+  read -r -a tool_names <<<"$names"
+  for tool in "${tool_names[@]}"; do
+    if [[ ! "$tool" =~ ^[A-Za-z0-9_-]+$ ]]; then
+      printf 'invalid_successful_tool_result_name:%s\n' "$tool"
+    elif [[ "$(eval_count_successful_tool_results "$file" "$tool")" -eq 0 ]]; then
+      printf 'no_successful_tool_result:%s\n' "$tool"
+    fi
+  done
 }
 
 eval_count_stage_dispatches() {

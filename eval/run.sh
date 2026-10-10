@@ -35,6 +35,10 @@
 # for category-level inventory correctness, and EXPECT_LOG_MATCHES_REGEX /
 # EXPECT_LOG_NOT_MATCHES_REGEX (newline-separated ERE patterns over
 # the control-plane log, useful for hidden subsystem-execution guards).
+# EXPECT_SUCCESSFUL_TOOL_RESULTS (space-separated tool names) requires a
+# diagnostic ToolResult.Success=true header for each tool, not merely a call
+# attempt. Legacy multiline logs are not tamper-proof receipts; this matcher
+# does not replace actual result/publication oracles or manual audit.
 # Extracts mechanism trace metrics from each run's debug log, and
 # prints a markdown summary.
 #
@@ -123,6 +127,7 @@ EXPECT_PRIMARY_NOT_CONTAINS="${EXPECT_PRIMARY_NOT_CONTAINS:-}"
 EXPECT_PRIMARY_MATCHES_REGEX="${EXPECT_PRIMARY_MATCHES_REGEX:-}"
 EXPECT_PRIMARY_MATCHES_TEXT_REGEX="${EXPECT_PRIMARY_MATCHES_TEXT_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
+EXPECT_SUCCESSFUL_TOOL_RESULTS="${EXPECT_SUCCESSFUL_TOOL_RESULTS:-}"
 EXPECT_DIMENSIONS="${EXPECT_DIMENSIONS:-}"
 EXPECT_INVENTORY_ROWSETS="${EXPECT_INVENTORY_ROWSETS:-}"
 EXPECT_DYNAMIC_SCALARS="${EXPECT_DYNAMIC_SCALARS:-}"
@@ -1792,6 +1797,10 @@ run_one() {
   # eval harness integrity, not product routing: case authors can require that
   # a scenario exercised a typed subsystem (for example the operation runner)
   # instead of merely producing answer text that happens to match.
+  local tool_result_reason
+  while IFS= read -r tool_result_reason; do
+    [[ -z "$tool_result_reason" ]] || extra_reasons+=("$tool_result_reason")
+  done < <(eval_successful_tool_result_reasons "$log" "$EXPECT_SUCCESSFUL_TOOL_RESULTS")
   if [[ -n "${EXPECT_LOG_MATCHES_REGEX:-}" ]]; then
     if [[ -z "$log" || ! -f "$log" ]]; then
       extra_reasons+=("log_missing")
