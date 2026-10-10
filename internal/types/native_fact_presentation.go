@@ -3,7 +3,6 @@ package types
 import (
 	"encoding/json"
 	"io"
-	"strconv"
 	"strings"
 )
 
@@ -182,42 +181,70 @@ func nativePresentationParent(record ObservationRecord) string {
 	return string(value)
 }
 
-// Rebalance only slots already awarded to exact native facts. Requested source
-// evidence, VCS and other origin survival floors are unchanged. Unbudgeted
-// ledgers are never mutated or reordered by this prompt-only operation.
+// Rebalance only slots already awarded to exact native facts at each request
+// rank. Source/group coverage must not trade a requested census's second row
+// for an unrelated group's first row. Other origin slots remain unchanged.
+// Unbudgeted ledgers are never mutated by this prompt-only operation.
 func rebalanceNativePresentationRecords(sorted, selected []ObservationRecord, intent *AnswerIntentContract, rm *RequestModel) []ObservationRecord {
-	budget := 0
+	quotas := map[int]int{}
 	for _, record := range selected {
 		if IsNativeRuntimeFactPresentationRecord(record) {
-			budget++
+			quotas[observationRecordRankForRequest(record, intent, rm)]++
 		}
 	}
-	if budget <= 1 {
-		return selected
+	candidates := map[int][]ObservationRecord{}
+	for _, record := range sorted {
+		if !IsNativeRuntimeFactPresentationRecord(record) {
+			continue
+		}
+		rank := observationRecordRankForRequest(record, intent, rm)
+		if quotas[rank] > 1 {
+			candidates[rank] = append(candidates[rank], record)
+		}
+	}
+	replacements := map[int][]ObservationRecord{}
+	for rank, records := range candidates {
+		replacements[rank] = nativePresentationRankSelection(records, quotas[rank])
+	}
+	out := append([]ObservationRecord(nil), selected...)
+	for i, record := range out {
+		if !IsNativeRuntimeFactPresentationRecord(record) {
+			continue
+		}
+		rank := observationRecordRankForRequest(record, intent, rm)
+		if rows := replacements[rank]; len(rows) > 0 {
+			out[i] = rows[0]
+			replacements[rank] = rows[1:]
+		}
+	}
+	return out
+}
+
+// Every candidate has the same request rank. A nil selection leaves existing
+// slots alone when there is no source-fairness tradeoff to make.
+func nativePresentationRankSelection(records []ObservationRecord, budget int) []ObservationRecord {
+	if len(records) <= budget {
+		return nil
 	}
 	var groups []PresentationRowGroup
 	var members [][]int
 	indices, parents := map[string]int{}, map[string]bool{}
-	for i, record := range sorted {
-		if !IsNativeRuntimeFactPresentationRecord(record) {
-			continue
-		}
+	for i, record := range records {
 		parent := nativePresentationParent(record)
-		priority := observationRecordRankForRequest(record, intent, rm)
-		key := parent + "\x00" + record.Predicate + "\x00" + strconv.Itoa(priority)
+		key := parent + "\x00" + record.Predicate
 		index, exists := indices[key]
 		if !exists {
 			index = len(groups)
 			indices[key] = index
 			parents[parent] = true
-			groups = append(groups, PresentationRowGroup{Key: key, ParentKey: parent, Priority: priority})
+			groups = append(groups, PresentationRowGroup{Key: key, ParentKey: parent})
 			members = append(members, nil)
 		}
 		groups[index].Rows++
 		members[index] = append(members[index], i)
 	}
 	if len(parents) <= 1 {
-		return selected
+		return nil
 	}
 	counts := AllocatePresentationRows(groups, budget)
 	keep := make(map[int]bool, budget)
@@ -227,18 +254,10 @@ func rebalanceNativePresentationRecords(sorted, selected []ObservationRecord, in
 		}
 	}
 	var native []ObservationRecord
-	for i, record := range sorted {
+	for i, record := range records {
 		if keep[i] {
 			native = append(native, record)
 		}
 	}
-	out := append([]ObservationRecord(nil), selected...)
-	index := 0
-	for i, record := range out {
-		if IsNativeRuntimeFactPresentationRecord(record) {
-			out[i] = native[index]
-			index++
-		}
-	}
-	return out
+	return native
 }

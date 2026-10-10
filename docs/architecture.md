@@ -1304,7 +1304,7 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 把抽取交给 LLM 而不是写死正则，使支持的日志格式不再是固定列表——Go panic / Java exception（含 `Caused by` 链）/ C/C++ ASAN/UBSAN/gdb / Python traceback（含 `During handling`）/ Node.js V8 / Rust `#[source]` 链 / Ruby backtrace / 结构化 JSON / 编译器错误 全部走同一代码路径。
 
-**原始日志坐标与事实交接**：`emit_log_triage`中`source_id`是可选的真实来源选择，`line_start/end`只作导航提示。系统用完整Catalog批量定位原文，核验代次与原字节后才签发`LogSourceBinding`；重复/失效/仅preview不授唯一原件坐标。收据在当前进程clone中保留，JSON恢复及字段修改失权；不同源同文不合并，新物理行不与旧合并预览行按数值误关联。原生`log_query`展示以完整字段JSON保身份/原时间/空值/解析失败，不按字符裁成无效JSON；来源元数据与查询覆盖独立限额。通用ledger先去精确重复再分预算，typed carrier复用已展示ID但保专用富化等待详情。展示资格独立于Trace因果授权，全部原生记录仍留在完整账本与审计载荷。
+**原始日志坐标与事实交接**：`emit_log_triage`中`source_id`是可选的真实来源选择，`line_start/end`只作导航提示。系统用完整Catalog批量定位原文，核验代次与原字节后才签发`LogSourceBinding`；重复/失效/仅preview不授唯一原件坐标。收据在当前进程clone中保留，JSON恢复及字段修改失权；不同源同文不合并，新物理行不与旧合并预览行按数值误关联。原生`log_query`展示以完整字段JSON保身份/原时间/空值/解析失败，不按字符裁成无效JSON；来源元数据与查询覆盖独立限额。通用ledger先去精确重复再分预算，保原请求相关性各优先级名额，仅在同级内公平覆盖来源/查询及事实组；低相关背景不得借来源公平挤掉已选目标统计。typed carrier复用已展示ID但保专用富化等待详情。展示资格独立于Trace因果授权，全部原生记录仍留在完整账本与审计载荷。
 
 **LogBundle 四层**：
 

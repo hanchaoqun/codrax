@@ -5868,7 +5868,11 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		for _, record := range records {
 			renderedIDs[strings.TrimSpace(record.ID)] = true
 		}
-		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d presentation candidates (other records are published in dedicated sections)", len(records), len(presentationCandidates))
+		if len(presentationCandidates) == len(promptLedger.Records) {
+			fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total", len(records), len(presentationCandidates))
+		} else {
+			fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d presentation candidates (duplicate identities and dedicated coverage metadata handled separately)", len(records), len(presentationCandidates))
+		}
 		if dropped := types.SummarizeDroppedObservationRecords(presentationCandidates, renderedIDs); dropped != "" {
 			fmt.Fprintf(&b, "; dropped: %s", dropped)
 		}
