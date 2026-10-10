@@ -3788,7 +3788,14 @@ func pendingHypothesisIDs(ctx *types.AgentContext) []string {
 // zero-tool zero-read zero-emit run is genuinely empty and the
 // extractor should fail loud.
 func (e *extractorEvaluator) extractorInvestigationEmpty(ctx *types.AgentContext) bool {
-	return InvestigationStructurallyEmpty(ctx.Mutable.TurnAArtifacts(), ctx.EvidenceItems)
+	return InvestigationStructurallyEmptyWithRuntime(ctx.Mutable.TurnAArtifacts(), ctx.EvidenceItems, types.ObservationLedgerInputFromAgentContext(ctx, 0))
+}
+
+// InvestigationStructurallyEmptyWithRuntime additionally recognizes current
+// producer-owned native measurement products. Keep the consumer context: a
+// serialized success flag or an old producer's Report() is not current work.
+func InvestigationStructurallyEmptyWithRuntime(ta *types.TurnAArtifacts, evidence []types.EvidenceItem, input types.ObservationLedgerInput) bool {
+	return InvestigationStructurallyEmpty(ta, evidence) && !types.HasCurrentNativeMeasurementInvestigation(input)
 }
 
 // InvestigationStructurallyEmpty reports whether Turn A left
@@ -3836,9 +3843,10 @@ func InvestigationStructurallyEmpty(ta *types.TurnAArtifacts, evidence []types.E
 	return true
 }
 
-// investigationToolKinds mirrors the orchestrator's
-// contract_check.go list so the extractor gate and the contract
-// audit agree on what "real investigation work" is. Keep in sync.
+// investigationToolKinds is the legacy source-investigation floor. Native
+// measurement work uses the context-bound gate above, not a tool-name entry.
+// contract_check.go deliberately keeps a narrower source-tool floor for
+// absence claims: a successful measurement is not proof of an absence.
 var investigationToolKinds = map[string]bool{
 	"grep":               true,
 	"exec_command":       true,

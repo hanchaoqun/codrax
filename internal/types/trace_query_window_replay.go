@@ -11,6 +11,9 @@ type TraceQueryWindowReplayRef struct {
 	// Independent navigation does not grant physical reads or change the
 	// original replay contract (which may change only window endpoints).
 	nativeNavigation *traceIntervalNavigation
+	// A completed prepared-input query retains its full original/derived
+	// identity even when no next-view navigation is available.
+	preparedSource *traceIntervalNavigation
 }
 
 func (m *MutableState) StampTraceQueryWindowReplay(ref TraceQuerySourceReadRef, result *ToolResult, params json.RawMessage) {

@@ -55,6 +55,14 @@ func validateRuntimeTraceInputsBeforeInvestigation(ctx context.Context, attached
 // deterministic existing-file profile. Path shape alone remains identity
 // guidance and can never block converter/parser source-code work.
 func validateTypedNamedTraceInputsBeforeExploration(ctx context.Context, bus *types.BusContext, request string) error {
+	return validateTypedNamedTraceInputsWithAnchor(ctx, bus, request, absoluteTraceRuntimeAnchor(""))
+}
+
+func (o *Orchestrator) validateTypedNamedTraceInputsBeforeExploration(ctx context.Context, bus *types.BusContext, request string) error {
+	return validateTypedNamedTraceInputsWithAnchor(ctx, bus, request, absoluteTraceRuntimeAnchor(o.traceRuntimeAnchor))
+}
+
+func validateTypedNamedTraceInputsWithAnchor(ctx context.Context, bus *types.BusContext, request, runtimeAnchor string) error {
 	if bus == nil || bus.AnalysisIR == nil {
 		return nil
 	}
@@ -66,6 +74,13 @@ func validateTypedNamedTraceInputsBeforeExploration(ctx context.Context, bus *ty
 	}
 	rm := bus.AnalysisIR.RequestModel
 	profile := types.NormalizeRuntimeArtifactPreflightProfile(bus.RuntimeArtifactPreflight)
+	// The current typed policy, not the file suffix or prose, permits native
+	// content discovery. The new candidates remain local until real preparation
+	// and complete input admission succeed below.
+	profile = namedTraceContentAdmissionProfile(ctx, bus, request, runtimeAnchor, profile)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !typedNamedTraceAdmissionEnabled(rm, profile, request) {
 		return nil
 	}
@@ -111,7 +126,13 @@ func validateTypedNamedTraceInputsBeforeExploration(ctx context.Context, bus *ty
 			}
 		}
 	}
-	return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// This is still navigation, not TraceQueryReady or a measurement receipt.
+	// Actual query calls reuse and revalidate the coordinator's prepared inputs.
+	bus.RuntimeArtifactPreflight = profile
+	return nil
 }
 
 func typedNamedTraceAdmissionEnabled(rm types.RequestModel, profile types.RuntimeArtifactPreflightProfile, request string) bool {

@@ -49,8 +49,18 @@ func (m *MutableState) StampTraceIntervalNavigation(ctx context.Context, source 
 	}
 	candidate := result.TraceQueryWindowReplay.nativeNavigation
 	result.TraceQueryWindowReplay.nativeNavigation = nil
-	if candidate == nil || ctx != nil && ctx.Err() != nil || !result.Success || result.ReusedFromRunMemo || result.TraceViewCancellation != nil || CanonicalToolName(result.ToolName) != "trace_query" || len(params) == 0 || len(params) > 16<<10 {
+	result.TraceQueryWindowReplay.preparedSource = nil
+	if ctx != nil && ctx.Err() != nil || !result.Success || result.ReusedFromRunMemo || result.TraceViewCancellation != nil || CanonicalToolName(result.ToolName) != "trace_query" || len(params) == 0 || len(params) > 16<<10 {
 		return
+	}
+	hasNavigation := candidate != nil
+	if candidate == nil {
+		if material == nil {
+			return
+		}
+		// Preparation identity is independent of data availability or of
+		// whether this query recommends a next view. This is not navigation.
+		candidate = &traceIntervalNavigation{queryPath: material.QueryPath()}
 	}
 	path, identity, ok := traceSourcePhysicalPath(candidate.queryPath)
 	if !ok || path != source.path || !source.identity.SameVersion(identity) {
@@ -82,7 +92,13 @@ func (m *MutableState) StampTraceIntervalNavigation(ctx context.Context, source 
 	current := source.generation != nil && source.generation == m.traceSourceReadGeneration
 	m.mu.RUnlock()
 	if current {
-		result.TraceQueryWindowReplay.nativeNavigation = &traceIntervalNavigation{queryPath: path, views: candidate.views, source: source, params: string(bound), material: material}
+		ref := &traceIntervalNavigation{queryPath: path, views: candidate.views, source: source, params: string(bound), material: material}
+		if material != nil {
+			result.TraceQueryWindowReplay.preparedSource = ref
+		}
+		if hasNavigation {
+			result.TraceQueryWindowReplay.nativeNavigation = ref
+		}
 	}
 }
 
@@ -91,14 +107,8 @@ func (m *MutableState) StampTraceIntervalNavigation(ctx context.Context, source 
 // requested source/window and check selector compatibility before using one.
 func (m *MutableState) ResolveTraceIntervalNavigation(ctx context.Context, ref TraceQueryWindowReplayRef) (string, json.RawMessage, []string, bool) {
 	nav := ref.nativeNavigation
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if m == nil || nav == nil || ctx.Err() != nil {
-		return "", nil, nil, false
-	}
-	path, params, current := m.ResolveTraceQueryWindowReplay(TraceQueryWindowReplayRef{source: nav.source, params: nav.params})
-	if !current || nav.material != nil && nav.material.Validate(ctx, nav.material.Preview()) != nil {
+	path, params, current := m.resolveTracePreparedQuerySource(ctx, nav)
+	if !current {
 		return "", nil, nil, false
 	}
 	var views []string
@@ -106,4 +116,18 @@ func (m *MutableState) ResolveTraceIntervalNavigation(ctx context.Context, ref T
 		return "", nil, nil, false
 	}
 	return path, params, views, true
+}
+
+func (m *MutableState) resolveTracePreparedQuerySource(ctx context.Context, nav *traceIntervalNavigation) (string, json.RawMessage, bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if m == nil || nav == nil || ctx.Err() != nil {
+		return "", nil, false
+	}
+	path, params, current := m.ResolveTraceQueryWindowReplay(TraceQueryWindowReplayRef{source: nav.source, params: nav.params})
+	if !current || nav.material != nil && nav.material.Validate(ctx, nav.material.Preview()) != nil {
+		return "", nil, false
+	}
+	return path, params, true
 }

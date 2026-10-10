@@ -91,7 +91,14 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 // coalesced; conflicting publications withhold all views of that observation.
 // No values are merged across queries or sources.
 func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasurementContract {
-	var out RuntimeMeasurementContract
+	out := RuntimeMeasurementContract{Tables: coalesceRuntimeMeasurementPublications(collectRuntimeMeasurementPublications(input))}
+	if !out.Active() {
+		return nil
+	}
+	return &out
+}
+
+func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []RuntimeMeasurementPublication {
 	var publications []RuntimeMeasurementPublication
 	for _, results := range [][]ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
 		for _, result := range results {
@@ -129,11 +136,7 @@ func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasu
 		publications = append(publications, RuntimeMeasurementPublication{Version: 1, ObservationID: table.ObservationID, Tables: []RuntimeMeasurementTable{table}})
 	}
 	publications = append(publications, buildRuntimeMeasurementPairPublications(input)...)
-	out.Tables = coalesceRuntimeMeasurementPublications(publications)
-	if !out.Active() {
-		return nil
-	}
-	return &out
+	return publications
 }
 
 // Unverified time coverage remains available for an explicit supplementary
