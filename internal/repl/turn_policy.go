@@ -56,7 +56,7 @@ const (
 	// No repository read. Dispatched to the local responder.
 	RouteLocal TurnRoute = "local"
 
-	// RouteRepo — the answer requires reading repository files.
+	// RouteRepo — the answer requires source or external-observation analysis.
 	// Dispatched to the existing analysis pipeline unchanged.
 	RouteRepo TurnRoute = "repo"
 
@@ -85,8 +85,8 @@ const (
 	RouteOperation TurnRoute = "operation"
 
 	// RouteData — the turn asks for read-only data cleaning, joining,
-	// aggregation, filtering, calculation, transformation, or strict
-	// data-shaped output over local structured/semi-structured materials. This
+	// aggregation, filtering, calculation, or transformation over supported
+	// general-purpose datasets. Output shape alone does not select this route. This
 	// is intentionally separate from RouteRepo (no source-code evidence gates)
 	// and RouteOperation (no ordinary computer-operation approval loop for pure
 	// read-only data math).
@@ -343,7 +343,7 @@ var turnPolicyTool = llm.ToolSchema{
     "route": {
       "type": "string",
       "enum": ["local", "repo", "hybrid", "clarify", "operation", "data", "write"],
-	      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured materials: tables, record sets, manifests, extracted text, attachment indexes, or machine-readable records. Examples include CSV/TSV/JSON/JSONL/plain-text/Markdown material cleaning, joins, filtering, counting, aggregation, spreadsheet-like calculation, item-level decisions, and strict JSON/CSV/single-line/tabular output. Reading a rules/instructions file plus one or more local input files to compute a derived value is data even when shell commands could perform the reads; file access is the mechanism, not the objective. write = start write Auto Pilot for source/config/test/doc edits: explore, plan, apply in a bounded worktree when deterministic policy allows it, verify, and replan. Main-repo merge and high-risk approval remain separate typed write actions. The examples are not exhaustive. Strict output format alone is not enough for route=data; if the content is source code, runtime log/trace, MCP rows, or a previous answer, keep that route and carry the format as output guidance. It is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
+	      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached or named logs/traces/MCP rows; artifact-only reading need not inspect current source. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only processing of supported general-purpose datasets: cleaning, joins, filtering, counting, aggregation, calculation, and format conversion. Reading rules plus local data inputs to compute a derived value is data even when shell commands could perform the reads; file access is the mechanism, not the objective. write = start write Auto Pilot for source/config/test/doc edits: explore, plan, apply in a bounded worktree when deterministic policy allows it, verify, and replan. Main-repo merge and high-risk approval remain separate typed write actions. ` + strings.ReplaceAll(nativeObservationRoutingContract, "\n", " ") + ` When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
     },
     "needs_repo_access": {
       "type": "boolean",
@@ -360,12 +360,12 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "needs_data_access": {
       "type": "boolean",
-      "description": "true iff route=data and the task needs local structured/semi-structured data files to compute, clean, join, aggregate, transform, or enforce a strict data output format. Do not set it for source-code analysis, log/trace diagnosis, or ordinary computer operations."
+      "description": "true iff route=data and the task needs supported general-purpose data inputs for computation, cleaning, joining, aggregation, or transformation. Do not set it for native runtime observation reading/statistics, source-code analysis, ordinary computer operations, or output format alone."
     },
     "operation": {
       "type": "string",
       "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate", "code_change", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow", "data_task", "data_cleaning", "data_join", "data_aggregation", "structured_file_transform", "answer_only_data_query"],
-      "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code/log/trace/MCP/external-observation investigation through the analysis pipeline. code_change = route=write candidate for write Auto Pilot over repository files. data_task/data_cleaning/data_join/data_aggregation/structured_file_transform/answer_only_data_query = route=data candidates for read-only data processing and strict data-shaped output. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
+      "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = read or interpret source code, native runtime observations, MCP rows, or published tool documentation through the analysis pipeline; diagnosis and current-source access are not prerequisites. code_change = route=write candidate for write Auto Pilot over repository files. data_task/data_cleaning/data_join/data_aggregation/structured_file_transform/answer_only_data_query = route=data candidates for supported general-purpose data processing; output shape alone is not a data operation. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
     },
     "write_intent": {
       "type": "string",
@@ -385,7 +385,7 @@ var turnPolicyTool = llm.ToolSchema{
     "source": {
       "type": "string",
       "enum": ["current_message", "last_answer", "prior_context", "repo", "mixed", "external_tool", "artifact", "data"],
-      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = external observation, operation result, or external skill result. data = local structured/semi-structured data files processed by route=data. Read-only MCP rows/resources are external observations, not command operations by themselves."
+      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = external observation (including native runtime records and measurements), operation result, or external skill result. data = general-purpose datasets processed by route=data; storage in a database does not by itself select this source. Read-only MCP rows/resources are external observations, not command operations by themselves."
     },
     "risk_level": {
       "type": "string",
@@ -513,16 +513,16 @@ The seven routes:
             denial.
             ` + mixedTaskRouteContract + `
 
-  data    — the answer is a read-only data processing task over local
-	            structured or semi-structured files/materials: tables,
+  data    — the answer is a read-only data processing task over supported
+	            general-purpose structured or semi-structured datasets: tables,
 	            record sets, manifests, extracted text, attachment indexes, or
 	            machine-readable records. Examples include CSV/TSV/JSON/
 	            JSONL/plain-text/Markdown data cleaning, joins, filters, counts,
 	            aggregations,
 	            spreadsheet-like calculations, item-level decisions, and strict
             output-only requests such as JSON-only, CSV-only, a single line,
-            or a Markdown table. These examples are not exhaustive; future
-            document/spreadsheet/OCR adapters can feed the same data lane.
+            or a Markdown table. These examples do not promise readers for
+            arbitrary databases or binary formats; acquisition must be supported.
 	            Route by the requested objective, not by the incidental command
 	            needed to open a file: file access is the mechanism, not the objective.
 	            Reading a rules/instructions material and
@@ -537,9 +537,8 @@ The seven routes:
             content to compute or explain is source code, a runtime log/trace,
             MCP rows, or a previous answer, keep the corresponding route and
             carry the format as presentation/output guidance.
-            This is NOT source-code implementation analysis, NOT log/trace
-            root-cause diagnosis, and NOT ordinary computer operation. The
-            data lane computes deterministically and does not use source
+            Native observation reading follows the shared reader boundary below.
+            The data lane computes deterministically and does not use source
             citation gates or command-operation approval for pure read-only
             data math.
 
@@ -562,6 +561,9 @@ The seven routes:
             any explicit edit, use route=repo with write_intent=analysis_only
             (or ambiguous when the edit intent is unclear). A possible future
             change is not enough to enter write Auto Pilot.
+
+Native observation and general data boundary:
+` + nativeObservationRoutingContract + `
 
 Current repository context:
   This is a code-analysis REPL with a current repository available.
@@ -621,8 +623,9 @@ operation:
   summarize   — shorten the previous answer
   translate   — render the previous answer in another language
   elaborate   — expand on the previous answer without new evidence
-  investigate — source, external-observation, or published-tool-documentation inquiry
-                through the analysis pipeline; current-source access is independent
+  investigate — read or interpret source, native runtime observations, or
+                published tool documentation through the analysis pipeline;
+                diagnosis and current-source access are not prerequisites
   code_change — change repository files through write Auto Pilot (route=write)
   computer_operation — operate desktop/browser/UI or external tools,
                 or run local commands to inspect the current machine,
@@ -689,8 +692,9 @@ source:
   repo            — answer requires repository access
   mixed           — combination (typical for hybrid)
   external_tool   — derives from an external tool/skill
-  artifact        — derives from an output artifact to be produced
-  data            — derives from local structured/semi-structured data files
+  artifact        — derives from an input observation artifact or an output
+                    artifact to be produced
+  data            — derives from supported general-purpose datasets
 
 confidence: 0..1 self-rating. Below 0.4 the dispatcher demotes to
 repo because the cost of being wrong is higher for local / hybrid

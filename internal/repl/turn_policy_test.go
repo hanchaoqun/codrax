@@ -1796,16 +1796,16 @@ func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 	system := adapter.calls[0].messages[0].Content
 	for _, want := range []string{
 		"route=data",
-		"structured or semi-structured files/materials",
+		"general-purpose structured or semi-structured datasets",
 		"Route by the requested objective",
 		"rules/instructions material",
 		"even for .txt/.md inputs",
 		"file access is the mechanism, not the objective",
-		"These examples are not exhaustive",
+		"acquisition must be supported",
 		"Strict output format alone is NOT sufficient for data",
 		"JSON-only, CSV-only",
-		"source-code implementation analysis",
-		"root-cause diagnosis",
+		"Native runtime records, values, intervals, counts, and statistics are external observations",
+		"even when no diagnosis, root cause, or current-source explanation is requested",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
