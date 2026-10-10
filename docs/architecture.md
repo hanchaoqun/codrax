@@ -913,13 +913,17 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 **AnswerSurfacePlan**：
 - `DriftBoundedSurfaceItems`：drift-bounded 渲染后的 principal item（root-cause-trace 绑定 runtime artifact 用）
 - `LogObservedAnchors` / `LogSourceDriftAnchors`：观察到的 stack frame vs 当前 code anchor 映射
-- `ExternalObservationSeeds`：runtime error type / signal / observed frame 种子
+- `ExternalObservationSeeds`：已核实日志标签字面量 / signal / observed frame 种子
 - `StepBackbone`：step_list 答案的有序 step anchor
 - `TerminalAnchorCount`：达到 answer-grade proof 的 item 数
 - `SummarySurfaceMode`：渲染派发提示（如 `AnswerSummarySurfaceDriftBoundedRootCause`）
 - `StableAggregateFacts`：explorer 通过 `emit_investigation_complete.aggregate_facts` 成功提交并通过结构校验的聚合事实，finalizer 只读取这份 stable projection
 
 **外部观测充分性的范围（B1699）**：小型、可寻址的外部观测集可满足外部问题部分，不自动解除独立的当前源码义务。`ExternalObservationSufficiency` 携带适用范围与共享请求判据编译的 `CurrentSourceRequirement`；authority snapshot 与 explorer 启动/中途提示消费同源结果。历史 `RuntimeOnlySufficient` 仍表示外部载体可用，不能单独解释为整题完成。源码已满足时可复用已接地证据；soft 未满足时保留聚焦补读及原有 typed waiver/caveat，precise、source-excluded 的既有门不变。不增加模型 JSON 必填字段、不扫描用户原文推断义务、不修改模型答案。
+
+**日志标签字面量与诊断分层（HMC §222）**：`LogError.Type` 保留模型诊断/搜索线索，但消息定位本身不能证明该标签由原日志打印。现有完整来源扫描为唯一定位的消息保存有界、同物理行的私有见证；无消息时用标签自身定位。只有原词与自身消息同一行才可进入原文字面量保留、观测主题及相关支持资格，真正的异常续行不因不是逻辑记录首行而丢失。邻源、邻行或仅栈帧中的同词不能借给本条标签；多行消息不借其中一行铸造标签证明。证明只覆盖历史来源代次中的拼写，不证明异常类别、业务角色或因果关系。JSON不能恢复私有见证，字段/来源坐标改动失权；旧凭证不等于当前文件仍未变化，当前源重验继续由已有catalog边界负责。超长行不保存字面量见证，原消息定位和诊断线索仍保留；没有新增模型JSON必填字段。
+
+缺少已验证标签和消息时，已接受的栈帧仍经共享投影逐项进入ledger与claim binding，取Raw、Func、File/Line中现有的最完整支持。此类观察只表示工件中的栈支持，不继承错误类别、嵌套cause权限、header的路径/坐标/代次，也不自动证明每个结构化帧字段或当前源码。普通有消息/原词的错误仍保持原聚合，不另外重复投递帧事实。
 
 **聚合事实证明资格（B1695）**：观察记录与聚合提示必须复用同一主张的源码准入资格。精确源码定义坐标证明该位置存在，并不证明模型据此提出的关系成员、顺序或跨组件连接；没有对应资格时，保留原聚合、坐标与解释，但不将整份聚合标为独立已证。系统核验的关系/源码库存标记仍优先，真实返回值、赋值及原生 Trace 观测继续走各自证据通道。显式运行时/外部引用可保留既有主答案支持许可，但该许可不等于整份模型聚合及解释获独立证明；不得把两个权限一概合并。
 
@@ -2883,6 +2887,8 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 **`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。`/htrace` `/atrace` 是平行通道。
 
 **自动分类前的命名输入导航（HMC §221）**：CLI/REPL自动分类共享当前问题中已有路径的内容/schema探测，原始问题不改、不形成sticky附件，也不覆盖模型的合法typed路由；显式模式不变。已知原生二进制头、通用量测/进程量测/CPU状态频率的最小SQLite schema只提供reader/view候选，不声称已读到记录。探测不写`RuntimeArtifactPreflight`、`TraceMaterial`或`TraceQueryReady`，不建立来源—窗口绑定；真正读取仍需原协调器及`trace_query`准入。现有任意`.data`路径不因软导航获得Trace身份。代码内独立预算最多8源、总2秒、单文件32MiB；活跃WAL、超限、变化、取消或未知内容退为unknown，既不是data lane的`source_oversized`硬拒收，也不是LLM超时/降级。探测子ctx不传入模型调用。
+
+**原生读取与通用数据职责（HMC §222）**：分类system与工具schema共用一份职责说明，当前命名输入user上下文只携带候选JSON，不重复路由规则。读取原生运行时记录、值、区间、计数和统计均走已有分析管线的原生reader，不要求用户同时提出根因诊断或源码问题；普通支持的数据集清洗、join、计算、转换仍走data，已有答案转格式仍走local。SQLite只是容器，表格等输出形式也不单独决定路由。`investigate`/`artifact`/`needs_data_access`的说明保持同一边界；无新路由字段、硬覆盖或准入权限，实际模型决策仍需真实评测验收。
 
 **脚本输入所有权**：非TTY提示、粘贴和运行期输入共用一个终身scanner/pump，按独占消费权交接，停止与队列转移原子化；旧/重复停止不能吞下一轮命令。取消后先等本轮返回，再处理后续输入。普通排队最多32条及`max(8MiB, 配置单行上限)`累计字节，溢出有精确丢弃披露，仍可接收取消；单行上限各入口一致，非EOF读取错误不当成功退出。关闭只撤销交付、不关闭借入reader，唯一阻塞Read可能等调用方输入/EOF。真实Run另提供`PrepareRunCancellation`，串行调用者按预留→Run或放弃→release使用专属句柄，预读取消不落在token初始化空窗，旧句柄不能取消新Run。无预留的CLI/TTY取消路径保持原形。
 

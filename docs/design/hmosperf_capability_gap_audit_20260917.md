@@ -6630,7 +6630,7 @@ rank相关及精确race正式exit0；最终相关`final-related-v1.log`正式exi
 
 最终独审补充：日志explorer仍列全9条，旧triage summary/subject在finalizer明确隔离，虚构数量5也被清除；本轮剩余错误明确落在最终重写，而非原生缺失或旧closure直接注入。量测同名filter10/20属于同一来源内不同序列，文档已消除“不同源组”歧义。完整父项0新增、四组子能力、两份人工FAIL继续分账；剩余59不变。文档、架构与机器/人工摘要作为独立收尾提交，不以新摘要改签原始失败。
 
-## 220. 双侧量测与原生事实默认展示（2026-10-09，施工与验收中）
+## 220. 双侧量测与原生事实默认展示（2026-10-09，子能力已交付、完整验收开放）
 
 ### 220.1 起点与冻结前退出条件
 
@@ -6674,7 +6674,7 @@ rank相关及精确race正式exit0；最终相关`final-related-v1.log`正式exi
 
 本轮正式退出后才开放下一轮Go施工；§221同时收口真实评测发现的入口内容能力、混合维度展示与精确终态交接，先各轨公开相关/race、再全部冻结统一全仓。§220机器1/2、人工0/2和首轮全仓FAIL均保留，不以末版GREEN倒签。`bb9cd89f7`暂未推送，待回归修复与统一验收后普通推送。
 
-## 221. 自然输入能力路由与混合事实展示（2026-10-09起，施工中）
+## 221. 自然输入能力路由与混合事实展示（2026-10-09起，实现已交付、答案验收开放）
 
 ### 221.1 批次边界与参考设计
 
@@ -6728,3 +6728,69 @@ runner24841正式exit0，机器1/2、完整人工0/2；不是每例均绿。新�
 冻结`93a2506d3`的唯一末版全仓81801已正式exit0：90测试包PASS、13无测试包、零FAIL，tool508.823s；全量jsonl原字节归档。构建58034正式exit0；同冻结源码的相关快检96408、skill整包11562及两轨独立race均已正式通过，不拼接未完成收据。未改L1调度循环、因果投影/自动补齐及流式等待时限。
 
 38份验证产物（含隔离RED源码`.go.txt`及overlay）、20份日志工具blob、18份data审计JSON均在`eval/results/hmc_native_route_20261010`原字节保存并cmp/diff；§220首轮FAIL及原live目录独立保留。四笔实现提交`bb9cd89f7`、`6bb510a3b`、`c6e97ecd2`、`93a2506d3`已普通推送`origin/main`（9248b0e68→93a2506d3）。完整父项新增0，累计20/79；三组可用子能力与精确终态修复已交付，当前完整人工仍0/2，59开放不减少。
+
+## 222. 路由职责与日志字段来源分层（2026-10-10，实现已交付、答案验收开放）
+
+### 222.1 有界退出条件与参考设计
+
+§221全部回归正式结束、实现与文档`31d0acbce`普通推送后才开新Go批次，79=20+59不变。限定两轨：原生记录/量测不局限根因诊断的路由职责，日志Type不能借Message来源证明升权。不扩data状态机、成员覆盖或重叠表去重，不追修observer等个别成文词句；这些已有原始证据继续在§221.4/人工审计留案。
+
+路由采用一份短合同统一system与schema，当前输入JSON只放候选事实，减少重复/冲突；保显式模式、合法typed data决策、常规数据清洗/join/变换，不新增分类字段、不硬改route、不由后缀或问题关键词判意图。原始路径及非因果原值/计数/区间查询应进入已有原生reader；实际模型表现仍以新双例验收，stub不能代签。
+
+主代理重新阅读参考`core/llm_contract.py:123–148`：有效设计是根据真实member及field回查实际值，再认可该项证据；不复制去空白模糊匹配、全正文数字扫描、容差或词表硬门。当前`LogSourceBinding`明确只证明Message定位，模型Type仍可作搜索/诊断线索，却不能无原文证明变成must-mention literal或观测事实。优先复用现有完整来源核验/私有收据而非新建第二账本；自身消息所在物理行的精确字面见证与诊断类别语义分开，同词仅在邻源/邻行/其它续行不授本条字段权限，自身消息和原词都在同一续行则仍合法。真实异常字面量、cause链、frames、业务说明和Trace链资格保留，JSON/字段改值不得恢复私有权限；旧凭证只述历史代次，持过期catalog重新emit不得获得当前源证明。
+
+验收先实际准备→emit→上下文/ledger/最终教学公开RED，真实Go/Java/Python/业务literal与反向来源/生命周期负控GREEN；新增私有状态同步clone/序列化/type census，先相关及教学整包，全部冻结后唯一全仓与新两例并行各1次。旧§220/221人工FAIL不倒签。
+
+### 222.2 共享实现与独审边界
+
+路由`0f15c7166`统一system和schema的原生读取职责，用户消息只保当前输入JSON；非诊断量测、原值、区间、计数与统计也能选择原生reader。连带修正`investigate`仅像诊断、`artifact`仅像待生成输出、`needs_data_access`过宽的教学。合法data/operation/write/local和显式模式不变，候选导航不能覆盖模型typed决策；实际adapter测试不冒称自然分类已成功。
+
+日志复用现有Locate完整扫描的一次读取，私有见证只保存自身单物理行、最多4096字节；超限保精确消息坐标，不截出半行授字面量证明。`ObservedTypeLiteral`核对来源凭证及精确Type/Message值，克隆保历史见证、JSON不恢复，字段/坐标/代次改动失权。没有给模型增加证明JSON字段；Type原值仍可作诊断搜索线索，原消息、frames、显式cause关系及Trace权限原样保留。
+
+同一字段的消费者统一：原词保留教学、context标记、观测主题/claim binding、外部观察种子和支持展示、source-drift摘要，以及该Type的证据计数和枚举标签支持提示。种子保兼容`error_type`，但生产仅接已验证原词，展示不宣称异常类别；不加一个未被下游识别的新kind。证据计数负控覆盖仅有未证Type时不能豁免旧floor/ready；枚举校验修的是原来错误吞掉advisory提示，不夸大成硬门漏洞。其它字段和工作流不在本批扩修。
+
+独审公开RED发现首版“逻辑记录首行”限制误丢同一续行的真实`Caused by`异常原词，已去掉该额外限制；不采用marker关键词特判。真实Go panic、Java堆栈、Python traceback、业务原词及header-only经Prepare→实际emit→兼容种子→支持展示→最终教学均有正控；邻源/邻行/仅其它续行同词、歧义/显式消歧、多行消息、JSON、clone、字段修改与同字节文件替换有负控。旧fixture不凭模型Type造原词权限，需实际来源见证；原数量、跨语言帧、因果边界断言不删，没有Skip或单纯刷新hash。
+
+### 222.3 下一完整能力的共享接缝（只读定位，不记为已实现）
+
+双侧自然live本轮已选repo，却在实际探索schema中没有`trace_query`。独审定位：`named_input_routing_context.go`只把候选传给classifier，`orchestrator/runtime_artifact_preflight.go`仍从旧路径格式识别建项；`agent.go`动态工具清单只认已有carrier/preflight/catalog，普通`.data`的内容能力没有接续。此前`cmd/named_input_continuation_hmc221_acceptance_test.go`绕过动态schema直接调用query，不能冒称覆盖该实际agent接缝。准确下一步是复用既有`RuntimeArtifactPreflight`承接命名候选，再经typed外部观察意图及真实Coordinator准备/代次核验发布prepared项；候选不直接授`TraceQueryReady`，不扩大目录发现权限。此项能独立交付，不等所有双侧比较功能一起完成。
+
+单侧隔离和逐源窗口仍是另外两项退出条件：`runtime_trace_input_admission.go`首失败返回与`agent.go`全局terminal latch都要一致处理，不能只把循环改continue；只有明确独立来源允许健康侧继续，单附件、依赖bundle及全局取消仍原子。来源—窗口要绑定原始请求的精确来源引用并经当前准备身份解析；`RuntimeArtifactTimeWindow`目前没有来源身份，pair只核落入任一已接受窗，因此窗口交换不能靠工具自行所填role/window证明正确。复用现有载体，不再建一份状态账本，不扫问答关键词，不凭文件名/顺序授意图。
+
+参考`load_compare.yaml:54–106`、`server.py:1877`与`pmu_compare_ops.py:61`强调逐侧获取和健康侧原值；但参考前置时间范围失败仍可能整组退出，异常/无数据混成None，不照搬。后继必须实际Run→动态schema→executeTool→准备→emit→最终展示，覆盖双成功、坏一侧、缺失/零、同名异源、换代、取消、交换窗口与bundle原子负控。10.1继续部分实施，累计20/79、59开放。
+
+### 222.4 首轮全仓回归及补救冻结
+
+路由相邻v4、race-v2与skill-v2正式通过；日志相邻v5的loginput/types/context/agent/tool/criterion六包、精确race-v1及skill整包v2正式通过，独审原词续行正反、真实异常普查与race-v2同样通过。主代理统一快检7290正式exit0（agent31.171s/types4.220s/tool2.494s/context1.777s/orchestrator1.027s）；该正则未命中loginput，不据此虚增覆盖。首次make6170正式exit0，冻结实现`f203716ec013`，dirty仅未提交文档。
+
+首轮完整回归35268正式exit1：87测试包PASS、3失败包、13无测试包，tool523.084s通过。共9个根测试FAIL（agent5/types2/repl2，子例不重复相加）。agent中的DirectRuntimeRows/Fallback/Extractor/ClaimBinding四个公开路径在无可信Type/Message但有frames时丢失全部观察，这是产品真实回归，不能称旧pin迁移；原四项断言未修改。另有两处Type-only旧fixture缺少新的真实来源见证、RichNotes把旧警示固定在首项、路由公共文案pin未同步，以及提示词审计器无法静态解析路由schema中的strings.ReplaceAll调用。前次失败汇总漏记最后一项，导致补救全仓再次失败；这是失败收集遗漏，不是新回归或模型波动。
+
+收齐正式退出后才解冻补救。`62aaa1899`以共享`projectLogErrorArtifactFacts`保留每条非空栈支持，ledger与claim binding同源；frame-only固定artifact_span，嵌套也不继承direct-cause，不套用header的SourceBinding、不借路径/坐标/代次。Raw优先，其次Func、File/Line；普通错误有消息或原词时仍只生成原聚合，不重复帧。既有观察资格不等于逐帧字段新获原文字面量验证，也不等于当前源码证明。
+
+新增实际Prepare→emit→ledger→finalizer公开RED保留，补救后GREEN；types负控覆盖Raw/Func/File/空帧、嵌套、真实header凭证改Type、零Span及历史authority。首次追加负控误用不存在的ByteStart字段造成编译失败，单列测试装配失败，不冒充产品RED。Type-only两fixture改用真实来源凭证，原因果/隔离断言不删；RichNotes同时检查原artifact-local警示与新诊断含义；路由旧公共测试只同步已审核职责短语，其余安全/模式断言不变。
+
+补救精确green-v1与四包adjacent-v2正式exit0（agent1.096s/types0.888s/criterion1.029s/tool2.271s），race-v1正式exit0（agent4.112s/types2.925s）。路由公共pin回归97772正式exit0（repl1.665s）；补救统一回归快检35645正式exit0（agent3.239s/types5.371s/tool2.856s/repl1.329s/orchestrator2.232s），含已收集的首轮失败、公开新增正反、schema/PromptSnapshot/RendererCensus/HotFile/copylocks/L1，但遗漏NoInternalTerms检查，不能称所有首轮失败已闭环。独审未发现栈补丁放宽错误坐标或当前源码权限。
+
+全部Go冻结`62aaa1899`后启动补救全仓30321；make27983正式exit0。该全仓已正式exit1：89测试包PASS、1失败包、13无测试包，tool525.473s通过，唯一失败根为未修的NoInternalTerms。正式结束后才开放静态拼接补救，不是已通过末版。后继从原始JSONL完整提取全部失败根测试，并逐项对应修后成功收据，再冻结；不放宽提示词审计器。完整末版结果与发布收据在后节登记。
+
+`081d5c81d`将共享契约拆为两个单段常量，system以两个换行连接、schema以两个空格连接，实际两份文本字节均与原先一致。去掉生产schema中的动态ReplaceAll，不修改扫描器、不重复存储教学文本；实际adapter测试检查完整契约各仅出现一次并精确核对两种渲染等价。NoInternalTerms/HMC222/ToolDocumentation/Schema定向正式exit0（repl1.628s），同范围race正式exit0（repl3.284s）。主代理从两轮原JSONL自动抽取全部9个失败根测试驱动复跑12486，正式exit0；逐包/根测试集合核对9/9有新PASS、not_closed为空。随后全部Go再次冻结，末版全仓24358与构建3721启动；未追加live，也未把局部PASS拼接成全仓收据。
+
+### 222.5 固定双例与人工结论
+
+57826正式exit0，机器2/2、完整人工0/2。冻结`f203716ec013`的snapshot `codrax-selected-20261010-004343`运行两个原自然问题各一次、并行2；日志266秒、双侧量测359秒。后续`62aaa1899`栈帧补救没有重跑live，不将这两例倒签为末版运行；完整[人工审计](../../eval/parallel_selected_summary_hmc_route_literal_20261010_manual_audit.md)逐项保留最终transcript、日志、拒稿与最终接受稿的区别。
+
+双侧已真正route=repo/investigate，分类thinking识别两个内容候选；analyze错误合窗和原文锚定被拒后自动修复成两个窗。随后读取SQLite为普通二进制噪声、父目录catalog受授权限制、7次trace_query因不在动态16工具清单中被拒。邻近current.sql被当成binary事实，没有源关系证明；完整答案current少记录/少同名独立序列、缺carry-in和未知终点、漏大整数及state原值，baseline13条全部未读，并猜序列语义。两原输入hash未变；这是动态交接缺陷，不是reader不支持，也不是放宽目录权限的理由。10.1仍未完整交付。
+
+独立复核还确认量测case机器门仅匹配`phase=toolcall`，7次执行前拒绝也被当作命中；旧oracle误称successful invocation已改为准确说明，实际成功及逐侧原生发布仍必须核对。原runner PASS原样保留，不事后改成绩；18.4留案升级为消费实际成功/发布信号的验收接缝，不让弱机器门误销人工FAIL。二进制误读噪声为每侧约16KB、合计约33KB；人工审计的量测行号统一链接原日志，避免all.log两行文件头偏差。
+
+日志正文与两张系统表合计保全9个唯一记录（app6/kernel3），来源/代次、未知身份、原始时钟/纳秒、坏日期/孤立记录/原始续行均在场，无第三张重复筛选表。主文却把共同request标识写成确定因果链；随后无校准免责声明没有撤回主结论。另有坏月份说成年份、observer并行和总结漏数。此次errors=[]，未命中Type来源资格分支；只能引用公开确定性验证，不以live代签。维度field patch指向未发布block而被拒亦保原日志，当前默认表成功不代替整个答案通过。
+
+本批完整父项新增0，累计20/79，59开放；两组共享子能力（非诊断原生路由职责、日志字段来源/栈支持分层）可独立交付。两份人工FAIL保留，未证明模型波动，不做原文关键词硬门或追加第三例求绿。无图、无写模式，不补签视觉、只读登记未命中分支或旧写FAIL；未修改Trace因果投影、自动补齐或活跃流等待时限。
+
+### 222.6 末版验收与发布收据
+
+冻结`081d5c81da38`后的末版完整回归24358正式exit0：90测试包PASS、13无测试包、零FAIL，tool518.314s；构建3721正式exit0（dirty仅文档）。两轮所有失败根测试已在独立JSON定向收据中9/9闭环，末版全仓同时确认；静态拼接和栈帧两项补救的race均正式通过。首轮及补救中间轮FAIL保留，不拼接成一次GREEN，不以此次完整回归倒签两份人工答案。
+
+46份验证产物、95份量测工具blob和28份日志工具blob已在`eval/results/hmc_route_literal_20261010`原字节归档，逐份cmp或目录diff核对通过；原live输入与报告未改。原机器结果、完整人工结论、未命中分支和版本差异分别记录。
+
+四笔实现`0f15c7166`、`f203716ec`、`62aaa1899`、`081d5c81d`已普通推送`origin/main`（31d0acbce→081d5c81d）。统一任务清单仍79=20+59；本批完整能力新增0，两组子能力和自身回归补救已交付。下一优先序为命名输入到真实准备/原生工具的交接、逐源窗口/独立侧状态，以及观察解释的证据权限；实际数据消费、验收机器门过弱、维度patch对象交接和旧跨模式失败均留原ID，不删债、不以未知设备字段擅自扩大10.1原退出条件。
