@@ -802,6 +802,7 @@ func TestSelectExternalObservationSeedsForPrompt_BalancesMetaAndCrossLanguageFra
 			},
 		}},
 	}
+	bindTestLogTypeLiterals(t, bundle)
 	seeds := CollectExternalObservationSeeds(bundle, nil)
 	if len(seeds) < 8 {
 		t.Fatalf("collector should retain a typed pool beyond the prompt cap; got %d: %+v", len(seeds), seeds)

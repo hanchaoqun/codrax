@@ -354,7 +354,7 @@ func logBundleClaimBindings(bundle *LogBundle, outputs []AnswerRequestedOutput) 
 	}
 	var walk func(err LogError)
 	walk = func(err LogError) {
-		target := strings.TrimSpace(err.Type)
+		target := err.ObservedTypeLiteral()
 		if target == "" {
 			target = strings.TrimSpace(err.Message)
 		}

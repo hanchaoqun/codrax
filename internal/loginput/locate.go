@@ -30,10 +30,21 @@ type ExcerptLocation struct {
 	ByteStart int64   `json:"byte_start,omitempty"`
 	ByteEnd   int64   `json:"byte_end,omitempty"`
 	proof     [32]byte
+	// Only the owning scan can populate these historical source witnesses.
+	matchedExcerpt string
+	matchedLine    string
 }
 
 func (l ExcerptLocation) Verified() bool {
 	return l.Status == "unique" && l.Source != nil && l.proof != [32]byte{} && l.proof == l.digest()
+}
+
+// SupportsLineLiteral proves only that this exact excerpt and literal occurred
+// on the same physical source line, not exception semantics or a second event.
+func (l ExcerptLocation) SupportsLineLiteral(literal, excerpt string) bool {
+	literal, excerpt = normalizeExcerpt(strings.TrimSpace(literal)), normalizeExcerpt(strings.TrimSpace(excerpt))
+	return l.Verified() && literal != "" && excerpt != "" && !strings.Contains(excerpt, "\n") &&
+		!strings.Contains(literal, "\n") && l.matchedExcerpt == excerpt && strings.Contains(l.matchedLine, literal)
 }
 
 func (l ExcerptLocation) digest() [32]byte { raw, _ := json.Marshal(l); return sha256.Sum256(raw) }
@@ -121,6 +132,19 @@ func (c *Catalog) Locate(ctx context.Context, selectors []ExcerptSelector) ([]Ex
 						matches[i].FirstLine = line + int64(bytes.Count(window[:lo], []byte{'\n'}))
 						matches[i].LastLine = line + int64(bytes.Count(window[:hi-1], []byte{'\n'}))
 						matches[i].ByteStart, matches[i].ByteEnd = start+int64(lo), start+int64(hi)
+						matches[i].matchedExcerpt = needles[i]
+						lineStart := strings.LastIndex(normalized[:at], "\n") + 1
+						lineEnd := strings.IndexByte(normalized[at:], '\n')
+						if lineEnd < 0 {
+							lineEnd = len(normalized)
+						} else {
+							lineEnd += at
+						}
+						// Do not retain a giant source line through a short excerpt.
+						// Over-budget lines keep their location but not literal proof.
+						if lineEnd-lineStart <= 4096 {
+							matches[i].matchedLine = strings.Clone(normalized[lineStart:lineEnd])
+						}
 						if matches[i].ByteStart >= record.ByteStart {
 							matches[i].RecordID = record.ID
 						}

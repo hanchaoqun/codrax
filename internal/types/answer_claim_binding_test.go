@@ -227,7 +227,8 @@ func TestCompileRuntimeArtifactClaimBindings_LogBundleCreatesRuntimeBinding(t *t
 		},
 		LogTriage: &LogBundle{
 			Errors: []LogError{{
-				Type: "runtime panic",
+				Type:    "runtime panic",
+				Message: "panic at internal/server.go:42",
 				Frames: []LogFrame{{
 					Raw:  "panic at internal/server.go:42",
 					File: "internal/server.go",
@@ -246,6 +247,9 @@ func TestCompileRuntimeArtifactClaimBindings_LogBundleCreatesRuntimeBinding(t *t
 
 	got := CompileAnswerClaimBindings(nil, &rm, nil)
 	panicBinding := assertClaimBinding(t, got, AnswerEvidenceOriginRuntimeArtifact, ClaimGroundingRepairable, AnswerRequestedOutputDiagnostic)
+	if panicBinding.TargetRef != "panic at internal/server.go:42" {
+		t.Fatalf("unverified type displaced the observed message: %+v", panicBinding)
+	}
 	if panicBinding.Source != "log_triage" {
 		t.Fatalf("runtime log binding source = %q", panicBinding.Source)
 	}

@@ -1301,11 +1301,11 @@ func renderAnswerDocLogPeerFinalDecisionBoundary(ctx *types.AgentContext) string
 	}
 	var b strings.Builder
 	b.WriteString("## Final Runtime Error Relationship Evidence\n\n")
-	b.WriteString("- The attached artifact contains multiple top-level peer error occurrences. Each occurrence's own type, message, frames, and within-stack order are available observations.\n")
+	b.WriteString("- These triage entries preserve messages, frames, and within-stack order. Diagnostic labels remain triager interpretations; a verified spelling only means that literal was printed on the same original source line.\n")
 	b.WriteString("- No validated explicit artifact marker connects one top-level error as the direct cause, caller/callee continuation, or propagation of another. Similar wording, adjacent lines or timestamps, bridge-like names, and shared IDs do not establish that edge.\n")
 	b.WriteString("- Answer the requested per-error/frame dimensions independently from the observations below. The first frame listed for each stack is its first observed (innermost failure-site) frame; later frames are callers within that same stack.\n")
 	for i, observedError := range bundle.Errors {
-		fmt.Fprintf(&b, "  - Error occurrence %d: type `%s`", i+1, types.TruncateBytesEllipsis(strings.TrimSpace(observedError.Type), 120))
+		fmt.Fprintf(&b, "  - Error occurrence %d: triager label `%s` [%s]", i+1, types.TruncateBytesEllipsis(strings.TrimSpace(observedError.Type), 120), types.LogErrorTypeSourceNote(observedError))
 		if message := strings.TrimSpace(observedError.Message); message != "" {
 			fmt.Fprintf(&b, "; message `%s`", types.TruncateBytesEllipsis(message, 180))
 		}

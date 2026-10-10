@@ -15679,7 +15679,7 @@ func preEmitRuntimeLabelSupportedByLogBundle(label string, bundle *types.LogBund
 		if matched || err == nil {
 			return
 		}
-		if preEmitTypedLabelTokenSupportsLabel(err.Type, label) ||
+		if preEmitTypedLabelTokenSupportsLabel(err.ObservedTypeLiteral(), label) ||
 			preEmitTypedLabelTokenSupportsLabel(err.Message, label) {
 			matched = true
 		}

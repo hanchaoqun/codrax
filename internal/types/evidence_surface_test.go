@@ -779,6 +779,7 @@ func TestBuildAnswerSurfacePlan_CollectsExternalObservationSeeds(t *testing.T) {
 			},
 		}},
 	}
+	bindTestLogTypeLiterals(t, logBundle)
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{
 			Scenario: ScenarioRootCause,

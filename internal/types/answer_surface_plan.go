@@ -3461,9 +3461,9 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 			Raw:  raw,
 		})
 	})
-	for _, typ := range LogBundleErrorTypes(bundle) {
+	for _, typ := range LogBundleObservedTypeLiterals(bundle) {
 		recordSummary(ExternalObservationSeed{
-			Kind: "error_type",
+			Kind: "error_type", // compatibility kind; value is source spelling only
 			Raw:  strings.TrimSpace(typ),
 		})
 	}
@@ -3589,7 +3589,7 @@ func logErrorSurface(err *LogError) string {
 	if err == nil {
 		return ""
 	}
-	typ := strings.TrimSpace(err.Type)
+	typ := err.ObservedTypeLiteral()
 	msg := strings.TrimSpace(strings.Join(strings.Fields(err.Message), " "))
 	switch {
 	case typ != "" && msg != "":

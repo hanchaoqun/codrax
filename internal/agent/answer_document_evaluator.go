@@ -1453,9 +1453,6 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 		"Keep the answer at the abstraction already grounded by the evidence. A cited struct / function / type name does NOT license an invented field inventory, member count, default table, or exhaustive list unless a cited line or structured evidence item explicitly enumerates those members.",
 	)
 	if ctx != nil && ctx.LogTriage != nil && len(ctx.LogTriage.Errors) > 0 {
-		items = append(items,
-			"If this answer explains an attached log / stack trace, name each structured log error type or exception identifier from Log Triage at least once in the `summary` block's text. Do not paraphrase the type name away.",
-		)
 		if explicit := renderRequiredLogTriageTypes(ctx.LogTriage); explicit != "" {
 			items = append(items, explicit)
 		}
@@ -4933,11 +4930,11 @@ func renderAnswerDocDiagramLogSeed(bundle *types.LogBundle) string {
 }
 
 func renderRequiredLogTriageTypes(bundle *types.LogBundle) string {
-	typeNames := types.LogBundleErrorTypes(bundle)
+	typeNames := types.LogBundleObservedTypeLiterals(bundle)
 	if len(typeNames) == 0 {
 		return ""
 	}
-	return "For this dispatch, the exact structured log error type(s) you must mention literally in `summary` are: `" + strings.Join(typeNames, "`, `") + "`."
+	return "When describing these log entries, preserve their verified source-line spelling: `" + strings.Join(typeNames, "`, `") + "`. This verifies only the literal, not the triager's classification, logger role, or protocol. Other triager labels are optional diagnostic interpretations, not names printed by the source."
 }
 
 func renderRequiredLogTriageMessages(ctx *types.AgentContext) string {
@@ -14157,7 +14154,7 @@ func renderAnswerDocExternalObservationSeeds(ctx *types.AgentContext) string {
 	for _, seed := range types.SelectExternalObservationSeedsForPrompt(plan.ExternalObservationSeeds, types.ExternalObservationPromptSeedLimit) {
 		switch strings.TrimSpace(seed.Kind) {
 		case "error_type":
-			fmt.Fprintf(&b, "- Structured log error type: `%s`\n", seed.Raw)
+			fmt.Fprintf(&b, "- Source-line literal: `%s` (spelling is not proof of an error category)\n", seed.Raw)
 		case "error_message":
 			fmt.Fprintf(&b, "- Structured log error message: `%s`\n", seed.Raw)
 		case "signal":

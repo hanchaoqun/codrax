@@ -3818,7 +3818,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 	peerRelationUnproven := len(bundle.Errors) > 1
 	var walkErr func(LogError, int)
 	walkErr = func(err LogError, depth int) {
-		target := firstNonEmptyString(err.Type, err.Message)
+		target := firstNonEmptyString(err.ObservedTypeLiteral(), err.Message)
 		if target != "" {
 			lane := ObservationProvenanceObservedErrorOccurrence
 			if depth > 0 {
@@ -3846,7 +3846,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 				},
 				ClaimKey:    target,
 				Subject:     target,
-				Summary:     firstNonEmptyString(err.Message, err.Type),
+				Summary:     firstNonEmptyString(err.Message, err.ObservedTypeLiteral()),
 				RichNotes:   notes,
 				SupportRefs: logFrameRawRefs(err.Frames),
 			}))
@@ -4045,10 +4045,11 @@ func logObservationInterpretationNotes(obs LogObservation) []string {
 }
 
 func logErrorObservationRichNotes(err LogError) []string {
+	notes := []string{"triager_diagnostic_label=" + err.Type + "; " + LogErrorTypeSourceNote(err)}
 	if len(err.Frames) == 0 {
-		return nil
+		return notes
 	}
-	return []string{"Stack frames are artifact-local runtime support; they are not current-source root-cause proof unless separate current-source evidence grounds them."}
+	return append(notes, "Stack frames are artifact-local runtime support; they are not current-source root-cause proof unless separate current-source evidence grounds them.")
 }
 
 func observationProvenanceLaneForLogObservation(obs LogObservation) ObservationProvenanceLane {

@@ -1191,6 +1191,7 @@ Schema in one glance:
 - meta.signals[]   (required, may be empty) — what-went-wrong enum values
 - meta.summary     (optional) — one-line synopsis, ≤ 200 chars
 - errors[]         (required, may be empty) — array of { type, message?, frames[], cause?, cause_relation? }
+- errors[].type    — prefer the original printed label; a diagnostic name you infer is only a soft interpretation, not an identifier printed by the source. The system checks spelling against the error's own source line; literal presence alone does not prove an exception category, logger role, or protocol.
 - errors[].message — optional VERBATIM substring of the attached log; omit it when no explicit message exists; put bounded interpretation in observations[].summary
 - errors[].frames[] — { lang?, file?, line?, func?, pkg?, raw (required), confidence (required) }
 - errors[].cause   — recursive error (same shape); only for an explicit artifact-marked linear causal chain

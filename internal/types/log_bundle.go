@@ -319,7 +319,9 @@ type LogError struct {
 	// the emit schema.
 	Message string `json:"message,omitempty"`
 
-	// SourceBinding locates Message only, never the model's error class/frames.
+	// SourceBinding locates Message (or the literal header when Message is
+	// absent). A private field witness may confirm Type's source spelling,
+	// never its classification semantics or the model's frames.
 	SourceBinding *LogSourceBinding `json:"source_binding,omitempty"`
 
 	// Frames is the stack for this specific error. Outermost

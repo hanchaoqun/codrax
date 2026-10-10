@@ -7308,14 +7308,15 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogTriageAndDiag
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Submission Checklist",
-		"name each structured log error type or exception identifier from Log Triage",
-		"the exact structured log error type(s) you must mention literally in `summary` are: `runtime error: invalid memory address or nil pointer dereference`",
 		"Because the typed request profile marks this as a diagnostic / root-cause artifact question, preserve these structured log error message(s) verbatim in `summary` or body: `nil pointer dereference while parsing analyzer output`",
 		"Every file/path node you keep inside a fenced diagram must also be grounded by `citations[]` or by attached Log Triage frames",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "preserve their verified source-line spelling") {
+		t.Fatal("caller-built bundle has no native literal receipt")
 	}
 }
 
@@ -7953,8 +7954,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_DoesNotHardRequireLogMe
 	if strings.Contains(prompt, "preserve these structured log error message(s) verbatim") {
 		t.Fatalf("non-diagnostic intent must not hard-require log message literals:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "Structured log error type") {
-		t.Fatalf("log artifact should still be available as soft context:\n%s", prompt)
+	if !strings.Contains(prompt, "index out of bounds: index=5, size=3") {
+		t.Fatalf("original message should still be available as soft context:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "preserve their verified source-line spelling") {
+		t.Fatalf("unverified diagnostic type became a mandatory source literal:\n%s", prompt)
 	}
 }
 
@@ -7994,11 +7998,14 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 		},
 	}
 
+	original := ctx.LogTriage.Errors[0]
+	bus := emitHMC222Log(t, original.Type+"\n", []map[string]any{{"type": original.Type, "message": "", "frames": []any{}}})
+	ctx.LogTriage.Errors[0].SourceBinding = bus.Mutable.LogTriage().Errors[0].SourceBinding
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Typed Answer Support Lanes",
 		"### Observed artifact facts",
-		"structured runtime error type",
+		"source-line literal",
 		`runtime artifact identifies error head stack frame "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput" at observed internal/agent/analyzer.go:320`,
 		"internal/agent/analyzer.go:651",
 		"Items rendered under the **Observed artifact facts** lane are runtime trace observations",

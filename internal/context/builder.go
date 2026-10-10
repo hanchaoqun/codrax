@@ -3117,7 +3117,7 @@ func renderPrimaryErrorSignal(bundle *types.LogBundle) string {
 	b.WriteString("## Primary Error Signal\n\n")
 	b.WriteString("The runtime emitted these verbatim error messages before the stack frames were captured. " +
 		"They are the highest-confidence diagnostic signal — anchor your reasoning on these, especially when frames below are marked `(unresolved)`. " +
-		"Do NOT invent a different theory by reading frame file:line refs in isolation.\n\n")
+		"Do NOT invent a different theory by reading frame file:line refs in isolation. A source-literal label verifies only its spelling on this entry's original line, not its classification or role; unverified diagnostic labels are optional interpretations, not original error identifiers.\n\n")
 	for i := range bundle.Errors {
 		renderPrimaryErrorEntry(&b, &bundle.Errors[i], i+1)
 	}
@@ -3241,9 +3241,9 @@ func renderPrimaryErrorEntry(b *strings.Builder, e *types.LogError, index int) {
 		return
 	}
 	if e.Type != "" && e.Message != "" {
-		fmt.Fprintf(b, "%d. **%s**: `%s`\n", index, e.Type, sanitizeForInlineCode(e.Message))
+		fmt.Fprintf(b, "%d. **%s** [%s]: `%s`\n", index, e.Type, types.LogErrorTypeSourceNote(*e), sanitizeForInlineCode(e.Message))
 	} else if e.Type != "" {
-		fmt.Fprintf(b, "%d. **%s**\n", index, e.Type)
+		fmt.Fprintf(b, "%d. **%s** [%s]\n", index, e.Type, types.LogErrorTypeSourceNote(*e))
 	} else if e.Message != "" {
 		fmt.Fprintf(b, "%d. `%s`\n", index, sanitizeForInlineCode(e.Message))
 	} else {
@@ -3252,7 +3252,7 @@ func renderPrimaryErrorEntry(b *strings.Builder, e *types.LogError, index int) {
 	// Walk Cause chain at primary-signal depth so the operator
 	// sees the "X caused by Y" semantics at the top.
 	if e.Cause != nil {
-		fmt.Fprintf(b, "   - caused by **%s**", e.Cause.Type)
+		fmt.Fprintf(b, "   - caused by **%s** [%s]", e.Cause.Type, types.LogErrorTypeSourceNote(*e.Cause))
 		if e.Cause.Message != "" {
 			fmt.Fprintf(b, ": `%s`", sanitizeForInlineCode(e.Cause.Message))
 		}
@@ -4945,9 +4945,9 @@ func renderLogError(b *strings.Builder, e *types.LogError, depth, index int, inc
 	}
 	indent := strings.Repeat("   ", depth)
 	if depth == 0 {
-		fmt.Fprintf(b, "%d. **%s**", index, e.Type)
+		fmt.Fprintf(b, "%d. **%s** [%s]", index, e.Type, types.LogErrorTypeSourceNote(*e))
 	} else {
-		fmt.Fprintf(b, "%s↳ caused by **%s**", indent, e.Type)
+		fmt.Fprintf(b, "%s↳ caused by **%s** [%s]", indent, e.Type, types.LogErrorTypeSourceNote(*e))
 		if incomingRelation != nil {
 			fmt.Fprintf(b, " [explicit artifact marker: `%s`]",
 				truncateForPrompt(incomingRelation.Marker, 120))

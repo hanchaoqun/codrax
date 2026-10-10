@@ -178,7 +178,7 @@ func buildEmitLogTriageSchema() {
 	errorSchemaAtDepth = func(depth int) map[string]any {
 		props := map[string]any{
 			"source_id": map[string]any{"type": "string", "minLength": 1, "description": "Optional exact attached log source_id. Omit when unknown; the system locates verbatim text and never guesses a source from a filename or line number."},
-			"type":      map[string]any{"type": "string", "maxLength": 80},
+			"type":      map[string]any{"type": "string", "maxLength": 80, "description": "Prefer the original error/exception label printed on this entry's own source line. A diagnostic name not printed there remains a soft interpretation, never an original error identifier. The system verifies source spelling separately; no extra evidence field is needed."},
 			"message": map[string]any{
 				"type":        "string",
 				"maxLength":   500,

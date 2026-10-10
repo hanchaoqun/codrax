@@ -280,7 +280,7 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 		if raw == "" {
 			return "", ""
 		}
-		return fmt.Sprintf("structured runtime error type %q", raw), ""
+		return fmt.Sprintf("source-line literal %q (diagnostic category not established by spelling)", raw), ""
 	case "error_message":
 		if raw == "" {
 			return "", ""

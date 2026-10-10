@@ -150,7 +150,7 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 			out.DiagnosticConfidence = diagnosticConfidenceSignal
 		}
 	}
-	for _, typ := range LogBundleErrorTypes(bundle) {
+	for _, typ := range LogBundleObservedTypeLiterals(bundle) {
 		name := strings.TrimSpace(typ)
 		if name == "" {
 			continue

@@ -112,14 +112,14 @@ func RenderDriftBoundedErrorTypeCoverageSummary(errorTypes []string, lang string
 	}
 	if zh {
 		if len(quoted) == 1 {
-			return fmt.Sprintf("附带日志的结构化错误类型是%s。", quoted[0])
+			return fmt.Sprintf("对应日志行实际包含%s；字面量本身不证明错误类别。", quoted[0])
 		}
-		return fmt.Sprintf("附带日志的结构化错误类型依次是%s。", strings.Join(quoted, " -> "))
+		return fmt.Sprintf("对应日志行实际包含%s；这些字面量不证明错误类别或因果顺序。", strings.Join(quoted, " / "))
 	}
 	if len(quoted) == 1 {
-		return fmt.Sprintf("The attached log's structured error type is %s.", quoted[0])
+		return fmt.Sprintf("The corresponding log line contains %s; its spelling alone does not prove an error category.", quoted[0])
 	}
-	return fmt.Sprintf("The attached log's structured error types are %s.", strings.Join(quoted, " -> "))
+	return fmt.Sprintf("The corresponding log lines contain %s; these spellings do not prove error categories or causal order.", strings.Join(quoted, " / "))
 }
 
 // RenderDriftBoundedLogBundleSurfaceSummary returns prose summarising
@@ -164,7 +164,7 @@ func RenderDriftBoundedLogBundleSurfaceSummary(bundle *types.LogBundle, lang str
 		seenSignal[key] = true
 		signals = append(signals, "`"+name+"`")
 	}
-	errorTypes := types.LogBundleErrorTypes(bundle)
+	errorTypes := types.LogBundleObservedTypeLiterals(bundle)
 	switch {
 	case len(signals) > 0 && len(errorTypes) > 0:
 		typeSummary := RenderDriftBoundedErrorTypeCoverageSummary(errorTypes, lang)

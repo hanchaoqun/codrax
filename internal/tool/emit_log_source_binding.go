@@ -29,6 +29,9 @@ func prepareLogTriageSourceProof(ctx *types.BusContext, p *emitLogTriageParams) 
 		for i := range errors {
 			e := &errors[i]
 			add(e.Message, e.SourceID)
+			if strings.TrimSpace(e.Message) == "" {
+				add(e.Type, e.SourceID)
+			}
 			// Whole-material cardinality also prevents mixing selected and
 			// unselected references to count the same error occurrence twice.
 			if e.SourceID != "" {
@@ -97,7 +100,11 @@ func logTriageExcerptCount(text, source, preview string, proofs []logTriageSourc
 func bindLogTriageSources(p *emitLogTriageParams, proof logTriageSourceProof) {
 	var walk func(*emitLogTriageError)
 	walk = func(e *emitLogTriageError) {
-		e.sourceBinding = types.NewLogSourceBinding(proof.location(e.Message, e.SourceID))
+		anchor := e.Message
+		if strings.TrimSpace(anchor) == "" {
+			anchor = e.Type
+		}
+		e.sourceBinding = types.NewLogSourceBindingForError(proof.location(anchor, e.SourceID), e.Type, e.Message)
 		if e.Cause != nil {
 			walk(e.Cause)
 		}

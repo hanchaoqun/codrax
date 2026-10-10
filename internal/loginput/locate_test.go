@@ -8,8 +8,34 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestLocateLineLiteralRetainsCoordinatesWithoutUnboundedLineCopy(t *testing.T) {
+	for _, size := range []int{4096, 4097, 65536} {
+		prefix := "NativeFault: anchored-message "
+		raw := prefix + strings.Repeat("x", size-len(prefix)) + "\n"
+		catalog, err := Prepare(context.Background(), []Input{{Name: "wide.log", Data: []byte(raw)}}, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		locations, err := catalog.Locate(context.Background(), []ExcerptSelector{{Text: "anchored-message"}})
+		if err != nil || len(locations) != 1 || !locations[0].Verified() {
+			t.Fatalf("size %d lost valid coordinates: %+v / %v", size, locations, err)
+		}
+		loc := locations[0]
+		if loc.FirstLine != 1 || string([]byte(raw)[loc.ByteStart:loc.ByteEnd]) != "anchored-message" {
+			t.Fatalf("size %d wrong anchor: %+v", size, loc)
+		}
+		if got := loc.SupportsLineLiteral("NativeFault", "anchored-message"); got != (size <= 4096) {
+			t.Fatalf("size %d literal proof=%v; must never prove via a truncated line", size, got)
+		}
+		if len(loc.matchedLine) > 4096 {
+			t.Fatalf("retained unbounded line: %d", len(loc.matchedLine))
+		}
+	}
+}
 
 func TestLocateExactSourcePhysicalBytesAndBoundaries(t *testing.T) {
 	raw := []byte("header\r\n10-09 01:02:03.123 7 8 I Tag: hello\r\n  continuation\r\nnext row\r\n")

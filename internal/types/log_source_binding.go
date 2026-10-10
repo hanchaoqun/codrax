@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/loginput"
 )
@@ -25,6 +26,8 @@ type LogSourceBinding struct {
 	ByteStart      int64  `json:"byte_start,omitempty"`
 	ByteEnd        int64  `json:"byte_end,omitempty"`
 	proof          [32]byte
+	literalType    string
+	literalMessage string
 }
 
 // NewLogSourceBinding accepts only the in-process full-source read receipt.
@@ -44,6 +47,25 @@ func NewLogSourceBinding(location loginput.ExcerptLocation) *LogSourceBinding {
 }
 
 func (b *LogSourceBinding) digest() [32]byte { raw, _ := json.Marshal(b); return sha256.Sum256(raw) }
+
+// NewLogSourceBindingForError reuses the exact message location for field-level
+// literal teaching. A header-only error uses its type as the excerpt. Matching
+// proves a source spelling, never that the triager's classification is correct.
+func NewLogSourceBindingForError(location loginput.ExcerptLocation, typ, message string) *LogSourceBinding {
+	b := NewLogSourceBinding(location)
+	excerpt := message
+	if strings.TrimSpace(excerpt) == "" {
+		excerpt = typ
+	}
+	if location.SupportsLineLiteral(typ, excerpt) {
+		b.literalType, b.literalMessage = typ, message
+	}
+	return b
+}
+
+func (b *LogSourceBinding) supportsErrorTypeLiteral(typ, message string) bool {
+	return b.IsVerified() && b.literalType != "" && b.literalType == typ && b.literalMessage == message
+}
 
 func (b *LogSourceBinding) IsVerified() bool {
 	return b != nil && b.Status == "unique" && b.SourceID != "" && b.FirstLine > 0 && b.LastLine >= b.FirstLine && b.proof != [32]byte{} && b.proof == b.digest()
