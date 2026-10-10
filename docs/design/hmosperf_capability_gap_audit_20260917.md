@@ -6418,3 +6418,91 @@ Python完整人工PASS：唯一源码patch为return value+1；原测试/setup字
 三笔代码`d26eb19fe`/`62cfa7ddb`/`dcd4e4500`已普通推送origin/main，14338正式exit0，远端从45e1bddb4前进至dcd4e4500。55份验证产物（53日志及2份原始复现文件）、60份工具载荷、3份准备源均本地保留在`eval/results/hmc_registration_intervals_20261009/`，全部日志复制后逐字节cmp、两份blob目录及准备源diff通过。独立公开RED源码以非编译`.go.txt`归档，SHA256仍为`284a6532f0275168310ff16982ebcf4e858a256bb6178627b8434d1df9c93fc3`；原live结果和源码计划/执行/工作流工件未改。
 
 最终复算仍79唯一ID=19完整实现交付+60开放、重复0，本批新增关闭完整父项0，交付两组可使用子能力：只读登记的真实来源终态/原件安全恢复；原生区间发现/身份保真及同源有界恢复。稳定验收父项仍5个，固定两例机器2/2、完整人工1/2，与本批1份人工FAIL重叠而不加成第6个稳定ID。普通写例没有命中新登记恢复，量测没有触发自动补查，均不伪称live验证；完整公开正反/race与真实问答各自计账。17.7/08.6/12.5及持续18.5未缩范围销账，后继按§216.6双轨推进。
+
+## 217. 共享完整日志来源与必需关系图保真（2026-10-09）
+
+### 217.1 起点、两轨范围与参考设计
+
+起点HEAD `8e2aac52b`工作区干净，唯一ID复算79=19已交付+60开放、重复0；41待实施/13部分实施/2待验收/3验收中/1持续执行。本批只做05.1共享日志来源能力与12.5/18.4已证关系图覆盖/格式缺陷，不插入第三实施轨。原03.2/04.2/08.3/08.4/18.2五稳定验收父项、§216原生表交接/截断元数据、只读登记未命中的自然分支与二进制剩余范围保持记录。
+
+再次对照参考`core/extensions/hilog_parser.py`、`kmsg_parser.py`和`log_extender.py:168–337`：设计意图是把独立文件中的日志事件变成可组合查询的事实，为网络、媒体、内存诊断提供共同前置；部分源坏掉不应抹掉健康源。可迁移的是完整输入与查询能力，不是把合并预览当完整材料，也不是照搬修改用户DB的扩展方式。
+
+参考实现的同stem覆盖、首层有匹配即不再发现子目录、非法UTF-8替换、mtime补年及主机时区推断都不采纳；Kmsg以浮点秒乘1e9会丢大整数精度，改用十进制精确转换。参考坏时间头不重置续行目标会把后续栈归给上一健康线程，本批保坏头与孤立续行边界。参考跨文件中位wall/boot offset及质量差仍继续aligned、白名单将窗外记录救回均不复制：05.1只查源原值，05.2校准见证与05.3联窗仍独立开放，jank自身与Trace同时间轴的既定约定不变。
+
+### 217.2 完整来源→公开查询→证据交接
+
+`dbb3b4275`新增`internal/loginput`，CLI重复`--log`、stdin、REPL文件及完整paste共用私有Catalog；展示预览与完整材料分离。每源保路径/别名、输入代次、原文件与解压SHA、物理行/字节、解析/未知/坏头/孤立续行数量；同名不同来源不合并，真正重复导入不倍计。gzip按魔数识别并验checksum；无效源不发表其部分行，健康源仍可查询。来源代次不是进程生命周期代次，源未提供的进程代次保持未知，不从PID复用或时间近邻推断。
+
+来源和查询均有取消/输入/解压/行/记录/页字节上限。每次查询以完整读取、文件代次及双SHA重验；同大小同mtime替换、别名换绑、读取中变化均拒绝。未知格式、坏日期、非法UTF-8保原始字节，已知0与未知分开。`Complete`仅指所选材料已读至EOF，不表示设备日志未丢失或捕获完整。
+
+公开`log_query`只读取实际附加的Catalog，不接收任意文件路径、不从JSON或旧预览恢复权限。支持来源/格式/PID/TID/原文子串/物理行及分页；每页默认12、上限50，每条都有可执行原文定位。`record_ref`字节分页默认4KiB/上限16KiB，合法UTF-8保字符边界，任意原字节另保base64；与普通筛选参数严格互斥，不靠扩大观察模式read_file权限找回长文。重复JSON键、null与错误类型明确拒绝；这属于结构参数校验，不扫描用户或模型原文作硬门。全坏不发表“零事件”观察，存储失败不发表虚假payload地址，取消后不发布结果。
+
+工具原生Observation带独立来源、解压物理行、结果JSONPointer及generation/SHA，按runtime-artifact通路进入ledger/finalizer；实际Registry→Observation→EmitAnswerDocument→render有公开测试。当前AnswerDocument没有原生逐行observation引用字段，未伪造该字段或把runtime ID填入源码evidence_ids；逐行绑定的系统改进继续归16.4。Catalog只通过进程内Bus/Agent/SubAgent投影流转，读轮指纹覆盖完整来源，不仅覆盖预览。恢复历史导出只恢复文本，不能恢复完整来源权限。
+
+独审发现旧预览经`/log append`可被误封成完整来源，原公开overlay `log-legacy-preview-audit-v1.log`为真实RED；末版删除该自动升权，有旧文本无Catalog时拒绝追加、保留原文本并提示重新附加完整材料。原overlay v2及race原样GREEN。空源码仓早退也改为实际runtime附件判定，日志/Trace含合法空Catalog可进入分析，纯路径词/提示不能获得权限；八个Run正反例通过。旧自动粘贴拆分仍是legacy预览，不虚称它能查询完整材料。
+
+### 217.3 必需图的结构覆盖与无损修补
+
+`57e59de51`提取已有运行时图合同资格判断，emit前与contract后检查共用：只有必需结构关系图、已在原合同范围且有原生合格关系证据时，不能用孤立节点图冒充完成。修补候选来自原有关系池，模型自行选取真实关系；系统不猜业务角色、不造边、不要求画完所有候选。可选图、纯节点图、错窗/错对象及未获资格根因图等负控保留。完整业务角色到原生实例映射仍属12.5开放范围，最低一条边的通过不等于整题图已合格。
+
+同批修中文安全节点ID与公开JSON接口不一致、inline实体引号标签误吞关系、仅空白渲染结果冒成功。仅做语法保真转换，不向模型暴露renderer子集，不改L7失败text fence+警告的保底。§215两个公开RED原样复验GREEN；图四包相关/race及mermaidcompat/render整包race通过。长race的主要成本经sample定位为既有AST构造器普查反复遍历，不是生产死循环；后续确定性AST普查保普通/全仓执行，不重复纳入race范围以减少无收益成本。
+
+### 217.4 冻结前验证与固定双例
+
+所有源码冻结于`dbb3b42753e5`，build-v1正式exit0。相关loginput/CLI/REPL/context/types/orchestrator及工具公开/race、整包skill、schema/参数和共享surface快检均正式通过；REPL完整相关运行53.063s，图四包race最后tool451.476s正式退出，未把进行中当通过。输入分页跳过大记录、坏头续行误归属、外部修改Aliases改变私有收据、全坏源零coverage以及null/重复filter的原始失败分别保留；并行中间态未声明类型或构造预期错不冒充产品RED。
+
+新增自然问题`log_shared_sources`只问事件/执行者/关系，不把系统应看护的限制塞进QUESTION；实际两源包含gzip、同名、坏日期、孤立续行、缺PID/TID及大于2^53的纳秒。公开fixture oracle锁定2源/9逻辑记录/11物理行、精确整数和输入不变。eval runner以`LOG_FILES`传重复日志参数，保原stdin/Trace互斥和单文件兼容；工具路由计量只看真实toolcall。固定另一例为原`trace_transaction_handoffs`，两例各一次、并行2，不追加第三例。
+
+统一全仓session62957执行`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`；双例session8665。两者结果与人工审计将在正式退出后记入下一节；当前不据定向绿销任务、不修改旧FAIL。
+
+### 217.5 真实双例：机器2/2、完整人工0/2
+
+8665正式exit0，日志例152秒、事务例176秒。主代理与两位独立代理核对原件、完整payload、actualfinalizer消息及最终正文；详见[完整人工审计](../../eval/parallel_selected_summary_hmc_log_sources_graph_20261009_manual_audit.md)。不追第三例、不回写原始答案、不称纯模型波动。
+
+日志两次query精确6+3记录、11物理行、无省略、原件未变，但终稿漏内核not_found独立行，kernel L1–2/L4错写L2/L3，非法99-09剥成合法时间并断言严格递增；把“没有同步见证”写成“不存在同步机制”。实际上下文19 observations只投7条，优先3旧triage+4应用native，内核native全被截掉；JSON Value约100字前缀只有空字段/字节，三个重复长hash却挤占预算。Known Facts只剩locator/boundary、11 refs仅展开前6应用refs，deterministic_runtime_queries误报0。旧triage自由摘要虽有过滤，但未核实log_line仍成事实；analyzer自生成行号还被称为用户指定。此为16.4/18.4共享事实投影/身份交接P1，与§216原生表预算/元数据误报截断同类，不能再为log堆提示。
+
+事务精确主窗补采已保5提交/4消费/7键/3关系，三条精确身份recipe与窗外标签完整进入最终消息，仍生成无证据RSMain回复、未证交接及时间倒序；总述漏一个未确认类别。实际profile为relation_analysis且frame=false，但下游root_cause_trace族令minimum coverage和原完整edge核验同时跳过；四个无endpoint identity锚被放行。图不再零边并不等于语义通过。该确定性旁路继续纳入本批已选图缺陷轨，以typed资格统一compile/pre/post，而不改变真正根因图的因果投影或扫描文字。
+
+### 217.6 首轮全仓正式失败及收尾
+
+62957正式exit1，88测试包通过/13无测试包/2失败包。agent两项TargetStateAccountRender census因为真实type闭包漏internal/loginput，将Catalog当空包选择器；tool的TestToolRosterCensus因为LogQuery未进入llmFacingToolRoster。工具整包508.589秒完整结束后才开始修复，没有叠跑第二套全仓；正常生产编译/build已通过，这两项是应补齐的真实登记接缝，不是删除门的理由。
+
+`11138db8b`只在真实导入闭包增加internal/loginput、教学名册增加LogQuery，strict、自红变异与全工具教学门不变。census-v1正式exit0（agent31.849s/tracequery3.820s/types10.905s），tool-roster-v1及两项prompt-hygiene正式exit0。未放宽schema、数据类型或词汇检查。后续新工具快检需同时包含ToolRosterCensus及其真实Description/Parameters教学，新私有类型需同时覆盖TargetStateAccountRender census，不能只跑Schema关键词。
+
+图旁路以真实TraceQuery、IntentTrace、relation_analysis、实际finalizer initial instruction及公开emit复现；trace-relation-public-red-v2.log中零边、actor-only、无证sibling、反向identity、错误关系枚举均错误接受，正常精确原生关系正控通过。v1是构造缺少facet_ids，另留档，不冒称产品RED。RED测试源原字节以非编译.go.txt保留，SHA256为4095b2362687ca77e43bd9625e737ef1944456ad9a808d92ff65816eb29b5d8b，GREEN同源未改断言。pair级锚覆盖同一actor pair的多个不同消息这一剩余风险另挂12.5/18.4，后续需事件实例级绑定，不扫描消息文字猜时序。
+
+### 217.7 精确分流修复、末版冻结与验证边界
+
+`a14f1221e`保持原family不变，只由已有精确typed `scope=relation_analysis && !frame_causality_requested`资格选择原生实例关系核验；该条件不是关系真值，实际箭头仍必须有同源/同窗/方向/关系枚举及端点身份见证。compile、emit、局部修补及post共用同一资格，可选图、空轴或AxisDefine不能绕过箭头证明；真正causal_diagnosis、帧因果投影、未声明旧请求仍保独立因果/时序权限。work_relation子问题可能与根因诊断共存，不单独以OR条件扩权。
+
+原公开RED测试文件SHA不变，green-v1正式exit0；新增公开修补正控从实际失败生成lease与三个真实关系候选，再经实际ParametersFor取得序列插入位置，模型选择候选提交后原说明文字保留。原生关系正控由native rows构图并核对教学候选到场，不声称已逐字复制每条prompt recipe独立验证。normal-v1的两处测试构造错误、v2的选例正则不足均保留；最终related-normal-v3正式exit0：agent3.443s/types0.776s/orchestrator3.368s/tool3.122s。相关范围包含TraceCausalProjection/TraceProjection/TraceQuerySupplement、显式窗口补齐、schema/prompt与行数门。精确related-race-v1正式exit0：agent10.068s/types4.468s/orchestrator2.574s/tool4.759s；确定性AST普查不重复放入race。
+
+独立只读复核未发现阻断性回归，未改变L1读调度器、自动补齐或因果证据层，不新增用户/答案原文关键词硬门。完整业务角色映射、同actor pair多消息逐实例绑定及全题时序仍未完成；原live两份人工FAIL不改签。本批固定双例之后未再发起第三例。
+
+末版源码冻结a14f1221e；构建v2（93467）正式exit0，dirty仅文档；唯一末版全仓v2（2435）执行`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk go test -count=1 -p 4 ./...`。最终全仓、归档与推送收据待正式退出后登记，不拼接定向结果签绿。
+
+### 217.8 下一批共享事实展示计划（只读定位，未实施）
+
+主代理复核独审的五处入口，明确这不是加大预算或增加日志禁令的问题：
+
+1. `internal/tool/emit_log_triage.go::Execute/toValidateObservations`只验证evidence出现在合并预览，未由完整源证明模型行号。后继先用Catalog来源/代次/原文唯一绑定原坐标；重复原文或旧预览无完整源时不能猜唯一来源，不能授邻近PID/TID。
+2. `internal/types/observation_ledger.go::PrioritizeObservationRecords`仅保origin而非origin内来源；`runtimeObservationProducerIsDeterministicQuery`只认trace_query。不能直接全局追加log_query：该公共谓词还被Trace因果/窗口授权复用，须先分清“原生事实展示资格”与“Trace因果权威”。
+3. `internal/types/observation_prompt_projection.go::ProjectObservationPromptRecords`直接裁剪Value字符串前缀；应共用来源/代次/窗口展示计划，以完整字段单元保身份、原值时间及有效性、单位/未知，来源元数据只显示一次。先精确去重再分预算，原ledger不变。
+4. `internal/agent/answer_document_measurement_handoff.go::runtimeMeasurementHandoffPreviewRows`每表固定至多4行，导致六表只用24/128行。接入同一完整行预算分配，小集合可放下时保完整、超额才显式披露，原选择器仍指完整原生表；主窗/对照用途只取typed scope，不猜用户词。
+5. `internal/agent/answer_document_evaluator.go`先选10条再删除已另处显示的triage，没补位，实际剩7；ledger与typed refs各取前N也不一致。各出口共用所选ID/来源覆盖，先去重后预算；自动发现行号不能被描述为用户指定。
+
+验收复用实际log_query→finalizer的2源9记录/11物理行及交换源顺序，保malformed/orphan/空身份/大整数；再用原生量测三表小集合/紧预算/补位/主窗与对照/NULL与0验证同一计划。输入完整、查询完整、展示完整与捕获完整分别表示，不能借展示计划扩大因果权限。先取得公开实际消息RED，按上述次序一批两轨实现；当前仅完成只读设计，未记为交付，不在末版全仓中继续编辑源码。
+
+### 217.9 按原子任务原退出条件重新核账
+
+主代理与独审回读`8e2aac52b`实施清单第1节及原05.1、EXT-2拆分，确认本批暂将05.1留部分实施的理由混入了16.4/18.4最终成文欠债。原05.1只要求完整共享输入、原文件/物理行/原文/可空PID与TID/来源代次、解析错误/部分捕获说明、多文件/压缩/未知格式/去重；原规则明确实现交付不等于最终模型答案通过。本批这些输入要求已沿真实CLI/REPL/query/Observation公开路径实现并有正反及live完整9条原生结果。不能临时扩大原退出条件，让同一最终交接缺陷重复阻塞多个任务，也不能将大项EXT-2已拆到05.2/05.3的时钟联窗重新压回05.1。
+
+因此本批末版全仓、文档、提交推送收据齐后，05.1应按原范围记为实现已交付；此前“整体输入任务必须等最终答案PASS”的暂定判断由本节明确纠正，不删改原始失败事实。只交付来源代次，不声称已推导进程生命周期；原文没提供的boot/instance保持未知，时钟校准、重启映射和跨源实例仍属05.2/05.3/14.4。两份原live继续人工FAIL；漏记录、错坐标、无效时间改写、旧triage升权、展示预算失衡继续16.4/18.4 P1，完整业务图仍12.5开放。这是恢复原验收边界，不是缩减范围或修改oracle求减少数字。
+
+### 217.10 最终回归、归档与交付
+
+全仓v2（2435）正式exit0：90测试包通过、13无测试包、零FAIL；agent113.894s、loginput0.866s、orchestrator69.551s、tool529.094s、tracequery132.593s、types55.159s。构建v2（93467）正式exit0，源码冻结a14f1221e后未再修改。首轮两包登记失败、公开RED及构造失败均保留，没有删除断言、放宽门槛、拼接早期绿或再跑第三个live。
+
+四笔代码`57e59de51`、`dbb3b4275`、`11138db8b`、`a14f1221e`已普通推送origin/main，8049正式exit0，远端从8e2aac52b前进至a14f1221e。本地`eval/results/hmc_log_sources_graph_20261009/`保留69份验证产物（65日志及4份原始复现/诊断文件）和36份工具载荷；全部日志复制后cmp，两个blob归档目录diff通过。原图RED源SHA保持4095b2362687ca77e43bd9625e737ef1944456ad9a808d92ff65816eb29b5d8b，原live答案和判定未改。
+
+按§217.9原范围核账，最终79唯一ID=20完整实现已交付+59开放、重复0；开放为40待实施/13部分实施/2待验收/3验收中/1持续执行。本批完整任务新增1（05.1共享完整日志输入），另交付关系图覆盖/语法及跨旧family原生边证据修复子能力。不是“日志分析整题通过”或“完整图能力关闭”。五稳定验收父项仍03.2/04.2/08.3/08.4/18.2，两份本批人工FAIL与其重叠而不相加。下一系统缺陷优先§217.8共享原生事实展示；下一完整参考能力候选10.1需真实双侧获取/来源/失败隔离，不以空结构销账。05.2/05.3、二进制接入剩余矩阵、只读登记未命中自然分支与原写模式FAIL继续留案。
