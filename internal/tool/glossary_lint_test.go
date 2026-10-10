@@ -27,6 +27,7 @@ import (
 var llmFacingToolRoster = []Tool{
 	&ExecCommand{},
 	&GrepTool{},
+	&LogQuery{},
 	&TraceQuery{},
 	&TraceCapabilities{},
 	&TraceCatalog{},
