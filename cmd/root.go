@@ -1738,6 +1738,7 @@ func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
 	if hasAttachment {
 		hint = "attachment=true"
 	}
+	ctx = repl.WithNamedInputRoutingContext(ctx, request, flagRepo, runtimeAnchorDir)
 	rawPolicy, err := classifySingleShotPolicyCall(ctx, classifier, request, hint)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && repl.SingleShotRoutePolicyTimeout() > 0 {

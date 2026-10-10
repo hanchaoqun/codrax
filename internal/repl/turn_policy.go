@@ -995,6 +995,7 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		b.WriteString("## last_answer_present: false\n\n")
 	}
 	b.WriteString("## current_repository_available: true\n\n")
+	b.WriteString(namedInputRoutingContext(ctx))
 	b.WriteString("## current: ")
 	b.WriteString(userLine)
 

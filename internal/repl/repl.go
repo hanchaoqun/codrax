@@ -7323,6 +7323,7 @@ func (r *REPL) dispatch(line, display string) {
 			logging.Info("[repl/turn_policy] classifier start: %s", oneLine(line))
 			started := time.Now()
 			policy, err := r.runTurnPolicyClassifierInFlight(func(classifierCtx context.Context) (TurnPolicy, error) {
+				classifierCtx = WithNamedInputRoutingContext(classifierCtx, line, r.repoRoot, r.runtimeAnchor)
 				return tpc.ClassifyPolicy(classifierCtx, line, hint, lastAnswer != "")
 			})
 			logging.Info("[repl/turn_policy] classifier end: elapsed=%s err=%t", time.Since(started).Truncate(time.Millisecond), err != nil)
