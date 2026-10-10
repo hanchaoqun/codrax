@@ -4513,7 +4513,7 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 			}
 			fmt.Fprintf(&b, " diagnostic=%t confidence=%.2f", obs.Diagnostic, obs.Confidence)
 			if obs.Subject != "" {
-				fmt.Fprintf(&b, " subject=`%s`", obs.Subject)
+				fmt.Fprintf(&b, " advisory_subject=`%s`", obs.Subject)
 			}
 			if obs.Evidence != "" {
 				fmt.Fprintf(&b, "\n     observed_evidence: %s\n", truncateForPrompt(obs.Evidence, 240))

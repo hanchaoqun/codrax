@@ -133,12 +133,15 @@ func TestCompileObservationLedgerFiltersUnsupportedPeerRelationFacts(t *testing.
 	}
 }
 
-func TestCompileObservationLedgerKeepsSingleErrorInterpretationAdvisory(t *testing.T) {
+func TestCompileObservationLedgerKeepsSingleErrorInterpretationInAuditOnly(t *testing.T) {
 	bundle := peerErrorLogBundleForAuthorityTest()
 	bundle.Errors = bundle.Errors[:1]
 	ledger := CompileObservationLedger(ObservationLedgerInput{LogBundle: bundle})
 	observation := findObservationRecord(t, ledger, "log:observation:0")
-	if !containsObservationString(observation.RichNotes, "triager_interpretation_advisory=the native panic propagated into ArkTS") {
-		t.Fatalf("non-peer observation interpretation was over-suppressed: %+v", observation)
+	if containsObservationString(observation.RichNotes, "triager_interpretation_advisory=the native panic propagated into ArkTS") {
+		t.Fatalf("single-error interpretation entered answer-grade facts: %+v", observation)
+	}
+	if bundle.Observations[0].Summary != "the native panic propagated into ArkTS" {
+		t.Fatalf("original advisory audit was altered: %+v", bundle.Observations)
 	}
 }

@@ -159,6 +159,7 @@ func TestCompileObservationLedger_CompilesExistingCarriers(t *testing.T) {
 			Kind:      LogObservationRetryCycle,
 			Subject:   "finalizer",
 			Summary:   "finalizer retried",
+			Evidence:  "stage=finalize attempt=2",
 			LineStart: 12,
 		}}},
 		PerfBundle: &PerfBundle{Observations: []PerfObservation{{
@@ -1301,7 +1302,7 @@ func TestCompileObservationLedger_PreTriageJankCauseStaysCandidate(t *testing.T)
 	}
 }
 
-func TestCompileObservationLedger_LogObservationKeepsInterpretationAdvisory(t *testing.T) {
+func TestCompileObservationLedger_LogObservationKeepsInterpretationOutOfFacts(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		LogBundle: &LogBundle{Observations: []LogObservation{{
 			Kind:       LogObservationRuntimeEvent,
@@ -1318,10 +1319,8 @@ func TestCompileObservationLedger_LogObservationKeepsInterpretationAdvisory(t *t
 		record.RawExcerpt != "⟳ 4/4 model response error, rewriting" {
 		t.Fatalf("artifact excerpt must own the observed ledger fact: %+v", record)
 	}
-	if len(record.RichNotes) != 1 ||
-		!strings.Contains(record.RichNotes[0], "triager_interpretation_advisory=") ||
-		!strings.Contains(record.RichNotes[0], "fourth retry") {
-		t.Fatalf("triager interpretation must remain lossless but advisory: %+v", record.RichNotes)
+	if record.Subject != "" || strings.Contains(strings.Join(record.RichNotes, "\n"), "fourth retry") {
+		t.Fatalf("triager interpretation must remain outside answer-grade facts: %+v", record)
 	}
 }
 
@@ -1470,21 +1469,19 @@ func TestPrioritizeObservationRecords_ReservesBoundedSystemProtocolSeatsUnderSou
 }
 
 func TestCompileObservationLedger_ObservationWithoutEvidenceCannotBecomePrincipal(t *testing.T) {
-	ledger := CompileObservationLedger(ObservationLedgerInput{
-		LogBundle: &LogBundle{Observations: []LogObservation{{
-			Kind:       LogObservationRuntimeEvent,
-			Summary:    "model interpretation without an artifact excerpt",
-			Diagnostic: true,
-			Severity:   LogObservationFailure,
-			Confidence: 0.9,
-		}}},
-	})
-	record := findObservationRecord(t, ledger, "log:observation:0")
-	if record.Role != AnswerAggregateRoleSupportingCoverage || record.GroundingPolicy != ClaimGroundingSoft {
-		t.Fatalf("evidence-free interpretation became principal: %+v", record)
+	bundle := &LogBundle{Observations: []LogObservation{{
+		Kind:       LogObservationRuntimeEvent,
+		Summary:    "model interpretation without an artifact excerpt",
+		Diagnostic: true,
+		Severity:   LogObservationFailure,
+		Confidence: 0.9,
+	}}}
+	ledger := CompileObservationLedger(ObservationLedgerInput{LogBundle: bundle})
+	if len(ledger.Records) != 0 {
+		t.Fatalf("evidence-free interpretation became an observation: %+v", ledger.Records)
 	}
-	if record.ProvenanceLane != ObservationProvenanceUnknown {
-		t.Fatalf("evidence-free interpretation gained observed provenance: %+v", record)
+	if bundle.Observations[0].Summary != "model interpretation without an artifact excerpt" {
+		t.Fatalf("audit interpretation lost: %+v", bundle)
 	}
 }
 
@@ -1642,6 +1639,7 @@ func TestCompileObservationLedger_PreservesExternalPagingRefsAndLocalSpans(t *te
 			Kind:      LogObservationRuntimeEvent,
 			Subject:   "panic frame",
 			Summary:   "panic at frame",
+			Evidence:  "panic: request failed",
 			LineStart: 40,
 			LineEnd:   43,
 		}}},
@@ -2795,6 +2793,7 @@ func TestObservationLedgerInputFromAgentContext_CarriesMCPAndRuntimeBundles(t *t
 		Kind:      LogObservationRuntimeEvent,
 		Subject:   "runtime event",
 		Summary:   "runtime event observed",
+		Evidence:  "runtime event emitted",
 		LineStart: 8,
 	}}}
 	ctx := &AgentContext{

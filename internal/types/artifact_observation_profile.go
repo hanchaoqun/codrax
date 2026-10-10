@@ -183,10 +183,10 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		if kind := ObservationKindFromLogObservation(obs.Kind); kind != "" {
 			out.ObservationKinds = append(out.ObservationKinds, kind)
 		}
-		if subject := strings.TrimSpace(obs.Subject); subject != "" {
-			out.SubjectCandidates = append(out.SubjectCandidates, subject)
-		}
-		evidence := strings.TrimSpace(firstNonEmptySurfaceString(obs.Evidence, obs.Summary))
+		// Coarse typed navigation flags remain available below. Free-form
+		// interpretation is not an observed identity or evidence snippet.
+		fact, _ := ProjectLogObservationForFacts(bundle, obs)
+		evidence := strings.TrimSpace(fact.Evidence)
 		if out.SymptomSummary == "" && evidence != "" {
 			// Prefer the artifact excerpt over the triager-authored synopsis.
 			// The latter is still available as an advisory LogObservation

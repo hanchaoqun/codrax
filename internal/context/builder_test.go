@@ -1103,8 +1103,9 @@ func TestEvidenceRenderLimitForAgentContext_RuntimeSourceAuthorityCompact(t *tes
 		Scenario: types.ScenarioRootCause,
 		LogTriage: &types.LogBundle{
 			Observations: []types.LogObservation{{
-				Kind:    types.LogObservationRetryCycle,
-				Summary: "retry loop",
+				Kind:     types.LogObservationRetryCycle,
+				Summary:  "retry loop",
+				Evidence: "stage=finalize attempt=2",
 			}},
 		},
 		Predicates: types.SemanticPredicates{

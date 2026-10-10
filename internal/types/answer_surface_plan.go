@@ -3478,7 +3478,7 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 		})
 	}
 	for _, obs := range bundle.Observations {
-		obs, ok := ProjectLogObservationForReasoning(bundle, obs)
+		obs, ok := ProjectLogObservationForFacts(bundle, obs)
 		if !ok {
 			continue
 		}

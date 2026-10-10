@@ -628,6 +628,7 @@ func TestCollectExternalObservationSeeds_SurfacesStructuredObservations(t *testi
 			Kind:       LogObservationTopicMismatch,
 			Subject:    "line-number handling",
 			Summary:    "answer body discussed emit_evidence instead of the requested line-number bug",
+			Evidence:   "topic check: requested=line_numbers actual=emit_evidence",
 			Diagnostic: true,
 			Confidence: 0.9,
 		}},
@@ -635,8 +636,7 @@ func TestCollectExternalObservationSeeds_SurfacesStructuredObservations(t *testi
 	seeds := CollectExternalObservationSeeds(bundle, nil)
 	for _, seed := range seeds {
 		if seed.Kind == "log_observation" &&
-			strings.Contains(seed.Raw, "emit_evidence") &&
-			seed.Func == "line-number handling" {
+			seed.Raw == bundle.Observations[0].Evidence && seed.Func == "" {
 			return
 		}
 	}

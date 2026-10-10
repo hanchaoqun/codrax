@@ -3895,16 +3895,13 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 		add(logOperationalSemanticObservationRecord(i, semantic, relationFence))
 	}
 	for i, obs := range bundle.Observations {
-		obs, ok := ProjectLogObservationForReasoning(bundle, obs)
+		obs, ok := ProjectLogObservationForFacts(bundle, obs)
 		if !ok {
 			continue
 		}
 		role := logObservationRecordRole(bundle, obs)
 		supersededBy := logOperationalSemanticRefsForObservation(bundle, obs)
 		var richNotes []string
-		if !peerRelationUnproven {
-			richNotes = logObservationInterpretationNotes(obs)
-		}
 		for _, ref := range supersededBy {
 			richNotes = appendUniqueObservationString(richNotes, "triager_interpretation_superseded_by="+ref)
 		}
@@ -3927,12 +3924,9 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 			ClaimKey:  firstNonEmptyString(obs.Subject, string(obs.Kind)),
 			Subject:   strings.TrimSpace(obs.Subject),
 			Predicate: string(obs.Kind),
-			// The artifact excerpt is the observed fact. The LLM triager's
-			// summary is retained losslessly as an advisory note, but it must
-			// not become the principal ledger claim: a summary can contain a
-			// plausible interpretation of counter/progress/message semantics
-			// that the log text itself never established.
-			Summary:    firstNonEmptyString(strings.TrimSpace(obs.Evidence), strings.TrimSpace(obs.Summary)),
+			// The original bundle retains the interpretation for audit and
+			// exploration. Answer-grade rows carry only the observed excerpt.
+			Summary:    strings.TrimSpace(obs.Evidence),
 			RawExcerpt: strings.TrimSpace(obs.Evidence),
 			RichNotes:  richNotes,
 			Confidence: obs.Confidence,
@@ -4043,14 +4037,6 @@ func logOperationalSemanticRefsForObservation(bundle *LogBundle, obs LogObservat
 		refs = append(refs, fmt.Sprintf("log:protocol:%d", i))
 	}
 	return refs
-}
-
-func logObservationInterpretationNotes(obs LogObservation) []string {
-	summary := strings.TrimSpace(obs.Summary)
-	if summary == "" || summary == strings.TrimSpace(obs.Evidence) {
-		return nil
-	}
-	return []string{"triager_interpretation_advisory=" + summary}
 }
 
 func logErrorObservationRichNotes(err LogError) []string {

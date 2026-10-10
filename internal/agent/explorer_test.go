@@ -5807,7 +5807,7 @@ func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigationForMixedOrigin
 				IsDiagnosticQuestion: true,
 			},
 			LogTriage: &types.LogBundle{
-				Observations: []types.LogObservation{{Kind: types.LogObservationRetryCycle, Summary: "first_byte_timeout"}},
+				Observations: []types.LogObservation{{Kind: types.LogObservationRetryCycle, Summary: "first_byte_timeout", Evidence: "first_byte_timeout"}},
 			},
 			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
 				IsCurrentSourceExplanationRequested: true,

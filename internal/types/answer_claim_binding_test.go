@@ -264,10 +264,13 @@ func TestCompileRuntimeArtifactClaimBindings_LogBundleCreatesRuntimeBinding(t *t
 	}
 	var sawObservation bool
 	for _, binding := range got {
-		if binding.TargetRef == "finalizer retry" &&
+		if binding.TargetRef == string(LogObservationRetryCycle) &&
 			claimBindingHasSupportContaining(binding, "log_line=17") &&
-			claimBindingHasSupportContaining(binding, "finalizer retried after a schema repair") {
+			claimBindingHasSupportContaining(binding, "答案待完善，正在重写") {
 			sawObservation = true
+		}
+		if claimBindingHasSupportContaining(binding, "finalizer retried after a schema repair") {
+			t.Fatalf("model interpretation became source support: %+v", binding)
 		}
 		if binding.Origin == AnswerEvidenceOriginCurrentSource {
 			t.Fatalf("runtime log binding should not synthesize current_source: %+v", got)

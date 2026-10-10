@@ -7155,7 +7155,8 @@ func emitAnalysisRuntimeArtifactHasLineAnchors(ctx *types.BusContext) bool {
 			return false
 		}
 		for _, obs := range bundle.Observations {
-			if obs.LineStart > 0 {
+			fact, ok := types.ProjectLogObservationForFacts(bundle, obs)
+			if ok && fact.LineStart > 0 {
 				return true
 			}
 		}

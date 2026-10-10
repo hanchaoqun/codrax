@@ -873,7 +873,11 @@ func runtimeArtifactObservationCount(logBundle *types.LogBundle, perfBundle *typ
 		count += len(logBundle.Meta.Signals)
 		count += len(types.LogBundleObservedTypeLiterals(logBundle))
 		count += len(types.LogBundleErrorMessages(logBundle))
-		count += len(logBundle.Observations)
+		for _, observation := range logBundle.Observations {
+			if _, ok := types.ProjectLogObservationForFacts(logBundle, observation); ok {
+				count++
+			}
+		}
 		types.WalkLogFrames(logBundle, func(types.LogFrame) {
 			count++
 		})

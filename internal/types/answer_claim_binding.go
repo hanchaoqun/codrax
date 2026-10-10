@@ -369,7 +369,7 @@ func logBundleClaimBindings(bundle *LogBundle, outputs []AnswerRequestedOutput) 
 		walk(err)
 	}
 	for _, obs := range bundle.Observations {
-		obs, ok := ProjectLogObservationForReasoning(bundle, obs)
+		obs, ok := ProjectLogObservationForFacts(bundle, obs)
 		if !ok {
 			continue
 		}
@@ -385,9 +385,6 @@ func logBundleClaimBindings(bundle *LogBundle, outputs []AnswerRequestedOutput) 
 			} else {
 				parts = append(parts, fmt.Sprintf("log_line=%d", obs.LineStart))
 			}
-		}
-		if obs.Summary != "" {
-			parts = append(parts, "summary="+obs.Summary)
 		}
 		if len(parts) > 0 {
 			support = append(support, strings.Join(parts, " "))
