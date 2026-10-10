@@ -875,6 +875,8 @@ Turn A 末尾，explorer 把整份调查结果冻结成 `TurnAArtifacts`：
 |---|---|
 | `UserQuestion` | 原始任务问题（Turn B 不用从 normalize 后的 IR 反推） |
 | `InvestigationNotes` | 每轮 ReAct 的 LLM narrative 块 |
+| `AcceptedClosureReason` / `AcceptedResultKind` | 当前模型收尾摘要及工作流结果；完成状态不验证摘要事实 |
+| `SupersededClosures` | 在实际合并边界记录被替换的摘要原文/结果类型，仅供审计，不混入普通 narrative；旧快照无此字段仍兼容 |
 | `ReadFiles` | Turn A 拉过的 repo-relative file paths（去重）。Turn B 用这个防御 LLM 引用没看过的文件 |
 | `ToolResults` | Turn A 的 tool result history（按时序，受 pruneToolHistory 约束）。Turn B 不再调工具——这是它能看到原始数据的唯一窗口 |
 | `EvidenceItems` | Turn A 的 ParseOutput 已产出的确定性 evidence（concrete_value / flow finding / mechanism scan / grounded markdown）。Turn B 可以再 emit_evidence 加新的，drain 时合并 |
@@ -882,6 +884,8 @@ Turn A 末尾，explorer 把整份调查结果冻结成 `TurnAArtifacts`：
 | `TerminalEvidenceCount` | Turn A 标的"terminal evidence"数 β——结构上单 symbol 的 answer 候选数。Turn B 的 emit_answer_symbol cardinality validator 用它做 floor |
 
 `SetTurnAArtifacts` 防御性拷贝 slice header；`TurnAArtifacts()` 每次返回新 copy。Turn A 反复 set 不会污染历史。
+
+日志与量测原生事实展示复用最终所选 Observation ID / 原生测量表的来源、查询和窗口凭证；补充主事实引用不会授予因果、同一时钟或源码权限。来源元数据预算优先覆盖实际所选记录的精确 source_id+generation。既有局部因果投影保留；没有局部投影但父查询已知越窗的行不升级为主引用。原生事实场景的当前摘要若允许展示，仅保单次有界 advisory；已有 runtime-only 安全抑制不变，不通过扫描旧摘要文本猜来源或迁移生命周期。
 
 ### 5.9 Extractor — 看快照写答案 slate
 
