@@ -21,6 +21,9 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 	choices, omittedGroups := runtimeMeasurementHandoffRoster(view.RuntimeMeasurementContract.Choices(), maxRosterGroups)
 	previewCounts := runtimeMeasurementHandoffPreviewRows(choices)
 	var b strings.Builder
+	if ctx.AnalysisIR != nil && len(types.RuntimeNativeFactDisplaySelections(&ctx.AnalysisIR.RequestModel, view.RuntimeMeasurementContract)) > 0 {
+		b.WriteString(types.RuntimeNativeFactDisplayTeaching + "\n")
+	}
 	b.WriteString("### 已核对的测量表 / Verified measurement tables\n\n")
 	if ctx.Mutable != nil && ctx.AnalysisIR != nil && types.RuntimeMeasurementMemberSetDomain(&ctx.AnalysisIR.RequestModel, types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})) {
 		if selected, ok := types.RuntimeMeasurementMemberSetSelections(ctx.Mutable.InvestigationMeasurementMemberSets(), view.RuntimeMeasurementContract, &ctx.AnalysisIR.RequestModel); ok {

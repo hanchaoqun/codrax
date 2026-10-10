@@ -68,13 +68,14 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		}
 	}
 	return ObservationLedgerInput{
-		aggregateSourceClaims:      compileAggregateSourceClaimContext(ObservationLedgerInput{EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
-		EvidenceItems:              evidenceItems,
-		AggregateFacts:             aggregateFacts,
-		SourceInventoryObservation: sourceInventory,
-		ToolResults:                toolResults,
-		RuntimeArtifactPreflight:   ctx.RuntimeArtifactPreflight,
-		RepoRoot:                   ctx.RepoRoot,
+		runtimeMeasurementPairConsumer: ctx.Mutable,
+		aggregateSourceClaims:          compileAggregateSourceClaimContext(ObservationLedgerInput{EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
+		EvidenceItems:                  evidenceItems,
+		AggregateFacts:                 aggregateFacts,
+		SourceInventoryObservation:     sourceInventory,
+		ToolResults:                    toolResults,
+		RuntimeArtifactPreflight:       ctx.RuntimeArtifactPreflight,
+		RepoRoot:                       ctx.RepoRoot,
 		// SUPP-CORE single merge point (AgentContext side): the dedicated
 		// system supplement lane rides its own input field so compile-side
 		// provenance stamping stays structural.
@@ -151,19 +152,20 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		supplementResults = bus.Mutable.SystemTraceSupplementResults()
 	}
 	return ObservationLedgerInput{
-		aggregateSourceClaims:        compileAggregateSourceClaimContext(ObservationLedgerInput{EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
-		EvidenceItems:                evidenceItems,
-		AggregateFacts:               aggregateFacts,
-		SourceInventoryObservation:   sourceInventory,
-		ToolResults:                  toolResults,
-		RuntimeArtifactPreflight:     bus.RuntimeArtifactPreflight,
-		RepoRoot:                     bus.RepoRoot,
-		SystemTraceSupplementResults: supplementResults,
-		LogBundle:                    logBundle,
-		PerfBundle:                   perfBundle,
-		MCPResponses:                 mcpResponses,
-		RequestModel:                 requestModel,
-		AnswerContract:               answerContract,
+		runtimeMeasurementPairConsumer: bus.Mutable,
+		aggregateSourceClaims:          compileAggregateSourceClaimContext(ObservationLedgerInput{EvidenceItems: aggregateSourceEvidence, ToolResults: toolResults, SourceInventoryObservation: sourceInventory}),
+		EvidenceItems:                  evidenceItems,
+		AggregateFacts:                 aggregateFacts,
+		SourceInventoryObservation:     sourceInventory,
+		ToolResults:                    toolResults,
+		RuntimeArtifactPreflight:       bus.RuntimeArtifactPreflight,
+		RepoRoot:                       bus.RepoRoot,
+		SystemTraceSupplementResults:   supplementResults,
+		LogBundle:                      logBundle,
+		PerfBundle:                     perfBundle,
+		MCPResponses:                   mcpResponses,
+		RequestModel:                   requestModel,
+		AnswerContract:                 answerContract,
 	}
 }
 

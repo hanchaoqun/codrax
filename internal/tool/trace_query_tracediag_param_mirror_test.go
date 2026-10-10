@@ -53,6 +53,10 @@ var traceQueryTraceDiagStepMirror = map[string]string{
 // frame discovery scope, wakeup budgets, recipe/interaction selectors,
 // window_sweep bucketing, compute-supply topology).
 var traceQueryToolOnlyParams = map[string]bool{
+	// The tool composes two independent source queries with run-local
+	// measurement receipts; a tracediag Step has one CLI-selected source.
+	// Its ordinary per-side query selectors retain their existing mirrors.
+	"comparison": true,
 	// Native run-local registry tokens bind a published discovery's original
 	// capture generation. They cannot be replayed by a separate tracediag
 	// process or persisted as script coordinates; scripts use explicit scope.

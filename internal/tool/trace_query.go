@@ -36,6 +36,7 @@ type TraceQuery struct {
 const traceQueryFrameCrossThreadScopeContract = "In frame_timeline/frame_flow, a thread-scope pid/thread selector chooses the anchor but member enumeration remains selected-window cross-thread; explicit target_scope=process remains a proven process-membership filter."
 
 type traceQueryParams struct {
+	Comparison           *traceMeasurementPairParams   `json:"comparison,omitempty"`
 	Source               string                        `json:"source,omitempty"`
 	Path                 string                        `json:"path,omitempty"`
 	View                 string                        `json:"view,omitempty"`
@@ -280,7 +281,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__EVENT_FIELD_FILTER_SCHEMA__", traceQueryEventFieldFilterSchema())
 	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
 	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
-	return traceQueryMeasurementsSchema(traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema))))))))))
+	return traceQueryMeasurementPairSchema(traceQueryMeasurementsSchema(traceQueryTransactionHandoffsSchema(traceQueryPreferredFrameRateSchema(traceQueryProcessMeasurementsSchema(traceQueryRenderingCandidatesSchema(traceQueryResourceStackSchema(traceQueryCPUStateFrequencySchema(traceQueryProcessProfileSchema(json.RawMessage(traceQueryEventNameSchema(schema)))))))))))
 }
 
 func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
@@ -332,6 +333,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		// here) is rejected WITH the real parameter list reflected from this
 		// tool's schema, so the retry re-aims instead of re-guessing.
 		return failStrictDecodeWithErrorSchema(t.Name(), time.Now(), err, nil, params, schema)
+	}
+	if p.Comparison != nil {
+		return t.executeMeasurementPair(ctx, params, p.Comparison)
 	}
 	// Keep model-owned coordinates separate from request defaults and instance
 	// navigation. Derived bounds must not seed the model-call supplement lane.

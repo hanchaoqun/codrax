@@ -5745,7 +5745,7 @@ const answerDocMixedRuntimeSourceObservationLedgerPromptLimit = 10
 func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	ledger := answerDocObservationLedger(ctx)
 	if ledger.Empty() {
-		return ""
+		return renderAnswerDocRuntimeMeasurementChoices(ctx)
 	}
 	promptLedgerRecords, supersededPreTriageNarratives := answerDocFinalizerObservationRecords(ctx, ledger.Records)
 	promptLedgerRecords, separateIOContext, outsideIOQueryWindows := answerDocIOWindowObservationRecords(ctx, promptLedgerRecords)

@@ -139,7 +139,7 @@ func traceQueryMeasurementsReceipt(r types.ObservationRecord, p tracequery.Measu
 		notes := append([]string(nil), base...)
 		notes = append(notes, fmt.Sprintf("窗口匹配%d条；引擎省略%d条；表格显示%d条，额外省略%d条；无法定位时间%d条（不计入窗口）。无记录不等于0，记录数不证明采集完整。", p.TotalRows, p.OmittedRows, keep, len(p.Rows)-keep, p.UnpositionedRows))
 		summary := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementSummary, Label: "各过滤器的原值观测序列", Columns: []string{"来源", "过滤器ID", "过滤器名称", "引用状态", "保留记录数", "原起点(ns)→原值（单位未知）"}, Notes: notes}
-		members := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementMembers, Label: "量测原始记录", Columns: []string{"来源/记录/行", "过滤器ID", "过滤器名称", "引用状态", "量测类型", "过滤器类型", "原始source_arg_set_id", "原始值（单位未知）", "原起点(ns)", "原持续(ns)"}, Notes: notes}
+		members := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementMembers, Label: "量测原始记录", DefaultPresentation: true, Columns: []string{"来源/记录/行", "过滤器ID", "过滤器名称", "引用状态", "量测类型", "过滤器类型", "原始source_arg_set_id", "原始值（单位未知）", "原起点(ns)", "原持续(ns)", "窗口内起点(ns)", "窗口内终点(ns)", "选取依据"}, Notes: notes}
 		timeline := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementTimeline, Label: "量测窗口内观测", Columns: []string{"来源/记录/行", "过滤器ID", "原始值（单位未知）", "窗口内起点(ns)", "窗口内终点(ns)", "选取依据"}, Notes: notes}
 		positions := map[string]int{}
 		var sequences [][]string
@@ -150,7 +150,7 @@ func traceQueryMeasurementsReceipt(r types.ObservationRecord, p tracequery.Measu
 				name, kind, arg = measurementScalar(f.Name), measurementScalar(f.Type), measurementScalar(f.SourceArgSetID)
 			}
 			ref := fmt.Sprintf("%s / %d / %d", row.SourcePath, rec.RowID, row.SourceLine)
-			members.Rows = append(members.Rows, []string{ref, measurementScalar(rec.FilterID), name, measurementReferenceLabel(rec.FilterStatus), measurementScalar(rec.MeasureType), kind, arg, measurementScalar(rec.Value), measurementScalar(rec.StartNS), measurementScalar(rec.DurationNS)})
+			members.Rows = append(members.Rows, []string{ref, measurementScalar(rec.FilterID), name, measurementReferenceLabel(rec.FilterStatus), measurementScalar(rec.MeasureType), kind, arg, measurementScalar(rec.Value), measurementScalar(rec.StartNS), measurementScalar(rec.DurationNS), processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), measurementSelectionLabel(row.Selection)})
 			timeline.Rows = append(timeline.Rows, []string{ref, measurementScalar(rec.FilterID), measurementScalar(rec.Value), processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), measurementSelectionLabel(row.Selection)})
 			parts := []any{row.SourcePath, rec.FilterID, rec.FilterStatus, rec.Filter, rec.MeasureType}
 			if rec.FilterStatus != "observed_unique" {

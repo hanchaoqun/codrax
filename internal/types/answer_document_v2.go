@@ -444,6 +444,9 @@ const (
 	// boundary derived from the typed evidence-coverage contract. It is kept
 	// separate from the model's caveats so ownership survives snapshot/recovery.
 	AnswerSystemGeneratedEvidenceScope AnswerSystemGeneratedBlockKind = "evidence_scope"
+	// NativeFacts contains producer-owned facts only; interpretation and all
+	// causal decisions stay in independently model-authored blocks.
+	AnswerSystemGeneratedNativeFacts AnswerSystemGeneratedBlockKind = "native_facts"
 
 	// AnswerSystemGeneratedRuntimeTrace marks blocks minted by the
 	// deterministic runtime-trace report assembler. The field carrying this

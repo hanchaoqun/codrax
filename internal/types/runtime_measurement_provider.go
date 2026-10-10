@@ -92,7 +92,6 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 // withholds those keys. No values are merged across queries or sources.
 func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasurementContract {
 	var out RuntimeMeasurementContract
-	seen := map[string]bool{}
 	for _, results := range [][]ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
 		for _, result := range results {
 			if !result.Success || result.ToolName != "trace_query" {
@@ -111,11 +110,6 @@ func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasu
 				if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) {
 					continue
 				}
-				key, _ := json.Marshal(p)
-				if seen[string(key)] {
-					continue
-				}
-				seen[string(key)] = true
 				for _, table := range p.Tables {
 					table = table.Clone()
 					if !runtimeMeasurementCoverageSourceAllowed(r, input) {
@@ -130,6 +124,9 @@ func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasu
 			}
 		}
 	}
+	out.Tables = append(out.Tables, buildNativeLogPresentationTables(input)...)
+	out.Tables = append(out.Tables, buildRuntimeMeasurementPairTables(input)...)
+	out.Tables = coalesceIdenticalRuntimeMeasurementTables(out.Tables)
 	if !out.Active() {
 		return nil
 	}

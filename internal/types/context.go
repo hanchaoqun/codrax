@@ -8000,6 +8000,8 @@ type ToolResult struct {
 	// Immutable private payload and run-local source ticket survive Go copies,
 	// but never JSON/model output, including historical tool-result snapshots.
 	TraceStatistics TraceStatisticsRef `json:"-"`
+	// Immutable two-side native measurements; JSON cannot restore authority.
+	RuntimeMeasurementPair RuntimeMeasurementPairRef `json:"-"`
 	// Producer-only complete business instances and run-local navigation receipts.
 	TraceBusinessSpanCandidates []TraceBusinessSpanCandidate `json:"-"`
 	TraceBusinessSpanRefs       []TraceBusinessSpanRef       `json:"-"`

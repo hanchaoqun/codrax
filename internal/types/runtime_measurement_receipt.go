@@ -30,8 +30,11 @@ type RuntimeMeasurementTable struct {
 	Columns       []string
 	Rows          [][]string
 	Notes         []string
-	MemberSet     *RuntimeMeasurementMemberSet `json:"member_set,omitempty"`
-	coverageScope *runtimeMeasurementCoverageScope
+	// DefaultPresentation selects the producer's minimal lossless fact view.
+	// It is display intent only, not completeness, source or causal authority.
+	DefaultPresentation bool                         `json:"default_presentation,omitempty"`
+	MemberSet           *RuntimeMeasurementMemberSet `json:"member_set,omitempty"`
+	coverageScope       *runtimeMeasurementCoverageScope
 }
 
 func (t RuntimeMeasurementTable) IsValid() bool {

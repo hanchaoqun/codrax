@@ -576,6 +576,9 @@ func firstObservationRecordIndexForOrigin(records []ObservationRecord, selected 
 // ledger compiler. The compiler is intentionally side-effect free and must not
 // inspect raw user prose or model free text to classify facts.
 type ObservationLedgerInput struct {
+	// Current consumer epoch, not the producer fork's retained MutableState.
+	// Private pair receipts cannot grant authority after a receiving run resets.
+	runtimeMeasurementPairConsumer *MutableState
 	// Full, ephemeral aggregate qualification context captured before the
 	// display evidence limit. It never adds direct records to the ledger.
 	aggregateSourceClaims      *aggregateSourceClaimContext

@@ -1,0 +1,8 @@
+# Natural dual-capture request. Detailed invariants live only in the oracle.
+ID="trace_dual_measurement_records"
+NAME="Independent capture measurement records in separate windows"
+DUAL_MEASUREMENT_FIXTURE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../fixtures/hmosperf_dual_measurements" && pwd)"
+QUESTION="帮我并排看一下 ${DUAL_MEASUREMENT_FIXTURE}/baseline.data 的 1 到 2 秒和 ${DUAL_MEASUREMENT_FIXTURE}/current.data 的 4 到 4.5 秒量测记录：分别有哪些数据序列，原始值和时间区间是什么？"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

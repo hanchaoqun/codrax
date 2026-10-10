@@ -62,8 +62,8 @@ func traceQueryProcessMeasurementsReceipt(r types.ObservationRecord, p tracequer
 		notes := append([]string(nil), base...)
 		notes = append(notes, fmt.Sprintf("查询匹配%d条；引擎保留%d条、省略%d条；本次表格保留%d条、额外省略%d条。另有%d条无法定位时间，不分配到查询窗口。完整查询载荷保留原数据。", p.TotalRows, len(p.Rows), p.OmittedRows, keep, len(p.Rows)-keep, p.UnpositionedRows))
 		summary := processMeasurementSeriesTable(r.ID, p.Rows[:keep], notes)
-		members := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementMembers, Label: "进程量测原始记录",
-			Columns: []string{"进程", "采集内进程ID", "指标", "过滤器ID", "原始类型", "原始值（单位未提供）", "原起点(ns)", "原持续(ns)", "源记录/行"}, Notes: notes}
+		members := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementMembers, Label: "进程量测原始记录", DefaultPresentation: true,
+			Columns: []string{"进程", "采集内进程ID", "指标", "过滤器ID", "原始类型", "原始值（单位未提供）", "原起点(ns)", "原持续(ns)", "源记录/行", "窗口内起点(ns)", "窗口内终点(ns)", "选取依据"}, Notes: notes}
 		timeline := types.RuntimeMeasurementTable{ObservationID: r.ID, View: types.RuntimeMeasurementTimeline, Label: "进程量测窗口内观测",
 			Columns: []string{"进程", "采集内进程ID", "指标", "原始值（单位未提供）", "窗口内起点(ns)", "窗口内终点(ns)", "选取依据", "源记录/行"}, Notes: notes}
 		for _, row := range p.Rows[:keep] {
@@ -76,7 +76,6 @@ func traceQueryProcessMeasurementsReceipt(r types.ObservationRecord, p tracequer
 				kind = rec.MeasureType
 			}
 			ref := fmt.Sprintf("%d / %d", rec.RowID, row.SourceLine)
-			members.Rows = append(members.Rows, []string{processMeasurementOwner(rec), processMeasurementScalar(rec.IPID), name, processMeasurementScalar(rec.FilterID), kind, processMeasurementScalar(rec.Value), processMeasurementScalar(rec.StartNS), processMeasurementScalar(rec.DurationNS), ref})
 			selection := row.Selection
 			switch selection {
 			case "interval_overlap":
@@ -86,6 +85,7 @@ func traceQueryProcessMeasurementsReceipt(r types.ObservationRecord, p tracequer
 			case "unknown_duration":
 				selection = "窗内时间点，持续未知"
 			}
+			members.Rows = append(members.Rows, []string{processMeasurementOwner(rec), processMeasurementScalar(rec.IPID), name, processMeasurementScalar(rec.FilterID), kind, processMeasurementScalar(rec.Value), processMeasurementScalar(rec.StartNS), processMeasurementScalar(rec.DurationNS), ref, processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), selection})
 			timeline.Rows = append(timeline.Rows, []string{processMeasurementOwner(rec), processMeasurementScalar(rec.IPID), name, processMeasurementScalar(rec.Value), processMeasurementEndpoint(row.ClippedStartNS), processMeasurementEndpoint(row.ClippedEndNS), selection, ref})
 		}
 		publication := types.RuntimeMeasurementPublication{Version: 1, ObservationID: r.ID, Source: r.SourceRef, Tables: []types.RuntimeMeasurementTable{summary, members, timeline}}
