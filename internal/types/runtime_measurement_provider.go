@@ -88,10 +88,11 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 
 // BuildRuntimeMeasurementContract reads accepted native results directly so a
 // prompt Top-N cannot become an authority limit. Identical re-publications are
-// coalesced; conflicting publications keep their duplicate keys and Choices
-// withholds those keys. No values are merged across queries or sources.
+// coalesced; conflicting publications withhold all views of that observation.
+// No values are merged across queries or sources.
 func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasurementContract {
 	var out RuntimeMeasurementContract
+	var publications []RuntimeMeasurementPublication
 	for _, results := range [][]ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
 		for _, result := range results {
 			if !result.Success || result.ToolName != "trace_query" {
@@ -110,27 +111,39 @@ func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasu
 				if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) {
 					continue
 				}
-				for _, table := range p.Tables {
+				for i, table := range p.Tables {
 					table = table.Clone()
 					if !runtimeMeasurementCoverageSourceAllowed(r, input) {
 						table.coverageScope = nil
 					}
 					if requested.HasExplicitTimeWindows() && !known {
-						table.Label = "Supplementary query (time scope unverified): " + table.Label
-						table.Notes = append(table.Notes, "This query has no verified continuous time window; it cannot substitute for the requested-window statistics.")
+						table = runtimeMeasurementUnverifiedWindowTable(table)
 					}
-					out.Tables = append(out.Tables, table)
+					p.Tables[i] = table
 				}
+				publications = append(publications, p)
 			}
 		}
 	}
-	out.Tables = append(out.Tables, buildNativeLogPresentationTables(input)...)
-	out.Tables = append(out.Tables, buildRuntimeMeasurementPairTables(input)...)
-	out.Tables = coalesceIdenticalRuntimeMeasurementTables(out.Tables)
+	for _, table := range buildNativeLogPresentationTables(input) {
+		publications = append(publications, RuntimeMeasurementPublication{Version: 1, ObservationID: table.ObservationID, Tables: []RuntimeMeasurementTable{table}})
+	}
+	publications = append(publications, buildRuntimeMeasurementPairPublications(input)...)
+	out.Tables = coalesceRuntimeMeasurementPublications(publications)
 	if !out.Active() {
 		return nil
 	}
 	return &out
+}
+
+// Unverified time coverage remains available for an explicit supplementary
+// selection, but cannot automatically stand in for requested-window facts.
+func runtimeMeasurementUnverifiedWindowTable(table RuntimeMeasurementTable) RuntimeMeasurementTable {
+	table = table.Clone()
+	table.DefaultPresentation = false
+	table.Label = "Supplementary query (time scope unverified): " + table.Label
+	table.Notes = append(table.Notes, "This query has no verified continuous time window; it cannot substitute for the requested-window statistics.")
+	return table
 }
 
 func runtimeMeasurementCoverageSourceAllowed(r ObservationRecord, input ObservationLedgerInput) bool {

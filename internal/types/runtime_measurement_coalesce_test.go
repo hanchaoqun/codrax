@@ -12,7 +12,7 @@ func TestRuntimeMeasurementAggregateKeepsPrivateCoverageConflicts(t *testing.T) 
 	if !original.CoversMemberSet(input.RequestModel) {
 		t.Fatal("fixture has no private member coverage")
 	}
-	for _, changed := range []string{"", "scope_removed", "scope_changed", "value", "member_id", "default"} {
+	for _, changed := range []string{"", "scope_removed", "scope_changed", "value", "member_id", "default", "source", "missing_view", "extra_view"} {
 		t.Run(changed, func(t *testing.T) {
 			other := original.Clone()
 			switch changed {
@@ -34,13 +34,32 @@ func TestRuntimeMeasurementAggregateKeepsPrivateCoverageConflicts(t *testing.T) 
 					t.Fatal("private-scope negative does not have identical public bytes")
 				}
 			}
-			c := &RuntimeMeasurementContract{Tables: coalesceIdenticalRuntimeMeasurementTables([]RuntimeMeasurementTable{original, other, original.Clone()})}
+			sibling := original.Clone()
+			sibling.View, sibling.MemberSet, sibling.coverageScope = RuntimeMeasurementSummary, nil, nil
+			publication := RuntimeMeasurementPublication{Version: 1, ObservationID: original.ObservationID,
+				Source: input.ToolResults[0].Observations[0].SourceRef, Tables: []RuntimeMeasurementTable{original, sibling}}
+			altered := publication
+			altered.Tables = []RuntimeMeasurementTable{other, sibling.Clone()}
+			switch changed {
+			case "source":
+				altered.Source.Path += ".different"
+			case "missing_view":
+				altered.Tables = altered.Tables[:1]
+			case "extra_view":
+				extra := sibling.Clone()
+				extra.View = RuntimeMeasurementTimeline
+				altered.Tables = append(altered.Tables, extra)
+			}
+			c := &RuntimeMeasurementContract{Tables: coalesceRuntimeMeasurementPublications([]RuntimeMeasurementPublication{publication, altered, publication})}
 			bound := BindRuntimeMeasurementReceipt(&receipt, c)
 			if bound != (changed == "") {
 				t.Fatalf("conflicting display/completion authority %q: bound=%t", changed, bound)
 			}
 			if changed == "" && (!reflect.DeepEqual(c.Tables[0], original) || !c.Tables[0].CoversMemberSet(input.RequestModel)) {
 				t.Fatal("exact repeat changed original reference or private scope")
+			}
+			if changed != "" && c.Active() {
+				t.Fatal("publication conflict left an unchanged sibling view selectable")
 			}
 		})
 	}

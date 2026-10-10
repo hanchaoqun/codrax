@@ -66,3 +66,40 @@ func TestHMC220NativeMeasurementSingleThenPairPublic(t *testing.T) {
 		}
 	}
 }
+
+func TestHMC220NativeMeasurementPairPublicationConflictPublic(t *testing.T) {
+	ctx, pair := hmc220PairPublicFixture(t)
+	report, _ := pair.RuntimeMeasurementPair.Report()
+	single, err := (&TraceQuery{}).Execute(ctx, report.Sides[0].Request)
+	if err != nil || !single.Success {
+		t.Fatalf("single: %v / %s", err, single.Summary)
+	}
+	for i := range single.Observations {
+		publication, ok := types.DecodeRuntimeMeasurementPublication(single.Observations[i])
+		if !ok {
+			continue
+		}
+		publication.Tables[0].Rows[0][0] = "conflicting source value"
+		encoded, _ := json.Marshal(publication)
+		single.Observations[i].RichNotes = []string{types.TraceNoteKeyRuntimeMeasurement + "=" + string(encoded)}
+	}
+	rm := nativeFactDisplayRequest(types.RequestedAnswerDimensionObservedValue)
+	rm.PerfTrace = &types.PerfBundle{}
+	ctx.AnalysisIR.RequestModel = rm
+	ctx.Mutable.SetRequestModel(rm)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{single, pair}})
+	choices := types.BuildAnswerSemanticViewForBusContext(ctx).RuntimeMeasurementContract.Choices()
+	if len(choices) != 1 || choices[0].ObservationID != report.ID {
+		t.Fatalf("one conflicting view left sibling views selectable: %+v", choices)
+	}
+	out := b1659bExecuteAnswer(t, ctx, map[string]any{"blocks": []any{
+		map[string]any{"id": "lead", "kind": "summary", "text": "Conflicting values cannot be resolved from the remaining views."},
+	}}, false)
+	if !out.Success {
+		t.Fatal(out.Summary)
+	}
+	visible := html.UnescapeString(render.RenderAnswerDocument(ctx.Mutable.AnswerDocumentV2(), "en"))
+	if strings.Contains(visible, "9007199254740993") || strings.Contains(visible, "conflicting source value") {
+		t.Fatal("final answer selected a version of an ambiguous publication")
+	}
+}

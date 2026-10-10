@@ -45,7 +45,7 @@ func TestNativeFactDefaultPublicEmitRender(t *testing.T) {
 			} else {
 				start, end := 1.0, 2.0
 				rm.PerfTrace = &types.PerfBundle{}
-				rm.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeExplicitWindow, TimeStart: &start, TimeEnd: &end, Confidence: 1}
+				rm.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{RequestedScope: types.RuntimeArtifactScopeExplicitWindow, TimeStart: &start, TimeEnd: &end, SourceQuote: "[1,2) 秒", Confidence: 1}
 				bus.TraceInputPreparer = traceinput.NewCoordinator(traceinput.Options{RuntimeAnchor: filepath.Join(dir, ".codrax")})
 				path, _ := filepath.Abs("../../eval/fixtures/hmosperf_measurements/capture.data")
 				args, _ := json.Marshal(map[string]any{"source": "path", "path": path, "view": "measurements", "time_start": start, "time_end": end})
@@ -155,6 +155,7 @@ func TestNativeFactDefaultPublicEmitRender(t *testing.T) {
 			}
 			for _, scope := range []types.RuntimeQuestionScope{types.RuntimeQuestionScopeCausalDiagnosis, types.RuntimeQuestionScopeRelationAnalysis, types.RuntimeQuestionScopeNotApplicable} {
 				rm.RuntimeQuestionProfile.Scope = scope
+				rm.RequestedAnswerDimensions.Dimensions = []types.RequestedAnswerDimension{{Role: types.RequestedAnswerDimensionRelationPath, Required: true}}
 				bus.AnalysisIR.RequestModel = rm
 				bus.Mutable.SetRequestModel(rm)
 				out = b1659bExecuteAnswer(t, bus, input, false)

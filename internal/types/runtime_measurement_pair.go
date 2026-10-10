@@ -20,6 +20,9 @@ type RuntimeMeasurementPairRef struct {
 	generation *traceSourceReadGeneration
 	replay     [2]TraceQueryWindowReplayRef
 	material   [2]*attachment.TraceMaterial
+	// Preserve producer-private coverage through the report's JSON copy-out.
+	// These decoded values are never exposed or reconstructed from JSON.
+	publications [2][]RuntimeMeasurementPublication
 }
 
 // NativeMeasurementPairSide is an internal producer input, not a model schema.
@@ -91,6 +94,7 @@ func NewNativeMeasurementPair(owner *MutableState, sides [2]NativeMeasurementPai
 		if len(side.Publications) == 0 {
 			continue
 		}
+		ref.publications[i] = side.Publications
 		side.Status, side.Detail = "available", "原生表保留各自单位、分母、区间、未知和省略；没有记录不等于量值为0。"
 		allUnavailable := true
 		for _, state := range side.ProducerStates {
@@ -153,14 +157,22 @@ func (r RuntimeMeasurementPairRef) reportFor(consumer *MutableState) (RuntimeMea
 		}
 		if !current {
 			side.Status, side.Detail, side.Publications = "stale", "来源或本轮代次已变化，旧测量不再作为当前值；另一侧独立保留。", nil
+			continue
+		}
+		// report and publications were minted together. Copy each full table
+		// only after source/epoch validation; no returned slice aliases the
+		// retained producer value, including its private coverage scope.
+		for j, publication := range r.publications[i] {
+			for k, table := range publication.Tables {
+				side.Publications[j].Tables[k] = table.Clone()
+			}
 		}
 	}
 	return report, true
 }
 
-func buildRuntimeMeasurementPairTables(input ObservationLedgerInput) []RuntimeMeasurementTable {
-	var out []RuntimeMeasurementTable
-	seen := map[string]bool{}
+func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []RuntimeMeasurementPublication {
+	var out []RuntimeMeasurementPublication
 	for _, group := range [][]ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
 		for _, result := range group {
 			if result.ToolName != "trace_query" {
@@ -190,21 +202,22 @@ func buildRuntimeMeasurementPairTables(input ObservationLedgerInput) []RuntimeMe
 					}
 					references = append(references, publication.ObservationID+" "+ruler)
 					sources = append(sources, publication.Source.Path+" @"+side.Generation)
-					for _, table := range publication.Tables {
-						encoded, _ := json.Marshal(table)
-						if !seen[string(encoded)] {
-							seen[string(encoded)] = true
-							out = append(out, table.Clone())
+					origin := ObservationRecord{Origin: AnswerEvidenceOriginRuntimeArtifact, SourceRef: publication.Source}
+					if !runtimeMeasurementCoverageSourceAllowed(origin, input) {
+						for i := range publication.Tables {
+							publication.Tables[i].coverageScope = nil
 						}
 					}
+					if requested.HasExplicitTimeWindows() && !known {
+						for i, table := range publication.Tables {
+							publication.Tables[i] = runtimeMeasurementUnverifiedWindowTable(table)
+						}
+					}
+					out = append(out, publication)
 				}
 				status.Rows = append(status.Rows, []string{side.Role, side.Status, string(side.Request), strings.Join(sources, "; "), strings.Join(references, "; "), side.Device + " / " + side.Workload, side.Detail})
 			}
-			encoded, _ := json.Marshal(status)
-			if !seen[string(encoded)] {
-				seen[string(encoded)] = true
-				out = append(out, status)
-			}
+			out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: report.ID, Tables: []RuntimeMeasurementTable{status}})
 		}
 	}
 	return out

@@ -5,29 +5,33 @@ import (
 	"reflect"
 )
 
-// Coalesce only after all native producers have been collected. A single
-// query and a later comparison may publish the same table. Matching public
-// bytes alone are insufficient: private completion scope must also agree.
-// Conflicting same-key tables remain present so Choices withholds the key.
-func coalesceIdenticalRuntimeMeasurementTables(tables []RuntimeMeasurementTable) []RuntimeMeasurementTable {
-	seen := make(map[string][]int, len(tables))
-	out := make([]RuntimeMeasurementTable, 0, len(tables))
-	for _, table := range tables {
-		encoded, err := json.Marshal(table)
-		if err != nil {
-			out = append(out, table)
+// A single query and a later comparison may publish the same complete
+// receipt. Coalesce only whole publications, including private completion
+// scope. A conflict in any view withholds the entire observation; equal
+// sibling views cannot accidentally choose one version of its source.
+func coalesceRuntimeMeasurementPublications(publications []RuntimeMeasurementPublication) []RuntimeMeasurementTable {
+	first := make(map[string]int, len(publications))
+	encoded := make(map[string]string, len(publications))
+	conflicting := make(map[string]bool)
+	for i, publication := range publications {
+		key := publication.ObservationID
+		raw, err := json.Marshal(publication)
+		if err != nil || key == "" {
+			conflicting[key] = true
 			continue
 		}
-		key, duplicate := string(encoded), false
-		for _, index := range seen[key] {
-			if reflect.DeepEqual(out[index], table) {
-				duplicate = true
-				break
+		if index, exists := first[key]; exists {
+			if encoded[key] != string(raw) || !reflect.DeepEqual(publications[index], publication) {
+				conflicting[key] = true
 			}
+			continue
 		}
-		if !duplicate {
-			seen[key] = append(seen[key], len(out))
-			out = append(out, table)
+		first[key], encoded[key] = i, string(raw)
+	}
+	var out []RuntimeMeasurementTable
+	for i, publication := range publications {
+		if !conflicting[publication.ObservationID] && first[publication.ObservationID] == i {
+			out = append(out, publication.Tables...)
 		}
 	}
 	return out

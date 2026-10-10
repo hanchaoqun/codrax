@@ -31,6 +31,9 @@ import (
 type TraceQuery struct {
 	ReadOnly
 	EvidenceTool
+	// Comparison may need one fresh read when the pure memo predates native
+	// source receipts. This flag belongs to a call-local tool value only.
+	skipNativeMeasurementMemo bool
 }
 
 const traceQueryFrameCrossThreadScopeContract = "In frame_timeline/frame_flow, a thread-scope pid/thread selector chooses the anchor but member enumeration remains selected-window cross-thread; explicit target_scope=process remains a proven process-membership filter."
@@ -653,7 +656,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 			Timestamp:                   now,
 		}, nil
 	}
-	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel, callCaveat); ok {
+	if key, ok := traceQueryMemoKey(ctx, p, path, sourceLabel, callCaveat); ok && !t.skipNativeMeasurementMemo {
 		return runPureToolMemoWithPolicy(ctx, t.Name(), key, runPureTraceQueryCore, func(result types.ToolResult) bool {
 			return len(result.TraceBusinessSpanCandidates) == 0
 		})

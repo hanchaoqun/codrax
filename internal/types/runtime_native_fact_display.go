@@ -4,8 +4,16 @@ package types
 // Required dimensions select this finite presentation domain; no labels,
 // request text, answer prose or inferred keyword relevance is inspected.
 func RuntimeNativeFactDisplaySelections(rm *RequestModel, contract *RuntimeMeasurementContract) []AnswerRuntimeMeasurementReceipt {
-	if rm == nil || !rm.RuntimeQuestionProfile.BoundedFactSet() || rm.SourceInventoryProfile.Active() ||
+	if rm == nil || rm.RuntimeQuestionProfile == nil || rm.SourceInventoryProfile.Active() ||
 		!rm.RequestedAnswerDimensions.Active() {
+		return nil
+	}
+	// Overall analysis breadth does not erase an independently requested
+	// finite fact dimension. This supplies display only, never causal scope.
+	switch rm.RuntimeQuestionProfile.Scope {
+	case RuntimeQuestionScopeBoundedFactSet, RuntimeQuestionScopeBoundedEffectVerdict,
+		RuntimeQuestionScopeCausalDiagnosis, RuntimeQuestionScopeRelationAnalysis, RuntimeQuestionScopeSystemOverview:
+	default:
 		return nil
 	}
 	requested := false

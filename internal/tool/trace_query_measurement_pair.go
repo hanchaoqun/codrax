@@ -106,6 +106,15 @@ func (t *TraceQuery) executeMeasurementPair(ctx *types.BusContext, raw json.RawM
 			continue
 		}
 		result, err := t.Execute(ctx, request)
+		if err == nil && result.Success && result.ReusedFromRunMemo && result.TraceViewCancellation == nil && contextFromBus(ctx).Err() == nil {
+			// Pure results are memoized before Execute's source/replay stamps.
+			// A comparison needs independently current read credentials, not
+			// a new permission minted from cached values. Re-read once locally;
+			// leave ordinary query memo behavior and all failure paths intact.
+			fresh := *t
+			fresh.skipNativeMeasurementMemo = true
+			result, err = fresh.Execute(ctx, request)
+		}
 		if err != nil && result.Summary == "" {
 			result.Summary = err.Error()
 		}
