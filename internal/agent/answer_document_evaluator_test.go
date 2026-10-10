@@ -9238,7 +9238,8 @@ func TestAnswerDocumentEvaluator_RuntimeObservationOnlySuppressesRepoEnrichment(
 
 func TestAnswerDocumentEvaluator_RuntimeCausalDiagnosisUsesPostOverrideFacetAndLayeredCarrier(t *testing.T) {
 	mut := types.NewMutableState("q")
-	mut.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "trace observation"}}})
+	source := emitHMC222Log(t, "trace observation\n", []map[string]any{{"type": "trace observation", "frames": []any{}}})
+	mut.SetLogTriage(source.Mutable.LogTriage())
 	ctx := &types.AgentContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

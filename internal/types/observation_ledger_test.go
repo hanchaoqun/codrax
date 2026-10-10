@@ -995,7 +995,8 @@ func TestCompileObservationLedger_ExternalErrorInfoObservationIsSupportOnly(t *t
 	if errRecord.ProvenanceLane != ObservationProvenanceObservedErrorOccurrence {
 		t.Fatalf("top-level log error should carry observed_error_occurrence lane, got %+v", errRecord)
 	}
-	if len(errRecord.RichNotes) == 0 || !strings.Contains(errRecord.RichNotes[0], "artifact-local") {
+	notes := strings.Join(errRecord.RichNotes, "\n")
+	if !strings.Contains(notes, "artifact-local") || !strings.Contains(notes, "diagnostic label (unverified)") {
 		t.Fatalf("log error should warn that stack refs are artifact-local support, got %+v", errRecord.RichNotes)
 	}
 }
@@ -1027,16 +1028,16 @@ func TestCompileObservationLedger_PeerErrorsKeepRelationUnproven(t *testing.T) {
 }
 
 func TestCompileObservationLedger_ExplicitNestedCauseKeepsDirectCauseLane(t *testing.T) {
-	ledger := CompileObservationLedger(ObservationLedgerInput{
-		LogBundle: &LogBundle{Errors: []LogError{{
-			Type:  "Outer",
-			Cause: &LogError{Type: "Inner"},
-			CauseRelation: &LogCauseRelation{
-				Authority: LogCauseAuthorityExplicitArtifactMarker,
-				Marker:    "Caused by: Inner",
-			},
-		}}},
-	})
+	bundle := &LogBundle{Errors: []LogError{{
+		Type:  "Outer",
+		Cause: &LogError{Type: "Inner"},
+		CauseRelation: &LogCauseRelation{
+			Authority: LogCauseAuthorityExplicitArtifactMarker,
+			Marker:    "Caused by: Inner",
+		},
+	}}}
+	bindTestLogTypeLiterals(t, bundle)
+	ledger := CompileObservationLedger(ObservationLedgerInput{LogBundle: bundle})
 
 	outer := findObservationRecord(t, ledger, "log:error:0")
 	inner := findObservationRecord(t, ledger, "log:error:1")

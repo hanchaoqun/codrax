@@ -3818,10 +3818,11 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 	peerRelationUnproven := len(bundle.Errors) > 1
 	var walkErr func(LogError, int)
 	walkErr = func(err LogError, depth int) {
-		target := firstNonEmptyString(err.ObservedTypeLiteral(), err.Message)
-		if target != "" {
+		for _, fact := range projectLogErrorArtifactFacts(err) {
 			lane := ObservationProvenanceObservedErrorOccurrence
-			if depth > 0 {
+			if fact.FrameOnly {
+				lane = ObservationProvenanceArtifactSpan
+			} else if depth > 0 {
 				// Nested errors can only survive emit_log_triage when their
 				// incoming cause_relation carries a validated, verbatim explicit
 				// artifact marker.  That is the only log-error shape authorized to
@@ -3832,7 +3833,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 			if peerRelationUnproven && depth == 0 {
 				notes = appendUniqueObservationString(notes, logPeerRelationUnprovenNote)
 			}
-			add(applyLogSourceBinding(err.SourceBinding, ObservationRecord{
+			row := ObservationRecord{
 				ID:              fmt.Sprintf("log:error:%d", errIndex),
 				Origin:          AnswerEvidenceOriginRuntimeArtifact,
 				Producer:        "log_triage",
@@ -3844,12 +3845,20 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 					ArtifactID:   "attached_log",
 					ArtifactKind: "log",
 				},
-				ClaimKey:    target,
-				Subject:     target,
-				Summary:     firstNonEmptyString(err.Message, err.ObservedTypeLiteral()),
+				ClaimKey:    fact.Target,
+				Subject:     fact.Target,
+				Summary:     fact.Summary,
 				RichNotes:   notes,
 				SupportRefs: logFrameRawRefs(err.Frames),
-			}))
+			}
+			if fact.FrameOnly {
+				row.Predicate, row.RawExcerpt = "stack_frame", fact.RawExcerpt
+				row.SupportRefs = []string{fact.Target}
+				row.RichNotes = append(row.RichNotes, "Observed stack support only; error category, caller provenance and causal role are unproven.")
+			} else {
+				row = applyLogSourceBinding(err.SourceBinding, row)
+			}
+			add(row)
 			errIndex++
 		}
 		if err.Cause != nil {

@@ -354,11 +354,13 @@ func logBundleClaimBindings(bundle *LogBundle, outputs []AnswerRequestedOutput) 
 	}
 	var walk func(err LogError)
 	walk = func(err LogError) {
-		target := err.ObservedTypeLiteral()
-		if target == "" {
-			target = strings.TrimSpace(err.Message)
+		for _, fact := range projectLogErrorArtifactFacts(err) {
+			support := logFrameSupportRefs(err.Frames)
+			if fact.FrameOnly {
+				support = []string{fact.Target}
+			}
+			add(fact.Target, support)
 		}
-		add(target, logFrameSupportRefs(err.Frames))
 		if err.Cause != nil {
 			walk(*err.Cause)
 		}
