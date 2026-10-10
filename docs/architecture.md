@@ -1108,6 +1108,12 @@ CPU状态×频率同样注册`summary/distribution/timeline`，不支持`members
 
 `RuntimeMeasurementPublication`核对成功原生查询、完整SourceRef、query/payload身份及精确ID/view，显式用户窗不能借外窗统计；未知连续窗的行查询独立披露。Emit与Patch绑定同一当前contract，私有`BoundTable`不进入模型/持久JSON。保存后恢复通过`RebindRuntimeAnswerReceipts`对测量和工作关系一起原子重绑：供给消失/换源/换窗不覆盖accepted稿，不回退旧字符串冒充当前证据。选择后渲染全部已保留的producer行，预览容量不成为计算总体；系统不重新计算值、不从正文修数字。当前测量表业务标签仍以producer英文为主，统一中英展示与精确说明去重按HMC-16.4/16.5留账，不冒称已覆盖该新载体。
 
+**原生事实默认展示（HMC §220–221）**：已声明的运行时问题只要含required observed_value/member_set/count维度，生产者可标记唯一`DefaultPresentation`表；混合因果/关系/概览问题中的独立事实维度不因总体scope变化而消失，源码库存问题不适用。Emit/Patch复用同一当前contract补齐该表，精确ID+view去重；同一查询的summary不能替代逐条记录。系统只刷新私有`native_facts`标记块，不扫描或改写模型正文，模型解释、当前源码及因果义务独立保留。通用/进程量测成员表同列原始与选中区间，未知终点不延长；日志通过严格原生记录JSON、query/payload、逐源代次和coverage名册生成独立事实表，保NULL身份、原始时钟、解析失败、筛选/分页/省略。显式用户窗下，没有验证连续窗的表可被显式选择为补充，但不默认代替窗口事实；已知越窗表不进入该窗选择器。提示128行预览不是最终行数上限；成文显示查询已保留的完整行。该机制不是成员全集/时钟对齐/根因证明，也不解除混合问题中的关系和源码义务。
+
+**双侧量测（HMC-10.1子能力）**：`trace_query(comparison:{baseline:{source,path,view,...},current:{...}})`复用各侧原查询和默认二进制准备，只接受已注册原生量测视图且不混外层单侧参数。逐侧保请求、来源代次、实际窗、单位/分母/覆盖和available/failed/cancelled/not_requested/unavailable/stale状态；设备/负载无见证保持未知。成功侧原表及ID不重铸，独立状态表映射角色；不计算差值、不按名称合并、不授共同时间轴/可比性/因果。完整JSON供审计，运行内私有收据由消费方当前轮次及逐侧材料重验；Fork/Merge、memo或持久JSON不能恢复旧轮权威。自然命名入口对既存损坏binary/准备后换代仍全局fail-fast，缺失路径不在此阻断范围；完整多输入独立准入尚属10.1/17.7开放退出条件，不以工具层失败隔离冒称已覆盖。
+
+单侧与双侧查询交接按完整publication去重（完整来源、全部视图及私有覆盖范围均须一致），任何同ID冲突整份拒选，不保留恰好相同的兄弟表来冒充已解决冲突。双侧私有覆盖在当前来源/轮次验证后复制给消费者，再应用与单侧相同的来源资格；JSON不能恢复权限。若comparison子查询命中未携当前读取凭证的纯结果memo，只在调用局部跳过memo重读该侧一次，不修改共享工具、不给缓存值补造凭证。
+
 进程原始量测注册`summary/members/timeline`，不提供未获协议的分布聚合。summary按来源、真实进程/filter及原始类型整理保留观测序列，members保精确原值/起点/dur，timeline另列窗口交集；三表共同保留完整行、省略与未知说明。源值可能并非字节或内存存量，不计算通用增长/累计，也不把指标名称当协议。工具发布64KiB有界表时只删完整记录，三表保持一致，完整query载荷不变；不附成员全集完成凭证，不代替因果链或线程执行证明。
 
 ### 6.4 AnswerSemanticView — 把问题家族编译成"答案合同"
@@ -2875,6 +2881,8 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 **`/chat <message>`**：绕过 analyze→explore→extract→finalize 流水线。memory 已接入时走**有界 2 轮 ReAct 循环**——第 1 轮 LLM 拿到 `recall_memory` / `list_memory` 工具描述，可选调一次查"我们之前聊过 X 吗"；第 2 轮（无工具）综合答复。LLM 不调工具就退化为单次 `adapter.Chat`。两个数值旋钮 `chitchat_recall_default_limit` / `chitchat_recall_max_limit` 夹在用户传给 recall_memory 的 limit 上。配合 `chitchat_classifier_enabled`（默认 true）每轮 REPL 前跑一次廉价 LLM 分类器，判为 chitchat 的轮次自动走此路径。想省成本就把 `chitchat_classifier` 在 `providers.yaml` 路由到小模型；想关就设 false 或启动时加 `--chitchat-classifier=false`。失败路径：responder 错 → print warning + 不写 memory；classifier 错 → 回落流水线（fail-safe）。
 
 **`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。`/htrace` `/atrace` 是平行通道。
+
+**自动分类前的命名输入导航（HMC §221）**：CLI/REPL自动分类共享当前问题中已有路径的内容/schema探测，原始问题不改、不形成sticky附件，也不覆盖模型的合法typed路由；显式模式不变。已知原生二进制头、通用量测/进程量测/CPU状态频率的最小SQLite schema只提供reader/view候选，不声称已读到记录。探测不写`RuntimeArtifactPreflight`、`TraceMaterial`或`TraceQueryReady`，不建立来源—窗口绑定；真正读取仍需原协调器及`trace_query`准入。现有任意`.data`路径不因软导航获得Trace身份。代码内独立预算最多8源、总2秒、单文件32MiB；活跃WAL、超限、变化、取消或未知内容退为unknown，既不是data lane的`source_oversized`硬拒收，也不是LLM超时/降级。探测子ctx不传入模型调用。
 
 **脚本输入所有权**：非TTY提示、粘贴和运行期输入共用一个终身scanner/pump，按独占消费权交接，停止与队列转移原子化；旧/重复停止不能吞下一轮命令。取消后先等本轮返回，再处理后续输入。普通排队最多32条及`max(8MiB, 配置单行上限)`累计字节，溢出有精确丢弃披露，仍可接收取消；单行上限各入口一致，非EOF读取错误不当成功退出。关闭只撤销交付、不关闭借入reader，唯一阻塞Read可能等调用方输入/EOF。真实Run另提供`PrepareRunCancellation`，串行调用者按预留→Run或放弃→release使用专属句柄，预读取消不落在token初始化空窗，旧句柄不能取消新Run。无预留的CLI/TTY取消路径保持原形。
 

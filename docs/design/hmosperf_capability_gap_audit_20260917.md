@@ -6629,3 +6629,102 @@ rank相关及精确race正式exit0；最终相关`final-related-v1.log`正式exi
 代码`aced23666`已由25769普通推送origin/main正式exit0，远端从352e8c219前进至aced23666。本地results归档43份验证文件（含完整jsonl、真实RED与构造失败、源码快照及metadata旧实现overlay），逐文件cmp及overlay目录diff通过；26份工具载荷与两份完整blob目录逐字节diff通过。authority v3与qualification v2公开失败源和当前源码cmp相同，未为求绿放宽原反例。原始答案、日志、工具数据未修改。
 
 最终独审补充：日志explorer仍列全9条，旧triage summary/subject在finalizer明确隔离，虚构数量5也被清除；本轮剩余错误明确落在最终重写，而非原生缺失或旧closure直接注入。量测同名filter10/20属于同一来源内不同序列，文档已消除“不同源组”歧义。完整父项0新增、四组子能力、两份人工FAIL继续分账；剩余59不变。文档、架构与机器/人工摘要作为独立收尾提交，不以新摘要改签原始失败。
+
+## 220. 双侧量测与原生事实默认展示（2026-10-09，施工与验收中）
+
+### 220.1 起点与冻结前退出条件
+
+起点`9248b0e68`、工作树干净；独立按稳定ID复算79=20已交付+59开放，重复0，39待实施/14部分实施/2待验收/3验收中/1持续执行。五验收父项及§219两份人工FAIL继续留账，不把重叠失败加到59中。本批两轨分别为10.1逐侧量测获取/包装/消费和16.4/18.4共享原生展示复用，不扩为10.2数值差异计算、时钟对齐或新根因权限。
+
+复核参考`server.py:1800–1910`、`core/preprocess/pmu_compare_ops.py:1–110`及§218.7的load_compare实现：复用两侧独立获取与单侧失败保留健康值的设计；不移植查询异常与空结果混同、NULL补零、同名聚合或自动全窗比较。当前项目保原query的source/generation/observation ID与原表，通过独立角色状态映射包装，不复制成功数值制造另一份权威。设备/负载/单位未知保持未知；双侧信封本身不授可比性或因果资格。
+
+共享展示基于已验证原生契约与结构化必答事实维度，复用现有表绑定/渲染；模型解释独立保留。目标是实际query→最终emit→render即使模型只写summary也保原生记录，不靠让用户列防护规则、扫描问答关键词或增加拒收债。有限事实与关系/源码混合问题只补事实部分，不解除独立因果、来源与源码义务；已有显式窗、Trace因果投影与自动补齐回归必须保留。
+
+退出矩阵覆盖双成功、单侧失败、有效零/缺测、同名不同源、独立窗口/单位、源换代与取消，以及原生展示的既有选择去重、完整身份/原始及裁剪区间、未知/预算披露和关系负控。独审另发现自然多命名trace准入逐路径fail-fast，可能先于双侧工具阻断单侧失败；该入口接缝须公开验证，不普遍放松单源/附加trace安全准入，不仅凭工具内测试给10.1完整销账。
+
+固定真实评测为新自然双侧量测`trace_dual_measurement_records`与旧自然日志`log_shared_sources`，恰好两例并行、各一次。双侧新夹具保两份独立SQLite、独立窗口、同名序列、零/NULL/文本/大整数与窗边界；问题只描述所求数据，不提示内部守护规则。相关测试后冻结再统一全仓；原始失败与人工结论分别登记，最终收据待后节。
+
+### 220.2 公开红绿、整合发现与冻结
+
+代码冻结`bb9cd89f7`（32文件）。`trace_query.comparison`复用两侧原生查询和同一二进制准备，schema/runtime对齐限定逐侧字段及视图；包装成功不冒充逐侧取数成功。原值、有效零、NULL/文本/BLOB/大整数、原始/选中区间、unknown及producer unavailable各自保留。状态表只说明查询角色和本侧查询请求，不冒充已核实的原始用户逐源窗口绑定；完整原始问题到逐源窗口仍列退出债。
+
+共享原生展示实际summary-only emit→render原先丢日志9条/量测13条的RED已保留；修后系统补最小完整原生表，解释原字节不改。精确ID+view去重，summary不替members；140条日志三页查询全部进入成文，128行提示预算不裁最终行。日志逐记录身份、原始时钟、解析状态及逐源代次与coverage名册严格核验；贴入/英文/partial/失败/换query/错代次/重复字段、序列化私有标记/重新绑定均有公开负控。不会因有限事实请求同时有relation_path或源码维度而删除独立义务。
+
+整合审查在冻结前捕获两个共享接缝。其一，producer fork仍存活时不能替新consumer轮次授予旧测量权威；真实Fork→子查询→Merge→父Reset后故意重新放回旧ToolResult，消费方epoch校验只留stale状态，不靠清空结果躲过负控。其二，单侧查询再双侧查询的相同表由两个收集器加入，旧Choices把重复键全部扣掉；实际公开RED只有1状态表/缺3事实表。统一聚合尾只去除完整JSON与完整Go值（含私有coverageScope）均相等的副本，真正冲突继续扣掉歧义键；两种收集顺序及私有scope不同但JSON相同负控通过。
+
+独立双侧验收用本批真实SQLite而非mock表：schema→准备/query→summary-only emit→patch→render保13+8+2行，源原件与因果投影不变；另覆盖双成功、单侧缺失/换代、取消、独立单位、有效零与缺测、同轮fork/无关轮次/JSON恢复/Report深副本。首次独立测试把等值科学计数误期待为十进制，明确为测试预期错误而非精度缺陷；准入早期missing/canonical path预期错误、施工中未完helper编译失败同样保留，不算产品RED。
+
+自然准入真实Run负控正式确认：缺失`.trace`可能在preflight导航名册出现，但既存文件候选阶段过滤；缺失`.data`无该名册，二者均允许后续健康侧调查。既存坏ZIP `.htrace`在conversion_failed处阻断，非分析器其它调用为0；已缓存后换代也整体阻断。期望侧隔离的同源overlay为真实RED，安全边界测试保持GREEN，未修改准入生产实现。10.1仅可记部分实施，不能靠把该范围另归17.7就声称全闭环。
+
+冻结前末版相关四包正式exit0（tool4.099s/types1.997s/agent6.455s/orchestrator2.681s），包含公开默认表/双侧/组合、既有量测、Sleep/省略说明/观察预算及Trace投影/补齐；结构快检v2四包exit0（tool3.523s/types18.732s/agent36.743s/orchestrator1.609s），含schema/PromptSnapshot/RendererCensus/HotFile/L1/copylocks/目标状态普查。skill整包0.851s通过。两轨及独立准入/双侧/组合精确race均正式通过；完整日志保留，不拼接早期绿。统一全仓92347及构建10341基于冻结提交启动，构建正式exit0（dirty仅文档）；固定两例72980并行各一次，结果在后节登记。
+
+### 220.3 固定双例真实过程与人工审计
+
+72980正式exit0仅表示runner完成，机器1/2、完整人工0/2；两例各一次、并行2，未改题、未追加追绿。双侧109s，日志335s，机器摘要与[人工审计](../../eval/parallel_selected_summary_hmc_dual_native_20261009_manual_audit.md)独立保留。数据、失败、模型原文未改。
+
+双侧真实SQLite输入存在且hash未变，但首轮single-shot route=data，read/trace_query均0。分类器仅获CLI附件hint，命名文件的内容能力在read入口更晚才探测；data仅扫描repo候选，不识别外部.data。inspect未命中生成unknown占位并计消费，真实extract被工作区保护拒绝，repair再抽占位路径/元数据。最后模型明示partial_answer_possible、未取原量测，系统仍terminal=complete，只输出两行inspected摘要。raw log46–47/99–136/1105–1128/2653–2702/2797–2801/7868–7871/8096为完整证据；不是pair schema执行失败或模型波动。下一批10.1/17.7/18.4优先贯通经内容验证的当前输入能力路由、元数据检查与数据消费区分及partial终态；不放开任意路径、不以扩展名或问句关键词硬路由。
+
+日志本轮原生供给及最终记录均9/9，app6/kernel3；匿名身份、坏日期/孤立/unknown和共享标识不证因果均改善。默认原生表却未启用：1053将bounded纠正为causal，1085受理，2669原生9行完整到场，2863仅5个手写块。整题scope guard吞独立有限事实维度，是16.4/18.4系统接缝。主报告仍混排跨来源并写“随后”、.002/.003误述1秒、未知comm比较成不同及kmsg格式冒tag；2904 patch冒借普通日志ID作关系凭证被2906正确拒绝，最终旧稿保留。完整人工FAIL，不能用9行齐全或安全拒收代销。后继按事实维度显示且不解除独立因果/关系义务，不再堆领域关键词教学。
+
+本批完整能力新增0、累计20/79；双侧原生查询/私有消费凭证、日志/量测共享默认展示、聚合去重三组子能力有确定性验收。自然入口、混合问题显示、两份完整答案继续开放，10.1不得整项销账；未跑写例不补签只读登记和旧写FAIL。末版全仓与归档发布收据另记。
+
+### 220.4 首轮全仓失败与后继修复安排
+
+92347正式exit1，89测试包通过、13无测试包，tool包唯一失败为`TestCPUStateFrequencyMeasurementExactSourceWindowConflict`：新聚合按单表去重，publication中一个view冲突时其它相同view被合并成可选择，破坏旧整份发布冲突则全部不可用的保护。旧测试不放宽；修复须在收集尾按完整publication（含私有scope）判断等价，同observation任一冲突整份扣除，同时保single+pair真实重复发布可用。首轮jsonl及原公开RED、构造失败、源码快照已原字节归档`eval/results/hmc_dual_native_20261009/validation`；25份日志工具blob、10份双侧data审计材料和准入overlay归档cmp/diff通过。
+
+本轮正式退出后才开放下一轮Go施工；§221同时收口真实评测发现的入口内容能力、混合维度展示与精确终态交接，先各轨公开相关/race、再全部冻结统一全仓。§220机器1/2、人工0/2和首轮全仓FAIL均保留，不以末版GREEN倒签。`bb9cd89f7`暂未推送，待回归修复与统一验收后普通推送。
+
+## 221. 自然输入能力路由与混合事实展示（2026-10-09起，施工中）
+
+### 221.1 批次边界与参考设计
+
+本批沿§220已证接缝，不重开单个日志词句修补。能力轨将当前命名输入的真实内容能力交给最早CLI/REPL路由，缺陷轨保留混合问题的独立事实展示维度；同一真实失败中的partial终态丢失是精确状态交接小修，unknown inspect冒数据消费需另补读取/解析凭证，不塞入CLI局部特判。
+
+重新对照参考`config/skills/load_compare.yaml:67–106`、`server.py:645–705`及`core/preprocess/pmu_compare_ops.py:1–110`：值得复用的是分别取得可查询材料后才交领域算子、单侧可用仍保原值；不复制关键词trigger、目录首文件、mtime缓存、未知值补零或异常当空。当前项目输入能力须由真实magic及受支持schema证明；SQLite仅为容器，业务SQLite不能自动叫Trace。探测只作有界只读导航，不做转换、不建sticky附件、不授source/time/因果权限；未知、取消、代次或副文件风险不猜。完整准备继续走现有Coordinator。
+
+CLI/REPL共享首轮上下文，不扩TurnPolicy输出JSON或按用户词汇强改route；声明明确的读取任务与已验证能力共同帮助分类。原生默认表按独立required observed_value/member_set/count选择，不能因整题还有关系/因果问题就删除；反过来纯关系/因果没有该独立维度不能泛洪表。SourceInventory、not_applicable、显式窗、原私有凭证/关系验证及模型解释原字节不变。
+
+终态修复覆盖evaluation、terminal plan及预算出口的typed状态和reason，成功返回部分答案不等于complete；真正error/cancel保持失败优先。公开RunDataTaskCLI→实际只读CSV计算→terminal JSON RED已复现多个出口状态被吞，保日志`/tmp/codrax-hmc221-data-terminal-red-v1.log`。不得靠改问句、将partial强制error或扫描最终答案判断完成。
+
+新固定双例仍为自然双侧量测与多源日志，各一次并行2，用新冻结版另存结果，旧§220原件不覆盖。先相关/race后统一全仓；§220发布级冲突回归一起补齐，前一全仓已正式结束，不重叠执行全仓。
+
+### 221.2 实现、独立审查与能力边界
+
+`c6e97ecd2`在CLI/REPL最早自动分类之前共享当前输入导航。路径提取复用已有路径token/规范化，只收普通文件，不由扩展名推定意图；已知二进制magic与封存SQLite最小schema只给候选reader/view。三个schema族逐项与真实exporter列要求做结构pin；业务SQLite、活跃WAL、损坏、变化、超限或取消保持unknown。最多8源/总2秒/32MiB是本地软导航预算，探测ctx不传入LLM，不修改原问题、TurnPolicy输出schema、显式模式、数据路由或sticky附件。实际CLI/REPL adapter公开RED证实原先没有这份上下文；新公开回归保明确data决策不被硬改。独立CLI→Orchestrator.Run预检→真实双侧查询通过，但分类/analyze是typed stub，不能代替live自然路由准确性。
+
+`93a2506d3`修复共享展示与组合接缝：
+
+1. 独立required事实维度在bounded fact/effect、causal、relation、overview中均可复用生产者默认表，不让总体scope删除已请求事实。真实log/measurement各4scope的query→emit→patch→render保持9/13行、精确身份/来源代次、大整数/NULL/原区间，独立解释块及因果账不变；纯因果/关系/贡献者/效果判断、optional、未声明scope和源码库存不泛洪表。
+2. 显式用户窗下，已知窗外表不可选；未知连续窗的原生表仍可显式选为补充，但不自动代替窗口事实。single与pair相同处理，不撤Trace局部因果投影或自动补采权限。伪造日志关系authority仍拒绝，拒稿不改accepted稿。
+3. §220按单表去重的真实回归改为完整publication一致才合并；同ID任一视图/来源/私有scope/视图集合冲突，全部视图拒选，独立双侧状态表保留。旧`TestCPUStateFrequencyMeasurementExactSourceWindowConflict`未放宽。
+4. 独立CPU状态×频率组合审查发现pair的JSON拷出丢私有覆盖scope，真实single→pair先查顺序又命中无当前凭证的pure memo，导致原表被误当冲突。生产者私有publication经来源/轮次验证后深拷出，消费方复用单侧来源资格；memo子侧仅调用局部重读一次，不修改共享receiver，不给旧缓存补造权限。两种实际执行顺序、两种汇集顺序、逐表DeepEqual、foreign/reset/JSON/source replacement/copy-out负控通过。原先§220名为SingleThenPair的测试只换收集顺序、实际执行pair在先，不能用它冒称已覆盖本缺陷。
+
+`6bb510a3b`让data CLI携带真实typed partial/blocked/clarify/plan/budget终态和reason；error继续优先，部分答案可正常返回，不再被defer误盖成complete。unknown inspect占位仍可能被下游当作已消费材料，需在共享实际读取/解析凭证层修复，留原ID，未在此处加关键词或文件名特判。
+
+自然多命名损坏binary/准备后换代的整组fail-fast、原始用户逐来源窗口绑定及10.2设备/工作负载/单位可比性均未因此闭环。10.1转部分实施，不打完成勾；累计仍20/79、59开放。本批不涉及写模式，旧只读登记自然分支及写FAIL不补签。
+
+### 221.3 冻结前验证
+
+公开失败与搭建失败分开保留：路由实际adapter缺上下文、data terminal丢状态、mixed scope不附事实、publication部分冲突、private coverage丢失及真实single-first memo为产品RED；路由接续v1编译/缺planner、边界测试漏SourceQuote及部分旧fixture预期是搭建问题，不算产品故障。
+
+- 路由精准`routing-targeted-v3`正式exit0（outputdump1.021s/hitraceconv0.525s/repl2.438s/cmd1.049s）；race-v1正式exit0（1.584/1.955/2.840/3.435s）。独立CLI接续v3正式exit0（cmd1.150s）。
+- data终态green-v2/adjacent-v1/race-v1均正式exit0（repl1.766/1.633/4.017s）。完整旧失败日志保留。
+- 原生mixed/default边界v3正式exit0（tool2.182s），末版race正式exit0（types2.071/tool13.789s）；独立组合与CLI接续精准正式exit0（cmd1.444/tool3.786s）、race正式exit0（2.906/10.913s）；增加逐表DeepEqual后的定向正式exit0（tool2.998s）。
+- 全部Go冻结`93a2506d3`后统一相关/登记快检正式exit0：tool9.291s/types6.577s/agent34.021s/orchestrator2.918s/hitraceconv3.537s/outputdump1.648s/repl2.762s/cmd2.045s，涵盖旧CPU冲突、HMC220/221、Sleep/ObservationPrompt、schema目录、PromptSnapshot/RendererCensus、hot-file、copylocks、TargetState。该正则对skill无命中，另有独立skill整包正式exit0，不伪记前者覆盖。
+- `make`正式exit0，二进制revision `93a2506d371c-dirty`（仅文档未提交）。随后唯一末版全仓及新固定双例开始；尚未完成部分不得引用早期GREEN代签。末版全仓、live和发布收据见本节后续。
+
+### 221.4 固定双例与已证后继缺口
+
+runner24841正式exit0，机器1/2、完整人工0/2；不是每例均绿。新目录`eval/results/hmc_native_route_20261010`，snapshot `codrax-selected-20261010-001233`，两个自然问题各1次并行2。完整[人工审计](../../eval/parallel_selected_summary_hmc_native_route_20261010_manual_audit.md)保两位独审与主审细节。
+
+量测228秒仍route=data/conf0.95，无trace_query、consumed0，最后workflow规划失败、无答案。两原文件存在且hash未变；实际绝对路径被data workspace gate拒绝，改写相对路径后ENOENT，不称源不存在，不为本例解开工作区安全。终态failed诚实，但没有partial分支，不能代签该分支live。本次分类只有消息数量/大小日志，模型提及SQLite是间接线索，不能声称已逐字核实profile内容。静态检查确定system/schema只显著排除根因诊断却广泛授data结构化量测目标，与user新导航重叠；实际reader无SQLite。另同一workflow checkpoint一边给cover_required_materials/inspect_material ready，另一边按prepare_contribution_inputs拒绝，是状态交接确定性矛盾（日志1114–1124、1284、1493–1523），挂18.4，不归模型波动。
+
+日志201秒机器PASS，完整报告有3张系统原生表：app6/kernel3及rx17筛选5，全部9个唯一记录、未知身份、原始字段、纳秒及来源代次到场。系统表不在primary投影是设计选择，主审已检查完整transcript及final render；不能据primary再报默认表失败。完整人工仍FAIL：主文把秒值称ns、8ns误为8μs、observer补rx17、无效月份99说成年份；原生表正确不替主文签绿。没有图，不冒称视觉验收。
+
+高ROI后继分清来源：分诊自造TimestampError/StorageLookup类型后，evaluator/context以LogBundleErrorTypes强制原文入summary并称原始错误，源定位只证明Message未证明Type；属于系统升权缺陷。另原生事实自动表已存在仍要求模型member_set列表修补、runtime-only关系被教源码路径、筛选表与全表重复5条均留16.4/18.4。下一小批限定为路由system/schema职责统一与日志模型标签/原生字段分层；其它接缝不插队扩无限范围，不按错误词句硬门修正答案。
+
+### 221.5 末版收据与发布
+
+冻结`93a2506d3`的唯一末版全仓81801已正式exit0：90测试包PASS、13无测试包、零FAIL，tool508.823s；全量jsonl原字节归档。构建58034正式exit0；同冻结源码的相关快检96408、skill整包11562及两轨独立race均已正式通过，不拼接未完成收据。未改L1调度循环、因果投影/自动补齐及流式等待时限。
+
+38份验证产物（含隔离RED源码`.go.txt`及overlay）、20份日志工具blob、18份data审计JSON均在`eval/results/hmc_native_route_20261010`原字节保存并cmp/diff；§220首轮FAIL及原live目录独立保留。四笔实现提交`bb9cd89f7`、`6bb510a3b`、`c6e97ecd2`、`93a2506d3`已普通推送`origin/main`（9248b0e68→93a2506d3）。完整父项新增0，累计20/79；三组可用子能力与精确终态修复已交付，当前完整人工仍0/2，59开放不减少。
