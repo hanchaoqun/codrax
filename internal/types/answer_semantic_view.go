@@ -355,8 +355,8 @@ type BlockRequirement struct {
 // is represented as a Mermaid node, (c) every EdgeFacet is
 // represented as a Mermaid edge connecting the right pair of nodes.
 //
-// RequireStructuralEdge is a source-diagram presentation obligation, not
-// a statement that any particular relation is proven. The runtime-aware
+// RequireStructuralEdge is a source/native-relation diagram presentation
+// obligation, not a statement that any particular relation is proven. The runtime-aware
 // validator preserves the typed unproven exit. EdgeRelations carries only
 // explicit semantic expectations, never a relation inferred from Kind.
 // Actual visible edges remain subject to their independent typed evidence

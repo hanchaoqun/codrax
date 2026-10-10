@@ -2,6 +2,18 @@ package types
 
 import "strings"
 
+// RuntimeRelationDiagramUsesNativeAuthority distinguishes an explicitly
+// non-frame relation question from the broader legacy root_cause_trace family.
+// It selects the native instance evidence lane, never relation truth. Causal
+// diagnosis, frame projections and unspecified legacy requests keep their
+// independent causal/temporal authority. Work-relation subquestions alone do
+// not activate this lane because they may coexist with a causal diagnosis.
+func RuntimeRelationDiagramUsesNativeAuthority(rm *RequestModel) bool {
+	return rm != nil && rm.RuntimeQuestionProfile != nil &&
+		rm.RuntimeQuestionProfile.Scope == RuntimeQuestionScopeRelationAnalysis &&
+		!rm.RuntimeQuestionProfile.FrameCausalityRequested
+}
+
 // A runtime query may supply exact event relations without any source-code
 // EvidenceItems. Restore only an already-requested compatible diagram, using
 // the same scoped, conflict-checked events as the edge validator. Evidence

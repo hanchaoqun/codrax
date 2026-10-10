@@ -240,7 +240,8 @@ func applyPresentationContract(view *AnswerSemanticView, ir *AnalysisIR, plan *A
 			view.DiagramPlan.Kind = view.Presentation.DiagramKind
 		}
 	}
-	view.DiagramPlan.RequireStructuralEdge = view.Family != QFRootCauseTrace &&
+	nativeRuntimeRelations := ir != nil && RuntimeRelationDiagramUsesNativeAuthority(&ir.RequestModel)
+	view.DiagramPlan.RequireStructuralEdge = (view.Family != QFRootCauseTrace || nativeRuntimeRelations) &&
 		diagramKindRequiresStructuralEdge(view.DiagramPlan.Kind)
 	ensureRequiredPresentationDiagramBlock(view, plan)
 }

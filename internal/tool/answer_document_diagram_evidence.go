@@ -88,9 +88,9 @@ const (
 // out of this hard gate also ensures that a system-authored copy-ready diagram
 // capsule is accepted unchanged by the same validator.
 //
-// Runtime/root-cause trace diagrams, including explicit time-window causal
-// projections and their automatic supplements, use a separate runtime
-// relation authority and deliberately do not enter this source-code contract.
+// Genuine runtime causal projections and their automatic supplements use a
+// separate authority. Precisely typed non-frame relation questions use native
+// instance receipts here even when their legacy family is root_cause_trace.
 func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem, stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation) []DiagramCallEdgeEvidenceMismatch {
 	var stagePrecedence []stageauthority.PrecedenceRelation
 	if len(stagePrecedenceOpt) > 0 {
@@ -112,7 +112,8 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 	rm *types.RequestModel,
 	runtimeRelationsOpt ...[]RuntimeDiagramRelation,
 ) []DiagramCallEdgeEvidenceMismatch {
-	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace {
+	nativeRuntimeRelations := types.RuntimeRelationDiagramUsesNativeAuthority(rm)
+	if doc == nil || view == nil || (view.Family == types.QFRootCauseTrace && !nativeRuntimeRelations) {
 		return nil
 	}
 	var runtimeRelations []RuntimeDiagramRelation
@@ -128,9 +129,11 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 	// whether a visible arrow is itself the requested relation claim. Deleting
 	// edge_anchors therefore cannot turn the same factual topology into a
 	// metadata-free presentation escape. Ordinary definition/architecture
-	// diagrams retain the legacy presentation-only lane. Runtime trace was
-	// excluded above and keeps its independent causal projection authority.
-	strictSourceRelationBody := strictSourceCallChain || types.PredicateAxisRequiresDiagramEdgeOwnership(view.RelationAxis)
+	// diagrams retain the legacy presentation-only lane. An explicit runtime
+	// relation question owns visible arrows independently of legacy family or
+	// predicate-axis labels; native receipts prove only their recorded relation.
+	// Genuine causal projections retain their independent authority above.
+	strictSourceRelationBody := nativeRuntimeRelations || strictSourceCallChain || types.PredicateAxisRequiresDiagramEdgeOwnership(view.RelationAxis)
 	// Identity ambiguity is diagnosed before edge authority. Otherwise the
 	// same typed endpoint declared under multiple aliases can turn every valid
 	// edge into a misleading missing-anchor report and send the model through

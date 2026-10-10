@@ -122,7 +122,10 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 		diagramRelations,
 	)
 	if view.DiagramPlan != nil {
-		view.DiagramPlan.RequireStructuralEdge = false // Runtime causal evidence owns Trace relations.
+		// Ordinary runtime relationships can share this legacy answer family
+		// without acquiring the causal projection's diagram exemption.
+		view.DiagramPlan.RequireStructuralEdge = ir != nil && RuntimeRelationDiagramUsesNativeAuthority(&ir.RequestModel) &&
+			diagramKindRequiresStructuralEdge(view.DiagramPlan.Kind)
 	}
 	view.UncertaintyRules = []UncertaintyRule{uncertaintyRuleForObservedArtifact()}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)

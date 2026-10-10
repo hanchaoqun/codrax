@@ -20,7 +20,7 @@ func RequiredRuntimeDiagramRelationMissing(ctx *types.BusContext, doc *types.Ans
 
 func requiredRuntimeDiagramRelationCoverage(ctx *types.BusContext, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) ([]RuntimeDiagramRelation, []string, bool) {
 	if ctx == nil || ctx.AnalysisIR == nil || doc == nil || view == nil ||
-		view.Family == types.QFRootCauseTrace || view.DiagramPlan == nil ||
+		(view.Family == types.QFRootCauseTrace && !types.RuntimeRelationDiagramUsesNativeAuthority(&ctx.AnalysisIR.RequestModel)) || view.DiagramPlan == nil ||
 		!view.DiagramPlan.Required || !view.DiagramPlan.RequireStructuralEdge {
 		return nil, nil, false
 	}
