@@ -12,6 +12,9 @@ import (
 )
 
 func TestHMC222NativeReaderBoundaryInActualClassifierContract(t *testing.T) {
+	if nativeObservationRoutingSchemaContract != strings.ReplaceAll(nativeObservationRoutingContract, "\n", " ") {
+		t.Fatal("static schema contract changed the system contract's JSON rendering")
+	}
 	path, err := filepath.Abs("../../eval/fixtures/hmosperf_dual_measurements/baseline.data")
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +60,10 @@ func TestHMC222NativeReaderBoundaryInActualClassifierContract(t *testing.T) {
 			}
 			if !strings.Contains(schema.Properties["route"].Description, boundary) {
 				t.Fatal("route schema lacks the shared native reader boundary")
+			}
+			if strings.Count(system, nativeObservationRoutingContract) != 1 ||
+				strings.Count(schema.Properties["route"].Description, nativeObservationRoutingSchemaContract) != 1 {
+				t.Fatal("actual classifier changed or duplicated the shared native reader contract")
 			}
 			if !strings.Contains(schema.Properties["operation"].Description, "diagnosis and current-source access are not prerequisites") ||
 				!strings.Contains(system, "diagnosis and current-source access are not prerequisites") {
