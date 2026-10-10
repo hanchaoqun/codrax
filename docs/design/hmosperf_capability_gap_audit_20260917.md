@@ -6794,3 +6794,71 @@ runner24841正式exit0，机器1/2、完整人工0/2；不是每例均绿。新�
 46份验证产物、95份量测工具blob和28份日志工具blob已在`eval/results/hmc_route_literal_20261010`原字节归档，逐份cmp或目录diff核对通过；原live输入与报告未改。原机器结果、完整人工结论、未命中分支和版本差异分别记录。
 
 四笔实现`0f15c7166`、`f203716ec`、`62aaa1899`、`081d5c81d`已普通推送`origin/main`（31d0acbce→081d5c81d）。统一任务清单仍79=20+59；本批完整能力新增0，两组子能力和自身回归补救已交付。下一优先序为命名输入到真实准备/原生工具的交接、逐源窗口/独立侧状态，以及观察解释的证据权限；实际数据消费、验收机器门过弱、维度patch对象交接和旧跨模式失败均留原ID，不删债、不以未知设备字段擅自扩大10.1原退出条件。
+
+## 223. 命名输入真实准备交接与观察事实权限（2026-10-10，子能力已交付，人工FAIL保留）
+
+### 223.1 起点、参考意图与有界范围
+
+在`6f9580288`干净工作区开批。主审及独审复算79唯一ID=20完整实现已交付+59开放，重复0；开放状态38待实施/15部分实施/2待验收/3验收中/1持续。本批不改编号或完整父项口径，限定10.1/17.7命名原生输入的实际工具接缝，以及16.4/18.4模型观察解释混入事实的共享缺陷；验收机器门随同补强，不作为第三产品主线。
+
+参考`load_compare.yaml:54–106`先分别取得两侧真实文件并转换、再调用领域工具，值得复用的是逐源真实准备，不是文件名猜测、选第一个成员或默认单位。当前复用原Coordinator、准入和preflight，不新造准备账本。参考`core/llm_contract.py:123–148`先按member/field回查实际值，值得复用的是证据权限只覆盖真实核验的字段；不移植模糊去空白比较、数字容差或正文数字扫描。§222日志已定位Evidence并不意味着同时证明模型Subject/Summary。
+
+双侧入场前坏一侧的全局失败、agent terminal latch及原始请求逐来源窗口绑定继续挂10.1，不能把本次双成功取数当整个能力闭环；设备/负载未知仍合法，不扩10.2差值目标。维度patch对象交接、实际数据消费状态矛盾及其余旧人工FAIL保持原账，不围绕单个答案无限追跑。
+
+### 223.2 共享修复及确定性边界
+
+命名输入仅在当前analyzer已接受typed外部观察策略后，复用原有最多8文件/总2秒的内容探测发现原生reader；普通业务SQLite不因容器身份获得Trace资格。候选局部profile经实际Prepare、完整输入Validate及代次重验后才发布至已有preflight，稳定runtime anchor不借临时WorkDir；真实Explorer动态schema和executeTool复用该路径。未授TraceQueryReady、sticky附件或父目录权限，探测子ctx不传入Prepare/LLM；外层取消仍拒绝继续。旧显式/后缀路径行为保留。
+
+日志公开反例通过真实emit定位原文后，任意未证明Subject成为claim/ledger身份，Summary成为SupportRefs和seed Raw；errors=[]仍可复现，不是仅一次模型波动。新增共享Facts投影使ledger/binding/profile证据/seed只承接Evidence，空Evidence不产观察事实；原bundle和明确advisory的探索导航仍保业务线索，真实cause关系、原词、栈与Trace原路径不变。没有给模型增加JSON字段或关键词硬门，也不通过重写最终正文或尾部免责声明修补。
+
+延伸到实际Finalizer的Run回归另暴露同一能力的共享断点：双侧13/8已真正返回且完成调查，旧`InvestigationStructurallyEmpty`只认传统读/搜索/证据和旧运行时完成信号，纯原生pair被当作无调查，Run返回nil却未派发Finalizer。不能用测试补read_file或伪证据绕过。后继复用现有原生publication、当前consumer/源代次与窗口判定，区别真实原值、状态包装与无结果；该公开RED与最初缺动态schema的RED分开留存。
+
+日志消费者普查还统一了观察计数及行锚资格的两处旧旁路：summary-only即使有任意非零行号也不算已有观察。扩大相关回归出现8个历史失败根，全部逐项正式复跑通过；无Evidence专门负控仍断言零事实且保原审计，其余7个原文字段缺失夹具补Evidence、保原断言。不是批量放松门或删测试；Meta摘要兜底不在本例触发，继续挂原解释权限族审计，不扩本批。实现`3926cedbd`、评测门`aa62e96b2`已本地分片提交，推送及末版收据仍待完成。
+
+验收新增`EXPECT_SUCCESSFUL_TOOL_RESULTS`匹配精确诊断ToolResult.Success头；调用尝试、执行前拒绝和行内模型引用不再满足双侧量测case。它只是最低执行检查，不是防伪私有凭证：旧多行日志若原文嵌完整时间戳头仍可能匹配，不能靠分隔符伪称解决；18.4保留结构化执行凭证消费后继。真实工具结果、双侧覆盖、记录完整和语义emit接受仍需原生发布/载荷及最终答案独立人审。独审核旧§222量测原日志新matcher为0，原7次拒绝不再误过。用户自然问题原字节不改，旧弱机器PASS及人工FAIL原件不改签。
+
+独立审查还复现了准备源换代降权漏洞：gzip原件同字节rename后，旧派生文本未变，普通物理replay仍有效；调查门若先试弱replay会绕过完整准备校验。修复共享凭证优先级，且不以有无推荐view为条件：现有私有`preparedSource`与导航列表分离，成功当前准备查询即使只产unavailable缺测表，也保完整material/consumer/参数验证；强校验失败不降级。外部导航resolver仍只承接非空合法views，无新模型字段或数据available硬特判。唯一生产Stamp在TraceQuery统一defer，后续statistics/source-read不覆盖该私有凭证。真实可用/缺测gzip、原件换代但派生物不变、无虚构导航正反均通过。
+
+### 223.3 确定性验收与冻结
+
+完整公开Run经真实Explorer动态schema/executeTool、真实pair和Finalizer，`runErr==nil`，最终13条baseline、8条current及2行逐侧状态；LLM返回受控，代理/工具/来源执行链真实，不是直接Query.Execute、预填ToolResults或补一个无意义read_file绕过空调查。原缺动态schema、原生产品误判空调查、派生物弱凭证三种RED分开保留。实际单/双侧、0/NULL/大整数、合法0行、无publication的导航、失败/memo包装、跨consumer、重置、JSON重放、错窗/未知窗均有边界回归。独立公开入口再核源码转换器问题、普通业务SQLite、分析后取消、准备后换代和父目录未授权；既有源码absence门未放宽。
+
+日志轨实际emit→来源定位→四事实面→finalizer公开RED/GREEN及正因果/栈对照通过，五包末版race正式exit0。能力轨v5-final定向正式exit0（tool10.135s/types3.403s/agent3.032s/orchestrator7.839s），race正式exit0（tool23.597s/types5.046s/agent7.119s/orchestrator9.247s）；独立准入acceptance定向/race也正式通过。共享schema/教学/提示词快检、skill整包、runner库和新结果oracle shell测试通过；最初shell夹具缺NAME与其他装配失败保原件，不伪称产品RED。
+
+`aa62e96b2`验收门、`3926cedbd`日志事实权限、`4757a43cc`真实准备/原生调查三笔实现已本地提交。冻结4757a43cc后构建95315正式exit0。单侧无可重放窗口时尚未新增当前源凭证，沿原runtime completion；大型未知输入、逐侧入口失败隔离、全局terminal与原始逐源窗口绑定保持原账，不扩本批。
+
+### 223.4 首轮全仓与完整失败集合
+
+首轮全仓58488正式exit1：87测试包PASS、3测试包FAIL、13无测试包，tool543.177s；从完整JSONL收齐三个根测试后才解冻，没有运行中改源码。失败集合为`TestHMC221NamedInputHintReadPreflightActualQuery`、`TestAcceptedClosureAutoCompleteBlocksUntilRuntimeCurrentSourceOriginsPresent`、`TestEmitAnalysis_Execute_DefaultsRuntimeArtifactRoleLocateSubject`，不是只取首条输出。
+
+首项旧断言要求typed analyzer确认后也没有准备材料/preflight，与§223明确新交接行为冲突；同步为分析前零准备、分析后两精确原路径已准备并保request_path、始终无sticky，actual Query前后与Run返回profile JSON不变。仍标明它只是CLI续接stub，完整实际BaseAgent由新公开Run验收。后两项旧夹具只有Summary+LineStart无Evidence，与新事实资格冲突；补原文字段、不删原成功/当前源码负控，并在混合来源闭合测试中再删Evidence确认仅摘要和坐标不能补runtime事实。无生产补丁或审计器放宽。
+
+cmd定向/race正式通过；日志两fixture及HMC223邻域定向74426、race80220正式exit0。全部原失败根由首轮JSONL自动提取驱动精确复跑，末版完整回归另取正式收据，不拼接局部GREEN。
+
+### 223.5 固定双例与人工结论
+
+19405正式exit0，机器2/2、完整人工0/2；冻结4757a43cc的同一快照各运行一次、并行2，量测167秒、日志291秒。完整[人工审计](../../eval/parallel_selected_summary_hmc_named_native_handoff_20261010_manual_audit.md)区分实际执行、原生表、最终接受稿、草稿及未命中分支；不以本地回归倒签原FAIL。
+
+量测从§222无工具资格推进到真实命名准备和两侧成功query，最终原生13+8条完整保值/类型/窗口/未知/同名独立filter，输入SHA未变。自然live走独立single queries（含探索重复共6次），不冒签pair所有退出矩阵。正文仍按名称概括为4/3种过滤序列，而上下文和真实summary已是7/4组；来源与字段投递已足，不再反复补预算或给问句加规则，完整答案继续FAIL。
+
+日志原生9条/来源/状态/精确时间齐全，最后已不再断言missing导致abort；但模型主表漏app孤立续行变8条，parsed/unknown被混称孤儿，共同rx17升为同一请求、未记录资产被说成同一资产、跨源同时间段无校准。原生默认表还重复9+3+6条。真实triage errors=3，不以本例签低错误数分支；Meta摘要同族权限旁路仍留案。
+
+高ROI后继有过程证据：finalizer INIT已给完整9行并教“自动展示、不重抄”，post_emit_advisory的member_set归属却诱导模型新造8行表、改正文9→8。应统一原生默认展示和typed维度履约，并按精确source generation/record identity处理重叠查询，保独立来源/范围/单位/视图，不相似文本合并、不扫描正文数字。此共享缺陷与10.1独立侧准备/terminal、原始逐来源窗口继续作为双轨；模型偶发概括保FAIL不无限追跑。
+
+本批完整父项新增0、累计20/79、59开放；两组共享产品子能力及验收门推进，不把三笔提交折算成三个完整父项。无图/写例/只读登记自然分支，不替旧跨模式FAIL签收。42份量测与26份日志工具载荷、两组准备源已原字节归档并目录diff一致；其余验证/发布收据随末版完整回归登记。
+
+### 223.6 下一双轨的精确前置（只读设计，不计已实现）
+
+10.1两道实际门是`validateTypedNamedTraceInputsWithAnchor`逐源首错return，以及agent对typed准备错误的全局terminal；现有`traceCatalogFinishQuery`仅给已冻结/声明的独立目录查询私有失败例外。多个命名路径、preflight、SubTopics或时间窗数组均不能证明独立操作；`comparison.baseline/current`才有现成明确两侧语义，却晚于入口准备。后继先解决该语义的前置交接及精确原始来源绑定，再决定准备隔离，不能用共同父目录发现、文件名/顺序/关键词或伪造view登记代替。优先复用现有请求范围/比较合同及Catalog状态，避免另建准备账本；可选JSON形状及是否需职责调整须先由公开RED确定，不提前铺全套字段。Catalog的Fork/Merge与无query失败展示也要同步；状态不授量测事实。无明确独立语义、单附件/依赖bundle仍严格；全坏聚合原错、全局取消整体停止，换代只影响已证明独立的对应侧。
+
+原生展示断点是`materializeNativeFactDisplay`未带成员归属、evaluator先要求member_set，而`answerDocumentMeasurementMemberPayload`又复用Trace型`CoversMemberSet`完成凭证；仅补facet或放宽该完成凭证均不安全。后继应区分“展示维度有真实行承载”和“调查完备”，只修合法selector/精确维度绑定而非重写数据；两个独立名单、源码或因果维度不能凭任意原生表通过。默认重复展示可先研究严格子表抑制：现成source_id/path/generation/record_id及字段值、非来源筛选、窗口/单位/视图完全相同且健康无遗漏时，已覆盖3/6行表不再默认附加；原三表/原始查询/显式选择仍保留，不合并统计或抹覆盖说明。先跑实际LogQuery→emit/patch→evaluator/render公开RED及负控，再定最小复用方案；这只是下一批边界设计，本批未实现或测试。
+
+### 223.7 末版收据与发布
+
+三项原失败由首轮JSONL自动提取后，精确复跑41264正式exit0；按Package+根测试名逐项核对3/3有PASS，not_closed为空。补救`98fcde75e`只有3个测试文件，生产字节与live冻结4757a43cc一致；不把它描述为重新跑过自然答案。
+
+末版冻结98fcde75e的完整回归42233正式exit0：90测试包PASS、13无测试包、零FAIL，tool532.230s。构建20310正式exit0；所有相关末版定向/race已在前节签收。首次完整FAIL和中间装配失败均原样保留，不拼接为一次GREEN。
+
+54份验证收据（含两轮完整JSONL、全部失败根复跑、race、构建和shell oracle）、42份量测/26份日志工具载荷及两组准备产物已原字节归档，逐份cmp或目录diff一致。全仓结束后四个真实输入SHA再次重算仍与live/准备收据一致。
+
+四笔实现及测试提交`aa62e96b2`、`3926cedbd`、`4757a43cc`、`98fcde75e`已普通推送origin/main（6f9580288→98fcde75e）。任务稳定79=20已交付+59开放，重复0；本批完整父项新增0、两组共享产品子能力交付，验收门另补强。两份完整人工FAIL、五稳定验收父项与未命中图/写/登记分支均保留，下一双轨及先决信号见§223.6，不以模型波动名义删债。

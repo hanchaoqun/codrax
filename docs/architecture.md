@@ -1322,6 +1322,8 @@ renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——�
 
 **LogBundle 四层**：
 
+`LogObservation`分开导航与事实投影（HMC §223）：探索上下文可保明确标记的`advisory_subject`/摘要用于检索，原bundle保完整审计；ledger、claim binding、观察profile的证据及外部观察seed共用`ProjectLogObservationForFacts`，只以`Evidence`为观测文字，不借其来源收据证明模型`Subject`/`Summary`。空Evidence不生成观察事实；此规则不依赖错误数量、问答措辞或特定日志类型。显式cause关系、真实原词和业务栈继续走原权限路径，Trace因果投影不变。
+
 | 层 | 来源 | 字段 |
 |---|------|------|
 | 1. Meta | LLM | `Lang` / `Signals[]`（10 值 enum：panic/crash/oom/timeout/permission/db/network/validation/logic/other） / `Summary` |
@@ -2889,6 +2891,12 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 **自动分类前的命名输入导航（HMC §221）**：CLI/REPL自动分类共享当前问题中已有路径的内容/schema探测，原始问题不改、不形成sticky附件，也不覆盖模型的合法typed路由；显式模式不变。已知原生二进制头、通用量测/进程量测/CPU状态频率的最小SQLite schema只提供reader/view候选，不声称已读到记录。探测不写`RuntimeArtifactPreflight`、`TraceMaterial`或`TraceQueryReady`，不建立来源—窗口绑定；真正读取仍需原协调器及`trace_query`准入。现有任意`.data`路径不因软导航获得Trace身份。代码内独立预算最多8源、总2秒、单文件32MiB；活跃WAL、超限、变化、取消或未知内容退为unknown，既不是data lane的`source_oversized`硬拒收，也不是LLM超时/降级。探测子ctx不传入模型调用。
 
 **原生读取与通用数据职责（HMC §222）**：分类system与工具schema共用一份职责说明，当前命名输入user上下文只携带候选JSON，不重复路由规则。读取原生运行时记录、值、区间、计数和统计均走已有分析管线的原生reader，不要求用户同时提出根因诊断或源码问题；普通支持的数据集清洗、join、计算、转换仍走data，已有答案转格式仍走local。SQLite只是容器，表格等输出形式也不单独决定路由。`investigate`/`artifact`/`needs_data_access`的说明保持同一边界；无新路由字段、硬覆盖或准入权限，实际模型决策仍需真实评测验收。
+
+**命名原生输入的分析后交接（HMC §223）**：当前analyzer的typed外部观察策略成立后，复用同一有界内容/schema探测及稳定runtime anchor，补识别原问题已有文件（含无Trace后缀的`.data`）。候选先在局部profile等待原`TraceInputPreparer`实际准备、完整查询准入与来源代次复验，全部成功后才并入现有`RuntimeArtifactPreflight`，由现有真实Explorer动态schema开放原生工具。它不授`TraceQueryReady`、不粘为附件、不扩大父目录权限，也不从普通业务SQLite推定Trace；取消仍传播，探测预算不成为模型或准备超时。此接缝不代表独立侧失败隔离或原请求逐源窗口绑定已完成，完整双侧能力另验收。
+
+原生取数到成文的非空调查判定复用当前`ObservationLedgerInput`及原生publication收集规则：实际单/双侧结果须有当前consumer、源代次和已接受窗口内的有效原生表，才能避免旧“零读文件=空调查”回退。普通成功标记、仅取数状态、过期或跨运行凭证不替代事实；合法0值和已执行的空表仍是查询产物。此判定只解决是否有调查材料，不授完整性、缺失证明或因果权限，不把`trace_query`名字直接加入旧源码工具白名单。
+
+准备源的私有凭证与可导航view列表分开：有准备材料的当前查询即使只产缺测表、没有推荐view，也保完整原件/派生物校验；原件换代后不得退回仍有效派生文件的弱物理replay。现有导航resolver仍要求非空view列表，序列化结果不能恢复私有凭证。单侧仍复用原有可重放窗口资格，无窗全Trace的新增当前源凭证不在本接缝范围；双侧沿现有pair材料凭证。
 
 **脚本输入所有权**：非TTY提示、粘贴和运行期输入共用一个终身scanner/pump，按独占消费权交接，停止与队列转移原子化；旧/重复停止不能吞下一轮命令。取消后先等本轮返回，再处理后续输入。普通排队最多32条及`max(8MiB, 配置单行上限)`累计字节，溢出有精确丢弃披露，仍可接收取消；单行上限各入口一致，非EOF读取错误不当成功退出。关闭只撤销交付、不关闭借入reader，唯一阻塞Read可能等调用方输入/EOF。真实Run另提供`PrepareRunCancellation`，串行调用者按预留→Run或放弃→release使用专属句柄，预读取消不落在token初始化空窗，旧句柄不能取消新Run。无预留的CLI/TTY取消路径保持原形。
 
