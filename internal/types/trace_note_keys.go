@@ -424,6 +424,9 @@ const TraceNoteKeyTransactionHandoffs = "transaction_handoffs"
 // Full recorded native resource frames; no execution or causal authority.
 const TraceNoteKeyResourceStack = "resource_stack"
 const TraceNoteKeyPerfSamplingTree = "perf_sampling_tree"
+
+// Exact owner and paired coordinates for native display notes, not causality.
+const TraceNoteKeyBusinessDiagramAnnotation = "business_diagram_annotation_v1"
 const TraceBusinessTreePredicate = "trace_business_tree"
 
 // RCM 区分键族 (§24.7.1 ①/§24.9-B F3, 2026-07-08): the typed real
@@ -1681,6 +1684,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyBusinessSpanHidden, "business_span", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBusinessSpanOmitted, "business_span", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBusinessSpanSchedulerStates, "business_span", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyBusinessDiagramAnnotation, "business_span", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyBusinessTreeNode, "business_span", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyProcessProfile, "process_profile", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyCPUStateFrequency, "cpu_state_frequency", TraceNoteCarrierSoftConsumer},

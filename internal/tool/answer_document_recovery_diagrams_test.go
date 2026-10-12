@@ -55,7 +55,7 @@ func TestHMC227RecoveryTableFailureDoesNotEraseProvedGraph(t *testing.T) {
 	}
 	before := *doc.Blocks[1].Diagram
 	_, isolated := IsolateRecoveredAnswerDiagrams(ctx, doc, nil, "en")
-	if isolated != 0 || doc.Blocks[1].Diagram == nil || *doc.Blocks[1].Diagram != before {
+	if isolated != 0 || doc.Blocks[1].Diagram == nil || !reflect.DeepEqual(*doc.Blocks[1].Diagram, before) {
 		t.Fatal("independent table failure erased verified relationship")
 	}
 }

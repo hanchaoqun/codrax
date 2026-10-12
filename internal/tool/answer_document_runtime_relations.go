@@ -280,10 +280,15 @@ func appendRuntimeDiagramRepairCandidates(allowed []types.AnswerDiagramRelationR
 			if len(allowed) >= limit {
 				return allowed
 			}
-			allowed = append(allowed, types.AnswerDiagramRelationRepairCandidate{
+			candidate := types.AnswerDiagramRelationRepairCandidate{
 				BlockID: blockID, RelationKind: row.Kind, FromIdentity: row.FromIdentity, ToIdentity: row.ToIdentity,
 				FromNodeIDs: []string{row.FromNode}, ToNodeIDs: []string{row.ToNode}, Source: strings.Join(row.SupportRefs, "; "),
-			})
+			}
+			if row.Kind == types.DiagramRelWakeup && row.eventOrder != nil &&
+				strings.HasPrefix(row.FromNode, "rt_thread_") && strings.HasPrefix(row.ToNode, "rt_thread_") {
+				candidate.FromNativeParticipant, candidate.ToNativeParticipant = row.FromNode, row.ToNode
+			}
+			allowed = append(allowed, candidate)
 		}
 	}
 	return allowed
@@ -305,6 +310,7 @@ func RenderRuntimeDiagramRelationRecipes(ledger types.ObservationLedger, rm *typ
 	var b strings.Builder
 	b.WriteString("### 可用运行时关系图锚 / Available runtime diagram anchors\n\nThese producer-verified pairs authorize only their listed relation_kind, independently of the question family: contain is direct synchronous business nesting; wakeup is one recorded waker→wakee event; observe is only the specifically described external-observation correspondence (transaction records do not establish a complete frame). None grants a source call, attributed wait duration, or root-cause ranking. Use business labels in flow/sequence/architecture diagrams and copy exact identities into edge_anchors. Stable node aliases allow local repair; names alone are not identities. Exact producer node IDs receive the endpoint names below when their display label is omitted or still equals that ID; an authored business alias is preserved. Keep each event's timestamp visible; never merge different instances into an invented dependency. Use notes or intervals for measured states, not self-call arrows. Do not sum parent and child durations.\n")
 	if runtimeDiagramRowsHaveObservedThreadLanes(rows) {
+		b.WriteString("During a local repair, a published from_native_participant/to_native_participant choice binds the selected event side to an existing declared sequence node, preserving that node's state notes. This explicitly selected native binding never follows a label match and cannot merge different producer lanes. An ensure_visible choice may relabel one existing declaration; it does not prove an unresolved business role.\n")
 		b.WriteString("For each known thread, reuse the same supplied native thread participant for its messages and state notes; a readable business alias is welcome. Do not create a second generic lane for that same known identity. A business role without an established thread mapping may remain a separate unproven note; matching names alone do not justify merging. Within a linear sequence region keep exact same-source/window/clock point events in native timestamp order. This grants no causal bridge or total order across alternatives/concurrent branches, static calls, different sources or clocks.\n")
 	}
 	for _, row := range rows[:min(limit, len(rows))] {

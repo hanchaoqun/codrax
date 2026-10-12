@@ -19437,7 +19437,10 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 		return "", false
 	}
 	for _, failure := range delta.Failures {
-		if failure.Issue == types.DiagramRelationFailureNativeSequenceEventOrder {
+		if failure.Issue == types.DiagramRelationFailureNativeSequenceEventOrder || failure.Issue == types.DiagramRelationFailureNativeNoteBinding {
+			if failure.Issue == types.DiagramRelationFailureNativeNoteBinding {
+				return "A selected native business note cannot bind to its exact current source, owner, point or Note line. Use emit_answer_document_patch replace_blocks for only the named diagram, preserving unrelated fields and siblings. Select a currently offered runtime_notes_v1 receipt and its exact participant; do not infer ownership from labels or borrow another window. This failure does not authorize atomic edge removal/addition. Full emit_answer_document remains available if replacement is unavailable.\n\n" + result.Summary, true
+			}
 			return "The native event relations are proved, but their visible sequential order is reversed. Use emit_answer_document_patch replace_blocks for only the named diagram, copying every unrelated field and sibling; reorder the existing messages and any repeated-pair anchor occurrences using the exact native event coordinates in the tool rejection below. No atomic edge removal/addition is authorized by this order-only failure. An older atomic lease must not be replayed; full emit_answer_document remains the escape if replacement is unavailable. A nonsequential relation view is also valid; an optional diagram may be omitted. Do not infer causal arrows, merge participants by labels, or impose ordering across independent branches.\n\n" + result.Summary, true
 		}
 	}

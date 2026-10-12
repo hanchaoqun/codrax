@@ -137,6 +137,9 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 			"mutation apply produced a nil document — internal error")
 	}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if err := materializeNativeDiagramNotes(merged, view, runtimeDiagramRelationsForContext(ctx)); err != nil {
+		return failEmit(toolName, now, "%v", err)
+	}
 	materializeNativeFactDisplay(merged, ctx, view)
 	if err := bindRuntimeMeasurementReceipts(merged, view); err != nil {
 		return failEmit(toolName, now, "%v", err)

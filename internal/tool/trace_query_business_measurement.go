@@ -28,6 +28,9 @@ func traceQueryBusinessMeasurementPublications(result tracequery.Result, records
 			}
 			if note := traceQueryBusinessMeasurementReceipt(*r, span); note != "" {
 				r.RichNotes = append(r.RichNotes, note)
+				if annotation := traceQueryBusinessDiagramAnnotationNote(*r, span); annotation != "" {
+					r.RichNotes = append(r.RichNotes, annotation)
+				}
 			}
 			break
 		}
@@ -39,7 +42,7 @@ func traceQueryBusinessMeasurementReceipt(r types.ObservationRecord, span traceq
 	start, end, known := types.TraceObservationContinuousQueryWindow(r.SourceRef)
 	states := span.SchedulerStates
 	if !known || span.Kind != "sync" || span.StartTs < start || span.EndTs > end ||
-		!states.Matches(r.SourceRef.Path, r.Subject, span.StartTs, span.EndTs) {
+		!states.MatchesOwner(r.SourceRef.Path, span.Thread, span.StartTs, span.EndTs) {
 		return ""
 	}
 	value := func(v float64) string {

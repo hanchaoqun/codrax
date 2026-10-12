@@ -30,7 +30,7 @@ func runtimeWakeupDiagramEventOrder(r types.ObservationRecord, f traceWakeupEven
 		return nil
 	}
 	ref := r.SourceRef
-	var window any = []any{ref.QueryWindowKnown, ref.QueryWindowStartTs, ref.QueryWindowEndTs}
+	var window any = []any{ref.QueryWindowKnown, ref.QueryWindowStartTs, ref.QueryWindowKnown, ref.QueryWindowEndTs, ref.QueryLineStart, ref.QueryLineEnd}
 	if f.ScanScope != nil {
 		s := f.ScanScope
 		window = []any{s.TimeStartApplied, s.TimeStart, s.TimeEndApplied, s.TimeEnd, s.LineStart, s.LineEnd}
@@ -47,8 +47,8 @@ func runtimeWakeupDiagramEventOrder(r types.ObservationRecord, f traceWakeupEven
 // labels (including apparent timestamps), participant names and surrounding
 // prose cannot select an event. Control-region boundaries and static messages
 // break comparisons: this is not a total ordering of an arbitrary diagram.
-func diagramNativeSequenceEventOrderMismatches(doc *types.AnswerDocumentV2, rows []RuntimeDiagramRelation) []DiagramCallEdgeEvidenceMismatch {
-	if doc == nil || len(rows) == 0 {
+func diagramNativeSequenceEventOrderMismatches(doc *types.AnswerDocumentV2, rows []RuntimeDiagramRelation, views ...*types.AnswerSemanticView) []DiagramCallEdgeEvidenceMismatch {
+	if doc == nil {
 		return nil
 	}
 	edgeBlockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
@@ -56,6 +56,15 @@ func diagramNativeSequenceEventOrderMismatches(doc *types.AnswerDocumentV2, rows
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
 		if block.Diagram == nil || block.Diagram.Kind != types.DiagramSequence {
+			continue
+		}
+		var view *types.AnswerSemanticView
+		if len(views) > 0 {
+			view = views[0]
+		}
+		notePoints, noteErr := nativeDiagramNotePoints(block, view, rows, false)
+		if noteErr != nil {
+			out = append(out, DiagramCallEdgeEvidenceMismatch{BlockID: block.ID, Issue: diagramNativeNoteBindingUnavailable, nativeSequenceOrderDetail: noteErr.Error()})
 			continue
 		}
 		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, bi, edgeBlockCounts)
@@ -71,6 +80,14 @@ func diagramNativeSequenceEventOrderMismatches(doc *types.AnswerDocumentV2, rows
 		occurrences := map[string]int{}
 		latest := map[string]runtimeDiagramSequenceEvent{}
 		for lineIndex, line := range strings.Split(block.Diagram.Body, "\n") {
+			if current := notePoints[lineIndex+1]; current != nil {
+				if prior, ok := latest[current.scope]; ok && prior.row.eventOrder.timestamp > current.timestamp {
+					out = append(out, DiagramCallEdgeEvidenceMismatch{BlockID: block.ID, Issue: diagramNativeSequenceEventOrderConflict, nativeSequenceOrderDetail: fmt.Sprintf("block=%q: native note body line %d (%.9fs; %s) must precede native point body line %d (%.9fs; %s); move the selected Note statement and update runtime_notes_v1.body_line in replace_blocks", block.ID, lineIndex+1, current.timestamp, current.point, prior.line, prior.row.eventOrder.timestamp, prior.row.eventOrder.point)})
+				} else {
+					latest[current.scope] = runtimeDiagramSequenceEvent{row: RuntimeDiagramRelation{eventOrder: current}, line: lineIndex + 1}
+				}
+				continue
+			}
 			edges := mermaidcompat.ParseEdges("sequenceDiagram\n" + line)
 			if len(edges) != 1 {
 				if !nativeSequenceOrderTransparentLine(line) {
@@ -101,6 +118,10 @@ func diagramNativeSequenceEventOrderMismatches(doc *types.AnswerDocumentV2, rows
 			}
 			current := row.eventOrder
 			if prior, ok := latest[current.scope]; ok && prior.row.eventOrder.timestamp > current.timestamp {
+				if prior.anchor.FromNode == "" {
+					out = append(out, DiagramCallEdgeEvidenceMismatch{BlockID: block.ID, Issue: diagramNativeSequenceEventOrderConflict, FromNode: a.FromNode, ToNode: a.ToNode, FromSymbol: a.FromIdentity, ToSymbol: a.ToIdentity, Relation: row.Kind, BodyOccurrence: occurrence + 1, nativeSequenceOrderDetail: fmt.Sprintf("block=%q: native event body line %d (%.9fs; %s) must precede native note body line %d (%.9fs; %s); move statements and update runtime_notes_v1.body_line in replace_blocks", block.ID, lineIndex+1, current.timestamp, current.point, prior.line, prior.row.eventOrder.timestamp, prior.row.eventOrder.point)})
+					continue
+				}
 				out = append(out, DiagramCallEdgeEvidenceMismatch{BlockID: block.ID, Issue: diagramNativeSequenceEventOrderConflict,
 					FromNode: a.FromNode, ToNode: a.ToNode, FromSymbol: a.FromIdentity, ToSymbol: a.ToIdentity, Relation: row.Kind, BodyOccurrence: occurrence + 1,
 					nativeSequenceOrderDetail: fmt.Sprintf("block=%q: move body line %d native event %s -> %s occurrence %d (identities %s -> %s; %.9fs; %s) before body line %d native event %s -> %s occurrence %d (identities %s -> %s; %.9fs; %s) in this same sequential region", block.ID, lineIndex+1, a.FromNode, a.ToNode, occurrence+1, a.FromIdentity, a.ToIdentity, current.timestamp, current.point, prior.line, prior.anchor.FromNode, prior.anchor.ToNode, prior.occurrence, prior.anchor.FromIdentity, prior.anchor.ToIdentity, prior.row.eventOrder.timestamp, prior.row.eventOrder.point)})

@@ -76,6 +76,7 @@ const (
 	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
 	diagramRequestedStageSpineIncomplete      = "requested_stage_precedence_spine_incomplete"
 	diagramNativeSequenceEventOrderConflict   = types.DiagramRelationFailureNativeSequenceEventOrder
+	diagramNativeNoteBindingUnavailable       = types.DiagramRelationFailureNativeNoteBinding
 )
 
 // DiagramCallEdgeEvidenceMismatches cross-checks model-authored typed call
@@ -440,7 +441,9 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				continue
 			}
 			relation := diagramAnchorRelation(anchor)
-			if runtimeDiagramAnchorAliasConflict(runtimeRelations, anchor) {
+			aliasConflict := block.Diagram != nil && block.Diagram.Kind == types.DiagramSequence &&
+				(runtimeDiagramAliasBindingsConflict(runtimeRelations, block.EdgeAnchors, anchor.FromNode) || runtimeDiagramAliasBindingsConflict(runtimeRelations, block.EdgeAnchors, anchor.ToNode))
+			if runtimeDiagramAnchorAliasConflict(runtimeRelations, anchor) || aliasConflict {
 				out = append(out, DiagramCallEdgeEvidenceMismatch{BlockID: block.ID, Issue: diagramEdgeAnchorNodeIdentityConflict,
 					FromNode: anchor.FromNode, ToNode: anchor.ToNode, FromSymbol: anchor.FromIdentity, ToSymbol: anchor.ToIdentity, Relation: relation})
 				continue
@@ -588,7 +591,7 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 		}
 	}
 	if len(out) == 0 {
-		return diagramNativeSequenceEventOrderMismatches(doc, runtimeRelations)
+		return diagramNativeSequenceEventOrderMismatches(doc, runtimeRelations, view)
 	}
 	return out
 }

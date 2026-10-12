@@ -271,9 +271,10 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		}
 		normalizeEmitAnswerDiagram(raw.Diagram)
 		diag := &types.AnswerDiagramBlock{
-			Kind:     types.DiagramKind(raw.Diagram.Kind),
-			Language: raw.Diagram.Language,
-			Body:     raw.Diagram.Body,
+			Kind:           types.DiagramKind(raw.Diagram.Kind),
+			Language:       raw.Diagram.Language,
+			Body:           raw.Diagram.Body,
+			RuntimeNotesV1: append([]types.RuntimeDiagramNoteSelection(nil), raw.Diagram.RuntimeNotesV1...),
 		}
 		if strings.TrimSpace(diag.Body) == "" {
 			return types.AnswerBlock{}, fmt.Errorf("%s: diagram.body is empty — set diagram.body to the raw Mermaid source (the part inside the ```mermaid fences; the renderer adds the fences itself). diagram.body is the only place the diagram source lives — do not put it in the block-level text field", fieldPath)
@@ -307,7 +308,7 @@ func emitAnswerDiagramV2IsZero(diagram *emitAnswerDiagramV2) bool {
 	return diagram != nil &&
 		strings.TrimSpace(diagram.Kind) == "" &&
 		strings.TrimSpace(diagram.Language) == "" &&
-		strings.TrimSpace(diagram.Body) == ""
+		strings.TrimSpace(diagram.Body) == "" && len(diagram.RuntimeNotesV1) == 0
 }
 
 // validateEmitAnswerStructuredTableRows keeps the JSON teaching and the

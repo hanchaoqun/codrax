@@ -112,6 +112,7 @@ var (
 		"code",
 	)
 	answerDocumentDiagramAllowedFields = stringSet(
+		"runtime_notes_v1",
 		"kind",
 		"language",
 		"body",

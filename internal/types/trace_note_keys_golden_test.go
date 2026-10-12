@@ -98,6 +98,7 @@ var traceNoteKeyGoldenRows = []string{
 	// SPANVIS-1 (2026-07-19): the pure-advisory business-span mention face —
 	// all-or-nothing per-record parse into the projection-level side channel
 	// (no node/seat/ordinal); tree ◈ advisory block + ◎ 旁栏 footnote consume.
+	"business_diagram_annotation_v1|business_span|soft_consumer",
 	"business_span_basis|business_span|hard_consumer",
 	"business_span_count|business_span|hard_consumer",
 	"business_span_hidden|business_span|hard_consumer",

@@ -122,6 +122,8 @@ type RuntimeMeasurementContract struct {
 	// provider publications and never used by investigation completion.
 	displayDimensionIndices []int
 	displayPopulationKeys   map[string]bool
+	// Exact current-source interval annotations, never recovered from JSON.
+	nativeBusinessDiagramAnnotations []NativeBusinessDiagramAnnotation
 }
 
 // Choices excludes invalid or ambiguous identifiers, including identical
@@ -155,6 +157,7 @@ func (c *RuntimeMeasurementContract) Clone() *RuntimeMeasurementContract {
 	}
 	out := &RuntimeMeasurementContract{Tables: make([]RuntimeMeasurementTable, len(c.Tables))}
 	out.displayDimensionIndices = append([]int(nil), c.displayDimensionIndices...)
+	out.nativeBusinessDiagramAnnotations = cloneNativeBusinessDiagramAnnotations(c.nativeBusinessDiagramAnnotations)
 	if c.displayPopulationKeys != nil {
 		out.displayPopulationKeys = make(map[string]bool, len(c.displayPopulationKeys))
 		for key, value := range c.displayPopulationKeys {

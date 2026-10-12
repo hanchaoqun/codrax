@@ -114,6 +114,7 @@ func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasu
 	if !out.Active() {
 		return nil
 	}
+	out.nativeBusinessDiagramAnnotations = buildNativeBusinessDiagramAnnotations(input, &out)
 	return &out
 }
 

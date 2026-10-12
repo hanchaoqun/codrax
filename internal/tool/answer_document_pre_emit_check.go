@@ -927,6 +927,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	}
 	var hints []emitFixHint
 	ctxOpt := pctx.ctxArgs()
+	hints = append(hints, preCheckNativeDiagramNotes(doc, view, pctx.ctx)...)
 
 	// 0. Citation-pool carrier integrity. Run these FIRST and append
 	// their hints at the head of the list so a retry that dropped
@@ -5464,17 +5465,23 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	relationRepairDelta := diagramRelationRepairDeltaJSON(
 		doc, pctx.ctx, mismatches, evidence, stagePrecedence,
 	)
-	if mismatches[0].Issue == diagramNativeSequenceEventOrderConflict {
+	if mismatches[0].Issue == diagramNativeSequenceEventOrderConflict || mismatches[0].Issue == diagramNativeNoteBindingUnavailable {
 		parts := make([]string, 0, len(mismatches))
 		for _, mismatch := range mismatches {
 			parts = append(parts, mismatch.nativeSequenceOrderDetail)
+		}
+		expected := "Use emit_answer_document_patch replace_blocks for the named diagram: move the existing event statements into the exact native order below, keeping their labels, endpoint tuples and other block fields. Move repeated-pair edge_anchors in the same occurrence order. Update runtime_notes_v1.body_line when moving a selected note. Preserve siblings with unchanged_block_ids. Do not use diagram_edge_edits removal/addition to repair time order. If an older atomic lease still blocks replacement, use full emit_answer_document with the same preserved siblings. Alternatively choose a genuinely nonsequential relation graph (omit sequence-only runtime_notes_v1), or omit an optional diagram; no new causal bridge is authorized. "
+		reason := "The exact native source/window/clock tuples prove the selected event/note points, but the model placed an earlier point below a later point in one linear sequence region. No label timestamp, prose, source-call ordering or cross-branch total order was inferred."
+		if mismatches[0].Issue == diagramNativeNoteBindingUnavailable {
+			expected = "Use replace_blocks for the named diagram to correct runtime_notes_v1 selector/point/node_id/body_line against current published native choices, preserving its other fields and sibling blocks. If the owner/span is unavailable, omit the optional selector and retain an honest unproven note. If an older atomic lease blocks replacement, use full emit_answer_document with preserved siblings. "
+			reason = "A selected native note lacks a current exact owner/span/source binding or no longer addresses its selected statement; readable names and note text do not grant identity."
 		}
 		return append(standaloneHints, emitFixHint{
 			Field:                          "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[]",
 			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds:            preEmitDiagramMismatchBlockKinds(doc, mismatches),
-			ExpectedShape:                  "Use emit_answer_document_patch replace_blocks for the named diagram: move the existing event statements into the exact native order below, keeping their labels, endpoint tuples and other block fields. Move repeated-pair edge_anchors in the same occurrence order. Preserve siblings with unchanged_block_ids. Do not use diagram_edge_edits removal/addition to repair time order. If an older atomic lease still blocks replacement, use full emit_answer_document with the same preserved siblings. Alternatively choose a genuinely nonsequential relation graph, or omit an optional diagram; no new causal bridge is authorized. " + strings.Join(parts, "; "),
-			Reason:                         "The exact native source/window/clock event tuples prove each chosen arrow, but the model placed an earlier event below a later event in one linear sequence region. No label timestamp, prose, source-call ordering or cross-branch total order was inferred.",
+			ExpectedShape:                  expected + strings.Join(parts, "; "),
+			Reason:                         reason,
 			DiagramRelationFailurePairs:    failurePairs,
 			DiagramRelationFailureIssues:   failureIssues,
 			DiagramRelationRepairDeltaJSON: relationRepairDelta,
@@ -7096,7 +7103,7 @@ func diagramRelationRepairDeltaJSON(
 			return ""
 		}
 	}
-	if mismatches[0].Issue == diagramNativeSequenceEventOrderConflict {
+	if mismatches[0].Issue == diagramNativeSequenceEventOrderConflict || mismatches[0].Issue == diagramNativeNoteBindingUnavailable {
 		// A reorder does not authorize new relations or deleting proved edges.
 		// The recognized non-executable current delta revokes an older atomic
 		// lease and exposes the ordinary block replacement lane.

@@ -814,7 +814,8 @@ type AnswerDiagramBlock struct {
 	// Body is the raw diagram source. For Mermaid: the part inside
 	// the fenced code block (without the ```mermaid fences — the
 	// renderer adds them). For text: pre-formatted ASCII art.
-	Body string `json:"body"`
+	Body           string                        `json:"body"`
+	RuntimeNotesV1 []RuntimeDiagramNoteSelection `json:"runtime_notes_v1,omitempty"`
 }
 
 // AllowedDocumentModels enumerates the persisted/internal

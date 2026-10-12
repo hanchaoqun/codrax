@@ -861,7 +861,14 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			participantCandidates[key] = candidate
 		}
 	}
-	stageWorkingBlocks := func() {
+	stageWorkingBlocks := func() error {
+		for _, blockID := range order {
+			block := working[blockID]
+			if err := preserveAtomicNativeNoteCoordinates(previous[blockID], &block); err != nil {
+				return err
+			}
+			working[blockID] = block
+		}
 		for _, blockID := range order {
 			patch.ReplaceBlocks = append(patch.ReplaceBlocks, working[blockID])
 		}
@@ -878,6 +885,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			}
 			patch.UnchangedBlockIDs = kept
 		}
+		return nil
 	}
 	if err := validateAtomicDiagramParticipantDispositionRoster(
 		previous, working, orphanParticipantEdits, participantSeen, participantCandidates,
@@ -890,7 +898,9 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		// not stage mixed participant operations or any unexpected decision.
 		if roster, ok := err.(*atomicDiagramParticipantDispositionRosterError); ok &&
 			roster.missingOnly() && len(participantEdits) == 0 {
-			stageWorkingBlocks()
+			if stageErr := stageWorkingBlocks(); stageErr != nil {
+				return stageErr
+			}
 		}
 		return err
 	}
@@ -947,8 +957,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		}
 		working[blockID] = block
 	}
-	stageWorkingBlocks()
-	return nil
+	return stageWorkingBlocks()
 }
 
 // validateAtomicDiagramRelationProducerConflicts rejects one contradictory
@@ -1045,7 +1054,15 @@ func applyOneModelAuthoredDiagramParticipantVisibilityEdit(
 	nodeID := strings.TrimSpace(edit.NodeID)
 	body, ok := mermaidcompat.AddRemovableNodeDeclaration(block.Diagram.Body, nodeID, visibleLabel)
 	if !ok {
-		return fmt.Errorf("node_id is unsafe, already used, or the diagram family has no lossless standalone declaration form")
+		// Explicit model-selected relabeling changes only the declaration.
+		// Existing edges and notes retain their exact source endpoint IDs; this
+		// does not prove that the requested business role maps to this lane.
+		var count int
+		body, count = mermaidcompat.RewriteRemovableNodeDeclarationLabel(block.Diagram.Body, nodeID, visibleLabel)
+		ok = count == 1
+	}
+	if !ok {
+		return fmt.Errorf("node_id is unsafe, ambiguously declared, or the diagram family has no lossless standalone declaration form")
 	}
 	labels := diagramEvidenceNodeLabels(body, block.Diagram.Kind)
 	if !diagramParticipantEndpointExplicitlyDisplaysIdentity([]string{failure.Participant}, nodeID, labels) {
@@ -1061,6 +1078,7 @@ func cloneAtomicDiagramPatchBlock(in types.AnswerBlock) types.AnswerBlock {
 	out.ParticipantBoundaries = append([]types.DiagramParticipantBoundary(nil), in.ParticipantBoundaries...)
 	if in.Diagram != nil {
 		diagram := *in.Diagram
+		diagram.RuntimeNotesV1 = append([]types.RuntimeDiagramNoteSelection(nil), in.Diagram.RuntimeNotesV1...)
 		out.Diagram = &diagram
 	}
 	return out
@@ -1900,6 +1918,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		(strings.TrimSpace(edit.FromNodeVisibleLabel) != "" || strings.TrimSpace(edit.ToNodeVisibleLabel) != "") {
 		return fmt.Errorf("from_node_visible_label/to_node_visible_label are valid only for action=add or action=replace")
 	}
+	if err := validateAtomicNativeParticipantBinding(block, edit, lease); err != nil {
+		return err
+	}
 	occurrence := edit.Occurrence
 	if occurrence == 0 {
 		occurrence = 1
@@ -2001,7 +2022,8 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		// exact/unique typed binding checks, so this order preserves both gates:
 		// unlisted model choices still fail, while a system-selected existing
 		// declaration cannot invalidate an already-authorized choice.
-		if err := validateAtomicDiagramAdditionEndpointBindings(block, edit.Edge, edit.additionCandidate, stagePrecedence); err != nil {
+		candidate := nativeParticipantBoundCandidate(edit)
+		if err := validateAtomicDiagramAdditionEndpointBindings(block, edit.Edge, candidate, stagePrecedence); err != nil {
 			return err
 		}
 		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence, edit.FromNodeVisibleLabel, edit.ToNodeVisibleLabel); err != nil {

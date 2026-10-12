@@ -1316,6 +1316,24 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 		t.Fatalf("sampling registry fixture: %v %+v", samplingErr, samplingResult)
 	}
 	records = append(records, samplingResult.Observations...)
+	businessPath, _ := filepath.Abs("../../eval/fixtures/hmosperf_business_io_chain/events.systrace")
+	businessParams, _ := json.Marshal(map[string]any{"source": "path", "path": businessPath, "view": "window_stats", "time_start": .999, "time_end": 1.051})
+	businessResult, businessErr := (&TraceQuery{}).Execute(&types.BusContext{RepoRoot: t.TempDir(), WorkDir: t.TempDir()}, businessParams)
+	if businessErr != nil || !businessResult.Success {
+		t.Fatalf("business annotation registry fixture: %v %+v", businessErr, businessResult)
+	}
+	records = append(records, businessResult.Observations...)
+	sawBusinessAnnotation := false
+	for _, r := range businessResult.Observations {
+		for _, note := range r.RichNotes {
+			if strings.HasPrefix(note, types.TraceNoteKeyBusinessDiagramAnnotation+"=") {
+				sawBusinessAnnotation = true
+			}
+		}
+	}
+	if !sawBusinessAnnotation {
+		t.Fatal("native business annotation producer was not exercised")
+	}
 	if len(records) == 0 {
 		t.Fatal("fixture produced no observation records — the emit pin is checking nothing")
 	}

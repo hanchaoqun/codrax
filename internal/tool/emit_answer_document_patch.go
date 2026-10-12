@@ -69,7 +69,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `diagram_boundary_replacements`: model-authored replacement of the complete `participant_boundaries` array on an existing diagram block. Use only when the current schema does not publish a narrower boundary ref.\n" +
 		"- `diagram_boundary_edits`: model-selected local participant-boundary action published by a live typed repair lease. Copy one exact boundary_ref/action branch from the current schema; the executor changes only that participant row and preserves every unmentioned boundary, Mermaid line, relation, and label.\n" +
 		"- `diagram_relation_scope_edits`: model-selected local edit of the block-level `requested_relation_scope` disclosure. This field is exposed only when the current typed request-spine authority proves an exact missing/stale/duplicate scope mismatch. Choose one exact block_id/action branch from the current schema; the executor changes only that typed disclosure and preserves the diagram, relations, labels, layout, and conclusion.\n" +
-		"- `diagram_participant_edits`: generation-scoped model-authored declaration edits available only when the current schema publishes an exact branch. A relation-only phase may intentionally omit this field, stage the model-selected graph, and publish the complete post-edit orphan roster in the following dispatch; never predict or submit an omitted participant operation. For a published `optional_orphan_cleanups` row, choose remove_if_isolated or retain_as_context with visible_label. For an exact participant-visibility row, copy participant_ref, choose ensure_visible, and author node_id plus visible_label; the executor adds one disconnected standalone declaration only and creates no edge, anchor, relation, or conclusion. The executor rejects stale refs, unsafe/used node ids, unsupported Mermaid families, protected participants, remaining edges, and ambiguous declarations. The system never chooses the action, node id, or wording.\n" +
+		"- `diagram_participant_edits`: generation-scoped model-authored declaration edits available only when the current schema publishes an exact branch. A relation-only phase may intentionally omit this field, stage the model-selected graph, and publish the complete post-edit orphan roster in the following dispatch; never predict or submit an omitted participant operation. For a published `optional_orphan_cleanups` row, choose remove_if_isolated or retain_as_context with visible_label. For an exact participant-visibility row, copy participant_ref, choose ensure_visible, and author node_id plus visible_label; the executor adds one disconnected standalone declaration or relabels one uniquely declared existing node while preserving all incident edges and notes; it creates no edge, anchor, role mapping, relation, or conclusion. The executor rejects stale refs, unsafe or ambiguously declared node ids, unsupported Mermaid families, protected participants, remaining edges, and ambiguous declarations. The system never chooses the action, node id, or wording.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats`: when present, replace the corresponding document-level field. `replace_snippets` replaces only document-level code snippets shaped as {file,start_line,end_line,language?,code}; use a full `replace_blocks` entry for block items, diagrams, evidence_ids, or any other answer-block field.\n\n" +
@@ -171,6 +171,8 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
           },
           "visible_label": {"type": "string", "description": "Model-authored reader-facing message for relabel. It updates the matched Mermaid message and anchor.visible_label together."},
           "from_node_visible_label": {"type": "string", "description": "Optional model-authored reader-facing name for edge.from_node. Existing IDs require exact label replay; an explicit label on a new ID preserves that new declaration. Omitted labels follow the diagram-edge alias rule."},
+          "from_native_participant": {"type": "string", "description": "Only when published by the selected native addition_ref: explicitly bind an existing sequence source node to this exact native lane; names are not identity."},
+          "to_native_participant": {"type": "string", "description": "Only when published by the selected native addition_ref: explicitly bind an existing sequence target node to this exact native lane; names are not identity."},
           "to_node_visible_label": {"type": "string", "description": "Optional model-authored reader-facing name for edge.to_node. Existing IDs require exact label replay; an explicit label on a new ID preserves that new declaration. Omitted labels follow the diagram-edge alias rule."}
         },
         "required": ["action"],
@@ -232,7 +234,7 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     "diagram_participant_edits": {
       "type": "array",
       "maxItems": 64,
-      "description": "Generation-scoped model-authored declaration edits. For optional_orphan_cleanups, copy block_id+participant_id and choose remove_if_isolated or retain_as_context with visible_label. For an exact participant visibility failure, copy participant_ref, choose ensure_visible, and author node_id+visible_label. The latter inserts only one disconnected standalone declaration and never creates an edge, anchor, relation, or conclusion.",
+      "description": "Generation-scoped model-authored declaration edits. For optional_orphan_cleanups, copy block_id+participant_id and choose remove_if_isolated or retain_as_context with visible_label. For an exact participant visibility failure, copy participant_ref, choose ensure_visible, and author node_id+visible_label. The latter inserts one disconnected declaration or relabels one uniquely declared existing node with its edges and notes preserved. It never creates an edge, anchor, role mapping, relation, or conclusion.",
       "items": {
         "type": "object",
         "properties": {
@@ -936,10 +938,12 @@ func localDiagramLeaseExecutableEdgeBranches(
 			branches = append(branches, exactLocalStandaloneRelationMetadataAddBranch(ref))
 			continue
 		}
-		branches = append(branches, exactLocalDiagramEdgeBranch(
+		branch := exactLocalDiagramEdgeBranch(
 			"addition_ref", ref, "add", true, false,
 			explicitDiagramEndpointDeclarations(prev, candidate.BlockID),
-		))
+		)
+		projectNativeParticipantBindingBranch(branch, prev, candidate)
+		branches = append(branches, branch)
 	}
 	return branches, true
 }
@@ -1212,7 +1216,7 @@ func narrowLocalDiagramParticipantEditSchema(properties map[string]any, lease *t
 			"properties": map[string]any{
 				"participant_ref": map[string]any{"type": "string", "enum": []any{ref}},
 				"action":          map[string]any{"type": "string", "enum": []any{string(types.AnswerDiagramParticipantVisibilityRepairEnsureVisible)}},
-				"node_id":         map[string]any{"type": "string", "minLength": 1, "maxLength": 128},
+				"node_id":         map[string]any{"type": "string", "minLength": 1, "maxLength": 128, "description": "Choose a new safe node, or one uniquely declared existing node to relabel without changing its edges or notes. Relabeling does not prove role-to-thread mapping; retain an unproven boundary."},
 				"visible_label":   map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
 			},
 			"required": []any{"participant_ref", "action", "node_id", "visible_label"},
@@ -2369,27 +2373,29 @@ func answerDocumentPatchReceiptEditSchemaRepair(v answerDocumentPatchReceiptEdit
 // previous model-authored Mermaid carrier; it never chooses an endpoint,
 // relation kind, or reader-facing label.
 type emitAnswerDiagramEdgeEdit struct {
-	BlockID              string                   `json:"block_id"`
-	Action               string                   `json:"action"`
-	FailureRef           string                   `json:"failure_ref,omitempty"`
-	AdditionRef          string                   `json:"addition_ref,omitempty"`
-	PlacementRef         string                   `json:"placement_ref,omitempty"`
-	Occurrence           int                      `json:"occurrence,omitempty"`
-	BodyOccurrence       int                      `json:"body_occurrence,omitempty"`
-	Match                *types.DiagramEdgeAnchor `json:"match,omitempty"`
-	Edge                 *types.DiagramEdgeAnchor `json:"edge,omitempty"`
-	VisibleLabel         string                   `json:"visible_label,omitempty"`
-	FromNodeVisibleLabel string                   `json:"from_node_visible_label,omitempty"`
-	ToNodeVisibleLabel   string                   `json:"to_node_visible_label,omitempty"`
-	failureRefResolved   bool
-	failureRefCarrier    types.AnswerDiagramRelationRepairTargetCarrier
-	failureIssue         string
-	anchorBaseOccurrence int // Set only by resolution of a live system failure_ref.
-	attachPairResolving  bool
-	additionCandidate    *types.AnswerDiagramRelationRepairCandidate
-	metadataAttach       bool
-	placementMarker      string  // Private source-gap token; never serialized or persisted.
-	placementStatement   *string // Deferred body only; metadata edits keep their original ordering.
+	BlockID               string                   `json:"block_id"`
+	Action                string                   `json:"action"`
+	FailureRef            string                   `json:"failure_ref,omitempty"`
+	AdditionRef           string                   `json:"addition_ref,omitempty"`
+	PlacementRef          string                   `json:"placement_ref,omitempty"`
+	Occurrence            int                      `json:"occurrence,omitempty"`
+	BodyOccurrence        int                      `json:"body_occurrence,omitempty"`
+	Match                 *types.DiagramEdgeAnchor `json:"match,omitempty"`
+	Edge                  *types.DiagramEdgeAnchor `json:"edge,omitempty"`
+	VisibleLabel          string                   `json:"visible_label,omitempty"`
+	FromNodeVisibleLabel  string                   `json:"from_node_visible_label,omitempty"`
+	ToNodeVisibleLabel    string                   `json:"to_node_visible_label,omitempty"`
+	FromNativeParticipant string                   `json:"from_native_participant,omitempty"`
+	ToNativeParticipant   string                   `json:"to_native_participant,omitempty"`
+	failureRefResolved    bool
+	failureRefCarrier     types.AnswerDiagramRelationRepairTargetCarrier
+	failureIssue          string
+	anchorBaseOccurrence  int // Set only by resolution of a live system failure_ref.
+	attachPairResolving   bool
+	additionCandidate     *types.AnswerDiagramRelationRepairCandidate
+	metadataAttach        bool
+	placementMarker       string  // Private source-gap token; never serialized or persisted.
+	placementStatement    *string // Deferred body only; metadata edits keep their original ordering.
 }
 
 type emitAnswerDiagramBoundaryReplacement struct {

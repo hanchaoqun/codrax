@@ -123,9 +123,10 @@ type emitAnswerBlockItemV2 struct {
 }
 
 type emitAnswerDiagramV2 struct {
-	Kind     string `json:"kind"`
-	Language string `json:"language,omitempty"`
-	Body     string `json:"body"`
+	Kind           string                              `json:"kind"`
+	Language       string                              `json:"language,omitempty"`
+	Body           string                              `json:"body"`
+	RuntimeNotesV1 []types.RuntimeDiagramNoteSelection `json:"runtime_notes_v1,omitempty"`
 }
 
 // executeAnswerDocumentV2 handles block-only emits. It validates the

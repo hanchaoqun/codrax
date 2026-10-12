@@ -63,6 +63,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectBlockKindEnum(blockProps, view)
 			projectClaimUsesEnum(blockProps, view)
 			projectDiagramField(blockProps, view)
+			projectNativeDiagramNotes(blockProps, view)
 			projectEdgeAnchorsField(blockProps, view)
 			projectParticipantBoundariesField(blockProps, view)
 			projectRequestedRelationScopeField(blockProps, view)

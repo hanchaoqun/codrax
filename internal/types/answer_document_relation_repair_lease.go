@@ -156,6 +156,7 @@ func AssignAnswerDiagramRelationRepairFailureRefs(
 }
 
 const DiagramRelationFailureNativeSequenceEventOrder = "native_sequence_event_order_conflict"
+const DiagramRelationFailureNativeNoteBinding = "native_note_binding_unavailable"
 
 func answerDiagramRelationRepairFailureCapabilities(
 	base *AnswerDocumentV2,
@@ -187,7 +188,7 @@ func answerDiagramRelationRepairFailureCapabilities(
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	}
 	switch issue {
-	case DiagramRelationFailureNativeSequenceEventOrder:
+	case DiagramRelationFailureNativeSequenceEventOrder, DiagramRelationFailureNativeNoteBinding:
 		// Both events are proved. Edge removal/replacement cannot express a
 		// movement between existing statements. Retire older atomic leases and
 		// leave a fully validated model-authored block replacement available.
@@ -751,7 +752,11 @@ type AnswerDiagramRelationRepairCandidate struct {
 	EvidenceID   string              `json:"evidence_id,omitempty"`
 	FromNodeIDs  []string            `json:"from_node_ids,omitempty"`
 	ToNodeIDs    []string            `json:"to_node_ids,omitempty"`
-	Source       string              `json:"source"`
+	// Native lanes are producer-owned display identities, not causal or role
+	// permissions. Event endpoint identities remain exact and instance-local.
+	FromNativeParticipant string `json:"from_native_participant,omitempty"`
+	ToNativeParticipant   string `json:"to_native_participant,omitempty"`
+	Source                string `json:"source"`
 }
 
 type AnswerDiagramOrphanDispositionAction string
@@ -1071,7 +1076,7 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		failure.FailureRef = strings.TrimSpace(failure.FailureRef)
 		failure.BlockID = strings.TrimSpace(failure.BlockID)
 		failure.Issue = strings.TrimSpace(failure.Issue)
-		if failure.Issue == DiagramRelationFailureNativeSequenceEventOrder {
+		if failure.Issue == DiagramRelationFailureNativeSequenceEventOrder || failure.Issue == DiagramRelationFailureNativeNoteBinding {
 			// Even an optional-diagram removal lease would freeze the proved
 			// messages and suppress the useful ordinary reorder repair.
 			return nil
@@ -1121,6 +1126,21 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		if !ok {
 			return nil
 		}
+		if candidate.FromNativeParticipant != "" || candidate.ToNativeParticipant != "" {
+			listed := func(value string, ids []string) bool {
+				for _, id := range ids {
+					if id == value {
+						return true
+					}
+				}
+				return false
+			}
+			if candidate.RelationKind != DiagramRelWakeup ||
+				!strings.HasPrefix(candidate.FromNativeParticipant, "rt_thread_") || !strings.HasPrefix(candidate.ToNativeParticipant, "rt_thread_") ||
+				!listed(candidate.FromNativeParticipant, candidate.FromNodeIDs) || !listed(candidate.ToNativeParticipant, candidate.ToNodeIDs) {
+				return nil
+			}
+		}
 		candidate.Source = strings.TrimSpace(candidate.Source)
 		if candidate.BlockID == "" || baseBlockCounts[candidate.BlockID] != 1 || !candidate.RelationKind.IsValid() ||
 			candidate.FromIdentity == "" || candidate.ToIdentity == "" || candidate.Source == "" {
@@ -1139,6 +1159,9 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		}
 		key := answerDiagramRelationRepairCandidateKey(candidate)
 		if index, exists := allowedIndex[key]; exists {
+			if allowed[index].FromNativeParticipant != candidate.FromNativeParticipant || allowed[index].ToNativeParticipant != candidate.ToNativeParticipant {
+				return nil
+			}
 			allowed[index].FromNodeIDs = answerDiagramRelationRepairCandidateNodeIDUnion(
 				allowed[index].FromNodeIDs, candidate.FromNodeIDs,
 			)

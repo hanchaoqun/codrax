@@ -70,7 +70,7 @@ func traceQueryTypedBusinessSpanObservations(stats tracequery.WindowStats, ref t
 }
 
 func traceQueryBusinessSpanSchedulerNote(span tracequery.TraceSpanSummary) string {
-	if span.Kind != "sync" || !span.SchedulerStates.Matches(span.SourcePath, traceThreadLabel(span.Thread), span.StartTs, span.EndTs) {
+	if span.Kind != "sync" || !span.SchedulerStates.MatchesOwner(span.SourcePath, span.Thread, span.StartTs, span.EndTs) {
 		return ""
 	}
 	data, err := json.Marshal(span.SchedulerStates)
@@ -85,7 +85,7 @@ func traceQueryBusinessSpanSchedulerNote(span tracequery.TraceSpanSummary) strin
 // exploration from substituting the wider query's totals for a marker.
 func traceQueryBusinessSpanSchedulerSummary(span tracequery.TraceSpanSummary) string {
 	states := span.SchedulerStates
-	if span.Kind != "sync" || !states.Matches(span.SourcePath, traceThreadLabel(span.Thread), span.StartTs, span.EndTs) {
+	if span.Kind != "sync" || !states.MatchesOwner(span.SourcePath, span.Thread, span.StartTs, span.EndTs) {
 		return ""
 	}
 	// Bound display values only after the full ownership check. Long marker

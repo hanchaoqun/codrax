@@ -62,6 +62,13 @@ func (s *TraceSpanSchedulerStates) Matches(sourcePath, subject string, start, en
 	}
 }
 
+// MatchesOwner checks the complete native thread tuple. Reader labels may be
+// shortened for display and must not drop a valid long owner or bind another
+// owner whose shortened label happens to match.
+func (s *TraceSpanSchedulerStates) MatchesOwner(sourcePath string, owner ThreadRef, start, end float64) bool {
+	return s != nil && s.Thread == owner && s.Matches(sourcePath, threadLabel(owner), start, end)
+}
+
 // Only the already-bounded ordinary synchronous span display is enriched. The
 // full marker inventory, semantic-span lane, query target, selected window and
 // ranking accounts stay untouched. A single physical source is required: a
