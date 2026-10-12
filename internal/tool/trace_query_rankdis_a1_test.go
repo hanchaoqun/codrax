@@ -11,13 +11,13 @@ package tool
 //   - auto-window      → window_rank (JSON + caveat + candidate listing)
 //   - window_sweep     → density_rank (JSON + text; hotspot prefix kept)
 //   - root_cause_rank  → keeps bare rank= (THE rank board) and each seated
-//     row wears rank_channel=chain|adjacent read from the ordinal
-//     allocator's own typed single source (never a second implementation).
+//     row wears rank_channel=chain|adjacent from its board-bound typed
+//     relationship. An unbound engine ordinal is only a background observation.
 //
 // MUTATION self-check: re-inlining `rank=` in any renamed Fprintf reds the
 // positive pins; dropping the channel gate (Rank>0) reds the no-seat arm;
-// re-deriving the channel from anything but RootCauseRankOrdinalChannelWord
-// desyncs from the allocator and reds the dual rank=1 arm.
+// losing either typed chain or adjacency on a resolved board reds the dual
+// rank=1 arm. The allocator's targetless behavior is separately preserved.
 
 import (
 	"strings"
@@ -32,6 +32,7 @@ func TestRankdisA1RankChannelWordDisambiguatesDualBoards(t *testing.T) {
 	result := tracequery.Result{
 		View: "root_cause_rank",
 		RootCauseRank: &tracequery.RootCauseRankResult{
+			Target: tracequery.ThreadRef{Comm: "app", PID: 20},
 			Window: tracequery.TimeWindow{StartTs: 1, EndTs: 2},
 			Items: []tracequery.RootCauseRankItem{
 				{

@@ -38,7 +38,7 @@ func TestTraceQuerySummaryPublishesTypedRootCauseRosterBeforeLongBody(t *testing
 
 	result := tracequery.Result{
 		View:          "root_cause_rank",
-		RootCauseRank: &tracequery.RootCauseRankResult{Items: items},
+		RootCauseRank: &tracequery.RootCauseRankResult{Target: tracequery.ThreadRef{PID: 10}, Items: items},
 	}
 	got := traceQuerySummary(result, traceQueryParams{View: "root_cause_rank"}, "attached_trace", "/tmp/rank.json")
 	for _, want := range []string{

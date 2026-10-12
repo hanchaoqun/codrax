@@ -30,7 +30,7 @@ func TestTraceQueryRootCauseAuthorityRequiresTypedOnChainLane(t *testing.T) {
 			ChainRelevance: "on_chain", Causality: "on_wakeup_chain", Source: "wakeup_chain",
 		},
 	}
-	rank := &tracequery.RootCauseRankResult{Window: tracequery.TimeWindow{StartTs: 1, EndTs: 1.1}, Items: items}
+	rank := &tracequery.RootCauseRankResult{Target: tracequery.ThreadRef{Comm: "app", PID: 10}, Window: tracequery.TimeWindow{StartTs: 1, EndTs: 1.1}, Items: items}
 	bundle := &tracequery.FrameRootCauseBundle{
 		Target: tracequery.ThreadRef{Comm: "app", PID: 10}, Window: rank.Window, RootCauseRank: rank,
 	}
@@ -80,7 +80,7 @@ func TestTraceQueryRootCauseAuthorityRequiresTypedOnChainLane(t *testing.T) {
 		t.Fatalf("bundle head did not use on-chain-only root authority:\n%s", text)
 	}
 	fullSummary := traceQuerySummary(result, traceQueryParams{View: "frame_root_cause_bundle"}, "customer.systrace", "payload-ref")
-	for _, want := range []string{"principal_eligibility=typed_on_chain_only", "adjacent_role=support_only", "background_role=support_only"} {
+	for _, want := range []string{"principal_eligibility=resolved_board_target_and_typed_on_chain_only", "adjacent_role=support_only", "background_role=support_only"} {
 		if !strings.Contains(fullSummary, want) {
 			t.Fatalf("model-facing summary lost root authority field %q:\n%s", want, fullSummary)
 		}

@@ -5167,18 +5167,15 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if strings.TrimSpace(item.PhysicalSourcePath) != "" {
 				physicalSource = " physical_source=" + traceQuerySourceBasename(item.PhysicalSourcePath)
 			}
-			// rank_channel (RANKDIS-EXT A1, §29.104.16 ③): the chain and
-			// adjacent boards each allocate rank=1..N, so a raw grep sees two
-			// rank=1 rows — a seated row's ordinal wears its channel word
-			// in-row, read from the SAME typed single source the allocator
-			// uses (tracequery.RootCauseRankOrdinalChannelWord; the wire still
-			// carries no new key — (rank, chain_relevance) stay the joint
-			// identity). Rank=0 no-seat rows wear no channel word.
+			// Display authority is board-target-bound. The engine's historical
+			// empty-relevance ordinal lane remains untouched, but is not a
+			// claim that an unbound observation is a target cause.
 			rankChannel := ""
 			if item.Rank > 0 {
-				if word := tracequery.RootCauseRankOrdinalChannelWord(item); word != "" {
-					rankChannel = " rank_channel=" + word
-				}
+				rankChannel = " rank_channel=" + tracequery.RootCauseRankDisplayChannel(*result.RootCauseRank, item)
+			}
+			if ruler := tracequery.RootCauseRankIOValueDescription(item); ruler != "" {
+				scoreField += " " + ruler
 			}
 			provenLower, unknownOrNonLower := traceQueryPriorityCoverageNoteValues(item.PriorityRelationCaliber, item.PriorityRelationProvenLowerMs, item.PriorityRelationUnknownOrNonLowerMs)
 			priorityProof := traceQueryPriorityProofBannerFields("", "", "", "", item.PriorityRelationArtifactSources, item.PriorityRelationCaliber, provenLower, unknownOrNonLower)
@@ -8681,8 +8678,8 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 	if visible < len(rank.Items) {
 		status = "incomplete"
 	}
-	fmt.Fprintf(b, "root_cause_rank_preview status=%s emitted=%d published_total=%d order=engine_published_board values=typed_no_re_election principal_eligibility=typed_on_chain_only adjacent_role=support_only background_role=support_only\n",
-		status, visible, len(rank.Items))
+	fmt.Fprintf(b, "root_cause_rank_preview status=%s emitted=%d published_total=%d order=engine_published_board values=typed_no_re_election principal_eligibility=resolved_board_target_and_typed_on_chain_only adjacent_role=support_only background_role=support_only board_target=%s authority_scope=this_board_target_and_window\n",
+		status, visible, len(rank.Items), sanitizeForBanner(traceThreadLabel(rank.Target)))
 	for i := 0; i < visible; i++ {
 		item := rank.Items[i]
 		value := traceQueryRankImpactValue(item.Type)
@@ -8690,10 +8687,7 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 		if strings.TrimSpace(item.Type) == "io_pressure" {
 			magnitudeField = fmt.Sprintf("activity_index=%.3f(non-wall-clock mixed-unit context)", item.CumulativeImpactMs)
 		}
-		channel := tracequery.RootCauseRankOrdinalChannelWord(item)
-		if channel == "" {
-			channel = "none"
-		}
+		channel := tracequery.RootCauseRankDisplayChannel(*rank, item)
 		subject := traceThreadLabel(item.Thread)
 		if item.SubjectKind == tracequery.RootCauseSubjectKindAggregateMetric && item.Thread.PID <= 0 && strings.TrimSpace(item.Thread.Comm) == "" {
 			subject = item.Type
@@ -8704,12 +8698,16 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 			overlapOmitted = len(overlaps) - traceQueryRootCauseOverlapPreviewCap
 			overlaps = overlaps[:traceQueryRootCauseOverlapPreviewCap]
 		}
-		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s %s fix_direction=%s causality=%s chain_relevance=%s member_count=%d cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s\n",
+		ruler := tracequery.RootCauseRankIOValueDescription(item)
+		if ruler != "" {
+			ruler = " " + ruler
+		}
+		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s %s fix_direction=%s causality=%s chain_relevance=%s member_count=%d cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s%s\n",
 			i+1, item.Rank, sanitizeForBanner(channel), sanitizeForBanner(item.Tier), sanitizeForBanner(item.Type),
 			sanitizeForBanner(subject), sanitizeForBanner(item.DominantState), value(traceQueryRootCauseEffectiveImpact(item)), magnitudeField,
 			sanitizeForBanner(item.FixDirection), sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.MemberCount,
 			sanitizeForBanner(traceQueryCrossDirectionOverlapsNote(overlaps)), overlapOmitted,
-			item.LineStart, item.LineEnd, sanitizeForBanner(item.Source))
+			item.LineStart, item.LineEnd, sanitizeForBanner(item.Source), ruler)
 	}
 	if status != "complete" {
 		fmt.Fprintf(b, "root_cause_rank_preview_continuation omitted=%d payload_ref=%s\n",

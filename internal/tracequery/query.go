@@ -27668,22 +27668,10 @@ func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
 		if perfRoles := rootCausePerfRoleSummary(item.PerfContexts, 3); perfRoles != "" {
 			summary = fmt.Sprintf("%s; perf_role_contexts=%s", summary, perfRoles)
 		}
-		// G9 (2026-07-09, 复核 P1-2 narrowed): demoted rows (target_self_state
-		// / data_gap) carry no board ordinal — the evidence face says so
-		// instead of fabricating a "#0" seat.
-		// UXR-1 (§29.36.2): the ordinal is channel-scoped — an adjacent row's
-		// seat is the 邻近影响 channel's #N, never the root-cause board's; the
-		// evidence face names the channel so two channels' #1 cannot collide.
-		position := fmt.Sprintf("%s cause #%d", item.Tier, item.Rank)
-		if item.Rank > 0 && rootCauseOrdinalChannel(item) == rootCauseOrdinalChannelAdjacent {
-			position = fmt.Sprintf("%s adjacent-impact #%d", item.Tier, item.Rank)
+		if ruler := RootCauseRankIOValueDescription(item); ruler != "" {
+			summary = fmt.Sprintf("%s; %s", summary, ruler)
 		}
-		if item.Rank <= 0 {
-			position = fmt.Sprintf("%s row (no rank seat)", item.Tier)
-		}
-		if item.AbsorbedByRankFamily {
-			position = fmt.Sprintf("absorbed row (no rank seat; absorbed_into=%s)", item.AbsorbedIntoFamily)
-		}
+		position := rootCauseEvidenceDisplayPosition(rank, item)
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(item.Thread),
 			Predicate:  "root_cause_" + item.Tier,
