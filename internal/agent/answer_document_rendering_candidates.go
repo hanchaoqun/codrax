@@ -37,12 +37,12 @@ func renderAnswerDocRenderingCandidates(ctx *types.AgentContext, ledger types.Ob
 		if !ok {
 			continue
 		}
+		profile, qualified := answerDocRuntimeDisplayScope(ctx, ledger, r)
+		if !qualified || profile.HasExplicitTimeWindows() && !resourceStackInsideRequestedWindow(profile, tracequery.ResourceStackWindow{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs, EndInclusive: p.Window.EndInclusive}) {
+			continue
+		}
 		if ctx != nil && ctx.AnalysisIR != nil {
 			rm := &ctx.AnalysisIR.RequestModel
-			profile := rm.RuntimeArtifactScopeProfile
-			if profile != nil && profile.HasExplicitTimeWindows() && !resourceStackInsideRequestedWindow(profile, tracequery.ResourceStackWindow{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs, EndInclusive: p.Window.EndInclusive}) {
-				continue
-			}
 			if answerDocHasUserRuntimeTarget(rm) {
 				p = renderingCandidatesForRequestedTarget(p, rm)
 				if len(p.Candidates) == 0 {

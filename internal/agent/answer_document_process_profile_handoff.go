@@ -16,11 +16,9 @@ func renderAnswerDocProcessProfiles(ctx *types.AgentContext, ledger types.Observ
 		if !ok {
 			continue
 		}
-		if ctx != nil && ctx.AnalysisIR != nil {
-			profile := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
-			if profile != nil && profile.HasExplicitTimeWindows() && !profile.ContainsExplicitTimeWindow(p.Window.StartTs, p.Window.EndTs) {
-				continue
-			}
+		profile, qualified := answerDocRuntimeDisplayScope(ctx, ledger, r)
+		if !qualified || profile.HasExplicitTimeWindows() && !profile.ContainsExplicitTimeWindow(p.Window.StartTs, p.Window.EndTs) {
+			continue
 		}
 		key := r.SourceRef.QueryScopeID + "\x00" + r.SourceRef.PayloadRef
 		if seen[key] {

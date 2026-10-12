@@ -5761,7 +5761,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
 	logMetadata, _ := answerDocLogQueryPresentationMetadata(promptLedgerRecords, records)
 	if len(promptLedgerRecords) == 0 {
-		return logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx) +
+		return answerDocComparisonScopeBoundary(ctx, outsideSelectedWindowRecords) + logMetadata + inventoryPrompt + renderAnswerDocSeparateIOQueryContext(ctx, separateIOContext) + renderAnswerDocRuntimeMeasurementChoices(ctx) +
 			renderAnswerDocCausalIOMeasurements(ctx, ioWaitLedger) + renderAnswerDocTraceBlockingWallClockAuthority(ctx, ioWaitLedger)
 	}
 	if len(records) == 0 && answerDocLogPeerRelationUnproven(ctx) {
@@ -5783,7 +5783,11 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- Same-artifact deterministic runtime queries supersede %d pre-triage free-form navigation observation(s) in this answer-writing view. Their audit records remain in the full ledger; measured perf frame/jank/stall rows and deterministic observations remain available.\n\n", supersededPreTriageNarratives)
 	}
 	if outsideSelectedWindowRecords > 0 {
-		fmt.Fprintf(&b, "- The user-selected explicit trace window is the principal answer scope. %d deterministic query observation(s) whose own typed query windows extend outside it are omitted from this answer-writing view; they remain in the full ledger, causal projection inputs, report appendix, and audit trail as other-window context. Fully contained drilldown rows remain available.\n\n", outsideSelectedWindowRecords)
+		if boundary := answerDocComparisonScopeBoundary(ctx, outsideSelectedWindowRecords); boundary != "" {
+			b.WriteString(boundary)
+		} else {
+			fmt.Fprintf(&b, "- The user-selected explicit trace window is the principal answer scope. %d deterministic query observation(s) whose own typed query windows extend outside it are omitted from this answer-writing view; they remain in the full ledger, causal projection inputs, report appendix, and audit trail as other-window context. Fully contained drilldown rows remain available.\n\n", outsideSelectedWindowRecords)
+		}
 	}
 	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
@@ -5890,7 +5894,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	measurementWindows := make(map[string]string)
 	for _, record := range promptLedger.Records {
 		measurementWindows[record.ID] = types.TraceObservationMeasurementWindowDisplayRole(record, false)
-		if scope := traceQueryObservationRequestedScopeNote(record, promptLedger.RuntimeArtifactScopeProfile, extractAnswerDocLang(ctx)); scope != "" {
+		if scope := traceQueryObservationSourceRequestedScopeNote(record, promptLedger, extractAnswerDocLang(ctx)); scope != "" {
 			queryScopes[record.ID] = scope
 		}
 	}
@@ -7649,7 +7653,8 @@ func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.
 	}
 	records, _ = answerDocFinalizerObservationRecords(ctx, records)
 	records, _ = answerDocSelectedWindowObservationRecords(ctx, records)
-	ledger := types.ObservationLedger{Records: records}
+	ledger := answerDocObservationLedger(ctx)
+	ledger.Records = records
 	records = answerDocObservationPresentationCandidates(ctx, ledger)
 	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, ledger, limit))
 }
@@ -7747,7 +7752,9 @@ func answerDocReaderAuthorityShadowedObservationIDs(ctx *types.AgentContext, led
 // observation ledger, causal projection, report appendix, and audit output;
 // they are removed only from the principal answer-writing pool so a broad
 // drilldown cannot masquerade as selected-window evidence. Records without a
-// typed selected_window fail open, as do non-runtime/non-deterministic rows.
+// typed selected_window retain legacy behavior outside comparison. Independent
+// inputs require current source ownership and their own query/local ruler;
+// non-runtime/non-deterministic rows remain unchanged.
 // No request text, model narrative, or final prose is inspected.
 func answerDocSelectedWindowObservationRecords(ctx *types.AgentContext, records []types.ObservationRecord) ([]types.ObservationRecord, int) {
 	if ctx == nil || (ctx.AgentName != types.AgentFinalizer && ctx.Stage != types.StageFinalize) ||
@@ -7755,10 +7762,10 @@ func answerDocSelectedWindowObservationRecords(ctx *types.AgentContext, records 
 		return records, 0
 	}
 	requested := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
-	if !requested.HasExplicitTimeWindows() {
+	if !requested.HasExplicitTimeWindows() && requested.Comparison == nil {
 		return records, 0
 	}
-	multi := len(requested.ExplicitTimeWindows()) > 1
+	scopes := types.BuildRuntimeObservationDisplayScopes(types.ObservationLedgerInputFromAgentContext(ctx, 0))
 	out := make([]types.ObservationRecord, 0, len(records))
 	omitted := 0
 	for _, record := range records {
@@ -7767,15 +7774,31 @@ func answerDocSelectedWindowObservationRecords(ctx *types.AgentContext, records 
 			out = append(out, record)
 			continue
 		}
-		start, end, present := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
-		if multi && record.SourceRef.QueryWindowKnown {
-			start, end, present = record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs, true
+		local, qualified := scopes.Scope(record, requested)
+		if !qualified {
+			omitted++
+			continue
 		}
-		if !present {
+		if !local.HasExplicitTimeWindows() {
 			out = append(out, record)
 			continue
 		}
-		if !requested.ContainsExplicitTimeWindow(start, end) {
+		start, end, present := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+		if len(local.ExplicitTimeWindows()) > 1 && record.SourceRef.QueryWindowKnown || requested.Comparison != nil && !present {
+			start, end, present = record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs, true
+			if requested.Comparison != nil {
+				start, end, present = types.TraceObservationContinuousQueryWindow(record.SourceRef)
+			}
+		}
+		if !present {
+			if requested.Comparison != nil {
+				omitted++
+				continue
+			}
+			out = append(out, record)
+			continue
+		}
+		if !local.ContainsExplicitTimeWindow(start, end) {
 			omitted++
 			continue
 		}
@@ -23691,7 +23714,7 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 		if zh {
 			lang = "zh"
 		}
-		if scope := traceQueryObservationRequestedScopeNote(entry.record, ledger.RuntimeArtifactScopeProfile, lang); scope != "" {
+		if scope := traceQueryObservationSourceRequestedScopeNote(entry.record, ledger, lang); scope != "" {
 			outsideNote += " (" + scope + ")"
 		}
 		text += outsideNote

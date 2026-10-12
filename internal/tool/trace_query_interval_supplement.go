@@ -145,11 +145,12 @@ func traceIntervalSupplementCalls(ctx *types.BusContext, path string, input type
 // idle. It shares their task deadline, span fuse, two-call budget and dedicated
 // publication lane; neither model transcript nor accepted completion changes.
 func runTraceIntervalSupplement(ctx *types.BusContext, path, sourceLabel string, input types.ObservationLedgerInput, out TraceQuerySupplementOutcome, censusLiteWanted bool) (TraceQuerySupplementOutcome, bool) {
-	if !traceIntervalSupplementRequest(ctx) || !traceQueryRequestWindowSourceMatches(ctx, path, sourceLabel) {
+	if !traceIntervalSupplementRequest(ctx) || !traceQueryRequestedWindowSourceMatches(ctx, path, sourceLabel) {
 		return out, false
 	}
-	start, end, explicit := traceSupplementRequestedArtifactScope(ctx).ExplicitTimeWindow()
-	if !explicit {
+	scope, known := traceQuerySourceRequestedScope(ctx, path)
+	start, end, explicit := scope.ExplicitTimeWindow()
+	if !known || !explicit {
 		return out, false
 	}
 	calls := traceIntervalSupplementCalls(ctx, path, input, start, end)

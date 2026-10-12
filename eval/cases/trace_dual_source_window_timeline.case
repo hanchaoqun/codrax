@@ -1,0 +1,8 @@
+# One ordinary object/window/visualization request; source fencing is system-owned.
+ID="trace_dual_source_window_timeline"
+NAME="Independent source windows for TID 41 wakeup, scheduling and CPU timeline"
+DUAL_TIMELINE_FIXTURE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../fixtures/hmosperf_dual_source_windows" && pwd)"
+QUESTION="看看基线 ${DUAL_TIMELINE_FIXTURE}/baseline.systrace 的 1.000 到 1.010 秒和当前 ${DUAL_TIMELINE_FIXTURE}/current.systrace 的 4.000 到 4.020 秒：TID 41 分别被谁唤醒、等了多久才上 CPU？CPU 的空闲状态和频率怎样变化？请用时序图展示两次过程，并概括差异。"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

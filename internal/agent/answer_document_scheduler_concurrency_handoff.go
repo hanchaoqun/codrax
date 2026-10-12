@@ -24,8 +24,14 @@ func answerDocSchedulerConcurrencyRows(ledger types.ObservationLedger, rm *types
 			r.SourceRef.QueryScopeID == "" || r.SourceRef.PayloadRef == "" {
 			continue
 		}
-		if rm != nil && rm.RuntimeArtifactScopeProfile != nil && rm.RuntimeArtifactScopeProfile.HasExplicitTimeWindows() &&
-			(!r.SourceRef.QueryWindowKnown || !rm.RuntimeArtifactScopeProfile.ContainsExplicitTimeWindow(r.SourceRef.QueryWindowStartTs, r.SourceRef.QueryWindowEndTs)) {
+		requested := ledger.RuntimeArtifactScopeProfile
+		if rm != nil {
+			requested = rm.RuntimeArtifactScopeProfile
+		}
+		scope, qualified := ledger.RuntimeDisplayScope(r, requested)
+		start, end, known := types.TraceObservationContinuousQueryWindow(r.SourceRef)
+		if !qualified || scope.HasExplicitTimeWindows() &&
+			(!known || !scope.ContainsExplicitTimeWindow(start, end)) {
 			continue
 		}
 		records = append(records, r)

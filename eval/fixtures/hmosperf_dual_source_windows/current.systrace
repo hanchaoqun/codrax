@@ -1,0 +1,23 @@
+# Synthetic independent source B. Timestamps are trace seconds.
+idle-0 (0) [000] .... 0.999000: cpu_frequency: state=4000000 cpu_id=0
+idle-0 (0) [000] .... 0.999000: cpu_idle: state=4294967295 cpu_id=0
+idle-0 (0) [000] .... 0.999000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=41 next_prio=120
+target-41 (41) [000] .... 1.001000: sched_switch: prev_comm=target prev_pid=41 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+idle-0 (0) [000] .... 1.001000: cpu_idle: state=0 cpu_id=0
+otherB-801 (801) [000] .... 1.002000: sched_wakeup: comm=target pid=41 prio=120 target_cpu=000
+idle-0 (0) [000] .... 1.003000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=41 next_prio=120
+idle-0 (0) [000] .... 1.003000: cpu_idle: state=4294967295 cpu_id=0
+target-41 (41) [000] .... 1.012000: sched_switch: prev_comm=target prev_pid=41 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+idle-0 (0) [000] .... 1.012000: cpu_idle: state=0 cpu_id=0
+idle-0 (0) [000] .... 3.999000: cpu_frequency: state=1500000 cpu_id=0
+idle-0 (0) [000] .... 3.999000: cpu_idle: state=4294967295 cpu_id=0
+idle-0 (0) [000] .... 3.999000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=41 next_prio=120
+target-41 (41) [000] .... 4.002000: sched_switch: prev_comm=target prev_pid=41 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+idle-0 (0) [000] .... 4.002000: cpu_idle: state=0 cpu_id=0
+wakerB-301 (301) [000] .... 4.004000: sched_wakeup: comm=target pid=41 prio=120 target_cpu=000
+idle-0 (0) [000] .... 4.010000: cpu_frequency: state=750000 cpu_id=0
+idle-0 (0) [000] .... 4.012000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=target next_pid=41 next_prio=120
+idle-0 (0) [000] .... 4.012000: cpu_idle: state=4294967295 cpu_id=0
+target-41 (41) [000] .... 4.018000: sched_switch: prev_comm=target prev_pid=41 prev_prio=120 prev_state=S ==> next_comm=idle next_pid=0 next_prio=120
+idle-0 (0) [000] .... 4.018000: cpu_idle: state=0 cpu_id=0
+idle-0 (0) [000] .... 4.022000: sched_switch: prev_comm=idle prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=idle next_pid=0 next_prio=120

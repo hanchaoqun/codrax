@@ -23,7 +23,8 @@ func renderAnswerDocScopedTraceEventInventories(ctx *types.AgentContext, accepte
 	// Unlike whole-window aggregates, inventories contain individual events.
 	// Project those points below instead of rejecting an entire receipt whose
 	// executed lookup includes tolerance outside one or more requested windows.
-	view := types.ObservationLedger{}
+	view := accepted
+	view.Records = nil
 	for _, row := range accepted.Records {
 		if types.IsValidTraceEventSearchInventoryRecord(row) {
 			view.Records = append(view.Records, row)

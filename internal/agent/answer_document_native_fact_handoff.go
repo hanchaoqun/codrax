@@ -19,7 +19,7 @@ func answerDocPublishedNativeFacts(ctx *types.AgentContext) []types.ObservationR
 	byID := make(map[string]types.ObservationRecord, len(records))
 	for _, record := range records {
 		kind := types.NativeRuntimeFactPresentationKind(record)
-		if kind != "" && kind != "log_query_coverage" && answerDocNativeFactInRequestedWindow(ctx, record, kind) {
+		if kind != "" && kind != "log_query_coverage" && answerDocNativeFactInDisplayWindow(ctx, ledger, record, kind) {
 			byID[record.ID] = record
 		}
 	}
@@ -37,13 +37,23 @@ func answerDocPublishedNativeFacts(ctx *types.AgentContext) []types.ObservationR
 // a local projection note. An existing local selected_window was already
 // checked above and may legitimately project a broader causal query.
 func answerDocNativeFactInRequestedWindow(ctx *types.AgentContext, record types.ObservationRecord, kind string) bool {
+	return answerDocNativeFactInDisplayWindow(ctx, answerDocObservationLedger(ctx), record, kind)
+}
+
+func answerDocNativeFactInDisplayWindow(ctx *types.AgentContext, ledger types.ObservationLedger, record types.ObservationRecord, kind string) bool {
 	if kind != "trace_record" || ctx == nil || ctx.AnalysisIR == nil ||
-		ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile == nil || !record.SourceRef.QueryWindowKnown {
+		ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile == nil {
 		return true
 	}
-	requested := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
+	requested, qualified := answerDocRuntimeDisplayScope(ctx, ledger, record)
+	if !qualified {
+		return false
+	}
 	if !requested.HasExplicitTimeWindows() {
 		return true
+	}
+	if !record.SourceRef.QueryWindowKnown {
+		return requested.Comparison == nil && ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile.Comparison == nil
 	}
 	if _, _, present := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes); present {
 		return true

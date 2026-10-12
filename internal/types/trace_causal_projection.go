@@ -1867,7 +1867,7 @@ func (n TraceCausalProjectionNode) IsEvidenceBoundaryRow() bool {
 }
 
 func CompileTraceCausalProjection(ledger ObservationLedger) TraceCausalProjection {
-	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 {
+	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 || ledger.RuntimeArtifactScopeProfile != nil && ledger.RuntimeArtifactScopeProfile.Comparison != nil {
 		// A singular compatibility API cannot elect one of several request
 		// members. Production multi-window consumers use the projection set.
 		set := CompileTraceCausalProjectionSet(ledger)

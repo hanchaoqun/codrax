@@ -26,6 +26,13 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, reques
 		if !types.IsValidTraceEventSearchInventoryRecord(record) {
 			continue
 		}
+		requested := ledger.RuntimeArtifactScopeProfile
+		if len(requests) == 1 && requests[0] != nil {
+			requested = requests[0].RuntimeArtifactScopeProfile
+		}
+		if _, qualified := ledger.RuntimeDisplayScope(record, requested); !qualified {
+			continue
+		}
 		key, err := json.Marshal([]any{record.SourceRef, record.EventSearchInventory})
 		if err != nil || seen[string(key)] {
 			continue
@@ -51,7 +58,9 @@ func renderAnswerDocTraceEventInventories(ledger types.ObservationLedger, reques
 	projections := make([]*traceInventoryScopeProjection, len(records))
 	if len(requests) == 1 && requests[0] != nil {
 		for n := range records {
-			records[n], projections[n] = traceEventInventoryScopeProjection(records[n], requests[0])
+			request := *requests[0]
+			request.RuntimeArtifactScopeProfile, _ = ledger.RuntimeDisplayScope(records[n], request.RuntimeArtifactScopeProfile)
+			records[n], projections[n] = traceEventInventoryScopeProjection(records[n], &request)
 		}
 		b.WriteString("- prompt_scope_projection filters displayed members by observed emitter and the request's half-open time windows only. Query filters, coverage and matched_total remain the original query's figures, not target-window totals. Scope exclusions are separate from display-budget omissions; zero retained rows does not prove zero matching target events. This display view establishes no pairing, lifetime, execution interval or cause.\n")
 	}

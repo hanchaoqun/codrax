@@ -17,7 +17,7 @@ type traceMeasurementPairParams struct {
 }
 
 // Registration is by producer capability, not metric names or question text.
-var traceMeasurementPairViews = []string{"window_stats", "scheduler_concurrency", "cpu_state_frequency", "process_measurements", "preferred_frame_rate", "measurements"}
+var traceMeasurementPairViews = []string{"window_stats", "cpu_state_frequency", "process_measurements", "preferred_frame_rate", "measurements"}
 
 var traceMeasurementPairFields = []string{"source", "path", "view", "time_start", "time_end", "line_start", "line_end", "pid", "thread", "target_scope", "bucket_ms", "limit", "trace_flavor", "platform", "core_topology"}
 

@@ -19,7 +19,7 @@ func hmc224EmitNaturalComparison(t *testing.T, bus *types.BusContext, request st
 	p["diagnostic_profile"].(map[string]any)["is_diagnostic"] = false
 	delete(p, "runtime_targets")
 	p["runtime_target_profile"] = map[string]any{"declaration": "no_named_target", "confidence": 1}
-	p["runtime_artifact_scope_profile"] = map[string]any{"requested_scope": "explicit_time_window", "confidence": 1, "comparison": scope.Comparison}
+	p["runtime_artifact_scope_profile"] = map[string]any{"requested_scope": scope.RequestedScope, "source_quote": scope.SourceQuote, "confidence": 1, "comparison": scope.Comparison}
 	p["runtime_question_profile"] = map[string]any{"scope": "bounded_fact_set", "fact_families": []string{"resource_pressure"}, "runtime_work_relation_requested": false, "frame_causality_requested": false, "confidence": 1}
 	p["requested_answer_dimensions"] = map[string]any{"is_dimensioned_answer": true, "confidence": 1, "dimensions": []any{map[string]any{"index": 1, "label": "original records", "role": "observed_value", "required": true, "source_quote": "original measurement records"}}}
 	if policy != "nil" {

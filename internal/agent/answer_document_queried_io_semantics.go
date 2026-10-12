@@ -34,7 +34,8 @@ func renderAnswerDocQueriedIOMeasurementSemantics(ctx *types.AgentContext, ledge
 		// Same explicit-query-window protection as the causal IO display lane:
 		// some producers carry scope in SourceRef rather than a selected_window
 		// note. Never reintroduce an already-known wider query through this card.
-		if requested := rm.RuntimeArtifactScopeProfile; requested != nil && requested.HasExplicitTimeWindows() &&
+		requested, qualified := answerDocRuntimeDisplayScope(ctx, ledger, record)
+		if !qualified || requested.HasExplicitTimeWindows() &&
 			record.SourceRef.QueryWindowKnown && !requested.ContainsExplicitTimeWindow(record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs) {
 			continue
 		}

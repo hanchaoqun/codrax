@@ -62,10 +62,15 @@ func HasCurrentNativeMeasurementInvestigation(input ObservationLedgerInput) bool
 		if publication.Source.Kind != ObservationSourceRuntimeArtifact || publication.Source.Path == "" {
 			continue
 		}
-		if input.RequestModel != nil && input.RequestModel.RuntimeArtifactScopeProfile.HasExplicitTimeWindows() {
-			if _, _, known := TraceObservationContinuousQueryWindow(publication.Source); !known {
-				continue
-			}
+		// The collector has already projected explicit windows by original
+		// source. An unbounded side must not borrow the other side's window;
+		// unverified bounded tables are supplementary, not completion proof.
+		qualified := false
+		for _, table := range publication.Tables {
+			qualified = qualified || table.DefaultPresentation
+		}
+		if !qualified {
+			continue
 		}
 		native = append(native, publication)
 	}

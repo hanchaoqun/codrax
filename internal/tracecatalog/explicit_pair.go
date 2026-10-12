@@ -17,11 +17,13 @@ func DiscoverIndependentPair(ctx context.Context, paths [2]string) (*Catalog, er
 		return nil, err
 	}
 	var infos [2]os.FileInfo
+	var origins [2]string
 	for i, path := range paths {
 		abs, err := filepath.Abs(path)
 		if err != nil || path == "" {
 			return nil, fmt.Errorf("comparison path is not explicit: %q", path)
 		}
+		origins[i] = filepath.Clean(abs)
 		if canonical, err := filepath.EvalSymlinks(abs); err == nil {
 			abs = canonical
 		}
@@ -47,6 +49,7 @@ func DiscoverIndependentPair(ctx context.Context, paths [2]string) (*Catalog, er
 		root = parent
 	}
 	c := &Catalog{run: &runIdentity{}, root: root, discovery: Discovery{Complete: true, FilterLabel: "explicit independent comparison inputs"}, artifacts: map[string]Artifact{}, generations: map[string]filegeneration.Identity{}, bindings: map[string]sourceBinding{}, queries: map[string]QueryRecord{}, independentInputs: true}
+	c.independentOrigins = map[string]string{}
 	w := discoveryWalker{ctx: ctx, catalog: c, opts: DiscoverOptions{MaxArtifacts: 2}}
 	for i, path := range paths {
 		if err := ctx.Err(); err != nil {
@@ -61,12 +64,50 @@ func DiscoverIndependentPair(ctx context.Context, paths [2]string) (*Catalog, er
 		}
 		w.file(path, rel, infos[i])
 	}
+	for i, path := range paths {
+		if artifact, ok := c.ArtifactForPath(path); ok {
+			c.independentOrigins[origins[i]] = artifact.ID
+		}
+	}
 	s := c.snapshotLocked()
 	c.id = digest("catalog_", struct {
 		Paths     [2]string
+		Origins   [2]string
 		Artifacts []Artifact
-	}{paths, s.Artifacts})
+	}{paths, origins, s.Artifacts})
 	return c, nil
+}
+
+// IndependentArtifactForOriginal resolves only the original input spelling
+// captured by this live catalog. It is navigation, not a query/read receipt.
+// Retargeting an alias cannot move an old role to a different physical source.
+func (c *Catalog) IndependentArtifactForOriginal(ctx context.Context, path string) (Artifact, bool, error) {
+	if c == nil {
+		return Artifact{}, false, nil
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return Artifact{}, false, err
+	}
+	c.mu.Lock()
+	id, bound := c.independentOrigins[filepath.Clean(abs)]
+	a := c.artifacts[id]
+	bound = bound && c.independentInputs && len(c.artifacts) == 2
+	c.mu.Unlock()
+	if !bound {
+		return Artifact{}, false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return a, true, err
+	}
+	actual, aliasErr := filepath.EvalSymlinks(abs)
+	if aliasErr != nil && a.Status != "unavailable" || aliasErr == nil && filepath.Clean(actual) != a.Path {
+		c.markStale(id, ErrStale)
+		a.Status = "stale"
+		return a, true, ErrStale
+	}
+	a, err = c.Resolve(ctx, id)
+	return a, true, err
 }
 
 func (c *Catalog) IndependentInput(artifactID string) bool {

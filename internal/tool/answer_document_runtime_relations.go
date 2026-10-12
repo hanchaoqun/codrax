@@ -51,7 +51,8 @@ func (businessTreeDiagramRelationProvider) Relations(ledger types.ObservationLed
 		if !ok || record.Negative {
 			continue
 		}
-		if p := ledger.RuntimeArtifactScopeProfile; p != nil && p.HasExplicitTimeWindows() &&
+		p, qualified := ledger.RuntimeDisplayScope(record, ledger.RuntimeArtifactScopeProfile)
+		if !qualified || p.HasExplicitTimeWindows() &&
 			(fact.WindowUnavailableReason != "" || !p.ContainsExplicitTimeWindow(fact.Window.StartTs, fact.Window.EndTs)) {
 			continue
 		}

@@ -28,7 +28,11 @@ func renderAnswerDocCausalIOMeasurements(ctx *types.AgentContext, ledger types.O
 		// Some exact IO/storage records carry their query window in SourceRef
 		// rather than selected_window notes. Honor that existing typed scope as
 		// well; never reintroduce a known wider query through this extra view.
-		if requested := rm.RuntimeArtifactScopeProfile; requested != nil && requested.HasExplicitTimeWindows() {
+		requested, qualified := answerDocRuntimeDisplayScope(ctx, ledger, record)
+		if !qualified {
+			continue
+		}
+		if requested.HasExplicitTimeWindows() {
 			start, end, known := types.TraceObservationContinuousQueryWindow(record.SourceRef)
 			if known && !requested.ContainsExplicitTimeWindow(start, end) ||
 				!known && len(answerDocIndependentIOWaitRecords(ctx, []types.ObservationRecord{record})) == 0 {

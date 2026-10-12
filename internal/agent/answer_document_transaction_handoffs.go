@@ -40,12 +40,12 @@ func renderAnswerDocTransactionHandoffs(ctx *types.AgentContext, ledger types.Ob
 			continue
 		}
 		seen[key] = true
+		profile, qualified := answerDocRuntimeDisplayScope(ctx, ledger, r)
+		if !qualified || profile.HasExplicitTimeWindows() && !resourceStackInsideRequestedWindow(profile, tracequery.ResourceStackWindow{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs, EndInclusive: p.Window.EndInclusive}) {
+			continue
+		}
 		if ctx != nil && ctx.AnalysisIR != nil {
 			rm := &ctx.AnalysisIR.RequestModel
-			profile := rm.RuntimeArtifactScopeProfile
-			if profile != nil && profile.HasExplicitTimeWindows() && !resourceStackInsideRequestedWindow(profile, tracequery.ResourceStackWindow{StartTs: p.Window.StartTs, EndTs: p.Window.EndTs, EndInclusive: p.Window.EndInclusive}) {
-				continue
-			}
 			if answerDocHasUserRuntimeTarget(rm) {
 				kept := make([]tracequery.TransactionHandoff, 0, len(p.Handoffs))
 				for _, h := range p.Handoffs {

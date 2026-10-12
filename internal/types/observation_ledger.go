@@ -282,6 +282,7 @@ type AnchorUserEntity struct {
 }
 
 type ObservationLedger struct {
+	runtimeDisplayScopes *RuntimeObservationDisplayScopes
 	Records []ObservationRecord `json:"records,omitempty"`
 	// RuntimeArtifactSources preserves producer-owned physical source receipts
 	// before claim deduplication can merge their factual authority with model
@@ -708,6 +709,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		}
 	}
 	return ObservationLedger{
+		runtimeDisplayScopes:          BuildRuntimeObservationDisplayScopes(input),
 		Records:                     out,
 		RuntimeArtifactSources:      runtimeArtifactSourcesSnapshot,
 		RuntimeArtifactScopeProfile: observationLedgerRuntimeArtifactScopeProfile(input.RequestModel),

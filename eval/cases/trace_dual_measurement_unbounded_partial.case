@@ -1,0 +1,9 @@
+# Natural two-capture request; operational and evidentiary rules live only in the oracle.
+ID="trace_dual_measurement_unbounded_partial"
+NAME="Independent full-source measurements with one unavailable capture"
+DUAL_MEASUREMENT_FIXTURE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../fixtures/hmosperf_dual_measurements" && pwd)"
+QUESTION="帮我并排看看基线 ${DUAL_MEASUREMENT_FIXTURE}/empty.htrace 和当前 ${DUAL_MEASUREMENT_FIXTURE}/current.data，分别有哪些量测序列？列出原始记录及其时间。"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+REQUIRED_EXECUTABLES="sqlite3"
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

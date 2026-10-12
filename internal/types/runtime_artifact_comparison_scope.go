@@ -23,6 +23,17 @@ type RuntimeArtifactComparisonSide struct {
 	RuntimeArtifactTimeWindow
 }
 
+// Independent source ownership does not require the user to supply numeric
+// bounds. A partial bound is invalid; absent bounds never mean zero seconds.
+func (s RuntimeArtifactComparisonSide) Valid() bool {
+	return strings.TrimSpace(s.Path) != "" && strings.TrimSpace(s.SourceQuote) != "" &&
+		(s.TimeStart == nil && s.TimeEnd == nil || s.RuntimeArtifactTimeWindow.Valid())
+}
+
+func (s RuntimeArtifactComparisonSide) HasExplicitWindow() bool {
+	return s.RuntimeArtifactTimeWindow.Valid()
+}
+
 func (c *RuntimeArtifactComparisonScope) UnmarshalJSON(raw []byte) error {
 	if !runtimeMeasurementUniqueKeys(string(raw)) {
 		return fmt.Errorf("comparison contains duplicate or ambiguous JSON keys")
@@ -104,6 +115,9 @@ func (p *RuntimeArtifactScopeProfile) ComparisonWindowAllows(originalPath, repoR
 	}
 	for _, side := range p.Comparison.Sides() {
 		if RuntimeArtifactComparisonPathEqual(side.Path, originalPath, repoRoot) {
+			if !side.HasExplicitWindow() {
+				return true
+			}
 			return TraceCausalProjectionPrincipalValueWindowContains(*side.TimeStart, *side.TimeEnd, start, end)
 		}
 	}

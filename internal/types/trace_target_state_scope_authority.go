@@ -240,7 +240,7 @@ func BuildTraceTargetStateScopeAuthorities(set TraceCausalProjectionSet) []Trace
 // an already-observed state partition without manufacturing a causal
 // projection, guessing a target, or borrowing an exploration window.
 func BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger ObservationLedger) []TraceTargetStateScopeAuthority {
-	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 {
+	if len(ledger.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 || ledger.RuntimeArtifactScopeProfile != nil && ledger.RuntimeArtifactScopeProfile.Comparison != nil {
 		return traceRequestedMemberStateAuthorities(ledger)
 	}
 	set := CompileTraceCausalProjectionSet(ledger)
@@ -382,10 +382,10 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 	safeIDs := traceRuntimeAccountUnambiguousRecordIDs(ledger.Records)
 	rowIndex, coverageIndex := traceTargetWaitRecordIndexes(ledger.Records)
 	profile := traceRuntimeAccountRequestedProfile(ledger, rm)
-	multiWindow := len(profile.ExplicitTimeWindows()) > 1
+	multiWindow := len(profile.ExplicitTimeWindows()) > 1 || profile != nil && profile.Comparison != nil
 	var memberScopes map[string]TraceQueryWindowScope
 	if multiWindow {
-		memberScopes = traceRequestedMemberRecordScopes(ledger.Records, traceRequestedMemberEntitiesForRequest(rm), profile)
+		memberScopes = traceRequestedMemberRecordScopes(ledger.Records, traceRequestedMemberEntitiesForRequest(rm), profile, ledger.runtimeDisplayScopes)
 	}
 	for position, aggregate := range ledger.Records {
 		if aggregate.Origin != AnswerEvidenceOriginRuntimeArtifact ||
@@ -472,7 +472,8 @@ func BuildTraceTargetWaitSummaryAuthorities(ledger ObservationLedger, rm *Reques
 		}
 		if multiWindow {
 			parent := memberScopes[traceRequestedMemberResultKey(aggregate, position)]
-			authority.WindowScope = (traceRequestedMemberResult{start: parent.QueryWindowStartTs, end: parent.QueryWindowEndTs, principal: parent.Role == TraceQueryWindowScopeRequestedPrincipal}).scope(profile, accountScope.WindowStartTs, accountScope.WindowEndTs)
+			local, _ := ledger.RuntimeDisplayScope(aggregate, profile)
+			authority.WindowScope = (traceRequestedMemberResult{start: parent.QueryWindowStartTs, end: parent.QueryWindowEndTs, principal: parent.Role == TraceQueryWindowScopeRequestedPrincipal}).scope(local, accountScope.WindowStartTs, accountScope.WindowEndTs)
 			authority.RequestedScopeRole = TraceTargetWaitScopeSupportingExploration
 			if authority.WindowScope.Role == TraceQueryWindowScopeRequestedPrincipal {
 				authority.RequestedScopeRole = TraceTargetWaitScopeRequestedPrincipal

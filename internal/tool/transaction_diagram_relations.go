@@ -40,7 +40,8 @@ func (p transactionDiagramRelationProvider) Relations(ledger types.ObservationLe
 			continue
 		}
 		seen[key] = true
-		if scope := ledger.RuntimeArtifactScopeProfile; scope != nil && scope.HasExplicitTimeWindows() && (!scope.ContainsExplicitTimeWindow(f.Window.StartTs, f.Window.EndTs) || f.Window.EndInclusive) {
+		scope, qualified := ledger.RuntimeDisplayScope(r, ledger.RuntimeArtifactScopeProfile)
+		if !qualified || scope.HasExplicitTimeWindows() && (!scope.ContainsExplicitTimeWindow(f.Window.StartTs, f.Window.EndTs) || f.Window.EndInclusive) {
 			continue
 		}
 		for _, h := range f.Handoffs {

@@ -133,7 +133,7 @@ func CompileTraceCausalProjections(ledger ObservationLedger) []TraceCausalProjec
 // one anchor. An empty entity list keeps the legacy publication-order anchor
 // byte-stable.
 func CompileTraceCausalProjectionSet(ledger ObservationLedger) TraceCausalProjectionSet {
-	return traceCausalProjectionSetFromObservationRecords(ledger.Records, traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities), ledger.RuntimeArtifactScopeProfile)
+	return traceCausalProjectionSetFromObservationRecords(ledger.Records, traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities), ledger.RuntimeArtifactScopeProfile, ledger.runtimeDisplayScopes)
 }
 
 // traceCausalProjectionAnchorEntitiesFromLedger converts the ledger's typed
@@ -159,7 +159,7 @@ func TraceCausalProjectionSetFromObservationRecords(records []ObservationRecord)
 	return traceCausalProjectionSetFromObservationRecords(records, nil, nil)
 }
 
-func traceCausalProjectionSetFromObservationRecords(records []ObservationRecord, anchorUserEntities []traceCausalProjectionAnchorEntity, requestedScope *RuntimeArtifactScopeProfile) TraceCausalProjectionSet {
+func traceCausalProjectionSetFromObservationRecords(records []ObservationRecord, anchorUserEntities []traceCausalProjectionAnchorEntity, requestedScope *RuntimeArtifactScopeProfile, sourceScopes ...*RuntimeObservationDisplayScopes) TraceCausalProjectionSet {
 	// Pass 1: resolve every record's typed identity WITHOUT bucketing yet, so
 	// the F5a spelling-alias merge can canonicalise keys first and records are
 	// then bucketed in one pass in original ledger order (a post-hoc partition
@@ -195,8 +195,8 @@ func traceCausalProjectionSetFromObservationRecords(records []ObservationRecord,
 	}
 
 	if len(order) <= 1 {
-		if len(requestedScope.ExplicitTimeWindows()) > 1 {
-			projections := traceRequestedMemberProjections(records, anchorUserEntities, requestedScope)
+		if len(requestedScope.ExplicitTimeWindows()) > 1 || requestedScope != nil && requestedScope.Comparison != nil {
+			projections := traceSourceRequestedMemberProjections(records, anchorUserEntities, requestedScope, sourceScopes...)
 			for i := range projections {
 				if len(order) == 1 {
 					projections[i].ArtifactPath, projections[i].ArtifactLabel = order[0].path, order[0].label
@@ -244,8 +244,8 @@ func traceCausalProjectionSetFromObservationRecords(records []ObservationRecord,
 		OmittedArtifactLabels:        omitted,
 	}
 	for _, p := range kept {
-		if len(requestedScope.ExplicitTimeWindows()) > 1 {
-			projections := traceRequestedMemberProjections(p.records, anchorUserEntities, requestedScope)
+		if len(requestedScope.ExplicitTimeWindows()) > 1 || requestedScope != nil && requestedScope.Comparison != nil {
+			projections := traceSourceRequestedMemberProjections(p.records, anchorUserEntities, requestedScope, sourceScopes...)
 			for i := range projections {
 				projections[i].ArtifactPath, projections[i].ArtifactLabel = p.path, p.label
 			}

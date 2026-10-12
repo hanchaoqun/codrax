@@ -60,7 +60,7 @@ func TestHMC224ComparisonNaturalPolicyPublicRun(t *testing.T) {
 	}
 }
 
-func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool) {
+func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool, scopeMode ...string) {
 	t.Helper()
 	for _, failedIndex := range []int{0, 1} {
 		t.Run(fmt.Sprintf("failed_side_%d", failedIndex), func(t *testing.T) {
@@ -83,10 +83,31 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool)
 				scope.TimeWindows = []types.RuntimeArtifactTimeWindow{scope.Comparison.Baseline.RuntimeArtifactTimeWindow, scope.Comparison.Current.RuntimeArtifactTimeWindow}
 			}
 			scope.Confidence = 1
+			expectedRows := 8
+			if len(scopeMode) > 0 && (scopeMode[0] == "unbounded" || scopeMode[0] == "mixed") {
+				failedWindow := scope.Comparison.Sides()[failedIndex].RuntimeArtifactTimeWindow
+				scope.RequestedScope, scope.TimeWindows = types.RuntimeArtifactScopeUnspecified, nil
+				scope.Comparison.Baseline.RuntimeArtifactTimeWindow = types.RuntimeArtifactTimeWindow{SourceQuote: fmt.Sprintf("`%s`", paths[0])}
+				scope.Comparison.Current.RuntimeArtifactTimeWindow = types.RuntimeArtifactTimeWindow{SourceQuote: fmt.Sprintf("`%s`", paths[1])}
+				if scopeMode[0] == "mixed" {
+					scope.RequestedScope = types.RuntimeArtifactScopeExplicitWindow
+					scope.TimeWindows = []types.RuntimeArtifactTimeWindow{failedWindow}
+					if failedIndex == 0 {
+						scope.Comparison.Baseline.RuntimeArtifactTimeWindow = failedWindow
+					} else {
+						scope.Comparison.Current.RuntimeArtifactTimeWindow = failedWindow
+					}
+				}
+				expectedRows = 9
+			}
 			request := fmt.Sprintf("Show the original measurement records in %s and %s.", scope.Comparison.Baseline.SourceQuote, scope.Comparison.Current.SourceQuote)
 			pair := map[string]any{}
 			for i, side := range scope.Comparison.Sides() {
-				pair[[]string{"baseline", "current"}[i]] = map[string]any{"source": "path", "path": side.Path, "view": "measurements", "time_start": *side.TimeStart, "time_end": *side.TimeEnd}
+				query := map[string]any{"source": "path", "path": side.Path, "view": "measurements"}
+				if side.HasExplicitWindow() {
+					query["time_start"], query["time_end"] = *side.TimeStart, *side.TimeEnd
+				}
+				pair[[]string{"baseline", "current"}[i]] = query
 			}
 			params, _ := json.Marshal(map[string]any{"comparison": pair})
 			adapter := &hmc224PartialPairFinalizerLLM{namedInputHMC223LLM: namedInputHMC223LLM{params: params}}
@@ -94,7 +115,11 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool)
 			if singles {
 				iterations++
 				for _, side := range scope.Comparison.Sides() {
-					raw, _ := json.Marshal(map[string]any{"path": side.Path, "view": "measurements", "time_start": *side.TimeStart, "time_end": *side.TimeEnd})
+					query := map[string]any{"path": side.Path, "view": "measurements"}
+					if side.HasExplicitWindow() {
+						query["time_start"], query["time_end"] = *side.TimeStart, *side.TimeEnd
+					}
+					raw, _ := json.Marshal(query)
 					adapter.singles = append(adapter.singles, raw)
 				}
 			}
@@ -205,10 +230,10 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool)
 					states = table.Rows
 				}
 			}
-			if rows[8] != 1 || !singles && (rows[2] != 1 || len(rows) != 2) {
-				t.Fatalf("healthy eight records and two-side status did not survive finalization: %v", rows)
+			if rows[expectedRows] != 1 || rows[2] != 1 || len(rows) != 2 {
+				t.Fatalf("healthy %d records and two-side status did not survive finalization: %v", expectedRows, rows)
 			}
-			if !singles && (len(states) != 2 || states[failedIndex][1] != "failed" || states[1-failedIndex][1] != "available") {
+			if len(states) != 2 || states[failedIndex][1] != "prep_failed" || states[1-failedIndex][1] != "available" {
 				t.Fatalf("final native status lost independent side identity: %+v", states)
 			}
 			visible := html.UnescapeString(render.RenderAnswerDocument(doc, "en"))

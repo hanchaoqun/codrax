@@ -102,7 +102,10 @@ func traceQueryApplyBusinessRef(ctx *types.BusContext, p traceQueryParams) (trac
 		}
 		return reject("coordinate assertions conflict with the selected current instance; keep the reference and remove redundant coordinates for that instance, or use ordinary explicit parameters without the reference for a different or clipped scope")
 	}
-	profile := traceSupplementRequestedArtifactScope(ctx)
+	profile, scopeKnown := traceQuerySourceRequestedScope(ctx, d.Path)
+	if !scopeKnown {
+		return reject("the selected instance is not bound to a current requested original capture; resolve that source before using this instance")
+	}
 	if profile.HasExplicitTimeWindows() && !profile.ContainsExplicitTimeWindow(d.StartTs, d.EndTs) {
 		return reject("the complete instance extends outside the explicitly requested time window; preserve that requested window with ordinary explicit parameters")
 	}

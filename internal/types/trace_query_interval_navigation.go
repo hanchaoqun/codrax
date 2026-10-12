@@ -50,10 +50,10 @@ func (m *MutableState) StampTraceIntervalNavigation(ctx context.Context, source 
 	candidate := result.TraceQueryWindowReplay.nativeNavigation
 	result.TraceQueryWindowReplay.nativeNavigation = nil
 	result.TraceQueryWindowReplay.preparedSource = nil
-	if ctx != nil && ctx.Err() != nil || !result.Success || result.ReusedFromRunMemo || result.TraceViewCancellation != nil || CanonicalToolName(result.ToolName) != "trace_query" || len(params) == 0 || len(params) > 16<<10 {
+	if ctx != nil && ctx.Err() != nil || !result.Success || result.ReusedFromRunMemo || result.TraceViewCancellation != nil || CanonicalToolName(result.ToolName) != "trace_query" || len(params) > 16<<10 {
 		return
 	}
-	hasNavigation := candidate != nil
+	hasNavigation := candidate != nil && len(params) > 0
 	if candidate == nil {
 		if material == nil {
 			return
@@ -79,14 +79,18 @@ func (m *MutableState) StampTraceIntervalNavigation(ctx context.Context, source 
 			return
 		}
 	}
-	var args map[string]json.RawMessage
-	if json.Unmarshal(params, &args) != nil || args == nil {
-		return
-	}
-	args["path"], _ = json.Marshal(path)
-	bound, err := json.Marshal(args)
-	if err != nil {
-		return
+	var bound []byte
+	if len(params) > 0 {
+		var args map[string]json.RawMessage
+		if json.Unmarshal(params, &args) != nil || args == nil {
+			return
+		}
+		args["path"], _ = json.Marshal(path)
+		var err error
+		bound, err = json.Marshal(args)
+		if err != nil {
+			return
+		}
 	}
 	m.mu.RLock()
 	current := source.generation != nil && source.generation == m.traceSourceReadGeneration
@@ -125,9 +129,9 @@ func (m *MutableState) resolveTracePreparedQuerySource(ctx context.Context, nav 
 	if m == nil || nav == nil || ctx.Err() != nil {
 		return "", nil, false
 	}
-	path, params, current := m.ResolveTraceQueryWindowReplay(TraceQueryWindowReplayRef{source: nav.source, params: nav.params})
+	path, current := m.resolveTraceQuerySourceIdentity(nav.source)
 	if !current || nav.material != nil && nav.material.Validate(ctx, nav.material.Preview()) != nil {
 		return "", nil, false
 	}
-	return path, params, true
+	return path, json.RawMessage(nav.params), true
 }

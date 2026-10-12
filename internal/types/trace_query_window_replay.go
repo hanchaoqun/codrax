@@ -52,15 +52,28 @@ func (m *MutableState) ResolveTraceQueryWindowReplay(ref TraceQueryWindowReplayR
 	if m == nil || ref.source.generation == nil || ref.params == "" {
 		return "", nil, false
 	}
-	path, identity, ok := traceSourcePhysicalPath(ref.source.path)
-	if !ok || path != ref.source.path || !ref.source.identity.SameVersion(identity) {
-		return "", nil, false
-	}
-	m.mu.RLock()
-	current := ref.source.generation == m.traceSourceReadGeneration
-	m.mu.RUnlock()
+	path, current := m.resolveTraceQuerySourceIdentity(ref.source)
 	if !current {
 		return "", nil, false
 	}
 	return path, json.RawMessage(ref.params), true
+}
+
+// Query identity is narrower than replay/navigation permission: it carries
+// only the successful producer's source version and this investigation epoch.
+func (m *MutableState) resolveTraceQuerySourceIdentity(ref TraceQuerySourceReadRef) (string, bool) {
+	if m == nil || ref.generation == nil {
+		return "", false
+	}
+	path, identity, ok := traceSourcePhysicalPath(ref.path)
+	if !ok || path != ref.path || !ref.identity.SameVersion(identity) {
+		return "", false
+	}
+	m.mu.RLock()
+	current := ref.generation == m.traceSourceReadGeneration
+	m.mu.RUnlock()
+	if !current {
+		return "", false
+	}
+	return path, true
 }

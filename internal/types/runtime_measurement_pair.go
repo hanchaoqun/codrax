@@ -74,6 +74,11 @@ func NewNativeMeasurementPair(owner *MutableState, sides [2]NativeMeasurementPai
 		side.Request = append(json.RawMessage(nil), input.Request...)
 		side.Status = "not_requested"
 		if len(input.Request) == 0 {
+			if owner != nil {
+				if request := owner.RequestModel(); request != nil && request.RuntimeArtifactScopeProfile != nil && request.RuntimeArtifactScopeProfile.Comparison.Valid() {
+					side.Status = "not_executed"
+				}
+			}
 			continue
 		}
 		side.Status, side.Detail = "failed", input.Result.Summary
@@ -173,6 +178,7 @@ func (r RuntimeMeasurementPairRef) reportFor(consumer *MutableState) (RuntimeMea
 
 func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []RuntimeMeasurementPublication {
 	var out []RuntimeMeasurementPublication
+	sharedCatalog, _, _ := runtimeMeasurementComparisonCatalog(input)
 	for _, group := range [][]ToolResult{input.ToolResults, input.SystemTraceSupplementResults} {
 		for _, result := range group {
 			if result.ToolName != "trace_query" {
@@ -185,7 +191,7 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 			status := RuntimeMeasurementTable{ObservationID: report.ID, View: RuntimeMeasurementSummary, Label: "两份采集的独立取数状态", DefaultPresentation: true,
 				Columns: []string{"角色", "状态", "本侧查询请求", "来源/代次", "原生测量引用与实际窗口", "设备/工作负载", "单位、分母与覆盖"}, Notes: []string{report.Boundary, "角色和本侧窗口来自查询选择；不另授予原始用户问题中的逐源窗口绑定。失败/取消/未请求不能补0。完整原生值在各侧独立表中。"}}
 			if input.RequestModel != nil && input.RequestModel.RuntimeArtifactScopeProfile != nil && input.RequestModel.RuntimeArtifactScopeProfile.Comparison != nil {
-				status.Notes[1] = "每侧实际原始来源与用户指定窗口分别校验；失败/取消/未请求不能补0。完整原生值在各侧独立表中。"
+				status.Notes[1] = "每侧实际原始来源分别校验；只约束本侧明确指定的窗口，未指定不补造端点。失败/取消/未执行不能补0。完整原生值在各侧独立表中。"
 			}
 			for sideIndex, side := range report.Sides {
 				var references, sources []string
@@ -202,8 +208,13 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 						} else {
 							original = result.RuntimeMeasurementPair.replay[sideIndex].source.path
 						}
-						if !known || !RuntimeArtifactComparisonPathEqual(requested.Comparison.Sides()[sideIndex].Path, original, input.RepoRoot) || !requested.ComparisonWindowAllows(original, input.RepoRoot, start, end) {
+						if !RuntimeArtifactComparisonPathEqual(requested.Comparison.Sides()[sideIndex].Path, original, input.RepoRoot) {
 							side.Status, side.Detail = "outside_requested_source_window", "实际来源和窗口不匹配本侧已接受的用户范围；保留状态，不作为请求量测。"
+							continue
+						}
+						var bound bool
+						requested, bound = RuntimeArtifactDisplayScopeForOriginal(requested, original, input.RepoRoot)
+						if !bound {
 							continue
 						}
 					}
@@ -232,7 +243,9 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 				}
 				status.Rows = append(status.Rows, []string{side.Role, side.Status, string(side.Request), strings.Join(sources, "; "), strings.Join(references, "; "), side.Device + " / " + side.Workload, side.Detail})
 			}
-			out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: report.ID, Tables: []RuntimeMeasurementTable{status}})
+			if sharedCatalog == nil {
+				out = append(out, RuntimeMeasurementPublication{Version: 1, ObservationID: report.ID, Tables: []RuntimeMeasurementTable{status}})
+			}
 		}
 	}
 	return out

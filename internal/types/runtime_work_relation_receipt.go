@@ -213,7 +213,11 @@ func TraceBusinessSpanFacts(ledger ObservationLedger, requestModel *RequestModel
 		if _, ok := runtimeWorkRelationRowFromBusinessSpan(record); !ok {
 			continue
 		}
-		if requested := ledger.RuntimeArtifactScopeProfile; requested.HasExplicitTimeWindows() {
+		requested, qualified := ledger.RuntimeDisplayScope(record, ledger.RuntimeArtifactScopeProfile)
+		if !qualified {
+			continue
+		}
+		if requested.HasExplicitTimeWindows() {
 			start, end, _ := TraceCausalProjectionSelectedWindowNote(record.RichNotes)
 			if len(requested.ExplicitTimeWindows()) > 1 && record.SourceRef.QueryWindowKnown {
 				start, end = record.SourceRef.QueryWindowStartTs, record.SourceRef.QueryWindowEndTs

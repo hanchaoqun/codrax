@@ -43,10 +43,17 @@ func traceSupplementHasExplicitUserTarget(ctx *types.BusContext) bool {
 // explicit time window and can be resolved by an accepted native instance.
 func traceSupplementAcceptedBusinessFocus(ctx *types.BusContext) (*types.TraceBusinessSpanRef, string) {
 	scope := traceSupplementRequestedArtifactScope(ctx)
+	status, ref := ctx.Mutable.AcceptedTraceBusinessFocus()
+	if scope != nil && scope.Comparison != nil && status == types.TraceBusinessFocusSelected {
+		var known bool
+		scope, known = traceQuerySourceRequestedScope(ctx, ref.Data().Path)
+		if !known {
+			return nil, types.TraceSupplementReasonWindowInconsistent
+		}
+	}
 	if scope.HasExplicitTimeWindows() || scope.FullArtifact() || scope != nil && scope.TimeWindows != nil {
 		return nil, ""
 	}
-	status, ref := ctx.Mutable.AcceptedTraceBusinessFocus()
 	// An explicit target alone supplies no time window and cannot revive a
 	// rejected business selection's earlier exploratory window.
 	if status == types.TraceBusinessFocusConflict {

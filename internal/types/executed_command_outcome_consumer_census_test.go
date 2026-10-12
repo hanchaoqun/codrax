@@ -79,6 +79,7 @@ type outcomeSwitchRegistration struct {
 var registeredOutcomeSwitches = []outcomeSwitchRegistration{
 	{dir: "internal/context", file: "trace_catalog.go", fn: "formatTraceCatalogs", domain: outcomeDomainCatalog},
 	{dir: "internal/tracecatalog", file: "query.go", fn: "validateCompletion", domain: outcomeDomainCatalog},
+	{dir: "internal/types", file: "runtime_measurement_acquisition_status.go", fn: "runtimeMeasurementAcquisitionSide", domain: outcomeDomainCatalog},
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandUnavailableReasonCode"},
 	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandFailed"},
 	{dir: "internal/types", file: "verification_proof_profile.go", fn: "verificationProofCommandUnavailableReasonCode"},
@@ -380,8 +381,9 @@ func outcomeCatalogTypes(fset *token.FileSet, dir string, files map[string]*ast.
 	return info
 }
 
-// The two registered catalog consumers read the enum field directly, with an
-// optional builtin string conversion for a histogram key. More complex shapes
+// Registered catalog consumers read the enum field directly or iterate a
+// literal list of the package's enum constants, optionally converting a field
+// to a string histogram key. More complex shapes
 // remain fail-closed; registering a function does not exempt command reads in it.
 func outcomeIsCatalogField(expr ast.Expr, info *gotypes.Info) bool {
 	if info == nil || expr == nil {
@@ -389,6 +391,33 @@ func outcomeIsCatalogField(expr ast.Expr, info *gotypes.Info) bool {
 	}
 	if paren, ok := expr.(*ast.ParenExpr); ok {
 		return outcomeIsCatalogField(paren.X, info)
+	}
+	if id, ok := expr.(*ast.Ident); ok && id.Obj != nil {
+		declaration, ok := id.Obj.Decl.(*ast.AssignStmt)
+		if !ok || declaration.Tok != token.DEFINE || len(declaration.Lhs) != 2 || len(declaration.Rhs) != 1 {
+			return false
+		}
+		// go/parser binds a range value to its synthetic `:= range X`
+		// assignment; ordinary aliases/casts cannot satisfy this shape.
+		rangeValue, ok := declaration.Rhs[0].(*ast.UnaryExpr)
+		if !ok || rangeValue.Op != token.RANGE {
+			return false
+		}
+		values, ok := rangeValue.X.(*ast.CompositeLit)
+		if !ok || len(values.Elts) == 0 {
+			return false
+		}
+		for _, element := range values.Elts {
+			constant, ok := element.(*ast.SelectorExpr)
+			if !ok {
+				return false
+			}
+			declared, ok := info.Uses[constant.Sel].(*gotypes.Const)
+			if !ok || declared.Pkg() == nil || declared.Pkg().Path() != outcomeCatalogImportPath || !outcomeIsCatalogEnum(info.TypeOf(constant)) {
+				return false
+			}
+		}
+		return outcomeIsCatalogEnum(info.TypeOf(id))
 	}
 	if call, ok := expr.(*ast.CallExpr); ok {
 		id, ok := call.Fun.(*ast.Ident)
@@ -398,7 +427,11 @@ func outcomeIsCatalogField(expr ast.Expr, info *gotypes.Info) bool {
 	if !ok || sel.Sel.Name != "Outcome" {
 		return false
 	}
-	named, ok := info.TypeOf(sel).(*gotypes.Named)
+	return outcomeIsCatalogEnum(info.TypeOf(sel))
+}
+
+func outcomeIsCatalogEnum(value gotypes.Type) bool {
+	named, ok := value.(*gotypes.Named)
 	return ok && named.Obj().Name() == "Outcome" && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == outcomeCatalogImportPath && named.Obj().Pkg().Scope().Lookup("Outcome") == named.Obj() && named.Underlying() == gotypes.Typ[gotypes.String]
 }
 
@@ -979,6 +1012,8 @@ func TestExecutedCommandOutcomeConsumerCatalogDomainIsTyped(t *testing.T) {
 		}{
 			{"catalog_switch", `switch q.Outcome { case cat.OutcomeSuccess: }`, false},
 			{"catalog_histogram", `counts := map[string]int{}; counts[string(q.Outcome)]++`, false},
+			{"catalog_constant_range_histogram", `counts := map[cat.Outcome]int{}; for _, outcome := range []cat.Outcome{cat.OutcomeSuccess, cat.OutcomeFailure} { _ = counts[outcome] }`, false},
+			{"catalog_range_command_cast", `counts := map[cat.Outcome]int{}; for _, outcome := range []cat.Outcome{cat.Outcome(cmd.Outcome)} { _ = counts[outcome] }`, true},
 			{"same_function_command_switch", `switch q.Outcome { case cat.OutcomeSuccess: }; switch cmd.Outcome { case "executed": }`, true},
 			{"same_function_command_histogram", `counts := map[string]int{}; counts[string(q.Outcome)]++; counts[string(cmd.Outcome)]++`, true},
 			{"renamed_command_local", `o := cmd.Outcome; switch o { case "executed": }`, true},

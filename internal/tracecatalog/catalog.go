@@ -163,6 +163,9 @@ type Catalog struct {
 	// independentInputs is minted only by the explicit two-side constructor;
 	// persisted navigation snapshots cannot restore this operation permission.
 	independentInputs bool
+	// Original request spelling is bound at discovery, before symlink resolution.
+	// This private navigation binding survives live clones, never JSON/history.
+	independentOrigins map[string]string
 }
 
 func digest(prefix string, value any) string {

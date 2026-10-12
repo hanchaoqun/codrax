@@ -136,7 +136,11 @@ func RuntimeWakeupDiagramEvents(ledger ObservationLedger, rm *RequestModel) []Ru
 			continue
 		}
 		ref := r.SourceRef
-		if scope := ledger.RuntimeArtifactScopeProfile; scope != nil && scope.HasExplicitTimeWindows() {
+		scope, qualified := ledger.RuntimeDisplayScope(r, ledger.RuntimeArtifactScopeProfile)
+		if !qualified {
+			continue
+		}
+		if scope.HasExplicitTimeWindows() {
 			inside := scope.ContainsExplicitTimeWindow(ref.QueryWindowStartTs, ref.QueryWindowEndTs)
 			if r.Predicate == "scheduler_wakeup_event" {
 				inside = false

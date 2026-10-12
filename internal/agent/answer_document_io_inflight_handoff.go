@@ -22,8 +22,13 @@ func answerDocIOInFlightMeasurementRows(ledger types.ObservationLedger, rm *type
 			(r.Predicate != "io_inflight" && r.Predicate != "io_inflight_coverage") {
 			continue
 		}
-		if rm != nil && rm.RuntimeArtifactScopeProfile != nil && rm.RuntimeArtifactScopeProfile.HasExplicitTimeWindows() &&
-			r.SourceRef.QueryWindowKnown && !rm.RuntimeArtifactScopeProfile.ContainsExplicitTimeWindow(r.SourceRef.QueryWindowStartTs, r.SourceRef.QueryWindowEndTs) {
+		requested := ledger.RuntimeArtifactScopeProfile
+		if rm != nil {
+			requested = rm.RuntimeArtifactScopeProfile
+		}
+		scope, qualified := ledger.RuntimeDisplayScope(r, requested)
+		if !qualified || scope.HasExplicitTimeWindows() &&
+			r.SourceRef.QueryWindowKnown && !scope.ContainsExplicitTimeWindow(r.SourceRef.QueryWindowStartTs, r.SourceRef.QueryWindowEndTs) {
 			continue
 		}
 		records = append(records, r)

@@ -20,6 +20,13 @@ func runtimeMeasurementOriginalSource(input ObservationLedgerInput, result ToolR
 		}
 		return ""
 	}
+	if nav := ref.nativeNavigation; nav != nil {
+		path, _, current := consumer.resolveTracePreparedQuerySource(context.Background(), nav)
+		if current && path == source.Path {
+			return runtimeMeasurementBoundOriginalSource(input, nav.material, path)
+		}
+		return ""
+	}
 	path, _, current := consumer.ResolveTraceQueryWindowReplay(ref)
 	if !current {
 		path, _, current = consumer.ResolveTraceQueryWindowReplay(result.TraceStatistics.replay)
@@ -34,10 +41,17 @@ func runtimeMeasurementBoundOriginalSource(input ObservationLedgerInput, materia
 	if material == nil || input.RequestModel == nil || input.RequestModel.RuntimeArtifactScopeProfile == nil {
 		return original
 	}
+	matched := ""
 	for _, side := range input.RequestModel.RuntimeArtifactScopeProfile.Comparison.Sides() {
 		if material.MatchesOriginalSource(RuntimeArtifactComparisonLocalPath(side.Path, input.RepoRoot)) {
-			return side.Path
+			if matched != "" {
+				return "" // Two requested aliases cannot own one physical input.
+			}
+			matched = side.Path
 		}
+	}
+	if matched != "" {
+		return matched
 	}
 	return original
 }

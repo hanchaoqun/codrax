@@ -177,7 +177,7 @@ func traceRequestedMemberProjections(records []ObservationRecord, entities []tra
 // Legacy projections retain their artifact-only lookup semantics. Callers
 // still require one unique matching projection, never first-wins.
 func TraceCausalProjectionMatchesRecordSource(projection TraceCausalProjection, record ObservationRecord) bool {
-	if projection.WindowScope.RequestedWindowCount > 1 {
+	if projection.WindowScope.RequestedWindowCount > 1 || projection.QuerySourceRef != nil {
 		if projection.QuerySourceRef == nil || !traceCausalProjectionTraceQueryRecord(record) {
 			return false
 		}
@@ -204,6 +204,10 @@ func traceRequestedMemberStateAuthorities(ledger ObservationLedger) []TraceTarge
 	entities := traceCausalProjectionAnchorEntitiesFromLedger(ledger.AnchorUserEntities)
 	var projections []TraceCausalProjection
 	for _, group := range traceRequestedMemberResults(ledger.Records, entities, ledger.RuntimeArtifactScopeProfile) {
+		requested, qualified := ledger.RuntimeDisplayScope(group.records[0], ledger.RuntimeArtifactScopeProfile)
+		if ledger.RuntimeArtifactScopeProfile != nil && ledger.RuntimeArtifactScopeProfile.Comparison != nil {
+			group = traceRequestedMemberResults(group.records, entities, requested)[0]
+		}
 		for _, row := range group.records {
 			if strings.TrimSpace(row.Predicate) != "target_window_states" || !traceRequestedMemberTargetMatches(row.Subject, entities) {
 				continue
@@ -214,8 +218,12 @@ func traceRequestedMemberStateAuthorities(ledger ObservationLedger) []TraceTarge
 				continue
 			}
 			account := candidate.Account
+			scope := group.scope(requested, candidate.WindowStart, candidate.WindowEnd)
+			if !qualified {
+				scope.Role = TraceQueryWindowScopeSupportingExploration
+			}
 			projections = append(projections, TraceCausalProjection{ArtifactPath: path, ArtifactLabel: label, TargetStateAccount: &account,
-				WindowScope: group.scope(ledger.RuntimeArtifactScopeProfile, candidate.WindowStart, candidate.WindowEnd)})
+				WindowScope: scope})
 		}
 	}
 	return BuildTraceTargetStateScopeAuthorities(TraceCausalProjectionSet{Projections: projections})
@@ -249,15 +257,27 @@ func traceRequestedMemberEntitiesForRequest(rm *RequestModel) []traceCausalProje
 
 // A reader row must inherit its result's scope, not match an arbitrary leaf
 // window against the request list. This private map is reused by role readers.
-func traceRequestedMemberRecordScopes(records []ObservationRecord, entities []traceCausalProjectionAnchorEntity, profile *RuntimeArtifactScopeProfile) map[string]TraceQueryWindowScope {
+func traceRequestedMemberRecordScopes(records []ObservationRecord, entities []traceCausalProjectionAnchorEntity, profile *RuntimeArtifactScopeProfile, indices ...*RuntimeObservationDisplayScopes) map[string]TraceQueryWindowScope {
 	out := map[string]TraceQueryWindowScope{}
+	var index *RuntimeObservationDisplayScopes
+	if len(indices) == 1 {
+		index = indices[0]
+	}
 	for _, group := range traceRequestedMemberResults(records, entities, profile) {
+		local, qualified := index.Scope(group.records[0], profile)
+		if profile != nil && profile.Comparison != nil {
+			group = traceRequestedMemberResults(group.records, entities, local)[0]
+		}
 		for _, row := range group.records {
 			key := traceRequestedMemberResultKey(row, 0)
 			if strings.HasPrefix(key, "unknown:") {
 				continue
 			}
-			out[key] = group.scope(profile, group.start, group.end)
+			scope := group.scope(local, group.start, group.end)
+			if !qualified {
+				scope.Role = TraceQueryWindowScopeSupportingExploration
+			}
+			out[key] = scope
 		}
 	}
 	return out

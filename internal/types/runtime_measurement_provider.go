@@ -116,7 +116,8 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					requested = input.RequestModel.RuntimeArtifactScopeProfile
 				}
 				start, end, known := TraceObservationContinuousQueryWindow(r.SourceRef)
-				if requested != nil && requested.Comparison != nil && (!known || !requested.ComparisonWindowAllows(runtimeMeasurementOriginalSource(input, result, r.SourceRef), input.RepoRoot, start, end)) {
+				requested, qualified := RuntimeArtifactDisplayScopeForOriginal(requested, runtimeMeasurementOriginalSource(input, result, r.SourceRef), input.RepoRoot)
+				if !qualified {
 					continue
 				}
 				if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) {
@@ -140,6 +141,7 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 		publications = append(publications, RuntimeMeasurementPublication{Version: 1, ObservationID: table.ObservationID, Tables: []RuntimeMeasurementTable{table}})
 	}
 	publications = append(publications, buildRuntimeMeasurementPairPublications(input)...)
+	publications = append(publications, buildRuntimeMeasurementAcquisitionStatus(input, publications)...)
 	return publications
 }
 

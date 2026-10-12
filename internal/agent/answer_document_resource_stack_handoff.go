@@ -39,11 +39,9 @@ func renderAnswerDocResourceStacks(ctx *types.AgentContext, ledger types.Observa
 		if !ok {
 			continue
 		}
-		if ctx != nil && ctx.AnalysisIR != nil {
-			profile := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
-			if profile != nil && profile.HasExplicitTimeWindows() && !resourceStackInsideRequestedWindow(profile, p.Window) {
-				continue
-			}
+		profile, qualified := answerDocRuntimeDisplayScope(ctx, ledger, r)
+		if !qualified || profile.HasExplicitTimeWindows() && !resourceStackInsideRequestedWindow(profile, p.Window) {
+			continue
 		}
 		key := keyOf(r)
 		if seen[key] || conflicts[key] {

@@ -49,7 +49,7 @@ type primaryWindowCall struct {
 // Replay changes only the two time endpoints. It never elects a new family,
 // borrows a target from a neighboring query or re-labels the original totals.
 func primaryWindowCalls(ctx *types.BusContext, path, sourceLabel string, input types.ObservationLedgerInput) []primaryWindowCall {
-	if !traceQueryRequestWindowSourceMatches(ctx, path, sourceLabel) {
+	if !traceQueryRequestedWindowSourceMatches(ctx, path, sourceLabel) {
 		return nil
 	}
 	physical, ok := traceQueryRequestWindowPathIdentity(ctx, path)
@@ -83,8 +83,9 @@ func primaryWindowCalls(ctx *types.BusContext, path, sourceLabel string, input t
 // supplementation keeps priority and its two slots; this path also has at most
 // two total engine calls (not two per window), under the SAME task deadline.
 func runPrimaryWindowSupplement(ctx *types.BusContext, path, sourceLabel string, input types.ObservationLedgerInput, out TraceQuerySupplementOutcome, censusLiteWanted bool) (TraceQuerySupplementOutcome, bool) {
-	windows := traceSupplementRequestedArtifactScope(ctx).ExplicitTimeWindows()
-	if len(windows) == 0 {
+	scope, known := traceQuerySourceRequestedScope(ctx, path)
+	windows := scope.ExplicitTimeWindows()
+	if !known || len(windows) == 0 {
 		return out, false
 	}
 	calls := primaryWindowCalls(ctx, path, sourceLabel, input)

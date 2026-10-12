@@ -1,5 +1,12 @@
 package tool
 
+// EVOLUTION RECORD 2026-10-11 (HMC §225): correct only the existing terminal
+// request-window teaching to distinguish source-owned comparison windows from
+// multiple windows within one capture. An unspecified side cannot borrow the
+// other side's sole interval; explicit query scopes still win. The exact suffix
+// reverse-projection keeps every older full-description hash unchanged. Public
+// preparation/Execute and actual supplement tests protect the corrected rule.
+
 // EVOLUTION RECORD 2026-10-08 (HMC §208, existing preparation contract):
 // correct only traceQueryInputPreparationTeaching in its existing slot.
 // Stable validated SQLite main/WAL snapshots and complete bounded binary

@@ -21,11 +21,9 @@ func renderAnswerDocBusinessTreeFacts(ctx *types.AgentContext, ledger types.Obse
 		if !ok {
 			continue
 		}
-		if ctx != nil && ctx.AnalysisIR != nil {
-			profile := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
-			if profile != nil && profile.HasExplicitTimeWindows() && (fact.WindowUnavailableReason != "" || !profile.ContainsExplicitTimeWindow(fact.Window.StartTs, fact.Window.EndTs)) {
-				continue
-			}
+		profile, qualified := answerDocRuntimeDisplayScope(ctx, ledger, r)
+		if !qualified || profile.HasExplicitTimeWindows() && (fact.WindowUnavailableReason != "" || !profile.ContainsExplicitTimeWindow(fact.Window.StartTs, fact.Window.EndTs)) {
+			continue
 		}
 		key, _ := json.Marshal(r)
 		if seen[string(key)] {

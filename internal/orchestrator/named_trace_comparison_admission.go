@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/hanchaoqun/codrax/internal/tracecatalog"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -41,9 +40,9 @@ func namedTraceComparisonCatalog(ctx context.Context, bus *types.BusContext, pat
 		if !matched {
 			return nil, fmt.Errorf("comparison input does not match the current named input: %q", side.Path)
 		}
-		if canonical, err := filepath.EvalSymlinks(exact[i]); err == nil {
-			exact[i] = canonical
-		}
+		// Discovery retains the requested spelling before resolving aliases so
+		// later per-side navigation can bind the current role without guessing.
+		exact[i] = types.RuntimeArtifactComparisonLocalPath(side.Path, bus.RepoRoot)
 	}
 	catalog, err := tracecatalog.DiscoverIndependentPair(ctx, exact)
 	if err != nil {

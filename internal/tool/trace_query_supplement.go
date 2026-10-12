@@ -1370,6 +1370,10 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 			return skip(types.TraceSupplementReasonNoAttachedTrace)
 		}
 	}
+	scopeCtx, scopeKnown := traceQuerySourceScopeContext(ctx, path)
+	if !scopeKnown {
+		return skip(types.TraceSupplementReasonWindowInconsistent)
+	}
 	// SUPP-CANCEL (2026-07-14): ONE wall-clock duration budget per supplement
 	// attempt — the same trace_supplement_max_duration_ms knob that drives
 	// the between-view skip now ALSO rides a context deadline into every
@@ -1387,6 +1391,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	// Family detection runs on the SAME compiled ledger the renderer
 	// consumes (single value source for presence/absence).
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
+	input = traceQueryComparisonSourceInput(ctx, path, input)
 	warmResults := input.ToolResults
 	preLedger := types.CompileObservationLedger(input)
 	sourceLedger := preLedger
@@ -1397,7 +1402,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		input = traceSupplementBusinessFocusInput(input, *businessFocus, true)
 		preLedger = types.CompileObservationLedger(input)
 	}
-	requestedArtifactScope := traceSupplementRequestedArtifactScope(ctx)
+	requestedArtifactScope := traceSupplementRequestedArtifactScope(scopeCtx)
 	target, targetSource, targetOK := traceSupplementDeriveTarget(ctx)
 	if businessFocus != nil {
 		d := businessFocus.Data()
@@ -1422,7 +1427,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		families = traceSupplementFamilies(preLedger)
 	}
 	frameFamily := traceSupplementVsyncFamilyHit(ctx)
-	views := traceSupplementViewsForRequest(ctx, families, frameFamily, traceSupplementFrameEvidencePresent(input))
+	views := traceSupplementViewsForRequest(scopeCtx, families, frameFamily, traceSupplementFrameEvidencePresent(input))
 	// SA-F2 批4 C-lite trigger gate (修复轮 件2 扩形, 2026-07-14): vsync/frame
 	// family keywords hit (typed analyzer face) ∧ the generator-census family
 	// is ABSENT from the compiled ledger. The arm fires on EVERY lane where
@@ -1461,7 +1466,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		}
 		return skip(types.TraceSupplementReasonNoTypedTarget)
 	}
-	callWindows := ctx.Mutable.TraceQueryCallWindows()
+	callWindows := traceQuerySourceCallWindows(ctx, path, sourceLabel, input)
 	window, ok := traceSupplementDeriveWindow(callWindows)
 	if businessFocus != nil {
 		d := businessFocus.Data()

@@ -317,6 +317,10 @@ func (c *Catalog) Clone() *Catalog {
 		artifacts: map[string]Artifact{}, generations: make(map[string]filegeneration.Identity),
 		bindings: map[string]sourceBinding{}, queries: map[string]QueryRecord{}}
 	copy.independentInputs = c.independentInputs
+	copy.independentOrigins = make(map[string]string, len(c.independentOrigins))
+	for path, id := range c.independentOrigins {
+		copy.independentOrigins[path] = id
+	}
 	copy.declared = make(map[string]bool, len(c.declared))
 	copy.discovery.Issues = append([]Issue(nil), c.discovery.Issues...)
 	for id, a := range c.artifacts {

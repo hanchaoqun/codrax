@@ -41,10 +41,10 @@ func BuildTraceWakeupEdgeRoleAuthorities(ledger ObservationLedger, rm *RequestMo
 		conflict    bool
 	}
 	requestedWindow := ""
-	multiWindow := len(rm.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1
+	multiWindow := len(rm.RuntimeArtifactScopeProfile.ExplicitTimeWindows()) > 1 || rm.RuntimeArtifactScopeProfile != nil && rm.RuntimeArtifactScopeProfile.Comparison != nil
 	var memberScopes map[string]TraceQueryWindowScope
 	if multiWindow {
-		memberScopes = traceRequestedMemberRecordScopes(ledger.Records, traceRequestedMemberEntitiesForRequest(rm), rm.RuntimeArtifactScopeProfile)
+		memberScopes = traceRequestedMemberRecordScopes(ledger.Records, traceRequestedMemberEntitiesForRequest(rm), rm.RuntimeArtifactScopeProfile, ledger.runtimeDisplayScopes)
 	}
 	if start, end, ok := rm.RuntimeArtifactScopeProfile.ExplicitTimeWindow(); ok {
 		requestedWindow = fmt.Sprintf("%.6f..%.6f", start, end)

@@ -15,12 +15,23 @@ import (
 // on a genuinely owner-free call. The view reapplies its own default at
 // execution. The original window-replay parameters remain byte-independent.
 func traceQueryIntervalNavigationParams(p traceQueryParams, effective, original json.RawMessage) json.RawMessage {
+	if len(effective) == 0 && !p.TimeStart.Set() && !p.TimeEnd.Set() && p.LineStart.Int() == 0 && p.LineEnd.Int() == 0 &&
+		p.BusinessSpanRef == "" && p.SpanName == "" && p.RecipeName == "" && p.InteractionDirection == "" && p.ViaThread == "" {
+		// An unbounded successful query still owns a prepared-source identity.
+		// Retain effective selectors without inventing replay window endpoints.
+		if plan, err := traceCatalogQueryPlan(p, original, ""); err == nil {
+			effective = plan.Parameters
+		}
+	}
 	var requested, args map[string]json.RawMessage
 	if json.Unmarshal(original, &requested) != nil || json.Unmarshal(effective, &args) != nil || args == nil {
 		return nil
 	}
 	if _, explicit := requested["target_scope"]; !explicit && p.PID.Int() == 0 && p.Thread == "" {
 		delete(args, "target_scope")
+	}
+	if p.TargetScope != "" && (p.PID.Int() > 0 || p.Thread != "") {
+		args["target_scope"], _ = json.Marshal(p.TargetScope)
 	}
 	bound, _ := json.Marshal(args)
 	return bound

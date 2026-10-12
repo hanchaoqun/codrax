@@ -11,7 +11,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const traceQueryRequestWindowTeaching = "When both time bounds are omitted and there is no line scope or business_span_ref, trace_query defaults to the current request's one validated explicit time window for the same admitted capture. Explicit tool bounds (including a single endpoint) are never overwritten; multiple request windows are never combined or selected automatically. Without that request scope the existing whole-observed-source defaults remain unchanged."
+const traceQueryRequestWindowTeaching = "When both time bounds are omitted and there is no line scope or business_span_ref, trace_query defaults to the current request's one validated explicit time window for the same admitted capture. In an independent comparison, only that original capture's own requested window applies; an unbounded side never borrows the other side's window. Explicit tool bounds (including a single endpoint) are never overwritten; multiple windows within one capture are never combined or selected automatically. Without that request scope the existing whole-observed-source defaults remain unchanged."
 
 // This is parameter defaulting for the shared time filter, not a view-specific
 // repair or a new evidence authority. Every registered view uses the same time
@@ -25,8 +25,9 @@ func traceQueryApplyRequestWindow(ctx *types.BusContext, p traceQueryParams, pat
 		(ctx.Mutable != nil && ctx.Mutable.SystemTraceSupplementInProgress()) {
 		return p, ""
 	}
-	start, end, ok := traceSupplementRequestedArtifactScope(ctx).ExplicitTimeWindow()
-	if !ok || (!traceQueryRequestWindowSourceMatches(ctx, path, sourceLabel) &&
+	scope, known := traceQuerySourceRequestedScope(ctx, path)
+	start, end, ok := scope.ExplicitTimeWindow()
+	if !known || !ok || (!traceQueryRequestedWindowSourceMatches(ctx, path, sourceLabel) &&
 		!traceCatalogRequestWindowSourceMatches(ctx, p, path, start, end)) {
 		return p, ""
 	}

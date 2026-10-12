@@ -70,7 +70,11 @@ func renderAnswerDocBoundedSemanticFacts(ctx *types.AgentContext, ledger types.O
 			ref.QueryScopeID == "" || !ref.QueryWindowKnown || ref.QueryTargetScope != "thread" {
 			continue
 		}
-		if _, exact := rm.RuntimeArtifactScopeProfile.MatchExplicitTimeWindow(ref.QueryWindowStartTs, ref.QueryWindowEndTs); !exact {
+		requested, qualified := answerDocRuntimeDisplayScope(ctx, ledger, record)
+		if !qualified {
+			continue
+		}
+		if _, exact := requested.MatchExplicitTimeWindow(ref.QueryWindowStartTs, ref.QueryWindowEndTs); !exact {
 			continue
 		}
 		// The query's target binds this inventory to the user's request. The
