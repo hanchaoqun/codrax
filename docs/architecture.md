@@ -1114,7 +1114,15 @@ CPU状态×频率同样注册`summary/distribution/timeline`，不支持`members
 
 **原生事实默认展示（HMC §220–221）**：已声明的运行时问题只要含required observed_value/member_set/count维度，生产者可标记唯一`DefaultPresentation`表；混合因果/关系/概览问题中的独立事实维度不因总体scope变化而消失，源码库存问题不适用。Emit/Patch复用同一当前contract补齐该表，精确ID+view去重；同一查询的summary不能替代逐条记录。系统只刷新私有`native_facts`标记块，不扫描或改写模型正文，模型解释、当前源码及因果义务独立保留。通用/进程量测成员表同列原始与选中区间，未知终点不延长；日志通过严格原生记录JSON、query/payload、逐源代次和coverage名册生成独立事实表，保NULL身份、原始时钟、解析失败、筛选/分页/省略。显式用户窗下，没有验证连续窗的表可被显式选择为补充，但不默认代替窗口事实；已知越窗表不进入该窗选择器。提示128行预览不是最终行数上限；成文显示查询已保留的完整行。该机制不是成员全集/时钟对齐/根因证明，也不解除混合问题中的关系和源码义务。
 
-**双侧量测（HMC-10.1子能力）**：`trace_query(comparison:{baseline:{source,path,view,...},current:{...}})`复用各侧原查询和默认二进制准备，只接受已注册原生量测视图且不混外层单侧参数。逐侧保请求、来源代次、实际窗、单位/分母/覆盖和available/failed/cancelled/not_requested/unavailable/stale状态；设备/负载无见证保持未知。成功侧原表及ID不重铸，独立状态表映射角色；不计算差值、不按名称合并、不授共同时间轴/可比性/因果。完整JSON供审计，运行内私有收据由消费方当前轮次及逐侧材料重验；Fork/Merge、memo或持久JSON不能恢复旧轮权威。自然命名入口对既存损坏binary/准备后换代仍全局fail-fast，缺失路径不在此阻断范围；完整多输入独立准入尚属10.1/17.7开放退出条件，不以工具层失败隔离冒称已覆盖。
+**原生展示归属（HMC §224）**：合格完整原生表可在块上选填`requested_dimension_indices`，显式承接当前已发布的required member_set展示维度；与精确`runtime_measurement`二元selector并列，不修改表中原值。同表可展示事件及逐行记录者等多个维度；自动表由对应模型selector替换，不能重复复制行。schema、交接名册、Emit/Patch、恢复及post-emit提示共用当前资格，源码归属维度、无效scope、部分/失败/截断/错窗或弱表不获得该资格。显式索引块不再同时抵扣旧facet数量，同一表的legacy副本也不抵扣另一维度。此为展示归属，不改变原有`CoversMemberSet`、调查完成或因果权限。日志默认重叠表仅在来源/代次、物理记录身份、完整字段、筛选及健康覆盖精确一致时抑制严格子表；全部选择器和原始结果仍保留，显式选择可显示子表，不合并统计、不按相似文字去重。
+
+运行时源码清单的适用性不能仅由`allow`许可与无原文锚定的通用源码范围互相证明。共享适用性查询在局部策略副本上排除这种循环依据，保留精确源码目标、真实文件、独立声明及锚定范围；不修改原权限、路由义务或证据。源码清单确实适用时，原生事件展示仍不能代替它。
+
+**双侧量测（HMC-10.1子能力）**：`trace_query(comparison:{baseline:{source,path,view,...},current:{...}})`复用各侧原查询和默认二进制准备，只接受已注册原生量测视图且不混外层单侧参数。逐侧保请求、来源代次、实际窗、单位/分母/覆盖和available/failed/cancelled/not_requested/unavailable/stale状态；设备/负载无见证保持未知。成功侧原表及ID不重铸，独立状态表映射角色；不计算差值、不按名称合并、不授共同时间轴/可比性/因果。完整JSON供审计，运行内私有收据由消费方当前轮次及逐侧材料重验；Fork/Merge、memo或持久JSON不能恢复旧轮权威。
+
+HMC §224在`runtime_artifact_scope_profile`增加可选`comparison:{baseline:{path,time_start,time_end,source_quote},current:{...}}`，仅用于原问题已明确两原件各自窗口的独立取数；它替代模型提交的 pooled windows，归一化后仍保旧窗口消费者。真实准备在分类后执行，冻结精确两原路径而不发现父目录；单侧失败保原始错误和健康侧，无独立声明、额外输入、单附件及依赖bundle的旧原子边界不放宽，全局取消仍停止、全坏仍失败。缺失源保状态而不是从候选列表消失。原件匹配复用当前私有材料及代次，支持路径别名但不把派生文件或换代原件当原始来源；单/双侧出版逐源核对当前请求窗，不能借另一侧窗口。入口导航通过绑定当前generation/objective的单次staging跨过读调度器既有初始化，既不携事实/查询凭证，也不改变L1主体；新请求、旧fork、再次reset及Run退出均不能复活未消费的旧状态。非显式窗的独立声明、完整比较分析和其余二进制边界仍按任务清单验收，不因有工具层partial结果就声称全部完成。
+
+合法的逐源comparison本身是精确取数意图，不以`current_source_mode=exclude`或`external_only`为前提；nil/default/allow策略同样执行独立准备，且原源码策略保持原值。没有合法comparison的旧入口仍执行原策略判断；路径形状、文件数或源码许可不能单独授权准备。
 
 单侧与双侧查询交接按完整publication去重（完整来源、全部视图及私有覆盖范围均须一致），任何同ID冲突整份拒选，不保留恰好相同的兄弟表来冒充已解决冲突。双侧私有覆盖在当前来源/轮次验证后复制给消费者，再应用与单侧相同的来源资格；JSON不能恢复权限。若comparison子查询命中未携当前读取凭证的纯结果memo，只在调用局部跳过memo重读该侧一次，不修改共享工具、不给缓存值补造凭证。
 
@@ -2892,7 +2900,7 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 
 **原生读取与通用数据职责（HMC §222）**：分类system与工具schema共用一份职责说明，当前命名输入user上下文只携带候选JSON，不重复路由规则。读取原生运行时记录、值、区间、计数和统计均走已有分析管线的原生reader，不要求用户同时提出根因诊断或源码问题；普通支持的数据集清洗、join、计算、转换仍走data，已有答案转格式仍走local。SQLite只是容器，表格等输出形式也不单独决定路由。`investigate`/`artifact`/`needs_data_access`的说明保持同一边界；无新路由字段、硬覆盖或准入权限，实际模型决策仍需真实评测验收。
 
-**命名原生输入的分析后交接（HMC §223）**：当前analyzer的typed外部观察策略成立后，复用同一有界内容/schema探测及稳定runtime anchor，补识别原问题已有文件（含无Trace后缀的`.data`）。候选先在局部profile等待原`TraceInputPreparer`实际准备、完整查询准入与来源代次复验，全部成功后才并入现有`RuntimeArtifactPreflight`，由现有真实Explorer动态schema开放原生工具。它不授`TraceQueryReady`、不粘为附件、不扩大父目录权限，也不从普通业务SQLite推定Trace；取消仍传播，探测预算不成为模型或准备超时。此接缝不代表独立侧失败隔离或原请求逐源窗口绑定已完成，完整双侧能力另验收。
+**命名原生输入的分析后交接（HMC §223–224）**：当前analyzer的typed外部观察策略成立后，复用同一有界内容/schema探测及稳定runtime anchor，补识别原问题已有文件（含无Trace后缀的`.data`）。候选先在局部profile等待原`TraceInputPreparer`实际准备、完整查询准入与来源代次复验，通过后才并入现有`RuntimeArtifactPreflight`，由现有真实Explorer动态schema开放原生工具。一般输入保持全部成功的原子边界；§224合法双侧comparison独立于源码许可，按精确两原件/各自窗口保留逐侧结果，失败不冒充健康侧已执行。它不授`TraceQueryReady`、不粘为附件、不扩大父目录权限，也不从普通业务SQLite推定Trace；取消仍传播，探测预算不成为模型或准备超时。非显式逐源窗口及完整双侧答案能力仍另验收。
 
 原生取数到成文的非空调查判定复用当前`ObservationLedgerInput`及原生publication收集规则：实际单/双侧结果须有当前consumer、源代次和已接受窗口内的有效原生表，才能避免旧“零读文件=空调查”回退。普通成功标记、仅取数状态、过期或跨运行凭证不替代事实；合法0值和已执行的空表仍是查询产物。此判定只解决是否有调查材料，不授完整性、缺失证明或因果权限，不把`trace_query`名字直接加入旧源码工具白名单。
 
