@@ -117,7 +117,7 @@ func traceQueryNativeCPUFrequencyTable(stats tracequery.WindowStats, start, end 
 	table := types.RuntimeMeasurementTable{View: types.RuntimeMeasurementTimeline, Label: "CPU频率时序", DefaultPresentation: true,
 		Columns: []string{"CPU", "开始（秒，含）", "结束（秒，不含）", "频率（kHz）", "持续（ms）", "证据起行", "证据末行"},
 		Notes: []string{"每行是该CPU已观测频率在所选窗内的驻留段；未覆盖区间频率未知，不用末次频率回填。证据末行保留原始引用，可能与起行相同，不单独证明区间末端发生频率变化。",
-			"频率驻留不等于线程运行或CPU空闲；不能据此量化执行速度、算力缺口、功耗或响应根因。CPU空闲状态需独立的CPU状态证据，不能由目标线程未运行推算。"}}
+			"频率驻留不等于线程运行或CPU空闲；不能据此量化执行速度、功耗或判定性能瓶颈与响应根因。CPU空闲状态需独立的CPU状态证据，不能由目标线程未运行推算。"}}
 	if stats.Window.StartTs != start || stats.Window.EndTs != end {
 		return table, false
 	}

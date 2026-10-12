@@ -45,6 +45,18 @@ func TestMeasurementsPublicFinalizerEmitPatchRender(t *testing.T) {
 	if len(choices) != 3 {
 		t.Fatalf("expected raw summary/members/timeline: %+v", choices)
 	}
+	var defaultMembers *types.RuntimeMeasurementTable
+	for i := range choices {
+		if choices[i].DefaultPresentation {
+			if defaultMembers != nil || choices[i].View != types.RuntimeMeasurementMembers {
+				t.Fatal("raw measurements must publish exactly one members default")
+			}
+			defaultMembers = &choices[i]
+		}
+	}
+	if defaultMembers == nil {
+		t.Fatal("raw measurements lost their lossless default view")
+	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{"runtime_measurement", "system fills", "gpufreq", "gpu_state", "gpuload"} {
 		if !strings.Contains(prompt, want) {
@@ -99,8 +111,40 @@ func TestMeasurementsPublicFinalizerEmitPatchRender(t *testing.T) {
 				t.Fatalf("emit/patch native table: %v / %s", err, out.Summary)
 			}
 			doc := ctx.Mutable.AnswerDocumentV2()
-			if len(doc.Blocks) != 2 || doc.Blocks[1].RuntimeMeasurement == nil || !reflect.DeepEqual(doc.Blocks[1].RuntimeMeasurement.BoundTable, &table) {
-				t.Fatal("native data changed at emit/patch")
+			// The explicit selector keeps its identity and values. Choosing a
+			// summary/timeline additionally retains the producer's full members;
+			// choosing members itself must not duplicate the same selector.
+			seenRaw, seenLead, seenDefault, generated := 0, 0, 0, 0
+			for _, saved := range doc.Blocks {
+				switch saved.ID {
+				case "lead":
+					seenLead++
+					if saved.Kind != types.BlockSummary || saved.Text != "原始量测尚不能直接确认GPU实际运行频段。" || saved.SystemGeneratedKind != "" {
+						t.Fatal("native display changed the model's summary")
+					}
+				case "raw":
+					seenRaw++
+					if saved.RuntimeMeasurement == nil || saved.RuntimeMeasurement.ObservationID != table.ObservationID || saved.RuntimeMeasurement.View != table.View ||
+						!reflect.DeepEqual(saved.RuntimeMeasurement.BoundTable, &table) || saved.SystemGeneratedKind != "" {
+						t.Fatal("native data or explicit selector changed at emit/patch")
+					}
+				default:
+					generated++
+					if saved.SystemGeneratedKind != types.AnswerSystemGeneratedNativeFacts || saved.RuntimeMeasurement == nil ||
+						!reflect.DeepEqual(saved.RuntimeMeasurement.BoundTable, defaultMembers) {
+						t.Fatal("unexpected or reconstructed automatic native table")
+					}
+				}
+				if saved.RuntimeMeasurement != nil && saved.RuntimeMeasurement.ObservationID == defaultMembers.ObservationID && saved.RuntimeMeasurement.View == defaultMembers.View {
+					seenDefault++
+				}
+			}
+			wantGenerated := 1
+			if table.View == defaultMembers.View {
+				wantGenerated = 0
+			}
+			if seenRaw != 1 || seenLead != 1 || seenDefault != 1 || generated != wantGenerated || len(doc.Blocks) != 2+wantGenerated {
+				t.Fatalf("explicit/default selectors lost or duplicated: raw=%d lead=%d default=%d generated=%d", seenRaw, seenLead, seenDefault, generated)
 			}
 			visible := html.UnescapeString(render.RenderAnswerDocument(doc, "zh"))
 			for _, row := range table.Rows {
@@ -111,6 +155,11 @@ func TestMeasurementsPublicFinalizerEmitPatchRender(t *testing.T) {
 			for _, note := range table.Notes {
 				if !strings.Contains(visible, note) {
 					t.Fatalf("unknown/scope disclosure lost: %q", note)
+				}
+			}
+			for _, row := range defaultMembers.Rows {
+				if strings.Count(visible, "| "+strings.Join(row, " | ")+" |") != 1 {
+					t.Fatalf("default member row not displayed exactly once: %v", row)
 				}
 			}
 		}

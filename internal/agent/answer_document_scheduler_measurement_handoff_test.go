@@ -59,17 +59,82 @@ func schedulerMeasurementPublicContext(t *testing.T, path string) (*types.AgentC
 	return nil, types.ToolResult{}, nil
 }
 
+// The shared display catalog now includes the same query's target timeline.
+// Keep the original scheduler population exact instead of assuming it owns
+// the entire catalog, and independently check every additional publication.
+func schedulerMeasurementPublicChoices(t *testing.T, ctx *types.AgentContext, result types.ToolResult) []types.RuntimeMeasurementTable {
+	t.Helper()
+	publications := map[string]types.RuntimeMeasurementTable{}
+	observations := map[string]bool{}
+	var source *types.ObservationSourceRef
+	var timelineSource types.ObservationSourceRef
+	schedulerGroups, schedulerTables, timelineTables := 0, 0, 0
+	for _, row := range result.Observations {
+		if row.Predicate != "scheduler_concurrency" && row.Predicate != tool.TraceThreadTimelinePredicate {
+			continue
+		}
+		p, ok := types.DecodeRuntimeMeasurementPublication(row)
+		start, end, known := types.TraceObservationContinuousQueryWindow(row.SourceRef)
+		if !ok || observations[row.ID] || !reflect.DeepEqual(p.Source, row.SourceRef) || !known || start != 1 || end != 1.01 ||
+			row.Role != types.AnswerAggregateRoleSupportingCoverage || row.SourceRef.Path == "" || row.SourceRef.PayloadRef == "" || row.SourceRef.QueryScopeID == "" {
+			t.Fatalf("invalid source-bound native publication: %+v", row)
+		}
+		observations[row.ID] = true
+		if row.Predicate == "scheduler_concurrency" {
+			schedulerGroups++
+			schedulerTables += len(p.Tables)
+			if len(p.Tables) != 4 || (row.Subject != "running" && row.Subject != "runnable") {
+				t.Fatalf("scheduler's two-state/four-view population changed: %+v", row)
+			}
+			if source != nil && !reflect.DeepEqual(*source, row.SourceRef) {
+				t.Fatal("scheduler groups borrowed another source or query")
+			}
+			ref := row.SourceRef
+			source = &ref
+		} else {
+			timelineTables += len(p.Tables)
+			if len(p.Tables) != 1 || p.Tables[0].View != types.RuntimeMeasurementTimeline || !p.Tables[0].DefaultPresentation ||
+				p.Tables[0].MemberSet != nil || len(p.Tables[0].Rows) == 0 || row.Subject != "render-101" || row.Span.StartTs != start || row.Span.EndTs != end {
+				t.Fatalf("target timeline changed identity/scope or acquired complete-member authority: %+v", p)
+			}
+			timelineSource = row.SourceRef
+		}
+		for _, table := range p.Tables {
+			key := table.ObservationID + "/" + string(table.View)
+			if _, exists := publications[key]; exists {
+				t.Fatalf("duplicate native selector %s", key)
+			}
+			publications[key] = table
+		}
+	}
+	if schedulerGroups != 2 || schedulerTables != 8 || timelineTables != 1 || source == nil || !reflect.DeepEqual(*source, timelineSource) {
+		t.Fatalf("native catalog lost its independent populations: groups=%d scheduler=%d timeline=%d", schedulerGroups, schedulerTables, timelineTables)
+	}
+	choices := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices()
+	if len(choices) != len(publications) {
+		t.Fatalf("contract omitted or invented native selectors: got %d want %d", len(choices), len(publications))
+	}
+	for _, table := range choices {
+		key := table.ObservationID + "/" + string(table.View)
+		original, ok := publications[key]
+		if !ok || !runtimeMeasurementPublicationEqual(t, table, original) {
+			t.Fatalf("contract changed producer publication %s", key)
+		}
+		delete(publications, key)
+	}
+	if len(publications) != 0 {
+		t.Fatal("contract duplicated one native selector in place of another")
+	}
+	return choices
+}
+
 func TestSchedulerMeasurementActualFinalizerHandoffAndScope(t *testing.T) {
 	ctx, result, native := schedulerMeasurementPublicContext(t, "")
 	before, _ := json.Marshal(result)
 	if native.Window == nil || native.Window.StartTs != 1 || native.Window.EndTs != 1.01 || native.BucketMs != 3 || len(native.Groups) != 2 {
 		t.Fatalf("real query lost explicit axis: %+v", native)
 	}
-	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	choices := view.RuntimeMeasurementContract.Choices()
-	if len(choices) != 8 {
-		t.Fatalf("expected two states × four source-bound views, got %d", len(choices))
-	}
+	choices := schedulerMeasurementPublicChoices(t, ctx, result)
 	states := map[string]string{}
 	publications := map[string]types.RuntimeMeasurementTable{}
 	for _, row := range result.Observations {
@@ -108,6 +173,22 @@ func TestSchedulerMeasurementActualFinalizerHandoffAndScope(t *testing.T) {
 	seen := map[string]map[types.RuntimeMeasurementView]bool{}
 	for _, table := range choices {
 		state := states[table.ObservationID]
+		if state == "" {
+			// Independently source-bound thread timing is not a third
+			// all-thread scheduler population. Its complete prompt preview
+			// must nevertheless preserve its producer cells and notes.
+			selector := fmt.Sprintf("observation_id=%q view=%q", table.ObservationID, table.View)
+			preview := runtimeMeasurementPreviewInPrompt(t, prompt, selector)
+			if !reflect.DeepEqual(preview.Columns, table.Columns) || !reflect.DeepEqual(preview.Rows, table.Rows) {
+				t.Fatalf("actual finalizer changed the independent target timeline: %s", selector)
+			}
+			for _, note := range table.Notes {
+				if !strings.Contains(prompt, note) {
+					t.Fatalf("actual finalizer lost target timeline scope note: %s", note)
+				}
+			}
+			continue
+		}
 		if state != "running" && state != "runnable" {
 			t.Fatalf("unpublished scheduler identity %q", table.ObservationID)
 		}
@@ -163,8 +244,14 @@ func TestSchedulerMeasurementActualFinalizerHandoffAndScope(t *testing.T) {
 		}
 	}
 	after, _ := json.Marshal(result)
-	if string(before) != string(after) || ctx.Mutable.TraceRootCauseReport() != nil || strings.Contains(prompt, types.TraceNoteKeyRuntimeMeasurement+"={") {
-		t.Fatal("display mutated input, minted root authority or leaked private publication JSON")
+	if string(before) != string(after) {
+		t.Fatal("display mutated the source result")
+	}
+	if ctx.Mutable.TraceRootCauseReport() != nil {
+		t.Fatal("display minted root authority")
+	}
+	if offset := strings.Index(prompt, types.TraceNoteKeyRuntimeMeasurement+"={"); offset >= 0 {
+		t.Fatalf("private native publication JSON leaked into finalizer prompt: %s", prompt[max(0, offset-160):min(len(prompt), offset+700)])
 	}
 	start, end := 1.002, 1.008
 	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile.TimeStart = &start
@@ -173,8 +260,8 @@ func TestSchedulerMeasurementActualFinalizerHandoffAndScope(t *testing.T) {
 		t.Fatal("whole-window tables were borrowed into a narrower requested window")
 	}
 	changedPrompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	for id := range states {
-		if strings.Contains(changedPrompt, fmt.Sprintf("observation_id=%q view=", id)) {
+	for _, table := range choices {
+		if strings.Contains(changedPrompt, fmt.Sprintf("observation_id=%q view=", table.ObservationID)) {
 			t.Fatal("stale window selector remained in actual finalizer instruction")
 		}
 	}
@@ -217,12 +304,9 @@ func TestSchedulerMeasurementRecoveryRebindsCurrentPublicQuery(t *testing.T) {
 	for _, lane := range []string{"snapshot", "rejected", "text"} {
 		for _, state := range []string{"current", "source_changed", "window_changed", "missing"} {
 			t.Run(lane+"/"+state, func(t *testing.T) {
-				ctx, _, native := schedulerMeasurementPublicContext(t, "")
+				ctx, result, native := schedulerMeasurementPublicContext(t, "")
 				view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-				choices := view.RuntimeMeasurementContract.Choices()
-				if len(choices) != 8 {
-					t.Fatalf("need all eight real table choices, got %d", len(choices))
-				}
+				choices := schedulerMeasurementPublicChoices(t, ctx, result)
 				var blocks []types.AnswerBlock
 				for i, table := range choices {
 					receipt := &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}

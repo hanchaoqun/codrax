@@ -136,15 +136,25 @@ func nativeLogPromptValue(record ObservationRecord) (string, bool) {
 }
 
 func nativePresentationNoteRecord(record ObservationRecord) ObservationRecord {
-	if NativeRuntimeFactPresentationKind(record) != "log_record" {
+	logRecord := NativeRuntimeFactPresentationKind(record) == "log_record"
+	traceRecord := record.Origin == AnswerEvidenceOriginRuntimeArtifact && record.SourceRef.Kind == ObservationSourceRuntimeArtifact &&
+		RuntimeObservationProducerIsDeterministicQuery(record.Producer)
+	if !logRecord && !traceRecord {
 		return record
 	}
 	notes := make([]string, 0, len(record.RichNotes))
 	for _, note := range record.RichNotes {
+		// This exact producer-owned key is private display transport, even
+		// when malformed. Filter before the compact prompt spends its note
+		// budget or truncates JSON; the original ledger and table decoder keep
+		// every byte. Unknown keys and ordinary source prose remain untouched.
+		if traceRecord && strings.HasPrefix(note, TraceNoteKeyRuntimeMeasurement+"=") {
+			continue
+		}
 		// Duplicate digests are retained in the source receipt. Keep generation
 		// here so every consumer can independently distinguish source versions;
 		// a consumer with a complete source-metadata section may deduplicate it.
-		if strings.HasPrefix(note, "source_sha256=") || strings.HasPrefix(note, "decoded_sha256=") {
+		if logRecord && (strings.HasPrefix(note, "source_sha256=") || strings.HasPrefix(note, "decoded_sha256=")) {
 			continue
 		}
 		notes = append(notes, note)

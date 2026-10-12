@@ -78,11 +78,21 @@ func TestSchedulerStateAccountingActualFinalizerOpenTailAndClosedMembers(t *test
 	if len(concurrency.Groups) != 2 {
 		t.Fatal("closed concurrency groups changed")
 	}
-	choices := types.BuildAnswerSemanticViewForAgentContext(ctx).RuntimeMeasurementContract.Choices()
-	if len(choices) != 8 {
-		t.Fatalf("closed table catalog changed: %d", len(choices))
+	closedIDs := map[string]bool{}
+	for _, row := range result.Observations {
+		if row.Predicate == "scheduler_concurrency" {
+			closedIDs[row.ID] = true
+		}
 	}
+	// Validate the separately published timeline's exact source/window and
+	// display-only authority, without counting it as a closed population view.
+	choices := schedulerMeasurementPublicChoices(t, ctx, result)
+	closedTables := 0
 	for _, table := range choices {
+		if !closedIDs[table.ObservationID] {
+			continue // the helper independently validates this native timeline
+		}
+		closedTables++
 		if table.View != types.RuntimeMeasurementMembers {
 			continue
 		}
@@ -91,6 +101,9 @@ func TestSchedulerStateAccountingActualFinalizerOpenTailAndClosedMembers(t *test
 				t.Fatal("open tail entered confirmed members")
 			}
 		}
+	}
+	if len(closedIDs) != 2 || closedTables != 8 {
+		t.Fatalf("closed population catalog changed: states=%d tables=%d", len(closedIDs), closedTables)
 	}
 	for _, zh := range []bool{false, true} {
 		line := traceQueryObservationSupplementText(open, zh)
