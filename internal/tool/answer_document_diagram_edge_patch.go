@@ -2365,16 +2365,32 @@ func validateAtomicDiagramAdditionEndpointBindings(
 		node     string
 		identity string
 		allowed  []string
+		native   string
 	}
 	for _, endpoint := range []endpoint{
-		{name: "from_node", node: edge.FromNode, identity: edge.FromIdentity, allowed: candidate.FromNodeIDs},
-		{name: "to_node", node: edge.ToNode, identity: edge.ToIdentity, allowed: candidate.ToNodeIDs},
+		{name: "from_node", node: edge.FromNode, identity: edge.FromIdentity, allowed: candidate.FromNodeIDs, native: candidate.FromNativeParticipant},
+		{name: "to_node", node: edge.ToNode, identity: edge.ToIdentity, allowed: candidate.ToNodeIDs, native: candidate.ToNativeParticipant},
 	} {
 		node := strings.TrimSpace(endpoint.node)
 		identity := strings.TrimSpace(endpoint.identity)
 		if diagramEvidenceNodeIdentityBindsEndpoint(node, identity) ||
 			atomicDiagramNodeIDListed(node, endpoint.allowed) {
 			continue
+		}
+		// Advertise only the current candidate's explicit sequence binding,
+		// and only where its existing-node precondition is already satisfied.
+		// This remains a rejection; labels never supply missing identity.
+		if endpoint.native != "" && block.Diagram != nil && block.Diagram.Kind == types.DiagramSequence {
+			declared := 0
+			for _, declaration := range diagramExplicitSourceNodeDeclarations(block.Diagram.Body, block.Diagram.Kind) {
+				if declaration.ID == node {
+					declared++
+				}
+			}
+			if declared == 1 {
+				return fmt.Errorf("addition_ref=%q edge.%s=%q is not a typed carrier; reuse node/notes with %s=%q; or use a listed endpoint; labels grant no identity",
+					strings.TrimSpace(candidate.AdditionRef), endpoint.name, node, strings.TrimSuffix(endpoint.name, "_node")+"_native_participant", endpoint.native)
+			}
 		}
 		return fmt.Errorf(
 			"addition_ref=%q edge.%s=%q is not a typed carrier for %s=%q; use the exact technical endpoint or one producer-listed node id on this side",

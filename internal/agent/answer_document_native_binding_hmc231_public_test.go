@@ -52,7 +52,7 @@ func TestNativeBindingHMC231PublicReuseExistingNotes(t *testing.T) {
 	if err := toolparam.Validate(raw, (&tool.EmitAnswerDocumentPatch{}).ParametersFor(ctx)); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"name_only", "wrong_native_side", "old_lease"} {
+	for _, mode := range []string{"name_only", "target_name_only", "wrong_native_side", "old_lease"} {
 		var bad map[string]any
 		_ = json.Unmarshal(raw, &bad)
 		for _, v := range bad["diagram_edge_edits"].([]any) {
@@ -63,6 +63,8 @@ func TestNativeBindingHMC231PublicReuseExistingNotes(t *testing.T) {
 			switch mode {
 			case "name_only":
 				delete(e, "from_native_participant")
+				delete(e, "to_native_participant")
+			case "target_name_only":
 				delete(e, "to_native_participant")
 			case "wrong_native_side":
 				e["from_native_participant"] = rows[0].ToNode
@@ -75,6 +77,12 @@ func TestNativeBindingHMC231PublicReuseExistingNotes(t *testing.T) {
 		r, err := (&tool.EmitAnswerDocumentPatch{}).Execute(bus, badRaw)
 		if err != nil || r.Success || ctx.Mutable.PendingAnswerDocumentPatchBase() != nil {
 			t.Fatalf("%s unexpectedly authorized/staged: %v %+v", mode, err, r)
+		}
+		if mode == "name_only" && !strings.Contains(r.Summary, "from_native_participant=\""+rows[0].FromNode+"\"") {
+			t.Fatalf("source alias rejection lost exact native reuse exit: %s", r.Summary)
+		}
+		if mode == "target_name_only" && !strings.Contains(r.Summary, "to_native_participant=\""+rows[0].ToNode+"\"") {
+			t.Fatalf("target alias rejection lost exact native reuse exit: %s", r.Summary)
 		}
 	}
 	res, err = (&tool.EmitAnswerDocumentPatch{}).Execute(bus, raw)
