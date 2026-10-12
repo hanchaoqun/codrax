@@ -131,29 +131,23 @@ func buildPerfSamplingTree(idx *Index, q Query) *PerfSamplingTreeResult {
 	if limit > 256 {
 		limit = 256
 	}
-	ledger := ensurePerfIdentityLedger(idx)
+	population := newPerfSamplePopulation(idx, q)
+	ledger := population.ledger
 	p.Caveats = append(p.Caveats, ledger.caveats()...)
-	selector, identityAddressed := perfTimelineThreadSelector(q)
+	_, identityAddressed := perfTimelineThreadSelector(q)
 	if identityAddressed && idx.threadIncarnationFailuresCapped {
 		p.Caveats = append(p.Caveats, "thread_identity_fail_closed=true; lifecycle_audit_truncated; identity-addressed sampling tree is omitted because the bounded lifecycle audit cannot prove its selected generation")
 		return fail("typed_identity_unproven")
 	}
-	selectorWithheld := false
 	cohorts := map[string]*samplingCohortAcc{}
+	cohortIDs := map[perfCohortKey]string{}
 	totalNodes := 0
 	for ordinal, ev := range idx.Events {
 		if q.runCancel.tick() {
 			return fail("scan_canceled")
 		}
-		if ev.Type != EventPerfSample || !timeInWindow(ev.Ts, q) {
-			continue
-		}
-		if identityAddressed && ledger.selectorVerdictForEventOrdinal(ordinal, selector) == perfIdentitySelectorWithheld {
-			selectorWithheld = true
-			continue
-		}
-		key, identity, known := ledger.identityForEventOrdinalBorrowed(ordinal)
-		if !perfThreadIdentityMatchesQuery(ledger, key, identity, known, q) {
+		key, identity, known, admitted := population.admit(ordinal, nil)
+		if !admitted {
 			continue
 		}
 		pf := ev.PerfFields
@@ -164,20 +158,14 @@ func buildPerfSamplingTree(idx *Index, q Query) *PerfSamplingTreeResult {
 		if !found {
 			return fail("sample_source_generation_unavailable")
 		}
-		generation := samplingID(source.SourcePath, source.sourceIdentity.CacheToken(), source.SourceSHA256, fmt.Sprint(source.SourceBytes), fmt.Sprint(source.SourceModUnixNano))
-		cohortKey := perfCohortKeyForSample(ev)
-		threadKey := "unknown"
-		if known {
-			threadKey = fmt.Sprintf("%s/%d/%d", key.scope, identity.TID, identity.Generation)
-		}
-		id := samplingID(source.SourcePath, generation, pf.Source, cohortKey.event, cohortKey.weightUnit, pf.SampleKind, pf.Clock, threadKey, fmt.Sprintf("%.17g/%.17g/%t/%d/%s", q.TimeStart, q.TimeEnd, q.timeEndBackfilled, q.PID, q.Thread))
+		cohortKey := population.cohortKey(ev, key, known)
+		id := cohortIDs[cohortKey]
 		c := cohorts[id]
 		if c == nil {
-			c = &samplingCohortAcc{PerfSamplingCohort: PerfSamplingCohort{ID: id, SourcePath: source.SourcePath, SourceGeneration: generation, Producer: pf.Source, Event: cohortKey.event, WeightUnit: cohortKey.weightUnit, SampleKind: pf.SampleKind, Clock: pf.Clock, WeightStatus: "exact", UnavailableReasons: map[string]int{}}, roots: map[string]*samplingNodeAcc{}}
-			if known {
-				copy := identity
-				c.ThreadIdentity = &copy
-			}
+			scope := population.scope(cohortKey, identity)
+			id = scope.ID
+			cohortIDs[cohortKey] = id
+			c = &samplingCohortAcc{PerfSamplingCohort: PerfSamplingCohort{ID: id, SourcePath: scope.SourcePath, SourceGeneration: scope.SourceGeneration, Producer: scope.Producer, Event: cohortKey.event, WeightUnit: cohortKey.weightUnit, SampleKind: scope.SampleKind, Clock: scope.Clock, ThreadIdentity: scope.ThreadIdentity, WeightStatus: "exact", UnavailableReasons: map[string]int{}}, roots: map[string]*samplingNodeAcc{}}
 			cohorts[id] = c
 		}
 		weight := perfSampleEffectiveWeight(ev)
@@ -248,7 +236,7 @@ func buildPerfSamplingTree(idx *Index, q Query) *PerfSamplingTreeResult {
 	if q.runCancel.sample() {
 		return fail("scan_canceled")
 	}
-	if selectorWithheld {
+	if population.selectorWithheld {
 		p.Caveats = append(p.Caveats, perfThreadSelectorWithheldCaveat(q.PID > 0))
 		return fail("typed_identity_unproven")
 	}

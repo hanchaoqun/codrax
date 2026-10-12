@@ -2064,20 +2064,26 @@ func TestPerfSampleEventSearchAndWindowStats(t *testing.T) {
 	if stats.PerfSamples == nil {
 		t.Fatalf("expected perf sample summary")
 	}
-	if stats.PerfSamples.SampleCount != 3 || stats.PerfSamples.TotalPeriod != 45000 {
+	if stats.PerfSamples.SampleCount != 3 || stats.PerfSamples.TotalPeriod != 0 || stats.PerfSamples.CohortCount != 2 || len(stats.PerfSamples.Cohorts) != 2 {
 		t.Fatalf("unexpected perf sample totals: %+v", stats.PerfSamples)
 	}
-	if len(stats.PerfSamples.TopSymbols) == 0 || stats.PerfSamples.TopSymbols[0].Symbol != "Foo::bar" || stats.PerfSamples.TopSymbols[0].Period != 40000 || stats.PerfSamples.TopSymbols[0].SampleCount != 2 {
-		t.Fatalf("Foo::bar should dominate top symbols: %+v", stats.PerfSamples.TopSymbols)
+	// Thread-scoped native cohorts preserve all 45,000 cycles without
+	// presenting independent thread populations as one percentage denominator.
+	app, worker := stats.PerfSamples.Cohorts[0], stats.PerfSamples.Cohorts[1]
+	if app.TotalPeriod != 40000 || worker.TotalPeriod != 5000 || app.TotalPeriod+worker.TotalPeriod != 45000 || worker.SampleCount != 1 || worker.TopSymbols[0].Symbol != "Worker::run" {
+		t.Fatalf("per-thread cycle inventory was lost: %+v", stats.PerfSamples.Cohorts)
 	}
-	if len(stats.PerfSamples.TopDSO) == 0 || stats.PerfSamples.TopDSO[0].DSO != "libfoo.so" {
-		t.Fatalf("libfoo.so should dominate top DSO: %+v", stats.PerfSamples.TopDSO)
+	if len(app.TopSymbols) == 0 || app.TopSymbols[0].Symbol != "Foo::bar" || app.TopSymbols[0].Period != 40000 || app.TopSymbols[0].SampleCount != 2 {
+		t.Fatalf("Foo::bar should dominate its cohort: %+v", app.TopSymbols)
 	}
-	if len(stats.PerfSamples.TopCallchains) == 0 || stats.PerfSamples.TopCallchains[0].Callchain != "main;A;Foo::bar" {
-		t.Fatalf("top callchain should be preserved: %+v", stats.PerfSamples.TopCallchains)
+	if len(app.TopDSO) == 0 || app.TopDSO[0].DSO != "libfoo.so" {
+		t.Fatalf("libfoo.so should dominate its cohort: %+v", app.TopDSO)
 	}
-	if len(stats.PerfSamples.TopThreads) == 0 || stats.PerfSamples.TopThreads[0].Thread.PID != 5678 || stats.PerfSamples.TopThreads[0].Period != 40000 {
-		t.Fatalf("top thread should use sampled tid and period: %+v", stats.PerfSamples.TopThreads)
+	if len(app.TopCallchains) == 0 || app.TopCallchains[0].Callchain != "main;A;Foo::bar" {
+		t.Fatalf("top callchain should be preserved: %+v", app.TopCallchains)
+	}
+	if len(app.TopThreads) == 0 || app.TopThreads[0].Thread.PID != 5678 || app.TopThreads[0].Period != 40000 {
+		t.Fatalf("top thread should use sampled tid and period: %+v", app.TopThreads)
 	}
 	if stats.PerfSamples.Quality == nil || stats.PerfSamples.Quality.CPUKnownCount != 3 || stats.PerfSamples.Quality.CPUUnknownCount != 0 {
 		t.Fatalf("perf quality should summarize CPU-known samples: %+v", stats.PerfSamples.Quality)

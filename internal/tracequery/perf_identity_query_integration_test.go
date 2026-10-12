@@ -260,11 +260,12 @@ func TestPerfRoleContextDoesNotMergeReusedTIDGenerations(t *testing.T) {
 	q := Query{TimeStart: 0.9, TimeEnd: 1.2}
 
 	global := computePerfContext(idx, q, 8)
-	if global == nil || global.SampleCount != 2 || len(global.TopThreads) != 2 {
+	if global == nil || global.SampleCount != 2 || global.CohortCount != 2 || len(global.TopThreads) != 0 {
 		t.Fatalf("global inventory must retain both generations as separate typed seats: %+v", global)
 	}
-	if global.TopThreads[0].Identity == nil || global.TopThreads[1].Identity == nil || global.TopThreads[0].Identity.Generation == global.TopThreads[1].Identity.Generation {
-		t.Fatalf("reused TID generations were not separated: %+v", global.TopThreads)
+	oldThread, newThread := global.Cohorts[0].TopThreads[0], global.Cohorts[1].TopThreads[0]
+	if oldThread.Identity == nil || newThread.Identity == nil || oldThread.Identity.Generation == newThread.Identity.Generation || oldThread.Period != 10 || newThread.Period != 10 {
+		t.Fatalf("reused TID generations or weights were not separated: %+v", global.Cohorts)
 	}
 	if got := perfContextForThread(idx, q, ThreadRef{PID: 100}, q.TimeStart, q.TimeEnd, 8); got != nil {
 		t.Fatalf("single-thread role crossed a TID generation boundary: %+v", got)
@@ -414,19 +415,34 @@ func TestPerfPublishedRostersAreBoundedWithExactTotalsUnderTie(t *testing.T) {
 	idx := &Index{Events: events, FirstTs: 1.0001, LastTs: 1.01, TimestampOrder: TraceTimestampOrderMonotonic}
 	q := Query{TimeStart: 1, TimeEnd: 1.02, MinDurationMs: 1000}
 	ctx := computePerfContext(idx, q, 4)
-	if ctx == nil || ctx.ThreadIdentityCount != 100 || len(ctx.TopThreads) != 4 {
+	if ctx == nil || ctx.SampleCount != 100 || ctx.ThreadIdentityCount != 100 || ctx.CohortCount != 100 || len(ctx.Cohorts) != 4 || len(ctx.TopThreads) != 0 || ctx.TotalPeriod != 0 {
 		t.Fatalf("context exact identity total/top cap drifted under a 100-way tie: %+v", ctx)
 	}
 	if ctx.ThreadIdentityCountExact == nil || !*ctx.ThreadIdentityCountExact {
 		t.Fatalf("all-typed context did not publish an explicit exact witness: %+v", ctx)
 	}
-	if len(ctx.TopSymbols) != 1 || ctx.TopSymbols[0].ThreadIdentityCount != 100 || len(ctx.TopSymbols[0].ThreadIdentities) != perfPublishedThreadRosterCap || len(ctx.TopSymbols[0].Threads) != perfPublishedThreadRosterCap {
-		t.Fatalf("hotspot typed/legacy rosters are unbounded or total is inexact: %+v", ctx.TopSymbols)
+	for _, cohort := range ctx.Cohorts {
+		if len(cohort.TopSymbols) != 1 || cohort.TopSymbols[0].ThreadIdentityCount != 1 || len(cohort.TopSymbols[0].ThreadIdentities) != 1 || len(cohort.TopSymbols[0].Threads) != 1 || cohort.TotalPeriod != 10 || cohort.TopSymbols[0].Percent != 100 {
+			t.Fatalf("independent thread cohort lost its exact bounded roster/denominator: %+v", cohort)
+		}
+	}
+	// Preserve the original wide-hotspot roster cap regression directly. The
+	// public context no longer merges 100 independent thread populations.
+	ledger := ensurePerfIdentityLedger(idx)
+	hotspots := map[string]*perfHotspotAcc{}
+	var total int64 = 1000
+	for i, ev := range events {
+		key, identity, known := ledger.identityForEventOrdinalBorrowed(i)
+		addPerfHotspot(hotspots, "shared", PerfHotspot{Symbol: "Shared::hot"}, key, identity, known, 0, ev.Line, 10, "", &total)
+	}
+	wide := sortedPerfHotspots(hotspots, 4)
+	if len(wide) != 1 || wide[0].ThreadIdentityCount != 100 || len(wide[0].ThreadIdentities) != perfPublishedThreadRosterCap || len(wide[0].Threads) != perfPublishedThreadRosterCap || wide[0].Period != 1000 {
+		t.Fatalf("hotspot typed/legacy rosters are unbounded or total is inexact: %+v", wide)
 	}
 	if roster := perfContextThreadRoster(ctx, 4); !strings.Contains(roster, "+96_more") {
 		t.Fatalf("context roster inferred omitted count from truncated TopThreads: %q", roster)
 	}
-	facts := evidenceFromPerfContext(ctx)
+	facts := evidenceFromPerfContext(&PerfContext{TopSymbols: wide, TotalPeriod: total})
 	if len(facts) == 0 || !strings.Contains(facts[0].Summary, "+96_more") {
 		t.Fatalf("evidence roster did not consume the exact hotspot total: %+v", facts)
 	}
@@ -478,8 +494,13 @@ func TestPerfTypedIdentitySurvivesRootAndFrameConsumersWithUnrelatedReuse(t *tes
 		"global": frame.PerfSamples, "target": frame.TargetRunningPerf, "on_chain": frame.OnChainPerf,
 		"binder_peer": frame.BinderPeerPerf, "same_cpu": frame.SameCPUCompetitorPerf,
 	} {
-		if ctx == nil || ctx.SampleCount == 0 || ctx.ThreadIdentityCount == 0 || len(ctx.TopThreads) == 0 || ctx.TopThreads[0].Identity == nil {
+		if ctx == nil || ctx.SampleCount == 0 || ctx.ThreadIdentityCount == 0 {
 			t.Fatalf("frame %s consumer lost typed generation context: %+v", name, ctx)
+		}
+		for _, cohort := range perfContextCohortsForRead(ctx) {
+			if len(cohort.TopThreads) == 0 || cohort.TopThreads[0].Identity == nil {
+				t.Fatalf("frame %s cohort lost typed generation context: %+v", name, cohort)
+			}
 		}
 	}
 }
@@ -495,8 +516,13 @@ func TestPerfRelevantReuseWithdrawsOnlyAffectedRootAndFrameRole(t *testing.T) {
 	idx := &Index{Events: events, FirstTs: 1, LastTs: 1.11, TimestampOrder: TraceTimestampOrderMonotonic}
 	q := Query{PID: target.PID, TimeStart: 0.9, TimeEnd: 1.2}
 	global := computePerfContext(idx, q, 8)
-	if global == nil || global.SampleCount != 2 {
-		t.Fatalf("global inventory must survive a relevant lifecycle boundary: %+v", global)
+	if global == nil || global.SampleCount != 1 || global.TopThreads[0].Identity.TID != target.PID {
+		t.Fatalf("target inventory must retain its sample without borrowing the peer denominator: %+v", global)
+	}
+	unselected := q
+	unselected.PID = 0
+	if all := computePerfContext(idx, unselected, 8); all == nil || all.SampleCount != 2 || all.CohortCount != 2 {
+		t.Fatalf("unfiltered inventory must retain both original rows: %+v", all)
 	}
 	rank := attachPerfContextToRootCauseRank(idx, q, RootCauseRankResult{Target: target, Items: []RootCauseRankItem{{
 		Type: "running", Thread: target, StartTs: 0.9, EndTs: 1.2, ChainRelevance: "on_chain",

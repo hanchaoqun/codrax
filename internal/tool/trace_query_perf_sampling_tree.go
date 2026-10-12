@@ -127,7 +127,11 @@ func DecodeTracePerfSamplingTree(r types.ObservationRecord) (tracequery.PerfSamp
 
 func TracePerfSamplingTreeText(p tracequery.PerfSamplingTreeResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Sampling prefix tree: status=%s reason=%s window=[%.9f,%.9f) end_inclusive=%t samples=%d cohorts=%d omitted_cohorts=%d\n", p.Status, p.Reason, p.Window.StartTs, p.Window.EndTs, p.Window.EndInclusive, p.SampleCount, p.CohortCount, p.OmittedCohorts)
+	end := ")"
+	if p.Window.EndInclusive {
+		end = "]"
+	}
+	fmt.Fprintf(&b, "Sampling prefix tree: status=%s reason=%s window=[%.9f,%.9f%s end_inclusive=%t samples=%d cohorts=%d omitted_cohorts=%d\n", p.Status, p.Reason, p.Window.StartTs, p.Window.EndTs, end, p.Window.EndInclusive, p.SampleCount, p.CohortCount, p.OmittedCohorts)
 	for _, c := range p.Cohorts {
 		weight := func(n int64) string {
 			if c.WeightStatus != "exact" {

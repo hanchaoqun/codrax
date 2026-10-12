@@ -1920,10 +1920,12 @@ type PerfContext struct {
 	Caveats                          []string            `json:"caveats,omitempty"`
 }
 
-// PerfCohort is one exact perf event/unit aggregation domain. WeightStatus is
+// PerfCohort is one source/generation/producer/event/unit/kind/clock/thread
+// aggregation domain. The optional Scope binds its native origin. WeightStatus is
 // "exact" or "aggregate_overflow". An overflow cohort retains sample and
 // identity inventory but intentionally publishes no weighted Top-N.
 type PerfCohort struct {
+	Scope                            *PerfCohortScope    `json:"scope,omitempty"`
 	Event                            string              `json:"event"`
 	WeightUnit                       string              `json:"weight_unit"`
 	WeightStatus                     string              `json:"weight_status"`
@@ -2031,13 +2033,14 @@ type PerfTimelineBucket struct {
 // legacy bucket Period/Top* fields are compatibility mirrors for a single
 // exact cohort only.
 type PerfTimelineCohort struct {
-	Event        string `json:"event"`
-	WeightUnit   string `json:"weight_unit"`
-	WeightStatus string `json:"weight_status"`
-	SampleCount  int    `json:"sample_count,omitempty"`
-	Period       int64  `json:"period,omitempty"`
-	TopSymbol    string `json:"top_symbol,omitempty"`
-	TopDSO       string `json:"top_dso,omitempty"`
+	Scope        *PerfCohortScope `json:"scope,omitempty"`
+	Event        string           `json:"event"`
+	WeightUnit   string           `json:"weight_unit"`
+	WeightStatus string           `json:"weight_status"`
+	SampleCount  int              `json:"sample_count,omitempty"`
+	Period       int64            `json:"period,omitempty"`
+	TopSymbol    string           `json:"top_symbol,omitempty"`
+	TopDSO       string           `json:"top_dso,omitempty"`
 }
 
 type SchedulerLatencyResult struct {

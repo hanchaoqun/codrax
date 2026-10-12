@@ -922,6 +922,14 @@ func Run(idx *Index, q Query) Result {
 	default:
 		return queryViewInvalidResult(idx, q, fmt.Errorf("view %q is not supported by the indexed Run entry point", q.View))
 	}
+	// Sampling companions preserve the caller's exact selectors and window;
+	// they are never reconstructed from flattened hotspot labels.
+	if !cancel.fired() && perfLegacyViewCarriesSampling(q.View) && indexHasPerfSamples(idx, q) {
+		tree := buildPerfSamplingTree(idx, q)
+		if !faceCanceled(ViewPerfSamplingTree) {
+			res.PerfSamplingTree = tree
+		}
+	}
 	// G1 跨车道对账 (§27.2, 2026-07-09): every view shape that carries BOTH
 	// lanes in one result envelope (recipe with rank+blocking, the frame
 	// bundle's shared pointers) reconciles here; single-lane shapes
@@ -3818,10 +3826,12 @@ func (acc *perfCheckedInt64) add(value int64) bool {
 type perfCohortKey struct {
 	event      string
 	weightUnit string
+	scope      perfPopulationScopeKey
 }
 
 type perfCohortAcc struct {
 	key                          perfCohortKey
+	scope                        *PerfCohortScope
 	sampleCount                  int
 	total                        perfCheckedInt64
 	threadIdentityUnknownSamples int
@@ -3956,8 +3966,8 @@ type perfQualityAcc struct {
 
 // perfSampleFilter is identity-aware because thread role joins are allowed to
 // consume only the exact generation minted by the perf identity ledger.  The
-// bool is false for anonymous/source-only/otherwise unproved samples; global
-// symbol inventory can still retain those rows by using a nil filter.
+// bool is false for anonymous/source-only/otherwise unproved samples; an
+// unselected query can still retain those rows in source-only inventory.
 type perfSampleFilter func(Event, perfThreadKey, PerfThreadIdentity, bool) bool
 
 // perfThreadIdentityCountExactPtr deliberately allocates a distinct witness
@@ -4015,8 +4025,15 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 	if q.runCancel.sample() {
 		return nil
 	}
-	ledger := ensurePerfIdentityLedger(idx)
+	population := newPerfSamplePopulation(idx, q)
+	ledger := population.ledger
 	ctx := &PerfContext{ThreadIdentityCountExact: perfThreadIdentityCountExactPtr(true)}
+	admissionFilter := filter
+	if ordinals != nil && admissionFilter == nil {
+		// The role index has already proved this exact ordinal set. Applying
+		// the caller's target here would delete peer/competitor role samples.
+		admissionFilter = func(Event, perfThreadKey, PerfThreadIdentity, bool) bool { return true }
+	}
 	cohorts := map[perfCohortKey]*perfCohortAcc{}
 	globalQuality := newPerfQualityAcc()
 	var globalThreadSet perfThreadIdentitySet
@@ -4025,11 +4042,8 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 		if q.runCancel.tick() {
 			return false
 		}
-		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
-			return true
-		}
-		threadKey, threadIdentity, threadIdentityOK := ledger.identityForEventOrdinalBorrowed(ordinal)
-		if filter != nil && !filter(ev, threadKey, threadIdentity, threadIdentityOK) {
+		threadKey, threadIdentity, threadIdentityOK, admitted := population.admit(ordinal, admissionFilter)
+		if !admitted {
 			return true
 		}
 		pf := ev.PerfFields
@@ -4037,10 +4051,16 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 			pf = &PerfFields{}
 		}
 		period := perfSampleEffectiveWeight(ev)
-		cohortKey := perfCohortKeyForSample(ev)
+		cohortKey := population.cohortKey(ev, threadKey, threadIdentityOK)
 		cohort := cohorts[cohortKey]
 		if cohort == nil {
 			cohort = newPerfCohortAcc(cohortKey)
+			cohort.scope = population.scope(cohortKey, threadIdentity)
+			if admissionFilter != nil {
+				// A narrower role predicate has no complete-tree cohort ID.
+				cohort.scope.ID = ""
+				cohort.scope.Window.EndInclusive = true // legacy role timeInWindow is inclusive
+			}
 			cohorts[cohortKey] = cohort
 		}
 		ctx.SampleCount++
@@ -4116,6 +4136,10 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 	if q.runCancel.fired() {
 		return nil
 	}
+	if population.selectorWithheld && filter == nil {
+		// A partially proved target is not a complete selected denominator.
+		return &PerfContext{ThreadIdentityCountExact: perfThreadIdentityCountExactPtr(false), Caveats: append(ledger.caveats(), perfThreadSelectorWithheldCaveat(q.PID > 0))}
+	}
 	if ctx.SampleCount == 0 {
 		if len(selectorCaveats) > 0 {
 			ctx.Caveats = append(ctx.Caveats, selectorCaveats...)
@@ -4134,7 +4158,7 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 			}
 		}
 	} else {
-		ctx.Caveats = append(ctx.Caveats, fmt.Sprintf("perf_aggregate_cohorts=%d; legacy_weighted_projection=withheld; reason=mixed_event_or_weight_unit; see=perf_samples.cohorts", len(cohorts)))
+		ctx.Caveats = append(ctx.Caveats, fmt.Sprintf("perf_aggregate_cohorts=%d; legacy_weighted_projection=withheld; reason=independent_source_producer_event_unit_kind_clock_or_thread_generation; see=perf_samples.cohorts", len(cohorts)))
 	}
 	for _, cohort := range ctx.Cohorts {
 		if cohort.WeightStatus == perfAggregateStatusOverflow {
@@ -4142,7 +4166,7 @@ func computePerfContextForOrdinalsWithCaveats(idx *Index, q Query, max int, filt
 		}
 	}
 	if len(ctx.Cohorts) < len(cohorts) {
-		ctx.Caveats = append(ctx.Caveats, fmt.Sprintf("perf_aggregate_cohort_projection_truncated=true shown=%d total=%d; cohort ordering is lexical event/unit, not cross-unit importance", len(ctx.Cohorts), len(cohorts)))
+		ctx.Caveats = append(ctx.Caveats, fmt.Sprintf("perf_aggregate_cohort_projection_truncated=true shown=%d total=%d; cohort ordering is lexical event/unit/provenance, not cross-domain importance", len(ctx.Cohorts), len(cohorts)))
 	}
 	// The global WindowStats/standalone perf context is the single publication
 	// point for ledger-wide integrity caveats. Role/CPU projections carry only
@@ -4841,10 +4865,7 @@ func materializePerfCohorts(in map[perfCohortKey]*perfCohortAcc, max int) []Perf
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].event != keys[j].event {
-			return keys[i].event < keys[j].event
-		}
-		return keys[i].weightUnit < keys[j].weightUnit
+		return perfCohortKeyLess(keys[i], keys[j])
 	})
 	limit := max
 	if limit <= 0 || limit > maxPerfPublishedCohorts {
@@ -4857,6 +4878,7 @@ func materializePerfCohorts(in map[perfCohortKey]*perfCohortAcc, max int) []Perf
 	for _, key := range keys[:limit] {
 		acc := in[key]
 		item := PerfCohort{
+			Scope:                            acc.scope,
 			Event:                            key.event,
 			WeightUnit:                       key.weightUnit,
 			WeightStatus:                     perfAggregateStatusOverflow,
@@ -5195,6 +5217,7 @@ type perfTimelineValueAcc struct {
 
 type perfTimelineCohortAcc struct {
 	key         perfCohortKey
+	scope       *PerfCohortScope
 	sampleCount int
 	total       perfCheckedInt64
 	symbols     map[string]*perfTimelineValueAcc
@@ -5228,7 +5251,8 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	if q.runCancel.sample() {
 		return PerfTimelineResult{Window: queryResultTimeWindow(q)}
 	}
-	ledger := ensurePerfIdentityLedger(idx)
+	population := newPerfSamplePopulation(idx, q)
+	ledger := population.ledger
 	start, end, count, contributorPIDs, selectorWithheld := perfTimelineWindow(idx, q, ledger)
 	res := PerfTimelineResult{Window: TimeWindow{StartTs: start, EndTs: end}}
 	res.Caveats = append(res.Caveats, ledger.caveats()...)
@@ -5319,10 +5343,11 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 			pf = &PerfFields{}
 		}
 		period := perfSampleEffectiveWeight(ev)
-		cohortKey := perfCohortKeyForSample(ev)
+		cohortKey := population.cohortKey(ev, threadKey, threadIdentityOK)
 		cohort := acc.cohorts[cohortKey]
 		if cohort == nil {
 			cohort = newPerfTimelineCohortAcc(cohortKey)
+			cohort.scope = population.scope(cohortKey, threadIdentity)
 			acc.cohorts[cohortKey] = cohort
 		}
 		acc.bucket.SampleCount++
@@ -5384,7 +5409,7 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	}
 	for _, bucket := range res.Buckets {
 		if bucket.CohortCount > 1 {
-			res.Caveats = appendUniquePerfCaveat(res.Caveats, "perf_timeline_event_unit_cohorts=true; legacy bucket weighted projection is withheld for mixed event/unit domains; see=buckets[].cohorts")
+			res.Caveats = appendUniquePerfCaveat(res.Caveats, "perf_timeline_event_unit_cohorts=true; legacy bucket weighted projection is withheld for independent source/producer/event/unit/kind/clock/thread-generation domains; see=buckets[].cohorts")
 		}
 		for _, cohort := range bucket.Cohorts {
 			if cohort.WeightStatus == perfAggregateStatusOverflow {
@@ -5405,7 +5430,7 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 // contributor set, so any one-sided edit would have created samples that are
 // bucketed but never guard-checked. Both loops now call this predicate.
 func perfTimelineAdmits(ev Event, q Query, ledger *perfIdentityLedger, key perfThreadKey, identity PerfThreadIdentity, identityOK bool) bool {
-	if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+	if !perfSampleQueryBase(ev, q) {
 		return false
 	}
 	// An identity-addressed selector cannot consume an anonymous or locally
@@ -5445,7 +5470,7 @@ func perfTimelineWindow(idx *Index, q Query, ledger *perfIdentityLedger) (float6
 		if q.runCancel.tick() {
 			return start, end, 0, nil, false
 		}
-		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+		if !perfSampleQueryBase(ev, q) {
 			continue
 		}
 		if identityAddressed && ledger.selectorVerdictForEventOrdinal(ordinal, selector) == perfIdentitySelectorWithheld {
@@ -5548,10 +5573,7 @@ func materializePerfTimelineCohorts(in map[perfCohortKey]*perfTimelineCohortAcc)
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].event != keys[j].event {
-			return keys[i].event < keys[j].event
-		}
-		return keys[i].weightUnit < keys[j].weightUnit
+		return perfCohortKeyLess(keys[i], keys[j])
 	})
 	if len(keys) > maxPerfPublishedCohorts {
 		keys = keys[:maxPerfPublishedCohorts]
@@ -5560,6 +5582,7 @@ func materializePerfTimelineCohorts(in map[perfCohortKey]*perfTimelineCohortAcc)
 	for _, key := range keys {
 		acc := in[key]
 		item := PerfTimelineCohort{
+			Scope:        acc.scope,
 			Event:        key.event,
 			WeightUnit:   key.weightUnit,
 			WeightStatus: perfAggregateStatusOverflow,
@@ -27326,7 +27349,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 		for _, cohort := range perfContextCohortsForRead(stats.PerfSamples) {
 			for _, hot := range cohort.TopSymbols {
 				roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
-				summary := fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
+				summary := perfHotspotEvidenceSummary(cohort, hot, false)
 				if roster != "" {
 					summary += " thread_generations=" + roster
 				}
@@ -27385,7 +27408,7 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 	for _, cohort := range perfContextCohortsForRead(ctx) {
 		for _, hot := range cohort.TopSymbols {
 			roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
-			summary := fmt.Sprintf("perf samples: symbol=%s dso=%s event=%s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Symbol, "unknown"), firstNonEmpty(hot.DSO, "unknown"), firstNonEmpty(hot.Event, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
+			summary := perfHotspotEvidenceSummary(cohort, hot, false)
 			if roster != "" {
 				summary += " thread_generations=" + roster
 			}
@@ -27415,7 +27438,7 @@ func evidenceFromPerfContext(ctx *PerfContext) []EvidenceFact {
 	for _, cohort := range perfContextCohortsForRead(ctx) {
 		for _, hot := range cohort.TopCallchains {
 			roster := perfThreadIdentityRoster(hot.ThreadIdentities, hot.ThreadIdentityCount, 4)
-			summary := fmt.Sprintf("perf callchain: %s weight_unit=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmpty(hot.Callchain, "unknown"), firstNonEmpty(hot.WeightUnit, "unknown"), hot.Period, hot.SampleCount, hot.Percent)
+			summary := perfHotspotEvidenceSummary(cohort, hot, true)
 			if roster != "" {
 				summary += " thread_generations=" + roster
 			}
@@ -27492,6 +27515,13 @@ func evidenceFromPerfTimeline(timeline PerfTimelineResult) []EvidenceFact {
 		for _, cohort := range cohorts {
 			roster := perfThreadIdentityRoster(bucket.ThreadIdentities, bucket.ThreadIdentityCount, 4)
 			summary := fmt.Sprintf("perf timeline %.6f..%.6f event=%s weight_unit=%s weight_status=%s samples=%d", bucket.StartTs, bucket.EndTs, cohort.Event, cohort.WeightUnit, cohort.WeightStatus, cohort.SampleCount)
+			summary += perfCohortScopeSummary(cohort.Scope)
+			if cohort.Scope != nil {
+				roster = ""
+				if cohort.Scope.ThreadIdentity != nil {
+					roster = perfThreadIdentityRoster([]PerfThreadIdentity{*cohort.Scope.ThreadIdentity}, 1, 4)
+				}
+			}
 			if cohort.WeightStatus == perfAggregateStatusExact {
 				summary += fmt.Sprintf(" sample_weight=%d top_symbol=%s top_dso=%s", cohort.Period, firstNonEmpty(cohort.TopSymbol, "unknown"), firstNonEmpty(cohort.TopDSO, "unknown"))
 			}

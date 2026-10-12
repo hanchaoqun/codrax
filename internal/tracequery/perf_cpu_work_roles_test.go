@@ -31,7 +31,8 @@ func TestPerfCPUWorkThreadRolesRequireExecutionSamples(t *testing.T) {
 
 	assertSinglePerfSymbol(t, perfContextForExecutionThread(idx, q, target, 3, 3.1, 8), "TargetOn")
 	assertSinglePerfSymbol(t, perfContextForExecutionThread(idx, q, competitor, 3, 3.1, 8), "CompetitorOn")
-	if generic := perfContextForThread(idx, q, target, 3, 3.1, 8); generic == nil || generic.SampleCount != 4 || generic.CohortCount != 2 || len(generic.TopSymbols) != 0 || !perfContextHasSymbol(generic, "TargetOff") || !perfContextHasSymbol(generic, "TargetOn") {
+	// On-CPU and unknown-kind cycles now have independent native denominators.
+	if generic := perfContextForThread(idx, q, target, 3, 3.1, 8); generic == nil || generic.SampleCount != 4 || generic.CohortCount != 3 || len(generic.TopSymbols) != 0 || !perfContextHasSymbol(generic, "TargetOff") || !perfContextHasSymbol(generic, "TargetOn") {
 		t.Fatalf("generic candidate/dependency inventory was incorrectly narrowed: %+v", generic)
 	}
 	if generic := perfContextForThreads(idx, q, map[int]ThreadRef{30: dependency}, 8); generic == nil || generic.SampleCount != 1 || generic.TopSymbols[0].Symbol != "DependencyOff" {
@@ -72,6 +73,9 @@ func assertSinglePerfSymbol(t *testing.T, ctx *PerfContext, want string) {
 	t.Helper()
 	if ctx == nil || ctx.SampleCount != 1 || len(ctx.TopSymbols) != 1 || ctx.TopSymbols[0].Symbol != want {
 		t.Fatalf("execution context = %+v, want only %s", ctx, want)
+	}
+	if len(ctx.Cohorts) != 1 || ctx.Cohorts[0].Scope == nil || ctx.Cohorts[0].Scope.ID != "" || !ctx.Cohorts[0].Scope.Window.EndInclusive {
+		t.Fatalf("role projection impersonated a complete half-open native population: %+v", ctx.Cohorts)
 	}
 }
 

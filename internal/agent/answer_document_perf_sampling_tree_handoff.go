@@ -30,6 +30,11 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 	}
 	var b strings.Builder
 	seen := map[key]bool{}
+	// Query receipts stay independent. Only byte-identical, validated native
+	// tree publications share this display slot: source generations, target,
+	// window, full denominators and all expansion/omission details remain in
+	// the key. A different view or outer payload ID is not a different tree.
+	seenFacts := map[string]bool{}
 	accepted, shown := 0, 0
 	for _, r := range ledger.Records {
 		p, ok := tool.DecodeTracePerfSamplingTree(r)
@@ -45,6 +50,13 @@ func renderAnswerDocPerfSamplingTrees(ctx *types.AgentContext, ledger types.Obse
 			continue
 		}
 		seen[k] = true
+		fact := contents[k]
+		if p.Status == "available" && seenFacts[fact] {
+			continue
+		}
+		if p.Status == "available" {
+			seenFacts[fact] = true
+		}
 		accepted++
 		if shown >= 4 {
 			continue

@@ -5710,6 +5710,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if len(cohorts) == 1 && cohorts[0].WeightStatus == "exact" {
 				fmt.Fprintf(&b, "- perf_bucket %.6f..%.6f sample_weight=%d samples=%d top_symbol=%s top_dso=%s event=%s weight_unit=%s cpus=%v threads=%s%s lines=%d-%d example=%s\n",
 					bucket.StartTs, bucket.EndTs, cohorts[0].Period, bucket.SampleCount, sanitizeForBanner(cohorts[0].TopSymbol), sanitizeForBanner(cohorts[0].TopDSO), sanitizeForBanner(cohorts[0].Event), sanitizeForBanner(cohorts[0].WeightUnit), bucket.CPUs, traceQueryPerfIdentityLabelsOrLegacy(bucket.ThreadIdentities, bucket.Threads), traceQueryPerfIdentityCountFieldsWithCoverage(bucket.ThreadIdentityCount, len(bucket.ThreadIdentities), bucket.ThreadIdentityCountExact, bucket.ThreadIdentityUnknownSampleCount), bucket.LineStart, bucket.LineEnd, sanitizeForBanner(bucket.Example))
+				if cohorts[0].Scope != nil {
+					fmt.Fprintf(&b, "  perf_bucket_scope%s\n", traceQueryPerfScopeLabel(cohorts[0].Scope))
+				}
 				continue
 			}
 			fmt.Fprintf(&b, "- perf_bucket %.6f..%.6f samples=%d cohort_count=%d weighted_projection=cohort_only cpus=%v threads=%s%s lines=%d-%d example=%s\n",
@@ -5719,6 +5722,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				if cohort.WeightStatus == "exact" {
 					fmt.Fprintf(&b, " sample_weight=%d top_symbol=%s top_dso=%s", cohort.Period, sanitizeForBanner(cohort.TopSymbol), sanitizeForBanner(cohort.TopDSO))
 				}
+				b.WriteString(traceQueryPerfScopeLabel(cohort.Scope))
 				b.WriteByte('\n')
 			}
 		}
@@ -6411,6 +6415,9 @@ func writeTracePerfContext(b *strings.Builder, item tracequery.PerfContext) {
 	writeTracePerfQuality(b, "perf_quality", item.Quality)
 	writeTracePerfContextCaveats(b, "", "perf_context_caveat", &item)
 	writeTracePerfContextIdentityDetails(b, "", "perf_context_thread_identity", &item)
+	if len(cohorts) == 1 && cohorts[0].Scope != nil {
+		fmt.Fprintf(b, "  perf_scope%s\n", traceQueryPerfScopeLabel(cohorts[0].Scope))
+	}
 	if len(cohorts) != 1 || cohorts[0].WeightStatus != "exact" {
 		for _, cohort := range cohorts {
 			writeTracePerfCohort(b, cohort)
@@ -6447,6 +6454,7 @@ func writeTracePerfCohort(b *strings.Builder, cohort tracequery.PerfCohort) {
 	if cohort.WeightStatus == "exact" {
 		fmt.Fprintf(b, " total_sample_weight=%d", cohort.TotalPeriod)
 	}
+	b.WriteString(traceQueryPerfScopeLabel(cohort.Scope))
 	b.WriteByte('\n')
 	writeTracePerfCohortQuality(b, cohort)
 	if cohort.WeightStatus != "exact" {
@@ -14651,13 +14659,13 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 					ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
 					SourceRef:       ref,
 					Span:            types.ObservationSpan{LineStart: hot.LineStart, LineEnd: hot.LineEnd},
-					ClaimKey:        "perf_sample_top_symbol:" + firstNonEmptyTraceString(hot.Symbol, hot.DSO, hot.Event),
+					ClaimKey:        traceQueryPerfCohortClaimKey(cohort, hot),
 					Subject:         firstNonEmptyTraceString(hot.Symbol, "perf_sample"),
 					Predicate:       "perf_sample_top_symbol",
 					Object:          hot.DSO,
 					Value:           strconv.FormatInt(hot.Period, 10),
 					Unit:            "sample_weight",
-					Summary:         fmt.Sprintf("perf samples symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s quality=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.WeightUnit, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), traceQueryPerfQualityCompact(cohort.Quality), hot.Period, hot.SampleCount, hot.Percent),
+					Summary:         traceQueryPerfCohortDenominatorLabel(cohort) + fmt.Sprintf("perf samples symbol=%s dso=%s event=%s weight_unit=%s source=%s symbolization_status=%s quality=%s sample_weight=%d samples=%d percent=%.2f%%", firstNonEmptyTraceString(hot.Symbol, "unknown"), firstNonEmptyTraceString(hot.DSO, "unknown"), firstNonEmptyTraceString(hot.Event, "unknown"), firstNonEmptyTraceString(hot.WeightUnit, "unknown"), firstNonEmptyTraceString(hot.Source, "unknown"), firstNonEmptyTraceString(hot.SymbolizationStatus, "unknown"), traceQueryPerfQualityCompact(cohort.Quality), hot.Period, hot.SampleCount, hot.Percent),
 					RichNotes: traceQueryTypedKVNotes([][2]string{
 						{"symbol", hot.Symbol},
 						{types.TraceNoteKeyDSO, hot.DSO},

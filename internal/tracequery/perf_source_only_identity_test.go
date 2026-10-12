@@ -303,7 +303,9 @@ func TestPerfCPUClaimsRequireKnownAndOnCPUForConcreteAttribution(t *testing.T) {
 	if ctx == nil || ctx.SampleCount != 5 || ctx.Quality == nil || ctx.Quality.CPUKnownCount != 4 || ctx.Quality.CPUUnknownCount != 1 {
 		t.Fatalf("global perf inventory/quality was lost: %+v", ctx)
 	}
-	if ctx.CohortCount != 2 || len(ctx.Cohorts) != 2 || len(ctx.TopSymbols) != 0 {
+	// Every typed thread retains its independent sampling denominator; CPU
+	// attribution assertions below still inspect every original sample.
+	if ctx.CohortCount != 5 || len(ctx.Cohorts) != 5 || len(ctx.TopSymbols) != 0 {
 		t.Fatalf("mixed cpu-clock/cpu-cycles context leaked a legacy weighted projection: %+v", ctx)
 	}
 	var cohortHotspots []PerfHotspot
