@@ -7146,3 +7146,76 @@ Go冻结于`dde0c59701bb`后，首轮`full-v1.jsonl`（58162）正式exit1：88�
 2026-10-12已普通推送四笔代码`8114a1cf0`/`4a2923bf8`/`535b1a602`/`9ffd2e8ce`，远端main由95391772d更新至9ffd2e8ce，无强推。51份真实工具载荷、出厂报告/data终态及43份验证日志/版本/两轮全仓/fixture哈希收据已复制到本批results目录并逐件核对原字节；六份问题/输入哈希均OK，失败证据未覆盖。机器与人工摘要随本批文档提交。
 
 最终口径仍79唯一ID=20完整交付+59开放、重复0，38待实施/15部分实施/2待验收/3验收中/1持续执行。本批完整能力新增0、已交付子能力2组（共同窗协议贯通；恢复稿及最终附件展示隔离），附带精确诊断补救。真实机器1/2、完整人工0/2保原FAIL，未命中恢复的live不冒称验收通过；原五稳定验收父项与本批失败交叉不相加。下一双轨为10.1已有元数据保真贯通和18.4命名原件跨路由交接；正常图接受旁路/无目标榜因果标签矛盾留16.4/12.5/18.4，未跑的只读登记/写模式与其它二进制分支不补签。
+
+## 228. 当前命名输入的跨路由交接与正常成文的因果资格（2026-10-12）
+
+### 228.1 起点、范围与参考设计
+
+起点`5661ddd49208`，main与origin/main同步、工作树干净。复算79唯一任务=20已交付+59开放，重复0；状态仍38待实施/15部分实施/2待验收/3验收中/1持续执行。按用户最新优先级，先闭合§227两个已证实系统接缝，不转向第三条能力线；实现与真实人工验收分别登记。
+
+- 命名原件：上批两真实可读SQLite在分类时已被发现，进入data执行后未进入候选名单；外部普通CSV也有同类风险。分类导航、实际准备、原生查询三阶段不可混成一个成功状态，未知检查不能登记为内容消费。
+- 因果展示：正常首次接受稿仍可借`root_cause_trace`族跳过可见边校验；无目标榜的背景记录在另一摘要中却写为primary/secondary cause。原始35ms请求、31ms完成闭合等待及真实唤醒已到场，不以“数据缺失”解释正常成文错误。
+
+本批再读参考仓`server.py:get_hitrace_path`（133起）、`compare_dual_trace`（1807起）、`config/skills/load_compare.yaml`与`core/llm_contract.py`（113–145）。设计意图分别是：保住每侧明确原件，独立准备后交确定性算子；引用必须落回被分析成员的真实字段。应用到本项目的是当前来源名单→结构化执行器交接→既有只读准备/查询，以及模型图与摘要共用现存关系/目标资格。参考仓扩展名白名单、触发词、跨芯片一概不可比以及正文数字扫描不照搬；候选格式不强改路由，既有事实不自动获得因果资格。
+
+退出范围：公共CLI/REPL入口、外部支持格式/未知材料/当前命名绑定负控；正常模型图的已证/未证关系、系统私有原生图保护；无目标/链外摘要与真实目标链内正控。两例仍用原自然问题，不往用户问题增加内部约束。业务实例目标自动补齐、任意数据计算与原生读取混编、设备/负载元数据及其它旧开放项不在本批冒称完成；新发现归原ID留账。原失败载荷不覆盖。
+
+### 228.2 泛化实现与公开反例
+
+`ccd71d640`统一根因证据摘要、完整工具文字与compact预览的显示资格：先有本board解析出的真实PID，再使用既有typed链归属；未解析名称、无目标及链外行保全部原值/排序但只作背景，相邻行只作支撑。显示资格不改变engine的旧ordinal兼容、typed rank、谓词或原生投影；IO复用现有`IOValueCaliber`及label，不由completion_closed猜成线程等待。公开查询含name-only→真实PID正控和未解析名称负控，证明另一查询曾出现PID不会跨board授目标权。业务窗口自动重查仍是独立剩余项。
+
+命名输入两入口共用当轮名单、内容reader导航和私有代次；planner的显式初始`needs_native_reader`委派不变问题给原只读管线，禁止与actions/script/continuation混用，不按扩展名强改route。普通外部CSV由既有执行器读取有界私有副本，不能只见名字却无法读取；目录、旁边同名文件、旧请求、JSON伪造及变代不获权。每次执行的选中集合独立，未使用的另一侧变化不污染健康侧；未知inspection不写ConsumedPaths。材料检查函数按完整职责迁出热文件，未抬行数门。公共CLI额外发现完全空目录、无runtime附件而仅在问题命名外部输入时仍被既有启动检查早退，留18.4/01.3；不是所有无可解析源码仓都失败，本批README/docs仓的live已进入。非空repo交接正控不能代签“空目录纯外部”能力。
+
+正常模型图去掉`root_cause_trace`家族免检，但不扩大图必需性。检查只读模型claim副本，私有系统图在实际答案中保留且不能给模型兄弟图借边。四种causal/frame/省略/legacy公开Emit均复现假箭头被直接接受的RED；真实两条唤醒关系、graph/flowchart/sequence/call-DAG同源正控仍可通过。另公开复现sequence缺锚被误报missing_call_anchor，造成真实wakeup修复候选不可用；现改为精确nativepair的missing_relation_anchor，使用已有opaque候选补元数据，不猜关系、不改图正文。原子依赖repair同样不按家族早退；独审复现private sibling被新lease误视为新增图，已限定扫描用副本、租约绑定完整文档。
+
+日志前缀`/tmp/codrax-hmc228-`全部保留。input-red-v1、root-display-red-v1、rank-preview-red-v1、diagram-red-v2与diagram-private-repair-red为实际产品反例；diagram-red-v1的缺principal口径、input-public-v2的API拼写编译错误为测试装配，不冒称产品RED。旧图家族免检pin改为模型负控+真实private正控，原图必需/支持两条断言保持；旧rank文字pin补真实board目标、不放宽原数值断言。最终相关/race、固定双例及全仓正式退出见后续收据，不以本节实现说明代签验收。
+
+### 228.3 冻结、相关验证与固定双例
+
+三笔实现为`ccd71d640`摘要资格、`ea4be7333`正常图关系核验、`a9c930d8e`命名输入交接。根因展示related-v4/race-v1分别两包PASS；图related-v6三包PASS（4.928/0.800/4.344s）、race-v3三包PASS（29.266/2.525/18.431s）；命名入口contract-v4三包PASS（cmd2.134/repl1.880/dataquery2.336s）、race-v2三包PASS（3.493/2.928/1.679s）。统一integration-quick-v2六包PASS，含身份/关系census、hot-file、L1、路由独立性及提示词内部术语；skill整包PASS。活跃流4ms部分帧/hidden reasoning/keepalive/tool-call保护及RequestBudget定向正式exit0，未修改超时/降级策略。
+
+独审补出的固定私有副本槽与repo文件碰撞导致读取失败（input-copy-red-v1），改为先复制普通输入、再创建独立临时槽；所有named含仓内绝对路径保同一公开身份映射。总字节恰好上限成功、少1byte失败及两种顺序/目录输入均保反例。abs路径原分支的正确脚本回放input-alias-red-v2正式失败于_safe_path，修后通过；alias-red-v1/contract-v2的Python括号错误为装配失败，不作产品凭证。图related-v5/race-v2只因测试固定索引误指自动补齐表，改为稳定ID比较完整私有块，生产边界不放宽。
+
+构建build-v1正式exit0，版本`a9c930d8efc7-dirty`、build=2026-10-12T08:12:02Z；dirty仅文档。2026-10-12 01:12:20（本机）固定两例在同一二进制快照各一次、并行2启动，结果根`eval/results/hmc_named_route_causal_20261012`；问题、oracle、三原件共7份哈希复核均不变。末版全仓同时冻结执行，期间不改Go；真实过程和全仓退出分别记录，不用机器成功或过程部分命中替代最终人工验收。
+
+### 228.4 两例真实结果与上下文审计
+
+固定runner正式exit0，机器2/2、完整人工0/2，分别121s/555s。两个独立只读审计与主审核对最终出厂稿、工具原件和oracle，详见[完整人工审计](../../eval/parallel_selected_summary_hmc_named_route_causal_20261012_manual_audit.md)。不追加第三例、改问句或用后续确定性补救倒签原FAIL。
+
+共同窗例确实命中data→needs_native_reader→首次分析保两原路径/共同窗→双侧真实准备→原生工具。两结果完整13+8行、7+4组，两侧各1条NULL时间独立披露；零/NULL/TEXT/BLOB/大整数及裁剪边界正确，最终状态2 available。Explorer初始上下文已经prepared，后续read_file×2与sqlite exec×8是多余绕路，不再记成准备缺口。最终主文把334200000.5和250000000.25写丢小数，gpu_state终点1.6写1.5，当前未知dur2条写1条，基线7组写6组；准确原生附表不抵消正文错误。
+
+该例唯一patch拒绝是模型使用未发布summary s1的add_facet_id；系统明确只用当前schema精确分支，否则replace_blocks，不误记为schema与教学冲突。但已存在完整原生成员表的member_set提示仍让模型重复填写，是共享展示高ROI改进点；复用当前成员/来源/范围，而非新增全文数值扫描。机器表runtime_authority=none不代表无原生查询，两个实际trace_query和当前准备凭证已独立核实。
+
+业务例仅event_search和wakeup_chain(pid100)，新targetless rank显示资格没有live命中。Finalizer上下文11739.log:2483–2484已有业务50ms内run5和worker40ms内run8，:2513–2514有35ms请求/31ms闭合等待及backup背景，:2414明确47跨单位activity index非墙钟。最终仍把宽窗7ms/84.6%写成业务窗，借wakee优先级给storage-irq、把53/ohos_rt称CFS，以低压力断言CPU完全空闲，把背景指数47写47ms/唯一请求；35/31虽没相加，结论仍用35ms主张响应根因和保证收益。不能将其统称事实没投递或已证明模型波动；业务实例范围与观察窗的主决策排序/复用仍留16.4。
+
+正常图首次不再家族免检，无证派发/自调用及错误reply操作符确实拒绝；私有Trace投影保80→200、200→100两个唤醒。模型最终图却只剩200→100及重复/孤立participant，完整图FAIL。13次拒绝/13次patch大部分对应准确的字段/关系/旧refs/越权替换拒绝；第12轮接受、第13轮额外facet patch失败后保原接受稿，不是恢复图泄漏。不能以烟测通过销12.5/18.4。
+
+### 228.5 全仓收据与同轨修补生命周期补救
+
+首轮full-v1.jsonl正式exit0：90测试包PASS、13无测试包、全量Action=fail空，tool544.344s。所有Go冻结于a9c930d8e后执行，无期间改码；2026-10-12三笔实现已普通推送，origin/main由5661ddd49更新a9c930d8e，无强推。78份工具载荷、6份真实准备产物、8份出厂产物、46份验证收据首批归档138件，全部逐件SHA-256核对；首轮公开RED/装配FAIL及真实拒稿均保留。
+
+收尾独审发现通用anchor所有权误删：验证器允许一个精确typed关系支持同pair多个可见语句，局部remove却无条件删匹配anchor。实际11739.log:3124只剩错误reply，:3317仅删除该失败ref，:3324合法forward立即变missing_call_anchor。该问题归本批正常图修补轨，不另开第三能力线；真实TraceQuery→Emit→schema发布失败ref→Patch公开RED在普通/私有sibling两形均正式失败（shared-anchor-red-v1），旧ref原子回滚正控通过。修复只保仍被当前精确关系使用的证据，不按标签猜关系或简单为所有同pair保权；末版实现/测试收据见后续记录。
+
+另确认原participant coverage两个入口仍按root_cause_trace整族早退（answer_document_diagram_participant_coverage.go:917/4078），本次三中文角色均incident_required但未执行。retain_as_context没有授incident覆盖权，问题是旧覆盖门未运行，留12.5/18.4，不将本批所有修图失败都归此。下一双轨为10.1设备/负载元数据贯通与12.5/16.4/18.4精确声明覆盖/原生事实复用；空目录命名输入、运行中混编、只读登记/写模式及其它二进制分支继续挂原ID。
+
+### 228.6 下一能力轨的参考意图及最窄退出范围（只读设计，未实施）
+
+再次对照参考load_compare.yaml:64与core/chip_identify.py:40：每侧独立准备并披露设备上下文有价值，但频率匹配配置不是设备身份见证，不移植0.8阈值可比性硬门或mtime-only缓存。当前raw_perfdata.go:247/1250已读Hostname/CPUDesc/CPUID/WorkloadCmd却只拼caveats；其:1322遇非法字符串长度钳到剩余字节，因此后继不能将“非空”直接升严格见证，要保observed/missing/invalid/truncated。streamerdb_metadata.go:33的device_info只有屏幕三整数，:95的meta仅有界原始诊断，均不能按任意键名猜芯片或业务场景。
+
+最小方案：直接从converter结构结果保一次typed字段，在traceinput/prepare.go:184–294既有事务绑定TraceMaterial不可变副本，复用原件/派生/WAL代次校验；single/pair用同一投影替换状态表恒定未知，不反解析caveats、不另造准备账本。查询失败可保真实准备诊断，来源过期必须清除；尤其无publication提前返回不能绕过生命周期。Hostname不当唯一设备ID、CPU描述不当整机型号、命令行不当业务场景对齐，采集级字段不授窗口/可比性/因果。
+
+10.1退出矩阵仍为真实输入→准备→single/pair→展示：有/缺/非法/截断字段、两种健康坏侧顺序、失败/未查、无窗/共同/独立窗、当前别名与换源/WAL/fork/reset/JSON负控。完成后按原取数范围销10.1；差值/场景对齐属后续比较任务，正文与图人工FAIL留原验收项，不无限扩该父项。该只读设计用于下批减少重复摸索，本批没有启动第三实现线或额外评测。
+
+### 228.7 同轨末版补救与交付边界
+
+`8c74418f4`仅修改图局部修补执行器和公开回归：同pair只有一个完整显式身份/关系锚点时，删除失败语句会保留仍被其它语句使用的锚点；最后一条移除后正常退休。多锚点、不同身份/关系仍走原有精确归属，不按标签推断。替换操作在整批编译后、暂存重试稿前核对未选中兄弟语句的所有权，禁止把它仍需的依据迁给别的端点；同端点操作符/标签修正以及“删其余语句再替换最后一条”的整体退休仍可通过。私有投影、旧lease、attach限制和原子回滚保持，无新模型字段或关键词门。
+
+公开真实TraceQuery→Emit→已发布failure ref→Patch的删除RED为`shared-anchor-red-v1.log`，普通/私有兄弟图均命中；替换迁权并保存错误重试底稿的RED为`shared-anchor-replace-red-v2.log`。replace-red-v1遗漏执行态lease、green-v2/v3错误期待同一元组发布两个failure ref，属于测试装配/预期错误，原件保留且不冒称产品RED；生产没有为测试放宽lease或schema。末版green-v4正式exit0，相关related-v1为tool59.666s/types3.363s/orchestrator4.356s通过（agent该筛选无匹配测试，不计覆盖），race-v1为tool12.606s/types3.929s通过；独立只读复核放行，diff-check干净。
+
+边界留案：旧执行器尚不保证任意多条共享锚点语句可在一次多replace中整体迁移；首项迁走锚点后后项可能找不到旧锚点。上述已验证的删除其余项再替换末项路径不能代签任意批量迁移能力，留12.5原ID。补救发生在两例live之后，不改签机器2/2、完整人工0/2，也不宣称新补丁已真实回放验收。
+
+Go与测试冻结于`8c74418f4a9c`后，统一末版`go test -json -count=1 -timeout=20m -p 4 ./internal/tool ./internal/agent ./internal/types ./...`（4027，full-v2.jsonl）正式exit0：90测试包PASS、13无测试包，全量Action=fail为空，tool548.895s；运行期间Go/build输入无变化。build-v2（94099）正式exit0，独立version核验revision=`8c74418f4a9c-dirty`、build=2026-10-12T08:44:55Z，dirty仅文档和评测摘要。末版补丁已普通推送（63285），origin/main从a9c930d8e到8c74418f4；本批四筆实现分别提交，无force。
+
+最终原件与副本重新核验151份有效证据：78工具载荷、6准备产物、8出厂产物、59验证收据，另保最终哈希索引。首批138文件中有一份被自身glob纳入的空索引占位，原样保留但从证据数剔除；源索引随后生成造成的唯一哈希差异不是测试/失败原件变化。末版索引明确排除自身且逐件源/副本SHA-256一致，7份题目/oracle/输入再次核验不变。完整失败、装配失败、真实拒稿和原live结果均未覆盖；目录为本批results下既有四个归档子目录，不提交机器大文件或嵌套eval仓。
+
+终态独立复算仍79唯一ID=20完整交付+59开放、重复0，38待实施/15部分实施/2待验收/3验收中/1持续执行。本批完整能力新增0，交付两组子能力及同轨共享锚点补救。当前两例人工FAIL与原五稳定验收父项交叉记账，不增重复任务、不误销账；下一双轨按§228.6及§228.5执行，未跑分支不补签。

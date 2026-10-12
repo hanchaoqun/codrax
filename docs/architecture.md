@@ -1172,6 +1172,10 @@ HMC §224在`runtime_artifact_scope_profile`增加可选`comparison:{baseline:{p
 
 **恢复图的展示资格（HMC §227）**：重试稿、文本JSON恢复与原文降级统一经`IsolateRecoveredAnswerDiagrams`。逐图按未改动的同稿快照、当前证据及既有关系/参与者/边界校验复核；未检查或失败的模型图转明确范围说明，不剪边伪装通过，不让无typed owner的附件或正文Markdown图绕过。普通序列回复复用原有结构回复规则；其它图或表失败不抹掉局部已证关系。正文围栏只按Markdown载体识别，不扫语义关键词；受信私有系统图及随后物化的原生事实/Trace因果投影保留。隔离后的无损JSON不进入accepted载体，原失败稿原样留证；正常accepted结构正文及L7/L8不变。附件还须在最终last-mile与后置首稿引用出口隔离，不能因后来接受的正文不含图、或恢复稿无accepted载体而复活旧图；附件标题与正文共享载体校验，Source字符串不授关系权限。
 
+**正常Trace图的事实资格（HMC §228）**：`root_cause_trace`族不是模型自画箭头的免检凭据。正常emit、post-check、恢复与原子元数据修复共用关系校验；私有`SystemGeneratedKind`生产者块只从模型claim检查副本排除，实际展示不删除，也不能给模型兄弟块借身份或边。原来的图支持/必需性判定不扩大，不强制无关系证据的问题生成图。唯一原生端点对的缺锚诊断保持关系未定，不能仅因sequence语法误判为源码调用；已有精确候选仍可通过opaque凭证只补元数据，图正文不变。
+
+**局部修图的共享证据寿命（HMC §228）**：一个完整显式身份/关系anchor可支撑同一可见端点对的重复呈现；删除某个失败语句时，唯一anchor若仍为其它语句所用则保留，最后语句删除才退休。不同身份/关系或多个anchor仍按原精确occurrence处理，metadata/stale删除语义不变。替换的最终原子结果不能迁走未选中兄弟语句的共享owner，违规在stage前整体回滚；全批已选择的旧owner可正常退休，同tuple同pair改符号/标签不受影响。只看typed身份和已解析语句，不扫业务标签/问答关键词，不扩大关系权威。
+
 Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚举以 `internal/types/diagram_relation.go::AllDiagramRelationKinds` 为准，包括调用、回调交接、注册、回复、时序、类型关系等不同语义。它们不能互相冒充；命名相似、展示标签或消息参数不产生身份与关系证据。调用链的 principal claim-form 清单由 `CallChainPrincipalClaimForms` 统一提供给编译器和发射校验，避免某语言或某关系只更新一侧。
 
 **DiagramEdgeAnchor**（`AnswerBlock.EdgeAnchors[]`）把模型选择的可见端点与 typed 关系证据绑定。发射阶段依据当前 schema/candidate 发布的端点身份、relation_kind 和凭证校验；展示别名必须能唯一对应证据身份。用户未请求图时不能仅因 call-chain 家族强制新增图；断开的证据段应保留断开，不由系统补桥。旧 `claim_form` 兼容元数据不是要求模型为同一关系重复填写的第二份判定依据，具体可写字段以当轮工具 schema 为准。
@@ -1512,6 +1516,8 @@ HiSys观察的可选`source_rowid`以精确signed-int64字符串保原物理行�
 > perf_triage 是**前置轻量分诊**（§7.2）；`trace_query`（`internal/tracequery/` ~22000 行 + `internal/tool/trace_query.go` 工具外壳）是 explore 阶段 explorer agent 在**调查期**用的确定性查询引擎，承载大体量 ftrace/systrace/hitrace 的分层丢帧根因分析。完整方法论、逐条满足度和历次修复见 `docs/design/trace_layered_root_cause_methodology_audit_20260701.md`；此处只给纲要，避免新人重复发明或无意破坏。
 
 **设计定位**：trace_query 不是"返回原始数据、全靠 LLM 分层推理"的工具——"哪个状态优先看 / 要不要递归 / 用哪个 view"这些决策以确定性 Go 代码算好，通过 typed 结构（`StateDrilldownStep` / `RootCauseRankItem.Tier` / `TraceCausalProjection`）+ 可被 `observation_ledger.go` 回解析的文本行喂给 LLM 和下游 finalizer。这与 §1 "精确信号做硬门、噪声信号做软引导"红线一致：状态排序/tier 是精确计算，推荐 view / significant 标记是软引导。
+
+**排序与根因显示资格分离（HMC §228）**：`RootCauseRankDisplayChannel`为证据摘要、完整工具文字和compact预览提供同一显示分级，须本board目标已解析为PID且行具现有typed链资格才称cause；无目标/未解析名称/链外行保原排序与量测但仅作背景，相邻行仅作支撑。旧ordinal分配、JSON rank及投影不重写；本board目标/窗也不证明它等于用户业务完整范围。IO文字复用现有`IOValueCaliber`，请求驻留和完成闭合的线程等待不因completion标记混成同一数值。
 
 **背景排序与状态测量分离（B1717）**：引擎对链外背景项使用的窗口比例封顶只用于排序，不能称为实测等待。对显式 `background` 且具有正值、有限原生状态账本的纯状态行，工具在公开副本统一以对应 Running/Runnable/Sleep/D/IO 分量发布 `ImpactMs/ProjectedImpactMs`，使 JSON、观测值、notes 与投影同源；组合 D/IO 只合并该生产者已分割的互斥分量。原引擎对象、Score、排名及链上量不改，该公开副本有效归因仍为零，不因此获得根因资格。不从累计量、时间包络、dominant state 或文字猜测状态测量；缺测、未知/复合/语义/设备类及旧未归因行保留原发布行为，未宣称这些旧车道的口径问题全部解决。
 
@@ -3009,6 +3015,12 @@ codrax trace convert --input capture.sys \
 从未经过 planner 门的计划（deferred 余量、确定性 fallback、resume）在准入与派发前由 `dataworkflow.ActionOutputContractGuardResult(plan)`（`output_contract_admission.go`，接线在 `dataTaskWorkflowActionStagingGuardResult`）用**同一个** executor normalizer 在携带后的契约下判定；只有契约相关的拒绝（`DataActionParamError.OutputFormat` 非空——投影×格式、仅 json_only 存在的 output_field 缺省）升为 typed guard `action_output_contract_drift`（`RepairNeedsTypedAction`，走既有 repair/fallback 恢复车道；violation 保持 executor 自身的 `action_param_violation` 定位，不向 prompt 引入新 typed 值），契约无关的参数缺陷保持原车道；`ActionRunner.Run` 的 `applyDataActionParamContract` 仍是 fail-closed 后盾。census：`internal/repl/data_task_output_contract_census_test.go`（写者闭集允许表 / 门基线数据流 / 循环绑定 / 准入接线，未识别形一律红，逐形自红）。
 
 ---
+
+### 13.10 当前命名材料的跨路由交接（HMC §228）
+
+CLI/REPL数据入口共同调用`discoverCurrentDataInputs`：当前问题明确命名的原件优先进入有界候选表，原生reader探查仅提供导航，不按格式强制路由、不宣称准备或消费成功。初始planner可显式选择`status=needs_native_reader`，只携带当前命名的精确文件，不可混actions/script/continuation；入口以私有typed交接将不变问题送入既有只读分析/准备/原生工具链，清除过期data操作提示，保留展示及源码策略。写/操作权限不随此交接扩大，不生成黏性附件；后继数据批次尚不支持此委派。
+
+普通外部数据仍走原data执行器：`NamedInputs`私有当前文件代次不经JSON复活，不授权父目录或同名其它文件；每次执行独立记录实际选择的原件并前后复验，不因未使用的另一侧改变而拒绝健康侧。Python只打开有界私有副本，结果保留原件名称；未知材料、仅reader可用或未检查候选不计内容消费。探查样本的读取也不等同于完整计算/全覆盖证明，仍须通过既有工作流证据验收。
 
 ## 14. 配置
 
