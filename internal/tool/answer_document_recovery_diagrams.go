@@ -137,9 +137,6 @@ func recoveredDiagramChecked(ctx *types.BusContext, original *types.AnswerDocume
 		return false
 	}
 	if len(owned) == 0 {
-		if view.Family == types.QFRootCauseTrace && !types.RuntimeRelationDiagramUsesNativeAuthority(&ctx.AnalysisIR.RequestModel) {
-			return false
-		}
 		// Ordinary optional diagrams may intentionally bypass source authority
 		// during normal emit. In recovery that is not a positive proof receipt.
 		edges := mermaidcompat.ParseEdges(block.Diagram.Body)

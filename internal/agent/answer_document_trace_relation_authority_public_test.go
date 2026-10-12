@@ -124,8 +124,15 @@ func TestTraceRelationDiagramPublicCausalAuthorityRemainsSeparate(t *testing.T) 
 			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "graph", Kind: types.BlockDiagram,
 				Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Body: "sequenceDiagram\n participant A\n participant B\n A->>B: observation"},
 			}}}
-			if tool.RequiredRuntimeDiagramRelationMissing(bus, doc, view) || len(tool.DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(bus, doc, view, nil)) != 0 {
-				t.Fatal("native relation gate must not replace genuine causal/frame projection qualification")
+			if tool.RequiredRuntimeDiagramRelationMissing(bus, doc, view) {
+				t.Fatal("model relation validation must not require a graph in causal/frame projection mode")
+			}
+			if len(tool.DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(bus, doc, view, nil)) == 0 {
+				t.Fatal("causal/frame family alone must not authorize an arbitrary model relation")
+			}
+			doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedRuntimeTrace
+			if got := tool.DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(bus, doc, view, nil); len(got) != 0 {
+				t.Fatalf("private causal projection retains its independent authority: %+v", got)
 			}
 		})
 	}

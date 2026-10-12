@@ -750,10 +750,11 @@ func TestDiagramCallEdgeEvidenceMismatches_SequencePrecedenceCannotUseReplyOpera
 
 func TestDiagramCallEdgeEvidenceMismatches_RuntimeTraceKeepsIndependentDiagramAuthority(t *testing.T) {
 	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedRuntimeTrace
 	doc.Blocks[0].Diagram.Body = strings.Replace(doc.Blocks[0].Diagram.Body, "A->>B", "A-->>B", 1)
 	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFRootCauseTrace}, nil)
 	if len(got) != 0 {
-		t.Fatalf("runtime trace causal diagrams must stay outside source sequence contracts: %+v", got)
+		t.Fatalf("private trace projections must stay outside model sequence contracts: %+v", got)
 	}
 }
 
@@ -1908,6 +1909,7 @@ func TestDiagramCallEdgeEvidenceMismatches_SiblingCarrierCannotOwnReusedAliasesA
 func TestDiagramCallEdgeEvidenceMismatches_RuntimeTraceFlowStaysOnRuntimeAuthority(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "trace", Kind: types.BlockDiagram,
+		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace,
 		Diagram: &types.AnswerDiagramBlock{
 			Kind: types.DiagramFlow, Language: "mermaid",
 			Body: "flowchart TD\n  Frame --> Wakeup\n",
@@ -3592,19 +3594,17 @@ func TestDiagramCallEdgeEvidenceMismatches_CanonicalNodeKeepsRawEvidenceAnchor(t
 func TestDiagramCallEdgeEvidenceMismatches_DoesNotGateTraceProjectionFamily(t *testing.T) {
 	view := &types.AnswerSemanticView{Family: types.QFRootCauseTrace}
 	doc := diagramEvidenceTestDoc("B", "A")
+	doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedRuntimeTrace
 	doc.Blocks[0].Diagram.Body = "sequenceDiagram\n  participant A as \"`Alpha.Run`\"\n  participant B as \"`Beta.Run`\"\n  B->>A: invoke\n"
 	got := DiagramCallEdgeEvidenceMismatches(doc, view,
 		[]types.EvidenceItem{diagramEvidenceTestCall("Alpha.Run", "Beta.Run")})
 	if len(got) != 0 {
-		t.Fatalf("runtime/root-cause trace diagrams must stay outside source call-edge authority: %+v", got)
+		t.Fatalf("private trace projection must stay outside model call-edge authority: %+v", got)
 	}
 }
 
 func TestDiagramCallEdgeEvidenceMismatches_ExplicitCallAuthorityIsFamilyIndependent(t *testing.T) {
 	for _, family := range types.AllQuestionFamilies() {
-		if family == types.QFRootCauseTrace {
-			continue
-		}
 		t.Run(string(family), func(t *testing.T) {
 			doc := diagramEvidenceTestDoc("A", "B")
 			got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: family}, nil)

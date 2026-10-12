@@ -88,9 +88,9 @@ const (
 // out of this hard gate also ensures that a system-authored copy-ready diagram
 // capsule is accepted unchanged by the same validator.
 //
-// Genuine runtime causal projections and their automatic supplements use a
-// separate authority. Precisely typed non-frame relation questions use native
-// instance receipts here even when their legacy family is root_cause_trace.
+// Private runtime causal projections and automatic supplements use a separate
+// authority. Model-authored trace diagrams use the same exact source/native
+// instance receipts as other factual diagrams; family membership is not proof.
 func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem, stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation) []DiagramCallEdgeEvidenceMismatch {
 	var stagePrecedence []stageauthority.PrecedenceRelation
 	if len(stagePrecedenceOpt) > 0 {
@@ -113,9 +113,10 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 	runtimeRelationsOpt ...[]RuntimeDiagramRelation,
 ) []DiagramCallEdgeEvidenceMismatch {
 	nativeRuntimeRelations := types.RuntimeRelationDiagramUsesNativeAuthority(rm)
-	if doc == nil || view == nil || (view.Family == types.QFRootCauseTrace && !nativeRuntimeRelations) {
+	if doc == nil || view == nil {
 		return nil
 	}
+	doc = diagramModelAuthoredRelationDocument(doc)
 	var runtimeRelations []RuntimeDiagramRelation
 	if len(runtimeRelationsOpt) > 0 {
 		runtimeRelations = runtimeRelationsOpt[0]
@@ -132,8 +133,10 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 	// diagrams retain the legacy presentation-only lane. An explicit runtime
 	// relation question owns visible arrows independently of legacy family or
 	// predicate-axis labels; native receipts prove only their recorded relation.
-	// Genuine causal projections retain their independent authority above.
-	strictSourceRelationBody := nativeRuntimeRelations || strictSourceCallChain || types.PredicateAxisRequiresDiagramEdgeOwnership(view.RelationAxis)
+	// The root-cause family likewise cannot authorize arbitrary model arrows.
+	// This does not require a graph or an edge; it checks facts the model chose
+	// to draw. Private producer projections were excluded from this read view.
+	strictSourceRelationBody := view.Family == types.QFRootCauseTrace || nativeRuntimeRelations || strictSourceCallChain || types.PredicateAxisRequiresDiagramEdgeOwnership(view.RelationAxis)
 	// Identity ambiguity is diagnosed before edge authority. Otherwise the
 	// same typed endpoint declared under multiple aliases can turn every valid
 	// edge into a misleading missing-anchor report and send the model through
@@ -159,8 +162,8 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 			// explaining source relations; DiagramCallDAG is independently a
 			// precise source-call declaration in every non-runtime family. Every
 			// body edge in either lane needs one schema-validated relation owner.
-			// Runtime trace diagrams were excluded above and retain their own
-			// authority.
+			// Private producer diagrams were excluded above; model runtime
+			// arrows retain exact instance-relation evidence requirements.
 			strictBodyCoverage = diagramRequiresTypedBodyOwnership(block.Diagram.Kind, strictSourceRelationBody)
 		}
 		parsedEdges := documentEdges
@@ -176,8 +179,7 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 		// check independent from strict family coverage so an ordinary sequence
 		// diagram cannot escape it merely by being classified QFGeneric. An
 		// explicit return owner and an unanchored structural reverse reply remain
-		// legal. Runtime trace diagrams returned above retain their separate
-		// causal authority.
+		// legal. Private producer diagrams retain their separate causal authority.
 		if block.Diagram != nil && block.Diagram.Kind == types.DiagramSequence {
 			operatorPairOccurrence := make(map[string]int)
 			for _, edge := range parsedEdges {
@@ -282,11 +284,15 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 					if identity := runtimeDiagramEndpointIdentity(runtimeRelations, edge.To, edge.To); identity != edge.To {
 						toSymbol = identity
 					}
-					if from, to, ok := runtimeDiagramPairIdentities(runtimeRelations, edge.From, edge.To); ok {
+					from, to, nativePair := runtimeDiagramPairIdentities(runtimeRelations, edge.From, edge.To)
+					if nativePair {
 						fromSymbol, toSymbol = from, to
 					}
 					issue := diagramCallEdgeIssueMissingRelationAnchor
-					if block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG {
+					// An exact native pair does not become a source call merely
+					// because it uses sequence syntax. Keep the missing owner
+					// untyped so its existing producer candidate can be attached.
+					if (!nativePair || hasTypedCallEvidence) && (block.Diagram.Kind == types.DiagramSequence || block.Diagram.Kind == types.DiagramCallDAG) {
 						issue = diagramCallEdgeIssueMissingAnchor
 						if hasTypedCallEvidence {
 							issue = diagramCallEdgeIssueMissingGroundedAnchor

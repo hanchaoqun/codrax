@@ -15,9 +15,11 @@ func atomicDiagramPostEditDependencyHint() string {
 // local removals. It reuses the ordinary typed mismatch detector on affected
 // blocks; it does not inventory disconnected declarations across the answer.
 func atomicDiagramPostEditMetadataDependencies(previous, staged *types.AnswerDocumentV2, source *types.AnswerDiagramRelationRepairLease, view *types.AnswerSemanticView, edits []emitAnswerDiagramEdgeEdit) []types.AnswerDiagramRelationRepairFailure {
-	if previous == nil || staged == nil || source == nil || len(edits) == 0 || (view != nil && view.Family == types.QFRootCauseTrace) {
+	if previous == nil || staged == nil || source == nil || len(edits) == 0 {
 		return nil
 	}
+	previous = diagramModelAuthoredRelationDocument(previous)
+	staged = diagramModelAuthoredRelationDocument(staged)
 	beforeIndexes, beforeUnique := atomicDiagramUniqueBlockIndexes(previous)
 	_, afterUnique := atomicDiagramUniqueBlockIndexes(staged)
 	selectedPairs := make(map[string]bool)

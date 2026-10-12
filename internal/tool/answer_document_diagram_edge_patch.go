@@ -225,9 +225,12 @@ func newAtomicDiagramPostEditDependencyLease(
 	view *types.AnswerSemanticView,
 	selectedEdits ...[]emitAnswerDiagramEdgeEdit,
 ) *types.AnswerDiagramRelationRepairLease {
-	if previous == nil || staged == nil || (view != nil && view.Family == types.QFRootCauseTrace) {
+	if previous == nil || staged == nil {
 		return nil
 	}
+	previousBase, stagedBase := previous, staged
+	previous = diagramModelAuthoredRelationDocument(previous)
+	staged = diagramModelAuthoredRelationDocument(staged)
 	previousIndex, previousUnique := atomicDiagramUniqueBlockIndexes(previous)
 	stagedIndex, stagedUnique := atomicDiagramUniqueBlockIndexes(staged)
 	previousEdgeBlockCounts := diagramEvidenceBodyEdgeBlockCounts(previous)
@@ -301,12 +304,14 @@ func newAtomicDiagramPostEditDependencyLease(
 	if len(failures) == 0 {
 		return nil
 	}
-	lease := types.NewAnswerDiagramRelationRepairLease(staged, failures, nil)
+	// Only the diagnostic view excludes private producers. The next lease
+	// still owns the complete immutable document generation and its carriers.
+	lease := types.NewAnswerDiagramRelationRepairLease(stagedBase, failures, nil)
 	if lease == nil {
 		return nil
 	}
-	lease.OptionalOrphanCleanups = atomicDiagramCarryPostEditOrphanCandidates(staged, source, lease)
-	lease.OptionalOrphanCleanups = append(lease.OptionalOrphanCleanups, atomicDiagramCarryMetadataOrphanCandidates(previous, staged, source, lease, edits)...)
+	lease.OptionalOrphanCleanups = atomicDiagramCarryPostEditOrphanCandidates(stagedBase, source, lease)
+	lease.OptionalOrphanCleanups = append(lease.OptionalOrphanCleanups, atomicDiagramCarryMetadataOrphanCandidates(previousBase, stagedBase, source, lease, edits)...)
 	return lease
 }
 

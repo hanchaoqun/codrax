@@ -725,8 +725,13 @@ func TestAtomicDiagramPostEditDependencyLease_SequenceReplyUsesExactLIFOPairing(
 	trace := newAtomicDiagramPostEditDependencyLease(
 		previous, staged, nil, &types.AnswerSemanticView{Family: types.QFRootCauseTrace},
 	)
-	if trace != nil {
-		t.Fatalf("Trace diagrams use their independent causal authority: %+v", trace)
+	if trace == nil || len(trace.Failures) != 2 {
+		t.Fatalf("model-authored Trace replies retain the same exact dependencies: %+v", trace)
+	}
+	previous.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedRuntimeTrace
+	staged.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedRuntimeTrace
+	if native := newAtomicDiagramPostEditDependencyLease(previous, staged, nil, &types.AnswerSemanticView{Family: types.QFRootCauseTrace}); native != nil {
+		t.Fatalf("private Trace projections keep their independent causal authority: %+v", native)
 	}
 }
 
