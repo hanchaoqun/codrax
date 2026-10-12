@@ -16,3 +16,20 @@ func TestB1626AnalysisSkillExplainsMemberWindowsWithoutEnvelopeAuthority(t *test
 		}
 	}
 }
+
+func TestHMC225ScopeTeachingHasOneSourceShapeDecision(t *testing.T) {
+	contract := BuildAnalysisSkill().OutputFormat
+	if !strings.Contains(contract, AnalysisRuntimeArtifactScopeTeaching) || strings.Count(contract, AnalysisRuntimeComparisonTeaching) != 1 {
+		t.Fatal("analyzer scope branches are missing or duplicated")
+	}
+	for _, want := range []string{"Without comparison", "single-capture", "within that same capture"} {
+		if !strings.Contains(AnalysisRuntimeWindowMembersTeaching, want) {
+			t.Errorf("pooled windows lack single-source qualification %q", want)
+		}
+	}
+	for _, want := range []string{"otherwise unspecified", "source_quote outside comparison", "Preserve valid comparison members"} {
+		if !strings.Contains(AnalysisRuntimeComparisonTeaching, want) {
+			t.Errorf("comparison teaching lost range/identity separation %q", want)
+		}
+	}
+}

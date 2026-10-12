@@ -6,7 +6,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -14,12 +13,12 @@ func runtimeArtifactComparisonSchema() map[string]any {
 	side := map[string]any{"type": "object", "additionalProperties": false, "required": []string{"path", "source_quote"}, "dependentRequired": map[string]any{"time_start": []string{"time_end"}, "time_end": []string{"time_start"}}, "properties": map[string]any{
 		"path": map[string]any{"type": "string"}, "time_start": map[string]any{"type": "number", "minimum": 0}, "time_end": map[string]any{"type": "number", "minimum": 0}, "source_quote": map[string]any{"type": "string"},
 	}}
-	return map[string]any{"type": "object", "additionalProperties": false, "required": []string{"baseline", "current"}, "properties": map[string]any{"baseline": side, "current": side}, "description": skill.AnalysisRuntimeComparisonTeaching}
+	return map[string]any{"type": "object", "additionalProperties": false, "required": []string{"baseline", "current"}, "properties": map[string]any{"baseline": side, "current": side}, "description": "Independent source-owned baseline/current inputs. Each member carries its original path, local source_quote and optional paired time_start/time_end. Follow the containing runtime_artifact_scope_profile range and source-identity rules."}
 }
 
 func parseRuntimeArtifactComparisonScope(raw string, p *emitRuntimeArtifactScopeProfileParam) (*types.RuntimeArtifactScopeProfile, string, []string) {
 	fail := func(reason string) (*types.RuntimeArtifactScopeProfile, string, []string) {
-		return nil, "runtime_artifact_scope_profile.comparison: " + reason, nil
+		return nil, "runtime_artifact_scope_profile.comparison: " + reason + ". Re-emit the complete object, correcting the named invalid fields while preserving valid comparison members and unrelated decisions; do not drop the independent source binding to bypass this error.", nil
 	}
 	if p.TimeWindows != nil || p.TimeStart != nil || p.TimeEnd != nil {
 		return fail("use only source-owned comparison members, not pooled time_windows/scalar endpoints")
@@ -58,7 +57,11 @@ func parseRuntimeArtifactComparisonScope(raw string, p *emitRuntimeArtifactScope
 		quote = ""
 	}
 	if scope == types.RuntimeArtifactScopeFullArtifact && quote == "" {
-		return fail("full_artifact needs its own verbatim source_quote; omitted time endpoints alone mean unspecified, not a request to enumerate the whole capture")
+		// Source identity and whole-artifact range are independent authorities.
+		// The local quotes above remain valid when only the outer range quote is
+		// missing; match ordinary scope normalization without dropping either input.
+		scope = types.RuntimeArtifactScopeUnspecified
+		warnings = append(warnings, "runtime_artifact_scope_profile.source_quote is missing or not verbatim in the current request: normalized requested_scope from full_artifact to unspecified; preserved validated comparison.baseline/current. No whole-artifact completeness or numeric-window authority is granted.")
 	}
 	return &types.RuntimeArtifactScopeProfile{RequestedScope: scope, Comparison: pair, SourceQuote: quote,
 		TimeWindows: windows, Confidence: *p.Confidence, Rationale: strings.TrimSpace(p.Rationale)}, "", warnings

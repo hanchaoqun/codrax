@@ -731,14 +731,14 @@ func buildEmitAnalysisSchema() {
 			},
 			"runtime_artifact_scope_profile": map[string]any{
 				"type":        "object",
-				"description": "Required user-scope authority for runtime artifacts. This is NOT a trace_query/exploration window. " + skill.AnalysisRuntimeIntentAvailabilityTeaching + " For an attached or referenced artifact, use full_artifact when the current request asks about the supplied artifact without a narrower user boundary (for example 'this trace' / '这份 trace'); use explicit_time_window only when the current request itself states exact trace time bounds; use bounded_selector when the current request names a narrower artifact selector such as a frame/span/event but does not state exact time bounds; use unspecified when the current request's artifact scope cannot be determined. For bounded_selector, omit time_start, time_end and time_windows; stray coordinates are ignored and never promote the selector to an explicit time window. A model-chosen query window never changes this field. " + skill.AnalysisRuntimeWindowMembersTeaching,
+				"description": "Required user-scope authority for runtime artifacts. " + skill.AnalysisRuntimeArtifactScopeTeaching,
 				"properties": map[string]any{
 					"requested_scope": map[string]any{"type": "string", "enum": runtimeArtifactRequestedScopeValues(), "description": "not_applicable, full_artifact, explicit_time_window, bounded_selector, or unspecified."},
 					"time_start":      map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace start in seconds for the legacy single-window form; do not combine with time_windows."},
 					"time_end":        map[string]any{"type": "number", "minimum": 0.0, "description": "Exact user-stated trace end in seconds for the legacy single-window form; greater than time_start and not combined with time_windows."},
 					"time_windows": map[string]any{
 						"type": "array", "minItems": 1,
-						"description": "All explicit requested windows in request order; never an envelope. Each member needs finite ordered endpoints and a verbatim current-request source_quote.",
+						"description": "Without comparison, all explicit requested windows within one capture in request order; never an envelope. Each member needs finite ordered endpoints and a verbatim current-request source_quote.",
 						"items": map[string]any{
 							"type": "object", "additionalProperties": false,
 							"properties": map[string]any{

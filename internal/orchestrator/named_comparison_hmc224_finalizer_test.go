@@ -84,7 +84,7 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 			}
 			scope.Confidence = 1
 			expectedRows := 8
-			if len(scopeMode) > 0 && (scopeMode[0] == "unbounded" || scopeMode[0] == "mixed") {
+			if len(scopeMode) > 0 && (scopeMode[0] == "unbounded" || scopeMode[0] == "mixed" || scopeMode[0] == "full_unanchored") {
 				failedWindow := scope.Comparison.Sides()[failedIndex].RuntimeArtifactTimeWindow
 				scope.RequestedScope, scope.TimeWindows = types.RuntimeArtifactScopeUnspecified, nil
 				scope.Comparison.Baseline.RuntimeArtifactTimeWindow = types.RuntimeArtifactTimeWindow{SourceQuote: fmt.Sprintf("`%s`", paths[0])}
@@ -97,6 +97,9 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 					} else {
 						scope.Comparison.Current.RuntimeArtifactTimeWindow = failedWindow
 					}
+				}
+				if scopeMode[0] == "full_unanchored" {
+					scope.RequestedScope = types.RuntimeArtifactScopeFullArtifact
 				}
 				expectedRows = 9
 			}
@@ -152,6 +155,9 @@ func hmc224PartialComparisonFinalizer(t *testing.T, policy string, singles bool,
 					}
 					if policy != "exclude" {
 						ir.RequestModel = hmc224EmitNaturalComparison(t, o.busCtx, request, scope, policy)
+						if len(scopeMode) > 0 && scopeMode[0] == "full_unanchored" && (ir.RequestModel.RuntimeArtifactScopeProfile.RequestedScope != types.RuntimeArtifactScopeUnspecified || ir.RequestModel.RuntimeArtifactScopeProfile.SourceQuote != "") {
+							t.Fatal("unanchored full-artifact scope survived public normalization")
+						}
 					}
 					serialized, _ := json.Marshal(ir.RequestModel.ExternalObservationPolicy)
 					policyBefore = string(serialized)
