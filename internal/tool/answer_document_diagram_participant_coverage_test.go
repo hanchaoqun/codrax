@@ -3155,12 +3155,16 @@ func TestDiagramParticipantCoverageBoundaryMustBeUniqueAndVisibleInItsOwnBlock(t
 	}
 }
 
-func TestDiagramParticipantCoverageDoesNotEnterRootCauseTrace(t *testing.T) {
+func TestDiagramParticipantCoverageRootCauseModelClaimsKeepPrivateProjectionSeparate(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	rm.Intent = types.IntentRootCause
 	rm.Scenario = types.ScenarioRootCause
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 1 || got[0].Participant != "MutableState" {
+		t.Fatalf("explicit model participants keep the same coverage contract in causal answers: %+v", got)
+	}
+	doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedRuntimeTrace
 	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
-		t.Fatalf("Trace diagrams keep independent causal authority: %+v", got)
+		t.Fatalf("private Trace projection keeps independent authority: %+v", got)
 	}
 }
 

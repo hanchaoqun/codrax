@@ -104,10 +104,6 @@ func TestApplyDiagramParticipantObligationsUsesRequiredTypedDiagramSlateAcrossRe
 	}
 
 	for name, mutate := range map[string]func(*AnalysisIR, *AnswerSemanticView){
-		"root cause trace": func(ir *AnalysisIR, _ *AnswerSemanticView) {
-			ir.RequestModel.Intent = IntentRootCause
-			ir.RequestModel.Scenario = ScenarioRootCause
-		},
 		"hint optional": func(ir *AnalysisIR, _ *AnswerSemanticView) { ir.RequestModel.DiagramHint.Required = false },
 		"plan optional": func(_ *AnalysisIR, view *AnswerSemanticView) { view.DiagramPlan.Required = false },
 	} {
@@ -119,6 +115,12 @@ func TestApplyDiagramParticipantObligationsUsesRequiredTypedDiagramSlateAcrossRe
 				t.Fatalf("inactive lane leaked participant obligations: %+v", inactive.DiagramParticipantObligations)
 			}
 		})
+	}
+	causal, causalView := newIR(), newView()
+	causal.RequestModel.Intent, causal.RequestModel.Scenario = IntentRootCause, ScenarioRootCause
+	applyDiagramParticipantObligations(causalView, causal)
+	if len(causalView.DiagramParticipantObligations) != 2 {
+		t.Fatalf("causal questions must preserve the same explicit typed participant slate: %+v", causalView.DiagramParticipantObligations)
 	}
 
 	callChain := newIR()

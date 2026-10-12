@@ -189,6 +189,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.AnalysisIR == nil {
 		return nil
 	}
+	doc = diagramModelAuthoredRelationDocument(doc)
 	// Keep the first emit-time gate and the later orchestrator contract on one
 	// evidence provider. In particular, BusContext.EvidenceItems may contain
 	// lossless deterministic relation rows that are intentionally wider than
@@ -319,10 +320,6 @@ func diagramParticipantRepairAdditionDeltaJSON(
 			)...)
 		}
 	}
-	if len(typed) == 0 {
-		return ""
-	}
-
 	allowed := make([]types.AnswerDiagramRelationRepairCandidate, 0, len(typed)*len(blockIDs))
 	seen := make(map[string]int)
 	for _, candidate := range typed {
@@ -342,6 +339,8 @@ func diagramParticipantRepairAdditionDeltaJSON(
 			allowed = append(allowed, row)
 		}
 	}
+	allowed = appendRuntimeDiagramRepairCandidates(allowed,
+		diagramParticipantMissingRuntimeRelations(runtimeDiagramRelationsForContext(ctx), mismatches, rm), blockIDs, 8)
 	if len(allowed) == 0 {
 		return ""
 	}
@@ -913,8 +912,19 @@ func DiagramParticipantCoverageMismatches(
 	evidence []types.EvidenceItem,
 	stagePrecedence ...stageauthority.PrecedenceRelation,
 ) []DiagramParticipantCoverageMismatch {
-	if doc == nil || view == nil || view.DiagramPlan == nil || !view.DiagramPlan.Required ||
-		types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace {
+	return diagramParticipantCoverageMismatches(doc, view, rm, evidence, stagePrecedence, nil)
+}
+
+func diagramParticipantCoverageMismatches(
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	runtimeRelations []RuntimeDiagramRelation,
+) []DiagramParticipantCoverageMismatch {
+	doc = diagramModelAuthoredRelationDocument(doc)
+	if doc == nil || view == nil || view.DiagramPlan == nil || !view.DiagramPlan.Required {
 		return nil
 	}
 	obligations := diagramIncidentParticipantObligations(view)
@@ -947,11 +957,14 @@ func DiagramParticipantCoverageMismatches(
 			}
 		}
 		allSurfaces = append(allSurfaces, surfaces)
+		// Source planning aliases are not native instance bindings. A runtime
+		// participant must name the published node/identity itself.
+		runtimeCovered := diagramParticipantHasRuntimeIncident(doc, []string{obligation.Identity}, runtimeRelations)
 		states = append(states, state{
 			obligation:      obligation,
 			surfaces:        surfaces,
-			visibleCovered:  diagramParticipantHasTypedVisibleIncident(doc, surfaces, requestedRelationEvidence, stagePrecedence, sourceBinding),
-			identityVisible: diagramParticipantIdentityVisible(doc, surfaces, stagePrecedence),
+			visibleCovered:  runtimeCovered || diagramParticipantHasTypedVisibleIncident(doc, surfaces, requestedRelationEvidence, stagePrecedence, sourceBinding),
+			identityVisible: runtimeCovered || diagramParticipantIdentityVisible(doc, surfaces, stagePrecedence),
 		})
 	}
 	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
@@ -959,7 +972,7 @@ func DiagramParticipantCoverageMismatches(
 	evidenceParticipantGraphComplete := len(obligations) > 1
 	for i := range states {
 		requestScopedEdgeAvailable := relationScope.effectiveParticipantCovered(i)
-		states[i].typedEdgeAvailable = requestScopedEdgeAvailable
+		states[i].typedEdgeAvailable = requestScopedEdgeAvailable || len(diagramParticipantRuntimeRelations([]string{states[i].obligation.Identity}, runtimeRelations)) > 0
 		if requestScopedEdgeAvailable {
 			candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
 				rm, states[i].obligation, evidence, stagePrecedence, 8,
@@ -980,7 +993,7 @@ func DiagramParticipantCoverageMismatches(
 		// contradictory merely because the technical endpoint shares an exact
 		// identity with the participant.
 		states[i].independentLocalIncidenceAllowed = len(obligations) > 1 &&
-			!requestedParticipantGraphComplete && !requestScopedEdgeAvailable
+			!requestedParticipantGraphComplete && !requestScopedEdgeAvailable && !states[i].typedEdgeAvailable
 	}
 
 	var out []DiagramParticipantCoverageMismatch
@@ -3812,6 +3825,87 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 	return false
 }
 
+// Native instance identities stay in their own authority lane. A participant
+// may select an exact published endpoint or node, never a reader label as an
+// identity resolver. In particular, an unresolved business role needs the
+// ordinary unproven boundary; it cannot borrow an adjacent native event.
+func diagramParticipantRuntimeEndpointMatches(surfaces []string, node, identity string) bool {
+	for _, surface := range surfaces {
+		surface = strings.TrimSpace(surface)
+		if surface != "" && (surface == node || surface == identity) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramParticipantRuntimeRelations(surfaces []string, rows []RuntimeDiagramRelation) []RuntimeDiagramRelation {
+	var selected []RuntimeDiagramRelation
+	for _, row := range rows {
+		if diagramParticipantRuntimeEndpointMatches(surfaces, row.FromNode, row.FromIdentity) ||
+			diagramParticipantRuntimeEndpointMatches(surfaces, row.ToNode, row.ToIdentity) {
+			selected = append(selected, row)
+		}
+	}
+	return selected
+}
+
+func diagramParticipantHasRuntimeIncident(doc *types.AnswerDocumentV2, surfaces []string, rows []RuntimeDiagramRelation) bool {
+	selected := diagramParticipantRuntimeRelations(surfaces, rows)
+	if len(selected) == 0 {
+		return false
+	}
+	counts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	for i, block := range doc.Blocks {
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+		visible := make(map[string]bool)
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			visible[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+		}
+		for _, anchor := range diagramEvidenceEffectiveAnchorsForBlock(doc, i, counts) {
+			if !visible[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] ||
+				!anchor.HasEndpointIdentityPair() || runtimeDiagramAnchorAliasConflict(rows, anchor) ||
+				!runtimeDiagramRelationProved(selected, anchor.FromIdentity, anchor.ToIdentity, anchor.RelationKind) {
+				continue
+			}
+			for _, row := range selected {
+				if row.FromIdentity != anchor.FromIdentity || row.ToIdentity != anchor.ToIdentity || row.Kind != anchor.RelationKind {
+					continue
+				}
+				if diagramParticipantRuntimeEndpointMatches(surfaces, row.FromNode, row.FromIdentity) &&
+					diagramParticipantVisibleEndpointCarriesIdentity(block, surfaces, anchor.FromNode, anchor.FromIdentity, labels) ||
+					diagramParticipantRuntimeEndpointMatches(surfaces, row.ToNode, row.ToIdentity) &&
+						diagramParticipantVisibleEndpointCarriesIdentity(block, surfaces, anchor.ToNode, anchor.ToIdentity, labels) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func diagramParticipantMissingRuntimeRelations(rows []RuntimeDiagramRelation, mismatches []DiagramParticipantCoverageMismatch, rm types.RequestModel) []RuntimeDiagramRelation {
+	if rm.DiagramHint == nil {
+		return nil
+	}
+	var selected []RuntimeDiagramRelation
+	for _, mismatch := range mismatches {
+		if mismatch.Issue != DiagramParticipantCoverageTypedEdgeMissing && mismatch.Issue != DiagramParticipantCoverageIdentityMissing {
+			continue
+		}
+		for _, participant := range rm.DiagramHint.Participants {
+			if participant.Role != types.DiagramParticipantIncidentRequired || participant.Identity != mismatch.Participant {
+				continue
+			}
+			selected = append(selected, diagramParticipantRuntimeRelations([]string{participant.Identity}, rows)...)
+		}
+	}
+	return selected
+}
+
 // diagramParticipantHasRenderedRequestScopedCandidate recognizes only a
 // relation selected by the same typed, request-scoped provider used to author
 // participant repair guidance. The canonical anchor tuple must already exist,
@@ -4044,9 +4138,9 @@ func DiagramParticipantCoverageMismatchesWithRuntimeContext(
 	}
 	evidence = DiagramEvidenceForValidation(ctx, doc, view, evidence)
 	evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, ctx, evidence)
-	return DiagramParticipantCoverageMismatches(
+	return diagramParticipantCoverageMismatches(
 		doc, view, ctx.AnalysisIR.RequestModel, evidence,
-		diagramVerifiedReadModeStagePrecedence(ctx, view)...,
+		diagramVerifiedReadModeStagePrecedence(ctx, view), runtimeDiagramRelationsForContext(ctx),
 	)
 }
 
@@ -4064,7 +4158,7 @@ type DiagramParticipantCoverageReceipt struct {
 }
 
 // AcceptedDiagramParticipantCoverageReceiptWithRuntimeContext returns an
-// accepted receipt only for an active non-Trace diagram participant contract.
+// accepted receipt only for an active model-authored diagram participant contract.
 // It deliberately delegates to the same mismatch providers as the hard gate;
 // it is observability for an already-accepted typed fact, not a second or
 // weaker acceptance algorithm.
@@ -4074,8 +4168,9 @@ func AcceptedDiagramParticipantCoverageReceiptWithRuntimeContext(
 	view *types.AnswerSemanticView,
 	evidence []types.EvidenceItem,
 ) (DiagramParticipantCoverageReceipt, bool) {
+	doc = diagramModelAuthoredRelationDocument(doc)
 	if ctx == nil || ctx.AnalysisIR == nil || doc == nil || view == nil || view.DiagramPlan == nil ||
-		!view.DiagramPlan.Required || types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) == types.QFRootCauseTrace ||
+		!view.DiagramPlan.Required ||
 		!answerDocumentContainsDiagramPayload(doc) {
 		return DiagramParticipantCoverageReceipt{}, false
 	}

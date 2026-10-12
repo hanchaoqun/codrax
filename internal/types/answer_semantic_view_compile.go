@@ -115,8 +115,7 @@ func applyDiagramParticipantObligations(view *AnswerSemanticView, ir *AnalysisIR
 		return
 	}
 	rm := ir.RequestModel
-	if ResolveQuestionFamily(rm) == QFRootCauseTrace ||
-		rm.DiagramHint == nil || !rm.DiagramHint.Required ||
+	if rm.DiagramHint == nil || !rm.DiagramHint.Required ||
 		view.DiagramPlan == nil || !view.DiagramPlan.Required {
 		return
 	}
