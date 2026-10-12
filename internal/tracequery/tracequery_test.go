@@ -2854,14 +2854,104 @@ func TestFrameRootCauseBundleCarriesRoleSpecificPerfContexts(t *testing.T) {
 	if bundle.TargetRunningPerf == nil || len(bundle.TargetRunningPerf.TopSymbols) == 0 || bundle.TargetRunningPerf.TopSymbols[0].Symbol != "App::resume" {
 		t.Fatalf("target_running_perf should isolate target samples: %+v", bundle.TargetRunningPerf)
 	}
-	if bundle.OnChainPerf == nil || len(bundle.OnChainPerf.TopSymbols) == 0 || bundle.OnChainPerf.TopSymbols[0].Symbol != "Server::handle" {
-		t.Fatalf("on_chain_perf should carry dependency samples: %+v", bundle.OnChainPerf)
-	}
 	if bundle.BinderPeerPerf == nil || len(bundle.BinderPeerPerf.TopSymbols) == 0 || bundle.BinderPeerPerf.TopSymbols[0].Symbol != "Server::handle" {
 		t.Fatalf("binder_peer_perf should carry peer samples: %+v", bundle.BinderPeerPerf)
 	}
-	if bundle.SameCPUCompetitorPerf == nil || len(bundle.SameCPUCompetitorPerf.TopSymbols) == 0 || bundle.SameCPUCompetitorPerf.TopSymbols[0].Symbol != "Rival::work" {
-		t.Fatalf("same_cpu_competitor_perf should carry CPU competitor samples: %+v", bundle.SameCPUCompetitorPerf)
+	// Independent thread/kind cohorts have no cross-domain Top-N mirror. Keep
+	// the role, identity, CPU, symbol and weight assertions in their own cohorts.
+	for _, test := range []struct {
+		name string
+		perf *PerfContext
+		want map[string]int64
+	}{
+		{"target_running", bundle.TargetRunningPerf, map[string]int64{"App::resume": 11000}},
+		{"on_chain", bundle.OnChainPerf, map[string]int64{"Server::handle": 22000, "App::resume": 11000}},
+		{"binder_peer", bundle.BinderPeerPerf, map[string]int64{"Server::handle": 22000}},
+		{"same_cpu_competitor", bundle.SameCPUCompetitorPerf, map[string]int64{"Rival::work": 33000, "App::resume": 11000}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.perf == nil || len(test.perf.Cohorts) != len(test.want) || test.perf.SampleCount != len(test.want) {
+				t.Fatalf("role population changed: %+v", test.perf)
+			}
+			if len(test.want) > 1 && (test.perf.TotalPeriod != 0 || len(test.perf.TopSymbols)+len(test.perf.TopDSO)+len(test.perf.TopCallchains)+len(test.perf.TopThreads)+len(test.perf.TopEvents) != 0) {
+				t.Fatalf("independent cohorts acquired a merged weighted mirror: %+v", test.perf)
+			}
+			seen := map[string]bool{}
+			for _, cohort := range test.perf.Cohorts {
+				if len(cohort.TopSymbols) != 1 || cohort.Scope == nil || cohort.Scope.ThreadIdentity == nil {
+					t.Fatalf("role lost its native symbol/identity: %+v", cohort)
+				}
+				row := cohort.TopSymbols[0]
+				weight, ok := test.want[row.Symbol]
+				if !ok || seen[row.Symbol] || cohort.TotalPeriod != weight || row.Period != weight || row.Percent != 100 || cohort.SampleCount != 1 || row.SampleCount != 1 || cohort.WeightStatus != "exact" || cohort.Event != "cpu-cycles" || cohort.WeightUnit != "cycles" {
+					t.Fatalf("role lost its exact symbol/weight or admitted off_cpu work: %+v", cohort)
+				}
+				seen[row.Symbol] = true
+				tid, tgid, kind, cpus := 100, 100, "on_cpu", []int{0}
+				if row.Symbol == "Server::handle" {
+					tid, tgid, kind, cpus = 201, 200, "", nil
+				} else if row.Symbol == "Rival::work" {
+					tid, tgid = 300, 300
+				}
+				identity := cohort.Scope.ThreadIdentity
+				if identity.TID != tid || identity.TGID != tgid || identity.Generation != 1 || cohort.Scope.SampleKind != kind || !reflect.DeepEqual(row.CPUs, cpus) {
+					t.Fatalf("role thread/kind/CPU binding changed: %+v", cohort)
+				}
+				if cohort.Scope.ID != "" || cohort.Scope.SourcePath != idx.Path || cohort.Scope.SourceGeneration == "" {
+					t.Fatalf("role must retain source without acquiring full-tree denominator authority: %+v", cohort.Scope)
+				}
+			}
+		})
+	}
+}
+
+func TestFrameRootCauseBundlePeerPerfWithoutTargetSamplesPublic(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_peer_only.systrace", `
+        app-100   (  100) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100   (  100) [000] .... 1.001000: binder_transaction: transaction=42 dest_node=0 dest_proc=200 dest_thread=201 reply=0 flags=0x0 code=0x3
+ binder:200_1-201 (  200) [002] .... 1.002000: binder_transaction_received: transaction=42
+        app-100   (  100) [000] .... 1.003000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+ binder:200_1-201 (  200) [002] .... 1.004000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=binder:200_1 next_pid=201 next_prio=20
+ binder:200_1-201 (  200) [002] .... 1.006000: perf_sample: pid=200 tid=201 cpu=2 cpu_known=true period=22000 event=cpu-cycles symbol=Server::handle dso=libserver.so sample_kind=on_cpu
+ binder:200_1-201 (  200) [002] .... 1.014000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=000
+        app-100   (  100) [000] .... 1.016000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100   (  100) [000] .... 1.030000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120
+	`)
+	for _, test := range []struct {
+		name       string
+		start, end float64
+		wantPeer   bool
+	}{
+		{"peer_in_window", 1, 1.02, true},
+		{"no_samples_in_window", 1.016, 1.025, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			probe := &perfRoleContextScanProbe{}
+			q := Query{View: "frame_root_cause_bundle", PID: 100, TimeStart: test.start, TimeEnd: test.end, MaxDepth: 4, MinDurationMs: 0.05, Limit: 8, TraceFlavorHint: TraceFlavorHarmonyHitrace, perfRoleContextScanProbe: probe}
+			stats := ComputeWindowStats(idx, q)
+			if stats.PerfSamples != nil {
+				t.Fatalf("target has no own samples; peer must not enter its denominator: %+v", stats.PerfSamples)
+			}
+			result := Run(idx, q)
+			bundle := result.FrameRootCauseBundle
+			if bundle == nil || bundle.PerfSamples != nil || bundle.TargetRunningPerf != nil {
+				t.Fatalf("public bundle fabricated target samples: %+v", bundle)
+			}
+			if !test.wantPeer {
+				if stats.EventCounts[EventPerfSample] != 0 || bundle.OnChainPerf != nil || bundle.BinderPeerPerf != nil || probe.FullEventScans != 0 || probe.FullEventsVisited != 0 {
+					t.Fatalf("empty sample window must not borrow peer samples or scan: bundle=%+v probe=%+v", bundle, probe)
+				}
+				return
+			}
+			if stats.EventCounts[EventPerfSample] != 1 || probe.FullEventScans != 1 || probe.FullEventsVisited != len(idx.Events) {
+				t.Fatalf("root/frame must share one role scan despite empty target population: counts=%v probe=%+v", stats.EventCounts, probe)
+			}
+			for _, perf := range []*PerfContext{bundle.OnChainPerf, bundle.BinderPeerPerf} {
+				if perf == nil || len(perf.Cohorts) != 1 || perf.SampleCount != 1 || len(perf.Cohorts[0].TopSymbols) != 1 || perf.Cohorts[0].TopSymbols[0].Symbol != "Server::handle" || perf.Cohorts[0].TotalPeriod != 22000 || perf.Cohorts[0].Scope == nil || perf.Cohorts[0].Scope.ThreadIdentity == nil || perf.Cohorts[0].Scope.ThreadIdentity.TID != 201 || perf.Cohorts[0].Scope.ID != "" {
+					t.Fatalf("public peer role omitted or rebound: %+v", perf)
+				}
+			}
+		})
 	}
 }
 

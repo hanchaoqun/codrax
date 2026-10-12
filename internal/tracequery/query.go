@@ -17833,6 +17833,14 @@ func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankRes
 	return attachPerfContextToRootCauseRankWithIndex(idx, q, rank, stats, nil)
 }
 
+// Role projections may select peers or CPU competitors outside the query's
+// target population. EventCounts is the existing unfiltered in-window census;
+// a nil target PerfSamples is not proof that the window contains no samples.
+// Keep the legacy witness for callers that supply stats without that census.
+func windowHasPerfRoleSamples(stats WindowStats) bool {
+	return stats.EventCounts[EventPerfSample] > 0 || stats.PerfSamples != nil && stats.PerfSamples.SampleCount > 0
+}
+
 func attachPerfContextToRootCauseRankWithIndex(idx *Index, q Query, rank RootCauseRankResult, stats WindowStats, roleIndex *perfRoleContextIndex) RootCauseRankResult {
 	// CR-3 件③ P11: the process-identity stamp rides the shared finalize
 	// tail so EVERY rank lane ships it (see stampRootCauseProcessIdentity).
@@ -17861,7 +17869,7 @@ func attachPerfContextToRootCauseRankWithIndex(idx *Index, q Query, rank RootCau
 	// four display-only P3M* fields; four-flagship-board A/B byte identity of
 	// every other byte is pinned (rank_p3_measure.go).
 	stampP3CounterfactualMeasure(&rank)
-	if idx == nil || len(rank.Items) == 0 || stats.PerfSamples == nil || stats.PerfSamples.SampleCount == 0 {
+	if idx == nil || len(rank.Items) == 0 || !windowHasPerfRoleSamples(stats) {
 		return rank
 	}
 	if roleIndex == nil {
@@ -18199,7 +18207,7 @@ func buildFramePerfContexts(idx *Index, q Query, stats WindowStats, chain *Chain
 }
 
 func buildFramePerfContextsWithIndex(idx *Index, q Query, stats WindowStats, chain *ChainResult, blocking CriticalBlockingResult, target ThreadRef, roleIndex *perfRoleContextIndex) framePerfContexts {
-	if stats.PerfSamples == nil || stats.PerfSamples.SampleCount == 0 {
+	if !windowHasPerfRoleSamples(stats) {
 		return framePerfContexts{PerfSamples: stats.PerfSamples}
 	}
 	if roleIndex == nil {
@@ -21522,7 +21530,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	latency := buildSchedulerLatencyStatsFromStats(idx, analysisQ, stats)
 	rank = enrichRootCauseRankWithScheduler(analysisQ, rank, latency, stats, chain)
 	var roleIndex *perfRoleContextIndex
-	if stats.PerfSamples != nil && stats.PerfSamples.SampleCount > 0 {
+	if windowHasPerfRoleSamples(stats) {
 		roleIndex = newPerfRoleContextIndex(idx, analysisQ)
 	}
 	rank = attachPerfContextToRootCauseRankWithIndex(idx, analysisQ, rank, stats, roleIndex)
@@ -21546,7 +21554,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 		return FrameRootCauseBundle{}
 	}
 	perfContexts := framePerfContexts{PerfSamples: stats.PerfSamples}
-	if stats.PerfSamples != nil && stats.PerfSamples.SampleCount > 0 {
+	if windowHasPerfRoleSamples(stats) {
 		perfContexts = buildFramePerfContextsWithIndex(idx, analysisQ, stats, chainPtr, blocking, target, roleIndex)
 	}
 	bundle := FrameRootCauseBundle{

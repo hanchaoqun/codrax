@@ -9259,7 +9259,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				types.TraceNoteKeyPerfStatisticalCaliber,
 				traceQueryPerfStatisticalCaliber(perf),
 			}}),
-			SupportRefs: traceQueryObservationSupportRefs(ref, lineStart, lineEnd),
+			SupportRefs: traceQueryPerfContextSupportRefs(ref, perf),
 			ObservedAt:  at,
 			Confidence:  1,
 		})
@@ -10505,10 +10505,28 @@ func traceQueryResultPrimaryPerfContext(result tracequery.Result) *tracequery.Pe
 }
 
 func traceQueryPerfContextLineRange(perf *tracequery.PerfContext) (int, int) {
-	if perf == nil {
-		return 0, 0
+	for _, cohort := range traceQueryPerfCohorts(perf) {
+		if start, end := traceQueryPerfCohortLineRange(cohort); start > 0 {
+			return start, end
+		}
 	}
-	for _, rows := range [][]tracequery.PerfHotspot{perf.TopSymbols, perf.TopDSO, perf.TopCallchains, perf.TopEvents} {
+	return 0, 0
+}
+
+// Keep a representative range per cohort, never a min/max envelope spanning
+// independent physical sources. Artifact provenance resolves each range to
+// its own source-local coordinates after the observation has been assembled.
+func traceQueryPerfContextSupportRefs(ref types.ObservationSourceRef, perf *tracequery.PerfContext) []string {
+	var refs []string
+	for _, cohort := range traceQueryPerfCohorts(perf) {
+		start, end := traceQueryPerfCohortLineRange(cohort)
+		refs = append(refs, traceQueryObservationSupportRefs(ref, start, end)...)
+	}
+	return dedupTraceQueryStrings(refs)
+}
+
+func traceQueryPerfCohortLineRange(cohort tracequery.PerfCohort) (int, int) {
+	for _, rows := range [][]tracequery.PerfHotspot{cohort.TopSymbols, cohort.TopDSO, cohort.TopCallchains, cohort.TopEvents} {
 		for _, row := range rows {
 			if row.LineStart <= 0 && row.LineEnd <= 0 {
 				continue
