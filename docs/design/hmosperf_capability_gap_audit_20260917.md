@@ -7011,7 +7011,7 @@ schema与skill共用同一单源/双源选择教学，单采集多窗明确限�
 
 方案：保留已有计算的线程时序分区，仅供native display生产者使用，不新增扫描、不激活旧Timeline JSON/因果分支；线程区间和CPU频率区间进入已有RuntimeMeasurementPublication timeline，完整保留后再分配模型预览预算。唤醒、可运行、上CPU与频率变化分别保原值/单位/来源，未知关闭终点不补为窗口终点；频率证据末行不是下一变更证明。图仅将精确provider节点ID的默认占位标签替换为同源可读名，不改节点身份、关系、箭头、顺序或模型已写业务标签，不按同名/TID合源。正文解释继续由模型负责，不扫描或改写正文设硬门。
 
-### 226.2 验证记录（进行中，未销账）
+### 226.2 首片实现与确定性验证（人工验收另记）
 
 engine公开RED `engine-red-v1.log`真实exit1：已计算分区在交接前不可取；最小保留后`engine-green-v1.log`exit0，覆盖wakeup_chain/window_stats/thread_timeline、未分析/未知目标负控、旧wire不新增timeline。producer公开RED `native-timeline-red-v2.log`exit1：两来源实际查询成功但线程/频率原生表均缺失。首次producer编译设置FAIL保留，不能当功能RED。后续末版定向、双例人工审计、全仓与提交收据在本节集中追加；此前FAIL仍原样留案。
 
@@ -7020,3 +7020,58 @@ engine公开RED `engine-red-v1.log`真实exit1：已计算分区在交接前不�
 独审另证开放D/IO尾段的EndLine可能是blocked_reason位置行；`native-open-wait-red.log`与`native-race-v1.log`均真实复现错误将1.010秒写为实际关闭，补救仅按精确已解析字段区分该非关闭证据，保引用且实际终点未知。`native-timeline-green-v4.log`正式exit0。图定向`runtime-label-targeted-v1.log`正式exit0（6.463s）；早期fixture非法tuple/中间编译态与真实产品RED分别留存，不用设置失败替代RED。独立审查确认不改旧Timeline JSON/因果发布、不新增扫描、不按同TID合源；frame bundle已有状态账分支尚未统一新增该时序展示面，保留为原任务范围，不宣称所有view已覆盖。
 
 冻结前`contract-v1.log`正式exit0（tool12.609s/agent19.420s/types5.025s/orchestrator41.667s/tracediag0.558s），涵盖公开入口/动态schema/注册/prompt与旧投影相邻门；skill整包PASS0.754s。`race-v1.log`四包正式exit0；开放D-tail补救后native专项race及末版相邻组另取新收据，随后才构建固定live版本。尚不以以上确定性通过销任何人工验收项。
+
+### 226.3 固定双例：入口已有进展，最终答案仍失败
+
+首片`b78918cc915a`已普通推送，干净构建同revision。固定两例各一次、并行2，runner正式exit0，机器1/2、完整人工0/2；[逐项人工审计](../../eval/parallel_selected_summary_hmc_native_timeline_20261011_manual_audit.md)已读最终出厂稿、过程与原载荷，不用机器PASS替代原值正确性。量测103秒；时序外层415秒、子进程wall413秒。两份QUESTION及四原始fixture哈希不变，没有第三例或重跑。
+
+无窗例真正保住合法comparison，空基线失败未中止健康SQLite，连续single真实取得9条有时间量测和1条未定位原值；不再误称自然入口全未通。最终却只选summary、手抄9行，漏RowID9/value55/NULL时间，且把250000000.25和9007199254740995近似化。未知55已在finalizer可读event inventory，不是输入、工具或整个交接层丢失；缺的是对应原生量测表以及有限事实域自动展示。当前typed bounded_fact_set+FactFamilies已充分声明事实范围，却因未重复给可选requested_answer_dimensions而关闭默认原生表，属于系统适用性接缝。
+
+时序例第5次emit_analysis真正建立各侧来源/窗口，查询和原生交接都有正确的1.006/4.012上CPU点及各两段频率区间，原对侧高值未混入。finalizer修图将participant数组拆成两组后报局部索引，把第二条retain_as_context缺字段指向第一条ensure_visible；模型修错项继而遇到反向形状提示，形成确定性循环。不是schema两个action同时要求互斥字段，也不是已证模型波动。10次reject/9次patch后降级首稿，实际报告仍把基线上CPU写4.006、750MHz写750kHz、两侧运行说成相同4ms、idle说40%→60%；原生表未进入降级稿。正确工具/部分正文不抵消整题FAIL，旧稿合法Mermaid语法也不证明箭头有依据。
+
+### 226.4 同批共享展示与诊断补救
+
+收尾`dde0c5970`只处理上述已证接缝，沿现有事实/修补路径，不新增问答关键词门、独立准备账或因果权限：
+
+1. 有限事实域已有typed bounded_fact_set与非空FactFamilies时，不再要求重复声明可选答案维度才能默认显示原生表。明确的独立维度仍优先；源码清单、宽分析无事实维度、未知scope及歧义default保持原边界。实际LogQuery→Finalizer→Emit公开RED/GREEN保9条原表，独立只读复核无权限放宽。
+2. event_search已返回的合法未定位measure单列原生members表，复用既有原字段格式器，保来源/RowID/精确类型/原值/持续。0和负整数源时间不误归未知，NULL/TEXT/REAL原时间保原件；不构造终点、不授MemberSet/导航/根因。显式请求窗下只作补充，扫描窗不成为记录发生时间，原9条timed总体不变。未知55不是新扫出来的事实，而是把已有原件接上可复用展示面。
+3. participant两个分组均携带原始数组索引，生产仅增8行，六类公开负控覆盖形状/重复/过期/应用错误，两个合法混合顺序保原正文、边与边界；不更改action字段要求。错误修补定位恢复后无需额外教模型记“哪一种JSON反例”。
+4. 降级导出复用正常出口materializeNativeFactDisplay及当前受信绑定，披露实际产生“原始观测事实”。生产仅11行，真实ParseOutput恢复保AnswerDegraded/SkipAnswerChecks、accepted=nil和completion=false；不重写模型正文、不把未接受图升权。幂等、越窗、无事实维度、源码清单、清供给和旧pair代次负控均通过。
+
+真实RED分别保`default-display-red-v1.log`、`unpositioned-red-v1.log`、`participant-indices-red-v2.log`、`degraded-native-red-v1.log`。participant red-v1测试装配字段错误、default-display race-v1遇到其它轨尚在写入的未定义函数，属于设置/中间编译态FAIL，不冒称产品RED或整轮GREEN。最终统一相关`remedy-contract-v1.log`正式exit0（tool9.719s/agent46.463s/types1.932s/orchestrator38.846s/tracediag3.359s）；skill整包1.694s PASS；`remedy-race-v2.log`四包正式exit0（17.016/4.775/2.306/2.788s）。各轨独立定向/race收据保留。全部Go冻结后才启动一次统一末版全仓；同批确定性补救不倒签前述live。
+
+### 226.5 剩余范围、同类审计与下一ROI
+
+本批完整父项新增0、累计20；两组子能力（原生时序事实复用、图显示/修补一致性）及其同批四处补救已分开记账，原79唯一ID/59开放不变。五稳定验收父项03.2/04.2/08.3/08.4/18.2与两份新FAIL交叉不相加；没跑写模式/只读登记自然分支不补签。10.1自然入口已改善，但共同修饰时间窗的精确归属、完整双侧原值/终态自然验收仍待补齐；17.7持续写入/其它表/viewer和17.6实机能力继续留原ID。
+
+系统级高ROI缺陷仍是恢复稿接受边界：补原生表不自动隔离已判无凭据的模型箭头，需复用typed失败及准确文档代次隔离恢复展示，不能仅靠Mermaid语法或免责声明。正文单位/比例/错时间均保验收债，未证明偶发就不称模型波动，但不以同一单句无限追跑阻塞其它能力。frame bundle已有状态账分支的新增时序展示尚未全覆盖，不能宣称所有view已统一。
+
+冻结期只读审查补齐恢复出口范围：ParseOutput优先PrevEmitJSON/被拒稿、Lossless文本JSON恢复、retryStateDiagramDisplayAttachments及原文降级附件均可携带图；JSON结构无损不代表语义关系已过门，接受稿无图时旧附件仍可能存活。后继不能只移除恢复doc图而让附件复活。共用展示投影应消费完整typed关系/参与者/边界结论，区别passed/rejected/not_checked并绑定准确文档/图指纹及当前来源证据；模型不能自签，最新repair lease可裁剪失败或换代，不能独作完整校验历史。按图隔离主关系展示、保原件与明确诊断、保其它正文/原生表及同代已验证图，不自动剪边假装修复。本批live已证明旧未接受图出厂，其余出口为代码审查发现，尚未逐出口公开RED，保持开放。
+
+相邻协议只读审计另发现同类原始坐标风险，挂01.2/12.5/16.4/18.4而不增加重复ID：`emit_answer_document_patch.go`约2571–2634吸收已删除可选图的操作后压缩edge/boundary/participant数组；约2202–2259把合法receipt从block_field_edits搬走后压缩剩余项。后续校验仍用压缩后index，可能再报错原位置。已有edge重排、sequence placement和本批participant拆组都保原始index；剩余两条只是代码路径确认，尚无公开动态RED，不冒称已修或live已命中。后继优先统一归一化全过程的原始JSON路径映射，不撤合法归一化、不过拟合单action。
+
+下一双轨：能力轨完成10.1共同修饰窗/原退出矩阵；缺陷轨先按影响选择上述恢复关系隔离或规范化错误坐标通路，公开RED后实施一类修复。固定两例保持自然用户心智，避免连续只为一个误述追绿；已供充分数据而无新系统信号的误述留原失败证据。最终完整验证、归档和发布记录在下节。
+
+### 226.6 首轮全仓失败收齐与收尾修复
+
+Go冻结于`dde0c59701bb`后，首轮`full-v1.jsonl`（58162）正式exit1：88测试包PASS、13无测试包、2包FAIL。全量提取21条`Action=fail`，包括7个根测试、12个子例和2个包，不仅摘末尾输出。四个agent根为`TestMeasurementsPublicFinalizerEmitPatchRender`、`TestSchedulerMeasurementActualFinalizerHandoffAndScope`、`TestSchedulerMeasurementRecoveryRebindsCurrentPublicQuery`、`TestSchedulerStateAccountingActualFinalizerOpenTailAndClosedMembers`；三个tool根为`TestSemanticWordingLaneLint`、`TestTraceSupplementDisclosureSingleLineUpsert`、`TestTraceSupplementDurationBudgetKeepsCompletedViews`。已等正式退出才修改Go，没有并跑第二套全仓。
+
+旧展示测试须按语义分区演进：measurements显式summary之外新增默认原值成员表，仍逐字段核验原selector并要求默认表只出现一次；scheduler的旧8表全保，新增1张原生线程时序另验来源、窗口、原值及无MemberSet。恢复12分支须覆盖全部9个selector，不能只改总数或过滤新表；state-accounting保原closed成员、开放尾104及legacy负控。补查同样精确分离新增1条展示记录后仍核验旧63条及12根因/9链/12状态/30其它，另对新publication做来源/窗口与无总体权限检查；最终69条是旧63加既有5条加本批1条，不把新增展示计为根因。频率说明回到纯观测边界，不在非compute-delivery通道引入“算力”度量；术语审计器不放宽。
+
+四个旧agent预期越过后，相邻保密断言发现真实生产回归：新的thread_timeline publication被有限事实清单当普通RichNotes截断塞入finalizer，暴露私有JSON并挤占阅读预算。`handoff-diagnostic-v1.log`保真实FAIL，结果原字节和RootCauseReport未被修改，问题在模型阅读投影入口。应沿精确note key的内部/读者分层过滤并保原业务note与完整ledger，不删保密断言，不凭用户/模型关键词过滤。此项按同批共享交接补救处理，非“旧预期更新”掩盖；最终复验收据待下节。
+
+收尾`966c3be9e`沿现有nativePresentationNoteRecord在预览预算/截断前剥离确定原生生产者的精确`runtime_measurement=`私有载荷键；合法/畸形载荷均不混入阅读notes，未知键、普通文字提及、其它来源及业务说明保持。原始ledger/publication不改，专门原生表保完整内容。`private-note-red-v1.log`真实RED保留，随后`handoff-green-v2.log`types2.051s/agent1.650s、`handoff-race-v1.log`types2.807s/agent7.592s均正式PASS，独立只读复核无阻断。
+
+七原失败根精确复验`all-full-roots-green-v1.jsonl`（40841）正式exit0，7根及12恢复子例全部PASS、Action=fail为0（agent1.432s/tool2.407s）。末版`final-quick-v1.log`types0.696s/agent1.865s/tool3.760s、skill整包0.827s及tool补查/时序/术语相邻race80.566s全部正式PASS；独立state-accounting定向/race1.209s/2.657s PASS。此后Go与测试一起冻结于966c3be9e，才启动第二轮完整回归，不把第一轮FAIL或局部GREEN改写成全仓通过。
+
+10.1后继共同窗口设计审查：复用现有外层time_start/time_end/source_quote和逐侧path/source_quote，不增加模型协议字段；共同窗口保外层声明，不能复制成伪造逐侧原文。单个effective-side-window解析供展示投影、ComparisonWindowAllows及取数状态共用，状态ID须含共同范围；共同与侧内端点不混用，单侧窗口不借给对方。来源仍需真实准备/读取凭证，共同数值不证明时钟对齐/设备或负载可比。参考`load_compare.yaml:64`、`load_compare_ops.py:213`的独立两源/逐侧范围职责分离；此设计未实施，不签10.1。
+
+### 226.7 末版完整验证、原件留存与发布
+
+统一末版`go test -json -count=1 -timeout=20m -p 4 ./internal/tool ./internal/agent ./internal/types ./...`（12940，`full-v2.jsonl`）正式exit0：90测试包PASS、13无测试包，全量`Action=fail`为0，tool包537.271s。整个运行期间Go无变更，末版与`966c3be9e4e9`一致；前述7原失败根和12子例已逐个复验，首轮FAIL原件不改写。构建6095正式exit0，revision=`966c3be9e4e9-dirty`、时间2026-10-12T04:20:22Z，dirty仅本批文档/摘要；运行`--version`独立核对一致。
+
+本批三笔代码`b78918cc9`、`dde0c5970`、`966c3be9e`均已普通推送`origin/main`；末次93013正式exit0，b78918cc9→966c3be9e，无force或主分支合并旁路。当前任务清单和机器/人工汇总随本节提交，不为文档变更重复全仓。
+
+两个完整工具blob目录共89文件本地归档至`eval/results/hmc_native_timeline_20261011/tool-payloads/`，与原目录diff一致；实际失败报告另存`final-reports/`并cmp一致。首轮全仓FAIL、公开RED、测试装配/中间编译FAIL和末版相关/race/skill/full/build/push收据归档`validation-receipts/`，副本逐份SHA256核对；控制反例源码以`.go.txt`保存原字节，避免归档目录被全仓发现为额外Go包。原始日志/隔离eval仓依既有策略本地保留，不强行提交机器大文件或嵌套Git；提交可审计摘要和实现/测试。两份case和四份fixture与live版本b78918cc9逐文件无差异并保存最终哈希。
+
+终态复算仍79唯一ID=20完整能力已交付+59开放、重复0，完整父项本批新增0；两组子能力及同批五处共享接缝补救已交付。真实评测只在b78918cc915a各一次、并行2，机器1/2、完整人工0/2；未知时间原值/精度与最终时序/单位/比例/恢复图失败保持开放，不能用末版确定性GREEN倒签。下一双轨沿§226.5–6推进共同修饰窗与恢复展示资格，原五稳定验收父项及其它二进制/只读/写模式债继续留原ID，不重复记数。
