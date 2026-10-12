@@ -9,6 +9,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+const runtimeComparisonWindowSourceRepair = "use a short literal current-user interval quote; if no interval was requested, omit endpoints and use unspecified when neither side has a requested interval. Preserve comparison path/source_quote bindings"
+
 func runtimeArtifactComparisonSchema() map[string]any {
 	side := map[string]any{"type": "object", "additionalProperties": false, "required": []string{"path", "source_quote"}, "dependentRequired": map[string]any{"time_start": []string{"time_end"}, "time_end": []string{"time_start"}}, "properties": map[string]any{
 		"path": map[string]any{"type": "string"}, "time_start": map[string]any{"type": "number", "minimum": 0}, "time_end": map[string]any{"type": "number", "minimum": 0}, "source_quote": map[string]any{"type": "string"},
@@ -24,17 +26,38 @@ func parseRuntimeArtifactComparisonScope(raw string, p *emitRuntimeArtifactScope
 		return fail("time_windows is for a single capture; use either source-owned comparison intervals or one shared outer time_start/time_end/source_quote, never both")
 	}
 	if p.Confidence == nil || *p.Confidence < 0 || *p.Confidence > 1 || !p.Comparison.Valid() {
+		// Keep the original validity predicate, but identify a bad leaf rather
+		// than asking the model to repeatedly adjust already-valid endpoints.
+		if p.Confidence != nil && *p.Confidence >= 0 && *p.Confidence <= 1 {
+			for i, side := range p.Comparison.Sides() {
+				field := "runtime_artifact_scope_profile.comparison." + []string{"baseline", "current"}[i]
+				if issue := runtimeWindowSourceQuoteIssue(raw, side.SourceQuote, field); issue != "" {
+					return fail(issue)
+				}
+				if (side.TimeStart != nil || side.TimeEnd != nil) && !side.RuntimeArtifactTimeWindow.Valid() {
+					return fail(runtimeWindowEndpointIssue(field))
+				}
+			}
+		}
 		return fail("both distinct paths, local source quotes and confidence in [0,1] are required; each side's optional time_start/time_end must be a complete finite ordered pair")
 	}
 	pair := p.Comparison.Clone()
 	shared := p.TimeStart != nil || p.TimeEnd != nil
 	sharedWindow := types.RuntimeArtifactTimeWindow{TimeStart: p.TimeStart, TimeEnd: p.TimeEnd, SourceQuote: strings.TrimSpace(p.SourceQuote)}
-	if shared && (!sharedWindow.Valid() || !sourceQuotePresentInCurrentRequest(raw, sharedWindow.SourceQuote) || pair.Baseline.HasExplicitWindow() || pair.Current.HasExplicitWindow()) {
-		return fail("shared outer time_start/time_end/source_quote needs a complete finite ordered pair and verbatim interval quote, with neither side carrying endpoints; preserve local path quotes separately")
+	if shared {
+		if issue := runtimeWindowSourceQuoteIssue(raw, sharedWindow.SourceQuote, "runtime_artifact_scope_profile"); issue != "" {
+			return fail(issue + " Use a current-user literal interval if present; otherwise omit unrequested endpoints while preserving comparison source bindings.")
+		}
+		if !sharedWindow.Valid() {
+			return fail(runtimeWindowEndpointIssue("runtime_artifact_scope_profile"))
+		}
+		if pair.Baseline.HasExplicitWindow() || pair.Current.HasExplicitWindow() {
+			return fail("shared outer time_start/time_end cannot be combined with side endpoints; preserve local path quotes separately")
+		}
 	}
 	var warnings []string
 	if shared {
-		bound, warning, err := bindRuntimeWindowSource(sharedWindow)
+		bound, warning, err := bindRuntimeWindowSourceWithRepair(sharedWindow, runtimeComparisonWindowSourceRepair)
 		if err != nil {
 			return fail(fmt.Sprintf("shared outer interval: %v", err))
 		}
@@ -47,13 +70,17 @@ func parseRuntimeArtifactComparisonScope(raw string, p *emitRuntimeArtifactScope
 	sides := []*types.RuntimeArtifactComparisonSide{&pair.Baseline, &pair.Current}
 	for i, side := range sides {
 		side.Path, side.SourceQuote = strings.TrimSpace(side.Path), strings.TrimSpace(side.SourceQuote)
-		if !sourceQuotePresentInCurrentRequest(raw, side.SourceQuote) || !runtimeComparisonQuoteHasPath(side.SourceQuote, side.Path) || runtimeComparisonQuoteHasPath(side.SourceQuote, sides[1-i].Path) {
+		field := "runtime_artifact_scope_profile.comparison." + []string{"baseline", "current"}[i]
+		if issue := runtimeWindowSourceQuoteIssue(raw, side.SourceQuote, field); issue != "" {
+			return fail(issue)
+		}
+		if !runtimeComparisonQuoteHasPath(side.SourceQuote, side.Path) || runtimeComparisonQuoteHasPath(side.SourceQuote, sides[1-i].Path) {
 			return fail(fmt.Sprintf("side %d needs one local verbatim quote containing its own exact original path, not the other side's path; include its literal interval only when specified", i+1))
 		}
 		if !side.HasExplicitWindow() {
 			continue
 		}
-		bound, warning, err := bindRuntimeWindowSource(side.RuntimeArtifactTimeWindow)
+		bound, warning, err := bindRuntimeWindowSourceWithRepair(side.RuntimeArtifactTimeWindow, runtimeComparisonWindowSourceRepair)
 		if err != nil {
 			return fail(fmt.Sprintf("side %d: %v", i+1, err))
 		}

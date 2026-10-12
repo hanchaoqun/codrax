@@ -5084,8 +5084,12 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 		members := make([]types.RuntimeArtifactTimeWindow, 0, len(p.TimeWindows))
 		var warnings []string
 		for i, member := range p.TimeWindows {
-			if !member.Valid() || !sourceQuotePresentInCurrentRequest(raw, member.SourceQuote) {
-				return nil, fmt.Sprintf("runtime_artifact_scope_profile.time_windows[%d] needs finite time_start>=0, time_end>time_start, and a verbatim current-request source_quote; correct the whole member list rather than dropping this member; %s", i, runtimeWindowSourceRepair), nil
+			field := fmt.Sprintf("runtime_artifact_scope_profile.time_windows[%d]", i)
+			if issue := runtimeWindowSourceQuoteIssue(raw, member.SourceQuote, field); issue != "" {
+				return nil, issue + " " + runtimeWindowSelectorSourceRepair + " Preserve other valid requested members when repairing this field.", nil
+			}
+			if !member.Valid() {
+				return nil, runtimeWindowEndpointIssue(field), nil
 			}
 			bound, warning, err := bindRuntimeWindowSource(member)
 			if err != nil {
@@ -5131,8 +5135,11 @@ func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p
 			profile.TimeEnd = nil
 		}
 	case types.RuntimeArtifactScopeExplicitWindow:
-		if !anchored || !typedWindowValid {
-			return nil, "runtime_artifact_scope_profile explicit_time_window needs an anchored quote and finite time_start>=0, time_end>time_start; " + runtimeWindowSourceRepair, nil
+		if !anchored {
+			return nil, runtimeWindowSourceQuoteIssue(raw, quote, "runtime_artifact_scope_profile") + " " + runtimeWindowSelectorSourceRepair, nil
+		}
+		if !typedWindowValid {
+			return nil, runtimeWindowEndpointIssue("runtime_artifact_scope_profile"), nil
 		}
 		bound, warning, err := bindRuntimeWindowSource(types.RuntimeArtifactTimeWindow{TimeStart: p.TimeStart, TimeEnd: p.TimeEnd, SourceQuote: quote})
 		if err != nil {

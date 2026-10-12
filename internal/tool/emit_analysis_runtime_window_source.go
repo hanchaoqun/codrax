@@ -19,6 +19,21 @@ import (
 // this parser. An unresolved expression cannot acquire whole-capture authority.
 const runtimeWindowSourceRepair = "use a short verbatim interval quote with its exact endpoints in seconds; for a nonliteral or unsupported selector use bounded_selector without coordinates, not unspecified/full_artifact"
 
+const runtimeWindowSelectorSourceRepair = "If the current user specified a literal interval, copy that exact phrase; otherwise use the current user's selector with requested_scope=bounded_selector and omit time_start/time_end/time_windows."
+
+// Diagnose the existing exact quote check independently of numeric shape.
+// Evidence-side timestamps are not a substitute for request-side provenance.
+func runtimeWindowSourceQuoteIssue(raw, quote, field string) string {
+	if sourceQuotePresentInCurrentRequest(raw, quote) {
+		return ""
+	}
+	return field + ".source_quote is missing or not verbatim in the CURRENT user request. Attachment, tool and pre-triage timestamps describe observed evidence, not user-requested bounds."
+}
+
+func runtimeWindowEndpointIssue(field string) string {
+	return field + ".time_start/time_end require a complete finite pair with time_start>=0 and time_end>time_start; preserve the validated current-request source_quote."
+}
+
 const runtimeWindowNumber = `[+]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?`
 const runtimeWindowUnit = `(?:milliseconds|millisecond|microseconds|microsecond|nanoseconds|nanosecond|seconds|second|minutes|minute|hours|hour|secs|sec|mins|min|毫秒|微秒|纳秒|分钟|小时|ms|µs|μs|us|ns|秒|s|m|h)`
 const runtimeWindowEndpoint = runtimeWindowNumber + `(?:\s*` + runtimeWindowUnit + `(?:\s*` + runtimeWindowNumber + `\s*` + runtimeWindowUnit + `)*)?`
@@ -28,9 +43,15 @@ var runtimeWindowBracketRE = regexp.MustCompile(`(?i)()([\[(])\s*(` + runtimeWin
 var runtimeWindowTermRE = regexp.MustCompile(`(?i)(` + runtimeWindowNumber + `)\s*(` + runtimeWindowUnit + `)?`)
 
 func bindRuntimeWindowSource(member types.RuntimeArtifactTimeWindow) (types.RuntimeArtifactTimeWindow, string, error) {
+	return bindRuntimeWindowSourceWithRepair(member, runtimeWindowSourceRepair)
+}
+
+// Only repair wording varies by the caller's already-typed scope form. Literal
+// parsing, coordinate normalization and every acceptance predicate stay shared.
+func bindRuntimeWindowSourceWithRepair(member types.RuntimeArtifactTimeWindow, repair string) (types.RuntimeArtifactTimeWindow, string, error) {
 	quote := strings.TrimSpace(member.SourceQuote)
 	if len(quote) > 4096 {
-		return member, "", fmt.Errorf("interval quote exceeds 4096 bytes; %s", runtimeWindowSourceRepair)
+		return member, "", fmt.Errorf("interval quote exceeds 4096 bytes; %s", repair)
 	}
 	type bounds struct {
 		start, end   float64
@@ -58,27 +79,27 @@ func bindRuntimeWindowSource(member types.RuntimeArtifactTimeWindow) (types.Runt
 		// silently rewritten or rounded by epsilon.
 		if open != "" || close != "" {
 			if open != "[" || close != ")" {
-				return member, "", fmt.Errorf("explicit interval topology is not [start,end); %s", runtimeWindowSourceRepair)
+				return member, "", fmt.Errorf("explicit interval topology is not [start,end); %s", repair)
 			}
 		}
 		l, lu, err := runtimeWindowExactEndpoint(left)
 		if err != nil {
-			return member, "", fmt.Errorf("invalid left endpoint: %w; %s", err, runtimeWindowSourceRepair)
+			return member, "", fmt.Errorf("invalid left endpoint: %w; %s", err, repair)
 		}
 		r, ru, err := runtimeWindowExactEndpoint(right)
 		if err != nil {
-			return member, "", fmt.Errorf("invalid right endpoint: %w; %s", err, runtimeWindowSourceRepair)
+			return member, "", fmt.Errorf("invalid right endpoint: %w; %s", err, repair)
 		}
 		if ru == "" && tailUnit == "" && runtimeWindowUnresolvedSuffix(quote[loc[1]:]) {
-			return member, "", fmt.Errorf("bare endpoint has an unresolved unit or qualifier; %s", runtimeWindowSourceRepair)
+			return member, "", fmt.Errorf("bare endpoint has an unresolved unit or qualifier; %s", repair)
 		}
 		// A shared unit applies only to a bare endpoint. Explicit units are
 		// already accounted for, including compound timestamps, exactly once.
 		if tailUnit != "" && (lu != "" || ru != "") {
-			return member, "", fmt.Errorf("ambiguous shared endpoint unit; %s", runtimeWindowSourceRepair)
+			return member, "", fmt.Errorf("ambiguous shared endpoint unit; %s", repair)
 		}
 		if lu == "compound" && ru == "" || ru == "compound" && lu == "" {
-			return member, "", fmt.Errorf("a bare endpoint cannot inherit a compound unit; %s", runtimeWindowSourceRepair)
+			return member, "", fmt.Errorf("a bare endpoint cannot inherit a compound unit; %s", repair)
 		}
 		if lu == "" {
 			u := tailUnit
@@ -97,7 +118,7 @@ func bindRuntimeWindowSource(member types.RuntimeArtifactTimeWindow) (types.Runt
 		start, _ := l.Float64()
 		end, _ := r.Float64()
 		if l.Sign() < 0 || r.Cmp(l) <= 0 || math.IsInf(start, 0) || math.IsInf(end, 0) || l.Sign() > 0 && start == 0 || end <= start {
-			return member, "", fmt.Errorf("literal endpoints need finite time_start>=0 and time_end>time_start; %s", runtimeWindowSourceRepair)
+			return member, "", fmt.Errorf("literal endpoints need finite time_start>=0 and time_end>time_start; %s", repair)
 		}
 		b := bounds{start, end, lu != "" || ru != "" || tailUnit != ""}
 		duplicate := false
@@ -116,12 +137,15 @@ func bindRuntimeWindowSource(member types.RuntimeArtifactTimeWindow) (types.Runt
 			return member, "", nil
 		}
 	}
+	if len(candidates) == 0 {
+		return member, "", fmt.Errorf("source_quote contains no supported literal interval; %s", repair)
+	}
 	if len(candidates) != 1 {
-		return member, "", fmt.Errorf("quote does not uniquely bind the declared endpoints; %s", runtimeWindowSourceRepair)
+		return member, "", fmt.Errorf("quote does not uniquely bind the declared endpoints; %s", repair)
 	}
 	b := candidates[0]
 	if !b.explicitUnit {
-		return member, "", fmt.Errorf("bare interval differs from declared seconds; include the source unit in the quote before correcting coordinates; %s", runtimeWindowSourceRepair)
+		return member, "", fmt.Errorf("bare interval differs from declared seconds; include the source unit in the quote before correcting coordinates; %s", repair)
 	}
 	member.TimeStart, member.TimeEnd = &b.start, &b.end
 	return member, "runtime_artifact_scope_profile normalized to the verbatim literal endpoints (seconds); model or capture extents are not requested bounds", nil

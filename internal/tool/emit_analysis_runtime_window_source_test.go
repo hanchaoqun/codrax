@@ -160,7 +160,14 @@ func TestRuntimeWindowSourceRejectsInvalidLiteralWithoutPartialState(t *testing.
 			} // Valid quote never repairs malformed typed shape.
 			p := &emitRuntimeArtifactScopeProfileParam{RequestedScope: "explicit_time_window", TimeStart: &start, TimeEnd: &end, SourceQuote: quote, Confidence: &confidence}
 			profile, err, _ := parseRuntimeArtifactScopeProfile(request, true, p)
-			if err == "" || profile != nil || !strings.Contains(err, "bounded_selector") {
+			wantRepair := "bounded_selector"
+			if end == start {
+				wantRepair = "runtime_artifact_scope_profile.time_start/time_end"
+				if strings.Contains(err, "bounded_selector") {
+					t.Fatal("malformed endpoints must not redirect a valid literal quote to a selector", err)
+				}
+			}
+			if err == "" || profile != nil || !strings.Contains(err, wantRepair) {
 				t.Fatalf("invalid explicit scope was accepted/softened without escape: %+v %q", profile, err)
 			}
 		})
