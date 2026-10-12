@@ -6,10 +6,9 @@ package types
 //
 // It is intentionally NOT part of the LLM-facing emit_answer_document
 // schema and validators do not treat it as grounded answer evidence.
-// The field is a last-mile rendering safeguard: if a model already
-// produced useful prose or a diagram but wrapped it in broken JSON, the
-// user should still be able to inspect it instead of losing it during
-// structural recovery.
+// Recovery retention is not visualization acceptance: useful prose remains
+// available, while diagrams need current structured relationship validation
+// before display. Failed originals remain separate audit evidence.
 type AnswerDisplayAttachment struct {
 	Kind     string `json:"kind"`
 	Title    string `json:"title,omitempty"`
@@ -34,14 +33,16 @@ const (
 const (
 	AnswerDisplayAttachmentSourceSystemCrossCheck = "orchestrator.system_crosscheck_appendix"
 	AnswerDisplayAttachmentSourceDraftReviewNote  = "orchestrator.strict_review_disabled"
+	AnswerDisplayAttachmentSourceDiagramIsolation = "answer.diagram_isolation_notice"
 )
 
 // SystemAuthored reports whether the attachment body is the system's own
-// deterministic content (system voice). Unknown sources default to the
+// deterministic content (system voice), not graph or evidence authority.
+// Unknown sources default to the
 // model-provenance panel — the incumbent wording for preserved model output.
 func (a AnswerDisplayAttachment) SystemAuthored() bool {
 	switch a.Source {
-	case AnswerDisplayAttachmentSourceSystemCrossCheck, AnswerDisplayAttachmentSourceDraftReviewNote:
+	case AnswerDisplayAttachmentSourceSystemCrossCheck, AnswerDisplayAttachmentSourceDraftReviewNote, AnswerDisplayAttachmentSourceDiagramIsolation:
 		return true
 	}
 	return false

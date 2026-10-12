@@ -893,9 +893,9 @@ func filterAcceptedAnswerDisplayAttachments(doc *types.AnswerDocumentV2, in []ty
 // AnswerDocumentV2 has been accepted, markdown/text recovered from failed
 // drafts is retry telemetry, not an additional answer carrier. Diagram
 // attachments survive only when the accepted document has no diagram of its
-// own. A diagram from a rejected model draft is retry telemetry once a later
-// accepted document supplies the structured diagram surface; system-authored
-// deterministic attachments retain their independent authority.
+// own. Retention is not display authority: the last-mile renderer separately
+// isolates unstructured graphs, including system-looking sources. Deterministic
+// system prose remains on its own disclosure lane.
 func FilterAcceptedAnswerDisplayAttachments(doc *types.AnswerDocumentV2, in []types.AnswerDisplayAttachment) []types.AnswerDisplayAttachment {
 	return filterAcceptedAnswerDisplayAttachments(doc, in)
 }

@@ -66,14 +66,63 @@ func IsolateRecoveredAnswerDiagrams(ctx *types.BusContext, doc *types.AnswerDocu
 			continue
 		}
 		var n int
+		attachment.Title, n = IsolateUnvalidatedDiagramFences(attachment.Title, language)
+		isolated += n
 		attachment.Body, n = IsolateUnvalidatedDiagramFences(attachment.Body, language)
 		isolated += n
+		if n > 0 {
+			attachment.Hash = answerDisplayAttachmentHash(attachment.Kind, attachment.Language, attachment.Body)
+		}
 		kept = append(kept, attachment)
 	}
 	if doc != nil && isolated > 0 {
 		doc.Caveats = append(doc.Caveats, RecoveryDiagramIsolationNotice(language))
 	}
 	return kept, isolated
+}
+
+// IsolateAnswerDisplayAttachmentsForRender checks only unstructured display
+// carriers, never the accepted document. Preserve a disclosure in the cleaned
+// carrier so another render cannot silently lose it after the graph is gone.
+func IsolateAnswerDisplayAttachmentsForRender(ctx *types.BusContext, attachments []types.AnswerDisplayAttachment, language string) []types.AnswerDisplayAttachment {
+	kept, isolated := IsolateRecoveredAnswerDiagrams(ctx, nil, attachments, language)
+	if isolated == 0 {
+		return kept
+	}
+	notice := RecoveryDiagramIsolationNotice(language)
+	// A preserved model reference can later be discarded by the accepted-doc
+	// filter. Keep its generated disclosure on the separate prose-only lane.
+	for i := range kept {
+		if kept[i].Source == types.AnswerDisplayAttachmentSourceDiagramIsolation && kept[i].Kind == types.AnswerDisplayAttachmentText && kept[i].Body == notice {
+			return kept
+		}
+	}
+	for i := range kept {
+		kept[i].Title = strings.ReplaceAll(kept[i].Title, notice, "")
+		if strings.Contains(kept[i].Body, notice) {
+			kept[i].Body = strings.ReplaceAll(kept[i].Body, notice, "")
+			kept[i].Hash = answerDisplayAttachmentHash(kept[i].Kind, kept[i].Language, kept[i].Body)
+		}
+	}
+	title := "Diagram display notice"
+	if strings.HasPrefix(strings.ToLower(language), "zh") {
+		title = "图示展示说明"
+	}
+	return append(kept, types.AnswerDisplayAttachment{
+		Kind: types.AnswerDisplayAttachmentText, Title: title, Body: notice,
+		Source: types.AnswerDisplayAttachmentSourceDiagramIsolation,
+	})
+}
+
+// DeduplicateDiagramIsolationNotice only coalesces the exact system disclosure
+// on an assembled display. It neither validates nor changes a document carrier.
+func DeduplicateDiagramIsolationNotice(text, language string) string {
+	notice := RecoveryDiagramIsolationNotice(language)
+	if first := strings.Index(text, notice); first >= 0 {
+		end := first + len(notice)
+		return text[:end] + strings.ReplaceAll(text[end:], notice, "")
+	}
+	return text
 }
 
 func recoveredDiagramChecked(ctx *types.BusContext, original *types.AnswerDocumentV2, index int, view *types.AnswerSemanticView, pctx *preEmitCheckContext, counts map[string]int) bool {

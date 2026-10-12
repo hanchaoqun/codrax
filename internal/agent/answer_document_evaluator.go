@@ -22332,8 +22332,12 @@ func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *
 }
 
 func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ctx *types.AgentContext, doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment) string {
+	attachments = tool.IsolateAnswerDisplayAttachmentsForRender(types.ToolBusContext(ctx, types.AgentFinalizer), attachments, e.language)
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.SetAnswerDisplayAttachments(attachments)
+	}
 	surfaces := render.RenderAnswerDocumentWithAttachmentSurfaces(doc, attachments, e.language)
-	prose := surfaces.Answer
+	prose := tool.DeduplicateDiagramIsolationNotice(surfaces.Answer, e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderRuntimeAggregateMetricCompactSupplement(ctx, doc, e.language), e.language)
 	prose = appendAnswerSupplementDeduped(prose, renderTraceQueryObservationSupplement(ctx, doc, e.language), e.language)
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementLocalizationAuthority); supplementDoc != nil {

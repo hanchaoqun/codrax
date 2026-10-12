@@ -50,6 +50,9 @@ var diagramIdentityCensusQuoteAnchorAllowlist = map[diagramIdentityCensusKey]boo
 	// Independent capture scope anchors each local quote to the current
 	// request here; exact path-token membership is checked separately.
 	{"emit_analysis_comparison_scope.go", "parseRuntimeArtifactComparisonScope"}: true,
+	// Shared window repair diagnoses the same quote-vs-current-request check;
+	// it does not inspect entity or endpoint membership inside that quote.
+	{"emit_analysis_runtime_window_source.go", "runtimeWindowSourceQuoteIssue"}: true,
 }
 
 var diagramIdentityCensusHardArms = map[string]bool{
