@@ -172,7 +172,7 @@ func TestRuntimeMeasurementMemberSetPublicRejectsUnsupportedCoverage(t *testing.
 				t.Fatalf("unsupported/duplicate population claimed requested coverage: dims=%+v count=%d blocks=%+v", types.BuildAnswerSemanticViewForAgentContext(ctx).Presentation.RequestedDimensions, answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(ctx, ctx.Mutable.AnswerDocumentV2()), ctx.Mutable.AnswerDocumentV2().Blocks)
 			}
 			hint := requestedAnswerDimensionCoverageHint(ctx, missing, "en")
-			if name != "missing_facet" && !strings.Contains(hint, "already carries the member marker") {
+			if name != "missing_facet" && !strings.Contains(hint, "already carries the member marker") && !strings.Contains(hint, "requested_dimension_indices") {
 				t.Fatalf("advisory requests repeated no-op marker: %s", hint)
 			}
 			if name == "missing_facet" {

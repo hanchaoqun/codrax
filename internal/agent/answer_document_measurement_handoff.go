@@ -25,10 +25,18 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 		b.WriteString(types.RuntimeNativeFactDisplayTeaching + "\n")
 	}
 	b.WriteString("### 已核对的测量表 / Verified measurement tables\n\n")
+	if indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices(); len(indices) > 0 {
+		fmt.Fprintf(&b, "- Complete native record tables can carry requested member-set display dimensions %v. Bind only the indices actually answered with block-level requested_dimension_indices beside runtime_measurement. One table can carry several dimensions (for example the event roster and its per-row identities); do not retype rows. For an automatically shown table, add an exact model selector with those indices; it replaces the duplicate default display. This is display ownership only, not source-code, causal or investigation-completion evidence.\n", indices)
+	}
 	if ctx.Mutable != nil && ctx.AnalysisIR != nil && types.RuntimeMeasurementMemberSetDomain(&ctx.AnalysisIR.RequestModel, types.BuildRuntimeSourceAnswerAuthoritySnapshotForAgentContext(ctx, types.ObservationLedger{})) {
 		if selected, ok := types.RuntimeMeasurementMemberSetSelections(ctx.Mutable.InvestigationMeasurementMemberSets(), view.RuntimeMeasurementContract, &ctx.AnalysisIR.RequestModel); ok {
 			for _, receipt := range selected {
-				fmt.Fprintf(&b, "- Selected during investigation for a requested member set: observation_id=%q view=%q. Reuse this table with facet_ids:[\"member_set\"] if it still answers that dimension; do not retype its members.\n", receipt.ObservationID, receipt.View)
+				candidate := types.AnswerBlock{Kind: types.BlockTable, RuntimeMeasurement: &receipt, RequestedDimensionIndices: view.RuntimeMeasurementContract.NativeDisplayDimensionChoices()}
+				if _, valid := types.BoundNativeDisplayDimensions(candidate, view.RuntimeMeasurementContract); valid {
+					fmt.Fprintf(&b, "- Selected during investigation for a requested member set: observation_id=%q view=%q. Reuse with requested_dimension_indices for the dimensions it actually answers; do not retype its members.\n", receipt.ObservationID, receipt.View)
+				} else {
+					fmt.Fprintf(&b, "- Selected during investigation for a requested member set: observation_id=%q view=%q. Reuse this table with facet_ids:[\"member_set\"] if it still answers that dimension; do not retype its members.\n", receipt.ObservationID, receipt.View)
+				}
 			}
 		}
 	}
@@ -51,6 +59,10 @@ func renderAnswerDocRuntimeMeasurementChoices(ctx *types.AgentContext) string {
 		}{table.Columns, rows})
 		fmt.Fprintf(&b, "- observation_id=%q view=%q label=%q; output_rows=%d; preview_omitted_rows=%d; preview=%s\n",
 			table.ObservationID, table.View, table.Label, len(table.Rows), len(table.Rows)-len(rows), preview)
+		candidate := types.AnswerBlock{Kind: types.BlockTable, RuntimeMeasurement: &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}, RequestedDimensionIndices: view.RuntimeMeasurementContract.NativeDisplayDimensionChoices()}
+		if indices, valid := types.BoundNativeDisplayDimensions(candidate, view.RuntimeMeasurementContract); valid {
+			fmt.Fprintf(&b, "  eligible requested_dimension_indices=%v (choose only dimensions this table answers).\n", indices)
+		}
 		if table.MemberSet != nil {
 			fmt.Fprintf(&b, "  population=%q; member_rows=%d/%d; complete_population=%t (not capture completeness).\n", table.MemberSet.PopulationID, len(table.MemberSet.RowIDs), table.MemberSet.TotalRows, table.MemberSet.Complete)
 		}

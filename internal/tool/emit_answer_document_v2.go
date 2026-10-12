@@ -78,6 +78,7 @@ type emitAnswerBlockV2 struct {
 	SourceInventoryFamily        string                                   `json:"source_inventory_family,omitempty"`
 	RuntimeWorkRelation          *emitRuntimeWorkRelationReceipt          `json:"runtime_work_relation,omitempty"`
 	RuntimeMeasurement           *types.AnswerRuntimeMeasurementReceipt   `json:"runtime_measurement,omitempty"`
+	RequestedDimensionIndices    []int                                    `json:"requested_dimension_indices,omitempty"`
 	ConceptualTerminalResolution *emitConceptualTerminalResolutionReceipt `json:"conceptual_terminal_resolution,omitempty"`
 	Columns                      []string                                 `json:"columns,omitempty"`
 	Items                        []emitAnswerBlockItemV2                  `json:"items,omitempty"`

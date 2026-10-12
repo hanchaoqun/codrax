@@ -410,8 +410,9 @@ type MutableState struct {
 	traceQueryPublishedBlobRefs map[string]string
 	// Discovery/query bookkeeping only; these handles never grant evidence or
 	// filesystem access. Their private generations do not survive JSON replay.
-	traceCatalogs        map[string]*tracecatalog.Catalog
-	traceCatalogLineages *traceCatalogLineages
+	traceCatalogs         map[string]*tracecatalog.Catalog
+	traceCatalogLineages  *traceCatalogLineages
+	traceAdmissionCatalog *stagedTraceAdmissionCatalog
 	// Original capture permissions are distinct from published query blobs.
 	// Survive dispatch reset; isolated forks share the epoch, not the map.
 	traceSourceReadGeneration *traceSourceReadGeneration
@@ -1802,6 +1803,8 @@ func (m *MutableState) SetObjective(s string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.objective = s
+	// A new request cannot consume the preceding admission's one-shot roster.
+	m.traceAdmissionCatalog = nil
 }
 
 // OutputTranscriptRequest returns the exact current-turn request that should
@@ -4317,18 +4320,19 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 		out.Blocks = make([]AnswerBlock, len(in.Blocks))
 		for i, b := range in.Blocks {
 			cloned := AnswerBlock{
-				ID:                      b.ID,
-				Kind:                    b.Kind,
-				Title:                   b.Title,
-				Text:                    b.Text,
-				ErrorGranularityVerdict: b.ErrorGranularityVerdict,
-				CurrentStatusVerdict:    b.CurrentStatusVerdict,
-				TraceCausalClaimCaliber: b.TraceCausalClaimCaliber,
-				ScopeDisclosure:         b.ScopeDisclosure,
-				RequestedRelationScope:  b.RequestedRelationScope,
-				SourceInventoryFamily:   b.SourceInventoryFamily,
-				SurfaceRole:             b.SurfaceRole,
-				SystemGeneratedKind:     b.SystemGeneratedKind,
+				ID:                        b.ID,
+				Kind:                      b.Kind,
+				Title:                     b.Title,
+				Text:                      b.Text,
+				ErrorGranularityVerdict:   b.ErrorGranularityVerdict,
+				CurrentStatusVerdict:      b.CurrentStatusVerdict,
+				TraceCausalClaimCaliber:   b.TraceCausalClaimCaliber,
+				ScopeDisclosure:           b.ScopeDisclosure,
+				RequestedRelationScope:    b.RequestedRelationScope,
+				SourceInventoryFamily:     b.SourceInventoryFamily,
+				SurfaceRole:               b.SurfaceRole,
+				SystemGeneratedKind:       b.SystemGeneratedKind,
+				RequestedDimensionIndices: append([]int(nil), b.RequestedDimensionIndices...),
 			}
 			if len(b.Columns) > 0 {
 				cloned.Columns = append([]string(nil), b.Columns...)
@@ -5558,8 +5562,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.traceQueryRuntimeObservationCount = 0
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.traceQueryPublishedBlobRefs = nil
-	m.traceCatalogs = nil
-	m.traceCatalogLineages = &traceCatalogLineages{}
+	m.resetTraceCatalogsForInvestigationLocked()
 	m.traceSourceReadGeneration = &traceSourceReadGeneration{}
 	m.toolDocumentation = toolDocumentationState{generation: &toolDocumentationGeneration{}}
 	m.traceQuerySourceReads = nil

@@ -35,6 +35,13 @@ type RuntimeMeasurementTable struct {
 	DefaultPresentation bool                         `json:"default_presentation,omitempty"`
 	MemberSet           *RuntimeMeasurementMemberSet `json:"member_set,omitempty"`
 	coverageScope       *runtimeMeasurementCoverageScope
+	// Native log query population is fully retained and every source read is
+	// healthy. This private display credential never grants completion.
+	nativeLogDisplayPopulation bool
+}
+
+func (t RuntimeMeasurementTable) HasCompleteNativeDisplayPopulation() bool {
+	return t.IsValid() && t.View == RuntimeMeasurementMembers && len(t.Rows) > 0 && t.nativeLogDisplayPopulation
 }
 
 func (t RuntimeMeasurementTable) IsValid() bool {
@@ -74,6 +81,10 @@ func (t RuntimeMeasurementTable) Clone() RuntimeMeasurementTable {
 
 type RuntimeMeasurementContract struct {
 	Tables []RuntimeMeasurementTable
+	// Only current request-owned native display dimensions. Not persisted in
+	// provider publications and never used by investigation completion.
+	displayDimensionIndices []int
+	displayPopulationKeys   map[string]bool
 }
 
 // Choices excludes invalid or ambiguous identifiers, including identical
@@ -106,6 +117,13 @@ func (c *RuntimeMeasurementContract) Clone() *RuntimeMeasurementContract {
 		return nil
 	}
 	out := &RuntimeMeasurementContract{Tables: make([]RuntimeMeasurementTable, len(c.Tables))}
+	out.displayDimensionIndices = append([]int(nil), c.displayDimensionIndices...)
+	if c.displayPopulationKeys != nil {
+		out.displayPopulationKeys = make(map[string]bool, len(c.displayPopulationKeys))
+		for key, value := range c.displayPopulationKeys {
+			out.displayPopulationKeys[key] = value
+		}
+	}
 	for i, table := range c.Tables {
 		out.Tables[i] = table.Clone()
 	}

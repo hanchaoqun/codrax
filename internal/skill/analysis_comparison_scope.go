@@ -1,0 +1,3 @@
+package skill
+
+const AnalysisRuntimeComparisonTeaching = "For an independent two-capture comparison with explicit per-source windows, use comparison={baseline:{path,time_start,time_end,source_quote},current:{path,time_start,time_end,source_quote}} instead of pooled time_windows/scalar endpoints. Each local verbatim quote contains only its own original path and interval; paths are not inferred from names or array order. This requests independent acquisition, not matching devices, clocks, workloads, differences or causality. Keep ordinary time_windows for one capture or when a source/window association is not explicit."

@@ -139,6 +139,25 @@ func (m *TraceMaterial) MatchesPath(path string) bool {
 	return false
 }
 
+// MatchesOriginalSource binds an alternate spelling only to the prepared
+// original generation, never to its derived query output. This is identity
+// matching, not comparability, successful query or evidence authority.
+func (m *TraceMaterial) MatchesOriginalSource(path string) bool {
+	if m == nil || !filepath.IsAbs(path) || m.Validate(context.Background(), m.preview) != nil {
+		return false
+	}
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	original, err := filepath.EvalSymlinks(m.sourcePath)
+	if err != nil || canonical != original {
+		return false
+	}
+	current, err := filegeneration.FromPath(path)
+	return err == nil && m.bindings[m.sourcePath].SameVersion(current)
+}
+
 // Validate rejects stale source, derived output, bundle members or a preview
 // not belonging to this attachment. All consumers fail closed rather than
 // silently falling back to a truncated or previous attached_trace.txt blob.

@@ -92,6 +92,7 @@ func DecodeRuntimeMeasurementPublication(r ObservationRecord) (RuntimeMeasuremen
 // No values are merged across queries or sources.
 func BuildRuntimeMeasurementContract(input ObservationLedgerInput) *RuntimeMeasurementContract {
 	out := RuntimeMeasurementContract{Tables: coalesceRuntimeMeasurementPublications(collectRuntimeMeasurementPublications(input))}
+	out.qualifyNativeDisplayDimensions(input.RequestModel)
 	if !out.Active() {
 		return nil
 	}
@@ -115,6 +116,9 @@ func collectRuntimeMeasurementPublications(input ObservationLedgerInput) []Runti
 					requested = input.RequestModel.RuntimeArtifactScopeProfile
 				}
 				start, end, known := TraceObservationContinuousQueryWindow(r.SourceRef)
+				if requested != nil && requested.Comparison != nil && (!known || !requested.ComparisonWindowAllows(runtimeMeasurementOriginalSource(input, result, r.SourceRef), input.RepoRoot, start, end)) {
+					continue
+				}
 				if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) {
 					continue
 				}

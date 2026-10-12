@@ -16,6 +16,14 @@ func RebindRuntimeAnswerReceipts(doc *AnswerDocumentV2, view *AnswerSemanticView
 	}
 	var bindings []binding
 	for i, block := range doc.Blocks {
+		if len(block.RequestedDimensionIndices) > 0 {
+			if view == nil {
+				return false
+			}
+			if _, valid := BoundNativeDisplayDimensions(block, view.RuntimeMeasurementContract); !valid {
+				return false
+			}
+		}
 		if block.RuntimeMeasurement == nil && block.RuntimeWorkRelation == nil {
 			continue
 		}

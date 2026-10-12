@@ -8226,6 +8226,10 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		}
 		b.WriteString("\n")
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionMemberSet {
+			if instruction := nativeDisplayDimensionBindingInstruction(ctx, dim.Index, lang == "zh"); instruction != "" {
+				b.WriteString(instruction)
+				continue
+			}
 			if lang == "zh" {
 				if sourceInventoryMemberRoster {
 					b.WriteString("  - 当前清单由 `Principal Enumeration Rows` 的精确结构承担：每个模型成文主块保留 `facet_ids:[\"enumeration_item\"]`，每个可见结构化行保留精确 `source_inventory_row_id`；仅当一个块刻意只承载单一家族时才保留对应 `source_inventory_family`，混合/全局块应省略。精确行身份已经承担成员集，不要再添加重复的 `member_set` 标记。逐行字段可直接放在列表 `items[].label/text`，也可使用 `columns[]` + 可见 `items[].cells[]`；不要为了字段展示复制第二份清单，也不要使用 Markdown 表加隐藏 sidecar。\n")
@@ -16126,6 +16130,9 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 	case types.RequestedAnswerDimensionCount:
 		return answerDocumentHasScalarPayload(doc)
 	case types.RequestedAnswerDimensionMemberSet:
+		if answerDocumentNativeDisplayDimensionCovered(ctx, doc, dim.Index) {
+			return true
+		}
 		return answerDocumentCoversRequestedMemberSetDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionRelationPath:
 		return answerDocumentHasRelationPathPayload(ctx, doc)
@@ -16606,6 +16613,9 @@ func answerDocumentCoversRequestedMemberSetDimensions(ctx *types.AgentContext, d
 	requested := 0
 	for _, dimension := range requestedDimensionsToCover(view.Presentation.RequestedDimensions) {
 		if dimension.Role == types.RequestedAnswerDimensionMemberSet {
+			if answerDocumentNativeDisplayDimensionCovered(ctx, doc, dimension.Index) {
+				continue
+			}
 			requested++
 		}
 	}
@@ -16790,8 +16800,18 @@ func answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(ctx *types.A
 	}
 	count := 0
 	seenMeasurements := map[string]bool{}
+	for _, block := range doc.Blocks {
+		if len(block.RequestedDimensionIndices) > 0 && block.RuntimeMeasurement != nil {
+			seenMeasurements[block.RuntimeMeasurement.ObservationID+"\x00"+string(block.RuntimeMeasurement.View)] = true
+		}
+	}
 	var measurements []types.AnswerRuntimeMeasurementReceipt
 	for _, block := range doc.Blocks {
+		// Explicit dimension ownership cannot also contribute an unscoped
+		// legacy seat, including stale or rejected explicit bindings.
+		if len(block.RequestedDimensionIndices) > 0 {
+			continue
+		}
 		if !answerBlockHasFacet(block, string(types.RequestedAnswerDimensionMemberSet)) &&
 			!answerDocumentBlockCarriesExactSourceInventoryRoster(block) {
 			continue
@@ -17136,7 +17156,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	markedMeasurementMembers := answerDocumentHasMarkedMeasurementMembers(ctx)
 	memberSetMetadataRepair := false
 	for _, dim := range missing {
-		if dim.Role == types.RequestedAnswerDimensionMemberSet && !sourceInventoryMemberRoster && !markedMeasurementMembers {
+		if dim.Role == types.RequestedAnswerDimensionMemberSet && !sourceInventoryMemberRoster && !markedMeasurementMembers && nativeDisplayDimensionBindingInstruction(ctx, dim.Index, zh) == "" {
 			memberSetMetadataRepair = true
 			break
 		}
@@ -17159,7 +17179,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			b.WriteString(requestedAnswerDimensionDisplayRow(index, requestedAnswerDimensionHintLabel(dim, true), true))
 			b.WriteByte('\n')
 			if dim.Role == types.RequestedAnswerDimensionMemberSet {
-				if sourceInventoryMemberRoster {
+				if instruction := nativeDisplayDimensionBindingInstruction(ctx, dim.Index, true); instruction != "" {
+					b.WriteString(instruction)
+				} else if sourceInventoryMemberRoster {
 					b.WriteString("  - 请恢复对应的模型成文主清单块：保留 `facet_ids:[\"enumeration_item\"]`，并让每个可见结构化行携带其精确 `source_inventory_row_id`；仅单一家族块保留 `source_inventory_family`，混合/全局块省略。列表 `items[].label/text` 已可承载逐行字段，也可使用 `columns[]` + 可见 `items[].cells[]`；不要补重复 `member_set`，也不要为了字段展示复制第二份清单。\n")
 				} else if markedMeasurementMembers {
 					b.WriteString("  - 已有量测表包含成员归属标记；不要重复补同一标记或复制同一 selector。请核对所选 population 是否完整覆盖所求来源、目标和全部窗口，多个所求成员集需要不同的对应 population；保留部分表的可见数据与边界，不能把省略行或范围未验证当完整。\n")
@@ -17203,7 +17225,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		b.WriteString(requestedAnswerDimensionDisplayRow(index, requestedAnswerDimensionHintLabel(dim, false), false))
 		b.WriteByte('\n')
 		if dim.Role == types.RequestedAnswerDimensionMemberSet {
-			if sourceInventoryMemberRoster {
+			if instruction := nativeDisplayDimensionBindingInstruction(ctx, dim.Index, false); instruction != "" {
+				b.WriteString(instruction)
+			} else if sourceInventoryMemberRoster {
 				b.WriteString("  - Restore the corresponding model-authored principal roster block with `facet_ids:[\"enumeration_item\"]` and the exact `source_inventory_row_id` on every visible structured row; keep `source_inventory_family` only for a single-family block and omit it for a mixed/global block. List `items[].label/text` may already carry row-local fields, or use `columns[]` plus visible `items[].cells[]`; do not add a duplicate `member_set` marker or copy the roster merely to display fields.\n")
 			} else if markedMeasurementMembers {
 				b.WriteString("  - A measurement table already carries the member marker; do not repeat that marker or copy the same selector. Check that the selected population completely covers the requested source, target and all windows; independent member sets need distinct matching populations. Preserve partial tables and their boundaries, without treating omitted rows or unverified scope as complete.\n")

@@ -185,10 +185,16 @@ func traceCatalogFinishQuery(ctx *types.BusContext, tickets []traceCatalogQueryT
 			completion.Outcome = tracecatalog.OutcomeStale
 			completion.Error = &tracecatalog.Issue{Code: "source_changed", Path: t.artifact.Path, Message: currentErr.Error()}
 		}
-		if _, err := t.catalog.Complete(contextFromBus(ctx), t.queryID, completion); err != nil {
-			out.Summary += "\nCapture index update failed: " + err.Error()
-		} else if currentErr == nil && t.predeclared && !out.Success && out.Repair != nil && out.Repair.Metadata["stage"] == "trace_input_admission" && out.Repair.Metadata["status"] == types.ToolRepairStatusActionRequired &&
-			len(t.catalog.Snapshot().Artifacts) > 1 && !strings.HasSuffix(strings.ToLower(t.artifact.Path), ".tracebundle.json") {
+		_, completionErr := t.catalog.Complete(contextFromBus(ctx), t.queryID, completion)
+		if completionErr != nil {
+			out.Summary += "\nCapture index update failed: " + completionErr.Error()
+		}
+		independent := completionErr == nil && currentErr == nil && t.predeclared && len(t.catalog.Snapshot().Artifacts) > 1
+		// Exact request-owned comparison inputs retain a failed/stale side
+		// without terminating the other side. JSON snapshots cannot mint it.
+		independent = independent || t.catalog.IndependentInput(t.artifact.ID) && contextFromBus(ctx).Err() == nil && (completionErr == nil || errors.Is(completionErr, tracecatalog.ErrStale))
+		if independent && !out.Success && out.Repair != nil && out.Repair.Metadata["stage"] == "trace_input_admission" && out.Repair.Metadata["status"] == types.ToolRepairStatusActionRequired &&
+			!strings.HasSuffix(strings.ToLower(t.artifact.Path), ".tracebundle.json") {
 			out.TraceCatalogIndependentFailure = true
 		}
 		if _, err := saveTraceCatalog(ctx, t.catalog); err != nil {

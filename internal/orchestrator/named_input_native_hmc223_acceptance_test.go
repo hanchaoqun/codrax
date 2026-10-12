@@ -46,10 +46,13 @@ func (*hmc223AcceptanceAdapter) MaxOutputTokens() int          { return 4096 }
 func (*hmc223AcceptanceAdapter) RequestTimeout() time.Duration { return 0 }
 func (*hmc223AcceptanceAdapter) RetryMaxAttempts() int         { return 0 }
 
-func hmc223AcceptanceRun(t *testing.T, repo, request string, external bool, adapter *hmc223AcceptanceAdapter, beforeExplore func(*types.AgentContext), cancelAfterAnalyze bool) (*types.BusContext, *agent.StageOutput, error) {
+func hmc223AcceptanceRun(t *testing.T, repo, request string, external bool, adapter *hmc223AcceptanceAdapter, beforeExplore func(*types.AgentContext), cancelAfterAnalyze bool, requestScope ...*types.RuntimeArtifactScopeProfile) (*types.BusContext, *agent.StageOutput, error) {
 	t.Helper()
 	ir := dagIR(types.AnswerContract{})
 	ir.RequestModel = types.RequestModel{RawRequest: request, Intent: types.IntentExplain, Scenario: types.ScenarioGeneric}
+	if len(requestScope) != 0 {
+		ir.RequestModel.RuntimeArtifactScopeProfile = requestScope[0]
+	}
 	if external {
 		ir.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{CurrentSourceMode: types.ExternalObservationCurrentSourceExclude, ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly}
 	}

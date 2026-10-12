@@ -293,13 +293,14 @@ type emitRuntimeArtifactValueProfileParam struct {
 }
 
 type emitRuntimeArtifactScopeProfileParam struct {
-	RequestedScope string                            `json:"requested_scope"`
-	TimeStart      *float64                          `json:"time_start,omitempty"`
-	TimeEnd        *float64                          `json:"time_end,omitempty"`
-	TimeWindows    []types.RuntimeArtifactTimeWindow `json:"time_windows,omitempty"`
-	SourceQuote    string                            `json:"source_quote,omitempty"`
-	Confidence     *float64                          `json:"confidence"`
-	Rationale      string                            `json:"rationale,omitempty"`
+	RequestedScope string                                `json:"requested_scope"`
+	TimeStart      *float64                              `json:"time_start,omitempty"`
+	TimeEnd        *float64                              `json:"time_end,omitempty"`
+	TimeWindows    []types.RuntimeArtifactTimeWindow     `json:"time_windows,omitempty"`
+	Comparison     *types.RuntimeArtifactComparisonScope `json:"comparison,omitempty"`
+	SourceQuote    string                                `json:"source_quote,omitempty"`
+	Confidence     *float64                              `json:"confidence"`
+	Rationale      string                                `json:"rationale,omitempty"`
 }
 
 type emitRuntimeTargetProfileParam struct {
@@ -748,6 +749,7 @@ func buildEmitAnalysisSchema() {
 							"required": []string{"time_start", "time_end", "source_quote"},
 						},
 					},
+					"comparison":   runtimeArtifactComparisonSchema(),
 					"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that establishes full_artifact, explicit_time_window, or bounded_selector scope. Do not copy model/tool prose."},
 					"confidence":   map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
 					"rationale":    map[string]any{"type": "string", "description": "Short audit rationale."},
@@ -5011,6 +5013,9 @@ func parseRuntimeArtifactValueProfile(runtimeArtifactCarrier bool, p *emitRuntim
 }
 
 func parseRuntimeArtifactScopeProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeArtifactScopeProfileParam) (*types.RuntimeArtifactScopeProfile, string, []string) {
+	if p != nil && p.Comparison != nil {
+		return parseRuntimeArtifactComparisonScope(raw, p)
+	}
 	if p == nil {
 		return nil, "runtime_artifact_scope_profile object missing — emit requested_scope plus confidence; use not_applicable when no runtime artifact is in scope", nil
 	}

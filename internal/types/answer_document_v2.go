@@ -321,6 +321,9 @@ type AnswerBlock struct {
 	// only on a table without competing text/items/columns or a work-relation
 	// receipt; interpretation belongs in separate blocks. It grants no causal authority.
 	RuntimeMeasurement *AnswerRuntimeMeasurementReceipt `json:"runtime_measurement,omitempty"`
+	// RequestedDimensionIndices binds an exact native table to model-selected
+	// requested display dimensions. It grants neither completion nor cause.
+	RequestedDimensionIndices []int `json:"requested_dimension_indices,omitempty"`
 
 	// ConceptualTerminalResolution is a model-selected exact terminal-operation
 	// receipt for a conceptual call-chain destination. The bound row is rendered

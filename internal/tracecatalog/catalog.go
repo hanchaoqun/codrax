@@ -160,6 +160,9 @@ type Catalog struct {
 	bindings    map[string]sourceBinding
 	queries     map[string]QueryRecord
 	declared    map[string]bool
+	// independentInputs is minted only by the explicit two-side constructor;
+	// persisted navigation snapshots cannot restore this operation permission.
+	independentInputs bool
 }
 
 func digest(prefix string, value any) string {

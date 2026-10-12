@@ -1,0 +1,8 @@
+# Natural comparison with one unavailable capture; invariants are only in the oracle.
+ID="trace_dual_measurement_partial"
+NAME="Independent measurement inputs with one empty capture"
+DUAL_MEASUREMENT_FIXTURE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../fixtures/hmosperf_dual_measurements" && pwd)"
+QUESTION="帮我并排看一下基线 ${DUAL_MEASUREMENT_FIXTURE}/empty.htrace 的 1 到 2 秒和当前 ${DUAL_MEASUREMENT_FIXTURE}/current.data 的 4 到 4.5 秒：分别有哪些量测序列，原始值和时间区间是什么？"
+FIXTURE="eval/fixtures/stub_repo"
+N_DEFAULT=1
+EXPECT_SUCCESSFUL_TOOL_RESULTS="trace_query"

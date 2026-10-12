@@ -1013,7 +1013,8 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	// to emitAnswerBlockV2, fixturise it above AND extend this map.
 	measurementGot, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID: "measurement", Kind: string(types.BlockTable),
-		RuntimeMeasurement: &types.AnswerRuntimeMeasurementReceipt{ObservationID: "observed", View: types.RuntimeMeasurementSummary},
+		RuntimeMeasurement:        &types.AnswerRuntimeMeasurementReceipt{ObservationID: "observed", View: types.RuntimeMeasurementSummary},
+		RequestedDimensionIndices: []int{1, 2},
 	}, "blocks[4]")
 	if err != nil {
 		t.Fatalf("measurement normalize failed: %v", err)
@@ -1061,6 +1062,7 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 			return measurementGot.RuntimeMeasurement != nil && measurementGot.RuntimeMeasurement.ObservationID == "observed" &&
 				measurementGot.RuntimeMeasurement.View == types.RuntimeMeasurementSummary && measurementGot.RuntimeMeasurement.BoundTable == nil
 		},
+		"RequestedDimensionIndices": func() bool { return reflect.DeepEqual(measurementGot.RequestedDimensionIndices, []int{1, 2}) },
 		"ConceptualTerminalResolution": func() bool {
 			return got.ConceptualTerminalResolution != nil &&
 				got.ConceptualTerminalResolution.EvidenceID == "ev-terminal" &&

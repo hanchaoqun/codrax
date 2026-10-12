@@ -29,6 +29,13 @@ func formatTraceCatalogs(ac *types.AgentContext) string {
 		paths := map[string]string{}
 		for _, a := range s.Artifacts {
 			paths[a.ID] = a.Path
+			if len(a.Issues) > 0 {
+				row, _ := json.Marshal(map[string]any{"source": a.Path, "input_status": a.Status, "issues": a.Issues})
+				if b.Len()+len(row) < 24<<10 {
+					b.Write(row)
+					b.WriteByte('\n')
+				}
+			}
 		}
 		shown := 0
 		for _, q := range s.Queries {

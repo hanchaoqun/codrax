@@ -112,9 +112,13 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		RequestedRelationScope: types.DiagramRelationScopeStatus(
 			strings.TrimSpace(raw.RequestedRelationScope),
 		),
-		RelationClaims: types.CloneAnswerRelationClaims(raw.RelationClaims),
-		FacetIDs:       raw.FacetIDs,
-		SurfaceRole:    types.SurfaceRole(raw.SurfaceRole),
+		RelationClaims:            types.CloneAnswerRelationClaims(raw.RelationClaims),
+		FacetIDs:                  raw.FacetIDs,
+		SurfaceRole:               types.SurfaceRole(raw.SurfaceRole),
+		RequestedDimensionIndices: append([]int(nil), raw.RequestedDimensionIndices...),
+	}
+	if len(raw.RequestedDimensionIndices) > 0 && raw.RuntimeMeasurement == nil {
+		return types.AnswerBlock{}, fmt.Errorf("%s.requested_dimension_indices requires an exact runtime_measurement table selector", fieldPath)
 	}
 	if raw.RuntimeMeasurement != nil {
 		if err := validateEmitRuntimeMeasurementBlock(raw, fieldPath); err != nil {

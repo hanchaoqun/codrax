@@ -187,7 +187,7 @@ func validateSnapshot(s Snapshot) error {
 			return fmt.Errorf("catalog artifact relative path differs")
 		}
 		switch a.Status {
-		case "candidate", "unavailable", "stale":
+		case "candidate", "unavailable", "stale", "preparation_failed":
 		default:
 			return fmt.Errorf("catalog artifact status is invalid")
 		}

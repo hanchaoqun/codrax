@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -78,6 +79,7 @@ func validateTypedNamedTraceInputsWithAnchor(ctx context.Context, bus *types.Bus
 	// content discovery. The new candidates remain local until real preparation
 	// and complete input admission succeed below.
 	profile = namedTraceContentAdmissionProfile(ctx, bus, request, runtimeAnchor, profile)
+	profile = comparisonNamedTraceProfile(rm, profile)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -89,49 +91,82 @@ func validateTypedNamedTraceInputsWithAnchor(ctx context.Context, bus *types.Bus
 	if err != nil {
 		return err
 	}
+	catalog, err := namedTraceComparisonCatalog(ctx, bus, paths)
+	if err != nil {
+		return err
+	}
+	var failures []error
 	for index, path := range paths {
-		originalPath := path
-		var preparedMaterial *attachment.TraceMaterial
-		var preparedPreview string
-		var namedPrepared bool
-		if m := bus.AttachedTraceMaterial; m != nil && typedNamedTraceAdmissionPathKey(path) == typedNamedTraceAdmissionPathKey(resolveTypedNamedTraceSource(m.SourcePath(), bus.RepoRoot)) {
-			if err := m.Validate(ctx, bus.AttachedHitrace); err != nil {
-				return err
-			}
-			path = m.QueryPath()
-			preparedMaterial, preparedPreview = m, bus.AttachedHitrace
-		} else if bus.TraceInputPreparer != nil {
-			material, err := bus.TraceInputPreparer.Prepare(ctx, path)
-			if err != nil {
-				return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), originalPath, err)
-			}
-			if material == nil {
-				return fmt.Errorf("named trace input %d/%d %q: preparation returned no complete material", index+1, len(paths), originalPath)
-			}
-			path = material.QueryPath()
-			namedPrepared = true
+		err := prepareAndAdmitNamedTracePath(ctx, bus, path)
+		if err == nil {
+			continue
 		}
-		if err := tracequery.ValidateTraceInputPath(ctx, path); err != nil {
-			return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), originalPath, err)
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-		// The complete-query admission read must remain in the same original,
-		// derived-output and bundle-member generation as preparation itself.
-		if namedPrepared {
-			if _, err := bus.TraceInputPreparer.Prepare(ctx, originalPath); err != nil {
-				return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), originalPath, err)
-			}
-		} else if preparedMaterial != nil {
-			if err := preparedMaterial.Validate(ctx, preparedPreview); err != nil {
-				return fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), originalPath, err)
-			}
+		wrapped := fmt.Errorf("named trace input %d/%d %q: %w", index+1, len(paths), path, err)
+		if catalog == nil {
+			return wrapped
+		}
+		catalog.RecordPreparationFailure(path, wrapped)
+		failures = append(failures, wrapped)
+	}
+	if len(failures) == len(paths) && len(failures) != 0 {
+		return errors.Join(failures...)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// This remains navigation. A failed side has a catalog issue, not ready
+	// data; actual queries still prepare and validate each selected input.
+	if catalog != nil {
+		if err := bus.Mutable.StageTraceCatalogForInvestigation(catalog); err != nil {
+			return err
+		}
+	}
+	bus.RuntimeArtifactPreflight = profile
+	return nil
+}
+
+func prepareAndAdmitNamedTracePath(ctx context.Context, bus *types.BusContext, path string) error {
+	originalPath := path
+	var preparedMaterial *attachment.TraceMaterial
+	var preparedPreview string
+	var namedPrepared bool
+	if m := bus.AttachedTraceMaterial; m != nil && typedNamedTraceAdmissionPathKey(path) == typedNamedTraceAdmissionPathKey(resolveTypedNamedTraceSource(m.SourcePath(), bus.RepoRoot)) {
+		if err := m.Validate(ctx, bus.AttachedHitrace); err != nil {
+			return err
+		}
+		path = m.QueryPath()
+		preparedMaterial, preparedPreview = m, bus.AttachedHitrace
+	} else if bus.TraceInputPreparer != nil {
+		material, err := bus.TraceInputPreparer.Prepare(ctx, path)
+		if err != nil {
+			return err
+		}
+		if material == nil {
+			return fmt.Errorf("preparation returned no complete material")
+		}
+		path = material.QueryPath()
+		namedPrepared = true
+	}
+	if err := tracequery.ValidateTraceInputPath(ctx, path); err != nil {
+		return err
+	}
+	// The complete-query admission read must remain in the same original,
+	// derived-output and bundle-member generation as preparation itself.
+	if namedPrepared {
+		if _, err := bus.TraceInputPreparer.Prepare(ctx, originalPath); err != nil {
+			return err
+		}
+	} else if preparedMaterial != nil {
+		if err := preparedMaterial.Validate(ctx, preparedPreview); err != nil {
+			return err
 		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// This is still navigation, not TraceQueryReady or a measurement receipt.
-	// Actual query calls reuse and revalidate the coordinator's prepared inputs.
-	bus.RuntimeArtifactPreflight = profile
 	return nil
 }
 
@@ -175,6 +210,13 @@ func typedNamedTraceAdmissionPaths(
 	var paths []string
 	add := func(source string) error {
 		path := resolveTypedNamedTraceSource(source, repoRoot)
+		if scope := rm.RuntimeArtifactScopeProfile; path == "" && scope != nil && scope.Comparison.Valid() {
+			for _, side := range scope.Comparison.Sides() {
+				if side.Path == source {
+					path = resolveTypedComparisonTraceSource(source, repoRoot)
+				}
+			}
+		}
 		if path == "" {
 			return nil
 		}
@@ -299,7 +341,18 @@ func typedNamedTraceCandidateExtension(source string) string {
 }
 
 func resolveTypedNamedTraceSource(source, repoRoot string) string {
+	return resolveTypedNamedTraceSourceWithAbsent(source, repoRoot, false)
+}
+
+func resolveTypedComparisonTraceSource(source, repoRoot string) string {
+	return resolveTypedNamedTraceSourceWithAbsent(source, repoRoot, true)
+}
+
+func resolveTypedNamedTraceSourceWithAbsent(source, repoRoot string, retainAbsent bool) string {
 	source = strings.TrimSpace(strings.Trim(source, "\"'`<>"))
+	if source == "" {
+		return ""
+	}
 	if strings.HasPrefix(strings.ToLower(source), "file://") {
 		parsed, err := url.Parse(source)
 		if err != nil || parsed.Scheme != "file" || parsed.Host != "" {
@@ -344,6 +397,9 @@ func resolveTypedNamedTraceSource(source, repoRoot string) string {
 			candidate = filepath.Clean(canonical)
 		}
 		return candidate
+	}
+	if retainAbsent && len(candidates) > 0 {
+		return filepath.Clean(candidates[0])
 	}
 	return ""
 }

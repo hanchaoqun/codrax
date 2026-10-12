@@ -43,13 +43,14 @@ func (s RuntimeArtifactRequestedScope) IsValid() bool {
 // emit_analysis. Thus FullArtifact()/ExplicitTimeWindow() are precise
 // downstream gates and never parse user or model prose.
 type RuntimeArtifactScopeProfile struct {
-	RequestedScope RuntimeArtifactRequestedScope `json:"requested_scope"`
-	TimeStart      *float64                      `json:"time_start,omitempty"`
-	TimeEnd        *float64                      `json:"time_end,omitempty"`
-	TimeWindows    []RuntimeArtifactTimeWindow   `json:"time_windows,omitempty"`
-	SourceQuote    string                        `json:"source_quote,omitempty"`
-	Confidence     float64                       `json:"confidence,omitempty"`
-	Rationale      string                        `json:"rationale,omitempty"`
+	RequestedScope RuntimeArtifactRequestedScope   `json:"requested_scope"`
+	TimeStart      *float64                        `json:"time_start,omitempty"`
+	TimeEnd        *float64                        `json:"time_end,omitempty"`
+	TimeWindows    []RuntimeArtifactTimeWindow     `json:"time_windows,omitempty"`
+	Comparison     *RuntimeArtifactComparisonScope `json:"comparison,omitempty"`
+	SourceQuote    string                          `json:"source_quote,omitempty"`
+	Confidence     float64                         `json:"confidence,omitempty"`
+	Rationale      string                          `json:"rationale,omitempty"`
 }
 
 // RuntimeArtifactTimeWindow is one ordered, request-owned member. Its quote is
@@ -187,6 +188,7 @@ func CloneRuntimeArtifactScopeProfile(p *RuntimeArtifactScopeProfile) *RuntimeAr
 		out.TimeEnd = &value
 	}
 	out.TimeWindows = cloneRuntimeArtifactTimeWindows(p.TimeWindows)
+	out.Comparison = p.Comparison.Clone()
 	return &out
 }
 

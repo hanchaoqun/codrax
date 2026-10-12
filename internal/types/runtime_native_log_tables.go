@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -18,7 +19,8 @@ func buildNativeLogPresentationTables(input ObservationLedgerInput) []RuntimeMea
 		return zh
 	}
 	var tables []RuntimeMeasurementTable
-	seen := map[string]bool{}
+	var rosters []nativeLogDisplayRoster
+	seen := map[string]int{}
 	for _, result := range input.ToolResults {
 		if !result.Success || result.ToolName != "log_query" {
 			continue
@@ -110,13 +112,142 @@ func buildNativeLogPresentationTables(input ObservationLedgerInput) []RuntimeMea
 			}
 		}
 		table.Notes = append(table.Notes, text("原始查询载荷：", "Original query payload: ")+coverage.SourceRef.PayloadRef)
+		roster := nativeLogDefaultRoster(*coverage, sources, result.Observations, matched)
+		table.nativeLogDisplayPopulation = roster.valid && roster.untruncated && table.DefaultPresentation
 		encoded, _ := json.Marshal(table)
-		if !seen[string(encoded)] {
-			seen[string(encoded)] = true
+		if prior, exists := seen[string(encoded)]; exists {
+			// Equal rendered previews are not equal physical records. Retain
+			// the existing display, but do not let conflicting hidden fields
+			// justify suppression or display-completeness qualification.
+			if !reflect.DeepEqual(rosters[prior], roster) {
+				rosters[prior].valid = false
+				tables[prior].nativeLogDisplayPopulation = false
+			}
+		} else {
+			seen[string(encoded)] = len(tables)
 			tables = append(tables, table)
+			rosters = append(rosters, roster)
 		}
 	}
+	suppressNativeLogSubsetDefaults(tables, rosters)
 	return tables
+}
+
+// These temporary display receipts never become a member-completion or causal
+// credential. Keep every original table selectable; suppress only a redundant
+// default when another complete query carries the exact same source records.
+type nativeLogDisplayRoster struct {
+	filters     string
+	sources     map[string]nativeLogSourceReceipt
+	rows        map[string]string
+	valid       bool
+	untruncated bool
+}
+
+func nativeLogDefaultRoster(coverage ObservationRecord, sources []nativeLogSourceReceipt, observations []ObservationRecord, matched int64) nativeLogDisplayRoster {
+	roster := nativeLogDisplayRoster{sources: map[string]nativeLogSourceReceipt{}, rows: map[string]string{}, untruncated: true}
+	if matched <= 0 {
+		return roster // Empty results carry useful status, not a substitute roster.
+	}
+	var rawFilters string
+	filterCount, completeCount := 0, 0
+	for _, note := range coverage.RichNotes {
+		if value, ok := strings.CutPrefix(note, "query_filters="); ok {
+			rawFilters, filterCount = value, filterCount+1
+		}
+		if value, ok := strings.CutPrefix(note, "source_reads_complete="); ok {
+			if value != "true" {
+				return roster
+			}
+			completeCount++
+		}
+	}
+	var filters map[string]json.RawMessage
+	if filterCount != 1 || completeCount != 1 || !runtimeMeasurementUniqueKeys(rawFilters) || json.Unmarshal([]byte(rawFilters), &filters) != nil || filters == nil {
+		return roster
+	}
+	// Source selection alone may differ; all other current/future query fields,
+	// including pagination, remain exact. No text or name matching is involved.
+	delete(filters, "source_ids")
+	encoded, _ := json.Marshal(struct {
+		Filters map[string]json.RawMessage
+		Scope   ObservationSourceRef
+	}{filters, nativeLogDisplaySourceScope(coverage.SourceRef)})
+	roster.filters = string(encoded)
+	for _, source := range sources {
+		if !source.Complete || source.Error != "" || source.Generation == "" {
+			return roster
+		}
+		roster.sources[source.ID] = source
+	}
+	for _, record := range observations {
+		if record.Predicate != "log_record" {
+			continue
+		}
+		value, ok := decodeNativeLogPresentation(record)
+		source, bound := nativeLogPresentationSource(record, sources)
+		if !ok || !bound {
+			return roster
+		}
+		roster.untruncated = roster.untruncated && !value.TextFieldsTruncated
+		keyJSON, _ := json.Marshal([]string{source.ID, source.Path, source.Generation, value.RecordID})
+		key := string(keyJSON)
+		if _, exists := roster.rows[key]; exists {
+			return roster
+		}
+		span := record.Span
+		span.JSONPointer = "" // Result-array position is not physical identity.
+		rowJSON, _ := json.Marshal(struct {
+			Value nativeLogPresentation
+			Scope ObservationSourceRef
+			Span  ObservationSpan
+		}{value, nativeLogDisplaySourceScope(record.SourceRef), span})
+		roster.rows[key] = string(rowJSON)
+	}
+	roster.valid = int64(len(roster.rows)) == matched
+	return roster
+}
+
+func nativeLogDisplaySourceScope(source ObservationSourceRef) ObservationSourceRef {
+	source.RawRef, source.PayloadRef, source.QueryScopeID = "", "", ""
+	if source.ArtifactKind == "log_query_result" {
+		source.ArtifactID = "" // Query identity is intentionally not record identity.
+	}
+	return source
+}
+
+func suppressNativeLogSubsetDefaults(tables []RuntimeMeasurementTable, rosters []nativeLogDisplayRoster) {
+	counts := map[string]int{}
+	for _, table := range tables {
+		counts[table.ObservationID]++
+	}
+	for i, subset := range rosters {
+		if !tables[i].DefaultPresentation || !subset.valid || counts[tables[i].ObservationID] != 1 {
+			continue
+		}
+		for j, superset := range rosters {
+			if i == j || !superset.valid || counts[tables[j].ObservationID] != 1 || subset.filters != superset.filters ||
+				len(subset.rows) > len(superset.rows) || len(subset.sources) > len(superset.sources) ||
+				len(subset.rows) == len(superset.rows) && len(subset.sources) == len(superset.sources) {
+				continue
+			}
+			contained := true
+			for id, source := range subset.sources {
+				if superset.sources[id] != source {
+					contained = false
+				}
+			}
+			for id, row := range subset.rows {
+				if superset.rows[id] != row {
+					contained = false
+				}
+			}
+			if contained {
+				tables[i].DefaultPresentation = false
+				break
+			}
+		}
+	}
 }
 
 type nativeLogSourceReceipt struct {

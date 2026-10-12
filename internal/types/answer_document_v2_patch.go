@@ -491,6 +491,7 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 	// document or replacement/addition input through a shared receipt pointer.
 	for i := range out.Blocks {
 		out.Blocks[i].RuntimeMeasurement = out.Blocks[i].RuntimeMeasurement.Clone()
+		out.Blocks[i].RequestedDimensionIndices = append([]int(nil), out.Blocks[i].RequestedDimensionIndices...)
 	}
 
 	// Companion provenance follows only pairs that still exist after the

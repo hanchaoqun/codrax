@@ -316,6 +316,7 @@ func (c *Catalog) Clone() *Catalog {
 	copy := &Catalog{run: c.run, id: c.id, root: c.root, discovery: c.discovery,
 		artifacts: map[string]Artifact{}, generations: make(map[string]filegeneration.Identity),
 		bindings: map[string]sourceBinding{}, queries: map[string]QueryRecord{}}
+	copy.independentInputs = c.independentInputs
 	copy.declared = make(map[string]bool, len(c.declared))
 	copy.discovery.Issues = append([]Issue(nil), c.discovery.Issues...)
 	for id, a := range c.artifacts {
@@ -407,7 +408,7 @@ func (c *Catalog) Merge(other *Catalog) error {
 		c.artifacts[id] = a
 	}
 	for id, a := range copy.artifacts {
-		if a.Status == "stale" {
+		if a.Status == "stale" || a.Status == "preparation_failed" && c.artifacts[id].Status == "candidate" {
 			c.artifacts[id] = a
 		}
 	}

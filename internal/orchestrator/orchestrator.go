@@ -2173,6 +2173,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// external-observation policy at the success/degraded join so a partial IR
 	// preserved after gate/coherence failure cannot bypass named-trace
 	// admission. Nil/incomplete policies stay inert; raw prose never arms it.
+	defer o.busCtx.Mutable.ClearStagedTraceCatalogForInvestigation()
 	if err := o.validateTypedNamedTraceInputsBeforeExploration(o.cancelTokenLoad().Context(), o.busCtx, request); err != nil {
 		o.busCtx.TaskState.LastError = err.Error()
 		return o.busCtx, fmt.Errorf("orchestrator: trace input admission: %w", err)

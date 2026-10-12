@@ -184,13 +184,28 @@ func buildRuntimeMeasurementPairPublications(input ObservationLedgerInput) []Run
 			}
 			status := RuntimeMeasurementTable{ObservationID: report.ID, View: RuntimeMeasurementSummary, Label: "两份采集的独立取数状态", DefaultPresentation: true,
 				Columns: []string{"角色", "状态", "本侧查询请求", "来源/代次", "原生测量引用与实际窗口", "设备/工作负载", "单位、分母与覆盖"}, Notes: []string{report.Boundary, "角色和本侧窗口来自查询选择；不另授予原始用户问题中的逐源窗口绑定。失败/取消/未请求不能补0。完整原生值在各侧独立表中。"}}
-			for _, side := range report.Sides {
+			if input.RequestModel != nil && input.RequestModel.RuntimeArtifactScopeProfile != nil && input.RequestModel.RuntimeArtifactScopeProfile.Comparison != nil {
+				status.Notes[1] = "每侧实际原始来源与用户指定窗口分别校验；失败/取消/未请求不能补0。完整原生值在各侧独立表中。"
+			}
+			for sideIndex, side := range report.Sides {
 				var references, sources []string
 				for _, publication := range side.Publications {
 					start, end, known := TraceObservationContinuousQueryWindow(publication.Source)
 					var requested *RuntimeArtifactScopeProfile
 					if input.RequestModel != nil {
 						requested = input.RequestModel.RuntimeArtifactScopeProfile
+					}
+					if requested != nil && requested.Comparison != nil {
+						original := ""
+						if material := result.RuntimeMeasurementPair.material[sideIndex]; material != nil {
+							original = runtimeMeasurementBoundOriginalSource(input, material, material.SourcePath())
+						} else {
+							original = result.RuntimeMeasurementPair.replay[sideIndex].source.path
+						}
+						if !known || !RuntimeArtifactComparisonPathEqual(requested.Comparison.Sides()[sideIndex].Path, original, input.RepoRoot) || !requested.ComparisonWindowAllows(original, input.RepoRoot, start, end) {
+							side.Status, side.Detail = "outside_requested_source_window", "实际来源和窗口不匹配本侧已接受的用户范围；保留状态，不作为请求量测。"
+							continue
+						}
 					}
 					if requested.HasExplicitTimeWindows() && known && !requested.ContainsExplicitTimeWindow(start, end) {
 						side.Status, side.Detail = "outside_requested_window", "实际查询不在已接受的用户窗口中；保留取数状态，不作为该窗口测量。"

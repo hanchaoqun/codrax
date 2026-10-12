@@ -654,6 +654,7 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 	if block.RuntimeMeasurement != nil || block.RuntimeWorkRelation != nil {
 		if normalized, err := NormalizeEmitAnswerBlock(block, fmt.Sprintf("blocks[%d]", idx)); err == nil {
 			blk.RuntimeMeasurement = normalized.RuntimeMeasurement
+			blk.RequestedDimensionIndices = append([]int(nil), normalized.RequestedDimensionIndices...)
 			blk.RuntimeWorkRelation = normalized.RuntimeWorkRelation
 		}
 	}

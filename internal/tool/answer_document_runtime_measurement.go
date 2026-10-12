@@ -10,6 +10,7 @@ import (
 const runtimeMeasurementTeaching = "Optional trusted measurement table: select one published observation_id/view pair on kind=table; do not copy values or supply text/items/columns. The system renders exact measured values, members, distributions or timeline rows with source/window and coverage notes. Put interpretation and runtime_work_relation in separate blocks. This selection proves measurements only, never a root cause."
 
 func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view *types.AnswerSemanticView) {
+	delete(blockProps, "requested_dimension_indices")
 	choices := view.RuntimeMeasurementContract.Choices()
 	allowed := allowedKindSet(view)
 	if len(choices) == 0 || (len(allowed) > 0 && !allowed[string(types.BlockTable)]) {
@@ -27,7 +28,27 @@ func projectRuntimeMeasurementField(blockItems, blockProps map[string]any, view 
 		"properties": map[string]any{"observation_id": map[string]any{"type": "string"}, "view": map[string]any{"type": "string"}},
 		"required":   []string{"observation_id", "view"}, "additionalProperties": false,
 	}
+	if indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices(); len(indices) > 0 {
+		blockProps["requested_dimension_indices"] = map[string]any{
+			"type": "array", "minItems": 1, "uniqueItems": true,
+			"items":       map[string]any{"type": "integer", "enum": indices},
+			"description": "Optional display ownership: choose the requested member-set dimension indices this exact complete native table answers. One table may answer several dimensions. Select the published runtime_measurement pair and these indices; do not copy its rows. This binds display only, never source-code, causal or investigation-completion obligations.",
+		}
+	}
 	conditions := schemaAllOfEntries(blockItems)
+	if indices := view.RuntimeMeasurementContract.NativeDisplayDimensionChoices(); len(indices) > 0 {
+		var eligible []any
+		for _, table := range choices {
+			candidate := types.AnswerBlock{Kind: types.BlockTable, RuntimeMeasurement: &types.AnswerRuntimeMeasurementReceipt{ObservationID: table.ObservationID, View: table.View}, RequestedDimensionIndices: indices}
+			if _, valid := types.BoundNativeDisplayDimensions(candidate, view.RuntimeMeasurementContract); valid {
+				eligible = append(eligible, map[string]any{"observation_id": table.ObservationID, "view": string(table.View)})
+			}
+		}
+		conditions = append(conditions, map[string]any{
+			"if":   map[string]any{"required": []string{"requested_dimension_indices"}},
+			"then": map[string]any{"required": []string{"runtime_measurement"}, "properties": map[string]any{"runtime_measurement": map[string]any{"enum": eligible}}},
+		})
+	}
 	conditions = append(conditions, map[string]any{
 		"if": map[string]any{"required": []string{"runtime_measurement"}},
 		"then": map[string]any{"properties": map[string]any{
@@ -66,7 +87,7 @@ func validateEmitRuntimeMeasurementBlock(raw emitAnswerBlockV2, path string) err
 
 func runtimeMeasurementBindingValid(block types.AnswerBlock, view *types.AnswerSemanticView) bool {
 	if block.RuntimeMeasurement == nil {
-		return true
+		return len(block.RequestedDimensionIndices) == 0
 	}
 	if block.Kind != types.BlockTable || block.Text != "" || len(block.Items) > 0 || len(block.Columns) > 0 || block.Diagram != nil || block.RuntimeWorkRelation != nil {
 		return false
@@ -76,7 +97,14 @@ func runtimeMeasurementBindingValid(block types.AnswerBlock, view *types.AnswerS
 		contract = view.RuntimeMeasurementContract
 	}
 	copy := *block.RuntimeMeasurement
-	return types.BindRuntimeMeasurementReceipt(&copy, contract)
+	if !types.BindRuntimeMeasurementReceipt(&copy, contract) {
+		return false
+	}
+	if len(block.RequestedDimensionIndices) > 0 {
+		_, valid := types.BoundNativeDisplayDimensions(block, contract)
+		return valid
+	}
+	return true
 }
 
 func preCheckRuntimeMeasurementBindings(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
@@ -87,7 +115,7 @@ func preCheckRuntimeMeasurementBindings(doc *types.AnswerDocumentV2, view *types
 		}
 		hints = append(hints, emitFixHint{
 			Field:         fmt.Sprintf("blocks[%d].runtime_measurement", i),
-			ExpectedShape: "Select one observation_id/view object published by the current schema on kind=table without text/items/columns/diagram/runtime_work_relation. If no choices are published, omit the optional selector. For a patch, use a complete replace_blocks entry; preserve unrelated blocks.",
+			ExpectedShape: "Select one observation_id/view object published by the current schema on kind=table without text/items/columns/diagram/runtime_work_relation. Optional requested_dimension_indices must select current published member-set indices on a complete native display table. Do not copy rows to repair display ownership. If no choices are published, omit the optional selector. For a patch, use a complete replace_blocks entry; preserve unrelated blocks.",
 			Reason:        "This measurement selector is unavailable, stale, or has competing table content; no prose or causal conclusion is checked.",
 			ForceHard:     true, HardSignal: preEmitHardSignalExactReceiptBinding,
 		})

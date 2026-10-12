@@ -401,6 +401,7 @@ func BuildAnalysisSkill() *Config {
 	// surfaces do not drift or contradict each other, and so the reader can
 	// find pre-scan guidance in one place.
 	of.WriteString("## emit_analysis contract\n\n")
+	of.WriteString(AnalysisRuntimeComparisonTeaching + "\n\n")
 	of.WriteString("The current emit_analysis tool schema is the authority for JSON field names, types, required fields, and conditional fields. Submit one complete object per attempt. The sections below explain classification meaning and evidence boundaries, not a second JSON field checklist.\n\n")
 	of.WriteString("Search planning, evidence planning, hypotheses, and quality checks are derived automatically from your classification; do not provide them.\n\n")
 	// Top-level "current-question primacy" rule (2026-05-10 Issue B).

@@ -16,6 +16,61 @@ type traceCatalogLineages struct {
 	byID map[string]*tracecatalog.Catalog
 }
 
+type stagedTraceAdmissionCatalog struct {
+	catalog    *tracecatalog.Catalog
+	generation *traceSourceReadGeneration
+	objective  string
+}
+
+// StageTraceCatalogForInvestigation bridges run-entry preparation to the
+// scheduler's existing fresh-cycle reset. Only an unqueried independent input
+// roster may cross once; no query, read, fact or old-fork receipt is retained.
+func (m *MutableState) StageTraceCatalogForInvestigation(c *tracecatalog.Catalog) error {
+	if m == nil || c == nil {
+		return fmt.Errorf("current input catalog is required")
+	}
+	s := c.Snapshot()
+	if len(s.Queries) != 0 || len(s.Artifacts) != 2 {
+		return fmt.Errorf("only an unqueried input roster can be staged")
+	}
+	for _, a := range s.Artifacts {
+		if !c.IndependentInput(a.ID) {
+			return fmt.Errorf("independent operation binding is required")
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.traceCatalogs[s.ID] != c {
+		return fmt.Errorf("catalog is not installed in the current run")
+	}
+	m.traceAdmissionCatalog = &stagedTraceAdmissionCatalog{catalog: c.Clone(), generation: m.traceSourceReadGeneration, objective: m.objective}
+	return nil
+}
+
+// ClearStagedTraceCatalogForInvestigation is also called on Run's early exits;
+// a completed admission must never become an unrelated run's navigation.
+func (m *MutableState) ClearStagedTraceCatalogForInvestigation() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.traceAdmissionCatalog = nil
+}
+
+func (m *MutableState) resetTraceCatalogsForInvestigationLocked() {
+	staged := m.traceAdmissionCatalog
+	m.traceAdmissionCatalog = nil
+	m.traceCatalogs = nil
+	m.traceCatalogLineages = &traceCatalogLineages{}
+	if staged != nil && staged.generation != nil && staged.generation == m.traceSourceReadGeneration && staged.objective == m.objective {
+		c := staged.catalog
+		// The staged clone has no attempts or validators for query evidence.
+		m.traceCatalogs = map[string]*tracecatalog.Catalog{c.ID(): c}
+		m.traceCatalogLineages.byID = map[string]*tracecatalog.Catalog{c.ID(): c.Clone()}
+	}
+}
+
 // TraceCatalogs returns current run-local navigation handles, never restored
 // JSON. Callers must use the catalog's generation checks before file access.
 func (m *MutableState) TraceCatalogs() []*tracecatalog.Catalog {

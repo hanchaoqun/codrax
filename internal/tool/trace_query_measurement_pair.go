@@ -101,6 +101,21 @@ func (t *TraceQuery) executeMeasurementPair(ctx *types.BusContext, raw json.RawM
 			inputs[i].Result = types.ToolResult{ToolName: t.Name(), Summary: fmt.Sprintf("invalid native measurement side: view=%q; decode=%v", child.View, err)}
 			continue
 		}
+		if ctx != nil && ctx.AnalysisIR != nil {
+			scope := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile
+			if scope != nil && scope.Comparison != nil {
+				sides := scope.Comparison.Sides()
+				if !scope.Comparison.Valid() || child.Source != "path" || !types.RuntimeArtifactComparisonPathEqual(sides[i].Path, child.Path, ctx.RepoRoot) {
+					inputs[i].Result = types.ToolResult{ToolName: t.Name(), Summary: "This comparison role does not match its original requested source; use the accepted per-source comparison binding."}
+					continue
+				}
+				// Keep the request-owned spelling in the report, while routing
+				// ordinary preparation through its equivalent local spelling.
+				child.Path = types.RuntimeArtifactComparisonLocalPath(child.Path, ctx.RepoRoot)
+				fields["path"], _ = json.Marshal(child.Path)
+				request, _ = json.Marshal(fields)
+			}
+		}
 		if err := contextFromBus(ctx).Err(); err != nil {
 			inputs[i].Result = traceQueryCancellationResult(child.View, child.Path, err)
 			continue
