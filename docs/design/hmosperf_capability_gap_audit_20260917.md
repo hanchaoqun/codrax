@@ -6998,3 +6998,25 @@ schema与skill共用同一单源/双源选择教学，单采集多窗明确限�
 两笔实现`ce5a8afeb1d0`、`a1bef9838429`已普通推送`origin/main`（33886正式exit0，5c021054d→a1bef9838），无force或合并旁路。72份验证/构建/发布收据全部原字节归档`eval/results/hmc_independent_scope_20261011/validation-receipts/`并逐份比较一致，含真实RED、设置FAIL、旧措辞pin FAIL及修后GREEN，不覆盖原失败；4份复现Go源码以`.go.txt`存档，防止误成全仓编译包。两个工具blob目录共36文件再次diff一致。机器原始结果、完整上下文与隔离eval仓仍本地留存，不强行提交大日志或嵌套Git；可提交摘要、独立oracle、fixture与回归随本批入库。
 
 最终仍79唯一ID=20完整已交付+59开放、重复0。本批完整能力新增0、实现子能力2组（独立输入/逐侧获取状态；共用来源范围/补齐与展示），新scope教学接缝在同批修复。固定两例机器1/2、完整人工0/2；无窗流程及来源声明的模型效果、正文错误时间/比较推论、图可读时序仍欠真实验收，不把修后确定性验证倒签。五稳定验收父项和原人工失败继续交叉记账，读/写模式及二进制其它能力没有本批证据的不补签。下一ROI双轨与退出条件已更新任务清单，不重复施工已交付子层。
+
+## 226. 无窗双侧入口验收与原生时序事实复用（2026-10-11）
+
+### 226.1 起点、参考意图与施工范围
+
+起点`93c8b392b`，工作区干净；按任务行独立复算79唯一ID=20已交付+59开放、重复0，38待实施/15部分实施/2待验收/3验收中/1持续不变。优先验收§225已经修复的无窗比较scope，不能把此前48格确定性入口GREEN倒签为自然问题通过。本批固定两例仍为`trace_dual_measurement_unbounded_partial`与`trace_dual_source_window_timeline`，原QUESTION、fixture和独立oracle不改；冻结构建后两例并行各一次。
+
+参考仓`core/llm_contract.py:112–148`以已分析成员和JSON字段定位原值，意图是让结论依赖具体原始事实；本项目复用已有来源/窗口绑定的原生展示收据，不让模型再次誊写数值，也不移植其随后全文数字扫描。`load_compare.yaml:292–313`和`core/preprocess/pmu_compare_ops.py`支持单侧原值、缺侧不算差值的意图；参考skill的任意工具报错全停与该意图有冲突，不照搬到独立输入准备流程。
+
+已证共享缺口：`wakeup_chain`已计算目标线程区间但只交付状态合计；自带`window_stats.cpu[].frequency_residency`有原始起止/频率，却未进入统一原生时序展示表。模型因此可能把唤醒点当上CPU点、忽略初始频率段。另一缺口是受信图端点只有内部ID成为默认可见标签，虽有同源FromLabel/ToLabel却没有复用。挂原16.4/18.4/12.5，不新建重复任务，不因补子层缩小父项退出条件。
+
+方案：保留已有计算的线程时序分区，仅供native display生产者使用，不新增扫描、不激活旧Timeline JSON/因果分支；线程区间和CPU频率区间进入已有RuntimeMeasurementPublication timeline，完整保留后再分配模型预览预算。唤醒、可运行、上CPU与频率变化分别保原值/单位/来源，未知关闭终点不补为窗口终点；频率证据末行不是下一变更证明。图仅将精确provider节点ID的默认占位标签替换为同源可读名，不改节点身份、关系、箭头、顺序或模型已写业务标签，不按同名/TID合源。正文解释继续由模型负责，不扫描或改写正文设硬门。
+
+### 226.2 验证记录（进行中，未销账）
+
+engine公开RED `engine-red-v1.log`真实exit1：已计算分区在交接前不可取；最小保留后`engine-green-v1.log`exit0，覆盖wakeup_chain/window_stats/thread_timeline、未分析/未知目标负控、旧wire不新增timeline。producer公开RED `native-timeline-red-v2.log`exit1：两来源实际查询成功但线程/频率原生表均缺失。首次producer编译设置FAIL保留，不能当功能RED。后续末版定向、双例人工审计、全仓与提交收据在本节集中追加；此前FAIL仍原样留案。
+
+已实现两类原生timeline收据（仅展示，不授MemberSet或根因资格），复用同一完整区间表进入Finalizer上下文与默认表；图首稿、补边、替换复用provider精确默认标签，业务自写别名不动。跨双源/双窗的真实TraceQuery→Finalizer→Emit测试先RED0/0后GREEN：四张本侧表完整、四个对侧负控排除，唤醒/运行起点、两段频率及原单位均保留，原结果与因果投影不变。24段超预览、未知CPU/头部、损坏分区、缺实际时间、D/IO caller等均有边界回归。
+
+独审另证开放D/IO尾段的EndLine可能是blocked_reason位置行；`native-open-wait-red.log`与`native-race-v1.log`均真实复现错误将1.010秒写为实际关闭，补救仅按精确已解析字段区分该非关闭证据，保引用且实际终点未知。`native-timeline-green-v4.log`正式exit0。图定向`runtime-label-targeted-v1.log`正式exit0（6.463s）；早期fixture非法tuple/中间编译态与真实产品RED分别留存，不用设置失败替代RED。独立审查确认不改旧Timeline JSON/因果发布、不新增扫描、不按同TID合源；frame bundle已有状态账分支尚未统一新增该时序展示面，保留为原任务范围，不宣称所有view已覆盖。
+
+冻结前`contract-v1.log`正式exit0（tool12.609s/agent19.420s/types5.025s/orchestrator41.667s/tracediag0.558s），涵盖公开入口/动态schema/注册/prompt与旧投影相邻门；skill整包PASS0.754s。`race-v1.log`四包正式exit0；开放D-tail补救后native专项race及末版相邻组另取新收据，随后才构建固定live版本。尚不以以上确定性通过销任何人工验收项。

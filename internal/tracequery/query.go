@@ -1019,6 +1019,9 @@ func Run(idx *Index, q Query) Result {
 				return runCancelFinalize(&res, cancel)
 			}
 			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, tl.Thread, window, res.WindowStats)
+			if ok && tl.IntegrityFailure == "" && len(tl.Intervals) > 0 {
+				res.nativeTargetTimeline = &tl
+			}
 			stampTargetWindowCPURepresentativeFrequencies(res.TargetWindowStates, idx, q, res.WindowStats)
 			if res.TargetWindowStates != nil && !returnedTimelineAccount {
 				// The new timeline-only delivery does not request or run

@@ -21,12 +21,15 @@ type RuntimeMeasurementPublication struct {
 // RuntimeMeasurementPredicateIsRegistered is an exact producer contract, not
 // a semantic guess from observation prose. New domains must opt in explicitly.
 func RuntimeMeasurementPredicateIsRegistered(predicate string) bool {
-	return predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation"
+	return predicate == "io_inflight" || predicate == "io_activity" || predicate == "scheduler_concurrency" || predicate == "cpu_state_frequency_observation" || predicate == "process_measurements_observation" || predicate == "preferred_frame_rate_observation" || predicate == "measurements_observation" || predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation"
 }
 
 func runtimeMeasurementPredicateAllowsView(predicate string, view RuntimeMeasurementView) bool {
 	if !RuntimeMeasurementPredicateIsRegistered(predicate) {
 		return false
+	}
+	if predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation" {
+		return view == RuntimeMeasurementTimeline
 	}
 	if view == RuntimeMeasurementSummary || view == RuntimeMeasurementTimeline {
 		return true

@@ -1255,6 +1255,7 @@ type Result struct {
 	LifecycleSuppressions []TraceLifecycleSuppression `json:"lifecycle_suppressions,omitempty"`
 	Events                []EventView                 `json:"events,omitempty"`
 	Timeline              *TimelineResult             `json:"timeline,omitempty"`
+	nativeTargetTimeline  *TimelineResult             // retained measured partition; display only, not a second wire/causal face
 	ProcessProfile        *ProcessProfile             `json:"process_profile,omitempty"`
 	CPUStateFrequency     *CPUStateFrequencyResult    `json:"cpu_state_frequency,omitempty"`
 	ProcessMeasurements   *ProcessMeasurementsResult  `json:"process_measurements,omitempty"`

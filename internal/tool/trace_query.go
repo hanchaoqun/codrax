@@ -9179,6 +9179,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	out = append(out, traceQueryTransactionHandoffsObservations(result.TransactionHandoffs, ref, scope, at)...)
 	out = append(out, traceQueryPreferredFrameRateObservations(result.PreferredFrameRate, ref, scope, at)...)
 	out = append(out, traceQueryCPUStateFrequencyObservations(result.CPUStateFrequency, ref, scope, at)...)
+	out = append(out, traceQueryNativeTimelineObservations(result, ref, scope, at)...)
 	out = append(out, traceQueryResourceStackObservations(result.ResourceStack, ref, scope, at)...)
 	out = append(out, traceQueryRenderingCandidatesObservations(result.RenderingCandidates, ref, scope, at)...)
 	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {

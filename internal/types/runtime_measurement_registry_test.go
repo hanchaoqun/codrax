@@ -6,7 +6,7 @@ import (
 )
 
 func TestRuntimeMeasurementPredicateViewRegistration(t *testing.T) {
-	for _, predicate := range []string{"measurements_observation", "io_activity", "io_inflight", "scheduler_concurrency", "cpu_state_frequency_observation", "process_measurements_observation", "preferred_frame_rate_observation", "scheduler_concurrency_coverage", "io_activity_coverage", "model_measurement", ""} {
+	for _, predicate := range []string{"thread_timeline_observation", "cpu_frequency_timeline_observation", "measurements_observation", "io_activity", "io_inflight", "scheduler_concurrency", "cpu_state_frequency_observation", "process_measurements_observation", "preferred_frame_rate_observation", "scheduler_concurrency_coverage", "io_activity_coverage", "model_measurement", ""} {
 		for _, view := range []RuntimeMeasurementView{RuntimeMeasurementSummary, RuntimeMeasurementMembers, RuntimeMeasurementTimeline, RuntimeMeasurementDistribution, "invented"} {
 			t.Run(predicate+"/"+string(view), func(t *testing.T) {
 				r := measurementProviderRecord(t)
@@ -24,7 +24,8 @@ func TestRuntimeMeasurementPredicateViewRegistration(t *testing.T) {
 					predicate == "process_measurements_observation" && (view == RuntimeMeasurementSummary || view == RuntimeMeasurementMembers || view == RuntimeMeasurementTimeline) ||
 					predicate == "measurements_observation" && (view == RuntimeMeasurementSummary || view == RuntimeMeasurementMembers || view == RuntimeMeasurementTimeline) ||
 					predicate == "preferred_frame_rate_observation" && (view == RuntimeMeasurementSummary || view == RuntimeMeasurementDistribution || view == RuntimeMeasurementTimeline) ||
-					predicate == "scheduler_concurrency" && (view == RuntimeMeasurementSummary || view == RuntimeMeasurementMembers || view == RuntimeMeasurementDistribution || view == RuntimeMeasurementTimeline)
+					predicate == "scheduler_concurrency" && (view == RuntimeMeasurementSummary || view == RuntimeMeasurementMembers || view == RuntimeMeasurementDistribution || view == RuntimeMeasurementTimeline) ||
+					(predicate == "thread_timeline_observation" || predicate == "cpu_frequency_timeline_observation") && view == RuntimeMeasurementTimeline
 				if _, got := DecodeRuntimeMeasurementPublication(r); got != want {
 					t.Fatalf("registered predicate/view accepted=%v, want %v", got, want)
 				}

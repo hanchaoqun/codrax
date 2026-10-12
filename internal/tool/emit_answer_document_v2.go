@@ -944,6 +944,12 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		}
 	}
 	normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(toolName, doc, ctx, pctx)
+	if answerDocumentHasVisibleDiagram(doc) {
+		if fixed := normalizeRuntimeDiagramDefaultEndpointLabels(doc, runtimeDiagramRelationsForContext(ctx)); fixed > 0 {
+			pctx.recordPreEmitRepair("normalizeRuntimeDiagramDefaultEndpointLabels", fixed)
+			logging.Warning("[%s] reused %d producer endpoint names for default runtime diagram labels", toolName, fixed)
+		}
+	}
 	// Bind the model's explicit evidence selection before weaker label/role
 	// repairs can create an unnecessary point citation at the same start line.
 	// The final binding pass still runs after all repairs; both use exact extent
